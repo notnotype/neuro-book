@@ -7,6 +7,40 @@
         "profileSettings": {
             "title": "Profile settings",
             "description": "The model or model role per profile, and the approval mode new sessions start with"
+        },
+        "modelRetries": {
+            "title": "Model request retries",
+            "description": "How many times a failed model request is sent again; 0 turns retries off"
+        },
+        "warnCost": {
+            "title": "Cost warning (USD)",
+            "description": "Warns once when this session's cost reaches this amount; 0 turns it off. Models without a price are not counted"
+        },
+        "maxCost": {
+            "title": "Cost limit (USD)",
+            "description": "Stops sending model requests when this session's cost reaches this amount; the last request may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
+        },
+        "toolLoopThreshold": {
+            "title": "Repeated call threshold",
+            "description": "Reminds the model after this many identical tool calls in a row, and stops the run if the results stay the same after the reminder; 0 turns it off"
+        }
+    },
+    "settingsSections": {
+        "nbook": {
+            "agent": {
+                "reliability": {
+                    "title": "Run reliability",
+                    "description": "Retries for failed model requests, stall timeouts, and guards for cost and repeated calls",
+                    "groups": {
+                        "requests": {
+                            "title": "Model requests"
+                        },
+                        "guards": {
+                            "title": "Guards"
+                        }
+                    }
+                }
+            }
         }
     }
 }

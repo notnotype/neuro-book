@@ -20,6 +20,7 @@ import type {ModelsWorld} from "./testing/world";
 const KEY = "sk-models-test-not-real-0001";
 const seen: {path: string; authorization: string | null}[] = [];
 let failNext = false;
+let overloadedNext = false;
 const endpoint = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -28,6 +29,10 @@ const endpoint = Bun.serve({
         seen.push({path, authorization: request.headers.get("authorization")});
         if (path.endsWith("/models")) return Response.json({object: "list", data: [{id: "qwen3:8b", object: "model"}, {id: "gemma3:12b", object: "model"}]});
         await request.text();
+        if (overloadedNext) {
+            overloadedNext = false;
+            return Response.json({error: {message: "Service overloaded"}}, {status: 503});
+        }
         if (failNext) {
             failNext = false;
             return Response.json({error: {message: `invalid key ${request.headers.get("authorization") ?? ""}`}}, {status: 401});
@@ -221,6 +226,28 @@ describe("检测与发现（输出 11、12）", () => {
         expect(await client.discover({provider: "deepseek"})).toMatchObject({ok: false, code: "not-supported"});
         expect(ok(await client.catalogModels({provider: "deepseek"})).length).toBeGreaterThan(0);
         expect(ok(await client.catalogProviders({})).find((provider) => provider.id === "deepseek")).toMatchObject({added: true});
+    });
+});
+
+describe("请求的传输（输出 16）", () => {
+    test("重发归内核：服务商 503 时只发一次，失败交回可重发；检测也一样", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        const id = await addLocal(client);
+        ok(await client.setKey({provider: id, value: KEY}));
+        ok(await client.setRole({id: "main", model: `${id}/qwen3:8b`}));
+        const resolution = w.service.port().resolve(query());
+        if (!resolution.ok) throw new Error(resolution.code);
+        seen.length = 0;
+        overloadedNext = true;
+        const response = await resolution.call(request, new AbortController().signal, () => undefined);
+        expect(response.error).toMatchObject({kind: "network", retryable: true});
+        expect(seen).toHaveLength(1);
+
+        seen.length = 0;
+        overloadedNext = true;
+        expect(ok(await client.check({provider: id, model: "qwen3:8b"}))).toMatchObject({ok: false, kind: "network"});
+        expect(seen).toHaveLength(1);
     });
 });
 

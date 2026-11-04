@@ -7,6 +7,40 @@
         "profileSettings": {
             "title": "Profile 设置",
             "description": "按 Profile 设的模型或模型角色，以及新会话的审批模式"
+        },
+        "modelRetries": {
+            "title": "模型请求重试次数",
+            "description": "模型请求失败后最多再发几次；0 表示不重试"
+        },
+        "warnCost": {
+            "title": "费用告警线（美元）",
+            "description": "这个会话的费用到这条线时提醒一次；0 表示不告警。没填单价的模型不计入"
+        },
+        "maxCost": {
+            "title": "费用上限（美元）",
+            "description": "这个会话的费用到上限后不再发模型请求，最后一次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
+        },
+        "toolLoopThreshold": {
+            "title": "重复调用阈值",
+            "description": "连续这么多次相同的工具调用时提醒模型；提醒后结果还是一样就停止运行；0 表示不检测"
+        }
+    },
+    "settingsSections": {
+        "nbook": {
+            "agent": {
+                "reliability": {
+                    "title": "运行可靠性",
+                    "description": "模型请求失败时的重试、卡死超时、费用与重复调用的保护",
+                    "groups": {
+                        "requests": {
+                            "title": "模型请求"
+                        },
+                        "guards": {
+                            "title": "保护"
+                        }
+                    }
+                }
+            }
         }
     }
 }
