@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t12-builtin-tools
-status: in-progress
-updated: 2026-10-28
+status: active
+updated: 2026-11-04
 ---
 
 # 基础工具与外部命令行依赖
