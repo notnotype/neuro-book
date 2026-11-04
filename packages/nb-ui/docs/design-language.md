@@ -211,17 +211,7 @@ Material Design 3 曾经把面色绑在 elevation 上（dp 越高、叠色越多
 
 ### 浮层外观只有一个登记处
 
-菜单、下拉、气泡、对话框的面板**全部**消费 `.nb-ui-popover-surface`（`src/styles.css`）。它统一负责描边、
-外圈圆角、面色（`background-color`）、投影与磨砂，并给出内圈同心半径 `--nb-popover-inner-radius`（见“几何”一节的“同心圆角”）。
-它之上只加 modifier，各自覆盖少数几项：
-
-| modifier | 用于 | 覆盖 |
-| --- | --- | --- |
-| `.nb-ui-menu-surface` | 菜单、下拉、选择器、右键菜单、命令面板、候选 | 外圈圆角 `--radius-menu`、内边距 `--menu-pad`、投影 `--elevation-menu` |
-| `.nb-ui-dialog-surface` | 对话框、浮动窗口、抽屉的基座 | 圆角 `--radius-dialog`、面 `--dialog-surface`（大面积、字段多，要读得清）、投影 `--elevation-dialog` |
-| `.nb-ui-dialog-surface--compact`、`--window`、`--nested` | 小确认框、浮动窗口、叠在对话框上的对话框 | 圆角取 `--radius-dialog-compact`、`--radius-window`；`--nested` 的面取 `--dialog-surface-nested`，圆角收到不大于窗口 |
-| `.nb-ui-surface-rim` | 整块玻璃的大面（`Dialog`、`FloatingWindow`）显式挂 | 面上的镜面层 `background-image: var(--overlay-sheen)` |
-| `.nb-ui-tooltip-surface` | `Tooltip`，独立消费，不吃玻璃配方 | 实心面板底（`--bg-panel`）、正文色、控件圆角，没有箭头 |
+菜单、下拉、气泡、对话框的面板**全部**以 `.nb-ui-popover-surface`（`src/styles.css`）为基座，它之上只加修饰类，各自覆盖少数几项。哪种浮层用哪个类，见[开发规范](ui-development-spec.md)的“浮层外框”。
 
 面色必须是 `background-color` 与 `background-image` 两条长写法，**不要写回 `background` 简写**：
 简写会把没写出来的那条重置掉。基座默认不铺镜面（`background-image: none`）；macOS 把 `--overlay-sheen` 映射到已有的
@@ -559,7 +549,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
    碰撞翻转逻辑再抄错一次。
 3. **退场同配方，时长 `--motion-fast`。** 退场是「这件事结束了」，不需要追踪时间；拖长的退场读作迟疑。
    入场也取 `--motion-fast`，是因为这里的等待会被读成操作迟钝。
-   **菜单的子菜单是例外**：每一级只保留一个面板。子菜单默认不显示，悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后的同级切换不等待。第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，面板做位置和尺寸过渡，内容快速淡入淡出；移到没有子菜单的项时立刻收起。
+   **菜单的子菜单是例外**：每一级只保留一个面板。子菜单默认不显示，悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后的同级切换不等待。第一级面板走上面的入场配方，下一级面板没有入场动画；在同级两个有子菜单的项之间切换时，面板做位置和尺寸过渡，内容淡入；移到没有子菜单的项时立刻收起。
 4. **退场动画靠原语的 Presence 续命**：CSS animation 挂在 `[data-state=open]` /
    `[data-state=closed]` 上，Reka 等到 `animationend` 才卸载内容树。
    判据：关闭浮层后目标元素在 DOM 里存活到动画结束才被移除（e2e 可断言）。

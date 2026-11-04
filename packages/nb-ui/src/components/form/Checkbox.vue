@@ -4,10 +4,10 @@ import {computed, inject, nextTick, ref} from "vue";
 import {NB_CHOICE_GROUP_INVALID_KEY, useFieldContext} from "./field-context";
 
 /**
- * 复选框（Checkbox · macOS 原生微拟物 Squircle 规范）。
+ * 复选框。
  *
  * 视觉特征：
- * 1. 形态：18px × 18px 饱满超椭圆（rounded-[5px] / Squircle）；
+ * 1. 形态：18px 方框，圆角 5px；
  * 2. 未选中态：0.5px 微边框 + 内阴影凹槽底座；
  * 3. 选中态：纯正 Apple 渐变蓝底（var(--accent-main)）+ 纯白反色加粗对勾 [✓]，支持半选 [-]（Indeterminate）；
  * 4. 触觉动效：按压 active:scale-[0.92] 物理微回弹。

@@ -29,7 +29,7 @@ description: 指导 NeuroBook 与 nb-ui 的前端与 UI 开发、组件设计与
 
 通用验证范围与停止条件以 [验证门禁](../../../docs/testing/README.md#验证门禁) 为准，本节只补 UI 特有的检查项。
 
-1. 涉及布局或响应式时，确认桌面与 390px 窄屏都没有水平溢出，并在宽窗口（≥1400px）下确认内容列封顶、宽度随内容的元素不拉满整行（见 [`ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) 的开发后自检）；涉及主题 token 时，确认明暗两态对比正常。
+1. 涉及布局或响应式时，确认桌面与 390px 窄屏都没有水平溢出，并在宽窗口（≥1400px）下确认内容列封顶、宽度随内容的元素不拉满整行（见 [`design-language.md`](../../../packages/nb-ui/docs/design-language.md) 的“内容列有上限宽度”）；涉及主题 token 时，确认明暗两态对比正常。
 2. 对照 [`ui-development-spec.md` 的开发后自检与易错清单](../../../packages/nb-ui/docs/ui-development-spec.md#8-开发后自检与易错清单)中与本次改动相关的条目。
 3. 对话框组件名不以 Dialog 结尾时，在 `component-index-model.ts` 的撑满列表里登记，否则组件库画布没有高度。
 4. 设计信息流或信息密度高的界面前，先和开发者确认信息的注意力排序（首先看什么、默认折叠什么、什么时候整块收起），写进 Spec 后再出视觉候选；否则视觉迭代会反复推翻版式。

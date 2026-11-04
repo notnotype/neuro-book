@@ -236,7 +236,7 @@ export default {
   靠 `[data-nb-theme]` 选中。
 - **`hostVersion` 不支持复合范围。** 支持 `*`、精确版本、`^x.y.z`、`~x.y.z`、`>=x.y.z`；
   写 `>=1.0.0 <2.0.0` 会被拒绝并说明不支持，而不是猜一个结果。
-- **减少动效只覆盖库的三个时长变量。** 你自己新增的动效变量（例如 `macos` 的 `--glass-lift`）
+- **减少动效只把库的时长类 token 归零。** 你自己新增的动效变量（例如 `macos` 的 `--glass-lift`）
   要自己在 `@media (prefers-reduced-motion: reduce)` 里关掉——库不知道它们叫什么。
 - **边缘折射（`backdrop-filter: url(#…)`）只有 Chromium 支持。** Safari / Firefox 都不支持，
   要当渐进增强写。

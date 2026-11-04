@@ -22,14 +22,14 @@
 ## 2. 材料、颜色与层级
 
 1. 表面分**两条轴**，判据是这块面**压在什么上面**，不是它是哪个部件、也不是它装什么。
-   - **材质轴**：直接压在窗体底纹上的那一层——顶栏、侧栏、面板、浮层。**一个页面只有这一层材质**，往上不再叠。**只有这一层开模糊**：嵌套 `backdrop-filter` 在规范里语义未定（w3c/fxtf-drafts#500 未解）、三家浏览器行为不一致、规范自述重绘开销每层翻倍，并且它会为 `position: fixed` 后代创建包含块。**只有这一层有不透明度下限**，因为只有它压在不可控的背景上。是玻璃还是实心由主题决定。
+   - **材质轴**：直接压在窗体底纹上的那一层——顶栏、侧栏、面板、浮层。**一个页面只有这一层材质**，往上不再叠。**只有这一层开模糊**（理由见设计语言的“材质与层级是两条轴，不是一条”）。**只有这一层有不透明度下限**，因为只有它压在不可控的背景上。是玻璃还是实心由主题决定。
    - **层级轴**：从材质层往上叠的**不透明色阶**——面板里的表单、卡片、操作条、表头。**不开模糊，不定不透明度**（它压的是自己家的面，不存在可读性风险）。方向固定：**往上更亮**，明暗两态都是。「凹」是特例，只能用在层级 0 上。
    - **「不给面」不是第三种材质**，是「这块区域不该有容器」这个答案本身。展台、画布属于这一类：不承载长文、不叠任何面色，浮在它上面的盒子自带面、边与抬起。
    - 面板里再放一个面时，多数情况的正确答案是**不给面**（靠间距与分隔线成组），需要框住才层级 +1。**不要为它新开一档材质。**
-   - **当前库里两条轴尚未落地**：现有 8 个表面变量仍按部件命名，`--toolbar-surface` / `--sidebar-surface` / `--overlay-surface` 属材质轴，`--panel-surface` / `--strip-surface` 属层级轴，nbook 把 `--strip-surface` 定成半透明是按新模型的一处错。目标形态、取值下限与迁移清单见 [表面模型提案](../../../docs/proposals/nb-ui-surface-model.md)（`accepted`）。**新写组件时按两条轴选角色，不要新增按部件命名的表面变量。**
+   - **当前库里两条轴尚未落地**：现有表面变量仍按部件命名，`--toolbar-surface` / `--sidebar-surface` / `--overlay-surface` / `--dialog-surface` / `--dialog-surface-nested` 属材质轴，`--panel-surface` / `--strip-surface` 属层级轴，nbook 把 `--strip-surface` 定成半透明是按新模型的一处错。目标形态、取值下限与迁移清单见 [表面模型提案](../../../docs/proposals/nb-ui-surface-model.md)（`accepted`）。**新写组件时按两条轴选角色，不要新增按部件命名的表面变量。**
 2. 组件不得写字面颜色。颜色来自配色变量；形状、密度、装饰和角色映射来自主题 token。纯黑或纯白的低透明度光照层仅可在主题包内使用。
 3. 组件不得直接引用某套主题私有变量。公共组件只消费配色合同、`nbDesignTokens`、`nbThemeTokens` 或 manifest 声明且具备 fallback 的变量。`Checkbox` 渐变中的 `#000000` 仅作为 `color-mix()` 的纯黑计算端点，不承担组件配色语义；静态规则只豁免这一文件中的这一字面值。
-4. 只有 raised、popover、dialog 三档层级。阴影消费 `--elevation-*`；普通页面区块不以阴影代替结构。**这三档是阴影的档，与第 1 条层级轴的色阶各管各的**，不要互相推导——Material Design 3 曾把面色绑在 elevation 上，后来主动解绑（"not tied to elevation"）。
+4. 只有 raised、popover、dialog 三档层级。阴影消费 `--elevation-*`；普通页面区块不以阴影代替结构。**这三档是阴影的档，与第 1 条层级轴的色阶各管各的**，不要互相推导。
 5. 浮层外框只用 CSS 类，组件不复制这些属性，见“浮层外框”。
 6. 新公共 token 至少有两个独立消费点或明确的跨组件角色。单组件差异留在组件内部，第三方主题专用差异走 manifest `declares`。
 
@@ -40,20 +40,25 @@
 3. 三条动态规则：
    - 浮动窗口按**嵌套深度**叠放：从窗口里开出的窗口压住外层，每层的局部浮层压住本层；
    - 同时打开的模态按**打开顺序**叠放，后打开的在上面，不靠 DOM 顺序（传送锚点在挂载时就定了，和打开顺序无关）；
-   - 容器**向内容提供浮层层级**：对话框与浮动窗口经 `NB_POPOVER_Z_INDEX` 提供，内容里的浮层组件读这个注入，没有注入时回退到页面浮层档。新写的浮层组件必须读它（`usePopoverLayer` 或直接注入），否则放进对话框就被盖住。
+   - 容器**向内容提供浮层层级**：对话框、浮动窗口与抽屉经 `NB_POPOVER_Z_INDEX` 提供，内容里的浮层组件读这个注入，没有注入时回退到页面浮层档。新写的浮层组件必须读它（`usePopoverLayer` 或直接注入），否则放进对话框就被盖住。
 4. 层级与遮罩只在产品页验收：组件 Lab 的画布本身是一个层叠上下文，会掩盖层级缺陷。
 
 ### 2.2 浮层外框
 
-浮层的底色、模糊、描边、圆角与投影只来自 `src/styles.css` 的类，取值由主题决定（`--overlay-surface`、`--overlay-blur`、`--elevation-*`、`--radius-*`）。组件只绑层级、宽度与位置；`token-consumption.test.ts` 拦内联的模糊与面色。
+浮层的底色、模糊、描边、圆角与投影只来自 `src/styles.css` 的类，取值由主题决定（`--overlay-surface`、`--overlay-blur`、`--elevation-*`、`--radius-*`）。组件只绑层级、宽度与位置，不往模板里加 `rounded-*`；`token-consumption.test.ts` 拦内联的模糊与面色。
 
-| 浮层 | 类 | 要点 |
+`.nb-ui-popover-surface` 是基座，统一给描边、外圈圆角、面色、投影与磨砂，并推出内圈半径 `--nb-popover-inner-radius`；下表的类加在它上面，只覆盖写出来的几项。
+
+| 浮层 | 基座之外的类 | 覆盖什么 |
 | --- | --- | --- |
-| 小提示（`Tooltip`） | `.nb-ui-tooltip-surface` | 实心面板底，不用玻璃；无箭头，靠间隙与翻转表达关系；指针穿透 |
-| 气泡（`Popover`） | `.nb-ui-popover-surface` | 大块玻璃面才另加 `.nb-ui-surface-rim` |
-| 弹出列表（`DropdownMenu`、`Select`、`Menubar`、`ContextMenu`、`QuickPick`、`SuggestionMenu`） | `.nb-ui-popover-surface .nb-ui-menu-surface` | 圆角切到 `--radius-menu`，投影读 `--elevation-menu`（主题可单独收小），内边距 `--menu-pad`；其余见“弹出列表的共同合同” |
-| 对话框（`Dialog`、`AlertDialog`） | `.nb-ui-dialog-surface` | 面读 `--dialog-surface`；小确认框加修饰类 `--compact`，叠在对话框上的加 `--nested` |
-| 浮动窗口（`FloatingWindow`） | `.nb-ui-dialog-surface` 加 `--window` | 圆角取 `--radius-window`；常开、占大块屏幕的窗口与工作台部件卡片是同一类面，圆角取同一档 |
+| 气泡（`Popover`） | 无 | |
+| 弹出列表（`DropdownMenu`、`Select`、`Menubar`、`ContextMenu`、`QuickPick`、`SuggestionMenu`） | `.nb-ui-menu-surface` | 圆角 `--radius-menu`、内边距 `--menu-pad`、投影 `--elevation-menu`（主题可单独收小）；其余见“弹出列表的共同合同” |
+| 对话框（`Dialog`） | `.nb-ui-dialog-surface`、`.nb-ui-surface-rim` | 圆角 `--radius-dialog`、面 `--dialog-surface`、投影 `--elevation-dialog`；镜面层 `--overlay-sheen`。叠在对话框上时加 `--nested`，面取 `--dialog-surface-nested` |
+| 浮动窗口（`FloatingWindow`） | 同上，加 `.nb-ui-dialog-surface--window` | 圆角 `--radius-window`；常开、占大块屏幕的窗口与工作台部件卡片是同一类面，圆角取同一档 |
+| 小确认框（`AlertDialog`） | `.nb-ui-dialog-surface`，加 `--compact` | 圆角 `--radius-dialog-compact`；不加镜面层 |
+| 抽屉（`Drawer`） | `.nb-ui-dialog-surface`、`.nb-ui-drawer-surface` | 面沿用小浮层的 `--overlay-surface` |
+
+小提示（`Tooltip`）不用基座，只用 `.nb-ui-tooltip-surface`：实心面板底，不用玻璃；无箭头，靠间隙与翻转表达关系；指针穿透。
 
 - 叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角。
 - 减少透明度与高对比度下，这些面回退实心面板底、关闭模糊，这条优先于主题。
@@ -135,16 +140,18 @@
 
 ### 4.5 弹出列表的共同合同
 
-`DropdownMenu`、`Select`、`Menubar`、`ContextMenu`、`QuickPick`、`SuggestionMenu` 六个弹出列表共用下面这些；单个组件的 props、键盘与受控语义见各自的 `.md`。
+`DropdownMenu`、`Select`、`Menubar`、`ContextMenu`、`QuickPick`、`SuggestionMenu` 六个弹出列表共用下面这些；单个组件的 props、键盘与受控语义见各自的 `.md`。这些零件是 nb-ui 内部的，不从包入口导出：新的弹出列表写在 `src/components/popup/`，应用要弹列表时用上面六个组件。
 
-- **外框**：见“浮层外框”。层级用 `usePopoverLayer`，在对话框里跟随它注入的层级。
-- **行**：项是 `.nb-ui-menu-item`（行高 `--menu-item-h`、字号 `--menu-item-font`，与触发器尺寸无关）；几格（勾与图标共用的左列、名称、右侧次要文字或箭头、行尾附加物）由内部零件 `MenuRow` 画，新写的列表用它，不手写这组 `span`。
+新写一个列表，最省事的搭法是外框挂下面的类，里面放 `PopupViewport`（视口加滑块，自带 `usePopupScroll`），每一行用 `MenuRow`。各零件的接法见它们的同名 `.md`。
+
+- **外框**：见“浮层外框”。层级：贴着触发器或光标的列表（`DropdownMenu`、`Select`、`Menubar`、`SuggestionMenu`）用 `usePopoverLayer`，在对话框里跟随它注入的层级；`ContextMenu`、`QuickPick` 是整页浮层，取登记表里自己的一档。
+- **行**：项是 `.nb-ui-menu-item`（行高 `--menu-item-h`、字号 `--menu-item-font`，与触发器尺寸无关）；几格（勾与图标共用的左列、名称、右侧次要文字或箭头、行尾附加物）由 `MenuRow` 画，不手写这组 `span`。分隔线 `.nb-ui-menu-separator`、分组标题 `.nb-ui-menu-label` 同样是共用类。
 - **同一列表行高一致**：说明、分类、路径放进同一行右侧的次要文字，放不下时先截它；只有调用方明确要换行（`DropdownMenu` 的 `wrap`）的项由内容撑高。
 - **勾与图标**：共用左侧一列，勾选的项画勾，其它项画图标；同一级有一项需要这一列，每行都留出，名称左边对齐。选中不改底色与字重。
 - **高亮**：只认 `data-highlighted`，底色 `--overlay-item-active`，不写 `:hover` 底色，鼠标与键盘指向同一项。展开了子菜单的父项保持高亮。危险项（`.nb-ui-menu-item-danger`）只换文字与图标的颜色。
-- **截断与滚动**：用 `usePopupScroll`。项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），否则取自然高度；外框按可用空间夹紧，视口是唯一能收缩的一块。未到底时顶底渐隐，告诉读者还有内容。滑块是内部零件 `PopupScrollbar`，只在可滚动时出现，视口右侧让出它的宽度。
+- **截断与滚动**：`usePopupScroll`（`src/composables/`）。项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），否则取自然高度；外框按可用空间夹紧，视口是唯一能收缩的一块。离开顶端后顶部渐隐，没到底时底部渐隐，告诉读者还有内容。滑块是 `PopupScrollbar`，只在可滚动时出现，视口右侧让出它的宽度。
 - **级联**：右键菜单、按钮下拉菜单与窗口菜单栏共用级联几何（`utils/popup-geometry.ts`）与状态（`useMenuCascade`），行为见 `DropdownMenu.md`。
-- **方向键漫游**：用 `utils/roving.ts`。
+- **方向键漫游**：自己处理键盘的列表用 `utils/roving.ts`。reka 原语自带键盘的（`Select`、`DropdownMenu` 的一级）与键盘归宿主的（`SuggestionMenu`）不用。
 
 ### 4.6 滚动条
 
@@ -164,7 +171,7 @@
 
 - 库不给 `html` 写全局规则：整页会滚的宿主自己在根上挂 `.nb-ui-scrollbar-stable`，整页不滚、外壳铺满视口的宿主不挂，否则右缘多一条空带。
 - 颜色只取 `--scrollbar-thumb-mix`、`--scrollbar-thumb-hover-mix`、`--scrollbar-thumb-active-mix`（`--text-main` 混进去的比例）。token 只存比例，颜色在用到的元素上现场混：存成混好的颜色时，`var()` 在 `:root` 上就代入了，套了另一套配色的子树会继承根上的颜色。要调全应用滚动条的观感，改这三个。
-- `--scrollbar-w` 只是 `OverlayScrollbar` 滑块的粗细；`ScrollArea` 与 `PopupScrollbar` 不取它（后者有意更细，免得压住菜单项）。三个自绘滑块的几何共用 `src/utils/scrollbar-geometry.ts`。
+- `--scrollbar-w` 只是 `OverlayScrollbar` 滑块的粗细；`ScrollArea` 与 `PopupScrollbar` 不取它（后者有意更细，免得压住菜单项）。`OverlayScrollbar` 与 `PopupScrollbar` 两个自绘滑块的几何共用 `src/utils/scrollbar-geometry.ts`；`ScrollArea` 用 reka 的滑块，只共用颜色比例。
 - **单层滚动权**：滚动权归拥有完整视图高度的最外层容器；内部子组件与空状态不重复声明 `overflow-y: auto` 与 `h-full`，也不重复外层已有的内边距，滚动条贴着最外层面板的边缘。
 
 ## 5. 表单与无障碍
@@ -214,8 +221,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
 - [ ] **浮层关闭时序**：浮层关闭与状态交接依赖原语真实的 `closed` 事件或过渡钩子，不使用固定 `setTimeout` 毫秒数推断（设计语言“浮层入退场的编排是固定的”）；
 - [ ] **去框化流式卡片（去三段式盒子）**：展示卡片与留痕面板严禁采用“独立背景横幅头 + 内容大框 + 底部提示横幅”的三段式机械堆叠；区段之间消费 `--divider` 发丝线或 `Separator`，标题与正文同字号（`--text-sm`）依靠字重和色阶区分，严禁大面积整卡漫铺刺眼警示黄底（设计语言「三、几何」「五、颜色角色」）；
 - [ ] **Tab 滚动权按页隔离**：多 Tab 容器严禁由外层统一声明 `overflow-y: auto`；各 Tab 独立控制滚动，固定高度的 Tab 必须显式声明 `overflow-hidden`，防止微溢出触发误滚动；
-- [ ] **工具卡片按真实形状画**：工具卡片的字段对照工具的真实 schema，不臆造字段；按数据形状区分开放式与选项式提问；
-- [ ] **同类交互状态一致与外扩阴影防裁切**：自定义交互元素与基础控件表达同类状态（hover / focus / active / selected）时，复用同一基座类或状态 token，不手写近似的局部边框或阴影；外层带 `overflow` 裁切时，确认外扩阴影（如焦点光环）留有内边距冗余，不被容器边缘切边；填满所在条、四周没有余地的控件改用内嵌焦点线；只为动画裁切的容器只在动画进行中裁（见 design-language 坑 48），不用“内边距加等量负外边距”把裁切盒往外放（外框会比父容器宽，在可横向滚动的父容器里多出滚动距离）；工具条、表单行这类只有一行控件高的容器不设 `overflow: hidden`（不横向滚动靠换行与收缩），余量按主题 `--focus-ring` 的实色部分算（不偏移那几圈的扩散量，nbook、macos 是 3.5px；带偏移的模糊光切掉一截看不出，不算）；`lab:shot` 机检这一条（按样式表里的焦点规则找会画焦点环的元素，环画在外框上时按外框算；离裁切祖先的边比实色部分近就报）；
+- [ ] **同类交互状态一致与外扩阴影防裁切**：自定义交互元素与基础控件表达同类状态（hover / focus / active / selected）时，复用同一基座类或状态 token，不手写近似的局部边框或阴影；外层带 `overflow` 裁切时，确认外扩阴影（如焦点光环）留有内边距冗余，不被容器边缘切边；填满所在条、四周没有余地的控件改用内嵌焦点线；只为动画裁切的容器只在动画进行中裁（见 design-language 坑 48），不用“内边距加等量负外边距”把裁切盒往外放（外框会比父容器宽，在可横向滚动的父容器里多出滚动距离）；工具条、表单行这类只有一行控件高的容器不设 `overflow: hidden`（不横向滚动靠换行与收缩），余量按主题 `--focus-ring` 的实色部分算（不偏移那几圈的扩散量；带偏移的模糊光切掉一截看不出，不算）；`lab:shot` 机检这一条（按样式表里的焦点规则找会画焦点环的元素，环画在外框上时按外框算；离裁切祖先的边比实色部分近就报）；
 - [ ] **测量层的复本只复刻尺寸**：为了量宽度而放在不可见测量层里的复本（逐级让位、宽度适配用）不带 `role`、`id`，也不用被测试或样式引用的真元素类名（样式经测量层自己的类共用），否则文档里出现重复 `id`，按角色、类名或文字找真元素的地方会碰到复本；
 - [ ] **改别的组件的颜色字号走它的覆盖点**：调整另一个包或宿主注入的组件的颜色、字号时，按它文档公开的覆盖点写在它的根元素上（透传的 `style` 或文档列出的变量），不靠外层继承：根上声明了同名属性时，继承进不去；
 - [ ] **可点击卡片内嵌操作防按钮嵌套**：卡片同时具备“点击主区域选中/展开”与“行内局部操作按钮（`IconButton` / `Button`）”时，主触发区与操作按钮组并列为兄弟节点（或外层容器配键盘回车/空格监听），禁止在 `<button>` 内嵌套 `<button>`。
