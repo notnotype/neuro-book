@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-plan
-status: active
-updated: 2026-10-20
+status: done
+updated: 2026-11-04
 ---
 
 # 整理计划
