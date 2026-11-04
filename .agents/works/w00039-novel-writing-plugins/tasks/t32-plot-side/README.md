@@ -328,6 +328,8 @@ updated: 2026-11-04
 
 2026-11-04 经 nbdev 新建，由开发者同意合并 t04、t06 与伏笔、目标、决策而来。第一个讨论项是时间轴：同日开发者同意兼顾的做法，主会话出了第一版方案并用原型验证（上面第 1 项）。
 
+2026-11-04 主会话把第 1 到 5 项合成提案草稿 `docs/proposals/world-engine-plot-side.md`（未提交，等开发者看）。开发者看要点时追问：作者怎么用世界线、Agent 与系统怎么用（工具、省上下文）、一章怎么转（先写后记、先记后写）、写作子代理的两种用法，以及以后的世界推演、角色对话、RP 模式、用 nb-canon 重写 nb-story 能不能承接。主会话补进提案的第 3、10 到 13 节；依据是两个 Sonnet 子代理：Agent 与工具的独立设计 [`evidences/agents-independent-design.md`](evidences/agents-independent-design.md)，nb-story 的功能对照 [`evidences/nbstory-on-canon.md`](evidences/nbstory-on-canon.md)。
+
 ## 下一步
 
 1. 把第 1 到 5 项合成一份提案草稿（`docs/proposals/world-engine-plot-side.md`），给开发者看要点、定审查方式后交审查。
