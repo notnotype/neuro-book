@@ -53,7 +53,7 @@ updated: 2026-11-04
 2026-11-04 开发者看过交付报告，四条按推荐（Work README 决定表）：
 
 - t29 到第 8 片收口，界面接入并进 [t16](../t16-plot-workbench-ui/README.md)。
-- 嫌疑区间的起点改为“上一个比较过的核对点”（对不上的也算）：66aef0055，Spec model 输出 12 与两个引擎同改，model.test.ts 场景 2 补用例；nb-canon 237 条测试、差分测试 20 个种子各 100 步、应用 canon 测试 8 条通过。`--diverge` 重测 300 章：待处理仍是 322 条，嫌疑记录从 15.6 万条降到 966 条，发布一次记账中位从 60 ms 降到 30 ms（[`evidences/scale-full.txt`](evidences/scale-full.txt) 末尾）。
+- 嫌疑区间的起点改为“上一个比较过的核对点”（对不上的也算）：66aef0055，Spec model 输出 12 与两个引擎同改，model.test.ts 场景 2 补用例；nb-canon 237 条测试、差分测试 20 个种子各 100 步、应用 canon 测试 8 条通过。`--diverge` 重测 300 章：待处理仍是 322 条，嫌疑记录从 15.6 万条降到 966 条，发布一次记账中位从 60 ms 降到 30 ms；1000 章分岔时待处理 1022 条、嫌疑记录 3066 条，各项仍在预算内（[`evidences/scale-full.txt`](evidences/scale-full.txt) 末尾）。
 - 不改行为的整理单开 [t30](../t30-nb-canon-cleanup/README.md)，排在加内置 Component 之前。
 - t29 新增的待确认条目追认（[清单](../../pending-confirmations.md)）；三条反思回写进 implementation-planning 与 writing-specs。
 
