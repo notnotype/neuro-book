@@ -1,0 +1,264 @@
+# w00032/t12 第三稿只读设计审查
+
+基准：`eef621d69`，审查对象为指定 worktree 的 `plan.md`。不修改仓库；原生与插件实验仅写 `/tmp/review-t12-design-r2/lab/`；不调用真实模型。
+
+### 重要｜正确性｜grep/glob 的 onMatch 不是流式入口
+
+- **严重程度**：重要；**类别**：正确性、安全与性能。
+- **位置**：计划 28、113–114 行；`node_modules/@oh-my-pi/pi-natives/native/index.d.ts:2191–2202,2289–2299`。
+- **现象**：计划依赖第二参数 `onMatch` 边搜边授权、取得 `limit + 1` 条后取消。该回调在搜索结束后才交付；真实流式 grep 是选项里的 `onMatches`。glob 的第二参数同样不能据此提前截断搜索。
+- **为什么是问题**：按计划实现会先把所有匹配搜完、存入原生结果，再执行授权。首条回调取消也挡不住剩余交付；30 秒/5 秒期限不是可见结果限额，超大目录仍先做全量工作。授权是异步 `readPath`，而 `onMatches` 类型和 glob 回调都是返回 `void`，也不能未经核实地假定回调等待这些 Promise 并提供背压。
+- **如何核实**：`bun --no-install --no-env-file /tmp/review-t12-design-r2/lab/native.ts`；1500 个各含一处匹配的文件，grep 的 `onMatch` 第一次即 abort，仍收到 **1500** 次回调，最后抛 `AbortError`；glob 同样收到 **1500** 次。改为 grep 选项 `onMatches`，首次批次中止只交付 **8** 条（批次大小不固定）。实验调用真实公开原生入口。
+- **建议改法**：grep 明确改用 `onMatches`，定义可等待异步授权的有界队列/分批扫描，先验证原生是否等待异步回调；glob 不再承诺不存在的流式停止能力，可按资源授权裁剪遍历根后用 `maxResults: limit + 1`，或选真正支持可中止分批遍历的入口。验收必须证明达到可见配额后没有继续遍历全部候选，而不只断言最终返回长度。
+
+### 重要｜不变量｜搜索不跟随用户目录链接，与已定读语义不一致
+
+- **严重程度**：重要；**类别**：不变量、正确性。
+- **位置**：计划 20、28、112 行；Task README 决定 13。
+- **现象**：计划明确用户自己建的链接“读、搜索跟随链接”，却给 glob 固定 `followLinks: false`；原生 grep 默认也不递归进入后代目录链接。
+- **为什么是问题**：用户把外部资料目录链接进书后，`read project://资料/某文件` 可读，`grep` 和 `glob` 从书根搜索却看不到里面的文件，会错误报告没有匹配。这不是链接替换竞态或 shell 的安全豁免。
+- **如何核实**：同一 `native.ts` 实验：`links/alias` 链接到包含 `visible.txt` 的真实目录。以 `links/` 为根 grep 得 **0** 条、`filesSearched: 0`；glob `followLinks:false` 只交回链接项 `alias`，没有子文件；把显式搜索根换为 `links/alias` 则 grep 返回 **1** 条。授权 `readPath` 在结果出现后执行，不能补回根本没被搜索的文件。
+- **建议改法**：glob 开启跟随并保留逐结果授权；grep 使用支持后代链接的遍历方式，或先按资源视图枚举可读根，再对每个真实目录执行原生搜索并去重、防环。补“从书根搜用户目录链接内文件”的验收，而不只测搜索根本身是链接。
+
+### 重要｜正确性｜两种 edit 均不会进入计划的新建写回分支
+
+- **严重程度**：重要；**类别**：正确性、测试。
+- **位置**：计划 103–105、157 行。
+- **现象**：第 2 步记目标不存在、第 5 步期望用 `absent + createParents` 新建；验收也要求 edit 新建文件。但所选 hashline 和 replace 模式在 writer 之前就拒绝不存在的文件。
+- **为什么是问题**：即使新增“最近祖先定位”辅助并成功把 URL 换成不存在的真实位置，也无法让引擎交出 `create` 写请求。新底座支持新建不代表这两个模式支持新建；照计划的验收无法通过。
+- **如何核实**：同一 `native.ts`，真实 EditSession，URL resolver 直接给出尚不存在的 `new/nested.txt`；hashline `PUT <1` 返回 `file_not_found`，原文 `Use the write tool to create new files.`，writer **0** 次。replace 的 `old_string:""` 返回 `old_string must not be empty.`，writer **0** 次。已有文件 replace、虚设 cwd/homeDir、宿主 writer 不落盘均正常，不是 URL/cwd 接线失败。
+- **建议改法**：最少部件方案是把新建统一交给已有 `write` 工具，删掉 edit 的不存在目标预读/新建分支与对应验收，并在工具合同明确 edit 只改现有文件；若坚持 edit 新建，要明确新增语法/引擎能力，而不能只改 writer。
+### 阻断｜正确性｜项目 readPath 的租约在工具真正读取前已经释放
+
+- **严重程度**：阻断；**类别**：正确性、不变量。
+- **位置**：计划 37、68、113 行；`packages/neuro-book/src/plugins/files/backend/workspace-files.ts:122–127`；`packages/neuro-book/src/plugins/files/backend/projects-scheme.ts:97–110`。
+- **现象**：计划让工具先 `resources.readPath(project://...)`，再在本机分页读、搜索或交给 edit。当前 `readPath` 对 `projects://` 经 `projects.call` 调项目的 `realPath(follow:true)`；`projects.call` 在回调完成后立刻 `lease.release()`。返回的只是字符串路径，没有携带租约或保持项目实例的句柄。
+- **为什么是问题**：项目可在定位返回后进入宽限关闭、代次被替换或停止，工具随后打开的路径就可能失效、指向旧代目录，甚至读到项目已不再由当前资源视图承诺的对象。计划把“定位后路径还有效多久”当作读路径事实，但底座没有这个寿命保证；逐文件 `readPath` 核对也只保护核对那一刻。
+- **如何核实**：静态跟随真实调用链可见：`workspace-files.ts` 第 125 行调用 `projects.call`，而 `projects-scheme.ts` 第 105–110 行在 `finally` 无条件释放租约；`ReadPath` 类型只有 `path/kind`，没有 `release`。没有用伪造项目代替真实运行时。
+- **建议改法**：不要把跨进程项目路径裸交给长时间工具。为 `readPath` 增加持有期明确的 read lease（工具调用结束或取消时释放），或在工具实际读取期间由 Files 提供带租约的读/搜索入口；至少 edit 的读基线、read 的分页、grep/glob 的整次扫描要在同一个项目租约内完成。验收覆盖定位后停止项目、换代和取消收口。
+### 阻断｜正确性｜SessionArtifacts 计划使用了文件服务不认识的单数地址
+
+- **严重程度**：阻断；**类别**：正确性、接口与合同。
+- **位置**：计划 72–83 行；`packages/neuro-book/src/plugins/agent/backend/resources.ts:24–39,68–78`；`packages/neuro-book/src/plugins/files/backend/workspace-files.ts:102–127`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:95–125`。
+- **现象**：计划的 `SessionArtifacts.save` 写入 `session://artifacts/<name>`，实现又说调用 `nbook.agent` 自己的 `WorkspaceFiles` 门面且“不带 as”。单数地址的改写只发生在 `sessionResources(...).expand/bind`；AgentRuntime 直接把 `options.files` 传给资源视图，宿主门面并不自动改写。`WorkspaceFiles.begin()` 只做 `parseAddress`，随后按方案注册表查找 `session`。
+- **为什么是问题**：`session` 不是 `nbook.files` 注册的全局方案，当前 Agent 只注册 `sessions`，所以这条写路径会返回 `unknown-scheme`，根本不会创建 `artifacts/`。把“不带 as”理解成“自动拥有单数地址改写”混淆了 `WorkspaceFiles` 与 `SessionResources` 两层；宿主绕过 Agent 分类的决定不能同时绕过地址解析。
+- **如何核实**：`resources.ts:24–39` 是唯一的单数地址改写实现；`schemes.ts:43` 的全局方案为 `sessions/profiles/temps/docs/skills`，没有 `session`；`workspace-files.ts:102–127` 直接按解析后的 scheme 查 registry。现有资源测试也只断言 `resources.expand("session://...")` 后得到 `sessions://...`，没有证明原始 WorkspaceFiles 能接受单数地址。
+- **建议改法**：`SessionArtifacts` 的实现持有会话上下文，写入全局地址 `sessions://<sessionId>/home/artifacts/<name>`；或把“宿主身份写 artifact”做成拥有 `expand` 的 Agent 专用接口。接口文档明确单数地址只属于会话资源视图，不能传给原始 `WorkspaceFiles`。补宿主写入口真实成功测试。
+### 重要｜不变量｜共享 EditStore 没有接入点，跨工具的 hashline 快照会断掉
+
+- **严重程度**：重要；**类别**：接口、不变量、生命周期。
+- **位置**：计划 50、66–69、88、96 行；`packages/neuro-book/src/plugins/agent/shared/resources.ts:44–46`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:101–125`；`packages/neuro-book/src/plugins/agent/backend/tools.ts:88–95,215–227`。
+- **现象**：计划要求同一会话的 `read`、`write`、两种 `edit` 共用一份 `EditStore`，并按会话引用计数到所有工具 `dispose` 后清理。但现有 `AgentToolServices` 只有 `resources`；`AgentTools` 为每个会话每个工具分别调用 `services(context, toolId)` 并各自建实现，当前没有会话级 store、引用计数或释放回调。
+- **为什么是问题**：若按现有自然接法在每个 builtin 工具工厂里 `new EditStore()`，read 产生的 hashline 头不会被 edit 看到；若用模块级 `Map<sessionId, EditStore>`，还必须处理工具集重算、绑定切换、Profile 换代、会话 fork/close 和提供方撤回，否则会泄露快照或在旧代 dispose 时删掉新代仍在用的 store。计划只写结论，没有定义所有权与时序，后续实现会在工具之间返工。
+- **如何核实**：真实类型表明 `AgentToolServices` 当前无该字段；`agent.ts:103` 每次按 context/toolId 构造只有 `{resources}`；`AgentTools.create` 每个工具返回独立 `ToolWrapper`。这是当前装配路径，不是按名字推断。
+- **建议改法**：把会话级 `EditStore` 放进 AgentRuntime/SessionTable 持有的 session resource bundle，由 `services(context, toolId)` 交出同一引用，并给会话关闭的明确释放点；工具 `dispose` 不直接拥有或删除它。验收必须真实走“read 输出头 → 另一个 edit 工具应用”，再测工具离开工具集后会话关闭与重开。
+### 重要｜安全与性能｜shell 的原生输出回调不能 await，计划的有界边写边存没有实现路径
+
+- **严重程度**：重要；**类别**：安全与性能、资源释放。
+- **位置**：计划 69、114、127 行；`node_modules/@oh-my-pi/pi-natives/native/index.d.ts:2014–2018,3352–3370`。
+- **现象**：`executeShell` 的 `onChunk` 签名是 `(error, chunk) => void`，不是 Promise 回调；计划却要每个 chunk 立即写 `SessionArtifacts` 的异步 `StagedSink.write`，同时内存只留最后 50 KB/2000 行。引擎没有在该 API 上暴露可暂停输出或异步背压参数。
+- **为什么是问题**：直接在回调里启动异步写会积累未完成的 Promise/队列，磁盘慢或跨进程提交慢时内存随输出增长，重新引入第一轮已经修掉的无界累计；同步丢 chunk 则全文 artifact 不完整；等待写完又无法阻塞原生回调。取消、写失败与命令退出之间还会有并发收口竞态。计划的 64 MiB 上限只限制最终文件，不能限制写入前的队列。
+- **如何核实**：类型核对已确认回调返回 `void`；同一实验 `/tmp/review-t12-design-r2/lab/native.ts` 的真实 `executeShell` 在 50 ms 超时前交付了 `yes
+part
+error: interrupted
+`，没有任何异步 drain 合同。没有用同步假实现替代原生 API。
+- **建议改法**：先定一个可证明有界的输出管道：优先使用能暂停/背压的原生入口；若没有，落到受控本地临时文件并让宿主异步提交，明确磁盘写失败时是停止命令还是返回“全文未保存”。回调错误参数必须进入结果，超时、取消、异常与 artifact finalize 只允许一次。验收用持续高速输出加慢写入，断言进程内存和最终全文边界。
+### 重要｜正确性｜图片没有贯通工具结果到模型消息、过滤和现有图片合同
+
+- **严重程度**：重要；**类别**：正确性、不变量、兼容。
+- **位置**：计划 42–48、134、154 行；`packages/nb-harness/src/kernel/api/tool.ts:52–60`；`api/events.ts:168–181`；`view/format.ts:101–103`；`helpers/content.ts:72–77,107–109`；`api/model.ts:30–37`；`model/omp.ts:64–77,89–91,159–176`。
+- **现象**：计划说给 `ToolResult`/`toolResult` 加 `images`，组请求时在工具文字后附图片，并把现有 `ContentBlock.image.blob` 改为 `data`。当前工具结果格式化只生成一个 text block；出站 `blocks()` 只处理含 `text` 的块；现有 `ContentBlock.image` 是会话 `blobs/` 的 SHA-256 引用；OMP 适配器对 image block 明确抛 `unsupported-content`，助手消息和回复图片也明确不收。
+- **为什么是问题**：只改类型和结果事件不能使图片进入模型。`format.tool()` 仍会丢掉图片，出站过滤可能把图片原样穿透或因无 image 分支无法按“改写”规则处理，重开/压缩/预览仍按旧 blob 形状或 JSON 估算；改名还会破坏既有日志图片形状与 OMP 测试合同。计划没有列出这些实际消费点、迁移格式、旧会话兼容和“图片被 omitted 后不再附图”的流程。
+- **如何核实**：逐段阅读以上真实实现；当前 `omp.test.ts` 第 187–191 行用 `image.blob` 验证不发请求，`omp.ts` 第 90、175 行验证适配器拒绝图片。无用户代码使用方不等于无内核消费点，现有测试和适配器就是消费方。
+- **建议改法**：先选兼容的数据模型：保留日志 `blob` 引用，工具结果图片在格式化时从会话 blob 解析成模型块，或定义明确的 `data` 迁移/解码边界，不要直接替换公共 `ContentBlock` 字段。切片清单必须覆盖 `format.tool`、`blocks`/出站过滤、`preview` 的对齐与 token、compaction、JSONL codec、重开/fork、OMP 的 `ToolMessage` 图片映射和非 vision 降级；每个消费点有真实会话验收。
+### 重要｜不变量｜artifacts 用调用 id 加 expect absent 会在重试或重复 id 时丢全文
+
+- **严重程度**：重要；**类别**：正确性、失败恢复。
+- **位置**：计划 69、78–83、127、159–160 行；`packages/nb-harness/src/kernel/api/tool.ts:36–44`；`packages/nb-harness/src/kernel/run/tools.ts:276–280`。
+- **现象**：计划把全文名固定为 `<调用 id>-<工具>.log`，再用 `stage(..., {expect: "absent"})`。`ToolContext.callId` 是模型服务商给的调用 id，合同只保证同一条回复里的调用不重复；没有跨请求、重试、fork 或服务商的全局唯一保证。计划重点也要求处理“调用 id 重复、重试、一次调用多份”，但方案没有命名去重或冲突策略。
+- **为什么是问题**：同一会话下一次模型请求再次产生 `call_1`，或者一个工具调用保存第二份 artifact，就会得到 `conflict`。当前 plan 又规定保存失败不影响工具结果，于是模型拿到一个声称有全文地址的结果或“全文没能保存”，而正常命令输出已经无法分页恢复。fork 还会把历史里的旧链接带进新会话，重名冲突更难诊断。
+- **如何核实**：工具调用 id 的类型与注释只写“同一条回复里不重复”；`run/tools.ts` 将它原样传给 `ToolContext`，没有跨请求去重。原生/测试代码也使用不同请求重复 `call_1`，不能把 provider 示例当作全局唯一合同。
+- **建议改法**：保存入口内部生成不可碰撞的单段文件名（例如 UUID），把会话、调用 id、工具名作为结果元数据而非唯一键；或由一次调用分配序号并在冲突时重试新名。`save` 交回的地址只能是实际提交成功的地址；多份全文、重试、fork 后读回都要有验收。
+### 重要｜安全与性能｜项目搜索的逐文件授权把跨进程成本放进热路径且没有预算
+
+- **严重程度**：重要；**类别**：安全与性能、接口。
+- **位置**：计划 109–115 行；`packages/neuro-book/src/plugins/files/backend/workspace-files.ts:122–127`；`packages/neuro-book/src/plugins/files/backend/projects-scheme.ts:97–110`；Task README “文件访问的架构讨论”第 83 行。
+- **现象**：计划规定每个文件第一次出现都把相对结果拼回全局地址，再调用一次 `readPath` 核对；对 `project://`，这就是一次 `projects.call`、一次项目租约 acquire/release 和一次跨进程 `realPath`。结果缓存只在一次搜索内按文件生效。
+- **为什么是问题**：1000 个候选文件就至少 **1000 次**项目路由调用；README 已测空载 RPC p99 **1.9–2.4 ms**，仅串行授权就约 **1.9–2.4 秒**，还没算项目租约、搜索和异步队列。隐藏/受保护候选文件可以在可见结果前消耗这笔预算，30 秒期限可能返回“不完整”而不是可见结果。计划没有规定并发度、总授权预算、项目租约持有或路由失败如何区分。
+- **如何核实**：真实代码中 `readPath(projects://...)` 第 125 行调用 `projects.call`，第 107 行释放租约；计划算法明确每文件第一次 `readPath`。数字取 Task README 的本机真实子进程测量，不把它当成本机直接文件读取。
+- **建议改法**：让搜索在一次持有的项目租约/真实根上下文内枚举并授权，或给 Files 增加“按目录返回已授权可读子树”的批量合同；若保留逐文件核对，定义有界并发、路由调用上限和 `incomplete` 原因，验收 100、1000 个候选文件与隐藏文件占前的情况。
+### 建议｜测试｜验收映射仍保留已废弃的 960 KiB 上限
+
+- **严重程度**：建议；**类别**：测试、文档。
+- **位置**：计划 154–159 行，尤其 `read` 的“超过 960 KiB 与 32 MB 的文件能分页读”和 `shell` 的“超过 1 MiB 的输出完整落盘”。
+- **现象**：第三稿已明确 `readPath` 在本机分页，普通 `resources.read` 只给 edit 取 32 MB 以内字节；写入接口正文的约 960 KiB RPC 上限不再约束 read 工具或宿主 artifact。验收映射仍把“超过 960 KiB”作为 read 核心边界，shell 只测超过 1 MiB，而 artifact 合同上限是 64 MiB。
+- **为什么是问题**：测试会把旧底座上限继续固化为产品语义，也不能证明新分工的真实边界：一个略大于 960 KiB 的样本只能证明绕过旧接口，不能覆盖大文件分页、32 MB edit 基线与 64 MiB artifact 的上限/失败路径。后续实现者可能为让旧验收通过，错误地把 960 KiB 带回工具层。
+- **如何核实**：计划第 37、88、114、127 行同时写了本机读、32 MB `resources.read` 与 64 MiB `artifacts`；第 155、159 行仍使用 960 KiB/1 MiB，和第三稿的接口分工不一致。
+- **建议改法**：删除 960 KiB 作为 `read` 合同的判据，改测一个明显大于旧预算且可分页的文件，并分别测 edit 的 32 MB 基线边界；shell artifact 测 64 MiB 内成功、超过 64 MiB 的截断/标记和写失败；若保留 960 KiB 样本，只注明“回归旧 RPC 上限不应影响工具”，不要把它写成产品上限。
+
+## 核实过程中的撤回与收窄（只追加）
+
+- **第 4 个发现标题撤回**（“项目 readPath 的租约…”）：释放租约只会结束项目进程，不会删除本机作品目录，`readPath` 的合同本来就是把路径交给使用方自己读。原报告把进程寿命误当作磁盘路径寿命，没有真实运行时证据说明关闭项目会使该路径失效；不要求给所有读取新增 lease。shell 推断归属的租约已明确延期，不借此重开范围。
+- **第 6 个发现标题撤回**（“共享 EditStore 没有接入点…”）：这是实施计划，要新增共享状态正是第 66 行与切片 2 的内容。按会话 Map 加实际持有工具引用计数可以实现，无需扩充 AgentToolServices 或 SessionTable；现有 ToolWrapper 已保证底层执行结束才 dispose。不能把“尚未实现”报成方案缺陷。
+- **第 8 个发现标题撤回并继续核实具体兼容问题**（“图片没有贯通…”）：计划 42–48、134、142、154 行已经明确组消息、过滤、token 与适配器改动和重开/fork 验收，原报告把要实施的机制尚不存在误报为遗漏。若有发现，仅针对计划确实没规定的合同，另列独立条目。
+- **第 10 个发现标题的时间估计撤回**（“项目搜索的逐文件授权…”）：不能把单次 p99 乘 1000 当成总耗时或下界；它也不是当前 readPath 的实测。每文件一次跨进程调用属实，但是否值得改必须测真实逐文件总耗时，后文以新实验为准；在此之前不计有效发现。
+- **第 11 个发现标题撤回**（“验收映射仍保留已废弃的 960 KiB…”）：大于旧 RPC 上限的 read/shell 用例是有效的回归测试，并没有把 960 KiB 声称为当前产品上限。计划还单列了 64 MiB 超限用例，第 160 行；原报告漏读，不计有效发现。
+- **第 7 个发现标题暂不计有效发现**（“shell 的原生输出回调不能 await…”）：`void` 类型不能单独证明实际回调背压行为，也不能证明没有有界实现路径。继续用真实 native 输出与 StagedSink 实验验证，结论与改法以后文为准。
+
+
+## 第三稿依赖的运行证据补充
+
+- **宿主写地址（第 5 个标题）已由真实插件入口验证**：`bun --no-install --no-env-file --tsconfig-override /tmp/review-t12-design-r2/wt/packages/neuro-book/tsconfig.json /tmp/review-t12-design-r2/lab/resources.ts`。通过真实 `nbook.agent`、`nbook.files`、模型适配器与本机脚本端点取得会话资源视图；原始 WorkspaceFiles 的 `session://artifacts/c-shell.log` 返回 `unknown-scheme`，全局 `sessions://<id>/home/artifacts/c-shell.log` 的 `stage` 成功，Agent 同处写入返回 `permission-denied`，同名宿主 `expect: absent` 重写返回 `conflict`。第 5 条保留；严重程度收窄为**重要**：这是必须补明的地址绑定步骤，不是需要推翻 t26 底座的结构阻断。
+- **项目寿命（原第 4 个标题）撤回得到运行确认**：`bun test --no-env-file --tsconfig-override /tmp/review-t12-design-r2/wt/packages/neuro-book/tsconfig.json /tmp/review-t12-design-r2/lab/projects.test.ts`（cwd 为 lab）。真实项目从未运行被 `readPath` 打开，冷定位 **273.23 ms**；释放租约后进入 `idle-grace`，推进注入时钟使项目关闭，旧路径仍读到 `alpha`。无需把读路径绑死在项目进程寿命上。
+- **逐文件授权（原第 10 个标题）最终撤回**：同一真实项目子进程实验，100 个不同文件串行 `readPath` 为 **94.56 ms**，1000 个为 **579.41 ms**，后者 p50 **0.513 ms**、p99 **1.765 ms**。每文件一次 RPC 的事实需让实施者知道，但此规模不足以单列必须改的性能问题。
+- **不露出文件与 list 形状正确**：会话 `index.json`、`blobs/` 的 `readPath` 都为 `protected-path`；真实会话目录 `list` 返回 `folder/contentRoot/entries`，虚拟 `sessions://` 返回 `kind: virtual/description/entries`，虚拟根 `readPath` 为 `unsupported-capability`；真实项目 `.nbook/project.json` 为 `protected-path`，根外用户目录链接与其子文件读路径均成功。
+- **EditSession 宿主 writer 与快照键可用**：同一真实资源实验用不存在的 cwd/homeDir、URL resolver 和条件 `resources.write` 成功将 `alpha` 改为 `ALPHA`。EditStore 的键是 resolver 给出的真实绝对路径，`headHash(资源地址)` 为 null；全局与单数地址都能命中真实路径快照。只返回 `written` 而不落盘的 native 实验中磁盘保持 `alpha`，证明原生引擎不会自行绕过宿主 writer 落盘。
+- **第 9 个标题收窄**：有效问题是 callId 只保证单条回复内唯一，固定 artifact 名会冲突；fork 到新会话本身不会制造同目录重名，计划也明确保存失败不给虚假成功链接，不保留原条中这两项推测。用 UUID 后缀或每次保存分配唯一名即可，不需要复杂幂等存储。
+
+
+### 重要｜正确性｜shell 地址结束条件会吞掉管道、分号和重定向
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划 120–125、159 行；地址规则 `packages/neuro-book/src/plugins/files/shared/resource.ts:58–67`。
+- **现象**：地址定义为 `<方案>://` 后直到空白或引号结束。因此普通命令 `cat project://a.txt; cat project://b.txt` 中第一个地址会变成 `project://a.txt;`；`cat project://a.txt|wc -c` 会把 `|wc` 并进文件名；`cat project://a.txt>session://out.txt` 则被当成一个地址，第二个地址不再处理。
+- **为什么是问题**：这三种都是没有 heredoc、变量拼接或命令替换的直接地址，属于本稿承诺支持的写法。资源路径允许 `;|>`，所以地址校验不能帮扫描器识别 shell 分隔符；替换后再整体单引号包起还会把原来的管道/分号变成普通文件名字符。之前一轮修的引号转义只解决插入路径如何编码，没有解决在哪里结束。
+- **如何核实**：`bun --no-install --no-env-file /tmp/review-t12-design-r2/lab/shell-address.ts`。脚本逐字实现计划的结束规则，再把结果交真实 brush：上述三条全部退出 **1**；第一条改写成 `cat '<真实路径>/a.txt;' cat '<真实路径>/b.txt'`，只读到第二个文件；有引号的两地址对照退出 **0** 并读到 `RIGHTSECOND`。`https://example.com` 与未知方案普通字符串原样通过。
+- **建议改法**：按 shell 词法位置处理：引号外空白和 shell 操作符 `;|&<>()` 都结束当前地址，引号内保留它们；正确跳过反斜杠转义字符。未知方案和普通 URL 不替换，登记名单来源在装配时给定。补无空格管道、分号、重定向、同命令多地址的真实 brush 验收；不用扩到已接受不支持的 heredoc/变量拼接。
+
+### 重要｜正确性｜edit 原样 outcome.text 会把单数地址写回持久结果
+
+- **严重程度**：重要；**类别**：正确性、不变量。
+- **位置**：计划 39、102–107、157 行。
+- **现象**：计划允许单数输入，要求结果一律全局地址，同时又要求原样返回引擎的 `outcome.text`。EditSession 的 resolver 只换背后真实文件，不改 `displayPath`；结果头仍使用模型原来输入的地址。
+- **为什么是问题**：`edit session://a.txt` 的结果成为 `[session://a.txt#TAG]`。fork/换 Profile 后这段历史会重新指向别处，违反本稿沿用的全局地址合同；只在 read/write/artifact 输出处 `expand` 补不齐 edit。原生英文错误原样保留的决定也不能通过对整段英文结果做正则替换来实现可靠地址转换。
+- **如何核实**：真实插件入口 `resources.ts` 实验：用真实路径登记同一个 EditStore 快照，`session://a.txt` 编辑成功时原生结果为 **`[session://a.txt#1BC8]`**；同样操作改用展开后的全局输入则返回 **`[sessions://<id>/home/a.txt#1BC8]`**。writer 的 `displayPath` 也保留单数拼法。cwd/homeDir 都是不存目录，不影响这一行为。
+- **建议改法**：在启动引擎前，把已预检的全部目标在结构化参数/hashline 头中规范化为 `resources.expand` 的全局地址，resolver 和 writer 的逐文件表也用它；再原样返回引擎文字。不要在 outcome 的任意正文里做字符串替换。补单数输入的 edit 成功、失败与多文件结果全局化验收。
+
+
+## 流式回调的进一步核实
+
+- `bun --no-install --no-env-file /tmp/review-t12-design-r2/lab/streams.ts`：真实 grep `onMatches` 回调返回等待闸门的 Promise 时，引擎 **375** 次回调全部进入、**1500** 条已交付、**0** 次异步授权完成，搜索 Promise 已成功；executeShell 同样在 **122** 个回调、**8388608** 字节均还等待闸门时完成。因此只把回调改成 `async` 不提供异步背压，grep 的授权计数与最终结果必须显式等待/串行收口。第 1 条进一步成立。
+- **第 7 个标题最终收窄为重要的内存合同缺口**：不能称为“无实现路径”或“无界累计”。`bounded-stream.ts` 用真实 WorkspaceFiles.stage、真实 executeShell、有限 **96 MiB** 输出和被闸门暂停的写入函数，按接收时做 **64 MiB** 上限后成功落下 **67108864** 字节（含截断标记）；但命令结束时仍在内存排队 **67108823** 字节，另有 **51200** 字节尾窗。这证明接收时计数可以保证有限内存，不需要推翻 t26，也证明计划“内存里只留最后 50 KB”不成立：StagedSink 的异步写之外还需明确最大待写字节与排空策略。推荐最少改法：接收时即预留 64 MiB 配额、单条写队列严格按序写、finally 等待队列并将失败记入全文保存状态；若接受最多 64 MiB 待写内存，把这笔预算写明并验收。要维持只有尾窗的内存合同则需可背压/同步受限写入口。实验命令：`bun --no-install --no-env-file --tsconfig-override /tmp/review-t12-design-r2/wt/packages/neuro-book/tsconfig.json /tmp/review-t12-design-r2/lab/bounded-stream.ts`。慢消费者闸门只放在工具控制的实际 `stage` 写入函数中，没有伪造内核时序。
+- `staged.ts` 的真实无人工慢写对照：**8 MiB** 输出、**124** 个回调、最多 **2** 个并发待写，落盘字节逐个符合 `abc\n`；写入函数抛错返回 `io-failed` 且 staging 为空。不是所有正常 shell 都会立刻吃满内存，缺的是慢消费者和取消时的合同。
+
+
+### 重要｜正确性｜artifact 暂存准备失败时 shell 不会执行，违背保存失败不影响工具结果
+
+- **严重程度**：重要；**类别**：正确性、接口与合同。
+- **位置**：计划 69、78–83、127 行；`packages/neuro-book/src/plugins/files/backend/workspace-files.ts:157–200,368–390`。
+- **现象**：计划从一开始就在 `artifacts.save` 的写入函数里运行 shell，以便输出能写 sink。但现有 stage 在取得暂存目录、建立暂存文件、打开句柄都成功后才调用这个函数；任何准备失败都直接返回失败，根本不进写入函数。新 SessionArtifacts 接口也不把“写入函数有没有被调过”告诉工具。
+- **为什么是问题**：计划又要求“全文写失败不影响工具结果”。照直线接法，暂存不可用时命令被跳过，没有退出码和输出；如果拿到任意 save 失败就重跑 shell，会在“命令已执行、仅最后提交失败”时把带副作用的命令执行两遍。这是 t26 新 stage 时序带来的真实接口缺口，不是要求 artifact 保存永不失败。
+- **如何核实**：`bun --no-install --no-env-file --tsconfig-override /tmp/review-t12-design-r2/wt/packages/neuro-book/tsconfig.json /tmp/review-t12-design-r2/lab/pre-stream-failure.ts`。在真实宿主允许的降级状态（state/staging 是普通文件）装 nbook.files 与 nbook.agent，Files 正常激活、写入接口诊断不可用；stage 返回 `io-failed: 暂存目录不可用`，写入函数 **0** 次、命令 **0** 次。对照直接 executeShell 输出 `RAN`、退出 **0**。代码也表明末尾 commit 失败是在写入函数已经结束之后才返回。
+- **建议改法**：让 shell 生产者只启动一次，并把 artifact 存储作为可失败消费者。最少部件做法是在工具适配层明确跟踪写入回调是否已进入：准备阶段没进入就以只保留尾窗方式执行一次；进入后出现写盘错误要切断 artifact 消费、让命令继续并等结束，提交失败只附保存失败原因，绝不重跑。或者把 SessionArtifacts 改成可先打开、失败可显式降级的 sink 生命周期。验收分别覆盖准备失败、写中失败和提交失败下命令恰好执行一次。
+
+
+### 重要｜正确性｜图片追加到工具消息后，压缩省略条目必须同时去图
+
+- **严重程度**：重要；**类别**：正确性、测试。
+- **位置**：计划 45–47、134、154 行；`packages/nb-harness/src/kernel/view/format.ts:66–74,101–103`；`compaction/compact.ts:32–36`；`state/history.ts:30–32,100–121`。
+- **现象**：本稿要求组请求时总在工具文字后附图片，同时把压缩估算改为图片 token。现有“省略工具结果”的机制只让 `requiredTextOf(result)` 返回占位文字；事件里的原数据不删除。估算器对被 omitted 的事件则只计占位，明确不再计原内容。本稿没有定义 image append 与 omitted 的优先级，验收也只有图片 token 不误触发压缩，没有“省略后去图”。
+- **为什么是问题**：照“文字后附图片”实施，shake/inplace 把图片结果省略后，模型仍收到图片，而 token 估算已经按一行占位降低。压缩成功标记与真正请求大小不一致；多张图时会继续溢出。第一轮审查已经指出 omitted 后必须真正不附图（旧报告第 48 行及验收表），第三稿只保留 token 口径，漏了这条消费语义。
+- **如何核实**：静态读到 `format.tool` 先用 `requiredTextOf` 决定文字；`sources.omitted` 仅参与该函数，`estimateEvent` 则在有 placeholder 时直接丢弃全部原数据的估算。新图片路径尚未实施，本条是可确定的合同缺口，未宣称跑过尚不存在的去图代码。
+- **建议改法**：把图片与工具文字共同视为该条目的请求内容：`omitted.has(event.id)` 时只发占位且不发任何 images；普通 Profile 自定义 render 是否去图则单独沿现有渲染合同说明。补真实会话压缩测试：图先进入请求、标省略后只剩占位、重开/fork 后仍不附图，估算与请求保持一致。这里不需要再建图片存储层。
+
+## 图片合同的具体文档缺口（不另计发现）
+
+`harness/models.md` 第 19 行仍明定请求图片 `unsupported-content`，`harness/session.md` 第 96 行明定“图片块总是大块内容”，第 175 行规定改变既有字段语义要升格式版本。计划的文档清单只改 runtime，没有改 models/session。真实 `images.ts` 的 JSONL 实验读回一致，**32769** 字节样本的 base64 进 **1** 个 blob，但 **92** 字符的小 PNG 原样留在 **609** 字节 JSONL 中。推荐随同一图片切片同步更新这两份 Spec；保留旧 text-only `rawHash` 算法，新增图片的哈希定义只作用于带 images 的事件；没有实际旧 image 数据使用方，不为纯类型替换强行引入无收益的迁移工程。
+
+
+### 重要｜正确性｜多文件 edit 的部分成功只放 details，模型仍只看到 conflict
+
+- **严重程度**：重要；**类别**：正确性、接口与合同。
+- **位置**：计划 106–107 行；`packages/nb-harness/src/kernel/api/tool.ts:58–59`；`view/format.ts:101–103`。
+- **现象**：计划第 5 步要求如实列出已改与失败文件，但紧接着输出规定为原样 `outcome.text`、逐文件结果放 `details`。真实原生 EditSession 遇到第二个 writer 失败时，`outcome.files` 清空、`outcome.text` 只剩失败消息。内核合同明确 details 不进模型请求，工具消息只渲染 text。
+- **为什么是问题**：即使实施者在 writer 里记下前面成功文件并完整写进 details，发起编辑的模型还是看不到这些副作用，无法判断应该重试哪个文件。第一轮部分写入问题的修法没有落实到模型实际能消费的输出通道；这也与第 5 步自己的“结果里如实列出”矛盾。
+- **如何核实**：`bun --no-install --no-env-file --tsconfig-override /tmp/review-t12-design-r2/wt/packages/neuro-book/tsconfig.json /tmp/review-t12-design-r2/lab/partial-files.ts`。真实 EditSession 加真实 WorkspaceFiles 条件写：a.txt 从 `alpha` 成为 `ALPHA`，b.txt 因外部写 `EXTERNAL` 返回 `conflict`；引擎完整 outcome 为 `{text:"conflict", files:[], isError:true, errorKind:"write_failed"}`。`format.tool` 不读取 details，故按计划发给模型的只有 `conflict`。
+- **建议改法**：保持原生英文错误段原样，在 text 追加宿主生成的逐文件摘要（全局地址、已提交/失败/结果未知、稳定 code）；details 保存同一份结构化状态。明确保留原文只约束错误段，不禁止说明副作用。验收从下一次模型请求里的 tool 消息断言 A 已提交、B 失败都可见，不能只检查 details。
+
+
+## 其余真实运行核实
+
+- `edit-conflict.ts`：按计划先 read 字节/基线、再由 EditSession 二次读。分别在“预读后、引擎读取前”和“引擎读取后、条件 writer 前”发生外部修改，真实 WorkspaceFiles 两次均交 `conflict`、磁盘保留外部内容；不会因为二次读取而把外部更新覆盖。不要重新加入开发者已否决的跨调用冻结基线。
+- `edit-state.ts`：第二文件失败后，原生 store 已登记第一文件的新内容；`recordSnapshot` 同内容不会清掉旧 tag，旧文本仍能 `byHashText` 查到。这是原生重映射机制，并非第二条跨调用基线；计划里的“失效（重新登记）”应写清实际意图，暂无足够收益要求关闭原生旧 tag 重映射。大文件探针 `edit-size.ts`：**5242886** 字节文本的 `recordSnapshotFile` 为 null，但 `recordSnapshot(path,text)` 和 replace/hashline 应用都成功；4 MiB 是文件读取快照辅助的上限，不能称为整个引擎硬上限。可按计划保留 read 的 4 MiB 本地内存策略，但给用户的“只能 write/shell”说明至少保留 replace 选项（不另计发现）。
+- `callid.ts`：经真实 HTTP 适配器、真实 Agent 工具与文件服务，脚本端点在不同请求都给合法的 `call_1`，第一份全文成功、第二份 `expect: absent` 返回 `conflict`。第 9 条不再仅靠类型推断。
+- `boundaries.ts`：不存在的 `session://.../new/dir/file` 可从 home 祖先接上；`index.json/new`、不露出的 `new-secret/file` 一开始就 `protected-path`，只对 `not-found` 退祖先不会绕过这条授权。artifacts 下的新位置可定位，这是 shell 已接受的直接文件系统能力，不新增安全问题。真实会话中止 shell 后 native 返回 `cancelled:true`，无工具取消信号的宿主 stage 成功提交 `partialerror: interrupted\n`，说明已收到部分输出不丢的设计可用。
+- `stage-life.ts`：等待可观察的活性锁 mtime 变化（变化 **4665 ms**）后运行 sweep，暂存仍在；写入结束后成功提交、staging 为空；停止真实入口后在途 stage 返回 `cancelled`、staging 仍为空。未实际运行 3600 秒；自动刷新机制与一次续期已经验证。
+- `self-tools.ts`：只在 lab 中构造 Agent plugin 定义的副本，在 nbook.agent 原服务端入口同时贡献与接收自己的 probe 工具和 Profile；真实生命周期中工厂 **1** 次、执行 **2** 次、关闭前 dispose **0** 次、关闭后 **1** 次，两份宿主全局 artifact 均成功。没有自贡献激活环的证据；无需另建内置登记通道。
+- `ignore.ts`：原生默认都尊重 `.gitignore`，被忽略文件不返回；grep 默认 hidden=true，返回 `.hidden.txt`，glob 默认 hidden=false，不返回它。关 gitignore 后两者返回 ignored.txt；node_modules 仍被原生的专用规则排除。这些参数与默认值应写入新工具 Spec/说明（glob 若要照 omp，明确 hidden=true）；不把本稿未承诺与 omp 全量同形的参数单独报为需求缺失。
+- 原生 shell 的 `env` 是一次命令覆盖，`sessionEnv` 是新建 shell 会话环境；executeShell 每次建新会话。timeoutMs、AbortSignal、正常 exitCode 与超时/中止布尔值均在公开 API 和实验中成立；超时/中止没有 exitCode，工具实现按布尔状态优先分类即可。
+
+
+### 重要｜正确性｜grep 不会按计划为非法正则交 invalid-pattern
+
+- **严重程度**：重要；**类别**：正确性、接口与合同。
+- **位置**：计划 70、111、158 行；`node_modules/@oh-my-pi/pi-natives/native/index.d.ts:2228–2299,3300–3346`。
+- **现象**：本稿定义 grep 的 pattern 是正则、非法时为 `invalid-pattern`，又把正则执行完整交给 pi-natives，没有验证/错误映射步骤。当前公开 native grep 对非法模式会退回能匹配的字面/其它引擎语义，根本不抛一个可映射的非法正则错误。
+- **为什么是问题**：模型写错 `[`、`(` 或未闭合字符类时，会得到“没有匹配”或字面匹配，而不是能修正输入的失败。验收里的“非法正则”照自然接法过不了；照 omp 参照按错误文案正则捕获也救不了本版本根本不报错的输入，而且违反本稿不按英文文字分支的规则。
+- **如何核实**：`bun --no-install --no-env-file /tmp/review-t12-design-r2/lab/search-errors.ts`：在 **1500** 个普通文件上 `pattern: "["` 成功交 0 匹配、`filesSearched:1500`；`regex.ts` 在包含单独 `[`、`(`、反斜杠的文件上，同样三个非法模式分别成功命中对应字面行；`[a-` 返回成功 0 匹配。`search("",{pattern})` 也没有 error，不能拿它预编译查错。缺文件和非法 glob 都是 `GenericFailure`，不能据其 code 区分非法正则。
+- **建议改法**：明确 grep 的正则语言并在搜索前用同一语法的编译入口校验；优先让 pi-natives 提供结构化 compile/validate 结果。若接受原生的容错字面搜索，就改合同和验收，取消 `invalid-pattern` 承诺并向模型说明回退；不要用 JavaScript RegExp 预检去误拒 Rust/PCRE 能支持的模式（实验中的 `(?i)` 与 lookahead 都能搜）。
+
+
+## 最终裁定与有效索引
+
+以本节为最终交付口径；前文因为只追加要求保留了核实轨迹，不能把撤回标题或早期级别计入有效发现。
+
+- **第 7 个标题撤回为独立问题**。真实实验已证明现有接口能用接收端预留 64 MiB 配额加有序写队列完成，正常 8 MiB 输出的待写峰值也只有 2 个。不能要求为“内存只留尾窗”这句过强表述去改原生引擎；队列预算、等待排空和保存失败处理应与第 14 条一起补清，不另计重要问题。
+- **第 5 个标题最终为重要**，不是阻断：补上以会话上下文展开全局地址即可。既不需要新增全局 `session` 方案，也不需要改 Agent 对 artifacts 的权限。
+- **第 1 个标题补充边界**：搜索超时返回部分结果这一承诺也受同一错误 API 前提影响；只有真正流式交到宿主的匹配才可能在原生 reject 后保留。glob 的 post-search 回调无法保证到截止时拿到已扫描部分。修法必须同时覆盖 quota stop、真实 timeout 与工具取消的区分。
+
+| 有效编号 | 对应前文第几个发现标题 | 最终级别 | 最终类别 | 要改的问题 |
+|---|---:|---|---|---|
+| 1 | 1 | 重要 | 正确性 | grep 的 onMatch 是事后回调，真正 onMatches 也不等异步授权；glob 无计划声称的边搜边停 |
+| 2 | 2 | 重要 | 不变量 | 从书根搜索不会进入用户目录链接，违反已定跟随链接语义 |
+| 3 | 3 | 重要 | 正确性 | hashline/replace 都不支持新建，计划的 absent writer 分支不可达 |
+| 4 | 5 | 重要 | 正确性 | 原始宿主 WorkspaceFiles 不解析单数 session 地址，save 需绑定会话并展开 |
+| 5 | 9 | 重要 | 正确性 | callId 不跨请求唯一，固定 artifact 名加 absent 会丢第二份全文 |
+| 6 | 12 | 重要 | 正确性 | shell 地址结束规则吞掉分号、管道和重定向，破坏多个直接地址 |
+| 7 | 13 | 重要 | 不变量 | 原样 edit outcome 保留单数 displayPath，结果地址未全局化 |
+| 8 | 14 | 重要 | 正确性 | stage 准备失败不进生产回调，shell 的恰好执行一次与保存失败降级未接上 |
+| 9 | 15 | 重要 | 正确性 | 图片结果省略必须整块去图，否则估算降低但实际仍发图片 |
+| 10 | 16 | 重要 | 正确性 | 部分 edit 成功只进 details，下一次模型请求看不见已提交文件 |
+| 11 | 17 | 重要 | 正确性 | 原生 grep 对非法正则不抛错，invalid-pattern 合同需要验证入口或明确改判 |
+
+有效发现 **11** 条：**阻断 0 / 重要 11 / 建议 0**。撤回 **6** 个标题（原序 4、6、7、8、10、11）；总发现标题 **17** 个。原序 5 已降为重要，原序 9 已收窄。有效编号只使用上表 1–11，避免与核实轨迹混用。
+
+## 未发现问题的方面
+
+- **写回机制与一次调用基线**：真实 EditSession 会把最终内容交宿主 writer，自身不落盘；resolveUrl/urlSchemes 对资源地址有效，不存在的 cwd/homeDir 不妨碍合法 URL 编辑。条件 write 能挡住本次预读之后的外部修改，两个先后窗口均已实测。
+- **t26 的字节、暂存和容量分工**：read 的 32 MiB 字节基线与 readPath 的本机读可分别使用；stage 可流式提交 64 MiB，StagedSink 能通过外包计数器实现截断标记，不需要 truncate/seek；父目录创建与 absent 冲突在真实入口生效。
+- **资源权限与寿命**：会话隐藏控制文件、项目 .nbook 被拒；Agent artifacts 写被拒、宿主全局写成功；项目未启动时 readPath 自动取得租约并启动，项目进程关闭不影响已经取得的本机路径。对 not-found 退祖先可实现新位置，不能把 protected-path 等其它失败也吞成退祖先。
+- **部分日志、锁与扫尾**：工具取消不传给宿主 stage 时，已收到 shell 输出可提交；入口停止会取消并丢弃；活性锁实际续期、sweep 不删活暂存、正常及停止后的 staging 为空。未把 5 秒续期实验说成运行了 3600 秒。
+- **内核存储与装配**：16 KiB 字符串外置递归覆盖 images 数组，真实 JSONL 关闭重开数据一致；fork 经重新 append 会携带已解析内容，可复用同机制（fork 图片链路本轮未运行）。providerName 重名已有输出 15 的拒绝与必需项只读路径；customFormat 计划已列 schema 与转发修改，不重复第一轮问题。shared/exclusive 只管同一条回复、同一会话的调度，现有实现与本稿所需相符；不将它误认为跨会话文件锁。
+- **工具共享与自贡献**：每会话每工具懒建与底层执行结束再 dispose 已存在，按实际持有者做 EditStore 引用计数能落实；nbook.agent 自己贡献自己的工具已经过真实插件生命周期实验，没有激活顺序阻断。
+- **已定范围和旧阈值回归**：不重开 todo、审批接线、shell 安全洞、用户链接的写入拒绝、非原子多文件编辑和渲染器决定。超过 960 KiB/1 MiB 的样本可保留为旧 RPC 上限的回归测试，不是现行上限；不因数字旧就删有用回归。
+
+## 待确认项的判断
+
+没有新增必须由开发者决定才能实施的前置项；优先按现有合同修正，不扩大范围：
+
+- 推荐 edit 新建统一交给 write，符合所选 code agent 原生模式；删除不可达分支与错误验收，不引入第三种编辑语法。
+- 推荐 shell 接收端最多预留 64 MiB 待写配额、顺序排空，接受明确的有限内存代价；校正“只留 50 KB”描述。若坚持只有尾窗内存，才需要额外批准修改原生输出/暂存接口的范围，不能暗中添加第二条写盘通道。
+- 推荐保留计划已写的非法正则报错语义，并补同语法验证入口。若作者要接受 native 自动字面回退、删 invalid-pattern，那属于改变模型可观察行为，应单列给开发者确认；本轮不替开发者改判。
+- `pending-confirmations.md` 现有 t20/t26 待追认项没有出现本稿必须重新拍板才能接工具的依赖；硬链接、unknown-outcome、内容清单等已按当前代码与 Spec 审查，不拿待追认提案旧句子否定已合入实现。
+
+## 验证命令与未运行项
+
+工作目录除注明外为 `/tmp/review-t12-design-r2/wt/packages/neuro-book`，所有显式实验输出均在 lab。
+
+- `bun --no-install --no-env-file /tmp/review-t12-design-r2/lab/native.ts`：原生 writer、URL/cwd、两模式新建、回调中止、链接、shell 超时，退出 0。
+- 同一命令前缀分别运行 `streams.ts`、`edit-state.ts`、`shell-address.ts`、`ignore.ts`、`images.ts`、`edit-size.ts`、`search-errors.ts`、`regex.ts`：均退出 0；各项数字与边界已逐条记录。`images.ts` 只证明存储，不证明新增工具图片/模型视觉链路。
+- `bun --no-install --no-env-file --tsconfig-override /tmp/review-t12-design-r2/wt/packages/neuro-book/tsconfig.json /tmp/review-t12-design-r2/lab/resources.ts`：真实 Agent/Files 资源、EditStore 与 URL 应用，退出 0。
+- 同一命令前缀分别运行 `staged.ts`、`bounded-stream.ts`、`boundaries.ts`、`edit-conflict.ts`、`pre-stream-failure.ts`、`stage-life.ts`、`callid.ts`、`self-tools.ts`、`partial-files.ts`：均退出 0；使用真实文件服务、插件运行时/内核和本机脚本 HTTP 端点，不调用真实模型。
+- `bun test --no-env-file --tsconfig-override /tmp/review-t12-design-r2/wt/packages/neuro-book/tsconfig.json /tmp/review-t12-design-r2/lab/projects.test.ts`（cwd `/tmp/review-t12-design-r2/lab`）：**1 pass / 0 fail**，真实项目子进程总耗时 **1.60 s**。
+- 初次资源脚本用了不正确的 `--tsconfig` 参数，未执行到脚本；改为 `--tsconfig-override` 后发现一处脚本括号与 runtime 导入文件名错误，均只修 lab 后运行成功。边界脚本也有一处括号错误，修 lab 后通过。不把这些加载失败当产品故障。
+- 一次项目实验命令把 Bun 参数放在 `test` 前，误命中包的 test script，开始 `test:bun` 全套；在 **60 秒**截止后被 SIGTERM，工具日志停在 build-plugin 合同夹具的错误，未产生整套通过结论，未据此报产品问题。随后使用上面的独立 lab 测试入口成功。未继续跑整套、e2e 或开发服务。
+- 最终 `/usr/bin/git rev-parse HEAD`：`eef621d6942dc576b7e38f1c4182ec13e44718b7`；`/usr/bin/git status --short --untracked-files=normal`：空输出。无仓库文件修改、提交、push、stash、切分支或删除操作；没有后台服务残留（`proc://` 为空）。
+- LSP 返回 `No language servers configured for this project`。未运行 typecheck：只读计划没有代码变更，本轮用实验验证公开运行机制，未用类型检查代替行为证据。
+- 未运行：e2e、开发服务、真实 Provider/DeepSeek、完整新图片工具→脱敏→出站→压缩→adapter→重开/fork 链路、Windows/macOS、3600 秒长驻 shell、满盘及真实设备 I/O 故障。图片尚未实施的路径以合同检查标识，没有伪造通过。
+
+## 回写建议
+
+本轮发现的机制与合同缺口按有效条目修改 t12 计划及其已有 Spec 真相源；不另造通用规则。审查中曾把“尚需实现”与“底座能力不存在”混淆，已用真实运行收窄/撤回；既有 reviewing 规则已要求逐条核实，无需再加重复规范。报告保持只追加。
+
+最终有效发现：1–11（见“最终裁定与有效索引”）；阻断 0，重要 11，建议 0。
+
