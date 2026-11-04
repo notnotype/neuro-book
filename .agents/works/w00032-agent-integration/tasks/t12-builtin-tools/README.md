@@ -98,10 +98,16 @@ t08 之后重新对齐需求：
 
 这次改动牵涉已接受的 [项目文件底座提案](../../../../../docs/proposals/project-file-foundation.md)（“读写都经文件服务”）、`workspace/resources.md` 与 t08 刚做完的服务端文件服务，定稿后要写提案或追加决策记录。t12 的计划在这之后再定。
 
+## 第二轮设计审查后的决定（开发者 2026-11-04）
+
+24. 搜索不进根下面的目录链接，搜索根本身可以是链接：Claude Code、omp、opencode、Gemini CLI 的搜索工具都不跟随，以后要跟随只是新增行为（[处理](evidences/design-review-r2-disposition.md)）。
+25. 不合法的正则不报错，按原生行为按字面搜或得到零条，写进工具说明；不设 `invalid-pattern`。
+26. `edit` 不新建文件，目标不存在报 `not-found` 并提示用 `write`。
+
 ## 当前状态
 
-t26（写入接口）已于 2026-11-03 合入 master。开发者 2026-11-04 确认第三稿后做了第二轮设计审查（有效 11 条，全部成立，[处理](evidences/design-review-r2-disposition.md)），[plan.md](plan.md) 改为第四稿。待开发者确认：搜索不进根下面的目录链接；不合法的正则按字面搜、不报错；`edit` 不新建文件。
+开发者 2026-11-04 确认 [plan.md](plan.md) 第四稿。切片 0（Spec）写在 master：新建 [`agent/builtin-tools.md`](../../../../../docs/specs/agent/builtin-tools.md)。其余切片在分支 `feat/w00032-t12-builtin-tools` 上实施，没有开发者允许不合并。
 
 ## 下一步
 
-开发者确认第四稿 → 按切片实施（单独的分支，没有开发者允许不合并）。
+按切片实施；收口做真实模型 smoke 与实现审查。

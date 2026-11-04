@@ -173,6 +173,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
 | Agent 的贡献点 | [`agent/contributions.md`](agent/contributions.md) | `nbook.agent` 的 `agent.extensions`、`agent.tools`、`agent.profiles`：声明形状、激活事件、工具集的合成、Profile 目录与用户级 Profile 的打包与重载、提供方停止的影响 |
 | Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口 |
+| Agent 的内置工具 | [`agent/builtin-tools.md`](agent/builtin-tools.md) | `nbook.agent` 交出的 `read`、`write`、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`：参数、输出、上限、失败码、全局地址、`shell` 的地址替换与全文（planned） |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |

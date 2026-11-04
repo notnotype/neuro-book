@@ -68,6 +68,7 @@ owners:
 8. **产品文档**：`docs://builtin/sdk/README.md` 是插件 SDK 的作者文档，其中链接的附表与 Spec 都在 `docs://builtin/sdk/` 下可读；开发时与安装后读到的是同一份生成产物。
 9. **内核的资源接口**：内核的 `resolve` 返回改写后的全局地址（校验不过的原样返回）；`read` 读文本，`not-found` 时为空，其它失败抛出。
 10. **写入接口的会话绑定版（planned）**：写入接口（[`workspace.resources`](../workspace/resources.md) 的“写入接口”）实现后，资源视图是它按会话绑定的版本：方法、参数、结果与失败码都同写入接口，改写与分类照第 1、2 条；只有写与文件操作按第 4 条判权限，读与列出按方案的读授权（读别的会话的 `session.jsonl`、`docs://` 与虚拟根照旧可以）；来源记为该会话；不另有一套方法，原有的列出、读、写、新建、取真实路径随之退役。`call(ctx, {title?, note?})` 交回绑定一次工具调用的门面：来源另带这次调用的条目 id，工具调用的 `signal` 合进每次调用，这次调用里的写入与文件操作自动成一个操作分组，标题缺省为工具 id，工具可以给。
+11. **宿主写全文（planned）**：`artifacts/` 只有宿主能写。工具工厂的 `services.artifacts.save(label, write)` 以宿主身份（来源是 `nbook.agent`，不代表会话）在这个会话的 `artifacts/` 下新建一份全文：文件名由它生成（`<label>-<uuid>.log`），写入函数正常结束即提交，交回全局地址；`label` 只收单段、不含路径分隔符，否则 `invalid-address`。它不收工具调用的取消信号，入口停止时才丢弃。
 
 ## 状态与转换
 
@@ -111,7 +112,7 @@ owners:
 3. 会话换 Profile 后，`profile://` 指向新 Profile，旧 Profile 的笔记变为只读。
 4. 两个状态根并存，各有会话的临时文件；其中一个重启后只清掉自己分区里已归档的会话目录，另一个的文件不变。
 5. 从应用包解出的安装布局中读 `docs://builtin/sdk/README.md`，并跟进其中一条附表与一条 Spec 链接。
-6. （planned）一个测试工具在一次调用里经 `call(ctx)` 写两个文件、删一个文件：浏览器订阅收到的三条事件来源都是该会话、带这次调用的条目 id 与同一个组；经 `session://` 写与经 `sessions://<自己>/home/` 写结果相同；写 `docs://` 仍为 `permission-denied`。
+6. （planned）`services.artifacts` 用同一个 `label` 存两份都成功、互不覆盖；Agent 经资源视图写 `artifacts/` 仍被拒。一个测试工具在一次调用里经 `call(ctx)` 写两个文件、删一个文件：浏览器订阅收到的三条事件来源都是该会话、带这次调用的条目 id 与同一个组；经 `session://` 写与经 `sessions://<自己>/home/` 写结果相同；写 `docs://` 仍为 `permission-denied`。
 
 Smoke：不适用——没有界面；由 `plugins/agent/resources.test.ts` 经真实插件宿主覆盖。
 

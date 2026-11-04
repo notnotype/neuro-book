@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 只有三个贡献点：`agent.extensions`、`agent.tools`、`agent.profiles`。文档、压缩方法、Skill、斜杠命令、`@` 引用与工具渲染器的贡献点由各自的能力定义。
-- 没有内置 Profile 与内置工具；它们以后同样经这三个贡献点交出，没有内部登记表（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
+- 没有内置 Profile；内置工具见 [`agent.builtin-tools`](builtin-tools.md)。它们同样经这三个贡献点交出，没有内部登记表（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 - 工具绑定与 Profile 设置没有界面，只能在设置文件里改。
 - 禁用插件前列出运行中会话的确认，依赖平台的运行期热插拔（[`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。
 - 用户级 Profile 是受信的用户代码，与插件同等信任，不隔离。
@@ -36,10 +36,10 @@ owners:
 | 贡献点 | 形状 | 声明（清单里，不激活就可读） | id |
 |---|---|---|---|
 | `agent.extensions` | 实现 | `{tags?: string[]; dependsOn?: string[]}` | `<插件 id>.<名>` |
-| `agent.tools` | 实现 | 工具声明里可序列化的部分（说明、参数、`providerName?`、`version`、`finish`、`concurrency`、`strict`、`effect` 的固定值）加 `group?: string`、`defaultForAll?: boolean` | `<插件 id>.<名>`，规则同 [`harness/models.md`](../harness/models.md) 的工具 id |
+| `agent.tools` | 实现 | 工具声明里可序列化的部分（说明、参数、`providerName?`、`version`、`finish`、`concurrency`、`strict`、`effect` 的固定值）加 `group?: string`、`defaultForAll?: boolean`、（planned）`customFormat?: {syntax: "lark", definition: string}`（原样转给内核，模型按这份语法写参数） | `<插件 id>.<名>`，规则同 [`harness/models.md`](../harness/models.md) 的工具 id |
 | `agent.profiles` | 实现 | `{name, description, tools: {required: string[]; optional: string[]}}` | `<插件 id>.<名>` |
 
-- 实现：扩展是内核 `defineExtension` 的结果；工具是工厂 `{create(会话上下文): ToolImplementation}`，实现可以给按参数求等级的 `effect` 函数；Profile 是内核 `defineProfile` 的结果。（planned）工厂的第二个参数 `services` 带这个会话的资源视图 `services.resources`，工具经它按资源地址读写（[`agent.resources`](resources.md)）。
+- 实现：扩展是内核 `defineExtension` 的结果；工具是工厂 `{create(会话上下文): ToolImplementation}`，实现可以给按参数求等级的 `effect` 函数；Profile 是内核 `defineProfile` 的结果。（planned）工厂的第二个参数 `services` 带这个会话的资源视图 `services.resources`，工具经它按资源地址读写（[`agent.resources`](resources.md)）；`services.artifacts` 以宿主身份保存大结果的全文（同一 Spec 输出 11）。
 - 激活事件前缀归 `nbook.agent`：`onAgentSession:open`、`onAgentTool:<工具 id>`、`onAgentProfile:<key>`（平台的事件都是“前缀:参数”，`onAgentSession` 的参数固定为 `open`）。提供方入口自己写上这些事件；SDK 的 `agentExtension`、`agentTool`、`agentProfile` 助手连同贡献声明一起给出。
 - 设置项（用户层）：
 

@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 模型目录与凭据的管理：由宿主实现端口（Agent 插件经 `nbook.models`，nb-story 用它自己的解析）。
-- 图片：请求里的图片块与回复里的图片块还没有接上大块内容的读写；请求里有图片时以 `unsupported-content` 失败，回复里的图片块不收。
+- 图片：只有工具消息里的图片接上了（[`harness/runtime.md`](runtime.md) 输出 58–61）；用户与助手消息里有图片时以 `unsupported-content` 失败，回复里的图片块不收。
 - 服务商层看不见的重试不单独审计；用量可能漏计，以 `complete: false` 表示（输出 10）。
 - 流式增量不给扩展、不进日志。
 
