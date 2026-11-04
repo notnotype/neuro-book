@@ -141,6 +141,41 @@ class LineViews {
         return {viewMs, engineMs};
     }
 
+    /** 每条线上一次看得到的变更 id（第三轮 A3 34：旧视图与新视图取并集）。 */
+    private readonly seenIds = new Map<string, ReadonlySet<string>>();
+
+    /**
+     * 第三轮 A3 33、34 之后的更新：不预先判断哪些线受影响，按线树从父到子逐条线比对。
+     * 一条线要更新，当且仅当：变了的变更在它的旧视图或新视图里（挪出、挪进切口都算到），
+     * 或者它（或祖先）带过去的值按值比对变了（补丁、子地址、归纳、核对点、派生的知情都只体现在值上）。
+     * 返回实际更新了的线。
+     */
+    updateByValue(base: EngineInputs, changed: Parameters<IncrementalEngine["update"]>[1]): string[] {
+        for (const lineId of this.engines.keys()) if (!this.seenIds.has(lineId)) this.seenIds.set(lineId, new Set(this.inputs(lineId).world.changes.keys()));
+        (this as {base: EngineInputs}).base = base;
+        const depth = (lineId: string): number => {
+            const parent = this.lines.get(lineId)?.parent;
+            return parent === undefined ? 0 : depth(parent) + 1;
+        };
+        const changedCarries = new Set<string>();
+        const updated: string[] = [];
+        for (const lineId of [...this.engines.keys()].sort((a, b) => depth(a) - depth(b))) {
+            const inputs = this.inputs(lineId);
+            const carry = this.carryOf(inputs, lineId);
+            if (carry !== this.carried.get(lineId)) changedCarries.add(`carry-${lineId}`);
+            this.carried.set(lineId, carry);
+            const before = this.seenIds.get(lineId)!;
+            const now = new Set(inputs.world.changes.keys());
+            this.seenIds.set(lineId, now);
+            const relevant = [...(changed.changes ?? []), ...changedCarries].filter((id) => before.has(id) || now.has(id));
+            const global = (changed.entries?.length ?? 0) > 0 || changed.structural === true;
+            if (relevant.length === 0 && !global && (changed.checks?.length ?? 0) === 0) continue;
+            this.engines.set(lineId, this.engines.get(lineId)!.update(inputs, {...changed, changes: relevant}));
+            updated.push(lineId);
+        }
+        return updated;
+    }
+
     drop(lineId: string): void {
         this.engines.delete(lineId);
     }
@@ -488,5 +523,33 @@ line("## 第三部分：多层分叉、同章切口、切口与触发之间改�
         const got = snapshot(live);
         const stale = [...lines.keys()].filter((lineId) => got.get(lineId) !== fresh.get(lineId));
         line(`- 增量更新 c2，${translateCarry ? "把变了的合成赋值加进看得到它的线的 changed" : "只传原变更 id"}：与从头重建不同的线 ${stale.join("、") || "没有"}`);
+    }
+
+    // 第三轮 A3 33、34：补丁地址判断漏掉的两种情形，比较“预先算受影响的线”与“按值比对”。
+    // 甲：c2 从第 8 章挪到第 9 章（挪过 r1 的触发处），r1 不该再带过去“下午有雨”；再挪回来。
+    // 乙：新增 c9，只改知情列表里一个元素的子字段（程度改成怀疑），地址字符串与带过去的“know.知情”不相等。
+    const moved = new Map(changes);
+    moved.set("c2", {...changes.get("c2")!, at: {kind: "chapter", chapter: "ch9", key: 15}});
+    const c9: StoryChange = change("c9", "ch8", 25, "听说的雨不一定下", [{op: "set", at: {entry: "e1", path: "know.知情[下午有雨].程度"}, value: "怀疑"}]);
+    const added = new Map(changes);
+    added.set("c9", c9);
+    const scenarios: Array<{name: string; from: EngineInputs; to: EngineInputs; id: string}> = [
+        {name: "甲：c2 挪过触发处", from: base, to: {...base, world: {...base.world, version: 22, changes: moved}}, id: "c2"},
+        {name: "甲：c2 挪回来", from: {...base, world: {...base.world, version: 22, changes: moved}}, to: {...base, world: {...base.world, version: 23}}, id: "c2"},
+        {name: "乙：新增 c9 改元素子字段", from: base, to: {...base, world: {...base.world, version: 24, changes: added, createdAt: new Map([...createdAt, ["c9", 13]])}}, id: "c9"},
+        {name: "丙：只改 r2 上的 c6（不该多更新）", from: base, to: {...base, world: {...base.world, version: 25, changes: new Map([...changes, ["c6", {...changes.get("c6")!, patches: [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: -30}]}]])}}, id: "c6"},
+    ];
+    for (const scenario of scenarios) {
+        const fresh = snapshot(new LineViews(scenario.to, lines, lineOf));
+        const predicted = new LineViews(scenario.from, lines, lineOf);
+        for (const lineId of lines.keys()) predicted.engine(lineId);
+        const claimed = new LineViews(scenario.to, lines, lineOf).affected(scenario.id);
+        predicted.update(scenario.to, {changes: [scenario.id]}, new Set(claimed));
+        const staleA = [...lines.keys()].filter((lineId) => snapshot(predicted).get(lineId) !== fresh.get(lineId));
+        const byValue = new LineViews(scenario.from, lines, lineOf);
+        for (const lineId of lines.keys()) byValue.engine(lineId);
+        const updated = byValue.updateByValue(scenario.to, {changes: [scenario.id]});
+        const staleB = [...lines.keys()].filter((lineId) => snapshot(byValue).get(lineId) !== fresh.get(lineId));
+        line(`- ${scenario.name}：预先算受影响的线（${claimed.join("、")}）后与从头重建不同的线 ${staleA.join("、") || "没有"}；按值比对更新了 ${updated.join("、") || "没有"}，不同的线 ${staleB.join("、") || "没有"}`);
     }
 }
