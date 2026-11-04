@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t27-run-reliability
-status: planned
+status: active
 updated: 2026-11-04
 ---
 
