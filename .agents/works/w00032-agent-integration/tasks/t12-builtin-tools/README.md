@@ -104,6 +104,13 @@ t08 之后重新对齐需求：
 25. 不合法的正则不报错，按原生行为按字面搜或得到零条，写进工具说明；不设 `invalid-pattern`。
 26. `edit` 不新建文件，目标不存在报 `not-found` 并提示用 `write`。
 
+## 对照 omp 后的决定（开发者 2026-11-04）
+
+27. 图片压缩照 omp：PNG、JPEG、WebP 取最小（有透明的不用 JPEG），目标 500 KiB，够小不重新编码，质量与尺寸逐级降；小于 200 像素的放大。本地后端解不了 WebP，适配器发送前转 PNG。用户上传“发送原图”暂时不做。
+28. `edit` 的模糊匹配阈值用 omp 的 0.95（原先照旧 harness 写的 0.8）。
+29. `shell` 输出照 omp 保留头尾各 20 KB、各 500 行，单行上限 768 字节；多出的只在全文里。
+30. 重试、卡死超时、循环检测、费用上限开 [t27](../t27-run-reliability/README.md)，排在 t18 之前；提示词缓存、会话清理在它之后。
+
 ## 当前状态
 
 切片 0–7 都已完成：Spec 在 master，其余在分支 `feat/w00032-t12-builtin-tools`（worktree `.worktree/w00032-t12-builtin-tools`），没有开发者允许不合并。[收口验证](evidences/closing-verification.txt)通过，真实模型 smoke（DeepSeek）通过。实现审查（omp）进行中。

@@ -91,6 +91,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t25](tasks/t25-plugin-marketplace/README.md) | 插件市场：索引、来源、版本与更新、信任；Skill 经插件分发 | t10、t15 |
 | [t16](tasks/t16-command-bridge/README.md) | Agent 操控 NeuroBook 与 `nbook project` 子命令 | t06、t10 |
 | [t17](tasks/t17-conversation-ui/README.md) | 对话界面：Composer、状态栏、待处理区（并入 w00019 t11） | t06、t07、t09、t10；w00028 t03 合入 |
+| [t27](tasks/t27-run-reliability/README.md) | 运行可靠性：模型请求重试、卡死超时、循环检测与费用上限（对照 omp 的设置项，排在 t18 之前） | t12 |
 | [t18](tasks/t18-builtin-profiles/README.md) | 内置 Profile、提示词规范与评测 | t05、t12、t15 |
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），搁置 | t04、t12 |
@@ -114,6 +115,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 
 ## 后续（本 Work 不做）
 
+- 提示词缓存的保留时长与预热（omp 的 `providers.cacheRetention`、`cacheWarming`）、旧会话与大块内容的清理（`gc.*`）：t27 之后再定（t12，2026-11-04）。
 - 网页工具插件（`web_fetch`、`web_search`）与网页搜索：另开 Work（t12，2026-10-28）。
 - MCP 插件：另开 [w00036](../w00036-mcp/README.md)（t19，2026-10-30）。
 - 插件分发与官方网站：另开 [w00038](../w00038-plugin-distribution/README.md)、[w00037](../w00037-official-site/README.md)（t25，2026-10-30）。
