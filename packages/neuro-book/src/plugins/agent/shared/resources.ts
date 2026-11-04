@@ -3,7 +3,7 @@
  * `nbook.agent` 按内核给的会话上下文构造，不经共享服务交出。这里只有类型，不拖实现。
  */
 
-import type {ServerFilesResult, WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
+import type {ServerFilesResult, StagedSink, WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 
 /** 地址的分类（输出 2）：算不算作品内容；Agent 写它是放行、要询问还是拒绝。审批按它判断。 */
 export interface ResourceClass {
@@ -41,7 +41,17 @@ export interface SessionResources extends SessionCalls {
     call(call: ToolCall, info?: {readonly title?: string; readonly note?: string}): SessionCalls;
 }
 
+/** 宿主保存大结果的全文（输出 11）：`artifacts/` 只有宿主能写，资源视图代表会话，写不了。 */
+export interface SessionArtifacts {
+    /**
+     * 在这个会话的 `artifacts/` 下新建一份：文件名由这里生成（`<label>-<uuid>.log`），写入函数正常结束即提交，交回全局地址。
+     * `label` 只收单段、不含路径分隔符。不收工具调用的取消信号：工具被中止后已收到的内容照样保存，入口停止时才丢弃。
+     */
+    save(label: string, write: (sink: StagedSink) => Promise<void>): Promise<ServerFilesResult<{readonly address: string}>>;
+}
+
 /** 工具工厂的第二个参数（docs/specs/agent/contributions.md）。 */
 export interface AgentToolServices {
     readonly resources: SessionResources;
+    readonly artifacts: SessionArtifacts;
 }
