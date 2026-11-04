@@ -271,6 +271,25 @@ describe("输出 67：压缩、审批与 complete", () => {
         expect(verdict).toBe("通过");
     });
 
+    test("审批请求等重发时中止：不再发，这次失败只写一条", async () => {
+        const approve: ApproveHook = async (_call, _info, ctx) => {
+            await ctx.model({system: [], messages: [], params: {}, headers: {}, tools: []}, {purpose: "approval"});
+            return {verdict: "allow", by: "test"};
+        };
+        await using session = await createTestSession({retry: retry(), approve, tools: [{id: "lab.step", execute: () => "好"}]});
+        session.model.script({tools: [{tool: "lab.step"}]}, network, "不该发到这里");
+        const runId = await start(session, "问");
+        await session.clock.advance(0);
+        expect(session.model.requests).toHaveLength(2);
+        await session.raw.abort({commandId: id()});
+        await finish(session, runId);
+        expect(session.model.requests).toHaveLength(2);
+        const events = await logEvents(session);
+        expect(dataOf<{request: number}>(events, "modelStarted")).toHaveLength(2);
+        const failed = dataOf<{request: number}>(events, "modelFailed").map((item) => item.request);
+        expect(new Set(failed).size).toBe(failed.length);
+    });
+
     test("等审批时重发：waiting 不被盖掉", async () => {
         // 审批钩子里的请求失败重发时，另一个调用已经在等用户：状态仍是 waiting。
         const asked = {resolve: (_value: unknown) => undefined as void};
