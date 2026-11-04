@@ -33,7 +33,7 @@ export type ProfileSetting = Static<typeof ProfileSettingSchema>;
 
 export const RUN_GUARDS_SECTION = "nbook.agent.reliability";
 export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration = {
-    description: agentText("settingsSections.nbook.agent.reliability.description"),
+    description: agentText("settingsSections.reliability.description"),
     icon: "i-lucide-shield-check",
     category: "ai",
     order: 30,

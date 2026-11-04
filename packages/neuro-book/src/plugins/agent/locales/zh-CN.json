@@ -26,19 +26,15 @@
         }
     },
     "settingsSections": {
-        "nbook": {
-            "agent": {
-                "reliability": {
-                    "title": "运行可靠性",
-                    "description": "模型请求失败时的重试、卡死超时、费用与重复调用的保护",
-                    "groups": {
-                        "requests": {
-                            "title": "模型请求"
-                        },
-                        "guards": {
-                            "title": "保护"
-                        }
-                    }
+        "reliability": {
+            "title": "运行可靠性",
+            "description": "模型请求失败时的重试、卡死超时、费用与重复调用的保护",
+            "groups": {
+                "requests": {
+                    "title": "模型请求"
+                },
+                "guards": {
+                    "title": "保护"
                 }
             }
         }

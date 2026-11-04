@@ -26,19 +26,15 @@
         }
     },
     "settingsSections": {
-        "nbook": {
-            "agent": {
-                "reliability": {
-                    "title": "Run reliability",
-                    "description": "Retries for failed model requests, stall timeouts, and guards for cost and repeated calls",
-                    "groups": {
-                        "requests": {
-                            "title": "Model requests"
-                        },
-                        "guards": {
-                            "title": "Guards"
-                        }
-                    }
+        "reliability": {
+            "title": "Run reliability",
+            "description": "Retries for failed model requests, stall timeouts, and guards for cost and repeated calls",
+            "groups": {
+                "requests": {
+                    "title": "Model requests"
+                },
+                "guards": {
+                    "title": "Guards"
                 }
             }
         }
