@@ -11,7 +11,7 @@ import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.j
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
-import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
+import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 import type {LogStore, StorageResult} from "./storage.js";
@@ -134,6 +134,8 @@ export interface SessionSnapshot {
     profile: {id: string; hash: string};
     extensions: ExtensionInfo[];
     status: RunStatus;
+    /** 这个会话累计的费用。 */
+    usage: Spend;
     buffer: BufferedInput[];
     settings: CoreSettings;
     title: string | null;

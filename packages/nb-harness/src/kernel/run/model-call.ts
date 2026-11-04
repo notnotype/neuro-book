@@ -68,12 +68,20 @@ export const isResponse = (value: unknown): value is ModelResponse => {
     return typeof response === "object" && response !== null && Array.isArray(response.content) && Array.isArray(response.toolCalls) && typeof response.stopReason === "string" && typeof response.usage === "object" && typeof response.model === "string";
 };
 
+/** 非对话的请求（以及一层调两次 `next` 时前一次）的结算：对话请求的回复由运行循环写成 `assistant`。 */
+function settlement(request: number, purpose: RequestPurpose, response: ModelResponse): EventDraft {
+    if (response.stopReason === "error" || response.stopReason === "aborted") return ctrl("modelFailed", {request, kind: response.stopReason === "aborted" ? "aborted" : (response.error?.kind ?? "provider"), ...(response.error?.code === undefined ? {} : {code: response.error.code}), usage: response.usage});
+    return ctrl("modelEnded", {request, purpose, stopReason: response.stopReason, usage: response.usage, model: response.model});
+}
+
 export async function callModel(host: ModelCallHost, resolution: Extract<ModelResolution, {ok: true}>, request: ModelRequest, signal: AbortSignal): Promise<ModelCallOutcome> {
     const {core} = host;
     const modifiedBy: {extension: string; fields: string[]}[] = [];
     let lastRequest: number | null = null;
     const environment = host.environment(resolution.info);
     const state = core.stateAt();
+    /** 一层调两次 `next` 时上一次的结果：它的用量没有别的地方记（docs/specs/harness/runtime.md 输出 71）。 */
+    let previous: {readonly number: number; readonly purpose: RequestPurpose; readonly response: ModelResponse} | null = null;
     const outcome = await runChain<ModelRequest, ModelResponse>({
         core,
         method: "model",
@@ -91,16 +99,19 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             if (fields.length > 0) modifiedBy.push({extension: item.definition.id, fields});
         },
         terminal: async (final) => {
-            const number = core.requestCounter + 1;
+            if (previous !== null) await host.write([settlement(previous.number, previous.purpose, previous.response)]);
+            const number = core.reserveRequest();
             await host.write([ctrl("modelStarted", {request: number, purpose: final.purpose, model: final.model, hash: requestHash(final), now: core.clock.now(), invocation: core.newId(), modifiedBy: modifiedBy.map((item) => ({...item}))})]);
             lastRequest = number;
             // 只有对话请求让运行进入 streaming：压缩与审批模型的请求流式时，运行状态仍是 compacting、tools。
             if (final.purpose === "turn") host.streaming?.(number);
             let deltaNumber = 0;
-            return resolution.call(final, signal, (delta) => {
+            const response = await resolution.call(final, signal, (delta) => {
                 deltaNumber += 1;
                 core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId})});
             });
+            previous = {number, purpose: final.purpose, response};
+            return response;
         },
         // 之前出错跳过这一层；之后出错用里层的回复（模型已经回复、花了钱，不丢）。
         onFailure: () => ({kind: "skip"}),
@@ -109,7 +120,7 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             return returned;
         },
     });
-    return {response: outcome.value, request: lastRequest ?? core.requestCounter + 1, failures: outcome.failures};
+    return {response: outcome.value, request: lastRequest ?? core.reserveRequest(), failures: outcome.failures};
 }
 
 /**
@@ -126,13 +137,7 @@ export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpo
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
         const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};
         const {response, request: number, failures} = await callModel(host, resolution, request, signal);
-        const failed = response.stopReason === "error" || response.stopReason === "aborted";
-        await host.write([
-            ...failureDrafts(host.core, "intercept.model", failures),
-            failed
-                ? ctrl("modelFailed", {request: number, kind: response.stopReason === "aborted" ? "aborted" : (response.error?.kind ?? "provider"), ...(response.error?.code === undefined ? {} : {code: response.error.code}), usage: response.usage})
-                : ctrl("modelEnded", {request: number, purpose: options.purpose, stopReason: response.stopReason, usage: response.usage, model: response.model}),
-        ]);
+        await host.write([...failureDrafts(host.core, "intercept.model", failures), settlement(number, options.purpose, response)]);
         return response;
     };
 }

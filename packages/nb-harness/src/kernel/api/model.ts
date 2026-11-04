@@ -15,6 +15,12 @@ export type StopReason = "stop" | "length" | "tool" | "error" | "aborted";
 /** 服务商报错的类别（照 master 的 `classifyProviderError`：按状态码与 OMP 错误标记，不看文字）。 */
 export type ModelErrorKind = "network" | "rate_limit" | "auth" | "quota" | "context_overflow" | "provider" | "local";
 
+/** 一个会话累计的费用（docs/specs/harness/runtime.md 输出 70）。`unpriced`：单价未知、没算进 `cost` 的请求数。 */
+export interface Spend {
+    readonly cost: number;
+    readonly unpriced: number;
+}
+
 /** OMP `Usage` 的全部计数。用量是下界：`complete` 为 false 表示取消过或可能漏计了服务商层的重试。 */
 export interface Usage {
     readonly input: number;

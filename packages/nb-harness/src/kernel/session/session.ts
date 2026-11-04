@@ -299,6 +299,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 profile: {id: core.assembly.profile.id, hash: core.assembly.hash},
                 extensions: core.assembly.order.filter((item) => item.role !== "profile").map((item) => ({id: item.definition.id, plugin: item.plugin, version: item.version, status: core.revoked.has(item.definition.id) ? "revoked" : core.failedExtensions.has(item.definition.id) ? "failed" : "active", tags: item.definition.tags ?? []})),
                 status: control.status,
+                usage: core.spend,
                 buffer: [...kernel.buffer],
                 settings: kernel.core,
                 title: kernel.title,
