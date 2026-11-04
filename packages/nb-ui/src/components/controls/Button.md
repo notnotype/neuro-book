@@ -8,7 +8,7 @@
 
 ## 布局
 
-按钮是 `inline-flex`，内容水平居中并保持单行。`sm`、`md`、`lg` 的高度取主题的 `--control-h-sm`、`--control-h-md`、`--control-h-lg`，字号取 `--text-xs`、`--text-sm`、`--text-md`；按钮内的图标和文字按间距排列。`block` 为 `true` 时按钮占满父容器宽度，否则宽度由插槽和图标内容决定。内容变长时按钮不会换行，父级负责提供可用宽度；组件自身不提供横向滚动。
+按钮是 `inline-flex`，内容水平居中并保持单行。`sm`、`md`、`lg` 的高度取主题的 `--control-h-sm`、`--control-h-md`、`--control-h-lg`，字号取 `--text-xs`、`--text-sm`、`--text-md`；按钮内的图标和文字按间距排列。圆角随尺寸取 6、8、10px，与同档的 `IconButton` 一致。按钮带 1px 透明边框，边框占位，各变体与状态之间尺寸不抖动。`block` 为 `true` 时按钮占满父容器宽度，否则宽度由插槽和图标内容决定。内容变长时按钮不会换行，父级负责提供可用宽度；组件自身不提供横向滚动。
 
 在 `390×844` 的窄屏中，按钮仍保持所选尺寸和单行结构；需要全宽操作时使用 `block`，不要依赖按钮自动换行。
 
@@ -16,6 +16,10 @@
 
 - 点击按原生按钮语义触发；`type` 决定它是普通按钮、提交按钮还是重置按钮。
 - `variant` 只改变材质与语义颜色：`primary` 为主操作，`secondary` 为次操作，`subtle` 为低强调操作，`danger` 为危险操作，`ghost` 为透明背景操作。
+  - `primary` 是 `--accent-main` 实底配 `--text-inverse` 文字，悬停加深并带同色柔晕。`danger` 同理，取 `--status-danger`。
+  - `secondary` 常态是 `--text-main` 的淡色半透明底，没有边框；悬停与按下底色依次加深，悬停带柔晕。
+  - `subtle` 常态是更淡的半透明底，`ghost` 常态透明；两者悬停时淡入底板、文字转 `--text-main`。
+- 按下时整体缩小到 0.975。`disabled` 或 `loading` 时不缩放，也不显示悬停阴影。
 - `loading` 显示旋转加载图标，并把按钮置为原生 disabled；加载时不显示 `iconClass` 图标，也不接受点击。加载时根节点带 `aria-busy="true"`。
 - `disabled` 或 `loading` 时显示禁用样式、不可聚焦操作；两者都为假时保留可见焦点环和按下反馈。焦点缺省画外扩光晕；`focusRing="inset"` 时画内嵌焦点线，给填满所在的条、四周没有余地的按钮用（例如状态栏条目）。
 - 键盘行为由原生 `<button>` 提供：聚焦后可用 Enter 或 Space 触发。组件出现或消失不主动移动焦点。
