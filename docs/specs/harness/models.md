@@ -18,6 +18,8 @@ owners:
 - 模型目录与凭据的管理：由宿主实现端口（Agent 插件经 `nbook.models`，nb-story 用它自己的解析）。
 - 图片：只有工具消息里的图片接上了（[`harness/runtime.md`](runtime.md) 输出 58–61）；用户与助手消息里有图片时以 `unsupported-content` 失败，回复里的图片块不收。
 - 服务商层看不见的重试不单独审计；用量可能漏计，以 `complete: false` 表示（输出 10）。
+- 关掉服务商层的 HTTP 重试：只有 `openai-completions` 认 `maxHttpAttempts`；`openai-responses` 缺省 6 次、`anthropic-messages` 11 次，关不掉，与内核的重发（[`harness/runtime.md`](runtime.md) 输出 62）叠加。
+- 请求全文完全不落盘：`anthropic-messages` 内部 400 恢复成功时，`pi-ai` 写的文件没有路径交回，留到它自己清理（7 天）；目录 `~/.omp/logs/http-400-requests/` 仍可能被建出来。
 - 流式增量不给扩展、不进日志。
 
 ## 术语与参与者
@@ -56,8 +58,8 @@ ompModelInfo(model: Model): ModelInfo;
 
 ## 输出与可观察行为
 
-1. `call` 对服务商的失败不抛错：交回 `stopReason: "error"` 的回复，带 `error: {kind, code?, status?, message}` 与已产生的部分内容；用户中止交回 `stopReason: "aborted"`。
-2. 失败的类别按状态码与 OMP 的错误标记归，不看错误文字，按顺序取第一个符合的：额度用尽标记或 402 → `quota`；鉴权失败标记、401、403 → `auth`；429 → `rate_limit`；上下文溢出标记 → `context_overflow`；内容拦截或服务商终态错误标记 → `provider`；网关类状态码（408、502、503、504、520–524）、超时标记、没有状态码而带瞬时故障标记 → `network`；其余 → `provider`。
+1. `call` 对服务商的失败不抛错：交回 `stopReason: "error"` 的回复，带 `error: {kind, code?, status?, message, retryable?, retryAfterMs?}` 与已产生的部分内容；用户中止交回 `stopReason: "aborted"`。
+2. 失败的类别按状态码与 OMP 的错误标记归，不看错误文字，按顺序取第一个符合的（OMP 把正文没有信息的 429 也标成额度用尽）：额度用尽标记或 402 → `quota`；鉴权失败标记、401、403 → `auth`；429 → `rate_limit`；上下文溢出标记 → `context_overflow`；内容拦截或服务商终态错误标记 → `provider`；网关类状态码（408、502、503、504、520–524）、超时标记、没有状态码而带瞬时故障标记 → `network`；其余 → `provider`。
 3. 密钥取不到（`apiKey` 抛错或 reject）时不发请求，以 `auth`、码 `missing-key` 失败。解析时有凭据、请求前凭据没了，就是这一条：模型请求已经开始，按普通的模型失败收口（端口的 `no-credentials` 只在解析时报）。
 4. 错误文字里出现的密钥与 `headers` 里不短于 8 个字符的值换成固定的遮盖文字 `[REDACTED]`；“端点不要认证”的占位值不算密钥。错误文字另去掉控制字符（换行与制表符留下）、遮掉网址里的用户信息与查询串，截到 8 KB 并在末尾写明截过。
 5. 请求里相邻的 user 消息合成一条发出，文字块之间空一行；同一条消息里相邻的文字块同样合并。会话日志里它们仍是分开的。
@@ -72,6 +74,9 @@ ompModelInfo(model: Model): ModelInfo;
 14. `ompModelInfo` 给出 `<服务商>/<模型>` 的 id、上下文窗口、最大输出、是否收图片与思考、支持的推理档。
 15. `target.headers` 随每个请求发出，在请求自己的 `headers` 之前（同名时请求的赢）。
 16. 端口解析失败的码由调用方原样交回：`send`、`start` 的受理失败，`complete()` 的失败，预览的 `PreviewUnavailable`；`ctx.model`（压缩方法、审批钩子）解析失败时不写模型事件，码在交回的回复的 `error.code`（[`runtime.md`](runtime.md) 输出 5）。`role-unbound`：调用要的角色没有绑定模型，宿主不回落到别的模型。
+17. `retryable` 取 OMP 对错误标记的判断（`AIError.retriable`），只有模型重复循环例外：它不重发，码 `thinking-loop`。建流时抛错、没有错误标记的失败不给 `retryable`。`retryAfterMs` 是服务商要求的等待时间，从 OMP 的错误文字里用它自己的函数取。
+18. `target.transport` 给了时：`firstEventTimeoutMs` 由适配器自己计时，收到第一个内容事件前到时交回 `network`、码 `first-event-timeout`、`retryable` 为真，0 表示不计时，OMP 那一层的第一事件超时总是关掉（否则 `anthropic-messages` 会把超时再重试 10 次）；`idleTimeoutMs` 原样传给 OMP，0 表示不计时；`maxHttpAttempts` 原样传；并关掉 OMP 的空回复重试。不给 `transport` 时这些都按 OMP 的缺省。
+19. 错误文字里 OMP 写的落盘诊断行（请求全文的路径）在交回前去掉，不论它在文字的哪个位置；路径交给 `target.onRequestDump`。`buildResolution` 的实现删掉 `http-400-requests` 目录下的这个文件，文件已经没了算达成，其它删除失败写进错误文字末尾。
 
 ## 状态与转换
 
@@ -87,6 +92,8 @@ ompModelInfo(model: Model): ModelInfo;
 |---|---|---|
 | `missing-key` | 密钥取不到 | 让用户设置宿主指定的变量 |
 | `unsupported-content` | 请求里有适配器不支持的内容 | 去掉该内容或换模型 |
+| `first-event-timeout` | 等第一个事件超时 | 内核重发；一直这样时调大超时 |
+| `thinking-loop` | 模型陷入重复循环 | 不重发；换说法或换模型再试 |
 | `no-model`、`no-credentials`、`unknown-model` | 端口解析不到模型或凭据 | 让用户在设置里选模型、配凭据 |
 | `role-unbound` | 要的角色没有绑定模型 | 让用户在模型角色里绑定 |
 

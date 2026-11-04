@@ -18,7 +18,8 @@ owners:
 不承诺：
 
 - 运行中途换模型：模型按每次请求时的核心设置解析。
-- 自动重试服务商的失败：失败以 `modelFailed` 收口，是否重来由用户或扩展决定。
+- 换模型回退、等额度恢复：可重发的失败只在同一个模型上重发（输出 62–69）。
+- 费用门：内核只累计（输出 70），告警与上限由扩展做（[`agent.run-guards`](../agent/run-guards.md)）。
 
 ## 术语与参与者
 
@@ -38,9 +39,9 @@ owners:
 3. `enqueue` 只写 `inputQueued` 与 `commandAccepted`，成功值带它在缓冲区里的位置。
 4. `start`：有运行在进行时失败 `already-running`；缓冲区不空时取走第一条开一轮；缓冲区空、且还没有轮或最后一轮已正常结束时失败 `nothing-to-continue`；否则开一次没有新输入的“继续”运行（`turnStarted.inputId` 为 null）。
 5. 会开始运行的指令在开始前就能判定的失败是指令失败、不写日志：会话只读得 `read-only`；模型端口解析失败时得它的码，原样交回（`no-model`、`no-credentials`、`unknown-model`、`role-unbound`，见 [`models.md`](models.md) 输出 16）。解析时带会话当前的 Profile（换 Profile 之后是新的）。
-6. 每次模型请求之前写 `modelStarted{request, purpose: "turn", model, hash, now, invocation, modifiedBy}`；`request` 在一个会话里单调增加。回复写成 `assistant`（内容块、工具调用、停止原因、用量、作答的模型），失败写成 `modelFailed`。
+6. 每次模型请求之前写 `modelStarted{request, purpose: "turn", model, hash, now, invocation, modifiedBy}`；`request` 在一个会话里单调增加，可能有空洞（并发的请求各占一个，被拦下的回复也占一个）。回复写成 `assistant`（内容块、工具调用、停止原因、用量、作答的模型），失败写成 `modelFailed`。
 7. 回复里没有工具调用：写 `turnEnded{completed}`；缓冲区里有 `followup` 时，同一个写入批里取走最早的一条开下一轮（`inputConsumed`、`turnStarted`、`input`），同一次运行接着请求；没有时写 `runEnded{completed}`。
-8. 模型失败：写 `modelFailed{kind}`（类别见 [`harness/models.md`](models.md) 输出 2），模型端口交回的部分内容与用量记在 `partial`、`usage`；之后 `turnEnded{error}`、`runEnded{reason: "error", error: {kind, code?}}`。
+8. 模型失败：写 `modelFailed{kind}`（类别见 [`harness/models.md`](models.md) 输出 2），模型端口交回的部分内容与用量记在 `partial`、`usage`；不再重发时（输出 62）之后 `turnEnded{error}`、`runEnded{reason: "error", error: {kind, code?}}`。
 9. `abort` 触发当前运行的中止；模型请求以 `modelFailed{kind: "aborted"}` 收口，之后 `turnEnded{aborted}`、`runEnded{aborted}`。中止之后在注入的时钟上等宽限期 `ABORT_GRACE_MS`（同输出 25）让模型端口交回，交回的半截回复与用量记在 `partial`、`usage`（界面已经推出去的文字刷新后还在）；宽限期过了仍没交回只写 `kind`。没有运行时成功值为 `{aborted: false}`，不写日志。
 10. Profile 的 `prompt`、`system` 或 `turn` 抛错时这次请求算不出来：写 `extensionFailed{entry}`，运行以 `error`、码 `profile-failed` 收口。
 11. 对话事件写入时，内核按当时的轮盖位置章：进行中的轮还没有回复时是这一轮的附带内容，有了回复是最后一步之后，没有进行中的轮是“等下一轮”。回复与工具结果不盖章。
@@ -119,6 +120,22 @@ owners:
 60. 图片的 token 估算（输出 46 与 `preview()`）：每张按 宽 × 高 / 750、至多 1,600 计，没有尺寸时 1,600，不按 base64 的长度算。
 61. 模型不支持图片输入时，适配器把工具消息的图片换成一行文字（格式、尺寸、“当前模型不能看图”）。本地推理后端（Ollama、llama.cpp、LM Studio 与本机回环地址上的服务）解不了 WebP，适配器发送前转成 PNG（PNG 超过 4 MiB 时转 JPEG），转不了时同样换成一行文字。
 
+重发：
+
+62. 宿主给了 `SessionEnv.retry` 时，失败的模型请求可以重发。回复的 `error.retryable` 为真、这次运行里连续重发的次数没到 `maxRetries` 时重发；否则按输出 8 收口。不给 `retry` 或 `maxRetries` 是 0 时不重发。策略每次失败时现读。连续重发的次数在写下一条回复后清零，不随重开保留。
+63. 等待时间：退避从 500 毫秒翻倍、至多 8 秒；服务商要求了等待时间（`error.retryAfterMs`）时取两者较大的；服务商要求超过 5 分钟时不重发。在注入的时钟上等。
+64. 每次重发前写 `modelFailed{..., retry: {attempt, max, delayMs}}`。带 `retry` 的失败表示这次运行还要接着发，它的半截内容不进请求；`runResult` 累加它的用量，但错误文字不取它。
+65. 等待期间运行状态是 `running`，带 `retry: {attempt, max, resumeAt}`（`resumeAt` 是注入时钟上的毫秒），下一次请求开始后去掉。压缩与审批请求重发时 `phase` 不变。
+66. 对话请求的重发回到运行循环的边界：等待结束后取走等待期间到达的 steer、处理受理的 `compact`、按当前设置解析模型、重新算请求、走完整的模型拦截链。等待不提前结束。
+67. 压缩与审批的请求（`ctx.model`）同样重发，每次重新进模型拦截链；重发用完后才把失败回复交给调用方。`complete()` 同样重发，不写事件。
+68. 等待时中止：不再发，按输出 9 收口；那次失败只有一条 `modelFailed`。
+69. 空回复：对话请求的回复没有工具调用、没有非空白文字，且停止原因是 `stop`、`tool`，或是 `length` 而内容完全为空时算空回复（只有思考块也算）。不写 `assistant`，写 `modelFailed{kind: "provider", code: "empty-reply", usage, partial, retry}` 与一条 `continued{by: "core"}` 的提醒，按输出 63 的退避再发，至多 3 次、也不超过 `maxRetries`；用完后运行以 `error`、码 `empty-reply` 收口。
+
+累计：
+
+70. `SessionCore` 按日志里全部 `assistant`、`modelEnded`、`modelFailed` 的 `usage` 累计会话的费用，不分分支：`cost` 是数字就累加，是 null 就给 `unpriced` 加一。回退不减，重开后还在，日志更早的会话打开时一样算出来；fork 把复制来的路径上的用量算进新会话。快照的 `usage` 是 `{cost, unpriced}`，处理函数与拦截经 `ctx.spend` 读（[`harness/extensions.md`](extensions.md) 输出 30）。
+71. 一层调用两次 `next`：再次走到最里层时，先给上一次发出的请求写 `modelEnded`，它的用量不丢。
+
 ## 状态与转换
 
 | 运行状态 | 事件 | 下一状态 |
@@ -153,7 +170,7 @@ owners:
 | `command-id-conflict` | 同一个 `commandId` 带了别的指令或参数（[`harness/session.md`](session.md) 输出 17） | 每条指令用新的 `commandId`；重发才用原来的 |
 | `input-rejected` | 输入拦截拒绝了这条输入；`detail` 带 `code`、`params` 与拒绝者 `by` | 按拒绝的码提示用户 |
 
-运行以 `error` 结束时 `runEnded.error.code` 的内核码见 `runErrorCodes`（`profile-failed`、`tools-missing`、`result-missing`、`no-model`、`internal` 等）；内核造的工具结果的码见 `toolResultCodes`。
+运行以 `error` 结束时 `runEnded.error.code` 的内核码见 `runErrorCodes`（`profile-failed`、`tools-missing`、`result-missing`、`no-model`、`empty-reply`、`internal` 等）；内核造的工具结果的码见 `toolResultCodes`。
 
 ## 边界与兼容
 
