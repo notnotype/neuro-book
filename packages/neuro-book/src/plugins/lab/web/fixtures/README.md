@@ -18,6 +18,7 @@ Lab 的舞台容器（`ViewportCanvas`）直接充当被测组件的外部视口
   - ❌ **严禁嵌套假外壳**：严禁在 Fixture 内写 `h-[700px] max-w-[480px] rounded-xl border bg-panel shadow-lg`；
   - ❌ **严禁外层多余内边距**：严禁在根容器写 `flex items-center justify-center p-6`；
   - ❌ **严禁组件内部手写手机断点**：严禁写 `currentScene === 'phone' ? 'max-w-[390px]' : ''`；
+- **材质分层**：背景消费语义材质变量（`var(--panel-surface)`、`var(--bg-panel)` 等），不在 fixture 容器硬编码页面底色 `var(--bg-main)`，否则 Lab 面板层的材质与暗色主题的对比度对不上。
 - **自适应测试方法**：
   - 观察极窄屏幕：点击顶栏「手机 (390×844)」预设；
   - 观察平板屏幕：点击顶栏「平板 (768×1024)」预设；

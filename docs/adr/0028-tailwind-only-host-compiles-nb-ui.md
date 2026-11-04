@@ -10,7 +10,7 @@ superseded-by: null
 - 日期：2026-10-20
 - 决策者：开发者
 - 关联工作：[w00030 t02](../../.agents/works/w00030-nb-ui-library-structure/tasks/t02-tailwind-unify/README.md)
-- 相关文档：[`packages/nb-ui/src/tailwind.css`](../../packages/nb-ui/src/tailwind.css) 的头注释（宿主写法）、[`packages/nb-ui/README.md`](../../packages/nb-ui/README.md#styles-in-the-host-app)、[`docs/standards/code/frontend.md`](../standards/code/frontend.md)
+- 相关文档：[`packages/nb-ui/src/tailwind.css`](../../packages/nb-ui/src/tailwind.css) 的头注释（宿主写法）、[`packages/nb-ui/README.md`](../../packages/nb-ui/README.md#宿主里的样式)、[`docs/standards/code/frontend.md`](../standards/code/frontend.md)
 - 部分取代：[ADR 0023](0023-v2-frontend-backend-stack.md) 决策 2 中的 UnoCSS；0023 的其余决定不变
 
 ## 背景

@@ -6,11 +6,13 @@
 
 `SegmentedControl` 用紧凑的互斥选项在少量固定模式之间切换，例如列表/网格或显示范围。它将当前选项表现为一组 radio 按钮，并以滑动指示块强调选中项；它不承载对应的内容面板。
 
-`SegmentedControl` 换模式：内容还是同一份，换个看法；也用于表单里三项以内、选项没有说明的单选。换去处用 `Tabs`，带说明或要竖排的单选用 `RadioGroup`；其余见[同类零件的分工](../../../docs/ui-development-spec.md#45-同类零件的分工)。
+`SegmentedControl` 换模式：内容还是同一份，换个看法；也用于表单里三项以内、选项没有说明的单选。换去处用 `Tabs`，带说明或要竖排的单选用 `RadioGroup`；其余见[同类零件的分工](../../../docs/ui-development-spec.md#42-同类零件的分工)。
 
 ## 布局
 
 根节点是带边框和浅底色的水平选项组。各段等宽，选中指示块位于选项下方，宽度与一段相同、按整段平移。图标、标签与可选计数在同一项内排列。
+
+指示块是 `--accent-main` 实底，选中项文字取 `--text-inverse`。切换时指示块的平移与变宽过渡取 `--motion-base` 与 `--ease-standard`，连续滑向目标项。相邻两项之间有一条细竖线分隔；选中项两侧的竖线隐去，不和指示块叠在一起。
 
 段宽规则：
 
@@ -25,6 +27,7 @@
 ## 交互
 
 - 点击启用的选项时发出 `update:modelValue`；值由父组件持有，组件不维护选择状态。
+- 按下选项时该项缩小到 0.96；只读和禁用时不缩。
 - 禁用选项不会响应点击或键盘导航。方向键 Right/Down 前进，Left/Up 后退，Home/End 跳到首/末个启用项；移动会循环并发出新值，同时把焦点移到目标选项。
 - `modelValue` 不对应任何选项时（例如当前尺寸是手动拖出来的、不属于任何预设）一个都不选中，键盘进入时停在第一个启用项；对应的是停用项时同样停在第一个启用项；方向键向后从第一项、向前从最后一项开始。
 - 每个选项使用 `role="radio"`、`aria-checked` 和选中项 roving tabindex；根节点为 `role="radiogroup"`，可通过 `ariaLabel` 命名；放在 `Field` 的组形态里时，根拿字段的 `id`，经 `aria-labelledby` 以字段标签为名、`aria-describedby` 接字段说明（docs/specs/ui/forms.md 输出 27）。不写 `aria-pressed`（它是切换按钮的状态，与单选的 `aria-checked` 冲突）。

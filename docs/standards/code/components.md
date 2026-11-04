@@ -1,6 +1,6 @@
 # 组件规范
 
-适用：`app/**` 下的 Vue 单文件组件。页面与应用根组件不受本规范约束。开发工具的页面和整体外壳同样不受约束，但**开发工具里的零件受约束**——零件不因为长在开发工具里就变成另一种东西。分界是：给一份 props 就能在别处渲染出来的是零件，必须待在特定位置、依赖整页上下文才成立的是外壳。通用与语言规则由 [`README.md`](README.md) 路由；组件的 Vue 用法、CSS 与主题规则见 [`frontend.md`](frontend.md)。
+适用：新应用（`packages/neuro-book/src/**`）与前端共享包（`packages/nb-*`）的 Vue 单文件组件。页面与应用根组件不受本规范约束。开发工具的页面和整体外壳同样不受约束，但**开发工具里的零件受约束**——零件不因为长在开发工具里就变成另一种东西。分界是：给一份 props 就能在别处渲染出来的是零件，必须待在特定位置、依赖整页上下文才成立的是外壳。通用与语言规则由 [`README.md`](README.md) 路由；组件的 Vue 用法、CSS 与主题规则见 [`frontend.md`](frontend.md)。
 
 本规范约束组件与外部世界的连接方式。核心判断：组件的真实依赖必须出现在它的调用签名里，否则调用方无法预见、测试无法隔离、状态无法追溯。
 
@@ -167,12 +167,6 @@ frontmatter 的能力标签和「数据」一节的类型声明都可以与实�
 
 耦合度与档位由检查报告给出，同一组件重复计算结果一致。界面改动另按 [`frontend.md`](frontend.md) 报告桌面与窄屏影响。
 
-### Fixture 居中与材质规范
-
-Component Lab 的 fixture 承载组件确定性状态验证。编写 fixture 须遵守：
-
-1. **视口盒子居中与直连**：局部部件与独立面板在 `component-index.ts` 中使用 `tight` 视口模式由 `ViewportCanvas` 在舞台居中承载；fixture 根部直接挂载被测组件并声明 `w-full`（面板/视图声明 `h-full w-full`），不在 fixture 内手写 `flex items-center justify-center` 或固定像素外壳，使外层 `ViewportCanvas` 拖拽手柄直接控制组件尺寸。
-2. **材质分层**：背景必须消费语义材质变量（`var(--panel-surface)`、`var(--bg-panel)` 等），严禁在 fixture 容器硬编码页面底色 `var(--bg-main)`，以维持 Lab 面板层材质与暗色主题对比度一致。
-3. **典型示范**：参见 `packages/neuro-book/src/plugins/lab/web/fixtures/FixtureExampleFixture.vue` 与同目录的 `README.md`。
+Component Lab 的 fixture 写法见 [`fixtures/README.md`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/README.md)。
 
 完成标准：每个受管组件都有同名组件文档，且文档的能力标签与实现一致；公共零件目录耦合度为 0；非宿主组件不含 `state:shared-write` 与 `io:mutate`；需要理由的声明都有理由；应用侧可挂载组件在 Component Lab 有场景登记；桌面（宽度不低于 1440px）与 `390×844` 下核心操作均可完成，无页面级横向滚动、无导致操作无法完成的遮挡、无未声明的布局位移。

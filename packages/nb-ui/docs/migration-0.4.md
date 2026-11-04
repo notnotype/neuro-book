@@ -1,6 +1,6 @@
 # 从 nb-ui 0.3 升级到 0.4
 
-0.4 把公开 API 里同一件事的几种写法收成一种（规则见 [`ui-development-spec.md` 的“取值词表与文案属性”](ui-development-spec.md#46-取值词表与文案属性)）。旧名字没有保留别名：按下表一次改完。
+0.4 把公开 API 里同一件事的几种写法收成一种（规则见 [`ui-development-spec.md` 的“取值词表与文案属性”](ui-development-spec.md#43-取值词表与文案属性)）。旧名字没有保留别名：按下表一次改完。
 
 插件 SDK 生成的插件缺省写 `engines.neurobook: "^<构建时的 SDK 版本>"`，NeuroBook 是 0.x 时 minor 号变化就不再匹配，按旧 API 写的插件会被拒绝安装，不会装上后静默失效。自己把范围写成 `>=` 的插件不受这层保护，升级前按下表检查。
 

@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal]
+标签: [state:local, state:inject, env:portal]
 ---
 
 # Drawer
@@ -8,7 +8,7 @@
 
 ## 布局与交互
 
-内容通过 Reka Portal 呈现并带遮罩。面板沿用菜单、气泡那档的 `--overlay-surface`，不取对话框的 `--dialog-surface`：抽屉贴在一边、不压住整个窗口，对话框分档没有评审它。`left`、`right` 方向占满视口高度，宽度为 380px 且最多为可用宽度的 90%；`top`、`bottom` 占满可用宽度，最大高度为 `85cqh`。尺寸用容器单位 `cqw`、`cqh`：宿主把目标设成尺寸容器时按目标大小计算；没有容器时按小视口单位（`svw`、`svh`）计算，桌面上与原来的视口单位相同，移动浏览器按地址栏展开时的可见区计算，比原来的 `vh` 更保守。正文独立纵向滚动。提供 `title` 或 `header` 插槽时显示标题区；有 `footer` 插槽时显示底部操作区。`handle=true` 时在内容顶部显示拖动手柄。
+内容通过 Reka Portal 呈现并带遮罩，遮罩取 `--overlay-bg` 并模糊 4px。面板沿用菜单、气泡那档的 `--overlay-surface`，不取对话框的 `--dialog-surface`：抽屉贴在一边、不压住整个窗口，对话框分档没有评审它。`left`、`right` 方向占满视口高度，宽度为 380px 且最多为可用宽度的 90%；`top`、`bottom` 占满可用宽度，最大高度为 `85cqh`。尺寸用容器单位 `cqw`、`cqh`：宿主把目标设成尺寸容器时按目标大小计算；没有容器时按小视口单位（`svw`、`svh`）计算，桌面上与原来的视口单位相同，移动浏览器按地址栏展开时的可见区计算，比原来的 `vh` 更保守。正文独立纵向滚动。提供 `title` 或 `header` 插槽时显示标题区；有 `footer` 插槽时显示底部操作区。`handle=true` 时在内容顶部显示拖动手柄。
 
 `trigger` 插槽作为打开触发器。打开状态变化通过 `update:open` 通知父组件。关闭按钮只在标题区实际渲染时出现：既未传非空 `title`，也未提供 `header` 插槽时，组件不显示该按钮。拖动关闭、Escape、遮罩与焦点等交互由 Reka Drawer 管理；`modal=false` 时使用上游的非模态模式。
 
@@ -70,3 +70,5 @@ Reka UI 负责 Drawer 的打开状态、模态语义、Portal、遮罩、焦点�
 ## 隐藏通道理由
 
 `env:portal`：Drawer 内容与遮罩通过 Reka `DrawerPortal` 渲染，以脱离宿主的局部裁剪和层叠上下文。组件没有目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`）取关闭按钮的读屏缺省文案，语言跟着端口走；没有宿主注入时用 nb-ui 的缺省端口。调用方传 `closeLabel` 时以属性为准。

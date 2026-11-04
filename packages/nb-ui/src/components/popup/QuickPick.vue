@@ -20,7 +20,7 @@ import {useCloseHandoff} from "../feedback/close-handoff";
 import type {OverlayCloseReason} from "../shared-types";
 
 /**
- * 输入筛选、挑选一项的浮层（S4 命令面板基座）：纯受控，不持数据。
+ * 输入筛选、挑选一项的浮层（命令面板基座）：纯受控，不持数据。
  *
  * 组件只报告请求——`update:query` / `update:activeId` / `accept` / `close`——候选项顺序、
  * 查询含义、活动项与执行时机全归宿主；`>` 命令与 `:` 行号的前缀解析不在这里。
@@ -288,7 +288,7 @@ function isLowSurrogate(code: number): boolean {
 <template>
     <DialogRoot :open="props.open" :modal="true" @update:open="onRootOpenChange">
         <DialogPortal :to="teleportTo()">
-            <!-- 透明遮罩与面板同为 S4 层级、面板在后绘制：外点落在遮罩上被消费，不穿透底层 -->
+            <!-- 透明遮罩与面板同为命令面板层级、面板在后绘制：外点落在遮罩上被消费，不穿透底层 -->
             <DialogOverlay class="fixed inset-0" :style="{zIndex: NB_Z_INDEX.commandPalette}" />
             <!-- 面板没有描述节点：先清掉 Reka 默认指向描述 id 的 aria-describedby（否则引用悬空并告警），宿主显式传入时仍以宿主为准 -->
             <DialogContent

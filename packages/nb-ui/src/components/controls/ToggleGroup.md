@@ -6,7 +6,7 @@
 
 `ToggleGroup` 把一组紧凑按钮组织成可叠加的开关（例如粗体、斜体、删除线），每个按钮各自按下或弹起，可以同时按下几个，也可以都不按下。可由数据选项生成，也可通过默认插槽放入自定义项目；支持受控值和非受控初值。
 
-“几个里选一个”不用它：换模式用 `SegmentedControl`，表单里选值用 `RadioGroup`；其余见[同类零件的分工](../../../docs/ui-development-spec.md#45-同类零件的分工)。
+“几个里选一个”不用它：换模式用 `SegmentedControl`，表单里选值用 `RadioGroup`；其余见[同类零件的分工](../../../docs/ui-development-spec.md#42-同类零件的分工)。
 
 ## 布局
 

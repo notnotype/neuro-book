@@ -96,6 +96,7 @@ type InputSlots = {
 
 - **默认/空值**：显示空 input 和 placeholder；`clearable` 在值为空时不显示按钮。
 - **受控**：父组件通过 `modelValue` 决定输入值，输入事件只向外报告。
+- **聚焦**：边框转 `--focus-outline`，外加 `--focus-ring` 光晕；悬停不改边框。只读和禁用时聚焦也不画这圈高亮。
 - **禁用**：原生 input 不可编辑，视觉降低不透明度，清空入口隐藏。
 - **只读**：原生 input 保留值但不接受编辑，清空入口隐藏。
 - **错误**：从 Field 收到 `invalid` 时控制器使用错误样式并向 input 设置 `aria-invalid`、`aria-describedby`。

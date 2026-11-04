@@ -27,4 +27,5 @@ type DropIndicatorLabelSlots = Record<never, never>;
 
 - 非空标签渲染文案；提供 `iconClass` 时在文案前渲染装饰图标。
 - 空字符串或纯空白不渲染任何节点。
+- 外观是药丸：`--radius-pill` 圆角，细 accent 描边，`--panel-surface` 的半透明底加 `--overlay-blur`，文字取 `--accent-text`、`--font-ui` 与 `--text-xs`，图标 14px，图文之间留小间距。文字单行，放不下时截断。用户要求减少透明度或增强对比时，底改成实色面板底并关闭模糊。
 - 组件不处理文案翻译、位置、最大宽度、剪裁、播报或拖放状态。
