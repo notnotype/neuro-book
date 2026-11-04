@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-shared-token-check
-status: planned
-updated: 2026-10-22
+status: done
+updated: 2026-11-04
 ---
 
 # 样式 token 机检收进 test-support 共用
