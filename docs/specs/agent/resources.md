@@ -112,7 +112,7 @@ owners:
 3. 会话换 Profile 后，`profile://` 指向新 Profile，旧 Profile 的笔记变为只读。
 4. 两个状态根并存，各有会话的临时文件；其中一个重启后只清掉自己分区里已归档的会话目录，另一个的文件不变。
 5. 从应用包解出的安装布局中读 `docs://builtin/sdk/README.md`，并跟进其中一条附表与一条 Spec 链接。
-6. （planned）`services.artifacts` 用同一个 `label` 存两份都成功、互不覆盖；Agent 经资源视图写 `artifacts/` 仍被拒。一个测试工具在一次调用里经 `call(ctx)` 写两个文件、删一个文件：浏览器订阅收到的三条事件来源都是该会话、带这次调用的条目 id 与同一个组；经 `session://` 写与经 `sessions://<自己>/home/` 写结果相同；写 `docs://` 仍为 `permission-denied`。
+6. （planned）`services.artifacts` 用同一个 `label` 存两份都成功、互不覆盖；Agent 经资源视图写 `artifacts/` 仍被拒。一个测试工具在一次调用里经 `call(ctx)` 写两个文件、删一个文件：浏览器订阅收到的三条事件来源都是该会话、带这次调用的条目 id 与同一个组；经 `session://` 写与经 `sessions://<自己>/home/` 写结果相同；写别的会话的 `home/` 仍为 `permission-denied`，写 `docs://` 为 `unsupported-capability`。
 
 Smoke：不适用——没有界面；由 `plugins/agent/resources.test.ts` 经真实插件宿主覆盖。
 

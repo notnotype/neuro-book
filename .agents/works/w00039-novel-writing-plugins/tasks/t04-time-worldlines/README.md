@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t04-time-worldlines
 status: shelved
-updated: 2026-11-02
+updated: 2026-11-04
 ---
 
 # 故事时间与世界线（第二版）
@@ -54,6 +54,8 @@ updated: 2026-11-02
 
 2026-11-02 按已接受的[内核提案](../../../../../docs/proposals/world-engine-kernel.md)重切（Work README 决定表同日）：范围改成上面的样子。状态改为搁置，第二版再做。
 
+2026-11-04 开发者同意并入 [t32](../t32-plot-side/README.md)（剧情侧合成一个讨论），本 Task 的原问题留在这里作参照。
+
 ## 下一步
 
-第二版再排。
+在 t32 里讨论。
