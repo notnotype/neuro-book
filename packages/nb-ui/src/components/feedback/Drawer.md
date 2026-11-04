@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal]
+标签: [state:local, state:inject, env:portal]
 ---
 
 # Drawer
@@ -70,3 +70,5 @@ Reka UI 负责 Drawer 的打开状态、模态语义、Portal、遮罩、焦点�
 ## 隐藏通道理由
 
 `env:portal`：Drawer 内容与遮罩通过 Reka `DrawerPortal` 渲染，以脱离宿主的局部裁剪和层叠上下文。组件没有目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`）取关闭按钮的读屏缺省文案，语言跟着端口走；没有宿主注入时用 nb-ui 的缺省端口。调用方传 `closeLabel` 时以属性为准。
