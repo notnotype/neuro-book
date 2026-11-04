@@ -18,6 +18,7 @@ import type {SessionResources} from "../../shared/resources";
 
 import {failed, failure, globalAddress, joinAddress} from "./common";
 import type {SessionEditStores} from "./common";
+import {prepareImage} from "./image";
 
 const MAX_LINES = 2_000;
 const MAX_BYTES = 50 * 1024;
@@ -26,9 +27,6 @@ const MAX_ENTRIES = 500;
 /** 比它大的文件不把全文读进内存，也就登记不了行锚快照。 */
 const SNAPSHOT_LIMIT = 4 * 1024 * 1024;
 const IMAGE_LIMIT = 20 * 1024 * 1024;
-const IMAGE_EDGE = 1_568;
-/** 图片随日志一起留在会话里，每次请求都发：超过它就转成 JPEG。 */
-const IMAGE_TARGET_BYTES = 500 * 1024;
 const SNIFF_BYTES = 4 * 1024;
 /** `recordSnapshot` 把空集当作“不限行”，没有完整展示的行时要传这个（引擎的“没看过任何行”）。 */
 const NOTHING_SEEN = [0];
@@ -62,26 +60,12 @@ function imageFormat(head: Uint8Array): ImageFormat | null {
 
 async function readImage(path: string, address: string, format: ImageFormat, size: number): Promise<ToolResult> {
     if (size > IMAGE_LIMIT) return failed("too-large", `too-large: ${address} 有 ${String(size)} 字节，图片至多 ${String(IMAGE_LIMIT)} 字节`);
-    const bytes = await Bun.file(path).bytes();
     try {
-        const image = new Bun.Image(bytes);
-        const {width, height} = await image.metadata();
-        const needsResize = Math.max(width, height) > IMAGE_EDGE;
-        const scale = needsResize ? IMAGE_EDGE / Math.max(width, height) : 1;
-        const size2 = {width: Math.round(width * scale), height: Math.round(height * scale)};
-        if (needsResize) image.resize(size2.width, size2.height);
-        // 动图只留第一帧：服务商多半不接受动图，也不能把它按帧计费。
-        const encode = async (): Promise<{readonly data: Uint8Array; readonly mime: string}> => {
-            if (!needsResize && format !== "gif" && bytes.length <= IMAGE_TARGET_BYTES) return {data: bytes, mime: `image/${format}`};
-            const encoded = format === "jpeg" ? image.jpeg({quality: 85}) : format === "webp" ? image.webp() : image.png();
-            const data = await encoded.bytes();
-            if (data.length <= IMAGE_TARGET_BYTES) return {data, mime: `image/${format === "gif" ? "png" : format}`};
-            return {data: await image.jpeg({quality: 70}).bytes(), mime: "image/jpeg"};
-        };
-        const {data, mime} = await encode();
+        const image = await prepareImage(await Bun.file(path).bytes(), format);
+        const changed = image.width !== image.originalWidth || image.height !== image.originalHeight;
         return {
-            text: `[${address}] 图片 ${mime}，${String(width)}x${String(height)}${needsResize ? `，缩到 ${String(size2.width)}x${String(size2.height)}` : ""}`,
-            images: [{data: Buffer.from(data).toString("base64"), mime, ...size2}],
+            text: `[${address}] 图片 ${image.mime}，${String(image.originalWidth)}x${String(image.originalHeight)}${changed ? `，调整到 ${String(image.width)}x${String(image.height)}` : ""}`,
+            images: [{data: Buffer.from(image.data).toString("base64"), mime: image.mime, width: image.width, height: image.height}],
         };
     } catch (error) {
         return failed("not-text", `not-text: ${address} 不是能解码的图片（${error instanceof Error ? error.message : String(error)}）`);

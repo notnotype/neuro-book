@@ -95,6 +95,28 @@ function toolContent(blocks: readonly ContentBlock[], vision: boolean): (TextCon
     return out;
 }
 
+/** 本地推理后端（llama.cpp 的解码器）解不了 WebP；同 omp 的判断，另加本机回环地址：自定义服务商指向本机的多半也是这类后端。 */
+export function lacksWebp(model: Pick<Model, "provider" | "api" | "baseUrl" | "imageInputDecoder">): boolean {
+    return model.imageInputDecoder === "stb"
+        || ["ollama", "ollama-cloud", "llama.cpp", "lm-studio", "local-server"].includes(model.provider)
+        || model.api === "ollama-chat"
+        || /^https?:\/\/(?:localhost|127\.|\[::1\])/u.test(model.baseUrl);
+}
+
+/** 发送前把工具消息里的 WebP 转成 PNG；转不了的换成一行文字，不能让一张图卡死这个会话之后的每次请求。 */
+async function withoutWebp(request: ModelRequest): Promise<ModelRequest> {
+    const convert = async (block: Message["content"][number]): Promise<Message["content"][number]> => {
+        if (block.kind !== "image" || block.mime !== "image/webp") return block;
+        try {
+            return {...block, data: await new Bun.Image(Buffer.from(block.data, "base64")).png().toBase64(), mime: "image/png"};
+        } catch (error) {
+            return {kind: "text", text: `[图片 image/webp：转换失败（${error instanceof Error ? error.message : String(error)}）]`, origin: block.origin};
+        }
+    };
+    const messages = await Promise.all(request.messages.map(async (message) => (message.role === "tool" ? {...message, content: await Promise.all(message.content.map(convert))} : message)));
+    return {...request, messages};
+}
+
 function assistantContent(blocks: readonly ContentBlock[], calls: readonly ToolCall[], names: ReadonlyMap<string, string>): AssistantMessage["content"] {
     const content: AssistantMessage["content"] = blocks.map((block) => {
         switch (block.kind) {
@@ -215,7 +237,8 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         const secrets = [apiKey, ...Object.values(target.headers ?? {}).filter((value) => value.length >= SECRET_HEADER_MIN)];
         let context: Context;
         try {
-            context = toContext(request, target.model, Date.now());
+            const vision = target.model.input.includes("image");
+            context = toContext(vision && lacksWebp(target.model) ? await withoutWebp(request) : request, target.model, Date.now());
         } catch (error) {
             if (error instanceof UnsupportedContent) return failed("local", error.message, {code: "unsupported-content"});
             throw error;

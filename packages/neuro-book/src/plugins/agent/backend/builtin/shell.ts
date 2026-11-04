@@ -1,7 +1,7 @@
 /**
  * `shell`（docs/specs/agent/builtin-tools.md 输出 18–22）：`pi-natives` 内嵌的 brush shell，只在前台。
  *
- * 输出的回调不等异步，所以回调里只做同步的事（同 omp 的 `OutputSink`）：内存里留尾部窗口，超出窗口后同步追加到一个本地临时文件；命令
+ * 输出的回调不等异步，所以回调里只做同步的事（同 omp 的 `OutputSink`）：内存里留开头与结尾，放不下之后同步追加到一个本地临时文件；命令
  * 结束后才把它拷进 `artifacts/`。这样暂存目录不可用不影响命令执行，命令也不会因为保存失败而跑第二遍。
  */
 
@@ -23,10 +23,13 @@ const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_TIMEOUT_SECONDS = 3_600;
 const WINDOW_BYTES = 50 * 1024;
 const WINDOW_LINES = 2_000;
+const PART_BYTES = 20 * 1024;
+const PART_LINES = 500;
+const LINE_BYTES = 768;
 const ARTIFACT_LIMIT = 64 * 1024 * 1024;
 
 export const shellDeclaration: AgentToolDeclaration = {
-    description: `执行 shell 命令（内嵌的 bash 兼容 shell，只在前台）。工作目录有主项目时是项目，没有时是会话工作区。命令里直接写出的资源地址（project://a.md、session://x 等）会换成真实路径，虚拟地址在执行前报错；heredoc、变量拼接、命令替换里的地址不保证替换。环境变量 $NBOOK_PROJECT、$NBOOK_SESSION 是项目与会话工作区的真实路径。输出过长时只交回尾部，全文存进 session://artifacts/，用 read 分页读。`,
+    description: `执行 shell 命令（内嵌的 bash 兼容 shell，只在前台）。工作目录有主项目时是项目，没有时是会话工作区。命令里直接写出的资源地址（project://a.md、session://x 等）会换成真实路径，虚拟地址在执行前报错；heredoc、变量拼接、命令替换里的地址不保证替换。环境变量 $NBOOK_PROJECT、$NBOOK_SESSION 是项目与会话工作区的真实路径。输出过长时只交回开头与结尾，全文存进 session://artifacts/，用 read 分页读。`,
     parameters: {
         type: "object",
         properties: {
@@ -40,12 +43,26 @@ export const shellDeclaration: AgentToolDeclaration = {
     effect: "exec",
 };
 
-/** 收集输出：没超出窗口就只在内存里；超出后内存只留尾部，全文进本地临时文件。 */
+function capLines(text: string): string {
+    return text.split("\n").map((line) => {
+        const size = Buffer.byteLength(line, "utf8");
+        // 按字节切可能切开多字节字符，解码时多出来的替换字符去掉。
+        return size <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/\uFFFD+$/u, "")} …[本行共 ${String(size)} 字节，已截断]`;
+    }).join("\n");
+}
+
+/**
+ * 收集输出：放得进窗口就只在内存里；放不下（总量、行数或单行超限）之后内存只留开头与结尾，全文进本地临时文件。
+ * 开头常有报错，结尾常有结论，两头都留（同 omp）。
+ */
 class OutputCapture {
-    /** 没超出窗口时是全部输出；超出后是尾部（留到窗口的两倍再修剪，免得每块都修）。 */
+    /** 没超限时是全部输出；超限后是结尾（留到一个结尾窗口的两倍再修剪，免得每块都修）。 */
     #memory = "";
     #memoryBytes = 0;
+    #head = "";
     #lines = 0;
+    /** 当前这一行已有多少字节：长行可能跨好几块。 */
+    #lineBytes = 0;
     #spool: {readonly fd: number; readonly path: string} | null = null;
     #spoolBytes = 0;
     overflowed = false;
@@ -55,20 +72,29 @@ class OutputCapture {
     chunkProblem: string | null = null;
 
     push(chunk: string): void {
-        const bytes = Buffer.byteLength(chunk, "utf8");
-        this.totalBytes += bytes;
+        this.totalBytes += Buffer.byteLength(chunk, "utf8");
         this.#memory += chunk;
-        this.#memoryBytes += bytes;
-        if (!this.overflowed) this.#lines += chunk.split("\n").length - 1;
-        if (!this.overflowed && (this.#memoryBytes > WINDOW_BYTES || this.#lines > WINDOW_LINES)) {
-            this.overflowed = true;
-            this.#spoolWrite(this.#memory);
-        } else if (this.overflowed) {
+        this.#memoryBytes += Buffer.byteLength(chunk, "utf8");
+        if (this.overflowed) {
             this.#spoolWrite(chunk);
+            if (this.#memoryBytes > PART_BYTES * 2) {
+                this.#memory = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8");
+                this.#memoryBytes = Buffer.byteLength(this.#memory, "utf8");
+            }
+            return;
         }
-        if (this.overflowed && this.#memoryBytes > WINDOW_BYTES * 2) {
-            this.#memory = Buffer.from(this.#memory, "utf8").subarray(-WINDOW_BYTES).toString("utf8");
-            this.#memoryBytes = Buffer.byteLength(this.#memory, "utf8");
+        const parts = chunk.split("\n");
+        this.#lines += parts.length - 1;
+        let longest = 0;
+        parts.forEach((part, index) => {
+            const size = Buffer.byteLength(part, "utf8") + (index === 0 ? this.#lineBytes : 0);
+            longest = Math.max(longest, size);
+            if (index === parts.length - 1) this.#lineBytes = size;
+        });
+        if (this.#memoryBytes > WINDOW_BYTES || this.#lines > WINDOW_LINES || longest > LINE_BYTES) {
+            this.overflowed = true;
+            this.#head = Buffer.from(this.#memory, "utf8").subarray(0, PART_BYTES).toString("utf8");
+            this.#spoolWrite(this.#memory);
         }
     }
 
@@ -91,12 +117,17 @@ class OutputCapture {
         }
     }
 
-    /** 尾部窗口；被砍掉了内容时第一行多半不完整，整行丢掉。 */
-    tail(): {readonly text: string; readonly clipped: boolean} {
+    /** 交给模型的输出窗口（docs/specs/agent/builtin-tools.md 的术语）；`clipped` 指内容少了，全文要去 `artifacts/` 看。 */
+    window(): {readonly text: string; readonly clipped: boolean} {
         if (!this.overflowed) return {text: this.#memory, clipped: false};
-        const lines = Buffer.from(this.#memory, "utf8").subarray(-WINDOW_BYTES).toString("utf8").split("\n");
-        if (lines.length > 1) lines.shift();
-        return {text: lines.slice(-WINDOW_LINES).join("\n"), clipped: true};
+        // 内存在修剪之前就是全部输出：只是单行超限时不用省略中间。
+        if (this.totalBytes === this.#memoryBytes && this.#memory.split("\n").length - 1 <= WINDOW_LINES) return {text: capLines(this.#memory), clipped: true};
+        const head = this.#head.split("\n");
+        if (head.length > 1) head.pop();
+        const tail = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8").split("\n");
+        if (tail.length > 1) tail.shift();
+        const notice = `…[中间省略，共 ${String(this.totalBytes)} 字节]…`;
+        return {text: capLines([...head.slice(0, PART_LINES), notice, ...tail.slice(-PART_LINES)].join("\n")), clipped: true};
     }
 
     get spoolPath(): string | null {
@@ -194,13 +225,13 @@ async function run(context: ToolSessionContext, {resources, artifacts}: AgentToo
             if (error !== null) capture.chunkProblem = error.message;
             else capture.push(chunk);
         });
-        const {text, clipped} = capture.tail();
+        const {text, clipped} = capture.window();
         const full = capture.overflowed ? await saveFull(artifacts, capture) : {};
         const code = result.timedOut ? "timeout" : result.cancelled ? "cancelled" : result.exitCode !== 0 ? "exit-nonzero" : undefined;
         const status = result.timedOut ? "超时" : result.cancelled ? "被中止" : `退出码 ${String(result.exitCode ?? "未知")}`;
         const notes = [
             `[${status}]`,
-            ...(clipped ? [`（输出 ${String(capture.totalBytes)} 字节，这里只有尾部）`] : []),
+            ...(clipped ? [`（输出 ${String(capture.totalBytes)} 字节，这里只有一部分）`] : []),
             ...(full.address === undefined ? [] : [`全文：${full.address}${capture.full ? "（超过 64 MiB，只存了前 64 MiB）" : ""}，用 read 分页读`]),
             ...(full.problem === undefined ? [] : [`全文没能保存：${full.problem}`]),
             ...(capture.chunkProblem === null ? [] : [`读取输出时出错：${capture.chunkProblem}`]),

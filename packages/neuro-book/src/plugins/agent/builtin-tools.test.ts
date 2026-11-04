@@ -6,6 +6,7 @@
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
+import {deflateSync} from "node:zlib";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -128,6 +129,41 @@ async function services(session: SessionApi): Promise<{resources: SessionResourc
 const numbered = (count: number): string => Array.from({length: count}, (_, index) => `第${String(index + 1)}行`).join("\n");
 const headerTag = (text: string): string => /#([0-9A-F]{4})\]/u.exec(text)?.[1] ?? "";
 
+/** 压不动的 PNG：伪随机噪声，`alpha` 时带透明通道。Bun.Image 不能从原始像素建图，这里自己组 PNG。 */
+function noisePng(width: number, height: number, alpha: boolean): Uint8Array {
+    const channels = alpha ? 4 : 3;
+    const raw = Buffer.alloc((width * channels + 1) * height);
+    let state = 12345;
+    for (let index = 0; index < raw.length; index += 1) {
+        state = (state * 1103515245 + 12345) & 0x7fffffff;
+        raw[index] = index % (width * channels + 1) === 0 ? 0 : state >> 16;
+    }
+    const crcTable = new Int32Array(256).map((_, n) => {
+        let c = n;
+        for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        return c;
+    });
+    const crc = (bytes: Buffer): number => {
+        let c = -1;
+        for (const byte of bytes) c = crcTable[(c ^ byte) & 255]! ^ (c >>> 8);
+        return (c ^ -1) >>> 0;
+    };
+    const chunk = (type: string, data: Buffer): Buffer => {
+        const body = Buffer.concat([Buffer.from(type), data]);
+        const length = Buffer.alloc(4);
+        length.writeUInt32BE(data.length);
+        const sum = Buffer.alloc(4);
+        sum.writeUInt32BE(crc(body));
+        return Buffer.concat([length, body, sum]);
+    };
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(width, 0);
+    header.writeUInt32BE(height, 4);
+    header[8] = 8;
+    header[9] = alpha ? 6 : 2;
+    return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
 async function png(width: number, height: number): Promise<Uint8Array> {
     const dot = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEAQH/7yMK/gAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0));
     return new Bun.Image(dot).resize(width, height, {fit: "fill"}).png().bytes();
@@ -180,6 +216,32 @@ describe("read", () => {
         expect(virtual.text).toContain(`sessions://${id}`);
     });
 
+    test("输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的不用 JPEG；小图放大；动图也转成静图", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "噪声.dat"), noisePng(3000, 2000, false));
+        const opaque = await call(session, "read", {path: "session://噪声.dat"});
+        const opaqueBytes = Buffer.from(opaque.images![0]!.data, "base64");
+        expect(opaqueBytes.length).toBeLessThanOrEqual(500 * 1024);
+        expect(["image/jpeg", "image/webp"]).toContain(opaque.images![0]!.mime);
+        const opaqueMeta = await new Bun.Image(opaqueBytes).metadata();
+        expect([opaqueMeta.width, opaqueMeta.height]).toEqual([opaque.images![0]!.width!, opaque.images![0]!.height!]);
+        expect(opaqueMeta.width).toBeLessThanOrEqual(1568);
+
+        await writeFile(join(home, "透明.png"), noisePng(1500, 1000, true));
+        const translucent = await call(session, "read", {path: "session://透明.png"});
+        expect(translucent.images![0]!.mime).not.toBe("image/jpeg");
+        expect(Buffer.from(translucent.images![0]!.data, "base64").length).toBeLessThanOrEqual(500 * 1024);
+
+        await writeFile(join(home, "点.png"), await png(1, 1));
+        expect((await call(session, "read", {path: "session://点.png"})).images).toMatchObject([{width: 200, height: 200}]);
+        await writeFile(join(home, "细长.png"), await png(3000, 20));
+        const thin = await call(session, "read", {path: "session://细长.png"});
+        expect(thin.images![0]!.width).toBe(1568);
+        expect(thin.images![0]!.height).toBeLessThan(200);
+    }, 60_000);
+
     test("输出 7：图片按文件头判断，缩到最长边 1568；太大 too-large；别的二进制 not-text", async () => {
         const w = await world();
         const {session, home} = await open(w);
@@ -187,12 +249,12 @@ describe("read", () => {
         await writeFile(join(home, "封面.dat"), await png(3136, 1000));
         const big = await call(session, "read", {path: "session://封面.dat"});
         expect(big.status).toBe("ok");
-        expect(big.images).toMatchObject([{mime: "image/png", width: 1568, height: 500}]);
+        expect(big.images).toMatchObject([{width: 1568, height: 500}]);
         const meta = await new Bun.Image(Buffer.from(big.images![0]!.data, "base64")).metadata();
         expect(meta).toMatchObject({width: 1568, height: 500});
         expect(big.text).toContain("3136x1000");
 
-        const small = await png(10, 10);
+        const small = await png(300, 300);
         await writeFile(join(home, "小.png"), small);
         const kept = await call(session, "read", {path: "session://小.png"});
         expect(Buffer.from(kept.images![0]!.data, "base64").equals(Buffer.from(small))).toBe(true);
@@ -543,7 +605,9 @@ describe("shell", () => {
         const long = await call(session, "shell", {command: 'for i in $(seq 1 60000); do echo "第 $i 行 xxxxxxxxxxxxxxxxxxxx"; done'}) as Result & {details: {artifact: string; bytes: number}};
         expect(long.status).toBe("ok");
         expect(long.text).toContain("第 60000 行");
-        expect(long.text).not.toContain("第 1 行 ");
+        expect(long.text).toContain("第 1 行 ");
+        expect(long.text).toContain("中间省略");
+        expect(long.text).not.toContain("第 30000 行");
         expect(Buffer.byteLength(long.text, "utf8")).toBeLessThan(55 * 1024);
         expect(long.details.artifact.startsWith(`${global}/artifacts/shell-`)).toBe(true);
         expect(long.text).toContain(long.details.artifact);
@@ -554,8 +618,20 @@ describe("shell", () => {
 
         const many = await call(session, "shell", {command: "seq 1 3000"});
         expect(many.text).toContain("全文");
-        expect(many.text).toContain("3000");
-        expect(many.text).not.toContain("\n999\n");
+        expect(many.text).toContain("\n3000\n");
+        expect(many.text).toContain("\n500\n");
+        expect(many.text).not.toContain("\n1000\n");
+        // 没超行数与字节、也没有长行：全部交回，不留全文。
+        const fits = await call(session, "shell", {command: "seq 1 2000"});
+        expect(fits.text).toContain("\n1000\n");
+        expect(fits.text).not.toContain("全文");
+
+        // 一行超过上限：窗口里截断，全文完整。
+        const line = await call(session, "shell", {command: "printf 'A%.0s' $(seq 1 3000); echo; echo 结尾"}) as Result & {details: {artifact: string}};
+        expect(line.text).toContain("本行共 3000 字节，已截断");
+        expect(line.text).toContain("结尾");
+        expect(line.text.length).toBeLessThan(1_500);
+        expect((await readFile(join(home, "artifacts", line.details.artifact.split("/").at(-1)!), "utf8")).startsWith("A".repeat(3000))).toBe(true);
 
         const huge = await call(session, "shell", {command: "head -c 70000000 /dev/zero | tr '\\0' x"}) as Result & {details: {artifact: string; bytes: number}};
         expect(huge.details.bytes).toBe(70_000_000);

@@ -6,7 +6,7 @@
 import {afterAll, describe, expect, test} from "bun:test";
 import {defineModel} from "@notnotype/nb-harness";
 import type {ModelDelta, ModelRequest, ToolDeclaration} from "../api/index.js";
-import {ompCall, ompModelInfo} from "./omp.js";
+import {lacksWebp, ompCall, ompModelInfo} from "./omp.js";
 import {REDACTED_KEY} from "./redact.js";
 
 interface Reply {
@@ -144,6 +144,33 @@ describe("OMP 适配器", () => {
         expect(blind).not.toContain("QUJD");
         const vision = await seen(ompCall({model: {...resolved.model, input: ["text", "image"]}, apiKey: resolved.apiKey, priceKnown: false}));
         expect(vision).toContain("data:image/png;base64,QUJD");
+    });
+
+    test("本地后端解不了 WebP：发送前转成 PNG，转不了换成文字；云端服务商原样发", async () => {
+        const dot = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEAQH/7yMK/gAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0));
+        const webp = await new Bun.Image(dot).webp().toBase64();
+        const image = (data: string) => ({kind: "image" as const, data, mime: "image/webp", origin: {kind: "fixed" as const, by: "kernel" as const}});
+        const messages = (data: string): ModelRequest["messages"] => [
+            {role: "user", content: [text("看图")]},
+            {role: "assistant", content: [], toolCalls: [{id: "call_1", tool: "story.search", args: {}}], model: "local-test/m"},
+            {role: "tool", callId: "call_1", content: [text("封面"), image(data)]},
+        ];
+        // 这个测试端点在回环地址上，属于本地后端。
+        const local = ompCall({model: {...resolved.model, input: ["text", "image"]}, apiKey: resolved.apiKey, priceKnown: false});
+        replies = [{text: "好"}];
+        await local(request({tools: [search], messages: messages(webp)}), new AbortController().signal, () => undefined);
+        expect(JSON.stringify(bodies.at(-1)!.messages)).toContain("data:image/png;base64,");
+        expect(JSON.stringify(bodies.at(-1)!.messages)).not.toContain("image/webp");
+        replies = [{text: "好"}];
+        const broken = await local(request({tools: [search], messages: messages("AAAA")}), new AbortController().signal, () => undefined);
+        expect(broken.stopReason).not.toBe("error");
+        expect(JSON.stringify(bodies.at(-1)!.messages)).toContain("转换失败");
+
+        const cloud = {provider: "openai", api: "openai-completions", baseUrl: "https://api.openai.com/v1"} as const;
+        expect(lacksWebp(cloud as never)).toBe(false);
+        for (const model of [{...cloud, provider: "ollama"}, {...cloud, provider: "lm-studio"}, {...cloud, api: "ollama-chat"}, {...cloud, baseUrl: "http://localhost:1234/v1"}, {...cloud, baseUrl: "http://127.0.0.1:8080/v1"}, {...cloud, imageInputDecoder: "stb"}]) {
+            expect(lacksWebp(model as never)).toBe(true);
+        }
     });
 
     test("相邻的 user 消息合成一条发出；同一条消息里相邻的文字块合成一块", async () => {
