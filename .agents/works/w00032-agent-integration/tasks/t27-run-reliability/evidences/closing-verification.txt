@@ -1,8 +1,9 @@
-t27 收口验证（分支 feat/w00032-t27-run-reliability，提交 3d12e2ee6，已并入 master）
+t27 收口验证（分支 feat/w00032-t27-run-reliability，提交 285ec1fbf，含实现审查的修正，已并入 master；合入提交 5840abbf2）
 
 测试
 - neuro-book：bun 1797 pass，0 fail；vitest 412 pass，72 个文件；类型检查通过（tsc 与两份 vue-tsc）。
-- nb-harness：413 pass，0 fail；类型检查通过。
+  最后一次全量里 vitest 有一条超时（plugins/markdown/web/plugin.dom.test.ts，5 秒，当时负载约 8.8，与本 Task 的文件无关），单独跑与整套重跑都通过。
+- nb-harness：416 pass，0 fail；类型检查通过。
 - 真实模型 smoke（DeepSeek）：run-guards.llm.test.ts 1 pass。带传输设置时一轮对话完成，只发一次模型请求，没有 modelFailed，费用进会话累计。
 
 变异检查（改坏实现，确认测试失败；都恢复了）
@@ -12,9 +13,11 @@ t27 收口验证（分支 feat/w00032-t27-run-reliability，提交 3d12e2ee6，�
 - 保护：告警线可调高、无单价只提示一次、两个预览分支、拦下回复的 cost、start 不解除、steer 解除、结果相同才停、参数键序、path 片。
 过程中有 5 个变异第一次没被抓到（pi-ai 第一事件超时、等待时中止、RunStatus 只改 running、两个预览分支），都补了或收紧了测试；steer 解除也是后补的。另有一个结论是条件写多了：提醒过的哈希总等于当前哈希，改成布尔值。
 
+实现审查的修正也做了变异检查：序号恢复、complete 等待中止、落盘目录判断、多次 next 的结算，都被抓到。
+
 检查
 - governance:check：只有基线 Drawer.md。
-- docs:check：worktree 里一条失败，docs/proposals/world-engine-plot-side.md 指向主工作区未提交的 w00039 flow-draft.md，来自 master 上别的提交，与本 Task 无关。
+- docs:check：master 上没有失败。
 
 界面
 - 设置窗口实际打开（nbdev shot，开发服务）：分区“运行可靠性”在“写作助手”组下，六个数字框显示缺省值。第一次截图发现分区标题显示键名（约定键去掉插件前缀），改后复查。
