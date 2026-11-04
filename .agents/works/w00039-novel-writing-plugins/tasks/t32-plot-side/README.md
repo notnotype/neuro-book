@@ -334,5 +334,5 @@ updated: 2026-11-04
 
 ## 下一步
 
-1. 开发者 11-04 批准审查方案（六路都开，E1、E2 用 Sonnet）。同日开审：A、F1、F2 是 omp（审查 worktree `.worktree/w00039-t32-review-{a,f1,f2}`，会话与报告在 `.local/agent/works/w00039-novel-writing-plugins/tasks/t32-plot-side/reports/`），C、E1、E2 是 Sonnet 子代理；材料在同一处的 `review/`，写手简报由 `prototype/review-fixture/build.ts` 用分支上的 nb-canon 生成。等待期间做 nb-story 的转换器与覆盖率报告。
+1. 第一轮深入审查已完成（11-04）：六份报告共 156 条，按主题归类与核实见 [`evidences/design-review-round1-resolution.txt`](evidences/design-review-round1-resolution.txt)。Agent 体验的结果：deepseek-flash 按简报写卫兵与星瑾两场各三遍，没有一遍泄露保密事项；记账与答案文件逐项对上。四条待开发者定（世界线改用“恢复”变更、内核与剧情插件的分界、“在场”第一版就做、绝密在本章要暗示时才给写手），定了以后改出提案第二版再审一轮。
 2. 写样本：星瑕的回溯、一桩命案（示意）、一个国家的历史（示意）、一本书的经手（示意）、草药与铁匠和药师、国王与贤者的对话和卫兵（开发者 11-04 的例子），每个写出作者会问的问题与期望的答案。
