@@ -1,0 +1,201 @@
+# w00032/t27 只读设计审查（接手部分，Opus）
+
+审查对象与快照同 `/tmp/review-t27-design/brief.md`（worktree `/tmp/review-t27-design/wt`，提交 `de65e1141`）。只审接手说明列出的未覆盖部分，已列在 `report.md` 的不重复。实验在 `/tmp/review-t27-design/lab-opus/`，只用本机假端点。仓库文件未修改。
+
+### 重要｜正确性｜plan.md：`anthropic-messages` 的第一事件超时被内层再重试 10 次，卡死要约 10 小时才收口
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 124 行（缺省 300 秒）、第 202 行（验收）、风险 1（第 223 行“最坏约 12 分钟”）；`node_modules/@oh-my-pi/pi-ai/src/providers/anthropic.ts:3541-3553`。
+- **现象**：`pi-ai` 的 Anthropic 循环只把“流中途空闲超时”排除在内层重试之外（`isLocalIdleTimeout`），第一事件超时带 `Transient | Timeout` 标记，走 `canRetryProviderFailure`，重发到 `PROVIDER_MAX_RETRIES`。OpenAI 两种接口第一事件超时直接交回。计划的风险 1 只按 503 算（约 1 分钟一轮），没算卡死。
+- **为什么是问题**：卡死超时是 t27 的目标之一。按缺省 300 秒：一次外层尝试 = 11 × 300 秒 + 约 50 秒退避 ≈ 56 分钟，再乘外层 11 次 ≈ 10.2 小时才以错误收口。这 56 分钟里日志与状态帧都没有变化（内层不产生事件），界面上是“流式接收中”。Anthropic 格式的中转站正是开发者在用的接口之一（`target.ts` 的 `bearer` 认证就为它们）。决定 7 接受内外叠加，但开发者看到的代价是 12 分钟，不是 10 小时；第 202 行的验收“超时设 1 秒按 network 失败”用这个接口跑要等约 1 分钟。
+- **如何核实**：`env HOME=/tmp/review-t27-design/lab-opus/home-probe1 bun /tmp/review-t27-design/lab-opus/inner-probe.ts hang 80000`，真实 `pi-ai`、本机端点回 200 与 SSE 头后不发事件，`streamFirstEventTimeoutMs: 200`：`anthropic-messages` HTTP 11 次、50.6 秒后才交回（各次到达 0、0.68、1.9、3.9、7.6、14、22、29、36、43、50 秒），`openai-responses`、`openai-completions` 都是 1 次、约 210 毫秒。
+- **建议改法**：不改 `pi-ai`、不包 `fetch`：`ompCall` 自己做第一事件计时（收到第一个非 `start` 事件前到时，中止传给 `streamSimple` 的子信号，交回 `network`），并给 `pi-ai` 传 `streamFirstEventTimeoutMs: 0`，这样所有接口的卡死语义一致、只算一次。不想多这个计时器的话，至少把风险 1 的数字改成实测的 56 分钟与 10 小时，让开发者重新确认缺省值（比如这个接口缺省 60 秒）。第 202 行的验收写明按接口分别测。
+
+### 重要｜正确性｜plan.md：空回复重试内外相乘到 12 次、发的是同一份请求，用完还以 `completed` 收口
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 60、74 行（空回复规则）、第 85 行（`modelFailed` 的 `kind`）、第 17–31 行（“只有 `openai-completions` 能关”）；`pi-ai` 的 `utils/empty-completion-retry.ts:21,139-150`；参照 `turn-recovery.ts:1096-1158`。
+- **现象**（四件事，一个规则带出来）：
+  1. **叠加**：`pi-ai` 在三种接口上都对 `usage.output <= 1` 的空 `stop` 自己重发 2 次，`maxHttpAttempts: 1` 关不掉。外层再重发 3 次，一个空回复发 12 个请求；内层丢弃的两次用量不进回复，费用少记三分之二。
+  2. **内层其实能关**：`acceptEmptyResponse: true` 经 `streamSimple` 转给三种接口，关掉内层的空回复重试。计划写“只有 `openai-completions` 能关”只对 HTTP 重试成立；决定 7 是“内层重试能关的关”，这一个漏了。
+  3. **同一份请求发四次**：`thinking` 块非空而文字为空（reasoning 模型，尤其工具调用之后）不算 `pi-ai` 的空回复，却算计划的空回复，每次都是整段上下文加一段推理的钱。重发请求逐字相同，模型的判断没有任何新输入。omp 也重试空停止，但每次追加一条提醒（`empty-stop-retry.md`：“Stopped without actionable output... Attempt #n/3”），并丢掉空的那一轮。
+  4. **用完当成功**：计划写“用完按普通回复写下（行为同现在）”。`openai-completions` 上网关回 200 后直接断开、一个事件都没有时，`pi-ai` 交回的是空 `stop`（不是错误），所以这种真实的上游故障不走 10 次退避，走 3 次空回复，然后运行以 `completed`、文字为空收口。无人值守时看起来是任务做完了。omp 到上限是 `Assistant returned empty stop after retry cap` 的错误。
+- 另外，第 85 行的 `modelFailed` 要写 `kind`（必填），空回复没有 `response.error`，计划没说写什么；界面与 `RunResult` 都要读它。
+- **为什么是问题**：决定 5 是“空回复算可重试的失败”，开发者同意的是重试，但计划没写清这个规则在正常流程上的账：工具调用之后模型不说话是常见的结尾，每发生一次多花 3 次整段上下文。而用完之后不算失败，与“算失败”的字面也不一致。
+- **如何核实**：
+  - `env HOME=.../lab-opus/home-net bun /tmp/review-t27-design/lab-opus/empty-http.ts <场景>`：真实内核、计划形状的 terminal（loader 内存替换）、真实 `ompCall` 与 `pi-ai`、本机 HTTP、补了 `maxHttpAttempts: 1`。每个请求 1000 输入 token。
+    - `empty0`（`completion_tokens: 0`）：HTTP 12 次、9.6 秒，日志 3 条 `modelFailed`，`usage.input=4000`（实际发了 12000），`usage.complete=false`，运行 `completed`、文字为空。
+    - `empty2`（输出 2 token、无文字）与 `thinking`（只有 `reasoning_content`）：HTTP 4 次，运行 `completed`、文字为空。
+    - `headers-then-close`（200 与 SSE 头后关流）：HTTP 12 次，`reason: completed`、`error: null`。
+  - `bun /tmp/review-t27-design/lab-opus/accept-empty.ts`：三种接口的空流，缺省 HTTP 3 次、约 1.5 秒，加 `acceptEmptyResponse: true` 后都是 1 次、1–2 毫秒，`stopReason` 仍为 `stop`。
+  - `bun .../lab-opus/guard-run.ts plan-empty`：工具调用之后只回思考块：端口 5 次（1 次工具、4 次空），后 4 次请求逐字相同，费用 5。
+- **建议改法**：
+  1. `ompCall` 在有 `transport` 时传 `acceptEmptyResponse: true`，外层成为唯一一层，12 次变 4 次，用量也都记下。把它写进“写计划时实测的事实”。
+  2. 重发时给模型新的信息：`report.md` 已建议把重发提到循环边界，那里已有 `conv("continued", {by: "core"})`（`loop.ts:326` 的 `RESULT_NUDGE` 同样写法），一行提醒即可；如果留在 terminal，就把次数降到 1 次，因为逐字相同的重发很难得到不同结果。
+  3. 用完算失败：写 `modelFailed{kind: "provider", code: "empty-reply"}` 并以 `error` 收口，或至少收口带 `code`，让无人值守的调用方分得出来。这一条改变了计划已写的取舍，交开发者定。
+  4. 第 195 行的验收加：真实端点上空回复的 HTTP 总次数；200 后断开的归类与收口。
+
+### 重要｜正确性｜plan.md：自定义服务商缺省没有单价，费用上限与告警对它们一声不响地失效
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 141–145 行；`packages/nb-harness/src/models/target.ts:164`（`priceKnown: config.price !== undefined && config.price !== null`）、`kernel/model/omp.ts:296`（未知时 `cost: null`）。
+- **现象**：自定义服务商（中转站、本地网关）的模型不填单价时 `priceKnown` 为假，每次回复 `cost: null`。`cost-guard` 只把它记进 `unpriced`，`spent` 不动，所以 `maxCost` 永远不挡、`costWarned` 永远不发。计划说“设置说明与 `costWarned` 都写明”，可是 `costWarned` 在这种情况下恰好不会出现；`unpriced` 只在片里，计划没有任何读它给人看的地方。
+- **为什么是问题**：决定 4 定了“单价未知的不计入，设置里写明”，这里不重新讨论；问题是照字面实现后，用户设了 5 美元上限、挂着中转站跑一夜，既不被挡，运行中也没有任何信号说明保护没生效。无人值守正是 t27 的目标，设置说明只在打开设置窗口时才看得到。
+- **如何核实**：从代码推断，未单独跑。`target.ts:164` 与 `tests/models.test.ts:131` 的 `price: null` 用例确认 `cost` 为 null；`resultOver` 的 `addUsage` 也让整次运行的 `usage.cost` 变成 null。
+- **建议改法**：`maxCost > 0` 或 `warnCost > 0` 且第一次遇到 `cost: null` 时，写一条带幂等键的 `costUnpriced` 事件（session、ext），t17 显示“这个模型没有单价，费用上限对它不起作用”。部件只多一个事件。验收加一条。
+
+### 建议｜正确性｜plan.md：重试成功之后，别的原因收口的运行会带上那次已恢复的错误文字
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：计划第 85、95 行（带 `retry` 的 `modelFailed`）；`packages/nb-harness/src/kernel/run/results.ts:45,57,64`。
+- **现象**：`resultOver` 把路径上最后一条 `modelFailed` 记成 `lastFailure`，后面出现成功回复也不清掉；运行以 `error` 收口时无条件取它的 `message`。现在一次运行里 `modelFailed` 几乎只出现在收口前，所以没事。重试之后，成功恢复的那条会一直留到运行结束。
+- **为什么是问题**：长运行里只要重试成功过一次，之后因为 `role-unbound`、`tools-missing`、`request-invalid`、`profile-failed`、压缩失败收口，`RunResult.error` 就是错配的组合：码是这次的，文字是早先已恢复的 503。排查时会把人带去查服务商。
+- **如何核实**：`bun /tmp/review-t27-design/lab-opus/guard-run.ts plan-stale-message`。真实内核加计划形状的 terminal（loader 内存替换）：第一次 `network`、重试成功且带工具调用，下一个边界模型解析失败。结果 `{"reason":"error","error":{"kind":"local","code":"role-unbound","message":"503 upstream busy"}}`。
+- **建议改法**：`results.ts` 里带 `retry` 的 `modelFailed` 只累加用量、不进 `lastFailure`。这也正好是 `retry` 字段“这次运行还要接着发”的含义。写进实现清单，验收加这一条。
+
+### 建议｜不变量｜plan.md：循环检测只看参数不看结果，且 `redirected` 整轮不清，长运行里会误停
+
+- **严重程度**：建议；**类别**：不变量。
+- **位置**：计划第 149–157 行；`node_modules/@oh-my-pi/pi-ai/src/utils/tool-call-loop-guard.ts`；内置工具 `packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts`。
+- **现象**：
+  1. 哈希只算工具 id 与参数。模型用 `shell` 反复跑同一条命令等后台任务（`tail`、`git status`、跑测试），每次结果都不同，也算重复。omp 同样只看参数，但它主会话只提醒，误判的代价是一句话；这里第 10 次直接停运行。豁免列表是空常量，用户能做的只有把阈值设 0，整个检测一起关（omp 的 `exemptTools` 是设置项）。
+  2. 第 150 行写“相同加一、不同重置”“`turnStarted`：全部重置”，两个“重置”对照着读，`redirected` 只在 `turnStarted` 才清。无人值守时一轮可以跑几个小时：循环 A 被提醒、模型改正，几小时后另一个调用 B 连续 5 次，没有提醒就直接停。决定 8 的字面是“提醒之后又连续重复”，说的是同一次重复。
+- **为什么是问题**：误停发生在开发者不在的时候，下一个人工动作之前运行就结束了，正好和“长时间无人值守”相反。提醒只对同一个哈希有用，换了调用就该重新走“先提醒”。
+- **如何核实**：读代码与计划；未跑。计划的片与归约没有实现可测，判断来自第 149–153 行的字面与 `ToolCallLoopGuard.recordTurn`（只比 `[name, args]`）。
+- **建议改法**：
+  1. 第二段（停止）多一个条件：这段重复里工具结果也都相同。归约加上 `toolResult`（已是 path 事件，同片可算结果哈希）。结果在变说明不是死循环，只提醒不停。第一段的提醒维持 omp 的规则。
+  2. 把 `redirected` 记成“提醒过的哈希”而不是布尔值，哈希变了自然失效，还少一个需要单独重置的状态。
+  3. 验收第 205 行加：结果不同的重复不停；提醒 A 之后 B 重复时先提醒。
+
+### 建议｜接口｜plan.md：`cost-guard` 的事件与拦下回复的写法照字面实现不了
+
+- **严重程度**：建议；**类别**：代码质量。
+- **位置**：计划第 140–144、154 行；`packages/nb-harness/src/kernel/api/ctx.ts:71`（拦截“不写事件”）；`kernel/run/model-call.ts:66-69,126`；`kernel/run/chain.ts`（`onFailure: skip`）。
+- **现象**：
+  1. **`costCapped` 没有人写**：第 140 行声明了它，第 142–144 行的 `on` 只写 `costRecorded`、`costWarned`，到上限的判断在 `intercept.model` 里，而拦截不能写事件。实现者要么写一个没人发的事件，要么另外猜一个时机。拦下时 `loop.ts:250` 已经写了 `modelFailed{code: "cost-limit"}` 并以这个码收口，这条事件没有增加信息。
+  2. **拦下的回复字面不合形状**：`{stopReason: "error", error: {...}}` 缺 `content`、`toolCalls`、`usage`、`model`，`isResponse` 判为 `invalid-output`，链按 `skip` 跳过这一层，请求照发。这是失败时放行，第 154 行的循环门同样。大概只是计划的简写，但结果是保护静默失效。
+  3. **拦下回复的 `usage` 会回到自己身上**：`loop.ts:257` 把 `response.usage` 写进 `modelFailed`，`on.modelFailed` 又记一笔。若照 `model-call.ts:126` 现成的写法用 `cost: null`，每次被拦都 `unpriced` 加一，而且 `addUsage` 让整次运行的 `usage.cost` 变成 null。
+  4. **告警只响一次且重置不了**：`warned` 片与幂等键 `warned` 是同一件事的两份记录，幂等键写过就永远命中。用户把告警线从 1 美元调到 5 美元后，同一会话到 5 美元不再告警。
+- **如何核实**：读代码。第 2 点的放行路径：`normalize` 抛错算这一层失败，`model-call.ts:106` 的 `onFailure` 是 `skip`（`chain.ts` 文件头：之前出错把输入原样交给里层）。
+- **建议改法**：删掉 `costCapped`；计划写明拦下回复的完整形状（`content: []`、`toolCalls: []`、`usage` 全 0 且 `cost: 0`、`model: request.model`），并在 `on.modelFailed` 里跳过自己的码；告警把 `warned` 改成“已告警到的线”（`warnedAt`），`warnCost > warnedAt` 时可以再告警，去掉幂等键。验收第 204 行加“拦下不增加 `spent`、`unpriced`，`RunResult.usage.cost` 不变成 null”。
+
+### 建议｜不变量｜plan.md：`model/request-dump.ts` 删文件违反内核的目录规则，第一次跑测试就失败
+
+- **严重程度**：建议；**类别**：不变量。
+- **位置**：计划第 120 行；`packages/nb-harness/src/kernel/architecture.test.ts:3,32,39`。
+- **现象**：内核的边界测试规定“`node:fs` 只在 `log/`”，`model` 的 `builtins` 是空表。计划把删文件放进 `kernel/model/request-dump.ts`，要用 `node:fs` 与 `node:path`（判断路径落在 `http-400-requests` 下），这个测试会拒绝。计划和 Spec 改动都没提这条规则。
+- **为什么是问题**：这不是加一行登记的小事，规则的来由是内核不直接碰文件系统，只有日志存储例外。放开 `model/` 等于改边界，应该是明说的取舍，而不是实施时为了让测试通过顺手改表。
+- **如何核实**：读 `architecture.test.ts` 第 28–43 行的 `DIRECTORIES`；第 118–120 行内置模块不在表里即报错。
+- **建议改法**：优先把文件操作留在内核外：`OmpTarget` 加一个可选的 `discardRequestDump?: (path: string) => Promise<void>`，`kernel/model` 只负责找路径、去掉诊断行，实际删除由 `src/models/target.ts` 提供（`src/models/` 不受这张表约束）。不想多这个注入点，就在 `model` 的表里明确加 `node:fs/promises`、`node:path`，并把理由写进计划。另注意 `report.md` 已指出成功路径也会留文件，两处方案要一起定。
+
+### 建议｜文档｜plan.md：nb-story 不经过内核适配器，“也受益”与“验收门”都不成立
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：计划第 13、118、120 行，切片 2 与“验证”里的 `nb-story` 验收门，第 102 行。
+- **现象**：`packages/nb-story/src` 只用 `@notnotype/nb-harness` 根入口的 `createHarness`（`qa/engine.ts`、`qa/probe.ts`），它在 `src/harness.ts:181`、`src/complete.ts:61` 自己调 `streamSimple`，整个 `nb-harness/src` 里 `kernel/` 之外只有 `models/target.ts` 引用内核。所以第 120 行“这样 nb-story 也受益”是错的；第 13、102、118 行说“nb-story 不变”是真的，但原因是它根本碰不到这些代码。
+- **为什么是问题**：照计划写进 Spec 后，会让人以为 nb-story 的 400 请求全文也不落盘了。实际 nb-story 的进程照写 `~/.omp/logs/http-400-requests/`，错误文字也带路径。切片 2 把 nb-story 验收门当作内核改动的回归保护，它覆盖不到内核，给的是假的安心。
+- **如何核实**：`grep -rln 'kernel/' packages/nb-harness/src`（排除 `kernel/` 目录）只有 `models/target.ts`；`grep -n 'ompCall\|buildResolution' -r packages/nb-story/src` 没有结果。
+- **建议改法**：删掉这两句与切片 2 的这项验收，改成“只影响内核的调用方（neuro-book）”。要不要给 nb-story 也做删除，单独记 followup；决定 6 说的是 NeuroBook，范围以开发者口径为准。
+
+### 建议｜代码质量｜plan.md：新设置的位置与范围没定，答案其实查得到
+
+- **严重程度**：建议；**类别**：代码质量。
+- **位置**：计划第 124、128、134 行；`docs/specs/settings/settings-window.md`“术语”与输出 2；`packages/neuro-book/src/plugins/settings/web/settings-window.ts:296-299,365`；`plugins/agent/shared/settings.ts` 文件头。
+- **现象**：第 128 行把“这两项在哪里出现”留到实施时截图，第 134 行的四项 `nbook.agent` 设置没提。规则是确定的：没写 `section` 的项进“插件设置”（id `other`，左栏排在“扩展”组最后），按声明者插件分小组，小组标题是插件 id 原文（`title: plugin`）。所以用户要在“扩展 > 插件设置 > nbook.agent”里找费用上限，旁边是只能当 JSON 编辑的 `toolBindings`、`profileSettings`；“nbook.models”小组下只有这两个超时项，而模型相关的其它设置都在“写作助手”组的页里。`nbook.agent` 的 `shared/settings.ts` 文件头与 `contributions.md` 不承诺里都写着“没有界面、只在设置文件里改”，加了这四项就不再准确。第 134 行也没给四项的 schema 范围（第 124 行有），`modelRetries` 可以填 1000000。
+- **为什么是问题**：费用上限是安全相关的设置，放在最不容易找到的地方，且标题是内部 id。切片 3 的“设置窗口截图”没有判据，截出来也说不清算不算通过。
+- **如何核实**：读上述代码与 Spec；未跑窗口。声明式的 list 分区不写组件（`settings.sections` 写在描述顶层，`category` 有 `ai`），符合“只加 schema 与文字”。
+- **建议改法**：`nbook.agent` 贡献一个 list 分区（`category: "ai"`，如“运行可靠性”），四项与两个超时项都指向它。两个超时属于 `nbook.models`，配置项按 id 引用别的插件的分区是 Spec 允许的；分区不存在时退回“其它”不会丢。给定范围：`modelRetries` 整数 0–20，`toolLoopThreshold` 整数 0–100，两个费用 `minimum: 0`。同时更新 `shared/settings.ts` 文件头与 `contributions.md`。切片 3 的判据写成“设置窗口搜索 maxCost 能到达可编辑的数字框”。
+
+### 建议｜正确性｜plan.md：对照 omp，空回复的判定漏了两种用户会撞上的结尾
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：计划第 74 行；`packages/nb-harness/src/kernel/model/omp.ts:311-315`；参照 omp `session/messages.ts:628`（`isEmptyAssistantStop`）。
+- **现象**：计划只认 `stopReason: "stop"`。omp 把 `toolUse` 且没有工具调用的结尾也算空。适配器还会改写结束原因，于是下面两种都绕过了计划的规则，既不重试，也不算失败：
+  - `finish_reason: "tool_calls"` 但没有工具调用：适配器交回 `stopReason: "tool"`、`toolCalls: []`。`loop.ts:287` 看 `toolCalls.length`，按最终回复处理。
+  - 网关只发 `[DONE]`、没有 `finish_reason`、内容为空：`watch.missing` 把它改成 `length`。`length` 正确地不重发，但这里根本没有被截断的内容。omp 拿到的是 `stop`，会重试。
+- **为什么是问题**：两种都是网关的异常结尾，无人值守时运行静默结束、文字为空。决定 5 要的是空回复能重试。
+- **如何核实**：`env HOME=.../lab-opus/home-net bun /tmp/review-t27-design/lab-opus/stop-shapes.ts`，真实 `ompCall`、本机 HTTP：`tool_calls-no-calls` 为 `{"stop":"tool","calls":0,"content":[]}`；`done-no-finish-empty` 为 `{"stop":"length","calls":0,"content":[]}`；HTTP 都是 1 次。
+- **建议改法**：规则改成“`purpose: turn`、没有工具调用、没有非空白文字，且 `stopReason` 是 `stop` 或 `tool`，或是 `length` 但内容完全为空”。真正被 `maxTokens` 截断时内容不为空（或思考块非空），仍然不重发。第 195 行的验收加这两种。
+
+对照 omp 其余部分的结论（不单独成条）：
+
+- 不可重发的种类：`ContentBlocked`、`PayloadRejected`、认证失败，omp 与计划的结果一致；只有 5xx 同时带内容拦截标记时计划会重发，几乎碰不到，不列。
+- 认证失败重试一次：omp 的 `RETRIABLE_KINDS` 也不含 `AuthFailed`，它的“重试”是登录类凭据轮换，NeuroBook 没有这个机制，不需要。
+- `MALFORMED_FUNCTION_CALL`：`google-generative-ai` 上适配器归 `network`，计划会重试，与 omp 一致（`stop-shapes.ts` 实测）。`RECITATION` 归 `provider`，不重发，合理。
+- 没有调用方中止却交回 `aborted`（omp 的 `isRetryableReasonlessAbort`）：计划没有处理，会以 `aborted` 收口。`net-probe.ts` 的连接重置、中途断开、流内错误 8 种场景在 3 种接口上都没有复现，全部是 `error` 或计划已覆盖的种类，所以只记为未复现的风险。
+
+### 建议｜文档｜plan.md：“写计划时实测的事实”逐条核对：两处不实、一处不全
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：计划第 17–37、136、145、215 行。
+- **不实**：
+  1. 第 136 行“旧会话打开时写一条 `profileChanged{plugin-added}`”：打开时哈希不同一律写 `code-updated`（`kernel/session/session.ts:476`）；`plugin-added` 只在已打开的会话重新装配时写（`session.ts:680`，`extensions.md` 输出 26）。“请求不变”成立（`guard-run.ts redirect-order` 重开后已提交的轮逐块一致）。写进 Spec 前要改。
+  2. 第 145 行“用户中止时反应的输出被丢弃（输出 18），那次的用量不计入”：常见路径上不是这样。收口批在中止之后才写，`runHandler` 给已经中止的信号加监听不会触发，处理函数正常完成，输出照写。`bun /tmp/review-t27-design/lab-opus/guard-run.ts abort-usage`：端口中止时交回费用 2，结果 `spent: 2`，日志 `modelFailed, turnEnded, runEnded, costRecorded`。一次失败收口（`error-usage`）同样计入。这比计划写的更好，但 `agent/run-guards.md` 不要照抄“不计入”。真正不计入的只有两种：宽限期过了端口还没交回（没有用量可记），以及中止发生时反应正在执行。
+- **不全**：第 17 行“只有一种接口关得掉”只测了 503。空回复的内层重试三种接口都能关（见第 2 条）；`google-generative-ai` 写的 1 次也只对 503 成立，空回复是 3 次并交回 `network` 错误（`stop-shapes.ts` 的 `gemini-empty-stop`）。
+- **核对属实的**（`bun /tmp/review-t27-design/lab-opus/facts.ts`，全部本机 503）：
+  - `openai-completions` 缺省 12 次、31.6 秒，`maxHttpAttempts: 1` 后 1 次。
+  - `openai-responses` 6 次、15.5 秒，传不传都一样。
+  - `google-generative-ai` 1 次。
+  - `anthropic-messages` 11 次、46.4 秒，这个数字可以填掉第 215 行的“未验证边界”（计划推算约 1 分钟）。
+  - 卡住归 `network`、半截内容保留，三种接口都成立。
+  - `maxAttempts` 与 `retryProviderErrors` 的传法、`PROVIDER_MAX_RETRIES = 10`、`streamSimple` 不转 `providerRetryWait`、思考循环检测缺省开（`utils/thinking-loop.ts:133,517`）、文档 100/120 秒而常量 300 秒、`PI_CONFIG_DIR` 取进程环境、omp 只在记忆模块传 `maxHttpAttempts`（`memories/index.ts:911,1055`）、omp 只在顾问里有再犯即停（`advisor/loop-guard.ts`），都与代码一致。
+  - omp 的退避带抖动（`retry-fallback-chains.ts:95`），计划明确不做，已写理由。
+- **建议改法**：改上面三处，把 `acceptEmptyResponse` 与第一事件超时的内层重试补进事实表。
+
+### 建议｜测试｜plan.md：验收映射缺的行，都是能用真实运行时写出来却没写的
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：计划“验收映射”（第 187–206 行）。
+- **现象**：逐行看，现有各行都写得出来（`crash-session.ts` 已有 `kill -9` 的子进程模式，加一个模式即可；快照有 `ExtensionInfo.status`，第 206 行可断言；`on.assistant` 的提醒位置与重开一致已实测）。缺的是下面这些，其中前三项是判断表的真实归类，手写 `kind` 的 `createTestModel` 证明不了：
+  1. **`retryAfterMs` 的接线**：第 191 行用 `createTestModel`，回复里的 `retryAfterMs` 是手写的。适配器从 `pi-ai` 错误文字解析这一步没有行。实测三种接口的 429 都把头折进文字（`retry-after-ms=30000`），`extractProviderRetryHint` 能取到，应当锁住，`pi-ai` 升级时这里最容易悄悄断。
+  2. **判断表的第 71 行**（正文为空的 429 归 `quota` 且带等待时间）没有行。实测 `429 status code (no body) retry-after-ms=30000`，标记含 `UsageLimit`，归 `quota`，计划的判断成立，但没有测试保护。
+  3. **不重发的种类**：第 193 行没有 `length`、`content_filter`、流内 `invalid_request_error`。
+  4. **超时传 0**：没有行。这一项实现时容易写错：第 124 行“0 表示不设”，第 118 行“不给就不传”，把 0 当作不给就落到 `pi-ai` 的 300 秒缺省。
+  5. **`modelRetries: 0`** 与“设置改了下一次失败就生效”（第 102 行）：没有行。
+  6. **`maxHttpAttempts: 1` 对检测的影响**：第 126 行要给 `probe` 传，`plugins/models` 的测试没有对应判据。
+- **另外两处写法要注意**：第 202 行按接口分开（见第 1 条）；第 203 行的子进程除了临时 `HOME`，还要清掉 `XDG_STATE_HOME` 等变量（`pi-utils/src/dirs.ts` 文件头：设了就改路径），否则在设了这些变量的机器上，测试看的目录与实际写入的目录不是一个。
+- **如何核实**：`bun /tmp/review-t27-design/lab-opus/inner-probe.ts hint`、`bun /tmp/review-t27-design/lab-opus/net-probe.ts`；其余读计划。
+- **建议改法**：把 1–3 合成一张真实端点的归类表测试（状态码或 SSE 形状 → `retryDelay` 的结论），放进 `model/omp.test.ts`。这张表同时覆盖 `report.md` 第 5 条要求的扩充。4–6 各加一行。
+
+## 未发现问题的方面
+
+仔细检查、未列为问题的（有实测的写了脚本）：
+
+- **`on` 里 `emit` session 作用域的 ext 事件**：允许，`reactions.ts` 的 `outputDrafts` 按声明取作用域（`guard-run.ts`）。
+- **反应层数**：`assistant`（0）到 `costRecorded`（1）到 `costWarned`（2），`redirected`（1），都在上限 3 之内。
+- **用量来源**：`assistant`、`modelEnded`、`modelFailed` 没有重复。`end()` 补写的 `settleOpen` 不带 `usage`；压缩与审批走 `modelCaller`，只写一条；`RunResult` 与 `spent` 的来源一致。
+- **收口批之后的反应**：`costRecorded` 写在 `runEnded` 之后，`waitRun` 返回时已归约（`error-usage`、`abort-usage`）。
+- **`preview` 时一律 `next`**：合规，`runtime.md` 输出 55 与 `api/ctx.ts:71` 都这样要求。
+- **`on.assistant` 写 conv 事件**：日志顺序 `assistant, redirected, toolStarted, toolResult`，请求里排在工具结果之后，合成一条 user 消息；提交之后与重开之后逐块一致（`redirect-order`）。计划第 152 行成立。
+- **片与事件的版本、Profile 哈希**：工厂闭包读设置不进哈希，也不影响重放，因为归约不读设置，`on` 与拦截不重放。`extensions.md` 输出 25 没实现不影响这个做法。
+- **`nbook.agent` 把扩展贡献给自己接收的 `agent.extensions`**：做得到，`lab/self-extension.ts` 复跑结果两个扩展都是 `active`、无诊断。提供方就是接收方，不需要 `onAgentSession:open`。
+- **fork**：`spent` 从 0 算，与计划一致（`guard-run.ts fork`）。
+- **`buildResolution` 的调用方**：只有 `core.ts:134,312` 与测试，第四个参数可选不破坏。`resolutions` 缓存里的闭包每次 `call` 现读 `transport()`，缓存不挡设置变更。`maxHttpAttempts: 1` 让检测只发一次，失败更快，是好事。
+- **超时 0 表示关闭**：三种接口成立，显式传 0 时 650 秒内不被任何一层截断，含 Bun `fetch` 的缺省 300 秒与 SDK 缺省（`lab-opus/zero-long.ts`，回 200 后不发事件、连响应头都不回两种，都是调用方中止才结束）。
+- **第一事件超时被 idle 兜底**：只在不显式传时发生。显式 `first: 0, idle: 40` 时，第一事件前不计时（`provider-probes.ts timeouts` 复跑）。
+- **流中断的类别**：连接重置、中途断开、流内 `overloaded`、`rate_limit`、`server_error` 在三种接口上都归到判断表的可重发类（`net-probe.ts`），`invalid_request_error` 归 `provider`，不重发。例外是回 200 后无事件，见第 2 条。
+- **`stopReason: "length"`、`content_filter`**：不被误重发。
+- **`Retry-After` 超过 5 分钟**：三种接口都能取到值并交回（`retry-after-ms=400000`）。
+
+## 索引（最终口径）
+
+| 序号 | 严重程度 | 标题 |
+|---|---|---|
+| 1 | 重要 | `anthropic-messages` 第一事件超时被内层再重试，卡死约 10 小时才收口 |
+| 2 | 重要 | 空回复重试内外相乘到 12 次、请求相同、用完以 `completed` 收口 |
+| 3 | 重要 | 自定义服务商没有单价，费用上限与告警静默失效 |
+| 4 | 建议 | 重试成功后，别的原因收口带上已恢复的错误文字 |
+| 5 | 建议 | 循环检测不看结果、`redirected` 整轮不清，长运行误停 |
+| 6 | 建议 | `cost-guard` 的事件与拦下回复的写法照字面实现不了 |
+| 7 | 建议 | `model/request-dump.ts` 违反内核目录规则 |
+| 8 | 建议 | nb-story 不经过内核适配器 |
+| 9 | 建议 | 新设置的位置与范围没定 |
+| 10 | 建议 | 空回复判定漏了两种结尾 |
+| 11 | 建议 | “实测的事实”两处不实、一处不全 |
+| 12 | 建议 | 验收映射缺行 |
+
+更正：第 7 条写的“规则的来由是内核不直接碰文件系统”是我的推断。`architecture.test.ts` 只写了规则本身，`docs/adr` 与 `docs/specs/harness` 里查不到它的理由，属于没有记录的理由。结论不变：放开 `model/` 是要明说的取舍；开发者也可以判断这条规则不再需要。
+
+没有撤回的条目。
+
+各级数量：阻断 0，重要 3，建议 9，共 12 条。`report.md` 已有的 10 条未重复。
