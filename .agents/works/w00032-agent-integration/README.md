@@ -116,6 +116,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 ## 后续（本 Work 不做）
 
 - 提示词缓存的保留时长与预热（omp 的 `providers.cacheRetention`、`cacheWarming`）、旧会话与大块内容的清理（`gc.*`）：t27 之后再定（t12，2026-11-04）。
+- nb-story 的 400 请求全文落盘：它经 `createHarness` 自己调 `streamSimple`，不经过内核的适配器，所以 t27 的删除管不到它，进程照写 `~/.omp/logs/http-400-requests/`（t27，2026-11-04）。
 - 网页工具插件（`web_fetch`、`web_search`）与网页搜索：另开 Work（t12，2026-10-28）。
 - MCP 插件：另开 [w00036](../w00036-mcp/README.md)（t19，2026-10-30）。
 - 插件分发与官方网站：另开 [w00038](../w00038-plugin-distribution/README.md)、[w00037](../w00037-official-site/README.md)（t25，2026-10-30）。

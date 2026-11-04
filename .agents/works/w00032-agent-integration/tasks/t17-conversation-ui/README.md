@@ -61,6 +61,14 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 - 首屏与重连：原子的订阅起点（例如 `subscribe(listener, {afterSeq})`，F6）；向前翻页、按事件类型筛、字节上限（F10）；`path()` 分页、`log()` 带叶子、过滤后 `parent` 链断开的处理（F9）。
 - 状态：逐个工具调用的结束帧（F4）；异步提问与暂停的运行进快照（F14）；附件的名字与大小、上下文用量（F15）。
 
+## 来自 t27 的显示要求（2026-11-04）
+
+内核与插件的数据 [t27](../t27-run-reliability/README.md) 交出，对话界面在这里做（[`agent/run-guards.md`](../../../../../docs/specs/agent/run-guards.md)、[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md) 输出 64、65、70）：
+
+- 等重发时显示第几次、还要等多久（`RunStatus.retry`）；收到带 `retry` 的 `modelFailed` 时丢掉那次的半截文字。
+- 显示费用告警（`costWarned`）、“这个模型没有单价，费用上限对它不起作用”（`costUnpriced`），以及会话累计费用（快照的 `usage`）。
+- 运行结束的码要有人话：`cost-limit`、`tool-call-loop`、`empty-reply`、`thinking-loop`、`first-event-timeout`。
+
 ## 当前状态
 
 方向讨论完成（开发者 2026-10-30 同意以上 13 条）。静态稿与细节在实施时展开：开发者定本 Task 轮到实施时再出稿评审。

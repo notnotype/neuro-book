@@ -134,7 +134,7 @@ owners:
 累计：
 
 70. `SessionCore` 按日志里全部 `assistant`、`modelEnded`、`modelFailed` 的 `usage` 累计会话的费用，不分分支：`cost` 是数字就累加，是 null 就给 `unpriced` 加一。回退不减，重开后还在，日志更早的会话打开时一样算出来；fork 把复制来的路径上的用量算进新会话。快照的 `usage` 是 `{cost, unpriced}`，处理函数与拦截经 `ctx.spend` 读（[`harness/extensions.md`](extensions.md) 输出 30）。
-71. 一层调用两次 `next`：再次走到最里层时，先给上一次发出的请求写 `modelEnded`，它的用量不丢。
+71. 一层多次调用 `next`（可以并发）：整条链结束后，给最后发出的那次之外的每次请求写 `modelEnded` 或 `modelFailed`，它们的用量不丢。
 
 ## 状态与转换
 
