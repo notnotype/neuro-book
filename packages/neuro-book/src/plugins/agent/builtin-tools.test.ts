@@ -564,8 +564,9 @@ describe("grep 与 glob", () => {
         const slow: SessionResources = {...resources, readPath: async (address, options) => {
             if (address.includes("/many/")) {
                 checked.push(address);
+                // 核对一直不完成，直到期限信号触发：到期之后还继续核对的话，`checked` 会一路涨。
                 await new Promise<void>((resolve) => {
-                    setTimeout(resolve, 200);
+                    options?.signal?.addEventListener("abort", () => resolve(), {once: true});
                 });
             }
             return resources.readPath(address, options);
