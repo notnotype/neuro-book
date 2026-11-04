@@ -165,7 +165,8 @@ async function locate(resources: SessionResources, address: string, signal: Abor
         const at = prefix + segments.join("/");
         const located = await resources.readPath(at, {signal});
         if (located.ok) return {path: join(located.value.path, ...missing) + (trailing ? "/" : "")};
-        if (located.code !== "not-found" || segments.length <= 1) return {failure: failure({code: located.code, detail: `${address}：${located.detail}`})};
+        if (located.code !== "not-found" || segments.length === 0) return {failure: failure({code: located.code, detail: `${address}：${located.detail}`})};
+        // 段走完了就问方案根：`user://new.txt` 的祖先是 `user://`。
         missing.unshift(segments.pop() as string);
     }
 }

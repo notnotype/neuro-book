@@ -127,6 +127,9 @@ export async function runGrep(resources: SessionResources, project: string | und
     // 三种停下的原因分开：配额够了是正常结束，到期限与攒太多是“不完整”，工具取消是失败。按哪个信号触发判断，不看原生的错误。
     const quota = new AbortController();
     const deadline = AbortSignal.timeout(deadlineMs);
+    // 配额或期限到了就不再核对：期限管的是整次工具调用，不只是原生搜索。已核对过的结果留着。
+    const stopped = AbortSignal.any([quota.signal, deadline]);
+    const verifying = AbortSignal.any([signal, deadline]);
     let capped = false;
     let routeFailure: ToolResult | null = null;
     const verdicts = new Map<string, boolean>();
@@ -140,13 +143,15 @@ export async function runGrep(resources: SessionResources, project: string | und
         if (visible.length > limit) quota.abort();
     };
     const drain = async (): Promise<void> => {
-        for (let batch = pending; batch.length > 0 && !quota.signal.aborted; batch = pending) {
+        for (let batch = pending; batch.length > 0 && !stopped.aborted; batch = pending) {
             pending = [];
             for (const match of batch) {
-                if (quota.signal.aborted) return;
+                if (stopped.aborted) return;
                 let allowed = verdicts.get(match.path);
                 if (allowed === undefined) {
-                    const verdict = await verdictOf(resources, addressOf(match), signal);
+                    const verdict = await verdictOf(resources, addressOf(match), verifying);
+                    // 核对途中到期：这一个的结果是被取消的，不算路由失败。
+                    if (stopped.aborted) return;
                     if ("failure" in verdict) {
                         routeFailure = verdict.failure;
                         quota.abort();
@@ -162,10 +167,11 @@ export async function runGrep(resources: SessionResources, project: string | und
     const kick = (): void => {
         drained ??= drain().finally(() => {
             drained = null;
-            if (pending.length > 0 && !quota.signal.aborted) kick();
+            if (pending.length > 0 && !stopped.aborted) kick();
         });
     };
     const onMatches = (matches: GrepMatch[]): void => {
+        if (stopped.aborted) return;
         for (const match of matches) {
             const known = verdicts.get(match.path);
             if (known === false) continue;

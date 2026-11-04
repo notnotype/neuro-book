@@ -12,14 +12,14 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
-import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import type {SessionApi, ToolContext, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
 import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
 
-import {BUILTIN_TOOL_CONTRIBUTIONS} from "./backend/builtin";
+import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./backend/builtin";
 import {runGlob, runGrep} from "./backend/builtin/search";
 import {AgentTools} from "./backend/tools";
 import {agentProfile, agentTool} from "./shared/points";
@@ -203,6 +203,35 @@ describe("read", () => {
         expect(budget.text).toContain("offset=");
     });
 
+    test("输出 5：大文件的非法 UTF-8 是 not-text，不替换成别的字符；一行特别长时内存有界、行号不乱", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "坏.txt"), Buffer.concat([Buffer.from([0xff]), Buffer.alloc(5 * 1024 * 1024, 0x61)]));
+        expect(await call(session, "read", {path: "session://坏.txt"})).toMatchObject({status: "error", code: "not-text"});
+        await writeFile(join(home, "单行.txt"), `${"甲".repeat(3 * 1024 * 1024)}\n第二行\n`);
+        const long = await call(session, "read", {path: "session://单行.txt"});
+        expect(long.status).toBe("ok");
+        expect(long.text).toContain("已截断");
+        expect(long.text).toContain("2:第二行");
+    });
+
+    test("定位之后文件被删：not-found，不是工具抛错", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        const {resources, artifacts} = await services(session);
+        await writeFile(join(home, "a.md"), "内容");
+        const racing: SessionResources = {...resources, readPath: async (address, options) => {
+            const located = await resources.readPath(address, options);
+            await rm(join(home, "a.md"));
+            return located;
+        }};
+        const tool = await builtinTools()["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
+        const live = new AbortController();
+        expect(await tool.execute({path: "session://a.md"}, {signal: live.signal, callId: "c", sessionId: session.id, initial: undefined, read: () => undefined} as unknown as ToolContext)).toMatchObject({status: "error", code: "not-found"});
+    });
+
     test("输出 6：目录与虚拟根列出一层，地址是全局的", async () => {
         const w = await world();
         const {session, home, global, id} = await open(w);
@@ -216,7 +245,7 @@ describe("read", () => {
         expect(virtual.text).toContain(`sessions://${id}`);
     });
 
-    test("输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的不用 JPEG；小图放大；动图也转成静图", async () => {
+    test("输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的不用 JPEG；小图放大", async () => {
         const w = await world();
         const {session, home} = await open(w);
         await mkdir(home, {recursive: true});
@@ -529,6 +558,23 @@ describe("grep 与 glob", () => {
         expect(await runGlob(resources, undefined, {pattern: "**/*", path: `${global}/many`}, live.signal, 0)).toMatchObject({code: "timeout"});
         live.abort();
         expect(await runGrep(resources, undefined, {pattern: "needle", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
+
+        // 期限管整次调用：原生搜索已经把匹配交出来、核对还没做完时到期，也不再继续核对。
+        const checked: string[] = [];
+        const slow: SessionResources = {...resources, readPath: async (address, options) => {
+            if (address.includes("/many/")) {
+                checked.push(address);
+                await new Promise<void>((resolve) => {
+                    setTimeout(resolve, 200);
+                });
+            }
+            return resources.readPath(address, options);
+        }};
+        const started = Date.now();
+        const clipped = await runGrep(slow, undefined, {pattern: "needle", path: `${global}/many`, limit: 500}, new AbortController().signal, 150);
+        expect(clipped.text).toContain("不完整");
+        expect(checked.length).toBeLessThan(5);
+        expect(Date.now() - started).toBeLessThan(5_000);
         expect(await runGlob(resources, undefined, {pattern: "**/*", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
     });
 });
@@ -580,11 +626,18 @@ describe("shell", () => {
         expect((await call(session, "shell", {command: "f() { echo \"$1\"; }; f --file=session://x.md"})).text.split("\n")[0]).toBe(`--file=${await realpath(join(home, "x.md"))}`);
         expect((await call(session, "shell", {command: `cat ${global}/x.md`})).text.split("\n")[0]).toBe("左");
 
+        // 祖先一直到方案根：`user://新.txt` 的段走完了问 `user://`。
+        expect((await call(session, "shell", {command: "echo 根 > user://根下新文件.txt"})).status).toBe("ok");
+        expect(await readFile(join(w.stateRoot, "user", "根下新文件.txt"), "utf8")).toBe("根\n");
         const mkdirs = await call(session, "shell", {command: "mkdir -p session://新/目录 && echo 写 > session://新/目录/g.md"});
         expect(mkdirs.status).toBe("ok");
         expect(await readFile(join(home, "新/目录/g.md"), "utf8")).toBe("写\n");
         expect((await call(session, "shell", {command: "echo https://example.com/a git://x/y xproject://z"})).text.split("\n")[0]).toBe("https://example.com/a git://x/y xproject://z");
         expect((await call(session, "shell", {command: "echo hello # 注释里 session://../坏"})).text.split("\n")[0]).toBe("hello");
+        expect((await call(session, "shell", {command: "echo hello;#session://../坏"})).text.split("\n")[0]).toBe("hello");
+        expect((await call(session, "shell", {command: "#session://../坏\necho hello"})).text.split("\n")[0]).toBe("hello");
+        // `a#b` 不是注释：后面的地址要换。
+        expect((await call(session, "shell", {command: "echo a#session://x.md"})).text.split("\n")[0]).toBe(`a#${await realpath(join(home, "x.md"))}`);
     });
 
     test("输出 19：虚拟地址、不露出的位置、没有主项目在执行前报错，命令不执行", async () => {
@@ -597,7 +650,7 @@ describe("shell", () => {
         expect(await readFile(join(home, "ran.txt"), "utf8").catch(() => null)).toBeNull();
     });
 
-    test("输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘，能分页读回", async () => {
+    test("输出 21：短输出不留全文；放不下时只交回头尾，全文完整落盘，能分页读回", async () => {
         const w = await world();
         const {session, home, global} = await open(w);
         const short = await call(session, "shell", {command: "echo 短"});

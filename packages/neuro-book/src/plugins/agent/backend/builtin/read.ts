@@ -4,7 +4,6 @@
 
 import {createReadStream} from "node:fs";
 import {open, stat} from "node:fs/promises";
-import {createInterface} from "node:readline";
 
 import {hashlineFormatHeader, hashlineFormatNumberedLines} from "@oh-my-pi/pi-natives";
 import type {EditStore} from "@oh-my-pi/pi-natives";
@@ -28,6 +27,7 @@ const MAX_ENTRIES = 500;
 const SNAPSHOT_LIMIT = 4 * 1024 * 1024;
 const IMAGE_LIMIT = 20 * 1024 * 1024;
 const SNIFF_BYTES = 4 * 1024;
+const MAX_BUFFERED_LINE = 1024 * 1024;
 /** `recordSnapshot` 把空集当作“不限行”，没有完整展示的行时要传这个（引擎的“没看过任何行”）。 */
 const NOTHING_SEEN = [0];
 
@@ -127,6 +127,43 @@ const splitLines = (text: string): string[] => {
     return lines;
 };
 
+class NotUtf8 extends Error {}
+
+/**
+ * 大文件按行流式读。解码是严格的（同 `decodeText`），但只校验读到的部分：翻一页不值得扫完整个文件，后面的非法字节到读到那里时才报。
+ * 一行特别长（没有换行的数据文件）时只留开头、丢掉其余，内存有界。
+ */
+async function* fileLines(path: string, signal: AbortSignal): AsyncGenerator<string> {
+    const decoder = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true});
+    const decode = (chunk?: Uint8Array): string => {
+        try {
+            return chunk === undefined ? decoder.decode() : decoder.decode(chunk, {stream: true});
+        } catch {
+            // TextDecoder 只给 TypeError，这里只可能是非法 UTF-8。
+            throw new NotUtf8();
+        }
+    };
+    const clean = (line: string): string => (line.endsWith("\r") ? line.slice(0, -1) : line);
+    let rest = "";
+    let skipping = false;
+    for await (const chunk of createReadStream(path, {signal})) {
+        rest += decode(chunk as Uint8Array);
+        const lines = rest.split("\n");
+        rest = lines.pop() as string;
+        for (const [index, line] of lines.entries()) {
+            if (index === 0 && skipping) skipping = false;
+            else yield clean(line);
+        }
+        if (rest.length > MAX_BUFFERED_LINE) {
+            if (!skipping) yield rest;
+            skipping = true;
+            rest = "";
+        }
+    }
+    rest += decode();
+    if (rest !== "" && !skipping) yield clean(rest);
+}
+
 async function readFile(store: EditStore, path: string, address: string, size: number, offset: number, limit: number, signal: AbortSignal): Promise<ToolResult> {
     const handle = await open(path, "r");
     let head: Uint8Array;
@@ -142,15 +179,8 @@ async function readFile(store: EditStore, path: string, address: string, size: n
     if (head.includes(0)) return failed("not-text", `not-text: ${address} 是二进制文件，用 shell 处理`);
 
     if (size > SNAPSHOT_LIMIT) {
-        const stream = createReadStream(path, {encoding: "utf8", signal});
-        const lines = createInterface({input: stream, crlfDelay: Infinity});
-        try {
-            const window = await collect(lines, offset, limit, null);
-            return {text: render(`[${address}]`, window, `这个文件超过 4 MiB，没有行锚：不能用行锚改，要用 replace、write 或 shell。`)};
-        } finally {
-            lines.close();
-            stream.destroy();
-        }
+        const window = await collect(fileLines(path, signal), offset, limit, null);
+        return {text: render(`[${address}]`, window, `这个文件超过 4 MiB，没有行锚：不能用行锚改，要用 replace、write 或 shell。`)};
     }
     const text = decodeText(await Bun.file(path).bytes());
     if (text === null) return failed("not-text", `not-text: ${address} 不是 UTF-8 文本`);
@@ -158,6 +188,15 @@ async function readFile(store: EditStore, path: string, address: string, size: n
     const window = await collect(lines, offset, limit, lines.length);
     const tag = store.recordSnapshot(path, text, window.seen.length === 0 ? NOTHING_SEEN : [...window.seen]);
     return {text: render(hashlineFormatHeader(address, tag), window, null)};
+}
+
+function readFailure(error: unknown, address: string, signal: AbortSignal): ToolResult {
+    if (signal.aborted) return failed("cancelled", `cancelled: 读 ${address} 被中止`);
+    if (error instanceof NotUtf8) return failed("not-text", `not-text: ${address} 不是 UTF-8 文本`);
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return failed("not-found", `not-found: ${address} 不存在`);
+    if (code === "EACCES" || code === "EPERM") return failed("permission-denied", `permission-denied: 没有权限读 ${address}`);
+    return failed("io-failed", `io-failed: 读 ${address} 失败（${error instanceof Error ? error.message : String(error)}）`);
 }
 
 async function listOne(resources: SessionResources, address: string, signal: AbortSignal): Promise<ToolResult> {
@@ -188,8 +227,13 @@ export function readTool(stores: SessionEditStores): AgentToolImplementation {
                     if (!located.ok) return located.code === "unsupported-capability" ? listOne(resources, address, call.signal) : failure(located);
                     if (located.value.kind === "directory") return listOne(resources, address, call.signal);
                     if (located.value.kind === "other") return failed("not-text", `not-text: ${address} 不是普通文件`);
-                    const {size} = await stat(located.value.path);
-                    return readFile(held.store, located.value.path, address, size, (args.offset as number | undefined) ?? 1, (args.limit as number | undefined) ?? MAX_LINES, call.signal);
+                    // 定位之后文件可能被 shell 或外部编辑器删掉：这是预料之中的，不能变成工具抛错。
+                    try {
+                        const {size} = await stat(located.value.path);
+                        return await readFile(held.store, located.value.path, address, size, (args.offset as number | undefined) ?? 1, (args.limit as number | undefined) ?? MAX_LINES, call.signal);
+                    } catch (error) {
+                        return readFailure(error, address, call.signal);
+                    }
                 },
             };
         },

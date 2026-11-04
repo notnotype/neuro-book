@@ -18,6 +18,8 @@ const SCHEME = /[a-z][a-z0-9+.-]*:\/\//uy;
 /** 方案前一个字符是这些时不算地址的开头（`xproject://`）；`--file=project://a` 的 `=` 可以。 */
 const WORD = /[A-Za-z0-9_-]/u;
 const NONE_END = /[\s;|&<>()'"$`]/u;
+/** `#` 在词首才是注释：命令开头、空白或操作符之后（`echo a;#x`）；`$#`、`a#b` 不是。 */
+const WORD_START = /[\s;|&<>()]/u;
 const DOUBLE_ESCAPABLE = new Set(["$", "`", "\"", "\\"]);
 
 function addressAt(command: string, start: number, quote: QuoteContext): {readonly end: number; readonly address: string} {
@@ -73,7 +75,7 @@ export function findAddresses(command: string): FoundAddress[] {
             }
         } else if (char === "\\") {
             index += 2;
-        } else if (char === "#" && /\s/u.test(command[index - 1] ?? " ")) {
+        } else if (char === "#" && WORD_START.test(command[index - 1] ?? " ")) {
             // 注释里的地址不换，也不能因为它是坏地址就拒绝这条命令。
             const newline = command.indexOf("\n", index);
             index = newline < 0 ? command.length : newline;
