@@ -290,10 +290,10 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
     }
 
     /**
-     * 嫌疑区间（model.md 输出 12）：从“上一个对得上的核对点”与“最后一次赋值”中较晚的一个起，到这个核对点为止。
-     * `previousOk` 由调用方按核对点的先后一遍算出；`sets` 是这个地址上赋值的位置。只扫区间本身，不从头扫时间线。
+     * 嫌疑区间（model.md 输出 12）：从“上一个比较过的核对点”与“最后一次赋值”中较晚的一个起，到这个核对点为止。
+     * `previous` 由调用方按核对点的先后一遍算出；`sets` 是这个地址上赋值的位置。只扫区间本身，不从头扫时间线。
      */
-    function suspects(result: CheckResult, previousOk: Point | undefined, sets: readonly number[]): string[] {
+    function suspects(result: CheckResult, previous: Point | undefined, sets: readonly number[]): string[] {
         const at = result.check.at;
         const items = actual.timelines.get(at.entry)?.items ?? [];
         const end = firstNotBefore(items, result.point);
@@ -305,11 +305,11 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                 low = middle + 1;
             } else high = middle;
         }
-        // 区间起点：赋值那条本身在区间里；对得上的核对点之前的记录（按它的比较时点算）不在区间里。
+        // 区间起点：赋值那条本身在区间里；上一个核对点之前的记录（按它的比较时点算）不在区间里。
         let begin = lastSet;
-        if (previousOk !== undefined) {
-            const afterOk = firstNotBefore(items, previousOk);
-            if (afterOk > begin) begin = afterOk;
+        if (previous !== undefined) {
+            const afterPrevious = firstNotBefore(items, previous);
+            if (afterPrevious > begin) begin = afterPrevious;
         }
         const list: Array<{id: string; estimate: boolean}> = [];
         if (begin < 0) {
@@ -462,24 +462,23 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             if (cached !== undefined) return cached;
             type Ranked = {rank: Rank | null; item: PendingItem; id: string};
             const items: Ranked[] = [];
-            // 核对点按先后排好：一遍走下来就知道每个核对点之前、同一地址上最后一个对得上的是哪个。
+            // 核对点按先后排好：一遍走下来就知道每个核对点之前、同一地址上最后一个比较过的是哪个。
             // 比较时点相同的两个核对点（挂在同一条变更的同一侧）互不算“之前”，所以从后往前找第一个严格更早的。
-            const oks = new Map<string, Point[]>();
+            const compared = new Map<string, Point[]>();
             const sets = new Map<string, number[]>();
             for (const result of checksBefore(rank)) {
+                if (result.result === "skipped") continue;
                 const key = addressKey(result.check.at);
-                if (result.result === "ok") {
-                    const list = oks.get(key);
-                    if (list === undefined) oks.set(key, [result.point]);
-                    else list.push(result.point);
+                let earlier = compared.get(key);
+                if (earlier === undefined) compared.set(key, (earlier = []));
+                if (result.result === "mismatch") {
+                    let previous: Point | undefined;
+                    for (let index = earlier.length - 1; index >= 0 && previous === undefined; index -= 1) if (compareEvents(earlier[index]!, result.point) < 0) previous = earlier[index];
+                    let addressSets = sets.get(key);
+                    if (addressSets === undefined) sets.set(key, (addressSets = setIndices(actual.timelines.get(result.check.at.entry)?.items ?? [], result.check.at)));
+                    items.push({rank: result.point.rank, id: result.check.id, item: {kind: "check-mismatch", check: result.check.id, at: result.check.at, computed: result.computed as number, written: result.check.value, suspects: suspects(result, previous, addressSets)}});
                 }
-                if (result.result !== "mismatch") continue;
-                const earlier = oks.get(key) ?? [];
-                let previousOk: Point | undefined;
-                for (let index = earlier.length - 1; index >= 0 && previousOk === undefined; index -= 1) if (compareEvents(earlier[index]!, result.point) < 0) previousOk = earlier[index];
-                let addressSets = sets.get(key);
-                if (addressSets === undefined) sets.set(key, (addressSets = setIndices(actual.timelines.get(result.check.at.entry)?.items ?? [], result.check.at)));
-                items.push({rank: result.point.rank, id: result.check.id, item: {kind: "check-mismatch", check: result.check.id, at: result.check.at, computed: result.computed as number, written: result.check.value, suspects: suspects(result, previousOk, addressSets)}});
+                earlier.push(result.point);
             }
             for (const event of actual.events) {
                 if (!rankBefore(event.rank, rank)) break;

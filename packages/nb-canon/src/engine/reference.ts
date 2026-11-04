@@ -200,15 +200,15 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
     function suspects(result: CheckResult): string[] {
         const at = result.point.check.at;
         const before = beforePoint(result.point.point);
-        const previousOk = exactChecks()
+        const previous = exactChecks()
             .filter((other) => other.check.id !== result.point.check.id && other.check.at.entry === at.entry && other.check.at.path === at.path && compareEvents(other.point, result.point.point) < 0)
             .map(evaluate)
-            .filter((other) => other.result === "ok")
+            .filter((other) => other.result !== "skipped")
             .at(-1);
-        // 起点是对得上的核对点时，按它的比较时点排除它之前的记录（挂在某条变更之后的核对点，那条变更也在它之前）；
+        // 起点是上一个比较过的核对点时，按它的比较时点排除它之前的记录（挂在某条变更之后的核对点，那条变更也在它之前）；
         // 起点是最后一次赋值时，那条赋值本身在区间里。
-        let start: {rank: Rank; tie: OrderTie} | null = previousOk === undefined ? null : previousOk.point.point;
-        let startExcluded = previousOk !== undefined && previousOk.point.point.inclusive;
+        let start: {rank: Rank; tie: OrderTie} | null = previous === undefined ? null : previous.point.point;
+        let startExcluded = previous !== undefined && previous.point.point.inclusive;
         for (const event of actualEvents) {
             if (!before(event)) break;
             if (event.kind !== "change") continue;

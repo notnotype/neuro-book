@@ -95,6 +95,20 @@ describe.each(ENGINES)("%s", (_name, createEngine) => {
             const engine = createEngine(anchored.inputs());
             expect(engine.pending(end("ch6"))).toEqual([{kind: "check-mismatch", check: "k3", at: {entry: "xia", path: "panel.存款"}, computed: 42100, written: 50000, suspects: ["c4"]}]);
         });
+
+        test("上一个核对点也对不上：这条的区间从它起，它之前的记录只在它自己那条里列出", () => {
+            const diverged = new WorldBuilder()
+                .entry("xia", "星瑕", {panel: {存款: 40000}}, {initBasis: {"panel.存款": {kind: "quote", quote: "卡里还有四万"}}})
+                .change("c2", chapter("ch2"), [add("xia", "panel.存款", -300)])
+                .check("k2", "xia", "panel.存款", 39800, chapter("ch2", 90))
+                .change("c3", chapter("ch3"), [add("xia", "panel.存款", 2000)])
+                .check("k3", "xia", "panel.存款", 41800, chapter("ch3", 90));
+            const engine = createEngine(diverged.inputs());
+            expect(engine.pending(end("ch6"))).toEqual([
+                {kind: "check-mismatch", check: "k2", at: {entry: "xia", path: "panel.存款"}, computed: 39700, written: 39800, suspects: ["init", "c2"]},
+                {kind: "check-mismatch", check: "k3", at: {entry: "xia", path: "panel.存款"}, computed: 41700, written: 41800, suspects: ["c3"]},
+            ]);
+        });
     });
 
     describe("canon.model 场景 5：语义档（输出 9）", () => {
