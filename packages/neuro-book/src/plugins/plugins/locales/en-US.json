@@ -173,6 +173,10 @@
             "name": "Model Service",
             "description": "Providers and models, keys and model roles; supplies models to the writing assistant."
         },
+        "nbook-plot": {
+            "name": "Story",
+            "description": "Knowledge, foreshadowing and character goals on top of the world engine: who knows what, and how far each setup has come."
+        },
         "nbook-plugins": {
             "name": "Plugin Manager",
             "description": "Installs, enables, disables and uninstalls plugins."

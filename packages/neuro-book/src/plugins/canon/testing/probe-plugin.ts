@@ -9,7 +9,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT} from "../backend/points";
 import type {DiagnosticContribution, MarkContribution} from "../backend/points";
-import {canonProjectKey} from "../shared/project";
+import {canonProjectKey} from "../shared/contracts";
 
 export const CANON_PROBE_ID = "test.canon-probe";
 export const PROBE_MARK = `${CANON_PROBE_ID}.reveal`;

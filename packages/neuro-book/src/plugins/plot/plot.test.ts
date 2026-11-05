@@ -1,0 +1,75 @@
+/**
+ * 剧情插件在真实的项目子进程里（docs/specs/plot/knowledge.md、foreshadowing.md、goals.md 的“输入与前置条件”）：
+ * 声明经 canon 的贡献点登记进世界，写得进带这些 Component 与标注的对象。纯计算的测试在 `core/` 旁边。
+ */
+
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {mkdir, rm, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
+import {buildMarkRegistry, buildRegistry} from "@notnotype/nb-canon";
+import type {Entry, StoryChangeDraft, WriteRequest} from "@notnotype/nb-canon";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {publish, serverPlugins, until, windowOf} from "nbook/plugins/canon/testing/harness";
+import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
+
+import {COMPONENT_IDS, DIAGNOSTIC_IDS, MARK_IDS, PLOT_COMPONENTS, PLOT_MARKS, PLOT_PLUGIN_ID} from "./shared/declarations";
+
+let tmp = "";
+beforeAll(async () => {
+    tmp = await createTestTmpRoot("neuro-book-plot", "project-child");
+});
+afterEach(() => {
+    killSpawnedProjects();
+});
+afterAll(async () => {
+    if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
+
+describe("剧情插件的声明", () => {
+    it("五个 Component 与三种标注种类在内核的登记里都合规（前缀是插件 id）", () => {
+        expect(buildRegistry(PLOT_COMPONENTS).diagnostics).toEqual([]);
+        const marks = buildMarkRegistry(PLOT_MARKS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration})));
+        expect(marks.diagnostics).toEqual([]);
+        expect(marks.versions.map(([id]) => id)).toEqual([MARK_IDS.node, MARK_IDS.presentLearns, MARK_IDS.reveal]);
+    });
+
+    it("项目子进程里剧情插件的类型与标注种类已登记：知识点、知情行与揭示都写得进去，载荷不合 schema 的揭示拒收", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
+            const dir = join(paths.project.path, "manuscripts.binder");
+            await mkdir(dir, {recursive: true});
+            await writeFile(join(dir, "binder.xml"), '<binder nextId="2"><chapter id="1" title="一"/></binder>');
+            await writeFile(join(dir, "00001-一.md"), "国王与贤者说话。\n");
+        }});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const window = await windowOf(h, "browser-1", "profile-1");
+        // 打开以后按活页夹发布一次章序调整。
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.version >= 1;
+        });
+        const point: Entry = {id: "tmp:k", type: "知识点", parent: null, folder: "", order: 0, init: {name: "勇者左手有星形的疤", aliases: [], summary: "勇者左手有星形的疤", text: [], data: {point: {type: COMPONENT_IDS.point, version: 1, enabled: true, fields: {保密: "secret", 规则: null, 表现: null, 揭穿: null, 读者问题: null}}}}};
+        const king: Entry = {id: "tmp:king", type: "人物", parent: null, folder: "", order: 0, init: {name: "国王", aliases: [], summary: "", text: [], data: {know: {type: COMPONENT_IDS.knowing, version: 1, enabled: true, fields: {知情: [], 听过的说法: null}}}}};
+        const talk: StoryChangeDraft = {id: "tmp:c", kind: "written", text: "国王与贤者谈勇者的特征", at: {kind: "unscheduled"}, told: [], involves: [], lines: [], links: [], patches: [{op: "listAdd", at: {entry: "tmp:king", path: "know.知情"}, value: {id: "tmp:k", 程度: "knows", 怎么知道: "witnessed"}}], status: "active", by: {kind: "author"}, marks: [{kind: MARK_IDS.presentLearns, version: 1, point: "tmp:k"}]};
+        const request: WriteRequest = {requestId: "plot-1", by: {kind: "author"}, what: "edit", title: "知识点", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:k"}, after: point}, {ref: {kind: "entry", id: "tmp:king"}, after: king}, {ref: {kind: "change", id: "tmp:c"}, after: talk}]};
+        const written = await publish(window.canon, request);
+        expect(written.ok).toBe(true);
+        const bad = await publish(window.canon, {...request, requestId: "plot-2", puts: [{ref: {kind: "change", id: "tmp:c"}, after: {...talk, marks: [{kind: MARK_IDS.presentLearns, version: 1}]}}]});
+        expect(bad).toMatchObject({ok: false, failure: {code: "validation-failed"}});
+
+        // 剧情插件登记的诊断经 canon 的待处理读到：第 1 章给国王加一行误信、没写他以为的，报“知情行不完整”。
+        if (!written.ok) throw new Error("not written");
+        const kingId = written.value.ids["tmp:king"]!;
+        const pointId = written.value.ids["tmp:k"]!;
+        const misbelief: StoryChangeDraft = {...talk, id: "tmp:m", marks: [], at: {kind: "chapter", chapter: "1", key: 0}, patches: [{op: "listAdd", at: {entry: kingId, path: "know.知情"}, value: {id: pointId, 程度: "misbelieves"}}]};
+        const added = await publish(window.canon, {...request, requestId: "plot-3", puts: [{ref: {kind: "change", id: "tmp:m"}, after: misbelief}]});
+        expect(added.ok).toBe(true);
+        const pending = await window.canon.call("pending", {});
+        expect(pending.ok && pending.value.items.map((item) => (item.kind === "finding" ? item.diagnostic : item.kind))).toContain(DIAGNOSTIC_IDS.knowingIncomplete);
+        expect(pending.ok && pending.value.complete).toBe(true);
+        await window.close();
+        keep.release();
+    }, 30_000);
+});

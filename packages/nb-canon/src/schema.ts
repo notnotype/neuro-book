@@ -5,7 +5,8 @@
 
 export * from "./core/schema";
 export {buildRegistry, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
-export type {EntryView, Mode, PendingItem} from "./engine/types";
+export type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PendingItem, PlanProgress} from "./engine/types";
+export type {Occurrence, TellingPosition} from "./world/tellings";
 export {valueAt, type ViewValue} from "./core/view-value";
 export type {DecisionView} from "./world/decisions";
 export type {CanonHint, GroupItem, PendingPage} from "./service/pending-groups";
@@ -14,3 +15,5 @@ export type {CanonReadView, ReadStamp} from "./service/reads";
 export type {NeededAuthorization} from "./world/authorization";
 export type {TellingHint, TellingItem} from "./service/reads";
 export type {ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
+export type {DiagnosticDeclaration, DiagnosticKeyPart} from "./components/diagnostics-registry";
+export type {MarkDeclaration, MarkRefKind, MarkTarget} from "./components/marks";

@@ -38,16 +38,16 @@ owners:
 
 | 诊断 | 名字 | 级别 | 稳定键 |
 |---|---|---|---|
-| `plot.check.possibleSlip` | 可能穿帮 | `pending` | `objects`：[知识点]；`line`；`range`（那一章）；`detail`（段的身份） |
-| `plot.check.earlyReveal` | 提前泄底 | `pending` | `objects`：[知识点]；`range`（那一章） |
-| `plot.check.unrecordedKnowing` | 正文里有人知道却没有记录 | `pending` | `line`；`range`（那一章）；`detail`（原句的 SHA-256） |
-| `plot.check.unreportedInvention` | 写手新编了没说 | `pending` | 同上 |
-| `plot.check.instructionViolated` | 违反写作指示 | `pending` | `range`（那一章）；`detail`（规则项，按段的规则项另带段的身份） |
-| `plot.check.forkSuspected` | 疑似回溯没记 | `pending` | `line`；`range`（那一章）；`detail`（段的身份） |
-| `plot.check.unasked` | 有没问的 | `hint` | `range`（那一章） |
-| `plot.check.noSuspense`、`plot.check.noReaderQuestion` | 试读缺材料、缺问题 | `hint` | `objects`：[知识点] |
-| `plot.check.badQuote` | 引文对不上 | `hint` | `range`（那一章） |
-| `plot.check.stale` | 检查要重跑 | `hint` | `range`（那一章） |
+| `nbook.plot.check.possibleSlip` | 可能穿帮 | `pending` | `objects`：[知识点]；`line`；`range`（那一章）；`detail`（段的身份） |
+| `nbook.plot.check.earlyReveal` | 提前泄底 | `pending` | `objects`：[知识点]；`range`（那一章） |
+| `nbook.plot.check.unrecordedKnowing` | 正文里有人知道却没有记录 | `pending` | `line`；`range`（那一章）；`detail`（原句的 SHA-256） |
+| `nbook.plot.check.unreportedInvention` | 写手新编了没说 | `pending` | 同上 |
+| `nbook.plot.check.instructionViolated` | 违反写作指示 | `pending` | `range`（那一章）；`detail`（规则项，按段的规则项另带段的身份） |
+| `nbook.plot.check.forkSuspected` | 疑似回溯没记 | `pending` | `line`；`range`（那一章）；`detail`（段的身份） |
+| `nbook.plot.check.unasked` | 有没问的 | `hint` | `range`（那一章） |
+| `nbook.plot.check.noSuspense`、`nbook.plot.check.noReaderQuestion` | 试读缺材料、缺问题 | `hint` | `objects`：[知识点] |
+| `nbook.plot.check.badQuote` | 引文对不上 | `hint` | `range`（那一章） |
+| `nbook.plot.check.stale` | 检查要重跑 | `hint` | `range`（那一章） |
 
 ## 输出与可观察行为
 
@@ -59,24 +59,24 @@ owners:
    - **时间层**：每章固定一问：本章有没有时间倒回或跳回。
    - **读者层**：见输出 4。
 3. **固定的一次调用。** 写作指示层与新事实层每章合成一次调用：整章正文，标明各段的线与段落范围，材料是各段那一份写手上下文（[`plot.brief`](brief.md) 输出 14），不占输出 5 的配额。答案是结构化的：固定的规则项各一条——按段的：视角越界（每段一条：章的视角人物，按那一段的线读他的知情）；按章的：结尾停在 `ending`（只看整章末尾）、“不写的”每一项、涉及本章的已定决策的每条文字约束、涉及本章的每条待定决策（[`plot.decisions`](decisions.md) 输出 4）——每条 `{item, answer: "yes" | "no" | "unclear", quotes}`；另有新事实的列表（有人按世界里没有记录的事行动；不在自陈、也不在世界里的新名字、数值、设定），每条带引文，整章最多 30 条，超出的记“未列：N 条”。规则项缺了的算“未答”，和超出的一样让这次检查标“不完整”，并列出是哪几项。新事实按引文所在的段判“世界里有没有”、归那一段的线；引文跨段的，按第一处引文所在的段。
-4. **试读。** 只对涉及本章、保密以上、读者在上一章末尾还没到 `knows`，而且有安放在本章之后、生效的揭示计划（带 `explicit` 的 `plot.reveal` 的计划，兑现与否都算）或本章之后已有对它 `explicit` 的揭示的 K 做：
-   - 材料按问题选、不按答案选：K 是某个悬念的答案（[`plot.foreshadowing`](foreshadowing.md) 输出 3）时，取这个悬念从第一章起所有生效节点所在的段（包括误导与呼应），加上一章与本章的全文，按活页夹章序、到本章为止；K 没有悬念连着时，只给上一章与本章的全文，结果标“材料只有前后两章”，并给提示 `plot.check.noSuspense`（建议建一个悬念）。
-   - 题面是 K 的 `读者问题`（[`plot.knowledge`](knowledge.md) 输入）；K 没有写读者问题时不做试读，给提示 `plot.check.noReaderQuestion`。读者问题里出现了 K 的一句话描述原文时同样不做，给同一提示。题面、材料里都不出现 K 的命题、条目 id 与世界里的真相；悬念与伏笔的名字只给作者看，不进题面。
+4. **试读。** 只对涉及本章、保密以上、读者在上一章末尾还没到 `knows`，而且有安放在本章之后、生效的揭示计划（带 `explicit` 的 `nbook.plot.reveal` 的计划，兑现与否都算）或本章之后已有对它 `explicit` 的揭示的 K 做：
+   - 材料按问题选、不按答案选：K 是某个悬念的答案（[`plot.foreshadowing`](foreshadowing.md) 输出 3）时，取这个悬念从第一章起所有生效节点所在的段（包括误导与呼应），加上一章与本章的全文，按活页夹章序、到本章为止；K 没有悬念连着时，只给上一章与本章的全文，结果标“材料只有前后两章”，并给提示 `nbook.plot.check.noSuspense`（建议建一个悬念）。
+   - 题面是 K 的 `读者问题`（[`plot.knowledge`](knowledge.md) 输入）；K 没有写读者问题时不做试读，给提示 `nbook.plot.check.noReaderQuestion`。读者问题里出现了 K 的一句话描述原文时同样不做，给同一提示。题面、材料里都不出现 K 的命题、条目 id 与世界里的真相；悬念与伏笔的名字只给作者看，不进题面。
    - 问“你觉得是谁（是什么）、有多确定（确定、强烈倾向、有点怀疑、看不出）、哪几句让你这样想”。
    - 试读的答案再交记账 Agent 判一个窄问题：这个答案与 K 的命题一致、部分一致、还是不一致。这一次的输入只有试读的结构化答案与 K 的命题，它的结果不回给试读。一致或部分一致、而确定程度是“确定”或“强烈倾向”时，报提前泄底（输出 8）。
    - 每章最多 3 次试读（缺省），按输出 5 的价值排。
 5. **预算与优先。** 窄问题每章最多 20 个（缺省，不含试读与固定的一次调用），按价值排：读者层（绝密）、读者层（保密）、叙述层、在场层（绝密）、在场层（保密）、伏笔物件层、时间层；同一层按知识点、人的 id。超出的不合并，记成“未问：N 条”并列出。作者要求补问时，补问的几条记进这一章记录的“补问清单”，按同样的规则问；补问清单也是重新圈候选的输入（预算之外再加清单里仍是候选的那几条）。
-6. **答案的校验。** 每个答案的引文由程序核对：原文必须在本章正文里（试读的引文在给它的材料里）；对不上的，这个答案按“看不出”处理，并给提示 `plot.check.badQuote`。
-7. **检查记录。** 一次检查存一条记录，键是章：每段的线与段落范围、各次模型调用的问题与答案、试读的材料清单与答案、未问与未列的条目，以及每一次模型调用的完整输入（题面、给它的全部材料原文、自陈、写作指示）的摘要（规范的 JSON 再取 SHA-256）与插件版本。同一章再跑一次，新记录替换旧的。记录有效，当且仅当：按现在的世界与正文重新圈出候选、重新拼出每一次模型调用的输入，得到的调用集合与每一次输入的摘要都与记录相同（所以本章、上一章、试读用到的更早的段落、插件存的写手自陈与写作指示、补问清单、候选与题面里写明的事实，任何一样变了都算变了；候选的条件都按第 N 章的位置取，本章之后的世界变了，只有改了这些条件的结果才算变了）；否则过期，这一章的检查结果不再报，给提示 `plot.check.stale`（“检查要重跑”）。检查记录变了，插件报告新的诊断数据版本（[`canon.model`](../canon/model.md) 输入的“诊断的计算”）；判断有效与否读的是世界与正文，不读这份数据版本本身。实现可以先比各项依赖的摘要、不同时才重拼，结果必须与重拼相同；这项校验的耗时要按 [`canon.project`](../canon/project.md) 输出 14 的规模量。
+6. **答案的校验。** 每个答案的引文由程序核对：原文必须在本章正文里（试读的引文在给它的材料里）；对不上的，这个答案按“看不出”处理，并给提示 `nbook.plot.check.badQuote`。
+7. **检查记录。** 一次检查存一条记录，键是章：每段的线与段落范围、各次模型调用的问题与答案、试读的材料清单与答案、未问与未列的条目，以及每一次模型调用的完整输入（题面、给它的全部材料原文、自陈、写作指示）的摘要（规范的 JSON 再取 SHA-256）与插件版本。同一章再跑一次，新记录替换旧的。记录有效，当且仅当：按现在的世界与正文重新圈出候选、重新拼出每一次模型调用的输入，得到的调用集合与每一次输入的摘要都与记录相同（所以本章、上一章、试读用到的更早的段落、插件存的写手自陈与写作指示、补问清单、候选与题面里写明的事实，任何一样变了都算变了；候选的条件都按第 N 章的位置取，本章之后的世界变了，只有改了这些条件的结果才算变了）；否则过期，这一章的检查结果不再报，给提示 `nbook.plot.check.stale`（“检查要重跑”）。检查记录变了，插件报告新的诊断数据版本（[`canon.model`](../canon/model.md) 输入的“诊断的计算”）；判断有效与否读的是世界与正文，不读这份数据版本本身。实现可以先比各项依赖的摘要、不同时才重拼，结果必须与重拼相同；这项校验的耗时要按 [`canon.project`](../canon/project.md) 输出 14 的规模量。
 8. **结果成为待处理**（诊断，级别 `pending`，读检查记录算出）：
-   - `plot.check.possibleSlip`：在场层或叙述层答“有”；同一章、同一段、同一知识点的几条合成一项，列出各层、人与原句；
-   - `plot.check.earlyReveal`：试读报出提前泄底；附上挂在 K 上的读者守卫与决策（[`plot.decisions`](decisions.md) 输出 3、7）；
-   - `plot.check.unrecordedKnowing`：新事实层报出有人按没有记录的事行动；
-   - `plot.check.unreportedInvention`：新事实层报出不在自陈、也不在世界里的新名字、数值、设定；
-   - `plot.check.instructionViolated`：写作指示层报出视角越界、结尾没停住、写了“不写的”；
-   - `plot.check.forkSuspected`：时间层答“有”，而本章没有分叉；
-   - 决策的两项（`plot.decision.constraintViolated`、`plot.decision.decidedInText`）在 [`plot.decisions`](decisions.md) 里，读同一份记录。
-   只提示的：`plot.check.unasked`（未问、未列的条数）、`plot.check.noSuspense`、`plot.check.badQuote`、`plot.check.stale`。作者对这些诊断的处理按内核的规则落成决策、绑定诊断的版本（[`canon.model`](../canon/model.md) 输出 35）。
+   - `nbook.plot.check.possibleSlip`：在场层或叙述层答“有”；同一章、同一段、同一知识点的几条合成一项，列出各层、人与原句；
+   - `nbook.plot.check.earlyReveal`：试读报出提前泄底；附上挂在 K 上的读者守卫与决策（[`plot.decisions`](decisions.md) 输出 3、7）；
+   - `nbook.plot.check.unrecordedKnowing`：新事实层报出有人按没有记录的事行动；
+   - `nbook.plot.check.unreportedInvention`：新事实层报出不在自陈、也不在世界里的新名字、数值、设定；
+   - `nbook.plot.check.instructionViolated`：写作指示层报出视角越界、结尾没停住、写了“不写的”；
+   - `nbook.plot.check.forkSuspected`：时间层答“有”，而本章没有分叉；
+   - 决策的两项（`nbook.plot.decision.constraintViolated`、`nbook.plot.decision.decidedInText`）在 [`plot.decisions`](decisions.md) 里，读同一份记录。
+   只提示的：`nbook.plot.check.unasked`（未问、未列的条数）、`nbook.plot.check.noSuspense`、`nbook.plot.check.badQuote`、`nbook.plot.check.stale`。作者对这些诊断的处理按内核的规则落成决策、绑定诊断的版本（[`canon.model`](../canon/model.md) 输出 35）。
 9. **账本视图。** 读取：
    - 保密账本：每个保密以上的知识点，在给定的线与位置上谁知道、谁误信、谁怀疑，读者从哪一段起怀疑、知道；
    - 读者现在知道什么：最新一章末尾读者的程度不是 `unaware` 的知识点；
@@ -90,7 +90,7 @@ owners:
 |---|---|---|
 | 没有 | 本章没跑过检查 | 不报本 Spec 的诊断 |
 | 有效 | 跑完一次，输出 7 的条件都成立 | 按输出 8 报 |
-| 过期 | 重新拼出的模型调用或它们的输入与记录不同 | 只报 `plot.check.stale` |
+| 过期 | 重新拼出的模型调用或它们的输入与记录不同 | 只报 `nbook.plot.check.stale` |
 
 - 一次检查用开始时的世界版本与正文；检查进行中世界或正文变了，记录照存，按输出 7 判过期。
 
@@ -114,11 +114,11 @@ owners:
 
 ## 验收与 Smoke
 
-1. **卫兵认出勇者。** 第 4 章卫兵（对“勇者左手有星形的疤”没有知情）在场，正文里卫兵盯着旅人的左手说“你是勇者吧”：在场层问到，答“有”并引原句，进一条 `plot.check.possibleSlip`。正文改成卫兵只是例行盘问：重跑以后消失；改了正文没重跑时，只有 `plot.check.stale`。
-2. **试读与泄底。** 悬念“谁杀了男爵”以“管家是凶手”为答案，揭示计划在第 20 章。第 12 章写了管家擦拭沾血的手套：试读拿到悬念的全部节点（含指向园丁的误导）与第 11、12 章全文，题面是“谁杀了男爵”，材料里没有答案的命题；它答“管家，强烈倾向”，判一致，进一条 `plot.check.earlyReveal`，附上第 20 章之前的读者守卫。
+1. **卫兵认出勇者。** 第 4 章卫兵（对“勇者左手有星形的疤”没有知情）在场，正文里卫兵盯着旅人的左手说“你是勇者吧”：在场层问到，答“有”并引原句，进一条 `nbook.plot.check.possibleSlip`。正文改成卫兵只是例行盘问：重跑以后消失；改了正文没重跑时，只有 `nbook.plot.check.stale`。
+2. **试读与泄底。** 悬念“谁杀了男爵”以“管家是凶手”为答案，揭示计划在第 20 章。第 12 章写了管家擦拭沾血的手套：试读拿到悬念的全部节点（含指向园丁的误导）与第 11、12 章全文，题面是“谁杀了男爵”，材料里没有答案的命题；它答“管家，强烈倾向”，判一致，进一条 `nbook.plot.check.earlyReveal`，附上第 20 章之前的读者守卫。
 3. **预算。** 第 7 章有 25 个候选：问 20 个，按价值排，其余 5 个记“未问：5 条”；固定的一次调用照跑。
-4. **新事实。** 正文里小梅说“十一点在桥头见”，而世界里没有这个约定、自陈里也没写：`plot.check.unrecordedKnowing`；写手的自陈里写了这一条时，不报。
-5. **引文对不上。** 一个答案引的原句不在正文里：按“看不出”处理，提示 `plot.check.badQuote`。
+4. **新事实。** 正文里小梅说“十一点在桥头见”，而世界里没有这个约定、自陈里也没写：`nbook.plot.check.unrecordedKnowing`；写手的自陈里写了这一条时，不报。
+5. **引文对不上。** 一个答案引的原句不在正文里：按“看不出”处理，提示 `nbook.plot.check.badQuote`。
 
 Smoke：不适用——由剧情插件的包测试（记账 Agent 与试读模型用按合同对过的替身）与真实模型的评测覆盖。
 

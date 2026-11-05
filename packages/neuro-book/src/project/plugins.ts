@@ -10,6 +10,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {canonProjectPlugin} from "nbook/plugins/canon/backend/plugin";
+import {plotProjectPlugin} from "nbook/plugins/plot/backend/plugin";
 import {thirdPartyDefinitionsAt} from "nbook/plugin-platform/backend/loader";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {definitionAt, pluginsAt} from "nbook/manifest";
@@ -49,6 +50,7 @@ export const projectPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.markdown": markdownProjectPlugin,
     "nbook.projects": projectsProjectPlugin,
     "nbook.canon": canonProjectPlugin,
+    "nbook.plot": plotProjectPlugin,
 };
 
 /** 宿主适配器：诊断要在内核启动之前就能记录（ADR 0026 决策第 5 条）。 */

@@ -10,6 +10,7 @@ import {join} from "node:path";
 
 import type {Entry, WriteRequest} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {CanonEvent} from "./shared/contracts";
 
@@ -80,11 +81,7 @@ async function start(): Promise<Child> {
 
 /** 等子进程推来的事件让条件成立（目录监视是异步的）；10 秒内不成立就失败。 */
 async function until(condition: () => boolean): Promise<void> {
-    const deadline = Date.now() + 10_000;
-    while (!condition()) {
-        if (Date.now() > deadline) throw new Error("等待的条件 10 秒内没有成立");
-        await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await waitUntil("等待的条件成立", condition, {timeoutMs: 10_000, intervalMs: 20});
 }
 
 let sequence = 0;

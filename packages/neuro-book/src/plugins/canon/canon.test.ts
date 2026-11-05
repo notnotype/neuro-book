@@ -9,22 +9,19 @@ import {existsSync} from "node:fs";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
-import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import type {Entry, WriteRequest} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createApplication} from "nbook/application";
 import {replaceLocked} from "nbook/backend/locked-replace";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {CANON_BUDGET_BYTES, canonClientKey} from "./shared/contracts";
 import type {CanonClient, CanonEvent} from "./shared/contracts";
+import {publish, serverPlugins, until, version, windowOf} from "./testing/harness";
 import {CANON_PROBE_ID, PROBE_DIAGNOSTIC, PROBE_MARK} from "./testing/probe-plugin";
 import {canonBrowserPlugin} from "./web/plugin";
 
@@ -42,76 +39,11 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-function serverPlugins(): PluginDefinition[] {
-    const silent = {error: () => undefined};
-    return [createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)})];
-}
-
-interface TestWindow {
-    readonly canon: CanonClient;
-    /** 断开窗口的链路（不停窗口实例）。 */
-    disconnect(): void;
-    close(): Promise<void>;
-}
-
-/** 绑定 `book` 的窗口：浏览器内核实例，装 `nbook.canon` 的浏览器入口与一个用世界客户端的插件。 */
-async function windowOf(h: ProjectHarness, id: string, client: string): Promise<TestWindow> {
-    let canon: CanonClient | null = null;
-    const node = createRemoteNode({instance: {id, kind: "browser", role: "client", project: null, client}, bind: {project: "book"}});
-    const pair = createLinkPair();
-    h.router.accept(pair.right);
-    expect(await node.connect(pair.left)).toEqual({ok: true});
-    const binding = node.binding!;
-    const app = createApplication(
-        {identity: {location: "browser", instanceId: id, client}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {
-            capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: {id: binding.id, name: binding.name, generation: binding.generation}})}],
-            plugins: [
-                canonBrowserPlugin,
-                {id: "app.writer", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: canonClientKey}], activate: (context) => {
-                    canon = context.services.require(canonClientKey);
-                    return {};
-                }}]},
-            ],
-            gates: [],
-            remote: node,
-        },
-    );
-    expect(await app.startup).toMatchObject({status: "available", failures: []});
-    return {
-        canon: canon!,
-        disconnect: () => pair.left.close(),
-        close: async () => {
-            await app.stop();
-            pair.left.close();
-        },
-    };
-}
-
-/** 等一个异步才成立的条件（目录监视、事件推送）；10 秒内不成立就失败。 */
-async function until(condition: () => boolean | Promise<boolean>): Promise<void> {
-    const deadline = Date.now() + 10_000;
-    while (!(await condition())) {
-        if (Date.now() > deadline) throw new Error("等待的条件 10 秒内没有成立");
-        await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-}
-
 let sequence = 0;
 function person(name: string, extra: Partial<Entry["init"]> = {}): WriteRequest {
     const id = `tmp:${String(++sequence)}`;
     const entry: Entry = {id, type: "nbook.canon.person", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: null}}}, ...extra}};
     return {requestId: `req-${String(sequence)}`, by: {kind: "author"}, what: "edit", title: name, baseVersion: 0, puts: [{ref: {kind: "entry", id}, after: entry}]};
-}
-
-async function version(canon: CanonClient): Promise<number> {
-    const status = await canon.call("status", {});
-    if (!status.ok) throw new Error(JSON.stringify(status.failure));
-    return status.value.version;
-}
-
-async function publish(canon: CanonClient, request: WriteRequest, token?: string) {
-    return canon.publish({...request, baseVersion: await version(canon)}, token);
 }
 
 async function binder(h: ProjectHarness, xml: string): Promise<void> {

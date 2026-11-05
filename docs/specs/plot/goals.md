@@ -21,7 +21,7 @@ owners:
 
 ## 术语与参与者
 
-- **目标**：种类为“目标”的条目，带 `plot.goal`，在条目树里挂在持有者下面。**隐秘的目标**另建一个知识点（种类“知识点”，挂在持有者下面，命题写“某某想要……”），目标的 `隐秘` 指向它；这个目标条目的名字、`为什么` 与别的内容都算这个知识点的内容：谁能看到、写手能不能看到，都按这个知识点的保密档与知情算（[`plot.knowledge`](knowledge.md) 输出 9、[`plot.brief`](brief.md) 输出 4）。持有者对它有一行推出的 `knows`（不存，显式的行优先，同 [`plot.knowledge`](knowledge.md) 输出 3）。
+- **目标**：种类为“目标”的条目，带 `nbook.plot.goal`，在条目树里挂在持有者下面。**隐秘的目标**另建一个知识点（种类“知识点”，挂在持有者下面，命题写“某某想要……”），目标的 `隐秘` 指向它；这个目标条目的名字、`为什么` 与别的内容都算这个知识点的内容：谁能看到、写手能不能看到，都按这个知识点的保密档与知情算（[`plot.knowledge`](knowledge.md) 输出 9、[`plot.brief`](brief.md) 输出 4）。持有者对它有一行推出的 `knows`（不存，显式的行优先，同 [`plot.knowledge`](knowledge.md) 输出 3）。
 - **态度**：人物身上 `att.态度` 列表的一行，以对象为键。
 - **弧光**：几条计划加一条剧情线；不另建对象。
 
@@ -29,25 +29,25 @@ owners:
 
 | 登记 | 内容 |
 |---|---|
-| Component `plot.goal`，命名空间 `goal` | `状态`（enum：`active` 进行、`blocked` 受挫、`achieved` 达成、`abandoned` 放弃）；`轻重`（enum：`major`、`minor`）；`层次`（enum：`want` 想要、`need` 需要）；`为什么`（语义档 text）；`基于`（以引用为键的列表，`targets` 为“知识点”）；`冲突`（以引用为键的列表，`targets` 为“目标”）；`后继`（ref，`targets` 为“目标”）；`隐秘`（ref，`targets` 为“知识点”，可选：隐秘的目标指向说它的那个知识点） |
-| Component `plot.attitude`，命名空间 `att` | `态度`：以引用为键的列表（对象可以是任何条目）；元素的子字段 `态度`（语义档 text，写成能演出来的样子）、`起因`（ref，`targets` 为“知识点”）、`称呼`（text：持有者怎么称呼这个对象，称谓表用它，[`plot.brief`](brief.md) 输出 7） |
+| Component `nbook.plot.goal`，命名空间 `goal` | `状态`（enum：`active` 进行、`blocked` 受挫、`achieved` 达成、`abandoned` 放弃）；`轻重`（enum：`major`、`minor`）；`层次`（enum：`want` 想要、`need` 需要）；`为什么`（语义档 text）；`基于`（以引用为键的列表，`targets` 为“知识点”）；`冲突`（以引用为键的列表，`targets` 为“目标”）；`后继`（ref，`targets` 为“目标”）；`隐秘`（ref，`targets` 为“知识点”，可选：隐秘的目标指向说它的那个知识点） |
+| Component `nbook.plot.attitude`，命名空间 `att` | `态度`：以引用为键的列表（对象可以是任何条目）；元素的子字段 `态度`（语义档 text，写成能演出来的样子）、`起因`（ref，`targets` 为“知识点”）、`称呼`（text：持有者怎么称呼这个对象，称谓表用它，[`plot.brief`](brief.md) 输出 7） |
 
 本能力登记的诊断（都是版本 1，`label` 用表里的名字）：
 
 | 诊断 | 名字 | 级别 | 稳定键 |
 |---|---|---|---|
-| `plot.goal.premiseChanged` | 前提变了 | `pending` | `objects`：[目标, 知识点, 让知情变了的那条变更]；`line` |
-| `plot.goal.stalled` | 停滞 | `hint` | `objects`：[目标]；`line` |
-| `plot.goal.skippedStep` | 缺一步 | `hint` | `objects`：[目标]；`line` |
+| `nbook.plot.goal.premiseChanged` | 前提变了 | `pending` | `objects`：[目标, 知识点, 让知情变了的那条变更]；`line` |
+| `nbook.plot.goal.stalled` | 停滞 | `hint` | `objects`：[目标]；`line` |
+| `nbook.plot.goal.skippedStep` | 缺一步 | `hint` | `objects`：[目标]；`line` |
 
 ## 输出与可观察行为
 
 1. **按安放折叠。** 目标与态度和别的状态一样按安放折叠（[`canon.model`](../canon/model.md) 输出 5）；某人在某个位置上的目标 = 挂在他下面、在这个位置上已出场、状态为进行或受挫的目标。
 2. **冲突是对称的读取。** 读一个目标的冲突时，列出它 `冲突` 里的目标，加上 `冲突` 里有它的别的目标；存下来的只有写下的那一边。
-3. **前提变了**（诊断 `plot.goal.premiseChanged`，级别 `pending`）：目标 G 的持有者 H 在某条变更里，对 G 的 `基于` 里某个知识点的有效知情（[`plot.knowledge`](knowledge.md) 输出 3）变了：`程度` 或 `他以为的` 不同了（`怎么知道`、`谁告诉的`、`备注` 的变化不算）；而这条变更之后没有任何剧情变更改过 G 的 `goal` 命名空间。G 之后被改过，诊断消失。按世界线视图算。
+3. **前提变了**（诊断 `nbook.plot.goal.premiseChanged`，级别 `pending`）：目标 G 的持有者 H 在某条变更里，对 G 的 `基于` 里某个知识点的有效知情（[`plot.knowledge`](knowledge.md) 输出 3）变了：`程度` 或 `他以为的` 不同了（`怎么知道`、`谁告诉的`、`备注` 的变化不算）；而这条变更之后没有任何剧情变更改过 G 的 `goal` 命名空间。G 之后被改过，诊断消失。按世界线视图算。
 4. **只提示的检查**（级别 `hint`）：
-   - `plot.goal.stalled`：状态为进行的目标，从最后一次被改到最新一章超过 30 章（缺省值，用样本书量过以后再定）；
-   - `plot.goal.skippedStep`：目标从进行直接变成达成，中间没有一条涉及它的剧情变更（`involves` 或补丁地址里没有它）。
+   - `nbook.plot.goal.stalled`：状态为进行的目标，从最后一次被改到最新一章超过 30 章（缺省值，用样本书量过以后再定）；
+   - `nbook.plot.goal.skippedStep`：目标从进行直接变成达成，中间没有一条涉及它的剧情变更（`involves` 或补丁地址里没有它）。
 5. **目标表。** 读取视图：某个位置上每个主要角色的目标（状态、轻重、层次、为什么、基于、冲突）、每个人的态度表（对象、态度、起因），可以按持有者、状态筛。
 
 ## 状态与转换
@@ -62,8 +62,8 @@ owners:
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
-| `plot.goal.premiseChanged` | 待处理：目标基于的事变了，目标还没跟着改 | 改目标的状态或为什么，或标“有意为之” |
-| `plot.goal.stalled`、`plot.goal.skippedStep` | 提示 | 看提示 |
+| `nbook.plot.goal.premiseChanged` | 待处理：目标基于的事变了，目标还没跟着改 | 改目标的状态或为什么，或标“有意为之” |
+| `nbook.plot.goal.stalled`、`nbook.plot.goal.skippedStep` | 提示 | 看提示 |
 
 ## 边界与兼容
 
@@ -72,7 +72,7 @@ owners:
 
 ## 验收与 Smoke
 
-1. **前提变了。** 星瑾的目标“查出哥哥在瞒什么”基于知识点“哥哥最近总是晚归”。第 12 章星瑾得知真相（她对“哥哥能回溯”从 `unaware` 到 `knows`；目标也基于这个知识点）：之后没有改这个目标的变更，第 12 章末尾有一条 `plot.goal.premiseChanged`；第 13 章把目标改成达成，诊断消失。
+1. **前提变了。** 星瑾的目标“查出哥哥在瞒什么”基于知识点“哥哥最近总是晚归”。第 12 章星瑾得知真相（她对“哥哥能回溯”从 `unaware` 到 `knows`；目标也基于这个知识点）：之后没有改这个目标的变更，第 12 章末尾有一条 `nbook.plot.goal.premiseChanged`；第 13 章把目标改成达成，诊断消失。
 2. **态度。** 星瑾对哥哥的态度第 1 章“不接话、不看他，但会夹他做的菜”，第 5 章一句事件：第 5 章末尾的态度是归纳后的那句（或“未归纳”的写法），起因是知识点“哥哥瞒着她”。
 3. **冲突。** 哥哥的目标“不让妹妹卷进来”的冲突里写了星瑾的目标：读星瑾的目标，冲突里也有哥哥的。
 

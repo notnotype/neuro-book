@@ -9,7 +9,7 @@
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry, type MarkType} from "../components/marks";
 import {effectiveFields} from "../components/registry";
 import {compareIds} from "../core/ids";
-import {compareRanks, compareTie, defaultPosition, placementRank, type ChapterOrder} from "../core/position";
+import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, type ChapterOrder} from "../core/position";
 import type {Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
@@ -102,8 +102,14 @@ export interface CanonReadView {
     eventKey(change: string, mode: Mode): EventKey | null;
     /** 一个安放的排序键（例如条目的出场）：同一安放上排在任何变更之前。未排章与不在章序里的为 null。 */
     placementKey(placement: Placement): EventKey | null;
+    /**
+     * 一个读取位置的排序键：键比它小的事件在这个位置之前（初值在一切之前，章首在这一章的事件之前，章末在之后）。章不在章序里时为 null。
+     */
+    positionKey(position: ReadPosition): EventKey | null;
     /** 两个排序键的先后。 */
     compareKeys(a: EventKey, b: EventKey): number;
+    /** 按计划模式在这个位置计入的计划，按先后排（model.md 输出 5）。 */
+    plannedAt(position: ReadPosition): readonly string[] | "chapter-not-found";
     /** 一个条目在一个命名空间上的字段声明（类型固定的加实例上的）；类型不可用时为 undefined。 */
     fields(entry: string, namespace: string): readonly FieldDeclaration[] | undefined;
     /** 登记的标注种类（引用路径在 `refs`）；没登记时为 undefined。 */
@@ -133,7 +139,12 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             const rank = placementRank(order, placement);
             return rank === null ? null : {rank, tie: {version: -1, id: ""}};
         },
+        positionKey: (position) => {
+            const rank = positionRank(order, position);
+            return rank === null ? null : {rank, tie: {version: Number.POSITIVE_INFINITY, id: ""}};
+        },
         compareKeys: (a, b) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie),
+        plannedAt: (position) => world.engine.plannedAt(position),
         fields: (entry, namespace) => {
             const data = world.data.entries.get(entry)?.init.data[namespace];
             const type = world.options.registry.byNamespace(namespace);

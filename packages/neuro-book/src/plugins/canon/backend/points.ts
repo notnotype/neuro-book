@@ -10,8 +10,9 @@ import type {ContributionDescriptor, ContributionPointDefinition} from "@notnoty
 import {buildDiagnosticRegistry, buildMarkRegistry} from "@notnotype/nb-canon";
 import type {DiagnosticDeclaration, MarkDeclaration} from "@notnotype/nb-canon";
 
-export const CANON_MARKS_POINT = "canon.marks";
-export const CANON_DIAGNOSTICS_POINT = "canon.diagnostics";
+import {CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT} from "../shared/components";
+
+export {CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT};
 
 export type MarkContribution = Omit<MarkDeclaration, "id">;
 export type DiagnosticContribution = Omit<DiagnosticDeclaration, "id">;

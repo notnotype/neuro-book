@@ -9,6 +9,9 @@ import {buildRegistry} from "@notnotype/nb-canon/schema";
 import type {ComponentDeclaration} from "@notnotype/nb-canon/schema";
 
 export const CANON_COMPONENTS_POINT = "canon.components";
+/** 标注种类与诊断的贡献点（声明的校验在项目入口，`backend/points.ts`）；名字放在这里，插件的描述符引用它不带进后端代码。 */
+export const CANON_MARKS_POINT = "canon.marks";
+export const CANON_DIAGNOSTICS_POINT = "canon.diagnostics";
 
 export type ComponentContribution = Omit<ComponentDeclaration, "id">;
 
