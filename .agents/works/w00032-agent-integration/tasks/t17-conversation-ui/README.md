@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t17-conversation-ui
 status: planned
-updated: 2026-10-30
+updated: 2026-11-05
 ---
 
 # 对话界面：Composer、状态栏、待处理区
@@ -69,10 +69,20 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 - 显示费用告警（`costWarned`）、“这个模型没有单价，费用上限对它不起作用”（`costUnpriced`），以及会话累计费用（快照的 `usage`）。
 - 运行结束的码要有人话：`cost-limit`、`tool-call-loop`、`empty-reply`、`thinking-loop`、`first-event-timeout`。
 
+## 第一版的范围（开发者 2026-11-05）
+
+开工前核对现状后定，改上面第 5、7、12 条的“第一版”：
+
+1. 第一版的标准是能真的用它写书。做：右栏对话视图；消息流与发送、停止、排队；模型与推理档选择；新建、切换、改名、归档会话，标题和说明；审批向导（含 diff）；状态栏（上下文占用、累计 tokens 与费用、运行阶段、重发等待）；工作台状态栏条目；错误码的人话。模式菜单第一版只有审批模式。
+2. 分支树、简版上下文检查器、附件、草稿、`/` `$` `@` 触发符、Agent 模式放到 [t28](../t28-conversation-ui-followups/README.md)。子代理卡片随 t14。
+3. t17 第一版做完紧接着做 t11：没有压缩方法时，长对话碰到上下文上限就报错。
+
+核对出的现状：`nb-agent-ui` 的 `harness.ts` 读旧的 nb-session 日志与 OMP 事件，要为新内核另写一份适配器，nb-story 迁移前旧的留着；`nbook.agent` 还没有浏览器入口；`ui/agent-conversation-view.md` 写明不接入主页面，要新增应用层的 Spec；w00028 t03 的分支已全部合入。
+
 ## 当前状态
 
-方向讨论完成（开发者 2026-10-30 同意以上 13 条）。静态稿与细节在实施时展开：开发者定本 Task 轮到实施时再出稿评审。
+按 design-review 走，确认注意力排序之后在 Lab 出静态稿。
 
 ## 下一步
 
-实施时先按 design-review 出第 13 条列的静态稿，评审定稿后改 `ui/agent-conversation-view.md`（第 5、9、12 条与 Spec 现有写法不同），再按 implementation-planning 写计划。
+静态稿评审定稿后写 Spec（改 `ui/agent-conversation-view.md`，新增应用层的 Spec）与计划。
