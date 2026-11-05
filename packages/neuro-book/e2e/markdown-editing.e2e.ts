@@ -54,7 +54,13 @@ async function openFile(page: Page, path: string, text: string): Promise<void> {
     await expect(prose(page)).toBeVisible();
 }
 
-/** 用鼠标选中第一段里从第 `from` 个字到第 `to` 个字：`release` 为假时停在拖动中。 */
+/** 点进第一段。键要等正文拿到焦点再按：负载下点击之后编辑器还没聚焦时，按键落空。 */
+async function focusFirst(page: Page): Promise<void> {
+    await prose(page).locator("p").first().click();
+    await expect(prose(page)).toBeFocused();
+}
+
+/** 用鼠标选中第一段开头的一段：`release` 为假时停在拖动中。 */
 async function dragSelect(page: Page, release = true): Promise<void> {
     const paragraph = prose(page).locator("p").first();
     const box = await paragraph.boundingBox();
@@ -69,7 +75,7 @@ async function dragSelect(page: Page, release = true): Promise<void> {
 test.describe("工具栏", () => {
     test("点按钮加粗，勾选状态跟着变，光标留在正文", async ({page}) => {
         await openFile(page, "notes/toolbar-bold.md", "第一段文字\n");
-        await prose(page).locator("p").first().click();
+        await focusFirst(page);
         await page.keyboard.press("Control+a");
         await toolbarButton(page, "粗体").click();
         await expect(toolbarButton(page, "粗体")).toHaveAttribute("aria-pressed", "true");
@@ -128,7 +134,7 @@ test.describe("选区菜单", () => {
 
     test("按 Esc 收起；键盘选完也出现", async ({page}) => {
         await openFile(page, "notes/selection-esc.md", "第一段文字\n");
-        await prose(page).locator("p").first().click();
+        await focusFirst(page);
         await page.keyboard.press("Home");
         await page.keyboard.press("Shift+End");
         await expect(selectionMenu(page)).toBeVisible();
@@ -139,15 +145,15 @@ test.describe("选区菜单", () => {
     test("代码块里不出现", async ({page}) => {
         await openFile(page, "notes/selection-code.md", "```\ncode here\n```\n");
         await prose(page).locator("pre").click();
+        await expect(prose(page)).toBeFocused();
         await page.keyboard.press("Home");
         await page.keyboard.press("Shift+End");
-        await expect(prose(page)).toBeFocused();
         await expect(selectionMenu(page)).toHaveCount(0);
     });
 
     test("注音：选区菜单里输入，回车写回", async ({page}) => {
         await openFile(page, "notes/selection-ruby.md", "汉字\n");
-        await prose(page).locator("p").first().click();
+        await focusFirst(page);
         await page.keyboard.press("Control+a");
         await expect(selectionMenu(page)).toBeVisible();
         await selectionMenu(page).getByRole("button", {name: "注音"}).click();
