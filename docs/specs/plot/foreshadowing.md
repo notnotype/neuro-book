@@ -44,7 +44,8 @@ owners:
 | `plot.fs.longSilence` | 太久没提 | `hint` | `objects`：[伏笔] |
 | `plot.fs.droppedButPlanted` | 放弃了还留着 | `hint` | `objects`：[伏笔] |
 | `plot.fs.orphanHint` | 没有悬念认领的暗示 | `hint` | `objects`：[知识点]；`telling` |
-| `plot.fs.objectTouched` | 物件在回收之前被动过 | `hint` | `objects`：[伏笔, 物件, 那条变更]；`line` |
+| `plot.fs.objectTouched` | 物件在回收之前被动过（记了变更） | `hint` | `objects`：[伏笔, 物件, 那条变更]；`line` |
+| `plot.fs.objectTouchedInText` | 正文里动了物件、世界里没记 | `hint` | `objects`：[伏笔, 物件]；`line`；`range`（那一章）；`detail`（原句的 SHA-256） |
 | `plot.fs.sharedAnswer` | 几个悬念同一个答案 | `hint` | `objects`：[知识点] |
 | `plot.fs.nodeWithoutTelling` | 继承的节点没有位置 | `hint` | `objects`：[伏笔, 那条已写变更]；`line` |
 | `plot.fs.payoffWithoutReveal` | 悬念回收了却没揭示答案 | `hint` | `objects`：[伏笔]；`telling` |
@@ -65,7 +66,7 @@ owners:
    - `plot.fs.longSilence`：已埋、没回收，从最后一个节点到最新一章超过参考间隔（没设时按重要程度：`main` 30 章、`side` 20 章、`minor` 10 章；缺省值，用样本书量过以后再定）；
    - `plot.fs.droppedButPlanted`：意图为放弃，正文里还有生效的埋下节点；
    - `plot.fs.orphanHint`：一处 `hint` 的揭示指向的知识点没有任何悬念的答案指向它；
-   - `plot.fs.objectTouched`：伏笔已埋、没回收期间，有一条生效、套上的剧情变更的补丁改了 `物件` 里某个条目的状态（钟被拨了），或窄问题报出正文里动了它（[`plot.checks`](checks.md)）；
+   - `plot.fs.objectTouched`：伏笔已埋、没回收期间，有一条生效、套上的剧情变更的补丁改了 `物件` 里某个条目的状态（钟被拨了）；`plot.fs.objectTouchedInText`：窄问题报出正文里动了它，而那一章没有这样的变更（[`plot.checks`](checks.md)）；
    - `plot.fs.sharedAnswer`、`plot.fs.nodeWithoutTelling`：输出 3、4；
    - `plot.fs.payoffWithoutReveal`：悬念的回收节点（已写的，或计划的）所在的那一章，没有对它答案的 `explicit` 揭示。回收节点本身不让读者知道答案：读者的知情只按揭示算（[`plot.knowledge`](knowledge.md) 输出 6），给写手的内容见 [`plot.brief`](brief.md) 输出 8。
 8. **账本。** 读取视图：每个伏笔的阶段、全部节点（种类、章与段、给写手的指示）、计划的节点与它们的章、最后一次被提到的章、依赖的物件与它们最近一次被改的变更；可以按阶段、重要程度、意图、章的范围筛。

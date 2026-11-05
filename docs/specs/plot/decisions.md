@@ -36,8 +36,8 @@ owners:
 
 | 诊断 | 名字 | 级别 | 稳定键 |
 |---|---|---|---|
-| `plot.decision.addressGuardViolated` | 违反了地址守卫 | `pending` | `objects`：[决策, 让它违反的那条变更（范围开头就违反时没有这一项）]；`line` |
-| `plot.decision.readerGuardViolated` | 违反了读者守卫 | `pending` | `objects`：[决策]；`telling`（第一处让它超过的讲述） |
+| `plot.decision.addressGuardViolated` | 违反了地址守卫 | `pending` | `objects`：[决策, 让它违反的那条变更（范围开头就违反时没有这一项）]；`line`；`detail`（这条守卫载荷的规范 JSON 的 SHA-256） |
+| `plot.decision.readerGuardViolated` | 违反了读者守卫 | `pending` | `objects`：[决策]；`telling`（第一处让它超过的讲述）；`detail`（同左） |
 | `plot.decision.constraintViolated` | 违反了已定的约束 | `pending` | `objects`：[决策]；`range`（那一章） |
 | `plot.decision.decidedInText` | 写死了未定的事 | `pending` | `objects`：[决策]；`range`（那一章） |
 | `plot.decision.overdue` | 到期没定 | `pending` | `objects`：[决策] |
