@@ -1,0 +1,67 @@
+阶段 A 实现审查 I1（omp，openai-codex/gpt-6.1-sol:max，审查对象 1c11c6529..5318a94bd，审查 worktree 固定在 5318a94bd）。
+说明：/tmp/w00039-t34-impl-review/brief.md。运行两次中断：第一次上游 HTTP/2 断开，用原会话续跑；第二次 403 额度不足退出，报告未写完（没有“未发现问题的方面”与各级数量）。
+第 8 条用了覆盖写，把 1 到 7 条冲掉了；1 到 7 条从会话日志里它每次追加用的脚本原样取回，第 8 条是覆盖后留下的那份。
+
+### 1. 插件诊断拿到世界对象的可变引用，可绕过修订与作者授权
+**严重程度**：阻断；**类别**：不变量。
+**位置**：`packages/nb-canon/src/service/reads.ts:68`、`packages/nb-canon/src/service/reads.ts:90`、`packages/nb-canon/src/world/world.ts:781`、`packages/nb-canon/src/service/service.ts:375`。
+**现象**：`CanonReadView.entries()`、`changes()`、`decisions()` 和 `object()` 把世界表中的对象直接交给同进程插件；返回数组的 `readonly` 不约束对象字段，世界的 `freeze` 也没有冻结对象。诊断计算可以直接改决策的 `status`、`conclusion` 和 `source`，不经过写队列、授权检查、修订或日志；世界版本和读取输入摘要都不变，其他诊断和读取会看到被改过的对象。
+**为什么是问题**：违反 model 输出 31、36 和只读世界合同，也破坏作者授权与一次读取共用同一份不可变输入的保证。还会使内存与日志重放结果不一致，已有引擎快照和诊断缓存不再可信；插件不需要类型断言即可改 `view.decisions()[0]` 的字段。
+**如何核实**：在实现 worktree 使用真实 `WorldService.open`、`publish`、`registerDiagnostics`、`pending` 路径，运行 `bun run /tmp/w00039-t34-impl-review-lab/mutable-read-view.ts`：原来待定的 `d1` 在没有授权、没有发布修订的情况下变成 `decided`，结论为“未经授权的结论”，并出现伪造的 `source`。该实验使用真实服务与日志，但未启动项目子进程；canon 项目内接口最终也调用同一个 `registerDiagnostics`。
+**建议改法**：对插件只读接口返回深只读、与世界存储隔离的数据，或在世界数据构造时建立可安全共享的深不可变快照；覆盖各返回方法及嵌套载荷，验证一个诊断不能改变后续读取、世界版本、日志重放结果或另一诊断看到的对象。
+
+### 2. 初值的核对点依据可引用不存在的核对点
+**严重程度**：重要；**类别**：正确性。
+**位置**：`packages/nb-canon/src/world/references.ts:69-76`、`packages/nb-canon/src/world/world.ts:978-1000`、`packages/nb-canon/src/world/world.ts:838-852`。
+**现象**：引用遍历把 `initBasis[地址].check` 标为 `checked: false`，但 `validate` 检查数值初值有无依据时只检查 `initBasis` 项存在，不验证 `{kind: "derived", check}` 指向的核对点。`referencesOf` 仍把它写进修订 `refs`，而 `referenceProblems` 跳过所有 `checked: false` 的引用，因此不存在的核对点也能随初值发布。
+**为什么是问题**：revisions 输出 3 要求数的依据有效，components 输出 18 列明这处是核对点引用，后者只说明该位置用专门规则而非通用 `ref-invalid` 校验，并不免除存在性校验。错误依据会被持久化并用于作者对数值来源的信任；以后的 `derived` 补丁会拒绝不存在的 check，但初值没有相应规则。
+**如何核实**：在实现 worktree 用真实 `WorldService.open` 与 `publish` 发布一个带 `probe.amount` 数值字段的条目，其 `initBasis["probe.amount"]` 为 `{kind: "derived", check: "k404"}`，项目中没有 `k404`。运行 `bun run /tmp/w00039-t34-impl-review-lab/init-basis-ref.ts` 返回 `ok: true`，且修订 `refs` 记录了指向 `k404` 的目标。
+**建议改法**：在初值依据校验中对新写或改过的 `derived` 依据检查核对点存在，并按该依据的合同核对地址/目标；保持被原样保留的旧依据可随其它字段修改，避免把已存的失效记录锁死。
+
+### 3. 新建马甲可以把 `sameAs` 指向已删除条目
+**严重程度**：重要；**类别**：正确性。
+**位置**：`packages/nb-canon/src/world/world.ts:972-975`、`packages/nb-canon/src/world/references.ts:69-70`。
+**现象**：`sameAs` 由引用遍历标为 `checked: false`，不走通用引用的“条目存在且未删除”校验；专门的 `sameAs` 校验仅拒绝目标不存在、自指或目标本身是马甲，没有拒绝 `target.deleted === true`。因此可以先墓碑一个本体条目，再新建 `sameAs` 指向它的马甲。
+**为什么是问题**：model 输出 23 规定 `sameAs` 指向存在的本体条目；components 输出 18 对新写条目引用要求目标未删除。结果产生无法正常归一到有效本体的马甲，后续 cast、名称与身份读取依赖该关系。
+**如何核实**：在真实 `WorldService` 上依次发布创建本体、把它改为 `deleted: true`、新建 `sameAs` 指向该本体的条目。运行 `bun run /tmp/w00039-t34-impl-review-lab/same-as-deleted.ts`，第三次发布成功，目标条目仍有墓碑且新马甲保存 `sameAs: "e1"`。
+**建议改法**：在 `sameAs` 专门校验中拒绝墓碑目标；增加真实服务行为用例，确认墓碑目标不能用于新马甲，同时已存在的马甲关系不因之后本体被墓碑而阻止其它字段修改。
+
+### 4. 修改已有剧情变更时新增的列表元素没有进入还原依赖索引
+**严重程度**：重要；**类别**：不变量。
+**位置**：`packages/nb-canon/src/world/world.ts:674-688`。
+**现象**：`dependsOn` 从较早修订提取 `listAdd` 元素时只读取 `op.kind === "create" ? op.after : ...`；`modify` 操作的 `value` 被设成 `undefined`，所以较早修订若是给已有剧情变更的 `patches` 添加 `listAdd`，新元素不会加入 `elements`。后续修订给该元素的子字段写补丁时，`refs` 只记录元素所属条目的引用，不含元素 id，路径重叠也发生在另一条剧情变更上，因而依赖漏掉。
+**为什么是问题**：revisions 输出 12 明确要求“改过它新建的列表元素”的修订属于依赖，不能单独还原。漏判后可以单独还原新增元素的修订，补偿会移除元素，后续记录变成 `element-missing`，而本应先拒绝 `has-dependents` 或连同后续修订一起还原。
+**如何核实**：在真实 `WorldService` 上创建条目、知识点和无补丁的 `c1`；第二次修订修改已有 `c1`，加入 `listAdd` 元素；第三次修订新建 `c2`，修改该元素的子字段。运行 `bun run /tmp/w00039-t34-impl-review-lab/list-element-dependency.ts`，输出 `addedRevision:"r3"`、`laterRevision:"r4"`，但 `dependentsOfAdded:["r3"]`，没有列出 `r4`；第三次修订只有条目级 `refs`，证明没有其它索引补偿它。
+**建议改法**：从每个较早 `modify` 的 `fields` 中解析 `patches` 的改前/改后值，提取其中新增的 `listAdd` 元素；或在发布时为“新增元素地址”建立持久化依赖索引，并让还原测试覆盖“修改已有变更加入元素”的路径。
+
+### 5. 兑现组成员之间的修订依赖没有判定
+**严重程度**：重要；**类别**：不变量。
+**位置**：`packages/nb-canon/src/world/world.ts:674-711`。
+**现象**：`dependsOn` 没有检查 `fulfills`、`splitFrom` 形成的兑现组，只检查同一对象路径、创建对象引用、以及部分列表元素。一个修订创建已写变更并使它 `fulfills` 某个已有计划，后续修订修改该计划本身时，两个修订涉及不同对象；后续修订也没有引用前一修订创建的对象，因此当前函数判定不依赖。
+**为什么是问题**：revisions 输出 12 明确把“与被还原修订的记录属于同一组兑现”列为依赖。漏判允许单独还原兑现记录，计划的进展、拆出计划和后续记录会被补偿后的世界重新解释，破坏 `has-dependents` 与还原闭包的不变量。
+**如何核实**：真实 `WorldService` 依次发布计划 `p1`、已写变更 `w1`（链接 `fulfills: p1`）、再修改已有计划 `p1` 的文字。运行 `bun run /tmp/w00039-t34-impl-review-lab/fulfillment-group-dependency.ts`，输出 `writtenRevision:"r3"`、`laterRevision:"r4"`，但 `dependentsOfWritten:["r3"]`，没有列出同组的 `r4`。
+**建议改法**：在依赖判定中先按当前日志建立兑现组（兑现变更、被兑现计划及 `splitFrom` 拆出计划），再把后续修订触及组内任一记录判为依赖；用“兑现后修改计划”和“拆出计划修改”分别覆盖传递闭包。
+
+### 6. 视图未拒绝超出上限的同章讲述位置
+**严重程度**：重要；**类别**：安全与性能。
+**位置**：`packages/nb-canon/src/service/service.ts:501-505`、`packages/nb-canon/src/service/views.ts:61-65`。
+**现象**：`viewed.tellings` 只用 `chapters()` 检查 `filter.until.chapter` 是否晚于视图上限所在章；没有比较 `until` 的段或 `start`/`end` 边界。随后 `tellingWithin` 只过滤掉晚于 `until` 的讲述，因此同章内超上限位置返回空页，不会拒绝，也不会记入 `viewAudit`。
+**为什么是问题**：project 输出 24 规定，带视图令牌读取晚于上限的讲述位置必须得到 `view-denied` 并记拒绝审计。返回空页把越界请求伪装成“没有讲述”，调用方不能区分超范围与真实空结果；后续剧情读取可据此误判。
+**如何核实**：真实 `WorldService` 发布一条发生在第 1 段的讲述，打开上限为 `ch1/start` 的视图，再调用 `viewed(token).tellings({until:{chapter:"ch1",paragraph:1}})`。运行 `bun run /tmp/w00039-t34-impl-review-lab/view-telling-position.ts` 得到带戳的 `items: []`，不是 `view-denied`；测试使用真实服务和讲述定位。
+**建议改法**：为 `until` 增加完整讲述位置比较，确认晚于视图上限时走统一拒绝审计；覆盖同章 `start`、段落、`end` 边界以及跨章范围。
+
+### 7. 视图筛选与按计划在场读取使用了上限之后的全书进展
+**严重程度**：重要；**类别**：安全与性能。
+**位置**：`packages/nb-canon/src/service/reads.ts:119-130`、`packages/nb-canon/src/service/reads.ts:190-212`、`packages/nb-canon/src/service/service.ts:482-490`、`packages/nb-canon/src/service/service.ts:492-499`。
+**现象**：`listChanges` 的 `progress` 固定按全书 `defaultPosition(order)` 过滤；带视图的 `changes` 只在过滤完成后剔除上限之后的安放。带视图的 `presence(mode:"planned")` 也先按 `filter.to` 所在章的末尾调用 `plannedAt`，再按视图读取位置过滤计划。于是上限之前的计划会因上限之后的兑现而从结果消失，或被 `progress:"fulfilled"` 选出。
+**为什么是问题**：视图允许范围的结果依赖了上限以后的状态，构成未来信息侧信道，并使按计划视图不等于上限位置上的世界状态。知道某个早期计划是否兑现，足以泄露写手尚未读到的后续剧情。
+**如何核实**：真实 `WorldService` 创建前史计划 `p1`，将已写 `fulfills:p1` 的变更放在 `ch1` 排序键 0；打开上限 `ch1/start` 的视图后调用 `changes({kind:"plan",progress:"fulfilled"})` 与 `presence(person,{mode:"planned"})`。运行 `bun run /tmp/w00039-t34-impl-review-lab/view-progress.ts`，结果 `fulfilled:["c1"]`，且按计划在场结果为空；但上限是本章开头，兑现变更不在视图内，计划在这个位置应未兑现并计入计划读取。
+**建议改法**：先把视图上限映射成准确的 `ReadPosition`，以该位置计算计划进展与计划集合，再执行筛选；不要仅在全书结果上做安放后过滤。增加跨上限兑现的 `changes(progress)` 与 `presence(mode:"planned")` 真实服务用例。
+
+### 8. 诊断稳定键的对象引用接受额外字段
+**严重程度**：重要；**类别**：正确性。
+**位置**：`packages/nb-canon/src/components/diagnostics-registry.ts:86-99`。
+**现象**：稳定键的 `objects` 校验只要求数组元素是对象、`kind` 属于允许集合、`id` 是字符串，没有要求键恰为 `{kind,id}`；`range` 也只检查 `from`、`to` 是字符串，不拒绝其它属性。额外字段被纳入规范 JSON，作为作者处理决策的稳定键部分。
+**为什么是问题**：model 输入的稳定键合同规定 `objects` 每项形状固定为 `{kind,id}`，`range` 固定为 `{from,to}`。插件输出多出字段本应导致 `diagnostic-unavailable` 并将结果标不完整；当前却接受成不同的稳定键，使键随非合同数据变化，已处理决策匹配和版本迁移可能失效。
+**如何核实**：通过真实 `WorldService.open` 登记 `key:["objects"]` 的诊断计算，返回 `objects:[{kind:"entry",id:"e1",unregistered:"extra"}]`。运行 `bun run /tmp/w00039-t34-impl-review-lab/stable-key-shape.ts`，结果为 `complete:true` 且该发现进入 `pending`。
+**建议改法**：验证稳定键对象子项使用精确字段集合，并按 JSON 类型校验；为 objects/range 添加额外键的拒绝行为用例。
