@@ -50,11 +50,11 @@ owners:
 | `reads` | 就地改、记一笔与回写必须给（输出 19）：读到的 `{地址, 读取位置, 值, 来历}` |
 | `notes` | 可选，附注（例如记账时“没建条目”的名字） |
 
-**存下来的修订**（世界日志的持久化格式，见 [`canon.project`](project.md)）：`{id, version, requestId, requestDigest, time, by, what, title, why?, chapter?, baseVersion, ops, notes?, reverts?, impact, idMap?}`。`idMap` 是请求里的临时 id 到程序生成的 id 的对照（重发同一个请求时原样返回）；临时 id 写成 `tmp:` 开头，可以出现在同一个请求里别的对象引用它的地方。`requestDigest` 是原始写入请求（去掉 `baseVersion`）按稳定序列化后的 SHA-256。
+**存下来的修订**（世界日志的持久化格式，见 [`canon.project`](project.md)）：`{id, version, requestId, requestDigest, time, by, what, title, why?, chapter?, baseVersion, ops, notes?, reverts?, impact, idMap?}`。`idMap` 是请求里的临时 id 到程序生成的 id 的对照（重发同一个请求时原样返回）；临时 id 写成 `tmp:` 开头，可以出现在同一个请求里的引用位置上（[`canon.components`](components.md) 输出 18），发布时换成生成的 id。`requestDigest` 是原始写入请求（去掉 `baseVersion`）按稳定序列化后的 SHA-256。
 
 - `ops` 的每项是 `{ref, kind: "create", after}`、`{ref, kind: "modify", fields}`、`{ref, kind: "delete", before}`，或章序调整的 `{kind: "chapters", before, after}`（两份章 id 的列表）。
 - `fields` 的每项是 `{path, before?, after?}`：没有 `before` 表示改之前这个字段不存在，没有 `after` 表示改之后不存在；JSON 的 `null` 是“未知”，与“不存在”不同。
-- 路径的写法：对象的键用 `.键`，不是标识符的键（例如以地址为键的 `initBasis`）写 `["键"]`；有 id 的列表（主 MDX 的块、列表字段的元素、实例字段声明）用 `[id]`，不用下标，顺序变了另记一个叶子 `<列表的路径>#order`，值是 id 的列表；没有 id 的数组（别名、讲述、补丁、连接、提示）整体是一个叶子。
+- 路径的写法：对象的键用 `.键`，不是标识符的键（例如以地址为键的 `initBasis`）写 `["键"]`；有 id 的列表（主 MDX 的块、列表字段的元素、实例字段声明、讲述）用 `[id]`，不用下标，顺序变了另记一个叶子 `<列表的路径>#order`，值是 id 的列表；没有 id 的数组（别名、补丁、连接、提示、参与者、标注、决策挂的对象、候选、约束）整体是一个叶子。
 - 修改只存变了的叶子。`impact` 是带来的变化（输出 6）。
 
 **由程序转成写入请求的几种写法**：就地改（输出 8）、记一笔（输出 9）、文字替换（输出 10）、Agent 交回改过的一块（[`canon.rendering`](rendering.md) 输出 12）、还原（输出 11）、章序调整（输出 13）。
@@ -71,7 +71,10 @@ owners:
    - 新写、改过、或从待定转为生效的生效剧情变更，在它的安放上能套上（含约束，在一条变更的补丁全部套完之后检查）；
    - 来源为正文的讲述（含条目的 `retold`），原句确实在那一章的正文里（正文由宿主提供，[`canon.project`](project.md) 的输入）；
    - 每个数有依据：讲述里的原文（原句存在，且按中文与阿拉伯数字的常规读法能从原文里读出这个数，加减取绝对值）、由某个核对点推出的差额（程序复算相等）、作者给的，或补丁上标“估计”；都没有就拒收；
-   - 主 MDX 的每一块过白名单，块的规则成立（[`canon.rendering`](rendering.md) 输出 1 到 3）。
+   - 主 MDX 的每一块过白名单，块的规则成立（[`canon.rendering`](rendering.md) 输出 1 到 3）；
+   - 新写或改过的讲述合乎形状：正文讲述有章、原句非空且不含换行，`nth` 不大于原句在那一章出现的次数（`invalid-telling`）；
+   - 新写或改过的引用（[`canon.components`](components.md) 输出 18，`ref-invalid`）、标注（[`canon.model`](model.md) 输出 28，`mark-kind-unknown`、`mark-version-unsupported`、`mark-invalid`）、参与者（同一 Spec 输出 29，`invalid-cast`）、叙述（输出 30，`narration-with-patches`、`narration-without-telling`）、决策挂的对象（输出 33，`invalid-about`）与决策的转换（“状态与转换”，`invalid-transition`）都合乎规则；
+   - 需要作者来源的决策转换与修改带了来源、来源校验通过（输出 21；缺来源与来源不对不归入 `validation-failed`，见失败表）。
 4. **对后面的影响。** 这次写入让后面已有的剧情变更套不上的，不拒收，列进预览与带来的变化（“这次修改会让第 7 章的 2 条套不上”），这些问题记在这次修订名下（它们的根因，[`canon.model`](model.md) 输出 22），可以直接还原它。
 5. **预览。** 对写入请求做输出 3、4、6 的全部计算，不发布：返回校验结果、带来的变化，以及受影响的条目在这次写入所在章末尾（没有章时在缺省读取位置）的样子。预览只对它基于的版本有效。在同一版本、同样的章序、正文与已登记的类型上，预览算出的带来的变化与随后发布存下的逐字相同（语义档的归纳文字除外）；中间有别的修订发布或这些输入变了，以发布时算出并存下的为准。
 6. **带来的变化。** 发布时计算并存进修订：在哪（结构化的位置：章 id、开头或末尾）；这次让哪些待处理消失、新出现了哪些；相关地址（条目 id 加路径）在这次写入所在位置的改前与改后的值（语义档已归纳时写归纳的文字；还没归纳时写起点与之后事件的条数 `{notReduced: true, anchor, events}`，不写拼起来的全文：全文随事件变长，每次修订存一份会让日志随章数按平方变大）；让后面哪些记录套不上。只存结构化的位置与地址，章名、条目名、字段显示名在显示时按当时的章序与声明格式化。回执、保存后的提示、改动记录都读存下来的这一份，不重算这些值。
@@ -93,15 +96,16 @@ owners:
 9. **记一笔。** 给出读取位置、数值字段、增减、原因与读到的值：等于意图为剧情变化的一次加减，落在这个位置。
 10. **文字替换。** 写入时可以把长文本或一块写成“把 A 换成 B”：A 在当时的值里必须恰好出现一次，程序替换后存全文；没找到得 `replace-not-found`，出现多次得 `replace-not-unique`。
 11. **还原。** 还原一次修订，是发布一次补偿修订：把它改过的对象与字段恢复成改前的值；它新建的对象真正删除；没有 id 的数组里它新加的元素，只移除这些元素（改之后的数组以改之前的为开头，多出来的就是它加的），别的元素保持现状。补偿修订本身也能还原（等于重做）。还原后重算，后面因此套不上的进待处理，根因是这次补偿修订。整章撤销就是还原那一章的记账修订；作者在本章自己记的一笔是别的修订，不在内。
-12. **依赖。** 后面的修订满足任一条，就依赖被还原的修订：改过同一个地址，或其中一个地址是另一个的前缀（状态到字段、列表元素与子键，记录到字段）；引用了它新建的条目或列表元素；与它的记录属于同一组兑现（[`canon.model`](model.md) 输出 13）。只往没有 id 的数组里加元素的修改互不依赖。依赖取传递闭包。有依赖时不单独还原，拒收（`has-dependents`），详情从新到旧列出依赖的修订；调用方可以请求把它们连同这次一起还原，程序从后往前算补偿，作为一次修订发布。不会覆盖后面的修改。
+12. **依赖。** 后面的修订满足任一条，就依赖被还原的修订：改过同一个地址，或其中一个地址是另一个的前缀（状态到字段、列表元素与子键，记录到字段）；在引用位置上（[`canon.components`](components.md) 输出 18）引用了它新建的条目，或改过它新建的列表元素、讲述；与它的记录属于同一组兑现（[`canon.model`](model.md) 输出 13）。只往没有 id 的数组里加元素的修改互不依赖。跨世界线的依赖见 [`canon.worldlines`](worldlines.md)。依赖取传递闭包。有依赖时不单独还原，拒收（`has-dependents`），详情从新到旧列出依赖的修订；调用方可以请求把它们连同这次一起还原，程序从后往前算补偿，作为一次修订发布。不会覆盖后面的修改。
 13. **章序调整。** 宿主给出的章序与世界里最近一次记下的不同时，世界发布一次 `reorder` 修订，操作是 `{kind: "chapters", before, after}`。打开时重放到它，记下这份章序；计算按宿主当前给的章序。它不能单独还原（`not-revertable`）：章序的真相在活页夹，改章序在活页夹里改。
-14. **改动记录。** 按版本从新到旧列出修订：谁、种类、标题、时间、带来的变化的摘要、能不能还原（不能的给原因：有依赖、章序调整）。能按章、按条目、按写入者筛。
+14. **改动记录。** 按版本从新到旧列出修订：谁、种类、标题、时间、带来的变化的摘要、能不能还原（不能的给原因：有依赖、章序调整）。能按章、按条目、按写入者筛；按条目筛时，改过这个条目的修订与新写或改过指向它的引用的修订都算。
 15. **修订不可变。** 发布后的修订不再改；改错了用新的修订改，或还原它。
 16. **请求 id。** 同一个世界里，带同一个 `requestId` 的写入请求最多发布一次：再次提交时不重复发布，返回第一次的结果（修订 id、版本、id 对照）；内容与第一次不同（按 `requestDigest` 判，重开项目后同样）时拒收（`request-id-reused`）。调用方可以按 `requestId` 查这次写入有没有发布、发布成了哪次修订（[`canon.project`](project.md) 的 `outcome`）。
 17. **待定转生效。** 处理待处理时把一条待定的剧情变更改成生效，按新写的生效变更完整校验（输出 3）；不过就整次拒收。同一次修订可以同时改它的补丁与 `held` 说明。
 18. **排序键。** 写入请求没给排序键时，程序按第一条正文讲述的原句在本章第一次出现的位置算；没有正文讲述的，排在本章最前（剧情变化落在开头位置时，键是本章现有最小的键减一）或最后（本章现有最大的键加一），写入时算好存下。给已有记录补上第一条正文讲述时，排序键改为这处讲述的位置，并写进带来的变化。
 19. **必须带读到的值。** 就地改、记一笔与回写必须带 `reads`；缺了拒收（`reads-required`）。直接给对象新值的写入（`puts`）只按输出 7 判冲突。
-20. **删除。** 条目不真正删除：删除是给它加墓碑标记的一次修改，其余字段原样保留，还原就去掉标记。剧情变更不删除，只撤销。核对点、未决问题、正文建议可以删除。还原新建对象的修订时，那些对象真正删除（因为有依赖时不能单独还原，删的时候没有别的记录引用它们）。对条目或剧情变更给 `after` 为空时拒收（`not-deletable`）。
+20. **删除。** 条目不真正删除：删除是给它加墓碑标记的一次修改，其余字段原样保留，还原就去掉标记。剧情变更不删除，只撤销。决策不删除，不再要的转成放弃。核对点、正文建议可以删除。还原新建对象的修订时，那些对象真正删除（因为有依赖时不能单独还原，删的时候没有别的记录引用它们）。对条目、剧情变更或决策给 `after` 为空时拒收（`not-deletable`）。
+21. **作者来源。** 决策里需要作者来源的转换与修改（[`canon.model`](model.md)“状态与转换”），写入请求在那条决策上带 `source`：`{author, via: "message"|"confirm", id, session?, quote, range?, time, signature}`，分别是作者身份、作者的一条消息或界面上的一次确认、它的 id、会话、原文摘要、引用的范围、时间与宿主的签名。签发由宿主做（作者确实说了、确认了这件事，由宿主判断），本能力只校验：发布前把来源交给宿主提供的校验（[`canon.project`](project.md) 的输入），不通过整次拒收（`author-source-invalid`）；需要来源却没带，整次拒收（`author-source-required`）；宿主没提供校验时，需要来源的写入一律 `author-source-invalid`。不需要来源的写入带了来源，来源照存、照样校验。还原（含连同依赖一起还原）算出的补偿里有需要来源的决策转换或修改时，还原请求同样要带来源。来源随决策存进日志；预览与发布用同一套校验。
 
 ## 状态与转换
 
@@ -118,7 +122,9 @@ owners:
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
-| `validation-failed` | 校验不过，详情逐条列出（`entry-missing`、`not-appeared`、`component-disabled`、`unknown-field`、`type-mismatch`、`constraint-violated`、`number-out-of-range`、`invalid-asset-path`、`element-missing`、`quote-not-found`、`number-without-basis`、`basis-mismatch`、`invalid-line`、`invalid-link`、`invalid-tree`、`id-taken`、`ambiguous-field`，以及 [`canon.rendering`](rendering.md) 的 MDX 问题） | 按详情改请求 |
+| `validation-failed` | 校验不过，详情逐条列出（`entry-missing`、`not-appeared`、`component-disabled`、`unknown-field`、`type-mismatch`、`constraint-violated`、`number-out-of-range`、`invalid-asset-path`、`element-missing`、`quote-not-found`、`number-without-basis`、`basis-mismatch`、`invalid-line`、`invalid-link`、`invalid-tree`、`id-taken`、`ambiguous-field`、`invalid-telling`、`ref-invalid`、`mark-kind-unknown`、`mark-version-unsupported`、`mark-invalid`、`invalid-cast`、`narration-with-patches`、`narration-without-telling`、`invalid-about`、`invalid-transition`，以及 [`canon.rendering`](rendering.md) 的 MDX 问题与 [`canon.worldlines`](worldlines.md) 的线的问题） | 按详情改请求 |
+| `author-source-required` | 决策的转换或修改需要作者来源，请求里没有 | 请作者在对话里说或在界面上确认，再带宿主签发的来源写 |
+| `author-source-invalid` | 带的作者来源校验不通过（签名不对、宿主没提供校验） | 不要自己造来源；按上一行重新取 |
 | `version-conflict` | 要改的对象在读取之后被改过 | 重读，看过当前值后再写 |
 | `value-conflict` | 就地改或回写时，读到的值已经不是现在算出的值 | 重读再改 |
 | `accumulated-value` | 就地改了一个几笔累出来的数，或有事件的语义档 | 改其中一笔，或记一笔 |
@@ -146,9 +152,10 @@ owners:
 4. **预览就是回执。** 记账先预览再发布，中间没有别的修订：预览里的“带来的变化”与发布后修订里存的逐字相同。
 5. **数的依据。** Agent 记“花了两千”，补丁 −2000，讲述原句含“两千”：通过。原句写“三千五”、补丁 −3500：通过。原句里没有这个数、也没标估计：`validation-failed`，`number-without-basis`。
 6. **断线重试。** 发布时连接断了，调用方不知道成没成：按请求 id 查，已发布就拿到那次修订；再提交同一个请求不会多出一次修订。
+7. **作者来源。** Agent 带一个自己拼的 `source`（签名不对）把决策转成已定：`author-source-invalid`，世界不变。宿主按作者的一条消息签发来源后，同一请求发布成功，改动记录里这次修订带着来源；之后 Agent 不带来源还原这次修订：`author-source-required`；作者带来源还原，决策回到待定。
 
 Smoke：不适用——本能力没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
 
 ## 证据
 
-- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 5、8 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；[ADR 0039](../../adr/0039-world-engine-segmented-revision-log.md)；w00039 Work README 决定表 2026-11-02（修订只存变了的字段、带来的变化在发布时算好存进修订、几笔累出来的数不直接改、有依赖时不单独还原）。
+- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 5、8 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；[ADR 0039](../../adr/0039-world-engine-segmented-revision-log.md)；w00039 Work README 决定表 2026-11-02（修订只存变了的字段、带来的变化在发布时算好存进修订、几笔累出来的数不直接改、有依赖时不单独还原）；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 4、11 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）。
