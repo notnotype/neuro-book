@@ -17,7 +17,7 @@ import {appearanceItems} from "./appearance";
 import {DEFAULT_LIMITS, trim} from "./budget";
 import {framesOf, nameOf, participantsOf, planReveals, plansOf, pointsBeforeWriting, type Frame} from "./context";
 import * as fixed from "./fixed";
-import {addressItems, allowedItems, decisionItems, foreshadowItems, peopleItems, planItems, readerItems, sceneItems} from "./parts";
+import {addressItems, allowedItems, decisionItems, foreshadowItems, peopleItems, planItems, readerItems, sceneItems, selfReportItems} from "./parts";
 import {buildSecrets, routeDecisions} from "./secrets";
 import type {BriefHint, BriefItem, BriefSection} from "./types";
 
@@ -101,6 +101,8 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         section("outline", fixed.TITLES.outline, lineItems(input.outline)),
     ];
     const povId = instruction?.pov?.id ?? null;
+    // 称谓表只写一次：各段（回溯前后）的参与者合在一起。
+    const allParticipants = frames.flatMap((frame) => participantsOf(plansOf(frame, chapter)));
     const parts: BriefPart[] = frames.map((frame, frameIndex) => {
         const plans = plansOf(frame, chapter);
         const participants = participantsOf(plans);
@@ -109,7 +111,7 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         const secrets = buildSecrets(frame, points, participants, reveals, povId, instruction?.povMode);
         const decided = involvedDecisions(frame.view, chapter, "planned", points);
         const decidedFull = decided.filter((decision) => decision.status === "decided").map((decision) => frame.view.object({kind: "decision", id: decision.id}) as Decision);
-        const pendingDue = decided.filter((decision) => decision.status === "pending" && decision.due !== null && frame.view.chapters.indexOf(decision.due) <= frame.view.chapters.indexOf(chapter)).map((decision) => frame.view.object({kind: "decision", id: decision.id}) as Decision);
+        const pendingDue = decided.filter((decision) => decision.status === "pending" && decision.due !== null && frame.view.chapters.indexOf(decision.due) !== -1 && frame.view.chapters.indexOf(decision.due) <= frame.view.chapters.indexOf(chapter)).map((decision) => frame.view.object({kind: "decision", id: decision.id}) as Decision);
         const routing = routeDecisions(frame, decidedFull, secrets);
         const frameHints: BriefHint[] = [...secrets.hints];
         const people = peopleItems(frame, chapter, participants, secrets, povId);
@@ -121,17 +123,20 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
             section("secrets", fixed.BRIEF_PARTS.secrets, secretItems),
             {...section("people", fixed.BRIEF_PARTS.people, people.items), items: [{label: "说明", text: people.header, protect: true}, ...trim(people.items, limits.people ?? Infinity).kept]},
             section("scene", fixed.BRIEF_PARTS.scene, sceneItems(plans, chapter, frameHints)),
-            ...(frameIndex === 0 ? [section("address", fixed.BRIEF_PARTS.address, addressItems(frame, participants, povId, instruction?.povMode))] : []),
+            ...(frameIndex === 0 ? [section("address", fixed.BRIEF_PARTS.address, addressItems(frame, allParticipants, povId, instruction?.povMode, secrets))] : []),
             section("foreshadow", fixed.BRIEF_PARTS.foreshadow, foreshadowItems(frame, chapter, plans, frameHints)),
-            section("decisions", fixed.BRIEF_PARTS.decisions, decisionItems(routing.inDecisions, pendingDue)),
+            section("decisions", fixed.BRIEF_PARTS.decisions, decisionItems(frame, routing.inDecisions, pendingDue)),
             section("reader", fixed.BRIEF_PARTS.reader, readerItems(frame, chapter, points, secrets)),
-            ...(frameIndex === frames.length - 1 ? [section("allowed", fixed.BRIEF_PARTS.allowed, allowedItems(instruction))] : []),
+            ...(frameIndex === frames.length - 1 ? [section("allowed", fixed.BRIEF_PARTS.allowed, allowedItems(instruction)), section("selfReport", fixed.BRIEF_PARTS.selfReport, selfReportItems())] : []),
             section("appearance", fixed.TITLES.appearance, appearanceItems(frame, chapter)),
         ];
         hints.push(...frameHints);
         return {label: frame.label, sections};
     });
-    const tail = input.previousTail === null ? [] : [{label: "上一章末尾", text: [...input.previousTail].slice(-(limits.previous ?? Infinity)).join("")}];
+    const tailLimit = limits.previous ?? Infinity;
+    const tailChars = input.previousTail === null ? [] : [...input.previousTail];
+    if (tailChars.length > tailLimit) omitted.push(`${fixed.TITLES.previous}：截去前 ${String(tailChars.length - tailLimit)} 字`);
+    const tail = input.previousTail === null ? [] : [{label: "上一章末尾", text: tailChars.slice(-tailLimit).join("")}];
     const closing: BriefSection[] = [{key: "previous", title: fixed.TITLES.previous, items: tail}, {key: "target", title: fixed.TITLES.target, items: [{label: "目标字数", text: String(input.targetWords), protect: true}]}];
     const text = render(common, parts, closing, omitted);
     const record: BriefRecord = {
@@ -146,7 +151,7 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
     return {text, common: [...common, ...closing], parts, hints, record};
 }
 
-const BRIEF_KEYS = new Set(["rules", "secrets", "people", "scene", "address", "foreshadow", "decisions", "reader", "allowed"]);
+const BRIEF_KEYS = new Set(["rules", "secrets", "people", "scene", "address", "foreshadow", "decisions", "reader", "allowed", "selfReport"]);
 
 /** 整份上下文的文字：段标题写在前；没有内容的段写“无”；简报里的各段降一级标题；裁掉的在末尾写一句。 */
 function render(common: readonly BriefSection[], parts: readonly BriefPart[], closing: readonly BriefSection[], omitted: readonly string[]): string {

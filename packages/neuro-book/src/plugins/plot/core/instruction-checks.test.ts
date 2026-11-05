@@ -3,7 +3,7 @@ import {describe, expect, test} from "bun:test";
 import {InstructionTable} from "../backend/instructions";
 import {INSTRUCTION_DIAGNOSTIC_IDS} from "../shared/declarations";
 import type {InstructionSnapshot} from "../shared/instructions";
-import {chapter, end, PlotWorld, present} from "../testing/world";
+import {chapter, drafts, end, PlotWorld, present} from "../testing/world";
 import {instructionDiagnostics} from "./instruction-checks";
 
 const CHAPTERS = Array.from({length: 12}, (_, index) => `ch${String(index + 1)}`);
@@ -44,20 +44,27 @@ describe("plot.decisions 输出 8、验收 4：写作指示的检查", () => {
         expect(run3(w3, "povAbsent", end("ch5"))).toEqual([]);
     });
 
-    test("补叙的安放对不上：补叙某一章，本章的变更不在那一章：提示；补叙前史时本章变更在前史里它的前后：不报", () => {
+    test("补叙的安放对不上：补叙某一章，本章的变更（安放在本章或在本章讲述）都不在那一章：提示；有一条在那一章（在本章讲述）：对得上；补叙前史时看前史里它的前后各一条", () => {
         const w = new PlotWorld(CHAPTERS);
         const run = setup([snap("ch6", {timeMode: {flashback: {kind: "chapter", chapter: "ch2", key: 0}}})]);
         w.change(chapter("ch6"));
         expect(run(w, "flashbackMismatch").map((finding) => finding.key)).toEqual([{range: {from: "ch6", to: "ch6"}}]);
-        // 本章的变更落在补叙的那一章：对得上。
-        const w2 = new PlotWorld(CHAPTERS);
-        const run2 = setup([snap("ch6", {timeMode: {flashback: {kind: "chapter", chapter: "ch2", key: 0}}})]);
-        w2.change({kind: "chapter", chapter: "ch6", key: 0});
-        w2.change({kind: "chapter", chapter: "ch2", key: 3});
-        expect(run2(w2, "flashbackMismatch")).toHaveLength(1);
+        // 补叙的事安放在第 2 章、在第 6 章讲述：对得上。
+        w.texts.set("ch6", "那年在老屋里。");
+        w.change(chapter("ch2", 3), {told: [{source: "chapter", chapter: "ch6", quote: "那年在老屋里"}]});
+        expect(run(w, "flashbackMismatch")).toEqual([]);
         // 本章没有变更：不报。
         const w3 = new PlotWorld(CHAPTERS);
         expect(setup([snap("ch6", {timeMode: {flashback: {kind: "prehistory", order: 5}}})])(w3, "flashbackMismatch")).toEqual([]);
+        // 补叙前史第 5 处：前史里它前后各一条（第 3、第 7 处）算附近，更远的第 1 处不算。
+        const w4 = new PlotWorld(CHAPTERS);
+        const run4 = setup([snap("ch6", {timeMode: {flashback: {kind: "prehistory", order: 5}}})]);
+        w4.texts.set("ch6", "老事一。老事二。");
+        for (const order of [1, 3, 7]) w4.change({kind: "prehistory", order});
+        w4.change({kind: "prehistory", order: 1}, {told: [{source: "chapter", chapter: "ch6", quote: "老事一"}]});
+        expect(run4(w4, "flashbackMismatch")).toHaveLength(1);
+        w4.change({kind: "prehistory", order: 7}, {told: [{source: "chapter", chapter: "ch6", quote: "老事二"}]});
+        expect(run4(w4, "flashbackMismatch")).toEqual([]);
     });
 
     test("写作指示反复出现：同一句“不写的”连续出现在 3 章以上相邻的快照里：一条，范围是第一章到最后一章；中间隔着没有快照的章就断开", () => {
@@ -84,5 +91,25 @@ describe("plot.decisions 输出 8、验收 4：写作指示的检查", () => {
         const run = setup([snap("ch6", {pov: {kind: "entry", id: jin}})]);
         w.change(chapter("ch6"), {cast: [present(brother)]});
         expect(run(w, "povAbsent")[0]!.objects).toContainEqual({kind: "decision", id: decision});
+    });
+});
+
+describe("plot.decisions 输出 8：分段讲两条线的章，视角人物的在场按各段的线合起来判", () => {
+    test("视角人物只在回溯段那条线上在场：不报；各段里都不在场才报", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        const cut = w.change(chapter("ch7", 10));
+        const ids = w.publish([
+            {ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch7", 90)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}},
+            {ref: {kind: "change", id: "tmp:own"}, after: drafts.change("tmp:own", {...chapter("ch9", 40), line: "tmp:r1"}, {cast: [present(jin)]})},
+        ]);
+        w.change(chapter("ch9", 1), {cast: [present(brother)]});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 30}]]])});
+        const run = setup([snap("ch9", {pov: {kind: "entry", id: jin}})]);
+        expect(run(w, "povAbsent")).toEqual([]);
+        const w2 = new PlotWorld(CHAPTERS);
+        const [jin2, brother2] = [w2.person("星瑾"), w2.person("哥哥")];
+        w2.change(chapter("ch9", 1), {cast: [present(brother2)]});
+        expect(setup([snap("ch9", {pov: {kind: "entry", id: jin2}})])(w2, "povAbsent")).toHaveLength(1);
     });
 });

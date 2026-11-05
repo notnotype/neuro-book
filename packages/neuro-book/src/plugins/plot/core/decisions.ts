@@ -5,7 +5,8 @@
 
 import type {CanonReadView, Decision, DiagnosticCompute, Finding, Mark, Mode, ObjectRef, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
-import {DECISION_DIAGNOSTIC_IDS} from "../shared/declarations";
+import {DECISION_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
+import {checkAddressGuard} from "./guards";
 
 /** 一条涉及本章的决策：结论、理由（没给时“作者没说理由”）、约束与守卫标注。 */
 export interface DecisionRead {
@@ -17,13 +18,22 @@ export interface DecisionRead {
     readonly constraints: readonly string[];
     readonly due: string | null;
     readonly about: Decision["about"];
-    /** 守卫标注（`nbook.plot.guard.*`）；别的标注不在这里。 */
-    readonly guards: readonly Mark[];
+    /** 守卫标注（`nbook.plot.guard.*`）；别的标注不在这里。地址守卫没法检查时带 `unchecked`（Spec：记“无法检查”，不进待处理）。 */
+    readonly guards: readonly {readonly mark: Mark; readonly unchecked?: "incomplete" | "line-unavailable"}[];
 }
 
 export const NO_REASON = "作者没说理由";
 
-function readDecision(decision: Decision): DecisionRead {
+/** 地址守卫在这张视图（这条线、这个模式）上没法检查的原因：它写明的线不可用，或地址的值不完整。 */
+function uncheckedReason(view: CanonReadView, mark: Mark, mode: Mode): "incomplete" | "line-unavailable" | undefined {
+    if (mark.kind !== MARK_IDS.guardAddress) return undefined;
+    const guard = mark as unknown as {at: {entry: string; path: string}; notIn: unknown[]; from?: string; to?: string; lines?: string[]};
+    const known = view.lines();
+    if (guard.lines?.some((line) => line !== "main" && !known.some((summary) => summary.id === line && summary.exists[mode] && summary.unbuildable === null)) === true) return "line-unavailable";
+    return checkAddressGuard(view, mode, guard) === "unchecked" ? "incomplete" : undefined;
+}
+
+function readDecision(view: CanonReadView, decision: Decision, mode: Mode): DecisionRead {
     return {
         id: decision.id,
         text: decision.text,
@@ -33,13 +43,16 @@ function readDecision(decision: Decision): DecisionRead {
         constraints: decision.constraints ?? [],
         due: decision.due ?? null,
         about: decision.about,
-        guards: (decision.marks ?? []).filter((mark) => mark.kind.startsWith("nbook.plot.guard.")),
+        guards: (decision.marks ?? []).filter((mark) => mark.kind.startsWith("nbook.plot.guard.")).map((mark) => {
+            const unchecked = decision.status === "decided" ? uncheckedReason(view, mark, mode) : undefined;
+            return {mark, ...(unchecked === undefined ? {} : {unchecked})};
+        }),
     };
 }
 
-/** 章在章序里的下标；不在章序里为 -1。读取位置是初值时为 0。 */
+/** 章在章序里的下标；不在章序里为 -1。读取位置是初值时还没有章，为 -1（没有到期的）。 */
 function chapterIndex(view: CanonReadView, position: ReadPosition): number {
-    return position.kind === "chapter" ? view.chapters.indexOf(position.chapter) : 0;
+    return position.kind === "chapter" ? view.chapters.indexOf(position.chapter) : -1;
 }
 
 /** 剧情线条目：变更的 `lines` 里挂着它（不是 `involves`），所以判章要用 `changes({line})`。 */
@@ -94,7 +107,7 @@ export function involvedDecisions(view: CanonReadView, chapter: string, mode: Mo
     return view.decisions()
         .filter((decision) => (decision.status === "decided" || decision.status === "pending") && involves(view, decision, chapter, entries, mode))
         .sort((a, b) => order(a) - order(b) || (aboutKey(a) < aboutKey(b) ? -1 : aboutKey(a) > aboutKey(b) ? 1 : 0) || (a.id < b.id ? -1 : 1))
-        .map(readDecision);
+        .map((decision) => readDecision(view, decision, mode));
 }
 
 /** 挂的对象死了吗（悬空用）：条目已删除、剧情变更已撤销、被取代或放弃的决策；`address` 看它的条目，`chapter` 不在章序里；`diagnostic` 不算。 */

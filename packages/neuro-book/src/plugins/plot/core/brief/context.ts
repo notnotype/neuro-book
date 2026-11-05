@@ -160,3 +160,12 @@ export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readon
     }
     return [...points].filter((id) => secrecyOf(frame, id) !== null).sort();
 }
+
+/** 指向这个马甲的 `揭穿` 的知识点（称谓表与在场的人用它判断视角人物知不知道、这个马甲背后的名字能不能写）。 */
+export function unmaskingPoint(frame: Frame, mask: string): string | undefined {
+    return frame.view.entries().find((entry) => {
+        if (entry.deleted === true || entry.type !== ENTRY_TYPES.point) return false;
+        const read = frame.view.entry(entry.id, frame.position, "planned");
+        return read !== null && read !== "chapter-not-found" && (read.namespaces.point?.fields.揭穿?.value as {ref?: unknown} | null | undefined)?.ref === mask;
+    })?.id;
+}

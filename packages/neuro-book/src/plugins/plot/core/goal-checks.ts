@@ -40,12 +40,14 @@ function liveGoals(view: CanonReadView, at: ReadPosition, mode: Mode): GoalRead[
     return goalsAtPosition(view, at, mode).filter((goal) => goal.状态 === "active" || goal.状态 === "blocked");
 }
 
-/** 改过目标 `goal` 命名空间的、在这条线这个模式里生效的剧情变更，按先后。 */
-function touchesOf(view: CanonReadView, goal: string, mode: Mode): {readonly change: StoryChange; readonly key: EventKey}[] {
+/** 改过目标 `goal` 命名空间的、在这条线这个模式里生效、不晚于读取位置的剧情变更，按先后。 */
+function touchesOf(view: CanonReadView, goal: string, mode: Mode, at: ReadPosition): {readonly change: StoryChange; readonly key: EventKey}[] {
     const touches: {change: StoryChange; key: EventKey}[] = [];
+    // 只算读取位置为止的改动：读较早的位置时，之后才写的改动不能让该报的不报。
+    const limit = view.positionKey(at);
     for (const change of changeIndex(view).goalTouches.get(goal) ?? []) {
         const key = view.eventKey(change.id, mode);
-        if (key !== null) touches.push({change, key});
+        if (key !== null && (limit === null || view.compareKeys(key, limit) <= 0)) touches.push({change, key});
     }
     return touches.sort((a, b) => view.compareKeys(a.key, b.key));
 }
@@ -59,7 +61,7 @@ const premiseChanged: DiagnosticCompute = (view, at, mode) => {
     const findings: Finding[] = [];
     const index = knowingIndex(view, mode, at);
     for (const goal of liveGoals(view, at, mode)) {
-        const touches = touchesOf(view, goal.id, mode);
+        const touches = touchesOf(view, goal.id, mode, at);
         for (const point of new Set(goal.基于)) {
             const last = index.transitions(goal.holder, point).filter((transition) => transition.change !== undefined || transition.via !== undefined).at(-1);
             if (last === undefined) continue;
@@ -88,7 +90,7 @@ const stalled: DiagnosticCompute = (view, at, mode) => {
     const now = chapterIndexOf(view, at);
     for (const goal of liveGoals(view, at, mode)) {
         if (goal.状态 !== "active") continue;
-        const last = touchesOf(view, goal.id, mode).at(-1)?.change.at ?? (view.object({kind: "entry", id: goal.id}) as {appears?: StoryChange["at"]} | undefined)?.appears;
+        const last = touchesOf(view, goal.id, mode, at).at(-1)?.change.at ?? (view.object({kind: "entry", id: goal.id}) as {appears?: StoryChange["at"]} | undefined)?.appears;
         const since = last === undefined || last.kind !== "chapter" ? 0 : Math.max(0, view.chapters.indexOf(last.chapter));
         if (now - since > STALLED_AFTER_CHAPTERS) findings.push({key: {objects: [{kind: "entry", id: goal.id}], line: view.line}, objects: [{kind: "entry", id: goal.id}], params: {chapters: now - since}});
     }

@@ -41,9 +41,23 @@ function perChapter(view: CanonReadView, at: ReadPosition, mode: Mode, source: I
     });
 }
 
-/** 本章在这条线视图里生效的剧情变更（实际模式只算已写的，按计划模式再加计划）。 */
-function chapterChanges(view: CanonReadView, chapter: string, mode: Mode): StoryChange[] {
-    return (changeIndex(view).byChapter.get(chapter) ?? []).filter((change) => mode === "planned" || change.kind === "written");
+/** 这一章讲的各条线的视图（分段讲几条线的章取各段的线；线读不到的跳过）。 */
+function segmentViews(view: CanonReadView, chapter: string): CanonReadView[] {
+    const lines = [...new Set(view.chapterLines(chapter).map((segment) => segment.line))];
+    return lines.flatMap((line) => {
+        const on = line === view.line ? view : view.onLine(line, "planned");
+        return "code" in on ? [] : [on];
+    });
+}
+
+/** 本章生效的剧情变更（实际模式只算已写的，按计划模式再加计划）：安放在本章的，或在本章讲述的（补叙的事安放在别处）；各段的线合起来。 */
+function chapterChanges(view: CanonReadView, chapter: string, mode: Mode, tellings = false): StoryChange[] {
+    const found = new Map<string, StoryChange>();
+    for (const on of segmentViews(view, chapter)) {
+        const index = changeIndex(on);
+        for (const change of [...(index.byChapter.get(chapter) ?? []), ...(tellings ? (index.byTold.get(chapter) ?? []) : [])]) if (mode === "planned" || change.kind === "written") found.set(change.id, change);
+    }
+    return [...found.values()];
 }
 
 /** 挂在本章或这些条目上的已定决策，追加进发现的对象里。 */
@@ -59,7 +73,7 @@ function povAbsent(view: CanonReadView, snapshot: InstructionSnapshot, mode: Mod
     const changes = chapterChanges(view, snapshot.chapter, mode);
     if (changes.length === 0) return [];
     // 本章的在场（同 `presence` 的取法，但从按章分组的变更里取，不为每一章把全部变更扫一遍）：已写、生效、套上的变更；按计划模式再加计划。
-    const counted = changes.filter((change) => change.kind === "plan" || change.patches.length === 0 || view.outcome(change.id)?.applied === true);
+    const counted = changes.filter((change) => change.kind === "plan" || change.patches.length === 0 || segmentViews(view, snapshot.chapter).some((on) => on.outcome(change.id)?.applied === true));
     const pov = snapshot.pov.id;
     const present = counted.some((change) => (change.cast ?? []).some((member) => member.role === "present" && (member.who === pov || member.as === pov)));
     if (present || counted.some((change) => change.cast === undefined)) return [];
@@ -78,19 +92,17 @@ function flashbackMismatch(view: CanonReadView, snapshot: InstructionSnapshot, m
     const timeMode = snapshot.timeMode;
     if (timeMode === undefined || typeof timeMode === "string" || !("flashback" in timeMode)) return [];
     const target = timeMode.flashback as Placement;
-    const changes = chapterChanges(view, snapshot.chapter, mode);
+    const changes = chapterChanges(view, snapshot.chapter, mode, true);
     if (changes.length === 0) return [];
     const neighbours = new Set<string>();
     if (target.kind === "prehistory") {
-        const keyed = view.changes({...(mode === "planned" ? {} : {kind: "written" as const})}).filter((change) => change.status === "active" && change.at.kind === "prehistory").map((change) => ({change, key: view.placementKey(change.at)})).filter((item): item is {change: StoryChange; key: NonNullable<typeof item.key>} => item.key !== null);
-        const targetKey = view.placementKey(target);
-        if (targetKey !== null) {
-            const before = keyed.filter((item) => view.compareKeys(item.key, targetKey) <= 0).sort((a, b) => view.compareKeys(a.key, b.key)).at(-1);
-            const after = keyed.filter((item) => view.compareKeys(item.key, targetKey) > 0).sort((a, b) => view.compareKeys(a.key, b.key))[0];
-            for (const item of [before, after]) if (item !== undefined) neighbours.add(item.change.id);
-        }
+        // 前史里它前后各一处（同一处上的几条变更都算）：前史的先后就是 `order`。
+        const prehistory = view.changes({...(mode === "planned" ? {} : {kind: "written" as const})}).filter((change): change is StoryChange & {at: {kind: "prehistory"; order: number}} => change.status === "active" && change.at.kind === "prehistory");
+        const before = Math.max(...prehistory.filter((change) => change.at.order <= target.order).map((change) => change.at.order), Number.NEGATIVE_INFINITY);
+        const after = Math.min(...prehistory.filter((change) => change.at.order > target.order).map((change) => change.at.order), Number.POSITIVE_INFINITY);
+        for (const change of prehistory) if (change.at.order === before || change.at.order === after) neighbours.add(change.id);
     }
-    const near = changes.some((change) => (target.kind === "chapter" && change.at.kind === "chapter" && change.at.chapter === target.chapter) || neighbours.has(change.id));
+    const near = changes.some((change) => (target.kind === "chapter" && change.at.kind === "chapter" && change.at.chapter === target.chapter) || neighbours.has(change.id) || (target.kind === "prehistory" && change.at.kind === "prehistory" && neighbours.has(change.id)));
     if (near) return [];
     return [{
         key: {range: {from: snapshot.chapter, to: snapshot.chapter}},
@@ -108,7 +120,7 @@ function repeated(view: CanonReadView, at: ReadPosition, source: InstructionSour
     const byIndex = new Map(source.all().map((snapshot) => [view.chapters.indexOf(snapshot.chapter), snapshot] as const).filter(([index]) => index !== -1 && index <= now));
     const sentences = new Map<string, number[]>();
     for (const [index, snapshot] of byIndex) {
-        for (const text of new Set([...(snapshot.avoid ?? []), ...(snapshot.other === undefined ? [] : [snapshot.other])])) sentences.set(text, [...(sentences.get(text) ?? []), index]);
+        for (const text of new Set([...(snapshot.avoid ?? []).map((item) => `avoid|${item}`), ...(snapshot.other === undefined ? [] : [`other|${snapshot.other}`])])) sentences.set(text, [...(sentences.get(text) ?? []), index]);
     }
     const ranges = new Map<string, {from: string; to: string; count: number}>();
     for (const indexes of sentences.values()) {

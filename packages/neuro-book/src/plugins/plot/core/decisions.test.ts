@@ -2,8 +2,8 @@ import {describe, expect, test} from "bun:test";
 
 import {ChapterOrder} from "@notnotype/nb-canon";
 
-import {DECISION_DIAGNOSTIC_IDS} from "../shared/declarations";
-import {chapter, end, PlotWorld} from "../testing/world";
+import {DECISION_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
+import {chapter, drafts, end, PlotWorld} from "../testing/world";
 import {dangling, involvedDecisions, NO_REASON, overdue} from "./decisions";
 
 const CHAPTERS = Array.from({length: 20}, (_, index) => `ch${String(index + 1)}`);
@@ -91,5 +91,24 @@ describe("plot.decisions 输出 5、验收 3：到期没定与悬空", () => {
         expect(found).toEqual([deadEntry, deadChange, deadChapter].sort());
         expect([mixed, empty, onlyDiagnostic].some((id) => found.includes(id))).toBe(false);
         expect(DECISION_DIAGNOSTIC_IDS.dangling).toBe("nbook.plot.decision.dangling");
+    });
+});
+
+describe("plot.decisions 输出 2：地址守卫没法检查时在决策视图里标 unchecked", () => {
+    test("守卫写明的线在这个模式下读不到（只由计划分叉定义的线，读实际模式）：标 line-unavailable；能检查的不标", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const thing = w.thing("身份");
+        const cut = w.change(chapter("ch2"));
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:if"}, after: {...drafts.change("tmp:if", chapter("ch2", 50), {kind: "plan"}), nature: "fork", fork: {line: "tmp:if1", name: "如果", parent: "main", cut, type: "if"}}}]);
+        const mark = (extra: Record<string, unknown>) => ({kind: MARK_IDS.guardAddress, version: 1, at: {entry: thing, path: "character.状态"}, notIn: ["暴露"], ...extra});
+        const fine = w.decision("可检查", {about: [{kind: "entry", id: thing}], conclusion: "x", marks: [mark({})]});
+        const gone = w.decision("线不可用", {about: [{kind: "entry", id: thing}], conclusion: "y", marks: [mark({lines: [ids["tmp:if1"]!]})]});
+        w.change(chapter("ch5"), {text: "动身份", patches: [{op: "set", at: {entry: thing, path: "character.状态"}, value: "x"}]});
+        const actual = involvedDecisions(w.view(), "ch5", "actual");
+        expect(actual.find((decision) => decision.id === fine)?.guards.map((guard) => guard.unchecked)).toEqual([undefined]);
+        expect(actual.find((decision) => decision.id === gone)?.guards.map((guard) => guard.unchecked)).toEqual(["line-unavailable"]);
+        // 按计划模式这条线存在：能检查。
+        const planned = involvedDecisions(w.view(), "ch5", "planned");
+        expect(planned.find((decision) => decision.id === gone)?.guards.map((guard) => guard.unchecked)).toEqual([undefined]);
     });
 });

@@ -43,7 +43,9 @@ export function beforeWriting(view: CanonReadView, chapter: string, digest: Dige
             const holder = finding.objects.filter((ref: ObjectRef) => ref.kind === "entry").at(-1);
             return (goal !== undefined && entries.has(goal.id)) || (holder !== undefined && entries.has(holder.id));
         });
-        const guards = guardDiagnostics(digest)[DECISION_DIAGNOSTIC_IDS.addressGuardViolated]!(on, start, "planned").filter((finding) => finding.objects.some((ref: ObjectRef) => ref.kind === "change" && plans.has(ref.id)));
+        // 本章计划的影响在章末才看得见：守卫按读到本章末尾算。
+        const end = {kind: "chapter", chapter, edge: "end"} as const;
+        const guards = guardDiagnostics(digest)[DECISION_DIAGNOSTIC_IDS.addressGuardViolated]!(on, end, "planned").filter((finding) => finding.objects.some((ref: ObjectRef) => ref.kind === "change" && plans.has(ref.id)));
         lines.push({line, overdue, premiseChanged, guards});
     }
     return {chapter, lines};

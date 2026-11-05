@@ -63,3 +63,12 @@ export const holderUnwritableGoal = (holder: string) => `${holder}另有一个�
 export const otherDecisionSee = (name: string) => `另有关于这件事的决定，见${name}一项`;
 export const decisionSeeSecrets = (name: string) => `另有关于${name}的决定，见这一场的秘密`;
 export const omitted = (items: readonly string[]) => `已省略：${items.join("、")}`;
+
+/** 绝密而本章不暗示也不揭示的知识点：它的名字就是真相，任何段、省略项与记录里都不写，一律用这个称呼。 */
+export const HIDDEN_NAME = "绝密设定";
+/** 知识点没有主体（条目树里的父条目）时的泛称：不退回知识点自己的名字。 */
+export const NO_SUBJECT = "某件事";
+export const READER_SEES_HIDDEN = "（见这一场的秘密里的绝密设定）";
+export const DECISION_DUE_ABOUT_SECRET = "有一条涉及保密设定的待定决定到期了";
+export const changeKnowing = (who: string, point: string, before: string, after: string) => `${who}对${point}：${before} → ${after}`;
+export const aPrivateMatter = "一件绝密设定";

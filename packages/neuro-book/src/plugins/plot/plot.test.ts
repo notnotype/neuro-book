@@ -18,6 +18,7 @@ import {publish, serverPlugins, until, windowOf} from "nbook/plugins/canon/testi
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 
 import {plotWorldContract} from "./shared/contracts";
+import {plotInstructionsContract} from "./shared/instructions";
 import {COMPONENT_IDS, DIAGNOSTIC_IDS, MARK_IDS, PLOT_COMPONENTS, PLOT_MARKS, PLOT_PLUGIN_ID} from "./shared/declarations";
 import {drafts} from "./testing/world";
 
@@ -167,6 +168,61 @@ describe("剧情插件的远程合同", () => {
         const after = await window.canon.call("viewAudit", {});
         expect(after.ok && after.value.items.map((item) => [item.kind, item.method, item.viewer])).toEqual([["placeholder", "viewpoint.entry", guard], ["denied", "viewpoint.entry", guard], ["denied", "viewpoint.experience", null]]);
 
+        await window.close();
+        keep.release();
+    }, 30_000);
+
+    it("写作指示快照的服务：能推（换内容后数据版本变、旧游标作废，同内容再推游标仍有效）；失败码经真实合同；推了快照以后读待处理仍完整、远程 brief 读到它", async () => {
+        let instructions: RemoteUse<typeof plotInstructionsContract> | null = null;
+        const instructionsCaller: PluginDefinition = {id: "test.instructions-caller", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+            instructions = context.remote.use(plotInstructionsContract);
+            return {};
+        }})]};
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
+            const dir = join(paths.project.path, "manuscripts.binder");
+            await mkdir(dir, {recursive: true});
+            await writeFile(join(dir, "binder.xml"), '<binder nextId="2"><chapter id="1" title="一"/></binder>');
+            await writeFile(join(dir, "00001-一.md"), "国王与贤者说话。\n");
+        }});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const caller = plotCaller();
+        const window = await windowOf(h, "browser-2", "profile-2", [caller.plugin, instructionsCaller]);
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.version >= 0;
+        });
+        const use = instructions!;
+        const empty = await use.current({});
+        if (!empty.ok) throw new Error(JSON.stringify(empty));
+        const snapshot = {chapter: "1", version: "v1", tone: "冷"};
+        const first = await use.put({chapter: "1", snapshot});
+        if (!first.ok) throw new Error(JSON.stringify(first));
+        expect(first.value.dataVersion).not.toBe(empty.value.dataVersion);
+        // 同内容再推：数据版本不变。
+        expect(await use.put({chapter: "1", snapshot})).toMatchObject({ok: true, value: {dataVersion: first.value.dataVersion}});
+        // 数据版本报告给 canon：换内容以后读取输入变了，旧游标作废；同内容再推游标仍有效。
+        const people = await publish(window.canon, {requestId: "p", by: {kind: "author"}, what: "edit", title: "人", baseVersion: 0, puts: [
+            {ref: {kind: "entry", id: "tmp:a"}, after: drafts.person("tmp:a", "甲")},
+            {ref: {kind: "entry", id: "tmp:b"}, after: drafts.person("tmp:b", "乙")},
+        ]});
+        expect(people.ok).toBe(true);
+        const page = await window.canon.call("tree", {parent: null, limit: 1});
+        if (!page.ok) throw new Error(JSON.stringify(page));
+        const cursor = (page.value as {cursor?: string}).cursor;
+        expect(cursor).toBeString();
+        await use.put({chapter: "1", snapshot});
+        expect((await window.canon.call("tree", {parent: null, limit: 1, cursor})).ok).toBe(true);
+        await use.put({chapter: "1", snapshot: {...snapshot, tone: "暖"}});
+        expect(await window.canon.call("tree", {parent: null, limit: 1, cursor})).toMatchObject({ok: false, failure: {code: "cursor-stale"}});
+        // 失败码：base 对不上、章对不上。
+        expect(await use.put({chapter: "1", snapshot: null, base: "不是当前版本"})).toMatchObject({ok: false, code: "plot", detail: {code: "instructions-conflict"}});
+        expect(await use.put({chapter: "2", snapshot})).toMatchObject({ok: false, code: "plot", detail: {code: "chapter-mismatch"}});
+        // 推了快照以后读待处理仍是完整的，远程 brief 读到表里的快照。
+        const pending = await window.canon.call("pending", {});
+        expect(pending.ok && pending.value.complete).toBe(true);
+        const brief = await caller.plot().brief({chapter: "1", outline: "细纲", targetWords: 100, previousTail: null});
+        expect(brief.ok && (brief.value as {record: {instructionVersion: string | null}}).record.instructionVersion).toBe("v1");
         await window.close();
         keep.release();
     }, 30_000);

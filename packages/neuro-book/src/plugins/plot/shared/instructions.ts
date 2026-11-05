@@ -2,7 +2,8 @@
  * 章的写作指示快照（docs/specs/plot/decisions.md 输入）与推送它的远程服务 `nbook.plot/instructions`。
  *
  * 快照不存进世界，由宿主（写作任务）推给剧情插件；阶段 E 放在项目实例的内存里（`backend/instructions.ts`），存处随阶段 F。
- * 推送是写操作，只给 `server` 调用方：浏览器页面不能替换写作任务推进来的快照。
+ * 推送是写操作（`effect: "write"`）。调用方含浏览器：写作指示是作者在界面上写的，写作任务不是唯一的写入者；服务端的调用方没有绑定项目（
+ * 经项目路由才到得了项目实例），所以不能只给 `server`。多个写入者用 `put` 的 `base` 防互相覆盖。
  */
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
@@ -47,4 +48,4 @@ const methods = {
     current: {input: Type.Object({}), output: Type.Object({dataVersion: Type.String()}), effect: "read", errors},
 } as const;
 
-export const plotInstructionsContract = defineRemoteService({id: "nbook.plot/instructions", version: 1, provider: "project", callers: ["server"], methods, events: {}});
+export const plotInstructionsContract = defineRemoteService({id: "nbook.plot/instructions", version: 1, provider: "project", callers: ["browser", "tui", "server"], methods, events: {}});

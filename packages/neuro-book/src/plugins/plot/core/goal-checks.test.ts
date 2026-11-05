@@ -93,3 +93,19 @@ describe("plot.goals 输出 4：缺一步", () => {
         expect(found).not.toContainEqual([{kind: "entry", id: together}]);
     });
 });
+
+describe("plot.goals 输出 3、4：只看读取位置为止的改动", () => {
+    test("读第 35 章末尾时，第 40 章才写的改动不能让该报的停滞和前提变了消失", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        const secret = w.point("哥哥能回溯", brother);
+        const find = w.goal("查出哥哥在瞒什么", jin, {基于: [{id: secret}]});
+        const truth = w.change(chapter("ch3"), {patches: [addRow(jin, secret, {程度: "knows"})]});
+        expect(run(w, GOAL_DIAGNOSTIC_IDS.stalled, end("ch35"))).toHaveLength(1);
+        expect(run(w, GOAL_DIAGNOSTIC_IDS.premiseChanged, end("ch35")).map((finding) => finding.key.objects)).toEqual([[{kind: "entry", id: find}, {kind: "entry", id: secret}, {kind: "change", id: truth}]]);
+        w.change(chapter("ch40"), {patches: [{op: "set", at: {entry: find, path: "goal.为什么"}, value: "后来改的"}]});
+        expect(run(w, GOAL_DIAGNOSTIC_IDS.stalled, end("ch35"))).toHaveLength(1);
+        expect(run(w, GOAL_DIAGNOSTIC_IDS.premiseChanged, end("ch35"))).toHaveLength(1);
+        expect(run(w, GOAL_DIAGNOSTIC_IDS.premiseChanged, end("ch40"))).toEqual([]);
+    });
+});

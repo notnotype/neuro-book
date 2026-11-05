@@ -1146,8 +1146,8 @@ describe("读取视图：按计划模式的 chapterEntries、chapterLines、rend
         };
         expect(renderedOn(line)).toContain("20000");
         expect(renderedOn("main")).toContain("15000");
-        // 位置不写线时取这一章讲的线：第 3 章最后一段讲子线。
-        expect(renderedOn()).toContain("20000");
+        // 位置不写线时按这张视图的线（主线的视图）；活页夹讲的线只在服务的方法级读取里起作用。
+        expect(renderedOn()).toContain("15000");
         expect(renderedOn("l404")).toBe("line-not-found");
     });
 });

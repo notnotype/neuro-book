@@ -130,3 +130,21 @@ describe("plot.decisions 输出 6：开写前的视图", () => {
         expect(early.lines[0]).toMatchObject({overdue: [], guards: []});
     });
 });
+
+describe("plot.decisions 输出 2、3：守卫只看到读取位置为止", () => {
+    test("读较早的位置不报还没写到的违反：地址守卫（第 18 章的违反，读第 10 章末尾不报）、读者守卫（第 12 章的揭示，读第 5 章末尾不报）", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const thing = w.thing("身份");
+        w.decision("不暴露", {about: [], conclusion: "x", marks: [address(thing, {to: "ch20"})]});
+        w.change(chapter("ch18"), {patches: [setState(thing, "暴露")]});
+        expect(addressFindings(w, end("ch10"))).toEqual([]);
+        expect(addressFindings(w, end("ch18"))).toHaveLength(1);
+        const point = w.point("管家是凶手", w.person("管家"));
+        w.texts.set("ch12", "原来管家就是凶手。");
+        w.change(chapter("ch12"), {told: [{source: "chapter", chapter: "ch12", quote: "原来管家就是凶手", marks: [{kind: MARK_IDS.reveal, version: 1, point, mode: "explicit"}]}]});
+        w.decision("别明说", {about: [], conclusion: "y", marks: [{kind: MARK_IDS.guardReader, version: 1, point, atMost: "unaware", until: "ch20"}]});
+        const reader = guardDiagnostics(digest)[DECISION_DIAGNOSTIC_IDS.readerGuardViolated]!;
+        expect(reader(w.view(), end("ch5"), "actual")).toEqual([]);
+        expect(reader(w.view(), end("ch12"), "actual")).toHaveLength(1);
+    });
+});

@@ -176,6 +176,8 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: I
                 return typeof result === "string" ? fail(result) : fitted({version: main.version, inputDigest: main.stamp.inputDigest, ...result});
             }),
             brief: (input) => withView((main) => {
+                // 上一章末尾由调用方给（读取视图还没有章正文的读取）；第一章没有上一章，给了就拒（不造一段）。
+                if (input.previousTail !== null && main.chapters.indexOf(input.chapter) === 0) return fail("previous-tail-not-allowed");
                 const result = composeBrief({view: main, chapter: input.chapter, outline: input.outline, targetWords: input.targetWords, previousTail: input.previousTail, pluginVersion: descriptor.version, digest, instruction: instructions.get(input.chapter), ...(input.limits === undefined ? {} : {limits: input.limits})});
                 return typeof result === "string" ? fail(result) : fitted({version: main.version, ...result});
             }),
@@ -242,6 +244,8 @@ export const plotProjectPlugin: PluginDefinition = {
                     put: (input) => {
                         // 单条消息的上限：整份快照一次装不下就拒（按章推，不要整书推）。
                         if (encodedBytes(input) > CANON_BUDGET_BYTES) return fail("too-large");
+                        // 快照自带的章要与推送的章一致（否则表里的键与内容对不上）。
+                        if (input.snapshot !== null && input.snapshot.chapter !== input.chapter) return fail("chapter-mismatch");
                         const result = instructions.put(input.chapter, input.snapshot, input.base);
                         if (!result.ok) return fail(result.code);
                         if (result.changed) canon.reportDataVersion(result.dataVersion);

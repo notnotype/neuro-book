@@ -4,9 +4,10 @@
  */
 
 import {canonicalJson} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, Decision, DiagnosticCompute, EventKey, Finding, Mark, Mode, StoryChange} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, Decision, DiagnosticCompute, EventKey, Finding, Mark, Mode, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
 import {DECISION_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
+import {tellingPositionOf} from "./foreshadowing";
 import {readerTellings} from "./knowledge";
 
 /** 摘要端口：由宿主注入（核心不导入 Node 的 crypto）。 */
@@ -39,8 +40,8 @@ function payloadOf(mark: Mark): string {
 
 export function guardDiagnostics(digest: Digest): Readonly<Record<string, DiagnosticCompute>> {
     return {
-        [DECISION_DIAGNOSTIC_IDS.addressGuardViolated]: (view, at, mode) => addressGuards(view, mode, digest),
-        [DECISION_DIAGNOSTIC_IDS.readerGuardViolated]: (view) => readerGuards(view, digest),
+        [DECISION_DIAGNOSTIC_IDS.addressGuardViolated]: (view, at, mode) => addressGuards(view, at, mode, digest),
+        [DECISION_DIAGNOSTIC_IDS.readerGuardViolated]: (view, at) => readerGuards(view, at, digest),
     };
 }
 
@@ -60,11 +61,11 @@ function incompleteAt(view: CanonReadView, entry: string, path: string, position
  * 违反里连着改成别的违反值不重复报）。起点或终点的值不完整时不判（`unchecked`，只在决策视图里体现，不进待处理）。
  * 实际模式与按计划模式各按自己的事件序算。
  */
-function addressGuards(view: CanonReadView, mode: Mode, digest: Digest): Finding[] {
+function addressGuards(view: CanonReadView, at: ReadPosition, mode: Mode, digest: Digest): Finding[] {
     const findings: Finding[] = [];
     for (const decision of view.decisions({status: "decided"})) {
         for (const {payload, mark} of guardsOf<AddressGuard>(decision, MARK_IDS.guardAddress)) {
-            const result = checkAddressGuard(view, mode, payload);
+            const result = checkAddressGuard(view, mode, payload, at);
             if (result === "unchecked") continue;
             const detail = digest(payloadOf(mark));
             for (const violation of result) {
@@ -81,15 +82,24 @@ function addressGuards(view: CanonReadView, mode: Mode, digest: Digest): Finding
  * 一条地址守卫在这条线上的违反：`null` 是范围开头就违反，字符串是让它违反的那条变更；`"unchecked"` 是值不完整无法检查、或这条线不在
  * 守卫的 `lines` 里时返回空数组（不违反）。
  */
-export function checkAddressGuard(view: CanonReadView, mode: Mode, guard: AddressGuard): (string | null)[] | "unchecked" {
+export function checkAddressGuard(view: CanonReadView, mode: Mode, guard: AddressGuard, at?: ReadPosition): (string | null)[] | "unchecked" {
     if (guard.lines !== undefined && !guard.lines.includes(view.line)) return [];
     const [low, high] = [guard.from === undefined ? 0 : view.chapters.indexOf(guard.from), guard.to === undefined ? view.chapters.length - 1 : view.chapters.indexOf(guard.to)];
     if (low === -1 || high === -1 || low > high || view.chapters.length === 0) return [];
     const start = guard.from === undefined ? ({kind: "initial"} as const) : ({kind: "chapter", chapter: guard.from, edge: "start"} as const);
-    const endPosition = {kind: "chapter", chapter: view.chapters[high]!, edge: "end"} as const;
+    let endPosition: ReadPosition = {kind: "chapter", chapter: view.chapters[high]!, edge: "end"};
     const startKey = guard.from === undefined ? INITIAL_KEY : view.positionKey(start);
-    const endKey = view.positionKey(endPosition);
+    let endKey = view.positionKey(endPosition);
     if (startKey === null || endKey === null) return [];
+    // 读取位置在范围里或之前时只看到读取位置为止（还没写到的违反不报）。
+    const atKey = at === undefined ? null : view.positionKey(at);
+    if (atKey !== null && at !== undefined) {
+        if (view.compareKeys(atKey, startKey) < 0) return [];
+        if (view.compareKeys(atKey, endKey) < 0) {
+            endPosition = at;
+            endKey = atKey;
+        }
+    }
     const [startIncomplete, endIncomplete] = [incompleteAt(view, guard.at.entry, guard.at.path, start, mode), incompleteAt(view, guard.at.entry, guard.at.path, endPosition, mode)];
     if (startIncomplete === true || endIncomplete === true) return "unchecked";
     const steps = view.origins(guard.at, endPosition, mode);
@@ -122,14 +132,17 @@ export function checkAddressGuard(view: CanonReadView, mode: Mode, guard: Addres
  * 读者守卫（输出 3）：`until` 之前（不含）的每个讲述位置上，读者对这个知识点的程度超过 `atMost` 就违反；第一处让它超过的讲述记在键里。
  * 读者读过的讲述按活页夹的分段取（不分线，结果与当前线无关）。
  */
-function readerGuards(view: CanonReadView, digest: Digest): Finding[] {
+function readerGuards(view: CanonReadView, at: ReadPosition, digest: Digest): Finding[] {
+    // 读取位置之后的讲述读者还没读到（初值位置什么都没读）。
+    const readUntil = tellingPositionOf(at);
+    if (readUntil === null) return [];
     const findings: Finding[] = [];
     for (const decision of view.decisions({status: "decided"})) {
         for (const {payload, mark} of guardsOf<ReaderGuard>(decision, MARK_IDS.guardReader)) {
             const until = view.chapters.indexOf(payload.until);
             if (until === -1) continue;
             const limit = payload.atMost === "unaware" ? 0 : 1;
-            for (const item of readerTellings(view, {effective: true, mark: MARK_IDS.reveal})) {
+            for (const item of readerTellings(view, {effective: true, mark: MARK_IDS.reveal, until: readUntil})) {
                 if (item.located.kind !== "found" || view.chapters.indexOf(item.located.occurrence.chapter) >= until) continue;
                 const exceeding = (item.telling.marks ?? []).some((candidate) => candidate.kind === MARK_IDS.reveal && candidate.version === 1 && candidate.point === payload.point && (candidate.mode === "explicit" ? 2 : 1) > limit);
                 if (!exceeding) continue;

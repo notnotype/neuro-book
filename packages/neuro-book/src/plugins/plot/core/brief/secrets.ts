@@ -8,7 +8,8 @@
 
 import type {CanonReadView, Decision} from "@notnotype/nb-canon/schema";
 
-import {ENTRY_TYPES, type Secrecy} from "../../shared/declarations";
+import {type Secrecy} from "../../shared/declarations";
+import {NO_REASON} from "../decisions";
 import {bodyOf, knowingIndex} from "../knowledge";
 import {goalsOf} from "../goals";
 import {nameOf, isSecretPlus, secrecyAt, type Frame, type Participant} from "./context";
@@ -51,6 +52,8 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
     const view = frame.view;
     const index = knowingIndex(view, "planned", frame.position);
     const holders = presentOf(participants, view);
+    // 隐秘目标的持有者只是被提到、不在场时也要遮（knowledge 输出 10 的集合按参与者收）：同一份简报不能一边遮、一边写。
+    const everyone = [...new Set(participants.flatMap((member) => (member.who === undefined ? [] : [bodyOf(view, member.who)])))];
     const hints: BriefHint[] = [];
     const items: SecretItem[] = [];
     const hiddenGoals = new Map<string, {holder: string; point: string}>();
@@ -60,7 +63,7 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
         const secrecy = secrecyAt(frame, point) as "secret" | "topSecret";
         const reveal = reveals.get(point);
         const name = nameOf(frame, point);
-        const hiding = goalsHiding(frame, holders, point);
+        const hiding = goalsHiding(frame, everyone, point);
         for (const {holder, goal} of hiding) hiddenGoals.set(goal.id, {holder, point});
         const lines: string[] = [];
         if (secrecy === "secret" || reveal !== undefined) {
@@ -107,7 +110,7 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
 /** 知识点的主体（条目树里的父条目）的名字。 */
 function nameOfSubject(frame: Frame, point: string): string {
     const stored = frame.view.object({kind: "entry", id: point}) as {parent?: string | null} | undefined;
-    return typeof stored?.parent === "string" ? nameOf(frame, stored.parent) : nameOf(frame, point);
+    return typeof stored?.parent === "string" ? nameOf(frame, stored.parent) : fixed.NO_SUBJECT;
 }
 
 export interface DecisionRouting {
@@ -118,11 +121,10 @@ export interface DecisionRouting {
 }
 
 const decisionText = (decision: Decision) => {
-    const parts = [`结论：${decision.conclusion ?? ""}`, `理由：${decision.reason ?? fixed_NO_REASON}`];
+    const parts = [`结论：${decision.conclusion ?? ""}`, `理由：${decision.reason ?? NO_REASON}`];
     if ((decision.constraints ?? []).length > 0) parts.push(`约束：${decision.constraints!.join("；")}`);
     return parts.join("；");
 };
-const fixed_NO_REASON = "作者没说理由";
 
 /**
  * 涉及本章的已定决策怎样分到秘密与决策两段（输出 4 的末几条、输出 9）：看它 `about` 里所有保密以上的知识点（不论在不在本章
@@ -156,4 +158,3 @@ export function routeDecisions(frame: Frame, decided: readonly Decision[], secre
     return {inSecrets, inDecisions};
 }
 
-export const POINT_TYPE = ENTRY_TYPES.point;

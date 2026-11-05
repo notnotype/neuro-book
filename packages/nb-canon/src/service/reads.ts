@@ -209,7 +209,8 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             const segments = world.options.chapterLines?.get(chapter);
             return deepFreeze(segments === undefined || segments.length === 0 ? [{line: world.positionLine({kind: "chapter", chapter, edge: "start"}), from: 1}] : segments.map((segment) => ({line: segment.line, from: segment.from})));
         },
-        render: (entry, position, mode) => deepFreeze(renderEntryForAgent(world, entry, position, mode)),
+        // 与这张视图的别的读取一样按视图的线；位置里显式写了线才用位置的（回溯后那份简报里，主文字与字段值要出自同一条线）。
+        render: (entry, position, mode) => deepFreeze(renderEntryForAgent(world, entry, position.line === undefined ? {...position, line} : position, mode)),
         origins: (address, position, mode) => {
             const steps = lineView().engine.origins(address, position, mode);
             return deepFreeze(steps === "chapter-not-found" ? steps : carried(steps));

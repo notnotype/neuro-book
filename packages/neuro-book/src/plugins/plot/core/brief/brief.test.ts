@@ -261,3 +261,135 @@ describe("plot.brief 输出 10：第一章没有上一章", () => {
         expect(brief(w, "ch1").text).toContain(`### ${fixed.BRIEF_PARTS.reader}\n${fixed.NONE}`);
     });
 });
+
+describe("plot.brief I5 审查之后：绝密不泄、知情变化、渲染同线、固定句", () => {
+    /** 任何段、省略项与记录里都不能出现绝密知识点的名字。 */
+    const noLeak = (result: BriefResult, secret: string) => {
+        expect(result.text).not.toContain(secret);
+        expect(JSON.stringify(result.record)).not.toContain(secret);
+        expect(JSON.stringify(result.hints)).not.toContain(secret);
+    };
+
+    test("前文暗示过、本章不暗示的绝密：读者已知段、省略项、记录里都不出现名字；到期待定决策、没有主体的知识点、补丁改知识点本身、只被提到的持有者的隐秘目标也不泄", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [butler, maid] = [w.person("管家"), w.person("女仆")];
+        const killer = w.point("管家是凶手", butler, {保密: "topSecret", 表现: "镇定"});
+        const orphan = w.point("孤儿的秘密", null, {保密: "topSecret"});
+        w.change(chapter("ch3"), {patches: [addRow(butler, killer, {程度: "knows"})]});
+        w.texts.set("ch12", "他看了看杯子。");
+        w.change(chapter("ch12"), {told: [{source: "chapter", chapter: "ch12", quote: "他看了看杯子", marks: [reveal(killer, "hint")]}]});
+        const goal = w.goal("毒死男爵继承爵位", butler, {隐秘: {ref: killer}});
+        w.decision("管家是凶手在哪章揭开", {about: [{kind: "entry", id: killer}], due: "ch15"});
+        // 本章女仆在场，管家只被提到；计划改了绝密知识点自己的表现，也改了管家隐秘目标的状态。
+        w.change(chapter("ch16"), {kind: "plan", text: "女仆收拾书房", cast: [{who: maid, role: "present"}, {who: butler, role: "mentioned"}], patches: [
+            {op: "set", at: {entry: killer, path: "point.表现"}, value: "更镇定"},
+            {op: "set", at: {entry: goal, path: "goal.状态"}, value: "blocked"},
+            {op: "set", at: {entry: orphan, path: "point.表现"}, value: "x"},
+        ]});
+        const result = brief(w, "ch16", {limits: {reader: 1}});
+        noLeak(result, "管家是凶手");
+        noLeak(result, "毒死男爵");
+        noLeak(result, "孤儿的秘密");
+        expect(result.text).not.toContain("blocked");
+        expect(section(result, "decisions")).toContain(fixed.DECISION_DUE_ABOUT_SECRET);
+        // 不裁时读者已知段对这件绝密只写不含名字的固定句。
+        const roomy = brief(w, "ch16");
+        noLeak(roomy, "管家是凶手");
+        expect(section(roomy, "reader")).toContain(fixed.READER_SEES_HIDDEN);
+    });
+
+    test("绝密的 `揭穿` 指向马甲、本章不暗示：称谓表与在场的人写马甲的名字，不写本名", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [guard, hero] = [w.person("卫兵"), w.person("勇者")];
+        const mask = w.person("旅人", {sameAs: hero});
+        w.point("旅人就是勇者", hero, {保密: "topSecret", 揭穿: {ref: mask}});
+        w.change(chapter("ch4"), {kind: "plan", text: "卫兵盘问", cast: [{who: guard, role: "present"}, {who: hero, role: "present", as: mask}]});
+        const result = brief(w, "ch4", {instruction: instruction("ch4", {pov: {kind: "entry", id: guard}, povMode: "limited"})});
+        expect(section(result, "address")).toContain("旅人 = 旅人");
+        expect(section(result, "people")).not.toContain("勇者");
+    });
+
+    test("计划里的知情变化写进本章计划（谁得知什么）；秘密段不给的知识点不写名字；同一地址改几次只写一行", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [guard, hero] = [w.person("卫兵"), w.person("勇者")];
+        const trait = w.point("勇者有胎记", hero, {保密: "secret"});
+        const gate = w.point("城门今晚关", null, {保密: "common"});
+        const thing = w.thing("怀表");
+        w.change(chapter("ch4"), {kind: "plan", text: "卫兵认出勇者", cast: [{who: guard, role: "present"}, {who: hero, role: "present"}], patches: [
+            addRow(guard, trait, {程度: "knows", 怎么知道: "witnessed"}),
+            addRow(hero, gate, {程度: "knows"}),
+            {op: "set", at: {entry: thing, path: "character.状态"}, value: "走着"},
+            {op: "set", at: {entry: thing, path: "character.状态"}, value: "停了"},
+        ]});
+        const lines = section(brief(w, "ch4"), "plan").split("\n");
+        expect(lines).toContain(fixed.changeKnowing("卫兵", "勇者有胎记", "没有记录", "知道"));
+        expect(lines).toContain(fixed.changeKnowing("勇者", "城门今晚关", "没有记录", "知道"));
+        expect(lines.filter((line) => line.includes("怀表的character.状态"))).toEqual(['怀表的character.状态：原样 → 停了']);
+    });
+
+    test("回溯后那份：条目的主文字与字段值出自同一条线", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const jin = w.person("星瑾");
+        const thing = w.thing("怀表");
+        const stored = structuredClone(w.world.data.entries.get(thing)!);
+        stored.init.text = [{id: "b1", source: "表的状态 {character.状态}"}];
+        w.publish([{ref: {kind: "entry", id: thing}, after: stored}]);
+        w.change(chapter("ch6"), {patches: [setState(thing, "走得很慢")]});
+        const cut = w.change(chapter("ch7", 10));
+        w.change(chapter("ch7", 20), {patches: [setState(thing, "停了")]});
+        w.change(chapter("ch8"), {kind: "plan", text: "星瑾看表", cast: [{who: jin, role: "present"}], patches: [setState(thing, "又被拨动了")]});
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch7", 90)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}}]);
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 30}]]])});
+        const result = brief(w, "ch8");
+        expect(section(result, "appearance", 1)).toContain("走得很慢");
+        expect(section(result, "appearance", 1)).not.toContain("停了");
+        expect(section(result, "appearance", 0)).toContain("停了");
+    });
+
+    test("固定句：其他人之间没有特别的态度、视角人物自己的秘密、不要点破、只能写到明说、另有一个目标见这一场的秘密、另有关于这件事的决定、只是怀疑", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother, sage] = [w.person("星瑾"), w.person("哥哥"), w.person("贤者")];
+        const pointA = w.point("哥哥能回溯", brother, {保密: "secret"});
+        const pointB = w.point("贤者欠了债", sage, {保密: "secret"});
+        const hidden = w.point("星瑾想查哥哥", jin, {保密: "secret"});
+        w.change(chapter("ch2"), {patches: [addRow(jin, pointA, {程度: "knows"}), addRow(brother, pointA, {程度: "knows"}), addRow(sage, pointA, {程度: "suspects"})]});
+        w.goal("别让人知道她在查", jin, {隐秘: {ref: hidden}});
+        const fs = w.foreshadow("信里的话");
+        w.decision("两个秘密的决定", {about: [{kind: "entry", id: pointA}, {kind: "entry", id: pointB}], conclusion: "只暗示"});
+        w.change(chapter("ch5"), {kind: "plan", text: "三人说话", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}, {who: sage, role: "present"}], told: [
+            {source: "outline", chapter: "ch5", anchor: "点一下信", marks: [{kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "echo"}]},
+            {source: "outline", chapter: "ch5", anchor: "说破", marks: [reveal(pointA, "explicit"), reveal(pointB, "hint")]},
+        ], patches: [addRow(jin, pointB, {程度: "unaware"})]});
+        const result = brief(w, "ch5", {instruction: instruction("ch5", {pov: {kind: "entry", id: jin}, povMode: "limited"})});
+        const text = result.text;
+        for (const line of [fixed.OTHERS_NO_ATTITUDE, fixed.POV_OWN_SECRET, fixed.DONT_BREAK, fixed.hiddenGoalSeeSecrets, fixed.otherDecisionSee("哥哥能回溯"), "只是怀疑"]) expect(text).toContain(line);
+        expect(fixed.onlyWriteTo("explicit")).toBe("只能写到：明说");
+    });
+
+    test("秘密段与视角人物那一项不被裁（上限调到 1 也留着）；固定句整份只出现一次", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        w.point("哥哥能回溯", brother, {保密: "secret"});
+        w.change(chapter("ch5"), {kind: "plan", text: "兄妹说话", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}]});
+        const result = brief(w, "ch5", {instruction: instruction("ch5", {pov: {kind: "entry", id: jin}}), limits: {secrets: 1, people: 1}});
+        expect(section(result, "secrets")).toContain("哥哥能回溯");
+        expect(section(result, "people").split("\n")).toContain("星瑾");
+    });
+
+    test("确定性：两份独立建出的世界（发布先后不同、内容相同）各拼一次逐字相同", () => {
+        const build = (reverse: boolean) => {
+            const w = new PlotWorld(CHAPTERS);
+            const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+            const secret = w.point("哥哥能回溯", brother, {保密: "secret"});
+            const steps = [
+                () => w.change(chapter("ch3"), {patches: [addRow(brother, secret, {程度: "knows"})]}),
+                () => w.change(chapter("ch5"), {kind: "plan", text: "兄妹说话", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}]}),
+            ];
+            for (const step of reverse ? [...steps].reverse() : steps) step();
+            return brief(w, "ch5", {instruction: instruction("ch5", {pov: {kind: "entry", id: jin}, povMode: "limited"})});
+        };
+        // 正式 id 按发布顺序发号，所以文字里出现 id 的地方（计划的标签）不同；比较去掉计划标签后的文字。
+        const strip = (text: string) => text.replace(/\bc\d+\b/gu, "c");
+        expect(strip(build(true).text)).toBe(strip(build(false).text));
+    });
+});
