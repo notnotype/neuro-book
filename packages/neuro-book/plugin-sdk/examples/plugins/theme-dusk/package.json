@@ -1,0 +1,21 @@
+{
+    "name": "theme-dusk",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "暮色：不写代码的主题插件，只有声明与素材，装上就能在主题列表里选",
+    "private": true,
+    "engines": {"neurobook": ">=0.1.0"},
+    "contributes": [
+        {
+            "capability": "workbench.themes",
+            "id": "example.theme-dusk.dusk",
+            "declaration": {
+                "title": {"zh-CN": "暮色", "en-US": "Dusk"},
+                "base": "nbook",
+                "crop": {"empty": {"position": "center"}},
+                "light": {"colors": {"--accent-main": "#a4552a", "--accent-text": "#8a4420"}, "scene": "assets/dusk-day.webp"},
+                "dark": {"colors": {"--accent-main": "#e6a06a", "--accent-text": "#e6a06a"}, "scene": "assets/dusk-night.webp"}
+            }
+        }
+    ]
+}

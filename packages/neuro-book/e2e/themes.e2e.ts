@@ -5,14 +5,21 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
+import {fileURLToPath} from "node:url";
 
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {productPlugins} from "nbook/manifest";
+import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
+import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+
 import {startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
+const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const STUDY = "nbook.theme-study.study";
 const THEME = "nbook.workbench/theme";
 const APPEARANCE = "nbook.workbench/appearance";
@@ -254,6 +261,57 @@ test("主题列表里有书房，在设置窗口选中就生效；Lab 不受影�
     await page.getByRole("option", {name: "书房"}).click();
     await expect(page.locator("html")).toHaveAttribute("data-nb-skin-scene", "");
     await expect.poll(async () => (JSON.parse(await readFile(settingsFile(), "utf8")) as Record<string, string>)[THEME]).toBe(STUDY);
+});
+
+test("不写代码的主题插件：装上重启后能选，图走插件文件端点；禁用重启退回且设置不变；启用重启恢复", async ({page}) => {
+    const root = join(tmp, "third-party");
+    const plugins = createPluginInventory({root: join(root, "plugins"), profile: NEUROBOOK_PROFILE, builtin: productPlugins, startup: NO_INSTALLED_PLUGINS, record: () => undefined});
+    await mkdir(join(root, "user"), {recursive: true});
+    await writeFile(join(root, "projects.json"), await readFile(join(stateRoot, "projects.json")));
+    const installed = await plugins.install(join(PACKAGE_ROOT, "plugin-sdk/examples/plugins/theme-dusk"));
+    if (!installed.ok) throw new Error(`安装失败：${JSON.stringify(installed)}`);
+    const settings = {[THEME]: "example.theme-dusk.dusk", [APPEARANCE]: "light"};
+    await writeFile(join(root, "settings.json"), JSON.stringify(settings));
+    const withServer = async (check: (url: string) => Promise<void>): Promise<void> => {
+        const running = await startProductServer(root);
+        try {
+            await check(new URL("/?project=book", running.url).href);
+        } finally {
+            await page.goto("about:blank");
+            expect(await running.stop()).toBe(0);
+        }
+    };
+    const open = async (url: string): Promise<void> => {
+        await page.goto(url);
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    };
+    await withServer(async (url) => {
+        await open(url);
+        await expect(page.locator("html")).toHaveAttribute("data-nb-skin-scene", "");
+        await expect(scene(page)).toHaveCSS("background-image", /\/plugins\/example\.theme-dusk\/files\/.+dusk-day\.webp/u);
+        const loaded = await scene(page).evaluate(async (element) => {
+            const image = new Image();
+            image.src = /url\("(.+)"\)/u.exec(getComputedStyle(element).backgroundImage)?.[1] ?? "";
+            await image.decode();
+            return image.naturalWidth;
+        });
+        expect(loaded).toBe(960);
+        expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--accent-main"))).toBe("#a4552a");
+        // 没写的配色取 base 的：没有未定义的。
+        expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--bg-panel"))).not.toBe("");
+    });
+    expect((await plugins.setEnabled("example.theme-dusk", false)).ok).toBe(true);
+    await withServer(async (url) => {
+        await open(url);
+        await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
+        await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-scene");
+        expect(JSON.parse(await readFile(join(root, "settings.json"), "utf8"))).toEqual(settings);
+    });
+    expect((await plugins.setEnabled("example.theme-dusk", true)).ok).toBe(true);
+    await withServer(async (url) => {
+        await open(url);
+        await expect(page.locator("html")).toHaveAttribute("data-nb-skin-scene", "");
+    });
 });
 
 test.describe("可读性", () => {
