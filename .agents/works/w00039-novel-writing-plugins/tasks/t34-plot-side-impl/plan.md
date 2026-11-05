@@ -182,7 +182,8 @@
 ### 插件的形状：`packages/neuro-book/src/plugins/plot/`
 
 - 内置插件 `nbook.plot`，只有项目入口；登记进 `manifest.ts` 的 `productPlugins`。
-- `core/`：纯 TS，只引 `@notnotype/nb-canon/schema` 的类型与 `CanonReadView`；每个计算是 `(view, …) => 结果`。一次视图上的索引（每人在场与 `presentLearns` 的变更、每人 `know.知情` 的逐行历史、伏笔的节点）按 `view.stamp.inputDigest` 加模式缓存，知情、传话链、视图、伏笔都查索引（P3 第 11 条）。
+- `core/`：纯 TS，只引 `@notnotype/nb-canon/schema` 的类型与 `CanonReadView`；每个计算是 `(view, …) => 结果`。一次视图上的索引（每人在场与 `presentLearns` 的变更、每人 `know.知情` 的逐行历史、伏笔的节点）按视图对象加模式与位置缓存，知情、传话链、视图、伏笔都查索引（P3 第 11 条）。B2 实施时定：不按 `view.stamp.inputDigest` 跨视图缓存，摘要里只有世界的版本、不认是哪一份世界，同一进程里两份世界版本相同时会串用（测试里撞上了）；跨读取的缓存到 B5 量过再说。
+- 跨插件的运行时导入只能指向对方的 `shared/contracts.ts`（应用的架构测试）：canon 的项目内接口 `canonProjectKey` 与贡献点的名字都放在 canon 的 `shared/contracts.ts`。
 - `shared/declarations.ts`：Component、标注种类与诊断的顶层声明。
 - `backend/plugin.ts`：项目入口，经 `canonProjectKey` 登记诊断的计算、取快照；提供远程合同 `nbook.plot/world`。
 - **id 改成带插件前缀**：按一份精确的清单改（五个 Component、三种标注、十四个诊断：`plot.point` → `nbook.plot.point` 这样；capability id 如 `plot.knowledge` 与 Spec 之间的链接不动），不用前缀批量替换；改完跑 `docs:check` 与 `governance:check`（P3 第 16 条）。
