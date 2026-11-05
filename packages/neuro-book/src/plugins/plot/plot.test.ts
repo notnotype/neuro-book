@@ -120,6 +120,10 @@ describe("剧情插件的远程合同", () => {
 
         const plot = caller.plot();
         expect(await plot.knowing({person: king, point: k})).toMatchObject({ok: true, value: {rows: [{point: k, 程度: "knows", source: "present"}]}});
+        expect(await plot.ledger({})).toMatchObject({ok: true, value: {items: []}});
+        // 剧情插件声明的诊断都登记了计算：待处理是完整的。
+        const pending = await window.canon.call("pending", {});
+        expect(pending.ok && [pending.value.complete, pending.value.unavailable]).toEqual([true, []]);
         const opened = await plot.openViewpoint({viewer: guard, until: {kind: "chapter", chapter: "2", edge: "end"}, purpose: "writer"});
         if (!opened.ok) throw new Error(JSON.stringify(opened));
         const handle = (opened.value as {handle: string}).handle;

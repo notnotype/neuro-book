@@ -136,8 +136,34 @@ export const PLOT_MARKS: readonly MarkDeclaration[] = [
 
 export const DIAGNOSTIC_IDS = {relayBroken: `${PLOT_PLUGIN_ID}.relayBroken`, knowingIncomplete: `${PLOT_PLUGIN_ID}.knowingIncomplete`} as const;
 
+/** 伏笔的诊断（foreshadowing.md 的诊断表）；`objectTouchedInText` 要窄问题，随阶段 F。 */
+export const FS_DIAGNOSTIC_IDS = {
+    payoffBeforePlant: `${PLOT_PLUGIN_ID}.fs.payoffBeforePlant`,
+    plannedNodeMissing: `${PLOT_PLUGIN_ID}.fs.plannedNodeMissing`,
+    replantAfterPayoff: `${PLOT_PLUGIN_ID}.fs.replantAfterPayoff`,
+    noPayoffPlanned: `${PLOT_PLUGIN_ID}.fs.noPayoffPlanned`,
+    longSilence: `${PLOT_PLUGIN_ID}.fs.longSilence`,
+    droppedButPlanted: `${PLOT_PLUGIN_ID}.fs.droppedButPlanted`,
+    orphanHint: `${PLOT_PLUGIN_ID}.fs.orphanHint`,
+    objectTouched: `${PLOT_PLUGIN_ID}.fs.objectTouched`,
+    sharedAnswer: `${PLOT_PLUGIN_ID}.fs.sharedAnswer`,
+    nodeWithoutTelling: `${PLOT_PLUGIN_ID}.fs.nodeWithoutTelling`,
+    payoffWithoutReveal: `${PLOT_PLUGIN_ID}.fs.payoffWithoutReveal`,
+} as const;
+
 /** 已经给出计算的诊断（knowledge.md 的诊断表）；伏笔、目标、决策、写作指示与检查的随各自的那一片加。 */
 export const PLOT_DIAGNOSTICS: readonly DiagnosticDeclaration[] = [
     {id: DIAGNOSTIC_IDS.relayBroken, version: 1, level: "pending", label: "传话链断了", key: ["objects", "line"], inputs: "有效的知情（显式的行、在场推出的、隐秘目标推出的）"},
     {id: DIAGNOSTIC_IDS.knowingIncomplete, version: 1, level: "pending", label: "知情行不完整", key: ["objects", "line"], inputs: "知情行与知识点的揭穿"},
+    {id: FS_DIAGNOSTIC_IDS.payoffBeforePlant, version: 1, level: "pending", label: "没埋就回收", key: ["objects", "telling"]},
+    {id: FS_DIAGNOSTIC_IDS.plannedNodeMissing, version: 1, level: "pending", label: "计划的节点没写", key: ["objects", "line"]},
+    {id: FS_DIAGNOSTIC_IDS.replantAfterPayoff, version: 1, level: "pending", label: "回收以后又埋", key: ["objects", "telling"]},
+    {id: FS_DIAGNOSTIC_IDS.noPayoffPlanned, version: 1, level: "hint", label: "没排回收", key: ["objects", "line"]},
+    {id: FS_DIAGNOSTIC_IDS.longSilence, version: 1, level: "hint", label: "太久没提", key: ["objects"]},
+    {id: FS_DIAGNOSTIC_IDS.droppedButPlanted, version: 1, level: "hint", label: "放弃了还留着", key: ["objects"]},
+    {id: FS_DIAGNOSTIC_IDS.orphanHint, version: 1, level: "hint", label: "没有悬念认领的暗示", key: ["objects", "telling"]},
+    {id: FS_DIAGNOSTIC_IDS.objectTouched, version: 1, level: "hint", label: "物件在回收之前被动过（记了变更）", key: ["objects", "line"]},
+    {id: FS_DIAGNOSTIC_IDS.sharedAnswer, version: 1, level: "hint", label: "几个悬念同一个答案", key: ["objects"]},
+    {id: FS_DIAGNOSTIC_IDS.nodeWithoutTelling, version: 1, level: "hint", label: "继承的节点没有位置", key: ["objects", "line"]},
+    {id: FS_DIAGNOSTIC_IDS.payoffWithoutReveal, version: 1, level: "hint", label: "悬念回收了却没揭示答案", key: ["objects", "telling"]},
 ];

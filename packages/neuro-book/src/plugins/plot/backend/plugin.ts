@@ -14,6 +14,7 @@ import type {CanonReadView, ReadPosition} from "@notnotype/nb-canon/schema";
 import {canonProjectKey} from "nbook/plugins/canon/shared/contracts";
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
+import {foreshadowDiagnostics, ledger} from "../core/foreshadowing";
 import {firstReveal, readerKnowing} from "../core/knowledge";
 import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics, knowingIndex} from "../core/knowledge-checks";
@@ -63,6 +64,11 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints): RemoteImplemen
                 return {ok: true as const, value: {version: view.version, inputDigest: view.stamp.inputDigest, rows}};
             }),
             reader: (input) => withView((view) => ({ok: true as const, value: {version: view.version, inputDigest: view.stamp.inputDigest, degree: readerKnowing(view, input.point, input.at), first: firstReveal(view, input.point)}})),
+            ledger: (input) => withView((view) => {
+                const position = input.position ?? latest(view);
+                if (view.positionKey(position) === null) return fail("chapter-not-found");
+                return {ok: true as const, value: {version: view.version, inputDigest: view.stamp.inputDigest, items: ledger(view, position, input.mode ?? "actual", input.filter ?? {})}};
+            }),
             openViewpoint: async (input) => {
                 const opened = await canon.openView({viewer: input.viewer, line: "main", until: input.until, purpose: input.purpose});
                 if (!("token" in opened)) return fail(opened.code);
@@ -97,7 +103,7 @@ export const plotProjectPlugin: PluginDefinition = {
         remoteProvides: [plotWorldContract],
         activate: (context) => {
             const canon = context.services.require(canonProjectKey);
-            canon.register({compute: {...knowingDiagnostics()}, dataVersion: PLOT_DATA_VERSION});
+            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics()}, dataVersion: PLOT_DATA_VERSION});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();
             const remote = provideRemote(plotWorldContract, () => {

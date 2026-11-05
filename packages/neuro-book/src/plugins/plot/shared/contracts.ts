@@ -25,6 +25,23 @@ const methods = {
     knowing: {input: Type.Object({person: Type.String(), point: Type.Optional(Type.String()), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
     /** 读者在一个讲述位置上对一个知识点的程度（输出 6），与读者第一次到怀疑、知道的讲述（输出 7）。 */
     reader: {input: Type.Object({point: Type.String(), at: TellingPositionSchema}), output: Out, effect: "read", errors},
+    /** 伏笔的账本（foreshadowing.md 输出 8）：可按阶段、重要程度、意图、章的范围筛。 */
+    ledger: {
+        input: Type.Object({
+            position: Type.Optional(ReadPositionSchema),
+            mode: Type.Optional(Mode),
+            filter: Type.Optional(Type.Object({
+                stage: Type.Optional(Type.Union([Type.Literal("unplanted"), Type.Literal("planted"), Type.Literal("echoing"), Type.Literal("partial"), Type.Literal("paidOff")])),
+                importance: Type.Optional(Type.String()),
+                intent: Type.Optional(Type.String()),
+                from: Type.Optional(Type.String()),
+                to: Type.Optional(Type.String()),
+            }, {additionalProperties: false})),
+        }),
+        output: Out,
+        effect: "read",
+        errors,
+    },
     /** 给看的人开一张视图（线恒为主线，阶段 D 之前）。 */
     openViewpoint: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), until: ReadPositionSchema, purpose: Type.String()}), output: Out, effect: "read", errors},
     closeViewpoint: {input: Type.Object({handle: Type.String()}), output: Type.Null(), effect: "read", errors},
