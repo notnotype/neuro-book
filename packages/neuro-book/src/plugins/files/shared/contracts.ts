@@ -399,6 +399,8 @@ export interface FilesService {
 
 /** 上传背景图片：`PUT` 原始字节，成功回 `{address}`，失败回 `{code, detail}`（docs/specs/workspace/files.md 的“写背景图片”）。 */
 export const BACKGROUND_UPLOAD_URL = "/api/nbook.files/backgrounds";
+/** 设置页发请求前也比一次：太大的文件到不了路由，HTTP 层直接断开，页面拿不到原因。 */
+export const BACKGROUND_MAX_BYTES = 20 * 1024 * 1024;
 /** 背景图片所在的目录，文件名是内容摘要，所以这里的文件都能当背景用。 */
 export const BACKGROUND_DIRECTORY_ADDRESS = "user://backgrounds";
 

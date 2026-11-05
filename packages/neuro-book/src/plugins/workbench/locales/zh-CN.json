@@ -325,6 +325,7 @@
         "upload": "上传",
         "uploading": "上传中",
         "gallery": "已传过的图",
+        "galleryItem": "图片 {{index}}",
         "fit": "填充",
         "cover": "铺满",
         "contain": "完整",

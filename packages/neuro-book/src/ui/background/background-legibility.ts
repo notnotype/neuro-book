@@ -32,7 +32,7 @@ export function parseColor(value: string): {readonly rgb: Rgb; readonly alpha: n
     return null;
 }
 
-function luminance(color: Rgb): number {
+export function luminance(color: Rgb): number {
     const channel = (value: number): number => {
         const v = value / 255;
         return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;

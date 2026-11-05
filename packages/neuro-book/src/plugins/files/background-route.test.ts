@@ -15,22 +15,24 @@ import {Hono} from "hono";
 import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects";
-import type {ProjectHarness} from "nbook/server/testing/projects";
+import {HttpAdmission} from "nbook/plugins/http/backend/admission";
+import {createDispatcher, RouteTable, validateRouteContribution} from "nbook/plugins/http/backend/dispatch";
+import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 
-import {addBackgroundRoutes, BACKGROUND_MAX_BYTES} from "./backend/background-route";
 import {filesBackendPlugin} from "./backend/plugin";
 import {descriptor} from "./plugin";
-import {workspaceFilesKey} from "./shared/workspace-files";
-import type {WorkspaceFiles} from "./shared/workspace-files";
+import {BACKGROUND_MAX_BYTES} from "./shared/contracts";
+import {LEDGER_POINT} from "./shared/ledger";
+import type {LedgerEntry} from "./shared/ledger";
 
 let tmp = "";
-const harnesses: ProjectHarness[] = [];
+const harnesses: Array<{stop(): Promise<void>}> = [];
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "background-route");
 });
 afterEach(async () => {
     try {
-        for (const harness of harnesses.splice(0)) expect(await harness.parent.stop()).toMatchObject({status: "closed"});
+        for (const harness of harnesses.splice(0)) await harness.stop();
     } finally {
         killSpawnedProjects();
     }
@@ -43,25 +45,37 @@ const silent = {log: () => undefined, info: () => undefined, warn: () => undefin
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 5, 6]);
 const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 7]);
+const ORIGIN = "http://127.0.0.1:4217";
 const digest = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
+/** 走真实的贡献：路由由 nbook.files 贡献、经真实分发（Host、Origin、准入），写入归属与记账才是产品里的样子。 */
 async function scene() {
-    let files: WorkspaceFiles | null = null;
+    const routes = new RouteTable();
+    const ledger: LedgerEntry[] = [];
     const h = await projectHarness(tmp, {plugins: [
         createDiagnosticsPlugin({location: "server", store: createDiagnosticsStore({identity: {location: "server", instanceId: "test"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}),
+        {id: "nbook.http", contributionPoints: [{id: HTTP_ROUTES_POINT, implementation: "required", validate: validateRouteContribution}], entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], receives: [HTTP_ROUTES_POINT], activate: () => ({receivers: {[HTTP_ROUTES_POINT]: routes.receiver()}})})]},
         definitionAt("server", descriptor, filesBackendPlugin),
-        {id: "x.writer", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], dependencies: [{key: workspaceFilesKey}], activate: (context) => {
-            files = context.services.require(workspaceFilesKey);
-            return {};
-        }})]},
+        {id: "nbook.test-ledger", entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], contributions: [{capability: LEDGER_POINT, id: "nbook.test-ledger", declaration: {}}], activate: () => ({contributions: {[LEDGER_POINT]: {"nbook.test-ledger": {record: async (entry: LedgerEntry) => {
+            ledger.push(entry);
+        }}}}})})]},
     ]});
-    harnesses.push(h);
-    const user = join(h.root, "state", "user");
+    const admission = new HttpAdmission();
+    admission.ready();
+    harnesses.push({stop: async () => {
+        await admission.drain();
+        expect(await h.parent.stop()).toMatchObject({status: "closed"});
+    }});
+    const dispatch = createDispatcher({admission, routes, hostRoutes: new Hono(), staticFiles: null, reportError: () => undefined, allowOrigin: (origin: string) => origin === ORIGIN});
+    const user = join(h.stateRoot, "user");
     await mkdir(user, {recursive: true});
-    const app = new Hono();
-    addBackgroundRoutes(app as never, {userRoot: user, write: (address, bytes) => (files as unknown as WorkspaceFiles).write(address, bytes, {expect: "absent", createParents: true})});
-    const put = (body: Uint8Array | string | ReadableStream<Uint8Array>, headers: Record<string, string> = {}) => app.fetch(new Request("http://127.0.0.1/backgrounds", {method: "PUT", body, headers, ...(body instanceof ReadableStream ? {duplex: "half"} : {})} as RequestInit));
-    return {user, put};
+    // 响应体读完准入才算请求结束，否则停止时的排空一直等：这里先读完。
+    const put = async (body: Uint8Array | string | ReadableStream<Uint8Array>, headers: Record<string, string> = {}, host = "127.0.0.1"): Promise<Response> => {
+        const response = await dispatch(new Request(`http://${host}:4217/api/nbook.files/backgrounds`, {method: "PUT", body, headers, ...(body instanceof ReadableStream ? {duplex: "half"} : {})} as RequestInit));
+        return new Response(await response.arrayBuffer(), {status: response.status, headers: response.headers});
+    };
+    const staged = async (): Promise<string[]> => readdir(join(h.stateRoot, "staging")).catch(() => []);
+    return {user, put, ledger, staged};
 }
 
 describe("写背景图片", () => {
@@ -102,11 +116,37 @@ describe("写背景图片", () => {
         expect(await readdir(join(user, "backgrounds")).catch(() => [])).toEqual([]);
     });
 
-    it("正好到上限的可以传", async () => {
-        const {put} = await scene();
+    it("带 Content-Length（浏览器走的路径）：正好到上限的可以传，多一个字节 413", async () => {
+        const {user, put} = await scene();
         const bytes = new Uint8Array(BACKGROUND_MAX_BYTES);
         bytes.set(PNG);
-        expect((await put(bytes)).status).toBe(200);
+        expect((await put(bytes, {"content-length": String(bytes.length)})).status).toBe(200);
+        const over = new Uint8Array(BACKGROUND_MAX_BYTES + 1);
+        over.set(PNG);
+        over[over.length - 1] = 1;
+        const response = await put(over, {"content-length": String(over.length)});
+        expect(response.status).toBe(413);
+        expect(await response.json()).toMatchObject({code: "too-large"});
+        expect(await readdir(join(user, "backgrounds"))).toHaveLength(1);
+    });
+
+    it("写入归属是 nbook.files，记一条账、不留暂存；已存在时不再记账", async () => {
+        const {put, ledger, staged} = await scene();
+        expect((await put(PNG)).status).toBe(200);
+        expect(ledger).toHaveLength(1);
+        expect(ledger[0]?.source).toEqual({kind: "system", plugin: "nbook.files"});
+        expect((await put(PNG)).status).toBe(200);
+        expect(ledger).toHaveLength(1);
+        expect(await staged()).toEqual([]);
+    });
+
+    it("经统一的准入：Host 不是回环 421，Origin 不允许 403，都不写文件", async () => {
+        const {user, put, ledger} = await scene();
+        expect((await put(PNG, {}, "example.com")).status).toBe(421);
+        expect((await put(PNG, {origin: "https://evil.example"})).status).toBe(403);
+        expect((await put(PNG, {origin: ORIGIN})).status).toBe(200);
+        expect(ledger).toHaveLength(1);
+        expect(await readdir(join(user, "backgrounds"))).toHaveLength(1);
     });
 
     it("重复上传返回同一地址；两个窗口并发传同一张都成功，只有一份", async () => {

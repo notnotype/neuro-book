@@ -6,7 +6,7 @@
 import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, Ref} from "vue";
 
-import {scrimFloor, WORST_CASE_EXTREMES} from "./background-legibility";
+import {luminance, scrimFloor, WORST_CASE_EXTREMES} from "./background-legibility";
 import type {Rgb} from "./background-legibility";
 import {readDocumentColors, useDocumentThemeVersion, usePrefersSolid} from "./document-colors";
 
@@ -46,11 +46,11 @@ function load(url: string): Promise<HTMLImageElement> {
 
 /**
  * 这张图模糊之后最亮、最暗的地方：缩到每格约等于模糊半径的小图再找。不模糊时细节全在，屏幕上的放大倍数也不确定，直接按最坏的图；量不了也是。
- * 平铺按图的原尺寸显示，格子要跟着原尺寸算；铺满时图被缩放到窗口上下，64 格够细。
+ * 模糊的半径是 14 像素：铺满时图被缩放到窗口上下，128 格在 4K 宽屏上每格约 30 像素，比模糊抹掉的范围细；平铺按图的原尺寸显示，格子跟着原尺寸算。
  */
 function extremesOf(image: HTMLImageElement, blur: boolean, fit: BackgroundImageInput["fit"]): Extremes {
     if (!blur) return WORST_CASE_EXTREMES;
-    const width = fit === "repeat" ? Math.max(1, Math.ceil(image.naturalWidth / 20)) : 64;
+    const width = fit === "repeat" ? Math.max(1, Math.ceil(image.naturalWidth / 20)) : 128;
     const height = Math.max(1, Math.round(width * (image.naturalHeight / Math.max(1, image.naturalWidth))));
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -63,10 +63,10 @@ function extremesOf(image: HTMLImageElement, blur: boolean, fit: BackgroundImage
         let lightest: Rgb = [0, 0, 0];
         let darkest: Rgb = [255, 255, 255];
         let top = -1;
-        let bottom = Number.POSITIVE_INFINITY;
+        let bottom = 2;
         for (let index = 0; index < data.length; index += 4) {
             const [r, g, b] = [data[index] as number, data[index + 1] as number, data[index + 2] as number];
-            const level = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            const level = luminance([r, g, b]);
             if (level > top) {
                 top = level;
                 lightest = [r, g, b];

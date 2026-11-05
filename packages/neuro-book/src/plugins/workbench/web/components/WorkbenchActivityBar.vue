@@ -140,7 +140,7 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
     height: 100%;
     min-height: 0;
     padding-block: var(--space-1);
-    background: var(--editor-inner-surface, var(--panel-surface));
+    background: var(--shell-card-surface, var(--panel-surface));
 }
 
 .workbench-activity-bar__containers {

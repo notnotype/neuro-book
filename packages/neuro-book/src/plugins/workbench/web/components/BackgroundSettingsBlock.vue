@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {Button, ColorSwatches, SegmentedControl, Slider, Switch} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
-import {computed, ref, watch} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {rawUrlOf} from "nbook/plugins/files/shared/contracts";
 import BackgroundLayer from "nbook/ui/background/BackgroundLayer.vue";
@@ -22,8 +22,9 @@ const props = defineProps<{
     /** 传一张图，成功回它的地址；失败时错误由调用方翻译好。 */
     upload: (file: File) => Promise<{readonly ok: true; readonly address: string} | {readonly ok: false; readonly reason: string}>;
     disabled: boolean;
+    /** 写设置，回写成了没有；失败的原因由调用方交给窗口通知。 */
+    write: (value: EditorBackgroundSetting) => Promise<boolean>;
 }>();
-const emit = defineEmits<{change: [value: EditorBackgroundSetting]}>();
 
 const text = useWorkbenchText();
 const themeVersion = useDocumentThemeVersion();
@@ -36,6 +37,13 @@ const mode = ref<EditorBackgroundSetting["kind"]>(props.value.kind);
 watch(() => props.value.kind, (kind) => {
     mode.value = kind;
 });
+
+/** 写设置。写入不是乐观的，成功后设置才变；失败时种类退回设置里的，显示保持原样。 */
+async function commit(value: EditorBackgroundSetting): Promise<boolean> {
+    const ok = await props.write(value);
+    if (!ok) mode.value = props.value.kind;
+    return ok;
+}
 
 const kinds = computed(() => [
     {value: "none", label: text("backgrounds.none")},
@@ -65,9 +73,14 @@ const appearance = computed<"light" | "dark">(() => {
     void themeVersion.value;
     return documentAppearance();
 });
+/** 取色面板拖动时每一步都发颜色：只改预览，停下来才写，否则一次拖动写几十次设置文件、同步所有窗口。 */
+const COLOR_COMMIT_MS = 200;
+const draftColor = ref<{readonly which: "light" | "dark"; readonly color: string} | null>(null);
+let colorTimer: ReturnType<typeof setTimeout> | null = null;
+const shownColorOf = (which: "light" | "dark"): string | undefined => (draftColor.value?.which === which ? draftColor.value.color : colorValue.value?.[which]);
 const shownColor = computed(() => {
     void themeVersion.value;
-    const color = colorValue.value?.[appearance.value] ?? null;
+    const color = shownColorOf(appearance.value) ?? null;
     return color !== null && backgroundColorIsLegible(color) ? color : null;
 });
 /** 暗色的那一个要切到暗色才算得出来，显示时同样拦着（输出 7）。 */
@@ -77,46 +90,67 @@ function selectKind(kind: SegmentedControlValue): void {
     error.value = null;
     if (kind === "none") {
         mode.value = "none";
-        emit("change", {kind: "none"});
+        void commit({kind: "none"});
     } else if (kind === "color") {
         mode.value = "color";
         const preset = BACKGROUND_COLOR_PRESETS[0];
-        emit("change", {kind: "color", light: preset.light, dark: preset.dark});
+        void commit({kind: "color", light: preset.light, dark: preset.dark});
     } else {
         mode.value = "image";
     }
 }
 
 function pickColor(which: "light" | "dark", color: string | null): void {
-    const current = colorValue.value;
-    if (color === null || current === null) return;
+    if (color === null) return;
     error.value = null;
-    if (which === appearance.value && !backgroundColorIsLegible(color)) {
+    draftColor.value = {which, color};
+    if (colorTimer !== null) clearTimeout(colorTimer);
+    colorTimer = setTimeout(() => void commitColor(), COLOR_COMMIT_MS);
+}
+
+async function commitColor(): Promise<void> {
+    colorTimer = null;
+    const draft = draftColor.value;
+    const current = colorValue.value;
+    if (draft === null || current === null) return;
+    if (draft.which === appearance.value && !backgroundColorIsLegible(draft.color)) {
+        draftColor.value = null;
         error.value = text("backgrounds.failure.colorIllegible");
         return;
     }
-    emit("change", {...current, [which]: color});
+    await commit({...current, [draft.which]: draft.color});
+    if (draftColor.value === draft) draftColor.value = null;
 }
+// 关窗口时还没写的颜色照样写，不丢。
+onBeforeUnmount(() => {
+    if (colorTimer === null) return;
+    clearTimeout(colorTimer);
+    void commitColor();
+});
 
 function pickImage(image: string): void {
     error.value = null;
     const current = imageValue.value;
-    emit("change", current === null ? {kind: "image", image, fit: "cover", blur: true, scrim: DEFAULT_SCRIM} : {...current, image});
+    void commit(current === null ? {kind: "image", image, fit: "cover", blur: true, scrim: DEFAULT_SCRIM} : {...current, image});
 }
 
-function patchImage(patch: Partial<Pick<BackgroundImageSetting, "fit" | "blur" | "scrim">>): void {
+function patchImage(patch: Partial<Pick<BackgroundImageSetting, "fit" | "blur">>): void {
     const current = imageValue.value;
-    if (current !== null) emit("change", {...current, ...patch});
+    if (current !== null) void commit({...current, ...patch});
 }
 
 function onScrimInput(next: number | number[]): void {
     draftScrim.value = Array.isArray(next) ? next[0] ?? null : next;
 }
 
-function onScrimCommit(next: number | number[]): void {
+/** 草稿留到写入回来：写入不是乐观的，提前清掉滑块会先弹回旧值，方向键连按时步进也会丢。 */
+async function onScrimCommit(next: number | number[]): Promise<void> {
     const scrim = Array.isArray(next) ? next[0] : next;
-    draftScrim.value = null;
-    if (scrim !== undefined) patchImage({scrim});
+    const current = imageValue.value;
+    if (scrim === undefined || current === null) return;
+    draftScrim.value = scrim;
+    await commit({...current, scrim});
+    if (draftScrim.value === scrim) draftScrim.value = null;
 }
 
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -128,10 +162,12 @@ async function onFile(event: Event): Promise<void> {
     if (file === undefined) return;
     error.value = null;
     uploading.value = true;
+    const before = props.value;
     const result = await props.upload(file);
     uploading.value = false;
-    if (result.ok) pickImage(result.address);
-    else error.value = result.reason;
+    if (!result.ok) error.value = result.reason;
+    // 传的时候改了主意（切了种类、选了别的图）：图留在已传过的图里，不盖掉用户后来的选择。
+    else if (mode.value === "image" && props.value === before) pickImage(result.address);
 }
 
 const status = computed(() => {
@@ -170,7 +206,7 @@ const status = computed(() => {
             <div v-for="which in (['light', 'dark'] as const)" :key="which" class="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <span class="text-sm text-[var(--text-secondary)]">{{ text(which === 'light' ? 'backgrounds.light' : 'backgrounds.dark') }}</span>
                 <ColorSwatches
-                    :model-value="colorValue[which]"
+                    :model-value="shownColorOf(which) ?? colorValue[which]"
                     :colors="BACKGROUND_COLOR_PRESETS.map((preset) => preset[which])"
                     :custom-label="text('backgrounds.custom')"
                     :label="text(which === 'light' ? 'backgrounds.light' : 'backgrounds.dark')"
@@ -184,11 +220,12 @@ const status = computed(() => {
         <template v-if="mode === 'image'">
             <div class="flex min-w-0 flex-wrap items-center gap-2" role="group" :aria-label="text('backgrounds.gallery')" data-background-gallery>
                 <button
-                    v-for="image in props.images"
+                    v-for="(image, index) in props.images"
                     :key="image"
                     type="button"
-                    class="h-12 w-20 cursor-pointer overflow-hidden rounded-[var(--radius-control)] border-0 bg-transparent p-0 outline outline-offset-1 focus-visible:outline-2 focus-visible:outline-[var(--accent-main)]"
+                    class="nb-ui-focus-ring h-12 w-20 cursor-pointer overflow-hidden rounded-[var(--radius-control)] border-0 bg-transparent p-0 outline outline-offset-1"
                     :class="imageValue?.image === image ? 'outline-2 outline-[var(--accent-main)]' : 'outline-1 outline-[var(--divider)]'"
+                    :aria-label="text('backgrounds.galleryItem', {index: index + 1})"
                     :disabled="props.disabled"
                     :aria-pressed="imageValue?.image === image"
                     :data-background-image-option="image"
@@ -230,6 +267,6 @@ const status = computed(() => {
             </template>
         </template>
 
-        <p v-if="status !== null" class="m-0 text-sm" :class="status.tone === 'error' ? 'text-[var(--status-danger)]' : 'text-[var(--text-secondary)]'" role="status" data-background-status>{{ status.message }}</p>
+        <p v-if="status !== null" class="m-0 text-sm" :class="status.tone === 'error' ? 'text-[var(--status-danger)]' : 'text-[var(--text-secondary)]'" :role="status.tone === 'error' ? 'alert' : 'status'" data-background-status>{{ status.message }}</p>
     </section>
 </template>

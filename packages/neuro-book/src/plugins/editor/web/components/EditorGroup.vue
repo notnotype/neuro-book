@@ -496,6 +496,8 @@ onBeforeUnmount(() => setEditorTransparent(transparentOwner, false));
 }
 
 .editor-group__pending {
+    /* 背景层是定位元素，不定位的提示会被它盖住。 */
+    position: relative;
     padding: 24px;
     font-size: var(--text-sm);
     color: var(--text-muted);

@@ -142,15 +142,15 @@ interface Measured {
 async function measure(page: Page, selector: string): Promise<Measured> {
     const target = page.locator(selector).first();
     await expect(target).toBeVisible();
+    // 图标按钮里没有文字，量它自己的颜色（图标按 currentColor 画）。
     const colors = await target.evaluate((element) => {
         const found = new Set<string>();
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
             if (node.textContent?.trim() && node.parentElement !== null) found.add(getComputedStyle(node.parentElement).color);
         }
-        return [...found];
+        return found.size > 0 ? [...found] : [getComputedStyle(element).color];
     });
-    expect(colors.length, `${selector} 里要有文字`).toBeGreaterThan(0);
     const box = await target.boundingBox();
     if (box === null) throw new Error(`${selector} 不可见`);
     await page.evaluate(() => document.documentElement.setAttribute("data-e2e-hide-text", ""));
@@ -200,10 +200,10 @@ async function measure(page: Page, selector: string): Promise<Measured> {
     }, {base64: shot.toString("base64"), colors});
 }
 
-const DOCUMENT = "第一段正文，长一些的句子才看得出背景抢不抢字。\n\n> 引用是次要文字\n\n[一个链接](https://example.com)\n";
-/** 窗口背景要量的地方：标题栏、状态栏、侧栏、面包屑与正文。 */
-const WINDOW_TARGETS = ["[data-editor-prose] p", "[data-editor-prose] a", "[data-editor-breadcrumbs] .editor-crumbs__label", "[data-status-project]", "[data-titlebar-menu-entry]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]"];
-const EDITOR_TARGETS = ["[data-editor-prose] p", "[data-editor-prose] a"];
+const DOCUMENT = "第一段正文，长一些的句子才看得出背景抢不抢字。\n\n> 引用是次要文字\n\n[一个链接](https://example.com)\n\n<mark>高亮的正文</mark>\n";
+const EDITOR_TARGETS = ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark"];
+/** 窗口背景还要量：面包屑、标签条、标题栏、状态栏、活动栏与侧栏。 */
+const WINDOW_TARGETS = [...EDITOR_TARGETS, "[data-editor-breadcrumbs] .editor-crumbs__label", "[data-editor-group-active] [data-editor-tab]", "[data-status-project]", "[data-titlebar-menu-entry]", "[data-activity-items] [data-activity-item]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]"];
 
 test.describe("可读性", () => {
     test.setTimeout(600_000);
@@ -223,6 +223,8 @@ test.describe("可读性", () => {
                     {name: "white", blur: true},
                     {name: "black", blur: true},
                     {name: "detail", blur: true},
+                    {name: "white", blur: false},
+                    {name: "black", blur: false},
                     {name: "detail", blur: false},
                 ] as const;
                 const report: string[] = [];
@@ -321,7 +323,6 @@ test("在设置页传图选中，重启页面还在；文件不见退回没有�
     await page.reload();
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(prose(page)).toBeVisible();
-    await expect(activeGroup(page).locator("[data-background-image]")).toHaveCount(0);
     expect((await saved())["nbook.workbench/background.editor"]?.image).toBe(address);
     await expect(async () => {
         await page.keyboard.press("Control+,");
@@ -329,6 +330,8 @@ test("在设置页传图选中，重启页面还在；文件不见退回没有�
     }).toPass();
     await page.locator("[data-settings-nav='nbook.workbench.background']").click();
     await expect(page.locator("[data-background-kind=\"editor\"] [data-background-status]")).toContainText("读不出来");
+    // 加载失败已经发生（上一行）：这时还没有图才算退回没有背景，否则只是图还没加载好。
+    await expect(activeGroup(page).locator("[data-background-image]")).toHaveCount(0);
 
     await rename(`${file}.gone`, file);
     await page.reload();
@@ -336,7 +339,7 @@ test("在设置页传图选中，重启页面还在；文件不见退回没有�
     await expect(activeGroup(page).locator("[data-background-image]")).toHaveCount(1);
 });
 
-test("纯色底：不合格的颜色不应用；预设写进设置并显示", async ({page}) => {
+test("纯色底：预设写进设置；取色不合格时不写、说明原因；显示按当前明暗取色、不合格的不应用", async ({page}) => {
     await writeSettings({"nbook.workbench/appearance": "light", "nbook.workbench/background.editor": {kind: "color", light: "#d9f0dc", dark: "#1f2a24"}});
     await openFile(page, "color.md", DOCUMENT);
     const scrim = activeGroup(page).locator("[data-background-scrim]");
@@ -346,9 +349,28 @@ test("纯色底：不合格的颜色不应用；预设写进设置并显示", as
     // 暗色主题的浅字在浅色底上读不清：不应用。
     await writeSettings({"nbook.workbench/appearance": "dark", "nbook.workbench/background.editor": {kind: "color", light: "#d9f0dc", dark: "#ffffff"}});
     await expect(scrim).toHaveCount(0);
+
+    await writeSettings({"nbook.workbench/appearance": "light", "nbook.workbench/background.editor": {kind: "color", light: "#d9f0dc", dark: "#1f2a24"}});
+    await expect(scrim).toHaveCSS("background-color", "rgb(217, 240, 220)");
+    await expect(async () => {
+        await page.keyboard.press("Control+,");
+        await expect(page.locator("[data-settings-nav-current]")).toBeFocused({timeout: 500});
+    }).toPass();
+    await page.locator("[data-settings-nav='nbook.workbench.background']").click();
+    const light = page.locator("[data-background-kind=\"editor\"] [data-background-swatches=\"light\"]");
+    await light.locator("[data-color-swatch=\"#f4ecd8\"]").click();
+    await expect.poll(async () => (JSON.parse(await readFile(settingsFile(), "utf8")) as Record<string, {light?: string}>)["nbook.workbench/background.editor"]?.light).toBe("#f4ecd8");
+    await expect(scrim).toHaveCSS("background-color", "rgb(244, 236, 216)");
+    // 亮色主题的深字在深色底上读不清。
+    await light.locator("[data-color-swatch=\"custom\"]").click();
+    const hex = page.locator("[data-color-panel-input]");
+    await hex.fill("#111111");
+    await hex.press("Enter");
+    await expect(page.locator("[data-background-kind=\"editor\"] [data-background-status]")).toContainText("读不清");
+    expect((JSON.parse(await readFile(settingsFile(), "utf8")) as Record<string, {light?: string}>)["nbook.workbench/background.editor"]?.light).toBe("#f4ecd8");
 });
 
-test("正文背景按组定位：滚动时不动，窗口变了跟着重排", async ({page}) => {
+test("正文背景按组定位：滚动时图不动，拖分隔条时每组的图按新尺寸重排", async ({page}) => {
     await writeSettings({});
     await openFile(page, "scroll.md", "很长的一段。\n\n".repeat(200));
     const address = await upload(page, IMAGES.detail);
@@ -356,12 +378,63 @@ test("正文背景按组定位：滚动时不动，窗口变了跟着重排", as
     const layer = activeGroup(page).locator("[data-background-layer]");
     await expect(layer).toHaveCount(1);
     const before = await layer.boundingBox();
-    await prose(page).locator("p").first().click();
+    const first = prose(page).locator("p").first();
+    const firstBefore = await first.boundingBox();
+    await first.click();
     await page.mouse.wheel(0, 2000);
-    await nextFrame(page);
+    // 正文真的滚了，否则图不动不说明问题。
+    await expect.poll(async () => (await first.boundingBox())?.y).toBeLessThan(firstBefore?.y as number);
     expect(await layer.boundingBox()).toEqual(before);
-    await page.setViewportSize({width: 1000, height: 700});
-    await expect.poll(async () => (await layer.boundingBox())?.width).toBeLessThan(before?.width as number);
+
+    await page.keyboard.press("Control+\\");
+    const groups = page.locator("[data-editor-group]");
+    await expect(groups).toHaveCount(2);
+    const layers = page.locator("[data-editor-group] [data-background-layer]");
+    await expect(layers).toHaveCount(2);
+    const widths = () => layers.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
+    const [left = 0, right = 0] = await widths();
+    const sash = page.locator("[data-editor-area] [role=separator]");
+    const box = await sash.boundingBox();
+    if (box === null) throw new Error("分隔线没有盒");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height / 2, {steps: 6});
+    await page.mouse.up();
+    await expect.poll(widths).toEqual([left - 120, right + 120]);
+});
+
+test("窗口背景开着时切明暗、切主题，面色跟着换，不读到自己写的旧值", async ({page}) => {
+    await writeSettings({"nbook.workbench/appearance": "light"});
+    await openFile(page, "switching.md", DOCUMENT);
+    await page.addStyleTag({content: HIDE_TEXT});
+    const rootVar = (name: string) => page.evaluate((key) => document.documentElement.style.getPropertyValue(key), name);
+    const address = await upload(page, IMAGES.detail);
+    const image = {kind: "image", image: address, fit: "cover", blur: true, scrim: 75};
+    await writeSettings({"nbook.workbench/appearance": "light", "nbook.workbench/background.window": image});
+    await expect.poll(() => rootVar("--shell-card-surface")).not.toBe("");
+    const lightCard = await rootVar("--shell-card-surface");
+    const lightTabs = await rootVar("--editor-tabs-surface");
+
+    await writeSettings({"nbook.workbench/appearance": "dark", "nbook.workbench/background.window": image});
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    await expect.poll(() => rootVar("--shell-card-surface")).not.toBe(lightCard);
+    await expect.poll(() => rootVar("--editor-tabs-surface")).not.toBe(lightTabs);
+    await nextFrame(page);
+    expect((await measure(page, "[data-editor-prose] a")).worst).toBeGreaterThanOrEqual(4.5);
+    // 再切回来等于第一次的值：如果读到了自己写的半透明值，这里会一轮轮叠下去。
+    await writeSettings({"nbook.workbench/appearance": "light", "nbook.workbench/background.window": image});
+    await expect.poll(() => rootVar("--shell-card-surface")).toBe(lightCard);
+    await expect.poll(() => rootVar("--editor-tabs-surface")).toBe(lightTabs);
+
+    await writeSettings({"nbook.workbench/theme": "macos", "nbook.workbench/appearance": "light", "nbook.workbench/background.window": image});
+    await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "macos");
+    await expect.poll(() => rootVar("--shell-card-surface")).not.toBe(lightCard);
+    await nextFrame(page);
+    expect((await measure(page, "[data-editor-prose] a")).worst).toBeGreaterThanOrEqual(4.5);
+
+    await writeSettings({"nbook.workbench/appearance": "light"});
+    await expect.poll(() => rootVar("--shell-card-surface")).toBe("");
+    await expect(page.locator("html")).not.toHaveAttribute("data-nb-editor-transparent");
 });
 
 test("源码编辑器透出，图片查看器不透出；两种同时开时正文盖在窗口上面；窄窗口不溢出", async ({page}) => {
