@@ -119,3 +119,4 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用/插件
 - [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/002-plan-completion.md) 包含旧实现的内存探针结果，不是本目标已实现证据。
 - 2026-09-20开发者批准共享测量/宿主/落点几何、3px线/250ms显现、scope仲裁与无重锚pointer路径；产品容器固定单轴不削弱通用二维能力。新行为证据尚待实施，不复用历史通过数宣布完成。
+- w00026 t06 扁平渲染（输出“按矩形摆放”“取整”“过渡”“停放”“Tab 顺序”“移动焦点”“读屏顺序”，验收 8、9）：矩形求解 [grid-rects.ts](../../../packages/nb-layout/src/grid-rects.ts)、过渡几何 [grid-motion.ts](../../../packages/nb-layout/src/grid-motion.ts)、渲染 [NestedGrid.vue](../../../packages/nb-layout/src/vue/NestedGrid.vue)；浏览器行为见 [lab-grid-structure.e2e.ts](../../../packages/neuro-book/e2e/lab-grid-structure.e2e.ts) 与 [editor-area.e2e.ts](../../../packages/neuro-book/e2e/editor-area.e2e.ts)。从 Tab 进入 grid 与点空白后按 Tab 仍按 DOM 顺序，留给 w00026 t07。
