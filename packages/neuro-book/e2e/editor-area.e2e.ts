@@ -509,7 +509,8 @@ test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区�
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     expect(await selected()).toBe(active);
 
-    // 浏览器在下一个指针事件时才派发 `lostpointercapture`，所以释放之后要动一下。
+    // 捕获的取得与释放都在下一个指针事件时才生效：先动一下让捕获真的到根上，释放之后再动一下让 `lostpointercapture` 派发出来。
+    await page.mouse.move(from.x + 11, from.y);
     await page.locator("[data-editor-area]").evaluate((area) => area.releasePointerCapture(1));
     await page.mouse.move(from.x + 12, from.y);
     await releaseOnSource(active);

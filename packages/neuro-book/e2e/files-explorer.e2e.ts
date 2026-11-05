@@ -838,9 +838,10 @@ test("拖动中按键归拖动；失去捕获、焦点移到树外都取消且�
     await settled();
     expect(await tree(page).getAttribute("aria-activedescendant")).toBe(active);
 
-    // 浏览器在下一个指针事件时才派发 `lostpointercapture`，所以释放之后要动一下。
-    await tree(page).evaluate((element) => element.releasePointerCapture(1));
+    // 捕获的取得与释放都在下一个指针事件时才生效：先动一下让捕获真的到根上，释放之后再动一下让 `lostpointercapture` 派发出来。
     await page.mouse.move(from.x, from.y + 9);
+    await tree(page).evaluate((element) => element.releasePointerCapture(1));
+    await page.mouse.move(from.x, from.y + 10);
     await expect(ghost).toHaveCount(0);
     await page.mouse.move(from.x, from.y);
     await page.mouse.up();

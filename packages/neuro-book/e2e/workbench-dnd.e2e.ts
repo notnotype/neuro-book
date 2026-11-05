@@ -829,7 +829,7 @@ test.describe("产品页：拖放", () => {
         expect(await writesOf(page)).toBe(writes);
         await expect(entry).toBeVisible();
 
-        // 失去指针捕获（ui/layout-drag 验收 1）：浏览器在下一个指针事件时才派发 `lostpointercapture`，所以释放之后要动一下。
+        // 失去指针捕获（ui/layout-drag 验收 1）：`dragTo` 过门槛后还动过，捕获已经到根上；释放在下一个指针事件时才生效，所以释放之后要动一下。
         await dragTo(page, entry, {x: panel.x + panel.width - 30, y: panel.y + panel.height / 2});
         await page.locator(".workbench-shell-host").evaluate((root) => root.releasePointerCapture(1));
         await page.mouse.move(panel.x + panel.width - 31, panel.y + panel.height / 2);

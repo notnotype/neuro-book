@@ -146,11 +146,13 @@ test.describe("指针拖动", () => {
 test.describe("取消（输出 7）", () => {
     const CASES: ReadonlyArray<{readonly name: string; readonly reason: string; readonly act: (page: Page) => Promise<unknown>}> = [
         {name: "Escape", reason: "escape", act: (page) => page.keyboard.press("Escape")},
-        // 浏览器在下一个指针事件时才派发 `lostpointercapture`，所以释放之后要动一下。
+        // 捕获的取得与释放都在下一个指针事件时才生效：先动一下让捕获真的到根上（否则释放时它还没生效，浏览器不派发
+        // `lostpointercapture`），释放之后再动一下让这个事件派发出来。
         {name: "失去指针捕获", reason: "capture-lost", act: async (page) => {
-            await sessionRoot(page).evaluate((root) => root.releasePointerCapture(1));
             const start = await center(sourceA(page));
             await page.mouse.move(start.x + 11, start.y);
+            await sessionRoot(page).evaluate((root) => root.releasePointerCapture(1));
+            await page.mouse.move(start.x + 12, start.y);
         }},
         {name: "焦点移到根之外", reason: "focus-left", act: (page) => page.locator("[data-session-outside]").evaluate((input: HTMLInputElement) => input.focus())},
         {name: "窗口失焦", reason: "blur", act: (page) => page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")))},

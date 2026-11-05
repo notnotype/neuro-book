@@ -2,7 +2,7 @@
 
 本包位于 `packages/nb-layout`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)；本文件只写本包的约定。
 
-`@notnotype/nb-layout` 是工作台的布局工具，决策见 [ADR 0044](../../docs/adr/0044-workbench-single-layout-tree.md)，行为合同是 [`ui.nested-grid`](../../docs/specs/ui/nested-grid.md)。
+`@notnotype/nb-layout` 是工作台的布局工具，决策见 [ADR 0044](../../docs/adr/0044-workbench-single-layout-tree.md)，行为合同是 [`ui.nested-grid`](../../docs/specs/ui/nested-grid.md) 与 [`ui.layout-drag`](../../docs/specs/ui/layout-drag.md)。
 
 ## 边界
 
