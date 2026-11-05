@@ -1,0 +1,663 @@
+w00039 t34 阶段 D：世界线的独立设计（只读，未改任何仓库文件；基线 nb-canon `bun test` 334 通过，19.6 秒）
+
+说明：下面凡写“实测”的是我在 worktree 上跑出来的；凡引原型数字的出自 t32 的 worldline-prototype.txt，当时负载 3.5 到 11，
+我写报告时负载 5 到 14，所以我没有重量规模，规模结论从原型比值与我现测的两个小量外推，已标明。
+
+==================================================
+第 0 节 读完代码后与 Spec 的几处对不上（先看这里）
+==================================================
+
+读代码前我就想按 ADR 0042 的“线视图交给现有引擎原样算”做，读完以后确认这条路成立，但有五件事 Spec 与 ADR 都说成“引擎不改”，
+实际要动引擎的接口，或者 Spec 的字面做不到。后面各节展开，这里先列结论：
+
+1. 带过去的值要取“父线在触发处（触发那条变更套完之后）的值”，引擎现在没有这个读法：`Engine.entry` 只收章首章末与初值
+   （engine/types.ts），增量引擎里只有只在实际模式用的 `valueBefore(change, at)`（engine/incremental.ts:458）。要给两个引擎各加
+   `entryAfterChange(id, change, mode)`（接口只加方法，不改计算），差分测试的 compareAll 一并扩。原型能跑是因为它把触发处写成了
+   一个章末位置，与 Spec“触发处是一条变更”不同。
+2. 输出 6 说带过去的值“读取的模式与这次读取相同”。一份线视图里的合成事件只有一个值，引擎的两个模式是同一份事件序列上的两层
+   （reference.ts 的 includedPlans 在读取时叠计划），合成事件没法随模式变。要么每条线做实际与计划两份视图（成本翻倍），要么改
+   Spec。我的建议是改 Spec：带过去的值只取实际模式（见第 7 节第 1 条）。
+3. 输出 6 的“带过去的值不完整，原因是带过去的值不完整”：引擎的不完整标记 `IncompleteMark.reason` 是封闭的 `ApplyFailure`
+   （engine/types.ts），没有这个原因。要在 apply.ts 里为内部合成事件加一条路径，或者在服务层把合成事件的标记换译。
+4. 活页夹的章讲哪条线、怎样写在 `binder.xml` 里，worldlines.md 只写了“宿主给章序时另给”，`parseBinder` 现在只返回章 id 列表
+   （plugins/canon/backend/binder.ts），XML 形状没有任何 Spec 定义（见第 7 节第 9 条）。
+5. 变更列表的 `line` 筛选已经被剧情线占用（service/reads.ts 的 `ChangeFilter.line` 是 `change.lines.includes`，canon 合同
+   shared/contracts.ts:75 也是），而 project.md 方法表说要再加一个“世界线”筛选，worldlines 输出 5 又把线放进范围里
+   `{line, after, through}`，三处写法不一致（第 7 节第 5 条）。
+
+另外三个已有的接缝，实现时要接上而不是重造：
+- `CanonReadView` 已经有 `line: "main"` 字段（service/reads.ts），`readStampOf` 里已经有 `chapters: ids.map(id => [id, "main"])`，
+  `ViewGrant` 已有 `line`，`openView` 对非主线回 `line-not-found`（service.ts openView），`references.ts` 的 `RefTargetKind` 已含
+  `line`，`ID_PREFIX.line = "l"` 已留好，`FieldDeclaration.carry` 已在 schema 里，`PlacementSchema` 与 `ReadPositionSchema` 还没有
+  `line`，`StoryChangeSchema.nature` 还没有 `fork`。这些说明前几阶段已经按世界线留了口。
+- 日志格式现在就是 `LOG_FORMAT = 2`（node/log.ts:137），project.md 输出 2 已写明 format 2 含“分叉与安放的线”，所以世界线不再升格式
+  （ADR 0042 后果里“日志的格式版本加一”指的就是 1 到 2 这一次，见第 7 节第 12 条）。
+- 剧情插件所有读取都经 `CanonReadView`，且用 `perViewCache`（plot/core/view-cache.ts）按视图对象缓存索引：只要内核给“每条线一个
+  稳定的冻结视图对象”，剧情的按线隔离不用另做缓存。
+
+==================================================
+第 1 节 质疑（按视角，每条给依据）
+==================================================
+
+【视角一：反对与精简（哪些可以不做、晚做，哪些有现成模块）】
+
+Q1.1 计划线（输出 1 后半、状态表“计划线”行、输出 12 与 13 里计划线的段、验收 9、`line-planned`、`binder-line-planned`）是整份 Spec
+  里条件分支最多的一块：线的存在随模式变、计划分叉被兑现与撤销时已写记录在两种模式下都进不了视图、活页夹实际模式按“最近的实际祖先”
+  回退。依据：worldlines.md 输出 1（一段话里有七个条件）、输出 12 末句、输出 13 末句、验收 9。我建议晚做：数据形状（线表里每条线带
+  `planned` 标志、两个模式各自的存在）第一版就留好，行为放在第 7 个切片，不挡回溯、分支、梦境这些主路径。理由：回溯与读档的验收
+  1 到 8 全不依赖它，且它与“跨线计划”共用同一条判断，晚做不会返工。
+Q1.2 `end: return | stop` 在读写上与 `continue` 只差一条 `line-ended` 与一条 `binder-line-ended` 提示（输出 3、16；线的树里显示不同）。
+  `endAt`、`return` 与 `stop` 的区别在内核里不产生计算差异，只存、只校验、只显示。可以放在最后的收尾切片，不拖前面。
+Q1.3 输出 10 的预览波及面有四项（越界、计划看得到与否、计划进展变化、有正文讲述的章）。越界集与受影响的线集用已有的纯计算就能给
+  （只比较安放的先后与创建版本，不需要引擎）；计划进展变化要把受影响的线建出来读 `progress`，成本最大；“有正文讲述的章”要定位
+  讲述。建议拆成两期：第一期越界、计划看得到与否、受影响的线；第二期进展与讲述章。理由：第一期是作者“改切口前要知道会发生什么”
+  的核心信息，第二期只增加信息量。
+Q1.4 能用现成模块的地方：
+  - 时间：`buildNetwork(input, settings, plans)` 本来就是 `{changes, entries, order, createdAt}` 的纯函数（time/network.ts），直接喂线视图的
+    记录即可；回溯的 R 点可以当成一个没有说法的合成事件加三条普通约束（`NetworkConstraint` 只有 from、to、lo、hi、ref），不用动
+    `solveNetwork`，nb-time 只要让组网接受“额外的事件与约束”（见第 4 节）。
+  - 列表：`listChanges`、`listTellings`、`listPresence` 都只读 `world.data` 与 `world.engine`（service/reads.ts），让它们吃一个“按线的
+    世界形状”（`{data, engine, options}`）就不用重写；见第 2 节的 `LineView`。
+  - 分页与游标 `pageOf`、值比较 `sameJson` 与 `stableStringify`、不可变更新的 `thaw/freeze` 都可复用。
+Q1.5 “常驻最多 3 条”之外还要不要“祖先线固定”：Spec 没写（见 Q2.3），不做就会让建一条子线变成建整条祖先链。这条不能省。
+
+【视角二：成本（实现量、运行时间与内存，对照 worldlines 输出 15 与 project 输出 14）】
+
+Q2.1 发布路径的预算是 100 毫秒（project.md 输出 14，15 条变更含校验计算落盘）。引擎更新本身原型量到 30、59、48 毫秒（负载 4.1、9.7、
+  11.3，t29 在负载 0.7 时不分线是 18 毫秒），所以线层每次发布能花的只有一两毫秒到十几毫秒。原型“每次从头过滤线视图”是 31、55、58 毫秒，
+  不能直接搬进产品（worldline-prototype.txt 自己也写了“产品里线视图随写入增量维护”）。
+  我现测了两个下限：复制一个两万项的 Map 是 1.8 毫秒（中位，负载约 5.5），对两万条变更各算一次安放键并按切口过滤是 2.5 毫秒。
+  所以“按这次改到的 id 增量改线视图”可行：每条受影响的线每次发布的线层开销约 2 到 5 毫秒；只做“Map 拷贝加按 id 改”，不要重排两万条。
+  world.ts 里 `thaw(this.data)` 已经每次发布复制全部表（#publish 开头），再多拷几份同量级的 Map 是同一个数量级。
+Q2.2 带过去的值依赖父线引擎：建子线与每次更新子线都要在父线引擎上读触发处（见第 0 节第 1 条）。Spec 输出 9 只说“当前线常驻”，没说祖先。
+  如果当前线是 r1 而主线引擎没建，打开项目时除了 r1 还要先建一个主线引擎，两次建的代价是 r1 的整本加主线前缀。原型：前 500 章的线
+  0.46 到 1.0 秒、整本一条线 0.83 到 2.4 秒（同一负载下不分线整本 0.83 到 2.4 秒），所以“当前线是 r1”的打开代价约为 1.0 到 1.5 倍
+  不分线整本（低负载下 t29 是 477 毫秒，估 0.7 到 0.9 秒，这是外推，未实测）。project 输出 14 的“打开到可以读 2 秒以内”对这一情形需要
+  重新表态：我的建议是写“按当前线的祖先链一起建”并以含祖先的总和量。
+Q2.3 内存：原型堆 整本一条线 28 MB、回溯后的线 34 MB、前 500 章的线 14 MB。当前线加祖先线加最多 3 条最近用的线，最坏 5 份
+  引擎、约 100 到 150 MB；Spec 输出 15 只对“常驻一条线、按需建少数几条”承诺速度，这里的上限要明写在输出 9。
+Q2.4 “改初值这类影响前缀的写入”要重算每一条已建好的线（ADR 0042 后果、原型“改常出场条目的初值，两条线都建好 1.5 到 2.5 秒”）。
+  project 输出 14 要求改初值 1 秒内，在“当前线加祖先线”两份引擎常驻时做不到（约翻倍）。Spec 输出 15 没有对它承诺，所以不算违反，
+  但要在 project.md 输出 14 注明“多条线常驻时按线数线性增加”，免得量产时被当成回退。
+Q2.5 `computeImpact`（world.ts 末尾）每次发布做两次 `engine.pending(where)`，并对 `data.changes` 全部逐条查 `outcome` 比较 before/after
+  （`broken` 的计算，O(变更数)）。分线后这一步要按线做；如果对所有常驻线都做，k 倍。建议：只对“这次被更新了的线”做，且 `where`
+  取请求所写的那条线（见第 3 节）。
+Q2.6 同步阻塞：线的第一次构建是同步的，约 0.5 到 2 秒（输出 15 的 2 秒预算），期间世界服务的事件循环被占；当前线变化与第一次读
+  非当前线都会触发。这与现状（打开时一次性重放）同类，不另做异步，但要在 status 里记构建耗时（第 5 节）。
+
+【视角三：使用者体验（作者、写代码的 Agent、插件作者）】
+
+Q3.1 剧情插件要怎样拿到“某条线上的读取”：现在 `canon.snapshot()` 交一个 `view`（plot/backend/plugin.ts 的 `withView`），读的位置是
+  `ReadPosition`。建议在 `CanonReadView` 上加两样：`lines()`（线表，含分叉定义，剧情的回溯知情要它，knowledge.md 输出 4 已经写了
+  “从内核读到分叉的 who、父线与触发处”）与 `onLine(line)`（返回同一世界与读取输入代次上、该线的冻结视图，同一 (世界, 代次, 线)
+  交同一个对象）。`view.line` 现有字段就是这条线的 id。剧情的 `withView` 只需在入口按 `position.line ?? 默认线` 换成
+  `view.onLine(...)`，`perViewCache` 因对象不同自然隔离，剧情的核心算法（knowledge.ts 等）不用知道线。证据：view-cache.ts 头注释。
+Q3.2 Agent 写一次回溯要一次写出分叉与子线上的头几条记录，所以 `fork.line` 与 `at.line` 要能在同一个请求里用同一个临时 id（`tmp:l1`）
+  互相引用，发布时换成正式 id（`l` 前缀）。现状：临时 id 只为 `puts` 里的对象发号（world.ts #publish 里 `ids` 的循环），线没有 put，
+  所以要在发号处另加“把 `fork.line` 的临时值也发一个 `l` 号”，替换沿 `walkReferences` 的引用位置（`references.ts`）。回执 `ids` 要含它。
+Q3.3 Spec 示例用 `r1`、`r2` 当线 id，而 `r` 前缀是修订 id（ids.ts 注释写明 line 用 `l` 避开修订的 `r`）。文案上无害，实现上线 id 是 `l1`、`l2`；
+  只是写测试与示例时别照抄 `r1`，以免与修订 id 混淆。
+Q3.4 活页夹里要写线 id，而线 id 要发布分叉后才有（程序发号）：作者先写分叉、得到 id、再改活页夹。如果允许分叉写入时由调用方给
+  线 id 就能先写活页夹，但 Spec 明确“程序生成，不复用”。保持现状，但读取的 `binder-line-unknown` 诊断就是这一步的安全网，要有一条
+  好懂的提示文案（第 6 节）。
+
+【视角四：迁移与兼容】
+
+Q4.1 日志格式不升：project.md 输出 2 已把分叉与安放的线算进 format 2；`LOG_FORMAT` 现为 2（node/log.ts:137）。实现要保证：不写 `at.line`、
+  不用分叉的作品，日志行逐字节与现在相同。做法：存下来时 `line === "main"` 一律省略（规范化），`line` 缺省就是主线。这样“只有主线的作品
+  读写不变”（worldlines 边界与兼容）是可以逐字比对的验收，而不只是读取结果相同。
+Q4.2 `World.engine` 在 nb-canon 里有约 38 处引用（render/entry.ts 4、render/writeback.ts 2、service/reads.ts 10、service/service.ts 8、
+  world/edits.ts 3、world/world.ts 11），再加 plot 插件通过 `WorldSnapshot` 取的 `world.data` 与 `engine`。第一刀必须是“零行为变化的重构”：
+  把它们改成经 `world.line("main")` 取一个 `LineView`，334 个现有测试不动地通过，再往里加线。不这样做，后面每个切片都会在三十多处同时改。
+Q4.3 现有测试里依赖“只有主线”的：`views.test.ts` 对非主线 `openView` 的期待、`references.test.ts` 里 `line-not-found` 的用例（references.ts 末尾
+  `id === "main"`）。这些随切片 1、2 改成按线表判断；其余 300 多个测试不涉及线。
+Q4.4 `ChapterOrder` 构造函数只收 id 列表，测试里到处 `new ChapterOrder([...])`。章讲的线不放进它，放在 `WorldOptions.chapterLines`
+  （可缺省），这样现有调用不改。
+Q4.5 剧情变更的 `nature` 现在是 `event | narration`，加 `fork`。凡是按 `nature` 分支的代码（叙述不进时间、`narration-with-patches` 校验、
+  在场推出等）要核一遍：分叉是不是“事件”？它没有补丁，但要不要进时间网络、进在场、进讲述？Spec 只说“没有补丁”。我建议：分叉进事件序列
+  （它是切口之后的一件事，回溯时是回溯者的那一刻），不进补丁计算；时间说法允许（回溯那一刻有时间）。这在第 7 节列为需确认。
+
+【视角五：可观测与排障】
+
+Q5.1 Spec 要的“最近一次发布更新了哪些线”（project 输出 26、worldlines 输出 8）只是列表。排障时更需要“为什么更新了这条线”：是它视图里的
+  记录变了、带过去的值变了、还是结构性重建。按值比对（ADR 0042 决策 4）判断“要不要更新”这件事本身最容易被怀疑，所以 status 的诊断应给每条
+  线一个原因枚举（`record-changed`、`carry-changed`、`structural`、`unchanged`），并保留最近 20 次发布的这份记录（内存里，不进读取结果）。
+Q5.2 `lines` 方法（project 方法表）要能回答“这条线现在是什么状态”：已建、常驻、被淘汰、过期待补（我设计的惰性追平，见第 2 节）、构建耗时、
+  引擎上次重算的事件数（引擎已有 `recomputed`，service.status 已经读 `world.engine.recomputed`，要改成按线给）。
+Q5.3 越界与线不存在的记录“不进视图”，作者最大的疑问是“我的记录去哪了”。待处理里要列出记录、它所在的线、切口或缺的分叉（输出 3 已要求），
+  另外 `changes` 的线筛选与范围筛选要能直接列出这些记录，不要求读视图。
+
+【视角六：长期维护与技术债】
+
+Q6.1 线层与引擎的边界。我的设计让线层是“数据 → 引擎输入”的一个纯投影加一个维护这些投影的增量器；引擎只加两个接口（`entryAfterChange`、
+  合成事件的不完整原因），其余原样。证据：ADR 0042 决策 2、增量引擎 `update(inputs, changed)` 只看前后两份 `world.changes` 里同 id 的
+  对象（incremental.ts 的 update 开头）。所以线层对引擎的全部要求就是：给它前后两份输入与改到的 id。这条边界要用架构测试守住：
+  `lines/` 只依赖 `engine/types` 与 `core/`，引擎目录不依赖 `lines/`。
+Q6.2 差分测试怎样扩到按线：现在的差分比“增量引擎”与“参照引擎”对同一份输入（differential.test.ts 的 compareAll）。引擎没改计算，
+  它们的差分不用扩到线；要新增的是线层的差分：“增量维护的线投影与引擎”对“按 Spec 逐条写的参照投影加参照引擎”。参照投影必须是另一份
+  独立写法（递归、不缓存、不共用增量器的任何函数），否则两边同错（见第 6 节）。
+Q6.3 重复风险：时间、列表、待处理、视图令牌的上限过滤各自都有一份“按位置过滤变更”的代码（service.ts #boundedTime 里的 `placementWithin` 过滤、
+  reads.ts 的 `inRange`、time/state.ts 的 `truncateTime`）。分线后每份都要认线。把“某条线的记录集”做成 `LineView.records`（一个 `WorldData`
+  形状的对象）后，这些位置只换输入，不再各自判线，避免每处各写一份线规则。
+Q6.4 技术债提醒：Spec 里“切口”“触发处”“endAt”都是变更 id。变更不会被删除（world.ts 对 change 的 `put.after === null` 回 `not-deletable`），
+  但会被撤销、挪走、取消排章。每种退化 Spec 都没说线怎么办（第 7 节第 3 条），实现时必须有一个确定的行为，不能靠“引擎碰巧不崩”。
+
+==================================================
+第 2 节 设计：数据与接口，线层
+==================================================
+
+------ 2.1 数据与接口 ------
+
+存下来的形状（schema.ts，持久化格式，只加字段）：
+- `PlacementSchema` 三个变体与 `ReadPositionSchema` 两个变体各加可选 `line: Id`。缺省是主线；存下来时规范化：`line === "main"` 一律省略。
+  好处：只有主线的作品，日志行逐字节不变；`stableStringify` 比较与 `diffValues` 不会因为显式写了 `"main"` 出现假改动。
+  `Placement` 同时被条目的 `appears` 用（schema.ts EntrySchema），条目的出场不属于哪条线：校验时 `appears.line` 一律拒收（`invalid-fork`
+  以外另用 `type-mismatch`，因为这是形状问题）。
+- `StoryChangeSchema.nature` 加 `fork`，加可选 `fork`：`{line, name, parent, cut, trigger?, back?, type, who?, carry?, end?, endAt?}`。
+  `back` 复用 schema.ts 里已有的 `GapSchema`（要导出）。`carry` 每项就是 `AddressSchema`（`{entry, path}`）。`nature: "fork"` 与 `fork`
+  字段必须同时在、`patches` 必须为空，否则 `invalid-fork`。
+- 修订里不加持久字段。需要的“修订碰了哪些线”在重放时按操作顺序推出来，放在 `Indexes.touchedLines`（见第 3 节还原依赖），不进日志。
+
+读取位置的线的缺省与解析（一处函数 `resolveLine(options, position)`，service 与 world 共用）：
+  `position.line` 有就用，没有就按位置取活页夹那一章讲的线：`start` 取第一段、`end` 取最后一段；初值取主线；没有章讲的线信息取主线。
+  结果线不在线表里（两种模式下都不存在）得到 `line-not-found`。不带位置的读取（`changes`、`tellings`、`time`、`presence`、`pending` 的缺省位置）
+  先取缺省位置（最新一章末尾，model 输出 21），再按上面取线。
+
+活页夹章讲的线怎样传进内核：`WorldOptions.chapterLines?: ReadonlyMap<string, string | readonly {line: string; from: number}[]>`。
+  放在选项里而不是 `ChapterOrder` 里：`ChapterOrder` 在测试里到处 `new ChapterOrder([...])`，不改构造。宿主解析 `binder.xml` 后随章序一起给：
+  `WorldService.setChapters` 的参数从 `readonly string[] | "invalid"` 改成 `{ids, lines} | "invalid"`（`open` 的 `initial.chapters` 同）。
+  章讲的线不进引擎的计算，所以不算“结构性变化”：`withOptions` 只在章序或登记变了时重算（world.ts withOptions 现状），线信息变化只影响
+  读取输入的摘要（`readStampOf` 里 `chapters` 项已经预留，缺省 `"main"`，所以没有线的作品摘要不变）、缺省读取线、当前线（常驻）与提示。
+  内核对输入做校验：分段的 `from` 从 1 起严格递增，不合格的章按主线算并给诊断（`binder-invalid` 的一种，这与现有的整份清单坏了
+  不同，只指这一章）。
+
+引用与临时 id（world/references.ts）：
+  - `walkReferences` 加几个引用位置：变更 `at.line`、核对点 `place.line`（种类 `line`，`checked: true`）；`fork.parent`（line）、`fork.cut`、
+    `fork.trigger`、`fork.endAt`（change，`checked: false`，另有 `invalid-fork`）、`fork.who` 与 `fork.carry[].entry`（entry，`checked: false`），
+    与 components.md 输出 18 的表一致（那张表已经写了这些路径）。`fork.line` 不是引用而是“定义”，只替换临时 id。
+  - `referenceProblem` 的 `kind === "line"` 分支现在是 `id === "main" ? null : "line-not-found"`（references.ts 末尾），改成查线表：
+    至少在计划模式存在即可（components.md 输出 18 的写法）；已写记录落在计划线上另报 `line-planned`。线表由调用方传进来
+    （`exists.line`），references.ts 仍然不依赖 world。
+  - 临时线 id：`#publish` 开头发号的循环只看 `puts` 的 ref（world.ts），要加一段：扫请求里 `fork.line` 以 `tmp:` 开头的值，各发一个
+    `ID_PREFIX.line` 的号，放进同一个 `ids`（回执的 `ids` 与修订的 `idMap` 因此含它）。`replaceRequestTempIds` 沿引用位置换（`at.line`、
+    `place.line`、`fork.parent` 都是引用位置，换得到）；`fork.line` 自己单独换。`observeIds`（world.ts）要把已存的 `fork.line` 报给
+    `IdAllocator.observe`，否则重放后会复用线 id（“不复用”靠这一步）。
+  - 调用方给了不带 `tmp:` 的 `fork.line`：只有“兑现一条计划分叉的已写分叉”可以（输出 14 例外，必须与那条计划同 `line` 同 `parent`）；
+    其余一律不许自己发号：已存在报 `line-taken`，不存在报 `invalid-fork`。这样 `line-taken` 的实际触发面只有“显式复用”。
+
+线表（纯函数，`lines/table.ts`，按 `WorldData` 对象缓存）：
+```
+interface LineDef { id; name; parent; cut: string; trigger?: string; back?; type; who?; carry: Address[]; end; endAt?;
+                    source: string /*定义它的分叉变更 id*/; planned: boolean }
+interface LineTable {
+  get(id): LineDef | undefined
+  exists(id, mode): boolean            // 已写分叉：两种模式；计划分叉：只在计划模式；祖先不存在则不存在
+  children(id), depth(id), ancestors(id)
+  duplicates: Map<id, string[]>        // 日志里同 id 有多个已写分叉时（重放时不校验），取最早建的那个定义，其余记在这里
+  broken: Map<id, "cycle" | "cut-invalid" | ...>   // 定义不成立的原因，见第 7 节第 3 条
+}
+```
+  定义规则直接照输出 1：有生效（`status === "active"`）的已写分叉就由它定义；否则由生效的计划分叉定义。计划分叉“生效”不需要引擎：
+  被替代用 `links.replaces` 扫一遍（与 reference.ts 的 progressAt 里 `replaced` 判断同一条，`active` 且被另一条生效的计划替代）；撤销、待定就是 `status`。
+  所以线表只依赖变更对象，不依赖任何引擎，线引擎才能建在线表之上，没有循环依赖。
+  线表的增量维护：只在这次改到的变更里有 `nature === "fork"`（改前或改后）、或章序变了（切口的安放键会变）时重算；每次发布前先看改到的
+  id 里有没有分叉，没有就沿用上一份。`Indexes.forks: ReadonlySet<string>` 在重放与发布里随操作维护，避免每次扫全部变更。
+
+------ 2.2 线层：线视图怎样构造 ------
+
+线视图的两个投影：
+```
+interface LineView {
+  line: string
+  def: LineDef | null                 // 主线为 null
+  records: WorldData                  // 作者的记录：这条线视图里的变更与核对点（含继承来的计划），不含合成事件；条目、决策、建议与世界共用
+  engine: IncrementalEngine           // 输入 = records 加合成事件；读取、校验、待处理都经它
+  synthetic: ReadonlySet<string>      // 合成事件的 id（`carry:<线>:<序号>`）
+  outOfBounds: readonly string[]      // 本线越界、不进视图的记录
+  timeKey: object                     // 时间缓存的身份，线的记录与条目没变时保持同一个对象
+}
+```
+  拆成两个投影（记录，与记录加合成事件）是关键决定：时间、列表、待处理的“记录”、在场、讲述都读 `records`，不会看到合成事件；只有引擎
+  的输入里有它。这样原型里“合成事件混在 changes 里”的做法带来的过滤（时间网络会多出一件没说法的事、`changes` 列表会多一条、`broken`
+  会出现它）一次性避免。主线在没有任何分叉、没有任何记录带 `line` 时 `records === world.data`（同一个对象，零成本，现有行为一字不变）。
+
+构造（从头建，`lines/project.ts`；是第 6 节差分测试里被测的“生产构造”，参照写法在测试里另写一份）：
+  1. 按线表找 `def`；线不存在则没有视图（读取回 `line-not-found`）。
+  2. 切口的键 `cutRank = placementRank(order, cut.at)`（取变更对象的安放，忽略它的 `line`）。切口失效见第 7 节第 3 条。
+  3. 继承：遍历父线 `records.changes` 与 `records.checks`：安放键与切口键比较，`compareRanks(rank, cutRank) <= 0` 的进来；计划
+     （`kind === "plan"`）安放晚于切口、但 `createdAt(计划) < createdAt(分叉变更)` 的也进来。两个比较都只比安放键，不比创建版本，
+     所以“同一位置也不行”（输出 3）与“不晚于切口”（输出 2）用的是同一把尺（第 7 节第 2 条要求 Spec 这样写）。
+  4. 本线自己的：按 `at.line` 的索引取（`LineIndex = Map<线, 变更 id[]>`，每份数据建一次、按对象缓存，新增删改只按 id 更新）。
+     安放键 `> cutRank` 的进来，否则进 `outOfBounds`；未排章的计划没有键，照收（计划线与子线上的未排章计划，输出 3 没说，第 7 节第 2 条）。
+  5. 合成事件（输出 6）：见 2.3。
+  6. 引擎输入 `{world: {...records, changes: records.changes 加合成事件, createdAt: 叠一层合成事件的版本}, order, registry, reductions}`
+     交给 `createIncrementalEngine`。`createdAt` 用一个只读叠加（`get` 先查合成再查世界），不整表复制两万项。
+  合成事件在全序里的位置：安放取切口的安放（去掉线），创建版本取一个超过一切真实版本的哨兵加线的深度（`2^52 + 深度`），id 是
+  `carry:<线>:<序号>`。理由：按“只比安放键”划分后，父线上与切口同一安放、写得比切口晚的记录也被继承（它们的值已经被触发处的读取算进去了），
+  合成事件必须排在它们之后，否则带过去的值会被这些记录再套一遍（原型用“切口版本加 0.5”，在同键晚写的情形下会重复套加减）。
+  深度加在哨兵上，是为了祖孙两层的合成事件落在同一个安放键时先后固定（祖线的在前）。
+  祖线的合成事件也要被继承进孙线：孙线的切口若在子线自己的记录上（安放键晚于子线切口），子线的合成事件在孙线切口之前，必须进孙线，
+  否则孙线在子线记录处读到的是没有带过去值的世界。遍历继承时合成事件与别的记录同一套规则，不特判。
+
+------ 2.3 带过去的值（合成事件） ------
+
+  对 `def.carry` 的每个地址，取父线引擎在“触发处（没有触发处时取切口）那条变更套完之后”的值。需要一个新引擎方法：
+  `entryAfterChange(id, change, mode): EntryView | null | "change-not-found"`（两个引擎都实现，差分的 compareAll 扩进去，见第 6 节）。
+  参照引擎：`fold(events, beforePoint({rank, tie, inclusive: true}))` 现成；增量引擎：`foldAtPoint(snapshot, ..., {rank, tie, inclusive: true})`
+  现成（incremental.ts 里 `entry` 已经这样调，只是 tie 取 -∞）。各 30 行以内。
+  每个地址一条合成事件（不合并成一条）：`applyChange` 整条要么全套要么全不套（model/apply.ts），一个地址不合约束会拖着别的地址一起丢。
+  取值形状：
+  - 精确档的数、文字、布尔、枚举、列表、引用：`{op: "set", value: 父线的值}`。
+  - 语义档且已归纳：`set` 为归纳后的文字（新的起点，事件清空）。语义档未归纳：引擎视图只给了事件条数，没有事件文字
+    （`FieldState.unreduced: {anchor, events: number}`，engine/types.ts），要读 `origins` 最后一个 `reduce` 步的 `events` 才有文字，
+    合成事件用 `set 起点` 再逐条 `note`。这是一个 Spec 没写的情形（第 7 节第 6 条）。
+  - 父线上这个值不完整（`FieldState.incomplete`）：这个地址的合成事件标记为“带过去不完整”：在合成事件上加一个只给内部用的标记，
+    `applyChange` 看到它就对该地址 `recordIncomplete` 并用新增的 `ApplyFailure` 成员 `carried-incomplete` 作原因，且这条事件的结果
+    记为 `applied: true`（不成为 `cannot-apply`）。不这样做的话，合成事件要么当成功（值是空的、不报不完整），要么当失败（进待处理）。
+    替代方案（不动引擎）：用一条打到不存在条目的补丁强制失败，再在服务层把这类标记换译，并从 `pending` 与 `outcome` 里过滤；
+    我不推荐，因为过滤点会散在 outcome、pending、origins、impact 四处。动引擎的量是 apply.ts 约 30 行加一个失败码，两引擎共用同一个入口，
+    差分天然覆盖。
+  - 地址在切口处不存在、命名空间没启用或已去掉：跳过（不生成事件）。
+  - 合成事件不触发约束之外的任何副作用；它套用时碰到约束失败（例如带过去的数超过子线上的上限）：按普通套不上处理，地址标不完整，
+    但这条失败不进 `pending`（过滤掉 `changes` 全是合成事件的 `cannot-apply`），而是由线层改写成“带过去的值套不上”
+    并入 `LinePendingItem`（第 3 节）。这种情形 Spec 没写，第 7 节第 6 条。
+  来历：`origins` 里对应的 `patch` 步，`change` 以 `carry:` 开头的，线层换成新的步种类
+  `{kind: "carried", line: 父线, at: 触发处变更 id, value}`，“可以接着要父线上的来历”就是对 `{line: 父线, position: {after: 触发处}}`
+  再问一次（`OriginStep` 联合加一种，只有线层产出，引擎不产出）。
+  模式：带过去的值只取实际模式，原因见第 0 节第 2 条与第 7 节第 1 条。
+
+------ 2.4 增量维护：按值比对决定更新哪些线 ------
+
+  前提（ADR 0042 决策 4，原型已验证“预先推算会漏、按值比对不漏”）：一次发布以后，对每条已有线投影，按线树从父到子：
+
+  A. 结构性重建（直接从头建这条线，不增量）：线的定义按值变了（分叉的任一字段、父线、状态、种类），或切口变更的安放键变了，或章序/登记
+     变了（`changed.structural`），或线表里它的祖先线是这样。后代线跟着重建（输出 10）。
+  B. 否则增量：
+     1. 候选 id = 这次改到的变更 id 与核对点 id（`changed`），加上父线本次变了的合成事件 id。
+     2. 对每个候选，用同一个成员判断函数（构造里第 3、4 步）看新数据里它是不是这条线的成员、是不是越界，与上一份投影里有没有它比较。
+        在旧视图里或在新视图里的，都是这条线“改到的”（挪过切口、挪进挪出都算）。记录表按“上一份拷贝加按 id 改”产生新的 Map。
+     3. 带过去的值：只有父线引擎这次更新过（或重建过）才重读：对每个地址用父线新引擎读触发处的值，与上次存的值按规范 JSON 比较，不同的
+        换新的合成事件对象并计入改到的 id（并向后代线传）。父线没动就不读。
+     4. 改到的 id 里没有与这条线有关的、`changed.entries` 与 `changed.checks` 也为空：跳过这条线，沿用上一个引擎对象，`recomputed` 为 0
+        （验收 4 的“改 c2 的金额：r1、r2 不更新”与“只改 r2 上的一条记录：status 显示只更新了 r2”就是这一步）。
+        `changed.entries` 非空时每条已建的线都更新（条目初值进每条线的输入，引擎对 `entries` 从头起标脏，这与不分线时一致，原型“改初值：两条
+        线都重算”）。决策与建议的变化只换 `records.decisions` 与 `suggestions` 的引用，不碰引擎。
+     5. 否则 `engine.update(inputs', {entries, checks, changes: 改到的 id 加合成 id})`。引擎只看前后两份里同 id 的对象，所以前面
+        用“候选 id”给的 `changes` 够用；成员变化（挪出挪进）靠旧、新两份输入里一份有、一份没有被引擎的 update 识别（incremental.ts update 里
+        对 `world.changes.get(id)` 与 `next.world.changes.get(id)` 两边各取一次）。
+
+  规模：每条受影响线每次发布的线层开销是“Map 拷贝加按 id 改”约 2 到 5 毫秒（Q2.1 的实测下限）加一次带过去值的读取（每个地址一次
+  单条目折叠，微秒级），加引擎自己的更新。主线没有任何分叉时整条路径是 `records === data`，没有线层开销。
+
+------ 2.5 常驻、最近使用淘汰、与读视图和世界版本的配合 ------
+
+  三类线：
+  - 常驻（每次发布立刻更新）：当前线、与它的全部祖先线（子线更新要读祖先线的触发处值，所以祖先线必须一起更新；这一条 Spec 没写，第 7 节
+    第 4 条；祖先线不占那“最多 3 条”）。
+  - 保温（最近使用的最多 3 条，不含常驻的）：发布时不更新，记下“从上次追平之后累计改到的 id 集合”，下次读取时才按 2.4 的 B 追平
+    （惰性追平）。累计的集合太大（超过线记录数的一成）或隔了超过 50 个版本，或碰到结构性变化，就丢掉从头建。
+  - 其余：丢弃，读取时从头建。
+  这样 Spec 输出 9 的“淘汰只丢派生的结果，再读结果与没淘汰逐字相同”成立（线投影是数据的纯函数），输出 15 的“不常驻的线不随之重算”也成立；
+  同时用得多的第 2、3 条线不用每次读都付整条线的建构代价（原型建一条整本的线 0.8 到 2.5 秒，追平是几十毫秒）。
+  但有一个例外必须说清：对继承区间的写入（见第 3 节“波及与根因”）要立刻追平这条线，不能惰性。
+
+  与世界版本、读视图：
+  - `World` 不可变，每个世界对象带一个 `LineSet`。`LineSet` 里已建的线是不可变的值对象；惰性建与惰性追平的结果缓存在这个 `LineSet` 自己的备忘里
+    （只加不改）。发布返回新世界时，新 `LineSet` 共享旧的常驻线（已更新成新的）与保温线的“旧投影加累计 id”，不共享备忘。读到旧世界的
+    调用方（例如拿着快照的剧情）在旧 `LineSet` 上读，不会看到新世界的任何东西，也不会触发新世界的追平（输出里“发布进行中读到之前的完整版本”）。
+  - “最近使用”的顺序是唯一跨版本共享的可变状态，放在一个小对象 `LineUsage` 里，通过 `WorldOptions.lines` 交给 `LineSet`；
+    它只决定“发布时保温哪几条”，不影响任何结果。当前线从 `chapterLines` 算（最新一章最后一段讲的线）。
+  - `CanonReadView` 按线各一个：服务里的 `#viewCache` 从一个条目改成按线的小表，键是线，值与现在一样随 (世界, 输入代次) 作废；
+    `onLine(line)` 与 `lines()` 在视图上新增；`line` 字段取这条线的 id；`entries()`、`object()`、`decisions()` 与线无关，所有线共用；
+    `changes()`、`tellings()`、`presence()`、`entry()`、`origins()` 等读该线的 `records` 与 `engine`。
+  - 线投影的构造发生在读取的同步段里，最长约 1 到 2 秒（输出 15 的预算），期间没有读取在途被打断：读取与发布都在同一事件循环、排队，
+    只是这一次读取慢；status 记构建耗时（第 5 节，原 Q5.2）。
+
+==================================================
+第 3 节 设计：写入路径
+==================================================
+
+校验落在哪里：`world.ts` 的 `validate(world, data, engine, request, changed)` 现在拿“一个引擎”。改成按每条被改的变更或核对点所在的线取
+线视图（`lines.get(line)`，用写入后的数据算），其余逻辑照旧。新增的校验单独成文件 `world/forks.ts`（分叉的 `invalid-fork`、`line-taken`）与
+`world/line-rules.ts`（安放规则：`line-not-found`、`line-planned`、`line-out-of-bounds`、`line-ended`、`plan-not-visible`），由 `validate` 调用，
+形状同 `castProblems`、`statementProblems`。错误码走现有的 `Problem {code, ref, path, reason?}`：`line-not-found` 是 `ref-invalid` 的原因
+（components.md 输出 18，Spec 失败表第 1 行），其余码是 `validation-failed` 的 `code`。
+
+逐项（按 Spec 输出编号）：
+- 安放的线不存在（输出 1、状态表）：`referenceProblem` 的 `line` 分支，原因 `line-not-found`，两种模式都不存在才报。
+- 已写记录落在计划线（输出 1）：`kind === "written" && status === "active"` 且线只在计划模式存在 → `line-planned`。计划与已撤销的不报。
+- 越界（输出 3）：本线记录 `compareRanks(rank, cutRank) <= 0` → `line-out-of-bounds`，详情带切口 id。已写与计划都查；未排章的没有键，不报。
+- 结束（输出 3）：线的 `end` 为 `return`/`stop`，且记录的键晚于 `endAt` 那条变更的键 → `line-ended`。分叉本身是父线上的记录，不受子线结束影响。
+- `plan-not-visible`（输出 4）：已写变更 `links[].plan`（`fulfills`）必须在这条线的 `records.changes` 里。`replaces` 同样要求看得到被替换的计划
+  （Spec 只写了兑现，我建议一并，第 7 节第 8 条）；`splitFrom` 的 `by` 照现有规则（同一线视图里）。
+- 子线上不能有计划自己的一份（输出 4）：不是校验，是投影决定的：继承来的计划在子线上就是父线那个对象，只读，因为对象 id 唯一；
+  “改计划的取消、内容、安放、补丁”改的就是这个对象，所有看得到它的线按成员判断各自更新。不用额外代码。
+  兑现、替代、拆分的进展也由投影自然给出：兑现它的变更只在写它的线及后代线的视图里，所以“只在子线算已兑现、父线不变”“分叉后在父线写的
+  替换不进子线，子线上旧计划照旧”都不需要引擎做任何事（reference.ts 的 `progressAt` 只扫本线视图里的变更）。这是 ADR 0042 最大的收益，
+  我在第 6 节为它写专门的断言。
+- 分叉的校验（输出 14）：
+  1. `parent` 在线表里存在（两种模式至少一种），且 `at.line` 等于 `parent`（分叉安放在父线上）；
+  2. `cut` 在父线视图的变更里，是已写的、已排章的（有键）；切口对象不存在、是计划或未排章报 `invalid-fork`，路径 `fork.cut`；
+  3. `trigger` 只有 `type === "rollback"` 能有，在父线视图里，键晚于切口键；`back` 要有 `trigger`；`back` 的间隔形状与时间 Spec 一致，
+     `unit` 不细于历法最小单位（`invalid-time`，复用 `statementProblems` 里的间隔检查）；
+  4. 回溯的安放键不早于触发处键，其余种类晚于切口键（`invalid-fork`，路径 `at`）；
+  5. `line`：新线用 `tmp:` 发号（见 2.1）；不带 `tmp:` 的只许兑现计划分叉；
+  6. `endAt` 是本线记录（`at.line === 本线`）、已排章；`end` 为 `return`/`stop` 时必有；改线上记录让 `endAt` 变未排章 → 拒收
+     （“之后把它改成未排章的写入拒收”）：这条要在对变更的校验里反查“我是不是某条线的 `endAt`”，用线表的 `endAtOf: Map<变更 id, 线>`；
+  7. `carry` 每项：条目在切口处存在（`entryAfterChange(entry, cut)` 非空且未删除）、地址是命名空间字段或列表（不是列表元素、不是子字段，
+     用 `parsePath` 判）、字段在声明里、不重复；
+  8. 父线链无环（线表里检测）；
+  9. 缺省 `carry`（输出 7）：写入时没给就补：读切口处 `who` 的各命名空间里声明 `carry: true` 的字段（经 `entryAfterChange` 与字段声明），
+     补出来的项过不了第 7 条就跳过。补要在“新数据已套上、引擎已更新”之后做（切口可能是同一请求里新写的变更），所以不放进 `fillDefaults`，
+     走与前史补位同样的做法：套完以后改写对应的 op（world.ts #publish 里 `placePrehistory` 之后那一段就是先例），再校验。
+  不过的整次拒收（`invalid-fork`，详情给出哪一项与路径）。
+- 保存形状：存下来的分叉里 `carry` 是补好后的列表（输出 7“补好的列表存进分叉”）。
+
+跨线的还原依赖（输出 11）：
+  - 现有 `dependsOn(later, earlier, groups)`（world.ts）按修订的操作判。加两条，都基于重放时随操作维护的 `Indexes.touchedLines: Map<修订 id, Set<线>>`
+    与 `createdLines: Map<修订 id, Set<线>>`（前者是这次修订里写下或改动的变更与核对点在改后所在的线，后者是它新建的分叉定义的线）：
+    1) later 的 `touchedLines` 与 earlier 的 `createdLines` 有交 → later 依赖 earlier（“在一条线上写下的修订依赖新建这条线的分叉的修订”）；
+    2) later 的 `refs` 里有指向 earlier 所建线的引用：现有规则 `createdIds.has(reference.target.id)` 已覆盖，只要 `createdIds` 把 earlier 所建线的 id
+       放进去（`created` 现在只收操作的 ref）。
+    依赖取传递闭包的现有逻辑不变，所以分叉连同这条线与后代线上的修订一起还原。
+  - 不在日志里存 `touchedLines`：重放时顺着 `op.after.at.line`（create）与 `op.fields` 里 `at` 的改后值（modify），没改安放的 modify 取此刻
+    `lineOfObject` 表里的线（重放时维护一张“对象当前在哪条线”的表）。这样日志不多一个字段，旧日志无需迁移。
+  - 还原父线上被子线继承的记录：Spec 说“子线上改过同一地址的修订按地址规则是它的依赖”。现有的“地址规则”只有改同一对象的字段路径与改它新建的
+    列表元素（dependsOn 的 `paths` 与 `elements`），没有“不同记录改同一状态地址”的依赖；我不建议新增它（会让几乎每次还原都拖出一串依赖）。
+    验收 8（还原第 3 章那次记账，列出 r1 第 10 章那次修订）在“伞”是父线那条记录 `listAdd` 出的列表元素、r1 的修订改了这个元素时，已被现有的元素规则
+    抓到（元素规则不看线）。Spec 要在这一条写清是哪种（第 7 节第 7 条）。
+  - 撤销父线上的一件事（输出 11 末句）是普通写入：子线上依赖它而套不上的记录不挡写入，各成一条待处理，根因是这次撤销；预览先列出它们。
+    见下面“波及与根因”。
+
+波及与根因（这是第 2 节 2.5 里“继承区间的写入要立刻追平”的来源）：
+  - 待处理“套不上”按根因合并，根因来自 `Indexes.brokenBy`，它在重放时取自每个修订存下的 `impact.broken`（world.ts replay；pending 里
+    `this.index.brokenBy.get(change) ?? change`）。这是日志里的历史，不能从数据重算，所以“线上哪条记录因这次写入套不上”必须在发布时算出来存进
+    `impact.broken`，不能等读那条线时。
+  - 因此每次发布：先用 2.4 的成员判断求候选线（这次改到的“已写、有补丁或状态变了”的变更，在哪些线的视图里，或碰到哪些线带过去的地址），
+    候选线若没建就现建，已建的就更新，再对它们逐条比 before/after 的 `outcome` 算 `broken`。计划的改动不会让实际模式的结果翻转，
+    所以只改计划的发布没有候选线；只在当前线最新一章记账的发布，因为后代线的切口早于这些记录，也没有候选线。
+  - `impact.broken` 的元素现在是变更 id；子线上套不上的记录用 `线:变更` 的写法（`Id` 只要求非空字符串，schema 不改），`brokenBy` 的键同样带线。
+    原因：同一个变更 id 可能在父线套得上、在子线套不上，只按 id 存会让后一次覆盖前一次，根因串线。
+  - 代价：写入继承区间（切口之前的早章）的发布，要立刻把所有受影响的后代线建出来或更新（每条 0.5 到 2 秒），线数少时可接受，线数多时发布会慢。
+    这与 Spec 输出 15 “不常驻的线不随之重算”只在“写入落在切口之后”时成立，Spec 要补这个限定（第 7 节第 10 条）。
+  - `impact` 的 `where` 与 `values`：`where` 是这次写入所写的线上的读取位置（`ReadPosition.line` 带上），`values` 的读取也按这条线。写到多条线的请求，
+    取第一条变更所在的线。`pendingResolved/Added` 取同一条线的待处理变化加上被更新的其它线新增的“套不上”项（合并进 `broken`）。
+
+改分叉的波及面预览（输出 10，`preview` 在现有的 `World.preview` 里）：
+  - 预览本来就是“做发布的全部计算、不发布”，所以改了分叉的预览会走 2.4 的 A（结构性重建）。在这条路上额外收集一份 `worldline` 报告：
+    1) 越界：每条受影响线上 `outOfBounds` 在改前改后的差（新进入的）与切口（纯键比较，不要引擎）；
+    2) 计划看得到与否：每条线投影里计划 id 集合的改前改后差；
+    3) 计划进展：对 2) 里差出来的计划与继承区间里改动处涉及的计划，在改前改后的线引擎上读 `progress`（要建线，所以放第二期，受影响线多于 5 条时只给
+       前 5 条并标 `truncated`）；
+    4) 有正文讲述的章：受影响记录（越界与进出的）的 `told` 里 `source: "chapter"` 的章，不需要引擎。
+  - “这条替换只在主线上”（验收 2）：预览一条带 `replaces` 的计划写入时，算两个线集合：看得到新计划的线，与看得到被替换计划的线，后者减前者非空就标出
+    “只在 X 线上，Y 线上旧计划仍有效”。纯成员判断，不要引擎。
+  - 范围声明：预览报告随 `WriteResult` 的预览结果带出（`preview` 的返回加一个可选字段 `worldline`），不进修订，不存。
+
+变更列表按安放范围筛（输出 5）：
+  `ChangeFilter` 新增 `view?: string`（看哪条线的视图，缺省取读取缺省线即主线）与 `after?: string`、`through?: string`（变更 id，`after` 不含、`through` 含，
+  比的是安放键）。`listChanges` 现在读 `world.data.changes`，改成读 `LineView.records`；筛选写在同一个函数里。`line` 这个名字留给剧情线（现状），
+  不重用（第 7 节第 5 条）。被抹掉的那段 = `{view: 父线, after: 切口, through: 触发处}`。
+
+线的待处理（输出 1、3、model 输出 16）：新增 `LinePendingItem`，与 `TimePendingItem` 同一套接法（`sortableCanonItem` 里加排序位置：取记录的安放；
+  `PENDING_GROUP_ORDER` 加三种）：
+  - `line-out-of-bounds`：本线的 `outOfBounds` 记录，列出记录与切口，进它所在线的待处理；
+  - `line-missing`：`at.line` 不在线表里（两种模式都不存在）的记录，在任何线的待处理里都列；
+  - `line-planned`：记录在只在计划模式存在的线上、已写，在两种模式下都列，根因是最近一次改那条计划分叉定义或兑现它的已写分叉的修订
+    （用 `Indexes.touched.get("change:<分叉 id>")` 查版本再到修订，不另存）。
+  合成事件“带过去的值套不上”并入同一族（`carry-failed`），这是我加的，Spec 没有（第 7 节第 6 条）。
+
+==================================================
+第 4 节 设计：时间按线，剧情插件按线的接入点
+==================================================
+
+------ 4.1 时间按线（canon.time 输出 1、6、8、14、15、17） ------
+
+  - `World.time(mode)` → `World.time(line, mode)`：`timeState(lv.timeKey, timeInputOf(lv.records, order), settings, mode, plans)`。`timeInputOf` 本来就是
+    `{changes, entries, order, createdAt}` 的纯投影（world.ts），喂 `lv.records` 即可，合成事件不在 `records` 里，所以不会成为事件。
+    计划模式的 `plans`（“全书当前进展里未兑现的生效计划”）改用这条线的引擎读 `progress(plan, defaultPosition)`（所以按计划模式读一条线的时间
+    会强制建这条线的引擎，不会多于现在读主线要做的）。
+  - 缓存身份：`timeState` 现在按“数据对象”缓存（time/state.ts 的 WeakMap）。线视图的 `timeKey` 在这条线的记录、条目、章序都没变时保持同一个对象，
+    跳过的线（2.4 B.4）时间缓存照样命中。
+  - 回溯的 R 点与 `fork-time-mismatch`（输出 6）：
+    1) nb-time 的 `assembleNetwork` 接受额外的 `events` 与 `constraints`（`NetworkConstraint` 现成的形状），约 30 行；`solveNetwork` 不改。
+       R 当成一件没有说法的合成事件 `fork-R:<线>`，加三类约束：
+       - 切口起点到 R：`R - 切口.s ∈ [d⁻ - back.max, d⁺ - back.min]`，`[d⁻, d⁺]` 是父线同一模式网络里“触发处起点减切口起点”的范围；
+       - 起点连到元年时：`R ∈ [a - back.max, b - back.min]`（`NetworkConstraint` 的 from 取 origin）；
+       - 子线自己的每件事不早于 R：`e.s - R ∈ [0, ∞)`（子线自己的记录是 `lv.def` 的本线记录，这个集合我们本来就有）。
+    2) 父线的网络要先算：子线的 `timeState` 依赖父线的 `timeState`。缓存键里要带父线状态对象的身份（`WeakMap<父线 TimeState, ...>` 多一层），
+       否则父线上切口到触发处之间的说法变了，子线的 R 约束不更新，违反输出 8（时间也在“读取结果”里）。
+    3) 待处理新增 `fork-time-mismatch`（两种情形：触发处所在分量不可确定或 `back` 的词不在模糊词表；切口那件事一定晚于 R）：并入
+       `TimePendingItem`，排序、截取、键的写法沿用 time/state.ts。键按内容：分叉变更 id 加原因。
+    4) 回溯分叉本身在父线上是一条没有补丁的已写变更，带时间说法时（回溯那一刻）正常进父线网络；是否把它当事件，见第 7 节第 4 条（Q4.5）。
+  - 带视图令牌的 `time`（输出 15）：`#boundedTime` 现在过滤 `world.data.changes`（service.ts），改成过滤 `lv.records.changes`，`lv` 取 `grant.line`
+    的线视图；缓存键 `mode|until` 加线。
+  - 回溯带来的时间校验（输出 9：说法的 `of` 指向这条线视图里的变更）：`statementProblems` 的 `data.changes.has(of)` 改成对这条线的 `records.changes`
+    查（新写变更的线取它自己的 `at.line`），这是写入路径里唯一另一个需要按线查变更的地方。
+  - 时间的缓存开销提醒：`touchesTime`（world.ts）按“碰没碰到与时间相关的对象”决定要不要为新数据建网；分线后要加一条“碰到分叉或线的记录”，且按线判，
+    否则每次发布又要给每条线建网。
+
+------ 4.2 剧情插件按线 ------
+
+  接入面很小，因为剧情只读 `CanonReadView`，且按视图对象缓存索引。
+  1. 内核给 `CanonReadView` 加 `lines()` 与 `onLine(line)`（2.5）。`lines()` 返回线表摘要：`{id, name, parent, type, who, cut, trigger, back, carry, end, endAt,
+     planned}`，剧情要“分叉的 who、父线与触发处”（knowledge.md 输出 4）就是读它。
+  2. 剧情的远程方法（plot/shared/contracts.ts 的 `plotWorldContract`）输入里的 `position` 已有，就靠 `ReadPosition.line` 带线；`withView` 在入口
+     `view.onLine(position.line ?? 活页夹缺省线)`，其余算法不变。`openViewpoint` 现在写死 `line: "main"`（plot/backend/plugin.ts），改成取输入的 `line`
+     （缺省按 `until` 的章取活页夹线）；`viewed(token)` 在内核按 `grant.line` 取线视图。
+  3. 知情（knowledge.md 输出 4，回溯带过去的知情）：
+     - `KnowingIndex` 现在用 `origins(know.知情)` 读显式行的每一次变化（knowledge.ts 头注释的第一种候选）。子线上这个来历里有一步 `{kind: "carried", line, at}`
+       （2.3）。剧情在这一步取父线（`view.onLine(line)`）在触发处的有效知情全部行（显式加推出），作为子线这个人在这一步的行集合，
+       key 取合成事件的 `eventKey`；之后照输出 3 继续算。`KnowingAt` 里加 `{after: 变更 id}` 与现有 `{before}` 对称（knowledge.ts `limit` 的取法已按键比较，
+       `after` 取该变更的键并把 tie 的版本提到 +∞）。
+     - 父线的有效知情是父线索引的结果，所以子线索引依赖父线索引对象：`perViewCache` 按视图缓存，父线视图是另一个视图对象，天然分开，不用互相作废；
+       输入代次变了两边一起失效（`#guarded` 的现有做法）。
+     - 分叉的 `carry` 没有这个人的 `know.知情` 时不带（Spec 原话），实现就是来历里没有 `carried` 步。
+     - 在场推出的知情（`presentLearns`）取的是在场的变更，随线视图自然是这条线的；带过去时父线在触发处推出的那些行才需要上面这一步。
+  4. 经历、按视角的视图（`Viewpoint`）：读 `view.onLine(...)` 的 `presence`/`changes`，按“视图只管线与位置”，已有的上限逻辑照旧，加线。
+  5. 伏笔（foreshadowing.md 输出 5“只看本线”）：计划、兑现、节点取线视图——`ledger(view, ...)` 传的就是这条线的视图，自动成立；
+     读者那一边（正文）不分线，保持不变（foreshadowing.md 输出 13）。
+  6. 诊断稳定键里的 `line`（model.md 稳定键定义里 `line` 是世界线 id；plot 的 knowledge/goals/foreshadow/decisions/checks 各条诊断表里“按线视图算的带 `line`”）：
+     剧情的诊断函数拿到的是 `compute(view, position, mode)`（service.ts #groups 里调的就是这样），`view` 是“位置所在线”的视图（内核按
+     `resolveLine(position)` 先取线视图再交给诊断），诊断把 `view.line` 写进键即可；`nbook.plot.guard.address` 标注里的 `lines` 筛选
+     （decisions.md）按 `view.line` 过滤守卫。内核的 `#groups` 缓存键现在是 `inputDigest|mode|position`，位置带线后自动区分。
+  7. `forkSuspected`（checks.md）：时间层的 `forkSuspected` 判据“时间层答有而本章没有分叉”要读 `lines()` 里本章所在线的分叉与 `cut/trigger` 的安放章；
+     放在阶段 F 之后（它本来就在 Spec 的第二批）。
+  8. 剧情的数据版本 `PLOT_DATA_VERSION` 不变：线是内核读到的输入，不是剧情自己存的数据。
+
+==================================================
+第 5 节 切片（各自可提交、各自可验证）
+==================================================
+
+规模按“新增或改动的非测试行数”估，测试行数约同量或更多；先后与依赖在最后一行。每片结束的验证：本包 `bun test` 全过（334 起，只增不减）、
+`bun run typecheck`、`governance:check`；涉及 neuro-book 的片另跑受影响的 `bun run test:affected`。
+
+D0 接缝重构（约 400 行改动，零新行为）
+   `World` 里 `engine`、`time`、`pending`、`computeImpact`、`validate`、`edits`、`render`、读视图都改成经 `world.line("main")` 取 `LineView`
+   （此时 `LineView` 只有主线，`records === data`）。`WorldSnapshot` 的 `engine` 成员换成 `line(id)`。目的是把 38 处引用一次改完，后面各片只往 `LineSet` 里加。
+   验证：现有 334 个测试不改一行通过；规模脚本 `scripts/scale.ts` 前后各一次，读取与发布的耗时无可见回退（按同一负载下比值）。
+   这一片先做，是为了让后面每片的 diff 小到能审。
+
+D1 数据与校验（约 600 行）：schema、引用、线表、分叉校验、临时线 id
+   `PlacementSchema`/`ReadPositionSchema` 加 `line`，变更加 `nature: "fork"` 与 `fork`，`GapSchema` 导出；`walkReferences` 与 `referenceProblem`；
+   `#publish` 为 `fork.line` 发号、`observeIds`；`lines/table.ts`（线表，含计划分叉的定义与两个模式的存在，计划线的行为先不接）；`world/forks.ts`；
+   缺省 `carry` 补全（需要引擎方法，所以 D1 同时加两个引擎的 `entryAfterChange` 与差分扩展）；规范化（`main` 省略）。
+   此时可以写入分叉与带线的记录、`lines` 方法可以列线的树，但读取非主线仍回 `line-not-found`，记录落在线上不进主线视图（主线视图已按线过滤，
+   这一步要把主线 `records` 的“过滤”也接上）。
+   验证：验收 3 的写入侧（越界拒收放 D3）以外的 `invalid-fork`/`line-taken`/`ref-invalid` 用例；日志行逐字节不变的测试（只有主线的作品）；差分里
+   `entryAfterChange` 对 compareAll 全过。
+
+D2 线视图只读构造（约 900 行）：投影、带过去的值、读取带线
+   `lines/project.ts`（从头建）、`lines/carry.ts`（含引擎里合成事件的 `carried-incomplete` 路径，约 30 行 apply.ts）、`LineSet`（先只做“读到才建、按世界缓存”，
+   不做增量与淘汰）、`CanonReadView.line/lines/onLine`、`resolveLine`、`openView` 与 `viewed` 按线、`entry/render/lookup/origins` 的线参数、`origins` 的 `carried` 步。
+   验证：验收 1（回溯）、验收 2 里计划跨线的读取部分（p1 在 r1、r2 看得到，p2 看不到，兑现只在 r2）、验收 3 的读取部分（切口被挪后越界记录不进视图）；
+   新加的“投影对参照投影”差分（第 6 节）在固定种子上全过；时间与待处理还没分线，这一片不测。
+
+D3 写入规则与待处理（约 700 行）
+   `world/line-rules.ts`（`line-planned` 先不管，`line-out-of-bounds`、`line-ended`、`plan-not-visible`）、`LinePendingItem` 与 `sortableCanonItem` 的接入、
+   `Indexes.touchedLines/createdLines` 与 `dependsOn` 两条新规则、`impact.broken` 带线的写法与 `brokenBy`、候选线求值（“继承区间写入立刻追平”，此时追平=
+   从头建，增量留给 D4）、撤销父线记录的预览与根因。
+   验证：验收 3 全、验收 7（还原分叉 `has-dependents` 与连同还原后读取得 `line-not-found`）、验收 8。
+
+D4 增量维护、按值比对、常驻与淘汰（约 800 行）
+   `LineSet.advance`、成员判断、`LineUsage`、保温线的惰性追平、状态的“更新了哪些线与原因”、`status` 与 `lines` 方法的状态字段。
+   验证：验收 4（四步每一步与从头重建逐字相同，`status` 显示只更新了该更新的线）、验收 5（淘汰后逐字相同）；线层的随机差分（第 6 节主体）；
+   规模脚本新增分叉形状，量输出 15 三项与内存。
+   这一片风险最高，放在 D3 之后：D3 已经把“从头建”的结果固定，D4 的任何偏差都能与它对拍。
+
+D5 时间按线（约 500 行，其中 nb-time 约 60）
+   `World.time(line, mode)`、`timeKey`、nb-time 的额外事件与约束、R 点与 `fork-time-mismatch`、`statementProblems` 按线、`#boundedTime` 按线。
+   验证：time.md 验收 5（回溯往回半天、切口时间错位的 `fork-time-mismatch`）；时间待处理的“写入以后与从头重建一致”（把 D4 的差分扩到时间的两个模式）。
+   依赖 D2；可与 D4 并行，但合入时要在 D4 之后再跑一次 D4 的差分（时间缓存身份依赖 D4 的 `timeKey`）。
+
+D6 活页夹章讲的线（约 500 行）
+   `WorldOptions.chapterLines`、`setChapters` 新参数、`binder.xml` 解析（先要 Spec 定 XML 形状，第 7 节第 9 条）、`resolveLine` 的缺省线、当前线与祖先常驻、
+   `readStampOf` 的 `chapters` 项、提示与诊断：`binder-line-unknown`（诊断）、`telling-line-mismatch`、`binder-line-ended`。
+   验证：验收 6（第 8 章分两段：章首读主线、章末读 r1，第 10 段被抹掉的讲述读者算读过，`telling-line-mismatch`）。依赖 D2、D3。
+
+D7 计划线、预览波及面、变更列表范围筛（约 700 行）
+   计划分叉定义的线（`line-planned`、`binder-line-planned`、兑现与撤销的各一条待处理）；`ChangeFilter.view/after/through`；预览 `worldline` 报告第一期
+   （越界、看得到与否、受影响线、“只在主线上”标注）。
+   验证：验收 9、验收 2 里“预览里标出这条替换只在主线上”、输出 5 的“被抹掉的那段”筛选。依赖 D3、D4。预览第二期（进展、讲述章）单独一小片，放在最后。
+
+D8 剧情插件按线（约 600 行，在 neuro-book 包）
+   `lines/onLine` 的接入、远程方法按 `position.line`、`openViewpoint` 的线、知情的 `carried` 步与 `KnowingAt.after`、各诊断键带 `view.line`。
+   验证：knowledge.md 输出 4 的回溯带过去的知情（星瑕的知情在 r1 上从带过去那一点起，取父线在触发处的有效知情，含在场推出的）；plot 现有 158 行的
+   plot.test.ts 与 core 的测试不改；按视角的视图在 r1 上读审计。依赖 D2、D6。
+
+D9 规模与收口（约 200 行脚本加证据）
+   `scripts/scale.ts --fork`，按第 6 节“性能怎样量”跑三次取较低一端，写进 Task 证据；`project.md` 输出 14 与 worldlines 输出 15 的措辞按实测回写。
+
+先后与依赖：D0 → D1 → D2 → D3 → D4；D5、D6 在 D2 之后可并行；D7 在 D3、D4 之后；D8 在 D2、D6 之后；D9 最后。
+Opus 一次编码做不完的是 D2 与 D4，各拆成“从头建/增量”两段已经按上面分开；D4 内部再拆成 4a（`LineSet.advance` 与成员判断，不含淘汰）与 4b（保温线与惰性追平、
+`LineUsage`），4a 合入后已经满足验收 4。
+
+==================================================
+第 6 节 测试：怎样证明“写入以后与从头重建逐字相同”，以及性能怎样量
+==================================================
+
+6.1 引擎的差分不必扩到按线，只补两个新接口
+   引擎计算没改（线视图是引擎的普通输入），现有的“增量引擎对参照引擎”差分（differential.test.ts 的 compareAll）照旧有效。只需：
+   - compareAll 加 `entryAfterChange(id, change, mode)`：对每个条目、每条变更、两个模式比；
+   - Sim 的随机世界里偶尔放几条带内部标记的合成事件（带过去不完整、带过去套不上），验证 `carried-incomplete` 在两个引擎里一致。
+
+6.2 线层的差分（新增 `tests/lines-differential.test.ts`，核心）
+   被测：生产的线层（`LineSet` 的增量维护、惰性追平、淘汰）。参照：测试目录里另写一份 `tests/oracle/projection.ts`，按 Spec 输出 2、3、6 逐条直译：
+   递归、不缓存、不共用生产里任何函数（连安放键比较也自己写一份），产出每条线的 `{records, 合成事件}`，再交给 `createReferenceEngine`。
+   每一步随机修改后，对线表里每一条存在的线比较（`toEqual` 或规范 JSON 逐字）：
+   - 记录集：`records.changes` 与 `checks` 的 id 集合和每个对象（同一引用）、`outOfBounds`；
+   - 引擎对全部问题的回答：照 compareAll（`entry`/`origins`/`pending`/`outcome`/`progress`/`eventKey`/`plannedAt`/`chapterEntries`，两个模式，全部读取位置）；
+   - 合成事件：值与不完整标记；
+   - 时间：两个模式的 `timeState.items` 与回溯 R 的范围（D5 之后）；
+   - 列表：`changes` 带 `view/after/through` 的几组固定筛选，`tellings`、`presence`。
+   随机生成器（扩展 differential.test.ts 的 `Sim`，不另起炉灶）：
+   - 线树：最多 4 条线、深度最多 3；操作“分叉”从某条存在的线里挑一条已写变更当切口，回溯的再在切口之后挑触发处，随机 `type/back/end/endAt`；
+   - `carry`：随机从切口处存在的条目里挑数值、文字、列表、语义档字段，也故意挑一个父线上已不完整的地址；
+   - 记录：随机落在某条线、多数落在切口之后，约一成故意越界（在 Sim 层不经校验直接放进数据，测读取侧；经发布路径的版本里会被拒收，计数）；
+   - 结构性操作：挪切口、挪触发处、改 `carry`、改 `parent`、改 `type/end`、撤销或待定一条分叉、把一条记录改到别的线、把记录挪过切口与触发处（验收 4
+     的几步）、章序打乱、条目初值改动、条目删除；
+   - 计划：分叉前后写计划、跨线兑现与替换、取消；
+   - 计划线（D7 之后）：随机放计划分叉、再随机兑现与撤销。
+   旋钮：断言整组里满足的比例，防止序列走不到关键路径：分叉后至少 30% 的步在子线视图里有记录变化；带过去的值变过的步至少 10%；
+   “父线上有变化而某条已建子线被跳过”的步至少 15%；越界、线不存在、计划线上的已写记录各至少出现一次。种子固定，环境变量放大
+   （沿用 `CANON_DIFF_SEEDS`/`CANON_DIFF_STEPS`），失败时打印种子、步数、操作日志，并附“收缩”：重放同一序列，二分去掉一半操作后仍失败就缩小输出。
+   两条专门的断言：
+   - 完备性（输出 8）：一条没被更新的线，其读取结果等于从头重建的结果（即上面逐字比较里的“被跳过的线”）；
+   - 范围（输出 8 的“只更新结果会变的线”）：只做不会漏的方向（更新集合 ⊇ 结果变了的线集合），不要求最小；但验收 4 的两个具体步骤
+     （改 c2 金额：r1、r2 不更新；只改 r2 上的一条：只更新 r2）单独写成固定断言，防止“按值比对”退化成“全更新”。
+
+6.3 经真实发布路径的“写入以后与从头重建”（输出 8 的原话）
+   新增 `tests/lines-publish.test.ts`：用 `World`（含 `publish`）而不是 Sim，随机生成合法与不合法的写入请求（分叉、带线记录、改分叉、撤销、还原），逐步发布；
+   每一步之后：`World.replay(world.revisions, options)` 从头建一个新世界，对两个世界的每条线用规范 JSON 逐字比读取结果（同 6.2 的清单）。
+   这一层证明的是“增量发布路径 + 惰性追平 + 淘汰”在真实写入路径上与重放一致，包括 `impact.broken` 带线的写法与 `brokenBy` 根因（重放读它）。
+   附加：同一份请求序列分别在“常驻 3 条”“只留 1 条”“全部淘汰”三种淘汰参数下跑，结果相同（输出 9）。
+
+6.4 其它固定用例（行为测试，对应 Spec 验收 1 到 9；验收 4 用 6.3 的框架逐步断言）
+   - 主线无分叉作品的逐字节不变：读现有 `tests/sample` 的日志，写入后日志行与改动前逐字节一致；
+   - 旧世界不受新世界影响：先取 `service.snapshot()`，再发布一次改了继承区间的写入，旧快照上读未建的线，结果是旧版本的，且新世界读同一条线是新结果；
+   - 淘汰透明、祖先固定：当前线是孙线时祖先线不被淘汰，读孙线不重建祖先；
+   - 计划跨线的 ADR 0042 收益用专门断言：替换只在写下它的线上（开发者 2026-11-05 定的那条）、兑现只在写下它的线及后代；
+   - 带过去的值：数、文字、列表、语义档（已归纳与未归纳）、不完整、地址在切口处不存在、命名空间没启用；
+   - 节流：读取非当前线的第一次构建超过 2 秒的情形用大小为 1000 章的构造量，不进单元测试，进脚本。
+
+6.5 性能怎样量（输出 15 与 project 输出 14）
+   扩展 `scripts/scale.ts`：加 `--fork`，在 1000 章、每章 5 个计划 15 条已写变更 2 个核对点的形状上，第 500 章第 7 条之后一次回溯分叉（带三个地址），子线 r1 上放
+   500 章同形状的记录。按 project.md 输出 14 的条件（参考机器，负载低于 1，进程内直接调用）量，每项跑 5 次取中位，三轮取较低一端，记 `uptime`：
+   a. 建 r1 的视图并第一次读取（含祖先主线的前缀引擎）：目标 2 秒以内；
+   b. 在已建好的 r1 上随机读条目 50 次的中位数：目标 20 毫秒以内；按计划模式第一次 1 秒以内，之后 20 毫秒以内；
+   c. 当前线 r1 上发布一次记账（15 条变更 2 个核对点，经 `World.publish`）10 次中位数：目标 100 毫秒以内，同时断言主线引擎没被更新、保温线没被更新
+      （`recomputed` 为 0）；
+   d. 对照项：写在主线早章（继承区间）、r1 已建时的发布耗时与更新的线数（预期约为 c 的几倍到十倍，这是第 3 节“波及与根因”的代价）；
+   e. 改常出场条目的初值，r1 与主线都建好：预期约为单线的两倍（原型 1.5 到 2.5 秒是负载下的数，低负载估 1 到 1.5 秒）；
+   f. 内存：每组前后 `Bun.gc(true)` 再取 `process.memoryUsage().heapUsed`，量单线、当前线加祖先线、再加保温 3 条；预期 14 到 34 MB 一条（原型），最坏约 100 到 150 MB；
+   g. 线层自己的开销：打开计时点，单独报告“线层开销”（成员判断、Map 拷贝、带过去值比对）与引擎更新各占多少，目标线层每条受影响线 ≤ 5 毫秒
+      （我现测的 Map 拷贝加键过滤下限约 4 毫秒，负载约 5.5）。
+   当前机器负载 5 到 14，我不在这里给性能结论；上面的预期是外推，D9 实测后回写 Spec。
+
+==================================================
+第 7 节 Spec 里不清楚、互相矛盾或代价明显偏高的条目（逐条，给改法）
+==================================================
+
+1. 输出 6“读取的模式与这次读取相同”。一条线一份视图的前提下，带过去的值不能随模式变（见第 0 节第 2 条）；而且在计划模式下父线触发处的值已经含
+   触发之前的计划，子线又按“分叉前写下的计划”继承了切口之后的那些计划，两边会把同一个计划套两遍。改法：带过去的值只取实际模式；子线按计划模式读时，继承来的
+   计划按它们自己的位置照常叠在子线上（这时“触发处之前的计划”会重新生效，是想要的：打算没被回溯抹掉）。验收 1 到 9 全是实际模式，不受影响。
+   若坚持字面，代价是每条线两份视图与两个引擎（内存、更新时间翻倍），不建议。
+2. 输出 2 与输出 3 对“同一位置”的边界不一致：输出 2 用“不晚于切口”，输出 3 说“按全序晚于切口、同一位置也不行”，而全序里同一安放键内还有版本与 id 的先后。
+   父线上与切口同一安放、写得比切口晚的记录，按全序在切口之后，按“不晚于”又被继承。改法：写明两处都只比安放键（`compareRanks`），不比版本；合成事件在这个键上
+   排在所有继承来的记录之后（本报告 2.2）。同时补：未排章的计划（没有键）在子线上不越界，照收。
+3. 切口、触发处、`endAt` 退化没有规定：它们是变更 id，变更不能删，但可以被撤销、待定、挪成未排章或所在章被删。切口变成没有键（未排章、章删了）时线的继承区间算不出来；
+   切口被撤销呢（它的安放键还在）。改法：写明“线的切口只看那条变更对象的安放键，与它的状态无关”；没有键时，这条线与后代线不可建，记录各成一条待处理 `line-missing`，原因
+   写“切口失效”（沿用已有的码，不增新码）；`trigger` 没有键时带过去的值按切口处取并给一条待处理；`endAt` 没有键时不限制新记录并给提示。校验在写入时拒收的那一半已有
+   （输出 14 的“`endAt` 已排章”），这一条补的是“之后变得无效”。另外分叉父线链有环（改 `parent` 造成）也要写：环上的线都不存在，待处理 `line-missing`。
+4. 输出 9 常驻的定义没有祖先线：建与更新子线都要读父线引擎的触发处值，所以祖先线必须同样常驻。改法：写“当前线与它的祖先线常驻，祖先线不占最多 3 条的名额”，并在输出 15 把
+   “建子线的视图并第一次读取 2 秒以内”的预算说明含祖先链。顺带：分叉是不是“事件”（进时间网络与在场）、有没有时间说法，Spec 只说“没有补丁”，要写明（建议：它是父线上一件
+   普通的已写变更，可以带时间说法与参与者，回溯那一刻的时间就写在它上面）。
+5. 变更列表筛选三处写法不同：project.md 方法表（筛选里已有“剧情线”与“世界线”，范围 `{after?, through?}`），worldlines 输出 5（范围里带 `{line, after, through}`），
+   现有代码的 `line` 是剧情线（service/reads.ts、contracts.ts:75）。改法：`line` 保持剧情线；世界线筛选叫 `view`，意思是“读这条线视图里的变更”（缺省主线），范围是
+   `{after?, through?}`（变更 id，`after` 不含、`through` 含，比安放键）；被抹掉的那段写成 `{view: 父线, after: 切口, through: 触发处}`；worldlines 输出 5 与 project.md 同步改写。
+   还要写明缺省：不写 `view` 时只列主线视图（与读取缺省线一致）还是所有线的全部记录；我建议前者，要全部另给 `view: "*"`。
+6. 输出 6 缺情形：(a) 语义档字段在父线上未归纳时带什么：引擎视图只有事件条数没有文字，建议带“起点加事件”（来历的 `reduce` 步里取）；(b) 列表元素的语义档子字段的
+   事件不会随整列表的 `set` 带过去（apply.ts 里 `set` 不清不带元素事件），建议写明“只带元素当前的起点，事件不带”；(c) 带过去的值在子线上套不上（超过上限等约束）时算什么：
+   建议写“这个地址不完整，原因是带过去的值不完整”，与父线不完整同一个原因，不进 `cannot-apply`；(d) 合成事件在待处理里显不显示：输出 6 说不进待处理，但(c)要有地方告诉作者
+   （本报告加了 `carry-failed`），Spec 要么承认这一项，要么把 (c) 并进“不完整”的显示。
+7. 输出 11 末尾的“按地址规则”：现有依赖规则里没有“不同记录改同一状态地址”的依赖（只有改同一对象字段、同一路径与改它新建的列表元素，world.ts dependsOn），新增会让还原几乎总是
+   带一串依赖。验收 8 在“伞”是 `listAdd` 的列表元素时已满足。改法：写“改过它新建的列表元素或子键的修订”，删去泛泛的“同一地址”，验收 8 里写明伞是列表元素。
+8. 输出 4 的 `plan-not-visible` 只写了兑现；`replaces` 指向看不到的计划、`splitFrom` 指向看不到的计划与 `by` 没写。改法：`links` 里所有指向计划与变更的位置都必须在写入者所在线视图里
+   （`invalid-link` 的原因细分 `plan-not-visible`，与现有 `invalid-link` 对齐），Spec 写成一句通则。
+9. 活页夹章讲的线的清单形状没有 Spec：worldlines 只写“宿主给”，folder-kinds.md 与 `parseBinder` 没有相应属性。改法：在 workspace 的活页夹清单 Spec 里定
+   `<chapter id="8" line="l1"/>`（一整章一条线）与 `<chapter id="8"><segment from="1" line="main"/><segment from="30" line="l1"/></chapter>`（分段），`from` 从 1 起严格递增，
+   清单属性解析与回写（剧情插件在写清单）属于那份 Spec 的变更。D6 之前要定。
+10. 输出 15 与 project 输出 14 的关系：输出 15 说“在当前线上发布一次记账，满足发布要求（不常驻的线不随之重算）”。这对“写在切口之后”成立；写在继承区间（切口之前的早章）的发布，因为
+    `impact.broken` 与待处理的根因是历史、必须在发布时就算出来，要立刻追平所有受影响后代线（见第 3 节“波及与根因”）。改法：输出 15 限定“记账落在当前线上切口之后”，另写
+    “落在继承区间的写入，耗时随受影响的线数线性增加”；project 输出 14 的“改初值 1 秒内”加注“已建线数每多一条，耗时约线性增加”。同时 `impact.broken` 的元素写法
+    （子线上套不上的记录带线）要写进 revisions.md“存下来的修订”。
+11. 输出 8 的“按值比对”只是实现方式，而 Spec 把“哪些线被更新”由 `status` 的诊断给出且验收 4 要求“只更新了 r2”。这要求更新集合是确定的、可测的。改法：在输出 8 写明
+    “更新集合是结果会变的线的超集，且在验收 4 列出的几个步骤里等于该集合”，避免把实现细节写成合同；status 诊断给出每条线更新的原因（`record-changed`、`carry-changed`、
+    `structural`）。
+12. 日志格式：ADR 0042 后果写“日志的格式版本加一”，project.md 输出 2 与 `LOG_FORMAT` 已是 2 且已含分叉与线。改法：在 ADR 或 worldlines“边界与兼容”注明“不再升格式，属于
+    1 到 2 这一次”，并把 `line === "main"` 规范化为省略写成存储规则，使只有主线的作品日志逐字节不变。
+13. 输出 1“已写分叉的线在两种模式下都存在”与“父线不存在时这条线与后代线在两种模式下都不存在”在父线只是计划线时冲突：已写分叉在父线（计划线）上落不了（`line-planned`），但
+    父线的已写分叉被撤销后父线退化成计划线，子线的已写分叉就悬着。改法：写明“线在某个模式下存在，当且仅当它的定义在这个模式下有效且父线在这个模式下存在”，已写分叉的线在
+    父线只在计划模式存在时，实际模式下不存在、计划模式下存在，并成一条待处理 `line-planned`（根因是那次撤销）。
+14. 计划线整块（输出 1 后半、12、13、验收 9）条件分支最多、收益最小，建议在 Spec 里标成“第二批”，第一批只做已写分叉；数据形状不变（见 Q1.1）。`end: return/stop` 同理
+    只留存储与校验，提示 `binder-line-ended` 放第二批。
+15. 输出 12“初值取主线”：读取位置是初值且不写线时取主线，但在子线上读初值没有意义（初值之前没有分叉），只要在 Spec 写一句“读子线的初值，得到的是共同的初值（线的差别从切口起）”就行，
+    避免有人以为要 `line-not-found`。
+16. 输出 13 的 `telling-line-mismatch` 需要“讲述所在段讲的线”（分段的 `from` 是段号），而讲述的发生点现有定位只给到 `{chapter, paragraph}`（model 输出 27）；
+    这部分只是组合，但要写明“段号取讲述发生点的段”，且分段里 `from` 比章里实际段数大时按最后一段处理。
+17. 输出 6 的“来历显示为从某线带过来，依据是父线在触发处的那个值，可以接着要父线上的来历”，“接着要”需要一个读取位置能表达“触发处那条变更之后”，现有 `ReadPosition`
+    只有章首章末与初值。改法：`ReadPosition` 增加 `{kind: "after", change}`（只用于带线的来历），或来历步里直接带父线读取所需的 `{line, change}` 对。我的设计用后者，
+    Spec 要定。
+
+最小的 Spec 变更集（动手前必须先定）：第 1、2、3、4、5、9、17 条。其余可以与实现同步回写。
+
+==================================================
+附：我没有验证的与我看到的风险
+==================================================
+
+- 没有跑规模脚本（负载 5 到 14，不可信）；性能数字全是原型（t32）数字、我现测的两个下限（Map 拷贝 1.8 毫秒、键过滤 2.5 毫秒），与外推；均已标明。
+- 没有读 nb-time 全部实现；“R 点当合成事件加普通约束、solveNetwork 不改”是读了 network.ts 的约束形状得到的判断，从代码推断，未验证。
+- `entryAfterChange` 在增量引擎里用现有的 `foldAtPoint` 与 `Point.inclusive`，从代码推断可行，未验证。
+- 惰性追平的“累计 id 集合”依赖引擎的 `update` 在旧输入与新输入上对同 id 取两次（从 incremental.ts 阅读得到），累计跨多个版本时旧输入是追平前的那份，这一点要在 D4 的差分里重点覆盖。
+- 最大的实现风险是 D4（增量加惰性追平）与第 3 节“继承区间写入立刻追平”的发布耗时；最大的 Spec 风险是第 7 节第 1、3、4 条。
+完
