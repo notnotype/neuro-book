@@ -87,8 +87,9 @@ const aboutKey = (decision: Decision) => decision.about.map((about) => (about.ki
  * 涉及本章的决策（输出 7）：已定的在前、待定的在后（被取代、放弃的不列），各按挂的对象再按 id 排。未写的章只有计划时按计划模式
  * 读（`chapterEntries` 的计划模式把计划的涉及条目算进本章，Spec 的补充）。
  */
-export function involvedDecisions(view: CanonReadView, chapter: string, mode: Mode): DecisionRead[] {
-    const entries = new Set(view.chapterEntries(chapter, mode));
+export function involvedDecisions(view: CanonReadView, chapter: string, mode: Mode, extraEntries: Iterable<string> = []): DecisionRead[] {
+    // `extraEntries`：简报把“本章涉及的知识点”也算作本章涉及的条目（挂在这些知识点上的决策是涉及本章的）。
+    const entries = new Set([...view.chapterEntries(chapter, mode), ...extraEntries]);
     const order = (decision: Decision) => (decision.status === "decided" ? 0 : 1);
     return view.decisions()
         .filter((decision) => (decision.status === "decided" || decision.status === "pending") && involves(view, decision, chapter, entries, mode))
