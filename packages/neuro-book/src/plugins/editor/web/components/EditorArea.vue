@@ -2,6 +2,7 @@
 /** 编辑器区的根（同名 .md）：按 grid 排列编辑组，承载关闭询问与编辑器区内的键位。 */
 import {Button, Dialog} from "@notnotype/nb-ui/components";
 import {DropFeedbackOverlay, useGridLayout, useLayoutExtent, NestedGrid} from "@notnotype/nb-layout/vue";
+import type {DragSession} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
@@ -19,7 +20,7 @@ import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import {tabLabel} from "../tab-label";
 import {pageIdOf} from "../pages";
 import {createTabDrag} from "../tab-drag";
-import type {TabDrag, TabDrop} from "../tab-drag";
+import type {TabDragSource, TabDrop} from "../tab-drag";
 import EditorGroup from "./EditorGroup.vue";
 import type {EditorGroupTabMenu, EditorGroupTitleActions} from "./EditorGroup.vue";
 
@@ -81,37 +82,31 @@ onMounted(() => document.addEventListener("focusin", onDocumentFocusIn));
 onBeforeUnmount(() => document.removeEventListener("focusin", onDocumentFocusIn));
 
 /**
- * 拖动标签（输出 55）：手势与落点在 `tab-drag.ts`，这里给它结构键、画反馈、提交。结构键包括各组的标签 id、固定状态与多行
+ * 拖动标签（输出 55）：来源与落点在 `tab-drag.ts`，手势是 nb-layout 的会话，这里给它结构键、按会话的状态画反馈、提交。结构键包括各组的标签 id、固定状态与多行
  * 设置：起拖后它们变了，那一场拖动取消。
  */
-const drop = shallowRef<TabDrop | null>(null);
-const pointer = shallowRef<{readonly tabId: string; readonly x: number; readonly y: number} | null>(null);
-let tabDrag: TabDrag | null = null;
+const tabDrag = shallowRef<DragSession<TabDragSource, TabDrop> | null>(null);
+const dragState = computed(() => tabDrag.value?.state.value ?? null);
+const drop = computed(() => dragState.value?.drop ?? null);
 onMounted(() => {
     if (root.value === null) return;
-    tabDrag = createTabDrag(root.value, {
+    tabDrag.value = createTabDrag(root.value, {
         structure: () => JSON.stringify([props.wrapTabs ?? true, props.area.groups.groups.value.map((group) => [group.id, group.tabs.map((tab) => [tab.id, tab.kind === "file" && tab.pinned === true])])]),
-        show: (next) => {
-            drop.value = next;
-        },
-        follow: (next) => {
-            pointer.value = next;
-        },
         commit: (action) => {
             if (action.kind === "split") props.area.moveToNewGroup(action.tabId, action.group, action.edge);
             else void props.area.moveTab(action.tabId, action.place);
         },
     });
 });
-onBeforeUnmount(() => tabDrag?.dispose());
+onBeforeUnmount(() => tabDrag.value?.dispose());
 const DROP_LABELS = {"move": "drop.move", "keep": "drop.keep", "split-left": "drop.splitLeft", "split-right": "drop.splitRight", "split-top": "drop.splitTop", "split-bottom": "drop.splitBottom"} as const;
 /** 跟手的拖影：被拖标签的图标与名字（与标签条上写的相同），画在指针右下。标签在拖动中没了时整场已经取消。 */
 const ghost = computed(() => {
-    const at = pointer.value;
+    const at = dragState.value;
     if (at === null) return null;
-    const tab = props.area.groups.groups.value.flatMap((group) => group.tabs).find((candidate) => candidate.id === at.tabId);
+    const tab = props.area.groups.groups.value.flatMap((group) => group.tabs).find((candidate) => candidate.id === at.source.tabId);
     if (tab === undefined) return null;
-    return {label: tabLabel(props.area, tab, port, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.x, y: at.y};
+    return {label: tabLabel(props.area, tab, port, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.point.x, y: at.point.y};
 });
 const dropLabel = computed(() => (drop.value === null ? "" : t(DROP_LABELS[drop.value.label])));
 

@@ -27,6 +27,7 @@ import {formatResource} from "nbook/plugins/files/shared/contracts";
 import {EDITOR_GROUP_FILE, editorToolbarSlotKey} from "../../shared/contracts";
 
 import {nameOf, resourceOf} from "../documents/address";
+import {EDITOR_GROUP_TAB} from "../tab-drag";
 import {tabHints} from "../tab-hints";
 import {tabLabel} from "../tab-label";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
@@ -149,7 +150,7 @@ const listCrumb = async (address: string, signal: AbortSignal): Promise<Breadcru
 };
 /** 面包屑交还焦点：给本组的编辑器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
 const section = ref<HTMLElement | null>(null);
-useDropTarget(section, [EDITOR_GROUP_FILE], () => ({group: props.groupId}));
+useDropTarget(section, [EDITOR_GROUP_FILE, EDITOR_GROUP_TAB], () => ({group: props.groupId}));
 const returnFocus = (): void => {
     const handle = props.area.handleOf(props.groupId);
     if (handle !== null) handle.focus();

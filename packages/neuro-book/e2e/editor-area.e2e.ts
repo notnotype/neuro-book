@@ -474,6 +474,54 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
     await closeAll(page);
 });
 
+test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区外都取消且不写，松手不选中标签（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const selected = () => page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]").textContent();
+    const ghost = page.locator("[data-editor-drag-ghost]");
+    const order = () => labels(page).allTextContents();
+    const before = await order();
+    const box = await tabs(page).filter({hasText: "a.md"}).boundingBox();
+    if (box === null) throw new Error("标签不在页面上");
+    const from = {x: box.x + box.width / 2, y: box.y + box.height / 2};
+    const grab = async (): Promise<void> => {
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x + 10, from.y, {steps: 2});
+        await expect(ghost).toBeVisible();
+    };
+    /** 回到按下的标签上松手：click 要被吞掉，选中的标签不变。 */
+    const releaseOnSource = async (active: string | null): Promise<void> => {
+        await expect(ghost).toHaveCount(0);
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.up();
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        expect(await selected()).toBe(active);
+        expect(await order()).toEqual(before);
+    };
+
+    await grab();
+    const active = await selected();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("End");
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await selected()).toBe(active);
+
+    // 浏览器在下一个指针事件时才派发 `lostpointercapture`，所以释放之后要动一下。
+    await page.locator("[data-editor-area]").evaluate((area) => area.releasePointerCapture(1));
+    await page.mouse.move(from.x + 12, from.y);
+    await releaseOnSource(active);
+
+    await tabs(page).filter({hasText: "b.md"}).click();
+    await grab();
+    const next = await selected();
+    await page.getByRole("tree", {name: "文件"}).evaluate((tree: HTMLElement) => tree.focus());
+    await releaseOnSource(next);
+    await closeAll(page);
+});
+
 test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看得见的最后一个后面落在它的后继之前；只有一个固定标签的组，拖到正文中央取消固定", async ({page}) => {
     await page.setViewportSize({width: 1000, height: 800});
     await open(page);
