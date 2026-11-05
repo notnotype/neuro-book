@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t32-plot-side
-status: active
+status: done
 updated: 2026-11-05
 ---
 
