@@ -1,0 +1,19 @@
+t18 收口验证（分支 feat/w00032-t18-builtin-profiles，提交 e4b6c71f1，含实现审查的修正）
+
+测试
+- nb-harness：422 pass，0 fail；类型检查通过。
+- neuro-book：bun 1825 pass，0 fail；vitest 412 pass，72 个文件；类型检查通过（tsc 与两份 vue-tsc）。
+  前一遍全量里 plugins/explorer/web/tree/tree.test.ts 有一条失败（当时负载约 12，同时跑着别的测试），这个文件单独跑 3 遍、整套重跑都通过，与本 Task 的文件无关。
+- nb-story：669 pass，0 fail（内核验收门，改内核之后跑的）。它的类型检查有 1 个错误（src/server/qa-service.ts:548，TS2352），master 上相同，不是本 Task 引入的。
+- 真实模型 smoke（DeepSeek）：builtin-profiles.llm.test.ts 1 pass，实现审查修正之后重跑过。主创改对了文件；标题“修改第一章第二行”，说明也写下了。
+- edit 模式实验：见 edit-modes.txt，96 次，结论 replace。
+
+检查
+- docs:check：没有失败。governance:check：见合入记录。
+
+未验证
+- 标题和说明在界面上的样子：t17 没做。
+- 带摘要的压缩后更新说明、压缩后重读规则文件：应用里还没有压缩方法（t11），测试用扩展在 intercept.compaction 里交回结果，内核之后的路径是真的；真实压缩方法接上后要再看一遍。
+- project://AGENTS.md 在真实项目上：测试场地没有真实项目，loadRules 用内存里的 Resources 测，no-project 的失败码在 resources.test.ts 对过真实实现。
+- 主创提示词的写作质量：第一轮，开发者之后按实际创作改。
+- 真实模型只跑了 DeepSeek 的 smoke；gpt-6-luna 只在 edit 实验里用过，没跑主创。
