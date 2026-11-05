@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t34-plot-side-impl
-status: planned
+status: active
 updated: 2026-11-05
 ---
 
