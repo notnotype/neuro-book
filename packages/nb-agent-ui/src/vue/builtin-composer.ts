@@ -17,7 +17,8 @@ type CommandWithArgs = "mode" | "model" | "compact" | "rename";
 
 function command(order: number, name: CommandName, argsKey?: `command.${CommandWithArgs}Args`): ComposerCommandEntry {
     const description: AgentTextKey = `command.${name}`;
-    return {id: name, order, name, description: agentRef(description), ...(argsKey === undefined ? {} : {argsHint: agentRef(argsKey)})};
+    // 宿主声明了自己支持哪些命令时只显示那些：菜单里列着、发出去被丢弃的命令是死入口。
+    return {id: name, order, name, description: agentRef(description), when: (ctx) => ctx.interaction.commands === undefined || ctx.interaction.commands.includes(name), ...(argsKey === undefined ? {} : {argsHint: agentRef(argsKey)})};
 }
 
 const commands: ComposerCommandEntry[] = [

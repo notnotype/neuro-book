@@ -1,10 +1,12 @@
 import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import {createHarnessTranscript} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, PendingInputView} from "@notnotype/nb-agent-ui";
+import {agentRef} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, MessageView, PendingInputView} from "@notnotype/nb-agent-ui";
 import type {LabFixtureDefinition} from "../index";
 import {harnessReplayLog} from "./harness-replay";
 import {
     answerMessages,
+    longConversationMessages,
     unverifiedReplyMessages,
     conversationContext,
     messageStateMessages,
@@ -57,8 +59,23 @@ function hostScene(id: string, label: string, patch: Omit<Partial<AgentConversat
 
 const WAITING: Partial<AgentConversationContext> = {run: {status: "waiting", phase: ""}};
 
+/** 压缩分隔线的几种详情（docs/specs/ui/agent-conversation-view.md）：数字与字符串，适配器从事件里取。 */
+const compactionDivider = (id: string, patch: Partial<Extract<MessageView, {kind: "system"}>>): MessageView => ({kind: "system", id, timestamp: 900, source: "compaction", label: agentRef("harness.compaction"), text: "", ...patch});
+const SUMMARIZED = {method: "nbook.agent.summary", tokensBefore: 92_400, tokensAfter: 11_300, model: {name: "deepseek/deepseek-flash", input: 78_000, output: 1_900, cost: 0.0213}, require: ["保留人物关系与每一章的时间线"], restored: [{kind: "file" as const, target: "project://正文/第三章.md", tokens: 4_200, truncated: false}, {kind: "file" as const, target: "project://正文/第二章.md", tokens: 8_000, truncated: true}, {kind: "plan" as const, target: "session://plan.md", tokens: 600, truncated: false}, {kind: "log" as const, target: "sessions://lab/session.jsonl", tokens: 0, truncated: false}], omitted: 0, keptTurns: 2};
+const SUMMARY_TEXT = "## 用户的要求\n- 先写第三章，视角用第三人称限知。\n\n## 进度\n第一、二章已完成，第三章写到雨夜进药铺。\n\n## 下一步\n接着写“柜台后面没有人”这一段。";
+const compactionBase = (): AgentConversationContext["messages"] => longConversationMessages.slice(0, 4);
+
 export const agentConversationViewScenes: Scene[] = [
     hostScene("idle-host", "宿主接好的样子：状态栏、审批模式", {}),
+    hostScene("compaction-summary", "压缩分隔线：摘要、放回、要求（点开看详情）", {messages: [...compactionBase(), compactionDivider("c1", {text: SUMMARY_TEXT, compaction: SUMMARIZED})]}),
+    hostScene("compaction-shake", "压缩分隔线：整理工具结果，没有摘要也没有放回", {messages: [...compactionBase(), compactionDivider("c1", {compaction: {method: "nbook.agent.shake", tokensBefore: 92_400, tokensAfter: 41_000, model: null, require: [], restored: [], omitted: 6, keptTurns: null}})]}),
+    hostScene("compaction-grew", "压缩分隔线：只有一轮，压缩后反而更大（不写节省）", {messages: [...compactionBase(), compactionDivider("c1", {text: SUMMARY_TEXT, compaction: {...SUMMARIZED, tokensBefore: 3_200, tokensAfter: 6_900, restored: [], require: [], model: {name: "p/m", input: 3_000, output: 1_900, cost: null}, keptTurns: null}})]}),
+    hostScene("compaction-mid-turn", "一轮中途压缩过：整轮收起时分隔线仍在摘要行下面", {messages: [
+        compactionBase()[0]!,
+        {kind: "assistant", id: "ca1", timestamp: 902, status: "done", text: "", thinking: "", model: "m", toolCalls: [{id: "ct1", name: "read", status: "success", args: {path: "project://正文/第三章.md"}}], contentOmitted: false},
+        compactionDivider("c1", {text: SUMMARY_TEXT, compaction: SUMMARIZED}),
+        {kind: "assistant", id: "ca2", timestamp: 904, status: "done", text: "第三章已经改好了。", thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+    ]}),
     hostScene("host-running", "运行中：阶段与用时", {messages: runningConversationMessages, run: {status: "running", phase: "生成中", startedAt: runningConversationNow - 12_000}, now: runningConversationNow}),
     hostScene("host-retry", "等重发", {messages: runningConversationMessages, run: {status: "running", phase: "请求中", retry: {attempt: 2, max: 5, resumeAt: runningConversationNow + 8_000}}, now: runningConversationNow}),
     hostScene("host-stopping", "正在停止，超过 10 秒", {messages: runningConversationMessages, run: {status: "stopping", phase: "", startedAt: runningConversationNow - 60_000}, stopRequestedAt: runningConversationNow - 12_000, now: runningConversationNow}),

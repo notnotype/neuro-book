@@ -95,7 +95,14 @@
         "renameTitle": "改名",
         "rename": "改名",
         "cancel": "取消",
-        "loading": "正在加载…"
+        "loading": "正在加载…",
+        "compact": {
+            "nothingToCompact": "没有可压缩的内容。",
+            "noModel": "压缩用的模型没有设置。到设置里给“压缩”角色绑定一个模型。",
+            "noSession": "还没有对话，没有可压缩的内容。",
+            "queued": "将在这一步结束后压缩。",
+            "unknown": "压缩命令的结果未知。看一下对话里有没有出现压缩的分隔线，没有的话再发一次。"
+        }
     },
     "views": {
         "conversation": {

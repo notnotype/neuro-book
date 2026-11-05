@@ -136,6 +136,8 @@ export type ConversationTurn = {
     blocks: TurnBlock[];
     /** 最终回复之后的分隔线（压缩、分支摘要），显示在轮末汇总下方。 */
     trailing: TurnBlock[];
+    /** 过程里的分隔线（一轮中途的压缩）：整轮收起时也要看得到，视图放在整轮摘要行与结果之间；展开时它们就在过程里。 */
+    processDividers: TurnBlock[];
     finalReply: AssistantMessageView | null;
     /**
      * 结果所在的消息：最后一个结果块（最终回复或结果节点）所属的 assistant 消息；助手一侧的消息操作作用于它。
@@ -275,6 +277,7 @@ export function buildTurn(group: readonly MessageView[], environment: TurnEnviro
         truncatedStart,
         blocks,
         trailing,
+        processDividers: blocks.slice(0, outcomeStart).filter((block) => block.kind === "divider"),
         finalReply,
         outcomeMessage: answer === null ? null : answerMessage(answer, body),
         outcomeCallId,
@@ -546,7 +549,8 @@ function makeToolGroup(items: ToolGroupItem[], tools: ToolStep[], registry: Agen
 }
 
 function resolveStatus(body: readonly MessageView[], context: TurnContext): TurnStatus {
-    if (context.isLatest) {
+    // 只压缩的运行不属于任何一轮：上一轮不算运行中，也不转圈。
+    if (context.isLatest && context.run.kind !== "compact") {
         if (context.run.status === "running" || context.run.status === "stopping") {
             return "running";
         }

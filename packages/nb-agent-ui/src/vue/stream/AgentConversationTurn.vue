@@ -202,6 +202,18 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     data-turn-summary
                     @update:expanded="manualExpanded = $event"
                 />
+                <!-- 一轮中途压缩过：收起时分隔线也要看得到（展开时它就在过程里） -->
+                <AgentTurnBlock
+                    v-for="block in (expanded ? [] : turn.processDividers)"
+                    :key="block.id"
+                    :block="block"
+                    :ctx="props.ctx"
+                    :services="props.services"
+                    :registry="props.registry"
+                    :turn-status="turn.status"
+                    :last="false"
+                    @action="emit('action', $event)"
+                />
                 <div v-if="expanded && processBlocks.length > 0" ref="processRef" class="acv-process" :data-foldable="turn.foldable || undefined">
                     <AgentTurnBlock
                         v-for="(block, index) in processBlocks"

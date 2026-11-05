@@ -18,7 +18,7 @@ import type {Text} from "@notnotype/nb-ui/text";
 
 import {agentRef} from "./text";
 import type {AgentTextKey} from "./text";
-import type {AssistantMessageView, ContentBlockView, JsonValue, MessageView, RunStatus, ToolCallStatus, ToolCallView, UsageView, UserMessageView} from "./types";
+import type {AssistantMessageView, CompactionView, ContentBlockView, JsonValue, MessageView, RunStatus, ToolCallStatus, ToolCallView, UsageView, UserMessageView} from "./types";
 
 export type KernelTranscriptProblem = {readonly source: string; readonly reason: string};
 
@@ -31,6 +31,8 @@ export type KernelRun = {
     readonly status: RunStatus;
     /** 运行中的阶段；别的状态为 null。 */
     readonly phase: "requesting" | "streaming" | "tools" | "compacting" | null;
+    /** 只压缩的运行（`runStarted.kind`）；别的运行为 null。 */
+    readonly kind: "compact" | null;
     /** 这次运行的开始时刻（日志时间）；打开会话时运行已在跑、路径里找不到时为 null。 */
     readonly startedAt: number | null;
     /** 模型请求失败、在等重发。 */
@@ -120,6 +122,7 @@ const CODE_KEYS: {readonly [code: string]: AgentTextKey} = {
     "empty-reply": "kernel.error.emptyReply",
     "thinking-loop": "kernel.error.thinkingLoop",
     "first-event-timeout": "kernel.error.firstEventTimeout",
+    "compaction-failed": "kernel.error.compactionFailed",
 };
 const RETRYABLE_KINDS = new Set(["network", "rate_limit", "provider"]);
 
@@ -131,6 +134,35 @@ function errorText(error: JsonRecord): Text {
     const code = stringField(error, "code");
     const kind = stringField(error, "kind") ?? "local";
     return agentRef((code === null ? undefined : CODE_KEYS[code]) ?? ERROR_KEYS[kind] ?? ERROR_KEYS.local!);
+}
+
+/** 压缩事件里能给界面的部分（数字与字符串）；缺字段、认不出的不显示，不报错。 */
+function compactionView(data: JsonRecord, turnStarts: readonly string[]): CompactionView | null {
+    const method = stringField(data, "method");
+    const before = numberField(data, "tokensBefore");
+    const after = numberField(data, "tokensAfter");
+    if (method === null || before === null || after === null) return null;
+    const details = isRecord(data.details) ? data.details : {};
+    const usage = isRecord(details.usage) ? details.usage : null;
+    const modelName = stringField(details, "model");
+    const restored = Array.isArray(data.restored) ? data.restored.flatMap((item): CompactionView["restored"] => {
+        if (!isRecord(item)) return [];
+        const kind = item.kind === "file" || item.kind === "plan" || item.kind === "log" ? item.kind : null;
+        const target = stringField(item, "target");
+        return kind === null || target === null ? [] : [{kind, target, tokens: numberField(item, "tokens") ?? 0, truncated: item.truncated === true}];
+    }) : [];
+    const kept = stringField(data, "firstKeptEntryId");
+    const keptAt = kept === null ? -1 : turnStarts.indexOf(kept);
+    return {
+        method,
+        tokensBefore: before,
+        tokensAfter: after,
+        model: modelName === null || usage === null ? null : {name: modelName, input: numberField(usage, "input") ?? 0, output: numberField(usage, "output") ?? 0, cost: usage.cost === null ? null : numberField(usage, "cost")},
+        require: Array.isArray(details.require) ? details.require.filter((item): item is string => typeof item === "string") : [],
+        restored,
+        omitted: Array.isArray(data.omitted) ? data.omitted.length : 0,
+        keptTurns: keptAt === -1 ? null : turnStarts.length - keptAt,
+    };
 }
 
 function usageView(usage: unknown): UsageView | null {
@@ -166,7 +198,7 @@ function streamingArgs(text: string): JsonValue {
 
 const NO_USAGE: KernelUsage = {cost: 0, unpriced: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: null};
 const NO_META: KernelMeta = {title: null, description: null, archived: false, settings: {}, model: null, profile: null, readOnly: null};
-const IDLE_RUN: KernelRun = {status: "idle", phase: null, startedAt: null, retry: null};
+const IDLE_RUN: KernelRun = {status: "idle", phase: null, kind: null, startedAt: null, retry: null};
 
 type LiveCall = {readonly id: string; readonly name: string; args: string};
 type Live = {request: number; next: number; text: string; thinking: string; calls: LiveCall[]; broken: boolean};
@@ -183,6 +215,10 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let interrupted = false;
     let startedAt: number | null = null;
     let context: number | null = null;
+    /** 这次运行是不是只压缩的：它没有 `input`，运行收口时不能把上一轮的回复当成这次的。 */
+    let runKind: "compact" | null = null;
+    /** 路径上每一轮的 `turnStarted` 事件 id，按顺序：压缩的切点按它数“保留了几轮”。 */
+    let turnStarts: string[] = [];
     /** `modelStarted` 记下的用途：`modelFailed` 不带用途，半截文字只有对话请求的才算回复。 */
     let purposes = new Map<number, string>();
     let live: Live | null = null;
@@ -304,9 +340,13 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 contextOf(data);
                 return;
             }
+            case "turnStarted":
+                turnStarts.push(id);
+                return;
             case "runStarted":
                 interrupted = false;
                 startedAt = at;
+                runKind = data.kind === "compact" ? "compact" : null;
                 return;
             case "runEnded": {
                 live = null;
@@ -314,7 +354,14 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 startedAt = null;
                 const reason = stringField(data, "reason");
                 interrupted = reason === "interrupted";
-                if (reason === "aborted") {
+                const compactRun = runKind === "compact";
+                runKind = null;
+                if (compactRun) {
+                    // 只压缩的运行没有这一轮：上一轮的回复不是它的，不改；停止与失败各给一行自己的说明。失败也写成系统条目，
+                    // 不是错误块：错误块会接在上一轮后面，让上一轮的状态变成出错。
+                    if (reason === "aborted") logged.push({kind: "system", id, timestamp: at, source: "reminder", label: agentRef("kernel.compactionStopped"), text: ""});
+                    else if (reason === "error") logged.push({kind: "system", id, timestamp: at, source: "reminder", label: errorText(isRecord(data.error) ? data.error : {}), text: ""});
+                } else if (reason === "aborted") {
                     const last = logged.at(-1);
                     if (last?.kind === "assistant") logged[logged.length - 1] = {...last, status: "stopped"};
                     // 模型还没开口就被停了：补一条空的回复，分轮层才会在这一轮末尾写“已停止”。
@@ -325,13 +372,14 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 }
                 return;
             }
-            case "compaction":
-                logged.push({kind: "system", id, timestamp: at, source: "compaction", label: agentRef("harness.compaction"), text: stringField(data, "replacement") ?? ""});
-                {
-                    const after = numberField(data, "tokensAfter");
-                    if (after !== null) context = after;
-                }
+            case "compaction": {
+                const view = compactionView(data, turnStarts);
+                logged.push({kind: "system", id, timestamp: at, source: "compaction", label: agentRef("harness.compaction"), text: stringField(data, "replacement") ?? "", ...(view === null ? {} : {compaction: view})});
+                // 压缩后到下一次回复之前：压缩后的估算加放回的量（都是估算，不含系统提示与工具，悬停写明）。
+                const after = numberField(data, "tokensAfter");
+                if (after !== null) context = after + (view?.restored.reduce((sum, item) => sum + item.tokens, 0) ?? 0);
                 return;
+            }
             case "continued":
                 // `text` 是写给模型的，界面用自己的文案。
                 logged.push({kind: "system", id, timestamp: at, source: "reminder", label: agentRef("kernel.continued"), text: ""});
@@ -479,6 +527,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             phase: state === "running" && (status.phase === "requesting" || status.phase === "streaming" || status.phase === "tools" || status.phase === "compacting") ? status.phase : null,
             startedAt,
             retry: state === "running" && status.retry !== undefined ? toJsonValue(status.retry) : null,
+            kind: state === "idle" ? null : runKind,
         };
     }
 
@@ -488,6 +537,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         interrupted = false;
         startedAt = null;
         context = null;
+        runKind = null;
+        turnStarts = [];
         purposes = new Map();
         live = null;
         lastSettledRequest = 0;

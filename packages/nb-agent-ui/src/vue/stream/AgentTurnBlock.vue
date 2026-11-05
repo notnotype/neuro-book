@@ -13,6 +13,7 @@ import AgentMarkdown from "../parts/AgentMarkdown.vue";
 import RenderGuard from "../parts/RenderGuard.vue";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentChainBlock from "./AgentChainBlock.vue";
+import AgentCompactionDetail from "./AgentCompactionDetail.vue";
 import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
 import AgentMessageAnnotations from "./AgentMessageAnnotations.vue";
 import AgentUserContent from "./AgentUserContent.vue";
@@ -41,7 +42,9 @@ const renderers = useAgentRenderers();
 const openSet = useOpenSet();
 
 /** 分隔线的正文只是把标签重说一遍时不值得点开。 */
-function dividerHasBody(message: {label: Text; text: string}): boolean {
+function dividerHasBody(message: {label: Text; text: string; compaction?: unknown}): boolean {
+    // 有压缩详情就能点开：整理工具结果的压缩没有摘要，详情是它唯一的内容。
+    if (message.compaction !== undefined) return true;
     const body = message.text.trim();
     return body !== "" && body !== text(message.label).trim();
 }
@@ -148,7 +151,8 @@ function nodeSubtitle(step: ToolStep): string {
             </button>
             <template v-else>{{ text(props.block.message.label) }}</template>
         </p>
-        <AgentMarkdown v-if="openSet.isOpen(props.block.id)" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
+        <AgentCompactionDetail v-if="openSet.isOpen(props.block.id) && props.block.message.compaction !== undefined" :detail="props.block.message.compaction" :currency="props.ctx.usage.currency" />
+        <AgentMarkdown v-if="openSet.isOpen(props.block.id) && props.block.message.text.trim() !== ''" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
     </div>
 
     <div v-else-if="props.block.kind === 'steer'" class="acv-block acv-steer">

@@ -61,7 +61,7 @@ function testPlugin(): PluginDefinition {
 
 async function world(): Promise<AgentWorld> {
     counter += 1;
-    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[PROFILE]: {approvalMode: "ask"}}}});
+    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...localModelSettings(endpoint.baseUrl, {compactionRole: true}), "nbook.agent/profileSettings": {[PROFILE]: {approvalMode: "ask"}}}});
     worlds.push(created);
     return created;
 }
@@ -527,4 +527,71 @@ test("工具名：给模型的名字相同的画法也相同", () => {
     expect(displayToolName("nbook.agent.ask-form")).toBe("ask");
     expect(displayToolName("nbook.agent.shell")).toBe("shell");
     expect(displayToolName("lab.publish_chapter")).toBe("publish_chapter");
+});
+
+describe("手动压缩（输出 20）", () => {
+    const compact = (h: Harness, argsText = "") => h.host.act({type: "command.run", name: "compact", argsText});
+    const dividers = (ctx: AgentConversationContext) => ctx.messages.filter((message) => message.kind === "system" && message.source === "compaction");
+
+    test("视图只列宿主做了的命令", async () => {
+        const w = await world();
+        const h = await harness(w);
+        expect(h.ctx().interaction.commands).toEqual(["compact"]);
+    });
+
+    test("没有会话时不新建，说明还没有对话；有对话时压缩：要求进提示词，分隔线带详情，运行结束后输入框干净", async () => {
+        const w = await world();
+        const h = await harness(w);
+        compact(h, "保留人名");
+        await until("说明", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().composer.notice).toMatchObject({key: "conversation.compact.noSession"});
+        expect(h.ctx().session).toBeNull();
+
+        endpoint.script("答一");
+        h.host.act({type: "composer.submit", text: "第一问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "答一");
+        await idle(h);
+        endpoint.script("压缩后的摘要");
+        const before = endpoint.requests.length;
+        compact(h, "保留人名");
+        await until("分隔线", () => dividers(h.ctx()).length === 1);
+        await idle(h);
+        const divider = dividers(h.ctx())[0] as Extract<MessageView, {kind: "system"}>;
+        expect(divider.text).toBe("压缩后的摘要");
+        expect(divider.compaction).toMatchObject({method: "nbook.agent.inplace", require: ["保留人名"], keptTurns: null});
+        expect(JSON.stringify(endpoint.requests.slice(before).at(-1)!.messages)).toContain("保留人名");
+        expect(h.ctx().composer.draft.text).toBe("");
+        // 压缩的运行不属于任何一轮：上一轮的回复没被改。
+        expect(assistants(h.ctx().messages).map((message) => message.status)).toEqual(["done"]);
+    }, 40_000);
+
+    test("没有可压缩的内容：文字放回输入框，说明原因，不留运行", async () => {
+        const w = await world();
+        const h = await started(w);
+        compact(h, "保留人名");
+        await until("被拒", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().composer.notice).toMatchObject({key: "conversation.compact.nothingToCompact"});
+        expect(h.ctx().composer.draft.text).toBe("/compact 保留人名");
+        expect(h.ctx().run.status).toBe("idle");
+    });
+
+    test("运行中受理：说明“将在这一步结束后压缩”，运行结束后收掉", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("答一");
+        h.host.act({type: "composer.submit", text: "第一问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "答一");
+        await idle(h);
+        const hold = endpoint.hold();
+        endpoint.script("答二");
+        h.host.act({type: "composer.submit", text: "第二问", delivery: "prompt"});
+        await hold.arrived;
+        compact(h);
+        await until("说明", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().composer.notice).toMatchObject({key: "conversation.compact.queued"});
+        endpoint.script("这次压缩的摘要");
+        hold.release();
+        await idle(h);
+        await until("说明收掉", () => h.ctx().composer.notice === undefined);
+    }, 40_000);
 });

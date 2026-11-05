@@ -350,6 +350,32 @@ export default {
             error: "出错",
         },
     },
+    compactionDetail: {
+        method: "方法",
+        methods: {
+            shake: "精简工具结果",
+            inplace: "就地摘要",
+            summary: "摘要模型",
+        },
+        model: "模型",
+        noModel: "没有调用模型",
+        context: "上下文（估算）",
+        contextValue: "{{before}} → {{after}} tokens",
+        usage: "用量",
+        usageValue: "输入 {{input}}，输出 {{output}}",
+        costUnknown: "单价未知",
+        require: "要求",
+        kept: "保留",
+        keptTurns_other: "最近 {{count}} 轮的原文",
+        omitted_other: "省略了 {{count}} 条工具结果，需要时重新读取",
+        restored: "放回",
+        kinds: {
+            file: "文件",
+            plan: "计划",
+            log: "对话记录",
+        },
+        truncated: "已截断",
+    },
     kernel: {
         error: {
             costLimit: "会话费用已达上限，运行已停止。调高上限后可继续。",
@@ -357,7 +383,9 @@ export default {
             emptyReply: "模型连续多次未返回内容，运行已停止。",
             thinkingLoop: "模型的思考内容不断重复，运行已停止。",
             firstEventTimeout: "模型服务未开始响应，请稍后重试。",
+            compactionFailed: "压缩没有成功，对话没有改动。可以换一个压缩模型，或者开一个新会话。",
         },
+        compactionStopped: "已停止压缩",
         tool: {
             deniedByUser: "已被你拒绝",
             deniedByRule: "已被规则拒绝",

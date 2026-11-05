@@ -103,9 +103,9 @@ export function fakeEndpoint(): FakeEndpoint {
 }
 
 /** 把一个不要密钥的本机服务商与它的模型写进用户层设置，并把 `main` 角色绑到它（`nbook.models` 的设置项形状）。 */
-export function localModelSettings(baseUrl: string): Record<string, unknown> {
+export function localModelSettings(baseUrl: string, options: {readonly compactionRole?: boolean} = {}): Record<string, unknown> {
     return {
         "nbook.models/providers": [{id: "local", kind: "custom", name: "本机", baseUrl, api: "openai-completions", auth: "none", models: [{id: "m", enabled: true, contextWindow: 32_000}]}],
-        "nbook.models/roles": {items: ["tiny", "fast", "main", "deep"].map((id) => ({id, axis: "gradient", name: "", description: "", model: id === "main" ? "local/m" : null})).concat([{id: "compaction", axis: "specialist", name: "", description: "", model: null}])},
+        "nbook.models/roles": {items: ["tiny", "fast", "main", "deep"].map((id) => ({id, axis: "gradient", name: "", description: "", model: id === "main" ? "local/m" : null})).concat([{id: "compaction", axis: "specialist", name: "", description: "", model: options.compactionRole === true ? "local/m" : null}])},
     };
 }

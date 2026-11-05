@@ -375,3 +375,63 @@ describe("回退、队列、会话级", () => {
         expect(transcript.messages()).toBe(transcript.messages());
     });
 });
+
+describe("压缩（runtime.md 输出 46–52，t11）", () => {
+    const system = (transcript: KernelTranscript) => transcript.messages().filter((message) => message.kind === "system");
+    const turn = (n: number, at: number) => [
+        {id: `t${String(n)}`, type: "turnStarted", at, data: {turnId: `tt${String(n)}`}},
+        {id: `i${String(n)}`, type: "input", at, data: {text: `问${String(n)}`}},
+        {id: `a${String(n)}`, type: "assistant", at, data: {request: n, content: [{kind: "text", text: `答${String(n)}`}], toolCalls: [], stopReason: "stop", usage: {input: 900, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0.01, complete: true}, model: "p/m"}},
+    ];
+
+    test("摘要方法：详情取自事件的 details 与 restored，保留的轮数按切点数；上下文读数是压缩后的估算加放回的量", () => {
+        const transcript = createKernelTranscript();
+        transcript.applyPath([
+            ...turn(1, 1), ...turn(2, 2), ...turn(3, 3),
+            {id: "c", type: "compaction", at: 4, data: {
+                method: "nbook.agent.summary", firstKeptEntryId: "t3", replacement: "摘要正文", omitted: [], tokensBefore: 3_000, tokensAfter: 700,
+                details: {model: "p/small", usage: {input: 2_000, output: 300, cacheRead: 0, cacheWrite: 0, cost: 0.02, complete: true}, require: ["保留人名"]},
+                restored: [{kind: "file", target: "project://a.md", tokens: 120, truncated: true}, {kind: "log", target: "sessions://s/session.jsonl", tokens: 0, truncated: false}, {kind: "bogus", target: "x"}],
+            }},
+        ]);
+        const [divider] = system(transcript);
+        expect(divider).toMatchObject({source: "compaction", text: "摘要正文", compaction: {
+            method: "nbook.agent.summary", tokensBefore: 3_000, tokensAfter: 700, keptTurns: 1, omitted: 0, require: ["保留人名"],
+            model: {name: "p/small", input: 2_000, output: 300, cost: 0.02},
+        }});
+        expect((divider as {compaction: {restored: readonly unknown[]}}).compaction.restored).toEqual([{kind: "file", target: "project://a.md", tokens: 120, truncated: true}, {kind: "log", target: "sessions://s/session.jsonl", tokens: 0, truncated: false}]);
+        expect(transcript.usage().context).toBe(820);
+    });
+
+    test("shake：没有调模型、没有摘要、没有放回；省略的条数写在详情里，原来的消息都还在", () => {
+        const transcript = createKernelTranscript();
+        transcript.applyPath([...turn(1, 1), {id: "c", type: "compaction", at: 2, data: {method: "nbook.agent.shake", firstKeptEntryId: "t1", replacement: null, omitted: [{entryId: "r1", placeholder: "…"}, {entryId: "r2", placeholder: "…"}], tokensBefore: 3_000, tokensAfter: 1_000, details: {require: []}}}]);
+        const [divider] = system(transcript);
+        expect(divider).toMatchObject({text: "", compaction: {model: null, omitted: 2, restored: [], keptTurns: 1}});
+        expect(transcript.messages().filter((message) => message.kind === "user")).toHaveLength(1);
+    });
+
+    test("只压缩的运行：run 带 kind，收口后恢复；停止与失败不碰上一轮的回复，各给一行自己的说明", () => {
+        const transcript = createKernelTranscript();
+        transcript.applyPath([...turn(1, 1), {id: "r1", type: "runStarted", at: 2, data: {runId: "x", kind: "compact"}}]);
+        transcript.applyFrame({type: "status", status: {state: "running", phase: "compacting"}});
+        expect(transcript.run()).toMatchObject({status: "running", kind: "compact", phase: "compacting"});
+
+        transcript.applyEvent({id: "r2", type: "runEnded", at: 3, data: {runId: "x", reason: "aborted"}});
+        transcript.applyFrame({type: "status", status: {state: "idle"}});
+        expect(transcript.run().kind).toBeNull();
+        const stopped = transcript.messages();
+        expect(stopped.filter((message) => message.kind === "assistant").map((message) => (message as AssistantMessageView).status)).toEqual(["done"]);
+        expect(stopped.at(-1)).toMatchObject({kind: "system", source: "reminder"});
+
+        transcript.applyEvent({id: "r3", type: "runStarted", at: 4, data: {runId: "y", kind: "compact"}});
+        transcript.applyEvent({id: "r4", type: "runEnded", at: 5, data: {runId: "y", reason: "error", error: {kind: "local", code: "compaction-failed"}}});
+        const failed = transcript.messages();
+        expect(failed.filter((message) => message.kind === "assistant").map((message) => (message as AssistantMessageView).status)).toEqual(["done"]);
+        expect(failed.at(-1)).toMatchObject({kind: "system", source: "reminder", label: {key: "kernel.error.compactionFailed"}});
+        // 同样的事件重放得到同样的结果（刷新、重开）。
+        const replayed = createKernelTranscript();
+        replayed.applyPath([...turn(1, 1), {id: "r1", type: "runStarted", at: 2, data: {runId: "x", kind: "compact"}}, {id: "r2", type: "runEnded", at: 3, data: {runId: "x", reason: "aborted"}}, {id: "r3", type: "runStarted", at: 4, data: {runId: "y", kind: "compact"}}, {id: "r4", type: "runEnded", at: 5, data: {runId: "y", reason: "error", error: {kind: "local", code: "compaction-failed"}}}]);
+        expect(replayed.messages()).toEqual(failed);
+    });
+});

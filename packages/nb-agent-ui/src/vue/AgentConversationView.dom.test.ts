@@ -176,6 +176,58 @@ describe("宿主组件（验收 21）", () => {
     });
 });
 
+describe("压缩的分隔线（t11）", () => {
+    const divider = (id: string, patch: Partial<Extract<AgentConversationContext["messages"][number], {kind: "system"}>> = {}): AgentConversationContext["messages"][number] => ({
+        kind: "system", id, timestamp: 3, source: "compaction", label: {key: "harness.compaction"} as never, text: "", ...patch,
+    });
+    const shaken = {method: "nbook.agent.shake", tokensBefore: 90_000, tokensAfter: 40_000, model: null, require: [], restored: [], omitted: 3, keptTurns: null} as const;
+    const summarized = {method: "nbook.agent.summary", tokensBefore: 90_000, tokensAfter: 9_000, model: {name: "p/small", input: 8_000, output: 900, cost: null}, require: ["保留人名"], restored: [{kind: "file", target: "project://a.md", tokens: 500, truncated: true}], omitted: 0, keptTurns: 2} as const;
+
+    it("整理工具结果的压缩没有摘要也能点开：写“没有调用模型”与省略的条数，没有花费与放回", async () => {
+        const ctx = context();
+        ctx.messages = [...ctx.messages, divider("c1", {compaction: shaken})];
+        const view = mountView("zh-CN", {}, {ctx});
+        const toggle = view.get("[data-divider] button.acv-divider__toggle");
+        expect(view.find("[data-compaction-detail]").exists()).toBe(false);
+        await toggle.trigger("click");
+        const text = view.get("[data-compaction-detail]").text();
+        expect(text).toContain("精简工具结果");
+        expect(text).toContain("没有调用模型");
+        expect(text).toContain("省略了 3 条工具结果");
+        expect(text).toContain("90.0k → 40.0k tokens");
+        expect(text).not.toContain("用量");
+        expect(text).not.toContain("放回");
+        view.unmount();
+    });
+
+    it("摘要方法：模型、用量（单价未知）、要求、保留的轮数与放回的文件；摘要全文在详情下面", async () => {
+        const ctx = context();
+        ctx.messages = [...ctx.messages, divider("c1", {text: "摘要正文", compaction: summarized})];
+        const view = mountView("zh-CN", {}, {ctx});
+        await view.get("[data-divider] button.acv-divider__toggle").trigger("click");
+        const text = view.get("[data-compaction-detail]").text();
+        for (const expected of ["摘要模型", "p/small", "输入 8.0k，输出 900", "单价未知", "保留人名", "最近 2 轮的原文", "project://a.md", "已截断"]) expect(text).toContain(expected);
+        expect(view.find("[data-divider] .acv-divider__body").exists()).toBe(true);
+        view.unmount();
+    });
+
+    it("一轮中途压缩过：整轮收起时分隔线仍在摘要行下面，点得开", async () => {
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a0", timestamp: 2, status: "done", text: "", thinking: "", model: "m", toolCalls: [{id: "t1", name: "read", status: "success", args: {path: "a.md"}}], contentOmitted: false},
+            divider("c1", {compaction: summarized, text: "摘要"}),
+            {kind: "assistant", id: "a1", timestamp: 4, status: "done", text: "写好了", thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+        ];
+        const view = mountView("zh-CN", {}, {ctx});
+        expect(view.find("[data-turn-summary]").attributes("aria-expanded")).toBe("false");
+        expect(view.findAll("[data-divider]")).toHaveLength(1);
+        await view.get("[data-divider] button.acv-divider__toggle").trigger("click");
+        expect(view.find("[data-compaction-detail]").exists()).toBe(true);
+        view.unmount();
+    });
+});
+
 describe("被退回的结果（验收 29）", () => {
     it("展开整轮后宿主的节点组件只画作数的那一次，被退回的那次是一行，行上是渲染器写的退回原因", async () => {
         const rendered: string[] = [];

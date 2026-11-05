@@ -1,5 +1,7 @@
 import {describe, expect, it} from "bun:test";
-import {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, type HeaderActionEntry} from "./registry";
+import {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, visibleEntries, type HeaderActionEntry} from "./registry";
+import {createAgentContext} from "./context";
+import {builtinComposerContribution} from "./vue/builtin-composer";
 import {builtinToolRenderers} from "./builtin-tools";
 import {agentRef} from "./text";
 
@@ -137,5 +139,15 @@ describe("工具回调抛错", () => {
             }}],
         }]);
         expect(registry.resolveTool("boom").diff?.({id: "c1", name: "boom", status: "success", args: {}})).toBeNull();
+    });
+});
+
+describe("内置输入框命令（t11）", () => {
+    it("宿主声明了支持哪些命令时，菜单与发送只认这些；不声明时登记的都在", () => {
+        const registry = createAgentViewRegistry([builtinComposerContribution]);
+        const names = (commands: readonly string[] | undefined): string[] => visibleEntries(registry.list("commands"), createAgentContext({interaction: {commands}} as never)).map((entry) => entry.name);
+        expect(names(undefined)).toContain("clear");
+        expect(names(["compact"])).toEqual(["compact"]);
+        expect(names([])).toEqual([]);
     });
 });

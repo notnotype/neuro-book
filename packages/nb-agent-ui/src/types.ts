@@ -108,6 +108,25 @@ export type AssistantMessageView = {
 
 export type SystemMessageSource = "prompt" | "reminder" | "compaction" | "branch_summary" | "custom";
 
+/** 一次压缩的详情（`compaction` 分隔线展开后看到的）：数字与字符串，宿主和适配器各自填，视图自己配文案。 */
+export type CompactionView = {
+    /** 方法名，例如 `nbook.agent.shake`；显示末一段。 */
+    method: string;
+    /** 压缩前后的上下文，都是估算（不含系统提示与工具）。 */
+    tokensBefore: number;
+    tokensAfter: number;
+    /** 调了模型的方法才有：模型全名、各次调用的输入输出 token 与花费（null 是单价未知）。没调模型（shake）是 null。 */
+    model: {name: string; input: number; output: number; cost: number | null} | null;
+    /** 用到的压缩要求。 */
+    require: readonly string[];
+    /** 放回了什么；没有放回（shake）是空数组。 */
+    restored: readonly {kind: "file" | "plan" | "log"; target: string; tokens: number; truncated: boolean}[];
+    /** 换成占位的工具结果条数。 */
+    omitted: number;
+    /** 原样保留了最近几轮；切在一轮中间或算不出时是 null。 */
+    keptTurns: number | null;
+};
+
 export type SystemMessageView = {
     kind: "system";
     id: string;
@@ -116,6 +135,8 @@ export type SystemMessageView = {
     /** 条目的名称（例如“上下文已压缩”）；适配器给的是本包目录的引用。 */
     label: Text;
     text: string;
+    /** `source` 是 `compaction` 时的详情；没有时分隔线只有摘要。 */
+    compaction?: CompactionView;
 };
 
 export type ErrorMessageView = {
@@ -168,6 +189,8 @@ export type InteractionView = {
     canRestore: boolean;
     /** 宿主有管理模型的地方（例如设置页）：为真时模型下拉的末尾有“管理模型…”，发出 `model.manage`。 */
     canManageModels: boolean;
+    /** 宿主支持的输入框命令名（不含 `/`）；不给时登记的命令都显示。宿主没做的命令不进菜单，免得发出去没有反应。 */
+    commands?: readonly string[];
 };
 
 export type RunStatus = "idle" | "running" | "waiting" | "stopping";
@@ -178,6 +201,8 @@ export type RunView = {
     phase: string;
     /** 这次运行的开始时刻（毫秒）；状态栏据此算用时。 */
     startedAt?: number | null;
+    /** 只压缩的运行：它不属于任何一轮，分轮视图不把上一轮算成运行中。 */
+    kind?: "compact";
     /** 模型请求失败、在等重发：第几次、最多几次、什么时候再发。 */
     retry?: {attempt: number; max: number; resumeAt: number} | null;
 };

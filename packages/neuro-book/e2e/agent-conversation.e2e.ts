@@ -46,7 +46,7 @@ test.beforeAll(async () => {
     const handle = track(child);
     const [, baseUrl, controlUrl] = await handle.waitFor(/READY (\S+) (\S+)/u);
     endpoint = {...handle, control: controlUrl!, child};
-    await writeFile(join(stateRoot, "settings.json"), JSON.stringify(localModelSettings(baseUrl!)));
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify(localModelSettings(baseUrl!, {compactionRole: true})));
     server = await startProductServer(stateRoot);
 });
 
@@ -236,4 +236,29 @@ test("状态栏的活动条目：等用户时显示，点一下切到那个会�
     await page.locator("[data-approval-decision='deny']").click();
     await expect(page.getByText("好了")).toBeVisible();
     await expect(item).toHaveCount(0);
+});
+
+test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
+    await script("答一", "摘要正文");
+    await openConversation(page);
+    await newSession(page);
+    await send(page, "第一问");
+    await expect(page.getByText("答一")).toBeVisible();
+    await input(page).click();
+    await page.keyboard.type("/");
+    await expect(page.getByRole("option", {name: /compact/u})).toBeVisible();
+    await expect(page.getByRole("option", {name: /clear/u})).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Backspace");
+    await send(page, "/compact 保留人名");
+    const divider = page.locator("[data-divider]");
+    await expect(divider).toBeVisible();
+    await divider.getByRole("button").click();
+    await expect(page.locator("[data-compaction-detail]")).toContainText("就地摘要");
+    await expect(page.locator("[data-compaction-detail]")).toContainText("保留人名");
+    await expect(page.getByText("摘要正文")).toBeVisible();
+    // 压缩的运行不属于任何一轮：上一轮的回复还在，没有被改成“已停止”。
+    await expect(page.getByText("答一")).toBeVisible();
+    await expect(page.getByText("已停止")).toHaveCount(0);
 });

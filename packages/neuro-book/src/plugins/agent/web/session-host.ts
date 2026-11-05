@@ -39,6 +39,14 @@ const REJECT_KEYS = {
     "input-rejected": "conversation.reject.inputRejected",
     "read-only": "conversation.reject.readOnly",
 } as const;
+/** `compact` 被拒的码（runtime.md 输出 52）。 */
+const COMPACT_REJECT_KEYS = {
+    "nothing-to-compact": "conversation.compact.nothingToCompact",
+    "no-compaction-model": "conversation.compact.noModel",
+    "read-only": "conversation.reject.readOnly",
+} as const;
+/** 宿主做了的输入框命令；别的（`/new`、`/plan` 等）第二批再做，现在不进菜单。 */
+const HOST_COMMANDS = ["compact"] as const;
 const MODEL_KEYS = {
     "no-model": "conversation.model.none",
     "no-credentials": "conversation.model.noCredentials",
@@ -132,6 +140,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let draft = {text: "", version: 0};
     let draftText = "";
     let notice: Text | null = null;
+    /** 运行中受理压缩时给的那句话：运行结束就收掉。 */
+    let queuedCompactNotice: Text | null = null;
     /** 结果未知的乐观消息，可以重发（同一个指令 id）或移除。 */
     const unknownSends = new Map<string, {readonly commandId: string; readonly text: string}>();
 
@@ -255,7 +265,12 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let cancelTick: (() => void) | null = null;
     function syncTicker(target: Current): void {
         const running = target.transcript.run().status !== "idle";
-        if (!running) stopRequestedAt = null;
+        if (!running) {
+            stopRequestedAt = null;
+            // 排着的压缩已经做过或运行已结束：“将在这一步结束后压缩”不再成立。
+            if (queuedCompactNotice !== null && notice === queuedCompactNotice) notice = null;
+            queuedCompactNotice = null;
+        }
         if (running && cancelTick === null) {
             const tick = (): void => {
                 nowValue.value = deps.now();
@@ -425,6 +440,36 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
     }
 
+    /** 手动压缩（docs/specs/agent/conversation.md 输出 20）：不新建会话，不发送文字，被拒时文字放回输入框。 */
+    async function compactCommand(argsText: string): Promise<void> {
+        const typed = argsText === "" ? "/compact" : `/compact ${argsText}`;
+        const target = current;
+        notice = null;
+        if (target === null) {
+            notice = agentText("conversation.compact.noSession");
+            bump();
+            return;
+        }
+        setDraft("");
+        bump();
+        const result = await remote.compact({sessionId: target.id, commandId: commandId(), ...(argsText === "" ? {} : {requirement: argsText})});
+        if (current !== target) return;
+        if (result.ok) {
+            // 运行中受理的在下一个边界做：给一句话，运行结束时收掉。
+            if (result.value.value.scheduled === "next-boundary") {
+                notice = agentText("conversation.compact.queued");
+                queuedCompactNotice = notice;
+            }
+        } else if (UNKNOWN_OUTCOME.has(result.code)) {
+            notice = agentText("conversation.compact.unknown");
+        } else {
+            setDraft(typed);
+            const key = COMPACT_REJECT_KEYS[result.code as keyof typeof COMPACT_REJECT_KEYS];
+            notice = key === undefined ? agentText("conversation.reject.other", {code: result.code}) : agentText(key);
+        }
+        bump();
+    }
+
     async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "deny"; note?: string} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}): Promise<void> {
         const target = current;
         if (target === null) return;
@@ -478,6 +523,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 return;
             case "composer.submit":
                 await submit(action.text, action.delivery);
+                return;
+            case "command.run":
+                if (action.name === "compact") await compactCommand(action.argsText);
                 return;
             case "composer.stop":
             case "input.cancelRun":
@@ -616,7 +664,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 summaryState: "idle",
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),

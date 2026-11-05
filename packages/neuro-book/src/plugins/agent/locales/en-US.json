@@ -95,7 +95,14 @@
         "renameTitle": "Rename",
         "rename": "Rename",
         "cancel": "Cancel",
-        "loading": "Loading…"
+        "loading": "Loading…",
+        "compact": {
+            "nothingToCompact": "There is nothing to compact.",
+            "noModel": "No model is set for compaction. Bind one to the Compaction role in settings.",
+            "noSession": "There is no conversation yet, so there is nothing to compact.",
+            "queued": "Will compact when this step finishes.",
+            "unknown": "The result of the compact command is unknown. Check whether a compaction divider appeared; if not, send it again."
+        }
     },
     "views": {
         "conversation": {
