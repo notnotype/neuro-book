@@ -189,6 +189,3 @@ Smoke：`packages/neuro-book/e2e/lab-drag-session.e2e.ts`、`workbench-dnd.e2e.t
 ## 证据
 
 - 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md) 第 3、10 节（开发者 2026-11-05 接受）；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。
-- 实现入口：[`nb-layout/src/drag-gesture.ts`](../../../packages/nb-layout/src/drag-gesture.ts)、[`nb-layout/src/vue/drag-session.ts`](../../../packages/nb-layout/src/vue/drag-session.ts)、[`nb-layout/src/vue/drop-targets.ts`](../../../packages/nb-layout/src/vue/drop-targets.ts)
-- 合同测试：[`nb-layout/src/drag-gesture.test.ts`](../../../packages/nb-layout/src/drag-gesture.test.ts)、[`nb-layout/src/vue/drag-session.dom.test.ts`](../../../packages/nb-layout/src/vue/drag-session.dom.test.ts)、[`nb-layout/src/vue/drop-targets.dom.test.ts`](../../../packages/nb-layout/src/vue/drop-targets.dom.test.ts)
-- Smoke：[`e2e/lab-drag-session.e2e.ts`](../../../packages/neuro-book/e2e/lab-drag-session.e2e.ts)、[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)、[`e2e/files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)
