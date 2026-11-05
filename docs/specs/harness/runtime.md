@@ -139,6 +139,7 @@ owners:
 73. 有 `description` 时写 `descriptionChanged{description}`（会话级控制事件，经出站过滤的文字映射）；快照的 `description` 随之变化，没写过时为 null。
 74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。
 75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。
+76. 工具实现可以有 `preview(args)`：审批判定是 `ask` 时，内核在写 `interactionRequested` 之前调一次，结果放进 `request.preview`（`{kind: "diff", address, before, after}` 或 `{kind: "too-large"}`，单份上限 256 KiB）。抛错或 2 秒没有结果时不带预览，写诊断 `preview-failed`，审批照常。预览不改任何文件。（planned）
 
 ## 状态与转换
 

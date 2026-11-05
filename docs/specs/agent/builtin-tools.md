@@ -41,6 +41,8 @@ owners:
 | `nbook.agent.grep` | `grep` | 读 | shared | `pattern`、`path?`、`glob?`、`ignoreCase?`、`context?`（0 到 10）、`limit?`（1 到 500，缺省 100） |
 | `nbook.agent.glob` | `glob` | 读 | shared | `pattern`、`path?`、`limit?`（1 到 1000，缺省 200） |
 | `nbook.agent.shell` | `shell` | 执行 | exclusive | `command`、`timeout?`（秒，1 到 3600，缺省 300） |
+| `nbook.agent.ask`（planned） | `ask` | 读 | exclusive | `questions`：1 到 4 题，每题 `question`、`header?`、`options`（2 到 4 个，`label`、`description?`）、`multiSelect?` |
+| `nbook.agent.ask-form`（planned） | `ask` | 读 | exclusive | 同上，每题多一个 `form?`（JSON Schema） |
 
 - 两条 `edit` 给模型的名字相同，Profile 只绑一条，由 Profile 选（主创绑 replace，[`builtin-profiles.md`](builtin-profiles.md)）；同一会话绑了两条按 [`harness/runtime.md`](../harness/runtime.md) 输出 15 处理。
 - 输入的地址接受单数与全局两种写法，规则同 [`agent.resources`](resources.md) 输出 1。
@@ -88,6 +90,13 @@ owners:
 20. **环境。** 继承服务端环境，另加 `NBOOK_PROJECT`（没有主项目时不设）与 `NBOOK_SESSION`，值是真实路径。
 21. **输出。** 结果是输出窗口、退出码与是否超时或被中止；窗口放不下全部输出时附全文的全局地址，可用 `read` 分页读；放得下就不留全文。
 22. **结束。** 退出码非 0 为 `exit-nonzero`，超时为 `timeout`，工具中止为 `cancelled`。超时与中止时已收到的输出照样保存。无论保存成败，一次调用命令恰好执行一次（第 19 条执行前报错的除外）。
+
+### ask（planned）
+
+23. 整批问题交给内核的提问通道（`ctx.ask`，[`harness/runtime.md`](../harness/runtime.md) 输出 40），运行停下等回答；每题总带“其它”。回答写成工具结果交回模型，结构化的值在 `details`。
+24. `form` 先过 nb-form 的 Agent 策略（[`ui/forms.md`](../ui/forms.md) 输出 23），不合规得 `ask-form-invalid`，问题列在结果里，不打扰用户。
+25. 两条 `ask` 给模型的名字相同，Profile 只绑一条（主创绑 `ask-form`），用工具绑定能换。没有等用户通道的运行（后台）得 `ask-unavailable`。用户停止这一轮时运行中止。
+26. `edit`、`write` 给审批提供预览（[`harness/runtime.md`](../harness/runtime.md) 输出 76）：按将要执行的结果试算改前改后，不落盘。
 
 ## 状态与转换
 

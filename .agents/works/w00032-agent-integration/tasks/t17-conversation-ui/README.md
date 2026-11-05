@@ -155,8 +155,8 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 
 ## 当前状态
 
-静态稿定稿，继续按钮的图标在 review v6 待确认（不挡进度）。正在写 Spec 与计划。
+静态稿定稿，继续按钮的图标在 review v6 待确认（不挡进度）。计划第一稿已确认（开发者 2026-11-05）：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。设计审查进行中。
 
 ## 下一步
 
-写 Spec（改 `ui/agent-conversation-view.md`，新增应用层的 Spec）与 `plan.md`，给开发者看要点，确认后提交并做设计审查。
+处理设计审查的结果后按切片实施。
