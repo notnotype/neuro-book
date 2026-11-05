@@ -24,6 +24,8 @@ export interface Difference {
 export interface Replayed {
     readonly service: WorldService;
     readonly ids: IdMap;
+    /** 回放结束时各章的正文（样本各项写进去以后的样子）。 */
+    readonly texts: ReadonlyMap<string, string>;
 }
 
 const label = (position: ReadPosition): string => (position.kind === "initial" ? "初值" : `${position.chapter} ${position.edge === "start" ? "开头" : "末尾"}`);
@@ -53,7 +55,12 @@ export async function replay(root: string, sample: PrototypeSample): Promise<Rep
     // 章序调整是第 1 次修订；原型的修订从样本的第一项算起。
     const written = new Map<string, string>();
     for (const [index, item] of sample.items.entries()) {
-        for (const [chapter, file] of Object.entries(item.files ?? {})) if (file.text !== undefined) texts.set(chapter, file.text);
+        for (const [chapter, file] of Object.entries(item.files ?? {})) {
+            if (file.text === undefined) continue;
+            texts.set(chapter, file.text);
+            // 宿主改了正文要通知世界服务（canon.project 输出 25），服务按快照里的正文校验原句。
+            opened.textChanged(chapter);
+        }
         const draft = item.draft as Parameters<typeof toRequest>[0];
         const result = draft.reverts !== undefined
             ? await opened.revert(ids.revision(draft.reverts), false, {requestId: `xingxia-${String(index + 1)}`, by: draft.by, title: draft.title})
@@ -62,7 +69,7 @@ export async function replay(root: string, sample: PrototypeSample): Promise<Rep
         ids.learn(result.ids, result.revision.id);
     }
     await opened.idle();
-    return {service: opened, ids};
+    return {service: opened, ids, texts};
 }
 
 /** 每个读取位置上每个原型条目的名字、一句话、出场与各字段的值，原型的与世界算出的逐项比；只列不同的。 */

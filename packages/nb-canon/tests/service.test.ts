@@ -134,11 +134,11 @@ describe("canon.project 输出 5、6：读的是某一个版本，写入排队",
         const second = service.publish(entryRequest("乙", 1));
         await paused.reached;
         expect(service.status().version).toBe(1);
-        expect(service.lookup(["甲"], latest)).toEqual({version: 1, found: {甲: []}});
+        expect(service.lookup(["甲"], latest)).toMatchObject({version: 1, found: {甲: []}});
         paused.release();
         const results = await Promise.all([first, second]);
         expect(results.map((result) => result.ok && result.revision.version)).toEqual([2, 3]);
-        expect(service.lookup(["甲", "乙"], latest)).toEqual({version: 3, found: {甲: ["e1"], 乙: ["e2"]}});
+        expect(service.lookup(["甲", "乙"], latest)).toMatchObject({version: 3, found: {甲: ["e1"], 乙: ["e2"]}});
     });
 });
 
@@ -149,7 +149,7 @@ describe("canon.project 输出 10、场景 5：独占写入", () => {
         const lease = service.acquireExclusive("第 5 章记账");
         if ("code" in lease) throw new Error("busy");
         expect(service.acquireExclusive("别的")).toEqual({code: "busy", holder: "第 5 章记账", since: 1000});
-        expect(service.lookup(["星瑕"], latest)).toEqual({version: 1, found: {星瑕: []}});
+        expect(service.lookup(["星瑕"], latest)).toMatchObject({version: 1, found: {星瑕: []}});
         expect(await service.publish(entryRequest("星瑕", 1))).toEqual({ok: false, failure: {code: "busy", holder: "第 5 章记账", since: 1000}});
         clock.now += 50_000;
         expect((await service.publish(entryRequest("白灵", 1), lease.token)).ok).toBe(true);
@@ -473,6 +473,53 @@ describe("canon.project 方法表 object：按 id 读存下来的对象", () => 
         expect(read).toMatchObject({version: 2, object: {id: "e1", init: {name: "星瑕"}}});
         const entry = read.object as Entry;
         expect((await service.publish({requestId: "rename", by: {kind: "author"}, what: "edit", title: "改名", baseVersion: read.version, puts: [{ref: {kind: "entry", id: "e1"}, after: {...entry, init: {...entry.init, aliases: ["瑕"]}}}]})).ok).toBe(true);
-        expect(service.object({kind: "check", id: "k9"})).toEqual({version: 3, object: null});
+        expect(service.object({kind: "check", id: "k9"})).toMatchObject({version: 3, object: null});
+    });
+});
+
+describe("canon.model 输出 36、canon.project 输出 19、25：正文快照、读取输入与游标", () => {
+    const tellRequest = (quote: string, baseVersion: number): WriteRequest => ({requestId: `tell-${String(++sequence)}`, by: {kind: "author"}, what: "edit", title: "讲述", baseVersion, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: quote, at: {kind: "chapter", chapter: "ch1", key: 0}, told: [{source: "chapter", chapter: "ch1", quote}], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}}}]});
+
+    test("宿主改了正文、通知以后，原句按新正文校验；版本不变，正文快照与读取输入的摘要变了，发 textChanged", async () => {
+        const texts = new Map([["ch1", "她走进雨里。"]]);
+        const service = await open({now: 0}, {chapterText: (chapter) => texts.get(chapter)});
+        const events: ServiceEvent[] = [];
+        service.subscribe((event) => events.push(event));
+        const before = service.status();
+        texts.set("ch1", "她撑开了伞。");
+        expect((await service.publish(tellRequest("她撑开了伞", before.version))).ok).toBe(false);
+        service.textChanged("ch1");
+        const after = service.status();
+        expect(after.version).toBe(before.version);
+        expect(after.textDigest).not.toBe(before.textDigest);
+        expect(after.inputDigest).not.toBe(before.inputDigest);
+        expect(events).toContainEqual({kind: "textChanged", chapter: "ch1"});
+        expect((await service.publish(tellRequest("她撑开了伞", after.version))).ok).toBe(true);
+    });
+
+    test("正文变了，版本没变，翻页的旧游标也得到 cursor-stale", async () => {
+        const texts = new Map([["ch1", "第一稿"]]);
+        const service = await open({now: 0}, {chapterText: (chapter) => texts.get(chapter)});
+        for (const [index, name] of ["甲", "乙", "丙"].entries()) expect((await service.publish(entryRequest(name, 1 + index))).ok).toBe(true);
+        const first = service.tree(null, undefined, 2);
+        if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
+        texts.set("ch1", "第二稿");
+        service.textChanged("ch1");
+        expect(service.tree(null, first.cursor, 2)).toBe("cursor-stale");
+    });
+
+    test("同一份读取输入两次读取，戳逐字相同；重开后同样的日志与正文得到同样的戳", async () => {
+        const texts = new Map([["ch1", "她走进雨里。"]]);
+        const service = await open({now: 0}, {chapterText: (chapter) => texts.get(chapter)});
+        expect((await service.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        const stamp = (from: WorldService) => {
+            const read = from.object({kind: "entry", id: "e1"});
+            return {version: read.version, textDigest: read.textDigest, inputDigest: read.inputDigest};
+        };
+        expect(stamp(service)).toEqual(stamp(service));
+        const first = stamp(service);
+        await service.stop();
+        const reopened = await open({now: 0}, {chapterText: (chapter) => texts.get(chapter)});
+        expect(stamp(reopened)).toEqual(first);
     });
 });

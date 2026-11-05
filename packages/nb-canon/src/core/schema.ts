@@ -172,7 +172,7 @@ export const AboutSchema = Type.Union([
 ]);
 
 /**
- * 决策（原“未决问题”，model.md 输入的“决策”表）。各状态必有的字段与允许的转换在 world/decisions.ts；
+ * 决策（原“未决问题”，model.md 输入的“决策”表）。各状态必有的字段与允许的转换见 model.md 的“状态与转换”；
  * 出处 `source` 只由内核写（revisions.md 输出 21）。
  */
 export const DecisionSchema = Type.Object({

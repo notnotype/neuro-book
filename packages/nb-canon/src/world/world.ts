@@ -601,7 +601,7 @@ const REFERENCE_KEYS = new Set(["parent", "sameAs", "entry", "plan", "by", "chan
 
 /**
  * 一个值里引用到的对象 id：只看放 id 的键，自由文字（描述、原句、标题）不算（revisions.md 输出 12 的依赖、改动记录按
- * 条目筛选）。未决问题挂靠的对象写成 `{kind: "entry" | "change", id}`，也算引用。
+ * 条目筛选）。决策挂的对象写成 `{kind: "entry" | "change", id}`，也算引用。
  */
 export function referencedIds(value: unknown, key: string | null = null, into = new Set<string>()): Set<string> {
     if (typeof value === "string") {

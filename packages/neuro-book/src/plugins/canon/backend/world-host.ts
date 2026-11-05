@@ -26,7 +26,7 @@ import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {holdLock} from "nbook/backend/locked-replace";
 
 import {descriptor} from "../plugin";
-import {BINDER_DIR, chapterText, readBinder} from "./binder";
+import {BINDER_DIR, chapterOfFile, chapterText, readBinder} from "./binder";
 
 const SETTLE_MS = 50;
 /** 世界日志的跨进程锁在 `.nbook/locks/` 下的名字。 */
@@ -105,6 +105,28 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     });
     const absorb = settled((current) => current.externalChanged());
 
+    // 章节文件变了：通知世界服务重读那一章的正文（canon.project 输出 25）。文件名认不出章（或平台不给文件名）时重读全部。
+    const changedTexts = new Set<string>();
+    let allTextsChanged = false;
+    const flushTexts = settled(async (current) => {
+        const chapters = [...changedTexts];
+        const all = allTextsChanged;
+        changedTexts.clear();
+        allTextsChanged = false;
+        if (all) current.textChanged();
+        else for (const chapter of chapters) current.textChanged(chapter);
+    });
+    const onBinderChange = (name: string | null) => {
+        reloadBinder();
+        if (name === null) allTextsChanged = true;
+        else {
+            const chapter = chapterOfFile(name);
+            if (chapter === null) return;
+            changedTexts.add(chapter);
+        }
+        flushTexts();
+    };
+
     const watchDir = (path: string, onChange: (name: string | null) => void): FSWatcher | null => {
         try {
             const watcher = watch(path, {persistent: false}, (_event, name) => onChange(name));
@@ -121,7 +143,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     let binderWatcher: FSWatcher | null = null;
     const watchBinder = () => {
         binderWatcher?.close();
-        binderWatcher = watchDir(join(root, BINDER_DIR), () => reloadBinder());
+        binderWatcher = watchDir(join(root, BINDER_DIR), onBinderChange);
     };
 
     const open = async (): Promise<WorldService | {readonly code: "world-locked" | "stopping"}> => {

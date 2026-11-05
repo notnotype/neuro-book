@@ -73,8 +73,8 @@ function tagOf(node: OrderedNode): string {
 }
 
 /**
- * 按章 id 读正文（同步：校验讲述的原句时在写入计算里调用）。找不到文件时为 undefined。每次都列目录、读文件：
- * 只在写入带讲述原句时用到，不值得为它维护一份随文件变化的缓存。
+ * 按章 id 读正文。找不到文件时为 undefined。世界服务只在打开时（每章一次）与收到正文变了的通知时调用它，正文的快照由
+ * 服务自己持有（canon.project 输出 25），所以这里不缓存。
  */
 export function chapterText(projectRoot: string, chapter: string): string | undefined {
     const prefix = `${chapter.padStart(5, "0")}-`;
@@ -85,4 +85,10 @@ export function chapterText(projectRoot: string, chapter: string): string | unde
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         throw error;
     }
+}
+
+/** 章节文件名（`00012-标题.md`）对应的章 id（`12`）；不是章节文件时为 null。 */
+export function chapterOfFile(name: string): string | null {
+    const match = /^(\d+)-.*\.md$/u.exec(name);
+    return match === null ? null : String(Number(match[1]));
 }

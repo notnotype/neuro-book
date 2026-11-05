@@ -65,14 +65,15 @@ describe("canon.project 场景 1：星瑕的一周", () => {
     });
 
     test("关掉项目再打开：每个读取位置上的结果逐字相同", async () => {
-        const {service, ids} = await replay(root, sample);
+        const {service, ids, texts: finalTexts} = await replay(root, sample);
         const positions = sample.results.map((result) => result.position as ReadPosition);
         const entries = Object.keys(sample.results[0]!.entries).map((id) => ids.get(id));
         const snapshot = (from: WorldService) => positions.map((position) => entries.map((id) => from.entry(id, position, "actual")));
         const before = snapshot(service);
         await service.stop();
 
-        const texts = new Map(sample.chapters.map((chapter) => [chapter.id, chapter.text]));
+        // 重开时宿主读的是章节文件现在的样子，即回放结束时的正文；正文快照的摘要随之相同。
+        const texts = new Map(finalTexts);
         const reopened = await WorldService.open(ports(root, sample, texts), {chapters: sample.chapters.map((chapter) => chapter.id), registry: buildRegistry(componentDeclarations(sample))});
         if ("code" in reopened) throw new Error(reopened.code);
         expect(reopened.status().version).toBe(service.status().version);

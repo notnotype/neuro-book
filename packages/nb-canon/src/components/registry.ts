@@ -48,8 +48,10 @@ export interface ComponentRegistry {
     /** 撞名的命名空间：数据保留、只读（输出 2、12）。 */
     readonly conflicted: ReadonlySet<string>;
     readonly diagnostics: readonly RegistryDiagnostic[];
-    /** 可用类型的稳定摘要输入，类型集合不变时逐字相同。 */
+    /** 可用类型的稳定摘要输入，类型集合不变时逐字相同。引擎据它判断要不要整本重建。 */
     readonly digest: string;
+    /** 可用的类型（带数据的与只做查询的）的 `[id, 版本]`，按 id 排；读取输入的摘要用（model.md 输出 36）。 */
+    readonly versions: readonly (readonly [string, number])[];
 }
 
 /** JSON 指针（`/fields/0/id`）写成诊断里用的路径（`fields[0].id`）。 */
@@ -106,7 +108,8 @@ export function buildRegistry(declarations: readonly ComponentDeclaration[]): Co
         types: [...available.values()].sort((a, b) => (a.namespace < b.namespace ? -1 : 1)).map((type) => ({id: type.id, namespace: type.namespace, version: type.version, fields: type.fields, instanceFields: type.instanceFields})),
         conflicted: [...conflicted].sort(),
     });
-    return {byNamespace: (namespace) => available.get(namespace), queryOnly, conflicted, diagnostics, digest};
+    const versions = [...[...available.values()].map((type) => [type.id, type.version] as const), ...[...queryOnly.values()].map((type) => [type.id, type.version ?? 0] as const)].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    return {byNamespace: (namespace) => available.get(namespace), queryOnly, conflicted, diagnostics, digest, versions};
 }
 
 function declarationProblem(declaration: ComponentDeclaration): {path: string; message: string} | null {

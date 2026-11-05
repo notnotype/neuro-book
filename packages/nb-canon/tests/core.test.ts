@@ -5,6 +5,7 @@ import {
     addressesOverlap,
     allPositions,
     applyChanges,
+    canonicalJson,
     ChapterOrder,
     compareIds,
     compareRanks,
@@ -215,5 +216,25 @@ describe("修订路径：哪些数组按 id 拆（canon.revisions 输入的“�
         const changes = diffValues(before, after, idListsOf("change"));
         expect(changes.map((change) => change.path)).toEqual(["told[t2]", "told#order"]);
         expect(applyChanges(before, changes, "after")).toEqual(after);
+    });
+});
+
+describe("规范的 JSON（canon.model 输入的“规范的 JSON”，RFC 8785）", () => {
+    test("键按 UTF-16 码元排序（RFC 8785 第 3.2.3 节的例子），数用 ECMAScript 的写法", () => {
+        const keys = {"€": 1, "\r": 2, "דּ": 3, "1": 4, "😀": 5, "\u0080": 6, "ö": 7};
+        expect(Object.keys(JSON.parse(canonicalJson(keys)) as object)).toEqual(["1", "\r", "\u0080", "ö", "€", "😀", "דּ"]);
+        expect(canonicalJson(keys).startsWith('{"\\r":2,"1":4')).toBe(true);
+        expect(canonicalJson([1e21, 0.000001, 1e-7, -0, 4.5, 2e-3])).toBe("[1e+21,0.000001,1e-7,0,4.5,0.002]");
+        expect(canonicalJson({b: [true, null], a: "引号\"与\\"})).toBe('{"a":"引号\\"与\\\\","b":[true,null]}');
+    });
+
+    test.each<[string, unknown]>([
+        ["非有限数", Number.NaN],
+        ["无穷", Number.POSITIVE_INFINITY],
+        ["落单的代理项", "\ud800"],
+        ["Map", new Map()],
+        ["值为 undefined 的键", {a: undefined}],
+    ])("遇到%s就抛错，不静默写出", (_name, value) => {
+        expect(() => canonicalJson(value)).toThrow(TypeError);
     });
 });

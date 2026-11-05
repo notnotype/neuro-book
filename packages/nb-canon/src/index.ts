@@ -26,7 +26,7 @@ export {
     type OrderTie,
     type Rank,
 } from "./core/position";
-export {sameJson, stableStringify} from "./core/stable-json";
+export {canonicalJson, sameJson, stableStringify} from "./core/stable-json";
 export {buildRegistry, effectiveFields, fieldsProblem, generateFieldId, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
 export {assetPathProblem, listItemProblem, semanticText, valueProblem, type ValueProblem} from "./components/values";
 export {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "./engine/incremental";

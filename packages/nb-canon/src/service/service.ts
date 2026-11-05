@@ -14,7 +14,7 @@ import type {ComponentRegistry} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
 import type {Decision, ObjectRef, ReadPosition, Revision, WriteRequest} from "../core/schema";
-import {stableStringify} from "../core/stable-json";
+import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {Mode, PendingItem, ReductionInput} from "../engine/types";
 import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
@@ -48,7 +48,19 @@ export interface ServicePorts {
 export type ServiceEvent =
     | {readonly kind: "changed"; readonly version: number; readonly revision: string; readonly by: Revision["by"]; readonly what: string; readonly title: string}
     | {readonly kind: "exclusive"; readonly holder: string | null}
-    | {readonly kind: "reduced"};
+    | {readonly kind: "reduced"}
+    /** 宿主通知某一章（`null` 是全部）的正文变了，正文快照随之更新，版本不变（project.md 输出 25）。 */
+    | {readonly kind: "textChanged"; readonly chapter: string | null};
+
+/**
+ * 读取结果带的戳（model.md 输出 36、project.md 输出 19）：世界版本、正文快照的摘要、整份读取输入的摘要。同一份读取输入
+ * 算出的结果逐字相同，游标绑定 `inputDigest`。
+ */
+export interface ReadStamp {
+    readonly version: number;
+    readonly textDigest: string;
+    readonly inputDigest: string;
+}
 
 export type ServiceState = "writable" | "read-only" | "stopped";
 
@@ -103,6 +115,13 @@ export class WorldService {
     #reducing = false;
     #tokens = 0;
     #leaseTimer: unknown = null;
+    /**
+     * 正文快照：宿主最近一次给出的各章正文与它的摘要（取不到正文的章是 `undefined` 与 `null`）。打开时按章序全读一次，
+     * `textChanged` 时只重读那一章；世界的 `chapterText` 读这里，不再每次写入都去读文件。
+     */
+    readonly #texts = new Map<string, {readonly text: string | undefined; readonly digest: string | null}>();
+    #textGeneration = 0;
+    #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
     readonly diagnostics: ServiceDiagnostic[];
     readonly #ports: ServicePorts;
 
@@ -134,13 +153,14 @@ export class WorldService {
             order: new ChapterOrder(chapters),
             registry: initial.registry,
             reductions: (input: ReductionInput) => service.#lookup(input),
-            chapterText: ports.chapterText,
+            chapterText: (chapter: string) => service.#texts.get(chapter)?.text,
             digest: ports.digest,
         };
         const world = World.replay(opened.revisions, options);
         const readOnly = opened.readOnly === null ? null : `${opened.readOnly.segment}:${String(opened.readOnly.line)} ${opened.readOnly.message}`;
         const diagnostics: ServiceDiagnostic[] = [...opened.diagnostics, ...cache.badLines.map((line) => ({code: "reduction-cache-bad-line" as const, line}))];
         service = new WorldService(ports, world, opened.tail, readOnly, diagnostics, reductions);
+        service.#syncTexts(chapters);
         await service.setChapters(initial.chapters);
         return service;
     }
@@ -167,7 +187,7 @@ export class WorldService {
     status() {
         this.#expireLease();
         return {
-            version: this.#world.version,
+            ...this.#stamp(),
             state: this.#state,
             ...(this.#readOnlyReason === null ? {} : {reason: this.#readOnlyReason}),
             exclusive: this.#lease === null ? null : {label: this.#lease.label, since: this.#lease.since},
@@ -178,35 +198,37 @@ export class WorldService {
 
     entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
         const world = this.#world;
+        const stamp = this.#stamp();
         const view = world.engine.entry(id, position, mode);
-        if (view === "chapter-not-found" || view === null || !withOrigins) return view === "chapter-not-found" ? view : {version: world.version, view};
+        if (view === "chapter-not-found" || view === null || !withOrigins) return view === "chapter-not-found" ? view : {...stamp, view};
         const origins: Record<string, unknown> = {};
         for (const [namespace, data] of Object.entries(view.namespaces)) {
             for (const field of Object.keys(data.fields)) origins[`${namespace}.${field}`] = world.engine.origins({entry: id, path: `${namespace}.${field}`}, position, mode);
         }
-        return {version: world.version, view, origins};
+        return {...stamp, view, origins};
     }
 
-    /** 按 id 读一个存下来的对象（条目、剧情变更、核对点、未决问题、正文建议）；不存在时为 null（方法表 `object`）。 */
-    object(ref: ObjectRef): {readonly version: number; readonly object: unknown} {
+    /** 按 id 读一个存下来的对象（条目、剧情变更、核对点、决策、正文建议）；不存在时为 null（方法表 `object`）。 */
+    object(ref: ObjectRef): ReadStamp & {readonly object: unknown} {
         const world = this.#world;
-        return {version: world.version, object: world.object(ref) ?? null};
+        return {...this.#stamp(), object: world.object(ref) ?? null};
     }
 
-    pending(position?: ReadPosition): {version: number; items: readonly PendingItem[]} | "chapter-not-found" {
+    pending(position?: ReadPosition): (ReadStamp & {items: readonly PendingItem[]}) | "chapter-not-found" {
         const world = this.#world;
         const items = world.pending(position ?? defaultPosition(world.options.order));
-        return items === "chapter-not-found" ? items : {version: world.version, items};
+        return items === "chapter-not-found" ? items : {...this.#stamp(), items};
     }
 
     /** 条目树的一层：父条目（null 是根）下按顺序的条目（输出：`tree`）。 */
     tree(parent: string | null, cursor?: string, limit = 50) {
         const world = this.#world;
         const children = [...world.data.entries.values()].filter((entry) => entry.parent === parent).sort((a, b) => a.order - b.order || compareIds(a.id, b.id));
-        const page = this.#page(world.version, children, cursor, limit);
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, children, cursor, limit);
         if (page === "cursor-stale") return page;
         return {
-            version: world.version,
+            ...stamp,
             items: page.items.map((entry) => ({id: entry.id, name: entry.init.name, type: entry.type, folder: entry.folder, deleted: entry.deleted === true, hasChildren: [...world.data.entries.values()].some((other) => other.parent === entry.id)})),
             ...(page.next === undefined ? {} : {cursor: page.next}),
         };
@@ -224,7 +246,7 @@ export class WorldService {
             if (view === null || view.deleted || !view.appeared) continue;
             for (const name of names) if (view.name === name || view.aliases.includes(name)) found[name]!.push(entry.id);
         }
-        return {version: world.version, found};
+        return {...this.#stamp(), found};
     }
 
     /** 剧情变更的列表，按全序；每条带生效状态与这次套没套上（输出：`changes`）。 */
@@ -244,27 +266,30 @@ export class WorldService {
             if (left === null || right === null) return left === right ? compareIds(a.id, b.id) : left === null ? 1 : -1;
             return compareRanks(left, right) || compareIds(a.id, b.id);
         });
-        const page = this.#page(world.version, matching, cursor, limit);
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, matching, cursor, limit);
         if (page === "cursor-stale") return page;
-        return {version: world.version, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 决策，按 id；状态筛选、游标分页（project.md 方法表的 `decisions`）。 */
     decisions(status?: Decision["status"], cursor?: string, limit = 50) {
         const world = this.#world;
         const matching = [...world.data.decisions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
-        const page = this.#page(world.version, matching, cursor, limit);
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, matching, cursor, limit);
         if (page === "cursor-stale") return page;
-        return {version: world.version, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 正文建议，按 id；状态筛选、游标分页（方法表）。 */
     suggestions(status?: "open" | "applied" | "declined", cursor?: string, limit = 50) {
         const world = this.#world;
         const matching = [...world.data.suggestions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
-        const page = this.#page(world.version, matching, cursor, limit);
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, matching, cursor, limit);
         if (page === "cursor-stale") return page;
-        return {version: world.version, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 改动记录，按版本从新到旧，带能不能还原（revisions.md 输出 14）。 */
@@ -275,10 +300,11 @@ export class WorldService {
             (filter.by === undefined || revision.by.kind === filter.by) &&
             (filter.entry === undefined || revision.ops.some((op) => op.kind !== "chapters" && (op.ref.id === filter.entry || opReferences(op).has(filter.entry!)))),
         );
-        const page = this.#page(world.version, matching, cursor, limit);
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, matching, cursor, limit);
         if (page === "cursor-stale") return page;
         return {
-            version: world.version,
+            ...stamp,
             items: page.items.map((revision) => {
                 const set = world.dependents(revision.id);
                 const revertable = set === "not-revertable" ? {ok: false, reason: "not-revertable"} : set.length > 1 ? {ok: false, reason: "has-dependents", dependents: set.slice(1)} : {ok: true};
@@ -289,7 +315,8 @@ export class WorldService {
     }
 
     render(entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent") {
-        return audience === "author" ? renderEntryForAuthor(this.#world, entry, position, mode) : renderEntryForAgent(this.#world, entry, position, mode);
+        const result = audience === "author" ? renderEntryForAuthor(this.#world, entry, position, mode) : renderEntryForAgent(this.#world, entry, position, mode);
+        return result === null || result === "chapter-not-found" ? result : {...result, ...this.#stamp()};
     }
 
     preview(request: WriteRequest): WriteResult {
@@ -399,12 +426,24 @@ export class WorldService {
         return next;
     }
 
+    /**
+     * 宿主通知正文变了（project.md 输出 25）：重读这一章（不给章就是全部）进正文快照，版本不变，发 `textChanged`。
+     * 不在章序里的章不读。
+     */
+    textChanged(chapter?: string): void {
+        const chapters = chapter === undefined ? [...this.#world.options.order.ids] : this.#world.options.order.has(chapter) ? [chapter] : [];
+        for (const id of chapters) this.#loadText(id);
+        this.#textGeneration += 1;
+        this.#emit({kind: "textChanged", chapter: chapter ?? null});
+    }
+
     /** 宿主给出新章序（输出 9）：与记下的不同就发布章序调整；`invalid` 时保持原章序并写诊断（输出 23）。 */
     async setChapters(chapters: readonly string[] | "invalid"): Promise<void> {
         if (chapters === "invalid") {
             this.diagnostics.push({code: "binder-invalid"});
             return;
         }
+        this.#syncTexts(chapters);
         const order = new ChapterOrder(chapters);
         await this.#write(undefined, (world) => {
             const moved = world.withOptions({...world.options, order});
@@ -565,17 +604,66 @@ export class WorldService {
         await pending;
     }
 
+    /* ---------- 正文快照与读取输入（model.md 输出 36） ---------- */
+
+    #loadText(chapter: string): void {
+        const text = this.#ports.chapterText(chapter);
+        this.#texts.set(chapter, {text, digest: text === undefined ? null : this.#ports.digest(text)});
+    }
+
+    /** 让正文快照只含章序里的章：新出现的读进来，不在章序里的去掉。 */
+    #syncTexts(chapters: readonly string[]): void {
+        const wanted = new Set(chapters);
+        let changed = false;
+        for (const id of chapters) {
+            if (this.#texts.has(id)) continue;
+            this.#loadText(id);
+            changed = true;
+        }
+        for (const id of [...this.#texts.keys()]) {
+            if (wanted.has(id)) continue;
+            this.#texts.delete(id);
+            changed = true;
+        }
+        if (changed) this.#textGeneration += 1;
+    }
+
+    /**
+     * 这次读取的戳。世界（版本、章序、登记都在它的 options 里）与正文快照都没变时用上一次算好的：全书的正文快照摘要
+     * 要拼一千多章的摘要，每次读取都算不划算。
+     */
+    #stamp(): ReadStamp {
+        const world = this.#world;
+        const cached = this.#stampCache;
+        if (cached !== null && cached.world === world && cached.generation === this.#textGeneration) return cached.stamp;
+        const ids = world.options.order.ids;
+        const textDigest = this.#ports.digest(canonicalJson(ids.map((id) => [id, this.#texts.get(id)?.digest ?? null])));
+        const inputDigest = this.#ports.digest(canonicalJson({
+            version: world.version,
+            chapters: ids.map((id) => [id, "main"]),
+            text: textDigest,
+            registry: {components: world.options.registry.versions.map(([id, version]) => [id, version]), marks: [], diagnostics: []},
+            pluginData: [],
+            calendar: null,
+            fuzzy: null,
+        }));
+        const stamp = {version: world.version, textDigest, inputDigest};
+        this.#stampCache = {world, generation: this.#textGeneration, stamp};
+        return stamp;
+    }
+
     /* ---------- 游标（输出 19） ---------- */
 
-    #page<T>(version: number, items: readonly T[], cursor: string | undefined, limit: number): {items: readonly T[]; next?: string} | "cursor-stale" {
+    /** 游标是“读取输入的摘要:偏移”；读取输入的任何一项变了，旧游标得到 `cursor-stale`。 */
+    #page<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number): {items: readonly T[]; next?: string} | "cursor-stale" {
         let offset = 0;
         if (cursor !== undefined) {
-            const [cursorVersion, cursorOffset] = cursor.split(":").map(Number) as [number, number];
-            if (cursorVersion !== version) return "cursor-stale";
-            offset = cursorOffset;
+            const split = cursor.lastIndexOf(":");
+            if (split < 0 || cursor.slice(0, split) !== stamp.inputDigest) return "cursor-stale";
+            offset = Number(cursor.slice(split + 1));
         }
         const slice = items.slice(offset, offset + limit);
-        const next = offset + limit < items.length ? `${String(version)}:${String(offset + limit)}` : undefined;
+        const next = offset + limit < items.length ? `${stamp.inputDigest}:${String(offset + limit)}` : undefined;
         return {items: slice, ...(next === undefined ? {} : {next})};
     }
 }
