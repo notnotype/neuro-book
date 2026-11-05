@@ -1,8 +1,8 @@
 import {describe, expect, test} from "bun:test";
 
-import {MARK_IDS} from "../../shared/declarations";
+import {COMPONENT_IDS, MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
-import {addRow, chapter, PlotWorld} from "../../testing/world";
+import {addRow, chapter, drafts, PlotWorld} from "../../testing/world";
 import {composeBrief, type BriefInput, type BriefResult} from "./index";
 import * as fixed from "./fixed";
 
@@ -122,5 +122,142 @@ describe("plot.brief 输出 1、6、11、12、15：组成、场景条件、固�
         expect(full.record.omitted).toEqual([]);
         expect(section(small, "people").split("\n")).toContain("星瑾");
         expect(brief(w, "ch5", {instruction: instruction("ch5", {pov: {kind: "entry", id: jin}}), limits: {appearance: 100}}).text).toBe(small.text);
+    });
+});
+
+const setState = (thing: string, value: string) => ({op: "set" as const, at: {entry: thing, path: "character.状态"}, value});
+
+describe("plot.brief 验收 5：回溯章", () => {
+    test("第 8 章前 29 段讲主线、第 30 段起讲回溯线：两份简报各标“回溯前”“回溯后”，涉及条目的样子各读各的线；写作指示、细纲、通则、上一章末尾只写一次", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const jin = w.person("星瑾");
+        const thing = w.thing("怀表");
+        w.change(chapter("ch6"), {patches: [setState(thing, "走得很慢")]});
+        const cut = w.change(chapter("ch7", 10));
+        w.change(chapter("ch7", 20), {patches: [setState(thing, "停了")]});
+        w.change(chapter("ch8"), {kind: "plan", text: "星瑾看表", cast: [{who: jin, role: "present"}], patches: [setState(thing, "又被拨动了")]});
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch7", 90)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}}]);
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 30}]]])});
+        const result = brief(w, "ch8", {instruction: instruction("ch8", {tone: "冷"}), previousTail: "上一章的末尾。"});
+        expect(result.parts.map((part) => part.label)).toEqual(["回溯前", "回溯后"]);
+        expect(section(result, "appearance", 0)).toContain("停了");
+        expect(section(result, "appearance", 1)).toContain("走得很慢");
+        expect(section(result, "appearance", 1)).not.toContain("停了");
+        expect(result.text.split("上一章的末尾。").length - 1).toBe(1);
+        expect(result.text.split(`## ${fixed.TITLES.instruction}`).length - 1).toBe(1);
+        expect(result.text.split(fixed.RULES[0]).length - 1).toBe(1);
+        expect(result.text).toContain("# 回溯前");
+        expect(result.text).toContain("# 回溯后");
+    });
+});
+
+describe("plot.brief 验收 6、7：一条决策挂两个秘密；绝密的隐秘目标", () => {
+    test("决策挂在保密 K1 与绝密 K2（本章不暗示）上：只在决策段写“有一条涉及保密设定的决定”，K1 那一项里没有原话；只挂 K1：原话写在 K1 那一项里一次", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [butler] = [w.person("管家")];
+        const k1 = w.point("管家欠了债", butler, {保密: "secret"});
+        const k2 = w.point("管家是凶手", butler, {保密: "topSecret"});
+        w.change(chapter("ch16"), {kind: "plan", text: "管家端茶", cast: [{who: butler, role: "present"}]});
+        w.decision("管家的事别点破", {about: [{kind: "entry", id: k1}, {kind: "entry", id: k2}], conclusion: "只给暗示"});
+        const both = brief(w, "ch16");
+        expect(section(both, "decisions")).toBe(fixed.DECISION_ABOUT_SECRET);
+        expect(section(both, "secrets")).not.toContain("只给暗示");
+        const w2 = new PlotWorld(CHAPTERS);
+        const butler2 = w2.person("管家");
+        const only = w2.point("管家欠了债", butler2, {保密: "secret"});
+        w2.change(chapter("ch16"), {kind: "plan", text: "管家端茶", cast: [{who: butler2, role: "present"}]});
+        w2.decision("管家的事别点破", {about: [{kind: "entry", id: only}], conclusion: "只给暗示"});
+        const single = brief(w2, "ch16");
+        expect(section(single, "secrets").split("只给暗示").length - 1).toBe(1);
+        expect(section(single, "decisions")).toContain("见这一场的秘密");
+    });
+
+    test("管家的隐秘目标指向绝密的 K_G、本章不暗示：这一场的秘密里只有“管家另有一个不能写出的目标”，本章计划、在场的人、涉及条目里只有“管家的一个隐秘目标”，没有目标的名字与状态变化", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const kg = w.point("管家想继承爵位", butler, {保密: "topSecret"});
+        w.change(chapter("ch3"), {patches: [addRow(butler, kg, {程度: "knows"})]});
+        const goal = w.goal("毒死男爵继承爵位", butler, {隐秘: {ref: kg}});
+        w.change(chapter("ch16"), {kind: "plan", text: "管家端茶", cast: [{who: butler, role: "present"}], patches: [{op: "set", at: {entry: goal, path: "goal.状态"}, value: "blocked"}]});
+        const result = brief(w, "ch16");
+        expect(section(result, "secrets")).toContain(fixed.holderUnwritableGoal("管家"));
+        for (const key of ["plan", "people", "appearance"]) {
+            const text = section(result, key);
+            expect(text).not.toContain("毒死男爵继承爵位");
+            expect(text).not.toContain("blocked");
+        }
+        expect(section(result, "plan")).toContain(fixed.hiddenGoalOf("管家"));
+        expect(section(result, "people")).toContain(fixed.hiddenGoalOf("管家"));
+        expect(result.text).not.toContain("毒死男爵");
+    });
+});
+
+describe("plot.brief 输出 7、8、10：称谓、伏笔、读者已知", () => {
+    test("称谓的顺序：态度行的称呼最先；之后同时在场过且没用马甲的用名字；都没有用泛称；第三人称的视角不生成", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const withAttitude = {init: {name: "星瑾", aliases: [], summary: "", text: [], data: {
+            know: {type: COMPONENT_IDS.knowing, version: 1, enabled: true, fields: {知情: [], 听过的说法: null}},
+            att: {type: COMPONENT_IDS.attitude, version: 1, enabled: true, fields: {态度: []}},
+        }}};
+        const [jin, brother, stranger] = [w.person("星瑾", withAttitude), w.person("哥哥"), w.person("路人")];
+        w.change(chapter("ch1"), {patches: [{op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: brother, 态度: "冷淡", 称呼: "阿哥"}}]});
+        w.change(chapter("ch2"), {cast: [{who: jin, role: "present"}, {who: stranger, role: "present"}]});
+        w.change(chapter("ch5"), {kind: "plan", text: "三人一起", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}, {who: stranger, role: "present"}, {label: "挑夫", role: "present"}]});
+        const result = brief(w, "ch5", {instruction: instruction("ch5", {pov: {kind: "entry", id: jin}, povMode: "first"})});
+        const rows = section(result, "address");
+        expect(rows).toContain("阿哥 = 哥哥");
+        expect(rows).toContain("路人 = 路人");
+        expect(rows).toContain("挑夫 = 挑夫");
+        const omniscient = brief(w, "ch5", {instruction: instruction("ch5", {pov: {kind: "entry", id: jin}, povMode: "omniscient"})});
+        expect(section(omniscient, "address")).toBe("");
+    });
+
+    test("伏笔：回收节点的伏笔答案是保密以上而本章没有揭示：不给主文字，写“回收方式按细纲写”并给提示；有揭示就给", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const answer = w.point("管家是凶手", butler, {保密: "secret"});
+        const fs = w.foreshadow("谁杀了男爵", {种类: "mystery", 答案: {ref: answer}});
+        const node = (role: string) => ({kind: MARK_IDS.node, version: 1, foreshadow: fs, role});
+        w.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [{who: butler, role: "present"}], told: [{source: "outline", chapter: "ch15", anchor: "揭晓凶手", marks: [node("payoff")]}]});
+        const withheld = brief(w, "ch15");
+        expect(section(withheld, "foreshadow")).toContain(fixed.PAYOFF_BY_OUTLINE);
+        expect(withheld.hints.map((hint) => hint.code)).toContain("nbook.plot.brief.payoffWithheld");
+        const w2 = new PlotWorld(CHAPTERS);
+        const butler2 = w2.person("管家");
+        const answer2 = w2.point("管家是凶手", butler2, {保密: "secret"});
+        const fs2 = w2.foreshadow("谁杀了男爵", {种类: "mystery", 答案: {ref: answer2}});
+        w2.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [{who: butler2, role: "present"}], told: [{source: "outline", chapter: "ch15", anchor: "揭晓凶手", marks: [{kind: MARK_IDS.node, version: 1, foreshadow: fs2, role: "payoff"}, reveal(answer2, "explicit")]}]});
+        const given = brief(w2, "ch15");
+        expect(section(given, "foreshadow")).not.toContain(fixed.PAYOFF_BY_OUTLINE);
+        expect(given.hints.map((hint) => hint.code)).not.toContain("nbook.plot.brief.payoffWithheld");
+    });
+
+    test("读者已知：本章涉及的知识点里读者在上一章末尾已经知道的；保密以上的只写这一场的秘密里那一项的名字", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        const open = w.point("哥哥在查账", brother, {保密: "common"});
+        const secret = w.point("哥哥能回溯", brother, {保密: "secret"});
+        w.texts.set("ch3", "他在查账。哥哥其实能回溯。");
+        w.change(chapter("ch3"), {told: [
+            {source: "chapter", chapter: "ch3", quote: "他在查账", marks: [reveal(open, "explicit")]},
+            {source: "chapter", chapter: "ch3", quote: "哥哥其实能回溯", marks: [reveal(secret, "explicit")]},
+        ]});
+        w.change(chapter("ch5"), {kind: "plan", text: "兄妹说话", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}], patches: [{op: "listAdd", at: {entry: jin, path: "know.知情"}, value: {id: open, 程度: "unaware"}}, {op: "listAdd", at: {entry: jin, path: "know.知情"}, value: {id: secret, 程度: "unaware"}}]});
+        const result = brief(w, "ch5");
+        const reader = section(result, "reader");
+        expect(reader).toContain("读者已经知道：哥哥在查账");
+        expect(reader).toContain("读者已经知道：（见这一场的秘密：哥哥能回溯）");
+    });
+});
+
+describe("plot.brief 输出 10：第一章没有上一章", () => {
+    test("第一章读者已知写“无”（没有上一章末尾可读）", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        const open = w.point("哥哥在查账", brother, {保密: "common"});
+        w.texts.set("ch1", "他在查账。");
+        w.change(chapter("ch1"), {told: [{source: "chapter", chapter: "ch1", quote: "他在查账", marks: [reveal(open, "explicit")]}]});
+        w.change(chapter("ch1", 50), {kind: "plan", text: "兄妹", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}], patches: [{op: "listAdd", at: {entry: jin, path: "know.知情"}, value: {id: open, 程度: "unaware"}}]});
+        expect(brief(w, "ch1").text).toContain(`### ${fixed.BRIEF_PARTS.reader}\n${fixed.NONE}`);
     });
 });
