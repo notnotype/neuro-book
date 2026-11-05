@@ -31,7 +31,8 @@ updated: 2026-11-05
 - 计划第二版（处理计划审查 P1 的 17 条，[`evidences/plan-review-P1-resolution.txt`](evidences/plan-review-P1-resolution.txt)）；P2（omp）在后台。
 - 阶段 A：
   - A1 已提交（分支 26e40e341）：日志格式 2；未决问题改成决策；讲述的 id（程序发、全局不复用）与按来源的形状校验，只查新写或改过的讲述；修订里按路径声明哪些数组按 id 拆；列表末尾的追加互不依赖。nb-canon 248 个测试、canon 插件 8 个测试通过，两个包类型检查通过。
+  - A2 已提交（e2bb03c3e）：服务持有正文快照（打开时读一次，`textChanged` 只重读那一章，canon 插件在章节文件变化时调它）；读取结果带世界版本、正文快照与读取输入的摘要，游标绑定读取输入；`canonicalJson`（RFC 8785，遇到非法值抛错）。nb-canon 257 个测试、canon 插件 8 个测试通过。章节文件的监视在 A9 补一条插件层的测试。
 
 ## 下一步
 
-1. A2：正文快照与读取输入、游标、`canonicalJson`。
+1. A3：引用与替换（两份清单、修订存 `refs`）。
