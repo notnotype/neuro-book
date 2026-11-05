@@ -47,7 +47,9 @@ updated: 2026-11-05
 
   - A8b 已提交（62441257e）：插件诊断的项目内接口（`registerDiagnostics` 返回停止函数、`reportDataVersion`，数据版本进读取输入的摘要）；一次计算的处理按 Spec 的顺序（校验稳定键、去重并提示、截到 1000 条、按作者的已定决策分出已处理、版本不同的旧决策照常报出并带它的 id）；抛错、没登记计算、键不合声明都是 `diagnostic-unavailable` 并标不完整；停用插件的诊断另列，不标不完整；`pending` 改成按组（待处理、提示、已处理）分页，三组与内核自己的提示（讲述失联、原句重复、只读的标注、类型不在的 Component）按 model 输出 16 的全序排，按读取输入缓存；`status` 带最近的计算耗时。列表的计算挪进 `service/reads.ts`，同一份代码给 `CanonReadView`。nb-canon 305 个测试通过。
 
+  - A9 拆两片。A9a 已提交（72d9d692a）：服务的 `openView`、`closeView`、`viewAudit` 与带令牌的读取 `viewed(token)`（`entry`、`render`、`lookup` 的位置不写时夹到上限，写了晚于上限的拒；`presence`、`changes`、`tellings` 只返回上限之前的；别的方法带令牌拒），每次被拒记一条审计（最近 500 条）。A9b 已提交（5318a94bd）：远程合同加 `tellings`、`presence`、`openView`、`closeView`、`viewAudit`，`pending` 带模式、组与游标，`preview` 收还原请求，`revert` 带授权，`changes` 加性质与计划进展，各方法收视图令牌，`textChanged` 事件；canon 插件的 `canon.marks`、`canon.diagnostics` 贡献点与诊断的项目内接口（按调用方，登记随调用方入口停止失效）；调用方实例失效时关掉它打开的视图。集成测试（真实项目子进程）：原子替换保存章节后讲述失联、版本不变、读取输入的摘要变了、收到 `textChanged`（P2 第 8 条）；视图的场景 8；探针插件 `test.canon-probe` 经两个贡献点登记标注种类与诊断、经项目内接口登记计算。canon 插件 11 个测试通过。视图令牌的寿命按调用方实例算（只断链路不失效），记进待确认清单。
+
 ## 下一步
 
-1. A9：视图（`openView`、`closeView`、`viewAudit`，带令牌的读取按方法表限制）、远程合同与浏览器客户端、canon 插件的 `canon.marks`、`canon.diagnostics` 贡献点与诊断的项目内接口、正文快照与授权端口的接线、经文件服务保存章节的集成测试（P2 第 8 条），规模测量重跑。之后做阶段 A 的实现审查（omp，后台），进入阶段 B 的细计划。
+1. 阶段 A 收口：`test:affected --typecheck`、规模测量重跑，然后发阶段 A 的实现审查（omp，后台，不等），进入阶段 B 的细计划与计划审查。
 2. A4 的 1000 章测量已跑（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）：都在预算内；打开到可以读 1508 ms（t29 时 1065），日志 22.0 MB（t29 时 13.5），主要是修订存下的 `refs`，交实现审查一并看。
