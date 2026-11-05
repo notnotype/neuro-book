@@ -31,8 +31,23 @@ owners:
 | 登记 | 内容 |
 |---|---|
 | Component `plot.foreshadow`，命名空间 `fs` | `种类`（enum：`setupPayoff` 埋设回收、`mystery` 悬念、`prophecy` 预言、`motif` 意象）；`重要程度`（enum：`main`、`side`、`minor`）；`意图`（enum：`active` 进行、`dropped` 放弃）；`答案`（ref，`targets` 为“知识点”，悬念用）；`物件`（以引用为键的列表：依赖的物件，例如那座钟）；`参考间隔`（number，章数） |
-| 标注种类 `plot.node`，挂在讲述上 | `{foreshadow: 伏笔, role: "plant" | "echo" | "mislead" | "partial" | "payoff", note?: 给写手的指示}` |
-| 诊断 | 输出 6、7 列出的各项 |
+| 标注种类 `plot.node`（版本 1），挂在讲述上 | `{foreshadow: 伏笔, role: "plant" | "echo" | "mislead" | "partial" | "payoff", note?: 给写手的指示}`，`refs` 是 `foreshadow`（`targets` 为“伏笔”） |
+
+本能力登记的诊断（都是版本 1，`label` 用表里的名字；节点所在的讲述记在键的 `telling` 里；按读者那一边算的不带 `line`，按线视图算的带）：
+
+| 诊断 | 名字 | 级别 | 稳定键 |
+|---|---|---|---|
+| `plot.fs.payoffBeforePlant` | 没埋就回收 | `pending` | `objects`：[伏笔]；`telling`（那个回收节点） |
+| `plot.fs.plannedNodeMissing` | 计划的节点没写 | `pending` | `objects`：[伏笔, 计划]；`line` |
+| `plot.fs.replantAfterPayoff` | 回收以后又埋 | `pending` | `objects`：[伏笔]；`telling`（那个埋下节点） |
+| `plot.fs.noPayoffPlanned` | 没排回收 | `hint` | `objects`：[伏笔]；`line` |
+| `plot.fs.longSilence` | 太久没提 | `hint` | `objects`：[伏笔] |
+| `plot.fs.droppedButPlanted` | 放弃了还留着 | `hint` | `objects`：[伏笔] |
+| `plot.fs.orphanHint` | 没有悬念认领的暗示 | `hint` | `objects`：[知识点]；`telling` |
+| `plot.fs.objectTouched` | 物件在回收之前被动过 | `hint` | `objects`：[伏笔, 物件, 那条变更]；`line` |
+| `plot.fs.sharedAnswer` | 几个悬念同一个答案 | `hint` | `objects`：[知识点] |
+| `plot.fs.nodeWithoutTelling` | 继承的节点没有位置 | `hint` | `objects`：[伏笔, 那条已写变更]；`line` |
+| `plot.fs.payoffWithoutReveal` | 悬念回收了却没揭示答案 | `hint` | `objects`：[伏笔]；`telling` |
 
 ## 输出与可观察行为
 
@@ -45,14 +60,14 @@ owners:
    - `plot.fs.payoffBeforePlant`：一个伏笔的回收（或部分回收）节点之前没有埋下的节点；
    - `plot.fs.plannedNodeMissing`：一条带伏笔节点的计划安放在第 N 章，第 N 章已经有已写的剧情变更，而到第 N 章末尾这条计划仍未兑现，或兑现了但第 N 章里没有这个伏笔的节点；
    - `plot.fs.replantAfterPayoff`：已回收以后又有埋下的节点。
-   键：伏笔与那个节点所在的讲述。
 7. **只提示的检查**（诊断，级别 `hint`）：
    - `plot.fs.noPayoffPlanned`：已埋、没回收，也没有带回收节点的计划；
    - `plot.fs.longSilence`：已埋、没回收，从最后一个节点到最新一章超过参考间隔（没设时按重要程度：`main` 30 章、`side` 20 章、`minor` 10 章；缺省值，用样本书量过以后再定）；
    - `plot.fs.droppedButPlanted`：意图为放弃，正文里还有生效的埋下节点；
    - `plot.fs.orphanHint`：一处 `hint` 的揭示指向的知识点没有任何悬念的答案指向它；
    - `plot.fs.objectTouched`：伏笔已埋、没回收期间，有一条生效、套上的剧情变更的补丁改了 `物件` 里某个条目的状态（钟被拨了），或窄问题报出正文里动了它（[`plot.checks`](checks.md)）；
-   - `plot.fs.sharedAnswer`、`plot.fs.nodeWithoutTelling`：输出 3、4。
+   - `plot.fs.sharedAnswer`、`plot.fs.nodeWithoutTelling`：输出 3、4；
+   - `plot.fs.payoffWithoutReveal`：悬念的回收节点（已写的，或计划的）所在的那一章，没有对它答案的 `explicit` 揭示。回收节点本身不让读者知道答案：读者的知情只按揭示算（[`plot.knowledge`](knowledge.md) 输出 6），给写手的内容见 [`plot.brief`](brief.md) 输出 8。
 8. **账本。** 读取视图：每个伏笔的阶段、全部节点（种类、章与段、给写手的指示）、计划的节点与它们的章、最后一次被提到的章、依赖的物件与它们最近一次被改的变更；可以按阶段、重要程度、意图、章的范围筛。
 
 ## 状态与转换

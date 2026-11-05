@@ -29,18 +29,30 @@ owners:
 
 | 登记 | 内容 |
 |---|---|
-| 标注种类 `plot.guard.address`，挂在决策上 | `{at: 地址, notIn: 值的列表, from?: 章, to?: 章}` |
-| 标注种类 `plot.guard.reader`，挂在决策上 | `{point: 知识点, atMost: "unaware" | "suspects", until: 章}`：`until` 这一章之前（不含），读者对这个知识点的程度不超过 `atMost` |
-| 诊断 | 输出 2 到 5 列出的各项 |
+| 标注种类 `plot.guard.address`（版本 1），挂在决策上 | `{at: 地址, notIn: 值的列表, from?: 章, to?: 章, lines?: 世界线 id 的列表}`，`refs` 是 `at.entry`；`lines` 没给时是所有存在的线 |
+| 标注种类 `plot.guard.reader`（版本 1），挂在决策上 | `{point: 知识点, atMost: "unaware" | "suspects", until: 章}`：`until` 这一章之前（不含），读者对这个知识点的程度不超过 `atMost`；`refs` 是 `point`（`targets` 为“知识点”） |
+
+本能力登记的诊断（都是版本 1，`label` 用表里的名字）：
+
+| 诊断 | 名字 | 级别 | 稳定键 |
+|---|---|---|---|
+| `plot.decision.guardViolated` | 违反了守卫 | `pending` | `objects`：[决策, 让它违反的那条变更（范围开头就违反时没有这一项）]；`line`（地址守卫）或 `telling`（读者守卫） |
+| `plot.decision.constraintViolated` | 违反了已定的约束 | `pending` | `objects`：[决策]；`range`（那一章） |
+| `plot.decision.decidedInText` | 写死了未定的事 | `pending` | `objects`：[决策]；`range`（那一章） |
+| `plot.decision.overdue` | 到期没定 | `pending` | `objects`：[决策] |
+| `plot.decision.dangling` | 悬空 | `hint` | `objects`：[决策] |
+| `plot.instruction.povAbsent` | 视角人物不在场 | `hint` | `objects`：[视角人物]；`range`（那一章） |
+| `plot.instruction.flashbackMismatch` | 补叙的安放对不上 | `hint` | `range`（那一章） |
+| `plot.instruction.repeated` | 写作指示反复出现 | `hint` | `range`（第一章到最后一章） |
 
 **章的写作指示快照**（宿主给出；字段都可选）：`{chapter, version, readerChange, pov, povMode: "first" | "limited" | "omniscient", timeMode: "follow" | {parallel: 章} | {flashback: 安放}, tone, opening, ending, avoid: 文字的列表, other}`，分别是读完这一章读者该有什么变化、视角人物（条目引用）、视角方式、章的时间方式（承接、与某章同时、补叙某处安放的事）、语气、开场、结尾、不写的、其他。
 
 ## 输出与可观察行为
 
 1. **只查已定的。** 守卫与约束只对状态为已定的决策检查；待定、被取代、放弃的不查。
-2. **地址守卫**（诊断 `plot.decision.guardViolated`，级别 `pending`）：在守卫的章的范围里（没给的端不限），从范围开头的值起、到范围里每一条套上的剧情变更之后，地址的值在 `notIn` 里就违反；键是决策与让它违反的那条变更（范围开头就违反时是范围的起点）。实际模式与按计划模式各算一份，按计划模式的结果在计划模式的待处理里。值不完整时不判，记“无法检查”。
-3. **读者守卫**（同一诊断）：`until` 之前的每个讲述位置上，读者的程度（[`plot.knowledge`](knowledge.md) 输出 6）超过 `atMost` 就违反；键是决策与第一处让它超过的讲述。试读报出的“提前泄底”附上相关的读者守卫（[`plot.checks`](checks.md)）。
-4. **约束与未定的事**（诊断 `plot.decision.constraintViolated`、`plot.decision.decidedInText`，级别 `pending`）：由窄问题的写作指示层报出（[`plot.checks`](checks.md) 输出 5）：涉及本章、已定决策的文字约束被正文违反；涉及本章、待定决策的事被正文写死了。键是决策与那一章。
+2. **地址守卫**（诊断 `plot.decision.guardViolated`，级别 `pending`）：在守卫的 `lines` 里的每一条线上、各按那条线的视图（[`canon.worldlines`](../canon/worldlines.md)），在守卫的章的范围里（没给的端不限），从范围开头的值起、到范围里每一条套上的剧情变更之后，地址的值在 `notIn` 里就违反；每条线各自报。实际模式与按计划模式各算一份，按计划模式的结果在计划模式的待处理里。值不完整时不判，记“无法检查”。
+3. **读者守卫**（同一诊断）：`until` 之前的每个讲述位置上，读者的程度（[`plot.knowledge`](knowledge.md) 输出 6）超过 `atMost` 就违反；第一处让它超过的讲述记在键里；读者守卫不分线。试读报出的“提前泄底”附上相关的读者守卫（[`plot.checks`](checks.md)）。
+4. **约束与未定的事**（诊断 `plot.decision.constraintViolated`、`plot.decision.decidedInText`，级别 `pending`）：由窄问题的写作指示层报出（[`plot.checks`](checks.md) 输出 5）：涉及本章、已定决策的文字约束被正文违反；涉及本章、待定决策的事被正文写死了。
 5. **到期没定与悬空**：
    - `plot.decision.overdue`（级别 `pending`）：待定的决策 `due` 是第 N 章，活页夹里最新一章不早于第 N 章；
    - `plot.decision.dangling`（级别 `hint`）：已定的决策挂的对象全部是已删除的条目、已撤销的剧情变更或被取代、放弃的决策。
