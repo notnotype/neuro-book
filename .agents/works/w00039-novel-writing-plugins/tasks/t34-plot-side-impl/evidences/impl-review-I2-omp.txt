@@ -1,0 +1,131 @@
+阶段 B 实现审查 I2（omp 默认模型，审查对象 5318a94bd..cb4aa74c5，含 I1 的修正；并进 P3 计划审查的 omp 份）。
+说明：/tmp/w00039-t34-impl-review-b/brief.md。审到第 16 条时 403 额度不足退出，没写“未发现问题的方面”与各级数量；16 条已覆盖说明里的五处重点，不再续跑或改派。
+
+### 1. I1 的深冻结仍漏掉共用的章序、读取戳与视图对象
+**严重程度**：重要；**类别**：不变量。
+**位置**：packages/nb-canon/src/service/reads.ts:122-126；packages/nb-canon/src/service/service.ts:423-441；packages/nb-canon/src/core/position.ts:19-21（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：读取视图直接交出 order.ids 和服务缓存的 stamp，#guarded 交出的对象也没冻结。插件能 reverse() 章序、改 stamp.inputDigest，不抛错；随后 snapshot() 返回同一个已污染的视图，普通 entry 的读取戳也被改。章序数组变成 [ch2,ch1]，positionKey(ch1) 的章索引仍是 0，数组与 ChapterOrder 内部索引已经互相矛盾。
+**为什么是问题**：I1 第 1 条修正承诺覆盖插件能拿到的共享对象，model 输出 36 要求一次读取输入一致、缓存不改变结果。当前只冻结方法的部分返回值，漏掉顶层共享元数据；不需要恶意插件，一次就地排序就能污染后续全部诊断、讲述先后和读取戳。视图对象本身可替换 entry 等方法，B5 的同输入对象复用又把影响扩到其他调用方。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/freeze-probe.ts；真实 PlotService/WorldService、真实日志。输出 view/stamp/chapters 的 Object.isFrozen 全为 false；篡改后 sameView:true，chapters:["ch2","ch1"]，stamp.inputDigest 与普通 entryStamp 都为 changed-by-plugin。与 I1 原发现不同：世界表里的条目已冻结，这次核实的是修正未覆盖的共享元数据。
+**建议改法**：在共享对象拥有方冻结章序与 ReadStamp，并冻结交出的 CanonReadView 外壳；保证副本、内部索引和摘要的所有权一致。补经真实 WorldService 的回归，覆盖章序、戳和方法表，而不只覆盖 entry/origins 的返回值。
+
+### 2. 经历把仅被提到的人当成同场者，绕过在场与马甲隔离
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/viewpoint.ts:193-202（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：只要 V 在一条变更里在场，返回 cast 时便把这条变更的所有其他参与者都列出来，没有筛 role === "present"。一个只标为 mentioned、实际不在场的密探也作为 {who: 密探id} 返回。
+**为什么是问题**：knowledge 输出 9 只允许“同时在场的人”，model 输出 29 明确区分 present 与 mentioned。人物只是被谈论，V 不应据此获得他曾在场的信息；尤其 mentioned 的本体没有 as 时会直接交出本体引用，原本针对同场马甲的过滤不能弥补它。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/viewpoint-probe.ts。用真实 PlotService 发布 cast:[{who:卫兵,role:"present"},{who:密探,role:"mentioned"}]；卫兵经历的第一条 cast 实际为 [{who:"e3"}]，e3 是该 mentioned 密探。未改产品文件。
+**建议改法**：投影 cast 之前先保留 role === "present"，再排除 V、再按马甲规则投影。补一条混合 present/mentioned（含临时 label）的视角经历回归。
+
+### 3. 相同行的 JSON 键序不同，会错误覆盖后来推出的知情
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/knowledge.ts:137-146（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：逐行历史用 JSON.stringify(before) === JSON.stringify(after) 判断行是否改变。第 1 章显式 unaware，第 2 章在场推出 suspects，第 3 章整段替换同一行、仅改变对象属性的插入顺序，结果被判成一次新的显式变化，有效知情从 suspects 倒退成 unaware。
+**为什么是问题**：knowledge 输出 3 与 B2 细计划明确要求“整段替换写出相同的行不算变化”。JSON 对象键的顺序不是知情语义，也不是内核的 JSON 等价规则；通过网络/Agent 重建一行时换键序很常见。它会把本来知道的角色错误挡住，并改变传话链与视角的结果。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/knowledge-probe.ts；使用真实 PlotWorld/World.publish。初行 {id:e2,程度:unaware,怎么知道:other}，替换行为 {怎么知道:other,程度:unaware,id:e2}；替换前有效程度 suspects/source:present，替换后 unaware/source:explicit/change:c3。内核 origins 输出证明两行的字段和值完全一致，只有键序变化。
+**建议改法**：用仓库已有的稳定 JSON 等价比较，或按实际知情字段规范化后比较，不用普通 JSON.stringify 的插入顺序做领域判定。给已有“整段替换写出相同的行”用例加入不同键序。
+
+### 4. 显式删除知情行的变化从视角经历中消失
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/knowledge.ts:95-105；packages/neuro-book/src/plugins/plot/core/viewpoint.ts:203（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：changedBy 把删除候选（candidate.row === null）直接 flatMap 成空数组。V 第 1 章得到一行，第 2 章在场并显式 listRemove 这行：当前 knowing 正确变空，但第 2 章经历的 knowing 也为空，与“这条变更没有改变任何知情”完全相同。
+**为什么是问题**：knowledge 输出 3 把显式去行定义为一次覆盖、回到“没有行”；输出 9 要给出“这条变更让 V 的有效知情起的变化”。接口只表示新行、不表示移除，调用方无法从经历重建或解释 V 为什么不再知道，角色上下文会留下已经失效的旧知情。
+**如何核实**：bun /tmp/w00039-t34-impl-review-b-lab/viewpoint-probe.ts（实现 worktree 的应用包）。真实服务发布 c1:listAdd、c2:listRemove，两条均有 V 在场；输出当前 knowing:[]，c1 经历有 e4 的 knows，c2 经历 knowing:[]，没有 e4 被删除的任何标识。
+**建议改法**：把经历里的知情变化建成明确的变化类型（例如 {point,after:KnowingRow|null} 或 added/changed/removed），保留删除。另比较变更前后的有效知情，避免把推出了相同程度的事件误报成变化。
+
+### 5. 隐秘目标删除后通过墓碑名字泄露完整秘密
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/viewpoint.ts:70-77、99-113；packages/nb-canon/src/engine/views.ts:50-51（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：未删除时，卫兵读隐秘目标“国王计划毒杀勇者”得到占位。作者把目标标为 deleted 后，同一个卫兵读取同一 id 得到 kind:entry、deleted:true、name:"国王计划毒杀勇者"；秘密知识点本身仍正确返回占位。
+**为什么是问题**：goals 术语与 knowledge 输出 9 明确规定隐秘目标的名字、为什么与别的内容都是它指向的知识点的内容。删除目标不是向所有角色解密。当前 readability 只从折叠后的 goal 命名空间找“隐秘”；墓碑的 namespaces 已被清空，于是被误判为普通公开条目，而墓碑保留的名字就是完整秘密。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/deleted-goal-probe.ts；真实 PlotService 发布人物、秘密知识点、隐秘目标，再正常 publish deleted:true。输出删除前 placeholder，删除后 entry.view.name 为国王计划毒杀勇者，point 仍 placeholder。
+**建议改法**：墓碑也必须保持隐秘目标的可见性策略；在内部保存/查询删除前关联（或直接对不能安全判定的墓碑返回不带名字的占位），不要因公开投影丢了 goal 字段便放行。补隐秘目标删除前后读取与间接引用回归。
+
+### 6. 答案的揭示节点未参与继承抑制，暗示被升级成计划回收
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:105-109、129-141（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：计划给悬念安排 payoff，兑现它的已写变更自己的正文只标答案的 hint。代码先把 hint 正确转换为 echo，又因 own 只识别 node 标注、没识别这个 reveal 节点，继续继承计划的 payoff。同一处讲述出现 echo/reveal 和 payoff/inherited 两个节点，阶段错误地变成 paidOff。
+**为什么是问题**：foreshadowing 输出 3 把答案上的 reveal 明确定义为悬念的节点；输出 4 只有“自己的讲述上没有同一个伏笔的节点”才继承。作者实际把回收改成暗示时，继承不得用旧计划覆盖它，否则账本谎报已经回收，noPayoffPlanned 等检查也随之被压掉。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/reveal-inheritance-probe.ts；真实 PlotWorld，计划 payoff，已写 fulfills、正文 hint。输出 nodes:[echo/source:reveal,payoff/source:inherited]、stage:paidOff；按合同应只有 echo，stage:echoing。
+**建议改法**：统一“这条讲述针对哪些伏笔已有节点”的计算，既包括 node，也包括 mystery 答案的 reveal；与既定含失联讲述的抑制规则一起处理，避免分别维护两套节点定义。补 hint 抑制 payoff 继承的回归。
+
+### 7. I1 的在场修正用视图上限覆盖了调用方显式给出的更早范围
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/nb-canon/src/service/service.ts:523-530；packages/nb-canon/src/service/reads.ts:305-320（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：视图上限第 4 章末尾，调用 presence(person,{mode:"planned",to:"ch2"})：第 1 章的计划在第 3 章才兑现，本应按第 2 章末尾仍未兑现而列出；普通 presence 确实列出它，带视图令牌反而给空数组。
+**为什么是问题**：project 输出 24 规定“读取位置与范围不写时夹到上限”，不是用上限替换合法的、更早的显式范围。I1 为修上限泄漏新传入 until，却在 plannedAt 中无条件优先于 filter.to，因而用第 3 章之后的兑现状态回答第 2 章的查询；这是 cb4aa74c5 新引入的回归，不是重复 I1 原问题。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/presence-probe.ts。真实 PlotService：ch1 计划 c1、ch3 已写 fulfills c1；上限 ch4/end。同一 {mode:planned,to:ch2}，普通 items:[c1]，viewed.items:[]。
+**建议改法**：分清过滤范围终点与安全上限：有 to 时按 to 的章末求计划进展，只在它与上限同章且上限更早、或没有 to 时按上限截取；不要让上限扩大显式读取的位置。补显式 to 早于上限且中间发生兑现的回归。
+
+### 8. 未知 Component 类型让视角引用过滤直接放行原始值
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/viewpoint.ts:130-140；packages/nb-canon/src/service/reads.ts:150-153（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：字段所属类型不在当前登记时，fields() 返回 undefined，#filterEntry 对查不到声明的字段直接返回 state。真实服务里，一个公开物件的引用列表原先能把秘密知识点和隐秘目标遮成 id:null；撤掉类型登记后，同一次视角读取把原始 e3/e4 引用及列表子字段全部交出，不再记这些被挡对象。
+**为什么是问题**：插件停用、卸载和命名空间撞名都是 components 输出 12 的正常状态，内核会保留原始值供作者读取，不代表角色视图可以绕过 knowledge 输出 9 的保密规则。author 原始读取的降级被误用成受限读取的降级；已登记时的安全引用列表，在类型失效后变成明文旁路。现有“只按引用位置过滤”的设计依赖声明，但缺声明时未定义安全失败语义。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/reference-probe.ts；真实 PlotService + setRegistries。正常登记下 att.态度 输出两项 id:null；类型不可用后 readOnly:component-unknown，原样返回 [{id:e3,态度:秘密物件},{id:e4,态度:隐秘目标}]。秘密点和目标是正常发布的，未伪造日志。
+**建议改法**：没有可用的引用声明时，受限视图不要交出不能可靠过滤的原始命名空间；明确占位/拒绝并审计，或让内核提供与原数据版本对应的引用位置元数据。对其他插件的类型停用、撞名补集成回归。
+
+### 9. 部分伏笔诊断不按读取位置截取，旧章提前出现未来讲述的问题
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:287-298、338-357（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：第 3 章才出现的埋下与孤立 hint，在第 1 章末尾读取时已报 droppedButPlanted、orphanHint；同次账本却显示该伏笔 stage:unplanted、nodes:[]、lastMentioned:null。droppedButPlanted/orphanHint 直接用整本 index.nodes/reveals，nodeWithoutTelling 与已写 payoffWithoutReveal 也不截读取位置。
+**为什么是问题**：model 输出 34 要求提示与待处理一样在给定读取位置算出；阶段、检查应该使用同一份位置语义。这里不是为检查回收而查看未来计划，而是把未来已写讲述已经发生的问题放进旧章的结果，产生自相矛盾的账本与诊断。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/foreshadow-boundary-probe.ts。真实 PlotWorld：只在 ch3 正文发布 plant 和无悬念认领的 hint；对 end(ch1) 运行诊断，实际各返回 1 条，而同位置 ledger 为 unplanted/空节点。实验未伪造运行时。
+**建议改法**：各项按读过的正文节点或对应生效变更截到 at；未来的 planned 节点另按它们明确的计划语义处理。把 at 不同、世界相同的比较用例补进现有诊断测试，核对账本和提示一致。
+
+### 10. 视角句柄失效的拒绝完全不进审计
+**严重程度**：重要；**类别**：不变量。
+**位置**：packages/neuro-book/src/plugins/plot/backend/plugin.ts:49-52、93-99；packages/neuro-book/src/plugins/canon/shared/contracts.ts:329-332（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：closeViewpoint 后再调用 viewpointEntry，及传不存在的句柄调用 viewpointExperience，均返回 view-denied；紧接着从 canon.viewAudit 读取，items 仍为 []。withViewpoint 在句柄查不到时直接 fail，既没经过内核 deny，也没有剧情插件的拒绝审计入口；canonProject.audit 甚至把 kind 固定为 placeholder。
+**为什么是问题**：knowledge 输出 9、B3 细计划要求每一次占位或拒绝都进内核同一份审计。正常关闭后误用旧句柄是实际可达的失败路径，不是异常时序；当前审计只覆盖成功定位句柄后的占位，漏掉全部“关了/别人的/不存在”的拒绝。
+**如何核实**：在实现 worktree 的应用包运行 bun test /tmp/w00039-t34-impl-review-b-lab/remote-probe.test.ts。真实项目子进程、真实远程门面：两次失败 detail.code:view-denied，随后 viewAudit.items:[]。同实验另核实调用方实例关闭后其内核视图确实失效，这一条只报审计缺口，不重复寿命问题。
+**建议改法**：为剧情拒绝提供能记录 denied 的项目内审计路径，并在句柄查询失败处调用；对已失效句柄可留有界的审计上下文，完全未知句柄按内核惯例记录 viewer:null/purpose:""。补实际远程拒绝数量与审计数量一致的回归。
+
+### 11. 兑现变更已经套不上，仍从计划继承节点并宣告伏笔已回收
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:129-141（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：一条正常兑现计划的已写变更继承 payoff；后来它修改的物件被删除，这条变更 outcome:{applied:false,reason:entry-missing}、计划 progress:unfulfilled，伏笔索引却保留继承的 payoff，stage 仍 paidOff。
+**为什么是问题**：model 输出 13 明确规定兑现变更套不上时计划回到未兑现；foreshadowing 输出 4 的继承来自“兑现这个计划的已写变更”。当前只检查 status:active 和 links:fulfills，不检查实际套用结果，把没有发生的兑现当成成功兑现。直接写在正文上的节点按正文算不受影响，这里报的是程序凭计划新推出的节点。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/foreshadow-boundary-probe.ts。真实 PlotWorld 发布 ch1 plant、ch3 计划 payoff、ch3 已写变更（正文没有节点，仅 fulfills）并改钟；最初 fulfilled/paidOff。正常删除钟后输出 applied:false、unfulfilled，但节点仍含 source:inherited 的 payoff、阶段仍 paidOff。
+**建议改法**：继承前要求这条已写变更按内核的实际计算确实套上，遵守计划进展的生效条件；对套不上/撤销后又恢复的路径补回归。不要把讲述能定位与变更兑现成功混成同一条件。
+
+### 12. 伏笔的 planned 模式被静默当成 actual，缓存也未区分模式
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:81-93、186-190、393-396；packages/neuro-book/src/plugins/plot/backend/plugin.ts:81-84（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：ledger 远程合同接受 mode:planned，但 ForeshadowIndex 把 fs 命名空间固定按 actual 读取，缓存键只有 position。计划把第 2 章的 fs.意图 改成 dropped 时，内核同位置 planned 读取已经是 dropped，ledger(mode:planned) 仍 intent:active/dropped:false；按 planned 调 droppedButPlanted 也返回空。
+**为什么是问题**：model 输出 5、34 要求按请求的模式折叠、诊断；阶段 B 计划也要求索引按视图、模式、位置缓存。这里不是“计划的正文节点不进入读者阶段”的取舍，而是伏笔条目自身的意图、答案、物件、参考间隔等所有状态都无视模式，接受了参数却不给其承诺的语义。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/foreshadow-mode-probe.ts；真实 PlotWorld，ch1 plant，ch2 计划 set fs.意图=dropped，在 end(ch3) 比较。内核 fold.namespaces.fs.fields.意图.value=dropped，actual 与 planned 账本都为 active，plannedCheck:[]。
+**建议改法**：ForeshadowIndex 接收 mode，条目状态按它读取，缓存键包含它；每个诊断把收到的 mode 传下去。仍需按正文算的读者节点保持原规则，不要把两种维度混为一个 actual 常量。
+
+### 13. 可预测的内核令牌可直接绕过剧情视角过滤
+**严重程度**：阻断；**类别**：安全与性能。
+**位置**：packages/nb-canon/src/service/service.ts:448-452；packages/neuro-book/src/plugins/canon/backend/remote.ts:76-90；packages/neuro-book/src/plugins/plot/backend/plugin.ts:86-91（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：剧情插件虽然只把 viewpoint-2 句柄返回远程调用方、没有返回它持有的内核令牌，但内核令牌就是进程全局连续的 view-1、view-2。相同调用方给 canon.entry 显式传 view:"view-2"，能读到剧情 viewpointEntry 刚挡住的秘密点名字和 summary；canon 读取不核对令牌所属调用方。
+**为什么是问题**：B0/B3 与项目内合同把“不把内核令牌交出项目进程，否则能绕过剧情过滤”当作隔离前提。不交出但可逐个猜出的字符串不满足此前提。可预测令牌在 base 已存在，但 base 没有剧情过滤这一层；这次新增的保密边界直接建立在它上面，旁路已经真实可达。不能靠调用方自觉不去猜令牌保护写手上下文。
+**如何核实**：在实现 worktree 的应用包运行 bun test /tmp/w00039-t34-impl-review-b-lab/remote-probe.test.ts。真实项目子进程、真实 canon/plot 远程服务。plot.viewpointEntry(handle:viewpoint-2,id:e2) 返回 placeholder；同一 writer 的 canon.entry(id:e2,view:view-2) 返回 name/summary:"国王要毒杀勇者"、保密档 secret。猜测的令牌并未从 openViewpoint 的响应取得。调用方停止后令牌的确失效，问题是存活期间的旁路。
+**建议改法**：内核令牌使用不可预测的进程内 capability，并让 canon 远程读取只接受该远程调用方自己打开的令牌；项目内插件持有的令牌不要能经远程 canon 入口使用。将此次双入口真实子进程场景纳入隔离回归，而不只检查 openViewpoint 响应里没 token。
+
+### 14. 剧情的远程列表没有分页与大小预算，已实际发出超过 1 MiB 的成功响应
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/backend/plugin.ts:60-84；packages/neuro-book/src/plugins/plot/shared/contracts.ts:25-47、54-55（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：knowing、experience、ledger、conflicts、viewpointExperience/Knowing 都整份返回，没有 cursor/limit；也没有 canon 同款 encodedBytes/too-large 检查。用 3 次合法发布、各存 360000 字节的经历描述，真实项目子进程的 plot.experience 返回 ok:true，value 编码后 1080802 字节且没有 cursor。
+**为什么是问题**：B 细计划明确要求“列表用 B0 的分页辅助”，project 输出 18 的单次预算是 983040 字节（1 MiB 减 64 KiB）。实测响应超预算 97762 字节，甚至超过 1 MiB 32226 字节；不是构造单条超大不可分页对象，而是 3 条合法记录累计。普通长书的在场经历、知情与账本会不断增长，调用方既不能缩小一页，也不能恢复读取。当前进程链路收到了超预算响应，不代表真实 WebSocket 或后续客户端能稳定承受它。
+**如何核实**：在实现 worktree 的应用包运行 bun test /tmp/w00039-t34-impl-review-b-lab/remote-probe.test.ts。通过真实 canon 远程入口分 3 次发布、真实 plot 远程入口读取，输出“剧情经历超预算仍成功 {ok:true,bytes:1080802,hasCursor:false}”。未跑开发服务或 e2e。
+**建议改法**：接上已经公开的 pageOf、输入摘要与查询绑定游标，给所有无界列表统一 cursor/limit；按 canon 模式缩页并对单条/单对象超预算返回明确 too-large。补多页无漏项、游标失效和响应预算回归；同步清掉计划中声称已用分页但实际未做的偏差。
+
+### 15. 继承节点的排序漏掉讲述 id，同一发生点上会把埋下与回收颠倒
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:141-145、167-169、199-211（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：同一句正文上先有讲述 t2（从计划继承 plant），后有讲述 t3（显式 payoff）。内核 tellings 按 [t2,t3] 返回，伏笔 nodes 却按 [t3/payoff,t2/inherited plant] 排，因而错误报 payoffBeforePlant。
+**为什么是问题**：model 输出 27 规定同一发生点上按讲述 id 的数值部分打破平局。ForeshadowIndex 先追加所有直接节点，再追加继承节点，最终 compareOccurrence 只比章、段、偏移；发生点相同时稳定排序保留了这个人为的来源顺序，不是合同规定的讲述先后。影响的不只是账本顺序，三个依赖节点顺序的检查也会反转结论。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/node-order-probe.ts。真实 PlotWorld：计划 plant、兑现已写变更第一处讲述 t2、同句稍后登记的显式 payoff 讲述 t3。输出 tellings:[t2,t3]，nodes:[payoff/t3,plant/t2]，payoffBeforePlant 恰有 1 条；按合同应为 0 条。
+**建议改法**：节点排序复用内核的完整讲述全序，至少在发生点相同时按 telling id 数值部分比较；同一讲述有多个节点时再明确同点语义，不让数组构建顺序决定检查。补直接节点与继承节点同发生点的回归。
+
+### 16. I1 的列表元素依赖修正仍漏掉 listRemove，允许单独还原被后续删除的新增元素
+**严重程度**：重要；**类别**：正确性。
+**位置**：packages/nb-canon/src/world/world.ts:693-702、741-745（审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-impl-review-b）。
+**现象**：修改已有变更、给知情列表增加一个元素（修订 r4），之后另一条变更 listRemove 该元素（修订 r5）。dependents(r4) 只返回 [r4]；不带依赖单独还原 r4 成功，原本合法的 r5 随即变成 element-missing 的套不上。
+**为什么是问题**：revisions 输出 12 的“改过它新建的列表元素”包括去元素。I1 已补从修改操作提取新加元素，但判断后续补丁时只看 at.path：listRemove 的元素 id 位于 value，地址仍是整个 know.知情，不会匹配 know.知情[eN]。这不是一般允许的“还原后重算出新问题”，而是合同明确要求先纳入依赖、一起还原的后续元素操作漏判。
+**如何核实**：在实现 worktree 的应用包运行 bun /tmp/w00039-t34-impl-review-b-lab/dependency-remove-probe.ts。真实 PlotWorld/World.publish/revert：输出 added:r4、remove:r5、dependents:[r4]；revert(r4,false) 为 ok:true，随后 c2 outcome:{applied:false,reason:element-missing}，cannot-apply 根因变成补偿 r6。原 I1 测了之后 set 元素子字段，本次核实的是修正未覆盖的合法删除写法。
+**建议改法**：把 listRemove 的 value 元素 id 规范化成元素地址后参与依赖比较，沿用 set 元素及子字段的同一判断。补“改已有变更新增、之后删除、拒单独还原、连同依赖还原”的合同场景。
+
