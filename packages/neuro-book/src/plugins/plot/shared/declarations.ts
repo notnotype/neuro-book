@@ -105,7 +105,7 @@ export const PLOT_COMPONENTS: readonly ComponentDeclaration[] = [
     },
 ];
 
-export const MARK_IDS = {reveal: `${PLOT_PLUGIN_ID}.reveal`, presentLearns: `${PLOT_PLUGIN_ID}.presentLearns`, node: `${PLOT_PLUGIN_ID}.node`} as const;
+export const MARK_IDS = {reveal: `${PLOT_PLUGIN_ID}.reveal`, presentLearns: `${PLOT_PLUGIN_ID}.presentLearns`, node: `${PLOT_PLUGIN_ID}.node`, guardAddress: `${PLOT_PLUGIN_ID}.guard.address`, guardReader: `${PLOT_PLUGIN_ID}.guard.reader`, scene: `${PLOT_PLUGIN_ID}.scene`} as const;
 
 export const PLOT_MARKS: readonly MarkDeclaration[] = [
     {
@@ -131,6 +131,43 @@ export const PLOT_MARKS: readonly MarkDeclaration[] = [
         attachTo: ["telling"],
         schema: {type: "object", properties: {foreshadow: {type: "string"}, role: {enum: ["plant", "echo", "mislead", "partial", "payoff"]}, note: {type: "string"}}, required: ["foreshadow", "role"], additionalProperties: false},
         refs: [{path: "foreshadow", targets: [ENTRY_TYPES.foreshadow]}],
+    },
+    {
+        // 地址守卫（decisions.md）：某个地址在章的范围里不准取某些值；`lines` 没给时是所有存在的世界线。
+        id: MARK_IDS.guardAddress,
+        version: 1,
+        label: "地址守卫",
+        attachTo: ["decision"],
+        schema: {
+            type: "object",
+            properties: {
+                at: {type: "object", properties: {entry: {type: "string"}, path: {type: "string"}}, required: ["entry", "path"], additionalProperties: false},
+                notIn: {type: "array", items: {anyOf: [{type: "string"}, {type: "number"}, {type: "boolean"}, {type: "null"}]}},
+                from: {type: "string"},
+                to: {type: "string"},
+                lines: {type: "array", items: {type: "string"}},
+            },
+            required: ["at", "notIn"],
+            additionalProperties: false,
+        },
+        refs: [{path: "at.entry"}, {path: "lines[]", kind: "line"}],
+    },
+    {
+        // 读者守卫：`until` 这一章之前（不含），读者对这个知识点的程度不超过 `atMost`。
+        id: MARK_IDS.guardReader,
+        version: 1,
+        label: "读者守卫",
+        attachTo: ["decision"],
+        schema: {type: "object", properties: {point: {type: "string"}, atMost: {enum: ["unaware", "suspects"]}, until: {type: "string"}}, required: ["point", "atMost", "until"], additionalProperties: false},
+        refs: [{path: "point", targets: [ENTRY_TYPES.point]}],
+    },
+    {
+        // 场景条件（brief.md）：细纲或计划写的时间、光线、谁在哪、先后。
+        id: MARK_IDS.scene,
+        version: 1,
+        label: "场景条件",
+        attachTo: ["change"],
+        schema: {type: "object", properties: {lines: {type: "array", items: {type: "string"}}}, required: ["lines"], additionalProperties: false},
     },
 ];
 

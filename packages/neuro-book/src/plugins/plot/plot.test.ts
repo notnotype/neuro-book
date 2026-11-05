@@ -45,11 +45,11 @@ afterAll(async () => {
 });
 
 describe("剧情插件的声明", () => {
-    it("五个 Component 与三种标注种类在内核的登记里都合规（前缀是插件 id）", () => {
+    it("五个 Component 与六种标注种类在内核的登记里都合规（前缀是插件 id）", () => {
         expect(buildRegistry(PLOT_COMPONENTS).diagnostics).toEqual([]);
         const marks = buildMarkRegistry(PLOT_MARKS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration})));
         expect(marks.diagnostics).toEqual([]);
-        expect(marks.versions.map(([id]) => id)).toEqual([MARK_IDS.node, MARK_IDS.presentLearns, MARK_IDS.reveal]);
+        expect(marks.versions.map(([id]) => id)).toEqual([MARK_IDS.guardAddress, MARK_IDS.guardReader, MARK_IDS.node, MARK_IDS.presentLearns, MARK_IDS.reveal, MARK_IDS.scene]);
     });
 
     it("项目子进程里剧情插件的类型与标注种类已登记：知识点、知情行与揭示都写得进去，载荷不合 schema 的揭示拒收", async () => {
