@@ -2,14 +2,16 @@ import {createHash} from "node:crypto";
 
 import {describe, expect, test} from "bun:test";
 
-import {buildRegistry, ChapterOrder, type Entry, type Patch, type StoryChangeDraft, type WriteRequest} from "../src/index";
+import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type Fork, type Patch, type StoryChangeDraft, type WriteRequest} from "../src/index";
 import {lineTable} from "../src/lines/table";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
 import {PANEL, PERSON} from "./fixtures/world";
 
+/** 回溯时随回溯者保留的字段（输出 7 的缺省）：回溯次数带过去，别的不带。 */
+const ROLLBACK: ComponentDeclaration = {id: "test.rollback", label: "回溯", namespace: "rb", version: 1, fields: [{id: "次数", label: "次数", kind: "number", carry: true}, {id: "别的", label: "别的", kind: "number"}]};
 const CHAPTERS = ["ch1", "ch2", "ch3", "ch4"];
 function options(): WorldOptions {
-    return {order: new ChapterOrder(CHAPTERS), registry: buildRegistry([PANEL, PERSON]), reductions: () => undefined, chapterText: () => "", digest: (text) => createHash("sha256").update(text).digest("hex")};
+    return {order: new ChapterOrder(CHAPTERS), registry: buildRegistry([PANEL, PERSON, ROLLBACK]), reductions: () => undefined, chapterText: () => "", digest: (text) => createHash("sha256").update(text).digest("hex")};
 }
 let sequence = 0;
 const request = (puts: WriteRequest["puts"], baseVersion: number): WriteRequest => ({requestId: `wl-${String(++sequence)}`, by: {kind: "author"}, what: "edit", title: "世界线", baseVersion, puts});
@@ -18,7 +20,7 @@ function ok(result: WriteResult): Extract<WriteResult, {ok: true}> {
     return result;
 }
 const problems = (result: WriteResult) => (!result.ok && result.failure.code === "validation-failed" ? result.failure.problems.map((problem) => [problem.code, problem.path, problem.reason ?? null]) : [JSON.stringify(result.ok ? "ok" : result.failure)]);
-const person = (id: string, name: string): Entry => ({id, type: "人物", parent: null, folder: "人物", order: 0, init: {name, aliases: [], summary: "", text: [], data: {panel: {type: "canon.panel", version: 1, enabled: true, fields: {存款: 20000, 魔力上限: null, 魔力: null, 物品: []}}}}});
+const person = (id: string, name: string): Entry => ({id, type: "人物", parent: null, folder: "人物", order: 0, init: {name, aliases: [], summary: "", text: [], data: {panel: {type: "canon.panel", version: 1, enabled: true, fields: {存款: 20000, 魔力上限: null, 魔力: null, 物品: []}}, rb: {type: "test.rollback", version: 1, enabled: true, fields: {次数: 1, 别的: 0}}}}});
 const at = (chapter: string, key: number, line?: string) => ({kind: "chapter" as const, chapter, key, ...(line === undefined ? {} : {line})});
 const written = (id: string, placement: StoryChangeDraft["at"], patches: Patch[] = [], extra: Partial<StoryChangeDraft> = {}): StoryChangeDraft => ({id, kind: "written", text: id, at: placement, told: [], involves: [], lines: [], links: [], patches, status: "active", by: {kind: "author"}, ...extra});
 const spend = (entry: string, value: number): Patch => ({op: "add", at: {entry, path: "panel.存款"}, value});
@@ -39,7 +41,7 @@ function base() {
 
 /** 在 `world` 上从主线 c2 分出一条分支，同一请求里在新线上记一条第 3 章的变更。 */
 function forked(world: World, cut: string, extra: {kind?: "written" | "plan"; patches?: Patch[]} = {}) {
-    const fork: StoryChangeDraft = {...written("tmp:f", at("ch2", 25), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut, type: "branch"}}), kind: extra.kind ?? "written"};
+    const fork: StoryChangeDraft = {...written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut, type: "branch"}}), kind: extra.kind ?? "written"};
     return ok(world.publish(request([
         {ref: {kind: "change", id: "tmp:f"}, after: fork},
         {ref: {kind: "change", id: "tmp:own"}, after: {...written("tmp:own", at("ch3", 1, "tmp:l"), extra.patches ?? []), kind: extra.kind ?? "written"}},
@@ -118,5 +120,51 @@ describe("canon.worldlines 失败与恢复、边界与兼容：写入时的线",
         const replayed = World.replay(first.world.revisions, first.world.options);
         const second = forked(replayed, c3);
         expect(second.ids["tmp:l"]).not.toBe(first.ids["tmp:l"]);
+    });
+});
+
+describe("canon.worldlines 输出 7、14、18：分叉的校验与缺省带什么", () => {
+    /** 在主线上写一条分叉（缺省：从 c2 分出的分支，安放在第 2 章键 40）。 */
+    const attempt = (world: World, fork: Partial<Fork>, extra: Partial<StoryChangeDraft> = {}) => world.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", ...extra, fork: {line: "tmp:l", name: "分支", parent: "main", cut: "", type: "branch", ...fork} as Fork})}], world.version), "t");
+    const paths = (result: WriteResult) => problems(result).map(([code, path]) => `${String(code)}:${String(path)}`);
+
+    test("父线、切口、触发处、往回多久、安放与结束点不合规定：invalid-fork 指出哪一项", () => {
+        const {world, c1, c2, c3, p1} = base();
+        expect(paths(attempt(world, {cut: c2}, {patches: [spend("e1", -1)]}))).toContain("invalid-fork:patches");
+        expect(paths(attempt(world, {cut: c2, parent: "l404"}))).toEqual(expect.arrayContaining(["invalid-fork:fork.parent", "invalid-fork:at.line"]));
+        expect(paths(attempt(world, {cut: p1}))).toContain("invalid-fork:fork.cut");
+        expect(paths(attempt(world, {cut: c1, trigger: c2}))).toContain("invalid-fork:fork.trigger");
+        expect(paths(attempt(world, {cut: c2, trigger: c1, type: "rollback"}))).toContain("invalid-fork:fork.trigger");
+        expect(paths(attempt(world, {cut: c2, back: {min: 1, max: 1, unit: "day"}}))).toContain("invalid-fork:fork.back");
+        expect(paths(attempt(world, {cut: c3}, {at: at("ch2", 25)}))).toContain("invalid-fork:at");
+        expect(paths(attempt(world, {cut: c1, trigger: c3, type: "rollback"}, {at: at("ch2", 25)}))).toContain("invalid-fork:at");
+        expect(paths(attempt(world, {cut: c2, end: "stop"}))).toContain("invalid-fork:fork.endAt");
+        expect(paths(attempt(world, {cut: c2, carry: [{entry: "e1", path: "panel.物品[x]"}]}))).toContain("invalid-fork:fork.carry[0]");
+        expect(paths(attempt(world, {cut: c2, carry: [{entry: "e1", path: "panel.没有"}]}))).toContain("invalid-fork:fork.carry[0]");
+        expect(paths(world.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork"})}], world.version), "t"))).toContain("invalid-fork:fork");
+        expect(attempt(world, {cut: c2}).ok).toBe(true);
+    });
+
+    test("线 id 不能自己起：已有的报 line-taken，没有的报 invalid-fork", () => {
+        const {world, c2, c3} = base();
+        const first = forked(world, c2);
+        const line = first.ids["tmp:l"]!;
+        expect(paths(attempt(first.world, {cut: c3, line}, {at: at("ch2", 45)}))).toContain("line-taken:fork.line");
+        expect(paths(attempt(first.world, {cut: c3, line: "l999"}, {at: at("ch2", 45)}))).toContain("invalid-fork:fork.line");
+    });
+
+    test("回溯没给 carry：按切口处 who 身上声明了 carry 的字段补上并存下；别的种类存空列表", () => {
+        const {world, xia, c1, c3} = base();
+        const rollback = ok(attempt(world, {cut: c1, trigger: c3, type: "rollback", who: xia}, {at: at("ch2", 35)}));
+        expect(rollback.world.data.changes.get(rollback.ids["tmp:f"]!)!.fork!.carry).toEqual([{entry: xia, path: "rb.次数"}]);
+        const branch = ok(attempt(world, {cut: c1, who: xia}, {at: at("ch2", 35)}));
+        expect(branch.world.data.changes.get(branch.ids["tmp:f"]!)!.fork!.carry).toEqual([]);
+    });
+
+    test("让已有的线不可建的写入拒收：把切口改成未排章（输出 18）", () => {
+        const {world, c2} = base();
+        const result = forked(world, c2);
+        const cut = result.world.data.changes.get(c2)!;
+        expect(paths(result.world.publish(request([{ref: {kind: "change", id: c2}, after: {...structuredClone(cut), at: {kind: "unscheduled"}}}], result.world.version), "t"))).toContain("invalid-fork:fork");
     });
 });

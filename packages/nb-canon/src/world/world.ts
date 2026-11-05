@@ -36,6 +36,7 @@ import {
     type Check,
     type Decision,
     type Entry,
+    type Fork,
     type ObjectKind,
     type ObjectRef,
     type Op,
@@ -52,6 +53,7 @@ import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "
 import {readEntryAddress} from "../engine/views";
 import {LineSet, type LineView} from "../lines/set";
 import {lineTable, MAIN_LINE} from "../lines/table";
+import {defaultCarry, forkProblems} from "./forks";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
@@ -457,23 +459,29 @@ export class World {
         if (prehistory.ids.size > 0) {
             const placed = placePrehistory({changes: tables.changes, entries: tables.entries, checks: tables.checks, order: this.options.order, createdAt}, this.options.time ?? DEFAULT_TIME, [...prehistory.ids]);
             if ("problem" in placed) return invalid([{code: "invalid-time", ref: {kind: "change", id: placed.problem.change}, path: "at.order", message: placed.problem.message}]);
-            for (const [id, order] of placed.orders) {
-                const ref = {kind: "change" as const, id};
-                const after = {...structuredClone(tables.changes.get(id)!), at: {kind: "prehistory" as const, order}};
-                const before = this.object(ref);
-                const index = ops.findIndex((op) => op.kind !== "chapters" && op.ref.kind === "change" && op.ref.id === id);
-                const fields = before === undefined ? [] : diffValues(before, after, idListsOf("change"));
-                if (before !== undefined && fields.length === 0) ops.splice(index, 1);
-                else ops[index] = before === undefined ? {ref, kind: "create", after} : {ref, kind: "modify", fields};
-                tables.changes.set(id, deepFreeze(structuredClone(after)));
-            }
+            for (const [id, order] of placed.orders) this.#rewriteChange(ops, tables, {...structuredClone(tables.changes.get(id)!), at: {kind: "prehistory" as const, order}});
         }
 
-        const data = freeze(tables, createdAt, version);
-        const lines = this.lines.advance(engineInputs(data, this.options), changed);
+        let data = freeze(tables, createdAt, version);
+        let lines = this.lines.advance(engineInputs(data, this.options), changed);
+        // 分叉没给 `carry` 的，按切口处的状态补上并存下（canon/worldlines.md 输出 7），改写对象与操作以后再推进一次。
+        // 带过去的地址在不在切口处，问父线的引擎；现在只有主线有引擎。
+        const slotOn = (line: string, change: string, at: Address) => (line === MAIN_LINE ? lines.main.engine.slotAfter(change, at) : undefined);
+        if (!compensation) {
+            const missing = changed.changes.flatMap((id) => {
+                const change = tables.changes.get(id);
+                return change?.fork !== undefined && change.fork.carry === undefined ? [change as StoryChange & {fork: Fork}] : [];
+            });
+            for (const change of missing) this.#rewriteChange(ops, tables, {...structuredClone(change), fork: {...structuredClone(change.fork), carry: defaultCarry(change.fork, data, this.options.registry, slotOn)}});
+            if (missing.length > 0) {
+                data = freeze(tables, createdAt, version);
+                lines = this.lines.advance(engineInputs(data, this.options), changed);
+            }
+        }
         const engine = lines.main.engine;
         // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
         if (!compensation) problems.push(...validate(this, data, engine, request, changed));
+        if (!compensation) problems.push(...forkProblems({before: this.data, after: data, order: this.options.order, registry: this.options.registry, calendar: (this.options.time ?? DEFAULT_TIME).calendar, changed: changed.changes, issuedLines: new Set(Object.values(ids).filter((id) => id.startsWith(ID_PREFIX.line))), slotAfter: slotOn}));
         const refs = writtenReferences(this, data, ops);
         if (!compensation) problems.push(...markProblems(this, data, ops), ...referenceProblems(data, this.options.order, refs));
         if (decisions !== null) problems.push(...decisionProblems(this, data, request, decisions.classified));
@@ -506,6 +514,17 @@ export class World {
             ...(input.authorizations === undefined || input.authorizations.length === 0 ? {} : {authorizations: input.authorizations}),
         };
         return {ok: true, world: this.next(data, lines, revision), revision, ids, repeated: false};
+    }
+
+    /** 写入路径套完以后改写一条这次写到的剧情变更（前史补位、缺省 `carry`）：表里换成新对象，操作按改前改后重算。 */
+    #rewriteChange(ops: Op[], tables: Tables, after: StoryChange): void {
+        const ref = {kind: "change" as const, id: after.id};
+        const before = this.object(ref);
+        const index = ops.findIndex((op) => op.kind !== "chapters" && op.ref.kind === "change" && op.ref.id === after.id);
+        const fields = before === undefined ? [] : diffValues(before, after, idListsOf("change"));
+        if (before !== undefined && fields.length === 0) ops.splice(index, 1);
+        else ops[index] = before === undefined ? {ref, kind: "create", after} : {ref, kind: "modify", fields};
+        tables.changes.set(after.id, deepFreeze(structuredClone(after)));
     }
 
     /** 章序调整（model.md 输出 3，revisions.md 输出 13）：宿主给的章序与记下的不同时，返回发布它的写入结果。 */

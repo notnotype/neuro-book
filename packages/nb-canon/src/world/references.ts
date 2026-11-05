@@ -223,7 +223,7 @@ function patchReferences(base: string, patch: Patch, context: ReferenceContext, 
     if (sub?.kind === "ref") add(`${path}.ref`, "entry", patch.value, "ref", true, sub.targets);
 }
 
-function fieldsOf(registry: ComponentRegistry, entry: Entry, namespace: string): readonly FieldDeclaration[] | undefined {
+export function fieldsOf(registry: ComponentRegistry, entry: Entry, namespace: string): readonly FieldDeclaration[] | undefined {
     const data = entry.init?.data?.[namespace];
     const type = registry.byNamespace(namespace);
     if (data === undefined || type === undefined || type.id !== data.type) return undefined;
