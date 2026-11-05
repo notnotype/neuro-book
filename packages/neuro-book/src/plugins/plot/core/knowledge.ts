@@ -336,10 +336,43 @@ export function bodyOf(view: CanonReadView, entry: string): string {
     return stored?.sameAs ?? entry;
 }
 
+type ReaderFilter = {readonly until?: TellingPosition; readonly mark?: string; readonly effective?: boolean};
+
+/**
+ * 读者读过的讲述（knowledge 输出 6 的“读过的生效讲述”）：每一章按活页夹分的段，取每段那条线的视图里发生点落在这一段（段首
+ * 到下一段首之前）的讲述。读者读的是活页夹的正文，所以回溯段里子线上变更的讲述算读过，主线视图里却看不到它们：不能只在
+ * 一张视图上读。每条用到的线只取一次，再按段筛。
+ */
+export function readerTellings(view: CanonReadView, filter: ReaderFilter = {}): ReturnType<CanonReadView["tellings"]> {
+    // 章 -> 段（线与起始段落号）。
+    const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, view.chapterLines(chapter)] as const));
+    const lines = new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)));
+    const taken: Array<ReturnType<CanonReadView["tellings"]>[number]> = [];
+    for (const line of lines) {
+        const on = line === view.line ? view : view.onLine(line, "actual");
+        if ("code" in on) continue;
+        for (const item of on.tellings(filter)) {
+            if (item.located.kind !== "found") {
+                // 失联的讲述没有发生点：不属于哪一段，按它所在章的第一段那条线算（`effective` 筛选会先把它们去掉）。
+                const first = item.telling.chapter === undefined ? undefined : segmentsOf.get(item.telling.chapter)?.[0];
+                if (first?.line === line) taken.push(item);
+                continue;
+            }
+            const segments = segmentsOf.get(item.located.occurrence.chapter) ?? [];
+            const paragraph = item.located.occurrence.paragraph;
+            const index = segments.findLastIndex((segment) => segment.from <= paragraph);
+            if ((segments[Math.max(index, 0)]?.line ?? view.line) === line) taken.push(item);
+        }
+    }
+    const order = new Map(view.chapters.map((chapter, index) => [chapter, index] as const));
+    const position = (item: (typeof taken)[number]) => (item.located.kind === "found" ? [order.get(item.located.occurrence.chapter) ?? Infinity, item.located.occurrence.paragraph] : [Infinity, 0]);
+    return taken.sort((a, b) => position(a)[0]! - position(b)[0]! || position(a)[1]! - position(b)[1]! || (a.telling.id < b.telling.id ? -1 : 1));
+}
+
 /** 读者在讲述位置 P 上对一个知识点的程度（输出 6）：读过的生效讲述里有明说的揭示是知道，只有暗示是怀疑，都没有是不知道。 */
 export function readerKnowing(view: CanonReadView, point: string, at: TellingPosition): "knows" | "suspects" | "unaware" {
     let degree: "knows" | "suspects" | "unaware" = "unaware";
-    for (const item of view.tellings({until: at, mark: MARK_IDS.reveal})) {
+    for (const item of readerTellings(view, {until: at, mark: MARK_IDS.reveal})) {
         for (const mark of item.telling.marks ?? []) {
             if (mark.kind !== MARK_IDS.reveal || mark.version !== 1 || mark.point !== point) continue;
             if (mark.mode === "explicit") return "knows";
@@ -352,7 +385,7 @@ export function readerKnowing(view: CanonReadView, point: string, at: TellingPos
 /** 读者第一次到怀疑、第一次到知道的讲述（输出 7）：讲述 id 与发生点。 */
 export function firstReveal(view: CanonReadView, point: string): {readonly suspects?: {readonly telling: string; readonly chapter: string; readonly paragraph: number}; readonly knows?: {readonly telling: string; readonly chapter: string; readonly paragraph: number}} {
     let suspects: {telling: string; chapter: string; paragraph: number} | undefined;
-    for (const item of view.tellings({effective: true, mark: MARK_IDS.reveal})) {
+    for (const item of readerTellings(view, {effective: true, mark: MARK_IDS.reveal})) {
         if (item.located.kind !== "found") continue;
         const occurrence = {telling: item.telling.id, chapter: item.located.occurrence.chapter, paragraph: item.located.occurrence.paragraph};
         for (const mark of item.telling.marks ?? []) {

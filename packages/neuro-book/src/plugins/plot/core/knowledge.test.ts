@@ -199,3 +199,36 @@ describe("plot.knowledge 输出 4、8、验收场景 6：回溯带过去的知�
     });
 });
 
+
+describe("plot.knowledge 输出 6、7：读者读过的讲述按活页夹的分段取线", () => {
+    test("第 9 章讲回溯线 r1、r1 上有明说的揭示：读者在第 9 章末尾知道，主线视图看不到它；章没讲 r1 时读者不知道", () => {
+        const chapters = Array.from({length: 12}, (_, index) => `ch${String(index + 1)}`);
+        const w = new PlotWorld(chapters);
+        const xia = w.person("星瑕");
+        const k = w.point("K", xia);
+        w.texts.set("ch9", "第一段。\n原来如此。");
+        const cut = w.change(chapter("ch7"));
+        const trigger = w.change(chapter("ch8", 50));
+        const reveal = {kind: MARK_IDS.reveal, version: 1, point: k, mode: "explicit"};
+        const ids = w.publish([
+            {ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch8", 60)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: xia}}},
+            {ref: {kind: "change", id: "tmp:own"}, after: drafts.change("tmp:own", {...chapter("ch9", 1), line: "tmp:r1"}, {cast: [present(xia)], told: [{source: "chapter", chapter: "ch9", quote: "原来如此", marks: [reveal]}]})},
+        ]);
+        const r1 = ids["tmp:r1"]!;
+        // 活页夹没讲 r1：读者读的是主线的正文，不知道。
+        expect(readerKnowing(w.view(), k, {chapter: "ch9", edge: "end"})).toBe("unaware");
+        // 第 9 章整章讲 r1：读者读过子线上的揭示，第 9 章第 2 段起知道；后面的章（主线）读者仍然知道。
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: r1, from: 1}]]])});
+        const view = w.view();
+        expect(readerKnowing(view, k, {chapter: "ch9", paragraph: 1})).toBe("unaware");
+        expect(readerKnowing(view, k, {chapter: "ch9", paragraph: 2})).toBe("knows");
+        expect(readerKnowing(view, k, {chapter: "ch10", edge: "end"})).toBe("knows");
+        expect(firstReveal(view, k)).toMatchObject({knows: {chapter: "ch9", paragraph: 2}});
+        // 第 9 章第 2 段起才讲 r1：第 1 段的主线讲述算读过，r1 的揭示在第 2 段（落在 r1 的段里）。
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: "main", from: 1}, {line: r1, from: 2}]]])});
+        expect(readerKnowing(w.view(), k, {chapter: "ch9", paragraph: 2})).toBe("knows");
+        // 揭示的段落落在主线的段里：r1 上的讲述不算读过。
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: r1, from: 1}, {line: "main", from: 2}]]])});
+        expect(readerKnowing(w.view(), k, {chapter: "ch9", edge: "end"})).toBe("unaware");
+    });
+});
