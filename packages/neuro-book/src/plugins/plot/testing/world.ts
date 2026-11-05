@@ -116,13 +116,13 @@ export class PlotWorld {
 
     /** 一条决策：待定建好，有 `conclusion` 时再由作者来源转成已定。返回正式 id。 */
     decision(text: string, extra: Partial<Decision> & {conclusion?: string} = {}): string {
-        // 结论、理由、约束只在已定时起作用，新建的待定决策不能带。
-        const {conclusion, reason, constraints, risks, ...rest} = extra;
+        // 结论、理由、约束、标注（守卫）只在已定时起作用，新建的待定决策不能带。
+        const {conclusion, reason, constraints, risks, marks, ...rest} = extra;
         const id = `tmp:d${String(++this.#sequence)}`;
         const created = this.publish([{ref: {kind: "decision", id}, after: {id, text, status: "pending", about: [], hints: [], ...rest}}])[id]!;
         if (conclusion === undefined) return created;
         const stored = this.world.data.decisions.get(created)!;
-        const request: WriteRequest = {requestId: `plot-${String(++this.#sequence)}`, by: {kind: "author"}, what: "edit", title: "定", baseVersion: this.world.version, puts: [{ref: {kind: "decision", id: created}, after: {...stored, status: "decided", conclusion, ...(reason === undefined ? {} : {reason}), ...(constraints === undefined ? {} : {constraints}), ...(risks === undefined ? {} : {risks})}}]};
+        const request: WriteRequest = {requestId: `plot-${String(++this.#sequence)}`, by: {kind: "author"}, what: "edit", title: "定", baseVersion: this.world.version, puts: [{ref: {kind: "decision", id: created}, after: {...stored, status: "decided", conclusion, ...(reason === undefined ? {} : {reason}), ...(constraints === undefined ? {} : {constraints}), ...(risks === undefined ? {} : {risks}), ...(marks === undefined ? {} : {marks})}}]};
         const result = this.world.publish({...request, authorizations: [signAuthorization(request, created, "pending→decided")]}, "t");
         if (!result.ok) throw new Error(JSON.stringify(result.failure));
         this.world = result.world;

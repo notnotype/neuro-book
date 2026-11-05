@@ -10,6 +10,11 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 const Text = Type.String({maxLength: 20_000});
+/** 补叙的安放：前史里某一处，或某一章里某个键（不带世界线：补叙读的是本章讲的线）。 */
+const FlashbackPlacement = Type.Union([
+    Type.Object({kind: Type.Literal("prehistory"), order: Type.Number()}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("chapter"), chapter: Type.String(), key: Type.Number()}, {additionalProperties: false}),
+]);
 const Ref = Type.Object({kind: Type.Literal("entry"), id: Type.String()}, {additionalProperties: false});
 
 /** 章的写作指示快照：`chapter`、`version` 必有，其余都可选（Spec decisions 输入）。 */
@@ -22,7 +27,7 @@ export const InstructionSnapshotSchema = Type.Object({
     timeMode: Type.Optional(Type.Union([
         Type.Literal("follow"),
         Type.Object({parallel: Type.String()}, {additionalProperties: false}),
-        Type.Object({flashback: Type.Unknown()}, {additionalProperties: false}),
+        Type.Object({flashback: FlashbackPlacement}, {additionalProperties: false}),
     ])),
     tone: Type.Optional(Text),
     opening: Type.Optional(Text),

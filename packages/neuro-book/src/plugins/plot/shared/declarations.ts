@@ -203,6 +203,13 @@ export const DECISION_DIAGNOSTIC_IDS = {
     dangling: `${PLOT_PLUGIN_ID}.decision.dangling`,
 } as const;
 
+/** 章的写作指示的检查（decisions.md 输出 8，提示）。 */
+export const INSTRUCTION_DIAGNOSTIC_IDS = {
+    povAbsent: `${PLOT_PLUGIN_ID}.instruction.povAbsent`,
+    flashbackMismatch: `${PLOT_PLUGIN_ID}.instruction.flashbackMismatch`,
+    repeated: `${PLOT_PLUGIN_ID}.instruction.repeated`,
+} as const;
+
 /** 已经给出计算的诊断（knowledge.md 的诊断表）；伏笔、目标、决策、写作指示与检查的随各自的那一片加。 */
 export const PLOT_DIAGNOSTICS: readonly DiagnosticDeclaration[] = [
     {id: DIAGNOSTIC_IDS.relayBroken, version: 1, level: "pending", label: "传话链断了", key: ["objects", "line"], inputs: "有效的知情（显式的行、在场推出的、隐秘目标推出的）"},
@@ -210,6 +217,11 @@ export const PLOT_DIAGNOSTICS: readonly DiagnosticDeclaration[] = [
     {id: GOAL_DIAGNOSTIC_IDS.premiseChanged, version: 1, level: "pending", label: "前提变了", key: ["objects", "line"], inputs: "目标基于的知识点、持有者的有效知情、目标的改动"},
     {id: GOAL_DIAGNOSTIC_IDS.stalled, version: 1, level: "hint", label: "停滞", key: ["objects", "line"], inputs: "目标最后一次被改所在的章"},
     {id: GOAL_DIAGNOSTIC_IDS.skippedStep, version: 1, level: "hint", label: "缺一步", key: ["objects", "line"], inputs: "目标状态的补丁与涉及它的变更"},
+    {id: DECISION_DIAGNOSTIC_IDS.addressGuardViolated, version: 1, level: "pending", label: "违反了地址守卫", key: ["objects", "line", "detail"], inputs: "已定决策的地址守卫、地址的值"},
+    {id: DECISION_DIAGNOSTIC_IDS.readerGuardViolated, version: 1, level: "pending", label: "违反了读者守卫", key: ["objects", "telling", "detail"], inputs: "已定决策的读者守卫、读者读过的讲述"},
+    {id: INSTRUCTION_DIAGNOSTIC_IDS.povAbsent, version: 1, level: "hint", label: "视角人物不在场", key: ["objects", "range"], inputs: "章的写作指示快照、本章的在场"},
+    {id: INSTRUCTION_DIAGNOSTIC_IDS.flashbackMismatch, version: 1, level: "hint", label: "补叙的安放对不上", key: ["range"], inputs: "章的写作指示快照、本章安放的变更"},
+    {id: INSTRUCTION_DIAGNOSTIC_IDS.repeated, version: 1, level: "hint", label: "写作指示反复出现", key: ["range"], inputs: "各章的写作指示快照"},
     {id: DECISION_DIAGNOSTIC_IDS.overdue, version: 1, level: "pending", label: "到期没定", key: ["objects"], inputs: "待定决策的到期章与读取位置"},
     {id: DECISION_DIAGNOSTIC_IDS.dangling, version: 1, level: "hint", label: "悬空", key: ["objects"], inputs: "已定决策挂的对象"},
     {id: FS_DIAGNOSTIC_IDS.payoffBeforePlant, version: 1, level: "pending", label: "没埋就回收", key: ["objects", "telling"]},
