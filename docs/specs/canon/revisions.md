@@ -51,7 +51,7 @@ owners:
 | `notes` | 可选，附注（例如记账时“没建条目”的名字） |
 | `authorizations` | 可选，这次请求里需要作者来源的决策转换与修改各一项：`{decision, transition, source}`（输出 21） |
 
-**存下来的修订**（世界日志的持久化格式，见 [`canon.project`](project.md)）：`{id, version, requestId, requestDigest, time, by, what, title, why?, chapter?, baseVersion, ops, notes?, reverts?, impact, idMap?, authorizations?}`。`idMap` 是请求里的临时 id 到程序生成的 id 的对照（重发同一个请求时原样返回）；临时 id 写成 `tmp:` 开头，可以出现在同一个请求里的引用位置上（[`canon.components`](components.md) 输出 18），发布时换成生成的 id。`requestDigest` 是原始写入请求（去掉 `baseVersion`）按稳定序列化后的 SHA-256。
+**存下来的修订**（世界日志的持久化格式，见 [`canon.project`](project.md)）：`{id, version, requestId, requestDigest, time, by, what, title, why?, chapter?, baseVersion, ops, notes?, reverts?, impact, idMap?, authorizations?, refs?}`。`idMap` 是请求里的临时 id 到程序生成的 id 的对照（重发同一个请求时原样返回）；临时 id 写成 `tmp:` 开头，可以出现在同一个请求里的引用位置上（[`canon.components`](components.md) 输出 18），发布时换成生成的 id。`requestDigest` 是原始写入请求（去掉 `baseVersion`）按稳定序列化后的 SHA-256。`refs` 是这次修订新写或改过的引用，`[{path, target: {kind, id}}]`，发布时按当时的登记算好存下；依赖与改动记录按条目筛（输出 12、14）只读这份，不按当前的登记重算。
 
 - `ops` 的每项是 `{ref, kind: "create", after}`、`{ref, kind: "modify", fields}`、`{ref, kind: "delete", before}`，或章序调整的 `{kind: "chapters", before, after}`（两份章 id 的列表）。
 - `fields` 的每项是 `{path, before?, after?}`：没有 `before` 表示改之前这个字段不存在，没有 `after` 表示改之后不存在；JSON 的 `null` 是“未知”，与“不存在”不同。
@@ -78,7 +78,7 @@ owners:
    - 需要作者来源的决策转换与修改带了来源、来源校验通过（输出 21；缺来源与来源不对不归入 `validation-failed`，见失败表）。
 4. **对后面的影响。** 这次写入让后面已有的剧情变更套不上的，不拒收，列进预览与带来的变化（“这次修改会让第 7 章的 2 条套不上”），这些问题记在这次修订名下（它们的根因，[`canon.model`](model.md) 输出 22），可以直接还原它。
 5. **预览。** 对写入请求做输出 3、4、6 的全部计算，不发布：返回校验结果、带来的变化，以及受影响的条目在这次写入所在章末尾（没有章时在缺省读取位置）的样子。预览只对它基于的版本有效。在同一份读取输入（[`canon.model`](model.md) 输出 36）上，预览算出的带来的变化与随后发布存下的逐字相同（语义档的归纳文字除外）；中间有别的修订发布或读取输入变了，以发布时算出并存下的为准。
-6. **带来的变化。** 发布时计算并存进修订：在哪（结构化的位置：章 id、开头或末尾）；这次让哪些待处理消失、新出现了哪些；相关地址（条目 id 加路径）在这次写入所在位置的改前与改后的值（语义档已归纳时写归纳的文字；还没归纳时写起点与之后事件的条数 `{notReduced: true, anchor, events}`，不写拼起来的全文：全文随事件变长，每次修订存一份会让日志随章数按平方变大）；让后面哪些记录套不上。只存结构化的位置与地址，章名、条目名、字段显示名在显示时按当时的章序与声明格式化。回执、保存后的提示、改动记录都读存下来的这一份，不重算这些值。
+6. **带来的变化。** 发布时计算并存进修订：在哪（结构化的位置：章 id、开头或末尾）；这次让哪些待处理消失、新出现了哪些；相关地址（条目 id 加路径）在这次写入所在位置的改前与改后的值（语义档已归纳时写归纳的文字；还没归纳时写起点与之后事件的条数 `{notReduced: true, anchor, events}`，不写拼起来的全文：全文随事件变长，每次修订存一份会让日志随章数按平方变大）；让后面哪些记录套不上。只存结构化的位置与地址，章名、条目名、字段显示名在显示时按当时的章序与声明格式化。回执、保存后的提示、改动记录都读存下来的这一份，不重算这些值。待处理的增减只算本能力自己的待处理（[`canon.model`](model.md) 输出 16 里插件的诊断与提示不算），按实际模式。
 7. **版本冲突。** `puts` 里的对象在 `baseVersion` 之后被别的修订改过（新建、修改或删除），整次拒收（`version-conflict`），详情列出这次请求涉及的全部对象，标出哪些被改过、它们现在的值。没被改过的对象不算冲突，即使世界版本已经前进了。
 8. **就地改。** 调用方给出读取位置、地址、新值、读到的值与来历，以及意图（缺省为创作修改）。发布前重算这个位置的值，与读到的不同就拒收（`value-conflict`）。按来历的形状路由：
 
@@ -107,12 +107,12 @@ owners:
 19. **必须带读到的值。** 就地改、记一笔与回写必须带 `reads`；缺了拒收（`reads-required`）。直接给对象新值的写入（`puts`）只按输出 7 判冲突。
 20. **删除。** 条目不真正删除：删除是给它加墓碑标记的一次修改，其余字段原样保留，还原就去掉标记。剧情变更不删除，只撤销。决策不删除，不再要的转成放弃。核对点、正文建议可以删除。还原新建对象的修订时，那些对象真正删除（因为有依赖时不能单独还原，删的时候没有别的记录引用它们）。对条目、剧情变更或决策给 `after` 为空时拒收（`not-deletable`）。
 21. **作者来源。** 决策里需要作者来源的转换与修改（[`canon.model`](model.md)“状态与转换”），写入请求在 `authorizations` 里各带一项授权 `{decision, transition, source}`：`decision` 是决策 id（同一请求里新建的写临时 id），`transition` 是转换（如 `pending→decided`；只改字段时为 `edit`），`source` 是 `{author, via: "message"|"confirm", id, session?, quote, range?, time, binds, signature}`：作者身份、作者的一条消息或界面上的一次确认、它的 id、会话、原文摘要、引用的范围、时间、它授权的修改与宿主的签名。`binds` 是 `{project, requestId, request, decision, transition, fields}`：项目、写入请求的 `requestId`、整份请求的摘要、与这一项相同的决策与转换、授权的字段的摘要。签名覆盖除 `signature` 以外的全部字段。
-    - **转换的写法**：`new→pending` 不要授权；要授权的是 `new→decided`、`pending→decided`、`pending→dropped`、`decided→pending`、`dropped→pending`、`decided→superseded`，以及已定决策里只改字段的 `edit`（与 [`canon.model`](model.md)“状态与转换”逐行对应）。
+    - **转换的写法**：`new→pending` 不要授权；要授权的是 `new→decided`、`pending→decided`、`pending→dropped`、`decided→pending`、`dropped→pending`、`decided→superseded`，以及已定决策里只改字段的 `edit`（与 [`canon.model`](model.md)“状态与转换”逐行对应）；还原产生的一律是 `revert`（见下）。
     - **按请求原样计算**：`request` 是写入请求去掉 `authorizations` 与 `baseVersion` 以后取规范的 JSON 再取 SHA-256，同一请求里任何别的对象改了，授权就失效；`fields` 是这条决策在写入请求里的 `{status, conclusion, reason, risks, constraints, marks, scope, about, supersededBy}` 中出现的那些键组成的对象（不论这次改没改），取规范的 JSON 再取 SHA-256。两者都按请求原样（临时 id 换成正式 id 之前）算，宿主签发时与本能力校验时口径相同，所以同一请求里新建、互相引用的对象不受 id 替换影响。
     - **签发由宿主做**：宿主判断作者确实说了、确认了这件事，再按将要发出的请求填 `binds` 并签名；`via: "confirm"` 时宿主把要授权的修改原样给作者看过。
-    - **本能力只校验**：发布前（与预览时）对每个需要来源的转换或修改，找到授权里对应的一项，把它的来源与本能力按请求原样算出的 `binds` 一起交给宿主提供的校验（[`canon.project`](project.md) 的输入）；`binds` 与实际不一致、签名不对、宿主没提供校验，都整次拒收（`author-source-invalid`）；需要来源却没有对应的授权，整次拒收（`author-source-required`）。因为 `binds` 含 `requestId` 与改后值的摘要，同一个来源不能用到另一次请求、另一条决策或另一个结论上；同一请求按 `requestId` 重发（输出 16）不算重用。用不上的授权（没有对应的转换或修改）、同一条决策同一个转换出现两项，都整次拒收（`author-source-invalid`，详情 `authorization-unused`、`authorization-duplicate`）。
+    - **本能力只校验**：发布前（与预览时）对每个需要来源的转换或修改，找到授权里对应的一项：先按规范的 JSON 逐字比来源里的 `binds` 与本能力按请求原样算出的 `binds`，不一致整次拒收（`author-source-invalid`）；一致再把来源交给宿主提供的校验（[`canon.project`](project.md) 的输入，同步调用），它只验签名，不通过、或宿主没提供校验，同样整次拒收。需要来源却没有对应的授权，整次拒收（`author-source-required`）。因为 `binds` 含 `requestId` 与改后值的摘要，同一个来源不能用到另一次请求、另一条决策或另一个结论上；同一请求按 `requestId` 重发（输出 16）不算重用。用不上的授权（没有对应的转换或修改）、同一条决策同一个转换出现两项，都整次拒收（`author-source-invalid`，详情 `authorization-unused`、`authorization-duplicate`）。宿主签发时用本能力导出的同一个函数算 `binds`；`project` 是宿主打开世界时给的项目标识。
     - **出处与授权分开**：决策上存的 `source` 是出处，只由本能力在接受一项授权时写成那一项的来源；写入请求里给的决策对象带着原来的 `source` 原样不动，不算授权、不校验；改了它整次拒收（`source-not-writable`）。所以从 `object` 取整份待定决策、只改候选再写回，不需要来源。
-    - **还原**：补偿把决策的字段（连同 `source`）恢复成改前的值，恢复回来的 `source` 是那时的出处。补偿里有需要来源的决策转换或修改时，还原请求要带授权（[`canon.project`](project.md) 的 `revert`），每条受影响的决策一项。宿主签什么由本能力给出：对还原请求做预览（[`canon.project`](project.md) 的 `preview` 也收还原请求），或者不带授权直接还原得到 `author-source-required`，两者都列出需要的每一项 `{decision, transition, fields}`（`fields` 是按补偿后的值算好的摘要），宿主照抄、`request` 按还原请求（去掉 `authorizations`）算。这些授权存在补偿修订的 `authorizations` 里，不写进决策的 `source`。
+    - **还原**：补偿把决策的字段（连同 `source`）恢复成改前的值，恢复回来的 `source` 是那时的出处；补偿不受 `source-not-writable` 限制，也不把这次还原的授权写进 `source`。补偿里这条决策与改前不同（任何需要来源的字段、状态，或被补偿真正删掉）时，还原请求要带授权（[`canon.project`](project.md) 的 `revert`），每条受影响的决策一项，`transition` 一律写 `revert`。还原的 `binds.request` 是 `{revert: 修订 id, withDependents, requestId, by, title}` 的规范 JSON 的 SHA-256；`fields` 由本能力按补偿后的值算好给出：对还原请求做预览（[`canon.project`](project.md) 的 `preview` 也收还原请求），或者不带授权直接还原得到 `author-source-required`，两者都列出需要的每一项 `{decision, transition: "revert", fields}`，宿主照抄。这些授权存在补偿修订的 `authorizations` 里。
     - 授权随修订存进日志；作者的原话与结论在意思上是否相符，由宿主负责，本能力不判断。
 
 ## 状态与转换
