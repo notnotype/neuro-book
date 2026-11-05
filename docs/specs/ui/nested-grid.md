@@ -41,6 +41,13 @@ owners:
 - pointerdown成功和键盘focus-visible立即全亮，active离开线盒仍保持。reduced-motion取消渐变但保留hover延迟。非active仅buttons=0可占hover/cursor，拖View/Editor Tab/选择文本经过热区不得抢光标；退出/失焦/禁用/卸载清临时document cursor与timer。
 - pointer按原始baselineBoundary+累计delta求绝对边界；收起/展开只改约束，不以记忆尺寸重锚。低于min−24收起，回到max(min,collapsedSize+24)且容量允许时展开；可行展开区线与指针减grabOffset误差≤1 CSS px。按钮/Enter显式恢复才用restoreSize。
 - 每个公共NestedGrid独占scope；hover/capture按composedPath由内向外共用有效命中赢家。最内无命中或禁用才让外层；同scope最多双轴一场，不跨独立scope拼事务。
+- **按矩形摆放**：叶与分隔线是同一父元素的子元素，矩形由布局结果算出，用 `transform` 加宽高摆放。树的结构变化（拆分、关闭、换位置）不移动、不重建还在的叶：内容的滚动、输入与焦点保留。新叶排在 DOM 的最后，已有的叶不换 DOM 顺序。
+- **取整**：叶的每条边按设备像素取整，宽高由边相减，分隔线占用不参与取整。等分时各条缝的宽度相同，不随位置跳动。
+- **过渡**：不是手势、也不是容器尺寸变化引起的布局变化（程序开关面板、拆分与关闭叶）时，外框与分隔线用 `--motion-layout`、`--ease-layout` 过渡到新矩形；内容一开始就是最终尺寸，过渡中不重复排版。拖动分隔线、松手落账和容器尺寸变化不过渡；系统减少动态效果时没有过渡。
+- **停放**：叶的矩形在任一轴上为零时，内容保持最后一个非零尺寸、`visibility: hidden` 且 `inert`，不进 Tab 顺序与读屏；重新有尺寸时不重新排版。
+- **Tab 顺序**：叶里按 DOM 顺序走；走出一块时按树的先后跳到下一项（叶、分隔线交替），与 DOM 顺序无关。内容自己处理了 Tab（`preventDefault`）时不接管。走出最后一项时离开这个 grid：外面还有 grid 就交给它，否则由浏览器移到 grid 之后。
+- **F6**：F6、Shift+F6 在叶之间按树的先后循环，回到这块上次的焦点，没有就是第一个可聚焦的元素；嵌套时内层先走，走到头交给外层，最外层绕回。没有可聚焦元素的叶跳过。
+- **读屏顺序**：根元素的 `aria-owns` 按树的先后列出叶与分隔线，读屏顺序与视觉一致。
 
 ## 状态与转换
 
@@ -80,6 +87,7 @@ owners:
 nb-layout 拥有领域无关的类型、算法和交互边界；主应用/插件拥有约束、快照解释与 Storage 地址。
 原语不引用主工作台 Part 名，不依赖 Pinia，不开启 Splitter `autoSaveId` 旁路。
 嵌套 sash 的旧限制由本能力覆盖的场景逐项解除；其它未覆盖结构操作继续保留已有限制，不能据一个样例宣称任意布局均已支持。
+叶的外框用了 `transform`，是其内容里 `position: fixed` 的包含块：要盖住整个窗口的东西（对话框、拖影、菜单）Teleport 到 `body`。
 
 ## 验收与 Smoke
 
@@ -90,6 +98,8 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用/插件
 5. Given 畸形/高版本快照、未知引用、重复身份，When 恢复再保存合法修改，Then 无未捕获异常，当前布局不半更新，原件与未涉及未知部分保留。
 6. Given 同项目双标签订阅，When 一个窗口拖动而另一个保存，Then 当前手势不断开，冲突由宿主处理。
 7. Given 任一侧的叶，When 按方向拆分并调整新 sash，Then 新分支继承原外部分配、两个子叶按比例分掉原意图，外层另一侧尺寸不变；重复身份、非法比例与节点/深度上限被拒绝且树不变。
+8. Given 叶里有输入框、滚动内容和实例编号，When 在它左边拆分、关闭兄弟、把它换到树的另一处，Then 实例编号不变，输入、滚动与焦点保留，DOM 顺序不变；Tab 与 F6 按新的树序走，无障碍树的顺序也跟着变。
+9. Given 设备像素比 1 与 1.25、三块等分，When 量各条缝，Then 宽度相同；Given 程序开关一块，When 过渡中量内容尺寸，Then 一开始就是最终尺寸，`ResizeObserver` 只报一次；拖分隔线与改窗口尺寸没有过渡。
 
 本轮 Workbench 容器层另以 `Component Lab --suite workbench-shell` 验证跨 Part Teleport、空 Part 落点与内容/切换器拖放；该验证不把业务主页或 Project 数据当作原语证据。
 
