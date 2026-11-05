@@ -90,7 +90,7 @@ owners:
 | `id` | 是 | `<插件 id>.<名>`；存下来的标注的 `kind` 就是它 |
 | `version` | 是 | 正整数；载荷的形状或意思变了就加一 |
 | `label` | 是 | 给作者看的名字（“揭示”“伏笔节点”） |
-| `attachTo` | 是 | 能挂在哪类对象上：`telling`、`decision` 的非空子集 |
+| `attachTo` | 是 | 能挂在哪类对象上：`telling`、`change`（剧情变更）、`decision` 的非空子集 |
 | `schema` | 是 | 载荷的 JSON Schema（不含 `kind`、`version` 两个键） |
 | `refs` | 否 | 载荷里是引用的路径与允许的条目种类，`[{path, targets?}]`；路径用 `.键` 逐级写，`[]` 表示数组的每个元素（`nodes[].foreshadow`） |
 
