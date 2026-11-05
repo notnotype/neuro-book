@@ -58,6 +58,7 @@ interface EditorEditing {
 | `nbook.edit.bilingual` | `{text: string}` | `canConvertBlock` | — |
 | `nbook.edit.divider`、`table` | 无 | `canConvertBlock` | — |
 | `nbook.edit.block-up`、`block-down` | 无 | 无另外条件 | Alt+↑、Alt+↓ |
+| `nbook.edit.block-duplicate`、`block-delete`、`block-unwrap` | 无 | 无另外条件 | — |
 
 另有 `nbook.view.toggle-editor-toolbar`（无参数，勾选状态读 `toolbarVisible`，任何时候可用）切换设置 `nbook.editor/markdownToolbar`。
 
