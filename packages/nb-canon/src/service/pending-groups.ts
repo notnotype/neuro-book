@@ -13,6 +13,7 @@ import {stableStringify} from "../core/stable-json";
 import type {PendingItem} from "../engine/types";
 import {timeItemChanges, timeItemKey, type TimePendingItem} from "../time/state";
 import type {LinePendingItem} from "../lines/pending";
+import {effectiveLine, lineOf, lineTable, MAIN_LINE} from "../lines/table";
 import {namespaceAvailability} from "../model/apply";
 import {marksIn} from "../world/references";
 import type {LostReason, Occurrence, TellingLocator} from "../world/tellings";
@@ -25,7 +26,11 @@ export type CanonHint =
     | {readonly code: "duplicate-quote"; readonly telling: string; readonly owner: ObjectRef; readonly count: number}
     | {readonly code: "mark-kind-unknown" | "mark-version-unsupported"; readonly owner: ObjectRef; readonly path: string; readonly kind: string}
     | {readonly code: "component-unknown" | "component-version-unsupported"; readonly entry: string; readonly namespace: string}
-    | {readonly code: "diagnostic-duplicate-key"; readonly diagnostic: string; readonly key: string};
+    | {readonly code: "diagnostic-duplicate-key"; readonly diagnostic: string; readonly key: string}
+    /** 活页夹的一段讲计划线（输出 12）、或讲已结束的线而这一章晚于它的 `endAt` 所在章（输出 16）。 */
+    | {readonly code: "binder-line-planned" | "binder-line-ended"; readonly chapter: string; readonly from: number; readonly line: string}
+    /** 正文讲述所在的段讲的线看不到这条记录（输出 13）。 */
+    | {readonly code: "telling-line-mismatch"; readonly telling: string; readonly owner: ObjectRef; readonly line: string};
 
 /** 三组里的一项。插件的发现带诊断 id 与级别；已处理组里的带处理它的决策，旧版本的决策放在 `earlierDecision`。 */
 export type GroupItem =
@@ -102,7 +107,7 @@ export function sortGroup(items: Sortable[]): GroupItem[] {
 /** 待处理组里内核各种项的先后；插件的发现排在最后（输出 16）。 */
 export const PENDING_GROUP_ORDER = {"check-mismatch": 0, "cannot-apply": 1, held: 2, "chapter-deleted": 3, "line-out-of-bounds": 4, "line-missing": 4, "line-planned": 4, "time-conflict": 5, "time-invalid": 5, "time-placement-mismatch": 5, "fork-time-mismatch": 5, finding: 6} as const;
 /** 提示组里的先后：讲述失联、原句重复、标注与 Component 的版本与类型不在、插件的诊断。 */
-export const HINT_GROUP_ORDER = {"telling-lost": 0, "duplicate-quote": 1, mark: 2, finding: 5} as const;
+export const HINT_GROUP_ORDER = {"telling-lost": 0, "duplicate-quote": 1, mark: 2, "binder-line-planned": 3, "binder-line-ended": 3, "telling-line-mismatch": 4, finding: 5} as const;
 
 /** 内核自己的待处理项的排序位置与排序 id（输出 16：核对点取比较时点，按根因合并的取最早那条的安放）。 */
 export function sortableCanonItem(world: World, item: PendingItem | TimePendingItem | LinePendingItem): Sortable {
@@ -145,6 +150,14 @@ export function canonHints(world: World, locator: TellingLocator): Sortable[] {
     const found: Sortable[] = [];
     const ownerPlacement = (owner: ObjectRef): Placement | undefined => (owner.kind === "change" ? world.data.changes.get(owner.id)?.at : owner.kind === "check" ? world.data.checks.get(owner.id)?.place : undefined);
     const tellingPositions = new Map<string, SortPosition>();
+    const lineTableOf = lineTable(world.data, order);
+    const chapterLines = world.options.chapterLines;
+    // 一处讲述所在的段讲哪条线（实际模式下读的那条）。
+    const lineOfParagraph = (chapter: string, paragraph: number): string => {
+        const segments = chapterLines?.get(chapter);
+        const told = segments?.filter((segment) => segment.from <= paragraph).at(-1)?.line ?? segments?.[0]?.line ?? MAIN_LINE;
+        return effectiveLine(lineTableOf, told, "actual");
+    };
     const visitTellings = (owner: ObjectRef, tellings: readonly Telling[]) => {
         for (const telling of tellings) {
             const located = locator.locate(telling);
@@ -152,11 +165,33 @@ export function canonHints(world: World, locator: TellingLocator): Sortable[] {
             tellingPositions.set(`${owner.kind}:${owner.id}:${telling.id}`, position);
             if (located.kind === "lost") found.push({position, kindOrder: HINT_GROUP_ORDER["telling-lost"], sortId: telling.id, item: {kind: "hint", hint: {code: "telling-lost", telling: telling.id, owner, reason: located.reason}}});
             if (located.kind === "found" && located.count > 1 && telling.nth === undefined) found.push({position, kindOrder: HINT_GROUP_ORDER["duplicate-quote"], sortId: telling.id, item: {kind: "hint", hint: {code: "duplicate-quote", telling: telling.id, owner, count: located.count}}});
+            // 生效的正文讲述，所在的段讲的线既不是这条记录所在的线、也看不到它（输出 13）。
+            if (located.kind === "found" && chapterLines !== undefined && chapterLines.size > 0 && (owner.kind === "check" || (owner.kind === "change" && world.data.changes.get(owner.id)?.status === "active"))) {
+                const told = lineOfParagraph(located.occurrence.chapter, located.occurrence.paragraph);
+                const placement = ownerPlacement(owner);
+                if (placement !== undefined && told !== lineOf(placement) && !lineTableOf.visible(told, owner.id)) found.push({position, kindOrder: HINT_GROUP_ORDER["telling-line-mismatch"], sortId: telling.id, item: {kind: "hint", hint: {code: "telling-line-mismatch", telling: telling.id, owner, line: told}}});
+            }
         }
     };
     for (const change of world.data.changes.values()) visitTellings({kind: "change", id: change.id}, change.told);
     for (const check of world.data.checks.values()) visitTellings({kind: "check", id: check.id}, [check.told]);
     for (const entry of world.data.entries.values()) for (const tellings of Object.values(entry.retold ?? {})) visitTellings({kind: "entry", id: entry.id}, tellings);
+
+    // 活页夹讲到的线：计划线只按祖先线算（输出 12）、已结束的线后面还有章讲它（输出 16）。
+    for (const [chapter, segments] of chapterLines ?? []) {
+        const index = order.index(chapter);
+        if (index === undefined) continue;
+        for (const segment of segments) {
+            const entry = lineTableOf.lines.get(segment.line);
+            if (entry === undefined) continue;
+            const position: SortPosition = [1, index, 1, segment.from, 0];
+            if (!entry.exists.actual && entry.exists.planned) found.push({position, kindOrder: HINT_GROUP_ORDER["binder-line-planned"], sortId: `${chapter}:${String(segment.from)}`, item: {kind: "hint", hint: {code: "binder-line-planned", chapter, from: segment.from, line: segment.line}}});
+            const {end, endAt} = entry.fork.fork;
+            const last = endAt === undefined ? undefined : world.data.changes.get(endAt)?.at ?? world.data.checks.get(endAt)?.place;
+            const lastIndex = last?.kind === "chapter" ? order.index(last.chapter) : undefined;
+            if ((end === "return" || end === "stop") && lastIndex !== undefined && index > lastIndex) found.push({position, kindOrder: HINT_GROUP_ORDER["binder-line-ended"], sortId: `${chapter}:${String(segment.from)}`, item: {kind: "hint", hint: {code: "binder-line-ended", chapter, from: segment.from, line: segment.line}}});
+        }
+    }
 
     const markOwners: Array<[ObjectRef["kind"], Iterable<{readonly id: string}>]> = [["change", world.data.changes.values()], ["check", world.data.checks.values()], ["entry", world.data.entries.values()], ["decision", world.data.decisions.values()]];
     for (const [kind, objects] of markOwners) {

@@ -35,10 +35,10 @@ import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
 import {lineTable, MAIN_LINE} from "../lines/table";
-import {createReadView, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
+import {createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
-import {World, type RevertMeta, type WriteResult} from "../world/world";
+import {World, type ChapterLine, type RevertMeta, type WriteResult} from "../world/world";
 
 export interface ServicePorts {
     readonly files: LogFiles;
@@ -95,6 +95,8 @@ export type ServiceFailure =
 export type ServiceDiagnostic =
     | LogDiagnostic
     | {readonly code: "binder-invalid"}
+    /** 活页夹里章讲的线两种模式下都不存在，这一段按主线算（canon.worldlines 输出 13）。 */
+    | {readonly code: "binder-line-unknown"; readonly chapter: string; readonly from: number; readonly line: string}
     /** 世界只读，宿主给的新章序只用于计算，没有记进日志（输出 9）。 */
     | {readonly code: "reorder-not-recorded"; readonly reason: string}
     /** 写完核对尾部发现重号，或尾部比记下的短（输出 8、17）；世界随之只读。 */
@@ -219,7 +221,7 @@ export class WorldService {
      * 打开世界（输出 4）；章序与登记的类型由宿主给。打开后章序与记下的不同就发布章序调整（输出 9）。宿主读不出活页夹清单
      * 时给 `invalid`：按日志里最近一次记下的章序计算，不发布章序调整，写诊断（输出 23）。
      */
-    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
+    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
         const opened = await openLog(ports.files, ports.logDir, {lock: ports.lock, sideDir: ports.sideDir, now: ports.now});
         if ("code" in opened) return opened;
         const cache = await loadReductions(ports.files, ports.cachePath);
@@ -246,7 +248,7 @@ export class WorldService {
         service = new WorldService(ports, world, opened.tail, readOnly, diagnostics, reductions);
         service.#syncTexts(chapters);
         service.#noteDiagnostics(initial.diagnostics);
-        await service.setChapters(initial.chapters);
+        await service.setChapters(initial.chapters, initial.chapterLines);
         return service;
     }
 
@@ -276,7 +278,7 @@ export class WorldService {
             state: this.#state,
             ...(this.#readOnlyReason === null ? {} : {reason: this.#readOnlyReason}),
             exclusive: this.#lease === null ? null : {label: this.#lease.label, since: this.#lease.since},
-            diagnostics: [...this.diagnostics, ...this.#timeDiagnostics, ...this.#world.options.registry.diagnostics, ...(this.#world.options.marks ?? EMPTY_MARK_REGISTRY).diagnostics, ...(this.#world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).diagnostics],
+            diagnostics: [...this.diagnostics, ...this.#timeDiagnostics, ...this.#binderLineDiagnostics(), ...this.#world.options.registry.diagnostics, ...(this.#world.options.marks ?? EMPTY_MARK_REGISTRY).diagnostics, ...(this.#world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).diagnostics],
             /** 最近几次插件诊断的计算耗时，超过 200 毫秒的标 `slow`（project.md 输出 26）。 */
             diagnosticTimings: this.#timings.map((timing) => ({...timing, ...(timing.ms > SLOW_DIAGNOSTIC_MS ? {slow: true as const} : {})})),
             /** 当前打开的视图数（project.md 输出 26）：看令牌有没有随调用方收口。 */
@@ -287,6 +289,27 @@ export class WorldService {
         };
     }
 
+    /** 世界线的树（project.md 方法表 `lines`）：线表，加各线是否已建与常驻。 */
+    lines() {
+        const world = this.#world;
+        const built = new Map(world.lines.builtLines.map((item) => [item.line, item.resident]));
+        return {...this.#stampOf(world), lines: lineSummaries(world).map((summary) => ({...summary, built: built.has(summary.id), resident: built.get(summary.id) === true}))};
+    }
+
+    /** 每次读状态时按当前世界与活页夹重算：线写下以后诊断自己消失。 */
+    #binderLineDiagnostics(): ServiceDiagnostic[] {
+        const world = this.#world;
+        const table = lineTable(world.data, world.options.order);
+        const found: ServiceDiagnostic[] = [];
+        for (const [chapter, segments] of world.options.chapterLines ?? []) {
+            for (const segment of segments) {
+                const entry = table.lines.get(segment.line);
+                if (segment.line !== MAIN_LINE && (entry === undefined || (!entry.exists.actual && !entry.exists.planned))) found.push({code: "binder-line-unknown", chapter, from: segment.from, line: segment.line});
+            }
+        }
+        return found;
+    }
+
     entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
         return this.#entryOn(this.#world, id, position, mode, withOrigins);
     }
@@ -294,8 +317,8 @@ export class WorldService {
     #entryOn(world: World, id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
         const stamp = this.#stampOf(world);
         // 读取位置的线（worldlines 输出 12）：经那条线的读取视图读，来历里带过去的那一步才换成 carried。
-        if (world.lineAt(position) === undefined) return "line-not-found" as const;
-        const lineRead = this.#readViewOf(world, position.line ?? MAIN_LINE);
+        if (world.lineAt(position, mode) === undefined) return "line-not-found" as const;
+        const lineRead = this.#readViewOf(world, world.positionLine(position, mode));
         const view = lineRead.entry(id, position, mode);
         if (view === "chapter-not-found" || view === null || !withOrigins) return view === "chapter-not-found" ? view : {...stamp, view};
         const origins: Record<string, unknown> = {};
@@ -360,7 +383,7 @@ export class WorldService {
         const truncated: string[] = [];
         const registry = world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY;
         // 插件诊断按读取位置的线的视图算（DS：与内核的待处理同一条线）；线在上面已查过存在。
-        const view = this.#readViewOf(world, position.line ?? MAIN_LINE);
+        const view = this.#readViewOf(world, world.positionLine(position, mode));
         let tellings: Map<string, Telling> | undefined;
         const findingPosition = (finding: Finding): {position: SortPosition; occurrence?: Occurrence} => {
             if (finding.at === undefined) return {position: null};
@@ -940,7 +963,7 @@ export class WorldService {
     }
 
     /** 宿主给出新章序（输出 9）：与记下的不同就发布章序调整；`invalid` 时保持原章序并写诊断（输出 23）。 */
-    async setChapters(chapters: readonly string[] | "invalid"): Promise<void> {
+    async setChapters(chapters: readonly string[] | "invalid", chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>): Promise<void> {
         if (chapters === "invalid") {
             this.diagnostics.push({code: "binder-invalid"});
             return;
@@ -948,12 +971,12 @@ export class WorldService {
         this.#syncTexts(chapters);
         const order = new ChapterOrder(chapters);
         await this.#write(undefined, (world) => {
-            const moved = world.withOptions({...world.options, order});
+            const moved = world.withOptions({...world.options, order, chapterLines: chapterLines ?? new Map()});
             const result = moved.reorder(order, this.#ports.now(), `reorder-${this.#ports.digest(stableStringify({chapters, version: world.version}))}`);
             return result ?? {ok: true as const, world: moved, revision: undefined as never, ids: {}, repeated: true};
         }, true).then((result) => {
             // 没有要发布的章序调整，或世界只读时：只换上新章序计算。
-            if ((result as {repeated?: boolean}).repeated === true || !result.ok) this.#world = this.#world.withOptions({...this.#world.options, order});
+            if ((result as {repeated?: boolean}).repeated === true || !result.ok) this.#world = this.#world.withOptions({...this.#world.options, order, chapterLines: chapterLines ?? new Map()});
             if (!result.ok && "failure" in result && (result.failure.code === "world-read-only" || result.failure.code === "write-unknown")) {
                 this.diagnostics.push({code: "reorder-not-recorded", reason: result.failure.code});
             }

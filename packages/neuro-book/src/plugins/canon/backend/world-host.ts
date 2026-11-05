@@ -167,7 +167,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     const reloadBinder = settled(async (current) => {
         const read = await readBinder(root);
         if (!read.ok) record("warn", "canon.binder.invalid", `活页夹清单坏了，保持原来的章序：${read.detail}`);
-        await current.setChapters(read.ok ? read.chapters : "invalid");
+        await current.setChapters(read.ok ? read.chapters : "invalid", read.ok ? read.lines : undefined);
     });
     const absorb = settled((current) => current.externalChanged());
 
@@ -241,7 +241,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
                     clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
                 },
             },
-            {chapters: binder.ok ? binder.chapters : "invalid", registry: buildRegistry(components), marks: buildMarkRegistry(marks), diagnostics: buildDiagnosticRegistry(diagnostics)},
+            {chapters: binder.ok ? binder.chapters : "invalid", ...(binder.ok ? {chapterLines: binder.lines} : {}), registry: buildRegistry(components), marks: buildMarkRegistry(marks), diagnostics: buildDiagnosticRegistry(diagnostics)},
         );
         if ("code" in opened) {
             record("warn", "canon.open.locked", "打开世界时世界日志的锁一直被占着，下一次调用再试");

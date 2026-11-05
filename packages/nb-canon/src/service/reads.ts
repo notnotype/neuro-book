@@ -233,7 +233,11 @@ export function readStampOf(world: World, chapterDigest: (chapter: string) => st
     const textDigest = digest(canonicalJson(ids.map((id) => [id, chapterDigest(id)])));
     const inputDigest = digest(canonicalJson({
         version: world.version,
-        chapters: ids.map((id) => [id, "main"]),
+        // 章讲的线：没写的章是 "main"，写了的按段给 `[[起讲的段号, 线], …]`（model.md 输出 36）。
+        chapters: ids.map((id) => {
+            const segments = world.options.chapterLines?.get(id);
+            return [id, segments === undefined || segments.length === 0 ? "main" : segments.map((segment) => [segment.from, segment.line])];
+        }),
         text: textDigest,
         registry: {
             components: world.options.registry.versions.map(([id, version]) => [id, version]),

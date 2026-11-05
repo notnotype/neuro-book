@@ -35,7 +35,7 @@ export {assetPathProblem, listItemProblem, semanticText, valueProblem, type Valu
 export {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "./engine/incremental";
 export {createReferenceEngine} from "./engine/reference";
 export type {ChangeOutcome, Engine, EngineInputs, EntryView, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress, ReductionInput, ReductionLookup, UpcomingNamespace, WorldData} from "./engine/types";
-export {World, type ConflictDetail, type Problem, type RevertFailure, type RevertMeta, type WorldOptions, type WriteFailure, type WriteResult} from "./world/world";
+export {World, type ChapterLine, type ConflictDetail, type Problem, type RevertFailure, type RevertMeta, type WorldOptions, type WriteFailure, type WriteResult} from "./world/world";
 export {authorizationBinds, fieldsDigest, requestDigest, signedContent, type NeededAuthorization, type RevertRequest} from "./world/authorization";
 export {NO_REASON, type DecisionView, type Transition} from "./world/decisions";
 export {editInPlace, recordDelta, replaceOnce, type EditFailure, type EditResult, type InPlaceEdit} from "./world/edits";

@@ -111,6 +111,8 @@ const methods = {
         errors,
     },
     object: {input: Type.Object({ref: ObjectRefSchema, view: View}), output: Out, effect: "read", errors},
+    /** 世界线的树（canon.project 方法表 `lines`）：每条线的定义、两种模式下存不存在、能不能建、是否已建。 */
+    lines: {input: Type.Object({}), output: Out, effect: "read", errors},
     pending: {input: Type.Object({position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode), group: Type.Optional(Type.Union([Type.Literal("pending"), Type.Literal("hints"), Type.Literal("handled")])), cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
     decisions: {
         input: Type.Object({
@@ -280,6 +282,7 @@ export interface CanonOutputs {
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
     /** 存下来的对象；不存在时 `object` 为 null。 */
     readonly object: {readonly version: number; readonly object: unknown};
+    readonly lines: {readonly version: number; readonly lines: readonly {readonly id: string; readonly name: string; readonly parent: string; readonly fork: string; readonly type: string; readonly who?: string; readonly cut: string; readonly trigger?: string; readonly exists: {readonly actual: boolean; readonly planned: boolean}; readonly unbuildable: string | null; readonly built: boolean; readonly resident: boolean}[]};
     /** 写入请求的预览；还原请求的预览另给需要的作者授权（宿主照它签发）。 */
     readonly preview: {readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly needed?: readonly NeededAuthorization[]};
     readonly outcome: {readonly published: true; readonly revision: string; readonly version: number} | {readonly published: false};

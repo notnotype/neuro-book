@@ -74,6 +74,8 @@ describe("canon.project：世界服务在项目子进程里", () => {
         await until(() => seen.some((event) => event.kind === "changed" && event.version === 1));
         const found = await second.canon.call("lookup", {names: ["星瑕"], position: {kind: "initial"}});
         expect(found).toMatchObject({ok: true, value: {version: 1, found: {星瑕: Object.values(result.value.ids)}}});
+        // 只有主线的作品：世界线的树是空的。
+        expect(await second.canon.call("lines", {})).toMatchObject({ok: true, value: {version: 1, lines: []}});
         expect(existsSync(join(h.project.path, ".nbook", "world", "log", "000001.jsonl"))).toBe(true);
         expect(existsSync(join(h.project.path, ".nbook", "locks"))).toBe(true);
 

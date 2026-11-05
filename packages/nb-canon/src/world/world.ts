@@ -54,7 +54,7 @@ import {readEntryAddress} from "../engine/views";
 import {LineSet, type LineView} from "../lines/set";
 import {affectedLines, touchedOf} from "../lines/affected";
 import {revisionLines} from "./revision-lines";
-import {lineOf, lineTable, MAIN_LINE} from "../lines/table";
+import {effectiveLine, lineOf, lineTable, MAIN_LINE} from "../lines/table";
 import {defaultCarry, forkProblems} from "./forks";
 import {lineRuleProblems} from "./line-rules";
 import {linePending, type LinePendingItem} from "../lines/pending";
@@ -85,6 +85,14 @@ export interface WorldOptions {
     readonly time?: TimeSettings;
     /** 常驻的世界线条数，祖先线不占（canon.worldlines 输出 9）；没给是 3。 */
     readonly residentLines?: number;
+    /** 各章讲的线（活页夹给，canon.worldlines 输出 12）：没写的章讲主线。不进章序，变了也不重算引擎。 */
+    readonly chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>;
+}
+
+/** 一章里一段起讲的线：`from` 是段号（从 1 数，model.md 的“段”），第一段的 `from` 是 1。 */
+export interface ChapterLine {
+    readonly from: number;
+    readonly line: string;
 }
 
 export interface Problem {
@@ -192,8 +200,20 @@ export class World {
     }
 
     /** 读取位置的线的线视图（worldlines 输出 12；活页夹章讲的线随后接上，现在不写线就是主线）；线不存在或不可建时为 undefined。 */
-    lineAt(position: ReadPosition): LineView | undefined {
-        return this.lines.get(position.line ?? MAIN_LINE);
+    lineAt(position: ReadPosition, mode: Mode = "actual"): LineView | undefined {
+        return this.lines.get(this.positionLine(position, mode));
+    }
+
+    /**
+     * 读取位置的线（worldlines 输出 12）：写了线用写的；不写取那一章讲的线（开头取第一段讲的，末尾取最后一段讲的；初值取主线）。
+     * 讲的线两种模式下都不存在时这一段按主线算；只在按计划模式下存在（计划线）时，实际模式里按它最近的实际祖先线算。
+     */
+    positionLine(position: ReadPosition, mode: Mode = "actual"): string {
+        if (position.line !== undefined) return position.line;
+        if (position.kind !== "chapter") return MAIN_LINE;
+        const segments = this.options.chapterLines?.get(position.chapter);
+        const told = segments === undefined || segments.length === 0 ? MAIN_LINE : (position.edge === "start" ? segments[0]! : segments.at(-1)!).line;
+        return effectiveLine(lineTable(this.data, this.options.order), told, mode);
     }
 
     get version(): number {
@@ -235,7 +255,7 @@ export class World {
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
     pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem | LinePendingItem)[] | "chapter-not-found" | "line-not-found" {
-        const view = this.lineAt(position);
+        const view = this.lineAt(position, mode);
         if (view === undefined) return "line-not-found";
         const {records, engine} = view;
         const items = engine.pending(position, mode);
@@ -248,7 +268,7 @@ export class World {
                 continue;
             }
             const change = item.changes[0]!;
-            const root = this.index.brokenBy.get(brokenKey(position.line ?? MAIN_LINE, change)) ?? change;
+            const root = this.index.brokenBy.get(brokenKey(view.line, change)) ?? change;
             const group = groups.get(root);
             if (group !== undefined) group.changes.push(change);
             else {
@@ -259,7 +279,7 @@ export class World {
         }
         const canon = grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
         // 时间的几种（canon.time 输出 2、3、5）：整条线算一次，随读取位置截取（输出 14）。
-        return [...canon, ...linePending(this.data, this.options.order, position.line ?? MAIN_LINE), ...truncateTime(this.time(mode, view.line).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
+        return [...canon, ...linePending(this.data, this.options.order, view.line), ...truncateTime(this.time(mode, view.line).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
     }
 
     /** 预览：做发布的全部计算，不发布（输出 5）。 */
@@ -1501,7 +1521,10 @@ function computeImpact(before: World, data: WorldData, lines: LineSet, where: Re
         if (before.line().engine.outcome(change.id)?.applied === true && mainEngine.outcome(change.id)?.applied === false) broken.push(change.id);
     }
     const brokenOn: {line: string; change: string}[] = [];
+    // 只由计划分叉定义的线（实际模式下不存在）没有实际结果可比，也不为它当场建。
+    const [oldTable, newTable] = [lineTable(before.data, before.options.order), lineTable(data, options.order)];
     for (const id of [...affected].sort(compareIds)) {
+        if (oldTable.lines.get(id)?.exists.actual !== true || newTable.lines.get(id)?.exists.actual !== true) continue;
         const [was, now] = [before.line(id), lines.ensure(id)];
         if (was === undefined || now === undefined) continue;
         for (const change of now.records.changes.keys()) {

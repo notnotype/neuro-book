@@ -204,3 +204,21 @@ function buildTable(data: WorldData, order: ChapterOrder): LineTable {
         visible,
     };
 }
+
+/**
+ * 活页夹讲的线在一个模式下实际读哪条线（worldlines 输出 12、13）：定义不存在（两种模式下都没有这条线）的按主线；在这个模式下
+ * 不存在的（只有计划分叉定义的计划线，读实际模式时）按它最近的、在这个模式下存在的祖先线。不可建的存在的线照原样返回，
+ * 读取它得到 `line-not-found`。
+ */
+export function effectiveLine(table: LineTable, line: string, mode: "actual" | "planned"): string {
+    let current = line;
+    for (let guard = 0; guard < 64; guard += 1) {
+        if (current === MAIN_LINE) return MAIN_LINE;
+        const entry = table.lines.get(current);
+        if (entry === undefined || (!entry.exists.actual && !entry.exists.planned)) return MAIN_LINE;
+        if (entry.exists[mode]) return current;
+        current = entry.parent;
+    }
+    return MAIN_LINE;
+}
+

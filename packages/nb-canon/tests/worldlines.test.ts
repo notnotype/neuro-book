@@ -714,3 +714,82 @@ describe("canon.worldlines 输出 6、canon.time 输出 6：线上的时间与�
     });
 });
 
+describe("canon.worldlines 输出 12、13、16、验收 6：活页夹章讲的线", () => {
+    const end3 = {kind: "chapter" as const, chapter: "ch3", edge: "end" as const};
+    const start3 = {kind: "chapter" as const, chapter: "ch3", edge: "start" as const};
+    const hintCodes = (service: Awaited<ReturnType<typeof openTestService>>, position = end3) => {
+        const page = service.pending({position, group: "hints"});
+        return typeof page === "string" ? [page] : page.items.flatMap((item) => (item.kind === "hint" ? [item.hint.code] : []));
+    };
+    async function setup() {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "binder");
+        const texts = new Map(CHAPTERS.map((chapter) => [chapter, chapter === "ch3" ? "第一段\n第二段\n第三段\n第四段\n第五段" : ""]));
+        const service = await openTestService(root, {texts, chapters: CHAPTERS, registry: options().registry});
+        const publish = async (puts: WriteRequest["puts"]) => {
+            const result = await service.publish(request(puts, service.status().version));
+            if (!result.ok) throw new Error(JSON.stringify(result.failure));
+            return result.ids;
+        };
+        const xia = (await publish([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}]))["tmp:xia"]!;
+        // 新讲述不带 id（程序发）。
+        const telling = (_name: string, quote: string) => ({source: "chapter" as const, chapter: "ch3", quote}) as never;
+        const story = await publish([
+            {ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10), [], {told: [telling("t1", "第一段"), telling("t1b", "第三段")]})},
+            {ref: {kind: "change", id: "tmp:c2"}, after: written("tmp:c2", at("ch2", 20), [spend(xia, -5000)], {told: [telling("t2", "第二段"), telling("t3", "第四段")]})},
+        ]);
+        const forked = await publish([
+            {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "分支", parent: "main", cut: story["tmp:c1"]!, type: "branch", end: "return", endAt: "tmp:own"} as Fork})},
+            {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"), [spend(xia, -1000)], {told: [telling("t4", "第五段")]})},
+            {ref: {kind: "change", id: "tmp:if"}, after: {...written("tmp:if", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:if1", name: "如果", parent: "main", cut: story["tmp:c1"]!, type: "if"} as Fork}), kind: "plan"}},
+        ]);
+        return {root, service, xia, r1: forked["tmp:r1"]!, if1: forked["tmp:if1"]!, own: forked["tmp:own"]!, c2: story["tmp:c2"]!};
+    }
+    const deposit = (service: Awaited<ReturnType<typeof openTestService>>, xia: string, position: typeof end3 | typeof start3) => {
+        const read = service.entry(xia, position, "actual");
+        return typeof read === "string" || read === null ? read : read.view?.namespaces.panel?.fields.存款?.value;
+    };
+
+    test("第 3 章分两段：起讲主线，第 3 段起讲分支。不写线读末尾读到分支、读开头读到主线；讲述所在的段讲的线看不到这条记录时给 telling-line-mismatch", async () => {
+        const {root, service, xia, r1, if1} = await setup();
+        try {
+            expect([deposit(service, xia, end3), deposit(service, xia, start3)]).toEqual([15000, 15000]);
+            await service.setChapters(CHAPTERS, new Map([["ch3", [{from: 1, line: "main"}, {from: 3, line: r1}]]]));
+            expect([deposit(service, xia, end3), deposit(service, xia, start3)]).toEqual([19000, 15000]);
+            // `lines` 方法：读过的分支已建。
+            expect(service.lines().lines.map((line) => [line.id, line.built])).toEqual([[r1, true], [if1, false]]);
+            // 写了线的位置不被章讲的线改写。
+            expect(deposit(service, xia, {...end3, line: "main"} as typeof end3)).toBe(15000);
+            // 第 4 段在分支那一段里，c2（只在主线上）的这处讲述分支看不到；第 3 段也在分支的段里，但 c1 在切口之前、分支看得到；第 2 段在主线的段里；第 5 段是分支自己的记录。
+            expect(hintCodes(service)).toEqual(["telling-line-mismatch"]);
+            // 待处理也按章讲的线：位置不写线时在分支上。
+            const pending = service.pending({position: end3});
+            expect(typeof pending).toBe("object");
+            await service.setChapters(CHAPTERS);
+            expect(hintCodes(service)).toEqual([]);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    test("讲的线不存在：这一段按主线算并给诊断 binder-line-unknown；讲计划线：实际模式按最近的实际祖先线算并提示 binder-line-planned，按计划模式读计划线；章晚于结束的线的 endAt：binder-line-ended", async () => {
+        const {root, service, xia, r1, if1} = await setup();
+        try {
+            const diagnostics = () => service.status().diagnostics.flatMap((item) => ((item as {code?: string}).code === "binder-line-unknown" ? [item] : []));
+            await service.setChapters(CHAPTERS, new Map([["ch3", [{from: 1, line: "l404"}]]]));
+            expect(diagnostics()).toEqual([{code: "binder-line-unknown", chapter: "ch3", from: 1, line: "l404"}]);
+            expect(deposit(service, xia, end3)).toBe(15000);
+            await service.setChapters(CHAPTERS, new Map([["ch3", [{from: 1, line: if1}]]]));
+            expect(diagnostics()).toEqual([]);
+            expect(hintCodes(service)).toContain("binder-line-planned");
+            expect(deposit(service, xia, end3)).toBe(15000);
+            // 分支在 ch3 的 own 之后结束（return），第 4 章还讲它。
+            await service.setChapters(CHAPTERS, new Map([["ch4", [{from: 1, line: r1}]]]));
+            expect(hintCodes(service, {kind: "chapter", chapter: "ch4", edge: "end"} as typeof end3)).toContain("binder-line-ended");
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});
+
