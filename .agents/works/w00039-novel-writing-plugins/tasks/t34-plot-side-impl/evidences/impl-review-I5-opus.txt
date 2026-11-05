@@ -1,0 +1,177 @@
+# w00039 t34 阶段 E 实现审查（Opus），范围 49f33f49a..e4e7cd1f6
+
+## 1. [阻断] 不变量：core/before-writing.ts 没有提交，提交范围本身编译不过
+- 位置：packages/neuro-book/src/plugins/plot/backend/plugin.ts:21（import {beforeWriting} from "../core/before-writing"）、core/guards.test.ts:6；提交 37fb3bc43“开写前的视图”只改了 guards.test.ts（25 行）。
+- 现象：`git ls-tree -r e4e7cd1f6 --name-only | grep before-writing` 为空；审查 worktree（固定在 e4e7cd1f6）里没有这个文件；实现 worktree 里它是未跟踪文件（`git status` 显示 `?? packages/neuro-book/src/plugins/plot/core/before-writing.ts`，50 行）。
+- 为什么是问题：分支上 e4e7cd1f6 的后端插件与测试都 import 一个不存在的模块，tsc 与 bun test 在干净 checkout 上都会失败；实现 worktree 里测试能过只是因为这份未跟踪文件在。合入或别人 checkout 分支后，远程 beforeWriting、整个 plot 插件后端都加载失败。37fb3bc43 的提交说明与内容不符。
+- 核实：cd /tmp/review-w00039-t34-I5/wt && git ls-tree -r e4e7cd1f6 --name-only | grep before-writing（空）；cd <实现 worktree> && git status --short。
+- 改法：把 core/before-writing.ts 补交（单独一个提交，说明补 37fb3bc43 漏交的实现），并在干净 checkout 上跑一次 tsc 与 bun test src/plugins/plot。下文对 beforeWriting 的审查以实现 worktree 里的未跟踪版本为准。
+
+## 2. [重要] 正确性：回溯章“回溯后”那份简报里，条目的渲染读的是主线，与同一项的字段值互相矛盾
+- 位置：packages/nb-canon/src/service/reads.ts（`render: (entry, position, mode) => renderEntryForAgent(world, entry, position, mode)`，不经 `lineView()`）；packages/neuro-book/src/plugins/plot/core/brief/appearance.ts:17；core/brief/context.ts:33,38（各框架共用同一个不带 `line` 的 `position`）。
+- 现象：读取视图里别的方法（entry、origins、chapterEntries……）都走 `lineView()`，即这张视图那条线；`render` 走 `world.lineAt(position)`，即“位置所在的线”。简报的框架位置是 `{chapter: N, edge: "start"}`，章首落在第一段（主线），所以“回溯后”框架（子线视图）里 `view.render` 仍渲染主线的值，而同一项后面逐字段列出的值来自子线。
+- 实验（真实 World 与 createWorldReadView，lab/e1-render.test.ts）：怀表主文字“表的状态 {character.状态}”，主线第 7 章 20 段改成“停了”，r1 从第 7 章 10 段切出，第 8 章 30 段起讲 r1。输出：
+  回溯前：`表的状态 {character.状态 = "停了"}` / `character.状态：停了`
+  回溯后：`表的状态 {character.状态 = "停了"}` / `character.状态：走得很慢`
+  同一项里两种说法打架；Spec brief 验收 5“回溯后的那份里，存款是带过去之后的 20000”在主文字带值时不成立。现有 brief.test.ts 验收 5 的条目没有主文字，测不到。
+- 为什么是问题：违反 brief 输出 13/14（各段读那一段讲的线）；写手拿到矛盾的设定。根因在内核读取视图的合同不一致（同一张“某条线的视图”，只有 render 不按这条线），worldlines.test.ts 新加的断言把这种行为固定成了“render 按读取位置的线”。
+- 改法：二选一并写进 Spec 输出 20 的那句补充：(a) `CanonReadView.render` 与其它方法一样按视图的线（位置里显式写了 `line` 时才用位置的线）；(b) 简报给每个框架的位置补 `line: frame.line`。(a) 修根因，也免得别的插件再踩；补一条“回溯后渲染带值”的简报测试。
+
+## 3. [阻断] 正确性/不变量：绝密、本章不暗示也不揭示的知识点，真相从“读者已知”段和“已省略”列表里泄出
+- 位置：packages/neuro-book/src/plugins/plot/core/brief/parts.ts:194-198（`readerItems`：`what = （见这一场的秘密：${secret.name}）`，`label: nameOf(frame, point)`）；index.ts:95（被裁的项按 label 写进 `omitted` 与正文末尾“已省略：……”与 `record.omitted`）。
+- 现象：`secret.name` 是知识点的条目名，也就是命题本身（“管家是凶手”）。这一场的秘密段对 hidden 项特意用了 label“绝密设定”、不写名字（index.ts:117 注释“名字就是真相”），但读者已知段对 hidden 项照写 `secret.name`，项的 label 也是这个名字。
+- 实验（lab/e2-leaks.test.ts 用例 A，真实 World）：绝密“管家是凶手”，第 12 章正文一处 hint 揭示，第 16 章计划只有管家在场、不暗示。简报：这一场的秘密只有“有一件涉及管家的绝密设定 / 管家在人前的表现：镇定”（正确），但读者已知段是“读者已经在怀疑：（见这一场的秘密：管家是凶手）”；把 reader 上限调到 1 时 `record.omitted` 与正文末尾是“读者已知：管家是凶手”。
+- 为什么是问题：违反 brief 输出 4 第三条与验收 2（“这一场的秘密里只有‘有一件涉及男爵之死的绝密设定’…”）的根本目的：写手不能知道真相。前面章节暗示过、本章不暗示，是推理小说的常态，不是罕见输入。现有测试（brief.test.ts:235）只用了 secret 档。
+- 核实：cd /tmp/review-w00039-t34-I5/lab && bun test ./e2-leaks.test.ts（看 “A line” 与 “A omitted”）。
+- 改法：读者已知段对 hidden 项写一句不含名字的固定句（例如“读者已经在怀疑：（见这一场的秘密里那件绝密设定）”或直接不写），label 用与秘密段相同的“绝密设定”；更稳的做法是在 SecretItem 上给一个 `display`（hidden 时是不泄密的称呼），所有段与 label 只用它，再加一条“任何段与 omitted/record 里都不出现 hidden 知识点的名字”的总断言（遍历 `result.text` 与 `JSON.stringify(result.record)`）。
+
+## 4. [阻断] 正确性/不变量：本章计划段把绝密知识点的名字、非在场持有者的隐秘目标原样写出
+- 位置：packages/neuro-book/src/plugins/plot/core/brief/parts.ts:24-40（`planItems` 对每个补丁写 `${nameOf(patch.at.entry)}的${path}：旧 → 新`，只跳过 `know.` 路径与 `hiddenGoals` 里的目标）；secrets.ts:43,46-48（`hiddenGoals` 只收 `role === "present"` 的持有者）；context.ts:152-160（`pointsBeforeWriting` 却按 `chapterEntries` 收全部参与者与涉及条目的目标的隐秘）。
+- 现象：(a) 本章计划补丁改的是绝密知识点本身（例如改 `point.表现`），计划段写出“管家是凶手的point.表现：镇定 → 更镇定”。(b) 隐秘目标的持有者在本章只是“被提到”（或只在 involves 里）：`pointsBeforeWriting` 把 K_G 收进集合，秘密段给出“有一件涉及管家的绝密设定”，但 `hiddenGoals` 不含这个目标，计划段写出“毒死男爵继承爵位的goal.状态：active → blocked”。同一份简报里一边遮、一边写。
+- 实验（lab/e2-leaks.test.ts 用例 C）：女仆在场、管家被提到，本章计划把管家的隐秘目标改成受挫并改了绝密知识点的表现。输出含上面两行。
+- 为什么是问题：违反 brief 输出 4（真相只在秘密段、绝密不暗示时连内容都不给）与验收 7 的意图（“本章计划……里都只有‘管家的一个隐秘目标’，没有目标的名字与状态变化”）。Spec 第 4 条最后一项写的是“在场的人的目标”，但 knowledge 输出 10 的集合按“参与者”（含被提到）收隐秘，二者在实现里不一致，结果就是泄。
+- 改法：计划段对补丁地址的条目先查保密：是 hidden 的知识点就只写“有一件涉及某某的绝密设定有变化”或干脆不写这一行；`hiddenGoals` 按 `pointsBeforeWriting` 同一口径（参与者与涉及条目的目标）收，不只收在场的人；Spec 第 4 条最后一项的“在场的人”同步改成“参与者”并记待确认。补用例：被提到的持有者、补丁改绝密知识点本身。
+
+## 5. [重要] 正确性：另外三处绝密泄出口（到期待定决策原文、无主体知识点的兜底名、`揭穿` 为绝密的称谓表）
+- 位置：core/brief/index.ts:112 与 parts.ts:181（`pendingDue` 原样写 `待定（到期）：${decision.text}`，不看它挂的知识点）；secrets.ts:108-111（`nameOfSubject` 没有父条目时退回 `nameOf(point)`，即命题本身）；parts.ts:114-139（称谓表每行写 `${称呼} = ${本名}`，不看 `揭穿` 那个知识点的保密档）。
+- 实验（lab/e2-leaks.test.ts 用例 B、C、D）：
+  - C：待定决策“管家是凶手在哪章揭开”挂在绝密 K 上、due 第 15 章，第 16 章简报决策段出现“待定（到期）：管家是凶手在哪章揭开”。decisions 验收 3 的例句（“哥哥的秘密在哪一章揭开”）正是这一类，待定决策的文字天然带秘密。
+  - B：绝密知识点 `parent: null`，秘密段写“有一件涉及管家是凶手的绝密设定”。
+  - D：知识点“旅人就是勇者”是绝密、`揭穿` 指向马甲“旅人”，第 4 章不暗示：秘密段正确遮成“有一件涉及勇者的绝密设定”，称谓表却写“旅人 = 勇者”，在场的人段也直接列“勇者”。
+- 为什么是问题：同第 3 条，绝密在本章不暗示时写手不该知道。已定决策走了 routeDecisions 的遮挡，待定决策没有任何遮挡，口径不一致；兜底名与称谓表是 Spec 没写到的路径，但都直接给出命题。
+- 改法：待定的到期决策按已定决策同一套 `about` 规则路由（挂 hidden 知识点的只写“有一条涉及保密设定的待定决定到期了”）；`nameOfSubject` 无父条目时用固定泛称（例如“某件事”），不回到知识点名；称谓表遇到 `揭穿` 为绝密且本章不暗示时，右边写马甲名或泛称，在场的人段也按马甲列。后两项属 Spec 没写清，补进 brief 输出 4/7 并记待确认。
+
+## 6. [重要] 正确性：`flashbackMismatch` 的“附近”分支永远不成立，诊断退化成“补叙章里有安放在本章的变更就报”
+- 位置：packages/neuro-book/src/plugins/plot/core/instruction-checks.ts:81-93；测试 instruction-checks.test.ts:52-57。
+- 现象：`changes = changeIndex(view).byChapter.get(snapshot.chapter)`，按定义每条的 `at.chapter === snapshot.chapter`；于是 `change.at.chapter === target.chapter` 只在“补叙的就是本章自己”时成立，前史分支的 `neighbours` 是前史变更，而本章的变更全是安放在章里的，`neighbours.has(change.id)` 也永远为假。结论：只要补叙章有一条安放在本章的变更就报，从来不会“对得上”；补叙内容的变更（安放在被补叙处、在本章讲述）根本不在 `changes` 里，本章若只有这类变更则 `changes.length === 0`，不报。
+- 测试本身露出了这一点：第 52 行注释写“本章的变更落在补叙的那一章：对得上”，第 57 行断言却是 `toHaveLength(1)`（报了）。测试标题里的“补叙前史时本章变更在前史里它的前后：不报”没有对应用例，只测了“本章没有变更”。
+- 为什么是问题：Spec decisions 输出 8 要的是“本章（讲的）剧情变更不在那处安放附近”才提示；现在的判据与补叙是否对得上无关，判不出真正的错位，也会对正常补叙章（顺带记了一条本章当下的事）误报。
+- 核实：读代码即可；或在测试第 55-56 行的世界里断言 `toEqual([])` 会失败。
+- 改法：本章的变更按“在本章讲述（`told` 的 chapter 是本章）或安放在本章”取（与 povAbsent 的口径一起定），再判安放是否在目标附近；补一条“对得上不报”的用例与前史前后各一条的用例。
+
+## 7. [重要] 正确性：`stalled` 用了读取位置之后的改动，读历史位置时章差为负、该报的不报
+- 位置：packages/neuro-book/src/plugins/plot/core/goal-checks.ts:91（`touchesOf(...).at(-1)` 取整条线上最后一次改动，不截到读取位置）；同一个 `touchesOf` 也用于 premiseChanged（:62,66）。
+- 实验（lab/e3-stalled.test.ts）：45 章，目标从前史起没改过，读第 35 章末尾报 1 条；再在第 40 章加一条改目标的变更，读第 35 章末尾变成 0 条（since=39，now=34，章差 -5）。
+- 为什么是问题：待确认清单已定口径“stalled 按读取位置所在章算”，起点应是“读取位置之前最后一次改它”；现在读取位置之前的结果取决于之后写了什么，按计划模式时连之后的计划都算。premiseChanged 同样把读取位置之后的改目标变更当成“已跟着改”：beforeWriting(第 N 章) 在第 N+5 章有计划改目标时就看不到“前提变了”，而写第 N 章时目标仍是旧的。Spec goals 输出 3 的“之后”字面不限，但与知情一侧（`#explicitOf` 截到位置）口径不一致。
+- 改法：`touchesOf` 加读取位置的上限（`compareKeys(key, positionKey) < 0`，章末位置含本章）；premiseChanged 是否也截，写进待确认（建议截，与知情一侧一致）。补“之后才改”的用例。
+
+## 8. [重要] 与计划/待确认不符：地址守卫的“无法检查”哪里都没有记，决策视图里没有 `unchecked`
+- 位置：packages/neuro-book/src/plugins/plot/core/guards.ts:67-68（`if (result === "unchecked") continue;`）；core/decisions.ts:11-38（`DecisionRead.guards` 只是原样的标注，没有守卫的检查结果）；backend/plugin.ts:163-173（远程 decisionsFor 只返回 `DecisionRead`）。
+- 现象：值不完整时 `checkAddressGuard` 返回 "unchecked"，调用方直接丢弃；守卫显式写的 `lines` 指向不存在或不可建的线时，那条线根本没有视图来算，也没有任何标记。仓库里没有任何地方产出 `unchecked`（`grep -rn unchecked packages/neuro-book/src/plugins/plot` 只命中 guards.ts 自己）。
+- 为什么是问题：Spec decisions 输出 2“值不完整时不判，记‘无法检查’”；待确认清单 2026-11-06 那一行写的是“只在涉及本章的决策视图的守卫结果里标 `unchecked`；决策显式写的线不可用时同样跳过并标 `unchecked`”，P6 omp 份补充里也要求“在决策视图的守卫结果里标 unchecked”。清单向开发者描述的行为没有实现，作者看不到守卫其实没在查。
+- 改法：决策视图（involvedDecisions / decisionsFor）给每个地址守卫附 `{line, mode, unchecked: boolean, reason?: "incomplete" | "line-unavailable"}`；或者把待确认清单那一行改成实际行为并请开发者重新确认。补“值不完整”“lines 指向失效线”两个用例。
+
+## 9. [重要] 与计划/Spec 不符：上一章末尾由远程调用方随意给，不从正文快照取；“上一章不存在时写无”不成立
+- 位置：packages/neuro-book/src/plugins/plot/shared/contracts.ts（brief 输入 `previousTail: string | null`，最长 20000）；backend/plugin.ts:179；core/brief/index.ts:134,142。
+- 现象：计划 E3 定的是“上一章末尾一段由插件从正文快照取……若仍没有就作为内核补充 EP 7：chapterText(chapter)”，实现改成调用方传入，没有记待确认，也没有校验：第 1 章可以带一段“上一章末尾”，有上一章时传 null 就写“无”；传进来的也不必是上一章的正文。
+- 为什么是问题：brief 输出 1“上一章不存在时，那一段写‘无’，不造一句”由程序保证的前提没了；输出 15 的确定性是“同一份读取输入（含正文快照）…拼出的上下文逐字相同”，现在一段正文不来自读取输入，`record.inputDigest` 相同而上下文不同（只靠计划里补的 `previousDigest` 兜，Spec 记录列表里还没有它）。另外截断是 `[...tail].slice(-limit)` 按码点截，不进“已省略”，`previousDigest` 记的是截断前的全文。
+- 改法：按计划在读取视图补只读的 `chapterText`（戳里已有正文摘要），插件自己取上一章最后一段；做不到就把“由调用方给”连同校验（第一章必须为 null）记进待确认。截断时把“上一章末尾：截去前 N 字”写进 omitted。
+
+## 10. [重要] 正确性（按线）：分段讲两条线的章，`povAbsent` 只看第一段那条线，视角人物只在回溯段在场时误报
+- 位置：packages/neuro-book/src/plugins/plot/core/instruction-checks.ts:39（只在 `positionLine(章首) === view.line` 的视图上算）、:45-47（`chapterChanges` 只取这条线视图里的变更）。
+- 实验（lab/e4-pov.test.ts，真实 World）：第 9 章 1 到 29 段讲主线（哥哥在场），30 段起讲 r1（r1 上第 9 章 40 段一条变更星瑾在场），第 9 章写作指示的视角人物是星瑾。主线视图报 1 条 `povAbsent`，r1 视图报 0 条（r1 不是章首的线，直接跳过）。
+- 为什么是问题：Spec decisions 输出 8“指示的视角人物在本章没有任何一条剧情变更里在场”指整章，回溯章正是“视角在回溯段”的典型；结果是作者改不掉的误报。计划写“只在第 N 章讲的那条线（positionLine）的视图上报”，对单线章成立，对分段章少了“各段的线并起来判”。
+- 改法：在章首那条线的视图上报，但在场与否按 `chapterLines` 各段的线并起来判（`view.onLine(seg.line)` 的 `presence`/变更索引），与 EP6 读者讲述的做法一致；补一条分段章的用例。
+
+## 11. [重要] 测试：`nbook.plot/instructions` 服务与数据版本报告没有任何经真实运行时的测试
+- 位置：packages/neuro-book/src/plugins/plot/backend/plugin.ts:240-253；plot.test.ts（`grep -n instructions plot.test.ts` 无命中）。
+- 现象：只有 `InstructionTable` 的纯单元测试（backend/instructions.test.ts）。没有测：远程 `put`/`current` 能调通；`callers: ["server"]` 让浏览器调用方被拒；`too-large`、`instructions-conflict` 经远程合同的失败形状；`put` 换内容后 `canon.reportDataVersion` 让旧游标 `cursor-stale`、同内容再推游标仍有效（计划 E0 的测试清单原话）；推了快照以后读待处理仍 `complete: true`、写作指示三项检查出现；远程 `brief` 读到表里的快照（`record.instructionVersion` 不为 null）。计划 P6 omp 补充要求“至少一个真实 WorldService/远程合同场景覆盖每个公开失败码（too-large、instructions-conflict……）”。
+- 为什么是问题：数据版本与游标作废是跨进程合同，单元测试替不了；`reportDataVersion` 漏调或调错时机现在没有测试会红。
+- 改法：在 plot.test.ts 的项目子进程场景里用 server 调用方调 `nbook.plot/instructions` 走一遍上面几条；再用 browser 调用方调一次断言被拒。
+
+## 12. [重要] 测试：简报的固定句、裁剪保护与确定性没有按计划测到，fixed.ts 头注释的“每一句各有一条断言”不成立
+- 位置：packages/neuro-book/src/plugins/plot/core/brief/brief.test.ts；core/brief/fixed.ts:2-3；core/guards.test.ts:111-131（beforeWriting）。
+- 现象（grep 核对）：
+  - 测试里一次都没出现的固定句：`OTHERS_NO_ATTITUDE`“其他人之间没有特别的态度”、`POV_OWN_SECRET`“视角人物自己的秘密……”、`DONT_BREAK`“不要点破”、`onlyWriteTo("explicit")`“只能写到：明说”、`hiddenGoalSeeSecrets`“另有一个目标，见这一场的秘密”、`otherDecisionSee`“另有关于这件事的决定，见……”、“（只是怀疑）”、“待定（到期）”。对应的分支（保密档的隐秘目标、一条决策挂两个都给出的秘密、伏笔埋下与误导节点、到期待定决策进简报）没有用例。
+  - 裁剪只测了“涉及条目的样子”调小；这一场的秘密、视角人物那一项的 `protect` 去掉后测试照样过（秘密与在场的人都没超上限），计划列的变异“去掉真相那句不裁的保护应让一条测试失败”不会失败。
+  - 计划的确定性测试是“两份独立建出的世界（发布先后不同、内容相同）各拼一次逐字相同”，实现只在同一个世界上拼两次。
+  - beforeWriting 的测试标题写了“涉及本章的前提变了”，没有任何 premiseChanged 的断言；“只在本章讲的线上算”的多线情形也没有用例。
+- 为什么是问题：fixed.ts 说“改固定句是行为变化，测试对每一句各有一条断言”，但改这些句子不会让任何测试红；第 3、4、5 条的泄密就落在这些没测的分支附近。
+- 改法：每个固定句至少一条断言；给秘密段与 POV 项各加一个“上限调到 1”的用例；确定性改成两份独立建出的世界；补 beforeWriting 的 premiseChanged 与分段章用例。
+
+## 13. [重要] 正确性：本章计划里的知情变化（谁在这一章得知什么）在简报里哪儿都没有
+- 位置：packages/neuro-book/src/plugins/plot/core/brief/parts.ts:32-33（`if (patch.at.path.startsWith("know.")) continue;`，注释“写在这一场的秘密里”）；secrets.ts:52,74（知道/不知道名单用 `knowingIndex(view, "planned", 章首)`，即本章开始时的知情）。
+- 实验（lab/e5-know.test.ts）：第 4 章计划“盘问”，补丁让卫兵得知保密的“勇者有胎记”（knows, witnessed），并让勇者得知普通档的“城门今晚关”。简报：本章计划段只有“盘问”；这一场的秘密写“知道的：勇者；不知道的：卫兵”；读者已知为空。两处知情变化都没出现，秘密段反而只说卫兵不知道。
+- 为什么是问题：brief 输出 2“本章计划按计划模式读出，状态的变化写成字段的形式”，知情行是本章计划最要紧的状态变化（这一场就是卫兵认出勇者）；注释声称秘密段会写，但秘密段读的是章首，不反映计划；普通档、行内档的知识点更是完全丢失。
+- 改法：计划段对 `know.知情` 补丁写成“卫兵对〈知识点项名〉：不知道 → 知道（亲眼看到）”，知识点名按秘密段同一套显示规则（hidden 的不写名字）；或者秘密段为每项加“本章：卫兵 不知道 → 知道”。补一条用例。
+
+## 14. [重要] 正确性：两种守卫不看读取位置，读较早位置的待处理也报出之后才发生的违反
+- 位置：packages/neuro-book/src/plugins/plot/core/guards.ts:42-43（`(view, at, mode) => addressGuards(view, mode, digest)`、`(view) => readerGuards(view, digest)`，`at` 被丢掉）、:89-95（地址守卫的终点取守卫范围的末章，不截到读取位置）、:132（读者守卫扫全部讲述）。
+- 现象：canon.model 输出 16/34 规定待处理与诊断“在给定的读取位置……算出”，阶段 B 的诊断都用 `at` 建索引（foreshadowIndex(view, at, mode) 等）。两种守卫完全不看 `at`：例如 guards.test.ts 第一个场景里第 18 章的违反，读第 10 章末尾的待处理同样会报；读者守卫在第 12 章的揭示，读第 5 章末尾也报。（从代码推断；内核对插件发现不按位置再筛，见 model 输出 34 的处理顺序。）第 7 条 stalled/premiseChanged 用了位置之后的改动，是同一类问题。
+- 为什么是问题：作者在某一章的位置上看待处理，会看到“还没写到”的违反；按计划模式时更明显（后面章的计划都会进来）。与同一插件里别的诊断口径不一致。beforeWriting 用 `start` 位置调地址守卫，现在靠“发现对象里含本章计划”这层过滤才没出错。
+- 改法：地址守卫的终点取 `min(守卫范围末章章末, at)`，读者守卫的讲述加 `until: at`（`at` 为章末时含本章）；补“读较早位置不报”的用例。若有意不截（守卫是全书合同），写进注释与待确认。
+
+## 补充（对第 6 条）
+- Spec decisions 输出 8 的“本章安放的剧情变更不在那处安放附近（不在同一章……）”按字面自相矛盾：本章安放的变更总在本章，“同一章”只能指被补叙处所在章。第 6 条的改法（按“在本章讲述的变更”取）是对 Spec 的重新解读，需要连同措辞一起记待确认，不是单纯的实现修正。
+
+## 15. [建议] 安全与性能：阶段 E 的规模测量有三处不足
+- 位置：.agents/works/w00039-novel-writing-plugins/tasks/t34-plot-side-impl/evidences/scale-e4.txt；packages/neuro-book/scripts/perf/plot-scale.ts:190-194。
+- 现象：(a) 读待处理中位 204 ms、预算 200 ms，阶段 C、D 超预算都记了待确认，阶段 E 这次没有记（按计划“预算按全部剧情诊断合计判”，诊断合计 112 ms 是过的，但证据文件把 204 对 200 写成“贴着预算”，两个口径没说清用哪个）。(b) 写手的上下文 211 ms 是在“最后一章，没有计划”上量的单次值：没有参与者，秘密、在场的人、称谓、隐秘目标这些路径都没走。这些路径的复杂度是“每个在场的人 × goalsOf 扫全部条目”“每个秘密知识点 × 在场的人 × goalsOf”“每个戴马甲的参与者 × 扫全部知识点（unmasking）”，有十来个参与者与秘密的章会明显更慢。(c) 量的时候 plot-scale.ts:26 import 的 core/before-writing.ts 还是未跟踪文件（第 1 条）。
+- 改法：选一章有 8 到 10 个参与者、10 个以上保密知识点、2 个马甲的计划章量简报，取中位；把 204/200 的口径写进待确认。
+
+## 16. [建议] 正确性：称谓表只取第一段的参与者
+- 位置：core/brief/index.ts:124（`frameIndex === 0` 时才生成，`addressItems(frame, participants…)` 用的是第一个框架的参与者）。
+- 现象：回溯章里只在“回溯后”那段的计划里出现的人，没有称谓行。Spec 输出 14 说称谓是“共同的部分只写一次”，并没说只取第一段的人。
+- 改法：称谓按各框架参与者的并集算一次（视角人物的态度与“之前同时在场”按各自框架读，或按第一段读并写进注释）。
+
+## 17. [建议] 正确性：写作指示快照的 `put(chapter, snapshot)` 不校验 `snapshot.chapter === chapter`，也不校验章存在
+- 位置：backend/instructions.ts:44-50；backend/plugin.ts:242-248。
+- 现象：表按参数 `chapter` 存、按 `get(chapter)` 给简报；检查（perChapter、repeated）与 `all()` 的排序却用 `snapshot.chapter`。`put("ch2", {chapter: "ch3", …})` 之后，简报第 2 章用它，检查把它当第 3 章；两个键可以同时自称第 3 章，`repeated` 里 `new Map(index → snapshot)` 后写的覆盖先写的。
+- 改法：不一致时回 plot 失败码（例如 `instructions-mismatch`），或去掉参数里的 `chapter` 只用快照里的；章不在章序里时拒收或记待确认。
+
+## 18. [建议] 正确性：简报的“到期待定决策”只取涉及本章的，与开写前的视图口径不同；到期章不在章序里的被当成已到期
+- 位置：core/brief/index.ts:110-112；core/before-writing.ts（未跟踪）里的 `overdue`。
+- 现象：brief 输出 9 的“另列 `due` 不晚于本章的待定决策”没有“涉及本章”的限定，beforeWriting 也是取全部；简报却只从 `involvedDecisions` 里筛。另外 `indexOf(decision.due)` 为 -1（到期章被删）时 `-1 <= index` 成立，被列成到期；`overdue` 诊断对同一情况是不报。
+- 改法：与 beforeWriting 共用一个“到期待定决策”的函数；到期章不在章序里的不列（与诊断一致）。
+
+## 19. [建议] 正确性（按线）：地址守卫在子线上对“带过去的值”违反不报
+- 位置：core/guards.ts:105,115（carried 步进 `states` 时没有 `change`，`nowBad && !wasBad && state.change !== undefined` 才记违反）。
+- 现象（从代码推断，没造出带 carry 字段的守卫场景）：子线上范围内一步 carried 把值带成 notIn 里的值时，`wasBad` 被置真却不产生发现；之后同值的补丁也不再报。Spec 输出 2“每条线各自报”。OriginStep 的 carried 步带 `change`（触发处或切口，见 nb-canon service/reads.ts:187），可以作稳定键里的变更。
+- 改法：carried 步用 `step.change`（或分叉 id）作违反的变更；补一条 carry 字段的子线用例。
+
+## 20. [建议] 正确性：悬空对 `diagnostic` 挂点的处理与计划“不参与”不一致；测试标题里的“被放弃的决策”没有用例
+- 位置：core/decisions.ts:100-121,144；decisions.test.ts:67-94。
+- 现象：`dead()` 对 `diagnostic` 返回 false，于是 `about = [已删条目, diagnostic]` 不算悬空；计划 E2a 写“`diagnostic` 项不参与”，按“不参与”应先去掉它再判（剩下全死即悬空，只剩 diagnostic 时同空 `about` 不算）。测试标题列了“被放弃的决策”，但没有一条决策挂在被放弃的决策上；`address` 指向已删条目也没有用例。
+- 改法：`about.filter(kind !== "diagnostic")` 后判“非空且全死”；补两条用例。
+
+## 21. [建议] 正确性：`repeated` 把“不写的”与“其他”放在同一个句子表里
+- 位置：core/instruction-checks.ts:111。
+- 现象：第 2 章 `avoid: ["X"]`、第 3 章 `other: "X"`、第 4 章 `avoid: ["X"]` 会算成同一句连续 3 章。Spec 输出 8 是“同一句‘不写的’或‘其他’”，两种来源分开算更贴原意。
+- 改法：键加来源前缀（`avoid:`/`other:`）。
+
+## 22. [建议] 文档/正确性：简报没有“自陈的格式”这一段，只是“本章允许新增什么”里的一项
+- 位置：core/brief/fixed.ts:27（`BRIEF_PARTS.selfReport` 定义了，`grep -rn selfReport core/brief` 只有定义处）；parts.ts:207。
+- 现象：Spec 输出 1 的简报段列表末尾是“本章允许新增什么、自陈的格式”两段，且“不省略标题”；渲染结果里没有“### 自陈的格式”。
+- 改法：单独一段，或在 Spec 里合成一段并记待确认。
+
+## 23. [建议] 正确性：本章计划段的“字段形式”是原始路径加整份 JSON，同一地址的多个补丁重复写
+- 位置：core/brief/parts.ts:34-39。
+- 现象：写成“星瑾的att.态度：[{"id":"e17","态度":"冷淡",…}] → [...]”：路径是命名空间加字段 id，列表字段整份 JSON（含条目 id 与 `起因` 的知识点 id），不是 Spec 输出 2 例子里的“星瑾对哥哥的态度：冷淡 → 冷淡（略松动）”。一条计划对同一地址有两个补丁（列表加两项）时，`findIndex` 都落在第一步，同一行写两遍。
+- 改法：按字段的 label 写；keyed 列表按元素写“对〈元素名〉的〈子字段〉：旧 → 新”；同一地址只写一行。
+
+## 24. [建议] 正确性：`overdue` 在初值位置把第一章当成“读取位置所在章”
+- 位置：core/decisions.ts:40-43,130（初值时 `chapterIndex` 返回 0）。
+- 现象：读初值位置时，到期章是第一章的待定决策被报到期；instruction-checks 的同名函数对初值返回 -1，口径不一。
+- 改法：初值返回 -1。
+
+## 25. [建议] 代码质量：几处死代码与重复常量
+- core/brief/parts.ts:66 三元两支相同（`mask ? fixed.hiddenGoalOf(…) : fixed.hiddenGoalOf(…)`），`mask` 计算无用；core/brief/secrets.ts:103 `void povMode` 参数没用到；secrets.ts:125 `fixed_NO_REASON` 与 decisions.ts 的 `NO_REASON` 重复、也不在 fixed.ts（fixed.ts 说固定句集中在一个文件）；secrets.ts:159 `POINT_TYPE` 导出未使用；index.ts:122 在场的人一段被 `trim` 两次（section() 里一次、外面又一次，说明项不计入上限）。
+- 改法：删掉死分支与未用参数，“作者没说理由”放进 fixed.ts 由两处共用。
+
+## 26. [建议] 不变量：这一场的秘密整段不裁，Spec 的 1200 上限实际不生效，也没记待确认
+- 位置：core/brief/index.ts:117（秘密段每项 `protect: true`）；budget.ts 头注释。
+- 现象：Spec 输出 12 的口径是秘密段“最后才裁、不裁到真相那一句”，实现是整段永不裁，超过 1200 也不记“已省略”。budget.ts 注释写了，但待确认清单那一行只记了“裁剪只按段”。
+- 改法：项内分“真相句”（protect）与其余行（决策原话、名单、表现）可裁；或把“秘密段不裁”补记进待确认。
+
+## 未发现问题的方面
+- routeDecisions 在绝密不暗示路径上的归属：挂了 hidden 知识点或不在本章集合里的保密以上知识点时只写“有一条涉及保密设定的决定”，原话不进任何段（验收 2、6 的三种挂法都对得上）。
+- 写作指示表的 `base` 比较后替换（同步执行，无交错）；数据版本取规范 JSON 的 SHA-256、与推送先后无关、空表回到 "1"；`reportDataVersion` 只在版本变了时调。
+- 测试夹具 testing/authorization.ts 与 PlotWorld/PlotService 的 `decision`：用内核导出的 `authorizationBinds`、`signedContent` 签名，待定建好再经作者来源转已定，与真实合同一致。
+- `participantsOf` 去重、`plansOf` 按 eventKey 排序、`pointsBeforeWriting` 结果排序、`secrets` 按档与 id 排序：同一世界上输出确定；World.replay 按日志顺序重建条目表，`entries()` 的顺序随日志确定（从代码推断，未做重放比对实验）。
+- `chapterEntries(…, "planned")` 两个引擎改法相同，差分生成器会生成计划（differential.test.ts:172），两种模式都逐章比对。
+- 回溯带过去的知情在“回溯后”框架里读得到（lab/e6-carry.test.ts：回溯在第 8 章内、第 30 段起讲 r1，r1 章首星瑕对 K 是 knows，秘密段名单正确）。
+- `readerTellings` 的失联讲述分支：`readerKnowing` 带 `until`、`firstReveal` 与读者守卫带 `effective: true`，内核的 `until` 筛选本身就排除失联讲述（nb-canon service/reads.ts:385），没有多算。
+- 内核对插件发现的处理（去重、上限、已处理）不受本次改动影响。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26（第 6 条另有一段补充）
+各级数量：阻断 3（1、3、4）；重要 11（2、5、6、7、8、9、10、11、12、13、14）；建议 12（15 到 26）。共 26 条。
