@@ -1,0 +1,257 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t08-editing-menus",
+    "artifactId": "review",
+    "version": 6,
+    "supersedes": 5,
+    "action": "publish",
+    "kind": "design",
+    "title": "编辑命令与菜单评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "823e04ad88396eb387ceca8edcd7382362572331e51754acd4cb6953ea7558c4",
+    "files": [
+        "index.html",
+        "r1/compact-card-light.webp",
+        "r1/compact-flat-dark.webp",
+        "r1/compact-flat-light.webp",
+        "r1/context.webp",
+        "r1/full-card-dark.webp",
+        "r1/full-flat-dark.webp",
+        "r1/full-flat-light.webp",
+        "r1/gutter-handle.webp",
+        "r1/gutter-plus.webp",
+        "r2/bubble-block-dark.webp",
+        "r2/bubble-block-light.webp",
+        "r2/bubble-inline-dark.webp",
+        "r2/bubble-inline-light.webp",
+        "r2/gutter-14-dark.webp",
+        "r2/gutter-14-handle-light.webp",
+        "r2/gutter-14-light.webp",
+        "r2/gutter-20-dark.webp",
+        "r2/gutter-20-light.webp",
+        "r2/slash-dark.webp",
+        "r2/slash-light.webp",
+        "r3/block-convert-light.webp",
+        "r3/block-core-dark.webp",
+        "r3/block-core-light.webp",
+        "r3/block-full-dark.webp",
+        "r3/block-full-light.webp",
+        "r3/context-basic-dark.webp",
+        "r3/context-basic-empty-light.webp",
+        "r3/context-basic-light.webp",
+        "r3/context-legacy-dark.webp",
+        "r3/context-legacy-light.webp",
+        "r3/slash-dark.webp",
+        "r3/slash-light.webp",
+        "r3/slash-plain-dark.webp",
+        "r3/slash-plain-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-set",
+            "type": "single",
+            "label": "工具栏放哪些按钮",
+            "options": [
+                {
+                    "value": "full",
+                    "label": "完整（19 个）"
+                },
+                {
+                    "value": "compact",
+                    "label": "精简（9 个）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "compact"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-surface",
+            "type": "single",
+            "label": "工具栏的样子",
+            "options": [
+                {
+                    "value": "flat",
+                    "label": "平铺"
+                },
+                {
+                    "value": "card",
+                    "label": "卡片"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "flat"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-gutter",
+            "type": "confirm",
+            "label": "块左侧的两个按钮这样画",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": {
+                    "workId": "w00025-editor",
+                    "taskId": "t08-editing-menus",
+                    "artifactId": "review",
+                    "questionId": "r2-gutter"
+                }
+            }
+        },
+        {
+            "id": "r2-gutter",
+            "type": "single",
+            "label": "块左侧按钮离文字多远",
+            "options": [
+                {
+                    "value": "g14",
+                    "label": "14px"
+                },
+                {
+                    "value": "g20",
+                    "label": "20px"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "g14"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-bubble",
+            "type": "single",
+            "label": "选中文字时的浮动菜单放什么",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "只放行内格式"
+                },
+                {
+                    "value": "block",
+                    "label": "加块类型"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "inline"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-slash",
+            "type": "confirm",
+            "label": "斜杠菜单这样做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r3-block",
+            "type": "single",
+            "label": "点手柄的块菜单放什么",
+            "options": [
+                {
+                    "value": "core",
+                    "label": "基本（7 项）"
+                },
+                {
+                    "value": "full",
+                    "label": "加对齐与颜色（10 项）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "core"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "r3-context",
+            "type": "single",
+            "label": "正文右键菜单放什么",
+            "options": [
+                {
+                    "value": "basic",
+                    "label": "基本（6 项）"
+                },
+                {
+                    "value": "legacy",
+                    "label": "照旧应用（11 项）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "basic"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "r3-slash",
+            "type": "single",
+            "label": "斜杠菜单右侧写不写 Markdown 写法",
+            "options": [
+                {
+                    "value": "plain",
+                    "label": "不写"
+                },
+                {
+                    "value": "hints",
+                    "label": "写"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "plain"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-05T03:58:35.856Z"
+}

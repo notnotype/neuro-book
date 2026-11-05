@@ -55,7 +55,7 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <p>菜单都用 nb-ui 整理后的共用件：块菜单与右键菜单是 <code>ContextMenu</code>，斜杠菜单是 <code>SuggestionMenu</code>。图里的“AI 改写”只是示意插件贡献的菜单项，本 Task 不做这一项。</p>
 
 <section class="q" data-nbdev-question="r3-block" data-nbdev-type="single" data-nbdev-recommend="core">
-<h2>点手柄的块菜单放什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>点手柄的块菜单放什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="core"><h3>基本（7 项）</h3>
 <p>转换为 ｜ 创建副本、复制 ｜ 上移、下移 ｜ 插件的菜单项 ｜ 删除</p>
@@ -69,11 +69,11 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r3/block-full-dark.webp" alt="加对齐与颜色，暗色"><figcaption>暗色</figcaption></figure>
 </div>
 </div>
-<div class="rec-note"><b>推荐基本。</b>块菜单只管这一块本身：变成什么、复制、移动、删除。对齐和颜色在常驻工具栏里已经有；“上移、下移”是拖动手柄之外的键盘路径。</div>
+<div class="rec-note"><b>开发者选了基本。</b>块菜单只管这一块本身：变成什么、复制、移动、删除。对齐和颜色在常驻工具栏里已经有；“上移、下移”是拖动手柄之外的键盘路径。</div>
 </section>
 
 <section class="q" data-nbdev-question="r3-context" data-nbdev-type="single" data-nbdev-recommend="basic">
-<h2>正文右键菜单放什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>正文右键菜单放什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>两个方案都会盖掉浏览器自带的右键菜单（拼写建议、翻译等）；菜单里的“粘贴”要读剪贴板，浏览器第一次会询问权限，Ctrl+V 不受影响。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="basic"><h3>基本（6 项）</h3>
@@ -88,11 +88,11 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r3/context-legacy-dark.webp" alt="照旧应用，暗色"><figcaption>暗色</figcaption></figure>
 </div>
 </div>
-<div class="rec-note"><b>推荐基本。</b>格式在选区菜单里，插入在 <code>/</code> 和 <code>+</code> 里，撤销重做与保存有工具栏和快捷键。右键菜单只留别处没有入口的剪贴板动作，打开时一眼能看完。</div>
+<div class="rec-note"><b>开发者选了基本。</b>格式在选区菜单里，插入在 <code>/</code> 和 <code>+</code> 里，撤销重做与保存有工具栏和快捷键。右键菜单只留别处没有入口的剪贴板动作，打开时一眼能看完。</div>
 </section>
 
 <section class="q" data-nbdev-question="r3-slash" data-nbdev-type="single" data-nbdev-recommend="plain">
-<h2>斜杠菜单右侧写不写 Markdown 写法 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>斜杠菜单右侧写不写 Markdown 写法 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>面板换成了 nb-ui 的 <code>SuggestionMenu</code>：磨砂半透明的面、悬浮滑块，底部的按键提示和输入框里的占位提示都去掉了。第 2 轮的右侧灰字要按新定的“界面不靠说明文字解释自己”再判断一次。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="plain"><h3>不写</h3>
@@ -104,7 +104,7 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r3/slash-dark.webp" alt="写，暗色"><figcaption>暗色</figcaption></figure>
 </div>
 </div>
-<div class="rec-note"><b>推荐不写。</b>遮住灰字，菜单照样能用；只有一部分项有写法，右边一列也参差不齐。代价是用户少一个顺带学会 Markdown 写法的地方。</div>
+<div class="rec-note"><b>开发者选了不写。</b>遮住灰字，菜单照样能用；只有一部分项有写法，右边一列也参差不齐。代价是用户少一个顺带学会 Markdown 写法的地方。</div>
 </section>
 
 <div class="round">第 2 轮</div>
@@ -207,7 +207,7 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 </section>
 
 <div class="round">之后</div>
-<p>第 3 轮定了就写实施计划。</p>
+<p>三轮都定了，接下来写实施计划。</p>
 </main>
 </body>
 </html>
