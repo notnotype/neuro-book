@@ -2,7 +2,7 @@ import {createHash} from "node:crypto";
 
 import {describe, expect, test} from "bun:test";
 
-import {buildRegistry, ChapterOrder, type Entry, type Patch, type StoryChange, type WriteRequest} from "../src/index";
+import {buildRegistry, ChapterOrder, type Entry, type Patch, type StoryChange, type StoryChangeDraft, type TellingDraft, type WriteRequest} from "../src/index";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
 import {PANEL, PERSON} from "./fixtures/world";
 
@@ -35,7 +35,7 @@ function entry(id: string, name: string, panel: Record<string, unknown> = {}, ex
     };
 }
 
-function change(id: string, chapter: string, patches: Patch[], extra: Partial<StoryChange> = {}): StoryChange {
+function change(id: string, chapter: string, patches: Patch[], extra: Partial<StoryChangeDraft> = {}): StoryChangeDraft {
     return {id, kind: "written", text: id, at: {kind: "chapter", chapter, key: 10}, told: [], involves: [], lines: [], links: [], patches, status: "active", by: {kind: "author"}, ...extra};
 }
 
@@ -258,7 +258,7 @@ describe("canon.revisions 输出 11、12：还原与依赖（场景 3）", () =>
         expect(redone.world.data.changes.has(b.ids["tmp:c"]!)).toBe(true);
     });
 
-    test("只往没有 id 的数组里追加的修改互不依赖；补偿只移除本次加的元素", () => {
+    test("只往列表末尾追加的修改互不依赖（讲述是有 id 的列表，各加各的）；补偿只移除本次加的元素", () => {
         const base = ok(start().publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [add("e1", -2000)])}], {baseVersion: 1}), "t"));
         const id = base.ids["tmp:c"]!;
         const tell = (world: World, quote: string, version: number) => {
@@ -316,5 +316,60 @@ describe("canon.revisions 输出 6、12 与 canon.components 输出 10：带来�
         const result = ok(start().publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [add("e1", -100)])}], {baseVersion: 1}), "t"));
         const created = result.revision.ops.find((op) => op.kind === "create");
         expect(created !== undefined && created.kind === "create" && (created.after as StoryChange).patches[0]).toMatchObject({op: "add", version: 1});
+    });
+});
+
+describe("canon.model 输出 25 与 canon.revisions 输出 3、20：讲述的 id、讲述的形状、决策不删除", () => {
+    const told = (telling: Record<string, unknown>) => change("tmp:c", "ch2", [], {told: [telling as TellingDraft]});
+
+    test("新的讲述不带 id，由程序发 t 开头的号；改别的字段时 id 不变；写入者自带的新 id 被拒收", () => {
+        const world = start();
+        const first = ok(world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: told({source: "chapter", chapter: "ch2", quote: "她花了两千买药"})}], {baseVersion: 1}), "t"));
+        const id = first.ids["tmp:c"]!;
+        const stored = first.world.data.changes.get(id)!;
+        expect(stored.told.map((telling) => telling.id)).toEqual(["t1"]);
+        const edited = ok(first.world.publish(request([{ref: {kind: "change", id}, after: {...stored, text: "改了描述"}}], {baseVersion: 2}), "t"));
+        expect(edited.world.data.changes.get(id)!.told.map((telling) => telling.id)).toEqual(["t1"]);
+        const invented = first.world.publish(request([{ref: {kind: "change", id}, after: {...stored, told: [...stored.told, {id: "t99", source: "chapter", chapter: "ch2", quote: "又花了三千五"}]}}], {baseVersion: 2}), "t");
+        expect(!invented.ok && invented.failure.code === "validation-failed" && invented.failure.problems.map((problem) => problem.code)).toEqual(["invalid-telling"]);
+    });
+
+    test("删掉最后一条讲述、重放以后再写，讲述的号不重发", () => {
+        const world = start();
+        const first = ok(world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: told({source: "chapter", chapter: "ch2", quote: "她花了两千买药"})}], {baseVersion: 1}), "t"));
+        const id = first.ids["tmp:c"]!;
+        const emptied = ok(first.world.publish(request([{ref: {kind: "change", id}, after: {...first.world.data.changes.get(id)!, told: []}}], {baseVersion: 2}), "t"));
+        const reopened = World.replay(emptied.world.revisions, options());
+        const again = ok(reopened.publish(request([{ref: {kind: "change", id}, after: {...reopened.data.changes.get(id)!, told: [{source: "chapter", chapter: "ch2", quote: "又花了三千五"}]}}], {baseVersion: 3}), "t"));
+        expect(again.world.data.changes.get(id)!.told.map((telling) => telling.id)).toEqual(["t2"]);
+    });
+
+    test.each<[string, Record<string, unknown>]>([
+        ["细纲没有锚点", {source: "outline", chapter: "ch2"}],
+        ["作者消息没有锚点", {source: "message", quote: "定在第 20 章"}],
+        ["正文的原句跨行", {source: "chapter", chapter: "ch2", quote: "她花了两千买药。\n又花了"}],
+        ["nth 超出出现的次数", {source: "chapter", chapter: "ch2", quote: "花了", nth: 3}],
+        ["nth 只用于正文", {source: "outline", chapter: "ch2", anchor: "b1", nth: 1}],
+    ])("讲述的形状不对：%s → invalid-telling", (_name, telling) => {
+        const result = start().publish(request([{ref: {kind: "change", id: "tmp:c"}, after: told(telling)}], {baseVersion: 1}), "t");
+        expect(!result.ok && result.failure.code === "validation-failed" && result.failure.problems.map((problem) => problem.code)).toEqual(["invalid-telling"]);
+    });
+
+    test("原句在章里出现两次时 nth 为 2 可以写；改稿后失联的讲述原样留着，改这条变更的别的字段照常发布", () => {
+        const texts: Record<string, string> = {...TEXT};
+        const world = ok(World.empty({...options(), chapterText: (chapter) => texts[chapter]}).publish(request([{ref: {kind: "entry", id: "tmp:xia"}, after: entry("tmp:xia", "星瑕")}], {what: "opening"}), "t")).world;
+        const written = ok(world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: told({source: "chapter", chapter: "ch2", quote: "花了", nth: 2})}], {baseVersion: 1}), "t"));
+        const id = written.ids["tmp:c"]!;
+        texts.ch2 = "她什么也没买。";
+        const later = World.replay(written.world.revisions, {...options(), chapterText: (chapter) => texts[chapter]});
+        expect(later.publish(request([{ref: {kind: "change", id}, after: {...later.data.changes.get(id)!, text: "改描述"}}], {baseVersion: 2}), "t").ok).toBe(true);
+    });
+
+    test("决策不能删，给 after 为空得到 not-deletable", () => {
+        const world = start();
+        const decided = ok(world.publish(request([{ref: {kind: "decision", id: "tmp:d"}, after: {id: "tmp:d", text: "哥哥的秘密在哪一章揭开", status: "pending", about: [], hints: []}}], {baseVersion: 1}), "t"));
+        const result = decided.world.publish(request([{ref: {kind: "decision", id: decided.ids["tmp:d"]!}, after: null}], {baseVersion: 2}), "t");
+        expect(!result.ok && result.failure.code).toBe("not-deletable");
+        expect(decided.ids["tmp:d"]).toBe("d1");
     });
 });

@@ -105,6 +105,16 @@ function remap(value: unknown, map: (id: string) => string, key?: string): unkno
     return Object.fromEntries(Object.entries(value).map(([inner, item]) => [inner, remap(item, map, inner)]));
 }
 
+/**
+ * 原型的讲述没有锚点：细纲、作者消息、界面的讲述按 canon.model 的“讲述”表必有锚点（细纲还要章），这里补一个
+ * 指明“来自样本”的锚点，章取这条记录所在的章。
+ */
+function anchored(telling: {source: string; chapter?: string; anchor?: string}, chapter: string | undefined): unknown {
+    if (telling.anchor !== undefined || !["outline", "message", "ui"].includes(telling.source)) return telling;
+    const withChapter = telling.source === "outline" && telling.chapter === undefined && chapter !== undefined ? {chapter} : {};
+    return {...telling, ...withChapter, anchor: `sample:${telling.source}`};
+}
+
 /** 原型对象换成 Spec 第三版的形状（不含 id 的替换）。 */
 function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<string, unknown>, sample: PrototypeSample, written: ReadonlyMap<string, string>): Record<string, unknown> {
     if (kind === "entry") {
@@ -114,8 +124,12 @@ function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<strin
         return {...rest, init: {...init, data}, ...(initTold === undefined ? {} : {retold: initTold})};
     }
     if (kind === "question") {
-        const about = after.about as {kind: string; at?: unknown} | undefined;
-        return about?.kind === "field" ? {...after, about: {kind: "address", at: about.at}} : after;
+        // 原型的未决问题 → 决策（canon.model 输出 31、32）：挂的对象改成列表；样本里答过的问题都是 Agent 答的，
+        // Agent 没有作者授权不能定，记成带建议的待定决策。
+        const {about: original, status, answer, ...rest} = after as {about?: {kind: string; at?: unknown; id?: string}; status: string; answer?: string};
+        const about = original === undefined ? [] : [original.kind === "field" ? {kind: "address", at: original.at} : original];
+        const suggestion = status === "answered" && answer !== undefined ? {suggestion: {conclusion: answer, by: {kind: "agent", session: "样本"}}} : {};
+        return {...rest, about, status: status === "dropped" ? "dropped" : "pending", ...suggestion};
     }
     if (kind === "change") {
         const links = (after.links as Array<{kind: string; plan: string; by?: string}>).map((link) => {
@@ -124,7 +138,9 @@ function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<strin
             if (by === undefined) throw new Error(`拆出的计划 ${String(after.id)} 找不到兑现原计划 ${link.plan} 的已写变更`);
             return {...link, by};
         });
-        return {...after, links};
+        const at = after.at as {kind: string; chapter?: string};
+        const told = (after.told as Array<{source: string; chapter?: string}>).map((telling) => anchored(telling, at.chapter));
+        return {...after, links, told};
     }
     return after;
 }
@@ -146,10 +162,11 @@ export function toRequest(draft: Draft, index: number, ids: IdMap, sample: Proto
         const shaped = reshape(put.ref.kind, put.after as Record<string, unknown>, sample, written);
         const remapped = remap(shaped, map) as Record<string, unknown>;
         const cause = put.ref.kind === "suggestion" ? {cause: ids.revision(String(shaped.cause))} : {};
-        // 未决问题挂在条目或变更上时，`about.id` 是对象 id。
-        const about = remapped.about as {kind: string; id?: string} | undefined;
-        const aboutId = put.ref.kind === "question" && about?.id !== undefined ? {about: {...about, id: map(about.id)}} : {};
-        return {ref: {kind: put.ref.kind, id}, after: {...remapped, ...cause, ...aboutId, id}};
+        // 决策挂在条目或变更上时，`about[].id` 是对象 id。
+        const about = remapped.about as Array<{kind: string; id?: string}> | undefined;
+        const aboutIds = put.ref.kind === "question" && about !== undefined ? {about: about.map((item) => (item.id === undefined ? item : {...item, id: map(item.id)}))} : {};
+        const kind = put.ref.kind === "question" ? "decision" : put.ref.kind;
+        return {ref: {kind, id}, after: {...remapped, ...cause, ...aboutIds, id}};
     });
     return {
         requestId: `xingxia-${String(index + 1)}`,

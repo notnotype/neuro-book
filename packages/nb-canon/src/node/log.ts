@@ -1,7 +1,7 @@
 /**
  * 分段的世界日志（docs/specs/canon/project.md 输出 2、3、4、7、8、17、20、21、22）。
  *
- * - 一行一次修订，`"format": 1`，以换行结尾；段文件名是这一段第一行的版本号（左补零到至少 6 位）；当前一段已有
+ * - 一行一次修订，`"format": 2`（格式 1 的行按不认识的格式处理，只读、不迁移），以换行结尾；段文件名是这一段第一行的版本号（左补零到至少 6 位）；当前一段已有
  *   256 KiB 或更多时新开一段，一行最大 4 MiB。
  * - 打开：整个过程持锁（别的进程不会在读到一半时追加或开新段）。只有最后一段末尾没有换行结尾的那一截算“写了一半”，
  *   另存、截掉；任何以换行结尾却解析不了、版本不连续、格式不认识的行都让世界只读，不改写文件。
@@ -18,6 +18,9 @@ import type {LogFiles} from "./files";
 
 export const SEGMENT_LIMIT = 256 * 1024;
 export const LINE_LIMIT = 4 * 1024 * 1024;
+/** 日志行的格式版本（project.md 输出 2）。 */
+export const LOG_FORMAT = 2;
+
 const SEGMENT_NAME = /^(\d{6,})\.jsonl$/u;
 
 /** 跨进程锁：`acquire` 在约 3 秒内拿不到时返回 "locked"（project.md 输出 22）。 */
@@ -132,7 +135,7 @@ function lineProblem(line: string, previous: number, segmentFirst: number | null
     }
     if (value === null || typeof value !== "object") return "line is not an object";
     const {format, ...revision} = value as {format?: unknown};
-    if (format !== 1) return `unknown format ${JSON.stringify(format)}`;
+    if (format !== LOG_FORMAT) return `unknown format ${JSON.stringify(format)}`;
     const problems = schemaProblems(RevisionSchema, revision);
     if (problems !== null) return `revision shape: ${problems.map((problem) => `${problem.path} ${problem.message}`).join("; ")}`;
     const parsed = revision as Revision;
@@ -153,7 +156,7 @@ async function currentTail(files: LogFiles, dir: string): Promise<{segment: stri
  * 第一次写入前建好日志目录与锁目录（输出 21，锁目录由锁的实现建）。
  */
 export async function appendRevision(files: LogFiles, dir: string, tail: Tail, revision: Revision, lock: LogLock): Promise<{readonly tail: Tail} | AppendFailure> {
-    const line = encoder.encode(`${JSON.stringify({format: 1, ...revision})}\n`);
+    const line = encoder.encode(`${JSON.stringify({format: LOG_FORMAT, ...revision})}\n`);
     if (line.length > LINE_LIMIT) return {code: "too-large"};
     await files.mkdirp(dir);
     const held = await lock.acquire();

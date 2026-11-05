@@ -61,14 +61,14 @@ describe("文件操作的契约：注入失败的实现在没有注入时与 nod
 });
 
 describe("canon.project 输出 2、3：行格式与分段", () => {
-    test("一行一次修订，带 format: 1；段名是第一行的版本号；写满 256 KiB 开新段，打开后重放得到全部修订", async () => {
+    test("一行一次修订，带 format: 2；段名是第一行的版本号；写满 256 KiB 开新段，打开后重放得到全部修订", async () => {
         await write(12, nodeFiles, 40 * 1024);
         const names = (await readdir(dir)).sort();
         expect(names[0]).toBe("000001.jsonl");
         expect(names.length).toBeGreaterThan(1);
         for (const name of names) expect((await readFile(join(dir, name))).length).toBeLessThan(SEGMENT_LIMIT + 50 * 1024);
         const first = (await readFile(join(dir, "000001.jsonl"), "utf8")).split("\n")[0]!;
-        expect(JSON.parse(first)).toMatchObject({format: 1, version: 1});
+        expect(JSON.parse(first)).toMatchObject({format: 2, version: 1});
         const opened = await open();
         expect("revisions" in opened && opened.revisions.map((item) => item.version)).toEqual(Array.from({length: 12}, (_, index) => index + 1));
     });
@@ -87,14 +87,14 @@ describe("canon.project 输出 2、3：行格式与分段", () => {
 describe("canon.project 输出 4、20、场景 2、3：打开与恢复", () => {
     test("最后一段末尾写了一半：另存、截掉、诊断 torn-tail，照常可写", async () => {
         await write(3);
-        await writeFile(join(dir, "000001.jsonl"), `${await readFile(join(dir, "000001.jsonl"), "utf8")}{"format":1,"versi`);
+        await writeFile(join(dir, "000001.jsonl"), `${await readFile(join(dir, "000001.jsonl"), "utf8")}{"format":2,"versi`);
         const opened = await open();
         if (!("revisions" in opened)) throw new Error("locked");
         expect(opened.revisions).toHaveLength(3);
         expect(opened.readOnly).toBeNull();
         const torn = opened.diagnostics.find((item) => item.code === "torn-tail");
         expect(torn).toMatchObject({code: "torn-tail", segment: "000001.jsonl", bytes: 18});
-        expect(await readFile((torn as {savedAs: string}).savedAs, "utf8")).toBe('{"format":1,"versi');
+        expect(await readFile((torn as {savedAs: string}).savedAs, "utf8")).toBe('{"format":2,"versi');
         expect("tail" in (await appendRevision(nodeFiles, dir, opened.tail, revision(4), lock))).toBe(true);
     });
 
@@ -102,7 +102,7 @@ describe("canon.project 输出 4、20、场景 2、3：打开与恢复", () => {
         ["中间一行坏了", (text: string) => text.replace('"version":2', '"version":2,}')],
         ["最后一行以换行结尾但坏了", (text: string) => text.replace(/\{[^\n]*"version":3[^\n]*\}\n$/u, "{oops}\n")],
         ["版本不连续", (text: string) => text.replace('"version":2', '"version":7')],
-        ["不认识的格式", (text: string) => text.replace('{"format":1,"id":"r2"', '{"format":2,"id":"r2"')],
+        ["不认识的格式（格式 1 的行也是）", (text: string) => text.replace('{"format":2,"id":"r2"', '{"format":1,"id":"r2"')],
     ])("%s：只读到坏行之前，文件不改写", async (_name, corrupt) => {
         await write(3);
         const path = join(dir, "000001.jsonl");
@@ -154,7 +154,7 @@ describe("canon.project 输出 7、8、17：写入失败、尾部变化与别的
 
     test("读进别的进程的行时，没写完的半行不读；尾部变短报 external-change", async () => {
         const tail = await write(1);
-        await writeFile(join(dir, "000001.jsonl"), `${await readFile(join(dir, "000001.jsonl"), "utf8")}{"format":1,"half`);
+        await writeFile(join(dir, "000001.jsonl"), `${await readFile(join(dir, "000001.jsonl"), "utf8")}{"format":2,"half`);
         const caught = await readNew(nodeFiles, dir, tail, lock);
         expect("revisions" in caught && caught.revisions).toEqual([]);
         await writeFile(join(dir, "000001.jsonl"), "");

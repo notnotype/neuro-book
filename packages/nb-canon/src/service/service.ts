@@ -13,7 +13,7 @@
 import type {ComponentRegistry} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
-import type {ObjectRef, ReadPosition, Revision, WriteRequest} from "../core/schema";
+import type {Decision, ObjectRef, ReadPosition, Revision, WriteRequest} from "../core/schema";
 import {stableStringify} from "../core/stable-json";
 import type {Mode, PendingItem, ReductionInput} from "../engine/types";
 import type {LogFiles} from "../node/files";
@@ -249,10 +249,10 @@ export class WorldService {
         return {version: world.version, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
-    /** 未决问题，按 id；状态筛选、游标分页（方法表）。 */
-    questions(status?: "open" | "answered" | "dropped", cursor?: string, limit = 50) {
+    /** 决策，按 id；状态筛选、游标分页（project.md 方法表的 `decisions`）。 */
+    decisions(status?: Decision["status"], cursor?: string, limit = 50) {
         const world = this.#world;
-        const matching = [...world.data.questions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
+        const matching = [...world.data.decisions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
         const page = this.#page(world.version, matching, cursor, limit);
         if (page === "cursor-stale") return page;
         return {version: world.version, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};

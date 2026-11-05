@@ -5,9 +5,10 @@
  * 删掉最后一个对象后再新建，也拿不到同一个号。比较按数值部分（`c9` 在 `c10` 之前，model.md 输出 2），不按字符串。
  */
 
-export const ID_PREFIX = {entry: "e", change: "c", check: "k", question: "q", suggestion: "s", revision: "r"} as const;
+/** `telling` 是讲述（在讲述所在的对象里，但全局分配、不复用）；`line` 留给世界线（canon/worldlines.md），避开修订的 `r`。 */
+export const ID_PREFIX = {entry: "e", change: "c", check: "k", decision: "d", suggestion: "s", revision: "r", telling: "t", line: "l"} as const;
 
-export type ObjectKind = "entry" | "change" | "check" | "question" | "suggestion";
+export type ObjectKind = "entry" | "change" | "check" | "decision" | "suggestion";
 
 /** 块与列表元素的 id 在各自的列表里分配，前缀固定。 */
 export const LOCAL_ID_PREFIX = {block: "b", item: "i"} as const;

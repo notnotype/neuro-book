@@ -10,6 +10,7 @@ import {
     compareRanks,
     compareTie,
     defaultPosition,
+    idListsOf,
     diffValues,
     exactProblem,
     formatPath,
@@ -133,7 +134,7 @@ describe("修订路径与只存变了的叶子（canon.revisions 输入与前置
         after.init.aliases = ["哥哥", "夜王"];
         after.sameAs = "e9";
         delete (after.initBasis as Record<string, unknown>)["panel.存款"];
-        const changes = diffValues(before, after);
+        const changes = diffValues(before, after, idListsOf("entry"));
         expect(applyChanges(before, changes, "after")).toEqual(after);
         expect(applyChanges(after, changes, "before")).toEqual(before);
     });
@@ -143,7 +144,7 @@ describe("修订路径与只存变了的叶子（canon.revisions 输入与前置
         after.init.text[1]!.source = "二改";
         after.init.aliases.push("夜王");
         (after.initBasis as Record<string, unknown>)["panel.存款"] = {kind: "estimate", note: "估"};
-        const paths = diffValues(before, after).map((change) => change.path);
+        const paths = diffValues(before, after, idListsOf("entry")).map((change) => change.path);
         expect(paths).toContain("init.text[b2].source");
         expect(paths).toContain("init.aliases");
         expect(paths).toContain("initBasis[\"panel.存款\"].kind");
@@ -153,11 +154,11 @@ describe("修订路径与只存变了的叶子（canon.revisions 输入与前置
     test("null 是未知，与字段不存在不同", () => {
         const after = structuredClone(before) as Record<string, unknown>;
         (after.init as typeof before.init).data.panel.fields.魔力 = 3200 as unknown as null;
-        const [change] = diffValues(before, after);
+        const [change] = diffValues(before, after, idListsOf("entry"));
         expect(change).toEqual({path: "init.data.panel.fields.魔力", before: null, after: 3200});
         const removed = structuredClone(before) as Record<string, unknown>;
         delete (removed.init as {data: {panel: {fields: Record<string, unknown>}}}).data.panel.fields.魔力;
-        expect(diffValues(before, removed)).toEqual([{path: "init.data.panel.fields.魔力", before: null}]);
+        expect(diffValues(before, removed, idListsOf("entry"))).toEqual([{path: "init.data.panel.fields.魔力", before: null}]);
     });
 
     test("稳定序列化与键的顺序无关", () => {
@@ -196,5 +197,23 @@ describe("位置与先后（canon.model 输出 2、21）", () => {
         expect(defaultPosition(order)).toEqual({kind: "chapter", chapter: "ch3", edge: "end"});
         expect(defaultPosition(new ChapterOrder([]))).toEqual({kind: "initial"});
         expect(allPositions(order)).toHaveLength(7);
+    });
+});
+
+describe("修订路径：哪些数组按 id 拆（canon.revisions 输入的“路径的写法”）", () => {
+    test("决策挂的对象有同一个 id 的两项时整体是一个叶子，往返以后两项都在", () => {
+        const before = {id: "d1", about: [{kind: "diagnostic", id: "plot.x", key: {objects: [{kind: "entry", id: "e1"}]}, version: 1}]};
+        const after = {id: "d1", about: [...before.about, {kind: "diagnostic", id: "plot.x", key: {objects: [{kind: "entry", id: "e2"}]}, version: 1}]};
+        const changes = diffValues(before, after, idListsOf("decision"));
+        expect(changes.map((change) => change.path)).toEqual(["about"]);
+        expect(applyChanges(before, changes, "after")).toEqual(after);
+    });
+
+    test("讲述按 id 拆，加一条讲述记成新元素与顺序两个叶子；连接这类数组整体一个叶子", () => {
+        const before = {id: "c1", told: [{id: "t1", source: "chapter", chapter: "ch1", quote: "甲"}], links: [{kind: "fulfills", plan: "c2"}]};
+        const after = {...before, told: [...before.told, {id: "t2", source: "chapter", chapter: "ch1", quote: "乙"}]};
+        const changes = diffValues(before, after, idListsOf("change"));
+        expect(changes.map((change) => change.path)).toEqual(["told[t2]", "told#order"]);
+        expect(applyChanges(before, changes, "after")).toEqual(after);
     });
 });

@@ -79,7 +79,7 @@ function build(): {inputs: EngineInputs; hot: string[]; chapterIds: string[]} {
             const amount = 100 + i;
             const links = i < fulfilledHere.length ? [{kind: "fulfills" as const, plan: fulfilledHere[i]!}] : [];
             changes.set(id, {
-                id, kind: "written", text: "情节", at: {kind: "chapter", chapter, key: i * 10}, told: [{source: "chapter", chapter, quote: "原句"}], involves: [from, to], lines: [], links,
+                id, kind: "written", text: "情节", at: {kind: "chapter", chapter, key: i * 10}, told: [{id: `t${id}`, source: "chapter", chapter, quote: "原句"}], involves: [from, to], lines: [], links,
                 patches: [
                     {op: "add", at: {entry: from, path: "panel.存款"}, value: -amount},
                     {op: "add", at: {entry: to, path: "panel.存款"}, value: amount},
@@ -91,11 +91,11 @@ function build(): {inputs: EngineInputs; hot: string[]; chapterIds: string[]} {
         }
         for (let i = 0; i < 2; i += 1) {
             const id = `k${String(++checkSeq)}`;
-            checks.set(id, {id, at: {entry: hot[0]!, path: "panel.存款"}, value: 1_000_000, told: {source: "chapter", chapter, quote: "原句"}, place: {kind: "chapter", chapter, key: 55 + i * 100}});
+            checks.set(id, {id, at: {entry: hot[0]!, path: "panel.存款"}, value: 1_000_000, told: {id: `t${id}`, source: "chapter", chapter, quote: "原句"}, place: {kind: "chapter", chapter, key: 55 + i * 100}});
             createdAt.set(id, version);
         }
     }
-    const world: WorldData = {version, entries, changes, checks, questions: new Map(), suggestions: new Map(), createdAt};
+    const world: WorldData = {version, entries, changes, checks, decisions: new Map(), suggestions: new Map(), createdAt};
     return {inputs: {world, order: new ChapterOrder(chapterIds), registry: buildRegistry([PANEL, PERSON]), reductions: () => undefined}, hot, chapterIds};
 }
 
@@ -147,7 +147,7 @@ for (let round = 0; round < 10; round += 1) {
     const checkIds: string[] = [];
     for (let i = 0; i < 2; i += 1) {
         const id = `nk${String(round)}-${String(i)}`;
-        checks.set(id, {id, at: {entry: hot[0]!, path: "panel.存款"}, value: 0, told: {source: "chapter", chapter: last, quote: "原句"}, place: {kind: "chapter", chapter: last, key: 300 + i}});
+        checks.set(id, {id, at: {entry: hot[0]!, path: "panel.存款"}, value: 0, told: {id: `t${id}`, source: "chapter", chapter: last, quote: "原句"}, place: {kind: "chapter", chapter: last, key: 300 + i}});
         createdAt.set(id, version);
         checkIds.push(id);
     }

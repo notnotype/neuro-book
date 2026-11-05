@@ -5,7 +5,7 @@
 
 import type {ComponentRegistry} from "../components/registry";
 import type {ChapterOrder} from "../core/position";
-import type {Address, Block, Check, Entry, ObjectRef, Placement, Question, ReadPosition, StoryChange, Suggestion} from "../core/schema";
+import type {Address, Block, Check, Entry, ObjectRef, Decision, Placement, ReadPosition, StoryChange, Suggestion} from "../core/schema";
 
 /** 内存里的世界：重放日志得到的五种对象，加上每个对象由哪个版本新建（排序键相同时的次序，model.md 输出 2）。 */
 export interface WorldData {
@@ -13,7 +13,7 @@ export interface WorldData {
     readonly entries: ReadonlyMap<string, Entry>;
     readonly changes: ReadonlyMap<string, StoryChange>;
     readonly checks: ReadonlyMap<string, Check>;
-    readonly questions: ReadonlyMap<string, Question>;
+    readonly decisions: ReadonlyMap<string, Decision>;
     readonly suggestions: ReadonlyMap<string, Suggestion>;
     readonly createdAt: ReadonlyMap<string, number>;
 }

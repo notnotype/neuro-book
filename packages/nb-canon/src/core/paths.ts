@@ -4,9 +4,10 @@
  * 路径的写法：
  * - 对象的键：标识符写 `.键`（第一段不带点），别的键（例如 `initBasis` 里以地址为键的 `"panel.存款"`）写 `["键"]`，
  *   方括号里是 JSON 字符串；
- * - 有 id 的列表（每个元素都是带字符串 `id` 的对象：主 MDX 的块、列表字段的元素、实例字段声明）：元素写 `[id]`，
- *   不用下标；顺序变了另记一个叶子 `<列表的路径>#order`，值是 id 的列表；
- * - 没有 id 的数组（别名、讲述、补丁、连接……）整体是一个叶子。
+ * - 有 id 的列表：元素写 `[id]`，不用下标；顺序变了另记一个叶子 `<列表的路径>#order`，值是 id 的列表。哪些数组
+ *   是有 id 的列表由调用方按对象的种类声明（`IdListMatcher`，清单见 id-lists.ts），不看元素长什么样：决策挂的
+ *   对象、稳定键里的对象这类元素也带 `id` 的数组，按 Spec 整体是一个叶子，按结构猜会在重放时丢元素；
+ * - 其余数组（别名、补丁、连接、参与者……）整体是一个叶子。
  *
  * 字段不存在用 `FieldChange` 里缺省的 `before`、`after` 表示；JSON 的 null 是“未知”，与不存在不同。
  */
@@ -24,26 +25,29 @@ type Segment = {readonly kind: "key"; readonly key: string} | {readonly kind: "i
 
 const ORDER_SUFFIX = "#order";
 
+/** 给出一串对象键（从对象的根起，不含列表元素），答这里的数组是不是有 id 的列表。 */
+export type IdListMatcher = (keys: readonly string[]) => boolean;
+
 /** 算出从 `before` 到 `after` 变了哪些叶子。两者都是 JSON 值；`undefined` 表示不存在。 */
-export function diffValues(before: unknown, after: unknown): FieldChange[] {
+export function diffValues(before: unknown, after: unknown, isIdListAt: IdListMatcher): FieldChange[] {
     const changes: FieldChange[] = [];
-    diffInto(changes, [], before, after);
+    diffInto(changes, [], before, after, isIdListAt);
     return changes;
 }
 
-function diffInto(changes: FieldChange[], base: readonly Segment[], before: unknown, after: unknown): void {
+function diffInto(changes: FieldChange[], base: readonly Segment[], before: unknown, after: unknown, isIdListAt: IdListMatcher): void {
     if (before === undefined && after === undefined) return;
     if (sameJson(before, after)) return;
     if (isPlainObject(before) && isPlainObject(after)) {
         const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
-        for (const key of [...keys].sort()) diffInto(changes, [...base, {kind: "key", key}], before[key], after[key]);
+        for (const key of [...keys].sort()) diffInto(changes, [...base, {kind: "key", key}], before[key], after[key], isIdListAt);
         return;
     }
-    if (Array.isArray(before) && Array.isArray(after) && isIdList(before, after) && base.length > 0) {
+    if (Array.isArray(before) && Array.isArray(after) && declaredIdList(base, isIdListAt) && isIdList(before, after)) {
         const beforeById = new Map(before.map((item) => [(item as {id: string}).id, item]));
         const afterById = new Map(after.map((item) => [(item as {id: string}).id, item]));
         const ids = new Set([...beforeById.keys(), ...afterById.keys()]);
-        for (const id of ids) diffInto(changes, [...base, {kind: "id", id}], beforeById.get(id), afterById.get(id));
+        for (const id of ids) diffInto(changes, [...base, {kind: "id", id}], beforeById.get(id), afterById.get(id), isIdListAt);
         const beforeOrder = before.map((item) => (item as {id: string}).id);
         const afterOrder = after.map((item) => (item as {id: string}).id);
         // 只有共同元素的相对顺序变了才记顺序；纯增删时新元素的位置也要记，所以比的是整份顺序。
@@ -114,6 +118,12 @@ function setAt(value: unknown, segments: readonly Segment[], next: unknown, pres
     } else if (index >= 0) list[index] = child;
     else list.push(child);
     return list;
+}
+
+/** 声明为有 id 的列表的位置：路径全是对象键（列表元素里面不再有有 id 的列表）且匹配声明。 */
+function declaredIdList(base: readonly Segment[], isIdListAt: IdListMatcher): boolean {
+    if (base.length === 0 || base.some((segment) => segment.kind !== "key")) return false;
+    return isIdListAt(base.map((segment) => (segment as {key: string}).key));
 }
 
 function isIdList(a: readonly unknown[], b: readonly unknown[]): boolean {

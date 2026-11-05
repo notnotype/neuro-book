@@ -65,13 +65,13 @@ export class WorldBuilder {
     }
 
     check(id: string, entry: string, path: string, value: number, place: Placement, extra: Partial<Check> = {}): this {
-        this.checks.set(id, {id, at: {entry, path}, value, told: {source: "chapter", quote: String(value)}, place, ...extra});
+        this.checks.set(id, {id, at: {entry, path}, value, told: {id: `t${id}`, source: "chapter", quote: String(value)}, place, ...extra});
         this.createdAt.set(id, ++this.#version);
         return this;
     }
 
     world(): WorldData {
-        return {version: this.#version, entries: this.entries, changes: this.changes, checks: this.checks, questions: new Map(), suggestions: new Map(), createdAt: this.createdAt};
+        return {version: this.#version, entries: this.entries, changes: this.changes, checks: this.checks, decisions: new Map(), suggestions: new Map(), createdAt: this.createdAt};
     }
 
     inputs(): EngineInputs {

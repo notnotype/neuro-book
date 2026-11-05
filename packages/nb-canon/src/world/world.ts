@@ -12,6 +12,7 @@ import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../compone
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
 import {RESERVED_ROOTS} from "../core/identifiers";
+import {idListsOf} from "../core/id-lists";
 import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
 import {readNumbers} from "../core/numerals";
 import {applyChanges, diffValues, parseSegments, type FieldChange} from "../core/paths";
@@ -74,8 +75,8 @@ export type WriteResult =
     | {readonly ok: false; readonly failure: WriteFailure};
 
 const TEMP = "tmp:";
-const KIND_OF_PREFIX: Readonly<Record<ObjectKind, string>> = {entry: ID_PREFIX.entry, change: ID_PREFIX.change, check: ID_PREFIX.check, question: ID_PREFIX.question, suggestion: ID_PREFIX.suggestion};
-const TABLE = {entry: "entries", change: "changes", check: "checks", question: "questions", suggestion: "suggestions"} as const;
+const KIND_OF_PREFIX: Readonly<Record<ObjectKind, string>> = {entry: ID_PREFIX.entry, change: ID_PREFIX.change, check: ID_PREFIX.check, decision: ID_PREFIX.decision, suggestion: ID_PREFIX.suggestion};
+const TABLE = {entry: "entries", change: "changes", check: "checks", decision: "decisions", suggestion: "suggestions"} as const;
 
 interface Indexes {
     readonly requests: ReadonlyMap<string, {readonly revision: Revision}>;
@@ -91,7 +92,7 @@ type Tables = {
     entries: Map<string, Entry>;
     changes: Map<string, StoryChange>;
     checks: Map<string, Check>;
-    questions: Map<string, WorldData["questions"] extends ReadonlyMap<string, infer V> ? V : never>;
+    decisions: Map<string, WorldData["decisions"] extends ReadonlyMap<string, infer V> ? V : never>;
     suggestions: Map<string, WorldData["suggestions"] extends ReadonlyMap<string, infer V> ? V : never>;
 };
 
@@ -113,7 +114,7 @@ export class World {
 
     /** 重放日志里的修订（已由存储层校验过形状与版本连续）。不做写入时的校验：日志里的就是事实。 */
     static replay(revisions: readonly Revision[], options: WorldOptions): World {
-        const tables: Tables = {entries: new Map(), changes: new Map(), checks: new Map(), questions: new Map(), suggestions: new Map()};
+        const tables: Tables = {entries: new Map(), changes: new Map(), checks: new Map(), decisions: new Map(), suggestions: new Map()};
         const createdAt = new Map<string, number>();
         const requests = new Map<string, {revision: Revision}>();
         const touched = new Map<string, number>();
@@ -128,7 +129,7 @@ export class World {
                     recordedChapters = op.after;
                     continue;
                 }
-                allocator.observe(op.ref.id);
+                observeIds(allocator, op);
                 touched.set(refKey(op.ref), revision.version);
                 applyOp(tables, op, createdAt, revision.version);
             }
@@ -261,7 +262,14 @@ export class World {
             const isNew = Object.values(ids).includes(put.ref.id);
             // 补偿修订会按原来的 id 建回被还原删掉的对象（id 不复用，所以不会撞）。
             if (!isNew && existing === undefined && !compensation) problems.push({code: "not-found", ref: put.ref, message: "object does not exist; new objects need a tmp: id"});
-            if (!compensation && put.after === null && (put.ref.kind === "entry" || put.ref.kind === "change")) return {ok: false, failure: {code: "not-deletable", ref: put.ref}};
+            if (!compensation && put.after === null && (put.ref.kind === "entry" || put.ref.kind === "change" || put.ref.kind === "decision")) return {ok: false, failure: {code: "not-deletable", ref: put.ref}};
+            if (!compensation && put.after !== null) {
+                const known = new Set(tellingsOf(put.ref.kind, existing).map((telling) => telling.id));
+                for (const telling of tellingsOf(put.ref.kind, put.after)) {
+                    const id = (telling as {id?: unknown}).id;
+                    if (id !== undefined && !known.has(id as string)) problems.push({code: "invalid-telling", ref: put.ref, message: `telling id "${String(id)}" is not on this object; new tellings must not carry an id`});
+                }
+            }
             const lastTouched = this.index.touched.get(refKey(put.ref)) ?? 0;
             if (!isNew && lastTouched > request.baseVersion) conflicts.push({ref: put.ref, changed: true, current: structuredClone(existing)});
         }
@@ -277,7 +285,7 @@ export class World {
         const ops: Op[] = [];
         const changed: {entries: string[]; changes: string[]; checks: string[]} = {entries: [], changes: [], checks: []};
         for (const put of request.puts) {
-            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options);
+            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator);
             if (after !== undefined) {
                 const shapeProblems = schemaProblems(OBJECT_SCHEMAS[put.ref.kind], after);
                 if (shapeProblems !== null) {
@@ -291,9 +299,9 @@ export class World {
                 ? {ref: put.ref, kind: "create", after}
                 : after === undefined
                   ? {ref: put.ref, kind: "delete", before}
-                  : diffValues(before, after).length === 0
+                  : diffValues(before, after, idListsOf(put.ref.kind)).length === 0
                     ? null
-                    : {ref: put.ref, kind: "modify", fields: diffValues(before, after)};
+                    : {ref: put.ref, kind: "modify", fields: diffValues(before, after, idListsOf(put.ref.kind))};
             if (op === null) continue;
             ops.push(op);
             applyOp(tables, op, createdAt, version);
@@ -397,7 +405,7 @@ export class World {
         const brokenBy = new Map(this.index.brokenBy);
         for (const change of revision.impact.broken) brokenBy.set(change, revision.id);
         const allocator = cloneAllocator(this.index.allocator, [revision]);
-        for (const op of revision.ops) if (op.kind !== "chapters") allocator.observe(op.ref.id);
+        for (const op of revision.ops) if (op.kind !== "chapters") observeIds(allocator, op);
         const requests = new Map(this.index.requests).set(revision.requestId, {revision});
         return new World(data, engine, [...this.revisions, revision], {requests, touched, brokenBy, allocator, recordedChapters: this.index.recordedChapters}, this.options);
     }
@@ -434,6 +442,15 @@ function isAppend(field: FieldChange): boolean {
     if (!Array.isArray(field.before) || !Array.isArray(field.after) || field.after.length <= field.before.length) return false;
     if (field.path.endsWith("#order")) return false;
     return field.before.every((item, index) => sameJson(item, (field.after as unknown[])[index]));
+}
+
+/**
+ * 有 id 的列表的顺序叶子只是在末尾加了新元素（讲述、列表字段的行）：两次这样的追加各加各的元素，互不依赖；
+ * 单独还原其中一次时，顺序恢复成改前的，另一次加的元素不在那份顺序里，按 `applyChanges` 的规矩留在末尾。
+ */
+function isOrderAppend(field: FieldChange): boolean {
+    if (!field.path.endsWith("#order") || !Array.isArray(field.before) || !Array.isArray(field.after)) return false;
+    return field.after.length > field.before.length && field.before.every((id, index) => (field.after as unknown[])[index] === id);
 }
 
 function findLastIndex<T>(list: readonly T[], predicate: (item: T) => boolean): number {
@@ -478,7 +495,7 @@ function dependsOn(later: Revision, earlier: Revision): boolean {
             for (const field of op.fields) {
                 for (const other of earlierFields) {
                     if (!pathsOverlap(field.path, other.path)) continue;
-                    if (field.path === other.path && isAppend(field) && isAppend(other)) continue;
+                    if (field.path === other.path && ((isAppend(field) && isAppend(other)) || (isOrderAppend(field) && isOrderAppend(other)))) continue;
                     return true;
                 }
             }
@@ -496,12 +513,20 @@ function dependsOn(later: Revision, earlier: Revision): boolean {
     return false;
 }
 
+/**
+ * 两条修订路径是否改到同一处：相同，或一条是另一条的前缀。列表的顺序叶子 `<列表>#order` 只与同一列表的顺序叶子、
+ * 列表本身或它上面的路径重叠，不与列表里的单个元素重叠：元素加了、去了，顺序叶子里的 id 对不上的照
+ * `applyChanges` 的规矩跳过或留在末尾，不会互相冲掉。
+ */
 function pathsOverlap(a: string, b: string): boolean {
-    const base = (path: string) => (path.endsWith("#order") ? path.slice(0, -"#order".length) : path);
-    const left = base(a);
-    const right = base(b);
+    const ORDER = "#order";
     const covers = (outer: string, inner: string) => outer === inner || (inner.startsWith(outer) && (inner[outer.length] === "." || inner[outer.length] === "["));
-    return covers(left, right) || covers(right, left);
+    const aOrder = a.endsWith(ORDER);
+    const bOrder = b.endsWith(ORDER);
+    if (aOrder && bOrder) return a === b || covers(a.slice(0, -ORDER.length), b.slice(0, -ORDER.length)) || covers(b.slice(0, -ORDER.length), a.slice(0, -ORDER.length));
+    if (aOrder) return covers(b, a.slice(0, -ORDER.length));
+    if (bOrder) return covers(a, b.slice(0, -ORDER.length));
+    return covers(a, b) || covers(b, a);
 }
 
 function invalid(problems: readonly Problem[]): WriteResult {
@@ -518,18 +543,45 @@ function cloneAllocator(source: IdAllocator, extra: readonly Revision[]): IdAllo
     return allocator;
 }
 
+/**
+ * 记下一个操作里出现的全部 id：对象自己的，以及嵌在对象里的（讲述的 id 在剧情变更、核对点、条目里，全局分配、
+ * 不复用，model.md 输出 25）。删掉最后一条讲述以后再发号，靠这里记下的最大号才不会重发。块与列表元素的 id 前缀
+ * 不归这个分配器发，记下也无害。
+ */
+function observeIds(allocator: IdAllocator, op: Exclude<Op, {kind: "chapters"}>): void {
+    allocator.observe(op.ref.id);
+    const walk = (value: unknown): void => {
+        if (Array.isArray(value)) for (const item of value) walk(item);
+        else if (value !== null && typeof value === "object") {
+            for (const [key, item] of Object.entries(value)) {
+                if (key === "id" && typeof item === "string") allocator.observe(item);
+                else walk(item);
+            }
+        }
+    };
+    if (op.kind === "create") walk(op.after);
+    else if (op.kind === "delete") walk(op.before);
+    else {
+        for (const field of op.fields) {
+            for (const segment of parseSegments(field.path)) if (segment.kind === "id") allocator.observe(segment.id);
+            walk(field.before);
+            walk(field.after);
+        }
+    }
+}
+
 function thaw(data: WorldData): Tables {
     return {
         entries: new Map(data.entries),
         changes: new Map(data.changes),
         checks: new Map(data.checks),
-        questions: new Map(data.questions),
+        decisions: new Map(data.decisions),
         suggestions: new Map(data.suggestions),
     };
 }
 
 function freeze(tables: Tables, createdAt: Map<string, number>, version: number): WorldData {
-    return {version, entries: tables.entries, changes: tables.changes, checks: tables.checks, questions: tables.questions, suggestions: tables.suggestions, createdAt};
+    return {version, entries: tables.entries, changes: tables.changes, checks: tables.checks, decisions: tables.decisions, suggestions: tables.suggestions, createdAt};
 }
 
 function applyOp(tables: Tables, op: Exclude<Op, {kind: "chapters"}>, createdAt: Map<string, number>, version: number): void {
@@ -594,17 +646,19 @@ function replaceTempIds(request: WriteRequest, ids: Readonly<Record<string, stri
 }
 
 /**
- * 写入时补上的缺省值：章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
+ * 写入时补上的缺省值：新讲述的 id（model.md 输出 25）；章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
  * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）。
  */
-function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions): unknown {
+function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator): unknown {
     const authored = request.by.kind === "author" || request.by.kind === "system";
+    // 新的讲述不带 id，在这里发（model.md 输出 25）。带了 id 的照留，是不是这个对象原有的由校验查。
+    for (const telling of tellingsOf(kind, after)) if ((telling as {id?: unknown}).id === undefined) (telling as {id: string}).id = allocator.next(ID_PREFIX.telling);
     if (kind === "change") {
         const change = after as StoryChange & {at: {key?: number}};
         const at = change.at;
         if (at?.kind === "chapter" && typeof at.key !== "number") {
             const text = options.chapterText(at.chapter) ?? "";
-            const quote = change.told?.find((telling) => telling.source === "chapter" && telling.chapter === at.chapter)?.quote;
+            const quote = change.told?.find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
             const index = quote === undefined ? -1 : text.indexOf(quote);
             (change.at as {key: number}).key = index >= 0 ? index : 0;
         }
@@ -633,13 +687,62 @@ function whereOf(chapter: string | undefined, order: ChapterOrder): ReadPosition
     return chapter !== undefined && order.has(chapter) ? chapterEnd(chapter) : defaultPosition(order);
 }
 
+/** 一个对象里的讲述：剧情变更与核对点的 `told`、条目的 `retold`。 */
+function tellingsOf(kind: ObjectKind, value: unknown): Telling[] {
+    if (value === null || typeof value !== "object") return [];
+    if (kind === "change") {
+        const told = (value as StoryChange).told;
+        return Array.isArray(told) ? told : [];
+    }
+    if (kind === "check") {
+        const told = (value as Check).told;
+        return told !== null && typeof told === "object" ? [told] : [];
+    }
+    if (kind === "entry") return Object.values((value as Entry).retold ?? {}).flat();
+    return [];
+}
+
+/**
+ * 一条讲述按来源的必填项与原句（model.md 输入的“讲述”表，revisions.md 输出 3 的 `invalid-telling`、`quote-not-found`）。
+ * 原句不含换行，所以在整章里不重叠地数出现次数，与按段数（model.md 输出 24）结果相同。
+ */
+function tellingProblem(telling: Telling, chapterText: (chapter: string) => string | undefined): Omit<Problem, "ref" | "path"> | null {
+    const invalid = (message: string) => ({code: "invalid-telling", message});
+    if (telling.nth !== undefined && telling.source !== "chapter") return invalid("nth is only for chapter tellings");
+    if (telling.source === "outline" && (telling.chapter === undefined || telling.anchor === undefined)) return invalid("an outline telling needs a chapter and an anchor");
+    if ((telling.source === "message" || telling.source === "ui") && telling.anchor === undefined) return invalid(`a ${telling.source} telling needs an anchor`);
+    if (telling.source !== "chapter") return null;
+    if (telling.chapter === undefined) return invalid("a chapter telling needs a chapter");
+    if (telling.quote === undefined || telling.quote === "" || /[\r\n]/u.test(telling.quote)) return invalid("a chapter telling needs a non-empty, single-line quote");
+    const count = occurrences(chapterText(telling.chapter) ?? "", telling.quote);
+    if (count === 0) return {code: "quote-not-found", message: "quote is not in the chapter text"};
+    if (telling.nth !== undefined && telling.nth > count) return invalid(`nth ${String(telling.nth)} exceeds the ${String(count)} occurrence(s) of the quote`);
+    return null;
+}
+
+function occurrences(text: string, quote: string): number {
+    let count = 0;
+    for (let at = text.indexOf(quote); at >= 0; at = text.indexOf(quote, at + quote.length)) count += 1;
+    return count;
+}
+
 /** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16）。 */
 function validate(world: World, data: WorldData, engine: IncrementalEngine, request: WriteRequest, changed: {entries: string[]; changes: string[]; checks: string[]}): Problem[] {
     const problems: Problem[] = [];
     const {registry, chapterText} = world.options;
     const strictBasis = request.by.kind === "agent" || request.by.kind === "task";
 
-    const quoteFound = (telling: Telling) => telling.source !== "chapter" || (telling.chapter !== undefined && (chapterText(telling.chapter) ?? "").includes(telling.quote));
+    /** 新写或改过的讲述的问题（revisions.md 输出 3）；原样留着的不查：正文改过以后失联的讲述照样可以随对象改别的字段。 */
+    const tellingProblems = (ref: ObjectRef, path: string, tellings: readonly Telling[], previous: readonly Telling[]): Problem[] => {
+        const before = new Map(previous.map((telling) => [telling.id, telling]));
+        const found: Problem[] = [];
+        for (const telling of tellings) {
+            if (sameJson(before.get(telling.id), telling)) continue;
+            const problem = tellingProblem(telling, chapterText);
+            if (problem !== null) found.push({...problem, ref, path});
+        }
+        return found;
+    };
 
     for (const id of changed.entries) {
         const entry = data.entries.get(id);
@@ -695,9 +798,8 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
             const problem = blockProblem(block.source);
             if (problem !== null) problems.push({code: problem.code, ref, path: `init.text[${block.id}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
         }
-        for (const [path, tellings] of Object.entries(entry.retold ?? {})) {
-            for (const telling of tellings) if (!quoteFound(telling)) problems.push({code: "quote-not-found", ref, path: `retold["${path}"]`, message: "quote is not in the chapter text"});
-        }
+        const previousRetold = (world.object(ref) as Entry | undefined)?.retold ?? {};
+        for (const [path, tellings] of Object.entries(entry.retold ?? {})) problems.push(...tellingProblems(ref, `retold["${path}"]`, tellings, previousRetold[path] ?? []));
     }
 
     const replacements = new Map<string, string[]>();
@@ -734,7 +836,7 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
                 }
             }
         }
-        for (const telling of change.told) if (!quoteFound(telling)) problems.push({code: "quote-not-found", ref, path: "told", message: "quote is not in the chapter text"});
+        problems.push(...tellingProblems(ref, "told", change.told, (world.object(ref) as StoryChange | undefined)?.told ?? []));
         for (const [index, patch] of change.patches.entries()) {
             const target = data.entries.get(patch.at.entry);
             if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
@@ -779,7 +881,8 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
         if (check === undefined) continue;
         const ref: ObjectRef = {kind: "check", id};
         if (!data.entries.has(check.at.entry)) problems.push({code: "entry-missing", ref, message: "entry does not exist"});
-        if (!quoteFound(check.told)) problems.push({code: "quote-not-found", ref, path: "told", message: "quote is not in the chapter text"});
+        const previousCheck = world.object(ref) as Check | undefined;
+        problems.push(...tellingProblems(ref, "told", [check.told], previousCheck === undefined ? [] : [previousCheck.told]));
         if (check.anchor !== undefined && !data.changes.has(check.anchor.change)) problems.push({code: "invalid-link", ref, path: "anchor", message: "anchor change does not exist"});
     }
     return problems;
@@ -795,7 +898,7 @@ function checkBasis(patch: Patch, change: StoryChange, engine: IncrementalEngine
         const wanted = patch.op === "add" ? Math.abs(value) : value;
         if (!readNumbers(basis.quote).includes(wanted)) return {code: "basis-mismatch", message: `quote does not contain ${String(wanted)}`};
         const inText = change.at.kind === "chapter" ? (chapterText(change.at.chapter) ?? "").includes(basis.quote) : false;
-        const inTold = change.told.some((telling) => telling.quote.includes(basis.quote));
+        const inTold = change.told.some((telling) => telling.quote?.includes(basis.quote) === true);
         return inText || inTold ? null : {code: "quote-not-found", message: "basis quote is not in the chapter text or the tellings"};
     }
     const check = data.checks.get(basis.check);

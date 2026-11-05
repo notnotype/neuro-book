@@ -32,10 +32,17 @@ export const ActorSchema = Type.Union([
     Type.Object({kind: Type.Literal("system")}),
 ]);
 
+/**
+ * 讲述（model.md 输入的“讲述”表）。`id` 由程序在写入时补上，写入请求里新的讲述不带 id。按来源的必填项
+ * （正文要章与原句，细纲要章与锚点，作者消息与界面要锚点）由写入时校验查（`invalid-telling`），这里只管形状。
+ */
 export const TellingSchema = Type.Object({
+    id: Id,
     source: Type.Union([Type.Literal("chapter"), Type.Literal("outline"), Type.Literal("seed"), Type.Literal("message"), Type.Literal("ui"), Type.Literal("note")]),
     chapter: Type.Optional(Id),
-    quote: Text,
+    quote: Type.Optional(Text),
+    nth: Type.Optional(Type.Integer({minimum: 1})),
+    anchor: Type.Optional(Text),
 });
 
 export const BasisSchema = Type.Union([
@@ -154,19 +161,36 @@ export const CheckSchema = Type.Object({
     anchor: Type.Optional(Type.Object({change: Id, side: Type.Union([Type.Literal("before"), Type.Literal("after")])})),
 });
 
-export const QuestionSchema = Type.Object({
+/** 决策挂的对象（model.md 输出 33）。 */
+export const AboutSchema = Type.Union([
+    Type.Object({kind: Type.Literal("entry"), id: Id}),
+    Type.Object({kind: Type.Literal("change"), id: Id}),
+    Type.Object({kind: Type.Literal("address"), at: AddressSchema}),
+    Type.Object({kind: Type.Literal("chapter"), id: Id}),
+    Type.Object({kind: Type.Literal("decision"), id: Id}),
+    Type.Object({kind: Type.Literal("diagnostic"), id: Id, key: Type.Record(Type.String(), Type.Unknown()), version: Type.Integer({minimum: 1})}),
+]);
+
+/**
+ * 决策（原“未决问题”，model.md 输入的“决策”表）。各状态必有的字段与允许的转换在 world/decisions.ts；
+ * 出处 `source` 只由内核写（revisions.md 输出 21）。
+ */
+export const DecisionSchema = Type.Object({
     id: Id,
     text: Text,
+    status: Type.Union([Type.Literal("pending"), Type.Literal("decided"), Type.Literal("superseded"), Type.Literal("dropped")]),
+    about: Type.Array(AboutSchema),
+    scope: Type.Optional(Type.Object({from: Type.Optional(Id), to: Type.Optional(Id)})),
+    due: Type.Optional(Id),
+    candidates: Type.Optional(Type.Array(Text)),
+    suggestion: Type.Optional(Type.Object({conclusion: Text, reason: Type.Optional(Text), by: Type.Unknown()})),
+    conclusion: Type.Optional(Text),
+    reason: Type.Optional(Text),
+    risks: Type.Optional(Text),
+    constraints: Type.Optional(Type.Array(Text)),
+    supersededBy: Type.Optional(Id),
+    source: Type.Optional(Type.Unknown()),
     quote: Type.Optional(Text),
-    about: Type.Optional(
-        Type.Union([
-            Type.Object({kind: Type.Literal("entry"), id: Id}),
-            Type.Object({kind: Type.Literal("change"), id: Id}),
-            Type.Object({kind: Type.Literal("address"), at: AddressSchema}),
-        ]),
-    ),
-    status: Type.Union([Type.Literal("open"), Type.Literal("answered"), Type.Literal("dropped")]),
-    answer: Type.Optional(Text),
     hints: Type.Array(Type.Object({chapter: Id, quote: Text})),
 });
 
@@ -187,7 +211,7 @@ export const SuggestionSchema = Type.Object({
     status: Type.Union([Type.Literal("open"), Type.Literal("applied"), Type.Literal("declined")]),
 });
 
-export const ObjectKindSchema = Type.Union([Type.Literal("entry"), Type.Literal("change"), Type.Literal("check"), Type.Literal("question"), Type.Literal("suggestion")]);
+export const ObjectKindSchema = Type.Union([Type.Literal("entry"), Type.Literal("change"), Type.Literal("check"), Type.Literal("decision"), Type.Literal("suggestion")]);
 
 export const ObjectRefSchema = Type.Object({kind: ObjectKindSchema, id: Id});
 
@@ -250,6 +274,8 @@ export type ReadPosition = Static<typeof ReadPositionSchema>;
 export type Address = Static<typeof AddressSchema>;
 export type Actor = Static<typeof ActorSchema>;
 export type Telling = Static<typeof TellingSchema>;
+/** 写入请求里的讲述：新的不带 id（model.md 输出 25）。 */
+export type TellingDraft = Omit<Telling, "id"> & {readonly id?: string};
 export type Basis = Static<typeof BasisSchema>;
 export type FieldKind = Static<typeof FieldKindSchema>;
 export type FieldDeclaration = Static<typeof FieldDeclarationSchema>;
@@ -261,8 +287,11 @@ export type PatchOp = Static<typeof PatchOpSchema>;
 export type Patch = Static<typeof PatchSchema>;
 export type Link = Static<typeof LinkSchema>;
 export type StoryChange = Static<typeof StoryChangeSchema>;
+/** 写入请求里的剧情变更：讲述可以不带 id。 */
+export type StoryChangeDraft = Omit<StoryChange, "told"> & {told: TellingDraft[]};
 export type Check = Static<typeof CheckSchema>;
-export type Question = Static<typeof QuestionSchema>;
+export type About = Static<typeof AboutSchema>;
+export type Decision = Static<typeof DecisionSchema>;
 export type Suggestion = Static<typeof SuggestionSchema>;
 export type ObjectKind = Static<typeof ObjectKindSchema>;
 export type ObjectRef = Static<typeof ObjectRefSchema>;
@@ -272,7 +301,7 @@ export type Revision = Static<typeof RevisionSchema>;
 export type WriteRequest = Static<typeof WriteRequestSchema>;
 
 /** 每种对象的 schema，按 `ObjectRef.kind` 取。 */
-export const OBJECT_SCHEMAS = {entry: EntrySchema, change: StoryChangeSchema, check: CheckSchema, question: QuestionSchema, suggestion: SuggestionSchema} as const;
+export const OBJECT_SCHEMAS = {entry: EntrySchema, change: StoryChangeSchema, check: CheckSchema, decision: DecisionSchema, suggestion: SuggestionSchema} as const;
 
 export interface SchemaProblem {
     readonly path: string;

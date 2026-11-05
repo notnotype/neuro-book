@@ -16,7 +16,7 @@ import {mkdir, mkdtemp, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
-import type {Entry, ReadPosition, StoryChange, WriteRequest} from "@notnotype/nb-canon";
+import type {Entry, ReadPosition, StoryChangeDraft, WriteRequest} from "@notnotype/nb-canon";
 import type {WorldService} from "@notnotype/nb-canon/node";
 
 import {createWorldHost} from "nbook/plugins/canon/backend/world-host";
@@ -88,14 +88,14 @@ function bookkeeping(service: WorldService, chapter: string, hot: readonly strin
     for (let i = 0; i < 5; i += 1) {
         const id = `tmp:p${String(++sequence)}`;
         plans.push(id);
-        const plan: StoryChange = {id, kind: "plan", text: "计划", at: {kind: "chapter", chapter, key: base + i * 10}, told: [], involves: [hot[i % 5]!], lines: [], links: [], patches: [{op: "add", at: {entry: hot[i % 5]!, path: "panel.魔力"}, value: -10, basis: {kind: "estimate", note: "计划"}}], status: "active", by: {kind: "author"}};
+        const plan: StoryChangeDraft = {id, kind: "plan", text: "计划", at: {kind: "chapter", chapter, key: base + i * 10}, told: [], involves: [hot[i % 5]!], lines: [], links: [], patches: [{op: "add", at: {entry: hot[i % 5]!, path: "panel.魔力"}, value: -10, basis: {kind: "estimate", note: "计划"}}], status: "active", by: {kind: "author"}};
         puts.push({ref: {kind: "change", id}, after: plan});
     }
     for (let i = 0; i < 15; i += 1) {
         const id = `tmp:w${String(++sequence)}`;
         const from = hot[i % 5]!;
         const to = hot[(i + 1) % 5]!;
-        const change: StoryChange = {
+        const change: StoryChangeDraft = {
             id, kind: "written", text: "情节", at: {kind: "chapter", chapter, key: base + i * 10}, told: [{source: "chapter", chapter, quote: "原句"}], involves: [from, to], lines: [],
             links: i < 4 ? [{kind: "fulfills", plan: plans[i]!}] : [],
             patches: [

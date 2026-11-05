@@ -447,14 +447,14 @@ describe("canon.project：审查补的边界（输出 6、10、11、16、19、23
         expect(events.filter((event) => event.kind === "exclusive")).toEqual([{kind: "exclusive", holder: "记账"}, {kind: "exclusive", holder: null}]);
     });
 
-    test("未决问题按游标分页（方法表）；改动记录按条目筛选时，自由文字里写到条目 id 不算（方法表）", async () => {
+    test("决策按游标分页（方法表）；改动记录按条目筛选时，自由文字里写到条目 id 不算（方法表）", async () => {
         const service = await open();
-        const questions: WriteRequest["puts"] = ["甲", "乙", "丙"].map((text, index) => ({ref: {kind: "question", id: `tmp:q${String(index)}`}, after: {id: `tmp:q${String(index)}`, text, status: "open", hints: []}}));
-        expect((await service.publish({requestId: "questions", by: {kind: "author"}, what: "edit", title: "问题", baseVersion: 1, puts: questions})).ok).toBe(true);
-        const first = service.questions(undefined, undefined, 2);
+        const decisions: WriteRequest["puts"] = ["甲", "乙", "丙"].map((text, index) => ({ref: {kind: "decision", id: `tmp:d${String(index)}`}, after: {id: `tmp:d${String(index)}`, text, status: "pending", about: [], hints: []}}));
+        expect((await service.publish({requestId: "decisions", by: {kind: "author"}, what: "edit", title: "决策", baseVersion: 1, puts: decisions})).ok).toBe(true);
+        const first = service.decisions(undefined, undefined, 2);
         if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
         expect(first.items.map((item) => item.text)).toEqual(["甲", "乙"]);
-        const second = service.questions(undefined, first.cursor, 2);
+        const second = service.decisions(undefined, first.cursor, 2);
         expect(second !== "cursor-stale" && second.items.map((item) => item.text)).toEqual(["丙"]);
 
         expect((await service.publish(entryRequest("星瑕", 2))).ok).toBe(true);

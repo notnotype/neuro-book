@@ -10,7 +10,8 @@ export {addExact, exactProblem, subtractExact, EXACT_DECIMALS, EXACT_LIMIT, type
 export {compareIds, IdAllocator, ID_PREFIX, LOCAL_ID_PREFIX, splitId} from "./core/ids";
 export {ENABLE_FIELD, isIdentifierName, isNamespaceName, RESERVED_ROOTS} from "./core/identifiers";
 export {parseChineseNumber, readNumbers} from "./core/numerals";
-export {applyChanges, diffValues, parseSegments, type FieldChange, type PathSegment} from "./core/paths";
+export {idListsOf} from "./core/id-lists";
+export {applyChanges, diffValues, parseSegments, type FieldChange, type IdListMatcher, type PathSegment} from "./core/paths";
 export {
     allPositions,
     chapterEnd,
