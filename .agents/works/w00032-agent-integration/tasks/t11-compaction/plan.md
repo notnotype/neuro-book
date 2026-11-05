@@ -23,7 +23,7 @@
 
 ### `packages/neuro-book/src/plugins/agent/backend/compaction/`：方法（新目录）
 
-- `index.ts`：`compactionFor({editStores, ...})` 交给 `createAgentHost`（`backend/agent.ts`）。贡献点 `agent.compactionMethods`（`idPrefix: "plugin"`，内置的 id 是 `nbook.agent.shake`、`nbook.agent.inplace`、`nbook.agent.summary`，决定 8）。缺省顺序：超过阈值与手动 `shake → inplace → summary`，溢出 `shake → summary`（决定 2 的修改见末尾）。
+- `index.ts`：`compactionFor({editStores, ...})` 交给 `createAgentHost`（`backend/agent.ts`）。贡献点 `agent.compactionMethods`（`idPrefix: "plugin"`，内置的 id 是 `nbook.agent.shake`、`nbook.agent.inplace`、`nbook.agent.summary`，决定 8）。缺省顺序：超过阈值与手动 `shake → inplace → summary`，溢出 `shake → summary`（确认 5）。
 - 贡献点的寿命照 `agent.tools`（`backend/tools.ts`）：声明先可读，第一次调用触发激活，激活失败算这个方法失败；按句柄代次取实现。撤回时中止在途调用并算失败，换下一个；晚到的结果丢弃。方法不设时限：内置方法的模型调用有内核的超时，第三方方法卡住时用户能停止（取舍，写进 Spec）。
 - `cuts.ts`：`pickCut(job)` 取保留量不超过 20,000 token 的最早切点（决定 1），没有时取最后一个，允许最后一个不可切的单元超过 20,000。只供要摘要的两种方法用。`tokensAfter` = 摘要估算 + 保留量，和 `job.tokens` 同一口径。
 - `shake.ts`：不调模型。`firstKeptEntryId` 用 `job.cuts[0]`，`replacement: null`，旧摘要留着。把保留窗口之外能找回的工具结果（`read`、`search`、`image`、输出长的 `shell`）列进 `omitted`，占位写明怎么找回。省下的不到 `job.tokens` 的 20% 时交回 `{failed}`。
@@ -40,7 +40,7 @@
 
 1. 最近读过或改过的至多 5 个文件：从 `path` 按 `callId` 配对调用与结果，只取成功的 `read`、`write`，`edit` 按 `details.files` 里成功的文件，按时间倒序。用会话的资源视图重新读（权限按现在的算），读不到、撤权、删除、非文本都跳过并写诊断，不让压缩失败。单个文件最多 8,000 token，合计不超过 `min(20,000, 窗口的 25%)`。显示格式与 `read` 工具相同，并把快照记进同一个 `SessionEditStores`（`backend/plugin.ts` 拥有，经 `compactionFor` 注入，`builtin/read.ts` 的 `render` 提出来共用；只有完整显示的行算见过），模型接着用行锚能改。
 2. `session://plan.md`，有才放，算在同一份预算里。
-3. 完整对话记录的地址：`sessions://<本会话>/session.jsonl`。不另写副本（待确认 1）。
+3. 完整对话记录的地址：`sessions://<本会话>/session.jsonl`。不另写副本（确认 4）。
 
 种子由内核的 `opening()` 重读，这里不管。`restored` 交回 `[{kind: "file" | "plan" | "log", target, tokens, truncated}]`。
 
@@ -57,7 +57,7 @@
 - **其余 8 个命令：** 宿主还不支持的不进菜单（t17 留下的死入口：菜单列着，发出去被丢弃）。
 - **只压缩的运行：** 适配器记 `runStarted.kind`，`run` 视图带 `kind: "compact"`。这种运行不把上一轮算成运行中（不展开、不转圈），`aborted` 与 `error` 不碰上一轮的回复：停止显示“压缩已停止”，失败显示 `compaction-failed` 的文案（没成功、对话没动、可以换压缩模型或开新会话）。
 - **分隔线：** `SystemMessageView` 加 `compaction?: CompactionView`（数字与字符串，适配器从事件的 `details` 与 `restored` 取，不解析 notice，也不配对 `modelEnded`）。`dividerHasBody` 改成有文字或有详情都能点开。详情用 `<dl>`，只显示有的字段：方法与模型、压缩前后 token（标“估算”，不算百分比）、花费、用到的要求、放回了什么、保留最近几轮原文或省略了几条工具结果、摘要全文（走 Markdown）。shake 写“没有调用模型”。
-- **轮中的压缩：** 整轮收起时分隔线也显示，放在整轮摘要行和结果之间（待确认 3）。
+- **轮中的压缩：** 整轮收起时分隔线也显示，放在整轮摘要行和结果之间（确认 6）。
 - **上下文读数：** 压缩后到下一次回复前，显示 `tokensAfter` 加放回的量，悬停标“估算”，写进 `agent/conversation.md` 输出 16。
 - 组件同名 `.md`、Lab 场景（有摘要、shake、含放回、含要求、token 增加）、locales 照常。做完发评审板看外观。
 
@@ -120,12 +120,6 @@
 - 风险：摘要质量要靠实际写书的体验调，第一版只保证小节齐全、要求原文保留（开发者已说明随反馈优化）。
 - 风险：`tokensAfter` 是估算，不含系统提示与工具，压缩后读数偏低，第一次回复后会跳上去。悬停写明“估算”，不另算。
 
-## 待开发者确认（设计审查之后）
-
-1. **完整对话记录用现有的日志地址，不另写一份渲染的。** 决定 6 要提前做渲染对话记录。审查指出写到 `session://transcripts/` 有两个问题：绕过按读者的出站过滤，留一份不过滤的副本；放在模型可写的目录里，和只读的权威日志成了两份。`sessions://<本会话>/session.jsonl` 已经可读。代价：模型读到的是 JSONL，比 Markdown 吵。渲染版留给 t14，要带过滤。
-2. **缺省顺序末尾都加摘要：** 超过阈值与手动 `shake → inplace → summary`（决定 2 只到就地）。就地可能失败：DeepSeek V4 Flash 不支持禁止工具调用，只配了压缩角色时对话模型也不可用。不加的话这些情况压缩直接失败。代价：两个方法都失败时多花一次。
-3. **轮中压缩的分隔线常显：** 整轮收起时也露出来，放在摘要行和结果之间。否则最常见的自动压缩默认看不到。外观随评审板看。
-
 ## 开发者已确认（2026-11-05）
 
 偏离 [t11 决定](README.md) 的三处，决定记录在 Task README：
@@ -133,3 +127,9 @@
 1. 不做“看压缩前的原文”：对话视图显示的是整条路径，压缩前的内容就在分隔线上面。
 2. shake 之后不放回：`replacement` 为 null 时跳过放回。
 3. 按模型的阈值不做前缀匹配：阈值写在每个模型自己的配置里。
+
+设计审查之后又确认三处：
+
+4. 完整对话记录用现有的 `sessions://<本会话>/session.jsonl`，不另写一份渲染的（决定 6）：副本会绕过按读者的出站过滤，又放在模型可写的目录里。渲染版留给 t14，要带过滤。
+5. 缺省顺序末尾都加摘要：超过阈值与手动 `shake → inplace → summary`（决定 2 只到就地）：就地可能失败，DeepSeek V4 Flash 不支持禁止工具调用，只配了压缩角色时对话模型也不可用。
+6. 轮中压缩的分隔线常显：整轮收起时也露在摘要行和结果之间，外观随评审板看。
