@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t20-panel-review-close-and-reading-width
-status: active
+status: done
 updated: 2026-11-05
 ---
 
