@@ -195,6 +195,14 @@ export const GOAL_DIAGNOSTIC_IDS = {
     skippedStep: `${PLOT_PLUGIN_ID}.goal.skippedStep`,
 } as const;
 
+/** 决策的诊断（decisions.md 的诊断表）。`constraintViolated`、`decidedInText` 要窄问题，随阶段 F。 */
+export const DECISION_DIAGNOSTIC_IDS = {
+    addressGuardViolated: `${PLOT_PLUGIN_ID}.decision.addressGuardViolated`,
+    readerGuardViolated: `${PLOT_PLUGIN_ID}.decision.readerGuardViolated`,
+    overdue: `${PLOT_PLUGIN_ID}.decision.overdue`,
+    dangling: `${PLOT_PLUGIN_ID}.decision.dangling`,
+} as const;
+
 /** 已经给出计算的诊断（knowledge.md 的诊断表）；伏笔、目标、决策、写作指示与检查的随各自的那一片加。 */
 export const PLOT_DIAGNOSTICS: readonly DiagnosticDeclaration[] = [
     {id: DIAGNOSTIC_IDS.relayBroken, version: 1, level: "pending", label: "传话链断了", key: ["objects", "line"], inputs: "有效的知情（显式的行、在场推出的、隐秘目标推出的）"},
@@ -202,6 +210,8 @@ export const PLOT_DIAGNOSTICS: readonly DiagnosticDeclaration[] = [
     {id: GOAL_DIAGNOSTIC_IDS.premiseChanged, version: 1, level: "pending", label: "前提变了", key: ["objects", "line"], inputs: "目标基于的知识点、持有者的有效知情、目标的改动"},
     {id: GOAL_DIAGNOSTIC_IDS.stalled, version: 1, level: "hint", label: "停滞", key: ["objects", "line"], inputs: "目标最后一次被改所在的章"},
     {id: GOAL_DIAGNOSTIC_IDS.skippedStep, version: 1, level: "hint", label: "缺一步", key: ["objects", "line"], inputs: "目标状态的补丁与涉及它的变更"},
+    {id: DECISION_DIAGNOSTIC_IDS.overdue, version: 1, level: "pending", label: "到期没定", key: ["objects"], inputs: "待定决策的到期章与读取位置"},
+    {id: DECISION_DIAGNOSTIC_IDS.dangling, version: 1, level: "hint", label: "悬空", key: ["objects"], inputs: "已定决策挂的对象"},
     {id: FS_DIAGNOSTIC_IDS.payoffBeforePlant, version: 1, level: "pending", label: "没埋就回收", key: ["objects", "telling"]},
     {id: FS_DIAGNOSTIC_IDS.plannedNodeMissing, version: 1, level: "pending", label: "计划的节点没写", key: ["objects", "line"]},
     {id: FS_DIAGNOSTIC_IDS.replantAfterPayoff, version: 1, level: "pending", label: "回收以后又埋", key: ["objects", "telling"]},

@@ -6,11 +6,12 @@
 import {createHash} from "node:crypto";
 
 import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry, ChapterOrder, World} from "@notnotype/nb-canon";
-import type {CastMember, Entry, Mark, Patch, Placement, StoryChangeDraft, TellingDraft, WriteRequest} from "@notnotype/nb-canon";
+import type {CastMember, Decision, Entry, Mark, Patch, Placement, StoryChangeDraft, TellingDraft, WriteRequest} from "@notnotype/nb-canon";
 import {createWorldReadView} from "@notnotype/nb-canon/node";
 import type {CanonReadView} from "@notnotype/nb-canon/schema";
 
 import {COMPONENT_IDS, PLOT_COMPONENTS, PLOT_DIAGNOSTICS, PLOT_MARKS, PLOT_PLUGIN_ID} from "../shared/declarations";
+import {signAuthorization, TEST_PROJECT, verifyTestSource} from "./authorization";
 
 const PERSON = {id: "test.person", label: "人物", namespace: "character", version: 1, fields: [{id: "状态", label: "状态", kind: "text" as const}]};
 
@@ -58,6 +59,8 @@ export class PlotWorld {
             reductions: () => undefined,
             chapterText: (chapter) => this.texts.get(chapter),
             digest: (text) => createHash("sha256").update(text).digest("hex"),
+            project: TEST_PROJECT,
+            verifyAuthorSource: verifyTestSource,
         });
     }
 
@@ -109,6 +112,30 @@ export class PlotWorld {
     change(at: Placement, options: ChangeOptions = {}): string {
         const id = `tmp:c${String(++this.#sequence)}`;
         return this.publish([{ref: {kind: "change", id}, after: drafts.change(id, at, options)}])[id]!;
+    }
+
+    /** 一条决策：待定建好，有 `conclusion` 时再由作者来源转成已定。返回正式 id。 */
+    decision(text: string, extra: Partial<Decision> & {conclusion?: string} = {}): string {
+        // 结论、理由、约束只在已定时起作用，新建的待定决策不能带。
+        const {conclusion, reason, constraints, risks, ...rest} = extra;
+        const id = `tmp:d${String(++this.#sequence)}`;
+        const created = this.publish([{ref: {kind: "decision", id}, after: {id, text, status: "pending", about: [], hints: [], ...rest}}])[id]!;
+        if (conclusion === undefined) return created;
+        const stored = this.world.data.decisions.get(created)!;
+        const request: WriteRequest = {requestId: `plot-${String(++this.#sequence)}`, by: {kind: "author"}, what: "edit", title: "定", baseVersion: this.world.version, puts: [{ref: {kind: "decision", id: created}, after: {...stored, status: "decided", conclusion, ...(reason === undefined ? {} : {reason}), ...(constraints === undefined ? {} : {constraints}), ...(risks === undefined ? {} : {risks})}}]};
+        const result = this.world.publish({...request, authorizations: [signAuthorization(request, created, "pending→decided")]}, "t");
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        this.world = result.world;
+        return created;
+    }
+
+    /** 作者来源放弃一条待定决策。 */
+    drop(id: string): void {
+        const stored = this.world.data.decisions.get(id)!;
+        const request: WriteRequest = {requestId: `plot-${String(++this.#sequence)}`, by: {kind: "author"}, what: "edit", title: "放弃", baseVersion: this.world.version, puts: [{ref: {kind: "decision", id}, after: {...stored, status: "dropped"}}]};
+        const result = this.world.publish({...request, authorizations: [signAuthorization(request, id, "pending→dropped")]}, "t");
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        this.world = result.world;
     }
 
     view(): CanonReadView {

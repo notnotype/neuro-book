@@ -18,6 +18,7 @@ import {CANON_BUDGET_BYTES, canonProjectKey, encodedBytes} from "nbook/plugins/c
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {foreshadowDiagnostics, ledger} from "../core/foreshadowing";
+import {decisionDiagnostics} from "../core/decisions";
 import {goalDiagnostics} from "../core/goal-checks";
 import {conflictsOf} from "../core/goals";
 import {experienceChanges, firstReveal, knowingIndex, readerKnowing} from "../core/knowledge";
@@ -189,7 +190,7 @@ export const plotProjectPlugin: PluginDefinition = {
             const canon = context.services.require(canonProjectKey);
             // 写作指示快照表：这个项目实例的所有调用方与诊断计算共用（闭包里，不放模块级）。
             const instructions = new InstructionTable();
-            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics()}, dataVersion: instructions.dataVersion});
+            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics()}, dataVersion: instructions.dataVersion});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();
             const remote = provideRemote(plotWorldContract, () => {
