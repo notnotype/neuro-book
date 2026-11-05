@@ -64,7 +64,7 @@ export const GREGORIAN: Calendar = {
     unit: "minute",
     hoursPerDay: 24,
     minutesPerHour: 60,
-    months: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].map((days, index) => ({id: `m${String(index + 1)}`, name: `${String(index + 1)} 月`, days})),
+    months: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].map((days, index) => ({id: `m${String(index + 1)}`, name: `${String(index + 1)}月`, days})),
     leap: [{every: 4, months: {m2: 29}}, {every: 100, months: {m2: 28}}, {every: 400, months: {m2: 29}}],
     eras: [{id: "ad", name: "公元", start: 1}],
     periods: [],
