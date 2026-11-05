@@ -8,6 +8,7 @@ import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import {TOOLS_POINT} from "../../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 
+import {askDeclaration, askFormDeclaration, askTool} from "./ask";
 import {SessionEditStores} from "./common";
 import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from "./edit";
 import {readDeclaration, readTool} from "./read";
@@ -24,13 +25,14 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     "nbook.agent.grep": {...grepDeclaration, providerName: "grep"},
     "nbook.agent.glob": {...globDeclaration, providerName: "glob"},
     "nbook.agent.shell": {...shellDeclaration, providerName: "shell"},
+    "nbook.agent.ask": {...askDeclaration, providerName: "ask"},
+    "nbook.agent.ask-form": {...askFormDeclaration, providerName: "ask"},
 };
 
 export const BUILTIN_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = Object.entries(DECLARATIONS).map(([id, declaration]) => ({capability: TOOLS_POINT, id, declaration}));
 
-/** 每次激活一套：行锚快照跟着入口这一代。 */
-export function builtinTools(): Readonly<Record<string, AgentToolImplementation>> {
-    const stores = new SessionEditStores();
+/** 每次激活一套：行锚快照跟着入口这一代。审批预览要读同一份快照，由入口建好传进来。 */
+export function builtinTools(stores = new SessionEditStores()): Readonly<Record<string, AgentToolImplementation>> {
     return {
         "nbook.agent.read": readTool(stores),
         "nbook.agent.write": writeTool(stores),
@@ -39,5 +41,7 @@ export function builtinTools(): Readonly<Record<string, AgentToolImplementation>
         "nbook.agent.grep": grepTool,
         "nbook.agent.glob": globTool,
         "nbook.agent.shell": shellTool,
+        "nbook.agent.ask": askTool,
+        "nbook.agent.ask-form": askTool,
     };
 }

@@ -115,6 +115,11 @@ const wholeErrors = errorsOf([...OPEN_CODES, "result-too-large"] as const);
 export type LogItem = {readonly kind: "event"; readonly event: LogEvent} | {readonly kind: "oversized"; readonly seq: number; readonly type: string; readonly bytes: number};
 export type PreviewItem = {readonly kind: "inline"; readonly preview: PreviewResult} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
 
+/** 审批预览（builtin-tools.md 输出 26）：按文件分组。 */
+export type ApprovalPreview = {readonly files: ReadonlyArray<{readonly address: string; readonly kind: "diff"; readonly before: string; readonly after: string} | {readonly address: string; readonly kind: "too-large"; readonly bytes: number} | {readonly address: string; readonly kind: "failed"; readonly code: string}>};
+/** 放不进一条消息时和 `preview` 一样经 `previewChunk` 分段读。 */
+export type ApprovalPreviewItem = {readonly kind: "inline"; readonly preview: ApprovalPreview} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
+
 /** `frames` 推的帧：日志帧用 `LogItem` 投影，其余照内核的帧。 */
 export type RemoteFrame = {readonly type: "log"; readonly item: LogItem} | Exclude<Frame, {type: "log"}>;
 
@@ -149,6 +154,12 @@ const methods = {
         output: object<PreviewItem>(),
         effect: "read",
         errors: errorsOf([...OPEN_CODES, "preview-unavailable"] as const),
+    },
+    approvalPreview: {
+        input: Type.Object({...BySession, interactionId: Type.String()}, {additionalProperties: false}),
+        output: object<ApprovalPreviewItem>(),
+        effect: "read",
+        errors: errorsOf([...OPEN_CODES, "unknown-interaction"] as const),
     },
     /** 按页读诊断：`after` 是上一页最后一条的 id（诊断按 id 合并、按出现先后排）；长文字截短。 */
     diagnostics: {

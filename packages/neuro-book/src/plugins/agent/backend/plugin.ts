@@ -26,11 +26,14 @@ import {AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, EXTENSION
 
 import {createAgentRuntime} from "./agent";
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./builtin";
+import {SessionEditStores} from "./builtin/common";
+import {approvalPreview} from "./builtin/preview";
 import {BUILTIN_PROFILE_CONTRIBUTIONS, builtinProfiles} from "./builtin/profiles";
 import {GUARD_CONTRIBUTIONS, runGuards} from "./guards";
 import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
 import {agentRemote, PreviewTokens} from "./remote";
+import {sessionResources} from "./resources";
 import {AGENT_SCHEMES, agentSchemes} from "./schemes";
 import {SESSION_META_CONTRIBUTION, SESSION_META_EXTENSION, sessionMetaExtension} from "./session-meta";
 import {prepareTempContainer, sweepTemps} from "./temps";
@@ -67,6 +70,7 @@ export const agentBackendPlugin: PluginDefinition = {
             });
             const clock = context.services.require(clockKey);
             const previews = new PreviewTokens(clock);
+            const editStores = new SessionEditStores();
             const stateRoot = context.services.require(stateRootKey).path;
             const profilesRoot = join(stateRoot, "agent", "profiles");
             await mkdir(profilesRoot, {recursive: true});
@@ -92,8 +96,8 @@ export const agentBackendPlugin: PluginDefinition = {
             context.onStop(stop);
             return {
                 services: [provideService(agentKey, runtime.service)],
-                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock}, previews))],
-                contributions: {[SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
+                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, sessionResources(context.services.require(workspaceFilesKey), session, tool), editStores, session.sessionId, signal)}, previews))],
+                contributions: {[SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

@@ -52,6 +52,8 @@ afterAll(async () => {
 const MAIN = "test.bt.main";
 const REPLACE = "test.bt.replace";
 const GRAB = "test.bt.grab";
+const ASK_FORM = "test.bt.ask-form";
+const ASK_FIXED = "test.bt.ask-fixed";
 const BUILTIN = ["read", "write", "edit", "grep", "glob", "shell"].map((name) => `nbook.agent.${name}`);
 const BUILTIN_REPLACE = ["read", "write", "edit-replace"].map((name) => `nbook.agent.${name}`);
 const cid = () => `c-${String((commands += 1))}`;
@@ -63,7 +65,8 @@ let grabbed: {resources: SessionResources; artifacts: SessionArtifacts} | null =
 let onLedger: ((entry: LedgerEntry) => Promise<void>) | null = null;
 
 function testPlugin(): PluginDefinition {
-    const profiles = [agentProfile(MAIN, {name: MAIN, description: "测试用", tools: {required: [...BUILTIN, GRAB], optional: []}}), agentProfile(REPLACE, {name: REPLACE, description: "测试用", tools: {required: [...BUILTIN_REPLACE, GRAB], optional: []}})];
+    const asking = [agentProfile(ASK_FORM, {name: ASK_FORM, description: "测试用", tools: {required: ["nbook.agent.ask-form"], optional: []}}), agentProfile(ASK_FIXED, {name: ASK_FIXED, description: "测试用", tools: {required: ["nbook.agent.ask"], optional: []}})];
+    const profiles = [...asking, agentProfile(MAIN, {name: MAIN, description: "测试用", tools: {required: [...BUILTIN, GRAB], optional: []}}), agentProfile(REPLACE, {name: REPLACE, description: "测试用", tools: {required: [...BUILTIN_REPLACE, GRAB], optional: []}})];
     const tool = agentTool(GRAB, {description: "交出服务", parameters: {type: "object", properties: {}}, version: "1", effect: "read"});
     const grab: AgentToolImplementation = {create: (_context, services) => {
         grabbed = services;
@@ -78,7 +81,7 @@ function testPlugin(): PluginDefinition {
         activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), tool.activationEvent],
         contributions: [...profiles.map((item) => item.contribution), tool.contribution, {capability: LEDGER_POINT, id: "test.bt.ledger", declaration: {}}],
         activate: () => ({contributions: {
-            "agent.profiles": Object.fromEntries([MAIN, REPLACE].map((key) => [key, defineProfile({id: key, version: "1", name: key, description: "测试用", system: "测试。", tools: {required: key === MAIN ? [...BUILTIN, GRAB] : [...BUILTIN_REPLACE, GRAB]}})])),
+            "agent.profiles": Object.fromEntries([[MAIN, [...BUILTIN, GRAB]], [REPLACE, [...BUILTIN_REPLACE, GRAB]], [ASK_FORM, ["nbook.agent.ask-form"]], [ASK_FIXED, ["nbook.agent.ask"]]].map(([key, required]) => [key, defineProfile({id: key as string, version: "1", name: key as string, description: "测试用", system: "测试。", tools: {required: required as string[]}})])),
             "agent.tools": {[GRAB]: grab},
             [LEDGER_POINT]: {"test.bt.ledger": ledger},
         }}),
@@ -87,7 +90,7 @@ function testPlugin(): PluginDefinition {
 
 async function world(): Promise<AgentWorld> {
     counter += 1;
-    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[MAIN]: {approvalMode: "yolo"}, [REPLACE]: {approvalMode: "yolo"}}}});
+    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[MAIN]: {approvalMode: "yolo"}, [REPLACE]: {approvalMode: "yolo"}, [ASK_FORM]: {approvalMode: "yolo"}, [ASK_FIXED]: {approvalMode: "yolo"}}}});
     worlds.push(created);
     return created;
 }
@@ -797,6 +800,229 @@ describe("全文（resources 输出 11）", () => {
         expect(await resources.write(one.value.address, "改", {expect: "any"})).toMatchObject({ok: false, code: "permission-denied"});
         expect(await artifacts.save("a/b", async () => undefined)).toMatchObject({ok: false, code: "invalid-address"});
         expect(await artifacts.save("..", async () => undefined)).toMatchObject({ok: false, code: "invalid-address"});
+    });
+});
+
+describe("ask", () => {
+    const QUESTIONS = [
+        {question: "主角叫什么？", options: [{label: "林舟"}, {label: "陈砚"}]},
+        {question: "哪些人物要出场？", multiSelect: true, options: [{label: "甲"}, {label: "乙"}, {label: "丙"}]},
+    ];
+    const FORM = {type: "object", properties: {年龄: {type: "integer"}}, required: ["年龄"]};
+
+    /** 模型调用 ask，运行进 waiting；交回事项与放行之后取结果的函数。 */
+    async function asked(session: SessionApi, questions: unknown) {
+        endpoint.script({tool: "ask", args: {questions}}, "好");
+        const sent = await session.send({commandId: cid(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(`send failed: ${JSON.stringify(sent)}`);
+        const {runId} = sent.value;
+        const finish = async () => {
+            await session.waitRun(runId);
+            return (await session.path()).filter((event) => event.type === "toolResult").at(-1)!.data as unknown as Result;
+        };
+        const id = await new Promise<string | null>((resolve) => {
+            const stop = session.subscribe((frame) => {
+                if (frame.type === "status" && frame.status.state === "waiting") {
+                    stop();
+                    resolve(frame.status.pending[0]!.id);
+                }
+                if (frame.type === "log" && frame.event.type === "toolResult") {
+                    stop();
+                    resolve(null);
+                }
+            });
+        });
+        return {id, finish};
+    }
+
+    test("输出 23：选项、其它、表单的回答回到模型；结构化的值在 details；请求带全部问题", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FORM);
+        const {id, finish} = await asked(session, [...QUESTIONS, {question: "年龄？", options: [{label: "跳过"}, {label: "填写"}], form: FORM}]);
+        const requested = (await session.path()).find((event) => event.type === "interactionRequested")!.data as unknown as {kind: string; request: {data: {questions: unknown[]}}};
+        expect(requested.kind).toBe("question");
+        expect(requested.request.data.questions).toHaveLength(3);
+        const answers = [{selected: ["林舟"]}, {selected: ["甲", "丙"], other: "再加一个丁"}, {selected: [], form: {年龄: 19}}];
+        expect(await session.resolve({commandId: cid(), id: id!, decision: "answer", answer: {text: "见回答", data: {answers} as never}})).toMatchObject({ok: true});
+        const result = await finish();
+        expect(result.status).toBe("ok");
+        expect(result.details).toEqual({answers} as never);
+        expect(result.text).toContain("回答：林舟");
+        expect(result.text).toContain("甲；丙；其它：再加一个丁");
+        expect(result.text).toContain('表单：{"年龄":19}');
+    });
+
+    test("输出 23：回答越界得 ask-invalid-answer：选项之外、单选给两个、题数不对、表单不合规、没答", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FORM);
+        const cases: {readonly questions: unknown; readonly answers: unknown}[] = [
+            {questions: QUESTIONS, answers: [{selected: ["不存在"]}, {selected: ["甲"]}]},
+            {questions: QUESTIONS, answers: [{selected: ["林舟", "陈砚"]}, {selected: ["甲"]}]},
+            {questions: QUESTIONS, answers: [{selected: ["林舟"]}]},
+            {questions: QUESTIONS, answers: [{selected: []}, {selected: ["甲"]}]},
+            {questions: [{question: "年龄？", options: [{label: "跳过"}, {label: "填写"}], form: FORM}], answers: [{selected: [], form: {年龄: "很老"}}]},
+            {questions: QUESTIONS, answers: "不是列表"},
+        ];
+        for (const item of cases) {
+            const {id, finish} = await asked(session, item.questions);
+            await session.resolve({commandId: cid(), id: id!, decision: "answer", answer: {text: "见回答", data: {answers: item.answers} as never}});
+            expect((await finish()).code, JSON.stringify(item.answers)).toBe("ask-invalid-answer");
+        }
+    });
+
+    test("输出 24：form 不合 Agent 策略得 ask-form-invalid，不打扰用户；问题列在结果里", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FORM);
+        const {id, finish} = await asked(session, [{question: "填", options: [{label: "甲"}, {label: "乙"}], form: {type: "object", properties: {a: {type: "string", pattern: "^x"}}}}]);
+        expect(id).toBeNull();
+        const result = await finish();
+        expect(result.code).toBe("ask-form-invalid");
+        expect(result.text).toContain("第 1 题");
+        expect((await session.path()).some((event) => event.type === "interactionRequested")).toBe(false);
+    });
+
+    test("输出 25：用户拒答、停止都得 ask-declined", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FORM);
+        const declined = await asked(session, QUESTIONS);
+        await session.resolve({commandId: cid(), id: declined.id!, decision: "deny"});
+        expect((await declined.finish()).code).toBe("ask-declined");
+    });
+
+    test("输出 25：后台会话得 ask-unavailable，不进等待", async () => {
+        const w = await world();
+        endpoint.script({tool: "ask", args: {questions: QUESTIONS}}, "好");
+        const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: ASK_FORM, input: {text: "问"}, background: true});
+        if (!started.ok) throw new Error(started.code);
+        const background = w.service.session(started.sessionId, {kind: "user"});
+        await background.waitRun(started.runId);
+        const events = await background.path();
+        expect(events.some((event) => event.type === "interactionRequested")).toBe(false);
+        expect((events.find((event) => event.type === "toolResult")!.data as unknown as Result).code).toBe("ask-unavailable");
+    });
+
+    test("输出 25：两条贡献给模型的名字相同；固定的那条没有 form，声明更短", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FIXED);
+        const {id, finish} = await asked(session, QUESTIONS);
+        expect(endpoint.requests.at(-1)!.tools).toEqual(["ask"]);
+        await session.resolve({commandId: cid(), id: id!, decision: "answer", answer: {text: "见回答", data: {answers: [{selected: ["林舟"]}, {selected: ["乙"]}]}}});
+        expect((await finish()).status).toBe("ok");
+        const declaration = (key: string) => BUILTIN_TOOL_CONTRIBUTIONS.find((item) => item.id === key)!.declaration;
+        expect(declaration("nbook.agent.ask").providerName).toBe("ask");
+        expect(declaration("nbook.agent.ask-form").providerName).toBe("ask");
+        expect(JSON.stringify(declaration("nbook.agent.ask")).length).toBeLessThan(JSON.stringify(declaration("nbook.agent.ask-form")).length);
+    });
+});
+
+describe("审批预览（输出 26）", () => {
+    const hashline = (address: string, tag: string, body: string) => `[${address}#${tag}]\n${body}\n`;
+
+    /** 把会话切到每次都问，让模型调用工具，运行停在审批上；交回事项 id 与接着跑完的函数。 */
+    async function waitingApproval(session: SessionApi, tool: string, args: Readonly<Record<string, unknown>>) {
+        const changed = await session.changeSettings({commandId: cid(), patch: {core: {approvalMode: "ask"}}});
+        if (!changed.ok) throw new Error(changed.code);
+        endpoint.script({tool, args}, "好");
+        const sent = await session.send({commandId: cid(), input: {text: "改"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(`send failed: ${JSON.stringify(sent)}`);
+        const {runId} = sent.value;
+        const id = await new Promise<string>((resolve) => {
+            const stop = session.subscribe((frame) => {
+                if (frame.type === "status" && frame.status.state === "waiting") {
+                    stop();
+                    resolve(frame.status.pending[0]!.id);
+                }
+            });
+        });
+        return {id, approve: async () => {
+            await session.resolve({commandId: cid(), id, decision: "allow"});
+            await session.waitRun(runId);
+            return (await session.path()).filter((event) => event.type === "toolResult").at(-1)!.data as unknown as Result;
+        }};
+    }
+
+    async function preview(w: AgentWorld, sessionId: string, interactionId: string) {
+        const {client} = await w.window(`preview-${String((commands += 1))}`);
+        const result = await client.approvalPreview({sessionId, interactionId});
+        if (!result.ok) throw new Error(result.code);
+        if (result.value.kind !== "inline") throw new Error("expected an inline preview");
+        return result.value.preview;
+    }
+
+    test("write：新文件改前是空的，已有文件是现在的内容；不写盘", async () => {
+        const w = await world();
+        const {session, id, home, global} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "旧\n");
+        const fresh = await waitingApproval(session, "write", {path: "session://新.md", content: "新内容\n"});
+        expect(await preview(w, id, fresh.id)).toEqual({files: [{address: `${global}/新.md`, kind: "diff", before: "", after: "新内容\n"}]});
+        await expect(readFile(join(home, "新.md"), "utf8")).rejects.toThrow();
+        await fresh.approve();
+        const existing = await waitingApproval(session, "write", {path: "session://a.md", content: "新\n"});
+        expect(await preview(w, id, existing.id)).toEqual({files: [{address: `${global}/a.md`, kind: "diff", before: "旧\n", after: "新\n"}]});
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("旧\n");
+        await existing.approve();
+    });
+
+    test("hashline 一次改两个文件按文件分节；预览不动会话的行锚：批准之后照样改得成", async () => {
+        const w = await world();
+        const {session, id, home, global} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "一\n二\n");
+        await writeFile(join(home, "b.md"), "甲\n乙\n");
+        const tagA = headerTag((await call(session, "read", {path: "session://a.md"})).text);
+        const tagB = headerTag((await call(session, "read", {path: "session://b.md"})).text);
+        const waiting = await waitingApproval(session, "edit", {input: `${hashline("session://a.md", tagA, "PUT 2.=2:\n+贰")}${hashline("session://b.md", tagB, "PUT 2.=2:\n+丙")}`});
+        const first = await preview(w, id, waiting.id);
+        expect(first.files).toEqual([
+            {address: `${global}/a.md`, kind: "diff", before: "一\n二\n", after: "一\n贰\n"},
+            {address: `${global}/b.md`, kind: "diff", before: "甲\n乙\n", after: "甲\n丙\n"},
+        ]);
+        expect(await preview(w, id, waiting.id)).toEqual(first);
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n二\n");
+        const done = await waiting.approve();
+        expect(done.status).toBe("ok");
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n贰\n");
+        expect(await readFile(join(home, "b.md"), "utf8")).toBe("甲\n丙\n");
+    });
+
+    test("一大一小：大的给 too-large，小的照常", async () => {
+        const w = await world();
+        const {session, id, home, global} = await open(w, REPLACE);
+        await mkdir(home, {recursive: true});
+        const big = "大".repeat(100_000);
+        await writeFile(join(home, "big.md"), big);
+        const huge = await waitingApproval(session, "edit", {path: "session://big.md", old_string: "大大", new_string: "小", replace_all: true});
+        const files = (await preview(w, id, huge.id)).files;
+        expect(files).toMatchObject([{address: `${global}/big.md`, kind: "too-large"}]);
+        await huge.approve();
+        await writeFile(join(home, "small.md"), "一二三");
+        const small = await waitingApproval(session, "edit", {path: "session://small.md", old_string: "二", new_string: "贰"});
+        expect((await preview(w, id, small.id)).files).toEqual([{address: `${global}/small.md`, kind: "diff", before: "一二三", after: "一贰三"}]);
+        await small.approve();
+    });
+
+    test("算不出来的得 failed：文件不存在、改不上；审批不受影响", async () => {
+        const w = await world();
+        const {session, id, home, global} = await open(w, REPLACE);
+        await mkdir(home, {recursive: true});
+        const missing = await waitingApproval(session, "edit", {path: "session://没有.md", old_string: "一", new_string: "二"});
+        expect((await preview(w, id, missing.id)).files).toEqual([{address: `${global}/没有.md`, kind: "failed", code: "not-found"}]);
+        expect((await missing.approve()).code).toBe("not-found");
+        await writeFile(join(home, "a.md"), "一二三");
+        const stale = await waitingApproval(session, "edit", {path: "session://a.md", old_string: "没有这段", new_string: "二"});
+        expect((await preview(w, id, stale.id)).files).toMatchObject([{address: `${global}/a.md`, kind: "failed"}]);
+        await stale.approve();
+    });
+
+    test("别的工具没有预览；不是审批的事项得 unknown-interaction", async () => {
+        const w = await world();
+        const {session, id} = await open(w);
+        const waiting = await waitingApproval(session, "shell", {command: "true"});
+        expect(await preview(w, id, waiting.id)).toEqual({files: []});
+        const {client} = await w.window("preview-unknown");
+        expect(await client.approvalPreview({sessionId: id, interactionId: "没有这个"})).toMatchObject({ok: false, code: "unknown-interaction"});
+        await waiting.approve();
     });
 });
 

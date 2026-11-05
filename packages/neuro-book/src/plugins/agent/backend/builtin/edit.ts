@@ -3,8 +3,8 @@
  * 一次调用内读到基线，写回时核对，不把基线带到调用之外（t12 决定 12）。
  */
 
-import {EditSession, editDescription, editGrammar, editInspect} from "@oh-my-pi/pi-natives";
-import type {EditPolicy, EditUrlResolution, EditWriteRequest, EditWriteResponse} from "@oh-my-pi/pi-natives";
+import {EditSession, EditStore, editDescription, editGrammar, editInspect} from "@oh-my-pi/pi-natives";
+import type {EditApplyOutcome, EditPolicy, EditUrlResolution, EditWriteRequest, EditWriteResponse} from "@oh-my-pi/pi-natives";
 
 import type {ToolResult} from "@notnotype/nb-harness/kernel/contracts";
 
@@ -86,21 +86,25 @@ function editTool(mode: Mode, stores: SessionEditStores): AgentToolImplementatio
     };
 }
 
-async function run(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: ConstructorParameters<typeof EditSession>[0], call: {readonly callId: string; readonly signal: AbortSignal}): Promise<ToolResult> {
+/**
+ * 预检目标、读基线、跑引擎。引擎只算新内容，落盘交给 `save`：工具写回并核对基线，审批预览只记下算出来的内容。
+ * `save` 抛错就是这个文件写失败，引擎按部分失败收口。
+ */
+async function runEngine(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, signal: AbortSignal, save: (address: string, content: string, baseline: Baseline) => Promise<void>): Promise<{readonly ok: true; readonly outcome: EditApplyOutcome} | {readonly ok: false; readonly failure: ToolResult}> {
     const inspection = editInspect(mode, JSON.stringify(args));
-    if (inspection.fileOps.length > 0) return failed("unsupported-capability", `unsupported-capability: edit 不删除、不移动文件（${inspection.fileOps.map((op) => `${op.kind} ${op.path}`).join("，")}），什么都没有改`);
+    if (inspection.fileOps.length > 0) return {ok: false, failure: failed("unsupported-capability", `unsupported-capability: edit 不删除、不移动文件（${inspection.fileOps.map((op) => `${op.kind} ${op.path}`).join("，")}），什么都没有改`)};
 
     const expanded = new Map<string, string>();
     for (const path of inspection.paths) {
         const address = resources.expand(path);
-        if (!address.ok) return failed(address.code, `${address.code}: edit 的目标要是资源地址：${path}（${address.detail}），什么都没有改`);
+        if (!address.ok) return {ok: false, failure: failed(address.code, `${address.code}: edit 的目标要是资源地址：${path}（${address.detail}），什么都没有改`)};
         expanded.set(path, address.address);
     }
 
     const baselines = new Map<string, Baseline>();
     for (const address of new Set(expanded.values())) {
-        const read = await resources.read(address, {signal: call.signal});
-        if (!read.ok) return read.code === "not-found" ? failed("not-found", `not-found: ${address} 不存在，新建要用 write`) : failure(read);
+        const read = await resources.read(address, {signal});
+        if (!read.ok) return {ok: false, failure: read.code === "not-found" ? failed("not-found", `not-found: ${address} 不存在，新建要用 write`) : failure(read)};
         baselines.set(address, read.value.baseline);
     }
 
@@ -108,7 +112,7 @@ async function run(mode: Mode, args: Readonly<Record<string, unknown>>, resource
     const addressOf = new Map<string, string>();
     const resolveUrl = async (error: Error | null, url: string): Promise<EditUrlResolution> => {
         if (error !== null) return {error: error.message, planWritable: false};
-        const located = await resources.readPath(url, {signal: call.signal});
+        const located = await resources.readPath(url, {signal});
         if (!located.ok) return {error: `${located.code}: ${located.detail}`, planWritable: false};
         addressOf.set(located.value.path, url);
         return {path: located.value.path, planWritable: false};
@@ -129,22 +133,13 @@ async function run(mode: Mode, args: Readonly<Record<string, unknown>>, resource
         rawInput: false,
     };
 
-    const scoped = resources.call(call);
-    const files: FileOutcome[] = [];
-    let writeFailure: string | null = null;
     const writer = async (error: Error | null, request: EditWriteRequest): Promise<EditWriteResponse> => {
         if (error !== null) throw error;
         const address = addressOf.get(request.path);
         const baseline = address === undefined ? undefined : baselines.get(address);
         // 预检已挡住删除与移动，地址也都读过：走到这里说明预检与引擎对目标的理解不一致，不写。
         if (address === undefined || baseline === undefined || request.op !== "update" || request.content === undefined) throw new Error(`edit engine asked for an unexpected ${request.op} of ${request.displayPath}`);
-        const saved = await scoped.write(address, request.content, {expect: baseline});
-        if (!saved.ok) {
-            writeFailure = saved.code;
-            files.push({address, status: "failed", code: saved.code});
-            throw new Error(`${saved.code}: ${saved.detail}`);
-        }
-        files.push({address, status: "written"});
+        await save(address, request.content, baseline);
         return {written: request.content};
     };
 
@@ -152,14 +147,59 @@ async function run(mode: Mode, args: Readonly<Record<string, unknown>>, resource
     try {
         engine.setArgsJson(JSON.stringify(globalArgs(mode, args, expanded)));
         engine.finish();
-        const outcome = await engine.apply({lspFlush: false}, writer);
-        if (!outcome.isError) return {text: outcome.text, details: {mode, files: files as unknown as never}};
-        const code = writeFailure ?? `edit-${outcome.errorKind ?? "failed"}`;
-        const partial = files.some((file) => file.status === "written");
-        return {text: partial ? `${outcome.text}\n${summary(files)}` : outcome.text, status: "error", code, details: {mode, code, files: files as unknown as never}};
+        return {ok: true, outcome: await engine.apply({lspFlush: false}, writer)};
     } finally {
         engine.close();
     }
+}
+
+async function run(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, call: {readonly callId: string; readonly signal: AbortSignal}): Promise<ToolResult> {
+    const scoped = resources.call(call);
+    const files: FileOutcome[] = [];
+    let writeFailure: string | null = null;
+    const ran = await runEngine(mode, args, resources, store, call.signal, async (address, content, baseline) => {
+        const saved = await scoped.write(address, content, {expect: baseline});
+        if (!saved.ok) {
+            writeFailure = saved.code;
+            files.push({address, status: "failed", code: saved.code});
+            throw new Error(`${saved.code}: ${saved.detail}`);
+        }
+        files.push({address, status: "written"});
+    });
+    if (!ran.ok) return ran.failure;
+    const {outcome} = ran;
+    if (!outcome.isError) return {text: outcome.text, details: {mode, files: files as unknown as never}};
+    const code = writeFailure ?? `edit-${outcome.errorKind ?? "failed"}`;
+    const partial = files.some((file) => file.status === "written");
+    return {text: partial ? `${outcome.text}\n${summary(files)}` : outcome.text, status: "error", code, details: {mode, code, files: files as unknown as never}};
+}
+
+/**
+ * 审批预览（输出 26）：试算 `edit` 的结果，不写盘。引擎落盘之后会更新快照，所以在一份副本上跑，会话的行锚不受影响：
+ * 副本里放这次调用引用的那些快照，行锚的校验和真的执行时一样。
+ */
+export async function previewEdit(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, signal: AbortSignal): Promise<{readonly written: ReadonlyMap<string, string>; readonly failure: {readonly code: string; readonly targets: readonly string[]} | null}> {
+    const targets = editInspect(mode, JSON.stringify(args)).paths.map((path) => {
+        const expanded = resources.expand(path);
+        return expanded.ok ? expanded.address : path;
+    });
+    const scratch = new EditStore();
+    if (mode === "hashline") {
+        for (const [, path, tag] of (args.input as string).matchAll(/^\[([^#\r\n]+)#([^\]\s]+)/gmu)) {
+            const expanded = resources.expand(path!);
+            const located = expanded.ok ? await resources.readPath(expanded.address, {signal}) : null;
+            if (located?.ok !== true) continue;
+            const text = store.byHashText(located.value.path, tag!);
+            if (text !== null) scratch.recordSnapshot(located.value.path, text, store.seenLines(located.value.path, tag!));
+        }
+    }
+    const written = new Map<string, string>();
+    const ran = await runEngine(mode, args, resources, scratch, signal, async (address, content) => {
+        written.set(address, content);
+    });
+    const unwritten = [...new Set(targets)].filter((target) => !written.has(target));
+    if (!ran.ok) return {written, failure: {code: ran.failure.code ?? "edit-failed", targets: unwritten}};
+    return {written, failure: ran.outcome.isError ? {code: `edit-${ran.outcome.errorKind ?? "failed"}`, targets: unwritten} : null};
 }
 
 export const hashlineTool = (stores: SessionEditStores): AgentToolImplementation => editTool("hashline", stores);

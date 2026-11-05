@@ -9,11 +9,11 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, hostOnlyCommands} from "@notnotype/nb-harness/kernel/contracts";
-import type {Diagnostic, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import type {Diagnostic, SessionApi, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
 
 import type {AgentService} from "../shared/contracts";
-import type {agentSessionsContract, RemoteCommandName} from "../shared/remote";
+import type {agentSessionsContract, ApprovalPreview, RemoteCommandName} from "../shared/remote";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
 import {AgentSessionUnavailable} from "./sessions";
@@ -32,6 +32,8 @@ export interface AgentRemoteOptions {
     readonly service: AgentService;
     readonly sessions: SessionTable;
     readonly clock: RuntimeClock;
+    /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
+    readonly previewApproval: (session: ToolSessionContext, tool: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) => Promise<ApprovalPreview>;
 }
 
 /** 预览大到放不进一条消息时先存起来，经令牌分段读；所有调用方共用一张表。 */
@@ -134,6 +136,21 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             } catch (error) {
                 if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
                 if (error instanceof PreviewUnavailable) return context.fail("preview-unavailable", {message: error.message});
+                throw error;
+            }
+        },
+        approvalPreview: async ({sessionId, interactionId}, context) => {
+            try {
+                const session = view(sessionId);
+                const requested = (await session.path()).find((event) => event.type === "interactionRequested" && (event.data as {id: string}).id === interactionId)?.data as {kind: string; request: {tool: string; args: Readonly<Record<string, unknown>>}} | undefined;
+                if (requested?.kind !== "approval") return context.fail("unknown-interaction");
+                const snapshot = await session.snapshot();
+                const preview = await options.previewApproval({sessionId, profile: snapshot.profile.id, ...(snapshot.header.project === undefined ? {} : {project: snapshot.header.project})}, requested.request.tool, requested.request.args, context.signal);
+                const text = JSON.stringify(preview);
+                const bytes = Buffer.byteLength(text);
+                return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview} : {kind: "oversized", token: previews.put(text), bytes});
+            } catch (error) {
+                if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
                 throw error;
             }
         },
