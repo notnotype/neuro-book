@@ -141,7 +141,8 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         origins: (address, position, mode) => deepFreeze(world.engine.origins(address, position, mode)),
         outcome: (change) => deepFreeze(world.engine.outcome(change)),
         progress: (plan, position) => world.engine.progress(plan, position),
-        eventKey: (change, mode) => deepFreeze(world.engine.eventKey(change, mode)),
+        // 排序键与下面两个键一样每次新算、不与引擎的快照共用对象，不冻结：剧情建知情索引时对每条变更取一次，冻结是这一步最大的开销。
+        eventKey: (change, mode) => world.engine.eventKey(change, mode),
         placementKey: (placement) => {
             const rank = placementRank(order, placement);
             return rank === null ? null : {rank, tie: {version: -1, id: ""}};

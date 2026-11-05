@@ -178,14 +178,25 @@ function compareTellingIds(a: string, b: string): number {
     return Number(a.replace(/\D/gu, "")) - Number(b.replace(/\D/gu, "")) || (a < b ? -1 : a > b ? 1 : 0);
 }
 
+const chapterIndexes = new WeakMap<readonly string[], ReadonlyMap<string, number>>();
+/** 章在视图章序里的下标，不在序里为 -1。按视图的章序数组缓存：一千章时逐个 `indexOf` 是读待处理里最慢的一处。 */
+function chapterIndex(view: CanonReadView, chapter: string): number {
+    let index = chapterIndexes.get(view.chapters);
+    if (index === undefined) {
+        index = new Map(view.chapters.map((id, position) => [id, position]));
+        chapterIndexes.set(view.chapters, index);
+    }
+    return index.get(chapter) ?? -1;
+}
+
 function compareOccurrence(view: CanonReadView, a: Occurrence, b: Occurrence): number {
-    const chapter = view.chapters.indexOf(a.chapter) - view.chapters.indexOf(b.chapter);
+    const chapter = chapterIndex(view, a.chapter) - chapterIndex(view, b.chapter);
     return chapter !== 0 ? chapter : a.paragraph - b.paragraph || a.offset - b.offset;
 }
 
 function readBy(view: CanonReadView, occurrence: Occurrence, until: TellingPosition): boolean {
-    const at = view.chapters.indexOf(until.chapter);
-    const here = view.chapters.indexOf(occurrence.chapter);
+    const at = chapterIndex(view, until.chapter);
+    const here = chapterIndex(view, occurrence.chapter);
     if (at < 0 || here < 0) return false;
     if (here !== at) return here < at;
     if ("edge" in until) return until.edge === "end";
@@ -285,14 +296,14 @@ const longSilence: DiagnosticCompute = (view, at, mode) => {
     const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     if (until === null) return [];
-    const now = view.chapters.indexOf(until.chapter);
+    const now = chapterIndex(view, until.chapter);
     const findings: Finding[] = [];
     for (const foreshadow of index.foreshadows) {
         if (!plantedNotPaid(index, foreshadow.id, until)) continue;
         const last = index.nodesRead(foreshadow.id, until).at(-1);
         if (last === undefined) continue;
         const interval = foreshadow.interval ?? DEFAULT_INTERVAL[foreshadow.importance ?? "side"] ?? DEFAULT_INTERVAL.side!;
-        const silent = now - view.chapters.indexOf(last.occurrence.chapter);
+        const silent = now - chapterIndex(view, last.occurrence.chapter);
         if (silent > interval) findings.push({key: {objects: [ref("entry", foreshadow.id)]}, objects: [ref("entry", foreshadow.id)], params: {chapters: silent, interval}});
     }
     return findings;
@@ -330,11 +341,11 @@ const objectTouched: DiagnosticCompute = (view, at, mode) => {
         const plant = read.find((node) => node.role === "plant");
         if (plant === undefined) continue;
         const payoffs = read.filter((node) => node.role === "payoff");
-        const from = view.chapters.indexOf(plant.occurrence.chapter);
-        const to = payoffs.length === 0 ? Number.POSITIVE_INFINITY : view.chapters.indexOf(payoffs.at(-1)!.occurrence.chapter);
+        const from = chapterIndex(view, plant.occurrence.chapter);
+        const to = payoffs.length === 0 ? Number.POSITIVE_INFINITY : chapterIndex(view, payoffs.at(-1)!.occurrence.chapter);
         for (const change of counted) {
             if (change.at.kind !== "chapter") continue;
-            const chapter = view.chapters.indexOf(change.at.chapter);
+            const chapter = chapterIndex(view, change.at.chapter);
             if (chapter <= from || chapter >= to) continue;
             for (const object of foreshadow.objects) {
                 if (!change.patches.some((patch) => patch.at.entry === object)) continue;
@@ -415,8 +426,8 @@ export function ledger(view: CanonReadView, position: ReadPosition, mode: Mode, 
     const until = tellingPositionOf(position);
     const counted = countedChanges(view, mode, position);
     const inRange = (chapter: string) => {
-        const at = view.chapters.indexOf(chapter);
-        return (filter.from === undefined || at >= view.chapters.indexOf(filter.from)) && (filter.to === undefined || at <= view.chapters.indexOf(filter.to));
+        const at = chapterIndex(view, chapter);
+        return (filter.from === undefined || at >= chapterIndex(view, filter.from)) && (filter.to === undefined || at <= chapterIndex(view, filter.to));
     };
     return index.foreshadows.flatMap((foreshadow) => {
         const stage = index.stage(foreshadow.id, until);
