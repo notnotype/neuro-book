@@ -1,0 +1,197 @@
+# t34 实施计划（plan.md）审查 P1
+
+审查对象：.agents/works/w00039-novel-writing-plugins/tasks/t34-plot-side-impl/plan.md
+依据：worktree .worktree/w00039-t29-canon-kernel（ad3d802c1）的 docs/specs/canon、docs/specs/plot、packages/nb-canon、packages/neuro-book/src/plugins/canon
+基线：nb-canon `bun test` 237 pass / 0 fail（6.78s）。实验文件在 /tmp/w00039-t34-plan-review-lab/。
+
+### 1. 决策的 `about` 会被 diffValues 当成“有 id 的列表”，挂在同一诊断上的两条处理在重放后变成同一条
+**严重程度**：阻断
+**类别**：代码事实 / 持久化格式
+**位置**：plan.md “关键设计 schema.ts”（决策换成 model 的决策表）与切片 A1、A6；代码 packages/nb-canon/src/core/paths.ts:34-55、117-122（isIdList）
+**现象**：diffValues 判断“有 id 的列表”是结构性的：数组每个元素都是带字符串 `id` 的对象就按 `[id]` 拆叶子。model 的 `about` 元素是 `{kind: entry, id}`、`{kind: change, id}`、`{kind: decision, id}`、`{kind: diagnostic, id, key, version}`，全部带 `id`；稳定键里的 `objects`（`{kind, id}` 的有序列表、不去重）也一样。revisions 输入明确写“没有 id 的数组（……标注、决策挂的对象……）整体是一个叶子”。计划没有提 paths.ts。
+**为什么是问题**：同一条决策挂两条同一诊断 id、键不同的发现（场景 10 的“一键沿用”、一个决策处理多条发现都会这样写），两个元素 id 都是 `plot.x`，按 id 建的 Map 互相覆盖，修订里存的叶子是错的，重放得到错误的对象；这是写进日志的持久化格式，事后改不了。`objects` 里同一个对象出现两次（Spec 说不去重）也一样。标注载荷里只要有 `id` 键，`marks` 也会被拆。
+**如何核实**：/tmp/w00039-t34-plan-review-lab/about.ts：before 的 about 有一条键为 [e1] 的诊断，after 再加一条键为 [e2] 的同 id 诊断。diffValues 给出 `about[plot.x].key.objects[e1]` 删除、`[e2]` 新增、`about#order` 为 ["plot.x","plot.x"]；applyChanges 重放后两条 about 都是 e2，e1 那条丢了。
+**建议改法**：A1 就把“哪些数组按 id 拆”改成按路径声明（块、列表字段元素、实例字段声明、讲述；与 revisions 输入那份清单一一对应），其余数组一律整体一个叶子，并在 tests/core.test.ts 补“about 有重复 id”“objects 有重复”的往返用例。这条要在第一行格式 2 日志写出之前定。
+
+### 2. 正文仍走 `chapterText` 拉取端口：读取输入的摘要每次要读全书正文，量出来一次 264 到 392 毫秒；“按章正文的摘要缓存”的键要先算摘要，自相矛盾
+**严重程度**：重要
+**类别**：架构与可测性 / 性能
+**位置**：plan.md “tellings.ts”第 1、3 条（“结果按章正文的摘要缓存”“正文从现有的 WorldOptions.chapterText 取”）、“service.ts”第 1 条（所有读取结果都带读取输入的摘要）、“不做与风险”第 2 条；代码 packages/neuro-book/src/plugins/canon/backend/binder.ts:74-87、world-host.ts:140
+**现象**：现在的 `chapterText` 每次调用都 readdirSync 活页夹目录再 readFileSync，注释写明“只在写入带讲述原句时用到，不值得维护缓存”。model 输出 36 要求每个读取结果都带“正文快照的摘要”（各章 UTF-8 的 SHA-256），project 输出 19 说读取结果都带它；计划没写这份摘要怎样得来。讲述定位的缓存“按章正文的摘要”做键，意味着每次读取都先读正文、算摘要，缓存省不掉主要成本。
+**为什么是问题**：(1) 性能：按规模测量的形状（1000 章，每章约 3000 字）用现在的端口取全书正文并算快照摘要，本机 5 次 290.5、263.9、297.7、392.4、302.2 毫秒，其中 readdir 就占约 233 毫秒；project 输出 14 要求随机读一个条目中位数 20 毫秒以内（本机负载 2.3，不是参考机，但差了一个数量级）。(2) 语义：Spec 的正文快照是“宿主最近一次给出的各章正文”，拉取端口每次读盘，读到的是此刻的文件，不是快照；宿主改了文件、50 毫秒合并期内还没调 `textChanged` 时，定位用的是新正文，摘要与游标却可能还是旧的，违反“一次读取从头到尾用同一份输入”。(3) 写入校验（原句在不在）读盘、读取按缓存，两边可能对不上。
+**如何核实**：/tmp/w00039-t34-plan-review-lab/perf.ts 按 canon-scale.ts 的正文形状建 1000 个章文件，按 binder.ts 的写法取正文并算快照摘要；数字见上。
+**建议改法**：把正文改成宿主推的快照：服务持有每章 `{text, digest}`，打开时全量读一次，`textChanged(chapter)` 时只重读、重算这一章；快照摘要随之增量维护，讲述定位按章缓存、由 `textChanged` 失效（不必再按摘要做键）。写入校验与读取都读这份快照。A3 的基准要量“改一章后第一次读”与“随机读”两项，并把带快照摘要的读取放进 A8 的规模重测。
+
+### 3. 还原的作者授权照字面做不出来：摘要的对象、`source` 的恢复、表外的转换都没定
+**严重程度**：重要
+**类别**：Spec 覆盖 / 返工风险
+**位置**：plan.md “authorization.ts”第 1、5 条，切片 A6；代码 packages/nb-canon/src/world/world.ts:197-220（revert）、238-310（#publish）
+**现象与为什么是问题**：
+- `bindsOf(request, decisionRef, transition)` 收的是写入请求。revisions 输出 21 的“还原”说 `request` “按还原请求（去掉 authorizations）算”，还原请求是 project 方法表里 `revert` 的参数（修订 id、是否连同依赖、请求 id、授权），不是 World.revert 在内部拼出的补偿请求（world.ts:217-218，`puts` 是补偿后的整份对象，宿主事先算不出来）。计划没说还原时对哪个对象取摘要；照现有签名做，宿主签的与内核算的必然不一致。
+- 补偿修订不跑 validate（world.ts:309 `if (!compensation)`）。计划把授权检查写在“写入路径的新校验”旁边，没说补偿走不走它；不走就收不到 `author-source-required`，走则要单独接一条路径。
+- 补偿把决策的 `source` 恢复成改前的值（Spec 原话），这在请求层面就是“改了 source”；计划写的“请求里改了它得到 source-not-writable”没有给补偿开例外，照字面做所有带决策的还原都被拒。Spec 还说还原用的授权“不写进决策的 source”，与普通写入“接受授权就把 source 写成它”相反，计划也没区分。
+- 补偿得出的转换可能不在状态表里：还原一次 `decided→superseded` 得到 `superseded→decided`；还原新建一条已定决策的修订会把它真正删掉（revisions 输出 20）。这些要不要授权、`transition` 写什么（输出 21 的“转换的写法”只列了 7 种），Spec 与计划都没有答案。
+**如何核实**：读 world.ts 上述行；对照 revisions.md 输出 21 的“还原”一条与输出 20。
+**建议改法**：A6 前先定（必要时先改 Spec）：还原授权的 `request` 取 `{revert: 修订 id, withDependents, requestId, by, title?}` 的规范 JSON；补偿修订走一条专门的授权检查（只查 `author-source-required/invalid`，不做 `source-not-writable`，不写 `source`）；补偿产生的表外转换按“恢复到改前状态”统一记成一种 `transition`（例如 `revert`），列入需要授权的项。
+
+### 4. 授权的校验端口把 `binds` 的比对也交给宿主，测试端口“同一密钥签、同一函数验”测不出内核漏比；`binds.project` 从哪来没有交代
+**严重程度**：重要
+**类别**：架构与可测性
+**位置**：plan.md “authorization.ts”第 1、2 条，“不做与风险”第 3 条；代码 world.ts:43-51（WorldOptions）
+**现象**：计划写“校验交给宿主注入的 verifyAuthorSource(source, binds)”，没说内核自己是否先比较 `source.binds` 与算出的 `binds`。测试端口用同一函数签与验，自然会顺手比 `binds`。`bindsOf` 的参数里没有项目；`binds` 的第一项是 `project`，WorldOptions 与 ServicePorts 里都没有项目标识。端口是同步还是异步也没写，而 World.publish、preview 都是同步的。
+**为什么是问题**：“binds 与实际不一致就拒收”是这套机制防“来源挪用”（场景 7 的四种情况）的唯一手段。比对若只在测试端口里，将来 t20 的宿主只验签名时内核测试仍全绿，挪用就能通过。宿主签发时也要算同一份 `binds`：若宿主自己实现规范 JSON 与字段集合，内核与宿主两份实现迟早漂移。缺 `project` 则跨项目重用来源（同一 requestId 碰巧相同）挡不住。将来宿主若要异步查会话日志，同步端口接不上。
+**如何核实**：读计划原文；`grep -n project packages/nb-canon/src/world/world.ts` 没有项目标识。
+**建议改法**：内核先按规范 JSON 逐字比 `source.binds` 与算出的 `binds`，不一致直接 `author-source-invalid`；宿主端口只验签名（签名覆盖的字段由内核拼好交给它），写明同步。nb-canon 导出 `authorizationBinds(project, request | revertRequest, decision, transition)` 给宿主签发时用，测试端口签发时也调它。项目标识作为 WorldOptions 的一项由宿主给。另加一条测试：端口对任何签名都答“通过”时，挪用到另一条决策照样被拒。
+
+### 5. “替换与依赖用同一份位置清单”与 Spec 不符：要换临时 id 的位置比引用位置多，以引用为键的列表的元素 id 还藏在地址路径里
+**严重程度**：重要
+**类别**：Spec 覆盖 / 返工风险
+**位置**：plan.md “references.ts”第 2、4 条，切片 A2；代码 world.ts:545-548（ID_KEYS 含 `id`）、585-594（replaceTempIds）
+**现象**：现在的 replaceTempIds 靠 ID_KEYS 里的 `id` 一并换掉 `puts[].ref.id`、对象自己的 `after.id` 与 listAdd 元素的 `value.id`。计划要用 `referencesOf` 的清单同时做替换与依赖，并把“同一份清单”写成不变量。
+**为什么是问题**：Spec 要求替换、但不属于引用位置（因此不该进依赖、不做存在校验）的有：对象自己的 id；新线的 `fork.line`（components 输出 18 单独点名）；稳定键里的对象引用（model 输入：“不是引用位置……临时 id 照样换成生成的 id”），也就是 `about` 里 `{kind: diagnostic, key}` 的 `key.objects`。反过来，以引用为键的列表（components 输出 19）的元素 id 除了出现在 listAdd 的 `value.id`，还出现在 listRemove 的 `value`（一段文字）和同一请求后续补丁的地址路径里（`know.知情[tmp:k].程度`）；`{path, target, value}` 的清单只能表达“对象里某个键的值”，表达不了“地址路径里的一段”。照字面做，A2 要么漏换对象自己的 id（`id-taken`），要么把稳定键算进依赖、存在校验，要么“新建知识点并在同一请求里给这一行设程度”失败（`element-missing`）。
+**如何核实**：读 world.ts 上述行与 components.md 输出 18、19，model.md 输入里“稳定键”一条。
+**建议改法**：拆成两份清单：引用位置（校验、依赖、改动记录筛选共用）和替换位置（引用位置，加上对象自己的 id、`fork.line`、稳定键对象、地址路径与 listRemove 里以引用为键的元素 id），在 references.ts 里由同一个遍历分别给出；不变量改成“替换位置包含全部引用位置”，测试覆盖上述三类只替换不引用的位置，以及同一请求里新增一行再给它的子字段赋值。
+
+### 6. 引用清单要靠当前登记才能算，插件停用后依赖与改动记录就变了；还原可能真删掉仍被引用的条目
+**严重程度**：重要
+**类别**：架构 / 正确性
+**位置**：plan.md “references.ts”第 2、3 条（“字段与列表的引用从 Component 登记取，标注的从标注种类登记取”；用于 `dependsOn` 与 `revisions` 筛选）；代码 world.ts:458-497（dependsOn）、service.ts:271-276（revisions 按条目筛）
+**现象**：`ref` 字段、以引用为键的列表、标注里的 `refs` 路径，只有查登记才知道是引用。`dependsOn` 与改动记录筛选都是对历史修订现算的。另外，实例字段声明在条目自己的 `init.data.*.declared` 里（components 输出 4），也可以是 `ref`，计划的签名 `referencesOf(object, kind, registry, marks)` 拿不到它；modify 操作只有叶子的 `{path, before, after}`，不是整份对象，签名也接不上。
+**为什么是问题**：剧情插件停用（标注种类与知情 Component 不在登记里）期间，“给讲述加一条揭示指向知识点 K”的修订不再被认作依赖“新建 K”的修订；这时还原新建 K 的修订不会报 `has-dependents`，按 revisions 输出 20 会把 K 真正删掉，留下悬空引用，而 Spec 写明“删的时候没有别的记录引用它们”。改动记录按条目筛的结果也随插件启停变化。同样的问题在 Component 版本对不上、类型不在时也会出现。
+**如何核实**：读计划原文与 dependsOn；components 输出 12、model 输出 28 都规定类型或种类不在时数据照常保留，说明这种状态是常态而非异常。
+**建议改法**：发布时把这次修订新写或改过的引用（目标种类与 id）算好，存进修订（例如 `refs` 字段；格式 2 正在定，现在加最便宜）；依赖与改动记录筛选只读这份存下的结果，不再按当前登记重算。`referencesOf` 只在发布时用，入参改为“写入后的整份对象加条目的有效字段声明”。
+
+### 7. 阶段 A 的切片先后会返工：A6 要用 A7 的诊断登记，A3、A5、A6、A7 的游标在 A8 要全部重做，A3 的验收要等 A7 的提示组
+**严重程度**：重要
+**类别**：切片依赖
+**位置**：plan.md “切片（阶段 A）”A1、A3、A5、A6、A7、A8，“验收映射”第 1、4 行
+**现象与为什么是问题**：
+- A6 的“挂的对象”校验（model 输出 33）对 `{kind: diagnostic}` 要查“`version` 等于这个诊断现在登记的版本时，`key` 的组成部分与声明的完全相同”，需要诊断的登记表；登记表在 A7。A6 要么先跳过这一项（A7 再回来改校验与测试），要么提前做一半登记。
+- `tellings`（A3）、`presence`（A5）、`decisions`（A6）、`pending` 的分页（A7）都带游标；现在的游标是 `版本:偏移`（service.ts:570-580）。A8 才把游标绑到读取输入的摘要上（project 输出 19），而 `textChanged` 后版本不变、结果却变，A3 起的分页在 A3 到 A8 之间就是错的，A8 还要回头改每个方法和它们的测试。
+- A3 的验收（model 场景 7：“提示里有 telling-lost”“提示 duplicate-quote”）要读提示组，提示组与排序在 A7；A3 只能先测 `tellings` 的“失联”标记，场景 7 实际要到 A7 才能完整通过。
+- A1 把讲述的 `chapter`、`quote` 改成可选（“按来源的必填项由 validate 查”），而这条校验（`invalid-telling`）计划写在 A3 的范围里；A1 到 A3 之间正文讲述缺原句能过 schema，validate 里的 `includes(telling.quote)`（world.ts:642）会拿 `undefined` 去找。
+**如何核实**：对照 model.md 输出 33、34，project.md 输出 19，以及 service.ts、world.ts 上述行。
+**建议改法**：把“诊断与标注种类的登记”（贡献点声明、前缀与重复两步判定、`diagnostic-declaration-invalid`）提到 A4 一起做，A7 只做计算、截断、已处理与排序；把读取输入摘要与游标（A8 的前半）提到 A3 之前，或在 A3 就把游标做成“摘要:偏移”，A8 只补摘要里的其余几项；`invalid-telling` 随 A1 的 schema 改动一起落地；验收表里场景 7 标到 A7。
+
+### 8. 待处理要带模式，但两个引擎的 `pending` 都没有模式参数，计划只给插件诊断加了模式，差分测试也没覆盖
+**严重程度**：重要
+**类别**：Spec 覆盖 / 可测性
+**位置**：plan.md “diagnostics.ts”第 2 条（“读待处理时（带模式），对每个启用的诊断……”）、切片 A7（“pending 的模式与分页”）；代码 engine/types.ts（`Engine.pending(position)`）、engine/reference.ts:311-346、engine/incremental.ts:93 起、world.ts:160、service.ts:196
+**现象**：model 输出 16 在剧情侧这一版改成“在给定的读取位置与模式（缺省实际模式）上算出”内核自己的几种待处理（66aef0055 及更早版本只有读取位置）。现有 Engine 接口、World.pending、WorldService.pending 都只收位置；差分测试（tests/differential.test.ts:223）只比 `pending(position)`。
+**为什么是问题**：按计划模式下核对点不符、套不上、章已删除怎样算（计划进来以后哪些核对点不符、套不上的根因是谁）要在两个引擎里各实现一遍，是引擎层的改动，计划写成服务层“带模式调用诊断”，照字面做就只有插件诊断分模式，内核的待处理仍是实际模式。差分测试不扩，增量引擎这条新路径没有对照。
+**如何核实**：`grep -n "pending(" packages/nb-canon/src/engine/*.ts`；`git show 66aef0055:docs/specs/canon/model.md` 的输出 16 没有“模式”。
+**建议改法**：A7 明确“Engine.pending(position, mode)”，参照实现与增量引擎都改，差分测试对两种模式都比；带来的变化（computeImpact）仍按实际模式，写明。
+
+### 9. 诊断计算拿到的“只读世界”没有定义，而它是阶段 B 起所有插件诊断的公开合同；每翻一页都要重算全部诊断
+**严重程度**：重要
+**类别**：架构与可测性
+**位置**：plan.md “diagnostics.ts”全节，切片 A7；代码 service.ts:84（WorldSnapshot = Pick<World, …>）
+**现象**：Spec 的公开接口包括“计算的签名”`(world: 只读世界, at, mode) => 发现[]`（model 边界与兼容），计划只写了“同步调用 compute(world, at, mode)”。剧情插件要读的讲述发生点（A3，依赖正文快照）、在场（A5）、决策（A6）、按位置读条目，在计划里都是 WorldService 的方法，不在 World 上；diagnostics.ts 却放在 src/world/。现有的 WorldSnapshot 只露出 data、engine 等内部结构。`pending` 每页都要带“各组的总数”（project 方法表），即每页都要把待处理、提示、已处理三组全部算出。
+**为什么是问题**：签名不先定，阶段 B 写诊断时只能直接摸 engine 与 data，等于把内部结构变成插件合同，之后改不动；放在 world/ 又拿不到服务层的讲述与在场，层次会倒过来依赖。不缓存的话，翻 N 页就把每个诊断算 N 遍，100 毫秒以上的诊断会让分页线性变慢；同一份读取输入两次计算若有任何不稳定，游标翻页还会漏项或重项。
+**如何核实**：读计划原文与 service.ts:84；project.md 方法表 `pending` 一行。
+**建议改法**：A7 先写一个 `CanonReadView` 接口（entry、changes、tellings、presence、decisions、lines 占位等只读方法，都按同一份读取输入），World 与服务都据此实现，诊断只拿它；把诊断的计算放在服务层；同一读取输入摘要加同一位置与模式的诊断结果缓存一份，翻页与三组总数都读缓存，读取输入一变就作废。
+
+### 10. “带来的变化”要不要包括插件诊断与提示没有定；包括则每次发布跑两遍全部诊断，不包括则与“待处理”的定义不一致
+**严重程度**：重要
+**类别**：Spec 覆盖 / 性能
+**位置**：plan.md “diagnostics.ts”第 2 条、切片 A7、“验证”第 2 条；代码 world.ts:808-860（computeImpact 只比 engine.pending）
+**现象**：revisions 输出 6 的“带来的变化”含“这次让哪些待处理消失、新出现了哪些”，model 输出 16 把插件登记的 `pending` 级诊断算作待处理。computeImpact 现在只比两个引擎的 pending。计划没有提 computeImpact。
+**为什么是问题**：若包括：每次发布在新旧两个世界上各跑一遍所有诊断，project 输出 14 的“发布一次记账 100 毫秒以内”要把诊断的耗时算进去，而 Spec 已接受诊断没有 CPU 上限；带来的变化还会依赖插件的项目数据，revisions 输出 5“预览与发布逐字相同”也要求诊断在两次调用间稳定。若不包括：回执里的“这次让哪些待处理消失”漏掉剧情插件的发现，作者处理一条剧情插件的待处理（例如传话链断了）后回执里看不到它消失。哪种都要写进计划与测试。
+**如何核实**：读 computeImpact；对照 revisions.md 输出 5、6 与 model.md 输出 16、34。
+**建议改法**：先定（建议：不包括插件诊断与提示，只含内核自己的待处理，并在 revisions 输出 6 写明），再在 A7 的测试里断言；若选包括，A7 的规模测量要带一个慢诊断量发布耗时。
+
+### 11. 阶段 B 实际依赖 E 的目标与 D 的线视图；D 只排了“回溯知情”，B 里按线算的部分没有人回头做
+**严重程度**：重要
+**类别**：阶段划分
+**位置**：plan.md “阶段 B 到 F”B（依赖阶段 A）、D（“剧情插件的回溯知情”）、E（依赖 B、D）
+**现象**：
+- plot/knowledge.md 输出 3：“隐秘目标的持有者对目标的 `隐秘` 知识点，从目标出场起有一行推出的 `knows`（plot.goals）”；输出 9 的视图：有 `隐秘` 的目标条目按它指向的知识点同样遮挡，读持有者时不列它。有效知情与视图都用到目标的 Component，而目标在 E。
+- knowledge 输出 9 的视图“绑定看的人 V、线与位置上限”，输出 8 的经历按“某条线某个位置”；foreshadowing 输出“只看本线”：伏笔的计划、兑现与节点按世界线视图取；两份 Spec 的诊断稳定键都带 `line`（knowledge 表里 `plot.relayBroken`、`plot.knowingIncomplete`，foreshadowing 的节点“按线视图算的带 line”）。这些在 D 之前都无从按线实现。
+- 内核这边，A8 的 `openView` 要按线拒绝（“指向别的线得到 view-denied”），标注 `refs` 的 `kind: line` 要查线存在（components 输出 18），在 D 之前只能认主线；计划没写这些先做成什么样。
+**为什么是问题**：照计划，B 交付的有效知情少了隐秘目标那一条、视图漏遮目标条目，等 E 才补；B 写成只算主线的知情、伏笔与视图，到 D 要整体改成按线视图，而 D 的范围里只有回溯知情一项，这部分返工没有落在任何阶段里，审查也不会按它查。
+**如何核实**：grep plot/knowledge.md 中 `plot.goals`、`线`；plot/foreshadowing.md 第 36、59 行。
+**建议改法**：要么把目标的 Component（goals 的数据部分）提到 B，E 只做守卫、写作指示与写手上下文；要么在 B 的范围里写明“隐秘目标的推出行与遮挡留到 E”，并列进 E 的范围。D 的范围补上“剧情插件按线视图改造：知情、经历、伏笔、视图、诊断的 line”。A8、A4 写明在 D 之前 `line` 只接受主线。
+
+### 12. 视图令牌对每个读方法怎样限制没有定，照字面做 `object`、`revisions`、不带范围的 `changes` 会越过上限；进程内调用方没有释放路径
+**严重程度**：重要
+**类别**：Spec 覆盖 / 架构
+**位置**：plan.md “service.ts”第 2、3 条（openView、closeView、viewAudit；寿命走 plugin.ts:61-67 的释放路径），切片 A8；代码 packages/neuro-book/src/plugins/canon/backend/plugin.ts:50-68
+**现象**：project 输出 24 只写了“读取位置、安放的范围、讲述位置晚于上限，或指向别的线，得到 view-denied”，并且“读方法都可以带视图令牌”。方法表里有不带位置的读：`object`（存下的整份对象，含之后章节的补丁与讲述）、`revisions`、`tree`、`decisions`、`suggestions`、`outcome`；`changes`、`tellings`、`pending` 的位置或范围是可选的，缺省是最新一章末尾或全部。计划没有逐方法写带令牌时怎样处理。释放路径方面，plugin.ts:61-67 只在远程门面释放时结束租约；剧情插件在项目实例里直接用 canon 的项目内服务（阶段 B、E 的写手上下文）时，没有“调用方实例失效”这一事件。
+**为什么是问题**：实现者只能自己选：`object` 照常返回就把上限之后的内容漏给写手（场景 8 要防的正是这个），一律拒绝又与“视图只管线与位置”不完全一致；缺省位置若不夹到上限，带令牌不写位置的 `pending` 每次都 `view-denied`。进程内拿到的令牌永不失效，`viewAudit` 的“最近 500 条”也会被它们刷掉。
+**如何核实**：读 project.md 输出 24 与方法表；读 plugin.ts 上述行。
+**建议改法**：A8 前列一张“带令牌时各读方法的处理”表（缺省位置与范围夹到上限；`object`、`revisions`、`tree` 整层、`decisions`、`suggestions`、`pending` 一律拒绝，与 knowledge 输出 9 的允许清单对齐），必要时回写 project 输出 24；进程内服务的令牌绑定调用方插件入口的作用域，入口停止时释放。
+
+### 13. 几条 Spec 条目在设计与切片里都找不到落点
+**严重程度**：重要
+**类别**：Spec 覆盖
+**位置**：plan.md “service.ts”新方法清单、“diagnostics.ts”、切片 A5 到 A7、验收映射
+**现象**（逐条对照后没有对应切片或测试的）：
+- model 输出 30“剧情变更的列表可以按性质筛选”，以及 project 方法表 `changes` 的新筛选“性质、安放的范围 {after?, through?}、计划进展”。service.ts:231 现在只有章、条目、剧情线、已写或计划、生效状态；计划的新方法清单没有改 `changes`。剧情插件按安放范围取变更（经历、伏笔）要靠它。
+- revisions 输出 20“对条目、剧情变更或决策给 after 为空时拒收（not-deletable）”：world.ts:264 只判 entry 与 change，改名以后决策可以被直接删掉；计划没有这一项。
+- model 输出 34 的 `diagnostic-unavailable`（启用了的插件还没登记计算、计算抛错，结果标“不完整”）、“因插件停用而未计算的诊断”另列、`diagnostic-duplicate-key` 提示，以及 model 输入里 `diagnostic-declaration-invalid` 的前缀与重复两步判定：diagnostics.ts 的四步处理里都没有，内核怎样区分“插件停用”与“启用了但还没登记计算”也没写（前者看贡献点的撤销，后者看项目内接口）。
+- model 输出 16“决策与正文建议不算待处理，各自单独计数”：`pending` 的结果要不要带这两个数，计划没写。
+- model 输出 16 提示的种类顺序里有“标注与 Component 的版本”：`component-version-unsupported`、`component-unknown` 现在在读取结果里，是否也要进提示组，计划没写。
+**为什么是问题**：照计划做完 A8 并通过验收表，上面这些仍不满足 Spec；其中 `not-deletable` 缺失会让决策“不删除，不再要的转成放弃”的规则失效。
+**如何核实**：service.ts:231 的筛选参数；world.ts:264；对照 model.md 输出 16、30、34 与 revisions.md 输出 20。
+**建议改法**：A5 补 `changes` 的性质与安放范围筛选；A1 把 `not-deletable` 扩到决策并加测试；A7 的设计补上不可用、停用、重复键与声明不合规四种情况及区分方法；pending 结果的计数与 Component 提示写明取舍，必要时回写 Spec。
+
+### 14. 讲述 id 的分配与几个 id 前缀：嵌套的讲述 id 重放时不会被记下，“不复用”靠不住；线的 id 与修订同用 `r`
+**严重程度**：建议
+**类别**：代码事实 / 设计细节
+**位置**：plan.md “tellings.ts”第 5 条（“讲述 id 前缀 t，在讲述所在的列表里全局分配，不复用”）、“schema.ts”第 3 条（决策前缀改 d）；代码 core/ids.ts:56-77（IdAllocator）、world.ts:123-134、399-400（只 observe 修订 id 与 op.ref.id）
+**现象**：IdAllocator 只看见修订 id 与对象 id。讲述在对象里面（`told[]`、`retold[路径][]`、核对点的 `told`），删掉的讲述只留在旧修订的 ops 里。“在讲述所在的列表里全局分配”字面上自相矛盾（稳定键的 `telling` 只写讲述 id，必须全局唯一）。另外 worldlines.md 的验收场景把线写成 `r1`、`r2`，`r` 已是修订的前缀；components.md 输出 19 的例子 `know.知情[k12]` 里 `k12` 是知识点条目，而 `k` 在代码里是核对点前缀。model 输出 24 的 `offset`“这一段里原句之前的字符数”，没说按去掉首尾空白后的段还是原始行算。
+**为什么是问题**：重放时不扫嵌套的讲述 id，删掉最后一条讲述再新建就会复用它的 id（违反 model 输出 25），而且只有重开项目后才会出现。线若照例子用 `r` 前缀，`r1` 同时可能是修订与线，日志与诊断里分不清。offset 两种算法在行首有缩进时结果不同，插件的发现 `at` 与排序都受影响。
+**如何核实**：读 ids.ts 与 world.ts 上述行；worldlines.md 第 128 到 135 行。
+**建议改法**：A3 在重放、absorb、发布时都扫 ops 里的嵌套讲述 id（create 的 after、modify 的 `told[<id>]` 路径、delete 的 before）喂给 allocator，并加“删掉最后一条讲述、重开、再新建”的测试；计划里写清“全局分配”；A1 同时为线保留一个不冲突的前缀（例如 `l`），把 Spec 例子里的 `r1`、`k12` 改掉或注明只是示意；offset 的口径定下并回写 model 输出 24。
+
+### 15. 把标注种类与诊断并进 Component 登记的 `digest`，插件每次启停都会整本重算
+**严重程度**：建议
+**类别**：架构 / 性能
+**位置**：plan.md “components/”最后一条（“登记集合的摘要扩成三项……引擎据它判断要不要整本重建”）；代码 registry.ts:105-108、world.ts:154、engine/incremental.ts:336
+**现象**：`registry.digest` 变了，withOptions 与增量引擎都按“结构性变化”整本重算。标注与诊断不参与引擎的补丁计算。
+**为什么是问题**：剧情插件激活、停用，或只是它的标注种类、诊断升版本，都会触发整本重算；project 输出 14 的打开预算是 2 秒，在大书上这是一次接近“打开”的开销，且没有必要。读取输入的摘要（model 输出 36）要的是 `[[id, version]]` 三张表，本来也不是这份 digest。
+**如何核实**：读上述三处代码。
+**建议改法**：Component 的 digest 保持只管引擎；标注种类、诊断各有自己的登记与版本表，变化时只让讲述、标注校验与诊断结果的缓存失效；读取输入摘要另由三张 `[[id, version]]` 表算。
+
+### 16. `stableStringify` 对合法 JSON 与 RFC 8785 一致，但对 NaN、Infinity、孤立代理项、非普通对象静默输出，计划要加的附录向量会撞上；“前后端都能用”的同步摘要在浏览器里并不存在
+**严重程度**：建议
+**类别**：技术选型
+**位置**：plan.md “技术选型”第 2、3 行；代码 core/stable-json.ts:5-16
+**现象**：实验 /tmp/w00039-t34-plan-review-lab/jcs.ts：RFC 8785 第 3.2.4 节的样例逐字相同；第 3.2.3 节的排序样例（`\r`、`1`、U+0080、ö、€、😀、U+FB33）顺序正确；附录 B 的 8 个有限数向量全部一致。偏差：`NaN` 与 `{a: Infinity}` 输出 `null`、`{"a":null}`（RFC 要求报错）；孤立代理项 U+D800 输出 `"\ud800"`（RFC 要求 I-JSON，应报错）；`Date`、`Map` 输出 `{}`；数组里的函数输出 `null`。浏览器的 Web Crypto 只有异步摘要，nb-canon 自己不带 SHA-256。
+**为什么是问题**：附录 B 的向量表里 NaN、Infinity 标的是“错误”，照计划“加 RFC 8785 附录的几个向量”会直接失败或被删掉了事。插件诊断的 `params`、稳定键在项目内同步传进来，不经 JSON 编码，NaN 会和 `null` 得到同一个规范 JSON，排序 id 与已处理的匹配就会撞。浏览器侧现在没有构造 World 的调用方（只有 web/client.ts 走远程），所以这不是眼下的问题，但计划把“同步、前后端都能用”当成否决 Web Crypto 的理由，并不成立。
+**如何核实**：bun /tmp/w00039-t34-plan-review-lab/jcs.ts；grep 包内没有 sha256 实现。
+**建议改法**：另写 `canonicalJson`：遇到非有限数、孤立代理项、非普通对象抛错，稳定键、作者来源、读取输入都用它；`stableStringify` 继续做请求摘要与深比较。附录 B 的向量连同错误项一起测。技术选型里把理由改成“摘要由宿主注入，浏览器侧若要用需注入同步实现”。
+
+### 17. 计划里的几处代码事实与验证命令不准
+**严重程度**：建议
+**类别**：代码事实
+**位置**：plan.md 各处
+**现象**：
+- “components/ 的 apply.ts 的 listAdd”：apply.ts 在 packages/nb-canon/src/model/apply.ts（listAdd 在第 271 行），src/components/ 下只有 registry.ts、values.ts。
+- “PENDING_KIND_ORDER 现在三处各写一份”：表只有两份（engine/reference.ts:41、engine/incremental.ts:93）；world.ts:160-181 是按根因合并，不是排序表。
+- “规模测量 `bun scripts/perf/canon-scale.ts`”：脚本在应用包（packages/neuro-book/scripts/perf/canon-scale.ts），要在应用包目录跑；nb-canon 另有 scripts/scale.ts，构造 WorldData 时写了 `questions: new Map()`（第 98 行），改名后它不在任何 `bun test` 里，每片只跑 `bun test` 发现不了。
+- “测试名照现有写法引用编号（Spec canon.model 输出 24）”：现有写法是 `canon.model 场景 4：前史与初值`、`（输出 7、8）`（tests/model.test.ts:21、30），没有 “Spec ” 前缀。
+- A1 只说“样本转换与回放跟着改”，tests/node-log.test.ts 有 5 处断言 `format: 1`（第 64、71、90、97、157 行），第 105 行的“不认识的格式”用例正是把 1 改成 2，格式 2 以后要反过来写；log.ts 第 4 行注释也写着 format 1。
+- 每片的验证只有 `bun test`，不做类型检查；`bun run test:affected` 不加 `--typecheck` 也不跑 tsc（scripts/cli/test-affected.ts:145）。决策改名、schema 改形状这类改动主要靠 tsc 兜底。
+**为什么是问题**：照计划找文件会扑空；改名后 scale.ts 编译不过要到下次跑规模测量才发现；node-log 测试会在 A1 意外变红。
+**如何核实**：ls packages/nb-canon/src/components；grep 上述行号。
+**建议改法**：改正路径与数目；每片的验证加 `bun run typecheck`（nb-canon 与应用包），A8 用 `bun run test:affected --typecheck`；A1 的范围写上 node-log.test.ts 与 scripts/scale.ts。
+
+## 更正
+
+- 第 17 条中“tests/node-log.test.ts 有 5 处断言 format: 1（第 64、71、90、97、157 行）”应为“5 处写着 format: 1”：第 64 行是测试名，第 71 行是断言，第 90、97、157 行是造半行与核对旁存内容；结论不变。
+
+## 未发现问题的方面
+
+- `typebox/schema` 的选型：仔细检查后没有发现问题。1.3.6 的 `Check`、`Errors` 直接收标准 JSON Schema，`Errors` 给出 `instancePath`、`keyword`、`params` 与说明（实验 /tmp/w00039-t34-plan-review-lab/tb.ts：缺必填、多出属性、`anyOf` 都有可用的路径）；`maxLength` 按码位计（2 个表情算 2）。白名单本身不会由它检查，计划已把白名单放在 `buildMarkRegistry` 里，这是对的。唯一要注意的是存下的标注是 `{kind, version, …载荷}`，校验前要先去掉这两个键（Spec 说 schema 不含它们），否则 `additionalProperties: false` 的种类全部不过。另外现有 schema.ts 用的 `typebox/compile` 在不能求值的环境会自动退回解释执行（schema/build.mjs:38），计划否决 ajv 的理由不影响现有代码。
+- `stableStringify` 的键序与数的写法：对合法 JSON 与 RFC 8785 一致（见第 16 条的实验），问题只在非法输入。
+- 计划引用的其余代码位置：log.ts:134-135、156，world.ts:545-594、637-786，registry.ts:105，ids.ts:8，plugin.ts:61-67，WorldOptions.chapterText、fillDefaults、fieldsProblem、engine/views.ts、service.ts 的 revisions 筛选，核对后属实。
+- `question` 改名的牵连面：`git grep -i question` 在内核、canon 插件、样本与 Spec 里共 13 处源码引用加样本 JSON 9 处，另有 scripts/scale.ts（见第 17 条）；界面代码里没有调用 `questions` 的地方，改名可以一次改完。
+- 阶段 C 与 D 的先后：worldlines 只在 `back` 的间隔形状与 time 输出 6 上用到时间，计划把“时间网络按线算”放在 D，方向正确。
+- 剧情插件不拆包：仔细检查后没有发现问题。
+
+## 各级数量
+
+阻断 1，重要 12，建议 4，共 17 条。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17

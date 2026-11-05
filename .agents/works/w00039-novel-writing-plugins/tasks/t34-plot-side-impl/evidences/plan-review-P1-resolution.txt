@@ -1,0 +1,23 @@
+t34 计划审查 P1（Claude Opus，快速审查的一路）的核实与处理 —— 2026-11-05
+
+对象：plan.md 第一版（44d1e6906）。17 条：阻断 1、重要 12、建议 4，都成立。计划改成第二版；其中要 Spec 写清的 5 处先改在分支上（1c11c6529）。
+
+1 about 与 objects 被当成有 id 的列表（阻断）—— 成立。A1 里 diffValues 改成按路径声明拆数组，补往返用例。
+2 正文按需拉取，每次读取要读全书 —— 成立。改成服务持有正文快照，textChanged 只重读一章；提到 A2。
+3 还原的作者授权做不出来 —— 成立。Spec 补：还原的 request 摘要对象、transition 一律 revert、补偿不受 source-not-writable 限制；计划里补偿另走一条授权检查。
+4 binds 的比对交给宿主、测试端口测不出漏比、project 没来源 —— 成立。Spec 改成内核先逐字比、宿主只验签名（同步）；导出 authorizationBinds；项目标识进 WorldOptions；加“端口一律通过时挪用仍被拒”的测试。
+5 替换位置比引用位置多 —— 成立。两份清单，不变量改成替换位置包含引用位置。
+6 引用清单依赖当前登记 —— 成立。发布时把引用存进修订的 refs（Spec 补），依赖与筛选只读它。
+7 切片先后会返工 —— 成立。改成 9 片：读取输入与游标提到 A2，标注种类与诊断的登记合到 A5，invalid-telling 随 A1，场景 7 标到 A8。
+8 引擎的 pending 没有模式 —— 成立。A8 改 Engine.pending(position, mode)，差分测试两种模式都比。
+9 诊断的只读世界没定义、翻页重算 —— 成立。先定 CanonReadView；诊断计算放服务层，按读取输入、位置、模式缓存。
+10 带来的变化含不含插件诊断 —— 成立。定为不含（Spec 补 revisions 输出 6）。
+11 阶段 B 依赖 E、D 漏了插件按线改造 —— 成立。目标的 Component 提到 B；D 补剧情插件按线视图改造；D 之前只接受主线。
+12 视图对各方法的限制 —— 成立。Spec 补 project 输出 24 的方法表；进程内令牌随插件入口停止失效。
+13 几条 Spec 没落点 —— 成立。changes 的新筛选进 A6；not-deletable 扩到决策进 A1；诊断的四种情况分开；pending 带计数；Component 的提示进提示组（Spec 补 model 输出 16）。
+14 讲述 id 的分配与前缀 —— 成立。重放、absorb、发布时都 observe 嵌套的讲述 id；世界线预留前缀 l；offset 按 UTF-16。
+15 三张登记并进一个 digest 会整本重算 —— 成立。三张版本表分开，Component 的 digest 仍只管引擎。
+16 stableStringify 与 RFC 8785 的边界、浏览器没有同步摘要 —— 成立。另写严格的 canonicalJson；理由改成摘要由宿主注入。
+17 代码事实与验证命令 —— 成立。路径、份数、脚本位置改正；每片加 typecheck；A1 范围写上 node-log 测试与 scripts/scale.ts。
+
+P2（omp）在后台，回来后单独处理。
