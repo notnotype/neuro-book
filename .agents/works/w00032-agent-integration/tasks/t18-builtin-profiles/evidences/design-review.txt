@@ -1,0 +1,124 @@
+### 1. 新指令会穿透远程合同，当前计划无法保持 SessionApi 与远程层一致
+
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:31-37,113-117`；`packages/nb-harness/src/kernel/api/host.ts:27-82`；`packages/neuro-book/src/plugins/agent/shared/remote.ts:66-104,197-208`；`packages/neuro-book/src/plugins/agent/backend/remote.ts:28-99`
+- **现象**：计划把 `setGeneratedMeta` 放进 `CommandMap`，但又写明“不进 `agentSessionsContract`”。现有远程实现不是按白名单暴露命令：`COMMANDS = Object.keys(commandErrors)`，再把每个名字动态挂到 `SessionApi` 上；远程合同的 `commandArgs`、`argsMatchKernel` 则是手写全量表。只加内核命令会让 `CommandName` 多出一项而 `commandArgs[K]`、`argsMatchKernel` 缺项；即使用类型断言压掉，服务端仍会尝试暴露一个合同没有声明的方法。`SessionApi.as(issuer)` 同样会看到这个新方法。
+- **为什么是问题**：实现会在类型检查或远程合同生成处失败，或者在绕过类型检查后产生浏览器不可调用、合同版本不一致的公开面；“远程调用方只有 `setTitle`”不能由现有动态分派自动保证。
+- **如何核实**：在计划的内核改动中只把 `setGeneratedMeta` 加入 `CommandMap` 与 `commandErrors`，运行 `bun run --cwd packages/neuro-book typecheck`，并检查 `shared/remote.ts` 的 `argsMatchKernel` 是否出现缺项；再查看 `Object.keys(commandErrors)` 是否包含它。
+- **建议改法**：若它确实只给 `SessionMeta` 用，不要把它作为公开 `SessionApi` 命令；给 Agent 内部元数据写入提供独立的宿主内部接口，或在 `SessionApi` 上拆出内部类型且不经 `COMMANDS` 动态暴露。若决定公开，则必须同时更新 `commandErrors`、远程 `commandArgs`、结果与失败码 schema、`argsMatchKernel`、远程客户端及 `as(issuer)` 的合同，并明确版本兼容。
+
+### 2. `runEnded` 处理会把纯压缩运行误当成对话运行，可能重复生成标题
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:98-111`；`docs/specs/harness/runtime.md:27,71-72,139-149`；`packages/nb-harness/src/kernel/run/loop.ts:178-190,227-239`；`packages/nb-harness/src/kernel/dispatch/reactions.ts:43-66`
+- **现象**：每次压缩运行先写 `runStarted{kind: "compact"}`，成功后仍以 `runEnded{reason: "completed"}` 收口；`runEnded` 事件本身没有 `kind`。计划让 `session-meta` 在 `on.runEnded` 看到 `completed`、且没有说明时生成标题，同时又在 `on.compaction` 的 `replacement` 上生成说明。第一轮尚未有说明时，压缩会同时排进一次“标题和说明”与一次“说明”的通知；若只有压缩事件而没有对话结束，也会被错误当成标题触发。处理函数拿到的上下文接口没有可直接读取 `runStarted.kind` 的字段，不能按事件名字猜出来。
+- **为什么是问题**：会多发标题模型请求、同一个标题会话连续运行两次，且压缩输出 8 明确要求压缩后只更新说明；没有模型或失败时还会写出不应出现的兜底标题/诊断。
+- **如何核实**：用内核真实运行时建一个无 `description` 的会话，先完成一轮，再调用 `compact`，记录前台日志的 `compaction`、`runEnded` 与标题会话请求数；当前循环必然产生 `runStarted{kind:"compact"}` 后的 `runEnded{completed}`。
+- **建议改法**：让触发器能可靠区分 chat 与 compact（例如给 `runEnded` 带 `kind`，或让 `SessionMeta` 记录并消费每个 `runStarted` 的 kind），只对 chat 的 `completed/finished` 走首次标题生成；`compaction.replacement` 只排说明更新，并为两者建立“单次压缩只有一次后台请求”的验收。
+
+### 3. fork 不会触发 `opening()`，新分支会继承过期的规则或永远没有规则
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:86-88,170-184`；`packages/nb-harness/src/kernel/helpers/opening.ts:18-22`；`packages/nb-harness/src/kernel/session/session.ts:498-541`；`docs/specs/harness/session.md:127`
+- **现象**：`opening()` 只监听 `sessionCreated` 与 `compaction`。内核 fork 直接复制来源路径事件，包含来源会话已经写下的规则片，但不写新的 `sessionCreated`；打开 fork 时按合同只归约日志、不跑反应。于是 fork 不是“创建时重新读取两个 AGENTS.md”，而是沿用 fork 时复制的旧 opening 状态；如果来源在 fork 前没有规则片，新 fork 第一次运行也没有规则片，直到压缩才会读。
+- **为什么是问题**：计划输出 4、5 把读取时机写成“会话创建时与每次压缩之后”，但 fork 是公开的新会话创建路径；文件在来源会话创建后修改时，fork 的第一轮违反“创建时读最新规则”的预期，且行为依赖来源当时是否已压缩。
+- **如何核实**：真实创建主会话，写入或修改 `user://AGENTS.md`，在不压缩来源的情况下 fork，检查 fork 第一次请求的 opening 槽；再在来源已有规则片后修改文件并 fork，检查 fork 是否仍发送旧文本。
+- **建议改法**：为 fork 写一个只给新会话的创建/开场事件，或在 fork 完成后显式排入一次 opening 加载，并在 Spec 说明复制历史与新开场片的边界；验收必须覆盖“来源无片”和“来源有旧片、文件已改”两种情况。
+
+### 4. `opening()` 可见的资源接口无法按计划区分缺失、无项目和不可读
+
+- **严重程度**：重要；**类别**：接口与合同
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:85-87,175-177`；`packages/nb-harness/src/kernel/api/ctx.ts:14-18`；`packages/neuro-book/src/plugins/agent/backend/resources.ts:157-175`；`docs/specs/agent/resources.md:69,90-100`
+- **现象**：内核 `Resources.read()` 只返回 `string | undefined`；Agent 的 `kernelResources()` 把 `not-found` 映射成 `undefined`，把 `no-project`、权限、非 UTF-8 等其它失败都包装成普通 `Error`。规则加载需要把“文件不存在”和“没有项目”当作无事发生，把存在但读不了报告为 `rules-unreadable`；当前类型接口没有错误码通道。实现若按异常文字判断就是按错误文案分支，若把所有异常都当缺失又会吞掉权限/编码错误。
+- **为什么是问题**：`project://AGENTS.md` 在没有项目时无法与权限拒绝区分，验收里的 `no-project` 与 `rules-unreadable` 无法同时可靠实现；错误诊断还会丢掉原始结构化失败码。
+- **如何核实**：在真实 Agent 资源视图分别读取不存在的 `user://AGENTS.md`、无项目的 `project://AGENTS.md`、存在但不可读或非 UTF-8 的文件，观察 `Resources.read()` 的返回/抛出形状；代码路径只剩 `undefined` 或异常字符串。
+- **建议改法**：给 opening 专用的资源读取 helper 交回 `{ok:true,text}|{ok:false,code,...}`，或让 `Resources` 暴露保留失败码的读取方法；规则层按 `not-found`、`no-project`、其它码分类，不能解析 `Error.message`。
+
+### 5. 标题会话 ID 既可能违反 128 字符上限，也可能撞上用户会话
+
+- **严重程度**：重要；**类别**：正确性与安全
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:107-113`；`packages/nb-harness/src/kernel/log/validate.ts:12-14`；`packages/nb-harness/src/kernel/api/host.ts:420-430`；`packages/nb-harness/src/kernel/session/session.ts:413-425`
+- **现象**：计划直接使用 `session-title-<前台会话 id>`。公开 `CreateSessionOptions.id` 接受最长 128 个 `[A-Za-z0-9._-]` 字符；因此一个合法的 128 字符前台 id 生成 141 字符的标题 id，`store.create` 返回 `invalid-session-id`。同时用户或其它调用方可以合法预先创建 `session-title-X`，计划把 `session-exists` 直接视为“已有标题会话”，没有核对其 header 的 Profile、`background` 或所属前台会话。
+- **为什么是问题**：前者让合法会话永远无法自动生成元数据；后者会把标题输入发送给不属于该前台会话的会话，或向普通会话写入生成结果，造成跨会话污染。`SessionTable.create` 对已存在目录只返回错误，不提供“这是我的标题会话”的证明。
+- **如何核实**：用 `service.create({profile: ..., id: "a".repeat(128)})` 建合法前台会话并触发结束；再先用任意 Profile 建 `id: "session-title-x"`，给 `x` 对应前台会话触发 SessionMeta，检查它是否直接复用该目录。
+- **建议改法**：用固定长度、由前台 id 哈希得到的标题会话 id，并保留可追溯的来源字段；命中 `session-exists` 后打开并校验 header/profile/background/来源，不匹配就报冲突而不是复用。
+
+### 6. 32 KiB 截断的单位没有合同，按 JS 字符截断会超出字节上限
+
+- **严重程度**：重要；**类别**：接口与合同
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:86-87,175-177`；`docs/specs/agent/builtin-profiles.md:50-53`；`packages/neuro-book/src/plugins/agent/backend/resources.ts:164-173`
+- **现象**：计划和 Spec 只写“前 32 KiB”，没有规定按 UTF-8 字节、Unicode code point 还是 JavaScript 字符串长度。资源层先把文件解码成字符串，中文文件若用 `text.slice(0, 32 * 1024)`，32,768 个中文字符约占 98,304 字节；若按 UTF-8 字节直接截断又可能切开多字节字符。现有 shell 工具明确按字节截断并去掉尾部替换字符，但规则方案没有对应约定。
+- **为什么是问题**：上下文预算和“单个文件 32 KiB”验收会出现三倍差异，且不同实现/平台会把不同长度的 AGENTS.md 放进提示词；这还会影响后续“全文地址”与“已截断”标记的可复现性。
+- **如何核实**：生成包含 32,768 个中文字符的 `AGENTS.md`，比较文件 UTF-8 字节数、传给模型的 opening 字节数与字符数；再用包含四字节 Unicode 字符的文件检查边界是否出现替换字符。
+- **建议改法**：在 Spec 明确上限是 UTF-8 字节，并定义截断为不产生半个 code point；实现用 `TextEncoder`/字节切片后安全回退，诊断或提示中同时给原始字节数与截断上限。
+
+### 7. 内置 `.profile.tsx` 的 JSX 编译边界没有写进计划，直接照字面实现会在类型检查或服务端构建失败
+
+- **严重程度**：重要；**类别**：代码质量与构建
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:18,48-52,159-165`；`packages/neuro-book/tsconfig.json:1-28`；`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:171-180`；`packages/neuro-book/src/plugin-platform-profile.ts:45-70`
+- **现象**：计划要求新增服务端 `.tsx` Profile 并使用 `@notnotype/nb-harness/prompt`，但没有规定 `jsxImportSource` 注释/编译选项，也没有说明它是否经过用户 Profile 的 Bun 构建器。应用 `tsconfig.json` 没有 JSX 选项；用户 Profile 构建器则显式把 JSX source 固定为 `@notnotype/nb-plugin-sdk/agent`。外部插件构建还明确把直接导入 `@notnotype/nb-harness` 判为未共享，只有 SDK 入口是公开边界。
+- **为什么是问题**：内置文件若按计划的裸 JSX 代码加入应用类型检查，可能得到 JSX 未启用/运行时找不到的错误；若误把它当作者插件走构建，又会撞上宿主边界。构建“跑一下”不是接口说明，后续切片会在导入方式和编译路径上返工。
+- **如何核实**：把计划的最小 `.tsx` 文件放进 `src/plugins/agent/backend/builtin/profiles/`，不加 pragma 跑 `bun run --cwd packages/neuro-book typecheck` 与服务端构建；另用 `build-plugin.test.ts` 的 server fixture 验证直接导入 `@notnotype/nb-harness/prompt` 会被拒。
+- **建议改法**：明确内置 Profile 是应用内部代码还是经 SDK 构建的作者代码；前者在每个 `.tsx` 文件写清 `/** @jsxImportSource @notnotype/nb-harness/prompt */`（或给仅该目录的 TSX 配置），后者必须改用 `@notnotype/nb-plugin-sdk/agent` 并走现有 profile-bundles 规则。结构测试同时锁定实际编译入口和纯度边界。
+
+### 8. 后台标题会话的“不可见”只覆盖 list 与 sessions://，没有覆盖现有 running() 语义
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:115-117,165-184`；`docs/specs/agent/builtin-profiles.md:27-29,59,83`；`packages/neuro-book/src/plugins/agent/backend/sessions.ts:116-119`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:209-216`
+- **现象**：计划只规定标题会话不进 `list`、不进 `sessions://`，同时把 `table.running()` 的后台过滤留给实施时看调用方。现有 `SessionTable.running()` 只按打开且非 idle 过滤，不看 `header.background`；`AgentService.running()` 原样交回。标题会话发模型时会出现在运行会话数组中。
+- **为什么是问题**：t17 的状态栏/活动面板若消费 `running()`，后台标题请求会被计作用户前台运行；关闭确认、运行计数或任何把 `running()` 当“用户正在工作”使用的调用方也会被污染。计划没有给出“只过滤标题会话”还是“过滤全部后台会话”的合同。
+- **如何核实**：触发一次标题生成，在模型端点保持请求进行中，调用 `service.running()`；它会包含 `session-title-...`。再搜 t17/后续消费方，确认是否按前台会话解释该数组。
+- **建议改法**：在 AgentService 合同明确 `running()` 是否包含后台；若用户界面使用，返回过滤后的前台会话，另设内部/后台查询供停止逻辑使用，不能在实施时按调用方临时决定。补充标题请求期间的运行列表验收。
+
+### 9. edit 实验不能回答“中文长段落用哪种”，且把 customFormat 兼容失败混入模式胜负
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:123-138`；`packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts:31-50,89-123`；`packages/nb-harness/src/kernel/model/omp.ts:216-223`
+- **现象**：样本每段只有 300–500 字，且一段一行；没有接近 `edit.ts` 的 2,000 列上限、4 MiB 无行锚边界，也没有多行段落、重复文本、跨段相似内容或长 Unicode 行。六个任务都给出明确的新文字并以最终全文逐字相等判定，偏向可机械替换的 replace 场景。与此同时 OMP 适配器对带 `customFormat: {syntax:"lark"}` 的 hashline 无条件透传，实验没有预检或单独记录模型/服务商拒绝该协议的失败。
+- **为什么是问题**：即使 72 次全部跑完，结果只能说明两个模型在这组短、明确、单行任务上的调用成功率，不能支持 Spec 输出 2 的默认模式用于中文长段落；若某端点不支持 Lark，hashline 的失败会被错误归因于编辑模式。三次重复每个单元也无法区分协议不支持与偶然模型失败。
+- **如何核实**：先用同一端点发送仅带 hashline `customFormat` 的最小工具请求，观察请求是否被接受；再把实验样本加入 1,999/2,001 字长行、多行段落、重复句和不完整编辑要求，比较现有判定是否改变。代码路径证明没有能力协商或降级 customFormat。
+- **建议改法**：把“协议不可用/模型未产生可解析工具调用”作为独立失败类别并先做端点预检，不把它计入编辑质量；样本按字节/字符和行结构分层，至少覆盖接近上限、超过上限、跨行和重复内容；最终规则说明只对覆盖到的场景作结论。若目标只选缺省而非评测质量，明确这是协议可用性实验，别写成中文长段落的普适缺省。
+
+### 10. tiny 未绑定时的兜底标题会污染现有 Agent 测试，并产生未等待的异步竞态
+
+- **严重程度**：重要；**类别**：测试与并发
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:155-168,181-184`；`packages/neuro-book/src/plugins/agent/testing/endpoint.ts:90-94`；`packages/neuro-book/src/plugins/agent/agent.test.ts:89-120`；`packages/neuro-book/src/plugins/agent/builtin-tools.test.ts:88-116`；`packages/neuro-book/src/plugins/agent/resources.test.ts:91-114`；`packages/neuro-book/src/plugins/agent/sessions.test.ts:58-60`；`packages/neuro-book/src/plugins/agent/tasks.test.ts:54-68`；`packages/neuro-book/src/plugins/agent/profiles.test.ts:46-72`；`packages/neuro-book/src/plugins/agent/guards.test.ts:1-50`
+- **现象**：测试公共 `localModelSettings()` 只绑定 `main`，`tiny` 明确为 `null`；至少 7 个快速测试文件通过 `agentWorld()` 建前台会话并运行一轮。若 `session-meta` 对所有非后台 Profile 全局装配，任何首轮结束都会异步写一次 `titleChanged{by:"auto"}` 兜底事件；`notify` 又不等待，测试在 `waitRun` 返回后可能正处于“兜底写入已排队但尚未完成”的窗口。现有测试里有精确事件序列、seq/head、日志长度和固定模型请求脚本，额外事件可能在不同断点落入或不落入断言。
+- **为什么是问题**：只把精确事件断言改成按类型取，不能解决异步工作未收口、world teardown 与插件 stop 竞合、以及 fake endpoint 可能收到额外后台请求的问题；测试会出现单跑/整文件、快慢机器之间的时序差异。计划只说“可能要改”，没有列出 7 个文件的隔离或等待策略。
+- **如何核实**：在实现后不绑定 tiny，分别在每个上述场地的第一轮 `waitRun` 返回后立即读取 `log` 两次并推进一次事件循环，比较 `titleChanged`、`commandAccepted` 与 `head`；同时在 `world.close()` 期间触发一轮，确认后台集合和 SessionTable 都已收口。
+- **建议改法**：把 `SessionMeta` 的可等待集合暴露给测试/停止流程，测试 teardown 必须等它 settle；所有依赖 fake endpoint 请求数的测试要明确排除 `purpose:"background"` 或为测试 Profile 使用 `pluginExtensions.exclude:["session-meta"]` 的真实合同路径。不要在产品代码加测试开关，也不要只把断言放宽而不覆盖停止与异步收口。
+
+### 11. SessionMeta 不走 `table.accept` 会留下停止竞态，标题会话可能在 runtime.stop 返回后才登记并泄漏
+
+- **严重程度**：阻断；**类别**：不变量与资源释放
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/plan.md:102-113,199-205`；`packages/neuro-book/src/plugins/agent/backend/sessions.ts:62-99,121-139`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:232-237`
+- **现象**：计划明确要求 SessionMeta 的工作不走 `table.accept`，停止顺序是 `closeGate`、`table.stop`、再等工作集合。现有 `SessionTable.create()` 只在入口同步调用 `#gate()`，之后异步等待 `beforeOpen()` 与 `host.create()`，完成后无论停止状态都把新 Entry 放进 `#entries`。`table.stop()` 只等待 `#accepted` 并对它当时快照到的 entries 关闭。一个已开始但尚未登记的标题会话不在 `#accepted`、也不在快照里。
+- **为什么是问题**：停止可返回后，SessionMeta 的 `create` 继续完成并登记一个打开的会话；它不再被这次 `table.stop()` 关闭，持有日志锁/订阅/可能的运行，且后续 `runtime.stop()` 没有第二次扫描。等工作集合只等 `notify` 任务结束，不能自动收掉脱离表停止快照的 Entry。
+- **如何核实**：在真实运行时让 `beforeOpen` 或 `host.create` 延迟，启动一轮结束后的 SessionMeta 创建，然后并发调用 `runtime.stop()`；在 `table.stop()` 返回后释放建会话门，检查 `sessionsRoot/session-title-*` 的锁和 `table.running()`，确认是否仍有新 Entry。
+- **建议改法**：不要只用外部 Set 补偿表的生命周期。给 SessionTable 增加专门的“后台工作登记”或让所有 create 进入可被 stop 等待的注册集合，并设计避免 `table.stop` 与标题运行形成环的独立阶段；至少在 `create()` 完成登记前后复查 stopping，若已停止立即关闭新句柄且不加入可运行表。停止验收要覆盖建会话处于 `beforeOpen`、`host.create`、`send`、`waitRun` 四个窗口。
+
+### 12. 第 2 条核实收窄（收窄，见第 2 条）
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：同第 2 条。
+- **现象**：按当前事件顺序，`compaction` 处理函数先登记通知，`runEnded` 处理函数后登记；同一前台链串行且每项重新读状态时，压缩通知成功写入说明后，后一个 `runEnded` 通常只会看到已有说明而不再发第二个模型请求。因此“必然重复两次请求”不成立。
+- **为什么是问题**：压缩通知失败、被停止或未能写入说明时，后一个 `runEnded` 仍会看到“没有说明”并启动标题与说明生成；这仍违反“压缩后只更新说明”，并且触发器依赖异步任务完成结果而不是明确的运行 kind。
+- **如何核实**：真实运行时让压缩标题会话的模型请求返回 500 或不调用 `yield`，再观察前台压缩之后是否出现标题更新；成功路径应只出现一次说明更新，失败路径不应转为首次标题生成。
+- **建议改法**：保留第 2 条关于区分 chat/compact 的改法；另在 `runEnded` 触发条件中记录“本次运行是否为 compact”，不能用“说明是否已经写入”作为唯一去重条件。
+
+### 未发现问题的方面
+
+- 已核实 `runEnded` 写入后处理函数看到的运行状态已回到 idle；重放打开旧会话只归约、不跑反应；现有 `waitRun` 在正常关闭/中断路径以结果完成，而不是因关闭直接拒绝。
+- 已核实 `standardLayout({history:false})` 确实去掉已提交历史，`<Turn />` 仍保留当前轮；标题会话复用时没有发现由 History 去除本身造成的模板结构或提交校验问题。`result: "required"` 的 `result-requested` 提醒按现有内核合同只在会话第一轮写入，第二次运行仍有 `yield` 工具和缺失结果催促，不把“没有第二条首轮提醒”另列为问题。
+- 已核实 `titleBy` 从 `titleChanged.by` 归约，用户改名与 fork 不带标题/说明的基础状态路径能够表达计划语义；`descriptionChanged` 作为内容事件也有明确的出站过滤登记位置。
+- 已核实 Profile 声明中的 `hidden`、`defaultForAll`、`pluginExtensions.exclude` 在现有目录、工具集和装配代码中都有对应的机制；`customFormat` 会沿工具声明进入 OMP 请求，未发现计划所依赖的机制不存在。
+- 已核实旧索引缺少 `description` 时可以在 `parseIndex` 兼容为 `null`，新增字段不会因 `SessionIndexEntry` 的远程输出使用 `additionalProperties: true` 而天然破坏现有列表合同。
+
+### 待确认项
+
+- 无。
+
+### 分级数量
+
+- 有效发现 11 条：阻断 2 条，重要 9 条，建议 0 条。第 12 条是对第 2 条的收窄说明，不另计。有效发现编号：1–11（第 2 条按第 12 条收窄）。
+

@@ -65,8 +65,8 @@ t05、t12、t15。
 
 ## 当前状态
 
-计划第一稿已确认并提交：[plan.md](plan.md)，Spec 草稿 [`agent/builtin-profiles.md`](../../../../../docs/specs/agent/builtin-profiles.md)。设计审查进行中。
+计划第二稿已确认（开发者 2026-11-05，不做第二轮设计审查）：[plan.md](plan.md)。设计审查 11 条的处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)。执行位置 `.worktree/w00032-t18-builtin-profiles`，分支 `feat/w00032-t18-builtin-profiles`。实施中。
 
 ## 下一步
 
-处理设计审查的结果后按切片实施。
+按切片实施：实验、内核、声明字段、主创、会话标题、smoke。

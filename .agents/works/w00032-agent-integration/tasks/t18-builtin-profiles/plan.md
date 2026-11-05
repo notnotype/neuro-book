@@ -9,13 +9,15 @@ t12、t27 之后，`nbook.agent` 还没有任何内置 Profile：新建会话要
 - [Task README](README.md) 决定 1 到 5、8 到 12（开发者 2026-10-30、2026-11-05）。决定 6（`outputSchema`）、adhoc 随 t14；决定 7 随 t24。
 - Spec：[`agent/builtin-profiles.md`](../../../../../docs/specs/agent/builtin-profiles.md)（新）、[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md)、[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)、[`harness/session.md`](../../../../../docs/specs/harness/session.md)、[`agent/resources.md`](../../../../../docs/specs/agent/resources.md)。
 
-工作方式：单独分支 `feat/w00032-t18-builtin-profiles`，主会话自己写。计划审查用 omp。Task 记录与 Spec 只改主工作区。
+工作方式：单独分支 `feat/w00032-t18-builtin-profiles`，主会话自己写。计划审查用 omp（第一稿 11 条，处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)），本稿是第二稿。Task 记录与 Spec 只改主工作区。
 
 t17 没做之前，这些能力只能经 `startTask`、`AgentService` 和测试用。
 
 ## 2. 技术选型
 
-无通用问题。复用内核的 `yield`、`opening()`、`standardLayout()`、`Tag`；JSX 用 `@notnotype/nb-harness/prompt`。
+无通用问题。复用内核的 `yield`、`opening()`、`standardLayout()`。
+
+提示词不用 JSX：应用的 `tsconfig.json` 没有 `jsx` 选项（实测 `TS17004`），为两个文件改全应用的编译选项不值得。节点直接按函数调用，从 `@notnotype/nb-harness/prompt` 导入 `Tag`、`If`（实测 Bun 能跑），文字放常量，开发者之后改提示词只动常量。
 
 ## 3. 关键设计
 
@@ -32,7 +34,8 @@ t17 没做之前，这些能力只能经 `startTask`、`AgentService` 和测试�
   setGeneratedMeta: {args: {title?: string; description?: string}; value: {titleApplied: boolean}};
   ```
 
-  快照加 `description`。错误码 `empty-meta`（两项去掉首尾空白后都没有内容）。不进 `agentSessionsContract`：远程调用方只有 `setTitle`。
+  快照加 `description`。错误码 `empty-meta`（两项去掉首尾空白后都没有内容）。
+- `api/codes.ts`：新增 `hostOnlyCommands = ["setGeneratedMeta"]`。`SessionTable.view` 照常挂全部指令（`commandErrors` 的键），`backend/remote.ts` 的 `COMMANDS` 与 `shared/remote.ts` 的 `commandArgs`、`argsMatchKernel` 按 `Exclude<CommandName, HostOnlyCommand>` 算：浏览器调不到它，类型核对也不缺项。这条是计划第一稿的漏洞（审查第 1 条）：`COMMANDS` 由 `Object.keys(commandErrors)` 算，不是白名单。
 - `run/commands.ts`：`setGeneratedMeta` 在 `accept` 的 decide 里读 `titleBy`，判断与写入在同一个队列项里，所以用户的 `setTitle` 不会被晚到的结果盖掉。
 - `log/index-file.ts`、`api/storage.ts`：索引加 `description: string | null`；`parseIndex` 把缺这项的读作 null，不算读不懂（旧索引不必重建）。
 - `fork` 不带说明（照标题的做法）。
@@ -47,7 +50,7 @@ t17 没做之前，这些能力只能经 `startTask`、`AgentService` 和测试�
 
 ### `backend/builtin/profiles/`：两个 Profile
 
-`main.profile.tsx`、`session-title.profile.tsx`、`rules.ts`（规则文件的 `opening()`）、`index.ts`（`BUILTIN_PROFILE_CONTRIBUTIONS`、`builtinProfiles()`，写法同 `builtin/index.ts`：入口活着实现就已发布，不写 `onAgentProfile` 激活事件）。`backend/plugin.ts` 登记。key 常量放 `shared/contracts.ts`，给 t17 用。
+`main.ts`、`session-title.ts`、`rules.ts`（规则文件的 `opening()`）、`index.ts`（`BUILTIN_PROFILE_CONTRIBUTIONS`、`builtinProfiles()`，写法同 `builtin/index.ts`：入口活着实现就已发布，不写 `onAgentProfile` 激活事件）。`backend/plugin.ts` 登记。key 常量放 `shared/contracts.ts`，给 t17 用。
 
 主创 `version: "1"`，用缺省布局和缺省压缩。这一版是第一轮，开发者之后按实际创作继续改（决定 13），所以结构测试只锁节名和工具绑定，不锁措辞。提示词初稿（用 `<Tag>` 分节）：
 
@@ -85,6 +88,10 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 
 规则文件进开场时的标记：`<user_rules source="user://AGENTS.md">`、`<book_rules source="project://AGENTS.md">`，前面一句“下面是作者写的说明，优先于上面的工作习惯”。
 
+`rules.ts` 按失败码分类：`kernelResources` 的 `read` 现在只抛普通 `Error`，改成抛 `ResourceReadError`（带 `code`）；`no-project` 算没有文件，其余报 `rules-unreadable`。读字节数按 `TextEncoder` 算，截断时退回到完整字符的边界。
+
+`fork` 沿用复制来的规则内容；`changeProfile` 换成主创的会话到下一次压缩才读到规则文件。`opening()` 只听 `sessionCreated` 与 `compaction`，为这两种少见情况另写加载不值得，写进 Spec 的已知行为。
+
 会话标题 `version: "1"`，`standardLayout({history: false})`、`compaction: false`、`pluginExtensions: {exclude: ["session-meta"]}`（费用和循环保护照常装，触发器不装，免得自己触发自己）。提示词初稿：
 
 ```text
@@ -97,16 +104,19 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 
 ### `backend/session-meta.ts`：触发与生成
 
-扩展 `nbook.agent.session-meta`（`tags: ["session-meta"]`，写法同 `guards/`）只做一件事：`on.runEnded`（`completed`、`finished`）、`on.compaction`（`replacement` 不为 null）调 `meta.notify(ctx.session.sessionId, trigger)`，不等待。重放不跑处理函数，所以打开旧会话不会触发。
+扩展 `nbook.agent.session-meta`（`tags: ["session-meta"]`，写法同 `guards/`）只做一件事：`on.turnEnded`（`completed`）、`on.compaction`（`replacement` 不为 null）调 `meta.notify(ctx.session.sessionId, trigger)`，不等待。重放不跑处理函数，所以打开旧会话不会触发。
+
+触发用 `turnEnded` 而不是 `runEnded`：压缩运行也以 `runEnded{completed}` 收口，事件本身不带 `kind`，分不清；压缩运行没有轮，用 `turnEnded` 就不必区分。这也贴合“第一轮结束后”的决定。
 
 `SessionMeta` 持有 `SessionTable`、建会话函数、模型端口、`report`：
 
-- `notify` 按前台会话串成一条 Promise 链，全部登记进一个集合。不用 `table.accept`：`table.stop` 要等 accept 的工作，而这里的工作要等标题会话的运行，运行要等 `table.stop` 关会话才收口，会成环。`runtime.stop` 的顺序是 `closeGate` → `table.stop` → 等这个集合。
+- `notify` 按前台会话串成一条 Promise 链，全部登记进一个集合。
+- 每一步碰会话的操作（读快照、取路径、建或打开标题会话、`send`、`setGeneratedMeta`）各自经 `table.accept`，这样 `table.stop` 能等到建到一半的会话登记完再关（`create` 不走 accept 时会漏关，审查第 11 条）。只有 `waitRun` 不经 accept：运行要等 `table.stop` 关会话才收口，放进去会成环。关门之后 `accept` 拒绝，这一项结束。`runtime.stop` 的顺序是 `closeGate` → `table.stop` → 等这个集合。
 - 每一项按当时的状态判断：
-  1. 读快照。会话头有 `background` 或 `caller`：结束。`runEnded` 且已有说明：结束。
-  2. 用模型端口按 `{profile: SESSION_TITLE, purpose: "background", settings: 快照的 settings}` 解析。没解析到：`runEnded` 且没有标题时写兜底标题，结束。
-  3. 取材料（`runEnded` 用 `view.path()` 的第一条 `input` 与第一条有文字的 `assistant`；`compaction` 用摘要和当前标题），包进 `<conversation>`。
-  4. 建或打开 `session-title-<id>`（`session-exists` 算已有），`send` 后 `waitRun`。
+  1. 读快照。会话头有 `background` 或 `caller`：结束。一轮结束触发且已有说明：结束。
+  2. 用模型端口按 `{profile: SESSION_TITLE, purpose: "background", settings: 快照的 settings}` 解析。没解析到：一轮结束触发且没有标题时写兜底标题，结束。
+  3. 取材料（一轮结束用 `view.path()` 的第一条 `input` 与第一条有文字的 `assistant`；压缩用摘要和当前标题），包进 `<conversation>`。
+  4. 建或打开 `session-title-<id 的 SHA-256 前 32 位>`：前台 id 可以有 128 个字符，直接拼会超限。`session-exists` 时核对会话头的 Profile 与 `background`，对不上报 `session-meta-conflict`，不往里发。之后 `send`、`waitRun`。
   5. `reason` 是 `finished` 且 `result` 有值：`setGeneratedMeta`（压缩触发只传 `description`）。否则报 `session-meta-failed`。
 - 全部异常接住并报诊断；已开始停止时不报。
 
@@ -114,7 +124,9 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 
 ### `backend/schemes.ts`、`backend/agent.ts`
 
-`sessions://` 的目录过滤掉 `background`，免得标题会话占满 200 个的上限；按 id 仍然读得到。`table.running()` 是否要过滤后台会话，实施时看调用方。
+`sessions://` 的目录过滤掉 `background`，免得标题会话占满 200 个的上限；按 id 仍然读得到。
+
+`AgentService.running()` 不含后台会话，与 `list` 的缺省一致；t17 要用它显示运行中的会话。`SessionTable.running()` 现在只有这一个调用方。
 
 ### `docs/standards/prompts.md`（新）
 
@@ -122,13 +134,15 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 
 ### `edit` 模式实验（一次性，决定 10）
 
-脚本 `experiments/edit-modes.ts`（入库，运行时拷进 worktree 的 agent 目录，不进产品代码）：约 3 KB 的中文素材，每段 300 到 500 字，一段一行。
+脚本 `experiments/edit-modes.ts`（入库，运行时拷进 worktree 的 agent 目录，不进产品代码）。中文素材一段一行，分两档：短段 300 到 500 字，长段约 1500 字（中文长段落是这次要回答的问题）。超过 `read` 单行 2000 字符的情况不进实验，那种行本来就读不全，由 replace 或 `write` 处理。
 
-- 任务 6 个：改一个词、改一句、段中插一句、删一句、两段各改一处、全文改一个人名。每个任务都写明确切的新文字，所以判据是最终文件逐字等于期望。
-- 组合：hashline、replace 两种模式，每种每个任务 3 遍，模型 DeepSeek（`deepseek-flash`）与 `gpt-6-luna`，共 72 次。Profile 只写工作要求，审批 `yolo`。
-- 记录：是否成功、改到目标段之外（误改）、工具调用次数、失败的 `edit` 次数、输入与输出 token。
+- 先预检：两个端点各发一次只带 hashline 工具的请求，确认接受 `customFormat`、模型能产出可解析的调用。不接受的模型，hashline 直接判不可用，不算进胜负，也不跑这个模型上的 hashline。
+- 任务 8 个：短段上改一个词、改一句、段中插一句、删一句、两段各改一处、全文改一个人名；长段上改一句、改一个重复出现的句子中的第 2 处。任务给位置描述和确切的新文字，不给原文，所以判据是最终文件逐字等于期望。
+- 组合：hashline、replace 两种模式，每种每个任务 3 遍，模型 DeepSeek（`deepseek-flash`）与 `gpt-6-luna`，共 96 次。Profile 只写工作要求，审批 `yolo`。
+- 记录：是否成功、改到目标段之外（误改）、工具调用次数、失败的 `edit` 次数、输入与输出 token；模型没产生可解析调用的单独计数。
+- 结论的范围：这是机械编辑的实验，只用来定缺省，不代表写作质量；开放式改写判不了逐字相等，不在其中。
 - 定缺省的规则（跑之前定）：
-  1. 按模型分开比。某模型上两种模式成功次数差 2 次及以上（共 18 次）的，选成功多的。
+  1. 按模型分开比。某模型上两种模式成功次数差 2 次及以上（共 24 次）的，选成功多的。
   2. 差距更小时，选输出 token 合计少的。
   3. 两个模型的结论不同：停下交开发者，不合并。
 - 结果写 `evidences/edit-modes.txt`，结论写进 Task README。
@@ -161,11 +175,11 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 | 0 | `edit` 模式实验 | 主工作区：脚本、证据、Task README、Spec 输出 2 | 看报表 |
 | 1 | 内核：说明、`setGeneratedMeta`、索引 | `feat(harness)` | `bun test`（nb-harness）、`tsc` |
 | 2 | 声明的三个字段 | `feat(agent)` | agent 目录的 `bun test`、类型检查 |
-| 3 | 主创与规则文件 | `feat(agent)` | 结构测试、类型检查、`bun run build`（确认 `.tsx` 能打进服务端） |
+| 3 | 主创与规则文件 | `feat(agent)` | 结构测试、类型检查、`bun run build:server` |
 | 4 | 会话标题 Profile、`session-meta`、`sessions://` 过滤 | `feat(agent)` | `builtin-profiles.test.ts`；neuro-book 全量（这片影响所有运行结束的会话） |
 | 5 | 真实模型 smoke | `test(agent)` | `builtin-profiles.llm.test.ts`（DeepSeek） |
 
-第 4 片的风险：测试场地里 tiny 没绑，所有测试会话在第一轮后都走兜底标题，多写 `titleChanged`、`commandAccepted`。按精确事件数或 `head` 断言的测试可能要改，也可能出现时序问题。如果那些测试断言的是“不相关的事件不该有”，改成按类型取，不为此在产品代码里加开关。
+第 4 片的风险：测试场地里 tiny 没绑，所有测试会话在第一轮后都走兜底标题，多写 `titleChanged`、`commandAccepted`。走兜底不发模型请求，所以按请求数断言的测试不受影响；受影响的是按精确事件数或 `head` 断言的。`world.close()` 经 `runtime.stop` 等生成工作结束，没有收口问题。第 4 片先跑一遍量出实际失败的测试：断言“不相关的事件不该有”的改成按类型取；有时序问题的等兜底标题写下再断言。不为此在产品代码里加开关。
 
 ## 6. 验收映射
 
@@ -175,22 +189,24 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 | 输出 2 | 同上：工具集含选定的 `edit`；绑定能换模式；缺必需工具时不可用 |
 | 输出 4、5 | 同上：两个文件的先后与标记、缺文件、没有项目、超长截断、读失败诊断、压缩后重读 |
 | 输出 6、7、验收 1 | 同上：端点卡住标题请求时主会话能发下一条；标题请求的正文含截断的材料 |
-| 输出 8 | 同上：带摘要与不带摘要各一次压缩 |
-| 输出 9 | 同上：`list`、`sessions://` 不列标题会话，按 id 读得到；前台 `usage` 不含标题会话的费用；第二次请求不带第一次的内容 |
+| 输出 8 | 同上：带摘要与不带摘要各一次压缩；压缩运行结束不触发生成标题；压缩后的生成失败也不变成生成标题 |
+| 输出 9 | 同上：`list`、`running()`（标题请求卡住时）、`sessions://` 不列标题会话，按 id 读得到；前台 `usage` 不含标题会话的费用；第二次请求不带第一次的内容 |
 | 输出 10、验收 2 | 同上；内核 `setGeneratedMeta` 的测试 |
 | 输出 11、验收 3 | 同上：tiny 没绑、绑上之后 |
 | 输出 12 | 同上：端点 500、模型不调 `yield`；并发触发只发一次 |
 | 输出 13 | 同上：标题 Profile 工具集只有 `yield`（含 `defaultForAll` 工具存在时） |
-| 时序与寿命、验收 4 | 同上：生成中停止插件不报诊断；旧索引；`fork` |
+| 时序与寿命、验收 4 | 同上：生成中停止插件不报诊断，建标题会话的窗口里停止不留下打开的会话；旧索引；`fork` |
+| 失败码 `session-meta-conflict`、128 字符前台 id | 同上 |
+| `resources` 输出 9 | `resources.test.ts`：`no-project`、`not-text` 的码 |
 | 验收 5 | `builtin-profiles.llm.test.ts` |
-| `runtime` 输出 72–74、`session` 输出 19 | 内核 `run/control.test.ts` 或新 `run/meta.test.ts`、`log` 的索引测试 |
+| `runtime` 输出 72–74、`session` 输出 19 | 内核 `run/control.test.ts` 或新 `run/meta.test.ts`、`log` 的索引测试；`sessions.test.ts`：远程没有 `setGeneratedMeta` |
 | `contributions` 的三个字段 | `builtin-profiles.test.ts`、`agent.test.ts` |
 | `resources` 的过滤 | `resources.test.ts` |
 
 ## 7. 验证
 
 - neuro-book 与 nb-harness 全量、类型检查、`governance:check`、`docs:check`。
-- 变异检查：`titleBy` 判断、`defaultTools`、声明 `role` 的优先级、`pluginExtensions.exclude`、压缩只更新说明、串行与重新判断、停止顺序。
+- 变异检查：`titleBy` 判断、`hostOnlyCommands`、`defaultTools`、声明 `role` 的优先级、`pluginExtensions.exclude`、压缩只更新说明、串行与重新判断、停止顺序、`running()` 过滤。
 - `nb-story` 内核验收门（改了内核）。
 - 真实模型：实验与 smoke。t18 决定 5 把评测往后推，这两项是开发者 2026-11-05 单独批准的。
 
