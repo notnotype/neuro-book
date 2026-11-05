@@ -1,18 +1,16 @@
 /**
  * 引用（docs/specs/canon/components.md 输出 18、19）：对象里哪些位置指向别的对象，以及写入请求里的临时 id 怎样换成正式 id。
  *
- * 两件事分开做，因为要的信息不同：
- * - 引用位置要知道字段声明（一个字段是不是 `ref`、一个列表是不是以引用为键），只在发布时、对写入后的对象算；
- *   算出来的“这次新写或改过的引用”存进修订的 `refs`，依赖与改动记录按条目筛只读那一份，插件停用以后不变。
- * - 临时 id 的替换不看声明：`tmp:` 开头的 id 是保留的写法，写入请求里任何一个与这次发出的临时 id 完全相同的字符串，
- *   以及地址路径里的 `[临时 id]` 段，都换成正式 id。替换的范围因此天然包含全部引用位置，也包含对象自己的 id、
- *   以引用为键的列表在地址路径里的元素 id 这些不算引用的位置。
+ * 两件事走同一份引用位置的遍历（`walkReferences`），都要知道字段声明（一个字段是不是 `ref`、一个列表是不是以引用为键）：
+ * - 列出引用：发布时对写入后的对象算，“这次新写或改过的引用”存进修订的 `refs`，依赖与改动记录按条目筛只读那一份，
+ *   插件停用以后不变。
+ * - 替换临时 id：在引用位置上，加上对象自己的 id、地址路径段与诊断稳定键这几个不算引用的位置；别处的 `tmp:` 文字原样存下。
  */
 
 import {markReferences, type MarkRegistry, type MarkTarget} from "../components/marks";
 import {effectiveFields, type ComponentRegistry} from "../components/registry";
 import {parsePath} from "../core/address";
-import type {Check, Decision, Entry, FieldDeclaration, Mark, ObjectKind, Patch, StoryChange, Telling} from "../core/schema";
+import type {Check, Decision, Entry, FieldDeclaration, Mark, ObjectKind, ObjectRef, Patch, StoryChange, Telling, WriteRequest} from "../core/schema";
 
 export type RefTargetKind = "entry" | "change" | "line" | "decision" | "check";
 
@@ -37,69 +35,99 @@ export interface ReferenceContext {
     readonly entry: (id: string) => Entry | undefined;
 }
 
-/** 一个对象里的全部引用（components.md 输出 18 的表；参与者、时间与分叉的位置随各自的能力加进来）。 */
-export function referencesOf(kind: ObjectKind, value: unknown, context: ReferenceContext): Reference[] {
-    if (value === null || typeof value !== "object") return [];
-    const found: Reference[] = [];
-    const add = (path: string, target: RefTargetKind, id: unknown, checked: boolean, targets?: readonly string[]) => {
-        if (typeof id === "string" && id !== "") found.push({path, target: {kind: target, id}, checked, ...(targets === undefined ? {} : {targets})});
+/**
+ * 引用位置上的一个值：在 `holder[key]`。列出引用时只读它，替换临时 id 时就地改它（替换在复制出来的请求上做）。
+ */
+interface Slot {
+    readonly path: string;
+    readonly target: RefTargetKind;
+    readonly checked: boolean;
+    readonly targets?: readonly string[];
+    readonly holder: Record<string | number, unknown>;
+    readonly key: string | number;
+}
+
+type Visit = (slot: Slot) => void;
+
+/**
+ * 按 components.md 输出 18 的表走一遍对象里的引用位置（参与者、时间与分叉的位置随各自的能力加进来）。补丁的值与条目的
+ * 字段要看字段声明，补丁指到的条目从 `context.entry` 取。
+ */
+function walkReferences(kind: ObjectKind, value: unknown, context: ReferenceContext, visit: Visit): void {
+    if (value === null || typeof value !== "object") return;
+    const add = (path: string, target: RefTargetKind, holder: unknown, key: string | number, checked: boolean, targets?: readonly string[]) => {
+        if (holder === null || typeof holder !== "object") return;
+        const id = (holder as Record<string | number, unknown>)[key];
+        if (typeof id === "string" && id !== "") visit({path, target, checked, ...(targets === undefined ? {} : {targets}), holder: holder as Record<string | number, unknown>, key});
+    };
+    const list = (path: string, target: RefTargetKind, items: unknown, checked: boolean) => {
+        if (Array.isArray(items)) for (const index of items.keys()) add(`${path}[${String(index)}]`, target, items, index, checked);
     };
     const record = value as Record<string, unknown>;
     if (kind === "entry") {
         const entry = value as Entry;
-        add("parent", "entry", entry.parent, false);
-        add("sameAs", "entry", entry.sameAs, false);
-        for (const [address, basis] of Object.entries(entry.initBasis ?? {})) if (basis.kind === "derived") add(`initBasis[${JSON.stringify(address)}].check`, "check", basis.check, false);
+        add("parent", "entry", entry, "parent", false);
+        add("sameAs", "entry", entry, "sameAs", false);
+        for (const [address, basis] of Object.entries(entry.initBasis ?? {})) if (basis.kind === "derived") add(`initBasis[${JSON.stringify(address)}].check`, "check", basis, "check", false);
         for (const [namespace, data] of Object.entries(entry.init?.data ?? {})) {
             const fields = fieldsOf(context.registry, entry, namespace);
             if (fields === undefined) continue;
-            for (const field of fields) fieldReferences(`init.data.${namespace}.fields.${field.id}`, field, data.fields[field.id], add);
+            for (const field of fields) fieldReferences(`init.data.${namespace}.fields.${field.id}`, field, data.fields, field.id, add);
         }
     }
     if (kind === "change") {
-        for (const [index, id] of ((record.involves as unknown[] | undefined) ?? []).entries()) add(`involves[${String(index)}]`, "entry", id, true);
-        for (const [index, id] of ((record.lines as unknown[] | undefined) ?? []).entries()) add(`lines[${String(index)}]`, "entry", id, false);
+        list("involves", "entry", record.involves, true);
+        list("lines", "entry", record.lines, false);
         for (const [index, member] of ((record.cast as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
-            add(`cast[${String(index)}].who`, "entry", member.who, true);
-            add(`cast[${String(index)}].as`, "entry", member.as, true);
+            add(`cast[${String(index)}].who`, "entry", member, "who", true);
+            add(`cast[${String(index)}].as`, "entry", member, "as", true);
         }
         for (const [index, link] of ((record.links as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
-            add(`links[${String(index)}].plan`, "change", link.plan, false);
-            add(`links[${String(index)}].by`, "change", link.by, false);
+            add(`links[${String(index)}].plan`, "change", link, "plan", false);
+            add(`links[${String(index)}].by`, "change", link, "by", false);
         }
         for (const [index, patch] of ((record.patches as Patch[] | undefined) ?? []).entries()) {
+            // 先按补丁指到的条目找字段声明，再访问地址里的条目：替换会把它改成正式 id。
+            patchReferences(`patches[${String(index)}]`, patch, context, add);
             // 地址里的条目算引用（依赖、按条目筛），但它在不在由补丁能不能套上判断，不报 ref-invalid。
-            add(`patches[${String(index)}].at.entry`, "entry", patch.at?.entry, false);
-            if (patch.basis?.kind === "derived") add(`patches[${String(index)}].basis.check`, "check", patch.basis.check, false);
-            patchReferences(`patches[${String(index)}].value`, patch, context, add);
+            add(`patches[${String(index)}].at.entry`, "entry", patch.at, "entry", false);
+            if (patch.basis?.kind === "derived") add(`patches[${String(index)}].basis.check`, "check", patch.basis, "check", false);
         }
     }
     if (kind === "check") {
-        add("at.entry", "entry", (record.at as {entry?: unknown} | undefined)?.entry, false);
-        add("anchor.change", "change", (record.anchor as {change?: unknown} | undefined)?.change, false);
+        add("at.entry", "entry", record.at, "entry", false);
+        add("anchor.change", "change", record.anchor, "change", false);
     }
     if (kind === "decision") {
         for (const [index, about] of ((record.about as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
             const path = `about[${String(index)}]`;
-            if (about.kind === "entry") add(`${path}.id`, "entry", about.id, false);
-            if (about.kind === "address") add(`${path}.at.entry`, "entry", (about.at as {entry?: unknown} | undefined)?.entry, false);
-            if (about.kind === "change") add(`${path}.id`, "change", about.id, false);
-            if (about.kind === "decision") add(`${path}.id`, "decision", about.id, false);
+            if (about.kind === "entry") add(`${path}.id`, "entry", about, "id", false);
+            if (about.kind === "address") add(`${path}.at.entry`, "entry", about.at, "entry", false);
+            if (about.kind === "change") add(`${path}.id`, "change", about, "id", false);
+            if (about.kind === "decision") add(`${path}.id`, "decision", about, "id", false);
         }
-        add("supersededBy", "decision", record.supersededBy, false);
+        add("supersededBy", "decision", record, "supersededBy", false);
     }
     if (kind === "suggestion") {
-        const target = record.target as {kind?: unknown; entry?: unknown} | undefined;
-        if (target?.kind === "entryText") add("target.entry", "entry", target.entry, true);
+        const target = record.target as {kind?: unknown} | undefined;
+        if (target?.kind === "entryText") add("target.entry", "entry", target, "entry", true);
     }
     // 标注载荷里的引用：只认种类登记着、版本对得上的标注；只读的标注不会是新写的，它的引用在写入它的那次修订里存过。
     for (const location of marksIn(kind, value)) {
         for (const [index, mark] of location.marks.entries()) {
             const type = context.marks.byKind(mark.kind);
             if (type === undefined || type.version !== mark.version) continue;
-            for (const reference of markReferences(type, mark, `${location.path}[${String(index)}]`)) add(reference.path, reference.kind, reference.id, true, reference.targets);
+            for (const reference of markReferences(type, mark, `${location.path}[${String(index)}]`)) add(reference.path, reference.kind, reference.holder, reference.key, true, reference.targets);
         }
     }
+}
+
+/** 一个对象里的全部引用（components.md 输出 18）。 */
+export function referencesOf(kind: ObjectKind, value: unknown, context: ReferenceContext): Reference[] {
+    const found: Reference[] = [];
+    walkReferences(kind, value, context, (slot) => {
+        found.push({path: slot.path, target: {kind: slot.target, id: slot.holder[slot.key] as string}, checked: slot.checked, ...(slot.targets === undefined ? {} : {targets: slot.targets})});
+    });
     return found;
 }
 
@@ -134,30 +162,36 @@ export function marksIn(kind: ObjectKind, value: unknown): MarkLocation[] {
     return found;
 }
 
-type Add = (path: string, target: RefTargetKind, id: unknown, checked: boolean, targets?: readonly string[]) => void;
+type Add = (path: string, target: RefTargetKind, holder: unknown, key: string | number, checked: boolean, targets?: readonly string[]) => void;
 
-/** 一个字段的值里的引用：`ref` 字段、以引用为键的列表的元素、列表元素里的 `ref` 子字段。 */
-function fieldReferences(path: string, field: FieldDeclaration, value: unknown, add: Add): void {
-    if (field.kind === "ref") add(`${path}.ref`, "entry", (value as {ref?: unknown} | null)?.ref, true, field.targets);
+/** 一个字段的值（在 `holder[key]`）里的引用：`ref` 字段、以引用为键的列表的元素、列表元素里的 `ref` 子字段。 */
+function fieldReferences(path: string, field: FieldDeclaration, holder: unknown, key: string | number, add: Add): void {
+    const value = holder !== null && typeof holder === "object" ? (holder as Record<string | number, unknown>)[key] : undefined;
+    if (field.kind === "ref") add(`${path}.ref`, "entry", value, "ref", true, field.targets);
     if (field.kind !== "list" || !Array.isArray(value)) return;
     for (const element of value as Array<Record<string, unknown>>) elementReferences(`${path}[${String(element.id)}]`, field, element, add);
 }
 
 function elementReferences(path: string, field: FieldDeclaration, element: Record<string, unknown>, add: Add): void {
-    if (field.keyedBy === "ref") add(path, "entry", element.id, true, field.targets);
-    for (const sub of field.item ?? []) if (sub.kind === "ref") add(`${path}.${sub.id}.ref`, "entry", (element[sub.id] as {ref?: unknown} | null | undefined)?.ref, true, sub.targets);
+    if (field.keyedBy === "ref") add(path, "entry", element, "id", true, field.targets);
+    for (const sub of field.item ?? []) if (sub.kind === "ref") add(`${path}.${sub.id}.ref`, "entry", element[sub.id], "ref", true, sub.targets);
 }
 
-/** 补丁的值里的引用：按它指到的字段的声明判断（字段不在声明里的补丁由补丁的校验报，这里不管）。 */
-function patchReferences(path: string, patch: Patch, context: ReferenceContext, add: Add): void {
-    const parsed = parsePath(patch.at.path);
+/**
+ * 补丁的值里的引用：按它指到的字段的声明判断（字段不在声明里的补丁由补丁的校验报，这里不管）。以引用为键的列表上，
+ * `listRemove` 的值是元素 id，也就是条目 id：算引用，但去掉一行时那个条目在不在不要紧，不报 ref-invalid。
+ */
+function patchReferences(base: string, patch: Patch, context: ReferenceContext, add: Add): void {
+    const parsed = parsePath(patch.at?.path ?? "");
     if (parsed === null || parsed.root !== "namespace") return;
     const target = context.entry(patch.at.entry);
     const field = target === undefined ? undefined : fieldsOf(context.registry, target, parsed.namespace)?.find((candidate) => candidate.id === parsed.field);
     if (field === undefined) return;
+    const path = `${base}.value`;
     if (parsed.element === undefined) {
-        if (patch.op === "set") fieldReferences(path, field, patch.value, add);
+        if (patch.op === "set") fieldReferences(path, field, patch, "value", add);
         if (patch.op === "listAdd" && patch.value !== null && typeof patch.value === "object") elementReferences(path, field, patch.value as Record<string, unknown>, add);
+        if (patch.op === "listRemove" && field.keyedBy === "ref") add(path, "entry", patch, "value", false);
         return;
     }
     if (patch.op !== "set") return;
@@ -166,7 +200,7 @@ function patchReferences(path: string, patch: Patch, context: ReferenceContext, 
         return;
     }
     const sub = field.item?.find((candidate) => candidate.id === parsed.sub);
-    if (sub?.kind === "ref") add(`${path}.ref`, "entry", (patch.value as {ref?: unknown} | null)?.ref, true, sub.targets);
+    if (sub?.kind === "ref") add(`${path}.ref`, "entry", patch.value, "ref", true, sub.targets);
 }
 
 function fieldsOf(registry: ComponentRegistry, entry: Entry, namespace: string): readonly FieldDeclaration[] | undefined {
@@ -188,20 +222,46 @@ export function newReferences(before: readonly Reference[], after: readonly Refe
 }
 
 /**
- * 把临时 id 换成正式 id：与 `ids` 里某个临时 id 完全相同的字符串换掉；地址（同时有 `entry` 与 `path` 的对象）的路径里，
- * 方括号里的临时 id 段换掉（以引用为键的列表的元素，`know.知情[tmp:k].程度`）。别的文字里碰巧包含临时 id 的不换。
+ * 把写入请求里的临时 id 换成正式 id（components.md 输出 18）：只换引用位置上的、对象自己的 id、地址路径里的
+ * `[临时 id]` 段（以引用为键的列表的元素，`know.知情[tmp:k].程度`）、地址做键的地方（`retold`、`initBasis`）与
+ * 决策挂的诊断稳定键里的对象。不在这些位置上的 `tmp:` 文字原样存下。`context.entry` 按请求里写的 id（临时 id 也行）
+ * 取条目，补丁的值要按它的字段声明判断是不是引用。
  */
-export function replaceTempIds<T>(value: T, ids: Readonly<Record<string, string>>): T {
-    if (Object.keys(ids).length === 0) return value;
-    const walk = (item: unknown): unknown => {
-        if (typeof item === "string") return ids[item] ?? item;
-        if (Array.isArray(item)) return item.map(walk);
-        if (item === null || typeof item !== "object") return item;
-        const record = item as Record<string, unknown>;
-        const isAddress = typeof record.entry === "string" && typeof record.path === "string";
-        return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, isAddress && key === "path" ? replacePathSegments(child as string, ids) : walk(child)]));
+export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>, context: ReferenceContext): WriteRequest {
+    if (Object.keys(ids).length === 0) return request;
+    const copy = structuredClone(request) as {puts: {ref: ObjectRef; after: unknown}[]; reads?: {at: {entry: string; path: string}}[]};
+    const swap = (id: unknown) => (typeof id === "string" ? (ids[id] ?? id) : id);
+    const swapAddress = (at: {entry?: unknown; path?: unknown} | undefined) => {
+        if (at === undefined || at === null || typeof at !== "object") return;
+        at.entry = swap(at.entry);
+        if (typeof at.path === "string") at.path = replacePathSegments(at.path, ids);
     };
-    return walk(value) as T;
+    const swapKeys = (record: Record<string, unknown> | undefined) => (record === undefined ? undefined : Object.fromEntries(Object.entries(record).map(([key, value]) => [replacePathSegments(key, ids), value])));
+    for (const put of copy.puts) {
+        put.ref = {...put.ref, id: swap(put.ref.id) as string};
+        const after = put.after as Record<string, unknown> | null;
+        if (after === null || typeof after !== "object") continue;
+        // 地址路径段与诊断稳定键不是引用位置，先换；引用位置随后按声明换（补丁要先按原来的条目 id 找字段声明）。
+        if (put.ref.kind === "change") for (const patch of (after.patches as Patch[] | undefined) ?? []) if (patch?.at !== undefined) patch.at = {...patch.at, path: replacePathSegments(patch.at.path, ids)};
+        if (put.ref.kind === "check") swapAddress(after.at as {entry?: unknown; path?: unknown});
+        if (put.ref.kind === "entry") {
+            if (after.retold !== undefined) after.retold = swapKeys(after.retold as Record<string, unknown>);
+            if (after.initBasis !== undefined) after.initBasis = swapKeys(after.initBasis as Record<string, unknown>);
+        }
+        if (put.ref.kind === "decision") {
+            for (const about of (after.about as Array<Record<string, unknown>> | undefined) ?? []) {
+                if (about.kind === "address") swapAddress(about.at as {entry?: unknown; path?: unknown});
+                const objects = (about.key as {objects?: Array<{id?: unknown}>} | undefined)?.objects;
+                if (about.kind === "diagnostic" && Array.isArray(objects)) for (const object of objects) if (object !== null && typeof object === "object") object.id = swap(object.id);
+            }
+        }
+        walkReferences(put.ref.kind, after, context, (slot) => {
+            slot.holder[slot.key] = swap(slot.holder[slot.key]);
+        });
+        after.id = swap(after.id);
+    }
+    for (const read of copy.reads ?? []) swapAddress(read.at);
+    return copy as unknown as WriteRequest;
 }
 
 function replacePathSegments(path: string, ids: Readonly<Record<string, string>>): string {

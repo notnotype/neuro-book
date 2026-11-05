@@ -82,6 +82,21 @@ describe("canon.components 输出 18、19、场景 5：引用与以引用为键�
         expect(view !== null && view !== "chapter-not-found" && view.namespaces.know!.fields.知情!.value).toEqual([{id: k, 程度: "knows", label: "哥哥能回溯"}]);
     });
 
+    test("不在引用位置上的 tmp: 文字原样存下：描述、摘要、语义档的文字、决策的要定的事等于临时 id 也不换", () => {
+        const world = start();
+        const summarized: Entry = {...point("tmp:k", "哥哥能回溯"), init: {...point("tmp:k", "哥哥能回溯").init, summary: "tmp:k"}};
+        const result = ok(world.publish(request([
+            {ref: {kind: "entry", id: "tmp:k"}, after: summarized},
+            {ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", [{op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: "tmp:k", 程度: "knows", 看法: "tmp:k"}}], {text: "tmp:k", involves: ["tmp:k"]})},
+            {ref: {kind: "decision", id: "tmp:d"}, after: {id: "tmp:d", text: "tmp:k", status: "pending", about: [{kind: "entry", id: "tmp:k"}], hints: []}},
+        ], 1), "t"));
+        const k = result.ids["tmp:k"]!;
+        const stored = result.world.data.changes.get(result.ids["tmp:c"]!)!;
+        expect([stored.text, stored.involves, stored.patches[0]!.value]).toEqual(["tmp:k", [k], {id: k, 程度: "knows", 看法: "tmp:k"}]);
+        expect(result.world.data.entries.get(k)!.init.summary).toBe("tmp:k");
+        expect(result.world.data.decisions.get(result.ids["tmp:d"]!)).toMatchObject({text: "tmp:k", about: [{kind: "entry", id: k}]});
+    });
+
     test("引用的目标不对：指向人物的知情行、指向不存在的条目的 ref 字段、涉及里不存在的条目，都是 ref-invalid", () => {
         const world = start();
         expect(problemsOf(world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", [{op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: "e2", 程度: "knows"}}])}], 1), "t")))

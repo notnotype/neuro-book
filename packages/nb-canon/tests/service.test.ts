@@ -508,6 +508,18 @@ describe("canon.model 输出 36、canon.project 输出 19、25：正文快照、
         expect(service.tree(null, first.cursor, 2)).toBe("cursor-stale");
     });
 
+    test("游标记着读取参数：换了筛选或方法接着翻得到 cursor-stale；只换条数照常接着翻", async () => {
+        const service = await open();
+        const changes: WriteRequest["puts"] = ["ch1", "ch1", "ch2", "ch2"].map((chapter, index) => ({ref: {kind: "change", id: `tmp:c${String(index)}`}, after: {id: `tmp:c${String(index)}`, kind: "written", text: `第 ${String(index)} 条`, at: {kind: "chapter", chapter, key: index}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}}}));
+        expect((await service.publish({requestId: "four", by: {kind: "author"}, what: "edit", title: "四条", baseVersion: 1, puts: changes})).ok).toBe(true);
+        const first = service.changes({chapter: "ch1"}, undefined, 1);
+        if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
+        expect(service.changes({chapter: "ch2"}, first.cursor, 1)).toBe("cursor-stale");
+        expect(service.tellings({}, first.cursor, 1)).toBe("cursor-stale");
+        const rest = service.changes({chapter: "ch1"}, first.cursor, 5);
+        expect(rest !== "cursor-stale" && rest.items.map((item) => item.change.text)).toEqual(["第 1 条"]);
+    });
+
     test("同一份读取输入两次读取，戳逐字相同；重开后同样的日志与正文得到同样的戳", async () => {
         const texts = new Map([["ch1", "她走进雨里。"]]);
         const service = await open({now: 0}, {chapterText: (chapter) => texts.get(chapter)});

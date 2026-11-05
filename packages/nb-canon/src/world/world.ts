@@ -45,7 +45,7 @@ import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from 
 import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
-import {marksIn, newReferences, referenceProblem, referencesOf, replaceTempIds, type ReferenceContext} from "./references";
+import {marksIn, newReferences, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
 import {classifyDecisionWrite, missingFields, revertNeedsSource, type Classified} from "./decisions";
 import {countOccurrences} from "./tellings";
@@ -336,7 +336,10 @@ export class World {
         for (const put of input.puts) {
             if (put.ref.id.startsWith(TEMP) && ids[put.ref.id] === undefined) ids[put.ref.id] = allocator.next(KIND_OF_PREFIX[put.ref.kind]);
         }
-        const request = replaceTempIds(input, ids);
+        // 临时 id 只在引用位置上换（components.md 输出 18）；补丁的值是不是引用要看它指到的条目的字段声明，同一请求里
+        // 新建的条目按请求里写的临时 id 找。
+        const requestEntries = new Map(input.puts.filter((put) => put.ref.kind === "entry" && put.after !== null && typeof put.after === "object").map((put) => [put.ref.id, put.after as Entry]));
+        const request = replaceRequestTempIds(input, ids, {registry: this.options.registry, marks: this.options.marks ?? EMPTY_MARK_REGISTRY, entry: (id) => requestEntries.get(id) ?? this.data.entries.get(id)});
 
         const problems: Problem[] = [];
         const conflicts: ConflictDetail[] = [];

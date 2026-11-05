@@ -297,7 +297,7 @@ export class WorldService {
         const world = this.#world;
         const children = [...world.data.entries.values()].filter((entry) => entry.parent === parent).sort((a, b) => a.order - b.order || compareIds(a.id, b.id));
         const stamp = this.#stamp();
-        const page = this.#page(stamp, children, cursor, limit);
+        const page = this.#page(stamp, children, cursor, limit, {method: "tree", parent});
         if (page === "cursor-stale") return page;
         return {
             ...stamp,
@@ -341,7 +341,7 @@ export class WorldService {
         );
         sortByPlacement(order, matching);
         const stamp = this.#stamp();
-        const page = this.#page(stamp, matching, cursor, limit);
+        const page = this.#page(stamp, matching, cursor, limit, {method: "changes", ...filter});
         if (page === "cursor-stale") return page;
         return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
@@ -383,7 +383,7 @@ export class WorldService {
             return a.owner.kind.localeCompare(b.owner.kind) || compareIds(a.owner.id, b.owner.id) || compareIds(a.telling.id, b.telling.id);
         });
         const stamp = this.#stamp();
-        const page = this.#page(stamp, items, cursor, limit);
+        const page = this.#page(stamp, items, cursor, limit, {method: "tellings", ...filter});
         if (page === "cursor-stale") return page;
         const marks = world.options.marks ?? EMPTY_MARK_REGISTRY;
         return {
@@ -430,7 +430,7 @@ export class WorldService {
         const uncast = counted.filter((change) => change.cast === undefined).length;
         sortByPlacement(order, present);
         const stamp = this.#stamp();
-        const page = this.#page(stamp, present, cursor, limit);
+        const page = this.#page(stamp, present, cursor, limit, {method: "presence", person, ...filter});
         if (page === "cursor-stale") return page;
         return {...stamp, items: page.items.map((change) => ({change})), uncast, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
@@ -448,7 +448,7 @@ export class WorldService {
             .filter((item) => filter.about === undefined || item.about.some((about) => aboutMatches(about, filter.about!)))
             .sort((a, b) => compareIds(a.id, b.id));
         const stamp = this.#stamp();
-        const page = this.#page(stamp, matching, cursor, limit);
+        const page = this.#page(stamp, matching, cursor, limit, {method: "decisions", ...filter});
         if (page === "cursor-stale") return page;
         return {...stamp, items: page.items.map((decision) => decisionView(decision, (id) => world.data.entries.get(id))), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
@@ -458,7 +458,7 @@ export class WorldService {
         const world = this.#world;
         const matching = [...world.data.suggestions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
         const stamp = this.#stamp();
-        const page = this.#page(stamp, matching, cursor, limit);
+        const page = this.#page(stamp, matching, cursor, limit, {method: "suggestions", status});
         if (page === "cursor-stale") return page;
         return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
@@ -473,7 +473,7 @@ export class WorldService {
             (filter.entry === undefined || revision.ops.some((op) => op.kind !== "chapters" && op.ref.id === filter.entry) || (revision.refs ?? []).some((reference) => reference.target.id === filter.entry)),
         );
         const stamp = this.#stamp();
-        const page = this.#page(stamp, matching, cursor, limit);
+        const page = this.#page(stamp, matching, cursor, limit, {method: "revisions", ...filter});
         if (page === "cursor-stale") return page;
         return {
             ...stamp,
@@ -836,16 +836,20 @@ export class WorldService {
 
     /* ---------- 游标（输出 19） ---------- */
 
-    /** 游标是“读取输入的摘要:偏移”；读取输入的任何一项变了，旧游标得到 `cursor-stale`。 */
-    #page<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number): {items: readonly T[]; next?: string} | "cursor-stale" {
+    /**
+     * 游标是“读取输入的摘要:读取参数的摘要:偏移”（输出 19）：读取输入的任何一项变了，或者拿着游标换了方法、换了筛选，
+     * 都得到 `cursor-stale`。`params` 是方法名与影响结果的参数（条数不算：换条数接着翻不会漏项）。
+     */
+    #page<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number, params: {readonly method: string} & Readonly<Record<string, unknown>>): {items: readonly T[]; next?: string} | "cursor-stale" {
+        const query = this.#ports.digest(stableStringify(params));
         let offset = 0;
         if (cursor !== undefined) {
-            const split = cursor.lastIndexOf(":");
-            if (split < 0 || cursor.slice(0, split) !== stamp.inputDigest) return "cursor-stale";
-            offset = Number(cursor.slice(split + 1));
+            const [input, bound, at, ...rest] = cursor.split(":");
+            if (input !== stamp.inputDigest || bound !== query || rest.length > 0 || at === undefined || !/^\d+$/u.test(at)) return "cursor-stale";
+            offset = Number(at);
         }
         const slice = items.slice(offset, offset + limit);
-        const next = offset + limit < items.length ? `${stamp.inputDigest}:${String(offset + limit)}` : undefined;
+        const next = offset + limit < items.length ? `${stamp.inputDigest}:${query}:${String(offset + limit)}` : undefined;
         return {items: slice, ...(next === undefined ? {} : {next})};
     }
 }

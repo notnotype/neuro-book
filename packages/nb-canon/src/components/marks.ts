@@ -219,26 +219,28 @@ function schemaAt(schema: Readonly<Record<string, unknown>>, path: string): Read
 
 /**
  * 一条标注载荷里的引用（components.md 输出 18 的“标注种类 `refs`”）：按声明的路径在载荷里展开，`[]` 换成元素的下标。
- * 载荷里没有这个属性就没有引用。`base` 是这条标注在对象里的位置。
+ * 载荷里没有这个属性就没有引用。`base` 是这条标注在对象里的位置；值在 `holder[key]`（替换临时 id 时就地改它）。
  */
-export function markReferences(type: MarkType, mark: Readonly<Record<string, unknown>>, base: string): {readonly path: string; readonly kind: MarkRefKind; readonly id: unknown; readonly targets?: readonly string[]}[] {
-    const found: {path: string; kind: MarkRefKind; id: unknown; targets?: readonly string[]}[] = [];
+export function markReferences(type: MarkType, mark: Readonly<Record<string, unknown>>, base: string): {readonly path: string; readonly kind: MarkRefKind; readonly holder: unknown; readonly key: string | number; readonly targets?: readonly string[]}[] {
+    const found: {path: string; kind: MarkRefKind; holder: unknown; key: string | number; targets?: readonly string[]}[] = [];
     for (const ref of type.refs) {
         const steps = pathSteps(ref.path);
         if (steps === null) continue;
-        const walk = (value: unknown, at: string, index: number) => {
+        /** 走到第 `index` 步时，当前值在 `holder[key]`。 */
+        const walk = (holder: unknown, key: string | number, at: string, index: number) => {
+            const value = (holder as Record<string | number, unknown>)[key];
             if (index === steps.length) {
-                found.push({path: at, kind: ref.kind, id: value, ...(ref.targets === undefined ? {} : {targets: ref.targets})});
+                found.push({path: at, kind: ref.kind, holder, key, ...(ref.targets === undefined ? {} : {targets: ref.targets})});
                 return;
             }
             const step = steps[index]!;
             if (step === "each") {
-                if (Array.isArray(value)) for (const [position, item] of value.entries()) walk(item, `${at}[${String(position)}]`, index + 1);
+                if (Array.isArray(value)) for (const position of value.keys()) walk(value, position, `${at}[${String(position)}]`, index + 1);
                 return;
             }
-            if (isRecord(value) && step.key in value) walk(value[step.key], `${at}.${step.key}`, index + 1);
+            if (isRecord(value) && step.key in value) walk(value, step.key, `${at}.${step.key}`, index + 1);
         };
-        walk(mark, base, 0);
+        walk({mark}, "mark", base, 0);
     }
     return found;
 }
