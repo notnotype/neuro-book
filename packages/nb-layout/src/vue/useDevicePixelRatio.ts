@@ -16,13 +16,16 @@ export function useDevicePixelRatio(): Readonly<Ref<number>> {
     }
 
     function sync(): void {
-        dpr.value = read();
+        const next = read();
+        if (next === dpr.value) return;
+        dpr.value = next;
         watchResolution();
     }
 
     onMounted(() => {
         window.addEventListener("resize", sync);
-        sync();
+        dpr.value = read();
+        watchResolution();
     });
     onBeforeUnmount(() => {
         window.removeEventListener("resize", sync);

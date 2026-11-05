@@ -179,8 +179,12 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, attachPaneFocus: (move: PaneFocusMover | null) => {
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, attachPaneFocus: (move: PaneFocusMover) => {
                     movePaneFocus = move;
+                    return () => {
+                        // 只清自己：外壳重挂的先后可能反过来，不把新外壳交的清掉。
+                        if (movePaneFocus === move) movePaneFocus = null;
+                    };
                 }})},
                 renderCommandHost: () => h(CommandHost, {commands, report, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),

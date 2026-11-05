@@ -27,7 +27,7 @@ export interface GridLeafPlacement<R> {
     readonly key: string;
     readonly node: GridLeaf<R>;
     readonly rect: GridRect;
-    /** 新出现时从哪条边长出来：挨着兄弟的那条。根上的叶没有兄弟，为 null。 */
+    /** 新出现时不动的那条边：另一条边跟着让位的兄弟走。根上的叶没有兄弟，为 null。 */
     readonly grow: {readonly axis: GridAxis; readonly edge: "start" | "end"} | null;
 }
 
@@ -145,7 +145,8 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
             const childBox: DeviceBox = horizontal
                 ? {left: position, right: end, top: box.top, bottom: box.bottom, idealLeft: ideal, idealTop: box.idealTop}
                 : {left: box.left, right: box.right, top: position, bottom: end, idealLeft: box.idealLeft, idealTop: ideal};
-            place(child, childBox, childEdges(index), {axis, edge: index > 0 ? "start" : "end"});
+            // 第一块让后面的兄弟往后退，起点不动；其余的让前面的兄弟往前退，终点不动。反过来中间会露出一块空白。
+            place(child, childBox, childEdges(index), {axis, edge: index === 0 ? "start" : "end"});
             if (isLast) return;
 
             const next = children[index + 1] as GridNode<R>;
@@ -154,7 +155,7 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
             const gapEnd = Math.min(end + gap, boxEnd);
             items.push({
                 kind: "sash",
-                key: `sash:${child.id}|${next.id}`,
+                key: `sash:${JSON.stringify([child.id, next.id])}`,
                 sashKey: `${branch.id}:${index}`,
                 branch,
                 index,
@@ -178,11 +179,56 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
     return {items};
 }
 
-/** 新叶第一帧的矩形：主轴宽度为 0，贴在挨着兄弟的那条边上；内容已经是最终尺寸，外框长出来时露出它。 */
+/** 新叶第一帧的矩形：主轴宽度为 0，贴在不动的那条边上；内容已经是最终尺寸，外框长出来时露出它。 */
 export function grownRect(rect: GridRect, grow: GridLeafPlacement<unknown>["grow"]): GridRect {
     if (grow === null) return rect;
     if (grow.axis === "width") return {...rect, x: grow.edge === "start" ? rect.x : rect.x + rect.width, width: 0};
     return {...rect, y: grow.edge === "start" ? rect.y : rect.y + rect.height, height: 0};
+}
+
+/** 差不到这么多算没动：外壳落账后还有第二次发布，矩形可能差一两个取整。 */
+const MOTION_TOLERANCE_PX = 1;
+
+function nearlyEqual(left: GridRect, right: GridRect): boolean {
+    return Math.abs(left.x - right.x) <= MOTION_TOLERANCE_PX && Math.abs(left.y - right.y) <= MOTION_TOLERANCE_PX
+        && Math.abs(left.width - right.width) <= MOTION_TOLERANCE_PX && Math.abs(left.height - right.height) <= MOTION_TOLERANCE_PX;
+}
+
+/** 这次变化相对上一次有没有东西要动：多了、少了，或矩形差得超过容差。 */
+export function placementMoved(items: ReadonlyArray<GridPlacementItem<unknown>>, previous: ReadonlyArray<GridPlacementItem<unknown>>): boolean {
+    if (items.length !== previous.length) return true;
+    const before = new Map(previous.map((item) => [item.key, item.rect]));
+    return items.some((item) => {
+        const old = before.get(item.key);
+        return old === undefined || !nearlyEqual(old, item.rect);
+    });
+}
+
+/**
+ * 新出现的项第一帧的矩形（`key` 到矩形），过渡从这里开始。新叶从不动的那条边长出来。分隔线的身份是前后节点，结构一变就是新元素，
+ * 没有上一帧可接：挨着同一个节点的旧分隔线在哪就从哪出发，否则从挨着的新叶的起点出发，这样线跟着外框的边走，不会一开始就压在内容上。
+ */
+export function enteringRects(items: ReadonlyArray<GridPlacementItem<unknown>>, previous: ReadonlyArray<GridPlacementItem<unknown>>): ReadonlyMap<string, GridRect> {
+    const known = new Set(previous.map((item) => item.key));
+    const oldSashes = previous.filter((item) => item.kind === "sash");
+    const entering = new Map<string, GridRect>();
+    for (const item of items) {
+        if (item.kind === "leaf" && !known.has(item.key)) entering.set(item.key, grownRect(item.rect, item.grow));
+    }
+    for (const item of items) {
+        if (item.kind !== "sash" || known.has(item.key)) continue;
+        const old = oldSashes.find((sash) => sash.before === item.before) ?? oldSashes.find((sash) => sash.after === item.after);
+        const position = (rect: GridRect, offset: number): GridRect => (item.axis === "width" ? {...item.rect, x: rect.x + offset} : {...item.rect, y: rect.y + offset});
+        if (old !== undefined) {
+            entering.set(item.key, position(old.rect, 0));
+            continue;
+        }
+        const beforeLeaf = entering.get(`leaf:${item.before}`);
+        const afterLeaf = entering.get(`leaf:${item.after}`);
+        if (beforeLeaf !== undefined) entering.set(item.key, position(beforeLeaf, item.axis === "width" ? beforeLeaf.width : beforeLeaf.height));
+        else if (afterLeaf !== undefined) entering.set(item.key, position(afterLeaf, -item.size));
+    }
+    return entering;
 }
 
 /**

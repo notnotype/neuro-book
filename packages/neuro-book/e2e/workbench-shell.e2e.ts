@@ -357,6 +357,37 @@ test.describe("产品页", () => {
         expect(await slotParked("panel")).toBe(false);
     });
 
+    test("外框过渡：开关侧栏时有，拖分隔线松手、改窗口尺寸时没有（docs/specs/ui/nested-grid.md 的“过渡”）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const moving = page.locator("[data-moving]");
+        const twoFrames = (): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+        await page.locator('[data-titlebar-layout="sidebar"]').click();
+        await expect(moving.first()).toBeAttached();
+        await expect(moving).toHaveCount(0);
+        await page.locator('[data-titlebar-layout="sidebar"]').click();
+        await expect(moving.first()).toBeAttached();
+        await expect(moving).toHaveCount(0);
+
+        // 外壳落账后还有第二次发布：它不能在松手后再滑一次。
+        const sash = page.getByRole("separator", {name: "调整 sidebar 与 panel-stack 的宽度"});
+        const box = (await sash.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + 200);
+        await page.mouse.down();
+        await page.mouse.move(box.x + 60, box.y + 200, {steps: 4});
+        expect(await moving.count()).toBe(0);
+        await page.mouse.up();
+        await twoFrames();
+        expect(await moving.count()).toBe(0);
+        await twoFrames();
+        expect(await moving.count()).toBe(0);
+
+        await page.setViewportSize({width: 1300, height: 760});
+        await twoFrames();
+        expect(await moving.count()).toBe(0);
+    });
+
     test("F6、Shift+F6 经命令在面板之间移动焦点（docs/specs/ui/nested-grid.md 的“移动焦点”）", async ({page}) => {
         await open(page);
         const part = () => page.evaluate(() => document.activeElement?.closest<HTMLElement>("[data-leaf]")?.dataset.leaf ?? null);

@@ -211,6 +211,8 @@ async function recordedEvents(page: Page): Promise<string> {
 }
 
 test("菜单栏：方向键在项之间移动并跳过禁用项，禁用项带原因，Enter 选中后关闭并把焦点还给组标题；左右键换组后 Escape 回到最初的组标题", async ({page}) => {
+    // 下面有一段测退场动画窗口里的竞态：配置默认减少动态效果，要开回来。
+    await page.emulateMedia({reducedMotion: "no-preference"});
     await page.setViewportSize({width: 1440, height: 1000});
     await openScene(page, "c=Menubar&s=flat&tab=events");
     const edit = stage(page).getByRole("menuitem", {name: "编辑"});
@@ -293,6 +295,7 @@ test("内嵌焦点线：键盘聚焦 Tabs 的标签时只画一圈 1.5px 的内�
 });
 
 test("折叠内容只在高度动画进行中裁切：展开与收起时打上 data-animating、结束后去掉，展开后不裁；快速开合与减少动态时不残留（t78）", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
     // 记下舞台里 data-animating 的每一次变化：内容的开合状态与有没有这个属性。
     const record = () => page.evaluate(() => {
         const log: string[] = [];

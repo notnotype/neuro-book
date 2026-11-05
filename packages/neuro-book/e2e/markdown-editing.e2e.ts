@@ -94,6 +94,8 @@ test.describe("工具栏", () => {
     });
 
     test("下拉菜单选了一项后焦点回正文，可以接着打字", async ({page}) => {
+        // 下面测关闭动画结束后的焦点：配置默认减少动态效果，要开回来。
+        await page.emulateMedia({reducedMotion: "no-preference"});
         await openFile(page, "notes/toolbar-dropdown.md", "字\n");
         await focusFirst(page);
         await page.keyboard.press("End");

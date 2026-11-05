@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {nextFocusStop, placeGrid, stableOrder} from "./grid-rects";
+import {enteringRects, grownRect, nextFocusStop, placeGrid, placementMoved, stableOrder} from "./grid-rects";
 import type {GridLeafPlacement, GridPlacement, GridSashPlacement} from "./grid-rects";
 import type {GridLayoutResult, GridNode, GridNodeInput} from "./grid-types";
 
@@ -36,7 +36,7 @@ describe("按矩形摆放", () => {
     it("一层：叶与分隔线交替，首尾贴容器，合计守恒", () => {
         const {node, layout} = grid(THREE(), 1, {width: 302, height: 200});
         const placement = placeGrid(node, layout, {width: 302, height: 200}, 1);
-        expect(placement.items.map((item) => item.key)).toEqual(["leaf:a", "sash:a|b", "leaf:b", "sash:b|c", "leaf:c"]);
+        expect(placement.items.map((item) => item.key)).toEqual(["leaf:a", 'sash:["a","b"]', "leaf:b", 'sash:["b","c"]', "leaf:c"]);
         expect(leaves(placement).map((item) => item.rect)).toEqual([
             {x: 0, y: 0, width: 100, height: 200},
             {x: 101, y: 0, width: 100, height: 200},
@@ -96,9 +96,25 @@ describe("按矩形摆放", () => {
     });
 
     it("尺寸是 0 的叶矩形就是 0：不因为取整多出一个设备像素", () => {
-        const {node, layout} = grid(THREE(), 1, {width: 302, height: 200});
+        // 缝 1、dpr 1.25、宽 300：中间块的理想终点不在设备像素上，不特判就会多出一个设备像素。
+        const {node, layout} = grid(THREE(), 1, {width: 300, height: 200});
         const zeroed: GridLayoutResult = {...layout, sizes: {...layout.sizes, b: {width: 0, height: 200}}};
-        expect(leaves(placeGrid(node, zeroed, {width: 302, height: 200}, 1.5))[1]?.rect.width).toBe(0);
+        expect(leaves(placeGrid(node, zeroed, {width: 300, height: 200}, 1.25))[1]?.rect.width).toBe(0);
+    });
+
+    it("布局比容器大（宿主的尺寸还没到）：夹在容器里，不伸出去", () => {
+        const {node, layout} = grid(THREE(), 1, {width: 302, height: 200});
+        const placement = placeGrid(node, layout, {width: 200, height: 200}, 1);
+        for (const item of placement.items) expect(item.rect.x + item.rect.width).toBeLessThanOrEqual(200);
+    });
+
+    it("分隔线给出占用（取整后）、所属分支的主轴长度", () => {
+        const {node, layout} = grid(NESTED(), 1, {width: 1000, height: 401});
+        const placed = sashes(placeGrid(node, layout, {width: 1000, height: 401}, 1.25));
+        expect(placed.find((item) => item.sashKey === "root:0")?.size).toBeCloseTo(0.8, 6);
+        expect(placed.find((item) => item.sashKey === "root:0")?.branchLength).toBe(1000);
+        // 401 乘 1.25 不是整数，分支的长度按设备像素取整。
+        expect(placed.find((item) => item.sashKey === "right:0")?.branchLength).toBeCloseTo(400.8, 6);
     });
 });
 
@@ -187,6 +203,82 @@ describe("分隔线的身份与两端", () => {
         const endsOf = (result: GridLayoutResult) => sashes(placeGrid(instance.root() as GridNode<string>, result, {width: 1000, height: 401}, 1)).find((item) => item.sashKey === "stack:0")?.ends;
         expect(endsOf(zeroGap)).toEqual({start: "root:0", end: null});
         expect(endsOf(free)).toEqual({start: null, end: null});
+    });
+});
+
+describe("新出现的项从哪里开始", () => {
+    const placeOf = (root: GridNodeInput<string>) => {
+        const {node, layout} = grid(root, 4, {width: 1000, height: 300});
+        return placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+    };
+    const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
+
+    it("第一块的起点不动，其余的终点不动：另一条边跟着让位的兄弟走，中间不露空白", () => {
+        const items = placeOf(branch(leaf("n"), leaf("a")));
+        const [first, , second] = items;
+        if (first?.kind !== "leaf" || second?.kind !== "leaf") throw new Error("树序不对");
+        expect(first.grow).toEqual({axis: "width", edge: "start"});
+        expect(second.grow).toEqual({axis: "width", edge: "end"});
+        expect(grownRect(first.rect, first.grow)).toEqual({...first.rect, width: 0});
+        expect(grownRect(second.rect, second.grow)).toEqual({...second.rect, x: second.rect.x + second.rect.width, width: 0});
+    });
+
+    it("纵向分支按高度长", () => {
+        const items = placeOf({kind: "branch", id: "root", orientation: "vertical", children: [leaf("n"), leaf("a")]});
+        const second = items[2];
+        if (second?.kind !== "leaf") throw new Error("树序不对");
+        expect(second.grow).toEqual({axis: "height", edge: "end"});
+        expect(grownRect(second.rect, second.grow)).toEqual({...second.rect, y: second.rect.y + second.rect.height, height: 0});
+    });
+
+    it("根上的叶没有兄弟，第一帧就是终点", () => {
+        const only = placeOf(leaf("only"))[0];
+        if (only?.kind !== "leaf") throw new Error("树序不对");
+        expect(grownRect(only.rect, only.grow)).toEqual(only.rect);
+    });
+
+    it("分隔线从挨着同一个节点的旧分隔线出发", () => {
+        const before = placeOf(branch(leaf("a"), leaf("b"), leaf("c")));
+        const after = placeOf(branch(leaf("a"), leaf("c")));
+        const old = before.find((item) => item.kind === "sash" && item.before === "a");
+        const sash = after.find((item) => item.kind === "sash");
+        expect(enteringRects(after, before).get(sash?.key ?? "")?.x).toBe(old?.rect.x);
+    });
+
+    it("没有旧分隔线可接时从新叶的起点出发：线一开始就在外框的边上", () => {
+        const before = placeOf(leaf("a"));
+        const after = placeOf(branch(leaf("n"), leaf("a")));
+        const entering = enteringRects(after, before);
+        const newLeaf = entering.get("leaf:n");
+        const sash = after.find((item) => item.kind === "sash");
+        expect(newLeaf).toEqual({...after[0]?.rect, width: 0});
+        expect(entering.get(sash?.key ?? "")?.x).toBe(0);
+
+        const appended = placeOf(branch(leaf("a"), leaf("n")));
+        const appendedSash = appended.find((item) => item.kind === "sash");
+        const appendedEntering = enteringRects(appended, before);
+        expect(appendedEntering.get(appendedSash?.key ?? "")?.x).toBe(1000 - 4);
+    });
+
+    it("已有的项不在里面", () => {
+        const items = placeOf(branch(leaf("a"), leaf("b")));
+        expect(enteringRects(items, items).size).toBe(0);
+    });
+});
+
+describe("placementMoved", () => {
+    const items = () => {
+        const {node, layout} = grid(THREE(), 1, {width: 302, height: 200});
+        return placeGrid(node, layout, {width: 302, height: 200}, 1).items;
+    };
+
+    it("完全相同、差不到 1px：没动；差得更多、多了少了：动了", () => {
+        const base = items();
+        expect(placementMoved(base, base)).toBe(false);
+        const shift = (dx: number) => base.map((item) => ({...item, rect: {...item.rect, x: item.rect.x + dx}}));
+        expect(placementMoved(shift(1), base)).toBe(false);
+        expect(placementMoved(shift(2), base)).toBe(true);
+        expect(placementMoved(base.slice(0, 3), base)).toBe(true);
     });
 });
 

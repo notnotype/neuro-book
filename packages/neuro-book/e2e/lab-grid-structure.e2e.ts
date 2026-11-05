@@ -112,7 +112,19 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
         await act(page, "split-before");
         await expect(frame(page, "n")).toHaveAttribute("data-moving", "");
         const finalWidth = await content(page, "n").evaluate((element) => element.getBoundingClientRect().width);
-        expect(await widthOf(page, "n")).toBeLessThan(finalWidth);
+        // 过渡中：新叶的起点不动，终点和让位的 a 的起点一起走，中间不露空白；分隔线夹在它们之间。
+        const during = await page.evaluate(() => {
+            const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+            const n = rect("[data-leaf='n']");
+            const a = rect("[data-leaf='a']");
+            const sash = rect("[data-sash='a-split:0']");
+            return {nLeft: n.left, nRight: n.right, aLeft: a.left, sashLeft: sash.left};
+        });
+        expect(during.nRight - during.nLeft).toBeLessThan(finalWidth);
+        expect(Math.abs(during.nLeft - (await page.locator("[data-grid-scope]").boundingBox())!.x)).toBeLessThan(1);
+        expect(during.aLeft - during.nRight).toBeLessThan(8);
+        expect(during.sashLeft).toBeGreaterThanOrEqual(during.nRight - 2);
+        expect(during.sashLeft).toBeLessThanOrEqual(during.aLeft + 2);
         await settled(page);
         expect(await widthOf(page, "n")).toBe(finalWidth);
         await act(page, "close-new");
@@ -131,9 +143,12 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
         await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         expect(await movingCount(page)).toBe(0);
 
-        await page.setViewportSize({width: 1200, height: 800});
-        await expect.poll(() => widthOf(page, "c")).toBeGreaterThan(0);
-        expect(await movingCount(page)).toBe(0);
+        // 高度也变：宿主与 grid 各有一个 ResizeObserver，晚一拍的那个不能被当成程序变化。等两帧再看，标记晚到也看得见。
+        for (const size of [{width: 1200, height: 700}, {width: 1300, height: 600}]) {
+            await page.setViewportSize(size);
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            expect(await movingCount(page)).toBe(0);
+        }
 
         await act(page, "narrow");
         await expect(frame(page, "a")).toHaveAttribute("data-moving", "");

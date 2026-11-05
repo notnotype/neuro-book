@@ -62,8 +62,8 @@ import WorkbenchViewInstances from "./WorkbenchViewInstances.vue";
 defineOptions({name: "WorkbenchShell"});
 
 const props = defineProps<{
-    /** 外壳挂上时交出移动焦点的实现，卸载时交 null（`commands/pane-focus-commands.ts`）。 */
-    attachPaneFocus?: (move: PaneFocusMover | null) => void;
+    /** 外壳挂上时交出移动焦点的实现，返回撤销（`commands/pane-focus-commands.ts`）。 */
+    attachPaneFocus?: (move: PaneFocusMover) => () => void;
     layout: LayoutStore;
     commands: CommandService;
     views: ViewSource;
@@ -297,10 +297,13 @@ onMounted(() => {
 onBeforeUnmount(() => drag.value?.dispose());
 
 /** 焦点不在任何 grid 里（页面根、菜单）时从外壳的第一块开始。 */
-onMounted(() => props.attachPaneFocus?.((direction) => {
-    if (!moveGridFocus(document.activeElement, direction)) moveGridFocus(hostEl.value?.querySelector("[data-grid-scope]") ?? null, direction);
-}));
-onBeforeUnmount(() => props.attachPaneFocus?.(null));
+let detachPaneFocus: (() => void) | undefined;
+onMounted(() => {
+    detachPaneFocus = props.attachPaneFocus?.((direction) => {
+        if (!moveGridFocus(document.activeElement, direction)) moveGridFocus(hostEl.value?.querySelector("[data-grid-scope]") ?? null, direction);
+    });
+});
+onBeforeUnmount(() => detachPaneFocus?.());
 
 const dragState = computed(() => drag.value?.state.value ?? null);
 

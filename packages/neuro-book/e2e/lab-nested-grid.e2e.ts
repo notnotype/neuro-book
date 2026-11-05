@@ -147,7 +147,8 @@ test("外层拖动守恒与内层高不变", async ({page}) => {
     expect(sum(change.target)).toBeCloseTo(sum(change.baseline), 5);
     expect(change.target.left).toBeGreaterThan(change.baseline.left);
     expect(change.target.left).toBeCloseTo(afterLeft.width, 0);
-    expect(change.target.right).toBeCloseTo(afterRight.width, 0);
+    // 量到的宽度是外框取整后的，记下的意图没取整，最多差半个像素。
+    expect(Math.abs(change.target.right - afterRight.width)).toBeLessThanOrEqual(0.5);
 
     await showEventLog(page);
     const names = await eventNames(page);

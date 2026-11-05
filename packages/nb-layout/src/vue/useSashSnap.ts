@@ -28,9 +28,10 @@ const SASH_SNAP_KEY: InjectionKey<SashSnapHost> = Symbol("nb-layout.sash-snap");
 export function useSashSnap(): SashSnapHost {
     const snaps = new Set<(dpr: number) => void>();
     let frame = 0;
+    let disposed = false;
 
     function schedule(): void {
-        if (typeof requestAnimationFrame !== "function") {
+        if (disposed || typeof requestAnimationFrame !== "function") {
             return;
         }
         if (frame) {
@@ -55,6 +56,7 @@ export function useSashSnap(): SashSnapHost {
     });
 
     onBeforeUnmount(() => {
+        disposed = true;
         window.removeEventListener("resize", schedule);
         window.removeEventListener("scroll", schedule, {capture: true});
         if (frame) {

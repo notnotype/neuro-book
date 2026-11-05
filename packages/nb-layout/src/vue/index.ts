@@ -7,7 +7,7 @@ export {default as NestedGrid} from "./NestedGrid.vue";
 export {default as DropFeedbackOverlay} from "./DropFeedbackOverlay.vue";
 export type {DropFeedbackPreview} from "./DropFeedbackOverlay.vue";
 export {default as DropIndicatorLabel} from "./DropIndicatorLabel.vue";
-export * from "./grid-splitter";
+export {buildGridBranchPanels, sashPanelsOfConfig} from "./grid-splitter";
 export {
     SASH_HOVER_DELAY_MS,
     acquireSashCursor,
