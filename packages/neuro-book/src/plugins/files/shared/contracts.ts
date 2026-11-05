@@ -397,6 +397,11 @@ export interface FilesService {
     rawUrl(address: string): string | null;
 }
 
+/** 上传背景图片：`PUT` 原始字节，成功回 `{address}`，失败回 `{code, detail}`（docs/specs/workspace/files.md 的“写背景图片”）。 */
+export const BACKGROUND_UPLOAD_URL = "/api/nbook.files/backgrounds";
+/** 背景图片所在的目录，文件名是内容摘要，所以这里的文件都能当背景用。 */
+export const BACKGROUND_DIRECTORY_ADDRESS = "user://backgrounds";
+
 /** 字节路由的 URL：`project://` 带窗口绑定的作品与代次；地址不合法或没有绑定项目时为 null。 */
 export function rawUrlOf(address: string, project: {readonly id: string; readonly generation: number} | null): string | null {
     const parsed = parseResource(address);

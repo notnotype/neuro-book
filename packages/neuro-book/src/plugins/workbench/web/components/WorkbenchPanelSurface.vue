@@ -73,7 +73,7 @@ defineSlots<{
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    background: var(--panel-surface);
+    background: var(--shell-card-surface, var(--panel-surface));
 }
 
 /*

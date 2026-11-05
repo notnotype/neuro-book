@@ -2,6 +2,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {Type} from "typebox";
+import type {Static} from "typebox";
 
 import type {DisplayText} from "nbook/shared/localized-text";
 import {defineSetting} from "nbook/shared/settings";
@@ -141,6 +142,49 @@ export const themeSetting = defineSetting({
         {value: "macos"},
     ],
 });
+
+const BackgroundImageSchema = Type.Object({
+    kind: Type.Literal("image"),
+    image: Type.String({pattern: "^user://backgrounds/[0-9a-f]{64}\\.(png|jpg|webp)$"}),
+    fit: Type.Union([Type.Literal("cover"), Type.Literal("contain"), Type.Literal("repeat")]),
+    blur: Type.Boolean(),
+    scrim: Type.Number({minimum: 75, maximum: 100}),
+}, {additionalProperties: false});
+const HEX_COLOR = "^#[0-9a-f]{6}$";
+const NoBackgroundSchema = Type.Object({kind: Type.Literal("none")}, {additionalProperties: false});
+const EditorBackgroundSchema = Type.Union([
+    NoBackgroundSchema,
+    Type.Object({kind: Type.Literal("color"), light: Type.String({pattern: HEX_COLOR}), dark: Type.String({pattern: HEX_COLOR})}, {additionalProperties: false}),
+    BackgroundImageSchema,
+]);
+const WindowBackgroundSchema = Type.Union([NoBackgroundSchema, BackgroundImageSchema]);
+
+/** 背景页的分区 id（设置窗口的 page 分区）：两个设置指向它，所以不进通用列表。 */
+export const BACKGROUND_SECTION = "nbook.workbench.background";
+
+/** 正文背景（docs/specs/ui/backgrounds.md）：编辑组的内容区。纯色底亮暗各存一个。 */
+export const editorBackgroundSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "background.editor",
+    schema: EditorBackgroundSchema,
+    default: {kind: "none"},
+    layers: ["user"],
+    section: BACKGROUND_SECTION,
+});
+
+/** 窗口背景（docs/specs/ui/backgrounds.md）：整个工作台窗口，只有图片。 */
+export const windowBackgroundSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "background.window",
+    schema: WindowBackgroundSchema,
+    default: {kind: "none"},
+    layers: ["user"],
+    section: BACKGROUND_SECTION,
+});
+
+export type BackgroundImageSetting = Static<typeof BackgroundImageSchema>;
+export type EditorBackgroundSetting = Static<typeof EditorBackgroundSchema>;
+export type WindowBackgroundSetting = Static<typeof WindowBackgroundSchema>;
 
 /** 明暗；`system` 跟随系统，配色取主题包的 `defaultColorway[明暗]`。 */
 export const appearanceSetting = defineSetting({

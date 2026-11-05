@@ -31,18 +31,22 @@ export function buildMonacoTheme(root: HTMLElement): Monaco.editor.IStandaloneTh
     const muted = hex(token(style, "--text-muted", dark ? "#8b949e" : "#6e7781"), dark ? "#8b949e" : "#6e7781");
     const accent = hex(token(style, "--accent-main", "#3b82f6"), "#3b82f6");
     const hover = hex(token(style, "--bg-hover", dark ? "#2a2a2a" : "#f3f4f6"), dark ? "#2a2a2a" : "#f3f4f6");
+    // 开了背景（docs/specs/ui/backgrounds.md）：编辑区透明。吸顶行要实心，否则滚动时字叠字；整行高亮是实色，改半透明，不留一块补丁。
+    const transparent = root.dataset.nbEditorTransparent !== undefined;
     return {
         base: dark ? "vs-dark" : "vs",
         inherit: true,
         rules: [],
         colors: {
-            "editor.background": background,
+            "editor.background": transparent ? "#00000000" : background,
             "editor.foreground": foreground,
-            "editorGutter.background": background,
+            "editorGutter.background": transparent ? "#00000000" : background,
+            "editorStickyScroll.background": background,
+            "editorStickyScrollHover.background": hover,
             "editorLineNumber.foreground": muted,
             "editorLineNumber.activeForeground": foreground,
             "editorCursor.foreground": accent,
-            "editor.lineHighlightBackground": hover,
+            "editor.lineHighlightBackground": transparent ? `${hover}66` : hover,
         },
     };
 }

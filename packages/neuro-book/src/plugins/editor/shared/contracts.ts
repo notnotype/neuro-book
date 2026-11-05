@@ -12,6 +12,8 @@ import type {Ref} from "@vue/reactivity";
 import type {InjectionKey} from "vue";
 import type {languages as MonacoLanguages} from "monaco-editor/esm/vs/editor/editor.api.js";
 
+import type {EditorBackgroundSetting} from "nbook/plugins/workbench/shared/contracts";
+
 import type {EditingActionId, EditorEditing} from "./editing";
 
 export {EDITING_ACTIONS} from "./editing";
@@ -118,6 +120,16 @@ export type EditorToolbarPlacement = "full" | "merged" | "bottom";
 
 /** 编辑组面包屑那一行右侧留给控件的位置（`merged` 时工具栏传送到这里）：每组一个。值是元素；这个文件也进后端的类型检查，写不了 DOM 类型。 */
 export const editorToolbarSlotKey: InjectionKey<Readonly<Ref<object | null>>> = Symbol("nbook.editor/toolbar-slot");
+
+/** 正文背景（docs/specs/ui/backgrounds.md）：编辑器区交给各组。 */
+export interface EditorBackgroundSource {
+    readonly setting: Readonly<Ref<EditorBackgroundSetting>>;
+    /** 图片地址转成能读字节的 URL。 */
+    url(address: string): string | null;
+    report(error: unknown): void;
+}
+
+export const editorBackgroundKey: InjectionKey<EditorBackgroundSource> = Symbol("nbook.editor/background");
 
 /** 编辑器区交给控件的菜单（`provide`）：控件画内置项，命令、贡献项、文字都从这里取。响应式：在渲染函数或 computed 里读。 */
 export interface EditorMenus {

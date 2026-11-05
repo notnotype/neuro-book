@@ -302,7 +302,7 @@ onMounted(async () => {
     });
     // 主题或明暗变了（文档根上的 token 换了）：重新生成 Monaco 的主题。
     themeObserver = new MutationObserver(applyTheme);
-    themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["style", "class", "data-nb-appearance", "data-nb-theme"]});
+    themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["style", "class", "data-nb-editor-transparent", "data-nb-appearance", "data-nb-theme"]});
     if (props.binding !== null) enter(props.binding);
     emit("ready", handle);
 });

@@ -250,7 +250,7 @@ watch(() => props.focusSeq, (next, previous) => {
     overflow: hidden;
     font-size: var(--text-xs);
     color: var(--text-secondary);
-    background: var(--panel-surface);
+    background: var(--editor-inner-surface, var(--panel-surface));
     white-space: nowrap;
 }
 

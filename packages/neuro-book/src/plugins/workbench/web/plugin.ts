@@ -19,7 +19,10 @@ import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/con
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
 import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
-import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {BACKGROUND_DIRECTORY_ADDRESS, filesKey, rawUrlOf} from "nbook/plugins/files/shared/contracts";
+import {displayLocale, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
+import {settingsPage} from "nbook/ui/settings/settings-page";
 import {windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 
@@ -31,7 +34,8 @@ import {APP_COMMAND_DECLARATIONS, appCommands} from "./commands/app-commands";
 import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
-import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {workbenchText} from "../shared/text";
+import {appearanceSetting, BACKGROUND_SECTION, editorBackgroundSetting, notificationsKey, quickPickKey, themeSetting, windowBackgroundSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {NotificationInput} from "../shared/contracts";
 import {completeHomeDeclaration, validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
@@ -72,6 +76,9 @@ const PROFILE_DECLARATION: Omit<ActivityBarItemDeclaration, "title"> = {
 };
 const NO_IMPLEMENTATION: ActivityBarItemImplementation = Object.freeze({});
 
+/** 背景页（docs/specs/ui/backgrounds.md 输出 9）：左栏独立一项，只有用户层。 */
+const BACKGROUND_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-image", category: "app", order: 30, layout: "column", layers: ["user"], keywords: [workbenchText("settingsPages.background.keywords.wallpaper"), workbenchText("settingsPages.background.keywords.eyeCare")]};
+
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
@@ -89,10 +96,11 @@ export const workbenchBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: filesKey, required: false}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}, {key: windowTextKey, required: false}],
         provides: [workbenchRootKey, quickPickKey, notificationsKey],
         receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT],
         contributions: [
+            {capability: SETTINGS_PAGES_POINT, id: BACKGROUND_SECTION, declaration: BACKGROUND_PAGE},
             {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: PROFILE_ITEM, declaration: PROFILE_DECLARATION},
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_THEME_COMMAND, declaration: SWITCH_THEME_DECLARATION},
@@ -156,6 +164,14 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             // 短名只给页面根的标记与“有没有项目”的判断用；界面上显示书名（窗口的显示名，见 nbook/shared/projects）。
             const projectName = project?.name ?? null;
             const projectTitle = project?.title ?? null;
+            // 窗口背景（docs/specs/ui/backgrounds.md）：地址是 user://，不要绑定项目也能读。
+            const windowBackground = computed(() => {
+                const setting = settings.get(windowBackgroundSetting);
+                if (setting.kind !== "image") return null;
+                const url = rawUrlOf(setting.image, null);
+                return url === null ? null : {url, fit: setting.fit, blur: setting.blur, scrim: setting.scrim};
+            });
+            const reportBackground = (error: unknown): void => report(error instanceof Error ? error : new Error(String(error)));
             const workbenchPages = createWorkbenchPages({
                 // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
                 document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, theme, appearance})},
@@ -165,7 +181,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle})},
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, background: windowBackground, reportBackground})},
                 renderCommandHost: () => h(CommandHost, {commands, report, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
@@ -183,6 +199,10 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 services: [provideService(workbenchRootKey, {pages: () => pages.list()}), provideService(quickPickKey, palettes.quickPick), provideService(notificationsKey, {notify: (input) => notifications.notify(input)})],
                 receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
                 contributions: {
+                    [SETTINGS_PAGES_POINT]: {[BACKGROUND_SECTION]: settingsPage(() => import("./components/BackgroundSettingsPage.vue"), () => ({settings, listImages: async () => {
+                        const files = await context.services.resolve(filesKey);
+                        return files.status === "resolved" ? files.instance.list(BACKGROUND_DIRECTORY_ADDRESS) : null;
+                    }}))},
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
