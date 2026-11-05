@@ -1,0 +1,91 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t01-research-and-design",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "主题皮肤：书房",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "bf353cb4bf5a95de3b2321b0c335e4136e5ece656fd3eb69dca0837c6b875697",
+    "files": [
+        "index.html",
+        "r1/empty-dark.webp",
+        "r1/empty-light.webp",
+        "r1/writing-quiet-dark.webp",
+        "r1/writing-quiet-light.webp",
+        "r1/writing-scene-dark.webp",
+        "r1/writing-scene-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-empty",
+            "type": "single",
+            "label": "打开作品、还没开文件时，这个方向对吗",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "方向对，继续细化"
+                },
+                {
+                    "value": "adjust",
+                    "label": "方向对，但要改（写在留言里）"
+                },
+                {
+                    "value": "no",
+                    "label": "不对，换个思路"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "yes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-writing",
+            "type": "single",
+            "label": "写作时，正文两侧放什么",
+            "options": [
+                {
+                    "value": "scene",
+                    "label": "A：两侧露出场景"
+                },
+                {
+                    "value": "quiet",
+                    "label": "B：两侧只有光"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "scene"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-notes",
+            "type": "text",
+            "label": "还有什么想说的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-05T14:48:30.080Z"
+}

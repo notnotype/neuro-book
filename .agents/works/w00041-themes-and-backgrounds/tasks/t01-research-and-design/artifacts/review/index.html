@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主题皮肤：书房</title>
+<style>
+:root { --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef; --warn: #b45309; --warn-soft: #fdf1df; --radius: 10px; }
+@media (prefers-color-scheme: dark) { :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123330; --warn: #fbbf24; --warn-soft: #3a2e12; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+.lead p { color: var(--muted); margin: 6px 0; max-width: 900px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+.opts { display: grid; gap: 12px; margin: 12px 0; }
+.opt { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); }
+.opt.rec { border-color: var(--accent); background: var(--accent-soft); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 12px; margin-top: 8px; }
+figure { margin: 0; }
+img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.rec-note { margin: 10px 0 0; }
+ul { margin: 6px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+<div class="lead">
+<h1>主题皮肤：书房（第 1 轮）</h1>
+<p>整套换皮肤的第一张静态稿：没有角色，亮色白天窗边，暗色夜晚台灯。正文底下始终是干净的纸，不靠半透明磨砂。</p>
+<p>这一轮只看观感。素材是图片生成的草稿，定稿前不算数；界面是草稿搭的，尺寸和产品大致一致，但不是真实工作台。</p>
+<p>皮肤换掉的不止背景：配色、活动栏（做成书脊）、标签条、标题字体、侧栏下角。菜单、设置窗口、图标集这一轮还没有做。</p>
+</div>
+
+<section class="q" data-nbdev-question="r1-empty" data-nbdev-type="single" data-nbdev-recommend="yes" data-nbdev-required>
+<h2>打开作品、还没开文件时，这个方向对吗 <span class="badge" data-nbdev-skip>待定</span></h2>
+<div class="pair">
+<figure><img src="r1/empty-light.webp" alt="空状态，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r1/empty-dark.webp" alt="空状态，暗色"><figcaption>暗色</figcaption></figure>
+</div>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="yes"><h3>方向对，继续细化</h3></div>
+<div class="opt" data-nbdev-option="adjust"><h3>方向对，但要改（写在留言里）</h3></div>
+<div class="opt" data-nbdev-option="no"><h3>不对，换个思路</h3></div>
+</div>
+<p class="rec-note"><b>推荐：方向对。</b>场景占满内容区，文字落在墙面的留白上，一眼能认出是哪套皮肤，也没有压暗或磨砂。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-writing" data-nbdev-type="single" data-nbdev-recommend="scene" data-nbdev-required>
+<h2>写作时，正文两侧放什么 <span class="badge" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="scene"><h3>A：两侧露出场景</h3>
+<p>左边窗与植物，右边书架与台灯，往正文方向淡出。皮肤感强；窗口窄到放不下时两侧自然消失。</p>
+<div class="pair">
+<figure><img src="r1/writing-scene-light.webp" alt="两侧场景，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r1/writing-scene-dark.webp" alt="两侧场景，暗色"><figcaption>暗色</figcaption></figure>
+</div></div>
+<div class="opt" data-nbdev-option="quiet"><h3>B：两侧只有光</h3>
+<p>没有图，白天是窗边来的亮光，夜里是台灯的暖光；只有侧栏下角留一点书架。最安静，但和普通主题的差别小。</p>
+<div class="pair">
+<figure><img src="r1/writing-quiet-light.webp" alt="两侧只有光，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r1/writing-quiet-dark.webp" alt="两侧只有光，暗色"><figcaption>暗色</figcaption></figure>
+</div></div>
+</div>
+<p class="rec-note"><b>推荐：A。</b>你要的是整套换皮肤，B 看起来只是换了配色。A 的风险是长时间写作时两侧抢眼，定稿时可以把图做得更淡，这一轮先看有没有那个感觉。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-notes" data-nbdev-type="text" data-nbdev-label="还有什么想说的">
+<h2>还有什么想说的</h2>
+<p>比如书脊活动栏、标题字体、侧栏下角的书架，哪里喜欢、哪里别扭。</p>
+</section>
+</main>
+</body>
+</html>
