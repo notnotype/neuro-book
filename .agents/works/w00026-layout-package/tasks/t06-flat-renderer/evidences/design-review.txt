@@ -1,0 +1,259 @@
+w00026 t06 扁平渲染层：设计审查（前端侧）
+审查对象：t06 plan.md、docs/specs/ui/nested-grid.md 的最后七条输出与验收 8、9、边界一句。
+实验文件在 /tmp/review-w00026-t06-design/exp/。标注“真实运行时”的条目在本机 Chrome 里用 playwright-core 复现；标注“从代码推断”的没有跑。
+
+### 1. “取整”规则做不到“等分时各条缝宽度相同”，验收 9 在非整数设备像素的缝宽上不成立
+**严重程度**：重要
+**类别**：正确性 / 合同与实现不一致
+**位置**：plan.md “grid-rects.ts” 第一条（边按 `Math.round(edge * dpr) / dpr` 取整，分隔线占用不取整）；Spec 输出“取整”、验收 9
+**现象**：计划只取整叶的边，缝宽原样留着。缝宽乘 dpr 不是整数时，相邻两条缝在设备像素上一条是 n 一条是 n+1。用计划的算法（三块等分、缝 sash，叶边取整、宽高相减）在 600 到 2000 的 1401 个容器宽度上枚举：
+- 缝 1px（外壳默认 `SASH_PX`、nb-story 与 dev-panel 的 1px 缝）：dpr 1.25 下 818 个宽度两条缝不等，dpr 1.5 下 702 个
+- 缝 7px（Lab 验收页 `toHaveCSS("width","7px")`）：dpr 1.25 下 584 个，dpr 1.5 下 708 个
+- 缝 4px（卡片主题）：dpr 1.25 与 2 全部相等，dpr 1.5 下仍有 4 个不等（`Math.round` 在 .5 的并列上被浮点误差打散）
+- dpr 1 与 2 对整数缝全部相等
+**为什么是问题**：Spec 写的是无条件的“等分时各条缝的宽度相同，不随位置跳动”，提案第 6 节写的理由是“三块等分时缝会在 3、4、5px 之间跳”。计划的算法只对“缝宽 × dpr 恰好是整数且不踩 .5”成立。验收 9 在 1.25 下三块等分的那个具体宽度上可能碰巧通过（我用 900、1000、1200、1440 宽、缝 7px 试过都是 9、9），但合同本身是假的，换一个窗口宽度就破。
+**如何核实**：`/tmp/review-w00026-t06-design/exp/gaps2.ts`，`bun run` 即可。这是对计划算法的模型枚举，不是真实运行时；它只依赖 `Math.round` 与加减，不依赖浏览器。
+**建议改法**：缝的设备像素宽也要取整：`gapDevice = Math.max(1, Math.round(sash * dpr))`（缝大于 0 时），叶的边由“前一个叶的右边取整值 + 缝的设备宽”推出，再用叶宽 = 边差，不要对每条边各自 `Math.round`。这样缝宽恒定，代价是叶的尺寸与 `layout.sizes` 最多差一个设备像素（本来就差）。同时把验收 9 改成对“1px、4px、7px 三种缝 × dpr 1、1.25、1.5”枚举（纯函数 `grid-rects.test.ts` 就能跑，不必靠 e2e 的碰巧）。
+
+### 2. “矩形在任一轴为零就停放”用的是预览矩形，会把外壳“往零拖时等落账再停放、拖回来不闪”的规则打破
+**严重程度**：重要
+**类别**：被破坏的既有约定
+**位置**：plan.md “停放”一条；Spec 输出“停放”；`WorkbenchShellLayout.vue` 的 `onGesturePreview` 与 `setPreviewShown` 上方注释；workbench-shell.md 外壳一输出 8
+**现象**：外壳现在刻意让内容在拖到零的预览里留在叶里，“往零拖时等落账再停放：拖过阈值又拖回来，内容不闪”（`WorkbenchShellLayout.vue` 注释），`previewZeroed` 只影响卡片。新渲染层把摆放矩形算自 `renderLayout`（手势期间是预览布局），预览把侧栏压到 0 的那一帧，该叶矩形就为零，内容立刻 `visibility: hidden` 加 `inert`。
+**为什么是问题**：
+1. 拖过阈值又拖回来：内容先隐藏再显示，是闪一下。
+2. 焦点在该叶内（侧栏文件树里的一行）时，`inert` 会让焦点在拖动中途丢到 body，拖回来不会回来。落账前外壳并没有决定要把它停放，焦点交接（`focusTarget`）也没有机会运行。
+3. 计划写“手势的预览、提交与 scope 仲裁一行不动”，但这条规则让预览多了一个副作用，计划没有讨论。
+**如何核实**：从代码推断：`NestedGrid.vue` 的 `renderLayout = preview.value?.layout ?? props.layout`；Spec 的停放规则按“叶的矩形”判定，没有区分预览与已发布。真实运行时可用现有 `workbench-shell.e2e.ts` 的“拖到零”用例加一句焦点断言复现（我没有跑 e2e）。
+**建议改法**：停放只看已发布的布局（`props.layout`），预览期间不改变停放状态；或者 `NestedGrid` 对宿主暴露“预览中不停放”的开关。宿主已有自己的停放时机（`projectedParked`、`previewShown`），渲染层的停放应该只管宿主没管的叶（编辑器区、视图容器里被压到零的叶）。无论哪种，在 Spec 的停放条里写明“按已发布的布局判定”。
+
+### 3. 外壳的“放下后收尾”按帧数跟踪 DOM 矩形，会和 470ms 的外框过渡打架；DOM 几何的其它读者同理
+**严重程度**：重要
+**类别**：隐含耦合 / 被破坏的既有约定
+**位置**：`WorkbenchShell.vue` 的 `settledRectOf`、`startSettle`（`SETTLE_TRACK_FRAMES = 20`）；`views/drop-dom.ts`（拿起时读矩形）；`editor/web/tab-drag.ts`（拖动中读 `[data-editor-content]` 等矩形）；plan.md “过渡”与第 7 片
+**现象**：放下视图或容器后，外壳每帧 `getBoundingClientRect()` 量 `[data-view-section]`、`[data-container-host]`，连续两帧不变才让覆盖层淡出，最多跟 20 帧。落账触发的是程序布局变化，按新规则会开 470ms 的外框过渡：分节的外框在动，内容容器（最终尺寸）随外框平移，量到的矩形 470ms 内一直在变。20 帧在 60Hz 下约 333ms，在 144Hz 下约 140ms，收尾覆盖层会在过渡还没走完时标记终点并淡出，滑到一个中间位置。
+**为什么是问题**：这不是测试问题，是产品行为：外壳三输出 22（“滑到拖进去的视图最终所在的位置”）和 `workbench-dnd.e2e.ts` 的“放下后的收尾”用例都会破。计划只把“量几何的 e2e 在动画中途量到旧值”记为第 7 片的测试修补，没有把“产品代码里读 DOM 几何的地方”列出来。其它读者：`drop-dom.ts` 在拿起时一次读（过渡中拿起会把落点冻在中间矩形上）、`tab-drag.ts` 的落点（过渡中拖标签，内容容器的矩形尺寸是最终值而位置是中间值，落点区域会错位）。
+**如何核实**：从代码推断（读 `settledRectOf`、`startSettle`）。真实运行时可在 Lab 外壳场景放下一个视图后量 `getBoundingClientRect` 的变化时长。
+**建议改法**：渲染层给出“过渡已结束”的信号，宿主等它：NestedGrid 在过渡结束后发 `settled` 事件，或者在根上留一个宿主能等的状态（计划里已经有根上的 `data-animating`，可以把它变成对外合同）。`startSettle` 改成“等到 settled 再量”而不是数帧。另外在计划里列出所有读 DOM 几何的位置，逐个判断是读最终值（应改读 `placeGrid` 的目标矩形）还是读当前值。
+
+### 4. 分隔线装饰的 `snapLines()` 用 `getBoundingClientRect()`，会在过渡刚开始的那一帧读，结束后不再重算
+**严重程度**：重要
+**类别**：隐含耦合 / 时序
+**位置**：`Splitter.vue` 的 `snapLines`、`scheduleSnap`、`watch([renderedSizes, sashSizes, direction])`；plan.md “SashHandle”（“snapLines……搬过去”）
+**现象**：`snapLines` 在 rAF 里读分隔线的视口矩形，用它算静止接缝与装饰带的设备像素对齐位移（`alignmentDeltaPx`、`seamStartPx`）。触发它的是 `renderedSizes` 等输入变化。新渲染层里分隔线外框带 `transform` 过渡：输入变化的那一帧，CSS 过渡刚启动，读到的仍是旧位置；之后过渡走完不会再触发 `snapLines`（输入没变）。
+**为什么是问题**：接缝与装饰线会停在按“过渡起点”算出的对齐相位上，而不是按终点算的。在整数 dpr 下位移多半为零看不出，在 dpr 1.25 这类分数缩放下，1px 接缝会被摊成两条半透明线（`Splitter.vue` 的注释就是为这个写的）。
+**如何核实**：读取时机在真实运行时复现：`/tmp/review-w00026-t06-design/exp/snap.mjs`（Chrome 里 `transform` 带 470ms 过渡，改到 translate(300px) 后在 rAF 里读 `getBoundingClientRect().x`：下一帧是 108（旧位置，目标 308），100ms 后 151，过渡结束后才是 308）。“接缝因此停在错的相位上”这一步没有用 dpr 1.25 的页面截图确认，是从 `snapLines` 的算法推断。
+**建议改法**：新渲染层已经知道每条分隔线的精确矩形（相对根，已取整），不需要再读 DOM：装饰的对齐位移从矩形与根的视口偏移（每个根读一次）算出，去掉每条分隔线一份的 `getBoundingClientRect`。这也顺带解决下面的另一个问题：`Splitter` 现在每个实例给 window 挂一个捕获阶段的 scroll 监听，页面上任何滚动（Monaco、TipTap）都触发每个实例排一帧 `snapLines`。拆成每条分隔线一个 `SashHandle` 后监听数从分支数变成分隔线数（外壳约 6 条），每次滚动各排一次 rAF、各读一次布局与 `getComputedStyle`。不改的话至少要把窗口监听与 rAF 合并到 `NestedGrid` 一份。
+
+### 5. 过渡的判定只管“新变化是什么来源”，没管“已经开着的 data-animating”，也没定义“刚落账”
+**严重程度**：重要
+**类别**：边界 / 时序
+**位置**：plan.md “过渡”（`watch(props.layout)` 判断来源；过 `--motion-layout` 毫秒后撤掉）；`NestedGrid.vue` 的 `watch(() => props.layout)`、`onCommit`、`publishedMatches`
+**现象**：计划的判据是“手势进行中或刚落账、根的尺寸变了、第一次布局，都不过渡；其余给根写 `data-animating`，过 470ms 撤掉”。读代码得到下面几处没有答案：
+1. **过渡中按下分隔线或改窗口尺寸**：`data-animating` 还在，`[data-animating]` 下的 `transition` 对预览帧与改尺寸帧照样生效，拖动会有 470ms 的拖尾。判据只说“这次变化不开过渡”，没有说要把已经开着的关掉。一旦在手势开始或根尺寸变化时立刻撤掉属性，进行中的外框会跳到终点，这是可接受的，但要写出来。
+2. **连续两次程序变化**：第二次在第一次的 200ms 后到，第一次的定时器在 470ms 撤掉属性，第二次的过渡走到一半被截断跳到终点。定时器必须每次变化都重置，或者改用“最后一次变化 + 470ms”。
+3. **“刚落账”没有边界**：落账时 `useGridLayout` 同步发布布局，`NestedGrid` 的 watcher 里 `preview.value !== null`（被保持的最后一帧预览）可以作判据，但必须在 watcher 里先读后清。外壳还有第二次发布：`onApplied` → `commitSizes` →（拖到零的布尔位经 `customizations.commit`，异步）→ 投影重算 → 新 `Grid` → `recompute()` 再发布一次布局。这一次预览已经清了，会被判为程序变化。矩形若与上一帧相同，CSS 不会动，无害；若差一两个像素（落账结果与预览按 `publishedMatches` 的 1px 容差只近似相同），会有一个小过渡。
+4. **取消、被拒绝的手势**：预览撤回时 `props.layout` 没变，摆放矩形来自 `renderLayout` 回到已发布布局，不经过那个 watcher，所以不会被判为程序变化，是对的，但计划把判断全放在 `watch(props.layout)` 里，实现时容易写成只有 watcher 里管 `data-animating`，漏掉这一条。
+5. **宿主因约束或主题令牌变化重算布局**（外壳 `readCardGap` 换主题后 `cardGap` 变，投影重算）：判为程序变化，主题切换会让整个窗体做 470ms 的矩形过渡。是想要的吗，计划没有说。
+6. 内层 grid 的容器因外层过渡而变：内容容器直接是最终尺寸，内层 `useLayoutExtent` 只发一次变化，内层判为“根的尺寸变了”不过渡，这是对的，但要靠“按 `layout.sizes[root.id]` 与上一次比”判定，不要用 ResizeObserver 的回调（它晚一帧，和 watcher 的先后不定）。
+**为什么是问题**：几条都是“照字面实现会出的 bug”，第 1、2 条一定会出：拖动手感的测试正好在程序开关后马上拖。
+**如何核实**：从代码推断（`NestedGrid.vue` 的 `onPreview`、`onCommit`、`watch(props.layout)`；`WorkbenchShell.vue` 的 `onResize`、`layout-store.ts` 的 `commitSizes`）。
+**建议改法**：判定从“按来源”改成“按结果”：只要新矩形与当前正在显示的矩形（`renderLayout` 摆放）相同就什么都不做，不同时按来源决定是否开过渡。手势开始、根尺寸变化、卸载时无条件撤掉 `data-animating`。撤掉的时机用“最后一次开启后 470ms”，每次开启都重置。在 Spec 的过渡条里写明这三点。
+
+### 6. 新出现和消失的叶没有过渡的定义
+**严重程度**：重要
+**类别**：遗漏
+**位置**：plan.md “过渡”；Spec 输出“过渡”（“程序开关面板、拆分与关闭叶”）
+**现象**：Spec 把“拆分与关闭叶”列为过渡的场景，计划只写了“外框与分隔线过渡到新矩形”。新叶挂载时没有上一帧的矩形，外框一出现就是终点样式，不会过渡，而它的邻居（被拆的那个叶）在 470ms 里从大矩形缩到小矩形，新叶盖在它上面（DOM 末尾，按 stableOrder 在最上层）：470ms 里新旧矩形重叠。关闭叶则相反：`v-for` 立刻卸载它的外框，原位置露出底色，邻居用 470ms 滑过去填。
+**为什么是问题**：用户看到的拆分与关闭是这一片最显眼的程序变化。原型（t02）里的做法没有记录在计划里，开发者是在原型里体验过的。
+**如何核实**：从代码推断；原型 `LayoutTreeDraft.vue` 里没有对叶外框做进入或离开的处理。
+**建议改法**：计划里写明：新叶的初始矩形取它从哪里来（拆分取被拆叶的原矩形或在缝处宽度为零，关闭取离开时收到邻居的边上）、离开的叶是延迟卸载（保留到过渡结束）还是立即消失；Vue 的 `TransitionGroup` 不适合，因为外框的位置是 transform 而不是流式布局，需要手写离开的保留。新叶初始样式要在下一帧才写终点，否则浏览器合并成一次样式更新、过渡不会启动。
+
+### 7. Tab 接管只处理“焦点在 grid 里时按 Tab”，进入 grid 与点击空白处后按 Tab 都回到 DOM 顺序（真实运行时已复现）
+**严重程度**：重要
+**类别**：正确性 / 遗漏
+**位置**：plan.md “useGridFocusOrder.ts”；Spec 输出“Tab 顺序”；验收 8
+**现象**：监听在 grid 根上，只有 keydown 的目标在根里才触发。我在 Chrome 里搭了“树序 A（左）、B（右），DOM 序 B、A”的最小页面（`/tmp/review-w00026-t06-design/exp/tab.mjs`，真实运行时）：
+- 从 grid 之前的按钮 Tab 进入：落在 B1（DOM 第一个），树序第一个是 A1
+- 从 grid 之后的按钮 Shift+Tab 进入：落在 A1（DOM 最后一个），树序最后一个是 B1
+- 点 A 的空白处（焦点落到 BODY，没有可聚焦的祖先）后按 Tab：直接到了 grid 之后的按钮，跳过了树序里的下一块 B1（浏览器从点击位置在 DOM 序里往后找）
+这三条都不经过根上的 keydown 监听。点击空白处后 Tab 是日常操作，外壳根 `tabindex="-1"` 的宿主（`.workbench-shell-layout`、`.workbench-shell-host`）也会让点击落在它们上面，同样不触发。
+**为什么是问题**：Spec 的“Tab 顺序”只定义了“走出一块”，没定义“进入”。验收 8 的“Tab 与 F6 按新的树序走”在拆分之后（DOM 序与树序已不同）第一下 Tab 就会走错。
+**如何核实**：真实运行时，上面的脚本。
+**建议改法**：进入要有定义。可行做法：根的 `focusin` 里检查 `relatedTarget` 不在根内（或为 null）且目标不是按树序应进入的那一个，就把焦点改到树序的首（Tab 进入）或尾（Shift+Tab 进入）；方向由 `relatedTarget` 与根的相对 DOM 位置判断。点击空白处的情形靠给叶外框 `tabindex="-1"`（让点击落在叶上，keydown 目标就在根里）覆盖。同时在 Spec 里补一句“进入 grid 时落在树序的首或尾”。但先看第 13 条：如果 DOM 序与树序在常见场景里一致，这套补丁的使用面会小很多。
+
+### 8. Tab 接管的其它边界：空列表、“标记冒泡”跳过同叶内容、输入法
+**严重程度**：重要
+**类别**：边界 / 失败路径
+**位置**：plan.md “useGridFocusOrder.ts”各条
+**现象**：
+1. **下一项没有可聚焦元素**：计划写“按 `order` 找下一项，聚焦它的第一个”。下一项可能是 `tabindex="-1"` 的分隔线（0 占用、`disabled` 时就是）、停放的叶（`inert`，`tabbable` 返回空）、没有可聚焦内容的叶。只有 F6 一条写了“没有可聚焦元素的叶跳过”。Tab 这一条如果在拿不到元素时已经 `preventDefault`，焦点就被卡死在最后一项上；没有 `preventDefault` 则退回浏览器的 DOM 序，就是第 7 条的错位。要循环找下一个有可聚焦元素的项，全空时放行给浏览器。
+2. **焦点元素不在 `tabbable` 列表里**：焦点在 `tabindex="-1"` 的容器上（外壳 `focusTarget("panel-title")` 就是把焦点放到 `WorkbenchPanelSurface` 里 `tabindex="-1"` 的 `__nav` 上）。“在列表里不是头尾时不管”对“找不到”（索引 -1）也成立，于是不管：若该容器后面这一叶已没有可聚焦元素，浏览器直接去 DOM 序的下一块。要用 `compareDocumentPosition` 判断它在列表之前、之间还是之后。
+3. **“标记冒泡给外层，外层当作走到头”**：外层把“内层走到头”等同于“这一叶走到头”，会跳过这一叶里内层 grid 之后的其它可聚焦元素（现有宿主里内层 grid 之后基本没有，但 `NestedGrid` 是公开组件，叶槽里放什么由插件定）。外层应该是“把焦点交给内层在叶里最后一个元素之后的下一个 tabbable”，不是直接跳去下一项。另外 `closest("[data-grid-scope]")` 要从 `root.parentElement` 起找，从根自己起找会找到自己。
+4. **输入法**：中文写作应用，输入法组字时 Tab 常用来翻候选词。TipTap 的 contenteditable 往往是一叶里唯一的可聚焦元素，等于每次 Tab 都落在“头尾”分支。需要在 `event.isComposing` 或 `keyCode === 229` 时放行（命令系统的 `KeyInput` 已经有 `isComposing` 字段，说明这个坑在仓库里是知道的）。
+5. **`tabbable` 在 happy-dom 下的 `displayCheck`**：默认的 `full` 靠 `getClientRects()`，happy-dom 里恒为空，所有元素都判为不可聚焦；改 `displayCheck: "none"` 又会让生产里的 `visibility: hidden` 与 0 尺寸的叶被当作可聚焦。计划的验证只有 e2e，是对的，但 `NestedGrid.dom.test.ts` 里不能写 Tab 用例，要在计划里明确。
+6. **正的 `tabindex`**：`tabbable` 会把 `tabindex > 0` 的元素排到最前，“头尾”的判定和浏览器的实际顺序可能不一致。产品里没发现用，这里只是记一笔，不要求处理。
+**为什么是问题**：1、3、4 都会出现在日常使用里：焦点卡死、Tab 跳过内容、输入法被劫持。
+**如何核实**：从代码推断；第 4 条没有用真实输入法验证。
+**建议改法**：见各条；统一成一个“求下一个目标”的纯函数（输入：树序列表、当前位置、各项的 tabbable 列表，输出：目标或“放行”），可以脱离 DOM 用单元测试覆盖 1 到 3 条。
+
+### 9. 读屏顺序的验收用 `ariaSnapshot()` 看不到 `aria-owns` 的效果（真实运行时已复现）；元素 id 与 `aria-controls` 没定
+**严重程度**：重要
+**类别**：验收映射 / 遗漏
+**位置**：plan.md 验收映射“Tab、F6、读屏顺序”（“读屏用 `ariaSnapshot()` 看顺序”）；Spec 验收 8（“无障碍树的顺序也跟着变”）；`Splitter.vue` 的 `aria-controls`
+**现象**：在 Chrome 里搭了根元素 `aria-owns="fB fS fA"`、DOM 顺序 A、B、S 的页面（`/tmp/review-w00026-t06-design/exp/owns.mjs`，真实运行时）：
+- Playwright 的 `ariaSnapshot()` 输出 A-btn、B-btn、separator，也就是 DOM 顺序，没有反映 `aria-owns`
+- 同一页用 CDP `Accessibility.getFullAXTree` 得到的是 B-btn、separator、A-btn，`aria-owns` 生效了
+**为什么是问题**：照计划写的验收，断言“拆分之后无障碍树按新树序”会永远失败；若断言的是“没有变”，又会在漏了 `aria-owns` 时也通过。这条验收没法用计划写的工具做。
+另有三处计划没提：
+1. **元素 id**：`aria-owns` 要列出所有叶外框与分隔线的 id，id 必须带实例前缀（`useId`），否则同页两个 grid 重名（外壳 `editor` 叶与 Lab 里再开一个外壳）。节点 id 可以是任意字符串，含空格时 `aria-owns` 按空白切分会错，id 应该用与节点 id 无关的不透明串。
+2. **`aria-controls`**：现在指向每个面板包装元素的 id（`domPanelIds`）。扁平后包装元素没有了；分隔线前面的子节点是分支时没有单一元素可指。要定：指向前一个叶的外框，或者省略。
+3. **与外壳停放区**：停放区是 `inert aria-hidden` 的 div，不在 `aria-owns` 列表里，没有冲突，这条只是核对过。
+**如何核实**：真实运行时，上面的脚本。
+**建议改法**：验收里读 AX 树用 `page.context().newCDPSession(page)` 加 `Accessibility.getFullAXTree`（或 `Accessibility.queryAXTree`），写成一个小的测试支持函数；Spec 验收 8 的“无障碍树”写明按浏览器的无障碍树判定。
+
+### 10. 搬走 `Splitter` 的 grid 模式，计划没列出、搬过去会丢的行为
+**严重程度**：重要
+**类别**：对照参照实现的遗漏
+**位置**：`Splitter.vue`（受控模式）、`GridBranchRenderer.vue`；plan.md “SashHandle.vue”“NestedGrid.vue”
+**现象**：逐段读现在的 grid 模式，计划只提到了分隔线元素、aria、`data-sash*`、两层装饰、`snapLines`、登记。下面这些现在由 `Splitter` 或 `GridBranchRenderer` 做，计划没有写落在哪：
+1. **0 占用的分隔线**（外壳的 `sashSize` 缺省为 0，拖到零、卡片主题都有）：`sashSizes[i] === 0` 时分隔线是 `nb-splitter__sash--seam`（`pointer-events: none`）、`aria-disabled="true"`、`data-disabled`、`tabindex="-1"`，不渲染接缝与装饰带。这些要进 `SashHandle`，并且要与第 8 条的“Tab 项是否可聚焦”一致。
+2. **`sashSizes` 缺项**：`GridBranchRenderer` 对没有尺寸记录的分支传 `[]`，`Splitter` 补成每条 1px（`DEFAULT_SASH_SIZE`）；`layout` 是空布局（`extent === null` 时 `useGridLayout` 发 `EMPTY_GRID_LAYOUT`，节点树仍在）时每个分支都是这样。`placeGrid` 缺项取 0 还是 1 没写；两者在第一帧的摆放不同。`Splitter` 还对多余项 `console.warn`、对非有限值回落成 1px，这两条诊断也没提。
+3. **非有限与负值的清洗**：`Splitter` 的 `renderedSizes` 把非有限、负的呈现尺寸夹成 0。`NestedGrid` 的 `layout` 是宿主传入的 prop（不是只能来自 `grid.layout()`），`placeGrid` 没写清洗，NaN 会直接变成 `transform: translate(NaNpx)`。
+4. **`aria-valuemax` 的来源**：`ariaMax` 取每个 `Splitter` 自己用 `useLayoutExtent` 量出的分支主轴长度（`measuredMain`）。扁平后没有分支元素可量，要用 `placeGrid` 的分支矩形；计划写“aria 的取值范围由 `grid-splitter.ts` 的 `buildGridBranchPanels` 与 `panelBounds` 给”，但 `panelBounds` 是 `Splitter.vue` 内部的函数，`grid-splitter.ts` 里没有。
+5. **`aria-controls`**：见第 9 条。
+6. **收起/展开动画**：`collapseMotion` 与 `.nb-grid-panel[data-animating]`（`--motion-base`）在收起状态变化且没有手势时给面板的 `flex-basis`、`width`、`height` 加过渡。键盘 Enter 在分隔线上收起/恢复就是这条路径（手势在 keyup 结束，落账时 `scope.active` 已空）。新规则“落账不过渡”之后，这个动画既没有被保留也没有被新的 470ms 过渡接住：分隔线上的 Enter 收起/恢复变成瞬间完成。没有测试覆盖这个动画（grep 不到断言），但这是用户看得到的行为变化。
+7. **`data-state="collapsed|expanded"`** 在面板包装元素上：仓库里没有读它的样式或测试（grep 过），可以不留，但应在计划里说一句。
+8. **分隔线的 `data-sash-depth`、`registerSash` 的重复登记与重挂保护**（`unregisterSash` 只在仍是当前登记项时才删）：`SashHandle` 每条一个组件后，重挂的次数变多，这个保护要保留。
+**为什么是问题**：1 与 2 决定第一帧的样子，3 是异常输入下的失败，6 是行为退化。
+**如何核实**：读 `Splitter.vue`、`GridBranchRenderer.vue`、`useGridLayout.ts` 的 `EMPTY_GRID_LAYOUT`。
+**建议改法**：把上面八条逐条写进计划的 `SashHandle` 与 `placeGrid` 小节，每条标“保留/改成/删除”；6 要么在新的过渡里把“收起状态变化”算作可过渡（分隔线上的 Enter 是手势落账，但收起的是面板，不是拖动），要么在 Spec 里写明不再有。
+
+### 11. 第 6 片“规则写死的选择器迁移”写不死，并且和“现有用例都不改断言”互相矛盾
+**严重程度**：重要
+**类别**：验收映射 / 切片
+**位置**：plan.md 切片第 6 片与“要守住的”；`NestedGrid.dom.test.ts`、`useGridLayout.dom.test.ts`、`lab-nested-grid.e2e.ts`
+**现象**：
+1. “悬停线两端相连”的两条用例（`NestedGrid.dom.test.ts` 约 395 与 431 行）断言的是 `wrapper.findAllComponents(Splitter)` 里每个 `Splitter` 的 `props("branchId")` 与 `props("sashLineEnds")`；第 3 片删掉这两个 prop 与 `Splitter` 的递归，这两条只能改成读 DOM 的 `data-joined-start/end`，不是换选择器。计划同时写“悬停线两端相连……现有用例都不改断言”。
+2. 约 155 到 190 行的三条用例读 `findAllComponents(Splitter)`、`outer.props("panels")`、`props("sizesPx")`、`panelMainPx`（面板内联宽高）并用 `toBeCloseTo(…, 6)` 比较呈现尺寸。扁平后外框的宽高是取整后的值（299.5 会变成 299 或 300），6 位小数的比较会失败。要改成按取整规则比较，而测试规范与给 Haiku 的禁止清单里都有“不放宽断言”。这是对断言含义的改写，要主会话判断，不是规则替换。
+3. `lab-nested-grid.e2e.ts` 第 87 行的 `rightPanel` 是 `[data-splitter='root'] [data-panel-id='right']`，一个分支的包装元素；计划写“分支的尺寸改量子叶的并集”，是新逻辑（要取两个叶外框的包围盒，并且不含缝或含缝要定），不是选择器替换。后面用它做 `toBeCloseTo(…, 0)` 的守恒比较，取整后每个叶最多差 0.5。
+4. 这几条测试本身测的是实现（组件 props、内联样式），按“测行为，不测实现”应当改写成看用户能观察到的东西，而不是机械迁移。
+**为什么是问题**：派给 Haiku 的前提“规则写死、有测试兜底”不成立；兜底的测试正是被改的对象，通过不说明行为没变。
+**如何核实**：读上述测试。
+**建议改法**：第 6 片不派 Haiku；这三份测试由主会话在第 3 片里随渲染层一起改，改动前先把每条断言归类为“行为”（保留）或“实现”（改成读 DOM 的等价行为）。计划里的“现有用例都不改断言”改成“行为断言不改”。
+
+### 12. 分隔线与叶外框的 `v-for` key 没有定义，按“分支:序号”会让分隔线在插入或删除时滑到别的边界上
+**严重程度**：建议
+**类别**：遗漏
+**位置**：plan.md `GridPlacement.sashes`、“SashHandle × 按 order”
+**现象**：叶有 `stableOrder` 保证 DOM 不换序，分隔线没有对应的规则。手势与登记的键是 `分支:序号`（`registerSash`、`data-sash="root:0"`，现有测试与 e2e 也按它找）。如果 `v-for` 也用它做 key，在一个分支第一个位置插入新叶时，原来 `root:0`（A 与 B 之间）的元素会被复用给新的第 0 条边界，位置从 A 与 B 之间换到新叶与 A 之间，带着 transform 过渡滑过去；原来 A 与 B 之间的那条是新建的元素，没有过渡。
+**为什么是问题**：用户看到分隔线在拆分的 470ms 里朝着相反的方向滑。若 key 用“前后节点 id”，元素身份稳定，但 `data-sash` 与登记键仍是序号（合同不能变），两套标识要同时存在，计划应该写出来。
+**如何核实**：从代码推断（计划没写 key）。
+**建议改法**：DOM key 用 `前节点id|后节点id`，`data-sash` 与登记键保持 `分支:序号`；在 `placeGrid` 的输出里同时给这两个字段；插入新叶时 A 与 B 之间的边界在两边的新边界里选一条继承原元素，其余新建。
+
+### 13. “新叶排在 DOM 最后”不是拆分与关闭所必需的，DOM 序与树序的偏离本来可以小得多
+**严重程度**：建议
+**类别**：别扭之处 / 上游选择
+**位置**：Spec 输出“按矩形摆放”（“新叶排在 DOM 的最后，已有的叶不换 DOM 顺序”）；plan.md `stableOrder`
+**现象**：Vue 对带 key 的 `v-for` 在中间插入新节点，不会移动已有的兄弟（只插入新的）；只有已有叶的相对次序变化（换位置）才会让 Vue 物理移动 DOM 节点、清掉滚动。拆分与关闭不改已有叶的相对次序。`stableOrder` 把新叶一律排在最后，让拆分之后 DOM 序就与树序不一致，Tab 接管、`aria-owns`、第 7 条的所有补丁都由此而来。这一片里没有任何产品入口会换已有叶的位置（t07 才有）。
+**为什么是问题**：用 `stableOrder` 的“还在的保持原顺序”是对的，“新的排在最后”是多余的：把新叶插在树序里它前一个已有叶之后，DOM 序与树序在拆分与关闭之后仍然一致，只有 t07 的换位置之后才会偏离。这样 Tab、读屏在绝大多数时候是浏览器原生行为，Tab 接管只需要在“DOM 序与树序不一致”时才启用（根上有个布尔），出错的面小得多。
+**如何核实**：真实运行时：`/tmp/review-w00026-t06-design/exp/vuediff.mjs`（Chrome 加仓库里的 vue.global.prod.js，`MutationObserver` 记被移出 DOM 的节点）。带 key 的 `v-for` 从 [A,B,C] 在最前插入 N、在中间插入 M：已有的节点都没有被移动；删除 A 只移除 A；把 B 与 N 对调则 M 与 B 被移出再插回（换位置才会移动节点）。
+**建议改法**：`stableOrder` 改成“已有的保持相对次序，新的紧接在树序里排在它前面的已有叶之后”；`useGridFocusOrder` 与 `aria-owns` 在 `domOrder` 等于 `order` 时不挂（或挂但全部放行）。开发者决定 1（叶与分隔线同父、transform 摆放）不受影响。Spec 的“新叶排在 DOM 的最后”要改成对应的说法。
+
+### 14. 第 2 片的写法前后矛盾：表里写“去掉 grid 模式”，下面又写“暂留 `branchId`、`sashLineEnds`”
+**严重程度**：建议
+**类别**：切片 / 可执行性
+**位置**：plan.md 切片第 2 片与其下一段“第 2 片的过渡”
+**现象**：表里第 2 片是“抽 `SashHandle.vue`，`Splitter` 去掉 grid 模式（`NestedGrid` 暂时还递归，靠它传的 props 走一个过渡写法）”，其下一段是“`branchId`、`sashLineEnds` 暂留到第 3 片删。第 2 片只抽组件，不改行为”。`GridBranchRenderer` 正是靠 grid 模式（`inject` 外层 scope、`branchId`、`sashLineEnds`、受控 `sizesPx`）工作的，这一片只要它还在，`Splitter` 就不能去掉 grid 模式。`splitter.dom.test.ts` 里有“同页多个与嵌套的 `Splitter` 互不串手势”与“DOM id 与 aria-controls 唯一”，也依赖 `data-sash="panels:0"` 与现有的嵌套 scope 行为。
+**为什么是问题**：派给 Sonnet 的是“不改断言、只抽组件”，两句话互相否定，Sonnet 会选一个，大概率是去掉，然后 `NestedGrid.dom.test.ts` 全红。
+**如何核实**：读 plan.md 与 `splitter.dom.test.ts`。
+**建议改法**：第 2 片只写“抽出 `SashHandle`，`Splitter` 内部改用它，对外行为一字不变”，grid 模式的移除放到第 3 片。
+
+### 15. 第一帧、Teleport 目标与停放尺寸记忆的时序没有写
+**严重程度**：建议
+**类别**：边界 / 时序 / 资源释放
+**位置**：plan.md “停放”“宿主”；`WorkbenchShellLayout.vue` 的 `syncTargets`、`targets`；`useGridLayout.ts` 的 `EMPTY_GRID_LAYOUT`
+**现象**：
+1. **第一帧**：`extent === null` 时宿主发空布局（`sizes` 为空），节点树仍在。现在的 flex 渲染把每个叶画成 0px，外壳随后把内容 Teleport 进去。新渲染层所有叶矩形为零，按停放规则全部 `visibility: hidden` 加 `inert`，而且“最后一个非零尺寸”还不存在（内容用什么尺寸没写）。下一个微任务有了尺寸才解除。这一轮里挂载的组件如果在 `onMounted` 里 `focus()`（编辑器自动聚焦、对话框），在 `inert` 子树里会静默失败。现在 0px 的叶里是不会失败的。未验证有没有这样的组件，但 TipTap、Monaco 的挂载路径值得扫一遍。
+2. **目标元素的时序**：外壳在 `projection` 变化后 `nextTick` 里 `syncTargets()`，按 `[data-leaf="part"]` 找当前的叶落点；只有这一次机会，错过了就一直停放到下一次投影变化。所以新叶的外框必须在同一轮渲染里创建出来：`stableOrder` 要在渲染函数里同步算（`computed`），不能放进 `watch` 或 `onUpdated` 里异步更新。计划把落点从 `[data-leaf]` 改成 `[data-leaf-content]`，没写属性值是什么（应是部件 id，`syncTargets` 按值找）。
+3. **`teleport-memory.ts` 的滚动恢复仍然需要**：这一片外壳的 Teleport 与停放区照旧，部件被隐藏或拖到零时内容仍然在停放区与叶之间搬动，滚动位置照旧会丢，记忆与恢复的两次 `nextTick` 不变。没有发现它与新渲染层的停放打架：新停放的内容在叶里、尺寸非零（`collapsed()` 判据不触发），记忆照常记它的滚动。
+4. **“最后非零尺寸”的表**：按叶 id 存，叶被关闭后要删，否则只增不减（编辑组反复开关）。
+**为什么是问题**：1 是可能的回退，2 是一个隐蔽的时序约束，4 是小的泄漏。
+**如何核实**：从代码推断；没有跑。
+**建议改法**：第一帧没有尺寸时不要停放（没有“最后非零尺寸”就按“还没量到”处理，叶与内容都不加 `inert`），只在“曾经有过非零尺寸、现在为零”时才停放；在计划里写明 `stableOrder` 同步求值与 `data-leaf-content` 的值；关闭叶时清掉它的尺寸记录。
+
+### 16. `layout.sizes` 的交叉轴可以小于容器，flex 现在总是把交叉轴拉满，扁平摆放会留空
+**严重程度**：建议
+**类别**：口径 / 与现有行为不一致
+**位置**：plan.md `placeGrid`；`grid-geometry.ts` 的 `measure`
+**现象**：`layout.sizes[叶]` 的交叉轴是 `min(空间, 叶的最大尺寸)`，分支的交叉轴是按约束夹过的 `crossSize`。我用一个叶带 `maximumSize.height = 100` 的横排两叶、容器 600×400 实测（`/tmp/review-w00026-t06-design/exp/cross.ts`）：两个叶高 100，根的 `sizes.height` 也是 100，容器是 400。现在的 flex 渲染里交叉轴是 `align-items: stretch`，不看这个数，叶会拉到 400 高；`placeGrid` 只靠 `layout.sizes` 摆放就会在下面留 300px 的空白。主轴的口径是一致的（面板 `flex: 0 0 Npx`，剩余空间也留空，布局的 `issues` 里报“未被任何子节点吸收”）。
+外壳与视图容器、编辑器区的约束都没有交叉轴上限（`container-grid.ts`、`layout.ts` 的 `writeNode` 把交叉轴最大值写成无穷或 `MAX_SAFE_INTEGER`），所以现有三处宿主不会踩到；`NestedGrid` 是公开组件，Lab 与第三方可以。
+**如何核实**：`bun run /tmp/review-w00026-t06-design/exp/cross.ts`，是对 `grid.layout()` 的直接调用，没有绕过运行时。
+**建议改法**：`placeGrid` 的交叉轴取父分支分到的完整交叉轴长度，不用叶自己的 `sizes` 交叉轴；或者在计划里写明这个差异并在 `grid-rects.test.ts` 里固定。
+
+### 17. F6 绕过命令系统，没有说与 `window` 捕获阶段的键位分发器的先后
+**严重程度**：建议
+**类别**：被破坏的既有约定 / 隐含耦合
+**位置**：plan.md “useGridFocusOrder.ts”的 F6 一条；`workbench/web/commands/keymap.ts`（`F_KEY` 允许 F1 到 F12）、`WorkbenchCommandHost.vue`（`window.addEventListener("keydown", onKeydown, true)`）
+**现象**：查过命令与键位：仓库里现在没有命令声明 F6（grep 过 `neuro-book/src`），外壳的 `data-shell-focus-target` 是面板显隐后把焦点放回去的锚点，不是键位，没有冲突。但命令系统的分发器在 `window` 的捕获阶段处理，并且支持 F 键，同一组合有冲突检测（“键位冲突：…保留先登记的”）。新的 F6 是 nb-layout 里的原始 keydown 监听（冒泡阶段），不走这套：以后任何插件声明 F6 命令，分发器先吞掉，布局层的 F6 悄悄失效且没有冲突诊断；用户也无法在命令面板里找到“聚焦下一个面板”，或改键。
+另外，应用在浏览器里运行（`runtime/browser-host.md` 的基线是 Chrome、Edge、Firefox、Safari），F6 是浏览器“聚焦地址栏”的键，页面 `preventDefault` 之后用户从页面里没有 F6 回到地址栏的办法；VS Code 这样做是因为它是 Electron，没有浏览器外框。
+**为什么是问题**：不是功能错误，是新增了一条绕开既有键位合同的路径。
+**如何核实**：读 `keymap.ts` 与 `WorkbenchCommandHost.vue`；`WorkbenchCommandHost` 的监听确实是 `true`（捕获）。
+**建议改法**：nb-layout 不自己监听 F6，对外暴露 `focusNextLeaf(direction)` 之类的方法（或事件），工作台把它登记成两个命令（`nbook.workbench.focus-next-pane` 等）让命令系统给键位；Tab 接管仍留在 nb-layout，因为它不是快捷键。F6 在浏览器里的取舍写进 Spec，开发者定。
+
+### 18. 量几何的 e2e 数量：约 113 个用例、约 140 处读几何，没有“终态”信号可等；更省的办法是默认减少动态效果
+**严重程度**：建议
+**类别**：验收映射
+**位置**：plan.md 第 7 片与“不做与风险”
+**现象**：统计（`grep -c`）：`workbench-shell.e2e.ts` 14 个用例、7 处 `boundingBox`/`getBoundingClientRect`；`workbench-views.e2e.ts` 27 个、26 处；`workbench-dnd.e2e.ts` 27 个、48 处；`workbench-titlebar.e2e.ts` 5 个、6 处；`editor-area.e2e.ts` 32 个、33 处；另有 `lab-nested-grid.e2e.ts` 8 个、22 处。合计约 113 个用例、140 多处读几何。其中多少是“程序开关之后马上量”没有逐个看，但外壳与视图的开关、编辑器的拆分关闭都是这一类。`playwright.config.ts` 的 `use` 只有 `channel`、`headless`、`trace`，没有 `reducedMotion`，默认 `no-preference`，470ms 过渡会在所有这些用例里生效。
+计划里“等终态”靠每个用例自己加等待，没有统一的信号；根上的 `data-animating` 倒是现成的，但那是定时器写的标志，与矩形是否到位没有因果。
+**为什么是问题**：第 7 片的工作量与风险被低估；一旦漏改，出现的是间歇性失败（过渡时长 470ms，Playwright 的重试量几何刚好踩在中间）。
+**如何核实**：`grep -c` 统计，数字见上；没有逐个读用例。
+**建议改法**：在 `playwright.config.ts` 的 `use` 里设 `contextOptions: {reducedMotion: "reduce"}`（`browser.newContext()` 自建的用例要同样传），默认没有过渡；只有测过渡的用例（计划里新增的几条）用 `page.emulateMedia({reducedMotion: "no-preference"})` 开回来。第 7 片从“改 100 多个用例”变成“改配置，再逐个看会不会因为 reduced motion 本身变化”。这是一个合同层面的测试约定，要进 `docs/testing/README.md`。
+
+### 19. `dpr` 取自哪里、什么时候重算，计划没写
+**严重程度**：建议
+**类别**：遗漏
+**位置**：plan.md `placeGrid(node, layout, dpr)`；验收 9
+**现象**：`placeGrid` 接一个 `dpr` 参数，调用方怎么拿没写。`window.devicePixelRatio` 不是响应式的：浏览器缩放会触发 `resize`，把窗口拖到另一个显示器不一定。`Splitter.vue` 已有一份 `viewportScale`（监听 `resize`）。另外取整是相对根的位置，根在视口里的偏移如果不是设备像素的整数倍（居中、弹性布局），相对根取整对屏幕上的像素网格没有意义。
+**为什么是问题**：缩放之后第一帧摆放用旧 dpr，缝的宽度不整，直到下一次布局变化才纠正；验收 9 用新建的 `deviceScaleFactor: 1.25` 的上下文测，测不到“运行中改缩放”。
+**如何核实**：从代码推断。
+**建议改法**：一处读 dpr（`NestedGrid` 的 `ref`，`resize` 与 `matchMedia("(resolution: …dppx)")` 的 `change` 更新），`placeGrid` 的结果随它重算；取整的基准写成“根的左上角在设备像素格上”，宿主要保证（或在根上读一次偏移补偿）。
+
+### 20. 外壳已经有一份按布局累加位置的函数，`placeGrid` 是第二份
+**严重程度**：建议
+**类别**：重复 / 可简化
+**位置**：`workbench/web/shell/layout.ts` 的 `shellNodeRects`（被 `reveal.ts` 的 `revealZones` 用）；plan.md `placeGrid`
+**现象**：`shellNodeRects(grid, layout)` 沿树把前面的兄弟与 `sashSizes` 累加出每个节点的矩形，与 `placeGrid` 的“沿树走一遍累加位置”是同一件事，只是没有取整。预备区的矩形（`revealZoneRects`）用的是未取整的这份，落点与实际叶外框的边最多差半个设备像素。
+**为什么是问题**：同一件事写两份，改一边忘另一边；这一片又恰好改变了位置的口径（取整）。
+**如何核实**：读两处代码。
+**建议改法**：`shellNodeRects` 改成调 `placeGrid`（取整的矩形），预备区也与外框对齐；或者在 `placeGrid` 的结果里留未取整的矩形给这类读者。若这一片不做，计划里写一句“预备区仍用未取整的矩形，t07 合并”。
+
+### 21. 公开导出与计划里的引用有出入
+**严重程度**：建议
+**类别**：接口与合同
+**位置**：`packages/nb-layout/src/vue/index.ts`（`export * from "./grid-splitter"`）；plan.md “`gridBranchSizesPx` 没人用了，删掉”
+**现象**：`grid-splitter.ts` 整个文件被 `export *` 出去，`@notnotype/nb-layout/vue` 是发布包（`publishConfig.access: public`）也是 SDK 的来源。`gridBranchSizesPx`、`buildGridBranchPanels`、`sashPanelsOfConfig` 都是公开导出，“没人用了”只在仓库内成立。`buildGridBranchPanels` 保留、`gridBranchSizesPx` 删，计划没有写这是对外的破坏性变更，也没有看包的变更记录或 `README.md`。`SDK` 导出了 `NestedGrid` 与 `Splitter`，它们的 DOM 契约（`data-panel-id`、`data-splitter`、`data-leaf` 在外框上）变了，Spec 边界一节只写了 `position: fixed`。
+**如何核实**：读 `index.ts`。
+**建议改法**：计划里列出公开面的变化（删除的导出、DOM 属性的归属变化），并在 `nb-layout` 的 `README.md` 或变更记录里写一笔；第三方依赖 `data-leaf` 量叶外框的话，说明它现在是外框（过渡中会动）。
+
+### 22. 根上单个 `data-animating` 与 t08 的“拖动中其它叶让位”不相容
+**严重程度**：建议
+**类别**：后续切片返工风险
+**位置**：plan.md “过渡”（给根写 `data-animating`，样式只在 `[data-animating]` 下写 `transition`）
+**现象**：t08 的实时布局是拖动中其它面板让位、被拖的卡片跟手：同一场手势里，一部分外框要过渡，一部分（被拖的）不要。根上一个布尔标志表达不了；t06 的“手势进行中不过渡”也与它相反。到时要把标志下放到每个外框。
+**为什么是问题**：不是 t06 的错，但这是 t06 引入、t08 马上要改的接口。
+**如何核实**：t08 的 README 写的是“卡片跟手、邻居实时让位、来源收起、取消飞回”（`.agents/works/w00026-layout-package/tasks/t08-live-drag/README.md`），还没有计划与 Spec，这里是据此推断。
+**建议改法**：现在就把标志放在外框上（`data-moving`，哪些外框在动由 `NestedGrid` 决定，t06 里是全部或没有），样式选择器写在外框上。多写几行，t08 不返工。
+
+### 未发现问题的方面
+- **叶外框用 `overflow: clip`**：`clip` 不是滚动容器，`scrollIntoView` 与 `focus()` 不会把外框滚走，浏览器基线（Chrome 119、Firefox 124、Safari 17.4）都支持；`inert` 同。没有问题。
+- **`position: fixed` 的包含块**：核对了仓库里 `fixed` 的位置：`EditorArea` 的拖影、`ExplorerTree` 的拖影与 live region、`WorkbenchDragFeedback` 都在 `Teleport to="body"` 之下或本身是全局覆盖；`nb-ui` 的 `Dialog`、`ContextMenu` 等经 Reka 的 Portal。计划的结论成立，Spec 边界一句够用。Monaco 的内部浮层没有验证，沿用计划的“没开 `fixedOverflowWidgets`”。
+- **手势会话与命中**：`collectSashHits` 读分隔线元素的 `getBoundingClientRect`，分隔线仍是独立元素，平移后的矩形也正确。`hitTargets` 的 `order` 是登记顺序，我核对了现有嵌套 `Splitter` 的登记次序也只是挂载次序，扁平后并不会反转内外层的并列命中，不作为问题。
+- **`useLayoutExtent` 与 ResizeObserver 的使用方**：外壳、视图容器、编辑器区各在自己的根上观察，`NestedGrid` 在 `.nb-nested-grid` 上又观察一份；内容容器直接写最终尺寸，内容里的观察者只收到一次变化。没有重复或循环。`.nb-nested-grid` 加 `position: relative` 与 `overflow: clip` 不影响 `clientWidth/clientHeight`，仍无 padding 与 border。
+- **`teleport-memory.ts`**：见第 15 条第 3 点，仍然需要且不与新停放打架。
+- **提案与 ADR 对照**：计划与开发者的决定 1 到 6 一致（叶与分隔线同父 transform 摆放、470ms 过渡、`tabbable`、切片按难度派、`Splitter` 统一、Teleport 与卡片外观留给 t07、实时布局留给 t08），没有发现悄悄改变已定项。`tabbable` 在 `bun.lock` 里是 vitepress 经 `focus-trap` 带来的 6.5.0，`^6` 可解析，作为 `nb-layout` 的运行时依赖时要进 `package.json`，计划已写。
+
+有效发现的编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22
+数量：阻断 0，重要 11（第 1 到 11 条），建议 11（第 12 到 22 条）。
+最重要的几条：第 3 条（外壳的放下收尾按帧数量 DOM 矩形，会与 470ms 过渡打架）、第 2 条（预览矩形为零就停放，破坏“拖到零等落账再停放”）、第 7 条与第 9 条（Tab 进入 grid 与点击空白处后按 Tab 都回到 DOM 序；读屏顺序的验收工具看不见 `aria-owns`，真实运行时已复现）、第 1 条（取整规则做不到缝宽相同）。
