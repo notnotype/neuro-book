@@ -41,6 +41,8 @@ export const FLOATING_WINDOW_RESIZE_HANDLES: ReadonlyArray<FloatingWindowResizeH
 
 /** 按下后移动超过这么多 CSS 像素才算拖动窗口；不到这一步松开就是一次普通的点击。 */
 const DRAG_THRESHOLD = 3;
+/** 容器变小、窗口被推回时离边的距离。 */
+const PUSH_MARGIN = 8;
 
 export interface FloatingWindowOptions {
     readonly open: () => boolean;
@@ -64,6 +66,8 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
     const draftHeight = ref<number | null>(null);
     const x = ref(24);
     const y = ref(24);
+    /** 这次打开后用户拖过或缩放过：没有时窗口跟着容器保持居中，有时位置归用户。 */
+    let placedByUser = false;
     let resizeCleanup: (() => void) | null = null;
     let dragCleanup: (() => void) | null = null;
 
@@ -173,6 +177,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
             if (!dragging) {
                 if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
                 dragging = true;
+                placedByUser = true;
                 element.setPointerCapture?.(pointerId);
                 window.getSelection()?.removeAllRanges();
                 document.addEventListener("selectstart", preventSelect);
@@ -202,6 +207,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         if (!options.resizable() || options.busy()) return;
         const element = options.windowRef.value;
         if (element === null) return;
+        placedByUser = true;
         resizeCleanup?.();
         const handle = event.currentTarget as HTMLElement;
         const startX = event.clientX;
@@ -260,6 +266,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         const wantsHeight = direction.height !== 0 && vertical !== 0;
         if (!wantsWidth && !wantsHeight) return;
         event.preventDefault();
+        placedByUser = true;
         const current = measured();
         if (wantsWidth) {
             const next = Math.max(options.minWidth(), current.width + horizontal * direction.width);
@@ -279,12 +286,35 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
             return;
         }
         resolvePortal();
+        placedByUser = false;
+        center();
+        positioned.value = true;
+    }, {immediate: true, flush: "post"});
+
+    function center(): void {
         const size = measured();
         const container = containerSize.value;
         x.value = Math.max(12, Math.round((container.width - size.width) / 2));
         y.value = size.height > 0 ? Math.max(24, Math.round((container.height - size.height) / 2)) : 64;
-        positioned.value = true;
-    }, {immediate: true, flush: "post"});
+    }
+
+    /** 把一条轴上的位置推到窗口完整可见；放不下时贴着起始边，顶上与左边总能抓住。 */
+    function pushedIn(position: number, size: number, container: number): number {
+        return Math.max(PUSH_MARGIN, Math.min(position, container - size - PUSH_MARGIN));
+    }
+
+    // 容器变了（通常是浏览器窗口）。放大时拖过的窗口不动，也不回到推走之前的位置；窗口的宽高由 CSS 按容器收窄，
+    // 所以渲染之后才量。拖动时的“至少留一角”只管拖动，这里不沿用，否则缩窄后关闭按钮可能在容器外。
+    watch(containerSize, (container, previous) => {
+        if (!options.open() || !positioned.value) return;
+        if (!placedByUser) {
+            center();
+            return;
+        }
+        const size = measured();
+        if (container.width < previous.width) x.value = pushedIn(clampedX.value, size.width, container.width);
+        if (container.height < previous.height) y.value = pushedIn(clampedY.value, size.height, container.height);
+    }, {flush: "post"});
 
     onBeforeUnmount(() => {
         resizeCleanup?.();

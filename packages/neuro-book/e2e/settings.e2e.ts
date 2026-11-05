@@ -236,6 +236,64 @@ async function pressOpenSettings(page: Page): Promise<void> {
     }).toPass();
 }
 
+test("浏览器窗口变化：没拖过的保持居中；拖过的放得下不动，放不下推回完整可见，放大不回原位，尺寸不改", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await open(page, "/?project=book");
+    await pressOpenSettings(page);
+    const box = async (): Promise<{x: number; y: number; width: number; height: number}> => {
+        // 量面板：`data-settings-window` 是面板里的内容，四周还有边距。
+        const found = await page.locator("[data-dialog-surface]:has([data-settings-window])").boundingBox();
+        if (found === null) throw new Error("设置窗口不可见");
+        return found;
+    };
+    const centerX = async (): Promise<number> => {
+        const {x, width} = await box();
+        return x + width / 2;
+    };
+    await expect.poll(centerX).toBeCloseTo(800, -1);
+    const size = await box();
+
+    await page.setViewportSize({width: 1200, height: 900});
+    await expect.poll(centerX).toBeCloseTo(600, -1);
+
+    await page.setViewportSize({width: 1600, height: 900});
+    await expect.poll(centerX).toBeCloseTo(800, -1);
+    const drag = await settingsWindow(page).locator("[data-dialog-drag]").first().boundingBox();
+    if (drag === null) throw new Error("拖动区域不可见");
+    await page.mouse.move(drag.x + 4, drag.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(drag.x + 204, drag.y + 4, {steps: 5});
+    await page.mouse.up();
+    const dragged = await box();
+    expect(dragged.x).toBeCloseTo(size.x + 200, -1);
+
+    // 放得下：不动。
+    await page.setViewportSize({width: Math.ceil(dragged.x + dragged.width + 20), height: 900});
+    await expect.poll(async () => (await box()).x).toBe(dragged.x);
+    // 放不下：推回完整可见。
+    await page.setViewportSize({width: 1200, height: 900});
+    await expect.poll(async () => {
+        const {x, width} = await box();
+        return x + width;
+    }).toBe(1192);
+    const pushed = await box();
+    // 放大：不回原位。
+    await page.setViewportSize({width: 1600, height: 900});
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect((await box()).x).toBe(pushed.x);
+
+    // 比窗口还小：完整显示，关闭按钮看得见；放大后恢复原尺寸。
+    await page.setViewportSize({width: 390, height: 500});
+    await expect.poll(async () => {
+        const {x, y, width, height} = await box();
+        return x >= 0 && y >= 0 && x + width <= 390 && y + height <= 500;
+    }).toBe(true);
+    await expect(page.locator("[data-dialog-surface]:has([data-settings-window])").getByRole("button", {name: "关闭"})).toBeInViewport({ratio: 1});
+    await page.setViewportSize({width: 1600, height: 900});
+    await expect.poll(async () => (await box()).width).toBe(dragged.width);
+    expect((await box()).height).toBe(dragged.height);
+});
+
 test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗口；再触发只聚焦；窗口开着时齿轮按下", async ({page}) => {
     const problems: string[] = [];
     watchConsole(page, problems);
