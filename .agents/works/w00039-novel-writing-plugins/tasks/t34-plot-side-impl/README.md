@@ -40,7 +40,9 @@ updated: 2026-11-05
   - A5 已提交（51f242cca）：标注种类与诊断的登记（前缀、重复两步判定共用 `components/declarations.ts`；标注的 schema 白名单关键字、`refs` 路径只经过 `properties` 与 `items`），载荷用 TypeBox 的 JSON Schema 校验器；新加或改过的标注按登记查（同一位置逐字相同的算原样留着），载荷里的引用并进统一的引用校验与修订的 `refs`；只读的标注在 `object` 与 `tellings` 的结果里带 `mark-kind-unknown`、`mark-version-unsupported`；读取输入摘要带三张版本表；服务的 `setRegistry` 换成 `setRegistries`。插件侧的贡献点与接收在 A9 接。发现剧情 Spec 的标注种类 id 写成 `plot.*`，按登记规则要带插件 id 前缀，记进计划阶段 B。nb-canon 280 个测试通过。
   - A6 已提交（2b95f94ae）：参与者 `cast`（马甲写成本体加 `as`，`invalid-cast`）、叙述 `nature: narration`（`narration-with-patches`、`narration-without-telling`）、`presence`（实际模式与按计划模式，另给没记参与者的条数）、本章涉及的条目算上参与者、`changes` 加性质与计划进展的筛选；引擎两边加 `plannedAt`（按计划模式在一个位置计入的计划），差分测试比对。涉及的条目与参与者按 Spec 也查“已出场”（原先只查补丁的条目）。顺带修了 t29 的老问题：没有补丁的已写变更在增量更新里不记套用结果，兑现不了计划；差分测试的模拟器加了没有补丁的变更（20 个种子、每个 100 步一致）。安放范围 `{after, through}` 的两头是分叉的切口与触发处，挪到阶段 D（计划已改）。nb-canon 285 个测试通过。
 
+  - A7 已提交（6979e523c）：决策的状态表做成一张表（`world/decisions.ts`），写入校验与授权检查共用；作者授权（`world/authorization.ts`）：宿主与内核共用 `authorizationBinds`，内核先逐字比 `binds` 再交宿主验签名；出处只由内核写（`source-not-writable`）；缺来源排在校验之后报（`author-source-required` 带需要的清单）；还原拆成“算补偿与需要的授权”与“核对后发布”，`preview` 收还原请求；修订存请求原样的授权（换过临时 id 的签名验不过，有变异检查）。`decisions` 读取带说明：作者未确认、作者没说理由、重新打开前定下的、挂的条目已删。样本里“放弃”的问题改记成待定（放弃要作者来源）。nb-canon 294 个测试通过。应用的远程合同只跟着改了 `decisions` 的形状，`revert` 带授权、`preview` 收还原请求在 A9 接。
+
 ## 下一步
 
-1. A7：决策的状态表与转换、建议、挂的对象（含诊断键）、作者授权与校验、还原的授权与预览。
+1. A8：诊断的计算与待处理、提示组、读取视图 `CanonReadView`。
 2. P2 回来后处理；跑 A4 的 1000 章讲述测量。
