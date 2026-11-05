@@ -51,5 +51,6 @@ updated: 2026-11-05
 
 ## 下一步
 
-1. 阶段 A 收口：`test:affected --typecheck`、规模测量重跑，然后发阶段 A 的实现审查（omp，后台，不等），进入阶段 B 的细计划与计划审查。
-2. A4 的 1000 章测量已跑（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）：都在预算内；打开到可以读 1508 ms（t29 时 1065），日志 22.0 MB（t29 时 13.5），主要是修订存下的 `refs`，交实现审查一并看。
+1. 阶段 A 收口：`test:affected --typecheck`、规模测量重跑，然后发阶段 A 的实现审查（omp，后台，不等）。
+2. 阶段 B 的细计划已写进 [`plan.md`](plan.md) 的“阶段 B 细计划”一节；计划审查 P3 是快速审查：Opus 在审，omp 那一份等阶段 A 的实现审查跑完再发。Opus 的结论处理完再开工。
+3. A4 的 1000 章测量已跑（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）：都在预算内；打开到可以读 1508 ms（t29 时 1065），日志 22.0 MB（t29 时 13.5），主要是修订存下的 `refs`，交实现审查一并看。
