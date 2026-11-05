@@ -60,3 +60,22 @@ export function sashPanelsOfConfig(
         };
     });
 }
+
+/** 面板的主轴区间：收起时锁在收起尺寸，否则取声明的上下界；面板不存在时不设限。 */
+export function panelBounds(panel: SplitterPanelConfig | undefined): {low: number; high: number} {
+    if (panel === undefined) {
+        return {low: 0, high: Number.MAX_SAFE_INTEGER};
+    }
+    if (panel.collapse?.collapsed === true) {
+        const size = Math.max(0, panel.collapse.collapsedSize);
+        return {low: size, high: size};
+    }
+    const low = Math.max(0, panel.minSizePx ?? 0);
+    return {low, high: Math.max(low, panel.maxSizePx ?? Number.MAX_SAFE_INTEGER)};
+}
+
+/** 可访问性上限：面板的主轴上限不可能超过容器可用空间；`available` 是调用方量到的可用长度（CSS px）。 */
+export function ariaMax(panel: SplitterPanelConfig | undefined, available: number): number {
+    const {low, high} = panelBounds(panel);
+    return Math.round(Math.max(low, Math.min(high, available)));
+}
