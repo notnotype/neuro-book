@@ -15,7 +15,7 @@ export function chapterHull(network: TimeNetwork, events: readonly string[]): {r
     let unanchored = 0;
     let conflict = 0;
     for (const id of events) {
-        const range = network.range(id);
+        const range = network.bounds(id);
         if (range.state === "conflict") conflict += 1;
         else if (range.state !== "ok" || !range.anchored) unanchored += 1;
         else {
@@ -32,7 +32,7 @@ export function during(network: TimeNetwork, from: number, to: number): {readonl
     const sure: string[] = [];
     const maybe: string[] = [];
     for (const id of network.events) {
-        const range = network.range(id);
+        const range = network.bounds(id);
         if (range.state !== "ok" || !range.anchored) continue;
         if (range.lo >= from && range.hi <= to) sure.push(id);
         else if (range.lo <= to && range.hi >= from) maybe.push(id);
@@ -58,7 +58,7 @@ export function ageAt(network: TimeNetwork, compiled: CompiledCalendar, event: s
         if (min <= max) return {kind: "years", min, max};
         return {kind: "years", min: Math.min(...ages.map((age) => age.min)), max: Math.max(...ages.map((age) => age.max)), disagree: true};
     }
-    if (network.range(event).state === "conflict") return {kind: "conflict"};
+    if (network.bounds(event).state === "conflict") return {kind: "conflict"};
     if (births.length === 0) return {kind: "unknown"};
     if (births.length > 1) return {kind: "unknown", reason: "birth-ambiguous"};
     const span = network.between(births[0]!, event);
@@ -101,7 +101,7 @@ export interface BrowseUnit {
 export function browse(network: TimeNetwork, compiled: CompiledCalendar, path: BrowsePath): readonly BrowseUnit[] {
     const tpd = compiled.ticksPerDay;
     const ranges = network.events.flatMap((id) => {
-        const range = network.range(id);
+        const range = network.bounds(id);
         return range.state === "ok" && range.anchored && Number.isFinite(range.lo) && Number.isFinite(range.hi) ? [range] : [];
     });
     const count = (lo: number, hi: number): BrowseUnit["sure"][] => {

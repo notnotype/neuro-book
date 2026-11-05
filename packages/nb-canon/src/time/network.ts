@@ -31,38 +31,48 @@ export function compiledOf(calendar: Calendar): CompiledCalendar {
     return compiled;
 }
 
-/**
- * 一条说法的键（待处理项与依据里用）：所在的变更与说法的规范 JSON，不按它在列表里的下标（输出 14）。同一变更里写了几条完全相同
- * 的说法时，从第二条起带出现的序号（`#1`、`#2`）：插进别的说法不扰动它们，删掉一条重复的也只少一个键。
- */
-export function statementKey(change: string, statement: Statement, occurrence = 0): string {
-    return `${change}|${canonicalJson(statement)}${occurrence === 0 ? "" : `#${String(occurrence)}`}`;
+interface KeyedStatement {
+    /** 说法的键（待处理项与依据里用）。 */
+    readonly key: string;
+    /** 说法的规范 JSON（降约束的缓存键）。 */
+    readonly json: string;
+    readonly statement: Statement;
 }
 
-/** 一条变更的全部说法与它们的键（重复的按出现先后编号）。 */
-export function keyedStatements(change: StoryChange): {readonly key: string; readonly statement: Statement}[] {
+const keyedCache = new WeakMap<StoryChange, readonly KeyedStatement[]>();
+/**
+ * 一条变更的全部说法与它们的键：所在的变更与说法的规范 JSON，不按它在列表里的下标（输出 14）。同一变更里写了几条完全相同的说法
+ * 时，从第二条起带出现的序号（`#1`、`#2`）：插进别的说法不扰动它们，删掉一条重复的也只少一个键。
+ *
+ * 按变更对象缓存：世界里的变更写入时就冻结了（world.ts），没改的变更跨版本是同一个对象，每次发布只给改了的变更算规范 JSON
+ * （七千条说法每次全算要三十毫秒左右）。
+ */
+function keyedStatements(change: StoryChange): readonly KeyedStatement[] {
+    const cached = keyedCache.get(change);
+    if (cached !== undefined) return cached;
     const seen = new Map<string, number>();
-    return ((change.when ?? []) as Statement[]).map((statement) => {
+    const keyed = ((change.when ?? []) as Statement[]).map((statement) => {
         const json = canonicalJson(statement);
         const occurrence = seen.get(json) ?? 0;
         seen.set(json, occurrence + 1);
-        return {key: statementKey(change.id, statement, occurrence), statement};
+        return {key: `${change.id}|${json}${occurrence === 0 ? "" : `#${String(occurrence)}`}`, json, statement};
     });
+    keyedCache.set(change, keyed);
+    return keyed;
 }
 
 const loweredCache = new WeakMap<TimeSettings, Map<string, Lowered>>();
 /** 降成约束只看说法、历法与词表：按（设置对象、说法的规范 JSON）缓存，别的变更变了不会用到旧结果。 */
-function lowered(settings: TimeSettings, statement: Statement): Lowered {
+function lowered(settings: TimeSettings, {json, statement}: KeyedStatement): Lowered {
     let cache = loweredCache.get(settings);
     if (cache === undefined) {
         cache = new Map();
         loweredCache.set(settings, cache);
     }
-    const key = canonicalJson(statement);
-    let result = cache.get(key);
+    let result = cache.get(json);
     if (result === undefined) {
         result = lowerStatement(statement, compiledOf(settings.calendar), settings.fuzzy);
-        cache.set(key, result);
+        cache.set(json, result);
     }
     return result;
 }
@@ -94,7 +104,7 @@ export function buildNetwork(input: TimeInput, settings: TimeSettings, plans: re
     const tie = (a: StoryChange, b: StoryChange) => (input.createdAt.get(a.id) ?? 0) - (input.createdAt.get(b.id) ?? 0) || compareIds(a.id, b.id);
     ranked.sort((a, b) => (a.rank === null || b.rank === null ? (a.rank === b.rank ? tie(a.change, b.change) : a.rank === null ? 1 : -1) : compareRanks(a.rank, b.rank) || tie(a.change, b.change)));
     const assembled = assembleNetwork({
-        events: ranked.map(({change}) => ({id: change.id, statements: keyedStatements(change).map(({key, statement}) => ({ref: key, lowered: lowered(settings, statement)}))})),
+        events: ranked.map(({change}) => ({id: change.id, statements: keyedStatements(change).map((keyed) => ({ref: keyed.key, lowered: lowered(settings, keyed)}))})),
         exists: (id) => input.changes.has(id),
         bodyOf: (id) => input.entries.get(id)?.sameAs ?? id,
     });

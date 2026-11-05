@@ -52,7 +52,7 @@ export function assembleNetwork(input: {readonly events: readonly NetworkEventIn
         for (const statement of event.statements) {
             if (statement.lowered.kind !== "birth") continue;
             const who = input.bodyOf(statement.lowered.who);
-            births.set(who, [...(births.get(who) ?? []), event.id]);
+            append(births, who, event.id);
         }
     }
     const constraints: NetworkConstraint[] = [];
@@ -104,6 +104,11 @@ export type EventRange =
     | {readonly state: "conflict"; readonly conflicts: readonly number[]}
     | {readonly state: "ok"; readonly anchored: boolean; readonly relativeTo?: string; readonly lo: number; readonly hi: number; readonly earliest: RangeBasis; readonly latest: RangeBasis};
 
+export type EventBounds =
+    | {readonly state: "unconstrained"}
+    | {readonly state: "conflict"; readonly conflicts: readonly number[]}
+    | {readonly state: "ok"; readonly anchored: boolean; readonly relativeTo?: string; readonly lo: number; readonly hi: number};
+
 export type Between =
     | {readonly state: "unrelated"}
     | {readonly state: "conflict"}
@@ -120,6 +125,8 @@ export interface TimeNetwork {
     readonly conflicts: readonly Conflict[];
     /** 一件事起点（或终点）的范围与依据。 */
     range(event: string, edge?: Edge): EventRange;
+    /** 只要范围、不要依据（对不上、一章的范围这类要扫全部事件的用它）。 */
+    bounds(event: string, edge?: Edge): EventBounds;
     /** `b - a`（两件事的起点）的范围。 */
     between(a: string, b: string): Between;
     /** 事件所在分量的编号；不在网络里时为 undefined。 */
@@ -128,6 +135,13 @@ export interface TimeNetwork {
 
 export const MAX_CYCLES_PER_COMPONENT = 20;
 const BASIS_LIMIT = 20;
+
+/** 往按键分桶的表里追加一项（包内用；不要写成整段复制的 `[...old, value]`，桶大时是平方级）。 */
+export function append<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+    const bucket = map.get(key);
+    if (bucket === undefined) map.set(key, [value]);
+    else bucket.push(value);
+}
 
 interface Edge_ {
     readonly from: number;
@@ -231,7 +245,7 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
     const groups = new Map<number, number[]>();
     for (let node = 0; node < eventCount; node += 1) {
         const root = find(node);
-        groups.set(root, [...(groups.get(root) ?? []), node]);
+        append(groups, root, node);
     }
 
     // 每个分量的元年副本编号从 eventCount 起。
@@ -266,14 +280,18 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
 
     // ---------- 每个分量求可行与势，取环 ----------
     const conflicts: Conflict[] = [];
+    const loopsOf = new Map<number, number[]>();
+    for (const loop of selfLoopConflicts) append(loopsOf, loop.component, loop.constraint);
     const components: Component[] = componentList.map((group, id) => {
         const edges = edgesOf[id]!;
+        // 没有任何约束的分量（没有说法、也没被说法指到的事）不求解：它的事“没有约束”（大多数事是这样）。
+        if (!constrainedComponents.has(id)) return {id, nodes: group.nodes, origin: group.origin, anchored: false, root: group.nodes[0]!, rootEvent: eventOfNode[group.nodes[0]!]!, edges, conflicts: [], potential: new Map(), constrained: false};
         const removed = new Set<number>();
         const mine: number[] = [];
-        for (const loop of selfLoopConflicts.filter((item) => item.component === id)) {
-            removed.add(loop.constraint);
+        for (const constraint of loopsOf.get(id) ?? []) {
+            removed.add(constraint);
             mine.push(conflicts.length);
-            conflicts.push({refs: [input.constraints[loop.constraint]!.ref], events: [eventOfNode[group.nodes[0]!]!]});
+            conflicts.push({refs: [input.constraints[constraint]!.ref], events: [eventOfNode[group.nodes[0]!]!]});
         }
         let potential = new Map<number, number>();
         for (let attempt = 0; ; attempt += 1) {
@@ -298,8 +316,8 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
     });
 
     // ---------- 范围与依据（按需，按分量与源缓存） ----------
-    const shortest = new Map<string, {distance: Map<number, number>; hops: Map<number, number>; incoming: Map<number, Edge_[]>}>();
-    /** 从 source 出发的最短距离（`reverse` 时在反向图上，得到各点到 source 的距离），以及紧边上的最少跳数。 */
+    const shortest = new Map<string, {distance: Map<number, number>; adjacency: Map<number, Edge_[]>}>();
+    /** 从 source 出发的最短距离（`reverse` 时在反向图上，得到各点到 source 的距离）与这个方向的邻接表。 */
     const paths = (component: Component, source: number, reverse: boolean) => {
         const key = `${String(component.id)}|${String(source)}|${String(reverse)}`;
         const cached = shortest.get(key);
@@ -308,7 +326,7 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
         const adjacency = new Map<number, Edge_[]>();
         for (const edge of component.edges) {
             const tail = reverse ? edge.to : edge.from;
-            adjacency.set(tail, [...(adjacency.get(tail) ?? []), edge]);
+            append(adjacency, tail, edge);
         }
         // 重赋权：w' = w + π(from) - π(to) ≥ 0；反向图里沿原边逆着走，权不变。
         const reduced = (edge: Edge_) => edge.weight + potential.get(edge.from)! - potential.get(edge.to)!;
@@ -327,6 +345,17 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
         // 还原真实距离：正向 d(s, v) = d' - π(s) + π(v)；反向 d(v, s) = d' - π(v) + π(s)。
         const distance = new Map<number, number>();
         for (const [node, value] of settled) distance.set(node, reverse ? value - potential.get(node)! + potential.get(source)! : value - potential.get(source)! + potential.get(node)!);
+        const value = {distance, adjacency};
+        shortest.set(key, value);
+        return value;
+    };
+    /** 依据要的紧边信息（最少跳数、每个点的入边），只在读依据时才算。 */
+    const tightCache = new Map<string, {distance: Map<number, number>; hops: Map<number, number>; incoming: Map<number, Edge_[]>}>();
+    const tight = (component: Component, source: number, reverse: boolean) => {
+        const key = `${String(component.id)}|${String(source)}|${String(reverse)}`;
+        const cached = tightCache.get(key);
+        if (cached !== undefined) return cached;
+        const {distance, adjacency} = paths(component, source, reverse);
         // 紧边上从源头起的最少跳数（宽度优先，按节点与约束的先后，确定）。
         const hops = new Map<number, number>([[source, 0]]);
         const queue = [source];
@@ -343,10 +372,10 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
         const incoming = new Map<number, Edge_[]>();
         for (const edge of component.edges) {
             const head = reverse ? edge.from : edge.to;
-            incoming.set(head, [...(incoming.get(head) ?? []), edge]);
+            append(incoming, head, edge);
         }
         const value = {distance, hops, incoming};
-        shortest.set(key, value);
+        tightCache.set(key, value);
         return value;
     };
     const isTight = (edge: Edge_, distance: Map<number, number>, reverse: boolean) => {
@@ -357,7 +386,7 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
     };
     /** 从源头到 target 的一条紧边路径上的说法：每一步取跳数少一、约束序最小的那条入边。 */
     const basisOf = (component: Component, source: number, target: number, reverse: boolean): RangeBasis => {
-        const {distance, hops, incoming: into} = paths(component, source, reverse);
+        const {distance, hops, incoming: into} = tight(component, source, reverse);
         const refs: string[] = [];
         let node = target;
         while (node !== source && hops.has(node)) {
@@ -376,26 +405,31 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
     const componentByEvent = new Map<string, Component>();
     for (const component of components) for (const node of component.nodes) componentByEvent.set(eventOfNode[node]!, component);
 
+    /** 一件事一端的范围；求依据时还要它用到的分量、源头与节点。 */
+    const boundsOf = (event: string, edge: Edge): {bounds: EventBounds; component?: Component; source?: number; node?: number} => {
+        const component = componentByEvent.get(event);
+        if (component === undefined || !component.constrained) return {bounds: {state: "unconstrained"}};
+        if (component.conflicts.length > 0) return {bounds: {state: "conflict", conflicts: component.conflicts}};
+        const node = edge === "end" ? (endNode.get(event) ?? startNode.get(event)!) : startNode.get(event)!;
+        const source = component.anchored ? component.origin : component.root;
+        const forward = paths(component, source, false).distance.get(node);
+        const backward = paths(component, source, true).distance.get(node);
+        const bounds: EventBounds = {state: "ok", anchored: component.anchored, ...(component.anchored ? {} : {relativeTo: component.rootEvent}), lo: backward === undefined ? Number.NEGATIVE_INFINITY : 0 - backward, hi: forward ?? Number.POSITIVE_INFINITY};
+        return {bounds, component, source, node};
+    };
+
     return {
         events: input.events,
         conflicts,
         component: (event) => componentByEvent.get(event)?.id,
+        bounds: (event, edge = "start") => boundsOf(event, edge).bounds,
         range: (event, edge = "start") => {
-            const component = componentByEvent.get(event);
-            if (component === undefined || !component.constrained) return {state: "unconstrained"};
-            if (component.conflicts.length > 0) return {state: "conflict", conflicts: component.conflicts};
-            const node = edge === "end" ? (endNode.get(event) ?? startNode.get(event)!) : startNode.get(event)!;
-            const source = component.anchored ? component.origin : component.root;
-            const forward = paths(component, source, false).distance.get(node);
-            const backward = paths(component, source, true).distance.get(node);
+            const {bounds, component, source, node} = boundsOf(event, edge);
+            if (bounds.state !== "ok") return bounds;
             return {
-                state: "ok",
-                anchored: component.anchored,
-                ...(component.anchored ? {} : {relativeTo: component.rootEvent}),
-                lo: backward === undefined ? Number.NEGATIVE_INFINITY : 0 - backward,
-                hi: forward === undefined ? Number.POSITIVE_INFINITY : forward,
-                earliest: backward === undefined ? {refs: [], total: 0} : basisOf(component, source, node, true),
-                latest: forward === undefined ? {refs: [], total: 0} : basisOf(component, source, node, false),
+                ...bounds,
+                earliest: bounds.lo === Number.NEGATIVE_INFINITY ? {refs: [], total: 0} : basisOf(component!, source!, node!, true),
+                latest: bounds.hi === Number.POSITIVE_INFINITY ? {refs: [], total: 0} : basisOf(component!, source!, node!, false),
             };
         },
         between: (a, b) => {
@@ -403,6 +437,8 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
             const cb = componentByEvent.get(b);
             if (ca === undefined || cb === undefined) return {state: "unrelated"};
             if (ca.conflicts.length > 0 || cb.conflicts.length > 0) return {state: "conflict"};
+            // 没有约束的分量只有这一件事：和自己相差 0，和别的事没有关系。
+            if (!ca.constrained || !cb.constrained) return a === b ? {state: "ok", lo: 0, hi: 0} : {state: "unrelated"};
             const [na, nb] = [startNode.get(a)!, startNode.get(b)!];
             if (ca === cb) {
                 const hi = paths(ca, na, false).distance.get(nb);
@@ -433,7 +469,7 @@ function bellmanFord(nodes: readonly number[], edges: readonly Edge_[]): {readon
     const predecessor = new Map<number, Edge_>();
     const entered = new Map<number, number>(nodes.map((node) => [node, 1]));
     const outgoing = new Map<number, Edge_[]>();
-    for (const edge of edges) outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge]);
+    for (const edge of edges) append(outgoing, edge.from, edge);
     const queue = [...nodes].reverse();
     const queued = new Set(queue);
     for (let head = 0; head < queue.length; head += 1) {

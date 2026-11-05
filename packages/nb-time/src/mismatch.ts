@@ -8,7 +8,7 @@
  * 说法才推得出的先后不查（要逐对算最短路）。有打架的分量里的事不参与。
  */
 
-import type {EventRange, NetworkConstraint, TimeNetwork} from "./network";
+import {append, type EventBounds, type NetworkConstraint, type TimeNetwork} from "./network";
 
 export interface PlacementMismatch {
     /** 安放得比时间晚的那件事（项的键）。 */
@@ -40,9 +40,9 @@ class Fenwick {
 /** `network.events` 是按安放排好的事件；`constraints` 是组好的约束（判据 b 用）。 */
 export function placementMismatches(network: TimeNetwork, constraints: readonly NetworkConstraint[]): PlacementMismatch[] {
     const placement = new Map(network.events.map((id, index) => [id, index]));
-    const ranges = new Map<string, Extract<EventRange, {state: "ok"}>>();
+    const ranges = new Map<string, Extract<EventBounds, {state: "ok"}>>();
     for (const id of network.events) {
-        const range = network.range(id);
+        const range = network.bounds(id);
         if (range.state === "ok") ranges.set(id, range);
     }
     const found = new Map<string, {partner: string; count: number; criterion: "range" | "statement"; partners: Set<string>}>();
@@ -53,7 +53,7 @@ export function placementMismatches(network: TimeNetwork, constraints: readonly 
         const range = ranges.get(id);
         if (range === undefined) continue;
         const key = range.anchored ? "origin" : `component:${String(network.component(id))}`;
-        systems.set(key, [...(systems.get(key) ?? []), id]);
+        append(systems, key, id);
     }
     for (const ids of systems.values()) {
         const earliest = [...new Set(ids.map((id) => ranges.get(id)!.lo))].sort((a, b) => a - b);
