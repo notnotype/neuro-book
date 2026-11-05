@@ -88,7 +88,13 @@ function run(name: string): void {
 
 .grid-structure-scene__actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+}
+
+.grid-structure-scene__actions input {
+    min-width: 0;
+    max-width: 100%;
 }
 
 .grid-structure-scene__grid {

@@ -125,6 +125,7 @@ async function open(page: Page, bound = true): Promise<void> {
 }
 
 test("项目根是作品名、标题行五个动作；展开时新行滑下淡入、动画后撤掉标记；鼠标点行不画焦点线、方向键之后画 1.5px 内嵌线；减少动态时不动画（验收 18、19）", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page);
     // 作品没有书名：项目根显示目录原名。
     await expect(item(page, "project://").locator("[data-explorer-label]")).toHaveText("Book");
@@ -734,6 +735,7 @@ test("拖动（验收 27）：内容文件夹里跨层放到两行之间、子�
 });
 
 test("拖动（验收 28）：放下后滑到新位置、落进收起的目录时目录行亮一下、取消时拖影飞回；减少动态效果时没有这些标记", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page);
     await item(page, "project://r4").click();
     await item(page, "project://r4/anim").click();

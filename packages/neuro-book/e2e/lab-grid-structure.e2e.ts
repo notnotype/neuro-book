@@ -201,6 +201,9 @@ test.describe("停放（输出“停放”）", () => {
         await page.mouse.move(parkedSash.x + parkedSash.width / 2, y);
         await page.mouse.down();
         await page.mouse.move(parkedSash.x - 200, y, {steps: 8});
+        // 从零往外拉：松手前内容就在。
+        await expect(content(page, "c")).not.toHaveAttribute("inert", "");
+        await expect(content(page, "c")).toHaveCSS("visibility", "visible");
         await page.mouse.up();
         await expect.poll(() => widthOf(page, "c")).toBeGreaterThan(100);
         await expect(content(page, "c")).not.toHaveAttribute("inert", "");

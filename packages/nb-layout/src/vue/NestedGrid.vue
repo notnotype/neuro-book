@@ -260,8 +260,13 @@ function updateParking(items: ReadonlyArray<GridPlacementItem<unknown>>): void {
     for (const id of lastContentSizes.keys()) {
         if (!alive.has(id)) lastContentSizes.delete(id);
     }
-    // 预览不改变停放：往零拖时要等落账，拖过阈值又拖回来内容不闪，焦点也不丢。
-    if (preview.value === null) parked.value = new Set(zero);
+    if (preview.value === null) {
+        parked.value = new Set(zero);
+        return;
+    }
+    // 预览不会把内容停放：往零拖时要等落账，拖过阈值又拖回来内容不闪，焦点也不丢。但从零往外拉时内容在拖动中就要出现。
+    const still = [...parked.value].filter((id) => zero.includes(id));
+    if (still.length !== parked.value.size) parked.value = new Set(still);
 }
 
 function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {

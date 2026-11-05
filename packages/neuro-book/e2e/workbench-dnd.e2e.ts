@@ -531,6 +531,7 @@ test.describe("产品页：拖放", () => {
     });
 
     test("放下后的收尾：高亮从落点滑到视图最终所在的位置再淡出，之后不留反馈；减少动效时同样收掉", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         await dragTo(page, page.locator(`[data-activity-container="view:${B}"]`), await halfOf(page, A, "after"));
         await expect(page.locator("[data-drop-feedback-area]")).toBeVisible();

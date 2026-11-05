@@ -523,7 +523,7 @@ test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区�
     await closeAll(page);
 });
 
-test("扁平渲染：向左拆分时右边的组不重建；F6 先在组之间走，走到头交给外壳（docs/specs/ui/nested-grid.md）", async ({page}) => {
+test("扁平渲染：拆分时原来的组不重建；F6 先在组之间走，走到头交给外壳（docs/specs/ui/nested-grid.md）", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
@@ -534,6 +534,7 @@ test("扁平渲染：向左拆分时右边的组不重建；F6 先在组之间�
     await first.evaluate((element) => {
         (element as HTMLElement & {__testSame?: boolean}).__testSame = true;
     });
+    await first.locator("[data-editor-tab]").first().focus();
     await page.keyboard.press("Control+\\");
     await expect(groups).toHaveCount(2);
     expect(await page.locator("[data-editor-group]").evaluateAll((elements) => elements.some((element) => (element as HTMLElement & {__testSame?: boolean}).__testSame === true))).toBe(true);
