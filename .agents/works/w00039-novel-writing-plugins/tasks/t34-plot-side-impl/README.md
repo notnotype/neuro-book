@@ -52,5 +52,6 @@ updated: 2026-11-05
 ## 下一步
 
 1. 阶段 A 已收口（2026-11-05）：`test:affected --typecheck --since 1c11c6529` 全过（nb-canon 308、应用包 bun 1732、vitest 410，两包类型检查）；规模测量重跑，与 A4 时一致（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）。阶段 A 的实现审查 I1（omp 默认模型，审 `1c11c6529..5318a94bd`）在后台跑，**实现审查待处理**：报告回来后照 reviewing 的“处理结果”归类，修正单独提交。
-2. 阶段 B 的细计划第二版（[`plan.md`](plan.md) 的“阶段 B 细计划”）：P3 的 Opus 一份 19 条全部成立、已改进计划（[`evidences/plan-review-P3-resolution.txt`](evidences/plan-review-P3-resolution.txt)），新加一片 B0 补内核（视图不漏上限之后的值、项目内的快照、`CanonReadView` 补齐、审计改上游、公开的辅助）。omp 那一份等 I1 跑完再发。下一步开工 B0。
-3. A4 的 1000 章测量已跑（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）：都在预算内；打开到可以读 1508 ms（t29 时 1065），日志 22.0 MB（t29 时 13.5），主要是修订存下的 `refs`，交实现审查一并看。
+2. 阶段 B：B0 已提交（fc97991ee）：带令牌的条目读取与渲染不给 `upcoming`（阶段 A 视图会把上限之后才启用的值漏出，P3 第 5 条）；视图审计加种类（拒绝、占位）、被挡的对象与序号游标，可按看的人筛；项目内接口 `canonProjectKey`（诊断登记、快照、开关视图、记占位，门面释放时关掉调用方开的视图）；快照的视图、带令牌的读取与戳建在同一份世界上，正文或插件数据变了以后再用就抛错；`CanonReadView` 加 `stamp`、`line`、`origins`、`outcome`、`progress`、`eventKey`、`placementKey`、`compareKeys`、`fields`、`markType`（排序键两个引擎各实现，差分测试比对）；读取输入摘要的算法收成 `readStampOf`，`createWorldReadView` 与 `pageOf` 公开导出；project 输出 24 补了审计与 `upcoming` 两句。nb-canon 313、canon 插件 11 个测试通过。下一步 B1。
+3. 阶段 B 的细计划第二版（[`plan.md`](plan.md) 的“阶段 B 细计划”）：P3 的 Opus 一份 19 条全部成立、已改进计划（[`evidences/plan-review-P3-resolution.txt`](evidences/plan-review-P3-resolution.txt)），新加一片 B0 补内核（视图不漏上限之后的值、项目内的快照、`CanonReadView` 补齐、审计改上游、公开的辅助）。omp 那一份等 I1 跑完再发。下一步开工 B0。
+4. A4 的 1000 章测量已跑（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）：都在预算内；打开到可以读 1508 ms（t29 时 1065），日志 22.0 MB（t29 时 13.5），主要是修订存下的 `refs`，交实现审查一并看。
