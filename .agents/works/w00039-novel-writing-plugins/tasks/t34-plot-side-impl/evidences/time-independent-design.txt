@@ -1,0 +1,572 @@
+NeuroBook 故事时间（canon.time）独立设计
+=====================================
+
+范围与读过的材料：docs/specs/canon/time.md 全文；model.md 的 when、输出 2、16；project.md 的方法表、输出 14；revisions.md 输出 3、18；worldlines.md 输出 1、6、8、9、14、15；components.md 输出 18；ADR 0043；packages/nb-canon/src 的 core/schema.ts、core/position.ts、engine/types.ts、engine/pending.ts、engine/incremental.ts 的 pending 与事件部分、world/world.ts 的 #publish、fillDefaults、validate、computeImpact、world/references.ts、service/service.ts、service/reads.ts、service/pending-groups.ts、tests/differential.test.ts 的头部；packages/neuro-book/src/plugins/canon 的 shared/contracts.ts、backend/remote.ts、backend/world-host.ts。没有读任何别人的时间设计稿（t32 的 time-independent-design、time-examples，t34 的 plan）。
+
+标注约定：“从代码推断”“估算，未测”“未验证”照字面理解；没标的是读过 Spec 或代码直接得到的。
+
+## 0. 摘要
+
+1. 用差分约束系统（STN）做，自己写，约 400 行：每个事件的起点、终点是变量，每条说法降成“to - from 属于 [lo, hi]”的约束，元年是常量节点 Z。可行性与势用带队列的 Bellman-Ford（超级源点，所有点初值 0）；范围与依据用势做 Johnson 重赋权后的两次 Dijkstra；打架环从前驱图里取。没有合适的现成库，Temporal 不能用于自定义历法（见第 1 节）。
+2. 这个规模下算力不是问题：约 6000 个带说法的事件、约 9000 条说法，估算首次建网 100 到 250 毫秒（参考机器），之后的查询在 2 毫秒以内，满足输出 11（1 秒 / 20 毫秒）。真正的风险在语义，不在速度：分量怎么划、安放对不上怎么不爆炸、年龄的无界结果、历法一改说法大面积失效。
+3. “分量”必须按“事件与事件之间的说法”划，元年 Z 不把分量连起来（每个分量有自己的 Z 副本）。否则任何一个日期说法打架都会让整本书不可确定。Spec 没写清，要补。
+4. 输出 5 的字面判据（B 的最晚早于 A 的最早）会漏掉“范围重叠但说法直接写了先后”的对（例如两件事都在 6 月，Y 在 X 之后三天，安放却把 Y 放前面），按“每对一条”又会在一个闪回上爆出几百条。建议：判据加一条“说法直接给出的严格先后”，报告按“祸首事件”合并。
+5. 世界线以后不返工的做法：网络输入是“事件列表 + 额外约束”，不绑定世界；缓存按（线，模式）；说法降成约束这一步与线无关、按剧情变更对象缓存；回溯的 R 点用额外节点与额外约束表示，父线网络的 between 与 range 就是它要的常量。
+6. 内核接入的关键选择：时间的待处理放在 World.pending 这一层合并，不进两个引擎的接口。引擎只通过 eventKey 和 progress 两个已有方法给时间层提供安放先后，差分测试因此只需多比一项。
+7. 前史先后（输出 7）要在写入时算，要先把“没给 order 的前史安放”写成合法的草稿形状，并让校验在写入前用临时网络算范围。
+8. 切片 8 片：Spec 修订，历法，说法与降约束，网络求解，查询与格式化，内核数据与校验，内核时间层与待处理，服务、远程合同、插件设置与规模测量。世界线留 hook，不做。
+9. 验证用真对象加独立参照：公历用 JS Date 做参照（天文纪年与 JS 一致），求解器用 Floyd-Warshall 小网络对拍，L_min/L_max 用逐窗口暴力对拍。
+10. Spec 要改的地方集中列在第 7 节，其中 6 处影响行为，需要开发者拍板。
+
+## 1. 逐个视角的质疑
+
+### 1.1 反对与精简
+
+Q1：要不要做约束网络？
+结论：要。需求里有相对说法（之后三天）、环上的矛盾、“是哪几条说法定下的”。只做“日期说法加相对偏移沿链传播”的做法，遇到环就得发明停止条件，那就是 Bellman-Ford 的一个残缺版。差分约束是正好够用的最小模型：每条说法都是两点之差落在一个区间里，区间内部不需要析取（“某个霜月”这类周期性说法 Spec 不承诺）。
+
+Q2：可以砍什么？
+- 世界线的时间（输出 6）：Spec 已排除，只留接口。
+- 逐级浏览（输出 8 最后一项）：这是给作者界面用的，现在没有使用者。建议做，但排在最后一片，并且与其余查询共用“事件区间扫描”，不单独造索引，成本约一百行。
+- 时段、小时、分钟精度和“约”：Spec 明文，不砍。
+- 几套历法并存：Spec 已排除。
+- 增量建网：规模下不需要（第 3.9 节算了账），不做。component 级增量也帮不上，因为作者的“之后一天”链会把绝大部分事件连成一个分量。
+
+Q3：能不能用现成库？
+- Temporal：我记得自定义历法协议在规范里已被删掉，现在只有内置历法 ID（未核实，需要查当前提案状态）。即使保留，Temporal 的一天固定 24 小时、月名与月数固定在内置历法里，表达不了“一天 48 小时”。Bun 当前是否内置 Temporal 也未验证。结论：不能用。
+- luxon、date-fns、dayjs：只有公历，不能自定义月与闰年规则。
+- 图库（graphology 之类）：有 Dijkstra，没有带路径的负环提取与差分约束；而我们要的恰恰是“依据路径”和“环上的说法”。适配成本不低于自写。npm 上是否有成熟的 STN 库我没有逐个核实，从常识判断体量很小、不成熟，且同样没有依据路径。
+- 结论：自写求解器；日期运算自写；用 JS Date 当公历参照，用 Floyd-Warshall 当求解参照，这两个都是“独立实现对拍”，比引库更能抓错。
+
+Q4：质疑上游选择（按 AGENTS 要求追到底）。
+- “nb-time 没有运行时依赖”。ADR 0043 只说“历法与网络放在无依赖的 nb-time”，没有写理由；我的推断是为了前后端与 nb-story 共用且不拖 TypeBox。这条的代价是：说法、历法的形状要在 nb-canon 里用 TypeBox 写一份（进世界日志的合同），在 nb-time 里手写校验与类型再写一份，有漂移风险。候选：放宽为“运行时依赖只有 TypeBox”（nb-runtime 就是这样），形状只写一份。我的判断：不放宽。nb-time 的校验大部分是语义检查（月 id 在不在、日子超没超、min 是否不大于 max、单位是否比历法细），TypeBox 只能管形状那一小半，省不下几行；漂移用一个类型层面的断言测试守住（nb-canon 的 Static 类型必须可赋值给 nb-time 的 Statement 类型，反向也一样）。作为候选交开发者，推荐保持现状。
+- “时间用兼顾的做法、说法按历法写法存”：已由开发者 2026-11-04 定，不质疑。但要写明后果：改历法会让已存说法批量变 time-invalid，见第 7 节风险。
+
+### 1.2 成本
+
+- 开发：nb-time 约 1800 行实现加 1500 行测试；nb-canon 约 500 行接入加 600 行测试；插件与合同约 250 行。八片，每片一个提交。
+- 运行时：估算，未测。见第 3.9 节。每次发布若碰到时间相关对象，多建一次网络（约 30 到 60 毫秒，参考机器），会挤占项目 Spec 输出 14 的“发布 100 毫秒以内”。这是最大的运行时风险，第 3.9 节与第 7 节给了缓解。
+- 内存：节点约 1.2 万，边约 1.8 万，用类型化数组，不到 1 MB；每个线视图一份，常驻最多 3 条线，无压力。
+
+### 1.3 使用者体验
+
+作者：
+- 打架的报告必须带原话、所在变更、环的次序，否则作者无从下手。设计里待处理项直接带这些。
+- 历法一改，旧说法失效，作者会看到成片的 time-invalid。待处理项要按“原因”给出可合并的摘要（同一个月 id 不在的算一个根因），否则 200 条一个个点。建议和“套不上按根因合并”同一思路：time-invalid 按（原因，具体的 id）合并成一条，列出受影响的变更数。这与 Spec 输出 3“各成一条”不同，列入第 7 节。
+
+写记账的 Agent：
+- 说法要写月 id、纪 id、时段 id。Agent 不知道这些 id 就会写出一堆 time-invalid（写入时不拒收，Spec 如此）。必须有办法读历法：我建议 time 查询加一种 calendar，返回历法的简表（纪、月 id 与名字与天数、时段 id 与名字、最小单位）和模糊词表的词。Spec 输出 8 没列，要补。
+- 写入回执里已有 impact.pendingAdded（revisions 输出 6）。时间待处理要进这个差集，Agent 当次就能看到“你刚写的这条说法不成立”。设计里把时间待处理并入差集（第 5.8 节）。
+- Agent 写的 basis 要能指到讲述：说法的 basis 是 told 里的讲述 id，写入时校验这条讲述在这个变更的 told 里。
+
+插件作者（plot）：
+- plot 的诊断是同步计算，读的是 CanonReadView。时间查询必须能在 CanonReadView 上同步调用，不能只开远程方法。设计里 CanonReadView 加 time(line?, mode, query)，与远程方法共用实现。
+- 视图过滤：Spec 输出 24 说 time 的范围“夹到上限”。仅夹查询范围不够：事件 A（可见）的范围可能是由更晚的事件 B（不可见）的日期推出来的，会泄漏。带令牌的时间查询必须在“只含上限之前事件”的网络上算。设计里网络构造接受一个事件过滤，见第 3.8 节。这一点 Spec 没写，要补。
+
+### 1.4 迁移与兼容
+
+- 世界日志：format 2 已含时间说法（project 输出 2）；nb-canon 还没合并，v2 没有用户数据，所以不存在旧数据迁移。when 是新增的可选字段，旧行没有它，重放不受影响。
+- 重放不能依赖历法：重放时不做任何历法相关校验（校验只在写入时做），否则历法一改日志读不开。设计保证。
+- 世界线以后：缓存键里带线；降约束与线无关；分叉的 R 点用额外约束。见第 3.8 节。
+- 历法版本不是可靠的缓存键（作者可能改了内容忘了加版本）：缓存键用生效历法与词表的规范 JSON 摘要；version 只用于诊断展示与读取输入摘要里的可读字段。Spec 输出 3“按世界版本、历法版本与词表缓存”的字面做法在作者忘加版本时会读到旧结果，这点要改成按内容。
+
+### 1.5 可观测与排障
+
+- 每个范围带依据；依据是说法的引用列表（变更 id 加下标），不是文字。
+- 每个打架带环（说法的引用、原话、所在变更）。
+- status().diagnostics 加：calendar-invalid、fuzzy-word-invalid（Spec 已有），另加最近一次建网的规模与耗时（事件数、约束数、分量数、冲突数、毫秒）、被截断的冲突数。不进读取结果（与 project 输出 26 的做法一致）。
+- 范围查询带 state 字段（absolute、relative、unbounded、conflict、untimed），区分“没记时间”“只能相对”“打架”“某一端无界”，不要都返回 null。
+
+### 1.6 长期维护与技术债
+
+- 单位混用是这类代码最常见的 bug 来源：所有内部量都是“历法最小单位的整数 tick”，范围的两端一律闭区间，Spec 里的半开区间（age 的 [L_min(min), L_max(max+1)) ）在降约束时统一转成闭区间（减一 tick），并在一处写明。
+- 两处形状（TypeBox 与 TS 类型）的漂移：类型断言测试。
+- 公开面小：nb-time 只导出历法、说法、网络、查询、格式化，不导出求解器内部。
+
+## 2. 包的模块划分与公开导出
+
+### 2.1 packages/nb-time
+
+package.json：name @notnotype/nb-time，type module，exports 只有 "."（再加 "./testing" 不要，测试里直接 import src）。没有 dependencies；devDependencies 只有 @types/bun、typescript。scripts：test（bun test）、typecheck。遵守 packages/AGENTS.md 的包约定；新包要在根 package.json 的 workspaces、docs/modules/monorepo-boundaries.md、AGENTS.md 的包表里登记，governance:check 才过（未逐项核对，从仓库规则推断）。
+
+目录：
+
+src/types.ts            公共类型：Unit、Interval、IntervalSpec、DateSpec、Statement、Basis、Calendar、FuzzyTable
+src/calendar/validate.ts   validateCalendar（输出 13）
+src/calendar/compile.ts    compileCalendar：周期表、日序号与年月日互换、tick 常量
+src/calendar/lengths.ts    L_min(n)、L_max(n)（年、月）
+src/calendar/gregorian.ts  GREGORIAN
+src/fuzzy.ts               validateFuzzy、resolveInterval
+src/statement/validate.ts  validateStatements（写入时的形状与语义检查，输出 9 中不依赖世界的部分）
+src/statement/lower.ts     lowerStatement：说法到符号约束（含 time-invalid 原因）
+src/network/graph.ts       CSR 图、Bellman-Ford（势、环提取）、Dijkstra
+src/network/solve.ts       buildNetwork：分量、冲突、范围、依据
+src/network/queries.ts     range、hull、between、ageAt、during、browse
+src/network/mismatch.ts    安放与时间对不上的检测与合并
+src/format.ts              toParts、formatMoment、formatRange
+tests/                     按能力分文件，见第 6 节
+
+### 2.2 公开导出（形状）
+
+// 历法
+export type Unit = "minute" | "hour" | "day" | "month" | "year";
+export interface Calendar { version: number; unit: "minute" | "hour" | "day"; hoursPerDay: number; minutesPerHour: number;
+  months: {id: string; name: string; days: number}[];
+  leap: {every: number; offset?: number; months: Record<string, number>}[];
+  eras: {id: string; name: string; start: number}[];
+  periods: {id: string; name: string; from: number; to: number}[] }
+export const GREGORIAN: Calendar;
+export type CalendarResult = {ok: true; calendar: Calendar} | {ok: false; problems: CalendarProblem[]};
+export function validateCalendar(raw: unknown): CalendarResult;       // 输出 13，纯函数，不管“上一个合法的”
+export interface CalendarProblem { path: string; code: string; message: string }  // calendar-invalid 的详情
+export function compileCalendar(calendar: Calendar): CompiledCalendar; // 同一个对象再编译结果相同，调用方缓存
+export interface CompiledCalendar { readonly calendar: Calendar; readonly key: string /* 规范 JSON 摘要用的字符串 */;
+  readonly ticksPerHour: number; readonly ticksPerDay: number;
+  lMin(unit: "month" | "year", n: number): number; lMax(unit: "month" | "year", n: number): number;
+  ... (日序号与年月日互换，不进公开面，只给 format 与 lower 用) }
+
+// 模糊词表
+export interface FuzzyTable { words: Record<string, {min?: number; max?: number; unit: Unit}>; approx: {year: number; month: number; day: number; hour: number} }
+export function validateFuzzy(raw: unknown, calendar: CompiledCalendar): {table: FuzzyTable; problems: {word: string; message: string}[]}; // 不合法的项已剔除
+
+// 说法
+export type Basis = {kind: "telling"; id: string} | {kind: "author"} | {kind: "inferred"};
+export type Statement = (DateStatement | AfterStatement | BeforeStatement | LastsStatement | AgeStatement | BirthStatement) 的并，公共字段 quote?: string; basis: Basis
+export interface StatementProblem { index: number; path: string; reason: string; message: string }
+export function validateStatements(raw: unknown, ctx: {calendar: CompiledCalendar; fuzzy: FuzzyTable}): StatementProblem[]; // 写入时形状校验，不含世界引用
+
+// 网络
+export interface EventInput { id: string; statements: readonly Statement[]; origin?: number }  // origin 是调用方给的次序提示（安放先后），只影响求解顺序与相对分量的原点，不影响结果的取值
+export interface ExtraConstraint { ref: string; from: NodeRef; to: NodeRef; lo: number; hi: number }  // 世界线的 R 点用
+export interface NetworkInput { calendar: CompiledCalendar; fuzzy: FuzzyTable; events: readonly EventInput[]; extra?: readonly ExtraConstraint[];
+  resolveTarget: (id: string) => "event" | "absent" | "not-event" }  // of 指到的变更在不在这条线这个模式的事件集里
+export function buildNetwork(input: NetworkInput): TimeNetwork;
+export interface TimeNetwork {
+  readonly conflicts: readonly Conflict[];          // 每个：{cycle: StatementRef[], component: number}
+  readonly invalid: readonly InvalidStatement[];    // {ref, reason, detail}
+  readonly stats: {events: number; constraints: number; components: number; conflicts: number; truncated: number};
+  range(id: string): EventRange;                    // start、end、state、依据
+  hull(ids: readonly string[]): HullRange;          // 一章
+  between(a: string, b: string): Difference;        // b.s - a.s 的范围与依据
+  ageAt(who: string, at: string): AgeAnswer;        // 输出 12
+  during(from: DateSpec, to: DateSpec): {sure: string[]; maybe: string[]};
+  browse(path: BrowsePath): BrowseNode[];
+  birthOf(who: string): string | "ambiguous" | null;
+}
+export function placementMismatches(network: TimeNetwork, ordered: readonly {id: string; key: unknown}[], compare: (a: unknown, b: unknown) => number): Mismatch[];
+// 格式化
+export function toParts(calendar: CompiledCalendar, tick: number): DateParts;
+export function formatMoment(calendar: CompiledCalendar, tick: number, level?: Level): string;
+export function formatRange(calendar: CompiledCalendar, lo: number | null, hi: number | null): {text: string; level: Level; from?: DateParts; to?: DateParts};
+
+StatementRef 是字符串 "c12#0"（变更 id、下标）；世界线的额外约束用 "fork:r1" 这样的前缀，不与变更 id 冲突（变更 id 以 c 加数字）。nb-time 把 ref 当不透明字符串，nb-canon 负责解释。
+
+### 2.3 packages/nb-canon 的新增与改动
+
+src/time/options.ts     TimeOptions：{calendar: Calendar, fuzzy: FuzzyTable, key: string}；resolveTimeOptions(raw, lastValid)
+src/time/events.ts      一条线一个模式下的事件集（实际：生效、已写、非叙述；计划：再加没被兑现、取消、替代的计划）；降约束缓存
+src/time/state.ts       TimeState：对一个 World、线、模式的懒计算结果（网络、待处理、失配）；挂在 World 上
+src/time/pending.ts     TimePendingItem 与排序位置
+src/time/queries.ts     把 TimeQuery 翻成 nb-time 调用，分页，按历法格式化
+src/time/write.ts       invalid-time 校验；前史 order 填充
+改动：core/schema.ts（when）、world/world.ts（options.time、validate、fillDefaults 前的前史填充、computeImpact 的键）、world/references.ts（when[].of、when[].who）、service/reads.ts（readStampOf 的历法与词表摘要、CanonReadView.time）、service/service.ts（setTime、time 方法、状态里的诊断）、service/pending-groups.ts（排序种类）、index.ts 导出。engine/ 下两个引擎不改。
+
+nb-canon 依赖 @notnotype/nb-time（workspace:*）。主入口仍然不引用 node:*，nb-time 本身不引用，architecture.test.ts 继续成立。./schema 入口不 import nb-time 的值（只在类型断言测试里 import type）。
+
+### 2.4 插件与合同
+
+canon 插件：shared/contracts.ts 加 time 方法；backend/remote.ts 加转发；backend/world-host.ts 加 setTime；新增 backend/time-settings.ts，声明两个设置（历法、模糊词表），读到值后调 host.setTime，设置变化时再调。设置的具体声明方式随 settings 插件的 defineSetting，我只读了贡献点的定义，没有读完设置的读取接口，t11 项目布局若规定了位置以它为准（未验证）。
+
+## 3. 算法
+
+### 3.1 记号
+
+tick：历法最小单位的整数。Z：元年节点，值为 0，对应绝对年份 0 第一个月第一天零点（不依赖历法有没有第 0 年，只是记数起点）。约束 C(from, to, lo, hi) 表示 to - from 属于 [lo, hi]（闭区间，lo 可为 -Infinity，hi 可为 +Infinity）。每个事件 E 有节点 s(E)；E 有 lasts 说法时另有 e(E)，否则 e(E) 就是 s(E) 同一个节点。endNode(E, edge)：edge 为 end 时取 e(E)，否则取 s(E)。
+
+### 3.2 说法到约束
+
+- date：Z 到 s(E) 的约束 C(Z, s, lo, hi)，[lo, hi] 是这个日期单位在绝对时间里的闭区间（3.3）。
+- after of=X edge gap：E.s - endNode(X, edge) 属于间隔：C(endNode(X, edge), s(E), gLo, gHi)。没有 gap 时是 [0, +Infinity]。
+- before of=X edge gap：endNode(X, edge) - E.s 属于间隔：C(s(E), endNode(X, edge), gLo, gHi)。
+- lasts：C(s(E), e(E), lo, hi)。同一事件有几条 lasts 时各成一条约束（交集）。
+- age who years{min,max}：C(s(birth(who)), s(E), Lmin(min 年), Lmax(max+1 年) - 1)。半开转闭区间，减一 tick。birth(who) 不存在时，这条说法不进网络，也不算不成立（输出 12）。birth(who) 有多个时（写入时被拒，但回退、世界线、手改日志可能造成），这条说法记 time-invalid，原因 birth-ambiguous。
+- birth：不产生约束，只登记 birth(who) = E。
+
+间隔 {min, max, unit} 的换算：min 缺省 0，max 缺省 +Infinity；unit 为 minute、hour、day：乘以固定 tick 数；unit 为 month、year：lo = Lmin(unit, min)，hi = Lmax(unit, max)（输出 7 的“以年（月）为单位的间隔取 [L_min(min), L_max(max)]”）。{word}：按模糊词表换成上一种，词不在或被作废：time-invalid，原因 fuzzy-word-missing。
+
+自环：from 与 to 是同一节点时，lo 大于 0 或 hi 小于 0 就是一个单说法的环（直接成冲突），否则丢弃（例如 after 自己、gap 为 0 到无穷）。
+
+写入时就拒收引用自己的 after/before（of 等于自己的 id），理由：没有合法含义，且 Spec 没有要求保留。（Spec 外的小增补，列入第 7 节。）
+
+无穷的处理：lo 为 -Infinity 就不建 to 到 from 的边，hi 为 +Infinity 就不建 from 到 to 的边；两端都无穷的约束整条省略。
+
+### 3.3 date 到绝对 tick 范围
+
+输入 DateSpec {era?, year, month?, day?, period?, hour?, minute?, approx?, uncertain?}。我的解释（Spec 没写全，见第 7 节）：year 必给；给了 month 才可以给 day；给了 day 才可以给 period 或 hour；period 与 hour 不同时给；minute 要求给 hour；从 year 起必须连续。理由：“落在这个日期单位里”要求一个连续区间，缺了中间一级就是周期性说法（“某个霜月”），差分约束表示不了。
+
+步骤：
+1. 绝对年份 y：给了 era，y = era.start + year - 1（元年即 year 为 1）；没给 era，year 就是绝对年份。选“没给就是绝对年份”而不是“默认第一纪”，因为后者在作者加一个纪之后说法的含义会变，违反“存作者按历法写的形状、不依赖当前历法的偶然状态”。
+2. 年份的天数结构 = 编译历法对 y 的月天数向量（按闰年规则从先到后覆盖）。day 超出这个月在这一年的天数：time-invalid，原因 day-out-of-range。月 id 不在：month-missing。纪 id 不在：era-missing。时段 id 不在：period-missing。小时超过 hoursPerDay-1 或分钟超过 minutesPerHour-1：time-invalid，原因 hour-out-of-range。最细一级比历法最小单位细：unit-too-fine（写入时已拒收，但改历法后可能出现）。
+3. 日序号 D(y, m, d) = 此前所有年的天数之和 + 本年此月之前的天数 + (d - 1)。此前所有年的天数用周期分解（4.2）O(1) 取得。
+4. 按给到的最细一级得到闭区间 [lo, hi]（单位 tick）：
+   - 年：[D(y,首月,1)·tpd, D(y+1,首月,1)·tpd - 1]
+   - 月：[D(y,m,1)·tpd, D(y,m+1,1)·tpd - 1]（最后一个月的下一月是 y+1 年首月）
+   - 日：[D·tpd, (D+1)·tpd - 1]
+   - 时段（from, to）：[D·tpd + from·tph, D·tpd + to·tph - 1]；to 小于 from 表示跨夜，上界改为 (D+1)·tpd + to·tph - 1；to 等于 from 的含义 Spec 没写，我取“整整一天”（上界同跨夜算法），见第 7 节。to 是不含的整点（“清晨 5 到 8”是 5 点起到 8 点前），理由：Spec 规定 to 的取值范围是 0 到 hoursPerDay-1，包含式写法就表达不了“到午夜”，不含式靠 to 为 0 加跨夜规则可以。
+   - 时：[D·tpd + h·tph, D·tpd + (h+1)·tph - 1]
+   - 分：[D·tpd + h·tph + mi, 同值]（最小单位是分钟时才允许；是时或天时写入拒收）
+   tpd、tph 是每天、每小时的 tick 数；最小单位是天时 tpd 为 1，hour 与 minute 级别不允许。
+5. approx 为真：按给到的最细一级放宽，量取 fuzzy.approx 对应项（年、月、日、小时；分钟或时段用小时）。放宽按那一级的日历单位做：年级放宽 k 年等价于把 y 换成 y-k 求下界、y+k 求上界，月级同理逐月步进，日级是 ±k 个整日，小时级是 ±k 个整点。两端对称（Spec 没写单侧还是双侧，见第 7 节）。
+6. uncertain 只记在输出里，不改范围。
+
+### 3.4 网络的构造
+
+1. 事件集 = 调用方给的 events（线视图里、模式内、非叙述、生效的剧情变更）。引用到事件集之外的 of：resolveTarget 说“absent”“not-event”时，这条说法记 time-invalid（target-missing、target-not-event），不进网络；说“不属于这个模式的事件”（例如实际模式下引用了一条计划）时静默丢弃。三种由调用方（nb-canon）在 resolveTarget 里区分，nb-time 只认返回值。
+2. 事件按调用方给的次序排（nb-canon 按安放先后，没有安放的按 id 数值部分），次序决定求解时的初始队列与相对分量的原点，不影响数值结果。
+3. 节点编号：Z 一个（每个分量内部再复制一份），每个事件 s 一个，有 lasts 的再加 e 一个。被引用但没有任何说法的事件也要有节点（不会自己产生约束，但别人的约束会连到它）。
+4. 约束列表按（事件次序，说法下标，约束序）排好，编号即边序，保证确定。
+5. 分量：对节点用并查集，只合并“事件与事件之间”的约束（after、before、age、lasts 的 s 与 e）。date 这类 Z 约束不合并。每个分量内部有自己的 Z 副本 Z_c，date 约束接到所在分量的 Z_c 上。理由：约束只有差分形式，把不同分量各自平移就能共用同一个元年，所以逐分量求可行性与整体等价（证明：任一分量的解整体平移不影响约束成立）。这样两条日期说法互相矛盾只影响它所在的那一个单事件分量。
+6. 分量是否有锚：它有没有至少一个以 Z_c 为端点的有限边。没有锚的分量，范围是相对的：取分量里次序最靠前的事件起点 r 当原点（范围是相对 r 的偏移），查询只能回答差。
+
+### 3.5 求可行性、打架、环
+
+对每个分量独立做：
+1. Bellman-Ford（队列版），所有节点初值 0，初始队列按调用方次序的逆序（大多数 after 的边从“后面的事件”指向“前面的事件”，逆序处理近似线性；最坏 O(VE)，见 3.9）。得到势 pi(v) 小于等于 0。
+2. 判环：每松弛 V 次，沿前驱指针做一次查环（摊还检查）；前驱图里出现环，那个环一定是负环。提取环上的边，边的约束 ref 去重即“环上的说法”。自环按 3.2 直接成环。
+3. 取到一个环后：把环上所有说法（连同它们的两条边）从这个分量里标记掉，记一个冲突；然后对剩下的边重新跑 1 到 2，直到可行。这样得到一组互不共享说法的冲突环（“同一个环合成一条”）。每个分量最多取 20 个环，超过的不再取，stats.truncated 记还有多少没取，分量照样不可确定。
+4. 确定性：队列与边的次序固定，同一输入得同一组环；环的展示次序从环上“次序最靠前的约束”起，沿边方向。
+
+分量里有任何冲突：按 Spec 输出 2，分量里所有事件范围为“不可确定”，带原因（冲突的 ref 列表）。我建议改成“只对冲突环上的事件与受冲突影响的事件标不可确定”（见第 7 节第 1 条）。实现上这是 solve() 的一个选项，因为被标掉说法后的剩余系统本来就可行，已经有势，范围照算：
+
+- 字面（Spec）：冲突分量的事件全部 state=conflict。
+- 建议：事件范围按剩余系统算，标 degraded 并列出被忽略的冲突 ref；只有冲突环上直接出现的事件 state=conflict。
+
+### 3.6 范围与依据
+
+无冲突的分量里，有锚（Z_c 有有限边）或用原点 r：
+1. 以势 pi 做重赋权 w'(i,j) = w + pi(i) - pi(j)，全部非负。
+2. 正向 Dijkstra（源 Z_c 或 r）得 d+(v)；反向图 Dijkstra 得 d-(v)。还原：上界 ub(v) = d+(v) - pi(Z) + pi(v)；下界 lb(v) = -(d-(v) - pi(v) + pi(Z))。不可达为 +Infinity，对应无界。
+3. 依据：最早（lb）由 v 到 Z 的最短路上的约束决定，最晚（ub）由 Z 到 v 的最短路上的约束决定。取依据时不用 Dijkstra 的前驱（并列时依赖队列次序），而是在拿到距离后做一次“紧边 BFS”：从 v 往回走，只走满足 d(u) + w = d(v) 的边，按（跳数，约束序）优先，到源为止。结果与处理次序无关，因此“逐字相同”不依赖实现细节。这一步只在被查询的事件上做，O(紧边子图)，通常远小于整张图。
+4. 依据展示：约束 ref 的列表，从源端起；超过 20 条时保留两端各 10 条并给 truncated 计数；调用方可以要求完整列表。
+5. 范围是闭区间 [lb, ub]（tick）。事件有 lasts 时，start 与 end 各有一份范围。
+
+整个分量的计算是惰性的：先对所有分量做可行性（便宜，也是 pending 要用的），再按需对被查询的分量做 Dijkstra。pending 里的失配检测需要全部范围，所以第一次 pending 会全算。
+
+### 3.7 安放与时间对不上（输出 5）
+
+不做逐对比较。定义：按安放 A 在 B 之前（用 Engine.eventKey 的次序，同模式、同线），且 B 的起点“一定早于” A 的起点。我分两类判据，都不是 O(N^2)：
+
+(a) 范围判据（Spec 字面）：ub(B.s) 小于 lb(A.s)。把同一“坐标系”里的事件按安放次序排好（所有有锚的分量共用一个绝对坐标系；每个无锚分量一个独立坐标系，用各自原点），从前往后扫，维护前缀里 lb 的最大值及对应事件 A*。对每个 B，若 ub(B) 小于 prefixMaxLb，则 (A*, B) 是一对。O(N log N)（排序）。无界端（Infinity）自然不触发。
+(b) 直接说法判据（Spec 之外的增补）：每条事件间约束 C(from, to, lo, hi)，若 hi 小于 0（to 一定早于 from），而安放上 from 在 to 之前，也是一对。O(约束数)。这一类抓得到“两件事都在 6 月，Y 在 X 之后三天，安放却把 Y 放前面”：此时 ub(X) 约为 6 月 27 日，lb(Y) 约为 6 月 4 日，(a) 判不出，而说法本身明白写着先后。(b) 对多跳的非严格链仍不完整（A 不早于 C，C 比 B 晚 3 天，安放 A、B、C），完整判据需要逐对最短路，代价过高，不做，第 7 节写明。
+
+合并（避免爆炸）：一个闪回事件 F 与它之后安放的几百个事件都成对，一对一条会淹没作者。按“祸首”合并：
+1. 把 (a)(b) 的违例对枚举出来（(a) 用扫描加按需枚举，总数设上限 20 万，超过则只保留每个 B 的 (A*, B) 一对，并在 stats 里记 truncated）。
+2. 贪心取点覆盖：每次取出现在剩余违例对里次数最多的事件（并列取安放更靠前者）作为祸首，输出一项：{culprit, role: earlier|later, partners: 前 5 个对手的（事件，范围，依据）, total}，然后删去与该事件相关的对。
+3. 每一项列出祸首与最具代表性的对手（范围差距最大的）各自的范围与依据（满足 Spec“列出两件事、各自的范围与依据”），另给 total。
+排序位置取项里涉及的事件中最早的安放（Spec 输出 16 的规则）。
+这样一个闪回只产生一项，一个被错放得太早的事件也只产生一项。把祸首挪进前史（Spec 验收 4）后，相关违例对全部消失，项随之消失。
+
+同一线上、同一模式；有冲突分量里的事件、无界端的事件不参与。
+
+### 3.8 世界线的预留（输出 6，本次不做）
+
+- 网络输入是（事件列表，额外约束），事件列表由调用方从“线视图”取，不是整个世界。以后每条线调一次 buildNetwork，结果各自缓存。
+- 额外约束带自己的 ref（"fork:<线>"），额外节点 R 用 NodeRef {kind: "extra", name: "R:<线>"} 表示。回溯的两条公式，父线上的常量来自父网络：d- 与 d+ = parentNetwork.between(切口, 触发处) 的上下界，a 与 b = parentNetwork.range(触发处).start。R 减切口起点的约束，R 的绝对约束，以及“子线自己的事件都不早于 R”（对每个子线自己的事件加 C(R, s, 0, +Infinity)）都是 ExtraConstraint。
+- 父线分量不可确定、back 的词不在表里：调用方不加这些约束，出 fork-time-mismatch（原因）。
+- 切口一定晚于 R：调用方用 solved 子网络的 between(R, 切口) 全大于 0 判断。nb-time 的 between 支持额外节点。
+- 缓存键：(线, 模式, 视图上限)；线视图淘汰时（最多 3 条）一并丢弃时间状态。因为降约束按剧情变更对象缓存，与线无关，父子线共享切口之前的降约束结果。
+- 待处理项带 line 字段，现在恒为 "main"。
+
+### 3.9 复杂度与规模估算
+
+规模（project 输出 14）：约 1000 章，每章 5 个计划、15 条已写变更。实际模式 15000 条已写，30% 有说法、平均 1.5 条：约 4500 个事件、6750 条说法。计划模式再加 5000 条计划：约 6000 个事件、9000 条说法。被引用但没有说法的事件会多出节点，上限约 6000。所以节点不超过约 1.2 万（含 e 节点），边不超过约 1.8 万。
+
+操作与估算（估算，未测；参考机器按开发机的 2 到 3 倍计）：
+- 降约束：每条说法 O(R·M)（闰年规则数乘月数，用于取月起点）加常数，约 2 微秒，9000 条约 20 毫秒冷算；按剧情变更对象缓存（unchanged change 对象跨版本保持同一引用，thaw 是浅拷贝，从代码推断），热算几乎为零。
+- 装配、并查集、CSR：O(S)，约 5 毫秒。
+- Bellman-Ford：逆序队列时接近 O(E)，约 2 毫秒；最坏（说法次序与方向对抗）O(VE)，V = 1.2 万、E = 1.8 万时约 2 亿次松弛，约 1 秒。这是理论上界，我给了一个压力测试（反向次序的长链）把它量出来，若实测超过 300 毫秒就换成 Goldberg-Radzik，接口不变。
+- Dijkstra 两次：O(E log V)，约 5 到 10 毫秒。
+- 失配扫描：O(N log N)，约 3 毫秒。
+- 首次时间查询合计：开发机约 40 到 90 毫秒，参考机器约 100 到 250 毫秒，满足输出 11 的 1 秒。
+- 同一世界版本上再查：range、between、ageAt 是 O(1) 到一次小 Dijkstra（约 1 毫秒）；hull 是 O(章内事件)；during 与 browse 是 O(N) 扫描（约 0.1 毫秒），都远小于 20 毫秒。
+- 发布：若本次写入碰到“时间相关对象”（带 when 的变更，或被某条说法引用的变更，或这类变更的 status、kind、nature、at 变化），要为新世界多建一次网络以便算 impact 的待处理差集（约 30 到 60 毫秒，参考机器，估算）。旧世界的网络多半已在上次读取时建好（结果挂在 World 对象上）。不碰时间相关对象的发布完全不付这个成本。这一项会和项目 Spec 输出 14 的“发布 100 毫秒以内”抢预算，第 6 节第 7 片把它作为必须实测的门槛。
+
+### 3.10 年龄（输出 12）
+
+ageAt(who, at)（at 是事件 id）：
+1. at 的说法里有关于 who 的 age：答 years 的交集（取 max(min) 到 min(max)）；交集为空：答并集（min 的最小到 max 的最大），结果带提示 time-age-disagree；不看网络。
+2. 否则，at 所在分量有冲突（字面 Spec）：答 conflict（带原因）。
+3. who 没有出生事件：答 unknown。有多个：答 unknown，原因 birth-ambiguous。
+4. D = s(at) - s(birth)：同一分量用 between；不同分量但都有锚用 ub(at) - lb(birth)、lb(at) - ub(birth)；其余无关联：答 unknown。
+5. D 的上界小于 0：答 notBorn。否则取 D 与 [0, +Infinity) 的交，求所有满足 Lmin(k 年) <= v < Lmax(k+1 年) 的非负整数 k：kmin = 最小的 k 使 Lmax(k+1) > lo；kmax = 最大的 k 使 Lmin(k) <= hi（hi 为无穷时没有上界）。Lmin、Lmax 对 k 单调不减，二分即可。结果：一个 k 答 "k 岁"，几个答 "k 到 k' 岁"，无上界答 atLeast k，下界上界都无穷答 unknown。atLeast 是 Spec 没有的第四种答案，第 7 节列出。
+
+### 3.11 查询汇总（输出 8）
+
+- event(id)：range(id)，格式化，依据。
+- chapter(章)：调用方取这一章安放的事件 id，nb-time 的 hull：只计有信息的事件（至少一端有限），把没信息的数目另给；不同分量不能合并，按分量分组返回（有锚的合并成一组）。
+- during(from, to)：两端用 date 同样的降级得到闭区间 [F, T]；一定 = lb(s) >= F 且 ub(e) <= T；可能 = lb(s) <= T 且 ub(e) >= F。无界端按无穷。分页由调用方做。
+- between(a, b)：差的范围与依据。
+- ageAt：上节。
+- browse(路径)：路径逐级为空（列纪）、纪、纪加年、年加月、年加月加日；每个子单位给 sure 与 maybe 的数目，叶子带事件 id 列表。子单位的集合 = 与所有有限范围事件的并相交的那些单位，年级最多返回 200 个。
+- calendar：返回历法简表与词表（我加的，供 Agent 查 id，见 1.3）。
+- 结果的时间一律带 tick（机器用）与按历法的 parts 和 text。text 的精度：找最细的一级，使 lo 与 hi 在同一个单位里，输出该单位（如“王历 612 年霜月”）；没有（跨年）则输出“A 至 B”，两端各取到日。无界端写“之前”“之后”。
+
+## 4. 历法
+
+### 4.1 校验（输出 13）
+
+validateCalendar(raw) 返回 problems 的列表（path 如 /leap/1/months/frost，code 如 month-unknown），逐条对应输出 13 的各项。补充两条实现层面的限制（Spec 没有，建议加进输出 13，见第 7 节）：
+- 闰年周期 P = 各规则 every 的最小公倍数，P 乘月数不超过 200 万；超过按不合法（理由：精确的 L_min/L_max 与日序号需要在一个周期里枚举；真实历法的周期是几十到几百年，超过 200 万的是误填，静默用松散上下界会让范围悄悄变宽）。
+- 年份绝对值上限 1e7（eras.start 与说法里的年），保证 tick 不超过 2^53（1e7 年 * 366 天 * 1440 分钟约 5e12，余量很大）。
+
+从来没有合法历法时用 GREGORIAN。“上一个合法的历法”由 nb-canon 的 resolveTimeOptions 记（nb-time 的 validateCalendar 是纯函数）。
+
+### 4.2 编译历法与周期表
+
+compileCalendar 做一次，调用方缓存：
+1. 周期 P、每个周期年的月天数向量：对周期内每个余数 r 计算规则适用集合，按规则先后覆盖月天数，得到本年各月天数、本年总天数。P 通常是 1 到 400，直接存 Int32Array，O(P·R·M)。
+2. 周期总天数 T。cumDays(y)：从绝对年 0 起到年 y 之前所有年的天数 = floor(y/P)·T + prefix[y mod P]（负年份用向下取整的除法与非负余数，与 Spec 输出 13 的定义一致）。prefix 是周期内的前缀和。
+3. 日序号到年月日（格式化与 during 用）：先 floor(day/T) 得周期数，余下的天数在 prefix 上二分求年，再在本年月天数向量上求月与日。
+4. 最小单位是天以外时，时与分的拆分用 tick 对 ticksPerHour、ticksPerDay 取整除。
+
+### 4.3 L_min(n)、L_max(n)
+
+年：A[i] = 周期内第 i 个年的天数（乘 tick 换成 tick），长度 P。n 个连续年的总长 = floor(n/P)·sum(A) + 最小（最大）的“循环窗口和”，窗口长度 r = n mod P。窗口和用前缀和（A 重复两遍）O(P) 求，r 相同的 n 结果缓存。
+月：序列是各年各月天数展开，长度 P·M，周期总和 sum。n 个连续月 = floor(n/(P·M))·sum + 余数窗口的最小（最大）。同样 O(P·M)，按 r 缓存。
+L_min(0) 与 L_max(0) 是 0；n 为非负整数。
+
+公历：P = 400，M = 12，年长 365 或 366，L_min(15 年) = 15·365 天 = 5475 天，L_max(16 年) = 16·365 + 4 = 5844 天，与验收 2（2012 年 2 月底到 2013 年 3 月初止）吻合。注意这是“不看起点的全局上下界”，不是从出生日期精确推算，范围会略宽；这是 Spec 的选择，我照做。
+
+### 4.4 日期说法到绝对范围
+
+见 3.3。日序号用 4.2 的 cumDays；月起点用该年的月天数向量前缀和（每次 O(M)，M 通常 12，不缓存）。
+
+### 4.5 按精度格式化
+
+toParts(tick)：日序号拆成年、月、日，余下的 tick 拆成小时与分钟，再按 eras 找所属纪：取 start 不大于该绝对年的最大的纪；没有（早于第一纪）时写成“{第一纪的名字}前 {第一纪 start - y} 年”，公历 y 为 0 时是“公元前 1 年”（与天文纪年一致）。
+formatRange 的规则见 3.11。格式的中文字面固定在 nb-time 里（年、月、日、时、分、岁），产品的多语言化以后再说；返回 parts 让界面可以自行渲染。
+
+### 4.6 内置公历
+
+GREGORIAN：unit minute，hoursPerDay 24，minutesPerHour 60，月 id 取 m1 到 m12、名字 “一月”到“十二月”，天数 31 28 31 30 31 30 31 31 30 31 30 31；leap 三条：{every: 4, months: {m2: 29}}，{every: 100, months: {m2: 28}}，{every: 400, months: {m2: 29}}；eras 一条 {id: "ad", name: "公元", start: 1}；periods 取早晨、上午、中午、下午、傍晚、夜晚、凌晨这类默认时段（具体取值是产品决定，Spec 没写，我建议只放不会引起争议的几个，或者空列表）。测试用 JS Date.UTC 做参照：对 -4000 到 4000 年里随机日期核对日序号相差。
+
+## 5. 内核接入（nb-canon）
+
+### 5.1 schema
+
+core/schema.ts 新增 TimeStatementSchema（Union 六种 kind，公共字段 quote?、basis），StoryChangeSchema 加 when: Optional(Array(TimeStatementSchema))。类型对齐：tests 里写一个类型层面的双向可赋值断言，对着 nb-time 的 Statement。PlacementSchema 的 prehistory 保持 order 必填；写入请求里没给 order 的前史安放由 fillDefaults 前的步骤补上（5.4）。模型文档里 nature 的 narration 不能有 when：由校验查。
+
+### 5.2 写入校验 invalid-time
+
+validate() 增加 timeProblems(world, data, request, changed.changes)：只查新写或改过 when 的变更（与现有“新写或改过的讲述”同样的前后对比），以及从待定转为生效的变更。顺序：
+1. 形状与语义：nb-time 的 validateStatements（kind 合法、字段类型、date 的连续性与最细一级不比历法最小单位细、min 不大于 max、years 合法、间隔的 unit 不比历法最小单位细）。词表里的 {word} 在这里不查（词不在表里是读取时的 time-invalid，不拒收），但词存在时 min 不大于 max 已由词表校验保证。
+2. 叙述不能有 when（nature 为 narration 时有 when）。
+3. basis 为 telling 时，讲述 id 必须在这个变更的 told 里。（增补）
+4. of 不能是自己；of 指到的变更在 data 里（存在性走 components 输出 18 的 ref-invalid：change-missing，已有的引用机制，见 5.3），而且不是叙述（这里查）：of-not-event。
+5. who 指到的条目存在、没删除：同样走引用机制（entry-missing、entry-deleted）。
+6. 一个变更最多一条 birth；一个人最多一个出生事件：在 data 里所有 status 不是 undone 且不是叙述的变更里数 birth.who，同一个 who 出现在两个变更上就拒收，只在“这次请求新增或改动了这条 birth”时查，已经存下的重复不连带拒收无关修改。
+7. 输出码 invalid-time，详情里的 reason 细分：statement-shape、unit-too-fine、min-gt-max、narration-with-time、basis-telling-missing、self-reference、of-not-event、duplicate-birth-on-change、duplicate-birth-of-person。
+
+Spec 输出 9 把 of、who 的存在也归到 invalid-time，components.md 输出 18 把同样的检查归到 ref-invalid。两处冲突，我按 components 的统一机制走（existence 走 ref-invalid），其余走 invalid-time，列入第 7 节。
+
+重放不校验。
+
+### 5.3 引用
+
+world/references.ts 的 walkReferences，在 kind === "change" 里加：for 每个 when[i]：of 作为 change 引用（checked: true，路径 when[i].of），who 作为 entry 引用（checked: true，路径 when[i].who）。这样 has-dependents（还原某条被引用的变更时，引用它的修订依赖它）、改动记录按条目筛、临时 id 替换自动成立，不必另写代码。
+
+### 5.4 前史的先后（输出 7）
+
+问题：order 是必填数字，要在写入时按时间范围算。
+
+做法：
+1. WriteRequest 允许 at 为 {kind: "prehistory"}（不带 order）；PlacementSchema 的校验在 fillDefaults 之后，所以只需在 fillDefaults 之前补。
+2. world.ts #publish 在 put 循环之前加一步 fillPrehistoryOrders(request)：找出所有 put 到 change 的、at 为 prehistory 且没有 order 的。若没有就什么都不做（零成本）。
+3. 有的话：用“已有变更 + 本请求里所有 change 的 put（含新建的）”拼一张临时的变更表，按实际模式（计划变更按计划模式）建一个只含这些事件的网络。网络不依赖安放（Spec 的设计），所以不需要先知道这条变更的 order，不会循环依赖。
+4. 已有前史序列：把 data 里所有前史安放（变更的 at、核对点的 place、条目的 appears）按 order 排好，其中是变更且在网络里有有限 lb 的叫“有时间的”。
+5. 对每个待填的变更（按 lb 升序、同 lb 按请求内次序，依次插入，让后插入的看得到先插入的）：lb 是 -Infinity、分量冲突或没有范围：order = 序列最大 order + 1024（放最后）。否则：在“有时间的”里找最后一个 lb 小于等于它的（相等的排在后面，所以取小于等于）P；P 存在，order = (P.order + 下一项.order) / 2，没有下一项就 P.order + 1024。P 不存在（它比所有有时间的都早）：放在第一个有时间的 Q 之前，order = (Q 前一项.order + Q.order) / 2，没有前一项就 Q.order - 1024。
+6. 取中数在同一个缝里连续插入约 50 次会耗尽双精度的间隔；检测到相邻两项 order 之差小于 1e-9 时，不重排别人的安放，这次写入以 invalid-time（reason: prehistory-order-exhausted）拒收，让调用方显式给 order。实际几乎不会发生。
+7. 写入结果里这条变更的 at.order 就是存下的数字，之后重放不再算。
+
+注意：这一步在写入当次算，读时绝不改动已存的 order，所以后来改历法或改说法不会让前史顺序漂移（Spec 就是这么设计的）。
+
+### 5.5 WorldOptions 与读取输入摘要
+
+WorldOptions 加 time: TimeOptions（{calendar, fuzzy, key}），key 是生效历法与词表规范 JSON 的摘要。World.withOptions 在 time.key 变时换一个新 World 对象（它本来每次都 new World），挂在旧 World 上的时间缓存随之丢弃。引擎不需要重建（时间不影响折叠）。readStampOf 的 calendar、fuzzy 两项（现在是 null 占位）填入历法 key 与词表 key；这样 pending 的缓存与游标按历法变化失效。
+
+### 5.6 事件集与降约束缓存
+
+events.ts：给定（World、线、模式）返回有序事件列表。实际模式：status 为 active、kind 为 written、nature 不是 narration 的变更。计划模式：再加 kind 为 plan、status 为 active、nature 不是 narration，并且在全书末尾（defaultPosition）进展为 unfulfilled 的计划（被兑现、取消、被替代的计划不进，否则同一件事的计划和已写会各算一遍，互相打架）。不排章的计划进（时间不看安放）。这个“计划是否进网络”的口径 Spec 没写，列入第 7 节。次序用 Engine.eventKey(change, mode)，null 的（没有排序位置）放最后按 id。
+
+降约束缓存：module 级 WeakMap<StoryChange, Map<timeKey, LoweredChange>>。LoweredChange 是 nb-time 的 lowerStatement 的结果，只依赖历法与词表，不依赖世界，所以世界线以后可以共用。
+
+### 5.7 TimeState 与缓存
+
+World 上挂一个惰性的 timeState(line, mode)，结果对象：{network, pending（冲突、不成立、失配）, mismatches}，每个部分惰性。缓存键 = World 对象（版本）加 time.key 加线加模式；World 一换就没了。World 实例的生命周期与世界版本一一对应，所以“按世界版本与历法版本缓存”自动成立。同一 World 上第二次查询直接命中。
+
+CanonReadView 加 time(query, {line?, mode?})，与远程 time 方法共用 queries.ts。快照里带令牌的读取（viewed）走“只含上限之前事件”的过滤网络：事件集多一个 include 谓词（安放不晚于上限），不在集里的 of 目标静默丢弃，网络按（令牌）缓存。
+
+### 5.8 待处理的种类与排序位置
+
+新增 TimePendingItem（不进两个引擎的 PendingItem，避免改引擎接口与 PENDING_KIND_ORDER）：
+- time-conflict：{line, statements: [{change, index, kind, quote?}...]}，按环的次序。
+- time-invalid：{line, change, index, reason, detail}。
+- time-placement-mismatch：{line, culprit, role, partners, total}（见 3.7，每项含范围与依据，依据截断到 8 条）。
+- fork-time-mismatch：以后。
+World.pending 把引擎的待处理与时间的待处理合并（它已经在这一层做“套不上”的根因合并）。时间项不依赖读取位置，在任何读取位置都列出（像“待定”“章已删除”，不像“套不上”）；理由：时间网络是全局的，按位置截取没有清晰含义。这一点 Spec 没写，列入第 7 节。
+
+排序（model 输出 16）：同位置上种类先后 = 核对点不符、套不上、待定、章已删除、世界线、时间、插件诊断。PENDING_GROUP_ORDER 现在 finding 为 6，所以世界线用 4、时间用 5 的四个子种类按输出 2、3、5、6 的次序 5.0 到 5.3（用小数或把 finding 后移）。项的排序位置：time-conflict 取环上变更的最早安放；time-invalid 取该变更的安放；失配取项里两个事件中最早的安放；排序 id：冲突取涉及变更 id 的有序列表的规范 JSON，其余取变更 id。
+
+impact 差集：computeImpact 的 key 函数加时间种类（"time-conflict:" 加排序后的 ref 列表，"time-invalid:变更:下标"，"time-mismatch:祸首"），并按 3.9 的条件才为 before 与 after 世界各取一份时间待处理（before 多半已缓存）。
+
+### 5.9 与两个引擎和差分测试的关系
+
+时间层是 (World.data, Engine.eventKey, Engine.progress) 的纯函数，不属于 Engine 接口：
+- 好处：不改 reference.ts 与 incremental.ts，不重复实现；时间的结果在两个引擎上自动一致，只要它们的 eventKey 与 progress 一致。
+- 差分测试做法：tests/differential.test.ts 的随机序列里让 Sim 随机给部分变更加 when（相对说法、日期、年龄、出生）与改 status；每一步在参照引擎与增量引擎上分别算 computeTimePending(env) 并比较，环境 env 提供 eventKey 与 progress，两者各来自一个引擎。这是对“排序键与进展在复杂变更下两个引擎一致”的又一层检查，不是对求解器的检查。
+- 求解器本身的独立参照放在 nb-time 的测试里（Floyd-Warshall），不放差分测试。
+- 这样做的代价：差分测试里的 Sim 要多生成 when，改动约 80 行。
+
+### 5.10 服务层与远程合同
+
+WorldService：
+- setTime(raw: {calendar: unknown; fuzzy: unknown}): Promise<void>。排进写入队列（与 setRegistries 同样，避免被正在落盘的发布盖掉）。内部 resolveTimeOptions：validateCalendar(raw.calendar)，合法就更新 lastValid；不合法保留 lastValid（从来没有合法的就用 GREGORIAN），status().diagnostics 里记 calendar-invalid（带 problems）；validateFuzzy 把不合法的项剔除并记 fuzzy-word-invalid。然后 world.withOptions({...time})，#inputGeneration 加一。
+- time(query, {line?, mode?, cursor?, limit?}): 结果带 version、textDigest、inputDigest（ReadStamp），列表类（during、browse 的叶子）走 pageOf 分页与游标。游标随读取输入摘要失效，历法变了自动 cursor-stale。
+- “上一个合法的历法”只存在内存里：进程重启后若设置文件仍不合法，会退到公历（Spec 输出 13 的字面），已存说法大批 time-invalid。风险，见第 7 节。
+
+远程合同（shared/contracts.ts）新增：
+time: {
+  input: Type.Object({ line: Type.Optional(Type.String()), mode: Type.Optional(Mode), query: TimeQuerySchema, cursor: Cursor, limit: Limit, view: View }),
+  output: Out, effect: "read", errors }
+TimeQuerySchema = Union of
+  {kind: "event", id}
+  {kind: "chapter", chapter}
+  {kind: "between", from: id, to: id}
+  {kind: "during", from: DateSpecSchema, to: DateSpecSchema}
+  {kind: "age", who: 条目 id, at: 事件 id}
+  {kind: "browse", path: {era?, year?, month?, day?}}
+  {kind: "calendar"}
+CanonOutputs.time 的形状：{version, textDigest, inputDigest, answer: ...}；answer 的 range 项带 tick、parts、text、state、依据（{change, index, kind, quote?}）。remote.ts 里 time 用 withWorld 加 paged；带视图令牌时走 viewed(token).time，事件和章在上限之后得 view-denied。DateSpecSchema 在 canon 的 schema.ts 里用 TypeBox 写，与说法里的 date 共用。
+
+### 5.11 canon 插件接入
+
+- backend/time-settings.ts：声明设置 nbook.canon.calendar（默认 GREGORIAN）与 nbook.canon.fuzzyWords（默认词表：几天 2 到 5 天、不久 1 到 30 天、多年 3 到 20 年……由产品定）及 approx 默认值。读到值与变化时调用 host.setTime(raw)。默认词表放在插件里，不放 nb-time，因为 nb-time 只承载机制。
+- world-host.ts：打开世界前先读一次设置，作为 WorldService.open 的 initial.time；设置变化调 service.setTime。
+- 设置表单用 nb-form 画（TypeBox schema 派生），是否现在做取决于 t15；本次先让设置在设置文件里手写，界面不在范围内（未验证 t15 的进度）。
+
+## 6. 切片顺序与验证
+
+每片一个提交，完成门禁：包内 bun test 与 bun run typecheck，nb-canon 另跑 tests/architecture.test.ts；动到 nb-canon 后在应用包跑 canon 插件测试（canon.test.ts、two-process.test.ts）。
+
+### 片 0：Spec 修订（只改文档，在主工作区）
+
+先把第 7 节里影响行为的几条定下来（分量不含 Z、对不上的判据与合并、计划的口径、lasts/basis 的形状、date 的连续性与 era 缺省、period 的 to、approx 两侧、ref-invalid 与 invalid-time 的分工、历法周期上限、calendar 查询）。这些决定了后面的测试断言。验证：doc-review，用 Spec 验收 1 到 6 的数字手算一遍对一次。
+
+### 片 1：历法
+
+内容：types、validateCalendar、compileCalendar、L_min/L_max、GREGORIAN、toParts。
+验证（真对象）：
+- 公历日序号对拍 JS Date.UTC：-4000 到 4000 年随机 2 万个日期，D(y,m,d) 的差等于 Date 的天数差（天文纪年与 JS 一致）。
+- 验收 1 的自定义历法（48 小时/天、12 个月各有名字、每 3 年第 12 月多 1 天）：几个已知日期的日序号手算对拍。
+- L_min/L_max 对拍暴力枚举：对 4 套历法（公历、自定义、周期 7 的怪历法、无闰年）和 n 从 0 到 3P+5，直接枚举所有起点的窗口。
+- validateCalendar：输出 13 的每一项各一个反例，加合法例子；负年份取模用例（-1 mod 4）。
+- 周期上限、年份上限的拒收用例。
+
+### 片 2：模糊词表、说法的校验与降约束
+
+内容：validateFuzzy、resolveInterval、validateStatements、lowerStatement（含 date 的各级精度、approx、period 跨夜、间隔换算、time-invalid 原因）。
+验证：
+- 验收 1：“王历 612 年霜月 5 日清晨”降成清晨那几个小时的闭区间；“5 日之后三天”降出来的相对约束叠加后落在 8 日；霜月改名（月 id 不变）降出的约束不变；删掉霜月：time-invalid（month-missing）。
+- 验收 2：出生 1997 年 3 月 1 日、“十五岁那年”的范围从 2012 年 2 月底起到 2013 年 3 月初止（不含）。
+- 每个 invalid 原因一个用例；approx 在每一级一个用例；period 跨夜、to 等于 from。
+- 词表：不合法项被剔除并报 fuzzy-word-invalid；使用被剔除的词的说法 time-invalid。
+
+### 片 3：网络求解
+
+内容：graph.ts（势、环提取、Dijkstra）、solve.ts（分量、冲突、范围、紧边 BFS 依据）、range 与 between。
+验证：
+- 参照对拍：随机小网络（节点 3 到 12，约束随机，含无穷端、自环、负环），用 Floyd-Warshall 算最小距离矩阵当参照；断言：可行性一致；可行时每个节点的 lb、ub 与参照一致；between 与参照一致。每个种子 200 个，固定种子，失败打印种子。
+- 环的有效性：对每个报出的冲突，断言环上约束的边权之和确为负，且环上的边首尾相接。
+- 验收 3：三件事打架，一个冲突三个说法；另一组不相连的事件照常；两条日期说法互相矛盾只影响各自分量，不影响别的有日期的事件（这条专门守分量不含 Z）。
+- 依据：简单链上依据等于链上的说法；并列最短路时依据不随输入里约束的构造次序变（把同一组约束换一种内部排列再建网，依据一致）。
+- 压力：6000 事件的长链按反向次序给，测 Bellman-Ford 耗时（作为是否换 Goldberg-Radzik 的依据，记入证据）。
+- 无锚分量：范围是相对的，between 正确，hull 报 relative。
+
+### 片 4：查询与格式化
+
+内容：hull、ageAt、during、browse、formatMoment、formatRange、mismatch.ts。
+验证：
+- 验收 2、6：年龄的几种答案（15 岁，15 到 16 岁，交集为空取并集并带提示，没有出生事件答不知道，不进网络，另一件事答不知道）；notBorn；atLeast。
+- mismatch：用例 (a)；用例 (b)（同月、Y 在 X 之后三天却放前面）；闪回在 300 个事件前只出一项；被错放得太早的事件只出一项；两个互不相关的闪回出两项；无界端不触发；冲突分量不参与。
+- 格式化：王历 612 年霜月、15 到 16 岁、跨年的“A 至 B”、无界端；公历的公元前 1 年。
+- during：一定与可能的边界（闭区间端点用例）。
+
+### 片 5：内核数据与校验
+
+内容：schema 的 when，references 的 when[].of 与 when[].who，invalid-time 校验，WorldOptions.time 与摘要，前史 order 的填充（需要片 3、4）。
+验证（nb-canon，沿用现有 fixtures 里的真 World）：
+- revisions.test.ts 风格的用例：每个 invalid-time reason 一个拒收；叙述带 when 拒收；一个人两个出生事件拒收，其中一个撤销后可以再写；of 指到不存在的变更得 ref-invalid（change-missing）；of 指到叙述得 invalid-time。
+- 还原：被 when.of 引用的变更所在修订不能单独还原（has-dependents）；连同依赖一起还原再还原这次补偿，说法都在。
+- 前史 order：新增一条前史变更带“十五岁那年”，排到应在的位置；相等排在后面；无时间的排最后；同一请求两条互相引用的前史变更；order 已给时不覆盖；重放不变（关掉再打开顺序相同）。
+- 历法一改，读取输入摘要变，游标 cursor-stale。
+- 重放一个含 when 且历法完全不同的日志，不报错。
+
+### 片 6：内核时间层与待处理
+
+内容：events.ts、TimeState、pending.ts、World.pending 的合并、pending-groups 的排序、computeImpact 的键、CanonReadView 的 time。
+验证：
+- 验收 3、4：打架的待处理列出三条说法、原话与变更；第 3 章的事在第 5 章的事之后“十年”成 time-placement-mismatch，把第 3 章那件挪进前史后消失（走真实写入）。
+- 验收 1 的第二半：删掉霜月，只那条成 time-invalid，别的照常。
+- 回执：写入一条打架的说法，impact.pendingAdded 里有 time-conflict。
+- 差分：tests/differential.test.ts 加 when 的随机生成，两个引擎的时间待处理逐字相同（5.9）。
+- 排序：时间项在同一位置排在“章已删除”之后、插件诊断之前；排序位置取最早安放。
+- 计划模式：被兑现的计划不进网络（不产生与已写变更的虚假冲突）；计划模式比实际模式多出的事件产生的冲突只在计划模式出现。
+- 确定性：同一世界与历法建两次逐字相同。
+
+### 片 7：服务、远程合同、插件与规模测量
+
+内容：WorldService.setTime 与 time 方法，远程合同，视图过滤的网络，插件设置，scripts/scale.ts 加时间选项，canon 插件的 calendar 查询。
+验证：
+- 服务：改历法/词表后范围、打架、依据重算而存下的说法不改（输出 4）；历法不合法时用上一个合法的并记 calendar-invalid；从来没有合法的用公历。
+- 远程：canon 插件测试里经远程调用 time 的每种查询，含带视图令牌：之后的事件 view-denied，上限之前的事件范围不被之后的日期影响（构造用例：可见事件的范围只能由不可见事件的日期推出，带令牌时返回无界）。
+- 规模：scale.ts 按 project 输出 14 的形状生成 1000 章，三成变更带 1 到 2 条说法（混合日期、之后、年龄、lasts），再各加一组对抗用例（长链反向次序、一个大闪回、十个互不相交的环）；测：发布后第一次 time 查询、之后 50 次查询的中位数、含时间项的发布的中位数（对比不含时间项的发布，量出时间部分的增量）。目标：首次小于 1 秒，之后小于 20 毫秒，发布增量记入证据；若增量把发布推过 100 毫秒，启用缓解：impact 的时间差集只在碰到时间相关对象时才算（已设计），仍不够就把 before 世界的网络缓存放得更久，再不够就改成 component 级增量（先实测再决定）。
+- 测量前看 uptime，负载高时多跑几次，按较低的一端判断（沿用 scale.ts 的约定）。
+
+### 片 8（以后）：世界线的时间
+
+按 3.8 的接口，本次不做。
+
+### 测试怎么写（总则）
+
+测行为：断言查询的答案、待处理的内容、写入的拒收码，不断言内部的边数或队列次序。依赖用真对象：真的 World、真的引擎、真的 nb-time 历法；唯一的“替身”是对拍用的独立参照实现（JS Date、Floyd-Warshall、暴力窗口），不是 mock。测试名引用 Spec 编号（例如 canon.time 输出 5）。bug 修复补在对应行为的测试里。
+
+## 7. 风险与我认为 Spec 要改的地方
+
+下面按影响排序。1 到 6 影响行为，建议开发者拍板；其余是澄清或增补。
+
+1. 分量与元年（输出 2）。字面“连通分量”若把元年当节点，所有带日期的事件是同一个分量，一条日期说法打架让整本书“不可确定”。建议明写：分量只按事件之间的说法划分，date 说法是单事件的常量约束，不连通分量。依据：我在第 3.4 节证明了逐分量求解与整体等价。另外即便这样，“之后一天”类的链常把大半本书连成一个分量，一个冲突还是会让它全部不可确定。建议改成：冲突环上的说法被排除后，其余说法照算，范围标 degraded 并列出被忽略的冲突，只有环上直接涉及的事件标不可确定。依据：环里至少有一条说法是错的，排除环上说法后得到的范围，对“只有环上说法有错”的情形是可靠的外包络，Agent 与作者还能继续用时间信息。实现代价几乎为零（求环时本来就把环上说法拿掉再求）。如果开发者要字面行为，solve() 有选项。
+2. 输出 5 的判据与报告方式。(a) 字面判据漏掉“范围重叠但说法直接写了先后”的违例，建议增加：一条说法本身就保证 to 一定早于 from，而安放相反，也算。(b) 逐对一条会在一个闪回上出几百条，建议按祸首合并成一项，项里给代表对手与总数。(c) 多跳的非严格链仍有漏报（A 不早于 C，C 比 B 晚 3 天，安放 A、B、C），完整判据要逐对最短路，代价不划算，建议文档写明“只查范围与直接说法”。
+3. 计划模式的事件集口径（输出 1）。“按计划模式再加上计划”没说被兑现、取消、被替代的计划算不算。若都算，同一件事的计划与已写变更各一份，带不同说法时就会互相打架。我取“全书末尾进展为未兑现的活动计划”。需要写进 Spec；计划的进展在不同读取位置不同，这里取全书末尾。
+4. 待处理与读取位置（输出 16）。时间项是否随读取位置截取没写。我取“不截取”（与待定、章已删除一致）。需要写明。
+5. 年龄的结果（输出 12）。D 无上界时 k 无穷多，Spec 没有对应答案；有多个出生事件（回退、世界线造成）时没写。建议加“至少 k 岁”和“出生事件不唯一”两种答案；D 全无界时答“不知道”。
+6. 历法一改，已存说法批量失效（输出 3、4）。字面是每条说法各成一条 time-invalid，历法换一套时作者面对几百条。建议按（原因，id）合并成一条，列出受影响的变更数与首批若干条，类比“套不上”的根因合并。
+7. 说法的形状有几处没写死，实现前要定：lasts 的字段名（我取 {kind: "lasts", lasts: 间隔}，因为输出 7 的“说法里的 gap、lasts”暗示字段就叫 lasts）；basis 的形状（我取 {kind: "telling", id} | {kind: "author"} | {kind: "inferred"}）；date 的各级必须从 year 连续（没有年的“某个霜月”表达不了）；era 缺省时 year 是绝对年份；period 的 to 是不含的整点、to 等于 from 是整整一天；approx 两侧对称、按给到的最细级放宽（分钟或时段用小时）；绝对年份的上限。
+8. 输出 9 与 components 输出 18 重叠：of、who 的存在检查，一处说 invalid-time，一处说 ref-invalid。建议 existence 统一走 ref-invalid，invalid-time 只管本能力自己的规则；Spec 输出 9 对应改成“of 指到的变更不是叙述”“who 同”。
+9. 增补的校验：of 不能是自己；basis 的讲述 id 必须在这个变更的 told 里。
+10. 输出 13 加：闰年周期（各规则 every 的最小公倍数）乘月数不超过 200 万，绝对年份绝对值不超过 1e7；超过按不合法。理由：保证精确的 L_min/L_max 与 tick 不越界，而不是静默放宽范围。
+11. 缓存键（输出 4、状态与转换）：“历法版本”不可靠（作者可能改内容不改版本），改成历法与词表内容的摘要。version 保留做展示。
+12. 视图（project 输出 24）下的 time：带令牌的时间查询必须在只含上限之前事件的网络上算，否则可见事件的范围会泄漏不可见事件的日期。建议写进 time.md 与 project.md。
+13. 查询：加 calendar 一种（Agent 查月 id、纪 id、时段 id、词表）；CanonReadView 上同步可调 time（plot 的诊断同步计算）。
+14. “上一个合法的历法”只在进程内存里：重启后设置仍不合法会退到公历，已存说法大批失效，且与上次不同。建议要么把上一个合法历法落到 .nbook 下一个小文件，要么在 Spec 里承认这点并要求 calendar-invalid 诊断要显眼（含“已退回公历”）。我倾向后者（少一个持久状态）。
+15. 前史 order 填充（输出 7）：schema 里 order 是必填数字，“没给”的草稿形状要写进 revisions 的输入；序列的缝用二分取中，同一缝里连续插入约 50 次后失效，此时拒收并要求显式给 order，不重排别人的安放。
+
+主要实现风险：
+- 发布时间预算（第 3.9 节）：每次含时间相关对象的发布多一次建网，估算 30 到 60 毫秒，可能越过“发布 100 毫秒”。已设计只在碰到时间相关对象时才算，仍须片 7 实测。缓解梯度：延长缓存、before 世界的网络复用、必要时 component 级增量。
+- Bellman-Ford 最坏情形：对抗次序下可到 O(VE)。有逆序初始队列与压力测试；超过 300 毫秒就换 Goldberg-Radzik，接口不变。
+- 范围较宽：年龄与“年、月”间隔用不看起点的全局 L_min/L_max，所以范围比从具体日期精确推算宽（验收 2 的结果就是这样的）。这是 Spec 的取舍，不是缺陷，但作者可能觉得“约宽”。
+- tick 精度：绝对时间用 JS 数，年份上限 1e7 内安全；用 minute 单位的跨度极长的世界应改最小单位，Spec 已写。
+- 两处形状漂移（TypeBox 与 TS 类型）：类型断言测试守住。
+- 替身风险为零（没有 mock），但参照实现（Floyd-Warshall、JS Date）只覆盖它们能覆盖的：自定义历法的日序号没有外部参照，靠手算用例与周期暴力对拍。
+- 估算全部未测；规模数字是从 project 输出 14 的形状推出的，真实书的说法分布（链的长度、一个分量的大小）未知。
+
+最后说明：以上没有任何一项改了仓库文件，报告外只读。
