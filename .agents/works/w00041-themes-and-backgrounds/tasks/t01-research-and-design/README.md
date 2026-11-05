@@ -35,6 +35,9 @@ updated: 2026-11-05
 7. （2026-11-05，`r1-empty`）“书房”空状态的方向对，继续细化。
 8. （2026-11-05，`r1-writing`）写作时正文两侧露出场景，往正文方向淡出；窗口窄到放不下时两侧消失。
 
+9. （2026-11-05，计划）正文两侧从工具栏以下开始，不改布局，做出来截真实界面再看；书架页与设置窗口只跟配色；书房内置但不设缺省，素材定稿另定。
+10. （2026-11-05）计划这次只派一个 Sonnet 审查，审查处理完直接开工。
+
 ## 第一版留下的可复用事实
 
 都在 [t19 的证据](../../../w00025-editor/tasks/t19-background-image/README.md)里，是否沿用由这里的设计决定：
@@ -44,4 +47,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-调研已写：[DSH 社区皮肤的做法](../../../../../docs/research/dsh-community-skins.md)。“书房”第 1 轮静态稿已发布到[评审板](artifacts/review/index.html)，等开发者答复 `r1-empty`、`r1-writing`。草稿在 `.worktree/w00041-t01-drafts`，素材原图与提示词在本地 `.local/agent/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/assets/`；共发出 2 次图片生成请求。
+调研已写：[DSH 社区皮肤的做法](../../../../../docs/research/dsh-community-skins.md)。计划：[plan.md](plan.md)。设计审查后实施。
