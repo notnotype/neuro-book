@@ -23,10 +23,11 @@ updated: 2026-11-05
 | 日期 | 决定 |
 |---|---|
 | 2026-11-05 | 开发者看过计划要点（“可以，使用 /autonomous-delivery 推进”）：照 [`plan.md`](plan.md) 推进；阶段 A 的 8 片与实现审查一路做完，本该开发者确认的点记进 Work 的[待确认清单](../../pending-confirmations.md)；后续阶段开工前补细计划并审查；主会话写代码；审查在 omp 额度恢复前派 Claude Opus 子代理；在内核分支上，不合并、不 push |
+| 2026-11-05 | 开发者：omp 有回退链，可以继续用；本次计划审查用快速审查：Claude Opus 的结论处理完就开工，omp 在后台继续，它的报告回来后单独处理 |
 
 ## 当前状态
 
-2026-11-05 经 nbdev 新建；写好 [`plan.md`](plan.md)（总的 6 个阶段，阶段 A 分 8 片写细），开发者同意按它自主推进。下一步：计划审查（Claude Opus 子代理）。
+2026-11-05 经 nbdev 新建；写好 [`plan.md`](plan.md)（总的 6 个阶段，阶段 A 分 8 片写细），开发者同意按它自主推进。下一步：计划审查（快速审查：Claude Opus 为 P1，omp 为 P2 在后台）。
 
 技术选型的初步结论（写进计划前再核实）：
 - 标注载荷的校验用 TypeBox 1.x 的 `typebox/schema`（`Check`、`Errors` 直接校验 JSON Schema），nb-canon 已经依赖 TypeBox，不另加库；
