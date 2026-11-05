@@ -52,7 +52,8 @@ import type {ChangedRefs, IncrementalEngine} from "../engine/incremental";
 import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
 import {LineSet, type LineView} from "../lines/set";
-import {lineTable, MAIN_LINE} from "../lines/table";
+import {affectedLines, touchedOf} from "../lines/affected";
+import {lineOf, lineTable, MAIN_LINE} from "../lines/table";
 import {defaultCarry, forkProblems} from "./forks";
 import {lineRuleProblems} from "./line-rules";
 import {linePending, type LinePendingItem} from "../lines/pending";
@@ -173,7 +174,7 @@ export class World {
                 touched.set(refKey(op.ref), revision.version);
                 applyOp(tables, op, createdAt, revision.version);
             }
-            for (const change of revision.impact.broken) brokenBy.set(change, revision.id);
+            recordBroken(brokenBy, revision);
         }
         const version = revisions.at(-1)?.version ?? 0;
         const data = freeze(tables, createdAt, version);
@@ -231,7 +232,7 @@ export class World {
                 continue;
             }
             const change = item.changes[0]!;
-            const root = this.index.brokenBy.get(change) ?? change;
+            const root = this.index.brokenBy.get(brokenKey(position.line ?? MAIN_LINE, change)) ?? change;
             const group = groups.get(root);
             if (group !== undefined) group.changes.push(change);
             else {
@@ -501,8 +502,8 @@ export class World {
         // 缺来源排在校验之后报：校验不过的请求，签了也发布不了。
         if (decisions !== null && decisions.required.length > 0) return {ok: false, failure: {code: "author-source-required", needed: decisions.required}};
 
-        const where = whereOf(request.chapter, this.options.order);
-        const impact = computeImpact(this, data, engine, where, ops, this.options);
+        const where = whereOf(request.chapter, this.options.order, requestLine(data, ops));
+        const impact = computeImpact(this, data, lines, where, ops, this.options, affectedLines({data: this.data, order: this.options.order}, {data, order: this.options.order}, touchedOf(ops, false)));
         const revision: Revision = {
             id: allocator.next(ID_PREFIX.revision),
             version,
@@ -559,7 +560,7 @@ export class World {
             title: "章序调整",
             baseVersion: this.version,
             ops: [{kind: "chapters", before: [...(recorded ?? [])], after: [...order.ids]}],
-            impact: computeImpact(this, moved.data, moved.line().engine, whereOf(undefined, order), [], options),
+            impact: computeImpact(this, moved.data, moved.lines, whereOf(undefined, order), [], options, affectedLines({data: this.data, order: this.options.order}, {data: moved.data, order}, touchedOf([], true))),
         };
         const data: WorldData = {...moved.data, version};
         const lines = moved.lines.advance(engineInputs(data, options), {});
@@ -601,7 +602,7 @@ export class World {
         const touched = new Map(this.index.touched);
         for (const op of revision.ops) if (op.kind !== "chapters") touched.set(refKey(op.ref), revision.version);
         const brokenBy = new Map(this.index.brokenBy);
-        for (const change of revision.impact.broken) brokenBy.set(change, revision.id);
+        recordBroken(brokenBy, revision);
         const allocator = cloneAllocator(this.index.allocator, [revision]);
         for (const op of revision.ops) if (op.kind !== "chapters") observeIds(allocator, op);
         const requests = new Map(this.index.requests).set(revision.requestId, {revision});
@@ -1058,8 +1059,27 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
     return after;
 }
 
-function whereOf(chapter: string | undefined, order: ChapterOrder): ReadPosition {
-    return chapter !== undefined && order.has(chapter) ? chapterEnd(chapter) : defaultPosition(order);
+function whereOf(chapter: string | undefined, order: ChapterOrder, line: string = MAIN_LINE): ReadPosition {
+    const position = chapter !== undefined && order.has(chapter) ? chapterEnd(chapter) : defaultPosition(order);
+    return line === MAIN_LINE ? position : {...position, line};
+}
+
+/** 这次写入讲的线：第一条写到的剧情变更或核对点所在的线，没有时是主线（revisions.md 输出 6 的“请求所写的线”）。 */
+function requestLine(data: WorldData, ops: readonly Op[]): string {
+    for (const op of ops) {
+        if (op.kind === "chapters") continue;
+        const placement = op.ref.kind === "change" ? data.changes.get(op.ref.id)?.at : op.ref.kind === "check" ? data.checks.get(op.ref.id)?.place : undefined;
+        if (placement !== undefined) return lineOf(placement);
+    }
+    return MAIN_LINE;
+}
+
+/** 套不上的根因按线记：主线按变更 id，别的线加上线 id（子线上同一条继承来的变更，根因可以与主线上的不同）。 */
+const brokenKey = (line: string, change: string) => (line === MAIN_LINE ? change : `${line}\u0000${change}`);
+
+function recordBroken(into: Map<string, string>, revision: Revision): void {
+    for (const change of revision.impact.broken) into.set(brokenKey(MAIN_LINE, change), revision.id);
+    for (const {line, change} of revision.impact.brokenOn ?? []) into.set(brokenKey(line, change), revision.id);
 }
 
 /** 一个对象里的讲述：剧情变更与核对点的 `told`、条目的 `retold`。 */
@@ -1390,9 +1410,13 @@ function touchesTime(before: WorldData, after: WorldData, ops: readonly Op[]): b
 }
 
 /** 带来的变化：待处理的增减、相关地址的改前改后、让后面哪些变更套不上（revisions.md 输出 4、6）。 */
-function computeImpact(before: World, data: WorldData, engine: IncrementalEngine, where: ReadPosition, ops: readonly Op[], options: WorldOptions): Revision["impact"] {
+function computeImpact(before: World, data: WorldData, lines: LineSet, where: ReadPosition, ops: readonly Op[], options: WorldOptions, affected: ReadonlySet<string>): Revision["impact"] {
+    // 待处理与值按请求所写的线读；这条线是这次新开的（改前没有）时，改前视为什么都没有。
+    const line = where.line ?? MAIN_LINE;
+    const engine = lines.get(line)!.engine;
+    const oldEngine = before.line(line)?.engine;
     const key = (item: PendingItem) => (item.kind === "check-mismatch" ? `check:${item.check}` : item.kind === "cannot-apply" ? `cannot:${item.changes[0]!}` : item.kind === "held" ? `held:${item.change}` : `deleted:${item.ref.kind}:${item.ref.id}`);
-    const was = before.line().engine.pending(where);
+    const was = oldEngine?.pending(where) ?? [];
     const now = engine.pending(where);
     const wasKeys = new Set(was === "chapter-not-found" ? [] : was.map(key));
     const nowKeys = new Set(now === "chapter-not-found" ? [] : now.map(key));
@@ -1434,15 +1458,26 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
     };
     const values: Revision["impact"]["values"] = [];
     for (const at of [...addresses.values()].sort((a, b) => (addressKey(a) < addressKey(b) ? -1 : 1))) {
-        const old = read(before.line().engine, at);
+        const old = oldEngine === undefined ? undefined : read(oldEngine, at);
         const fresh = read(engine, at);
         if (sameJson(old, fresh)) continue;
         values.push({at, ...(old === undefined ? {} : {before: old}), ...(fresh === undefined ? {} : {after: fresh})});
     }
+    // 主线按世界上的变更逐条比；别的线只比受影响的、改前改后都建得出的，按线视图里的记录比（输出 17）。
+    const mainEngine = lines.main.engine;
     const broken: string[] = [];
     for (const change of data.changes.values()) {
-        if (before.line().engine.outcome(change.id)?.applied === true && engine.outcome(change.id)?.applied === false) broken.push(change.id);
+        if (before.line().engine.outcome(change.id)?.applied === true && mainEngine.outcome(change.id)?.applied === false) broken.push(change.id);
     }
+    const brokenOn: {line: string; change: string}[] = [];
+    for (const id of [...affected].sort(compareIds)) {
+        const [was, now] = [before.line(id), lines.get(id)];
+        if (was === undefined || now === undefined) continue;
+        for (const change of now.records.changes.keys()) {
+            if (was.engine.outcome(change)?.applied === true && now.engine.outcome(change)?.applied === false) brokenOn.push({line: id, change});
+        }
+    }
+    brokenOn.sort((a, b) => compareIds(a.line, b.line) || compareIds(a.change, b.change));
     // 时间的几种按整条线算、不截取（canon.time 输出 14）；只在这次碰到与时间相关的对象或调整了章序时为新数据建网。
     if (options.order !== before.options.order || touchesTime(before.data, data, ops)) {
         for (const item of before.time("actual").items) wasKeys.add(timeItemKey(item));
@@ -1455,6 +1490,7 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
         pendingAdded: [...nowKeys].filter((item) => !wasKeys.has(item)).sort(),
         values,
         broken: broken.sort(compareIds),
+        ...(brokenOn.length === 0 ? {} : {brokenOn}),
     };
 }
 

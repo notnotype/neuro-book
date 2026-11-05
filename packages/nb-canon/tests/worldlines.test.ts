@@ -4,6 +4,7 @@ import {rm} from "node:fs/promises";
 import {describe, expect, test} from "bun:test";
 
 import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type Fork, type Patch, type StoryChangeDraft, type WriteRequest} from "../src/index";
+import {affectedLines, touchedOf} from "../src/lines/affected";
 import {lineTable} from "../src/lines/table";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -343,5 +344,87 @@ describe("canon.worldlines 输出 1、3、model 输出 16：线的待处理", ()
         const fork = result.world.data.changes.get(result.ids["tmp:f"]!)!;
         const undone = ok(result.world.publish(request([{ref: {kind: "change", id: fork.id}, after: {...structuredClone(fork), status: "undone"}}], result.world.version), "t"));
         expect(kinds(undone.world, "main")).toEqual([`line-missing:${own}`]);
+    });
+});
+
+describe("canon.worldlines 输出 17、revisions 输出 4：受影响的线与 brokenOn", () => {
+    const end = (line: string) => ({kind: "chapter" as const, chapter: "ch4", edge: "end" as const, line});
+    /** 改前、改后两份世界之间，这次写入影响到的线。 */
+    const affected = (before: World, result: Extract<WriteResult, {ok: true}>) => [...affectedLines({data: before.data, order: before.options.order}, {data: result.world.data, order: result.world.options.order}, touchedOf(result.revision.ops, false))].sort();
+    const editText = (world: World, id: string, text: string) => {
+        const value = structuredClone(world.data.changes.get(id)!);
+        return ok(world.publish(request([{ref: {kind: "change", id}, after: {...value, text}}], world.version), "t"));
+    };
+
+    test("改条目的初值让子线上的记录套不上：记在 brokenOn 与线上的待处理里，主线的 broken 不含它；重放以后根因不变", () => {
+        const {world, xia, c2} = base();
+        const result = forked(world, c2, {patches: [spend(xia, -14000)]});
+        const [line, own] = [result.ids["tmp:l"]!, result.ids["tmp:own"]!];
+        const entry = structuredClone(result.world.data.entries.get(xia)!);
+        entry.init.data.panel!.fields.存款 = 10000;
+        const edit = ok(result.world.publish(request([{ref: {kind: "entry", id: xia}, after: entry}], result.world.version), "t"));
+        expect(edit.revision.impact.broken).toEqual([]);
+        expect(edit.revision.impact.brokenOn).toEqual([{line, change: own}]);
+        const root = {kind: "cannot-apply" as const, root: edit.revision.id, changes: [own]};
+        expect(edit.world.pending(end(line))).toContainEqual(root);
+        expect(World.replay(edit.world.revisions, options()).pending(end(line))).toContainEqual(root);
+    });
+
+    test("改主线上在依赖范围里的记录：继承来的与子线自己的记录都可能套不上，各记在这条线上", () => {
+        const {world, xia, c1, c2, c3, c2b} = base();
+        const result = forked(world, c2, {patches: [spend(xia, -14000)]});
+        const [line, own] = [result.ids["tmp:l"]!, result.ids["tmp:own"]!];
+        const edit = ok(result.world.publish(request([{ref: {kind: "change", id: c1}, after: {...structuredClone(result.world.data.changes.get(c1)!), patches: [spend(xia, -16000)]}}], result.world.version), "t"));
+        expect(edit.revision.impact.broken).toContain(c2);
+        expect(edit.revision.impact.brokenOn?.map((item) => item.line)).toEqual(Array(edit.revision.impact.brokenOn?.length).fill(line));
+        expect(edit.revision.impact.brokenOn?.map((item) => item.change).sort()).toEqual([c2, own].sort());
+        // 范围之外的（切口之后写下的 c3、同键写得更晚的 c2b）不影响子线。
+        expect(affected(result.world, editText(result.world, c3, "改"))).toEqual([]);
+        expect(affected(result.world, editText(result.world, c2b, "改"))).toEqual([]);
+        expect(affected(result.world, editText(result.world, c2, "改"))).toEqual([line]);
+    });
+
+    test("只改计划、只改别的线、孙线的范围到父线自己的切口为止；条目初值与章序影响所有线", () => {
+        const {world, xia, c1, c2, p1, c2b} = base();
+        const result = forked(world, c2, {patches: [spend(xia, -1000)]});
+        const [line, own] = [result.ids["tmp:l"]!, result.ids["tmp:own"]!];
+        // 孙线：切口是子线自己的记录 own。
+        const grand = ok(result.world.publish(request([{ref: {kind: "change", id: "tmp:g"}, after: written("tmp:g", at("ch3", 50, line), [], {nature: "fork", fork: {line: "tmp:gl", name: "孙线", parent: line, cut: own, type: "branch"}})}], result.world.version), "t"));
+        const grandLine = grand.ids["tmp:gl"]!;
+        const [{world: w}] = [grand];
+        expect(affected(w, editText(w, p1, "改"))).toEqual([]);
+        expect(affected(w, editText(w, c1, "改"))).toEqual([line, grandLine].sort());
+        // c2b 晚于切口，子线与孙线都读不到。
+        expect(affected(w, editText(w, c2b, "改"))).toEqual([]);
+        expect(affected(w, editText(w, own, "改"))).toEqual([line, grandLine].sort());
+        // 分叉记录写在子线上、晚于孙线的切口：孙线读不到它，只有它所在的子线受影响。
+        expect(affected(w, editText(w, grand.ids["tmp:g"]!, "改"))).toEqual([line]);
+        // 另一条兄弟线上的记录不影响这条。
+        const sibling = ok(w.publish(request([
+            {ref: {kind: "change", id: "tmp:s"}, after: written("tmp:s", at("ch2", 41), [], {nature: "fork", fork: {line: "tmp:sl", name: "兄弟", parent: "main", cut: c1, type: "branch"}})},
+            {ref: {kind: "change", id: "tmp:sown"}, after: written("tmp:sown", at("ch3", 2, "tmp:sl"))},
+        ], w.version), "t"));
+        const [sl, sown] = [sibling.ids["tmp:sl"]!, sibling.ids["tmp:sown"]!];
+        expect(affected(sibling.world, editText(sibling.world, sown, "改"))).toEqual([sl]);
+        expect(affected(sibling.world, editText(sibling.world, own, "改"))).toEqual([line, grandLine].sort());
+        // 条目的初值：每条线都受影响；改章序同理。
+        const entry = structuredClone(w.data.entries.get(xia)!);
+        entry.init.summary = "改";
+        const edited = ok(w.publish(request([{ref: {kind: "entry", id: xia}, after: entry}], w.version), "t"));
+        expect(affected(w, edited)).toEqual([line, grandLine].sort());
+        const renamed = ok(w.publish(request([{ref: {kind: "entry", id: xia}, after: {...structuredClone(w.data.entries.get(xia)!), folder: "别处"}}], w.version), "t"));
+        expect(affected(w, renamed)).toEqual([]);
+    });
+
+    test("带过去的值读到触发处：触发处之前、切口之后的主线记录，对子线和切口是子线自己记录的孙线都有影响", () => {
+        const {world, xia, c1, c2, c3} = base();
+        const forkedLine = ok(world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: c1, trigger: c3, type: "rollback", who: xia} as Fork})},
+            {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"))},
+        ], world.version), "t"));
+        const [line, own] = [forkedLine.ids["tmp:r1"]!, forkedLine.ids["tmp:own"]!];
+        const grand = ok(forkedLine.world.publish(request([{ref: {kind: "change", id: "tmp:g"}, after: written("tmp:g", at("ch3", 50, line), [], {nature: "fork", fork: {line: "tmp:gl", name: "孙线", parent: line, cut: own, type: "branch"}})}], forkedLine.world.version), "t"));
+        const grandLine = grand.ids["tmp:gl"]!;
+        expect(affected(grand.world, editText(grand.world, c2, "改"))).toEqual([line, grandLine].sort());
     });
 });
