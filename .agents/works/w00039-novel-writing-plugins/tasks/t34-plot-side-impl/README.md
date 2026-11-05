@@ -28,7 +28,7 @@ updated: 2026-11-05
 ## 当前状态
 
 2026-11-05：
-- 计划第二版（处理计划审查 P1 的 17 条，[`evidences/plan-review-P1-resolution.txt`](evidences/plan-review-P1-resolution.txt)）；P2（omp）在后台。
+- 计划第二版（处理计划审查 P1 的 17 条，[`evidences/plan-review-P1-resolution.txt`](evidences/plan-review-P1-resolution.txt)）；P2（omp，快速审查里后台跑的那一份）8 条，到 2 小时上限截停，处理见 [`evidences/plan-review-P2-resolution.txt`](evidences/plan-review-P2-resolution.txt)：第 2、4 条改了代码，第 5、7 条改计划，第 8 条在 A9 补集成测试并评估改订阅文件服务的变更事件，第 3、6 条不成立，第 1 条是审查 worktree 取错了提交。
 - 阶段 A：
   - A1 已提交（分支 26e40e341）：日志格式 2；未决问题改成决策（样本里答过的问题是 Agent 答的，记成带建议的待定决策，答案在建议里，读取时标“作者未确认”）；讲述的 id（程序发、全局不复用）与按来源的形状校验，只查新写或改过的讲述；修订里按路径声明哪些数组按 id 拆；列表末尾的追加互不依赖。nb-canon 248 个测试、canon 插件 8 个测试通过，两个包类型检查通过。
   - A2 已提交（e2bb03c3e）：服务持有正文快照（打开时读一次，`textChanged` 只重读那一章，canon 插件在章节文件变化时调它）；读取结果带世界版本、正文快照与读取输入的摘要，游标绑定读取输入；`canonicalJson`（RFC 8785，遇到非法值抛错）。nb-canon 257 个测试、canon 插件 8 个测试通过。章节文件的监视在 A9 补一条插件层的测试。
@@ -48,4 +48,4 @@ updated: 2026-11-05
 ## 下一步
 
 1. A8b：插件诊断（登记计算与数据版本、去重、截断、已处理与旧版本决策、没算出、停用另列、缓存、耗时）、提示组（讲述失联、原句重复、标注与 Component 的版本与类型不在）、`pending` 的组与游标与各组总数、`CanonReadView`。
-2. P2 回来后处理；跑 A4 的 1000 章讲述测量。
+2. 跑 A4 的 1000 章讲述测量（P2 已结束，负载降下来后跑）。

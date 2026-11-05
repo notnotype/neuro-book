@@ -138,6 +138,7 @@
   - `shared/contracts.ts` 加这些方法与 `textChanged` 事件，`questions` 的枚举（第 66 行）跟着改；
   - 新增贡献点 `canon.marks`、`canon.diagnostics` 的声明，写法同 `shared/components.ts`；
   - `backend/world-host.ts` 接上正文快照与 `textChanged`、项目标识、`verifyAuthorSource`（宿主给；没有时不注入）。
+  - 补一条真实应用的集成测试：经文件服务保存章节，讲述按新正文重新定位、世界版本不变、读取输入摘要变了。评估改订阅文件服务的变更事件，代替 canon 自己再监视一遍活页夹目录（计划审查 P2 第 8 条；目录监视收得到原子替换的改名，已实验核实）。
 
 ## 阶段 B 到 F（开工前在这里补细）
 
