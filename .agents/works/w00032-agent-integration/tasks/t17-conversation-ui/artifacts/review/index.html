@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t17 对话界面第一版：静态稿</title>
+<style>
+:root { --bg:#f7f6f2; --panel:#fff; --text:#1f2328; --muted:#6b6f76; --line:#e3e1da; --accent:#0a66d8; --warn:#b45309; --warn-bg:#fff4e0; --code:#f2f1ec; }
+@media (prefers-color-scheme: dark) { :root { --bg:#1b1c1f; --panel:#24262a; --text:#e6e6e6; --muted:#9a9ca1; --line:#34363b; --accent:#5aa2ff; --warn:#f0b35a; --warn-bg:#3a2c16; --code:#2c2e33; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.7 system-ui,"PingFang SC","Noto Sans CJK SC",sans-serif; }
+main { max-width:1180px; margin:0 auto; padding:32px 16px 80px; }
+h1 { font-size:26px; margin:0 0 4px; }
+h2 { font-size:20px; margin:40px 0 8px; padding-top:16px; border-top:1px solid var(--line); }
+p,li { max-width:880px; }
+.badge { font-size:12px; padding:1px 8px; border-radius:4px; background:var(--warn-bg); color:var(--warn); margin-right:8px; vertical-align:2px; }
+.grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); margin:12px 0; }
+.wide { grid-template-columns:repeat(auto-fill,minmax(540px,1fr)); }
+figure { margin:0; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+figure img { display:block; width:100%; height:auto; }
+figcaption { padding:8px 12px; font-size:13px; color:var(--muted); }
+.rec { border-left:3px solid var(--accent); padding:4px 0 4px 12px; }
+code { font-family:ui-monospace,monospace; font-size:13px; background:var(--code); padding:1px 5px; border-radius:4px; }
+.bar { display:flex; justify-content:flex-end; gap:12px; background:var(--code); border:1px solid var(--line); border-radius:6px; padding:3px 12px; font-size:12px; color:var(--muted); }
+.bar b { color:var(--accent); font-weight:500; }
+</style>
+</head>
+<body>
+<main>
+<h1>t17 对话界面第一版：静态稿（第 1 轮）</h1>
+<p>消息流和输入框是真实组件，顶栏、状态栏、向导是这次新画的。截图是右栏 460 宽，第 6 节是 1200 宽。注意力排序已定：等你处理的事、消息流、输入框、运行状态、顶栏、上下文和费用。</p>
+<section data-nbdev-question="header-sessions" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>1. 顶栏与会话切换</h2>
+<p>标题加 Profile 名。点标题弹出会话列表，新建按钮常显。说明要悬停标题才看到，列表第二行也显示它。列表默认当前作品，可切到全部。</p>
+<div class="grid"><figure><a href="r1/idle.webp"><img src="r1/idle.webp" alt="空闲" loading="lazy"></a><figcaption>空闲</figcaption></figure><figure><a href="r1/session-list.webp"><img src="r1/session-list.webp" alt="点标题弹出会话列表" loading="lazy"></a><figcaption>点标题弹出会话列表</figcaption></figure></div>
+<p class="rec"><b>推荐：</b>可以。“改名、归档”放在列表每行的菜单里，这轮没画。</p>
+</section>
+<section data-nbdev-question="status-bar" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>2. 状态栏</h2>
+<p>输入框下面一行小字。左边是运行状态，只在有事时出现；右边常显上下文和累计。悬停看明细：上下文的绝对数、输入输出、缓存命中。</p>
+<div class="grid"><figure><a href="r1/running.webp"><img src="r1/running.webp" alt="运行中：正在做哪一步" loading="lazy"></a><figcaption>运行中：正在做哪一步</figcaption></figure><figure><a href="r1/retry.webp"><img src="r1/retry.webp" alt="等重发：第几次、还等多久" loading="lazy"></a><figcaption>等重发：第几次、还等多久</figcaption></figure><figure><a href="r1/context-high.webp"><img src="r1/context-high.webp" alt="上下文 91%：变红，90% 起" loading="lazy"></a><figcaption>上下文 91%：变红，90% 起</figcaption></figure><figure><a href="r1/yolo.webp"><img src="r1/yolo.webp" alt="全部放行：左边警告" loading="lazy"></a><figcaption>全部放行：左边警告</figcaption></figure></div>
+<p class="rec"><b>推荐：</b>可以。</p>
+</section>
+<section data-nbdev-question="mode-menu" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>3. 模式菜单</h2>
+<p>第一版只有审批模式这一组。输入框工具栏的按钮总显示当前模式，这是菜单的入口。默认“每次都问”。“交审批模型”要等 t06，这轮没有。</p>
+<div class="grid"><figure><a href="r1/mode-menu.webp"><img src="r1/mode-menu.webp" alt="审批模式：三项" loading="lazy"></a><figcaption>审批模式：三项</figcaption></figure></div>
+<p class="rec"><b>推荐：</b>可以。说明文字是我拟的，你可以直接改。</p>
+</section>
+<section data-nbdev-question="approval" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>4. 审批向导</h2>
+<p>替换输入框，最高占视图的 60%，diff 在内部滚动，消息流留在上方。有几个就逐个处理。工具没有专门预览时，参数用 nb-form 的展示态画，例如命令。按 t07，附言框里写了字就是拒绝，这段话交给模型。</p>
+<div class="grid"><figure><a href="r1/approval-edit.webp"><img src="r1/approval-edit.webp" alt="改文件：短 diff，第 1 / 3 个" loading="lazy"></a><figcaption>改文件：短 diff，第 1 / 3 个</figcaption></figure><figure><a href="r1/approval-long.webp"><img src="r1/approval-long.webp" alt="长 diff：到 60% 后内部滚动" loading="lazy"></a><figcaption>长 diff：到 60% 后内部滚动</figcaption></figure><figure><a href="r1/approval-shell.webp"><img src="r1/approval-shell.webp" alt="命令：参数用 nb-form 展示态" loading="lazy"></a><figcaption>命令：参数用 nb-form 展示态</figcaption></figure><figure><a href="r1/dark-approval.webp"><img src="r1/dark-approval.webp" alt="深色" loading="lazy"></a><figcaption>深色</figcaption></figure></div>
+<p class="rec"><b>推荐：</b>可以。“批准”是主按钮，“拒绝”放在右边离它远一点，免得误点。</p>
+</section>
+<section data-nbdev-question="ask" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>5. 提问向导</h2>
+<p>和审批同一个位置、同一种外框。一次 1 到 4 题，单选或多选，总带“其它”。模型出的表单用 nb-form 的编辑态，和设置页同一套控件。可以“停止这一轮”。</p>
+<div class="grid"><figure><a href="r1/ask-choice.webp"><img src="r1/ask-choice.webp" alt="单选加其它，第 1 / 2 题" loading="lazy"></a><figcaption>单选加其它，第 1 / 2 题</figcaption></figure><figure><a href="r1/ask-multi.webp"><img src="r1/ask-multi.webp" alt="多选加其它" loading="lazy"></a><figcaption>多选加其它</figcaption></figure><figure><a href="r1/ask-form.webp"><img src="r1/ask-form.webp" alt="模型出的表单：人物卡" loading="lazy"></a><figcaption>模型出的表单：人物卡</figcaption></figure></div>
+<p class="rec"><b>推荐：</b>可以。表单太长时也在内部滚动，提交按钮常显。</p>
+</section>
+<section data-nbdev-question="banners" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>6. 横幅与工作台状态栏条目</h2>
+<p>横幅在输入框上方，用于上次运行被中断、费用告警。工作台最底下的状态栏多一个条目，空闲时不显示，有事时如下，点击打开对话视图并切到那个会话：</p>
+<div class="grid"><figure><a href="r1/interrupted.webp"><img src="r1/interrupted.webp" alt="上次运行被中断" loading="lazy"></a><figcaption>上次运行被中断</figcaption></figure><figure><a href="r1/cost-warned.webp"><img src="r1/cost-warned.webp" alt="费用告警" loading="lazy"></a><figcaption>费用告警</figcaption></figure></div>
+<p class="rec"><b>推荐：</b>可以。</p><div class="bar"><span>第 12 行，第 3 列</span><span>UTF-8</span><b>Agent：1 运行中 · 1 等你处理</b></div>
+</section>
+<section>
+<h2>宽屏（1200）</h2>
+<p>不定横屏方案，只确认放到编辑区时不会坏：内容和向导都限宽 800 居中，顶栏与状态栏铺满。横屏等 w00026 做完、你亲自体验后再定。</p>
+<div class="grid wide"><figure><a href="r1/wide-idle.webp"><img src="r1/wide-idle.webp" alt="空闲" loading="lazy"></a><figcaption>空闲</figcaption></figure><figure><a href="r1/wide-approval-edit.webp"><img src="r1/wide-approval-edit.webp" alt="审批" loading="lazy"></a><figcaption>审批</figcaption></figure><figure><a href="r1/wide-ask-choice.webp"><img src="r1/wide-ask-choice.webp" alt="提问" loading="lazy"></a><figcaption>提问</figcaption></figure><figure><a href="r1/wide-ask-form.webp"><img src="r1/wide-ask-form.webp" alt="表单" loading="lazy"></a><figcaption>表单</figcaption></figure></div>
+</section>
+</main>
+</body>
+</html>
