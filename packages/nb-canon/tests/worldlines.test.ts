@@ -606,6 +606,19 @@ describe("canon.worldlines 输出 8、9、验收 4、5：写入以后与从头�
         matchesReplay(reordered.world, lines);
     });
 
+    test("子线上的核对点改了：只更新这条线与看得到它的后代，结果与重放相同", () => {
+        const {world, xia, r1, r2} = tree();
+        const check = {id: "tmp:k", at: {entry: xia, path: "panel.存款"}, value: 18000, told: {source: "note" as const}, place: {kind: "chapter" as const, chapter: "ch3", key: 30, line: r1}};
+        const added = ok(world.publish(request([{ref: {kind: "check", id: "tmp:k"}, after: check}], world.version), "t"));
+        expect(updated(added.world)).toEqual([`${r1}:records`]);
+        expect(added.world.line(r2)!.engine).toBe(world.line(r2)!.engine);
+        matchesReplay(added.world, ["main", r1, r2]);
+        const id = added.ids["tmp:k"]!;
+        const edited = ok(added.world.publish(request([{ref: {kind: "check", id}, after: {...structuredClone(added.world.data.checks.get(id)!), value: 17000}}], added.world.version), "t"));
+        expect(updated(edited.world)).toEqual([`${r1}:records`]);
+        matchesReplay(edited.world, ["main", r1, r2]);
+    });
+
     test("带过去的值变了而没有记录进视图：只因 carry 更新", () => {
         const {world, xia, c1, c3} = base();
         const used = ok(world.publish(request([{ref: {kind: "change", id: c3}, after: {...structuredClone(world.data.changes.get(c3)!), patches: [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 0}]}}], world.version), "t"));

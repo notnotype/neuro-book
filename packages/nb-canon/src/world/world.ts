@@ -465,6 +465,8 @@ export class World {
                 if (put.ref.kind === "decision" && decisions !== null) applyAcceptedSource(after as Decision, decisions.accepted.get(put.ref.id));
             }
             const before = this.object(put.ref);
+            // 删一个本来就没有的对象（还原两次修订后净效果为零时会出现）：什么都不做。
+            if (before === undefined && after === undefined) continue;
             const op: Op | null = before === undefined
                 ? {ref: put.ref, kind: "create", after}
                 : after === undefined
@@ -515,7 +517,9 @@ export class World {
         // 缺来源排在校验之后报：校验不过的请求，签了也发布不了。
         if (decisions !== null && decisions.required.length > 0) return {ok: false, failure: {code: "author-source-required", needed: decisions.required}};
 
-        const where = whereOf(request.chapter, this.options.order, requestLine(data, ops));
+        // 写到的线建不出来（已存的记录留在不可建的线上、这次只改了它的别处）时，带来的变化按主线读。
+        const writtenLine = requestLine(data, ops);
+        const where = whereOf(request.chapter, this.options.order, lines.get(writtenLine) === undefined ? MAIN_LINE : writtenLine);
         const impact = computeImpact(this, data, lines, where, ops, this.options, affectedLines({data: this.data, order: this.options.order}, {data, order: this.options.order}, touchedOf(ops, false)));
         const revision: Revision = {
             id: allocator.next(ID_PREFIX.revision),
@@ -993,7 +997,8 @@ function referenceProblems(data: WorldData, order: ChapterOrder, refs: ReturnTyp
         change: (id: string) => data.changes.has(id),
         decision: (id: string) => data.decisions.has(id),
         check: (id: string) => data.checks.has(id),
-        line: (id: string) => lines.exists(id, "planned"),
+        // 至少在按计划模式下存在，且建得出来：不可建的线上不收记录（worldlines 状态表）。
+        line: (id: string) => lines.exists(id, "planned") && (id === MAIN_LINE || lines.lines.get(id)?.unbuildable === null),
     };
     const problems: Problem[] = [];
     for (const {ref, reference} of refs) {
