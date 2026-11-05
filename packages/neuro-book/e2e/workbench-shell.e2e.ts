@@ -113,8 +113,8 @@ test.describe("产品页", () => {
     }
 
     /**
-     * 每个用例一个新的浏览器上下文：客户端身份不同，`local` 的布局记录互不影响。产品页的右栏与面板里没有视图，按输出 39
-     * 缺省不显示；这组验收测面板与两侧栏的相对位置，新客户端打开后经标题栏与状态栏各显示一次，等记录写完再返回，免得
+     * 每个用例一个新的浏览器上下文：客户端身份不同，`local` 的布局记录互不影响。产品页的面板里没有视图，按输出 39 缺省不
+     * 显示；右栏默认开着对话。这组验收测面板与两侧栏的相对位置，新客户端打开后经状态栏显示面板，等记录写完再返回，免得
      * 这次保存混进用例自己数的修订号。
      */
     async function open(page: Page): Promise<void> {
@@ -125,12 +125,8 @@ test.describe("产品页", () => {
         const panelToggle = page.locator("[data-shell-focus-target=\"panel-toggle\"]");
         await expect(panelToggle).toBeEnabled();
         if ((await customizations(page)) !== null) return;
-        await page.locator('[data-titlebar-layout="auxiliarybar"]').click();
         await panelToggle.click();
-        await expect.poll(async () => {
-            const value = await customizations(page);
-            return value?.shownParts?.includes("auxiliarybar") === true && value.panel?.hidden === false;
-        }).toBe(true);
+        await expect.poll(async () => (await customizations(page))?.panel?.hidden === false).toBe(true);
     }
 
     test("面板的位置与对齐：经框架按钮与命令面板改；ActivityBar 始终在最左、面板不跨过它；justify 横跨两侧栏；刷新后恢复", async ({page}) => {
