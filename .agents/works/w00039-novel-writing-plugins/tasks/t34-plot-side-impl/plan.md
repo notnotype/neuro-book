@@ -671,3 +671,76 @@ A9 之后做一次实现审查（后端，按 reviewing Skill：omp 默认模型
 - **按值比对漏更新**：由线层差分、`broken` 的独立参照与重放对比兜底。验收 4 的两步写成固定断言，防止退化成全部更新：改 c2 的金额时 r1、r2 不更新；只改 r2 时只更新 r2。
 - **发布路径多一层线**：当前线上最新一章的记账 D9 再量。阶段 C 已超 100 毫秒，见待确认清单。
 - **计划线与按值比对的组合最复杂**：D7 放在 D4 之后，差分里加计划分叉、兑现与撤销。
+
+## 阶段 E 细计划：目标的检查、决策的守卫、写作指示、写手的上下文（第一版，2026-11-06）
+
+依据 Spec：[`plot/goals.md`](../../../../../docs/specs/plot/goals.md)、[`plot/decisions.md`](../../../../../docs/specs/plot/decisions.md)、[`plot/brief.md`](../../../../../docs/specs/plot/brief.md)（在内核分支上的那份，阶段 B 起就是这几份）。阶段 B、D 已完成：知情、伏笔、视角、目标的读取与冲突、按线的视图都在 `packages/neuro-book/src/plugins/plot/`。本阶段全是纯读：不改内核的模型与写入路径，只在剧情插件里加计算、标注种类、诊断与远程方法；需要的内核读取能力（`decisions`、`chapterEntries`、`origins`、`plannedAt`、`changes`、`onLine`）都已有。
+
+### 开工前要确认的事实（读代码已核对）
+
+- 诊断的计算是 `DiagnosticCompute = (view, at, mode) => Finding[]`，`view` 是读取位置那条线的读取视图（D8 起插件按线算）；稳定键里的 `line` 取 `view.line`。
+- 决策在 `CanonReadView.decisions({status?, about?})`，字段 `status/about/scope/due/conclusion/reason/constraints/marks`；标注（`marks`）按内核的标注种类登记校验，剧情的种类写进 `shared/declarations.ts` 的 `MARK_IDS` 旁。
+- 章的写作指示快照、细纲、目标字数、上一章末尾一段正文都不在世界里：宿主给出（Spec 的“输入”）。阶段 E 的做法是让这些输入随远程调用传入，诊断需要的写作指示快照放在插件的内存里由一个远程方法替换（阶段 F 再把它存进插件的项目记录），详见 E0。
+
+### E0：声明与输入通道（`shared/declarations.ts`、`shared/contracts.ts`、`backend/plugin.ts`）
+
+- 标注种类三个：`nbook.plot.guard.address`、`nbook.plot.guard.reader`（挂在决策上）、`nbook.plot.scene`（挂在计划上），形状与 `refs` 照 Spec；诊断九个（goals 三、decisions 九里除两个由窄问题报的 `constraintViolated`、`decidedInText` 外是七，brief 三），id、级别、稳定键照 Spec。`constraintViolated`、`decidedInText` 只登记声明、计算返回空（阶段 F 的窄问题接上），在声明的说明里写明。
+- 写作指示快照：`shared/instructions.ts` 放形状（TypeBox，字段都可选）；`backend/instructions.ts` 是插件内存里的 `Map<chapter, snapshot>`，换一个快照就把 `PLOT_DATA_VERSION` 的后缀加一（`dataVersion` 变了以后旧游标 `cursor-stale`，内核已有这条规则），经 `canon.register` 重登记。远程方法 `setInstructions({snapshots})` 整体替换；不存盘（Spec：快照不存进世界；存处是阶段 F）。
+- 远程合同 `nbook.plot/world` 加方法：`goals`（目标表，goals 输出 5）、`decisionsFor`（涉及本章的决策，decisions 输出 7）、`beforeWriting`（开写前的视图，输出 6）、`brief`（写手的上下文，brief 全部）、`setInstructions`。读结果的形状由 `core/` 给出，合同里 `Unknown`，同阶段 B 的做法。
+
+### E1：目标的检查与目标表（`core/goals.ts`、`core/goal-checks.ts`）
+
+- `premiseChanged`（goals 输出 3）：对每个进行或受挫的目标 G（持有者 H、`基于` 里的知识点 K）：找出 H 对 K 的有效知情在哪些变更处变了（程度或 `他以为的` 不同，`怎么知道/谁告诉的/备注` 不算）；最后一次变化的变更之后没有任何剧情变更改过 G 的 `goal` 命名空间则报，稳定键 `[G, K, 那条变更]`、`line`。`KnowingIndex` 加 `changesOf(person, point)`：按先后列出有效知情变化的变更与前后两行（从已建的候选里取，不另扫）；按线视图算（carried 一步算一次变化，变更取触发处）。H 的有效知情包含推出行（`presentLearns` 与隐秘目标持有者）。
+- `stalled`（输出 4）：状态为进行的目标，最后一次被改的变更所在章到读取位置所在章（`view.chapters` 的下标之差）超过 30（常量 `STALLED_AFTER_CHAPTERS = 30`，Spec 写“缺省值，用样本书量过以后再定”，放在 `core/goal-checks.ts` 顶部）；从没被改过的取它出场的章（`appears`）。
+- `skippedStep`：目标状态的补丁序列里“进行”直接到“达成”、中间没有一条涉及它的剧情变更（`involves` 或补丁地址里有它）。用 `origins({entry: G, path: "goal.状态"})` 的步骤取状态变化，再对每个变化的变更查 `involves`/补丁地址；“涉及它”指这条变更本身以外的别的变更。
+- 目标表（输出 5）：`goalTable(view, position, mode, filter{holder?, status?})` 返回每个主要角色（`轻重 = major` 的目标的持有者）的目标（状态、轻重、层次、为什么、基于、冲突）与每个人的态度表（对象、态度、起因）；隐秘目标的内容不在这里挡（挡在按视角的视图里，B 已做）。分页走既有的 `pagedList`。
+- 态度只读：`att.态度` 列表按对象取折叠值，`归纳` 的“未归纳”写法照 Spec 验收 2（读到什么给什么，不在剧情插件里造摘要）。
+
+### E2：决策的守卫、检查与视图（`core/decisions.ts`、`core/guards.ts`、`core/instruction-checks.ts`）
+
+- 决策取数：`decisionsInvolving(view, chapter, line)`：已定的在前，按挂的对象排；“涉及”= `about` 里的条目与 `chapterEntries(chapter)` 相交、`about` 里有本章、或 `scope` 含本章；挂在剧情线条目上的已定决策对这条线上有剧情变更的每一章都算涉及（输出 9，用 `changes({entry: 线条目, ...})` 判章）。每条带结论、理由（没给时“作者没说理由”）、约束与守卫标注。
+- 地址守卫（输出 2）：对已定决策的每个 `guard.address`，在 `lines`（缺省所有存在的线）的每条线上、各用那条线的视图（`view.onLine`），实际与计划两种模式各算：`origins(at)` 的步骤里取范围开头的值（范围前最后一步，没有步骤是初值）与范围内每一条套上的步骤之后的值，值在 `notIn` 里就违反（完整性：值不完整不判，记“无法检查”，诊断的 `detail` 之外在 findings 的 `params` 里带 `unchecked: true` 不入待处理）。稳定键 `[决策, 违反它的那条变更（范围开头就违反时没有）]`、`line`、`detail`（载荷规范 JSON 的 SHA-256）。每条线各自报，所以诊断计算在“当前线”视图里只报当前线上的；`beforeWriting` 与 `decisionsFor` 的聚合跨线（Spec 写“每条线各自报”）。
+- 读者守卫（输出 3）：`until` 之前的每个讲述位置上读者的程度（B 的 `readerKnowing`）超过 `atMost` 就违反；第一处让它超过的讲述写进键的 `telling`；不分线（读者的知情按主线正文，B 已是这样）。
+- `overdue`（待定的决策 `due` 是第 N 章，`view.chapters` 里最新一章不早于第 N 章）与 `dangling`（已定决策挂的对象全是已删条目、已撤销变更、被取代或放弃的决策）。
+- 开写前的视图 `beforeWriting(view, chapter)`（输出 6）：`due` 不晚于本章的待定决策、涉及本章的 `premiseChanged`（E1）、本章计划按计划模式触发的地址守卫违反（只含当前读取位置与本章计划里变更相关的违反，用 E2 的计算筛 `objects` 含本章计划的变更）。拦不拦、“照写”怎么记，不在这里（Spec 明说由写作任务定）。
+- 写作指示的检查（输出 8）：`povAbsent`（视角人物在本章每一条剧情变更里都不在场；用 `experienceChanges`），`flashbackMismatch`（`timeMode.flashback` 的安放与本章安放的剧情变更不在附近：同一章、或前史里它的前后各一条），`repeated`（同一句“不写的”或“其他”连续出现在 3 章以上的快照里）。读 E0 的内存快照。快照的 `version` 记进诊断的 `params`，用旧版本做的检查标“写作指示已变”（输出 10）由 E3 的上下文记录用，诊断不用。
+
+### E3：写手的上下文（`core/brief/`，纯函数，`index.ts` 对外 `composeBrief`）
+
+输入：`{view, chapter, instruction, outline, targetWords, previousTail, pluginVersion}`；输出：`{sections, text, record}`。分文件：
+- `read.ts`：读哪个位置（输出 2、14）：本章开头、本章讲的线（`view.positionLine`）；`timeMode.flashback` 时读那处安放；分段讲两条线的章（`chapterLines` 里有多段）拆成每段一份，各标“回溯前”“回溯后”，共同部分只写一次。本章计划 = 按计划模式在本章、本线看得到的生效计划；状态变化写成字段形式“对象的字段：旧 → 新”。
+- `secrets.ts`（输出 4）：本章涉及的保密与绝密档知识点（B 的“写之前的集合”），每条一项；保密给真相与名单，绝密按“计划要暗示或揭示”（计划上的 `nbook.plot.reveal`）三种写法，持有者在场的“人前的表现”，视角人物的两种附句；挂在保密以上知识点的已定决策的归属（看 `about` 里所有保密以上的知识点）；隐秘目标并入。
+- `people.ts`（输出 5）：本章计划里在场的人（含 `label` 的临时人物只写 `label`），进行或受挫且无 `隐秘` 的目标，两人都在本章的态度对子，视角人物排第一。
+- `address.ts`（输出 7，称谓）：第一人称与有限视角才生成；顺序取称呼的五步；用 B 的 `knowingIndex` 判“`揭穿` 指向 M 的知识点 V 有没有 `knows`”。
+- `foreshadow.ts`（输出 8）、`decisions.ts`（输出 9）、`reader.ts`（输出 10）、`allowed.ts`（输出 11，固定句）、`fixed.ts`（所有固定句集中放一个文件，改固定句是行为变化）。
+- `budget.ts`（输出 12）：缺省上限表与裁剪：段超出时从后往前裁项；段间的裁剪顺序、这一场的秘密不裁到真相那句；裁掉的在末尾写“已省略：……”。上限表放常量、可由调用方传入覆盖（Spec：最终数字等样章量过再定）。
+- `record.ts`（输出 15）：记下读取输入的摘要（`view.stamp.inputDigest`）、写作指示快照的 `version`、细纲的 SHA-256、目标字数、插件版本、裁掉的项；同输入逐字相同由测试做两遍比较断言。
+- 涉及条目的样子（输出 13）：经内核的渲染（`canon.rendering` 给 Agent 的带值写法）取，去掉 `know` 命名空间与挂在它们下面的知识点；`brief` 在项目进程里直接用 canon 项目接口的 `render`，不经远程。
+- 上一章末尾一段正文：宿主给（`previousTail`），不存在时写“无”。
+
+### 切片（阶段 E）
+
+1. **E0**：声明（标注种类、诊断）、写作指示的形状与内存源、合同加方法的骨架（先返回 `not-implemented` 的 plot 失败码，不给空结果充数）。测试：声明登记通过内核的登记校验；`setInstructions` 后 `dataVersion` 变、旧游标 `cursor-stale`。
+2. **E1**：`KnowingIndex.changesOf`、三项检查、目标表。测试：goals 验收 1 到 3，加 `skippedStep`、`stalled` 的固定场景；变异检查（`基于` 的知识点换一个；“之后改过目标”的判断去掉）。
+3. **E2a**：决策取数、`overdue`、`dangling`、开写前的视图的骨架。
+4. **E2b**：两种守卫与写作指示的三项检查。测试：decisions 验收 1 到 4；地址守卫的多线（回溯线上才违反）、计划与实际两种模式；变异检查。
+5. **E3a**：读位置、本章计划、秘密、在场的人、场景条件（验收 1 到 3、7）。
+6. **E3b**：称谓、伏笔、决策、读者已知、固定句、预算与裁剪、记录、回溯章两份（验收 4 到 6 与 brief 验收 5）。测试含“同输入两遍逐字相同”；每个固定句一条断言；裁剪的顺序。
+7. **E4**：远程方法接上（`goals`、`decisionsFor`、`beforeWriting`、`brief`、`setInstructions`），应用包 `plot.test.ts` 加端到端；插件包测试全跑，类型检查，变异检查汇总。每片自跑 `bun test src/plugins/plot` 与 `bunx tsc --noEmit -p .`（应用包），内核没改动不跑 nb-canon。
+
+### 验收映射（阶段 E）
+
+- goals 验收 1 到 3：E1 的固定场景；输出 3 到 5：E1。
+- decisions 验收 1 到 4、输出 1 到 10：E2；输出 10（快照版本）：E3 的记录与比对。
+- brief 验收 1 到 7、输出 1 到 15：E3；确定性（输出 15）：同输入两遍逐字比较；体积（输出 12）：缺省上限与调小上限两组。
+
+### 验证
+
+- 每片：`bun test src/plugins/plot`、`bunx tsc --noEmit -p .`（应用包）。
+- 性能：诊断计算在 1000 章的样本书上不应让读待处理明显变慢；E2 收口时用 `scripts/perf` 的剧情量法（B 阶段的 `scale-b5` 同口径）量读待处理（预算 200 ms，B 时 150 ms）。
+- 未验证边界：真实模型下写手用简报的效果（Spec 说由真实模型评测，不在本 Task）。
+
+### 不做与风险
+
+- 不做：窄问题的 `constraintViolated`、`decidedInText`（阶段 F）；写作指示快照、细纲的文件与存盘；“照写”的交互；简报各段上限的最终数字。
+- 风险：(1) 地址守卫按线按模式乘开，决策多、线多时读待处理变慢：只对已定且带守卫的决策算，其余不算，线数大于常驻名额时每条线要建一次，量法里加分叉场景；(2) 简报是 Spec 里最长的一份，固定句多，措辞一改就是行为变化：固定句集中在 `fixed.ts`；(3) “涉及本章的决策”与“涉及条目”的求交依赖内核 `chapterEntries`，按线的行为已在 D 阶段做了，仍在 E2 加分叉场景测试；(4) `premiseChanged` 要有效知情变化的前后行，B 的 `KnowingIndex` 没有这个接口，E1 第一步先补它并加差分（与现有 `effective` 在每个变化点前后逐一比较）。
