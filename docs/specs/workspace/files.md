@@ -72,7 +72,18 @@ owners:
 - **规则**：路径包含、符号链接与控制目录的规则与“读取与保存”相同（同一实现），根身份同样逐请求核对。上限 32 MiB，超过为 413 `too-large`。
 - **状态码**：`not-found`、`not-a-file`、`invalid-address`、`outside-root`、`protected-path` 一律 404，不区分受保护与不存在；`permission-denied` 403；`root-gone` 410；`io-failed` 500。错误体与 HTTP 端口的其它错误相同：`{error: {code, message}}`。
 - **响应头**：`Content-Type` 按扩展名的白名单（png、jpeg、gif、webp、svg、avif、bmp、ico、html、css、js、mjs、json、txt、md、woff、woff2、ttf、otf），其它为 `application/octet-stream`；`X-Content-Type-Options: nosniff`；`Content-Security-Policy: sandbox`（直接打开一个 HTML 或 SVG 的地址也不在应用的源里运行）；`ETag`（修改时间与大小），`If-None-Match` 命中时 304；`Cache-Control: no-cache`。
-- **跨站读取**：带 `Sec-Fetch-Site` 且不是 `same-origin` 的请求为 403 `cross-site`：别的网页不能把这条路由当作读取接口。不带这个头的本机进程照常（与 HTTP 端口未加载鉴权时的信任相同，[runtime.server-host](../runtime/server-host.md)）。
+- **跨站读取**：带 `Sec-Fetch-Site` 且既不是 `same-origin` 也不是 `none` 的请求为 403 `cross-site`：别的网页不能把这条路由当作读取接口；`none` 是用户自己打开，照同样的读取与沙箱规则放行。不带这个头的本机进程照常（与 HTTP 端口未加载鉴权时的信任相同，[runtime.server-host](../runtime/server-host.md)）。
+
+### 写背景图片（planned）
+
+背景图片（[`ui.backgrounds`](../ui/backgrounds.md)）经 `PUT /api/nbook.files/backgrounds` 写入，请求体是原始字节，响应 `{address}`：
+
+- 上限 20 MiB（20,971,520 字节），接收时就限长，不看请求头；超限 413 `too-large`。
+- 只收 PNG、JPEG、WebP，按字节判定，不信文件名与 `Content-Type`；其它（含 SVG）415 `unsupported-type`。
+- 文件名由服务端算：`<SHA-256>.<png|jpg|webp>`，放在 `user://backgrounds/`。经与其它写入相同的暂存与提交，写入归属是 `{kind: "system", plugin: "nbook.files"}`。
+- `backgrounds` 必须是真实目录，是符号链接时 409 `invalid-target`，不写。
+- 已存在且字节相同：返回同一地址，不发变更、不记账。已存在但字节不同或不是普通文件：409 `conflict`，不覆盖。
+- 经统一的 Host、Origin 检查（[`runtime.server-host`](../runtime/server-host.md)）。
 
 ### 预览的受限读取
 

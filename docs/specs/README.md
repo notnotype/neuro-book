@@ -212,6 +212,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
+| 背景图片与护眼底色 | [`ui/backgrounds.md`](ui/backgrounds.md) | 正文与窗口的背景、遮罩下限、纯色底、无障碍偏好、设置页 |
 | Agent 的对话界面 | [`agent/conversation.md`](agent/conversation.md) | 对话视图接新内核：工作台位置、会话面板、发送与运行控制、审批与提问向导、状态栏 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |
