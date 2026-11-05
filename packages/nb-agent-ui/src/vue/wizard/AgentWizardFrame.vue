@@ -106,6 +106,9 @@ const {t} = useAgentText();
 .acv-wizard-frame__body {
     flex: 0 1 auto;
     min-height: 0;
+    /* 这里滚动就会裁掉贴边控件的焦点环：留出环的宽度，再用负外边距抵消，内容的位置不变。 */
+    margin: -4px;
+    padding: 4px;
     overflow: auto;
 }
 

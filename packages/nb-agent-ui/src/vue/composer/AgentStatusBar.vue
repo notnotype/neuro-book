@@ -102,6 +102,8 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
 
 <style scoped>
 .acv-status {
+    /* 下面的窄宽规则按状态栏自己的宽度：它的祖先没有别的查询容器。 */
+    container-type: inline-size;
     display: flex;
     flex-shrink: 0;
     align-items: center;
@@ -181,9 +183,15 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     font-variant-numeric: tabular-nums;
 }
 
-/* 窄的时候先让出明细，用量明细都在悬停里。 */
+/* 窄的时候先让出明细，用量明细都在悬停里。左边有不收缩的提醒（费用告警、全部放行）时要让得更早。 */
 @container (max-width: 380px) {
     .acv-status__usage .acv-status__metric:not(:first-child) {
+        display: none;
+    }
+}
+
+@container (max-width: 460px) {
+    .acv-status:has(.acv-status__flag) .acv-status__usage .acv-status__metric:not(:first-child) {
         display: none;
     }
 }
