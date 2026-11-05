@@ -1,0 +1,122 @@
+### 1. 一条布局记录无法同时保留用户定制与项目尺寸（撤回）
+- **严重程度**：阻断；**类别**：正确性 / 不变量
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:162-167`、第 1 节对象模型；对照 `docs/specs/ui/workbench-shell.md:232-256`。
+- **现象**：提案把尺寸、工具视图定制、编辑器标签和实例表合成一条记录，并规定绑定项目时使用 `project / local`、未绑定时使用 `user / local`；但现行合同明确尺寸是 project/local 或 user/local，而面板、Part、容器、视图归 user/local。
+- **为什么是问题**：同一 Storage 记录不能既让尺寸按项目隔离、又让工具视图定制跨项目共享。若整条记录按项目，用户把侧栏/视图移到哪里会随项目复制，违反现行验收 9；若整条记录按用户，项目 A 的尺寸会污染项目 B，仍违反验收 9。把 user 记录复制成新项目初始布局只解释了编辑器标签被删掉，没有定义后续 user 定制如何与项目尺寸合成，也没有给同一客户端多窗口按字段合并时的 record scope、revision、冲突重放规则。`state/store` 只能在一条记录内按字段重放，不能跨两个分区事务性合成。
+- **如何核实**：`bun test src/plugins/workbench/web/state/layout-store.test.ts`（`packages/neuro-book`，26 pass）；测试和 `web/state/records.ts:1-10,83-95` 明确现行三条记录的分区边界，`storage/persistence.md:30-35,96-112` 明确 project/local 与 user/local 的寻址及条件写入。
+- **建议改法**：不要把不同生命周期的字段强行放入一条物理记录。保留至少一个 user/local 的结构与视图定制记录、一个按项目选择的尺寸记录，并另定义布局树与编辑会话的合成优先级；若坚持一条树文档，明确它是逻辑文档还是物理记录，分别给出 user/project 两个版本的字段投影、跨记录并发合并和迁移合同。
+
+【更正】第 1 条标题中的“（撤回）”为误写；该发现仍有效，报告末尾按有效发现计入。
+### 2. “沿用 createGrid”没有承载树节点语义与不可交互条
+- **严重程度**：阻断；**类别**：接口 / 不变量
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:65-77,137-143,162-167`；对照 `packages/nb-ui/src/components/layout/grid-types.ts:85-165,218-222`、`grid.ts:46-75`。
+- **现象**：提案把面板、编辑组、活动栏、状态栏都作为同一棵 `createGrid` 树的节点，却只给面板/条的概念描述，没有定义树节点如何编码 `role`、固定厚度、四边约束、标签/实例归属、条的方向与“条两侧的缝不可交互”。现有 `GridLeafInput`/`GridBranchInput` 只有尺寸、约束、`sizing`、收起策略和 `ref`；`GridSnapshot` 只保存 `kind/id/ref/size`，没有这些语义。`sizing: fixed` 只是分配策略，不是不可调整标记；不可交互缝还需要命中层在树外另行过滤。
+- **为什么是问题**：后续切片按字面复用原语时，至少要另建节点元数据、快照编解码、条的专用布局约束和 sash 命中白名单；否则状态栏/活动栏会被普通面板一样调整或收起，恢复后也无法从快照重建其身份和固定属性。提案没有定义这些扩展属于 `nb-layout` 还是工作台，也没有说明 256 节点、16 层限制如何适用于条、面板内部标签与浮动列表；这是接口合同缺失，不是渲染细节。
+- **如何核实**：`bun test src/components/layout/grid.test.ts src/components/layout/grid-geometry.test.ts src/components/layout/grid-snapshot.test.ts`（`packages/nb-ui`，76 pass）；同时读 `grid-types.ts` 的输入/快照类型和 `grid.ts` 的结构操作，现有公共类型没有条或面板元数据入口。
+- **建议改法**：先定义布局树的公开模型：树节点类型、固定/不可收起/不可交互边界、面板标签的外部归属、实例表引用和浮动组；再明确 `createGrid` 是底层尺寸算法还是需要扩展其快照/结构 API。若保留现有原语，给出稳定 id/ref 编码、元数据与快照的并行记录、命中过滤及超限失败语义，并把这些纳入真实恢复测试。
+
+### 3. 具名面板重建没有定义默认位置与实例归属
+- **严重程度**：重要；**类别**：正确性 / 接口
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:79-87,169-181`；对照 `docs/specs/workbench/views.md:40-65,90-107` 与 `packages/neuro-book/src/plugins/workbench/web/views/placement.ts`。
+- **现象**：提案规定 `sidebar`、`auxiliarybar`、`panel` 是默认布局中的具名面板，被拖空后“下次需要时在默认位置重建”；同时又规定用户可任意改形、`location` 只决定第一次放到哪个具名面板，用户移动后以布局文档为准。它没有定义：具名面板被从树中删除还是保留空叶；“默认位置”是固定外壳位置、初始树快照、用户最近布局，还是按新声明重新求值；新插件的视图声明指向不存在的具名面板时是重建该面板、创建普通面板、进入浮动，还是显示失败。
+- **为什么是问题**：同一数据状态会产生不同结果。用户拖空 `sidebar` 后安装资源视图，若按 `location: sidebar` 直接重建会覆盖用户刚删除的意图；若不重建，`ViewContext.location` 无法给出合法的面板位置，且 `nbook.view.open`、活动栏工具条和“移动到”没有目标。现有实现用声明默认位置、隐式容器和默认指纹求解，未知/缺失覆盖有明确回退；提案取消固定 Part 后没有替代的身份与回退算法。
+- **如何核实**：`bun test src/plugins/workbench/web/views/model.test.ts src/plugins/workbench/web/state/layout-store.test.ts`（`packages/neuro-book`，42 pass）；现有落位模型与测试覆盖“声明默认位置、用户覆盖、空容器/视图”的旧合同，但提案没有给出对应的新树状态转换。
+- **建议改法**：为具名面板定义稳定节点身份与三态生命周期（存在且空、用户隐藏/拖空、记录缺失），明确插件声明、打开视图命令、活动栏聚焦和新视图交付分别如何处理缺失节点；默认位置应是可版本化的宿主默认树/指纹，不要用一次性的 `location` 字符串隐式重建。
+
+### 4. “工作台唯一写者”与编辑器标签权威互相冲突
+- **严重程度**：阻断；**类别**：不变量 / 接口
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:18-20,65-77,145-150,162-180`；对照 `docs/specs/workbench/editor.md:13-23,140-165,243-257,276-305`、`docs/specs/workbench/views.md:81-103`。
+- **现象**：提案把编辑器组、标签和 `nbook.editor` 实例纳入工作台的 LayoutDoc，且声明工作台是布局唯一写者；但编辑器合同规定 `nbook.editor` 拥有文档、组、标签、dirty/preview/pinned、关闭确认和 `editor.session`，工作台只提供稳定内容槽。提案只写“恢复时编辑器插件按 params 打开文档”，没有写编辑器插件怎样把打开、关闭、preview 替换、固定、同文档多组、光标和 dirty 结果提交回唯一写者。
+- **为什么是问题**：拖动、命令和编辑器输入会同时改变同一份树文档；dirty 关闭确认可能在确认返回前阻止结构变化，preview 替换还要结算文档输入，两个窗口又可能改同一标签或组。没有事务/租约/代际合同，按字面实现会出现工作台已删标签但编辑器拒绝关闭、编辑器已替换 preview 但布局记录仍指向旧实例、或工作台恢复时重复打开文档。编辑器入口未激活、激活失败、撤回时，提案也没有定义 `nbook.editor` 实例的停放/错误呈现和再次交付；仅写“未知视图呈现时忽略”不能覆盖已知编辑器类型但实现缺失的标签。
+- **如何核实**：`bun test src/plugins/editor/web/groups/groups.test.ts src/plugins/editor/web/area.test.ts src/plugins/editor/web/tab-menu.test.ts`（`packages/neuro-book`，22 pass）；现有实现与合同把标签操作、文档结算、预览替换和记录保存都放在编辑器控制器内，而不是工作台 store。
+- **建议改法**：明确所有权边界：工作台只接受结构化的布局意图，编辑器仍拥有标签/文档状态；或反过来把 LayoutDoc 的写入 API 设计成编辑器唯一事务入口。至少定义结构变更事务、dirty/preview 结算前置、编辑器入口停用与恢复的代际、已知类型的错误占位，以及跨窗口冲突时标签级合并和拒绝规则。不要把“params 里可重开”当成实例生命周期合同。
+
+### 5. 把光标等编辑器参数塞进布局文档会放大热写与容量风险
+- **严重程度**：重要；**类别**：性能 / 不变量
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:73-76,83-85,145-150,162-167`；对照 `docs/specs/workbench/editor.md:146,197-210,300-305`、`packages/neuro-book/src/plugins/editor/web/components/MonacoControl.vue:82-83,292-301`、`packages/neuro-book/src/plugins/editor/web/area.ts:420-423`。
+- **现象**：现行编辑器每个标签的光标在停下 1000ms、失焦或换文档时更新；`groups` 变化会触发 `persist(groups.snapshot())`，而 `editor.session` 的记录上限是 1 MiB。提案取消 `editor.session`，把地址、编辑器、preview、固定和光标放进 LayoutDoc 的实例 `params`，但只规定“每次手势结束写一次”，没有规定光标/语言/活动标签/预览替换的写入节流、批处理、字段大小或失败隔离。
+- **为什么是问题**：光标移动不是布局手势，却会改同一条包含树、浮动矩形、所有工具视图与标签的记录；每秒一次可能把完整文档和全部未知参数重新序列化并触发条件保存，多个标签/窗口同时移动光标会制造无关冲突。记录达到上限后，布局拖动也会和光标保存共用失败队列，导致布局未保存；若为避免频率而不保存，又违反现行恢复光标合同。提案还没有说明编辑器参数更新失败时只丢光标还是阻塞整棵布局文档。
+- **如何核实**：读取 `MonacoControl.vue` 的 1000ms 定时器与失焦写入、`area.ts` 的 snapshot watcher，再读取 `packages/neuro-book/src/shared/storage.ts:14-15`（`MAX_RECORD_MAX_BYTES = 1024 * 1024`）和 `session-record.ts:47`；现有编辑组合同测试已通过，说明这些更新确实属于当前标签模型而非渲染偶然行为。
+- **建议改法**：保持编辑器会话/编辑器视图状态独立于布局树，或至少拆成不同的逻辑字段与保存队列：布局结构按手势提交，编辑器参数按可丢失的定时批次提交，光标只保存最后值并有明确的 1 MiB/每标签/总标签上限；定义超限、冲突和结果未知时的优先级，不能让光标热写阻塞结构写入。
+
+### 6. “旧记录不迁移”没有形成可执行的切换与回滚合同
+- **严重程度**：重要；**类别**：遗漏 / 接口
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:162-167,193-203,205-217`；对照 `docs/specs/storage/persistence.md:28-35,106-110,143-162`、`docs/specs/workbench/editor.md:146,300-305`。
+- **现象**：提案说一条新记录取代 `layout-sizes-*`、`views-customizations`、`editor.session`，旧记录留着但不迁移，并说回滚时新布局调整会丢；没有给新记录的 key、scope、locality、version、schema、首次启动判定、旧记录读取/忽略顺序，也没有说明旧 `editor.session` 的打开标签、光标和活动组在新版本中是明确丢弃还是从 user 布局复制。
+- **为什么是问题**：Storage 对记录定义和版本是合同：schema 不匹配会成为 `corrupt`，version 不同是 `unsupported-version`，普通 `save` 受保护，只有 `reset` 才能替换并保留原件。若沿用旧 key 而不定义新版本，旧值会在首读时进入坏记录/保护路径；若换 key，旧记录没有“已切换”标记，回滚或旧代码恢复后会读取一套静态旧状态，而新版本的结构变化不可追踪。两个窗口在切换期间还可能一边写旧记录一边写新记录。提案的“尺寸丢一次”不是迁移合同，无法写成确定的首次启动、并发和回滚测试。
+- **如何核实**：`bun test src/shared/storage.test.ts src/plugins/storage/storage.test.ts`（`packages/neuro-book`，26 pass）；这些合同测试覆盖版本不支持、schema 损坏、普通保存受保护和 reset 保留原件的路径，与提案的“旧件留在原处、正常保存继续”直接相关。
+- **建议改法**：为新 LayoutDoc 使用新 key 或明确新 version，并写出切换状态机：旧记录只读探测、首读失败/未知版本、默认布局、原件保留、禁止旧记录继续写入、回滚时的预期数据损失。若有意丢弃旧编辑会话，明确对用户的恢复提示和旧记录的生命周期；补上两个窗口跨版本同时运行时的拒绝或隔离规则。
+
+### 7. 删除位置状态后，任意面板命令没有可求值的目标语义
+- **严重程度**：重要；**类别**：接口 / 正确性
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:169-181`；对照 `docs/specs/workbench/commands.md:41-42,66-75,158-179`、`docs/specs/ui/workbench-shell.md:83-97`。
+- **现象**：提案删除 `set-panel-position`、`set-panel-alignment` 和 `panelPosition`、`panelAlignment`、`panelHorizontal`，却只笼统地说隐藏/收起/最大化改为作用于任意面板，并没有给出新命令参数、目标选择时点、公开布尔键、状态键的 owner 或 `when`。命令合同的 `when` 只能是已登记布尔键的 all-of；`focusedPart` 是字符串且不能用于 `when`，现有 `panelVisible`/`panelMaximized`/`panelMaximizable` 也只描述单一面板。
+- **为什么是问题**：一棵树可同时有多个工具面板、多个编辑组和浮动组，同一个“收起/最大化/隐藏”命令在执行前必须知道目标。仅靠一个全局 `panelVisible` 无法表达“当前选中的面板可收起”与“另一个面板不可收起”；省略参数时再由选择服务选目标也太晚，命令面板的可见/禁用状态已在执行前按全局 `when` 求值。按字面删除旧键会让已有菜单、状态栏按钮、快捷键和插件贡献失去合同；保留旧键又会把旧的单 Panel 语义错误地套在树上。提案没有列出改名后的稳定 id、参数 schema、非法/无目标/过期目标返回码或兼容别名策略。
+- **如何核实**：`bun test src/plugins/workbench/web/commands/panel-commands.test.ts src/plugins/workbench/web/state/public-state.test.ts`（`packages/neuro-book`，6 pass）；测试断言当前命令注册表依赖 `panelHorizontal`、`panelVisible`、`focusedPart` 等单面板/单焦点状态，源码引用清单还显示标题栏、locale 和应用菜单仍引用将被删除的命令。
+- **建议改法**：先定义目标选择服务与 target snapshot（稳定面板 id、类型、所在树/浮动组、可用动作、代际），再定义命令参数与公开状态：无参命令只在有明确选中目标时可用，带参命令在执行时重验代际；需要给菜单显示的状态拆成针对当前选择的布尔键，字符串键只读不放进 `when`。同步列出菜单、locale、状态贡献和插件调用方的迁移表。
+
+### 8. 未知视图的“呈现忽略”不足以保证后续写入不丢数据
+- **严重程度**：重要；**类别**：不变量 / 迁移
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:73-77,145-150,162-167`；对照 `docs/specs/ui/nested-grid.md:70-75`、`packages/neuro-book/src/plugins/workbench/web/views/model.test.ts:181-197`、`views/patch.ts`。
+- **现象**：提案说未知视图只在呈现时忽略、原件不删，但 LayoutDoc 同时包含树、浮动列表和实例表；没有规定未知树叶、未知浮动组、未知 `type` 实例在恢复后的内部表示，也没有规定用户移动已知节点或光标更新时如何把这些未知条目原样带回新记录。
+- **为什么是问题**：如果解析时把未知叶从 `createGrid` 树过滤掉，再把当前树和实例表整体序列化，未知节点的顺序、尺寸、浮动矩形和 `params` 就会被删掉；插件重新激活后无法恢复。现行落位补丁专门测试“未知引用只在呈现中忽略，别的意图写回时原件仍在”，因为只保留“原始记录”而不保留未知字段是不够的。树的 256 节点/16 层上限也需要说明按原始树还是过滤后树计算，否则一个超限未知子树可能在保存时被意外截断。
+- **如何核实**：`bun test src/plugins/workbench/web/views/model.test.ts src/plugins/workbench/web/state/layout-store.test.ts`（`packages/neuro-book`，42 pass）；其中现有模型测试覆盖未知视图/容器在另一个意图写回后仍保留，说明这是已存在的产品不变量，不是新提案可静默删除的旧实现细节。
+- **建议改法**：把 LayoutDoc 设计为带原始未知节点保留的增量补丁模型，或定义“可呈现投影 + 不透明原始片段”的双层快照；已知节点修改只能替换自己的路径，不能重写未知兄弟/浮动项。明确未知条目恢复、再次交付、超限和保存失败的诊断与验收。
+
+### 9. 浮动组进入模型但没有持久化、恢复与跨窗口合同
+- **严重程度**：重要；**类别**：遗漏 / 正确性
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:33-41,73-76,103-121,162-181,193-203`；对照 `docs/specs/storage/persistence.md:30-35,106-135`。
+- **现象**：提案把浮动列表定义为“面板 + 矩形”，允许工具视图和编辑器标签浮动，也新增浮动/停靠命令；但持久化段只说一条记录、每次手势结束写一次，没有定义浮动项的稳定 id、z-order、活动项、矩形坐标单位、窗口缩放/视口变化时的夹取、浮动组里的标签/实例关系、关闭窗口或入口停止时的处理，也没有定义两个窗口同时移动/停靠浮动组的合并字段。
+- **为什么是问题**：应用内浮动不是普通页面浮层：它占布局状态、会被拖回树、需要在刷新后恢复，还必须与“无落点就浮动”和手机整屏呈现一致。只保存一个 CSS 矩形会在窗口尺寸变化后把组放到不可见区域；只保存视图 id 而不保存组身份会让多标签浮动组拆散；把它和树整体快照一起保存又使同一窗口另一处的 z-order/位置修改覆盖标签或工具视图变更。窗口关闭、插件撤回和未知类型的浮动项没有恢复/保留通道。
+- **如何核实**：读取提案中唯一的浮动模型与持久化段，并对照 Storage 的 local 记录按 client identity 分区、条件 revision 与订阅语义；现有命令/布局测试只覆盖固定 Part/容器，不存在浮动记录或浮动目标的恢复验收。
+- **建议改法**：定义浮动组作为独立稳定节点（组 id、成员顺序、活动成员、z-order、边界/锚点与版本），明确矩形是 CSS px、相对视口还是归一化坐标，恢复时的夹取和无效矩形诊断；把树结构、浮动结构和实例参数拆成可合并字段，或为一次浮动/停靠提供原子意图及冲突重放规则。补齐插件撤回、未知类型、窗口恢复和两个窗口各改不同浮动字段的测试。
+
+### 10. “至少一个编辑组”没有落到结构操作的原子不变量
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:71-85,103-121,145-150`；对照 `packages/nb-ui/src/components/layout/grid.ts:46-75,551-575`、`packages/neuro-book/src/plugins/editor/web/groups/groups.ts:198-207`。
+- **现象**：提案只在对象模型中写“树里至少有一个 role=editor 的面板，可以是空的”，但沿用的 `createGrid` 只知道叶/分支，不知道 role；`removeLeaf` 可以移除根叶并令树为 null，也可以把父分支收缩成空/单子节点。拖标签到浮动、移动编辑组或关闭最后一个标签时，没有定义哪个层负责阻止最后一个编辑组被删除，或者如何原子地创建一个新的空编辑组。
+- **为什么是问题**：现有编辑器模型明确在关闭组时保留至少一个组；新模型若先按通用树操作移除编辑组、再由编辑器插件补建，会出现提交中间态、编辑器命令无活动目标、布局快照没有 editor role，跨窗口冲突重放也无法判断应该保留哪个组。类似地，工具视图/编辑器标签不能中央互投是语义约束，不是 createGrid 的尺寸约束；若只在渲染层拒绝，模型可能已写入不可呈现的树。
+- **如何核实**：`bun test src/plugins/editor/web/groups/groups.test.ts`（`packages/neuro-book`，已通过）；读取 `groups.ts` 的 `dropIfEmpty` 与 `grid.removeLeaf` 可见现行“至少一个编辑组”由编辑器模型主动保证，而原语本身不会保证。
+- **建议改法**：把树结构操作包在工作台领域模型内，提交前验证“至少一个 editor 叶、条的边界规则、工具/编辑器中央投递规则、节点/层数上限”，失败整批不改；或给 `nb-layout` 提供带角色约束的原子 move/float/close 操作。明确最后一个编辑组被浮动、关闭、插件撤回和恢复失败时生成空组的稳定身份。
+
+### 11. 合成树文档把现行的字段级并发合并退化成整棵树冲突
+- **严重程度**：阻断；**类别**：正确性 / 并发
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:18-20,65-77,103-123,162-167,193-203`；对照 `docs/specs/ui/workbench-shell.md:240-257,299-301`、`docs/specs/state/store.md:97-107,158-163`。
+- **现象**：现行合同按记录字段合成：窗口 A 改位置、窗口 B 改对齐，或各改一个 Part 的显隐，后者冲突重放仍保留前者。提案把这些状态放进一棵树、浮动列表和实例表，却没有定义树操作是按节点路径/字段写补丁，还是每次写完整树快照；也没有定义两窗口分别移动不同节点、一个改尺寸另一个改标签顺序时的合并规则。
+- **为什么是问题**：如果 LayoutDoc 的 `tree` 是一个持久化字段，A 和 B 的任意结构变化都会互相冲突，当前 `state.store` 只能重放同一个顶层 change，不能把两个不同树快照自动合并；后保存的一方会覆盖另一方，直接破坏现行验收 8。若改用路径补丁，则移动/拆分/浮动涉及父子数组、共享尺寸和选中项，必须定义前置身份、顺序冲突、删除与重建、未知节点保留以及一次操作的原子范围，提案完全未写。
+- **如何核实**：`bun test src/plugins/workbench/web/state/layout-store.test.ts`（`packages/neuro-book`，26 pass）；其中双窗口测试明确验证不同字段合并与同字段后保存胜出，而新提案没有对应的树路径合同或测试映射。
+- **建议改法**：不要把可并发编辑的状态压成一个不可分字段。把布局意图按稳定节点 id 拆成可合并字段并为结构操作定义 patch/前置条件/重放结果；或者接受整棵树后写胜出并明确修改现行验收 8 的代价。对 A/B 改不同节点、同节点不同字段、父节点被删除、浮动组被重建分别给出可执行测试。
+
+### 12. 视图实例与编辑器标签共用一张实例表但没有统一身份合同
+- **严重程度**：重要；**类别**：接口
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:73-85,145-150,169-172`；对照 `docs/specs/workbench/views.md:24-30,81-103,125-136`、`docs/specs/workbench/editor.md:27-42,54-87,140-165`。
+- **现象**：提案把工具视图的 `type = view id`（只有一个实例）和编辑器标签的 `type = nbook.editor`（每个标签一个实例）都放进 `视图实例表 id → {type, params}`，却没有定义实例 id、owner、代际、声明撤回、加载失败、命令参数和 `ViewContext` 的映射。SDK 说“形状不变”但又新增 `floatable`；`ViewContext.location` 在浮动或普通面板之外只返回声明默认值，无法表达实际浮动状态。
+- **为什么是问题**：现有工具视图按视图 id 建立单实例、generation 单调且入口撤回只卸载组件；编辑器标签按 tab id 独立管理 dirty、preview、固定、撤销历史和命令 target。若统一成一个表而不区分两种身份，两个编辑器标签会共享同一个 `type`，//加载迟到结果无法定位到具体实例；工具视图重新交付也可能误把旧 params 当成新 generation。插件还无法知道视图已浮动，容易把“声明默认 location”误当实际落点。
+- **如何核实**：`bun test src/plugins/workbench/web/views/registry.test.ts src/plugins/editor/web/groups/groups.test.ts`（`packages/neuro-book`，32 pass）；两组合同分别验证视图按 id/generation 单实例与编辑器标签按 tab/组身份管理，现有合同没有一个可直接替代的共享实例表。
+- **建议改法**：把实例模型分成至少两种带判别字段的记录：`tool-view`（声明 id、generation、交付句柄、可见/停放/浮动状态）和 `editor-tab`（tab id、文档身份、编辑器、组/浮动组、preview/pinned/cursor）。为插件上下文增加明确的实际 placement/floating 只读状态，或明确插件永远看不到它并删除误导性的 location 语义；所有命令 target 都携带实例代际并在执行时重验。
+
+【更正】第 12 条第“为什么是问题”项中，因追加命令的 shell 引号错误，原意为“`nbook.editor.close`/`refresh-files`/加载迟到结果无法定位到具体实例”；该发现仍有效。
+### 13. 删除 `data-editor-group` 后，资源树到编辑器的跨插件目标没有替代合同
+- **严重程度**：重要；**类别**：接口 / 遗漏
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:118-121,145-150,169-180,205-214`；对照 `docs/specs/workbench/files-explorer.md:141-148,211-215`、`docs/specs/workbench/editor.md:218-221`。
+- **现象**：提案说资源树拖出后走统一落点，取代资源树读取 `data-editor-group`，同时保留 `nbook.editor.open` 的 `group` 参数；但没有定义资源树如何取得编辑组/浮动组的稳定目标、如何命中“中央打开/四边拆分”、谁把文件拖动事件接入工作台根会话，以及编辑器未激活、组已关闭或目标代际变化时的失败结果。
+- **为什么是问题**：当前合同明确资源树把编辑组 DOM 标记作为公开接缝，释放时按地址调用 `nbook.editor.open({group})`，并由编辑器负责组存在性与打开语义。删除标记而只说“统一登记”会迫使资源树深度依赖布局树，或另建一套目标注册表；两种做法都没有 owner、生命周期和 stale-target 规则。按字面实现很容易把一个文件落到已关闭的组、把目录错误地浮动，或在资源树拖动和工作台拖动会话之间重复提交。
+- **如何核实**：`bun test src/plugins/explorer/transfer.test.ts src/plugins/explorer/session.test.ts src/plugins/explorer/documents.test.ts`（`packages/neuro-book`，52 pass）；现有合同测试覆盖拖到编辑区时的真实文件打开/冻结规则，而提案没有列出新注册接缝或相应验收。
+- **建议改法**：保留一个由编辑器拥有的公开 drop-target/打开服务，返回稳定 group id、目标代际和允许的区域；工作台统一会话只消费该服务的 target descriptor，不让资源树读布局树。把中央打开、边缘拆分、最多 10 项、目录取消、编辑器入口未就绪和目标失效写入同一套命令/落点合同。
+
+### 14. 新 `params` 清单遗漏现有会话的语言与活动状态
+- **严重程度**：重要；**类别**：正确性 / 遗漏
+- **位置**：`docs/proposals/workbench-single-tree-layout.md:73-85,145-150,162-167,205-214`；对照 `docs/specs/workbench/editor.md:30-41,146,209-210,239-241,300-305`、`packages/neuro-book/src/plugins/editor/web/session-record.ts:22-47`。
+- **现象**：提案列出的编辑器实例 `params` 只有地址、编辑器、preview、固定和光标；现行 `editor.session` 还保存每个标签的语言、每组活动标签索引、活动组，以及组树布局。提案只说组和标签“进布局文档”，没有说明语言字段、活动组/活动标签和页面标签的保留/排除规则。
+- **为什么是问题**：按清单实现，用户选择“纯文本”或 Python 后刷新会回退按文件识别，违反现行语言合同；活动组不恢复会改变命令、焦点、状态栏和继续写作的目标；活动标签不恢复会让打开后的焦点与未保存文档提示落到另一组。把这些字段隐含在“树”或“标签条”里也不够，因为 `createGrid` 只保存结构和尺寸，不保存活动项。
+- **如何核实**：`bun test src/plugins/workbench/web/views/registry.test.ts src/plugins/editor/web/groups/groups.test.ts`（`packages/neuro-book`，32 pass）；读取 `session-record.ts` 的 schema 与 `groups.ts` 的 `GroupsSnapshot` 可直接看到 language、active 和 layout 都是当前恢复合同的一部分。
+- **建议改法**：在提案的实例/组模型中逐项列出恢复字段和 owner：标签的 language、preview、pinned、cursor，组的 active tab，工作台的 active group；明确页面标签为何不落盘、最近打开记录为何仍由编辑器拥有，并为“语言已撤回、活动组被移除、标签关闭期间恢复”给出失败与回退规则。
+
+【报告整理】有效发现按影响排序索引：阻断：1、2、4、11；重要：3、5、6、7、8、9、10、12、13、14；建议：无。条目正文按核实顺序追加，未重写。
+未发现问题的方面：Storage 的条件 revision、unknown-outcome 与原件保护机制本身；现有编辑器 dirty/preview/文档结算机制本身；createGrid 的 256 节点、16 层和快照 v2 上限本身。它们已有合同与测试；本报告发现的是提案没有把这些机制接入新模型。渲染、手势手感、标签条视觉与组件 API 按任务范围未审。
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14。
+严重程度数量：阻断 4；重要 10；建议 0。
+【格式更正】第 5 条的类别“性能 / 不变量”按本报告格式归为“不变量”；它的论证仍包含容量与写入频率风险。
+未发现问题的方面：Storage 的条件 revision、unknown-outcome 与原件保护机制本身；现有编辑器 dirty/preview/文档结算机制本身；createGrid 的 256 节点、16 层和快照 v2 上限本身。它们已有合同与测试；本报告发现的是提案没有把这些机制接入新模型。渲染、手势手感、标签条视觉与组件 API 按任务范围未审。
+严重程度数量：阻断 4；重要 10；建议 0。
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14。
