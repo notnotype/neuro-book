@@ -16,6 +16,7 @@ import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, 
 import type {Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
+import {renderEntryForAgent} from "../render/entry";
 import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import type {World} from "../world/world";
@@ -115,7 +116,11 @@ export interface CanonReadView {
     presence(person: string, filter?: PresenceFilter): {readonly changes: readonly StoryChange[]; readonly uncast: number} | "chapter-not-found" | "line-not-found";
     decisions(filter?: DecisionFilter): readonly Decision[];
     /** 某一章涉及的条目（model.md 输出 20）。 */
-    chapterEntries(chapter: string): readonly string[];
+    chapterEntries(chapter: string, mode?: Mode): readonly string[];
+    /** 这一章活页夹分的段（没有分段时只有章开头那条线一段）：读者读到的正文按段落号落在哪条线上（canon.worldlines 输出 12、13）。 */
+    chapterLines(chapter: string): readonly {readonly line: string; readonly from: number}[];
+    /** 条目在读取位置上给 Agent 的渲染（canon.rendering 输出 7、8）：主文字块的带值写法；线读不到、条目不在时为 null。 */
+    render(entry: string, position: ReadPosition, mode: Mode): ReturnType<typeof renderEntryForAgent>;
     /** 一个地址的来历（model.md 输出 15）：每一步是哪条变更、改后的值。列表的地址给出整个列表在每一步之后的值。 */
     origins(address: Address, position: ReadPosition, mode: Mode): readonly OriginStep[] | "chapter-not-found";
     /** 一条剧情变更这次套没套上；不在实际模式的事件里时为 undefined。 */
@@ -199,7 +204,12 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter).filter((item) => tellingInLine(world, line, item))),
         presence: (person, filter = {}) => listPresence(world, person, filter, undefined, line),
         decisions: (filter = {}) => listDecisions(world, filter),
-        chapterEntries: (chapter) => deepFreeze(lineView().engine.chapterEntries(chapter)),
+        chapterEntries: (chapter, mode = "actual") => deepFreeze(lineView().engine.chapterEntries(chapter, mode)),
+        chapterLines: (chapter) => {
+            const segments = world.options.chapterLines?.get(chapter);
+            return deepFreeze(segments === undefined || segments.length === 0 ? [{line: world.positionLine({kind: "chapter", chapter, edge: "start"}), from: 1}] : segments.map((segment) => ({line: segment.line, from: segment.from})));
+        },
+        render: (entry, position, mode) => deepFreeze(renderEntryForAgent(world, entry, position, mode)),
         origins: (address, position, mode) => {
             const steps = lineView().engine.origins(address, position, mode);
             return deepFreeze(steps === "chapter-not-found" ? steps : carried(steps));

@@ -572,10 +572,12 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             return result;
         },
 
-        chapterEntries(chapterId) {
+        chapterEntries(chapterId, mode = "actual") {
             const ids = new Set<string>();
             for (const change of world.changes.values()) {
-                if (change.kind !== "written" || change.status !== "active" || change.at.kind !== "chapter" || change.at.chapter !== chapterId) continue;
+                // 按计划模式再收计划：同一条线的视图里只有这条线看得到的记录，计划是否生效（不是已撤销）看 `status`。
+                const counted = change.kind === "written" || (mode === "planned" && change.kind === "plan");
+                if (!counted || change.status !== "active" || change.at.kind !== "chapter" || change.at.chapter !== chapterId) continue;
                 for (const id of change.involves) ids.add(id);
                 for (const member of change.cast ?? []) for (const id of [member.who, member.as]) if (id !== undefined) ids.add(id);
                 for (const patch of change.patches) if (!isCarry(patch)) ids.add(patch.at.entry);

@@ -144,8 +144,11 @@ export interface Engine {
     plannedAt(position: ReadPosition): readonly string[] | "chapter-not-found";
     /** 待处理（model.md 输出 16）；按计划模式时核对点、套不上与嫌疑区间都算上这个位置计入的计划。缺省实际模式。 */
     pending(position: ReadPosition, mode?: Mode): readonly PendingItem[] | "chapter-not-found";
-    /** 某一章涉及的条目（model.md 输出 20）。 */
-    chapterEntries(chapter: string): readonly string[];
+    /**
+     * 某一章涉及的条目（model.md 输出 20）。按计划模式时再并上安放在这一章、这条线上看得到的生效计划的涉及条目、参与者与补丁地址
+     * （未写的章只有计划时，“涉及本章”靠它；Spec 的补充）。缺省实际模式。
+     */
+    chapterEntries(chapter: string, mode?: Mode): readonly string[];
     /**
      * 实际模式下，安放的全序不晚于这条变更（含它自己；与它在不在事件序列里无关）的那一刻，这个地址的原始状态。变更不存在或没有
      * 安放、条目不在（或已删除）时为 null。

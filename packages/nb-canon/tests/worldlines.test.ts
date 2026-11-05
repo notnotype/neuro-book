@@ -8,6 +8,7 @@ import {affectedLines, touchedOf} from "../src/lines/affected";
 import {lineTable} from "../src/lines/table";
 import {editInPlace} from "../src/world/edits";
 import {renderEntryForAgent} from "../src/render/entry";
+import {createWorldReadView} from "../src/service/reads";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {openTestService} from "./fixtures/service";
@@ -1118,5 +1119,35 @@ describe("canon.worldlines 实现审查 I4 omp 份：当前线、服务的 time�
         const unscheduled = (kind: "written" | "plan") => request([{ref: {kind: "change", id: "tmp:u"}, after: {...written("tmp:u", {kind: "unscheduled", line}), kind}}], created.world.version);
         expect(problems(created.world.publish(unscheduled("written"), "t")).map(([code]) => code)).toContain("line-out-of-bounds");
         expect(created.world.publish(unscheduled("plan"), "t").ok).toBe(true);
+    });
+});
+
+describe("读取视图：按计划模式的 chapterEntries、chapterLines、render（阶段 E 的前置读取）", () => {
+    test("只有计划的章：实际模式没有涉及的条目，按计划模式有；分段的章给出各段的线，没分段的给章开头那条线；render 按读取位置的线", () => {
+        const {world, c1, xia} = base();
+        const bro = ok(world.publish(request([{ref: {kind: "entry", id: "tmp:bro"}, after: person("tmp:bro", "哥哥")}], world.version), "t"));
+        const entryId = bro.ids["tmp:bro"]!;
+        const planned = ok(bro.world.publish(request([{ref: {kind: "change", id: "tmp:p4"}, after: {...written("tmp:p4", at("ch4", 5), [spend(xia, -100)], {involves: [entryId]}), kind: "plan"}}], bro.world.version), "t"));
+        const withText = structuredClone(planned.world.data.entries.get(xia)!);
+        withText.init.text = [{id: "b1", source: "存款 {panel.存款}"}];
+        const texted = ok(planned.world.publish(request([{ref: {kind: "entry", id: xia}, after: withText}], planned.world.version), "t")).world;
+        const forked = ok(texted.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})}], texted.version), "t"));
+        const line = forked.ids["tmp:l"]!;
+        const told = forked.world.withOptions({...forked.world.options, chapterLines: new Map([["ch3", [{line: "main", from: 1}, {line, from: 3}]]])});
+        const view = createWorldReadView(told, new Map());
+        expect(view.chapterEntries("ch4")).toEqual([]);
+        expect(view.chapterEntries("ch4", "planned")).toEqual([xia, entryId].sort());
+        expect(view.chapterLines("ch3")).toEqual([{line: "main", from: 1}, {line, from: 3}]);
+        expect(view.chapterLines("ch4")).toEqual([{line: "main", from: 1}]);
+        // 渲染按读取位置的线：子线上存款是切口前的两万，主线是一万五。
+        const renderedOn = (on?: string) => {
+            const rendered = view.render(xia, {kind: "chapter", chapter: "ch3", edge: "end", ...(on === undefined ? {} : {line: on})}, "actual");
+            return typeof rendered === "string" || rendered === null ? rendered : rendered.blocks[0]?.text;
+        };
+        expect(renderedOn(line)).toContain("20000");
+        expect(renderedOn("main")).toContain("15000");
+        // 位置不写线时取这一章讲的线：第 3 章最后一段讲子线。
+        expect(renderedOn()).toContain("20000");
+        expect(renderedOn("l404")).toBe("line-not-found");
     });
 });

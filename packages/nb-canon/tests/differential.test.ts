@@ -277,7 +277,7 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
         for (const path of ["panel.存款", "character.态度"]) expect(inc.originsAfter(change.id, {entry: entries[0]!, path}), `${where()} originsAfter ${change.id} ${path}`).toEqual(ref.originsAfter(change.id, {entry: entries[0]!, path}));
     }
     for (const position of positions) expect(inc.plannedAt(position), `${where()} plannedAt ${JSON.stringify(position)}`).toEqual(ref.plannedAt(position));
-    for (const chapter of inputs.order.ids) expect(inc.chapterEntries(chapter)).toEqual(ref.chapterEntries(chapter));
+    for (const chapter of inputs.order.ids) for (const mode of ["actual", "planned"] as const) expect(inc.chapterEntries(chapter, mode)).toEqual(ref.chapterEntries(chapter, mode));
 }
 
 describe("差分：增量更新与整本重算逐字相同", () => {
