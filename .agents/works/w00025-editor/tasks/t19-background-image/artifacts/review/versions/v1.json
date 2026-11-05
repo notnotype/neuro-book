@@ -1,0 +1,73 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t19-background-image",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "背景图片与护眼底色",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "b01f09f3ee6be481b8d70dc8519b042de3dd4e2515a7ef39ff81c3d1eb2f39b4",
+    "files": [
+        "index.html",
+        "r1/paper-dark.webp",
+        "r1/paper-light.webp",
+        "r1/tint-green.webp",
+        "r1/tint-parchment.webp",
+        "r1/window-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-scope",
+            "type": "single",
+            "label": "背景放在哪里",
+            "options": [
+                {
+                    "value": "paper",
+                    "label": "只在正文区域"
+                },
+                {
+                    "value": "window",
+                    "label": "整个窗口"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "paper"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-eye",
+            "type": "single",
+            "label": "护眼模式怎么做",
+            "options": [
+                {
+                    "value": "both",
+                    "label": "图片之外，再给几个纯色底"
+                },
+                {
+                    "value": "image",
+                    "label": "只做图片"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "both"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-05T08:36:21.668Z"
+}
