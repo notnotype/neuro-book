@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: theme.skins
 owners:
   - nbook.workbench
@@ -40,7 +40,7 @@ type ThemeDeclaration = {
     base: "nbook" | "macos";
     fonts?: {display?: string; prose?: string};    // 系统字体栈
     crop?: {
-        empty?: {position?: string; contentX?: number};   // contentX：内容中心在内容区宽度的比例，0–1，缺省 0.5
+        empty?: {position?: string; contentX?: number};   // contentX：内容中心在内容区宽度的比例，0.25–0.5，缺省 0.5（居中）；偏右的以后再加
         marginLeft?: {size: string; position: string};    // CSS background-size、background-position
         marginRight?: {size: string; position: string};
         sidebarCorner?: {size: string; position: string};
@@ -59,7 +59,7 @@ type Look = {
 规则：
 
 - 贡献 id：无点的 id 只有 `nbook.workbench` 能用（`nbook`、`macos`）；其余以 `<插件 id>.` 开头。
-- 取值不能含 `url(`；`scene` 不能是绝对路径、带方案的地址，也不能有 `..`。
+- 取值不能含反斜杠，也不能含 `url`、`src`、`image`、`image-set`、`cross-fade`、`element`、`paint` 后接括号的写法：CSS 先解转义再认函数名，`u\72l(` 就是 `url(`。`scene` 不能是绝对路径、带方案的地址，也不能有 `..`。
 - 不合规则的贡献不接受，记诊断，其它主题照常（[`runtime.plugin-manifest`](../runtime/plugin-manifest.md)）。
 
 配置项 `nbook.workbench/theme` 是主题 id，缺省 `nbook`，用户层与项目层都允许。
@@ -73,7 +73,7 @@ type Look = {
 5. **正文两侧**：Markdown 编辑器的正文列两侧露出场景图，裁切取 `crop.marginLeft`、`crop.marginRight`，往正文方向淡出，从工具栏以下开始，不随正文滚动。一侧不足 120px 时那一侧不画。拆分后每组各自判断。源码编辑器、图片查看器不画。
 6. **侧栏下角**：`sidebar` 这个 Part 的下角露出场景图，裁切取 `crop.sidebarCorner`，往上淡出，不接收指针，列表长时盖在它上面。高度不足 300px 时不画。别的 Part 不画。
 7. **活动栏**：面、前景色与当前项的颜色取 `activityBar`，有 `ornament` 时首尾各画一条。
-8. **字体**：欢迎页标题用 `fonts.display`，Markdown 正文用 `fonts.prose`，没有时用现有字体。
+8. **字体**：欢迎页标题用 `fonts.display`，Markdown 正文用 `fonts.prose`，没有时用现有字体。书架的展示字体不变：`fonts.display` 写成专用的变量，不写公共的 `--font-display`。
 9. **无障碍偏好**：`prefers-contrast: more`、`forced-colors: active` 下不画场景；配色与活动栏照旧。
 10. **没写的位置和没有主题时一样**：`nbook`、`macos` 的外观不因本能力改变。
 11. **内置的“书房”**：随产品提供，不是缺省。
@@ -117,6 +117,18 @@ type Look = {
 
 Smoke：`e2e/themes.e2e.ts`。
 
+## 实现合同
+
+- 公开入口：`workbench/shared/contracts.ts`（`WORKBENCH_THEMES_POINT`、`ThemeDeclaration`、`THEME_CHOICES_PROVIDER`）；`shared/host.ts` 的 `windowPluginFilesKey`（插件的静态文件：内置的随前端构建，第三方的经插件文件端点）。
+- owner 与依赖方向：贡献点、选择、文档根的写入、活动栏与侧栏下角归 `nbook.workbench`；空状态归 `nbook.editor`（`editor.pages` 的声明加了可选的 `scene`）；正文两侧与正文字体归 `nbook.markdown`。各位置只读 `src/ui/theme/skin-vars.ts` 里的变量，没有变量时和没有主题一样。
+- 不变量：声明里的素材只有相对路径，描述文件不 import 图片：服务端构建会把图片打进产物，URL 也和前端的不一样。内置素材的 URL 表在 `web/plugins.ts`。
+- 不变量：贡献点定义写在 shared，三个运行位置都带；没有入口的位置经描述里的 `contributionPoints` 登记，否则服务端的插件页把第三方主题标成“未知贡献点”。
+- 不变量：主题目录经 receiver 收，不取激活时的快照，以后热插拔不用改。
+- 不变量：写偏移的规则要排在元素自己的 `padding` 之后，否则会被简写盖掉（`themes.e2e.ts` 断言空状态下标志的位置）。
+
 ## 证据
 
 - 批准依据：开发者 2026-11-05 的决定，记在主工作区 master 的 `.agents/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/README.md`。
+- 实现入口：[`workbench/shared/themes.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/themes.ts)、[`workbench/web/themes.ts`](../../../packages/neuro-book/src/plugins/workbench/web/themes.ts)、[`ui/theme/`](../../../packages/neuro-book/src/ui/theme/skin-vars.ts)、[`theme-study/plugin.ts`](../../../packages/neuro-book/src/plugins/theme-study/plugin.ts)
+- 合同测试：[`workbench/themes.test.ts`](../../../packages/neuro-book/src/plugins/workbench/themes.test.ts)
+- Smoke：[`themes.e2e.ts`](../../../packages/neuro-book/e2e/themes.e2e.ts)；量出来的对比度在 master 的 `.agents/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/evidences/` 与测试输出，最低 4.82

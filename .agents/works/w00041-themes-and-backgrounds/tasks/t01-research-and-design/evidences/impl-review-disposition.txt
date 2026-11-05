@@ -1,0 +1,19 @@
+t01 实现审查（Sonnet，15 条）的处理。阻断 2、重要 4、建议 9，全部核实。
+
+F1 注释位置：成立，素材表挪到 builtinPluginCatalogs 之后。
+F2 活动栏装饰靠无效值回退：成立，改成显式的宽度变量，没有主题时是 0px。
+F3 空状态偏移被 padding 简写盖掉：成立（审查者在 Chrome 实测），偏移规则挪到 .editor-group__empty 之后；e2e 补空状态下标志中心的位置断言。
+F4 示例放错目录：成立，移到 examples/external/ 与 declarative 并列，撤回 build-examples.ts 的改动。计划里“走构建”的那半作废：不写代码的插件目录本身就能安装。
+F5 contentX 范围：成立，schema 收窄到 0.25–0.5，Spec 同步。往右偏、更小的值以后有需要再加。
+F6 url( 可用 CSS 转义绕过：成立（Chrome 实测会发请求）。改成整体拒绝反斜杠，并拒绝 url、src、image、image-set、cross-fade、element、paint 后接括号；单元用例补转义、vars、裁切。
+F7 用户层 invalid 被忽略：成立，invalid 时取上一份有效值，与设置系统一致。
+F8 fonts.display 波及书架：成立，另设 --skin-font-display，只有欢迎页标题读；e2e 断言 --font-display 不被写。
+F9 Agent 查不到主题 id：成立，命令说明写出 id 的形状，invalid-args 的原因列出全部已有 id。
+F10 a11y 用例没打开文件：成立，两种偏好下都打开文件，断言正文两侧、欢迎页与侧栏下角。
+F11 对比度量法可能空过：成立，量之前等场景图解码，欢迎页标题要求底色多于 20 种，侧栏用 40 个文件让行压在下角图上，逐行量（14 行，最低 5.43）。透明度没有量：书房没有用 opacity 淡化文字，不查。
+F12 测试覆盖：部分成立。补了 Lab 不受影响、残留检查含 body 与 --font-display、转义等用例；“诊断”没有断言（登记处的诊断由内核通用测试覆盖），重复 id 同样由内核通用测试覆盖，不另写。
+F13 贡献点前缀守卫测试失败：成立，在 OWN_ID_RULES 登记，规则由 themes.test.ts 覆盖。
+F14 强转绕类型：成立，主题变量直接写，配色宿主 class 另加，去掉强转。
+F15 内置插件名称表缺 nbook.theme-study：成立，登记并补两份目录与测试表。
+
+验证：typecheck 通过；相关单元测试通过；themes.e2e.ts 与 settings.e2e.ts 通过。test:affected 有 3 项失败，都与本任务无关：nb-agent-ui 的 style-tokens 两条在 master 上同样失败（AgentSessionPanel）、nb-story 的类型错误在 master 上同样存在（qa-service.ts）、nb-story 的一条配置测试在负载 12 下 5 秒超时。
