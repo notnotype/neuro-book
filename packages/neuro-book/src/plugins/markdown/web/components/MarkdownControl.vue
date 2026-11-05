@@ -3,7 +3,7 @@
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
-import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
 import "@notnotype/nb-markdown/markdown.css";
 
@@ -20,6 +20,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
 import {languageFor} from "../language-registry";
+import MarkdownMenus from "./menus/MarkdownMenus.vue";
 import MarkdownToolbar from "./menus/MarkdownToolbar.vue";
 import {markdownAssetsKey} from "../parts/asset-urls";
 import {syntaxCatalogKey} from "../syntax-catalog";
@@ -69,6 +70,9 @@ const viewHost: MarkdownViewHost = {
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 let editor: Editor | null = null;
+/** 菜单层要的实例：响应式，随挂载与卸载变。这个文件里的逻辑直接用 `editor`。 */
+const currentEditor = shallowRef<Editor | null>(null);
+const menuLayer = useTemplateRef<InstanceType<typeof MarkdownMenus>>("menuLayer");
 /** 这个实例建好时取定的语言（docs/specs/workspace/markdown-syntaxes.md 输出 7）：与 `editor` 同时设上、同时清空。 */
 let language: MarkdownLanguage | null = null;
 let bound: TextEditorBinding | null = null;
@@ -421,6 +425,7 @@ onMounted(() => {
     editor.on("transaction", onTransaction);
     editor.on("focus", onFocus);
     editor.on("blur", onBlur);
+    currentEditor.value = editor;
     if (props.binding !== null) enter(props.binding);
     editingVersion.value += 1;
     emit("ready", handle);
@@ -440,6 +445,7 @@ onBeforeUnmount(() => {
         editor.unmount();
     }
     editor = null;
+    currentEditor.value = null;
     language = null;
     refreshOutline(true);
     emit("ready", null);
@@ -448,10 +454,11 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="markdown-control-root flex h-full w-full flex-col">
-        <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value" :editing="editing" :menus="menus" :readonly="props.readonly" />
+        <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value" :editing="editing" :menus="menus" :readonly="props.readonly" @prompt="(action) => menuLayer?.prompt(action)" />
         <div ref="scroller" class="min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
             <div ref="root" class="markdown-control"></div>
         </div>
+        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.binding?.token ?? null" />
     </div>
 </template>
 

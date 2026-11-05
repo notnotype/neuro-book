@@ -507,6 +507,9 @@
         "color-stone": "米色",
         "color-green": "绿",
         "color-blue": "蓝",
-        "color-purple": "紫"
+        "color-purple": "紫",
+        "selection": "选区格式",
+        "promptRuby": "注音",
+        "promptBilingual": "对照原文"
     }
 }

@@ -1,16 +1,18 @@
 <script setup lang="ts">
 /** Markdown 编辑器的固定工具栏（同名 .md）。 */
-import {ColorSwatches, DropdownMenu, IconButton, Popover, Toolbar} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton, Toolbar} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
 
 import {EDITING_ACTIONS, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
+import MarkdownColorButton from "./MarkdownColorButton.vue";
 import {HIGHLIGHT_COLORS, LINK_COMMAND, TEXT_COLORS} from "./palette";
 import type {PaletteColor} from "./palette";
 
 const props = defineProps<{editing: EditorEditing; menus: EditorMenus; readonly: boolean}>();
+const emit = defineEmits<{(event: "prompt", action: "ruby" | "bilingual"): void}>();
 
 /** 版面用的定值：`IconButton` 的 `sm` 是 26px，按钮之间 gap 2px，分隔线连两侧 9px，“⋯”占一个按钮。 */
 const BUTTON = 28;
@@ -120,7 +122,7 @@ const itemOf = (id: EditingActionId): DropdownMenuItemData => ({
     ...(props.menus.shortcut(id) === null ? {} : {shortcut: props.menus.shortcut(id) as string}),
 });
 
-/** “⋯”：收起来的项，加上决定 6 里常驻“⋯”的那几个（上标、下标、分割线）与贡献的 `menu` 项。注音、双语要输入，在选区菜单与斜杠菜单里。 */
+/** “⋯”：收起来的项，加上决定 6 里常驻“⋯”的那几个（上标、下标、分割线、注音、双语）与贡献的 `menu` 项。 */
 const moreMenu = computed<DropdownMenuItemData[]>(() => {
     const hidden = fit.value.hidden.flatMap((item): DropdownMenuItemData[] => {
         switch (item.kind) {
@@ -139,7 +141,7 @@ const moreMenu = computed<DropdownMenuItemData[]>(() => {
             case "separator": return [];
         }
     });
-    const always = (["superscript", "subscript", "divider"] as const).map(itemOf);
+    const always = (["superscript", "subscript", "divider", "ruby", "bilingual"] as const).map(itemOf);
     const menuEntries = props.menus.contributed(EDITOR_TOOLBAR_POINT).flat().filter((entry) => entry.placement === "menu").map((entry): DropdownMenuItemData => ({id: `contributed:${entry.id}`, label: entry.label, ...(entry.icon === null ? {} : {iconClass: entry.icon}), disabled: !entry.enabled}));
     const sections = [hidden, always, menuEntries].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{id: `sep-${String(index)}`, label: "", separator: true}, ...section]));
@@ -151,8 +153,9 @@ function onMore(id: string): void {
     else if (id.startsWith("align:")) props.menus.run("align", {value: id.slice("align:".length)});
     else if (id.startsWith("color:")) {
         const [, action, color] = id.split(":") as [string, "text-color" | "highlight", string];
-        pickColor(action, color === "" ? null : color);
+        props.menus.run(action, {color: color === "" ? null : color});
     }
+    else if (id === "ruby" || id === "bilingual") emit("prompt", id);
     else props.menus.run(id as EditingActionId);
 }
 
@@ -162,11 +165,6 @@ const buttonTitle = (id: EditingActionId): string => {
 };
 
 const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => (id === "text-color" ? TEXT_COLORS : HIGHLIGHT_COLORS);
-const colorOpen = ref<"text-color" | "highlight" | null>(null);
-function pickColor(id: "text-color" | "highlight", color: string | null): void {
-    props.menus.run(id, {color});
-    colorOpen.value = null;
-}
 </script>
 
 <template>
@@ -199,32 +197,7 @@ function pickColor(id: "text-color" | "highlight", color: string | null): void {
                         <span class="i-lucide-chevron-down h-3 w-3 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
                     </button>
                 </DropdownMenu>
-                <Popover
-                    v-else-if="item.kind === 'color'"
-                    :open="colorOpen === item.action"
-                    side="bottom"
-                    @update:open="(open: boolean) => { colorOpen = open ? item.action : null; }"
-                >
-                    <template #trigger>
-                        <IconButton
-                            size="sm"
-                            :title="props.menus.title(item.action)"
-                            :icon-class="EDITING_ACTIONS[item.action].icon"
-                            :disabled="props.readonly || !props.editing.enabled(item.action)"
-                        />
-                    </template>
-                    <div class="p-2">
-                        <ColorSwatches
-                            :model-value="null"
-                            :colors="colors(item.action).map((color) => color.value)"
-                            :auto-label="props.menus.label('colorNone')"
-                            :columns="5"
-                            size="sm"
-                            :label="props.menus.title(item.action)"
-                            @update:model-value="(color: string | null) => pickColor(item.action, color)"
-                        />
-                    </div>
-                </Popover>
+                <MarkdownColorButton v-else-if="item.kind === 'color'" :action="item.action" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
                 <DropdownMenu v-else-if="item.kind === 'align'" :items="alignMenu" @select="(value: string) => props.menus.run('align', {value})">
                     <button type="button" class="markdown-toolbar__align nb-ui-focus-ring" :disabled="props.readonly || !props.editing.enabled('align')" :title="props.menus.title('align')" :aria-label="props.menus.title('align')">
                         <span class="i-lucide-align-left h-4 w-4" aria-hidden="true" />

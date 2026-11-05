@@ -510,6 +510,9 @@
         "color-stone": "Beige",
         "color-green": "Green",
         "color-blue": "Blue",
-        "color-purple": "Purple"
+        "color-purple": "Purple",
+        "selection": "Selection Formatting",
+        "promptRuby": "Ruby Text",
+        "promptBilingual": "Source Text"
     }
 }
