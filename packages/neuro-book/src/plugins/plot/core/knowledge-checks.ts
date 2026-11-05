@@ -6,27 +6,11 @@
 import type {CanonReadView, DiagnosticCompute, Finding, Mode, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
 import {COMPONENT_IDS, DIAGNOSTIC_IDS, ENTRY_TYPES} from "../shared/declarations";
-import {bodyOf, KnowingIndex} from "./knowledge";
+import {bodyOf, knowingIndex} from "./knowledge";
 
 /** 剧情插件登记给 canon 的知情诊断的计算，按诊断 id。 */
 export function knowingDiagnostics(): Readonly<Record<string, DiagnosticCompute>> {
     return {[DIAGNOSTIC_IDS.relayBroken]: relayBroken, [DIAGNOSTIC_IDS.knowingIncomplete]: knowingIncomplete};
-}
-
-/**
- * 知情的诊断共用一份索引：同一次计算里几个诊断拿到的是同一份视图，按视图、模式与位置各建一次。不按读取输入的摘要跨视图
- * 缓存：摘要里只有世界的版本，不认是哪一份世界（同一进程里两份世界版本相同时会串用）。
- */
-const indexes = new WeakMap<CanonReadView, Map<string, KnowingIndex>>();
-export function knowingIndex(view: CanonReadView, mode: Mode, position: ReadPosition): KnowingIndex {
-    const byView = indexes.get(view) ?? new Map<string, KnowingIndex>();
-    indexes.set(view, byView);
-    const key = `${mode}|${JSON.stringify(position)}`;
-    const cached = byView.get(key);
-    if (cached !== undefined) return cached;
-    const index = new KnowingIndex(view, mode, position);
-    byView.set(key, index);
-    return index;
 }
 
 /** 有知情命名空间的人（人物与组织）。 */

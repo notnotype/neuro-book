@@ -185,6 +185,7 @@ export class WorldService {
     /** 最近几次诊断计算的耗时（project.md 输出 26）。 */
     readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
     #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
+    #viewCache: {readonly world: World; readonly generation: number; readonly view: CanonReadView} | null = null;
     /** 讲述按正文快照与当前章序定位（model.md 输出 24、26）；结果按章与那一章的正文缓存。 */
     readonly #locator = new TellingLocator((chapter) => this.#texts.get(chapter)?.text, () => this.#world.options.order);
     readonly diagnostics: ServiceDiagnostic[];
@@ -337,7 +338,7 @@ export class WorldService {
         const unavailable: {diagnostic: string; reason: string}[] = [];
         const truncated: string[] = [];
         const registry = world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY;
-        const view = createReadView(world, this.#locator, this.#stampOf(world));
+        const view = this.#readViewOf(world);
         let tellings: Map<string, Telling> | undefined;
         const findingPosition = (finding: Finding): {position: SortPosition; occurrence?: Occurrence} => {
             if (finding.at === undefined) return {position: null};
@@ -411,16 +412,34 @@ export class WorldService {
      */
     snapshot(): {readonly view: CanonReadView; readonly viewed: (token: string) => ViewedReads; readonly stamp: ReadStamp} {
         const world = this.#world;
+        return {view: this.#readViewOf(world), viewed: (token) => this.#guarded(this.#viewedOn(token, world)), stamp: this.#stampOf(world)};
+    }
+
+    /**
+     * 一份世界在当前读取输入上的只读视图。世界与输入代次都没变时交出同一个对象（快照与诊断的计算共用）：插件按视图对象缓存
+     * 它的索引（例如剧情的知情索引），同一份输入上的几次读取就不用每次重建。输入变了以后旧对象的方法一律抛错，见 `#guarded`。
+     */
+    #readViewOf(world: World): CanonReadView {
+        const cached = this.#viewCache;
+        if (cached !== null && cached.world === world && cached.generation === this.#inputGeneration) return cached.view;
+        const view = this.#guarded(createReadView(world, this.#locator, this.#stampOf(world)));
+        this.#viewCache = {world, generation: this.#inputGeneration, view};
+        return view;
+    }
+
+    /**
+     * 包一层：输入代次变了以后（正文快照或插件数据换了）调用就抛错，持有旧快照的调用方要重新取。`compareKeys` 只比较传进来的
+     * 两个键、不读世界与输入，又是诊断里调用最多的方法（排序与逐个比较），不包。
+     */
+    #guarded<T extends object>(target: T): T {
         const generation = this.#inputGeneration;
         const check = () => {
             if (this.#inputGeneration !== generation) throw new Error("canon snapshot used after the text snapshot or plugin data changed; take a new snapshot");
         };
-        const guard = <T extends object>(target: T): T => Object.fromEntries(Object.entries(target).map(([key, value]) => [key, typeof value === "function" ? (...args: unknown[]) => {
+        return Object.fromEntries(Object.entries(target).map(([key, value]) => [key, typeof value === "function" && key !== "compareKeys" ? (...args: unknown[]) => {
             check();
             return (value as (...inner: unknown[]) => unknown)(...args);
         } : value])) as T;
-        const stamp = this.#stampOf(world);
-        return {view: guard(createReadView(world, this.#locator, stamp)), viewed: (token) => guard(this.#viewedOn(token, world)), stamp};
     }
 
     /* ---------- 视图（输出 24） ---------- */

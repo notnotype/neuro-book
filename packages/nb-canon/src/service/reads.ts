@@ -210,14 +210,14 @@ export function concerns(change: StoryChange, entry: string): boolean {
     return change.involves.includes(entry) || (change.cast ?? []).some((member) => member.who === entry || member.as === entry) || change.patches.some((patch) => patch.at.entry === entry);
 }
 
-/** 按安放的先后排（前史、各章按章序与排序键），同一位置按 id；未排章的排在最后。 */
+/** 按安放的先后排（前史、各章按章序与排序键），同一位置按 id；未排章的排在最后。每条的排序键只算一次（几千条时比较里重算很贵）。 */
 function sortByPlacement(order: ChapterOrder, changes: StoryChange[]): void {
-    changes.sort((a, b) => {
-        const left = placementRank(order, a.at);
-        const right = placementRank(order, b.at);
-        if (left === null || right === null) return left === right ? compareIds(a.id, b.id) : left === null ? 1 : -1;
-        return compareRanks(left, right) || compareIds(a.id, b.id);
+    const ranked = changes.map((change) => ({change, rank: placementRank(order, change.at)}));
+    ranked.sort((a, b) => {
+        if (a.rank === null || b.rank === null) return a.rank === b.rank ? compareIds(a.change.id, b.change.id) : a.rank === null ? 1 : -1;
+        return compareRanks(a.rank, b.rank) || compareIds(a.change.id, b.change.id);
     });
+    for (const [index, item] of ranked.entries()) changes[index] = item.change;
 }
 
 /**

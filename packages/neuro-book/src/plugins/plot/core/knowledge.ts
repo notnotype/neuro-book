@@ -15,6 +15,7 @@
 import type {CanonReadView, EventKey, Mark, Mode, ReadPosition, StoryChange, TellingPosition} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, MARK_IDS, type Degree, type How} from "../shared/declarations";
+import {perViewCache} from "./view-cache";
 
 /** 一行知情（`know.知情` 的元素，加上它从哪来）。 */
 export interface KnowingRow {
@@ -156,9 +157,14 @@ export class KnowingIndex {
         if (this.#derived !== null) return this.#derived;
         const derived = new Map<string, Map<string, Candidate[]>>();
         const add = (person: string, point: string, candidate: Candidate) => {
-            const byPoint = derived.get(person) ?? new Map<string, Candidate[]>();
-            byPoint.set(point, [...(byPoint.get(point) ?? []), candidate]);
-            derived.set(person, byPoint);
+            let byPoint = derived.get(person);
+            if (byPoint === undefined) {
+                byPoint = new Map();
+                derived.set(person, byPoint);
+            }
+            const list = byPoint.get(point);
+            if (list === undefined) byPoint.set(point, [candidate]);
+            else list.push(candidate);
         };
         for (const change of countedChanges(this.view, this.mode, this.#position)) {
             const learns = (change.marks ?? []).filter((mark): mark is Mark & {point: string; degree?: "knows" | "suspects"} => mark.kind === MARK_IDS.presentLearns && mark.version === 1 && typeof mark.point === "string");
@@ -202,8 +208,22 @@ function explicitRow(point: string, element: Readonly<Record<string, unknown>>, 
     };
 }
 
-/** 在场的取法（canon.model 输出 29）：实际模式取已写、生效、套上的；按计划模式再加上这个位置计入的计划。 */
-export function countedChanges(view: CanonReadView, mode: Mode, position: ReadPosition): StoryChange[] {
+const knowingIndexes = perViewCache<KnowingIndex>();
+/** 一份视图在一个模式与读取位置上的知情索引：诊断、按视角的视图与远程读取共用（缓存见 `view-cache.ts`）。 */
+export function knowingIndex(view: CanonReadView, mode: Mode, position: ReadPosition): KnowingIndex {
+    return knowingIndexes(view, `${mode}|${JSON.stringify(position)}`, () => new KnowingIndex(view, mode, position));
+}
+
+const counted = perViewCache<readonly StoryChange[]>();
+/**
+ * 在场的取法（canon.model 输出 29）：实际模式取已写、生效、套上的；按计划模式再加上这个位置计入的计划。不保证先后。一次读取里
+ * 知情、伏笔与账本都要，按视图、模式与位置缓存（`view-cache.ts`）：返回的数组是共用的，调用方不改它。
+ */
+export function countedChanges(view: CanonReadView, mode: Mode, position: ReadPosition): readonly StoryChange[] {
+    return counted(view, `${mode}|${JSON.stringify(position)}`, () => computeCounted(view, mode, position));
+}
+
+function computeCounted(view: CanonReadView, mode: Mode, position: ReadPosition): readonly StoryChange[] {
     const limit = view.positionKey(position);
     if (limit === null) return [];
     const counted = view.changes({kind: "written", status: "active"}).filter((change) => {

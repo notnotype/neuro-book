@@ -15,7 +15,7 @@
 import type {CanonReadView, EntryView, ReadPosition, StoryChange, ViewedReads} from "@notnotype/nb-canon/schema";
 
 import {DEFAULT_SECRECY, ENTRY_TYPES, type Secrecy} from "../shared/declarations";
-import {KnowingIndex, presentChanges, type KnowingRow} from "./knowledge";
+import {knowingIndex, presentChanges, type KnowingIndex, type KnowingRow} from "./knowledge";
 
 export interface ViewpointGrant {
     /** 看的人（条目 id）；写手的视图可以没有，这时保密以上的知识点一律读不到。 */
@@ -53,7 +53,7 @@ export class Viewpoint {
         /** 返回了占位时记一条审计：哪个读取、挡掉了哪些对象。 */
         readonly audit: (method: string, blocked: readonly string[]) => void,
     ) {
-        this.#index = new KnowingIndex(view, "actual", grant.until);
+        this.#index = knowingIndex(view, "actual", grant.until);
         const viewerName = grant.viewer === null ? null : this.#nameOf(grant.viewer);
         this.#placeholder = `一件${viewerName ?? "写手"}不知道的事`;
     }

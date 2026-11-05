@@ -12,6 +12,7 @@ import type {CanonReadView, DiagnosticCompute, Finding, Mark, Mode, Occurrence, 
 
 import {ENTRY_TYPES, FS_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
 import {countedChanges} from "./knowledge";
+import {perViewCache} from "./view-cache";
 
 export type Role = "plant" | "echo" | "mislead" | "partial" | "payoff";
 export type Stage = "unplanted" | "planted" | "echoing" | "partial" | "paidOff";
@@ -182,17 +183,10 @@ export function tellingPositionOf(position: ReadPosition): TellingPosition | nul
     return position.kind === "initial" ? null : {chapter: position.chapter, edge: position.edge};
 }
 
-/** 伏笔的诊断共用一份索引：同一次计算里几个诊断拿到同一份视图。 */
-const indexes = new WeakMap<CanonReadView, Map<string, ForeshadowIndex>>();
+const foreshadowIndexes = perViewCache<ForeshadowIndex>();
+/** 一份视图在一个读取位置上的伏笔索引：诊断与账本共用（缓存见 `view-cache.ts`）。 */
 export function foreshadowIndex(view: CanonReadView, position: ReadPosition): ForeshadowIndex {
-    const byView = indexes.get(view) ?? new Map<string, ForeshadowIndex>();
-    indexes.set(view, byView);
-    const key = JSON.stringify(position);
-    const cached = byView.get(key);
-    if (cached !== undefined) return cached;
-    const index = new ForeshadowIndex(view, position);
-    byView.set(key, index);
-    return index;
+    return foreshadowIndexes(view, JSON.stringify(position), () => new ForeshadowIndex(view, position));
 }
 
 const ref = (kind: "entry" | "change", id: string) => ({kind, id}) as const;

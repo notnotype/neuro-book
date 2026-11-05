@@ -16,9 +16,9 @@ import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {foreshadowDiagnostics, ledger} from "../core/foreshadowing";
 import {conflictsOf} from "../core/goals";
-import {experienceOf, firstReveal, readerKnowing} from "../core/knowledge";
+import {experienceOf, firstReveal, knowingIndex, readerKnowing} from "../core/knowledge";
 import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
-import {knowingDiagnostics, knowingIndex} from "../core/knowledge-checks";
+import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
 import {plotWorldContract} from "../shared/contracts";
 
