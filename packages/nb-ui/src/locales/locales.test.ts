@@ -30,6 +30,12 @@ const LEGACY: readonly Legacy[] = [
     {key: "breadcrumb.label", zh: "面包屑导航"}, // navigation/Breadcrumb.vue 模板里的 aria-label
     {key: "codeBlock.empty", zh: "无内容"}, // display/CodeBlock.vue 的 emptyText 缺省
     {key: "codeBlock.truncated", zh: "只公开了部分内容"}, // 同上，truncatedText 缺省
+    {key: "diffView.mode", zh: "显示方式"}, // display/DiffView.vue，切换行内与两栏的读屏名称
+    {key: "diffView.inline", zh: "行内"}, // 同上
+    {key: "diffView.split", zh: "两栏"}, // 同上
+    {key: "diffView.unchanged", zh: "没有改动"}, // 同上，两段文字相同时标题行的说明
+    {key: "diffView.foldedLines", zh: "展开 8 行没变的内容", params: {count: 8}}, // 同上，收起的连续行
+    {key: "diffView.foldedChars", zh: "…（812 字）…", params: {count: 812}}, // 同上，一行之内收起的文字
     {key: "colorPicker.value", zh: "颜色值"}, // form/ColorPickerPanel.vue 颜色值输入的 aria-label
     {key: "colorPicker.presets", zh: "预设颜色"}, // 同上，预设色板的 aria-label
     {key: "colorSwatches.label", zh: "颜色"}, // form/ColorSwatches.vue 的 label 缺省

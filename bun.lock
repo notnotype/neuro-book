@@ -430,6 +430,7 @@
         "@iconify/tailwind4": "^1.2.3",
         "@vueuse/core": "^14.3.0",
         "clsx": "^2.1.1",
+        "diff": "^9.0.0",
         "reka-ui": "^2.10.1",
         "tailwind-merge": "^3.6.0",
       },

@@ -129,6 +129,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - [`Kbd`](src/components/display/Kbd.md)：键帽。
 - [`Table`](src/components/display/Table.md)：数据表格。
 - [`CodeBlock`](src/components/display/CodeBlock.md)：代码块。
+- [`DiffView`](src/components/display/DiffView.md)：比较改前改后，按行、按字标出改动。
 
 ## 界面文字
 

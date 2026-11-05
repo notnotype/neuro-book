@@ -12,6 +12,7 @@ export {default as ToggleGroup} from "./controls/ToggleGroup.vue";
 export {default as Toolbar} from "./controls/Toolbar.vue";
 export {default as Badge} from "./display/Badge.vue";
 export {default as CodeBlock} from "./display/CodeBlock.vue";
+export {default as DiffView} from "./display/DiffView.vue";
 export {default as EmptyState} from "./display/EmptyState.vue";
 export {default as Kbd} from "./display/Kbd.vue";
 export {default as Progress} from "./display/Progress.vue";

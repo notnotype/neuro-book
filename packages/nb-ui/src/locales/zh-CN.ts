@@ -22,6 +22,14 @@ export default {
         empty: "无内容",
         truncated: "只公开了部分内容",
     },
+    diffView: {
+        mode: "显示方式",
+        inline: "行内",
+        split: "两栏",
+        unchanged: "没有改动",
+        foldedLines: "展开 {{count}} 行没变的内容",
+        foldedChars: "…（{{count}} 字）…",
+    },
     colorPicker: {
         value: "颜色值",
         presets: "预设颜色",
