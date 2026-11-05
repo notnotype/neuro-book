@@ -57,12 +57,13 @@ const SELF_START: Endpoint = {kind: "event", event: "self", edge: "start"};
 
 /**
  * 只看说法自己的规则（输出 9 与输入表）：形状、日期各级连续、单位不比历法细、`min` 不大于 `max`、`of` 不是自己、同一件事最多一条
- * `birth`。引用存不存在、`basis` 的讲述在不在 `told` 里由调用方（nb-canon）查。`self` 是这件事的 id（新建时可以是临时 id）。
+ * `birth`（多于一条时每一条都报：调用方只查新写的说法，新的一条插在旧的前面时也要报到它上面）。引用存不存在、`basis` 的讲述在不在
+ * `told` 里由调用方（nb-canon）查。`self` 是这件事的 id（新建时可以是临时 id）。
  */
 export function validateStatements(statements: readonly Statement[], calendar: Calendar, self?: string): StatementProblem[] {
     const problems: StatementProblem[] = [];
     const fail = (index: number, message: string) => problems.push({index, code: "invalid-time", message});
-    let births = 0;
+    const births = statements.filter((statement) => statement.kind === "birth").length;
     for (const [index, statement] of statements.entries()) {
         switch (statement.kind) {
             case "date": {
@@ -92,8 +93,7 @@ export function validateStatements(statements: readonly Statement[], calendar: C
                 break;
             }
             case "birth":
-                births += 1;
-                if (births === 2) fail(index, "a change can be the birth of at most one person");
+                if (births > 1) fail(index, "a change can be the birth of at most one person");
                 break;
             default:
                 fail(index, `unknown statement kind "${String((statement as {kind?: unknown}).kind)}"`);

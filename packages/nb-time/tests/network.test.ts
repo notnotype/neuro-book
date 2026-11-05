@@ -104,6 +104,11 @@ describe("canon.time 输出 2、验收 3：打架与局部降级", () => {
         ]});
         expect(twice.conflicts.map((conflict) => conflict.refs.length)).toEqual([2, 2]);
     });
+
+    test("一条说法自己成的环（出生的那件事上写他三岁）：打架记在说法所在的事上，不是分量里安放最早的那件", () => {
+        const network = solveNetwork({events: ["early", "E"], constraints: [between(start("E"), start("early"), 0, Number.POSITIVE_INFINITY, "early 在 E 之后"), between(start("E"), start("E"), 3, 3, "E 时三岁")]});
+        expect(network.conflicts).toEqual([{refs: ["E 时三岁"], events: ["E"]}]);
+    });
 });
 
 describe("canon.time 输出 1：依据", () => {
@@ -137,9 +142,25 @@ describe("canon.time 输出 17：组网时的端点", () => {
             exists: (id) => id !== "gone",
             bodyOf: (id) => (id === "mask" ? "hero" : id),
         });
-        expect(assembled.invalid).toEqual([{event: "c1", ref: "s1", reason: "target-missing"}, {event: "c3", ref: "s1", reason: "birth-ambiguous"}]);
+        expect(assembled.invalid).toEqual([{event: "c1", ref: "s1", reason: "target-missing"}, {event: "c3", ref: "s1", reason: "birth-ambiguous", involves: ["c4", "c5"]}]);
         expect(assembled.births.get("hero")).toEqual(["c2"]);
         expect(assembled.constraints).toEqual([{from: start("c2"), to: start("c3"), lo: 15 * 30, hi: 16 * 30 - 1, ref: "s0"}]);
+    });
+
+    test("没有 lasts 的事终点就是起点：别的说法指到它的终点，与指到起点相同，不会因此没了上界；写了 lasts 的才有自己的终点", () => {
+        const end = (id: string) => ({kind: "event", id, edge: "end"}) as const;
+        const day = 1440;
+        const network = solveNetwork({events: ["X", "E", "F", "L", "G"], constraints: [
+            between(origin, start("X"), 0, day - 1, "X 的日期"),
+            between(end("X"), start("E"), day, 3 * day, "E 在 X 结束后一到三天"),
+            between(start("X"), start("F"), day, 3 * day, "F 在 X 开始后一到三天"),
+            between(origin, start("L"), 0, day - 1, "L 的日期"), between(start("L"), end("L"), 2 * day, 2 * day, "L 持续两天"),
+            between(end("L"), start("G"), 0, 0, "G 在 L 结束时"),
+        ]});
+        expect(network.range("E")).toMatchObject({state: "ok", lo: day, hi: 4 * day - 1});
+        expect(network.bounds("E")).toEqual(network.bounds("F"));
+        expect(network.bounds("X", "end")).toEqual(network.bounds("X", "start"));
+        expect(network.bounds("G")).toMatchObject({state: "ok", lo: 2 * day, hi: 3 * day - 1});
     });
 });
 

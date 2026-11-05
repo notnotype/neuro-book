@@ -35,8 +35,8 @@ export type EndpointInvalid = "target-missing" | "birth-ambiguous";
 export interface AssembledNetwork {
     readonly events: readonly string[];
     readonly constraints: readonly NetworkConstraint[];
-    /** 不成立的说法（输出 3 与输出 17）。 */
-    readonly invalid: readonly {readonly event: string; readonly ref: string; readonly reason: StatementInvalid | EndpointInvalid}[];
+    /** 不成立的说法（输出 3 与输出 17）。`involves` 是除说法所在的事以外牵涉的事（`birth-ambiguous` 时是那几件出生事件）。 */
+    readonly invalid: readonly {readonly event: string; readonly ref: string; readonly reason: StatementInvalid | EndpointInvalid; readonly involves?: readonly string[]}[];
     /** 每个人（本体）在这份事件集里的出生事件。 */
     readonly births: ReadonlyMap<string, readonly string[]>;
 }
@@ -56,7 +56,7 @@ export function assembleNetwork(input: {readonly events: readonly NetworkEventIn
         }
     }
     const constraints: NetworkConstraint[] = [];
-    const invalid: {event: string; ref: string; reason: StatementInvalid | EndpointInvalid}[] = [];
+    const invalid: {event: string; ref: string; reason: StatementInvalid | EndpointInvalid; involves?: readonly string[]}[] = [];
     for (const event of input.events) {
         for (const statement of event.statements) {
             const lowered = statement.lowered;
@@ -67,12 +67,14 @@ export function assembleNetwork(input: {readonly events: readonly NetworkEventIn
             if (lowered.kind === "birth") continue;
             const resolved: NetworkConstraint[] = [];
             let skip: EndpointInvalid | "absent" | null = null;
+            let involves: readonly string[] = [];
             const resolve = (endpoint: Endpoint): NodeRef | null => {
                 if (endpoint.kind === "origin") return endpoint;
                 if (endpoint.kind === "birth") {
                     const found = births.get(input.bodyOf(endpoint.who)) ?? [];
                     if (found.length === 1) return {kind: "event", id: found[0]!, edge: "start"};
                     skip = found.length === 0 ? "absent" : "birth-ambiguous";
+                    involves = found;
                     return null;
                 }
                 const id = endpoint.event === "self" ? event.id : endpoint.event;
@@ -87,7 +89,7 @@ export function assembleNetwork(input: {readonly events: readonly NetworkEventIn
                 resolved.push({from, to, lo: template.lo, hi: template.hi, ref: statement.ref});
             }
             if (skip === null) constraints.push(...resolved);
-            else if (skip !== "absent") invalid.push({event: event.id, ref: statement.ref, reason: skip});
+            else if (skip !== "absent") invalid.push({event: event.id, ref: statement.ref, reason: skip, ...(involves.length === 0 ? {} : {involves})});
         }
     }
     return {events: input.events.map((event) => event.id), constraints, invalid, births};
@@ -206,8 +208,10 @@ const less = (a: [number, number], b: [number, number]) => a[0] < b[0] || (a[0] 
 
 export function solveNetwork(input: {readonly events: readonly string[]; readonly constraints: readonly NetworkConstraint[]}): TimeNetwork {
     // ---------- 节点 ----------
+    // 只有写了 `lasts` 的事有终点节点（它降成“自己的起点到自己的终点”的约束）；没有的，终点就是起点（输入表“没有这条说法时
+    // E.e = E.s”），别的说法指到它的终点时解析成它的起点。
     const usesEnd = new Set<string>();
-    for (const constraint of input.constraints) for (const end of [constraint.from, constraint.to]) if (end.kind === "event" && end.edge === "end") usesEnd.add(end.id);
+    for (const {from, to} of input.constraints) if (from.kind === "event" && to.kind === "event" && from.id === to.id && from.edge === "start" && to.edge === "end") usesEnd.add(from.id);
     const startNode = new Map<string, number>();
     const endNode = new Map<string, number>();
     const eventOfNode: string[] = [];
@@ -258,7 +262,7 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
     }
     const edgesOf: Edge_[][] = componentList.map(() => []);
     const constrainedComponents = new Set<number>();
-    const selfLoopConflicts: {component: number; constraint: number}[] = [];
+    const selfLoopConflicts: {component: number; constraint: number; node: number}[] = [];
     for (const [index, constraint] of input.constraints.entries()) {
         const fromRaw = nodeOf(constraint.from);
         const toRaw = nodeOf(constraint.to);
@@ -269,7 +273,7 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
         const to = toRaw === "origin" ? componentList[component]!.origin : toRaw;
         if (from === to) {
             // 自己对自己：要求的差不含 0 就是一条说法自己成的环。
-            if (constraint.lo > 0 || constraint.hi < 0) selfLoopConflicts.push({component, constraint: index});
+            if (constraint.lo > 0 || constraint.hi < 0) selfLoopConflicts.push({component, constraint: index, node: from});
             continue;
         }
         if (Number.isFinite(constraint.hi)) edgesOf[component]!.push({from, to, weight: constraint.hi, constraint: index});
@@ -280,18 +284,18 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
 
     // ---------- 每个分量求可行与势，取环 ----------
     const conflicts: Conflict[] = [];
-    const loopsOf = new Map<number, number[]>();
-    for (const loop of selfLoopConflicts) append(loopsOf, loop.component, loop.constraint);
+    const loopsOf = new Map<number, {constraint: number; node: number}[]>();
+    for (const loop of selfLoopConflicts) append(loopsOf, loop.component, loop);
     const components: Component[] = componentList.map((group, id) => {
         const edges = edgesOf[id]!;
         // 没有任何约束的分量（没有说法、也没被说法指到的事）不求解：它的事“没有约束”（大多数事是这样）。
         if (!constrainedComponents.has(id)) return {id, nodes: group.nodes, origin: group.origin, anchored: false, root: group.nodes[0]!, rootEvent: eventOfNode[group.nodes[0]!]!, edges, conflicts: [], potential: new Map(), constrained: false};
         const removed = new Set<number>();
         const mine: number[] = [];
-        for (const constraint of loopsOf.get(id) ?? []) {
+        for (const {constraint, node} of loopsOf.get(id) ?? []) {
             removed.add(constraint);
             mine.push(conflicts.length);
-            conflicts.push({refs: [input.constraints[constraint]!.ref], events: [eventOfNode[group.nodes[0]!]!]});
+            conflicts.push({refs: [input.constraints[constraint]!.ref], events: [eventOfNode[node]!]});
         }
         let potential = new Map<number, number>();
         for (let attempt = 0; ; attempt += 1) {

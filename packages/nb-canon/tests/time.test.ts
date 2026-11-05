@@ -68,6 +68,17 @@ describe("canon.time 输出 9：写入时的校验", () => {
         const written = ok(world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", {kind: "chapter", chapter: "ch2", key: 0}, {told: [{source: "chapter", chapter: "ch2", quote: "三天后她走了"}], when: [{kind: "after", of: c1, gap: {min: 3, max: 3, unit: "day"}, quote: "三天后", basis: {kind: "telling", told: 0} as never}]})}], 1), "t"));
         const stored = written.world.data.changes.get(written.ids["tmp:x"]!)!;
         expect(stored.when![0]!.basis).toEqual({kind: "telling", id: stored.told[0]!.id});
+        // 删掉被原样留着的说法当依据的那条讲述：拒收（依据的讲述每次都查，不随历法变）。
+        expect(problems(written.world.publish(request([{ref: {kind: "change", id: stored.id}, after: {...structuredClone(stored), told: []}}], 2), "t"))).toEqual([["invalid-time", "when[0].basis"]]);
+    });
+
+    test("一件事最多一条出生：新的一条插在旧的前面也拒收", () => {
+        const {world, xia} = start();
+        const other = ok(world.publish(request([{ref: {kind: "entry", id: "tmp:jin"}, after: person("tmp:jin", "星瑾")}, {ref: {kind: "change", id: "tmp:b"}, after: change("tmp:b", {kind: "prehistory", order: 0}, {when: [{kind: "birth", who: xia, basis: author}]})}], 1), "t"));
+        const born = other.world.data.changes.get(other.ids["tmp:b"]!)!;
+        const twin = {kind: "birth" as const, who: other.ids["tmp:jin"]!, basis: author};
+        expect(problems(other.world.publish(request([{ref: {kind: "change", id: born.id}, after: {...structuredClone(born), when: [twin, ...born.when!]}}], 2), "t"))).toEqual([["invalid-time", "when[0]"]]);
+        expect(problems(other.world.publish(request([{ref: {kind: "change", id: born.id}, after: {...structuredClone(born), when: [...born.when!, twin]}}], 2), "t"))).toEqual([["invalid-time", "when[1]"]]);
     });
 });
 
@@ -124,6 +135,33 @@ describe("canon.model 输出 16、canon.time 输出 2、3、5、14：时间的�
         expect(conflict.revision.impact.pendingAdded.filter((key) => key.startsWith("time-")).map((key) => key.split(":")[0])).toEqual(["time-conflict", "time-invalid", "time-mismatch"]);
     });
 
+    test("截取看所涉的全部事：环经过第 2 章的事、第二件出生事件在第 2 章时，第 1 章末尾不列；章序调整没碰到环时打架的键不变", () => {
+        const {world, xia} = start();
+        const exactly = (days: number) => ({min: days, max: days, unit: "day" as const});
+        // 第 2 章的 x 没有说法；第 1 章的 a 在 x 之后三天、b 在 x 之后五天、b 在 a 之前：环经过 x。
+        // 星瑕的出生事件一件在第 1 章、一件在第 2 章；第 1 章另一件事写她三岁：birth-ambiguous 牵涉第 2 章那件。
+        const written = ok(world.publish(request([
+            {ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", at("ch2", 5))},
+            {ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", at("ch1", 10), {when: [{kind: "after", of: "tmp:x", gap: exactly(3), basis: author}]})},
+            {ref: {kind: "change", id: "tmp:b"}, after: change("tmp:b", at("ch1", 20), {when: [{kind: "after", of: "tmp:x", gap: exactly(5), basis: author}, {kind: "before", of: "tmp:a", basis: author}]})},
+            {ref: {kind: "change", id: "tmp:born"}, after: change("tmp:born", at("ch1", 30), {when: [{kind: "birth", who: xia, basis: author}]})},
+            {ref: {kind: "change", id: "tmp:age"}, after: change("tmp:age", at("ch1", 40), {when: [{kind: "age", who: xia, years: {min: 3, max: 3}, basis: author}]})},
+            {ref: {kind: "change", id: "tmp:again"}, after: change("tmp:again", at("ch2", 10), {when: [{kind: "birth", who: xia, basis: author}]})},
+            // 说法分在两章的环：p 在 q 之后至少一天、q 在 p 之后正好五天。
+            {ref: {kind: "change", id: "tmp:p"}, after: change("tmp:p", at("ch1", 50), {when: [{kind: "after", of: "tmp:q", gap: {min: 1, max: 9, unit: "day"}, basis: author}]})},
+            {ref: {kind: "change", id: "tmp:q"}, after: change("tmp:q", at("ch2", 20), {when: [{kind: "after", of: "tmp:p", gap: exactly(5), basis: author}]})},
+        ], 1), "t"));
+        const listed = (world: World, chapter: string) => {
+            const items = world.pending({kind: "chapter", chapter, edge: "end"});
+            return items === "chapter-not-found" ? [] : items.map((item) => item.kind).sort();
+        };
+        expect(listed(written.world, "ch1")).toEqual([]);
+        expect(listed(written.world, "ch2")).toEqual(["time-conflict", "time-conflict", "time-invalid"]);
+        const swapped = written.world.reorder(new ChapterOrder(["ch2", "ch1"]), "t", "swap-keys");
+        if (swapped === null || !swapped.ok) throw new Error("no reorder");
+        expect([...swapped.revision.impact.pendingAdded, ...swapped.revision.impact.pendingResolved].filter((key) => key.startsWith("time-conflict"))).toEqual([]);
+    });
+
     test("改历法：存下来的说法不改，范围与不成立按新的重算（输出 4）", () => {
         const {world} = start();
         const without = world.withOptions({...world.options, time: {...DEFAULT_TIME, calendar: {...GREGORIAN, months: GREGORIAN.months.filter((month) => month.id !== "m6"), leap: []}}});
@@ -142,7 +180,7 @@ describe("canon.model 输出 16、canon.time 输出 2、3、5、14：时间的�
 });
 
 describe("canon.time 输出 13、16：作品设置里的历法", () => {
-    test("不合法时用内置公历并给诊断；合法以后用它；再不合法时用最近一次合法的；词表不合法的项作废；修好以后诊断消失", async () => {
+    test("不合法时用内置公历并给诊断；合法以后用它；再不合法时用最近一次合法的；词表不合法的项作废；修好以后诊断消失；清空设置回到公历", async () => {
         const root = await createTestTmpRoot("nb-canon-time", "settings");
         const service = await openTestService(root, {texts: new Map([["ch1", "那天下了雨。"]]), chapters: ["ch1"], registry: buildRegistry([PERSON])});
         try {
@@ -158,6 +196,10 @@ describe("canon.time 输出 13、16：作品设置里的历法", () => {
             expect(codes()).toEqual(["calendar-invalid:previous"]);
             await service.setTime({calendar: royal});
             expect(codes()).toEqual([]);
+            // 清空设置：回到公历（不填时用公历），之后再写坏的用内置公历，不再用清空之前的那份；存下的旧历法也不再作数。
+            expect(await service.setTime({calendar: undefined, previous: royal})).toEqual({calendar: GREGORIAN, valid: true});
+            expect(await service.setTime({calendar: {...royal, months: []}})).toMatchObject({calendar: GREGORIAN, valid: false});
+            expect(codes()).toEqual(["calendar-invalid:builtin"]);
         } finally {
             await service.stop();
             await rm(root, {recursive: true, force: true});

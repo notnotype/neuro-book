@@ -238,7 +238,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
 
 /** 活页夹三章，正文各一段；章节文件名按活页夹的写法（`00001-…md`）。 */
 describe("canon.time 输出 4、8、16：作品设置里的历法", () => {
-    it("项目层设置里的自定义历法生效：时间查询按它回答，最近一次合法的历法存进 .nbook；改成不合法的以后照样用它", async () => {
+    it("项目层设置里的自定义历法生效：时间查询按它回答，最近一次合法的历法存进 .nbook；改成不合法的以后照样用它；清空设置回到公历、存下的删掉", async () => {
         const royal = {version: 1, unit: "day", hoursPerDay: 24, minutesPerHour: 60, months: [{id: "frost", name: "霜月", days: 30}], eras: [{id: "royal", name: "王历", start: 1}]};
         let book = "";
         const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
@@ -268,6 +268,10 @@ describe("canon.time 输出 4、8、16：作品设置里的历法", () => {
             return status.ok && status.value.diagnostics.some((item) => (item as {code: string}).code === "calendar-invalid");
         });
         expect(await eras()).toEqual(["royal"]);
+        // 清空设置：不填时用公历，存下的那份删掉（之后重启也不会再用它）。
+        await writeFile(join(book, ".nbook", "settings.json"), JSON.stringify({}));
+        await until(async () => !existsSync(stored));
+        expect(await eras()).toEqual(["ad"]);
         await window.close();
         keep.release();
     }, 30_000);

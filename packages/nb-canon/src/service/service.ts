@@ -935,14 +935,18 @@ export class WorldService {
      */
     setTime(raw: {readonly calendar?: unknown; readonly fuzzy?: unknown; readonly previous?: Calendar}): Promise<{readonly calendar: Calendar; readonly valid: boolean}> {
         const run = () => {
-            if (raw.previous !== undefined && this.#lastValidCalendar === null && validateCalendar(raw.previous).ok) this.#lastValidCalendar = raw.previous;
             const checked = raw.calendar === undefined ? null : validateCalendar(raw.calendar);
             const diagnostics: ServiceDiagnostic[] = [];
             let calendar: Calendar;
-            if (checked === null || checked.ok) {
-                calendar = checked === null ? (this.#lastValidCalendar ?? GREGORIAN) : checked.calendar;
-                if (checked !== null) this.#lastValidCalendar = calendar;
+            if (checked === null) {
+                // 设置里没有历法：用内置公历（设置说明写“不填时用公历”）。“最近一次合法的”只给写了却不合法的时候用，清空以后从头算。
+                this.#lastValidCalendar = null;
+                calendar = GREGORIAN;
+            } else if (checked.ok) {
+                calendar = checked.calendar;
+                this.#lastValidCalendar = calendar;
             } else {
+                if (raw.previous !== undefined && this.#lastValidCalendar === null && validateCalendar(raw.previous).ok) this.#lastValidCalendar = raw.previous;
                 calendar = this.#lastValidCalendar ?? GREGORIAN;
                 diagnostics.push({code: "calendar-invalid", problems: checked.problems, using: this.#lastValidCalendar === null ? "builtin" : "previous"});
             }

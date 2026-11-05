@@ -66,7 +66,7 @@ describe("canon.time 输入表：说法降成约束", () => {
 });
 
 describe("canon.time 输出 9：说法自己的校验", () => {
-    test("日期不连续、比最小单位细、min 大于 max、of 是自己、一件事两条出生、年数倒着，都给出是第几条", () => {
+    test("日期不连续、比最小单位细、min 大于 max、of 是自己、一件事两条出生（两条都报）、年数倒着，都给出是第几条", () => {
         const dayCalendar: Calendar = {...GREGORIAN, unit: "day"};
         const statements: Statement[] = [
             {kind: "date", year: 2012, day: 3, basis: author},
@@ -78,7 +78,7 @@ describe("canon.time 输出 9：说法自己的校验", () => {
             {kind: "age", who: "e1", years: {min: 16, max: 15}, basis: author},
             {kind: "lasts", lasts: {max: 3, unit: "hour"}, basis: author},
         ];
-        expect(validateStatements(statements, dayCalendar, "c1").map((problem) => problem.index)).toEqual([0, 1, 2, 3, 5, 6, 7]);
+        expect(validateStatements(statements, dayCalendar, "c1").map((problem) => problem.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
         expect(validateStatements([{kind: "after", of: "c2", gap: {word: "几天"}, basis: {kind: "telling", id: "t1"}}], GREGORIAN, "c1")).toEqual([]);
     });
 });

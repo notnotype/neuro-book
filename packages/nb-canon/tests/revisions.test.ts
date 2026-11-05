@@ -126,6 +126,12 @@ describe("canon.revisions 输出 3、17：写入时校验", () => {
         ["invalid-line", (world) => world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [], {lines: ["e2"]})}], {baseVersion: 1}), "t")],
         ["invalid-link", (world) => world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [], {links: [{kind: "fulfills", plan: "e1"}]})}], {baseVersion: 1}), "t")],
         ["quote-not-found", (world) => world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [], {told: [{source: "chapter", chapter: "ch2", quote: "根本没有这句"}]})}], {baseVersion: 1}), "t")],
+        // 形状不对的列表（项是 null、列表是字符串）：报 type-mismatch，不在补缺省值或换临时 id 时抛错。
+        ...(["when", "cast", "links", "told", "patches"] as const).flatMap((field): [string, (world: World) => WriteResult][] => [
+            ["type-mismatch", (world) => world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: {...change("tmp:c", "ch2", []), [field]: [null]}}], {baseVersion: 1}), "t")],
+            ["type-mismatch", (world) => world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: {...change("tmp:c", "ch2", []), [field]: "x"}}], {baseVersion: 1}), "t")],
+        ]),
+        ["type-mismatch", (world) => world.publish(request([{ref: {kind: "entry", id: "tmp:e"}, after: {...entry("tmp:e", "新人"), retold: "x"}}], {baseVersion: 1}), "t")],
         ["invalid-tree", (world) => {
             const next = structuredClone(world.data.entries.get("e1")!);
             next.parent = "e1";

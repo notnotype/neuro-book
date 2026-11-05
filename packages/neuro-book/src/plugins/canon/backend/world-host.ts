@@ -15,7 +15,7 @@
 import {createHash} from "node:crypto";
 import {watch} from "node:fs";
 import type {FSWatcher} from "node:fs";
-import {mkdir, readFile, rename, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry} from "@notnotype/nb-canon";
@@ -74,28 +74,55 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     let diagnostics: readonly PluginContribution<DiagnosticDeclaration>[] = [];
     /** 作品设置里的历法与词表（原样）；打开前送来的先记下，打开后交给服务。 */
     let timeSettings: {readonly calendar: unknown; readonly fuzzy: unknown} | null = null;
-    /** 最近一次合法的历法存在这里（canon.time 输出 16）：重启与别的进程里，设置不合法时照样用它。 */
+    /**
+     * 最近一次合法的历法存在这里（canon.time 输出 16）：重启与别的进程里，设置不合法时照样用它。打开以后第一次交设置时读一次，
+     * 之后由宿主自己记着；设置里清空历法时删掉（不填时用公历）。
+     */
     const calendarFile = join(nbook, "world", "calendar.json");
-    const applyTime = async (target: WorldService) => {
+    let remembered: Calendar | undefined;
+    let rememberedRead = false;
+    let calendarWrites = 0;
+    const applyOnce = async (target: WorldService) => {
         if (timeSettings === null) return;
         const sent = timeSettings;
-        let previous: Calendar | undefined;
-        try {
-            previous = JSON.parse(await readFile(calendarFile, "utf8")) as Calendar;
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") record("warn", "canon.time.calendar-file", "读不了存下的历法，当作没有", error);
-        }
-        const result = await target.setTime({calendar: sent.calendar ?? undefined, fuzzy: sent.fuzzy ?? undefined, ...(previous === undefined ? {} : {previous})});
-        if (result.valid && sent.calendar !== null && sent.calendar !== undefined) {
-            // 先写临时文件再改名：写到一半中断时留下的是旧的那份。
-            const temporary = `${calendarFile}.${String(process.pid)}.tmp`;
+        if (!rememberedRead) {
+            rememberedRead = true;
             try {
-                await writeFile(temporary, JSON.stringify(result.calendar));
-                await rename(temporary, calendarFile);
+                remembered = JSON.parse(await readFile(calendarFile, "utf8")) as Calendar;
             } catch (error) {
-                record("warn", "canon.time.calendar-file", "存不下最近一次合法的历法", error);
+                if ((error as NodeJS.ErrnoException).code !== "ENOENT") record("warn", "canon.time.calendar-file", "读不了存下的历法，当作没有", error);
             }
         }
+        const calendar = sent.calendar ?? undefined;
+        const result = await target.setTime({calendar, fuzzy: sent.fuzzy ?? undefined, ...(remembered === undefined ? {} : {previous: remembered})});
+        if (calendar === undefined) {
+            remembered = undefined;
+            try {
+                await rm(calendarFile, {force: true});
+            } catch (error) {
+                record("warn", "canon.time.calendar-file", "删不掉存下的历法", error);
+            }
+            return;
+        }
+        if (!result.valid) return;
+        remembered = result.calendar;
+        // 先写临时文件再改名：写到一半中断时留下的是旧的那份。临时文件名带序号，前后两次不共用。
+        const temporary = `${calendarFile}.${String(process.pid)}.${String(++calendarWrites)}.tmp`;
+        try {
+            await writeFile(temporary, JSON.stringify(result.calendar));
+            await rename(temporary, calendarFile);
+        } catch (error) {
+            record("warn", "canon.time.calendar-file", "存不下最近一次合法的历法", error);
+        }
+    };
+    /**
+     * 把作品设置交给服务。几次设置变化接连到来时排成一条链、每次执行时才取当前的设置：交给服务的先后与到来的先后相同，最后交的是
+     * 最新的一份（不排队时，读文件快慢不同会让旧的一份后交）。
+     */
+    let timeChain: Promise<void> = Promise.resolve();
+    const applyTime = (target: WorldService): Promise<void> => {
+        timeChain = timeChain.then(() => applyOnce(target), () => applyOnce(target));
+        return timeChain;
     };
     /** 各插件登记的诊断计算，连同接到世界服务上以后的撤销函数（世界还没打开时为 null）。 */
     const computers = new Map<string, {registration: {readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}; detach: (() => void) | null}>();

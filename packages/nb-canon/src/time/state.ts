@@ -3,13 +3,15 @@
  * 再按读取位置截取；发布时存下的“带来的变化”用不截取的那一份。
  *
  * 项的键按内容（不按说法在列表里的下标），这样在前面插一条说法不会让别的项“消失又出现”：
- * - 打架：环上说法的键（所在变更与说法的规范 JSON）的有序列表；
+ * - 打架：环上说法的键（所在变更与说法的规范 JSON）排好序的列表。不按环上的先后：约束在网络里的下标随安放先后变，章序调整
+ *   没碰到这个环时键也不能变；
  * - 不成立：所在变更、说法的键与原因；
  * - 对不上：安放得比时间晚的那件事。
  */
 
 import {placementMismatches} from "@notnotype/nb-time";
 
+import {compareIds} from "../core/ids";
 import {placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
 import type {ReadPosition} from "../core/schema";
 import {canonicalJson} from "../core/stable-json";
@@ -17,7 +19,7 @@ import {buildNetwork, type BuiltNetwork, type TimeInput, type TimeSettings} from
 
 export type TimePendingItem =
     | {readonly kind: "time-conflict"; readonly statements: readonly string[]; readonly changes: readonly string[]}
-    | {readonly kind: "time-invalid"; readonly change: string; readonly statement: string; readonly reason: string}
+    | {readonly kind: "time-invalid"; readonly change: string; readonly statement: string; readonly reason: string; readonly involves?: readonly string[]}
     | {readonly kind: "time-placement-mismatch"; readonly change: string; readonly partner: string; readonly count: number; readonly criterion: "range" | "statement"};
 
 export interface TimeState {
@@ -51,8 +53,9 @@ export function timeState(data: object, input: TimeInput, settings: TimeSettings
         const built = buildNetwork(input, settings, mode === "planned" ? plans : []);
         const changeOf = (ref: string) => ref.slice(0, ref.indexOf("|"));
         const items: TimePendingItem[] = [
-            ...built.network.conflicts.map((conflict): TimePendingItem => ({kind: "time-conflict", statements: conflict.refs, changes: [...new Set(conflict.refs.map(changeOf))]})),
-            ...built.assembled.invalid.map((invalid): TimePendingItem => ({kind: "time-invalid", change: invalid.event, statement: invalid.ref, reason: invalid.reason})),
+            // 所涉的事：说法所在的变更，加环经过的事（被 `of` 指到的事也在环上，截取要看它们，输出 14）。
+            ...built.network.conflicts.map((conflict): TimePendingItem => ({kind: "time-conflict", statements: [...new Set(conflict.refs)].sort(), changes: [...new Set([...conflict.refs.map(changeOf), ...conflict.events])].sort(compareIds)})),
+            ...built.assembled.invalid.map((invalid): TimePendingItem => ({kind: "time-invalid", change: invalid.event, statement: invalid.ref, reason: invalid.reason, ...(invalid.involves === undefined ? {} : {involves: invalid.involves})})),
             ...placementMismatches(built.network, built.assembled.constraints).map((item): TimePendingItem => ({kind: "time-placement-mismatch", change: item.event, partner: item.partner, count: item.count, criterion: item.criterion})),
         ];
         state = {built, items};
@@ -63,7 +66,7 @@ export function timeState(data: object, input: TimeInput, settings: TimeSettings
 
 /** 项涉及的变更。 */
 export function timeItemChanges(item: TimePendingItem): readonly string[] {
-    return item.kind === "time-conflict" ? item.changes : item.kind === "time-invalid" ? [item.change] : [item.change, item.partner];
+    return item.kind === "time-conflict" ? item.changes : item.kind === "time-invalid" ? [item.change, ...(item.involves ?? [])] : [item.change, item.partner];
 }
 
 /** 项的键（带来的变化里记的那一份）。 */

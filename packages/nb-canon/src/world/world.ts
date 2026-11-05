@@ -51,7 +51,7 @@ import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from 
 import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
-import {marksIn, newReferences, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
+import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
 import {classifyDecisionWrite, missingFields, revertNeedsSource, type Classified} from "./decisions";
 import {countOccurrences} from "./tellings";
@@ -942,17 +942,18 @@ function referenceProblems(data: WorldData, refs: ReturnType<typeof writtenRefer
     return problems;
 }
 
-/**
- * 写入时补上的缺省值：新讲述的 id（model.md 输出 25）；章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
- * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）；参与者的 `who`
- * 写成马甲的，存成本体加 `as`（model.md 输出 29；同时给了 `as` 的不动，由校验报 `invalid-cast`）。
- */
 /** 没给 `order` 的前史变更：先放一个占位的 `order`（排在前史最后），整份请求套上以后再按时间补（time/prehistory.ts）。 */
 interface PrehistoryPending {
     readonly ids: Set<string>;
     next(): number;
 }
 
+/**
+ * 写入时补上的缺省值：新讲述的 id（model.md 输出 25）；章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
+ * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）；参与者的 `who`
+ * 写成马甲的，存成本体加 `as`（model.md 输出 29；同时给了 `as` 的不动，由校验报 `invalid-cast`）。在形状校验之前跑：列表里不是对象的项
+ * 跳过，留给形状校验报错。
+ */
 function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator, entryOf: (id: string) => Entry | undefined, prehistory: PrehistoryPending): unknown {
     const authored = request.by.kind === "author" || request.by.kind === "system";
     // 新的讲述不带 id，在这里发（model.md 输出 25）。带了 id 的照留，是不是这个对象原有的由校验查。
@@ -962,30 +963,32 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
         const at = change.at;
         if (at?.kind === "chapter" && typeof at.key !== "number") {
             const text = options.chapterText(at.chapter) ?? "";
-            const quote = change.told?.find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
+            const quote = (objectItems(change.told).map(([, telling]) => telling) as Telling[]).find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
             const index = quote === undefined ? -1 : text.indexOf(quote);
             (change.at as {key: number}).key = index >= 0 ? index : 0;
         }
-        if (authored && Array.isArray(change.patches)) for (const patch of change.patches) if (patch.basis === undefined && typeof patch.value === "number") (patch as Patch).basis = {kind: "author"};
+        if (authored) for (const [, patch] of objectItems(change.patches)) if (patch.basis === undefined && typeof patch.value === "number") patch.basis = {kind: "author"};
         if (at?.kind === "prehistory" && typeof (at as {order?: unknown}).order !== "number") {
             (change.at as {order: number}).order = prehistory.next();
             prehistory.ids.add(change.id);
         }
         // 说法的依据按这次请求里 `told` 的下标写的，换成那条讲述的 id（讲述的 id 在上面才发）；下标越界的留着，形状校验报错。
-        for (const statement of Array.isArray(change.when) ? change.when : []) {
-            const basis = (statement as {basis?: {kind?: unknown; told?: unknown}}).basis;
+        for (const [, statement] of objectItems(change.when)) {
+            const basis = statement.basis as {kind?: unknown; told?: unknown} | null | undefined;
             if (basis?.kind !== "telling" || typeof basis.told !== "number") continue;
-            const telling = change.told?.[basis.told] as {id?: string} | undefined;
-            if (telling?.id !== undefined) (statement as {basis: unknown}).basis = {kind: "telling", id: telling.id};
+            const telling = (Array.isArray(change.told) ? change.told[basis.told] : undefined) as {id?: string} | null | undefined;
+            if (telling?.id !== undefined) statement.basis = {kind: "telling", id: telling.id};
         }
         if (Array.isArray(change.cast)) {
             change.cast = change.cast.map((member) => {
+                if (member === null || typeof member !== "object") return member;
                 const body = member.who === undefined ? undefined : entryOf(member.who)?.sameAs;
                 return body === undefined || member.as !== undefined ? member : {...member, who: body, as: member.who};
             });
         }
         if (Array.isArray(change.patches)) {
-            for (const patch of change.patches) {
+            for (const [, item] of objectItems(change.patches)) {
+                const patch = item as unknown as Patch;
                 const root = /^[^.[]+/u.exec(patch.at?.path ?? "")?.[0];
                 if (root === undefined || RESERVED_ROOTS.has(root) || patch.version !== undefined) continue;
                 const type = options.registry.byNamespace(root);
@@ -1012,14 +1015,16 @@ function whereOf(chapter: string | undefined, order: ChapterOrder): ReadPosition
 function tellingsOf(kind: ObjectKind, value: unknown): Telling[] {
     if (value === null || typeof value !== "object") return [];
     if (kind === "change") {
-        const told = (value as StoryChange).told;
-        return Array.isArray(told) ? told : [];
+        return objectItems((value as StoryChange).told).map(([, telling]) => telling as Telling);
     }
     if (kind === "check") {
         const told = (value as Check).told;
         return told !== null && typeof told === "object" ? [told] : [];
     }
-    if (kind === "entry") return Object.values((value as Entry).retold ?? {}).flat();
+    if (kind === "entry") {
+        const retold = (value as Entry).retold;
+        return retold === null || typeof retold !== "object" ? [] : Object.values(retold).flatMap((list) => objectItems(list).map(([, telling]) => telling as Telling));
+    }
     return [];
 }
 
@@ -1272,13 +1277,15 @@ function statementProblems(ref: ObjectRef, change: StoryChange, previous: readon
     const statements = (change.when ?? []) as Statement[];
     if (statements.length === 0) return [];
     if (change.nature === "narration") return [{code: "invalid-time", ref, path: "when", message: "a narration cannot carry time statements"}];
+    // 依据的讲述在不在这条变更里，每次都对全部说法查：它不随历法变，删掉讲述的就是这次写入。
+    const tellings = new Set(change.told.map((telling) => telling.id));
+    const problems: Problem[] = statements.flatMap((statement, index) => (statement.basis.kind === "telling" && !tellings.has(statement.basis.id) ? [{code: "invalid-time", ref, path: `when[${String(index)}].basis`, message: "the basis telling must be one of this change's tellings"}] : []));
     const kept = new Set(previous.map((statement) => stableStringify(statement)));
     const fresh = new Set(statements.flatMap((statement, index) => (kept.has(stableStringify(statement)) ? [] : [index])));
-    if (fresh.size === 0) return [];
-    const problems: Problem[] = validateStatements(statements, time.calendar, change.id)
+    if (fresh.size === 0) return problems;
+    problems.push(...validateStatements(statements, time.calendar, change.id)
         .filter((problem) => fresh.has(problem.index))
-        .map((problem) => ({code: "invalid-time", ref, path: `when[${String(problem.index)}]`, message: problem.message}));
-    const tellings = new Set(change.told.map((telling) => telling.id));
+        .map((problem) => ({code: "invalid-time", ref, path: `when[${String(problem.index)}]`, message: problem.message})));
     for (const index of fresh) {
         const statement = statements[index]!;
         const path = `when[${String(index)}]`;
@@ -1288,7 +1295,6 @@ function statementProblems(ref: ObjectRef, change: StoryChange, previous: readon
             else if (target.nature === "narration") problems.push({code: "invalid-time", ref, path: `${path}.of`, message: "of cannot name a narration"});
         }
         if ((statement.kind === "age" || statement.kind === "birth") && (data.entries.get(statement.who) === undefined || data.entries.get(statement.who)!.deleted === true)) problems.push({code: "invalid-time", ref, path: `${path}.who`, message: "who must name an existing entry"});
-        if (statement.basis.kind === "telling" && !tellings.has(statement.basis.id)) problems.push({code: "invalid-time", ref, path: `${path}.basis`, message: "the basis telling must be one of this change's tellings"});
     }
     return problems;
 }

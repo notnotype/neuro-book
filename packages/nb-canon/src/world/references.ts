@@ -78,20 +78,22 @@ function walkReferences(kind: ObjectKind, value: unknown, context: ReferenceCont
     if (kind === "change") {
         list("involves", "entry", record.involves, true);
         list("lines", "entry", record.lines, false);
-        for (const [index, member] of ((record.cast as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
+        for (const [index, member] of objectItems(record.cast)) {
             add(`cast[${String(index)}].who`, "entry", member, "who", true);
             add(`cast[${String(index)}].as`, "entry", member, "as", true);
         }
-        for (const [index, link] of ((record.links as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
+        for (const [index, link] of objectItems(record.links)) {
             add(`links[${String(index)}].plan`, "change", link, "plan", false);
             add(`links[${String(index)}].by`, "change", link, "by", false);
         }
         // 时间说法指的变更与人（canon.time 输出 9）：存在与否由时间的校验报 invalid-time，这里不另报 ref-invalid。
-        for (const [index, statement] of ((record.when as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
+        for (const [index, statement] of objectItems(record.when)) {
             add(`when[${String(index)}].of`, "change", statement, "of", false);
             add(`when[${String(index)}].who`, "entry", statement, "who", false);
         }
-        for (const [index, patch] of ((record.patches as Patch[] | undefined) ?? []).entries()) {
+        for (const [index, item] of objectItems(record.patches)) {
+            const patch = item as unknown as Patch;
+            if (patch.at === null || typeof patch.at !== "object") continue;
             // 先按补丁指到的条目找字段声明，再访问地址里的条目：替换会把它改成正式 id。
             patchReferences(`patches[${String(index)}]`, patch, context, add);
             // 地址里的条目算引用（依赖、按条目筛），但它在不在由补丁能不能套上判断，不报 ref-invalid。
@@ -150,7 +152,7 @@ export function marksIn(kind: ObjectKind, value: unknown): MarkLocation[] {
     if (value === null || typeof value !== "object") return [];
     const found: MarkLocation[] = [];
     const tellings = (base: string, list: readonly Telling[] | undefined) => {
-        for (const telling of list ?? []) if (telling.marks !== undefined) found.push({owner: "telling", key: `${base}[${telling.id}]`, path: `${base}[${telling.id}].marks`, marks: telling.marks, telling: telling.id});
+        for (const [, telling] of objectItems(list) as [number, Telling][]) if (telling.marks !== undefined) found.push({owner: "telling", key: `${base}[${telling.id}]`, path: `${base}[${telling.id}].marks`, marks: telling.marks, telling: telling.id});
     };
     if (kind === "change") {
         const change = value as StoryChange;
@@ -161,7 +163,8 @@ export function marksIn(kind: ObjectKind, value: unknown): MarkLocation[] {
         const told = (value as Check).told;
         if (told?.marks !== undefined) found.push({owner: "telling", key: "told", path: "told.marks", marks: told.marks, telling: told.id});
     }
-    if (kind === "entry") for (const [address, list] of Object.entries((value as Entry).retold ?? {})) tellings(`retold[${JSON.stringify(address)}]`, list);
+    const retold = (value as Entry).retold;
+    if (kind === "entry" && retold !== null && typeof retold === "object") for (const [address, list] of Object.entries(retold)) tellings(`retold[${JSON.stringify(address)}]`, list);
     if (kind === "decision") {
         const decision = value as Decision;
         if (decision.marks !== undefined) found.push({owner: "decision", key: "", path: "marks", marks: decision.marks});
@@ -249,14 +252,19 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
         const after = put.after as Record<string, unknown> | null;
         if (after === null || typeof after !== "object") continue;
         // 地址路径段与诊断稳定键不是引用位置，先换；引用位置随后按声明换（补丁要先按原来的条目 id 找字段声明）。
-        if (put.ref.kind === "change") for (const patch of (after.patches as Patch[] | undefined) ?? []) if (patch?.at !== undefined) patch.at = {...patch.at, path: replacePathSegments(patch.at.path, ids)};
+        if (put.ref.kind === "change") {
+            for (const [, patch] of objectItems(after.patches)) {
+                const at = patch.at as {path?: unknown} | null | undefined;
+                if (at !== null && typeof at === "object" && typeof at.path === "string") patch.at = {...at, path: replacePathSegments(at.path, ids)};
+            }
+        }
         if (put.ref.kind === "check") swapAddress(after.at as {entry?: unknown; path?: unknown});
         if (put.ref.kind === "entry") {
             if (after.retold !== undefined) after.retold = swapKeys(after.retold as Record<string, unknown>);
             if (after.initBasis !== undefined) after.initBasis = swapKeys(after.initBasis as Record<string, unknown>);
         }
         if (put.ref.kind === "decision") {
-            for (const about of (after.about as Array<Record<string, unknown>> | undefined) ?? []) {
+            for (const [, about] of objectItems(after.about)) {
                 if (about.kind === "address") swapAddress(about.at as {entry?: unknown; path?: unknown});
                 const objects = (about.key as {objects?: Array<{id?: unknown}>} | undefined)?.objects;
                 if (about.kind === "diagnostic" && Array.isArray(objects)) for (const object of objects) if (object !== null && typeof object === "object") object.id = swap(object.id);
@@ -290,4 +298,9 @@ export function referenceProblem(reference: Reference, exists: {readonly entry: 
     if (kind === "check") return exists.check(id) ? null : "check-missing";
     // 分叉还没有实现，只有主线（canon/worldlines.md 输出 1）。
     return id === "main" ? null : "line-not-found";
+}
+
+/** 列表里是对象的那些项与它们的下标。形状不对的输入（列表本身不是数组，或项是 `null`、字符串）在这里跳过，由之后的形状校验报 `type-mismatch`。 */
+export function objectItems(items: unknown): [number, Record<string, unknown>][] {
+    return Array.isArray(items) ? [...items.entries()].filter((pair): pair is [number, Record<string, unknown>] => pair[1] !== null && typeof pair[1] === "object") : [];
 }

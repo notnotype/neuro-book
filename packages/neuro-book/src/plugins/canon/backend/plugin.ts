@@ -45,16 +45,23 @@ export const canonProjectPlugin: PluginDefinition = {
             const host = createWorldHost(context.services.require(currentProjectKey).root, (input) => void diagnostics.record(input));
             // 作品设置里的历法与词表（canon.time）：先交一次当前值，之后变了再交。没有配置服务时用内置的公历与词表。
             // 不在 activate 里等它：内置类型要在 activate 返回前交完（见下）。世界打开前到的设置由宿主先记下。
-            void context.services.resolve(settingsKey).then((resolved) => {
-                if (resolved.status !== "resolved") return;
+            // 入口在解析完成之前停了：不再交设置、不订阅（作用域已经关了，登记会抛错，订阅也就没有地方释放）。
+            void context.services.resolve(settingsKey, {signal: context.signal}).then((resolved) => {
+                if (resolved.status !== "resolved" || context.signal.aborted) return;
                 const settings = resolved.instance;
                 const keys = new Set([canonSettings.settings.calendar.key, canonSettings.settings.fuzzyWords.key]);
                 const sendTime = () => host.setTime({calendar: settings.get(canonSettings.settings.calendar), fuzzy: settings.get(canonSettings.settings.fuzzyWords)});
                 sendTime();
-                context.scope.register({kind: "canon-time-settings", label: `${descriptor.id} time settings`, value: settings.onDidChange((changed) => {
+                const stop = settings.onDidChange((changed) => {
                     if ([...changed].some((key) => keys.has(key))) sendTime();
-                }), release: (stop) => stop()});
-            });
+                });
+                try {
+                    context.scope.register({kind: "canon-time-settings", label: `${descriptor.id} time settings`, value: stop, release: (unsubscribe) => unsubscribe()});
+                } catch (error) {
+                    stop();
+                    throw error;
+                }
+            }).catch((error: unknown) => void diagnostics.record({level: "warn", event: "canon.time.settings", message: "接不上作品设置里的历法与词表，用内置的公历与词表", error, source: {plugin: descriptor.id}}));
             // 补交在 activate 返回前完成，所以内置类型在打开世界之前就在登记里。
             const declared = new Map<ContributionHandle<ComponentContribution>, ComponentDeclaration>();
             const update = () => host.setComponents([...declared.values()]);
