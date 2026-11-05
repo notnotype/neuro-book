@@ -27,7 +27,7 @@
 | 问题 | 选用 | 理由；否决了什么 |
 |---|---|---|
 | 标注载荷的 JSON Schema 校验 | TypeBox 1.x 的 `typebox/schema`（`Check`、`Errors`） | nb-canon 已依赖 TypeBox 1.3.6，它能直接校验标准 JSON Schema；校验前去掉载荷的 `kind`、`version` 两个键。否决 ajv：多一个依赖，TypeBox 已经够用 |
-| 摘要（SHA-256） | 宿主注入的 `digest` 端口（`service.ts:35`） | 同步；服务端由 Bun 提供。浏览器侧要用时同样由宿主注入同步实现，nb-canon 不自带。否决 Web Crypto：只有异步接口，读取会全改成异步 |
+| 摘要（SHA-256） | 宿主注入的 `digest` 端口（`service.ts:35`） | 同步；只在项目进程里算（世界服务，由 Bun 提供），读取输入的摘要随结果与游标带出，作者授权的 `binds` 由宿主在服务端签发时算；浏览器只转交，不算摘要（P2 第 7 条）。否决 Web Crypto：只有异步接口，读取会全改成异步 |
 | 规范的 JSON（RFC 8785） | 新写 `canonicalJson`（`src/core/stable-json.ts`） | 对象的键按 UTF-16 码元排序、数用 ECMAScript 的写法，与现有的 `stableStringify` 相同；另外遇到非有限数、孤立代理项、非普通对象就抛错。稳定键、作者授权、读取输入都用它，`stableStringify` 继续用于请求摘要与深比较。RFC 8785 附录的向量（连同错误项）作测试 |
 | 时间约束网络、历法 | `nb-time` 自写（阶段 C） | 提案定为无依赖的包；自定义历法没有现成的库（Temporal、date-fns 都只有公历）；最短路与负环检测用 Bellman-Ford |
 | 剧情插件的纯计算放哪 | 插件目录里的纯 TS 模块（`packages/neuro-book/src/plugins/plot/core/`），不新建包 | 只有这一个使用方；模块不引应用代码，以后要拆是机械的。否决新包 `nb-plot`：多一套发布与边界登记，眼下没有收益 |
@@ -190,7 +190,7 @@
    - `question` 改成 `decision`（形状、名字、`not-deletable`），状态表留到 A7；
    - 样本转换与回放、node-log 测试、`scripts/scale.ts` 跟着改。
 2. **A2 正文快照与读取输入**：服务持有正文快照、`textChanged`、读取输入的摘要、游标改成“摘要加偏移”、`canonicalJson`。
-3. **A3 引用与替换**：`references.ts` 的引用位置、修订的 `refs`、依赖与改动记录读 `refs`、`ref`、`keyedBy`；替换掉三张键表。实施时改了一处：临时 id 的替换不另列清单，按保留写法替换（与这次发出的某个临时 id 完全相同的字符串，加上地址路径里的 `[临时 id]` 段），天然包含全部引用位置。
+3. **A3 引用与替换**：`references.ts` 的引用位置、修订的 `refs`、依赖与改动记录读 `refs`、`ref`、`keyedBy`；替换掉三张键表。临时 id 只在引用位置上换：引用位置的遍历同时供“列出引用”与“替换”用，替换另加对象自己的 id、地址路径段、以地址为键的 `retold` 与 `initBasis`、诊断稳定键里的对象；不在这些位置上的 `tmp:` 文字原样存下（components 输出 18）。A3 起初按“与临时 id 完全相同的字符串都换”实现，与 Spec 不符，计划审查 P2 第 4 条指出后改正。
 3b. **A3b 列表元素的语义档**（从 A3 拆出）：两个引擎的语义档事件与归纳按元素子字段的地址记，视图按同样的规则给值。
 4. **A4 讲述**：发生点、失联、读过的讲述、`tellings` 方法。（讲述 id 的分配与 observe 在 A1 做了：它和 `told[id]` 的修订路径是同一件事。）
 5. **A5 标注种类与诊断的登记**：`canon.marks`、`canon.diagnostics` 的声明与校验，三张版本表；标注挂在讲述、剧情变更、决策上，载荷校验与只读规则。
@@ -211,7 +211,8 @@ A9 之后做一次实现审查（后端，按 reviewing Skill：omp 默认模型
 | project 输出 2（格式 2、格式 1 只读） | `tests/node-log.test.ts` | A1 |
 | revisions 输出 20（决策不可删） | `tests/revisions.test.ts` | A1 |
 | model 输出 36、project 输出 19、25 | `tests/service.test.ts` 补用例 | A2 |
-| components 输出 18 到 20、场景 5；revisions 输出 12、14 | `tests/references.test.ts`（新）与 `tests/revisions.test.ts` 补用例 | A3 |
+| components 输出 18、19、场景 5；revisions 输出 12、14 | `tests/references.test.ts`（新）与 `tests/revisions.test.ts` 补用例 | A3 |
+| components 输出 20（元素的语义档子字段） | `tests/references.test.ts` 的“输出 20”一组；`tests/differential.test.ts` 加元素子字段的事件、去掉再加回 | A3b |
 | model 输出 24 到 27 | `tests/tellings.test.ts`（新） | A4 |
 | model 场景 7（含提示组） | `tests/tellings.test.ts` | A8 补齐 |
 | model 输出 28、components 输出 17、场景 6；诊断的登记 | `tests/marks.test.ts`（新） | A5 |
