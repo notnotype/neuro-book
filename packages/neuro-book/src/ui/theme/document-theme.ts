@@ -1,5 +1,4 @@
-import {NB_UI_COLORWAY_HOST_CLASS, applyColorway} from "@notnotype/nb-ui/colorway";
-import type {NbColorwayVars} from "@notnotype/nb-ui/colorway";
+import {NB_UI_COLORWAY_HOST_CLASS} from "@notnotype/nb-ui/colorway";
 
 /** 写到文档根的一套主题：主题包、明暗与配色变量（docs/specs/theme/system.md）。 */
 export interface DocumentTheme {
@@ -45,8 +44,12 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
             else delete root.dataset.nbSkinScene;
             clearVars();
             if (theme.vars !== undefined) {
-                applyColorway(root, theme.vars as NbColorwayVars);
-                applyColorway(document.body, theme.vars as NbColorwayVars);
+                for (const target of [root, document.body]) {
+                    target.classList.add(NB_UI_COLORWAY_HOST_CLASS);
+                    for (const [name, value] of Object.entries(theme.vars)) {
+                        if (value !== undefined) target.style.setProperty(name, value);
+                    }
+                }
                 written = Object.keys(theme.vars);
             }
         },

@@ -133,6 +133,8 @@ examples/
 2. `nbook plugin install <示例的 dist>`，装进你启动 NeuroBook 用的那个状态根：在应用包目录给开发服务（`bun run dev`，状态根是 `.dev-state`）装，写 `bun src/cli/main.ts --state-root .dev-state plugin install plugin-sdk/examples/plugins/snippets/dist`；或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 的完整路径并确认。
 3. 重启 NeuroBook。menu 与 file-menu 要一起装：file-menu 的菜单项交给 menu，menu 收到时记一条诊断，在服务端日志里看得到。notes 写了 `pluginVersions` 要求 clock 是 `^0.1.0`（clock 是它的可选依赖，不装也能用）。
 
+另有 [theme-dusk](external/theme-dusk/package.json)：不写代码的主题，只有声明与素材，文件夹本身就能安装，装上就能在设置的“主题”里选。
+
 另有 [declarative](external/declarative/package.json)：只有声明、没有代码的插件，文件夹本身就能安装，不用构建。一项配置 `example.hello/greeting`，用户层与本作品层都能改。
 
 外置之后的行为与按源码装配时相同，由 `plugin-sdk/external-examples.test.ts`（构建、按清单登记、装载器装载，再跑场景里同样的调用）与 `e2e/plugin-code.e2e.ts`（真实浏览器与产品服务端）核对。在仓库外从零写插件，看 SDK 包的作者文档（[`plugin-sdk/README.md`](../README.md)）。

@@ -43,7 +43,7 @@ export async function buildExample(name: string, outDir: string = join(EXAMPLES_
 
 if (import.meta.main) {
     const requested = process.argv.slice(2);
-    const names = requested.length > 0 ? requested : (await readdir(EXAMPLES_ROOT)).filter((name) => existsSync(join(EXAMPLES_ROOT, name, "plugin.ts")));
+    const names = requested.length > 0 ? requested : (await readdir(EXAMPLES_ROOT)).filter((name) => existsSync(join(EXAMPLES_ROOT, name, "package.json")));
     for (const name of names) {
         const result = await buildExample(name);
         for (const warning of result.warnings) console.warn(`${name}：${warning}`);

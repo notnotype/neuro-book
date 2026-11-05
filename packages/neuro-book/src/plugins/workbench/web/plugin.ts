@@ -156,7 +156,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), (plugin, path) => (pluginFiles.status === "resolved" ? pluginFiles.instance.fileUrl(plugin, path) : null), (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}));
             const effectiveTheme = (): string => {
                 const inspected = settings.inspect(themeSetting);
-                return themes.effectiveId([inspected.value as string, inspected.user?.status === "ok" ? inspected.user.value as string | undefined : undefined]);
+                return themes.effectiveId([inspected.value as string, inspected.user?.status === "ok" || inspected.user?.status === "invalid" ? inspected.user.value as string | undefined : undefined]);
             };
             const appearance = computed(() => settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));

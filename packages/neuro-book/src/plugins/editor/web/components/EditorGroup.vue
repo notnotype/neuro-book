@@ -425,11 +425,6 @@ provide(editorToolbarSlotKey, toolbarSlot);
     pointer-events: none;
 }
 
-:global([data-nb-skin-scene] .editor-group__on-scene),
-:global([data-nb-skin-scene] .editor-group__empty) {
-    padding-inline-end: var(--skin-empty-shift, 0);
-}
-
 @media (prefers-contrast: more), (forced-colors: active) {
     :global([data-nb-skin-scene] .editor-group__scene) {
         display: none;
@@ -448,6 +443,12 @@ provide(editorToolbarSlotKey, toolbarSlot);
     height: 100%;
     padding: 24px;
     overflow: hidden;
+}
+
+/* 内容往场景的留白上偏（输出 4）。要写在 `.editor-group__empty` 之后：两条特异性相同，它的 padding 简写会盖掉这里。 */
+:global([data-nb-skin-scene] .editor-group__on-scene),
+:global([data-nb-skin-scene] .editor-group__empty) {
+    padding-inline-end: var(--skin-empty-shift, 0);
 }
 
 /* 组被拆得很矮时标志先缩（宽随高），提示不被挤掉。 */

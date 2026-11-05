@@ -16,7 +16,7 @@ import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
 import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
-import {startProductServer} from "./fixtures";
+import {startDevSession, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -165,13 +165,21 @@ test("欢迎页与没开文件有场景；关闭后的空状态也有；切回 N
     await activeGroup(page).locator("[data-editor-tab-close]").first().click({force: true});
     await expect(activeGroup(page).locator("[data-editor-empty]")).toBeVisible();
     await expect(scene(page)).toHaveCSS("background-image", /study-night/u);
+    // 内容偏到留白上：书房的 contentX 是 0.47，标志的中心在内容区 47% 处。
+    const empty = await activeGroup(page).locator("[data-editor-empty] .editor-group__mark").boundingBox();
+    const area = await activeGroup(page).locator("[data-editor-content]").boundingBox();
+    const center = ((empty?.x as number) + (empty?.width as number) / 2 - (area?.x as number)) / (area?.width as number);
+    expect(center).toBeCloseTo(0.47, 1);
+    expect(center).toBeLessThan(0.49);
 
     await writeSettings({[THEME]: "nbook", [APPEARANCE]: "dark"});
     await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
     await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-scene");
     await expect(scene(page)).toBeHidden();
-    const leftovers = await page.evaluate(() => [...document.documentElement.style].filter((name) => name.startsWith("--skin-") || name === "--font-prose"));
+    const leftovers = await page.evaluate(() => [document.documentElement, document.body].flatMap((element) => [...element.style].filter((name) => name.startsWith("--skin-") || name === "--font-prose")));
     expect(leftovers).toEqual([]);
+    // 书架用的公共展示字体不被主题改（输出 8）。
+    expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--font-display"))).toBe("");
 });
 
 test("正文两侧：滚动不动；一侧不足 120px 不画；拆分后各自判断；源码编辑器不画", async ({page}) => {
@@ -220,14 +228,23 @@ test("高对比度、强制颜色下不画场景，配色照旧", async ({page})
     await openProject(page);
     await expect(scene(page)).toBeVisible();
     const corner = () => page.locator("[data-tool-part=\"sidebar\"]").evaluate((element) => getComputedStyle(element, "::after").display);
-    await expect.poll(corner).toBe("block");
+    const expectScenes = async (shown: boolean): Promise<void> => {
+        const [welcome, left, right] = [scene(page), margin(page, "left"), margin(page, "right")];
+        await expect.poll(corner).toBe(shown ? "block" : "none");
+        await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "欢迎"}).click();
+        await (shown ? expect(welcome).toBeVisible() : expect(welcome).toBeHidden());
+        await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "a11y.md"}).click();
+        await (shown ? expect(left).toBeVisible() : expect(left).toBeHidden());
+        await (shown ? expect(right).toBeVisible() : expect(right).toBeHidden());
+    };
+    await openFile(page, "a11y.md");
+    await expectScenes(true);
     await page.emulateMedia({contrast: "more"});
-    await expect(scene(page)).toBeHidden();
-    await expect.poll(corner).toBe("none");
+    await expectScenes(false);
     await page.emulateMedia({contrast: "no-preference"});
-    await expect(scene(page)).toBeVisible();
+    await expectScenes(true);
     await page.emulateMedia({forcedColors: "active"});
-    await expect(scene(page)).toBeHidden();
+    await expectScenes(false);
     await page.emulateMedia({forcedColors: "none"});
     expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--bg-panel"))).toBe("#fbf6ea");
 });
@@ -250,7 +267,7 @@ test("设置里的主题不存在：项目层退到用户层，再退到缺省�
     }
 });
 
-test("主题列表里有书房，在设置窗口选中就生效；Lab 不受影响", async ({page}) => {
+test("主题列表里有书房，在设置窗口选中就生效", async ({page}) => {
     await writeSettings({});
     await openProject(page);
     await expect(async () => {
@@ -263,12 +280,29 @@ test("主题列表里有书房，在设置窗口选中就生效；Lab 不受影�
     await expect.poll(async () => (JSON.parse(await readFile(settingsFile(), "utf8")) as Record<string, string>)[THEME]).toBe(STUDY);
 });
 
+test("Lab 不受主题影响", async ({page}) => {
+    const devRoot = join(tmp, "lab-state");
+    await mkdir(join(devRoot, "user"), {recursive: true});
+    await writeFile(join(devRoot, "settings.json"), JSON.stringify({[THEME]: STUDY}));
+    const dev = await startDevSession(devRoot);
+    try {
+        await page.goto(`${dev.pageUrl}lab`);
+        await expect(page.locator(".lab-root")).toBeVisible();
+        await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-scene");
+        expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-activitybar-surface"))).toBe("");
+    } finally {
+        await page.goto("about:blank");
+        dev.child.kill("SIGTERM");
+        expect(await dev.exit).toBe(0);
+    }
+});
+
 test("不写代码的主题插件：装上重启后能选，图走插件文件端点；禁用重启退回且设置不变；启用重启恢复", async ({page}) => {
     const root = join(tmp, "third-party");
     const plugins = createPluginInventory({root: join(root, "plugins"), profile: NEUROBOOK_PROFILE, builtin: productPlugins, startup: NO_INSTALLED_PLUGINS, record: () => undefined});
     await mkdir(join(root, "user"), {recursive: true});
     await writeFile(join(root, "projects.json"), await readFile(join(stateRoot, "projects.json")));
-    const installed = await plugins.install(join(PACKAGE_ROOT, "plugin-sdk/examples/plugins/theme-dusk"));
+    const installed = await plugins.install(join(PACKAGE_ROOT, "plugin-sdk/examples/external/theme-dusk"));
     if (!installed.ok) throw new Error(`安装失败：${JSON.stringify(installed)}`);
     const settings = {[THEME]: "example.theme-dusk.dusk", [APPEARANCE]: "light"};
     await writeFile(join(root, "settings.json"), JSON.stringify(settings));
@@ -315,24 +349,43 @@ test("不写代码的主题插件：装上重启后能选，图走插件文件�
 });
 
 test.describe("可读性", () => {
+    // 等场景图解码完再量：图没出来时量到的是纯色底，什么都能过。
+    const sceneReady = (page: Page, locator = scene(page)) => locator.evaluate(async (element) => {
+        const image = new Image();
+        image.src = /url\("(.+)"\)/u.exec(getComputedStyle(element).backgroundImage)?.[1] ?? "";
+        await image.decode();
+    });
     for (const appearance of ["light", "dark"] as const) {
         test(`书房 ${appearance}：欢迎页、活动栏、侧栏、正文的文字不低于 4.5`, async ({page}) => {
             await writeFile(join(projectDir, "notes/contrast.md"), DOCUMENT);
+            for (const index of Array.from({length: 40}, (_, i) => i)) await writeFile(join(projectDir, `notes/章节 ${String(index).padStart(2, "0")}.md`), "x\n");
             await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
             await openProject(page);
             await page.addStyleTag({content: HIDE_TEXT});
             await page.mouse.move(1100, 900);
             await expect(scene(page)).toBeVisible();
+            await sceneReady(page);
             const report: string[] = [];
-            const check = async (selector: string, min = 4.5): Promise<void> => {
-                const {worst} = await measure(page, selector);
-                report.push(`${appearance} ${selector}: ${worst.toFixed(2)}`);
-                expect(worst, selector).toBeGreaterThanOrEqual(min);
+            const check = async (selector: string): Promise<Measured> => {
+                const result = await measure(page, selector);
+                report.push(`${appearance} ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+                expect(result.worst, selector).toBeGreaterThanOrEqual(4.5);
+                return result;
             };
-            for (const selector of ["[data-welcome-title]", "[data-welcome-stats]", ".welcome-page__description", "[data-welcome-shelf]", "[data-activity-item=\"nbook.settings\"]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]", "[data-status-project]", "[data-titlebar-menu-entry]"]) await check(selector);
+            // 正向对照：欢迎页的字落在场景图上，底色不止一种。
+            expect((await check("[data-welcome-title]")).distinct).toBeGreaterThan(20);
+            for (const selector of ["[data-welcome-stats]", ".welcome-page__description", "[data-welcome-shelf]", "[data-activity-item=\"nbook.settings\"]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]", "[data-status-project]", "[data-titlebar-menu-entry]"]) await check(selector);
             await openFile(page, "contrast.md");
             await expect(prose(page)).toBeVisible();
             for (const selector of ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
+            // 侧栏下角：文件多到列表压在图上时，压在图上的那几行也读得动。
+            const rows = await page.locator("[data-tool-part=\"sidebar\"] [data-explorer-label]").evaluateAll((labels, height) => labels.flatMap((label, index) => (label.getBoundingClientRect().bottom > height - 230 && label.getBoundingClientRect().bottom < height - 30 ? [index] : [])), page.viewportSize()?.height ?? 0);
+            expect(rows.length, "要有压在下角图上的行").toBeGreaterThan(0);
+            for (const index of rows) {
+                const result = await measure(page, `[data-tool-part="sidebar"] [data-explorer-row]:nth-child(n) [data-explorer-label] >> nth=${String(index)}`);
+                report.push(`${appearance} 侧栏第 ${String(index)} 行：${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+                expect(result.worst, `侧栏第 ${String(index)} 行`).toBeGreaterThanOrEqual(4.5);
+            }
             console.log(report.join("\n"));
         });
     }

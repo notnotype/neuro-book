@@ -32,7 +32,7 @@ export const ThemeDeclarationSchema = Type.Object({
     base: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]),
     fonts: Type.Optional(Type.Object({display: Type.Optional(Type.String()), prose: Type.Optional(Type.String())}, {additionalProperties: false})),
     crop: Type.Optional(Type.Object({
-        empty: Type.Optional(Type.Object({position: Type.Optional(Type.String()), contentX: Type.Optional(Type.Number({minimum: 0, maximum: 1}))}, {additionalProperties: false})),
+        empty: Type.Optional(Type.Object({position: Type.Optional(Type.String()), contentX: Type.Optional(Type.Number({minimum: 0.25, maximum: 0.5}))}, {additionalProperties: false})),
         marginLeft: Type.Optional(CropSchema),
         marginRight: Type.Optional(CropSchema),
         sidebarCorner: Type.Optional(CropSchema),
@@ -46,8 +46,11 @@ export type ThemeLook = Static<typeof LookSchema>;
 
 const COLOR_VARS: ReadonlySet<string> = new Set(nbColorwayVarKeys);
 const ROLE_VARS: ReadonlySet<string> = new Set(THEME_ROLE_VARS);
-/** 能引外部资源的写法：素材只能经 `scene` 取插件自己的文件。 */
-const LOADS_RESOURCE = /url\(|image-set\(|@import/iu;
+/**
+ * 能引外部资源的写法：素材只能经 `scene` 取插件自己的文件。反斜杠一律不收：CSS 先解转义再认函数名，`u\\72l(` 就是 `url(`；取值都是颜色、
+ * 渐变、字体栈与尺寸，用不到它。
+ */
+const LOADS_RESOURCE = /\\|(?:url|src|image|image-set|cross-fade|element|paint)\s*\(|@import/iu;
 
 function stringsIn(value: unknown): string[] {
     if (typeof value === "string") return [value];

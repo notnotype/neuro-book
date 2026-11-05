@@ -18,7 +18,9 @@ export const SKIN_VARS = {
     activityBarActive: "--skin-activitybar-active",
     activityBarOrnament: "--skin-activitybar-ornament",
     activityBarOrnamentSize: "--skin-activitybar-ornament-size",
+    activityBarOrnamentWidth: "--skin-activitybar-ornament-width",
     activityBarHover: "--skin-activitybar-hover",
-    fontDisplay: "--font-display",
+    /** 只有欢迎页标题读；`--font-display` 是书架也在用的公共变量，书架只跟配色（输出 8 与“不承诺”）。 */
+    fontDisplay: "--skin-font-display",
     fontProse: "--font-prose",
 } as const;

@@ -89,17 +89,6 @@ export interface BuiltinCatalogs {
  * 挂载界面前把它们登记进翻译引擎，命名空间是插件 id。只有后端入口的内置插件也登在这里：它们的失败码同样在窗口里显示。第三方
  * 插件的目录不在构建里，经引导的目录索引与目录端点取（docs/specs/runtime/browser-host.md 输出 2）。
  */
-/**
- * 内置插件的静态文件，按插件目录内的相对路径（docs/specs/theme/skins.md）。放在浏览器这边，不放进插件描述：描述三个位置都引，import 图片会被
- * 服务端构建打进产物，URL 也和 Vite 的不一样。
- */
-export const builtinPluginAssets: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-    "nbook.theme-study": {
-        "assets/study-day.webp": new URL("../plugins/theme-study/assets/study-day.webp", import.meta.url).href,
-        "assets/study-night.webp": new URL("../plugins/theme-study/assets/study-night.webp", import.meta.url).href,
-    },
-};
-
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
     "nbook.agent": agentCatalogs,
     "nbook.editor": editorCatalogs,
@@ -112,6 +101,17 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.projects": projectsCatalogs,
     "nbook.settings": settingsCatalogs,
     "nbook.workbench": workbenchCatalogs,
+};
+
+/**
+ * 内置插件的静态文件，按插件目录内的相对路径（docs/specs/theme/skins.md）。放在浏览器这边，不放进插件描述：描述三个位置都引，import 图片会被
+ * 服务端构建打进产物，URL 也和 Vite 的不一样。
+ */
+export const builtinPluginAssets: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+    "nbook.theme-study": {
+        "assets/study-day.webp": new URL("../plugins/theme-study/assets/study-day.webp", import.meta.url).href,
+        "assets/study-night.webp": new URL("../plugins/theme-study/assets/study-night.webp", import.meta.url).href,
+    },
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */

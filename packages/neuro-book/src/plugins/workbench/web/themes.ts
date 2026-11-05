@@ -35,14 +35,17 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
     set(SKIN_VARS.activityBarActive, look.activityBar?.active);
     set(SKIN_VARS.activityBarOrnament, look.activityBar?.ornament);
     if (look.activityBar !== undefined) vars[SKIN_VARS.activityBarHover] = "color-mix(in srgb, currentColor 14%, transparent)";
-    if (look.activityBar?.ornament !== undefined) vars[SKIN_VARS.activityBarOrnamentSize] = "5px";
+    if (look.activityBar?.ornament !== undefined) {
+        vars[SKIN_VARS.activityBarOrnamentSize] = "5px";
+        vars[SKIN_VARS.activityBarOrnamentWidth] = "1px";
+    }
     const url = look.scene === undefined ? null : assetUrl(plugin, look.scene);
     if (url !== null) {
         const {crop} = declaration;
         vars[SKIN_VARS.scene] = `url("${url}")`;
         set(SKIN_VARS.emptyPosition, crop?.empty?.position);
-        // 内容中心在 contentX 处，等于内容区右边多留 (1 - 2x) 的宽度；偏右时留在左边，这里只支持往左偏的留白，负值按 0。
-        if (crop?.empty?.contentX !== undefined) vars[SKIN_VARS.emptyShift] = `${String(Math.max(0, (1 - 2 * crop.empty.contentX) * 100))}%`;
+        // 内容中心在 contentX 处，等于内容区右边多留 (1 - 2x) 的宽度。
+        if (crop?.empty?.contentX !== undefined) vars[SKIN_VARS.emptyShift] = `${String((1 - 2 * crop.empty.contentX) * 100)}%`;
         set(SKIN_VARS.marginLeftSize, crop?.marginLeft?.size);
         set(SKIN_VARS.marginLeftPosition, crop?.marginLeft?.position);
         set(SKIN_VARS.marginRightSize, crop?.marginRight?.size);

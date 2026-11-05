@@ -149,8 +149,8 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
     flex: none;
     box-sizing: border-box;
     width: 34px;
-    height: var(--skin-activitybar-ornament-size, 0);
-    border-block: min(1px, var(--skin-activitybar-ornament-size, 0)) solid var(--skin-activitybar-ornament, transparent);
+    height: var(--skin-activitybar-ornament-size, 0px);
+    border-block: var(--skin-activitybar-ornament-width, 0px) solid var(--skin-activitybar-ornament, transparent);
     content: "";
 }
 

@@ -157,7 +157,7 @@
             "dark": "Dark",
             "system": "Follow System"
         },
-        "unknownTheme": "No such theme: {{id}}"
+        "unknownTheme": "No such theme: {{id}}. Installed: {{ids}}"
     },
     "viewCommands": {
         "parts": {

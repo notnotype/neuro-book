@@ -27,6 +27,7 @@ const LEGACY: Readonly<Record<string, {readonly name: Record<string, string>; re
     "nbook.settings": {name: {"zh-CN": "设置", "en-US": "Settings"}, description: {"zh-CN": "设置窗口与设置项的读写。", "en-US": "The settings window and setting values."}},
     "nbook.state": {name: {"zh-CN": "公开状态", "en-US": "Public State"}, description: {"zh-CN": "插件之间共享的界面状态。", "en-US": "UI state shared between plugins."}},
     "nbook.storage": {name: {"zh-CN": "存储", "en-US": "Storage"}, description: {"zh-CN": "插件的记录与偏好。", "en-US": "Records and preferences for plugins."}},
+    "nbook.theme-study": {name: {"zh-CN": "书房主题", "en-US": "Study Theme"}, description: {"zh-CN": "白天窗边、夜里台灯的一套外观。", "en-US": "A look for writing: a window by day, a desk lamp by night."}},
     "nbook.workbench": {name: {"zh-CN": "工作台", "en-US": "Workbench"}, description: {"zh-CN": "工作台的外壳：侧栏、面板、标题栏与状态栏。", "en-US": "The workbench shell: sidebars, panel, title bar and status bar."}},
     "runtime.diagnostics": {name: {"zh-CN": "诊断", "en-US": "Diagnostics"}, description: {"zh-CN": "运行日志与诊断记录。", "en-US": "Runtime logs and diagnostic records."}},
 };

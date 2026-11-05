@@ -193,6 +193,10 @@
         "runtime-diagnostics": {
             "name": "诊断",
             "description": "运行日志与诊断记录。"
+        },
+        "nbook-theme-study": {
+            "name": "书房主题",
+            "description": "白天窗边、夜里台灯的一套外观。"
         }
     }
 }

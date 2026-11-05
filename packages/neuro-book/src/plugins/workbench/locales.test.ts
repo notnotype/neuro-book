@@ -179,7 +179,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "titlebar.projectButton": {"zh-CN": "项目：{name}", "en-US": "Project: {name}"},
     "titlebar.searchWithShortcut": {"zh-CN": "搜索命令（{shortcut}）", "en-US": "Search commands ({shortcut})"},
     "items.titled": {"zh-CN": "{title}：{text}", "en-US": "{title}: {text}"},
-    "themeCommands.unknownTheme": {"zh-CN": "没有这个主题：{id}", "en-US": "No such theme: {id}"},
+    "themeCommands.unknownTheme": {"zh-CN": "没有这个主题：{id}。已有：{ids}", "en-US": "No such theme: {id}. Installed: {ids}"},
 };
 
 /** 有意改过的英文：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数。 */

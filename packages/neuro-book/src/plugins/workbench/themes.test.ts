@@ -51,6 +51,11 @@ describe("workbench.themes", () => {
         ["colors 不是配色变量", plain({light: {colors: {"--panel-surface": "red"}}})],
         ["取值含 url()", plain({light: {colors: {"--bg-main": "url(https://example.com/x.png)"}}})],
         ["字体里藏 url()", plain({fonts: {display: "url(x)"}})],
+        ["CSS 转义的 url()", plain({light: {activityBar: {surface: "u\\72l(https://x)", foreground: "#111", active: "#222"}}})],
+        ["vars 里的 url()", plain({light: {vars: {"--divider": "URL (https://x)"}}})],
+        ["裁切里的 image-set()", plain({crop: {marginLeft: {size: "auto", position: "image-set(x)"}}})],
+        ["contentX 太小，内容会被挤没", plain({crop: {empty: {contentX: 0.1}}})],
+        ["contentX 往右偏，还不支持", plain({crop: {empty: {contentX: 0.6}}})],
         ["scene 是远程地址", plain({dark: {scene: "https://example.com/x.webp"}})],
         ["scene 从根开始", plain({dark: {scene: "/etc/x.webp"}})],
         ["scene 往上走", plain({dark: {scene: "assets/../../x.webp"}})],
@@ -118,7 +123,8 @@ describe("切换主题的命令", () => {
         const text = {t: (value: unknown) => String(value)} as unknown as Parameters<typeof themeCommands>[2];
         const commands = themeCommands(settings, {} as Parameters<typeof themeCommands>[1], text, new ThemeCatalog([declared("acme.skin.study")], () => null, () => undefined));
         const run = (theme: string) => commands[SWITCH_THEME_COMMAND].run({theme});
-        expect(await run("gone")).toMatchObject({ok: false, code: "invalid-args"});
+        const failed = await run("gone");
+        expect(failed).toMatchObject({ok: false, code: "invalid-args"});
         expect(writes).toEqual([]);
         expect(await run("acme.skin.study")).toEqual({ok: true, value: null});
         expect(writes).toEqual(["acme.skin.study"]);

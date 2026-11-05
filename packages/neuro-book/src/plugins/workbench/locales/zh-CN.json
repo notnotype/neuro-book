@@ -157,7 +157,7 @@
             "dark": "深色",
             "system": "跟随系统"
         },
-        "unknownTheme": "没有这个主题：{{id}}"
+        "unknownTheme": "没有这个主题：{{id}}。已有：{{ids}}"
     },
     "viewCommands": {
         "parts": {

@@ -23,7 +23,7 @@ const APPEARANCES = ["light", "dark", "system"] as const;
 
 export const SWITCH_THEME_DECLARATION: WrittenCommandDeclaration = {
     category: workbenchText("categories.settings"),
-    description: "Change the theme. Without arguments, the user picks one; with { theme }, it is set directly to that theme id. Plugins can add themes, so an id that is not installed fails with invalid-args.",
+    description: "Change the theme. Without arguments, the user picks one; with { theme }, it is set directly to that theme id, such as nbook, macos or <publisher>.<plugin>.<name>. Plugins can add themes; an id that is not installed fails with invalid-args and the reason lists the installed ids.",
     args: Type.Object({theme: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false}),
     effect: "write",
     expose: {agent: "auto"},
@@ -44,7 +44,7 @@ export function themeCommands(settings: SettingsService, quickPick: QuickPick, t
             run: (args) => {
                 const {theme} = args as {readonly theme?: string};
                 // 字符串的 schema 拦不住错的 id，写进设置也只会退回缺省，所以这里按目录拦下。
-                if (theme !== undefined && !themes.has(theme)) return Promise.resolve({ok: false, code: "invalid-args", reason: text.t(workbenchText("themeCommands.unknownTheme", {id: theme}))});
+                if (theme !== undefined && !themes.has(theme)) return Promise.resolve({ok: false, code: "invalid-args", reason: text.t(workbenchText("themeCommands.unknownTheme", {id: theme, ids: themes.list.map((entry) => entry.id).join(", ")}))});
                 return switchSetting({
                     settings,
                     quickPick,
