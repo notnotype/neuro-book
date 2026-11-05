@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t11-compaction
-status: active
+status: done
 updated: 2026-11-05
 ---
 
