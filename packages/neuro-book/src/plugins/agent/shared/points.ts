@@ -63,6 +63,12 @@ const ProfileDeclarationSchema = Type.Object({
         required: Type.Array(Type.String({minLength: 1})),
         optional: Type.Array(Type.String({minLength: 1})),
     }, {additionalProperties: false}),
+    /** 这个 Profile 缺省用的模型角色；用户的 Profile 设置优先（contributions.md 输出 13）。 */
+    role: Type.Optional(Type.String({minLength: 1})),
+    /** 不给人选：仍在目录里，选 Profile 的界面不列出（输出 7）。 */
+    hidden: Type.Optional(Type.Boolean()),
+    /** `false`：不加 `defaultForAll` 的工具（输出 4）。 */
+    defaultTools: Type.Optional(Type.Literal(false)),
 }, {additionalProperties: false});
 
 export type AgentExtensionDeclaration = Static<typeof ExtensionDeclarationSchema>;

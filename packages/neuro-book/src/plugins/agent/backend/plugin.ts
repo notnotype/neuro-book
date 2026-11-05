@@ -80,7 +80,8 @@ export const agentBackendPlugin: PluginDefinition = {
                 profilesRoot,
                 tempContainer,
                 docsRoot: locateDocsRoot(),
-                listSessions: async () => (await runtime.listSessions()).filter((session) => !session.archived),
+                // 不列后台会话（resources.md 的方案表）：每个前台会话有一个标题会话，列出来会占满上限；按 id 仍然读得到。
+                listSessions: async () => (await runtime.listSessions()).filter((session) => !session.archived && !session.background),
                 profiles: () => runtime.service.profiles(),
             });
             let stopped: Promise<void> | null = null;

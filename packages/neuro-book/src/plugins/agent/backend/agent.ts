@@ -116,7 +116,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         profiles: {resolve: (key) => profiles.resolve(key)},
         models: options.models === null ? NO_MODELS : options.models.port((profile) => {
             const setting = profileSettings()[profile];
-            return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(setting?.role === undefined ? {} : {role: setting.role})};
+            const role = setting?.role ?? profiles.defaultRole(profile);
+            return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(role === undefined ? {} : {role})};
         }),
         retry: () => ({maxRetries: options.settings.get(agentSettings.settings.modelRetries)}),
         tools: {

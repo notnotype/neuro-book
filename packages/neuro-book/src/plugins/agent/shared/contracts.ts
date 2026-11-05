@@ -19,6 +19,8 @@ export interface ProfileEntry {
     readonly status: ProfileStatus;
     /** 不可用或有错误时的原因：缺的必需工具、打包或求值的错误。 */
     readonly reason?: string;
+    /** 不给人选（contributions.md 输出 7）。 */
+    readonly hidden?: true;
 }
 
 export type CreateResult = {readonly ok: true; readonly value: SessionApi} | {readonly ok: false; readonly code: string; readonly detail?: unknown};

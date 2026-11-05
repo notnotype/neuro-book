@@ -267,6 +267,40 @@ describe("贡献", () => {
         await say(session, "看看工具");
         expect([...endpoint.requests[sent]!.tools].sort()).toEqual(["test__tools__everywhere", "test__tools__extra", "test__tools__must"]);
     });
+
+    test("输出 4：声明 defaultTools: false 的 Profile 不加装到所有 Profile 的工具，绑定加的照样生效", async () => {
+        const lean = agentProfile("test.lean.writer", {name: "精简", description: "测试用", tools: {required: [], optional: [ECHO]}, defaultTools: false});
+        const leanPlugin: PluginDefinition = {id: "test.lean", entries: [defineEntry({id: "server", location: "server", activationEvents: [lean.activationEvent], contributions: [lean.contribution], activate: () => ({contributions: {"agent.profiles": {"test.lean.writer": defineProfile({id: "test.lean.writer", version: "1", name: "精简", description: "测试用", system: "你是写手。"})}}})})]};
+        const w = await world([leanPlugin, toolsPlugin({count: 0}, {tools: [{id: ECHO}, {id: "test.tools.extra"}, {id: "test.tools.everywhere", defaultForAll: true}]})], {"nbook.agent/toolBindings": {"test.lean.writer": {added: ["test.tools.extra"], removed: []}}});
+        const session = await createSession(w, "test.lean.writer");
+        const sent = endpoint.requests.length;
+        endpoint.script("好");
+        await say(session, "看看工具");
+        expect([...endpoint.requests[sent]!.tools].sort()).toEqual(["test__tools__echo", "test__tools__extra"]);
+    });
+
+    test("输出 7、13：声明的 role 是缺省角色，Profile 设置优先；hidden 的条目带标记、仍在目录里", async () => {
+        const tiny = agentProfile("test.small.namer", {name: "取名", description: "测试用", tools: {required: [], optional: []}, role: "tiny", hidden: true});
+        const smallPlugin: PluginDefinition = {id: "test.small", entries: [defineEntry({id: "server", location: "server", activationEvents: [tiny.activationEvent], contributions: [tiny.contribution], activate: () => ({contributions: {"agent.profiles": {"test.small.namer": defineProfile({id: "test.small.namer", version: "1", name: "取名", description: "测试用", system: "你取名。"})}}})})]};
+        const twoModels = {
+            "nbook.models/providers": [{id: "local", kind: "custom", name: "本机", baseUrl: endpoint.baseUrl, api: "openai-completions", auth: "none", models: [{id: "big", enabled: true, contextWindow: 32_000}, {id: "small", enabled: true, contextWindow: 32_000}]}],
+            "nbook.models/roles": {items: ["tiny", "fast", "main", "deep"].map((id) => ({id, axis: "gradient", name: "", description: "", model: id === "main" ? "local/big" : id === "tiny" ? "local/small" : null}))},
+        };
+        const w = await world([smallPlugin], twoModels);
+        expect(w.service.profiles()).toContainEqual(expect.objectContaining({key: "test.small.namer", hidden: true}));
+        const session = await createSession(w, "test.small.namer");
+        const sent = endpoint.requests.length;
+        endpoint.script("好");
+        await say(session, "取个名");
+        expect(endpoint.requests[sent]!.model).toBe("small");
+
+        const overridden = await world([smallPlugin], {...twoModels, "nbook.agent/profileSettings": {"test.small.namer": {role: "main"}}});
+        const other = await createSession(overridden, "test.small.namer");
+        const next = endpoint.requests.length;
+        endpoint.script("好");
+        await say(other, "取个名");
+        expect(endpoint.requests[next]!.model).toBe("big");
+    });
 });
 
 describe("会话", () => {
