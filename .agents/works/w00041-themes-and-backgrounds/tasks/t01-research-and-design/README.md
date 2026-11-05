@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t01-research-and-design
-status: active
+status: done
 updated: 2026-11-05
 ---
 
