@@ -93,6 +93,16 @@ describe("diffRows", () => {
         expect(unlike.left).toEqual([{text: "甲乙丙丁".repeat(100), mark: true}]);
     });
 
+    it("编辑距离超过较短一侧的 20% 就放弃：不留一堆碎标记", () => {
+        // 一半的字相同且交错：不设上限时能算出来，但满行都是碎片，读不了。
+        const before = Array.from({length: 500}, (_, index) => `甲${String.fromCodePoint(0x4e00 + index)}`).join("");
+        const after = Array.from({length: 500}, (_, index) => `甲${String.fromCodePoint(0x5e00 + index)}`).join("");
+        expect(diffRows(before, after).rows[0]!.left).toEqual([{text: before, mark: true}]);
+        // 改得少的照样标到字。
+        const edited = `${before.slice(0, 500)}改${before.slice(501)}`;
+        expect(diffRows(before, edited).rows[0]!.left!.length).toBeGreaterThan(1);
+    });
+
     it("预算用完之后的都只标到行", () => {
         const {rows} = diffRows("甲旧\n乙旧", "甲新\n乙新", {budgetMs: 0});
         expect(rows.map((row) => marked(row.left))).toEqual([["甲旧"], ["乙旧"]]);

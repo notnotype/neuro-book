@@ -3,6 +3,7 @@
  * `nbook.agent`，模型是本机的 OpenAI 兼容端点，脚本化地调用这些工具，断言落在工具结果事件与真实文件上。
  */
 
+import {EditStore} from "@oh-my-pi/pi-natives";
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
@@ -20,6 +21,7 @@ import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
 import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
 
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./backend/builtin";
+import {previewEdit} from "./backend/builtin/edit";
 import {runGlob, runGrep} from "./backend/builtin/search";
 import {AgentTools} from "./backend/tools";
 import {agentProfile, agentTool} from "./shared/points";
@@ -941,6 +943,19 @@ describe("审批预览（输出 26）", () => {
         }};
     }
 
+    /** 等运行结束（拒绝之后模型还要回一句）。 */
+    const until = (session: SessionApi) => new Promise<void>((resolve) => {
+        const check = (state: string) => {
+            if (state !== "idle") return;
+            stop();
+            resolve();
+        };
+        const stop = session.subscribe((frame) => {
+            if (frame.type === "status") check(frame.status.state);
+        });
+        void session.snapshot().then((snapshot) => check(snapshot.status.state));
+    });
+
     async function preview(w: AgentWorld, sessionId: string, interactionId: string) {
         const {client} = await w.window(`preview-${String((commands += 1))}`);
         const result = await client.approvalPreview({sessionId, interactionId});
@@ -984,6 +999,42 @@ describe("审批预览（输出 26）", () => {
         expect(done.status).toBe("ok");
         expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n贰\n");
         expect(await readFile(join(home, "b.md"), "utf8")).toBe("甲\n丙\n");
+    });
+
+    test("预览之后拒绝：文件没变；接着用原来的行锚改，和没预览过一样", async () => {
+        const w = await world();
+        const {session, id, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "一\n二\n三\n");
+        const tag = headerTag((await call(session, "read", {path: "session://a.md"})).text);
+        const waiting = await waitingApproval(session, "edit", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+贰")});
+        await preview(w, id, waiting.id);
+        await session.resolve({commandId: cid(), id: waiting.id, decision: "deny"});
+        await until(session);
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n二\n三\n");
+        // 改别的行：快照要还是读到的那份，不是预览算出来的。
+        await session.changeSettings({commandId: cid(), patch: {core: {approvalMode: "yolo"}}});
+        const next = await call(session, "edit", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+两")});
+        expect(next.status).toBe("ok");
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n两\n三\n");
+    });
+
+    test("预览不动会话的快照：引擎写完会更新快照，试算要在副本上跑", async () => {
+        const w = await world();
+        const {session, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "一\n二\n");
+        await call(session, "test__bt__grab", {});
+        const resources = grabbed!.resources;
+        const located = await resources.readPath("session://a.md", {signal: new AbortController().signal});
+        if (!located.ok) throw new Error(located.code);
+        const store = new EditStore();
+        const tag = store.recordSnapshot(located.value.path, "一\n二\n", [1, 2]);
+        const {written, failure} = await previewEdit("hashline", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+贰")}, resources, store, new AbortController().signal);
+        expect(failure).toBeNull();
+        expect([...written.values()]).toEqual(["一\n贰\n"]);
+        expect(store.headText(located.value.path)).toBe("一\n二\n");
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n二\n");
     });
 
     test("一大一小：大的给 too-large，小的照常", async () => {

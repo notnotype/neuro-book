@@ -297,7 +297,11 @@ describe("发送、排队与停止（输出 6）", () => {
         expect(h.ctx().stopRequestedAt).toBeDefined();
         hold.release();
         await idle(h);
-        expect(h.ctx().composer.queued.map((item) => item.text)).toEqual(["改过的"]);
+        // 服务端的缓冲区：运行收口时不带 keepQueue 会清空，事件和状态帧的先后这里不依赖。
+        const view = w.service.session(h.host.sessionId.value!);
+        await until("停止受理了", async () => (await view.log({afterSeq: 0})).events.some((event) => event.type === "commandAccepted" && (event.data as {name: string}).name === "abort"));
+        expect((await view.snapshot()).buffer.map((item) => item.input.text)).toEqual(["改过的"]);
+        await until("排队的还在", () => h.ctx().composer.queued.length === 1);
         expect(h.ctx().stopRequestedAt).toBeUndefined();
     });
 });
