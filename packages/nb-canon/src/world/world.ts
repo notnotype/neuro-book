@@ -178,9 +178,11 @@ export class World {
         return new World(data, LineSet.build(engineInputs(data, options)), [...revisions], {requests, touched, brokenBy, allocator, recordedChapters}, options);
     }
 
-    /** 主线的线视图。 */
-    line(): LineView {
-        return this.lines.main;
+    /** 一条世界线的线视图（不写是主线）；线不存在或不可建时为 undefined。 */
+    line(): LineView;
+    line(id: string): LineView | undefined;
+    line(id: string = MAIN_LINE): LineView | undefined {
+        return this.lines.get(id);
     }
 
     get version(): number {
@@ -465,8 +467,8 @@ export class World {
         let data = freeze(tables, createdAt, version);
         let lines = this.lines.advance(engineInputs(data, this.options), changed);
         // 分叉没给 `carry` 的，按切口处的状态补上并存下（canon/worldlines.md 输出 7），改写对象与操作以后再推进一次。
-        // 带过去的地址在不在切口处，问父线的引擎；现在只有主线有引擎。
-        const slotOn = (line: string, change: string, at: Address) => (line === MAIN_LINE ? lines.main.engine.slotAfter(change, at) : undefined);
+        // 带过去的地址在不在切口处，问父线的引擎（父线不存在或不可建时不查，由分叉的校验另报）。
+        const slotOn = (line: string, change: string, at: Address) => lines.get(line)?.engine.slotAfter(change, at);
         if (!compensation) {
             const missing = changed.changes.flatMap((id) => {
                 const change = tables.changes.get(id);

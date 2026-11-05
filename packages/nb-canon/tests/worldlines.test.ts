@@ -168,3 +168,68 @@ describe("canon.worldlines 输出 7、14、18：分叉的校验与缺省带什�
         expect(paths(result.world.publish(request([{ref: {kind: "change", id: c2}, after: {...structuredClone(cut), at: {kind: "unscheduled"}}}], result.world.version), "t"))).toContain("invalid-fork:fork");
     });
 });
+
+describe("canon.worldlines 输出 2、6、验收 1：线视图与带过去的值", () => {
+    const end = (chapter: string) => ({kind: "chapter" as const, chapter, edge: "end" as const});
+    const value = (world: World, line: string, entry: string, path: string, chapter: string) => {
+        const read = world.line(line)?.engine.entry(entry, end(chapter), "actual");
+        if (read === undefined || read === null || read === "chapter-not-found") return undefined;
+        const [namespace, field] = path.split(".") as [string, string];
+        return {value: read.namespaces[namespace]?.fields[field]?.value, incomplete: read.namespaces[namespace]?.fields[field]?.incomplete?.reason};
+    };
+
+    /** 回溯：切口 c1、触发处 c3；主线在 c3 用掉一次回溯（rb.次数 1 → 0）、c2 花掉五千；子线自己在第 3 章再花一千。 */
+    function rollback() {
+        const {world, xia, c1, c3} = base();
+        const used = ok(world.publish(request([{ref: {kind: "change", id: c3}, after: {...structuredClone(world.data.changes.get(c3)!), patches: [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 0}]}}], world.version), "t"));
+        const forked = ok(used.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: c1, trigger: c3, type: "rollback", who: xia} as Fork})},
+            {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"), [spend(xia, -1000)])},
+        ], used.world.version), "t"));
+        return {world: forked.world, xia, c1, line: forked.ids["tmp:r1"]!, fork: forked.ids["tmp:f"]!, own: forked.ids["tmp:own"]!};
+    }
+
+    test("回溯：子线回到切口的存款、带过去触发处的回溯次数，接着算自己的记录；主线照旧", () => {
+        const {world, xia, line, fork} = rollback();
+        expect(value(world, "main", xia, "panel.存款", "ch3")).toEqual({value: 15000, incomplete: undefined});
+        expect(value(world, "main", xia, "rb.次数", "ch3")).toEqual({value: 0, incomplete: undefined});
+        expect(value(world, line, xia, "panel.存款", "ch3")).toEqual({value: 19000, incomplete: undefined});
+        expect(value(world, line, xia, "rb.次数", "ch3")).toEqual({value: 0, incomplete: undefined});
+        // 子线看得到切口之前的共同过去：第 1 章末尾两条线一样。
+        expect(value(world, line, xia, "panel.存款", "ch1")).toEqual(value(world, "main", xia, "panel.存款", "ch1"));
+        // 带过去的那一步在来历里的身份是定义这条线的分叉。
+        const steps = world.line(line)!.engine.origins({entry: xia, path: "rb.次数"}, end("ch3"), "actual");
+        expect(steps !== "chapter-not-found" && steps.map((step) => (step.kind === "patch" ? `${step.change}:${String(step.result)}` : step.kind))).toEqual(["init", `${fork}:0`]);
+    });
+
+    test("父线上不完整的值带过去仍不完整，原因 carried-incomplete（输出 6）", () => {
+        const {world, xia, c1, c3} = base();
+        // 初值改成一千：c2 花五千套不上，存款从 c2 起不完整（改初值不拒收，进待处理）。
+        const entry = world.data.entries.get(xia)!;
+        const poorer = structuredClone(entry);
+        poorer.init.data.panel!.fields.存款 = 1000;
+        const broken = ok(world.publish(request([{ref: {kind: "entry", id: xia}, after: poorer}], world.version), "t"));
+        const forked = ok(broken.world.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: c1, trigger: c3, type: "rollback", carry: [{entry: xia, path: "panel.存款"}]} as Fork})}], broken.world.version), "t"));
+        const line = forked.ids["tmp:r1"]!;
+        expect(value(forked.world, "main", xia, "panel.存款", "ch3")?.incomplete).toBeDefined();
+        expect(value(forked.world, line, xia, "panel.存款", "ch3")?.incomplete).toBe("carried-incomplete");
+    });
+
+    test("孙线的切口是子线自己的记录：子线带过去的值进孙线；孙线的切口与子线同一条：不进（全序比，DS 2）", () => {
+        const {world, xia, c1, line, own} = rollback();
+        const deeper = ok(world.publish(request([
+            {ref: {kind: "change", id: "tmp:g1"}, after: written("tmp:g1", at("ch3", 5, line), [], {nature: "fork", fork: {line: "tmp:r2", name: "孙", parent: line, cut: own, type: "branch"} as Fork})},
+        ], world.version), "t"));
+        const r2 = deeper.ids["tmp:r2"]!;
+        expect(value(deeper.world, r2, xia, "rb.次数", "ch4")).toEqual({value: 0, incomplete: undefined});
+        expect(value(deeper.world, r2, xia, "panel.存款", "ch4")).toEqual({value: 19000, incomplete: undefined});
+        expect(deeper.world.line(r2)!.synthetic.size).toBe(2);
+        // 与子线同一个切口 c1：子线带过去的值排在切口之后，不进这条线。
+        const sibling = ok(world.publish(request([
+            {ref: {kind: "change", id: "tmp:g2"}, after: written("tmp:g2", at("ch3", 6, line), [], {nature: "fork", fork: {line: "tmp:r3", name: "同切口", parent: line, cut: c1, type: "branch"} as Fork})},
+        ], world.version), "t"));
+        const r3 = sibling.ids["tmp:r3"]!;
+        expect(sibling.world.line(r3)!.synthetic.size).toBe(1);
+        expect(value(sibling.world, r3, xia, "rb.次数", "ch4")).toEqual({value: 1, incomplete: undefined});
+    });
+});
