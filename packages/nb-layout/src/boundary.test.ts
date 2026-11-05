@@ -12,14 +12,14 @@ const SOURCE_ROOT = import.meta.dir;
 const VUE_ROOT = join(SOURCE_ROOT, "vue");
 
 const CORE: ImportRule = {packages: [], within: SOURCE_ROOT};
-const VUE: ImportRule = {packages: [/^vue$/u, /^@notnotype\/nb-ui(\/.*)?$/u], within: SOURCE_ROOT};
+const VUE: ImportRule = {packages: [/^vue$/u, /^@notnotype\/nb-ui(\/.*)?$/u, /^tabbable$/u], within: SOURCE_ROOT};
 
 describe("包的导入", () => {
     it("核心只导入自己的文件", () => {
         expect(scanImports(sourceFiles(SOURCE_ROOT, new Set(["vue"])), CORE)).toEqual([]);
     });
 
-    it("Vue 层只导入 vue、nb-ui 与本包的文件", () => {
+    it("Vue 层只导入 vue、nb-ui、tabbable 与本包的文件", () => {
         expect(scanImports(sourceFiles(VUE_ROOT), VUE)).toEqual([]);
     });
 });

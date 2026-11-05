@@ -277,6 +277,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@notnotype/nb-ui": "workspace:^",
+        "tabbable": "^6.5.0",
       },
       "devDependencies": {
         "@notnotype/neuro-book-test-support": "workspace:*",

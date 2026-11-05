@@ -83,6 +83,12 @@
                 "toggle-panel-maximized": {
                     "title": "最大化/还原面板"
                 },
+                "focus-next-pane": {
+                    "title": "聚焦下一个面板"
+                },
+                "focus-previous-pane": {
+                    "title": "聚焦上一个面板"
+                },
                 "set-part-hidden": {
                     "title": "切换区域显隐"
                 },

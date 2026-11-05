@@ -48,6 +48,8 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "commands.nbook.view.set-panel-collapsed.title": {"zh-CN": "收起为标题头", "en-US": "Collapse to Title Bar"},
     "commands.nbook.view.toggle-panel-maximized.title": {"zh-CN": "最大化/还原面板", "en-US": "Maximize or Restore Panel"},
     "commands.nbook.view.set-part-hidden.title": {"zh-CN": "切换区域显隐", "en-US": "Toggle Area Visibility"},
+    "commands.nbook.view.focus-next-pane.title": {"zh-CN": "聚焦下一个面板", "en-US": "Focus Next Pane"},
+    "commands.nbook.view.focus-previous-pane.title": {"zh-CN": "聚焦上一个面板", "en-US": "Focus Previous Pane"},
     "commands.nbook.settings.switch-theme.title": {"zh-CN": "切换主题", "en-US": "Change Theme"},
     "commands.nbook.settings.switch-appearance.title": {"zh-CN": "切换明暗", "en-US": "Change Appearance"},
     "commands.nbook.view.open.title": {"zh-CN": "打开视图", "en-US": "Open View"},

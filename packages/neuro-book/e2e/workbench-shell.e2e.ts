@@ -357,6 +357,22 @@ test.describe("产品页", () => {
         expect(await slotParked("panel")).toBe(false);
     });
 
+    test("F6、Shift+F6 经命令在面板之间移动焦点（docs/specs/ui/nested-grid.md 的“移动焦点”）", async ({page}) => {
+        await open(page);
+        const part = () => page.evaluate(() => document.activeElement?.closest<HTMLElement>("[data-leaf]")?.dataset.leaf ?? null);
+        await page.locator("[data-shell-focus-target=\"panel-toggle\"]").focus();
+        const start = await part();
+        await page.keyboard.press("F6");
+        const first = await part();
+        expect(first).not.toBeNull();
+        expect(first).not.toBe(start);
+        await page.keyboard.press("F6");
+        const second = await part();
+        expect(second).not.toBe(first);
+        await page.keyboard.press("Shift+F6");
+        expect(await part()).toBe(first);
+    });
+
     test("保存失败：状态栏显示“布局未保存”，库恢复后点“重试”补上", async ({page}) => {
         await open(page);
         const rename = (from: string, to: string): void => {

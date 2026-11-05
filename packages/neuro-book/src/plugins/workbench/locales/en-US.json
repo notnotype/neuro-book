@@ -83,6 +83,12 @@
                 "toggle-panel-maximized": {
                     "title": "Maximize or Restore Panel"
                 },
+                "focus-next-pane": {
+                    "title": "Focus Next Pane"
+                },
+                "focus-previous-pane": {
+                    "title": "Focus Previous Pane"
+                },
                 "set-part-hidden": {
                     "title": "Toggle Area Visibility"
                 },

@@ -10,9 +10,10 @@
  *   `onGestureCommit`；宿主拒绝就地回滚并给出诊断。
  * - 这里没有百分比往返、不读存储、不写意图：几何算法全在 `grid-geometry` / `sash-drag` / `grid-rects`。
  */
-import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
 import {grownRect, placeGrid, stableOrder, type GridLeafPlacement, type GridPlacementItem, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {moveTab, noteFocus, registerGridFocus, type GridFocusItems} from "./grid-focus";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import {layoutMotionMs} from "./layout-motion";
 import SashHandle from "./SashHandle.vue";
@@ -98,7 +99,7 @@ const renderItems = computed<ReadonlyArray<GridPlacementItem<unknown>>>(() => {
     return renderedKeys.map((key) => byKey.get(key) as GridPlacementItem<unknown>);
 });
 
-/** 叶外框的 DOM id：节点 id 可以含空格，`aria-controls` 按空白切分，所以用不透明的串。 */
+/** 叶外框与分隔线的 DOM id：节点 id 可以含空格，`aria-owns`、`aria-controls` 按空白切分，所以用不透明的串。 */
 const domIds = new Map<string, string>();
 function domIdOf(key: string): string {
     let id = domIds.get(key);
@@ -108,6 +109,34 @@ function domIdOf(key: string): string {
     }
     return id;
 }
+
+/** DOM 序与树序不一致（叶换了位置）：Tab 由布局层接管，读屏顺序靠 `aria-owns`。一致时全是浏览器的原生行为。 */
+const outOfOrder = computed(() => {
+    const tree = placement.value?.items ?? [];
+    return renderItems.value.some((item, index) => item.key !== tree[index]?.key);
+});
+const ariaOwns = computed(() => (outOfOrder.value ? (placement.value?.items ?? []).map((item) => domIdOf(item.key)).join(" ") : undefined));
+
+const focusScope: GridFocusItems = {
+    items: () => (placement.value?.items ?? []).flatMap((item) => {
+        const element = rootEl.value?.ownerDocument.getElementById(domIdOf(item.key));
+        return element == null ? [] : [{element, leaf: item.kind === "leaf"}];
+    }),
+};
+const enterSentinel = useTemplateRef<HTMLElement>("enterSentinel");
+const exitSentinel = useTemplateRef<HTMLElement>("exitSentinel");
+
+function onKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Tab" || !outOfOrder.value) return;
+    if (moveTab(event, focusScope) !== "leave") return;
+    // 走完了：焦点放到边上的哨兵，这次按键的默认动作从那里移到 grid 外面，不按 DOM 序回到里面的别的块。
+    (event.shiftKey ? enterSentinel.value : exitSentinel.value)?.focus();
+}
+
+let releaseFocusScope: (() => void) | null = null;
+onMounted(() => {
+    if (rootEl.value !== null) releaseFocusScope = registerGridFocus(rootEl.value, focusScope);
+});
 
 function rectStyle(rect: GridRect): Record<string, string> {
     return {transform: `translate(${rect.x}px, ${rect.y}px)`, width: `${rect.width}px`, height: `${rect.height}px`};
@@ -397,12 +426,14 @@ watch(() => scope.active.size > 0, (active) => {
 
 onBeforeUnmount(() => {
     stopMoving();
+    releaseFocusScope?.();
     scope.dispose();
 });
 </script>
 
 <template>
-    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId">
+    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="ariaOwns" @keydown="onKeydown" @focusin="noteFocus(focusScope, $event.target)">
+        <span v-if="outOfOrder" ref="enterSentinel" tabindex="-1" aria-hidden="true"></span>
         <template v-for="item in renderItems" :key="item.key">
             <div
                 v-if="item.kind === 'leaf'"
@@ -416,8 +447,9 @@ onBeforeUnmount(() => {
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :style="sashStyle(item.rect)" />
+            <SashHandle v-else :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :style="sashStyle(item.rect)" />
         </template>
+        <span v-if="outOfOrder" ref="exitSentinel" tabindex="-1" aria-hidden="true"></span>
         <slot v-if="node === null" name="empty"></slot>
     </div>
 </template>

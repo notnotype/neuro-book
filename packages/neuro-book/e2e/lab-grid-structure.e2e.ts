@@ -81,6 +81,7 @@ test.describe("结构变化（验收 8）", () => {
         const before = (await frame(page, "a").boundingBox())?.x ?? -1;
         await act(page, "move-to-end");
         await expect.poll(async () => (await frame(page, "a").boundingBox())?.x ?? -1).toBeGreaterThan(before);
+        expect((await frame(page, "a").boundingBox())?.x).toBeGreaterThan((await frame(page, "c").boundingBox())?.x ?? Number.POSITIVE_INFINITY);
         await keep();
         expect(await domOrder(page)).toEqual(["a", "b", "c"]);
     });
@@ -207,6 +208,99 @@ test.describe("停放（输出“停放”）", () => {
         expect(await instanceOf(page, "c")).toBe(instance);
         await expect(input).toHaveValue("c 的内容");
         expect(await scroller.evaluate((element) => element.scrollTop)).toBe(200);
+    });
+});
+
+test.describe("焦点与读屏顺序（输出“Tab 顺序”“移动焦点”“读屏顺序”）", () => {
+    const focusedIn = (page: Page) => page.evaluate(() => {
+        const active = document.activeElement as HTMLElement | null;
+        return active?.closest<HTMLElement>("[data-sash]")?.dataset.sash ?? active?.closest<HTMLElement>("[data-structure-leaf]")?.dataset.structureLeaf ?? null;
+    });
+    const button = (page: Page, id: string, which: "first" | "last") => leaf(page, id).locator(`[data-structure-${which}]`);
+    /** 无障碍树里的按钮名字，按树的顺序：Playwright 的 `ariaSnapshot()` 不反映 `aria-owns`，要用 CDP。 */
+    async function axButtons(page: Page): Promise<string[]> {
+        const cdp = await page.context().newCDPSession(page);
+        const {nodes} = await cdp.send("Accessibility.getFullAXTree") as {nodes: Array<{nodeId: string; childIds?: string[]; role?: {value?: string}; name?: {value?: string}; ignored?: boolean}>};
+        const byId = new Map(nodes.map((node) => [node.nodeId, node]));
+        const names: string[] = [];
+        const walk = (node: (typeof nodes)[number] | undefined): void => {
+            if (node === undefined) return;
+            if (node.role?.value === "button" && node.ignored !== true && node.name?.value !== undefined) names.push(node.name.value);
+            for (const child of node.childIds ?? []) walk(byId.get(child));
+        };
+        walk(nodes[0]);
+        return names.filter((name) => /^[abc]( 末尾)?$/u.test(name));
+    }
+
+    test("DOM 序等于树序时不接管：没有 aria-owns，Tab 是浏览器的", async ({page}) => {
+        await open(page);
+        expect(await page.locator("[data-grid-scope]").getAttribute("aria-owns")).toBeNull();
+        await button(page, "a", "last").focus();
+        await page.keyboard.press("Tab");
+        expect(await focusedIn(page)).toBe("root:0");
+        await page.keyboard.press("Tab");
+        expect(await focusedIn(page)).toBe("b");
+    });
+
+    test("换位后 Tab 按树序走，走出最后一项离开 grid；Shift+Tab 反向；无障碍树也按树序", async ({page}) => {
+        await open(page);
+        await act(page, "move-to-end");
+        await expect(page.locator("[data-grid-scope]")).toHaveAttribute("aria-owns", /.+/u);
+        expect(await axButtons(page)).toEqual(["b", "b 末尾", "c", "c 末尾", "a", "a 末尾"]);
+
+        // 树序是 b、c、a，DOM 序还是 a、b、c。
+        await button(page, "b", "last").focus();
+        await page.keyboard.press("Tab");
+        expect(await focusedIn(page)).toBe("root:0");
+        await page.keyboard.press("Tab");
+        expect(await focusedIn(page)).toBe("c");
+        await button(page, "c", "last").focus();
+        await page.keyboard.press("Tab");
+        expect(await focusedIn(page)).toBe("root:1");
+        await page.keyboard.press("Tab");
+        expect(await focusedIn(page)).toBe("a");
+        await expect(button(page, "a", "first")).toBeFocused();
+
+        await page.keyboard.press("Shift+Tab");
+        expect(await focusedIn(page)).toBe("root:1");
+        await page.keyboard.press("Shift+Tab");
+        await expect(button(page, "c", "last")).toBeFocused();
+
+        // 走出树序的最后一项：离开 grid，不按 DOM 序回到 b。
+        await button(page, "a", "last").focus();
+        await page.keyboard.press("Tab");
+        expect(await page.evaluate(() => document.activeElement?.closest("[data-grid-scope]") === null)).toBe(true);
+    });
+
+    test("内容自己处理了 Tab、输入法正在组字时不接管", async ({page}) => {
+        await open(page);
+        await act(page, "move-to-end");
+        await button(page, "b", "last").focus();
+        const prevented = (isComposing: boolean) => button(page, "b", "last").evaluate((element, composing) => {
+            const event = new KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true, isComposing: composing});
+            element.dispatchEvent(event);
+            return event.defaultPrevented;
+        }, isComposing);
+        expect(await prevented(true)).toBe(false);
+        expect(await prevented(false)).toBe(true);
+    });
+
+    test("F6 按树序在叶之间走，回到上次的焦点，最外层绕回；分隔线不是落点", async ({page}) => {
+        await open(page);
+        const input = leaf(page, "b").locator("[data-structure-input]");
+        await input.focus();
+        await page.keyboard.press("F6");
+        expect(await focusedIn(page)).toBe("c");
+        await page.keyboard.press("F6");
+        expect(await focusedIn(page)).toBe("a");
+        await page.keyboard.press("F6");
+        await expect(input).toBeFocused();
+        await page.keyboard.press("Shift+F6");
+        expect(await focusedIn(page)).toBe("a");
+
+        await page.locator("[data-sash='root:0']").focus();
+        await page.keyboard.press("F6");
+        expect(await focusedIn(page)).toBe("b");
     });
 });
 

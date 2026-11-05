@@ -7,7 +7,7 @@ import {shallowRef, useTemplateRef} from "vue";
 
 import {createGrid} from "@notnotype/nb-layout";
 import type {Grid} from "@notnotype/nb-layout";
-import {NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {NestedGrid, moveGridFocus, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 
 import GridStructureLeaf from "./GridStructureLeaf.vue";
 
@@ -43,10 +43,16 @@ const host = useGridLayout<string>({grid, extent, contextKey: () => "structure"}
 const ACTIONS: Readonly<Record<string, () => void>> = {
     "split-before": () => grid.value.splitLeaf("a", {branchId: "a-split", orientation: "horizontal", side: "before", ratio: 0.5, leaf: {kind: "leaf", id: "n", ref: "n", minimumSize: {width: 40, height: 0}}}),
     "close-new": () => grid.value.removeLeaf("n"),
-    "move-to-end": () => grid.value.moveLeaf("a", "root", 2),
+    // 同一分支内的序号是移除之前的：3 才是最后。
+    "move-to-end": () => grid.value.moveLeaf("a", "root", 3),
     "widen": () => grid.value.resize("a", "width", 120),
     "narrow": () => grid.value.resize("a", "width", -60),
 };
+
+/** 产品里是工作台的两条命令；这里不接命令系统，直接调。 */
+function onKeydown(event: KeyboardEvent): void {
+    if (event.key === "F6" && moveGridFocus(document.activeElement, event.shiftKey ? "previous" : "next")) event.preventDefault();
+}
 
 function run(name: string): void {
     ACTIONS[name]?.();
@@ -55,7 +61,7 @@ function run(name: string): void {
 </script>
 
 <template>
-    <div class="grid-structure-scene">
+    <div class="grid-structure-scene" @keydown="onKeydown">
         <div class="grid-structure-scene__actions">
             <button v-for="(_, name) in ACTIONS" :key="name" type="button" :data-structure-action="name" @click="run(name)">{{ name }}</button>
             <input data-structure-outside aria-label="grid 外面的输入框" />

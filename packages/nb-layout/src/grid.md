@@ -25,7 +25,7 @@
 
 ## 渲染与投影
 
-`NestedGrid` 把树递归渲染成 `Splitter`：每个分支一个 Splitter、叶交给 `leaf` 插槽。几何只有 px 一种口径——`gridBranchSizesPx` 取布局呈现、`buildGridBranchPanels` 把呈现与有效约束投影成面板配置，两者都只是薄投影，数值算法在 `grid-geometry` / `sash-drag`。`NestedGrid` 独占一份 `useSashGesture` 会话：拖动中发布 `preview`（渲染层整棵子树跟随父盒），松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `resizeBranches` 原子落账。
+`NestedGrid` 把叶与分隔线放在同一父元素下，矩形来自 `placeGrid`（`grid-rects.ts`，相对 grid 根的 CSS px，沿主轴按设备像素累加）。几何只有 px 一种口径，`buildGridBranchPanels` 只是把布局投影成分隔线 aria 要的面板配置，数值算法在 `grid-geometry` / `sash-drag`。`NestedGrid` 独占一份 `useSashGesture` 会话：拖动中发布 `preview`，松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `resizeBranches` 原子落账。
 
 ## 快照与引用
 

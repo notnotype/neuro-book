@@ -29,6 +29,8 @@ import {SWITCH_APPEARANCE_COMMAND, SWITCH_APPEARANCE_DECLARATION, SWITCH_THEME_C
 import type {PaletteHost} from "./commands/palette-host";
 import {APP_COMMAND_DECLARATIONS, appCommands} from "./commands/app-commands";
 import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-commands";
+import {PANE_FOCUS_COMMAND_DECLARATIONS, paneFocusCommands} from "./commands/pane-focus-commands";
+import type {PaneFocusMover} from "./commands/pane-focus-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
@@ -104,6 +106,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             {capability: COMMANDS_POINT, id: SWITCH_APPEARANCE_COMMAND, declaration: SWITCH_APPEARANCE_DECLARATION},
             ...Object.entries(PANEL_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(PART_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            ...Object.entries(PANE_FOCUS_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(APP_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(VIEW_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...workbenchState.contributions,
@@ -166,6 +169,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             // 短名只给页面根的标记与“有没有项目”的判断用；界面上显示书名（窗口的显示名，见 nbook/shared/projects）。
             const projectName = project?.name ?? null;
             const projectTitle = project?.title ?? null;
+            let movePaneFocus: PaneFocusMover | null = null;
             const workbenchPages = createWorkbenchPages({
                 // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
                 document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(effectiveTheme(), resolved)})},
@@ -175,7 +179,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle})},
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, attachPaneFocus: (move: PaneFocusMover | null) => {
+                    movePaneFocus = move;
+                }})},
                 renderCommandHost: () => h(CommandHost, {commands, report, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
@@ -196,7 +202,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                     [SETTINGS_CHOICES_POINT]: {[THEME_CHOICES_PROVIDER]: {source: () => computed(() => ({status: "ready" as const, items: themes.list.map((entry) => ({value: entry.id, label: text.t(entry.declaration.title)}))}))}},
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

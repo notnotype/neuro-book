@@ -523,6 +523,35 @@ test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区�
     await closeAll(page);
 });
 
+test("扁平渲染：向左拆分时右边的组不重建；F6 先在组之间走，走到头交给外壳（docs/specs/ui/nested-grid.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/a.md").dblclick();
+    const groups = page.locator("[data-editor-group]");
+    const first = groups.first();
+    await expect(first.locator("[data-editor-tab]")).toHaveCount(1);
+    await first.evaluate((element) => {
+        (element as HTMLElement & {__testSame?: boolean}).__testSame = true;
+    });
+    await page.keyboard.press("Control+\\");
+    await expect(groups).toHaveCount(2);
+    expect(await page.locator("[data-editor-group]").evaluateAll((elements) => elements.some((element) => (element as HTMLElement & {__testSame?: boolean}).__testSame === true))).toBe(true);
+
+    const groupOfFocus = () => page.evaluate(() => document.activeElement?.closest<HTMLElement>("[data-editor-group]")?.dataset.editorGroup ?? null);
+    await groups.first().locator("[data-editor-tab]").first().focus();
+    const left = await groupOfFocus();
+    await page.keyboard.press("F6");
+    const right = await groupOfFocus();
+    expect(right).not.toBeNull();
+    expect(right).not.toBe(left);
+    await page.keyboard.press("F6");
+    expect(await groupOfFocus()).toBeNull();
+    await page.keyboard.press("Shift+F6");
+    expect(await groupOfFocus()).toBe(right);
+    await closeAll(page);
+});
+
 test.describe("触摸（docs/specs/ui/layout-drag.md 验收 5）", () => {
     test.use({hasTouch: true});
 

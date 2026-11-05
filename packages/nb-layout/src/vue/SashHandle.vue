@@ -13,6 +13,8 @@ import {injectSashSnap} from "./useSashSnap";
 import type {SashGestureScope} from "./useSashGesture";
 
 const props = defineProps<{
+    /** 元素的 DOM id：`NestedGrid` 的 `aria-owns` 要列出它。 */
+    domId?: string | undefined;
     /** 所属分支的 id 与第几条边界：`data-sash` 与登记的身份。 */
     branchId: string;
     index: number;
@@ -221,6 +223,7 @@ onBeforeUnmount(() => {
 <template>
     <div
         :ref="setRef"
+        :id="domId"
         role="separator"
         :data-sash="key"
         :data-sash-hover="isHovered ? 'true' : undefined"

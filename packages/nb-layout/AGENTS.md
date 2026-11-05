@@ -7,7 +7,7 @@
 ## 边界
 
 - 核心（`.` 入口，`src/` 下除 `vue/` 以外的文件）不依赖任何包，不依赖 Vue 与 DOM：插件激活时就要建模型，Bun 里也要能测。`src/boundary.test.ts` 读源码核对导入，新增文件同样受约束。
-- Vue 层（`./vue` 入口，`src/vue/`）只依赖 `vue`、`@notnotype/nb-ui` 与核心。样式写在组件的 scoped CSS 里、用 nb-ui 的 token，不用原子类：宿主的 Tailwind 不扫描本包，用了宿主也不会生成。
+- Vue 层（`./vue` 入口，`src/vue/`）只依赖 `vue`、`@notnotype/nb-ui`、`tabbable` 与核心。样式写在组件的 scoped CSS 里、用 nb-ui 的 token，不用原子类：宿主的 Tailwind 不扫描本包，用了宿主也不会生成。
 - nb-ui 不依赖本包，也不重导出本包：本包的 Vue 层依赖 nb-ui，重导出会循环依赖。
 - 入口导出的组件是受管组件，同名 `.md` 必有（`docs:check`）；内部组件写模块头注释。
 

@@ -23,7 +23,8 @@
         "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json"
     },
     "dependencies": {
-        "@notnotype/nb-ui": "workspace:^"
+        "@notnotype/nb-ui": "workspace:^",
+        "tabbable": "^6.5.0"
     },
     "devDependencies": {
         "@notnotype/neuro-book-test-support": "workspace:*",

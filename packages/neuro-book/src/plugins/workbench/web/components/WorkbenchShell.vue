@@ -5,7 +5,7 @@
  */
 import {Tabs} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {layoutMotionMs} from "@notnotype/nb-layout/vue";
+import {layoutMotionMs, moveGridFocus} from "@notnotype/nb-layout/vue";
 import type {GridDropRect, GridOrientation} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
@@ -32,6 +32,7 @@ import type {ShellLayoutFacts, ShellPartId, ShellSizePatch} from "../shell/sizes
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {LayoutStore} from "../state/layout-store";
 import type {ViewLocation} from "../../shared/views";
+import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {createShellDrag} from "../views/drag-session";
 import type {ShellDrag} from "../views/drag-session";
 import type {DropDecision} from "../views/drop";
@@ -61,6 +62,8 @@ import WorkbenchViewInstances from "./WorkbenchViewInstances.vue";
 defineOptions({name: "WorkbenchShell"});
 
 const props = defineProps<{
+    /** 外壳挂上时交出移动焦点的实现，卸载时交 null（`commands/pane-focus-commands.ts`）。 */
+    attachPaneFocus?: (move: PaneFocusMover | null) => void;
     layout: LayoutStore;
     commands: CommandService;
     views: ViewSource;
@@ -292,6 +295,12 @@ onMounted(() => {
     });
 });
 onBeforeUnmount(() => drag.value?.dispose());
+
+/** 焦点不在任何 grid 里（页面根、菜单）时从外壳的第一块开始。 */
+onMounted(() => props.attachPaneFocus?.((direction) => {
+    if (!moveGridFocus(document.activeElement, direction)) moveGridFocus(hostEl.value?.querySelector("[data-grid-scope]") ?? null, direction);
+}));
+onBeforeUnmount(() => props.attachPaneFocus?.(null));
 
 const dragState = computed(() => drag.value?.state.value ?? null);
 
