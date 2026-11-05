@@ -28,6 +28,7 @@ import {marksIn} from "../world/references";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
+import {boundRank, chapterWithin, placementWithin, positionWithin, tellingWithin, ViewAudit, type ViewGrant} from "./views";
 import {createReadView, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
@@ -104,6 +105,18 @@ export type ServiceDiagnostic =
     | {readonly code: "reduce-failed"; readonly message: string};
 
 export const LEASE_MS = 60_000;
+
+/** 带视图令牌的读取（`WorldService.viewed`）：方法表里允许带令牌的几种，越界的得到 `view-denied`。 */
+export interface ViewedReads {
+    entry(id: string, position: ReadPosition | undefined, mode?: Mode): ReturnType<WorldService["entry"]> | "view-denied";
+    render(entry: string, position: ReadPosition | undefined, mode: Mode, audience: "author" | "agent"): ReturnType<WorldService["render"]> | "view-denied";
+    lookup(names: readonly string[], position: ReadPosition | undefined): ReturnType<WorldService["lookup"]> | "view-denied";
+    presence(person: string, filter?: PresenceFilter, cursor?: string, limit?: number): ReturnType<WorldService["presence"]> | "view-denied";
+    changes(filter?: ChangeFilter, cursor?: string, limit?: number): ReturnType<WorldService["changes"]> | "view-denied";
+    tellings(filter?: TellingFilter, cursor?: string, limit?: number): ReturnType<WorldService["tellings"]> | "view-denied";
+    /** 带令牌调了表里不许带令牌的方法（`object`、`pending`、写入……）：记一条审计并拒。 */
+    deny(method: string): "view-denied";
+}
 
 /** 三组的结果缓存几份（按读取输入、模式与位置）；翻页与各组总数读缓存，不重新调诊断。 */
 const GROUPS_CACHE_LIMIT = 8;
@@ -184,6 +197,10 @@ export class WorldService {
     readonly #seenDiagnostics = new Map<string, string>();
     /** 三组的计算结果，按读取输入的摘要、模式与位置；只留最近几份。 */
     readonly #groupsCache = new Map<string, PendingGroups>();
+    /** 打开着的视图，按令牌（输出 24）；令牌的寿命由调用方那一层管，它在调用方断开或入口停止时调 `closeView`。 */
+    readonly #views = new Map<string, ViewGrant>();
+    readonly #viewAudit = new ViewAudit();
+    #viewSequence = 0;
     /** 最近几次诊断计算的耗时（project.md 输出 26）。 */
     readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
     #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
@@ -399,6 +416,106 @@ export class WorldService {
     #recordTiming(diagnostic: string, ms: number): void {
         this.#timings.push({diagnostic, ms});
         if (this.#timings.length > TIMINGS_KEPT) this.#timings.shift();
+    }
+
+    /* ---------- 视图（输出 24） ---------- */
+
+    /** 打开一张视图：上限要在章序里；阶段 D 之前只有主线。 */
+    openView(grant: ViewGrant): {readonly token: string} | "chapter-not-found" | {readonly code: "line-not-found"} {
+        if (grant.line !== "main") return {code: "line-not-found"};
+        if (boundRank(this.#world.options.order, grant) === null) return "chapter-not-found";
+        const token = `view-${String(++this.#viewSequence)}`;
+        this.#views.set(token, {...grant});
+        return {token};
+    }
+
+    closeView(token: string): void {
+        this.#views.delete(token);
+    }
+
+    /** 视图里被拒的读取，按发生的先后（最近 500 条）。 */
+    viewAudit(cursor?: string, limit = 50) {
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, this.#viewAudit.entries, cursor, limit, {method: "viewAudit", total: this.#viewAudit.entries.length});
+        if (page === "cursor-stale") return page;
+        return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
+    }
+
+    /**
+     * 带视图令牌的读取（输出 24 的方法表）：`entry`、`render`、`lookup` 的读取位置不写时是上限，写了晚于上限的拒；
+     * `presence`、`changes`、`tellings` 只返回安放（讲述位置）不晚于上限的，范围晚于上限的拒。表里没有的方法带令牌
+     * 一律拒（`deny`）。令牌失效以后每次调用都拒。每次被拒记一条审计。
+     */
+    viewed(token: string): ViewedReads {
+        const grant = (method: string, position?: unknown): ViewGrant | "view-denied" => {
+            const found = this.#views.get(token);
+            // 令牌失效（closeView、调用方断开）或从没发过：照样记一条，看的人与用途不知道。
+            if (found === undefined) return this.#deny({viewer: null, purpose: ""}, method, position);
+            return found;
+        };
+        const order = () => this.#world.options.order;
+        const within = (method: string, position: ReadPosition | undefined): {grant: ViewGrant; position: ReadPosition} | "view-denied" => {
+            const found = grant(method, position);
+            if (found === "view-denied") return found;
+            if (position !== undefined && !positionWithin(order(), found, position)) return this.#deny(found, method, position);
+            return {grant: found, position: position ?? found.until};
+        };
+        const chapters = (method: string, ...ids: (string | undefined)[]): ViewGrant | "view-denied" => {
+            const found = grant(method, ids);
+            if (found === "view-denied") return found;
+            for (const id of ids) if (id !== undefined && !chapterWithin(order(), found, id)) return this.#deny(found, method, id);
+            return found;
+        };
+        return {
+            entry: (id, position, mode = "actual") => {
+                const ok = within("entry", position);
+                return ok === "view-denied" ? ok : this.entry(id, ok.position, mode);
+            },
+            render: (entry, position, mode, audience) => {
+                const ok = within("render", position);
+                return ok === "view-denied" ? ok : this.render(entry, ok.position, mode, audience);
+            },
+            lookup: (names, position) => {
+                const ok = within("lookup", position);
+                return ok === "view-denied" ? ok : this.lookup(names, ok.position);
+            },
+            presence: (person, filter = {}, cursor, limit = 50) => {
+                const found = chapters("presence", filter.from, filter.to);
+                if (found === "view-denied") return found;
+                const listed = listPresence(this.#world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})});
+                if (listed === "chapter-not-found") return listed;
+                const stamp = this.#stamp();
+                const page = this.#page(stamp, listed.changes.filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "presence", view: token, person, ...filter});
+                if (page === "cursor-stale") return page;
+                return {...stamp, items: page.items.map((change) => ({change})), uncast: listed.uncast, ...(page.next === undefined ? {} : {cursor: page.next})};
+            },
+            changes: (filter = {}, cursor, limit = 50) => {
+                const found = chapters("changes", filter.chapter);
+                if (found === "view-denied") return found;
+                const world = this.#world;
+                const stamp = this.#stamp();
+                const page = this.#page(stamp, listChanges(world, filter).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...filter});
+                if (page === "cursor-stale") return page;
+                return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+            },
+            tellings: (filter = {}, cursor, limit = 50) => {
+                const found = chapters("tellings", filter.from, filter.to, filter.until?.chapter);
+                if (found === "view-denied") return found;
+                const stamp = this.#stamp();
+                const page = this.#page(stamp, listTellings(this.#world, this.#locator, filter).filter((item) => tellingWithin(order(), found, item)), cursor, limit, {method: "tellings", view: token, ...filter});
+                if (page === "cursor-stale") return page;
+                return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
+            },
+            deny: (method) => {
+                const found = grant(method);
+                return found === "view-denied" ? found : this.#deny(found, method);
+            },
+        };
+    }
+
+    #deny(grant: Pick<ViewGrant, "viewer" | "purpose">, method: string, position?: unknown): "view-denied" {
+        this.#viewAudit.record({time: this.#ports.now(), viewer: grant.viewer, purpose: grant.purpose, method, ...(position === undefined ? {} : {position})});
+        return "view-denied";
     }
 
     /* ---------- 插件诊断的项目内接口（model.md “诊断的计算”） ---------- */
