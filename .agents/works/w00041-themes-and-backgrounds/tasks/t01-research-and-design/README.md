@@ -15,7 +15,7 @@ updated: 2026-11-05
 - 对照现有主题合同：[`theme/system.md`](../../../../../docs/specs/theme/system.md)、`packages/nb-ui/docs/authoring-themes.md`。
 - 界面要拍板的部分走 design-review。
 
-合同：待定，方向定了之后写 Spec；第一版的 `ui/backgrounds.md` 已删，要看从 git 历史取。
+合同：[`theme/skins.md`](../../../../../docs/specs/theme/skins.md)。第一版的 `ui/backgrounds.md` 已删，要看从 git 历史取。
 
 ## 当前状态
 
@@ -47,4 +47,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-调研已写：[DSH 社区皮肤的做法](../../../../../docs/research/dsh-community-skins.md)。计划：[plan.md](plan.md)。设计审查后实施。
+调研已写：[DSH 社区皮肤的做法](../../../../../docs/research/dsh-community-skins.md)。计划：[plan.md](plan.md)，设计审查已处理。实施中：`.worktree/w00041-t01-themes`，分支 `feat/w00041-t01-themes`。
