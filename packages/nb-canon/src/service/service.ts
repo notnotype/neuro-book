@@ -35,7 +35,7 @@ import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
 import {lineTable, MAIN_LINE} from "../lines/table";
-import {createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
+import {changeItem, createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
 import {World, type ChapterLine, type RevertMeta, type WriteResult} from "../world/world";
@@ -659,11 +659,14 @@ export class WorldService {
             changes: (filter = {}, cursor, limit = 50) => {
                 const found = chapters("changes", filter.chapter);
                 if (found === "view-denied") return found;
+                // 带令牌时 `worldline` 是令牌的线、只列它视图里的；要别的线的拒。
+                if ((filter.worldline !== undefined && filter.worldline !== found.line) || (filter.inView !== undefined && filter.inView !== found.line)) return this.#deny(found, "changes", filter);
                 const stamp = this.#stampOf(world);
+                const scoped = {...filter, worldline: found.line, inView: found.line};
                 // 计划的进展按上限算，不按全书：上限之后才兑现的计划在视图里是未兑现。
-                const page = this.#page(stamp, listChanges(world, filter, found.until).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...filter});
+                const page = this.#page(stamp, listChanges(world, scoped, found.until).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...scoped});
                 if (page === "cursor-stale") return page;
-                return {...stamp, items: page.items.map((change) => ({change, outcome: world.line().engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+                return {...stamp, items: page.items.map((change) => changeItem(world, change, found.line)), ...(page.next === undefined ? {} : {cursor: page.next})};
             },
             time: (query, mode = "actual", cursor, limit = 50) => {
                 const found = grant("time", query);
@@ -760,10 +763,13 @@ export class WorldService {
     /** 剧情变更（方法表 `changes`，筛选与先后见 reads.ts）；每条带这次套没套上。 */
     changes(filter: ChangeFilter = {}, cursor?: string, limit = 50) {
         const world = this.#world;
+        // 套没套上与计划进展按 `worldline` 算，缺省当前线（活页夹最新一章末尾讲的线）。线不存在得 `line-not-found`。
+        const worldline = filter.worldline ?? world.positionLine(defaultPosition(world.options.order));
+        for (const line of [worldline, filter.inView]) if (line !== undefined && world.line(line) === undefined) return "line-not-found" as const;
         const stamp = this.#stamp();
-        const page = this.#page(stamp, listChanges(world, filter), cursor, limit, {method: "changes", ...filter});
+        const page = this.#page(stamp, listChanges(world, {...filter, worldline}), cursor, limit, {method: "changes", ...filter, worldline});
         if (page === "cursor-stale") return page;
-        return {...stamp, items: page.items.map((change) => ({change, outcome: world.line().engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items.map((change) => changeItem(world, change, worldline)), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 讲述（方法表 `tellings`，model.md 输出 24 到 27；筛选与先后见 reads.ts）。 */

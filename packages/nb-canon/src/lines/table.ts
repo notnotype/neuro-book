@@ -156,6 +156,9 @@ function buildTable(data: WorldData, order: ChapterOrder): LineTable {
         const {fork} = definition.fork;
         const cut = point(fork.cut)!;
         if (lineOf(placement) === line) {
+            // 计划线上只收计划：它上面留下的已写记录（兑现它的已写分叉撤销或被替代以后）不进视图（输出 1）。
+            const change = data.changes.get(id);
+            if (definition.planned && (change === undefined ? data.checks.has(id) : change.kind === "written" && change.status !== "undone")) return false;
             // 自己的记录：键严格晚于切口才进视图；未排章的照收（输出 3）。
             const rank = placementRank(order, placement);
             return rank === null || compareRanks(rank, cut.rank) > 0;

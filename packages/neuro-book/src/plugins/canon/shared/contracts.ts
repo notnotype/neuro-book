@@ -77,6 +77,11 @@ const methods = {
                 status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("held"), Type.Literal("undone")])),
                 nature: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("narration")])),
                 progress: Type.Optional(Type.Union([Type.Literal("unfulfilled"), Type.Literal("fulfilled"), Type.Literal("cancelled"), Type.Literal("replaced")])),
+                /** 安放在哪条世界线；只列某条线视图里的；安放的范围（变更 id，`after` 不含、`through` 含）；套没套上按哪条线算（缺省当前线）。 */
+                placedOn: Type.Optional(Type.String()),
+                inView: Type.Optional(Type.String()),
+                range: Type.Optional(Type.Object({after: Type.Optional(Type.String()), through: Type.Optional(Type.String())}, {additionalProperties: false})),
+                worldline: Type.Optional(Type.String()),
             }, {additionalProperties: false})),
             cursor: Cursor,
             limit: Limit,
@@ -270,7 +275,7 @@ export interface CanonOutputs {
     readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>};
     readonly tree: Page<{readonly id: string; readonly name: string; readonly type: string; readonly folder: string; readonly deleted: boolean; readonly hasChildren: boolean}>;
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
-    readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown}>;
+    readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown; readonly placedOn: string}>;
     readonly tellings: Page<TellingItem>;
     /** 时间的回答（形状见 nb-canon 的 time/queries.ts）；一段时间里的事分页时带游标。 */
     readonly time: {readonly version: number; readonly inputDigest: string; readonly answer: Readonly<Record<string, unknown>>; readonly cursor?: string};
@@ -284,7 +289,18 @@ export interface CanonOutputs {
     readonly object: {readonly version: number; readonly object: unknown};
     readonly lines: {readonly version: number; readonly lines: readonly {readonly id: string; readonly name: string; readonly parent: string; readonly fork: string; readonly type: string; readonly who?: string; readonly cut: string; readonly trigger?: string; readonly exists: {readonly actual: boolean; readonly planned: boolean}; readonly unbuildable: string | null; readonly built: boolean; readonly resident: boolean}[]};
     /** 写入请求的预览；还原请求的预览另给需要的作者授权（宿主照它签发）。 */
-    readonly preview: {readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly needed?: readonly NeededAuthorization[]};
+    readonly preview: {
+        readonly revision: Revision;
+        readonly ids: Readonly<Record<string, string>>;
+        readonly needed?: readonly NeededAuthorization[];
+        /** 改了世界线的结构时的波及面（canon.worldlines 输出 10）。 */
+        readonly blast?: {
+            readonly outOfBounds: readonly {readonly line: string; readonly ref: {readonly kind: string; readonly id: string}}[];
+            readonly plans: readonly {readonly plan: string; readonly line: string; readonly visible: boolean}[];
+            readonly progress: readonly {readonly line: string; readonly plan: string; readonly before: string | null; readonly after: string | null}[];
+            readonly chapters: readonly string[];
+        };
+    };
     readonly outcome: {readonly published: true; readonly revision: string; readonly version: number} | {readonly published: false};
     readonly publish: Published;
     readonly editInPlace: Published;

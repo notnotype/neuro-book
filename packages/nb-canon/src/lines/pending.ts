@@ -15,7 +15,8 @@ import {lineOf, lineTable, MAIN_LINE} from "./table";
 export type LinePendingItem =
     | {readonly kind: "line-out-of-bounds"; readonly ref: ObjectRef; readonly line: string; readonly cut: string}
     | {readonly kind: "line-missing"; readonly ref: ObjectRef; readonly line: string; readonly reason?: string}
-    | {readonly kind: "line-planned"; readonly ref: ObjectRef; readonly line: string};
+    /** `root` 是让这条线变回计划线的那次修订（世界里补上，输出 1 的“根因是那次撤销或替代”）。 */
+    | {readonly kind: "line-planned"; readonly ref: ObjectRef; readonly line: string; readonly root?: string};
 
 /** 在线 `line` 上读待处理时，世界线的几种。 */
 export function linePending(data: WorldData, order: ChapterOrder, line: string): LinePendingItem[] {

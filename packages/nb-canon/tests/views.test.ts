@@ -80,7 +80,7 @@ describe("canon.project 输出 24：带令牌的读取", () => {
         expect(view.presence(xia, {to: "ch11"})).toBe("view-denied");
         // 不带令牌照常看得到全部。
         const all = service.changes({entry: xia});
-        expect(all !== "cursor-stale" && all.items.length).toBe(2);
+        expect(typeof all !== "string" && all.items.length).toBe(2);
     });
 
     test("上限是章首：同一章里晚于它的讲述位置拒；计划的进展与按计划模式的在场按上限算，不漏上限之后的兑现", async () => {
@@ -106,7 +106,7 @@ describe("canon.project 输出 24：带令牌的读取", () => {
         };
         expect([plans("fulfilled"), plans("unfulfilled")]).toEqual([[], [plan]]);
         const whole = service.changes({kind: "plan", progress: "fulfilled"});
-        expect(whole !== "cursor-stale" && whole.items.map((item) => item.change.id)).toEqual([plan]);
+        expect(typeof whole !== "string" && whole.items.map((item) => item.change.id)).toEqual([plan]);
         const planned = view.presence(xia, {mode: "planned"});
         expect(planned !== "view-denied" && typeof planned !== "string" && planned.items.map((item) => item.change.id)).toContain(plan);
 

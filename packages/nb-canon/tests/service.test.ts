@@ -336,7 +336,7 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         const service = await open();
         for (const name of ["甲", "乙", "丙"]) await service.publish(entryRequest(name, service.status().version));
         const first = service.tree(null, undefined, 2);
-        if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
         expect(first.items.map((item) => item.name)).toEqual(["甲", "乙"]);
         await service.publish(entryRequest("丁", service.status().version));
         expect(service.tree(null, first.cursor, 2)).toBe("cursor-stale");
@@ -452,7 +452,7 @@ describe("canon.project：审查补的边界（输出 6、10、11、16、19、23
         const decisions: WriteRequest["puts"] = ["甲", "乙", "丙"].map((text, index) => ({ref: {kind: "decision", id: `tmp:d${String(index)}`}, after: {id: `tmp:d${String(index)}`, text, status: "pending", about: [], hints: []}}));
         expect((await service.publish({requestId: "decisions", by: {kind: "author"}, what: "edit", title: "决策", baseVersion: 1, puts: decisions})).ok).toBe(true);
         const first = service.decisions({}, undefined, 2);
-        if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
         expect(first.items.map((item) => item.decision.text)).toEqual(["甲", "乙"]);
         const second = service.decisions({}, first.cursor, 2);
         expect(second !== "cursor-stale" && second.items.map((item) => item.decision.text)).toEqual(["丙"]);
@@ -502,7 +502,7 @@ describe("canon.model 输出 36、canon.project 输出 19、25：正文快照、
         const service = await open({now: 0}, {chapterText: (chapter) => texts.get(chapter)});
         for (const [index, name] of ["甲", "乙", "丙"].entries()) expect((await service.publish(entryRequest(name, 1 + index))).ok).toBe(true);
         const first = service.tree(null, undefined, 2);
-        if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
         texts.set("ch1", "第二稿");
         service.textChanged("ch1");
         expect(service.tree(null, first.cursor, 2)).toBe("cursor-stale");
@@ -513,11 +513,11 @@ describe("canon.model 输出 36、canon.project 输出 19、25：正文快照、
         const changes: WriteRequest["puts"] = ["ch1", "ch1", "ch2", "ch2"].map((chapter, index) => ({ref: {kind: "change", id: `tmp:c${String(index)}`}, after: {id: `tmp:c${String(index)}`, kind: "written", text: `第 ${String(index)} 条`, at: {kind: "chapter", chapter, key: index}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}}}));
         expect((await service.publish({requestId: "four", by: {kind: "author"}, what: "edit", title: "四条", baseVersion: 1, puts: changes})).ok).toBe(true);
         const first = service.changes({chapter: "ch1"}, undefined, 1);
-        if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("no cursor");
         expect(service.changes({chapter: "ch2"}, first.cursor, 1)).toBe("cursor-stale");
         expect(service.tellings({}, first.cursor, 1)).toBe("cursor-stale");
         const rest = service.changes({chapter: "ch1"}, first.cursor, 5);
-        expect(rest !== "cursor-stale" && rest.items.map((item) => item.change.text)).toEqual(["第 1 条"]);
+        expect(typeof rest !== "string" && rest.items.map((item) => item.change.text)).toEqual(["第 1 条"]);
     });
 
     test("同一份读取输入两次读取，戳逐字相同；重开后同样的日志与正文得到同样的戳", async () => {

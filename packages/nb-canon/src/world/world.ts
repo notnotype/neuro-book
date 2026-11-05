@@ -54,6 +54,7 @@ import {readEntryAddress} from "../engine/views";
 import {LineSet, type LineView} from "../lines/set";
 import {affectedLines, touchedOf} from "../lines/affected";
 import {revisionLines} from "./revision-lines";
+import {blastRadius, type Blast} from "./blast";
 import {effectiveLine, lineOf, lineTable, MAIN_LINE} from "../lines/table";
 import {defaultCarry, forkProblems} from "./forks";
 import {lineRuleProblems} from "./line-rules";
@@ -122,7 +123,7 @@ export type WriteFailure =
     | {readonly code: "author-source-required"; readonly needed: readonly NeededAuthorization[]};
 
 export type WriteResult =
-    | {readonly ok: true; readonly world: World; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly repeated: boolean}
+    | {readonly ok: true; readonly world: World; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly repeated: boolean; readonly blast?: Blast}
     | {readonly ok: false; readonly failure: WriteFailure};
 
 const TEMP = "tmp:";
@@ -279,12 +280,24 @@ export class World {
         }
         const canon = grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
         // 时间的几种（canon.time 输出 2、3、5）：整条线算一次，随读取位置截取（输出 14）。
-        return [...canon, ...linePending(this.data, this.options.order, view.line), ...truncateTime(this.time(mode, view.line).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
+        return [...canon, ...linePending(this.data, this.options.order, view.line).map((item) => (item.kind === "line-planned" ? {...item, root: this.#lineRoot(item.line)} : item)), ...truncateTime(this.time(mode, view.line).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
+    }
+
+    /** 最近一次动了定义这条线的分叉的修订（计划线上留下已写记录的根因，worldlines 输出 1）；没有时为 undefined。 */
+    #lineRoot(line: string): string | undefined {
+        const forks = new Set([...this.data.changes.values()].filter((change) => change.fork?.line === line).map((change) => change.id));
+        for (let index = this.revisions.length - 1; index >= 0; index -= 1) {
+            if (this.revisions[index]!.ops.some((op) => op.kind !== "chapters" && op.ref.kind === "change" && forks.has(op.ref.id))) return this.revisions[index]!.id;
+        }
+        return undefined;
     }
 
     /** 预览：做发布的全部计算，不发布（输出 5）。 */
     preview(request: WriteRequest, time: string): WriteResult {
-        return this.publish(request, time);
+        const result = this.publish(request, time);
+        // 改了线的结构时另给波及面（worldlines 输出 10）。
+        const blast = result.ok ? blastRadius(this, result.world, result.revision.ops) : null;
+        return blast === null || !result.ok ? result : {...result, blast};
     }
 
     /** 发布一个写入请求；成功时返回新的世界与修订（本世界不变）。 */

@@ -109,7 +109,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                 if (refused !== null) return refused;
                 if ("puts" in input.request) {
                     const result = service.preview(input.request);
-                    return result.ok ? within({revision: result.revision, ids: result.ids}) : fail(result.failure as CanonFailure);
+                    return result.ok ? within({revision: result.revision, ids: result.ids, ...(result.blast === undefined ? {} : {blast: result.blast})}) : fail(result.failure as CanonFailure);
                 }
                 const planned = service.preview(input.request);
                 if ("ok" in planned) return fail(planned.failure as CanonFailure);

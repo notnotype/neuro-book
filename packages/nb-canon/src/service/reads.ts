@@ -19,7 +19,7 @@ import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress}
 import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import type {World} from "../world/world";
-import {lineTable, MAIN_LINE} from "../lines/table";
+import {compareOrder, lineOf, lineTable, MAIN_LINE} from "../lines/table";
 
 export interface ChangeFilter {
     readonly chapter?: string;
@@ -29,6 +29,14 @@ export interface ChangeFilter {
     readonly status?: "active" | "held" | "undone";
     readonly nature?: "event" | "narration";
     readonly progress?: PlanProgress;
+    /** 安放在哪条世界线（canon.worldlines 输出 5）。 */
+    readonly placedOn?: string;
+    /** 只列这条线视图里的（输出 2、3）。 */
+    readonly inView?: string;
+    /** 安放的范围：变更 id，按安放的全序，`after` 不含、`through` 含（输出 5 的“被抹掉的那段”）。 */
+    readonly range?: {readonly after?: string; readonly through?: string};
+    /** 套没套上与计划进展按哪条世界线算；缺省当前线（project.md 方法表 `changes`）。 */
+    readonly worldline?: string;
 }
 
 export interface TellingFilter {
@@ -291,14 +299,27 @@ function sortByPlacement(order: ChapterOrder, changes: StoryChange[]): void {
 export function listChanges(world: World, filter: ChangeFilter, progressAt?: ReadPosition): StoryChange[] {
     const order = world.options.order;
     const latest = progressAt ?? defaultPosition(order);
+    const table = lineTable(world.data, order);
+    const bounds = {after: filter.range?.after === undefined ? undefined : table.point(filter.range.after), through: filter.range?.through === undefined ? undefined : table.point(filter.range.through)};
+    const within = (change: StoryChange) => {
+        if (bounds.after === undefined && bounds.through === undefined && filter.range?.after === undefined && filter.range?.through === undefined) return true;
+        const point = table.point(change.id);
+        // 范围的两头要是已排章的记录；没排章的记录不在任何范围里。
+        if (point === null || (filter.range?.after !== undefined && (bounds.after === undefined || bounds.after === null || compareOrder(point, bounds.after) <= 0))) return false;
+        return filter.range?.through === undefined || (bounds.through !== undefined && bounds.through !== null && compareOrder(point, bounds.through) <= 0);
+    };
+    const worldline = filter.worldline ?? world.positionLine(latest);
     const matching = [...world.data.changes.values()].filter((change) =>
+        (filter.placedOn === undefined || lineOf(change.at) === filter.placedOn) &&
+        (filter.inView === undefined || table.visible(filter.inView, change.id)) &&
+        within(change) &&
         (filter.chapter === undefined || (change.at.kind === "chapter" && change.at.chapter === filter.chapter)) &&
         (filter.entry === undefined || concerns(change, filter.entry)) &&
         (filter.line === undefined || change.lines.includes(filter.line)) &&
         (filter.kind === undefined || change.kind === filter.kind) &&
         (filter.status === undefined || change.status === filter.status) &&
         (filter.nature === undefined || (change.nature ?? "event") === filter.nature) &&
-        (filter.progress === undefined || (change.kind === "plan" && world.line().engine.progress(change.id, latest) === filter.progress)),
+        (filter.progress === undefined || (change.kind === "plan" && table.visible(worldline, change.id) && world.line(worldline)?.engine.progress(change.id, latest) === filter.progress)),
     );
     sortByPlacement(order, matching);
     return matching;
@@ -400,3 +421,12 @@ export function listDecisions(world: World, filter: DecisionFilter): Decision[] 
         .filter((item) => filter.about === undefined || item.about.some((about) => aboutMatches(about, filter.about!)))
         .sort((a, b) => compareIds(a.id, b.id));
 }
+
+/**
+ * `changes` 每条带的“这次套没套上”与安放的线：套没套上按 `worldline` 那条线算，不在它视图里的为 null（worldlines 输出 2、project.md 方法表）。
+ */
+export function changeItem(world: World, change: StoryChange, worldline: string) {
+    const view = lineTable(world.data, world.options.order).visible(worldline, change.id) ? world.line(worldline) : undefined;
+    return {change, outcome: view?.engine.outcome(change.id) ?? null, placedOn: lineOf(change.at)};
+}
+

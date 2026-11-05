@@ -742,7 +742,7 @@ describe("canon.worldlines 输出 12、13、16、验收 6：活页夹章讲的�
             {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"), [spend(xia, -1000)], {told: [telling("t4", "第五段")]})},
             {ref: {kind: "change", id: "tmp:if"}, after: {...written("tmp:if", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:if1", name: "如果", parent: "main", cut: story["tmp:c1"]!, type: "if"} as Fork}), kind: "plan"}},
         ]);
-        return {root, service, xia, r1: forked["tmp:r1"]!, if1: forked["tmp:if1"]!, own: forked["tmp:own"]!, c2: story["tmp:c2"]!};
+        return {root, service, xia, r1: forked["tmp:r1"]!, if1: forked["tmp:if1"]!, own: forked["tmp:own"]!, c1: story["tmp:c1"]!, c2: story["tmp:c2"]!};
     }
     const deposit = (service: Awaited<ReturnType<typeof openTestService>>, xia: string, position: typeof end3 | typeof start3) => {
         const read = service.entry(xia, position, "actual");
@@ -772,6 +772,34 @@ describe("canon.worldlines 输出 12、13、16、验收 6：活页夹章讲的�
         }
     });
 
+    test("changes 的筛选：安放在哪条线、只列某条线视图里的、安放的范围（被抹掉的那段）；套没套上按 worldline 算，不在它视图里的为 null；带令牌时只看令牌的线", async () => {
+        const {root, service, xia, r1, own, c1, c2} = await setup();
+        try {
+            const ids = (result: ReturnType<typeof service.changes>) => (typeof result === "string" ? [result] : result.items.map((item) => item.change.id));
+            expect(ids(service.changes({placedOn: r1}))).toEqual([own]);
+            expect(ids(service.changes({inView: r1}))).toEqual([c1, own]);
+            // 被抹掉的那段：切口之后、触发处之前（含）；切口自己不算。
+            expect(ids(service.changes({placedOn: "main", range: {after: c1, through: c2}}))).toEqual([c2]);
+            const main = service.changes({worldline: "main"});
+            const onBranch = service.changes({worldline: r1});
+            if (typeof main === "string" || typeof onBranch === "string") throw new Error("line");
+            const outcome = (page: typeof main, id: string) => page.items.find((item) => item.change.id === id)?.outcome;
+            expect([outcome(main, c2) !== null, outcome(main, own)]).toEqual([true, null]);
+            expect([outcome(onBranch, c2), outcome(onBranch, own) !== null]).toEqual([null, true]);
+            expect(main.items.find((item) => item.change.id === own)?.placedOn).toBe(r1);
+            expect(service.changes({worldline: "l404"})).toBe("line-not-found");
+            const opened = service.openView({viewer: null, line: r1, until: {kind: "chapter", chapter: "ch4", edge: "end"}, purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const viewed = service.viewed(opened.token);
+            expect(ids(viewed.changes({}) as ReturnType<typeof service.changes>)).toEqual([c1, own]);
+            expect(viewed.changes({worldline: "main"})).toBe("view-denied");
+            void xia;
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
     test("讲的线不存在：这一段按主线算并给诊断 binder-line-unknown；讲计划线：实际模式按最近的实际祖先线算并提示 binder-line-planned，按计划模式读计划线；章晚于结束的线的 endAt：binder-line-ended", async () => {
         const {root, service, xia, r1, if1} = await setup();
         try {
@@ -790,6 +818,63 @@ describe("canon.worldlines 输出 12、13、16、验收 6：活页夹章讲的�
             await service.stop();
             await rm(root, {recursive: true, force: true});
         }
+    });
+});
+
+describe("canon.worldlines 输出 10、验收 3：预览的波及面", () => {
+    test("把切口挪到原来在切口之后的记录之后：预览列出因此越界的子线记录、变得看得到的计划与它们在线上的进展；不动线的写入没有波及面", () => {
+        const {world, c1, c2, xia} = base();
+        const created = ok(world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})},
+            {ref: {kind: "change", id: "tmp:mid"}, after: written("tmp:mid", at("ch2", 15, "tmp:l"), [spend(xia, -100)])},
+        ], world.version), "t"));
+        const [line, mid, fork] = [created.ids["tmp:l"]!, created.ids["tmp:mid"]!, created.ids["tmp:f"]!];
+        // 分叉之后在主线写下、安放在原切口与新切口之间的计划：改前看不到，改后看得到。
+        const later = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:p2"}, after: {...written("tmp:p2", at("ch2", 18)), kind: "plan"}}], created.world.version), "t"));
+        const p2 = later.ids["tmp:p2"]!;
+        const move = request([{ref: {kind: "change", id: fork}, after: (() => {
+            const value = structuredClone(later.world.data.changes.get(fork)!);
+            return {...value, fork: {...value.fork!, cut: c2}};
+        })()}], later.world.version);
+        const preview = later.world.preview(move, "t");
+        expect(preview.ok && preview.blast).toEqual({
+            outOfBounds: [{line, ref: {kind: "change", id: mid}}],
+            plans: [{plan: p2, line, visible: true}],
+            progress: [{line, plan: p2, before: null, after: "unfulfilled"}],
+            chapters: [],
+        });
+        // 预览不发布：世界没变。
+        expect(later.world.data.changes.get(fork)!.fork!.cut).toBe(c1);
+        // 只加一条普通记录：没有波及面。
+        const plain = later.world.preview(request([{ref: {kind: "change", id: "tmp:x"}, after: written("tmp:x", at("ch3", 9))}], later.world.version), "t");
+        expect(plain.ok && plain.blast).toBeUndefined();
+    });
+});
+
+describe("canon.worldlines 验收 9：计划线的兑现与撤销", () => {
+    test("计划分叉开出线：实际模式读不到、记已写的被拒；写下兑现它的已写分叉以后能记账；撤销已写分叉：线变回计划线，已写记录各成 line-planned，根因是这次撤销", () => {
+        const {world, c1, xia} = base();
+        const planned = forked(world, c1, {kind: "plan"});
+        const [line, plan] = [planned.ids["tmp:l"]!, planned.ids["tmp:f"]!];
+        const table = (target: World) => lineTable(target.data, target.options.order);
+        expect([table(planned.world).exists(line, "actual"), table(planned.world).exists(line, "planned")]).toEqual([false, true]);
+        expect(planned.world.line(line)).toBeDefined();
+        expect(problems(planned.world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: written("tmp:x", at("ch3", 20, line))}], planned.world.version), "t")).map(([code]) => code)).toContain("line-planned");
+        // 写下兑现它的已写分叉（同一个 line、同一个 parent，切口可以不同）。
+        const fulfilled = ok(planned.world.publish(request([{ref: {kind: "change", id: "tmp:g"}, after: written("tmp:g", at("ch2", 45), [], {nature: "fork", fork: {line, name: "兑现", parent: "main", cut: c1, type: "if"}, links: [{kind: "fulfills", plan}]})}], planned.world.version), "t"));
+        expect(table(fulfilled.world).exists(line, "actual")).toBe(true);
+        const booked = ok(fulfilled.world.publish(request([{ref: {kind: "change", id: "tmp:y"}, after: written("tmp:y", at("ch3", 20, line), [spend(xia, -300)])}], fulfilled.world.version), "t"));
+        const record = booked.ids["tmp:y"]!;
+        // 撤销已写分叉。
+        const fork = structuredClone(booked.world.data.changes.get(fulfilled.ids["tmp:g"]!)!);
+        const undone = ok(booked.world.publish(request([{ref: {kind: "change", id: fork.id}, after: {...fork, status: "undone" as const}}], booked.world.version), "t"));
+        expect([table(undone.world).exists(line, "actual"), table(undone.world).exists(line, "planned")]).toEqual([false, true]);
+        for (const mode of ["actual", "planned"] as const) {
+            const pending = undone.world.pending({kind: "chapter", chapter: "ch4", edge: "end"}, mode);
+            const items = typeof pending === "string" ? [] : pending.filter((item) => item.kind === "line-planned");
+            expect(items).toEqual([{kind: "line-planned", ref: {kind: "change", id: record}, line, root: undone.revision.id}]);
+        }
+        expect(undone.world.line(line)!.records.changes.has(record)).toBe(false);
     });
 });
 
