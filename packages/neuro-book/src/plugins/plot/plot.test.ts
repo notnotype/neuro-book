@@ -137,6 +137,19 @@ describe("剧情插件的远程合同", () => {
         // 剧情插件声明的诊断都登记了计算：待处理是完整的。
         const pending = await window.canon.call("pending", {});
         expect(pending.ok && [pending.value.complete, pending.value.unavailable]).toEqual([true, []]);
+        // 阶段 E 的读取：目标表、涉及本章的决策、开写前的视图、写手的上下文（经真实的项目子进程与远程合同）。
+        expect(await plot.goals({})).toMatchObject({ok: true, value: {items: []}});
+        expect(await plot.decisionsFor({chapter: "2"})).toMatchObject({ok: true, value: {items: []}});
+        expect(await plot.decisionsFor({chapter: "99"})).toMatchObject({ok: false, code: "plot", detail: {code: "chapter-not-found"}});
+        expect(await plot.beforeWriting({chapter: "2"})).toMatchObject({ok: true, value: {chapter: "2", lines: [{line: "main", overdue: []}]}});
+        const brief = await plot.brief({chapter: "2", outline: "卫兵站岗，勇者经过", targetWords: 1500, previousTail: "国王与贤者说话。"});
+        if (!brief.ok) throw new Error(JSON.stringify(brief));
+        const written = brief.value as {text: string; record: {pluginVersion: string; targetWords: number; previousDigest: string | null}};
+        expect(written.text).toContain("## 细纲\n卫兵站岗，勇者经过");
+        expect(written.text).toContain("## 目标字数\n1500");
+        expect(written.text).toContain("## 上一章末尾\n国王与贤者说话。");
+        expect(written.record).toMatchObject({targetWords: 1500, pluginVersion: expect.any(String)});
+        expect(await plot.brief({chapter: "99", outline: "", targetWords: 1, previousTail: null})).toMatchObject({ok: false, code: "plot", detail: {code: "chapter-not-found"}});
         const opened = await plot.openViewpoint({viewer: guard, until: {kind: "chapter", chapter: "2", edge: "end"}, purpose: "writer"});
         if (!opened.ok) throw new Error(JSON.stringify(opened));
         const handle = (opened.value as {handle: string}).handle;

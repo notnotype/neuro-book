@@ -18,11 +18,13 @@ import {CANON_BUDGET_BYTES, canonProjectKey, encodedBytes} from "nbook/plugins/c
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {foreshadowDiagnostics, ledger} from "../core/foreshadowing";
-import {decisionDiagnostics} from "../core/decisions";
+import {beforeWriting} from "../core/before-writing";
+import {composeBrief} from "../core/brief";
+import {decisionDiagnostics, involvedDecisions} from "../core/decisions";
 import {goalDiagnostics} from "../core/goal-checks";
 import {guardDiagnostics} from "../core/guards";
 import {instructionDiagnostics} from "../core/instruction-checks";
-import {conflictsOf} from "../core/goals";
+import {conflictsOf, goalTable} from "../core/goals";
 import {experienceChanges, firstReveal, knowingIndex, readerKnowing} from "../core/knowledge";
 import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics} from "../core/knowledge-checks";
@@ -73,7 +75,7 @@ type Viewpoints = Map<string, {readonly token: string; readonly grant: Viewpoint
 const CLOSED_KEPT = 100;
 let viewpointSequence = 0;
 
-function remotePlot(canon: CanonProject, viewpoints: Viewpoints): RemoteImplementation<typeof plotWorldContract> {
+function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: InstructionTable): RemoteImplementation<typeof plotWorldContract> {
     const closed = new Map<string, {readonly viewer: string | null; readonly purpose: string}>();
     /** 取一份快照，在同一个同步段里算完。 */
     const withView = async <R>(run: (view: CanonReadView) => R): Promise<R | Failure> => {
@@ -150,6 +152,33 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints): RemoteImplemen
                 if (view.positionKey(position) === null) return fail("chapter-not-found");
                 return pagedList(view, ledger(view, position, input.mode ?? "actual", input.filter ?? {}), input, {method: "ledger", position, mode: input.mode ?? "actual", filter: input.filter ?? {}});
             }),
+            goals: (input) => withView((main) => {
+                const position = input.position ?? latest(main);
+                const mode = input.mode ?? "actual";
+                const view = lineViewOf(main, position, mode);
+                if ("ok" in view) return view;
+                if (view.positionKey(position) === null) return fail("chapter-not-found");
+                return pagedList(view, goalTable(view, position, mode, input.filter ?? {}), input, {method: "goals", position, mode, filter: input.filter ?? {}});
+            }),
+            decisionsFor: (input) => withView((main) => {
+                if (!main.chapters.includes(input.chapter)) return fail("chapter-not-found");
+                // 只取这一章讲的线（分段的取各段的线）：每条线一份。
+                const mode = input.mode ?? "actual";
+                const lines = [...new Set(main.chapterLines(input.chapter).map((segment) => segment.line))];
+                const views = lines.map((line) => (line === main.line ? main : main.onLine(line, "planned")));
+                const failed = views.find((found) => "code" in found);
+                if (failed !== undefined && "code" in failed) return fail(failed.code);
+                const rows = (views as CanonReadView[]).flatMap((view, index) => involvedDecisions(view, input.chapter, mode).map((decision) => ({line: lines[index]!, ...decision})));
+                return pagedList(main, rows, input, {method: "decisionsFor", chapter: input.chapter, mode});
+            }),
+            beforeWriting: (input) => withView((main) => {
+                const result = beforeWriting(main, input.chapter, digest);
+                return typeof result === "string" ? fail(result) : fitted({version: main.version, inputDigest: main.stamp.inputDigest, ...result});
+            }),
+            brief: (input) => withView((main) => {
+                const result = composeBrief({view: main, chapter: input.chapter, outline: input.outline, targetWords: input.targetWords, previousTail: input.previousTail, pluginVersion: descriptor.version, digest, instruction: instructions.get(input.chapter), ...(input.limits === undefined ? {} : {limits: input.limits})});
+                return typeof result === "string" ? fail(result) : fitted({version: main.version, ...result});
+            }),
             openViewpoint: async (input) => {
                 // 线：写了用写的，不写按活页夹上限那一章讲的线。
                 const snapshot = await canon.snapshot();
@@ -197,7 +226,7 @@ export const plotProjectPlugin: PluginDefinition = {
             const owned = new WeakMap<object, Viewpoints>();
             const remote = provideRemote(plotWorldContract, () => {
                 const viewpoints: Viewpoints = new Map();
-                const implementation = remotePlot(canon, viewpoints);
+                const implementation = remotePlot(canon, viewpoints, instructions);
                 owned.set(implementation, viewpoints);
                 return implementation;
             }, {

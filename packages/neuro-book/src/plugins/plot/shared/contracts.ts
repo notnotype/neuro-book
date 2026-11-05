@@ -49,6 +49,14 @@ const methods = {
         effect: "read",
         errors,
     },
+    /** 目标表（goals.md 输出 5）：每个主要角色在一个读取位置上的目标与态度，可按持有者、状态筛。 */
+    goals: {input: Type.Object({position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode), filter: Type.Optional(Type.Object({holder: Type.Optional(Type.String()), status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("blocked"), Type.Literal("achieved"), Type.Literal("abandoned")]))}, {additionalProperties: false})), ...Page}), output: Out, effect: "read", errors},
+    /** 涉及一章的决策（decisions.md 输出 7）：已定的在前；未写的章按计划模式。 */
+    decisionsFor: {input: Type.Object({chapter: Type.String(), mode: Type.Optional(Mode), ...Page}), output: Out, effect: "read", errors},
+    /** 开写前的视图（decisions.md 输出 6）：只在这一章讲的线上算。 */
+    beforeWriting: {input: Type.Object({chapter: Type.String()}), output: Out, effect: "read", errors},
+    /** 写手的上下文（brief.md）：写作指示取项目实例里推进来的快照；细纲、目标字数、上一章末尾一段由调用方给。插件版本不由调用方给。 */
+    brief: {input: Type.Object({chapter: Type.String(), outline: Type.String({maxLength: 200_000}), targetWords: Type.Integer({minimum: 1}), previousTail: Type.Union([Type.String({maxLength: 20_000}), Type.Null()]), limits: Type.Optional(Type.Record(Type.String(), Type.Integer({minimum: 1})))}), output: Out, effect: "read", errors},
     /** 给看的人开一张视图；`line` 不写时按活页夹上限那一章讲的线（canon.worldlines 输出 12）。 */
     openViewpoint: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), until: ReadPositionSchema, purpose: Type.String(), line: Type.Optional(Type.String())}), output: Out, effect: "read", errors},
     closeViewpoint: {input: Type.Object({handle: Type.String()}), output: Type.Null(), effect: "read", errors},
