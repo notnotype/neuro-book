@@ -11,7 +11,7 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {startProductServer} from "./fixtures";
+import {startProbeServer, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
 let tmp = "";
@@ -394,5 +394,103 @@ test.describe("右键菜单", () => {
         await page.getByRole("menuitem", {name: /^粘贴\s*Ctrl\+V/u}).click();
         await expect(page.getByText("浏览器没有给读取剪贴板的权限，请用 Ctrl+V")).toBeVisible();
         await expect(prose(page).locator("p").first()).toHaveText("字");
+    });
+});
+
+test.describe("拆分后", () => {
+    test("工具栏显示自己这一组的状态；右键点别的组时它变成活动组", async ({page}) => {
+        await openFile(page, "notes/split.md", "**粗**\n\n普通\n");
+        await prose(page).locator("strong").click();
+        await expect(prose(page)).toBeFocused();
+        await expect(toolbarButton(page, "粗体")).toHaveAttribute("aria-pressed", "true");
+        await page.locator("[data-editor-group-active] [data-title-action-key=\"own:split-right\"]").click();
+        await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+        const groups = page.locator("[data-editor-group]");
+        const right = groups.nth(1);
+        await right.locator("[data-editor-prose]").getByText("普通").click();
+        await expect(right).toHaveAttribute("data-editor-group-active", "");
+        await expect(right.locator(".markdown-toolbar").getByRole("button", {name: "粗体", exact: true})).toHaveAttribute("aria-pressed", "false");
+        const left = groups.nth(0);
+        await expect(left.locator(".markdown-toolbar").getByRole("button", {name: "粗体", exact: true})).toHaveAttribute("aria-pressed", "true");
+        await left.locator("[data-editor-prose]").getByText("普通").click({button: "right"});
+        await expect(left).toHaveAttribute("data-editor-group-active", "");
+    });
+});
+
+test.describe("只读", () => {
+    test("文件被外部删除后：工具栏置灰且版面不跳，没有块按钮，右键只有复制与全选", async ({page}) => {
+        await openFile(page, "notes/readonly.md", "字\n");
+        const toolbar = activeGroup(page).locator(".markdown-toolbar");
+        const before = await toolbar.boundingBox();
+        await expect(toolbarButton(page, "粗体")).toBeEnabled();
+        await rm(join(projectDir, "notes/readonly.md"));
+        await expect(toolbarButton(page, "粗体")).toBeDisabled();
+        const after = await toolbar.boundingBox();
+        expect(after?.height).toBe(before?.height);
+        await prose(page).locator("p").first().hover();
+        await expect(activeGroup(page).locator("[data-markdown-gutter]")).toHaveCount(0);
+        await prose(page).locator("p").first().click({button: "right"});
+        await expect(page.getByRole("menuitem", {name: "全选"})).toBeVisible();
+        await expect(page.getByRole("menuitem", {name: "复制"})).toBeVisible();
+        await expect(page.getByRole("menuitem", {name: "剪切"})).toHaveCount(0);
+    });
+});
+
+test.describe("插件贡献的菜单项", () => {
+    let probe: Awaited<ReturnType<typeof startProbeServer>>;
+    let root = "";
+
+    test.beforeAll(async () => {
+        root = await createTestTmpRoot("neuro-book-e2e", "markdown-editing-contrib");
+        const book = join(root, "Book");
+        const stateRoot = join(root, "state");
+        const id = randomUUID();
+        await mkdir(join(book, ".nbook"), {recursive: true});
+        await mkdir(join(stateRoot, "user"), {recursive: true});
+        await writeFile(join(book, ".nbook/project.json"), JSON.stringify({schema: 1, id}));
+        await writeFile(join(book, "a.md"), "第一段文字\n");
+        await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: book}]}));
+        probe = await startProbeServer(stateRoot, {env: {NBOOK_TEST_PLUGINS: "test.menus"}});
+    });
+    test.afterAll(async () => {
+        expect(await probe.stop()).toBe(0);
+        if (root !== "") await rm(root, {recursive: true, force: true});
+    });
+
+    test("五个位置都有，排在内置项之后，点了收到活动标签的地址", async ({page}) => {
+        const received = `收到 ${JSON.stringify({address: "project://a.md"})}`;
+        await page.setViewportSize({width: 1440, height: 900});
+        await page.goto(new URL("/?project=book", probe.url).href);
+        await item(page, "project://a.md").dblclick();
+        await expect(prose(page)).toBeVisible();
+        const notice = page.getByText(received);
+
+        // 工具栏：版心里内置按钮正好放满，贡献的项最先收进“更多操作”（输出 3）。
+        await toolbarButton(page, "更多操作").click();
+        await page.getByRole("menuitem", {name: "测试工具栏项"}).click();
+        await expect(notice.first()).toBeVisible();
+
+        // 选区菜单
+        await prose(page).locator("p").first().click();
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.press("Control+a");
+        await expect(selectionMenu(page).getByRole("button", {name: "测试选区项"})).toBeVisible();
+
+        // 右键
+        await prose(page).locator("p").first().click({button: "right"});
+        await expect(page.getByRole("menuitem", {name: "测试右键项目"})).toBeVisible();
+        await page.keyboard.press("Escape");
+
+        // 块菜单
+        await prose(page).locator("p").first().hover();
+        await activeGroup(page).locator("[data-markdown-gutter]").getByRole("button", {name: "块菜单"}).click();
+        await expect(page.getByRole("menuitem", {name: "测试块菜单项"})).toBeVisible();
+        await page.keyboard.press("Escape");
+
+        // 斜杠菜单
+        await prose(page).locator("p").first().click();
+        await page.keyboard.press("End");
+        await page.keyboard.type(" /测试");
+        await expect(page.locator("[data-suggestion-menu]").getByRole("option", {name: "测试斜杠项"})).toBeVisible();
     });
 });
