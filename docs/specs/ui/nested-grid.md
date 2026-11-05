@@ -97,7 +97,7 @@ nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥�
 
 当前原语增量采用快照 v2：结构、稳定 id/ref 与叶/分支的两轴意图；运行约束由当前树或宿主引用解析器提供。v1 缺少可靠的两轴信息，整体拒绝且由宿主保留原件。非字符串引用要求显式稳定编码器；未知引用过滤与非法格式分别报告。
 
-分支手势使用完整当前呈现基线与目标的原子入口，Renderer 消费原语给出的有效交互约束及实际 sash。公开消费细节见 [grid API](../../../packages/nb-ui/src/components/layout/grid.md)。原语与 Shell/Spike 的聚焦验证不代表 Storage 插件宿主、未知引用合成保存及真实浏览器验收已闭合；本 capability 保持 planned。
+分支手势使用完整当前呈现基线与目标的原子入口，Renderer 消费原语给出的有效交互约束及实际 sash。公开消费细节见 [grid API](../../../packages/nb-layout/src/grid.md)。原语与 Shell/Spike 的聚焦验证不代表 Storage 插件宿主、未知引用合成保存及真实浏览器验收已闭合；本 capability 保持 planned。
 
 结构操作补齐**拆分叶**：`splitLeaf(targetId, {branchId, orientation, side, leaf, ratio})` 把一个叶原位换成新分支——新分支继承目标的外部分配意图，两个子叶按 `ratio` 分掉目标在新轴上的意图（新轴意图为 0 时两端取统一正权重，均分不塌成 0）。只开放比例、不开放 `size`：否则初始意图会出现两个 authority。`left/top → before`、`right/bottom → after` 的宿主词汇映射留在交互层。节点数与嵌套深度上限由结构操作与快照恢复共用同一判定，拆分失败不改树。
 
