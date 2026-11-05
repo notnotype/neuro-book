@@ -9,6 +9,9 @@
  * 人在场、各有一句正文讲述）、1 条给某人加一行“别人告诉的”知情行的变更；伏笔每隔 10 章埋一个，之后每 50 章呼应一次，偶数号
  * 的在埋下 400 章后回收。每章一次发布。
  *
+ * 阶段 E 另加：30 个主要角色（每人 1 到 3 个目标，`基于` 各 2 个知识点）、200 条决策（50 条已定带地址守卫、20 条已定带读者守卫、
+ * 30 条待定带到期章、100 条已定不带守卫）、3 条回溯分叉线、100 章的写作指示快照；读待处理的预算按全部剧情诊断合计判。
+ *
  * 用法（应用包目录）：bun scripts/perf/plot-scale.ts [章数=1000]
  * 测量前看 `uptime`：负载高时多跑几次按较低的一端判断，不与 omp 审查同时跑。
  */
@@ -19,7 +22,14 @@ import {join} from "node:path";
 
 import type {Mark, ReadPosition, TellingDraft, WriteRequest} from "@notnotype/nb-canon";
 
+import {InstructionTable} from "nbook/plugins/plot/backend/instructions";
+import {beforeWriting} from "nbook/plugins/plot/core/before-writing";
+import {composeBrief} from "nbook/plugins/plot/core/brief";
+import {decisionDiagnostics} from "nbook/plugins/plot/core/decisions";
 import {foreshadowDiagnostics, ledger} from "nbook/plugins/plot/core/foreshadowing";
+import {goalDiagnostics} from "nbook/plugins/plot/core/goal-checks";
+import {guardDiagnostics} from "nbook/plugins/plot/core/guards";
+import {instructionDiagnostics} from "nbook/plugins/plot/core/instruction-checks";
 import {knowingDiagnostics} from "nbook/plugins/plot/core/knowledge-checks";
 import {Viewpoint} from "nbook/plugins/plot/core/viewpoint";
 import {MARK_IDS, PLOT_PLUGIN_ID} from "nbook/plugins/plot/shared/declarations";
@@ -75,6 +85,7 @@ function nodesAt(n: number): Mark[] {
 }
 
 let sequence = 0;
+const forkCuts: string[] = [];
 for (let n = 1; n <= chapters; n += 1) {
     const chapter = chapterIds[n - 1]!;
     const puts: WriteRequest["puts"] = [];
@@ -88,14 +99,39 @@ for (let n = 1; n <= chapters; n += 1) {
     // (n mod 200, 7n mod 500) 在 1000 章内不重复：同一人对同一知识点只加一次行。
     const id = `tmp:c${String(++sequence)}`;
     puts.push({ref: {kind: "change", id}, after: drafts.change(id, {kind: "chapter", chapter, key: 40}, {patches: [addRow(person(n), point(7 * n), {程度: "knows", 怎么知道: "told", 谁告诉的: {ref: person(n + 1)}})]})});
-    await plot.publish(puts);
+    const written = await plot.publish(puts);
+    if (n === Math.floor(chapters / 4) || n === Math.floor(chapters / 2) || n === Math.floor((3 * chapters) / 4)) forkCuts.push(written[puts[0]!.ref.id]!);
 }
 const generated = performance.now() - started;
 const version = service.status().version;
 
+// ---------- 阶段 E：目标、决策、守卫、分叉、写作指示 ----------
+const HOLDERS = 30;
+const goalIds: string[] = [];
+const goalPuts: WriteRequest["puts"] = [];
+for (let h = 0; h < HOLDERS; h += 1) {
+    for (let g = 0; g <= h % 3; g += 1) {
+        const id = `tmp:g${String(h)}-${String(g)}`;
+        goalIds.push(id);
+        goalPuts.push({ref: {kind: "entry", id}, after: drafts.goal(id, `目标${String(h)}-${String(g)}`, person(h), {基于: [{id: point(h * 7 + g)}, {id: point(h * 7 + g + 1)}]})});
+    }
+}
+const goals = await plot.publish(goalPuts);
+const middle = chapterIds[Math.floor(chapters / 2)]!;
+const guardAddress = (goal: string) => ({kind: MARK_IDS.guardAddress, version: 1, at: {entry: goal, path: "goal.状态"}, notIn: ["abandoned"], to: middle});
+for (let i = 0; i < 50; i += 1) await plot.decision(`地址守卫 ${String(i)}`, {about: [], conclusion: "不放弃", marks: [guardAddress(goals[goalIds[i % goalIds.length]!]!)]});
+for (let i = 0; i < 20; i += 1) await plot.decision(`读者守卫 ${String(i)}`, {about: [], conclusion: "不明说", marks: [{kind: MARK_IDS.guardReader, version: 1, point: point(i), atMost: "suspects", until: middle}]});
+for (let i = 0; i < 30; i += 1) await plot.decision(`待定 ${String(i)}`, {about: [{kind: "entry", id: person(i)}], due: chapterIds[Math.min(chapters - 1, 100 + i * 20)]!});
+for (let i = 0; i < 100; i += 1) await plot.decision(`已定 ${String(i)}`, {about: [{kind: "entry", id: person(i)}], conclusion: "照此写", reason: "作者定的"});
+const forkPuts: WriteRequest["puts"] = forkCuts.map((cut, index) => ({ref: {kind: "change" as const, id: `tmp:fork${String(index)}`}, after: {...drafts.change(`tmp:fork${String(index)}`, {kind: "chapter", chapter: chapterIds.at(-1)!, key: 500 + index}), nature: "fork" as const, fork: {line: `tmp:line${String(index)}`, name: `分叉${String(index)}`, parent: "main", cut, type: "branch" as const}}}));
+await plot.publish(forkPuts);
+const instructions = new InstructionTable();
+for (let n = 1; n <= Math.min(100, chapters); n += 1) instructions.put(chapterIds[n - 1]!, {chapter: chapterIds[n - 1]!, version: "v1", pov: {kind: "entry", id: person(n)}, avoid: ["别写天气"], other: n % 2 === 0 ? "语气冷一点" : "语气暖一点"});
+const allCompute = {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics((text) => new Bun.CryptoHasher("sha256").update(text).digest("hex")), ...instructionDiagnostics(instructions)};
+
 // ---------- 读待处理时剧情插件全部诊断 ----------
 // 产品里剧情插件的项目入口经 canon 的项目内接口登记；这里直接在服务上登记同一组计算。
-service.registerDiagnostics(PLOT_PLUGIN_ID, {compute: {...knowingDiagnostics(), ...foreshadowDiagnostics()}, dataVersion: "scale"});
+service.registerDiagnostics(PLOT_PLUGIN_ID, {compute: allCompute, dataVersion: "scale"});
 const last = chapterIds.at(-1)!;
 const pendingReads: number[] = [];
 let timings: {readonly diagnostic: string; readonly ms: number}[] = [];
@@ -108,7 +144,7 @@ for (let round = 0; round < 6; round += 1) {
     pendingReads.push(performance.now() - begin);
     if (typeof page === "string") throw new Error(page);
     counts = {...page.counts, complete: page.complete};
-    timings = [...service.status().diagnosticTimings].slice(-Object.keys({...knowingDiagnostics(), ...foreshadowDiagnostics()}).length);
+    timings = [...service.status().diagnosticTimings].slice(-Object.keys(allCompute).length);
 }
 
 // ---------- 按视角读一个挂了 20 个保密知识点的条目 ----------
@@ -148,6 +184,15 @@ started = performance.now();
 const items = ledger(snapshot.view, until, "actual");
 const ledgerMs = performance.now() - started;
 
+// 开写前的视图与写手的上下文（只记录，不设预算）。
+const digest = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
+started = performance.now();
+const before = beforeWriting(snapshot.view, last, digest);
+const beforeMs = performance.now() - started;
+started = performance.now();
+const brief = composeBrief({view: snapshot.view, chapter: last, outline: "细纲", targetWords: 2000, previousTail: null, pluginVersion: "scale", digest, ...(instructions.get(last) === undefined ? {} : {instruction: instructions.get(last)!})});
+const briefMs = performance.now() - started;
+
 Bun.gc(true);
 const heap = process.memoryUsage().heapUsed / 1024 / 1024;
 service.closeView(opened.token);
@@ -156,7 +201,7 @@ await rm(root, {recursive: true, force: true});
 
 const uptime = (await Bun.$`uptime`.text()).trim();
 const slowest = [...timings].sort((a, b) => b.ms - a.ms).slice(0, 5).map((timing) => `${timing.diagnostic.replace(`${PLOT_PLUGIN_ID}.`, "")} ${ms(timing.ms)}`).join("，");
-console.log(`剧情规模（${String(chapters)} 章，${String(PEOPLE)} 人，${String(POINTS)} 个知识点，${String(FORESHADOWS)} 个伏笔，版本 ${String(version)}）`);
+console.log(`剧情规模（${String(chapters)} 章，${String(PEOPLE)} 人，${String(POINTS)} 个知识点，${String(FORESHADOWS)} 个伏笔，${String(goalIds.length)} 个目标，200 条决策，3 条分叉线，版本 ${String(version)}）`);
 console.log(`负载：${uptime}`);
 console.log(`生成（每章一次发布）：${ms(generated / 1000)} 秒`);
 console.log(`读待处理（含剧情插件全部诊断，发布后第一次读）：第一次 ${ms(pendingReads[0]!)} 毫秒，之后中位 ${ms(median(pendingReads.slice(1)))}，最大 ${ms(Math.max(...pendingReads.slice(1)))}（预算 200）；计数 ${JSON.stringify(counts)}`);
@@ -164,4 +209,5 @@ console.log(`诊断耗时（最后一轮，最慢的 5 个，毫秒）：${slowe
 console.log(`发布后引擎追上新版本（第一次读取）：中位 ${ms(median(catchUps))} 毫秒，最大 ${ms(Math.max(...catchUps))}`);
 console.log(`按视角读挂了 20 个保密知识点的条目（取快照、建视图、读；预算 20）：引擎追上以后第一次中位 ${ms(median(coldReads))} 毫秒，最大 ${ms(Math.max(...coldReads))}；同一份输入上再读中位 ${ms(median(warmReads))}，最大 ${ms(Math.max(...warmReads))}；读到的子条目 ${String(children)} 个`);
 console.log(`伏笔账本：${ms(ledgerMs)} 毫秒（${String(items.length)} 项）`);
+console.log(`开写前的视图 ${ms(beforeMs)} 毫秒（${typeof before === "string" ? before : String(before.lines.length)} 条线）；写手的上下文 ${ms(briefMs)} 毫秒（${typeof brief === "string" ? brief : String(brief.text.length)} 字）`);
 console.log(`堆：${ms(heap)} MB`);

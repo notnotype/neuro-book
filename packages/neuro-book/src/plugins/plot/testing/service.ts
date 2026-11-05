@@ -6,10 +6,11 @@
 import {createHash} from "node:crypto";
 import {join} from "node:path";
 
-import type {Entry, Placement, WriteRequest} from "@notnotype/nb-canon";
+import type {Decision, Entry, Placement, WriteRequest} from "@notnotype/nb-canon";
 import {nodeFiles, WorldService} from "@notnotype/nb-canon/node";
 
 import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
+import {signAuthorization, TEST_PROJECT, verifyTestSource} from "./authorization";
 import {drafts, plotRegistries, type ChangeOptions} from "./world";
 
 export class PlotService {
@@ -36,6 +37,8 @@ export class PlotService {
             digest: (text) => createHash("sha256").update(text).digest("hex"),
             clock: () => 0,
             now: () => new Date(0).toISOString(),
+            project: TEST_PROJECT,
+            verifyAuthorSource: verifyTestSource,
         }, {chapters, ...plotRegistries()});
         if ("code" in opened) throw new Error(opened.code);
         return new PlotService(opened, texts);
@@ -65,6 +68,19 @@ export class PlotService {
     async change(at: Placement, options: ChangeOptions = {}): Promise<string> {
         const id = `tmp:c${String(++this.#sequence)}`;
         return (await this.publish([{ref: {kind: "change", id}, after: drafts.change(id, at, options)}]))[id]!;
+    }
+
+    /** 一条决策：待定建好，有 `conclusion` 时再由作者来源转成已定（结论、理由、约束、标注只在已定时起作用）。返回正式 id。 */
+    async decision(text: string, extra: Partial<Decision> & {conclusion?: string} = {}): Promise<string> {
+        const {conclusion, reason, constraints, risks, marks, ...rest} = extra;
+        const id = `tmp:d${String(++this.#sequence)}`;
+        const created = (await this.publish([{ref: {kind: "decision", id}, after: {id, text, status: "pending", about: [], hints: [], ...rest}}]))[id]!;
+        if (conclusion === undefined) return created;
+        const stored = this.service.world.data.decisions.get(created)!;
+        const request: WriteRequest = {requestId: `plot-${String(++this.#sequence)}`, by: {kind: "author"}, what: "edit", title: "定", baseVersion: this.service.status().version, puts: [{ref: {kind: "decision", id: created}, after: {...stored, status: "decided", conclusion, ...(reason === undefined ? {} : {reason}), ...(constraints === undefined ? {} : {constraints}), ...(risks === undefined ? {} : {risks}), ...(marks === undefined ? {} : {marks})}}]};
+        const result = await this.service.publish({...request, authorizations: [signAuthorization(request, created, "pending→decided")]});
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        return created;
     }
 
     /** 为看的人开一张内核视图，在当前的快照上建剧情的视图；占位记进内核的审计。 */

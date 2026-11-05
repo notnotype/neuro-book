@@ -376,7 +376,12 @@ type ReaderFilter = {readonly until?: TellingPosition; readonly mark?: string; r
  * 到下一段首之前）的讲述。读者读的是活页夹的正文，所以回溯段里子线上变更的讲述算读过，主线视图里却看不到它们：不能只在
  * 一张视图上读。每条用到的线只取一次，再按段筛。
  */
+const readerCache = perViewCache<ReturnType<CanonReadView["tellings"]>>();
 export function readerTellings(view: CanonReadView, filter: ReaderFilter = {}): ReturnType<CanonReadView["tellings"]> {
+    return readerCache(view, JSON.stringify(filter), () => readerTellingsUncached(view, filter));
+}
+
+function readerTellingsUncached(view: CanonReadView, filter: ReaderFilter): ReturnType<CanonReadView["tellings"]> {
     // 章 -> 段（线与起始段落号）。
     const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, view.chapterLines(chapter)] as const));
     const lines = new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)));

@@ -6,7 +6,9 @@
 import type {CanonReadView, DiagnosticCompute, EventKey, Finding, Mode, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
 import {GOAL_DIAGNOSTIC_IDS} from "../shared/declarations";
+import {changeIndex} from "./change-index";
 import {readGoal, type GoalRead} from "./goals";
+import {perViewCache} from "./view-cache";
 import {knowingIndex} from "./knowledge";
 
 /** “停滞”：状态为进行的目标从最后一次被改到读取位置所在章超过这么多章（Spec：缺省值，用样本书量过以后再定）。 */
@@ -23,20 +25,25 @@ export function goalDiagnostics(): Readonly<Record<string, DiagnosticCompute>> {
     };
 }
 
-/** 位置 P 上在的、状态为进行或受挫的目标。 */
-function liveGoals(view: CanonReadView, at: ReadPosition, mode: Mode): GoalRead[] {
-    return view.entries().flatMap((entry) => {
+const goalReads = perViewCache<GoalRead[]>();
+/** 位置 P 上已出场的全部目标（三项检查共用，一次读待处理里只读一遍）。 */
+function goalsAtPosition(view: CanonReadView, at: ReadPosition, mode: Mode): GoalRead[] {
+    return goalReads(view, `${mode}|${JSON.stringify(at)}`, () => view.entries().flatMap((entry) => {
         if (entry.deleted === true || entry.type !== "目标") return [];
         const goal = readGoal(view, entry.id, at, mode);
-        return goal !== null && (goal.状态 === "active" || goal.状态 === "blocked") ? [goal] : [];
-    });
+        return goal === null ? [] : [goal];
+    }));
+}
+
+/** 位置 P 上在的、状态为进行或受挫的目标。 */
+function liveGoals(view: CanonReadView, at: ReadPosition, mode: Mode): GoalRead[] {
+    return goalsAtPosition(view, at, mode).filter((goal) => goal.状态 === "active" || goal.状态 === "blocked");
 }
 
 /** 改过目标 `goal` 命名空间的、在这条线这个模式里生效的剧情变更，按先后。 */
 function touchesOf(view: CanonReadView, goal: string, mode: Mode): {readonly change: StoryChange; readonly key: EventKey}[] {
     const touches: {change: StoryChange; key: EventKey}[] = [];
-    for (const change of view.changes({entry: goal})) {
-        if (change.status !== "active" || !change.patches.some((patch) => patch.at.entry === goal && patch.at.path.startsWith("goal."))) continue;
+    for (const change of changeIndex(view).goalTouches.get(goal) ?? []) {
         const key = view.eventKey(change.id, mode);
         if (key !== null) touches.push({change, key});
     }
@@ -112,7 +119,7 @@ const skippedStep: DiagnosticCompute = (view, at, mode) => {
                 if (key !== null) states.push({state: step.result, key, change: step.change});
             } else if (step.kind === "carried" && step.key !== null) states.push({state: step.value, key: step.key});
         }
-        const touches = view.changes({entry: goal.id}).filter((change) => change.status === "active" && (change.involves.includes(goal.id) || change.patches.some((patch) => patch.at.entry === goal.id)));
+        const touches = changeIndex(view).involving.get(goal.id) ?? [];
         for (let i = 1; i < states.length; i += 1) {
             const [from, to] = [states[i - 1]!, states[i]!];
             if (from.state !== "active" || to.state !== "achieved" || (to.change !== undefined && to.change === from.change)) continue;
@@ -132,9 +139,5 @@ const skippedStep: DiagnosticCompute = (view, at, mode) => {
 
 /** 位置 P 上状态为达成的目标（缺一步要看已经达成的）。 */
 function achievedGoals(view: CanonReadView, at: ReadPosition, mode: Mode): GoalRead[] {
-    return view.entries().flatMap((entry) => {
-        if (entry.deleted === true || entry.type !== "目标") return [];
-        const goal = readGoal(view, entry.id, at, mode);
-        return goal !== null && goal.状态 === "achieved" ? [goal] : [];
-    });
+    return goalsAtPosition(view, at, mode).filter((goal) => goal.状态 === "achieved");
 }

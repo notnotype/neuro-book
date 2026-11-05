@@ -11,6 +11,7 @@ import type {CanonReadView, DiagnosticCompute, Finding, Mode, ObjectRef, Placeme
 
 import {INSTRUCTION_DIAGNOSTIC_IDS} from "../shared/declarations";
 import type {InstructionSnapshot} from "../shared/instructions";
+import {changeIndex} from "./change-index";
 
 /** 快照的来源（项目实例里的表）。 */
 export interface InstructionSource {
@@ -42,7 +43,7 @@ function perChapter(view: CanonReadView, at: ReadPosition, mode: Mode, source: I
 
 /** 本章在这条线视图里生效的剧情变更（实际模式只算已写的，按计划模式再加计划）。 */
 function chapterChanges(view: CanonReadView, chapter: string, mode: Mode): StoryChange[] {
-    return view.changes({chapter, ...(mode === "planned" ? {} : {kind: "written" as const})}).filter((change) => change.status === "active" && change.nature !== "fork");
+    return (changeIndex(view).byChapter.get(chapter) ?? []).filter((change) => mode === "planned" || change.kind === "written");
 }
 
 /** 挂在本章或这些条目上的已定决策，追加进发现的对象里。 */
@@ -57,8 +58,11 @@ function povAbsent(view: CanonReadView, snapshot: InstructionSnapshot, mode: Mod
     if (snapshot.pov === undefined) return [];
     const changes = chapterChanges(view, snapshot.chapter, mode);
     if (changes.length === 0) return [];
-    const presence = view.presence(snapshot.pov.id, {from: snapshot.chapter, to: snapshot.chapter, mode});
-    if (typeof presence === "string" || presence.changes.length > 0 || presence.uncast > 0) return [];
+    // 本章的在场（同 `presence` 的取法，但从按章分组的变更里取，不为每一章把全部变更扫一遍）：已写、生效、套上的变更；按计划模式再加计划。
+    const counted = changes.filter((change) => change.kind === "plan" || change.patches.length === 0 || view.outcome(change.id)?.applied === true);
+    const pov = snapshot.pov.id;
+    const present = counted.some((change) => (change.cast ?? []).some((member) => member.role === "present" && (member.who === pov || member.as === pov)));
+    if (present || counted.some((change) => change.cast === undefined)) return [];
     return [{
         key: {objects: [{kind: "entry", id: snapshot.pov.id}], range: {from: snapshot.chapter, to: snapshot.chapter}},
         objects: [{kind: "entry", id: snapshot.pov.id}, ...relatedDecisions(view, snapshot.chapter, [snapshot.pov.id])],
