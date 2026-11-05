@@ -142,6 +142,8 @@ describe("改写与分类", () => {
         expect(resources.expand("session://../session.jsonl")).toMatchObject({ok: false, code: "invalid-address"});
         expect(resources.expand("project://x.md")).toMatchObject({ok: false, code: "no-project"});
         expect(await resources.read("project://x.md")).toMatchObject({ok: false, code: "no-project"});
+        // 内核的资源接口抛出的错误带着同一个码（输出 9）。
+        expect(await kernelResources(resources).read("project://x.md").catch((error: unknown) => error)).toMatchObject({name: "ResourceReadError", code: "no-project"});
 
         expect(resources.classify("session://plan.md")).toEqual({content: false, write: "allowed"});
         expect(resources.classify(`sessions://${id}/home/plan.md`)).toEqual({content: false, write: "allowed"});
@@ -198,6 +200,13 @@ describe("各方案对 Agent 的权限", () => {
         const {id, resources} = await open(w);
         const listed = await resources.list("sessions://");
         expect(listed.ok && "kind" in listed.value && listed.value.entries.some((entry) => entry.address === `sessions://${id}`)).toBe(true);
+        // 后台会话不列，按 id 仍然读得到。
+        const background = await w.service.startTask({taskId: "6d2b1f30-0000-4000-8000-000000000001", profile: WRITER, input: {text: "后台"}, background: true});
+        if (!background.ok) throw new Error(background.code);
+        await background.result;
+        const again = await resources.list("sessions://");
+        expect(again.ok && "kind" in again.value && again.value.entries.map((entry) => entry.address)).not.toContain(`sessions://${background.sessionId}`);
+        expect(await resources.list(`sessions://${background.sessionId}`)).toMatchObject({ok: true});
         expect(await textOf(resources.read("profiles://"))).toContain(`profiles://${WRITER}`);
         expect(await resources.write("sessions://", "x", {expect: {hash: "0"}})).toMatchObject({ok: false, code: "permission-denied"});
         expect(await resources.readPath("skills://")).toMatchObject({ok: false, code: "unsupported-capability"});

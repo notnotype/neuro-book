@@ -21,6 +21,8 @@ export const REVOKE_GRACE_MS = 5_000;
 type Handle = ContributionHandle<AgentToolDeclaration, AgentToolImplementation>;
 
 export interface ToolRequirements {
+    /** `false`：不加 `defaultForAll` 的工具（contributions.md 输出 4）。 */
+    readonly defaultTools?: false;
     readonly required: readonly string[];
     readonly optional: readonly string[];
 }
@@ -73,8 +75,10 @@ export class AgentTools {
     forProfile(requirements: ToolRequirements, binding: {readonly added: readonly string[]; readonly removed: readonly string[]} | undefined): ToolDeclaration[] {
         const all = this.all();
         const wanted = new Set([...requirements.required, ...requirements.optional]);
-        for (const descriptor of this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT)) {
-            if (descriptor.declaration.defaultForAll === true) wanted.add(descriptor.id);
+        if (requirements.defaultTools !== false) {
+            for (const descriptor of this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT)) {
+                if (descriptor.declaration.defaultForAll === true) wanted.add(descriptor.id);
+            }
         }
         for (const id of binding?.added ?? []) wanted.add(id);
         const required = new Set(requirements.required);

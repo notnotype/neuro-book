@@ -95,6 +95,8 @@ export interface KernelEvents {
     /** “本会话都批准”：批准记忆只从它归约，回退不撤销。 */
     approvalRemembered: K<"session", "ctrl", {tool: string; scope: "tool"; by: Actor}>;
     titleChanged: K<"session", "ctrl", {title: string; by: "user" | "auto"}>;
+    /** 会话的一句话说明（宿主自动生成，`setGeneratedMeta`）。 */
+    descriptionChanged: K<"session", "ctrl", {description: string}>;
     archived: K<"session", "ctrl", {archived: boolean}>;
 
     // ---- 运行与轮（path）----

@@ -24,7 +24,12 @@ export const commandErrors = {
     changeProfile: ["running", "unknown-profile", "extension-missing", "dependency-missing", "dependency-cycle", "profile-invalid", "command-id-conflict", "session-closed", "log-broken"],
     setTitle: ["empty-title", "command-id-conflict", "session-closed", "log-broken"],
     archive: ["command-id-conflict", "session-closed", "log-broken"],
+    setGeneratedMeta: ["empty-meta", "command-id-conflict", "session-closed", "log-broken"],
 } as const;
+
+/** 只给宿主的指令（docs/specs/harness/runtime.md 输出 72）：把 `SessionApi` 逐个方法暴露成远程服务的层要排除它们。 */
+export const hostOnlyCommands = ["setGeneratedMeta"] as const;
+export type HostOnlyCommand = (typeof hostOnlyCommands)[number];
 
 /** 存储与打开会话的失败码（`createSession`、`openSession`、`LogStore`）。 */
 export const storageErrors = [
@@ -132,6 +137,7 @@ export const diagnosticCodes = {
     // 拦截
     "intercept-threw": "error",
     "tool-declaration-invalid": "error",
+    "model-resolve-threw": "warn",
     "tools-missing": "error",
     "input-rejected": "info",
     // 装配与生命周期

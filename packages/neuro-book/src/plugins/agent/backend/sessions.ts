@@ -39,6 +39,8 @@ interface Entry {
     readonly id: string;
     state: "opening" | "open" | "closing";
     session: SessionApi | null;
+    /** 后台会话不算“正在运行”（sessions.md 的 `running()`）。 */
+    background: boolean;
     /** 打开的结果：同时到达的请求等同一个。 */
     ready: Promise<{readonly ok: true} | OpenFailure>;
     refs: number;
@@ -91,7 +93,7 @@ export class SessionTable {
         if (!created.ok) return created;
         const session = created.value;
         // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
-        const entry: Entry = {id: session.id, state: "open", session, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
         this.#maybeIdle(entry);
@@ -113,9 +115,9 @@ export class SessionTable {
         return api as unknown as SessionApi;
     }
 
-    /** 打开着、正在运行的会话（以后禁用前的确认用）。 */
+    /** 打开着、正在运行的前台会话（以后禁用前的确认用）。 */
     running(): string[] {
-        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle).map((entry) => entry.id);
+        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle && !entry.background).map((entry) => entry.id);
     }
 
     /**
@@ -187,7 +189,7 @@ export class SessionTable {
                 continue;
             }
             if (entry === undefined) {
-                entry = {id, state: "opening", session: null, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+                entry = {id, state: "opening", session: null, background: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
                 this.#entries.set(id, entry);
             }
@@ -217,6 +219,7 @@ export class SessionTable {
                 this.#entries.delete(entry.id);
                 return {ok: false, code: opened.code, ...(opened.detail === undefined ? {} : {detail: opened.detail})};
             }
+            entry.background = (await opened.value.snapshot()).header.background === true;
             entry.session = opened.value;
             entry.state = "open";
             this.#watch(entry, opened.value);

@@ -71,6 +71,7 @@ export class ProfileCatalog {
             description: descriptor.declaration.description,
             source: descriptor.plugin,
             ...availability(descriptor.declaration.tools),
+            ...(descriptor.declaration.hidden === true ? {hidden: true as const} : {}),
         }));
         const pluginKeys = new Set(fromPlugins.map((entry) => entry.key));
         const fromUser = (this.#user?.list() ?? []).map((profile): ProfileEntry => ({
@@ -98,7 +99,14 @@ export class ProfileCatalog {
             const found = this.#user?.list().find((profile) => profile.key === key);
             return found?.tools ?? {required: [], optional: []};
         }
-        return this.options.declarations.get<AgentProfileDeclaration>(PROFILES_POINT, key)?.declaration.tools ?? {required: [], optional: []};
+        const declared = this.options.declarations.get<AgentProfileDeclaration>(PROFILES_POINT, key)?.declaration;
+        if (declared === undefined) return {required: [], optional: []};
+        return {...declared.tools, ...(declared.defaultTools === false ? {defaultTools: false as const} : {})};
+    }
+
+    /** 声明里的缺省模型角色；用户级 Profile 没有声明，用 Profile 设置。 */
+    defaultRole(key: string): string | undefined {
+        return this.options.declarations.get<AgentProfileDeclaration>(PROFILES_POINT, key)?.declaration.role;
     }
 
     /** 内核的 `profiles.resolve`：插件的要激活提供方。 */

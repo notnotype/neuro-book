@@ -154,6 +154,14 @@ function bind(files: WorkspaceFiles, expand: (address: string) => Expanded, as: 
     return calls;
 }
 
+/** 内核的 `Resources.read` 接口只有文字或抛出：调用方要分辨失败时按 `code`（resources.md 输出 9）。 */
+export class ResourceReadError extends Error {
+    constructor(readonly code: string, uri: string, detail: string) {
+        super(`读不了 ${uri}：${code}（${detail}）`);
+        this.name = "ResourceReadError";
+    }
+}
+
 /** 内核的资源接口：`resolve` 交回全局地址（改写不了的原样交回）；`read` 只在不存在时为空，其它失败抛出（输出 9）。 */
 export function kernelResources(resources: SessionResources): Resources {
     return {
@@ -165,11 +173,11 @@ export function kernelResources(resources: SessionResources): Resources {
             const read = await resources.read(uri);
             if (!read.ok) {
                 if (read.code === "not-found") return undefined;
-                throw new Error(`读不了 ${uri}：${read.code}（${read.detail}）`);
+                throw new ResourceReadError(read.code, uri, read.detail);
             }
             // 与文件服务读文本同一规则：严格 UTF-8、BOM 留在文本里、含 NUL 的不是文本。
             const text = decodeText(read.value.bytes);
-            if (text === null) throw new Error(`读不了 ${uri}：not-text（不是 UTF-8 文本）`);
+            if (text === null) throw new ResourceReadError("not-text", uri, "不是 UTF-8 文本");
             return text;
         },
     };
