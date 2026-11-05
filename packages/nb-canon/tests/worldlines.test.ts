@@ -1,10 +1,13 @@
 import {createHash} from "node:crypto";
+import {rm} from "node:fs/promises";
 
 import {describe, expect, test} from "bun:test";
 
 import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type Fork, type Patch, type StoryChangeDraft, type WriteRequest} from "../src/index";
 import {lineTable} from "../src/lines/table";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {openTestService} from "./fixtures/service";
 import {PANEL, PERSON} from "./fixtures/world";
 
 /** 回溯时随回溯者保留的字段（输出 7 的缺省）：回溯次数带过去，别的不带。 */
@@ -248,5 +251,42 @@ describe("canon.worldlines 输出 4、验收 2：计划跨线", () => {
         const plan = after.world.data.changes.get(p1)!;
         const cancelled = ok(after.world.publish(request([{ref: {kind: "change", id: p1}, after: {...structuredClone(plan), status: "undone"}}], after.world.version), "t"));
         expect([progress(cancelled.world, "main", p1), progress(cancelled.world, line, p1)]).toEqual(["cancelled", "cancelled"]);
+    });
+});
+
+describe("canon.worldlines 输出 1、6、project 方法表 lines：按线的读取视图", () => {
+    test("快照里的视图 onLine 读到子线；来历里带过去的那一步是 carried；计划线在实际模式下 line-not-found；lines 给出线树", async () => {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "view");
+        const service = await openTestService(root, {texts: new Map(CHAPTERS.map((chapter) => [chapter, ""])), chapters: CHAPTERS, registry: options().registry});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const {xia} = {xia: (await publish([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}]))["tmp:xia"]!};
+            const story = await publish([
+                {ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))},
+                {ref: {kind: "change", id: "tmp:c3"}, after: written("tmp:c3", at("ch2", 30), [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 0}])},
+            ]);
+            const forks = await publish([
+                {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: story["tmp:c1"]!, trigger: story["tmp:c3"]!, type: "rollback", who: xia} as Fork})},
+                {ref: {kind: "change", id: "tmp:if"}, after: {...written("tmp:if", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:if1", name: "如果", parent: "main", cut: story["tmp:c1"]!, type: "if"} as Fork}), kind: "plan"}},
+            ]);
+            const [r1, if1] = [forks["tmp:r1"]!, forks["tmp:if1"]!];
+            const view = service.snapshot().view;
+            expect(view.lines().map((line) => [line.id, line.exists.actual, line.exists.planned])).toEqual([[r1, true, true], [if1, false, true]]);
+            expect(view.onLine(if1)).toEqual({code: "line-not-found"});
+            expect("code" in view.onLine(if1, "planned")).toBe(false);
+            const child = view.onLine(r1);
+            if ("code" in child) throw new Error(child.code);
+            expect(child.line).toBe(r1);
+            expect(view.onLine(r1)).toBe(child);
+            const steps = child.origins({entry: xia, path: "rb.次数"}, {kind: "chapter", chapter: "ch3", edge: "end"}, "actual");
+            expect(steps !== "chapter-not-found" && steps.at(-1)).toMatchObject({kind: "carried", fork: forks["tmp:f"], line: "main", change: story["tmp:c3"], value: 0});
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
     });
 });

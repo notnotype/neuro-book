@@ -34,6 +34,7 @@ import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositi
 import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
+import {lineTable, MAIN_LINE} from "../lines/table";
 import {createReadView, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
@@ -193,7 +194,7 @@ export class WorldService {
     /** 最近几次诊断计算的耗时（project.md 输出 26）。 */
     readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
     #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
-    #viewCache: {readonly world: World; readonly generation: number; readonly view: CanonReadView} | null = null;
+    #viewCache: {readonly world: World; readonly generation: number; readonly views: Map<string, CanonReadView>} | null = null;
     readonly #boundedStates = new WeakMap<World, Map<string, TimeState>>();
     /** 讲述按正文快照与当前章序定位（model.md 输出 24、26）；结果按章与那一章的正文缓存。 */
     readonly #locator = new TellingLocator((chapter) => this.#texts.get(chapter)?.text, () => this.#world.options.order);
@@ -480,11 +481,27 @@ export class WorldService {
      * 一份世界在当前读取输入上的只读视图。世界与输入代次都没变时交出同一个对象（快照与诊断的计算共用）：插件按视图对象缓存
      * 它的索引（例如剧情的知情索引），同一份输入上的几次读取就不用每次重建。输入变了以后旧对象的方法一律抛错，见 `#guarded`。
      */
-    #readViewOf(world: World): CanonReadView {
-        const cached = this.#viewCache;
-        if (cached !== null && cached.world === world && cached.generation === this.#inputGeneration) return cached.view;
-        const view = this.#guarded(createReadView(world, this.#locator, this.#stampOf(world)));
-        this.#viewCache = {world, generation: this.#inputGeneration, view};
+    /**
+     * 一份世界在一条线上的读取视图：世界与读取输入都没变时交出同一个对象（快照与诊断共用），按线各一个。线必须存在且可建
+     * （`onLine` 先查）。
+     */
+    #readViewOf(world: World, line: string = MAIN_LINE): CanonReadView {
+        let cached = this.#viewCache;
+        if (cached === null || cached.world !== world || cached.generation !== this.#inputGeneration) {
+            cached = {world, generation: this.#inputGeneration, views: new Map()};
+            this.#viewCache = cached;
+        }
+        let view = cached.views.get(line);
+        if (view === undefined) {
+            const onLine: CanonReadView["onLine"] = (other, mode = "actual") => {
+                const entry = lineTable(world.data, world.options.order).lines.get(other);
+                if (other !== MAIN_LINE && (entry === undefined || !entry.exists[mode])) return {code: "line-not-found"};
+                if (entry?.unbuildable !== null && entry !== undefined) return {code: "line-not-found", reason: entry.unbuildable};
+                return this.#readViewOf(world, other);
+            };
+            view = this.#guarded(createReadView(world, this.#locator, this.#stampOf(world), line, onLine));
+            cached.views.set(line, view);
+        }
         return view;
     }
 

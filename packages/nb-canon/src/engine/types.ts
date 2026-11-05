@@ -108,7 +108,9 @@ export type OriginStep =
     | {readonly kind: "init"; readonly value: unknown; readonly basis?: unknown}
     | {readonly kind: "patch"; readonly change: string; readonly op: string; readonly result: unknown; readonly basis?: unknown}
     | {readonly kind: "check"; readonly check: string; readonly written: number; readonly result: "ok" | "mismatch" | "skipped" | "anchor"}
-    | {readonly kind: "reduce"; readonly anchor: string | null; readonly events: readonly string[]; readonly cached: boolean};
+    | {readonly kind: "reduce"; readonly anchor: string | null; readonly events: readonly string[]; readonly cached: boolean}
+    /** 从父线带过来（canon/worldlines.md 输出 6）：只由线层给出，引擎给的是这个合成事件的 `patch` 一步。 */
+    | {readonly kind: "carried"; readonly fork: string; readonly line: string; readonly change: string; readonly value: unknown; readonly key: EventKey | null};
 
 export type PendingItem =
     | {readonly kind: "check-mismatch"; readonly check: string; readonly at: Address; readonly computed: number; readonly written: number; readonly suspects: readonly string[]}

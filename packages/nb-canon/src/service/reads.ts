@@ -19,6 +19,7 @@ import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress}
 import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import type {World} from "../world/world";
+import {lineTable, MAIN_LINE} from "../lines/table";
 
 export interface ChangeFilter {
     readonly chapter?: string;
@@ -80,8 +81,15 @@ export interface ReadStamp {
 export interface CanonReadView {
     readonly version: number;
     readonly stamp: ReadStamp;
-    /** 这份视图是哪条世界线的；分叉之前只有主线。 */
+    /** 这份视图是哪条世界线的（canon/worldlines.md）。 */
     readonly line: string;
+    /** 世界线的树（project 方法表的 `lines`）。 */
+    lines(): readonly LineSummary[];
+    /**
+     * 同一份世界与读取输入上另一条线的视图（同一条线同一个对象）；线在这个模式下不存在或不可建时给 `line-not-found`，不可建的带原因。
+     * 不写模式按实际模式判（计划线只在按计划模式下存在）。
+     */
+    onLine(line: string, mode?: Mode): CanonReadView | {readonly code: "line-not-found"; readonly reason?: string};
     /** 章序。 */
     readonly chapters: readonly string[];
     entry(id: string, position: ReadPosition, mode: Mode): EntryView | null | "chapter-not-found";
@@ -121,28 +129,69 @@ export interface CanonReadView {
     time(query: TimeQuery, mode: Mode): TimeAnswer;
 }
 
-export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp): CanonReadView {
+/** 一条世界线在线树里的摘要（project 方法表的 `lines`）。 */
+export interface LineSummary {
+    readonly id: string;
+    readonly name: string;
+    readonly parent: string;
+    /** 定义它的分叉。 */
+    readonly fork: string;
+    readonly type: string;
+    readonly who?: string;
+    readonly cut: string;
+    readonly trigger?: string;
+    readonly exists: {readonly actual: boolean; readonly planned: boolean};
+    /** 不可建的原因（canon/worldlines.md 输出 18）；可建时为 null。 */
+    readonly unbuildable: string | null;
+}
+
+export function lineSummaries(world: World): LineSummary[] {
+    return [...lineTable(world.data, world.options.order).lines.values()].map((entry) => {
+        const {fork} = entry.fork;
+        return {id: entry.id, name: fork.name, parent: entry.parent, fork: entry.fork.id, type: fork.type, ...(fork.who === undefined ? {} : {who: fork.who}), cut: fork.cut, ...(fork.trigger === undefined ? {} : {trigger: fork.trigger}), exists: entry.exists, unbuildable: entry.unbuildable};
+    }).sort((a, b) => compareIds(a.id, b.id));
+}
+
+/**
+ * 一条线上的读取视图。`line` 必须是这份世界上可建的线（调用方先查）；`onLine` 由服务给，按线缓存视图对象。来历里这条线的合成事件
+ * （带过去的值）那一步换成 `carried`。
+ */
+export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp, line: string = MAIN_LINE, onLine: CanonReadView["onLine"] = () => ({code: "line-not-found"})): CanonReadView {
     const order = world.options.order;
+    const lineView = world.line(line)!;
+    const lineEngine = lineView.engine;
+    const table = lineTable(world.data, order);
+    const carried = (steps: readonly OriginStep[]): OriginStep[] => steps.map((step) => {
+        if (step.kind !== "patch" || !lineView.synthetic.has(step.change)) return step;
+        const definer = [...table.lines.values()].find((entry) => entry.fork.id === step.change)!;
+        const {fork} = definer.fork;
+        return {kind: "carried", fork: step.change, line: definer.parent, change: fork.trigger ?? fork.cut, value: step.result, key: lineEngine.eventKey(step.change, "actual")};
+    });
     // 视图本身、章序与戳都冻结：同一个视图对象会交给一份读取输入上的几个插件（服务的 `#readViewOf`），谁改了都会影响别人。
     const view: CanonReadView = {
         version: world.version,
         stamp: deepFreeze(stamp),
-        line: "main",
+        line,
+        lines: () => deepFreeze(lineSummaries(world)),
+        onLine,
         chapters: deepFreeze([...order.ids]),
         // 引擎算出的结果可能与引擎的快照共用对象：交出去之前深冻结（core/freeze.ts）。存下来的对象在世界表里已经冻过。
-        entry: (id, position, mode) => deepFreeze(world.line().engine.entry(id, position, mode)),
+        entry: (id, position, mode) => deepFreeze(lineEngine.entry(id, position, mode)),
         object: (ref) => world.object(ref),
         entries: () => [...world.data.entries.values()],
         changes: (filter = {}) => listChanges(world, filter),
         tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter)),
-        presence: (person, filter = {}) => listPresence(world, person, filter),
+        presence: (person, filter = {}) => listPresence(world, person, filter, undefined, line),
         decisions: (filter = {}) => listDecisions(world, filter),
-        chapterEntries: (chapter) => deepFreeze(world.line().engine.chapterEntries(chapter)),
-        origins: (address, position, mode) => deepFreeze(world.line().engine.origins(address, position, mode)),
-        outcome: (change) => deepFreeze(world.line().engine.outcome(change)),
-        progress: (plan, position) => world.line().engine.progress(plan, position),
+        chapterEntries: (chapter) => deepFreeze(lineEngine.chapterEntries(chapter)),
+        origins: (address, position, mode) => {
+            const steps = lineEngine.origins(address, position, mode);
+            return deepFreeze(steps === "chapter-not-found" ? steps : carried(steps));
+        },
+        outcome: (change) => deepFreeze(lineEngine.outcome(change)),
+        progress: (plan, position) => lineEngine.progress(plan, position),
         // 排序键与下面两个键一样每次新算、不与引擎的快照共用对象，不冻结：剧情建知情索引时对每条变更取一次，冻结是这一步最大的开销。
-        eventKey: (change, mode) => world.line().engine.eventKey(change, mode),
+        eventKey: (change, mode) => lineEngine.eventKey(change, mode),
         placementKey: (placement) => {
             const rank = placementRank(order, placement);
             return rank === null ? null : {rank, tie: {version: -1, id: ""}};
@@ -152,7 +201,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             return rank === null ? null : {rank, tie: {version: Number.POSITIVE_INFINITY, id: ""}};
         },
         compareKeys: (a, b) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie),
-        plannedAt: (position) => deepFreeze(world.line().engine.plannedAt(position)),
+        plannedAt: (position) => deepFreeze(lineEngine.plannedAt(position)),
         fields: (entry, namespace) => {
             const data = world.data.entries.get(entry)?.init.data[namespace];
             const type = world.options.registry.byNamespace(namespace);
@@ -306,7 +355,7 @@ function tellingHints(marks: MarkRegistry, telling: Telling, located: Located): 
  * 已写、生效、套上的变更；按计划模式再加上在 `to` 的章末（没写时在缺省读取位置）计入的计划。参与者里 `who` 或 `as` 是他、
  * `role` 为 `present` 的算在场；没记参与者的变更不算，只计数（`uncast`）。
  */
-export function listPresence(world: World, person: string, filter: PresenceFilter, until?: ReadPosition): {readonly changes: StoryChange[]; readonly uncast: number} | "chapter-not-found" {
+export function listPresence(world: World, person: string, filter: PresenceFilter, until?: ReadPosition, line: string = MAIN_LINE): {readonly changes: StoryChange[]; readonly uncast: number} | "chapter-not-found" {
     const order = world.options.order;
     const from = filter.from === undefined ? undefined : order.index(filter.from);
     const to = filter.to === undefined ? undefined : order.index(filter.to);
@@ -321,7 +370,7 @@ export function listPresence(world: World, person: string, filter: PresenceFilte
         return to === undefined || rank[0] !== 1 || rank[1] <= to;
     };
     // 在场按线视图算：这条线看得到的记录与它的引擎。
-    const {records, engine} = world.line();
+    const {records, engine} = world.line(line)!;
     const counted: StoryChange[] = [];
     for (const change of records.changes.values()) {
         if (change.kind !== "written" || change.status !== "active" || !inRange(change)) continue;
