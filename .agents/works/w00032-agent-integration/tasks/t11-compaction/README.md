@@ -72,7 +72,7 @@ t03、t09。
 
 ## 当前状态
 
-设计审查已处理，修订后的计划开发者已确认（[plan.md](plan.md)），按切片实施，分支 `feat/w00032-t11-compaction`。
+设计审查已处理，修订后的计划开发者已确认（[plan.md](plan.md)）。第 1–6 片都已在分支 `feat/w00032-t11-compaction`（worktree `.worktree/w00032-t11-compaction`）上提交，`nb-harness` 340 条、`plugins/agent` 与 `plugins/models` 与 SDK 204 条、`nb-agent-ui` 227 条加 vitest 88 条、模型页的组件测试，类型检查（`tsc`、两份 `vue-tsc`）都过；e2e 跑了 `agent-conversation` 9、`lab-scenes` 加 `lab-agent-ui` 33、`models`、`settings`、`plugins`、`workbench-views` 共 60，都过；真实模型冒烟（DeepSeek）过，压缩请求有缓存命中（cacheRead 2–4k）。变异检查：内核请求与方法顺序、方法的各个判据、放回的四处、触发点的覆盖与失效、适配器与分轮层、宿主命令，各抓到。实现审查进行中（后端 omp、前端 Sonnet），审查报告回来处理后合入。
 
 前端 Sonnet（[报告](evidences/design-review-frontend.txt)，14 条：重要 11、建议 3）。后端 omp（[报告](evidences/design-review-backend.txt)，17 条，第 5 条它自己撤回，其余重要 16）：第一个会话因额度退出，只写了 1 条；新开的会话写到第 17 条也因额度退出，重点 8（阈值）没审到，主会话自查后补进计划。
 
