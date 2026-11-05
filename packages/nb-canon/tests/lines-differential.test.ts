@@ -43,6 +43,7 @@ interface Stats {
     forks: number;
     childRecords: number;
     brokenOn: number;
+    plannedForks: number;
     reasons: Set<string>;
 }
 
@@ -61,6 +62,8 @@ function snapshot(world: World, lines: readonly string[]): string[] {
         }
         const last = world.options.order.ids.at(-1)!;
         out.push(view.engine.pending({kind: "chapter", chapter: last, edge: "end", line}));
+        // 世界层的待处理（线的三种待处理与根因）与这条线的时间项，两种模式。
+        for (const mode of ["actual", "planned"] as const) out.push(world.pending({kind: "chapter", chapter: last, edge: "end", line}, mode), world.time(mode, line).items);
         for (const id of [...view.records.changes.keys()].sort()) out.push([id, view.engine.outcome(id)]);
         return JSON.stringify(out);
     });
@@ -74,7 +77,10 @@ function brokenReference(before: World, after: World): {broken: string[]; broken
         if (old.line().engine.outcome(change.id)?.applied === true && now.line().engine.outcome(change.id)?.applied === false) broken.push(change.id);
     }
     const brokenOn: {line: string; change: string}[] = [];
-    for (const line of lineTable(after.data, after.options.order).lines.keys()) {
+    // 只比改前改后都在实际模式下存在的线：只由计划分叉定义的线没有实际结果（worldlines 输出 17）。
+    const [oldTable, newTable] = [lineTable(before.data, before.options.order), lineTable(after.data, after.options.order)];
+    for (const line of newTable.lines.keys()) {
+        if (oldTable.lines.get(line)?.exists.actual !== true || newTable.lines.get(line)?.exists.actual !== true) continue;
         const [was, is] = [old.line(line), now.line(line)];
         if (was === undefined || is === undefined) continue;
         for (const change of is.records.changes.keys()) if (was.engine.outcome(change)?.applied === true && is.engine.outcome(change)?.applied === false) brokenOn.push({line, change});
@@ -185,6 +191,55 @@ function run(seed: number, steps: number, residentLines: number, stats?: Stats):
                     throw new Error(`${String(caught)}\ndependents ${JSON.stringify(world.dependents(target.id))}\n${caught instanceof Error ? caught.stack : ""}\nrevert ${target.id}: ${JSON.stringify(world.revisions.map((revision) => [revision.id, revision.what, revision.ops.map((op) => (op.kind === "chapters" ? "chapters" : `${op.kind}:${op.ref.id}`))]))}`);
                 }
             }
+        } else if (roll < 0.91) {
+            // 核对点：落在随机一条线上，值常常对不上（进待处理），也可能是对得上的读数。
+            const line = pick(lines);
+            const chapter = pick(CHAPTERS);
+            label = `check ${line} ${chapter}`;
+            const check = {id: "tmp:k", at: {entry: xia, path: "panel.存款"}, value: pick([200, 3000, 6000, 12000, 14000, 20000]), told: {source: "none" as const}, place: {kind: "chapter" as const, chapter, key: int(0, 9) * 10 + int(1, 9), ...(line === "main" ? {} : {line})}};
+            result = world.publish(request([{ref: {kind: "check", id: "tmp:k"}, after: check as never}], world), "t");
+        } else if (roll < 0.94) {
+            // 把一条记录挪到另一条线上再（下次）挪回去：记录换线。
+            const target = changes.length === 0 ? undefined : pick(changes.filter((change) => change.nature !== "fork"));
+            if (target !== undefined) {
+                const line = pick(lines);
+                const next = structuredClone(target);
+                next.at = {...next.at, ...(line === "main" ? {} : {line})} as typeof next.at;
+                if (line === "main") delete (next.at as {line?: string}).line;
+                label = `relocate ${target.id} to ${line}`;
+                result = world.publish(request([{ref: {kind: "change", id: target.id}, after: next}], world), "t");
+            }
+        } else if (roll < 0.96) {
+            // 改分叉本身：切口换成父线视图里另一条已写变更，或去掉、补上带过去的列表。
+            const forks = changes.filter((change) => change.fork !== undefined);
+            if (forks.length > 0) {
+                const target = pick(forks);
+                const next = structuredClone(target);
+                const parentView = world.line(next.fork!.parent);
+                const options_ = [...(parentView?.records.changes.values() ?? [])].filter((change) => change.kind === "written" && change.nature !== "fork" && change.at.kind === "chapter");
+                if (rng() < 0.6 && options_.length > 0) next.fork!.cut = pick(options_).id;
+                else next.fork!.carry = rng() < 0.5 ? [] : [{at: {entry: xia, path: "panel.存款"}}] as never;
+                label = `edit fork ${target.id}`;
+                result = world.publish(request([{ref: {kind: "change", id: target.id}, after: next}], world), "t");
+            }
+        } else if (roll < 0.98) {
+            // 计划分叉，下一次有机会被已写分叉兑现（同一个线 id）。
+            const plans = changes.filter((change) => change.kind === "plan" && change.fork !== undefined && change.status === "active");
+            const view = world.line("main");
+            const cuts = [...(view?.records.changes.values() ?? [])].filter((change) => change.kind === "written" && change.nature !== "fork" && change.at.kind === "chapter" && change.status === "active");
+            if (plans.length > 0 && rng() < 0.6) {
+                const plan = pick(plans);
+                label = `fulfill ${plan.id}`;
+                result = world.publish(request([{ref: {kind: "change", id: "tmp:g"}, after: written("tmp:g", {kind: "chapter", chapter: CHAPTERS.at(-1)!, key: 96}, [], {nature: "fork", fork: {...structuredClone(plan.fork!)}, links: [{kind: "fulfills", plan: plan.id}]})}], world), "t");
+                if (result.ok) lines.push(plan.fork!.line);
+            } else if (cuts.length > 0) {
+                label = "plan fork";
+                result = world.publish(request([{ref: {kind: "change", id: "tmp:q"}, after: {...written("tmp:q", {kind: "chapter", chapter: CHAPTERS.at(-1)!, key: 97}, [], {nature: "fork", fork: {line: "tmp:pl", name: `计划${String(step)}`, parent: "main", cut: pick(cuts).id, type: "if"} as Fork}), kind: "plan"}}], world), "t");
+                if (result.ok) {
+                    lines.push(result.ids["tmp:pl"]!);
+                    if (stats) stats.plannedForks += 1;
+                }
+            }
         } else {
             // 只读：读一条线，让它建起来（或被淘汰）。
             const line = pick(lines);
@@ -197,7 +252,9 @@ function run(seed: number, steps: number, residentLines: number, stats?: Stats):
         if (stats) stats.accepted += 1;
         for (const update of world.lines.updates) for (const reason of update.reasons) stats?.reasons.add(reason);
         const known = [...new Set([...lines, ...lineTable(world.data, world.options.order).lines.keys()])];
-        expect(snapshot(world, known), `种子 ${String(seed)} 第 ${String(step)} 步 ${label}\n${trace.join("\n")}`).toEqual(snapshot(World.replay(world.revisions, world.options), known));
+        const [live, replayed] = [snapshot(world, known), snapshot(World.replay(world.revisions, world.options), known)];
+        const differing = known.filter((_, index) => live[index] !== replayed[index]);
+        expect(differing, `种子 ${String(seed)} 第 ${String(step)} 步 ${label}（线与重放不同）\n${trace.join("\n")}`).toEqual([]);
         const impact = world.revisions.at(-1)!.impact;
         const expected = brokenReference(before, world);
         expect({broken: impact.broken, brokenOn: impact.brokenOn ?? []}, `种子 ${String(seed)} 第 ${String(step)} 步 ${label}\n${trace.join("\n")}`).toEqual(expected);
@@ -209,7 +266,7 @@ function run(seed: number, steps: number, residentLines: number, stats?: Stats):
 describe("线层的差分：写入以后与从头重放一致，受影响的线不漏", () => {
     const seeds = Array.from({length: Number(process.env.CANON_LINE_SEEDS ?? 16)}, (_, index) => index + 1);
     const steps = Number(process.env.CANON_LINE_STEPS ?? 60);
-    const stats: Stats = {steps: 0, accepted: 0, forks: 0, childRecords: 0, brokenOn: 0, reasons: new Set()};
+    const stats: Stats = {steps: 0, accepted: 0, forks: 0, childRecords: 0, brokenOn: 0, plannedForks: 0, reasons: new Set()};
     test.each(seeds)(`种子 %d，${String(steps)} 步，常驻 3 条`, (seed) => {
         run(seed, steps, 3, stats);
     });
@@ -221,6 +278,7 @@ describe("线层的差分：写入以后与从头重放一致，受影响的线�
         expect(stats.forks).toBeGreaterThanOrEqual(seeds.length);
         expect(stats.childRecords).toBeGreaterThanOrEqual(seeds.length);
         expect(stats.brokenOn).toBeGreaterThan(0);
+        expect(stats.plannedForks).toBeGreaterThan(0);
         expect([...stats.reasons].sort()).toEqual(["built", "carry", "entries", "records", "structural"]);
     });
 });

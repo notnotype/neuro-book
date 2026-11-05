@@ -630,7 +630,10 @@ export class World {
         };
         const data: WorldData = {...moved.data, version};
         const lines = moved.lines.advance(engineInputs(data, options), {});
-        const next = new World(data, lines, [...this.revisions, revision], {...this.index, allocator, recordedChapters: [...order.ids], requests: new Map(this.index.requests).set(requestId, {revision})}, options);
+        // 章序调整让哪些记录套不上也记根因，与重放一致（重放对每次修订都记）。
+        const brokenBy = new Map(this.index.brokenBy);
+        recordBroken(brokenBy, revision);
+        const next = new World(data, lines, [...this.revisions, revision], {...this.index, brokenBy, allocator, recordedChapters: [...order.ids], requests: new Map(this.index.requests).set(requestId, {revision})}, options);
         return {ok: true, world: next, revision, ids: {}, repeated: false};
     }
 
