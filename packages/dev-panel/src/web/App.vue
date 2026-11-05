@@ -4,6 +4,7 @@ import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime} from "./host/format.js";
+import {groupInbox} from "./host/inbox.js";
 import {pageKey} from "./host/routes.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
 import {readAppearance, readDismissedAudit, readNavArrange, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeNavArrange, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
@@ -191,7 +192,8 @@ onBeforeUnmount(() => {
 });
 
 const mainWritable = computed(() => meta.data.value?.mainWritable ?? null);
-const navCounts = computed(() => ({inbox: overview.data.value?.inbox.length ?? 0, sessions: overview.data.value?.sessions.total, runs: overview.data.value?.runs}));
+/* 收件箱按行数：一块 30 道题的评审是一件事，不是 30 件。 */
+const navCounts = computed(() => ({inbox: groupInbox(overview.data.value?.inbox ?? []).length, sessions: overview.data.value?.sessions.total, runs: overview.data.value?.runs}));
 const navWritable = computed(() => (mainWritable.value ? {ok: mainWritable.value.ok, code: mainWritable.value.code} : null));
 
 const query = ref(typeof route.query.q === "string" ? route.query.q : "");

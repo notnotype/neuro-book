@@ -30,8 +30,8 @@ section, li { border: 1px solid #ccc; border-radius: 8px; padding: 12px 16px; ma
   </div>
 </section>
 
-<!-- 多选，选项用一行写法；data-nbdev-optional 表示选答。 -->
-<section data-nbdev-question="nav-groups" data-nbdev-type="multi" data-nbdev-options="inbox:收件箱|work:工作|docs:文档" data-nbdev-optional>
+<!-- 多选，选项用一行写法。题缺省是选答。 -->
+<section data-nbdev-question="nav-groups" data-nbdev-type="multi" data-nbdev-options="inbox:收件箱|work:工作|docs:文档">
   <h2>左栏默认展开哪几组</h2>
 </section>
 
@@ -43,11 +43,11 @@ section, li { border: 1px solid #ccc; border-radius: 8px; padding: 12px 16px; ma
   </li>
 </ol>
 
-<!-- 文字题与确认题；题目也可以直接写在 data-nbdev-label 里。 -->
-<section data-nbdev-question="naming-note" data-nbdev-type="text" data-nbdev-optional>
+<!-- 文字题与确认题；题目也可以直接写在 data-nbdev-label 里；data-nbdev-required 标成必答（不定下来就做不下去的才标）。 -->
+<section data-nbdev-question="naming-note" data-nbdev-type="text">
   <h2>命名有没有别的想法</h2>
 </section>
-<section data-nbdev-question="approve-spec" data-nbdev-type="confirm" data-nbdev-label="批准把草稿晋升为 Spec">
+<section data-nbdev-question="approve-spec" data-nbdev-type="confirm" data-nbdev-label="批准把草稿晋升为 Spec" data-nbdev-required>
   <p>草稿见 <a href="#spec">这里</a>。</p>
 </section>
 </body>

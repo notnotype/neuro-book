@@ -69,7 +69,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                     <!-- 为 0 的计数淡化：一眼只看到有东西的格子。 -->
                     <span role="cell" class="nbdev-task-wide nbdev-num text-right" :class="task.artifacts.length + task.documents.length > 0 ? 'nbdev-secondary' : 'nbdev-empty'">{{ task.artifacts.length + task.documents.length }}</span>
                     <span role="cell" class="nbdev-task-wide text-right">
-                        <Badge v-if="task.openRequired > 0" tone="warning" variant="soft" size="sm">{{ task.openRequired }}</Badge>
+                        <Badge v-if="task.waiting > 0" tone="warning" variant="soft" size="sm">{{ task.waiting }}</Badge>
                         <span v-else class="nbdev-empty nbdev-num">0</span>
                     </span>
                     <span role="cell" class="nbdev-task-wide">
@@ -101,7 +101,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                                 <ul v-else class="nbdev-stack-tight">
                                     <li v-for="item in details[task.taskId]!.artifacts" :key="item.key" class="flex flex-wrap items-center gap-1.5">
                                         <a :href="item.href" class="hover:underline" @click="follow($event, item.href)">{{ item.label }}</a>
-                                        <Badge v-if="item.openRequired > 0" tone="warning" variant="soft" size="sm">待答 {{ item.openRequired }}</Badge>
+                                        <Badge v-if="item.waiting > 0" tone="warning" variant="soft" size="sm">待答 {{ item.waiting }}</Badge>
                                     </li>
                                 </ul>
                                 <h3 class="nbdev-card-title mt-2">证据</h3>

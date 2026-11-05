@@ -1,4 +1,5 @@
-import {submitAnswer} from "../core/artifact-ops.js";
+import {closeArtifact, submitAnswer, withdrawUnanswered} from "../core/artifact-ops.js";
+import {QUESTIONS_ARTIFACT} from "../core/artifacts.js";
 import {newActionId, readAuditStatus, type AuditAction, type AuditWriter} from "../core/audit.js";
 import {editRecordFile} from "../core/edit-ops.js";
 import {isNbdevError, NbdevError, type Warning} from "../core/errors.js";
@@ -209,6 +210,16 @@ export function createWriteHandler(deps: WriteDeps) {
         return respond(outcome, "answer", {workId, taskId, artifactId});
     }
 
+    /** 开发者自己结束一块评审：普通产物关闭；Task 的提问集不能关闭（见 `closeArtifact`），改成把没答的题一次撤回。 */
+    async function closeReview(req: Request): Promise<Response> {
+        const fields = await readFields(req, LIMITS.status, {workId: {type: "string", required: true}, taskId: {type: "string", required: true}, artifactId: {type: "string", required: true}});
+        const [workId, taskId, artifactId] = [str(fields, "workId")!, str(fields, "taskId")!, str(fields, "artifactId")!];
+        knownArtifact(state, workId, taskId, artifactId);
+        const input = {workRef: workId, taskRef: taskId, artifactId};
+        const outcome = await (artifactId === QUESTIONS_ARTIFACT ? withdrawUnanswered : closeArtifact)(state.context, input, options(req));
+        return respond(outcome, "close_artifact", {workId, taskId, artifactId});
+    }
+
     const WORK_FIELDS: Schema = {
         slug: {type: "string", required: true}, title: {type: "string", required: true}, goal: {type: "string", required: true},
         issue: {type: "nullable-number"}, taskSlug: {type: "string", required: true}, taskTitle: {type: "nullable-string"}, taskStatus: {type: "string"},
@@ -273,6 +284,7 @@ export function createWriteHandler(deps: WriteDeps) {
         if (extra.length > 0) return null;
         if (req.method === "POST") {
             if (first === "answers" && second === undefined) return answers(req);
+            if (first === "artifact-close" && second === undefined) return closeReview(req);
             if (first === "works" && second === undefined) return works(req);
             if (first === "works" && second !== undefined && third === "tasks" && fourth === undefined) return tasks(req, second);
             if (first === "works" && second !== undefined && third === "status" && fourth === undefined) return status(req, second, null);

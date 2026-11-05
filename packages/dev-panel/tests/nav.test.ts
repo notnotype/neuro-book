@@ -4,7 +4,7 @@ import type {OverviewWork, RecordedValue} from "../src/web/host/types.js";
 
 /** 左栏的描述表与 Work 树的取舍（t15 阶段 2b，D4）。 */
 const recorded = <T extends string>(value: T | null, origin: RecordedValue["origin"] = value === null ? "unset" : "recorded"): RecordedValue<T> => ({value, origin});
-const work = (workId: string, status: "active" | "done" | "shelved" | null, updated: string | null, origin?: RecordedValue["origin"], patch: Partial<OverviewWork> = {}) => ({workId, title: workId, status: recorded(status, origin), updated: recorded(updated), tasks: [], openRequired: 0, ...patch}) as unknown as OverviewWork;
+const work = (workId: string, status: "active" | "done" | "shelved" | null, updated: string | null, origin?: RecordedValue["origin"], patch: Partial<OverviewWork> = {}) => ({workId, title: workId, status: recorded(status, origin), updated: recorded(updated), tasks: [], waiting: 0, ...patch}) as unknown as OverviewWork;
 const NOW = new Date("2026-10-14T12:00:00");
 
 describe("Work 树只列活跃的（D4）", () => {
@@ -58,7 +58,7 @@ describe("左栏 Work 列表的排列与筛选（t15 阶段 4 第 2 批）", () 
         work("w1-alpha", "active", "2026-10-01"),
         work("w2-beta", null, "2026-10-13"),
         work("w3-gamma", "done", "2026-10-14"),
-        work("w4-delta", "active", "2026-09-01", undefined, {openRequired: 2}),
+        work("w4-delta", "active", "2026-09-01", undefined, {waiting: 2}),
         work("w5-old", null, "2026-01-01", undefined, {title: "很久没动的 Work"} as Partial<OverviewWork>),
     ];
     const ids = (groups: ReturnType<typeof arrangeNavWorks>) => groups.map((group) => [group.key, group.foldable, group.works.map((entry) => entry.workId)]);

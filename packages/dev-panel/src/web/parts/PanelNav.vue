@@ -52,7 +52,7 @@ function branchesOf(works: readonly OverviewWork[]): Branch[] {
             return {key: `t:${work.workId}/${task.taskId}`, kind: "task", workId: work.workId, href: taskPath, number: taskLabel(task.taskId), title: task.title ?? task.taskId, current: props.current.path === taskPath, ancestor: props.current.path !== taskPath && props.current.workId === work.workId && props.current.taskId === task.taskId, open: false, tone: null, marked: false, statusText: "", waiting: 0, moving: false};
         }) : [];
         const status = statusDisplay(work.status);
-        return {work: {key: `w:${work.workId}`, kind: "work", workId: work.workId, href, number: workLabel(work.workId), title: work.title ?? work.workId, current: props.current.path === href, ancestor: props.current.path !== href && props.current.workId === work.workId, open, tone: status.tone, marked: status.marked, statusText: status.label, waiting: work.openRequired, moving: work.activeLeases.length > 0}, tasks};
+        return {work: {key: `w:${work.workId}`, kind: "work", workId: work.workId, href, number: workLabel(work.workId), title: work.title ?? work.workId, current: props.current.path === href, ancestor: props.current.path !== href && props.current.workId === work.workId, open, tone: status.tone, marked: status.marked, statusText: status.label, waiting: work.waiting, moving: work.activeLeases.length > 0}, tasks};
     });
 }
 /** 展开着的组依次接在树里（收起的组只在树外留一个按钮）；方向键在整棵树里走。 */

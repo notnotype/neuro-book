@@ -75,7 +75,7 @@ export function byUpdated(left: OverviewWork, right: OverviewWork): number {
 }
 /** 有事等我在前：有待答题的，其次进行中，再按最近更新。首页的 Work 卡片与左栏的“有事等我在前”共用。 */
 export function byAttention(left: OverviewWork, right: OverviewWork): number {
-    const rank = (work: OverviewWork) => (work.openRequired > 0 ? 0 : work.status.value === "active" ? 1 : 2);
+    const rank = (work: OverviewWork) => (work.waiting > 0 ? 0 : work.status.value === "active" ? 1 : 2);
     return rank(left) - rank(right) || byUpdated(left, right);
 }
 

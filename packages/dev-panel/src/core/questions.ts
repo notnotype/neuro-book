@@ -39,7 +39,7 @@ export const MARKUP = {
     label: "data-nbdev-label",
     option: "data-nbdev-option",
     options: "data-nbdev-options",
-    optional: "data-nbdev-optional",
+    required: "data-nbdev-required",
     recommend: "data-nbdev-recommend",
     skip: "data-nbdev-skip",
 } as const;
@@ -278,7 +278,7 @@ export async function parseQuestionMarkup(html: string, page: string): Promise<P
         seenIds.add(id);
         for (const entry of validateQuestionDefinition({id, type, label, options, recommend})) problem(element, id, entry.code, `题 ${id}：${entry.message}`);
         if (isQuestionType(type)) {
-            result.questions.push({id, type, label, options, required: !hasAttribute(element, MARKUP.optional), recommend, page, line: element.sourceCodeLocation?.startLine ?? null});
+            result.questions.push({id, type, label, options, required: hasAttribute(element, MARKUP.required), recommend, page, line: element.sourceCodeLocation?.startLine ?? null});
         }
     };
 

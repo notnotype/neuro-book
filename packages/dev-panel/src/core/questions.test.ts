@@ -9,14 +9,14 @@ const T03_BOARD = resolve(import.meta.dirname, "../../tests/fixtures/t03-review/
 const codes = (problems: readonly MarkupProblem[]) => problems.map((problem) => [problem.code, problem.questionId, problem.line]);
 
 describe("提问标记的解析", () => {
-    test("文档里的例子页：四种类型、一行写法、@review、选答、推荐、data-nbdev-label 与 data-nbdev-skip", async () => {
+    test("文档里的例子页：四种类型、一行写法、@review、缺省选答与必答、推荐、data-nbdev-label 与 data-nbdev-skip", async () => {
         const parsed = await parseQuestionMarkup(await readFile(EXAMPLE, "utf8"), "questions.html");
         expect(parsed.problems).toEqual([]);
         expect(parsed.title).toBe("提问标记例子");
         expect(parsed.questions.map(({page: _page, line: _line, ...question}) => question)).toEqual([
-            {id: "home-layout", type: "single", label: "首页的 Work 区用卡片还是表", required: true, recommend: ["cards"], options: [{value: "cards", label: "A 每个 Work 一张卡片"}, {value: "table", label: "B 一张表，按 Work 分组"}]},
+            {id: "home-layout", type: "single", label: "首页的 Work 区用卡片还是表", required: false, recommend: ["cards"], options: [{value: "cards", label: "A 每个 Work 一张卡片"}, {value: "table", label: "B 一张表，按 Work 分组"}]},
             {id: "nav-groups", type: "multi", label: "左栏默认展开哪几组", required: false, recommend: [], options: [{value: "inbox", label: "收件箱"}, {value: "work", label: "工作"}, {value: "docs", label: "文档"}]},
-            {id: "review-3", type: "single", label: "第 3 条：锁的接管没有核对持锁者", required: true, recommend: [], options: [{value: "fix", label: "改"}, {value: "skip", label: "不改"}, {value: "discuss", label: "要讨论"}]},
+            {id: "review-3", type: "single", label: "第 3 条：锁的接管没有核对持锁者", required: false, recommend: [], options: [{value: "fix", label: "改"}, {value: "skip", label: "不改"}, {value: "discuss", label: "要讨论"}]},
             {id: "naming-note", type: "text", label: "命名有没有别的想法", required: false, recommend: [], options: []},
             {id: "approve-spec", type: "confirm", label: "批准把草稿晋升为 Spec", required: true, recommend: [], options: []},
         ]);

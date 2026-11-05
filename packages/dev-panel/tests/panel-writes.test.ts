@@ -138,6 +138,22 @@ describe("答复（场景 1、2）", () => {
         expect(unacked).toEqual([answer.answerId]);
     }, 30_000);
 
+    test("开发者在面板上关评审：没答的题撤回、离开收件箱，挂着的 --wait 醒来；提问集改成撤回没答的题；不存在的产物回 404", async () => {
+        const fixture = await published("write-close-review");
+        const panel = await startPanel(fixture);
+        const waiter = await startWaiter(fixture, ["w00001", "t01", "review", "--timeout", "60"]);
+        const base = {workId: "w00001-seed", taskId: "t01-seed"};
+        const closed = await panel.send("POST", "/api/artifact-close", {...base, artifactId: "review"});
+        expect([closed.status, closed.body.errors]).toEqual([200, []]);
+        const view = await panel.get("/api/artifact/w00001-seed/t01-seed/review");
+        expect([view.body.data.state, (view.body.data.questions as Array<{state: string}>).every((question) => question.state !== "open")]).toEqual(["closed", true]);
+        const overview = await panel.get("/api/overview");
+        expect((overview.body.data.inbox as unknown[]).length).toBe(0);
+        const waited = await Promise.race([waiter.result, Bun.sleep(5_000).then(() => null)]);
+        expect(waited?.exitCode).toBe(0);
+        expect((await panel.send("POST", "/api/artifact-close", {...base, artifactId: "nope"})).status).toBe(404);
+    }, 30_000);
+
     test("场景 2：伪造的题号回 404、__proto__ 之类的键回 400、旧版本回 409 stale_version；都不写文件", async () => {
         const fixture = await published("write-answer-forged");
         const panel = await startPanel(fixture);
