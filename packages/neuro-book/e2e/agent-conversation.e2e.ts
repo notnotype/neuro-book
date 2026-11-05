@@ -255,7 +255,7 @@ test("压缩：/compact 带要求，出现带详情的分隔线，点开看到�
     const divider = page.locator("[data-divider]");
     await expect(divider).toBeVisible();
     await divider.getByRole("button").click();
-    await expect(page.locator("[data-compaction-detail]")).toContainText("就地摘要");
+    await expect(page.locator("[data-compaction-detail]")).toContainText("沿用对话模型摘要");
     await expect(page.locator("[data-compaction-detail]")).toContainText("保留人名");
     await expect(page.getByText("摘要正文")).toBeVisible();
     // 压缩的运行不属于任何一轮：上一轮的回复还在，没有被改成“已停止”。
