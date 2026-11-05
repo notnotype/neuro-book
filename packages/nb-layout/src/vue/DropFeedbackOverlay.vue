@@ -1,6 +1,6 @@
 <script lang="ts">
-import type {GridDropRect} from "./grid-drop";
-import type {GridOrientation} from "./grid-types";
+import type {GridDropRect} from "../grid-drop";
+import type {GridOrientation} from "../grid-types";
 
 /**
  * 拖放反馈覆盖层的预览几何：三份矩形都是宿主的**语义命中几何**（viewport client 坐标），不是内缩后的
@@ -58,9 +58,9 @@ export type DropFeedbackPreview = Readonly<{
  */
 import {computed, onBeforeUnmount, ref, useAttrs, watch} from "vue";
 import DropIndicator from "./DropIndicator.vue";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import DropIndicatorLabel from "./DropIndicatorLabel.vue";
-import {isGridDropRect} from "./grid-drop";
+import {isGridDropRect} from "../grid-drop";
 
 defineOptions({inheritAttrs: false});
 

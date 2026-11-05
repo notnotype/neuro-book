@@ -39,4 +39,4 @@ v1 无法可靠推导两轴意图，明确拒绝；未知高版本、重复 id�
 
 `find(id)` 是只读查找（宿主读身份与意图用）；改动仍走结构操作，直接改写节点会绕过守恒与规模判定。
 
-行为目标见 [ui.nested-grid](../../../../../docs/specs/ui/nested-grid.md)，当前能力仍为 planned，产品持久化宿主和完整浏览器验收另行闭合。
+行为目标见 [ui.nested-grid](../../../docs/specs/ui/nested-grid.md)，当前能力仍为 planned，产品持久化宿主和完整浏览器验收另行闭合。

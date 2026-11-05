@@ -9,7 +9,7 @@
 import {computed} from "vue";
 import Splitter from "./Splitter.vue";
 import {buildGridBranchPanels, gridBranchSizesPx} from "./grid-splitter";
-import type {GridAxis, GridBranch, GridLeaf, GridLayoutResult, GridNode} from "./grid-types";
+import type {GridAxis, GridBranch, GridLeaf, GridLayoutResult, GridNode} from "../grid-types";
 
 defineOptions({name: "GridBranchRenderer"});
 
@@ -83,7 +83,6 @@ const sashLineEnds = computed(() => axis.value === "width"
         :sizes-px="sizesPx"
         :disabled="disabled"
         :sash-line-ends="sashLineEnds"
-        class="h-full w-full"
     >
         <template v-for="(child, index) in children" :key="child.id" #[slotName(child.id)]>
             <GridBranchRenderer v-if="child.kind === 'branch'" :node="child" :layout="layout" :disabled="disabled" :edges="childEdges(index)">
@@ -92,13 +91,25 @@ const sashLineEnds = computed(() => axis.value === "width"
                     <slot name="leaf" :node="scope.node"></slot>
                 </template>
             </GridBranchRenderer>
-            <div v-else class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden" :data-leaf="child.id">
+            <div v-else class="nb-grid-leaf" :data-leaf="child.id">
                 <slot name="leaf" :node="child"></slot>
             </div>
         </template>
     </Splitter>
-    <div v-else-if="leafNode" class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden" :data-leaf="leafNode.id">
+    <div v-else-if="leafNode" class="nb-grid-leaf" :data-leaf="leafNode.id">
         <slot name="leaf" :node="leafNode"></slot>
     </div>
     <slot v-else name="empty"></slot>
 </template>
+
+<style scoped>
+.nb-grid-leaf {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+</style>

@@ -1,10 +1,10 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {defineComponent, effectScope, h, nextTick, ref, shallowRef, type Ref, type ShallowRef} from "vue";
-import NestedGrid from "../components/layout/NestedGrid.vue";
-import {createGrid, type Grid, type GridLayoutResult} from "../components/layout/grid";
-import type {GridGestureCommit} from "../components/layout/grid-gesture";
-import type {GridExtent} from "../components/layout/grid-types";
+import NestedGrid from "./NestedGrid.vue";
+import {createGrid, type Grid, type GridLayoutResult} from "../grid";
+import type {GridGestureCommit} from "../grid-gesture";
+import type {GridExtent} from "../grid-types";
 import {EMPTY_GRID_LAYOUT, useGridLayout, type GridLayoutCommitResult, type GridLayoutHost} from "./useGridLayout";
 
 /**

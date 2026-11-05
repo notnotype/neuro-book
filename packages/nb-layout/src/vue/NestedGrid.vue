@@ -11,14 +11,14 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import GridBranchRenderer from "./GridBranchRenderer.vue";
-import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "./grid-gesture";
+import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
-import {useLayoutExtent} from "../../composables/useLayoutExtent";
-import {useSashGesture} from "../../composables/useSashGesture";
-import type {GridExtent, GridLayoutResult, GridLeaf, GridNode} from "./grid-types";
-import type {GridBranchChange as GridBranchChangeType} from "./grid-gesture";
-import type {GridSashRef, SashGestureBinding, SashGestureHost} from "./sash-gesture";
-import type {SplitterGestureCancelReason, SplitterGestureSource} from "./splitter-gesture";
+import {useLayoutExtent} from "./useLayoutExtent";
+import {useSashGesture} from "./useSashGesture";
+import type {GridExtent, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
+import type {GridBranchChange as GridBranchChangeType} from "../grid-gesture";
+import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
+import type {SplitterGestureCancelReason, SplitterGestureSource} from "../splitter-gesture";
 
 defineOptions({name: "NestedGrid"});
 
@@ -212,7 +212,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="rootEl" class="min-h-0 min-w-0 h-full w-full" :data-grid-scope="instanceId">
+    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId">
         <GridBranchRenderer
             v-if="node"
             :node="renderTree ?? node"
@@ -229,3 +229,12 @@ onBeforeUnmount(() => {
         <slot v-else name="empty"></slot>
     </div>
 </template>
+
+<style scoped>
+.nb-nested-grid {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+</style>

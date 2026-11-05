@@ -3,8 +3,8 @@ import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
 import Splitter, {type SplitterPanelConfig} from "./Splitter.vue";
-import {createGrid, type Grid, type GridLayoutResult, type GridNode} from "./grid";
-import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "./grid-gesture";
+import {createGrid, type Grid, type GridLayoutResult, type GridNode} from "../grid";
+import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
 
 /**
  * 递归渲染层的行为用例：树 → 面板 px + 叶插槽 + 一次会话的指针/键盘提交。

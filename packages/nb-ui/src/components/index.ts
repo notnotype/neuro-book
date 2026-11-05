@@ -36,16 +36,11 @@ export {default as Tooltip} from "./feedback/Tooltip.vue";
 export {default as Collapsible} from "./layout/Collapsible.vue";
 export {default as CollapsibleCard} from "./layout/CollapsibleCard.vue";
 export {default as CollapsibleRow} from "./layout/CollapsibleRow.vue";
-export {default as DropFeedbackOverlay} from "./layout/DropFeedbackOverlay.vue";
-export {default as DropIndicatorLabel} from "./layout/DropIndicatorLabel.vue";
 export {default as OverlayScrollbar} from "./layout/OverlayScrollbar.vue";
 export {default as ScrollArea} from "./layout/ScrollArea.vue";
 export {default as Separator} from "./layout/Separator.vue";
+// 冻结：只给 nb-story、dev-panel 用，新代码用 `@notnotype/nb-layout/vue`，w00026 t14 迁移后删除。
 export {default as Splitter} from "./layout/Splitter.vue";
-export {default as NestedGrid} from "./layout/NestedGrid.vue";
-// 可序列化拆分树：领域无关的布局原语（Workbench 外壳与编辑器工作区共用）
-export * from "./layout/grid";
-export * from "./layout/grid-splitter";
 export {default as Breadcrumb} from "./navigation/Breadcrumb.vue";
 export {default as Tree} from "./navigation/Tree.vue";
 export {default as CheckboxGroup} from "./form/CheckboxGroup.vue";
@@ -92,17 +87,8 @@ export type {QuickPickCloseReason, QuickPickItem, QuickPickProps} from "./popup/
 export type {NotificationPosition} from "./feedback/NotificationStack.vue";
 export type {CollapsibleCardStatus} from "./layout/CollapsibleCard.vue";
 export type {CollapsibleRowStatus} from "./layout/CollapsibleRow.vue";
-export type {DropFeedbackPreview} from "./layout/DropFeedbackOverlay.vue";
 export type {ScrollAreaOrientation, ScrollAreaType} from "./layout/ScrollArea.vue";
 export type {SplitterPanelConfig} from "./layout/Splitter.vue";
-export type {
-    GridBranchChange,
-    GridGestureCommit,
-    GridGesturePreview,
-} from "./layout/grid-gesture";
-export {
-    createGridGestureSession,
-} from "./layout/grid-gesture";
 export type {
     SplitterGestureCancellation,
     SplitterGestureCancelReason,

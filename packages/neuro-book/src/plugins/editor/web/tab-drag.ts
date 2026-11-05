@@ -10,9 +10,9 @@
  * - Escape、`pointercancel`、失去指针捕获、窗口失焦、页面隐藏、销毁都取消且不写；吞掉同一手势末尾的那次 click。
  */
 
-import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
-import {resolveGridEdgeDrop, resolveListInsertion} from "@notnotype/nb-ui/layout";
-import type {GridDropRect} from "@notnotype/nb-ui/layout";
+import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
+import {resolveGridEdgeDrop, resolveListInsertion} from "@notnotype/nb-layout";
+import type {GridDropRect} from "@notnotype/nb-layout";
 
 import type {GroupEdge, TabPlace} from "./groups/groups";
 

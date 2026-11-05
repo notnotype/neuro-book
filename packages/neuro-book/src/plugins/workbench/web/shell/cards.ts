@@ -10,7 +10,7 @@
  * 纯模块：只读投影的树、尺寸与边界占用；分割与紧凑两种呈现都适用。
  */
 
-import type {GridBranchInput, GridNodeInput} from "@notnotype/nb-ui/layout";
+import type {GridBranchInput, GridNodeInput} from "@notnotype/nb-layout";
 
 import {SHELL_BODY_ID, SHELL_MAIN_ID} from "./layout";
 import type {ShellProjection} from "./layout";

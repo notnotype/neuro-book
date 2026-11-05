@@ -73,6 +73,8 @@ function typePaths(): Record<string, string[]> {
     paths["@notnotype/nb-harness/prompt/jsx-runtime"] = ["../nb-harness/src/kernel/view/prompt/jsx-runtime.ts"];
     paths["@notnotype/nb-form/vue"] = ["../nb-form/src/vue/index.ts"];
     paths["@notnotype/nb-ui/components"] = ["../nb-ui/src/components/index.ts"];
+    paths["@notnotype/nb-layout"] = ["../nb-layout/src/index.ts"];
+    paths["@notnotype/nb-layout/vue"] = ["../nb-layout/src/vue/index.ts"];
     paths["@notnotype/nb-ui/text"] = ["../nb-ui/src/text/index.ts"];
     paths["@notnotype/nb-ui/text-port"] = ["../nb-ui/src/text-port/index.ts"];
     return paths;
@@ -226,6 +228,11 @@ async function componentsDoc(): Promise<string> {
         for (const file of await readdir(join(nbUiComponents, entry.name))) {
             if (file.endsWith(".vue")) directoryOf.set(basename(file, ".vue"), entry.name);
         }
+    }
+    // 布局组件在 nb-layout，文档里仍归“布局”一组。
+    const nbLayoutVue = dirname(fileURLToPath(import.meta.resolve("@notnotype/nb-layout/vue")));
+    for (const file of await readdir(nbLayoutVue)) {
+        if (file.endsWith(".vue")) directoryOf.set(basename(file, ".vue"), "layout");
     }
     const groups = new Map<string, string[]>();
     for (const name of await sdkComponentNames()) {

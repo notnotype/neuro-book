@@ -57,7 +57,7 @@ const EXECUTABLE_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|sh|ps1|py)$/u;
 const SMOKE_NOT_APPLICABLE_PATTERN = /^不适用[—–-]{1,2}\s*\S/u;
 const WORK_TASK_README_PATTERN = /^\.agents\/works\/[^/]+\/tasks\/[^/]+\/README\.md$/u;
 /** 导出受管组件的入口：入口导出的 `.vue` 都要有同名契约文档。 */
-const COMPONENT_BARRELS = ["packages/nb-ui/src/components/index.ts", "packages/nb-form/src/vue/index.ts", "packages/nb-agent-ui/src/vue/index.ts", "packages/nb-markdown/src/chip/index.ts", "packages/nb-markdown/src/display/index.ts", "packages/nb-markdown/src/prompt/index.ts"];
+const COMPONENT_BARRELS = ["packages/nb-ui/src/components/index.ts", "packages/nb-form/src/vue/index.ts", "packages/nb-layout/src/vue/index.ts", "packages/nb-agent-ui/src/vue/index.ts", "packages/nb-markdown/src/chip/index.ts", "packages/nb-markdown/src/display/index.ts", "packages/nb-markdown/src/prompt/index.ts"];
 const COMPONENT_EXPORT_PATTERN = /export \{default as \w+\} from "\.\/([\w/.-]+)\.vue";/gu;
 const PROPOSAL_STATUSES = new Set(["draft", "reviewing", "accepted", "rejected", "superseded"]);
 /** 这些状态的提案仍在活跃目录，必须登记在索引里；其余状态的应移入归档。 */

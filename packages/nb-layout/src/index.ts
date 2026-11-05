@@ -1,13 +1,8 @@
 /**
- * 布局原语入口：只含 grid、Splitter、递归渲染器与投影。
- *
- * 给不渲染组件树、只做几何与结构的消费者（会话、存储宿主、编辑组工具）用——
- * 它们不该为了一个 `createGrid` 把整个组件桶（几十个控件与表单组件）拉进模块图。
- * 组件消费者继续走 `@notnotype/nb-ui/components`。只要 grid 的结构、几何与快照、不能带上 Vue 与 DOM 的消费者（插件激活时
- * 就要建的模型、Bun 里的测试）走 `@notnotype/nb-ui/grid`。
+ * 核心入口：布局树、尺寸求解器、手势状态与落点几何。不依赖 Vue 与 DOM，插件激活时就能建模型，Bun 里也能测。
+ * 组件与组合式函数在 `@notnotype/nb-layout/vue`。
  */
 export * from "./grid";
-export * from "./grid-splitter";
 export * from "./sash-drag";
 export {
     GRID_DROP_INDICATOR_PX,
@@ -23,14 +18,6 @@ export {
     type GridInsertion,
     type GridListInsertion,
 } from "./grid-drop";
-export {
-    SASH_HOVER_DELAY_MS,
-    acquireSashCursor,
-    sashCursorFor,
-    sashHitKey,
-    type SashCursor,
-    type SashCursorOwner,
-} from "./sash-feedback";
 export {
     SASH_HIT_MARGIN,
     collectSashHits,
@@ -66,10 +53,6 @@ export {
     type GridSashResolver,
     type SashPanel,
 } from "./grid-geometry";
-export {default as Splitter} from "./Splitter.vue";
-export {default as NestedGrid} from "./NestedGrid.vue";
-export type {SplitterPanelConfig} from "./Splitter.vue";
-export {SASH_GESTURE_SCOPE_KEY, useSashScope} from "./sash-scope";
 export {createSplitterSession, type SplitterGestureChange, type SplitterGestureSession} from "./splitter-session";
 export type {GridSashRef, SashGestureBinding, SashGestureCommit, SashGestureHost, SashGestureSessionCore} from "./sash-gesture";
 export {
@@ -82,15 +65,6 @@ export {
     type GridGestureSession,
     type GridGestureSessionInput,
 } from "./grid-gesture";
-export {
-    SASH_COLLAPSE_THRESHOLD,
-    sashEdgeDelta,
-    solveSashCollapse,
-    solveSashDrag,
-    type SashDragInput,
-    type SashDragResult,
-    type SashDragSnapState,
-} from "./sash-drag";
 export {
     type SplitterGestureCancellation,
     type SplitterGestureCancelReason,

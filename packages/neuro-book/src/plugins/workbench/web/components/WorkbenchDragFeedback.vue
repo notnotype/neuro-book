@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 拖放的拖影、预备区与落点反馈（同名 .md）：受控，只画宿主算好的东西。 */
-import {DropFeedbackOverlay, DropIndicatorLabel} from "@notnotype/nb-ui/components";
-import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
+import {DropFeedbackOverlay, DropIndicatorLabel} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 
 defineOptions({name: "WorkbenchDragFeedback"});

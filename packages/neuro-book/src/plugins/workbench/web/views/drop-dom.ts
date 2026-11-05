@@ -15,7 +15,7 @@
  * `elementsFromPoint` 的最上层业务元素认落点，被菜单、对话框挡住的位置因此不接收。
  */
 
-import type {GridDropMember, GridDropPoint, GridDropRect} from "@notnotype/nb-ui/layout";
+import type {GridDropMember, GridDropPoint, GridDropRect} from "@notnotype/nb-layout";
 
 import {VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";

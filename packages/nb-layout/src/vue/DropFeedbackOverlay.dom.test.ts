@@ -2,7 +2,7 @@ import {mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {nextTick} from "vue";
 import DropFeedbackOverlay, {type DropFeedbackPreview} from "./DropFeedbackOverlay.vue";
-import type {GridDropRect} from "./grid-drop";
+import type {GridDropRect} from "../grid-drop";
 
 /**
  * 共享覆盖层的合同：几何全部来自 `preview`（viewport 语义矩形），内缩只改绘制盒、不回写语义矩形；

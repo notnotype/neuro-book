@@ -16,8 +16,6 @@
         ".": "./src/index.ts",
         "./nuxt": "./src/module.ts",
         "./components": "./src/components/index.ts",
-        "./layout": "./src/components/layout/index.ts",
-        "./grid": "./src/components/layout/grid.ts",
         "./composables": "./src/composables/index.ts",
         "./notifications": "./src/composables/useNotification.ts",
         "./lab-sources": "./src/lab/sources.ts",

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /** 资源管理器的虚拟树（同名 .md）。 */
-import {DropFeedbackOverlay, OverlayScrollbar} from "@notnotype/nb-ui/components";
-import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
-import {useLayoutExtent} from "@notnotype/nb-ui/composables";
+import {OverlayScrollbar} from "@notnotype/nb-ui/components";
+import {DropFeedbackOverlay, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
 
 import type {DropAction, DropOver} from "../actions/drop";

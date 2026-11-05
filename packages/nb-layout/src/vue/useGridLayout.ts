@@ -12,9 +12,9 @@
  *   否则渲染层会以为树没改、回滚到旧预览。
  */
 import {computed, ref, shallowRef, watch, type ComputedRef, type Ref} from "vue";
-import type {Grid} from "../components/layout/grid";
-import type {GridGestureCommit} from "../components/layout/grid-gesture";
-import type {GridBranchesResizeResult, GridExtent, GridLayoutResult, GridNode} from "../components/layout/grid-types";
+import type {Grid} from "../grid";
+import type {GridGestureCommit} from "../grid-gesture";
+import type {GridBranchesResizeResult, GridExtent, GridLayoutResult, GridNode} from "../grid-types";
 
 /** 没有可发布几何（未挂载 / 无尺寸 / 无网格）时的空布局。 */
 export const EMPTY_GRID_LAYOUT: GridLayoutResult = {sizes: {}, constraints: {}, sashSizes: {}, issues: []};

@@ -4,6 +4,8 @@
 
 # Splitter
 
+**冻结**：只给 nb-story、dev-panel 用，只修不加。新代码用 `@notnotype/nb-layout/vue` 的 `Splitter`，w00026 t14 迁移后删除这一份。
+
 `Splitter` 把一组面板沿单一轴排列，并提供可拖动、可键盘调整的分隔线。它支持独立分配尺寸，也能作为 Grid 分支的受控呈现层；面板尺寸统一使用 CSS px，不在百分比与像素之间往返换算。
 
 ## 布局

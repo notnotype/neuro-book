@@ -11,12 +11,12 @@
 export {
     AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
-    ContextMenu, Dialog, Drawer, FloatingWindow, DropFeedbackOverlay, DropIndicatorLabel, DropdownMenu,
+    ContextMenu, Dialog, Drawer, FloatingWindow, DropdownMenu,
     EmptyState, Field, IconButton, InfoTip, Input, Kbd,
-    Menubar, NestedGrid, Notification, NotificationStack, NumberInput, OverlayScrollbar,
+    Menubar, Notification, NotificationStack, NumberInput, OverlayScrollbar,
     Popover, Progress, QuickPick, RadioGroup, ScrollArea, SearchSelect,
     SegmentedControl, Select, Separator, Skeleton, Slider, Spinner,
-    Splitter, SuggestionMenu, Switch, Table, Tabs, Textarea,
+    SuggestionMenu, Switch, Table, Tabs, Textarea,
     ToggleGroup, Toolbar, Tooltip, Tree,
 } from "@notnotype/nb-ui/components";
 
@@ -24,17 +24,23 @@ export type {
     Align, AlertDialogTone, BadgeSize, BadgeTone, BadgeVariant, BannerTone,
     BreadcrumbItemData, ButtonSize, ButtonVariant, CheckboxOption, CodeBlockLine,
     CollapsibleCardStatus, CollapsibleRowStatus, ColorSwatchesSize, ControlSize, ContextMenuCloseReason, ContextMenuItem,
-    DialogCloseReason, DialogSize, DrawerDirection, FloatingWindowCloseReason, DropFeedbackPreview, DropdownMenuItemData,
+    DialogCloseReason, DialogSize, DrawerDirection, FloatingWindowCloseReason, DropdownMenuItemData,
     DropdownMenuItemType, FocusRingStyle, GenericTreeNode, IconButtonSize, IconButtonVariant,
     InputType, KbdSize, MenubarItemData, MenubarMenuData,
     NotificationPosition, NotificationTone, NumberInputSize, Orientation, OverlayCloseReason, ProgressSize, ProgressTone,
     QuickPickCloseReason, QuickPickItem, QuickPickProps, RadioGroupSize, RadioOption,
     ScrollAreaOrientation, ScrollAreaType, SearchSelectOption, SearchSelectSize, SegmentedControlOption,
     SegmentedControlSize, SegmentedControlValue, SelectDirection, SelectOption,
-    SelectSize, Side, SkeletonShape, SliderSize, SpinnerSize, SplitterPanelConfig,
+    SelectSize, Side, SkeletonShape, SliderSize, SpinnerSize, 
     SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionSide, SwitchSize,
     TableColumn, TableDensity, TabsItem, TabsSize, ToggleGroupOption,
     ToggleGroupSize, Tone,
-    FieldContext, GridBranchChange, GridGestureCommit, GridGesturePreview,
-    SplitterGestureCancelReason, SplitterGestureCancellation, SplitterGestureSource, SplitterGestureState,
+    FieldContext,
 } from "@notnotype/nb-ui/components";
+
+export {DropFeedbackOverlay, DropIndicatorLabel, NestedGrid, Splitter} from "@notnotype/nb-layout/vue";
+export type {DropFeedbackPreview, SplitterPanelConfig} from "@notnotype/nb-layout/vue";
+export type {
+    GridBranchChange, GridGestureCommit, GridGesturePreview,
+    SplitterGestureCancelReason, SplitterGestureCancellation, SplitterGestureSource, SplitterGestureState,
+} from "@notnotype/nb-layout";

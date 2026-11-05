@@ -1,4 +1,4 @@
-import {describe, expect, it} from "vitest";
+import {describe, expect, it} from "bun:test";
 import {GRID_DROP_INDICATOR_PX, resolveGridEdgeDrop, resolveGridInsertion, resolveListInsertion, type GridDropMember, type GridDropRect, type GridInsertion, type GridListInsertion} from "./grid-drop";
 
 /**

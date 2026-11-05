@@ -272,6 +272,28 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/nb-layout": {
+      "name": "@notnotype/nb-layout",
+      "version": "0.1.0",
+      "dependencies": {
+        "@notnotype/nb-ui": "workspace:^",
+      },
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "@vitejs/plugin-vue": "^6.0.7",
+        "@vue/test-utils": "^2.4.11",
+        "happy-dom": "^20.10.6",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.2",
+        "vue": "^3.5.24",
+        "vue-tsc": "^3.3.7",
+      },
+      "peerDependencies": {
+        "typescript": "^5.4.0 || ^6.0.0",
+        "vue": "^3.5.24",
+      },
+    },
     "packages/nb-markdown": {
       "name": "@notnotype/nb-markdown",
       "version": "0.2.0",
@@ -483,6 +505,7 @@
         "@iconify/tailwind4": "^1.2.3",
         "@iconify/utils": "3.1.4",
         "@notnotype/nb-agent-ui": "workspace:*",
+        "@notnotype/nb-layout": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@playwright/test": "^1.62.1",
@@ -1244,6 +1267,8 @@
     "@notnotype/nb-harness": ["@notnotype/nb-harness@workspace:packages/nb-harness"],
 
     "@notnotype/nb-history": ["@notnotype/nb-history@workspace:packages/nb-history"],
+
+    "@notnotype/nb-layout": ["@notnotype/nb-layout@workspace:packages/nb-layout"],
 
     "@notnotype/nb-markdown": ["@notnotype/nb-markdown@workspace:packages/nb-markdown"],
 
@@ -4128,6 +4153,10 @@
     "@notnotype/nb-history/@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "@notnotype/nb-history/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-layout/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-layout/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@notnotype/nb-markdown/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

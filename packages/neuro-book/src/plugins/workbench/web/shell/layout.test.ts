@@ -6,8 +6,8 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {createGridGestureSession} from "@notnotype/nb-ui/layout";
-import type {Grid, GridAxis, GridBranchChange, GridExtent, GridGestureCommit, GridLayoutResult, GridNodeInput} from "@notnotype/nb-ui/layout";
+import {createGridGestureSession} from "@notnotype/nb-layout";
+import type {Grid, GridAxis, GridBranchChange, GridExtent, GridGestureCommit, GridLayoutResult, GridNodeInput} from "@notnotype/nb-layout";
 
 import {createShellGrid, projectShell, SHELL_BODY_ID, SHELL_CONTENT_ROW_ID, SHELL_MAIN_ID, SHELL_PANEL_STACK_ID, SHELL_ROOT_ID, shellGestureProblem, shellNodeRects, shellPatch, shellSettleableBranch} from "./layout";
 import type {ShellNodeRect, ShellProjectionInput} from "./layout";

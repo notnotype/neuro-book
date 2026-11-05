@@ -5,7 +5,7 @@
  */
 import {Tabs} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import type {GridDropRect, GridOrientation} from "@notnotype/nb-ui/layout";
+import type {GridDropRect, GridOrientation} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";

@@ -5,7 +5,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {GridDropRect} from "@notnotype/nb-ui/layout";
+import type {GridDropRect} from "@notnotype/nb-layout";
 
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {Customizations} from "../state/records";

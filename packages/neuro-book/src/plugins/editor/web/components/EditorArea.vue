@@ -1,9 +1,8 @@
 <script setup lang="ts">
 /** 编辑器区的根（同名 .md）：按 grid 排列编辑组，承载关闭询问与编辑器区内的键位。 */
-import {Button, Dialog, DropFeedbackOverlay} from "@notnotype/nb-ui/components";
+import {Button, Dialog} from "@notnotype/nb-ui/components";
+import {DropFeedbackOverlay, useGridLayout, useLayoutExtent, NestedGrid} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
-import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
-import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 

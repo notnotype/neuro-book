@@ -44,19 +44,22 @@ describe("SDK 的导出面", () => {
         }
     });
 
-    it("组件子路径逐个列名，与 nb-ui 组件入口里的单文件组件逐个对上：nb-ui 新增组件漏列、或列了入口里没有的，这里失败", () => {
+    it("组件子路径逐个列名，与 nb-ui、nb-layout 入口里的单文件组件逐个对上：新增组件漏列、或列了入口里没有的，这里失败", () => {
         const sdk = readFileSync(join(import.meta.dir, "components.ts"), "utf8");
         expect(sdk).not.toMatch(/export \*/u);
-        const nbUi = fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components"));
+        const entries = ["@notnotype/nb-ui/components", "@notnotype/nb-layout/vue"].map((name) => readFileSync(fileURLToPath(import.meta.resolve(name)), "utf8"));
         const listed = exportedValues(sdk).map((item) => item.name).sort();
-        const components = exportedValues(readFileSync(nbUi, "utf8")).filter((item) => item.from.endsWith(".vue")).map((item) => item.name).filter((name) => !Object.hasOwn(NOT_FOR_PLUGINS, name)).sort();
+        // nb-ui 里冻结的 Splitter 与 nb-layout 的同名（w00026 t14 迁移前），只算一个。
+        const components = [...new Set(entries.flatMap((entry) => exportedValues(entry).filter((item) => item.from.endsWith(".vue")).map((item) => item.name)))].filter((name) => !Object.hasOwn(NOT_FOR_PLUGINS, name)).sort();
         expect(listed).toEqual(components);
     });
 
     it("组件子路径的类型与 nb-ui 组件入口的公共类型逐个对上：nb-ui 新增或改名的类型漏列时这里失败", () => {
         const sdk = exportedTypes(readFileSync(join(import.meta.dir, "components.ts"), "utf8")).sort();
         const nbUi = exportedTypes(readFileSync(fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components")), "utf8")).sort();
-        expect(sdk).toEqual(nbUi);
+        // 布局的类型由 nb-layout 提供，SDK 只挑给插件用的那些，不要求逐个对上。
+        const layout = new Set(["@notnotype/nb-layout", "@notnotype/nb-layout/vue"].flatMap((name) => exportedTypes(readFileSync(fileURLToPath(import.meta.resolve(name)), "utf8"))));
+        expect(sdk.filter((name) => !layout.has(name))).toEqual(nbUi.filter((name) => !layout.has(name)));
     });
 });
 

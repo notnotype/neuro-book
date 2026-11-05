@@ -58,6 +58,7 @@
         "@iconify/tailwind4": "^1.2.3",
         "@iconify/utils": "3.1.4",
         "@notnotype/nb-agent-ui": "workspace:*",
+        "@notnotype/nb-layout": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@playwright/test": "^1.62.1",

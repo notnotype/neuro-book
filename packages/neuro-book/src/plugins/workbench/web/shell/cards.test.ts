@@ -3,7 +3,7 @@
  * 紧凑呈现下每个部件四边各挨着什么，以及活动栏何时与侧栏相连。
  */
 import {describe, expect, it} from "bun:test";
-import type {GridExtent} from "@notnotype/nb-ui/layout";
+import type {GridExtent} from "@notnotype/nb-layout";
 
 import {shellCardInset, shellCards} from "./cards";
 import type {ShellCardSide} from "./cards";

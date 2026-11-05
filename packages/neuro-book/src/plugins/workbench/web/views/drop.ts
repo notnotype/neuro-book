@@ -16,8 +16,8 @@
  * 三类容器、`intents.ts` 的意图），旧的静态容器抑制标记与工作面代际不搬，换成发起时冻结的布局代次 `layoutKey`。
  */
 
-import {isGridDropRect, resolveGridInsertion, resolveListInsertion} from "@notnotype/nb-ui/layout";
-import type {GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOrientation} from "@notnotype/nb-ui/layout";
+import {isGridDropRect, resolveGridInsertion, resolveListInsertion} from "@notnotype/nb-layout";
+import type {GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOrientation} from "@notnotype/nb-layout";
 
 import {VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";

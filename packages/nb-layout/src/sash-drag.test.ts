@@ -1,4 +1,4 @@
-import {describe, expect, it} from "vitest";
+import {describe, expect, it} from "bun:test";
 import {createGrid} from "./grid";
 import {branchSashPanels, type SashPanel} from "./grid-geometry";
 import {sashCollapsePolicy, solveSashCollapse, solveSashDrag, type SashDragResult, type SashDragSnapState} from "./sash-drag";

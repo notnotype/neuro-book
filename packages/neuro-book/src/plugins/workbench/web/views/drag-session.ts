@@ -21,7 +21,7 @@
 import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
-import type {GridDropPoint} from "@notnotype/nb-ui/layout";
+import type {GridDropPoint} from "@notnotype/nb-layout";
 
 import {isSameDropAction, layoutKeyOf, resolveDrop} from "./drop";
 import type {DropDecision, DropRects, DropSource} from "./drop";

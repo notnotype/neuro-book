@@ -1,3 +1,4 @@
+<!-- 冻结（w00026 t04）：只给 nb-story、dev-panel 用，只修不加；新代码用 `@notnotype/nb-layout/vue`，t14 迁移后连同 sash 一族删除。 -->
 <script setup lang="ts">
 import type {HTMLAttributes} from "vue";
 /**

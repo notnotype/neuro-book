@@ -57,7 +57,7 @@ type DropFeedbackOverlayEmits = {
 type DropFeedbackOverlaySlots = Record<never, never>;
 ```
 
-几何入口在 `@notnotype/nb-ui/layout`，宿主用它们算出 `DropFeedbackPreview`：
+几何入口在 `@notnotype/nb-layout`，宿主用它们算出 `DropFeedbackPreview`：
 
 - `resolveGridInsertion` 沿目标容器的主轴求落点。每个可见成员前、后各 20% 是插入带（`edgeRatio` 可改，须大于 0 且不超过 0.5；0.5 表示前后各一半，没有中央区，中点归后半），返回插入位、`targetId`（指针落在的那一叶）和 `halfRect`（该叶对应的半区）。中央返回 `keep`，只有整片叶的区域，没有锚点与插入线，释放时也不提交；是否呈现 `keep` 由宿主决定。叶间的间隙归后一叶，非末叶的后缘仍归它自己。
 - `resolveListInsertion` 给列表的插入位，一个位置一条线：前一项的后半、间隙、后一项的前半都归同一个位置，线在间隙里居中，没有足够间隙时贴后一项的前缘。越过最后一个可用成员是追加，线贴它的后缘；空列表锚在内容盒前缘。可选 `edgeGap`（缺省 0）只给首个可见成员之前和末个之后留白，内部间隙不变，空列表不偏移；空间不足时夹紧，负数或非有限值按 0。

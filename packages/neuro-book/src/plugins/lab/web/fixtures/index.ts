@@ -86,6 +86,7 @@ import {withNbookMarkdownHost} from "./markdown-host";
 import {withMarkdownSceneText} from "./markdown-text";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
+import {nbLayoutFixtures} from "./nb-layout";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
@@ -875,6 +876,7 @@ export const labFixtures: LabFixture[] = [
     ...settingsFixtures(),
     ...nbUiFixtures,
     ...nbFormFixtures,
+    ...nbLayoutFixtures,
     ...nbAgentUiFixtures,
 ];
 

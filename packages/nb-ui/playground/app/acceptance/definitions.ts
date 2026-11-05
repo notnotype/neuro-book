@@ -41,22 +41,6 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         ],
         events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel"],
     },
-    "nested-grid": {
-        id: "nested-grid",
-        label: "NestedGrid",
-        scenes: [
-            {id: "default", label: "默认两轴嵌套"},
-            {id: "unknown-ref", label: "未知引用恢复"},
-            {id: "malformed", label: "畸形重复身份拒绝"},
-            {id: "high-version", label: "高版本快照拒绝"},
-        ],
-        controls: [
-            {id: "disabled", label: "禁用", type: "boolean"},
-            {id: "forceOverConstrained", label: "模拟过约束降级", type: "boolean"},
-            {id: "zeroInnerSash", label: "内层分隔条零高", type: "boolean"},
-        ],
-        events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel", "restore"],
-    },
     "popup-lists": {
         id: "popup-lists",
         label: "弹出列表",

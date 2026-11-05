@@ -1,8 +1,8 @@
 import {describe, expect, it} from "vitest";
-import {createGrid, type Grid, type GridNode} from "./grid";
-import {sashPanelBounds} from "./grid-geometry";
+import {createGrid, type Grid, type GridNode} from "../grid";
+import {sashPanelBounds} from "../grid-geometry";
 import {buildGridBranchPanels, gridBranchSizesPx, sashPanelsOfConfig} from "./grid-splitter";
-import type {SashCollapseState} from "./grid-types";
+import type {SashCollapseState} from "../grid-types";
 import type {SplitterPanelConfig} from "./Splitter.vue";
 
 /** 该 grid 根分支的直接子节点：投影的输入顺序必须与呈现一致。 */
