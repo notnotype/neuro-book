@@ -31,6 +31,7 @@ import {createBatch} from "./batch";
 import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
+import {addBackgroundRoutes} from "./background-route";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {SCHEMES_POINT, schemesPoint} from "../shared/schemes";
 import {workspaceFilesKey} from "../shared/workspace-files";
@@ -39,7 +40,7 @@ import {LedgerSlot} from "./ledger-slot";
 import {saveText, tracked} from "./execute";
 import {createProjectsAccess} from "./projects-scheme";
 import {SchemeRegistry} from "./registry";
-import {provideWorkspaceFiles} from "./workspace-files";
+import {ownWorkspaceFiles, provideWorkspaceFiles} from "./workspace-files";
 import {openRoot} from "./rooted";
 import {createStagingCommitter, ensureStagingDirectory, sweepStaging} from "./staging";
 import type {StagingCommit} from "./staging";
@@ -241,9 +242,12 @@ const serverEntry = defineEntry({
             state.released = true;
             for (const token of state.tokens) tokens.revoke(token);
         }});
+        const workspaceDeps = {own: {scheme: "user", root: backend}, registry: schemes, projects: registry === null ? null : createProjectsAccess(registry, context.remote), signal: context.signal, sourceOf, report: reportStage} as const;
+        const ownFiles = ownWorkspaceFiles(workspaceDeps, {instanceId: "nbook.files/http", location: "server", client: null, plugin: descriptor.id, entry: "server", generation: null, via: null});
+        addBackgroundRoutes(routes, {userRoot: root.real, write: (address, bytes) => ownFiles.write(address, bytes, {expect: "absent", createParents: true})});
         return {
             services: [
-                provideWorkspaceFiles({own: {scheme: "user", root: backend}, registry: schemes, projects: registry === null ? null : createProjectsAccess(registry, context.remote), signal: context.signal, sourceOf, report: reportStage}),
+                provideWorkspaceFiles(workspaceDeps),
             ],
             remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],
             contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}},
