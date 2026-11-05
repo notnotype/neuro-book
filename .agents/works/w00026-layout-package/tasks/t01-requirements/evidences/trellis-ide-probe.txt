@@ -1,0 +1,25 @@
+实测 Trellis 的 IDE 示例 https://trellisui.com/examples/ide/
+日期 2026-11-05；Google Chrome 156.0.8078.79，无头模式，窗口 1440x900，Playwright 真实输入事件。截图没有入库（第三方界面）。
+
+起始：5 个面板，8 个标签，每个标签各有一个内容容器（data-trellis-part="surface"、"content" 各 8 个）。
+  编辑器面板 x=286 y=47 宽 794 高 592，标签 timer.ts、styles.css。
+
+拖 styles.css 到编辑区右侧（指针 1060,320），松手前：
+  根上 data-drop=dock；timer.ts 面板从宽 794 变成宽 394，右半边空出落点；
+  被拖的面板带 data-lifted，宽 793 高 592，保持原大小跟着指针，里面是真正文。
+继续拖到右边的 Preview 面板上（指针 1330,300）：data-drop=none，没有落点。
+拖回编辑区右侧松手：timer.ts 宽 395、styles.css 宽 394，并排。
+
+timer.ts 所在面板的菜单：Save、Revert File、Copy Path、Maximize、Float、Move timer.ts to、Hide、Close timer.ts。
+点 Float：timer.ts 成为浮动面板（x=310 y=167 宽 395 高 400），正文正常；styles.css 占满编辑区。状态栏显示“6 panels · 1 floating”。
+
+从资源管理器拖 format.ts 到编辑区（700,350）松手：
+  没有 data-dragging，没有 data-lifted，打开的标签不变。示例不支持拖文件；文档里也没查到外部拖入的接口。
+
+配置（examples/ide/src/App.tsx）：
+  编辑器 placement="stage"、allow={{ side: false }}；
+  资源管理器 allow={{ stage: false, floating: false }}；
+  终端没有 allow 限制；Workspace 上 floating="overlay"；
+  标题栏和状态栏在 Workspace 之外。
+
+没试：触摸、键盘拖放、帧率。
