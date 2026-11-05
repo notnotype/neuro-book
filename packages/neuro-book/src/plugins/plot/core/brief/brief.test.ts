@@ -393,3 +393,29 @@ describe("plot.brief I5 审查之后：绝密不泄、知情变化、渲染同�
         expect(strip(build(true).text)).toBe(strip(build(false).text));
     });
 });
+
+describe("plot.brief I5 omp 份：地址挂在绝密知识点上的决策走保密路由；目标顺序与发布批次无关", () => {
+    test("决策挂在知识点的地址上：绝密未揭示时只写“有一条涉及保密设定的决定”，不直出原话", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const killer = w.point("管家是凶手", butler, {保密: "topSecret"});
+        w.change(chapter("ch16"), {kind: "plan", text: "管家端茶", cast: [{who: butler, role: "present"}]});
+        w.decision("别点破", {about: [{kind: "address", at: {entry: killer, path: "point.表现"}}], conclusion: "不要明说", reason: "保留悬念"});
+        const result = brief(w, "ch16");
+        expect(result.text).not.toContain("不要明说");
+        expect(result.text).not.toContain("保留悬念");
+        expect(section(result, "decisions")).toContain(fixed.DECISION_ABOUT_SECRET);
+    });
+
+    test("两个目标在同一次发布里谁先谁后，在场的人里目标的顺序一样", () => {
+        const build = (swap: boolean) => {
+            const w = new PlotWorld(CHAPTERS);
+            const jin = w.person("星瑾");
+            const goals: Array<[string, string]> = [["查出哥哥在瞒什么", "a"], ["躲开哥哥", "b"]];
+            for (const [name] of swap ? [...goals].reverse() : goals) w.goal(name, jin);
+            w.change(chapter("ch5"), {kind: "plan", text: "兄妹说话", cast: [{who: jin, role: "present"}]});
+            return section(brief(w, "ch5"), "people");
+        };
+        expect(build(true)).toBe(build(false));
+    });
+});

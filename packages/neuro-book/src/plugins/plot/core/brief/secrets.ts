@@ -138,7 +138,8 @@ export function routeDecisions(frame: Frame, decided: readonly Decision[], secre
     let guarded = false;
     const byPoint = new Map(secrets.items.map((item) => [item.point, item] as const));
     for (const decision of decided) {
-        const aboutPoints = decision.about.flatMap((about) => (about.kind === "entry" && secrecyAt(frame, about.id) !== null && isSecretPlus(secrecyAt(frame, about.id)) ? [about.id] : []));
+        // 条目挂点与地址挂点的条目都算（地址挂在知识点的字段上时同样是在说这个知识点）。
+        const aboutPoints = [...new Set(decision.about.flatMap((about) => { const id = about.kind === "entry" ? about.id : about.kind === "address" ? about.at.entry : null; return id !== null && isSecretPlus(secrecyAt(frame, id)) ? [id] : []; }))];
         if (aboutPoints.length === 0) {
             inDecisions.push(`${decision.text}：${decisionText(decision)}`);
             continue;

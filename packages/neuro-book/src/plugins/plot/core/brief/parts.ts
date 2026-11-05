@@ -93,7 +93,8 @@ export function peopleItems(frame: Frame, chapter: string, participants: readonl
     const scene = new Set([...bodies, ...view.chapterEntries(chapter, "planned")]);
     const items: BriefItem[] = bodies.map((who) => {
         const lines = [displayName(frame, secrets, participants, who)];
-        for (const goal of goalsOf(view, who, frame.position, "planned")) {
+        // 目标按名字再按 id 排：条目在内部表里的先后（发布的批次）不能改变简报的文字。
+        for (const goal of [...goalsOf(view, who, frame.position, "planned")].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : 1))) {
             if (goal.隐秘 !== null) {
                 const mask = [...secrets.hiddenGoals.values()].some((hidden) => hidden.holder === who && hidden.point === goal.隐秘);
                 const shown = secrets.items.find((item) => item.point === goal.隐秘 && !item.hidden);
