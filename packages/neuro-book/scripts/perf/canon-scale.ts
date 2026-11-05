@@ -296,6 +296,17 @@ for (let round = 0; round < 10; round += 1) {
     if (fork && service.status().lines.updated.length > 0) throw new Error(`子线被更新了：${JSON.stringify(service.status().lines.updated)}`);
 }
 
+// 当前线是子线时（回溯以后的后半本）：在子线上发布一次记账（输出 15），子线要增量更新，不是整份重建。
+const childPublishes: number[] = [];
+if (fork) {
+    for (let round = 0; round < 10; round += 1) {
+        const request = bookkeeping(service, last, hot, chapters + 500 + round * 2, 50_000 * (round + 1), forkLine);
+        const begin = performance.now();
+        await publish(service, request);
+        childPublishes.push(performance.now() - begin);
+    }
+}
+
 if (profiling !== null) {
     const traces = (profiling as unknown as {samplingProfilerStackTraces: () => {traces?: unknown}}).samplingProfilerStackTraces();
     const counts = new Map<string, number>();
@@ -359,6 +370,7 @@ console.log(`待处理：${String(pendingCount)} 条，嫌疑记录共 ${String(
 console.log(`时间（${String(datedIds.length)} 条带说法的变更）：打开后第一次查询（冷建网）${ms(timeColdMs)} 毫秒（预算 1000），之后中位 ${ms(median(timeReads))}、最大 ${ms(Math.max(...timeReads))}（预算 20）；年龄 ${ms(ageMs)} 毫秒（${JSON.stringify((age as {answer: {text?: string}}).answer.text)}）；读待处理 ${ms(pendingMs)} 毫秒，时间的项 ${String(timeItemCount)} 条（第一页里）`);
 if (fork) {
     console.log(`世界线（中间那章开回溯分叉，子线上另有 ${String(chapters - Math.floor(chapters / 2))} 章的记账）：建子线的视图并第一次读 ${ms(lineBuildMs)} 毫秒（预算 2000）；在已建的线上随机读，中位 ${ms(median(lineReads))}、最大 ${ms(Math.max(...lineReads))}（预算 20）`);
+    console.log(`世界线：在子线上发布一次记账（子线已建、增量更新）：中位 ${ms(median(childPublishes))} 毫秒，最大 ${ms(Math.max(...childPublishes))}（预算 100）`);
     console.log(`世界线：主线最新一章发布记账、子线已建时子线不更新（见上面的断言）；写一条落在继承区间里的记录（子线没建，当场建改前改后各一份）：预览 ${ms(rangePreviewMs)} 毫秒，发布 ${ms(rangePublishMs)} 毫秒`);
 }
 console.log(`堆：${ms(heap)} MB`);
