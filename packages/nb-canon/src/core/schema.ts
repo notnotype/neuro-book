@@ -12,10 +12,11 @@ import {Compile} from "typebox/compile";
 const Text = Type.String();
 const Id = Type.String({minLength: 1});
 
+/** 安放。`line` 是安放在哪条世界线上（canon/worldlines.md），不写是主线；存下来时主线的一律省略。 */
 export const PlacementSchema = Type.Union([
-    Type.Object({kind: Type.Literal("prehistory"), order: Type.Number()}),
-    Type.Object({kind: Type.Literal("chapter"), chapter: Id, key: Type.Number()}),
-    Type.Object({kind: Type.Literal("unscheduled")}),
+    Type.Object({kind: Type.Literal("prehistory"), order: Type.Number(), line: Type.Optional(Id)}),
+    Type.Object({kind: Type.Literal("chapter"), chapter: Id, key: Type.Number(), line: Type.Optional(Id)}),
+    Type.Object({kind: Type.Literal("unscheduled"), line: Type.Optional(Id)}),
 ]);
 
 export const ReadPositionSchema = Type.Union([
@@ -172,6 +173,21 @@ const StatementBasisSchema = Type.Union([
     Type.Object({kind: Type.Literal("inferred"), note: Type.Optional(Text)}, {additionalProperties: false}),
 ]);
 const StatementCommon = {quote: Type.Optional(Text), basis: StatementBasisSchema};
+
+/** 分叉记录（canon/worldlines.md 输入表）：`nature` 为 `fork` 的剧情变更必有。 */
+export const ForkSchema = Type.Object({
+    line: Id,
+    name: Text,
+    parent: Id,
+    cut: Id,
+    trigger: Type.Optional(Id),
+    back: Type.Optional(GapSchema),
+    type: Type.Union([Type.Literal("rollback"), Type.Literal("branch"), Type.Literal("dream"), Type.Literal("if")]),
+    who: Type.Optional(Id),
+    carry: Type.Optional(Type.Array(AddressSchema)),
+    end: Type.Optional(Type.Union([Type.Literal("continue"), Type.Literal("return"), Type.Literal("stop")])),
+    endAt: Type.Optional(Id),
+});
 const Edge = Type.Union([Type.Literal("start"), Type.Literal("end")]);
 /** 时间说法（canon.time 输入表；nb-time 里有同形的 TS 类型）。 */
 export const StatementSchema = Type.Union([
@@ -197,8 +213,9 @@ export const StoryChangeSchema = Type.Object({
     undoneReason: Type.Optional(Text),
     by: ActorSchema,
     marks: Type.Optional(Type.Array(MarkSchema)),
-    /** 性质（model.md 输出 30）：没有时是 `event`；`fork` 随世界线加。 */
-    nature: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("narration")])),
+    /** 性质（model.md 输出 30）：没有时是 `event`；`fork` 是分叉（canon/worldlines.md），这时必有 `fork`。 */
+    nature: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("narration"), Type.Literal("fork")])),
+    fork: Type.Optional(ForkSchema),
     cast: Type.Optional(Type.Array(CastMemberSchema)),
     /** 时间说法（canon.time）。 */
     when: Type.Optional(Type.Array(StatementSchema)),
@@ -283,7 +300,10 @@ export const ImpactSchema = Type.Object({
     pendingResolved: Type.Array(Text),
     pendingAdded: Type.Array(Text),
     values: Type.Array(Type.Object({at: AddressSchema, before: Type.Optional(Type.Unknown()), after: Type.Optional(Type.Unknown())})),
+    /** 让后面哪些主线上的变更套不上（revisions.md 输出 4）。 */
     broken: Type.Array(Id),
+    /** 别的世界线上的（canon/worldlines.md 输出 17）；只有主线的作品没有这一项。 */
+    brokenOn: Type.Optional(Type.Array(Type.Object({line: Id, change: Id}))),
 });
 
 export const RevisionWhatSchema = Type.Union([Type.Literal("opening"), Type.Literal("plan"), Type.Literal("bookkeeping"), Type.Literal("edit"), Type.Literal("creative"), Type.Literal("resolve"), Type.Literal("suggest"), Type.Literal("revert"), Type.Literal("reorder")]);
@@ -372,6 +392,7 @@ export type PatchOp = Static<typeof PatchOpSchema>;
 export type Patch = Static<typeof PatchSchema>;
 export type Link = Static<typeof LinkSchema>;
 export type StoryChange = Static<typeof StoryChangeSchema>;
+export type Fork = Static<typeof ForkSchema>;
 /** 写入请求里的剧情变更：讲述可以不带 id。 */
 export type StoryChangeDraft = Omit<StoryChange, "told"> & {told: TellingDraft[]};
 export type Check = Static<typeof CheckSchema>;

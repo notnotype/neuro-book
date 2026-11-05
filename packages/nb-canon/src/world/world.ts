@@ -51,6 +51,7 @@ import type {ChangedRefs, IncrementalEngine} from "../engine/incremental";
 import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
 import {LineSet, type LineView} from "../lines/set";
+import {lineTable, MAIN_LINE} from "../lines/table";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
@@ -378,6 +379,9 @@ export class World {
         const ids: Record<string, string> = {};
         for (const put of input.puts) {
             if (put.ref.id.startsWith(TEMP) && ids[put.ref.id] === undefined) ids[put.ref.id] = allocator.next(KIND_OF_PREFIX[put.ref.kind]);
+            // 新分叉的线 id 也写成临时 id，与对象一起发号（同一个请求里安放的 `line` 可以引用它）。
+            const fork = put.ref.kind === "change" && put.after !== null && typeof put.after === "object" ? (put.after as {fork?: {line?: unknown}}).fork : undefined;
+            if (fork !== null && typeof fork === "object" && typeof fork.line === "string" && fork.line.startsWith(TEMP) && ids[fork.line] === undefined) ids[fork.line] = allocator.next(ID_PREFIX.line);
         }
         // 临时 id 只在引用位置上换（components.md 输出 18）；补丁的值是不是引用要看它指到的条目的字段声明，同一请求里
         // 新建的条目按请求里写的临时 id 找。
@@ -429,6 +433,8 @@ export class World {
                     continue;
                 }
                 if ((after as {id?: unknown}).id !== put.ref.id) problems.push({code: "id-taken", ref: put.ref, message: "object id must match its ref"});
+                // 条目的出场不属于哪条世界线。
+                if (put.ref.kind === "entry" && (after as Entry).appears?.line !== undefined) problems.push({code: "type-mismatch", ref: put.ref, path: "appears.line", message: "an entry's appearance is not placed on a world line"});
                 if (put.ref.kind === "decision" && decisions !== null) applyAcceptedSource(after as Decision, decisions.accepted.get(put.ref.id));
             }
             const before = this.object(put.ref);
@@ -469,7 +475,7 @@ export class World {
         // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
         if (!compensation) problems.push(...validate(this, data, engine, request, changed));
         const refs = writtenReferences(this, data, ops);
-        if (!compensation) problems.push(...markProblems(this, data, ops), ...referenceProblems(data, refs));
+        if (!compensation) problems.push(...markProblems(this, data, ops), ...referenceProblems(data, this.options.order, refs));
         if (decisions !== null) problems.push(...decisionProblems(this, data, request, decisions.classified));
         if (problems.length > 0) return invalid(problems);
         // 缺来源排在校验之后报：校验不过的请求，签了也发布不了。
@@ -849,7 +855,8 @@ function observeIds(allocator: IdAllocator, op: Exclude<Op, {kind: "chapters"}>)
         if (Array.isArray(value)) for (const item of value) walk(item);
         else if (value !== null && typeof value === "object") {
             for (const [key, item] of Object.entries(value)) {
-                if (key === "id" && typeof item === "string") allocator.observe(item);
+                // 世界线的 id 写在分叉的 `fork.line` 与安放的 `line` 里（canon/worldlines.md：程序生成，不复用）。
+                if ((key === "id" || key === "line") && typeof item === "string") allocator.observe(item);
                 else walk(item);
             }
         }
@@ -934,12 +941,14 @@ function markProblems(before: World, data: WorldData, ops: readonly Op[]): Probl
 }
 
 /** 新写或改过的、由引用模块负责校验的引用（components.md 输出 18 的 `ref-invalid`）。 */
-function referenceProblems(data: WorldData, refs: ReturnType<typeof writtenReferences>): Problem[] {
+function referenceProblems(data: WorldData, order: ChapterOrder, refs: ReturnType<typeof writtenReferences>): Problem[] {
+    const lines = lineTable(data, order);
     const exists = {
         entry: (id: string) => data.entries.get(id),
         change: (id: string) => data.changes.has(id),
         decision: (id: string) => data.decisions.has(id),
         check: (id: string) => data.checks.has(id),
+        line: (id: string) => lines.exists(id, "planned"),
     };
     const problems: Problem[] = [];
     for (const {ref, reference} of refs) {
@@ -969,6 +978,8 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
     if (kind === "change") {
         const change = after as StoryChange & {at: {key?: number}};
         const at = change.at;
+        // 主线的 `line` 不存（canon/worldlines.md“边界与兼容”）：只有主线的作品日志逐字节不变。
+        if (at !== null && typeof at === "object" && at.line === MAIN_LINE) delete (at as {line?: string}).line;
         if (at?.kind === "chapter" && typeof at.key !== "number") {
             const text = options.chapterText(at.chapter) ?? "";
             const quote = (objectItems(change.told).map(([, telling]) => telling) as Telling[]).find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
@@ -1006,6 +1017,7 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
     }
     if (kind === "check") {
         const check = after as Check & {place: {key?: number}};
+        if (check.place !== null && typeof check.place === "object" && check.place.line === MAIN_LINE) delete (check.place as {line?: string}).line;
         if (check.place?.kind === "chapter" && typeof check.place.key !== "number") {
             const text = options.chapterText(check.place.chapter) ?? "";
             const index = text.indexOf(check.told?.quote ?? "\u0000");

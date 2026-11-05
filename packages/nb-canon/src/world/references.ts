@@ -76,6 +76,15 @@ function walkReferences(kind: ObjectKind, value: unknown, context: ReferenceCont
         }
     }
     if (kind === "change") {
+        // 安放的线（canon/worldlines.md）：要存在；分叉的父线、切口、触发处、结束点与带过去的人由分叉的校验报 invalid-fork。
+        add("at.line", "line", record.at, "line", true);
+        const fork = record.fork as Record<string, unknown> | undefined;
+        add("fork.parent", "line", fork, "parent", false);
+        add("fork.cut", "change", fork, "cut", false);
+        add("fork.trigger", "change", fork, "trigger", false);
+        add("fork.endAt", "change", fork, "endAt", false);
+        add("fork.who", "entry", fork, "who", false);
+        for (const [index, address] of objectItems(fork?.carry)) add(`fork.carry[${String(index)}].entry`, "entry", address, "entry", false);
         list("involves", "entry", record.involves, true);
         list("lines", "entry", record.lines, false);
         for (const [index, member] of objectItems(record.cast)) {
@@ -102,6 +111,7 @@ function walkReferences(kind: ObjectKind, value: unknown, context: ReferenceCont
         }
     }
     if (kind === "check") {
+        add("place.line", "line", record.place, "line", true);
         add("at.entry", "entry", record.at, "entry", false);
         add("anchor.change", "change", record.anchor, "change", false);
     }
@@ -259,6 +269,9 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
             }
         }
         if (put.ref.kind === "check") swapAddress(after.at as {entry?: unknown; path?: unknown});
+        // 分叉的 `fork.line` 是线的定义而不是引用，单独换。
+        const fork = put.ref.kind === "change" ? (after.fork as {line?: unknown} | null | undefined) : undefined;
+        if (fork !== null && typeof fork === "object" && typeof fork.line === "string") fork.line = swap(fork.line);
         if (put.ref.kind === "entry") {
             if (after.retold !== undefined) after.retold = swapKeys(after.retold as Record<string, unknown>);
             if (after.initBasis !== undefined) after.initBasis = swapKeys(after.initBasis as Record<string, unknown>);
@@ -284,7 +297,7 @@ function replacePathSegments(path: string, ids: Readonly<Record<string, string>>
 }
 
 /** 写入时校验一条新写或改过的、由本模块负责的引用（components.md 输出 18 的 `ref-invalid`）；合格返回 null。 */
-export function referenceProblem(reference: Reference, exists: {readonly entry: (id: string) => Entry | undefined; readonly change: (id: string) => boolean; readonly decision: (id: string) => boolean; readonly check: (id: string) => boolean}): string | null {
+export function referenceProblem(reference: Reference, exists: {readonly entry: (id: string) => Entry | undefined; readonly change: (id: string) => boolean; readonly decision: (id: string) => boolean; readonly check: (id: string) => boolean; readonly line: (id: string) => boolean}): string | null {
     const {kind, id} = reference.target;
     if (kind === "entry") {
         const entry = exists.entry(id);
@@ -296,8 +309,8 @@ export function referenceProblem(reference: Reference, exists: {readonly entry: 
     if (kind === "change") return exists.change(id) ? null : "change-missing";
     if (kind === "decision") return exists.decision(id) ? null : "decision-missing";
     if (kind === "check") return exists.check(id) ? null : "check-missing";
-    // 分叉还没有实现，只有主线（canon/worldlines.md 输出 1）。
-    return id === "main" ? null : "line-not-found";
+    // 线至少在按计划模式下存在（components.md 输出 18）；已写的记录落在计划线上另由线的规则报 line-planned。
+    return exists.line(id) ? null : "line-not-found";
 }
 
 /** 列表里是对象的那些项与它们的下标。形状不对的输入（列表本身不是数组，或项是 `null`、字符串）在这里跳过，由之后的形状校验报 `type-mismatch`。 */

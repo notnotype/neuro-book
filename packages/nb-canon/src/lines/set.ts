@@ -9,9 +9,9 @@
 
 import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../engine/incremental";
 import type {EngineInputs, WorldData} from "../engine/types";
+import {lineOf, MAIN_LINE} from "./table";
 
-/** 主线的 id（worldlines 术语：根线，总是存在）。 */
-export const MAIN_LINE = "main";
+export {MAIN_LINE};
 
 export interface LineView {
     readonly line: string;
@@ -25,16 +25,31 @@ export class LineSet {
 
     /** 从头建（重放、打开）。 */
     static build(inputs: EngineInputs): LineSet {
-        return new LineSet({line: MAIN_LINE, records: inputs.world, engine: createIncrementalEngine(inputs)});
+        const records = mainRecords(inputs.world);
+        return new LineSet({line: MAIN_LINE, records, engine: createIncrementalEngine({...inputs, world: records})});
     }
 
     /** 推进到新的输入。`changed` 是这次改到的对象；章序或登记变了时给 `{structural: true}`。 */
     advance(inputs: EngineInputs, changed: ChangedRefs): LineSet {
-        return new LineSet({line: MAIN_LINE, records: inputs.world, engine: this.main.engine.update(inputs, changed)});
+        const records = mainRecords(inputs.world);
+        return new LineSet({line: MAIN_LINE, records, engine: this.main.engine.update({...inputs, world: records}, changed)});
     }
 
     /** 一条线的线视图；线不存在时为 undefined。 */
     get(line: string): LineView | undefined {
         return line === MAIN_LINE ? this.main : undefined;
     }
+}
+
+/**
+ * 主线视图里的记录：安放在主线上的变更与核对点。没有一条记录带线时就是世界的数据本身（只有主线的作品不多一份表）；子线的线视图
+ * 随后续切片加进来。
+ */
+function mainRecords(data: WorldData): WorldData {
+    const onMain = (placement: {readonly line?: string}) => lineOf(placement as Parameters<typeof lineOf>[0]) === MAIN_LINE;
+    let elsewhere = false;
+    for (const change of data.changes.values()) if (!onMain(change.at)) elsewhere = true;
+    for (const check of data.checks.values()) if (!onMain(check.place)) elsewhere = true;
+    if (!elsewhere) return data;
+    return {...data, changes: new Map([...data.changes].filter(([, change]) => onMain(change.at))), checks: new Map([...data.checks].filter(([, check]) => onMain(check.place)))};
 }
