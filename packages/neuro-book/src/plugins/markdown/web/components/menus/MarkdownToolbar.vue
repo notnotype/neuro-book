@@ -246,7 +246,7 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
                     @click="props.menus.runContributed(EDITOR_TOOLBAR_POINT, item.id)"
                 />
             </template>
-            <DropdownMenu root-class="ml-auto" :items="moreMenu" align="end" :content-props="dropdownProps" @select="onMore">
+            <DropdownMenu :root-class="placement === 'full' ? '' : 'ml-auto'" :items="moreMenu" align="end" :content-props="dropdownProps" @select="onMore">
                 <IconButton size="sm" icon-class="i-lucide-ellipsis" :title="props.menus.label('more')" :aria-label="props.menus.label('more')" />
             </DropdownMenu>
         </Toolbar>
@@ -259,11 +259,15 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
     flex-shrink: 0;
 }
 
-/* 通栏：和面包屑同样的左边距，是这一列的又一行，不再是悬在中间的一条。 */
+/* 通栏：分隔线贯通这一列，不再是悬在中间的一条；按钮居中，和正文的版心同一条中轴，“⋯”跟着按钮，不孤零零地落在最右。 */
 .markdown-toolbar--full {
     width: 100%;
     padding-inline: 8px;
     border-bottom: var(--border-w, 1px) solid var(--divider);
+}
+
+.markdown-toolbar--full .markdown-toolbar__row {
+    justify-content: center;
 }
 
 /* 并入面包屑那一行：放不下时比面包屑先收。 */
