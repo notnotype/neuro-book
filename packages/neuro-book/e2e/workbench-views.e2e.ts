@@ -432,7 +432,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await page.mouse.up();
         await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(before);
         const views = (await customizations(page)).value?.views as Record<string, {height?: number; width?: number}>;
-        expect(views[A]?.height).toBeCloseTo(startA - 80, 0);
+        // 量到的高度是外框取整后的，记下的意图没取整，最多差半个像素。
+        expect(Math.abs((views[A]?.height ?? 0) - (startA - 80))).toBeLessThanOrEqual(0.5);
         expect(views[A]?.width).toBeUndefined();
 
         const afterDrag = (await customizations(page)).revision;
@@ -448,7 +449,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await sash.focus();
         await page.keyboard.press("ArrowDown");
         await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(afterDrag);
-        expect(((await customizations(page)).value?.views as Record<string, {height?: number}>)[A]?.height).toBeCloseTo(startA - 70, 0);
+        expect(Math.abs((((await customizations(page)).value?.views as Record<string, {height?: number}>)[A]?.height ?? 0) - (startA - 70))).toBeLessThanOrEqual(0.5);
     });
 
     test("实例保留：fill 与 scroll 两种视图在 1→2→1、跨容器、跨 Part、Part 拖到零再展开之后，输入、滚动与焦点都还在，实例不重建", async ({page}) => {

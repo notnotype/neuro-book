@@ -12,8 +12,9 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
-import {placeGrid, stableOrder, type GridPlacementItem, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {grownRect, placeGrid, stableOrder, type GridLeafPlacement, type GridPlacementItem, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
+import {layoutMotionMs} from "./layout-motion";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {useLayoutText} from "./text";
@@ -138,8 +139,114 @@ function sashProps(sash: GridSashPlacement<unknown>) {
     };
 }
 
-// 分隔线的矩形变了要重新对齐设备像素。
-watch(placement, () => snapHost.schedule());
+/** 这一轮的几何变化来自手势（预览、撤回、落账）：不过渡。消费一次就清，等下一次几何变化。 */
+let fromGesture = false;
+/** 差不到这么多算没动：外壳落账后还有第二次发布，矩形可能差一两个取整。 */
+const MOTION_TOLERANCE_PX = 1;
+
+const moving = ref(false);
+/** 新叶第一帧的矩形；下一轮写终点，过渡才启动。 */
+const growing = shallowRef<ReadonlyMap<string, GridRect>>(new Map());
+let motionTimer: ReturnType<typeof setTimeout> | null = null;
+/** 上一次布局的根尺寸与设备像素比：变了是容器尺寸变化，不过渡。 */
+let lastRootSize: GridExtent | null = null;
+let lastDpr = dpr.value;
+
+function stopMoving(): void {
+    if (motionTimer !== null) clearTimeout(motionTimer);
+    motionTimer = null;
+    if (!moving.value) return;
+    moving.value = false;
+    growing.value = new Map();
+    // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
+    snapHost.schedule();
+}
+
+function startMoving(durationMs: number, entering: ReadonlyMap<string, GridRect>): void {
+    if (motionTimer !== null) clearTimeout(motionTimer);
+    moving.value = true;
+    motionTimer = setTimeout(stopMoving, durationMs);
+    if (entering.size === 0) return;
+    growing.value = entering;
+    // 先让第一帧的矩形进到样式里（强制一次布局），再写终点：否则浏览器把两次改动并成一次，过渡不启动。
+    void nextTick(() => {
+        void rootEl.value?.offsetWidth;
+        growing.value = new Map();
+    });
+}
+
+function rectsNearlyEqual(left: GridRect, right: GridRect): boolean {
+    return Math.abs(left.x - right.x) <= MOTION_TOLERANCE_PX && Math.abs(left.y - right.y) <= MOTION_TOLERANCE_PX
+        && Math.abs(left.width - right.width) <= MOTION_TOLERANCE_PX && Math.abs(left.height - right.height) <= MOTION_TOLERANCE_PX;
+}
+
+/** 按结果判定要不要过渡：矩形没变就什么都不做；变了再看是不是手势或容器尺寸引起的。 */
+function updateMotion(items: ReadonlyArray<GridPlacementItem<unknown>>, previous: ReadonlyArray<GridPlacementItem<unknown>> | null): void {
+    const gesture = fromGesture;
+    fromGesture = false;
+    const root = renderTree.value;
+    const rootSize = root === null ? null : (props.layout.sizes[root.id] ?? null);
+    // 第一次有真实布局：之前的矩形都是 0，不算移动。
+    const first = lastRootSize === null;
+    const resized = lastRootSize !== null && rootSize !== null && (lastRootSize.width !== rootSize.width || lastRootSize.height !== rootSize.height);
+    const rescaled = lastDpr !== dpr.value;
+    if (rootSize !== null) lastRootSize = {width: rootSize.width, height: rootSize.height};
+    lastDpr = dpr.value;
+    if (resized || rescaled) {
+        stopMoving();
+        return;
+    }
+    if (first || gesture || previous === null || previous.length === 0) return;
+    const before = new Map(previous.map((item) => [item.key, item.rect]));
+    const entering = new Map<string, GridRect>();
+    let changed = previous.length !== items.length;
+    for (const item of items) {
+        const old = before.get(item.key);
+        if (old === undefined) {
+            changed = true;
+            if (item.kind === "leaf") entering.set(item.key, grownRect(item.rect, item.grow));
+        } else if (!rectsNearlyEqual(old, item.rect)) {
+            changed = true;
+        }
+    }
+    if (!changed) return;
+    const duration = rootEl.value === null ? 0 : layoutMotionMs(rootEl.value);
+    if (duration > 0) startMoving(duration, entering);
+}
+
+/** 每块最后的非零尺寸：矩形降到零时内容还是这么大，重新有尺寸时不重排。 */
+const lastContentSizes = new Map<string, GridExtent>();
+/** 已发布的布局里停放的叶。只有“曾经有过尺寸、现在是零”才算：第一帧还没量到不算，那时加 `inert` 会让 `onMounted` 里的 `focus()` 静默失败。 */
+const parked = shallowRef<ReadonlySet<string>>(new Set());
+
+function updateParking(items: ReadonlyArray<GridPlacementItem<unknown>>): void {
+    const alive = new Set<string>();
+    const zero: string[] = [];
+    for (const item of items) {
+        if (item.kind !== "leaf") continue;
+        alive.add(item.node.id);
+        if (item.rect.width > 0 && item.rect.height > 0) lastContentSizes.set(item.node.id, {width: item.rect.width, height: item.rect.height});
+        else if (lastContentSizes.has(item.node.id)) zero.push(item.node.id);
+    }
+    for (const id of lastContentSizes.keys()) {
+        if (!alive.has(id)) lastContentSizes.delete(id);
+    }
+    // 预览不改变停放：往零拖时要等落账，拖过阈值又拖回来内容不闪，焦点也不丢。
+    if (preview.value === null) parked.value = new Set(zero);
+}
+
+function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {
+    const size = item.rect.width > 0 && item.rect.height > 0 ? item.rect : (lastContentSizes.get(item.node.id) ?? item.rect);
+    return {width: `${size.width}px`, height: `${size.height}px`, ...(parked.value.has(item.node.id) ? {visibility: "hidden"} : {})};
+}
+
+watch(placement, (next, previous) => {
+    // 分隔线的矩形变了要重新对齐设备像素。
+    snapHost.schedule();
+    const items = next?.items ?? [];
+    updateParking(items);
+    updateMotion(items, previous?.items ?? null);
+}, {immediate: true});
 
 /**
  * 会话的根盒：优先用本组件实测盒（宿主正是按这个盒算布局），拿不到测量时退回布局发布的根节点尺寸。
@@ -182,15 +289,23 @@ function publishedMatches(previewLayout: GridLayoutResult, published: GridLayout
     return true;
 }
 
+/** 手势撤下预览：回到已发布的布局，这次几何变化不过渡。 */
+function releasePreview(): void {
+    if (preview.value === null) return;
+    fromGesture = true;
+    preview.value = null;
+}
+
 function onPreview(next: GridGesturePreview<unknown> | null): void {
     if (next === null) {
         // 预览撤回（拖回基线、无变化松手、取消、提交被拒）也是一次几何变化：宿主可能按预览改了别的状态（例如把内容提前
         // 搬出停放区），要知道画面已回到已发布的布局。已经在基线上时不重复发。
         const wasPreviewing = preview.value !== null;
-        preview.value = null;
+        releasePreview();
         if (wasPreviewing) emit("gesture-update", {layout: props.layout, tree: props.node, changes: [], issues: []});
         return;
     }
+    fromGesture = true;
     preview.value = next;
     emit("gesture-update", next);
 }
@@ -223,12 +338,12 @@ const host: SashGestureHost<GridGesturePreview<unknown>, GridBranchChange> = {
                 emit("gesture-end", commit);
                 const outcome = props.onGestureCommit?.(commit);
                 if (outcome === undefined) {
-                    preview.value = null;
+                    releasePreview();
                     emit("issues", ["宿主没有提供 onGestureCommit，本次调整没有落账"]);
                     return {ok: false, reason: "宿主没有提供 onGestureCommit"};
                 }
                 if (!outcome.ok) {
-                    preview.value = null;
+                    releasePreview();
                     return outcome;
                 }
                 /**
@@ -239,7 +354,7 @@ const host: SashGestureHost<GridGesturePreview<unknown>, GridBranchChange> = {
                 if (held !== null) {
                     void nextTick(() => {
                         if (preview.value === held && !publishedMatches(held.layout, props.layout, commit.changes)) {
-                            preview.value = null;
+                            releasePreview();
                             emit("issues", ["宿主接纳了这次调整但没有发布匹配布局，已回到原布局"]);
                         }
                     });
@@ -273,13 +388,15 @@ watch([() => props.contextKey, () => props.revision, () => props.disabled, () =>
 });
 
 /** 宿主发布新布局即视为几何事实已更新，释放最后一帧预览（避免重复渲染到下一 tick 之后）。 */
-watch(() => props.layout, () => {
-    if (preview.value !== null) {
-        preview.value = null;
-    }
+watch(() => props.layout, releasePreview);
+
+/** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */
+watch(() => scope.active.size > 0, (active) => {
+    if (active) stopMoving();
 });
 
 onBeforeUnmount(() => {
+    stopMoving();
     scope.dispose();
 });
 </script>
@@ -292,13 +409,14 @@ onBeforeUnmount(() => {
                 :id="domIdOf(item.key)"
                 class="nb-grid-frame"
                 :data-leaf="item.node.id"
-                :style="rectStyle(item.rect)"
+                :data-moving="moving ? '' : undefined"
+                :style="rectStyle(growing.get(item.key) ?? item.rect)"
             >
-                <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :style="{width: `${item.rect.width}px`, height: `${item.rect.height}px`}">
+                <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else v-bind="sashProps(item)" :style="sashStyle(item.rect)" />
+            <SashHandle v-else class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :style="sashStyle(item.rect)" />
         </template>
         <slot v-if="node === null" name="empty"></slot>
     </div>
@@ -320,6 +438,13 @@ onBeforeUnmount(() => {
     top: 0;
     left: 0;
     overflow: clip;
+}
+
+/* 标记写在外框上，不写在根上：实时布局拖动中要一部分动、一部分跟手。 */
+.nb-grid-frame[data-moving],
+.nb-grid-sash[data-moving] {
+    transition: transform var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);
+    will-change: transform, width, height;
 }
 
 .nb-grid-leaf {

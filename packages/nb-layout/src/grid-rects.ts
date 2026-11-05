@@ -27,6 +27,8 @@ export interface GridLeafPlacement<R> {
     readonly key: string;
     readonly node: GridLeaf<R>;
     readonly rect: GridRect;
+    /** 新出现时从哪条边长出来：挨着兄弟的那条。根上的叶没有兄弟，为 null。 */
+    readonly grow: {readonly axis: GridAxis; readonly edge: "start" | "end"} | null;
 }
 
 export interface GridSashPlacement<R> {
@@ -96,9 +98,9 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
     const items: Array<GridPlacementItem<R>> = [];
     const toRect = (left: number, top: number, right: number, bottom: number): GridRect => ({x: left / scale, y: top / scale, width: (right - left) / scale, height: (bottom - top) / scale});
 
-    const place = (current: GridNode<R>, box: DeviceBox, edges: BranchEdges): void => {
+    const place = (current: GridNode<R>, box: DeviceBox, edges: BranchEdges, grow: GridLeafPlacement<R>["grow"]): void => {
         if (current.kind === "leaf") {
-            items.push({kind: "leaf", key: `leaf:${current.id}`, node: current, rect: toRect(box.left, box.top, box.right, box.bottom)});
+            items.push({kind: "leaf", key: `leaf:${current.id}`, node: current, rect: toRect(box.left, box.top, box.right, box.bottom), grow});
             return;
         }
         placeBranch(current, box, edges);
@@ -143,7 +145,7 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
             const childBox: DeviceBox = horizontal
                 ? {left: position, right: end, top: box.top, bottom: box.bottom, idealLeft: ideal, idealTop: box.idealTop}
                 : {left: box.left, right: box.right, top: position, bottom: end, idealLeft: box.idealLeft, idealTop: ideal};
-            place(child, childBox, childEdges(index));
+            place(child, childBox, childEdges(index), {axis, edge: index > 0 ? "start" : "end"});
             if (isLast) return;
 
             const next = children[index + 1] as GridNode<R>;
@@ -172,8 +174,15 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
 
     const width = Math.round(clean(extent.width) * scale);
     const height = Math.round(clean(extent.height) * scale);
-    place(node, {left: 0, top: 0, right: width, bottom: height, idealLeft: 0, idealTop: 0}, NO_EDGES);
+    place(node, {left: 0, top: 0, right: width, bottom: height, idealLeft: 0, idealTop: 0}, NO_EDGES, null);
     return {items};
+}
+
+/** 新叶第一帧的矩形：主轴宽度为 0，贴在挨着兄弟的那条边上；内容已经是最终尺寸，外框长出来时露出它。 */
+export function grownRect(rect: GridRect, grow: GridLeafPlacement<unknown>["grow"]): GridRect {
+    if (grow === null) return rect;
+    if (grow.axis === "width") return {...rect, x: grow.edge === "start" ? rect.x : rect.x + rect.width, width: 0};
+    return {...rect, y: grow.edge === "start" ? rect.y : rect.y + rect.height, height: 0};
 }
 
 /**

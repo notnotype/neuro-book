@@ -5,6 +5,7 @@
  */
 import {Tabs} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
+import {layoutMotionMs} from "@notnotype/nb-layout/vue";
 import type {GridDropRect, GridOrientation} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
@@ -297,10 +298,10 @@ const dragState = computed(() => drag.value?.state.value ?? null);
 /**
  * 放下后的收尾（外壳三输出 22）：高亮从松手时的落点滑到拖进去的东西最终所在的位置再淡出。松手那一刻先接住当时的
  * 矩形（覆盖层的同一个节点不断开）；提交引起的重排不是一帧完成的（Teleport 搬动、容器换模式后标题行变化、网格按
- * 新测量重算各晚一帧），所以之后每帧跟着量、覆盖层的过渡跟着走，连续两帧不变（最多 20 帧）才标记收尾开始淡出，
- * 否则还没走到终点就淡没了。量不到就直接结束；新的拖动开始时丢掉。
+ * 新测量重算各晚一帧），外框还要过渡到新矩形，所以之后每帧跟着量、覆盖层的过渡跟着走，连续两帧不变才标记收尾开始淡出，
+ * 否则还没走到终点就淡没了。上限按时间不按帧数：高刷新率的屏幕上帧数耗得快，外框还在滑。量不到就直接结束；新的拖动开始时丢掉。
  */
-const SETTLE_TRACK_FRAMES = 20;
+const SETTLE_TRACK_SLACK_MS = 340;
 const settle = shallowRef<{readonly rect: GridDropRect; readonly orientation: GridOrientation; readonly final: boolean; readonly token: symbol} | null>(null);
 
 function settledRectOf(intent: ViewIntent): GridDropRect | null {
@@ -321,12 +322,11 @@ function startSettle(decision: Extract<DropDecision, {kind: "commit"}>): void {
     const token = Symbol("settle");
     const orientation = decision.preview.orientation;
     settle.value = {rect: from, orientation, final: false, token};
-    let frames = 0;
+    const deadline = performance.now() + (hostEl.value === null ? 0 : layoutMotionMs(hostEl.value)) + SETTLE_TRACK_SLACK_MS;
     let stable = 0;
     let last = "";
     const track = (): void => {
         if (settle.value?.token !== token) return;
-        frames += 1;
         const rect = settledRectOf(decision.intent);
         if (rect === null) {
             settle.value = null;
@@ -338,7 +338,7 @@ function startSettle(decision: Extract<DropDecision, {kind: "commit"}>): void {
             stable = 0;
             last = key;
         }
-        const done = stable >= 2 || frames >= SETTLE_TRACK_FRAMES;
+        const done = stable >= 2 || performance.now() >= deadline;
         settle.value = {rect, orientation, final: done, token};
         if (!done) requestAnimationFrame(track);
     };

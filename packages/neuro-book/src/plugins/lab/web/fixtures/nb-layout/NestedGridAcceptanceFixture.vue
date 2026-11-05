@@ -23,6 +23,7 @@ import {
 import {NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {Checkbox} from "@notnotype/nb-ui/components";
 
+import GridStructureScene from "./GridStructureScene.vue";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {useLabEventSink} from "../../lab-event-sink";
 import type {LabFixtureProps} from "../../lab-subject";
@@ -409,7 +410,8 @@ function formatPx(val?: number): string {
 </script>
 
 <template>
-    <div class="flex w-full min-w-0 flex-col gap-4">
+    <GridStructureScene v-if="scene === 'structure'" />
+    <div v-else class="flex w-full min-w-0 flex-col gap-4">
         <!-- 主工作区卡片容器 -->
         <div class="nested-grid-card mx-auto flex h-[520px] w-full min-w-0 max-w-[880px] flex-col overflow-hidden p-0">
             <!-- 顶栏标题与操作区 -->

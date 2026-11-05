@@ -84,6 +84,9 @@
     --motion-reveal-hold: 500ms;
     --motion-reveal-out: 800ms;
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    /* 布局的外框移动（开关面板、拆分与关闭）：距离长、要看清东西去了哪，所以比控件的形变慢。 */
+    --motion-layout: 470ms;
+    --ease-layout: cubic-bezier(0.23, 1, 0.32, 1);
 
     /*
      * 滚动条：自绘滑块（OverlayScrollbar、ScrollArea、PopupScrollbar）与原生细滚动条（.nb-ui-scrollbar-thin）共用
@@ -237,5 +240,6 @@
         --motion-reveal-in: 0ms !important;
         --motion-reveal-hold: 0ms !important;
         --motion-reveal-out: 0ms !important;
+        --motion-layout: 0ms !important;
     }
 }

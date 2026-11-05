@@ -28,6 +28,8 @@ export const nbLayoutFixtures: LabFixture[] = [
                 {id: "unknown-ref", label: "未知引用恢复", input: {props: base}},
                 {id: "malformed", label: "畸形重复身份拒绝", input: {props: base}},
                 {id: "high-version", label: "高版本快照拒绝", input: {props: base}},
+                // 结构变化、过渡、停放与焦点的验收（e2e/lab-grid-structure.e2e.ts）。
+                {id: "structure", label: "结构变化与过渡", input: {props: base}},
             ];
         })(),
         load: async () => (await import("./NestedGridAcceptanceFixture.vue")).default,
