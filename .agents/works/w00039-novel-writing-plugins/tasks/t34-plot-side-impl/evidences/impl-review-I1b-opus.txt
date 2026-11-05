@@ -1,0 +1,94 @@
+### 9. 新建的待定决策可以直接带结论、理由、约束，读取时显示成“重新打开前定下的”
+**严重程度**：重要；**类别**：不变量。
+**位置**：`packages/nb-canon/src/world/decisions.ts:51-56`（新建只看目标状态）、`decisions.ts:35`（待定里能改的字段）、`decisions.ts:108-121`（`earlier`）。
+**现象**：`classifyDecisionWrite` 对新建的决策只按 `new→${status}` 查表，`new→pending` 直接算 `free`，不看带了哪些字段。所以 Agent 不带任何来源就能新建一条 `pending` 决策，同时写上 `conclusion`、`reason`、`risks`、`constraints`、`marks`。同一条决策建好以后，在待定状态里改 `conclusion` 会被拒（`invalid-transition: a pending decision cannot change conclusion`），新建与修改的口径不一致。读取时 `decisionView` 把这些字段放进 `earlier`，按注释与 model 输出 31 的说法，这是“重新打开前定下的”内容，也就是作者定过、后来重新打开的。
+**为什么是问题**：model.md“状态与转换”把结论、理由、风险、约束、标注写成只有已定时才起作用、改它们要作者来源的字段；“重新打开前定下的”只应来自一次带授权的 `→decided`。现在 Agent 可以伪造一段“作者定过”的历史，读的人（作者面板、别的 Agent）无从分辨。之后转成已定时“没给的沿用”，伪造的理由与约束也会被沿用；虽然整份请求进了 `binds.request`，但宿主按“作者说了什么”签发，作者只说“就定第 3 章”时，Agent 预先塞进去的 `constraints` 也会跟着签进去。
+**如何核实**：在实现 worktree（cb4aa74c5，这几处与 5318a94bd 相同）用真实 `WorldService.open`（带 `project` 与 `verifyAuthorSource`）运行 `bun run /tmp/w00039-t34-impl-review-lab/opus/pending-with-conclusion.ts`（`CANON_SRC` 指向实现 worktree 的 `packages/nb-canon/src`）：以 Agent 身份新建带 `conclusion/reason/constraints` 的待定决策发布成功；`decisions()` 读到 `earlier: {conclusion: "第 3 章揭开", reason: "作者说过", constraints: [...]}`；随后对同一条决策只改 `conclusion` 得到 `invalid-transition`。
+**建议改法**：新建时也按目标状态限定字段：`new→pending` 只许待定里能改的那些字段（`text`、`candidates`、`due`、`about`、`suggestion`、`hints`、`quote`）。带了只在已定时起作用的字段就报 `invalid-transition`，或者把它当成需要来源的转换。补一条“新建待定决策带结论被拒”的验收用例。
+
+### 10. 还原拿一个已经用过的 requestId，不论内容是否相同都返回“已发布”，还原并没有发生
+**严重程度**：重要；**类别**：正确性。
+**位置**：`packages/nb-canon/src/world/world.ts:223-225`（5318a94bd）；实现 worktree 当前仍在同一处。
+**现象**：`revert` 第一行按 `meta.requestId` 查 `index.requests`，查到就返回 `{ok: true, repeated: true, revision: 第一次的修订}`，不比内容。这个 requestId 原来属于一次普通写入、另一个还原目标或别的 `withDependents` 时，调用方也拿到成功。A7 把这一步挪到了 `not-found`、`not-revertable`、`has-dependents` 之前，所以连目标不存在的还原也会被答成功。普通写入走 `#publish`，会按 `requestDigest` 比，不同就报 `request-id-reused`；只有还原这条路没有比。
+**为什么是问题**：revisions 输出 16 要求同一个 requestId 内容不同就拒收（`request-id-reused`），project.md 写明 `revert` 的结果“同 `publish`”。调用方（Agent 工具、面板）按 `ok: true` 判断还原完成，作者以为决策已经回到待定，世界其实没有变。这一步还在授权检查之前，所以不带授权也能拿到“成功”。
+**如何核实**：在实现 worktree 用真实 `WorldService` 运行 `bun run /tmp/w00039-t34-impl-review-lab/opus/revert-auth.ts`（`CANON_SRC` 指向实现 worktree）：新建待定决策（requestId `c1`）、带授权定下（r3），再用 `requestId: "c1"` 还原 r3，得到 `{"ok":true,"repeated":true,"revision":"r2","what":"creative"}`，决策状态仍是 `decided`。
+**建议改法**：还原的重发也按内容判定：给还原修订存下还原请求本身的摘要（`{revert, withDependents, requestId, by, title}`，与 `binds.request` 同一口径），或者存 `withDependents` 与原样的 `title`，重发时对得上才返回第一次的结果，对不上报 `request-id-reused`。查重放在算还原计划之前没有问题，但对不上时不能返回成功。补一条“还原用别的请求的 requestId 被拒”的用例。
+
+### 11. 存进修订的授权只能验签名，不能事后核对它绑定的就是这次修订；还原修订的 `binds.request` 用存下的内容算不出来
+**严重程度**：建议；**类别**：不变量。
+**位置**：`packages/nb-canon/src/world/world.ts:236`、`world.ts:266`（还原请求 `title` 缺省时写成“还原 X”）、`world.ts:438`；`packages/nb-canon/src/world/authorization.ts:32-39`。
+**现象**：签名覆盖整份来源，所以日志里的 `authorizations[].source` 可以交给宿主重新验签。但 `binds.request` 是原始请求（去掉 `authorizations` 与 `baseVersion`，临时 id 还没换）的摘要，修订里只存补丁 `ops`（id 已经换过）与包含授权的 `requestDigest`，原始请求不在日志里，所以写入修订的 `binds.request` 事后算不出来。还原修订更明显：`binds.request` 取 `{revert, withDependents, requestId, by, title?}`，但修订既没存 `withDependents`；调用方没给 `title` 时，摘要里不含 `title`，存下的 `title` 却是“还原 r3”。按存下的修订重算，与存下的 `binds` 对不上。
+**为什么是问题**：revisions 输出 21 说“授权随修订存进日志”，world.ts:437 的注释也说存原样就是为了以后还能验签。现在只能证明“宿主为某个 requestId、某条决策、某个转换签过字”，不能证明签的就是日志里这几行改动。日志一旦被直接改写（别的进程、手工编辑、合并冲突），改过的内容配上原来的授权，验签照样通过。
+**如何核实**：同一个实验 `revert-auth.ts` 的第 3 部分：还原（不给 title）成功后，`verify(source)` 为 true；用修订里存的 `title` 重算 `binds` 结果是 false，去掉 title 才是 true；修订里没有 `withDependents`。第 4 部分列出写入修订的键：没有原始请求。
+**建议改法**：两种做法选一种，并写进 revisions 的“存下来的修订”。一种是在修订里存够重算所需的内容：还原存 `withDependents` 与原样的 `title`；写入存 `binds.request` 的原像，或者至少存每项授权对应决策的原样 `after`，好算 `fields`。另一种是在 Spec 里写明，事后只验签名与 `requestId`、`decision`、`transition` 这三个可以对上的字段，内容的绑定只在发布时校验一次。
+
+### 12. 表里没有的转换带上授权时报 `authorization-unused`，真正的错 `invalid-transition` 被盖住
+**严重程度**：建议；**类别**：正确性。
+**位置**：`packages/nb-canon/src/world/world.ts:306-314`（`#decisionWrites` 先查授权并提前返回）、`world.ts:412`（`invalid-transition` 在校验阶段才报）；`packages/nb-canon/src/world/authorization.ts:94-96`。
+**现象**：`classifyDecisionWrite` 把不在表里的转换（如 `pending→superseded`、`dropped→decided`）分成 `invalid`，不进需要授权的清单。请求如果为它带了一项授权，这项授权就成了“用不上的”，`#decisionWrites` 在校验之前返回 `author-source-invalid`（`authorization-unused`）。这时 `decisionProblems` 根本没有运行，调用方看不到 `invalid-transition`。
+**为什么是问题**：Spec 对 `author-source-invalid` 的处理建议是“不要自己造来源；按上一行重新取”。Agent 按这个提示会回去重新找作者签，签来的还是同一个转换，于是在“重新签发”和“unused”之间来回，作者被反复打扰，真正的原因（这条转换不允许）一直报不出来。普通写入里，缺来源是故意排在校验之后报的（world.ts:414 的注释），无效的授权却排在校验之前，两种处理的先后不对称。
+**如何核实**：在实现 worktree 用真实 `WorldService` 运行 `bun run /tmp/w00039-t34-impl-review-lab/opus/unused-masks-invalid.ts`：把待定决策直接写成 `superseded`，不带授权时得到 `invalid-transition`（两条）；带上宿主签好的 `pending→superseded` 授权时只得到 `author-source-invalid / authorization-unused`。
+**建议改法**：被分成 `invalid` 的决策有对应的授权时，先报 `invalid-transition`，或者在 `authorization-unused` 的详情里附上这条决策的分类结果。也可以把“授权是否无效”的判断整体挪到 `decisionProblems` 之后，与缺来源同样放在校验之后报。补一条带授权、转换不合法的用例。
+
+### 13. 差分测试没有覆盖这几处改动走的分支：改已有变更的补丁、没有补丁的计划、元素子字段与按计划模式的来历
+**严重程度**：建议；**类别**：测试。
+**位置**：`packages/nb-canon/tests/differential.test.ts:128-160`（生成器）、`:225-245`（`compareAll`）；对应实现 `packages/nb-canon/src/engine/incremental.ts:359-372`（`outcomesOnly`、按新旧两版弄脏条目）、`:680-682`（`touchesNothing`）、`:446-449`（来历里的 `reductionFieldId`）。
+**现象**：生成器里修改已有变更只有两种：改状态和挪安放，从来不改 `patches`。所以“有补丁的变更改成没有补丁”（只能靠旧版本弄脏条目）和“没补丁改成有补丁”这两条增量路径走不到。计划总是带一到两条补丁，按计划模式下“覆盖层里只有不碰条目的计划”（`dirty` 为空、只靠 `touchesNothing` 记结果）的情况也走不到。`origins` 只比较 `panel.存款` 与 `character.态度` 两个地址、只比较实际模式，A3b 与 A6 改过的列表元素子字段地址（`know.认得[e].看法` 的事件与归纳键）和按计划模式的来历都没有比较。
+**为什么是问题**：差分测试是这两个引擎一致的主要保障（t29 计划：“最重要的测试是差分”）。本段的改动恰好落在这几条分支上，现在的绿灯说明不了这些分支是对的。
+**如何核实**：把差分测试复制到 `/tmp/w00039-t34-impl-review-lab/opus/diff-extended.test.ts`（导入改成实现 worktree 的绝对路径），补上三项：四分之一的计划不带补丁；“挪”的分支里一半改成换补丁（四成换成空）；`origins` 加上每个条目的 `know.认得[...].看法`，并且两种模式都比。在实现 worktree 的 `packages/nb-canon` 里运行 `CANON_DIFF_SEEDS=12 CANON_DIFF_STEPS=70 bun test --timeout 300000 /tmp/w00039-t34-impl-review-lab/opus/diff-extended.test.ts`：13 项全部通过。原测试用 16 个种子、每个 80 步也全部通过。所以眼下两个引擎是一致的，缺的只是覆盖。
+**建议改法**：把上面三项补进 `differential.test.ts` 的生成器与 `compareAll`，按 `CANON_DIFF_SEEDS` 的缺省值保持现在的时长。种子多时单个用例会超过默认的 5 秒（16 个种子、80 步时 8 个超时），文件里写明加大种子数时要给 `--timeout`。
+
+### 14. 修订的 `refs` 每条都带所属对象 `ref`，与 Spec 的形状不同，体积大约是读取方实际用到的 160 倍；格式 2 一旦落进真实项目就改不动了，应在阶段 A 定下来
+**严重程度**：建议；**类别**：安全与性能。
+**位置**：`packages/nb-canon/src/core/schema.ts:309`（`refs` 每项是 `{ref, path, target}`）、`packages/nb-canon/src/world/world.ts:436`（写入）；读取方只有 `world.ts:688`（`dependsOn`，只读 `target.id`）与 `service/service.ts:633`（改动记录按条目筛，只读 `target.id`）。
+**现象**：revisions 的“存下来的修订”把 `refs` 定为 `[{path, target: {kind, id}}]`，实现给每项多存了一个 `ref`（引用所在的对象）。同一个目标在一次修订里出现几次就存几条（涉及、参与者、补丁地址各一条）。两个读取方都只拿 `target.id` 判断“有没有引用到某个对象”，`ref`、`path`、`target.kind` 没有任何地方读。在真实 `WorldService` 上发布一次 15 条变更的记账（每条涉及两人、两个参与者、两条补丁），修订一行 16427 字节，其中 `refs` 有 90 项、8647 字节（53%）；去掉 `ref` 还剩 5551 字节；只存不重复的目标只要 34 字节。规模证据里，日志从 13.5 MB 涨到 22.0 MB，打开慢了约 440 毫秒（1065 到 1508 毫秒，预算 2000），主要就是这一项。
+**为什么是问题**：一是与 Spec 写的持久化格式不一致（多了 `ref`）。二是 project 输出 2 规定格式 1 的行按“不认识的格式”处理、不迁移，所以格式 2 的行一旦在作者的项目里写下，以后再瘦身就要升格式。现在内核分支还没合并、没有真实日志，这时改代价最小。三是打开时间离预算只剩约 25%，而且测量时负载在 1.4 到 2.1 之间，高于 Spec 要求的“负载低于 1”，余量不宽。
+**如何核实**：在实现 worktree 运行 `bun run /tmp/w00039-t34-impl-review-lab/opus/refs-size.ts`（`CANON_SRC` 指向实现 worktree），输出 `refsCount: 90, lineBytes: 16427, refsBytes: 8647, withoutRefKey: 5551, uniqueTargetsBytes: 34`。用 `grep -rn "\.refs" packages/nb-canon/src` 只能找到上面两处读取方。
+**建议改法**：在阶段 A 内二选一，并同步 Spec。一种是按 Spec 去掉 `ref`，同一个 `{path, target}` 不重复存。另一种是改 Spec，只存每次修订新写或改过的、不重复的目标 `[{kind, id}]`，因为依赖与改动记录只需要这么多；需要 `path` 的场景（以后若要显示“哪一处引用了它”）可以发布时从 `ops` 重算。改完重跑规模脚本，在证据里记下日志大小与打开时间。
+
+### 15. 讲述的读取每一页都重新定位并排序全部讲述（17000 条约 33 毫秒一页）；结果按读取输入缓存就能免掉，可以放到阶段 B 有调用方时再做
+**严重程度**：建议；**类别**：安全与性能。
+**位置**：`packages/nb-canon/src/service/reads.ts:140-172`（`listTellings`：遍历全部变更、核对点、条目，对每条讲述调 `locator.locate`，再整表排序）；`service/service.ts` 的 `tellings` 与视图里的 `tellings` 每页都调它，再交给 `#page` 截一页。
+**现象**：游标本来就绑定读取输入的摘要（project 输出 19），同一份输入上的第 2、3 页拿到的排序结果与第 1 页完全相同，但每一页都从头定位、排序一遍。规模证据（A9b 收口重跑）：不带筛选的第一页第一次 51 毫秒，之后中位 36 毫秒；只读一章中位 7.58 毫秒。翻完 17000 条（每页 50 条，340 页）约 12 秒。视图里的 `tellings` 还要在整表上再过滤一遍。
+**为什么是问题**：Spec 没有给讲述读取定预算，现在的调用方多按章读（约 7 毫秒），所以不阻断阶段 A。但阶段 B 的剧情诊断与账本会按讲述位置、按标注种类扫讲述；`remote.ts` 的 `paged` 遇到超预算会减半条数重取，每次重取也要再付一遍全量。
+**如何核实**：读 `reads.ts:140-172`，没有任何缓存；`evidences/scale-a4.txt` 的“讲述”与“阶段 A 收口重跑”两行。本段没有跑规模脚本。
+**建议改法**：在服务里按 `(读取输入摘要, 筛选)` 缓存 `listTellings` 的结果，和 `#groupsCache` 一样限量，输入一变就整份作废。或者缓存“全部讲述定位并排好序”的一份，筛选在它上面做。阶段 A 不必改；阶段 B 里有按讲述位置翻页的调用方时再做，并在规模脚本里加一项“翻完全部讲述”。
+
+### 16. 世界打开期间到达的登记变化会丢失：标注种类、诊断（与原有的 Component）停在打开时的旧登记上，直到下一次变化
+**严重程度**：重要；**类别**：正确性。
+**位置**：`packages/neuro-book/src/plugins/canon/backend/world-host.ts:186`（打开时把 `components`、`marks`、`diagnostics` 现值算成登记交给 `WorldService.open`）、`:197`（`service = opened`，之后不再核对）、`:225-238`（`queueRegistries` 的微任务里是 `service?.setRegistries(...)`，`service` 为 null 时什么也不做）。
+**现象**：`open` 先算出三张登记，再 `await WorldService.open(...)`。这一步在 1000 章的规模上约 1.5 秒（规模证据）。这段时间里贡献点接收者调 `setMarks`、`setDiagnostics`、`setComponents`，变量会更新，但排进去的微任务看到的 `service` 是 null，就把这次变化丢了。打开完成后 `service` 用的仍是旧登记，也没有补一次 `setRegistries`。Component 这一路在 1c11c6529 就有同样的写法，本段把它扩到了标注种类与诊断两张新登记上。
+**为什么是问题**：插件在项目打开的这段时间里启用或停用（作者在插件面板里操作，或者入口晚激活的插件，贡献随之发布、撤销），世界就一直按旧登记工作。可见的后果是：新种类的标注写入被拒（`mark-kind-unknown`），插件的诊断不计算也不报“未登记”，已停用插件的种类与诊断仍算可用。读取输入的摘要也不变，游标不会失效，调用方察觉不到。要等下一次任意登记变化才会恢复。
+**如何核实**：在实现 worktree（这几行与 5318a94bd 相同）的 `packages/neuro-book` 目录运行 `bun run /tmp/w00039-t34-impl-review-lab/opus/host-race.ts`。它用真实的 `createWorldHost` 打开空项目，在 `ready()` 之后等不同的时长再调 `setMarks`。`delay=0` 这一轮在打开期间调用（`setMarksDuringOpen=true`），打开后 `service.world.options.marks.byKind("test.p.reveal")` 为 undefined（`registered=false`）；打开完成后再调的几轮都登记上了。空项目打开只要几毫秒，所以窗口很窄；规模上窗口约 1.5 秒。
+**建议改法**：`service = opened` 之后，比较打开时用的三张登记与现值，有变化就立即调一次 `opened.setRegistries(...)`；或者改成队列：`service` 为 null 时保留 `dirty`，打开后清掉它。补一条用例：在 `ready()` 返回之前调 `setMarks`，打开后断言种类可用。
+
+### 17. 宿主没有接上项目标识；内核在缺项目标识时按空字符串算 `binds.project`，不拒收
+**严重程度**：建议；**类别**：不变量。
+**位置**：`packages/neuro-book/src/plugins/canon/backend/world-host.ts:166-187`（`WorldService.open` 的端口里没有 `project`）；`packages/nb-canon/src/world/world.ts:230`、`world.ts:311`（`const project = this.options.project ?? ""`）。
+**现象**：计划 A9 写的是“`backend/world-host.ts` 接上正文快照与 `textChanged`、项目标识、`verifyAuthorSource`（宿主给；没有时不注入）”。正文快照接上了，项目标识没有接，实现 worktree 当前也没有。`verifyAuthorSource` 暂时没有，按计划不注入，所以应用里需要来源的转换现在一律是 `no-verifier`，这一点符合预期。内核这边，`project` 没给时 `binds.project` 用 `""` 去比，照常往下校验，不当成缺少输入。
+**为什么是问题**：revisions 输出 21 把 `project` 定为“宿主打开世界时给的项目标识”，靠它保证一个来源不能挪到另一个项目里用。以后宿主接上签名校验时，如果漏传 `project`，所有项目的来源都按 `""` 签、按 `""` 验，可以互相挪用，内核不会提醒。
+**如何核实**：`grep -n "project" packages/neuro-book/src/plugins/canon/backend/world-host.ts` 找不到传给端口的项目标识；读 `world.ts:230`、`:311`。
+**建议改法**：在 world-host 里把项目标识（`currentProjectKey` 给的项目 id）传进端口。内核在 `project` 缺省时，把需要来源的项判成 `author-source-invalid`（与 `no-verifier` 同一种处理），不要按空字符串静默放过。补一条“没给项目标识时带合法签名也被拒”的用例。
+
+### 18. 诊断的项目内接口“随调用方入口停止失效”没有测试
+**严重程度**：建议；**类别**：测试。
+**位置**：`packages/neuro-book/src/plugins/canon/backend/plugin.ts:76-91`（`provideServicePerConsumer` 的 `release` 撤销登记）、`world-host.ts` 的 `registerDiagnostics` 返回的撤销函数；测试 `packages/neuro-book/src/plugins/canon/canon.test.ts:389-414`。
+**现象**：唯一的集成用例只核对“登记以后诊断算出来了”。没有用例让探针插件的项目入口停止，再看这条诊断变成 `unavailable`（`not-registered`），也没有用例核对读取输入摘要随之变化、旧游标 `cursor-stale`。视图令牌随调用方失效有用例（`canon.test.ts:358-387`），诊断登记这一半没有。实现 worktree 当前同样没有（`grep -n "not-registered" packages/neuro-book/src/plugins/canon/*.test.ts` 无结果）。
+**为什么是问题**：model.md“诊断的计算”与本插件的模块注释都把“入口停止时登记随之失效”写成合同。撤销要经过三层：运行时的按调用方释放、门面里的 `detaches`、host 的 `computers` 按对象身份比较，任何一层接错都会留下一份引用着已停止插件闭包的计算，而且它还会继续算。
+**如何核实**：读上面的测试文件；nb-canon 的 `tests/diagnostics.test.ts` 只在服务层直接调撤销函数，没有经过插件运行时。
+**建议改法**：在 `canon.test.ts` 的探针用例后面停掉探针插件（或它的项目入口），断言 `pending` 的 `unavailable` 列出 `test.canon-probe.lost`（`not-registered`）、旧游标得到 `cursor-stale`。
+
+## 未发现问题的方面
+
+- `binds` 的算法与 revisions 输出 21 逐项对照，没有出入：六个字段一致；`request` 去掉 `authorizations` 与 `baseVersion`，取规范的 JSON 再取 SHA-256；`fields` 取九个键里出现了的，按请求原样（临时 id 换掉之前）算，内核用下标取原样那一条，与宿主用的 `authorizationBinds` 口径相同；还原的 `request` 取 `{revert, withDependents, requestId, by, title?}`；校验先逐字比 `binds`，再交给宿主验签；没有校验函数、签名不对、用不上、重复，都报 `author-source-invalid`；缺来源报 `author-source-required`。
+- 别的写入路径不能不带授权改决策：`editInPlace`、`recordDelta`、`writeBack` 都走 `world.publish`，同样经过 `#decisionWrites`；补偿只经 `revert`、`previewRevert` 进入 `#publish(…, compensation=true)`，`revert` 在这之前先按补偿结果核对授权；`absorb` 按设计不校验别的进程写的行。同一请求里对同一条决策写两份 `puts`，每份都按改前的世界分类，需要来源的各自要一项授权，拼不出绕过（从代码推断）。
+- 出处只由内核写：请求里改了 `source` 报 `source-not-writable`；只改候选的整份写回不需要来源；`binds.decision` 里的临时 id 不在引用位置上，不会被替换（P2 第 2 条的修正有效）。
+- 两个引擎在按计划模式下的待处理、`plannedAt`、没有补丁的变更、带参与者的本章涉及条目上一致：原差分测试用 16 个种子、每个 80 步，扩展版（见第 13 条）用 12 个种子、每个 70 步，都全部通过。`update` 对改动的变更按新旧两版弄脏条目，`touchesNothing` 让没有补丁的变更在重算区间里都记下结果。覆盖层的核对结果按快照缓存，没有跨版本复用。
+- canon 插件：带令牌的方法表与 project 输出 24 一致（`object`、`tree`、`revisions`、`decisions`、`suggestions`、`pending`、写入与预览一律拒，并记审计）；调用方释放时关掉它打开的视图、结束它的独占；`closeView` 只关自己打开的；诊断计算按声明它的插件找，一个插件登记不了别的插件的诊断；同一插件再次登记时，旧的撤销函数不会删掉新登记。
+- 第 1 段的 8 条与已修正的视图问题（`presence` 的 `uncast` 按上限计数等）不再重复。
+
+## 各级数量
+
+阻断 0；重要 3（9、10、16）；建议 7（11、12、13、14、15、17、18）。
+
+有效发现：9、10、11、12、13、14、15、16、17、18
