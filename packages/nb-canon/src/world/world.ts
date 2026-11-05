@@ -55,6 +55,7 @@ import {LineSet, type LineView} from "../lines/set";
 import {lineTable, MAIN_LINE} from "../lines/table";
 import {defaultCarry, forkProblems} from "./forks";
 import {lineRuleProblems} from "./line-rules";
+import {linePending, type LinePendingItem} from "../lines/pending";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
@@ -216,7 +217,7 @@ export class World {
     }
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
-    pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem)[] | "chapter-not-found" | "line-not-found" {
+    pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem | LinePendingItem)[] | "chapter-not-found" | "line-not-found" {
         const view = this.lineAt(position);
         if (view === undefined) return "line-not-found";
         const {records, engine} = view;
@@ -241,7 +242,7 @@ export class World {
         }
         const canon = grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
         // 时间的几种（canon.time 输出 2、3、5）：整条线算一次，随读取位置截取（输出 14）。
-        return [...canon, ...truncateTime(this.time(mode).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
+        return [...canon, ...linePending(this.data, this.options.order, position.line ?? MAIN_LINE), ...truncateTime(this.time(mode).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
     }
 
     /** 预览：做发布的全部计算，不发布（输出 5）。 */

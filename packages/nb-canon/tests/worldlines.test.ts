@@ -325,3 +325,23 @@ describe("canon.worldlines 失败与恢复、验收 3：写入时的线规则", 
         expect(write(planned.world, {...written("tmp:x", at("ch3", 2, plannedLine)), kind: "plan"}).ok).toBe(true);
     });
 });
+
+describe("canon.worldlines 输出 1、3、model 输出 16：线的待处理", () => {
+    const kinds = (target: World, line: string) => {
+        const items = target.pending({kind: "chapter", chapter: "ch4", edge: "end", line});
+        return typeof items === "string" ? [items] : items.filter((item) => item.kind.startsWith("line-")).map((item) => `${item.kind}:${"ref" in item ? item.ref.id : ""}`);
+    };
+
+    test("切口挪到子线记录之后：那条记录越界、只在它所在的线上列；撤销分叉：线上的记录成“线不存在”，在主线上也列", () => {
+        const {world, c2} = base();
+        const result = forked(world, c2);
+        const [line, own] = [result.ids["tmp:l"]!, result.ids["tmp:own"]!];
+        const cut = result.world.data.changes.get(c2)!;
+        const moved = ok(result.world.publish(request([{ref: {kind: "change", id: c2}, after: {...structuredClone(cut), at: at("ch3", 5)}}], result.world.version), "t"));
+        expect(kinds(moved.world, line)).toEqual([`line-out-of-bounds:${own}`]);
+        expect(kinds(moved.world, "main")).toEqual([]);
+        const fork = result.world.data.changes.get(result.ids["tmp:f"]!)!;
+        const undone = ok(result.world.publish(request([{ref: {kind: "change", id: fork.id}, after: {...structuredClone(fork), status: "undone"}}], result.world.version), "t"));
+        expect(kinds(undone.world, "main")).toEqual([`line-missing:${own}`]);
+    });
+});
