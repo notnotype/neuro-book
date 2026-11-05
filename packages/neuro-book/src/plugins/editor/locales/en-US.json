@@ -152,6 +152,21 @@
         "markdownToolbar": {
             "description": "The toolbar above the Markdown editor",
             "title": "Editor Toolbar"
+        },
+        "markdownToolbarPlacement": {
+            "title": "Toolbar Position",
+            "description": "Where the Markdown editor toolbar goes",
+            "choices": {
+                "full": {
+                    "title": "Below the Breadcrumbs"
+                },
+                "merged": {
+                    "title": "In the Breadcrumbs Row"
+                },
+                "bottom": {
+                    "title": "Floating at the Bottom"
+                }
+            }
         }
     },
     "categories": {

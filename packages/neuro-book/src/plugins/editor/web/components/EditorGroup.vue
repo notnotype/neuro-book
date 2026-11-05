@@ -2,7 +2,7 @@
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
 import {Banner, Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
 import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
@@ -23,6 +23,7 @@ import {useEditorText} from "../text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
 import {formatResource} from "nbook/plugins/files/shared/contracts";
+import {editorToolbarSlotKey} from "../../shared/contracts";
 
 import {nameOf, resourceOf} from "../documents/address";
 import {tabHints} from "../tab-hints";
@@ -239,6 +240,9 @@ export interface EditorGroupTitleActions {
     /** “⋯”的菜单身份：活动组、活动标签与地址。 */
     readonly identity: string;
 }
+
+const toolbarSlot = useTemplateRef<HTMLElement>("toolbarSlot");
+provide(editorToolbarSlotKey, toolbarSlot);
 </script>
 
 <template>
@@ -282,18 +286,21 @@ export interface EditorGroupTitleActions {
                 @run="(key: string) => emit('title-action', key)"
             />
         </div>
-        <EditorBreadcrumbs
-            v-if="crumbs.segments.length > 0"
-            class="shrink-0"
-            :segments="crumbs.segments"
-            :parent="crumbs.parent"
-            :outline="outline"
-            :list="listCrumb"
-            :focus-seq="crumbFocus"
-            @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
-            @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
-            @escape="returnFocus"
-        />
+        <div class="flex min-w-0 shrink-0 items-center bg-[var(--panel-surface)]">
+            <EditorBreadcrumbs
+                v-if="crumbs.segments.length > 0"
+                class="min-w-0 flex-[1_1_160px]"
+                :segments="crumbs.segments"
+                :parent="crumbs.parent"
+                :outline="outline"
+                :list="listCrumb"
+                :focus-seq="crumbFocus"
+                @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
+                @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
+                @escape="returnFocus"
+            />
+            <div ref="toolbarSlot" class="flex min-w-0 shrink" data-editor-toolbar-slot></div>
+        </div>
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
             <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>

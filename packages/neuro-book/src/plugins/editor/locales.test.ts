@@ -182,6 +182,11 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
 
 const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     // Markdown 的编辑命令与菜单（docs/specs/workbench/markdown-editing.md）。
+    "settings.markdownToolbarPlacement.title": {"zh-CN": "工具栏位置", "en-US": "Toolbar Position"},
+    "settings.markdownToolbarPlacement.description": {"zh-CN": "Markdown 编辑器的工具栏放在哪里", "en-US": "Where the Markdown editor toolbar goes"},
+    "settings.markdownToolbarPlacement.choices.full.title": {"zh-CN": "面包屑下面", "en-US": "Below the Breadcrumbs"},
+    "settings.markdownToolbarPlacement.choices.merged.title": {"zh-CN": "并入面包屑那一行", "en-US": "In the Breadcrumbs Row"},
+    "settings.markdownToolbarPlacement.choices.bottom.title": {"zh-CN": "底部浮条", "en-US": "Floating at the Bottom"},
     "commands.nbook.edit.block-up.title": {"zh-CN": "上移", "en-US": "Move Up"},
     "commands.nbook.edit.block-down.title": {"zh-CN": "下移", "en-US": "Move Down"},
     "commands.nbook.edit.block-duplicate.title": {"zh-CN": "创建副本", "en-US": "Duplicate"},

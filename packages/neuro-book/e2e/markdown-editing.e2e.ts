@@ -14,6 +14,9 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {startProbeServer, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
+// 资源管理器的树是虚拟列表，用例的文件都在 notes 下：窗口高一些，靠后的文件也有行可以点。
+test.use({viewport: {width: 1280, height: 1800}});
+
 let tmp = "";
 let projectDir = "";
 let server: ProductServer;
@@ -113,7 +116,7 @@ test.describe("工具栏", () => {
         await openFile(page, "notes/toolbar-narrow.md", "字\n");
         const row = activeGroup(page).locator(".markdown-toolbar [role=\"toolbar\"]");
         await expect(toolbarButton(page, "清除格式")).toBeVisible();
-        await page.setViewportSize({width: 760, height: 700});
+        await page.setViewportSize({width: 620, height: 700});
         await expect(toolbarButton(page, "清除格式")).toHaveCount(0);
         await expect(toolbarButton(page, "更多操作")).toBeVisible();
         const {scrollWidth, clientWidth} = await row.evaluate((element) => ({scrollWidth: element.scrollWidth, clientWidth: element.clientWidth}));
@@ -134,6 +137,54 @@ test.describe("工具栏", () => {
         await page.keyboard.type("工具栏");
         await page.keyboard.press("Enter");
         await expect(toolbar).toBeVisible();
+    });
+});
+
+test.describe("工具栏的位置", () => {
+    const settings = (): string => join(tmp, "state", "settings.json");
+    test.afterEach(async () => {
+        await rm(settings(), {force: true});
+    });
+
+    test("缺省通栏：和面包屑左对齐，占满这一列，在面包屑下面", async ({page}) => {
+        await openFile(page, "notes/place-full.md", "字\n");
+        const toolbar = await activeGroup(page).locator(".markdown-toolbar").boundingBox();
+        const crumbs = await activeGroup(page).locator("[data-editor-breadcrumbs]").boundingBox();
+        const group = await activeGroup(page).boundingBox();
+        expect(toolbar?.x).toBe(crumbs?.x);
+        expect(toolbar?.width).toBe(group?.width);
+        expect((toolbar?.y ?? 0)).toBeGreaterThanOrEqual((crumbs?.y ?? 0) + (crumbs?.height ?? 0));
+    });
+
+    test("并入面包屑：同一行，切到源码编辑器时不留着", async ({page}) => {
+        await writeFile(settings(), JSON.stringify({"nbook.editor/markdownToolbarPlacement": "merged"}));
+        await writeFile(join(projectDir, "notes/place-code.txt"), "code\n");
+        await openFile(page, "notes/place-merged.md", "字\n");
+        const toolbar = activeGroup(page).locator(".markdown-toolbar");
+        await expect(toolbar).toBeVisible();
+        const bar = await toolbar.boundingBox();
+        const crumbs = await activeGroup(page).locator("[data-editor-breadcrumbs]").boundingBox();
+        expect(Math.abs((bar?.y ?? 0) + (bar?.height ?? 0) / 2 - ((crumbs?.y ?? 0) + (crumbs?.height ?? 0) / 2))).toBeLessThan(4);
+        expect((bar?.x ?? 0)).toBeGreaterThanOrEqual((crumbs?.x ?? 0) + (crumbs?.width ?? 0) - 1);
+        await toolbarButton(page, "粗体").waitFor();
+        await item(page, "project://notes/place-code.txt").dblclick();
+        await expect(toolbar).toHaveCount(0);
+    });
+
+    test("底部浮条：按钮能用，滚到底时不挡最后一行", async ({page}) => {
+        await writeFile(settings(), JSON.stringify({"nbook.editor/markdownToolbarPlacement": "bottom"}));
+        const paragraphs = Array.from({length: 40}, (_, index) => `第 ${String(index)} 段`).join("\n\n");
+        await openFile(page, "notes/place-bottom.md", `${paragraphs}\n`);
+        const toolbar = activeGroup(page).locator(".markdown-toolbar");
+        await expect(toolbar).toBeVisible();
+        const last = prose(page).locator("p").last();
+        await last.scrollIntoViewIfNeeded();
+        await activeGroup(page).locator("[data-editor-control=\"markdown\"]").evaluate((element) => element.scrollTo({top: element.scrollHeight}));
+        await expect.poll(async () => {
+            const bar = await toolbar.boundingBox();
+            const text = await last.boundingBox();
+            return (text?.y ?? 0) + (text?.height ?? 0) <= (bar?.y ?? 0);
+        }).toBe(true);
     });
 });
 
@@ -621,9 +672,11 @@ test.describe("插件贡献的菜单项", () => {
         await expect(prose(page)).toBeVisible();
         const notice = page.getByText(received);
 
-        // 工具栏：版心里内置按钮正好放满，贡献的项最先收进“更多操作”（输出 3）。
-        await toolbarButton(page, "更多操作").click();
-        await page.getByRole("menuitem", {name: "测试工具栏项"}).click();
+        // 工具栏：通栏时放得下，排在内置按钮之后。
+        const toolbar = activeGroup(page).locator(".markdown-toolbar");
+        const titles = await toolbar.getByRole("button").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title")));
+        expect(titles.indexOf("测试工具栏项")).toBeGreaterThan(titles.indexOf("清除格式"));
+        await toolbar.getByRole("button", {name: "测试工具栏项"}).click();
         await expect(notice.first()).toBeVisible();
 
         // 选区菜单

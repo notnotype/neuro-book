@@ -80,6 +80,10 @@ onMounted(() => {
 });
 onBeforeUnmount(() => observer?.disconnect());
 
+/** 全部放下要多宽：并入面包屑、底部浮条时工具栏不占满一行，按它定宽，放不下才收。 */
+const needed = computed(() => items.value.reduce((sum, item) => sum + widthOf(item), BUTTON) + 4);
+const placement = computed(() => props.menus.toolbarPlacement.value);
+
 /** 从左往右放，放不下的都收进“⋯”；末尾留一个“⋯”的宽度。分隔线不留在收起处的末尾。 */
 const fit = computed(() => {
     const room = available.value - BUTTON;
@@ -191,7 +195,13 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
 </script>
 
 <template>
-    <div ref="bar" class="markdown-toolbar" @mousedown.prevent>
+    <div
+        ref="bar"
+        class="markdown-toolbar"
+        :class="[`markdown-toolbar--${placement}`, placement === 'bottom' ? 'nb-ui-popover-surface' : '']"
+        :style="placement === 'full' ? {} : {flexBasis: `${needed}px`, width: `${needed}px`}"
+        @mousedown.prevent
+    >
         <Toolbar variant="flat" :aria-label="props.menus.label('toolbar')" class="markdown-toolbar__row">
             <template v-for="(item, index) in fit.visible" :key="index">
                 <span v-if="item.kind === 'separator'" class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
@@ -247,12 +257,35 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
 .markdown-toolbar {
     box-sizing: border-box;
     flex-shrink: 0;
+}
+
+/* 通栏：和面包屑同样的左边距，是这一列的又一行，不再是悬在中间的一条。 */
+.markdown-toolbar--full {
     width: 100%;
-    max-width: var(--markdown-measure);
-    margin-inline: auto;
-    /* 图标在按钮里有内边距：按钮往外让这么多，图标才与正文左边缘对齐。 */
-    padding-inline: calc(var(--markdown-padding-inline) - 6px);
+    padding-inline: 8px;
     border-bottom: var(--border-w, 1px) solid var(--divider);
+}
+
+/* 并入面包屑那一行：放不下时比面包屑先收。 */
+.markdown-toolbar--merged {
+    flex-shrink: 1;
+    min-width: 0;
+    padding-inline: 4px 8px;
+}
+
+.markdown-toolbar--merged .markdown-toolbar__row {
+    height: 26px;
+}
+
+/* 底部浮条：正文底部的留白比它高，滚到底时不挡最后一行。 */
+.markdown-toolbar--bottom {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    z-index: 2;
+    max-width: calc(100% - 32px);
+    padding-inline: 8px;
+    transform: translateX(-50%);
 }
 
 .markdown-toolbar__row {
