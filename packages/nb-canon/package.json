@@ -15,6 +15,7 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@notnotype/nb-time": "workspace:*",
         "acorn": "^8.15.0",
         "mdast-util-from-markdown": "^2.1.0",
         "mdast-util-gfm-strikethrough": "^2.0.1",

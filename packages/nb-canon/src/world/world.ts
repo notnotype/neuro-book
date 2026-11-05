@@ -8,6 +8,8 @@
  * World 是不可变的：发布返回新的 World，旧的照常可读，所以读取总是看到某一个版本。
  */
 
+import {validateStatements, type Statement} from "@notnotype/nb-time";
+
 import {EMPTY_DIAGNOSTIC_REGISTRY, stableKeyProblem, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markProblem, type MarkRegistry} from "../components/marks";
 import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../components/registry";
@@ -15,6 +17,8 @@ import {namespaceFields} from "../model/apply";
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
 import {deepFreeze} from "../core/freeze";
+import {DEFAULT_TIME, type TimeSettings} from "../time/network";
+import {placePrehistory} from "../time/prehistory";
 import {RESERVED_ROOTS} from "../core/identifiers";
 import {idListsOf} from "../core/id-lists";
 import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
@@ -68,6 +72,8 @@ export interface WorldOptions {
     readonly chapterText: (chapter: string) => string | undefined;
     /** 字符串的 SHA-256（请求摘要用）。 */
     readonly digest: (text: string) => string;
+    /** 生效的历法与模糊词表（canon.time）；没给时是内置的公历与缺省词表。 */
+    readonly time?: TimeSettings;
 }
 
 export interface Problem {
@@ -394,8 +400,10 @@ export class World {
         // 写入以后的条目：同一请求里写的优先（马甲归一要看它的 sameAs）。
         const written = new Map(request.puts.filter((put) => put.ref.kind === "entry" && put.after !== null).map((put) => [put.ref.id, put.after as Entry]));
         const entryOf = (id: string) => written.get(id) ?? this.data.entries.get(id);
+        let prehistoryEnd = Math.max(-1, ...[...this.data.changes.values()].flatMap((change) => (change.at.kind === "prehistory" ? [change.at.order] : [])));
+        const prehistory: PrehistoryPending = {ids: new Set(), next: () => ++prehistoryEnd};
         for (const put of request.puts) {
-            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator, entryOf);
+            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator, entryOf, prehistory);
             if (after !== undefined) {
                 const shapeProblems = schemaProblems(OBJECT_SCHEMAS[put.ref.kind], after);
                 if (shapeProblems !== null) {
@@ -421,6 +429,21 @@ export class World {
             if (put.ref.kind === "check") changed.checks.push(put.ref.id);
         }
         if (problems.length > 0) return invalid(problems);
+        // 没给 `order` 的前史变更：整份请求都套上以后按时间补上，再改写它的对象与操作（canon.time 输出 7）。
+        if (prehistory.ids.size > 0) {
+            const placed = placePrehistory({changes: tables.changes, entries: tables.entries, checks: tables.checks, order: this.options.order, createdAt}, this.options.time ?? DEFAULT_TIME, [...prehistory.ids]);
+            if ("problem" in placed) return invalid([{code: "invalid-time", ref: {kind: "change", id: placed.problem.change}, path: "at.order", message: placed.problem.message}]);
+            for (const [id, order] of placed.orders) {
+                const ref = {kind: "change" as const, id};
+                const after = {...structuredClone(tables.changes.get(id)!), at: {kind: "prehistory" as const, order}};
+                const before = this.object(ref);
+                const index = ops.findIndex((op) => op.kind !== "chapters" && op.ref.kind === "change" && op.ref.id === id);
+                const fields = before === undefined ? [] : diffValues(before, after, idListsOf("change"));
+                if (before !== undefined && fields.length === 0) ops.splice(index, 1);
+                else ops[index] = before === undefined ? {ref, kind: "create", after} : {ref, kind: "modify", fields};
+                tables.changes.set(id, deepFreeze(structuredClone(after)));
+            }
+        }
 
         const data = freeze(tables, createdAt, version);
         const engine = this.engine.update(engineInputs(data, this.options), changed);
@@ -914,7 +937,13 @@ function referenceProblems(data: WorldData, refs: ReturnType<typeof writtenRefer
  * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）；参与者的 `who`
  * 写成马甲的，存成本体加 `as`（model.md 输出 29；同时给了 `as` 的不动，由校验报 `invalid-cast`）。
  */
-function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator, entryOf: (id: string) => Entry | undefined): unknown {
+/** 没给 `order` 的前史变更：先放一个占位的 `order`（排在前史最后），整份请求套上以后再按时间补（time/prehistory.ts）。 */
+interface PrehistoryPending {
+    readonly ids: Set<string>;
+    next(): number;
+}
+
+function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator, entryOf: (id: string) => Entry | undefined, prehistory: PrehistoryPending): unknown {
     const authored = request.by.kind === "author" || request.by.kind === "system";
     // 新的讲述不带 id，在这里发（model.md 输出 25）。带了 id 的照留，是不是这个对象原有的由校验查。
     for (const telling of tellingsOf(kind, after)) if ((telling as {id?: unknown}).id === undefined) (telling as {id: string}).id = allocator.next(ID_PREFIX.telling);
@@ -928,6 +957,17 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
             (change.at as {key: number}).key = index >= 0 ? index : 0;
         }
         if (authored && Array.isArray(change.patches)) for (const patch of change.patches) if (patch.basis === undefined && typeof patch.value === "number") (patch as Patch).basis = {kind: "author"};
+        if (at?.kind === "prehistory" && typeof (at as {order?: unknown}).order !== "number") {
+            (change.at as {order: number}).order = prehistory.next();
+            prehistory.ids.add(change.id);
+        }
+        // 说法的依据按这次请求里 `told` 的下标写的，换成那条讲述的 id（讲述的 id 在上面才发）；下标越界的留着，形状校验报错。
+        for (const statement of Array.isArray(change.when) ? change.when : []) {
+            const basis = (statement as {basis?: {kind?: unknown; told?: unknown}}).basis;
+            if (basis?.kind !== "telling" || typeof basis.told !== "number") continue;
+            const telling = change.told?.[basis.told] as {id?: string} | undefined;
+            if (telling?.id !== undefined) (statement as {basis: unknown}).basis = {kind: "telling", id: telling.id};
+        }
         if (Array.isArray(change.cast)) {
             change.cast = change.cast.map((member) => {
                 const body = member.who === undefined ? undefined : entryOf(member.who)?.sameAs;
@@ -1113,6 +1153,7 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
         }
         problems.push(...tellingProblems(ref, "told", change.told, (world.object(ref) as StoryChange | undefined)?.told ?? []));
         problems.push(...castProblems(ref, change, data));
+        problems.push(...statementProblems(ref, change, (world.object(ref) as StoryChange | undefined)?.when ?? [], data, world.options.time ?? DEFAULT_TIME));
         if (change.nature === "narration") {
             if (change.patches.length > 0) problems.push({code: "narration-with-patches", ref, path: "patches", message: "a narration only tells; it cannot change the world"});
             if (change.told.length === 0) problems.push({code: "narration-without-telling", ref, path: "told", message: "a narration needs at least one telling"});
@@ -1211,6 +1252,35 @@ function checkBasis(patch: Patch, change: StoryChange, engine: IncrementalEngine
     if (patch.op === "set") return value === check.value ? null : {code: "basis-mismatch", message: "derived value differs from the check"};
     const before = engine.valueBefore(change.id, patch.at);
     return typeof before === "number" && before + value === check.value ? null : {code: "basis-mismatch", message: "derived difference does not recompute"};
+}
+
+/**
+ * 时间说法的写入校验（canon.time 输出 9）：只查新写或改过的说法（原样留着的不查，改了历法以后旧说法照样能随变更改别的字段）。
+ * 说法自己的规则交给 nb-time；引用存在、不是叙述、`basis` 的讲述在这条变更的 `told` 里在这里查。叙述不能有说法。
+ */
+function statementProblems(ref: ObjectRef, change: StoryChange, previous: readonly unknown[], data: WorldData, time: TimeSettings): Problem[] {
+    const statements = (change.when ?? []) as Statement[];
+    if (statements.length === 0) return [];
+    if (change.nature === "narration") return [{code: "invalid-time", ref, path: "when", message: "a narration cannot carry time statements"}];
+    const kept = new Set(previous.map((statement) => stableStringify(statement)));
+    const fresh = new Set(statements.flatMap((statement, index) => (kept.has(stableStringify(statement)) ? [] : [index])));
+    if (fresh.size === 0) return [];
+    const problems: Problem[] = validateStatements(statements, time.calendar, change.id)
+        .filter((problem) => fresh.has(problem.index))
+        .map((problem) => ({code: "invalid-time", ref, path: `when[${String(problem.index)}]`, message: problem.message}));
+    const tellings = new Set(change.told.map((telling) => telling.id));
+    for (const index of fresh) {
+        const statement = statements[index]!;
+        const path = `when[${String(index)}]`;
+        if (statement.kind === "after" || statement.kind === "before") {
+            const target = data.changes.get(statement.of);
+            if (target === undefined) problems.push({code: "invalid-time", ref, path: `${path}.of`, message: "of must name an existing story change"});
+            else if (target.nature === "narration") problems.push({code: "invalid-time", ref, path: `${path}.of`, message: "of cannot name a narration"});
+        }
+        if ((statement.kind === "age" || statement.kind === "birth") && (data.entries.get(statement.who) === undefined || data.entries.get(statement.who)!.deleted === true)) problems.push({code: "invalid-time", ref, path: `${path}.who`, message: "who must name an existing entry"});
+        if (statement.basis.kind === "telling" && !tellings.has(statement.basis.id)) problems.push({code: "invalid-time", ref, path: `${path}.basis`, message: "the basis telling must be one of this change's tellings"});
+    }
+    return problems;
 }
 
 /** 带来的变化：待处理的增减、相关地址的改前改后、让后面哪些变更套不上（revisions.md 输出 4、6）。 */

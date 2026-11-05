@@ -160,6 +160,28 @@ export const CastMemberSchema = Type.Object({
     as: Type.Optional(Id),
 });
 
+/** 间隔（canon.time 输入表）：`{min?, max?, unit}` 或模糊词 `{word}`。 */
+const GapSchema = Type.Union([
+    Type.Object({min: Type.Optional(Type.Integer({minimum: 0})), max: Type.Optional(Type.Integer({minimum: 0})), unit: Type.Union([Type.Literal("minute"), Type.Literal("hour"), Type.Literal("day"), Type.Literal("month"), Type.Literal("year")])}, {additionalProperties: false}),
+    Type.Object({word: Text}, {additionalProperties: false}),
+]);
+/** 说法的依据（存下来的形状）：这条变更 `told` 里的一条讲述、作者给的或推断。写入时还可以按 `told` 的下标写，存下时换成讲述 id。 */
+const StatementBasisSchema = Type.Union([
+    Type.Object({kind: Type.Literal("telling"), id: Id}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("author")}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("inferred"), note: Type.Optional(Text)}, {additionalProperties: false}),
+]);
+const StatementCommon = {quote: Type.Optional(Text), basis: StatementBasisSchema};
+const Edge = Type.Union([Type.Literal("start"), Type.Literal("end")]);
+/** 时间说法（canon.time 输入表；nb-time 里有同形的 TS 类型）。 */
+export const StatementSchema = Type.Union([
+    Type.Object({kind: Type.Literal("date"), era: Type.Optional(Id), year: Type.Integer(), month: Type.Optional(Id), day: Type.Optional(Type.Integer()), period: Type.Optional(Id), hour: Type.Optional(Type.Integer()), minute: Type.Optional(Type.Integer()), approx: Type.Optional(Type.Boolean()), uncertain: Type.Optional(Type.Boolean()), ...StatementCommon}, {additionalProperties: false}),
+    Type.Object({kind: Type.Union([Type.Literal("after"), Type.Literal("before")]), of: Id, edge: Type.Optional(Edge), gap: Type.Optional(GapSchema), ...StatementCommon}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("lasts"), lasts: GapSchema, ...StatementCommon}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("age"), who: Id, years: Type.Object({min: Type.Integer({minimum: 0}), max: Type.Integer({minimum: 0})}, {additionalProperties: false}), ...StatementCommon}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("birth"), who: Id, ...StatementCommon}, {additionalProperties: false}),
+]);
+
 export const StoryChangeSchema = Type.Object({
     id: Id,
     kind: Type.Union([Type.Literal("written"), Type.Literal("plan")]),
@@ -178,6 +200,8 @@ export const StoryChangeSchema = Type.Object({
     /** 性质（model.md 输出 30）：没有时是 `event`；`fork` 随世界线加。 */
     nature: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("narration")])),
     cast: Type.Optional(Type.Array(CastMemberSchema)),
+    /** 时间说法（canon.time）。 */
+    when: Type.Optional(Type.Array(StatementSchema)),
 });
 
 export const CheckSchema = Type.Object({

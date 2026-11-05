@@ -86,6 +86,11 @@ function walkReferences(kind: ObjectKind, value: unknown, context: ReferenceCont
             add(`links[${String(index)}].plan`, "change", link, "plan", false);
             add(`links[${String(index)}].by`, "change", link, "by", false);
         }
+        // 时间说法指的变更与人（canon.time 输出 9）：存在与否由时间的校验报 invalid-time，这里不另报 ref-invalid。
+        for (const [index, statement] of ((record.when as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
+            add(`when[${String(index)}].of`, "change", statement, "of", false);
+            add(`when[${String(index)}].who`, "entry", statement, "who", false);
+        }
         for (const [index, patch] of ((record.patches as Patch[] | undefined) ?? []).entries()) {
             // 先按补丁指到的条目找字段声明，再访问地址里的条目：替换会把它改成正式 id。
             patchReferences(`patches[${String(index)}]`, patch, context, add);
