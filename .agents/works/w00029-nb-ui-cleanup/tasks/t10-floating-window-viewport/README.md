@@ -11,7 +11,7 @@ updated: 2026-11-05
 
 拖过的浮动窗口放不下时推回完整可见，没拖过的保持居中，比浏览器大时只在显示上收窄
 
-合同：[`settings/settings-window.md`](../../../../../../docs/specs/settings/settings-window.md) 输出 16；通用规则在 `packages/nb-ui/src/components/feedback/FloatingWindow.md` 的“位置”。
+合同：[`settings/settings-window.md`](../../../../../docs/specs/settings/settings-window.md) 输出 16；通用规则在 `packages/nb-ui/src/components/feedback/FloatingWindow.md` 的“位置”。
 
 ## 开发者的决定
 
