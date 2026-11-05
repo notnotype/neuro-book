@@ -53,6 +53,8 @@ updated: 2026-11-05
 
 验证中一个教训：`setPointerCapture` 与 `releasePointerCapture` 都在下一个指针事件时才生效。过门槛后不再动就释放，捕获根本没生效，也就不会派发 `lostpointercapture`；用例靠 Chrome 在布局变化后补发的移动碰巧通过，负载高时失败。用例已改成先动一下再释放，单条重复 8 遍通过。
 
+合入后的验证：变基前整轮 164 条 e2e 全过。变基到含 w00032 t17 的 master 后，`workbench-dnd.e2e.ts`、`workbench-views.e2e.ts` 共 18 条失败，在干净的 master（`fd65c1c68`）上是完全相同的 18 条，不是这一片引入的：这两份用例只排除了资源树与编辑器插件，对话插件现在占着右栏。排除 `nbook.agent` 不是修法，服务会起不来。其余 113 条通过（三个宿主、Lab 会话场景）。
+
 ## 下一步
 
-按 `plan.md` 的切片实施。
+t06 扁平渲染层。开发者的手感确认放在 t06 之后。
