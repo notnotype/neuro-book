@@ -61,6 +61,17 @@ interface Candidate {
     /** 显式的变化优先于同一条变更推出的。 */
     readonly explicit: boolean;
     readonly change?: string;
+    /** 回溯带过去的那一步：父线上的触发处（没有时切口）。它在这条线的事件序里没有排序键，只给稳定键用，先后一律按 `key` 比。 */
+    readonly via?: string;
+}
+
+/** 一个人对一个知识点的有效知情在某一刻起的变化（目标的“前提变了”用，goals.md 输出 3）；`change` 与 `via` 都没有的是隐秘目标推出的。 */
+export interface KnowingTransition {
+    readonly key: EventKey;
+    readonly change?: string;
+    readonly via?: string;
+    readonly before: KnowingRow | null;
+    readonly after: KnowingRow | null;
 }
 
 /** 一份只读视图上、一个模式与一个读取位置的知情索引：每人的逐行历史与推出的候选，按需建，查表。 */
@@ -130,6 +141,28 @@ export class KnowingIndex {
         });
     }
 
+    /**
+     * 这个人对一个知识点的有效知情的每一次变化，按排序键先后（程度或他以为的不同才算；怎么知道、谁告诉的、备注的变化不算）。
+     * 显式的与推出的候选合起来，同一刻显式的优先；去掉一行回到“没有行”。
+     */
+    transitions(person: string, point: string): KnowingTransition[] {
+        const candidates = [...(this.#explicitOf(person).get(point) ?? []), ...(this.#derivedOf().get(person)?.get(point) ?? [])]
+            .sort((a, b) => this.view.compareKeys(a.key, b.key) || Number(b.explicit) - Number(a.explicit));
+        const transitions: KnowingTransition[] = [];
+        let current: KnowingRow | null = null;
+        for (let index = 0; index < candidates.length; index += 1) {
+            const candidate = candidates[index]!;
+            // 同一刻有几个候选：只有排在最前（显式的优先）的那个算数。
+            const earlier = candidates[index - 1];
+            if (earlier !== undefined && this.view.compareKeys(earlier.key, candidate.key) === 0) continue;
+            const meaningful = (row: KnowingRow | null) => (row === null ? null : {程度: row.程度, 他以为的: row.他以为的 ?? null});
+            const changed = !sameJson(meaningful(current), meaningful(candidate.row));
+            if (changed) transitions.push({key: candidate.key, ...(candidate.change === undefined ? {} : {change: candidate.change}), ...(candidate.via === undefined ? {} : {via: candidate.via}), before: current, after: candidate.row});
+            current = candidate.row;
+        }
+        return transitions;
+    }
+
     /** 这个人的某一行最近一次让程度、怎么知道或谁告诉的变化的那条变更（传话链里“这一行所在的变更”）。 */
     rowChange(person: string, point: string): string | undefined {
         const history = (this.#explicitOf(person).get(point) ?? []).filter((candidate) => this.#positionKey !== null && this.view.compareKeys(candidate.key, this.#positionKey) < 0);
@@ -175,7 +208,7 @@ export class KnowingIndex {
                     const history = rows.get(point) ?? [];
                     if (step.kind === "carried") {
                         // 父线上有行就取它；没有行就是这一行不带过去，回到“没有行”。
-                        history.push({key, explicit: true, row: carried!.get(point) ?? null});
+                        history.push({key, explicit: true, row: carried!.get(point) ?? null, via: step.change});
                     } else history.push({key, explicit: true, row: after === undefined ? null : explicitRow(point, after, step.kind === "patch" ? step.change : undefined), ...(step.kind === "patch" ? {change: step.change} : {})});
                     rows.set(point, history);
                 }

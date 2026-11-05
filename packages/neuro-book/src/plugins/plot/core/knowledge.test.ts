@@ -2,7 +2,7 @@ import {describe, expect, test} from "bun:test";
 
 import {COMPONENT_IDS, MARK_IDS} from "../shared/declarations";
 import {addRow, chapter, drafts, end, learns, PlotWorld, present, setSub, start} from "../testing/world";
-import {experienceChanges, firstReveal, KnowingIndex, presentChanges, readerKnowing} from "./knowledge";
+import {experienceChanges, firstReveal, KnowingIndex, knowingIndex, presentChanges, readerKnowing} from "./knowledge";
 import {knowingIncomplete, relayBroken} from "./knowledge-checks";
 
 const CHAPTERS = Array.from({length: 12}, (_, index) => `ch${String(index + 1)}`);
@@ -230,5 +230,24 @@ describe("plot.knowledge 输出 6、7：读者读过的讲述按活页夹的分�
         // 揭示的段落落在主线的段里：r1 上的讲述不算读过。
         w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: r1, from: 1}, {line: "main", from: 2}]]])});
         expect(readerKnowing(w.view(), k, {chapter: "ch9", edge: "end"})).toBe("unaware");
+    });
+});
+
+describe("KnowingIndex.transitions：有效知情的每一次变化", () => {
+    test("程度或他以为的变了才算一次变化；每次变化前后与 effective 在那一刻前后读到的一致；去掉一行回到没有行；备注的变化不算", () => {
+        const w = new PlotWorld(Array.from({length: 8}, (_, index) => `ch${String(index + 1)}`));
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        const k = w.point("哥哥能回溯", brother);
+        const c1 = w.change(chapter("ch2"), {patches: [addRow(jin, k, {程度: "suspects"})]});
+        w.change(chapter("ch3"), {patches: [setSub(jin, k, "备注", "随口一说")]});
+        const c3 = w.change(chapter("ch4"), {patches: [setSub(jin, k, "程度", "knows")]});
+        const c4 = w.change(chapter("ch5"), {patches: [{op: "listRemove", at: {entry: jin, path: "know.知情"}, value: k}]});
+        const index = knowingIndex(w.view(), "actual", end("ch8"));
+        const transitions = index.transitions(jin, k);
+        expect(transitions.map((transition) => [transition.change, transition.before?.程度 ?? null, transition.after?.程度 ?? null])).toEqual([[c1, null, "suspects"], [c3, "suspects", "knows"], [c4, "knows", null]]);
+        for (const transition of transitions) {
+            expect(index.effective(jin, k, {before: transition.change!})?.程度 ?? null).toBe(transition.before?.程度 ?? null);
+            expect(index.effective(jin, k, {after: transition.change!})?.程度 ?? null).toBe(transition.after?.程度 ?? null);
+        }
     });
 });

@@ -95,3 +95,37 @@ export function conflictsOf(view: CanonReadView, id: string, position: ReadPosit
     for (const other of writtenByOthers) if (!self.冲突.includes(other)) result.push({id: other, writtenOn: "other"});
     return result;
 }
+
+/** 目标表的一项：一个主要角色在位置 P 上的目标与态度。 */
+export interface GoalTableRow {
+    readonly holder: string;
+    readonly goals: readonly (GoalRead & {readonly conflicts: readonly GoalConflict[]})[];
+    readonly attitudes: readonly {readonly object: string; readonly 态度: string | null; readonly 起因: string | null; readonly 称呼: string | null}[];
+}
+
+export interface GoalTableFilter {
+    readonly holder?: string;
+    readonly status?: GoalStatus;
+}
+
+/**
+ * 目标表（输出 5）：位置 P 上每个主要角色的目标（状态、轻重、层次、为什么、基于、冲突）与态度表。主要角色 = 在这个位置上至少有
+ * 一个已出场目标的持有者（不论轻重、状态；`status` 筛选只收窄列出的目标，不改谁算主要角色）。态度是 `att.态度` 的折叠值，
+ * 归纳的写法读到什么给什么。
+ */
+export function goalTable(view: CanonReadView, position: ReadPosition, mode: Mode, filter: GoalTableFilter = {}): GoalTableRow[] {
+    const all = goalsAt(view, position, mode);
+    const holders = [...new Set(all.map((goal) => goal.holder))].filter((holder) => filter.holder === undefined || holder === filter.holder);
+    return holders.map((holder) => {
+        const goals = all.filter((goal) => goal.holder === holder && (filter.status === undefined || goal.状态 === filter.status)).map((goal) => ({...goal, conflicts: conflictsOf(view, goal.id, position, mode) ?? []}));
+        const read = view.entry(holder, position, mode);
+        const rows = read === null || read === "chapter-not-found" ? [] : ((read.namespaces.att?.fields.态度?.value as Array<Record<string, unknown>> | undefined) ?? []);
+        const text = (value: unknown) => (typeof value === "string" ? value : null);
+        const ref = (value: unknown) => {
+            const id = (value as {ref?: unknown} | null | undefined)?.ref;
+            return typeof id === "string" ? id : null;
+        };
+        const attitudes = rows.map((row) => ({object: String(row.id), 态度: text(row.态度), 起因: ref(row.起因), 称呼: text(row.称呼)}));
+        return {holder, goals, attitudes};
+    });
+}
