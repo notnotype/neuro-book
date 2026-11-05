@@ -173,7 +173,7 @@ const methods = {
     /** 视图（输出 24）：令牌的寿命不超过申请它的调用方实例。 */
     openView: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), line: Type.String(), until: ReadPositionSchema, purpose: Type.String()}), output: Out, effect: "read", errors},
     closeView: {input: Type.Object({token: Type.String()}), output: Type.Null(), effect: "read", errors},
-    viewAudit: {input: Type.Object({cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
+    viewAudit: {input: Type.Object({viewer: Type.Optional(Type.Union([Type.String(), Type.Null()])), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
     acquireExclusive: {input: Type.Object({label: Type.String({minLength: 1})}), output: Out, effect: "write", errors},
     renewExclusive: {input: Type.Object({token: Type.String()}), output: Out, effect: "write", errors},
     releaseExclusive: {input: Type.Object({token: Type.String()}), output: Type.Null(), effect: "write", errors},

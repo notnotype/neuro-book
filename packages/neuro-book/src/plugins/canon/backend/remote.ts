@@ -119,7 +119,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                 if (views.delete(input.token)) service.closeView(input.token);
                 return {ok: true as const, value: null};
             }),
-            viewAudit: (input) => withWorld((service) => paged(input.limit, (limit) => service.viewAudit(input.cursor, limit))),
+            viewAudit: (input) => withWorld((service) => paged(input.limit, (limit) => service.viewAudit(input.viewer === undefined ? {} : {viewer: input.viewer}, input.cursor, limit))),
             acquireExclusive: (input) => withWorld((service) => {
                 const lease = service.acquireExclusive(input.label);
                 if ("code" in lease) return fail(lease);

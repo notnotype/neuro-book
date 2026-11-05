@@ -6,13 +6,15 @@
  * 诊断在一次读取里同步调用：拿到的视图就是这次读取的世界与正文快照，读的过程中不会变。
  */
 
-import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/marks";
+import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry, type MarkType} from "../components/marks";
+import {effectiveFields} from "../components/registry";
 import {compareIds} from "../core/ids";
-import {compareRanks, defaultPosition, placementRank, type ChapterOrder} from "../core/position";
-import type {Decision, Entry, ObjectRef, ReadPosition, StoryChange, Telling} from "../core/schema";
-import type {EntryView, Mode, PlanProgress} from "../engine/types";
+import {compareRanks, compareTie, defaultPosition, placementRank, type ChapterOrder} from "../core/position";
+import type {Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
+import {canonicalJson, stableStringify} from "../core/stable-json";
+import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
 import {aboutMatches} from "../world/decisions";
-import {compareOccurrences, readBy, type Located, type TellingLocator, type TellingPosition} from "../world/tellings";
+import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import type {World} from "../world/world";
 
 export interface ChangeFilter {
@@ -61,12 +63,22 @@ export interface TellingItem {
     readonly hints?: readonly TellingHint[];
 }
 
+/** 读取的戳（model.md 输出 36）：世界版本、正文快照的摘要、整份读取输入的摘要。 */
+export interface ReadStamp {
+    readonly version: number;
+    readonly textDigest: string;
+    readonly inputDigest: string;
+}
+
 /**
- * 给插件诊断的只读世界（model.md “诊断的计算”）：同一份读取输入上的条目、剧情变更、讲述、在场与决策，不分页。
- * 诊断只读它，不写世界；同一次读取里几个诊断共用一份。
+ * 给插件的只读世界（model.md “诊断的计算”）：同一份读取输入上的条目、剧情变更、讲述、在场与决策，不分页。插件只读它，
+ * 不写世界；同一次读取里几个诊断共用一份。插件按 `stamp.inputDigest` 缓存自己算的东西。
  */
 export interface CanonReadView {
     readonly version: number;
+    readonly stamp: ReadStamp;
+    /** 这份视图是哪条世界线的；分叉之前只有主线。 */
+    readonly line: string;
     /** 章序。 */
     readonly chapters: readonly string[];
     entry(id: string, position: ReadPosition, mode: Mode): EntryView | null | "chapter-not-found";
@@ -80,12 +92,31 @@ export interface CanonReadView {
     decisions(filter?: DecisionFilter): readonly Decision[];
     /** 某一章涉及的条目（model.md 输出 20）。 */
     chapterEntries(chapter: string): readonly string[];
+    /** 一个地址的来历（model.md 输出 15）：每一步是哪条变更、改后的值。列表的地址给出整个列表在每一步之后的值。 */
+    origins(address: Address, position: ReadPosition, mode: Mode): readonly OriginStep[] | "chapter-not-found";
+    /** 一条剧情变更这次套没套上；不在实际模式的事件里时为 undefined。 */
+    outcome(change: string): ChangeOutcome | undefined;
+    /** 计划在一个读取位置上的进展（model.md 输出 13）。 */
+    progress(plan: string, position: ReadPosition): PlanProgress | "chapter-not-found";
+    /** 一条剧情变更在这个模式的先后里的排序键（与计算用的先后相同）；不进这个模式的为 null。 */
+    eventKey(change: string, mode: Mode): EventKey | null;
+    /** 一个安放的排序键（例如条目的出场）：同一安放上排在任何变更之前。未排章与不在章序里的为 null。 */
+    placementKey(placement: Placement): EventKey | null;
+    /** 两个排序键的先后。 */
+    compareKeys(a: EventKey, b: EventKey): number;
+    /** 一个条目在一个命名空间上的字段声明（类型固定的加实例上的）；类型不可用时为 undefined。 */
+    fields(entry: string, namespace: string): readonly FieldDeclaration[] | undefined;
+    /** 登记的标注种类（引用路径在 `refs`）；没登记时为 undefined。 */
+    markType(kind: string): MarkType | undefined;
 }
 
-export function createReadView(world: World, locator: TellingLocator): CanonReadView {
+export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp): CanonReadView {
+    const order = world.options.order;
     return {
         version: world.version,
-        chapters: world.options.order.ids,
+        stamp,
+        line: "main",
+        chapters: order.ids,
         entry: (id, position, mode) => world.engine.entry(id, position, mode),
         object: (ref) => world.object(ref),
         entries: () => [...world.data.entries.values()],
@@ -94,7 +125,73 @@ export function createReadView(world: World, locator: TellingLocator): CanonRead
         presence: (person, filter = {}) => listPresence(world, person, filter),
         decisions: (filter = {}) => listDecisions(world, filter),
         chapterEntries: (chapter) => world.engine.chapterEntries(chapter),
+        origins: (address, position, mode) => world.engine.origins(address, position, mode),
+        outcome: (change) => world.engine.outcome(change),
+        progress: (plan, position) => world.engine.progress(plan, position),
+        eventKey: (change, mode) => world.engine.eventKey(change, mode),
+        placementKey: (placement) => {
+            const rank = placementRank(order, placement);
+            return rank === null ? null : {rank, tie: {version: -1, id: ""}};
+        },
+        compareKeys: (a, b) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie),
+        fields: (entry, namespace) => {
+            const data = world.data.entries.get(entry)?.init.data[namespace];
+            const type = world.options.registry.byNamespace(namespace);
+            return data === undefined || type === undefined || type.id !== data.type ? undefined : effectiveFields(type, data.declared);
+        },
+        markType: (kind) => (world.options.marks ?? EMPTY_MARK_REGISTRY).byKind(kind),
     };
+}
+
+/**
+ * 不经世界服务，由一份世界与一张正文表建只读视图（测试与别的宿主用）：讲述按这张表定位，戳按世界的摘要函数算，
+ * 算法同世界服务（model.md 输出 36；插件的数据版本、历法与模糊词表都当作没有）。
+ */
+export function createWorldReadView(world: World, texts: ReadonlyMap<string, string>): CanonReadView {
+    const order = world.options.order;
+    const stamp = readStampOf(world, (chapter) => (texts.has(chapter) ? world.options.digest(texts.get(chapter)!) : null), []);
+    return createReadView(world, new TellingLocator((chapter) => texts.get(chapter), () => order), stamp);
+}
+
+/**
+ * 读取的戳（model.md 输出 36）：正文快照的摘要是按章序排的 `[[章 id, 正文的摘要或 null]]` 的规范 JSON 的摘要；读取输入的
+ * 摘要覆盖世界版本、章序与各章讲的线、正文快照、三张登记的版本表、插件的数据版本、历法与模糊词表（后两样随阶段 C）。
+ */
+export function readStampOf(world: World, chapterDigest: (chapter: string) => string | null, pluginData: readonly (readonly [string, string])[]): ReadStamp {
+    const ids = world.options.order.ids;
+    const digest = world.options.digest;
+    const textDigest = digest(canonicalJson(ids.map((id) => [id, chapterDigest(id)])));
+    const inputDigest = digest(canonicalJson({
+        version: world.version,
+        chapters: ids.map((id) => [id, "main"]),
+        text: textDigest,
+        registry: {
+            components: world.options.registry.versions.map(([id, version]) => [id, version]),
+            marks: (world.options.marks ?? EMPTY_MARK_REGISTRY).versions.map(([id, version]) => [id, version]),
+            diagnostics: [...(world.options.diagnostics?.versions ?? [])].map(([id, version]) => [id, version]),
+        },
+        pluginData: [...pluginData].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([plugin, version]) => [plugin, version]),
+        calendar: null,
+        fuzzy: null,
+    }));
+    return {version: world.version, textDigest, inputDigest};
+}
+
+/**
+ * 列表的一页（project.md 输出 19）：游标是“读取输入的摘要:读取参数的摘要:偏移”，读取输入变了、或者拿着游标换了方法与筛选，
+ * 得到 `cursor-stale`。`params` 是方法名与影响结果的参数（条数不算）。canon 与插件的列表共用它。
+ */
+export function pageOf<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number, params: {readonly method: string} & Readonly<Record<string, unknown>>, digest: (text: string) => string): {readonly items: readonly T[]; readonly next?: string} | "cursor-stale" {
+    const query = digest(stableStringify(params));
+    let offset = 0;
+    if (cursor !== undefined) {
+        const [input, bound, at, ...rest] = cursor.split(":");
+        if (input !== stamp.inputDigest || bound !== query || rest.length > 0 || at === undefined || !/^\d+$/u.test(at)) return "cursor-stale";
+        offset = Number(at);
+    }
+    const slice = items.slice(offset, offset + limit);
+    const next = offset + limit < items.length ? `${stamp.inputDigest}:${query}:${String(offset + limit)}` : undefined;
+    return {items: slice, ...(next === undefined ? {} : {next})};
 }
 
 /** 剧情变更涉及这个条目：在 `involves` 里、是参与者（本体或马甲）、或补丁改到它（列表按条目筛时用）。 */

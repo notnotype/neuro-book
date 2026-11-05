@@ -89,3 +89,57 @@ describe("canon.project 输出 24：带令牌的读取", () => {
         expect(service.openView({viewer: null, line: "r1", until: {kind: "chapter", chapter: "ch10", edge: "end"}, purpose: "writer"})).toEqual({code: "line-not-found"});
     });
 });
+
+describe("canon.project 输出 24：视图不漏上限之后的事，审计记种类与被挡的对象", () => {
+    test("带令牌读条目与渲染：上限之后才启用的命名空间不出现（不给值，也不说第几章起生效）", async () => {
+        const {service, xia} = await setup();
+        const entry = service.object({kind: "entry", id: xia}).object as Entry;
+        // 星瑕的面板改成第 11 章才启用：不带令牌读第 10 章末尾，`upcoming` 里有它。
+        await write(service, [{ref: {kind: "entry", id: xia}, after: {...entry, init: {...entry.init, data: {panel: {...entry.init.data.panel!, enabled: false}}}}}]);
+        await write(service, [{ref: {kind: "change", id: "tmp:on"}, after: {id: "tmp:on", kind: "written", text: "启用面板", at: {kind: "chapter", chapter: "ch11", key: 5}, told: [], involves: [xia], lines: [], links: [], patches: [{op: "set", at: {entry: xia, path: "panel.启用"}, value: true}], status: "active", by: {kind: "author"}}}]);
+        const plain = service.entry(xia, {kind: "chapter", chapter: "ch10", edge: "end"}, "actual");
+        expect(plain !== "chapter-not-found" && plain.view?.upcoming.map((item) => item.namespace)).toEqual(["panel"]);
+        const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch10", edge: "end"}, purpose: "writer"});
+        if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+        const read = service.viewed(opened.token).entry(xia, undefined);
+        expect(typeof read !== "string" && read.view?.upcoming).toEqual([]);
+    });
+
+    test("被拒记成 denied；插件记的占位带被挡的对象；按看的人筛，游标是序号", async () => {
+        const {service, jin, xia} = await setup();
+        const writer = service.openView({viewer: jin, line: "main", until: {kind: "chapter", chapter: "ch10", edge: "start"}, purpose: "writer"});
+        const other = service.openView({viewer: xia, line: "main", until: {kind: "chapter", chapter: "ch10", edge: "start"}, purpose: "character"});
+        if (typeof writer === "string" || !("token" in writer) || typeof other === "string" || !("token" in other)) throw new Error("open");
+        service.viewed(writer.token).deny("object");
+        service.auditView(writer.token, {method: "entry", kind: "placeholder", blocked: [{kind: "entry", id: "e99"}]});
+        service.viewed(other.token).deny("pending");
+        const mine = service.viewAudit({viewer: jin}, undefined, 1);
+        if (mine === "cursor-stale" || mine.cursor === undefined) throw new Error("no cursor");
+        expect(mine.items.map((item) => item.kind)).toEqual(["denied"]);
+        const rest = service.viewAudit({viewer: jin}, mine.cursor, 5);
+        expect(rest !== "cursor-stale" && rest.items.map((item) => [item.kind, item.blocked])).toEqual([["placeholder", [{kind: "entry", id: "e99"}]]]);
+        // 审计不是读取输入：写入以后旧游标照样接着读。
+        await write(service, [{ref: {kind: "entry", id: "tmp:z"}, after: person("tmp:z", "路人")}]);
+        expect(service.viewAudit({viewer: jin}, mine.cursor, 5)).toMatchObject({items: [{kind: "placeholder"}]});
+    });
+});
+
+describe("项目内的快照", () => {
+    test("视图与带令牌的读取建在同一份世界上，之后的发布不影响它；正文变了以后再用就抛错", async () => {
+        const {service, xia} = await setup();
+        const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch11", edge: "end"}, purpose: "writer"});
+        if (typeof opened === "string" || !("token" in opened)) throw new Error("open");
+        const snapshot = service.snapshot();
+        const version = snapshot.view.version;
+        await write(service, [{ref: {kind: "change", id: "tmp:c"}, after: spend("tmp:c", "ch11", xia, 5, "钱不见了")}]);
+        expect(service.status().version).toBe(version + 1);
+        expect(snapshot.view.changes({entry: xia})).toHaveLength(2);
+        const viewed = snapshot.viewed(opened.token).changes({entry: xia});
+        expect(viewed !== "view-denied" && viewed !== "cursor-stale" && viewed.version).toBe(version);
+        TEXTS.set("ch9", "她把钱藏起来了。");
+        service.textChanged("ch9");
+        expect(() => snapshot.view.tellings()).toThrow();
+        TEXTS.set("ch9", "她数了钱。");
+    });
+});
+

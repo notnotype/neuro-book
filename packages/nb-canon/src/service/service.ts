@@ -21,15 +21,15 @@ import type {Mode, PendingItem, PlanProgress, ReductionInput} from "../engine/ty
 import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
 import {appendReduction, loadReductions} from "../node/cache";
-import {renderEntryForAgent, renderEntryForAuthor} from "../render/entry";
+import {renderEntryForAgent, renderEntryForAuthor, type RenderOptions} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
 import {marksIn} from "../world/references";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
-import {boundRank, chapterWithin, placementWithin, positionWithin, tellingWithin, ViewAudit, type ViewGrant} from "./views";
-import {createReadView, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
+import {boundRank, chapterWithin, placementWithin, positionWithin, tellingWithin, ViewAudit, type ViewedReads, type ViewGrant} from "./views";
+import {createReadView, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
 import {World, type RevertMeta, type WriteResult} from "../world/world";
@@ -66,15 +66,8 @@ export type ServiceEvent =
     /** 宿主通知某一章（`null` 是全部）的正文变了，正文快照随之更新，版本不变（project.md 输出 25）。 */
     | {readonly kind: "textChanged"; readonly chapter: string | null};
 
-/**
- * 读取结果带的戳（model.md 输出 36、project.md 输出 19）：世界版本、正文快照的摘要、整份读取输入的摘要。同一份读取输入
- * 算出的结果逐字相同，游标绑定 `inputDigest`。
- */
-export interface ReadStamp {
-    readonly version: number;
-    readonly textDigest: string;
-    readonly inputDigest: string;
-}
+export type {ReadStamp} from "./reads";
+export type {ViewedReads} from "./views";
 
 export type ServiceState = "writable" | "read-only" | "stopped";
 
@@ -105,18 +98,6 @@ export type ServiceDiagnostic =
     | {readonly code: "reduce-failed"; readonly message: string};
 
 export const LEASE_MS = 60_000;
-
-/** 带视图令牌的读取（`WorldService.viewed`）：方法表里允许带令牌的几种，越界的得到 `view-denied`。 */
-export interface ViewedReads {
-    entry(id: string, position: ReadPosition | undefined, mode?: Mode): ReturnType<WorldService["entry"]> | "view-denied";
-    render(entry: string, position: ReadPosition | undefined, mode: Mode, audience: "author" | "agent"): ReturnType<WorldService["render"]> | "view-denied";
-    lookup(names: readonly string[], position: ReadPosition | undefined): ReturnType<WorldService["lookup"]> | "view-denied";
-    presence(person: string, filter?: PresenceFilter, cursor?: string, limit?: number): ReturnType<WorldService["presence"]> | "view-denied";
-    changes(filter?: ChangeFilter, cursor?: string, limit?: number): ReturnType<WorldService["changes"]> | "view-denied";
-    tellings(filter?: TellingFilter, cursor?: string, limit?: number): ReturnType<WorldService["tellings"]> | "view-denied";
-    /** 带令牌调了表里不许带令牌的方法（`object`、`pending`、写入……）：记一条审计并拒。 */
-    deny(method: string): "view-denied";
-}
 
 /** 三组的结果缓存几份（按读取输入、模式与位置）；翻页与各组总数读缓存，不重新调诊断。 */
 const GROUPS_CACHE_LIMIT = 8;
@@ -288,8 +269,11 @@ export class WorldService {
     }
 
     entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
-        const world = this.#world;
-        const stamp = this.#stamp();
+        return this.#entryOn(this.#world, id, position, mode, withOrigins);
+    }
+
+    #entryOn(world: World, id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
+        const stamp = this.#stampOf(world);
         const view = world.engine.entry(id, position, mode);
         if (view === "chapter-not-found" || view === null || !withOrigins) return view === "chapter-not-found" ? view : {...stamp, view};
         const origins: Record<string, unknown> = {};
@@ -353,7 +337,7 @@ export class WorldService {
         const unavailable: {diagnostic: string; reason: string}[] = [];
         const truncated: string[] = [];
         const registry = world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY;
-        const view = createReadView(world, this.#locator);
+        const view = createReadView(world, this.#locator, this.#stampOf(world));
         let tellings: Map<string, Telling> | undefined;
         const findingPosition = (finding: Finding): {position: SortPosition; occurrence?: Occurrence} => {
             if (finding.at === undefined) return {position: null};
@@ -418,6 +402,27 @@ export class WorldService {
         if (this.#timings.length > TIMINGS_KEPT) this.#timings.shift();
     }
 
+    /* ---------- 项目内的快照 ---------- */
+
+    /**
+     * 给项目里别的插件的一份快照：只读视图、带令牌的读取与戳都建在同一份世界与当前的正文快照上。只在拿到它的同步段里有效：
+     * 中间 `await` 过、正文或插件数据变了以后再用就抛错（那是调用方的错，用一份过期的快照会让视图过滤跨两份读取输入）。
+     * 世界本身不可变，换了版本也不影响已拿到的快照里的世界。
+     */
+    snapshot(): {readonly view: CanonReadView; readonly viewed: (token: string) => ViewedReads; readonly stamp: ReadStamp} {
+        const world = this.#world;
+        const generation = this.#inputGeneration;
+        const check = () => {
+            if (this.#inputGeneration !== generation) throw new Error("canon snapshot used after the text snapshot or plugin data changed; take a new snapshot");
+        };
+        const guard = <T extends object>(target: T): T => Object.fromEntries(Object.entries(target).map(([key, value]) => [key, typeof value === "function" ? (...args: unknown[]) => {
+            check();
+            return (value as (...inner: unknown[]) => unknown)(...args);
+        } : value])) as T;
+        const stamp = this.#stampOf(world);
+        return {view: guard(createReadView(world, this.#locator, stamp)), viewed: (token) => guard(this.#viewedOn(token, world)), stamp};
+    }
+
     /* ---------- 视图（输出 24） ---------- */
 
     /** 打开一张视图：上限要在章序里；阶段 D 之前只有主线。 */
@@ -433,12 +438,22 @@ export class WorldService {
         this.#views.delete(token);
     }
 
-    /** 视图里被拒的读取，按发生的先后（最近 500 条）。 */
-    viewAudit(cursor?: string, limit = 50) {
-        const stamp = this.#stamp();
-        const page = this.#page(stamp, this.#viewAudit.entries, cursor, limit, {method: "viewAudit", total: this.#viewAudit.entries.length});
-        if (page === "cursor-stale") return page;
-        return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
+    /**
+     * 视图的审计，按发生的先后（最近 500 条）：被拒的读取，与插件经 `auditView` 记下的占位。可以按看的人筛。游标是条目的
+     * 序号（审计不是读取输入的一部分，不随世界版本作废）；被挤出 500 条的部分就读不到了。
+     */
+    viewAudit(filter: {readonly viewer?: string | null} = {}, cursor?: string, limit = 50) {
+        const after = cursor === undefined ? 0 : Number(cursor);
+        if (!Number.isInteger(after) || after < 0) return "cursor-stale" as const;
+        const matching = this.#viewAudit.entries.filter((entry) => entry.seq > after && (filter.viewer === undefined || entry.viewer === filter.viewer));
+        const items = matching.slice(0, limit);
+        return {...this.#stamp(), items, ...(matching.length > limit ? {cursor: String(items.at(-1)!.seq)} : {})};
+    }
+
+    /** 插件在一张视图之上又挡掉了什么（例如剧情插件把知识点换成占位）：记进同一份审计（project.md 输出 24）。 */
+    auditView(token: string, entry: {readonly method: string; readonly kind: "denied" | "placeholder"; readonly blocked?: readonly ObjectRef[]; readonly position?: unknown}): void {
+        const grant = this.#views.get(token);
+        this.#viewAudit.record({time: this.#ports.now(), viewer: grant?.viewer ?? null, purpose: grant?.purpose ?? "", ...entry});
     }
 
     /**
@@ -447,13 +462,17 @@ export class WorldService {
      * 一律拒（`deny`）。令牌失效以后每次调用都拒。每次被拒记一条审计。
      */
     viewed(token: string): ViewedReads {
+        return this.#viewedOn(token, this.#world);
+    }
+
+    #viewedOn(token: string, world: World): ViewedReads {
         const grant = (method: string, position?: unknown): ViewGrant | "view-denied" => {
             const found = this.#views.get(token);
             // 令牌失效（closeView、调用方断开）或从没发过：照样记一条，看的人与用途不知道。
             if (found === undefined) return this.#deny({viewer: null, purpose: ""}, method, position);
             return found;
         };
-        const order = () => this.#world.options.order;
+        const order = () => world.options.order;
         const within = (method: string, position: ReadPosition | undefined): {grant: ViewGrant; position: ReadPosition} | "view-denied" => {
             const found = grant(method, position);
             if (found === "view-denied") return found;
@@ -467,24 +486,27 @@ export class WorldService {
             return found;
         };
         return {
+            // 条目与渲染不给“之后才启用的命名空间”（`upcoming`）：那是上限之后的事。
             entry: (id, position, mode = "actual") => {
                 const ok = within("entry", position);
-                return ok === "view-denied" ? ok : this.entry(id, ok.position, mode);
+                if (ok === "view-denied") return ok;
+                const read = this.#entryOn(world, id, ok.position, mode);
+                return typeof read === "string" || read.view === null ? read : {...read, view: {...read.view, upcoming: []}};
             },
             render: (entry, position, mode, audience) => {
                 const ok = within("render", position);
-                return ok === "view-denied" ? ok : this.render(entry, ok.position, mode, audience);
+                return ok === "view-denied" ? ok : this.#renderOn(world, entry, ok.position, mode, audience, {hideUpcoming: true});
             },
             lookup: (names, position) => {
                 const ok = within("lookup", position);
-                return ok === "view-denied" ? ok : this.lookup(names, ok.position);
+                return ok === "view-denied" ? ok : this.#lookupOn(world, names, ok.position);
             },
             presence: (person, filter = {}, cursor, limit = 50) => {
                 const found = chapters("presence", filter.from, filter.to);
                 if (found === "view-denied") return found;
-                const listed = listPresence(this.#world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})});
+                const listed = listPresence(world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})});
                 if (listed === "chapter-not-found") return listed;
-                const stamp = this.#stamp();
+                const stamp = this.#stampOf(world);
                 const page = this.#page(stamp, listed.changes.filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "presence", view: token, person, ...filter});
                 if (page === "cursor-stale") return page;
                 return {...stamp, items: page.items.map((change) => ({change})), uncast: listed.uncast, ...(page.next === undefined ? {} : {cursor: page.next})};
@@ -492,8 +514,7 @@ export class WorldService {
             changes: (filter = {}, cursor, limit = 50) => {
                 const found = chapters("changes", filter.chapter);
                 if (found === "view-denied") return found;
-                const world = this.#world;
-                const stamp = this.#stamp();
+                const stamp = this.#stampOf(world);
                 const page = this.#page(stamp, listChanges(world, filter).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...filter});
                 if (page === "cursor-stale") return page;
                 return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
@@ -501,8 +522,8 @@ export class WorldService {
             tellings: (filter = {}, cursor, limit = 50) => {
                 const found = chapters("tellings", filter.from, filter.to, filter.until?.chapter);
                 if (found === "view-denied") return found;
-                const stamp = this.#stamp();
-                const page = this.#page(stamp, listTellings(this.#world, this.#locator, filter).filter((item) => tellingWithin(order(), found, item)), cursor, limit, {method: "tellings", view: token, ...filter});
+                const stamp = this.#stampOf(world);
+                const page = this.#page(stamp, listTellings(world, this.#locator, filter).filter((item) => tellingWithin(order(), found, item)), cursor, limit, {method: "tellings", view: token, ...filter});
                 if (page === "cursor-stale") return page;
                 return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
             },
@@ -514,7 +535,7 @@ export class WorldService {
     }
 
     #deny(grant: Pick<ViewGrant, "viewer" | "purpose">, method: string, position?: unknown): "view-denied" {
-        this.#viewAudit.record({time: this.#ports.now(), viewer: grant.viewer, purpose: grant.purpose, method, ...(position === undefined ? {} : {position})});
+        this.#viewAudit.record({time: this.#ports.now(), viewer: grant.viewer, purpose: grant.purpose, method, kind: "denied", ...(position === undefined ? {} : {position})});
         return "view-denied";
     }
 
@@ -560,7 +581,10 @@ export class WorldService {
 
     /** 按名字或别名找条目，用这个位置上有效的名字（输出：`lookup`）。 */
     lookup(names: readonly string[], position: ReadPosition) {
-        const world = this.#world;
+        return this.#lookupOn(this.#world, names, position);
+    }
+
+    #lookupOn(world: World, names: readonly string[], position: ReadPosition) {
         const found: Record<string, string[]> = {};
         for (const name of names) found[name] = [];
         for (const entry of world.data.entries.values()) {
@@ -570,7 +594,7 @@ export class WorldService {
             if (view === null || view.deleted || !view.appeared) continue;
             for (const name of names) if (view.name === name || view.aliases.includes(name)) found[name]!.push(entry.id);
         }
-        return {...this.#stamp(), found};
+        return {...this.#stampOf(world), found};
     }
 
     /** 剧情变更（方法表 `changes`，筛选与先后见 reads.ts）；每条带这次套没套上。 */
@@ -647,8 +671,12 @@ export class WorldService {
     }
 
     render(entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent") {
-        const result = audience === "author" ? renderEntryForAuthor(this.#world, entry, position, mode) : renderEntryForAgent(this.#world, entry, position, mode);
-        return result === null || result === "chapter-not-found" ? result : {...result, ...this.#stamp()};
+        return this.#renderOn(this.#world, entry, position, mode, audience);
+    }
+
+    #renderOn(world: World, entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent", options: RenderOptions = {}) {
+        const result = audience === "author" ? renderEntryForAuthor(world, entry, position, mode, options) : renderEntryForAgent(world, entry, position, mode, options);
+        return result === null || result === "chapter-not-found" ? result : {...result, ...this.#stampOf(world)};
     }
 
     /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */
@@ -972,25 +1000,14 @@ export class WorldService {
      * 要拼一千多章的摘要，每次读取都算不划算。
      */
     #stamp(): ReadStamp {
-        const world = this.#world;
+        return this.#stampOf(this.#world);
+    }
+
+    /** 一份世界在当前正文快照与插件数据版本上的戳；按世界与输入代次缓存（全书的正文快照摘要要拼一千多章的摘要）。 */
+    #stampOf(world: World): ReadStamp {
         const cached = this.#stampCache;
         if (cached !== null && cached.world === world && cached.generation === this.#inputGeneration) return cached.stamp;
-        const ids = world.options.order.ids;
-        const textDigest = this.#ports.digest(canonicalJson(ids.map((id) => [id, this.#texts.get(id)?.digest ?? null])));
-        const inputDigest = this.#ports.digest(canonicalJson({
-            version: world.version,
-            chapters: ids.map((id) => [id, "main"]),
-            text: textDigest,
-            registry: {
-                components: world.options.registry.versions.map(([id, version]) => [id, version]),
-                marks: (world.options.marks ?? EMPTY_MARK_REGISTRY).versions.map(([id, version]) => [id, version]),
-                diagnostics: (world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).versions.map(([id, version]) => [id, version]),
-            },
-            pluginData: [...this.#computers.entries()].map(([plugin, registration]) => [plugin, registration.dataVersion]).sort((a, b) => (a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0)),
-            calendar: null,
-            fuzzy: null,
-        }));
-        const stamp = {version: world.version, textDigest, inputDigest};
+        const stamp = readStampOf(world, (chapter) => this.#texts.get(chapter)?.digest ?? null, [...this.#computers.entries()].map(([plugin, registration]) => [plugin, registration.dataVersion] as const));
         this.#stampCache = {world, generation: this.#inputGeneration, stamp};
         return stamp;
     }
@@ -1001,16 +1018,7 @@ export class WorldService {
      * 游标是“读取输入的摘要:读取参数的摘要:偏移”（输出 19）：读取输入的任何一项变了，或者拿着游标换了方法、换了筛选，
      * 都得到 `cursor-stale`。`params` 是方法名与影响结果的参数（条数不算：换条数接着翻不会漏项）。
      */
-    #page<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number, params: {readonly method: string} & Readonly<Record<string, unknown>>): {items: readonly T[]; next?: string} | "cursor-stale" {
-        const query = this.#ports.digest(stableStringify(params));
-        let offset = 0;
-        if (cursor !== undefined) {
-            const [input, bound, at, ...rest] = cursor.split(":");
-            if (input !== stamp.inputDigest || bound !== query || rest.length > 0 || at === undefined || !/^\d+$/u.test(at)) return "cursor-stale";
-            offset = Number(at);
-        }
-        const slice = items.slice(offset, offset + limit);
-        const next = offset + limit < items.length ? `${stamp.inputDigest}:${query}:${String(offset + limit)}` : undefined;
-        return {items: slice, ...(next === undefined ? {} : {next})};
+    #page<T>(stamp: ReadStamp, items: readonly T[], cursor: string | undefined, limit: number, params: {readonly method: string} & Readonly<Record<string, unknown>>): {readonly items: readonly T[]; readonly next?: string} | "cursor-stale" {
+        return pageOf(stamp, items, cursor, limit, params, this.#ports.digest);
     }
 }

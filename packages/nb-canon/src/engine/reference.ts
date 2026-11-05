@@ -320,6 +320,14 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             return plan === undefined || plan.kind !== "plan" ? "unfulfilled" : progressAt(plan, rank);
         },
 
+        eventKey(changeId, mode) {
+            const change = world.changes.get(changeId);
+            if (change === undefined || change.status !== "active") return null;
+            if (change.kind === "plan" && mode !== "planned") return null;
+            const rank = change.kind === "plan" ? planRank(change) : placementRank(order, change.at);
+            return rank === null ? null : {rank, tie: tieOf(change.id)};
+        },
+
         plannedAt(position) {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;

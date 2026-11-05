@@ -8,9 +8,11 @@
  */
 
 import {placementRank, positionRank, rankBefore, type ChapterOrder, type Rank} from "../core/position";
-import type {Placement, ReadPosition} from "../core/schema";
+import type {ObjectRef, Placement, ReadPosition, StoryChange} from "../core/schema";
+import type {ChangeOutcome, EntryView, Mode} from "../engine/types";
+import type {AgentBlock, AuthorBlock} from "../render/render";
 import {readBy, type TellingPosition} from "../world/tellings";
-import type {TellingItem} from "./reads";
+import type {ChangeFilter, PresenceFilter, ReadStamp, TellingFilter, TellingItem} from "./reads";
 
 export interface ViewGrant {
     /** 看的人（条目 id）；写手的视图可以没有。 */
@@ -23,15 +25,36 @@ export interface ViewGrant {
 }
 
 export interface ViewDenial {
+    /** 序号：审计的游标按它（单调增加，不复用）。 */
+    readonly seq: number;
     readonly time: string;
     readonly viewer: string | null;
     readonly purpose: string;
     readonly method: string;
+    /** `denied`：内核拒了这次读取；`placeholder`：插件在视图之上把一些对象换成了占位。 */
+    readonly kind: "denied" | "placeholder";
+    /** 被挡的对象（插件记的占位带它）。 */
+    readonly blocked?: readonly ObjectRef[];
     /** 要读的位置、范围或讲述位置；读了不许带令牌的方法时没有。 */
     readonly position?: unknown;
 }
 
 export const VIEW_AUDIT_KEPT = 500;
+
+/** 带视图令牌的一页。 */
+export type ViewedPage<T> = ReadStamp & {readonly items: readonly T[]; readonly cursor?: string};
+
+/** 带视图令牌的读取（`WorldService.viewed`、项目内快照的 `viewed`）：方法表里允许带令牌的几种，越界的得到 `view-denied`。 */
+export interface ViewedReads {
+    entry(id: string, position: ReadPosition | undefined, mode?: Mode): (ReadStamp & {readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>}) | "chapter-not-found" | "view-denied";
+    render(entry: string, position: ReadPosition | undefined, mode: Mode, audience: "author" | "agent"): (ReadStamp & {readonly position: ReadPosition; readonly mode: Mode; readonly blocks: readonly (AuthorBlock | AgentBlock)[]}) | null | "chapter-not-found" | "view-denied";
+    lookup(names: readonly string[], position: ReadPosition | undefined): (ReadStamp & {readonly found: Readonly<Record<string, readonly string[]>>}) | "chapter-not-found" | "view-denied";
+    presence(person: string, filter?: PresenceFilter, cursor?: string, limit?: number): (ViewedPage<{readonly change: StoryChange}> & {readonly uncast: number}) | "chapter-not-found" | "cursor-stale" | "view-denied";
+    changes(filter?: ChangeFilter, cursor?: string, limit?: number): ViewedPage<{readonly change: StoryChange; readonly outcome: ChangeOutcome | null}> | "cursor-stale" | "view-denied";
+    tellings(filter?: TellingFilter, cursor?: string, limit?: number): ViewedPage<TellingItem> | "cursor-stale" | "view-denied";
+    /** 带令牌调了表里不许带令牌的方法（`object`、`pending`、写入……）：记一条审计并拒。 */
+    deny(method: string): "view-denied";
+}
 
 /** 上限在章序里的键；章不在序里时为 null（打开视图时就拒）。 */
 export function boundRank(order: ChapterOrder, grant: ViewGrant): Rank | null {
@@ -75,9 +98,10 @@ export function chapterWithin(order: ChapterOrder, grant: ViewGrant, chapter: st
 /** 被拒的读取的审计：只留最近的那些。 */
 export class ViewAudit {
     readonly #entries: ViewDenial[] = [];
+    #seq = 0;
 
-    record(denial: ViewDenial): void {
-        this.#entries.push(denial);
+    record(denial: Omit<ViewDenial, "seq">): void {
+        this.#entries.push({seq: ++this.#seq, ...denial});
         if (this.#entries.length > VIEW_AUDIT_KEPT) this.#entries.splice(0, this.#entries.length - VIEW_AUDIT_KEPT);
     }
 

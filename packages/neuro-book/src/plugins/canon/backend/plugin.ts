@@ -1,7 +1,8 @@
 /**
  * `nbook.canon` 的项目入口：拥有这部作品的世界（docs/specs/canon/project.md 输出 1），经远程服务给浏览器、TUI 与
  * 服务端用。启动即激活，在后台打开世界；接收 `canon.components`、`canon.marks`、`canon.diagnostics` 的登记，变化时换上
- * 新登记；给项目里别的插件提供诊断的项目内接口（`canonDiagnosticsKey`，按调用方，登记随调用方的入口停止失效）。
+ * 新登记；给项目里别的插件提供项目内接口（`canonProjectKey`，按调用方：诊断的登记、快照、视图；调用方的入口停止时，
+ * 它的登记失效、它开的视图关掉）。
  *
  * 第一版不建服务端入口：Agent 工具与后台任务还不做，没有服务端调用方（w00039 t29 计划）。
  */
@@ -18,8 +19,8 @@ import {descriptor} from "../plugin";
 import {componentsPoint} from "../shared/components";
 import type {ComponentContribution} from "../shared/components";
 import {CANON_COMPONENTS_POINT, canonWorldContract} from "../shared/contracts";
-import {canonDiagnosticsKey} from "../shared/diagnostics";
-import type {CanonDiagnostics} from "../shared/diagnostics";
+import {canonProjectKey} from "../shared/project";
+import type {CanonProject} from "../shared/project";
 import {CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, diagnosticsPoint, marksPoint} from "./points";
 import type {DiagnosticContribution, MarkContribution} from "./points";
 import {remoteWorld} from "./remote";
@@ -35,7 +36,7 @@ export const canonProjectPlugin: PluginDefinition = {
         activationEvents: ["onStartup"],
         dependencies: [{key: diagnosticsKey}, {key: currentProjectKey}],
         receives: [CANON_COMPONENTS_POINT, CANON_MARKS_POINT, CANON_DIAGNOSTICS_POINT],
-        provides: [canonDiagnosticsKey],
+        provides: [canonProjectKey],
         remoteProvides: [canonWorldContract],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -73,22 +74,55 @@ export const canonProjectPlugin: PluginDefinition = {
                     if (declaredDiagnostics.delete(handle)) host.setDiagnostics([...declaredDiagnostics.values()]);
                 },
             };
-            const detaches = new WeakMap<CanonDiagnostics, () => void>();
-            const diagnosticsService = provideServicePerConsumer(
-                canonDiagnosticsKey,
-                (consumer): CanonDiagnostics => {
+            const owned = new WeakMap<CanonProject, {detach: (() => void) | null; readonly views: Set<string>}>();
+            const projectService = provideServicePerConsumer(
+                canonProjectKey,
+                (consumer): CanonProject => {
                     // 登记记在调用方的插件名下：一个插件登记不了别的插件声明的诊断。
                     const plugin = consumer.plugin ?? consumer.instanceId;
-                    const facade: CanonDiagnostics = {
+                    const holdings = {detach: null as (() => void) | null, views: new Set<string>()};
+                    const facade: CanonProject = {
                         register: (registration) => {
-                            detaches.get(facade)?.();
-                            detaches.set(facade, host.registerDiagnostics(plugin, registration));
+                            holdings.detach?.();
+                            holdings.detach = host.registerDiagnostics(plugin, registration);
                         },
                         reportDataVersion: (dataVersion) => host.reportDataVersion(plugin, dataVersion),
+                        snapshot: async () => {
+                            const service = await host.ready();
+                            return "code" in service ? service : service.snapshot();
+                        },
+                        openView: async (grant) => {
+                            const service = await host.ready();
+                            if ("code" in service) return service;
+                            const opened = service.openView(grant);
+                            if (typeof opened === "string") return {code: opened};
+                            if ("token" in opened) holdings.views.add(opened.token);
+                            return opened;
+                        },
+                        closeView: async (token) => {
+                            if (!holdings.views.delete(token)) return;
+                            const service = await host.ready();
+                            if (!("code" in service)) service.closeView(token);
+                        },
+                        audit: async (token, entry) => {
+                            if (!holdings.views.has(token)) return;
+                            const service = await host.ready();
+                            if (!("code" in service)) service.auditView(token, {...entry, kind: "placeholder"});
+                        },
                     };
+                    owned.set(facade, holdings);
                     return facade;
                 },
-                {release: (facade) => detaches.get(facade)?.()},
+                {
+                    release: async (facade) => {
+                        const holdings = owned.get(facade);
+                        if (holdings === undefined) return;
+                        holdings.detach?.();
+                        if (holdings.views.size === 0) return;
+                        const service = await host.ready();
+                        if (!("code" in service)) for (const token of holdings.views) service.closeView(token);
+                    },
+                },
             );
             context.scope.register({kind: "canon-world", label: `${descriptor.id} world`, value: host, release: (value) => value.stop()});
             void host.ready();
@@ -113,7 +147,7 @@ export const canonProjectPlugin: PluginDefinition = {
                     },
                 },
             );
-            return {remote: [remote], services: [diagnosticsService], receivers: {[CANON_COMPONENTS_POINT]: receiver, [CANON_MARKS_POINT]: marksReceiver, [CANON_DIAGNOSTICS_POINT]: diagnosticsReceiver}};
+            return {remote: [remote], services: [projectService], receivers: {[CANON_COMPONENTS_POINT]: receiver, [CANON_MARKS_POINT]: marksReceiver, [CANON_DIAGNOSTICS_POINT]: diagnosticsReceiver}};
         },
     })],
 };

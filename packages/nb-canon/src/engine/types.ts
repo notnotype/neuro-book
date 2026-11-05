@@ -4,7 +4,7 @@
  */
 
 import type {ComponentRegistry} from "../components/registry";
-import type {ChapterOrder} from "../core/position";
+import type {ChapterOrder, OrderTie, Rank} from "../core/position";
 import type {Address, Block, Check, Entry, ObjectRef, Decision, Placement, ReadPosition, StoryChange, Suggestion} from "../core/schema";
 
 /** 内存里的世界：重放日志得到的五种对象，加上每个对象由哪个版本新建（排序键相同时的次序，model.md 输出 2）。 */
@@ -95,6 +95,12 @@ export interface ChangeOutcome {
     readonly failedPatch?: number;
 }
 
+/** 事件的排序键：先比安放的键，再比先后的打破（创建的版本、id）。 */
+export interface EventKey {
+    readonly rank: Rank;
+    readonly tie: OrderTie;
+}
+
 export type PlanProgress = "unfulfilled" | "fulfilled" | "cancelled" | "replaced";
 
 export type OriginStep =
@@ -116,6 +122,11 @@ export interface Engine {
     origins(address: Address, position: ReadPosition, mode: Mode): readonly OriginStep[] | "chapter-not-found";
     outcome(change: string): ChangeOutcome | undefined;
     progress(plan: string, position: ReadPosition): PlanProgress | "chapter-not-found";
+    /**
+     * 一条剧情变更在这个模式的事件序列里的排序键（安放的键加先后的打破），与计算用的先后相同：按计划模式时已写章上的
+     * 计划按“章序加 0.5”。不进这个模式的事件（实际模式下的计划、待定与撤销的、未排章的）为 null。插件按它比较两件事的先后。
+     */
+    eventKey(change: string, mode: Mode): EventKey | null;
     /** 按计划模式在这个位置计入的计划 id，按先后排（model.md 输出 5；在场的按计划模式读取用它，输出 29）。 */
     plannedAt(position: ReadPosition): readonly string[] | "chapter-not-found";
     /** 待处理（model.md 输出 16）；按计划模式时核对点、套不上与嫌疑区间都算上这个位置计入的计划。缺省实际模式。 */

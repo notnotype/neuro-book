@@ -33,11 +33,17 @@ export interface Evaluated {
     readonly unavailable: string | undefined;
 }
 
-/** 按读取位置从引擎取值；同一次渲染里每个条目只读一次。 */
-export function resolverFor(engine: Engine, registry: ComponentRegistry, order: ChapterOrder, self: string, position: ReadPosition, mode: Mode): Resolve {
+/**
+ * 按读取位置从引擎取值；同一次渲染里每个条目只读一次。`hideUpcoming` 时不看“之后才启用的命名空间”（带视图令牌的渲染：
+ * 那是上限之后的事，canon.project 输出 24）。
+ */
+export function resolverFor(engine: Engine, registry: ComponentRegistry, order: ChapterOrder, self: string, position: ReadPosition, mode: Mode, hideUpcoming = false): Resolve {
     const views = new Map<string, EntryView | null | "chapter-not-found">();
     const viewOf = (id: string) => {
-        if (!views.has(id)) views.set(id, engine.entry(id, position, mode));
+        if (!views.has(id)) {
+            const view = engine.entry(id, position, mode);
+            views.set(id, hideUpcoming && view !== null && view !== "chapter-not-found" ? {...view, upcoming: []} : view);
+        }
         return views.get(id)!;
     };
     return (reference) => {

@@ -9,7 +9,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT} from "../backend/points";
 import type {DiagnosticContribution, MarkContribution} from "../backend/points";
-import {canonDiagnosticsKey} from "../shared/diagnostics";
+import {canonProjectKey} from "../shared/project";
 
 export const CANON_PROBE_ID = "test.canon-probe";
 export const PROBE_MARK = `${CANON_PROBE_ID}.reveal`;
@@ -29,9 +29,9 @@ export function createCanonProbeProjectPlugin(): PluginDefinition {
             id: "project",
             location: "project",
             activationEvents: ["onStartup"],
-            dependencies: [{key: canonDiagnosticsKey}],
+            dependencies: [{key: canonProjectKey}],
             activate: (context) => {
-                context.services.require(canonDiagnosticsKey).register({
+                context.services.require(canonProjectKey).register({
                     dataVersion: "1",
                     compute: {
                         [PROBE_DIAGNOSTIC]: (view) => view.tellings({effective: false}).map((item) => ({key: {telling: item.telling.id}, objects: [item.owner], params: {}})),

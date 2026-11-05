@@ -10,4 +10,4 @@ export {LEASE_MS, WorldService, type MarkHint, type ViewedReads, type ServiceDia
 export type {DiagnosticCompute, Finding, FindingAt} from "../service/diagnostics";
 export type {CanonHint, GroupItem, PendingPage} from "../service/pending-groups";
 export type {ViewDenial, ViewGrant} from "../service/views";
-export {createReadView, type CanonReadView, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter, type TellingHint, type TellingItem} from "../service/reads";
+export {createReadView, createWorldReadView, pageOf, readStampOf, type CanonReadView, type ReadStamp, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter, type TellingHint, type TellingItem} from "../service/reads";
