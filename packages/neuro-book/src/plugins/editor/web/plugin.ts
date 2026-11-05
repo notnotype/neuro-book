@@ -19,7 +19,7 @@ import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/s
 import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
+import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -268,6 +268,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 text,
                 version: commandsVersion,
                 toolbarVisible,
+                toolbarPlacement: computed(() => settings.get(markdownToolbarPlacementSetting)),
                 notify: (message) => session.area.value?.notify(message),
                 report,
             });

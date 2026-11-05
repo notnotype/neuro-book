@@ -152,6 +152,21 @@
         "markdownToolbar": {
             "description": "Markdown 编辑器顶部的工具栏",
             "title": "编辑器工具栏"
+        },
+        "markdownToolbarPlacement": {
+            "title": "工具栏位置",
+            "description": "Markdown 编辑器的工具栏放在哪里",
+            "choices": {
+                "full": {
+                    "title": "面包屑下面"
+                },
+                "merged": {
+                    "title": "并入面包屑那一行"
+                },
+                "bottom": {
+                    "title": "底部浮条"
+                }
+            }
         }
     },
     "categories": {

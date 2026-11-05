@@ -26,6 +26,7 @@ function fixture(options: {readonly?: boolean; link?: boolean; bold?: boolean; c
         contributed: () => (options.contributed === true ? [[entry]] : []),
         runContributed: (point, id) => runs.push(["contributed", point, id]),
         toolbarVisible: ref(true),
+        toolbarPlacement: ref("full"),
         keyLabel: (keybinding) => keybinding,
         notify: () => undefined,
         reportError: () => undefined,

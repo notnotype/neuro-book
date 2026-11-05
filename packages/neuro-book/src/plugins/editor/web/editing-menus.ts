@@ -11,7 +11,7 @@ import type {CommandService, KeyPlatform, MenuItemDeclaration} from "nbook/plugi
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import type {DisplayText, TextResolver} from "nbook/shared/localized-text";
 
-import type {EditorMenus} from "../shared/contracts";
+import type {EditorMenus, EditorToolbarPlacement} from "../shared/contracts";
 import {EDITING_ACTIONS, editingCommandId} from "../shared/editing";
 import type {EditingActionId, EditingActionInfo} from "../shared/editing";
 import {editorText} from "../shared/text";
@@ -33,6 +33,7 @@ export function createEditorMenus(options: {
     /** 命令增减不经响应式通知（同编辑区标题的动作）：读的时候依赖它。 */
     readonly version: Readonly<Ref<number>>;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
+    readonly toolbarPlacement: Readonly<Ref<EditorToolbarPlacement>>;
     readonly notify: (text: DisplayText) => void;
     readonly report: (error: unknown) => void;
 }): EditorMenus {
@@ -87,6 +88,7 @@ export function createEditorMenus(options: {
             execute(declaration.command, declaration.args ?? {});
         },
         toolbarVisible: computed(() => options.toolbarVisible.value),
+        toolbarPlacement: computed(() => options.toolbarPlacement.value),
         keyLabel: (keybinding) => formatKeybinding(keybinding, options.platform),
         notify: (key) => options.notify(editorText(`menus.${key}` as never)),
         reportError: options.report,

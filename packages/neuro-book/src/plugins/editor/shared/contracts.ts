@@ -113,6 +113,12 @@ export const validateEditorSlashItem = menuItemValidator(editorSlashLocation);
 export const validateEditorBlockItem = menuItemValidator(editorBlockLocation);
 export const validateEditorBodyContextItem = menuItemValidator(editorBodyContextLocation);
 
+/** 固定工具栏放在哪里：`full` 面包屑下面通栏，`merged` 并入面包屑那一行，`bottom` 编辑区底部的浮条。 */
+export type EditorToolbarPlacement = "full" | "merged" | "bottom";
+
+/** 编辑组面包屑那一行右侧留给控件的位置（`merged` 时工具栏传送到这里）：每组一个。值是元素；这个文件也进后端的类型检查，写不了 DOM 类型。 */
+export const editorToolbarSlotKey: InjectionKey<Readonly<Ref<object | null>>> = Symbol("nbook.editor/toolbar-slot");
+
 /** 编辑器区交给控件的菜单（`provide`）：控件画内置项，命令、贡献项、文字都从这里取。响应式：在渲染函数或 computed 里读。 */
 export interface EditorMenus {
     /** 动作的显示标题。 */
@@ -132,6 +138,7 @@ export interface EditorMenus {
     /** 点了贡献项：执行时按活动标签给 `{address}`。 */
     runContributed(point: string, id: string): void;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
+    readonly toolbarPlacement: Readonly<Ref<EditorToolbarPlacement>>;
     /** 键位写法按平台写好（剪贴板这类不是命令的动作用）。 */
     keyLabel(keybinding: string): string;
     /** 给用户看的一条通知（`menus.<key>`）。 */
