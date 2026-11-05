@@ -233,3 +233,20 @@ describe("canon.worldlines 输出 2、6、验收 1：线视图与带过去的值
         expect(value(sibling.world, r3, xia, "rb.次数", "ch4")).toEqual({value: 1, incomplete: undefined});
     });
 });
+
+describe("canon.worldlines 输出 4、验收 2：计划跨线", () => {
+    test("分叉之前写下的计划进子线；子线兑现它只在子线上算已兑现；分叉之后在主线写的计划不进子线；取消计划看得到它的线都跟着变", () => {
+        const {world, c2, p1} = base();
+        const forkedWorld = forked(world, c2);
+        const line = forkedWorld.ids["tmp:l"]!;
+        const fulfilled = ok(forkedWorld.world.publish(request([{ref: {kind: "change", id: "tmp:fx"}, after: written("tmp:fx", at("ch3", 8, line), [], {links: [{kind: "fulfills", plan: p1}]})}], forkedWorld.world.version), "t"));
+        const after = ok(fulfilled.world.publish(request([{ref: {kind: "change", id: "tmp:p2"}, after: {...written("tmp:p2", at("ch3", 9)), kind: "plan"}}], fulfilled.world.version), "t"));
+        const end = {kind: "chapter" as const, chapter: "ch4", edge: "end" as const};
+        const progress = (target: World, on: string, plan: string) => target.line(on)!.engine.progress(plan, end);
+        expect([progress(after.world, "main", p1), progress(after.world, line, p1)]).toEqual(["unfulfilled", "fulfilled"]);
+        expect(after.world.line(line)!.records.changes.has(after.ids["tmp:p2"]!)).toBe(false);
+        const plan = after.world.data.changes.get(p1)!;
+        const cancelled = ok(after.world.publish(request([{ref: {kind: "change", id: p1}, after: {...structuredClone(plan), status: "undone"}}], after.world.version), "t"));
+        expect([progress(cancelled.world, "main", p1), progress(cancelled.world, line, p1)]).toEqual(["cancelled", "cancelled"]);
+    });
+});
