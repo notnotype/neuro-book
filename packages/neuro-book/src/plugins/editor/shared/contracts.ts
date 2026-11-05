@@ -10,6 +10,8 @@ import {Value} from "typebox/value";
 
 import type {Ref} from "@vue/reactivity";
 import type {languages as MonacoLanguages} from "monaco-editor/esm/vs/editor/editor.api.js";
+
+import type {EditorEditing} from "./editing";
 import type {Component} from "vue";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
@@ -83,6 +85,29 @@ export type EditorTabContextItemDeclaration = MenuItemDeclaration;
 export const editorTabContextLocation = menuLocation(EDITOR_TAB_CONTEXT_POINT, {...MENU_EXTENSIONS}, {contexts: ["resource"]});
 
 export const validateEditorTabContextItem = menuItemValidator(editorTabContextLocation);
+
+/**
+ * Markdown 编辑器的五个菜单位置（docs/specs/workbench/markdown-editing.md）：`context: "resource"` 的项执行时收到 `{address}`；
+ * 只有工具栏分按钮与“⋯”。
+ */
+export const EDITOR_TOOLBAR_POINT = "editor.toolbar";
+export const EDITOR_SELECTION_POINT = "editor.selection";
+export const EDITOR_SLASH_POINT = "editor.slash";
+export const EDITOR_BLOCK_POINT = "editor.block";
+export const EDITOR_BODY_CONTEXT_POINT = "editor.body-context";
+
+export const editorToolbarLocation = menuLocation(EDITOR_TOOLBAR_POINT, {...MENU_BUTTON}, {contexts: ["resource"], buttons: true});
+const MENU_ICON = {icon: MENU_BUTTON.icon};
+export const editorSelectionLocation = menuLocation(EDITOR_SELECTION_POINT, MENU_ICON, {contexts: ["resource"]});
+export const editorSlashLocation = menuLocation(EDITOR_SLASH_POINT, MENU_ICON, {contexts: ["resource"]});
+export const editorBlockLocation = menuLocation(EDITOR_BLOCK_POINT, MENU_ICON, {contexts: ["resource"]});
+export const editorBodyContextLocation = menuLocation(EDITOR_BODY_CONTEXT_POINT, MENU_ICON, {contexts: ["resource"]});
+
+export const validateEditorToolbarItem = menuItemValidator(editorToolbarLocation);
+export const validateEditorSelectionItem = menuItemValidator(editorSelectionLocation);
+export const validateEditorSlashItem = menuItemValidator(editorSlashLocation);
+export const validateEditorBlockItem = menuItemValidator(editorBlockLocation);
+export const validateEditorBodyContextItem = menuItemValidator(editorBodyContextLocation);
 
 /** 按 id 打开一个页面（同一页面在窗口里只开一个，已开就切过去）。 */
 export const OPEN_PAGE_COMMAND = "nbook.editor.open-page";
@@ -319,6 +344,8 @@ export interface EditorControlHandle {
     revealHeading?(binding: string, version: number, id: string): "ok" | "stale";
     /** 选中 `from`–`to` 并滚过去、聚焦（写不出时的“定位”，输出 61）：位置是控件交给 `binding.block` 的那一对，超出时夹到文档里。 */
     revealRange?(from: number, to: number): void;
+    /** 控件提供的编辑动作（docs/specs/workbench/markdown-editing.md）；只有 Markdown 控件提供。 */
+    readonly editing?: EditorEditing;
 }
 
 /** 大纲（docs/specs/workbench/editor.md 的控件合同）：`binding` 是当前绑定的 token，正文每变一次 `version` 加一；`id` 按位置给，同名标题不冲突。 */

@@ -3,17 +3,19 @@
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
-import {inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import "@notnotype/nb-markdown/markdown.css";
 
-import {createMarkdownEditorExtensions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
+import {createMarkdownEditorExtensions, markdownEditingActions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
 import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
+import type {EditorEditing} from "nbook/plugins/editor/shared/editing";
+import {editorText} from "nbook/plugins/editor/shared/text";
 import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
@@ -209,6 +211,8 @@ const enter = (binding: TextEditorBinding): void => {
     if (fresh && binding.cursor !== null) editor.commands.scrollIntoView();
     detach = binding.attach(commitNow);
     refreshOutline(true);
+    // 换编辑状态走 `updateState`，不产生事务。
+    editingVersion.value += 1;
 };
 
 /** 把光标记到当前绑定的标签上。 */
@@ -307,7 +311,35 @@ const revealHeading = (binding: string, version: number, id: string): "ok" | "st
     return "ok";
 };
 
+/**
+ * 编辑动作（docs/specs/workbench/markdown-editing.md）：`active`、`enabled` 依赖版本号，选区或文档变化、换文档时加一，放进
+ * computed 里读会跟着变；没人读就不算（`enabled` 要在事务副本上试跑命令）。
+ */
+const editingVersion = ref(0);
+const editing: EditorEditing = {
+    run: (action, args = {}) => {
+        const implementation = markdownEditingActions[action];
+        if (editor === null || props.readonly || implementation === undefined || !implementation.enabled(editor, args) || !implementation.run(editor, args)) {
+            return {ok: false, reason: editorText("refusal.editingUnavailable")};
+        }
+        return {ok: true};
+    },
+    active: (action) => {
+        void editingVersion.value;
+        return editor !== null && markdownEditingActions[action]?.active?.(editor) === true;
+    },
+    enabled: (action) => {
+        void editingVersion.value;
+        return editor !== null && !props.readonly && markdownEditingActions[action]?.enabled(editor, {}) === true;
+    },
+    hasSelection: computed(() => {
+        void editingVersion.value;
+        return editor !== null && !editor.state.selection.empty;
+    }),
+};
+
 const handle: EditorControlHandle = {
+    editing,
     outline,
     revealHeading,
     focus: () => editor?.commands.focus(),
@@ -351,6 +383,9 @@ const onSelection = (): void => {
     if (cursorTimer !== null) clearTimeout(cursorTimer);
     cursorTimer = setTimeout(rememberCursor, CURSOR_REMEMBER_MS);
 };
+const onTransaction = ({transaction}: {transaction: Transaction}): void => {
+    if (transaction.docChanged || transaction.selectionSet || transaction.storedMarksSet) editingVersion.value += 1;
+};
 const onFocus = (): void => emit("focus", true);
 const onBlur = (): void => {
     commitNow();
@@ -384,9 +419,11 @@ onMounted(() => {
     // 事件处理器属于这一次挂载的组件，卸载时摘掉；实例本身留在槽里。
     editor.on("update", onUpdate);
     editor.on("selectionUpdate", onSelection);
+    editor.on("transaction", onTransaction);
     editor.on("focus", onFocus);
     editor.on("blur", onBlur);
     if (props.binding !== null) enter(props.binding);
+    editingVersion.value += 1;
     emit("ready", handle);
 });
 
@@ -397,6 +434,7 @@ onBeforeUnmount(() => {
     if (editor !== null) {
         editor.off("update", onUpdate);
         editor.off("selectionUpdate", onSelection);
+        editor.off("transaction", onTransaction);
         editor.off("focus", onFocus);
         editor.off("blur", onBlur);
         // 只从 DOM 上拿下：组还在时实例由组的实例槽保留，组关闭时编辑器区释放它。

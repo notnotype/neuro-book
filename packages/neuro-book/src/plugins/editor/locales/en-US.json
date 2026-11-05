@@ -227,6 +227,78 @@
         },
         "go-to-line": {
             "title": "Go to Line"
+        },
+        "bold": {
+            "title": "Bold"
+        },
+        "italic": {
+            "title": "Italic"
+        },
+        "strike": {
+            "title": "Strikethrough"
+        },
+        "code": {
+            "title": "Inline Code"
+        },
+        "superscript": {
+            "title": "Superscript"
+        },
+        "subscript": {
+            "title": "Subscript"
+        },
+        "clear-format": {
+            "title": "Clear Formatting"
+        },
+        "text-color": {
+            "title": "Text Color"
+        },
+        "highlight": {
+            "title": "Highlight"
+        },
+        "ruby": {
+            "title": "Ruby"
+        },
+        "paragraph": {
+            "title": "Paragraph"
+        },
+        "heading-1": {
+            "title": "Heading 1"
+        },
+        "heading-2": {
+            "title": "Heading 2"
+        },
+        "heading-3": {
+            "title": "Heading 3"
+        },
+        "bullet-list": {
+            "title": "Bulleted List"
+        },
+        "ordered-list": {
+            "title": "Numbered List"
+        },
+        "task-list": {
+            "title": "Task List"
+        },
+        "quote": {
+            "title": "Quote"
+        },
+        "callout": {
+            "title": "Callout"
+        },
+        "code-block": {
+            "title": "Code Block"
+        },
+        "align": {
+            "title": "Align"
+        },
+        "bilingual": {
+            "title": "Bilingual"
+        },
+        "divider": {
+            "title": "Divider"
+        },
+        "table": {
+            "title": "Table"
         }
     },
     "quickPick": {
@@ -277,6 +349,15 @@
         },
         "hasLanguage": {
             "reason": "The active editor has no language mode"
+        },
+        "canFormat": {
+            "reason": "Formatting is not available here"
+        },
+        "canConvertBlock": {
+            "reason": "The block type cannot be changed here"
+        },
+        "hasSelection": {
+            "reason": "Nothing is selected"
         }
     },
     "statusItems": {
@@ -387,7 +468,9 @@
         "targetChanged": "The target editor was closed or switched",
         "lineUnsupported": "The active editor does not support line navigation",
         "lineOutOfRangeOf": "Line {{line}} is out of range ({{total}} lines)",
-        "lineOutOfRange": "Line {{line}} is out of range"
+        "lineOutOfRange": "Line {{line}} is out of range",
+        "editingUnsupported": "The active editor does not support this action",
+        "editingUnavailable": "This action is not available here"
     },
     "rescue": {
         "lostFormat": "This view has blocks that cannot be written back as Markdown; only their text was kept (the formatting is lost)"

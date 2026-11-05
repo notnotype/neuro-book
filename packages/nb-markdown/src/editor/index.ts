@@ -3,6 +3,8 @@
  * 占位与行内代码快捷输入）。编辑器实例、文档绑定与工作台对接归宿主（neuro-book 的 `MarkdownControl.vue`）。
  */
 
+export {markdownEditingActions} from "./editing-actions";
+export type {EditingAction, EditingArgs} from "./editing-actions";
 export {createMarkdownEditorExtensions} from "./markdown-editor-extensions";
 export {REFRESH_REFERENCE_LINKS} from "./reference-links";
 export type {MarkdownViewAssets, MarkdownViewHost} from "./view-host";
