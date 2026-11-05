@@ -18,9 +18,15 @@ updated: 2026-11-05
 
 依据：ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、0042、0043；t33 的三轮审查证据。
 
+## 已定
+
+| 日期 | 决定 |
+|---|---|
+| 2026-11-05 | 开发者看过计划要点（“可以，使用 /autonomous-delivery 推进”）：照 [`plan.md`](plan.md) 推进；阶段 A 的 8 片与实现审查一路做完，本该开发者确认的点记进 Work 的[待确认清单](../../pending-confirmations.md)；后续阶段开工前补细计划并审查；主会话写代码；审查在 omp 额度恢复前派 Claude Opus 子代理；在内核分支上，不合并、不 push |
+
 ## 当前状态
 
-2026-11-05 经 nbdev 新建。在写实施计划：先由一个只读子代理整理 nb-canon 与 canon 插件的代码地图。
+2026-11-05 经 nbdev 新建；写好 [`plan.md`](plan.md)（总的 6 个阶段，阶段 A 分 8 片写细），开发者同意按它自主推进。下一步：计划审查（Claude Opus 子代理）。
 
 技术选型的初步结论（写进计划前再核实）：
 - 标注载荷的校验用 TypeBox 1.x 的 `typebox/schema`（`Check`、`Errors` 直接校验 JSON Schema），nb-canon 已经依赖 TypeBox，不另加库；
@@ -28,4 +34,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-1. 写 `plan.md`：总的阶段划分，第一阶段（内核的引用、讲述、标注、在场、叙述、决策与作者授权、诊断贡献点、读取输入、格式 2、视图）写到能照着实施；后面各阶段开工前再细化。交开发者确认。
+1. 计划审查，处理后开工 A1。
