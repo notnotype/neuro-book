@@ -26,6 +26,7 @@ import {agentSettings} from "../shared/settings";
 import {ProfileBundles} from "./profile-bundles";
 import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
 import {ProfileCatalog} from "./profiles";
+import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
 import {AgentTools} from "./tools";
 
@@ -48,6 +49,7 @@ export interface AgentRuntime {
     readonly profiles: ProfileCatalog;
     readonly userProfiles: ProfileBundles;
     readonly sessions: SessionTable;
+    readonly meta: SessionMeta;
     readonly service: AgentService;
     /** 会话目录的根：`sessions://` 的容器。 */
     readonly sessionsRoot: string;
@@ -111,14 +113,15 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
     const store = createJsonlStore({root: sessionsRoot});
     let sessions: SessionTable | null = null;
+    const models = options.models === null ? NO_MODELS : options.models.port((profile) => {
+        const setting = profileSettings()[profile];
+        const role = setting?.role ?? profiles.defaultRole(profile);
+        return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(role === undefined ? {} : {role})};
+    });
     const host = createAgentHost({
         store,
         profiles: {resolve: (key) => profiles.resolve(key)},
-        models: options.models === null ? NO_MODELS : options.models.port((profile) => {
-            const setting = profileSettings()[profile];
-            const role = setting?.role ?? profiles.defaultRole(profile);
-            return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(role === undefined ? {} : {role})};
-        }),
+        models,
         retry: () => ({maxRetries: options.settings.get(agentSettings.settings.modelRetries)}),
         tools: {
             declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
@@ -217,12 +220,15 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
+    const meta = new SessionMeta({table, create: createSession, models, report: options.report});
+
     return {
         host,
         tools,
         profiles,
         userProfiles,
         sessions: table,
+        meta,
         service,
         sessionsRoot,
         listSessions: async () => {
@@ -235,6 +241,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             table.closeGate();
             await userProfiles.stop();
             await table.stop();
+            await meta.settled();
         },
     };
 }

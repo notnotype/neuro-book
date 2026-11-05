@@ -32,6 +32,7 @@ import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
 import {agentRemote, PreviewTokens} from "./remote";
 import {AGENT_SCHEMES, agentSchemes} from "./schemes";
+import {SESSION_META_CONTRIBUTION, SESSION_META_EXTENSION, sessionMetaExtension} from "./session-meta";
 import {prepareTempContainer, sweepTemps} from "./temps";
 
 const allActivated = (result: TriggerActivationResult): boolean => result.status === "triggered" && result.results.every((item) => item.status === "activated");
@@ -47,7 +48,7 @@ export const agentBackendPlugin: PluginDefinition = {
         provides: [agentKey],
         remoteProvides: [agentSessionsContract],
         receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT],
-        contributions: [...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS],
+        contributions: [...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
@@ -92,7 +93,7 @@ export const agentBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock}, previews))],
-                contributions: {[SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: runGuards(context.services.require(settingsKey))},
+                contributions: {[SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

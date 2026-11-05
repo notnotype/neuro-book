@@ -281,7 +281,7 @@ describe("贡献", () => {
 
     test("输出 7、13：声明的 role 是缺省角色，Profile 设置优先；hidden 的条目带标记、仍在目录里", async () => {
         const tiny = agentProfile("test.small.namer", {name: "取名", description: "测试用", tools: {required: [], optional: []}, role: "tiny", hidden: true});
-        const smallPlugin: PluginDefinition = {id: "test.small", entries: [defineEntry({id: "server", location: "server", activationEvents: [tiny.activationEvent], contributions: [tiny.contribution], activate: () => ({contributions: {"agent.profiles": {"test.small.namer": defineProfile({id: "test.small.namer", version: "1", name: "取名", description: "测试用", system: "你取名。"})}}})})]};
+        const smallPlugin: PluginDefinition = {id: "test.small", entries: [defineEntry({id: "server", location: "server", activationEvents: [tiny.activationEvent], contributions: [tiny.contribution], activate: () => ({contributions: {"agent.profiles": {"test.small.namer": defineProfile({id: "test.small.namer", version: "1", name: "取名", description: "测试用", system: "你取名。", pluginExtensions: {exclude: ["session-meta"]}})}}})})]};
         const twoModels = {
             "nbook.models/providers": [{id: "local", kind: "custom", name: "本机", baseUrl: endpoint.baseUrl, api: "openai-completions", auth: "none", models: [{id: "big", enabled: true, contextWindow: 32_000}, {id: "small", enabled: true, contextWindow: 32_000}]}],
             "nbook.models/roles": {items: ["tiny", "fast", "main", "deep"].map((id) => ({id, axis: "gradient", name: "", description: "", model: id === "main" ? "local/big" : id === "tiny" ? "local/small" : null}))},
@@ -409,7 +409,7 @@ describe("运行保护的接线（docs/specs/agent/run-guards.md）", () => {
 
     test("验收 3、输出 1：新会话默认装着两个扩展", async () => {
         const session = await createSession(await world(providers()));
-        const active = (await session.snapshot()).extensions.filter((item) => item.id.startsWith("nbook.agent.")).map((item) => [item.id, item.status]).sort();
+        const active = (await session.snapshot()).extensions.filter((item) => item.id.endsWith("-guard")).map((item) => [item.id, item.status]).sort();
         expect(active).toEqual([["nbook.agent.cost-guard", "active"], ["nbook.agent.loop-guard", "active"]]);
     });
 

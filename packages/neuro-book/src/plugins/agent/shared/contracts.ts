@@ -12,6 +12,8 @@ export type ProfileStatus = "ok" | "unavailable" | "error";
 /** Profile 目录的一项（contributions.md 输出 7）。 */
 /** 主创：用户新建会话时默认用的 Profile（docs/specs/agent/builtin-profiles.md）。 */
 export const MAIN_PROFILE = "nbook.agent.main";
+/** 给前台会话生成标题和说明的 Profile；不给人选。 */
+export const SESSION_TITLE_PROFILE = "nbook.agent.session-title";
 
 export interface ProfileEntry {
     readonly key: string;

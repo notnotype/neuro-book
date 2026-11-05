@@ -200,6 +200,13 @@ describe("各方案对 Agent 的权限", () => {
         const {id, resources} = await open(w);
         const listed = await resources.list("sessions://");
         expect(listed.ok && "kind" in listed.value && listed.value.entries.some((entry) => entry.address === `sessions://${id}`)).toBe(true);
+        // 后台会话不列，按 id 仍然读得到。
+        const background = await w.service.startTask({taskId: "6d2b1f30-0000-4000-8000-000000000001", profile: WRITER, input: {text: "后台"}, background: true});
+        if (!background.ok) throw new Error(background.code);
+        await background.result;
+        const again = await resources.list("sessions://");
+        expect(again.ok && "kind" in again.value && again.value.entries.map((entry) => entry.address)).not.toContain(`sessions://${background.sessionId}`);
+        expect(await resources.list(`sessions://${background.sessionId}`)).toMatchObject({ok: true});
         expect(await textOf(resources.read("profiles://"))).toContain(`profiles://${WRITER}`);
         expect(await resources.write("sessions://", "x", {expect: {hash: "0"}})).toMatchObject({ok: false, code: "permission-denied"});
         expect(await resources.readPath("skills://")).toMatchObject({ok: false, code: "unsupported-capability"});
