@@ -11,7 +11,7 @@ updated: 2026-11-05
 
 弄清背景图片和主题该是什么关系，交开发者确认方向，再写 Spec 与计划。
 
-- 看 dsh 社区主题怎么处理背景、透明与文字可读性，从[主题列表](https://github.com/Renakoni/awesome-dsh-themes/blob/main/THEMES.md)按 Stars 取代表性的几个读上游仓库，调研写进 `docs/research/`，只写事实。
+- 看 dsh 社区主题怎么处理背景、透明与文字可读性（已完成，见下一步）。
 - 对照现有主题合同：[`theme/system.md`](../../../../../docs/specs/theme/system.md)、`packages/nb-ui/docs/authoring-themes.md`。
 - 界面要拍板的部分走 design-review。
 
@@ -34,4 +34,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-调研 dsh 社区主题的做法，对照现有主题合同，再交开发者定方向。
+调研已写：[DSH 社区皮肤的做法](../../../../../docs/research/dsh-community-skins.md)。等开发者定方向（皮肤的范围、接入方式、第一套样例），再出静态稿。
