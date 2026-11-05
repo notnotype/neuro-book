@@ -31,32 +31,22 @@ table { border-collapse:collapse; width:100%; font-size:14px; background:var(--p
 </head>
 <body>
 <main>
-<h1>t17 对话界面第一版：静态稿（第 4 轮）</h1>
-<p>已定（第 3 轮）：圆角取值、左右对齐、向导用磨砂、费用告警放状态栏左边。这轮只看三处。</p>
-
-<section data-nbdev-question="r4-sessions" data-nbdev-type="single" data-nbdev-recommend="ac">
-<h2><span class="badge" data-nbdev-skip>待定</span>1. 会话列表</h2>
-<p>加了你说的搜索、Profile 显示和过滤。每行第一行是标题、Profile、时间，第二行是说明和状态。过滤有作品范围、Profile、子代理、已归档；按今天、昨天分组。列表内容一样，差别只在外框：</p>
-<div class="grid">
-<div data-nbdev-option="a" data-nbdev-label="A 大下拉"><figure><a href="r4/sessions-a.webp"><img src="r4/sessions-a.webp" alt="A：点标题弹出的大下拉，和输入框一样宽" loading="lazy"></a><figcaption>A：点标题弹出的大下拉，和输入框一样宽</figcaption></figure></div>
-<div data-nbdev-option="b" data-nbdev-label="B 命令面板"><figure><a href="r4/sessions-b.webp"><img src="r4/sessions-b.webp" alt="B：窗口中间的命令面板，打开时遮住内容" loading="lazy"></a><figcaption>B：窗口中间的命令面板，打开时遮住内容</figcaption></figure></div>
-<div data-nbdev-option="c" data-nbdev-label="C 只有侧栏视图"><figure><a href="r4/sessions-c.webp"><img src="r4/sessions-c.webp" alt="C：左边的侧栏视图，切换不用弹东西" loading="lazy"></a><figcaption>C：左边的侧栏视图，切换不用弹东西</figcaption></figure></div>
-</div>
-<div data-nbdev-option="ac" data-nbdev-label="A 和 C 都要，同一个组件"><p><b>A 和 C 都要：</b>同一个 <code>AgentSessionPanel</code>，顶栏点标题是 A，活动栏是 C（上一轮已定第一版要贡献会话列表的侧栏视图）。</p></div>
-<p class="rec"><b>推荐：A 和 C 都要。</b>平时点标题切，长期写作时把 C 开在侧栏。B 不做：快速打开以后可以再加一个“切换会话”的入口。</p>
-<p><b>第一版的范围：</b>搜索只查标题和说明（搜对话内容是 t23）。“子代理”这个过滤要等 t14 才有子会话，第一版不显示。改名、归档放在每行悬停出现的菜单里。</p>
+<h1>t17 对话界面第一版：静态稿（第 5 轮）</h1>
+<p>已定：会话列表要 A 和 C，用同一个组件。这轮看你提的改动。</p>
+<section data-nbdev-question="r5-sessions" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>1. 会话面板</h2>
+<ul>
+<li><b>图标：</b>每行前面是 Profile 的图标。<code>agent.profiles</code> 的声明加 <code>icon?</code>，没写用缺省图标（图里“我的润色”）。Profile 名字放在图标的悬停提示里，列表里不重复写。</li>
+<li><b>过滤器：</b>不再是一排小块。平时只有搜索、作品范围、一个过滤按钮；过滤按钮打开菜单选 Profile、显示已归档、显示子代理。选了的条件才显示成可去掉的标签（第二张图），按钮变色。</li>
+<li><b>子代理：</b>默认不显示。父会话那行写“2 个子代理”，点开在下面展开（t14 才有，第一版不显示这一项）。过滤菜单里也能打开“显示子代理的会话”。</li>
+<li><b>圆角：</b>标签是 6（原来 4，大了 2）。</li>
+</ul>
+<div class="grid"><figure><a href="r5/sessions-a.webp"><img src="r5/sessions-a.webp" alt="平时" loading="lazy"></a><figcaption>平时</figcaption></figure><figure><a href="r5/sessions-filter.webp"><img src="r5/sessions-filter.webp" alt="有过滤条件、菜单打开" loading="lazy"></a><figcaption>有过滤条件、菜单打开</figcaption></figure></div>
 </section>
-
-<section data-nbdev-question="r4-resume" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>2. 中断之后的输入框</h2>
-<p>按你说的：不再单独提醒。占位文字变成“上次运行被中断。回车继续，或者写点什么再继续”，发送按钮变成继续（实心，图标是播放）。写了字就是带着这段话继续，内容发出去。按钮和占位文字只在“上次被中断、还没有新一轮”时才这样。</p>
-<div class="grid"><figure><a href="r4/interrupted-composer.webp"><img src="r4/interrupted-composer.webp" alt="中断后的输入框" loading="lazy"></a><figcaption>中断后的输入框</figcaption></figure></div>
-</section>
-
-<section data-nbdev-question="r4-collapsed" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>3. 收起的小条</h2>
-<p>去掉重阴影，只留一条细线和很轻的抬起，圆角和输入框一样。</p>
-<div class="grid"><figure><a href="r4/wizard-collapsed.webp"><img src="r4/wizard-collapsed.webp" alt="收起" loading="lazy"></a><figcaption>收起</figcaption></figure></div>
+<section data-nbdev-question="r5-resume" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>2. 继续按钮</h2>
+<p>图标换成 <code>&gt;&gt;&gt;</code>。<b>上一轮的重影是我的静态稿造成的：</b>我把假按钮盖在真发送按钮上，下面的箭头露出来了，实现里不会有。图标库里没有三个箭头的现成图标，这里是自己画的 SVG；如果两个也行，可以直接用 <code>chevrons-right</code>。按钮尺寸实现时和发送按钮一样。</p>
+<div class="grid"><figure><a href="r5/interrupted-composer.webp"><img src="r5/interrupted-composer.webp" alt="继续按钮" loading="lazy"></a><figcaption>继续按钮</figcaption></figure></div>
 </section>
 </main>
 </body>
