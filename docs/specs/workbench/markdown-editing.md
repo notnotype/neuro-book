@@ -67,7 +67,7 @@ interface EditorEditing {
 
 公开键（布尔，`nbook.editor/` 下，未就绪为假，读活动控件）：`canFormat`、`canConvertBlock`、`hasSelection`、`toolbarVisible`，以及勾选状态 `formatBold`、`formatItalic`、`formatStrike`、`formatCode`、`formatSuperscript`、`formatSubscript`、`formatHeading1`、`formatHeading2`、`formatHeading3`、`formatBulletList`、`formatOrderedList`、`formatTaskList`、`formatQuote`、`formatCallout`、`formatCodeBlock`。
 
-设置：`nbook.editor/markdownToolbar`（布尔，缺省开），在设置窗口“编辑器”分区。
+设置：`nbook.editor/markdownToolbar`（布尔，缺省开）、`nbook.editor/markdownToolbarPlacement`（`full`、`merged`、`bottom`，缺省 `full`），在设置窗口“编辑器”分区。
 
 菜单位置（规则见 [`workbench.menus`](menus.md)；五个位置都有 `context: "resource"` 给出 `{address}`）：`editor.toolbar`（`icon`、`placement`）、`editor.selection`（`icon`）、`editor.slash`（`icon`）、`editor.block`（`icon`）、`editor.body-context`（`icon`）。
 
@@ -84,9 +84,9 @@ interface EditorEditing {
 ## 输出与可观察行为
 
 1. **工具栏的内容**：撤销、重做｜块类型｜粗体、斜体、删除线、行内代码｜文字颜色、高亮｜（链接）｜无序、有序、任务列表｜引用、提示块、代码块｜对齐、清除格式｜⋯（上标、下标、分割线、注音、双语）。贡献的 `inline` 项在内置按钮之后，`menu` 项进“⋯”。
-2. **工具栏的位置**：只有 Markdown 编辑器有；在标签栏与面包屑之下、正文之上，不随正文滚动；与版心同宽居中，没有底色，按钮从正文左边缘起排，下面一条分隔线。
-3. **工具栏的宽度**：版心变窄时按钮从右往左收进“⋯”，贡献的项最先收；“⋯”始终在最右。任何宽度都不出现横向滚动。缺省版心里内置按钮正好放满，所以贡献的 `inline` 项平时在“⋯”里，版心变宽时才成为按钮。
-4. **工具栏的显隐**：设置关掉或“视图”菜单取消勾选后，所有组的工具栏立即消失，正文上移；再打开时恢复。
+2. **工具栏的位置**：只有 Markdown 编辑器有，不随正文滚动。设置 `nbook.editor/markdownToolbarPlacement` 决定位置：`full`（缺省）在面包屑下面通栏，和面包屑左对齐，下面一条分隔线；`merged` 并入面包屑那一行的右侧，放不下时比面包屑先收；`bottom` 是编辑区底部居中的浮条，滚到底时不挡最后一行。
+3. **工具栏的宽度**：放不下时按钮从右往左收进“⋯”，贡献的项最先收；“⋯”始终在最右。任何宽度都不出现横向滚动。
+4. **工具栏的显隐**：设置关掉或“视图”菜单取消勾选后，所有组的工具栏立即消失，正文上移；再打开时恢复。切到别的编辑器时不留着。
 5. **按钮的状态**：按钮显示自己这一组控件的状态（勾选、可用），不随别的组变化。只读文档全部置灰，版面不变。点按钮不夺走正文的焦点，动作之后光标留在正文。
 6. **选区浮动菜单**：内容是粗体、斜体、删除线、行内代码｜（链接）、文字颜色、高亮｜注音、清除格式｜贡献的项。在选区上方出现（放不下时翻到下方），随滚动跟着选区。
 7. **选区菜单的显隐**：以下全部满足才显示：选区非空；焦点在正文或菜单里；指针已松开（拖选中不显示）；不在输入法组字；不在代码块、原样块；文档可写；选中之后没有打字；没有按 Esc。切标签回来恢复的选区不显示，要重新选。
