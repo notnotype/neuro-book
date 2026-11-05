@@ -6,5 +6,7 @@
 export {markdownEditingActions} from "./editing-actions";
 export type {EditingAction, EditingArgs} from "./editing-actions";
 export {createMarkdownEditorExtensions} from "./markdown-editor-extensions";
+export {activeSlash, dismissSlash, markdownSlashKey, removeSlashQuery} from "./slash-trigger";
+export type {SlashMatch} from "./slash-trigger";
 export {REFRESH_REFERENCE_LINKS} from "./reference-links";
 export type {MarkdownViewAssets, MarkdownViewHost} from "./view-host";

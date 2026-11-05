@@ -182,6 +182,10 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
 
 const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     // Markdown 的编辑命令与菜单（docs/specs/workbench/markdown-editing.md）。
+    "menus.slash": {"zh-CN": "插入块", "en-US": "Insert Block"},
+    "menus.slash-basic": {"zh-CN": "基本", "en-US": "Basic"},
+    "menus.slash-lists": {"zh-CN": "列表", "en-US": "Lists"},
+    "menus.slash-blocks": {"zh-CN": "块", "en-US": "Blocks"},
     "menus.selection": {"zh-CN": "选区格式", "en-US": "Selection Formatting"},
     "menus.promptRuby": {"zh-CN": "注音", "en-US": "Ruby Text"},
     "menus.promptBilingual": {"zh-CN": "对照原文", "en-US": "Source Text"},

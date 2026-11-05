@@ -9,6 +9,8 @@ import {StarterKit} from "@tiptap/starter-kit";
 import {VueNodeViewRenderer} from "@tiptap/vue-3";
 import type {Component} from "vue";
 
+import {createTriggerPlugin, DISMISS_TRIGGER} from "../trigger/trigger-plugin";
+import type {TriggerState} from "../trigger/trigger-plugin";
 import type {PromptEditorAttachment, PromptEditorToken} from "./prompt-editor.types";
 import {
     PROMPT_ATOM_CHAR,
@@ -65,16 +67,12 @@ export interface PromptTriggerActive {
     atStart: boolean;
 }
 
-export interface PromptTriggerState {
-    active: PromptTriggerActive | null;
-    /** Escape 或失焦关闭后记下当时的触发，查询变化前不再打开。 */
-    dismissed: {from: number; query: string} | null;
-}
+export type PromptTriggerState = TriggerState<PromptTriggerActive>;
 
 export const promptTriggerKey = new PluginKey<PromptTriggerState>("promptTrigger");
 
 /** 关闭当前触发菜单的事务标记。 */
-export const DISMISS_TRIGGER = "dismiss";
+export {DISMISS_TRIGGER};
 
 export function createPromptExtensions(options: PromptExtensionOptions): AnyExtension[] {
     const views = options.nodeViews ?? null;
@@ -111,7 +109,7 @@ export function createPromptExtensions(options: PromptExtensionOptions): AnyExte
             name: "promptPlugins",
             addProseMirrorPlugins() {
                 return [
-                    createTriggerPlugin(options.triggers, options.readonly),
+                    createTriggerPlugin(promptTriggerKey, (state) => (options.readonly() ? null : readTrigger(state, options.triggers()))),
                     createConsistencyPlugin(options.resolvedTarget),
                     createCompletionPlugin(options.commands),
                 ];
@@ -267,30 +265,6 @@ function readTrigger(state: EditorState, triggers: readonly string[]): PromptTri
         to: $from.pos,
         atStart: $from.index(0) === 0 && match.offset === 0,
     };
-}
-
-/**
- * 触发菜单只用一个插件：每次事务后按光标前的文字重算触发与查询。
- * 不用 @tiptap/suggestion：它按字符各起一个插件，不能在宿主换了 resolveMenu 后按原查询重算。
- */
-function createTriggerPlugin(triggers: () => readonly string[], readonly: () => boolean): Plugin<PromptTriggerState> {
-    return new Plugin<PromptTriggerState>({
-        key: promptTriggerKey,
-        state: {
-            init: () => ({active: null, dismissed: null}),
-            apply(tr, value, _oldState, newState) {
-                const candidate = readonly() ? null : readTrigger(newState, triggers());
-                if (tr.getMeta(promptTriggerKey) === DISMISS_TRIGGER) {
-                    return {active: null, dismissed: candidate ? {from: candidate.from, query: candidate.query} : null};
-                }
-                const dismissed = value.dismissed ? {from: tr.mapping.map(value.dismissed.from), query: value.dismissed.query} : null;
-                if (dismissed && candidate && candidate.from === dismissed.from && candidate.query === dismissed.query) {
-                    return {active: null, dismissed};
-                }
-                return {active: candidate, dismissed: null};
-            },
-        },
-    });
 }
 
 /**

@@ -513,6 +513,10 @@
         "color-purple": "Purple",
         "selection": "Selection Formatting",
         "promptRuby": "Ruby Text",
-        "promptBilingual": "Source Text"
+        "promptBilingual": "Source Text",
+        "slash": "Insert Block",
+        "slash-basic": "Basic",
+        "slash-lists": "Lists",
+        "slash-blocks": "Blocks"
     }
 }

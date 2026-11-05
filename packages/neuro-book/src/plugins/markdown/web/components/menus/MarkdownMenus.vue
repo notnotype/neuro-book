@@ -6,6 +6,7 @@ import {computed, ref} from "vue";
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
 import MarkdownSelectionMenu from "./MarkdownSelectionMenu.vue";
+import MarkdownSlashMenu from "./MarkdownSlashMenu.vue";
 import MarkdownTextPrompt from "./MarkdownTextPrompt.vue";
 import {selectionAnchor} from "./selection-anchor";
 
@@ -49,6 +50,15 @@ defineExpose({
         :readonly="props.readonly"
         :binding="props.binding"
         :suspended="prompting !== null"
+        @prompt="(action) => { prompting = action; }"
+    />
+    <MarkdownSlashMenu
+        :editor="props.editor"
+        :scroller="props.scroller"
+        :editing="props.editing"
+        :menus="props.menus"
+        :readonly="props.readonly"
+        :binding="props.binding"
         @prompt="(action) => { prompting = action; }"
     />
     <MarkdownTextPrompt :open="prompting !== null" :anchor="anchor" :label="promptLabel" @submit="submit" @cancel="cancel" />

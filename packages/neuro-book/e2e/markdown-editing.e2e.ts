@@ -165,3 +165,67 @@ test.describe("选区菜单", () => {
         await expect.poll(() => disk("notes/selection-ruby.md")).toBe("<ruby text=\"hàn zì\">汉字</ruby>\n");
     });
 });
+
+test.describe("斜杠菜单", () => {
+    const slash = (page: Page) => page.locator("[data-suggestion-menu]");
+
+    test("行首打 /，拼音首字母筛选，回车换成标题；撤销一步回到 /查询", async ({page}) => {
+        await openFile(page, "notes/slash-heading.md", "\n");
+        await prose(page).click();
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.type("/");
+        await expect(slash(page)).toBeVisible();
+        await expect(slash(page).getByRole("option", {name: "正文"})).toBeVisible();
+        // 拼音库是按需加载的：等它到了再筛。
+        await expect.poll(async () => {
+            await page.keyboard.type("b");
+            await page.keyboard.type("t");
+            const shown = await slash(page).getByRole("option", {name: "标题 1"}).count();
+            if (shown === 0) {
+                await page.keyboard.press("Backspace");
+                await page.keyboard.press("Backspace");
+            }
+            return shown;
+        }).toBe(1);
+        await page.keyboard.press("Enter");
+        await expect(slash(page)).toHaveCount(0);
+        await expect(prose(page).locator("h1")).toHaveCount(1);
+        await page.keyboard.press("Control+z");
+        await expect(prose(page).locator("p").first()).toHaveText("/bt");
+    });
+
+    test("Esc 收起，同一处不再打开；筛不出项时不显示，回车换行", async ({page}) => {
+        await openFile(page, "notes/slash-esc.md", "\n");
+        await prose(page).click();
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.type("/");
+        await expect(slash(page)).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(slash(page)).toHaveCount(0);
+        await page.keyboard.type("zzzz");
+        await expect(slash(page)).toHaveCount(0);
+        await page.keyboard.press("Enter");
+        await expect(prose(page).locator("p")).toHaveCount(2);
+    });
+
+    test("输入法组字时不打开；行首的顿号也算", async ({page}) => {
+        await openFile(page, "notes/slash-ime.md", "\n");
+        await prose(page).click();
+        await expect(prose(page)).toBeFocused();
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.imeSetComposition", {text: "/", selectionStart: 1, selectionEnd: 1});
+        await expect(slash(page)).toHaveCount(0);
+        await cdp.send("Input.insertText", {text: "、"});
+        await cdp.detach();
+        await expect(prose(page).locator("p").first()).toHaveText("、");
+        await expect(slash(page)).toBeVisible();
+    });
+
+    test("代码块里不打开", async ({page}) => {
+        await openFile(page, "notes/slash-code.md", "```\ncode\n```\n");
+        await prose(page).locator("pre").click();
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.type(" /");
+        await expect(slash(page)).toHaveCount(0);
+    });
+});
