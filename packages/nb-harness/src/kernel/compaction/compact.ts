@@ -46,12 +46,13 @@ const usageTotal = (usage: Usage): number => (finiteNonNegative(usage.totalToken
 
 /**
  * 触发点：模型端口给了 `compactAt`（宿主按全局与按模型的配置算好的，t11 决定 1）用它；否则缺省为
- * 窗口 − max(窗口的 15%, 16,384)。窗口未知（0）又没给触发点时不按阈值压缩。
+ * 窗口 − max(窗口的 15%, 16,384)，预留量最多取窗口的一半：小窗口的模型减完是负数，每个边界都要压缩。
+ * 窗口未知（0）又没给触发点时不按阈值压缩。
  */
 export function triggerPoint(model: ModelInfo): number {
     if (finiteNonNegative(model.compactAt) && model.compactAt > 0) return model.compactAt;
     if (model.contextWindow <= 0) return Number.POSITIVE_INFINITY;
-    return model.contextWindow - Math.max(Math.floor(model.contextWindow * 0.15), 16_384);
+    return model.contextWindow - Math.min(Math.max(Math.floor(model.contextWindow * 0.15), 16_384), Math.floor(model.contextWindow / 2));
 }
 
 function turnEvents(turn: ConversationTurn): LogEvent[] {

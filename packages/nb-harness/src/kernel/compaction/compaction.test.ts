@@ -352,6 +352,23 @@ describe("估算的来源", () => {
         expect(types((await byCompactAt.say("第二问")).events)).toContain("compaction");
     });
 
+    test("输出 46：窗口比缺省预留量还小的模型：触发点是窗口的一半，不是负数（每个边界都压缩）", async () => {
+        let calls = 0;
+        const summarize: CompactionMethodImpl = async (job) => {
+            calls += 1;
+            return summarizingCompaction(job);
+        };
+        await using session = await createTestSession({modelInfo: {id: "test/tiny", contextWindow: 8_000, capabilities: {vision: false, thinking: false}, efforts: []}, profile: profileWith({onThreshold: ["summarize"]}), compaction: {methods: {summarize}}});
+        session.model.script({text: "答一", usage: {input: 100}}, {text: "答二", usage: {input: 100}});
+        await session.say("第一问");
+        expect(types((await session.say("第二问")).events)).not.toContain("compaction");
+        expect(calls).toBe(0);
+        session.model.script({text: "答三", usage: {input: 4_500}}, "摘要", "答四");
+        await session.say("第三问");
+        expect(types((await session.say("第四问")).events)).toContain("compaction");
+        expect(calls).toBe(1);
+    });
+
     test("输出 46、47：省略之后按占位估算，再次压缩时的 token 估算变小", async () => {
         const jobs: CompactionJob[] = [];
         let round = 0;

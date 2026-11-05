@@ -126,21 +126,29 @@ export class CompactionRestore {
             this.options.report("restore-skipped", `${address} was not restored: ${reason}`, {address, reason});
             return null;
         };
-        const located = await resources.readPath(address, {signal});
-        if (!located.ok) return skip(located.code);
-        if (located.value.kind !== "file") return skip("not-a-file");
-        const {size} = await stat(located.value.path).catch(() => ({size: -1}));
-        if (size < 0) return skip("gone");
-        if (size > SNAPSHOT_MAX_BYTES) return skip("too-large");
-        const text = decodeText(await readFile(located.value.path));
-        if (text === null) return skip("not-text");
-        // 字节预算只数正文的行，排版加的行号与行锚不算：按排完的估算再收一收，直到放得进预算。
-        let bytes = tokens * BYTES_PER_TOKEN;
-        for (let attempt = 0; ; attempt += 1) {
-            const shown = await renderSnapshot(held.store, located.value.path, address, text, 1, MAX_READ_LINES, bytes);
-            const used = estimateTokens(shown.text);
-            if (used <= tokens || attempt >= 4 || bytes <= 1_000) return shown;
-            bytes = Math.floor(bytes * (tokens / used) * 0.95);
+        try {
+            const located = await resources.readPath(address, {signal});
+            if (!located.ok) return skip(located.code);
+            if (located.value.kind !== "file") return skip("not-a-file");
+            const {size} = await stat(located.value.path).catch(() => ({size: -1}));
+            if (size < 0) return skip("gone");
+            if (size > SNAPSHOT_MAX_BYTES) return skip("too-large");
+            const text = decodeText(await readFile(located.value.path));
+            if (text === null) return skip("not-text");
+            // 字节预算只数正文的行，排版加的行号与行锚不算：按排完的估算再收一收，直到放得进预算。
+            let bytes = tokens * BYTES_PER_TOKEN;
+            for (let attempt = 0; ; attempt += 1) {
+                const shown = await renderSnapshot(held.store, located.value.path, address, text, 1, MAX_READ_LINES, bytes);
+                const used = estimateTokens(shown.text);
+                if (used <= tokens) return shown;
+                // 收了几次还超（一行就比预算长）：整份跳过，不把超预算的内容放回去。
+                if (attempt >= 4 || bytes <= 1_000) return skip("over-budget");
+                bytes = Math.floor(bytes * (tokens / used) * 0.95);
+            }
+        } catch (error) {
+            // 读到一半文件被删、换了或没有权限：只跳过这一个，别的文件照放；运行被中止才往上抛。
+            if (signal.aborted) throw error;
+            return skip("unreadable");
         }
     }
 }

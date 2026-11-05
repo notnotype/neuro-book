@@ -83,8 +83,11 @@ export const summaryMethod: CompactionMethodImpl = async (job) => {
     // 窗口未知（0）时不分段。后一段还要带前一段的摘要，所以再扣一份输出。
     const budget = info.contextWindow > 0 ? info.contextWindow - output * 2 - MARGIN_TOKENS : 0;
     if (info.contextWindow > 0 && budget <= 0) return {failed: "window-too-small"};
-    const cut = pickCut(job.cuts);
-    const segments = segmentsOf(job.request.messages.slice(0, keptMessageIndex(job.request.messages, cut)), budget);
+    const picked = pickCut(job.cuts, job.modelInfo({sessionModel: true})?.contextWindow ?? 0);
+    const kept = keptMessageIndex(job.request.messages, picked);
+    // 定位不到保留部分：整段换成摘要，不留尾巴，免得尾巴既进摘要又原样留下。
+    const cut = kept === null ? null : picked;
+    const segments = segmentsOf(job.request.messages.slice(0, kept ?? job.request.messages.length), budget);
     if (segments.length === 0) return {failed: "nothing-to-summarize"};
     let summary: string | null = null;
     const usages: Usage[] = [];

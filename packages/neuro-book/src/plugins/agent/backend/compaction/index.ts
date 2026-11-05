@@ -62,6 +62,8 @@ export class CompactionMethods {
             handle = activated ? this.#published.get(id) : undefined;
         }
         if (handle === undefined) return {failed: "method-unavailable"};
+        // 等激活的时候运行可能已经被中止：不再启动第三方的实现。
+        if (job.signal.aborted) return {failed: "aborted"};
         const controller = new AbortController();
         const running = this.#running.get(handle) ?? new Set();
         this.#running.set(handle, running);
@@ -71,7 +73,9 @@ export class CompactionMethods {
             controller.signal.addEventListener("abort", () => resolve({failed: "method-revoked"}), {once: true});
         });
         try {
-            return await Promise.race([handle.implementation()({...job, signal: AbortSignal.any([job.signal, controller.signal])}), revoked]);
+            // 撤回之后旧实现可能不理会 signal 继续调 `job.model`：这一代结束后的调用不放行，免得迟到的模型请求记费、写事件。
+            const model: CompactionJob["model"] = (request, options) => (controller.signal.aborted ? Promise.reject(new Error("method-revoked")) : job.model(request, options));
+            return await Promise.race([handle.implementation()({...job, model, signal: AbortSignal.any([job.signal, controller.signal])}), revoked]);
         } finally {
             running.delete(controller);
         }

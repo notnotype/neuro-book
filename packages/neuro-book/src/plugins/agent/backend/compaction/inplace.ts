@@ -25,6 +25,6 @@ export const inplaceMethod: CompactionMethodImpl = async (job) => {
     const failure = modelFailure(response);
     if (failure !== null) return {failed: failure};
     const summary = responseText(response);
-    const cut = pickCut(job.cuts);
+    const cut = pickCut(job.cuts, info.contextWindow);
     return {method: job.method, ...summaryResult(job, cut, estimateTokens(summary)), replacement: summary, omitted: [], details: {model: response.model, usage: sumUsage([response.usage]), require: [...job.require]}};
 };

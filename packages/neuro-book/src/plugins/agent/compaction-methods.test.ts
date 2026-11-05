@@ -4,8 +4,11 @@
 
 import {describe, expect, test} from "bun:test";
 
-import type {CompactionCut, Message, ModelResponse} from "@notnotype/nb-harness/kernel/contracts";
+import type {ContributionDeclarations, ContributionHandle} from "@notnotype/nb-runtime/plugins";
 
+import type {CompactionCut, CompactionJob, CompactionMethodImpl, Message, ModelResponse} from "@notnotype/nb-harness/kernel/contracts";
+
+import {CompactionMethods} from "./backend/compaction";
 import {keptMessageIndex, pickCut} from "./backend/compaction/cuts";
 import {modelFailure, outputLimit, sumUsage} from "./backend/compaction/replies";
 import {segmentsOf} from "./backend/compaction/summary";
@@ -20,9 +23,11 @@ describe("切点", () => {
         expect(pickCut([cut("a", 90_000), cut("b", 50_000), cut("c", 30_000)])?.entryId).toBe("c");
         expect(pickCut([cut("a", 90_000)])).toBeNull();
         expect(pickCut([])).toBeNull();
+        // 会话模型窗口小：上限收到窗口的四分之一，留下的原文放得进。
+        expect(pickCut([cut("a", 90_000), cut("b", 50_000), cut("c", 19_000), cut("d", 3_000)], 32_000)?.entryId).toBe("d");
     });
 
-    test("输出 4：按对话事件或步的工具调用定位保留部分；定位不到时全部要摘要", () => {
+    test("输出 4：按对话事件或步的工具调用定位保留部分；定位不到时交回 null（整段换成摘要）", () => {
         const messages: Message[] = [
             user("前面", "e1"),
             {role: "assistant", content: [], toolCalls: [{id: "call-7", tool: "t", args: {}}]},
@@ -31,7 +36,7 @@ describe("切点", () => {
         expect(keptMessageIndex(messages, cut("x", 1, {firstEventId: "e1"}))).toBe(0);
         // 只调工具的回复没有带来源的块，步切点靠工具调用 id 找到它。
         expect(keptMessageIndex(messages, cut("x", 1, {kind: "step", firstEventId: "reply-9", firstCallId: "call-7"}))).toBe(1);
-        expect(keptMessageIndex(messages, cut("x", 1, {firstEventId: "nope"}))).toBe(3);
+        expect(keptMessageIndex(messages, cut("x", 1, {firstEventId: "nope"}))).toBeNull();
         expect(keptMessageIndex(messages, null)).toBe(3);
     });
 });
@@ -87,5 +92,46 @@ describe("模型的回复", () => {
         expect(outputLimit({contextWindow: 0})).toBe(16_384);
         expect(sumUsage([usage, {...usage, input: 1, cost: 0.25}])).toEqual({input: 11, output: 10, cacheRead: 0, cacheWrite: 0, cost: 0.75});
         expect(sumUsage([usage, {...usage, cost: null}])).toMatchObject({cost: null});
+    });
+});
+
+describe("贡献点的方法表（输出 12）", () => {
+    const declarations = {get: () => null, list: () => [{id: "x.third"}]} as unknown as ContributionDeclarations;
+    const handleOf = (implementation: CompactionMethodImpl) => ({id: "x.third", implementation: () => implementation}) as unknown as ContributionHandle<never, CompactionMethodImpl>;
+    const jobOf = (signal: AbortSignal, model: CompactionJob["model"]) => ({signal, model}) as unknown as CompactionJob;
+
+    test("等激活的时候运行被中止：激活完成后不再启动方法", async () => {
+        let gate!: () => void;
+        const activated = new Promise<boolean>((resolve) => { gate = () => resolve(true); });
+        let started = false;
+        const methods = new CompactionMethods({declarations, activate: async () => { await activated; methods.receiver.published!(handleOf(async () => { started = true; return {failed: "x"}; }), undefined); return true; }});
+        const abort = new AbortController();
+        const call = methods.table["x.third"]!(jobOf(abort.signal, async () => { throw new Error("不该调用"); }));
+        abort.abort();
+        gate();
+        expect(await call).toEqual({failed: "aborted"});
+        expect(started).toBe(false);
+    });
+
+    test("提供方撤回：在途的方法算失败，它之后再调 job.model 被拒绝，不发请求", async () => {
+        let release!: () => void;
+        const parked = new Promise<void>((resolve) => { release = resolve; });
+        let modelCalls = 0;
+        let late: unknown = null;
+        const handle = handleOf(async (job) => {
+            await parked;
+            late = await job.model({} as never, {purpose: "compaction"}).catch((error: unknown) => error);
+            return {failed: "late"};
+        });
+        const methods = new CompactionMethods({declarations, activate: async () => true});
+        methods.receiver.published!(handle, undefined);
+        const call = methods.table["x.third"]!(jobOf(new AbortController().signal, async () => { modelCalls += 1; return {} as ModelResponse; }));
+        await Promise.resolve();
+        methods.receiver.revoke!(handle, undefined, "scope-closed");
+        expect(await call).toEqual({failed: "method-revoked"});
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(modelCalls).toBe(0);
+        expect(late).toBeInstanceOf(Error);
     });
 });
