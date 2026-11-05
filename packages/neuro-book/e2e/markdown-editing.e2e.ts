@@ -89,6 +89,26 @@ test.describe("工具栏", () => {
         await expect.poll(() => disk("notes/toolbar-bold.md")).toBe("**第一段文字**\n");
     });
 
+    test("下拉菜单选了一项后焦点回正文，可以接着打字", async ({page}) => {
+        await openFile(page, "notes/toolbar-dropdown.md", "字\n");
+        await focusFirst(page);
+        await page.keyboard.press("End");
+        await activeGroup(page).locator(".markdown-toolbar").getByRole("button", {name: "块类型"}).click();
+        await page.getByRole("menuitemcheckbox", {name: "标题 2"}).click();
+        await expect(prose(page).locator("h2")).toHaveCount(1);
+        await expect(prose(page)).toBeFocused();
+        // 菜单的关闭动画结束后焦点也不被抢走。
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect(prose(page)).toBeFocused();
+        await toolbarButton(page, "更多操作").click();
+        await page.getByRole("menuitem", {name: "分割线"}).click();
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.type("后");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/toolbar-dropdown.md")).toContain("后");
+    });
+
     test("版心变窄时收进“更多操作”，没有横向滚动", async ({page}) => {
         await openFile(page, "notes/toolbar-narrow.md", "字\n");
         const row = activeGroup(page).locator(".markdown-toolbar [role=\"toolbar\"]");
