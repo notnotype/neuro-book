@@ -178,16 +178,26 @@ async function run(mode: Mode, args: Readonly<Record<string, unknown>>, resource
  * 审批预览（输出 26）：试算 `edit` 的结果，不写盘。引擎落盘之后会更新快照，所以在一份副本上跑，会话的行锚不受影响：
  * 副本里放这次调用引用的那些快照，行锚的校验和真的执行时一样。
  */
-export async function previewEdit(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, signal: AbortSignal): Promise<{readonly written: ReadonlyMap<string, string>; readonly failure: {readonly code: string; readonly targets: readonly string[]} | null}> {
-    const targets = editInspect(mode, JSON.stringify(args)).paths.map((path) => {
+export async function previewEdit(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, maxBytes: number, signal: AbortSignal): Promise<{readonly written: ReadonlyMap<string, string>; readonly tooLarge: ReadonlyMap<string, number>; readonly failure: {readonly code: string; readonly targets: readonly string[]} | null}> {
+    const targets = new Set(editInspect(mode, JSON.stringify(args)).paths.map((path) => {
         const expanded = resources.expand(path);
         return expanded.ok ? expanded.address : path;
-    });
+    }));
+    // 先看原文件：这时用户还没批准，不为超过预算的文件试算（`replace_all` 的结果可以比原文件大很多倍）。存在的才往下走：
+    // 下面的 `readPath` 会创建挂载目录，预览不能有这个副作用。
+    const sizes = new Map<string, number>();
+    for (const target of targets) {
+        const read = await resources.read(target, {signal});
+        if (read.ok) sizes.set(target, read.value.bytes.byteLength);
+    }
+    const tooLarge = new Map([...sizes].filter(([, bytes]) => bytes > maxBytes));
+    if (tooLarge.size > 0) return {written: new Map(), tooLarge, failure: {code: "preview-skipped", targets: [...targets].filter((target) => !tooLarge.has(target))}};
+
     const scratch = new EditStore();
     if (mode === "hashline") {
         for (const [, path, tag] of (args.input as string).matchAll(/^\[([^#\r\n]+)#([^\]\s]+)/gmu)) {
             const expanded = resources.expand(path!);
-            const located = expanded.ok ? await resources.readPath(expanded.address, {signal}) : null;
+            const located = expanded.ok && sizes.has(expanded.address) ? await resources.readPath(expanded.address, {signal}) : null;
             if (located?.ok !== true) continue;
             const text = store.byHashText(located.value.path, tag!);
             if (text !== null) scratch.recordSnapshot(located.value.path, text, store.seenLines(located.value.path, tag!));
@@ -197,9 +207,11 @@ export async function previewEdit(mode: Mode, args: Readonly<Record<string, unkn
     const ran = await runEngine(mode, args, resources, scratch, signal, async (address, content) => {
         written.set(address, content);
     });
-    const unwritten = [...new Set(targets)].filter((target) => !written.has(target));
-    if (!ran.ok) return {written, failure: {code: ran.failure.code ?? "edit-failed", targets: unwritten}};
-    return {written, failure: ran.outcome.isError ? {code: `edit-${ran.outcome.errorKind ?? "failed"}`, targets: unwritten} : null};
+    const unwritten = [...targets].filter((target) => !written.has(target));
+    if (!ran.ok) return {written, tooLarge, failure: {code: ran.failure.code ?? "edit-failed", targets: unwritten}};
+    if (ran.outcome.isError) return {written, tooLarge, failure: {code: `edit-${ran.outcome.errorKind ?? "failed"}`, targets: unwritten}};
+    // 引擎说成功却没写这个目标：副本里没有的状态（前面调用存的寄存器）算不出来，实际执行时可能会改。不能当成没有改动。
+    return {written, tooLarge, failure: unwritten.length === 0 ? null : {code: "edit-no-preview", targets: unwritten}};
 }
 
 export const hashlineTool = (stores: SessionEditStores): AgentToolImplementation => editTool("hashline", stores);

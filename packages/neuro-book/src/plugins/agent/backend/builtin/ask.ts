@@ -68,6 +68,7 @@ function answerProblem(questions: readonly AskQuestion[], answers: readonly AskA
         const unknown = answer.selected.find((label) => !labels.has(label));
         if (unknown !== undefined) return `question ${String(index + 1)}: ${unknown} is not one of the options`;
         if (question.multiSelect !== true && answer.selected.length > 1) return `question ${String(index + 1)} takes one option`;
+        if (new Set(answer.selected).size !== answer.selected.length) return `question ${String(index + 1)} repeats an option`;
         if (question.form === undefined) {
             if (answer.form !== undefined) return `question ${String(index + 1)} has no form`;
         } else if (answer.form !== undefined) {
@@ -113,8 +114,8 @@ export const askTool: AgentToolImplementation = {
             }
             const reply = await call.ask({question: questions.map((question) => question.question).join("\n"), data: {questions: questions as unknown as JsonValue}});
             if (reply.kind === "unavailable") return failed("ask-declined", "ask-declined: 用户没有回答，这一轮到此为止或换个做法，不要重复问同样的问题。");
-            // 子会话的提问由父会话回答时只有文字（session 的 `questions: "caller"`）。
-            if (reply.data === undefined) return {text: reply.text};
+            // 子会话的提问由父会话回答时只有文字（session 的 `questions: "caller"`）；用户从界面答总是结构化的，缺了和答错一样。
+            if (reply.data === undefined && reply.by.kind === "session") return {text: reply.text};
             if (!isAnswers(reply.data)) return failed("ask-invalid-answer", "ask-invalid-answer: the answer is not in the expected shape");
             const problem = answerProblem(questions, reply.data.answers);
             if (problem !== null) return failed("ask-invalid-answer", `ask-invalid-answer: ${problem}`);

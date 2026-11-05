@@ -274,7 +274,7 @@ describe("提问", () => {
         expect(await session.raw.as({kind: "session", id: "stranger"}).resolve({commandId: id(), id: question!.id, decision: "answer", answer: {text: "x"}})).toEqual({ok: false, code: "not-allowed"});
         expect(await session.raw.as({kind: "session", id: "parent"}).resolve({commandId: id(), id: question!.id, decision: "answer", answer: {text: "林舟", data: {index: 0}}})).toMatchObject({ok: true});
         await session.raw.waitRun(runId);
-        expect(answers[0]).toEqual({kind: "answer", text: "林舟", data: {index: 0}});
+        expect(answers[0]).toEqual({kind: "answer", text: "林舟", data: {index: 0}, by: {kind: "session", id: "parent"}});
         expect(dataOf(await session.events(), "interactionResolved")[0]).toMatchObject({by: {kind: "session", id: "parent"}, data: {text: "林舟", data: {index: 0}}});
 
         const second = await sendRaw(session, "再问");

@@ -514,6 +514,83 @@ describe("拦截链", () => {
     });
 });
 
+describe("审批阶段的结论什么时候还算数", () => {
+    test("输出 79：拦截把读调用改派到写工具：按写工具重新判定，被拒绝就不执行", async () => {
+        const ran: string[] = [];
+        const reroute = defineExtension({id: "lab.reroute", intercept: {tool: async (call, next) => next({...call, tool: "lab.write"})}});
+        const approve: ApproveHook = async (call) => (call.tool === "lab.write" ? {verdict: "deny", rejection: {code: "write-forbidden", by: "rule:lab"}} : {verdict: "allow", by: "rule:read"});
+        await using session = await createTestSession({approve, extensions: [reroute], tools: [
+            {id: "lab.read", execute: () => "读"},
+            {id: "lab.write", effect: "write", execute: () => {
+                ran.push("write");
+                return "写";
+            }},
+        ]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "完成");
+        const {events} = await session.say("问");
+        expect(ran).toEqual([]);
+        expect(dataOf(events, "toolResult").map((data) => [data.status, data.code])).toEqual([["denied", "write-forbidden"]]);
+    });
+
+    test("输出 79：改派到这次运行没有的工具得 unknown-tool，不是运行出错", async () => {
+        const reroute = defineExtension({id: "lab.reroute", intercept: {tool: async (call, next) => next({...call, tool: "lab.gone"})}});
+        await using session = await createTestSession({extensions: [reroute], tools: [echo("lab.read")]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "完成");
+        const {events} = await session.say("问");
+        expect(dataOf(events, "toolResult").map((data) => data.code)).toEqual(["unknown-tool"]);
+    });
+
+    const twoWrites = () => {
+        const began = gate();
+        const held = gate();
+        const ran: string[] = [];
+        const tools: TestTool[] = [
+            {id: "lab.first", effect: "write", execute: async () => {
+                began.open();
+                await held.promise;
+                ran.push("first");
+                return "一";
+            }},
+            {id: "lab.second", effect: "write", execute: () => {
+                ran.push("second");
+                return "二";
+            }},
+        ];
+        return {began, held, ran, tools};
+    };
+
+    test("输出 79：排在慢调用后面还没开始的写调用，看现在的只读设置", async () => {
+        const {began, held, ran, tools} = twoWrites();
+        await using session = await createTestSession({approve: async (_call, info) => ({verdict: "allow", by: info.mode}), tools});
+        session.model.script({tools: [{tool: "lab.first"}, {tool: "lab.second"}]}, "完成");
+        const runId = await sendRaw(session, "写两个");
+        await began.promise;
+        await session.raw.changeSettings({commandId: "readonly", patch: {core: {readOnly: true}}});
+        held.open();
+        await session.raw.waitRun(runId);
+        expect(ran).toEqual(["first"]);
+        expect(dataOf(await session.events(), "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.first", "ok", null], ["lab.second", "denied", "read-only"]]);
+    });
+
+    test("输出 79：用户拒绝过的，设置放宽了也不执行", async () => {
+        const {began, held, ran, tools} = twoWrites();
+        await using session = await createTestSession({approve: async (call, info) => (info.mode === "yolo" ? {verdict: "allow", by: "mode"} : call.tool === "lab.second" ? {verdict: "ask"} : {verdict: "allow", by: "rule"}), tools});
+        session.model.script({tools: [{tool: "lab.first"}, {tool: "lab.second"}]}, "完成");
+        const runId = await sendRaw(session, "写两个");
+        const asked = gate<string>();
+        const stopWatching = session.raw.subscribe((frame) => {
+            if (frame.type === "status" && frame.status.state === "waiting") asked.open(frame.status.pending[0]!.id);
+        });
+        await session.raw.resolve({commandId: "no", id: await asked.promise, decision: "deny"});
+        stopWatching();
+        await began.promise;
+        await session.raw.changeSettings({commandId: "loose", patch: {core: {approvalMode: "yolo"}}});
+        held.open();
+        await session.raw.waitRun(runId);
+        expect(ran).toEqual(["first"]);
+    });
+});
+
 describe("输入拦截", () => {
     const filter = defineExtension({id: "lab.filter", intercept: {input: async (input, next) => {
         if (input.text.includes("禁词")) return {reject: {code: "banned-word", params: {word: "禁词"}}};
@@ -611,8 +688,15 @@ describe("中止", () => {
         const events = await session.events();
         expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.slow", "unknown", "aborted"], ["lab.quick", "ok", null], ["lab.later", "denied", "aborted"]]);
         expect(types(events).slice(-2)).toEqual(["turnEnded", "runEnded"]);
+        const lateFrames: unknown[] = [];
+        const stopWatching = session.raw.subscribe((frame) => {
+            if (frame.type === "tool") lateFrames.push(frame);
+        });
         slowGate.open();
         await clock.advance(0);
+        stopWatching();
+        // 日志记的是 unknown：迟到的成功不能再把显示改回去。
+        expect(lateFrames).toEqual([]);
         expect(await codes(session)).toContain("late-result-dropped");
         expect(types(await session.events())).toEqual(types(events));
     });

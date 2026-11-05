@@ -5,7 +5,7 @@
 
 import {EditStore} from "@oh-my-pi/pi-natives";
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {deflateSync} from "node:zlib";
 
@@ -872,6 +872,17 @@ describe("ask", () => {
         }
     });
 
+    test("输出 23：用户只给文字、不给结构化回答，或多选里重复：同样得 ask-invalid-answer", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FORM);
+        const plain = await asked(session, QUESTIONS);
+        await session.resolve({commandId: cid(), id: plain.id!, decision: "answer", answer: {text: "随便写的"}});
+        expect((await plain.finish()).code).toBe("ask-invalid-answer");
+        const repeated = await asked(session, QUESTIONS);
+        await session.resolve({commandId: cid(), id: repeated.id!, decision: "answer", answer: {text: "见回答", data: {answers: [{selected: ["林舟"]}, {selected: ["甲", "甲"]}]} as never}});
+        expect((await repeated.finish()).code).toBe("ask-invalid-answer");
+    });
+
     test("输出 24：form 不合 Agent 策略得 ask-form-invalid，不打扰用户；问题列在结果里", async () => {
         const w = await world();
         const {session} = await open(w, ASK_FORM);
@@ -1030,7 +1041,7 @@ describe("审批预览（输出 26）", () => {
         if (!located.ok) throw new Error(located.code);
         const store = new EditStore();
         const tag = store.recordSnapshot(located.value.path, "一\n二\n", [1, 2]);
-        const {written, failure} = await previewEdit("hashline", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+贰")}, resources, store, new AbortController().signal);
+        const {written, failure} = await previewEdit("hashline", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+贰")}, resources, store, 1024 * 1024, new AbortController().signal);
         expect(failure).toBeNull();
         expect([...written.values()]).toEqual(["一\n贰\n"]);
         expect(store.headText(located.value.path)).toBe("一\n二\n");
@@ -1047,10 +1058,44 @@ describe("审批预览（输出 26）", () => {
         const files = (await preview(w, id, huge.id)).files;
         expect(files).toMatchObject([{address: `${global}/big.md`, kind: "too-large"}]);
         await huge.approve();
+        // 原文件超了就不试算：报的是原文件的大小，不是改完的。
+        const big2 = "大".repeat(100_000);
+        await writeFile(join(home, "expand.md"), big2);
+        const expanding = await waitingApproval(session, "edit", {path: "session://expand.md", old_string: "大", new_string: "很长很长很长很长的一段替换文字", replace_all: true});
+        expect((await preview(w, id, expanding.id)).files).toEqual([{address: `${global}/expand.md`, kind: "too-large", bytes: Buffer.byteLength(big2)}]);
+        await session.resolve({commandId: cid(), id: expanding.id, decision: "deny"});
+        await until(session);
         await writeFile(join(home, "small.md"), "一二三");
         const small = await waitingApproval(session, "edit", {path: "session://small.md", old_string: "二", new_string: "贰"});
         expect((await preview(w, id, small.id)).files).toEqual([{address: `${global}/small.md`, kind: "diff", before: "一二三", after: "一贰三"}]);
         await small.approve();
+    });
+
+    test("前面的调用存的寄存器副本里没有：写明算不出来，不说没有改动；批准后照常改", async () => {
+        const w = await world();
+        const {session, id, home, global} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "source.md"), "甲\n乙\n");
+        await writeFile(join(home, "target.md"), "一\n二\n");
+        const source = await call(session, "read", {path: "session://source.md"});
+        const cut = await waitingApproval(session, "edit", {input: `[session://source.md#${headerTag(source.text)}]\nCUT 2.=2 @saved\n`});
+        await cut.approve();
+        const target = await call(session, "read", {path: "session://target.md"});
+        const paste = await waitingApproval(session, "edit", {input: `[session://target.md#${headerTag(target.text)}]\nPUT >1 @saved\n`});
+        expect((await preview(w, id, paste.id)).files).toEqual([{address: `${global}/target.md`, kind: "failed", code: "edit-no-preview"}]);
+        await paste.approve();
+        expect(await readFile(join(home, "target.md"), "utf8")).toBe("一\n乙\n二\n");
+    });
+
+    test("目标不存在：预览不创建挂载目录", async () => {
+        const w = await world();
+        const {session, id} = await open(w);
+        const directory = join(w.stateRoot, "agent", "profiles", MAIN);
+        const waiting = await waitingApproval(session, "edit", {input: "[profile://probe.md#ABCD]\nPUT 1.=1:\n+x\n"});
+        expect((await preview(w, id, waiting.id)).files[0]).toMatchObject({kind: "failed", code: "not-found"});
+        await expect(readdir(directory)).rejects.toThrow();
+        await session.resolve({commandId: cid(), id: waiting.id, decision: "deny"});
+        await until(session);
     });
 
     test("算不出来的得 failed：文件不存在、改不上；审批不受影响", async () => {

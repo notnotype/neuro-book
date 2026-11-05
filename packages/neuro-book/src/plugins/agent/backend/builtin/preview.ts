@@ -36,8 +36,8 @@ export async function approvalPreview(tool: string, args: Readonly<Record<string
     if (mode === undefined) return {files: []};
     const held = stores.acquire(sessionId);
     try {
-        const {written, failure} = await previewEdit(mode, args, resources, held.store, signal);
-        const files: PreviewFile[] = [];
+        const {written, tooLarge, failure} = await previewEdit(mode, args, resources, held.store, PREVIEW_FILE_BYTES, signal);
+        const files: PreviewFile[] = [...tooLarge].map(([address, bytes]) => ({address, kind: "too-large", bytes}));
         for (const [address, after] of written) {
             const read = await resources.read(address, {signal});
             files.push(read.ok ? fileEntry(address, read.value.bytes, after) : {address, kind: "failed", code: read.code});

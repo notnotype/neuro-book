@@ -3,7 +3,7 @@
  * 交给服务商的名字由适配器换算（t04 决定 1），显式覆盖写 `providerName`。
  */
 
-import type {Attributed, JsonValue} from "./basics.js";
+import type {Actor, Attributed, JsonValue} from "./basics.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 
 /** 工具的副作用等级：审批与只读模式按它判定（t06）。 */
@@ -76,7 +76,7 @@ export interface QuestionRequest {
     readonly options?: readonly string[];
     readonly data?: JsonValue;
 }
-export type QuestionAnswer = {readonly kind: "answer"; readonly text: string; readonly data?: JsonValue} | {readonly kind: "unavailable"; readonly code: string};
+export type QuestionAnswer = {readonly kind: "answer"; readonly text: string; readonly data?: JsonValue; /** 谁答的：用户，或会话头 `questions: "caller"` 时的父会话。工具按它决定要求什么形状。 */ readonly by: Actor} | {readonly kind: "unavailable"; readonly code: string};
 
 export interface ToolContext {
     readonly signal: AbortSignal;

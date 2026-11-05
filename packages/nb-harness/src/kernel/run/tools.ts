@@ -194,7 +194,7 @@ function askFor(host: ToolRunHost, interactions: Interactions, callId: string, s
         if (resolution === null) return {kind: "unavailable", code: "async"};
         if (resolution.decision === "answer") {
             const answer = resolution.data as {text: string; data?: JsonValue};
-            return {kind: "answer", text: answer.text, ...(answer.data === undefined ? {} : {data: answer.data})};
+            return {kind: "answer", text: answer.text, by: resolution.by, ...(answer.data === undefined ? {} : {data: answer.data})};
         }
         return {kind: "unavailable", code: resolution.decision === "aborted" ? "aborted" : "declined"};
     };
@@ -232,7 +232,9 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
 
     /** 参数校验、只读模式、审批钩子。不问用户。 */
     const judge = async (call: ToolCall): Promise<Judgment> => {
-        const declaration = byId.get(call.tool)!;
+        const declaration = byId.get(call.tool);
+        // 拦截层可能把调用改派到这次运行没有的工具。
+        if (declaration === undefined) return {kind: "settled", value: {text: `Unknown tool ${call.tool}.`, status: "error", code: "unknown-tool"}, by: null};
         const problems = argumentProblems(declaration.parameters, call.args);
         if (problems !== null) return {kind: "settled", value: {text: `Invalid arguments for ${call.tool}: ${problems}`, status: "error", code: "invalid-arguments"}, by: null};
         const settings = core.session.kernel.core;
@@ -259,12 +261,18 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         return {kind: "allowed", by: "user"};
     };
 
-    /** 审批阶段的结果：判定时的参数与结论，按 callId。执行时参数没变才算数。 */
-    const judged = new Map<string, {readonly args: string; judgment: Judgment}>();
+    /** 判定依据里会被用户中途改掉的设置。 */
+    const judgingSettings = (): string => {
+        const settings = core.session.kernel.core;
+        return `${String(settings.readOnly)}/${settings.approvalMode}`;
+    };
+    /** 审批阶段的结果：判定时的工具、参数、设置与结论，按 callId。 */
+    const judged = new Map<string, {readonly tool: string; readonly args: string; readonly settings: string; judgment: Judgment}>();
     const approvalPhase = async (): Promise<void> => {
         for (const call of runnable) {
             if (signal.aborted) return;
-            judged.set(call.id, {args: canonicalJson(call.args), judgment: await judge(call)});
+            const settings = judgingSettings();
+            judged.set(call.id, {tool: call.tool, args: canonicalJson(call.args), settings, judgment: await judge(call)});
         }
         // 全部判定完才写事项：钩子可能很慢，先写的话向导的“第 1 / N 个”的分母会一直变。`askUser` 同步走到写入，写入顺序就是调用顺序。
         const asking = await Promise.allSettled(runnable.map(async (call) => {
@@ -299,9 +307,11 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                 };
                 // 中止之后不再开始新的调用：交给外面记成 unknown。
                 if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                // 拦截改了参数时，审批阶段判定的不是现在要执行的这个（规范化 JSON 比较），按现在的参数重来，要问就再问一次。
+                // 审批阶段判定的不是现在要执行的这个时按现在的重来，要问就再问一次：拦截改了工具或参数（规范化 JSON 比较）；
+                // 或者放行之后、轮到它之前设置变了（排在慢调用后面时用户开了只读）。拒绝了的不重新判定：放宽设置不改用户的决定。
                 const recorded = judged.get(final.id);
-                let judgment = recorded?.args === canonicalJson(final.args) ? recorded.judgment : await judge(final);
+                const stillHolds = recorded !== undefined && recorded.tool === final.tool && recorded.args === canonicalJson(final.args) && (recorded.judgment.kind !== "allowed" || recorded.settings === judgingSettings());
+                let judgment = stillHolds ? recorded.judgment : await judge(final);
                 if (judgment.kind === "ask") judgment = await askUser(final, judgment.request);
                 if (judgment.kind === "settled") return settle(judgment.value, judgment.by);
                 const approvedBy = judgment.by;
@@ -353,7 +363,8 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             ...(final.details === undefined || final.redacted === true ? {} : {details: final.details}),
             ...(!changed ? {} : final.redacted === true ? {rawHash: rawHashOf(ran)} : {raw: ran.text, ...(ran.images === undefined || ran.images.length === 0 ? {} : {rawImages: ran.images})}),
         };
-        core.emit({type: "tool", callId: call.id, status});
+        // 宽限期过了：这个调用已经记成 unknown，迟到的结果只写诊断，帧也不能再说它成功了。
+        if (!graceExpired) core.emit({type: "tool", callId: call.id, status});
         return {data, failures: outcome.failures, args: executedArgs};
     };
 
