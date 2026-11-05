@@ -428,3 +428,47 @@ describe("canon.worldlines 输出 17、revisions 输出 4：受影响的线与 b
         expect(affected(grand.world, editText(grand.world, c2, "改"))).toEqual([line, grandLine].sort());
     });
 });
+
+describe("canon.worldlines 输出 11、验收 7、8：跨线的还原依赖", () => {
+    const meta = (title: string) => ({requestId: `rv-${String(++sequence)}`, by: {kind: "author" as const}, title});
+
+    test("还原新建线的分叉：线上以后的修订与后代线上的修订都是依赖；连同还原以后线不存在", () => {
+        const {world, c2} = base();
+        const created = forked(world, c2);
+        const [line, fork] = [created.ids["tmp:l"]!, created.revision.id];
+        const second = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:s"}, after: written("tmp:s", at("ch3", 5, line))}], created.world.version), "t"));
+        const third = ok(second.world.publish(request([{ref: {kind: "change", id: "tmp:g"}, after: written("tmp:g", at("ch3", 50, line), [], {nature: "fork", fork: {line: "tmp:gl", name: "孙线", parent: line, cut: created.ids["tmp:own"]!, type: "branch"}})}], second.world.version), "t"));
+        const grandLine = third.ids["tmp:gl"]!;
+        const onGrand = ok(third.world.publish(request([{ref: {kind: "change", id: "tmp:h"}, after: written("tmp:h", at("ch4", 1, grandLine))}], third.world.version), "t"));
+        // 主线上不碰这条线的修订不是依赖。
+        const unrelated = ok(onGrand.world.publish(request([{ref: {kind: "change", id: "tmp:m"}, after: written("tmp:m", at("ch4", 2))}], onGrand.world.version), "t"));
+        const refused = unrelated.world.revert(fork, false, meta("还原分叉"), "t");
+        expect(refused).toMatchObject({ok: false, failure: {code: "has-dependents", dependents: [onGrand.revision.id, third.revision.id, second.revision.id]}});
+        const reverted = ok(unrelated.world.revert(fork, true, meta("还原分叉"), "t") as WriteResult);
+        expect(reverted.world.line(line)).toBeUndefined();
+        expect(reverted.world.line(grandLine)).toBeUndefined();
+        expect(reverted.world.pending({kind: "chapter", chapter: "ch4", edge: "end", line})).toBe("line-not-found");
+        expect(reverted.world.data.changes.has(unrelated.ids["tmp:m"]!)).toBe(true);
+    });
+
+    test("撤销父线上被子线继承的一件事：还原有依赖；改成撤销时预览列出子线上套不上的，发布后根因是这次撤销，子线上其余的照常", () => {
+        const {world, xia, c2} = base();
+        const umbrella = ok(world.publish(request([{ref: {kind: "change", id: "tmp:u"}, after: written("tmp:u", at("ch2", 15), [{op: "listAdd", at: {entry: xia, path: "panel.物品"}, value: {id: "伞", label: "伞", 数量: 1}}])}], world.version), "t"));
+        const created = forked(umbrella.world, c2);
+        const line = created.ids["tmp:l"]!;
+        const broken = ok(created.world.publish(request([
+            {ref: {kind: "change", id: "tmp:wind"}, after: written("tmp:wind", at("ch3", 10, line), [{op: "listRemove", at: {entry: xia, path: "panel.物品"}, value: "伞"}])},
+            {ref: {kind: "change", id: "tmp:fine"}, after: written("tmp:fine", at("ch3", 11, line))},
+        ], created.world.version), "t"));
+        const refused = broken.world.revert(umbrella.revision.id, false, meta("还原记账"), "t");
+        expect(refused).toMatchObject({ok: false, failure: {code: "has-dependents", dependents: [broken.revision.id]}});
+        const wind = broken.ids["tmp:wind"]!;
+        const undone = structuredClone(broken.world.data.changes.get(umbrella.ids["tmp:u"]!)!);
+        const undo = request([{ref: {kind: "change", id: undone.id}, after: {...undone, status: "undone" as const}}], broken.world.version);
+        expect(broken.world.preview(undo, "t")).toMatchObject({ok: true, revision: {impact: {brokenOn: [{line, change: wind}]}}});
+        const result = ok(broken.world.publish(undo, "t"));
+        expect(result.revision.impact.brokenOn).toEqual([{line, change: wind}]);
+        expect(result.world.pending({kind: "chapter", chapter: "ch4", edge: "end", line})).toContainEqual({kind: "cannot-apply", root: result.revision.id, changes: [wind]});
+    });
+});
+

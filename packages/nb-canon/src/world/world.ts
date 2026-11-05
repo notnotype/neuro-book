@@ -53,6 +53,7 @@ import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "
 import {readEntryAddress} from "../engine/views";
 import {LineSet, type LineView} from "../lines/set";
 import {affectedLines, touchedOf} from "../lines/affected";
+import {revisionLines} from "./revision-lines";
 import {lineOf, lineTable, MAIN_LINE} from "../lines/table";
 import {defaultCarry, forkProblems} from "./forks";
 import {lineRuleProblems} from "./line-rules";
@@ -327,11 +328,21 @@ export class World {
         const root = this.revisions[start]!;
         if (root.ops.some((op) => op.kind === "chapters")) return "not-revertable";
         const set = [root];
+        const indexes = [start];
         const groups = fulfillmentGroups(this.data);
-        for (const later of this.revisions.slice(start + 1)) {
-            if (set.some((earlier) => dependsOn(later, earlier, groups))) {
+        const lines = revisionLines(this.revisions);
+        for (const [offset, later] of this.revisions.slice(start + 1).entries()) {
+            const index = start + 1 + offset;
+            // 线上的修订依赖它写下时定义这条线的分叉的新建修订（worldlines 输出 11）：该线上最近一次新建分叉的修订。
+            const definers = new Set<number>();
+            for (const line of lines.touched[index]!) {
+                const definer = (lines.created.get(line) ?? []).filter((candidate) => candidate < index).at(-1);
+                if (definer !== undefined) definers.add(definer);
+            }
+            if (set.some((earlier, position) => definers.has(indexes[position]!) || dependsOn(later, earlier, groups))) {
                 if (later.ops.some((op) => op.kind === "chapters")) continue;
                 set.push(later);
+                indexes.push(index);
             }
         }
         return set.map((revision) => revision.id);
