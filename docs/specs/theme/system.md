@@ -56,8 +56,6 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 | `--toolbar-bg` | `--toolbar-surface` |
 | `--chat-ai-bg` | `--bg-subtle` |
 
-背景（[`ui.backgrounds`](../ui/backgrounds.md)，planned）开着时，工作台把遮罩后的面色作为字面量写在文档根，派生变量跟着重算；不在子作用域里覆盖变量。
-
 ## 消费规则
 
 - 业务 UI 必须使用 `bg-[var(--...)]`、`text-[var(--...)]`、`border-[var(--...)]` 或 CSS 中的 `var(--...)`。

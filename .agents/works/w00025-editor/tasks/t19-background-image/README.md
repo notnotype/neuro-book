@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t19-background-image
-status: done
+status: shelved
 updated: 2026-11-05
 ---
 
@@ -20,15 +20,10 @@ updated: 2026-11-05
 
 ## 当前状态
 
-已合入 master。计划：[plan.md](plan.md)。Spec：[`ui/backgrounds.md`](../../../../../docs/specs/ui/backgrounds.md)（`implemented`）。
+已撤销。开发者 2026-11-05 体验后认为效果不好，要求先删掉，放进主题体系重做，见 [w00041](../../../w00041-themes-and-backgrounds/README.md)。
 
-- 设计审查：前端 12 条、后端 6 条，[处理](evidences/design-review-disposition.txt)。
-- 实现审查：前端 18 条、后端 7 条，[处理](evidences/impl-review-disposition.txt)。
-- 可访问性：[量出来的对比度](evidences/contrast.txt)，三张图、nbook 与 macos 的明暗、正文与窗口两种背景，遮罩取下限。
+代码、Spec `ui/backgrounds.md` 与 `workspace/files.md` 的“写背景图片”一节都已从 master 移除；最后一版代码是提交 `a9ec4f147`。下面的证据留作重做的参考。
 
-实施时的改动：遮罩下限模糊时按这张图实际最亮、最暗处算（一律按最坏情况时 nbook 被顶到 90–92，模糊的 75 没有意义）；背景页不写说明文字，改搜索关键词。
-
-## 遗留
-
-- Hono 插件路由抛错时走默认处理器（纯文本 500、不进诊断、客户端断开打印栈），所有插件路由都这样，不属于本 Task。
-- 设置窗口开着时缩窄浏览器窗口，浮窗不跟着移回来（在窄窗口里重新打开正常）。未确认是否既有，未改。
+- 计划：[plan.md](plan.md)。
+- 设计审查：[处理](evidences/design-review-disposition.txt)。实现审查：[处理](evidences/impl-review-disposition.txt)。
+- 可访问性：[量出来的对比度](evidences/contrast.txt)。

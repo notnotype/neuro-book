@@ -183,7 +183,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 工作台通知 | [`workbench/notifications.md`](workbench/notifications.md) | 提示的三个去处、本窗口的通知服务与右下角视口、常驻与时长、进度与动作 |
 | 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
 | 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
-| 背景图片与护眼底色 | [`ui/backgrounds.md`](ui/backgrounds.md) | 正文与窗口的背景、遮罩下限、纯色底、无障碍偏好、设置页 |
 | 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 七个 Part 的几何与面板形态、紧凑呈现、布局记录与公开状态（外壳一）；容器与视图（外壳二）；拖放（外壳三）；标题栏、状态栏与条目贡献点（外壳四）；无项目首页、工作台打磨、活动栏底部条目与页面浮层 |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
