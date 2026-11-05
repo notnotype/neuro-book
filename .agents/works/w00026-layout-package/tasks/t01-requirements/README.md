@@ -42,7 +42,8 @@ updated: 2026-11-05
     - **搬走**：Grid、分隔线手势、Splitter、NestedGrid、落点几何、`DropFeedbackOverlay` 及相关件、`useGridLayout`、`useLayoutExtent`。新加手势会话、新的渲染层、拖动时的布局预览、落点登记。
     - **留下**：Collapsible 一族、ScrollArea、OverlayScrollbar、Separator。
     - **连带**：把 `branchId`、`sashLineEnds` 从 Splitter 的公开 props 拿掉（审查 L20）；nb-story 的发布依赖从 8 个包变成 9 个，[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md) 要更新。
-11. **其它定制点不开新接口**：分隔线外观已有 `sashSizes` 和 5 个 `--sash-line-*` 变量，最小尺寸与收起、序列化都已有；吸附和命中带没有实际需求。
+11. **必须保留的现有手势**（开发者 2026-11-05 在 t02 指出）：十字交汇处同时调宽高、拖动收起与展开。新渲染层接现有的 `collectSashHits` 与 `solveSashDrag`，t02 已验证可行。
+12. **其它定制点不开新接口**：分隔线外观已有 `sashSizes` 和 5 个 `--sash-line-*` 变量，最小尺寸与收起、序列化都已有；吸附和命中带没有实际需求。
 
 ## 调研结果
 
