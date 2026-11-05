@@ -135,10 +135,10 @@ owners:
 
 70. `SessionCore` 按日志里全部 `assistant`、`modelEnded`、`modelFailed` 的 `usage` 累计会话的费用，不分分支：`cost` 是数字就累加，是 null 就给 `unpriced` 加一。回退不减，重开后还在，日志更早的会话打开时一样算出来；fork 把复制来的路径上的用量算进新会话。快照的 `usage` 是 `{cost, unpriced}`，处理函数与拦截经 `ctx.spend` 读（[`harness/extensions.md`](extensions.md) 输出 30）。
 71. 一层多次调用 `next`（可以并发）：整条链结束后，给最后发出的那次之外的每次请求写 `modelEnded` 或 `modelFailed`，它们的用量不丢。
-72. `setGeneratedMeta({title?, description?})` 给宿主写自动生成的标题与说明。两项去掉首尾空白后都没有内容得 `empty-meta`。有 `title` 时：最近一次 `titleChanged` 是 `by: "user"` 就不写标题，否则写 `titleChanged{by: "auto"}`；结果 `titleApplied` 说明写没写。判断与写入在同一个受理里，`setTitle` 不会被晚到的自动结果盖掉。这条指令只给宿主，不进远程合同（内核的 `hostOnlyCommands`）。（planned）
-73. 有 `description` 时写 `descriptionChanged{description}`（会话级控制事件，经出站过滤的文字映射）；快照的 `description` 随之变化，没写过时为 null。（planned）
-74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。（planned）
-75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。（planned）
+72. `setGeneratedMeta({title?, description?})` 给宿主写自动生成的标题与说明。两项去掉首尾空白后都没有内容得 `empty-meta`。有 `title` 时：最近一次 `titleChanged` 是 `by: "user"` 就不写标题，否则写 `titleChanged{by: "auto"}`；结果 `titleApplied` 说明写没写。判断与写入在同一个受理里，`setTitle` 不会被晚到的自动结果盖掉。这条指令只给宿主，不进远程合同（内核的 `hostOnlyCommands`）。
+73. 有 `description` 时写 `descriptionChanged{description}`（会话级控制事件，经出站过滤的文字映射）；快照的 `description` 随之变化，没写过时为 null。
+74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。
+75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。
 
 ## 状态与转换
 
@@ -194,4 +194,4 @@ Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:ll
 
 ## 证据
 
-- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）
+- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准） 说明、`setGeneratedMeta` 与关闭时放掉日志见 [w00032 t18](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)。

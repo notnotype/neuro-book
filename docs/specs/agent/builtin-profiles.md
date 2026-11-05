@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.builtin-profiles
 owners:
   - nbook.agent
@@ -105,6 +105,20 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 4. 重启后打开旧会话（没有 `description`）：列表正常，下一轮结束后补上。
 5. Smoke：真实模型跑主创改一个文件，并生成标题和说明（`builtin-profiles.llm.test.ts`）。
 
+## 实现合同
+
+- **公开入口**：Profile key `nbook.agent.main`、`nbook.agent.session-title`（常量 `MAIN_PROFILE`、`SESSION_TITLE_PROFILE`，在 `nbook/plugins/agent/shared/contracts`）；扩展 id `nbook.agent.session-meta`（标签 `session-meta`，Profile 可以按标签排除）、`nbook.agent.rules`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这两个 Profile；标题和说明经内核只给宿主的 `setGeneratedMeta` 写（[`harness/runtime.md`](../harness/runtime.md) 输出 72）；模型角色的解析在 `nbook.models`。
+- **关键不变量**：
+  - 触发用 `turnEnded`，不用 `runEnded`：压缩运行也以 `runEnded{completed}` 收口，事件不带运行种类，而它没有轮（`builtin-profiles.test.ts`“触发器在真实内核上”）。
+  - 碰会话的每一步各自经 `table.accept`，只有 `waitRun` 不经：停止要等 accept 的工作，而运行要等停止关会话才收口（`builtin-profiles.test.ts`“时序”）。
+  - 同一个前台会话的生成排成一条队，轮到时按当时的状态重新判断，不记“上次失败了”（`builtin-profiles.test.ts`“同时触发只发一次”）。
+  - 标题会话按快照里当前的 Profile 核对，不看会话头：会话头只记建会话时的（`builtin-profiles.test.ts`“被换成别的 Profile”）。
+  - 主创的提示词文字只放常量，结构测试只锁节名与工具、不锁措辞：开发者按实际创作继续改（`builtin-profiles.test.ts`“主创”）。
+
 ## 证据
 
-- 批准依据：w00032 t18 决定 1 到 5、8 到 14（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）。
+- 批准依据：w00032 t18 决定 1 到 5、8 到 14（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）；开发者 2026-11-05 确认计划，同日批准晋升为 `implemented`。
+- 实现入口：[`backend/builtin/profiles/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/index.ts)、[`main.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts)、[`session-title.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/session-title.ts)、[`rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/rules.ts)、[`backend/session-meta.ts`](../../../packages/neuro-book/src/plugins/agent/backend/session-meta.ts)
+- 合同测试：[`builtin-profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-profiles.test.ts)（真实内核、真实设置与文件服务、本机的 OpenAI 兼容端点）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（声明字段）、[`control.test.ts`](../../../packages/nb-harness/src/kernel/run/control.test.ts)（`setGeneratedMeta`）
+- Smoke：[`builtin-profiles.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-profiles.llm.test.ts)（`test:llm`，DeepSeek）

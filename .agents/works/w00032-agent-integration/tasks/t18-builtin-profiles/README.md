@@ -67,7 +67,7 @@ t05、t12、t15。
 
 ## 当前状态
 
-实现、审查与收口验证都做完了，已合入 master（`073690996`）。实现审查 3 条都修了：[evidences/impl-review-disposition.md](evidences/impl-review-disposition.md)；验证：[evidences/closing-verification.txt](evidences/closing-verification.txt)。Spec 待开发者批准晋升。
+实现、审查与收口验证都做完了，已合入 master（`073690996`）。实现审查 3 条都修了：[evidences/impl-review-disposition.md](evidences/impl-review-disposition.md)；验证：[evidences/closing-verification.txt](evidences/closing-verification.txt)。Spec 已晋升（开发者 2026-11-05 批准），两条回写已写入，worktree 已清理。
 
 实施中的发现与变化：
 
@@ -77,4 +77,4 @@ t05、t12、t15。
 
 ## 下一步
 
-开发者批准后晋升 Spec，清理 worktree。主创提示词之后按实际创作继续改（决定 13）。
+无。主创提示词之后按实际创作继续改（决定 13）；压缩方法接上（t11）时，再看一遍压缩后更新说明与重读规则文件。

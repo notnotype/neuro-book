@@ -47,7 +47,7 @@ owners:
 | `startTask({taskId, profile, initial?, input, project?, background?})` | 写 | 发起任务 |
 
 - 事件 `frames`，过滤 `{sessionId}`：内核的帧（`log`、`delta`、`status`、`diagnostic`、`progress`）。
-- 服务键 `agentKey`（服务端同进程）：`create(options)` → 视图或失败码；`session(id, issuer?)` → 视图；`list(filter?)`；`profiles()`；`running()` → 正在运行的会话 id（不含后台会话，planned）；`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`。服务停止后调用抛出码为 `unavailable` 的错误。
+- 服务键 `agentKey`（服务端同进程）：`create(options)` → 视图或失败码；`session(id, issuer?)` → 视图；`list(filter?)`；`profiles()`；`running()` → 正在运行的会话 id（不含后台会话）；`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`。服务停止后调用抛出码为 `unavailable` 的错误。
 - 依赖：设置与状态根是必需的；模型服务可选。
 
 ## 输出与可观察行为
