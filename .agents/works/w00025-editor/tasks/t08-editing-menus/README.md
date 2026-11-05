@@ -41,4 +41,6 @@ updated: 2026-11-05
 
 ## 下一步
 
-w00029 已完成，开发者 2026-11-05 定现在接。三轮评审都定了（决定 6–14）。实施计划：[plan.md](plan.md)，开发者 2026-11-05 确认了要点与末尾四项（决定 15）；设计审查处理后开工。草稿 worktree `.worktree/w00025-t08-drafts` 留着，已跟上 master。
+w00029 已完成，开发者 2026-11-05 定现在接。三轮评审都定了（决定 6–14）。实施计划：[plan.md](plan.md)，开发者 2026-11-05 确认了要点与末尾四项（决定 15）。设计审查 17 条（[报告](evidences/design-review.txt)、[处理](evidences/design-review-disposition.txt)）已改进计划，主要变化：命令与位置归 `nbook.editor`、不用 BubbleMenu、块模型写定。
+
+待开发者追认（都是审查后主会话定的）：归属改到 `nbook.editor`（要改回：反向连接加类型互引）；行首的 `、` 算斜杠（要改回：删一个字符配置）；列表项转换为正文或标题时把列表断开；容器块的手柄对着整个容器。草稿 worktree `.worktree/w00025-t08-drafts` 留着，已跟上 master。
