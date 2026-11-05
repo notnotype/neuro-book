@@ -2,7 +2,7 @@
  * 拖动会话的 DOM 适配（docs/specs/ui/layout-drag.md）：把指针、键盘与窗口事件接到 `drag-gesture.ts` 的状态机上，读遮挡，
  * 持有指针捕获。这里不做判断，判断都在状态机；也不画东西，反馈由宿主读 `state` 与 `onEnd` 画。
  *
- * 根上常驻的只有按下与 click，别的监听按下才装、结束就拆，闲时窗口上没有这个会话的任何监听。
+ * 根上常驻的只有按下、click 与（配了键盘时）keydown，别的监听按下才装、结束就拆，闲时窗口上没有这个会话的任何监听。
  */
 
 import {shallowRef} from "vue";
@@ -121,7 +121,7 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
     }
 
     function onSessionKey(event: KeyboardEvent): void {
-        if (!gesture.key({key: event.key, shift: event.shiftKey, repeat: event.repeat})) return;
+        if (!gesture.key({key: event.key, shift: event.shiftKey})) return;
         event.preventDefault();
         event.stopPropagation();
     }
@@ -193,12 +193,15 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
         };
     }
 
-    /** 取捕获：指针已经不在时调用抛错；没有按键的鼠标不抛错，但取不到，所以两种都要看。 */
+    /**
+     * 取捕获：指针已经不在（`NotFoundError`）或根已不在文档里（`InvalidStateError`）时调用抛错，由状态机按失去捕获取消；没有按键的
+     * 鼠标不抛错，但取不到，所以两种都要看。
+     */
     function capture(pointerId: number): boolean {
         try {
             root.setPointerCapture(pointerId);
         } catch (error) {
-            if (error instanceof DOMException) return false;
+            if (error instanceof DOMException && (error.name === "NotFoundError" || error.name === "InvalidStateError")) return false;
             throw error;
         }
         return root.hasPointerCapture(pointerId);

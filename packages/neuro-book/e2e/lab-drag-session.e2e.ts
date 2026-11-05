@@ -10,7 +10,7 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Browser, Locator, Page} from "@playwright/test";
+import type {Locator, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import type {LabDebugState} from "nbook/plugins/lab/shared/debug-api";
@@ -173,6 +173,8 @@ test.describe("取消（输出 7）", () => {
             await act(page);
             await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "idle");
             await expect(page.locator("[data-session-ghost]")).toHaveCount(0);
+            // 鼠标仍按着：捕获已释放，之后的指针事件不再归根。
+            expect(await sessionRoot(page).evaluate((root) => root.hasPointerCapture(1))).toBe(false);
             await page.mouse.move(start.x, start.y);
             await page.mouse.up();
             expect(await log(page)).toEqual([`end:cancelled:${reason}`]);
@@ -197,14 +199,7 @@ test.describe("取消（输出 7）", () => {
 });
 
 test.describe("触摸（验收 5）", () => {
-    async function touchPage(browser: Browser): Promise<Page> {
-        const context = await browser.newContext({hasTouch: true, viewport: {width: 1440, height: 1000}});
-        const page = await context.newPage();
-        await page.goto(`${dev.pageUrl}lab?c=DropFeedbackOverlay&s=session&theme=nbook&cw=light`);
-        await expect.poll(async () => (await labState(page))?.ready).toBe(true);
-        await expect(sessionRoot(page)).toBeVisible();
-        return page;
-    }
+    test.use({hasTouch: true});
 
     /** 按下后带 1 px 抖动（真实手指几乎必有），按住到起拖，再拖到落点松开。抖动让捕获换手发生在拖动中的第一个事件上。 */
     async function holdAndDrag(page: Page, from: Locator, to: Locator, over: string): Promise<void> {
@@ -222,18 +217,16 @@ test.describe("触摸（验收 5）", () => {
         await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "idle");
     }
 
-    test("来源是按钮：抖动后按住再拖，不被隐式捕获的换手取消", async ({browser}) => {
-        const page = await touchPage(browser);
+    test("来源是按钮：抖动后按住再拖，不被隐式捕获的换手取消", async ({page}) => {
+        await open(page);
         await holdAndDrag(page, sourceA(page), target(page, "first"), "first");
         expect(await log(page)).toEqual(["end:committed", "commit:a->first"]);
-        await page.context().close();
     });
 
-    test("来源在可滚动的区域里：拿起后拖动不让给滚动", async ({browser}) => {
-        const page = await touchPage(browser);
+    test("来源在可滚动的区域里：拿起后拖动不让给滚动", async ({page}) => {
+        await open(page);
         await holdAndDrag(page, row(page, "r2"), target(page, "second"), "second");
         expect(await log(page)).toEqual(["end:committed", "commit:r2->second"]);
-        await page.context().close();
     });
 });
 

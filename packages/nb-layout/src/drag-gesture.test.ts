@@ -223,6 +223,14 @@ describe("输出 3：拿起", () => {
 });
 
 describe("输出 4：逐帧", () => {
+    it("过门槛的那一下拿起时已经判定过，下一帧不再判定一次", () => {
+        const t = setup();
+        t.grab();
+        const count = t.resolveCount();
+        t.clock.frame();
+        expect(t.resolveCount()).toBe(count);
+    });
+
     it("一帧里的多次移动只判定并发布一次，用最后的坐标", () => {
         const t = setup();
         t.grab();
@@ -433,19 +441,19 @@ describe("输出 10：按键归属", () => {
         t.grab({x: 50, y: 0});
         const count = t.published.length;
         for (const key of ["ArrowLeft", "ArrowDown", "Tab", "Enter", " ", "Home", "End"]) {
-            expect(t.gesture.key({key, shift: false, repeat: false})).toBe(true);
+            expect(t.gesture.key({key, shift: false})).toBe(true);
         }
         expect(t.published).toHaveLength(count);
         expect(t.ends).toEqual([]);
-        expect(t.gesture.key({key: "Escape", shift: false, repeat: false})).toBe(true);
+        expect(t.gesture.key({key: "Escape", shift: false})).toBe(true);
         expect(t.ends.map(({end}) => end)).toEqual([{kind: "cancelled", reason: "escape"}]);
     });
 
     it("别的键不归会话；空闲时什么键都不归", () => {
         const t = setup();
-        expect(t.gesture.key({key: "ArrowLeft", shift: false, repeat: false})).toBe(false);
+        expect(t.gesture.key({key: "ArrowLeft", shift: false})).toBe(false);
         t.grab();
-        expect(t.gesture.key({key: "a", shift: false, repeat: false})).toBe(false);
+        expect(t.gesture.key({key: "a", shift: false})).toBe(false);
     });
 });
 
@@ -614,10 +622,29 @@ describe("输出 14：边缘滚动", () => {
     it("滚动中松手：等下一帧时 Escape 仍然取消，不提交", () => {
         const {t} = scrollingDrag();
         t.gesture.release(1, {x: 50, y: 195});
-        t.gesture.key({key: "Escape", shift: false, repeat: false});
+        t.gesture.key({key: "Escape", shift: false});
         t.clock.frame();
         expect(t.commits).toEqual([]);
         expect(t.ends.map(({end}) => end)).toEqual([{kind: "cancelled", reason: "escape"}]);
+    });
+
+    it("滚动中松手：之后的移动不改放下的坐标（输出 6）", () => {
+        const scroll = scroller(100);
+        const t = setup({autoScroll: scroll.host});
+        t.grab({x: 50, y: 195});
+        t.clock.frame();
+        t.gesture.release(1, {x: 50, y: 195});
+        t.gesture.move(1, {x: 150, y: 195}, 0);
+        t.clock.frame();
+        expect(t.commits).toEqual([{drop: {name: "a", key: "a"}, source: "row"}]);
+    });
+
+    it("滚动中松手：最后一步滚动的滚动事件在放下之前到，不撤下落点", () => {
+        const {t} = scrollingDrag();
+        t.gesture.release(1, {x: 50, y: 195});
+        t.gesture.scrolled();
+        t.clock.frame();
+        expect(t.commits).toEqual([{drop: {name: "after", key: "after"}, source: "row"}]);
     });
 
     it("滚动中松手：末尾的 click 在那一帧之前到，照样被吞", () => {
@@ -643,7 +670,7 @@ describe("输出 15：键盘拖动", () => {
             },
             ...overrides,
         });
-        const press = (key: string, shift = false, repeat = false) => t.gesture.key({key, shift, repeat});
+        const press = (key: string, shift = false) => t.gesture.key({key, shift});
         return {...t, press, regions};
     }
 
@@ -733,11 +760,11 @@ describe("输出 15：键盘拖动", () => {
         expect(t.log).not.toContain("focus");
     });
 
-    it("连发的空格不做事", () => {
+    it("拿起后再按空格归会话，不做事", () => {
         const t = keyboardSetup();
         t.gesture.startKeyboard("row");
         const count = t.published.length;
-        expect(t.press(" ", false, true)).toBe(true);
+        expect(t.press(" ")).toBe(true);
         expect(t.published).toHaveLength(count);
     });
 

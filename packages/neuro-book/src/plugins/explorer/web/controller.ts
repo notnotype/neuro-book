@@ -15,7 +15,7 @@ import type {DocumentCoordinator, DocumentLease} from "nbook/plugins/editor/shar
 import type {BatchHandle, BatchResult, FilesResult, FilesService, ItemResult, ManifestIssue, OperationDone, Scheme} from "nbook/plugins/files/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
 
-import {resolveBlankDrop, resolveDrop, resolveEditorDrop, dropKey} from "./actions/drop";
+import {dropKey, resolveBlankDrop, resolveDrop, resolveEditorDrop} from "./actions/drop";
 import type {DropAction, DropOver} from "./actions/drop";
 import {candidateName, planNames} from "./actions/paste-plan";
 import type {CollisionChoice, PlanSource} from "./actions/paste-plan";
@@ -245,6 +245,7 @@ export interface ExplorerController {
 
 const NOT_AVAILABLE: Availability = {create: false, rename: false, delete: false, createContent: false, convert: false, display: false, include: false, drop: false, moveUp: false, moveDown: false, copy: false, cut: false, paste: false};
 
+/** 两个落点动作相同：放下时重判的动作要与最后显示过的相同才提交。 */
 function sameDrop(a: DropAction, b: DropAction): boolean {
     return dropKey(a) === dropKey(b);
 }

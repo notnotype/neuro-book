@@ -224,6 +224,7 @@ const context = (row: Row, event: MouseEvent): void => {
  */
 interface Hovered {
     readonly over: DropOver;
+    /** 这次判定时的动作，给会话做放下比较用的快照；画反馈读控制器写回的 `props.drag.action`。 */
     readonly action: DropAction;
     readonly rect: DOMRect;
     readonly tree: DOMRect;

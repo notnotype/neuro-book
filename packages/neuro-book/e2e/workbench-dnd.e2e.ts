@@ -605,7 +605,7 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
         // 鼠标仍按着：捕获已释放，之后键盘在别的控件上触发的点击不被当成这次手势的尾巴吞掉。
-        expect(await tabE.evaluate((element) => element.hasPointerCapture(1))).toBe(false);
+        expect(await page.locator(".workbench-shell-host").evaluate((root) => root.hasPointerCapture(1))).toBe(false);
         await tabF.focus();
         await page.keyboard.press("Enter");
         await expect(tabF).toHaveAttribute("aria-selected", "true");
@@ -808,7 +808,7 @@ test.describe("产品页：拖放", () => {
         });
     });
 
-    test("Escape 取消：拖影与预览消失，松手不写；窗口失焦同样取消", async ({page}) => {
+    test("Escape 取消：拖影与预览消失，松手不写；窗口失焦、失去指针捕获同样取消", async ({page}) => {
         await open(page);
         const entry = page.locator(`[data-activity-container="view:${A}"]`);
         const panel = (await page.locator('[data-switcher-band="panel"]').boundingBox())!;
@@ -837,6 +837,46 @@ test.describe("产品页：拖放", () => {
         await page.mouse.up();
         expect(await writesOf(page)).toBe(writes);
         await expect(entry).toBeVisible();
+    });
+
+    test("取消后回到视图标题上松手：末尾的 click 被吞，视图不收起（ui/layout-drag 验收 1）", async ({page}) => {
+        await open(page);
+        const sidebar = (await page.locator('[data-tool-part="sidebar"]').boundingBox())!;
+        await dragTo(page, page.locator(`[data-activity-container="view:${B}"]`), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height * 0.9});
+        await page.mouse.up();
+        await expect(host(page, `view:${A}`)).toHaveAttribute("data-container-mode", "multiple");
+        const head = page.locator(`[data-drag-view="${B}"]`);
+        const section = page.locator(`[data-view-section="${B}"]`);
+        await expect(section).toHaveAttribute("data-view-collapsed", "false");
+        const from = await centerOf(head);
+        const grab = async (): Promise<void> => {
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            await page.mouse.move(from.x + 10, from.y, {steps: 2});
+            await expect(ghost(page)).toBeVisible();
+            // 再动一下：捕获在下一个指针事件时才真的到根上。
+            await page.mouse.move(from.x + 11, from.y);
+        };
+        const releaseOnHead = async (): Promise<void> => {
+            await expect(ghost(page)).toHaveCount(0);
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.up();
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            await expect(section).toHaveAttribute("data-view-collapsed", "false");
+        };
+
+        await grab();
+        await page.keyboard.press("Escape");
+        await releaseOnHead();
+
+        await grab();
+        await page.locator(".workbench-shell-host").evaluate((root) => root.releasePointerCapture(1));
+        await page.mouse.move(from.x + 12, from.y);
+        await releaseOnHead();
+
+        // 对照：没过门槛的按下仍是点击，会收起，所以上面的“不收起”是吞掉了 click，不是点击本来就没用。
+        await head.click();
+        await expect(section).toHaveAttribute("data-view-collapsed", "true");
     });
 
     test("拖动源压在分隔线的命中带里：按下并拖动是调整大小，不出现拖影（ui/layout-drag 验收 3）", async ({page}) => {

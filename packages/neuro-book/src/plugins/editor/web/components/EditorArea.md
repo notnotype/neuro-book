@@ -45,7 +45,7 @@ type Emits = {
 
 无 slots、无 expose；attrs 落在根元素。
 
-拖动标签（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 55）装在根上（`web/tab-drag.ts`）：按住标签主体移动起拖，落点用 nb-layout 的 `DropFeedbackOverlay` 画出（插入线，或正文区的整块与半块），带 `data-editor-drop`（落点种类）；指针右下 12px 有一个跟手的拖影（`body` 下，`data-editor-drag-ghost`）：被拖标签的图标与名字，与标签同字号、同底色，没有落点时也跟着；拖动中整个编辑器区是抓手光标、不扩选文字；起拖后组、标签或固定状态、多行设置变了就取消，松手时与最后显示的落点相同才交给控制器的 `moveTab`、`moveToNewGroup`。
+拖动标签（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 55）装在根上（来源与落点在 `web/tab-drag.ts`，手势是 nb-layout 的拖动会话，[`ui/layout-drag.md`](../../../../../../../docs/specs/ui/layout-drag.md)）：按住标签主体移动起拖，落点用 nb-layout 的 `DropFeedbackOverlay` 画出（插入线，或正文区的整块与半块），带 `data-editor-drop`（落点种类）；指针右下 12px 有一个跟手的拖影（`body` 下，`data-editor-drag-ghost`）：被拖标签的图标与名字，与标签同字号、同底色，没有落点时也跟着；拖动中整个编辑器区是抓手光标、不扩选文字；起拖后组、标签或固定状态、多行设置变了就取消，松手时与最后显示的落点相同才交给控制器的 `moveTab`、`moveToNewGroup`。
 
 ## 布局与交互
 

@@ -139,7 +139,7 @@ export interface DragGesture<S> {
     abort(): void;
     startKeyboard(source: S): boolean;
     /** 返回这个键是否归会话（适配层据此拦下）。 */
-    key(input: {readonly key: string; readonly shift: boolean; readonly repeat: boolean}): boolean;
+    key(input: {readonly key: string; readonly shift: boolean}): boolean;
     /** 这次 click 要不要吞。 */
     takeClick(detail: number): boolean;
     dispose(): void;
@@ -291,6 +291,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
 
     function withdraw(): void {
         const current = active;
+        // 放下中不撤：边缘滚动最后一步的滚动事件在放下那一帧之前到，撤了这次放下就静默不写了。
         if (current === null || current.dropping) return;
         clearFrame();
         current.shown = null;
@@ -328,6 +329,13 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
             return;
         }
         scrollFrame = clock.requestFrame(autoScrollTick);
+    }
+
+    /** 指针进了边缘带就排上边缘滚动；已经在滚时不用排。 */
+    function armAutoScroll(point: GridDropPoint): void {
+        const scroller = host.autoScroll;
+        if (active === null || scroller === undefined || scrollFrame !== null) return;
+        if (edgeScrollStep(scroller.rect(), point, scroller.edgePx, scroller.maxStepPx) !== 0) scrollFrame = clock.requestFrame(autoScrollTick);
     }
 
     function begin(from: Armed<S>, point: GridDropPoint): void {
@@ -402,18 +410,18 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
                     if (moved > config.touchTolerancePx) disarm();
                     else from.latest = point;
                 } else if (moved >= config.distancePx) {
-                    // 接着往下走：过门槛的这一下可能已经在边缘上，边缘滚动要从这里开始。
                     begin(from, point);
+                    // 拿起时已经发布过这个坐标，不用再排一帧；但这一下可能已经在边缘上，边缘滚动要从这里开始。
+                    armAutoScroll(point);
                 }
+                return;
             }
             const current = active;
+            // 放下中的这一帧不再跟指针：要按松手的坐标放下。
             if (current === null || current.dropping || pointerId !== current.pointerId) return;
             current.point = point;
             schedule();
-            const scroller = host.autoScroll;
-            if (scroller !== undefined && scrollFrame === null && edgeScrollStep(scroller.rect(), point, scroller.edgePx, scroller.maxStepPx) !== 0) {
-                scrollFrame = clock.requestFrame(autoScrollTick);
-            }
+            armAutoScroll(point);
         },
         release(pointerId, point) {
             if (armed !== null && pointerId === armed.pointerId) {
@@ -450,9 +458,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
             if (host.scroll === "withdraw") withdraw();
             else schedule();
         },
-        resized() {
-            if (active !== null && !active.dropping) schedule();
-        },
+        resized: schedule,
         invalidate: withdraw,
         abort() {
             disarm();
@@ -479,7 +485,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
             }
             return true;
         },
-        key({key, shift, repeat}) {
+        key({key, shift}) {
             const current = active;
             if (current === null || !SESSION_KEYS.has(key)) return false;
             if (key === "Escape") {
@@ -487,7 +493,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
                 return true;
             }
             const cursor = current.cursor;
-            if (cursor === null || (repeat && key === " ")) return true;
+            if (cursor === null) return true;
             if (key === "Enter") {
                 drop();
             } else if (key === "Tab") {

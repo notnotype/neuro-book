@@ -17,6 +17,7 @@ export {
     type SashCursorOwner,
 } from "./sash-feedback";
 export {SASH_GESTURE_SCOPE_KEY, useSashScope} from "./sash-scope";
+export type {DragState} from "../drag-gesture";
 export {createDragSession} from "./drag-session";
 export type {DragKeyboardOptions, DragQuery, DragSession, DragSessionOptions} from "./drag-session";
 export {dropTargetAt, registerDropTarget, useDropTarget} from "./drop-targets";

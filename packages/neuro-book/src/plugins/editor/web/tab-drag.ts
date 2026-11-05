@@ -84,15 +84,14 @@ function linesOf(strip: HTMLElement): Line[] {
 export function resolveTabDrop(root: HTMLElement, top: Element | null, point: {readonly x: number; readonly y: number}, dragged: TabDragSource): TabDrop | null {
     const target = dropTargetAt(top, EDITOR_GROUP_TAB);
     if (top === null || target === null || !root.contains(target.element)) return null;
-    const hit = top;
     const groupElement = target.element as HTMLElement;
     const group = target.data.group;
     const strip = groupElement.querySelector<HTMLElement>("[data-editor-tabs]");
     const header = strip?.parentElement ?? null;
     // 标签条（含它右侧的标题动作那一块）：插入位。
-    if (strip !== null && header !== null && header.contains(hit)) return stripDrop(strip, point, dragged, group);
+    if (strip !== null && header !== null && header.contains(top)) return stripDrop(strip, point, dragged, group);
     const content = groupElement.querySelector<HTMLElement>("[data-editor-content]");
-    if (content === null || !content.contains(hit)) return null;
+    if (content === null || !content.contains(top)) return null;
     return contentDrop(groupElement, content, point, dragged, group);
 }
 
