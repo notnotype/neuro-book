@@ -109,6 +109,12 @@ describe("canon.project 输出 24：带令牌的读取", () => {
         expect(whole !== "cursor-stale" && whole.items.map((item) => item.change.id)).toEqual([plan]);
         const planned = view.presence(xia, {mode: "planned"});
         expect(planned !== "view-denied" && typeof planned !== "string" && planned.items.map((item) => item.change.id)).toContain(plan);
+
+        // 上限更晚、调用方给了更早的 `to`：按 `to` 那一章的末尾算，上限只截、不替换（那时计划还没兑现）。
+        const wide = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch11", edge: "end"}, purpose: "writer"});
+        if (typeof wide === "string" || !("token" in wide)) throw new Error(JSON.stringify(wide));
+        const early = service.viewed(wide.token).presence(xia, {mode: "planned", to: "ch10"});
+        expect(early !== "view-denied" && typeof early !== "string" && early.items.map((item) => item.change.id)).toContain(plan);
     });
 
     test("上限不在章序里、别的线：打不开", async () => {

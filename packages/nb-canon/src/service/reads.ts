@@ -119,11 +119,12 @@ export interface CanonReadView {
 
 export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp): CanonReadView {
     const order = world.options.order;
-    return {
+    // 视图本身、章序与戳都冻结：同一个视图对象会交给一份读取输入上的几个插件（服务的 `#readViewOf`），谁改了都会影响别人。
+    const view: CanonReadView = {
         version: world.version,
-        stamp,
+        stamp: deepFreeze(stamp),
         line: "main",
-        chapters: order.ids,
+        chapters: deepFreeze([...order.ids]),
         // 引擎算出的结果可能与引擎的快照共用对象：交出去之前深冻结（core/freeze.ts）。存下来的对象在世界表里已经冻过。
         entry: (id, position, mode) => deepFreeze(world.engine.entry(id, position, mode)),
         object: (ref) => world.object(ref),
@@ -154,6 +155,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         },
         markType: (kind) => deepFreeze((world.options.marks ?? EMPTY_MARK_REGISTRY).byKind(kind)),
     };
+    return Object.freeze(view);
 }
 
 /**
@@ -187,7 +189,7 @@ export function readStampOf(world: World, chapterDigest: (chapter: string) => st
         calendar: null,
         fuzzy: null,
     }));
-    return {version: world.version, textDigest, inputDigest};
+    return Object.freeze({version: world.version, textDigest, inputDigest});
 }
 
 /**

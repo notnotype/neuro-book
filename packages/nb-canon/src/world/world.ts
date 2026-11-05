@@ -759,7 +759,8 @@ function dependsOn(later: Revision, earlier: Revision, groups: ReadonlyMap<strin
         const patches = op.kind === "create" ? ((op.after as StoryChange).patches ?? []) : op.kind === "modify" ? op.fields.flatMap((field) => (Array.isArray(field.after) ? (field.after as Patch[]) : [])) : [];
         for (const patch of patches) {
             if (patch === null || typeof patch !== "object" || !("at" in patch)) continue;
-            const address = `${patch.at.entry}\u0000${patch.at.path}`;
+            // 去元素的补丁地址是整个列表，元素 id 在 `value` 里：换成元素的地址再比（“改过它新建的列表元素”含去掉它）。
+            const address = patch.op === "listRemove" ? `${patch.at.entry}\u0000${patch.at.path}[${String(patch.value)}]` : `${patch.at.entry}\u0000${patch.at.path}`;
             if (elements.some((element) => address === element || address.startsWith(`${element}.`))) return true;
         }
     }

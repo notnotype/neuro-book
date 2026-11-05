@@ -80,3 +80,17 @@ describe("CanonReadView：插件拿到的东西改不了（canon.model 输出 36
         expect(view.entry(xia, end, "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 90}}}}});
     });
 });
+
+describe("CanonReadView：视图本身、章序与戳也改不了", () => {
+    test("改章序、改戳、替换视图的方法都抛错", () => {
+        const {view} = build();
+        expect(() => (view.chapters as string[]).reverse()).toThrow(TypeError);
+        expect(() => {
+            (view.stamp as {inputDigest: string}).inputDigest = "x";
+        }).toThrow(TypeError);
+        expect(() => {
+            (view as {entry: unknown}).entry = () => null;
+        }).toThrow(TypeError);
+        expect(view.chapters).toEqual(["ch1", "ch2", "ch3", "ch4", "ch5", "ch6"]);
+    });
+});

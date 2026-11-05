@@ -358,6 +358,9 @@ describe("canon.revisions 输出 6、12 与 canon.components 输出 10：带来�
         const added = ok(base.world.publish(request([{ref: {kind: "change", id}, after: {...current, patches: [{op: "listAdd", at: {entry: "e1", path: "panel.物品"}, value: {id: "药", label: "药", 数量: 1}}]}}], {baseVersion: 2}), "t"));
         const later = ok(added.world.publish(request([{ref: {kind: "change", id: "tmp:d"}, after: change("tmp:d", "ch3", [{op: "set", at: {entry: "e1", path: "panel.物品[药].数量"}, value: 2}])}], {baseVersion: 3}), "t"));
         expect(later.world.dependents(added.revision.id)).toEqual([added.revision.id, later.revision.id]);
+        // 之后把这个元素去掉，同样是依赖。
+        const removed = ok(added.world.publish(request([{ref: {kind: "change", id: "tmp:r"}, after: change("tmp:r", "ch3", [{op: "listRemove", at: {entry: "e1", path: "panel.物品"}, value: "药"}])}], {baseVersion: 3}), "t"));
+        expect(removed.world.dependents(added.revision.id)).toEqual([added.revision.id, removed.revision.id]);
     });
 
     test("兑现组：之后改了组里另一条记录的修订依赖它；被兑现的计划不在组里（model.md 输出 13）", () => {

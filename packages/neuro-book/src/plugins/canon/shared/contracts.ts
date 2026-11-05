@@ -229,6 +229,8 @@ export interface CanonStatus {
     readonly recomputed: unknown;
     /** 最近几次插件诊断的计算耗时（project.md 输出 26）。 */
     readonly diagnosticTimings: readonly {readonly diagnostic: string; readonly ms: number; readonly slow?: true}[];
+    /** 当前打开的视图数。 */
+    readonly openViews: number;
 }
 
 export interface Page<T> {

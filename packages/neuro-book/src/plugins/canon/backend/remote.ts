@@ -57,6 +57,9 @@ export interface CallerHoldings {
     readonly views: Set<string>;
 }
 
+/** 不会发出去的令牌：内核查不到它，按失效的令牌拒绝。 */
+const FOREIGN_VIEW = "";
+
 export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implementation {
     const {tokens, views} = holdings;
     /** 等打开完成；打不开时把原因当失败。 */
@@ -66,28 +69,33 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
         return run(service);
     };
     const read = <T>(value: T | "chapter-not-found" | "cursor-stale" | "view-denied"): {readonly ok: true; readonly value: T} | Failure => (typeof value === "string" ? fail({code: value}) : within(value));
+    /**
+     * 只认这个调用方自己打开的视图令牌：别人的令牌（例如剧情插件在项目里为看的人开的）按不存在处理，拒绝并记审计、不借用那张
+     * 视图的看的人。否则拿到或猜到别人的令牌，就能绕过建在视图之上的过滤（剧情插件的按视角读取）。
+     */
+    const own = (view: string) => (views.has(view) ? view : FOREIGN_VIEW);
     /** 不许带视图令牌的方法带了令牌：记审计并拒（输出 24）。 */
-    const denied = (service: WorldService, view: string | undefined, method: string): Failure | null => (view === undefined ? null : fail({code: service.viewed(view).deny(method)}));
+    const denied = (service: WorldService, view: string | undefined, method: string): Failure | null => (view === undefined ? null : fail({code: service.viewed(own(view)).deny(method)}));
     const position = (service: WorldService, given: ReadPosition | undefined): ReadPosition => given ?? defaultPosition(service.world.options.order);
 
     return {
         methods: {
             status: () => withWorld((service) => ({ok: true as const, value: service.status()})),
             entry: (input) => withWorld((service) => {
-                if (input.view !== undefined) return read(service.viewed(input.view).entry(input.id, input.position, input.mode));
+                if (input.view !== undefined) return read(service.viewed(own(input.view)).entry(input.id, input.position, input.mode));
                 return read(service.entry(input.id, position(service, input.position), input.mode, input.withOrigins === true));
             }),
             tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => service.tree(input.parent, input.cursor, limit))),
-            lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(input.view).lookup(input.names, input.position))),
-            changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(input.view).changes(input.filter ?? {}, input.cursor, limit)))),
-            tellings: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.tellings(input.filter ?? {}, input.cursor, limit) : service.viewed(input.view).tellings(input.filter ?? {}, input.cursor, limit)))),
-            presence: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.presence(input.person, input.filter ?? {}, input.cursor, limit) : service.viewed(input.view).presence(input.person, input.filter ?? {}, input.cursor, limit)))),
+            lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(own(input.view)).lookup(input.names, input.position))),
+            changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).changes(input.filter ?? {}, input.cursor, limit)))),
+            tellings: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.tellings(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).tellings(input.filter ?? {}, input.cursor, limit)))),
+            presence: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.presence(input.person, input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).presence(input.person, input.filter ?? {}, input.cursor, limit)))),
             object: (input) => withWorld((service) => denied(service, input.view, "object") ?? within(service.object(input.ref))),
             pending: (input) => withWorld((service) => denied(service, input.view, "pending") ?? paged(input.limit, (limit) => service.pending({...(input.position === undefined ? {} : {position: input.position}), ...(input.mode === undefined ? {} : {mode: input.mode}), ...(input.group === undefined ? {} : {group: input.group})}, input.cursor, limit))),
             decisions: (input) => withWorld((service) => denied(service, input.view, "decisions") ?? paged(input.limit, (limit) => service.decisions({...(input.status === undefined ? {} : {status: input.status}), ...(input.about === undefined ? {} : {about: input.about})}, input.cursor, limit))),
             suggestions: (input) => withWorld((service) => denied(service, input.view, "suggestions") ?? paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
             revisions: (input) => withWorld((service) => denied(service, input.view, "revisions") ?? paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
-            render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience) : service.viewed(input.view).render(input.entry, input.position, input.mode, input.audience))),
+            render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience) : service.viewed(own(input.view)).render(input.entry, input.position, input.mode, input.audience))),
             preview: (input) => withWorld((service) => {
                 const refused = denied(service, input.view, "preview");
                 if (refused !== null) return refused;

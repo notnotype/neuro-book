@@ -298,22 +298,27 @@ describe("canon.project：正文快照、视图与插件的登记", () => {
         if (!created.ok) throw new Error(created.failure.code);
         const xia = created.value.ids[Object.keys(created.value.ids)[0]!]!;
 
-        const opened = await writer.canon.call("openView", {viewer: null, line: "main", until: {kind: "chapter", chapter: "2", edge: "start"}, purpose: "writer"});
+        const opened = await writer.canon.call("openView", {viewer: xia, line: "main", until: {kind: "chapter", chapter: "2", edge: "start"}, purpose: "writer"});
         if (!opened.ok) throw new Error(JSON.stringify(opened.failure));
         const view = opened.value.token;
         expect((await writer.canon.call("entry", {id: xia, mode: "actual", view})).ok).toBe(true);
         expect(await writer.canon.call("entry", {id: xia, position: {kind: "chapter", chapter: "3", edge: "end"}, mode: "actual", view})).toMatchObject({ok: false, failure: {code: "view-denied"}});
         expect(await writer.canon.call("object", {ref: {kind: "entry", id: xia}, view})).toMatchObject({ok: false, failure: {code: "view-denied"}});
         expect(await writer.canon.call("publish", {request: {...person("又一个"), baseVersion: await version(author.canon)}, view})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        // 别的调用方拿着写手的令牌读：按不存在的令牌拒，审计里看的人记成不知道（不借用写手那张视图）。
+        expect(await author.canon.call("entry", {id: xia, mode: "actual", view})).toMatchObject({ok: false, failure: {code: "view-denied"}});
         const audit = await author.canon.call("viewAudit", {});
-        expect(audit.ok && audit.value.items.map((item) => item.method)).toEqual(["entry", "object", "publish"]);
+        expect(audit.ok && audit.value.items.map((item) => [item.method, item.viewer])).toEqual([["entry", xia], ["object", xia], ["publish", xia], ["entry", null]]);
+        expect(view).not.toMatch(/^view-\d+$/u);
 
         // 令牌的寿命是申请它的调用方实例：窗口关掉（实例失效）时入口关掉它打开的视图。只断链路时实例还在、可以重连。
+        const status = async () => {
+            const read = await author.canon.call("status", {});
+            return read.ok ? read.value.openViews : -1;
+        };
+        expect(await status()).toBe(1);
         await writer.close();
-        await until(async () => {
-            const read = await author.canon.call("entry", {id: xia, mode: "actual", view});
-            return !read.ok && read.failure.code === "view-denied";
-        });
+        await until(async () => (await status()) === 0);
 
         await author.close();
         keep.release();

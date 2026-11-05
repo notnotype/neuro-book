@@ -181,7 +181,6 @@ export class WorldService {
     /** 打开着的视图，按令牌（输出 24）；令牌的寿命由调用方那一层管，它在调用方断开或入口停止时调 `closeView`。 */
     readonly #views = new Map<string, ViewGrant>();
     readonly #viewAudit = new ViewAudit();
-    #viewSequence = 0;
     /** 最近几次诊断计算的耗时（project.md 输出 26）。 */
     readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
     #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
@@ -265,6 +264,8 @@ export class WorldService {
             diagnostics: [...this.diagnostics, ...this.#world.options.registry.diagnostics, ...(this.#world.options.marks ?? EMPTY_MARK_REGISTRY).diagnostics, ...(this.#world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).diagnostics],
             /** 最近几次插件诊断的计算耗时，超过 200 毫秒的标 `slow`（project.md 输出 26）。 */
             diagnosticTimings: this.#timings.map((timing) => ({...timing, ...(timing.ms > SLOW_DIAGNOSTIC_MS ? {slow: true as const} : {})})),
+            /** 当前打开的视图数（project.md 输出 26）：看令牌有没有随调用方收口。 */
+            openViews: this.#views.size,
             recomputed: this.#world.engine.recomputed,
         };
     }
@@ -436,10 +437,10 @@ export class WorldService {
         const check = () => {
             if (this.#inputGeneration !== generation) throw new Error("canon snapshot used after the text snapshot or plugin data changed; take a new snapshot");
         };
-        return Object.fromEntries(Object.entries(target).map(([key, value]) => [key, typeof value === "function" && key !== "compareKeys" ? (...args: unknown[]) => {
+        return Object.freeze(Object.fromEntries(Object.entries(target).map(([key, value]) => [key, typeof value === "function" && key !== "compareKeys" ? (...args: unknown[]) => {
             check();
             return (value as (...inner: unknown[]) => unknown)(...args);
-        } : value])) as T;
+        } : value]))) as T;
     }
 
     /* ---------- 视图（输出 24） ---------- */
@@ -448,7 +449,8 @@ export class WorldService {
     openView(grant: ViewGrant): {readonly token: string} | "chapter-not-found" | {readonly code: "line-not-found"} {
         if (grant.line !== "main") return {code: "line-not-found"};
         if (boundRank(this.#world.options.order, grant) === null) return "chapter-not-found";
-        const token = `view-${String(++this.#viewSequence)}`;
+        // 令牌不可预测：拿着它的读取在服务里只按令牌认，可猜的连续编号会让别的调用方冒用（远程门面另外只认调用方自己开的）。
+        const token = `view-${globalThis.crypto.randomUUID()}`;
         this.#views.set(token, {...grant});
         return {token};
     }
@@ -523,8 +525,11 @@ export class WorldService {
             presence: (person, filter = {}, cursor, limit = 50) => {
                 const found = chapters("presence", filter.from, filter.to);
                 if (found === "view-denied") return found;
-                // 按计划模式计入的计划按上限算（上限是章首时，这一章里已写的兑现还没发生）。
-                const listed = listPresence(world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})}, found.until);
+                // 按计划模式计入的计划按这次读到的位置算：给了更早的 `to` 就是那一章的末尾，否则是上限（上限是章首时，这一章里
+                // 已写的兑现还没发生）。上限只截、不替换调用方给的更早的范围。
+                const toEnd = filter.to === undefined ? undefined : ({kind: "chapter", chapter: filter.to, edge: "end"} as const);
+                const upTo = toEnd !== undefined && positionWithin(order(), found, toEnd) ? toEnd : found.until;
+                const listed = listPresence(world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})}, upTo);
                 if (listed === "chapter-not-found") return listed;
                 const stamp = this.#stampOf(world);
                 const page = this.#page(stamp, listed.changes.filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "presence", view: token, person, ...filter});
