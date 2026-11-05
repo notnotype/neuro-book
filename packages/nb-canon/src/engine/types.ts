@@ -118,7 +118,8 @@ export interface Engine {
     progress(plan: string, position: ReadPosition): PlanProgress | "chapter-not-found";
     /** 按计划模式在这个位置计入的计划 id，按先后排（model.md 输出 5；在场的按计划模式读取用它，输出 29）。 */
     plannedAt(position: ReadPosition): readonly string[] | "chapter-not-found";
-    pending(position: ReadPosition): readonly PendingItem[] | "chapter-not-found";
+    /** 待处理（model.md 输出 16）；按计划模式时核对点、套不上与嫌疑区间都算上这个位置计入的计划。缺省实际模式。 */
+    pending(position: ReadPosition, mode?: Mode): readonly PendingItem[] | "chapter-not-found";
     /** 某一章涉及的条目（model.md 输出 20）。 */
     chapterEntries(chapter: string): readonly string[];
 }

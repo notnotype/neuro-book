@@ -286,9 +286,9 @@ export class WorldService {
         return {...this.#stamp(), object, ...(hints.length === 0 ? {} : {markHints: hints})};
     }
 
-    pending(position?: ReadPosition): (ReadStamp & {items: readonly PendingItem[]}) | "chapter-not-found" {
+    pending(position?: ReadPosition, mode: Mode = "actual"): (ReadStamp & {items: readonly PendingItem[]}) | "chapter-not-found" {
         const world = this.#world;
-        const items = world.pending(position ?? defaultPosition(world.options.order));
+        const items = world.pending(position ?? defaultPosition(world.options.order), mode);
         return items === "chapter-not-found" ? items : {...this.#stamp(), items};
     }
 

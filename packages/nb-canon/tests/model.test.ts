@@ -231,6 +231,24 @@ describe.each(ENGINES)("%s", (_name, createEngine) => {
         });
     });
 
+    describe("canon.model 输出 16：按计划模式的待处理", () => {
+        test("计划让后面的核对点对不上、计划自己套不上：只在按计划模式的待处理里，嫌疑区间里有那条计划", () => {
+            const world = new WorldBuilder()
+                .entry("xia", "星瑕", {panel: {存款: 1000, 魔力: 10}})
+                .plan("p2", chapter("ch2"), [add("xia", "panel.存款", -300)])
+                .plan("p3", chapter("ch3", 10), [add("xia", "panel.魔力", -50)])
+                .check("k4", "xia", "panel.存款", 1000, chapter("ch4", 90));
+            const engine = createEngine(world.inputs());
+            expect(engine.pending(end("ch5"))).toEqual([]);
+            expect(engine.pending(end("ch5"), "planned")).toEqual([
+                {kind: "cannot-apply", root: "p3", changes: ["p3"]},
+                {kind: "check-mismatch", check: "k4", at: {entry: "xia", path: "panel.存款"}, computed: 700, written: 1000, suspects: ["init", "p2"]},
+            ]);
+            // 读取位置在计划之前：计划不计入，待处理照实际模式。
+            expect(engine.pending(end("ch1"), "planned")).toEqual([]);
+        });
+    });
+
     describe("canon.model 输出 14、15、16、20", () => {
         test("出场之前标尚未出场；删除的条目读到墓碑、对它的补丁套不上", () => {
             const world = new WorldBuilder()

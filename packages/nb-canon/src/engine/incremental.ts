@@ -26,6 +26,7 @@ import type {Address, Check, Entry, EntryState, FieldDeclaration, ReadPosition, 
 import {sameJson} from "../core/stable-json";
 import {applyChange, incompleteAt, replayAnchor, replayChangeOnEntry, type ChangeResult, type FoldState, type IncompleteEvent} from "../model/apply";
 import {fieldOf, reductionFieldId} from "./reference";
+import {sortPending, type RankedPending} from "./pending";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, WorldData} from "./types";
 import {buildEntryView, readEntryAddress, type EntryFold} from "./views";
 
@@ -90,7 +91,6 @@ export interface IncrementalEngine extends Engine {
 
 const compareEvents = (a: {rank: Rank; tie: OrderTie}, b: {rank: Rank; tie: OrderTie}) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie);
 
-const PENDING_KIND_ORDER = {"check-mismatch": 0, "cannot-apply": 1, held: 2, "chapter-deleted": 3} as const;
 
 export function createIncrementalEngine(inputs: EngineInputs): IncrementalEngine {
     const events = actualEvents(inputs);
@@ -165,18 +165,23 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         return (exactChecksCache = points.sort((a, b) => compareEvents(a.point, b.point)));
     }
 
-    function evaluate(item: {check: Check; point: Point}): CheckResult {
-        const cached = checkCache.get(item.check.id);
+    /** 按计划模式的覆盖层上的核对结果，按覆盖层各存一份（覆盖层本身按计入的计划集合缓存）。 */
+    const overlayChecks = new WeakMap<Snapshot, Map<string, CheckResult>>();
+
+    /** 核对点在一份快照上比较：实际模式的结果跨版本沿用（见上），覆盖层上的只在这个引擎实例里缓存。 */
+    function evaluate(item: {check: Check; point: Point}, snapshot: Snapshot = actual): CheckResult {
+        const cache = snapshot === actual ? checkCache : (overlayChecks.get(snapshot) ?? (overlayChecks.set(snapshot, new Map()), overlayChecks.get(snapshot)!));
+        const cached = cache.get(item.check.id);
         if (cached !== undefined && cached !== null) return cached;
-        const fold = foldAtPoint(actual, world, registry, item.check.at.entry, item.point);
+        const fold = foldAtPoint(snapshot, world, registry, item.check.at.entry, item.point);
         const computed = readEntryAddress(fold?.state, item.check.at.path);
         const skipped = fold !== undefined && incompleteAt(fold.incomplete, item.check.at.path) !== undefined;
         const result: CheckResult = {check: item.check, point: item.point, computed, result: skipped ? "skipped" : computed === item.check.value ? "ok" : "mismatch"};
-        checkCache.set(item.check.id, result);
+        cache.set(item.check.id, result);
         return result;
     }
 
-    const checksBefore = (rank: Rank) => exactChecks().filter((item) => rankBefore(item.point.rank, rank)).map(evaluate);
+    const checksBefore = (rank: Rank, snapshot: Snapshot = actual) => exactChecks().filter((item) => rankBefore(item.point.rank, rank)).map((item) => evaluate(item, snapshot));
 
     function planRank(plan: StoryChange): Rank | null {
         const rank = placementRank(order, plan.at);
@@ -299,9 +304,9 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
      * 嫌疑区间（model.md 输出 12）：从“上一个比较过的核对点”与“最后一次赋值”中较晚的一个起，到这个核对点为止。
      * `previous` 由调用方按核对点的先后一遍算出；`sets` 是这个地址上赋值的位置。只扫区间本身，不从头扫时间线。
      */
-    function suspects(result: CheckResult, previous: Point | undefined, sets: readonly number[]): string[] {
+    function suspects(result: CheckResult, previous: Point | undefined, sets: readonly number[], snapshot: Snapshot): string[] {
         const at = result.check.at;
-        const items = actual.timelines.get(at.entry)?.items ?? [];
+        const items = snapshot.timelines.get(at.entry)?.items ?? [];
         const end = firstNotBefore(items, result.point);
         let lastSet = -1;
         for (let low = 0, high = sets.length; low < high;) {
@@ -476,19 +481,20 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             return includedPlans(rank).map((event) => event.change.id);
         },
 
-        pending(position) {
+        pending(position, mode = "actual") {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
-            const cacheKey = rank.join(",");
+            const cacheKey = `${mode}:${rank.join(",")}`;
             const cached = pendingCache.get(cacheKey);
             if (cached !== undefined) return cached;
-            type Ranked = {rank: Rank | null; item: PendingItem; id: string};
-            const items: Ranked[] = [];
+            // 按计划模式：核对点、套不上与嫌疑区间都在这个位置的覆盖层上算（model.md 输出 16）。
+            const snapshot = snapshotFor(mode, rank);
+            const items: RankedPending[] = [];
             // 核对点按先后排好：一遍走下来就知道每个核对点之前、同一地址上最后一个比较过的是哪个。
             // 比较时点相同的两个核对点（挂在同一条变更的同一侧）互不算“之前”，所以从后往前找第一个严格更早的。
             const compared = new Map<string, Point[]>();
             const sets = new Map<string, number[]>();
-            for (const result of checksBefore(rank)) {
+            for (const result of checksBefore(rank, snapshot)) {
                 if (result.result === "skipped") continue;
                 const key = addressKey(result.check.at);
                 let earlier = compared.get(key);
@@ -497,15 +503,15 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                     let previous: Point | undefined;
                     for (let index = earlier.length - 1; index >= 0 && previous === undefined; index -= 1) if (compareEvents(earlier[index]!, result.point) < 0) previous = earlier[index];
                     let addressSets = sets.get(key);
-                    if (addressSets === undefined) sets.set(key, (addressSets = setIndices(actual.timelines.get(result.check.at.entry)?.items ?? [], result.check.at)));
-                    items.push({rank: result.point.rank, id: result.check.id, item: {kind: "check-mismatch", check: result.check.id, at: result.check.at, computed: result.computed as number, written: result.check.value, suspects: suspects(result, previous, addressSets)}});
+                    if (addressSets === undefined) sets.set(key, (addressSets = setIndices(snapshot.timelines.get(result.check.at.entry)?.items ?? [], result.check.at)));
+                    items.push({rank: result.point.rank, id: result.check.id, item: {kind: "check-mismatch", check: result.check.id, at: result.check.at, computed: result.computed as number, written: result.check.value, suspects: suspects(result, previous, addressSets, snapshot)}});
                 }
                 earlier.push(result.point);
             }
-            for (const event of actual.events) {
+            for (const event of snapshot.events) {
                 if (!rankBefore(event.rank, rank)) break;
                 if (event.kind !== "change") continue;
-                const result = actual.outcomes.get(event.change.id);
+                const result = snapshot.outcomes.get(event.change.id);
                 if (result === undefined || result.applied) continue;
                 items.push({rank: event.rank, id: event.change.id, item: {kind: "cannot-apply", root: event.change.id, changes: [event.change.id]}});
             }
@@ -516,16 +522,7 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             for (const check of world.checks.values()) {
                 if (check.place.kind === "chapter" && !order.has(check.place.chapter)) items.push({rank: null, id: check.id, item: {kind: "chapter-deleted", ref: {kind: "check", id: check.id}}});
             }
-            items.sort((a, b) => {
-                if (a.rank === null || b.rank === null) {
-                    if (a.rank !== b.rank) return a.rank === null ? 1 : -1;
-                } else {
-                    const byRank = compareRanks(a.rank, b.rank);
-                    if (byRank !== 0) return byRank;
-                }
-                return PENDING_KIND_ORDER[a.item.kind] - PENDING_KIND_ORDER[b.item.kind] || compareIds(a.id, b.id);
-            });
-            const result = items.map((item) => item.item);
+            const result = sortPending(items);
             pendingCache.set(cacheKey, result);
             return result;
         },

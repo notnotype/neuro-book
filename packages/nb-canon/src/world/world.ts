@@ -42,7 +42,7 @@ import {
 } from "../core/schema";
 import {sameJson, stableStringify} from "../core/stable-json";
 import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../engine/incremental";
-import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../engine/types";
+import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
@@ -183,8 +183,8 @@ export class World {
     }
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
-    pending(position: ReadPosition): readonly PendingItem[] | "chapter-not-found" {
-        const items = this.engine.pending(position);
+    pending(position: ReadPosition, mode: Mode = "actual"): readonly PendingItem[] | "chapter-not-found" {
+        const items = this.engine.pending(position, mode);
         if (items === "chapter-not-found") return items;
         const grouped: PendingItem[] = [];
         const groups = new Map<string, {root: string; changes: string[]}>();

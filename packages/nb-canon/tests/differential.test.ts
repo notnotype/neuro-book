@@ -236,7 +236,7 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
             }
         }
     }
-    for (const position of positions) expect(inc.pending(position), `${where()} pending ${JSON.stringify(position)}`).toEqual(ref.pending(position));
+    for (const position of positions) for (const mode of ["actual", "planned"] as const) expect(inc.pending(position, mode), `${where()} pending ${JSON.stringify(position)} ${mode}`).toEqual(ref.pending(position, mode));
     for (const change of inputs.world.changes.values()) {
         expect(inc.outcome(change.id), `${where()} outcome ${change.id}`).toEqual(ref.outcome(change.id));
         if (change.kind === "plan") for (const position of positions) expect(inc.progress(change.id, position), `${where()} progress ${change.id}`).toEqual(ref.progress(change.id, position));

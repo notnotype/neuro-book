@@ -19,6 +19,7 @@ import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type 
 import type {Address, Check, Entry, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
 import {applyChange, incompleteAt, initialFoldState, namespaceFields, type ChangeResult, type FoldState} from "../model/apply";
 import {buildEntryView, readEntryAddress, type EntryFold} from "./views";
+import {sortPending, type RankedPending} from "./pending";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress} from "./types";
 
 type FoldEvent =
@@ -38,7 +39,6 @@ interface CheckPoint {
     readonly point: Point;
 }
 
-const PENDING_KIND_ORDER = {"check-mismatch": 0, "cannot-apply": 1, held: 2, "chapter-deleted": 3} as const;
 
 export function createReferenceEngine(inputs: EngineInputs): Engine {
     const {world, order, registry} = inputs;
@@ -118,8 +118,9 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
     }
 
     type CheckResult = {readonly point: CheckPoint; readonly computed: unknown; readonly result: "ok" | "mismatch" | "skipped"};
-    function evaluate(point: CheckPoint): CheckResult {
-        const state = fold(actualEvents, beforePoint(point.point));
+    /** 核对点在给定的事件序列（实际模式的，或按计划模式加了计划的）上比较。 */
+    function evaluate(point: CheckPoint, events: readonly FoldEvent[] = actualEvents): CheckResult {
+        const state = fold(events, beforePoint(point.point));
         const computed = readAddress(state, point.check.at);
         if (incompleteAt(state.incomplete.get(point.check.at.entry), point.check.at.path) !== undefined) return {point, computed, result: "skipped"};
         return {point, computed, result: computed === point.check.value ? "ok" : "mismatch"};
@@ -204,27 +205,27 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
         return null;
     }
 
-    function checksBefore(positionRankValue: Rank): CheckResult[] {
-        return exactChecks().filter((point) => rankBefore(point.point.rank, positionRankValue)).map(evaluate);
+    function checksBefore(positionRankValue: Rank, events: readonly FoldEvent[] = actualEvents): CheckResult[] {
+        return exactChecks().filter((point) => rankBefore(point.point.rank, positionRankValue)).map((point) => evaluate(point, events));
     }
 
-    function suspects(result: CheckResult): string[] {
+    function suspects(result: CheckResult, events: readonly FoldEvent[], outcomes: ReadonlyMap<string, ChangeResult>): string[] {
         const at = result.point.check.at;
         const before = beforePoint(result.point.point);
         const previous = exactChecks()
             .filter((other) => other.check.id !== result.point.check.id && other.check.at.entry === at.entry && other.check.at.path === at.path && compareEvents(other.point, result.point.point) < 0)
-            .map(evaluate)
+            .map((other) => evaluate(other, events))
             .filter((other) => other.result !== "skipped")
             .at(-1);
         // 起点是上一个比较过的核对点时，按它的比较时点排除它之前的记录（挂在某条变更之后的核对点，那条变更也在它之前）；
         // 起点是最后一次赋值时，那条赋值本身在区间里。
         let start: {rank: Rank; tie: OrderTie} | null = previous === undefined ? null : previous.point.point;
         let startExcluded = previous !== undefined && previous.point.point.inclusive;
-        for (const event of actualEvents) {
+        for (const event of events) {
             if (!before(event)) break;
             if (event.kind !== "change") continue;
             if (!event.change.patches.some((patch) => patch.op === "set" && addressesOverlap(patch.at, at) && patch.at.path.length <= at.path.length)) continue;
-            if (allOutcomes().get(event.change.id)?.applied !== true) continue;
+            if (outcomes.get(event.change.id)?.applied !== true) continue;
             if (start === null || compareEvents(event, start) > 0) {
                 start = event;
                 startExcluded = false;
@@ -232,7 +233,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
         }
         const list: Array<{id: string; estimate: boolean}> = [];
         if (start === null) list.push({id: "init", estimate: world.entries.get(at.entry)?.initBasis?.[at.path]?.kind === "estimate"});
-        for (const event of actualEvents) {
+        for (const event of events) {
             if (!before(event)) break;
             if (event.kind !== "change") continue;
             if (start !== null && (startExcluded ? compareEvents(event, start) <= 0 : compareEvents(event, start) < 0)) continue;
@@ -325,20 +326,23 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             return includedPlans(rank).map((event) => event.change.id);
         },
 
-        pending(position) {
+        pending(position, mode = "actual") {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
-            type Ranked = {rank: Rank | null; item: PendingItem; id: string};
-            const items: Ranked[] = [];
-            for (const result of checksBefore(rank)) {
+            // 按计划模式：核对点、套不上与嫌疑区间都在加了计划的事件序列上算（输出 16）。
+            const events = eventsFor(mode, rank);
+            const outcomes = mode === "actual" ? allOutcomes() : new Map<string, ChangeResult>();
+            if (mode !== "actual") fold(events, () => true, outcomes);
+            const items: RankedPending[] = [];
+            for (const result of checksBefore(rank, events)) {
                 if (result.result !== "mismatch") continue;
                 const check = result.point.check;
-                items.push({rank: result.point.point.rank, id: check.id, item: {kind: "check-mismatch", check: check.id, at: check.at, computed: result.computed as number, written: check.value, suspects: suspects(result)}});
+                items.push({rank: result.point.point.rank, id: check.id, item: {kind: "check-mismatch", check: check.id, at: check.at, computed: result.computed as number, written: check.value, suspects: suspects(result, events, outcomes)}});
             }
-            for (const event of actualEvents) {
+            for (const event of events) {
                 if (!rankBefore(event.rank, rank)) break;
                 if (event.kind !== "change") continue;
-                const result = allOutcomes().get(event.change.id);
+                const result = outcomes.get(event.change.id);
                 if (result === undefined || result.applied) continue;
                 items.push({rank: event.rank, id: event.change.id, item: {kind: "cannot-apply", root: event.change.id, changes: [event.change.id]}});
             }
@@ -351,16 +355,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             for (const check of world.checks.values()) {
                 if (check.place.kind === "chapter" && !order.has(check.place.chapter)) items.push({rank: null, id: check.id, item: {kind: "chapter-deleted", ref: {kind: "check", id: check.id}}});
             }
-            items.sort((a, b) => {
-                if (a.rank === null || b.rank === null) {
-                    if (a.rank !== b.rank) return a.rank === null ? 1 : -1;
-                } else {
-                    const byRank = compareRanks(a.rank, b.rank);
-                    if (byRank !== 0) return byRank;
-                }
-                return PENDING_KIND_ORDER[a.item.kind] - PENDING_KIND_ORDER[b.item.kind] || compareIds(a.id, b.id);
-            });
-            return items.map((item) => item.item);
+            return sortPending(items);
         },
 
         chapterEntries(chapter) {
