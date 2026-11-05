@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t11-compaction
-status: planned
-updated: 2026-10-28
+status: active
+updated: 2026-11-05
 ---
 
 # 上下文压缩
@@ -13,7 +13,7 @@ updated: 2026-10-28
 
 来源：清单外第 1 项（[报告](../t01-survey/artifacts/report/index.html)）。
 
-合同：本 Task 只做设计讨论，行为合同未变；定稿后在计划里写明改哪些 Spec。
+合同：[`agent/compaction.md`](../../../../../docs/specs/agent/compaction.md)（实施时新建）、[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md) 输出 46–52；其余见 [plan.md](plan.md)。
 
 ## 要讨论的问题
 
@@ -56,10 +56,18 @@ t03、t09。
 8. 压缩条目统一形状 `{method, firstKeptEntryId, replacement, tokensBefore, tokensAfter, details}`，是当前路径上的节点，只对其后生效；插件经 `agent.compactionMethods` 贡献方法，结果不合格按失败换下一个。
 9. 界面：对话里一条分隔线，点开看方法与模型、压缩前后 token 与花费、摘要全文、放回的文件与 Skill、用到的压缩要求，以及“看压缩前的原文”（只读）。
 
+## 计划确认时的修改（开发者 2026-11-05）
+
+改上面决定里的三处：
+
+- 决定 1：按模型的阈值不做前缀匹配。阈值写在每个模型自己的配置里，同一系列的模型逐个设。
+- 决定 6：shake 之后不放回。它没丢对话，放回最多约 2 万 token，会把省下的又加回去。“加载过的 Skill”这次不放回：Skill 还没实现，有了之后加一段。
+- 决定 9：不做“看压缩前的原文”。对话视图显示整条路径，压缩前的内容就在分隔线上面。
+
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+计划已确认（[plan.md](plan.md)），设计审查进行中（后端 omp，前端 Sonnet）。审查处理完后按切片实施。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`；压缩提示词与结果格式届时细化，并按实际体验调整。
+处理设计审查，按切片实施；压缩提示词与结果格式按实际体验调整。
