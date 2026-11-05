@@ -1,0 +1,168 @@
+### 1. E0 的诊断数量写成九个，实际应登记十三个
+严重程度：阻断；类别：正确性
+位置：t34/plan.md:687；docs/specs/plot/goals.md:35-41；docs/specs/plot/decisions.md:35-47；docs/specs/plot/brief.md:31-35
+现象：计划写“诊断九个（goals 三、decisions 九里除两个……是七，brief 三）”。这组加法是 3 + 7 + 3 = 13，不是 9；而且 decisions 的九个诊断中排除 constraintViolated、decidedInText 后确实还剩 addressGuardViolated、readerGuardViolated、overdue、dangling、povAbsent、flashbackMismatch、repeated 七个。
+为什么是问题：后续切片若照“九个”实现，会漏掉四个声明或计算；漏掉的诊断会让内核按 `diagnostic-unavailable` 标不完整，或者验收映射无法覆盖 Spec。当前内核会遍历登记表中的每个诊断（packages/nb-canon/src/service/service.ts:396-425），不是只调用计划作者记得的那几项。
+如何核实：逐项数三份 Spec 的诊断表；`goals.md` 3 个、`decisions.md` 9 个（其中 2 个留给阶段 F）、`brief.md` 3 个；运行时应得到 E 阶段新增 13 个诊断声明/计算。
+建议改法：把 E0 明确改成“新增十三个诊断，其中 goals 三、decisions 七、brief 三”，并在 E0/E2/E3 的登记测试中逐个断言 id、level、稳定键；若作者原意确实只做九个，必须明确删哪四个并先改 Spec、验收映射。
+### 2. 地址守卫计划写入内核不允许的 `params` 布尔值
+严重程度：阻断；类别：接口与合同
+位置：t34/plan.md:702；packages/nb-canon/src/service/diagnostics.ts:20-28；docs/specs/canon/model.md:75-79
+现象：地址守卫要求在无法检查时把 `unchecked: true` 放进 `Finding.params`。现有公开类型把 params 限定为 `Readonly<Record<string, string | number>>`，不接受 boolean；Spec 也规定 params 的键值都是文字或数。
+为什么是问题：E2 照计划写会直接产生 TypeScript 类型错误；若把 `true` 强行绕过类型，仍违反诊断合同，远程 JSON 形状会和其它诊断不一致。这个标记又是 Spec 要求的“无法检查”可观察结果，不能静默删掉或改报 pending。
+如何核实：在实现 worktree 对一个 `Finding` 赋值 `{params: {unchecked: true}}` 会被 `bunx tsc --noEmit -p .` 拒绝；读取 `Finding.params` 的声明可见没有 boolean 联合项。
+建议改法：优先把 `unchecked` 改成合同允许的文字值（例如 `"true"`），并把 Spec、诊断说明和测试统一；若必须保留布尔值，则先改 `Finding.params` 与 canon.model 合同，并补所有远程/消费端的 schema 与兼容测试，不能只在剧情插件里绕过类型。
+### 3. `KnowingIndex.changesOf` 不能按现有索引识别带过去的一步
+严重程度：阻断；类别：正确性
+位置：t34/plan.md:693；packages/neuro-book/src/plugins/plot/core/knowledge.ts:115-131、145-180；packages/nb-canon/src/engine/types.ts:107-113
+现象：E1 要求“按线视图算，carried 一步算一次，变更取触发处”，并说从已有候选中取。现有索引在 `changedBy` 中只挑 `candidate.change === change` 的候选；而 `#explicitOf` 处理 `OriginStep.kind === "carried"` 时只把父线行写进历史，未保存 `step.change`，该候选既没有 `change`，也没有触发处/切口 id。内核的 `OriginStep.carried` 虽然有 `change` 字段，但在剧情索引转换时被丢掉。
+为什么是问题：回溯者在子线上因父线触发处带过来的知情变化不会出现在 `changesOf`；该知情若是目标的 `基于`，`premiseChanged` 会漏报，稳定键也无法按 Spec 指向触发变更。只把 `changesOf` 写成遍历当前候选不能修好，信息已经在索引建造时丢失。
+如何核实：用 worldlines 输出 1/6 的场景建一条回溯线，父线触发处让人物获得知识点，子线读取 `KnowingIndex.changedBy`；当前实现对 `carried` 分支不会返回该变化。静态路径也足够证明：`changedBy` 的 `consider` 先过滤 `candidate.change !== change`，而 carried 分支的 `candidate` 没有 `change`。
+建议改法：E1 先扩展知情历史的内部候选/变化模型，保留 carried 的合成事件身份和其 `step.change`（并明确稳定键用触发处还是分叉 id）；`changesOf` 按同一事件聚合、返回前后行，再给显式/推出/带过去各加场景与差分测试。不要把 carried 当普通显式 patch 靠猜 id。
+### 4. `origins` 不足以实现地址守卫的完整性与变更级检查
+严重程度：阻断；类别：接口与合同
+位置：t34/plan.md:702；packages/nb-canon/src/service/reads.ts:117-128；packages/nb-canon/src/engine/types.ts:107-113
+现象：计划要求对范围起点和范围内每条“套上的”剧情变更检查值，且值不完整时不判。现有 `CanonReadView.origins` 只返回 `init`、`patch`、`check`、`reduce`、`carried`；这些步骤没有 `incomplete` 状态，也没有统一的事件键。`patch.result` 只是该补丁的结果；同一剧情变更可能对同一地址产生多个 patch 步骤，接口没有告诉调用方一个变更的最终结果或该变更是否整体套上。
+为什么是问题：实现无法可靠区分“值不完整，跳过判定”和“值本身落在 notIn”；对列表元素/子字段尤其没有可从 `origins` 读出的历史完整性。若逐个 patch 判，又会把同一变更内部的中间值误报成守卫违反；若只取最后一步，又无法证明中间 patch 所属变更整体套上。计划声称“不改内核”，但现有公开读取合同没有所需信息。
+如何核实：在一个剧情变更里连续两次修改同一地址，或前置变更套不上后续地址的场景调用 `view.origins`；结果只有多个 `patch` 的 `result`，没有变更级 applied/incomplete 标志。对带过去的值也只有 `carried.value`，完整性只在引擎内部的 `IncompleteMark`/`ChangeOutcome` 中存在，未从 `CanonReadView` 公开。
+建议改法：先在内核读取合同中增加按事件聚合的历史结果（至少事件键、最终值、是否完整/不可判、变更 id；carried 也要有明确事件身份），或增加专门的地址守卫读取辅助；E2 再按变更而非 patch 判定，并补“前置不完整、同变更多 patch、列表子字段、carried”测试。若接受只检查最终值，必须先改 Spec 的“每条变更之后”和“不完整时不判”语义。
+### 5. 读者守卫沿用的 `readerKnowing` 实际按世界线过滤讲述
+严重程度：重要；类别：正确性
+位置：t34/plan.md:703；packages/neuro-book/src/plugins/plot/core/knowledge.ts:339-350；packages/nb-canon/src/service/reads.ts:197-200；docs/specs/plot/knowledge.md:58、docs/specs/plot/decisions.md:54-55
+现象：计划说读者守卫“不分线，读者的知情按主线正文，B 已是这样”。但当前 `readerKnowing(view, ...)` 直接调用 `view.tellings(...)`；`CanonReadView` 的默认 `tellings` 会用当前 `line` 做 `tellingInLine` 过滤。D 阶段的读取视图明确默认只返回该线看得到的讲述，因此在子线视图上它不是全体正文读者历史。
+为什么是问题：E2 的诊断计算按读取位置的当前线调用；同一读者在另一条线对应章中读到的 reveal 可能被漏掉，导致第一处超过 `atMost` 的讲述、稳定键和待处理结果错误。把 `view.onLine("main")` 也不能覆盖子线正文讲述，因为 Spec 的读者知情是不分线而不是只读主线记录。
+如何核实：建立主线与子线各有正文讲述的场景，让子线读取位置之前的另一条线讲述带 `explicit` reveal；调用现有 `readerKnowing`，它只遍历当前线的 `tellings`。代码路径和 `CanonReadView.tellings` 的过滤实现可直接复现。
+建议改法：在内核公开“读者讲述”的不分线读取（或让 `tellings` 显式支持 all-lines、仍按正文发生点排序），并让 `readerKnowing`/`firstReveal`/读者守卫共用；补跨线、回溯章和第一处讲述的测试。不要在 E2 里把当前线临时改成 main 作为补丁。
+### 6. “挂在剧情线条目上”的决策取数用了错误的 `changes` 筛选
+严重程度：重要；类别：正确性
+位置：t34/plan.md:701；packages/nb-canon/src/service/reads.ts:25-40、321-347；packages/nb-canon/src/core/schema.ts:202-210
+现象：计划写“用 `changes({entry: 线条目, ...})` 判章”。现有 `ChangeFilter.entry` 通过 `concerns` 判断 `involves`、参与者和补丁地址；剧情变更所属的剧情线存于独立的 `change.lines` 字段，`concerns` 不检查它。现有合同已经提供的是 `changes({line: 线条目})`，其语义才是筛 `change.lines`。
+为什么是问题：按计划照写会漏掉只设置 `lines`、没有把剧情线条目放进 `involves`/cast/patch 的变更，导致挂在剧情线上的已定决策不被算作该线发生过的章节，违反 decisions 输出 7/9 与“剧情线上的写作指示”。
+如何核实：构造一条 `change.lines = [plotLine]`、`involves = []`、无 cast/patch 的已写变更；调用 `view.changes({entry: plotLine})` 与 `view.changes({line: plotLine})`，前者不匹配、后者匹配。字段定义见 `StoryChangeSchema`。
+建议改法：把计划改为 `changes({line: plotLine, ...})`，并在 E2 的分叉/剧情线测试中明确覆盖“只在 lines 字段登记”的变更；若作者想让 `entry` 也包含剧情线归属，先改 canon 的 `concerns` 合同与所有调用方，不要在剧情插件里重复解释。
+### 7. 简报无法从现有读取视图得到回溯分段和补叙安放
+严重程度：阻断；类别：接口与合同
+位置：t34/plan.md:710-711、718；packages/nb-canon/src/service/reads.ts:92-143；packages/nb-canon/src/core/schema.ts:15-26、373-375；packages/nb-canon/src/world/world.ts:220-225
+现象：E3 要用 `chapterLines` 把一章按段拆成“回溯前/回溯后”各一份，并在 `timeMode.flashback` 时读“那处安放”。当前 `CanonReadView` 没有 `chapterLines`、段数或正文段列表；只有 `chapters` 和 `positionLine(position)`。`ReadPosition` 只有 `initial`、章 `start/end`，没有任意 `Placement`/章内排序键位置。`positionLine` 对一章也只取首段或末段的线，不能返回中间分段。
+为什么是问题：照字面实现无法知道第 30 段这种分界，也无法把一份 `{kind: "chapter", key: ...}` 的补叙安放转换成可供 `entry`、`origins`、`plannedAt` 读取的时间点。用章末或章首替代会把回溯前后状态、计划和秘密算错；用讲述列表猜段数会漏掉没有讲述的段。
+如何核实：对 `WorldOptions.chapterLines` 放入 `{from: 1, line: "main"}`、`{from: 30, line: "r1"}`，现有 `positionLine({kind:"chapter", chapter, edge:"start"/"end"})` 只能返回首/末线；没有任何公开函数可列出 `from` 或正文段总数。`Placement` 也不能直接传给 `CanonReadView.entry`。
+建议改法：在 canon 项目读取合同增加冻结的章节分段/正文段计数和“按安放/事件键读取位置”的能力，或把这些宿主输入显式作为 `composeBrief` 输入；为补叙定义 placement 到 read position 的确定映射。随后 E3a 增加前半/后半、有无讲述、计划线和补叙在章内不同排序键的测试。
+### 8. 简报要求的 `canon.rendering` 不在 `CanonReadView` 或 `CanonProject` 合同中
+严重程度：阻断；类别：接口与合同
+位置：t34/plan.md:718；packages/neuro-book/src/plugins/canon/shared/contracts.ts:353-380；packages/nb-canon/src/service/reads.ts:92-143
+现象：计划要求涉及条目“经内核的渲染”并写明 `brief` 在项目进程里直接用 canon 项目接口的 `render`。但现有 `CanonProject` 只有 register/reportDataVersion/snapshot/openView/closeView/audit/deny，没有 `render`；`CanonReadView` 也没有 render。内核的渲染方法在带视图的 `ViewedReads`/世界服务层，未随项目内快照公开给剧情插件。
+为什么是问题：E3b 不能按既定的 Agent 带值写法生成输出 13，也不能只靠当前 `view.entry` 重建渲染结果（那会丢掉渲染规则、引用与值的现有语义）。计划同时声明本阶段不改内核，后续切片没有合法调用路径。
+如何核实：读取 `CanonProject` 与 `CanonReadView` 的完整接口，搜索 `render` 只命中 `ViewedReads` 和世界服务实现；plot 后端目前只从 `CanonProject` 取 `snapshot`，没有其它公开世界/渲染入口。
+建议改法：在阶段 A/本阶段先补一个受同一快照约束的项目内 render 能力（并定义是否允许 author/agent audience、位置、模式与上限），或把完整的渲染辅助作为 `@notnotype/nb-canon/node` 公开函数并由插件合法调用；把这项内核合同变更从“本阶段全是纯读、不改内核”中列为依赖和验收。
+### 9. E0 没有定义写作输入的远程形状、大小限制和失败通道
+严重程度：重要；类别：接口与安全与性能
+位置：t34/plan.md:688-690、710；packages/neuro-book/src/plugins/plot/shared/contracts.ts:15-23、61；packages/neuro-book/src/plugins/canon/shared/contracts.ts:24-29；packages/neuro-book/src/plugins/plot/backend/plugin.ts:37-55
+现象：计划只说 `brief` 接收细纲、目标字数、上一章末尾，`setInstructions` 接收快照，合同输出“Unknown”，没有列出输入 schema、字符串/数组上限、目标字数范围或错误码。现有 `CANON_BUDGET_BYTES` 是远程消息的预算；plot 后端当前只对返回值 `fitted`/`pagedList` 检查编码大小，不对远程输入做检查，且没有 plot 的输入预检路径。
+为什么是问题：超大的细纲、正文尾巴或整份快照可能在 RPC 层才失败，或先进入内存再失败；失败可能不是合同约定的 `too-large`。Unknown 也让错误形状、`chapter` 与快照版本缺失、负的 `targetWords` 等非法输入绕过边界校验，后续纯函数可能抛错。输入限制和输出段限额是两套预算，不能用段裁剪替代 RPC 输入预算。
+如何核实：现有 `plotWorldContract` 的 `methods` 只有阶段 B 的字段化输入，`Out` 为 `Type.Unknown()`；`plot/backend/plugin.ts` 的预算检查只包返回值。对 `brief` 传一个大于 `CANON_BUDGET_BYTES` 的 `outline`，当前没有 plot 合同层的明确拒绝分支。
+建议改法：E0 为五个方法定义 TypeBox 输入/输出或至少运行时 schema，给 outline、previousTail、instructions 总编码预算和目标字数范围；在发送端与后端都按 `encodedBytes` 预检并统一返回 `too-large`/字段错误。把“输入过大时不改内存 Map、不增加 dataVersion”写成并发与失败路径测试。
+### 10. `setInstructions` 是全插件共享的无条件覆盖，未定义调用方并发与重启语义
+严重程度：重要；类别：不变量
+位置：t34/plan.md:683、688；packages/neuro-book/src/plugins/plot/backend/plugin.ts:70-106、177-203；packages/neuro-book/src/plugins/canon/shared/contracts.ts:368-374；docs/specs/plot/decisions.md:16-20、49、75
+现象：计划用插件内一个 `Map<chapter, snapshot>`，远程 `setInstructions({snapshots})` 整体替换，并让 `PLOT_DATA_VERSION` 后缀递增、重新 `canon.register`。剧情远程入口对每个调用方有独立 `Viewpoints`，但计划没有给 instructions 绑定调用方、项目写者或版本前置条件；同一项目的两个调用方可以互相覆盖。插件重启后 Map 为空，而 E2 的写作指示诊断仍需读取快照；计划只说“阶段 F 再存盘”，没有空快照的结果/错误合同。
+为什么是问题：调用方 A 设置第 8 章后，B 设置第 20 章会把 A 的快照整体抹掉；A 随后的 `beforeWriting`/诊断可能静默变成“不检查”，而不是读到自己提交的版本。重启后同一世界输入不再得到同一诊断，虽然 `reportDataVersion`/游标只知道插件数据变了；这会违反 Spec 对读取输入和诊断数据版本的确定性，或至少需要明确“不完整”的可观察结果。无条件重登记还把“数据变化”与“计算函数登记替换”混在一起。
+如何核实：现有 `CanonProject.register` 按调用方插件名替换该插件的整份计算登记，`reportDataVersion` 才是只更新插件数据版本的接口；现有 plot remote provider 为每个调用方创建实现，但没有共享数据隔离机制。两个调用方顺序调用整体替换即可观察前一份消失。
+建议改法：交开发者确定写作指示的所有权：单一受信写作者、按调用方/项目记录分片，或 `setInstructions` 带 expectedVersion/CAS 并拒绝冲突；明确重启/缺快照返回 `not-available` 还是登记为 unavailable。数据更新只调用 `canon.reportDataVersion`，诊断函数从同一不可变快照读取；若必须重登记，说明原因并测试旧快照、并发替换和失败不增版本。
+### 11. 写作指示快照把身份字段也设计成可选
+严重程度：重要；类别：接口与合同
+位置：t34/plan.md:688；docs/specs/plot/decisions.md:26、49；t34/plan.md:706-707
+现象：计划说 `shared/instructions.ts` 的“字段都可选”，但快照至少需要 `chapter`（Map 的键/诊断对应章节）和 `version`（输出 10、记录与旧结果标记）。Spec 的“字段都可选”描述的是章级指示内容，而不是允许缺少快照身份；计划没有说明由外层 envelope 提供这两个字段。
+为什么是问题：若照字面允许 `chapter`/`version` 缺失，`Map<chapter, snapshot>` 无法稳定定位，`repeated` 无法按章排序，旧版本诊断也不能把版本写进 params；把缺失值默认为空字符串或 0 会把非法输入当成合法快照。
+如何核实：对照 `decisions.md` 的快照形状和 E0 的 Map 设计；所有 E2/E3 使用 `instruction.version`，但计划声明的类型允许它为 undefined。
+建议改法：把 `chapter`、`version` 从快照主体移到 `setInstructions` 的必填 envelope，或在 TypeBox 中将二者设为 required；仅将 `readerChange`、`pov`、`povMode`、`timeMode` 等内容字段设为 optional，并增加缺失/重复章节与版本回退测试。
+### 12. `composeBrief` 的纯函数输入没有细纲 SHA-256 端口
+严重程度：重要；类别：接口与合同
+位置：t34/plan.md:31-33、708-717；packages/neuro-book/src/plugins/plot/backend/plugin.ts:8-39；docs/specs/plot/brief.md:60
+现象：E3 把 `core/brief/` 定为纯 TS，输入只有 `{view, chapter, instruction, outline, targetWords, previousTail, pluginVersion}`，但输出记录要求细纲的 SHA-256。当前 `core` 没有摘要函数输入；现有后端用 Node `createHash`，而阶段 A 的技术选型明确把摘要放在宿主注入的同步 digest 端口，不能由浏览器自己算。
+为什么是问题：照字面，纯函数只能引入 Node crypto（破坏 core 的跨运行时边界），或把摘要算法重复一份/误用普通字符串摘要；任一实现都不能满足“宿主注入 digest、记录与读取输入同算法”的既有约束。遗漏摘要还会使同一细纲内容的记录不可比，或把平台差异带进确定性。
+如何核实：搜索剧情 core 没有 digest 依赖；唯一现有 SHA-256 实现位于 `backend/plugin.ts`，而 `composeBrief` 的计划输入没有 digest 回调/预先算好的 outlineDigest。
+建议改法：把同步 `digest(text)` 端口或已算好的 `outlineDigest` 纳入 `composeBrief` 输入，并在远程后端用宿主端口计算后传入；把端口纳入纯函数测试夹具，测试 Unicode 文本和与记录的摘要一致。不要在 `core` 深导入 Node API。
+### 13. 简报记录没有覆盖 `previousTail`，上下文变化可被误判为相同
+严重程度：重要；类别：正确性
+位置：t34/plan.md:710、717、719；docs/specs/plot/brief.md:31-35、60、64
+现象：计划把上一章末尾作为 `previousTail` 输入，并在输出正文中使用它；`record.ts` 只记录读取输入摘要、指示版本、细纲摘要、目标字数、插件版本和裁剪项，没有尾巴的摘要或版本。Spec 的确定性条目列出的“这些输入”也没有说明上一章尾巴为何被排除。
+为什么是问题：同一个世界/细纲/目标字数下，只替换上一章末尾，`text` 会改变而 record 仍逐字段相同；写作任务据 record 比对时无法发现上下文已变。若 Spec 有意把 tail 排除在身份之外，则必须明确这是外部不可复现的附加输入，否则“同一份上下文可比”的合同不闭合。
+如何核实：按计划输入构造两份只差 `previousTail` 的调用；除 `text` 外计划列出的 record 字段均不变。对照 brief 输出 1 的上下文组成和输出 15 的记录清单可见该缺口。
+建议改法：交开发者确认是否把上一章尾巴纳入上下文身份；通常应记录 `previousTail` 的 SHA-256（不必把正文原文放进 record），并把它写进 brief Spec、record 类型和验收；若不纳入，文档需明确其不参与“上下文已变”判定并接受相应取舍。
+### 14. `dangling` 没定义非条目/变更/决策挂点的生死判定
+严重程度：重要；类别：正确性
+位置：t34/plan.md:704；docs/specs/plot/decisions.md:57-59；packages/nb-canon/src/core/schema.ts:234-242
+现象：计划只复述“已定决策挂的对象全是已删条目、已撤销变更、被取代或放弃的决策”。`about` 实际还允许 `address`、`chapter`、`diagnostic`（以及可能的其他对象形状），而 `CanonReadView.object` 也不能用同一个 entry/change/decision 读取逻辑判断这些引用是否失效。计划没有说明混合挂点、已删除章、停用/版本不同诊断的处理。
+为什么是问题：照字面实现容易把只挂地址/章节/诊断的决策误报为悬空，或直接忽略这些 about 后漏报；多挂点“全是”还需要明确一个活的章节/地址是否保留决策。这个诊断是 hint，但错误会影响写手上下文和 decisions 输出 10 的完整性。
+如何核实：构造分别只挂 `{kind:"chapter"}`、只挂 `{kind:"address"}`、只挂 `{kind:"diagnostic"}`，以及一个死条目加一个活章节的决策；现有计划没有可调用的 liveness 规则覆盖它们。
+建议改法：在 E2 写出按 about kind 的活性表：章节按当前章序、地址按条目/命名空间/字段登记、诊断按声明与版本、entry/change/decision 按各自状态；明确“空 about”与混合 about。若 Spec 不想把这些当悬空，改成明确排除并加测试。
+### 15. `povAbsent` 没处理 `experienceChanges.uncast` 的不确定性
+严重程度：重要；类别：正确性
+位置：t34/plan.md:706；packages/neuro-book/src/plugins/plot/core/knowledge.ts:284-295；docs/specs/plot/knowledge.md:60、docs/specs/canon/model.md:204
+现象：计划规定 `povAbsent`“用 `experienceChanges`”，但没有处理其返回的 `uncast`。现有 API 明确把没有参与者记录的变更计数返回，并注明调用方应降级处理，不能把它当成“没人参与”。
+为什么是问题：本章只要有一条剧情变更未记 `cast`，直接按返回的在场列表判断就可能报“视角人物不在场”；这与知识 Spec 对 `uncast` 的边界约定冲突，且会把缺数据误报成写作问题。计划也没说明实际/计划模式下对未记参与者的判定。
+如何核实：构造一章包含一条无 `cast` 的变更和一条有其它人物 `cast` 的变更；现有 `experienceChanges` 返回 `uncast > 0`，但计划没有分支使用它。对照 `knowledge.md` 输出 8 的“另给……计数”说明。
+建议改法：规定 `uncast > 0` 时 `povAbsent` 不报、降级为不完整提示，或新增明确的“无法检查”参数/诊断；实际与计划模式分别测试有/无 `cast`、空 cast 和视角人物在场的边界。
+### 16. 地址守卫的线集合没有处理计划线和不可建线
+严重程度：重要；类别：正确性
+位置：t34/plan.md:702；packages/nb-canon/src/service/reads.ts:145-159；packages/nb-canon/src/service/reads.ts:250-255；docs/specs/canon/worldlines.md:60-61、85、90-97
+现象：计划写“`lines`（缺省所有存在的线）的每条线上、实际与计划两种模式各算”，但 `view.lines()` 返回在线树里的所有摘要，包括 `exists.actual/ planned` 不同的计划线和 `unbuildable` 不为 null 的线。`onLine` 对计划线/不可建线会返回 `line-not-found`，且不可建时才带 reason。计划没有规定按模式过滤、跳过不可建线，或把这些状态转成什么诊断。
+为什么是问题：无过滤地乘开会在实际模式把计划线当成合法输入并丢失结果，在不可建线抛/返回错误；只吞掉错误又会让“所有存在的线”静默漏报。守卫声明的 `lines` 也可能在写入后因分叉撤销、删章而变成不可建，必须有稳定行为。
+如何核实：构造一个仅 `exists.planned` 的线和一个 `unbuildable` 的线，遍历 `view.lines()` 后调用 `onLine(id, "actual")`/`onLine(id, "planned")`；结果不是可计算视图。对照 LineSummary 的三个状态字段。
+建议改法：明确每种 mode 的候选线为 `exists[mode] && unbuildable === null`，并规定显式 `lines` 指向不可用线时跳过、报不完整还是另出诊断；把该规则写入 E2 算法和测试。当前线限定计算时也要先验证 `view.line` 的状态。
+### 17. 写作指示变化应报告数据版本，不应把诊断计算整份重登记
+严重程度：建议；类别：代码质量与不变量
+位置：t34/plan.md:688；packages/neuro-book/src/plugins/canon/shared/contracts.ts:368-372；packages/neuro-book/src/plugins/plot/backend/plugin.ts:177-187；packages/nb-canon/src/service/service.ts:710-734
+现象：计划要求每次整体替换指示后给 `PLOT_DATA_VERSION` 加后缀并经 `canon.register` 重登记。现有项目内合同已把两件事分开：`register` 替换该插件的全部 compute 与 dataVersion，`reportDataVersion` 专门报告插件数据变化并使读取输入/游标失效。剧情计算函数可以读取同一个不可变 Map 的当前快照，不需要重复替换函数表。
+为什么是问题：每次指示更新都会重绑所有已完成的知情/伏笔/目标诊断；若重登记的 compute 快照与 Map 更新顺序不一致，会出现旧闭包或短暂登记不完整。即便功能正确，也把“数据变更”的游标失效副作用扩大成“计算注册变更”，并使入口停止/再登记的生命周期更难推理。
+如何核实：`WorldService.registerDiagnostics` 每次都会替换 registration 并递增 input generation；`reportDataVersion` 只替换版本并递增 generation。两条路径都能使旧游标 stale，但只有前者重建 compute 绑定。
+建议改法：插件入口启动时只 `canon.register` 一次；`setInstructions` 在成功整体替换、并且确实内容改变后调用 `canon.reportDataVersion(nextVersion)`。若实现必须让 compute 捕获不可变快照，则明确重登记的原子顺序、失败不换 Map/版本，并测试并发读、重复相同快照和旧游标。
+### 18. 阶段 E 的性能验收没有覆盖地址守卫的乘法工作量
+严重程度：重要；类别：安全与性能、测试
+位置：t34/plan.md:702、740、746；t34/plan.md:231；docs/specs/canon/model.md:209
+现象：计划把 E2 的地址守卫按“决策 × 世界线 × 实际/计划模式 × origins”展开，只在风险里说量分叉场景；验证却只要求用 B 阶段 `scale-b5` 的剧情量法，看 1000 章读待处理“不要明显变慢”，并沿用 B 的 200 ms 预算（B 已为 150 ms）。没有给出决策数、守卫数、世界线数、每条地址历史长度或 p50/上限判据。
+为什么是问题：剩余预算只有约 50 ms，而 E2 的工作量与 B5 的 200 人/500 知识点/在场和传话形状不是同一负载；没有新负载就无法判断最坏路径是否超时，也无法证明“只算当前线”确实抑制了乘法。`DiagnosticCompute` 同步执行，慢计算会直接占住 pending 读取。
+如何核实：按计划给出的 1000 章再加可配置的已定决策、每决策多个地址/读者守卫、分叉线和计划模式，分别量冷读与缓存读；现有验证命令没有这些参数或断言。
+建议改法：E2 收口新增明确的剧情规模夹具与口径：例如线数、带守卫决策数、每地址 origins 步数、实际/计划两次的 p50/p95，验收阈值明确为总预算 200 ms 或“新增部分 ≤50 ms”。同时测 unavailable/too-many findings 的截断，不以“明显”作验收。
+### 19. 验收映射没有逐条覆盖 Spec 的边界和失败路径
+严重程度：重要；类别：测试
+位置：t34/plan.md:721-735；docs/specs/plot/goals.md:43-79；docs/specs/plot/decisions.md:51-67、91-98；docs/specs/plot/brief.md:38-95
+现象：阶段 E 把 goals 输出 3-5、decisions 输出 1-10、brief 输出 1-15 各整体归给一片，并以少量固定场景/“每个固定句一条断言”代替具体条目。计划没有把以下判据映射到测试：目标停滞的 30/31 章边界、无最后修改/出场位置、携带值；`skippedStep` 同一变更多补丁与中间变更；决策挂多个秘密/非秘密、剧情线 `lines`、混合/非 entry about 的 dangling；守卫范围端点、初值违反、值不完整、显式线失效、第一处 reader telling；简报 noPresentation/noSceneConditions/payoffWithheld、同一决策挂两个秘密、绝密隐秘目标、分段回溯与补叙位置。
+为什么是问题：这些不是实现细节，而是 Spec 的可观察分支；当前“变异检查”只写了 premise 的知识点/目标后续修改和守卫两种模式，不能证明上述边界。E4 全包测试通过也可能把错误实现锁成未覆盖的空结果。
+如何核实：逐项对照三份 Spec 的验收与输出表，计划的验收表只有三行；现有阶段 B 测试也没有输出 10/分段简报的夹具可复用。
+建议改法：把每个输出的代表性分支列成测试矩阵，并将至少一个真实 WorldService/远程合同场景映射到每个公开失败码；对 30/31、范围端点、无/空 cast、跨线与不可建线做边界测试。保留变异检查，但不要把它作为缺少场景测试的替代。
+### 20. 简报把插件版本作为调用方输入，记录完整性可被伪造
+严重程度：建议；类别：接口与合同
+位置：t34/plan.md:710、717；packages/neuro-book/src/plugins/plot/plugin.ts:13-16；docs/specs/plot/brief.md:60-64
+现象：`composeBrief` 输入包含 `pluginVersion`，计划没有说明它由谁校验；远程 `brief` 的合同又计划使用 Unknown 输入。现有剧情插件已有不可由调用方决定的 `descriptor.version`，且诊断声明版本来自插件清单。
+为什么是问题：若远程调用者传入任意版本，record 可以伪装成当前插件版本，写作任务按输出 15 比对时会错误地接受不兼容的简报；版本字段本应描述生成者而不是请求者。即便只在项目进程内调用，重复传参也增加了漂移点。
+如何核实：`descriptor.version` 是插件清单的固定来源，而计划的 `composeBrief` 参数和远程方法没有约束 `pluginVersion` 等于它；使用两个不同字符串调用纯函数，计划会生成不同 record。
+建议改法：从 `composeBrief` 输入删除可由远程方填写的版本，后端用 `descriptor.version` 注入；纯函数测试可接收已确认的版本值。若必须支持测试/多版本插件，先定义受信调用方和合同校验，不把它作为公开 Unknown 字段。
+### 21. 简报没有明确负责输出 1/3/6 的总组装合同
+严重程度：重要；类别：正确性
+位置：t34/plan.md:708-719；docs/specs/plot/brief.md:38-56
+现象：E3 的文件映射覆盖了 read、secrets、people、address、foreshadow、decisions、reader、allowed、budget、record、render，但没有指定一个 assembler 负责 Spec 输出 1 的固定段顺序、空段仍写标题/“无”、输出 3 的通则、输出 6 的场景条件与三项固定句如何只出现一次。`fixed.ts` 只被描述为“所有固定句集中”，不是组装规则。
+为什么是问题：后续按文件逐片实现时最容易出现段标题遗漏、固定句重复、回溯多份简报把共同段复制多次，或把上一章尾巴/目标字数放错位置；这些都是 brief 的公开合同，不会由“每个固定句一条断言”覆盖。
+如何核实：逐条把 brief 输出 1 到 15 对照 E3 文件清单，输出 1/3 没有明确函数，输出 6 只有 `read.ts` 的一句“场景条件”提及；计划没有给出 `sections` 的固定顺序或空段规则。
+建议改法：新增明确的 `composeBrief`/`assembleSections` 规格表，列出 7 个外层段和简报内 10 个子段的顺序、标题、空值文本、固定句唯一性、回溯共同段策略；E3b 测试按 sections 顺序和空输入逐段断言，而不是只测固定句。
+
+未发现问题的方面：
+- 对照现有代码后，`CanonReadView.decisions`、`chapterEntries`、`origins`、`plannedAt`、`changes`、`onLine` 均存在，且 `line`/`stamp` 也已在接口中；问题在于这些接口的语义覆盖不了 E3 分段/补叙、地址完整性和跨线读者历史，详见第 4、5、7、8、16 条。
+- `DiagnosticCompute = (view, at, mode) => Finding[]`、诊断稳定键的 `line/detail` 组成、标注 `refs` 的 `entry/line` 引用种类均与计划使用的基本形状相符；第 2 条是 params 值类型冲突，第 1 条是登记数量冲突。
+- `canon.register`/`reportDataVersion` 与读取输入摘要、旧游标 `cursor-stale` 的机制真实存在；第 17 条只是指出计划把数据更新实现成重登记的不必要耦合，不否认失效机制本身存在。
+- 现有实现验证：剧情插件测试 `bun test src/plugins/plot` 为 32 pass、0 fail；应用包 `bunx tsc --noEmit -p .` 通过；内核包 `bun test` 为 416 pass、0 fail。一次尝试 `bun test src/service src/components src/engine` 因这些路径不是测试文件过滤器而退出 1，随后使用包级 `bun test` 完成有效验证；未跑 e2e、开发服务和 scripts/perf。
+
+计划末尾“不做与风险”逐项判断：
+- 窄问题 `constraintViolated`、`decidedInText`：阶段 F 承接与 Spec 分工一致；E0 只声明并登记空计算是可行的，但必须保持计算已登记，否则现有内核会把它标成 `diagnostic-unavailable`。
+- 写作指示快照、细纲文件与存盘：阶段 E 暂不持久化与 Spec 的“宿主给出输入”一致；但重启后空 Map 的可观察行为未定义，属于第 10 条应交开发者确认的生命周期问题。
+- “照写”交互：由写作任务另定，与本阶段输出 6 只提供视图的合同一致。
+- 简报各段上限最终数字：Spec 明确暂用缺省值、样章校准后再定，与待确认清单的已有取舍一致；仍需把 provisional 数字和 `CANON_BUDGET_BYTES` 的输入/输出预算分开，见第 9 条。
+- 风险 1（地址守卫按线/模式乘开）：风险真实且尚未被计划的量法覆盖，见第 18 条。
+- 风险 2（固定句行为变化）：集中 `fixed.ts` 是合理的收口，但没有解决总组装与共同段唯一性，见第 21 条。
+- 风险 3（`chapterEntries` 求交）：读取能力存在，但剧情线应使用 `changes({line})` 而不是计划写的 `entry`，见第 6 条；仍需分叉场景测试。
+- 风险 4（`premiseChanged` 需要前后有效知情行）：缺口真实，当前 carried 历史会丢失触发处，见第 3 条；不能只加一个表面 `changesOf` 方法。
+
+需要加入待确认清单的取舍：第 4 条（是否扩展内核 origins/完整性合同）、第 5 条（读者知情是否增加不分线读取）、第 7 条（章节分段与任意安放读取入口）、第 8 条（项目内 render 入口）、第 9 条（远程输入 schema/预算及 too-large 合同）、第 10 条（指示快照所有权、重启和并发）、第 13 条（previousTail 是否进入上下文身份）、第 14 条（非 entry/change/decision about 的 dangling 语义）、第 15 条（uncast 时 povAbsent 的降级方式）、第 18 条（200 ms 总预算与 E 新增预算的取舍）。第 1、2、3、6、11、12、16、17、19、20、21 条可按现有合同直接修订计划/实现，不需要产品取舍确认。
+
+各级数量：阻断 6 条，重要 13 条，建议 2 条，共 21 条。
+有效发现编号：1-21

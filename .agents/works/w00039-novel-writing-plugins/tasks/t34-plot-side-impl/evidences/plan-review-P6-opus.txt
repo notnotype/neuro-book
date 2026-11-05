@@ -1,0 +1,254 @@
+w00039 t34 阶段 E 细计划 设计审查（Opus，只读）
+审查对象：主工作区 .agents/works/w00039-novel-writing-plugins/tasks/t34-plot-side-impl/plan.md 第 675 到 746 行
+代码基准：/tmp/review-w00039-t34-P6/wt（49f33f49a）
+
+== 1. [阻断] 事实不符：canon 的项目内接口没有 `render`；内核渲染也给不出“涉及条目的样子”要的内容
+类别：依赖的机制不存在 / 接口与合同
+位置：计划 E3 “涉及条目的样子（输出 13）”一条；“本阶段全是纯读……需要的内核读取能力都已有”
+现象：计划写“`brief` 在项目进程里直接用 canon 项目接口的 `render`，不经远程”。
+- packages/neuro-book/src/plugins/canon/shared/contracts.ts:368-383 的 `CanonProject` 只有 register、reportDataVersion、snapshot、openView、closeView、audit、deny，没有 render；`CanonReadView`（packages/nb-canon/src/service/reads.ts:91-143）也没有 render。
+- 唯一能在项目进程里渲染的是 `snapshot.viewed(token).render(...)`（packages/nb-canon/src/service/views.ts:51），要先 `await canon.openView({viewer, line, until, purpose})` 拿令牌（异步、记在调用方名下、按 until 截断、要关），回溯章两段要两张令牌。
+- 渲染本身只渲染条目的主文字块（packages/nb-canon/src/render/entry.ts:44-51：`view.text.map(renderBlockForAgent)`，块是 `{id, text}`），不渲染 Component 的值；`agentView` 只登记不渲染（components/registry.ts:21、34、90，render/ 下无引用）。所以“去掉 `know` 命名空间”在渲染结果上无从下手（结果里没有命名空间），主文字里 `{know.…}`、`{goal.…}` 这类表达式与指向保密知识点的引用也会原样带值出来。
+为什么是问题：输出 13 要“按给 Agent 的带值写法渲染，去掉 know 命名空间与挂在它们下面的知识点；保密以上的内容只在这一场的秘密里”；brief 验收 5 要回溯后那份里“存款是带过去之后的 20000”——这是 Component 值，只渲染主文字的话，主文字没引用 `panel.存款` 就不会出现。照字面实现会在 E3b 发现接口不存在，再改成开令牌，然后发现值与遮挡都不对，返工。
+如何核实：grep -n 'render' packages/neuro-book/src/plugins/canon/shared/contracts.ts（只在远程方法表与 CanonOutputs 出现）；读 render/entry.ts:44-51。
+建议改法：E3 开工前定下“涉及条目的样子”的取法：要么由剧情插件自己按 `view.entry()` 的 Component 值写成字段形式（与输出 2 的字段写法同一套），主文字另经令牌渲染、再按 B 的 `Viewpoint` 同一规则遮挡；要么承认要给 canon 的项目内接口加一个同步的 `render`（与快照同一同步段），并把“本阶段不改内核/canon 插件”改掉、记进待确认清单。两种都要写明遮挡规则落在哪个函数里。
+
+== 2. [阻断] 事实不符：`chapterEntries` 只算已写变更，开写前与简报要用的“涉及本章”在未写章上几乎为空
+类别：与现有代码不符 / 算法能否算出
+位置：计划 E2 “决策取数：decisionsInvolving……`about` 里的条目与 `chapterEntries(chapter)` 相交”；风险 (3)
+现象：packages/nb-canon/src/engine/incremental.ts:575-586 的 `chapterEntries` 只收 `change.kind === "written" && status === "active"` 的变更，计划（`kind: plan`）一条不收；按计划模式也没有另一个入口。
+为什么是问题：`decisionsFor`、`beforeWriting`（输出 6）与简报的决策段（brief 输出 9）、这一场的秘密里“涉及本章的已定决策”都发生在“要写第 N 章、第 N 章还只有计划”的时候。这时 `chapterEntries(N)` 只剩核对点的条目，挂在本章计划参与者、补丁地址上的已定决策全部漏掉：写手拿不到决策，开写前的视图也空。Spec model.md 输出 20 的定义（“安放在这一章、生效的剧情变更”）本身就只覆盖已写章，plot.decisions 术语直接引用它，未写章怎么算 Spec 没写。
+如何核实：读 incremental.ts:578。可在实现 worktree 用 testing/world.ts 建一章只有计划的世界，`view.chapterEntries(ch)` 得到 []。
+建议改法：在剧情插件里定义“本章涉及的条目（按模式）”：实际模式用 `chapterEntries`，按计划模式再并上 `plannedAt`/本章计划的 `involves`、`cast.who/as`、补丁地址（与 knowledge 输出 10 的“写之前的集合”同一来源），写进 E2 的取数；把“未写章的涉及本章怎么算”作为 Spec 没写清的一项记待确认（建议：开写前与简报用按计划模式的集合）。风险 (3) 里“按线的行为已在 D 阶段做了”不足以覆盖这一条。
+
+== 3. [重要] 数据版本用“后缀加一”的计数：重启后归零会撞号，旧游标可能在不同数据上被当成有效；且每次替换都让整个世界的游标作废
+类别：接口与合同 / 并发与重启 / 隐含的耦合
+位置：计划 E0 “写作指示快照……换一个快照就把 `PLOT_DATA_VERSION` 的后缀加一……经 `canon.register` 重登记”
+现象与核实：
+- 内核把插件的数据版本放进整份读取输入的摘要（model.md 输出 36 的 `pluginData`；packages/nb-canon/src/service/service.ts:729-734 `reportDataVersion` 只在版本串不同时 `#inputGeneration += 1`）。canon 自己的分页（`tree`、`changes`、`pending`……，service.ts 的 `#page(stamp, …)`）与剧情的 `pagedList`（backend/plugin.ts:47-57）都按这个摘要判 `cursor-stale`。
+- 计数后缀是进程内状态：进程 A 里 setInstructions 两次到 “1+2”，重启后内存清空回到 “1+0”，再 setInstructions 两次又到 “1+2”，但数据不同。游标里绑的是 inputDigest，世界版本与正文没变时两边摘要完全相同，A 时期发出的游标在新数据上被接受，分页结果与第一页不属于同一份输入（canon.project 输出 18 的游标保证被破坏）。简报记录（输出 15）里的 `inputDigest` 同样撞。
+- 同一内容重复 setInstructions 也会加一，平白作废所有游标、清空剧情的 `perViewCache`（core/view-cache.ts 按 inputDigest 缓存知情索引）与世界服务的诊断缓存；写作任务每章开写前推一次快照，作者在界面上翻条目树、待处理的分页就会时不时 `cursor-stale`。计划只写了“旧游标 cursor-stale，内核已有这条规则”，没写这个副作用波及 canon 全部列表。
+- 计划写“经 `canon.register` 重登记”：canon 已有专门的 `reportDataVersion`（canon/shared/contracts.ts:372，backend/plugin.ts:110，world-host.ts:334-339）；重登记会 detach 再 attach 全部计算（world-host.ts:320-329，service 侧 `#inputGeneration` 再加一次），不是设计里的做法。
+建议改法：数据版本取快照内容的摘要：`"1+" + sha256(canonicalJson(按章 id 排好的快照))`，同内容不变、重启后可复现；用 `canon.reportDataVersion` 报告，不重登记。在计划里写明“换快照会让整个世界的游标作废”是接受的代价，或者只在内容确实变了时报。测试除“旧游标 cursor-stale”外加“同内容再设一次游标仍有效”“重启（新建插件实例）后同内容得到同一数据版本”。
+
+== 4. [重要] `setInstructions` 的通道没想清：只读合同里的写方法、整体替换让两个调用方互相覆盖、重启后诊断静默消失、全量快照可能超过单条消息上限
+类别：遗漏（并发、重启、失败路径）/ 接口与合同
+位置：计划 E0 第 2、3 条；“开工前要确认的事实”第 3 条
+现象与核实：
+- 合同 `nbook.plot/world`（shared/contracts.ts:62）`callers: ["browser", "tui", "server"]`，现有方法全是 `effect: "read"`。`setInstructions` 改插件状态、作废全世界游标（第 3 条），应是 `effect: "write"`（nb-runtime/src/remote/contract.ts:49 支持），计划没写；按现在的 callers，任何浏览器页都能整体替换写作任务推进来的快照。
+- `provideRemote(plotWorldContract, () => {...})`（backend/plugin.ts:189-194）每个调用方一份实现；快照表必须放在 `activate` 闭包里、所有调用方与诊断计算共用。计划写的 `backend/instructions.ts` 的“插件内存里的 Map”若照字面做成模块级单例，同一进程里两个项目实例会共用一张表（`viewpointSequence` 这种模块级计数不要照抄）。
+- “整体替换”+“两个调用方”：写作任务 A 推第 6 章、界面或另一个任务 B 推第 7 章，后到的把先到的整张换掉；`repeated`（连续 3 章以上）又要求每次都把多章一起推上来。计划没说谁是唯一的写入者、要不要带基准版本（比较后替换）。
+- 重启后表是空的：`povAbsent`、`flashbackMismatch`、`repeated` 的计算返回空数组，内核把这当成“算过、没有发现”（model.md 输出 34 只有“没登记计算、计算抛错”才报 `diagnostic-unavailable`），作者在待处理里看到这几条提示无声消失，直到宿主再推一次；`beforeWriting`、`brief` 读不到快照时怎么办也没写（brief 输出 1 的“写作指示”段写“无”还是报错）。
+- 体积：远程消息上限 1 MiB（shared/rpc-socket.ts:16），`CANON_BUDGET_BYTES` 为它减 64 KiB。整书 1000 章的快照每章 1 KB（avoid 列表、other、tone 等是自由文字）就约 1 MB，全量替换一次装不下；计划没给 `setInstructions` 与 `brief`（`outline` 缺省上限 3000 字，但调用方给的原文不受这个限）的输入预算与 `too-large` 的处理。
+建议改法：E0 明确：(1) `setInstructions` 设 `effect: "write"`，callers 只给 `server`（写作任务）或在说明里写明由谁调用；(2) 表放在 `activate` 闭包；(3) 改为按章替换 `setInstructions({chapter, snapshot | null})` 或带 `base` 数据版本做比较后替换，冲突回 plot 失败码；(4) 读不到快照时，三项写作指示检查对“没推过快照”的项目返回 `diagnostic-unavailable` 语义（抛出带原因的错误，内核会记成 unavailable），而不是空数组——或者在计划里写明接受“重启后提示消失”并记待确认；(5) 输入大小按 `encodedBytes` 校验、超了回 `too-large`。
+
+== 5. [重要] E0 一次声明全部诊断与现有约定冲突：后几片的计算没接上之前每次读待处理都“不完整”，E0 本身的测试就过不了；诊断个数也写错
+类别：与现有代码不符 / 切片边界 / 合同
+位置：计划 E0 第 1 条；切片 1（E0）
+现象与核实：
+- shared/declarations.ts:1-5 的约定写明“诊断随给出计算的那一片声明：声明了却没登记计算的诊断会让每次读待处理都标‘不完整’（canon.model 输出 34）”；154 行注释“伏笔、目标、决策、写作指示与检查的随各自的那一片加”；伏笔的 `objectTouchedInText`（要窄问题）至今没有声明。
+- plot.test.ts:88 断言 `pending.value.complete === true`，:139 断言 `[complete, unavailable]` 为 `[true, []]`。E0 把 E1 到 E3 的诊断都声明了、计算到 E1/E2b/E3b 才登记，E0 到 E3b 之间这两条测试必然失败，切片 1 不能“各自提交验证”。
+- “`constraintViolated`、`decidedInText` 只登记声明、计算返回空”：返回空对内核等于“查过、没违反”，待处理不标不完整，作者看不出这两项其实没查；与伏笔 `objectTouchedInText` 的处理（不声明，等阶段 F）不一致。
+- 个数：“诊断九个（goals 三、decisions 九里除两个……是七，brief 三）”= 3 + 7 + 3 = 13 个有计算，加两个只声明的是 15 个声明；“九个”不对，照字面实现的人会困惑到底声明几个。
+建议改法：诊断的声明跟着计算走：E1 声明 goals 三个，E2a 声明 overdue、dangling，E2b 声明两种守卫与写作指示三个，E3b（或 E3a）声明 brief 三个。`constraintViolated`、`decidedInText` 照 `objectTouchedInText` 的先例留到阶段 F 一起声明与计算；若一定要先声明（例如让决策能挂 `{kind: diagnostic}` 的稳定键形状先生效），说明理由并让计算抛出“由窄问题报出，阶段 F 接上”，让内核记 `diagnostic-unavailable`，同时改上面两条测试的期望——这是行为取舍，应记待确认。个数改成准确的“声明 13 个（F 再加 2 个）”。
+
+== 6. [重要] 遗漏：brief 的三个诊断（noPresentation、noSceneConditions、payoffWithheld）在 E3 里没有落位，按章算还是只在拼简报时给没定
+类别：遗漏 / Spec 没写清
+位置：计划 E0 第 1 条（“brief 三”）、E3 全节、切片 5、6、验收映射
+现象：E0 说要登记 brief 的三个诊断，E3 列了 `read.ts` 到 `record.ts` 的十个文件，没有一个文件或函数负责算这三个诊断，切片 5、6 的测试也没提它们。
+为什么是问题：这三项都是“按某一章拼简报时”才有意义的条件（“本章计划不暗示也不揭示”“本章在场的人里有知道它的”“本章回收的伏笔”）。
+- 若做成内核登记的 `DiagnosticCompute`（`(view, at, mode)`，没有“要写哪一章”这个参数），就得对每一章都算：1000 章的书里每个没挂 `nbook.plot.scene` 的章（已写的老章基本都没挂）都出一条 `noSceneConditions` 提示，提示列表被淹；且每章都要建一次“写之前的集合”，读待处理的预算（200 ms）吃不消。
+- 若只在 `composeBrief` 的结果里给出，那么它们不该进 `canon.diagnostics` 的登记（声明了没计算就是第 5 条的“不完整”），只是简报结果里的提示。
+Spec（brief.md 输入第 3 条）写“本能力登记的诊断”，但没写在哪些章上算。两种读法的实现完全不同。
+如何核实：brief.md 输入与失败表；计划 E3 文件清单。
+建议改法：E3 加一个 `hints.ts`（或并在各段文件里）明确产出这三项；决定是“只在要写的那一章上算”——给法可以是简报结果里带 `findings`、并只在 `beforeWriting`/`brief` 被调用时给出——还是“对所有计划未写完的章算”（只对有计划的章算，已写章不算）。这是 Spec 没写清的行为，记待确认；无论哪种，都在切片 5、6 的测试里各补一条。
+
+== 7. [重要] 地址守卫的算法在现有读取上算不出“值不完整”，“无法检查”的报法与 `Finding` 的形状、诊断级别冲突
+类别：与现有代码不符 / 算法能否算出
+位置：计划 E2 “地址守卫（输出 2）”
+现象与核实：
+- `OriginStep`（packages/nb-canon/src/engine/types.ts:107-113）没有完整性标记：`patch` 步只有 change、op、result；套不上的变更不出步骤（incremental.ts:377 `if (!item.applied) continue`），之后的值在引擎里是不完整（`FieldState.incomplete`，types.ts:53-56），但来历里看不出来。计划“完整性：值不完整不判”没说从哪取。
+- 来历的第一步总是 `init`（incremental.ts:368、393 `[initStep, ...steps]`），“没有步骤是初值”的分支不存在；还有 `check`（核对点，精确档不改值、只带 written）与列表末尾的 `reduce`（语义档归纳，无值）两种步，“范围前最后一步的值”照字面取会取到没有值的步骤。
+- `Finding.params` 的类型是 `Record<string, string | number>`（service/diagnostics.ts:27），`unchecked: true` 放不进去；诊断的级别是按诊断 id 登记的（`addressGuardViolated` 是 `pending`），同一诊断的发现全部进待处理，不存在“这一条带标记就不入待处理”。
+为什么是问题：照字面写 E2b 会卡在三处：完整性无从判断、起点取错、“无法检查”无处安放。Spec decisions 输出 2 的“记‘无法检查’”与内核核对点的“只在诊断里记‘无法核对’，不成待处理”（model.md 输出 11）对应，但插件诊断没有这种“只记不报”的通道。
+建议改法：起点值与完整性用 `view.entry(at.entry, {kind:"chapter", chapter: from, edge:"start"}, mode)` 的 `fields[path].incomplete` 取（没有 `from` 用初值），范围内每一步用 `patch`/`carried` 步的 `result`，并在每一步对应的位置（这条变更之后）用 `entry()` 查完整性，或接受“只看起点与最后一步的完整性”并写明；`check`、`reduce` 步跳过。“无法检查”另登一个 `hint` 级的诊断（例如 `nbook.plot.decision.addressGuardUnchecked`，键同违反那条），或只在 `decisionsFor` 的守卫结果里带“无法检查”而不出发现——两种都超出 Spec 的诊断表，记待确认。
+
+== 8. [重要] E1 的三项检查有几处照字面实现会出错：没有变更 id 的知情变化、`changesOf` 的“变更取触发处”、`skippedStep` 的“中间”怎么列
+类别：算法能否算出 / 没处理的边界
+位置：计划 E1 第 1、3 条；风险 (4)
+现象与核实（core/knowledge.ts）：
+- 带过去的候选不记变更：`#explicitOf` 里 carried 那一步 `history.push({key, explicit: true, row: …})`（第 172 行）没有 `change`；隐秘目标推出的候选（第 223 行）也没有 `change`，只有目标出场的安放键。`premiseChanged` 的稳定键第三项是“让知情变了的那条变更”，这两类变化没有现成的变更 id。
+- 计划说 carried “变更取触发处”：触发处是父线上的变更（reads.ts:178 `change: fork.trigger ?? fork.cut`），它的排序键在子线视图里可能不存在（`eventKey` 只认这条线事件序列里的），之后判断“这条变更之后有没有改过 G”若用触发处的键去比，会和子线上切口之后的目标改动比错位置。应当用候选自己的键（合成事件的键，reads.ts:178 的 `key`）比先后，只把触发处 id 用于稳定键。
+- 隐秘目标推出的 `knows` 从目标出场起生效：若 G 的 `基于` 里含它自己的 `隐秘` 知识点（或另一个隐秘目标的），出场时“有效知情变了”却没有变更，计划没说报不报、键写什么。
+- `skippedStep`：计划写“对每个变化的变更查 involves/补丁地址；‘涉及它’指这条变更本身以外的别的变更”，但没说怎么列出“中间”的变更。要的是“进行那一步（或 init/出场）与达成那一步两个排序键之间、`changes({entry: G})`（reads.ts:342 `concerns`）里的变更”，只查两端变更自己的 `involves` 得不出 Spec 的判断。另外 `状态` 初值就是 `achieved`、或在同一条变更里由进行改达成（同一变更两个补丁）时算不算，没写。
+- 同一条变更既让 H 知情变了、又改了 G 的 `goal` 命名空间：Spec 说“这条变更之后没有……改过 G”，照字面同一条不算“之后”，会报；作者把两件事记在同一条变更里是最自然的写法，报出来是误报。
+- 计划只对“最后一次变化”报一条；Spec 写的是“在某条变更里……变了，而这条变更之后没有改过 G”，照字面每一次这样的变化各报一条（键各不同）。只报最后一次是合理的降噪，但它让作者挂在旧键 `[G, K, c1]` 上的“有意为之”决策在 c2 出现后失效——这是行为取舍，计划里没说。
+建议改法：E1 第一步给 `KnowingIndex` 的候选补上 `change`（carried 记触发处、合成事件的键另存；隐秘目标推出的记 null 并在 premiseChanged 里跳过），`changesOf` 的返回带 `{key, change, before, after}`，先后一律按 `key` 比；`skippedStep` 写成“两步的键之间 `changes({entry: G})` 里，除这两条以外是否还有变更”；“同一条变更也改了 G 算已跟着改”写进计划并在 E1 的固定场景里各加一条；“只报最后一次”与上面两条一起记进待确认清单。
+
+== 9. [建议] `stalled` 与 `overdue` 的“最新一章”在计划里两种取法，和 Spec 也不一致
+类别：与 Spec 不一致 / 别扭之处
+位置：计划 E1 `stalled`、E2 `overdue`
+现象：
+- `stalled`：计划取“到读取位置所在章（`view.chapters` 的下标之差）”；Spec goals 输出 4 写“从最后一次被改到最新一章超过 30 章”。
+- `overdue`：计划取“`view.chapters` 里最新一章不早于第 N 章”。`view.chapters` 是整份章序（reads.ts:192 `chapters: deepFreeze([...order.ids])`），不随读取位置截断；`due` 是章 id，只要那一章在章序里，“最新一章不早于它”恒成立——等价于“到期章在章序里就报”，与读取位置无关。若活页夹里预先排了还没写的章（细纲先行的写法），到期章一建出来就 overdue。
+- 两项都是在 `(view, at, mode)` 里算的；一个按 `at`，一个不按 `at`，读第 10 章末尾的待处理时会看到第 15 章到期的决策已“到期没定”，却看不到按最新一章算已经停滞的目标。
+为什么是问题：Spec 两处都写“最新一章”，计划一处改成读取位置、没有说明；另一处照字面成了“到期章存在即报”，与验收 3“活页夹到第 15 章时进待处理”在“活页夹已排到 20 章、只写到 12 章”的情形下读法不同。
+建议改法：统一一种口径并写进计划：要么两项都按读取位置（`at` 所在章，读最新章末尾时即 Spec 的“最新一章”），要么都按章序末尾；“活页夹里最新一章”是否只算已有正文的章，作为 Spec 没写清的一项记待确认。`appears` 在前史或没有出场时 `stalled` 的起点也写明。
+
+== 10. [重要] 事实不符：判“剧情线上有剧情变更的章”用 `changes({entry: 线条目})` 取不到属于这条剧情线的变更
+类别：与现有代码不符
+位置：计划 E2 第 1 条“挂在剧情线条目上的已定决策……（输出 9，用 `changes({entry: 线条目, ...})` 判章）”
+现象：`ChangeFilter.entry` 走 `concerns(change, entry)`（packages/nb-canon/src/service/reads.ts:306-308），只看 `involves`、`cast.who/as` 与补丁地址；变更“所属的剧情线”存在 `change.lines`（model.md 输入表 `involves`、`lines` 一行），由 `ChangeFilter.line` 匹配（reads.ts:343 `change.lines.includes(filter.line)`）。照计划写，剧情线条目通常不出现在 involves/补丁里，结果是空，输出 9 整条失效。
+另外 `decisionsInvolving(view, chapter, line)` 的 `line` 参数与 `ChangeFilter` 里的 `line`（剧情线条目）/`worldline`/`inView`（世界线）同名异义，计划没说是哪一种。
+如何核实：读 reads.ts:340-347。
+建议改法：改成 `view.changes({line: 线条目, chapter: N})`（线视图默认 `inView` 当前世界线，正合“在这条世界线上看得到”），按计划模式时再按 `kind: "plan"` 与 `plannedAt` 取计划；函数签名里把世界线叫 `worldline`，或干脆去掉这个参数、用 `view.line`。E2 的测试加“决策挂在剧情线条目上、本章只有一条 `lines` 含它的变更”。
+
+== 11. [重要] 遗漏：“涉及本章”只处理了 `about` 的 entry 与 chapter 两种；`dangling` 没处理空的 `about` 与另外三种对象；输出 7 后半句（诊断附上决策）没有落位
+类别：遗漏 / 没处理的边界
+位置：计划 E2 第 1 条与 `dangling` 一条
+现象与核实：`About` 有六种（packages/nb-canon/src/core/schema.ts:235-242）：entry、change、address、chapter、decision、diagnostic，`about` 可以为空（model.md 决策表“可以为空”）。
+- 涉及：计划只写“`about` 里的条目与 `chapterEntries` 相交、`about` 里有本章、或 `scope` 含本章”。`{kind: address, at}` 挂的是一个条目的字段（例如验收 1 的“星瑕.身份.公开”那类决策最自然的挂法），按 Spec“挂的对象与本章涉及的条目相交”应取 `at.entry` 参与求交；`{kind: change}` 挂的是本章的一条变更时也该算。计划没写，照字面做会漏。`scope` 只有 `from` 或只有 `to` 时“含本章”按章序比，也没写。
+- `dangling`：Spec 是“挂的对象全部是已删除的条目、已撤销的剧情变更或被取代、放弃的决策”。空 `about` 照“全部”的字面是真（空集上的全称），所有不挂对象的已定决策都会报“悬空”；address 的条目已删、chapter 已不在章序、diagnostic 挂的诊断已不登记，各算不算悬空也没写。
+- 输出 7 后半句：“泄底、穿帮、违反写作指示的诊断，都附上挂在同一个知识点、条目或本章上的决策。”本阶段的 `povAbsent`、`flashbackMismatch`、`repeated` 就是“违反写作指示的诊断”，计划里没有“附上决策”的做法（放进 `Finding.objects`？`params`？），也没有测试。
+建议改法：E2 写明六种 `about` 各自怎样算“涉及本章”（address 取 `at.entry`；change 取它的安放章；decision、diagnostic 不参与）与怎样算“悬空”（空 `about` 不算悬空；address 条目已删算；chapter 不在章序算；diagnostic 不算）；把这张表记进待确认（Spec 没写全）。输出 7 后半句：写作指示三项的 `Finding.objects` 里追加相关已定决策的引用（`{kind: "decision", id}`），并加一条测试；知识与伏笔那几类“泄底、穿帮”诊断属于阶段 B/F，写明留到哪一阶段。
+
+== 12. [重要] 事实不符（实验确认）：“读者的知情按主线正文、B 已是这样”不成立——线视图的讲述按线过滤，主线视图看不到子线变更上的揭示
+类别：与现有代码不符 / 读者守卫与简报“读者已知”的前提
+位置：计划 E2 “读者守卫（输出 3）……不分线（读者的知情按主线正文，B 已是这样）”；E3 `reader.ts`（输出 10）
+现象：B 的 `readerKnowing`、`firstReveal`（core/knowledge.ts:340-365）读 `view.tellings(...)`；`CanonReadView.tellings` 对剧情变更的讲述按 `tellingInLine` 过滤（nb-canon/src/service/reads.ts:199、462-465：只留这条世界线看得到的变更上的讲述）。所以同一份正文，读者的程度随你拿哪条线的视图而变：
+实验（/tmp/review-w00039-t34-P6/lab/reader-line.test.ts，在实现 worktree 的应用包里 `bun test` 跑）：主线第 7 章切口、第 8 章触发、分叉 r1；r1 上第 9 章一条变更带讲述“原来如此”（第 9 章正文第 2 段）与 `explicit` 揭示 K。结果：
+  main: readerKnowing(ch9 末尾) = unaware，firstReveal = {}
+  r1:   readerKnowing(ch9 末尾) = knows，firstReveal = {suspects/knows: ch9 第 2 段}
+  main 第 10 章末尾仍是 unaware
+为什么是问题：读者读的是活页夹的正文，回溯章（brief 验收 5 的“第 30 段起讲 r1”）里子线变更上的揭示读者是读到了的。读者守卫若在主线视图上算，会漏掉回溯段里的泄底（守卫失效）；若照 D8 的做法在每条线的视图上各算一次，同一个不带 `line` 的稳定键在不同线的待处理里时有时无。简报的“读者已知”（读上一章末尾）同样会漏。Spec knowledge 输出 6 的定义是“P 上读过的生效讲述”，与线无关。远程方法 `reader`（backend/plugin.ts:139）现在用的就是主线视图，B 的这个缺口还没有测试覆盖（knowledge.test.ts 的读者用例全在主线）。
+建议改法：E2 之前先修 `readerKnowing`/`firstReveal`：读者读过的讲述 = 每一章按它讲的线（或分段讲的各段的线，`positionLine`/章的分段）取那条线视图的讲述，合起来按发生点排序；或给内核的 `tellings` 加“不按线过滤”的筛选（改内核，记待确认）。读者守卫的计算明确只在一个视图上算一次（结果与当前线无关），并补“回溯段里的揭示让读者守卫违反”的测试。计划“不改内核”的前提要据此重新确认。
+
+== 13. [重要] 事实不符：补叙“读那处安放”在现有读取上读不出来——读取位置只有初值与章首、章末
+类别：依赖的机制不存在 / 算法能否算出
+位置：计划 E3 `read.ts`（输出 2、14）“`timeMode.flashback` 时读那处安放”；“需要的内核读取能力……都已有”
+现象：`ReadPositionSchema`（packages/nb-canon/src/core/schema.ts:23-26）只有 `{kind: initial}` 与 `{kind: chapter, chapter, edge: start|end}`；`timeMode.flashback` 给的是一个安放（`PlacementSchema`，schema.ts:16-20：前史 `order`、章内 `key`、未排章）。`view.entry()`、`origins()`、`plannedAt()`、`chapterEntries()` 都只收读取位置；B 的 `KnowingIndex` 有 `{before: change}`/`{after: change}`，但条目的值、计划、在场都没有“某个安放上”的读法。前史中间的某一处（例如 `order: 5`）与章中间的某一处都没法直接读。
+为什么是问题：输出 2 与 14 都要求补叙读“它声明的安放”而不是现在；照字面实现时要么近似成那一章的章首或章末（前史只能近似成 initial 或第一章章首，两者都不对：initial 不含前史、第一章章首含全部前史），要么要内核加“按安放读取”的位置——后者与“本阶段不改内核”冲突。`flashbackMismatch`（“前史里它的前后各一条”）也要按安放排序列出邻居，这倒可以用 `placementKey`/`eventKey` 自己算。
+如何核实：读 schema.ts:16-26；grep 'ReadPosition' 看 `entry`/`origins` 的签名（reads.ts:108、120）。
+建议改法：在计划里写明补叙的读法与近似：例如“读那处安放所在章的章首（前史读第一章章首之前、取前史 order 不晚于它的事件），知情用 `KnowingIndex` 的 `{after: 那处之前最后一条变更}`”，并标为 Spec 没写清、记待确认；或者把“按安放读取”作为内核的补充提出来（改上游，代价是内核读取位置的形状变化、游标与缓存键都要跟着改），交开发者选。
+
+== 14. [重要] 简报的输入有两处真相：写作指示既在内存表里又随 `brief` 调用传入；上一章末尾由宿主另给却不进记录，输出 15 的“同输入逐字相同、记录比对”因此失效
+类别：接口与合同 / 确定性（brief 输出 15）
+位置：计划“开工前要确认的事实”第 3 条；E0 第 2 条；E3 的输入 `{view, chapter, instruction, outline, targetWords, previousTail, pluginVersion}` 与 `record.ts`；最后一条“上一章末尾一段正文：宿主给（previousTail）”
+现象：
+- 写作指示：诊断读 E0 的内存表，`composeBrief` 却收一个 `instruction` 参数；远程 `brief` 的输入里写作指示从哪来没写。若由调用方传，可能与内存表里同一章的版本不同：简报按 A 版拼、待处理按 B 版查，记录里的 `version` 只反映其中一边。
+- 上一章末尾：Spec 输出 15 列的输入是“读取输入（含正文快照）、写作指示快照版本、细纲、目标字数、插件版本”，上一章末尾按 Spec 应来自正文快照（读取输入的一部分）。计划让宿主另传 `previousTail`、记录里不记它：两次调用 inputDigest 相同、previousTail 不同时，输出不同而记录相同，写作任务据记录比对会认为“上下文没变”。
+- 插件版本：`pluginVersion` 由谁给、取什么（`descriptor` 的版本？构建号？）没写；E4 的端到端测试要断言它也得先定。
+为什么是问题：输出 15 是“确定与记录”的合同，测试“同输入两遍逐字相同”在同一进程、同一视图上跑两遍几乎必然通过（缓存都命中），抓不到这两处输入漏记。
+建议改法：(1) 写作指示单一来源：远程 `brief` 不收写作指示，只读内存表里本章的快照（没有时“写作指示”段写“无”、记录里 version 为 null），或者反过来 `brief` 收快照、诊断也只用调用方最近一次传的——二选一写进计划；(2) 上一章末尾要么由插件从正文快照取（需要内核给只读的章正文读取，改上游，记待确认），要么记录里加 `previousTail` 的 SHA-256，并把这一项补进 Spec 输出 15 的记录列表（记待确认）；(3) 确定性测试改成“两份独立建出的世界（不同的发布先后、同样的内容）各拼一次，逐字相同”，再加“只改 previousTail/只改细纲，记录不同”的反例。
+
+== 15. [重要] 事实不符：“B 的写之前的集合”不存在；“计划上的 `nbook.plot.reveal`”挂不上去
+类别：与现有代码不符
+位置：计划 E3 `secrets.ts`（输出 4）“本章涉及的保密与绝密档知识点（B 的‘写之前的集合’）”“计划上的 `nbook.plot.reveal`”
+现象与核实：
+- packages/neuro-book/src/plugins/plot/ 下没有 knowledge 输出 10 的实现：grep '写之前\|输出 10' 无结果；core/knowledge.ts、viewpoint.ts、foreshadowing.ts 的导出里也没有按章求知识点集合的函数。阶段 B 的计划与验收映射也没有输出 10。
+- `nbook.plot.reveal` 的 `attachTo` 只有 `["telling"]`（shared/declarations.ts:115）；挂在剧情变更上的只有 `presentLearns`。Spec brief 术语写的是“本章计划（或它们的细纲讲述上的标注）带指向这个知识点的 `nbook.plot.reveal`”，即计划的 `told` 里的讲述（`source: outline` 或正文）上的揭示。照“计划上的 reveal”去读 `change.marks` 永远找不到，所有绝密都会落到“不暗示也不揭示”，验收 2 的第 18 章那半条过不了。
+为什么是问题：输出 10 是简报与阶段 F 写完以后的检查共用的定义（knowledge.md 输出 10 开头明说），由 E3 第一次实现，它的形状决定 F 能不能复用；计划把它当成已有的东西，切片 5 的工作量与测试都没算它。
+建议改法：E3a 的第一项新增 `core/chapter-points.ts`：`pointsBeforeWriting(view, chapter, mode)`，照 knowledge 输出 10 的四个来源（计划的补丁与标注、伏笔节点所指伏笔的答案、细纲讲述上的标注、参与者与涉及条目名下的保密以上知识点、参与者进行或受挫目标的 `隐秘`）实现并单独测试，写明阶段 F 的“写完以后的集合”在它上面加；“计划要暗示或揭示”改成“本章计划的 `told` 讲述上带指向 K 的 `nbook.plot.reveal`”，`hint` 对应“只能写到：暗示”、`explicit` 对应“明说”，两者都有时取哪个也写明。
+补证（第 15、5 条）：同一份计划的阶段 B 细计划第一段（plan.md 第 172 行）写明“‘本章涉及的知识点’（knowledge 输出 10）随阶段 E 的简报”“每一片只声明这一片同时给出计算的诊断：声明了却没登记计算的诊断会让每次读待处理都标‘不完整’”。阶段 E 计划把前者当成 B 已做，把后者推翻了。
+
+== 16. [重要] 性能验证照“scale-b5 同口径”量不到本阶段的新诊断：样本里没有目标、决策、守卫与分叉
+类别：验收映射 / 性能
+位置：计划“验证”第 2 条；风险 (1)
+现象与核实：packages/neuro-book/scripts/perf/plot-scale.ts（B5 的量法）的形状是 200 人、500 知识点、20 伏笔、每章 3 条在场变更（文件头 1-14 行），grep goal/决策/decision/guard/fork 无结果；它显式登记的计算只有 `knowingDiagnostics`、`foreshadowDiagnostics`（第 22-23 行）。B 时读待处理 150 ms、预算 200 ms，只剩 50 ms 给本阶段新加的 13 个计算。
+为什么是问题：“同口径”量出来的数字只会和 B 时一样，`premiseChanged`（每个目标 × 每个 `基于` 知识点 × 持有者的知情变化）、地址守卫（每个带守卫的已定决策 × 每条线 × 两种模式，每次 `origins` 或 `entry`）、`stalled`/`skippedStep`（每个目标一次 `origins`）的耗时一点都没量到；风险 (1) 说“量法里加分叉场景”，但没给目标、决策、守卫、线的数量。
+建议改法：E2 收口前先扩 plot-scale：每人 0 到 3 个目标（`基于` 各 2 个知识点，主要角色 30 人）、200 条决策（50 条已定带地址守卫、20 条带读者守卫、30 条待定带 `due`）、3 条分叉线，登记全部新计算；预算按“全部剧情诊断合计 ≤ 200 ms”判，另记每个新诊断各自的耗时（`status` 的 `diagnosticTimings`）。数量写进计划，免得量法由实现者临时决定。
+
+== 17. [建议] 开写前的视图：跨线聚合与“本章计划会触发”不符，“涉及本章的 premiseChanged”没有定义
+类别：与 Spec 不一致 / Spec 没写清
+位置：计划 E2 地址守卫最后一句“`beforeWriting` 与 `decisionsFor` 的聚合跨线（Spec 写‘每条线各自报’）”；`beforeWriting` 一条
+现象：
+- 第 N 章讲在某条线上（或分两段讲两条线）。Spec decisions 输出 6 要的是“本章计划会触发的地址守卫违反”：本章计划只在本章讲的那条（或两段的两条）线上；把所有线上的违反聚合进来，会让作者看到与第 N 章无关的线上的违反，还要为每条线建一次线视图（线多于常驻名额时就是风险 (1) 的重建）。括号里引的“每条线各自报”恰好是反对跨线聚合的依据。
+- “涉及第 N 章的 `premiseChanged`”：稳定键是 [G, K, 让知情变了的那条变更]，“涉及本章”可以指那条变更安放在第 N 章之前、G 的持有者在本章计划里在场、或 G 在本章涉及的条目里——计划没定，三种结果差别很大（第一种几乎是全部）。
+建议改法：`beforeWriting` 只在本章讲的线（`positionLine({chapter: N, edge: "start"})`，分段章取各段的线）上算；`decisionsFor` 是读取视图，可以带 `lines` 参数、缺省同样只取本章的线。`premiseChanged` 的“涉及本章”定为“G 的持有者在本章计划里在场或被提到，或 G 在本章涉及的条目里”，写进计划并记待确认。
+
+== 18. [建议] 目标表把“主要角色”定义成“有 `轻重 = major` 目标的持有者”，只有次要目标的角色会从表里消失
+类别：与 Spec 不一致
+位置：计划 E1 “目标表（输出 5）”
+现象：`轻重` 是目标的属性（goals.md 输入表：`轻重` enum major/minor），不是人的。Spec 的非目标写“次要角色的目标：只给作者选定的主要角色建”——建了目标的人就是作者选定的主要角色。计划用“有 major 目标”反推主要角色：一个主要角色此刻只剩 `minor` 的目标（或主要目标已达成、只剩次要的进行中），整个人连同他的态度表从目标表里消失；`stalled` 等检查却照常报他的目标。
+为什么是问题：目标表是作者看“主要角色此刻想要什么”的入口，按这个定义会漏人；“每个人的态度表”是全部有 `att` 的人还是只这些主要角色，也随之含糊。
+建议改法：主要角色 = 在这个位置上至少有一个已出场目标的持有者（不论轻重、状态，由筛选再收窄）；态度表的“每个人”写明是这些主要角色，还是所有有 `att.态度` 的条目。若作者真想用 `轻重` 区分人，应作为 Spec 补充记待确认。
+
+== 19. [建议] 切片与验收映射的缺口：E2a 没有测试、几条 brief 输出没有落到文件、映射里有重复
+类别：验收映射 / 切片边界
+位置：计划“切片（阶段 E）”3、5、6；“验收映射（阶段 E）”
+现象：
+- 切片 3（E2a：决策取数、`overdue`、`dangling`、开写前的视图骨架）没写测试；decisions 验收 3（到期没定）的实现在 E2a，测试却归到切片 4（“decisions 验收 1 到 4”）。E2a 单独提交时没有任何断言兜底，违背“每片各自提交验证”。
+- brief 输出 1（组成与顺序、空段写“无”、上一章不存在写“无”）、输出 3（通则，整份只出现一次）、输出 6（场景条件）、输出 13（涉及条目的样子）在 E3 的文件清单里没有对应文件（`fixed.ts` 只放句子；`allowed.ts` 是输出 11）。切片 5 写了“场景条件”，但没说谁拼、按“计划的先后”用哪个排序键。
+- 输出 14 的“回溯后读子线带过去的那一点之后”与“共同部分只写一次”在 `read.ts` 一句带过，验收 5 却要“存款是带过去之后的 20000”——这一条依赖第 1 条的渲染取值问题，切片 6 放在最后才暴露。
+- 映射行“E3b……验收 4 到 6 与 brief 验收 5”里 5 重复；“输出 1 到 15：E3”没有逐条落到切片 5/6，变异检查只在 E1、E2b 写了，E3 没有。
+建议改法：E2a 加 decisions 验收 3 与 `dangling` 的固定场景（含第 11 条的空 `about`）；E3 文件清单补 `compose.ts`（输出 1、3 的组成、顺序、空段）与 `scene.ts`（输出 6，按 `eventKey` 计划模式的先后）；验收映射改成“brief 输出 N → 切片 → 测试名”的逐条表；E3b 补变异检查（例如删掉绝密“不暗示也不揭示”分支、去掉裁剪里“真相那句不裁”的保护，各应让一条测试失败）。
+
+== 20. [建议] 裁剪：只有分段上限却要“段间的裁剪顺序”，没有总上限就无从排；“字数”怎么数没定
+类别：Spec 没写清 / 确定性
+位置：计划 E3 `budget.ts`（输出 12）
+现象：Spec 输出 12 给的是每段各自的上限（写作指示 600 … 上一章末尾 600），又给了“裁的先后按段”的顺序。每段各自超限各自裁时，段与段之间互不影响，“先裁哪一段”只有在存在一个总上限（或总上限由各段之和、某段可以借用别段余量）时才有意义；Spec 没有总上限，计划照抄了两句，没说段间顺序在什么情况下起作用。另外“字数”按 UTF-16 码元、码点还是字形数，项的“文字”含不含标题与固定句，都影响裁到哪一项，同样关系到输出 15 的逐字相同。
+为什么是问题：实现者只能自己补一个总上限或忽略段间顺序，两种结果不同；验收 4 只调低“涉及条目的样子”一段，测不出段间顺序。
+建议改法：计划写明“只按段裁、段间顺序暂不起作用（等有总上限再用）”或补一个缺省总上限（例如各段之和）并说明超了按段间顺序裁；“字数”定为码点数（`[...text].length`），不含段标题；两者记待确认。测试加一条“总量超限时先裁涉及条目的样子再裁读者已知”（若采用总上限）。
+
+== 21. [建议] 写作指示三项检查的边界没写：没记参与者的变更、回溯者“记得的”变更、“前后各一条”、`repeated` 的“同一句”
+类别：没处理的边界 / Spec 没写清
+位置：计划 E2 “写作指示的检查（输出 8）”
+现象：
+- `povAbsent` 用 `experienceChanges`：它返回的 `changes` 含回溯者“记得原线上的”父线变更（core/knowledge.ts:308 的返回里有 `remembered`、`parent`），父线上第 N 章的变更会让“在本章在场”误成立；它还只给 `uncast` 计数。本章有没记参与者的变更时，“视角人物不在场”其实不知道，计划没说报不报；本章一条变更都没有时照字面“没有任何一条里在场”为真，也会报。应直接用 `view.presence(pov, {from: N, to: N, mode})`（只算这条线），`uncast > 0` 或本章没有变更时不报。
+- `flashbackMismatch`：“前史里它的前后各一条”是计划自己加的“附近”的定义，Spec 只写“在前史里它的前后”；安放在章内（不是前史）时“附近”只剩“同一章”，也没写。
+- `repeated`：`avoid` 是列表、`other` 是一段文字，“同一句”对 `other` 是整段相等还是按句切；“连续 3 章”中间隔着没有快照的章算不算断开；读取位置之后的章算不算。键是 `range: {from, to}`，同一句在两段不连续的区间里各报一条还是一条，也没定。
+- 三项的稳定键都不带 `line`，D8 起每条线的视图各算一次：第 N 章只讲在一条线上，别的线的视图里算出同一条发现，会出现在每条线的待处理里。应只在第 N 章讲的那条线（`positionLine`）的视图上报。
+建议改法：把上面四点逐条写进 E2b 的算法与测试（尤其 uncast 与“只在本章的线上报”），“附近”与“同一句”的定义记待确认。
+
+== 22. [建议] 简报的确定性有一个 Spec 自带的例外没处理：语义档的归纳缓存补上后，同一读取输入拼出的简报会变
+类别：确定性（brief 输出 15）/ Spec 之间的缝
+位置：计划 E3 `record.ts`；“同输入逐字相同由测试做两遍比较断言”
+现象：model.md 开头与输出 9 写明唯一例外：语义档字段有事件时，值取归纳缓存，缓存没有时是“起点；之后：事件一；事件二……”并标“未归纳”；缓存补上以后同一版本、同一读取输入的读取会变成归纳的那句（`OriginStep` 的 `reduce` 步带 `cached`，engine/types.ts:111）。简报里大量是语义档：目标的 `为什么`、态度的 `态度`（输出 2 的例子“冷淡 → 冷淡（略松动）”正是语义档）、`听过的说法`。记录里只有 inputDigest，归纳缓存不在读取输入里。
+为什么是问题：写作任务开写时拼一次、检查时再拼一次比对，中间后台把归纳补进缓存，两份简报文字不同而记录相同——输出 15 说“任何一项不同就算上下文已变”，这里项都相同、文字却不同；测试“两遍逐字相同”在同一测试里不会触发归纳，测不出。
+建议改法：记录里加“用到的语义档值是否都已归纳”或用到的归纳的摘要（例如对 `[地址, 起点, 事件 id 列表, cached]` 取 SHA-256），比对时一并比；或在计划里写明“简报的确定性同内核：归纳补进缓存是唯一的例外”，并把这句补进 brief 输出 15（记待确认）。
+
+== 23. [建议] 几处小的未写明之处（各一句）
+类别：没处理的边界
+位置：计划 E0、E2
+- 快照形状“字段都可选”（照 Spec）：但表按 `chapter` 做键、记录与 `params` 用 `version`，这两项在 `shared/instructions.ts` 里应为必有，缺了回参数错误；`pov` 指向已删条目或不是人物时 `povAbsent` 报不报没写。
+- 地址守卫在子线上：违反若来自带过去的那一步（`carried`），稳定键的“让它违反的那条变更”写分叉 id 还是触发处 id 没写（与第 8 条同一问题）；`lines` 里写了后来不存在的线时，跳过还是报“无法检查”也没写。
+- 读守卫与标注时只认 `version === 1` 的标注（现有代码 foreshadowing.ts:69、knowledge.ts:207 都这样做），种类版本不对的标注由内核报 `mark-version-unsupported`，守卫不查——计划没写，照字面可能把只读的旧版本守卫也拿来查。
+- `nbook.plot.scene` 的 `attachTo` 只能写到 `change`，内核不分计划与已写；已写变更上的场景条件简报读不读（Spec 只说“本章计划上”）没写。
+- 地址守卫的 `to` 含不含那一章（读者守卫的 `until` Spec 明写“不含”，地址守卫没写；验收 1 的“第 30 章之前”配 `to: 第 30 章` 暗示不含），应写明并记待确认。
+
+更正（行号）：第 8 条“carried 那一步 history.push（第 172 行）”应为 core/knowledge.ts:178；“隐秘目标推出的候选（第 223 行）”应为 :229。第 23 条“knowledge.ts:207”应为 :213。结论不变。
+
+补证（第 2 条，实验确认）：/tmp/review-w00039-t34-P6/lab/chapter-entries-plan.test.ts（在实现 worktree 应用包里 bun test）：第 1 章一条已写变更（甲在场）、第 2 章只有一条计划（乙在场）。结果 `chapterEntries("ch1")` 含甲；`chapterEntries("ch2")` = []，而 `plannedAt(ch2 末尾)` = ["c2"]。从“读代码推断”升为“实验确认”。
+
+补证（第 12 条，补跑）：/tmp/review-w00039-t34-P6/lab/reader-line-bound.test.ts 把活页夹上第 9、10 章绑到 r1（`chapterLines`：第 9 章整章讲 r1；以及第 1 段讲主线、第 2 段起讲 r1 两种），`positionLine(第 9 章末尾)` 都是 r1。结果两种都一样：主线视图 readerKnowing(ch9 末尾) = unaware、firstReveal = {}、第 10 章末尾 unaware；r1 视图 = knows（第 9 章第 2 段）。世界状态不越界，结论不变。
+
+== 9. （收窄）只保留 `stalled` 一半
+`overdue` 那一半撤回：活页夹就是章序，计划“`view.chapters` 里最新一章不早于第 N 章”与 Spec 字面及验收 3（“活页夹到第 15 章时进待处理”）一致；“活页夹里最新一章是否只算已有正文的章”是 Spec 没写清，记待确认即可，不算计划的问题。保留：`stalled` 取“读取位置所在章”而 Spec 写“最新一章”，计划改了口径却没说明；两项一个按 `at`、一个不按 `at` 的不一致仍应在计划里写明取舍。级别仍为建议。
+
+定级标准与调整：阻断 = 照计划字面实现时，所依赖的接口不存在，或 Spec 的某条输出、验收整条做不出来或必然失败。按这条标准：
+- 第 10 条升为 [阻断]：输出 9（剧情线上的决策）照字面整条取不到。
+- 第 15 条升为 [阻断]：“计划上的 reveal”读 `change.marks` 永远为空，brief 验收 2 的第 18 章那半条（“只能写到：暗示”）必然失败；输出 10 的集合也要新写。
+- 第 13 条维持 [重要]：补叙读安放做不准，但可以近似、且 brief 的验收里没有补叙一条。
+- 第 12 条维持 [重要]：没有现成验收直接覆盖，但影响读者守卫与简报“读者已知”两处，排序上放在前面。
+
+== 未发现问题的方面
+- 计划列出的 `CanonReadView` 方法 `decisions`、`chapterEntries`、`origins`、`plannedAt`、`changes`、`onLine` 都存在（nb-canon/src/service/reads.ts:91-143），签名与计划的用法对得上（`chapterEntries` 的语义问题见第 2 条）。
+- `DiagnosticCompute = (view, at, mode) => Finding[]`（service/diagnostics.ts:15）与“D8 起按线算、稳定键 `line` 取 `view.line`”属实。
+- 稳定键的五种组成 `objects/line/telling/range/detail` 都已支持（components/diagnostics-registry.ts:10、37；`range` 形状为 `{from, to}`）；三个标注种类的形状可以用现有白名单 schema 写出，`refs` 的 `at.entry`、`lines[]`（`kind: line`）、`point` 写法都受支持（components/marks.ts:16-17、114-128、pathSteps），挂在决策与剧情变更上（`attachTo` 有 decision、change）。
+- 决策字段 `status/about/scope/due/conclusion/reason/constraints/marks` 都在（core/schema.ts:248-266）；`view.decisions()` 给的是原始对象，“作者没说理由”要插件自己补，计划已写。
+- `pagedList`、`CANON_BUDGET_BYTES`、`cursor-stale` 的规则都在（backend/plugin.ts:31-57；canon/shared/contracts.ts:25）；有 `reportDataVersion` 可用（只是计划没用，见第 3 条）；远程方法支持 `effect: "write"`。
+- 守卫只查已定决策（输出 1）、读者守卫“第一处让它超过的讲述”可由 B 的 `firstReveal` 取（在第 12 条修好线的问题之后）、称谓用 `knowingIndex` 判揭穿、固定句集中在 `fixed.ts`、`STALLED_AFTER_CHAPTERS` 作常量放文件顶部：这些做法仔细检查后没有发现问题。
+- 待确认清单里没有与本阶段重复的已记取舍。
+
+== 对计划末尾“不做与风险”各项的判断
+- 不做窄问题的 `constraintViolated`、`decidedInText`：同意推到阶段 F，但不应在本阶段先声明、给空计算（第 5 条）。
+- 不做写作指示快照、细纲的文件与存盘：与 decisions、brief 的非目标一致；前提是先定下重启后与多调用方的行为（第 4 条），否则“不存盘”会表现为提示无声消失。
+- 不做“照写”的交互：与 decisions 的非目标、输出 6 一致，同意。
+- 不做简报各段上限的最终数字：与 brief 的非目标一致，同意；但“字数”的数法与段间顺序何时起作用要先定（第 20 条）。
+- 风险 (1) 地址守卫按线按模式乘开变慢：风险属实，缓解不足——量法没有目标、决策、守卫与分叉的样本（第 16 条），`beforeWriting` 跨线聚合会把它放大（第 17 条）。
+- 风险 (2) 固定句多、措辞一改即行为变化：集中到 `fixed.ts` 加逐句断言的做法合理，同意。
+- 风险 (3) 求交依赖 `chapterEntries`：方向对但没抓到真问题——`chapterEntries` 只算已写变更（第 2 条），剧情线的判章用错了筛选（第 10 条）。
+- 风险 (4) `KnowingIndex` 缺变化前后行：低估了，带过去的与隐秘目标推出的候选没有变更 id，“变更取触发处”会比错先后（第 8 条）。
+
+== 有效发现（按影响排序）：1、2、15、10、12、13、7、5、6、14、3、4、8、11、16、9（收窄）、17、18、19、20、21、22、23
+各级数量：阻断 4（1、2、10、15）；重要 11（3、4、5、6、7、8、11、12、13、14、16）；建议 8（9、17、18、19、20、21、22、23）；合计 23 条，无撤回，第 9 条收窄。

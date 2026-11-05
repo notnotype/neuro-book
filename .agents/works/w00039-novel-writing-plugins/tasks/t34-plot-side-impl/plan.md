@@ -748,6 +748,15 @@ A9 之后做一次实现审查（后端，按 reviewing Skill：omp 默认模型
 - `record.ts`（输出 15）：记读取输入摘要、写作指示快照的 `version`（无则 null）、细纲的 SHA-256、目标字数、**上一章末尾的 SHA-256**（Spec 的记录列表里没有它，补进 Spec 输出 15，记待确认）、插件版本（取 `descriptor` 的 `version` 字段）、裁掉的项。
 - 测试：brief 验收 1 到 7 与输出 1 到 15 逐条（映射表见下）；确定性用“两份独立建出的世界（发布先后不同、内容相同）各拼一次，逐字相同”，再加“只改细纲/目标字数/上一章末尾，记录不同”的反例；每个固定句一条断言；变异检查（删掉绝密“不暗示也不揭示”分支、去掉“真相那句不裁”的保护、`reveal` 改读 `change.marks` 各应让一条测试失败）。
 
+### P6 omp 份带来的补充（第二版追加，2026-11-06）
+
+omp 的 21 条里 17 条与 Opus 份重合、第二版已覆盖（诊断个数、`params`、`changesOf` 的触发处、`origins` 完整性、读者知情按线、剧情线筛选、回溯分段与补叙、渲染、`setInstructions` 的并发与重启、身份字段必有、`previousTail` 记录、`dangling`、`povAbsent` 的不确定性、数据版本报告、性能量法、简报总组装）。新增的 4 条：
+
+- `composeBrief` 的输入加摘要端口 `digest(text)`（同步，由宿主注入，与读取输入的摘要同算法），`core/` 不导入 Node API；插件版本不由调用方给，后端用 `descriptor.version` 注入，远程 `brief` 的输入里没有这个字段；纯函数测试用夹具传入。
+- 地址守卫的候选线：每个模式下取 `exists[mode] && unbuildable === null` 的线；决策显式写的 `lines` 里指向不可用线的跳过，并在决策视图的守卫结果里标 `unchecked`（不另出诊断）；“当前线”限定计算前先验这条线的状态。
+- 验收映射补测试矩阵：`stalled` 的 30 与 31 章边界、没有出场位置；`skippedStep` 的同一变更多补丁与中间变更；守卫范围端点（`from`/`to` 含不含）、初值就违反、显式线失效；`noPresentation`、`noSceneConditions`、`payoffWithheld`；至少一个真实 `WorldService`/远程合同场景覆盖每个公开失败码（`too-large`、`instructions-conflict`、`view-denied`、`line-not-found`）。
+- 变异检查不替代场景测试。
+
 ### 切片（阶段 E）
 
 1. **EP1**：内核：`Engine.chapterEntries(…, mode)`、`CanonReadView.chapterEntries/chapterLines/render`；差分与测试；Spec 补充（canon.model 输出 20、project 的读取视图）与待确认清单。
