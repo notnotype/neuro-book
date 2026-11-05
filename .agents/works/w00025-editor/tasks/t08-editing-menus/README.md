@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t08-editing-menus
-status: active
+status: done
 updated: 2026-11-05
 ---
 
