@@ -31,56 +31,32 @@ table { border-collapse:collapse; width:100%; font-size:14px; background:var(--p
 </head>
 <body>
 <main>
-<h1>t17 对话界面第一版：静态稿（第 3 轮）</h1>
-<p>已定（第 2 轮）：状态栏用 B，<code>DiffView</code> 按方案做，命令审批可以。下面的状态栏都已换成 B。</p>
+<h1>t17 对话界面第一版：静态稿（第 4 轮）</h1>
+<p>已定（第 3 轮）：圆角取值、左右对齐、向导用磨砂、费用告警放状态栏左边。这轮只看三处。</p>
 
-<section data-nbdev-question="r3-radius" data-nbdev-type="text" data-nbdev-optional>
-<h2><span class="badge" data-nbdev-skip>待定</span>1. 圆角：你自己调</h2>
-<p><b>Lab 控件：</b><a href="http://127.0.0.1:4217/lab?c=ConversationShellDraft&s=radius-lab&vp=free">打开圆角调节器</a>（只在这个草稿的开发服务上，这个会话结束它也会停）。六个滑块，右边的对话跟着变，能切到会话列表、模式菜单、审批看。值只在这个页面里生效。调好把左下角那行抄到下面或发给我。</p>
-<p>起始值已按你说的把气泡、输入框、对话框调圆一点：气泡 10、输入框 10、面板 10、弹出列表 8、对话框 12、控件 6。</p>
-<p><b>为什么上一轮 YOU 还是那么圆：</b>用户气泡（<code>.acv-user-bubble</code>）和 Agent 气泡是两处各写死的 16px，我只改了后者。实现时两者走同一个 token。</p>
-<div class="grid wide"><figure><a href="r3/radius-lab.webp"><img src="r3/radius-lab.webp" alt="调节器" loading="lazy"></a><figcaption>调节器</figcaption></figure></div>
-</section>
-
-<section data-nbdev-question="r3-align" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:对齐了|change:还不对（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>2. 左右宽度对齐</h2>
-<p>现在所有东西用同一组左右边距（12px）：顶栏、气泡的右边、输入框、向导、会话列表、模式菜单、状态栏。会话列表和模式菜单改成和输入框一样宽。</p>
-<p>顺便查到一个真问题：之前气泡右边比输入框短 14px，因为消息流给滚动条留了固定位置（<code>scrollbar-gutter: stable</code>），输入框没有。这轮去掉了；代价是滚动条出现时内容会窄一点，现在这个滚动条是浮动的，实际影响要到实现时再确认。</p>
-<div class="grid"><figure><a href="r3/aligned.webp"><img src="r3/aligned.webp" alt="空闲" loading="lazy"></a><figcaption>空闲</figcaption></figure><figure><a href="r3/session-list-a.webp"><img src="r3/session-list-a.webp" alt="会话列表" loading="lazy"></a><figcaption>会话列表</figcaption></figure><figure><a href="r3/mode-menu-a.webp"><img src="r3/mode-menu-a.webp" alt="模式菜单" loading="lazy"></a><figcaption>模式菜单</figcaption></figure></div>
-</section>
-
-<section data-nbdev-question="r3-surface" data-nbdev-type="single" data-nbdev-recommend="frost">
-<h2><span class="badge" data-nbdev-skip>待定</span>3. 浮动向导的表面</h2>
-<p>按你选的改成浮动：盖在消息流上，不占高度。消息流底部留出同样的高度，最后一条能滚出来。还是替换输入框的位置。</p>
+<section data-nbdev-question="r4-sessions" data-nbdev-type="single" data-nbdev-recommend="ac">
+<h2><span class="badge" data-nbdev-skip>待定</span>1. 会话列表</h2>
+<p>加了你说的搜索、Profile 显示和过滤。每行第一行是标题、Profile、时间，第二行是说明和状态。过滤有作品范围、Profile、子代理、已归档；按今天、昨天分组。列表内容一样，差别只在外框：</p>
 <div class="grid">
-<div data-nbdev-option="frost" data-nbdev-label="A 磨砂"><figure><a href="r3/wizard-frost.webp"><img src="r3/wizard-frost.webp" alt="A 磨砂：和其它浮层同一种表面" loading="lazy"></a><figcaption>A 磨砂：和其它浮层同一种表面</figcaption></figure></div>
-<div data-nbdev-option="glass" data-nbdev-label="B 半透明，不模糊"><figure><a href="r3/wizard-glass.webp"><img src="r3/wizard-glass.webp" alt="B 半透明：背后的文字和 diff 叠在一起" loading="lazy"></a><figcaption>B 半透明：背后的文字和 diff 叠在一起</figcaption></figure></div>
-<div data-nbdev-option="solid" data-nbdev-label="C 不透明"><figure><a href="r3/wizard-solid.webp"><img src="r3/wizard-solid.webp" alt="C 不透明：最清楚，但和消息流的层次最硬" loading="lazy"></a><figcaption>C 不透明：最清楚，但和消息流的层次最硬</figcaption></figure></div>
+<div data-nbdev-option="a" data-nbdev-label="A 大下拉"><figure><a href="r4/sessions-a.webp"><img src="r4/sessions-a.webp" alt="A：点标题弹出的大下拉，和输入框一样宽" loading="lazy"></a><figcaption>A：点标题弹出的大下拉，和输入框一样宽</figcaption></figure></div>
+<div data-nbdev-option="b" data-nbdev-label="B 命令面板"><figure><a href="r4/sessions-b.webp"><img src="r4/sessions-b.webp" alt="B：窗口中间的命令面板，打开时遮住内容" loading="lazy"></a><figcaption>B：窗口中间的命令面板，打开时遮住内容</figcaption></figure></div>
+<div data-nbdev-option="c" data-nbdev-label="C 只有侧栏视图"><figure><a href="r4/sessions-c.webp"><img src="r4/sessions-c.webp" alt="C：左边的侧栏视图，切换不用弹东西" loading="lazy"></a><figcaption>C：左边的侧栏视图，切换不用弹东西</figcaption></figure></div>
 </div>
-<div class="grid"><figure><a href="r3/wizard-frost-dark.webp"><img src="r3/wizard-frost-dark.webp" alt="A 磨砂，深色" loading="lazy"></a><figcaption>A 磨砂，深色</figcaption></figure><figure><a href="r3/ask-frost.webp"><img src="r3/ask-frost.webp" alt="A 磨砂，提问" loading="lazy"></a><figcaption>A 磨砂，提问</figcaption></figure></div>
-<p class="rec"><b>推荐：A。</b>半透明时要读的 diff 和背后的正文混在一起，读不清；磨砂既有层次，也和弹层一致。</p>
+<div data-nbdev-option="ac" data-nbdev-label="A 和 C 都要，同一个组件"><p><b>A 和 C 都要：</b>同一个 <code>AgentSessionPanel</code>，顶栏点标题是 A，活动栏是 C（上一轮已定第一版要贡献会话列表的侧栏视图）。</p></div>
+<p class="rec"><b>推荐：A 和 C 都要。</b>平时点标题切，长期写作时把 C 开在侧栏。B 不做：快速打开以后可以再加一个“切换会话”的入口。</p>
+<p><b>第一版的范围：</b>搜索只查标题和说明（搜对话内容是 t23）。“子代理”这个过滤要等 t14 才有子会话，第一版不显示。改名、归档放在每行悬停出现的菜单里。</p>
 </section>
 
-<section data-nbdev-question="r3-collapsed" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>4. 收起之后</h2>
-<p>标题行右边的箭头收起。收起后是一条磨砂小条，占输入框的位置，写着等什么、第几个，点开继续。收起时不提供批准按钮：没看 diff 就批，正是收起最容易造成的误操作。这时不能发新消息，要先处理它。</p>
-<div class="grid"><figure><a href="r3/wizard-collapsed.webp"><img src="r3/wizard-collapsed.webp" alt="收起" loading="lazy"></a><figcaption>收起</figcaption></figure></div>
+<section data-nbdev-question="r4-resume" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>2. 中断之后的输入框</h2>
+<p>按你说的：不再单独提醒。占位文字变成“上次运行被中断。回车继续，或者写点什么再继续”，发送按钮变成继续（实心，图标是播放）。写了字就是带着这段话继续，内容发出去。按钮和占位文字只在“上次被中断、还没有新一轮”时才这样。</p>
+<div class="grid"><figure><a href="r4/interrupted-composer.webp"><img src="r4/interrupted-composer.webp" alt="中断后的输入框" loading="lazy"></a><figcaption>中断后的输入框</figcaption></figure></div>
 </section>
 
-<section data-nbdev-question="r3-notice" data-nbdev-type="single" data-nbdev-recommend="mix">
-<h2><span class="badge" data-nbdev-skip>待定</span>5. 提示（原来的横幅）</h2>
-<p>换了放的位置，不再是一条独立的横幅。下面都是“上次运行被中断”：</p>
-<div class="grid">
-<div data-nbdev-option="a" data-nbdev-label="A 消息流里的分隔线"><figure><a href="r3/notice-a.webp"><img src="r3/notice-a.webp" alt="A：和“上下文已压缩”同一种分隔线，留在发生的位置" loading="lazy"></a><figcaption>A：和“上下文已压缩”同一种分隔线，留在发生的位置</figcaption></figure></div>
-<div data-nbdev-option="b" data-nbdev-label="B 输入框里的第一行"><figure><a href="r3/notice-b.webp"><img src="r3/notice-b.webp" alt="B：输入框外框里面的第一行" loading="lazy"></a><figcaption>B：输入框外框里面的第一行</figcaption></figure></div>
-<div data-nbdev-option="c" data-nbdev-label="C 状态栏左边"><figure><a href="r3/notice-c.webp"><img src="r3/notice-c.webp" alt="C：状态栏左边，不多占地方" loading="lazy"></a><figcaption>C：状态栏左边，不多占地方</figcaption></figure></div>
-<div data-nbdev-option="d" data-nbdev-label="D 磨砂小条"><figure><a href="r3/notice-d.webp"><img src="r3/notice-d.webp" alt="D：和收起的向导同一种磨砂小条" loading="lazy"></a><figcaption>D：和收起的向导同一种磨砂小条</figcaption></figure></div>
-</div>
-<div data-nbdev-option="mix" data-nbdev-label="混用：中断用 A，费用告警用 C">
-<p><b>混用：</b>被中断是这段对话里发生的事，放消息流，用 A；费用告警是一直存在的状态，放状态栏，费用那一项变色，用 C（下图）。</p>
-<div class="grid"><figure><a href="r3/notice-cost-c.webp"><img src="r3/notice-cost-c.webp" alt="费用告警：状态栏" loading="lazy"></a><figcaption>费用告警：状态栏</figcaption></figure></div>
-</div>
-<p class="rec"><b>推荐：混用。</b>两件事性质不同，不必长一个样子。</p>
+<section data-nbdev-question="r4-collapsed" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>3. 收起的小条</h2>
+<p>去掉重阴影，只留一条细线和很轻的抬起，圆角和输入框一样。</p>
+<div class="grid"><figure><a href="r4/wizard-collapsed.webp"><img src="r4/wizard-collapsed.webp" alt="收起" loading="lazy"></a><figcaption>收起</figcaption></figure></div>
 </section>
 </main>
 </body>
