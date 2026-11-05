@@ -11,8 +11,8 @@
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
-import {ActorSchema, AddressSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
-import type {DecisionView, EntryView, PendingPage, ReadPosition, Revision, StoryChange, Suggestion, WriteRequest} from "@notnotype/nb-canon/schema";
+import {ActorSchema, AddressSchema, AuthorizationSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
+import type {DecisionView, EntryView, NeededAuthorization, PendingPage, ReadPosition, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -34,6 +34,16 @@ const Token = Type.Optional(Type.String());
 const Cursor = Type.Optional(Type.String());
 const Limit = Type.Optional(Type.Integer({minimum: 1, maximum: 500}));
 const Read = Type.Object({value: Type.Unknown(), version: Type.Integer()});
+/**
+ * 视图令牌（输出 24）：带了它，`entry`、`render`、`lookup`、`presence`、`changes`、`tellings` 只看得到上限之前的；
+ * 别的方法带它一律 `view-denied`。所以每个方法都收这一项，由实现按方法表决定。
+ */
+const View = Type.Optional(Type.String());
+const ChapterRange = {from: Type.Optional(Type.String()), to: Type.Optional(Type.String())};
+const TellingPositionSchema = Type.Union([
+    Type.Object({chapter: Type.String(), paragraph: Type.Integer({minimum: 1})}),
+    Type.Object({chapter: Type.String(), edge: Type.Union([Type.Literal("start"), Type.Literal("end")])}),
+]);
 const Out = Type.Unknown();
 
 /** 失败的详情：nb-canon 的失败对象。 */
@@ -42,9 +52,10 @@ const errors = {canon: FailureSchema};
 
 const methods = {
     status: {input: Type.Object({}), output: Out, effect: "read", errors},
-    entry: {input: Type.Object({id: Type.String(), position: ReadPositionSchema, mode: Mode, withOrigins: Type.Optional(Type.Boolean())}), output: Out, effect: "read", errors},
-    tree: {input: Type.Object({parent: Type.Union([Type.String(), Type.Null()]), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
-    lookup: {input: Type.Object({names: Type.Array(Type.String(), {maxItems: 200}), position: ReadPositionSchema}), output: Out, effect: "read", errors},
+    /** 带视图令牌时 `position` 可以不写，读到上限为止。 */
+    entry: {input: Type.Object({id: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, withOrigins: Type.Optional(Type.Boolean()), view: View}), output: Out, effect: "read", errors},
+    tree: {input: Type.Object({parent: Type.Union([Type.String(), Type.Null()]), cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
+    lookup: {input: Type.Object({names: Type.Array(Type.String(), {maxItems: 200}), position: Type.Optional(ReadPositionSchema), view: View}), output: Out, effect: "read", errors},
     changes: {
         input: Type.Object({
             filter: Type.Optional(Type.Object({
@@ -53,18 +64,49 @@ const methods = {
                 line: Type.Optional(Type.String()),
                 kind: Type.Optional(Type.Union([Type.Literal("written"), Type.Literal("plan")])),
                 status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("held"), Type.Literal("undone")])),
+                nature: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("narration")])),
+                progress: Type.Optional(Type.Union([Type.Literal("unfulfilled"), Type.Literal("fulfilled"), Type.Literal("cancelled"), Type.Literal("replaced")])),
             }, {additionalProperties: false})),
             cursor: Cursor,
             limit: Limit,
+            view: View,
         }),
         output: Out,
         effect: "read",
         errors,
     },
-    object: {input: Type.Object({ref: ObjectRefSchema}), output: Out, effect: "read", errors},
-    pending: {input: Type.Object({position: Type.Optional(ReadPositionSchema)}), output: Out, effect: "read", errors},
-    decisions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("pending"), Type.Literal("decided"), Type.Literal("superseded"), Type.Literal("dropped")])), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
-    suggestions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("applied"), Type.Literal("declined")])), cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
+    tellings: {
+        input: Type.Object({
+            filter: Type.Optional(Type.Object({...ChapterRange, entry: Type.Optional(Type.String()), effective: Type.Optional(Type.Boolean()), until: Type.Optional(TellingPositionSchema), mark: Type.Optional(Type.String())}, {additionalProperties: false})),
+            cursor: Cursor,
+            limit: Limit,
+            view: View,
+        }),
+        output: Out,
+        effect: "read",
+        errors,
+    },
+    presence: {
+        input: Type.Object({person: Type.String(), filter: Type.Optional(Type.Object({...ChapterRange, mode: Type.Optional(Mode)}, {additionalProperties: false})), cursor: Cursor, limit: Limit, view: View}),
+        output: Out,
+        effect: "read",
+        errors,
+    },
+    object: {input: Type.Object({ref: ObjectRefSchema, view: View}), output: Out, effect: "read", errors},
+    pending: {input: Type.Object({position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode), group: Type.Optional(Type.Union([Type.Literal("pending"), Type.Literal("hints"), Type.Literal("handled")])), cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
+    decisions: {
+        input: Type.Object({
+            status: Type.Optional(Type.Union([Type.Literal("pending"), Type.Literal("decided"), Type.Literal("superseded"), Type.Literal("dropped")])),
+            about: Type.Optional(Type.Union([ObjectRefSchema, Type.Object({kind: Type.Literal("chapter"), id: Type.String()})])),
+            cursor: Cursor,
+            limit: Limit,
+            view: View,
+        }),
+        output: Out,
+        effect: "read",
+        errors,
+    },
+    suggestions: {input: Type.Object({status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("applied"), Type.Literal("declined")])), cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
     revisions: {
         input: Type.Object({
             filter: Type.Optional(Type.Object({
@@ -74,15 +116,17 @@ const methods = {
             }, {additionalProperties: false})),
             cursor: Cursor,
             limit: Limit,
+            view: View,
         }),
         output: Out,
         effect: "read",
         errors,
     },
-    render: {input: Type.Object({entry: Type.String(), position: ReadPositionSchema, mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")])}), output: Out, effect: "read", errors},
-    preview: {input: Type.Object({request: WriteRequestSchema}), output: Out, effect: "read", errors},
+    render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), view: View}), output: Out, effect: "read", errors},
+    /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */
+    preview: {input: Type.Object({request: Type.Union([WriteRequestSchema, Type.Object({revert: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String())})]), view: View}), output: Out, effect: "read", errors},
     outcome: {input: Type.Object({requestId: Type.String()}), output: Out, effect: "read", errors},
-    publish: {input: Type.Object({request: WriteRequestSchema, token: Token}), output: Out, effect: "write", errors},
+    publish: {input: Type.Object({request: WriteRequestSchema, token: Token, view: View}), output: Out, effect: "write", errors},
     editInPlace: {
         input: Type.Object({
             requestId: Type.String({minLength: 1}),
@@ -94,13 +138,14 @@ const methods = {
             intent: Type.Optional(Type.Union([Type.Literal("creative"), Type.Literal("story")])),
             title: Type.Optional(Type.String()),
             token: Token,
+            view: View,
         }),
         output: Out,
         effect: "write",
         errors,
     },
     recordDelta: {
-        input: Type.Object({requestId: Type.String({minLength: 1}), by: ActorSchema, position: ReadPositionSchema, at: AddressSchema, delta: Type.Number(), reason: Type.String(), read: Read, token: Token}),
+        input: Type.Object({requestId: Type.String({minLength: 1}), by: ActorSchema, position: ReadPositionSchema, at: AddressSchema, delta: Type.Number(), reason: Type.String(), read: Read, token: Token, view: View}),
         output: Out,
         effect: "write",
         errors,
@@ -118,12 +163,17 @@ const methods = {
             intent: Type.Optional(Type.Union([Type.Literal("creative"), Type.Literal("story")])),
             title: Type.Optional(Type.String()),
             token: Token,
+            view: View,
         }),
         output: Out,
         effect: "write",
         errors,
     },
-    revert: {input: Type.Object({revision: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String()), token: Token}), output: Out, effect: "write", errors},
+    revert: {input: Type.Object({revision: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String()), authorizations: Type.Optional(Type.Array(AuthorizationSchema)), token: Token, view: View}), output: Out, effect: "write", errors},
+    /** 视图（输出 24）：令牌的寿命不超过申请它的调用方实例。 */
+    openView: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), line: Type.String(), until: ReadPositionSchema, purpose: Type.String()}), output: Out, effect: "read", errors},
+    closeView: {input: Type.Object({token: Type.String()}), output: Type.Null(), effect: "read", errors},
+    viewAudit: {input: Type.Object({cursor: Cursor, limit: Limit}), output: Out, effect: "read", errors},
     acquireExclusive: {input: Type.Object({label: Type.String({minLength: 1})}), output: Out, effect: "write", errors},
     renewExclusive: {input: Type.Object({token: Type.String()}), output: Out, effect: "write", errors},
     releaseExclusive: {input: Type.Object({token: Type.String()}), output: Type.Null(), effect: "write", errors},
@@ -134,6 +184,8 @@ const events = {
     changed: {filter: Type.Object({}), payload: Out},
     exclusive: {filter: Type.Object({}), payload: Type.Object({holder: Type.Union([Type.String(), Type.Null()])})},
     reduced: {filter: Type.Object({}), payload: Type.Object({})},
+    /** 宿主通知某一章（或全部）的正文变了，版本不变（输出 25）。 */
+    textChanged: {filter: Type.Object({}), payload: Type.Object({chapter: Type.Optional(Type.String())})},
     /**
      * 独占的租约订阅（输出 10）：申请到令牌的调用方订阅它；订阅结束（连接断开、调用方实例失效、退订）即结束独占。
      * 推一次 `held`，独占结束时推 `ended`。
@@ -167,11 +219,16 @@ export interface Published {
 
 export interface CanonStatus {
     readonly version: number;
+    /** 正文快照与整份读取输入的摘要（model.md 输出 36）。 */
+    readonly textDigest: string;
+    readonly inputDigest: string;
     readonly state: "writable" | "read-only" | "stopped";
     readonly reason?: string;
     readonly exclusive: {readonly label: string; readonly since: number} | null;
     readonly diagnostics: readonly unknown[];
     readonly recomputed: unknown;
+    /** 最近几次插件诊断的计算耗时（project.md 输出 26）。 */
+    readonly diagnosticTimings: readonly {readonly diagnostic: string; readonly ms: number; readonly slow?: true}[];
 }
 
 export interface Page<T> {
@@ -187,6 +244,8 @@ export interface CanonOutputs {
     readonly tree: Page<{readonly id: string; readonly name: string; readonly type: string; readonly folder: string; readonly deleted: boolean; readonly hasChildren: boolean}>;
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
     readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown}>;
+    readonly tellings: Page<TellingItem>;
+    readonly presence: Page<{readonly change: StoryChange}> & {readonly uncast: number};
     readonly pending: PendingPage;
     readonly decisions: Page<DecisionView>;
     readonly suggestions: Page<Suggestion>;
@@ -194,7 +253,8 @@ export interface CanonOutputs {
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
     /** 存下来的对象；不存在时 `object` 为 null。 */
     readonly object: {readonly version: number; readonly object: unknown};
-    readonly preview: {readonly revision: Revision; readonly ids: Readonly<Record<string, string>>};
+    /** 写入请求的预览；还原请求的预览另给需要的作者授权（宿主照它签发）。 */
+    readonly preview: {readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly needed?: readonly NeededAuthorization[]};
     readonly outcome: {readonly published: true; readonly revision: string; readonly version: number} | {readonly published: false};
     readonly publish: Published;
     readonly editInPlace: Published;
@@ -205,12 +265,16 @@ export interface CanonOutputs {
     readonly renewExclusive: {readonly expires: number};
     readonly releaseExclusive: null;
     readonly breakExclusive: null;
+    readonly openView: {readonly token: string};
+    readonly closeView: null;
+    readonly viewAudit: Page<ViewDenial>;
 }
 
 export type CanonEvent =
     | {readonly kind: "changed"; readonly version: number; readonly revision: string; readonly by: Revision["by"]; readonly what: string; readonly title: string}
     | {readonly kind: "exclusive"; readonly holder: string | null}
     | {readonly kind: "reduced"}
+    | {readonly kind: "textChanged"; readonly chapter?: string}
     /** 同一项目代次内重连后订阅已重建：中间可能漏了事件，先读一次 `status` 拿当前版本再重读（Spec project“时序与寿命”）。 */
     | {readonly kind: "resync"}
     /** 订阅被提供方结束（项目实例停止、链路关闭）；之后不再有事件。调用方自己 `release` 时不发。 */

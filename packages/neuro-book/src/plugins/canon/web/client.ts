@@ -43,11 +43,12 @@ export function createCanonClient(access: (() => DelegatedRemoteAccess) | null):
         subscribe: async (listener) => {
             if (access === null) return unbound;
             const events = remote().events;
-            // 三个事件各一条订阅，一起重建、一起结束：`resync` 与 `ended` 只从 `changed` 那条转出，免得推三遍。
+            // 几个事件各一条订阅，一起重建、一起结束：`resync` 与 `ended` 只从 `changed` 那条转出，免得推几遍。
             const results: Array<RemoteResult<RemoteSubscription>> = await Promise.all([
                 events.changed.subscribe({}, (payload) => listener(payload as CanonEvent), {onResync: () => listener({kind: "resync"}), onEnd: (reason) => listener({kind: "ended", reason})}),
                 events.exclusive.subscribe({}, (payload) => listener({kind: "exclusive", holder: payload.holder})),
                 events.reduced.subscribe({}, () => listener({kind: "reduced"})),
+                events.textChanged.subscribe({}, (payload) => listener({kind: "textChanged", ...(payload.chapter === undefined ? {} : {chapter: payload.chapter})})),
             ]);
             const subscriptions = results.flatMap((result) => (result.ok ? [result.value] : []));
             const release = () => {

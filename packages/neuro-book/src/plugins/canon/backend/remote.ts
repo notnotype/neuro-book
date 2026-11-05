@@ -6,8 +6,12 @@
  * - 结果编码后超过预算回 `too-large`；列表类的方法先按调用方给的条数取一页，超过预算就把条数减半重取，单条都装不下才回
  *   `too-large`（输出 18 “单页不超过预算”）。
  * - 独占：这个调用方的门面释放（调用方实例失效）时结束它申请的独占；`lease` 订阅结束时也结束（输出 10 的租约订阅）。
+ * - 视图（输出 24）：带令牌的读取按方法表转到 `service.viewed`，别的方法带令牌一律 `view-denied`。这个调用方打开的
+ *   视图在门面释放时关掉；只能关自己打开的。
  */
 
+import {defaultPosition} from "@notnotype/nb-canon";
+import type {ReadPosition} from "@notnotype/nb-canon";
 import type {WorldService} from "@notnotype/nb-canon/node";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 
@@ -45,48 +49,77 @@ function paged<T>(limit: number | undefined, read: (limit: number) => T | string
     }
 }
 
-/**
- * `tokens` 是这个调用方申请到的令牌：门面释放时由入口逐个结束（调用方实例失效，输出 10）。只认自己申请的令牌，
- * 所以别的调用方拿不到的令牌订阅不了 `lease`。
- */
-export function remoteWorld(host: WorldHost, tokens: Set<string>): Implementation {
+/** 一个调用方申请到的东西：门面释放时由入口逐个结束（调用方实例失效，输出 10、24）。 */
+export interface CallerHoldings {
+    /** 独占的令牌。只认自己申请的，所以别的调用方拿不到的令牌订阅不了 `lease`。 */
+    readonly tokens: Set<string>;
+    /** 打开的视图令牌。 */
+    readonly views: Set<string>;
+}
+
+export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implementation {
+    const {tokens, views} = holdings;
     /** 等打开完成；打不开时把原因当失败。 */
     const withWorld = async <R>(run: (service: WorldService) => R | Promise<R>): Promise<R | Failure> => {
         const service = await host.ready();
         if ("code" in service) return fail({code: service.code});
         return run(service);
     };
-    const read = <T>(value: T | "chapter-not-found" | "cursor-stale"): {readonly ok: true; readonly value: T} | Failure => (typeof value === "string" ? fail({code: value}) : within(value));
+    const read = <T>(value: T | "chapter-not-found" | "cursor-stale" | "view-denied"): {readonly ok: true; readonly value: T} | Failure => (typeof value === "string" ? fail({code: value}) : within(value));
+    /** 不许带视图令牌的方法带了令牌：记审计并拒（输出 24）。 */
+    const denied = (service: WorldService, view: string | undefined, method: string): Failure | null => (view === undefined ? null : fail({code: service.viewed(view).deny(method)}));
+    const position = (service: WorldService, given: ReadPosition | undefined): ReadPosition => given ?? defaultPosition(service.world.options.order);
 
     return {
         methods: {
             status: () => withWorld((service) => ({ok: true as const, value: service.status()})),
             entry: (input) => withWorld((service) => {
-                const view = service.entry(input.id, input.position, input.mode, input.withOrigins === true);
-                return read(view);
+                if (input.view !== undefined) return read(service.viewed(input.view).entry(input.id, input.position, input.mode));
+                return read(service.entry(input.id, position(service, input.position), input.mode, input.withOrigins === true));
             }),
-            tree: (input) => withWorld((service) => paged(input.limit, (limit) => service.tree(input.parent, input.cursor, limit))),
-            lookup: (input) => withWorld((service) => read(service.lookup(input.names, input.position))),
-            changes: (input) => withWorld((service) => paged(input.limit, (limit) => service.changes(input.filter ?? {}, input.cursor, limit))),
-            object: (input) => withWorld((service) => within(service.object(input.ref))),
-            pending: (input) => withWorld((service) => read(service.pending(input.position === undefined ? {} : {position: input.position}))),
-            decisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.decisions(input.status === undefined ? {} : {status: input.status}, input.cursor, limit))),
-            suggestions: (input) => withWorld((service) => paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
-            revisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
-            render: (input) => withWorld((service) => read(service.render(input.entry, input.position, input.mode, input.audience))),
+            tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => service.tree(input.parent, input.cursor, limit))),
+            lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(input.view).lookup(input.names, input.position))),
+            changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(input.view).changes(input.filter ?? {}, input.cursor, limit)))),
+            tellings: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.tellings(input.filter ?? {}, input.cursor, limit) : service.viewed(input.view).tellings(input.filter ?? {}, input.cursor, limit)))),
+            presence: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.presence(input.person, input.filter ?? {}, input.cursor, limit) : service.viewed(input.view).presence(input.person, input.filter ?? {}, input.cursor, limit)))),
+            object: (input) => withWorld((service) => denied(service, input.view, "object") ?? within(service.object(input.ref))),
+            pending: (input) => withWorld((service) => denied(service, input.view, "pending") ?? paged(input.limit, (limit) => service.pending({...(input.position === undefined ? {} : {position: input.position}), ...(input.mode === undefined ? {} : {mode: input.mode}), ...(input.group === undefined ? {} : {group: input.group})}, input.cursor, limit))),
+            decisions: (input) => withWorld((service) => denied(service, input.view, "decisions") ?? paged(input.limit, (limit) => service.decisions({...(input.status === undefined ? {} : {status: input.status}), ...(input.about === undefined ? {} : {about: input.about})}, input.cursor, limit))),
+            suggestions: (input) => withWorld((service) => denied(service, input.view, "suggestions") ?? paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
+            revisions: (input) => withWorld((service) => denied(service, input.view, "revisions") ?? paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
+            render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience) : service.viewed(input.view).render(input.entry, input.position, input.mode, input.audience))),
             preview: (input) => withWorld((service) => {
-                const result = service.preview(input.request);
-                return result.ok ? within({revision: result.revision, ids: result.ids}) : fail(result.failure as CanonFailure);
+                const refused = denied(service, input.view, "preview");
+                if (refused !== null) return refused;
+                if ("puts" in input.request) {
+                    const result = service.preview(input.request);
+                    return result.ok ? within({revision: result.revision, ids: result.ids}) : fail(result.failure as CanonFailure);
+                }
+                const planned = service.preview(input.request);
+                if ("ok" in planned) return fail(planned.failure as CanonFailure);
+                return planned.result.ok ? within({revision: planned.result.revision, ids: planned.result.ids, needed: planned.needed}) : fail({...(planned.result.failure as CanonFailure), needed: planned.needed});
             }),
             outcome: (input) => withWorld((service) => {
                 const result = service.outcome(input.requestId);
                 return "code" in result ? fail(result) : {ok: true as const, value: result};
             }),
-            publish: (input) => withWorld(async (service) => published(await service.publish(input.request, input.token))),
-            editInPlace: ({token, ...edit}) => withWorld(async (service) => published(await service.editInPlace(edit, token))),
-            recordDelta: ({token, ...delta}) => withWorld(async (service) => published(await service.recordDelta(delta, token))),
-            writeBack: ({token, ...input}) => withWorld(async (service) => published(await service.writeBack(input, token))),
-            revert: ({token, revision, withDependents, ...meta}) => withWorld(async (service) => published(await service.revert(revision, withDependents, meta, token))),
+            publish: (input) => withWorld(async (service) => denied(service, input.view, "publish") ?? published(await service.publish(input.request, input.token))),
+            editInPlace: ({token, view, ...edit}) => withWorld(async (service) => denied(service, view, "editInPlace") ?? published(await service.editInPlace(edit, token))),
+            recordDelta: ({token, view, ...delta}) => withWorld(async (service) => denied(service, view, "recordDelta") ?? published(await service.recordDelta(delta, token))),
+            writeBack: ({token, view, ...input}) => withWorld(async (service) => denied(service, view, "writeBack") ?? published(await service.writeBack(input, token))),
+            revert: ({token, view, revision, withDependents, ...meta}) => withWorld(async (service) => denied(service, view, "revert") ?? published(await service.revert(revision, withDependents, meta, token))),
+            openView: (input) => withWorld((service) => {
+                const opened = service.openView(input);
+                if (typeof opened === "string") return fail({code: opened});
+                if (!("token" in opened)) return fail(opened);
+                views.add(opened.token);
+                return {ok: true as const, value: opened};
+            }),
+            closeView: (input) => withWorld((service) => {
+                if (views.delete(input.token)) service.closeView(input.token);
+                return {ok: true as const, value: null};
+            }),
+            viewAudit: (input) => withWorld((service) => paged(input.limit, (limit) => service.viewAudit(input.cursor, limit))),
             acquireExclusive: (input) => withWorld((service) => {
                 const lease = service.acquireExclusive(input.label);
                 if ("code" in lease) return fail(lease);
@@ -111,6 +144,7 @@ export function remoteWorld(host: WorldHost, tokens: Set<string>): Implementatio
             changed: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "changed" && sink.next(event)))},
             exclusive: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "exclusive" && sink.next({holder: event.holder})))},
             reduced: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "reduced" && sink.next({})))},
+            textChanged: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "textChanged" && sink.next(event.chapter === null || event.chapter === undefined ? {} : {chapter: event.chapter})))},
             lease: {
                 subscribe: (filter, sink, {signal}) => void forward(host, signal, (service) => {
                     // 订阅开始算一次续期；令牌已经不是当前的独占（过期、被解除）时推 ended，之后不会再有推送。

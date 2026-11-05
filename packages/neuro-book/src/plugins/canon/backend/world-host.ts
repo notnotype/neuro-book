@@ -8,7 +8,8 @@
  *   监视要求目录存在（输出 21 只要求第一次写入前建好）。
  * - 监视只是提示：日志目录有变化就让服务持锁读进别的进程写的行（输出 17）；项目根下的活页夹目录或其中的清单有变化
  *   就重读清单、交出新章序（输出 9、23）。几个变化在 50 毫秒内合并成一次。
- * - Component 登记的变化（插件启停）在同一个微任务里合并，换上新登记整本重算一次。
+ * - 登记的变化（插件启停）在同一个微任务里合并：Component 类型变了整本重算一次，标注种类与诊断变了只换登记。
+ * - 别的插件登记的诊断计算记在这里：世界还没打开时先记下，打开后接上（model.md “诊断的计算”）。
  */
 
 import {createHash} from "node:crypto";
@@ -17,10 +18,10 @@ import type {FSWatcher} from "node:fs";
 import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
-import {buildRegistry} from "@notnotype/nb-canon";
-import type {ComponentDeclaration} from "@notnotype/nb-canon";
+import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry} from "@notnotype/nb-canon";
+import type {ComponentDeclaration, DiagnosticDeclaration, MarkDeclaration, PluginContribution} from "@notnotype/nb-canon";
 import {nodeFiles, WorldService} from "@notnotype/nb-canon/node";
-import type {LogLock} from "@notnotype/nb-canon/node";
+import type {DiagnosticCompute, LogLock} from "@notnotype/nb-canon/node";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
 import {holdLock} from "nbook/backend/locked-replace";
@@ -37,6 +38,12 @@ export interface WorldHost {
     ready(): Promise<WorldService | {readonly code: "world-locked" | "stopping"}>;
     /** 登记的 Component 类型变了（贡献点接收者调用）。 */
     setComponents(declarations: readonly ComponentDeclaration[]): void;
+    /** 登记的标注种类与诊断变了（贡献点接收者调用，带声明它的插件 id）。 */
+    setMarks(contributions: readonly PluginContribution<MarkDeclaration>[]): void;
+    setDiagnostics(contributions: readonly PluginContribution<DiagnosticDeclaration>[]): void;
+    /** 一个插件登记它的诊断计算；返回的函数撤销这次登记（调用方的入口停止时）。 */
+    registerDiagnostics(plugin: string, registration: {readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}): () => void;
+    reportDataVersion(plugin: string, dataVersion: string): void;
     stop(): Promise<void>;
 }
 
@@ -60,6 +67,10 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     };
 
     let components: readonly ComponentDeclaration[] = [];
+    let marks: readonly PluginContribution<MarkDeclaration>[] = [];
+    let diagnostics: readonly PluginContribution<DiagnosticDeclaration>[] = [];
+    /** 各插件登记的诊断计算，连同接到世界服务上以后的撤销函数（世界还没打开时为 null）。 */
+    const computers = new Map<string, {registration: {readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}; detach: (() => void) | null}>();
     let service: WorldService | null = null;
     let opening: Promise<WorldService | {readonly code: "world-locked" | "stopping"}> | null = null;
     let stopped = false;
@@ -173,7 +184,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
                     clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
                 },
             },
-            {chapters: binder.ok ? binder.chapters : "invalid", registry: buildRegistry(components)},
+            {chapters: binder.ok ? binder.chapters : "invalid", registry: buildRegistry(components), marks: buildMarkRegistry(marks), diagnostics: buildDiagnosticRegistry(diagnostics)},
         );
         if ("code" in opened) {
             record("warn", "canon.open.locked", "打开世界时世界日志的锁一直被占着，下一次调用再试");
@@ -184,6 +195,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             return {code: "stopping"};
         }
         service = opened;
+        for (const [plugin, item] of computers) item.detach = opened.registerDiagnostics(plugin, item.registration);
         const status = opened.status();
         // 打开的耗时与规模（Spec project 输出 14 的“打开到可以读”；measure-project.ts 等这一条再量常驻内存）。
         record("info", "canon.world.opened", "世界已打开", undefined, {durationMs: Math.round(performance.now() - began), version: status.version, entries: opened.world.data.entries.size});
@@ -210,17 +222,51 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
         return opening;
     };
 
-    let registryQueued = false;
+    // 同一个微任务里的几次变化合并成一次；只换变了的那几张登记（Component 的变了才整本重算）。
+    const dirty = new Set<"components" | "marks" | "diagnostics">();
+    const queueRegistries = (which: "components" | "marks" | "diagnostics") => {
+        const first = dirty.size === 0;
+        dirty.add(which);
+        if (!first) return;
+        queueMicrotask(() => {
+            const changed = new Set(dirty);
+            dirty.clear();
+            service?.setRegistries({
+                ...(changed.has("components") ? {registry: buildRegistry(components)} : {}),
+                ...(changed.has("marks") ? {marks: buildMarkRegistry(marks)} : {}),
+                ...(changed.has("diagnostics") ? {diagnostics: buildDiagnosticRegistry(diagnostics)} : {}),
+            });
+        });
+    };
     return {
         ready,
         setComponents: (declarations) => {
             components = declarations;
-            if (registryQueued) return;
-            registryQueued = true;
-            queueMicrotask(() => {
-                registryQueued = false;
-                service?.setRegistries({registry: buildRegistry(components)});
-            });
+            queueRegistries("components");
+        },
+        setMarks: (contributions) => {
+            marks = contributions;
+            queueRegistries("marks");
+        },
+        setDiagnostics: (contributions) => {
+            diagnostics = contributions;
+            queueRegistries("diagnostics");
+        },
+        registerDiagnostics: (plugin, registration) => {
+            computers.get(plugin)?.detach?.();
+            const item = {registration, detach: service === null ? null : service.registerDiagnostics(plugin, registration)};
+            computers.set(plugin, item);
+            return () => {
+                if (computers.get(plugin) !== item) return;
+                computers.delete(plugin);
+                item.detach?.();
+            };
+        },
+        reportDataVersion: (plugin, dataVersion) => {
+            const item = computers.get(plugin);
+            if (item === undefined) return;
+            item.registration = {...item.registration, dataVersion};
+            service?.reportDataVersion(plugin, dataVersion);
         },
         stop: async () => {
             stopped = true;

@@ -25,6 +25,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 
 import {CANON_BUDGET_BYTES, canonClientKey} from "./shared/contracts";
 import type {CanonClient, CanonEvent} from "./shared/contracts";
+import {CANON_PROBE_ID, PROBE_DIAGNOSTIC, PROBE_MARK} from "./testing/probe-plugin";
 import {canonBrowserPlugin} from "./web/plugin";
 
 let tmp = "";
@@ -302,3 +303,114 @@ describe("canon.project：世界服务在项目子进程里", () => {
         keep.release();
     }, 30_000);
 });
+
+/** 活页夹三章，正文各一段；章节文件名按活页夹的写法（`00001-…md`）。 */
+async function threeChapters(paths: {readonly project: {readonly path: string}}): Promise<void> {
+    const dir = join(paths.project.path, "manuscripts.binder");
+    await mkdir(dir, {recursive: true});
+    await writeFile(join(dir, "binder.xml"), '<binder nextId="4"><chapter id="1" title="一"/><chapter id="2" title="二"/><chapter id="3" title="三"/></binder>');
+    await writeFile(join(dir, "00001-一.md"), "她把钟拨慢了一刻。\n");
+    await writeFile(join(dir, "00002-二.md"), "雨下了一夜。\n");
+    await writeFile(join(dir, "00003-三.md"), "天亮了。\n");
+}
+
+/** 一条安放在第 1 章、讲述“她把钟拨慢了一刻”的剧情变更；`marks` 给讲述带标注。 */
+function told(baseVersion: number, marks?: readonly unknown[]): WriteRequest {
+    const id = `tmp:c${String(++sequence)}`;
+    return {requestId: `req-${String(sequence)}`, by: {kind: "author"}, what: "edit", title: "讲述", baseVersion, puts: [{ref: {kind: "change", id}, after: {id, kind: "written", text: "拨钟", at: {kind: "chapter", chapter: "1", key: 0}, told: [{source: "chapter", chapter: "1", quote: "她把钟拨慢了一刻", ...(marks === undefined ? {} : {marks})}], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}}}]};
+}
+
+async function rewriteChapter(h: ProjectHarness, file: string, text: string): Promise<void> {
+    // 与文件服务保存章节同一个原子替换（nbook.files 的 rooted.ts 也用它）：写临时文件再改名。
+    const result = await replaceLocked(join(h.project.path, "manuscripts.binder", file), {lockPath: join(h.project.path, ".nbook", "locks", "chapter.lock"), decide: () => ({write: text}), report: () => undefined});
+    expect(result.ok).toBe(true);
+}
+
+describe("canon.project：正文快照、视图与插件的登记", () => {
+    it("输出 25、P2 第 8 条：原子替换保存章节后，讲述按新正文失联、世界版本不变、读取输入的摘要变了，收到 textChanged", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: threeChapters});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const window = await windowOf(h, "browser-1", "profile-1");
+        await until(async () => (await reorders(window.canon)) === 1);
+        const written = await window.canon.publish(told(await version(window.canon)));
+        if (!written.ok) throw new Error(JSON.stringify(written.failure));
+        const seen: CanonEvent[] = [];
+        expect((await window.canon.subscribe((event) => seen.push(event))).ok).toBe(true);
+        const before = await window.canon.call("status", {});
+        if (!before.ok) throw new Error(before.failure.code);
+
+        await rewriteChapter(h, "00001-一.md", "她没有动那座钟。\n");
+        await until(async () => {
+            const page = await window.canon.call("tellings", {});
+            return page.ok && page.value.items.some((item) => item.located.kind === "lost");
+        });
+        const after = await window.canon.call("status", {});
+        if (!after.ok) throw new Error(after.failure.code);
+        expect(after.value.version).toBe(before.value.version);
+        expect(after.value.inputDigest).not.toBe(before.value.inputDigest);
+        await until(() => seen.some((event) => event.kind === "textChanged" && event.chapter === "1"));
+
+        await window.close();
+        keep.release();
+    }, 30_000);
+
+    it("输出 24、场景 8：带视图令牌读上限之后、读不许带令牌的方法、写入都被拒并记审计；写手的窗口关掉后令牌失效", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: threeChapters});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const writer = await windowOf(h, "browser-1", "profile-1");
+        const author = await windowOf(h, "browser-2", "profile-2");
+        await until(async () => (await reorders(writer.canon)) === 1);
+        const created = await publish(author.canon, person("星瑕"));
+        if (!created.ok) throw new Error(created.failure.code);
+        const xia = created.value.ids[Object.keys(created.value.ids)[0]!]!;
+
+        const opened = await writer.canon.call("openView", {viewer: null, line: "main", until: {kind: "chapter", chapter: "2", edge: "start"}, purpose: "writer"});
+        if (!opened.ok) throw new Error(JSON.stringify(opened.failure));
+        const view = opened.value.token;
+        expect((await writer.canon.call("entry", {id: xia, mode: "actual", view})).ok).toBe(true);
+        expect(await writer.canon.call("entry", {id: xia, position: {kind: "chapter", chapter: "3", edge: "end"}, mode: "actual", view})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        expect(await writer.canon.call("object", {ref: {kind: "entry", id: xia}, view})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        expect(await writer.canon.call("publish", {request: {...person("又一个"), baseVersion: await version(author.canon)}, view})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        const audit = await author.canon.call("viewAudit", {});
+        expect(audit.ok && audit.value.items.map((item) => item.method)).toEqual(["entry", "object", "publish"]);
+
+        // 令牌的寿命是申请它的调用方实例：窗口关掉（实例失效）时入口关掉它打开的视图。只断链路时实例还在、可以重连。
+        await writer.close();
+        await until(async () => {
+            const read = await author.canon.call("entry", {id: xia, mode: "actual", view});
+            return !read.ok && read.failure.code === "view-denied";
+        });
+
+        await author.close();
+        keep.release();
+    }, 30_000);
+
+    it("components 输出 17、model 输出 34：插件声明的标注种类与诊断经贡献点登记，诊断的计算经项目内接口登记", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: threeChapters, env: {NBOOK_TEST_PLUGINS: CANON_PROBE_ID}});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const window = await windowOf(h, "browser-1", "profile-1");
+        await until(async () => (await reorders(window.canon)) === 1);
+        const created = await publish(window.canon, person("哥哥"));
+        if (!created.ok) throw new Error(created.failure.code);
+        const brother = created.value.ids[Object.keys(created.value.ids)[0]!]!;
+
+        // 登记了的种类：载荷不合 schema 拒收，合的收下。
+        expect(await window.canon.publish(told(await version(window.canon), [{kind: PROBE_MARK, version: 1}]))).toMatchObject({ok: false, failure: {code: "validation-failed"}});
+        expect((await window.canon.publish(told(await version(window.canon), [{kind: PROBE_MARK, version: 1, point: brother}]))).ok).toBe(true);
+
+        await rewriteChapter(h, "00001-一.md", "钟还在走。\n");
+        await until(async () => {
+            const page = await window.canon.call("pending", {});
+            return page.ok && page.value.items.some((item) => item.kind === "finding" && item.diagnostic === PROBE_DIAGNOSTIC);
+        });
+        const page = await window.canon.call("pending", {});
+        expect(page.ok && page.value.complete).toBe(true);
+
+        await window.close();
+        keep.release();
+    }, 30_000);
+});
+
