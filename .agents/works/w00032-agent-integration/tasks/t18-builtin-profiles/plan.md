@@ -113,8 +113,8 @@ shell 的工作目录是 project://（没有打开书时是 session://）。脚�
 - `notify` 按前台会话串成一条 Promise 链，全部登记进一个集合。
 - 每一步碰会话的操作（读快照、取路径、建或打开标题会话、`send`、`setGeneratedMeta`）各自经 `table.accept`，这样 `table.stop` 能等到建到一半的会话登记完再关（`create` 不走 accept 时会漏关，审查第 11 条）。只有 `waitRun` 不经 accept：运行要等 `table.stop` 关会话才收口，放进去会成环。关门之后 `accept` 拒绝，这一项结束。`runtime.stop` 的顺序是 `closeGate` → `table.stop` → 等这个集合。
 - 每一项按当时的状态判断：
-  1. 读快照。会话头有 `background` 或 `caller`：结束。一轮结束触发且已有说明：结束。
-  2. 用模型端口按 `{profile: SESSION_TITLE, purpose: "background", settings: 快照的 settings}` 解析。没解析到：一轮结束触发且没有标题时写兜底标题，结束。
+  1. 读快照。会话头有 `background` 或 `caller`：结束。一轮结束触发且标题和说明都有：结束（只判断说明的话，第一轮的生成失败之后压缩写了说明，标题就永远是空的）。
+  2. 用模型端口按 `{profile: SESSION_TITLE, purpose: "background", settings: 标题会话自己的缺省设置}` 解析（不用前台会话的设置：它选了具体模型时，标题 Profile 会跟着解析到主模型）。没解析到：一轮结束触发且没有标题时写兜底标题，结束。
   3. 取材料（一轮结束用 `view.path()` 的第一条 `input` 与第一条有文字的 `assistant`；压缩用摘要和当前标题），包进 `<conversation>`。
   4. 建或打开 `session-title-<id 的 SHA-256 前 32 位>`：前台 id 可以有 128 个字符，直接拼会超限。`session-exists` 时核对会话头的 Profile 与 `background`，对不上报 `session-meta-conflict`，不往里发。之后 `send`、`waitRun`。
   5. `reason` 是 `finished` 且 `result` 有值：`setGeneratedMeta`（压缩触发只传 `description`）。否则报 `session-meta-failed`。
