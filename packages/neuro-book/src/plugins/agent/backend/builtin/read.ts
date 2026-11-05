@@ -85,7 +85,7 @@ interface Window {
 }
 
 /** 按预算收集一页；`lines` 是从第 1 行起的迭代器。 */
-async function collect(lines: AsyncIterable<string> | Iterable<string>, offset: number, limit: number, total: number | null): Promise<Window> {
+async function collect(lines: AsyncIterable<string> | Iterable<string>, offset: number, limit: number, total: number | null, maxBytes = MAX_BYTES): Promise<Window> {
     const rows: string[] = [];
     const seen: number[] = [];
     let bytes = 0;
@@ -101,7 +101,7 @@ async function collect(lines: AsyncIterable<string> | Iterable<string>, offset: 
         const truncated = line.length > MAX_LINE_CHARS;
         const row = truncated ? `${line.slice(0, MAX_LINE_CHARS)} …[本行${line.length >= MAX_BUFFERED_LINE ? "超过" : "共"} ${String(line.length)} 字符，已截断]` : line;
         const size = Buffer.byteLength(row, "utf8") + 1;
-        if (rows.length > 0 && bytes + size > MAX_BYTES) {
+        if (rows.length > 0 && bytes + size > maxBytes) {
             more = true;
             break;
         }
@@ -184,11 +184,23 @@ async function readFile(store: EditStore, path: string, address: string, size: n
     }
     const text = decodeText(await Bun.file(path).bytes());
     if (text === null) return failed("not-text", `not-text: ${address} 不是 UTF-8 文本`);
-    const lines = splitLines(text);
-    const window = await collect(lines, offset, limit, lines.length);
-    const tag = store.recordSnapshot(path, text, window.seen.length === 0 ? NOTHING_SEEN : [...window.seen]);
-    return {text: render(hashlineFormatHeader(address, tag), window, null)};
+    return {text: (await renderSnapshot(store, path, address, text, offset, limit, MAX_BYTES)).text};
 }
+
+/**
+ * 文本读出来之后的公共部分：记行锚快照，按字节预算排版成带行号与行锚的样子。`read` 与压缩后的放回共用，放回的行锚才和
+ * `read` 给的一样能被 `edit` 认：只有完整显示的行算看过。
+ */
+export async function renderSnapshot(store: EditStore, path: string, address: string, text: string, offset: number, limit: number, maxBytes: number): Promise<{readonly text: string; readonly more: boolean}> {
+    const lines = splitLines(text);
+    const window = await collect(lines, offset, limit, lines.length, maxBytes);
+    const tag = store.recordSnapshot(path, text, window.seen.length === 0 ? NOTHING_SEEN : [...window.seen]);
+    return {text: render(hashlineFormatHeader(address, tag), window, null), more: window.more};
+}
+
+/** 能把全文读进内存做快照的上限；放回也只放这样的文件。 */
+export const SNAPSHOT_MAX_BYTES = SNAPSHOT_LIMIT;
+export const MAX_READ_LINES = MAX_LINES;
 
 function readFailure(error: unknown, address: string, signal: AbortSignal): ToolResult {
     if (signal.aborted) return failed("cancelled", `cancelled: 读 ${address} 被中止`);

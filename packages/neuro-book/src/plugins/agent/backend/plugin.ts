@@ -59,6 +59,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 diagnostics.record({level: "warn", event: `agent.${code}`, message, ...(data === undefined ? {} : {data}), source: {plugin: descriptor.id}});
             };
             const models = await context.services.resolve(modelsKey);
+            const editStores = new SessionEditStores();
             const runtime = await createAgentRuntime({
                 stateRoot: context.services.require(stateRootKey).path,
                 settings: context.services.require(settingsKey),
@@ -66,12 +67,12 @@ export const agentBackendPlugin: PluginDefinition = {
                 files: context.services.require(workspaceFilesKey),
                 clock: context.services.require(clockKey),
                 declarations: context.declarations,
+                editStores,
                 trigger: async (event) => allActivated(await context.activation.trigger(event, {signal: context.signal})),
                 report,
             });
             const clock = context.services.require(clockKey);
             const previews = new PreviewTokens(clock);
-            const editStores = new SessionEditStores();
             const stateRoot = context.services.require(stateRootKey).path;
             const profilesRoot = join(stateRoot, "agent", "profiles");
             await mkdir(profilesRoot, {recursive: true});

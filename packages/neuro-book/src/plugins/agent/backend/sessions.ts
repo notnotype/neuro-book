@@ -60,6 +60,8 @@ export interface SessionTableOptions {
     readonly clock: RuntimeClock;
     /** 建会话或打开会话之前调：激活扩展的提供方（contributions.md 输出 2）。 */
     readonly beforeOpen: () => Promise<void>;
+    /** 会话关了：放掉按会话持有的内存（行锚的快照）。 */
+    readonly closed?: (sessionId: string) => void;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -292,6 +294,7 @@ export class SessionTable {
             } catch (error) {
                 this.options.report("session-close-failed", `closing session ${entry.id} threw`, {session: entry.id, message: error instanceof Error ? error.message : String(error)});
             } finally {
+                this.options.closed?.(entry.id);
                 if (this.#entries.get(entry.id) === entry) this.#entries.delete(entry.id);
                 entry.session = null;
                 this.#activityChanged();

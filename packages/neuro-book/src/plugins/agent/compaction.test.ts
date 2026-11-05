@@ -4,7 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -49,9 +49,9 @@ const cid = () => `c-${String((commands += 1))}`;
 const HUGE = "写".repeat(25_000);
 
 /** 窗口 20 万、触发点 2 万；压缩角色绑同一个模型。 */
-function modelSettings(): Record<string, unknown> {
+function modelSettings(window = 200_000, compactAt = 20_000): Record<string, unknown> {
     const base = localModelSettings(endpoint.baseUrl) as {"nbook.models/providers": {models: Record<string, unknown>[]}[]; "nbook.models/roles": {items: {id: string; model: string | null}[]}};
-    base["nbook.models/providers"][0]!.models = [{id: "m", enabled: true, contextWindow: 200_000, compactAt: 20_000}];
+    base["nbook.models/providers"][0]!.models = [{id: "m", enabled: true, contextWindow: window, compactAt}];
     for (const item of base["nbook.models/roles"].items) if (item.id === "compaction") item.model = "local/m";
     return base;
 }
@@ -70,7 +70,7 @@ const bigTool: AgentToolImplementation = {create: () => ({execute: async () => "
 function testPlugin(): PluginDefinition {
     const method = agentCompactionMethod(VENDOR_METHOD);
     const big = agentTool(BIG, {description: "交回一大段文字", parameters: {type: "object", properties: {}}, version: "1", effect: "read"});
-    const profiles = [agentProfile(MAIN, {name: MAIN, description: "测试用", tools: {required: ["nbook.agent.read", BIG], optional: []}}), agentProfile(VENDOR, {name: VENDOR, description: "测试用", tools: {required: ["nbook.agent.read", BIG], optional: []}})];
+    const profiles = [agentProfile(MAIN, {name: MAIN, description: "测试用", tools: {required: ["nbook.agent.read", "nbook.agent.edit", BIG], optional: []}}), agentProfile(VENDOR, {name: VENDOR, description: "测试用", tools: {required: ["nbook.agent.read", "nbook.agent.edit", BIG], optional: []}})];
     return {id: "test.cp", entries: [defineEntry({
         id: "server",
         location: "server",
@@ -78,8 +78,8 @@ function testPlugin(): PluginDefinition {
         contributions: [...profiles.map((item) => item.contribution), method.contribution, big.contribution],
         activate: () => ({contributions: {
             "agent.profiles": {
-                [MAIN]: defineProfile({id: MAIN, version: "1", name: MAIN, description: "测试用", system: "测试。", tools: {required: ["nbook.agent.read", BIG], optional: []}}),
-                [VENDOR]: defineProfile({id: VENDOR, version: "1", name: VENDOR, description: "测试用", system: "测试。", tools: {required: ["nbook.agent.read", BIG], optional: []}, compaction: {onThreshold: [VENDOR_METHOD]}}),
+                [MAIN]: defineProfile({id: MAIN, version: "1", name: MAIN, description: "测试用", system: "测试。", tools: {required: ["nbook.agent.read", "nbook.agent.edit", BIG], optional: []}}),
+                [VENDOR]: defineProfile({id: VENDOR, version: "1", name: VENDOR, description: "测试用", system: "测试。", tools: {required: ["nbook.agent.read", "nbook.agent.edit", BIG], optional: []}, compaction: {onThreshold: [VENDOR_METHOD]}}),
             },
             "agent.compactionMethods": {[VENDOR_METHOD]: vendorMethod},
             "agent.tools": {[BIG]: bigTool},
@@ -87,9 +87,9 @@ function testPlugin(): PluginDefinition {
     })]};
 }
 
-async function world(): Promise<AgentWorld> {
+async function world(window?: number, compactAt?: number): Promise<AgentWorld> {
     counter += 1;
-    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...modelSettings(), "nbook.agent/profileSettings": {[MAIN]: {approvalMode: "yolo"}, [VENDOR]: {approvalMode: "yolo"}}}});
+    const created = await agentWorld(join(root, `w${String(counter)}`), {plugins: [testPlugin()], userSettings: {...modelSettings(window, compactAt), "nbook.agent/profileSettings": {[MAIN]: {approvalMode: "yolo"}, [VENDOR]: {approvalMode: "yolo"}}}});
     worlds.push(created);
     return created;
 }
@@ -135,6 +135,9 @@ describe("方法与缺省顺序", () => {
         const tools = sent[0]!.messages.filter((message) => message.role === "tool").map(textOf);
         expect(tools.length).toBeGreaterThanOrEqual(3);
         for (const text of tools) expect(text).toContain("内容已省略");
+        // shake 没丢对话，不放回（输出 7）。
+        expect(compaction.restored).toBeUndefined();
+        expect(JSON.stringify(sent[0]!.messages)).not.toContain("压缩之前你读过");
         expect(JSON.stringify(sent[0]!.messages)).not.toContain("第 1499 行的内容");
     });
 
@@ -151,7 +154,7 @@ describe("方法与缺省顺序", () => {
         const compaction = dataOf(second.events, "compaction")[0]!;
         expect(compaction).toMatchObject({method: "nbook.agent.inplace", replacement: "就地的摘要"});
         const [asked, answered] = endpoint.requests.slice(before);
-        expect(asked!.tools).toEqual(["read", "test__cp__big"]);
+        expect(asked!.tools).toEqual(["read", "edit", "test__cp__big"]);
         expect(asked!.options).toMatchObject({toolChoice: "none", maxTokens: 16_384});
         expect(textOf(asked!.messages.at(-1)!)).toContain("上下文快满了");
         // 前缀和对话请求相同：压缩请求的消息是对话请求的前缀加一条。
@@ -231,5 +234,51 @@ describe("贡献的方法", () => {
         expect(vendorCalls).toEqual(["threshold"]);
         expect(dataOf(second.events, "compaction")[0]).toMatchObject({method: VENDOR_METHOD, replacement: "第三方的摘要"});
         expect(purposes(second.events)).toEqual(["turn"]);
+    });
+});
+
+describe("放回", () => {
+    const tagOf = (request: {readonly messages: readonly unknown[]}): string => /#([0-9A-F]{4})\]/u.exec(JSON.stringify(request.messages))?.[1] ?? "";
+
+    test("输出 7–11：摘要之后放回最近读过的文件：读失败的不放，行锚和 read 给的一样能直接 edit，日志地址在里面；shake 不放回", async () => {
+        const w = await world();
+        const {session, id, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "a.md"), "一\n二\n三\n");
+        endpoint.script({tool: "read", args: {path: `sessions://${id}/home/a.md`}}, {tool: "read", args: {path: `sessions://${id}/home/missing.md`}}, "好");
+        await say(session, "读两个文件");
+        // 读失败的那个文件后来才有：放回只认成功的调用，不能因为现在读得到就放进去。
+        await writeFile(join(home, "missing.md"), "后来才有的内容");
+        endpoint.script("摘要", "答二");
+        const before = endpoint.requests.length;
+        const second = await say(session, HUGE);
+        const compaction = dataOf(second.events, "compaction")[0]!;
+        expect(compaction.method).toBe("nbook.agent.inplace");
+        const restored = compaction.restored as {kind: string; target: string; truncated: boolean}[];
+        expect(restored.map((item) => item.kind)).toEqual(["file", "log"]);
+        expect(restored[0]).toMatchObject({target: `sessions://${id}/home/a.md`, truncated: false});
+        expect(restored[1]!.target).toBe(`sessions://${id}/session.jsonl`);
+        const after = endpoint.requests.slice(before).at(-1)!;
+        expect(JSON.stringify(after.messages)).toContain("压缩之前你读过或改过这个文件");
+        expect(JSON.stringify(after.messages)).not.toContain("后来才有的内容");
+        expect(JSON.stringify(after.messages)).toContain(`sessions://${id}/session.jsonl`);
+        // 放回给的行锚直接能改：这一轮里没有 read 过。
+        endpoint.script({tool: "edit", args: {input: `[sessions://${id}/home/a.md#${tagOf(after)}]\nPUT 2.=2:\n+贰\n`}}, "好");
+        await say(session, "把第二行改成贰");
+        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n贰\n三\n");
+    });
+
+    test("输出 8、10：放回的合计不超过窗口的四分之一：小窗口的模型上文件被截断，并标出来", async () => {
+        const w = await world(8_000, 2_000);
+        const {session, id, home} = await open(w);
+        await mkdir(home, {recursive: true});
+        await writeFile(join(home, "long.md"), Array.from({length: 3_000}, (_, line) => `第 ${String(line)} 行`).join("\n"));
+        endpoint.script({tool: "read", args: {path: `sessions://${id}/home/long.md`, limit: 5}}, "好");
+        await say(session, "读一下");
+        endpoint.script("摘要", "答二");
+        const second = await say(session, HUGE);
+        const restored = (dataOf(second.events, "compaction")[0]!.restored as {kind: string; tokens: number; truncated: boolean}[]).find((item) => item.kind === "file")!;
+        expect(restored.truncated).toBe(true);
+        expect(restored.tokens).toBeLessThanOrEqual(2_000);
     });
 });

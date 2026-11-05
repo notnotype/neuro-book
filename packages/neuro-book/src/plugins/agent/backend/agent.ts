@@ -29,6 +29,8 @@ import {ProfileCatalog} from "./profiles";
 import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
+import {CompactionRestore} from "./compaction/restore";
+import type {SessionEditStores} from "./builtin/common";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -39,6 +41,8 @@ export interface AgentRuntimeOptions {
     readonly files: WorkspaceFiles;
     readonly clock: RuntimeClock;
     readonly declarations: ContributionDeclarations;
+    /** 行锚的快照：内置工具与压缩后的放回共用。 */
+    readonly editStores: SessionEditStores;
     /** 触发本插件前缀下的激活事件；有入口激活失败或受阻时交回 false。 */
     readonly trigger: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
@@ -114,6 +118,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     });
 
     const compaction = new CompactionMethods({declarations: options.declarations, activate: options.trigger});
+    const restore = new CompactionRestore({files: options.files, editStores: options.editStores, report: options.report});
 
     const store = createJsonlStore({root: sessionsRoot});
     let sessions: SessionTable | null = null;
@@ -135,7 +140,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: approveByMode,
-        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER},
+        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: restore.run},
     });
     hostRef = host;
 
@@ -159,7 +164,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         });
         return activating;
     };
-    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, report: options.report});
+    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), report: options.report});
     const table = sessions;
 
     const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
