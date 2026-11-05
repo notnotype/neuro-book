@@ -389,7 +389,7 @@ Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 ×
 ## 实现合同
 
 - **几何一律 CSS px**：`Splitter` 受控 props 为 `sizesPx`（合计 = 面板空间，不含 sash）；面板配置 `{defaultSizePx, minSizePx, maxSizePx, sizing, collapse}`。
-- **共享宿主**：外壳组件用 nb-ui 的 `useLayoutExtent` 测量承载盒（无 padding、border）、`useGridLayout` 落账与发布，不另写测量与落账。
+- **共享宿主**：外壳组件用 nb-layout 的 `useLayoutExtent` 测量承载盒（无 padding、border）、`useGridLayout` 落账与发布，不另写测量与落账。
 - **一次手势一份会话**：一个 `NestedGrid` 独占一份 sash 会话，交汇处的两根轴属于同一场手势；松手把一次 `GridGestureCommit` 交给宿主，宿主先整批核对（含不可保存分支则整批拒绝），再经 `useGridLayout` 一次 `resizeBranches` 落账，落账后从这批提交算出补丁。
 - **零值不进尺寸记录**：拖到零那一刻只写布尔偏好位，尺寸意图保持展开值。
 - **保存只认直接主动的叶**：侧栏、右栏宽度与面板两轴进记录；`compensated` 不变成持久意图。

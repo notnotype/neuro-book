@@ -1,0 +1,143 @@
+# w00026 t06 审查报告：接入与 API（使用方视角）
+
+范围：`packages/nb-layout` 公开入口 `src/index.ts`、`src/vue/index.ts`，`NestedGrid` 的 props / 事件 / 插槽 / data 属性 / CSS 变量，宿主接线（`useGridLayout`、`useLayoutExtent`、手势提交、停放、`moveGridFocus`），文档与实现的一致性，`createDragSession` 与 `registerDropTarget` 的使用体验。
+方法：先读 `NestedGrid.md`、`grid.md`、两份 Spec，再照着写接入草稿 `/tmp/review-w00026-t06-shape/api/Host.vue`（vue-tsc 通过），用 happy-dom 实验接线失误的表现（`api/wiring.exp.test.ts`、`issues.exp.test.ts`、`sash0.exp.test.ts`），并对照仓库里的 4 个真实宿主（EditorArea、WorkbenchShellLayout、WorkbenchViewContainerHost、Lab 夹具）。仓库文件未改。
+注：`git diff master..HEAD` 因 master 已前进而混入大量无关文件，下面各条按 t06 提交涉及的 nb-layout 与宿主文件判断；标明“已有”的条目在 master 上就存在，但属于本次审查的公开面。
+
+### 1. 接入要在三处重复写同一组值，漏写一处只表现为“拖了没反应”
+
+**严重程度**：重要
+**类别**：接入成本 / API 形状
+**位置**：`src/vue/NestedGrid.vue` props；`src/vue/useGridLayout.ts`；宿主 `EditorArea.vue:129-137`、`WorkbenchShellLayout.vue:335-347`、`WorkbenchViewContainerHost.vue:105-113`、`NestedGridAcceptanceFixture.vue`
+**现象**：每个宿主都写同样的六件套：`useLayoutExtent(rootEl)`、`useGridLayout({grid, extent, contextKey})`，再在模板里 `:node :layout :disabled="extent === null" :context-key :revision :on-gesture-commit`。其中 `contextKey` 在 `useGridLayout` 的选项和 `NestedGrid` 的 prop 里各写一次，`revision` 只能从 `host.revision` 手工转一遍。我在实验里分别漏掉一处：
+- 漏传 `:revision`：键盘调整一次，宽度 298.8 到 298.8（没落账），`issues` 里是“本次调整没有落账：布局已变化（版本 0 ≠ 2）……”。
+- `contextKey` 两处写成 `c` 与 `d`：同样没落账，issues 是“工作面已切换（d ≠ c）……”。
+两种失误都只有在接了 `onIssues` 或 `@issues` 时才看得到；没接的宿主得到的是一个永远拖不动的界面，不报错。
+**为什么是问题**：这几个值必须逐字相等，却没有任何东西强制它们相等；它们全部来自同一个 `useGridLayout`（名字也一一对应：`node/layout/revision`），宿主只是搬运工。`disabled="extent === null"` 4 处宿主全写了，但 `NestedGrid.begin()` 在测不到根盒时本来就不开手势，`host.onGestureCommit` 在没有 extent 时也拒绝，等于同一个条件守了三层。
+**建议改法**：让 `useGridLayout` 额外返回一个可直接绑定的对象（或让 `NestedGrid` 接受 `host` 这一个 prop），例如 `<NestedGrid v-bind="host.gridProps">`，里面含 `node/layout/revision/contextKey/onGestureCommit/disabled`；`contextKey` 只在 `useGridLayout` 写一次，`NestedGrid` 的 `contextKey` prop 随之可以删掉（commit 里带的就是 host 给的那个，`useGridLayout` 里的二次比较也随之删除）。宿主只剩“给 grid、给 extent、给 `onApplied`”三件事。
+
+### 2. 宿主与 NestedGrid 各测一次容器尺寸：合同没写、动效里要补丁、EditorArea 有一处从代码看会被裁掉
+
+**严重程度**：重要
+**类别**：API 形状 / 合同缺口（有一处从代码推断的缺陷，未在浏览器里验证）
+**位置**：`NestedGrid.vue:70-89,203-216`（自己的 `useLayoutExtent(rootEl)`、`placementExtent`）；`useGridMotion.ts` 文件头注释与 `update()`；`EditorArea.vue:48-53,116-135`；`NestedGrid.md` “布局”一节
+**现象**：
+- 宿主要对“grid 的父元素”调 `useLayoutExtent`，再用这个尺寸算 `layout`；`NestedGrid` 根是 `width:100%; height:100%`，并**另起一个** `ResizeObserver` 测自己，摆放（`placeGrid`）和手势会话用的是后者，叶尺寸用的是前者（`layout.sizes`）。`NestedGrid.md` 只写了“根节点填满父级可用盒”和“`layout` 与 node 同源”，没有写“宿主必须测的就是父级盒、父级里不能有别的兄弟、无 padding/border”（只在 `useLayoutExtent.ts` 头注释和 Spec 的一行里有）。
+- 两个测量晚一拍到的代价已经落进代码：`useGridMotion.ts` 头注释写明“宿主的 ResizeObserver 先发布布局，这个 grid 自己的实测盒下一个回调才变，中间 Vue 会刷新一次”，所以 `update()` 要同时比 `rootSize` 和 `extent` 两份，只比一个“每次改窗口高度都滑一下”。
+- `EditorArea.vue` 根元素 `h-full` 里先放了条件显示的 `<p data-editor-notice>`，再放 `NestedGrid`。宿主测的是整个根（含提示条高度），`NestedGrid` 的 `height:100%` 也等于根高，于是提示条显示时 grid 比可用空间高出提示条的高度，底部被根的 `overflow-hidden` 裁掉。从代码推断，未在浏览器里复现。
+**为什么是问题**：同一个盒子量两遍，合同里没说谁权威，而且“测哪个元素”这一步恰好是宿主最容易错的（EditorArea 就错了），错了不会有任何诊断。
+**建议改法**：只保留一处测量。最小改动是让 `NestedGrid` 测自己并把结果交出去（例如 `@extent` 事件或 `v-model:extent`），宿主把它喂给 `useGridLayout`，宿主不再对父元素调 `useLayoutExtent`；摆放与会话改用这份唯一的尺寸（或 `layout.sizes[root.id]`），`useGridMotion` 里“两份尺寸都要比”的补丁和 `useLayoutExtent` 对宿主的暴露一并可删。第一帧 layout 为空，沿用现在的空布局路径即可。若保留宿主测量，则至少在 `NestedGrid.md` 写明父级盒的要求，并在 `layout.sizes[root.id]` 与自测盒相差超过 1px 时给一条 issue。
+
+### 3. `createGrid` 不传 `sashSize` 时分隔线是 0px 且不可交互，两份文档都没提
+
+**严重程度**：重要
+**类别**：文档缺口 / 首次接入的坑
+**位置**：`src/grid.ts:81-83`（缺省 0）；`src/grid-types.ts:211-216`；`src/grid.md`、`src/vue/NestedGrid.md`、README 均无 `sashSize`
+**现象**：照文档写 `createGrid(tree)`，不传选项。实验里渲染出的 `[data-sash="root:0"]` 是 `data-disabled="true"`、`aria-disabled="true"`、`tabindex="-1"`，`layout.sashSizes` 是 `{"root":[0]}`；叶之间没有缝、没有可拖的线，也没有任何诊断或 issue。`NestedGrid.md` 提到“边按设备像素取整，缝宽也取整”和“0px 的 sash 不可交互”（见 `Splitter.md`），但没有说缝宽从哪来。所有真实宿主都传了 `sashSize`。
+**为什么是问题**：这是接入时最先踩的坑：界面能画出来、一切看起来正常，只是拖不动；而唯一决定它的参数在两份文档里查不到，只能读 `grid-types.ts`。
+**建议改法**：二选一。(a) 在 `grid.md` 写 `createGrid(root, {sashSize})` 一小节，并在 `NestedGrid.md` 的“布局”里写“缝宽来自 `createGrid` 的 `sashSize`，缺省 0 即没有可拖的分隔线”；(b) 更直接：缺省给一个有意义的值（例如 1，与 `grid-rects.ts` 里已有的 `DEFAULT_SASH_SIZE = 1` 对齐——那个常量现在只在“布局还没算出来”时用，和 `createGrid` 的缺省 0 互相矛盾）。
+
+### 4. 想“照着文档接入”做不到：没有一份接入说明，`NestedGrid.md` 的代码块导入路径是错的
+
+**严重程度**：建议
+**类别**：文档
+**位置**：`src/vue/NestedGrid.md` “数据”一节第一个代码块；`README.md`；`docs/specs/ui/nested-grid.md:73-74`；`docs/specs/ui/workbench-shell.md:392`
+**现象**：
+- `NestedGrid.md` 的类型块写 `import type {GridLeaf, GridNode, GridLayoutResult} from "./grid-types"`、`from "./grid-gesture"`、`"./sash-gesture"`、`"./splitter-gesture"`。文件在 `src/vue/` 下，这些模块在 `src/` 下，`./` 是不存在的路径；使用方真正要写的是 `@notnotype/nb-layout`。
+- 接入必需的 `useGridLayout`、`useLayoutExtent`、`invalidate()` 的时机、`onApplied` 的语义，只在 Spec 的两行无空格压缩句（`nested-grid.md:73-74`）和 `useGridLayout.ts` 头注释里。`NestedGrid.md` 全文没有出现 `useGridLayout`。README 只有两行导入。能照着做的只有读 `EditorArea.vue` 这种真实宿主。
+- `workbench-shell.md:392` 还写着“nb-ui 的 `useLayoutExtent`”，而宿主实际用的是 nb-layout 的那份（nb-ui 里留着冻结的另一份）。
+- 同样，`createDragSession`、`useDropTarget`、`dropTargetAt` 没有任何 `.md`（它们不是组件，`docs:check` 不要求），只有 `layout-drag.md` 的类型清单，没有“最小接入示例”。
+**为什么是问题**：使用方要记的概念（extent、revision、contextKey、invalidate、commit、onApplied、issues、停放）没有一处串起来讲。
+**建议改法**：在 `NestedGrid.md` 增加“接入”一节：一段 25 行内的最小宿主（树、`useLayoutExtent`、`useGridLayout`、`<NestedGrid v-bind=…>`、结构变更后的 `invalidate()`、`sashSize`），修正类型块的导入路径为包名。若采纳第 1 条，这一节会更短。`workbench-shell.md:392` 改为 nb-layout。
+
+### 5. 诊断通道：`onIssues` 与 `@issues` 会重复触发，事件载荷是累计历史，内容是写死的中文字符串
+
+**严重程度**：建议
+**类别**：事件合同
+**位置**：`NestedGrid.vue:326-331`（watch 里 `emit("issues")` 后又 `props.onIssues?.()`）；`useSashGesture.ts:236`（`.slice(-8)` 累计）；`NestedGrid.vue:284`；`useGridLayout.ts:84-98`；`NestedGrid.md` “状态与边界”（已有，master 上就存在）
+**现象**（happy-dom 实验，`api/issues.exp.test.ts`、`api/cumul.exp.test.ts`）：
+- 只传 `onIssues` 属性：一次被拒的提交，回调被调 2 次（`defineProps` 里声明了 `onIssues`，Vue 又把它当成 `issues` 事件的监听器，`emit` 一次、代码里再手动调一次）。只监听 `@issues`：1 次。
+- 连续 3 次被拒，`issues` 事件的载荷依次是 `[r1]`、`[r1, r2]`、`[r1, r2, r3]`：每次发的是会话里累计的最近 8 条，不是新增的。宿主若按“来一批追加一批”处理会得到重复项（Lab 夹具的 `pushIssues` 为此专门去重）。
+- 提交被拒的原因 `reason` 是中文句子，`useGridLayout` 的原因本身已以“本次调整没有落账”结尾，`useSashGesture.ts:285` 又加前缀“本次调整没有落账：”，实验输出变成“本次调整没有落账：布局已变化（版本 0 ≠ 2），本次调整没有落账”。
+- 宿主无法按类别处理：版本过期、工作面切换、容器尺寸变化只有靠文案区分。组件里的 aria 文案走了 `useLayoutText`，诊断串却不走。
+**为什么是问题**：同一份信息有两个入口，一个重复触发；事件语义（增量还是累计）没写；字符串作为接口，与仓库“不按错误文案做程序分支”的规则冲突。
+**建议改法**：只留一个入口。保留 `@issues`（更符合“事件”），删掉 `onIssues` prop 与手动调用；每次只发新增的那几条（或在文档写明“累计最近 8 条”）；`GridLayoutCommitResult` 与 issue 改为 `{code: "stale-revision" | "context-changed" | "extent-changed" | "no-grid" | "no-extent" | "host-rejected", message}`，`message` 不再重复前缀。`onGestureCommit` 与 `gesture-end` 同样是“同一份提交两个名字、两个入口”，建议文档写清先后（事件先、回调后、只有回调能拒绝），或让回调就叫 `onCommit` 并说明与事件的关系。
+
+### 6. `createDragSession` 的生命周期样板在 4 个调用点重复，缺一个组合式函数
+
+**严重程度**：建议
+**类别**：使用体验 / 部件可合并
+**位置**：`src/vue/drag-session.ts:85`；调用点 `WorkbenchShell.vue:284-297,308`、`EditorArea.vue:91-101`（`tab-drag.ts:179`）、`ExplorerTree.vue:277-303,493`、`DragSessionScene.vue:46-83`
+**现象**：`createDragSession` 要求创建时就给 `root: HTMLElement`，所以 4 处宿主都写同一套：`shallowRef<DragSession<…> | null>(null)` -> `onMounted(() => { s.value = createDragSession({root: el.value!, …}) })` -> `onBeforeUnmount(() => s.value?.dispose())` -> `computed(() => s.value?.state.value ?? null)`，内容变了再 `watch(…, () => s.value?.invalidate())`。我自己写草稿（`api/Host.vue`）也是这一套。
+**为什么是问题**：每个宿主都要记“挂载后才能建、卸载前要销毁、状态要从 ref 里再取一层”，漏掉 `dispose` 就是根上 3 到 4 个常驻监听泄漏。
+**建议改法**：加 `useDragSession(root: Ref<HTMLElement | null>, options)`：根出现时创建、根换了或作用域结束时销毁，返回 `{state, invalidate, abort}`（`state` 是稳定的 `ShallowRef<DragState | null>`，不用再包一层）。`createDragSession` 保留给非组件场景。4 处宿主各删约 8 行。顺带：`registerDropTarget` 目前只有测试直接调用，外部都走 `useDropTarget`，可以不从入口导出。
+
+### 7. 公开入口过宽，还混着内部零件和泛名字；同一概念的类型分散在两个入口，命名带旧组件的名字
+
+**严重程度**：建议
+**类别**：入口导出 / 命名一致
+**位置**：`src/index.ts:5-6,30-62`；`src/vue/index.ts:20-28`；`NestedGrid.vue:57-60`
+**现象**：
+- 入口用 `export *` 把 `./sash-drag`（`solveSashDrag`、`withCollapseOverrides`、`sashEdgeDelta` 等 10 个）和 `./useSashGesture`、`./useLayoutExtent`、`./useGridLayout` 整个导出；还单列导出 `EPSILON`、`finite`、`round`、`allocateAxis`、`shareAxis`、`normExtent`、`readExtent`、`ZERO_EXTENT` 这类求解器内部件。在 neuro-book、nb-story、dev-panel（排除 nb-layout 与冻结的 nb-ui）里我 grep 了核心入口的 34 个名字，其中 27 个没有任何外部使用（`EPSILON`、`allocateAxis`、`shareAxis`、`collectSashHits`、`hitTestSashBand`、`createSplitterSession`、`projectGridGesture`、`DRAG_GESTURE_DEFAULTS`、`GRID_DROP_INDICATOR_PX` 等）。Vue 入口约 35 个名字里，外部没有使用的有约 16 个：`useSashGesture` 及它的 3 个类型、`useSashScope`、`SASH_GESTURE_SCOPE_KEY`、`acquireSashCursor`、`sashCursorFor`、`sashHitKey`、`SASH_HOVER_DELAY_MS`、`buildGridBranchPanels`、`sashPanelsOfConfig`、`EMPTY_GRID_LAYOUT`、`registerDropTarget`。`finite`、`round` 作为包根的导出名太泛，也容易在宿主里撞名。
+- 拖动相关类型分裂：`DragEnd`、`DropKind` 在核心入口，`DragState`（纯类型，定义在 `src/drag-gesture.ts`）只在 Vue 入口重导出，`DragStops` 两个入口都没有（`DragKeyboardOptions.stops` 的返回类型）。纯 TS 的拖动控制器（不依赖 Vue，`tab-drag.ts` 这类）拿不到 `DragState`；宿主要写 `stops` 辅助函数时叫不出返回类型的名字。
+- `NestedGrid` 的事件载荷类型叫 `SplitterGestureCancelReason`、`SplitterGestureSource`、`SplitterGestureState`（旧组件的名字，SDK 里也这样转出去），而 `gesture-start` 的载荷是 `NestedGrid.vue:57` 里写死的匿名对象类型，宿主写处理函数得自己重抄一遍。
+**为什么是问题**：每个多余的导出都是一份要维护的公开合同；宿主面对上百个名字找不到“我要用的那 10 个”。名字带 `Splitter` 的类型让人误以为只适用于独立 `Splitter`。
+**建议改法**：入口只留宿主要用的：Vue 入口去掉 sash 一族（`useSashGesture`、`useSashScope`、`SASH_*`、`sash-feedback` 全部、`buildGridBranchPanels`、`sashPanelsOfConfig`）与 `registerDropTarget`、`EMPTY_GRID_LAYOUT`；核心入口去掉 `sash-drag`、`grid-geometry` 的求解器与常量、`sash-hit-area`、`splitter-session` 与 `grid-gesture` 的 `projectGridGesture/createGridGestureSession`（它们的测试从相对路径导入，不受影响）。把 `DragState`、`DragStops` 放进核心入口，Vue 入口不再重导出纯类型。给 `gesture-start` 载荷起名并导出（`GridGestureStart`），`Splitter*` 类型改成 `SashGesture*` 或 `GridGesture*`。这样公开面约减一半，也让“核心 / Vue”的分法变成“纯类型与纯函数在核心，要 Vue 的在 Vue”这一条规则。
+
+### 8. 从外面把焦点“送进”grid 要两次调用，而且要靠没写进文档的 `data-grid-scope` 找根
+
+**严重程度**：建议
+**类别**：API 形状 / 未登记的 DOM 合同
+**位置**：`src/vue/grid-focus.ts:71-101`；`NestedGrid.vue:353`；宿主 `WorkbenchShell.vue:301-305`、`WorkbenchShellLayout.vue:317`；`NestedGrid.md`
+**现象**：`moveGridFocus(from, direction)` 只从 `from` 往外走 `closest("[data-grid-scope]")`；焦点在 grid 外（页面根、菜单）时直接返回 `false`。所以外壳要写：`if (!moveGridFocus(document.activeElement, direction)) moveGridFocus(hostEl.value?.querySelector("[data-grid-scope]") ?? null, direction)`。`NestedGrid` “不 expose API”，宿主拿根元素的唯一办法就是查 `data-grid-scope`，而这个属性在 `NestedGrid.md` 和 Spec 里都没有出现（文档里列了 `data-leaf`、`data-leaf-content`、`data-moving`）。`direction` 取值 `"next" | "previous"` 在组件文档里也没写，只在类型里。
+**为什么是问题**：F6 这种“把焦点送到下一块”是每个多面板宿主都要做的，却要记住“先试活动元素、失败再换成根”和一个没登记的选择器；`data-grid-scope` 的值是 `useId()` 生成的，宿主一旦用它做别的事就是在依赖实现细节。
+**建议改法**：把签名改成 `moveGridFocus(root: Element, direction)`：`root` 是宿主已知的 grid 容器（或任何包含 grid 的元素），函数自己看 `document.activeElement`——在 grid 里就从那块往外走，不在就从第一块（`previous` 时最后一块）开始。宿主只写一行，不再需要 `data-grid-scope`；若仍要保留这个属性，把它写进 `NestedGrid.md` 的“DOM 合同”并固定值的含义。
+
+### 9. 宿主靠的几项样式与属性合同只写在代码注释里：`--nb-splitter-seam*`、`data-sash`/`data-axis`、`data-grid-scope`
+
+**严重程度**：建议
+**类别**：文档 / data 与 CSS 变量合同
+**位置**：`SashHandle.vue:320-335`（只在注释里）；`WorkbenchViewContainerHost.vue:141-147`、`WorkbenchShellLayout.vue:381`（宿主在用）；`NestedGrid.md`、`Splitter.md`
+**现象**：
+- 接缝颜色与缩进变量 `--nb-splitter-seam`、`--nb-splitter-seam-inset` 被两个宿主用来改分隔线的静止样子（卡片主题里设成透明、容器内的线另设颜色），但 `NestedGrid.md`、`Splitter.md` 都没有；`Splitter.md` 里有 `--sash-line-color/size/radius/glow/inset`，`NestedGrid.md` 没有一个字提到悬停线怎么主题化、也没有指向 `Splitter.md`。变量名里的 `splitter` 也已经不准确（现在主要服务 `NestedGrid`）。
+- `NestedGrid.md` 列了 `data-leaf`、`data-leaf-content`、`data-moving` 和 `--motion-layout`/`--ease-layout`，没有列 `data-grid-scope`（根）、`data-sash`（值是 `分支id:序号`，测试与 e2e 用它找分隔线）、`data-sash-active` 等状态属性。系统把 `--motion-layout` 归零和“宿主没给令牌就当 0”写在 `layout-motion.ts` 注释里，组件文档只写了“用 `--motion-layout` 过渡”，没说令牌来自 nb-ui 的 `tokens.css`。
+**为什么是问题**：这些就是宿主要“按合同依赖”的东西，现在分散在三处，谁改名了没有任何地方会提醒；新宿主只能靠读 `SashHandle.vue` 学会。
+**建议改法**：在 `NestedGrid.md` 加一节“公开的标记与变量”，一张表列全：data 属性（含值的格式）、CSS 变量（含缺省与由谁提供）、与 `Splitter.md` 共用的 sash 变量（只写“见 Splitter.md”即可）。把 `--nb-splitter-seam*` 改名为 `--nb-sash-seam*`（宿主只有两处在用，成本很低）。
+
+### 10. 宿主要靠猜时序和重算来获知三件 `NestedGrid` 自己早就知道的事：叶元素何时出现、过渡何时结束、叶是否被停放
+
+**严重程度**：建议
+**类别**：事件缺口 / 宿主重复实现
+**位置**：`WorkbenchShellLayout.vue:236-248`（`syncTargets`、两次 `nextTick`）与 `NestedGrid.vue:91-95` 注释；`WorkbenchShell.vue:310-355`（`layoutMotionMs` 加 340ms 余量逐帧量矩形）；`WorkbenchViewContainerHost.vue:51-60`（`hasSpace`）；`useLeafParking.ts`、`useGridMotion.ts`
+**现象**：
+- Teleport 目标：外壳用 `querySelector('[data-leaf-content="…"]')` 找叶容器，并“等两轮 `nextTick` 再恢复焦点”。这要求新叶的外框必须在同一轮渲染里出现——`NestedGrid.vue:91-95` 为此把 `renderItems` 写成同步 computed 并加了注释，但这条时序保证没有写进 `NestedGrid.md`，只是一个靠宿主与组件互相默契的隐含合同。
+- 过渡结束：`NestedGrid` 的 `useGridMotion` 自己有计时器和 `onSettled`，外壳却用 `layoutMotionMs(hostEl)` + 340ms 余量 + 逐帧比较矩形来猜“动完了没有”，所以 `layoutMotionMs` 才被导出。
+- 停放：`NestedGrid` 内部算出 `parked` 集合（`visibility:hidden` 加 `inert`），但既不暴露成 slot 作用域、事件，也不写成 data 属性；`WorkbenchViewContainerHost.hasSpace` 因此自己读 `host.layout.sizes` 重算一遍“正文有没有空间”。`leaf` 插槽只给 `{node}`。
+**为什么是问题**：同一个事实在组件和宿主各算一份，两边的判定（0 宽、`<=0`、取整后）只要有一点差异，Teleport 来的内容与 `inert` 的状态就对不上；而且 `layoutMotionMs` 这个导出只因“宿主要猜动画时长”而存在。
+**建议改法**：给 `NestedGrid` 加三个很小的出口，换掉宿主里的猜测：`leaf` 插槽作用域加 `{node, parked: boolean}`（或外框加 `data-parked`）；`@layout-settled` 事件（`useGridMotion.stop()` 里已经有 `onSettled`，过渡结束或本来就无过渡时发一次）；在 `NestedGrid.md` 写明“`node` 变化后的同一次渲染里，`data-leaf-content` 已经存在”。之后可删除 `layoutMotionMs` 导出与外壳里 `SETTLE_TRACK_SLACK_MS` 那段逐帧追踪。
+
+### 11. SDK 把 `NestedGrid` 与手势类型导给了插件，却没有导出建树与算布局的部件
+
+**严重程度**：建议
+**类别**：接入 / 可达性（是否有意，需要产品方确认）
+**位置**：`packages/neuro-book/src/sdk/components.ts:41-47`；`docs/specs/ui/nested-grid.md:14`（“主工作台和插件能复用与领域无关的 grid”）；`docs/specs/ui/layout-drag.md:174`
+**现象**：SDK 重导出了 `NestedGrid`、`Splitter`、`DropFeedbackOverlay`、`DropIndicatorLabel` 与 `GridGestureCommit` 等手势类型，但没有 `createGrid`、`Grid`、`GridNode`、`GridLayoutResult`、`useGridLayout`、`useLayoutExtent`、`moveGridFocus`（我在 `src/sdk`、`plugin-sdk` 里 grep 了这些名字，无命中）。`NestedGrid` 的 `node`、`layout` 两个必填 prop 的类型插件拿不到，也造不出值。`layout-drag.md:174` 明确写了落点登记“SDK 没有导出”，但 `nested-grid.md` 没有对应的“SDK 只导出到哪里”的说明。
+**为什么是问题**：插件作者能 import 到 `NestedGrid`，却没有一条可行路径把它用起来，只能读到编译错误后自己去找别的路。
+**建议改法**：要么在 SDK 里补 `createGrid` 与 `useGridLayout`/`useLayoutExtent` 及其类型（第 1、2 条做完后只剩两三个名字），要么在 `nested-grid.md` 写明“当前插件只能用 `Splitter`，`NestedGrid` 的宿主接线暂不开放”，并把 `NestedGrid` 从 SDK 导出里拿掉。
+
+## 未发现问题的方面
+
+- 宿主真正要用的名字都在入口里，且命名成对：`createGrid` / `createDragSession`，`useGridLayout` / `useLayoutExtent` / `useDropTarget`；`useGridLayout` 返回的 `node` / `layout` / `revision` 与 `NestedGrid` 的 prop 同名，一眼能对上（第 1 条是在此基础上进一步合并，不是命名问题）。
+- `NestedGrid.md` 的 props / 事件 / 插槽表与 `NestedGrid.vue` 的 `defineProps` / `defineEmits` / `defineSlots` 逐项一致；`data-leaf`（外框）与 `data-leaf-content`（内容）的区分、`gesture-update` 在预览撤回时发空 `changes` 一次、单根 attrs 透传、`empty` 插槽都和实现相符（草稿与现有 DOM 测试均可佐证）。
+- `useGridLayout` 的“自身提交不造成 preview 自取消”“通知异常只报 issues”和 Spec 一致；结构变更后漏 `invalidate()` 渲染停在旧树、调用后恢复（`api/wiring.exp.test.ts` 已验证），行为与文档所述一致（`Grid` 是不可订阅的可变对象，所以 `invalidate()` 这个概念是必要的，不当作问题）。
+- 落点登记（`registerDropTarget` / `useDropTarget` / `dropTargetAt`）的使用体验好：按元素存、按种类 id 比较、不要求在场的工作台、返回注销函数；`dropTargetAt(top, kind)` 与 `DragQuery.top` 配合得顺。问题只在第 6 条的样板与第 7 条的导出。
+- 我的接入草稿（`api/Host.vue`）用公开入口能通过 `vue-tsc`（`checkUnknownProps`），没有需要深导入的地方。
+- 没有重复报告正确性审查已处理的内容；未运行 `bun run test` / `typecheck`（本轮只读 API 形状，改动类型检查在正确性审查里已覆盖）。
+
+## 数量
+
+- 重要：3（第 1、2、3 条）
+- 建议：8（第 4 至 11 条）
+- 合计有效发现 11 条
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11

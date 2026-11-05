@@ -63,6 +63,35 @@ updated: 2026-11-05
 | 13 定时器早于过渡结束 | 部分成立。计时加 50ms 余量；不用 `transitionend` 计数，多个属性、中途打断都要处理，末端曲线很平，不值 |
 | 14 半像素比较 | 成立。`lab-nested-grid.e2e.ts` 同样改 |
 
+可维护性与 API 形状审查（两个 Sonnet，[可维护性](evidences/shape-review-maintainability.txt)、[接入与 API](evidences/shape-review-api.txt)）共 23 条，阻断 0：
+
+| 条 | 处理 |
+|---|---|
+| 维护 1 过渡、停放、焦点没有单元测试 | 成立。过渡判定拆成纯函数 `decideMotion` 表驱动测，停放与 Tab 不介入的分支各补；Tab 走到头之后的跳转依赖真实布局，仍只在 e2e |
+| 维护 2、接入 8 两个 DOM 属性没登记、F6 要两次调用 | 成立。`data-grid-scope` 等写进 `NestedGrid.md` 的“公开的标记与变量”；`moveGridFocus(container, direction)` 一次调用。紧凑模式手写的同形状 DOM 不动，t07 一棵树之后消失 |
+| 维护 3 手势旗标跨文件、靠 watcher 顺序 | 成立。改成按数据判定：预览中，或上一次还在预览中。删掉 `markGesture` |
+| 维护 4、5 渲染序与焦点接线摊在 `NestedGrid` | 成立。`useRenderOrder`、`useGridFocus` 拆出，脚本回到约 250 行 |
+| 维护 6 `grid-rects.ts` 四件事 | 成立。过渡起点与渲染序进 `grid-motion.ts`，`nextFocusStop` 进 `grid-focus.ts` |
+| 维护 7 重复三块 | 只改 (d)：缺省缝宽共用一个常量。(a) 的 aria 公式两处各一次，(b) 的两个 provide 成对写，抽出去的部件比重复的更多 |
+| 维护 8 类型循环、多余公开 | 成立。`SplitterPanelConfig` 移进 `grid-splitter.ts`，两个内部函数不再公开 |
+| 维护 9 对齐算术在 `.vue` 里、测试挂在 Splitter 下 | 不改：Splitter 的测试 1282 行，搬家风险大于收益，t14 迁移 Splitter 时一起整理 |
+| 维护 10 dpr 两个来源 | 成立。`useSashSnap` 用 `useDevicePixelRatio`，缩放变了自己重排 |
+| 维护 11、12 文档与小问题 | 成立，已改 |
+| 接入 3 `sashSize` 缺省 0 不可拖却没有说明 | 成立。`grid.md`、`NestedGrid.md` 写明；缺省值不改（改了是行为变化） |
+| 接入 4 没有接入说明 | 成立。`NestedGrid.md` 加“接入”一节和最小宿主 |
+| 接入 9 样式与属性合同只在注释里 | 成立。同上的表；`--nb-splitter-seam*` 不改名，宿主在用，没有收益 |
+| 接入 1、2、5、6、7、10、11 | 不在这一片做，记入遗留。理由：它们都要同时改外壳、编辑器区、视图容器等宿主的接线，而外壳在 t07 整个重做；接口收窄（入口导出减半）在包发布前做 |
+
+**遗留**（t07 动手前先看）：
+
+- `useGridLayout` 返回可直接 `v-bind` 的对象，`contextKey`、`revision` 不再手工对齐（接入 1）。
+- 宿主与 `NestedGrid` 各测一次容器尺寸，合同没写测哪个盒；`EditorArea` 的提示条在 grid 之上、也算进测量根，从代码推断提示条出现时底部被裁（已有问题，未在浏览器里复现）（接入 2）。
+- `onIssues` prop 与 `@issues` 事件重复触发，`issues` 载荷是累计的最近 8 条，诊断是中文字符串、没有错误码（已有问题）（接入 5）。
+- `useDragSession(root, options)` 组合式函数，四个调用点各省约 8 行（接入 6）。
+- 入口导出收窄：核心入口 34 个名字里 27 个没有外部使用，事件类型还叫 `Splitter*`，`DragState`、`DragStops` 放进核心入口（接入 7）。
+- 叶是否停放、过渡何时结束由 `NestedGrid` 通知宿主，外壳不再数帧猜（接入 10）。
+- SDK 只导出了 `NestedGrid`，没有 `createGrid`、`useGridLayout`，插件用不起来；要么补齐，要么在 Spec 写明暂不开放（接入 11）。
+
 ## 下一步
 
 开发者确认计划后，按 `plan.md` 的切片实施。
