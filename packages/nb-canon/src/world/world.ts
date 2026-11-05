@@ -39,6 +39,7 @@ import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from 
 import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
+import {newReferences, referenceProblem, referencesOf, replaceTempIds, type ReferenceContext} from "./references";
 
 /** 宿主提供的、计算要用的东西（project.md 输入与前置条件）。 */
 export interface WorldOptions {
@@ -56,6 +57,8 @@ export interface Problem {
     readonly ref?: ObjectRef;
     readonly path?: string;
     readonly message: string;
+    /** 有细分原因的码带它（`ref-invalid` 的 `entry-missing`、`ref-type-mismatch`……，components.md 输出 18）。 */
+    readonly reason?: string;
 }
 
 export interface ConflictDetail {
@@ -315,6 +318,8 @@ export class World {
         const engine = this.engine.update(engineInputs(data, this.options), changed);
         // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
         if (!compensation) problems.push(...validate(this, data, engine, request, changed));
+        const refs = writtenReferences(this, data, ops);
+        if (!compensation) problems.push(...referenceProblems(data, refs));
         if (problems.length > 0) return invalid(problems);
 
         const where = whereOf(request.chapter, this.options.order);
@@ -336,6 +341,7 @@ export class World {
             ...extra,
             impact,
             ...(Object.keys(ids).length === 0 ? {} : {idMap: ids}),
+            ...(refs.length === 0 ? {} : {refs: refs.map(({ref, reference}) => ({ref, path: reference.path, target: reference.target}))}),
         };
         return {ok: true, world: this.next(data, engine, revision), revision, ids, repeated: false};
     }
@@ -486,6 +492,7 @@ function dependsOn(later: Revision, earlier: Revision): boolean {
         }
     }
     const createdIds = new Set([...created].map((key) => key.slice(key.indexOf(":") + 1)));
+    if ((later.refs ?? []).some((reference) => createdIds.has(reference.target.id))) return true;
     for (const op of later.ops) {
         if (op.kind === "chapters") continue;
         const key = refKey(op.ref);
@@ -501,8 +508,6 @@ function dependsOn(later: Revision, earlier: Revision): boolean {
             }
         }
         if (earlierFields !== undefined && op.kind !== "modify") return true;
-        const references = opReferences(op);
-        for (const id of createdIds) if (references.has(id)) return true;
         const patches = op.kind === "create" ? ((op.after as StoryChange).patches ?? []) : op.kind === "modify" ? op.fields.flatMap((field) => (Array.isArray(field.after) ? (field.after as Patch[]) : [])) : [];
         for (const patch of patches) {
             if (patch === null || typeof patch !== "object" || !("at" in patch)) continue;
@@ -593,56 +598,36 @@ function applyOp(tables: Tables, op: Exclude<Op, {kind: "chapters"}>, createdAt:
     else table.set(op.ref.id, applyChanges(table.get(op.ref.id), op.fields, "after"));
 }
 
-/** 放对象 id 的键：只在这些键下把临时 id 换成正式 id，描述、原句这类文字里碰巧写了同样的字不换。 */
-const ID_KEYS = new Set(["id", "parent", "sameAs", "entry", "plan", "by", "change", "cause"]);
-const ID_LIST_KEYS = new Set(["involves", "lines"]);
-/** 引用别的对象的键：同 `ID_KEYS`，去掉对象自己的 `id`（列表元素与块的 id 也是局部的），加上依据里的核对点。 */
-const REFERENCE_KEYS = new Set(["parent", "sameAs", "entry", "plan", "by", "change", "cause", "check"]);
-
-/**
- * 一个值里引用到的对象 id：只看放 id 的键，自由文字（描述、原句、标题）不算（revisions.md 输出 12 的依赖、改动记录按
- * 条目筛选）。决策挂的对象写成 `{kind: "entry" | "change", id}`，也算引用。
- */
-export function referencedIds(value: unknown, key: string | null = null, into = new Set<string>()): Set<string> {
-    if (typeof value === "string") {
-        if (key !== null && REFERENCE_KEYS.has(key)) into.add(value);
-    } else if (Array.isArray(value)) {
-        for (const item of value) {
-            if (typeof item !== "string") referencedIds(item, null, into);
-            else if (key !== null && ID_LIST_KEYS.has(key)) into.add(item);
-        }
-    } else if (value !== null && typeof value === "object") {
-        const record = value as Record<string, unknown>;
-        if ((record.kind === "entry" || record.kind === "change") && typeof record.id === "string" && Object.keys(record).length === 2) into.add(record.id);
-        for (const [childKey, item] of Object.entries(record)) referencedIds(item, childKey, into);
-    }
-    return into;
-}
-
-/** 一个操作里引用到的对象 id；改字段时，键取路径的最后一段。 */
-export function opReferences(op: Op): Set<string> {
-    const found = new Set<string>();
-    if (op.kind === "chapters") return found;
-    if (op.kind === "create") return referencedIds(op.after, null, found);
-    if (op.kind === "delete") return referencedIds(op.before, null, found);
-    for (const field of op.fields) {
-        const last = /(?:^|\.)([^.[\]]+)$|\["((?:[^"\\]|\\.)*)"\]$/u.exec(field.path);
-        const key = last === null ? null : (last[1] ?? JSON.parse(`"${last[2]!}"`) as string);
-        referencedIds(field.before, key, found);
-        referencedIds(field.after, key, found);
+/** 这次修订新写或改过的引用（revisions.md 的“存下来的修订”里的 `refs`），连同它所在的对象。 */
+function writtenReferences(before: World, data: WorldData, ops: readonly Op[]): {readonly ref: ObjectRef; readonly reference: ReturnType<typeof referencesOf>[number]}[] {
+    const contextOf = (world: WorldData): ReferenceContext => ({registry: before.options.registry, entry: (id) => world.entries.get(id)});
+    const old = contextOf(before.data);
+    const now = contextOf(data);
+    const found: {ref: ObjectRef; reference: ReturnType<typeof referencesOf>[number]}[] = [];
+    for (const op of ops) {
+        if (op.kind === "chapters" || op.kind === "delete") continue;
+        const after = (data[TABLE[op.ref.kind]] as ReadonlyMap<string, unknown>).get(op.ref.id);
+        const added = newReferences(referencesOf(op.ref.kind, before.object(op.ref), old), referencesOf(op.ref.kind, after, now));
+        for (const reference of added) found.push({ref: op.ref, reference});
     }
     return found;
 }
 
-function replaceTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>): WriteRequest {
-    if (Object.keys(ids).length === 0) return request;
-    const replace = (value: unknown, key: string | null): unknown => {
-        if (typeof value === "string") return key !== null && ID_KEYS.has(key) ? (ids[value] ?? value) : value;
-        if (Array.isArray(value)) return value.map((item) => (typeof item === "string" ? (key !== null && ID_LIST_KEYS.has(key) ? (ids[item] ?? item) : item) : replace(item, null)));
-        if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([childKey, item]) => [childKey, replace(item, childKey)]));
-        return value;
+/** 新写或改过的、由引用模块负责校验的引用（components.md 输出 18 的 `ref-invalid`）。 */
+function referenceProblems(data: WorldData, refs: ReturnType<typeof writtenReferences>): Problem[] {
+    const exists = {
+        entry: (id: string) => data.entries.get(id),
+        change: (id: string) => data.changes.has(id),
+        decision: (id: string) => data.decisions.has(id),
+        check: (id: string) => data.checks.has(id),
     };
-    return replace(request, null) as WriteRequest;
+    const problems: Problem[] = [];
+    for (const {ref, reference} of refs) {
+        if (!reference.checked) continue;
+        const reason = referenceProblem(reference, exists);
+        if (reason !== null) problems.push({code: "ref-invalid", ref, path: reference.path, reason, message: `${reference.target.kind} "${reference.target.id}": ${reason}`});
+    }
+    return problems;
 }
 
 /**

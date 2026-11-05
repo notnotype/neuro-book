@@ -14,6 +14,8 @@ import {createReferenceEngine} from "../src/engine/reference";
 import type {Engine, EngineInputs, WorldData} from "../src/engine/types";
 import {PANEL, PERSON} from "./fixtures/world";
 
+const KNOWING: ComponentDeclaration = {id: "test.knowing", label: "认得", namespace: "know", version: 1, fields: [{id: "认得", label: "认得", kind: "list", keyedBy: "ref"}]};
+
 function random(seed: number): () => number {
     let state = seed >>> 0;
     return () => {
@@ -52,6 +54,7 @@ class Sim {
                     data: {
                         panel: {type: PANEL.id, version: 1, enabled: true, fields: {存款: this.int(0, 4), 魔力上限: 5, 魔力: 2, 物品: []}},
                         character: {type: PERSON.id, version: 1, enabled: true, fields: {外观: "银白", 状态: "在家", 态度: "冷淡"}},
+                        know: {type: KNOWING.id, version: 1, enabled: true, fields: {认得: []}},
                     },
                 },
             });
@@ -83,6 +86,14 @@ class Sim {
 
     patch(): Patch {
         const entry = this.pick(this.entryIds());
+        // 以引用为键的列表与改名：元素名读取时取被引用条目在同一位置的名字，两个引擎各自取（canon.components 输出 19）。
+        const keyed = this.rnd();
+        if (keyed < 0.12) {
+            const other = this.pick(this.entryIds());
+            if (keyed < 0.06) return {op: "listAdd", at: {entry, path: "know.认得"}, value: {id: other}};
+            if (keyed < 0.09) return {op: "listRemove", at: {entry, path: "know.认得"}, value: other};
+            return {op: "set", at: {entry: other, path: "entry.name"}, value: this.pick(["甲", "乙", "丙"])};
+        }
         const roll = this.rnd();
         if (roll < 0.45) return {op: "add", at: {entry, path: "panel.存款"}, value: this.int(-3, 3) || 1, ...(this.rnd() < 0.2 ? {basis: {kind: "estimate", note: "估"}} : {})};
         if (roll < 0.55) return {op: "set", at: {entry, path: "panel.存款"}, value: this.int(0, 4)};
@@ -201,7 +212,7 @@ class Sim {
             suggestions: new Map(),
             createdAt: new Map(this.createdAt),
         };
-        const declarations: ComponentDeclaration[] = [PANEL, {...PERSON, version: this.personVersion}];
+        const declarations: ComponentDeclaration[] = [PANEL, {...PERSON, version: this.personVersion}, KNOWING];
         return {world, order: new ChapterOrder(this.chapters), registry: buildRegistry(declarations), reductions: (input) => (input.events.length === 2 ? `归纳：${input.anchor ?? "未知"}` : undefined)};
     }
 }

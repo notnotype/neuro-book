@@ -132,6 +132,8 @@ export function fieldsProblem(fields: readonly FieldDeclaration[], base: string)
         ids.add(field.id);
         if (field.kind === "enum" && (field.options === undefined || field.options.length === 0)) return {path: `${path}.options`, message: "enum needs options"};
         if (field.precision !== undefined && field.kind !== "number" && field.kind !== "text") return {path: `${path}.precision`, message: "precision applies to number and text"};
+        if (field.keyedBy !== undefined && field.kind !== "list") return {path: `${path}.keyedBy`, message: "keyedBy applies to lists"};
+        if (field.targets !== undefined && field.kind !== "ref" && field.keyedBy === undefined) return {path: `${path}.targets`, message: "targets applies to ref fields and lists keyed by ref"};
         if ((field.min !== undefined || field.max !== undefined) && (field.kind !== "number" || field.precision === "semantic")) {
             return {path, message: "min and max apply to exact numbers"};
         }

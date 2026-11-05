@@ -22,7 +22,7 @@ import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
-import {opReferences, World, type WriteResult} from "../world/world";
+import {World, type WriteResult} from "../world/world";
 
 export interface ServicePorts {
     readonly files: LogFiles;
@@ -298,7 +298,8 @@ export class WorldService {
         const matching = [...world.revisions].reverse().filter((revision) =>
             (filter.chapter === undefined || revision.chapter === filter.chapter) &&
             (filter.by === undefined || revision.by.kind === filter.by) &&
-            (filter.entry === undefined || revision.ops.some((op) => op.kind !== "chapters" && (op.ref.id === filter.entry || opReferences(op).has(filter.entry!)))),
+            // 改过这个条目的修订，与新写或改过指向它的引用的修订（revisions.md 输出 14，引用按发布时存下的 `refs`）。
+            (filter.entry === undefined || revision.ops.some((op) => op.kind !== "chapters" && op.ref.id === filter.entry) || (revision.refs ?? []).some((reference) => reference.target.id === filter.entry)),
         );
         const stamp = this.#stamp();
         const page = this.#page(stamp, matching, cursor, limit);

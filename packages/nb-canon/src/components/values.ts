@@ -24,6 +24,8 @@ export function valueProblem(field: FieldDeclaration, value: unknown): ValueProb
             return typeof value === "boolean" ? null : "type-mismatch";
         case "image":
             return imageProblem(value);
+        case "ref":
+            return refProblem(value);
         case "list": {
             if (!Array.isArray(value)) return "type-mismatch";
             const ids = new Set<string>();
@@ -39,17 +41,28 @@ export function valueProblem(field: FieldDeclaration, value: unknown): ValueProb
     }
 }
 
-/** 列表的一个元素：`{id, label, …子字段}`，子字段按 `item` 声明校验。 */
+/**
+ * 列表的一个元素：`{id, label, …子字段}`，子字段按 `item` 声明校验。以引用为键的列表（components.md 输出 19）的元素没有
+ * `label`（读取时取被引用条目的名字），`id` 是条目 id；它指向的条目在不在、种类对不对由写入时的引用校验查。
+ */
 export function listItemProblem(field: FieldDeclaration, item: unknown): ValueProblem | null {
     if (item === null || typeof item !== "object" || Array.isArray(item)) return "type-mismatch";
     const record = item as Record<string, unknown>;
-    if (typeof record.id !== "string" || !isIdentifierName(record.id) || typeof record.label !== "string") return "type-mismatch";
+    if (typeof record.id !== "string" || !isIdentifierName(record.id)) return "type-mismatch";
+    if (field.keyedBy === "ref" ? record.label !== undefined : typeof record.label !== "string") return "type-mismatch";
     for (const sub of field.item ?? []) {
         if (!(sub.id in record)) continue;
         const problem = valueProblem(sub, record[sub.id]);
         if (problem !== null) return problem;
     }
     return null;
+}
+
+/** 引用值 `{ref: 条目 id}`（components.md 输出 18）。 */
+function refProblem(value: unknown): ValueProblem | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return "type-mismatch";
+    const record = value as Record<string, unknown>;
+    return Object.keys(record).length === 1 && typeof record.ref === "string" && record.ref !== "" ? null : "type-mismatch";
 }
 
 function numberProblem(value: string | number): ValueProblem | null {

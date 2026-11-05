@@ -27,6 +27,19 @@ export interface ViewContext {
     readonly textSays: (at: Address) => number | undefined;
     /** 这个位置上没启用的命名空间之后由哪条变更启用、启用后的值（components.md 输出 6）。 */
     readonly upcoming: (namespace: string) => {readonly from: Placement; readonly fields: Readonly<Record<string, unknown>>} | null;
+    /** 别的条目在同一个位置上的名字（以引用为键的列表的元素名，components.md 输出 19）；条目不存在时为 undefined。 */
+    readonly nameOf: (entry: string) => {readonly name: string; readonly deleted: boolean} | undefined;
+}
+
+/** 以引用为键的列表的元素不存 `label`，读取时取被引用条目在这个位置上的名字；条目已删除时是“已删除的条目”。 */
+export const DELETED_ENTRY_LABEL = "已删除的条目";
+
+function labelKeyedElements(value: unknown, context: ViewContext): unknown {
+    if (!Array.isArray(value)) return value;
+    return (value as Array<Record<string, unknown>>).map((element) => {
+        const referenced = context.nameOf(String(element.id));
+        return {...element, label: referenced === undefined || referenced.deleted ? DELETED_ENTRY_LABEL : referenced.name};
+    });
 }
 
 export function buildEntryView(entry: Entry, fold: EntryFold | undefined, position: Rank, context: ViewContext): EntryView {
@@ -58,7 +71,8 @@ export function buildEntryView(entry: Entry, fold: EntryFold | undefined, positi
             const path = `${namespace}.${fieldId}`;
             const incomplete = incompleteAt(fold.incomplete, path);
             const textSays = context.textSays({entry: entry.id, path});
-            const base = fieldValue(fold, namespace, data.type, field, data.fields[fieldId] ?? null, context.reductions);
+            const raw = fieldValue(fold, namespace, data.type, field, data.fields[fieldId] ?? null, context.reductions);
+            const base = field?.kind === "list" && field.keyedBy === "ref" ? {...raw, value: labelKeyedElements(raw.value, context)} : raw;
             fields[fieldId] = {...base, ...(incomplete === undefined ? {} : {incomplete}), ...(textSays === undefined ? {} : {textSays})};
         }
         namespaces[namespace] = {type: data.type, version: data.version, ...(availability === "ok" ? {} : {readOnly: availability}), fields};

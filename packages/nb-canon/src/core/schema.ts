@@ -52,7 +52,7 @@ export const BasisSchema = Type.Union([
     Type.Object({kind: Type.Literal("author")}),
 ]);
 
-export const FieldKindSchema = Type.Union([Type.Literal("number"), Type.Literal("text"), Type.Literal("enum"), Type.Literal("boolean"), Type.Literal("list"), Type.Literal("image")]);
+export const FieldKindSchema = Type.Union([Type.Literal("number"), Type.Literal("text"), Type.Literal("enum"), Type.Literal("boolean"), Type.Literal("list"), Type.Literal("image"), Type.Literal("ref")]);
 
 const FieldDeclarationCore = {
     id: Id,
@@ -64,6 +64,12 @@ const FieldDeclarationCore = {
     max: Type.Optional(Type.Union([Type.Number(), Id])),
     options: Type.Optional(Type.Array(Text)),
     retold: Type.Optional(Type.Boolean()),
+    /** `ref` 与以引用为键的列表允许指向的条目种类（条目的 `type`）；没有时任何种类都行（components.md 输出 18）。 */
+    targets: Type.Optional(Type.Array(Text)),
+    /** 为 `ref` 时列表的元素 id 就是被引用的条目 id（components.md 输出 19）。 */
+    keyedBy: Type.Optional(Type.Literal("ref")),
+    /** 回溯时随回溯者保留（canon/worldlines.md 输出 7）。 */
+    carry: Type.Optional(Type.Boolean()),
 };
 
 /** 字段声明；`item` 是列表元素的子字段声明，不再嵌套列表（components.md 输入与前置条件）。 */
@@ -252,6 +258,11 @@ export const RevisionSchema = Type.Object({
     reverts: Type.Optional(Type.Array(Id)),
     impact: ImpactSchema,
     idMap: Type.Optional(Type.Record(Type.String(), Id)),
+    /**
+     * 这次修订新写或改过的引用（revisions.md 的“存下来的修订”）：发布时按当时的登记算好；依赖与改动记录按条目筛只读它，
+     * 插件停用以后结果也不变。
+     */
+    refs: Type.Optional(Type.Array(Type.Object({ref: ObjectRefSchema, path: Text, target: Type.Object({kind: Type.Union([Type.Literal("entry"), Type.Literal("change"), Type.Literal("line"), Type.Literal("decision"), Type.Literal("check")]), id: Id})}))),
 });
 
 export const ReadSchema = Type.Object({at: AddressSchema, position: ReadPositionSchema, value: Type.Unknown(), origin: Type.Unknown()});

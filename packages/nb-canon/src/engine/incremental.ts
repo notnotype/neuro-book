@@ -381,7 +381,14 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             const snapshot = snapshotFor(mode, rank);
             const fold = foldAtPoint(snapshot, world, registry, id, {rank, tie: {version: -Infinity, id: ""}, inclusive: false});
             const checks = checksBefore(rank);
-            return buildEntryView(entry, fold, rank, {order, registry, reductions: inputs.reductions, textSays: (at) => latestMismatch(checks, at), upcoming: (namespace) => upcoming(id, namespace, rank)});
+            const point = {rank, tie: {version: -Infinity, id: ""}, inclusive: false};
+            const nameOf = (other: string) => {
+                const referenced = world.entries.get(other);
+                if (referenced === undefined) return undefined;
+                if (referenced.deleted === true) return {name: referenced.init.name, deleted: true};
+                return {name: foldAtPoint(snapshot, world, registry, other, point)?.state.name ?? referenced.init.name, deleted: false};
+            };
+            return buildEntryView(entry, fold, rank, {order, registry, reductions: inputs.reductions, textSays: (at) => latestMismatch(checks, at), upcoming: (namespace) => upcoming(id, namespace, rank), nameOf});
         },
 
         origins(at, position, mode) {

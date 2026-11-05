@@ -34,7 +34,7 @@ function world(): World {
         }},
     };
     const first = ok(World.empty(options()).publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:xia"}, after: xia}]} as WriteRequest, "t") as WriteResult);
-    const change = (tmp: string, chapter: string, key: number, patches: unknown[]) => ({ref: {kind: "change" as const, id: tmp}, after: {id: tmp, kind: "written", text: tmp, at: {kind: "chapter", chapter, key}, told: [], involves: ["e1"], lines: [], links: [], patches, status: "active", by: author}});
+    const change = (tmp: string, chapter: string, key: number, patches: unknown[]) => ({ref: {kind: "change" as const, id: tmp}, after: {id: tmp, kind: "written", text: tmp.slice("tmp:".length), at: {kind: "chapter", chapter, key}, told: [], involves: ["e1"], lines: [], links: [], patches, status: "active", by: author}});
     return ok(first.world.publish({requestId: id(), by: author, what: "bookkeeping", title: "记账", baseVersion: 1, puts: [
         change("tmp:a", "ch44", 10, [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: -1000}]),
         change("tmp:dye", "ch45", 10, [{op: "set", at: {entry: "e1", path: "character.外观"}, value: "黑色"}]),
@@ -48,7 +48,7 @@ describe("canon.revisions 输出 8、9、10 与场景 2：就地改", () => {
     test("改的是给出这个值的那条变更；更早的位置不变", () => {
         const base = world();
         const result = ok(editInPlace(base, {requestId: id(), by: author, position: end("ch50"), at: {entry: "e1", path: "character.外观"}, value: "深棕", read: {value: "黑色", version: 2}}, "t"));
-        const dye = [...result.world.data.changes.values()].find((change) => change.text === "tmp:dye")!;
+        const dye = [...result.world.data.changes.values()].find((change) => change.text === "dye")!;
         expect(dye.patches[0]!.value).toBe("深棕");
         expect(result.world.data.entries.get("e1")!.init.data.character!.fields.外观).toBe("银白");
         expect(result.world.engine.entry("e1", end("ch44"), "actual")).toMatchObject({namespaces: {character: {fields: {外观: {value: "银白"}}}}});

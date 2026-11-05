@@ -171,6 +171,12 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             reductions: inputs.reductions,
             textSays: (at) => latestMismatch(checks, at),
             upcoming: (namespace) => upcomingNamespace(entry.id, namespace, positionRankValue),
+            nameOf: (other) => {
+                const referenced = inputs.world.entries.get(other);
+                if (referenced === undefined) return undefined;
+                if (referenced.deleted === true) return {name: referenced.init.name, deleted: true};
+                return {name: state.entries.get(other)?.name ?? referenced.init.name, deleted: false};
+            },
         });
     }
 
