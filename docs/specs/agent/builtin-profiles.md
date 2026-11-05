@@ -35,7 +35,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 | key | 名字 | `tools.required` | `tools.optional` | 其它 |
 |---|---|---|---|---|
-| `nbook.agent.main` | 写作助手 | `read`、`write`、`grep`、`glob` | `edit`（模式见输出 2）、`shell` | — |
+| `nbook.agent.main` | 写作助手 | `read`、`write`、`grep`、`glob` | `edit-replace`、`shell` | — |
 | `nbook.agent.session-title` | 会话标题 | 无 | 无 | `role: "tiny"`、`hidden: true`、`defaultTools: false` |
 
 会话标题 Profile 的结果 schema：`{title: string（1 到 40 个字符）, description: string（1 到 120 个字符）}`，必须交回。
@@ -47,7 +47,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 ### 主创
 
 1. 主创的提示词是中文，分节写：身份与工作范围、工作方式、写作约束、资源地址。升提示词时升 Profile 版本（[提示词规范](../../standards/prompts.md)）。
-2. 主创绑一条 `edit`，缺省模式待实验定（hashline 或 replace，定了写在这里）；用户可以用工具绑定换成另一条（`edit`、`shell` 是可选工具，绑定能去掉）。`read`、`write`、`grep`、`glob` 是必需工具，缺了按 [`contributions.md`](contributions.md) 的不可用处理。
+2. 主创绑 replace 那条 `edit`（`nbook.agent.edit-replace`）；用户可以用工具绑定换成 hashline 那条（这两个都是可选工具，`shell` 也能去掉）。`read`、`write`、`grep`、`glob` 是必需工具，缺了按 [`contributions.md`](contributions.md) 的不可用处理。
 3. 主创的提示词不提没有绑定的工具：`shell` 的说明只在生效工具集里有它时渲染。
 4. 规则文件存在时进开场，用户的在前、书的在后，各自标明来源；不存在时开场里没有对应的部分，不写诊断；书不可用（没有打开书）与文件不存在同样处理。单个文件的 UTF-8 编码超过 32 KiB 时，只放前 32 KiB（不切开一个字符），并标明已截断、全文的地址。其它读取失败写诊断 `rules-unreadable`，这个文件不进开场，运行照常。
 5. 规则文件在会话创建时与每次压缩之后各读一次；两次之间改了文件，到下一次压缩才生效。`fork` 出的会话沿用复制来的内容；用 `changeProfile` 换成主创的会话，到下一次压缩才读到规则文件。
@@ -107,4 +107,4 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 ## 证据
 
-- 批准依据：w00032 t18 决定 1 到 5、8 到 13（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）。
+- 批准依据：w00032 t18 决定 1 到 5、8 到 14（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）。
