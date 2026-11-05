@@ -523,6 +523,32 @@ test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区�
     await closeAll(page);
 });
 
+test("提示条占着编辑区顶部时，grid 不超出编辑区：底部不被裁掉", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/a.md").dblclick();
+    await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+    const bottoms = () => page.evaluate(() => ({
+        area: Math.round(document.querySelector("[data-editor-area]")!.getBoundingClientRect().bottom),
+        group: Math.round(document.querySelector("[data-editor-group]")!.getBoundingClientRect().bottom),
+    }));
+    // 真实的提示条要靠特定的失败才出现，这里在根的顶部放一条同样的块级元素，量的是布局关系。
+    await page.evaluate(() => {
+        const notice = document.createElement("p");
+        notice.dataset.fakeNotice = "";
+        notice.className = "flex items-center gap-2 border-b px-3 py-1.5 text-xs";
+        notice.textContent = "提示条";
+        document.querySelector("[data-editor-area]")!.prepend(notice);
+    });
+    await expect.poll(async () => {
+        const {area, group} = await bottoms();
+        return group <= area + 1;
+    }).toBe(true);
+    await page.evaluate(() => document.querySelector("[data-fake-notice]")?.remove());
+    await closeAll(page);
+});
+
 test("扁平渲染：拆分时原来的组不重建；F6 先在组之间走，走到头交给外壳（docs/specs/ui/nested-grid.md）", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);

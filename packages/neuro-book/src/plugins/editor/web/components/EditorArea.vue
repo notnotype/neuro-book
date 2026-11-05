@@ -48,7 +48,9 @@ const t = useEditorText();
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
 
 const root = ref<HTMLElement | null>(null);
-const extent = useLayoutExtent(root);
+// 量的是 grid 自己的容器，不是整个编辑器区：提示条占着顶部的高度，量整个根的话 grid 会比可用空间高出提示条那么多，底部被裁掉。
+const gridBox = ref<HTMLElement | null>(null);
+const extent = useLayoutExtent(gridBox);
 const grid = computed(() => props.area.groups.grid);
 const host = useGridLayout({grid, extent, contextKey: () => "editor", onApplied: () => props.area.layoutChanged()});
 // 组模型原地改了树（拆分、关闭组）：重算布局。
@@ -116,7 +118,7 @@ const dialog = computed(() => props.area.dialog.value);
 <template>
     <div
         ref="root"
-        class="h-full min-h-0 w-full min-w-0 overflow-hidden bg-[var(--panel-surface)]"
+        class="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[var(--panel-surface)]"
         data-editor-area
         @keydown="onKeydown"
         @focusin="area.focused.value = true"
@@ -126,33 +128,35 @@ const dialog = computed(() => props.area.dialog.value);
             <span class="min-w-0 flex-1">{{ port.t(area.notice.value) }}</span>
             <Button size="sm" variant="ghost" @click="area.dismissNotice()">{{ t("area.dismiss") }}</Button>
         </p>
-        <NestedGrid
-            v-if="host.node.value !== null"
-            :node="host.node.value"
-            :layout="host.layout.value"
-            :disabled="extent === null"
-            context-key="editor"
-            :revision="host.revision.value"
-            :on-gesture-commit="host.onGestureCommit"
-        >
-            <template #leaf="{node}">
-                <EditorGroup
-                    :area="area"
-                    :group-id="node.id"
-                    :control="control"
-                    :pages="pages ?? null"
-                    :empty-tips="emptyTips ?? []"
-                    :title-actions="titleActions != null && titleActions.group === node.id ? titleActions : null"
-                    :tab-menu="tabMenu ?? null"
-                    :wrap-tabs="wrapTabs"
-                    :breadcrumbs="breadcrumbs"
-                    :work-title="workTitle"
-                    @tab-menu="(tabId: string, key: string) => emit('tab-menu', tabId, key)"
-                    @run-tip="(command) => emit('run-tip', command)"
-                    @title-action="(key) => emit('title-action', key)"
-                />
-            </template>
-        </NestedGrid>
+        <div ref="gridBox" class="min-h-0 flex-1">
+            <NestedGrid
+                v-if="host.node.value !== null"
+                :node="host.node.value"
+                :layout="host.layout.value"
+                :disabled="extent === null"
+                context-key="editor"
+                :revision="host.revision.value"
+                :on-gesture-commit="host.onGestureCommit"
+            >
+                <template #leaf="{node}">
+                    <EditorGroup
+                        :area="area"
+                        :group-id="node.id"
+                        :control="control"
+                        :pages="pages ?? null"
+                        :empty-tips="emptyTips ?? []"
+                        :title-actions="titleActions != null && titleActions.group === node.id ? titleActions : null"
+                        :tab-menu="tabMenu ?? null"
+                        :wrap-tabs="wrapTabs"
+                        :breadcrumbs="breadcrumbs"
+                        :work-title="workTitle"
+                        @tab-menu="(tabId: string, key: string) => emit('tab-menu', tabId, key)"
+                        @run-tip="(command) => emit('run-tip', command)"
+                        @title-action="(key) => emit('title-action', key)"
+                    />
+                </template>
+            </NestedGrid>
+        </div>
         <Teleport to="body">
             <div v-if="ghost !== null" class="editor-drag-ghost" :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`, zIndex: NB_Z_INDEX.dragFeedback}" aria-hidden="true" data-editor-drag-ghost>
                 <FileIcon v-if="ghost.icon !== null" :icon="ghost.icon" />
