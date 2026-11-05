@@ -17,7 +17,7 @@ import {compareIds} from "../core/ids";
 import {ENABLE_FIELD} from "../core/identifiers";
 import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type OrderTie, type Rank} from "../core/position";
 import type {Address, Check, Entry, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
-import {applyChange, incompleteAt, initialFoldState, namespaceFields, type ChangeResult, type FoldState} from "../model/apply";
+import {applyChange, incompleteAt, initialFoldState, isCarry, namespaceFields, type ChangeResult, type FoldState} from "../model/apply";
 import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 import {sortPending, type RankedPending} from "./pending";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress} from "./types";
@@ -380,7 +380,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
                 if (change.kind !== "written" || change.status !== "active" || change.at.kind !== "chapter" || change.at.chapter !== chapter) continue;
                 for (const id of change.involves) ids.add(id);
                 for (const member of change.cast ?? []) for (const id of [member.who, member.as]) if (id !== undefined) ids.add(id);
-                for (const patch of change.patches) ids.add(patch.at.entry);
+                for (const patch of change.patches) if (!isCarry(patch)) ids.add(patch.at.entry);
             }
             for (const point of exactChecks()) {
                 const rank = point.point.rank;

@@ -5,6 +5,9 @@
  * 中途有一个补丁套不上就丢掉草稿，并把这条变更本来要改的地址从它的位置起标为不完整。同一条变更里先处理
  * `<命名空间>.启用`，再处理数据字段（components.md 输出 5）。
  *
+ * 世界线的线层合成的“带过去的值”（canon/worldlines.md 输出 6）也走这里：它的补丁是内部的 `carry`（schema 不收），把地址设成父线在
+ * 触发处的原始状态并带上语义档的事件；套不上或约束不满足时只把这个地址标成不完整（原因 `carried-incomplete`），这条事件照样算套上。
+ *
  * 本模块只管“在当前状态上套一条变更”；事件的先后、读取位置由引擎决定。参照实现与增量引擎共用它，所以
  * 两者对一条变更的判定天然一致，差分测试比的是它们怎样安排先后与缓存。
  */
@@ -15,7 +18,19 @@ import {addressKey, parsePath, type ParsedPath} from "../core/address";
 import {addExact} from "../core/decimal";
 import {ENABLE_FIELD} from "../core/identifiers";
 import type {Address, Entry, EntryState, FieldDeclaration, NamespaceData, Patch, StoryChange} from "../core/schema";
-import type {ApplyFailure, IncompleteMark} from "../engine/types";
+import type {ApplyFailure, CarrySlot, IncompleteMark} from "../engine/types";
+
+/** 带过去的值的内部补丁写法（只出现在线层合成的事件里）。 */
+export const CARRY_OP = "carry";
+
+/** 一条带过去的值的补丁：把 `at` 设成父线在那一刻的原始状态。 */
+export function carryPatch(at: Address, slot: CarrySlot): Patch {
+    return {op: CARRY_OP, at, value: slot} as unknown as Patch;
+}
+
+export function isCarry(patch: Patch): boolean {
+    return (patch.op as string) === CARRY_OP;
+}
 
 /** 不完整的标记与解除，按发生的先后记在条目上（输出 8）。`mark` 为 null 是解除。 */
 export interface IncompleteEvent {
@@ -59,6 +74,8 @@ export function applyChange(fold: FoldState, change: StoryChange, context: Apply
     const results: PatchResult[] = new Array(change.patches.length);
     const touchedNamespaces = new Set<string>();
     const order = change.patches.map((patch, index) => ({patch, index})).sort((a, b) => Number(!isEnable(a.patch)) - Number(!isEnable(b.patch)));
+    const carriedIncomplete: Address[] = [];
+    const carrying = change.patches.length > 0 && change.patches.every(isCarry);
 
     const draftOf = (id: string): EntryState | undefined => {
         let draft = drafts.get(id);
@@ -86,6 +103,15 @@ export function applyChange(fold: FoldState, change: StoryChange, context: Apply
         const parsed = parsePath(patch.at.path);
         if (parsed === null) return fail(fold, change, "type-mismatch", index);
         const outcome = applyPatch(state, parsed, patch, context.registry, (path) => eventsOf(addressKey({entry: patch.at.entry, path})));
+        if (isCarry(patch)) {
+            // 带过去的值：套不上只标这个地址不完整；父线上本来就不完整的也标（canon/worldlines.md 输出 6）。
+            const slot = patch.value as unknown as CarrySlot;
+            if (typeof outcome === "string" && outcome !== "applied") carriedIncomplete.push(patch.at);
+            else if (outcome === "applied" && slot.incomplete) carriedIncomplete.push(patch.at);
+            results[index] = typeof outcome === "string" ? "applied" : outcome;
+            if (outcome === "applied" && parsed.root === "namespace") touchedNamespaces.add(`${patch.at.entry}\u0000${parsed.namespace}`);
+            continue;
+        }
         if (typeof outcome === "string" && outcome !== "applied") return fail(fold, change, outcome, index);
         results[index] = outcome;
         if (outcome === "applied" && parsed.root === "namespace") touchedNamespaces.add(`${patch.at.entry}\u0000${parsed.namespace}`);
@@ -94,7 +120,8 @@ export function applyChange(fold: FoldState, change: StoryChange, context: Apply
     for (const key of touchedNamespaces) {
         const [entryId, namespace] = key.split("\u0000") as [string, string];
         const violated = constraintViolation(drafts.get(entryId)!, namespace, context.registry);
-        if (violated !== null) return fail(fold, change, "constraint-violated", -1, {entry: entryId, path: `${namespace}.${violated}`});
+        if (violated !== null && carrying) carriedIncomplete.push({entry: entryId, path: `${namespace}.${violated}`});
+        else if (violated !== null) return fail(fold, change, "constraint-violated", -1, {entry: entryId, path: `${namespace}.${violated}`});
     }
 
     for (const [id, draft] of drafts) fold.entries.set(id, draft);
@@ -102,6 +129,7 @@ export function applyChange(fold: FoldState, change: StoryChange, context: Apply
     for (const [index, patch] of change.patches.entries()) {
         if (results[index] === "applied" && clearsIncomplete(patch)) recordIncomplete(fold, patch.at, null);
     }
+    for (const at of carriedIncomplete) recordIncomplete(fold, at, {change: change.id, reason: "carried-incomplete"});
     return {applied: true, patches: results};
 }
 
@@ -111,7 +139,7 @@ function isEnable(patch: Patch): boolean {
 
 /** 不依赖旧值的写法解除不完整（输出 8）：赋值、整段替换、增删块；加减与事件不解除。 */
 function clearsIncomplete(patch: Patch): boolean {
-    return patch.op === "set" || patch.op === "replaceBlock" || patch.op === "addBlock" || patch.op === "removeBlock";
+    return patch.op === "set" || isCarry(patch) || patch.op === "replaceBlock" || patch.op === "addBlock" || patch.op === "removeBlock";
 }
 
 function fail(fold: FoldState, change: StoryChange, reason: ApplyFailure, failedPatch: number, constrained?: Address): ChangeResult {
@@ -167,6 +195,18 @@ export function namespaceFields(registry: ComponentRegistry, namespace: string, 
 type PatchOutcome = PatchResult | ApplyFailure;
 
 function applyPatch(state: EntryState, parsed: ParsedPath, patch: Patch, registry: ComponentRegistry, events: (path: string) => string[]): PatchOutcome {
+    if (isCarry(patch)) {
+        // 按赋值套上原始的值（语义档是新的起点），再换上父线那一刻的语义档事件。
+        const slot = patch.value as unknown as CarrySlot;
+        const outcome = applyPatch(state, parsed, {...patch, op: "set", value: structuredClone(slot.value)} as Patch, registry, events);
+        if (outcome === "applied") {
+            for (const [path, list] of Object.entries(slot.events)) {
+                const target = events(path);
+                target.splice(0, target.length, ...list);
+            }
+        }
+        return outcome;
+    }
     if (parsed.root === "entry") return applyEntryPatch(state, parsed.field, patch);
     if (parsed.root === "text") return applyBlockPatch(state, parsed.block, patch);
     const data = state.data[parsed.namespace];

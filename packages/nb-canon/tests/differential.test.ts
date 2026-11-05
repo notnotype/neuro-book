@@ -11,6 +11,7 @@ import {describe, expect, test} from "bun:test";
 import {allPositions, buildRegistry, ChapterOrder, type Check, type ComponentDeclaration, type Entry, type Patch, type Placement, type ReadPosition, type StoryChange} from "../src/index";
 import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../src/engine/incremental";
 import {createReferenceEngine} from "../src/engine/reference";
+import {carryPatch} from "../src/model/apply";
 import type {Engine, EngineInputs, WorldData} from "../src/engine/types";
 import {PANEL, PERSON} from "./fixtures/world";
 
@@ -107,6 +108,21 @@ class Sim {
         return {op: "listRemove", at: {entry, path: "panel.物品"}, value: this.pick(["i1", "i2"])};
     }
 
+    /**
+     * 线层合成的“带过去的值”的补丁（worldlines 输出 6）：数、语义档（起点加事件）、带语义档子字段的列表；有的父线上就不完整，有的
+     * 套不上（类型不对、超出魔力上限、命名空间没启用）。
+     */
+    carry(): Patch {
+        const entry = this.pick(this.entryIds());
+        const incomplete = this.rnd() < 0.15;
+        const roll = this.rnd();
+        if (roll < 0.3) return carryPatch({entry, path: "panel.存款"}, {value: this.rnd() < 0.1 ? "不是数" : this.int(0, 4), events: {}, incomplete});
+        if (roll < 0.45) return carryPatch({entry, path: "panel.魔力"}, {value: this.pick([1, 4, 99]), events: {}, incomplete});
+        if (roll < 0.7) return carryPatch({entry, path: "character.态度"}, {value: this.pick(["冷淡", "亲近"]), events: {"character.态度": this.rnd() < 0.5 ? [] : ["软了一点"]}, incomplete});
+        const other = this.pick(this.entryIds());
+        return carryPatch({entry, path: "know.认得"}, {value: [{id: other, 看法: "陌生"}], events: this.rnd() < 0.5 ? {} : {[`know.认得[${other}].看法`]: ["起疑"]}, incomplete});
+    }
+
     plans(): StoryChange[] {
         return [...this.changes.values()].filter((change) => change.kind === "plan");
     }
@@ -128,10 +144,12 @@ class Sim {
         }
         if (roll < 0.38) {
             const id = this.id("c");
-            // 一成的已写变更没有补丁（只讲到、只记参与者）：它们总是套上，照样能兑现计划。
-            const patches = this.rnd() < 0.1 ? [] : Array.from({length: this.int(1, 2)}, () => this.patch());
+            // 一成的已写变更没有补丁（只讲到、只记参与者）：它们总是套上，照样能兑现计划。另一成是线层合成的带过去的值，只有
+            // carry 补丁、不兑现计划。
+            const kind = this.rnd();
+            const patches = kind < 0.1 ? [] : kind < 0.2 ? Array.from({length: this.int(1, 3)}, () => this.carry()) : Array.from({length: this.int(1, 2)}, () => this.patch());
             const plans = this.plans();
-            const links = plans.length > 0 && this.rnd() < 0.3 ? [{kind: "fulfills" as const, plan: this.pick(plans).id}] : [];
+            const links = plans.length > 0 && kind >= 0.2 && this.rnd() < 0.3 ? [{kind: "fulfills" as const, plan: this.pick(plans).id}] : [];
             // 一半的变更记了参与者：本章涉及的条目要把他们算进去。
             const cast = this.rnd() < 0.5 ? {cast: [{who: this.pick(this.entryIds()), role: "present" as const}]} : {};
             this.changes.set(id, {id, kind: "written", text: id, at: this.placement(), told: [], involves: [], lines: [], links, patches, status: "active", by: {kind: "author"}, ...cast});

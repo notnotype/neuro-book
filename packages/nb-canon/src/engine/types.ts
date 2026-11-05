@@ -46,7 +46,8 @@ export type ApplyFailure = "entry-missing" | "element-missing" | "type-mismatch"
 
 export interface IncompleteMark {
     readonly change: string;
-    readonly reason: ApplyFailure;
+    /** `carried-incomplete`：带过去的值在父线上不完整或在这条线上套不上（canon/worldlines.md 输出 6），`change` 是定义这条线的分叉。 */
+    readonly reason: ApplyFailure | "carried-incomplete";
 }
 
 export interface FieldState {

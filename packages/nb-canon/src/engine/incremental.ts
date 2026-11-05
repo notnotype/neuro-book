@@ -24,7 +24,7 @@ import {ENABLE_FIELD} from "../core/identifiers";
 import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type OrderTie, type Rank} from "../core/position";
 import type {Address, Check, Entry, EntryState, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
 import {sameJson} from "../core/stable-json";
-import {applyChange, incompleteAt, replayAnchor, replayChangeOnEntry, type ChangeResult, type FoldState, type IncompleteEvent} from "../model/apply";
+import {applyChange, incompleteAt, isCarry, replayAnchor, replayChangeOnEntry, type ChangeResult, type FoldState, type IncompleteEvent} from "../model/apply";
 import {fieldOf, reductionFieldId} from "./reference";
 import {sortPending, type RankedPending} from "./pending";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, WorldData} from "./types";
@@ -564,7 +564,7 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                 if (change.kind !== "written" || change.status !== "active" || change.at.kind !== "chapter" || change.at.chapter !== chapterId) continue;
                 for (const id of change.involves) ids.add(id);
                 for (const member of change.cast ?? []) for (const id of [member.who, member.as]) if (id !== undefined) ids.add(id);
-                for (const patch of change.patches) ids.add(patch.at.entry);
+                for (const patch of change.patches) if (!isCarry(patch)) ids.add(patch.at.entry);
             }
             const index = order.index(chapterId);
             for (const item of exactChecks()) if (index !== undefined && item.point.rank[0] === 1 && item.point.rank[1] === index) ids.add(item.check.at.entry);
