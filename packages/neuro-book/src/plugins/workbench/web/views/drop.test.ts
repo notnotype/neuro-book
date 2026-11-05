@@ -9,7 +9,7 @@ import type {GridDropRect} from "@notnotype/nb-layout";
 
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {Customizations} from "../state/records";
-import {isSameDropAction, layoutKeyOf, resolveDrop} from "./drop";
+import {dropActionKey, layoutKeyOf, resolveDrop} from "./drop";
 import type {DropInput, DropRects, DropSource, DropTarget} from "./drop";
 import {applyIntent, applyPatch} from "./intents";
 import type {ViewIntent} from "./intents";
@@ -292,7 +292,8 @@ describe("预备区（外壳三输出 20）", () => {
 
     it("同一个意图落在预备区与别处不算同一个动作；预备区矩形量不出来是无操作", () => {
         const viaZone = resolveDrop(input({}, {kind: "view", viewId: "t.b", containerId: "view:t.b", part: "sidebar"}, {kind: "reveal", part: "auxiliarybar"}, {x: 1200, y: 400}, {reveal: zone}));
-        expect(viaZone.kind === "commit" && isSameDropAction(viaZone, {...viaZone, reveal: undefined})).toBe(false);
+        expect(viaZone.kind).toBe("commit");
+        expect(dropActionKey(viaZone)).not.toBe(viaZone.kind === "commit" ? dropActionKey({...viaZone, reveal: undefined}) : null);
         expect(resolveDrop(input({}, {kind: "view", viewId: "t.b", containerId: "view:t.b", part: "sidebar"}, {kind: "reveal", part: "auxiliarybar"}, {x: 1200, y: 400}, {reveal: null}))).toEqual({kind: "noop"});
     });
 });
@@ -300,8 +301,8 @@ describe("预备区（外壳三输出 20）", () => {
 describe("动作一致性", () => {
     it("松手只提交已经显示过的那一次：意图逐字段相同才算", () => {
         const a = {kind: "commit" as const, intent: {kind: "select-container" as const, part: "sidebar" as const, containerId: "view:t.a"}, preview: {indicator: null, areaRect: null, orientation: "vertical" as const, count: 1}};
-        expect(isSameDropAction(a, {...a})).toBe(true);
-        expect(isSameDropAction(a, {...a, intent: {...a.intent, containerId: "view:t.b"}})).toBe(false);
-        expect(isSameDropAction(null, a)).toBe(false);
+        expect(dropActionKey({...a})).toBe(dropActionKey(a));
+        expect(dropActionKey({...a, intent: {...a.intent, containerId: "view:t.b"}})).not.toBe(dropActionKey(a));
+        expect(dropActionKey({kind: "rejected", reason: "不接收"})).toBeNull();
     });
 });

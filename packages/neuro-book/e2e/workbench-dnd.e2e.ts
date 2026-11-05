@@ -828,5 +828,57 @@ test.describe("产品页：拖放", () => {
         await page.mouse.up();
         expect(await writesOf(page)).toBe(writes);
         await expect(entry).toBeVisible();
+
+        // 失去指针捕获（ui/layout-drag 验收 1）：浏览器在下一个指针事件时才派发 `lostpointercapture`，所以释放之后要动一下。
+        await dragTo(page, entry, {x: panel.x + panel.width - 30, y: panel.y + panel.height / 2});
+        await page.locator(".workbench-shell-host").evaluate((root) => root.releasePointerCapture(1));
+        await page.mouse.move(panel.x + panel.width - 31, panel.y + panel.height / 2);
+        await expect(ghost(page)).toHaveCount(0);
+        await page.mouse.up();
+        expect(await writesOf(page)).toBe(writes);
+        await expect(entry).toBeVisible();
+    });
+
+    test("拖动源压在分隔线的命中带里：按下并拖动是调整大小，不出现拖影（ui/layout-drag 验收 3）", async ({page}) => {
+        await open(page);
+        const sidebar = (await page.locator('[data-tool-part="sidebar"]').boundingBox())!;
+        await dragTo(page, page.locator(`[data-activity-container="view:${B}"]`), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height * 0.9});
+        await page.mouse.up();
+        await expect(host(page, `view:${A}`)).toHaveAttribute("data-container-mode", "multiple");
+        const head = page.locator(`[data-drag-view="${B}"]`);
+        await expect(head).toBeVisible();
+        const before = (await head.boundingBox())!;
+        // 乙的标题行的顶边挨着甲、乙之间的分隔线，这一像素同时落在标题行上和命中带里。
+        const x = before.x + before.width / 2;
+        await page.mouse.move(x, before.y + 1);
+        await page.mouse.down();
+        await page.mouse.move(x, before.y + 41, {steps: 6});
+        await expect.poll(async () => (await head.boundingBox())!.y).toBeGreaterThan(before.y + 20);
+        await expect(ghost(page)).toHaveCount(0);
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+    });
+
+    test.describe("触摸（ui/layout-drag 验收 5）", () => {
+        test.use({hasTouch: true});
+
+        test("活动条目按下带 1 px 抖动，按住后拖到右栏标签带：不被隐式捕获的换手取消，整容器迁过去", async ({page}) => {
+            await open(page);
+            const entry = page.locator(`[data-activity-container="view:${B}"]`);
+            const from = await centerOf(entry);
+            const band = (await page.locator('[data-switcher-band="auxiliarybar"]').boundingBox())!;
+            const to = {x: band.x + band.width - 10, y: band.y + band.height / 2};
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [from]});
+            await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + 1, y: from.y}]});
+            await expect(ghost(page)).toBeVisible();
+            for (const ratio of [0.25, 0.5, 0.75, 1]) {
+                await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio}]});
+            }
+            await expect(feedback(page)).toHaveCount(1);
+            await cdp.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
+            await expect(ghost(page)).toHaveCount(0);
+            await expect(tabOf(page, "auxiliarybar", `view:${B}`)).toBeVisible();
+        });
     });
 });

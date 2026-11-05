@@ -31,8 +31,8 @@ import type {ShellLayoutFacts, ShellPartId, ShellSizePatch} from "../shell/sizes
 import {TeleportMemory} from "../shell/teleport-memory";
 import type {LayoutStore} from "../state/layout-store";
 import type {ViewLocation} from "../../shared/views";
-import {createDragSession} from "../views/drag-session";
-import type {DragSession} from "../views/drag-session";
+import {createShellDrag} from "../views/drag-session";
+import type {ShellDrag} from "../views/drag-session";
 import type {DropDecision} from "../views/drop";
 import type {ViewIntent} from "../views/intents";
 import {moveTargetsOf} from "../views/presentation";
@@ -276,9 +276,9 @@ const singleViewOf = (container: ContainerPresentation): string | null => (conta
 // ── 拖放（外壳三） ─────────────────────────────────────────────────────────
 
 /** 拖放会话装在外壳根上：组件只写拖动源与落点的标记，按下、命中、判定与提交都在会话里。 */
-const drag = shallowRef<DragSession | null>(null);
+const drag = shallowRef<ShellDrag | null>(null);
 onMounted(() => {
-    drag.value = createDragSession({
+    drag.value = createShellDrag({
         root: hostEl.value!,
         presentation: () => presentation.value,
         catalog: () => state.value.catalog,

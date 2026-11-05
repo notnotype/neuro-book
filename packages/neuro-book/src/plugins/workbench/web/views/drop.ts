@@ -109,9 +109,9 @@ function rejection(reason: string): DropDecision {
     return {kind: "rejected", reason};
 }
 
-/** 松手时提交的是不是已经显示过的那一次：意图逐字段相同。 */
-export function isSameDropAction(previous: DropDecision | null, next: DropDecision): boolean {
-    return previous !== null && previous.kind === "commit" && next.kind === "commit" && JSON.stringify(previous.intent) === JSON.stringify(next.intent) && previous.reveal === next.reveal;
+/** 放下时比较的键：松手时提交的要是已经显示过的那一次，意图与要同次显示的 Part 都相同才算；只显示、不提交的判定为 null。 */
+export function dropActionKey(decision: DropDecision): string | null {
+    return decision.kind === "commit" ? JSON.stringify([decision.intent, decision.reveal ?? null]) : null;
 }
 
 function validRect(rect: GridDropRect | null | undefined): GridDropRect | null {
