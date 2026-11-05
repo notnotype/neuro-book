@@ -39,10 +39,10 @@ describe("canon.project 场景 1：星瑕的一周", () => {
 
     test("待处理与回执：同样的核对点对不上、同样的嫌疑记录；每次修订改了同样的地址，新出现与消失的待处理条数相同", async () => {
         const {service, ids} = await replay(root, sample);
-        const pending = service.pending();
-        if (pending === "chapter-not-found") throw new Error(pending);
+        const pending = service.pending({}, undefined, 1000);
+        if (typeof pending === "string") throw new Error(pending);
         const expected = sample.pending as ReadonlyArray<{kind: string; diagnostic: {check: string; computed: number; suspects: readonly string[]}}>;
-        expect(pending.items).toEqual(expected.map((item) => expect.objectContaining({kind: "check-mismatch", check: ids.get(item.diagnostic.check), computed: item.diagnostic.computed, suspects: item.diagnostic.suspects.map((id) => ids.get(id))})));
+        expect(pending.items.map((item) => (item.kind === "canon" ? item.item : item))).toEqual(expected.map((item) => expect.objectContaining({kind: "check-mismatch", check: ids.get(item.diagnostic.check), computed: item.diagnostic.computed, suspects: item.diagnostic.suspects.map((id) => ids.get(id))})));
 
         // 第 1 次修订是打开时的章序调整，样本的修订从第 2 次起。
         const revisions = service.world.revisions.slice(1);

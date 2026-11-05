@@ -137,13 +137,15 @@ export interface MarkLocation {
     readonly key: string;
     readonly path: string;
     readonly marks: readonly Mark[];
+    /** 挂在讲述上时，那条讲述的 id。 */
+    readonly telling?: string;
 }
 
 export function marksIn(kind: ObjectKind, value: unknown): MarkLocation[] {
     if (value === null || typeof value !== "object") return [];
     const found: MarkLocation[] = [];
     const tellings = (base: string, list: readonly Telling[] | undefined) => {
-        for (const telling of list ?? []) if (telling.marks !== undefined) found.push({owner: "telling", key: `${base}[${telling.id}]`, path: `${base}[${telling.id}].marks`, marks: telling.marks});
+        for (const telling of list ?? []) if (telling.marks !== undefined) found.push({owner: "telling", key: `${base}[${telling.id}]`, path: `${base}[${telling.id}].marks`, marks: telling.marks, telling: telling.id});
     };
     if (kind === "change") {
         const change = value as StoryChange;
@@ -152,7 +154,7 @@ export function marksIn(kind: ObjectKind, value: unknown): MarkLocation[] {
     }
     if (kind === "check") {
         const told = (value as Check).told;
-        if (told?.marks !== undefined) found.push({owner: "telling", key: "told", path: "told.marks", marks: told.marks});
+        if (told?.marks !== undefined) found.push({owner: "telling", key: "told", path: "told.marks", marks: told.marks, telling: told.id});
     }
     if (kind === "entry") for (const [address, list] of Object.entries((value as Entry).retold ?? {})) tellings(`retold[${JSON.stringify(address)}]`, list);
     if (kind === "decision") {

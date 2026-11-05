@@ -25,9 +25,12 @@ import {renderEntryForAgent, renderEntryForAuthor} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
 import {marksIn} from "../world/references";
-import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
+import {TellingLocator, type Occurrence} from "../world/tellings";
+import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
+import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
+import {createReadView, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
-import {decisionView, aboutMatches} from "../world/decisions";
+import {decisionView} from "../world/decisions";
 import {World, type RevertMeta, type WriteResult} from "../world/world";
 
 export interface ServicePorts {
@@ -102,37 +105,29 @@ export type ServiceDiagnostic =
 
 export const LEASE_MS = 60_000;
 
-/** 剧情变更涉及这个条目：在 `involves` 里、是参与者（本体或马甲）、或补丁改到它（列表按条目筛时用）。 */
-function concerns(change: StoryChange, entry: string): boolean {
-    return change.involves.includes(entry) || (change.cast ?? []).some((member) => member.who === entry || member.as === entry) || change.patches.some((patch) => patch.at.entry === entry);
+/** 三组的结果缓存几份（按读取输入、模式与位置）；翻页与各组总数读缓存，不重新调诊断。 */
+const GROUPS_CACHE_LIMIT = 8;
+const TIMINGS_KEPT = 20;
+const SLOW_DIAGNOSTIC_MS = 200;
+
+export type PendingGroupName = "pending" | "hints" | "handled";
+
+interface PendingGroups {
+    readonly pending: readonly GroupItem[];
+    readonly hints: readonly GroupItem[];
+    readonly handled: readonly GroupItem[];
+    readonly unavailable: readonly {readonly diagnostic: string; readonly reason: string}[];
+    readonly truncated: readonly string[];
+    readonly disabled: readonly string[];
 }
 
-/** 按安放的先后排（前史、各章按章序与排序键），同一位置按 id；未排章的排在最后。 */
-function sortByPlacement(order: ChapterOrder, changes: StoryChange[]): void {
-    changes.sort((a, b) => {
-        const left = placementRank(order, a.at);
-        const right = placementRank(order, b.at);
-        if (left === null || right === null) return left === right ? compareIds(a.id, b.id) : left === null ? 1 : -1;
-        return compareRanks(left, right) || compareIds(a.id, b.id);
-    });
-}
-
-/** 一条讲述的提示（model.md 输出 24、26、28、34）：失联、原句出现几次而没给 `nth`、带的标注只读（`mark` 是它在 `marks` 里的下标）。 */
-export interface TellingHint {
-    readonly code: "telling-lost" | "duplicate-quote" | "mark-kind-unknown" | "mark-version-unsupported";
-    readonly detail: string;
-    readonly mark?: number;
-}
-
-function tellingHints(marks: MarkRegistry, telling: Telling, located: Located): TellingHint[] {
-    const hints: TellingHint[] = [];
-    if (located.kind === "lost") hints.push({code: "telling-lost", detail: located.reason});
-    if (located.kind === "found" && located.count > 1 && telling.nth === undefined) hints.push({code: "duplicate-quote", detail: `${String(located.count)} occurrences`});
-    for (const [index, mark] of (telling.marks ?? []).entries()) {
-        const code = markStatus(marks, mark);
-        if (code !== null) hints.push({code, detail: mark.kind, mark: index});
-    }
-    return hints;
+/** 世界里的全部讲述，按讲述 id（发现挂在讲述上时找它的发生点）。 */
+function tellingsById(world: World): Map<string, Telling> {
+    const found = new Map<string, Telling>();
+    for (const change of world.data.changes.values()) for (const telling of change.told) found.set(telling.id, telling);
+    for (const check of world.data.checks.values()) found.set(check.told.id, check.told);
+    for (const entry of world.data.entries.values()) for (const tellings of Object.values(entry.retold ?? {})) for (const telling of tellings) found.set(telling.id, telling);
+    return found;
 }
 
 /** 对象上一条只读的标注（model.md 输出 28）：在对象里的位置、种类与原因。 */
@@ -181,7 +176,16 @@ export class WorldService {
      * `textChanged` 时只重读那一章；世界的 `chapterText` 读这里，不再每次写入都去读文件。
      */
     readonly #texts = new Map<string, {readonly text: string | undefined; readonly digest: string | null}>();
-    #textGeneration = 0;
+    /** 世界以外的读取输入（正文快照、插件的诊断数据版本）每变一次加一；读取的戳与诊断结果的缓存按它作废。 */
+    #inputGeneration = 0;
+    /** 插件经项目内接口登记的诊断计算与数据版本，按插件 id（model.md “诊断的计算”）。 */
+    readonly #computers = new Map<string, {readonly token: object; readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}>();
+    /** 这个实例里登记过的诊断 id 与插件：插件停用以后，它的诊断列在“因插件停用而未计算的诊断”里（model.md 输出 34）。 */
+    readonly #seenDiagnostics = new Map<string, string>();
+    /** 三组的计算结果，按读取输入的摘要、模式与位置；只留最近几份。 */
+    readonly #groupsCache = new Map<string, PendingGroups>();
+    /** 最近几次诊断计算的耗时（project.md 输出 26）。 */
+    readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
     #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
     /** 讲述按正文快照与当前章序定位（model.md 输出 24、26）；结果按章与那一章的正文缓存。 */
     readonly #locator = new TellingLocator((chapter) => this.#texts.get(chapter)?.text, () => this.#world.options.order);
@@ -228,6 +232,7 @@ export class WorldService {
         const diagnostics: ServiceDiagnostic[] = [...opened.diagnostics, ...cache.badLines.map((line) => ({code: "reduction-cache-bad-line" as const, line}))];
         service = new WorldService(ports, world, opened.tail, readOnly, diagnostics, reductions);
         service.#syncTexts(chapters);
+        service.#noteDiagnostics(initial.diagnostics);
         await service.setChapters(initial.chapters);
         return service;
     }
@@ -259,6 +264,8 @@ export class WorldService {
             ...(this.#readOnlyReason === null ? {} : {reason: this.#readOnlyReason}),
             exclusive: this.#lease === null ? null : {label: this.#lease.label, since: this.#lease.since},
             diagnostics: [...this.diagnostics, ...this.#world.options.registry.diagnostics, ...(this.#world.options.marks ?? EMPTY_MARK_REGISTRY).diagnostics, ...(this.#world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).diagnostics],
+            /** 最近几次插件诊断的计算耗时，超过 200 毫秒的标 `slow`（project.md 输出 26）。 */
+            diagnosticTimings: this.#timings.map((timing) => ({...timing, ...(timing.ms > SLOW_DIAGNOSTIC_MS ? {slow: true as const} : {})})),
             recomputed: this.#world.engine.recomputed,
         };
     }
@@ -286,10 +293,138 @@ export class WorldService {
         return {...this.#stamp(), object, ...(hints.length === 0 ? {} : {markHints: hints})};
     }
 
-    pending(position?: ReadPosition, mode: Mode = "actual"): (ReadStamp & {items: readonly PendingItem[]}) | "chapter-not-found" {
+    /**
+     * 待处理、提示或已处理的一页（方法表 `pending`，model.md 输出 16、34、35）：内核自己的与插件诊断的按同一个全序排。
+     * 每页都带完整与否、没算出与被截断的诊断、因插件停用而未计算的诊断、各组的总数，以及待定的决策与未处理的正文建议各有几条。
+     */
+    pending(query: {readonly position?: ReadPosition; readonly mode?: Mode; readonly group?: PendingGroupName} = {}, cursor?: string, limit = 50): PendingPage | "chapter-not-found" | "cursor-stale" {
         const world = this.#world;
-        const items = world.pending(position ?? defaultPosition(world.options.order), mode);
-        return items === "chapter-not-found" ? items : {...this.#stamp(), items};
+        const position = query.position ?? defaultPosition(world.options.order);
+        const mode = query.mode ?? "actual";
+        const group = query.group ?? "pending";
+        const groups = this.#groups(world, position, mode);
+        if (groups === "chapter-not-found") return groups;
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group});
+        if (page === "cursor-stale") return page;
+        return {
+            ...stamp,
+            group,
+            items: page.items,
+            complete: groups.unavailable.length === 0 && groups.truncated.length === 0,
+            unavailable: groups.unavailable,
+            truncated: groups.truncated,
+            disabled: groups.disabled,
+            counts: {pending: groups.pending.length, hints: groups.hints.length, handled: groups.handled.length},
+            decisionsPending: [...world.data.decisions.values()].filter((decision) => decision.status === "pending").length,
+            suggestionsOpen: [...world.data.suggestions.values()].filter((suggestion) => suggestion.status === "open").length,
+            ...(page.next === undefined ? {} : {cursor: page.next}),
+        };
+    }
+
+    /** 三组的计算：内核的待处理与提示，再调每个登记了的诊断（输出 34 的处理顺序见 diagnostics.ts）。按读取输入缓存。 */
+    #groups(world: World, position: ReadPosition, mode: Mode): PendingGroups | "chapter-not-found" {
+        const key = `${this.#stamp().inputDigest}|${mode}|${stableStringify(position)}`;
+        const cached = this.#groupsCache.get(key);
+        if (cached !== undefined) return cached;
+        const canon = world.pending(position, mode);
+        if (canon === "chapter-not-found") return canon;
+        const order = world.options.order;
+        const pending: Sortable[] = canon.map((item) => sortableCanonItem(world, item));
+        const hints: Sortable[] = canonHints(world, this.#locator);
+        const handled: Sortable[] = [];
+        const unavailable: {diagnostic: string; reason: string}[] = [];
+        const truncated: string[] = [];
+        const registry = world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY;
+        const view = createReadView(world, this.#locator);
+        let tellings: Map<string, Telling> | undefined;
+        const findingPosition = (finding: Finding): {position: SortPosition; occurrence?: Occurrence} => {
+            if (finding.at === undefined) return {position: null};
+            if (finding.at.kind === "placement") return {position: placementPosition(order, finding.at.placement)};
+            tellings ??= tellingsById(world);
+            const telling = tellings.get(finding.at.telling);
+            const located = telling === undefined ? undefined : this.#locator.locate(telling);
+            return located?.kind === "found" ? {position: occurrencePosition(order, located.occurrence), occurrence: located.occurrence} : {position: null};
+        };
+        for (const [id] of registry.versions) {
+            const declaration = registry.byId(id)!;
+            const compute = this.#computers.get(declaration.plugin)?.compute[id];
+            if (compute === undefined) {
+                unavailable.push({diagnostic: id, reason: "not-registered"});
+                continue;
+            }
+            let returned: readonly Finding[];
+            const begin = performance.now();
+            try {
+                returned = compute(view, position, mode);
+            } catch (error) {
+                // 一个诊断抛错不影响别的：这次没有它的结果，读取照常返回并标不完整（model.md 输出 34）。
+                unavailable.push({diagnostic: id, reason: `threw: ${error instanceof Error ? error.message : String(error)}`});
+                continue;
+            } finally {
+                this.#recordTiming(id, performance.now() - begin);
+            }
+            const processed = processFindings(declaration, returned, world.data.decisions.values());
+            for (const note of processed.notes) {
+                if (note.code === "diagnostic-unavailable") unavailable.push({diagnostic: id, reason: note.reason});
+                if (note.code === "diagnostic-truncated") truncated.push(id);
+                if (note.code === "diagnostic-duplicate-key") hints.push({position: null, kindOrder: HINT_GROUP_ORDER.finding, sortId: `${id}\u0000${note.key}`, item: {kind: "hint", hint: {code: "diagnostic-duplicate-key", diagnostic: id, key: note.key}}});
+            }
+            const target = declaration.level === "pending" ? pending : hints;
+            const kindOrder = declaration.level === "pending" ? PENDING_GROUP_ORDER.finding : HINT_GROUP_ORDER.finding;
+            for (const finding of processed.findings) {
+                const {position: at, occurrence} = findingPosition(finding);
+                const earlier = processed.earlier.get(canonicalJson(finding.key));
+                target.push({position: at, kindOrder, sortId: `${id}\u0000${canonicalJson(finding.key)}`, item: {kind: "finding", diagnostic: id, level: declaration.level, finding, ...(occurrence === undefined ? {} : {occurrence}), ...(earlier === undefined ? {} : {earlierDecision: earlier})}});
+            }
+            for (const {finding, decision} of processed.handled) {
+                const {position: at, occurrence} = findingPosition(finding);
+                handled.push({position: at, kindOrder, sortId: `${id}\u0000${canonicalJson(finding.key)}`, item: {kind: "finding", diagnostic: id, level: declaration.level, finding, ...(occurrence === undefined ? {} : {occurrence}), handledBy: decision}});
+            }
+        }
+        // 因插件停用而未计算的：这个实例里登记过、或作者的决策挂着，而现在不在登记里的诊断。
+        const known = new Set([...this.#seenDiagnostics.keys()]);
+        for (const decision of world.data.decisions.values()) for (const about of decision.about) if (about.kind === "diagnostic") known.add(about.id);
+        const disabled = [...known].filter((id) => registry.byId(id) === undefined).sort();
+        const groups: PendingGroups = {pending: sortGroup(pending), hints: sortGroup(hints), handled: sortGroup(handled), unavailable, truncated, disabled};
+        this.#groupsCache.set(key, groups);
+        if (this.#groupsCache.size > GROUPS_CACHE_LIMIT) this.#groupsCache.delete(this.#groupsCache.keys().next().value!);
+        return groups;
+    }
+
+    #noteDiagnostics(registry: DiagnosticRegistry | undefined): void {
+        for (const [id] of registry?.versions ?? []) this.#seenDiagnostics.set(id, registry!.byId(id)!.plugin);
+    }
+
+    #recordTiming(diagnostic: string, ms: number): void {
+        this.#timings.push({diagnostic, ms});
+        if (this.#timings.length > TIMINGS_KEPT) this.#timings.shift();
+    }
+
+    /* ---------- 插件诊断的项目内接口（model.md “诊断的计算”） ---------- */
+
+    /**
+     * 插件的项目入口启动后登记它声明的诊断的计算与数据版本；返回的函数在入口停止时调用，登记随之失效。同一插件再登记
+     * 一次就替换上一次的。登记与数据版本都是读取输入的一部分，变了以后旧游标得到 `cursor-stale`。
+     */
+    registerDiagnostics(plugin: string, registration: {readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}): () => void {
+        // 按这次登记的令牌认：报告数据版本会换掉记录，后来的再登记会替换它，旧的停止函数都不该删掉别人的登记。
+        const token = {};
+        this.#computers.set(plugin, {token, compute: registration.compute, dataVersion: registration.dataVersion});
+        this.#inputGeneration += 1;
+        return () => {
+            if (this.#computers.get(plugin)?.token !== token) return;
+            this.#computers.delete(plugin);
+            this.#inputGeneration += 1;
+        };
+    }
+
+    /** 插件的数据变了（例如剧情插件存下了新的窄问题答案）：之后的读取按新数据算。没登记过的插件不起作用。 */
+    reportDataVersion(plugin: string, dataVersion: string): void {
+        const current = this.#computers.get(plugin);
+        if (current === undefined || current.dataVersion === dataVersion) return;
+        this.#computers.set(plugin, {...current, dataVersion});
+        this.#inputGeneration += 1;
     }
 
     /** 条目树的一层：父条目（null 是根）下按顺序的条目（输出：`tree`）。 */
@@ -321,134 +456,42 @@ export class WorldService {
         return {...this.#stamp(), found};
     }
 
-    /** 剧情变更的列表，按全序；每条带生效状态与这次套没套上（输出：`changes`）。 */
-    /**
-     * 剧情变更（方法表 `changes`）：`entry` 筛涉及它的（`involves`、参与者、补丁地址）；`nature` 筛性质（没写的是 `event`）；
-     * `progress` 筛计划在全书当前进展上的进展（model.md 输出 13，只有计划有进展）。按安放的先后排。
-     */
-    changes(filter: {readonly chapter?: string; readonly entry?: string; readonly line?: string; readonly kind?: "written" | "plan"; readonly status?: "active" | "held" | "undone"; readonly nature?: "event" | "narration"; readonly progress?: PlanProgress} = {}, cursor?: string, limit = 50) {
+    /** 剧情变更（方法表 `changes`，筛选与先后见 reads.ts）；每条带这次套没套上。 */
+    changes(filter: ChangeFilter = {}, cursor?: string, limit = 50) {
         const world = this.#world;
-        const order = world.options.order;
-        const latest = defaultPosition(order);
-        const matching = [...world.data.changes.values()].filter((change) =>
-            (filter.chapter === undefined || (change.at.kind === "chapter" && change.at.chapter === filter.chapter)) &&
-            (filter.entry === undefined || concerns(change, filter.entry)) &&
-            (filter.line === undefined || change.lines.includes(filter.line)) &&
-            (filter.kind === undefined || change.kind === filter.kind) &&
-            (filter.status === undefined || change.status === filter.status) &&
-            (filter.nature === undefined || (change.nature ?? "event") === filter.nature) &&
-            (filter.progress === undefined || (change.kind === "plan" && world.engine.progress(change.id, latest) === filter.progress)),
-        );
-        sortByPlacement(order, matching);
         const stamp = this.#stamp();
-        const page = this.#page(stamp, matching, cursor, limit, {method: "changes", ...filter});
+        const page = this.#page(stamp, listChanges(world, filter), cursor, limit, {method: "changes", ...filter});
         if (page === "cursor-stale") return page;
         return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
-    /**
-     * 讲述（project.md 方法表的 `tellings`，model.md 输出 24 到 27）：每条带所在的对象、发生点或失联的原因。生效的按读的
-     * 先后排（章序、段、段内偏移、讲述 id），其余排在后面（按对象、讲述 id）。`until` 只留在这个讲述位置读过的；
-     * `effective` 筛生效与否；`entry` 筛这个条目自己的、涉及它的剧情变更的、核对它的；`mark` 筛带这个种类标注的。
-     */
-    tellings(filter: {readonly from?: string; readonly to?: string; readonly entry?: string; readonly effective?: boolean; readonly until?: TellingPosition; readonly mark?: string} = {}, cursor?: string, limit = 50) {
-        const world = this.#world;
-        const order = world.options.order;
-        const inRange = (chapter: string | undefined) => {
-            if (filter.from === undefined && filter.to === undefined) return true;
-            const index = chapter === undefined ? undefined : order.index(chapter);
-            if (index === undefined) return false;
-            return (filter.from === undefined || index >= (order.index(filter.from) ?? Infinity)) && (filter.to === undefined || index <= (order.index(filter.to) ?? -Infinity));
-        };
-        const items: {telling: Telling; owner: ObjectRef; path: string; located: Located}[] = [];
-        const collect = (owner: ObjectRef, path: string, tellings: readonly Telling[], concerns: boolean) => {
-            if (filter.entry !== undefined && !concerns) return;
-            for (const telling of tellings) {
-                if (!inRange(telling.chapter)) continue;
-                if (filter.mark !== undefined && !(telling.marks ?? []).some((mark) => mark.kind === filter.mark)) continue;
-                const located = this.#locator.locate(telling);
-                const effective = located.kind === "found";
-                if (filter.effective !== undefined && filter.effective !== effective) continue;
-                if (filter.until !== undefined && (located.kind !== "found" || !readBy(order, located.occurrence, filter.until))) continue;
-                items.push({telling, owner, path, located});
-            }
-        };
-        for (const change of world.data.changes.values()) collect({kind: "change", id: change.id}, "told", change.told, filter.entry === undefined || concerns(change, filter.entry));
-        for (const check of world.data.checks.values()) collect({kind: "check", id: check.id}, "told", [check.told], filter.entry === undefined || check.at.entry === filter.entry);
-        for (const entry of world.data.entries.values()) for (const [address, tellings] of Object.entries(entry.retold ?? {})) collect({kind: "entry", id: entry.id}, `retold[${JSON.stringify(address)}]`, tellings, filter.entry === undefined || entry.id === filter.entry);
-        items.sort((a, b) => {
-            if (a.located.kind === "found" && b.located.kind === "found") return compareOccurrences(order, a.located.occurrence, b.located.occurrence) || compareIds(a.telling.id, b.telling.id);
-            if (a.located.kind === "found") return -1;
-            if (b.located.kind === "found") return 1;
-            return a.owner.kind.localeCompare(b.owner.kind) || compareIds(a.owner.id, b.owner.id) || compareIds(a.telling.id, b.telling.id);
-        });
+    /** 讲述（方法表 `tellings`，model.md 输出 24 到 27；筛选与先后见 reads.ts）。 */
+    tellings(filter: TellingFilter = {}, cursor?: string, limit = 50) {
         const stamp = this.#stamp();
-        const page = this.#page(stamp, items, cursor, limit, {method: "tellings", ...filter});
+        const page = this.#page(stamp, listTellings(this.#world, this.#locator, filter), cursor, limit, {method: "tellings", ...filter});
         if (page === "cursor-stale") return page;
-        const marks = world.options.marks ?? EMPTY_MARK_REGISTRY;
-        return {
-            ...stamp,
-            items: page.items.map((item) => {
-                const hints = tellingHints(marks, item.telling, item.located);
-                return {...item, ...(hints.length === 0 ? {} : {hints})};
-            }),
-            ...(page.next === undefined ? {} : {cursor: page.next}),
-        };
+        return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
-    /**
-     * 某人在场的剧情变更（方法表 `presence`，model.md 输出 29）：`from`、`to` 是安放所在章的范围（含两头；不写 `from` 时含前史）。
-     * 实际模式取已写、生效、套上的变更；按计划模式再加上在 `to` 的章末（没写时在缺省读取位置）计入的计划。参与者里
-     * `who` 或 `as` 是他、`role` 为 `present` 的算在场；没记参与者的变更不算，只计数（`uncast`）。
-     */
-    presence(person: string, filter: {readonly from?: string; readonly to?: string; readonly mode?: Mode} = {}, cursor?: string, limit = 50) {
-        const world = this.#world;
-        const order = world.options.order;
-        const from = filter.from === undefined ? undefined : order.index(filter.from);
-        const to = filter.to === undefined ? undefined : order.index(filter.to);
-        if ((filter.from !== undefined && from === undefined) || (filter.to !== undefined && to === undefined)) return "chapter-not-found" as const;
-        const inRange = (change: StoryChange) => {
-            const rank = placementRank(order, change.at);
-            if (rank === null) return false;
-            if (from !== undefined && (rank[0] !== 1 || rank[1] < from)) return false;
-            return to === undefined || rank[0] !== 1 || rank[1] <= to;
-        };
-        const counted: StoryChange[] = [];
-        for (const change of world.data.changes.values()) {
-            if (change.kind !== "written" || change.status !== "active" || !inRange(change)) continue;
-            if (change.patches.length === 0 || world.engine.outcome(change.id)?.applied === true) counted.push(change);
-        }
-        if (filter.mode === "planned") {
-            const planned = world.engine.plannedAt(filter.to === undefined ? defaultPosition(order) : {kind: "chapter", chapter: filter.to, edge: "end"});
-            if (planned === "chapter-not-found") return planned;
-            for (const id of planned) {
-                const plan = world.data.changes.get(id);
-                if (plan !== undefined && inRange(plan)) counted.push(plan);
-            }
-        }
-        const present = counted.filter((change) => (change.cast ?? []).some((member) => member.role === "present" && (member.who === person || member.as === person)));
-        const uncast = counted.filter((change) => change.cast === undefined).length;
-        sortByPlacement(order, present);
+    /** 某人在场的剧情变更（方法表 `presence`，model.md 输出 29；取法见 reads.ts），另给没记参与者的条数。 */
+    presence(person: string, filter: PresenceFilter = {}, cursor?: string, limit = 50) {
+        const found = listPresence(this.#world, person, filter);
+        if (found === "chapter-not-found") return found;
         const stamp = this.#stamp();
-        const page = this.#page(stamp, present, cursor, limit, {method: "presence", person, ...filter});
+        const page = this.#page(stamp, found.changes, cursor, limit, {method: "presence", person, ...filter});
         if (page === "cursor-stale") return page;
-        return {...stamp, items: page.items.map((change) => ({change})), uncast, ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items.map((change) => ({change})), uncast: found.uncast, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
-    /** 决策，按 id；状态筛选、游标分页（project.md 方法表的 `decisions`）。 */
     /**
      * 决策（方法表 `decisions`），按 id：状态与挂的对象筛选。每条带读取时的说明（model.md 输出 31 到 33）：建议标
      * “作者未确认”，已定而没给理由的写“作者没说理由”，不在已定状态时存着的结论等列在“重新打开前定下的”下面，
      * 挂的条目删了显示“已删除的条目”。
      */
-    decisions(filter: {readonly status?: Decision["status"]; readonly about?: ObjectRef | {readonly kind: "chapter"; readonly id: string}} = {}, cursor?: string, limit = 50) {
+    decisions(filter: DecisionFilter = {}, cursor?: string, limit = 50) {
         const world = this.#world;
-        const matching = [...world.data.decisions.values()]
-            .filter((item) => filter.status === undefined || item.status === filter.status)
-            .filter((item) => filter.about === undefined || item.about.some((about) => aboutMatches(about, filter.about!)))
-            .sort((a, b) => compareIds(a.id, b.id));
         const stamp = this.#stamp();
-        const page = this.#page(stamp, matching, cursor, limit, {method: "decisions", ...filter});
+        const page = this.#page(stamp, listDecisions(world, filter), cursor, limit, {method: "decisions", ...filter});
         if (page === "cursor-stale") return page;
         return {...stamp, items: page.items.map((decision) => decisionView(decision, (id) => world.data.entries.get(id))), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
@@ -610,7 +653,7 @@ export class WorldService {
     textChanged(chapter?: string): void {
         const chapters = chapter === undefined ? [...this.#world.options.order.ids] : this.#world.options.order.has(chapter) ? [chapter] : [];
         for (const id of chapters) this.#loadText(id);
-        this.#textGeneration += 1;
+        this.#inputGeneration += 1;
         this.#emit({kind: "textChanged", chapter: chapter ?? null});
     }
 
@@ -642,6 +685,7 @@ export class WorldService {
      */
     setRegistries(registries: {readonly registry?: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<void> {
         const run = () => {
+            this.#noteDiagnostics(registries.diagnostics);
             this.#world = this.#world.withOptions({...this.#world.options, ...registries});
         };
         const next = this.#queue.then(run, run);
@@ -803,7 +847,7 @@ export class WorldService {
             this.#texts.delete(id);
             changed = true;
         }
-        if (changed) this.#textGeneration += 1;
+        if (changed) this.#inputGeneration += 1;
     }
 
     /**
@@ -813,7 +857,7 @@ export class WorldService {
     #stamp(): ReadStamp {
         const world = this.#world;
         const cached = this.#stampCache;
-        if (cached !== null && cached.world === world && cached.generation === this.#textGeneration) return cached.stamp;
+        if (cached !== null && cached.world === world && cached.generation === this.#inputGeneration) return cached.stamp;
         const ids = world.options.order.ids;
         const textDigest = this.#ports.digest(canonicalJson(ids.map((id) => [id, this.#texts.get(id)?.digest ?? null])));
         const inputDigest = this.#ports.digest(canonicalJson({
@@ -825,12 +869,12 @@ export class WorldService {
                 marks: (world.options.marks ?? EMPTY_MARK_REGISTRY).versions.map(([id, version]) => [id, version]),
                 diagnostics: (world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).versions.map(([id, version]) => [id, version]),
             },
-            pluginData: [],
+            pluginData: [...this.#computers.entries()].map(([plugin, registration]) => [plugin, registration.dataVersion]).sort((a, b) => (a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0)),
             calendar: null,
             fuzzy: null,
         }));
         const stamp = {version: world.version, textDigest, inputDigest};
-        this.#stampCache = {world, generation: this.#textGeneration, stamp};
+        this.#stampCache = {world, generation: this.#inputGeneration, stamp};
         return stamp;
     }
 

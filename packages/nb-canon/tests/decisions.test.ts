@@ -1,18 +1,10 @@
-import {createHash, createHmac} from "node:crypto";
-
 import {describe, expect, test} from "bun:test";
 
-import {authorizationBinds, buildDiagnosticRegistry, buildRegistry, ChapterOrder, signedContent, type Authorization, type AuthorSource, type Decision, type Entry, type RevertRequest, type Transition, type WriteRequest} from "../src/index";
+import {buildDiagnosticRegistry, buildRegistry, ChapterOrder, type Authorization, type Decision, type Entry, type RevertRequest, type WriteRequest} from "../src/index";
 import {decisionView} from "../src/world/decisions";
 import {World, type RevertMeta, type WorldOptions, type WriteResult} from "../src/world/world";
+import {digest, PROJECT, sign, verify} from "./fixtures/authorization";
 import {PERSON} from "./fixtures/world";
-
-/** 宿主的签名：HMAC，固定的测试密钥。 */
-const KEY = "nb-canon-test-key";
-const PROJECT = "project-1";
-const digest = (text: string) => createHash("sha256").update(text).digest("hex");
-const hmac = (source: Omit<AuthorSource, "signature">) => createHmac("sha256", KEY).update(signedContent(source)).digest("hex");
-const verify = (source: AuthorSource) => source.signature === hmac(source);
 
 function options(extra: Partial<WorldOptions> = {}): WorldOptions {
     return {
@@ -26,13 +18,6 @@ function options(extra: Partial<WorldOptions> = {}): WorldOptions {
         diagnostics: buildDiagnosticRegistry([{plugin: "nbook.plot", declaration: {id: "nbook.plot.leak", version: 2, level: "pending", label: "知情越界", key: ["objects", "telling"]}}]),
         ...extra,
     };
-}
-
-/** 宿主按将要发出的请求签发一项授权。 */
-function sign(request: WriteRequest | RevertRequest, decision: string, transition: Transition, fields?: string): Authorization {
-    const binds = authorizationBinds({project: PROJECT, request, decision, transition, ...(fields === undefined ? {} : {fields})}, digest);
-    const unsigned = {author: "作者", via: "message" as const, id: "m1", quote: "定在第 20 章，前面只给暗示", time: "2026-11-05T00:00:00Z", binds};
-    return {decision, transition, source: {...unsigned, signature: hmac(unsigned)}};
 }
 
 let sequence = 0;

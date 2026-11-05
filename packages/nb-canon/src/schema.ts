@@ -8,3 +8,5 @@ export {buildRegistry, type ComponentDeclaration, type ComponentRegistry, type C
 export type {EntryView, Mode, PendingItem} from "./engine/types";
 export {valueAt, type ViewValue} from "./core/view-value";
 export type {DecisionView} from "./world/decisions";
+export type {CanonHint, GroupItem, PendingPage} from "./service/pending-groups";
+export type {Finding, FindingAt} from "./service/diagnostics";

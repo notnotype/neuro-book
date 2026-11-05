@@ -190,7 +190,9 @@ describe("canon.components 验收场景 6：标注种类的版本", () => {
         await service.setRegistries({marks: buildMarkRegistry([])});
         expect(service.status().inputDigest).not.toBe(before);
         expect(service.object({kind: "change", id}).markHints).toEqual([{code: "mark-kind-unknown", path: "told[t1].marks[0]", kind: REVEAL.id}]);
-        const [item] = (service.tellings({mark: REVEAL.id}) as {items: {telling: {marks?: unknown}; hints?: unknown}[]}).items;
+        const marked = service.tellings({mark: REVEAL.id});
+        if (marked === "cursor-stale") throw new Error("cursor-stale");
+        const [item] = marked.items;
         expect(item).toMatchObject({telling: {marks: [{kind: REVEAL.id, point: k, mode: "hint"}]}, hints: [{code: "mark-kind-unknown", mark: 0}]});
 
         const stored = () => service.object({kind: "change", id}).object as StoryChange;

@@ -6,11 +6,11 @@
 import {createHash} from "node:crypto";
 import {join} from "node:path";
 
-import type {ComponentRegistry, MarkRegistry} from "../../src/index";
+import type {AuthorSource, ComponentRegistry, DiagnosticRegistry, MarkRegistry} from "../../src/index";
 import {nodeFiles, WorldService, type ServicePorts} from "../../src/node/index";
 import {memoryLock} from "./faulty-files";
 
-export async function openTestService(root: string, input: {readonly texts: ReadonlyMap<string, string>; readonly chapters: readonly string[]; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry}): Promise<WorldService> {
+export async function openTestService(root: string, input: {readonly texts: ReadonlyMap<string, string>; readonly chapters: readonly string[]; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry; readonly project?: string; readonly verifyAuthorSource?: (source: AuthorSource) => boolean}): Promise<WorldService> {
     const ports: ServicePorts = {
         files: nodeFiles,
         lock: memoryLock(),
@@ -21,8 +21,10 @@ export async function openTestService(root: string, input: {readonly texts: Read
         digest: (text) => createHash("sha256").update(text).digest("hex"),
         clock: () => 0,
         now: () => new Date(0).toISOString(),
+        ...(input.project === undefined ? {} : {project: input.project}),
+        ...(input.verifyAuthorSource === undefined ? {} : {verifyAuthorSource: input.verifyAuthorSource}),
     };
-    const service = await WorldService.open(ports, {chapters: input.chapters, registry: input.registry, ...(input.marks === undefined ? {} : {marks: input.marks})});
+    const service = await WorldService.open(ports, {chapters: input.chapters, registry: input.registry, ...(input.marks === undefined ? {} : {marks: input.marks}), ...(input.diagnostics === undefined ? {} : {diagnostics: input.diagnostics})});
     if ("code" in service) throw new Error(service.code);
     return service;
 }

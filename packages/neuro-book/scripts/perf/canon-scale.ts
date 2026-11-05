@@ -217,9 +217,9 @@ for (let round = 0; round < 5; round += 1) {
     initial.push(performance.now() - begin);
 }
 
-const pending = service.pending();
-const pendingCount = pending === "chapter-not-found" ? 0 : pending.items.length;
-const suspectCount = pending === "chapter-not-found" ? 0 : pending.items.reduce((sum, item) => sum + (item.kind === "check-mismatch" ? item.suspects.length : 0), 0);
+const pending = service.pending({}, undefined, Number.MAX_SAFE_INTEGER);
+const pendingCount = typeof pending === "string" ? 0 : pending.counts.pending;
+const suspectCount = typeof pending === "string" ? 0 : pending.items.reduce((sum, item) => sum + (item.kind === "canon" && item.item.kind === "check-mismatch" ? item.item.suspects.length : 0), 0);
 Bun.gc(true);
 const heap = process.memoryUsage().heapUsed / 1024 / 1024;
 await stop();

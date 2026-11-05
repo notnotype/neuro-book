@@ -69,7 +69,7 @@ export function remoteWorld(host: WorldHost, tokens: Set<string>): Implementatio
             lookup: (input) => withWorld((service) => read(service.lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => service.changes(input.filter ?? {}, input.cursor, limit))),
             object: (input) => withWorld((service) => within(service.object(input.ref))),
-            pending: (input) => withWorld((service) => read(service.pending(input.position))),
+            pending: (input) => withWorld((service) => read(service.pending(input.position === undefined ? {} : {position: input.position}))),
             decisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.decisions(input.status === undefined ? {} : {status: input.status}, input.cursor, limit))),
             suggestions: (input) => withWorld((service) => paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
             revisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
