@@ -93,13 +93,13 @@ owners:
 
 ### ask（planned）
 
-23. 整批问题交给内核的提问通道（`ctx.ask`，[`harness/runtime.md`](../harness/runtime.md) 输出 40），运行停下等回答；每题总带“其它”。回答是 `{answers: [{selected: string[], other?: string, form?: unknown}]}`，工具按请求校验（题数、选项范围、`form` 的 schema），不合规得 `ask-invalid-answer`。写成工具结果交回模型，结构化的值在 `details`。
+23. 整批问题交给内核的提问通道（`ctx.ask`，[`harness/runtime.md`](../harness/runtime.md) 输出 40），运行停下等回答；每题总带“其它”。回答是 `{answers: [{selected: string[], other?: string, form?: unknown}]}`，工具按请求校验（题数、选项范围且不重复、`form` 的 schema），不合规得 `ask-invalid-answer`；用户的回答缺了这个结构也算不合规，只有 `questions: "caller"` 时的父会话可以只给文字。写成工具结果交回模型，结构化的值在 `details`。
 24. `form` 先过 nb-form 的 Agent 策略（[`ui/forms.md`](../ui/forms.md) 输出 23），不合规得 `ask-form-invalid`，问题列在结果里，不打扰用户。
 25. 两条 `ask` 给模型的名字相同，Profile 只绑一条（主创绑 `ask-form`），用工具绑定能换。后台会话得 `ask-unavailable`，不进等待。用户没有回答（`declined`、`interrupted`、`aborted`）得 `ask-declined`。说明里写单独调用，不和别的工具放在同一条回复。
 
 ### 审批预览（planned）
 
-26. `edit`、`edit-replace`、`write` 有只读预览：`approvalPreview({sessionId, interactionId})` 按这个事项的参数试算，不写盘、不激活提供方，按会话的资源权限读。结果按文件分组：`diff`（`before`、`after`）、`too-large`（单个文件超过 256 KiB）、`failed`（`code`）。别的工具得空列表。
+26. `edit`、`edit-replace`、`write` 有只读预览：`approvalPreview({sessionId, interactionId})` 按这个事项的参数试算，不写盘、不激活提供方，按会话的资源权限读。结果按文件分组：`diff`（`before`、`after`）、`too-large`（单个文件超过 256 KiB；`edit` 的原文件超过时不试算，这次调用的其余文件得 `failed`，码 `preview-skipped`）、`failed`（`code`；试算成功却没有这个文件的结果，比如粘贴前面调用存的寄存器，码 `edit-no-preview`）。别的工具得空列表。
 
 ## 状态与转换
 

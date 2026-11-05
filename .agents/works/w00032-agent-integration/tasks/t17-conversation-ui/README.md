@@ -178,3 +178,13 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 ## 下一步
 
 按切片实施，第 1、6 片发截图给开发者看。
+
+## 实现审查（提交 `0c2ff91ea`）
+
+前端派 Sonnet（[报告](evidences/impl-review-frontend.txt)，13 条：重要 6、建议 7），后端开 omp（[报告](evidences/impl-review-backend.txt)，7 条：重要 6、建议 1）。逐条核实后都成立，修正在 `22c1c597f`（前端）与 `ba4f9782c`（后端），其中的取舍：
+
+- 后端第 6 条只修一半：原文件超过 256 KiB 不再试算（1 MiB 文件那次实验不会再发生）。原文件在预算内、`replace_all` 把它放大很多倍的情况不限：批准后的真实执行同样要付这个成本，模型自己造不出别的危害，单用户本地应用；要限只能等原生引擎提供带预算的试算。
+- 后端第 3 条按“写明算不出来”修：`EditStore` 没有公开寄存器，副本复制不了，所以得 `edit-no-preview`，不说没有改动。
+- 后端第 1 条：`ctx.ask` 的回答加了 `by`，工具按它区分用户与父会话，不按 `data` 缺失推断。
+
+变异检查：工具身份、设置变化、拒绝不重判、宽限期帧四处改回去，测试都失败。收尾验证（只跑受影响的）：nb-harness `run`、`session` 179 过；nb-agent-ui bun 221 过、向导与面板 vitest 17 过；`plugins/agent` 154 过；e2e `agent-conversation`、`lab-agent-ui` 40 过，nb-ui `dialog-surfaces` 7 过。

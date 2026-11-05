@@ -91,7 +91,7 @@ owners:
 等用户：
 
 39. 审批钩子判定 `ask` 时，写 `interactionRequested{kind: "approval", callId, request: {tool, args, effect, reason?}, async: false}`，这次调用停下等应答（同一段里别的调用照常），运行状态是 `waiting{pending}`。应答 `allow`、`allow-session` 时照常执行，`toolStarted.approval.by` 为 `user`；`allow-session` 同一个写入批里写 `approvalRemembered{tool, scope: "tool", by}`，它是 session 事件，回退与重开都不撤销，审批钩子从 `info.remembered` 读到。应答 `deny` 时调用得 `denied`、码 `user-denied`、`by: "user"`，应答的 `note` 附在给模型的文字里。没有等用户的通道时（例如没有界面的单次请求）判定 `ask` 的调用得 `denied`、码 `approval-unavailable`。
-40. 工具的 `ctx.ask(request, {async?})`：同步提问写 `interactionRequested{kind: "question"}` 并等，应答 `answer` 交回 `{kind: "answer", text, data?}`，`deny` 交回 `{kind: "unavailable", code: "declined"}`，运行被中止交回 `code: "aborted"`。异步提问写下事项（`async: true`）就交回 `{kind: "unavailable", code: "async"}`，不进 `waiting`。
+40. 工具的 `ctx.ask(request, {async?})`：同步提问写 `interactionRequested{kind: "question"}` 并等，应答 `answer` 交回 `{kind: "answer", text, data?, by}`（`by` 是应答者：用户，或 `questions: "caller"` 时的父会话），`deny` 交回 `{kind: "unavailable", code: "declined"}`，运行被中止交回 `code: "aborted"`。异步提问写下事项（`async: true`）就交回 `{kind: "unavailable", code: "async"}`，不进 `waiting`。
 41. `resolve({id, decision, answer?, note?})`：事项不在当前路径的待处理里时，路径上已经结算过的得 `already-answered{by, decision}`，其余（含被回退掉的分支上的）得 `unknown-interaction`。审批只收用户的应答；提问用户都能答，会话头 `questions: "caller"` 时也收 `caller` 那个父会话的；其余得 `not-allowed`。`decision` 不合事项的种类（审批：`allow`、`allow-session`、`deny`；提问：`answer`、`deny`），或 `answer` 缺少、文字为空，得 `invalid-answer`。会话只读时得 `read-only`。受理时写 `interactionResolved{id, decision, by, data?, note?}`，`by` 是发出者。同一事项的几次应答由单写者裁决：先到的生效，后到的得 `already-answered`。
 42. 异步提问的回答：同一个写入批里写 `interactionResolved` 并把回答的文字作为一条输入放进缓冲区（经输入拦截链，拒绝时得 `input-rejected`、不写日志）；运行中是 `steer`，空闲时开新的运行（或让暂停的运行接着跑）。
 43. 运行被中止时，等待中的同步事项写 `interactionResolved{decision: "aborted", by: {kind: "kernel"}, code: "aborted"}`，等审批的调用得 `denied`、码 `aborted`；中止之后才到的应答得 `already-answered{by: "kernel", decision: "aborted"}`。进程重启后打开会话时，同步事项写 `interrupted`（审批码 `interrupted-before-approval`，提问码 `interrupted`），调用按输出 34 结算。异步提问不随中止、关闭会话、重启结算，重开后照样能应答。
@@ -139,10 +139,10 @@ owners:
 73. 有 `description` 时写 `descriptionChanged{description}`（会话级控制事件，经出站过滤的文字映射）；快照的 `description` 随之变化，没写过时为 null。
 74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。
 75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。
-76. 帧 `{type: "tool", callId, status}`：工具调用执行完时推，不进日志；权威仍是这批调用的 `toolResult`。`toolArgs` 增量的第一块带 `tool`（工具 id），同一 `callId` 的片段按 `n` 连接就是参数的 JSON 文本。（planned）
+76. 帧 `{type: "tool", callId, status}`：工具调用执行完时推，不进日志；权威仍是这批调用的 `toolResult`。中止宽限期过后才完成的调用不推（输出 25）。`toolArgs` 增量的第一块带 `tool`（工具 id），同一 `callId` 的片段按 `n` 连接就是参数的 JSON 文本。（planned）
 77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。（planned）
 78. `ToolSessionContext` 带 `background`。（planned）
-79. 同一条回复的调用先过审批阶段再执行：切段之前按调用顺序逐个判定，判定 `ask` 的都写 `interactionRequested`（运行状态 `waiting{pending}` 列出全部），等全部应答；之后才执行，这条回复里不用审批的调用也等这个阶段结束，执行顺序不变。应答 `deny` 的调用轮到时得 `denied`，别的调用照常。拦截层改了参数、和批准时不同时，这个调用按输出 39 再问一次。（planned，改输出 39 的“同一段里别的调用照常”）
+79. 同一条回复的调用先过审批阶段再执行：切段之前按调用顺序逐个判定，判定 `ask` 的都写 `interactionRequested`（运行状态 `waiting{pending}` 列出全部），等全部应答；之后才执行，这条回复里不用审批的调用也等这个阶段结束，执行顺序不变。应答 `deny` 的调用轮到时得 `denied`，别的调用照常。拦截层改了工具或参数、和判定时不同时，这个调用按现在的重新判定，要问就按输出 39 再问一次。放行之后、轮到它之前只读或审批模式变了，也按现在的设置重新判定；已经拒绝的不重新判定。（planned，改输出 39 的“同一段里别的调用照常”）
 
 ## 状态与转换
 
