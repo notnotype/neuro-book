@@ -21,7 +21,7 @@ owners:
 - 分支：沿横向或纵向分配空间的一组子节点；分支在父布局中的分配尺寸与内部子布局尺寸分别表达。
 - 叶：一个内容槽位，具有当前宿主声明的尺寸约束和稳定引用。
 - sash：可通过鼠标或键盘操作的分隔条。
-- 原语：拥有几何与快照解析的 nb-ui 能力；宿主负责节点引用、持久化地址、版本兼容和恢复投影。
+- 原语：拥有几何与快照解析的 nb-layout 能力；宿主负责节点引用、持久化地址、版本兼容和恢复投影。
 
 ## 输入与前置条件
 
@@ -77,7 +77,7 @@ owners:
 ## 边界与兼容
 
 本能力补充 [Workbench 外壳](workbench-shell.md) 的布局消费合同。
-nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥有约束、快照解释与 Storage 地址。
+nb-layout 拥有领域无关的类型、算法和交互边界；主应用/插件拥有约束、快照解释与 Storage 地址。
 原语不引用主工作台 Part 名，不依赖 Pinia，不开启 Splitter `autoSaveId` 旁路。
 嵌套 sash 的旧限制由本能力覆盖的场景逐项解除；其它未覆盖结构操作继续保留已有限制，不能据一个样例宣称任意布局均已支持。
 
@@ -101,7 +101,7 @@ nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥�
 
 结构操作补齐**拆分叶**：`splitLeaf(targetId, {branchId, orientation, side, leaf, ratio})` 把一个叶原位换成新分支——新分支继承目标的外部分配意图，两个子叶按 `ratio` 分掉目标在新轴上的意图（新轴意图为 0 时两端取统一正权重，均分不塌成 0）。只开放比例、不开放 `size`：否则初始意图会出现两个 authority。`left/top → before`、`right/bottom → after` 的宿主词汇映射留在交互层。节点数与嵌套深度上限由结构操作与快照恢复共用同一判定，拆分失败不改树。
 
-渲染层是 nb-ui 的 `NestedGrid`：每个分支一个 `Splitter`、叶交给插槽，几何只有 CSS px 一种口径（`gridBranchSizesPx` / `buildGridBranchPanels` 只是把布局投影成面板配置）。`NestedGrid` 独占一份 `useSashGesture` 会话：一次按下命中的最多两根轴属于同一场手势，拖动中发布预览布局（子树随父盒实时变化），松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `grid.resizeBranches(changes)` 一次原子落账；不再有百分比换算、`resizeBranch` 逐分支提交或 Reka 拖动通道。主工作台宿主与编辑器工作区宿主共用同一份实现。编辑器工作区当前只消费单组（一个叶）路径；真实产品的多编辑组及其会话、存储合同是后续独立能力，不因共用渲染层而成立。
+渲染层是 nb-layout 的 `NestedGrid`：每个分支一个 `Splitter`、叶交给插槽，几何只有 CSS px 一种口径（`gridBranchSizesPx` / `buildGridBranchPanels` 只是把布局投影成面板配置）。`NestedGrid` 独占一份 `useSashGesture` 会话：一次按下命中的最多两根轴属于同一场手势，拖动中发布预览布局（子树随父盒实时变化），松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `grid.resizeBranches(changes)` 一次原子落账；不再有百分比换算、`resizeBranch` 逐分支提交或 Reka 拖动通道。主工作台宿主与编辑器工作区宿主共用同一份实现。编辑器工作区当前只消费单组（一个叶）路径；真实产品的多编辑组及其会话、存储合同是后续独立能力，不因共用渲染层而成立。
 
 ## 证据
 
