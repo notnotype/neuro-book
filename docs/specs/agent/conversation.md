@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.conversation
 owners:
   - nbook.agent
@@ -128,6 +128,19 @@ owners:
 6. 把对话打开到编辑区页面，文件视图拖到右栏：都能用。
 7. Smoke：真实模型跑主创改一个文件，经批准。
 
+## 实现合同
+
+- **公开入口**：贡献（视图、编辑区页面、活动条目）的 id，公开状态键与命令（见“边界与兼容”）；宿主与组件不对外导出。
+- **owner 与依赖方向**：`nbook.agent` 的浏览器入口。依赖 `nb-agent-ui`（纯受控视图，新内核的适配器在它的核心里）与 `agent.sessions` 的远程指令；`nbook.models` 不在时模型下拉隐藏。
+- **关键不变量**：
+  - 打开会话先订阅再取快照，日志帧按 `head` 去重；`leafChanged` 与重连都按新路径整份重建，不把分支接在一起（输出 5，`session-host.test.ts`“打开过程中”“回退”）。
+  - 乐观消息只由实时帧确认；结果未知时重发用同一个指令 id，服务端其实受理了也只有一条（输出 6，`session-host.test.ts`“结果未知”）。
+  - 宿主按位置放在插件级，组件借用并计数，归零后 30 秒才取消订阅；向导的界面状态在宿主里，这一批答完就清（`session-host.test.ts`“组件都还回去之后”“向导的界面状态”）。
+  - 活动条目先订阅后取快照，只数前台会话（输出 19，`session-host.test.ts`“活动条目”）。
+
 ## 证据
 
-- 批准依据：w00032 t17 决定与静态稿定稿（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)），开发者 2026-11-05。
+- 批准依据：w00032 t17 决定与静态稿定稿（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)），开发者 2026-11-05 批准晋升为 `implemented`。
+- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/agent/web/plugin.ts)、[`session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)、[`session-list.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-list.ts)、[`activity.ts`](../../../packages/neuro-book/src/plugins/agent/web/activity.ts)、[`ConversationHost.vue`](../../../packages/neuro-book/src/plugins/agent/web/ConversationHost.vue)、[`SessionPanelHost.vue`](../../../packages/neuro-book/src/plugins/agent/web/SessionPanelHost.vue)
+- 合同测试：[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)（真实内核与本机端点）、[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)（真实浏览器、真实服务端，验收 1–6）
+- Smoke：[`conversation.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/conversation.llm.test.ts)（`test:llm`，真实模型）

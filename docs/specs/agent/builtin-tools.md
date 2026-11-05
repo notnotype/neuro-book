@@ -41,8 +41,8 @@ owners:
 | `nbook.agent.grep` | `grep` | 读 | shared | `pattern`、`path?`、`glob?`、`ignoreCase?`、`context?`（0 到 10）、`limit?`（1 到 500，缺省 100） |
 | `nbook.agent.glob` | `glob` | 读 | shared | `pattern`、`path?`、`limit?`（1 到 1000，缺省 200） |
 | `nbook.agent.shell` | `shell` | 执行 | exclusive | `command`、`timeout?`（秒，1 到 3600，缺省 300） |
-| `nbook.agent.ask`（planned） | `ask` | 读 | exclusive | `questions`：1 到 4 题，每题 `question`、`header?`、`options`（2 到 4 个，`label`、`description?`）、`multiSelect?` |
-| `nbook.agent.ask-form`（planned） | `ask` | 读 | exclusive | 同上，每题多一个 `form?`（JSON Schema） |
+| `nbook.agent.ask` | `ask` | 读 | exclusive | `questions`：1 到 4 题，每题 `question`、`header?`、`options`（2 到 4 个，`label`、`description?`）、`multiSelect?` |
+| `nbook.agent.ask-form` | `ask` | 读 | exclusive | 同上，每题多一个 `form?`（JSON Schema） |
 
 - 两条 `edit` 给模型的名字相同，Profile 只绑一条，由 Profile 选（主创绑 replace，[`builtin-profiles.md`](builtin-profiles.md)）；同一会话绑了两条按 [`harness/runtime.md`](../harness/runtime.md) 输出 15 处理。
 - 输入的地址接受单数与全局两种写法，规则同 [`agent.resources`](resources.md) 输出 1。
@@ -91,13 +91,13 @@ owners:
 21. **输出。** 结果是输出窗口、退出码与是否超时或被中止；窗口放不下全部输出时附全文的全局地址，可用 `read` 分页读；放得下就不留全文。
 22. **结束。** 退出码非 0 为 `exit-nonzero`，超时为 `timeout`，工具中止为 `cancelled`。超时与中止时已收到的输出照样保存。无论保存成败，一次调用命令恰好执行一次（第 19 条执行前报错的除外）。
 
-### ask（planned）
+### ask
 
 23. 整批问题交给内核的提问通道（`ctx.ask`，[`harness/runtime.md`](../harness/runtime.md) 输出 40），运行停下等回答；每题总带“其它”。回答是 `{answers: [{selected: string[], other?: string, form?: unknown}]}`，工具按请求校验（题数、选项范围且不重复、`form` 的 schema），不合规得 `ask-invalid-answer`；用户的回答缺了这个结构也算不合规，只有 `questions: "caller"` 时的父会话可以只给文字。写成工具结果交回模型，结构化的值在 `details`。
 24. `form` 先过 nb-form 的 Agent 策略（[`ui/forms.md`](../ui/forms.md) 输出 23），不合规得 `ask-form-invalid`，问题列在结果里，不打扰用户。
 25. 两条 `ask` 给模型的名字相同，Profile 只绑一条（主创绑 `ask-form`），用工具绑定能换。后台会话得 `ask-unavailable`，不进等待。用户没有回答（`declined`、`interrupted`、`aborted`）得 `ask-declined`。说明里写单独调用，不和别的工具放在同一条回复。
 
-### 审批预览（planned）
+### 审批预览
 
 26. `edit`、`edit-replace`、`write` 有只读预览：`approvalPreview({sessionId, interactionId})` 按这个事项的参数试算，不写盘、不激活提供方，按会话的资源权限读。结果按文件分组：`diff`（`before`、`after`）、`too-large`（单个文件超过 256 KiB；`edit` 的原文件超过时不试算，这次调用的其余文件得 `failed`，码 `preview-skipped`）、`failed`（`code`；试算成功却没有这个文件的结果，比如粘贴前面调用存的寄存器，码 `edit-no-preview`）。别的工具得空列表。
 
@@ -155,7 +155,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts`（`tes
 
 ## 证据
 
-- 批准依据：[w00032 t12](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/README.md) 的决定与[第四稿计划](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/plan.md)；开发者 2026-11-04 批准晋升为 `implemented`。
-- 实现入口：[`backend/builtin/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/index.ts)、[`read.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/read.ts)、[`image.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/image.ts)、[`write.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/write.ts)、[`edit.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts)、[`search.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/search.ts)、[`shell.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts)、[`shell-address.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell-address.ts)
+- 批准依据：[w00032 t12](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/README.md) 的决定与[第四稿计划](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/plan.md)；开发者 2026-11-04 批准晋升为 `implemented`；`ask` 与审批预览见 [w00032 t17](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)，开发者 2026-11-05 批准。
+- 实现入口：[`backend/builtin/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/index.ts)、[`read.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/read.ts)、[`image.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/image.ts)、[`write.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/write.ts)、[`edit.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts)、[`search.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/search.ts)、[`shell.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts)、[`shell-address.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell-address.ts)、[`ask.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/ask.ts)、[`preview.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/preview.ts)
 - 合同测试：[`builtin-tools.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.test.ts)（真实服务端内核、真实文件、真实 brush、本机的 OpenAI 兼容端点）、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)（真实项目子进程）
 - Smoke：[`builtin-tools.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts)（`test:llm`，真实模型）

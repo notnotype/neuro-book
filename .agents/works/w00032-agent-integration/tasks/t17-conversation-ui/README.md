@@ -162,7 +162,9 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 
 ## 当前状态
 
-计划第二稿已确认：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。执行位置 `.worktree/w00032-t17-conversation-ui`，分支 `feat/w00032-t17-conversation-ui`。第 1–8 片都已提交在分支上。验证只跑了改动直接覆盖的文件（开发者 2026-11-05：不跑全量）：五个包的 bun、vitest 全过；`agent-conversation`、`lab-agent-ui`（向导与状态栏）、`editor-area`（拖分隔线那条）、`lab-commands`（命令场景）、nb-story `qa`、nb-ui `popup-lists`、`dialog-surfaces` 这些 e2e 全过；真实模型冒烟过了。没跑的：其余 e2e。变异检查 13 处全部抓到。nb-story 的 `qa-service.ts` 类型错误在 master 上也有，不是这次的。实现审查进行中（前端 Sonnet、后端 omp）。
+已完成：实现与审查修正合入 master（`188a523a5`），分支与 worktree 已删；开发者 2026-11-05 批准 [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 晋升 `implemented`，`harness/runtime.md` 输出 76–79、`agent/builtin-tools.md` 的 `ask` 与审批预览、`agent/sessions.md` 输出 15–16、`agent/builtin-profiles.md` 的 `ask-form` 与 `icon` 去掉 planned 标记。`ui/agent-conversation-view.md` 还有第二批的内容没做（[t28](../t28-conversation-ui-followups/README.md)），留在 planned。第二批的静态稿在草稿 worktree `.worktree/w00032-t17-drafts`。
+
+计划第二稿：[plan.md](plan.md)。验证只跑了改动直接覆盖的文件（开发者 2026-11-05：不跑全量）：五个包的 bun、vitest 全过；`agent-conversation`、`lab-agent-ui`（向导与状态栏）、`editor-area`（拖分隔线那条）、`lab-commands`（命令场景）、nb-story `qa`、nb-ui `popup-lists`、`dialog-surfaces` 这些 e2e 全过；真实模型冒烟过了。没跑的：其余 e2e。变异检查 13 处全部抓到。nb-story 的 `qa-service.ts` 类型错误在 master 上也有，不是这次的。实现审查的处理见“实现审查”一节。
 
 `ask` 两条声明的大小见 [evidences/ask-tool-size.txt](evidences/ask-tool-size.txt)。右栏新增对话视图后默认打开，编辑区变窄：`editor-area` 拖分隔线的用例因此把视口加宽。
 
@@ -179,9 +181,9 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 
 按切片实施，第 1、6 片发截图给开发者看。
 
-## 实现审查（提交 `0c2ff91ea`）
+## 实现审查（提交 `1f5f0577e`）
 
-前端派 Sonnet（[报告](evidences/impl-review-frontend.txt)，13 条：重要 6、建议 7），后端开 omp（[报告](evidences/impl-review-backend.txt)，7 条：重要 6、建议 1）。逐条核实后都成立，修正在 `22c1c597f`（前端）与 `ba4f9782c`（后端），其中的取舍：
+前端派 Sonnet（[报告](evidences/impl-review-frontend.txt)，13 条：重要 6、建议 7），后端开 omp（[报告](evidences/impl-review-backend.txt)，7 条：重要 6、建议 1）。逐条核实后都成立，修正在 `458f5a670`（前端）与 `188a523a5`（后端），其中的取舍：
 
 - 后端第 6 条只修一半：原文件超过 256 KiB 不再试算（1 MiB 文件那次实验不会再发生）。原文件在预算内、`replace_all` 把它放大很多倍的情况不限：批准后的真实执行同样要付这个成本，模型自己造不出别的危害，单用户本地应用；要限只能等原生引擎提供带预算的试算。
 - 后端第 3 条按“写明算不出来”修：`EditStore` 没有公开寄存器，副本复制不了，所以得 `edit-no-preview`，不说没有改动。
