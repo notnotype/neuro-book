@@ -112,15 +112,13 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 
 ### 布局与导航
 
-- [`Splitter`](src/components/layout/Splitter.md)：多栏可调节分割面板，几何一律 CSS 像素。
-- [`NestedGrid`](src/components/layout/NestedGrid.md)：把布局树（`createGrid`）递归渲染成分割面板，一次手势原子提交。
+- [`Splitter`](src/components/layout/Splitter.md)：冻结，只给 nb-story、dev-panel 用。布局树、分割面板与拖放反馈都在 [`@notnotype/nb-layout`](../nb-layout/README.md)。
 - [`ScrollArea`](src/components/layout/ScrollArea.md)：自己建滚动容器、带自绘滑块。
 - [`OverlayScrollbar`](src/components/layout/OverlayScrollbar.md)：接到已有滚动元素上的叠加滑块。
 - [`Collapsible`](src/components/layout/Collapsible.md)：受控折叠。
 - [`CollapsibleCard`](src/components/layout/CollapsibleCard.md)：可折叠的卡片。
 - [`CollapsibleRow`](src/components/layout/CollapsibleRow.md)：可折叠的一行。
 - [`Separator`](src/components/layout/Separator.md)：分隔线。
-- [`DropFeedbackOverlay`](src/components/layout/DropFeedbackOverlay.md)：拖放落点的共享覆盖层；纯几何入口在 `@notnotype/nb-ui/layout`。
 - [`DropIndicatorLabel`](src/components/layout/DropIndicatorLabel.md)：拖放的提示药丸。
 - [`Breadcrumb`](src/components/navigation/Breadcrumb.md)：面包屑。
 - [`Tree`](src/components/navigation/Tree.md)：通用层级树，单选或多选。

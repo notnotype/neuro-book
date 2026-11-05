@@ -3,7 +3,7 @@
  *
  * 职责边界（见 `docs/proposals/workbench-view-host.md`「基础原语」一节）：
  * - 拥有：树操作（增删/移叶/换父）、两轴尺寸约束传播与夹取、序列化与恢复、**呈现**尺寸计算；
- * - 不拥有：拖拽手势与 sash 的产生（由 nb-ui `Splitter` 提供 handle 与手势事件）、持久化键、组件实例。
+ * - 不拥有：拖拽手势与 sash 的产生（由 `Splitter`（`./vue`）提供 handle 与手势事件）、持久化键、组件实例。
  *
  * 因此本文件**不得**出现指针事件、`localStorage`、Vue 导入，也不得存放组件或 descriptor。
  *

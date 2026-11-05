@@ -88,14 +88,14 @@ const domPanelIds = computed(() => panelIds.value.map((id) => `${instanceId}-${i
 const sashSizes = computed(() => {
     const boundaryCount = Math.max(0, props.panels.length - 1);
     if (props.sashSizes.length > boundaryCount) {
-        console.warn(`[nb-ui/Splitter] sashSizes has ${props.sashSizes.length} entries for ${boundaryCount} boundaries; extra entries are ignored.`);
+        console.warn(`[nb-layout/Splitter] sashSizes has ${props.sashSizes.length} entries for ${boundaryCount} boundaries; extra entries are ignored.`);
     }
     return Array.from({length: boundaryCount}, (_, index) => {
         const size = props.sashSizes[index] ?? DEFAULT_SASH_SIZE;
         if (Number.isFinite(size) && size >= 0) {
             return size;
         }
-        console.warn(`[nb-ui/Splitter] sashSizes[${index}] must be a finite non-negative number; using ${DEFAULT_SASH_SIZE}px.`);
+        console.warn(`[nb-layout/Splitter] sashSizes[${index}] must be a finite non-negative number; using ${DEFAULT_SASH_SIZE}px.`);
         return DEFAULT_SASH_SIZE;
     });
 });

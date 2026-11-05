@@ -7,7 +7,7 @@ import type {SashGestureScope} from "./useSashGesture";
  *
  * 模块级只保存这个注入键本身——不保存任何 window 全局拖动状态，因此同页多个 Grid 互不干扰。
  */
-export const SASH_GESTURE_SCOPE_KEY: InjectionKey<SashGestureScope> = Symbol("nb-ui.sash-gesture-scope");
+export const SASH_GESTURE_SCOPE_KEY: InjectionKey<SashGestureScope> = Symbol("nb-layout.sash-gesture-scope");
 
 /** 最近一层 scope；不在任何 Grid / 独立 Splitter 内时为 null。 */
 export function useSashScope(): SashGestureScope | null {

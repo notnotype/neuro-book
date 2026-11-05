@@ -5,7 +5,7 @@
 
 # EditorArea
 
-编辑器槽里的根（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md)）：按编辑器区控制器（`area.ts` 的 `EditorArea`）的组模型，用 nb-ui 的 grid 排列编辑组，每组一个 `EditorGroup`；承载关闭询问与编辑器区内的键位。它是宿主：直接读控制器的状态、调它的动作，不经属性展开；命令由插件的宿主执行，组件只发意图。
+编辑器槽里的根（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md)）：按编辑器区控制器（`area.ts` 的 `EditorArea`）的组模型，用 nb-layout 的 grid 排列编辑组，每组一个 `EditorGroup`；承载关闭询问与编辑器区内的键位。它是宿主：直接读控制器的状态、调它的动作，不经属性展开；命令由插件的宿主执行，组件只发意图。
 
 ## 数据
 
@@ -45,7 +45,7 @@ type Emits = {
 
 无 slots、无 expose；attrs 落在根元素。
 
-拖动标签（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 55）装在根上（`web/tab-drag.ts`）：按住标签主体移动起拖，落点用 nb-ui 的 `DropFeedbackOverlay` 画出（插入线，或正文区的整块与半块），带 `data-editor-drop`（落点种类）；指针右下 12px 有一个跟手的拖影（`body` 下，`data-editor-drag-ghost`）：被拖标签的图标与名字，与标签同字号、同底色，没有落点时也跟着；拖动中整个编辑器区是抓手光标、不扩选文字；起拖后组、标签或固定状态、多行设置变了就取消，松手时与最后显示的落点相同才交给控制器的 `moveTab`、`moveToNewGroup`。
+拖动标签（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 55）装在根上（`web/tab-drag.ts`）：按住标签主体移动起拖，落点用 nb-layout 的 `DropFeedbackOverlay` 画出（插入线，或正文区的整块与半块），带 `data-editor-drop`（落点种类）；指针右下 12px 有一个跟手的拖影（`body` 下，`data-editor-drag-ghost`）：被拖标签的图标与名字，与标签同字号、同底色，没有落点时也跟着；拖动中整个编辑器区是抓手光标、不扩选文字；起拖后组、标签或固定状态、多行设置变了就取消，松手时与最后显示的落点相同才交给控制器的 `moveTab`、`moveToNewGroup`。
 
 ## 布局与交互
 
