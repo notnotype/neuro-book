@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t17-conversation-ui",
+    "artifactId": "review",
+    "answerId": "20261105T124607864Z-b1bb44f4",
+    "artifactVersion": 9,
+    "contentHash": "db4a4fa00ca9fdacacc98775b15176675b86972ef24614e16c58597d26d2503e",
+    "submittedAt": "2026-11-05T12:46:06.053Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "s9-filter": "count"
+    },
+    "comments": {},
+    "note": null
+}
