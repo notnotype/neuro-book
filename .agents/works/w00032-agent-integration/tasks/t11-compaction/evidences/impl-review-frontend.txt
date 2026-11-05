@@ -1,0 +1,133 @@
+# w00032 t11 前端实现审查报告（e3bfa656..523a19e3）
+
+（按核实顺序追加；末尾有汇总与排序。探针测试文件都是临时的，已删除，worktree 干净。）
+
+### 1. 打开会话时只压缩的运行已在跑：`run.kind` 恒为 null，上一轮被画成“运行中”
+- 严重程度：重要
+- 位置：`packages/nb-agent-ui/src/kernel-transcript.ts:525-531`（`applyStatus`）、`:593`（`applyPath` 末尾 `run = {...run, startedAt}`）；调用顺序在 `packages/neuro-book/src/plugins/agent/web/session-host.ts:198`（先 `applySnapshot`）与 `:191`（后 `applyPath`），`:350` 同
+- 现象：`kind` 只在 `applyStatus` 里从当下的 `runKind` 抄一次。打开会话与 `leafChanged` 后的 `refresh` 都是先 `applySnapshot`（此时 `runKind` 刚被 `resetPath` 清成 null 或还没读到路径）再 `applyPath`；`applyPath` 读到 `runStarted{kind:"compact"}` 后只把 `startedAt` 补进 `run`，`kind` 不补。结果在下一个 status 帧（阶段切换）到来前 `run.kind === null`，`resolveStatus` 把最新一轮判成 running，转圈、不可收起。实时路径同理：status 帧先于 `runStarted` 日志事件到达时，`kind` 也是 null（两路到达的先后没有保证）。
+- 为什么是问题：`conversation-turns.ts` 里“只压缩的运行不属于任何一轮”依赖 `run.kind`，而 `kind` 的来源是两路异步输入（status 帧与日志事件）按固定先后拼出的一份拷贝。压缩一次几十秒，这段时间上一轮被错画成运行中，和实现想消除的正是同一个现象。测试里先 `applyPath` 后 `applyFrame`，恰好是唯一能通过的顺序，没测到真实打开的顺序。
+- 如何核实：临时探针（已删）：`applySnapshot({head:5,status:{state:"running",phase:"compacting"}})` 后 `applyPath([turnStarted, runStarted{kind:"compact"}])`，`run()` 返回 `{"status":"running","phase":"compacting","startedAt":2,"retry":null,"kind":null}`；先 `applyFrame(status running)` 再 `applyEvent(runStarted compact)` 也得 `kind:null`。
+- 建议改法：`run()` 返回时按当前 `runKind` 现算 `kind`（`run: () => ({...run, kind: run.status === "idle" ? null : runKind})`），去掉在 `applyStatus` 里拷贝；或者在 `runStarted`/`runEnded` 与 `applyPath` 末尾同步更新 `run.kind`。测试补“先 snapshot 后 path”与“先帧后事件”两个顺序。
+
+### 2. 手动压缩的分隔线、停止/失败条目进了上一轮的 group，抬高上一轮的“用时”
+- 严重程度：重要
+- 位置：`packages/nb-agent-ui/src/conversation-turns.ts:622-628`（`computeMetrics` 的 `end = group.at(-1)!.timestamp`），数据来源 `kernel-transcript.ts:358-362`、`:375-381`
+- 现象：只压缩的运行没有 `input`，它产生的 system 条目（压缩分隔线、“已停止压缩”、压缩失败）按 `splitIntoTurnGroups` 并入上一轮的 group。`computeMetrics` 的结束时刻取 group 里最后一条消息的时间戳，于是上一轮的 `durationMs` 变成“用户提问到这条 system 条目”。用户回复完过一小时再 `/compact`，上一轮摘要行显示用时约 1 小时。
+- 为什么是问题：此前进 group 末尾的 system 条目基本是同一次运行里产生的（自动压缩、`continued`），时间戳贴着回复；手动压缩是新增的“可以隔任意久发生”的条目，近似前提（“结束于最后一条消息开始的时刻”）被它破坏。整轮摘要行与轮末汇总两处都显示这个数。
+- 如何核实：临时探针（已删）：user@0、assistant@10_000，`buildTurns` 得 `durationMs=10000`；追加 `{kind:"system",source:"compaction",timestamp:3_600_000}` 后得 `3600000`。
+- 建议改法：算结束时刻时跳过 `source` 为 `compaction`、`branch_summary` 与适配器给的停止/失败条目（只看最后一条 user/assistant/error 消息）；在 `conversation-turns.test.ts` 的压缩用例里断言 `durationMs` 不变。
+
+### 3. shake 的详情写“最近 N 轮的原文”，同一行下面又写“省略了 M 条工具结果”，自相矛盾
+- 严重程度：重要
+- 位置：`packages/nb-agent-ui/src/kernel-transcript.ts:155-166`（`keptTurns`）；后端取值 `packages/neuro-book/src/plugins/agent/backend/compaction/shake.ts:63`（`firstKeptEntryId: job.cuts[0]!.entryId`，注释“切点取第一个：什么轮都不去掉，只换占位”）；文案 `locales/zh-CN.ts` `compactionDetail.keptTurns`
+- 现象：shake 的切点永远是第一个切点（第一轮开头），适配器按 `turnStarts.length - indexOf` 得到“路径上全部的轮数”。12 轮的会话 shake 后详情是“保留：最近 12 轮的原文 / 省略了 6 条工具结果，需要时重新读取”。被省略的工具结果恰好在这些“原文”的轮里。
+- 为什么是问题：`CompactionView.keptTurns` 的合同写的是“原样保留了最近几轮”，对要摘要的方法成立；shake 是“所有轮都留着、只换占位”，同一个数字语义变了。Lab 的 `compaction-shake` 场景把 `keptTurns` 写成 null，掩盖了这一点；`kernel-transcript.test.ts` 的 shake 用例只有一轮，断言 `keptTurns: 1` 反而把“shake 给出轮数”锁成了期望。
+- 如何核实：读 `shake.ts:63`；用 3 轮 turnStarted + `firstKeptEntryId` 指向第一轮、`omitted` 非空构造事件，`compaction.keptTurns` 得 3。
+- 建议改法：`method` 是 shake（或事件里 `replacement === null` 且 `omitted.length > 0`）时 `keptTurns` 给 null，详情只写“省略了 M 条工具结果”；或把文案改成对两种情形都成立的写法。测试里用多轮的 shake 用例，Lab shake 场景改成真实形状（keptTurns 与后端一致）。
+
+### 4. 详情里的“用量：输入”不含缓存读写，就地摘要（专为吃缓存设计）会显示成几乎为 0
+- 严重程度：重要
+- 位置：`packages/nb-agent-ui/src/kernel-transcript.ts:158-162`（`model: {name, input, output, cost}`，丢弃 `cacheRead`/`cacheWrite`）；`AgentCompactionDetail.vue:46`
+- 现象：后端 `sumUsage`（`backend/compaction/replies.ts:25-34`）给了 `input/output/cacheRead/cacheWrite/cost`，其中 `input` 是未命中缓存的部分（适配器自己的 `contextOf` 就是 `input + cacheRead + cacheWrite`）。`inplace` 的设计就是前缀与对话请求相同、吃缓存，实际读了 90k 的请求，详情会写“输入 300，输出 1.9k · $0.0213”。花费包含缓存价，数字对不上。
+- 为什么是问题：用户看这一行是为了判断这次压缩花了多少、用了多少；显示的 token 与花费互相矛盾，且把最该看到的缓存命中信息吞了。对话里其它处（整轮用量）是否也这样展示，需要和 `describeUsage` 对齐。
+- 如何核实：构造 `details.usage = {input: 300, output: 1900, cacheRead: 90000, cacheWrite: 0, cost: 0.02}`，适配器输出的 `model` 里没有缓存字段，视图无从显示。
+- 建议改法：`CompactionView.model` 加 `cacheRead`、`cacheWrite`，详情写“输入 X（缓存读 Y）”，复用 `process-summary` 里已有的用量文案；缺字段时按 0。
+
+### 5. 详情的“上下文 前 → 后”不含放回的量，和紧随其后的上下文读数对不上
+- 严重程度：建议
+- 位置：`AgentCompactionDetail.vue:42`；`kernel-transcript.ts:380-381`
+- 现象：压缩后的读数是 `tokensAfter + restored 的 tokens 之和`（计划已定），分隔线详情写的却是 `tokensAfter`。摘要方法放回 12.8k 时，详情“92.4k → 11.3k”，状态栏读数立刻是 24.1k，两处差一个放回量，详情里的“放回”行单独列出了这个量，用户要自己加。
+- 为什么是问题：同一个“压缩后多大”两处给两个数，没有一句话说明差别；“上下文（估算）”标签只覆盖“估算”，没覆盖“不含放回”。计划接受了 `tokensAfter` 偏低，但没提这个差。
+- 如何核实：Lab `compaction-summary`：详情 `92.4k → 11.3k`，restored 合计 12.8k。
+- 建议改法：详情的“后”也用 `after + restored`（适配器算，`CompactionView.tokensAfter` 语义改为“含放回”，一处算），或在 `compactionDetail.context` 的值里补一句“不含放回的内容”。
+
+### 6. 压缩失败的整句说明被塞进“信息条目”的标签位：不换行、不收缩，窄宽度溢出，点开是空的
+- 严重程度：重要（从代码推断，未在浏览器里量）
+- 位置：`kernel-transcript.ts:361-362`（失败写成 `source:"reminder"`、`label: errorText(...)`、`text: ""`）；渲染 `vue/stream/AgentTurnBlock.vue:124-137`、样式 `:285-287`（`.acv-notice__label {flex-shrink: 0}`）
+- 现象：信息条目的版式是“图标 + 短标签 + 正文预览（省略号）+ 箭头”，标签设计成短词（“已继续”“已要求给出结果”）。手动 `/compact` 失败时标签是整句：“压缩没有成功，对话没有改动。可以换一个压缩模型，或者开一个新会话。”（en 约 120 字符），`flex-shrink: 0` 且 `white-space` 为默认，行宽 = 整句宽度，手机宽度或窄侧栏里箭头被挤出可视区、行溢出；整行是 `aria-expanded` 按钮，点开 `AgentMarkdown` 的正文是空串，什么也没有。
+- 为什么是问题：这是手动压缩失败时用户得到的唯一反馈，而且带着下一步建议，却用 2xs 的淡色小字、可点开的空条目呈现；读屏用户听到“按钮，已折叠”，展开后无内容。
+- 如何核实：`bun test` 里构造 `runStarted{kind:compact}` + `runEnded{reason:error, error:{code:"compaction-failed"}}`，最后一条 system 的 `label` 是上面整句、`text` 为空；再看上面的 CSS。建议用 Lab 的 mobile 视口截图补证据。
+- 建议改法：失败与停止不走 notice 版式：或者把失败说明放在 `text`、标签用短词“压缩失败”（点开看原因与建议，和别的条目一致）；或者新增只读的一行（无按钮）。同时 `.acv-notice__label` 允许收缩换行。
+
+### 7. 宿主从不把 `run.kind` 交给视图：`resolveStatus` 里“只压缩的运行不算上一轮运行中”在产品里是死代码
+- 严重程度：重要（应排在第 1 条，先于第 1 条的顺序问题；两条要一起修）
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:666-671`（`run: {status, phase, startedAt, retry}` 四个字段，没有 `kind`）；消费处 `packages/nb-agent-ui/src/conversation-turns.ts:553`
+- 现象：适配器的 `KernelRun.kind` 只在 `kernel-transcript.ts` 里有，宿主构造 `ctx.run` 时没抄。全仓库搜 `run.kind`、`kind: run.kind`：除两个单元测试直接给 `RunView` 塞 `kind:"compact"` 外，没有任何产品代码设置 `RunView.kind`。所以手动 `/compact` 运行期间（几秒到几十秒，要调模型），`ctx.run.kind` 恒为 undefined，上一轮仍被判成 running：整轮展开、转圈、角色行显示“压缩中”阶段、不可收起；这正是 `types.ts`、`resolveStatus` 注释与 Spec（`ui/agent-conversation-view.md` 只压缩的运行）要消除的现象。
+- 为什么是问题：单测在 `buildTurns` 层手工喂 `run.kind`，适配器测试在 `KernelRun` 层断言 `kind`，两层之间的宿主这一跳没有测试：`session-host.test.ts` 的手动压缩用例只在运行结束后断言上一轮 `status` 是 `done`，e2e 只看“没有已停止”，都抓不到运行中的状态。
+- 如何核实：读 `session-host.ts:666-671`；`grep -rn "kind: run\|run\.kind" packages/neuro-book/src packages/nb-agent-ui/src`；在 `session-host.test.ts` 里 hold 住压缩请求（`endpoint.hold()`），运行中断言最新一轮的状态（可通过 `ctx.run` 看到没有 `kind`）。
+- 建议改法：host 里加 `...(run.kind === null ? {} : {kind: run.kind})`；`harness.ts` 的适配器若要支持只压缩运行也同样处理；`session-host.test.ts` 加“压缩运行期间 `ctx.run.kind === "compact"`、运行结束后恢复”的断言（hold 住压缩请求）。
+
+### 8. 触发点：“留预留量”下的输入框其实是“窗口大小”，切换模式保留旧数值，跨量纲的数通过校验
+- 严重程度：重要
+- 位置：`packages/neuro-book/src/plugins/models/web/components/ModelEditDialog.vue:81-85`（校验）、`:56-58`（`compactMode`/`compactValue` 两个独立字段，切模式不清值）、`:196-203`（模板）；换算 `models/shared/compaction.ts:33-37`；文案 `models/locales/{zh-CN,en-US}.json` 的 `edit.compactMode.reserve`、`edit.compactValue.reserve`、`edit.compactHint`
+- 现象：
+  1. 模式叫“留预留量”，下面的数值框标签却是“窗口大小（token）”（含义是“把窗口当成这个数来算”）。用户选“留预留量”后很自然会填“预留 20000”，实际得到触发点 `20000 − max(3000, 16384) = 3616` token，几乎每次回复后都压缩；填 16384 以内则算出 ≤ 0，静默退回内核缺省（`compactionTrigger` 返回 undefined），界面不提示。
+  2. `compactValue` 在切模式时保留：百分比 80 切到“固定的 token 数”，数值框里是 80，通过 `positive` 校验，保存成“80 token 就触发”；固定 100000 切到百分比，要等点保存才在原位报错。
+  3. “固定的 token 数”没有任何下限（1 也合格），触发点大于窗口时只在后端静默夹到窗口。
+  4. `compactHint` 常驻，写的全是预留量算法，“跟随全局设置”“百分比”“固定值”下也显示；“跟随全局”时没说全局现在是什么。
+- 为什么是问题：计划的取舍是“同一个形状、三种模式”，但控件层把“基数”当成“预留量”呈现，数值与模式的耦合没有在界面上表达；错配的后果（几乎每轮压缩，且每次压缩有成本）远大于一个多余的校验。
+- 如何核实：`compactionTrigger({mode:"reserve", value:20000}, w)` = 3616；`{mode:"tokens", value:80}` = 80；组件测试里 `form.compactMode` 切换前后 `compactValue` 不变（读源码 `:56-58`、模板无 watch）。
+- 建议改法：切模式时清空数值（或按模式各存一份）；“留预留量”的数值框改成“预留量（token）”，换算改成 `window − value`（内核缺省的 15%/16384 只在留空时用），这样字面与行为一致；或者保留“窗口大小”但模式名改为“按另一个窗口大小留预留量”。固定值给一个合理下限提示（例如小于 4000 警告），`compactHint` 按模式只写当前模式的一句话。
+
+### 9. “将在这一步结束后压缩”的说明：压缩真正发生后仍挂着；回复晚于运行结束时清不掉
+- 严重程度：建议
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:266-273`（清理只在 `syncTicker` 看到 idle 时）、`:457-462`
+- 现象：Spec 输出 20 写“运行结束时清掉”，实现照做；但 `next-boundary` 的压缩通常在这一步（最长几十秒到几分钟）内就做了，期间界面写着“将在这一步结束后压缩”，而分隔线已经出现。另一个时序：`compact` 的 RPC 回复与 status 帧是两路，运行已结束、idle 帧已被 `syncTicker` 处理之后才收到 `scheduled:"next-boundary"` 的回复，则 `queuedCompactNotice` 被设上后没有下一个会触发清理的帧（清理依赖“再来一帧”），说明一直挂到用户下一次发送。
+- 为什么是问题：说明与事实不符；用户可能再发一次 `/compact`。
+- 如何核实：读代码；用 `endpoint.hold()` 的做法（`session-host.test.ts` 运行中受理那条）在 hold 期间看 `compaction` 事件到达后 `composer.notice`，仍是 `queued`。
+- 建议改法：`afterChange` 里除了看 idle，也看路径上出现了新的 `compaction` 事件就清；`compactCommand` 在设上说明前再看一次 `transcript.run().status`，已 idle 就不设。
+
+### 10. 宿主声明 `commands` 后，别的 `/xxx` 变成给模型的普通消息
+- 严重程度：建议
+- 位置：`packages/nb-agent-ui/src/vue/builtin-composer.ts:20-21`（`when`）、`packages/nb-agent-ui/src/vue/composer/composer-actions.ts:31-34`（`resolveSubmission` 只认可见命令）、`session-host.ts` 的 `HOST_COMMANDS`
+- 现象：`/clear`、`/new`、`/model gpt-x`、`/mode` 等以前是命令入口，宿主收到 `command.run` 直接丢弃（输入框内容不动）；现在它们不在可见命令里，`resolveSubmission` 把 `/new` 当普通文本，作为一条用户消息发给模型（一次真实请求、花费、写进会话）。菜单里没有它们，但习惯输入的人会直接发出去。
+- 为什么是问题：把“发出去没反应”换成了“发给模型”。是否可接受取决于产品意图；计划只写了“菜单不列”（设计审查前端第 9 条），没提发送路径的变化。只对内置命令生效：插件贡献的命令（`when` 由它们自己写）不受 `commands` 约束，两类入口规则不一致。
+- 如何核实：`resolveSubmission({text:"/new", commands:["compact"], ...})` 返回 `{kind:"message"}`；`registry.test.ts` 新用例只断言菜单可见项，没断言发送。
+- 建议改法：写明决定（可接受就在 Spec 输入框一节记一句“宿主没做的命令按普通文字发送”）；或者对 `/` 开头且是登记过但宿主没做的名字，composer 给一句“暂不支持”而不发送。
+
+### 11. 测试覆盖缺口（变异检查按读代码推断，未改仓库文件）
+- 严重程度：建议
+- 位置：`AgentConversationView.dom.test.ts`、`ModelEditDialog.dom.test.ts`、`kernel-transcript.test.ts`、`session-host.test.ts`
+- 现象与缺口：
+  1. 轮中压缩分隔线只测了“整轮收起时在摘要行下”。把 `v-for="block in (expanded ? [] : turn.processDividers)"` 改成总是显示（展开时重复一份），现有测试全过；没有“展开后只有一条”“运行中只有一条”的断言。
+  2. `kernel-transcript.test.ts` 的 `runKind` 用例只有“先 `applyPath` 后 `applyFrame`”一种顺序，抓不到第 7、1 条；也没有 `compaction` 事件缺 `method`/`tokensBefore`（`compactionView` 返回 null、分隔线退回只有摘要）、`details` 为字符串、`usage.cost` 缺失的用例。
+  3. shake 用例只有 1 轮，抓不到第 3 条；没有 `firstKeptEntryId: null`、切在一轮中间（`assistant` 事件 id）的用例。
+  4. `ModelEditDialog.dom.test.ts`：固定 token 数必填与非正数、预留量非正数、目录模型（`providerKind:"catalog"`）保存带 `compaction`、切模式后的数值，都没有测；第二条用例标题写“旧配置的固定触发点”，实际给的是新形状 `compaction`，旧 `compactAt` 映射只在后端测试里。测试用 `vm.$emit("update:modelValue")` 绕过输入，没点真实控件。
+  5. `session-host.test.ts`：`UNKNOWN_OUTCOME` 分支、`current !== target`（压缩中切会话）、两次并发 `/compact` 都没有测试。
+- 建议改法：按上面逐条补；其中 1、2（两种顺序）、4 的 tokens 必填值得补。
+
+### 12. 界面文案与结构细节
+- 严重程度：建议
+- 位置：`locales/zh-CN.ts`、`en-US.ts` 的 `compactionDetail.*`；`AgentCompactionDetail.vue:36,46,63-70`
+- 现象：
+  1. “方法：摘要模型”与下一行“模型：p/small”并列，容易读成同一件事；`inplace`“就地摘要”是内部术语，用户看不出它用的是会话的模型、`summary` 用的是压缩角色的模型。英文 “Summary model”同理。建议方法名写区别点：“沿用对话模型摘要”“用压缩模型摘要”。
+  2. “放回”（Restored）：用户要理解成“压缩后又把这些文件的内容读回了上下文”，“放回”过于口语；且每项只有“文件 路径 · 4.2k · 已截断”，没说“已截断”是放回的内容被截。建议“重新读入”，并把截断写成“只读入了前一部分”。
+  3. 币种：花费只用 `ctx.usage.currency`，`CompactionView` 本身不带币种；会话在中途切换币种设置时，旧分隔线的数会按新币种的符号显示（花费数值没换算）。若 `ctx.usage.currency` 本来就是整个会话统一口径则无此问题，需要和 usage 一致性确认。
+  4. `AgentCompactionDetail.md` 的“无障碍”一节写“这里没有可聚焦的内容”：`<dl>` 在 `display: grid` 下，Safari/VoiceOver 对列表语义有已知丢失，且分隔线的展开按钮没有 `aria-controls` 指向详情；属于项目内已有模式，不单独要求改。
+
+### 13. 只压缩的运行被进程收尾中断后，输入框出现“继续”，继续的是已经完成的上一轮
+- 严重程度：建议（从代码推断，未验证）
+- 位置：`packages/nb-agent-ui/src/kernel-transcript.ts:353-355`（`interrupted = reason === "interrupted"` 在 `compactRun` 分支之前，对只压缩的运行同样成立）；`session-host.ts:538-540`（`run.continue` 调 `remote.start`）
+- 现象：只压缩的运行以 `interrupted` 收口（服务重启）时，`transcript.interrupted()` 为真，输入框 `resume` 为真，空输入也能发“继续”；它启动的是对上一轮的续跑，而上一轮早已完成。
+- 为什么是问题：`runEnded` 的 compact 分支专门保证“不碰上一轮”，但 `interrupted` 标志漏在分支外。
+- 建议改法：`interrupted` 只在非 compact 运行里置位；补一个 `reason:"interrupted"` 的 compact 运行用例。
+
+### 更正（对第 12 条）
+- 12.3（币种）不是这次改动引入的：整轮用量一直用 `ctx.usage.currency`，不应归给这次实现，请忽略。12.4 对 Safari 的说法没有实测，只作提示，不要求改。
+
+## 汇总
+
+按影响排序的编号：7、1、8、3、2、4、6（重要），5、9、10、11、12、13（建议）。
+- 阻断 0，重要 7（第 1、2、3、4、6、7、8 条），建议 6（第 5、9、10、11、12、13 条），共 13 条。
+- 第 7 条（宿主不传 `run.kind`）与第 1 条（`run.kind` 与路径读到的 `runKind` 不同步）是同一个特性的两个洞，要一起修并补“宿主层、两种事件顺序”的测试。
+
+## 未发现问题的方面
+- `compactionView` 对 `details`/`restored` 形状不对（非对象、非数组、未知 kind、缺 target）的处理：按 `isRecord`/`flatMap` 过滤，不抛错；未知方法名原样显示，我构造的几种坏形状都没有异常。
+- `keptTurns` 在分页取路径、回退重放下的口径：`turnStarts` 在 `resetPath` 里与其它路径状态一起清空，`applyPath` 全量重放；切点不在路径里时返回 null；多次压缩时按全路径下标数，结果正确（shake 的语义问题见第 3 条）。
+- `context` 读数在回退与重放下与实时一致：同一个 `reducePath`，`resetPath` 把 `context` 清成 null，没有看到分叉。
+- `processDividers` 与 `trailing`、`processBlocks` 不重复：折叠时只画 `processDividers`，展开时它们在过程里；`reuseTurnGroups`/`assignTurnKeys` 不受新增字段影响（`processDividers` 在 `buildTurn` 里现算）。
+- `AgentCompactionDetail.vue` 样式只用 token（`--divider`、`--text-muted`、`--text-secondary`、`--text-xs`、`--font-mono`、`--border-w`），长路径 `overflow-wrap:anywhere` 加 `minmax(0,1fr)` 在窄宽度不撑破；各字段缺失时整行不出现；两种语言的复数键（`_one`/`_other`；zh 只有 `_other`）与 `locales.test.ts` 的对照一致。
+- 验证：`bun test` 的 `kernel-transcript`、`conversation-turns`、`locales`、`registry` 共 86 条通过；`vitest` 的 `AgentConversationView.dom.test.ts` 27 条通过；`nb-agent-ui` 的 `typecheck` 与 `neuro-book` 的 `vue-tsc -p tsconfig.web.json` 通过。未跑 e2e 与开发服务。
+- Lab：新场景在 `agentConversationViewScenes` 数组里，随 `lab-scenes` 门禁自动登记；缺口是没有“只压缩的运行中”“压缩失败”“停止压缩”三个场景，也没有窄视口下详情的场景（对应第 6、7 条，补上最有价值）。
+- `ModelEditDialog.md` 与 `AgentCompactionDetail.md`、`AgentTurnBlock.md`、`AgentConversationTurn.md` 已随改动更新；`ModelEditDialog.md` 的“压缩”一节没有逐项写模式与数值的互动，若按第 8 条改了需要同步。

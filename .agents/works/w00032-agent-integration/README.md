@@ -54,6 +54,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-05 | t18 开工前核对现状后定：adhoc 挪到 t14，t18 只做主创和会话标题；tiny 没绑时用第一句话作兜底标题、不调模型；做一次一次性实验定 `edit` 缺省模式；主创读 `user://AGENTS.md` 与 `project://AGENTS.md`；主创提示词这一版是第一轮，开发者按实际创作继续优化（[t18](tasks/t18-builtin-profiles/README.md)） |
 | 2026-11-05 | 开发者：t13、t14 优先级不高，接下来做 t17；t17 第一版以能真的用它写书为标准，其余拆到 [t28](tasks/t28-conversation-ui-followups/README.md)；t17 做完紧接着做 t11（[t17](tasks/t17-conversation-ui/README.md)） |
 | 2026-11-05 | t17 完成并合入；`agent/conversation.md` 晋升 `implemented`（[t17](tasks/t17-conversation-ui/README.md)） |
+| 2026-11-05 | t11 实现完成并合入：压缩方法三种经贡献点交出、放回、触发点设置、`/compact` 与压缩详情界面；前后端实现审查各一次，成立的都已修；`agent/compaction.md` 待开发者批准晋升（[t11](tasks/t11-compaction/README.md)） |
 
 ## 待确认
 

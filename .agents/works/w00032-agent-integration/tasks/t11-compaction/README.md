@@ -72,12 +72,25 @@ t03、t09。
 
 ## 当前状态
 
-设计审查已处理，修订后的计划开发者已确认（[plan.md](plan.md)）。第 1–6 片都已在分支 `feat/w00032-t11-compaction`（worktree `.worktree/w00032-t11-compaction`）上提交，`nb-harness` 340 条、`plugins/agent` 与 `plugins/models` 与 SDK 204 条、`nb-agent-ui` 227 条加 vitest 88 条、模型页的组件测试，类型检查（`tsc`、两份 `vue-tsc`）都过；e2e 跑了 `agent-conversation` 9、`lab-scenes` 加 `lab-agent-ui` 33、`models`、`settings`、`plugins`、`workbench-views` 共 60，都过；真实模型冒烟（DeepSeek）过，压缩请求有缓存命中（cacheRead 2–4k）。变异检查：内核请求与方法顺序、方法的各个判据、放回的四处、触发点的覆盖与失效、适配器与分轮层、宿主命令，各抓到。实现审查进行中（后端 omp、前端 Sonnet），审查报告回来处理后合入。
+设计审查已处理，修订后的计划开发者已确认（[plan.md](plan.md)）。第 1–6 片与实现审查的修正都在分支 `feat/w00032-t11-compaction`（worktree `.worktree/w00032-t11-compaction`）上提交。验证：`nb-harness` 全部、`plugins/agent` 与 `plugins/models` 与 SDK 207 条、`nb-agent-ui` 228 条加 vitest、模型页组件测试，`tsc` 与两份 `vue-tsc` 都过（`nb-harness` 里一条 JSONL 截断的测试在负载 7 时超时，单独重跑过）；e2e 跑了 `agent-conversation`、`lab-scenes`、`lab-agent-ui`、`models`、`settings` 共 64 条，都过；真实模型冒烟（DeepSeek）修正后重跑仍过，压缩请求有缓存命中。变异检查：内核请求与方法顺序、方法的各个判据、放回的四处、触发点的覆盖与失效、适配器与分轮层、宿主命令，以及实现审查修正中的宿主 `run.kind`、放回的单文件出错与超预算、方法表的激活后中止与撤回后的模型调用、小窗口缺省触发点，都各抓到。
 
 前端 Sonnet（[报告](evidences/design-review-frontend.txt)，14 条：重要 11、建议 3）。后端 omp（[报告](evidences/design-review-backend.txt)，17 条，第 5 条它自己撤回，其余重要 16）：第一个会话因额度退出，只写了 1 条；新开的会话写到第 17 条也因额度退出，重点 8（阈值）没审到，主会话自查后补进计划。
 
 都成立，改进了计划。第 1、10 条（对话记录副本）开发者定了不写副本。接受的取舍：方法不设时限（后端 16）；对话模型不可用时界面不开 `/compact`（前端 10）；`tokensAfter` 估算偏低（前端 8）。前端第 9 条查出 t17 的死入口：菜单里 8 个命令发出去被丢弃，第 5 片一起处理。
 
+实现审查（开发者定的做法：后端 omp、前端 Sonnet，各一次）：
+
+- 前端 Sonnet（[报告](evidences/impl-review-frontend.txt)，13 条：重要 7、建议 6）。改了：宿主没把 `run.kind` 交给视图、`kind` 与路径读到的先后不同步（第 7、1 条，现算 `kind`，宿主传下去，补“先快照后路径”“先帧后事件”与宿主层的测试）；手动压缩的分隔线抬高上一轮用时（2）；shake 的“保留最近 N 轮”与“省略了 M 条”矛盾（3，shake 不给轮数）；详情的用量丢了缓存读写（4，加上，输入写合计与缓存读）；详情的压缩后读数加上放回量（5）；压缩失败的整句说明溢出（6，标签允许换行）；排队说明在压缩做完后仍挂着、回复晚于运行结束时清不掉（9）；被打断的只压缩运行不应出现“继续”（13）；触发点换模式时保留旧数值、预留量的说明在别的模式也显示（8 的一部分）；测试缺口里的展开后分隔线重复、固定值必填。接受取舍：第 8 条“留预留量的数值框是窗口大小”按已确认的形状 `{mode, value?}` 保留（改成预留量要改 Spec 与形状，不是实现问题）；第 10 条宿主没做的内置命令按普通文字发给模型，写进了视图 Spec；第 12 条方法名措辞改了，“放回”沿用 Spec 术语；币种那条审查者自己更正为已有行为。
+- 后端 omp（[报告](evidences/impl-review-backend.txt)，8 条：重要 7、建议 1）：都成立，都改了：放回单文件出错只跳过它（1）、单行超预算整份跳过（5）；摘要的保留尾窗按会话模型窗口的 25% 收紧（2）；定位不到保留部分时整段换成摘要，不再让尾巴既进摘要又原样留下（3）；方法表在激活后再看一次运行是否已中止（4）；撤回后旧实现再调 `job.model` 被拒绝（7）；百分比限 1 到 100、固定值必写，入口就拒绝（6，设置形状改成三个分支）；小窗口缺省触发点预留量最多取窗口的一半，不再是负数（8，内核 `triggerPoint`，runtime.md 输出 46 已写）。
+
+仍接受的风险：触发点比摘要加保留部分还小时每个边界都再压缩一次；`tokensAfter` 是估算；第三方方法没有时限；`no-compaction-model` 只给文字；放回的行锚快照持有路径没有单独的测试场景；`inplace` 的摘要覆盖整段请求而保留部分照留（与步切点重复输入同一类，写在 plan 的风险里）。
+
+## 待晋升
+
+[`agent/compaction.md`](../../../../../docs/specs/agent/compaction.md) 现在是 planned，实现已经合入，等开发者批准晋升为 implemented。证据：实现入口 `packages/neuro-book/src/plugins/agent/backend/compaction/`；合同测试 `plugins/agent/compaction.test.ts`、`compaction-methods.test.ts`、`session-host.test.ts`、`nb-harness` 的 `kernel/compaction/compaction.test.ts`；Smoke `plugins/agent/compaction.llm.test.ts`（`NBOOK_LLM_TESTS=1`，需要 DeepSeek 密钥）。
+
 ## 下一步
 
-处理设计审查，按切片实施；压缩提示词与结果格式按实际体验调整。
+
+
+压缩提示词与结果格式按实际体验调整；Spec 晋升等开发者批准。
