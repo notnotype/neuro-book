@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # NeuroBook 接入 Agent
@@ -51,6 +51,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t13 讨论完成：收件箱三种接受方式（立即、下一条消息时、手动），不做按天数自动接受；每轮改动文件条由 nb-history 提供；保留、合并保存、大文件不存快照。同时改判 t06：默认不放行写入，写入要审批；先做 yolo，再做交审批模型，按工具的规则先于模式判定（[t13](tasks/t13-history/README.md)、[t06](tasks/t06-approval/README.md)） |
 | 2026-11-01 | t20 之后先实施 t09（其余顺序是建议，见 [t09](tasks/t09-models/README.md)）；t09 的设置界面先出静态稿、定稿后前后端一起做；第一版不做 OAuth 登录 |
 | 2026-11-02 | t10 之后先做 t08，再做 t12；nb-story 迁新内核放最后。t08 把方案注册做进 `nbook.files`，Agent 的方案都注册进文件服务（[t08](tasks/t08-resources-home/README.md)） |
+| 2026-11-05 | t18 开工前核对现状后定：adhoc 挪到 t14，t18 只做主创和会话标题；tiny 没绑时用第一句话作兜底标题、不调模型；做一次一次性实验定 `edit` 缺省模式；主创读 `user://AGENTS.md` 与 `project://AGENTS.md`；主创提示词这一版是第一轮，开发者按实际创作继续优化（[t18](tasks/t18-builtin-profiles/README.md)） |
 
 ## 待确认
 

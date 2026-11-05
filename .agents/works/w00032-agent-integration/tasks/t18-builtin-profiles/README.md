@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t18-builtin-profiles
 status: planned
-updated: 2026-10-30
+updated: 2026-11-05
 ---
 
 # 内置 Profile、提示词规范与评测
@@ -51,10 +51,22 @@ t05、t12、t15。
    - adhoc 的初始输入只有 `{role?}`。t14 决定 20 与工具表随之改。
 7. Workflow 多代理编排可能要自定义工具：开发者的初步方案是 Agent 能定义临时 Profile，记进 [t24](../t24-workflow-integration/README.md)，到 Workflow 的 Work 再讨论。
 
+开工前核对现状后补充（开发者 2026-11-05，全部按推荐）：
+
+8. adhoc 挪到 t14（改决定 1）：`agent_spawn` 没实现，现在没有入口能派发它，任务传入与 `outputSchema` 也都属于 t14。t18 只做主创和会话标题；主创的提示词先不提子代理，t14 加上时升版本。
+9. `agent.profiles` 的声明加 `role?`，用户的 Profile 设置优先。tiny 没绑模型时不调模型，用用户第一句话的前若干字作标题，不写说明：角色合同已删掉回落，后台费用不悄悄算到主模型上。
+10. 做一次一次性实验定 `edit` 的缺省模式（t12 留给 t18 的问题，不算决定 5 说的正式评测）：同一批编辑任务，hashline 与 replace 各 3 遍，模型 DeepSeek 与 gpt-6-luna，比成功率、输出 token 与误改。另做一次 DeepSeek smoke：主创改一个文件，再生成标题。
+11. 主创经 `opening()` 读 `user://AGENTS.md` 与 `project://AGENTS.md`，有才放进上下文，压缩后重读。接受别人的书能带指令进来的代价，写入与 shell 仍要过审批。
+12. 其余按默认：key 是 `nbook.agent.main`、`nbook.agent.session-title`；主创必需 `read`、`write`、`grep`、`glob`，可选 `edit`、`shell`，不带 `todo`；标题用内核的 `yield`；声明另加“不接收 `defaultForAll` 工具”“不进新建会话的菜单”；内核加 `description` 与自动写入路径，“用户改过就不再自动改”由内核判断；第一轮结束与带摘要的压缩后异步触发，后台会话与子会话不生成，失败写诊断，还没有说明时下一轮结束再试；每个主会话固定一个后台标题会话，费用不计入主会话。
+
+13. 主创提示词这一版只是第一轮（开发者 2026-11-05）：开发者之后按实际创作需要和体验不断优化。所以结构测试只锁节与工具绑定，不锁措辞；每次改提示词升 Profile 版本。
+
+开发者 2026-11-05 确认计划第一稿，含这次新定的五个细节：绑上 tiny 后生成的标题替换兜底标题；压缩后只更新说明、不改标题；`AGENTS.md` 单个文件上限 32 KiB，读不了写诊断；`sessions://` 目录不列任何后台会话；`edit` 缺省的判定规则。
+
 ## 当前状态
 
-讨论完成（开发者 2026-10-30）。
+计划第一稿已确认并提交：[plan.md](plan.md)，Spec 草稿 [`agent/builtin-profiles.md`](../../../../../docs/specs/agent/builtin-profiles.md)。设计审查进行中。
 
 ## 下一步
 
-实施时按 implementation-planning 写计划：三个 Profile、`prompts.md`、结构测试；`agent_spawn` 的 `outputSchema` 随 t14 的实现。
+处理设计审查的结果后按切片实施。

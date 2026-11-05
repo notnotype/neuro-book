@@ -8,6 +8,7 @@
 | `packages/neuro-book/src/server/**`、`packages/neuro-book/src/project/**`、`packages/neuro-book/src/plugins/*/backend/**` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`packages/neuro-book/AGENTS.md`](../../../packages/neuro-book/AGENTS.md) 的“后端”一节（旧应用的 Nitro 后端规范已归档） |
 | `packages/neuro-book/src/plugins/*/shared/**`、`packages/neuro-book/src/manifest.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`contracts.md`](contracts.md) |
 | `packages/**`（应用之外的包） | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`packages.md`](packages.md) |
+| `**/*.profile.tsx`、其它给模型看的提示词（工具说明、提醒） | 所在路径对应的规范，再追加 [`../prompts.md`](../prompts.md) |
 | `vite.config.ts`、`vitest.config.ts`、`*.d.ts`、`bunfig.toml` 等工具链配置 | [`common.md`](common.md)、对应语言规范 |
 | `.github/**`、`patches/**`、仓库级 CI 配置 | [`common.md`](common.md)；按文件类型追加 [`data-formats.md`](data-formats.md) 或 shell 规范 |
 | `scripts/**/*.ts`、`scripts/**/*.mjs` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`scripts/typescript.md`](scripts/typescript.md) |

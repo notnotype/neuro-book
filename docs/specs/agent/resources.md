@@ -44,7 +44,7 @@ owners:
 
 | 方案 | 根的说明与条目 | 挂载点 | Agent 可写的 |
 |---|---|---|---|
-| `sessions://` | 最近使用的会话，至多 200 个：id、标题、Profile、更新时间 | `<会话 id>` → 会话目录，只露出 `session.jsonl`（所有调用方只读）与 `home/` | 自己的 `home/`，但 `home/attachments/`、`home/artifacts/` 除外 |
+| `sessions://` | 最近使用的会话，至多 200 个：id、标题、Profile、更新时间；不列后台会话，按 id 仍可读（planned） | `<会话 id>` → 会话目录，只露出 `session.jsonl`（所有调用方只读）与 `home/` | 自己的 `home/`，但 `home/attachments/`、`home/artifacts/` 除外 |
 | `profiles://` | Profile 目录：key、名称、来源、可不可用 | `<key>` → 这个 Profile 的笔记目录 | 当前 Profile 的 |
 | `temps://` | 无条目，只有说明 | `<会话 id>` → 这个会话的临时目录 | 自己的 |
 | `docs://` | 说明与 `builtin`、`agent` 两个条目 | `builtin` → 产品文档（插件 SDK 的作者文档在 `builtin/sdk/`）；`agent` → Agent 插件的文档 | 无 |

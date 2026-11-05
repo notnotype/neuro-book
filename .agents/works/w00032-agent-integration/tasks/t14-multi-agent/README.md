@@ -159,6 +159,11 @@ t05、t06、t07。
 - 子代理的费用并入费用上限：现在的累计（`ctx.spend`）只算一个会话，omp 按整棵会话树算（[`agent/run-guards.md`](../../../../../docs/specs/agent/run-guards.md) 不承诺）。
 - `wait` 这类轮询工具要豁免重复调用的检测：omp 豁免 `wait`；我们现在没有这个工具，`loop-guard` 也就没有豁免列表。
 
+## 来自 t18 的事项（2026-11-05）
+
+- adhoc Profile 从 t18 挪到这里实现（形状见 [t18](../t18-builtin-profiles/README.md) 决定 1、6）。
+- 主创（`nbook.agent.main`）的提示词现在不提子代理；`agent_spawn` 接上时加进提示词并升 Profile 版本。
+
 ## 当前状态
 
 讨论完成（开发者 2026-10-30 确认定稿）：六轮决定与确定的工具见上；两轮 omp 设计审查已处理（报告在 `evidences/`）。计划与实施切片在本 Work 的讨论全部完成后另定。
