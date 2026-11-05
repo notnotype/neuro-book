@@ -332,6 +332,8 @@ export interface CanonProject {
     closeView(token: string): Promise<void>;
     /** 在一张视图之上又挡掉了什么（换成占位）：记进内核的视图审计。 */
     audit(token: string, entry: {readonly method: string; readonly blocked?: readonly ObjectRef[]; readonly position?: ReadPosition}): Promise<void>;
+    /** 建在视图之上的一层拒了一次读取（例如视角句柄已经关了）：记一条拒绝；看的人与用途不知道时为 null 与空串。 */
+    deny(who: {readonly viewer: string | null; readonly purpose: string}, method: string): Promise<void>;
 }
 
 export const canonProjectKey: ServiceKey<CanonProject> = defineServiceKey<CanonProject>("nbook.canon/project");

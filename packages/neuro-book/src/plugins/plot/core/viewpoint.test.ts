@@ -3,9 +3,11 @@ import {rm} from "node:fs/promises";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {COMPONENT_IDS} from "../shared/declarations";
+import {buildRegistry} from "@notnotype/nb-canon";
+
+import {COMPONENT_IDS, PLOT_COMPONENTS} from "../shared/declarations";
 import {PlotService} from "../testing/service";
-import {addRow, chapter, learns, present, start} from "../testing/world";
+import {addRow, chapter, drafts, learns, present, start} from "../testing/world";
 
 let root = "";
 let plots: PlotService[] = [];
@@ -107,5 +109,47 @@ describe("plot.knowledge 输出 9：读一个条目的过滤（含隐秘目标�
         const goalRead = holder.entry(goal);
         expect(goalRead).toMatchObject({kind: "entry"});
         expect(typeof goalRead !== "string" && goalRead.kind === "entry" && goalRead.view.namespaces.goal!.fields.基于!.value).toEqual([{id: secret, label: "哥哥想把妹妹送走"}]);
+
+        // 删掉这个目标：墓碑留着名字，照样随它的知识点挡（删除不等于对谁都解密）。
+        const stored = plot.service.world.data.entries.get(goal)!;
+        await plot.publish([{ref: {kind: "entry", id: goal}, after: {...structuredClone(stored), deleted: true}}]);
+        expect(plot.viewpoint({viewer: jin, until: start("ch3")}).viewpoint.entry(goal)).toMatchObject({kind: "placeholder"});
+    });
+});
+
+describe("plot.knowledge 输出 9：经历里的同场者与知情的变化", () => {
+    test("只被提到的人不算同场；去掉一行也是一次变化（改后为空）；推出了已有的同一程度不算变化", async () => {
+        const plot = await open();
+        const [guard, king, spy] = [await plot.person("卫兵"), await plot.person("国王"), await plot.person("密探")];
+        const k = await plot.point("城门今夜不锁", null);
+        const told = await plot.change(chapter("ch2"), {cast: [present(guard)], patches: [addRow(guard, k, {程度: "knows", 怎么知道: "witnessed"})]});
+        const again = await plot.change(chapter("ch3"), {cast: [present(guard)], marks: [learns(k)]});
+        const removed = await plot.change(chapter("ch4"), {cast: [present(guard), present(king), {who: spy, role: "mentioned"}], patches: [{op: "listRemove", at: {entry: guard, path: "know.知情"}, value: k}]});
+        const {viewpoint} = plot.viewpoint({viewer: guard, until: start("ch6")});
+        const experience = viewpoint.experience();
+        if (experience === "no-viewer") throw new Error("no viewer");
+        const byId = new Map(experience.items.map((item) => [item.id, item]));
+        expect(byId.get(told)!.knowing).toMatchObject([{point: k, before: null, after: {程度: "knows"}}]);
+        expect(byId.get(again)!.knowing).toEqual([]);
+        expect(byId.get(removed)!.cast).toEqual([{who: king}]);
+        expect(byId.get(removed)!.knowing).toMatchObject([{point: k, before: {程度: "knows"}, after: null}]);
+    });
+});
+
+describe("plot.knowledge 输出 9：类型不在登记里的命名空间", () => {
+    test("登记着时引用换占位；类型撤掉以后过滤不了，整个命名空间不给（不原样漏出引用）", async () => {
+        const plot = await open();
+        const guard = await plot.person("卫兵");
+        const answer = await plot.point("管家是凶手", null);
+        const ids = await plot.publish([{ref: {kind: "entry", id: "tmp:f"}, after: drafts.foreshadow("tmp:f", "谁杀了男爵", {种类: "mystery", 答案: {ref: answer}})}]);
+        const mystery = ids["tmp:f"]!;
+        const read = () => {
+            const entry = plot.viewpoint({viewer: guard, until: start("ch3")}).viewpoint.entry(mystery);
+            if (typeof entry === "string" || entry.kind !== "entry") throw new Error(JSON.stringify(entry));
+            return entry.view.namespaces;
+        };
+        expect(read().fs!.fields.答案!.value).toEqual({ref: null, label: "一件卫兵不知道的事"});
+        await plot.service.setRegistries({registry: buildRegistry([...PLOT_COMPONENTS.filter((component) => component.id !== COMPONENT_IDS.foreshadow), {id: "test.person", label: "人物", namespace: "character", version: 1, fields: [{id: "状态", label: "状态", kind: "text"}]}])});
+        expect(Object.keys(read())).not.toContain("fs");
     });
 });

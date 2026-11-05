@@ -81,9 +81,11 @@ export class ForeshadowIndex {
     constructor(
         readonly view: CanonReadView,
         readonly position: ReadPosition,
+        /** 伏笔条目自己的状态（意图、答案、物件……）按这个模式折叠；读者读到的节点按正文算，与模式无关。 */
+        readonly mode: Mode,
     ) {
         this.foreshadows = view.entries().filter((entry) => entry.deleted !== true && entry.type === ENTRY_TYPES.foreshadow).flatMap((entry) => {
-            const read = view.entry(entry.id, position, "actual");
+            const read = view.entry(entry.id, position, mode);
             if (read === null || read === "chapter-not-found" || read.deleted) return [];
             const fields = read.namespaces.fs?.fields ?? {};
             const text = (field: string) => (typeof fields[field]?.value === "string" ? (fields[field]!.value as string) : null);
@@ -129,8 +131,14 @@ export class ForeshadowIndex {
         for (const written of view.changes({kind: "written", status: "active"})) {
             const fulfilled = written.links.filter((link) => link.kind === "fulfills").map((link) => link.plan);
             if (fulfilled.length === 0) continue;
-            // “自己的讲述上”按全部讲述算（含失联的）：作者自己标过的节点因改稿失联时，不拿计划的节点顶上。
-            const own = new Set(written.told.flatMap((telling) => nodeMarks(telling.marks).map((mark) => mark.foreshadow)));
+            // 兑现没有发生（套不上）就不继承：计划这时回到未兑现（model.md 输出 13）。
+            if (written.patches.length > 0 && view.outcome(written.id)?.applied !== true) continue;
+            // “自己的讲述上”按全部讲述算（含失联的）：作者自己标过的节点因改稿失联时，不拿计划的节点顶上。悬念答案上的揭示也是
+            // 这个悬念的节点（输出 3）：作者把回收改成暗示时，不拿计划的回收顶上。
+            const own = new Set(written.told.flatMap((telling) => [
+                ...nodeMarks(telling.marks).map((mark) => mark.foreshadow),
+                ...(telling.marks ?? []).flatMap((mark) => (mark.kind === MARK_IDS.reveal && mark.version === 1 && typeof mark.point === "string" ? (answeredBy.get(mark.point) ?? []) : [])),
+            ]));
             const first = byChange.get(written.id)?.[0];
             for (const node of planned) {
                 if (!fulfilled.includes(node.plan) || own.has(node.foreshadow)) continue;
@@ -142,7 +150,8 @@ export class ForeshadowIndex {
             }
         }
         this.homeless = homeless;
-        this.nodes = nodes.sort((a, b) => compareOccurrence(view, a.occurrence, b.occurrence));
+        // 同一发生点按讲述 id 的数值部分排（model.md 输出 27），不按节点是先加进来的还是继承来的。
+        this.nodes = nodes.sort((a, b) => compareOccurrence(view, a.occurrence, b.occurrence) || compareTellingIds(a.telling, b.telling));
     }
 
     /** 读到讲述位置 P 为止的节点。 */
@@ -162,6 +171,11 @@ export class ForeshadowIndex {
     reveals(): readonly {readonly point: string; readonly mode: "hint" | "explicit"; readonly item: TellingItem}[] {
         return this.#reveals;
     }
+}
+
+/** 讲述 id 的先后：按数值部分（`t9` 在 `t10` 之前）。 */
+function compareTellingIds(a: string, b: string): number {
+    return Number(a.replace(/\D/gu, "")) - Number(b.replace(/\D/gu, "")) || (a < b ? -1 : a > b ? 1 : 0);
 }
 
 function compareOccurrence(view: CanonReadView, a: Occurrence, b: Occurrence): number {
@@ -185,8 +199,8 @@ export function tellingPositionOf(position: ReadPosition): TellingPosition | nul
 
 const foreshadowIndexes = perViewCache<ForeshadowIndex>();
 /** 一份视图在一个读取位置上的伏笔索引：诊断与账本共用（缓存见 `view-cache.ts`）。 */
-export function foreshadowIndex(view: CanonReadView, position: ReadPosition): ForeshadowIndex {
-    return foreshadowIndexes(view, JSON.stringify(position), () => new ForeshadowIndex(view, position));
+export function foreshadowIndex(view: CanonReadView, position: ReadPosition, mode: Mode): ForeshadowIndex {
+    return foreshadowIndexes(view, `${mode}|${JSON.stringify(position)}`, () => new ForeshadowIndex(view, position, mode));
 }
 
 const ref = (kind: "entry" | "change", id: string) => ({kind, id}) as const;
@@ -196,8 +210,8 @@ const placementOfChange = (view: CanonReadView, id: string): Finding["at"] | und
 };
 
 /** 没埋就回收（输出 6）：一个伏笔的回收（或部分回收）节点之前没有埋下的节点。 */
-const payoffBeforePlant: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const payoffBeforePlant: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     const findings: Finding[] = [];
     for (const foreshadow of index.foreshadows) {
@@ -214,8 +228,8 @@ const payoffBeforePlant: DiagnosticCompute = (view, at) => {
 };
 
 /** 回收以后又埋（输出 6）：已回收以后又有埋下的节点，每个这样的埋下节点一条。 */
-const replantAfterPayoff: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const replantAfterPayoff: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     const findings: Finding[] = [];
     for (const foreshadow of index.foreshadows) {
@@ -232,8 +246,8 @@ const replantAfterPayoff: DiagnosticCompute = (view, at) => {
  * 计划的节点没写（输出 6）：带伏笔节点的计划安放在第 N 章，第 N 章已经有已写的剧情变更、读取位置到了第 N 章末尾，而这条计划
  * 在第 N 章末尾仍未兑现，或兑现了但第 N 章里没有这个伏笔的节点（继承的也算）。
  */
-const plannedNodeMissing: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const plannedNodeMissing: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     const atKey = view.positionKey(at);
     const findings: Finding[] = [];
@@ -259,16 +273,16 @@ function plantedNotPaid(index: ForeshadowIndex, foreshadow: string, until: Telli
 }
 
 /** 没排回收（输出 7）：已埋、没回收，也没有带回收节点的计划。 */
-const noPayoffPlanned: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const noPayoffPlanned: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     return index.foreshadows.filter((foreshadow) => plantedNotPaid(index, foreshadow.id, until) && !index.planned.some((node) => node.foreshadow === foreshadow.id && node.role === "payoff"))
         .map((foreshadow) => ({key: {objects: [ref("entry", foreshadow.id)], line: view.line}, objects: [ref("entry", foreshadow.id)], params: {}}));
 };
 
 /** 太久没提（输出 7）：已埋、没回收，从最后一个节点到读取位置所在章超过参考间隔。 */
-const longSilence: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const longSilence: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     if (until === null) return [];
     const now = view.chapters.indexOf(until.chapter);
@@ -285,16 +299,18 @@ const longSilence: DiagnosticCompute = (view, at) => {
 };
 
 /** 放弃了还留着（输出 7）：意图为放弃，正文里还有生效的埋下节点。 */
-const droppedButPlanted: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
-    return index.foreshadows.filter((foreshadow) => foreshadow.intent === "dropped" && index.nodes.some((node) => node.foreshadow === foreshadow.id && node.role === "plant"))
+const droppedButPlanted: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
+    const until = tellingPositionOf(at);
+    return index.foreshadows.filter((foreshadow) => foreshadow.intent === "dropped" && index.nodesRead(foreshadow.id, until).some((node) => node.role === "plant"))
         .map((foreshadow) => ({key: {objects: [ref("entry", foreshadow.id)]}, objects: [ref("entry", foreshadow.id)], params: {}}));
 };
 
 /** 没有悬念认领的暗示（输出 7）：一处暗示的揭示指向的知识点，没有任何悬念的答案指向它。 */
-const orphanHint: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
-    return index.reveals().filter((reveal) => reveal.mode === "hint" && !index.answeredBy.has(reveal.point))
+const orphanHint: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
+    const until = tellingPositionOf(at);
+    return index.reveals().filter((reveal) => reveal.mode === "hint" && !index.answeredBy.has(reveal.point) && until !== null && reveal.item.located.kind === "found" && readBy(view, reveal.item.located.occurrence, until))
         .map((reveal) => ({key: {objects: [ref("entry", reveal.point)], telling: reveal.item.telling.id}, at: {kind: "telling" as const, telling: reveal.item.telling.id}, objects: [ref("entry", reveal.point)], params: {}}));
 };
 
@@ -302,8 +318,8 @@ const orphanHint: DiagnosticCompute = (view, at) => {
  * 物件在回收之前被动过（输出 7）：伏笔已埋、没回收期间——安放在最早的埋下节点所在章之后（同一章不算）、最后一次回收所在章之前
  * （还没回收就到读取位置为止）——有生效、套上的剧情变更的补丁改了物件条目的状态。
  */
-const objectTouched: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const objectTouched: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     const findings: Finding[] = [];
     // 已写、生效、套上的才算“动过”（计划还没发生）。
@@ -330,26 +346,34 @@ const objectTouched: DiagnosticCompute = (view, at) => {
 };
 
 /** 几个悬念同一个答案（输出 3）。 */
-const sharedAnswer: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const sharedAnswer: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
     return [...index.answeredBy].filter(([, mysteries]) => mysteries.length > 1).map(([point, mysteries]) => ({key: {objects: [ref("entry", point)]}, objects: [ref("entry", point), ...mysteries.map((id) => ref("entry", id))], params: {count: mysteries.length}}));
 };
 
 /** 继承的节点没有位置（输出 4）。 */
-const nodeWithoutTelling: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
-    return index.homeless.map((node) => ({key: {objects: [ref("entry", node.foreshadow), ref("change", node.written)], line: view.line}, ...withAt(placementOfChange(view, node.written)), objects: [ref("entry", node.foreshadow), ref("change", node.written)], params: {}}));
+const nodeWithoutTelling: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
+    // 只报读取位置之前安放的已写变更（之后写的还没发生）。
+    const limit = view.positionKey(at);
+    const before = (change: string) => {
+        const key = view.eventKey(change, "actual");
+        return limit !== null && key !== null && view.compareKeys(key, limit) < 0;
+    };
+    return index.homeless.filter((node) => before(node.written)).map((node) => ({key: {objects: [ref("entry", node.foreshadow), ref("change", node.written)], line: view.line}, ...withAt(placementOfChange(view, node.written)), objects: [ref("entry", node.foreshadow), ref("change", node.written)], params: {}}));
 };
 
 /** 悬念回收了却没揭示答案（输出 7）：悬念的回收节点（已写的或计划的）所在的那一章，没有对它答案的明说揭示。 */
-const payoffWithoutReveal: DiagnosticCompute = (view, at) => {
-    const index = foreshadowIndex(view, at);
+const payoffWithoutReveal: DiagnosticCompute = (view, at, mode) => {
+    const index = foreshadowIndex(view, at, mode);
+    const until = tellingPositionOf(at);
     const findings: Finding[] = [];
     const explicitIn = (point: string, chapter: string) => index.reveals().some((reveal) => reveal.point === point && reveal.mode === "explicit" && reveal.item.located.kind === "found" && reveal.item.located.occurrence.chapter === chapter);
     for (const foreshadow of index.foreshadows) {
         if (foreshadow.kind !== "mystery" || foreshadow.answer === null) continue;
         const payoffs = [
-            ...index.nodes.filter((node) => node.foreshadow === foreshadow.id && node.role === "payoff" && node.source !== "reveal").map((node) => ({chapter: node.occurrence.chapter, telling: node.telling})),
+            // 已写的回收按读到读取位置为止的算；计划的回收按计划本身查（它说了要在那一章回收）。
+            ...index.nodesRead(foreshadow.id, until).filter((node) => node.role === "payoff" && node.source !== "reveal").map((node) => ({chapter: node.occurrence.chapter, telling: node.telling})),
             ...index.planned.filter((node) => node.foreshadow === foreshadow.id && node.role === "payoff").map((node) => ({chapter: node.chapter, telling: node.telling})),
         ];
         for (const payoff of payoffs) {
@@ -387,7 +411,7 @@ export interface LedgerFilter {
 
 /** 账本（输出 8）：每个伏笔的阶段、节点、计划的节点、最后一次被提到的章、物件与它们最近一次被改的变更。 */
 export function ledger(view: CanonReadView, position: ReadPosition, mode: Mode, filter: LedgerFilter = {}) {
-    const index = foreshadowIndex(view, position);
+    const index = foreshadowIndex(view, position, mode);
     const until = tellingPositionOf(position);
     const counted = countedChanges(view, mode, position);
     const inRange = (chapter: string) => {

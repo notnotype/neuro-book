@@ -15,7 +15,7 @@ const inText = (w: PlotWorld, chapterId: string, quote: string, marks: Mark[] = 
     w.texts.set(chapterId, `${w.texts.get(chapterId) ?? ""}${quote}。\n`);
     return {source: "chapter", chapter: chapterId, quote, ...(marks.length === 0 ? {} : {marks})};
 };
-const stageAt = (w: PlotWorld, foreshadow: string, at = end("ch20")) => new ForeshadowIndex(w.view(), at).stage(foreshadow, tellingPositionOf(at)).stage;
+const stageAt = (w: PlotWorld, foreshadow: string, at = end("ch20")) => new ForeshadowIndex(w.view(), at, "actual").stage(foreshadow, tellingPositionOf(at)).stage;
 
 describe("plot.foreshadowing 验收场景 1：钟", () => {
     test("埋下、呼应、计划回收；物件被动过提示；第 15 章写完没回收报待处理；补上以后已回收；删掉那句退回呼应中、待处理回来", () => {
@@ -63,7 +63,7 @@ describe("plot.foreshadowing 验收场景 3、输出 4：继承", () => {
         w.change(chapter("ch2"), {told: [inText(w, "ch2", "桌上有封信", [node(letter, "plant")])]});
         const plan = w.change(chapter("ch9"), {kind: "plan", told: [{source: "outline", chapter: "ch9", anchor: "提一次那封信", marks: [node(letter, "echo")]}]});
         w.change(chapter("ch9"), {told: [inText(w, "ch9", "她又想起那封信")], links: [{kind: "fulfills", plan}]});
-        const index = new ForeshadowIndex(w.view(), end("ch20"));
+        const index = new ForeshadowIndex(w.view(), end("ch20"), "actual");
         expect(index.nodes.filter((item) => item.foreshadow === letter).map((item) => [item.role, item.source, item.occurrence.chapter])).toEqual([["plant", "node", "ch2"], ["echo", "inherited", "ch9"]]);
 
         const other = w.change(chapter("ch12"), {kind: "plan", told: [{source: "outline", chapter: "ch12", anchor: "再提", marks: [node(letter, "echo")]}]});
@@ -115,5 +115,58 @@ describe("plot.foreshadowing 验收场景 4、输出 6、7：其余检查", () =
             objects: [{id: clock, lastChange: touched}],
         }]);
         expect(ledger(w.view(), end("ch20"), "actual", {stage: "paidOff"})).toEqual([]);
+    });
+});
+
+describe("plot.foreshadowing 输出 3、4、6 到 8：继承、截取与模式", () => {
+    test("兑现计划的已写变更自己只标了答案的暗示：不继承计划的回收，阶段停在呼应中", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const k = w.point("管家是凶手", null);
+        const mystery = w.foreshadow("谁杀了男爵", {种类: "mystery", 答案: {ref: k}});
+        w.change(chapter("ch2"), {told: [inText(w, "ch2", "男爵死了", [node(mystery, "plant")])]});
+        const plan = w.change(chapter("ch9"), {kind: "plan", told: [{source: "outline", chapter: "ch9", anchor: "揭开", marks: [node(mystery, "payoff")]}]});
+        w.change(chapter("ch9"), {told: [inText(w, "ch9", "管家的手在抖", [reveal(k, "hint")])], links: [{kind: "fulfills", plan}]});
+        expect(stageAt(w, mystery)).toBe("echoing");
+    });
+
+    test("兑现变更套不上（改的物件删了）：计划回到未兑现，不继承它的节点", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const clock = w.thing("那座钟");
+        const fs = w.foreshadow("那座钟慢了一刻");
+        w.change(chapter("ch3"), {told: [inText(w, "ch3", "钟慢了一刻", [node(fs, "plant")])]});
+        const plan = w.change(chapter("ch15"), {kind: "plan", told: [{source: "outline", chapter: "ch15", anchor: "回收", marks: [node(fs, "payoff")]}]});
+        w.change(chapter("ch15"), {told: [inText(w, "ch15", "钟停在三点")], links: [{kind: "fulfills", plan}], patches: [{op: "set", at: {entry: clock, path: "character.状态"}, value: "停了"}]});
+        expect(stageAt(w, fs)).toBe("paidOff");
+        w.publish([{ref: {kind: "entry", id: clock}, after: {...structuredClone(w.world.data.entries.get(clock)!), deleted: true}}]);
+        expect(stageAt(w, fs)).toBe("planted");
+    });
+
+    test("同一句上继承来的埋下（讲述 id 小）排在显式的回收（讲述 id 大）前面，不报没埋就回收", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const fs = w.foreshadow("钟");
+        const plan = w.change(chapter("ch3"), {kind: "plan", told: [{source: "outline", chapter: "ch3", anchor: "埋", marks: [node(fs, "plant")]}]});
+        w.change(chapter("ch3"), {told: [inText(w, "ch3", "钟慢了一刻")], links: [{kind: "fulfills", plan}]});
+        w.change(chapter("ch3", 5), {told: [{source: "chapter", chapter: "ch3", quote: "钟慢了一刻", marks: [node(fs, "payoff")]}]});
+        expect(new ForeshadowIndex(w.view(), end("ch20"), "actual").nodes.map((item) => [item.role, item.source])).toEqual([["plant", "inherited"], ["payoff", "node"]]);
+        expect(run(w, FS_DIAGNOSTIC_IDS.payoffBeforePlant)).toEqual([]);
+    });
+
+    test("读第 1 章末尾时，第 3 章才埋的、第 6 章才有的暗示都还没发生：放弃了还留着、没有悬念认领的暗示不报", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const dropped = w.foreshadow("不要了", {意图: "dropped"});
+        w.change(chapter("ch3"), {told: [inText(w, "ch3", "一只猫", [node(dropped, "plant")])]});
+        const lonely = w.point("雨会停", null);
+        w.change(chapter("ch6"), {told: [inText(w, "ch6", "天色发亮", [reveal(lonely, "hint")])]});
+        expect([run(w, FS_DIAGNOSTIC_IDS.droppedButPlanted, end("ch1")), run(w, FS_DIAGNOSTIC_IDS.orphanHint, end("ch1"))]).toEqual([[], []]);
+        expect([run(w, FS_DIAGNOSTIC_IDS.droppedButPlanted).length, run(w, FS_DIAGNOSTIC_IDS.orphanHint).length]).toEqual([1, 1]);
+    });
+
+    test("按计划模式：伏笔条目自己的意图按计划折叠（计划把它改成放弃），账本与检查都按这个模式", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const fs = w.foreshadow("要放弃的");
+        w.change(chapter("ch1"), {told: [inText(w, "ch1", "埋下", [node(fs, "plant")])]});
+        w.change(chapter("ch2"), {kind: "plan", patches: [{op: "set", at: {entry: fs, path: "fs.意图"}, value: "dropped"}]});
+        expect([ledger(w.view(), end("ch20"), "actual")[0]!.dropped, ledger(w.view(), end("ch20"), "planned")[0]!.dropped]).toEqual([false, true]);
+        expect((compute[FS_DIAGNOSTIC_IDS.droppedButPlanted] as DiagnosticCompute)(w.view(), end("ch20"), "planned")).toHaveLength(1);
     });
 });

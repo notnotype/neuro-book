@@ -12,6 +12,7 @@
  * 同一条变更里显式的与推出的都有时显式的优先；显式去掉一行回到“没有行”。
  */
 
+import {sameJson} from "@notnotype/nb-canon/schema";
 import type {CanonReadView, EventKey, Mark, Mode, ReadPosition, StoryChange, TellingPosition} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, MARK_IDS, type Degree, type How} from "../shared/declarations";
@@ -29,6 +30,20 @@ export interface KnowingRow {
     readonly source: "explicit" | "present" | "secretGoal";
     /** 让这一行成为现在这样的那条变更（显式的与在场推出的）；隐秘目标推出的、初值里就有的没有。 */
     readonly change?: string;
+}
+
+/** 一条变更让某人对一个知识点的有效知情起的变化（经历用，knowledge.md 输出 9）：改后为 null 是这一行被去掉了。 */
+export interface KnowingChange {
+    readonly point: string;
+    readonly before: KnowingRow | null;
+    readonly after: KnowingRow | null;
+}
+
+/** 一行里算作知情本身的字段（不含来源与所在的变更；没填的子字段不算，推出的行本来就不带它们）。 */
+function knowingFields(row: KnowingRow | null): unknown {
+    if (row === null) return null;
+    const {source: _source, change: _change, ...fields} = row;
+    return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null && value !== undefined));
 }
 
 /** 读取位置，或“某条变更之前”（传话链用：比那条变更更早的变更之后）。 */
@@ -93,16 +108,21 @@ export class KnowingIndex {
     }
 
     /** 一条变更让这个人哪几行变成了什么（经历里“这条变更让 V 的有效知情起的变化”）：同一行里显式的优先。 */
-    changedBy(person: string, change: string): KnowingRow[] {
-        const rows = new Map<string, Candidate>();
+    changedBy(person: string, change: string): KnowingChange[] {
+        const chosen = new Map<string, Candidate>();
         const consider = (point: string, candidate: Candidate) => {
             if (candidate.change !== change) return;
-            const existing = rows.get(point);
-            if (existing === undefined || (candidate.explicit && !existing.explicit)) rows.set(point, candidate);
+            const existing = chosen.get(point);
+            if (existing === undefined || (candidate.explicit && !existing.explicit)) chosen.set(point, candidate);
         };
         for (const [point, history] of this.#explicitOf(person)) for (const candidate of history) consider(point, candidate);
         for (const [point, history] of this.#derivedOf().get(person) ?? []) for (const candidate of history) consider(point, candidate);
-        return [...rows.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).flatMap(([, candidate]) => (candidate.row === null ? [] : [candidate.row]));
+        // 改前是这条变更之前的有效知情，改后是这条变更自己的候选（显式的优先；去掉一行是 null）。只比知情的字段，不比来源与
+        // 所在的变更：推出了相同程度的在场不算变化。
+        return [...chosen.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).flatMap(([point, candidate]) => {
+            const before = this.effective(person, point, {before: change});
+            return sameJson(knowingFields(before), knowingFields(candidate.row)) ? [] : [{point, before, after: candidate.row}];
+        });
     }
 
     /** 这个人的某一行最近一次让程度、怎么知道或谁告诉的变化的那条变更（传话链里“这一行所在的变更”）。 */
@@ -140,7 +160,8 @@ export class KnowingIndex {
                 for (const point of new Set([...previous.keys(), ...list.keys()])) {
                     const before = previous.get(point);
                     const after = list.get(point);
-                    if (step.kind !== "init" && JSON.stringify(before) === JSON.stringify(after)) continue;
+                    // 按规范的 JSON 比（键排序）：整段替换写出相同的行、只是键的顺序不同，不算这一行的变化。
+                    if (step.kind !== "init" && sameJson(before, after)) continue;
                     if (step.kind === "init" && after === undefined) continue;
                     const history = rows.get(point) ?? [];
                     history.push({key, explicit: true, row: after === undefined ? null : explicitRow(point, after, step.kind === "patch" ? step.change : undefined), ...(step.kind === "patch" ? {change: step.change} : {})});
@@ -249,11 +270,6 @@ export function presentChanges(view: CanonReadView, mode: Mode, position: ReadPo
         .map((change) => ({change, key: view.eventKey(change.id, mode)!}));
     keyed.sort((a, b) => view.compareKeys(a.key, b.key));
     return {changes: keyed.map((item) => item.change), uncast: counted.filter((change) => change.cast === undefined).length};
-}
-
-/** 某人到这个索引的位置为止的经历（输出 8），作者看的全量：在场的剧情变更（整条）、没记参与者的变更数、他的有效知情。 */
-export function experienceOf(index: KnowingIndex, person: string): {readonly changes: readonly StoryChange[]; readonly uncast: number; readonly knowing: readonly KnowingRow[]} {
-    return {...presentChanges(index.view, index.mode, index.position, person), knowing: index.all(person)};
 }
 
 /** 一个人是不是马甲：是就归到本体（传话人按本体算，knowledge.md 输出 5）。 */

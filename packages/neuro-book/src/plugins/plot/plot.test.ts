@@ -112,16 +112,27 @@ describe("剧情插件的远程合同", () => {
             {ref: {kind: "entry", id: "tmp:king"}, after: drafts.person("tmp:king", "国王")},
             {ref: {kind: "entry", id: "tmp:guard"}, after: drafts.person("tmp:guard", "卫兵")},
             {ref: {kind: "entry", id: "tmp:k"}, after: drafts.point("tmp:k", "勇者左手有星形的疤", null)},
+            {ref: {kind: "entry", id: "tmp:k2"}, after: drafts.point("tmp:k2", "勇者怕水", null)},
         ]});
         if (!people.ok) throw new Error(JSON.stringify(people.failure));
-        const [king, guard, k] = [people.value.ids["tmp:king"]!, people.value.ids["tmp:guard"]!, people.value.ids["tmp:k"]!];
-        const talk = drafts.change("tmp:c", {kind: "chapter", chapter: "1", key: 0}, {cast: [{who: king, role: "present"}], marks: [{kind: MARK_IDS.presentLearns, version: 1, point: k}]});
+        const [king, guard, k, k2] = [people.value.ids["tmp:king"]!, people.value.ids["tmp:guard"]!, people.value.ids["tmp:k"]!, people.value.ids["tmp:k2"]!];
+        const talk = drafts.change("tmp:c", {kind: "chapter", chapter: "1", key: 0}, {cast: [{who: king, role: "present"}], marks: [{kind: MARK_IDS.presentLearns, version: 1, point: k}, {kind: MARK_IDS.presentLearns, version: 1, point: k2}]});
         expect((await publish(window.canon, {requestId: "talk", by: {kind: "author"}, what: "edit", title: "谈", baseVersion: 0, puts: [{ref: {kind: "change", id: "tmp:c"}, after: talk}]})).ok).toBe(true);
 
         const plot = caller.plot();
-        expect(await plot.knowing({person: king, point: k})).toMatchObject({ok: true, value: {rows: [{point: k, 程度: "knows", source: "present"}]}});
+        expect(await plot.knowing({person: king, point: k})).toMatchObject({ok: true, value: {items: [{point: k, 程度: "knows", source: "present"}]}});
         expect(await plot.ledger({})).toMatchObject({ok: true, value: {items: []}});
-        expect(await plot.experience({person: king})).toMatchObject({ok: true, value: {changes: [{text: "tmp:c"}], uncast: 0, knowing: [{point: k}]}});
+        expect(await plot.experience({person: king})).toMatchObject({ok: true, value: {items: [{text: "tmp:c"}], uncast: 0}});
+        // 列表分页（canon.project 输出 18）：一条一页时给游标，接着读到尽头；游标与查询绑定，换了人就作废。
+        const first = await plot.knowing({person: king, limit: 1});
+        if (!first.ok) throw new Error(JSON.stringify(first));
+        const cursor = (first.value as {cursor?: string}).cursor;
+        expect(cursor).toBeString();
+        const second = await plot.knowing({person: king, limit: 1, cursor});
+        const points = (value: unknown) => (value as {items: {point: string}[]}).items.map((row) => row.point);
+        expect(second.ok && [...points(first.value), ...points(second.value)].sort()).toEqual([k, k2].sort());
+        expect(second.ok && (second.value as {cursor?: string}).cursor).toBeUndefined();
+        expect(await plot.knowing({person: guard, limit: 1, cursor})).toMatchObject({ok: false, code: "plot", detail: {code: "cursor-stale"}});
         expect(await plot.conflicts({goal: k})).toMatchObject({ok: false, code: "plot", detail: {code: "not-found"}});
         // 剧情插件声明的诊断都登记了计算：待处理是完整的。
         const pending = await window.canon.call("pending", {});
@@ -135,6 +146,10 @@ describe("剧情插件的远程合同", () => {
         expect(audit.ok && audit.value.items.map((item) => item.kind)).toEqual(["placeholder"]);
         expect((await plot.closeViewpoint({handle})).ok).toBe(true);
         expect(await plot.viewpointEntry({handle, id: k})).toMatchObject({ok: false, code: "plot", detail: {code: "view-denied"}});
+        expect(await plot.viewpointExperience({handle: "viewpoint-never"})).toMatchObject({ok: false, code: "plot", detail: {code: "view-denied"}});
+        // 拒绝也进同一份审计：关掉的句柄写得出看的人，从没有过的写成不知道。
+        const after = await window.canon.call("viewAudit", {});
+        expect(after.ok && after.value.items.map((item) => [item.kind, item.method, item.viewer])).toEqual([["placeholder", "viewpoint.entry", guard], ["denied", "viewpoint.entry", guard], ["denied", "viewpoint.experience", null]]);
 
         await window.close();
         keep.release();

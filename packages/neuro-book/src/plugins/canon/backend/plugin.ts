@@ -109,6 +109,10 @@ export const canonProjectPlugin: PluginDefinition = {
                             const service = await host.ready();
                             if (!("code" in service)) service.auditView(token, {...entry, kind: "placeholder"});
                         },
+                        deny: async (who, method) => {
+                            const service = await host.ready();
+                            if (!("code" in service)) service.denyView(who, method);
+                        },
                     };
                     owned.set(facade, holdings);
                     return facade;

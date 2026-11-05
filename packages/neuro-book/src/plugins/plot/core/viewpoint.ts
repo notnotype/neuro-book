@@ -15,7 +15,7 @@
 import type {CanonReadView, EntryView, ReadPosition, StoryChange, ViewedReads} from "@notnotype/nb-canon/schema";
 
 import {DEFAULT_SECRECY, ENTRY_TYPES, type Secrecy} from "../shared/declarations";
-import {knowingIndex, presentChanges, type KnowingIndex, type KnowingRow} from "./knowledge";
+import {knowingIndex, presentChanges, type KnowingChange, type KnowingIndex, type KnowingRow} from "./knowledge";
 
 export interface ViewpointGrant {
     /** 看的人（条目 id）；写手的视图可以没有，这时保密以上的知识点一律读不到。 */
@@ -37,8 +37,8 @@ export interface ExperienceItem {
     readonly text: string;
     /** 同时在场的人：没建条目的给 `label`；用了马甲而 V 不知道揭穿它的知识点时只给马甲（`who` 是马甲）。 */
     readonly cast: readonly ({readonly label: string} | {readonly who: string; readonly as?: string})[];
-    /** 这条变更让 V 的有效知情起的变化。 */
-    readonly knowing: readonly KnowingRow[];
+    /** 这条变更让 V 的有效知情起的变化（含去掉一行）。 */
+    readonly knowing: readonly KnowingChange[];
 }
 
 export class Viewpoint {
@@ -70,9 +70,11 @@ export class Viewpoint {
     #computeReadability(entry: string): Readability {
         const read = this.view.entry(entry, this.grant.until, "actual");
         if (read === null || read === "chapter-not-found") return {kind: "content"};
-        const stored = this.view.object({kind: "entry", id: entry}) as {type?: string} | undefined;
+        const stored = this.view.object({kind: "entry", id: entry}) as {type?: string; init?: {data?: Record<string, {fields?: Record<string, unknown>}>}} | undefined;
         if (stored?.type === ENTRY_TYPES.goal) {
-            const secret = (read.namespaces.goal?.fields.隐秘?.value as {ref?: unknown} | null | undefined)?.ref;
+            // 删掉的目标读出来是墓碑（没有命名空间、留着名字）：按存下来的初值找它的“隐秘”，删除不等于对谁都解密。
+            const secretField = read.deleted ? stored.init?.data?.goal?.fields?.隐秘 : read.namespaces.goal?.fields.隐秘?.value;
+            const secret = (secretField as {ref?: unknown} | null | undefined)?.ref;
             if (typeof secret !== "string") return {kind: "content"};
             return this.readability(secret).kind === "content" ? {kind: "content"} : {kind: "placeholder"};
         }
@@ -131,11 +133,14 @@ export class Viewpoint {
         const namespaces: Record<string, EntryView["namespaces"][string]> = {};
         for (const [namespace, data] of Object.entries(entry.namespaces)) {
             if (namespace === "know" && entry.id !== this.grant.viewer) continue;
-            const declarations = this.view.fields(entry.id, namespace) ?? [];
+            // 引用位置要靠字段声明找：类型不在登记里（插件停用、撞名）的命名空间、没有声明的字段都过滤不了，不给，免得原样漏出
+            // 指向读不到的知识点的引用。作者不带视图读时照常看得到。
+            const declarations = this.view.fields(entry.id, namespace);
+            if (declarations === undefined) continue;
             const fields: Record<string, EntryView["namespaces"][string]["fields"][string]> = {};
             for (const [fieldId, state] of Object.entries(data.fields)) {
                 const field = declarations.find((candidate) => candidate.id === fieldId);
-                fields[fieldId] = field === undefined ? state : {...state, value: this.#maskValue(field, state.value, blocked)};
+                if (field !== undefined) fields[fieldId] = {...state, value: this.#maskValue(field, state.value, blocked)};
             }
             namespaces[namespace] = {...data, fields};
         }
@@ -194,7 +199,8 @@ export class Viewpoint {
             id: change.id,
             at: change.at,
             text: change.text,
-            cast: (change.cast ?? []).filter((member) => member.who !== viewer && member.as !== viewer).map((member) => {
+            // 只给同时在场的人：只被提到的（`mentioned`）不在场，给出来就漏了“他也在”这件没发生的事（model.md 输出 29）。
+            cast: (change.cast ?? []).filter((member) => member.role === "present" && member.who !== viewer && member.as !== viewer).map((member) => {
                 if (member.who === undefined) return {label: member.label ?? ""};
                 if (member.as === undefined) return {who: member.who};
                 // 用了马甲：V 知道揭穿这个马甲的知识点才给本体（与称谓表同一规则，brief.md 输出 7）。

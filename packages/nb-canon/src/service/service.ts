@@ -472,6 +472,14 @@ export class WorldService {
     }
 
     /** 插件在一张视图之上又挡掉了什么（例如剧情插件把知识点换成占位）：记进同一份审计（project.md 输出 24）。 */
+    /**
+     * 建在视图之上的一层（剧情插件的视角句柄）拒了一次读取，而它手里已经没有令牌（句柄关了、从没有过）：照样记一条拒绝，
+     * 看的人与用途由调用方给（不知道时为 null 与空串）。
+     */
+    denyView(who: Pick<ViewGrant, "viewer" | "purpose">, method: string): void {
+        this.#deny(who, method);
+    }
+
     auditView(token: string, entry: {readonly method: string; readonly kind: "denied" | "placeholder"; readonly blocked?: readonly ObjectRef[]; readonly position?: unknown}): void {
         const grant = this.#views.get(token);
         this.#viewAudit.record({time: this.#ports.now(), viewer: grant?.viewer ?? null, purpose: grant?.purpose ?? "", ...entry});

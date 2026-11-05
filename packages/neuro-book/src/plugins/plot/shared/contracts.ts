@@ -18,13 +18,15 @@ const TellingPositionSchema = Type.Union([
     Type.Object({chapter: Type.String(), edge: Type.Union([Type.Literal("start"), Type.Literal("end")])}),
 ]);
 const Out = Type.Unknown();
+/** 列表的一页（canon.project 输出 18）：游标绑读取输入与查询参数，缺省 50 条；编码后超过单次预算时服务端减半条数重取。 */
+const Page = {cursor: Type.Optional(Type.String()), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 500}))};
 const errors = {plot: Type.Object({code: Type.String()})};
 
 const methods = {
     /** 某人在一个读取位置上的有效知情（输出 3）：给了知识点只给那一行。 */
-    knowing: {input: Type.Object({person: Type.String(), point: Type.Optional(Type.String()), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
-    /** 某人到一个读取位置为止的经历（输出 8）：在场的剧情变更（整条，按先后）、没记参与者的变更数、他的有效知情。 */
-    experience: {input: Type.Object({person: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
+    knowing: {input: Type.Object({person: Type.String(), point: Type.Optional(Type.String()), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode), ...Page}), output: Out, effect: "read", errors},
+    /** 某人到一个读取位置为止的经历（输出 8）：在场的剧情变更（整条，按先后，分页）与没记参与者的变更数；他的有效知情用 `knowing` 读。 */
+    experience: {input: Type.Object({person: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode), ...Page}), output: Out, effect: "read", errors},
     /** 一个目标在一个读取位置上的冲突（goals.md 输出 2）：自己写的加上写了它的，两边都只列这个位置上在的目标。 */
     conflicts: {input: Type.Object({goal: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
     /** 读者在一个讲述位置上对一个知识点的程度（输出 6），与读者第一次到怀疑、知道的讲述（输出 7）。 */
@@ -41,6 +43,7 @@ const methods = {
                 from: Type.Optional(Type.String()),
                 to: Type.Optional(Type.String()),
             }, {additionalProperties: false})),
+            ...Page,
         }),
         output: Out,
         effect: "read",
@@ -51,8 +54,8 @@ const methods = {
     closeViewpoint: {input: Type.Object({handle: Type.String()}), output: Type.Null(), effect: "read", errors},
     viewpointEntry: {input: Type.Object({handle: Type.String(), id: Type.String()}), output: Out, effect: "read", errors},
     viewpointLookup: {input: Type.Object({handle: Type.String(), names: Type.Array(Type.String(), {maxItems: 200})}), output: Out, effect: "read", errors},
-    viewpointExperience: {input: Type.Object({handle: Type.String()}), output: Out, effect: "read", errors},
-    viewpointKnowing: {input: Type.Object({handle: Type.String(), who: Type.String()}), output: Out, effect: "read", errors},
+    viewpointExperience: {input: Type.Object({handle: Type.String(), ...Page}), output: Out, effect: "read", errors},
+    viewpointKnowing: {input: Type.Object({handle: Type.String(), who: Type.String(), ...Page}), output: Out, effect: "read", errors},
 } as const;
 
 export const plotWorldContract = defineRemoteService({id: "nbook.plot/world", version: 1, provider: "project", callers: ["browser", "tui", "server"], methods, events: {}});
