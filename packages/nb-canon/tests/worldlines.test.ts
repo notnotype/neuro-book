@@ -657,3 +657,60 @@ describe("canon.worldlines 输出 8、9、验收 4、5：写入以后与从头�
         expect(snapshot(full, lines)).toEqual(before);
     });
 });
+
+describe("canon.worldlines 输出 6、canon.time 输出 6：线上的时间与回溯到的那一刻", () => {
+    const basis = {kind: "author" as const};
+    const after = (of: string, days: number) => ({kind: "after" as const, of, gap: {min: days, max: days, unit: "day" as const}, basis});
+    /** 主线：c2 在 c1 之后一天，c3 在 c2 之后两天（全书只有相对的说法）。c1 是切口，c3 是触发处。 */
+    function timed(extra: Partial<StoryChangeDraft> = {}) {
+        const opened = ok(World.empty(options()).publish(request([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}], 0), "t"));
+        const xia = opened.ids["tmp:xia"]!;
+        const first = ok(opened.world.publish(request([{ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))}], 1), "t"));
+        const c1 = first.ids["tmp:c1"]!;
+        const second = ok(first.world.publish(request([{ref: {kind: "change", id: "tmp:c2"}, after: written("tmp:c2", at("ch2", 20), [], {when: [after(c1, 1)]})}], 2), "t"));
+        const c2 = second.ids["tmp:c2"]!;
+        const third = ok(second.world.publish(request([{ref: {kind: "change", id: "tmp:c3"}, after: written("tmp:c3", at("ch2", 30), [], {when: [after(c2, 2)], ...extra})}], 3), "t"));
+        return {world: third.world, xia, c1, c2, c3: third.ids["tmp:c3"]!};
+    }
+    const rollbackOn = (world: World, xia: string, cut: string, trigger: string, back: Fork["back"], own: StoryChangeDraft["when"] = []) => ok(world.publish(request([
+        {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut, trigger, ...(back === undefined ? {} : {back}), type: "rollback", who: xia} as Fork})},
+        {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r"), [], {when: own})},
+    ], world.version), "t"));
+    const items = (world: World, line: string) => world.time("actual", line).items.map((item) => `${item.kind}${"reason" in item ? `:${item.reason}` : ""}`);
+
+    test("子线自己的事件不早于回溯到的那一刻：往回半天，子线上第一件事定在触发处减半天之前就打架；晚于它不打架；主线不受影响", () => {
+        const {world, xia, c1, c3} = timed();
+        // 触发处比切口晚三天，往回十二小时：R 在切口之后两天半。
+        const back = {min: 12, max: 12, unit: "hour" as const};
+        const early = rollbackOn(world, xia, c1, c3, back, [after(c1, 1)]);
+        const line = early.ids["tmp:r"]!;
+        expect(items(early.world, line)).toEqual(["time-conflict"]);
+        expect(items(early.world, "main")).toEqual([]);
+        const late = rollbackOn(world, xia, c1, c3, back, [after(c1, 3)]);
+        expect(items(late.world, late.ids["tmp:r"]!)).toEqual([]);
+        // 往回多久是一段范围（六到十八小时）：R 在切口之后两天又六小时到两天又十八小时之间，第六十小时（两天半）的事件可以不早于它。
+        const ranged = rollbackOn(world, xia, c1, c3, {min: 6, max: 18, unit: "hour"}, [{kind: "after", of: c1, gap: {min: 60, max: 60, unit: "hour"}, basis}]);
+        expect(items(ranged.world, ranged.ids["tmp:r"]!)).toEqual([]);
+        // 回溯到的那一刻不是事件：不出现在时间的网络事件里。
+        expect(late.world.time("actual", late.ids["tmp:r"]!).built.network.events.some((id) => id.startsWith("~"))).toBe(false);
+        // 待处理里也一样，且按读取位置截取到切口之后才列。
+        const pending = early.world.pending({kind: "chapter", chapter: "ch4", edge: "end", line});
+        expect(typeof pending === "string" ? [] : pending.filter((item) => item.kind === "time-conflict")).toHaveLength(1);
+    });
+
+    test("切口一定晚于回溯到的那一刻、父线上触发处不可确定、往回多久的词不在词表里：各成一条 fork-time-mismatch，写明原因", () => {
+        const {world, xia, c1, c3} = timed();
+        // 往回五天，触发处只比切口晚三天：R 比切口早两天。
+        const far = rollbackOn(world, xia, c1, c3, {min: 5, max: 5, unit: "day"});
+        expect(items(far.world, far.ids["tmp:r"]!)).toEqual(["fork-time-mismatch:cut-after-back"]);
+        const word = rollbackOn(world, xia, c1, c3, {word: "不在词表里的词"});
+        expect(items(word.world, word.ids["tmp:r"]!)).toEqual(["fork-time-mismatch:word-missing"]);
+        // 触发处自己有两条互相打架的说法：它所在的分量不可确定。
+        const broken = timed({when: [after("c2", 2), after("c2", 5)]});
+        const undetermined = rollbackOn(broken.world, broken.xia, broken.c1, broken.c3, {min: 12, max: 12, unit: "hour"});
+        expect(items(undetermined.world, undetermined.ids["tmp:r"]!)).toContain("fork-time-mismatch:parent-undetermined");
+        const pending = far.world.pending({kind: "chapter", chapter: "ch4", edge: "end", line: far.ids["tmp:r"]!});
+        expect(typeof pending === "string" ? [] : pending.filter((item) => item.kind === "fork-time-mismatch")).toHaveLength(1);
+    });
+});
+

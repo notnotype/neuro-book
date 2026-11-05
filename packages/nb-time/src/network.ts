@@ -206,7 +206,11 @@ class Heap {
 }
 const less = (a: [number, number], b: [number, number]) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
 
-export function solveNetwork(input: {readonly events: readonly string[]; readonly constraints: readonly NetworkConstraint[]}): TimeNetwork {
+/**
+ * 求解。`virtual` 是只作节点、不算事件的点（回溯到的那一刻，canon.time 输出 6）：约束可以连到它，但 `events` 里不列它，
+ * 查询与对不上都只看真实的事。虚点排在 `events` 的最后，没有锚的分量取原点时不会选到它。
+ */
+export function solveNetwork(input: {readonly events: readonly string[]; readonly constraints: readonly NetworkConstraint[]; readonly virtual?: readonly string[]}): TimeNetwork {
     // ---------- 节点 ----------
     // 只有写了 `lasts` 的事有终点节点（它降成“自己的起点到自己的终点”的约束）；没有的，终点就是起点（输入表“没有这条说法时
     // E.e = E.s”），别的说法指到它的终点时解析成它的起点。
@@ -422,8 +426,9 @@ export function solveNetwork(input: {readonly events: readonly string[]; readonl
         return {bounds, component, source, node};
     };
 
+    const virtual = new Set(input.virtual ?? []);
     return {
-        events: input.events,
+        events: virtual.size === 0 ? input.events : input.events.filter((id) => !virtual.has(id)),
         conflicts,
         component: (event) => componentByEvent.get(event)?.id,
         bounds: (event, edge = "start") => boundsOf(event, edge).bounds,

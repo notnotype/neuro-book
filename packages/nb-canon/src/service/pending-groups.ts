@@ -100,7 +100,7 @@ export function sortGroup(items: Sortable[]): GroupItem[] {
 }
 
 /** 待处理组里内核各种项的先后；插件的发现排在最后（输出 16）。 */
-export const PENDING_GROUP_ORDER = {"check-mismatch": 0, "cannot-apply": 1, held: 2, "chapter-deleted": 3, "line-out-of-bounds": 4, "line-missing": 4, "line-planned": 4, "time-conflict": 5, "time-invalid": 5, "time-placement-mismatch": 5, finding: 6} as const;
+export const PENDING_GROUP_ORDER = {"check-mismatch": 0, "cannot-apply": 1, held: 2, "chapter-deleted": 3, "line-out-of-bounds": 4, "line-missing": 4, "line-planned": 4, "time-conflict": 5, "time-invalid": 5, "time-placement-mismatch": 5, "fork-time-mismatch": 5, finding: 6} as const;
 /** 提示组里的先后：讲述失联、原句重复、标注与 Component 的版本与类型不在、插件的诊断。 */
 export const HINT_GROUP_ORDER = {"telling-lost": 0, "duplicate-quote": 1, mark: 2, finding: 5} as const;
 
@@ -121,7 +121,7 @@ export function sortableCanonItem(world: World, item: PendingItem | TimePendingI
     } else if (item.kind === "held") {
         position = placementPosition(order, changeAt(item.change));
         sortId = item.change;
-    } else if (item.kind === "time-conflict" || item.kind === "time-invalid" || item.kind === "time-placement-mismatch") {
+    } else if (item.kind === "time-conflict" || item.kind === "time-invalid" || item.kind === "time-placement-mismatch" || item.kind === "fork-time-mismatch") {
         // 涉及几件事的取其中最早的安放（输出 16）；排序 id 是项的键。
         position = timeItemChanges(item).map((id) => placementPosition(order, changeAt(id))).reduce<SortPosition>((earliest, next) => (comparePositions(next, earliest) < 0 ? next : earliest), null);
         sortId = timeItemKey(item);

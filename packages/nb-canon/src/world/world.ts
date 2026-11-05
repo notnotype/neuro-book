@@ -19,7 +19,7 @@ import {addressKey, parsePath} from "../core/address";
 import {deepFreeze} from "../core/freeze";
 import {DEFAULT_TIME, type TimeSettings} from "../time/network";
 import {placePrehistory} from "../time/prehistory";
-import {timeItemKey, timeState, truncateTime, type TimePendingItem, type TimeState} from "../time/state";
+import {timeItemKey, timeState, truncateTime, type RollbackLine, type TimePendingItem, type TimeState} from "../time/state";
 import {RESERVED_ROOTS} from "../core/identifiers";
 import {idListsOf} from "../core/id-lists";
 import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
@@ -212,12 +212,25 @@ export class World {
         return new World(this.data, lines, this.revisions, this.index, options);
     }
 
-    /** 这份世界在一个模式上的时间状态（canon.time）：网络、整条线上的时间待处理；按数据、设置与模式缓存。 */
-    time(mode: Mode = "actual"): TimeState {
+    /**
+     * 这份世界在一条线、一个模式上的时间状态（canon.time）：网络、整条线上的时间待处理；按数据、设置与模式缓存。子线按它视图里的
+     * 记录组网，回溯分叉写了 `back` 的另加回溯到的那一刻（输出 6），那要先算父线同一模式的状态。线不存在或不可建时按主线给：
+     * 调用方先判过线。
+     */
+    time(mode: Mode = "actual", line: string = MAIN_LINE): TimeState {
         const order = this.options.order;
-        const {records, engine} = this.line();
+        const view = this.line(line) ?? this.line();
+        const {records, engine} = view;
         const plans = mode === "planned" ? [...records.changes.values()].filter((change) => change.kind === "plan" && change.status === "active" && engine.progress(change.id, defaultPosition(order)) === "unfulfilled").map((change) => change.id) : [];
-        return timeState(records, timeInputOf(records, order), this.options.time ?? DEFAULT_TIME, mode, plans);
+        return timeState(records, timeInputOf(records, order), this.options.time ?? DEFAULT_TIME, mode, plans, view.line === MAIN_LINE ? undefined : this.#rollbackOf(view.line, mode));
+    }
+
+    /** 一条线接上父线时间的回溯分叉（有 `back` 的）。 */
+    #rollbackOf(line: string, mode: Mode): RollbackLine | undefined {
+        const entry = lineTable(this.data, this.options.order).lines.get(line);
+        const fork = entry?.fork.fork;
+        if (entry === undefined || fork === undefined || fork.back === undefined || fork.trigger === undefined) return undefined;
+        return {line, fork: entry.fork.id, cut: fork.cut, trigger: fork.trigger, back: fork.back, parent: this.time(mode, entry.parent)};
     }
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
@@ -246,7 +259,7 @@ export class World {
         }
         const canon = grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
         // 时间的几种（canon.time 输出 2、3、5）：整条线算一次，随读取位置截取（输出 14）。
-        return [...canon, ...linePending(this.data, this.options.order, position.line ?? MAIN_LINE), ...truncateTime(this.time(mode).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
+        return [...canon, ...linePending(this.data, this.options.order, position.line ?? MAIN_LINE), ...truncateTime(this.time(mode, view.line).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
     }
 
     /** 预览：做发布的全部计算，不发布（输出 5）。 */

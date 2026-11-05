@@ -195,3 +195,18 @@ describe("压力：反向次序的长链与带环的长链", () => {
         expect(broken.range("c1000")).toMatchObject({state: "conflict"});
     });
 });
+
+describe("虚点：只作节点、不算事件", () => {
+    test("约束可以连到虚点，求解正常，`events` 里不列它", () => {
+        const constraints: NetworkConstraint[] = [
+            {from: {kind: "origin"}, to: {kind: "event", id: "a", edge: "start"}, lo: 100, hi: 100, ref: "r1"},
+            {from: {kind: "event", id: "a", edge: "start"}, to: {kind: "event", id: "~R", edge: "start"}, lo: 10, hi: 20, ref: "r2"},
+            {from: {kind: "event", id: "~R", edge: "start"}, to: {kind: "event", id: "b", edge: "start"}, lo: 0, hi: Number.POSITIVE_INFINITY, ref: "r3"},
+        ];
+        const network = solveNetwork({events: ["a", "b", "~R"], constraints, virtual: ["~R"]});
+        expect(network.events).toEqual(["a", "b"]);
+        const range = network.range("b");
+        expect(range.state === "ok" && [range.lo, range.hi]).toEqual([110, Number.POSITIVE_INFINITY]);
+        expect(network.between("a", "~R")).toEqual({state: "ok", lo: 10, hi: 20});
+    });
+});

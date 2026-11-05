@@ -208,7 +208,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             return data === undefined || type === undefined || type.id !== data.type ? undefined : deepFreeze(effectiveFields(type, data.declared));
         },
         markType: (kind) => deepFreeze((world.options.marks ?? EMPTY_MARK_REGISTRY).byKind(kind)),
-        time: (query, mode) => deepFreeze(answerTime(world.time(mode), world.options.time ?? DEFAULT_TIME, world.data, query)),
+        time: (query, mode) => deepFreeze(answerTime(world.time(mode, line), world.options.time ?? DEFAULT_TIME, world.data, query)),
     };
     return Object.freeze(view);
 }

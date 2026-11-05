@@ -11,6 +11,8 @@ import {compareIds} from "../core/ids";
 import {compareRanks, placementRank, type ChapterOrder} from "../core/position";
 import type {Entry, StoryChange} from "../core/schema";
 import {canonicalJson} from "../core/stable-json";
+import {lineOf} from "../lines/table";
+import {rollbackConstraints, ROLLBACK_POINT, type RollbackMismatch, type RollbackSpec} from "./rollback";
 
 /** 时间的设置：生效的历法与词表（宿主从作品设置给，见 WorldOptions.time）。 */
 export interface TimeSettings {
@@ -90,8 +92,11 @@ export interface BuiltNetwork {
     readonly network: TimeNetwork;
 }
 
-/** 按事件集组网并求解。`plans` 是按计划模式加进来的计划（实际模式为空）。 */
-export function buildNetwork(input: TimeInput, settings: TimeSettings, plans: readonly string[] = []): BuiltNetwork {
+/**
+ * 按事件集组网并求解。`plans` 是按计划模式加进来的计划（实际模式为空）。`rollback` 是回溯线接上父线的时间（输出 6），只有这条线
+ * 上有回溯分叉、分叉写了 `back` 时给；`line` 是这份事件集所在的线，子线自己的事件取安放在它上面的。
+ */
+export function buildNetwork(input: TimeInput, settings: TimeSettings, plans: readonly string[] = [], rollback?: {readonly spec: RollbackSpec; readonly line: string}): BuiltNetwork & {readonly mismatch: RollbackMismatch | null} {
     const events: StoryChange[] = [];
     // 安放在章序之外（所在章删了）的已写变更这时不算发生，不进网络（输出 17）；指向它的说法按“不是事件”跳过。
     for (const change of input.changes.values()) if (change.kind === "written" && change.status === "active" && change.nature !== "narration" && placementRank(input.order, change.at) !== null) events.push(change);
@@ -108,5 +113,9 @@ export function buildNetwork(input: TimeInput, settings: TimeSettings, plans: re
         exists: (id) => input.changes.has(id),
         bodyOf: (id) => input.entries.get(id)?.sameAs ?? id,
     });
-    return {assembled, network: solveNetwork(assembled)};
+    if (rollback === undefined) return {assembled, network: solveNetwork(assembled), mismatch: null};
+    const own = ranked.filter(({change}) => lineOf(change.at) === rollback.line).map(({change}) => change.id);
+    const point = rollbackConstraints(rollback.spec, settings, own);
+    const network = solveNetwork({events: point.constraints.length === 0 ? assembled.events : [...assembled.events, ROLLBACK_POINT], constraints: [...assembled.constraints, ...point.constraints], virtual: [ROLLBACK_POINT]});
+    return {assembled, network, mismatch: point.mismatch};
 }
