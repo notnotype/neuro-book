@@ -208,6 +208,18 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "harness.error.local": {"zh-CN": "这次运行出错了。", "en-US": "This run failed."},
     "harness.compaction": {"zh-CN": "上下文已压缩", "en-US": "Context compacted"},
     "render.failed": {"zh-CN": "此内容无法显示", "en-US": "This content can't be shown"},
+    "kernel.error.costLimit": {"zh-CN": "这个会话的费用到了上限，运行停了。调高上限后可以接着跑。", "en-US": "This session reached its cost limit, so the run stopped. Raise the limit to continue."},
+    "kernel.error.toolCallLoop": {"zh-CN": "模型反复发起同样的工具调用，运行停了。", "en-US": "The model kept making the same tool call, so the run stopped."},
+    "kernel.error.emptyReply": {"zh-CN": "模型连续几次什么都没有回，运行停了。", "en-US": "The model returned nothing several times in a row, so the run stopped."},
+    "kernel.error.thinkingLoop": {"zh-CN": "模型的思考一直在重复，运行停了。", "en-US": "The model's thinking kept repeating, so the run stopped."},
+    "kernel.error.firstEventTimeout": {"zh-CN": "模型服务一直没有开始回复，请稍后重试。", "en-US": "The model service never started replying. Please try again later."},
+    "kernel.tool.deniedByUser": {"zh-CN": "你拒绝了", "en-US": "You denied this"},
+    "kernel.tool.deniedByRule": {"zh-CN": "规则拒绝了", "en-US": "Denied by a rule"},
+    "kernel.tool.readOnly": {"zh-CN": "只读模式不能改", "en-US": "Not allowed in read-only mode"},
+    "kernel.tool.notStarted": {"zh-CN": "还没开始就停了", "en-US": "Stopped before it started"},
+    "kernel.tool.unknown": {"zh-CN": "不确定有没有执行完，请核对", "en-US": "Not sure whether this finished. Please check."},
+    "kernel.continued": {"zh-CN": "已让模型接着做", "en-US": "Asked the model to continue"},
+    "kernel.resultRequested": {"zh-CN": "已提醒模型交回结果", "en-US": "Reminded the model to hand back the result"},
 };
 
 const PLURAL = /_(?:zero|one|two|few|many|other)$/u;

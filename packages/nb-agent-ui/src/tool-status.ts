@@ -10,7 +10,10 @@ export function toolCallPhase(status: ToolCallStatus): ToolCallPhase {
         case "streaming":
         case "running": return "running";
         case "error":
-        case "invalid": return "error";
+        case "invalid":
+        case "unknown": return "error";
+        // 没执行不算出错：拒绝是用户或规则的决定。
+        case "denied":
         case "success": return "done";
     }
 }

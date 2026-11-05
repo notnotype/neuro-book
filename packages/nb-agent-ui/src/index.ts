@@ -37,6 +37,8 @@ export {acceptSubmission, applyComposerAction, nextMode} from "./composer-action
 export {createAgentContext} from "./context";
 export type {AgentContextPatch} from "./context";
 export {createHarnessTranscript, logSeqOf} from "./harness";
+export {createKernelTranscript} from "./kernel-transcript";
+export type {KernelMeta, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
 export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";
 export type {CatalogAccess, CatalogModelView, CatalogProviderView} from "./model-catalog";

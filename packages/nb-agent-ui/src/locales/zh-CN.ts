@@ -265,6 +265,24 @@ export default {
         },
         compaction: "上下文已压缩",
     },
+    kernel: {
+        error: {
+            costLimit: "这个会话的费用到了上限，运行停了。调高上限后可以接着跑。",
+            toolCallLoop: "模型反复发起同样的工具调用，运行停了。",
+            emptyReply: "模型连续几次什么都没有回，运行停了。",
+            thinkingLoop: "模型的思考一直在重复，运行停了。",
+            firstEventTimeout: "模型服务一直没有开始回复，请稍后重试。",
+        },
+        tool: {
+            deniedByUser: "你拒绝了",
+            deniedByRule: "规则拒绝了",
+            readOnly: "只读模式不能改",
+            notStarted: "还没开始就停了",
+            unknown: "不确定有没有执行完，请核对",
+        },
+        continued: "已让模型接着做",
+        resultRequested: "已提醒模型交回结果",
+    },
     render: {
         failed: "此内容无法显示",
     },

@@ -271,6 +271,24 @@ export default {
         },
         compaction: "Context compacted",
     },
+    kernel: {
+        error: {
+            costLimit: "This session reached its cost limit, so the run stopped. Raise the limit to continue.",
+            toolCallLoop: "The model kept making the same tool call, so the run stopped.",
+            emptyReply: "The model returned nothing several times in a row, so the run stopped.",
+            thinkingLoop: "The model's thinking kept repeating, so the run stopped.",
+            firstEventTimeout: "The model service never started replying. Please try again later.",
+        },
+        tool: {
+            deniedByUser: "You denied this",
+            deniedByRule: "Denied by a rule",
+            readOnly: "Not allowed in read-only mode",
+            notStarted: "Stopped before it started",
+            unknown: "Not sure whether this finished. Please check.",
+        },
+        continued: "Asked the model to continue",
+        resultRequested: "Reminded the model to hand back the result",
+    },
     render: {
         failed: "This content can't be shown",
     },

@@ -40,7 +40,8 @@ export type ToolResultView = {
     details?: JsonValue;
 };
 
-export type ToolCallStatus = "streaming" | "running" | "success" | "error" | "invalid";
+/** `denied`：没有执行（用户拒绝、规则拒绝、还没开始就停了）。`unknown`：开始了但不知道有没有执行完，要用户核对。 */
+export type ToolCallStatus = "streaming" | "running" | "success" | "error" | "invalid" | "denied" | "unknown";
 
 export type ToolCallView = {
     id: string;
@@ -53,6 +54,8 @@ export type ToolCallView = {
     args: JsonValue;
     result?: ToolResultView;
     error?: string;
+    /** 状态的说明，例如“你拒绝了”；适配器给的是本包目录的引用。 */
+    note?: Text;
 };
 
 export type UserMessageView = {
