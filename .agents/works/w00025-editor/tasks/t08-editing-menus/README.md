@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t08-editing-menus
 status: active
-updated: 2026-10-20
+updated: 2026-11-05
 ---
 
 # 编辑命令与菜单
@@ -37,4 +37,4 @@ updated: 2026-10-20
 
 ## 下一步
 
-暂停，等 w00029 nb-ui 组件整理完成（开发者 2026-10-20 定）。之后出第 3 轮（块菜单与正文右键菜单，用整理后的共用件），再写计划。草稿 worktree `.worktree/w00025-t08-drafts` 留着。
+w00029 已完成，开发者 2026-11-05 定现在接。第 3 轮已发布到评审板（块菜单、正文右键菜单、斜杠菜单右侧是否写 Markdown 写法）；等开发者答复后写决定，再写计划。草稿 worktree `.worktree/w00025-t08-drafts` 留着，已跟上 master。
