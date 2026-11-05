@@ -35,7 +35,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 | key | 名字 | `tools.required` | `tools.optional` | 其它 |
 |---|---|---|---|---|
-| `nbook.agent.main` | 写作助手 | `read`、`write`、`grep`、`glob` | `edit`（模式见输出 2）、`shell` | — |
+| `nbook.agent.main` | 写作助手 | `read`、`write`、`grep`、`glob` | `edit-replace`、`shell` | — |
 | `nbook.agent.session-title` | 会话标题 | 无 | 无 | `role: "tiny"`、`hidden: true`、`defaultTools: false` |
 
 会话标题 Profile 的结果 schema：`{title: string（1 到 40 个字符）, description: string（1 到 120 个字符）}`，必须交回。
@@ -47,14 +47,14 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 ### 主创
 
 1. 主创的提示词是中文，分节写：身份与工作范围、工作方式、写作约束、资源地址。升提示词时升 Profile 版本（[提示词规范](../../standards/prompts.md)）。
-2. 主创绑一条 `edit`，缺省模式待实验定（hashline 或 replace，定了写在这里）；用户可以用工具绑定换成另一条（`edit`、`shell` 是可选工具，绑定能去掉）。`read`、`write`、`grep`、`glob` 是必需工具，缺了按 [`contributions.md`](contributions.md) 的不可用处理。
+2. 主创绑 replace 那条 `edit`（`nbook.agent.edit-replace`）；用户可以用工具绑定换成 hashline 那条（这两个都是可选工具，`shell` 也能去掉）。`read`、`write`、`grep`、`glob` 是必需工具，缺了按 [`contributions.md`](contributions.md) 的不可用处理。
 3. 主创的提示词不提没有绑定的工具：`shell` 的说明只在生效工具集里有它时渲染。
 4. 规则文件存在时进开场，用户的在前、书的在后，各自标明来源；不存在时开场里没有对应的部分，不写诊断；书不可用（没有打开书）与文件不存在同样处理。单个文件的 UTF-8 编码超过 32 KiB 时，只放前 32 KiB（不切开一个字符），并标明已截断、全文的地址。其它读取失败写诊断 `rules-unreadable`，这个文件不进开场，运行照常。
 5. 规则文件在会话创建时与每次压缩之后各读一次；两次之间改了文件，到下一次压缩才生效。`fork` 出的会话沿用复制来的内容；用 `changeProfile` 换成主创的会话，到下一次压缩才读到规则文件。
 
 ### 标题和说明
 
-6. 前台会话一轮结束、且这个会话还没有说明时，服务端异步生成标题和说明。不挡这个会话：下一条输入可以立刻发出。
+6. 前台会话一轮结束、且这个会话还没有说明或还没有标题时，服务端异步生成标题和说明。不挡这个会话：下一条输入可以立刻发出。
 7. 生成的材料是这个会话当前路径上第一条用户的话和第一条有文字的回复，各取前 2000 个字符；第一条用户的话没有文字时不生成。
 8. 前台会话发生一次带摘要的压缩（`compaction.replacement` 不为 null）后，服务端用摘要的前 4000 个字符和当前标题重新生成，只更新说明。不带摘要的压缩不更新。
 9. 生成跑在标题会话里，每次发一条新输入，上下文只有系统提示词和这条输入，不带上一次。标题会话不进 `list` 的缺省结果、`running()`、`sessions://` 的目录，按 id 仍然读得到；它的费用不计入前台会话的累计和费用上限。
@@ -67,10 +67,10 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 | 前台会话的状态 | 一轮结束时 | 压缩（带摘要）后 |
 |---|---|---|
-| 没有说明，模型可用 | 生成标题和说明 | 只生成说明 |
-| 没有说明，模型不可用 | 没有标题时写兜底标题 | 不做 |
-| 有说明，模型可用 | 不做 | 只生成说明 |
-| 有说明，模型不可用 | 不做 | 不做 |
+| 没有说明或没有标题，模型可用 | 生成标题和说明 | 只生成说明 |
+| 没有说明或没有标题，模型不可用 | 没有标题时写兜底标题 | 不做 |
+| 标题和说明都有，模型可用 | 不做 | 只生成说明 |
+| 标题和说明都有，模型不可用 | 不做 | 不做 |
 
 时序与寿命：
 
@@ -107,4 +107,4 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 ## 证据
 
-- 批准依据：w00032 t18 决定 1 到 5、8 到 13（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）。
+- 批准依据：w00032 t18 决定 1 到 5、8 到 14（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）。

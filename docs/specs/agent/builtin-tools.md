@@ -42,7 +42,7 @@ owners:
 | `nbook.agent.glob` | `glob` | 读 | shared | `pattern`、`path?`、`limit?`（1 到 1000，缺省 200） |
 | `nbook.agent.shell` | `shell` | 执行 | exclusive | `command`、`timeout?`（秒，1 到 3600，缺省 300） |
 
-- 两条 `edit` 给模型的名字相同，Profile 只绑一条，缺省 hashline；同一会话绑了两条按 [`harness/runtime.md`](../harness/runtime.md) 输出 15 处理。
+- 两条 `edit` 给模型的名字相同，Profile 只绑一条，由 Profile 选（主创绑 replace，[`builtin-profiles.md`](builtin-profiles.md)）；同一会话绑了两条按 [`harness/runtime.md`](../harness/runtime.md) 输出 15 处理。
 - 输入的地址接受单数与全局两种写法，规则同 [`agent.resources`](resources.md) 输出 1。
 - `grep`、`glob` 的 `path` 缺省是 `shell` 的工作目录。
 - 工具说明用中文；`edit` 引擎的英文文字原样（[ADR 0034](../../adr/0034-language-policy.md)）。

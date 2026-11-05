@@ -138,6 +138,7 @@ owners:
 72. `setGeneratedMeta({title?, description?})` 给宿主写自动生成的标题与说明。两项去掉首尾空白后都没有内容得 `empty-meta`。有 `title` 时：最近一次 `titleChanged` 是 `by: "user"` 就不写标题，否则写 `titleChanged{by: "auto"}`；结果 `titleApplied` 说明写没写。判断与写入在同一个受理里，`setTitle` 不会被晚到的自动结果盖掉。这条指令只给宿主，不进远程合同（内核的 `hostOnlyCommands`）。（planned）
 73. 有 `description` 时写 `descriptionChanged{description}`（会话级控制事件，经出站过滤的文字映射）；快照的 `description` 随之变化，没写过时为 null。（planned）
 74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。（planned）
+75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。（planned）
 
 ## 状态与转换
 

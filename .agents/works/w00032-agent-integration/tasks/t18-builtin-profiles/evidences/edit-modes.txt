@@ -1,0 +1,38 @@
+t18 决定 10：主创的 edit 缺省用 hashline 还是 replace（2026-11-05，机器负载约 1）。
+脚本 ../experiments/edit-modes.ts，每次的原始记录 edit-modes-runs.json。真实内核、真实工具、真实模型（DeepSeek deepseek-flash，gpt-6-luna 经 openai-responses）。
+
+素材：8 段，一段一行，段间空行。短段 6 个，343 到 361 字；长段 2 个，1424 字与 1095 字。全文约 5300 字。
+预检：两个模型都接受 hashline 的 customFormat，能产出可解析的调用，所以没有组合被排除。
+判据：最终文件逐字等于期望（任务给位置描述和确切的新文字）。“误改”是目标段之外有改动的段数，“没有 edit 调用”是模型没用这个工具。
+
+结论：两个模型都选 replace。
+- DeepSeek：成功 hashline 13/24，replace 16/24，差 3 次，按规则 1 选 replace。
+- gpt-6-luna：成功 hashline 17/24，replace 18/24，差 1 次，按规则 2 比输出 token：hashline 21611，replace 7422，选 replace。
+两个模型结论相同，不用交开发者（规则 3）。
+
+汇总（calls 是全部工具调用，failed 是失败的 edit 调用，inp、out 是 token 合计，sec 是耗时合计）：
+deepseek hashline {'n': 24, 'ok': 13, 'stray': 9, 'noedit': 0, 'calls': 65, 'edits': 35, 'failed': 7, 'inp': 158063, 'out': 23201, 'sec': 226}
+deepseek replace {'n': 24, 'ok': 16, 'stray': 7, 'noedit': 1, 'calls': 53, 'edits': 26, 'failed': 0, 'inp': 134845, 'out': 5437, 'sec': 138}
+luna hashline {'n': 24, 'ok': 17, 'stray': 3, 'noedit': 0, 'calls': 48, 'edits': 24, 'failed': 0, 'inp': 339803, 'out': 21611, 'sec': 624}
+luna replace {'n': 24, 'ok': 18, 'stray': 4, 'noedit': 0, 'calls': 54, 'edits': 30, 'failed': 2, 'inp': 335599, 'out': 7422, 'sec': 400}
+
+task            deepseek-h deepseek-r luna-h luna-r | out: dh dr lh lr
+word            3/3        3/3        3/3        3/3        | 1416 468 1285 341
+sentence        3/3        3/3        3/3        3/3        | 1557 592 1282 530
+insert          0/3        0/3        1/3        0/3        | 1306 671 1629 1198
+delete          0/3        0/3        1/3        0/3        | 1811 627 1816 2272
+two-spots       0/3        2/3        2/3        3/3        | 2661 962 2268 1300
+rename          3/3        3/3        3/3        3/3        | 7934 485 5980 294
+long-sentence   1/3        2/3        1/3        3/3        | 3049 1099 4065 815
+repeated        3/3        3/3        3/3        3/3        | 3467 533 3286 672
+
+
+差别主要在输出 token：hashline 要把一整段重写一遍，中文一段就是一行，所以 replace 全程约省三分之二（DeepSeek 23201 对 5437，Luna 21611 对 7422）；全文改人名差得最多（DeepSeek 7934 对 485），因为 replace 有 replace_all。replace 的耗时也短（DeepSeek 138 秒对 226 秒，Luna 400 秒对 624 秒）。
+DeepSeek 的 hashline 有 7 次调用因 invalid-address 失败后重试，replace 没有。
+
+insert、delete、two-spots 成功率低，两种模式都一样：不是模式的差别，是模型数错了段。用同样的任务重跑一遍（只 DeepSeek，每种一遍）看了实际改动：比如要改第 3 段时改到了第 2 段，要改第 5 段时改到了第 3 段。read 给每行编号，段间空行也占号，所以第 3 行是第 2 段、第 5 行是第 3 段；模型把“第 N 段”当成第 N 行是推断，实际改动与它相符。这是任务描述带来的噪声，对两种模式影响相同，所以结论不变；它也提示以后的提示词与任务说明要留意“段”与“行”的差别，这次不处理。
+
+结论的范围：只回答机械编辑用哪种模式。开放式改写判不了逐字相等，不在其中；不代表写作质量。样本每格只有 3 遍，单个任务的差距不足为据，只看合计。read 总带行号与标记，replace 模式下也一样，这次按现状测。
+没有测的：超过 read 单行 2000 字符的行、其它模型。
+
+费用没有单独记账，token 见上。
