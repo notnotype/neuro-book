@@ -128,7 +128,7 @@
 
 - 新方法：
   - `tellings`、`presence`、`decisions`（取代 `questions`）；
-  - `changes` 加性质、安放范围 `{after?, through?}`、计划进展的筛选（model 输出 30）；
+  - `changes` 加性质、计划进展的筛选（model 输出 30）；安放范围 `{after?, through?}` 的两头是分叉的切口与触发处（worldlines 输出 5），随阶段 D 做（A6 实施时定）；
   - `pending` 加模式、组与游标；
   - `openView`、`closeView`、`viewAudit`；
   - `preview` 收还原请求。
@@ -143,6 +143,7 @@
 
 - **B 剧情插件：知情、伏笔与目标的数据**（plot/knowledge、foreshadowing；goals 的 Component）
   - 插件骨架 `packages/neuro-book/src/plugins/plot/`：描述符，登记 Component、标注种类、诊断；
+  - 剧情 Spec 里标注种类与诊断的 id 写成 `plot.reveal` 这样，登记规则要求前缀是插件 id（components 输出 17、model 的诊断登记），插件 id 是 `nbook.plot` 时应写 `nbook.plot.reveal`：细计划时连同 Spec 一起改（A5 实施时发现）；
   - 纯计算在 `core/`：有效知情（含隐秘目标持有者的推出行）、读者的知情、经历、伏笔阶段；
   - 按视角过滤的视图建在内核的 `openView` 上。
   - 目标的 Component 提到这里，因为隐秘目标的知识点与遮挡在知情与视图里就要用。
@@ -153,7 +154,7 @@
   - 内核加 `when`、`time` 方法与时间的待处理。
   - 依赖阶段 A，与 B 互不依赖。
 - **D 世界线**（canon/worldlines）：
-  - 内核：线层（线视图、带过去的值、计划跨线、按值比对的更新、常驻与淘汰、计划线、活页夹章讲的线），安放与读取位置的 `line` 与分叉；
+  - 内核：线层（线视图、带过去的值、计划跨线、按值比对的更新、常驻与淘汰、计划线、活页夹章讲的线），安放与读取位置的 `line` 与分叉；`changes` 的安放范围 `{after?, through?}`（worldlines 输出 5）；
   - 时间网络按线算；
   - 剧情插件按线视图改造：知情、经历、伏笔、视图、诊断的 `line`，回溯带过去的有效知情（knowledge 输出 4）。
   - 依赖阶段 A、B、C。
@@ -214,7 +215,7 @@ A9 之后做一次实现审查（后端，按 reviewing Skill：omp 默认模型
 | model 输出 24 到 27 | `tests/tellings.test.ts`（新） | A4 |
 | model 场景 7（含提示组） | `tests/tellings.test.ts` | A8 补齐 |
 | model 输出 28、components 输出 17、场景 6；诊断的登记 | `tests/marks.test.ts`（新） | A5 |
-| model 输出 20、29、30、场景 8 | `tests/model.test.ts` 新增一组 | A6 |
+| model 输出 20、29、30、场景 8 | `tests/cast.test.ts`（新；在场要经世界服务读） | A6 |
 | model 输出 31 到 33、状态表、场景 9；revisions 输出 21、场景 7 | `tests/decisions.test.ts`（新） | A7 |
 | model 输出 16、34、35、场景 10；revisions 输出 6 | `tests/diagnostics.test.ts`（新） | A8 |
 | project 输出 24、26、27、场景 8、9 | `tests/service.test.ts` 补用例；`canon.test.ts` 补视图的远程用例 | A9 |
