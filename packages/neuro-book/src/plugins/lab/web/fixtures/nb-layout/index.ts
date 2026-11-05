@@ -10,7 +10,7 @@ import type {DropFeedbackOverlay, DropIndicatorLabel, NestedGrid, Splitter} from
 import {defineLabFixture, type LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 
-function nbLayoutSubject(name: "DropFeedbackOverlay" | "DropIndicatorLabel" | "Splitter"): () => Promise<{default: Component}> {
+function nbLayoutSubject(name: "DropIndicatorLabel" | "Splitter"): () => Promise<{default: Component}> {
     return async () => ({default: (await import("@notnotype/nb-layout/vue"))[name] as Component});
 }
 
@@ -32,15 +32,16 @@ export const nbLayoutFixtures: LabFixture[] = [
         })(),
         load: async () => (await import("./NestedGridAcceptanceFixture.vue")).default,
     }),
-    defineSubjectFixture<typeof DropFeedbackOverlay>({
+    defineLabFixture<typeof DropFeedbackOverlay>({
         component: "DropFeedbackOverlay",
-        class: "h-full w-full",
         scenes: [
             {id: "area", label: "半区落点", input: {props: {preview: {areaRect: {left: 80, top: 80, right: 400, bottom: 260}, entryRect: null, indicator: null, orientation: "vertical", armed: true}, label: "移到这里", iconClass: "i-lucide-move"}}},
             {id: "line", label: "插入线", input: {props: {preview: {areaRect: null, entryRect: null, indicator: {left: 80, top: 120, right: 360, bottom: 122}, orientation: "horizontal"}, label: "插入到第二章之前"}}},
             {id: "none", label: "没有落点", input: {props: {preview: null, label: ""}}},
+            // 手势的真实浏览器验收见 e2e/lab-drag-session.e2e.ts；输入只是占位，这个场景的预览来自会话。
+            {id: "session", label: "拖动会话", input: {props: {preview: null, label: ""}}},
         ],
-        subject: nbLayoutSubject("DropFeedbackOverlay"),
+        load: async () => (await import("./DropFeedbackOverlayFixture.vue")).default,
     }),
     defineSubjectFixture<typeof DropIndicatorLabel>({
         component: "DropIndicatorLabel",

@@ -5,6 +5,22 @@
 export * from "./grid";
 export * from "./sash-drag";
 export {
+    DRAG_GESTURE_DEFAULTS,
+    createDragGesture,
+    defineDropKind,
+    edgeScrollStep,
+    type DragCancelReason,
+    type DragClock,
+    type DragEnd,
+    type DragGesture,
+    type DragGestureConfig,
+    type DragGestureHost,
+    type DragPress,
+    type DragState,
+    type DragStops,
+    type DropKind,
+} from "./drag-gesture";
+export {
     GRID_DROP_INDICATOR_PX,
     GRID_EDGE_RATIO_DEFAULT,
     isGridDropRect,
