@@ -21,7 +21,7 @@ owners:
 
 ## 术语与参与者
 
-- **目标**：种类为“目标”的条目，带 `plot.goal`，在条目树里挂在持有者下面。隐秘的目标同一个条目再加 `plot.point`，按知识点的规则保密（[`plot.knowledge`](knowledge.md)）。
+- **目标**：种类为“目标”的条目，带 `plot.goal`，在条目树里挂在持有者下面。**隐秘的目标**另建一个知识点（种类“知识点”，挂在这个目标下面，命题写“某某想要……”），目标的 `隐秘` 指向它；谁知道这个目标、写手能不能看到，都按这个知识点的保密档与知情算（[`plot.knowledge`](knowledge.md)）。
 - **态度**：人物身上 `att.态度` 列表的一行，以对象为键。
 - **弧光**：几条计划加一条剧情线；不另建对象。
 
@@ -29,7 +29,7 @@ owners:
 
 | 登记 | 内容 |
 |---|---|
-| Component `plot.goal`，命名空间 `goal` | `状态`（enum：`active` 进行、`blocked` 受挫、`achieved` 达成、`abandoned` 放弃）；`轻重`（enum：`major`、`minor`）；`层次`（enum：`want` 想要、`need` 需要）；`为什么`（语义档 text）；`基于`（以引用为键的列表，`targets` 为“知识点”）；`冲突`（以引用为键的列表，`targets` 为“目标”）；`后继`（ref，`targets` 为“目标”） |
+| Component `plot.goal`，命名空间 `goal` | `状态`（enum：`active` 进行、`blocked` 受挫、`achieved` 达成、`abandoned` 放弃）；`轻重`（enum：`major`、`minor`）；`层次`（enum：`want` 想要、`need` 需要）；`为什么`（语义档 text）；`基于`（以引用为键的列表，`targets` 为“知识点”）；`冲突`（以引用为键的列表，`targets` 为“目标”）；`后继`（ref，`targets` 为“目标”）；`隐秘`（ref，`targets` 为“知识点”，可选：隐秘的目标指向说它的那个知识点） |
 | Component `plot.attitude`，命名空间 `att` | `态度`：以引用为键的列表（对象可以是任何条目）；元素的子字段 `态度`（语义档 text，写成能演出来的样子）、`起因`（ref，`targets` 为“知识点”）、`称呼`（text：持有者怎么称呼这个对象，称谓表用它，[`plot.brief`](brief.md) 输出 7） |
 
 本能力登记的诊断（都是版本 1，`label` 用表里的名字）：

@@ -92,7 +92,7 @@ owners:
 | `label` | 是 | 给作者看的名字（“揭示”“伏笔节点”） |
 | `attachTo` | 是 | 能挂在哪类对象上：`telling`、`change`（剧情变更）、`decision` 的非空子集 |
 | `schema` | 是 | 载荷的 JSON Schema（不含 `kind`、`version` 两个键） |
-| `refs` | 否 | 载荷里是引用的路径与允许的条目种类，`[{path, targets?}]`；路径用 `.键` 逐级写，`[]` 表示数组的每个元素（`nodes[].foreshadow`） |
+| `refs` | 否 | 载荷里是引用的路径与它指向什么，`[{path, kind?, targets?}]`：`kind` 是 `entry`（缺省）、`change`、`line`、`decision`；`targets` 只用于 `entry`，是允许的条目种类；路径用 `.键` 逐级写，`[]` 表示数组的每个元素（`nodes[].foreshadow`、`lines[]`） |
 
 ## 输出与可观察行为
 
@@ -112,18 +112,19 @@ owners:
 14. **精确档的数。** 精确档的数是有限的十进制数，绝对值小于一千亿（10¹¹），最多 4 位小数（这样的数在 JSON 里读写不失真）；加减按十进制精确计算，不出现二进制浮点的误差（0.1 加 0.2 等于 0.3）。写入的数或算出的结果超出这个范围，写入拒收（`number-out-of-range`），计算时这条变更套不上。
 15. **作品内路径。** 图片的路径是相对作品根目录的路径：不带协议、不以 `/` 开头、没有 `..` 段、不在 `.nbook/` 下。不合规则的写入拒收（`invalid-asset-path`）。文件不存在时照样存，渲染显示“图片找不到”的占位。
 16. **重新声明同一个 id。** 实例上重新声明一个删除过的字段 id 时，种类与档必须与原来的相同，否则拒收（`field-redeclare-mismatch`）；显示名、单位、约束可以不同。
-17. **标注种类。** `canon.marks` 的每条声明在载入时校验：`id` 的写法，`attachTo` 非空，`schema` 是 TypeBox 能写出的 JSON Schema（draft 2020-12 的子集：`type`、`properties`、`required`、`items`、`enum`、`const`、`minimum`、`maximum`、`minLength`、`maxLength`、`anyOf`），`refs` 的每条路径只经过 `properties` 与 `items`（不经过 `anyOf`），指到 `type: string` 的位置，同一路径只出现一次。路径指到的属性可以是可选的：载荷里没有它就没有引用。不过的整条不登记，写诊断 `mark-declaration-invalid`，指出哪一项。同一个 `id` 同一时刻只有一个登记的版本；同一插件在清单里重复声明同一个 `id`，两条都不登记（同一诊断）。种类可用的条件与 Component 类型相同（插件登记且启用）；不可用、或存下的版本与登记的不同时，已存的标注按 [`canon.model`](model.md) 输出 28 只读。
-18. **引用。** 引用位置分三类，下表是完整的清单：
+17. **标注种类。** `canon.marks` 的每条声明在载入时校验：`id` 的写法，前缀必须是声明它的插件的 id；`attachTo` 非空；`schema` 只用这些关键字：`type`、`properties`、`required`、`additionalProperties`（只能是 `false`）、`items`、`enum`、`const`、`minimum`、`maximum`、`minLength`、`maxLength`、`anyOf`，另有注释类的 `description`、`title`、`$id`、`default`、`examples` 照收、不起作用，出现别的关键字整条不登记；`refs` 的每条路径只经过 `properties` 与 `items`（不经过 `anyOf`），指到 `type: string` 的位置，同一路径只出现一次。路径指到的属性可以是可选的：载荷里没有它就没有引用。不过的整条不登记，写诊断 `mark-declaration-invalid`，指出哪一项。同一个 `id` 被声明不止一次（不论哪个插件）时，这几条都不登记（同一诊断）；同一时刻一个 `id` 只有一个登记的版本。
+18. **引用。** 引用位置按指向的对象分五类，下表是完整的清单：
 
     | 指向 | 位置 |
     |---|---|
-    | 条目 | `ref` 种类的字段与元素子字段；以引用为键的列表的元素 id（输出 19）；标注种类声明的 `refs` 路径；剧情变更的 `involves`、`lines`、`cast[].who`、`cast[].as`，分叉的 `fork.who`、`fork.carry[].entry`，时间说法的 `when[].who`（`age`、`birth`）；决策 `about` 里的 `entry` 与 `address.entry`；条目的 `parent`、`sameAs` |
-    | 剧情变更 | `links[].plan`、`links[].by`；分叉的 `fork.cut`、`fork.trigger`、`fork.endAt`；时间说法的 `when[].of`；决策 `about` 里的 `change`；核对点的 `anchor.change` |
-    | 世界线 | 安放与读取位置的 `line`、分叉的 `fork.parent`；分叉的 `fork.line` 是新线的 id |
-    | 决策 | 决策 `about` 里的 `decision`、`supersededBy` |
+    | 条目 | `ref` 种类的字段与元素子字段；以引用为键的列表的元素 id（输出 19）；标注种类声明的 `refs` 里 `kind` 为 `entry` 的路径；地址里的条目（补丁的 `at`、核对点的 `at`、写入请求 `reads` 里的地址）；剧情变更的 `involves`、`lines`、`cast[].who`、`cast[].as`，分叉的 `fork.who`、`fork.carry[].entry`，时间说法的 `when[].who`（`age`、`birth`）；决策 `about` 里的 `entry` 与 `address.entry`；条目的 `parent`、`sameAs` |
+    | 剧情变更 | 标注种类 `refs` 里 `kind` 为 `change` 的路径；`links[].plan`、`links[].by`；分叉的 `fork.cut`、`fork.trigger`、`fork.endAt`；时间说法的 `when[].of`；决策 `about` 里的 `change`；核对点的 `anchor.change` |
+    | 世界线 | 安放与读取位置的 `line`、分叉的 `fork.parent`、标注种类 `refs` 里 `kind` 为 `line` 的路径；分叉的 `fork.line` 是新线的 id |
+    | 决策 | 决策 `about` 里的 `decision`、`supersededBy`、标注种类 `refs` 里 `kind` 为 `decision` 的路径 |
+    | 核对点 | 依据里的 `check`（由核对点推出的差额）；稳定键 `objects` 里的 `check` |
 
     对所有引用位置，内核统一做：
-    - 写入时，新写或改过的引用指向的对象存在（条目还要没删除、种类在 `targets` 里；世界线还要存在，[`canon.worldlines`](worldlines.md) 输出 1）；不过拒收，详情给出路径与原因（`ref-invalid`：`entry-missing`、`entry-deleted`、`ref-type-mismatch`、`change-missing`、`line-missing`、`decision-missing`）；各 Spec 另有的规则（例如切口要在父线视图里）照常另查；
+    - 写入时，新写或改过的引用指向的对象存在（条目还要没删除、种类在 `targets` 里；世界线还要至少在按计划模式下存在，计划线也算；已写的记录安放在计划线上时只报 `line-planned`，[`canon.worldlines`](worldlines.md) 输出 1）；不过拒收，详情给出路径与原因（`ref-invalid`：`entry-missing`、`entry-deleted`、`ref-type-mismatch`、`change-missing`、`line-not-found`、`decision-missing`、`check-missing`）；地址里的条目只做临时 id 的替换，存在与否由补丁能不能套上判断（[`canon.revisions`](revisions.md) 输出 3）；各 Spec 另有的规则（例如切口要在父线视图里、计划线上只收计划）照常另查；
     - 写入请求里的临时 id（`tmp:` 开头）在引用位置上换成程序生成的 id，新线的 `fork.line` 也一样（[`canon.revisions`](revisions.md) 输入）；不在引用位置上的 `tmp:` 文字原样存下；
     - 指向的条目后来删除时，存下来的引用照常给出，读取与渲染标“已删除的条目”并带它原来的名字。保存引用的那个条目照常可写：改这个引用字段、改以被删条目为键的那一行的子字段、去掉那一行，补丁照常套上（新写的引用仍不能指向已删除的条目）；对被删除的条目自己的补丁套不上（[`canon.model`](model.md) 输出 14）；
     - 改动记录按条目筛选时，新写或改过指向这个条目的引用的修订也算（[`canon.revisions`](revisions.md) 输出 14）；
