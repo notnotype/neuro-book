@@ -1,4 +1,4 @@
-t18 收口验证（分支 feat/w00032-t18-builtin-profiles，提交 e4b6c71f1，含实现审查的修正）
+t18 收口验证（分支 feat/w00032-t18-builtin-profiles，提交 e4b6c71f1，含实现审查的修正；合入提交 073690996，合入前 master 只多了文档提交，又跑了类型检查与 agent 目录 117 条）
 
 测试
 - nb-harness：422 pass，0 fail；类型检查通过。
@@ -9,7 +9,7 @@ t18 收口验证（分支 feat/w00032-t18-builtin-profiles，提交 e4b6c71f1，
 - edit 模式实验：见 edit-modes.txt，96 次，结论 replace。
 
 检查
-- docs:check：没有失败。governance:check：见合入记录。
+- docs:check：没有失败。governance:check：没有失败；警告是别的会话正在改的 owned-process。
 
 未验证
 - 标题和说明在界面上的样子：t17 没做。

@@ -67,7 +67,7 @@ t05、t12、t15。
 
 ## 当前状态
 
-实现、审查与收口验证都做完了（分支 `feat/w00032-t18-builtin-profiles`）。实现审查 3 条都修了：[evidences/impl-review-disposition.md](evidences/impl-review-disposition.md)；验证：[evidences/closing-verification.txt](evidences/closing-verification.txt)。待合入，Spec 待开发者批准晋升。
+实现、审查与收口验证都做完了，已合入 master（`073690996`）。实现审查 3 条都修了：[evidences/impl-review-disposition.md](evidences/impl-review-disposition.md)；验证：[evidences/closing-verification.txt](evidences/closing-verification.txt)。Spec 待开发者批准晋升。
 
 实施中的发现与变化：
 
