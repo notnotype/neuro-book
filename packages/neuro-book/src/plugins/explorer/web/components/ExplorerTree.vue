@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /** 资源管理器的虚拟树（同名 .md）。 */
 import {OverlayScrollbar} from "@notnotype/nb-ui/components";
-import {DropFeedbackOverlay, useLayoutExtent} from "@notnotype/nb-layout/vue";
-import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
+import {DropFeedbackOverlay, createDragSession, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import type {DragSession, DropFeedbackPreview} from "@notnotype/nb-layout/vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
 
+import {dropKey} from "../actions/drop";
 import type {DropAction, DropOver} from "../actions/drop";
 import type {KeyOutcome} from "../controller";
 import {useExplorerText} from "../text";
-import {createTreeDrag} from "../tree-drag";
-import type {TreeDrag, TreeDragPointer, TreeDragTarget} from "../tree-drag";
+import {resolveTreeTarget, treeSourceAt} from "../tree-drag";
+import type {TreeDragTarget} from "../tree-drag";
 import {parentAddress} from "../tree/address";
 import type {TreeKey} from "../tree/keys";
 import type {MotionNote} from "../tree/motion";
@@ -31,6 +32,8 @@ const props = defineProps<{
     editing?: {readonly id: string; readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
     /** 拖动过了门槛：返回 false 时不起拖。缺省不能拖。 */
     startDrag?: (id: string) => boolean;
+    /** 这个落点此刻的动作，只读。缺省没有落点。 */
+    previewDrop?: (over: DropOver | null) => DropAction;
     /** 拖动中：被拖的源（行 id）与最后显示的落点动作；不在拖动为 null。 */
     drag?: {readonly sources: ReadonlyArray<string>; readonly action: DropAction} | null;
     /** 缩进参考线：不画、悬停或有焦点时画、一直画；默认 `hover`。 */
@@ -213,7 +216,7 @@ const context = (row: Row, event: MouseEvent): void => {
     if (row.kind === "root" || row.kind === "entry") emit("row-context", row.id, event.clientX, event.clientY);
 };
 
-// ---- 拖动：手势在 `tree-drag.ts`，落点判定与提交在控制器。 ----
+// ---- 拖动：手势是 nb-layout 的会话，来源与落点在 `tree-drag.ts`，判定与提交在控制器。 ----
 
 /**
  * 指针下的落点与画反馈要用的几何：行的矩形；移入目录时还要那个目录在树里的整段范围，按交出落点那一刻的树矩形与滚动位置
@@ -221,19 +224,22 @@ const context = (row: Row, event: MouseEvent): void => {
  */
 interface Hovered {
     readonly over: DropOver;
+    readonly action: DropAction;
     readonly rect: DOMRect;
     readonly tree: DOMRect;
     readonly scrollTop: number;
 }
-const hovered = ref<Hovered | null>(null);
-const pointer = ref<TreeDragPointer | null>(null);
+const gesture = shallowRef<DragSession<string, Hovered> | null>(null);
+const hovered = computed(() => gesture.value?.state.value?.drop ?? null);
+const pointer = computed(() => gesture.value?.state.value?.point ?? null);
 const overOf = (target: TreeDragTarget | null): Hovered | null => {
     if (target === null || root.value === null) return null;
     const geometry = {rect: target.rect, tree: root.value.getBoundingClientRect(), scrollTop: root.value.scrollTop};
-    if (target.kind === "blank") return {over: {kind: "blank"}, ...geometry};
-    if (target.kind === "editor") return {over: {kind: "editor", group: target.group}, ...geometry};
+    const withAction = (over: DropOver): Hovered => ({over, action: props.previewDrop?.(over) ?? {kind: "none"}, ...geometry});
+    if (target.kind === "blank") return withAction({kind: "blank"});
+    if (target.kind === "editor") return withAction({kind: "editor", group: target.group});
     const row = props.rows.find((candidate) => candidate.id === target.id);
-    return row === undefined ? null : {over: {kind: "row", id: target.id, offset: target.offset, x: target.x}, ...geometry};
+    return row === undefined ? null : withAction({kind: "row", id: target.id, offset: target.offset, x: target.x});
 };
 
 /** 停留展开：指针停在收起的目录行中段 600 毫秒（docs/specs/workbench/files-explorer.md 的“拖动”）。落点换了重新计时。 */
@@ -267,35 +273,33 @@ watch([hovered, () => props.drag?.action], ([next, action]) => {
 });
 onBeforeUnmount(clearExpand);
 
-let gesture: TreeDrag | null = null;
 onMounted(() => {
-    if (root.value === null) return;
-    gesture = createTreeDrag({
-        root: root.value,
-        start: (id) => props.startDrag?.(id) ?? false,
-        hover: (target, at) => {
-            pointer.value = at;
-            hovered.value = overOf(target);
-            emit("drag-hover", hovered.value?.over ?? null);
-        },
-        drop: (target) => {
-            const over = overOf(target)?.over ?? null;
-            if (over === null || props.drag == null || props.drag.action.kind === "none") flyBack();
-            hovered.value = null;
-            pointer.value = null;
-            clearExpand();
-            emit("drag-drop", over);
-        },
-        cancel: () => {
-            flyBack();
-            hovered.value = null;
-            pointer.value = null;
-            clearExpand();
+    const element = root.value;
+    if (element === null) return;
+    gesture.value = createDragSession<string, Hovered>({
+        root: element,
+        // 用户自己滚动或行变了而指针没动：指针下已经不是显示的那一行，撤下落点（files-explorer 验收 15）。
+        scroll: "withdraw",
+        autoScroll: {element},
+        sourceAt: (target) => treeSourceAt(element, target),
+        activate: (id) => props.startDrag?.(id) ?? false,
+        resolve: ({top, point}) => overOf(resolveTreeTarget(element, top, point)),
+        actionKey: (drop) => dropKey(drop.action),
+        commit: (drop) => emit("drag-drop", drop.over),
+        onEnd: (end, last) => {
+            if (end.kind === "committed") return;
+            if (end.kind === "no-action" || end.reason !== "disposed") flyBack(last.point);
             emit("drag-cancel");
         },
+        onActiveChange: (active) => element.toggleAttribute("data-explorer-dragging", active),
     });
+    // 同步：边缘滚动中松手时，“发布”和“放下”在同一个调用栈里，控制器比较的“最后显示的动作”要在放下之前写好。
+    watch(gesture.value.state, (next) => {
+        if (next === null) clearExpand();
+        else emit("drag-hover", next.drop?.over ?? null);
+    }, {flush: "sync"});
 });
-onBeforeUnmount(() => gesture?.dispose());
+onBeforeUnmount(() => gesture.value?.dispose());
 
 /** 主题的动画时长（毫秒）；系统减少动态效果时为 0，没有布局的环境也当 0。 */
 function motionMs(name: "--motion-base" | "--motion-fast"): number {
@@ -460,8 +464,8 @@ onBeforeUnmount(() => {
  */
 const returning = ref<{readonly what: string; x: number; y: number; flying: boolean} | null>(null);
 let returnTimer: ReturnType<typeof setTimeout> | null = null;
-function flyBack(): void {
-    const from = ghost.value;
+function flyBack(at: {readonly x: number; readonly y: number}): void {
+    const from = ghostAt(at);
     const duration = motionMs("--motion-base");
     const first = props.drag?.sources[0];
     if (from === null || duration <= 0 || root.value === null || first === undefined) return;
@@ -482,14 +486,10 @@ function flyBack(): void {
 
 // 控制器结束了这场拖动（切换显示、源或落点失效）：手势随之收场。
 watch(() => props.drag == null, (ended) => {
-    if (!ended) return;
-    hovered.value = null;
-    pointer.value = null;
-    clearExpand();
-    gesture?.abort();
+    if (ended) gesture.value?.abort();
 });
 // 行变了而指针没动：指针下已经不是显示的那一行，撤下落点。
-watch(() => props.rows, () => gesture?.invalidate());
+watch(() => props.rows, () => gesture.value?.invalidate());
 
 /** 在编辑组打开：画整个编辑组（树外，用编辑区共用的反馈层）。 */
 const dropPreview = computed((): DropFeedbackPreview | null => {
@@ -559,13 +559,13 @@ const parentOf = (id: string): string | null => {
 };
 
 /** 拖影：指针右侧偏下的小浮块，写被拖的名字（多项写“N 项”）与动作；贴近指针，又不挡住指针所指那一行的名字开头。 */
-const ghost = computed(() => {
+const ghostAt = (at: {readonly x: number; readonly y: number}) => {
     const sources = props.drag?.sources;
-    const at = pointer.value;
-    if (sources === undefined || sources.length === 0 || at === null) return null;
+    if (sources === undefined || sources.length === 0) return null;
     const what = sources.length === 1 ? nameOfRow(sources[0] as string) : text("tree.dragItems", {count: sources.length});
     return {x: at.x + 12, y: at.y + 4, what, action: dropLabel.value};
-});
+};
+const ghost = computed(() => (pointer.value === null ? null : ghostAt(pointer.value)));
 
 const dragSources = computed(() => new Set(props.drag?.sources ?? []));
 

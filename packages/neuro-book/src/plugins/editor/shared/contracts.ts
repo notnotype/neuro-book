@@ -4,6 +4,7 @@
  * 菜单位置 `editor.title`（输出 34）。其它插件在运行时只引用本文件。
  */
 
+import {defineDropKind} from "@notnotype/nb-layout";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import {Value} from "typebox/value";
@@ -13,6 +14,9 @@ import type {InjectionKey} from "vue";
 import type {languages as MonacoLanguages} from "monaco-editor/esm/vs/editor/editor.api.js";
 
 import type {EditingActionId, EditorEditing} from "./editing";
+
+/** 文件拖到编辑组：编辑组登记这个落点，拖动方查到组 id 后执行带 `group` 的 `nbook.editor.open`（docs/specs/workbench/editor.md 输出 35）。 */
+export const EDITOR_GROUP_FILE = defineDropKind<{readonly group: string}>("nbook.editor.group.file");
 
 export {EDITING_ACTIONS} from "./editing";
 export type {EditingActionId, EditorEditing} from "./editing";

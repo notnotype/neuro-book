@@ -15,7 +15,7 @@ import type {DocumentCoordinator, DocumentLease} from "nbook/plugins/editor/shar
 import type {BatchHandle, BatchResult, FilesResult, FilesService, ItemResult, ManifestIssue, OperationDone, Scheme} from "nbook/plugins/files/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
 
-import {resolveBlankDrop, resolveDrop, resolveEditorDrop} from "./actions/drop";
+import {resolveBlankDrop, resolveDrop, resolveEditorDrop, dropKey} from "./actions/drop";
 import type {DropAction, DropOver} from "./actions/drop";
 import {candidateName, planNames} from "./actions/paste-plan";
 import type {CollisionChoice, PlanSource} from "./actions/paste-plan";
@@ -224,6 +224,8 @@ export interface ExplorerController {
     abandon(): void;
     // 拖动：手势归视图，判定与提交归控制器。
     startDrag(id: string): boolean;
+    /** 这个落点此刻的动作，只读：手势放下时要在不改显示状态的情况下再判一次。 */
+    previewDrop(over: DropOver | null): DropAction;
     hoverDrag(over: DropOver | null): void;
     dropDrag(over: DropOver | null): Promise<void>;
     cancelDrag(): void;
@@ -243,20 +245,8 @@ export interface ExplorerController {
 
 const NOT_AVAILABLE: Availability = {create: false, rename: false, delete: false, createContent: false, convert: false, display: false, include: false, drop: false, moveUp: false, moveDown: false, copy: false, cut: false, paste: false};
 
-/** 两个落点动作相同：放下时重判的动作要与最后显示过的逐字段相同才提交。 */
 function sameDrop(a: DropAction, b: DropAction): boolean {
-    switch (a.kind) {
-        case "none":
-            return b.kind === "none";
-        case "move":
-            return b.kind === "move" && a.target === b.target;
-        case "reorder":
-            return b.kind === "reorder" && a.parent === b.parent && a.before === b.before && a.names.length === b.names.length && a.names.every((name, index) => name === b.names[index]);
-        case "place":
-            return b.kind === "place" && a.target === b.target && a.before === b.before;
-        case "open":
-            return b.kind === "open" && a.group === b.group && a.addresses.length === b.addresses.length && a.addresses.every((address, index) => address === b.addresses[index]);
-    }
+    return dropKey(a) === dropKey(b);
 }
 
 /** 父子同时在里面时只留最外层。 */
@@ -975,6 +965,10 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 }
             });
             return true;
+        },
+        previewDrop: (over) => {
+            const current = drag.value;
+            return current === null ? NO_DROP : dropAction(current.sources, over);
         },
         hoverDrag: (over) => {
             const current = drag.value;

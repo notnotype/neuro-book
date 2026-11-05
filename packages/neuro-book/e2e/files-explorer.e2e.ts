@@ -792,6 +792,99 @@ test("拖动（验收 28）：放下后滑到新位置、落进收起的目录�
     await item(page, "project://r4").click();
 });
 
+test("拖到编辑组经落点登记查到，不读 data-editor-group（docs/specs/ui/layout-drag.md 验收 2）", async ({page}) => {
+    await open(page);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/a.md")).toBeVisible();
+    await barrier(page, "plain");
+    await page.locator("[data-editor-group]").first().evaluate((group: HTMLElement) => {
+        group.dataset.testGroup = "";
+        group.removeAttribute("data-editor-group");
+    });
+    const group = page.locator("[data-test-group]");
+    const box = await group.boundingBox();
+    if (box === null) throw new Error("编辑组不在页面上");
+    const from = await center(page, "project://plain/a.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y + 8, {steps: 2});
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 8});
+    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await page.mouse.up();
+    await expect(group.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("拖动中按键归拖动；失去捕获、焦点移到树外都取消且不写，松手不算点击（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
+    await open(page);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/a.md")).toBeVisible();
+    await barrier(page, "plain");
+    const ghost = page.locator("[data-explorer-drag-ghost]");
+    const row = item(page, "project://plain/a.md");
+    const from = await center(page, "project://plain/a.md");
+    const grab = async (): Promise<void> => {
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x, from.y + 8, {steps: 2});
+        await expect(ghost).toBeVisible();
+    };
+    const settled = (): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+    await grab();
+    const active = await tree(page).getAttribute("aria-activedescendant");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("End");
+    await settled();
+    expect(await tree(page).getAttribute("aria-activedescendant")).toBe(active);
+
+    // 浏览器在下一个指针事件时才派发 `lostpointercapture`，所以释放之后要动一下。
+    await tree(page).evaluate((element) => element.releasePointerCapture(1));
+    await page.mouse.move(from.x, from.y + 9);
+    await expect(ghost).toHaveCount(0);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.up();
+    await settled();
+    await expect(row).not.toHaveAttribute("aria-selected", "true");
+
+    await grab();
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").evaluate((button: HTMLElement) => button.focus());
+    await expect(ghost).toHaveCount(0);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.up();
+    await settled();
+    await expect(row).not.toHaveAttribute("aria-selected", "true");
+    expect(await exists(join(projectDir, "plain", "a.md"))).toBe(true);
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("边缘滚动中松手：文件落到松手时指针下的位置（docs/specs/ui/layout-drag.md 验收 6）", async ({page}) => {
+    await open(page);
+    await writeFile(join(projectDir, "plain", "edge-drop.md"), "E");
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/edge-drop.md")).toBeVisible();
+    await barrier(page, "plain");
+    await item(page, "project://big").click();
+    await expect(item(page, "project://big/file-0003.md")).toBeVisible();
+    await tree(page).evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+    });
+    await expect(item(page, "project://plain/edge-drop.md")).toBeVisible();
+    const box = await tree(page).boundingBox();
+    if (box === null) throw new Error("树不在页面上");
+    const from = await center(page, "project://plain/edge-drop.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y - 8, {steps: 2});
+    const edge = {x: from.x, y: box.y + 4};
+    await page.mouse.move(edge.x, edge.y, {steps: 6});
+    // 往上滚，直到指针下是 big 里的文件：落在那里就是移入 big。
+    await expect.poll(() => page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-explorer-row]")?.dataset.explorerRow ?? "", edge)).toMatch(/^project:\/\/big\/file-/u);
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "big", "edge-drop.md"))).toBe(true);
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
 test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：都不写", async ({page}) => {
     const sent = recordWrites(page);
     await open(page);

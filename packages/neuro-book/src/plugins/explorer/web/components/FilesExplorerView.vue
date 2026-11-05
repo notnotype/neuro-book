@@ -37,6 +37,7 @@ const props = defineProps<{
     running?: {readonly action: BatchAction; readonly count: number} | null;
     unknown?: Unknown | null;
     startDrag?: (id: string) => boolean;
+    previewDrop?: (over: DropOver | null) => DropAction;
     drag?: {readonly sources: ReadonlyArray<string>; readonly action: DropAction} | null;
     /** 最近一次提交的结构变化预告，交给树放动画。 */
     motion?: MotionNote | null;
@@ -176,6 +177,7 @@ defineExpose({focusTree});
             :hide-markdown-extension="hideMarkdownExtension === true"
             :editing="editing ?? null"
             :start-drag="startDrag"
+            :preview-drop="previewDrop"
             :drag="drag ?? null"
             :motion="motion ?? null"
             @row-press="(id, modifiers, part) => emit('row-press', id, modifiers, part)"

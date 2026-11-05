@@ -1,5 +1,6 @@
 <script setup lang="ts">
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
+import {useDropTarget} from "@notnotype/nb-layout/vue";
 import {Banner, Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
 import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
@@ -23,7 +24,7 @@ import {useEditorText} from "../text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
 import {formatResource} from "nbook/plugins/files/shared/contracts";
-import {editorToolbarSlotKey} from "../../shared/contracts";
+import {EDITOR_GROUP_FILE, editorToolbarSlotKey} from "../../shared/contracts";
 
 import {nameOf, resourceOf} from "../documents/address";
 import {tabHints} from "../tab-hints";
@@ -148,6 +149,7 @@ const listCrumb = async (address: string, signal: AbortSignal): Promise<Breadcru
 };
 /** 面包屑交还焦点：给本组的编辑器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
 const section = ref<HTMLElement | null>(null);
+useDropTarget(section, [EDITOR_GROUP_FILE], () => ({group: props.groupId}));
 const returnFocus = (): void => {
     const handle = props.area.handleOf(props.groupId);
     if (handle !== null) handle.focus();
