@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t19-background-image",
+    "artifactId": "review",
+    "answerId": "20261105T093321977Z-52b6959d",
+    "artifactVersion": 1,
+    "contentHash": "b01f09f3ee6be481b8d70dc8519b042de3dd4e2515a7ef39ff81c3d1eb2f39b4",
+    "submittedAt": "2026-11-05T09:33:21.977Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "r1-scope": "window"
+    },
+    "comments": {
+        "r1-scope": "开发者在会话里定：背景有多种，现在有两种，正文（编辑器区）与整个窗口都做"
+    },
+    "note": "这道题是单选，两种都要；以评论与 Task README 为准"
+}
