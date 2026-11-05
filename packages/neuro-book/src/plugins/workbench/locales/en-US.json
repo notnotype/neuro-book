@@ -25,14 +25,6 @@
                     "title": "System"
                 }
             }
-        },
-        "background": {
-            "editor": {
-                "title": "Document background"
-            },
-            "window": {
-                "title": "Window background"
-            }
         }
     },
     "titlebar": {
@@ -303,48 +295,6 @@
         },
         "panelMaximized": {
             "reason": "The panel is not maximized"
-        }
-    },
-    "settingsPages": {
-        "background": {
-            "title": "Background",
-            "keywords": {
-                "wallpaper": "wallpaper",
-                "eyeCare": "eye care"
-            }
-        }
-    },
-    "backgrounds": {
-        "editorTitle": "Document",
-        "windowTitle": "Window",
-        "none": "None",
-        "color": "Colour",
-        "image": "Image",
-        "light": "Light",
-        "dark": "Dark",
-        "custom": "Custom",
-        "upload": "Upload",
-        "uploading": "Uploading",
-        "gallery": "Uploaded images",
-        "fit": "Fit",
-        "cover": "Cover",
-        "contain": "Contain",
-        "repeat": "Tile",
-        "blur": "Blur",
-        "scrim": "Scrim",
-        "sampleMain": "Body text",
-        "sampleSecondary": "Secondary text",
-        "sampleLink": "Link",
-        "failure": {
-            "loadFailed": "This image cannot be read: the file is missing or damaged",
-            "colorIllegible": "Text is hard to read on this colour, so it was not applied",
-            "solid": "Your system asks for less transparency or more contrast, so images are not drawn",
-            "tooLarge": "The image is too large; the limit is 20 MiB",
-            "unsupported": "Only PNG, JPEG and WebP are supported",
-            "conflict": "A file with this name has different content and was not overwritten",
-            "uploadFailed": "Upload failed: {{detail}}",
-            "listFailed": "Could not list uploaded images: {{detail}}",
-            "writeSubject": "Background"
         }
     }
 }

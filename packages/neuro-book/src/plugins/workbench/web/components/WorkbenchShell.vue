@@ -7,8 +7,8 @@ import {Tabs} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import type {GridDropRect, GridOrientation} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
-import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch, watchEffect} from "vue";
-import type {Component, Ref} from "vue";
+import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
+import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -48,11 +48,6 @@ import type {MovePayload, MoveTargetGroup} from "./WorkbenchMoveViewMenu.vue";
 import WorkbenchPanelSurface from "./WorkbenchPanelSurface.vue";
 import type {PanelFrameAction} from "./WorkbenchPanelSurface.vue";
 import WorkbenchShellLayout from "./WorkbenchShellLayout.vue";
-import BackgroundLayer from "nbook/ui/background/BackgroundLayer.vue";
-import type {Rgb} from "nbook/ui/background/background-legibility";
-import {readDocumentColors, resolve, setEditorTransparent} from "nbook/ui/background/document-colors";
-import {useBackgroundImage} from "nbook/ui/background/use-background-image";
-import type {BackgroundImageInput} from "nbook/ui/background/use-background-image";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
 import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
@@ -73,41 +68,7 @@ const props = defineProps<{
     /** 标题栏的菜单与搜索、两侧的条目；没有时标题栏只有品牌与项目名（外壳四之前的样子）。 */
     chrome?: ShellChrome;
     project: string | null;
-    /** 窗口背景（docs/specs/ui/backgrounds.md 输出 2）；没有时不画。 */
-    background?: Readonly<Ref<BackgroundImageInput | null>>;
-    reportBackground?: (error: unknown) => void;
 }>();
-
-/**
- * 窗口背景：字面量写在文档根。不在子作用域里覆盖 `--panel-surface`：派生变量（`--editor-tabs-surface`）在根上已经算好，不会跟着变；
- * 而且它叠了好几层，不透明度相乘。所以只给外层的面半透明，里层透明，其余层级的面照旧实心。
- */
-const windowBackground = useBackgroundImage(() => props.background?.value ?? null, (error) => props.reportBackground?.(error));
-const BACKGROUND_VARS = ["--shell-ground", "--shell-chrome-surface", "--shell-card-surface", "--editor-inner-surface", "--editor-tabs-surface"];
-const transparentOwner = Symbol("window-background");
-function clearBackgroundVars(): void {
-    for (const name of BACKGROUND_VARS) document.documentElement.style.removeProperty(name);
-}
-const stopBackground = watchEffect(() => {
-    const active = windowBackground.active.value;
-    setEditorTransparent(transparentOwner, active !== null);
-    clearBackgroundVars();
-    if (active === null) return;
-    const face = (color: Rgb): string => `rgba(${String(Math.round(color[0]))}, ${String(Math.round(color[1]))}, ${String(Math.round(color[2]))}, ${String(active.alpha)})`;
-    const {surface} = readDocumentColors();
-    const tabs = resolve("--editor-tabs-surface", surface).rgb;
-    const root = document.documentElement.style;
-    root.setProperty("--shell-ground", "transparent");
-    root.setProperty("--shell-chrome-surface", face(surface));
-    root.setProperty("--shell-card-surface", face(surface));
-    root.setProperty("--editor-inner-surface", "transparent");
-    root.setProperty("--editor-tabs-surface", face(tabs));
-});
-onBeforeUnmount(() => {
-    stopBackground();
-    clearBackgroundVars();
-    setEditorTransparent(transparentOwner, false);
-});
 
 const resolver = useText();
 const text = (value: DisplayText): string => resolver.t(value);
@@ -434,13 +395,6 @@ const dropFeedback = computed(() => {
 
 <template>
     <div ref="hostEl" class="workbench-shell-host" tabindex="-1" @focusin="onFocusIn">
-    <BackgroundLayer
-        v-if="windowBackground.active.value !== null"
-        :url="windowBackground.active.value.url"
-        :fit="windowBackground.active.value.fit"
-        :blur="windowBackground.active.value.blur"
-        :alpha="0"
-    />
     <WorkbenchShellLayout
         ref="shellLayout"
         class="workbench-shell"

@@ -2,7 +2,7 @@
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
 import {Banner, Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
 import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
-import {computed, inject, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
@@ -23,10 +23,7 @@ import {useEditorText} from "../text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
 import {formatResource} from "nbook/plugins/files/shared/contracts";
-import {CODE_EDITOR, editorBackgroundKey, editorToolbarSlotKey, MARKDOWN_EDITOR} from "../../shared/contracts";
-import BackgroundLayer from "nbook/ui/background/BackgroundLayer.vue";
-import {backgroundColorIsLegible, documentAppearance, setEditorTransparent, useDocumentThemeVersion} from "nbook/ui/background/document-colors";
-import {useBackgroundImage} from "nbook/ui/background/use-background-image";
+import {editorToolbarSlotKey} from "../../shared/contracts";
 
 import {nameOf, resourceOf} from "../documents/address";
 import {tabHints} from "../tab-hints";
@@ -246,36 +243,12 @@ export interface EditorGroupTitleActions {
 
 const toolbarSlot = useTemplateRef<HTMLElement>("toolbarSlot");
 provide(editorToolbarSlotKey, toolbarSlot);
-
-/** 正文背景（docs/specs/ui/backgrounds.md 输出 1）：只有 Markdown 与源码编辑器透出，图片查看器这些不是长文。 */
-const backgroundSource = inject(editorBackgroundKey, null);
-const backgroundImage = useBackgroundImage(() => {
-    const setting = backgroundSource?.setting.value;
-    if (setting?.kind !== "image") return null;
-    const url = backgroundSource?.url(setting.image) ?? null;
-    return url === null ? null : {url, fit: setting.fit, blur: setting.blur, scrim: setting.scrim};
-}, (error) => backgroundSource?.report(error));
-const backgroundTheme = useDocumentThemeVersion();
-const backgroundColor = computed(() => {
-    const setting = backgroundSource?.setting.value;
-    if (setting?.kind !== "color") return null;
-    void backgroundTheme.value;
-    const color = setting[documentAppearance()];
-    return backgroundColorIsLegible(color) ? color : null;
-});
-const showsBackground = computed(() => {
-    const editor = binding.value?.editor;
-    return (editor === MARKDOWN_EDITOR || editor === CODE_EDITOR) && (backgroundImage.active.value !== null || backgroundColor.value !== null);
-});
-const transparentOwner = Symbol("editor-group");
-watch(showsBackground, (on) => setEditorTransparent(transparentOwner, on), {immediate: true});
-onBeforeUnmount(() => setEditorTransparent(transparentOwner, false));
 </script>
 
 <template>
     <section
         ref="section"
-        class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--editor-inner-surface,var(--panel-surface))]"
+        class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
         :aria-label="t('area.label')"
         :data-editor-group="groupId"
@@ -313,7 +286,7 @@ onBeforeUnmount(() => setEditorTransparent(transparentOwner, false));
                 @run="(key: string) => emit('title-action', key)"
             />
         </div>
-        <div class="flex min-w-0 shrink-0 items-center bg-[var(--editor-inner-surface,var(--panel-surface))]">
+        <div class="flex min-w-0 shrink-0 items-center bg-[var(--panel-surface)]">
             <EditorBreadcrumbs
                 v-if="crumbs.segments.length > 0"
                 class="min-w-0 flex-[1_1_160px]"
@@ -339,14 +312,6 @@ onBeforeUnmount(() => setEditorTransparent(transparentOwner, false));
             </template>
         </Banner>
         <div class="relative min-h-7 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
-            <BackgroundLayer
-                v-if="showsBackground && backgroundImage.active.value !== null"
-                :url="backgroundImage.active.value.url"
-                :fit="backgroundImage.active.value.fit"
-                :blur="backgroundImage.active.value.blur"
-                :alpha="backgroundImage.active.value.alpha"
-            />
-            <BackgroundLayer v-else-if="showsBackground" :url="null" :color="backgroundColor" />
             <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
                 <NeuroBookMark class="editor-group__mark" decorative />
                 <div v-if="emptyTips.length > 0" class="editor-group__tips">

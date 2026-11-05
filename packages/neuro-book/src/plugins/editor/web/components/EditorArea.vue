@@ -121,7 +121,7 @@ const dialog = computed(() => props.area.dialog.value);
 <template>
     <div
         ref="root"
-        class="h-full min-h-0 w-full min-w-0 overflow-hidden bg-[var(--shell-card-surface,var(--panel-surface))]"
+        class="h-full min-h-0 w-full min-w-0 overflow-hidden bg-[var(--panel-surface)]"
         data-editor-area
         @keydown="onKeydown"
         @focusin="area.focused.value = true"

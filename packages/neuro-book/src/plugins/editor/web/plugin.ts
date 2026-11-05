@@ -13,7 +13,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {filesKey, rawUrlOf} from "nbook/plugins/files/shared/contracts";
+import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
 import {diagnosticText} from "nbook/shared/localized-text";
@@ -22,14 +22,14 @@ import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contract
 import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {editorBackgroundSetting, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorBackgroundKey, editorMenusKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
+import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorMenusKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
@@ -272,11 +272,6 @@ export const editorBrowserPlugin: PluginDefinition = {
                 notify: (message) => session.area.value?.notify(message),
                 report,
             });
-            const background = {
-                setting: computed(() => settings.get(editorBackgroundSetting)),
-                url: (address: string) => rawUrlOf(address, null),
-                report,
-            };
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
                     const {default: EditorArea} = await import("./components/EditorArea.vue");
@@ -288,7 +283,6 @@ export const editorBrowserPlugin: PluginDefinition = {
                             provideToChildren(editorLanguagesKey, languages);
                             provideToChildren(codeEditorOptionsKey, codeOptions);
                             provideToChildren(editorMenusKey, menus);
-                            provideToChildren(editorBackgroundKey, background);
                             return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             tabMenuModel.run(tabId, key);

@@ -119,7 +119,7 @@ onBeforeUnmount(() => {
 /* 外壳平铺（ui/workbench-shell.md 输出 38）：不画卡片外框与圆角，和编辑区之间只有外壳网格的分隔条。 */
 .workbench-tool-part--sidebar,
 .workbench-tool-part--auxiliarybar {
-    background: var(--shell-card-surface, var(--panel-surface));
+    background: var(--panel-surface);
 }
 
 .workbench-tool-part__head {

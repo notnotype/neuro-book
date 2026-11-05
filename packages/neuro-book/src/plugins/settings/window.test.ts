@@ -30,7 +30,7 @@ import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
-import {appearanceSetting, editorBackgroundSetting, themeSetting, windowBackgroundSetting} from "nbook/plugins/workbench/shared/contracts";
+import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {descriptor as workbenchDescriptor} from "nbook/plugins/workbench/plugin";
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -55,8 +55,7 @@ import {settingsTestText} from "./testing/text";
 
 const silent = {error: () => undefined};
 /** 工作台描述里的配置项（主题、明暗），不装它的浏览器入口：外观分区里的两项要有人声明。 */
-// 背景的两项指向工作台浏览器入口贡献的 page 分区；这里只取声明、没有那个入口，留着会落到“其它”。
-const workbenchDeclarations: PluginDefinition = {id: workbenchDescriptor.id, entries: [], contributions: (workbenchDescriptor.contributions ?? []).filter((contribution) => contribution !== editorBackgroundSetting.contribution && contribution !== windowBackgroundSetting.contribution)};
+const workbenchDeclarations: PluginDefinition = {id: workbenchDescriptor.id, entries: [], contributions: workbenchDescriptor.contributions ?? []};
 const title = (zh: string) => ({"zh-CN": zh, "en-US": zh});
 
 interface Recorder {

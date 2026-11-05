@@ -277,7 +277,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
 }
 
 .editor-tab-frame.is-active {
-    background: var(--shell-card-surface, var(--panel-surface));
+    background: var(--panel-surface);
     color: var(--text-main);
 }
 

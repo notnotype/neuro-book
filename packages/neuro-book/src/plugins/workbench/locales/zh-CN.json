@@ -25,14 +25,6 @@
                     "title": "跟随系统"
                 }
             }
-        },
-        "background": {
-            "editor": {
-                "title": "正文背景"
-            },
-            "window": {
-                "title": "窗口背景"
-            }
         }
     },
     "titlebar": {
@@ -302,48 +294,6 @@
         },
         "panelMaximized": {
             "reason": "面板没有最大化"
-        }
-    },
-    "settingsPages": {
-        "background": {
-            "title": "背景",
-            "keywords": {
-                "wallpaper": "壁纸",
-                "eyeCare": "护眼"
-            }
-        }
-    },
-    "backgrounds": {
-        "editorTitle": "正文",
-        "windowTitle": "窗口",
-        "none": "无",
-        "color": "纯色",
-        "image": "图片",
-        "light": "亮色",
-        "dark": "暗色",
-        "custom": "自定义",
-        "upload": "上传",
-        "uploading": "上传中",
-        "gallery": "已传过的图",
-        "fit": "填充",
-        "cover": "铺满",
-        "contain": "完整",
-        "repeat": "平铺",
-        "blur": "模糊",
-        "scrim": "遮罩",
-        "sampleMain": "正文",
-        "sampleSecondary": "次要文字",
-        "sampleLink": "链接",
-        "failure": {
-            "loadFailed": "这张图读不出来：文件不见了或者已损坏",
-            "colorIllegible": "这个颜色上文字读不清，没有应用",
-            "solid": "系统要求减少透明或提高对比度，现在不画图片",
-            "tooLarge": "图片太大，上限 20 MiB",
-            "unsupported": "只支持 PNG、JPEG、WebP",
-            "conflict": "同名文件内容不符，没有覆盖",
-            "uploadFailed": "上传失败：{{detail}}",
-            "listFailed": "已传过的图读不出来：{{detail}}",
-            "writeSubject": "背景"
         }
     }
 }
