@@ -1549,7 +1549,9 @@ function computeImpact(before: World, data: WorldData, lines: LineSet, where: Re
     if (options.order !== before.options.order || touchesTime(before.data, data, ops)) {
         for (const item of before.time("actual").items) wasKeys.add(timeItemKey(item));
         const settings = options.time ?? DEFAULT_TIME;
-        for (const item of timeState(data, timeInputOf(data, options.order), settings, "actual", []).items) nowKeys.add(timeItemKey(item));
+        // 主线的时间状态按主线视图的记录建（子线上的事件不进主线的网络）；与之后 `World.time()` 用同一份，缓存共用。
+        const main = lines.main.records;
+        for (const item of timeState(main, timeInputOf(main, options.order), settings, "actual", []).items) nowKeys.add(timeItemKey(item));
     }
     return {
         where,

@@ -79,7 +79,7 @@ export class LineSet {
      * 定义变了或有结构性变化的丢掉，其余只在改到的记录进了它的视图、带过去的值变了或条目变了时更新，不然沿用旧的。
      */
     advance(inputs: EngineInputs, changed: ChangedRefs): LineSet {
-        const records = mainRecords(inputs.world);
+        const records = this.#mainRecordsFor(inputs.world, changed);
         const main: LineView = {line: MAIN_LINE, records, engine: this.main.engine.update({...inputs, world: records}, changed), synthetic: new Set()};
         const structural = changed.structural === true || inputs.registry.digest !== this.inputs.registry.digest || !sameOrder(inputs.order.ids, this.inputs.order.ids);
         const next = new LineSet(inputs, main, this.use);
@@ -107,6 +107,35 @@ export class LineSet {
             if (result.reasons.length > 0) updates.push({line, reasons: result.reasons});
         }
         return new LineSet(inputs, main, this.use, next.#children, updates);
+    }
+
+    /**
+     * 新数据上主线视图的记录。上一份已经是滤过的（世界上有别的线的记录）时，只按这次改到的记录增减，不重扫全部；上一份就是世界
+     * 的数据本身（没有别的线）时重算，因为这次可能是第一条别的线的记录。
+     */
+    #mainRecordsFor(data: WorldData, changed: ChangedRefs): WorldData {
+        if (data === this.inputs.world) return this.main.records;
+        if (this.main.records === this.inputs.world) return mainRecords(data);
+        const previous = this.main.records;
+        let changes = previous.changes;
+        let checks = previous.checks;
+        for (const id of changed.changes ?? []) {
+            const now = data.changes.get(id);
+            const keep = now !== undefined && lineOf(now.at) === MAIN_LINE ? now : undefined;
+            if (changes.get(id) === keep) continue;
+            if (changes === previous.changes) changes = new Map(changes);
+            if (keep === undefined) (changes as Map<string, StoryChange>).delete(id);
+            else (changes as Map<string, StoryChange>).set(id, keep);
+        }
+        for (const id of changed.checks ?? []) {
+            const now = data.checks.get(id);
+            const keep = now !== undefined && lineOf(now.place) === MAIN_LINE ? now : undefined;
+            if (checks.get(id) === keep) continue;
+            if (checks === previous.checks) checks = new Map(checks);
+            if (keep === undefined) (checks as Map<string, import("../core/schema").Check>).delete(id);
+            else (checks as Map<string, import("../core/schema").Check>).set(id, keep);
+        }
+        return {...data, changes, checks};
     }
 
     /** 一条建好的线推进到新输入；返回新的视图（没变时就是旧的）与原因。 */
@@ -138,44 +167,42 @@ export class LineSet {
             changedChecks.push(id);
         }
         const records: WorldData = {...world, changes, checks};
-        const assembled = this.#assemble(line, entry, parent, records, previous.engine.inputs.world.changes.get(entry.fork.id));
-        // 合成事件里换了的：带过去的值变了，或继承来的祖线合成事件换了。
+        const before = previous.engine.inputs.world;
+        // 合成事件里换了的：带过去的值变了，或继承来的祖线合成事件换了。先只算合成事件（几条），都没变时不复制整张表。
+        const synthetic = this.#syntheticEvents(entry, parent, before.changes.get(entry.fork.id));
         const inputChanges: string[] = [];
-        for (const id of new Set([...previous.synthetic, ...assembled.synthetic])) {
-            if (previous.engine.inputs.world.changes.get(id) !== assembled.world.changes.get(id)) inputChanges.push(id);
+        for (const id of new Set([...previous.synthetic, ...synthetic.keys()])) {
+            if (before.changes.get(id) !== synthetic.get(id)) inputChanges.push(id);
         }
         if (changedChanges.length > 0 || changedChecks.length > 0) reasons.push("records");
         if (inputChanges.length > 0) reasons.push("carry");
         const entries = [...(changed.entries ?? [])];
         if (entries.length > 0) reasons.push("entries");
         if (reasons.length === 0) return {view: previous, reasons};
-        const engine = previous.engine.update({...this.inputs, world: assembled.world}, {entries, changes: [...changedChanges, ...inputChanges], checks: changedChecks});
-        return {view: {line, records, engine, synthetic: assembled.synthetic}, reasons};
+        // 只有条目变了：记录与合成事件都沿用，引擎输入的表不用重新复制。
+        const input: WorldData = reasons.length === 1 && reasons[0] === "entries" ? {...records, changes: before.changes, createdAt: before.createdAt} : this.#inputWorld(records, synthetic);
+        const engine = previous.engine.update({...this.inputs, world: input}, {entries, changes: [...changedChanges, ...inputChanges], checks: changedChecks});
+        return {view: {line, records, engine, synthetic: new Set(synthetic.keys())}, reasons};
     }
 
     /**
-     * 一条线的引擎输入：作者的记录，加父线引擎输入里全序不晚于切口的合成事件，再加本线的（输出 2、6）。`carried` 是上一次的
-     * 本线合成事件，带过去的值没变时沿用它（同一个对象，更新时据此知道它没变）。
+     * 一条线引擎输入里的合成事件（输出 2、6）：父线引擎输入里全序不晚于切口的合成事件，加本线的（每个地址一个 carry 补丁，值取父线在
+     * 触发处、没有时切口那条变更套完之后；切口处不存在的地址跳过）。`previous` 是上一次的本线合成事件，带过去的值没变时沿用它
+     * （同一个对象，更新时据此知道它没变）。
      */
-    #assemble(line: string, entry: NonNullable<ReturnType<ReturnType<typeof lineTable>["lines"]["get"]>>, parent: LineView, records: WorldData, previous?: StoryChange): {world: WorldData; synthetic: Set<string>} {
+    #syntheticEvents(entry: NonNullable<ReturnType<ReturnType<typeof lineTable>["lines"]["get"]>>, parent: LineView, previous?: StoryChange): Map<string, StoryChange> {
         const {world, order} = this.inputs;
-        const table = lineTable(world, order);
         const {fork} = entry.fork;
-        const cut = table.point(fork.cut)!;
+        const cut = lineTable(world, order).point(fork.cut)!;
         const parentInput = parent.engine.inputs.world;
-        const inputChanges = new Map(records.changes);
-        const createdAt = new Map(world.createdAt);
-        const synthetic = new Set<string>();
+        const found = new Map<string, StoryChange>();
         for (const id of parent.synthetic) {
             const inherited = parentInput.changes.get(id)!;
             const rank = placementRank(order, inherited.at);
             const point: OrderPoint | null = rank === null ? null : {rank, version: CARRY_VERSION, id};
             if (point === null || compareOrder(point, cut) > 0) continue;
-            inputChanges.set(id, inherited);
-            createdAt.set(id, CARRY_VERSION);
-            synthetic.add(id);
+            found.set(id, inherited);
         }
-        // 本线的：每个地址一个 carry 补丁，值取父线在触发处（没有时切口）那条变更套完之后；切口处不存在的地址跳过。
         const from = fork.trigger ?? fork.cut;
         const patches: Patch[] = [];
         for (const address of fork.carry ?? []) {
@@ -184,10 +211,19 @@ export class LineSet {
         }
         const {line: _line, ...at} = world.changes.get(fork.cut)!.at as StoryChange["at"] & {line?: string};
         const carried: StoryChange = previous !== undefined && sameJson(previous.patches, patches) && sameJson(previous.at, at) ? previous : {id: entry.fork.id, kind: "written", text: `从 ${entry.parent} 带过来`, at, told: [], involves: [], lines: [], links: [], patches, status: "active", by: {kind: "system"}};
-        inputChanges.set(carried.id, carried);
-        createdAt.set(carried.id, CARRY_VERSION);
-        synthetic.add(carried.id);
-        return {world: {...records, changes: inputChanges, createdAt}, synthetic};
+        found.set(carried.id, carried);
+        return found;
+    }
+
+    /** 作者的记录加合成事件，合成事件的写入版本是 `CARRY_VERSION`。 */
+    #inputWorld(records: WorldData, synthetic: ReadonlyMap<string, StoryChange>): WorldData {
+        const changes = new Map(records.changes);
+        const createdAt = new Map(this.inputs.world.createdAt);
+        for (const [id, change] of synthetic) {
+            changes.set(id, change);
+            createdAt.set(id, CARRY_VERSION);
+        }
+        return {...records, changes, createdAt};
     }
 
     /** 一条线的线视图：主线总在；子线存在且可建时第一次读到才建；不存在或不可建时为 undefined。读到一次就算用过一次（输出 9）。 */
@@ -258,8 +294,8 @@ export class LineSet {
         const changes = new Map([...world.changes].filter(([id]) => table.visible(line, id)));
         const checks = new Map([...world.checks].filter(([id]) => table.visible(line, id)));
         const records: WorldData = {...world, changes, checks};
-        const assembled = this.#assemble(line, entry, parent, records);
-        return {line, records, engine: createIncrementalEngine({...this.inputs, world: assembled.world}), synthetic: assembled.synthetic};
+        const synthetic = this.#syntheticEvents(entry, parent);
+        return {line, records, engine: createIncrementalEngine({...this.inputs, world: this.#inputWorld(records, synthetic)}), synthetic: new Set(synthetic.keys())};
     }
 }
 

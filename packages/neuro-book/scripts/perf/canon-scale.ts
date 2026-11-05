@@ -12,7 +12,11 @@
  * “在本章上一件之后 0 到 1 天”、日期加“持续 1 到 5 小时”或常出场的第一个人的年龄（前史里有他 1980 年的出生）。另量打开后第一次
  * 时间查询（冷建网，预算 1 秒）、之后的查询（20 毫秒）与读待处理；“发布一次记账”含为新数据建网。
  *
- * 用法（应用包目录）：bun scripts/perf/canon-scale.ts [章数=1000] [--diverge]
+ * 世界线（canon.worldlines 输出 15，`--fork`）：在中间那章开一条回溯分叉，子线上另有后半部分各章的记账（形状同主线、不带核对点与新条目），
+ * 再量：建子线的视图并第一次读（预算 2 秒）、在已建好的线上随机读（同读取预算）、主线最新一章发布一次记账而子线已建（不在子线的依赖范围里，
+ * 子线不更新）、改常出场条目的初值（所有线都受影响）；最后重新打开（子线没建）写一条落在继承区间里的记录，量预览与发布（当场建改前改后两份）。
+ *
+ * 用法（应用包目录）：bun scripts/perf/canon-scale.ts [章数=1000] [--diverge] [--fork]
  * 测量前看 `uptime`：负载高时多跑几次按较低的一端判断，不与 omp 审查同时跑。
  */
 
@@ -29,6 +33,7 @@ import {BUILTIN_COMPONENTS} from "nbook/plugins/canon/shared/components";
 
 const chapters = Number(process.argv.find((arg) => /^\d+$/u.test(arg)) ?? 1000);
 const divergeFrom = process.argv.includes("--diverge") ? Math.floor(chapters / 2) : Number.POSITIVE_INFINITY;
+const fork = process.argv.includes("--fork");
 const PERSON = "nbook.canon.person";
 const PANEL = "nbook.canon.panel";
 
@@ -105,13 +110,15 @@ let balance = 1_000_000;
  * 一章的记账：5 个计划（前 4 个由本次的已写变更兑现）、15 条已写变更、2 个核对点，偶数章另建一个条目。
  * `base` 是本次记录的排序键起点：在最新一章反复补记时每次往后挪，新记录与核对点都在本章已有的之后。
  */
-function bookkeeping(service: WorldService, chapter: string, hot: readonly string[], n: number, base = 0): WriteRequest {
+function bookkeeping(service: WorldService, chapter: string, hot: readonly string[], n: number, base = 0, line?: string): WriteRequest {
     const puts: WriteRequest["puts"] = [];
+    // 子线上的记账：记录安放在这条线上，不带核对点与新条目（核对点写的是主线的存款）。
+    const placed = (key: number) => ({kind: "chapter" as const, chapter, key, ...(line === undefined ? {} : {line})});
     const plans: string[] = [];
     for (let i = 0; i < 5; i += 1) {
         const id = `tmp:p${String(++sequence)}`;
         plans.push(id);
-        const plan: StoryChangeDraft = {id, kind: "plan", text: "计划", at: {kind: "chapter", chapter, key: base + i * 10}, told: [], involves: [hot[i % 5]!], lines: [], links: [], patches: [{op: "add", at: {entry: hot[i % 5]!, path: "panel.魔力"}, value: -10, basis: {kind: "estimate", note: "计划"}}], status: "active", by: {kind: "author"}};
+        const plan: StoryChangeDraft = {id, kind: "plan", text: "计划", at: placed(base + i * 10), told: [], involves: [hot[i % 5]!], lines: [], links: [], patches: [{op: "add", at: {entry: hot[i % 5]!, path: "panel.魔力"}, value: -10, basis: {kind: "estimate", note: "计划"}}], status: "active", by: {kind: "author"}};
         puts.push({ref: {kind: "change", id}, after: plan});
     }
     for (let i = 0; i < 15; i += 1) {
@@ -119,7 +126,7 @@ function bookkeeping(service: WorldService, chapter: string, hot: readonly strin
         const from = hot[i % 5]!;
         const to = hot[(i + 1) % 5]!;
         const change: StoryChangeDraft = {
-            id, kind: "written", text: "情节", at: {kind: "chapter", chapter, key: base + i * 10}, told: [{source: "chapter", chapter, quote: "原句"}], involves: [from, to], lines: [],
+            id, kind: "written", text: "情节", at: placed(base + i * 10), told: [{source: "chapter", chapter, quote: "原句"}], involves: [from, to], lines: [],
             links: i < 4 ? [{kind: "fulfills", plan: plans[i]!}] : [],
             patches: [
                 {op: "add", at: {entry: from, path: "panel.存款"}, value: -(100 + i), basis: {kind: "estimate", note: "规模测量"}},
@@ -135,12 +142,12 @@ function bookkeeping(service: WorldService, chapter: string, hot: readonly strin
     // 第一个常出场条目在第 i 条变更里转出（i % 5 == 0）或转入（i % 5 == 4）100 + i。
     const delta = (i: number) => (i % 5 === 0 ? -(100 + i) : i % 5 === 4 ? 100 + i : 0);
     const written = (through: number) => balance + Array.from({length: 15}, (_, i) => i).filter((i) => i * 10 < through).reduce((sum, i) => sum + delta(i), 0) + (n >= divergeFrom ? 1_700 : 0);
-    for (const key of [55, 155]) {
+    for (const key of line === undefined ? [55, 155] : []) {
         const id = `tmp:k${String(++sequence)}`;
         puts.push({ref: {kind: "check", id}, after: {id, at: {entry: hot[0]!, path: "panel.存款"}, value: written(key), told: {source: "chapter", chapter, quote: "原句"}, place: {kind: "chapter", chapter, key: base + key}}});
     }
-    balance = written(Number.POSITIVE_INFINITY) - (n >= divergeFrom ? 1_700 : 0);
-    if (n % 2 === 0) {
+    if (line === undefined) balance = written(Number.POSITIVE_INFINITY) - (n >= divergeFrom ? 1_700 : 0);
+    if (line === undefined && n % 2 === 0) {
         const id = `tmp:e${String(++sequence)}`;
         puts.push({ref: {kind: "entry", id}, after: person(id, 100 + n, chapter)});
     }
@@ -165,6 +172,18 @@ for (let n = 1; n <= chapters; n += 1) {
     dated = [];
     const ids = await publish(first.service, bookkeeping(first.service, chapterIds[n - 1]!, hot, n));
     for (const temp of dated) datedIds.push(ids[temp]!);
+}
+// 世界线：中间那章第 1 条已写变更为切口、第 5 条为触发处的回溯分叉，子线上记后半部分各章。
+let forkLine = "";
+if (fork) {
+    const mid = Math.floor(chapters / 2);
+    const inChapter = first.service.changes({chapter: chapterIds[mid - 1]!, kind: "written"}, undefined, 20);
+    if (typeof inChapter === "string") throw new Error(inChapter);
+    const [cut, trigger] = [inChapter.items[0]!.change.id, inChapter.items[4]!.change.id];
+    const forkChange: StoryChangeDraft = {id: "tmp:fork", kind: "written", text: "回溯", at: {kind: "chapter", chapter: chapterIds[mid - 1]!, key: 9_999}, told: [], involves: [hot[0]!], lines: [], links: [], patches: [], status: "active", by: author, nature: "fork", fork: {line: "tmp:line", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: hot[0]!}};
+    const forkIds = await publish(first.service, {requestId: "scale-fork", by: author, what: "edit", title: "回溯分叉", baseVersion: first.service.status().version, puts: [{ref: {kind: "change", id: "tmp:fork"}, after: forkChange}]});
+    forkLine = forkIds["tmp:line"]!;
+    for (let n = mid + 1; n <= chapters; n += 1) await publish(first.service, bookkeeping(first.service, chapterIds[n - 1]!, hot, n, 0, forkLine));
 }
 const generated = performance.now() - started;
 const version = first.service.status().version;
@@ -245,14 +264,46 @@ const timePending = service.pending({}, undefined, 50);
 const pendingMs = performance.now() - pendingBegin;
 const timeItemCount = typeof timePending === "string" ? -1 : timePending.items.filter((item) => item.kind === "canon" && item.item.kind.startsWith("time-")).length;
 
+// ---------- 世界线：建子线的视图并第一次读，之后在已建的线上随机读（`--fork`） ----------
+let lineBuildMs = 0;
+let lineReads: number[] = [];
+if (fork) {
+    const lastChapter = chapterIds.at(-1)!;
+    const begin = performance.now();
+    service.entry(hot[0]!, {kind: "chapter", chapter: lastChapter, edge: "end", line: forkLine}, "actual");
+    lineBuildMs = performance.now() - begin;
+    const half = Math.floor(chapters / 2);
+    lineReads = Array.from({length: 50}, () => {
+        const chapter = chapterIds[half + Math.floor(rnd() * (chapters - half))]!;
+        const at = performance.now();
+        service.entry(hot[Math.floor(rnd() * hot.length)]!, {kind: "chapter", chapter, edge: "end", line: forkLine}, "actual");
+        return performance.now() - at;
+    });
+}
+
 // ---------- 在最新一章发布一次记账（含校验、计算、写入落盘） ----------
 const last = chapterIds.at(-1)!;
 const publishes: number[] = [];
+// `CANON_SCALE_PROFILE=publish`：只对这一段发布取调用栈采样，打印按文件与函数的自身耗时前几名（找发布慢在哪）。
+const profiling = process.env.CANON_SCALE_PROFILE === "publish" ? await import("bun:jsc") : null;
+profiling?.startSamplingProfiler();
 for (let round = 0; round < 10; round += 1) {
     const request = bookkeeping(service, last, hot, chapters + 1 + round * 2, 1_000 * (round + 1));
     const begin = performance.now();
     await publish(service, request);
     publishes.push(performance.now() - begin);
+    // 子线已建时：主线最新一章的记账不在子线的依赖范围里，子线不更新（输出 8、17）。
+    if (fork && service.status().lines.updated.length > 0) throw new Error(`子线被更新了：${JSON.stringify(service.status().lines.updated)}`);
+}
+
+if (profiling !== null) {
+    const traces = (profiling as unknown as {samplingProfilerStackTraces: () => {traces?: unknown}}).samplingProfilerStackTraces();
+    const counts = new Map<string, number>();
+    for (const trace of (traces.traces ?? []) as Array<{frames?: Array<{name?: string; sourceID?: string; location?: string}>}>) {
+        const top = trace.frames?.[0];
+        if (top !== undefined) counts.set(`${top.name ?? "?"} ${top.location ?? ""}`, (counts.get(`${top.name ?? "?"} ${top.location ?? ""}`) ?? 0) + 1);
+    }
+    console.log([...counts].sort((x, y) => y[1] - x[1]).slice(0, 25).map(([key, n]) => `${String(n)} ${key}`).join("\n"));
 }
 
 // ---------- 改常出场条目的初值（影响从第 1 章起） ----------
@@ -272,6 +323,24 @@ const suspectCount = typeof pending === "string" ? 0 : pending.items.reduce((sum
 Bun.gc(true);
 const heap = process.memoryUsage().heapUsed / 1024 / 1024;
 await stop();
+// ---------- 世界线：改初值已量过（子线已建，要更新）；重新打开（子线没建）写一条落在继承区间里的记录，量预览与发布 ----------
+let rangePreviewMs = 0;
+let rangePublishMs = 0;
+if (fork) {
+    const reopened = await open();
+    const inRange = chapterIds[Math.floor(chapters / 2) - 5]!;
+    const request = (id: string): WriteRequest => ({requestId: `scale-range-${id}`, by: author, what: "edit", title: "写在继承区间里", baseVersion: reopened.service.status().version, puts: [{ref: {kind: "change", id: `tmp:${id}`}, after: {id: `tmp:${id}`, kind: "written", text: "补一笔", at: {kind: "chapter", chapter: inRange, key: 5_000}, told: [], involves: [hot[1]!], lines: [], links: [], patches: [{op: "add", at: {entry: hot[1]!, path: "panel.存款"}, value: -1, basis: author as never}], status: "active", by: author}}]});
+    let began = performance.now();
+    const preview = reopened.service.preview(request("a"));
+    rangePreviewMs = performance.now() - began;
+    if (!preview.ok) throw new Error(JSON.stringify(preview.failure));
+    began = performance.now();
+    await publish(reopened.service, request("b"));
+    rangePublishMs = performance.now() - began;
+    await reopened.stop();
+}
+
+
 // `CANON_SCALE_KEEP=1` 时留下临时项目（打印路径），用来看日志或交给 measure-project 量常驻内存。
 if (process.env.CANON_SCALE_KEEP === "1") console.log(`留下临时项目：${root}`);
 else await rm(root, {recursive: true, force: true});
@@ -288,4 +357,8 @@ console.log(`最新一章发布一次记账：中位 ${ms(median(publishes))} �
 console.log(`改常出场条目的初值：中位 ${ms(median(initial))} 毫秒（预算 1000）`);
 console.log(`待处理：${String(pendingCount)} 条，嫌疑记录共 ${String(suspectCount)} 条`);
 console.log(`时间（${String(datedIds.length)} 条带说法的变更）：打开后第一次查询（冷建网）${ms(timeColdMs)} 毫秒（预算 1000），之后中位 ${ms(median(timeReads))}、最大 ${ms(Math.max(...timeReads))}（预算 20）；年龄 ${ms(ageMs)} 毫秒（${JSON.stringify((age as {answer: {text?: string}}).answer.text)}）；读待处理 ${ms(pendingMs)} 毫秒，时间的项 ${String(timeItemCount)} 条（第一页里）`);
+if (fork) {
+    console.log(`世界线（中间那章开回溯分叉，子线上另有 ${String(chapters - Math.floor(chapters / 2))} 章的记账）：建子线的视图并第一次读 ${ms(lineBuildMs)} 毫秒（预算 2000）；在已建的线上随机读，中位 ${ms(median(lineReads))}、最大 ${ms(Math.max(...lineReads))}（预算 20）`);
+    console.log(`世界线：主线最新一章发布记账、子线已建时子线不更新（见上面的断言）；写一条落在继承区间里的记录（子线没建，当场建改前改后各一份）：预览 ${ms(rangePreviewMs)} 毫秒，发布 ${ms(rangePublishMs)} 毫秒`);
+}
 console.log(`堆：${ms(heap)} MB`);
