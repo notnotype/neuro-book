@@ -1,6 +1,10 @@
 /**
- * `nbook.plot` 的远程合同（docs/specs/plot/knowledge.md 输出 3、6、7）：剧情的读取视图，项目实例提供。阶段 B 的各片把
- * 方法加进来；按视角过滤的视图在 B3。读取结果的形状由 `core/` 给出，链路上不逐字段核对（同 canon 的远程合同）。
+ * `nbook.plot` 的远程合同（docs/specs/plot/knowledge.md 输出 3、6 到 9）：剧情的读取视图，项目实例提供。读取结果的形状由
+ * `core/` 给出，链路上不逐字段核对（同 canon 的远程合同）。
+ *
+ * 按视角的视图（输出 9）：`openViewpoint` 给调用方一个句柄，之后的 `viewpoint*` 方法带它读；内核的视图令牌只在项目进程里，
+ * 不交给调用方（拿着它直接调 canon 就绕过了这里的过滤）。句柄的寿命不超过申请它的调用方实例，`closeViewpoint` 或调用方
+ * 实例失效即失效，之后用它得到 `view-denied`。
  */
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
@@ -21,6 +25,13 @@ const methods = {
     knowing: {input: Type.Object({person: Type.String(), point: Type.Optional(Type.String()), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
     /** 读者在一个讲述位置上对一个知识点的程度（输出 6），与读者第一次到怀疑、知道的讲述（输出 7）。 */
     reader: {input: Type.Object({point: Type.String(), at: TellingPositionSchema}), output: Out, effect: "read", errors},
+    /** 给看的人开一张视图（线恒为主线，阶段 D 之前）。 */
+    openViewpoint: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), until: ReadPositionSchema, purpose: Type.String()}), output: Out, effect: "read", errors},
+    closeViewpoint: {input: Type.Object({handle: Type.String()}), output: Type.Null(), effect: "read", errors},
+    viewpointEntry: {input: Type.Object({handle: Type.String(), id: Type.String()}), output: Out, effect: "read", errors},
+    viewpointLookup: {input: Type.Object({handle: Type.String(), names: Type.Array(Type.String(), {maxItems: 200})}), output: Out, effect: "read", errors},
+    viewpointExperience: {input: Type.Object({handle: Type.String()}), output: Out, effect: "read", errors},
+    viewpointKnowing: {input: Type.Object({handle: Type.String(), who: Type.String()}), output: Out, effect: "read", errors},
 } as const;
 
 export const plotWorldContract = defineRemoteService({id: "nbook.plot/world", version: 1, provider: "project", callers: ["browser", "tui", "server"], methods, events: {}});

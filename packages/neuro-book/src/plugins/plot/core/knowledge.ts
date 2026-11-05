@@ -91,6 +91,19 @@ export class KnowingIndex {
         });
     }
 
+    /** 一条变更让这个人哪几行变成了什么（经历里“这条变更让 V 的有效知情起的变化”）：同一行里显式的优先。 */
+    changedBy(person: string, change: string): KnowingRow[] {
+        const rows = new Map<string, Candidate>();
+        const consider = (point: string, candidate: Candidate) => {
+            if (candidate.change !== change) return;
+            const existing = rows.get(point);
+            if (existing === undefined || (candidate.explicit && !existing.explicit)) rows.set(point, candidate);
+        };
+        for (const [point, history] of this.#explicitOf(person)) for (const candidate of history) consider(point, candidate);
+        for (const [point, history] of this.#derivedOf().get(person) ?? []) for (const candidate of history) consider(point, candidate);
+        return [...rows.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).flatMap(([, candidate]) => (candidate.row === null ? [] : [candidate.row]));
+    }
+
     /** 这个人的某一行最近一次让程度、怎么知道或谁告诉的变化的那条变更（传话链里“这一行所在的变更”）。 */
     rowChange(person: string, point: string): string | undefined {
         const history = (this.#explicitOf(person).get(point) ?? []).filter((candidate) => this.#positionKey !== null && this.view.compareKeys(candidate.key, this.#positionKey) < 0);

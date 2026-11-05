@@ -14,6 +14,32 @@ import {COMPONENT_IDS, PLOT_COMPONENTS, PLOT_DIAGNOSTICS, PLOT_MARKS, PLOT_PLUGI
 
 const PERSON = {id: "test.person", label: "人物", namespace: "character", version: 1, fields: [{id: "状态", label: "状态", kind: "text" as const}]};
 
+/** 剧情世界的登记：剧情插件的 Component、标注种类与诊断，加一个测试用的人物类型。 */
+export function plotRegistries() {
+    return {
+        registry: buildRegistry([...PLOT_COMPONENTS, PERSON]),
+        marks: buildMarkRegistry(PLOT_MARKS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration}))),
+        diagnostics: buildDiagnosticRegistry(PLOT_DIAGNOSTICS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration}))),
+    };
+}
+
+/** 写入请求里的对象（剧情世界与剧情服务两种夹具共用）。 */
+export const drafts = {
+    person: (id: string, name: string, extra: Partial<Entry> = {}): Entry => ({id, type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {know: {type: COMPONENT_IDS.knowing, version: 1, enabled: true, fields: {知情: [], 听过的说法: null}}}}, ...extra}),
+    point: (id: string, name: string, subject: string | null, fields: Record<string, unknown> = {}): Entry => ({id, type: "知识点", parent: subject, folder: "", order: 0, init: {name, aliases: [], summary: name, text: [], data: {point: {type: COMPONENT_IDS.point, version: 1, enabled: true, fields: {保密: "secret", 规则: null, 表现: null, 揭穿: null, 读者问题: null, ...fields}}}}}),
+    change: (id: string, at: Placement, options: ChangeOptions = {}): StoryChangeDraft => ({id, kind: options.kind ?? "written", text: options.text ?? id, at, told: options.told ?? [], involves: [], lines: [], links: options.links ?? [], patches: options.patches ?? [], status: "active", by: {kind: "author"}, ...(options.cast === undefined ? {} : {cast: options.cast}), ...(options.marks === undefined ? {} : {marks: options.marks})}),
+};
+
+export interface ChangeOptions {
+    readonly patches?: Patch[];
+    readonly cast?: CastMember[];
+    readonly marks?: Mark[];
+    readonly told?: TellingDraft[];
+    readonly kind?: "written" | "plan";
+    readonly links?: StoryChangeDraft["links"];
+    readonly text?: string;
+}
+
 export class PlotWorld {
     world: World;
     readonly texts = new Map<string, string>();
@@ -23,9 +49,7 @@ export class PlotWorld {
         for (const chapter of chapters) this.texts.set(chapter, "");
         this.world = World.empty({
             order: new ChapterOrder(chapters),
-            registry: buildRegistry([...PLOT_COMPONENTS, PERSON]),
-            marks: buildMarkRegistry(PLOT_MARKS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration}))),
-            diagnostics: buildDiagnosticRegistry(PLOT_DIAGNOSTICS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration}))),
+            ...plotRegistries(),
             reductions: () => undefined,
             chapterText: (chapter) => this.texts.get(chapter),
             digest: (text) => createHash("sha256").update(text).digest("hex"),
@@ -48,19 +72,20 @@ export class PlotWorld {
 
     /** 一个人物，带知情命名空间。 */
     person(name: string, extra: Partial<Entry> = {}): string {
-        return this.entry({type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {know: {type: COMPONENT_IDS.knowing, version: 1, enabled: true, fields: {知情: [], 听过的说法: null}}}}, ...extra});
+        const id = `tmp:p${String(++this.#sequence)}`;
+        return this.publish([{ref: {kind: "entry", id}, after: drafts.person(id, name, extra)}])[id]!;
     }
 
     /** 一个知识点，挂在主体下面。 */
     point(name: string, subject: string | null, fields: Record<string, unknown> = {}): string {
-        return this.entry({type: "知识点", parent: subject, folder: "", order: 0, init: {name, aliases: [], summary: name, text: [], data: {point: {type: COMPONENT_IDS.point, version: 1, enabled: true, fields: {保密: "secret", 规则: null, 表现: null, 揭穿: null, 读者问题: null, ...fields}}}}});
+        const id = `tmp:k${String(++this.#sequence)}`;
+        return this.publish([{ref: {kind: "entry", id}, after: drafts.point(id, name, subject, fields)}])[id]!;
     }
 
     /** 一条剧情变更（缺省已写），返回正式 id。 */
-    change(at: Placement, options: {readonly patches?: Patch[]; readonly cast?: CastMember[]; readonly marks?: Mark[]; readonly told?: TellingDraft[]; readonly kind?: "written" | "plan"; readonly links?: StoryChangeDraft["links"]} = {}): string {
+    change(at: Placement, options: ChangeOptions = {}): string {
         const id = `tmp:c${String(++this.#sequence)}`;
-        const draft: StoryChangeDraft = {id, kind: options.kind ?? "written", text: id, at, told: options.told ?? [], involves: [], lines: [], links: options.links ?? [], patches: options.patches ?? [], status: "active", by: {kind: "author"}, ...(options.cast === undefined ? {} : {cast: options.cast}), ...(options.marks === undefined ? {} : {marks: options.marks})};
-        return this.publish([{ref: {kind: "change", id}, after: draft}])[id]!;
+        return this.publish([{ref: {kind: "change", id}, after: drafts.change(id, at, options)}])[id]!;
     }
 
     view(): CanonReadView {

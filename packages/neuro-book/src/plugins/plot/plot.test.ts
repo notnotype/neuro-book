@@ -7,6 +7,9 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {RemoteUse} from "@notnotype/nb-runtime/remote";
 import {buildMarkRegistry, buildRegistry} from "@notnotype/nb-canon";
 import type {Entry, StoryChangeDraft, WriteRequest} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -14,7 +17,21 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {publish, serverPlugins, until, windowOf} from "nbook/plugins/canon/testing/harness";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 
+import {plotWorldContract} from "./shared/contracts";
 import {COMPONENT_IDS, DIAGNOSTIC_IDS, MARK_IDS, PLOT_COMPONENTS, PLOT_MARKS, PLOT_PLUGIN_ID} from "./shared/declarations";
+import {drafts} from "./testing/world";
+
+/** 窗口里的测试插件：拿到剧情插件远程合同的调用入口。 */
+function plotCaller(): {readonly plugin: PluginDefinition; readonly plot: () => RemoteUse<typeof plotWorldContract>} {
+    let use: RemoteUse<typeof plotWorldContract> | null = null;
+    return {
+        plugin: {id: "test.plot-caller", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+            use = context.remote.use(plotWorldContract);
+            return {};
+        }})]},
+        plot: () => use!,
+    };
+}
 
 let tmp = "";
 beforeAll(async () => {
@@ -73,3 +90,48 @@ describe("剧情插件的声明", () => {
         keep.release();
     }, 30_000);
 });
+
+describe("剧情插件的远程合同", () => {
+    it("knowledge 输出 3、9：有效知情的读取；按视角开视图、读到占位，关掉以后句柄失效", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
+            const dir = join(paths.project.path, "manuscripts.binder");
+            await mkdir(dir, {recursive: true});
+            await writeFile(join(dir, "binder.xml"), '<binder nextId="3"><chapter id="1" title="一"/><chapter id="2" title="二"/></binder>');
+            await writeFile(join(dir, "00001-一.md"), "国王与贤者说话。\n");
+            await writeFile(join(dir, "00002-二.md"), "卫兵站岗。\n");
+        }});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const caller = plotCaller();
+        const window = await windowOf(h, "browser-1", "profile-1", [caller.plugin]);
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.version >= 1;
+        });
+        const people = await publish(window.canon, {requestId: "people", by: {kind: "author"}, what: "edit", title: "人", baseVersion: 0, puts: [
+            {ref: {kind: "entry", id: "tmp:king"}, after: drafts.person("tmp:king", "国王")},
+            {ref: {kind: "entry", id: "tmp:guard"}, after: drafts.person("tmp:guard", "卫兵")},
+            {ref: {kind: "entry", id: "tmp:k"}, after: drafts.point("tmp:k", "勇者左手有星形的疤", null)},
+        ]});
+        if (!people.ok) throw new Error(JSON.stringify(people.failure));
+        const [king, guard, k] = [people.value.ids["tmp:king"]!, people.value.ids["tmp:guard"]!, people.value.ids["tmp:k"]!];
+        const talk = drafts.change("tmp:c", {kind: "chapter", chapter: "1", key: 0}, {cast: [{who: king, role: "present"}], marks: [{kind: MARK_IDS.presentLearns, version: 1, point: k}]});
+        expect((await publish(window.canon, {requestId: "talk", by: {kind: "author"}, what: "edit", title: "谈", baseVersion: 0, puts: [{ref: {kind: "change", id: "tmp:c"}, after: talk}]})).ok).toBe(true);
+
+        const plot = caller.plot();
+        expect(await plot.knowing({person: king, point: k})).toMatchObject({ok: true, value: {rows: [{point: k, 程度: "knows", source: "present"}]}});
+        const opened = await plot.openViewpoint({viewer: guard, until: {kind: "chapter", chapter: "2", edge: "end"}, purpose: "writer"});
+        if (!opened.ok) throw new Error(JSON.stringify(opened));
+        const handle = (opened.value as {handle: string}).handle;
+        expect(await plot.viewpointEntry({handle, id: k})).toMatchObject({ok: true, value: {kind: "placeholder", id: k}});
+        expect(await plot.viewpointEntry({handle, id: king})).toMatchObject({ok: true, value: {kind: "entry"}});
+        const audit = await window.canon.call("viewAudit", {viewer: guard});
+        expect(audit.ok && audit.value.items.map((item) => item.kind)).toEqual(["placeholder"]);
+        expect((await plot.closeViewpoint({handle})).ok).toBe(true);
+        expect(await plot.viewpointEntry({handle, id: k})).toMatchObject({ok: false, code: "plot", detail: {code: "view-denied"}});
+
+        await window.close();
+        keep.release();
+    }, 30_000);
+});
+

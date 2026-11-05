@@ -36,8 +36,8 @@ export interface TestWindow {
     close(): Promise<void>;
 }
 
-/** 绑定 `book` 的窗口：浏览器内核实例，装 `nbook.canon` 的浏览器入口与一个用世界客户端的插件。 */
-export async function windowOf(h: ProjectHarness, id: string, client: string): Promise<TestWindow> {
+/** 绑定 `book` 的窗口：浏览器内核实例，装 `nbook.canon` 的浏览器入口与一个用世界客户端的插件；`extra` 是别的测试插件。 */
+export async function windowOf(h: ProjectHarness, id: string, client: string, extra: readonly PluginDefinition[] = []): Promise<TestWindow> {
     let canon: CanonClient | null = null;
     const node = createRemoteNode({instance: {id, kind: "browser", role: "client", project: null, client}, bind: {project: "book"}});
     const pair = createLinkPair();
@@ -50,6 +50,7 @@ export async function windowOf(h: ProjectHarness, id: string, client: string): P
             capabilities: [{id: "window.project", key: windowProjectKey, create: () => ({project: {id: binding.id, name: binding.name, generation: binding.generation}})}],
             plugins: [
                 canonBrowserPlugin,
+                ...extra,
                 {id: "app.writer", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: canonClientKey}], activate: (context) => {
                     canon = context.services.require(canonClientKey);
                     return {};
