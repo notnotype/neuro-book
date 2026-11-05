@@ -216,6 +216,20 @@ export function setTitleCommand(host: CommandHost, args: CommandMap["setTitle"][
     });
 }
 
+export function setGeneratedMetaCommand(host: CommandHost, args: CommandMap["setGeneratedMeta"]["args"] & {commandId: string}): Promise<CommandResult<"setGeneratedMeta">> {
+    return accept(host, "setGeneratedMeta", args, () => {
+        const title = args.title?.trim() ?? "";
+        const description = args.description?.trim() ?? "";
+        if (title === "" && description === "") return {fail: "empty-meta"};
+        // 在受理的队列项里判断：用户的 `setTitle` 不会夹在判断与写入之间，晚到的自动结果盖不掉它。
+        const titleApplied = title !== "" && host.core.session.kernel.titleBy !== "user";
+        const drafts: EventDraft[] = [];
+        if (titleApplied) drafts.push({type: "titleChanged", kind: "ctrl", scope: "session", data: {title, by: "auto"}});
+        if (description !== "") drafts.push({type: "descriptionChanged", kind: "ctrl", scope: "session", data: {description}});
+        return {value: {titleApplied}, drafts};
+    });
+}
+
 export function archiveCommand(host: CommandHost, args: CommandMap["archive"]["args"] & {commandId: string}): Promise<CommandResult<"archive">> {
     return accept(host, "archive", args, () => ({value: {}, drafts: [{type: "archived", kind: "ctrl", scope: "session", data: {archived: args.archived}}]}));
 }

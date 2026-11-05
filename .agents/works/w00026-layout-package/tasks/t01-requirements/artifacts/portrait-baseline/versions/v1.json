@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t01-requirements",
+    "artifactId": "portrait-baseline",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "竖屏布局现状（390×844）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "e551558d1e1110cac16caf57f806ef50ec11996e20d19d4076d32403cfdf0807",
+    "files": [
+        "chapter.webp",
+        "index.html",
+        "welcome.webp"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-05T05:46:58.914Z"
+}

@@ -273,6 +273,33 @@ describe("设置、标题与归档", () => {
         const {events} = await session.raw.log({afterSeq: 0});
         expect(dataOf(events, "titleChanged")).toEqual([{title: "雨夜", by: "user"}]);
     });
+
+    test("输出 72、73：自动的标题与说明进快照；空的被拒；重发只生效一次", async () => {
+        await using session = await createTestSession();
+        expect((await session.raw.snapshot()).description).toBeNull();
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "  ", description: " "})).toEqual({ok: false, code: "empty-meta"});
+        const generated = {commandId: id(), title: " 雨夜 ", description: " 主角回到药铺 "};
+        expect(await session.raw.setGeneratedMeta(generated)).toMatchObject({ok: true, value: {titleApplied: true}, replayed: false});
+        expect(await session.raw.setGeneratedMeta(generated)).toMatchObject({ok: true, value: {titleApplied: true}, replayed: true});
+        const snapshot = await session.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual(["雨夜", "主角回到药铺"]);
+        const {events} = await session.raw.log({afterSeq: 0});
+        expect(dataOf(events, "titleChanged")).toEqual([{title: "雨夜", by: "auto"}]);
+        expect(dataOf(events, "descriptionChanged")).toEqual([{description: "主角回到药铺"}]);
+    });
+
+    test("输出 72：自动标题可以替换自动标题；用户改过之后不改标题，说明照写，重开之后也是", async () => {
+        await using session = await createTestSession();
+        await session.raw.setGeneratedMeta({commandId: id(), title: "兜底"});
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "生成的"})).toMatchObject({value: {titleApplied: true}});
+        expect((await session.raw.snapshot()).title).toBe("生成的");
+        await session.raw.setTitle({commandId: id(), title: "我的书"});
+        await session.reopen();
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "又生成的", description: "新的说明"})).toMatchObject({ok: true, value: {titleApplied: false}});
+        const snapshot = await session.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual(["我的书", "新的说明"]);
+        expect(dataOf((await session.raw.log({afterSeq: 0})).events, "titleChanged").at(-1)).toEqual({title: "我的书", by: "user"});
+    });
 });
 
 describe("收口", () => {
@@ -296,6 +323,34 @@ describe("收口", () => {
         expect(result.reason).toBe("completed");
         revoked = false;
         expect(dataOf(await session.events(), "runEnded")).toEqual([{runId: sent.value.runId, reason: "completed"}]);
+    });
+
+    test("输出 75：响应收尾事件时宿主的模型端口已撤回：运行照常收口，写诊断，关闭放掉日志与锁", async () => {
+        let revoked = false;
+        const model = createTestModel();
+        const seen: string[] = [];
+        const watcher = defineExtension({id: "lab.closing", on: {
+            assistant: () => {
+                revoked = true;
+            },
+            turnEnded: () => {
+                seen.push("turnEnded");
+            },
+        }});
+        await using session = await createTestSession({store: {root}, extensions: [watcher], models: {resolve: (query) => {
+            if (revoked) throw new Error("the service was revoked");
+            return model.port.resolve(query);
+        }}});
+        model.script("答");
+        const sent = await session.raw.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        expect((await session.raw.waitRun(sent.value.runId)).reason).toBe("completed");
+        await session.raw.setTitle({commandId: id(), title: "排在收尾的反应后面"});
+        expect(seen).toEqual(["turnEnded"]);
+        expect((await session.raw.diagnostics()).map((item) => item.code)).toContain("model-resolve-threw");
+        revoked = false;
+        await session.reopen();
+        expect((await session.raw.snapshot()).title).toBe("排在收尾的反应后面");
     });
 });
 

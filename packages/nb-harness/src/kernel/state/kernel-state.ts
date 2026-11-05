@@ -86,6 +86,9 @@ export interface SessionKernelState {
     /** 扩展 id → 用户改过的设置项。 */
     readonly settings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
     readonly title: string | null;
+    /** 最近一次标题是谁写的；`setGeneratedMeta` 据此不盖掉用户改的。 */
+    readonly titleBy: "user" | "auto" | null;
+    readonly description: string | null;
     readonly archived: boolean;
     readonly remembered: readonly string[];
     readonly profile: {readonly id: string; readonly hash: string} | null;
@@ -94,7 +97,7 @@ export interface SessionKernelState {
 export const DEFAULT_CORE_SETTINGS: CoreSettings = {model: null, effort: null, approvalMode: "ask", readOnly: false};
 
 export function initialSessionKernel(core: CoreSettings = DEFAULT_CORE_SETTINGS): SessionKernelState {
-    return {buffer: [], core, settings: {}, title: null, archived: false, remembered: [], profile: null};
+    return {buffer: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], profile: null};
 }
 
 export function reduceSessionKernel(state: SessionKernelState, event: LogEvent): SessionKernelState {
@@ -114,7 +117,9 @@ export function reduceSessionKernel(state: SessionKernelState, event: LogEvent):
             return {...state, settings: {...state.settings, [extension]: {...state.settings[extension], ...patch}}};
         }
         case "titleChanged":
-            return {...state, title: data.title as string};
+            return {...state, title: data.title as string, titleBy: data.by as "user" | "auto"};
+        case "descriptionChanged":
+            return {...state, description: data.description as string};
         case "archived":
             return {...state, archived: data.archived as boolean};
         case "approvalRemembered":

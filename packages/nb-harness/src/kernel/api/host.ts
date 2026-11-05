@@ -50,6 +50,8 @@ export interface CommandMap {
     changeProfile: {args: {profile: string}; value: {changed: boolean; hash: string; diagnostics: number}};
     setTitle: {args: {title: string}; value: {}};
     archive: {args: {archived: boolean}; value: {}};
+    /** 宿主写自动生成的标题与说明，不进远程合同；最近一次标题是用户改的时不改标题，`titleApplied` 为 false（runtime.md 输出 72）。 */
+    setGeneratedMeta: {args: {title?: string; description?: string}; value: {titleApplied: boolean}};
 }
 export type CommandName = keyof CommandMap;
 export type CommandErrorCode<K extends CommandName> = CommandErrorTable[K][number];
@@ -146,6 +148,8 @@ export interface SessionSnapshot {
     buffer: BufferedInput[];
     settings: CoreSettings;
     title: string | null;
+    /** 会话的一句话说明；没写过时为 null。 */
+    description: string | null;
     archived: boolean;
     /** 会话为什么只读（Profile 解析不到、必需工具缺失、重新装配失败）；可写时为 null。 */
     readOnly: {code: "unknown-profile" | "tools-missing" | "dependency-missing" | "reassembly-failed"} | null;

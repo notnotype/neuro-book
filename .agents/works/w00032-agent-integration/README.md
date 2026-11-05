@@ -52,6 +52,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-01 | t20 之后先实施 t09（其余顺序是建议，见 [t09](tasks/t09-models/README.md)）；t09 的设置界面先出静态稿、定稿后前后端一起做；第一版不做 OAuth 登录 |
 | 2026-11-02 | t10 之后先做 t08，再做 t12；nb-story 迁新内核放最后。t08 把方案注册做进 `nbook.files`，Agent 的方案都注册进文件服务（[t08](tasks/t08-resources-home/README.md)） |
 | 2026-11-05 | t18 开工前核对现状后定：adhoc 挪到 t14，t18 只做主创和会话标题；tiny 没绑时用第一句话作兜底标题、不调模型；做一次一次性实验定 `edit` 缺省模式；主创读 `user://AGENTS.md` 与 `project://AGENTS.md`；主创提示词这一版是第一轮，开发者按实际创作继续优化（[t18](tasks/t18-builtin-profiles/README.md)） |
+| 2026-11-05 | 开发者：t13、t14 优先级不高，接下来做 t17；t17 第一版以能真的用它写书为标准，其余拆到 [t28](tasks/t28-conversation-ui-followups/README.md)；t17 做完紧接着做 t11（[t17](tasks/t17-conversation-ui/README.md)） |
 
 ## 待确认
 
@@ -92,6 +93,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t25](tasks/t25-plugin-marketplace/README.md) | 插件市场：索引、来源、版本与更新、信任；Skill 经插件分发 | t10、t15 |
 | [t16](tasks/t16-command-bridge/README.md) | Agent 操控 NeuroBook 与 `nbook project` 子命令 | t06、t10 |
 | [t17](tasks/t17-conversation-ui/README.md) | 对话界面：Composer、状态栏、待处理区（并入 w00019 t11） | t06、t07、t09、t10；w00028 t03 合入 |
+| [t28](tasks/t28-conversation-ui-followups/README.md) | 对话界面第二批：分支树、上下文检查器、附件、草稿、触发符、Agent 模式 | t17、t06、t15 |
 | [t27](tasks/t27-run-reliability/README.md) | 运行可靠性：模型请求重试、卡死超时、循环检测与费用上限（对照 omp 的设置项，排在 t18 之前） | t12 |
 | [t18](tasks/t18-builtin-profiles/README.md) | 内置 Profile、提示词规范与评测 | t05、t12、t15 |
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |

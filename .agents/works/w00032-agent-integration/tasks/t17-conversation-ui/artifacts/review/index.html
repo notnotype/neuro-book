@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t17 对话界面第一版：静态稿</title>
+<style>
+:root { --bg:#f7f6f2; --panel:#fff; --text:#1f2328; --muted:#6b6f76; --line:#e3e1da; --accent:#0a66d8; --warn:#b45309; --warn-bg:#fff4e0; --code:#f2f1ec; }
+@media (prefers-color-scheme: dark) { :root { --bg:#1b1c1f; --panel:#24262a; --text:#e6e6e6; --muted:#9a9ca1; --line:#34363b; --accent:#5aa2ff; --warn:#f0b35a; --warn-bg:#3a2c16; --code:#2c2e33; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.7 system-ui,"PingFang SC","Noto Sans CJK SC",sans-serif; }
+main { max-width:1180px; margin:0 auto; padding:32px 16px 80px; }
+h1 { font-size:26px; margin:0 0 4px; }
+h2 { font-size:20px; margin:40px 0 8px; padding-top:16px; border-top:1px solid var(--line); }
+p,li { max-width:880px; }
+.badge { font-size:12px; padding:1px 8px; border-radius:4px; background:var(--warn-bg); color:var(--warn); margin-right:8px; vertical-align:2px; }
+.grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); margin:12px 0; }
+.wide { grid-template-columns:repeat(auto-fill,minmax(540px,1fr)); }
+figure { margin:0; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+figure img { display:block; width:100%; height:auto; }
+figcaption { padding:8px 12px; font-size:13px; color:var(--muted); }
+.rec { border-left:3px solid var(--accent); padding:4px 0 4px 12px; }
+code { font-family:ui-monospace,monospace; font-size:13px; background:var(--code); padding:1px 5px; border-radius:4px; }
+.bar { display:flex; justify-content:flex-end; gap:12px; background:var(--code); border:1px solid var(--line); border-radius:6px; padding:3px 12px; font-size:12px; color:var(--muted); }
+.bar b { color:var(--accent); font-weight:500; }
+.cand { border-top:1px dashed var(--line); padding-top:8px; margin-top:12px; }
+.strip { display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+.strip img { display:block; width:100%; border:1px solid var(--line); border-radius:6px; }
+table { border-collapse:collapse; width:100%; font-size:14px; background:var(--panel); } th,td { border:1px solid var(--line); padding:6px 10px; text-align:left; }
+</style>
+</head>
+<body>
+<main>
+<h1>t17 对话界面第一版：静态稿（第 4 轮）</h1>
+<p>已定（第 3 轮）：圆角取值、左右对齐、向导用磨砂、费用告警放状态栏左边。这轮只看三处。</p>
+
+<section data-nbdev-question="r4-sessions" data-nbdev-type="single" data-nbdev-recommend="ac">
+<h2><span class="badge" data-nbdev-skip>待定</span>1. 会话列表</h2>
+<p>加了你说的搜索、Profile 显示和过滤。每行第一行是标题、Profile、时间，第二行是说明和状态。过滤有作品范围、Profile、子代理、已归档；按今天、昨天分组。列表内容一样，差别只在外框：</p>
+<div class="grid">
+<div data-nbdev-option="a" data-nbdev-label="A 大下拉"><figure><a href="r4/sessions-a.webp"><img src="r4/sessions-a.webp" alt="A：点标题弹出的大下拉，和输入框一样宽" loading="lazy"></a><figcaption>A：点标题弹出的大下拉，和输入框一样宽</figcaption></figure></div>
+<div data-nbdev-option="b" data-nbdev-label="B 命令面板"><figure><a href="r4/sessions-b.webp"><img src="r4/sessions-b.webp" alt="B：窗口中间的命令面板，打开时遮住内容" loading="lazy"></a><figcaption>B：窗口中间的命令面板，打开时遮住内容</figcaption></figure></div>
+<div data-nbdev-option="c" data-nbdev-label="C 只有侧栏视图"><figure><a href="r4/sessions-c.webp"><img src="r4/sessions-c.webp" alt="C：左边的侧栏视图，切换不用弹东西" loading="lazy"></a><figcaption>C：左边的侧栏视图，切换不用弹东西</figcaption></figure></div>
+</div>
+<div data-nbdev-option="ac" data-nbdev-label="A 和 C 都要，同一个组件"><p><b>A 和 C 都要：</b>同一个 <code>AgentSessionPanel</code>，顶栏点标题是 A，活动栏是 C（上一轮已定第一版要贡献会话列表的侧栏视图）。</p></div>
+<p class="rec"><b>推荐：A 和 C 都要。</b>平时点标题切，长期写作时把 C 开在侧栏。B 不做：快速打开以后可以再加一个“切换会话”的入口。</p>
+<p><b>第一版的范围：</b>搜索只查标题和说明（搜对话内容是 t23）。“子代理”这个过滤要等 t14 才有子会话，第一版不显示。改名、归档放在每行悬停出现的菜单里。</p>
+</section>
+
+<section data-nbdev-question="r4-resume" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>2. 中断之后的输入框</h2>
+<p>按你说的：不再单独提醒。占位文字变成“上次运行被中断。回车继续，或者写点什么再继续”，发送按钮变成继续（实心，图标是播放）。写了字就是带着这段话继续，内容发出去。按钮和占位文字只在“上次被中断、还没有新一轮”时才这样。</p>
+<div class="grid"><figure><a href="r4/interrupted-composer.webp"><img src="r4/interrupted-composer.webp" alt="中断后的输入框" loading="lazy"></a><figcaption>中断后的输入框</figcaption></figure></div>
+</section>
+
+<section data-nbdev-question="r4-collapsed" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>3. 收起的小条</h2>
+<p>去掉重阴影，只留一条细线和很轻的抬起，圆角和输入框一样。</p>
+<div class="grid"><figure><a href="r4/wizard-collapsed.webp"><img src="r4/wizard-collapsed.webp" alt="收起" loading="lazy"></a><figcaption>收起</figcaption></figure></div>
+</section>
+</main>
+</body>
+</html>

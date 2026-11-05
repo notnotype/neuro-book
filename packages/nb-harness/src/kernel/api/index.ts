@@ -1,8 +1,8 @@
 /** 内核的全部公开类型与码表；运行时的部分只有常量数据与工具名的换算（请求校验与适配器共用）。 */
 
 export type {Actor, Attributed, Clock, DeepReadonly, Issuer, JsonValue, Rejection, Scope, UserInput} from "./basics.js";
-export {commandErrors, diagnosticCodes, runErrorCodes, storageErrors, toolResultCodes} from "./codes.js";
-export type {CommandErrorTable, DiagnosticCode, DiagnosticLevel, RunErrorCode, StorageError, ToolResultCode} from "./codes.js";
+export {commandErrors, diagnosticCodes, hostOnlyCommands, runErrorCodes, storageErrors, toolResultCodes} from "./codes.js";
+export type {CommandErrorTable, DiagnosticCode, DiagnosticLevel, HostOnlyCommand, RunErrorCode, StorageError, ToolResultCode} from "./codes.js";
 export type {
     Contract, ConvFactory, ConvNames, ConvNamesOfDependency, Dependency, DepList, EventName, EventOf, ExportsOfContract, ExportsShape, ExtFactory, Optional, ReadResult,
 } from "./contract.js";

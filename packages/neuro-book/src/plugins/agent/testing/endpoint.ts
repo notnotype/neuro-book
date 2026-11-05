@@ -7,6 +7,7 @@
 export type Scripted = string | {readonly status: number} | {readonly chunks: readonly string[]} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
 
 export interface SeenRequest {
+    readonly model: string;
     readonly tools: readonly string[];
     readonly messages: readonly {readonly role: string; readonly content?: unknown}[];
     readonly system: string;
@@ -34,9 +35,10 @@ export function fakeEndpoint(): FakeEndpoint {
         port: 0,
         hostname: "127.0.0.1",
         async fetch(request) {
-            const body = await request.json() as {tools?: {function: {name: string}}[]; messages?: {role: string; content?: unknown}[]};
+            const body = await request.json() as {model: string; tools?: {function: {name: string}}[]; messages?: {role: string; content?: unknown}[]};
             const messages = body.messages ?? [];
             requests.push({
+                model: body.model,
                 tools: (body.tools ?? []).map((tool) => tool.function.name),
                 messages,
                 system: messages.filter((message) => message.role === "system").map((message) => typeof message.content === "string" ? message.content : JSON.stringify(message.content)).join("\n"),

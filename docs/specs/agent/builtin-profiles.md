@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.builtin-profiles
 owners:
   - nbook.agent
@@ -54,7 +54,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 ### 标题和说明
 
-6. 前台会话一轮结束、且这个会话还没有说明时，服务端异步生成标题和说明。不挡这个会话：下一条输入可以立刻发出。
+6. 前台会话一轮结束、且这个会话还没有说明或还没有标题时，服务端异步生成标题和说明。不挡这个会话：下一条输入可以立刻发出。
 7. 生成的材料是这个会话当前路径上第一条用户的话和第一条有文字的回复，各取前 2000 个字符；第一条用户的话没有文字时不生成。
 8. 前台会话发生一次带摘要的压缩（`compaction.replacement` 不为 null）后，服务端用摘要的前 4000 个字符和当前标题重新生成，只更新说明。不带摘要的压缩不更新。
 9. 生成跑在标题会话里，每次发一条新输入，上下文只有系统提示词和这条输入，不带上一次。标题会话不进 `list` 的缺省结果、`running()`、`sessions://` 的目录，按 id 仍然读得到；它的费用不计入前台会话的累计和费用上限。
@@ -67,10 +67,10 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 | 前台会话的状态 | 一轮结束时 | 压缩（带摘要）后 |
 |---|---|---|
-| 没有说明，模型可用 | 生成标题和说明 | 只生成说明 |
-| 没有说明，模型不可用 | 没有标题时写兜底标题 | 不做 |
-| 有说明，模型可用 | 不做 | 只生成说明 |
-| 有说明，模型不可用 | 不做 | 不做 |
+| 没有说明或没有标题，模型可用 | 生成标题和说明 | 只生成说明 |
+| 没有说明或没有标题，模型不可用 | 没有标题时写兜底标题 | 不做 |
+| 标题和说明都有，模型可用 | 不做 | 只生成说明 |
+| 标题和说明都有，模型不可用 | 不做 | 不做 |
 
 时序与寿命：
 
@@ -105,6 +105,20 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 4. 重启后打开旧会话（没有 `description`）：列表正常，下一轮结束后补上。
 5. Smoke：真实模型跑主创改一个文件，并生成标题和说明（`builtin-profiles.llm.test.ts`）。
 
+## 实现合同
+
+- **公开入口**：Profile key `nbook.agent.main`、`nbook.agent.session-title`（常量 `MAIN_PROFILE`、`SESSION_TITLE_PROFILE`，在 `nbook/plugins/agent/shared/contracts`）；扩展 id `nbook.agent.session-meta`（标签 `session-meta`，Profile 可以按标签排除）、`nbook.agent.rules`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这两个 Profile；标题和说明经内核只给宿主的 `setGeneratedMeta` 写（[`harness/runtime.md`](../harness/runtime.md) 输出 72）；模型角色的解析在 `nbook.models`。
+- **关键不变量**：
+  - 触发用 `turnEnded`，不用 `runEnded`：压缩运行也以 `runEnded{completed}` 收口，事件不带运行种类，而它没有轮（`builtin-profiles.test.ts`“触发器在真实内核上”）。
+  - 碰会话的每一步各自经 `table.accept`，只有 `waitRun` 不经：停止要等 accept 的工作，而运行要等停止关会话才收口（`builtin-profiles.test.ts`“时序”）。
+  - 同一个前台会话的生成排成一条队，轮到时按当时的状态重新判断，不记“上次失败了”（`builtin-profiles.test.ts`“同时触发只发一次”）。
+  - 标题会话按快照里当前的 Profile 核对，不看会话头：会话头只记建会话时的（`builtin-profiles.test.ts`“被换成别的 Profile”）。
+  - 主创的提示词文字只放常量，结构测试只锁节名与工具、不锁措辞：开发者按实际创作继续改（`builtin-profiles.test.ts`“主创”）。
+
 ## 证据
 
-- 批准依据：w00032 t18 决定 1 到 5、8 到 14（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）。
+- 批准依据：w00032 t18 决定 1 到 5、8 到 14（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）；开发者 2026-11-05 确认计划，同日批准晋升为 `implemented`。
+- 实现入口：[`backend/builtin/profiles/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/index.ts)、[`main.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts)、[`session-title.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/session-title.ts)、[`rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/rules.ts)、[`backend/session-meta.ts`](../../../packages/neuro-book/src/plugins/agent/backend/session-meta.ts)
+- 合同测试：[`builtin-profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-profiles.test.ts)（真实内核、真实设置与文件服务、本机的 OpenAI 兼容端点）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（声明字段）、[`control.test.ts`](../../../packages/nb-harness/src/kernel/run/control.test.ts)（`setGeneratedMeta`）
+- Smoke：[`builtin-profiles.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-profiles.llm.test.ts)（`test:llm`，DeepSeek）

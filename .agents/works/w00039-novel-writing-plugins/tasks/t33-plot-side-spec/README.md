@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t33-plot-side-spec
-status: active
+status: done
 updated: 2026-11-05
 ---
 
@@ -36,6 +36,8 @@ updated: 2026-11-05
 |---|---|
 | 2026-11-05 | 开发者（t32 记录）：照 t27 的先例新开本 Task；Spec 写在内核分支上、不合并；能力地图 12 份，世界线单独一份；先写内核 6 份、再写剧情插件 6 份，每批交 omp 审；各种上限先按样例简报定缺省值、等 t26 校准；写作指示的存放随 t19、t11，Agent 工具的参数随 t20，Spec 只写剧情插件读进来的输入与对外的读取视图；剧情插件照 canon 插件做成应用里的内置插件，纯计算是否另拆包在实施计划时定 |
 | 2026-11-05 | 开发者：nbdev 的操作（关 t32、建本 Task 等）主会话自己做 |
+| 2026-11-05 | 开发者（“按你推荐的来”）：还原照 11-02 的“有后续依赖时不单独还原”，跨线也一样（连同依赖一起还原，或不还原）；提案第 7 小节说的“保留并进待处理”，由撤销那条剧情变更来做：撤销不挡写入，子线上因此算不出来的记录各成待处理。写进 `canon/worldlines.md` 输出 11 与场景 8（分支 519d65056） |
+| 2026-11-05 | 开发者看过第三轮的处理（“可以”）：批准 12 份 Spec（分支 ad3d802c1，`planned`），连同第三轮里主会话定的几处做法（隐秘目标另建知识点挂在持有者下、持有者默认知道；挂了不能给的秘密的决策只写一句；写作指示与自陈由剧情插件按章存；补问只在同一章；有年龄说法时直接答说法里的岁数）；接着另开 Task 写实施计划 |
 
 ## 当前状态
 
@@ -45,11 +47,10 @@ updated: 2026-11-05
   - [`evidences/spec-review-round1-S1-omp.txt`](evidences/spec-review-round1-S1-omp.txt)
   - [`evidences/spec-review-round1-S2-omp.txt`](evidences/spec-review-round1-S2-omp.txt)
   - [`evidences/spec-review-round1-resolution.txt`](evidences/spec-review-round1-resolution.txt)
-- 第二轮（S1b、S2b）在跑，报告在 `.local` 的 `reports/S1b/`、`reports/S2b/`。
+- 第二轮：S1b（内核，omp）核完第一轮 18 条、写出 19、20 后因上游额度用完退出，剩下的改派 Claude Opus（S1c，21 到 41）；S2b（剧情插件，omp）有效 8 条。共 31 条，阻断 2（19、S2b 23），都成立，已改进 2a8a2a99d。报告与归类：`evidences/spec-review-round2-*`（[归类](evidences/spec-review-round2-resolution.txt)）。
+- 第三轮（最后一轮，两个 Claude Opus 子代理）：S3a（内核）15 条、S3b（剧情插件）12 条，没有阻断，都成立，已改进 ad3d802c1。报告与归类：`evidences/spec-review-round3-*`（[归类](evidences/spec-review-round3-resolution.txt)）。三轮已满，本轮修正没有再经独立审查；等开发者批准 Spec。
 
-待开发者定：还原被子线继承的父线变更时，提案第 7 小节说作者可以“保留并进待处理”，与 11-02 的“有后续依赖时不单独还原”冲突；Spec 暂按 11-02 写（只能连同依赖一起还原，或者不还原）。
 
 ## 下一步
 
-1. 第二轮报告回来以后归类、修正，向开发者汇报；同一对象最多三轮，之后仍有实质问题交开发者定。
-2. 开发者批准以后，Spec 在分支上定稿；接着写实施计划（另开 Task）。
+本 Task 完成。实施计划在新的 Task 里写。提案 frontmatter 的 `specs` 等 Spec 进了 master 再补（分支上的路径在 master 上还不存在）。
