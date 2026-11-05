@@ -166,6 +166,8 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 
 计划第二稿：[plan.md](plan.md)。验证只跑了改动直接覆盖的文件（开发者 2026-11-05：不跑全量）：五个包的 bun、vitest 全过；`agent-conversation`、`lab-agent-ui`（向导与状态栏）、`editor-area`（拖分隔线那条）、`lab-commands`（命令场景）、nb-story `qa`、nb-ui `popup-lists`、`dialog-surfaces` 这些 e2e 全过；真实模型冒烟过了。没跑的：其余 e2e。变异检查 13 处全部抓到。nb-story 的 `qa-service.ts` 类型错误在 master 上也有，不是这次的。实现审查的处理见“实现审查”一节。合入后 w00026 的会话发现 `workbench-dnd`、`workbench-views` 有 18 条 e2e 失败：这两份用例假定右栏和活动栏只有测试插件的视图，收口时没跑它们。`ae4433132` 让这两份排除 `nbook.agent`，57 条全过。同类的 `workbench-shell`（`open()` 假定右栏默认关着）在 `4a37e499a` 修，14 条全过。顺手扫了其余依赖右栏的 `models`、`plugin-authoring`、`plugins`、`plugin-code`、`settings`：`plugins` 假定“其它”分区不存在，t10 起 Agent 的工具绑定与 Profile 设置就在那里，`de7d2b11d` 改成只查示例插件的那一行；`settings` 的 Lab 长标题第一次失败，单独重跑过了，按负载导致的抖动算。没跑 `app-package`。`lab-scenes` 版面门禁收口时也没跑，6 个场景不过（向导里控件的焦点环被裁、状态栏超宽）：`c9f7c17e5` 修好。状态栏的 `@container` 规则原先没有查询容器，一直没生效。
 
+之后 w00026 的会话又报了两处：`markdown-editing` 有 3 条（右栏默认开着，版心变窄，视口加宽）；`nb-agent-ui` 的 `style-tokens.dom.test.ts` 有 2 条（会话面板的条数标记用了没声明的 `--accent-on` 和字面 10px，改成 `--text-inverse` 与 `--text-2xs`）。t17 做面板过滤改动时只跑了 `AgentSessionPanel` 的组件测试，没跑这条包级的样式 token 检查。同一轮把剩下依赖初始布局的 e2e（`editor-types`、`editor-code-settings`、`commands`、`welcome`、`bookshelf`、`projects`、`state`、`storage`、`rpc`、`browser-host` 等）扫了一遍，除上面 3 条外全过。
+
 `ask` 两条声明的大小见 [evidences/ask-tool-size.txt](evidences/ask-tool-size.txt)。右栏新增对话视图后默认打开，编辑区变窄：`editor-area` 拖分隔线的用例因此把视口加宽。
 
 第 1 片的圆角（review v7）：开发者答“可以”。
