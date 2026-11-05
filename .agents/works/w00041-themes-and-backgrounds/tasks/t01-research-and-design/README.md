@@ -41,4 +41,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-调研已写：[DSH 社区皮肤的做法](../../../../../docs/research/dsh-community-skins.md)。正在出“书房”的静态稿。
+调研已写：[DSH 社区皮肤的做法](../../../../../docs/research/dsh-community-skins.md)。“书房”第 1 轮静态稿已发布到[评审板](artifacts/review/index.html)，等开发者答复 `r1-empty`、`r1-writing`。草稿在 `.worktree/w00041-t01-drafts`，素材原图与提示词在本地 `.local/agent/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/assets/`；共发出 2 次图片生成请求。
