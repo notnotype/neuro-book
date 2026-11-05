@@ -12,7 +12,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {ActorSchema, AddressSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
-import type {Decision, EntryView, PendingItem, ReadPosition, Revision, StoryChange, Suggestion, WriteRequest} from "@notnotype/nb-canon/schema";
+import type {DecisionView, EntryView, PendingItem, ReadPosition, Revision, StoryChange, Suggestion, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -188,7 +188,7 @@ export interface CanonOutputs {
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
     readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown}>;
     readonly pending: {readonly version: number; readonly items: readonly PendingItem[]};
-    readonly decisions: Page<Decision>;
+    readonly decisions: Page<DecisionView>;
     readonly suggestions: Page<Suggestion>;
     readonly revisions: Page<{readonly id: string; readonly version: number; readonly by: Revision["by"]; readonly what: string; readonly title: string; readonly time: string; readonly chapter?: string; readonly impact: Revision["impact"]; readonly revertable: {readonly ok: boolean; readonly reason?: string; readonly dependents?: readonly string[]}}>;
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;

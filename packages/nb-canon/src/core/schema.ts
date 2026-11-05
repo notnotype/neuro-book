@@ -264,6 +264,25 @@ export const ImpactSchema = Type.Object({
 
 export const RevisionWhatSchema = Type.Union([Type.Literal("opening"), Type.Literal("plan"), Type.Literal("bookkeeping"), Type.Literal("edit"), Type.Literal("creative"), Type.Literal("resolve"), Type.Literal("suggest"), Type.Literal("revert"), Type.Literal("reorder")]);
 
+/**
+ * 作者来源（revisions.md 输出 21）：宿主判断作者确实说了、确认了，按将要发出的请求填 `binds` 并签名。`binds` 由
+ * `authorizationBinds` 算（宿主与内核共用一个函数），签名覆盖除 `signature` 以外的全部字段，由宿主注入的校验验。
+ */
+export const BindsSchema = Type.Object({project: Text, requestId: Text, request: Text, decision: Id, transition: Text, fields: Text});
+export const AuthorSourceSchema = Type.Object({
+    author: Text,
+    via: Type.Union([Type.Literal("message"), Type.Literal("confirm")]),
+    id: Id,
+    session: Type.Optional(Text),
+    quote: Text,
+    range: Type.Optional(Type.Unknown()),
+    time: Text,
+    binds: BindsSchema,
+    signature: Text,
+});
+/** 写入请求与还原请求里的一项授权：哪条决策（新建的写临时 id）、哪种转换、来源。 */
+export const AuthorizationSchema = Type.Object({decision: Id, transition: Text, source: AuthorSourceSchema});
+
 export const RevisionSchema = Type.Object({
     id: Id,
     version: Type.Integer({minimum: 1}),
@@ -279,6 +298,8 @@ export const RevisionSchema = Type.Object({
     ops: Type.Array(OpSchema),
     notes: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     reverts: Type.Optional(Type.Array(Id)),
+    /** 这次修订接受的作者授权（revisions.md 输出 21）：普通写入的来自请求，还原的来自还原请求。 */
+    authorizations: Type.Optional(Type.Array(AuthorizationSchema)),
     impact: ImpactSchema,
     idMap: Type.Optional(Type.Record(Type.String(), Id)),
     /**
@@ -301,6 +322,7 @@ export const WriteRequestSchema = Type.Object({
     puts: Type.Array(Type.Object({ref: ObjectRefSchema, after: Type.Unknown()})),
     reads: Type.Optional(Type.Array(ReadSchema)),
     notes: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    authorizations: Type.Optional(Type.Array(AuthorizationSchema)),
 });
 
 export type Placement = Static<typeof PlacementSchema>;
@@ -308,6 +330,9 @@ export type ReadPosition = Static<typeof ReadPositionSchema>;
 export type Address = Static<typeof AddressSchema>;
 export type Actor = Static<typeof ActorSchema>;
 export type Mark = Static<typeof MarkSchema>;
+export type Binds = Static<typeof BindsSchema>;
+export type AuthorSource = Static<typeof AuthorSourceSchema>;
+export type Authorization = Static<typeof AuthorizationSchema>;
 export type CastMember = Static<typeof CastMemberSchema>;
 export type Telling = Static<typeof TellingSchema>;
 /** 写入请求里的讲述：新的不带 id（model.md 输出 25）。 */

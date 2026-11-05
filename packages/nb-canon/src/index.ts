@@ -29,13 +29,15 @@ export {
 export {canonicalJson, sameJson, stableStringify} from "./core/stable-json";
 export {buildRegistry, effectiveFields, fieldsProblem, generateFieldId, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
 export {buildMarkRegistry, EMPTY_MARK_REGISTRY, type MarkDeclaration, type MarkRefKind, type MarkRegistry, type MarkRegistryDiagnostic, type MarkTarget, type MarkType} from "./components/marks";
-export {buildDiagnosticRegistry, EMPTY_DIAGNOSTIC_REGISTRY, type DiagnosticDeclaration, type DiagnosticKeyPart, type DiagnosticRegistry, type DiagnosticRegistryDiagnostic} from "./components/diagnostics-registry";
+export {buildDiagnosticRegistry, EMPTY_DIAGNOSTIC_REGISTRY, stableKeyProblem, type DiagnosticDeclaration, type DiagnosticKeyPart, type DiagnosticRegistry, type DiagnosticRegistryDiagnostic} from "./components/diagnostics-registry";
 export type {PluginContribution} from "./components/declarations";
 export {assetPathProblem, listItemProblem, semanticText, valueProblem, type ValueProblem} from "./components/values";
 export {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "./engine/incremental";
 export {createReferenceEngine} from "./engine/reference";
 export type {ChangeOutcome, Engine, EngineInputs, EntryView, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress, ReductionInput, ReductionLookup, UpcomingNamespace, WorldData} from "./engine/types";
-export {World, type ConflictDetail, type Problem, type RevertFailure, type WorldOptions, type WriteFailure, type WriteResult} from "./world/world";
+export {World, type ConflictDetail, type Problem, type RevertFailure, type RevertMeta, type WorldOptions, type WriteFailure, type WriteResult} from "./world/world";
+export {authorizationBinds, fieldsDigest, requestDigest, signedContent, type NeededAuthorization, type RevertRequest} from "./world/authorization";
+export {NO_REASON, type DecisionView, type Transition} from "./world/decisions";
 export {editInPlace, recordDelta, replaceOnce, type EditFailure, type EditResult, type InPlaceEdit} from "./world/edits";
 export {blockProblem, parseBlock, type ExpressionSite, type FieldReference, type ParsedBlock, type SyntaxCode, type SyntaxProblem} from "./render/syntax";
 export {annotation, displayText, evaluate, renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type AuthorNode, type Evaluated, type RenderContext, type Resolve, type Resolved} from "./render/render";

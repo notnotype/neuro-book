@@ -451,11 +451,11 @@ describe("canon.project：审查补的边界（输出 6、10、11、16、19、23
         const service = await open();
         const decisions: WriteRequest["puts"] = ["甲", "乙", "丙"].map((text, index) => ({ref: {kind: "decision", id: `tmp:d${String(index)}`}, after: {id: `tmp:d${String(index)}`, text, status: "pending", about: [], hints: []}}));
         expect((await service.publish({requestId: "decisions", by: {kind: "author"}, what: "edit", title: "决策", baseVersion: 1, puts: decisions})).ok).toBe(true);
-        const first = service.decisions(undefined, undefined, 2);
+        const first = service.decisions({}, undefined, 2);
         if (first === "cursor-stale" || first.cursor === undefined) throw new Error("no cursor");
-        expect(first.items.map((item) => item.text)).toEqual(["甲", "乙"]);
-        const second = service.decisions(undefined, first.cursor, 2);
-        expect(second !== "cursor-stale" && second.items.map((item) => item.text)).toEqual(["丙"]);
+        expect(first.items.map((item) => item.decision.text)).toEqual(["甲", "乙"]);
+        const second = service.decisions({}, first.cursor, 2);
+        expect(second !== "cursor-stale" && second.items.map((item) => item.decision.text)).toEqual(["丙"]);
 
         expect((await service.publish(entryRequest("星瑕", 2))).ok).toBe(true);
         const mention = {requestId: "mention", by: {kind: "author"}, what: "edit", title: "e1", baseVersion: 3, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "e1", at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}}}]} as WriteRequest;

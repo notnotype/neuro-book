@@ -70,7 +70,7 @@ export function remoteWorld(host: WorldHost, tokens: Set<string>): Implementatio
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => service.changes(input.filter ?? {}, input.cursor, limit))),
             object: (input) => withWorld((service) => within(service.object(input.ref))),
             pending: (input) => withWorld((service) => read(service.pending(input.position))),
-            decisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.decisions(input.status, input.cursor, limit))),
+            decisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.decisions(input.status === undefined ? {} : {status: input.status}, input.cursor, limit))),
             suggestions: (input) => withWorld((service) => paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
             revisions: (input) => withWorld((service) => paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
             render: (input) => withWorld((service) => read(service.render(input.entry, input.position, input.mode, input.audience))),

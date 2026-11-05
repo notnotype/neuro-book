@@ -15,7 +15,7 @@ import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/
 import type {ComponentRegistry} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
-import type {Decision, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
+import type {AuthorSource, Decision, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {Mode, PendingItem, PlanProgress, ReductionInput} from "../engine/types";
 import type {LogFiles} from "../node/files";
@@ -26,7 +26,9 @@ import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/wr
 import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
 import {marksIn} from "../world/references";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
-import {World, type WriteResult} from "../world/world";
+import type {RevertRequest} from "../world/authorization";
+import {decisionView, aboutMatches} from "../world/decisions";
+import {World, type RevertMeta, type WriteResult} from "../world/world";
 
 export interface ServicePorts {
     readonly files: LogFiles;
@@ -47,6 +49,10 @@ export interface ServicePorts {
     readonly timer?: {readonly set: (ms: number, run: () => void) => unknown; readonly clear: (handle: unknown) => void};
     /** 小模型：没有时语义档一直是“未归纳”的写法（输入与前置条件）。 */
     readonly reducer?: {readonly version: string; readonly reduce: (input: ReductionInput) => Promise<string>};
+    /** 项目标识，作者授权的 `binds.project`（输入与前置条件）。 */
+    readonly project?: string;
+    /** 作者来源的签名校验（输入与前置条件）；没有时需要来源的写入都不通过。 */
+    readonly verifyAuthorSource?: (source: AuthorSource) => boolean;
 }
 
 export type ServiceEvent =
@@ -214,6 +220,8 @@ export class WorldService {
             reductions: (input: ReductionInput) => service.#lookup(input),
             chapterText: (chapter: string) => service.#texts.get(chapter)?.text,
             digest: ports.digest,
+            ...(ports.project === undefined ? {} : {project: ports.project}),
+            ...(ports.verifyAuthorSource === undefined ? {} : {verifyAuthorSource: ports.verifyAuthorSource}),
         };
         const world = World.replay(opened.revisions, options);
         const readOnly = opened.readOnly === null ? null : `${opened.readOnly.segment}:${String(opened.readOnly.line)} ${opened.readOnly.message}`;
@@ -428,13 +436,21 @@ export class WorldService {
     }
 
     /** 决策，按 id；状态筛选、游标分页（project.md 方法表的 `decisions`）。 */
-    decisions(status?: Decision["status"], cursor?: string, limit = 50) {
+    /**
+     * 决策（方法表 `decisions`），按 id：状态与挂的对象筛选。每条带读取时的说明（model.md 输出 31 到 33）：建议标
+     * “作者未确认”，已定而没给理由的写“作者没说理由”，不在已定状态时存着的结论等列在“重新打开前定下的”下面，
+     * 挂的条目删了显示“已删除的条目”。
+     */
+    decisions(filter: {readonly status?: Decision["status"]; readonly about?: ObjectRef | {readonly kind: "chapter"; readonly id: string}} = {}, cursor?: string, limit = 50) {
         const world = this.#world;
-        const matching = [...world.data.decisions.values()].filter((item) => status === undefined || item.status === status).sort((a, b) => compareIds(a.id, b.id));
+        const matching = [...world.data.decisions.values()]
+            .filter((item) => filter.status === undefined || item.status === filter.status)
+            .filter((item) => filter.about === undefined || item.about.some((about) => aboutMatches(about, filter.about!)))
+            .sort((a, b) => compareIds(a.id, b.id));
         const stamp = this.#stamp();
         const page = this.#page(stamp, matching, cursor, limit);
         if (page === "cursor-stale") return page;
-        return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items.map((decision) => decisionView(decision, (id) => world.data.entries.get(id))), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 正文建议，按 id；状态筛选、游标分页（方法表）。 */
@@ -475,8 +491,13 @@ export class WorldService {
         return result === null || result === "chapter-not-found" ? result : {...result, ...this.#stamp()};
     }
 
-    preview(request: WriteRequest): WriteResult {
-        return this.#world.preview(request, this.#ports.now());
+    /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */
+    preview(request: WriteRequest): WriteResult;
+    preview(request: RevertRequest): ReturnType<World["previewRevert"]>;
+    preview(request: WriteRequest | RevertRequest): WriteResult | ReturnType<World["previewRevert"]> {
+        if ("puts" in request) return this.#world.preview(request, this.#ports.now());
+        const {revert, withDependents, ...meta} = request;
+        return this.#world.previewRevert(revert, withDependents, meta, this.#ports.now());
     }
 
     /** 按请求 id 查结局（输出 16）。 */
@@ -504,7 +525,7 @@ export class WorldService {
         return this.#write(token, (world) => writeBack(world, input, this.#ports.now()));
     }
 
-    revert(target: string, withDependents: boolean, meta: {readonly requestId: string; readonly by: WriteRequest["by"]; readonly title?: string}, token?: string) {
+    revert(target: string, withDependents: boolean, meta: RevertMeta, token?: string) {
         return this.#write(token, (world) => world.revert(target, withDependents, meta, this.#ports.now()));
     }
 

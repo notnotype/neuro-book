@@ -8,9 +8,10 @@
  * World 是不可变的：发布返回新的 World，旧的照常可读，所以读取总是看到某一个版本。
  */
 
-import type {DiagnosticRegistry} from "../components/diagnostics-registry";
+import {EMPTY_DIAGNOSTIC_REGISTRY, stableKeyProblem, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markProblem, type MarkRegistry} from "../components/marks";
 import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../components/registry";
+import {namespaceFields} from "../model/apply";
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
 import {RESERVED_ROOTS} from "../core/identifiers";
@@ -24,7 +25,10 @@ import {
     schemaProblems,
     WriteRequestSchema,
     type Address,
+    type AuthorSource,
+    type Authorization,
     type Check,
+    type Decision,
     type Entry,
     type ObjectKind,
     type ObjectRef,
@@ -42,6 +46,8 @@ import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../eng
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, referenceProblem, referencesOf, replaceTempIds, type ReferenceContext} from "./references";
+import {authorizationBinds, checkAuthorizations, fieldsDigest, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
+import {classifyDecisionWrite, missingFields, revertNeedsSource, type Classified} from "./decisions";
 import {countOccurrences} from "./tellings";
 
 /** 宿主提供的、计算要用的东西（project.md 输入与前置条件）。 */
@@ -52,6 +58,10 @@ export interface WorldOptions {
     readonly marks?: MarkRegistry;
     /** 诊断的登记（model.md 输入的“诊断的登记”）；没给时是空的登记。 */
     readonly diagnostics?: DiagnosticRegistry;
+    /** 项目标识：作者授权的 `binds.project`（project.md 输入）。 */
+    readonly project?: string;
+    /** 宿主给的作者来源签名校验，同步，只验签名（revisions.md 输出 21）；没有时需要来源的写入都不通过。 */
+    readonly verifyAuthorSource?: (source: AuthorSource) => boolean;
     readonly reductions: ReductionLookup;
     /** 按章 id 取当前正文；没有这一章返回 undefined。 */
     readonly chapterText: (chapter: string) => string | undefined;
@@ -78,7 +88,12 @@ export type WriteFailure =
     | {readonly code: "validation-failed"; readonly problems: readonly Problem[]}
     | {readonly code: "version-conflict"; readonly objects: readonly ConflictDetail[]}
     | {readonly code: "request-id-reused"}
-    | {readonly code: "not-deletable"; readonly ref: ObjectRef};
+    | {readonly code: "not-deletable"; readonly ref: ObjectRef}
+    /** 改了决策上存的出处（revisions.md 输出 21）。 */
+    | {readonly code: "source-not-writable"; readonly ref: ObjectRef}
+    | {readonly code: "author-source-invalid"; readonly problems: readonly Extract<AuthorizationProblem, {code: "author-source-invalid"}>[]}
+    /** 需要作者来源却没有；`needed` 是宿主照着签发的清单。 */
+    | {readonly code: "author-source-required"; readonly needed: readonly NeededAuthorization[]};
 
 export type WriteResult =
     | {readonly ok: true; readonly world: World; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly repeated: boolean}
@@ -205,15 +220,37 @@ export class World {
      * 还原一次修订（revisions.md 输出 11、12）：有依赖时不单独还原，`withDependents` 为真时连同依赖从后往前一起还原，
      * 作为一次补偿修订发布。补偿只恢复被还原的修订改过的东西，不覆盖后面的修改（有依赖的已被拒或一起还原）。
      */
-    revert(target: string, withDependents: boolean, meta: {readonly requestId: string; readonly by: WriteRequest["by"]; readonly title?: string}, time: string): WriteResult | {readonly ok: false; readonly failure: RevertFailure} {
-        const index = this.revisions.findIndex((revision) => revision.id === target);
-        if (index < 0) return {ok: false, failure: {code: "not-found"}};
-        const set = this.dependents(target);
-        if (set === "not-revertable") return {ok: false, failure: {code: "not-revertable"}};
-        const others = set.filter((id) => id !== target);
-        if (others.length > 0 && !withDependents) return {ok: false, failure: {code: "has-dependents", dependents: [...others].reverse()}};
+    revert(target: string, withDependents: boolean, meta: RevertMeta, time: string): WriteResult | {readonly ok: false; readonly failure: RevertFailure} {
         const previous = this.index.requests.get(meta.requestId);
         if (previous !== undefined) return {ok: true, world: this, revision: previous.revision, ids: {}, repeated: true};
+        const plan = this.#revertPlan(target, withDependents, meta);
+        if ("failure" in plan) return {ok: false, failure: plan.failure};
+        // 还原的授权（revisions.md 输出 21 的“还原”）：只查有没有、对不对；不写出处，补偿恢复的出处就是那时的。
+        const project = this.options.project ?? "";
+        const revertRequest: RevertRequest = {revert: target, withDependents, requestId: meta.requestId, by: meta.by, ...(meta.title === undefined ? {} : {title: meta.title})};
+        const checked = checkAuthorizations(plan.needed, meta.authorizations ?? [], (item) => authorizationBinds({project, request: revertRequest, decision: item.decision, transition: "revert", fields: item.fields}, this.options.digest), this.options.verifyAuthorSource);
+        const invalidOnes = checked.problems.filter((problem): problem is Extract<AuthorizationProblem, {code: "author-source-invalid"}> => problem.code === "author-source-invalid");
+        if (invalidOnes.length > 0) return {ok: false, failure: {code: "author-source-invalid", problems: invalidOnes}};
+        if (checked.problems.length > 0) return {ok: false, failure: {code: "author-source-required", needed: plan.needed}};
+        const authorizations = meta.authorizations ?? [];
+        return this.#publish(plan.request, time, true, {reverts: [...plan.set], ...(authorizations.length === 0 ? {} : {authorizations: [...authorizations]})});
+    }
+
+    /** 还原的预览（revisions.md 输出 5、21）：补偿算出的结果，加上需要的作者授权（宿主照它签发）。 */
+    previewRevert(target: string, withDependents: boolean, meta: RevertMeta, time: string): {readonly result: WriteResult; readonly needed: readonly NeededAuthorization[]} | {readonly ok: false; readonly failure: RevertFailure} {
+        const plan = this.#revertPlan(target, withDependents, meta);
+        if ("failure" in plan) return {ok: false, failure: plan.failure};
+        return {result: this.#publish(plan.request, time, true, {reverts: [...plan.set]}), needed: plan.needed};
+    }
+
+    /** 还原要发布的补偿请求，与其中改了的决策要的授权（每条一项，`transition` 是 `revert`）。 */
+    #revertPlan(target: string, withDependents: boolean, meta: RevertMeta): {readonly failure: RevertFailure} | {readonly request: WriteRequest; readonly set: readonly string[]; readonly needed: readonly NeededAuthorization[]} {
+        const index = this.revisions.findIndex((revision) => revision.id === target);
+        if (index < 0) return {failure: {code: "not-found"}};
+        const set = this.dependents(target);
+        if (set === "not-revertable") return {failure: {code: "not-revertable"}};
+        const others = set.filter((id) => id !== target);
+        if (others.length > 0 && !withDependents) return {failure: {code: "has-dependents", dependents: [...others].reverse()}};
         const working = new Map<string, {ref: ObjectRef; value: unknown}>();
         const current = (ref: ObjectRef) => (working.has(refKey(ref)) ? working.get(refKey(ref))!.value : this.object(ref));
         for (const id of [...set].reverse()) {
@@ -227,7 +264,14 @@ export class World {
         }
         const puts = [...working.values()].map(({ref, value}) => ({ref, after: value === undefined ? null : value}));
         const request: WriteRequest = {requestId: meta.requestId, by: meta.by, what: "revert", title: meta.title ?? `还原 ${target}`, baseVersion: this.version, puts};
-        return this.#publish(request, time, true, {reverts: [...set]});
+        const needed: NeededAuthorization[] = [];
+        for (const put of puts) {
+            if (put.ref.kind !== "decision") continue;
+            const after = (put.after ?? undefined) as Decision | undefined;
+            if (revertNeedsSource(this.object(put.ref) as Decision | undefined, after)) needed.push({decision: put.ref.id, transition: "revert", fields: fieldsDigest(after, this.options.digest)});
+        }
+        needed.sort((x, y) => compareIds(x.decision, y.decision));
+        return {request, set: [...set], needed};
     }
 
     /** 还原 `target` 要一起还原的修订（含它自己，按版本从旧到新），或章序调整不能还原（输出 12、13）。 */
@@ -246,7 +290,36 @@ export class World {
         return set.map((revision) => revision.id);
     }
 
-    #publish(input: WriteRequest, time: string, compensation: boolean, extra: Pick<Revision, "reverts"> = {}): WriteResult {
+    /**
+     * 写入请求里的决策（model.md “状态与转换”、revisions.md 输出 21）：按状态表分出每条是哪种转换，核对需要来源的那些
+     * 带的授权。出处 `source` 只由内核写：请求里改了它整次拒收。`input` 是请求原样（授权按它算），`request` 是换过临时 id 的。
+     */
+    #decisionWrites(input: WriteRequest, request: WriteRequest, ids: Readonly<Record<string, string>>): {readonly failure: WriteFailure} | DecisionWrites {
+        const original = new Map(Object.entries(ids).map(([temp, id]) => [id, temp]));
+        const classified = new Map<string, Classified>();
+        const needed: NeededAuthorization[] = [];
+        for (const [index, put] of request.puts.entries()) {
+            if (put.ref.kind !== "decision" || put.after === null || typeof put.after !== "object") continue;
+            const before = this.object(put.ref) as Decision | undefined;
+            const after = put.after as Decision;
+            if (stableStringify(after.source ?? null) !== stableStringify(before?.source ?? null)) return {failure: {code: "source-not-writable", ref: put.ref}};
+            const kind = classifyDecisionWrite(before, after);
+            classified.set(put.ref.id, kind);
+            // 替换临时 id 不改变 puts 的顺序，按下标取请求原样里的那一条。
+            if (kind.kind === "sourced") needed.push({decision: original.get(put.ref.id) ?? put.ref.id, transition: kind.transition, fields: fieldsDigest(input.puts[index]!.after as Decision, this.options.digest)});
+        }
+        const project = this.options.project ?? "";
+        const checked = checkAuthorizations(needed, input.authorizations ?? [], (item) => authorizationBinds({project, request: input, decision: item.decision, transition: item.transition, fields: item.fields}, this.options.digest), this.options.verifyAuthorSource);
+        const invalidOnes = checked.problems.filter((problem): problem is Extract<AuthorizationProblem, {code: "author-source-invalid"}> => problem.code === "author-source-invalid");
+        if (invalidOnes.length > 0) return {failure: {code: "author-source-invalid", problems: invalidOnes}};
+        return {
+            classified,
+            accepted: new Map([...checked.accepted].map(([decision, source]) => [ids[decision] ?? decision, source])),
+            required: checked.problems.flatMap((problem) => (problem.code === "author-source-required" ? [problem.needed] : [])),
+        };
+    }
+
+    #publish(input: WriteRequest, time: string, compensation: boolean, extra: Pick<Revision, "reverts" | "authorizations"> = {}): WriteResult {
         const shape = schemaProblems(WriteRequestSchema, input);
         if (shape !== null) return invalid(shape.map((problem) => ({code: "type-mismatch", path: problem.path, message: problem.message})));
         const {baseVersion: _baseVersion, ...meaning} = input;
@@ -294,6 +367,8 @@ export class World {
         const createdAt = new Map(this.data.createdAt);
         const ops: Op[] = [];
         const changed: {entries: string[]; changes: string[]; checks: string[]} = {entries: [], changes: [], checks: []};
+        const decisions = compensation ? null : this.#decisionWrites(input, request, ids);
+        if (decisions !== null && "failure" in decisions) return {ok: false, failure: decisions.failure};
         // 写入以后的条目：同一请求里写的优先（马甲归一要看它的 sameAs）。
         const written = new Map(request.puts.filter((put) => put.ref.kind === "entry" && put.after !== null).map((put) => [put.ref.id, put.after as Entry]));
         const entryOf = (id: string) => written.get(id) ?? this.data.entries.get(id);
@@ -306,6 +381,7 @@ export class World {
                     continue;
                 }
                 if ((after as {id?: unknown}).id !== put.ref.id) problems.push({code: "id-taken", ref: put.ref, message: "object id must match its ref"});
+                if (put.ref.kind === "decision" && decisions !== null) applyAcceptedSource(after as Decision, decisions.accepted.get(put.ref.id));
             }
             const before = this.object(put.ref);
             const op: Op | null = before === undefined
@@ -330,7 +406,10 @@ export class World {
         if (!compensation) problems.push(...validate(this, data, engine, request, changed));
         const refs = writtenReferences(this, data, ops);
         if (!compensation) problems.push(...markProblems(this, data, ops), ...referenceProblems(data, refs));
+        if (decisions !== null) problems.push(...decisionProblems(this, data, request, decisions.classified));
         if (problems.length > 0) return invalid(problems);
+        // 缺来源排在校验之后报：校验不过的请求，签了也发布不了。
+        if (decisions !== null && decisions.required.length > 0) return {ok: false, failure: {code: "author-source-required", needed: decisions.required}};
 
         const where = whereOf(request.chapter, this.options.order);
         const impact = computeImpact(this, data, engine, where, ops);
@@ -352,6 +431,8 @@ export class World {
             impact,
             ...(Object.keys(ids).length === 0 ? {} : {idMap: ids}),
             ...(refs.length === 0 ? {} : {refs: refs.map(({ref, reference}) => ({ref, path: reference.path, target: reference.target}))}),
+            // 存请求原样的授权：签名是按原样（临时 id 换掉之前）签的，换过 id 就验不过了；新对象的 id 对照在 `idMap` 里。
+            ...(input.authorizations === undefined || input.authorizations.length === 0 ? {} : {authorizations: input.authorizations}),
         };
         return {ok: true, world: this.next(data, engine, revision), revision, ids, repeated: false};
     }
@@ -427,7 +508,106 @@ export class World {
     }
 }
 
-export type RevertFailure = {readonly code: "not-found"} | {readonly code: "not-revertable"} | {readonly code: "has-dependents"; readonly dependents: readonly string[]};
+/** 还原请求的说明部分（project.md 的 `revert`）；`authorizations` 是补偿里改了的决策各一项。 */
+export interface RevertMeta {
+    readonly requestId: string;
+    readonly by: WriteRequest["by"];
+    readonly title?: string;
+    readonly authorizations?: readonly Authorization[];
+}
+
+/** 一次写入里决策的分类与授权的结果（`#decisionWrites`）。 */
+interface DecisionWrites {
+    readonly classified: ReadonlyMap<string, Classified>;
+    /** 接受了的授权，按决策的正式 id。 */
+    readonly accepted: ReadonlyMap<string, AuthorSource>;
+    /** 需要来源却没带的；校验都过了才报（`author-source-required`）。 */
+    readonly required: readonly NeededAuthorization[];
+}
+
+/** 接受一项授权：出处写成它的来源；转成已定时清空建议（model.md “状态与转换”）。 */
+function applyAcceptedSource(after: Decision, source: AuthorSource | undefined): void {
+    if (source === undefined) return;
+    (after as {source?: unknown}).source = source;
+    if (after.status === "decided") delete (after as {suggestion?: unknown}).suggestion;
+}
+
+/**
+ * 决策的校验（model.md 输出 31、33 与“状态与转换”）：不在表里的转换、目标状态必有的字段（出处由授权保证，另报）、
+ * 取代它的决策在这次的结果里已定、新加或改过的挂的对象与范围。
+ */
+function decisionProblems(world: World, data: WorldData, request: WriteRequest, classified: ReadonlyMap<string, Classified>): Problem[] {
+    const problems: Problem[] = [];
+    for (const put of request.puts) {
+        if (put.ref.kind !== "decision") continue;
+        const decision = data.decisions.get(put.ref.id);
+        const kind = classified.get(put.ref.id);
+        if (decision === undefined || kind === undefined || kind.kind === "unchanged") continue;
+        const ref = put.ref;
+        if (kind.kind === "invalid") problems.push({code: "invalid-transition", ref, message: kind.message});
+        for (const field of missingFields(decision)) if (field !== "source") problems.push({code: "invalid-transition", ref, path: field, message: `a ${decision.status} decision needs ${field}`});
+        if (decision.status === "superseded" && decision.supersededBy !== undefined && data.decisions.get(decision.supersededBy)?.status !== "decided") {
+            problems.push({code: "invalid-transition", ref, path: "supersededBy", message: "supersededBy must point to a decided decision"});
+        }
+        problems.push(...aboutProblems(ref, decision, world.object(ref) as Decision | undefined, data, world.options));
+    }
+    return problems;
+}
+
+/** 新加或改过的挂的对象（model.md 输出 33，`invalid-about`）；原样留着的不查：被挂的条目后来删了，决策照样能改别的。 */
+function aboutProblems(ref: ObjectRef, decision: Decision, before: Decision | undefined, data: WorldData, options: WorldOptions): Problem[] {
+    const problems: Problem[] = [];
+    const kept = new Set((before?.about ?? []).map((item) => stableStringify(item)));
+    for (const [index, item] of decision.about.entries()) {
+        if (kept.has(stableStringify(item))) continue;
+        const reason = aboutProblem(item, data, options);
+        if (reason !== null) problems.push({code: "invalid-about", ref, path: `about[${String(index)}]`, message: reason});
+    }
+    const scope = decision.scope;
+    if (scope !== undefined && stableStringify(scope) !== stableStringify(before?.scope)) {
+        const from = scope.from === undefined ? undefined : options.order.index(scope.from);
+        const to = scope.to === undefined ? undefined : options.order.index(scope.to);
+        if ((scope.from !== undefined && from === undefined) || (scope.to !== undefined && to === undefined)) problems.push({code: "invalid-about", ref, path: "scope", message: "scope chapters must be in the chapter order"});
+        else if (from !== undefined && to !== undefined && from > to) problems.push({code: "invalid-about", ref, path: "scope", message: "scope.from must not be later than scope.to"});
+    }
+    return problems;
+}
+
+function aboutProblem(item: Decision["about"][number], data: WorldData, options: WorldOptions): string | null {
+    switch (item.kind) {
+        case "entry": {
+            const entry = data.entries.get(item.id);
+            return entry === undefined ? "entry does not exist" : entry.deleted === true ? "entry is deleted" : null;
+        }
+        case "change":
+            return data.changes.has(item.id) ? null : "change does not exist";
+        case "decision":
+            return data.decisions.has(item.id) ? null : "decision does not exist";
+        case "chapter":
+            return options.order.has(item.id) ? null : "chapter is not in the chapter order";
+        case "address": {
+            const entry = data.entries.get(item.at.entry);
+            if (entry === undefined || entry.deleted === true) return "entry does not exist";
+            const parsed = parsePath(item.at.path);
+            if (parsed === null) return `bad address "${item.at.path}"`;
+            if (parsed.root !== "namespace") return null;
+            const nsData = entry.init.data[parsed.namespace];
+            const declared = nsData !== undefined && namespaceFields(options.registry, parsed.namespace, nsData).some((field) => field.id === parsed.field);
+            return declared ? null : `field "${item.at.path}" is not declared`;
+        }
+        case "diagnostic": {
+            if (!/^[^.]+(?:\.[^.]+)+$/u.test(item.id)) return `diagnostic id "${item.id}" must be "<plugin id>.<name>"`;
+            const declaration = (options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).byId(item.id);
+            return stableKeyProblem(item.key, declaration !== undefined && declaration.version === item.version ? declaration.key : undefined);
+        }
+    }
+}
+
+export type RevertFailure =
+    | {readonly code: "not-found"}
+    | {readonly code: "not-revertable"}
+    | {readonly code: "has-dependents"; readonly dependents: readonly string[]}
+    | Extract<WriteFailure, {code: "author-source-invalid" | "author-source-required"}>;
 
 /**
  * 补偿一次修改：每个改过的叶子恢复成改前的值；没有 id 的数组里这次追加的元素（改后以改前为开头），只移除这些元素，

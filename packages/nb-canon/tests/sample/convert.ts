@@ -129,7 +129,8 @@ function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<strin
         const {about: original, status, answer, ...rest} = after as {about?: {kind: string; at?: unknown; id?: string}; status: string; answer?: string};
         const about = original === undefined ? [] : [original.kind === "field" ? {kind: "address", at: original.at} : original];
         const suggestion = status === "answered" && answer !== undefined ? {suggestion: {conclusion: answer, by: {kind: "agent", session: "样本"}}} : {};
-        return {...rest, about, status: status === "dropped" ? "dropped" : "pending", ...suggestion};
+        // 放弃要作者来源（model.md 的决策转换表），样本没有签发方，一律记成待定。
+        return {...rest, about, status: "pending", ...suggestion};
     }
     if (kind === "change") {
         const links = (after.links as Array<{kind: string; plan: string; by?: string}>).map((link) => {

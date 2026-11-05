@@ -76,3 +76,28 @@ function declarationProblem(declaration: DiagnosticDeclaration): {path: string; 
     if (value.inputs !== undefined && typeof value.inputs !== "string") return {path: "inputs", message: "inputs must be text"};
     return null;
 }
+
+const OBJECT_KINDS = new Set(["entry", "change", "check", "decision"]);
+
+/**
+ * 稳定键的形状（model.md “诊断的计算”的稳定键）：只含声明的组成部分，每部分形状固定，声明了的必须有值。`declared` 没给时
+ * （版本不同、插件停用）只查通用形状：键都是五种组成部分之一、各自的形状对。合格返回 null。
+ */
+export function stableKeyProblem(key: unknown, declared?: readonly DiagnosticKeyPart[]): string | null {
+    if (key === null || typeof key !== "object" || Array.isArray(key)) return "key must be an object";
+    const record = key as Record<string, unknown>;
+    for (const [part, value] of Object.entries(record)) {
+        if (!KEY_PARTS.includes(part as DiagnosticKeyPart)) return `"${part}" is not a key part`;
+        if (part === "objects") {
+            if (!Array.isArray(value) || value.some((item) => item === null || typeof item !== "object" || !OBJECT_KINDS.has((item as {kind?: unknown}).kind as string) || typeof (item as {id?: unknown}).id !== "string")) return "objects must be a list of {kind, id}";
+        } else if (part === "range") {
+            const range = value as {from?: unknown; to?: unknown} | null;
+            if (range === null || typeof range !== "object" || typeof range.from !== "string" || typeof range.to !== "string") return "range must be {from, to}";
+        } else if (typeof value !== "string") return `${part} must be text`;
+    }
+    if (declared === undefined) return null;
+    const parts = Object.keys(record).sort();
+    const wanted = [...declared].sort();
+    if (parts.length !== wanted.length || parts.some((part, index) => part !== wanted[index])) return `key parts must be exactly ${wanted.join(", ")}`;
+    return null;
+}
