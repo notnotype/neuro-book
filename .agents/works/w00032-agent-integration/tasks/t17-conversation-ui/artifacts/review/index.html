@@ -31,47 +31,18 @@ table { border-collapse:collapse; width:100%; font-size:14px; background:var(--p
 </head>
 <body>
 <main>
-<h1>t17 对话界面第一版：第 6 片，视图零件（第 8 轮）</h1>
-<p>这些是真实组件在 Lab 里的样子，数据是样本，宿主还没接（第 7 片）。对照前几轮的静态稿看。有几处和静态稿不一样或静态稿没有的，下面写明。</p>
-<section data-nbdev-question="s6-wizard" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>审批向导</h2>
-<p>一条回复一批，一步一个，全部选完才能提交。选了之后走到下一个没选的，选中的按钮是蓝的，能回去改。静态稿只画了单个的，一批的底部按钮是新的：上一个、下一个、全部拒绝、提交。别的工具（静态稿没画）列参数，没有用 nb-form 的展示态，因为这里只有参数，没有 schema，画出来也都是 JSON 框。推荐：可以。</p>
+<h1>t17 对话界面第一版：会话面板的过滤（第 9 轮）</h1>
+<section data-nbdev-question="s9-filter" data-nbdev-type="single" data-nbdev-recommend="count" data-nbdev-options="count:A 过滤按钮上显示条数|chips:B 常驻一行的胶囊|change:都不行（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>过滤放哪里</h2>
+<p>两个候选都不再有“选了才出现”的标签行，选不选条件，下面的列表位置都不动。</p>
+<p><b>A：</b>过滤按钮上显示选了几条，按钮变蓝，条件在菜单里勾选，菜单末尾有“清除过滤条件”。平时不占地方，但看不出具体过滤了什么，要打开菜单才知道。</p>
+<p><b>B：</b>搜索框下面常驻一行：全部、各 Profile、已归档，点一下切换。选了什么一眼能看到，操作也少一步，但一直占一行，Profile 多了要横向滚动。</p>
+<p class="rec">推荐 A：过滤不常用，会话面板又常放在下拉里，高度紧，不值得常驻一行。</p>
 <div class="grid">
-<figure><a href="r8/approval-edit.webp"><img src="r8/approval-edit.webp" alt="改一个文件" loading="lazy"></a><figcaption>改一个文件</figcaption></figure>
-<figure><a href="r8/approval-batch.webp"><img src="r8/approval-batch.webp" alt="一批三个（第 1 个）" loading="lazy"></a><figcaption>一批三个（第 1 个）</figcaption></figure>
-<figure><a href="r8/approval-long.webp"><img src="r8/approval-long.webp" alt="长 diff，内部滚动" loading="lazy"></a><figcaption>长 diff，内部滚动</figcaption></figure>
-<figure><a href="r8/approval-shell.webp"><img src="r8/approval-shell.webp" alt="命令" loading="lazy"></a><figcaption>命令</figcaption></figure>
-<figure><a href="r8/approval-multi-file.webp"><img src="r8/approval-multi-file.webp" alt="一次改多个文件：有的太大、有的算不出来" loading="lazy"></a><figcaption>一次改多个文件：有的太大、有的算不出来</figcaption></figure>
-<figure><a href="r8/approval-collapsed.webp"><img src="r8/approval-collapsed.webp" alt="收起的小条" loading="lazy"></a><figcaption>收起的小条</figcaption></figure>
-<figure><a href="r8/dark.webp"><img src="r8/dark.webp" alt="深色" loading="lazy"></a><figcaption>深色</figcaption></figure>
-</div>
-</section>
-<section data-nbdev-question="s6-ask" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>提问向导</h2>
-<p>和审批同一个位置、同一种外框。表单没填对时提交是灰的。推荐：可以。</p>
-<div class="grid">
-<figure><a href="r8/ask-choice.webp"><img src="r8/ask-choice.webp" alt="单选加其它" loading="lazy"></a><figcaption>单选加其它</figcaption></figure>
-<figure><a href="r8/ask-multi.webp"><img src="r8/ask-multi.webp" alt="多选（第 2 题）" loading="lazy"></a><figcaption>多选（第 2 题）</figcaption></figure>
-<figure><a href="r8/ask-form.webp"><img src="r8/ask-form.webp" alt="表单" loading="lazy"></a><figcaption>表单</figcaption></figure>
-</div>
-</section>
-<section data-nbdev-question="s6-status" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>状态栏与继续按钮</h2>
-<p>状态栏是定稿的样子。继续按钮现在是发送按钮里真的图标，量过和按钮中心偏差不到半个像素。审批模式的菜单每项两行。另外把轮上的“等待回答”改成了“等你处理”：现在审批也停在这里，写“回答”不对。推荐：可以。</p>
-<div class="grid">
-<figure><a href="r8/idle-host.webp"><img src="r8/idle-host.webp" alt="空闲" loading="lazy"></a><figcaption>空闲</figcaption></figure>
-<figure><a href="r8/host-running.webp"><img src="r8/host-running.webp" alt="运行中" loading="lazy"></a><figcaption>运行中</figcaption></figure>
-<figure><a href="r8/host-retry.webp"><img src="r8/host-retry.webp" alt="等重发" loading="lazy"></a><figcaption>等重发</figcaption></figure>
-<figure><a href="r8/host-cost.webp"><img src="r8/host-cost.webp" alt="超过告警线、全部放行" loading="lazy"></a><figcaption>超过告警线、全部放行</figcaption></figure>
-<figure><a href="r8/host-resume.webp"><img src="r8/host-resume.webp" alt="中断之后：继续按钮" loading="lazy"></a><figcaption>中断之后：继续按钮</figcaption></figure>
-</div>
-</section>
-<section data-nbdev-question="s6-panel" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>会话面板</h2>
-<p>和第 5 轮定的一样。子代理的入口随多 Agent 再做，这里没有。推荐：可以。</p>
-<div class="grid">
-<figure><a href="r8/panel.webp"><img src="r8/panel.webp" alt="列表" loading="lazy"></a><figcaption>列表</figcaption></figure>
-<figure><a href="r8/panel-filtered.webp"><img src="r8/panel-filtered.webp" alt="选了过滤条件" loading="lazy"></a><figcaption>选了过滤条件</figcaption></figure>
+<figure><a href="r9/list.webp"><img src="r9/list.webp" alt="A：没选条件" loading="lazy"></a><figcaption>A：没选条件</figcaption></figure>
+<figure><a href="r9/filtered.webp"><img src="r9/filtered.webp" alt="A：选了两条" loading="lazy"></a><figcaption>A：选了两条</figcaption></figure>
+<figure><a href="r9/chips.webp"><img src="r9/chips.webp" alt="B：没选条件" loading="lazy"></a><figcaption>B：没选条件</figcaption></figure>
+<figure><a href="r9/chips-filtered.webp"><img src="r9/chips-filtered.webp" alt="B：选了两条" loading="lazy"></a><figcaption>B：选了两条</figcaption></figure>
 </div>
 </section>
 </main>
