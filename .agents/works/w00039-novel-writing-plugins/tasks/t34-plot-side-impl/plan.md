@@ -324,3 +324,76 @@ A9 之后做一次实现审查（后端，按 reviewing Skill：omp 默认模型
 - **诊断同步计算阻塞**：Spec 已接受没有 CPU 上限。A8 的测试用一个故意慢的诊断，验证耗时进 `status`、读取照常返回。
 - **作者来源的签发方还没有**：宿主侧的签发属于 Agent 工具（t20）。阶段 A 只做内核的比对与校验端口，导出 `authorizationBinds` 供签发方用。
 - **决策改名的牵连**：A1 先用 `rg` 列出 `question` 的全部用处（内核、插件、样本、`scripts/scale.ts`），一次改完。
+
+## 阶段 C 细计划：`nb-time` 与时间说法（第一版，2026-11-05）
+
+依据：[`canon.time`](../../../../../docs/specs/canon/time.md)（输出 1 到 5、7 到 13；输出 6 回溯分叉的时间随阶段 D），[`canon.model`](../../../../../docs/specs/canon/model.md) 输入表的 `when`、输出 2、16、36，[`canon.project`](../../../../../docs/specs/canon/project.md) 方法表的 `time`、输入的历法与模糊词表、输出 14、24，[`canon.revisions`](../../../../../docs/specs/canon/revisions.md) 输出 3、6、18；ADR 0043。另请了一个只拿到目标的 Sonnet 独立设计一版（`/tmp/w00039-t34-time-design/independent-design.txt`，下面采纳了它的分量划法、紧边依据、按祸首合并与历法周期表）。依赖阶段 A，与阶段 B 互不依赖。
+
+### 技术选型
+
+- 时间约束网络：自己写。没有能给出“依据（是哪几条说法定下的）”与“打架的环”的成熟库；算法是标准的差分约束（STN）：Bellman-Ford（队列版）求可行与势，按势重赋权后两次 Dijkstra 求范围。否决图论库（给不出依据路径与环，还要加运行时依赖，nb-time 要求没有）。
+- 日期运算：自己写。Temporal 与日期库只有公历一类，表达不了一天 48 小时、自定义月与闰年规则；内置公历的正确性用 JS `Date.UTC` 对拍。
+- 优先队列：nb-time 里写一个二叉堆（几十行），不引依赖。
+
+### `packages/nb-time`（新包，无运行时依赖，前后端共用）
+
+- `calendar.ts`：`validateCalendar(raw) → {calendar} | {problems}`（输出 13，加两条上限：闰年周期即各 `every` 的最小公倍数乘月数不超过 200 万，绝对年份的绝对值不超过 1e7）；`compileCalendar(calendar)`：周期表（周期内每年各月天数、前缀和），`daysBefore(year)` 常数时间，`L_min(unit, n)`、`L_max(unit, n)` 用周期内循环窗口的最小、最大和，按余数缓存；`dateRange(compiled, date)` 给闭区间 tick（年起必须连续给到哪一级；不给纪时年是绝对年份；时段的 `to` 是不含的整点，`to` 小于 `from` 跨夜，相等是整整一天；`approx` 按给到的最细一级两侧对称放宽，分钟与时段用小时那一级）；`GREGORIAN`（天文纪年，月 id `m1` 到 `m12`，纪 `ad` 起于 1，时段列表为空）。
+- `fuzzy.ts`：`validateFuzzy(raw, calendar)`（不合法的项作废，返回诊断 `fuzzy-word-invalid`）；`resolveGap(gap)`。
+- `statements.ts`：说法的 TS 类型（与 nb-canon 的 TypeBox schema 同形，类型断言测试守住）；`lowerStatements(event, statements, ctx)` → 约束 `{from, to, lo, hi, ref}` 或 `invalid`（原因：月、纪、时段不在、日子超出、单位比历法细、词不在、出生事件不唯一）。
+- `network.ts`：`solveNetwork({events, constraints}) → Solved`。节点是每件事的起点、有 `lasts` 时另有终点，与每个分量自己的元年副本。**分量只按事件之间的说法划**（日期说法是单个事件对元年的常量约束，不把分量连起来）：否则一条日期打架会让所有带日期的事件都不可确定；逐分量求与整体求等价（每个分量的解可以平移）。每个分量：队列版 Bellman-Ford（初始队列按事件先后的逆序）求可行与势；有负环就从前驱图取出环、标掉环上的说法再求，直到可行，每个分量最多取 20 个环；有环的分量里事件都“不可确定”（输出 2 字面）。无环的分量按需求范围：重赋权后从元年（没有锚的分量用分量里最早的事件作原点，范围是相对的）正反两次 Dijkstra；依据在拿到距离后走紧边（`d(u) + w = d(v)`，按跳数、约束序优先），结果不随处理次序变（输出 10）。`between(a, b)` 同分量时按需一次 Dijkstra。
+- `mismatch.ts`：输出 5。两类判据：(a) 字面的范围判据：同一坐标系里按安放排序扫一遍，维护前缀里最早时间的最大值，`B 的最晚 < 前缀最大的最早` 成对；(b) 说法直接给出的先后（一条事件间约束的 `hi < 0`，安放却相反）。按“祸首”合并：每次取剩下的对里出现最多的那件事（并列取安放更早的），一项列出它、代表性的一件（范围差最大的）、各自的范围与依据与其余件数。复杂度 O(N log N)。多跳的非严格先后不查（要逐对最短路）。有环分量与无界端的事件不参与。
+- `queries.ts`：事件、一章（按分量分组的外包）、一段时间里一定与可能发生的、两件事相差多久、年龄（输出 12，加两种答案：`atLeast`（上界无穷）、出生事件不唯一答“不知道”并带原因）、按纪年月日逐级浏览、`calendar`（历法简表与词表，给 Agent 查 id）。
+- `format.ts`：按精度格式化（找两端落在同一单位里的最细一级；跨年写两端到日；无界写“之前”“之后”），同时返回结构化的 `parts`。
+
+### `packages/nb-canon` 的接入
+
+- `core/schema.ts`：剧情变更加 `when?: Statement[]`（形状按 time.md 的输入表；`basis` 是 `{kind: "telling", id} | {kind: "author"} | {kind: "inferred", note?}`；`lasts` 写成 `{kind: "lasts", lasts: 间隔}`）；写入草稿里前史的 `order` 可以不给。`./schema` 子路径仍只依赖 TypeBox。
+- `world/references.ts`：`when[].of`、`when[].who` 进引用位置（还原依赖与改动记录按引用自动成立），标 `checked: false`，存在性由时间的校验报 `invalid-time`（time 输出 9 的字面），不重复报 `ref-invalid`。
+- `world/world.ts` 写入校验（输出 9）：`of`、`who` 指向这条线视图里存在的变更与条目；`of` 不是自己；`basis` 的讲述 id 在这条变更的 `told` 里；间隔与年数 `min ≤ max`；单位不比历法细；同一件事最多一条 `birth`、一个人最多一件出生事件；叙述不能有说法。
+- 前史的先后（输出 7）：没给 `order` 的前史变更，在套用之前用一份临时网络算它的最早时间，按最早时间插进已有前史（相同的排在后面，排不出的放最后），`order` 取相邻两个的中数；同一缝里中数耗尽（相邻两个的差小于 1e-9）时拒收，要求显式给 `order`。
+- `time/`（新目录，内核的时间层）：`timeState(world, mode)`：事件集（实际模式：这条线里生效、不是叙述的已写变更；按计划模式再加全书末尾计入的计划，`plannedAt(缺省位置)`）→ `lowerStatements` 按剧情变更对象缓存（对象跨版本是同一引用）→ `solveNetwork`；结果按 World 对象缓存（WeakMap），键加历法与词表的内容摘要。线视图以后按线各建一份（阶段 D）。
+- `WorldOptions.time?: {calendar, fuzzy}`：服务给出（上一个合法的历法，没有时内置公历；进程重启后若设置仍不合法就是公历，`calendar-invalid` 写明“已退回公历”）；`setTime` 像 `setRegistries` 一样换一份世界、加输入代次；读取输入的摘要带历法与词表的摘要（`readStampOf` 已留了位置）。
+- 待处理：`time-conflict`（每个环一条）、`time-invalid`（每条说法一条）、`time-placement-mismatch`（每个祸首一条）进 `World.pending` 这一层，不进两个引擎；排序位置按 model 输出 16（涉及几件事的取最早的安放），种类在“世界线”之后、“插件的诊断”之前。**随读取位置截取**：所涉的事件都安放在读取位置之前的才列（网络按整条线算一次，只筛项）。发布“带来的变化”里的待处理增减含时间的几种（revisions 输出 6 的“本能力自己的待处理”），只在这次写入碰到时间相关的对象（带 `when` 的变更、被说法引用的变更，或这些变更的状态、种类、性质、安放变了）时为新世界建网。
+- 诊断：`calendar-invalid`、`fuzzy-word-invalid` 进 `status` 的诊断。
+- 服务的 `time(query, line, mode)` 与带令牌的 `time`：带令牌时网络只用安放在上限之前的事件（否则可见事件的范围会被上限之后的说法收窄，漏出上限之后的事），按（模式、上限）缓存最多 8 份；查询里晚于上限的位置拒（`view-denied`）。`CanonReadView` 加同步的 `time(query, mode)`（剧情的诊断以后要用）。
+
+### canon 插件
+
+- 设置：声明两个配置项 `canon.calendar`、`canon.fuzzyWords`（允许项目层与用户层，schema 放宽为对象，合法性由 nb-time 按输出 13 查，这样不合法时才能沿用上一个合法的）；项目入口读有效值、变了时交给世界宿主 `setTime`。
+- 远程合同加 `time`（查询的种类联合，带视图令牌），结果形状由 nb-time 给出。
+
+### Spec 与文档改动（在分支上，“补充已批准的 Spec”，各记待确认清单）
+
+- time.md：输出 2 写明分量只按事件之间的说法划；输出 1 写明按计划模式加的是全书末尾计入的计划；输出 5 加判据 (b) 与按祸首合并、写明多跳的非严格先后不查；输出 8 加 `calendar` 查询；输出 9 加“`of` 不是自己”“`basis` 的讲述在 `told` 里”；输出 12 加“至少 k 岁”与出生事件不唯一；输出 13 加两条上限；输入表定 `basis`、`lasts` 的形状与日期各级连续、不给纪时是绝对年份、时段 `to` 不含、`approx` 两侧对称；“状态与转换”的缓存键改成历法与词表的内容摘要；新增：时间的待处理随读取位置截取、带令牌的时间查询只用上限之前的事件、进程重启后历法仍不合法就用公历。
+- project.md 输出 24 补一句带令牌的 `time`；revisions.md 输入写明前史的 `order` 可以不给。
+- `docs/modules/monorepo-boundaries.md`、根 `AGENTS.md` 的包地图登记 `nb-time`；nb-canon 那一行的运行时依赖加 `@notnotype/nb-time`（time.md 已批准“nb-canon 用它”）；nb-canon 的架构测试允许它。
+
+### 切片（阶段 C）
+
+0. **C0 Spec 补充**：上面一节。`docs:check`、`governance:check`。
+1. **C1 历法**：`calendar.ts`、`format.ts` 的拆分部分；包骨架与登记。测试：输出 13 每一项的合法与不合法；公历日序号与 `Date.UTC` 在 -4000 到 4000 年随机对拍；`L_min`、`L_max` 与按周期暴力枚举对拍；验收 1 的自定义历法（一天 48 小时、每 3 年第 12 月多 1 天）。
+2. **C2 词表、说法与降成约束**：`fuzzy.ts`、`statements.ts`。测试：每种说法的约束、每种不成立的原因、验收 1 的改名照常与删月后不成立。
+3. **C3 网络**：`network.ts`。测试：小网络与 Floyd-Warshall 参照实现对拍（随机种子，范围与可行逐字相同）；验收 3（打架与局部降级）；环的确定性；反向次序的长链压力（超过 300 毫秒就换算法，接口不变）。
+4. **C4 查询、对不上与格式化**：`queries.ts`、`mismatch.ts`、`format.ts`。测试：验收 2、6（年龄）；输出 5 的两类判据与合并；验收 4。
+5. **C5 内核的数据与校验**：schema、引用、写入校验、前史的先后。测试：`revisions.test.ts` 加时间的校验与前史排序；还原依赖经引用成立。
+6. **C6 内核的时间层与待处理**：`time/`、`WorldOptions.time`、待处理的三种与截取、带来的变化。测试：待处理的排序与截取；改历法后重算（输出 4）；确定（输出 10）。
+7. **C7 服务、远程合同、设置与规模**：服务与带令牌的 `time`、`CanonReadView.time`、canon 插件的设置与远程合同；规模脚本 `canon-scale.ts` 加三成变更带一到两条说法，量发布后第一次时间查询（预算 1 秒）、之后的查询（20 毫秒）与带说法时发布一次记账（预算 100 毫秒）。测试：canon 插件真实项目子进程里改作品设置后范围变；视图里不漏上限之后的说法。
+
+### 验收映射（阶段 C）
+
+| Spec 条目 | 测试 | 切片 |
+|---|---|---|
+| time 输出 13，验收 1 的历法部分 | `nb-time/tests/calendar.test.ts` | C1 |
+| time 输入表、输出 3、4（改名照常、删月不成立）、验收 1 的说法部分 | `nb-time/tests/statements.test.ts` | C2 |
+| time 输出 1、2、10，验收 3 | `nb-time/tests/network.test.ts`（含参照实现对拍） | C3 |
+| time 输出 5、8、12，验收 2、4、6 | `nb-time/tests/queries.test.ts` | C4 |
+| time 输出 7、9；revisions 输出 3、12 的时间部分 | `nb-canon/tests/time.test.ts`、`revisions.test.ts` | C5 |
+| model 输出 16 的时间几种与排序；revisions 输出 6 | `nb-canon/tests/time.test.ts` | C6 |
+| time 输出 11；project 输出 24 的 `time`；作品设置 | 规模脚本；`nb-canon/tests/views.test.ts`；`canon.test.ts` | C7 |
+
+### 阶段 C 的风险
+
+- 带说法的发布多建一次网（独立设计估 30 到 60 毫秒，未测），可能越过发布 100 毫秒的预算：C7 实测；超了先复用旧世界的降约束与只重算被碰到的分量，再找开发者。
+- Bellman-Ford 最坏 O(VE)：压力测试兜底。
+- 年龄与以年、月为单位的间隔用不看起点的全局上下界，范围比按具体日期推算宽（Spec 的取舍，验收 2 就是这样）。
+- 待确认的口径（截取、判据 (b)、合并、计划模式的事件集）都写进 Spec，开发者改判时只动 nb-time 的一两处与 Spec。
