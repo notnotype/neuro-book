@@ -249,6 +249,8 @@ test("外部修改：不 dirty 时换成磁盘内容；dirty 时提示，保存�
 });
 
 test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆分后两组共用正文；拖动两组间的分隔线调整宽度；刷新后组、标签与宽度恢复", async ({page}) => {
+    // 右栏默认开着对话：要拖 120 像素，两组都得比最小宽度宽出这么多。
+    await page.setViewportSize({width: 1600, height: 900});
     await open(page);
     await closeAll(page);
     await item(page, "project://notes/d.md").dblclick();
