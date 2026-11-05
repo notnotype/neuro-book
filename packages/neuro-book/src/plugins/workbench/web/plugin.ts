@@ -19,7 +19,7 @@ import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/con
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
 import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
-import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_CHOICES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 
@@ -31,8 +31,11 @@ import {APP_COMMAND_DECLARATIONS, appCommands} from "./commands/app-commands";
 import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
-import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {appearanceSetting, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {NotificationInput} from "../shared/contracts";
+import {WORKBENCH_THEMES_POINT} from "../shared/themes";
+import type {ThemeDeclaration} from "../shared/themes";
+import {ThemeCatalog} from "./themes";
 import {completeHomeDeclaration, validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
@@ -91,8 +94,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}, {key: windowTextKey, required: false}],
         provides: [workbenchRootKey, quickPickKey, notificationsKey],
-        receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT],
+        receives: [WORKBENCH_THEMES_POINT, WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT],
         contributions: [
+            {capability: SETTINGS_CHOICES_POINT, id: THEME_CHOICES_PROVIDER, declaration: {}},
             {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: PROFILE_ITEM, declaration: PROFILE_DECLARATION},
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_THEME_COMMAND, declaration: SWITCH_THEME_DECLARATION},
@@ -147,7 +151,11 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
             const text = await windowTextPort(context.services, () => displayLocale(settings));
-            const theme = computed(() => settings.get(themeSetting));
+            const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), () => null, (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}));
+            const effectiveTheme = (): string => {
+                const inspected = settings.inspect(themeSetting);
+                return themes.effectiveId([inspected.value as string, inspected.user?.status === "ok" ? inspected.user.value as string | undefined : undefined]);
+            };
             const appearance = computed(() => settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
             // 通知队列与入口同寿：入口停止时清空，计时器不留到下一代。
@@ -158,7 +166,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const projectTitle = project?.title ?? null;
             const workbenchPages = createWorkbenchPages({
                 // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
-                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, theme, appearance})},
+                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(effectiveTheme(), resolved)})},
                 // 布局 store 在要显示外壳时才创建：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。开始加载外壳时就
                 // 创建、开始读布局记录，与下载外壳代码并行：等外壳挂上才读的话，每次打开都先按缺省布局画出来（Spec 失败表的“记录
                 // 未读完”），记录到了再变过去，侧栏、面板从缺省尺寸动画收起，缺省可见的视图也被加载。
@@ -181,11 +189,12 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             ]);
             return {
                 services: [provideService(workbenchRootKey, {pages: () => pages.list()}), provideService(quickPickKey, palettes.quickPick), provideService(notificationsKey, {notify: (input) => notifications.notify(input)})],
-                receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
+                receivers: {[WORKBENCH_THEMES_POINT]: themes.receiver(), [WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
                 contributions: {
+                    [SETTINGS_CHOICES_POINT]: {[THEME_CHOICES_PROVIDER]: {source: () => computed(() => ({status: "ready" as const, items: themes.list.map((entry) => ({value: entry.id, label: text.t(entry.declaration.title)}))}))}},
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

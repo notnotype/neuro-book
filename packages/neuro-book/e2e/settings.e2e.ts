@@ -309,11 +309,11 @@ test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "true");
     // 焦点挪到窗口里别处，再点齿轮：还是这一个窗口，焦点回到左栏的当前项。
-    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
+    await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
     await workbenchGear(page).click();
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
-    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
+    await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
     await pressOpenSettings(page);
     await expect(settingsWindow(page)).toHaveCount(1);
 
@@ -334,7 +334,7 @@ test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗
     await shelfGear(page).click();
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(shelfGear(page)).toHaveAttribute("aria-pressed", "true");
-    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
+    await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
     await shelfGear(page).click();
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
@@ -352,7 +352,9 @@ test("用户标签改主题，两个页面即时变化；本作品标签单独�
     await workbenchGear(a).click();
     await expect(settingsWindow(a)).toBeVisible();
 
-    await row(a, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).click();
+    // 主题的选项来自工作台的提供者（docs/specs/theme/skins.md 输出 1），是下拉。
+    await row(a, "nbook.workbench/theme").getByRole("combobox").click();
+    await a.getByRole("option", {name: "macOS"}).click();
     await expect.poll(() => html(a, "data-nb-theme")).toBe("macos");
     await expect.poll(() => html(b, "data-nb-theme")).toBe("macos");
     await expect.poll(() => readSettings(userFile())).toEqual({"nbook.workbench/theme": "macos"});
@@ -400,7 +402,7 @@ test("改过的项有已修改标记；恢复默认后键从 settings.json 删�
 test("用户层文件改坏：标题区出现警告、控件停用；点警告打开设置文件并把光标放在出错处；修好后警告消失、控件恢复", async ({page}) => {
     await open(page, "/?project=book");
     await workbenchGear(page).click();
-    const macos = row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"});
+    const macos = row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"});
     await expect(macos).toBeEnabled();
     await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
     const warning = page.locator("[data-settings-heading] [data-settings-layer-notice='invalid']");

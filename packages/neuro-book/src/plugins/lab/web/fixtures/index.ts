@@ -64,7 +64,7 @@ import type TitleActions from "nbook/ui/menus/TitleActions.vue";
 import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 import {localeSetting} from "nbook/plugins/settings/shared/contracts";
-import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
+import {appearanceSetting} from "nbook/plugins/workbench/shared/contracts";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
 import type EventLogPanel from "../components/EventLogPanel.vue";
@@ -90,7 +90,7 @@ import {nbLayoutFixtures} from "./nb-layout";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
-import {rowDemoSettings, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
+import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
@@ -1170,7 +1170,7 @@ function shelfFixtures(): LabFixture[] {
  * （`settings-scene/`）：产品里同一个窗口模型与配置实例，配置层换成内存里的拥有者。
  */
 function settingsFixtures(): LabFixture[] {
-    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, projectTitle: "雾港", wide});
+    const row = (setting: typeof appearanceSetting | typeof sceneThemeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, projectTitle: "雾港", wide});
     /** 状态原因：出错、警告、淡色各一条，看图标取最重的色调、提示逐条列出。 */
     const reasons = [
         {tone: "error" as const, text: "未保存：取值范围为 1–8"},
@@ -1189,7 +1189,7 @@ function settingsFixtures(): LabFixture[] {
             scenes: [
                 {id: "modified", label: "用户层已修改", input: {props: row(appearanceSetting, "user")}},
                 {id: "overridden", label: "被本作品覆盖", input: {props: row(appearanceSetting, "user")}},
-                {id: "inherit", label: "本作品标签：沿用（来自用户设置）", input: {props: row(themeSetting, "project")}},
+                {id: "inherit", label: "本作品标签：沿用（来自用户设置）", input: {props: row(sceneThemeSetting, "project")}},
                 {id: "project-set", label: "本作品标签：单独设置了", input: {props: row(appearanceSetting, "project")}},
                 {id: "invalid", label: "层文件有错误（停用）", input: {props: row(appearanceSetting, "user")}},
                 {id: "unreachable", label: "层连不上（停用）", input: {props: row(appearanceSetting, "user")}},

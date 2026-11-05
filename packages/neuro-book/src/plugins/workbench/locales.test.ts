@@ -26,8 +26,8 @@ import {WORKBENCH_TITLEBAR_MENU_ITEMS} from "./web/titlebar/menu-items";
 const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     "settings.theme.title": {"zh-CN": "主题", "en-US": "Theme"},
     "settings.theme.description": {"zh-CN": "界面的形状、字体与配色", "en-US": "Shape, typography and colors of the interface"},
-    "settings.theme.choices.nbook.title": {"zh-CN": "NeuroBook", "en-US": "NeuroBook"},
-    "settings.theme.choices.macos.title": {"zh-CN": "macOS", "en-US": "macOS"},
+    "themes.nbook.title": {"zh-CN": "NeuroBook", "en-US": "NeuroBook"},
+    "themes.macos.title": {"zh-CN": "macOS", "en-US": "macOS"},
     "settings.appearance.title": {"zh-CN": "明暗", "en-US": "Appearance"},
     "settings.appearance.choices.light.title": {"zh-CN": "浅色", "en-US": "Light"},
     "settings.appearance.choices.dark.title": {"zh-CN": "深色", "en-US": "Dark"},
@@ -179,6 +179,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "titlebar.projectButton": {"zh-CN": "项目：{name}", "en-US": "Project: {name}"},
     "titlebar.searchWithShortcut": {"zh-CN": "搜索命令（{shortcut}）", "en-US": "Search commands ({shortcut})"},
     "items.titled": {"zh-CN": "{title}：{text}", "en-US": "{title}: {text}"},
+    "themeCommands.unknownTheme": {"zh-CN": "没有这个主题：{id}", "en-US": "No such theme: {id}"},
 };
 
 /** 有意改过的英文：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数。 */

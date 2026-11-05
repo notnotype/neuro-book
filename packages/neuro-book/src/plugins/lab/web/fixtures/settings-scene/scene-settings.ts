@@ -8,6 +8,23 @@
 import {Type} from "typebox";
 
 import {defineSetting} from "nbook/shared/settings";
+import {workbenchText} from "nbook/plugins/workbench/shared/text";
+
+/**
+ * 主题项在产品里的选项来自工作台的提供者（docs/specs/theme/skins.md），场景没有工作台的入口。这里给同一个键一份静态选项，
+ * 窗口的层、覆盖与写入失败这些场景不靠它；下拉与动态选项由 `choices` 系列场景与 `e2e/settings.e2e.ts` 看。
+ */
+export const sceneThemeSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "theme",
+    schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]),
+    default: "nbook",
+    description: workbenchText("settings.theme.description"),
+    section: "nbook.appearance",
+    group: "ui",
+    order: 10,
+    choices: [{value: "nbook", title: workbenchText("themes.nbook.title")}, {value: "macos", title: workbenchText("themes.macos.title")}],
+});
 
 export const SNIPPETS_SECTION = "example.snippets.main";
 /** “笔记”的选项提供者：新笔记可以套用的模板。 */

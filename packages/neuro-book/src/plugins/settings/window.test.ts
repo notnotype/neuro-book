@@ -849,7 +849,7 @@ describe("通用列表的写入（输出 10、12、14）", () => {
         expect(english.title).toBe("Setting not saved");
         expect(english.message).toStartWith(beforeDetail(`主题: ${t("writeFailure.writeFailed", {detail: DETAIL})}`));
 
-        await window.write(themeOf(window), "solarized");
+        await window.write(themeOf(window), "");
         expect(shown(recorder.notices[1]).message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.invalidValue", {detail: DETAIL})})));
     });
 

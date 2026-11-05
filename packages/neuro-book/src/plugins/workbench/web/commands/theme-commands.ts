@@ -14,17 +14,17 @@ import type {SettingsService} from "nbook/shared/settings";
 import {appearanceSetting, themeSetting} from "../../shared/contracts";
 import type {QuickPick} from "../../shared/contracts";
 import {workbenchText} from "../../shared/text";
+import type {ThemeCatalog} from "../themes";
 
 export const SWITCH_THEME_COMMAND = "nbook.settings.switch-theme";
 export const SWITCH_APPEARANCE_COMMAND = "nbook.settings.switch-appearance";
 
-const THEMES = ["nbook", "macos"] as const;
 const APPEARANCES = ["light", "dark", "system"] as const;
 
 export const SWITCH_THEME_DECLARATION: WrittenCommandDeclaration = {
     category: workbenchText("categories.settings"),
-    description: "Change the theme pack (nbook or macos). Without arguments, the user picks one; with { theme }, it is set directly.",
-    args: Type.Object({theme: Type.Optional(Type.Union(THEMES.map((id) => Type.Literal(id))))}, {additionalProperties: false}),
+    description: "Change the theme. Without arguments, the user picks one; with { theme }, it is set directly to that theme id. Plugins can add themes, so an id that is not installed fails with invalid-args.",
+    args: Type.Object({theme: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false}),
     effect: "write",
     expose: {agent: "auto"},
 };
@@ -38,21 +38,23 @@ export const SWITCH_APPEARANCE_DECLARATION: WrittenCommandDeclaration = {
 };
 
 /** 两条命令的实现；键写死成两个命令 id，激活产出的编译期核对才对得上声明。 */
-export function themeCommands(settings: SettingsService, quickPick: QuickPick, text: TextResolver): {readonly [SWITCH_THEME_COMMAND]: CommandImplementation; readonly [SWITCH_APPEARANCE_COMMAND]: CommandImplementation} {
+export function themeCommands(settings: SettingsService, quickPick: QuickPick, text: TextResolver, themes: ThemeCatalog): {readonly [SWITCH_THEME_COMMAND]: CommandImplementation; readonly [SWITCH_APPEARANCE_COMMAND]: CommandImplementation} {
     return {
         [SWITCH_THEME_COMMAND]: {
-            run: (args) => switchSetting({
-                settings,
-                quickPick,
-                text,
-                setting: themeSetting,
-                value: (args as {readonly theme?: (typeof THEMES)[number]}).theme,
-                choices: [
-                    {id: "nbook", label: workbenchText("settings.theme.choices.nbook.title")},
-                    {id: "macos", label: workbenchText("settings.theme.choices.macos.title")},
-                ],
-                title: workbenchText("commands.nbook.settings.switch-theme.title"),
-            }),
+            run: (args) => {
+                const {theme} = args as {readonly theme?: string};
+                // 字符串的 schema 拦不住错的 id，写进设置也只会退回缺省，所以这里按目录拦下。
+                if (theme !== undefined && !themes.has(theme)) return Promise.resolve({ok: false, code: "invalid-args", reason: text.t(workbenchText("themeCommands.unknownTheme", {id: theme}))});
+                return switchSetting({
+                    settings,
+                    quickPick,
+                    text,
+                    setting: themeSetting,
+                    value: theme,
+                    choices: themes.list.map((entry) => ({id: entry.id, label: entry.declaration.title})),
+                    title: workbenchText("commands.nbook.settings.switch-theme.title"),
+                });
+            },
         },
         [SWITCH_APPEARANCE_COMMAND]: {
             run: (args) => switchSetting({

@@ -10,11 +10,13 @@ import type {Ref} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import {createDocumentThemeWriter} from "nbook/ui/theme/document-theme";
+import type {ProductTheme} from "nbook/ui/theme/product-theme-shape";
 import {productTheme} from "nbook/ui/theme/product-themes";
 
 const props = defineProps<{
     locale: Readonly<Ref<DisplayLocale>>;
-    theme: Readonly<Ref<string>>;
+    /** 一个明暗下要写的主题：选哪一套、退回到哪一套都在调用方算，它会读响应式的配置。 */
+    resolveTheme: (appearance: "light" | "dark") => ProductTheme;
     appearance: Readonly<Ref<"light" | "dark" | "system">>;
 }>();
 
@@ -32,7 +34,7 @@ const stopLang = watchEffect(() => {
     document.documentElement.lang = props.locale.value;
 });
 const stopTheme = watchEffect(() => {
-    writer.apply(productTheme(props.theme.value, appearance.value));
+    writer.apply(productTheme(props.resolveTheme(appearance.value), appearance.value));
 });
 
 onBeforeUnmount(() => {

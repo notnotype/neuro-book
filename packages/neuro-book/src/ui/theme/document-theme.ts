@@ -5,8 +5,10 @@ import type {NbColorwayVars} from "@notnotype/nb-ui/colorway";
 export interface DocumentTheme {
     readonly themeId: string;
     readonly appearance: "light" | "dark";
-    /** 配色变量；主题包没有对应明暗的配色时为 undefined，只写主题包与明暗。 */
-    readonly vars: NbColorwayVars | undefined;
+    /** 配色变量与主题写的其它变量；都没有时为 undefined，只写主题包与明暗。 */
+    readonly vars: Readonly<Partial<Record<string, string>>> | undefined;
+    /** 这套主题有场景图（docs/specs/theme/skins.md）。 */
+    readonly scene?: boolean;
 }
 
 export interface DocumentThemeWriter {
@@ -39,10 +41,12 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
             root.dataset.nbTheme = theme.themeId;
             root.dataset.nbAppearance = theme.appearance;
             root.style.colorScheme = theme.appearance;
+            if (theme.scene === true) root.dataset.nbSkinScene = "";
+            else delete root.dataset.nbSkinScene;
             clearVars();
             if (theme.vars !== undefined) {
-                applyColorway(root, theme.vars);
-                applyColorway(document.body, theme.vars);
+                applyColorway(root, theme.vars as NbColorwayVars);
+                applyColorway(document.body, theme.vars as NbColorwayVars);
                 written = Object.keys(theme.vars);
             }
         },
@@ -50,6 +54,7 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
             const root = document.documentElement;
             delete root.dataset.nbTheme;
             delete root.dataset.nbAppearance;
+            delete root.dataset.nbSkinScene;
             root.style.removeProperty("color-scheme");
             clearVars();
             root.classList.remove(NB_UI_COLORWAY_HOST_CLASS);

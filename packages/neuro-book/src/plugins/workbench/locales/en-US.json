@@ -2,15 +2,7 @@
     "settings": {
         "theme": {
             "title": "Theme",
-            "description": "Shape, typography and colors of the interface",
-            "choices": {
-                "nbook": {
-                    "title": "NeuroBook"
-                },
-                "macos": {
-                    "title": "macOS"
-                }
-            }
+            "description": "Shape, typography and colors of the interface"
         },
         "appearance": {
             "title": "Appearance",
@@ -164,7 +156,8 @@
             "light": "Light",
             "dark": "Dark",
             "system": "Follow System"
-        }
+        },
+        "unknownTheme": "No such theme: {{id}}"
     },
     "viewCommands": {
         "parts": {
@@ -295,6 +288,14 @@
         },
         "panelMaximized": {
             "reason": "The panel is not maximized"
+        }
+    },
+    "themes": {
+        "nbook": {
+            "title": "NeuroBook"
+        },
+        "macos": {
+            "title": "macOS"
         }
     }
 }

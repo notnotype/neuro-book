@@ -2,15 +2,7 @@
     "settings": {
         "theme": {
             "title": "主题",
-            "description": "界面的形状、字体与配色",
-            "choices": {
-                "nbook": {
-                    "title": "NeuroBook"
-                },
-                "macos": {
-                    "title": "macOS"
-                }
-            }
+            "description": "界面的形状、字体与配色"
         },
         "appearance": {
             "title": "明暗",
@@ -164,7 +156,8 @@
             "light": "浅色",
             "dark": "深色",
             "system": "跟随系统"
-        }
+        },
+        "unknownTheme": "没有这个主题：{{id}}"
     },
     "viewCommands": {
         "parts": {
@@ -294,6 +287,14 @@
         },
         "panelMaximized": {
             "reason": "面板没有最大化"
+        }
+    },
+    "themes": {
+        "nbook": {
+            "title": "NeuroBook"
+        },
+        "macos": {
+            "title": "macOS"
         }
     }
 }

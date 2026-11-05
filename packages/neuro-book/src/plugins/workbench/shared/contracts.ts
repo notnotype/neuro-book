@@ -126,20 +126,20 @@ export interface Notifications {
 /** 工作台提供的通知服务（本窗口一份队列，视口挂在页面根上）；需要它的插件在入口依赖里声明。 */
 export const notificationsKey: ServiceKey<Notifications> = defineServiceKey<Notifications>("nbook.workbench/notifications");
 
-/** 产品主题包（docs/specs/theme/system.md）；两层都允许，项目可以给自己定一套。 */
+/** 选项提供者（`settings.choices`），工作台的浏览器入口贡献。 */
+export const THEME_CHOICES_PROVIDER = "nbook.workbench.themes";
+
+/** 产品主题（docs/specs/theme/skins.md）；值是 `workbench.themes` 的贡献 id，可以是插件给的，所以不列枚举。两层都允许，项目可以给自己定一套。 */
 export const themeSetting = defineSetting({
     plugin: "nbook.workbench",
     name: "theme",
-    schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]),
+    schema: Type.String({minLength: 1}),
     default: "nbook",
     description: workbenchText("settings.theme.description"),
     section: "nbook.appearance",
     group: "ui",
     order: 10,
-    choices: [
-        {value: "nbook"},
-        {value: "macos"},
-    ],
+    choices: {from: THEME_CHOICES_PROVIDER},
 });
 
 /** 明暗；`system` 跟随系统，配色取主题包的 `defaultColorway[明暗]`。 */

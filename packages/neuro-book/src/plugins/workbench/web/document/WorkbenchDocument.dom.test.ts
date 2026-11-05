@@ -36,7 +36,7 @@ describe("WorkbenchDocument", () => {
         const locale = ref<DisplayLocale>("zh-CN");
         const theme = ref("nbook");
         const appearance = ref<"light" | "dark" | "system">("light");
-        const wrapper = mount(WorkbenchDocument, {props: {locale, theme, appearance}});
+        const wrapper = mount(WorkbenchDocument, {props: {locale, appearance, resolveTheme: () => ({base: theme.value, vars: {}, scene: false})}});
         expect(root().lang).toBe("zh-CN");
         expect(root().dataset.nbTheme).toBe("nbook");
         expect(root().dataset.nbAppearance).toBe("light");
@@ -61,7 +61,7 @@ describe("WorkbenchDocument", () => {
     it("跟随系统：按挂载时系统的明暗取配色，不改写配置；改成显式明暗后不再看系统", async () => {
         device().prefersColorScheme = "dark";
         const appearance = ref<"light" | "dark" | "system">("system");
-        const wrapper = mount(WorkbenchDocument, {props: {locale: ref<DisplayLocale>("zh-CN"), theme: ref("nbook"), appearance}});
+        const wrapper = mount(WorkbenchDocument, {props: {locale: ref<DisplayLocale>("zh-CN"), appearance, resolveTheme: () => ({base: "nbook", vars: {}, scene: false})}});
         expect(root().dataset.nbAppearance).toBe("dark");
         expect(bgMain()).toBe(expectedBg("nbook", "nbook-dark"));
         expect(appearance.value).toBe("system");
