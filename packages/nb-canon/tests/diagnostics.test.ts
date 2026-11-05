@@ -95,19 +95,20 @@ describe("canon.model 输出 34：一次计算的结果怎样处理", () => {
         expect(pageOf(service, {group: "hints"}).items.map(describeItem)).toEqual(["soft:轻", "diagnostic-duplicate-key"]);
     });
 
-    test("一个诊断抛错、没登记计算、稳定键不合声明：这几个没有结果并标不完整，别的诊断照常算", async () => {
-        const [boom, missing, badKey, fine] = [declaration("boom"), declaration("missing"), declaration("badkey"), declaration("fine")];
-        const service = await open([boom, missing, badKey, fine]);
+    test("一个诊断抛错、没登记计算、稳定键不合声明（含对象引用多了字段）：这几个没有结果并标不完整，别的诊断照常算", async () => {
+        const [boom, missing, badKey, extraKey, fine] = [declaration("boom"), declaration("missing"), declaration("badkey"), declaration("extrakey", {key: ["objects"]}), declaration("fine")];
+        const service = await open([boom, missing, badKey, extraKey, fine]);
         service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {
             [boom.id]: () => {
                 throw new Error("坏了");
             },
             [badKey.id]: () => [{key: {objects: "不是列表"}, objects: [], params: {}}],
+            [extraKey.id]: () => [{key: {objects: [{kind: "entry", id: "e1", 备注: "多出来的"}]}, objects: [], params: {}}],
             [fine.id]: () => [finding("好")],
         }});
         const page = pageOf(service);
         expect(page.complete).toBe(false);
-        expect(page.unavailable.map((item) => [item.diagnostic, item.reason.split(":")[0]])).toEqual([[badKey.id, "invalid finding key"], [boom.id, "threw"], [missing.id, "not-registered"]]);
+        expect(page.unavailable.map((item) => [item.diagnostic, item.reason.split(":")[0]])).toEqual([[badKey.id, "invalid finding key"], [boom.id, "threw"], [extraKey.id, "invalid finding key"], [missing.id, "not-registered"]]);
         expect(page.items.map(describeItem)).toEqual(["fine:好"]);
         expect(service.status().diagnosticTimings.map((timing) => timing.diagnostic)).toEqual(expect.arrayContaining([boom.id, badKey.id, fine.id]));
     });

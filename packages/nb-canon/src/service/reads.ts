@@ -8,8 +8,9 @@
 
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry, type MarkType} from "../components/marks";
 import {effectiveFields} from "../components/registry";
+import {deepFreeze} from "../core/freeze";
 import {compareIds} from "../core/ids";
-import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, type ChapterOrder} from "../core/position";
+import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
 import type {Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
@@ -123,18 +124,19 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         stamp,
         line: "main",
         chapters: order.ids,
-        entry: (id, position, mode) => world.engine.entry(id, position, mode),
+        // 引擎算出的结果可能与引擎的快照共用对象：交出去之前深冻结（core/freeze.ts）。存下来的对象在世界表里已经冻过。
+        entry: (id, position, mode) => deepFreeze(world.engine.entry(id, position, mode)),
         object: (ref) => world.object(ref),
         entries: () => [...world.data.entries.values()],
         changes: (filter = {}) => listChanges(world, filter),
-        tellings: (filter = {}) => listTellings(world, locator, filter),
+        tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter)),
         presence: (person, filter = {}) => listPresence(world, person, filter),
         decisions: (filter = {}) => listDecisions(world, filter),
-        chapterEntries: (chapter) => world.engine.chapterEntries(chapter),
-        origins: (address, position, mode) => world.engine.origins(address, position, mode),
-        outcome: (change) => world.engine.outcome(change),
+        chapterEntries: (chapter) => deepFreeze(world.engine.chapterEntries(chapter)),
+        origins: (address, position, mode) => deepFreeze(world.engine.origins(address, position, mode)),
+        outcome: (change) => deepFreeze(world.engine.outcome(change)),
         progress: (plan, position) => world.engine.progress(plan, position),
-        eventKey: (change, mode) => world.engine.eventKey(change, mode),
+        eventKey: (change, mode) => deepFreeze(world.engine.eventKey(change, mode)),
         placementKey: (placement) => {
             const rank = placementRank(order, placement);
             return rank === null ? null : {rank, tie: {version: -1, id: ""}};
@@ -144,13 +146,13 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             return rank === null ? null : {rank, tie: {version: Number.POSITIVE_INFINITY, id: ""}};
         },
         compareKeys: (a, b) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie),
-        plannedAt: (position) => world.engine.plannedAt(position),
+        plannedAt: (position) => deepFreeze(world.engine.plannedAt(position)),
         fields: (entry, namespace) => {
             const data = world.data.entries.get(entry)?.init.data[namespace];
             const type = world.options.registry.byNamespace(namespace);
-            return data === undefined || type === undefined || type.id !== data.type ? undefined : effectiveFields(type, data.declared);
+            return data === undefined || type === undefined || type.id !== data.type ? undefined : deepFreeze(effectiveFields(type, data.declared));
         },
-        markType: (kind) => (world.options.marks ?? EMPTY_MARK_REGISTRY).byKind(kind),
+        markType: (kind) => deepFreeze((world.options.marks ?? EMPTY_MARK_REGISTRY).byKind(kind)),
     };
 }
 
@@ -224,9 +226,9 @@ function sortByPlacement(order: ChapterOrder, changes: StoryChange[]): void {
  * 剧情变更（方法表 `changes`）：`entry` 筛涉及它的；`nature` 筛性质（没写的是 `event`）；`progress` 筛计划在全书当前
  * 进展上的进展（model.md 输出 13，只有计划有进展）。按安放的先后排。
  */
-export function listChanges(world: World, filter: ChangeFilter): StoryChange[] {
+export function listChanges(world: World, filter: ChangeFilter, progressAt?: ReadPosition): StoryChange[] {
     const order = world.options.order;
-    const latest = defaultPosition(order);
+    const latest = progressAt ?? defaultPosition(order);
     const matching = [...world.data.changes.values()].filter((change) =>
         (filter.chapter === undefined || (change.at.kind === "chapter" && change.at.chapter === filter.chapter)) &&
         (filter.entry === undefined || concerns(change, filter.entry)) &&
@@ -295,14 +297,17 @@ function tellingHints(marks: MarkRegistry, telling: Telling, located: Located): 
  * 已写、生效、套上的变更；按计划模式再加上在 `to` 的章末（没写时在缺省读取位置）计入的计划。参与者里 `who` 或 `as` 是他、
  * `role` 为 `present` 的算在场；没记参与者的变更不算，只计数（`uncast`）。
  */
-export function listPresence(world: World, person: string, filter: PresenceFilter): {readonly changes: StoryChange[]; readonly uncast: number} | "chapter-not-found" {
+export function listPresence(world: World, person: string, filter: PresenceFilter, until?: ReadPosition): {readonly changes: StoryChange[]; readonly uncast: number} | "chapter-not-found" {
     const order = world.options.order;
     const from = filter.from === undefined ? undefined : order.index(filter.from);
     const to = filter.to === undefined ? undefined : order.index(filter.to);
     if ((filter.from !== undefined && from === undefined) || (filter.to !== undefined && to === undefined)) return "chapter-not-found";
+    // `until`（带视图令牌时是上限）：只算安放在它之前的，按计划模式计入的计划也按它算；没给时按 `to` 那一章的末尾。
+    const bound = until === undefined ? null : positionRank(order, until);
     const inRange = (change: StoryChange) => {
         const rank = placementRank(order, change.at);
         if (rank === null) return false;
+        if (bound !== null && !rankBefore(rank, bound)) return false;
         if (from !== undefined && (rank[0] !== 1 || rank[1] < from)) return false;
         return to === undefined || rank[0] !== 1 || rank[1] <= to;
     };
@@ -312,7 +317,7 @@ export function listPresence(world: World, person: string, filter: PresenceFilte
         if (change.patches.length === 0 || world.engine.outcome(change.id)?.applied === true) counted.push(change);
     }
     if (filter.mode === "planned") {
-        const planned = world.engine.plannedAt(filter.to === undefined ? defaultPosition(order) : {kind: "chapter", chapter: filter.to, edge: "end"});
+        const planned = world.engine.plannedAt(until ?? (filter.to === undefined ? defaultPosition(order) : {kind: "chapter", chapter: filter.to, edge: "end"}));
         if (planned === "chapter-not-found") return planned;
         for (const id of planned) {
             const plan = world.data.changes.get(id);

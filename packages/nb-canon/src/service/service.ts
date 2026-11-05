@@ -28,7 +28,7 @@ import {marksIn} from "../world/references";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
-import {boundRank, chapterWithin, placementWithin, positionWithin, tellingWithin, ViewAudit, type ViewedReads, type ViewGrant} from "./views";
+import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ViewedReads, type ViewGrant} from "./views";
 import {createReadView, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
@@ -523,7 +523,8 @@ export class WorldService {
             presence: (person, filter = {}, cursor, limit = 50) => {
                 const found = chapters("presence", filter.from, filter.to);
                 if (found === "view-denied") return found;
-                const listed = listPresence(world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})});
+                // 按计划模式计入的计划按上限算（上限是章首时，这一章里已写的兑现还没发生）。
+                const listed = listPresence(world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})}, found.until);
                 if (listed === "chapter-not-found") return listed;
                 const stamp = this.#stampOf(world);
                 const page = this.#page(stamp, listed.changes.filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "presence", view: token, person, ...filter});
@@ -534,13 +535,15 @@ export class WorldService {
                 const found = chapters("changes", filter.chapter);
                 if (found === "view-denied") return found;
                 const stamp = this.#stampOf(world);
-                const page = this.#page(stamp, listChanges(world, filter).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...filter});
+                // 计划的进展按上限算，不按全书：上限之后才兑现的计划在视图里是未兑现。
+                const page = this.#page(stamp, listChanges(world, filter, found.until).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...filter});
                 if (page === "cursor-stale") return page;
                 return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
             },
             tellings: (filter = {}, cursor, limit = 50) => {
                 const found = chapters("tellings", filter.from, filter.to, filter.until?.chapter);
                 if (found === "view-denied") return found;
+                if (filter.until !== undefined && !tellingPositionWithin(order(), found, filter.until)) return this.#deny(found, "tellings", filter.until);
                 const stamp = this.#stampOf(world);
                 const page = this.#page(stamp, listTellings(world, this.#locator, filter).filter((item) => tellingWithin(order(), found, item)), cursor, limit, {method: "tellings", view: token, ...filter});
                 if (page === "cursor-stale") return page;

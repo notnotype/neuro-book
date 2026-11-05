@@ -56,3 +56,27 @@ describe("CanonReadView：插件比较先后、找引用位置要用的几项", 
         expect(view.line).toBe("main");
     });
 });
+
+describe("CanonReadView：插件拿到的东西改不了（canon.model 输出 36）", () => {
+    test("存下来的条目与变更、引擎读出的条目与来历都冻结：改它们抛错，世界与之后的读取不变", () => {
+        const {view, xia, w2} = build();
+        const end = {kind: "chapter", chapter: "ch6", edge: "end"} as const;
+        const stored = view.entries().find((entry) => entry.id === xia)! as {init: {name: string}};
+        expect(() => {
+            stored.init.name = "改了";
+        }).toThrow(TypeError);
+        const written = view.object({kind: "change", id: w2}) as {patches: unknown[]};
+        expect(() => written.patches.push({})).toThrow(TypeError);
+        const read = view.entry(xia, end, "actual");
+        if (read === null || read === "chapter-not-found") throw new Error("no entry");
+        expect(() => {
+            (read.namespaces.panel!.fields.存款 as {value: unknown}).value = 1;
+        }).toThrow(TypeError);
+        const steps = view.origins({entry: xia, path: "panel.存款"}, end, "actual");
+        if (steps === "chapter-not-found") throw new Error(steps);
+        expect(() => (steps as unknown[]).pop()).toThrow(TypeError);
+
+        expect(view.entries().find((entry) => entry.id === xia)!.init.name).toBe("星瑕");
+        expect(view.entry(xia, end, "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 90}}}}});
+    });
+});

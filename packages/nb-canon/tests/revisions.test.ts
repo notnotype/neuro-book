@@ -141,6 +141,37 @@ describe("canon.revisions 输出 3、17：写入时校验", () => {
         expect(write(add("e1", -7, {basis: {kind: "estimate", note: "估"}})).ok).toBe(true);
     });
 
+    test("初值的依据写成“由核对点推出”：核对点要在、在同一个地址上；原样留着的旧依据不再查", () => {
+        const world = start();
+        const withBasis = (check: string) => {
+            const next = structuredClone(world.data.entries.get("e1")!);
+            next.initBasis = {"panel.存款": {kind: "derived", check}};
+            return next;
+        };
+        const check = {id: "tmp:k", at: {entry: "e1", path: "panel.存款"}, value: 40000, told: {source: "chapter" as const, chapter: "ch1", quote: "余额显示四万"}, place: {kind: "chapter" as const, chapter: "ch1", key: 20}};
+        fails(world.publish(request([{ref: {kind: "entry", id: "e1"}, after: withBasis("k404")}], {baseVersion: 1}), "t"), "basis-mismatch");
+        fails(world.publish(request([{ref: {kind: "check", id: "tmp:k"}, after: {...check, at: {entry: "e2", path: "panel.存款"}}}, {ref: {kind: "entry", id: "e1"}, after: withBasis("tmp:k")}], {baseVersion: 1}), "t"), "basis-mismatch");
+        const based = ok(world.publish(request([{ref: {kind: "check", id: "tmp:k"}, after: check}, {ref: {kind: "entry", id: "e1"}, after: withBasis("tmp:k")}], {baseVersion: 1}), "t"));
+        // 核对点删了以后，只改这个条目的名字照常通过。
+        const removed = ok(based.world.publish(request([{ref: {kind: "check", id: based.ids["tmp:k"]!}, after: null}], {baseVersion: 2}), "t")).world;
+        const renamed = structuredClone(removed.data.entries.get("e1")!);
+        renamed.init.name = "星瑕（改名）";
+        expect(removed.publish(request([{ref: {kind: "entry", id: "e1"}, after: renamed}], {baseVersion: 3}), "t").ok).toBe(true);
+    });
+
+    test("马甲（sameAs）指向已删除的条目被拒；本体之后被删，已有的马甲照常能改别的字段", () => {
+        const world = start();
+        const deleted = ok(world.publish(request([{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(world.data.entries.get("e2")!), deleted: true}}], {baseVersion: 1}), "t")).world;
+        fails(deleted.publish(request([{ref: {kind: "entry", id: "tmp:mask"}, after: entry("tmp:mask", "夜行人", {}, {sameAs: "e2"})}], {baseVersion: 2}), "t"), "invalid-tree");
+
+        const masked = ok(world.publish(request([{ref: {kind: "entry", id: "tmp:mask"}, after: entry("tmp:mask", "夜行人", {}, {sameAs: "e2"})}], {baseVersion: 1}), "t"));
+        const mask = masked.ids["tmp:mask"]!;
+        const gone = ok(masked.world.publish(request([{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(masked.world.data.entries.get("e2")!), deleted: true}}], {baseVersion: 2}), "t")).world;
+        const renamed = structuredClone(gone.data.entries.get(mask)!);
+        renamed.init.name = "夜行人（改名）";
+        expect(gone.publish(request([{ref: {kind: "entry", id: mask}, after: renamed}], {baseVersion: 3}), "t").ok).toBe(true);
+    });
+
     test("命名空间在安放上没启用时，剧情变更对它的数据字段打补丁被拒（component-disabled）", () => {
         const world = start();
         const next = structuredClone(world.data.entries.get("e1")!);
@@ -310,6 +341,28 @@ describe("canon.revisions 输出 6、12 与 canon.components 输出 10：带来�
         const newId = created.ids["tmp:new"]!;
         const later = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch1", [], {text: newId})}], {baseVersion: 2}), "t"));
         expect(later.world.dependents(created.revision.id)).toEqual([created.revision.id]);
+    });
+
+    test("改已有的变更给列表加了一个元素：之后改这个元素子字段的修订依赖它（输出 12“改过它新建的列表元素”）", () => {
+        const base = ok(start().publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [])}], {baseVersion: 1}), "t"));
+        const id = base.ids["tmp:c"]!;
+        const current = base.world.data.changes.get(id)!;
+        const added = ok(base.world.publish(request([{ref: {kind: "change", id}, after: {...current, patches: [{op: "listAdd", at: {entry: "e1", path: "panel.物品"}, value: {id: "药", label: "药", 数量: 1}}]}}], {baseVersion: 2}), "t"));
+        const later = ok(added.world.publish(request([{ref: {kind: "change", id: "tmp:d"}, after: change("tmp:d", "ch3", [{op: "set", at: {entry: "e1", path: "panel.物品[药].数量"}, value: 2}])}], {baseVersion: 3}), "t"));
+        expect(later.world.dependents(added.revision.id)).toEqual([added.revision.id, later.revision.id]);
+    });
+
+    test("兑现组：之后改了组里另一条记录的修订依赖它；被兑现的计划不在组里（model.md 输出 13）", () => {
+        const plan = ok(start().publish(request([{ref: {kind: "change", id: "tmp:p"}, after: change("tmp:p", "ch3", [], {kind: "plan", text: "去买药"})}], {baseVersion: 1}), "t"));
+        const p = plan.ids["tmp:p"]!;
+        const written = ok(plan.world.publish(request([{ref: {kind: "change", id: "tmp:w"}, after: change("tmp:w", "ch3", [], {links: [{kind: "fulfills", plan: p}]})}], {baseVersion: 2}), "t"));
+        const w = written.ids["tmp:w"]!;
+        const split = ok(written.world.publish(request([{ref: {kind: "change", id: "tmp:s"}, after: change("tmp:s", "ch3", [], {kind: "plan", text: "药没买全，下次再去", links: [{kind: "splitFrom", plan: p, by: w}]})}], {baseVersion: 3}), "t"));
+        const editW = ok(split.world.publish(request([{ref: {kind: "change", id: w}, after: {...split.world.data.changes.get(w)!, text: "只买到一半"}}], {baseVersion: 4}), "t"));
+        const editP = ok(editW.world.publish(request([{ref: {kind: "change", id: p}, after: {...editW.world.data.changes.get(p)!, text: "去买两种药"}}], {baseVersion: 5}), "t"));
+        expect(editP.world.dependents(split.revision.id)).toEqual([split.revision.id, editW.revision.id]);
+        // 还原兑现变更：拆出的计划（引用了它）与改它的修订一起还原；改被兑现的计划不受影响，不算依赖。
+        expect(editP.world.dependents(written.revision.id)).toEqual([written.revision.id, split.revision.id, editW.revision.id]);
     });
 
     test("对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）", () => {

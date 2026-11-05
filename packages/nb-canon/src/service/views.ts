@@ -87,6 +87,19 @@ export function tellingWithin(order: ChapterOrder, grant: ViewGrant, item: Telli
     return bound !== null && item.located.kind === "found" && readBy(order, item.located.occurrence, bound);
 }
 
+/**
+ * 讲述位置（`tellings` 的 `until`）不晚于上限：早于上限所在的章，或在同一章而上限是章末、或两者都是章首。上限是初值时，
+ * 任何讲述位置都晚于它。
+ */
+export function tellingPositionWithin(order: ChapterOrder, grant: ViewGrant, position: TellingPosition): boolean {
+    if (grant.until.kind === "initial") return false;
+    const bound = order.index(grant.until.chapter);
+    const index = order.index(position.chapter);
+    if (bound === undefined || index === undefined) return false;
+    if (index !== bound) return index < bound;
+    return grant.until.edge === "end" || ("edge" in position && position.edge === "start");
+}
+
 /** 章的范围（`presence` 的 `to`、`tellings` 的 `to`）晚于上限所在的章：拒。上限是初值时，任何章都晚于它。 */
 export function chapterWithin(order: ChapterOrder, grant: ViewGrant, chapter: string): boolean {
     if (grant.until.kind === "initial") return false;

@@ -14,6 +14,7 @@ import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../compone
 import {namespaceFields} from "../model/apply";
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
+import {deepFreeze} from "../core/freeze";
 import {RESERVED_ROOTS} from "../core/identifiers";
 import {idListsOf} from "../core/id-lists";
 import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
@@ -281,8 +282,9 @@ export class World {
         const root = this.revisions[start]!;
         if (root.ops.some((op) => op.kind === "chapters")) return "not-revertable";
         const set = [root];
+        const groups = fulfillmentGroups(this.data);
         for (const later of this.revisions.slice(start + 1)) {
-            if (set.some((earlier) => dependsOn(later, earlier))) {
+            if (set.some((earlier) => dependsOn(later, earlier, groups))) {
                 if (later.ops.some((op) => op.kind === "chapters")) continue;
                 set.push(later);
             }
@@ -671,17 +673,51 @@ function readPath(value: unknown, path: string): unknown {
  * 同一个没有 id 的数组追加时不算）；改了 `earlier` 新建的对象；引用了 `earlier` 新建的对象 id；补丁指到 `earlier` 的
  * 补丁加进列表的元素。
  */
-function dependsOn(later: Revision, earlier: Revision): boolean {
+/**
+ * 兑现组（model.md 输出 13）：`splitFrom` 指向某个计划、`by` 是某条兑现变更的拆出计划，与那条兑现变更是一组。按剧情变更 id
+ * 给出它所在组的键（那条兑现变更的 id）；不在任何组里的不列。
+ */
+function fulfillmentGroups(data: WorldData): ReadonlyMap<string, string> {
+    const groups = new Map<string, string>();
+    for (const change of data.changes.values()) {
+        for (const link of change.links) {
+            if (link.kind !== "splitFrom") continue;
+            groups.set(change.id, link.by);
+            groups.set(link.by, link.by);
+        }
+    }
+    return groups;
+}
+
+/** 一次操作里新加的列表元素（`listAdd` 补丁），写成“条目、路径[元素 id]”：新建的变更取它的全部，修改取补丁列表里新多出来的。 */
+function addedElements(op: Exclude<Op, {kind: "chapters"}>): string[] {
+    if (op.ref.kind !== "change" || op.kind === "delete") return [];
+    const elementsOf = (patches: unknown) => (Array.isArray(patches) ? (patches as Patch[]) : []).flatMap((patch) =>
+        patch !== null && typeof patch === "object" && patch.op === "listAdd" ? [`${patch.at.entry}\u0000${patch.at.path}[${String((patch.value as {id?: unknown}).id)}]`] : []);
+    if (op.kind === "create") return elementsOf((op.after as StoryChange).patches);
+    // 补丁列表是一个没有 id 的数组，整体一个叶子（revisions.md“存下来的修订”的路径写法）。
+    const field = op.fields.find((item) => item.path === "patches");
+    if (field === undefined) return [];
+    const before = new Set(elementsOf(field.before));
+    return elementsOf(field.after).filter((element) => !before.has(element));
+}
+
+function dependsOn(later: Revision, earlier: Revision, groups: ReadonlyMap<string, string>): boolean {
     const created = new Set<string>();
     const elements: string[] = [];
     const paths = new Map<string, FieldChange[]>();
+    // 被还原的修订写过的剧情变更所在的兑现组，与它写过的是哪几条（同一条变更按地址判，不按组）。
+    const earlierGroups = new Set<string>();
+    const earlierChanges = new Set<string>();
     for (const op of earlier.ops) {
         if (op.kind === "chapters") continue;
         if (op.kind === "create") created.add(refKey(op.ref));
         if (op.kind === "modify") paths.set(refKey(op.ref), [...op.fields]);
-        const value = op.kind === "create" ? op.after : op.kind === "modify" ? undefined : undefined;
-        for (const patch of ((value as StoryChange | undefined)?.patches ?? [])) {
-            if (patch.op === "listAdd") elements.push(`${patch.at.entry}\u0000${patch.at.path}[${String((patch.value as {id?: unknown}).id)}]`);
+        elements.push(...addedElements(op));
+        if (op.ref.kind === "change") {
+            earlierChanges.add(op.ref.id);
+            const group = groups.get(op.ref.id);
+            if (group !== undefined) earlierGroups.add(group);
         }
     }
     const createdIds = new Set([...created].map((key) => key.slice(key.indexOf(":") + 1)));
@@ -690,6 +726,7 @@ function dependsOn(later: Revision, earlier: Revision): boolean {
         if (op.kind === "chapters") continue;
         const key = refKey(op.ref);
         if (created.has(key)) return true;
+        if (op.ref.kind === "change" && !earlierChanges.has(op.ref.id) && earlierGroups.has(groups.get(op.ref.id) ?? "")) return true;
         const earlierFields = paths.get(key);
         if (earlierFields !== undefined && op.kind === "modify") {
             for (const field of op.fields) {
@@ -784,11 +821,12 @@ function freeze(tables: Tables, createdAt: Map<string, number>, version: number)
 
 function applyOp(tables: Tables, op: Exclude<Op, {kind: "chapters"}>, createdAt: Map<string, number>, version: number): void {
     const table = tables[TABLE[op.ref.kind]] as Map<string, unknown>;
+    // 存进表的对象深冻结（core/freeze.ts）：读取视图把它们原样交给插件。
     if (op.kind === "create") {
-        table.set(op.ref.id, structuredClone(op.after));
+        table.set(op.ref.id, deepFreeze(structuredClone(op.after)));
         if (!createdAt.has(op.ref.id)) createdAt.set(op.ref.id, version);
     } else if (op.kind === "delete") table.delete(op.ref.id);
-    else table.set(op.ref.id, applyChanges(table.get(op.ref.id), op.fields, "after"));
+    else table.set(op.ref.id, deepFreeze(applyChanges(table.get(op.ref.id), op.fields, "after")));
 }
 
 /** 这次修订新写或改过的引用（revisions.md 的“存下来的修订”里的 `refs`），连同它所在的对象。 */
@@ -969,9 +1007,11 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
                 parent = node.parent;
             }
         }
-        if (entry.sameAs !== undefined) {
+        // 只查新写或改过的 `sameAs`：本体之后被删了，已有的马甲照常能改别的字段（components.md 输出 18“原样留着的不查”）。
+        const oldSameAs = (world.object(ref) as Entry | undefined)?.sameAs;
+        if (entry.sameAs !== undefined && entry.sameAs !== oldSameAs) {
             const target = data.entries.get(entry.sameAs);
-            if (target === undefined || entry.sameAs === id || target.sameAs !== undefined) problems.push({code: "invalid-tree", ref, path: "sameAs", message: "sameAs must point to another existing entry that has no sameAs"});
+            if (target === undefined || target.deleted === true || entry.sameAs === id || target.sameAs !== undefined) problems.push({code: "invalid-tree", ref, path: "sameAs", message: "sameAs must point to another existing, live entry that has no sameAs"});
         }
         for (const [namespace, nsData] of Object.entries(entry.init.data)) {
             const type = registry.byNamespace(namespace);
@@ -999,6 +1039,14 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
                     problems.push({code: "number-without-basis", ref, path: `initBasis["${namespace}.${field.id}"]`, message: "every number needs a basis (quote, derived, author, or estimate)"});
                 }
             }
+        }
+        // 初值的依据写成“由核对点推出”时，核对点要在、在同一个地址上（与补丁的依据同一条，见 checkBasis）。只查新写或改过的依据：
+        // 原样留着的旧依据即使核对点后来没了，也不挡这个条目别的修改。
+        const oldBasis = (world.object(ref) as Entry | undefined)?.initBasis ?? {};
+        for (const [address, basis] of Object.entries(entry.initBasis ?? {})) {
+            if (basis.kind !== "derived" || sameJson(oldBasis[address], basis)) continue;
+            const check = data.checks.get(basis.check);
+            if (check === undefined || check.at.entry !== id || check.at.path !== address) problems.push({code: "basis-mismatch", ref, path: `initBasis["${address}"]`, message: "derived basis must name a check on the same address"});
         }
         const oldBlocks = new Map(((world.object(ref) as Entry | undefined)?.init.text ?? []).map((block) => [block.id, block.source]));
         for (const block of entry.init.text) {

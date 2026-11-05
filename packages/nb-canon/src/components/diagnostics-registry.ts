@@ -88,11 +88,12 @@ export function stableKeyProblem(key: unknown, declared?: readonly DiagnosticKey
     const record = key as Record<string, unknown>;
     for (const [part, value] of Object.entries(record)) {
         if (!KEY_PARTS.includes(part as DiagnosticKeyPart)) return `"${part}" is not a key part`;
+        // 对象引用与范围的键恰好是这几个：多出来的字段会进规范 JSON，让同一件事的键随合同之外的数据变（作者处理过的就对不上了）。
         if (part === "objects") {
-            if (!Array.isArray(value) || value.some((item) => item === null || typeof item !== "object" || !OBJECT_KINDS.has((item as {kind?: unknown}).kind as string) || typeof (item as {id?: unknown}).id !== "string")) return "objects must be a list of {kind, id}";
+            if (!Array.isArray(value) || value.some((item) => !exactShape(item, ["id", "kind"]) || !OBJECT_KINDS.has((item as {kind?: unknown}).kind as string) || typeof (item as {id?: unknown}).id !== "string")) return "objects must be a list of {kind, id}";
         } else if (part === "range") {
             const range = value as {from?: unknown; to?: unknown} | null;
-            if (range === null || typeof range !== "object" || typeof range.from !== "string" || typeof range.to !== "string") return "range must be {from, to}";
+            if (!exactShape(range, ["from", "to"]) || typeof range!.from !== "string" || typeof range!.to !== "string") return "range must be {from, to}";
         } else if (typeof value !== "string") return `${part} must be text`;
     }
     if (declared === undefined) return null;
@@ -100,4 +101,11 @@ export function stableKeyProblem(key: unknown, declared?: readonly DiagnosticKey
     const wanted = [...declared].sort();
     if (parts.length !== wanted.length || parts.some((part, index) => part !== wanted[index])) return `key parts must be exactly ${wanted.join(", ")}`;
     return null;
+}
+
+/** 一个普通对象，键恰好是 `keys`（已排序）。 */
+function exactShape(value: unknown, keys: readonly string[]): boolean {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    const own = Object.keys(value).sort();
+    return own.length === keys.length && own.every((key, index) => key === keys[index]);
 }

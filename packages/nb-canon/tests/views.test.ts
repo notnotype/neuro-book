@@ -83,6 +83,34 @@ describe("canon.project 输出 24：带令牌的读取", () => {
         expect(all !== "cursor-stale" && all.items.length).toBe(2);
     });
 
+    test("上限是章首：同一章里晚于它的讲述位置拒；计划的进展与按计划模式的在场按上限算，不漏上限之后的兑现", async () => {
+        const {service, xia} = await setup();
+        const ids = await write(service, [
+            {ref: {kind: "change", id: "tmp:p"}, after: {id: "tmp:p", kind: "plan", text: "去取钱", at: {kind: "chapter", chapter: "ch10", key: 5}, told: [], involves: [xia], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}, cast: [{who: xia, role: "present"}]}},
+            {ref: {kind: "change", id: "tmp:w"}, after: {id: "tmp:w", kind: "written", text: "取了钱", at: {kind: "chapter", chapter: "ch11", key: 1}, told: [], involves: [xia], lines: [], links: [{kind: "fulfills", plan: "tmp:p"}], patches: [], status: "active", by: {kind: "author"}}},
+        ]);
+        const plan = ids["tmp:p"]!;
+        const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch11", edge: "start"}, purpose: "writer"});
+        if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+        const view = service.viewed(opened.token);
+
+        expect(view.tellings({until: {chapter: "ch11", paragraph: 1}})).toBe("view-denied");
+        expect(view.tellings({until: {chapter: "ch11", edge: "end"}})).toBe("view-denied");
+        expect(view.tellings({until: {chapter: "ch11", edge: "start"}})).not.toBe("view-denied");
+        const audit = service.viewAudit();
+        expect(audit !== "cursor-stale" && audit.items.map((item) => item.method)).toEqual(["tellings", "tellings"]);
+
+        const plans = (progress: "fulfilled" | "unfulfilled") => {
+            const page = view.changes({kind: "plan", progress});
+            return page === "view-denied" || page === "cursor-stale" ? page : page.items.map((item) => item.change.id);
+        };
+        expect([plans("fulfilled"), plans("unfulfilled")]).toEqual([[], [plan]]);
+        const whole = service.changes({kind: "plan", progress: "fulfilled"});
+        expect(whole !== "cursor-stale" && whole.items.map((item) => item.change.id)).toEqual([plan]);
+        const planned = view.presence(xia, {mode: "planned"});
+        expect(planned !== "view-denied" && typeof planned !== "string" && planned.items.map((item) => item.change.id)).toContain(plan);
+    });
+
     test("上限不在章序里、别的线：打不开", async () => {
         const {service} = await setup();
         expect(service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch99", edge: "end"}, purpose: "writer"})).toBe("chapter-not-found");
