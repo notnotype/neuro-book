@@ -1,12 +1,11 @@
-import {createHash} from "node:crypto";
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
 import {buildRegistry, type StoryChange, type TellingDraft, type WriteRequest} from "../src/index";
-import {nodeFiles, WorldService, type ServicePorts} from "../src/node/index";
-import {memoryLock} from "./fixtures/faulty-files";
+import type {WorldService} from "../src/node/index";
+import {openTestService} from "./fixtures/service";
 import {PERSON} from "./fixtures/world";
 
 let root = "";
@@ -20,23 +19,9 @@ afterEach(async () => {
     await removeMarkedTmpRoot(root, join(root, TMP_MARKER_FILE));
 });
 
-const lock = memoryLock();
-
 /** 宿主的正文：测试直接改这张表，再像宿主一样调 `textChanged`。 */
 async function open(texts: Map<string, string>): Promise<WorldService> {
-    const ports: ServicePorts = {
-        files: nodeFiles,
-        lock,
-        logDir: join(root, ".nbook", "world", "log"),
-        sideDir: join(root, ".nbook", "world"),
-        cachePath: join(root, ".nbook", "cache", "reductions.jsonl"),
-        chapterText: (chapter) => texts.get(chapter),
-        digest: (text) => createHash("sha256").update(text).digest("hex"),
-        clock: () => 0,
-        now: () => new Date(0).toISOString(),
-    };
-    const service = await WorldService.open(ports, {chapters: ["ch1", "ch2", "ch3"], registry: buildRegistry([PERSON])});
-    if ("code" in service) throw new Error(service.code);
+    const service = await openTestService(root, {texts, chapters: ["ch1", "ch2", "ch3"], registry: buildRegistry([PERSON])});
     services.push(service);
     return service;
 }

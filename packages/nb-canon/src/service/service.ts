@@ -15,9 +15,9 @@ import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/
 import type {ComponentRegistry} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
-import type {Decision, ObjectRef, ReadPosition, Revision, Telling, WriteRequest} from "../core/schema";
+import type {Decision, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
-import type {Mode, PendingItem, ReductionInput} from "../engine/types";
+import type {Mode, PendingItem, PlanProgress, ReductionInput} from "../engine/types";
 import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
 import {appendReduction, loadReductions} from "../node/cache";
@@ -95,6 +95,21 @@ export type ServiceDiagnostic =
     | {readonly code: "reduce-failed"; readonly message: string};
 
 export const LEASE_MS = 60_000;
+
+/** 剧情变更涉及这个条目：在 `involves` 里、是参与者（本体或马甲）、或补丁改到它（列表按条目筛时用）。 */
+function concerns(change: StoryChange, entry: string): boolean {
+    return change.involves.includes(entry) || (change.cast ?? []).some((member) => member.who === entry || member.as === entry) || change.patches.some((patch) => patch.at.entry === entry);
+}
+
+/** 按安放的先后排（前史、各章按章序与排序键），同一位置按 id；未排章的排在最后。 */
+function sortByPlacement(order: ChapterOrder, changes: StoryChange[]): void {
+    changes.sort((a, b) => {
+        const left = placementRank(order, a.at);
+        const right = placementRank(order, b.at);
+        if (left === null || right === null) return left === right ? compareIds(a.id, b.id) : left === null ? 1 : -1;
+        return compareRanks(left, right) || compareIds(a.id, b.id);
+    });
+}
 
 /** 一条讲述的提示（model.md 输出 24、26、28、34）：失联、原句出现几次而没给 `nth`、带的标注只读（`mark` 是它在 `marks` 里的下标）。 */
 export interface TellingHint {
@@ -299,22 +314,24 @@ export class WorldService {
     }
 
     /** 剧情变更的列表，按全序；每条带生效状态与这次套没套上（输出：`changes`）。 */
-    changes(filter: {readonly chapter?: string; readonly entry?: string; readonly line?: string; readonly kind?: "written" | "plan"; readonly status?: "active" | "held" | "undone"} = {}, cursor?: string, limit = 50) {
+    /**
+     * 剧情变更（方法表 `changes`）：`entry` 筛涉及它的（`involves`、参与者、补丁地址）；`nature` 筛性质（没写的是 `event`）；
+     * `progress` 筛计划在全书当前进展上的进展（model.md 输出 13，只有计划有进展）。按安放的先后排。
+     */
+    changes(filter: {readonly chapter?: string; readonly entry?: string; readonly line?: string; readonly kind?: "written" | "plan"; readonly status?: "active" | "held" | "undone"; readonly nature?: "event" | "narration"; readonly progress?: PlanProgress} = {}, cursor?: string, limit = 50) {
         const world = this.#world;
         const order = world.options.order;
+        const latest = defaultPosition(order);
         const matching = [...world.data.changes.values()].filter((change) =>
             (filter.chapter === undefined || (change.at.kind === "chapter" && change.at.chapter === filter.chapter)) &&
-            (filter.entry === undefined || change.involves.includes(filter.entry) || change.patches.some((patch) => patch.at.entry === filter.entry)) &&
+            (filter.entry === undefined || concerns(change, filter.entry)) &&
             (filter.line === undefined || change.lines.includes(filter.line)) &&
             (filter.kind === undefined || change.kind === filter.kind) &&
-            (filter.status === undefined || change.status === filter.status),
+            (filter.status === undefined || change.status === filter.status) &&
+            (filter.nature === undefined || (change.nature ?? "event") === filter.nature) &&
+            (filter.progress === undefined || (change.kind === "plan" && world.engine.progress(change.id, latest) === filter.progress)),
         );
-        matching.sort((a, b) => {
-            const left = placementRank(order, a.at);
-            const right = placementRank(order, b.at);
-            if (left === null || right === null) return left === right ? compareIds(a.id, b.id) : left === null ? 1 : -1;
-            return compareRanks(left, right) || compareIds(a.id, b.id);
-        });
+        sortByPlacement(order, matching);
         const stamp = this.#stamp();
         const page = this.#page(stamp, matching, cursor, limit);
         if (page === "cursor-stale") return page;
@@ -348,7 +365,7 @@ export class WorldService {
                 items.push({telling, owner, path, located});
             }
         };
-        for (const change of world.data.changes.values()) collect({kind: "change", id: change.id}, "told", change.told, filter.entry === undefined || change.involves.includes(filter.entry) || change.patches.some((patch) => patch.at.entry === filter.entry));
+        for (const change of world.data.changes.values()) collect({kind: "change", id: change.id}, "told", change.told, filter.entry === undefined || concerns(change, filter.entry));
         for (const check of world.data.checks.values()) collect({kind: "check", id: check.id}, "told", [check.told], filter.entry === undefined || check.at.entry === filter.entry);
         for (const entry of world.data.entries.values()) for (const [address, tellings] of Object.entries(entry.retold ?? {})) collect({kind: "entry", id: entry.id}, `retold[${JSON.stringify(address)}]`, tellings, filter.entry === undefined || entry.id === filter.entry);
         items.sort((a, b) => {
@@ -369,6 +386,45 @@ export class WorldService {
             }),
             ...(page.next === undefined ? {} : {cursor: page.next}),
         };
+    }
+
+    /**
+     * 某人在场的剧情变更（方法表 `presence`，model.md 输出 29）：`from`、`to` 是安放所在章的范围（含两头；不写 `from` 时含前史）。
+     * 实际模式取已写、生效、套上的变更；按计划模式再加上在 `to` 的章末（没写时在缺省读取位置）计入的计划。参与者里
+     * `who` 或 `as` 是他、`role` 为 `present` 的算在场；没记参与者的变更不算，只计数（`uncast`）。
+     */
+    presence(person: string, filter: {readonly from?: string; readonly to?: string; readonly mode?: Mode} = {}, cursor?: string, limit = 50) {
+        const world = this.#world;
+        const order = world.options.order;
+        const from = filter.from === undefined ? undefined : order.index(filter.from);
+        const to = filter.to === undefined ? undefined : order.index(filter.to);
+        if ((filter.from !== undefined && from === undefined) || (filter.to !== undefined && to === undefined)) return "chapter-not-found" as const;
+        const inRange = (change: StoryChange) => {
+            const rank = placementRank(order, change.at);
+            if (rank === null) return false;
+            if (from !== undefined && (rank[0] !== 1 || rank[1] < from)) return false;
+            return to === undefined || rank[0] !== 1 || rank[1] <= to;
+        };
+        const counted: StoryChange[] = [];
+        for (const change of world.data.changes.values()) {
+            if (change.kind !== "written" || change.status !== "active" || !inRange(change)) continue;
+            if (change.patches.length === 0 || world.engine.outcome(change.id)?.applied === true) counted.push(change);
+        }
+        if (filter.mode === "planned") {
+            const planned = world.engine.plannedAt(filter.to === undefined ? defaultPosition(order) : {kind: "chapter", chapter: filter.to, edge: "end"});
+            if (planned === "chapter-not-found") return planned;
+            for (const id of planned) {
+                const plan = world.data.changes.get(id);
+                if (plan !== undefined && inRange(plan)) counted.push(plan);
+            }
+        }
+        const present = counted.filter((change) => (change.cast ?? []).some((member) => member.role === "present" && (member.who === person || member.as === person)));
+        const uncast = counted.filter((change) => change.cast === undefined).length;
+        sortByPlacement(order, present);
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, present, cursor, limit);
+        if (page === "cursor-stale") return page;
+        return {...stamp, items: page.items.map((change) => ({change})), uncast, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 决策，按 id；状态筛选、游标分页（project.md 方法表的 `decisions`）。 */

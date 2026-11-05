@@ -209,9 +209,8 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         return "unfulfilled";
     }
 
-    /** 读取位置上的快照：实际模式就是 actual；按计划模式取（或建）计入计划集合对应的覆盖层。 */
-    function snapshotFor(mode: Mode, rank: Rank): Snapshot {
-        if (mode === "actual") return actual;
+    /** 按计划模式在这个位置计入的计划（model.md 输出 5），按先后排。 */
+    function includedPlans(rank: Rank): Array<Extract<Ev, {kind: "change"}>> {
         const included: Array<Extract<Ev, {kind: "change"}>> = [];
         for (const plan of world.changes.values()) {
             if (plan.kind !== "plan" || plan.status !== "active") continue;
@@ -225,6 +224,13 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             }
             included.push({kind: "change", rank: planRankValue, tie: tieOf(plan.id), change: plan, entries: patchEntries(plan)});
         }
+        return included.sort(compareEvents);
+    }
+
+    /** 读取位置上的快照：实际模式就是 actual；按计划模式取（或建）计入计划集合对应的覆盖层。 */
+    function snapshotFor(mode: Mode, rank: Rank): Snapshot {
+        if (mode === "actual") return actual;
+        const included = includedPlans(rank);
         if (included.length === 0) return actual;
         const key = included.map((event) => event.change.id).sort().join(",");
         const cached = overlays.get(key);
@@ -345,6 +351,8 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                 if (from === null || compareEvents(point, from) < 0) from = point;
             };
             const nextTie = (id: string): OrderTie => ({version: next.world.createdAt.get(id) ?? 0, id});
+            // 没有补丁的变更不弄脏条目，但它的结果要记下或删掉（总是套上；不生效了就没有结果），所以也要走一遍重算。
+            let outcomesOnly = false;
             for (const id of changed.entries ?? []) {
                 dirty.add(id);
                 earlier({rank: [-Infinity, 0, 0], tie: {version: 0, id: ""}, inclusive: false});
@@ -355,6 +363,7 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                     const rank = placementRank(order, source.at);
                     if (rank === null) continue;
                     for (const entry of patchEntries(source)) dirty.add(entry);
+                    if (source.patches.length === 0) outcomesOnly = true;
                     earlier({rank, tie, inclusive: false});
                 }
             }
@@ -368,7 +377,7 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                     earlier({rank, tie, inclusive: false});
                 }
             }
-            if (dirty.size === 0) return engineFrom(next, {...actual, events: nextEvents}, 0, {results: checkCache, checks: world.checks, dirtiedAt: new Map()});
+            if (dirty.size === 0 && !outcomesOnly) return engineFrom(next, {...actual, events: nextEvents}, 0, {results: checkCache, checks: world.checks, dirtiedAt: new Map()});
             const result = recompute(next, actual, nextEvents, from, dirty);
             return engineFrom(next, result.snapshot, result.recomputed, {results: checkCache, checks: world.checks, dirtiedAt: result.dirtiedAt});
         },
@@ -461,6 +470,12 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             return plan === undefined || plan.kind !== "plan" ? "unfulfilled" : progressAt(plan, rank);
         },
 
+        plannedAt(position) {
+            const rank = resolve(position);
+            if (rank === "chapter-not-found") return rank;
+            return includedPlans(rank).map((event) => event.change.id);
+        },
+
         pending(position) {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
@@ -520,6 +535,7 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             for (const change of world.changes.values()) {
                 if (change.kind !== "written" || change.status !== "active" || change.at.kind !== "chapter" || change.at.chapter !== chapterId) continue;
                 for (const id of change.involves) ids.add(id);
+                for (const member of change.cast ?? []) for (const id of [member.who, member.as]) if (id !== undefined) ids.add(id);
                 for (const patch of change.patches) ids.add(patch.at.entry);
             }
             const index = order.index(chapterId);
@@ -664,7 +680,9 @@ function recompute(inputs: EngineInputs, base: Snapshot | null, events: readonly
     const forced = new Set(dirtyStart);
     for (const event of events) {
         if (from !== null && compareEvents(event, from) < 0) continue;
-        if (base !== null && !event.entries.some((id) => dirty.has(id) || forced.has(id))) continue;
+        // 没有补丁的变更不碰任何条目，但它的结果（总是套上）要记下：计划进展与在场都按结果判断（model.md 输出 13、29）。
+        const touchesNothing = event.kind === "change" && event.entries.length === 0;
+        if (base !== null && !touchesNothing && !event.entries.some((id) => dirty.has(id) || forced.has(id))) continue;
         recomputed += 1;
         if (event.kind === "anchor") {
             const id = event.entries[0]!;

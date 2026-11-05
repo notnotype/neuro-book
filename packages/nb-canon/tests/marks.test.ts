@@ -5,9 +5,9 @@ import {afterEach, beforeEach, describe, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
 import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry, ChapterOrder, type DiagnosticDeclaration, type Entry, type MarkDeclaration, type StoryChange, type StoryChangeDraft, type TellingDraft, type WriteRequest} from "../src/index";
-import {nodeFiles, WorldService, type ServicePorts} from "../src/node/index";
+import type {WorldService} from "../src/node/index";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
-import {memoryLock} from "./fixtures/faulty-files";
+import {openTestService} from "./fixtures/service";
 import {PERSON} from "./fixtures/world";
 
 /** 仿剧情插件的“揭示”：挂在讲述上，指向一个知识点。 */
@@ -167,19 +167,7 @@ afterEach(async () => {
 });
 
 async function open(texts: Map<string, string>): Promise<WorldService> {
-    const ports: ServicePorts = {
-        files: nodeFiles,
-        lock: memoryLock(),
-        logDir: join(root, ".nbook", "world", "log"),
-        sideDir: join(root, ".nbook", "world"),
-        cachePath: join(root, ".nbook", "cache", "reductions.jsonl"),
-        chapterText: (chapter) => texts.get(chapter),
-        digest: (text) => createHash("sha256").update(text).digest("hex"),
-        clock: () => 0,
-        now: () => new Date(0).toISOString(),
-    };
-    const service = await WorldService.open(ports, {chapters: ["ch1", "ch2"], registry: buildRegistry([PERSON]), marks: buildMarkRegistry([plot(REVEAL)])});
-    if ("code" in service) throw new Error(service.code);
+    const service = await openTestService(root, {texts, chapters: ["ch1", "ch2"], registry: buildRegistry([PERSON]), marks: buildMarkRegistry([plot(REVEAL)])});
     services.push(service);
     return service;
 }

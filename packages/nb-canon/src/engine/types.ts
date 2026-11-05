@@ -116,6 +116,8 @@ export interface Engine {
     origins(address: Address, position: ReadPosition, mode: Mode): readonly OriginStep[] | "chapter-not-found";
     outcome(change: string): ChangeOutcome | undefined;
     progress(plan: string, position: ReadPosition): PlanProgress | "chapter-not-found";
+    /** 按计划模式在这个位置计入的计划 id，按先后排（model.md 输出 5；在场的按计划模式读取用它，输出 29）。 */
+    plannedAt(position: ReadPosition): readonly string[] | "chapter-not-found";
     pending(position: ReadPosition): readonly PendingItem[] | "chapter-not-found";
     /** 某一章涉及的条目（model.md 输出 20）。 */
     chapterEntries(chapter: string): readonly string[];

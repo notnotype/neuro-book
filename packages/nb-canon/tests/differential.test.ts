@@ -128,10 +128,13 @@ class Sim {
         }
         if (roll < 0.38) {
             const id = this.id("c");
-            const patches = Array.from({length: this.int(1, 2)}, () => this.patch());
+            // 一成的已写变更没有补丁（只讲到、只记参与者）：它们总是套上，照样能兑现计划。
+            const patches = this.rnd() < 0.1 ? [] : Array.from({length: this.int(1, 2)}, () => this.patch());
             const plans = this.plans();
             const links = plans.length > 0 && this.rnd() < 0.3 ? [{kind: "fulfills" as const, plan: this.pick(plans).id}] : [];
-            this.changes.set(id, {id, kind: "written", text: id, at: this.placement(), told: [], involves: [], lines: [], links, patches, status: "active", by: {kind: "author"}});
+            // 一半的变更记了参与者：本章涉及的条目要把他们算进去。
+            const cast = this.rnd() < 0.5 ? {cast: [{who: this.pick(this.entryIds()), role: "present" as const}]} : {};
+            this.changes.set(id, {id, kind: "written", text: id, at: this.placement(), told: [], involves: [], lines: [], links, patches, status: "active", by: {kind: "author"}, ...cast});
             this.createdAt.set(id, ++this.version);
             this.log.push(`记变更 ${id}`);
             return {changes: [id]};
@@ -238,6 +241,7 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
         expect(inc.outcome(change.id), `${where()} outcome ${change.id}`).toEqual(ref.outcome(change.id));
         if (change.kind === "plan") for (const position of positions) expect(inc.progress(change.id, position), `${where()} progress ${change.id}`).toEqual(ref.progress(change.id, position));
     }
+    for (const position of positions) expect(inc.plannedAt(position), `${where()} plannedAt ${JSON.stringify(position)}`).toEqual(ref.plannedAt(position));
     for (const chapter of inputs.order.ids) expect(inc.chapterEntries(chapter)).toEqual(ref.chapterEntries(chapter));
 }
 

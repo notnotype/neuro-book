@@ -146,9 +146,9 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
         return "unfulfilled";
     }
 
-    function eventsFor(mode: Mode, positionRankValue: Rank): FoldEvent[] {
-        if (mode === "actual") return actualEvents;
-        const events = [...actualEvents];
+    /** 按计划模式在这个位置计入的计划（输出 5），连同它们在先后里的位置。 */
+    function includedPlans(positionRankValue: Rank): Array<Extract<FoldEvent, {kind: "change"}>> {
+        const included: Array<Extract<FoldEvent, {kind: "change"}>> = [];
         for (const plan of world.changes.values()) {
             if (plan.kind !== "plan" || plan.status !== "active") continue;
             const rank = planRank(plan);
@@ -159,9 +159,14 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
                 const by = world.changes.get(split.by);
                 if (by === undefined || by.status !== "active" || allOutcomes().get(split.by)?.applied !== true) continue;
             }
-            events.push({kind: "change", rank, tie: tieOf(plan.id), change: plan});
+            included.push({kind: "change", rank, tie: tieOf(plan.id), change: plan});
         }
-        return events.sort(compareEvents);
+        return included.sort(compareEvents);
+    }
+
+    function eventsFor(mode: Mode, positionRankValue: Rank): FoldEvent[] {
+        if (mode === "actual") return actualEvents;
+        return [...actualEvents, ...includedPlans(positionRankValue)].sort(compareEvents);
     }
 
     function view(entry: Entry, state: FoldState, positionRankValue: Rank, checks: readonly CheckResult[]): EntryView {
@@ -314,6 +319,12 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             return plan === undefined || plan.kind !== "plan" ? "unfulfilled" : progressAt(plan, rank);
         },
 
+        plannedAt(position) {
+            const rank = resolve(position);
+            if (rank === "chapter-not-found") return rank;
+            return includedPlans(rank).map((event) => event.change.id);
+        },
+
         pending(position) {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
@@ -357,6 +368,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             for (const change of world.changes.values()) {
                 if (change.kind !== "written" || change.status !== "active" || change.at.kind !== "chapter" || change.at.chapter !== chapter) continue;
                 for (const id of change.involves) ids.add(id);
+                for (const member of change.cast ?? []) for (const id of [member.who, member.as]) if (id !== undefined) ids.add(id);
                 for (const patch of change.patches) ids.add(patch.at.entry);
             }
             for (const point of exactChecks()) {

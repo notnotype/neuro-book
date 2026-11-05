@@ -294,8 +294,11 @@ export class World {
         const createdAt = new Map(this.data.createdAt);
         const ops: Op[] = [];
         const changed: {entries: string[]; changes: string[]; checks: string[]} = {entries: [], changes: [], checks: []};
+        // 写入以后的条目：同一请求里写的优先（马甲归一要看它的 sameAs）。
+        const written = new Map(request.puts.filter((put) => put.ref.kind === "entry" && put.after !== null).map((put) => [put.ref.id, put.after as Entry]));
+        const entryOf = (id: string) => written.get(id) ?? this.data.entries.get(id);
         for (const put of request.puts) {
-            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator);
+            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator, entryOf);
             if (after !== undefined) {
                 const shapeProblems = schemaProblems(OBJECT_SCHEMAS[put.ref.kind], after);
                 if (shapeProblems !== null) {
@@ -668,9 +671,10 @@ function referenceProblems(data: WorldData, refs: ReturnType<typeof writtenRefer
 
 /**
  * 写入时补上的缺省值：新讲述的 id（model.md 输出 25）；章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
- * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）。
+ * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）；参与者的 `who`
+ * 写成马甲的，存成本体加 `as`（model.md 输出 29；同时给了 `as` 的不动，由校验报 `invalid-cast`）。
  */
-function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator): unknown {
+function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator, entryOf: (id: string) => Entry | undefined): unknown {
     const authored = request.by.kind === "author" || request.by.kind === "system";
     // 新的讲述不带 id，在这里发（model.md 输出 25）。带了 id 的照留，是不是这个对象原有的由校验查。
     for (const telling of tellingsOf(kind, after)) if ((telling as {id?: unknown}).id === undefined) (telling as {id: string}).id = allocator.next(ID_PREFIX.telling);
@@ -684,6 +688,12 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
             (change.at as {key: number}).key = index >= 0 ? index : 0;
         }
         if (authored && Array.isArray(change.patches)) for (const patch of change.patches) if (patch.basis === undefined && typeof patch.value === "number") (patch as Patch).basis = {kind: "author"};
+        if (Array.isArray(change.cast)) {
+            change.cast = change.cast.map((member) => {
+                const body = member.who === undefined ? undefined : entryOf(member.who)?.sameAs;
+                return body === undefined || member.as !== undefined ? member : {...member, who: body, as: member.who};
+            });
+        }
         if (Array.isArray(change.patches)) {
             for (const patch of change.patches) {
                 const root = /^[^.[]+/u.exec(patch.at?.path ?? "")?.[0];
@@ -852,6 +862,11 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
             }
         }
         problems.push(...tellingProblems(ref, "told", change.told, (world.object(ref) as StoryChange | undefined)?.told ?? []));
+        problems.push(...castProblems(ref, change, data));
+        if (change.nature === "narration") {
+            if (change.patches.length > 0) problems.push({code: "narration-with-patches", ref, path: "patches", message: "a narration only tells; it cannot change the world"});
+            if (change.told.length === 0) problems.push({code: "narration-without-telling", ref, path: "told", message: "a narration needs at least one telling"});
+        }
         for (const [index, patch] of change.patches.entries()) {
             const target = data.entries.get(patch.at.entry);
             if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
@@ -867,7 +882,9 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
             }
         }
         if (change.kind !== "written" || change.status !== "active") continue;
-        for (const entryId of new Set(change.patches.map((patch) => patch.at.entry))) {
+        // 补丁、涉及与参与者里的条目都要在安放上已出场（model.md 输出 14、29）。
+        const castEntries = (change.cast ?? []).flatMap((member) => [member.who, member.as]).filter((id): id is string => id !== undefined);
+        for (const entryId of new Set([...change.patches.map((patch) => patch.at.entry), ...change.involves, ...castEntries])) {
             const target = data.entries.get(entryId);
             if (target?.appears === undefined) continue;
             const appears = target.appears;
@@ -899,6 +916,29 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
         const previousCheck = world.object(ref) as Check | undefined;
         problems.push(...tellingProblems(ref, "told", [check.told], previousCheck === undefined ? [] : [previousCheck.told]));
         if (check.anchor !== undefined && !data.changes.has(check.anchor.change)) problems.push({code: "invalid-link", ref, path: "anchor", message: "anchor change does not exist"});
+    }
+    return problems;
+}
+
+/**
+ * 参与者的形状（model.md 输出 29，`invalid-cast`）：`who` 与 `label` 二者之一；`as` 只跟 `who`，且是 `who` 的马甲；
+ * `who` 不能是马甲（写入时已归一，同时给了 `as` 的才会到这里）。条目在不在、删没删由引用的统一校验查。
+ */
+function castProblems(ref: ObjectRef, change: StoryChange, data: WorldData): Problem[] {
+    const problems: Problem[] = [];
+    for (const [index, member] of (change.cast ?? []).entries()) {
+        const path = `cast[${String(index)}]`;
+        const invalid = (message: string) => problems.push({code: "invalid-cast", ref, path, message});
+        const hasLabel = member.label !== undefined && member.label !== "";
+        if ((member.who !== undefined) === hasLabel) invalid("a cast member needs exactly one of who and label");
+        if (member.who !== undefined && data.entries.get(member.who)?.sameAs !== undefined) invalid("who is an alias; write the body and put the alias in as");
+        if (member.as !== undefined) {
+            if (member.who === undefined) invalid("as needs who");
+            else {
+                const alias = data.entries.get(member.as);
+                if (alias !== undefined && alias.sameAs !== member.who) invalid("as must be an alias (sameAs) of who");
+            }
+        }
     }
     return problems;
 }

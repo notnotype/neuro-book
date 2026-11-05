@@ -59,6 +59,10 @@ export function referencesOf(kind: ObjectKind, value: unknown, context: Referenc
     if (kind === "change") {
         for (const [index, id] of ((record.involves as unknown[] | undefined) ?? []).entries()) add(`involves[${String(index)}]`, "entry", id, true);
         for (const [index, id] of ((record.lines as unknown[] | undefined) ?? []).entries()) add(`lines[${String(index)}]`, "entry", id, false);
+        for (const [index, member] of ((record.cast as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
+            add(`cast[${String(index)}].who`, "entry", member.who, true);
+            add(`cast[${String(index)}].as`, "entry", member.as, true);
+        }
         for (const [index, link] of ((record.links as Array<Record<string, unknown>> | undefined) ?? []).entries()) {
             add(`links[${String(index)}].plan`, "change", link.plan, false);
             add(`links[${String(index)}].by`, "change", link.by, false);

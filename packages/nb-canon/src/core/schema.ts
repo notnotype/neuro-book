@@ -149,6 +149,17 @@ export const LinkSchema = Type.Union([
     Type.Object({kind: Type.Literal("splitFrom"), plan: Id, by: Id}),
 ]);
 
+/**
+ * 参与者（model.md 输出 29）：`who` 与 `label` 二者之一，由写入时校验查（`invalid-cast`）；`as` 是这一场用的马甲。
+ * 没有 `cast` 表示“没记参与者”，空列表表示“记了，没有人”。
+ */
+export const CastMemberSchema = Type.Object({
+    who: Type.Optional(Id),
+    label: Type.Optional(Text),
+    role: Type.Union([Type.Literal("present"), Type.Literal("mentioned")]),
+    as: Type.Optional(Id),
+});
+
 export const StoryChangeSchema = Type.Object({
     id: Id,
     kind: Type.Union([Type.Literal("written"), Type.Literal("plan")]),
@@ -164,6 +175,9 @@ export const StoryChangeSchema = Type.Object({
     undoneReason: Type.Optional(Text),
     by: ActorSchema,
     marks: Type.Optional(Type.Array(MarkSchema)),
+    /** 性质（model.md 输出 30）：没有时是 `event`；`fork` 随世界线加。 */
+    nature: Type.Optional(Type.Union([Type.Literal("event"), Type.Literal("narration")])),
+    cast: Type.Optional(Type.Array(CastMemberSchema)),
 });
 
 export const CheckSchema = Type.Object({
@@ -294,6 +308,7 @@ export type ReadPosition = Static<typeof ReadPositionSchema>;
 export type Address = Static<typeof AddressSchema>;
 export type Actor = Static<typeof ActorSchema>;
 export type Mark = Static<typeof MarkSchema>;
+export type CastMember = Static<typeof CastMemberSchema>;
 export type Telling = Static<typeof TellingSchema>;
 /** 写入请求里的讲述：新的不带 id（model.md 输出 25）。 */
 export type TellingDraft = Omit<Telling, "id"> & {readonly id?: string};
