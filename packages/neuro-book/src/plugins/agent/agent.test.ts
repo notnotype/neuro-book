@@ -113,7 +113,7 @@ describe("贡献", () => {
     test("输出 2、5、7：建会话前激活扩展的提供方；工具声明不激活也交给模型，第一次执行才激活；Profile 解析时才激活提供方", async () => {
         const counts = {profiles: {count: 0}, tools: {count: 0}, ext: {count: 0}};
         const w = await world([profilesPlugin(counts.profiles), toolsPlugin(counts.tools), extensionsPlugin(counts.ext)]);
-        expect(w.service.profiles()).toEqual([{key: WRITER, name: "写手", description: "测试用", source: "test.profiles", status: "ok"}]);
+        expect(w.service.profiles().filter((profile) => profile.source !== "nbook.agent")).toEqual([{key: WRITER, name: "写手", description: "测试用", source: "test.profiles", status: "ok"}]);
         expect([counts.profiles.count, counts.tools.count, counts.ext.count]).toEqual([0, 0, 0]);
 
         const session = await createSession(w);

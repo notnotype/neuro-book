@@ -10,6 +10,9 @@ import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, Ses
 export type ProfileStatus = "ok" | "unavailable" | "error";
 
 /** Profile 目录的一项（contributions.md 输出 7）。 */
+/** 主创：用户新建会话时默认用的 Profile（docs/specs/agent/builtin-profiles.md）。 */
+export const MAIN_PROFILE = "nbook.agent.main";
+
 export interface ProfileEntry {
     readonly key: string;
     readonly name: string;

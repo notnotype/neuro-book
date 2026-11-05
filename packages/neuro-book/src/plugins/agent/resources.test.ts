@@ -142,6 +142,8 @@ describe("改写与分类", () => {
         expect(resources.expand("session://../session.jsonl")).toMatchObject({ok: false, code: "invalid-address"});
         expect(resources.expand("project://x.md")).toMatchObject({ok: false, code: "no-project"});
         expect(await resources.read("project://x.md")).toMatchObject({ok: false, code: "no-project"});
+        // 内核的资源接口抛出的错误带着同一个码（输出 9）。
+        expect(await kernelResources(resources).read("project://x.md").catch((error: unknown) => error)).toMatchObject({name: "ResourceReadError", code: "no-project"});
 
         expect(resources.classify("session://plan.md")).toEqual({content: false, write: "allowed"});
         expect(resources.classify(`sessions://${id}/home/plan.md`)).toEqual({content: false, write: "allowed"});

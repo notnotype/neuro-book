@@ -204,7 +204,7 @@ describe("远程合同", () => {
         // 只给宿主的指令不进合同（harness/runtime.md 输出 72）：浏览器调不到它。
         expect(Object.keys(agentSessionsContract.methods)).not.toContain("setGeneratedMeta");
         expect(await client.create({profile: "test.profiles.missing"})).toMatchObject({ok: false, code: "unknown-profile"});
-        expect(ok(await client.profiles({})).map((profile) => profile.key)).toEqual([WRITER]);
+        expect(ok(await client.profiles({})).map((profile) => profile.key)).toContain(WRITER);
     });
 
     test("输出 3：从浏览器来的输入按结构校验：缺字段、类型不对、多出字段都是 invalid-input，不进日志", async () => {
