@@ -205,7 +205,7 @@
 
 ## 7. Component Lab
 
-nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 [`fixtures/README.md`](../../neuro-book/src/plugins/lab/web/fixtures/README.md)。需要真实指针与布局引擎的验收（嵌套分栏、多栏分割、勾选框聚焦时不滚动外层容器）在 playground 的 `/acceptance/<组件>` 页，由 `e2e/` 下的同名用例驱动。
+nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 [`fixtures/README.md`](../../neuro-book/src/plugins/lab/web/fixtures/README.md)。需要真实指针与布局引擎的验收：嵌套分栏在应用 Lab 的 `NestedGrid` 场景，由 `packages/neuro-book/e2e/lab-nested-grid.e2e.ts` 驱动；多栏分割、勾选框聚焦时不滚动外层容器暂在 playground 的 `/acceptance/<组件>` 页，由 `e2e/` 下的同名用例驱动（多栏分割在 w00026 t14 迁往应用 Lab）。
 
 - 一个场景表达组件的一种状态或输入组合，不在一个场景里平铺多套设计方案。
 - 场景数据用与长篇写作相关的真实题材（作品、分卷章节、人物、设定条目），不用 `Foo`、`Test 1` 这类占位。

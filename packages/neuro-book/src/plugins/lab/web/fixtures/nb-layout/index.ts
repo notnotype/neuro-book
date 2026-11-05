@@ -5,9 +5,9 @@
 import type {Component} from "vue";
 import {h} from "vue";
 
-import type {DropFeedbackOverlay, DropIndicatorLabel, Splitter} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackOverlay, DropIndicatorLabel, NestedGrid, Splitter} from "@notnotype/nb-layout/vue";
 
-import type {LabFixture} from "../index";
+import {defineLabFixture, type LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 
 function nbLayoutSubject(name: "DropFeedbackOverlay" | "DropIndicatorLabel" | "Splitter"): () => Promise<{default: Component}> {
@@ -17,6 +17,21 @@ function nbLayoutSubject(name: "DropFeedbackOverlay" | "DropIndicatorLabel" | "S
 const block = (label: string) => () => h("div", {class: "flex h-full w-full items-center justify-center text-sm text-[var(--text-secondary)]"}, label);
 
 export const nbLayoutFixtures: LabFixture[] = [
+    // 树与布局由夹具里的宿主（`useGridLayout`）算出并接纳手势提交，不是 JSON 输入；输入只是占位（类型要求登记必填的
+    // node、layout），夹具不读它，场景 id 只决定用哪份快照恢复。手势与两轴几何的真实浏览器验收见 e2e/lab-nested-grid.e2e.ts。
+    defineLabFixture<typeof NestedGrid>({
+        component: "NestedGrid",
+        scenes: (() => {
+            const base = {node: null, layout: {sizes: {}, constraints: {}, sashSizes: {}, issues: []}};
+            return [
+                {id: "default", label: "默认两轴嵌套", input: {props: base}},
+                {id: "unknown-ref", label: "未知引用恢复", input: {props: base}},
+                {id: "malformed", label: "畸形重复身份拒绝", input: {props: base}},
+                {id: "high-version", label: "高版本快照拒绝", input: {props: base}},
+            ];
+        })(),
+        load: async () => (await import("./NestedGridAcceptanceFixture.vue")).default,
+    }),
     defineSubjectFixture<typeof DropFeedbackOverlay>({
         component: "DropFeedbackOverlay",
         class: "h-full w-full",

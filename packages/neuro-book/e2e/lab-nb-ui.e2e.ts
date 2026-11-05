@@ -1,8 +1,8 @@
 /**
  * nb-ui 组件在 Lab 场景里的真实浏览器行为：浮层的展开方向、禁用项、页面不锁、Escape 关闭，以及非模态窗口的外部交互与
  * 键盘调整尺寸。原来在 nb-ui playground 的 Lab 用例里（`packages/nb-ui/e2e/lab.spec.ts`），playground 的 Lab 退役时
- * 迁到这里，改为对新应用 Lab 里的真实组件场景断言（w00017 t73）。拖动与嵌套分栏的手势验收仍在 nb-ui 的
- * `e2e/nested-grid.spec.ts`、`e2e/splitter.spec.ts`。
+ * 迁到这里，改为对新应用 Lab 里的真实组件场景断言（w00017 t73）。嵌套分栏的手势验收在 `e2e/lab-nested-grid.e2e.ts`，
+ * 多栏分割的在 nb-ui 的 `e2e/splitter.spec.ts`。
  */
 
 import {rm} from "node:fs/promises";
