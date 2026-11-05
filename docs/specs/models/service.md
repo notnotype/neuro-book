@@ -47,7 +47,7 @@ type Providers = Array<{
         name?: string; group?: string; enabled: boolean;
         contextWindow?: number;       // 自定义模型启用时必填、正整数
         maxOutput?: number; vision?: boolean; reasoning?: boolean; efforts?: string[];
-        compaction?: {base: number} | {percent: number} | {at: number};   // 自动压缩的阈值，覆盖全局（planned；旧的 compactAt 读作 {at}，保存时写新形状）
+        compaction?: {mode: "reserve" | "percent" | "tokens"; value?: number};   // 自动压缩的触发点，覆盖全局；旧的 compactAt 读作 {mode: "tokens"}，保存时写新形状
         price?: [number, number, number, number] | null;   // 美元每百万 token：输入、输出、缓存读、缓存写；null 未知
         headers: Record<string, string>;
     }>;
@@ -102,7 +102,7 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 14. **压缩角色的初值**：第一次绑 `fast` 而 `compaction` 未绑时，同一次写把 `compaction` 设成同一个模型（压缩先跟着快速档，之后各改各的）。
 15. **删除时解除绑定**：删服务商、删模型（含“管理模型”里移出）之后，绑着它们的角色变成未绑定（`role-unbound`），不留指向不存在的模型的引用；停用模型不解除，角色这时解析为 `unknown-model`，重新启用即恢复。删服务商同时删掉凭据库里这家的密钥。
 16. **请求的传输**：每次请求现读两个超时设置交给适配器（[`harness/models.md`](../harness/models.md) 输出 18），`maxHttpAttempts` 固定为 1；检测同样这样。
-17. **压缩的阈值**：全局设置 `nbook.models/compaction`：缺省按预留量（内核的算法），可改成百分比（`{percent}`）或固定 token 数（`{at}`）。模型配置的 `compaction` 覆盖全局：`{base}` 把窗口当成这个数按预留量算，`{percent}` 是窗口的百分比（窗口未知时不生效），`{at}` 是固定的触发点。解析时算成 `compactAt` 交给内核：超过窗口时按窗口，不大于 0 时不给，由内核按缺省算。（planned）
+17. **压缩的触发点**：全局设置 `nbook.models/compaction`（在“运行可靠性”页的“上下文压缩”组）与模型配置的 `compaction` 同一个形状 `{mode, value?}`，模型的覆盖全局。`reserve`：留预留量，`value` 是把窗口当成这个数来算，没写就是内核的缺省；`percent`：窗口的百分比（1 到 100，窗口未知时不给）；`tokens`：固定的触发点。解析时窗口知道了才算成 `compactAt` 交给内核：超过窗口按窗口，没有意义或不大于 0 时不给，由内核按缺省算。全局设置改了，从下一次解析起生效。快照里的 `compaction` 是模型自己的配置，旧的 `compactAt` 给成 `{mode: "tokens"}`。
 
 ## 状态与转换
 
