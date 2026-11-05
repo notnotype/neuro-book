@@ -11,6 +11,8 @@ export interface SeenRequest {
     readonly tools: readonly string[];
     readonly messages: readonly {readonly role: string; readonly content?: unknown}[];
     readonly system: string;
+    /** 请求体里压缩要看的字段：`tool_choice`、输出上限、推理档。 */
+    readonly options: {readonly toolChoice?: unknown; readonly maxTokens?: number; readonly reasoningEffort?: string};
 }
 
 export interface FakeEndpoint {
@@ -35,12 +37,13 @@ export function fakeEndpoint(): FakeEndpoint {
         port: 0,
         hostname: "127.0.0.1",
         async fetch(request) {
-            const body = await request.json() as {model: string; tools?: {function: {name: string}}[]; messages?: {role: string; content?: unknown}[]};
+            const body = await request.json() as {tool_choice?: unknown; max_completion_tokens?: number; max_tokens?: number; reasoning_effort?: string; model: string; tools?: {function: {name: string}}[]; messages?: {role: string; content?: unknown}[]};
             const messages = body.messages ?? [];
             requests.push({
                 model: body.model,
                 tools: (body.tools ?? []).map((tool) => tool.function.name),
                 messages,
+                options: {toolChoice: body.tool_choice, maxTokens: body.max_completion_tokens ?? body.max_tokens, reasoningEffort: body.reasoning_effort},
                 system: messages.filter((message) => message.role === "system").map((message) => typeof message.content === "string" ? message.content : JSON.stringify(message.content)).join("\n"),
             });
             const hold = holds.shift();

@@ -32,7 +32,7 @@ describe("SDK 的导出面", () => {
         "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],
         "settings-browser": ["SettingsPageActions", "SettingsPageList", "SettingsRow", "SettingsSaveBar", "choices", "settingsPage"],
         "commands": ["COMMANDS_POINT", "command", "commandServiceKey"],
-        "agent": ["Assistant", "EXTENSIONS_POINT", "Fragment", "History", "If", "P", "PROFILES_POINT", "Slot", "System", "TOOLS_POINT", "Tag", "ToolName", "Turn", "User", "agentExtension", "agentProfile", "agentTool", "conv", "coreHistory", "defineContract", "defineExtension", "defineProfile", "ext", "finalOnly", "implement", "mapEventContent", "opening", "optional", "reminder", "shape", "slice", "standardLayout", "withoutEvents"],
+        "agent": ["Assistant", "COMPACTION_METHODS_POINT", "EXTENSIONS_POINT", "Fragment", "History", "If", "P", "PROFILES_POINT", "Slot", "System", "TOOLS_POINT", "Tag", "ToolName", "Turn", "User", "agentCompactionMethod", "agentExtension", "agentProfile", "agentTool", "conv", "coreHistory", "defineContract", "defineExtension", "defineProfile", "ext", "finalOnly", "implement", "mapEventContent", "opening", "optional", "reminder", "shape", "slice", "standardLayout", "withoutEvents"],
         "agent-jsx-runtime": ["Fragment", "jsx", "jsxs"],
         "workbench": ["OPEN_VIEW_COMMAND", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT", "statusItem", "view"],
     };

@@ -1,5 +1,5 @@
 /**
- * `nbook.agent` 拥有的三个贡献点与激活事件（docs/specs/agent/contributions.md）。只在服务端：会话、工具与扩展都在服务端跑。
+ * `nbook.agent` 拥有的贡献点与激活事件（docs/specs/agent/contributions.md、compaction.md）。只在服务端：会话、工具与扩展都在服务端跑。
  *
  * 声明只放序列化得了的部分（第三方插件的贡献点经清单登记）；实现在提供方入口激活时交出。提供方入口要自己写上对应的激活
  * 事件（`agentToolContribution` 这类助手一起给出），`nbook.agent` 在用到时触发。
@@ -17,16 +17,19 @@ import type {AgentToolServices} from "./resources";
 export const EXTENSIONS_POINT = "agent.extensions";
 export const TOOLS_POINT = "agent.tools";
 export const PROFILES_POINT = "agent.profiles";
+export const COMPACTION_METHODS_POINT = "agent.compactionMethods";
 
 /** 激活事件前缀：本插件拥有，只有本插件触发（runtime/plugin-manifest.md）。 */
 export const AGENT_SESSION_PREFIX = "onAgentSession";
 export const AGENT_TOOL_PREFIX = "onAgentTool";
 export const AGENT_PROFILE_PREFIX = "onAgentProfile";
+export const AGENT_COMPACTION_PREFIX = "onAgentCompaction";
 
 /** 每次建会话或打开会话之前触发：激活所有提供扩展的入口（contributions.md 输出 2）。事件要带参数，参数固定。 */
 export const ON_AGENT_SESSION = `${AGENT_SESSION_PREFIX}:open`;
 export const onAgentTool = (id: string): string => `${AGENT_TOOL_PREFIX}:${id}`;
 export const onAgentProfile = (key: string): string => `${AGENT_PROFILE_PREFIX}:${key}`;
+export const onAgentCompaction = (id: string): string => `${AGENT_COMPACTION_PREFIX}:${id}`;
 
 const ExtensionDeclarationSchema = Type.Object({
     tags: Type.Optional(Type.Array(Type.String({minLength: 1}))),
@@ -92,6 +95,10 @@ export type AgentProfileImplementation = AnyProfile;
 
 export const extensionsPoint: ContributionPointDefinition<AgentExtensionDeclaration> = {id: EXTENSIONS_POINT, implementation: "required", idPrefix: "plugin", schema: ExtensionDeclarationSchema};
 export const toolsPoint: ContributionPointDefinition<AgentToolDeclaration> = {id: TOOLS_POINT, implementation: "required", idPrefix: "plugin", schema: ToolDeclarationSchema};
+/** 压缩方法的声明没有字段：方法名就是贡献 id，实现是 `CompactionMethodImpl`。 */
+export const CompactionMethodDeclarationSchema = Type.Object({}, {additionalProperties: false});
+export type AgentCompactionMethodDeclaration = Static<typeof CompactionMethodDeclarationSchema>;
+export const compactionMethodsPoint: ContributionPointDefinition<AgentCompactionMethodDeclaration> = {id: COMPACTION_METHODS_POINT, implementation: "required", idPrefix: "plugin", schema: CompactionMethodDeclarationSchema};
 export const profilesPoint: ContributionPointDefinition<AgentProfileDeclaration> = {id: PROFILES_POINT, implementation: "required", idPrefix: "plugin", schema: ProfileDeclarationSchema};
 
 /**
@@ -104,6 +111,10 @@ export function agentExtension(id: string, declaration: AgentExtensionDeclaratio
 
 export function agentTool(id: string, declaration: AgentToolDeclaration): {readonly contribution: ContributionDeclaration<AgentToolDeclaration>; readonly activationEvent: string} {
     return {contribution: {capability: TOOLS_POINT, id, declaration}, activationEvent: onAgentTool(id)};
+}
+
+export function agentCompactionMethod(id: string): {readonly contribution: ContributionDeclaration<AgentCompactionMethodDeclaration>; readonly activationEvent: string} {
+    return {contribution: {capability: COMPACTION_METHODS_POINT, id, declaration: {}}, activationEvent: onAgentCompaction(id)};
 }
 
 export function agentProfile(key: string, declaration: AgentProfileDeclaration): {readonly contribution: ContributionDeclaration<AgentProfileDeclaration>; readonly activationEvent: string} {

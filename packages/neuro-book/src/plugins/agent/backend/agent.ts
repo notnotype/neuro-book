@@ -28,6 +28,7 @@ import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
 import {ProfileCatalog} from "./profiles";
 import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
+import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -46,6 +47,7 @@ export interface AgentRuntimeOptions {
 export interface AgentRuntime {
     readonly host: AgentHost;
     readonly tools: AgentTools;
+    readonly compaction: CompactionMethods;
     readonly profiles: ProfileCatalog;
     readonly userProfiles: ProfileBundles;
     readonly sessions: SessionTable;
@@ -111,6 +113,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         report: options.report,
     });
 
+    const compaction = new CompactionMethods({declarations: options.declarations, activate: options.trigger});
+
     const store = createJsonlStore({root: sessionsRoot});
     let sessions: SessionTable | null = null;
     const models = options.models === null ? NO_MODELS : options.models.port((profile) => {
@@ -131,6 +135,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: approveByMode,
+        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER},
     });
     hostRef = host;
 
@@ -225,6 +230,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     return {
         host,
         tools,
+        compaction,
         profiles,
         userProfiles,
         sessions: table,

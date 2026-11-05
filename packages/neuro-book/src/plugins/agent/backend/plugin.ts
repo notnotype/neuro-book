@@ -22,11 +22,12 @@ import {clockKey, stateRootKey} from "nbook/shared/host";
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
+import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
 import {createAgentRuntime} from "./agent";
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./builtin";
 import {SessionEditStores} from "./builtin/common";
+import {BUILTIN_COMPACTION_CONTRIBUTIONS, builtinCompactionMethods} from "./compaction";
 import {approvalPreview} from "./builtin/preview";
 import {BUILTIN_PROFILE_CONTRIBUTIONS, builtinProfiles} from "./builtin/profiles";
 import {GUARD_CONTRIBUTIONS, runGuards} from "./guards";
@@ -42,16 +43,16 @@ const allActivated = (result: TriggerActivationResult): boolean => result.status
 
 export const agentBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX],
-    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint],
+    activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX, AGENT_COMPACTION_PREFIX],
+    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint],
     entries: [defineEntry({
         id: "server",
         location: "server",
         dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}],
         provides: [agentKey],
         remoteProvides: [agentSessionsContract],
-        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT],
-        contributions: [...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION],
+        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT],
+        contributions: [...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
@@ -97,10 +98,11 @@ export const agentBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, sessionResources(context.services.require(workspaceFilesKey), session, tool), editStores, session.sessionId, signal)}, previews))],
-                contributions: {[SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
+                contributions: {[SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,
+                    [COMPACTION_METHODS_POINT]: runtime.compaction.receiver,
                     [PROFILES_POINT]: runtime.profiles.receiver,
                 },
             };

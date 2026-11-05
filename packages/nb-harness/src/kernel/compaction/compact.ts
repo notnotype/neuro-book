@@ -89,14 +89,14 @@ export function compactionCuts(core: SessionCore): {cuts: CompactionCut[]; token
     let kept = sizes.reduce((sum, size) => sum + size, 0);
     turns.forEach((turn, index) => {
         const start = startOf.get(turn.id);
-        if (start !== undefined) cuts.push({entryId: start, kind: "turn", tokensKept: kept});
+        if (start !== undefined) cuts.push({entryId: start, kind: "turn", tokensKept: kept, firstEventId: turnEvents(turn)[0]?.id ?? null, firstCallId: null});
         if (turn === history.current) {
             // 切在某一步：这一轮的输入与附带内容留着，加上这一步及其后的步（后缀和，一遍算完）。
             const head = sizeOf(turnEvents({...turn, steps: []}));
             const steps = turn.steps.map((step) => sizeOf([step.reply, ...step.results, ...step.after] as LogEvent[]));
             let suffix = steps.reduce((sum, size) => sum + size, 0);
             turn.steps.forEach((step, at) => {
-                cuts.push({entryId: step.reply.id, kind: "step", tokensKept: head + suffix});
+                cuts.push({entryId: step.reply.id, kind: "step", tokensKept: head + suffix, firstEventId: step.reply.id, firstCallId: (step.reply.data as {toolCalls?: readonly {id?: string}[]}).toolCalls?.[0]?.id ?? null});
                 suffix -= steps[at]!;
             });
         }

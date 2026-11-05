@@ -21,6 +21,10 @@ export interface CompactionCut {
     readonly kind: "turn" | "step";
     /** 从这里切、保留它及其后的内容时，估算保留的 token。 */
     readonly tokensKept: number;
+    /** 保留部分的第一条对话事件：方法按它在请求里定位（块的 `origin.eventId`）。这一轮还没有对话事件时是 null。 */
+    readonly firstEventId: string | null;
+    /** 步切点：这一步回复的第一个工具调用 id。只调工具的回复在请求里没有带 `origin` 的块，按它找那条助手消息（`toolCalls[].id`）。 */
+    readonly firstCallId: string | null;
 }
 
 export interface CompactionJob {
