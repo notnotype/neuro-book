@@ -71,7 +71,11 @@ type AgentConversationViewProps = {
     /** 界面语言，只在宿主没有注入翻译端口时起作用；缺省 "zh-CN"（见“边界与兼容”）。 */
     locale?: "zh-CN" | "en-US";
     /** 宿主注入的渲染组件；缺哪个用包内的缺省实现（见“失败与恢复”）。 */
-    renderers?: {markdown?: Component; promptEditor?: Component; promptTextView?: Component};
+    renderers?: {markdown?: Component; promptEditor?: Component; promptTextView?: Component; form?: Component};
+    /** 输入框下面的状态栏；缺省 false。宿主有自己的用量显示时不要（见“状态栏”）。 */
+    statusBar?: boolean;
+    /** 顶栏的新建会话按钮；缺省 false。 */
+    newSession?: boolean;
     /** 是否显示顶栏；缺省 true。宿主页面自有标题时传 false（见“顶栏”）。 */
     header?: boolean;
     /** 运行中过程的展开方式；缺省 "collapsed"（见“展开与折叠”）。 */
@@ -132,7 +136,9 @@ type MessageAnnotationView = {customType: string; text: string; details?: JsonVa
 
 type ToolCallView = {
     id: string; name: string;
-    status: "streaming" | "running" | "success" | "error" | "invalid";
+    /** `denied`：没有执行（用户或规则拒绝、还没开始就停了）。`unknown`：开始了但不知道有没有执行完，要用户核对。说明在 `note`。 */
+    status: "streaming" | "running" | "success" | "error" | "invalid" | "denied" | "unknown";
+    note?: Text;
     args: JsonValue; result?: ToolResultView; error?: string;
 };
 ```
@@ -200,7 +206,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 ### 顶栏
 
-- 显示会话标题（按钮，点开发出 `sessions.open`，由宿主弹出会话面板）、Profile 名称和后台摘要状态；悬停标题显示会话摘要。常驻动作有新建会话。
+- 显示会话标题、Profile 名称和后台摘要状态；悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开弹出下拉，放插槽的内容（会话面板）。`newSession` 为真时有新建会话的按钮，发出 `session.create`。
 - 常驻顶栏的动作不超过两个，其余动作收进溢出菜单。溢出菜单固定包含“原始视图”切换项。
 - 390 宽时标题区域不小于 160px。
 - `header` 为 false 时不显示顶栏；原始视图的切换入口随之没有，宿主要切换时用受控属性 `viewMode`。
@@ -328,7 +334,7 @@ type AgentSessionListItem = {
 - 附件面板：网格浏览、搜索、翻页、原图预览、插入到输入框（纯界面行为）。
 - 关联 Agent：上下游列表、状态，点击切换到对应会话。
 - 系统提示：打开时请求加载，Markdown 渲染，刷新。
-- 会话面板 `AgentSessionPanel`：搜索、作品范围、过滤菜单（Profile、已归档、子代理；选了的条件显示成可去掉的标签）、按日期分组，列表用“会话列表”一节的组件，每行带 Profile 图标。新建（多 Profile 时选择 Profile）、归档、恢复、就地重命名。组件独立导出，宿主决定放在下拉还是侧栏。
+- 会话面板 `AgentSessionPanel`：搜索、作品范围、过滤菜单（Profile、已归档；选了的条件显示成可去掉的标签）、按日期分组，每行带 Profile 图标。新建、归档、恢复、改名发 action，选 Profile 与改名的输入框归宿主。组件独立导出，宿主决定放在下拉还是侧栏。
 - 分支树：搜索、折叠、键盘导航、节点详情、复制 ID、切换到选中分支。
 - 上下文检查器：组成、缓存时间线、诊断、请求选择、刷新。
 
@@ -341,7 +347,9 @@ type AgentSessionListItem = {
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
 | 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
 | 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`model.manage`、`runtime.reset` |
-| 提问 | `input.submit {batchKey, resolutions}`、`input.cancelRun`、`input.resync` |
+| 审批与提问 | `input.submit {batchKey, resolutions}`（`batchKey` 是事项 id，一个事项一条；`resolutions` 是 `{kind: "approval", decision, note?}` 或 `{kind: "question", answer: {text, data}}`）、`input.cancelRun`、`input.resync`、`wizard.state {state}`（向导的界面状态，宿主放回 `ctx.wizardState`） |
+| 中断与排队 | `run.continue`、`queued.edit {id}`、`queued.remove {id}` |
+| 审批模式 | `approval.set {mode}` |
 | 恢复 | `availability.act {action}`、`connection.reconnect` |
 | 面板数据 | `attachments.query {search, offset}`、`linkedAgents.refresh`、`systemPrompt.load {refresh}`、`tree.activate {entryId}`、`tree.copyId {entryId}`、`context.selectTrace {traceId}`、`context.refresh` |
 | 工作区变更 | `changes.select {path}`、`changes.accept {path}`、`changes.acceptAll`、`changes.refresh`、`changes.openInbox` |

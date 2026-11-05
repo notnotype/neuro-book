@@ -39,7 +39,7 @@ owners:
 |---|---|---|
 | `workbench.views` | `nbook.agent.conversation` | 右栏 |
 | `workbench.views` | `nbook.agent.sessions` | 左栏，会话面板 |
-| `editor.pages` | `nbook.agent.conversation` | 编辑区的“Agent 对话”，和视图同一个宿主组件 |
+| `editor.pages` | `nbook.agent.conversation` | 编辑区的“Agent 对话”，和视图同一个宿主组件；命令 `nbook.agent.open-in-editor` 打开它 |
 | `workbench.statusbar-items` | `nbook.agent.activity` | 右侧；`when` 是公开状态 `nbook.agent/active` |
 
 视图与页面用同一个宿主组件，没有打开项目时也能用（产物放 `session://`）。浏览器入口 `onStartup` 激活，只放声明与活动条目，视图与宿主用到时才加载；Lab 窗口不启动活动条目。
@@ -55,7 +55,7 @@ owners:
 
 ### 对话
 
-5. 打开会话：先订阅 `frames` 并缓存；取 `snapshot`，得 `head`、`leaf` 与会话级基线；固定这个 `leaf` 分页取 `path`；处理缓存，seq 不大于 `head` 的日志帧丢掉，`snapshot` 返回之前的状态帧丢掉。内联放不下的事件经 `eventChunk` 拼回，按 seq 保序。收到 `leafChanged` 按新叶子重取路径，不把各分支的日志接在一起。重连后按最后收到的 seq 用 `log` 补（[`sessions.md`](sessions.md) 输出 8）。
+5. 打开会话：先订阅 `frames` 并缓存；取 `snapshot`，得 `head`、`leaf` 与会话级基线；固定这个 `leaf` 分页取 `path`；处理缓存，seq 不大于 `head` 的日志帧丢掉，`snapshot` 返回之前的状态帧丢掉。内联放不下的事件经 `eventChunk` 拼回，按 seq 保序。收到 `leafChanged` 按新叶子重取路径，不把各分支的日志接在一起。重连后（`onResync`）按现在的快照与路径整份重建：比按 seq 用 `log` 补（[`sessions.md`](sessions.md) 输出 8）多读一次路径，但回退、切分支不用另外处理。
 6. 发送走 `send`，运行中走 `enqueue`（回车插话，Ctrl/⌘ 加回车排队）；排队中的消息显示在待处理区，能删，能取出到输入框改了再发。用户消息先乐观显示；明确被拒时撤掉，文字放回输入框并说明原因；连接断开、结果未知时标出来，可以重发或移除。停止走 `abort{keepQueue: true}`，排队的消息留着；状态栏显示“正在停止”和用时，超过 10 秒提示工具没有响应，以快照的状态收口。
 7. 模型与推理档选的是这个会话的设置（`changeSettings` 的 `core.model`、`core.effort`）。下拉第一项“跟随默认”（`core.model: null`），其余列启用、可用、有凭据的模型；当前选中的不合格也列出并标“不可用”。实际模型、窗口、推理档来自快照的 `model`。模型服务不在时下拉隐藏。
 8. 模式菜单第一版只有审批模式：每次都问（默认）、放行写入、全部放行，写 `core.approvalMode`。
@@ -65,7 +65,7 @@ owners:
 
 10. 运行等用户时向导替换输入框的位置：贴在消息流底部，往上滚时浮在内容上；贴底时不盖最后一条。最高占视图的 60%，内容内部滚动，内容区最少 8 行高，放不下时整体滚动。表面和其它浮层相同（磨砂）。输入框隐藏但不卸载，草稿还在。
 11. 模型一条回复发起多个要审批的调用时，向导一步一个，标“第 1 / 3 个”，和提问一样作答：每步选批准、本会话都批准或拒绝（可带附言），能来回改，全部选完才能提交。“全部拒绝”随时可点，可带一段附言。可以收起成一条小条，写等什么、第几个，没有批准按钮；这时不能发新消息，要先处理它。出现时焦点到向导容器（不落到批准按钮），有读屏播报，没有焦点陷阱；收起后焦点到展开按钮，答完回输入框；Esc 只收起。
-12. 审批显示工具与目标。`edit`、`write` 用只读查询 `approvalPreview` 取改前改后，用 `DiffView` 显示，一次改多个文件时按文件分节，过大或读不了的写明原因；命令显示等宽代码块，工作目录与超时一行小字；别的工具的参数用 nb-form 的展示态。按钮：批准（`allow`）、本会话都批准（`allow-session`）、拒绝（`deny`）。附言框写了字就是拒绝，这段话交给模型，这时批准不可点。“本会话都批准”同时选中这批里同一个工具的其余调用。一批审批是一起问的，还没执行：同一个文件前面有别的调用、预览算不出来时写明，并显示参数。
+12. 审批显示工具与目标。`edit`、`write` 用只读查询 `approvalPreview` 取改前改后，用 `DiffView` 显示，一次改多个文件时按文件分节，过大或读不了的写明原因；命令显示等宽代码块，工作目录与超时一行小字；别的工具列出参数的键与值（这里只有参数，没有 schema，nb-form 的展示态也只能画成 JSON 框）。按钮：批准（`allow`）、本会话都批准（`allow-session`）、拒绝（`deny`）。附言框写了字就是拒绝，这段话交给模型，这时批准不可点。“本会话都批准”同时选中这批里同一个工具的其余调用。一批审批是一起问的，还没执行：同一个文件前面有别的调用、预览算不出来时写明，并显示参数。
 13. 提问一次 1 到 4 题，单选或多选，总带“其它”；带表单的题用 nb-form 的编辑态。提交走 `resolve{answer}`（`text` 是拼好的人话，`data` 是逐题的回答），“停止这一轮”走 `abort`。已答的答案在提交前可以来回改，切走标签再回来还在，未提交的只在这一批里保留。
 14. 别的窗口先答了，这个窗口的向导跟着消失；答复撞上 `already-answered` 时不报错。
 
@@ -116,7 +116,7 @@ owners:
 ## 边界与兼容
 
 - `nb-agent-ui` 仍是纯受控视图，不依赖内核；新内核的适配器在它的核心里，输入是 JSON。nb-story 迁移之前旧适配器留着。
-- 公开状态键 `nbook.agent/active`、命令 `nbook.agent.open`、`nbook.agent.new-session`、`nbook.agent.focus-session` 是公开合同。
+- 公开状态键 `nbook.agent/active`、命令 `nbook.agent.open`、`nbook.agent.open-in-editor`、`nbook.agent.new-session`、`nbook.agent.focus-session` 是公开合同。
 
 ## 验收与 Smoke
 
