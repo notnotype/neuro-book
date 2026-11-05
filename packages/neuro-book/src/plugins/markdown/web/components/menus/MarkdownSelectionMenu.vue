@@ -2,6 +2,7 @@
 /** 选区浮动菜单（同名 .md）。 */
 import {AnchoredPopover, IconButton, Toolbar} from "@notnotype/nb-ui/components";
 import type {Editor} from "@tiptap/core";
+import {NodeSelection} from "@tiptap/pm/state";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {EDITING_ACTIONS, EDITOR_SELECTION_POINT} from "nbook/plugins/editor/shared/contracts";
@@ -117,7 +118,9 @@ const visible = computed(() => {
     // 焦点在菜单的按钮或色板上时也算（色板传送到 body，按钮按下不夺焦，所以这里只差打开的色板）。
     const inMenu = document.activeElement?.closest("[data-markdown-menu-layer]") != null;
     if (!focused.value && !inMenu) return false;
-    return !editor.state.selection.empty && props.editing.enabled("bold");
+    // 节点选区是块菜单选中的一整块，不是用户选的文字。
+    const {selection} = editor.state;
+    return !selection.empty && !(selection instanceof NodeSelection) && props.editing.enabled("bold");
 });
 
 const FORMATS: ReadonlyArray<EditingActionId> = ["bold", "italic", "strike", "code"];

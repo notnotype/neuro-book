@@ -1,6 +1,7 @@
 /** 块模型与块的操作（docs/specs/workbench/markdown-editing.md 的块模型表、输出 15、18、19）：真实语言与真实编解码器。 */
 import {Editor} from "@tiptap/core";
 import {undoDepth} from "@tiptap/pm/history";
+import {NodeSelection} from "@tiptap/pm/state";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
@@ -152,6 +153,41 @@ describe("解开", () => {
         select(editor, "一");
         expect(markdownEditingActions["heading-1"]?.run(editor, {})).toBe(true);
         expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+    });
+});
+
+describe("块菜单作用的对象", () => {
+    it("容器的第一个子块是列表时，选中容器作用于整个容器", () => {
+        const {editor} = open("> - a\n>\n> 文字\n\n别的\n");
+        select(editor, "文字");
+        expect(deleteBlock(editor)).toBe(true);
+        expect(editor.getText().trim()).toBe("别的");
+    });
+
+    it("选中行内节点时块是它所在的段落，Alt+↑ 不把它挪出段落", () => {
+        const {editor, write} = open("一\n\n前![图](a.png)后\n");
+        let image = -1;
+        editor.state.doc.descendants((node, pos) => {
+            if (node.type.name === "image") image = pos;
+            return image < 0;
+        });
+        editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, image)));
+        expect(moveBlock(editor, -1)).toBe(true);
+        expect(write()).toBe("前![图](a.png)后\n\n一\n");
+    });
+
+    it("分割线的节点选区上转换类动作不可用，也不会执行", () => {
+        const {editor} = open("---\n\n字\n");
+        editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 0)));
+        expect(markdownEditingActions["heading-1"]?.enabled(editor, {})).toBe(false);
+        expect(markdownEditingActions["paragraph"]?.enabled(editor, {})).toBe(false);
+    });
+
+    it("解开带标题的提示块：标题留成开头的一段", () => {
+        const {editor, write} = open("> [!NOTE] 标题\n> 内容\n");
+        select(editor, "内容");
+        expect(unwrapBlock(editor)).toBe(true);
+        expect(write()).toBe("标题\n\n内容\n");
     });
 });
 

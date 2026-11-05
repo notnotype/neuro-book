@@ -1,6 +1,6 @@
 ---
 验证入口: EditorArea
-标签: [state:local, env:portal]
+标签: [state:local, env:portal, env:clipboard]
 ---
 
 # MarkdownBlockGutter

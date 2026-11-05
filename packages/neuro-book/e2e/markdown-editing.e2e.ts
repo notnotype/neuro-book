@@ -48,9 +48,14 @@ async function openFile(page: Page, path: string, text: string): Promise<void> {
     await writeFile(join(projectDir, path), text);
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
-    const folder = item(page, "project://notes");
-    if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
-    await item(page, `project://${path}`).dblclick();
+    // 恢复会话时文件夹的展开状态还在变：读到“收起”再点，可能正好把刚展开的收起来。要等到活动标签真是这个文件。
+    const name = path.split("/").at(-1) as string;
+    await expect(async () => {
+        const folder = item(page, "project://notes");
+        if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
+        await item(page, `project://${path}`).dblclick({timeout: 3000});
+        await expect(activeGroup(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
+    }).toPass();
     await expect(prose(page)).toBeVisible();
 }
 
@@ -140,6 +145,40 @@ test.describe("选区菜单", () => {
         await expect(selectionMenu(page)).toBeVisible();
         await page.keyboard.press("Escape");
         await expect(selectionMenu(page)).toHaveCount(0);
+    });
+
+    test("切标签回来恢复的选区不弹菜单；组件重挂后菜单照常", async ({page}) => {
+        await openFile(page, "notes/selection-restore.md", "第一段文字\n");
+        await writeFile(join(projectDir, "notes/selection-other.md"), "别的\n");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        await expect(selectionMenu(page)).toBeVisible();
+        await item(page, "project://notes/selection-other.md").dblclick();
+        await expect(selectionMenu(page)).toHaveCount(0);
+        await page.locator("[data-editor-tab]").filter({hasText: "selection-restore.md"}).click();
+        await expect(prose(page)).toContainText("第一段文字");
+        await prose(page).focus();
+        await expect(selectionMenu(page)).toHaveCount(0);
+
+        // 拆分让这一组的控件重挂：编辑器实例接着用，菜单要重新接上。
+        await page.locator("[data-editor-group-active] [data-title-action-key=\"own:split-right\"]").click();
+        await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+        const left = page.locator("[data-editor-group]").first();
+        await left.locator("[data-editor-prose] p").first().click();
+        await expect(left.locator("[data-editor-prose]")).toBeFocused();
+        await page.keyboard.press("Control+a");
+        await expect(selectionMenu(page)).toBeVisible();
+    });
+
+    test("注音的输入框：点别处时收起", async ({page}) => {
+        await openFile(page, "notes/selection-prompt.md", "汉字\n");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        await selectionMenu(page).getByRole("button", {name: "注音"}).click();
+        const input = page.getByRole("textbox", {name: "注音"});
+        await expect(input).toBeFocused();
+        await prose(page).locator("p").first().click();
+        await expect(input).toHaveCount(0);
     });
 
     test("代码块里不出现", async ({page}) => {
@@ -269,6 +308,50 @@ test.describe("块按钮", () => {
         await expect.poll(() => disk("notes/gutter-plus-pick.md")).toBe("第一段\n\n## 新\n");
     });
 
+    test("点 + 后用输入法打字：块不被删掉，放弃时才删", async ({page}) => {
+        await openFile(page, "notes/gutter-plus-ime.md", "第一段\n");
+        await hover(page, "第一段");
+        await gutter(page).getByRole("button", {name: "插入块"}).click();
+        await expect(slash(page)).toBeVisible();
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.imeSetComposition", {text: "b", selectionStart: 1, selectionEnd: 1});
+        await expect(prose(page).locator("p")).toHaveCount(2);
+        await expect(slash(page)).toHaveCount(0);
+        await cdp.send("Input.imeSetComposition", {text: "", selectionStart: 0, selectionEnd: 0});
+        await cdp.detach();
+        await expect(prose(page).locator("p")).toHaveCount(2);
+    });
+
+    test("点 + 后筛不出项再退回：放弃时这一块还是被删掉", async ({page}) => {
+        await openFile(page, "notes/gutter-plus-none.md", "第一段\n");
+        await hover(page, "第一段");
+        await gutter(page).getByRole("button", {name: "插入块"}).click();
+        await expect(slash(page)).toBeVisible();
+        await page.keyboard.type("zz");
+        await expect(slash(page)).toHaveCount(0);
+        await page.keyboard.press("Backspace");
+        await page.keyboard.press("Backspace");
+        await expect(slash(page)).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(prose(page).locator("p")).toHaveCount(1);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-plus-none.md")).toBe("第一段\n");
+    });
+
+    test("折叠的提示块：手柄在块旁边，块菜单能用", async ({page}) => {
+        await openFile(page, "notes/gutter-fold.md", "一\n\n> [!NOTE]- 折叠\n> 内容\n");
+        const callout = prose(page).locator("[data-callout]");
+        await callout.hover();
+        await expect(gutter(page)).toBeVisible();
+        const handle = await gutter(page).boundingBox();
+        const box = await callout.boundingBox();
+        expect(Math.abs((handle?.y ?? 0) - (box?.y ?? 0))).toBeLessThan(40);
+        await gutter(page).getByRole("button", {name: "块菜单"}).click();
+        await page.getByRole("menuitem", {name: "删除"}).click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-fold.md")).toBe("一\n");
+    });
+
     test("块菜单：下移、副本、删除", async ({page}) => {
         await openFile(page, "notes/gutter-menu.md", "一\n\n二\n");
         const open = async (text: string) => {
@@ -380,6 +463,26 @@ test.describe("右键菜单", () => {
         await rightClick(page, "段落");
         await page.getByRole("menuitem", {name: /^粘贴\s*Ctrl\+V/u}).click();
         await expect.poll(() => prose(page).locator("li").count()).toBeGreaterThan(2);
+    });
+
+    test("点在选区外时光标移到点击处；点在分割线上不出错", async ({page}) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await openFile(page, "notes/context-outside.md", "第一段\n\n---\n\n第二段\n");
+        await focusFirst(page);
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Shift+End");
+        await expect(selectionMenu(page)).toBeVisible();
+        await prose(page).getByText("第二段").click({button: "right"});
+        await expect(page.getByRole("menuitem", {name: "全选"})).toBeVisible();
+        await page.keyboard.press("Escape");
+        expect(await page.evaluate(() => getSelection()?.toString() ?? "")).toBe("");
+        await page.keyboard.type("后");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/context-outside.md")).toContain("第二段后");
+        await prose(page).locator("hr").click({button: "right"});
+        await expect(page.getByRole("menuitem", {name: "全选"})).toBeVisible();
+        expect(errors).toEqual([]);
     });
 
     test("权限被拒时给出通知，文档不变", async ({page}) => {

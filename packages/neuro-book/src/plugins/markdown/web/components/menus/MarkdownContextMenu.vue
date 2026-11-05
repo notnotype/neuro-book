@@ -3,6 +3,7 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import type {Editor} from "@tiptap/core";
+import {Selection} from "@tiptap/pm/state";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {EDITOR_BODY_CONTEXT_POINT} from "nbook/plugins/editor/shared/contracts";
@@ -24,7 +25,8 @@ const onContextMenu = (event: MouseEvent): void => {
     const found = editor.view.posAtCoords({left: event.clientX, top: event.clientY});
     if (found !== null) {
         const {from, to} = editor.state.selection;
-        if (found.pos < from || found.pos > to) editor.commands.setTextSelection(found.pos);
+        // `near`：点在分割线这类地方时位置不在文本块里，不能直接放文字光标。
+        if (found.pos < from || found.pos > to) editor.view.dispatch(editor.state.tr.setSelection(Selection.near(editor.state.doc.resolve(found.pos))));
     }
     at.value = {x: event.clientX, y: event.clientY};
     open.value = true;

@@ -1,5 +1,5 @@
 ---
-标签: [env:portal]
+标签: [state:inject, env:portal]
 ---
 
 # AnchoredPopover
@@ -10,7 +10,7 @@
 
 外框是浮层共用的 `.nb-ui-popover-surface`，宽高随内容，不给内边距。定位经 reka 的 Popover 原语（底下是 floating-ui），传送到 `body`，碰到窗口边时翻到另一侧并夹进窗口（留 8px）。打开期间每帧重新读一次锚点矩形，选区移动、容器滚动、窗口缩放都跟得上；关闭或卸载后不再读。
 
-层级在 `Dialog` 或浮动窗口里跟随它们注入的层级，不在里面时取普通页面的浮层层级。
+层级在 `Dialog` 或浮动窗口里跟随它们注入的层级，不在里面时取普通页面的浮层层级（`state:inject`）。
 
 ## 交互
 

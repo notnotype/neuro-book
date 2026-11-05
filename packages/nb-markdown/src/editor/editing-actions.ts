@@ -4,6 +4,7 @@
  */
 
 import type {Editor} from "@tiptap/core";
+import {NodeSelection} from "@tiptap/pm/state";
 
 import {canMoveBlock, deleteBlock, duplicateBlock, moveBlock, selectedBlock, unwrapBlock} from "./block-actions";
 
@@ -43,7 +44,8 @@ const text = (args: EditingArgs): string => (typeof args.text === "string" ? arg
  */
 function canConvertBlock(editor: Editor): boolean {
     const {$from} = editor.state.selection;
-    // 全选（Ctrl+A）的选区落在文档这一层，不在哪一块里：照常能换。
+    // 全选（Ctrl+A）的选区落在文档这一层，不在哪一块里：照常能换。节点选区（块菜单选中的容器、分割线）的转换归块菜单。
+    if (editor.state.selection instanceof NodeSelection) return false;
     if ($from.depth === 0) return true;
     if (!$from.parent.isTextblock || $from.parent.type.name === "rawBlock") return false;
     for (let depth = $from.depth; depth > 0; depth -= 1) {
@@ -101,7 +103,8 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
         enabled: canConvertBlock,
     },
     callout: {
-        run: (editor) => (editor.isActive("callout") ? editor.chain().focus().unsetCallout() : editor.chain().focus().setCallout()).run(),
+        // 取消提示块走解开：标题不丢。
+        run: (editor) => (editor.isActive("callout") ? unwrapBlock(editor) && editor.commands.focus() : editor.chain().focus().setCallout().run()),
         active: (editor) => editor.isActive("callout"),
         enabled: canConvertBlock,
     },

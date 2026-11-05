@@ -24,6 +24,8 @@ const target = shallowRef<BlockTarget | null>(null);
 const at = ref({top: 0, left: 0});
 const menuOpen = ref(false);
 const menuAt = ref({x: 0, y: 0});
+/** 拖动中手柄是拖动源：拿掉它 `dragend` 可能收不到，`view.dragging` 就清不掉。 */
+let dragging = false;
 
 /** 按钮对着这一块第一行的垂直中间：有文字的量第一个文字位置，原子块量节点的顶。 */
 function place(editor: Editor, scroller: HTMLElement, block: BlockTarget): void {
@@ -35,7 +37,13 @@ function place(editor: Editor, scroller: HTMLElement, block: BlockTarget): void 
         top = (dom instanceof Element ? dom.getBoundingClientRect().top : scrollerBox.top) + 4;
     } else {
         const line = editor.view.coordsAtPos(Math.min(block.pos + (block.kind === "list-item" || block.kind === "container" ? 2 : 1), editor.state.doc.content.size));
-        top = (line.top + line.bottom) / 2 - GROUP_HEIGHT / 2;
+        if (line.bottom > line.top) {
+            top = (line.top + line.bottom) / 2 - GROUP_HEIGHT / 2;
+        } else {
+            // 折叠的提示块：内容是隐藏的，量出来是全 0，改量块本身。
+            const dom = editor.view.nodeDOM(block.pos);
+            top = (dom instanceof Element ? dom.getBoundingClientRect().top : scrollerBox.top) + 4;
+        }
     }
     at.value = {
         top: top - scrollerBox.top + scroller.scrollTop,
@@ -53,11 +61,14 @@ const onPointerMove = (event: PointerEvent): void => {
     // 指针在左侧留白里时也算这一行的块。
     const found = editor.view.posAtCoords({left: Math.min(Math.max(event.clientX, prose.left + 1), prose.right - 1), top: event.clientY});
     const block = found === null ? null : blockAt(editor.state.doc, found.pos);
+    // 还是同一块时不重新量：`pointermove` 很密，量位置会强制布局。正文变了或滚动了都会先收起，所以位置不会过时。
+    const current = target.value;
+    if (block !== null && current !== null && block.pos === current.pos && block.end === current.end) return;
     target.value = block;
     if (block !== null) place(editor, scroller, block);
 };
 const hide = (): void => {
-    if (!menuOpen.value) target.value = null;
+    if (!menuOpen.value && !dragging) target.value = null;
 };
 // 正文变了或滚动了，指针没动：位置已经不对，等下一次指针移动。不进撤销历史的是交出后的写法回填，只改属性，用户正要去点按钮时不收起。
 const onTransaction = ({transaction}: {transaction: {docChanged: boolean; getMeta: (key: string) => unknown}}): void => {
@@ -124,8 +135,10 @@ function onDragStart(event: DragEvent): void {
     const image = editor.view.nodeDOM(block.pos);
     if (image instanceof Element) event.dataTransfer.setDragImage(image, 0, 0);
     editor.view.dragging = {slice, move: true};
+    dragging = true;
 }
 function onDragEnd(): void {
+    dragging = false;
     if (props.editor !== null) props.editor.view.dragging = null;
     target.value = null;
 }

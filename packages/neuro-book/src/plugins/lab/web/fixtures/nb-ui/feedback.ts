@@ -174,7 +174,6 @@ export const feedbackFixtures: LabFixture[] = [
         component: "AnchoredPopover",
         scenes: [
             {id: "top", label: "在锚点上方", input: {props: {open: true, side: "top", anchor: null}}},
-            {id: "flip", label: "上方放不下时翻到下方", input: {props: {open: true, side: "top", anchor: null}}},
         ],
         load: async () => (await import("./AnchoredPopoverFixture.vue")).default,
     }),

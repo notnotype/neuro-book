@@ -1,6 +1,6 @@
 ---
 验证入口: EditorArea
-标签: [state:local]
+标签: [state:local, env:clipboard]
 ---
 
 # MarkdownContextMenu

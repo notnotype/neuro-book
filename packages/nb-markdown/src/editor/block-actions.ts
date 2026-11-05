@@ -52,7 +52,8 @@ export function blockAt(doc: PMNode, position: number): BlockTarget | null {
 /** 选区所在的块：节点选区按节点开始的位置，文字选区按起点。 */
 export function selectedBlock(state: EditorState): BlockTarget | null {
     const {selection, doc} = state;
-    if (selection instanceof NodeSelection) {
+    // 选中行内节点（图片、引用小块）时块是它所在的那一块，不是它自己。
+    if (selection instanceof NodeSelection && selection.node.isBlock) {
         const target = blockAt(doc, selection.from + 1);
         if (target !== null && target.pos === selection.from) return target;
         return {kind: kindOfTop(selection.node), pos: selection.from, end: selection.to, node: selection.node};
@@ -60,10 +61,13 @@ export function selectedBlock(state: EditorState): BlockTarget | null {
     return blockAt(doc, selection.from);
 }
 
-/** 把选区放进这一块：有文字的放到第一段开头，原子块用节点选区。 */
+/**
+ * 让这一块成为选区所在的块：之后的动作都从选区反推块。段落与列表项把光标放到开头；容器与原子块用节点选区，容器不能放光标：
+ * 第一个子块是列表时，光标反推出来是那一项，不是容器。
+ */
 export function selectBlock(editor: Editor, target: BlockTarget): void {
     const {state, view} = editor;
-    const selection = target.kind === "whole"
+    const selection = target.kind === "whole" || target.kind === "container"
         ? NodeSelection.create(state.doc, target.pos)
         : Selection.findFrom(state.doc.resolve(target.pos + 1), 1, true) ?? Selection.near(state.doc.resolve(target.pos));
     view.dispatch(state.tr.setSelection(selection));
@@ -143,10 +147,15 @@ export function unwrapBlock(editor: Editor): boolean {
         return changed;
     }
     if (target.kind !== "container") return false;
-    const range = state.doc.resolve(target.pos + 1).blockRange(state.doc.resolve(target.end - 1));
+    const tr = state.tr;
+    // 提示块的标题是属性，解开后没有地方放：留成开头的一段，不静默丢掉。
+    const title = target.node.attrs.title;
+    if (typeof title === "string" && title !== "") tr.insert(target.pos + 1, state.schema.nodes.paragraph!.create(null, state.schema.text(title)));
+    const end = tr.mapping.map(target.end);
+    const range = tr.doc.resolve(target.pos + 1).blockRange(tr.doc.resolve(end - 1));
     const lift = range === null ? null : liftTarget(range);
     if (range === null || lift === null || lift === undefined) return false;
-    view.dispatch(state.tr.lift(range, lift));
+    view.dispatch(tr.lift(range, lift));
     return true;
 }
 

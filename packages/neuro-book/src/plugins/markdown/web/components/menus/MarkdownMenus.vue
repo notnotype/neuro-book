@@ -2,7 +2,7 @@
 /** Markdown 控件的菜单层（同名 .md）：工具栏之外的浮动菜单与它们共用的输入弹层。 */
 import {removeSlashBlock} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
-import {computed, ref} from "vue";
+import {computed, ref, watch} from "vue";
 
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
@@ -34,6 +34,12 @@ function onSlashClosed(): void {
 }
 const anchor = computed(() => (props.editor === null ? null : selectionAnchor(props.editor, props.scroller)));
 const promptLabel = computed(() => (prompting.value === null ? "" : props.menus.label(prompting.value === "ruby" ? "promptRuby" : "promptBilingual")));
+
+// 换文档、变只读：弹层的选区已经不是打开时那份（Spec 的“时序与寿命”）；`+` 插入的位置也作废。
+watch(() => [props.binding, props.readonly] as const, () => {
+    prompting.value = null;
+    insertedBlock = null;
+}, {flush: "sync"});
 
 function submit(text: string): void {
     const action = prompting.value;
@@ -91,5 +97,5 @@ defineExpose({
         :readonly="props.readonly"
         :binding="props.binding"
     />
-    <MarkdownTextPrompt :open="prompting !== null" :anchor="anchor" :label="promptLabel" @submit="submit" @cancel="cancel" />
+    <MarkdownTextPrompt :open="prompting !== null" :anchor="anchor" :label="promptLabel" @submit="submit" @cancel="cancel" @dismiss="prompting = null" />
 </template>

@@ -118,13 +118,10 @@ const onCompositionEnd = (): void => {
 
 function sync(): void {
     const editor = props.editor;
-    const next = editor === null || editor.view.composing ? null : activeSlash(editor);
-    if (next === null) {
-        // 组字中保留上一次的查询，不让菜单闪一下；`open` 已按组字收起。
-        if (editor === null || !editor.view.composing) match.value = null;
-        return;
-    }
-    loadPinyin();
+    // 组字中保留上一次的查询：拼音字母不是查询，`open` 已按组字收起。
+    if (editor?.view.composing === true) return;
+    const next = editor === null ? null : activeSlash(editor);
+    if (next !== null) loadPinyin();
     match.value = next;
 }
 
@@ -173,8 +170,12 @@ watch(() => [open.value, activeId.value] as const, ([isOpen, id]) => {
         dom.removeAttribute("aria-controls");
         dom.removeAttribute("aria-activedescendant");
     }
-    if (!isOpen) emit("closed");
 }, {flush: "post"});
+
+// 触发结束才算放弃 `+`（选了一项、Esc、失焦、光标离开）。组字与筛不出项时只是暂时不显示，触发还在。
+watch(match, (next, previous) => {
+    if (next === null && previous !== null) emit("closed");
+});
 </script>
 
 <template>

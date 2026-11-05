@@ -19,7 +19,9 @@ import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
-import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
+import {markdownEditingActions} from "@notnotype/nb-markdown/editor";
+
+import {EDITING_ACTIONS, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
@@ -235,6 +237,11 @@ describe("编辑动作（workbench.markdown-editing）", () => {
         expect(handle.editing!.enabled("bold")).toBe(false);
         expect(handle.editing!.run("bold")).toBe(false);
         expect(editor.getJSON()).toEqual(before);
+    });
+
+    it("目录里的每个动作都有实现", () => {
+        const missing = Object.keys(EDITING_ACTIONS).filter((id) => markdownEditingActions[id] === undefined);
+        expect(missing).toEqual([]);
     });
 
     it("不认识的动作不可用", async () => {
