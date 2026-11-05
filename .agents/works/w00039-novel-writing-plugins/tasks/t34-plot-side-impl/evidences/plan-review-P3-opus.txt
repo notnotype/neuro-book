@@ -1,0 +1,222 @@
+# w00039 t34 阶段 B 细计划审查（Claude Opus，只读）
+
+审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t34-plot-side-impl/plan.md 第 168 到 236 行（“阶段 B 细计划”）。
+代码对照 worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel（HEAD 5318a94bd）。实验文件在 /tmp/w00039-t34-plan-review-b-lab/。
+
+### 1. 元素地址的“来历”会把同一列表里别的行的增删算成这一行的变化，有效知情照字面会算错
+**严重程度**：阻断；**类别**：正确性
+**位置**：plan.md 第 182 行（`origins(address, position, mode)` “给出每条改到这一行的变更与改后的值”）、第 187 行（“显式的部分取 origins(...) 里每一步的变更与改后的行”）；packages/nb-canon/src/engine/incremental.ts:430-432、src/core/address.ts:47-57、src/core/schema.ts:132-137
+**现象**：知情行的增删是 `listAdd` / `listRemove`，补丁地址是整个列表 `know.知情`（元素 id 在 `value` 里）。`origins` 用 `addressesOverlap(patch.at, at)` 判断一步是否“改到”被问的地址，而 `know.知情` 覆盖 `know.知情[k]`，所以给这个人加、去任何别的知识点 K2 的行，都会作为 K 那一行来历里的一步出现，`result` 是 K 那一行没变的值（或 undefined）。
+实验（/tmp/w00039-t34-plan-review-b-lab/origins.test.ts）：ch1 的 c1 给国王加 K（knows），ch3 的 c2 给国王加 K2；`origins({entry: 国王, path: "know.知情[K]"}, ch3 末尾, actual)` 返回 `[init, {patch c1 listAdd result:{id:K,knows}}, {patch c2 listAdd result:{id:K,knows}}]`。c2 与 K 无关，却是“K 这一行最后一次变化”。
+**为什么是问题**：knowledge 输出 3 要“显式的行的变化与推出的行里取安放最晚的一次”。照计划取每一步，c2 会让显式行“更晚”：第 2 章国王在场、`presentLearns` 推出 `suspects`（或被显式写成 unaware 后又被在场推出 knows）时，第 3 章给他加任何别的知识点，都会把 K 翻回旧的显式值；没有 K 显式行时，一条给别的点加行的变更会产生 `result: undefined` 的一步，若按“显式去掉一行回到没有行”处理，会抹掉推出的行。knowledge 场景 3（覆盖与同一条变更）只要那几章顺带给星瑾加别的知识点就会错。
+**如何核实**：在 worktree 的 packages/nb-canon 下 `bun test /tmp/w00039-t34-plan-review-b-lab/origins.test.ts`，看打印的步骤。
+**建议改法**：计划写明“改到这一行”的判据：`listAdd` 取 `value.id === k`、`listRemove` 取 `value === k`、整段替换 `set know.知情` 比较前后这一行、子字段赋值按地址；或者在内核给 `CanonReadView.origins` 加按元素过滤的语义（只返回作用于这个元素的步），并在 knowledge.test.ts 里加“中间给别的知识点加行”的用例。整段替换写出相同的行算不算“变化”也要定一句。
+
+### 2. `compareChanges(a, b)` 按安放比较，与按计划模式下引擎的事件先后不同；签名缺模式
+**严重程度**：重要；**类别**：正确性
+**位置**：plan.md 第 182 行（“变更的全序：安放、再按创建的版本与 id，与引擎的事件先后相同”）、第 188 行（“按计划模式时算上计入的计划”）、第 236 行（差分测试比对）；packages/nb-canon/src/engine/incremental.ts:186-190、230
+**现象**：引擎按计划模式折叠时，安放在已写章节上的计划用的不是它的安放，而是 `planRank` 给的 `[1, 章序 + 0.5, 0]`（model 输出 5：从下一章开头起才算“之前”），排在这一章全部已写变更之后。计划写的 `compareChanges` 只按安放、版本与 id，不带模式。
+**为什么是问题**：有效知情按计划模式算时（`knowingIncomplete` 的计划模式、给写手的视图按计划读、阶段 E 的简报），第 N 章（已写）里一条计划显式改 K 的行、同章一条排序键更大的已写变更带 `presentLearns`：引擎认为计划在后（显式行最终值来自计划），`compareChanges` 却说已写变更在后，推出的行胜出，得到与 `entry` 读出的显式值不一致的结果。“与引擎的事件先后相同”这句话在按计划模式下不成立，差分测试若只比实际模式也查不出来。
+**如何核实**：读 incremental.ts:186-190 的 `planRank` 与 230 行 `included.push({rank: planRankValue, ...})`；reference.ts 的 `includedPlans` 同样处理（163 行附近）。
+**建议改法**：二选一并写进计划：（a）`compareChanges(a, b, position, mode)`，按计划模式时用引擎的计划 rank（最好直接由引擎导出“事件的排序键”，不要插件或 reads.ts 再写一份 `planRank`）；（b）让 `origins` 的每一步带上引擎用的 `rank` 与 `tie`（或一个不透明的可比较序号），推出的行也由内核给出同一套序号（例如 `presence` 的每条带序号），插件只比较序号，不另造全序。（b）更不容易与两个引擎走偏，差分测试也只需比对已有输出。
+
+### 3. 传话链要的“某条变更之前”在 `CanonReadView` 上没有对应的读取位置，计划也没定义“这一行所在的变更”
+**严重程度**：重要；**类别**：正确性 / 接口与合同
+**位置**：plan.md 第 187 行（“`at` 是读取位置或‘某条变更之前’”）、第 188 行（`relayBroken`：“对每条 told 的行，取 T 在那条变更之前的有效知情”）；packages/nb-canon/src/service/reads.ts:72-79（`entry`、`presence` 只收 `ReadPosition` 与章的范围）、src/engine/types.ts:116（`origins` 只收 `ReadPosition`）、src/service/diagnostics.ts:15（诊断只拿到 `at: ReadPosition`）
+**现象**：
+- 内核所有读取只接受章首、章末、初值这类读取位置，或 `presence` 的整章范围；没有“某条变更之前”。计划把它写成 `effectiveKnowing` 的一种 `at`，却没说用哪个读取去取：只能在章末（或缺省位置）取全部来历与在场，再用 `compareChanges(step, X) < 0` 截。这在实际模式下成立（套没套上与读取位置无关，model 输出 7），按计划模式下不成立（计入哪些计划随位置变，见第 2 条）。
+- “这一行所在的变更”没定义：一行在第 6 章写成 `told`（谁告诉的是哥哥），第 8 章只改了它的 `备注`。照“行最后一次变化”取第 8 章，哥哥只要在第 7 章知道就不报；照“写成 told 的那一步”取第 6 章才对得上场景 4 的意图。另外，读取位置之前被覆盖掉的 told 行（第 6 章 told、第 9 章改成 witnessed）还要不要查，计划与 Spec 都没写。
+- 诊断的稳定键含“那条变更”，若取的是最后一次改这一行的变更，作者给这一行补个备注，键就变了，已挂的“有意为之”决策失效（model 输出 35）。
+**为什么是问题**：B2 照字面实现时这三处都要现场拍板，而且选错会让 `relayBroken` 漏报或让作者的处理失效；`readerKnowing` 的 `at` 是讲述位置，又是第三种位置，`effectiveKnowing` 的 `at` 类型需要一次写清。
+**如何核实**：对照 reads.ts:72-79 与 types.ts:116 的签名；knowledge 场景 4 只覆盖“最终行是 told”的情形。
+**建议改法**：计划里写明：（1）`at` 的类型是 `ReadPosition | {before: changeId}`，后者只在实际模式下允许，实现为“缺省位置读取后按事件序截断”；（2）“这一行所在的变更”取把 `怎么知道` 设成 `told` 或改了 `谁告诉的` 的最近一步，只改别的子字段不换；（3）只查读取位置上的有效行（不查已被覆盖的历史行），或者明说要查历史行。三处若要改 Spec 的说法，列进“Spec 与文档改动”。
+
+### 4. 项目内的 `read(): Promise<CanonReadView>` 拿到的不是一份快照：讲述跟着活的正文与当前章序走，视图过滤会与内核视图读到不同版本；缓存也没有键可用
+**严重程度**：重要；**类别**：不变量 / 接口与合同
+**位置**：plan.md 第 183 行（`read(): Promise<CanonReadView>`“当前这份世界与正文快照”）、第 194 行（“为看的人 V 打开一张内核视图，再在它的读取结果上过滤”）、第 233 行（“先按世界版本与读取输入缓存”）；packages/nb-canon/src/service/service.ts:208、356、449-512；src/world/tellings.ts:56-86；src/service/reads.ts:68-98
+**现象**：
+- 服务里唯一的 `#locator` 读的是可变的 `#texts` 与 `() => this.#world.options.order`（service.ts:208）。`createReadView(world, this.#locator)` 只把 `world` 固定住，讲述的定位每次调用时按“现在”的正文与“现在”世界的章序算。reads.ts 顶部注释说“读的过程中不会变”，只对诊断那种同步调用成立。`read()` 返回 Promise、交给插件长期持有后，一次 `textChanged` 或一次改章序的发布，就让同一个视图里的 `chapters`、`entry` 用旧世界，而 `tellings` 用新正文与新章序。
+- 内核的 `viewed(token)` 每次读的是 `this.#world` 当时的版本（service.ts:470-512），与插件先前 `read()` 拿到的版本无关。计划让过滤“在内核视图的读取结果上”做，过滤要用的有效知情、保密档、挂在下面的知识点却从 `read()` 的视图算：中间有一次发布（例如作者刚在这个条目下新建一个保密知识点、或给 V 去掉一行知情），插件按旧版本的“要挡的知识点”去过滤新版本的条目，新建的保密知识点会原样漏给写手或角色。这正是 knowledge 输出 9 要防的事。
+- `CanonReadView` 只暴露 `version`，没有读取输入的摘要（model 输出 36）。正文变了版本不变，插件按“世界版本”缓存读者的知情、伏笔阶段会给出旧结果；按“读取输入”缓存又拿不到键。
+**为什么是问题**：Spec 要求读取结果等于在同一份读取输入上从头算的结果（model 输出 36），并要求视图在服务端过滤；计划的接口形状让一次视图读取跨两份输入，且 B3 的风险项把缓存当作性能兜底，缓存键却不存在。
+**如何核实**：读 service.ts:208 与 tellings.ts:59-62 的构造参数；service.ts:470-512 每个方法都用 `this.#world`。
+**建议改法**：`read()` 返回的视图在创建时固定正文快照（给 `createReadView` 一个按当时 `#texts` 复制出的定位器与当时世界的章序），并带上 `inputDigest`；内核的带令牌读取加一个“在给定视图上读”的入口（例如 `viewed(token, readView)`，或 `CanonReadView` 自己带 `lookup` 与夹上限的方法），让剧情插件一次视图读取只用一份输入。计划里写明插件持有视图的寿命：一次远程调用内有效，之后不复用；缓存键用 `inputDigest` 加模式与位置。
+
+### 5. 视图过滤要的“哪些位置是引用”在 `CanonReadView` 与条目读取结果里都拿不到；条目读取的 `upcoming` 会把上限之后的值原样漏出
+**严重程度**：重要；**类别**：正确性 / 安全
+**位置**：plan.md 第 194-195 行（过滤规则：去掉 `know`、不列挂在下面的保密知识点、“指向它们的引用与标注换占位”）；packages/nb-canon/src/engine/views.ts:45-90（`buildEntryView`）、src/engine/incremental.ts:259-271（`upcoming`）、src/service/reads.ts:68-83（`CanonReadView` 没有登记表）
+**现象**：
+- `EntryView` 里字段只有 `value`，不带字段的种类；`ref` 字段是裸的条目 id，以引用为键的列表元素带被引用条目的名字（`labelKeyedElements`）。要把“Component 里指向保密以上知识点的引用”换成占位，插件必须知道每个 Component 类型（包括别的插件的，例如阶段 B 自己登记的 `att.态度[].起因`、`goal.基于`、`fs.答案`，以及将来别的插件的）哪些路径是 `ref`、哪些列表 `keyedBy: ref`；标注同理要按每个标注种类登记的 `refs` 路径换。`CanonReadView` 不给登记表，也不给 `referencesOf`。按值的形状猜（像 id 的字符串就当引用）会把文字字段里恰好是 id 的值当引用，也会漏掉列表元素的 `label`。
+- `buildEntryView` 对还没启用的命名空间给出 `upcoming`：`from` 是启用它的那条变更的安放、`fields` 是折叠到那条变更时的全部值（incremental.ts:263-269 只要求 `!rankBefore(item.ev.rank, rank)`，不看视图上限）。内核的带令牌 `entry` 原样返回它（service.ts:470-473）。V 的视图上限在第 4 章，第 20 章才启用的 `goal` 命名空间（含 `隐秘`、`为什么`）或 `know` 命名空间会连值一起出现在 `upcoming` 里。计划的过滤规则只说去掉 `know` 命名空间，没提 `upcoming`。
+**为什么是问题**：knowledge 输出 9 要在服务端过滤保密内容、视图只看上限之前；照计划字面实现，B3 要么卡在拿不到引用的位置，要么写一份按形状猜的过滤，并且漏掉 `upcoming` 这条把未来与保密一起带出去的通道。`upcoming` 越过上限本身也是内核视图（project 输出 24）的缺口，计划“建在内核视图之上”依赖它只给上限之前的东西。
+**如何核实**：读 views.ts:56-63 与 incremental.ts:259-271；写一个启用 `goal` 命名空间在第 20 章的条目，带上限第 4 章的令牌调 `viewed(token).entry(...)`，看结果里的 `upcoming`。
+**建议改法**：B1 的内核改动里加两项：`CanonReadView` 给出登记表的只读部分（Component 字段的种类与 `targets`、标注种类的 `refs` 路径），或直接给 `referencesOf(entryView)` 一类“这个读取结果里的引用位置”；内核的带令牌 `entry`、`render` 去掉 `upcoming`（或只留上限之前启用的），并补进 project 输出 24 的验收。视图过滤的规则里明写 `upcoming` 的处理。
+
+### 6. 伏笔的几项诊断与账本要“套没套上”和“某个位置上的计划进展”，`CanonReadView` 两样都不给；计划只补了 `origins` 与 `compareChanges`
+**严重程度**：重要；**类别**：接口与合同
+**位置**：plan.md 第 180-183 行（内核要补的只有两项）、第 199-203 行（伏笔的诊断与账本）；packages/nb-canon/src/service/reads.ts:68-83、119-133（`changes` 的 `progress` 筛选固定在缺省位置 `latest`）
+**现象**：
+- `plot.fs.objectTouched` 要“生效、套上的剧情变更的补丁改了物件的状态”（foreshadowing 输出 7）；账本要“物件最近一次被改的变更”（输出 8）。`CanonReadView.changes` 只给 `StoryChange`，不给 `outcome`；内核的 `outcome` 只在服务的 `changes` 方法与 `presence` 内部用。插件只能对物件条目的每个字段各调一次 `origins` 来推（一个物件 N 个字段就 N 次全时间线折叠），或者自己当作“都套上了”而报错。
+- `plot.fs.plannedNodeMissing` 要“到第 N 章末尾这条计划仍未兑现”（输出 6）。`changes({progress})` 按全书缺省位置算进展（reads.ts:121、129），计划第 N 章、实际在第 N+2 章才兑现时，按缺省位置是“已兑现”，按第 N 章末尾是“未兑现”，应当报却不报。插件要自己重写一遍进展的判定（兑现者生效、套上、在位置之前、被替代、取消、拆出的），等于复制 engine 的 `progressAt`。
+- 继承的节点（输出 4）要知道“兑现这个计划的已写变更”是否生效、套上，同样要 `outcome`。
+**为什么是问题**：照计划只补两项，B4 开工时要么回头改内核接口（又一轮两个引擎的差分），要么在插件里复制引擎逻辑，正是 brief 里说要避免的“同一件事各写一份”。
+**如何核实**：`grep -n "outcome\|progress" packages/nb-canon/src/service/reads.ts`：只在 `listChanges` 的筛选与 `listPresence` 内部出现，接口上没有。
+**建议改法**：B1 的内核改动一次补齐：`CanonReadView.outcome(changeId)`、`progress(planId, position)`（引擎已有，直接转出），并在计划里把“B4 需要的内核读取”列一张清单，与 B2、B3 的需求合在一起做一次差分测试。
+
+### 7. 隐秘目标推出的 `knows` 以“出场位置”为时点，`compareChanges(a, b)` 只比两条变更，比不了；“三种来源”只列了两种
+**严重程度**：重要；**类别**：接口与合同
+**位置**：plan.md 第 187 行（“推出的部分取三种来源的变更（或出场位置）……按 compareChanges 取最晚的一次”）、第 207 行；knowledge 输出 3、goals 术语“隐秘的目标”
+**现象**：
+- 隐秘目标给持有者的推出行“从目标出场起”，时点是目标条目的 `appears`（一个安放，或没有 `appears` 时从初值起）。`compareChanges(a, b)` 的参数是两条变更，安放与变更之间、初值与前史之间都没有比较的办法。出场安放与一条显式改这一行的变更排序键相同时谁在后（出场没有“创建版本与 id”这一级），Spec 与计划都没说。
+- 计划写“三种来源”，接着只列了在场的 `presentLearns` 与隐秘目标两种；不清楚第三种是漏写了（例如阶段 D 带过去的知情），还是笔误。
+- 持有者“挂在持有者下面”是条目树的父条目；目标被挪到别人名下（改 `parent`）不是剧情变更、不按安放折叠，推出行会在所有位置上换人。计划没说按哪一刻的 `parent` 算。
+**为什么是问题**：B5 照字面写时，要么给 `compareChanges` 加一种“安放”参数（接口又变一次），要么在插件里自己比安放，与内核的序走两套；同一安放上的先后不定会让场景（显式写 `unaware` 后目标出场）的结果取决于实现细节。
+**如何核实**：plan.md 第 182、187 行对照；reads.ts 与 types.ts 里没有比较安放的公开函数（`placementRank`、`compareRanks` 在 src/core/position.ts，不在 `CanonReadView` 上）。
+**建议改法**：把内核要补的比较做成“事件序号”而不是 `compareChanges`：对变更、出场安放（与初值）都给可比较的键（第 2 条的改法 b），并在计划里定一句同一安放上出场排在变更之前（或之后）；改掉“三种”或补上第三种；写明持有者取当前 `parent`（条目树不随位置变），并在 goals.test.ts 里放一条“挪父条目”的用例或明说不支持。
+
+### 8. 视图的寿命与释放没写：项目内接口的令牌在入口停止时要失效，剧情插件自己的 `openViewpoint` 也要随远程调用方断开关掉
+**严重程度**：重要；**类别**：遗漏（资源释放、跨进程）
+**位置**：plan.md 第 183 行（`canonProjectKey` 的 `openView`、`closeView`、`viewed(token)`）、第 211 行（`openViewpoint`、`closeViewpoint`）；docs/specs/canon/project.md 输出 24（“进程内的调用方拿到的令牌，在它的插件入口停止时失效”）；packages/neuro-book/src/plugins/canon/backend/plugin.ts:76-91（现在的按调用方门面只在 `release` 里撤诊断登记）、backend/remote.ts:111-121（远程门面记 `views` 并在释放时关）
+**现象**：
+- 计划把 `canonDiagnosticsKey` 扩成 `canonProjectKey` 并加 `openView`，没写门面的 `release` 要关掉这个调用方打开的全部视图。照现在的 `provideServicePerConsumer(..., {release: (facade) => detaches.get(facade)?.()})` 扩，剧情插件停用后它开的内核视图一直留在 `WorldService.#views` 里，违反 project 输出 24。
+- 剧情插件的远程合同 `openViewpoint` 每次为一个远程调用方开一张内核视图；调用方断开（写手进程退出、会话结束）时谁关？计划没写剧情插件也要像 canon 的 remote.ts 那样按调用方记账、在 `provideRemote` 的 `release` 里关。没有这一步，写手每开一次会话就漏一张内核视图（`#views` 无上限，内核的 500 条只限审计）。
+- `openViewpoint` 返回给调用方的是什么：若直接把内核令牌交出去，调用方拿它调 `nbook.canon/world` 的 `entry({view})` 能读到不过滤的结果（canon 的带令牌读取不查令牌属于谁，remote.ts:76-90 只在 `closeView` 查 `views`）。计划要写明剧情视图的令牌是剧情插件自己的句柄，内核令牌不出插件。
+- world-host 关掉、重开 `WorldService`（世界锁、停止后重开）时旧令牌全部失效，剧情侧的视图要随之报 `view-denied` 而不是用一张悬空的令牌，计划没提。
+**为什么是问题**：前两点是 Spec 写明的寿命要求与资源释放，第三点直接决定按视角过滤能否被绕过。
+**如何核实**：读 canon backend/plugin.ts:76-91 的 `release` 与 remote.ts:111-121 的 `views` 记账；对照 project 输出 24。
+**建议改法**：计划在“内核要补的”一节写明 `canonProjectKey` 的门面记它开的视图、`release` 时逐个 `closeView`；在“远程合同”一节写明剧情插件按调用方记 viewpoint、`release` 时关、返回自己的句柄；B3 的远程用例加一条“调用方断开后用旧句柄得到 `view-denied`、内核里没有残留视图”。
+
+### 9. `core/` 只用 `World` 加 `createReadView` 测，测不到内核视图、审计合并与读取输入；`createReadView` 要的定位器也不是公开导出
+**严重程度**：重要；**类别**：测试
+**位置**：plan.md 第 174 行（“每个计算是 `(view: CanonReadView, …) => 结果`”）、第 192-196 行（视图建在内核视图令牌上）、第 221 行（“插件的 `core/` 用进程内的世界跑：nb-canon 的 `World` 加 `createReadView`”）、第 227 行（knowledge 场景 1、2 归 `viewpoint.test.ts`）；packages/nb-canon/src/node/index.ts:13、src/service/reads.ts:85、src/world/tellings.ts:56
+**现象**：
+- 内核的视图令牌、夹上限、`view-denied` 与审计都在 `WorldService`（service.ts:424-518），不在 `World`，也不在 `CanonReadView`。`core/viewpoint.ts` 若照“每个计算吃一个 `CanonReadView`”写，就拿不到内核视图；若照“在内核视图的读取结果上过滤”写，它吃的是 `ViewedReads`（带分页、戳、`view-denied`），不是 `CanonReadView`。两句话互相矛盾，测试的写法也随之不同。knowledge 场景 1 要求“读剧情变更的列表得到 `view-denied`，审计里各有一条”，用 `World + createReadView` 写不出来（没有令牌、没有内核审计）。
+- `createReadView(world, locator)` 的第二个参数是 `TellingLocator`，它只在 src/world/tellings.ts，`@notnotype/nb-canon`、`/schema`、`/node` 三个入口都没导出（`grep -n TellingLocator src/index.ts src/node/index.ts src/schema.ts` 无结果）。插件测试要建视图只能跨包深导入，违反包规则。
+- 计划第 233 行的缓存“按世界版本与读取输入”只有经服务层才有读取输入；`World + createReadView` 上测不到“正文变了版本不变、结果要变”（knowledge 场景 5 的改稿、foreshadowing 场景 1 的删句都是这类）。用 `World` 测时正文由 `chapterText` 回调给，改稿要换一个新的定位器，等于绕过服务的 `textChanged` 路径。
+- 远程用例只有 B3、B4 各一条，B2 的 `knowing`、`reader` 读取与 `relayBroken` 经内核诊断管线（去重、截断、稳定键校验、`diagnostic-unavailable`）的路径没有任何经服务的用例。
+**为什么是问题**：验收映射把服务层才有的行为（视图拒绝、审计、诊断进待处理）挂在纯函数测试上，照计划写出来的测试要么写不成，要么用替身伪造服务行为。
+**如何核实**：上面的 grep；service.ts:424-518 与 reads.ts:68-98 对照。
+**建议改法**：把测试分两层写进计划：`core/` 的纯计算用 nb-canon 公开导出的一个测试辅助（在 `@notnotype/nb-canon/node` 导出“由 `World` 与正文表建 `CanonReadView`”的函数，或导出 `TellingLocator`）；视图、审计、诊断管线、缓存键用进程内的 `WorldService`（node 入口已导出，nb-canon 的 service.test.ts 已有建法）经 `canonProjectKey` 测；子进程只留远程合同与断开释放。`viewpoint.ts` 的输入类型定一种并写进计划。
+
+### 10. B1 若照“诊断的声明登记进去”把三份 Spec 的诊断全声明，阶段 E、F 才算的那几项会让每次读待处理都标“不完整”
+**严重程度**：重要；**类别**：接口与合同 / 阶段边界
+**位置**：plan.md 第 176 行（`shared/declarations.ts`：“诊断的声明”）、第 216 行（B1“三种标注与诊断的声明登记进去”）、第 170 行（`objectTouchedInText` 随 F、目标的三项检查随 E）；packages/nb-canon/src/service/service.ts:365-371、331；docs/specs/canon/model.md 输出 34
+**现象**：内核对每个已登记、插件启用、但没登记计算的诊断记 `diagnostic-unavailable`（reason `not-registered`），并让结果 `complete: false`（service.ts:370、331）。计划没说 B1 声明哪些诊断；`goals.md` 的 `plot.goal.premiseChanged`、`stalled`、`skippedStep` 与 `foreshadowing.md` 的 `plot.fs.objectTouchedInText` 都在同一份 Spec 的诊断表里，照“登记 Spec 里的诊断”声明进去，从 B1 到 E、F 合入之前，每一次 `pending`、`hints` 读取都会带“不完整”与四条 `diagnostic-unavailable`。B2 之前 knowledge 的两项、B4 之前伏笔的各项也一样。
+**为什么是问题**：“不完整”是给作者与 Agent 的可观察信号（model 输出 34），长期挂着会让 canon 的验收（例如 project 的 Smoke 里“结果完整”）与以后真正的不完整混在一起；改回来要动声明，声明又是读取输入的一部分。
+**如何核实**：读 service.ts:362-371；在 nb-canon 的 tests/diagnostics.test.ts 里已有“登记了声明、没登记计算 → unavailable、不完整”的用例。
+**建议改法**：计划写明：每一片只声明这一片同时给出计算的诊断（B2 加 knowledge 两项，B4 加伏笔的除 `objectTouchedInText` 外各项），E、F 的诊断随各自的阶段声明；或者在计划里明说接受“不完整”并给出理由。
+
+### 11. 性能风险只量“视图读一个条目”，而且规模脚本的世界里没有知识点、知情行、在场与讲述；诊断按“每行一遍来历加一遍全表在场”是平方级
+**严重程度**：重要；**类别**：安全与性能
+**位置**：plan.md 第 233 行；packages/nb-canon/scripts/scale.ts:5-9、20-21（只有 `panel`、`person` 两种 Component，变更是转账与描述，没有 `cast`、标注与讲述）；src/service/reads.ts:201-205（`listPresence` 每次扫全部变更）；src/engine/incremental.ts:415-434（`origins` 每次从初值重放这个条目的整条时间线并对每步 `structuredClone`）
+**现象**：
+- 规模脚本 1000 章约 15000 条已写变更加 5000 个计划，但没有知识点与 `know.知情`，也没有 `cast` 与 `presentLearns`、`reveal`、`node` 标注。照计划“用规模脚本的世界量一次视图读条目”，量到的是空集上的过滤，数字没有意义。
+- 计划的算法：`effectiveKnowing(人, 点)` = 一次 `origins`（重放此人整条时间线）+ 一次 `presence`（扫全部约 20000 条变更）。`relayBroken` 对每条 `told` 行算一次传话人的有效知情，`knowingIncomplete` 对每个人每一行看一遍，视图读一个条目对挂在下面的每个保密知识点各算一次。以 300 条 told 行估：300 次 × 20000 条 = 600 万次变更检查，再加 300 次整条时间线重放（从代码推断，未实测）。诊断在读待处理时同步跑，project 输出 26 对单次超过 200 毫秒的计算标 slow。
+- 缓存的键问题见第 4 条：只有世界版本时改稿不失效，拿不到读取输入摘要时又无法正确缓存。
+**为什么是问题**：风险里唯一的阈值（20 毫秒）量的不是最贵的路径，量法也量不出东西；真正可能超预算的是诊断，而它要等 B2 写完才会发现。
+**如何核实**：读 scale.ts 的形状说明；reads.ts:201-205 与 incremental.ts:420-434 的循环。
+**建议改法**：计划里写一次性的索引：一次 `CanonReadView` 上，扫一遍变更建“每人在场的变更与 `presentLearns`”的表，每人只对 `know.知情` 整个列表取一次来历再按元素分组（同时解决第 1 条），后面的知情、传话链、视图都查表。规模脚本加一组知情形状（例如 200 人、500 个知识点、每章 3 条带 `presentLearns` 的在场变更、每章 1 条 told 行），量“读待处理时剧情插件全部诊断的耗时”与“视图读一个挂了 20 个保密知识点的条目”两项，各给阈值。
+
+### 12. 视图的过滤规则漏了 knowledge 输出 9 的两处：别人的知情行怎么给、“挂在下面的不列”列在哪
+**严重程度**：重要；**类别**：遗漏（Spec 条目）
+**位置**：plan.md 第 194-195 行、第 211 行（`viewpoint.knowing`）、第 227 行；docs/specs/plot/knowledge.md 输出 9 第 1、4 小条；packages/nb-canon/src/engine/types.ts:78-89（`EntryView` 没有子条目）
+**现象**：
+- 输出 9 第 4 小条：“别人的知情只返回 V 自己也有有效知情（`knows`、`suspects`）的、`common` 或 `trade` 的知识点那几行”。计划第 194 行只开放“V 的经历与知情”，第 195 行对别的条目一律“去掉 `know` 命名空间”，远程的 `viewpoint.knowing` 也没说能不能问别人。照计划做，这一条既没有实现位置，也没有测试（验收映射 B3 一行只列了输出 8、9 与场景 1、2）。Spec 第 1 小条（去掉 `know`）与第 4 小条（给别人的部分行）之间的关系要在计划里定：例如“读条目去掉 `know`；问别人的知情走 `viewpoint.knowing(他人)`，只给那几行，且只给有效知情（含推出的行）”。
+- “挂在它下面的保密以上的知识点不列”“读持有者时不列它（隐秘目标）”：内核的 `entry` 结果没有子条目列表，`tree` 在视图里 `view-denied`。剧情视图的“读一个条目”要不要自己附上子条目列表（从 `entries()` 的 `parent` 取，按位置与出场筛）计划没说；不附的话这两句没有可观察的结果，测试只能断言“没有出现”而永远通过。
+**为什么是问题**：两处都是 Spec 写明的可观察行为，计划照字面实现会漏一处、另一处变成写不出有效断言的验收。
+**如何核实**：对照 knowledge.md 第 62、65 行与 plan.md 第 194-195 行；`grep -n children packages/nb-canon/src/engine/types.ts` 无结果。
+**建议改法**：计划写明剧情视图“读一个条目”的结果形状（内核结果去掉 `know` 与 `upcoming`，加 `children`：上限之前已出场、V 读得到的子条目）；`viewpoint.knowing` 的参数是“谁”，问别人时按第 4 小条过滤；验收映射补上这两条的测试名。
+
+### 13. 伏笔一节把几处 Spec 条件写丢或没定义：继承的前提、“已埋、没回收期间”的时间轴、计划节点的范围
+**严重程度**：建议；**类别**：遗漏（Spec 条目）
+**位置**：plan.md 第 200-203 行；docs/specs/plot/foreshadowing.md 输出 1、4、7
+**现象**：
+- 继承：Spec 输出 4 只在“兑现的已写变更在它自己的讲述上没有同一个伏笔的节点时”才继承；计划第 200 行写成无条件“兑现的已写变更继承计划的节点”。照字面会让已写变更自己标了节点、又继承一份，阶段与 `plannedNodeMissing` 都被重复计数。
+- `objectTouched`：条件是“伏笔已埋、没回收期间”有一条套上的变更改了物件。“已埋”“回收”是讲述位置（章、段），变更是安放（章、排序键）；同一章里段与排序键没有可比的先后。计划没定这条按哪条轴比：按章粒度（埋下所在章之后、回收所在章之前，含不含两头）还是别的。foreshadowing 场景 1 只覆盖了不同章的情形。
+- 计划节点的范围：Spec 输出 1 是“细纲、消息等讲述上的节点是计划的节点”，输出 4 又说“计划的讲述（细纲）上的节点……按计划的安放所在的章计”。计划第 200 行只取“细纲讲述上”。挂在已写变更的 `message`、`note` 讲述上，或条目 `retold` 的非正文讲述上的节点怎么算（不进阶段、也不按哪条计划的章计？）没有交代；计划自己的正文讲述（`source: chapter`）上的节点是不是“生效的节点”也没交代。
+**为什么是问题**：三处都会在 B4 实现时现场拍板，其中继承一处照计划字面写就是错的。
+**如何核实**：对照 foreshadowing.md 第 55、58、69 行与 plan.md 第 199-200 行。
+**建议改法**：第 200 行补上“自己的讲述上没有同一伏笔的节点时”；`objectTouched` 写明按章比较（例如“埋下所在章之后、最后一次回收所在章之前安放的变更”，同章的算不算写一句）；计划节点写明“按 owner 是计划、讲述不是正文”判，别的非正文讲述上的节点忽略并给不给提示。必要时把定下的说法回写 Spec。
+
+### 14. “只在主线上算”的写法把线写死在各函数里，阶段 D 要改全部签名；回溯要同时读两条线的视图，现在的 `read()` 给不了
+**严重程度**：建议；**类别**：接口与合同 / 阶段边界
+**位置**：plan.md 第 170 行（“诊断稳定键里的 `line` 一律 `main`”）、第 174 行（`(view: CanonReadView, …) => 结果`）、第 183 行（`read(): Promise<CanonReadView>`）、第 157-160 行（阶段 D 的剧情插件改造）；docs/specs/plot/knowledge.md 输出 4
+**现象**：`CanonReadView` 没有线的概念（reads.ts:68-83），计划的 `read()` 也不带线。阶段 D 里每个线视图是一份不同的读取（worldlines），knowledge 输出 4 要在父线视图上算触发处的有效知情、再在子线视图上接着算，即同一次计算要两份视图。照现在的形状，D 要给 `read` 加参数、给每个 `core/` 函数加 `line` 或换视图、把写死的 `"main"` 一处处换掉。另外 `ChangeFilter.line` 筛的是剧情线条目（`change.lines`，model 输出 18），不是世界线，名字相同，B 里若有人拿它当世界线用会悄悄出错。
+**为什么是问题**：现在就把线当作视图的属性，B 的代码在 D 基本不用改；写死 `main` 则 D 的返工面覆盖 B 的全部五片。
+**如何核实**：对照 reads.ts:18-26 的 `ChangeFilter.line` 注释与 model 输出 18；worldlines.md 输出 5 到 7。
+**建议改法**：B1 就把接口定成 `read({line = "main"})`，`CanonReadView` 加只读的 `line` 字段（B 里恒为 `main`），诊断的 `line` 取 `view.line`；`core/` 函数不写线。同时在计划里提醒 `ChangeFilter.line` 是剧情线。
+
+### 15. 审计分两处存、读取时合并，是为了迁就内核审计不收插件的记录；两份各留 500 条、两套游标，合并后的“最近 500 条”与分页都说不清
+**严重程度**：建议；**类别**：别扭之处 / 上游选择
+**位置**：plan.md 第 196 行（“剧情插件自己留最近 500 条，读取时与内核的合并按时间排”）、第 211 行（`viewpointAudit`，“与 canon 同一套游标”）；packages/nb-canon/src/service/service.ts:436-442、1004-1012；src/service/views.ts:25-32、74-87
+**现象**：
+- 内核的 `viewAudit` 返回整个项目实例所有视图的拒绝（不按视图或调用方筛），游标绑的是读取输入摘要与 `total`。剧情插件把它和自己的 500 条按时间合并后再分页：任何一次发布都会让内核那一半的游标 `cursor-stale`（审计与世界版本无关，却跟着失效）；两边各自滚动丢弃，合并后的窗口不是“最近 500 条”；同一毫秒的两条先后不定。
+- 内核那份在满 500 条后 `total` 恒为 500，新拒绝挤掉最旧一条时偏移量整体错一位，游标不会失效却会漏或重一条（内核现有行为，service.ts:439 与 views.ts:79-81，不是本计划引入；合并后更难发现）。
+- 剧情视图里的“拒绝”（例如调剧情变更列表）由剧情插件自己判、自己记；它若同时转给内核视图的方法，内核又记一条，同一次调用两条。
+**为什么是问题**：合并读是为了绕开“内核审计只收内核的拒绝”这个上游形状；Spec 只要求“与内核视图的拒绝记录一起可读”，没要求分两处存。
+**如何核实**：读上面几处代码；knowledge 场景 1 要求“审计里各有一条”，按合并做法这条断言取决于合并与去重的细节。
+**建议改法**：改上游：内核审计的条目加可选的 `blocked`（被挡的知识点）与 `kind: "denied" | "placeholder"`，`canonProjectKey` 给调用方一个 `audit(token, entry)` 写进同一份 500 条；`viewAudit` 加按看的人或令牌筛；游标不绑读取输入（审计不是读取输入的一部分），改成按单调序号。剧情插件不再存审计。代价：内核 project 输出 24 的审计形状要改一句，canon 远程合同加一个可选字段。
+
+### 16. 改 id 前缀会撞上同名的 capability id，批量替换必须排除；范围也不止计划列的三个例子
+**严重程度**：建议；**类别**：文档
+**位置**：plan.md 第 178 行（“B1 先改六份剧情 Spec 的 id（只改前缀，不改意思）”）
+**现象**：六份剧情 Spec 里 `plot.` 开头的有两类：capability id（`plot.knowledge` 15 处、`plot.checks` 11、`plot.brief` 11、`plot.goals` 8、`plot.decisions` 6、`plot.foreshadowing` 3，含 frontmatter 的 `capability:`）与 Component、标注、诊断 id（约 50 个不同的 id，如 `plot.goal`、`plot.brief.payoffWithheld`、`plot.decision.overdue`、`plot.check.stale`、`plot.guard.reader`、`plot.scene`、`plot.instruction.povAbsent`）。两类前缀互相包含：`plot.goal` 是 `plot.goals` 的前缀，`plot.brief` 既是 capability 又是诊断 `plot.brief.*` 的前缀，`plot.decision.` 与 `plot.decisions` 只差一个字母。按前缀替换会把 capability id 一起改掉，Spec 注册表与链接随之失配。
+**为什么是问题**：仓库规则要求批量替换先 dry run、命中不确定时逐处编辑；计划没写清哪些改、哪些不改，执行者容易按“`plot.` → `nbook.plot.`”一把替换。
+**如何核实**：`grep -rhoE '\`plot\.[A-Za-z.]+\`' docs/specs | sort | uniq -c`（worktree 里），并看各 Spec 的 frontmatter `capability:`。
+**建议改法**：计划列出要改的 id 清单（只改 Component、标注种类、诊断三类，capability 与 Spec 链接不动），替换用精确的 id 列表而不是前缀；改完以 `governance:check` 与 Spec 注册表核对。
+
+### 17. 几处小的没写出来的假设：马甲当传话人、诊断的模式、经历里“没记参与者”的条数、隐秘目标推出行的“怎么知道”
+**严重程度**：建议；**类别**：遗漏
+**位置**：plan.md 第 187-190 行
+**现象**：
+- `谁告诉的` 的 `targets` 是“人物”“组织”，马甲本身也是人物条目（`sameAs` 指向本体）。作者写“谁告诉的 = 旅人（勇者的马甲）”时，`relayBroken` 查旅人还是勇者的知情？在场推出的行落在本体上（cast 存本体加 `as`，model 输出 29），显式行可能写在任一个上。计划没定按 `sameAs` 归到本体。
+- 第 188 行“只看主线、实际模式；按计划模式时算上计入的计划”前后矛盾：诊断的计算拿到读取的 `mode`（diagnostics.ts:15），是按传入的模式算，还是恒按实际模式算？两种结果在待处理的计划模式读取里不同。
+- `presence` 另给“没记参与者的变更有几条”（model 输出 29：调用方据此降级处理，不当作没人在场）。`experience` 与在场推出的知情都建在 `presence` 上，计划没说这个计数要不要进经历的结果、视图里给不给，推出的知情在有大量 uncast 变更时要不要提示“可能不全”。
+- 隐秘目标给持有者推出的 `knows`，`怎么知道` 取什么（在场推出的是 `witnessed`，Spec 没写隐秘目标的）。这会出现在视图的知情与经历的“知情起的变化”里。
+**为什么是问题**：每一处单独都小，但都会在 B2、B3、B5 实现时现场拍板，并进入远程合同的结果形状（knowledge 边界与兼容一节把读取视图的结果形状列为公开接口）。
+**如何核实**：对照 knowledge.md 第 40、55、57 行，model.md 输出 29，plan.md 第 187-190 行。
+**建议改法**：计划逐条定一句：传话人按 `sameAs` 归本体；诊断按传入的模式算（或恒按实际，二选一）；经历结果带 `uncast`；隐秘目标推出行的 `怎么知道` 记 `other`（或新值，须改 Spec）。
+
+### 18. `read(): Promise<CanonReadView>` 没有失败通道，“与 canon 同一套游标”在插件侧也做不出来
+**严重程度**：建议；**类别**：接口与合同
+**位置**：plan.md 第 183 行、第 211 行（“列表分页（与 canon 同一套游标）”）；packages/neuro-book/src/plugins/canon/backend/remote.ts:63-67（`host.ready()` 可能给 `world-locked`、`stopping`）；packages/nb-canon/src/service/service.ts:1004-1012（`#page` 是私有方法，游标是 `读取输入摘要:查询摘要:偏移`）
+**现象**：
+- 世界可能还没打开、锁被占（`world-locked`）、正在停止（`stopping`）或只读。canon 的远程实现对这些回 `fail({code})`；计划给剧情插件的 `read()` 只有 `Promise<CanonReadView>`，失败只能 reject，剧情的远程方法与诊断以外的读取要靠 `catch` 分辨原因（项目规则不允许按文案分支）。
+- canon 的游标由 `WorldService.#page` 生成，绑定读取输入摘要；这个函数是私有的，`CanonReadView` 又不给读取输入摘要（第 4 条）。剧情插件要“同一套游标”只能自己再写一份分页与过期判定，而且无法判定正文变了导致的过期。
+**为什么是问题**：失败通道与分页都是远程合同的一部分（结果形状是公开接口），B2 第一个远程读取就要用。
+**如何核实**：读 remote.ts:63-67 与 service.ts:1004-1012。
+**建议改法**：`read()` 的结果写成 `CanonReadView | {code: "world-locked" | "stopping" | ...}`；nb-canon 公开一个分页辅助（输入：读取输入摘要、查询参数、条目列表），canon 与剧情共用；剧情的游标规则写进计划。
+
+### 19. 切片 B5 与 B2、B3 重叠：隐秘目标的推出行在 B2 的算法里，视图处理在 B3 的过滤规则里，测试却排在 B5
+**严重程度**：建议；**类别**：测试 / 切片边界
+**位置**：plan.md 第 187 行（B2 的 `effectiveKnowing` 已含隐秘目标）、第 195 行（B3 的过滤已含隐秘目标）、第 220 行（B5“隐秘目标在知情与视图里的处理”）、第 229 行（验收映射把 knowledge 输出 3、9 的隐秘目标部分挂在 B5 的 goals.test.ts）
+**现象**：同一条行为在三片里各出现一次：B2、B3 照计划字面要实现隐秘目标，但对应的测试到 B5 才写；或者 B2、B3 先不做、B5 回头改 `effectiveKnowing` 与视图过滤。两种读法都会让 B2、B3 交付时声称覆盖 knowledge 输出 3、9，实际缺一块。
+**为什么是问题**：每片“完成”的判据不清，B5 回头改前两片的核心函数，正是切片要避免的返工。
+**如何核实**：对照 plan.md 第 216-220 行与第 223-230 行。
+**建议改法**：二选一写死：（a）隐秘目标并入 B2（推出行）与 B3（视图），测试各放在 knowledge.test.ts、viewpoint.test.ts，B5 只剩冲突的对称读取；（b）B2、B3 明写“不含隐秘目标”，B5 负责补上并列出要改的函数。（a）更顺，因为 `goal` Component 在 B1 已声明。
+
+## 未发现问题的方面
+
+- 插件目录与 `core/`、`shared/`、`backend/` 的划分，以及 `core/` 只依赖 `@notnotype/nb-canon/schema` 的类型：与 canon 插件现有结构一致，`schema.ts` 已导出 `CanonReadView` 类型，没有发现跨包深导入的必要（测试辅助除外，见第 9 条）。
+- 诊断的稳定键形状：`objects`、`line`、`telling` 都在内核允许的部分里（diagnostics-registry.ts:10），主线 id `main` 与内核一致（references.ts:287、service.ts:425）。
+- 带插件前缀的 id：内核按 `<插件 id>.` 前缀登记（declarations.ts:35），`nbook.plot.fs.payoffBeforePlant` 这类多段名合法；canon 自己的 Component 已经是 `nbook.canon.person`，改前缀的方向是对的（执行方式见第 16 条）。
+- 读者的知情、第一次揭示按讲述的发生点算：`tellings({until, mark})` 的语义（reads.ts:140-172，只留生效且读过的、按发生点排序）够用。
+- 在场推出的行要的“实际模式只取已写、生效、套上”：`presence` 已按 model 输出 29 实现（reads.ts:201-205）。
+- 冲突的对称读取（goals 输出 2）只靠 `entries()` 与 `entry()` 就能算。
+
+## 对作者推荐项的判断（各一句）
+
+- 插件目录与 `core/` 的划分：同意。
+- `canonProjectKey` 的形状：方向对，但要补失败通道、视图释放与固定快照（第 4、8、18 条）。
+- `CanonReadView` 加 `origins` 与 `compareChanges`：不够也不稳，`origins` 的元素语义要改、`compareChanges` 宜换成引擎给的事件序号，并补 `outcome`、`progress`、登记表、读取输入摘要、线（第 1、2、5、6、7、14 条）。
+- 有效知情的算法：思路对，照字面会算错（第 1、2、3、7 条）。
+- 视图建在内核视图令牌之上：Spec 定的，保留；但要解决两份输入与 `upcoming` 漏出（第 4、5 条），审计改为一处存（第 15 条）。
+- 远程合同的方法：基本够，缺“问别人的知情”的定义与失败、分页的写法（第 12、18 条）。
+- 切片的顺序与边界：B5 与 B2、B3 重叠；诊断按片声明（第 10、19 条）。
+- id 改成带插件前缀：同意，按精确清单改（第 16 条）。
+
+## 各级数量
+
+阻断 1（第 1 条）；重要 11（第 2 到 12 条）；建议 7（第 13 到 19 条）。共 19 条。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19

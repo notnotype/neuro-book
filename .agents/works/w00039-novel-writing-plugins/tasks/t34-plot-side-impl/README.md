@@ -52,5 +52,5 @@ updated: 2026-11-05
 ## 下一步
 
 1. 阶段 A 已收口（2026-11-05）：`test:affected --typecheck --since 1c11c6529` 全过（nb-canon 308、应用包 bun 1732、vitest 410，两包类型检查）；规模测量重跑，与 A4 时一致（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）。阶段 A 的实现审查 I1（omp 默认模型，审 `1c11c6529..5318a94bd`）在后台跑，**实现审查待处理**：报告回来后照 reviewing 的“处理结果”归类，修正单独提交。
-2. 阶段 B 的细计划已写进 [`plan.md`](plan.md) 的“阶段 B 细计划”一节；计划审查 P3 是快速审查：Opus 在审，omp 那一份等阶段 A 的实现审查跑完再发。Opus 的结论处理完再开工。
+2. 阶段 B 的细计划第二版（[`plan.md`](plan.md) 的“阶段 B 细计划”）：P3 的 Opus 一份 19 条全部成立、已改进计划（[`evidences/plan-review-P3-resolution.txt`](evidences/plan-review-P3-resolution.txt)），新加一片 B0 补内核（视图不漏上限之后的值、项目内的快照、`CanonReadView` 补齐、审计改上游、公开的辅助）。omp 那一份等 I1 跑完再发。下一步开工 B0。
 3. A4 的 1000 章测量已跑（[`evidences/scale-a4.txt`](evidences/scale-a4.txt)）：都在预算内；打开到可以读 1508 ms（t29 时 1065），日志 22.0 MB（t29 时 13.5），主要是修订存下的 `refs`，交实现审查一并看。

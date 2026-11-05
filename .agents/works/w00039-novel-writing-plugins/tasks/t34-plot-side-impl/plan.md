@@ -165,74 +165,86 @@
   - 模型调用经应用的模型角色（[模型角色的后端契约](../../../../../docs/proposals/model-roles-contract.md)），测试用对过合同的替身，真实模型只在 `*.llm.test.ts`。
   - 依赖阶段 E。
 
-## 阶段 B 细计划：剧情插件的知情、伏笔与目标的数据（2026-11-05，阶段 A 完成后写）
+## 阶段 B 细计划：剧情插件的知情、伏笔与目标的数据（第二版，2026-11-05）
 
-依据：[`plot.knowledge`](../../../../../docs/specs/plot/knowledge.md)、[`plot.foreshadowing`](../../../../../docs/specs/plot/foreshadowing.md)、[`plot.goals`](../../../../../docs/specs/plot/goals.md) 的 Component 与隐秘目标部分。阶段 B 只在主线上算（诊断稳定键里的 `line` 一律 `main`）；回溯带过去的知情（knowledge 输出 4）、伏笔按线视图取（foreshadowing 输出 5 的线那一半）随阶段 D；目标的三项检查与目标表随阶段 E；“本章涉及的知识点”（knowledge 输出 10）随阶段 E 的简报；`plot.fs.objectTouchedInText` 要窄问题，随阶段 F。
+第一版经快速审查 P3 的 Opus 一份（19 条，全部成立，处理见 [`evidences/plan-review-P3-resolution.txt`](evidences/plan-review-P3-resolution.txt)）改成这一版；omp 那一份等阶段 A 的实现审查跑完再发。
+
+依据：[`plot.knowledge`](../../../../../docs/specs/plot/knowledge.md)、[`plot.foreshadowing`](../../../../../docs/specs/plot/foreshadowing.md)、[`plot.goals`](../../../../../docs/specs/plot/goals.md) 的 Component 与隐秘目标部分。线做成参数（`view.line`，阶段 B 恒为 `main`），诊断稳定键的 `line` 取它；回溯带过去的知情（knowledge 输出 4）与伏笔按线视图取的那一半随阶段 D；目标的三项检查与目标表随阶段 E；“本章涉及的知识点”（knowledge 输出 10）随阶段 E 的简报；`objectTouchedInText` 要窄问题，随阶段 F。每一片只声明这一片同时给出计算的诊断：声明了却没登记计算的诊断会让每次读待处理都标“不完整”。
+
+### B0 内核要补的（nb-canon 与 canon 插件）
+
+- **视图不漏上限之后的值**（P3 第 5 条，阶段 A 视图的问题）：带令牌的 `entry`、`render` 去掉 `upcoming`（之后才启用的命名空间连同值）。补进 `views.test.ts`。
+- **项目内的快照**：`canonDiagnosticsKey` 扩成 `canonProjectKey`（按调用方）。`snapshot()` 返回 `{view: CanonReadView, viewed(token), stamp}` 或失败（`world-locked`、`stopping`）：三样都建在同一份世界与同一份冻结的正文快照上（讲述定位器按当时的正文与章序复制），之后的发布与改稿不影响它；调用方在一次读取里用完就丢，不跨调用复用。`openView`、`closeView` 与诊断的登记也在这个接口上；门面记下调用方开的视图，`release` 时逐个关掉。内核令牌只在项目进程里流转，不交给剧情插件的远程调用方（否则拿它直接调 canon 就绕过了过滤）。
+- **`CanonReadView` 补齐**：`line`；`stamp`（读取输入的摘要，插件的缓存键）；`origins(address, position, mode)`；`outcome(change)`；`progress(plan, position)`；`eventKey(change, mode)` 与 `placementKey(placement, mode)`（与引擎的事件先后相同：按计划模式时已写章上的计划按“章序加 0.5”；同一安放上出场排在变更之前），`compareKeys(a, b)`；`fields(namespace)` 与 `markType(kind)`（登记的只读部分：字段的种类与 `targets`、标注种类的 `refs`，视图过滤找引用位置用）。差分测试加一项：两个引擎给每条变更的排序键相同。
+- **审计改上游**（P3 第 15 条）：内核视图审计的条目加可选的 `kind: "denied" | "placeholder"` 与 `blocked`（被挡的对象）；`canonProjectKey.audit(token, entry)` 让剧情插件把占位写进同一份最近 500 条；`viewAudit` 加按看的人筛；它的游标改成按单调的序号，不绑读取输入（审计不是读取输入）。project 输出 24 的审计形状补一句（待确认清单记一行）。
+- **公开的辅助**：`@notnotype/nb-canon/node` 导出由 `World` 与正文表建 `CanonReadView` 的函数（测试与别的宿主用）和按“读取输入摘要、查询参数、列表”分页的函数（canon 与剧情共用一套游标）。
 
 ### 插件的形状：`packages/neuro-book/src/plugins/plot/`
 
-- 内置插件 `nbook.plot`，只有项目入口（阶段 B 没有界面）；登记进 `manifest.ts` 的 `productPlugins`。
-- `core/`：纯 TS，只引 `@notnotype/nb-canon/schema` 的类型与 `CanonReadView`，不引应用代码；以后要拆包是机械的。每个计算是 `(view: CanonReadView, …) => 结果` 的函数，诊断与读取视图共用。
-- `shared/declarations.ts`：五个 Component（`point`、`knowing`、`foreshadow`、`goal`、`attitude`）、三种标注（`reveal`、`presentLearns`、`node`）、诊断的声明，写成顶层贡献（描述符的 `contributions`）。
-- `backend/plugin.ts`：项目入口，经 `canonDiagnosticsKey` 登记诊断的计算；经新的项目内读取接口（下一节）给剧情的读取视图；提供远程合同 `nbook.plot/world`（读取视图与按视角过滤的视图，方法见下文）。
-- **id 改成带插件前缀**：剧情 Spec 里写的 `plot.point`、`plot.reveal`、`plot.relayBroken` 这些，按登记规则要写 `nbook.plot.point`、`nbook.plot.reveal`、`nbook.plot.relayBroken`（A5 发现）。B1 先改六份剧情 Spec 的 id（只改前缀，不改意思），再写声明。
+- 内置插件 `nbook.plot`，只有项目入口；登记进 `manifest.ts` 的 `productPlugins`。
+- `core/`：纯 TS，只引 `@notnotype/nb-canon/schema` 的类型与 `CanonReadView`；每个计算是 `(view, …) => 结果`。一次视图上的索引（每人在场与 `presentLearns` 的变更、每人 `know.知情` 的逐行历史、伏笔的节点）按 `view.stamp.inputDigest` 加模式缓存，知情、传话链、视图、伏笔都查索引（P3 第 11 条）。
+- `shared/declarations.ts`：Component、标注种类与诊断的顶层声明。
+- `backend/plugin.ts`：项目入口，经 `canonProjectKey` 登记诊断的计算、取快照；提供远程合同 `nbook.plot/world`。
+- **id 改成带插件前缀**：按一份精确的清单改（五个 Component、三种标注、十四个诊断：`plot.point` → `nbook.plot.point` 这样；capability id 如 `plot.knowledge` 与 Spec 之间的链接不动），不用前缀批量替换；改完跑 `docs:check` 与 `governance:check`（P3 第 16 条）。
 
-### 内核要补的：项目内读取接口与 `CanonReadView` 的两项
+### `core/knowledge.ts`：知情（含隐秘目标）
 
-- `CanonReadView` 加 `origins(address, position, mode)`（引擎已有，元素地址 `know.知情[k]` 给出每条改到这一行的变更与改后的值）与 `compareChanges(a, b)`（变更的全序：安放、再按创建的版本与 id，与引擎的事件先后相同）。有效知情要比较“显式的行最后一次变化”与“推出的行”谁更晚，只有读取位置（章首、章末）不够。
-- canon 插件给项目里别的插件一个读取接口：`canonDiagnosticsKey` 扩成 `canonProjectKey`（按调用方），加 `read(): Promise<CanonReadView>`（当前这份世界与正文快照）与 `openView`、`closeView`、`viewed(token)`（与远程同一套方法表）。剧情的读取视图与按视角过滤的视图都经它读，不经远程绕一圈。诊断的登记照旧在这个接口上。
+- **逐行历史**：对一个人只取一次 `origins({entry: 人, path: "know.知情"})`，按相邻两步的列表比较每一行：这一行前后不同才算这一行的一次变化（加、去、子字段改、整段替换都这样判；整段替换写出相同的行不算变化）。这样同一列表里别的行的增删不会混进来（P3 第 1 条）。
+- **有效知情** `effectiveKnowing(index, 人, 知识点, at)`：`at` 是读取位置或 `{before: 变更 id}`（后者用于传话链）。候选事件三种：这一行的显式变化（键是那条变更的 `eventKey`）、在场的 `presentLearns`（`cast` 里 `role: present`、记了 `who`；模式与套上同 `presence`；`degree` 缺省 `knows`，`怎么知道` 是 `witnessed`）、隐秘目标（目标条目带 `隐秘` 指向这个知识点、持有者是目标当前的父条目；键是目标出场的 `placementKey`，没有出场就是初值；`怎么知道` 记 `other`）。取键最大的一个；同一条变更里显式的优先；显式去掉一行回到“没有行”。条目树不随位置变，挪父条目以后按新的持有者算（Spec 没有写，在测试里写明）。
+- **两项诊断**（B2 声明并登记）：`relayBroken`：读取位置上的每一行有效知情，`怎么知道` 是 `told`、`谁告诉的` 是 T（马甲按 `sameAs` 归本体），取“这一行所在的变更”（最近一次让 `程度`、`怎么知道` 或 `谁告诉的` 变化的那条）之前 T 的有效知情；只查读取位置上的有效行，不查被覆盖的历史行。`knowingIncomplete`：输出 2 的三种。诊断按传入的模式算。
+- **读者** `readerKnowing(view, 知识点, P)` 与 `firstReveal(view, 知识点)`：按 `tellings({until: P, mark: reveal})`。
 
-### `core/knowledge.ts`：知情
+### `core/viewpoint.ts`：按视角过滤的视图（含经历与隐秘目标）
 
-- `effectiveKnowing(view, person, point, at)`：`at` 是读取位置或“某条变更之前”。显式的部分取 `origins({entry: person, path: "know.知情[point]"})` 里每一步的变更与改后的行；推出的部分取三种来源的变更（或出场位置）：在场的 `presentLearns`（`cast` 里 `role: present`、记了 `who` 的人，模式与套上同 `presence`）、隐秘目标的持有者（目标条目的出场位置，`knows`）。按 `compareChanges` 取最晚的一次；同一条变更里两者都有时显式优先；显式去掉一行回到“没有行”。
-- 两项诊断：`relayBroken`（对每条 `told` 的行，取 T 在那条变更之前的有效知情）、`knowingIncomplete`（误信缺“他以为的”、不是听说却写了谁告诉的、`揭穿` 指的不是主体的马甲）。只看主线、实际模式；按计划模式时算上计入的计划。
-- `readerKnowing(view, point, P)` 与 `firstReveal(view, point)`：按讲述的发生点（`tellings({until: P, mark: reveal})`）。
-- `experience(view, person, at)`：在场的变更（`presence`）加他的有效知情；每条变更只给 id、安放、描述、同场的人（马甲按称谓表的规则）、让他的知情起的变化。
-
-### `core/viewpoint.ts`：按视角过滤的视图（knowledge 输出 9）
-
-- 建在内核的视图令牌上：剧情插件为看的人 V 打开一张内核视图，再在它的读取结果上过滤；只开放读条目、读知识点、按名字找、V 的经历与知情，别的一律 `view-denied`。
-- 过滤规则逐条照输出 9：知识点按保密档与 V 的有效知情给内容、占位或 V 以为的那句；别的条目去掉 `know` 命名空间（V 自己的除外）、挂在下面的保密以上知识点不列、指向它们的引用与标注换占位；隐秘目标随它的知识点同样处理。
-- 占位与拒绝各记一条审计，与内核的视图审计一起读（剧情插件自己留最近 500 条，读取时与内核的合并按时间排）。
+- 剧情插件为看的人 V 经 `canonProjectKey.openView` 开一张内核视图，返回自己的句柄给远程调用方；按调用方记下，调用方释放时关掉（P3 第 8 条）。一次远程调用取一份快照，过滤只用这一份。
+- **读一个条目**：内核带令牌的读取结果去掉 `know`（V 自己的除外）与 `upcoming`，加 `children`（上限之前已出场、V 读得到的子条目，不列保密以上的知识点）；字段与标注里指向 V 读不到的知识点的引用换占位（引用位置按 `view.fields` 与 `view.markType` 找）。
+- **读一个知识点**：按保密档与 V 的有效知情给内容、占位或 V 以为的那句；隐秘目标随它的知识点处理（读不到时目标也是占位、按名字找不到、读持有者时不列）。
+- **按名字找**：去掉 V 读不到的知识点与隐秘目标。
+- **经历**：在场的变更（只给 id、安放、描述、同场的人、这条让 V 的知情起的变化；同场者用了马甲而 V 不知道揭穿它的知识点时只给马甲），带 `uncast`。
+- **知情**：`viewpoint.knowing(谁)`：问 V 自己给全部有效知情；问别人只给 V 自己也 `knows`、`suspects` 的、`common` 或 `trade` 的那几行（P3 第 12 条）。
+- 占位与拒绝经 `canonProjectKey.audit` 写进内核的审计（`kind`、`blocked`）。
 
 ### `core/foreshadowing.ts`：伏笔
 
-- 节点：生效的正文讲述上的 `node` 标注，加悬念答案上的 `reveal`（`hint` 算呼应、`explicit` 算回收）；计划的节点在细纲讲述上，按计划的章计；兑现的已写变更继承计划的节点（位置是它第一处生效的正文讲述）。
-- 阶段按读过的节点取最高一级（输出 2），意图为放弃时另显示。
-- 诊断：输出 6、7 的各项（`objectTouchedInText` 除外）；`longSilence` 的缺省间隔按 Spec 的数。
-- 账本：每个伏笔的阶段、节点、计划的节点、最后一次被提到的章、物件与它们最近一次被改的变更，按阶段、重要程度、意图、章的范围筛。
+- 节点：生效的正文讲述上的 `node`；悬念答案上的 `reveal`（`hint` 算呼应、`explicit` 算回收）。计划的节点：讲述所在对象是计划、讲述不是正文的（细纲等）；按计划安放的章计。别的非正文讲述上的节点忽略。
+- 继承：兑现计划的已写变更**自己的讲述上没有同一伏笔的节点时**，继承计划的节点，位置是它第一处生效的正文讲述；没有就不算数并给 `nodeWithoutTelling`（P3 第 13 条）。
+- 阶段按读过的节点取最高一级；意图为放弃时另显示。
+- 诊断（B4 声明并登记）：输出 6、7 除 `objectTouchedInText` 外各项。`objectTouched`：按章比较，安放在最早的埋下节点所在章之后（同章不算）、最后一次回收所在章之前的生效、套上（`outcome`）的变更，补丁改了物件条目的状态。`plannedNodeMissing` 用 `progress(计划, 第 N 章末尾)`。
+- 账本：每个伏笔的阶段、节点、计划的节点、最后一次被提到的章、物件与最近一次被改的变更，可筛。
 
-### `core/goals.ts`：目标的数据（阶段 B 的部分）
+### `core/goals.ts`
 
-- 两个 Component 的声明；冲突是对称的读取（goals 输出 2）；隐秘目标给持有者推出 `knows`（knowledge 输出 3，由 `effectiveKnowing` 用）。检查与目标表在阶段 E。
+- 两个 Component 的声明；冲突的对称读取（goals 输出 2）。隐秘目标在 B2、B3 里处理。
 
-### 远程合同 `nbook.plot/world`（读取，项目实例提供）
+### 远程合同 `nbook.plot/world`（读，项目实例提供）
 
-- `knowing`（人、知识点或全部、位置、模式）、`reader`（知识点、讲述位置）、`experience`（人、位置）、`ledger`（筛选）、`conflicts`（目标）；按视角：`openViewpoint`（看的人、线、上限、用途）、`viewpoint.entry`、`viewpoint.lookup`、`viewpoint.experience`、`viewpoint.knowing`、`closeViewpoint`、`viewpointAudit`。结果过远程预算，列表分页（与 canon 同一套游标）。
+- `knowing`（人、知识点或全部、位置、模式）、`reader`（知识点、讲述位置）、`experience`（人、位置）、`ledger`（筛选）、`conflicts`（目标）；`openViewpoint`（看的人、上限、用途；线恒为主线）、`viewpoint.entry`、`viewpoint.lookup`、`viewpoint.experience`、`viewpoint.knowing`、`closeViewpoint`。审计用 canon 的 `viewAudit`。失败通道同 canon（`canon` 业务失败码带详情）；列表用 B0 的分页辅助。
 
 ### 切片（阶段 B）
 
-1. **B1 插件骨架与声明**：改剧情 Spec 的 id 前缀；插件目录、描述符、五个 Component、三种标注与诊断的声明登记进去；项目入口能激活；`canonProjectKey` 与 `CanonReadView` 的两项。
-2. **B2 有效知情与读者**：`effectiveKnowing`、`readerKnowing`、`firstReveal`、`relayBroken`、`knowingIncomplete`，与 `knowing`、`reader` 两个读取。
-3. **B3 经历与按视角的视图**：`experience`、视图的方法表与过滤、审计。
-4. **B4 伏笔**：节点、继承、阶段、诊断、账本。
-5. **B5 目标的数据与隐秘目标**：冲突的对称读取；隐秘目标在知情与视图里的处理。
+0. **B0 内核的补充**：上面一节；nb-canon 测试、差分测试、canon 插件测试。
+1. **B1 插件骨架与声明**：改剧情 Spec 的 id（精确清单）；插件目录、描述符、Component 与标注种类的声明（诊断随 B2、B4）；项目入口能激活、能取快照。
+2. **B2 知情与读者**：逐行历史与索引、有效知情（含隐秘目标）、读者、两项诊断，`knowing`、`reader` 两个读取。
+3. **B3 经历与按视角的视图**：经历、视图的方法表与过滤（含隐秘目标）、审计、句柄的寿命；远程用例一条（含调用方断开后句柄失效、内核里不留视图）。
+4. **B4 伏笔**：节点、继承、阶段、诊断、账本；远程用例一条。
+5. **B5 冲突的对称读取**，与规模测量：规模脚本加一组剧情形状（200 人、500 个知识点、每章 3 条带 `presentLearns` 的在场变更、每章 1 条 `told` 的行、20 个伏笔），量“读待处理时剧情插件全部诊断的耗时”（预算 200 毫秒，超过时 `status` 本来就会标）与“视图读一个挂了 20 个保密知识点的条目”（20 毫秒）。
 
-每片：`bun test`（插件的 `core/` 用进程内的世界跑：nb-canon 的 `World` 加 `createReadView`，不起子进程）、两个包的类型检查；B3 与 B4 各加一条真实项目子进程的远程用例（canon.test.ts 的做法）。
+测试分两层（P3 第 9 条）：`core/` 的纯计算用 B0 导出的“由 `World` 与正文表建视图”的函数；视图、审计、诊断管线与缓存键用进程内的 `WorldService`（nb-canon node 入口）经 `canonProjectKey` 的同一套实现测；子进程只留远程合同与断开释放。
 
 ### 验收映射（阶段 B）
 
 | Spec 条目 | 测试 | 切片 |
 |---|---|---|
-| knowledge 输出 1、2、3、5、6、7，场景 1（前半）、3、4、5、7 | `plot/core/knowledge.test.ts` | B2 |
-| knowledge 输出 8、9，场景 1（视图与经历）、2 | `plot/core/viewpoint.test.ts`；远程用例一条 | B3 |
+| project 输出 24（视图不漏上限之后的值、审计的种类与被挡的对象） | `nb-canon/tests/views.test.ts` | B0 |
+| knowledge 输出 1、2、3、5、6、7，场景 1（前半）、3、4、5、7；goals 术语里的隐秘目标与 knowledge 输出 3 的推出行 | `plot/core/knowledge.test.ts`（含“中间给别的知识点加行”“整段替换写出相同的行”“挪父条目”） | B2 |
+| knowledge 输出 8、9，场景 1（视图与经历）、2；隐秘目标在视图里 | `plot/core/viewpoint.test.ts`；远程用例一条 | B3 |
 | foreshadowing 输出 1 到 4、6、7（除 `objectTouchedInText`）、8，场景 1 到 4 | `plot/core/foreshadowing.test.ts`；远程用例一条 | B4 |
-| goals 输出 1、2，场景 3；隐秘目标（goals 术语、knowledge 输出 3、9） | `plot/core/goals.test.ts` | B5 |
+| goals 输出 1、2，场景 3 | `plot/core/goals.test.ts` | B5 |
 
 ### 阶段 B 的风险
 
-- 有效知情每次都按“来历”重算：一个人、一个知识点要走一遍他的时间线；视图读一个条目要对挂在下面的每个保密知识点算一次。先按世界版本与读取输入缓存（Spec 允许），B3 用规模脚本的世界量一次视图读条目的耗时，超过 20 毫秒再优化。
-- `compareChanges` 要与两个引擎的先后完全一致：差分测试里加一项比对。
+- 排序键要与两个引擎完全一致：差分测试比对。
+- 剧情的诊断都在一次读待处理里同步算：按索引算，B5 量剧情形状的规模；超预算时先缓存索引（按读取输入摘要），再找开发者。
 
 ## Spec 与文档改动
 
