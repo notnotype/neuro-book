@@ -447,7 +447,7 @@ defineExpose({
     flex-direction: column;
     flex-shrink: 0;
     gap: 6px;
-    padding: 8px;
+    padding: 8px 12px;
     border-top: var(--border-w) solid var(--border-color);
     container-type: inline-size;
 }
@@ -484,7 +484,7 @@ defineExpose({
     min-height: 0;
     flex-direction: column;
     border: var(--border-w) solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-panel);
     background: var(--bg-input);
     transition: border-color var(--motion-fast) var(--ease-standard);
 }

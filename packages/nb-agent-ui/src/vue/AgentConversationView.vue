@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
-import {Button, DropdownMenu, IconButton, Spinner} from "@notnotype/nb-ui/components";
+import {Button, DropdownMenu, IconButton, OverlayScrollbar, Spinner} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     AgentConversationContext,
@@ -320,6 +320,8 @@ defineExpose({focusComposer, scrollToLatest});
                     </Button>
                 </span>
             </Transition>
+            <!-- 叠加的滚动条不占宽度：气泡、输入框、状态栏的右边才对得齐，内容变长时也不重排（docs/specs/workbench/views.md 输出 12）。 -->
+            <OverlayScrollbar :target="streamRef" />
         </div>
 
         <AgentConversationComposer
@@ -418,7 +420,6 @@ defineExpose({focusComposer, scrollToLatest});
     overflow-x: hidden;
     overflow-y: auto;
     padding: 20px 12px 12px;
-    scrollbar-gutter: stable;
     overflow-anchor: none;
 }
 

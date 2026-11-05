@@ -223,7 +223,7 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
 .acv-narration {
     margin: 4px 0;
     padding: 6px 10px;
-    border-radius: 10px;
+    border-radius: var(--radius-control);
     background: color-mix(in srgb, var(--text-main) 5%, transparent);
 }
 </style>

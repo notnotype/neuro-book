@@ -184,7 +184,7 @@ function nodeSubtitle(step: ToolStep): string {
 .acv-bubble {
     padding: 12px 16px;
     border: var(--border-w, 1px) solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--nb-agent-bubble-radius, var(--radius-panel));
     background: var(--bg-subtle);
     box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 10%, transparent);
     color: var(--text-main);
@@ -196,7 +196,7 @@ function nodeSubtitle(step: ToolStep): string {
 .acv-bubble[data-intermediate] {
     padding: 8px 12px;
     border-color: var(--divider);
-    border-radius: 12px;
+    border-radius: var(--nb-agent-bubble-radius, var(--radius-panel));
     background: color-mix(in srgb, var(--text-main) 3%, transparent);
     box-shadow: none;
 }
@@ -297,7 +297,7 @@ function nodeSubtitle(step: ToolStep): string {
     gap: 4px 6px;
     padding: 6px 10px;
     border-left: 2px solid var(--accent-main);
-    border-radius: 0 10px 10px 0;
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
     background: color-mix(in srgb, var(--accent-main) 5%, transparent);
     font-size: var(--text-sm);
 }

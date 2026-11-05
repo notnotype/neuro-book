@@ -273,6 +273,8 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
     margin-bottom: 24px;
     /* 内容相对角色行的缩进；AgentTurnBlock 与 AgentChainBlock 读它，整轮展开的过程容器里改小。 */
     --nb-agent-block-indent: 24px;
+    /* 用户气泡与 Agent 气泡同一个值。 */
+    --nb-agent-bubble-radius: var(--radius-panel);
 }
 
 .acv-message {
@@ -382,7 +384,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
     margin-left: var(--nb-agent-block-indent);
     padding: 12px 16px;
     border: var(--border-w, 1px) solid color-mix(in srgb, var(--accent-main) 18%, var(--border-color));
-    border-radius: 16px;
+    border-radius: var(--nb-agent-bubble-radius);
     background: color-mix(in srgb, var(--accent-main) 5%, var(--bg-subtle));
     box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 10%, transparent);
     color: var(--text-main);
