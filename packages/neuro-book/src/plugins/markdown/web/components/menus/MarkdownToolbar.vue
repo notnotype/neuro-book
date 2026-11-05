@@ -12,7 +12,7 @@ import {HIGHLIGHT_COLORS, LINK_COMMAND, TEXT_COLORS} from "./palette";
 import type {PaletteColor} from "./palette";
 
 const props = defineProps<{editing: EditorEditing; menus: EditorMenus; readonly: boolean}>();
-const emit = defineEmits<{(event: "prompt", action: "ruby" | "bilingual"): void}>();
+const emit = defineEmits<{(event: "prompt", action: "ruby" | "bilingual"): void; (event: "refocus"): void}>();
 
 /** 版面用的定值：`IconButton` 的 `sm` 是 26px，按钮之间 gap 2px，分隔线连两侧 9px，“⋯”占一个按钮。 */
 const BUTTON = 28;
@@ -147,7 +147,30 @@ const moreMenu = computed<DropdownMenuItemData[]>(() => {
     return sections.flatMap((section, index) => (index === 0 ? section : [{id: `sep-${String(index)}`, label: "", separator: true}, ...section]));
 });
 
+/**
+ * 菜单关闭时原语把焦点还给触发按钮，而且在动画之后：选了一项时要留在正文（输出 5），不能让它抢走用户接着点进正文的焦点。
+ * 选了要输入的项时焦点在输入框上，也不动。没选（Esc、点外面）时按原语的规则。
+ */
+let afterSelect: "refocus" | "keep" | null = null;
+const dropdownProps = {
+    onCloseAutoFocus: (event: Event): void => {
+        if (afterSelect === null) return;
+        event.preventDefault();
+        if (afterSelect === "refocus") emit("refocus");
+        afterSelect = null;
+    },
+};
+function onBlockSelect(id: string): void {
+    afterSelect = "refocus";
+    props.menus.run(id as EditingActionId);
+}
+function onAlignSelect(value: string): void {
+    afterSelect = "refocus";
+    props.menus.run("align", {value});
+}
+
 function onMore(id: string): void {
+    afterSelect = id === "ruby" || id === "bilingual" ? "keep" : "refocus";
     if (id.startsWith("command:")) props.menus.execute(id.slice("command:".length));
     else if (id.startsWith("contributed:")) props.menus.runContributed(EDITOR_TOOLBAR_POINT, id.slice("contributed:".length));
     else if (id.startsWith("align:")) props.menus.run("align", {value: id.slice("align:".length)});
@@ -191,14 +214,14 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
                     :disabled="props.readonly || !item.enabled"
                     @click="props.menus.execute(item.command)"
                 />
-                <DropdownMenu v-else-if="item.kind === 'block'" :items="blockMenu" @select="(id: string) => props.menus.run(id as EditingActionId)">
-                    <button type="button" class="markdown-toolbar__block nb-ui-focus-ring" :disabled="props.readonly" :title="props.menus.label('blockType')">
+                <DropdownMenu v-else-if="item.kind === 'block'" :items="blockMenu" :content-props="dropdownProps" @select="onBlockSelect">
+                    <button type="button" class="markdown-toolbar__block nb-ui-focus-ring" :disabled="props.readonly" :title="props.menus.label('blockType')" :aria-label="`${props.menus.label('blockType')}：${props.menus.title(currentBlock)}`">
                         <span class="truncate">{{ props.menus.title(currentBlock) }}</span>
                         <span class="i-lucide-chevron-down h-3 w-3 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
                     </button>
                 </DropdownMenu>
                 <MarkdownColorButton v-else-if="item.kind === 'color'" :action="item.action" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
-                <DropdownMenu v-else-if="item.kind === 'align'" :items="alignMenu" @select="(value: string) => props.menus.run('align', {value})">
+                <DropdownMenu v-else-if="item.kind === 'align'" :items="alignMenu" :content-props="dropdownProps" @select="onAlignSelect">
                     <button type="button" class="markdown-toolbar__align nb-ui-focus-ring" :disabled="props.readonly || !props.editing.enabled('align')" :title="props.menus.title('align')" :aria-label="props.menus.title('align')">
                         <span class="i-lucide-align-left h-4 w-4" aria-hidden="true" />
                         <span class="i-lucide-chevron-down h-3 w-3 text-[var(--text-secondary)]" aria-hidden="true" />
@@ -213,7 +236,7 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
                     @click="props.menus.runContributed(EDITOR_TOOLBAR_POINT, item.id)"
                 />
             </template>
-            <DropdownMenu root-class="ml-auto" :items="moreMenu" align="end" @select="onMore">
+            <DropdownMenu root-class="ml-auto" :items="moreMenu" align="end" :content-props="dropdownProps" @select="onMore">
                 <IconButton size="sm" icon-class="i-lucide-ellipsis" :title="props.menus.label('more')" :aria-label="props.menus.label('more')" />
             </DropdownMenu>
         </Toolbar>
