@@ -15,6 +15,7 @@ export interface SessionIndexEntry {
     readonly profile: string;
     readonly project?: string;
     readonly title: string | null;
+    readonly description: string | null;
     readonly archived: boolean;
     readonly background: boolean;
     readonly createdAt: number;

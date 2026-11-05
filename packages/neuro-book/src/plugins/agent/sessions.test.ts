@@ -17,6 +17,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {DELTA_WINDOW_MS, DIAGNOSTIC_TEXT_BYTES, EVENT_INLINE_BYTES, PAGE_BYTES} from "./backend/frames";
 import {agentExtension, agentProfile, agentTool} from "./shared/points";
+import {agentSessionsContract} from "./shared/remote";
 import type {LogItem, RemoteFrame} from "./shared/remote";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -200,6 +201,8 @@ describe("远程合同", () => {
         expect(await client.snapshot({sessionId: "nope"})).toMatchObject({ok: false, code: "session-not-found"});
         const sessionId = ok(await client.create({profile: WRITER})).sessionId;
         expect(await client.setTitle({sessionId, commandId: cid(), title: ""})).toMatchObject({ok: false, code: "empty-title"});
+        // 只给宿主的指令不进合同（harness/runtime.md 输出 72）：浏览器调不到它。
+        expect(Object.keys(agentSessionsContract.methods)).not.toContain("setGeneratedMeta");
         expect(await client.create({profile: "test.profiles.missing"})).toMatchObject({ok: false, code: "unknown-profile"});
         expect(ok(await client.profiles({})).map((profile) => profile.key)).toEqual([WRITER]);
     });

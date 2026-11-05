@@ -14,7 +14,7 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
+import type {CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
 
 import {TASK_ID} from "./contracts";
 import type {ProfileEntry} from "./contracts";
@@ -87,8 +87,11 @@ const commandArgs = {
     archive: {archived: Type.Boolean()},
 } as const;
 
+/** 暴露给远程的指令：只给宿主的不进合同（harness/runtime.md 输出 72）。 */
+export type RemoteCommandName = Exclude<CommandName, HostOnlyCommand>;
+
 type CommandMethods = {
-    readonly [K in CommandName]: {
+    readonly [K in RemoteCommandName]: {
         readonly input: TSchema;
         readonly output: ReturnType<typeof object<{value: CommandMap[K]["value"]; seq: number; replayed: boolean}>>;
         readonly effect: "write";
@@ -96,7 +99,7 @@ type CommandMethods = {
     };
 };
 
-const commandMethods = Object.fromEntries((Object.keys(commandArgs) as CommandName[]).map((name) => [name, {
+const commandMethods = Object.fromEntries((Object.keys(commandArgs) as RemoteCommandName[]).map((name) => [name, {
     input: Type.Object({sessionId: SessionId, commandId: CommandId, ...commandArgs[name]}, {additionalProperties: false}),
     output: object<unknown>(),
     effect: "write",
@@ -194,9 +197,9 @@ export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessi
  * 远程合同与内核的对照，内核改了这里编译不过：每条指令的参数字段相同、校验过的输入能交给内核（输入方向）；内核交出的
  * 失败详情过得了详情 schema（输出方向）。
  */
-type ArgsOf<K extends CommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
-type Matches<K extends CommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
-const argsMatchKernel: {readonly [K in CommandName]: Matches<K>} = {
+type ArgsOf<K extends RemoteCommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
+type Matches<K extends RemoteCommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
+const argsMatchKernel: {readonly [K in RemoteCommandName]: Matches<K>} = {
     send: true, enqueue: true, edit: true, remove: true, resolve: true, start: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
 };
 const detailsMatchKernel: {readonly [C in DetailCode]: CommandErrorDetails[C] extends Static<(typeof COMMAND_DETAILS)[C]> ? true : false} = {

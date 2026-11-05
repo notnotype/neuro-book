@@ -273,6 +273,33 @@ describe("设置、标题与归档", () => {
         const {events} = await session.raw.log({afterSeq: 0});
         expect(dataOf(events, "titleChanged")).toEqual([{title: "雨夜", by: "user"}]);
     });
+
+    test("输出 72、73：自动的标题与说明进快照；空的被拒；重发只生效一次", async () => {
+        await using session = await createTestSession();
+        expect((await session.raw.snapshot()).description).toBeNull();
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "  ", description: " "})).toEqual({ok: false, code: "empty-meta"});
+        const generated = {commandId: id(), title: " 雨夜 ", description: " 主角回到药铺 "};
+        expect(await session.raw.setGeneratedMeta(generated)).toMatchObject({ok: true, value: {titleApplied: true}, replayed: false});
+        expect(await session.raw.setGeneratedMeta(generated)).toMatchObject({ok: true, value: {titleApplied: true}, replayed: true});
+        const snapshot = await session.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual(["雨夜", "主角回到药铺"]);
+        const {events} = await session.raw.log({afterSeq: 0});
+        expect(dataOf(events, "titleChanged")).toEqual([{title: "雨夜", by: "auto"}]);
+        expect(dataOf(events, "descriptionChanged")).toEqual([{description: "主角回到药铺"}]);
+    });
+
+    test("输出 72：自动标题可以替换自动标题；用户改过之后不改标题，说明照写，重开之后也是", async () => {
+        await using session = await createTestSession();
+        await session.raw.setGeneratedMeta({commandId: id(), title: "兜底"});
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "生成的"})).toMatchObject({value: {titleApplied: true}});
+        expect((await session.raw.snapshot()).title).toBe("生成的");
+        await session.raw.setTitle({commandId: id(), title: "我的书"});
+        await session.reopen();
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "又生成的", description: "新的说明"})).toMatchObject({ok: true, value: {titleApplied: false}});
+        const snapshot = await session.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual(["我的书", "新的说明"]);
+        expect(dataOf((await session.raw.log({afterSeq: 0})).events, "titleChanged").at(-1)).toEqual({title: "我的书", by: "user"});
+    });
 });
 
 describe("收口", () => {

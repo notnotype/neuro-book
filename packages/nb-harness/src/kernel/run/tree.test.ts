@@ -205,6 +205,20 @@ describe("分支与 fork", () => {
 });
 
 describe("fork 的幂等", () => {
+    test("输出 74：fork 出的会话不带说明，也不带“用户改过”的记录", async () => {
+        await using session = await createTestSession({store: {root}});
+        session.model.script("好");
+        await session.say("开始");
+        await session.raw.setTitle({commandId: id(), title: "我的书"});
+        await session.raw.setGeneratedMeta({commandId: id(), description: "说明"});
+        const forked = await session.raw.fork({commandId: id()});
+        if (!forked.ok) throw new Error(forked.code);
+        await using copy = await createTestSession({store: {root}, open: forked.value.sessionId});
+        const snapshot = await copy.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual([null, null]);
+        expect(await copy.raw.setGeneratedMeta({commandId: id(), title: "新标题"})).toMatchObject({value: {titleApplied: true}});
+    });
+
     test("输出 37、session 输出 17：原会话受理批写失败后重开，用同一个 commandId 重发得到同一个 fork，不多建", async () => {
         await using session = await createTestSession({store: {root}, wrapStore: failOnce(accepting("fork"))});
         session.model.script("答一");

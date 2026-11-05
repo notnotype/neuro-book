@@ -8,6 +8,7 @@ export function emptyIndex(header: SessionHeader): SessionIndexEntry {
         profile: header.profile,
         ...(header.project === undefined ? {} : {project: header.project}),
         title: null,
+        description: null,
         archived: false,
         background: header.background === true,
         createdAt: header.createdAt,
@@ -24,6 +25,7 @@ export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent
         next = {
             ...next,
             title: event.type === "titleChanged" ? (data.title as string) : next.title,
+            description: event.type === "descriptionChanged" ? (data.description as string) : next.description,
             archived: event.type === "archived" ? (data.archived as boolean) : next.archived,
             turns: event.type === "turnStarted" ? next.turns + 1 : next.turns,
             lastActivityAt: Math.max(next.lastActivityAt, event.at),
@@ -36,10 +38,10 @@ export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent
 export function parseIndex(bytes: Uint8Array | null): SessionIndexEntry | null {
     if (bytes === null) return null;
     try {
-        const value = JSON.parse(new TextDecoder().decode(bytes)) as Omit<SessionIndexEntry, "background"> & {background?: boolean};
+        const value = JSON.parse(new TextDecoder().decode(bytes)) as Omit<SessionIndexEntry, "background" | "description"> & {background?: boolean; description?: string | null};
         if (typeof value !== "object" || value === null || typeof value.throughSeq !== "number") return null;
-        // 加 `background` 之前写下的索引没有它：那时还没有后台会话，读作前台，列表照样列得出来、不必先打开。
-        return {...value, background: value.background === true};
+        // 加 `background`、`description` 之前写下的索引没有它们：那时还没有后台会话，也没有说明，列表照样列得出来、不必先打开。
+        return {...value, background: value.background === true, description: value.description ?? null};
     } catch {
         // 索引只是缓存：读不懂就当没有，调用方按日志重建并写诊断 index-rebuilt。
         return null;

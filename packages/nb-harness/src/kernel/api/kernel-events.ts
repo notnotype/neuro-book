@@ -16,6 +16,7 @@ export const kernelEventSpecs = {
     profileChanged: {scope: "session", kind: "ctrl"},
     approvalRemembered: {scope: "session", kind: "ctrl"},
     titleChanged: {scope: "session", kind: "ctrl"},
+    descriptionChanged: {scope: "session", kind: "ctrl"},
     archived: {scope: "session", kind: "ctrl"},
     runStarted: {scope: "path", kind: "ctrl"},
     runEnded: {scope: "path", kind: "ctrl"},

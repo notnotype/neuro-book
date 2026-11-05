@@ -39,6 +39,7 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     profileChanged: null,
     approvalRemembered: null,
     titleChanged: async (data, map, type) => ({...data, title: await map.text(data.title as string, {type, field: "title"})}),
+    descriptionChanged: async (data, map, type) => ({...data, description: await map.text(data.description as string, {type, field: "description"})}),
     archived: null,
     runStarted: null,
     runEnded: async (data, map, type) => {

@@ -18,7 +18,7 @@ import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
-import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
 import {resolveCommand} from "../run/interaction.js";
 import {previewRequest} from "./preview.js";
@@ -289,6 +289,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         })),
         setTitle: (args) => closedGuard(() => setTitleCommand(host, args)),
         archive: (args) => closedGuard(() => archiveCommand(host, args)),
+        setGeneratedMeta: (args) => closedGuard(() => setGeneratedMetaCommand(host, args)),
         async snapshot(): Promise<SessionSnapshot> {
             const kernel = core.session.kernel;
             const errors = core.diagnostics.all().filter((item) => item.level === "error").length;
@@ -304,6 +305,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 buffer: [...kernel.buffer],
                 settings: kernel.core,
                 title: kernel.title,
+                description: kernel.description,
                 archived: kernel.archived,
                 readOnly: state.readOnly === null ? null : {code: state.readOnly as "unknown-profile"},
                 pendingReassembly: state.pendingReassembly === null && state.reassembling === null ? null : (() => {
@@ -497,7 +499,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
 
 /**
  * fork：把到 `leaf` 为止的路径复制成新会话（session.md 输出 20、runtime.md 输出 37）。事件保留 id 与父节点、重新编号；
- * 另带上最后一条 `profileChanged` 与全部 `settingsChanged`（新会话沿用 Profile 与设置），缓冲区与标题不带。会话头记来源。
+ * 另带上最后一条 `profileChanged` 与全部 `settingsChanged`（新会话沿用 Profile 与设置），缓冲区、标题与说明不带。会话头记来源。
  *
  * 新会话的 id 由来源会话与 `commandId` 定：原会话的受理批没写下就崩溃、或写失败，重发同一个 `commandId` 撞到已有的
  * 会话时直接交回它，不会多出第二个 fork（session.md 输出 17）。

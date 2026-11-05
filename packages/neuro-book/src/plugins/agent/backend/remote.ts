@@ -8,12 +8,12 @@ import {randomUUID} from "node:crypto";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 
-import {commandErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {CommandName, Diagnostic, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {commandErrors, hostOnlyCommands} from "@notnotype/nb-harness/kernel/contracts";
+import type {Diagnostic, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
 
 import type {AgentService} from "../shared/contracts";
-import type {agentSessionsContract} from "../shared/remote";
+import type {agentSessionsContract, RemoteCommandName} from "../shared/remote";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
 import {AgentSessionUnavailable} from "./sessions";
@@ -25,7 +25,8 @@ type Methods = RemoteImplementation<Contract>["methods"];
 /** 大预览的令牌活多久。 */
 export const PREVIEW_TOKEN_MS = 5 * 60_000;
 
-const COMMANDS = Object.keys(commandErrors) as CommandName[];
+const HOST_ONLY: ReadonlySet<string> = new Set(hostOnlyCommands);
+const COMMANDS = (Object.keys(commandErrors) as RemoteCommandName[]).filter((name) => !HOST_ONLY.has(name));
 
 export interface AgentRemoteOptions {
     readonly service: AgentService;
@@ -96,7 +97,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
     const commandMethods = Object.fromEntries(COMMANDS.map((name) => [name, async ({sessionId, ...args}: {sessionId: string} & Record<string, unknown>, context: {ok: (value: unknown) => unknown; fail: (code: string, detail?: unknown) => unknown}) => {
         const result = await (view(sessionId)[name] as (args: unknown) => Promise<{ok: boolean; value?: unknown; seq?: number; replayed?: boolean; code?: string; detail?: unknown}>)(args);
         return result.ok ? context.ok({value: result.value, seq: result.seq, replayed: result.replayed}) : context.fail(result.code!, result.detail);
-    }])) as unknown as Pick<Methods, CommandName>;
+    }])) as unknown as Pick<Methods, RemoteCommandName>;
 
     const methods: Methods = {
         ...commandMethods,

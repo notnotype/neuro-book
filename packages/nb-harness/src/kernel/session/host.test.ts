@@ -248,6 +248,7 @@ describe("出站过滤（按内容换）", () => {
             if (frame.type === "log" && frame.event.type === "runEnded") delivered.open();
         });
         await session.raw.setTitle({commandId: "title", title: "秘密的标题"});
+        await session.raw.setGeneratedMeta({commandId: "meta", description: "秘密的说明"});
         session.model.script({text: "我去查秘密", tools: [{tool: "lab.search", args: {query: "秘密"}}]}, {tools: [{tool: "lab.answer", args: {answer: "秘密在此"}}]});
         await session.say("告诉我秘密");
         await delivered.promise;
