@@ -22,7 +22,7 @@ updated: 2026-11-05
 
 已撤销。开发者 2026-11-05 体验后认为效果不好，要求先删掉，放进主题体系重做，见 [w00041](../../../w00041-themes-and-backgrounds/README.md)。
 
-代码、Spec `ui/backgrounds.md` 与 `workspace/files.md` 的“写背景图片”一节都已从 master 移除；最后一版代码是提交 `a9ec4f147`。下面的证据留作重做的参考。
+合同：功能已撤销，行为合同回到做之前。代码、Spec `ui/backgrounds.md` 与 `workspace/files.md` 的“写背景图片”一节都已从 master 移除；最后一版代码是提交 `a9ec4f147`。下面的证据留作重做的参考。
 
 - 计划：[plan.md](plan.md)。
 - 设计审查：[处理](evidences/design-review-disposition.txt)。实现审查：[处理](evidences/impl-review-disposition.txt)。

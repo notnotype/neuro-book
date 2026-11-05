@@ -24,7 +24,7 @@ updated: 2026-11-05
 
 ## 第一版留下的可复用事实
 
-都在 [t19 的证据](../../../../w00025-editor/tasks/t19-background-image/evidences/)里，是否沿用由这里的设计决定：
+都在 [t19 的证据](../../../w00025-editor/tasks/t19-background-image/README.md)里，是否沿用由这里的设计决定：
 
 - 对比度的量法：把文字藏起来截图，逐像素和文字颜色算，并有正向对照（`impl-review-disposition.txt`、`contrast.txt`；e2e 在提交 `a9ec4f147` 的 `e2e/backgrounds.e2e.ts`）。
 - 给窗口铺图时，子作用域覆盖 `--panel-surface` 行不通：派生变量已在根上算好，层数还会相乘。
