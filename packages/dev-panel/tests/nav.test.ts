@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test";
-import {arrangeNavWorks, byAttention, entryActive, NAV_GROUPS, pageTitle, splitNavWorks} from "../src/web/host/nav.js";
-import type {OverviewWork, RecordedValue} from "../src/web/host/types.js";
+import {arrangeNavWorks, byAttention, entryActive, foldNavTasks, NAV_GROUPS, pageTitle, splitNavWorks} from "../src/web/host/nav.js";
+import type {OverviewTask, OverviewWork, RecordedValue} from "../src/web/host/types.js";
 
 /** 左栏的描述表与 Work 树的取舍（t15 阶段 2b，D4）。 */
 const recorded = <T extends string>(value: T | null, origin: RecordedValue["origin"] = value === null ? "unset" : "recorded"): RecordedValue<T> => ({value, origin});
@@ -21,6 +21,29 @@ describe("Work 树只列活跃的（D4）", () => {
         ];
         const {shown, more} = splitNavWorks(works, NOW);
         expect([shown.map((entry) => entry.workId), more.map((entry) => entry.workId)]).toEqual([["w1", "w2", "w8"], ["w3", "w4", "w5", "w6", "w7"]]);
+    });
+});
+
+describe("Task 多的 Work 缺省收起一部分（开发者 11-05）", () => {
+    const task = (number: number, patch: Partial<OverviewTask> = {}) => ({taskId: `t${String(number).padStart(2, "0")}-x`, status: recorded<"done">("done"), waiting: 0, leaseCount: 0, ...patch}) as OverviewTask;
+    const numbers = (count: number) => Array.from({length: count}, (_, index) => task(index + 1));
+    const ids = (tasks: readonly OverviewTask[]) => tasks.map((entry) => entry.taskId.slice(0, 3));
+
+    test("不超过 8 个不折叠；超过时留最新的 6 个，顺序不变", () => {
+        expect(foldNavTasks(numbers(8), null)).toMatchObject({folded: 0});
+        const fold = foldNavTasks(numbers(9), null);
+        expect([ids(fold.shown), fold.folded]).toEqual([["t04", "t05", "t06", "t07", "t08", "t09"], 3]);
+    });
+
+    test("当前 Task、有题待答、有会话在动、进行中的再旧也留着，超过 6 个也不收", () => {
+        const tasks = numbers(30);
+        tasks[0] = task(1, {waiting: 2});
+        tasks[1] = task(2, {leaseCount: 1});
+        tasks[2] = task(3, {status: recorded<"active">("active") as OverviewTask["status"]});
+        const fold = foldNavTasks(tasks, "t04-x");
+        expect(ids(fold.shown)).toEqual(["t01", "t02", "t03", "t04", "t29", "t30"]);
+        tasks.splice(4, 3, task(5, {waiting: 1}), task(6, {waiting: 1}), task(7, {waiting: 1}));
+        expect(ids(foldNavTasks(tasks, "t04-x").shown)).toEqual(["t01", "t02", "t03", "t04", "t05", "t06", "t07"]);
     });
 });
 
