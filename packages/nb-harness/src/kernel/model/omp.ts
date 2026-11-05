@@ -323,13 +323,19 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
         let message: AssistantMessage;
         try {
             const stream = streamSimple(target.model, context, options);
+            const announcedCalls = new Set<string>();
             for await (const event of stream) {
                 if (event.type !== "start") firstEvent.seen();
                 if (event.type === "text_delta") onDelta({part: "text", text: event.delta});
                 else if (event.type === "thinking_delta") onDelta({part: "thinking", text: event.delta});
                 else if (event.type === "toolcall_delta") {
                     const call = event.partial.content[event.contentIndex];
-                    onDelta({part: "toolArgs", text: event.delta, ...(call?.type === "toolCall" ? {callId: call.id} : {})});
+                    if (call?.type !== "toolCall") onDelta({part: "toolArgs", text: event.delta});
+                    else {
+                        const first = !announcedCalls.has(call.id);
+                        announcedCalls.add(call.id);
+                        onDelta({part: "toolArgs", text: event.delta, callId: call.id, ...(first ? {tool: toolIds.get(call.name) ?? call.name} : {})});
+                    }
                 }
             }
             message = await stream.result();

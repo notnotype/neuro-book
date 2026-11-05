@@ -68,6 +68,8 @@ export class SessionClosedError extends Error {
     }
 }
 
+export const NO_SPEND: Spend = {cost: 0, unpriced: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0};
+
 export class SessionCore {
     readonly header: SessionHeader;
     readonly store: LogStore;
@@ -95,7 +97,7 @@ export class SessionCore {
      * 会话累计的费用（docs/specs/harness/runtime.md 输出 70）：按日志里全部事件算，不分分支，所以放在这里而不是 path 或 session 的状态里，
      * 回退不减，早于这段代码写下的日志打开时也算得出来。
      */
-    spend: Spend = {cost: 0, unpriced: 0};
+    spend: Spend = NO_SPEND;
     broken = false;
     /** 会话已关闭：之后的写入得 `SessionClosedError`，订阅已清空（runtime.md 输出 53）。 */
     closed = false;
@@ -230,7 +232,17 @@ export class SessionCore {
         if (event.type === "modelStarted" || event.type === "assistant" || event.type === "modelEnded" || event.type === "modelFailed") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
         if (event.type === "assistant" || event.type === "modelEnded" || event.type === "modelFailed") {
             const usage = (event.data as {usage?: Usage}).usage;
-            if (usage !== undefined) this.spend = usage.cost === null ? {...this.spend, unpriced: this.spend.unpriced + 1} : {...this.spend, cost: this.spend.cost + usage.cost};
+            if (usage !== undefined) {
+                const {spend} = this;
+                this.spend = {
+                    cost: spend.cost + (usage.cost ?? 0),
+                    unpriced: spend.unpriced + (usage.cost === null ? 1 : 0),
+                    input: spend.input + usage.input,
+                    output: spend.output + usage.output,
+                    cacheRead: spend.cacheRead + usage.cacheRead,
+                    cacheWrite: spend.cacheWrite + usage.cacheWrite,
+                };
+            }
         }
     }
 

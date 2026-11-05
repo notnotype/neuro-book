@@ -15,7 +15,7 @@ import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelError
 import type {AnyProfile} from "./profile.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 import type {LogStore, StorageResult} from "./storage.js";
-import type {ApprovalVerdict, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo} from "./tool.js";
+import type {ApprovalVerdict, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolStatus} from "./tool.js";
 
 // ====================================================================
 // 指令
@@ -143,8 +143,10 @@ export interface SessionSnapshot {
     profile: {id: string; hash: string};
     extensions: ExtensionInfo[];
     status: RunStatus;
-    /** 这个会话累计的费用。 */
+    /** 这个会话累计的费用与 token。 */
     usage: Spend;
+    /** 现在这个会话发对话请求会用哪个模型（runtime.md 输出 77）。 */
+    model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | {ok: false; code: ModelResolutionCode};
     buffer: BufferedInput[];
     settings: CoreSettings;
     title: string | null;
@@ -216,6 +218,8 @@ export interface DeltaFrame {
     n: number;
     part: "text" | "thinking" | "toolArgs";
     callId?: string;
+    /** `toolArgs` 的第一块带工具 id（runtime.md 输出 76）。 */
+    tool?: string;
     text: string;
 }
 export type Frame =
@@ -224,6 +228,8 @@ export type Frame =
     | DeltaFrame
     /** 不进日志的状态变化；`afterSeq` 说明它出现在哪条日志事件之后。 */
     | {type: "status"; status: RunStatus; afterSeq: number}
+    /** 一个工具调用执行完了（runtime.md 输出 76）。权威仍是这批调用的 `toolResult`：它们要等整批结束才一起写下。 */
+    | {type: "tool"; callId: string; status: ToolStatus}
     | {type: "diagnostic"; diagnostic: Diagnostic}
     /**
      * 有出站过滤时，一条事件不给这个读者看：订阅已经扫到 `through`。界面等指令的 `seq`（`CommandOk.seq`）时，log 帧的 seq
@@ -328,6 +334,8 @@ export interface ToolSessionContext {
     readonly sessionId: string;
     readonly profile: string;
     readonly project?: string;
+    /** 后台会话：没有人在看，工具不要等用户回答。 */
+    readonly background?: true;
 }
 
 /** 审批钩子看到的信息：工具声明、按参数求得的等级、核心设置、批准记忆。 */

@@ -228,6 +228,34 @@ describe("读扩展的导出", () => {
     });
 });
 
+describe("输出 76：一个调用执行完就推帧", () => {
+    test("先推帧，这批的 toolResult 整批写：下一个调用还在跑时界面已经知道前一个完了", async () => {
+        const seen: string[] = [];
+        let release = () => undefined as void;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await using session = await createTestSession({tools: [
+            {id: "lab.quick", execute: () => "快"},
+            {id: "lab.slow", execute: async () => {
+                seen.push("slow started");
+                await held;
+                return {text: "错了", status: "error", code: "lab-failed"};
+            }},
+        ]});
+        session.raw.subscribe((frame) => {
+            if (frame.type === "tool") {
+                seen.push(`frame ${frame.status}`);
+                if (frame.status === "ok") release();
+            }
+            if (frame.type === "log" && frame.event.type === "toolResult") seen.push("toolResult");
+        });
+        session.model.script({tools: [{tool: "lab.quick"}, {tool: "lab.slow"}]}, "完成");
+        await session.say("问");
+        expect(seen).toEqual(["frame ok", "slow started", "frame error", "toolResult", "toolResult"]);
+    });
+});
+
 describe("拦截链", () => {
     const tracer = (id: string, trace: string[]) => defineExtension({id, intercept: {
         model: async (request, next) => {
@@ -240,7 +268,7 @@ describe("拦截链", () => {
         },
     }});
 
-    test("输出 20：从外到里是插件的扩展、Profile 的 extensions、Profile 自己，审批在最里层", async () => {
+    test("输出 20、79：从外到里是插件的扩展、Profile 的 extensions、Profile 自己；审批在拦截链之前", async () => {
         const trace: string[] = [];
         const profile = defineProfile({
             id: "lab.chain", version: "1", name: "c", description: "c",
@@ -257,7 +285,7 @@ describe("拦截链", () => {
         await using session = await createTestSession({profile, approve, extensions: [tracer("lab.z", trace), tracer("lab.a", trace)], tools: [echo("lab.read")]});
         session.model.script({tools: [{tool: "lab.read"}]}, "完成");
         await session.say("问");
-        expect(trace.filter((line) => line.startsWith("tool") || line === "approve")).toEqual(["tool lab.a", "tool lab.z", "tool lab.chain.own", "tool profile", "approve"]);
+        expect(trace.filter((line) => line.startsWith("tool") || line === "approve")).toEqual(["approve", "tool lab.a", "tool lab.z", "tool lab.chain.own", "tool profile"]);
         expect(trace.filter((line) => line.startsWith("model")).slice(0, 3)).toEqual(["model lab.a", "model lab.z", "model lab.chain.own"]);
     });
 

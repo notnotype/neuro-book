@@ -26,6 +26,34 @@ afterAll(async () => {
 
 const types = (events: readonly LogEvent[]) => events.map((event) => event.type);
 
+describe("runtime.md 输出 77：快照的模型", () => {
+    test("解析到了给 id、窗口与推理档；解析不到给码", async () => {
+        const info = {id: "lab/m", contextWindow: 1000, capabilities: {vision: false, thinking: true}, efforts: ["low", "high"]};
+        await using session = await createTestSession({modelInfo: info});
+        expect((await session.raw.snapshot()).model).toEqual({ok: true, id: "lab/m", contextWindow: 1000, efforts: ["low", "high"]});
+        session.model.unavailable.set("turn", "no-credentials");
+        expect((await session.raw.snapshot()).model).toEqual({ok: false, code: "no-credentials"});
+    });
+
+    test("模型端口抛错（宿主正在停止）：快照照常给，算没有模型，写诊断", async () => {
+        await using session = await createTestSession({models: {resolve: () => {
+            throw new Error("models stopped");
+        }}});
+        const snapshot = await session.raw.snapshot();
+        expect(snapshot.model).toEqual({ok: false, code: "no-model"});
+        expect(snapshot.diagnostics.errors + snapshot.diagnostics.warnings).toBeGreaterThan(0);
+    });
+});
+
+describe("runtime.md 输出 78：工具上下文", () => {
+    test("后台会话的工具拿到 background；前台没有这个键", async () => {
+        await using background = await createTestSession({background: true});
+        expect(background.hostContexts.at(-1)?.background).toBe(true);
+        await using foreground = await createTestSession();
+        expect(foreground.hostContexts.at(-1)).not.toHaveProperty("background");
+    });
+});
+
 describe.each([["内存存储", false], ["JSONL 存储", true]] as const)("一轮对话（%s）", (_name, jsonl) => {
     const options = () => (jsonl ? {store: {root}} : {});
 

@@ -14,6 +14,8 @@ interface Reply {
     text?: string;
     reasoning?: string;
     tool?: {name: string; args: object};
+    /** 把这个工具的参数拆成几块发（参数很长时服务商就是这样流式给的）。 */
+    toolChunks?: {name: string; chunks: string[]};
     echoKey?: boolean;
     /** 错误正文回显这个请求头的值。 */
     echoHeader?: string;
@@ -54,7 +56,8 @@ const server = Bun.serve({
             }}), {headers: {"content-type": "text/event-stream"}});
         }
         const sse = first
-            + (reply.noFinish ? "" : chunk({choices: [{index: 0, delta: {}, finish_reason: reply.tool ? "tool_calls" : "stop"}]}))
+            + (reply.toolChunks?.chunks ?? []).map((part, index) => chunk({choices: [{index: 0, delta: {tool_calls: [{index: 0, ...(index === 0 ? {id: "call_1", type: "function"} : {}), function: {...(index === 0 ? {name: reply.toolChunks!.name} : {}), arguments: part}}]}, finish_reason: null}]})).join("")
+            + (reply.noFinish ? "" : chunk({choices: [{index: 0, delta: {}, finish_reason: reply.tool || reply.toolChunks ? "tool_calls" : "stop"}]}))
             + chunk({choices: [], usage: {prompt_tokens: 12, completion_tokens: 3, total_tokens: 15}})
             + "data: [DONE]\n\n";
         return new Response(sse, {headers: {"content-type": "text/event-stream"}});
@@ -124,6 +127,15 @@ describe("OMP 适配器", () => {
         }), {text: "在第 3 章"});
         expect(second.body.messages.map((message) => [message.role, message.tool_call_id ?? null])).toEqual([["system", null], ["user", null], ["assistant", null], ["tool", "call_1"]]);
         expect(second.response.content).toEqual([{kind: "text", text: "在第 3 章"}]);
+    });
+
+    test("输出 76：工具参数的增量：第一块带工具 id，同一个调用的片段连起来是参数的 JSON", async () => {
+        const {response, deltas} = await run(request({tools: [search]}), {toolChunks: {name: "story__search", chunks: ['{"q":', '"钟声', '"}']}});
+        expect(response.toolCalls).toMatchObject([{id: "call_1", tool: "story.search", args: {q: "钟声"}}]);
+        const parts = deltas.filter((delta) => delta.part === "toolArgs");
+        expect(parts.map((delta) => delta.tool)).toEqual(["story.search", undefined, undefined]);
+        expect(parts.every((delta) => delta.callId === "call_1")).toBe(true);
+        expect(JSON.parse(parts.map((delta) => delta.text).join(""))).toEqual({q: "钟声"});
     });
 
     test("工具消息的图片：能看图的模型收到图片块，不能看图的换成一行文字", async () => {

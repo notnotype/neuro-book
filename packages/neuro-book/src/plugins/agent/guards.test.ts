@@ -65,7 +65,7 @@ describe("费用", () => {
         expect(blocked.result).toMatchObject({reason: "error", error: {kind: "local", code: "cost-limit"}});
         expect(blocked.result.usage.cost).toBe(0);
         expect(session.model.requests).toHaveLength(1);
-        expect((await session.raw.snapshot()).usage).toEqual({cost: 1, unpriced: 0});
+        expect((await session.raw.snapshot()).usage).toMatchObject({cost: 1, unpriced: 0});
 
         limits.maxCost = 5;
         session.model.script({text: "接着", usage: {cost: 1}});

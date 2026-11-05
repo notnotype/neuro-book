@@ -54,6 +54,8 @@ export interface TestSessionOptions {
     /** 会话头的 `caller` 与 `questions`（子会话：提问交给父会话）。 */
     readonly caller?: SessionHeader["caller"];
     readonly questions?: SessionHeader["questions"];
+    /** 后台会话（`agent.startTask` 的 `background`）。 */
+    readonly background?: boolean;
     /** 测试模型的模型信息（缺省 `TEST_MODEL_INFO`）。 */
     readonly modelInfo?: ModelInfo;
     /** 出站过滤（`SessionEnv.outbound`）。 */
@@ -149,7 +151,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
     sessionCounter += 1;
     const created = options.open !== undefined
         ? await openSession(env, options.open)
-        : await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result}), ...(options.caller === undefined ? {} : {caller: options.caller}), ...(options.questions === undefined ? {} : {questions: options.questions})});
+        : await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result}), ...(options.background === undefined ? {} : {background: options.background}), ...(options.caller === undefined ? {} : {caller: options.caller}), ...(options.questions === undefined ? {} : {questions: options.questions})});
     if (!created.ok) throw new Error(`createTestSession failed: ${created.code} ${JSON.stringify("detail" in created ? created.detail : null)}`);
     let api = created.value;
     let commands = 0;

@@ -22,15 +22,37 @@ describe("输出 70：会话累计的费用", () => {
         await session.say("第二问");
         session.model.script({fail: "provider", usage: {cost: 3}});
         await session.say("第三问");
-        expect((await session.raw.snapshot()).usage).toEqual({cost: 5, unpriced: 1});
+        expect((await session.raw.snapshot()).usage).toMatchObject({cost: 5, unpriced: 1});
 
         const target = (await session.raw.rewindTargets()).find((item) => item.kind === "before-turn" && item.inputText === "第二问")!;
         const rewound = await session.raw.rewind({commandId: id(), to: target.id});
         expect(rewound.ok).toBe(true);
-        expect((await session.raw.snapshot()).usage).toEqual({cost: 5, unpriced: 1});
+        expect((await session.raw.snapshot()).usage).toMatchObject({cost: 5, unpriced: 1});
 
         await session.reopen();
-        expect((await session.raw.snapshot()).usage).toEqual({cost: 5, unpriced: 1});
+        expect((await session.raw.snapshot()).usage).toMatchObject({cost: 5, unpriced: 1});
+    });
+
+    test("输出 77：token 与费用同一个口径：回复、失败都算，回退不减，重开后还在", async () => {
+        const root = await createTestTmpRoot("nb-harness", "kernel-spend-tokens");
+        try {
+            const session = await createTestSession({store: {root}});
+            session.model.script({text: "一", usage: {input: 100, output: 10, cacheRead: 40, cacheWrite: 5}});
+            await session.say("第一问");
+            session.model.script({fail: "provider", usage: {input: 7, output: 1, cacheRead: 0, cacheWrite: 0}});
+            await session.say("第二问");
+            const expected = {input: 107, output: 11, cacheRead: 40, cacheWrite: 5};
+            expect((await session.raw.snapshot()).usage).toMatchObject(expected);
+            const target = (await session.raw.rewindTargets()).find((item) => item.kind === "before-turn" && item.inputText === "第二问")!;
+            expect((await session.raw.rewind({commandId: id(), to: target.id})).ok).toBe(true);
+            expect((await session.raw.snapshot()).usage).toMatchObject(expected);
+            const sessionId = session.id;
+            await session.close();
+            await using reopened = await createTestSession({store: {root}, open: sessionId});
+            expect((await reopened.raw.snapshot()).usage).toMatchObject(expected);
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
     });
 
     test("处理函数读到的含触发它的事件；模型拦截读到发请求这一刻的", async () => {
@@ -47,8 +69,8 @@ describe("输出 70：会话累计的费用", () => {
         session.model.script({text: "一", usage: {cost: 2}}, {text: "二", usage: {cost: 4}});
         await session.say("第一问");
         await session.say("第二问");
-        expect(seen.on).toEqual([{cost: 2, unpriced: 0}, {cost: 6, unpriced: 0}]);
-        expect(seen.intercept).toEqual([{cost: 0, unpriced: 0}, {cost: 2, unpriced: 0}]);
+        expect(seen.on).toMatchObject([{cost: 2, unpriced: 0}, {cost: 6, unpriced: 0}]);
+        expect(seen.intercept).toMatchObject([{cost: 0, unpriced: 0}, {cost: 2, unpriced: 0}]);
     });
 
     test("装上扩展之前花的钱也算：只看日志，不靠扩展的事件", async () => {
@@ -70,7 +92,7 @@ describe("输出 70：会话累计的费用", () => {
             const sent = await after.raw.send({commandId: id(), input: {text: "第二问"}});
             if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
             await after.raw.waitRun(sent.value.runId);
-            expect(seen).toEqual([{cost: 7, unpriced: 0}]);
+            expect(seen).toMatchObject([{cost: 7, unpriced: 0}]);
         } finally {
             await rm(root, {recursive: true, force: true});
         }

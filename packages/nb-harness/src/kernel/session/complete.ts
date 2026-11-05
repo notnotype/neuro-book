@@ -3,6 +3,7 @@
  * 请求是 Profile 的系统提示词加输入这一条用户消息（Profile 模板里别的内容是会话用的，不混进来），`purpose: "background"`。
  */
 
+import {NO_SPEND} from "../dispatch/core.js";
 import {addUsage} from "../run/results.js";
 import {retryDelay} from "../run/retry.js";
 import {replyText} from "../api/index.js";
@@ -26,7 +27,7 @@ export const complete: Complete = async (env, options) => {
     const resolution = env.models.resolve({settings: DEFAULT_CORE_SETTINGS, purpose: "background", profile: options.profile});
     if (!resolution.ok) return {ok: false, code: resolution.code};
     const {assembly} = assembled;
-    const state: StateAt = {path: initialSnapshot(assembly.reducers, "path", false), session: initialSnapshot(assembly.reducers, "session", false), history: initialHistory, settings: {}, continued: {}, spend: {cost: 0, unpriced: 0}};
+    const state: StateAt = {path: initialSnapshot(assembly.reducers, "path", false), session: initialSnapshot(assembly.reducers, "session", false), history: initialHistory, settings: {}, continued: {}, spend: NO_SPEND};
     const view = viewCtx(assembly, assembly.order[assembly.order.length - 1]!, state, {tools: [], model: resolution.info, now: env.clock.now(), initial: options.initial ?? null});
     const usage0 = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true};
     const failed = (message: string): {ok: true; result: Omit<RunResult, "runId" | "entries">} => ({ok: true, result: {reason: "error", stopReason: "error", text: "", result: null, error: {kind: "local", code: "profile-failed", message}, usage: usage0}});

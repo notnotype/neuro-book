@@ -1,8 +1,10 @@
 /**
  * 工具：生效工具集、实现的建与释放、一条回复里的调用怎样执行（docs/specs/harness/runtime.md 输出 15–19、23、25、26）。
  *
- * 一条回复的调用：先定下不执行的（工具不在集里、收尾工具没有单独调用），其余按 `concurrency` 切段，段内按调用顺序
- * 启动、并发等待，段与段之间串行。每个调用走工具拦截链，最里层依次是参数校验、只读模式、审批、`toolStarted`、执行。
+ * 一条回复的调用：先定下不执行的（工具不在集里、收尾工具没有单独调用），其余先过审批阶段（输出 79）：按调用顺序逐个判定，
+ * 要问用户的一起问，全部应答之后才执行；模型一次发起几个编辑时，用户是对着这一批作答，不是批了一个、执行、再问下一个。
+ * 之后按 `concurrency` 切段，段内按调用顺序启动、并发等待，段与段之间串行。每个调用走工具拦截链，最里层用审批阶段记下的结果，
+ * 拦截改了参数才重新判定（用户不会批了 X 却执行 Y）；然后 `toolStarted`、执行。
  * 结果不在这里写：交回按调用顺序排好的写入批，由运行循环一次写下（收尾时与 `runEnded` 同批）。
  *
  * 中止：运行的信号触发后在注入的时钟上等宽限期；期内完成的照常交回，没完成的记 `unknown`，之后才到的只写诊断。
@@ -15,6 +17,7 @@ import {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} f
 import type {ApprovalCtx, ApproveHook, JsonValue, KernelEvents, EventData, ModelCaller, ReplyEvent, Resources, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolImage, ToolResult, ToolSessionContext, ToolStatus, SessionEnv} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
+import {canonicalJson} from "../log/json.js";
 import {hostReader, interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {deepFreeze} from "../state/freeze.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
@@ -148,6 +151,12 @@ interface CallOutcome {
     readonly args: Readonly<Record<string, unknown>> | null;
 }
 
+/** 一个调用的判定：定下了不执行（`settled`）、可以执行（`allowed`，值是批准者），或者要问用户。 */
+type Judgment =
+    | {readonly kind: "settled"; readonly value: ToolResult; readonly by: string | null}
+    | {readonly kind: "allowed"; readonly by: string}
+    | {readonly kind: "ask"; readonly request: JsonValue};
+
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 const imagesKey = (images: readonly ToolImage[] | undefined): string => (images ?? []).map((image) => sha256(image.data)).join(",");
 /** 没有图片时就是文字的哈希，与没有图片那时写下的日志一致（docs/specs/harness/runtime.md 输出 59）。 */
@@ -221,8 +230,53 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         else runnable.push(call);
     }
 
-    const runCall = async (call: ToolCall): Promise<CallOutcome> => {
+    /** 参数校验、只读模式、审批钩子。不问用户。 */
+    const judge = async (call: ToolCall): Promise<Judgment> => {
         const declaration = byId.get(call.tool)!;
+        const problems = argumentProblems(declaration.parameters, call.args);
+        if (problems !== null) return {kind: "settled", value: {text: `Invalid arguments for ${call.tool}: ${problems}`, status: "error", code: "invalid-arguments"}, by: null};
+        const settings = core.session.kernel.core;
+        const effect = effectOf(declaration, call.args);
+        if (settings.readOnly && effect !== "read") return {kind: "settled", value: {text: `${call.tool} is not allowed in read-only mode.`, status: "denied", code: "read-only"}, by: "core"};
+        let verdict;
+        try {
+            verdict = await host.approve(call, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered}, {signal, sessionId: core.header.id, model: host.model, read: reader as ApprovalCtx["read"]});
+        } catch (error) {
+            core.diagnostics.add({code: "intercept-threw", entry: "intercept.tool", subject: "approve", params: {tool: call.tool}, message: `the approval hook threw for ${call.tool}; the call is denied`, cause: error}, core.head);
+            return {kind: "settled", value: {text: `The call to ${call.tool} was denied because approval failed.`, status: "denied", code: "intercept-failed"}, by: "core"};
+        }
+        if (verdict.verdict === "deny") return {kind: "settled", value: {text: `The call to ${call.tool} was denied (${verdict.rejection.code}).`, status: "denied", code: verdict.rejection.code}, by: verdict.rejection.by};
+        if (verdict.verdict === "allow") return {kind: "allowed", by: verdict.by};
+        return {kind: "ask", request: {tool: call.tool, args: call.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason})} as unknown as JsonValue};
+    };
+
+    /** 问用户（runtime.md 输出 39）并等应答。 */
+    const askUser = async (call: ToolCall, request: JsonValue): Promise<Exclude<Judgment, {kind: "ask"}>> => {
+        if (host.interactions === undefined) return {kind: "settled", value: {text: `The call to ${call.tool} needs the user's approval, which this run cannot ask for.`, status: "denied", code: "approval-unavailable"}, by: "core"};
+        const resolution = (await host.interactions.request(core, host.write, {callId: call.id, kind: "approval", request, async: false}, signal))!;
+        if (resolution.decision === "aborted" || resolution.decision === "interrupted") return {kind: "settled", value: {text: `The call to ${call.tool} was not run: the run was aborted while it waited for approval.`, status: "denied", code: resolution.decision === "interrupted" ? "interrupted-before-approval" : "aborted"}, by: "core"};
+        if (resolution.decision === "deny") return {kind: "settled", value: {text: `The user denied the call to ${call.tool}.${resolution.note === undefined ? "" : ` The user said: ${resolution.note}`}`, status: "denied", code: "user-denied"}, by: "user"};
+        return {kind: "allowed", by: "user"};
+    };
+
+    /** 审批阶段的结果：判定时的参数与结论，按 callId。执行时参数没变才算数。 */
+    const judged = new Map<string, {readonly args: string; judgment: Judgment}>();
+    const approvalPhase = async (): Promise<void> => {
+        for (const call of runnable) {
+            if (signal.aborted) return;
+            judged.set(call.id, {args: canonicalJson(call.args), judgment: await judge(call)});
+        }
+        // 全部判定完才写事项：钩子可能很慢，先写的话向导的“第 1 / N 个”的分母会一直变。`askUser` 同步走到写入，写入顺序就是调用顺序。
+        const asking = await Promise.allSettled(runnable.map(async (call) => {
+            const entry = judged.get(call.id);
+            if (entry?.judgment.kind === "ask") entry.judgment = await askUser(call, entry.judgment.request);
+        }));
+        // 中止之后不再写事项，没写的调用由外面记成没开始；写日志失败这类错误照常往外抛。
+        const failed = asking.find((result) => result.status === "rejected" && !(result.reason instanceof RunStoppedError));
+        if (failed !== undefined) throw (failed as PromiseRejectedResult).reason;
+    };
+
+    const runCall = async (call: ToolCall): Promise<CallOutcome> => {
         let terminalValue: ToolResult | null = null;
         let executed: ToolResult | null = null;
         let executedArgs: Readonly<Record<string, unknown>> | null = null;
@@ -245,29 +299,12 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                 };
                 // 中止之后不再开始新的调用：交给外面记成 unknown。
                 if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                const problems = argumentProblems(declaration.parameters, final.args);
-                if (problems !== null) return settle({text: `Invalid arguments for ${final.tool}: ${problems}`, status: "error", code: "invalid-arguments"});
-                const settings = core.session.kernel.core;
-                const effect = effectOf(declaration, final.args);
-                if (settings.readOnly && effect !== "read") return settle({text: `${final.tool} is not allowed in read-only mode.`, status: "denied", code: "read-only"}, "core");
-                let verdict;
-                try {
-                    verdict = await host.approve(final, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered}, {signal, sessionId: core.header.id, model: host.model, read: reader as ApprovalCtx["read"]});
-                } catch (error) {
-                    core.diagnostics.add({code: "intercept-threw", entry: "intercept.tool", subject: "approve", params: {tool: final.tool}, message: `the approval hook threw for ${final.tool}; the call is denied`, cause: error}, core.head);
-                    return settle({text: `The call to ${final.tool} was denied because approval failed.`, status: "denied", code: "intercept-failed"}, "core");
-                }
-                if (verdict.verdict === "deny") return settle({text: `The call to ${final.tool} was denied (${verdict.rejection.code}).`, status: "denied", code: verdict.rejection.code}, verdict.rejection.by);
-                let approvedBy = verdict.verdict === "allow" ? verdict.by : "user";
-                if (verdict.verdict === "ask") {
-                    // 审批要问用户（runtime.md 输出 39）：这次调用停下等 resolve；同一段里别的调用照常并发。
-                    if (host.interactions === undefined) return settle({text: `The call to ${final.tool} needs the user's approval, which this run cannot ask for.`, status: "denied", code: "approval-unavailable"}, "core");
-                    const request = {tool: final.tool, args: final.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason})} as unknown as JsonValue;
-                    const resolution = (await host.interactions.request(core, host.write, {callId: final.id, kind: "approval", request, async: false}, signal))!;
-                    if (resolution.decision === "aborted" || resolution.decision === "interrupted") return settle({text: `The call to ${final.tool} was not run: the run was aborted while it waited for approval.`, status: "denied", code: resolution.decision === "interrupted" ? "interrupted-before-approval" : "aborted"}, "core");
-                    if (resolution.decision === "deny") return settle({text: `The user denied the call to ${final.tool}.${resolution.note === undefined ? "" : ` The user said: ${resolution.note}`}`, status: "denied", code: "user-denied"}, "user");
-                    approvedBy = "user";
-                }
+                // 拦截改了参数时，审批阶段判定的不是现在要执行的这个（规范化 JSON 比较），按现在的参数重来，要问就再问一次。
+                const recorded = judged.get(final.id);
+                let judgment = recorded?.args === canonicalJson(final.args) ? recorded.judgment : await judge(final);
+                if (judgment.kind === "ask") judgment = await askUser(final, judgment.request);
+                if (judgment.kind === "settled") return settle(judgment.value, judgment.by);
+                const approvedBy = judgment.by;
                 // 先建好实现、再看一次中止，才写 toolStarted 并执行：建实现可能很慢，中止之后不该再开始执行。
                 let implementation: ToolImplementation;
                 try {
@@ -316,6 +353,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             ...(final.details === undefined || final.redacted === true ? {} : {details: final.details}),
             ...(!changed ? {} : final.redacted === true ? {rawHash: rawHashOf(ran)} : {raw: ran.text, ...(ran.images === undefined || ran.images.length === 0 ? {} : {rawImages: ran.images})}),
         };
+        core.emit({type: "tool", callId: call.id, status});
         return {data, failures: outcome.failures, args: executedArgs};
     };
 
@@ -333,6 +371,8 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     else signal.addEventListener("abort", startGrace, {once: true});
 
     try {
+        // 钩子可能不理会中止：和执行一样，宽限期到了就不再等它。
+        await Promise.race([approvalPhase(), graceOver]);
         let index = 0;
         while (index < runnable.length) {
             if (signal.aborted) break;

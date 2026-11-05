@@ -111,7 +111,7 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             let deltaNumber = 0;
             const response = await resolution.call(final, signal, (delta) => {
                 deltaNumber += 1;
-                core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId})});
+                core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId}), ...(delta.tool === undefined ? {} : {tool: delta.tool})});
             });
             sent.push({number, purpose: final.purpose, response});
             return response;

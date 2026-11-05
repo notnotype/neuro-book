@@ -291,21 +291,28 @@ describe("输出 67：压缩、审批与 complete", () => {
     });
 
     test("等审批时重发：waiting 不被盖掉", async () => {
-        // 审批钩子里的请求失败重发时，另一个调用已经在等用户：状态仍是 waiting。
+        // 审批钩子里的请求失败重发时，另一个调用已经在等用户：状态仍是 waiting。一条回复的审批是一起判定的，只有拦截改了参数才会在
+        // 执行时再判定（runtime.md 输出 79），所以这里两个调用的参数都被改过，并发地走到第二次判定。
         const asked = {resolve: (_value: unknown) => undefined as void};
         const pendingAsk = new Promise((resolve) => {
             asked.resolve = resolve;
         });
         const approve: ApproveHook = async (call, _info, ctx) => {
             if (call.tool === "lab.ask") return {verdict: "ask", reason: "要写文件"};
+            if (call.args.rewritten !== true) return {verdict: "allow", by: "test"};
             await pendingAsk;
             await ctx.model({system: [], messages: [], params: {}, headers: {}, tools: []}, {purpose: "approval"});
             return {verdict: "allow", by: "test"};
         };
+        const rewrite = defineExtension({id: "lab.rewrite", intercept: {tool: async (call, next) => next({...call, args: {rewritten: true}})}});
         const shared = {concurrency: "shared" as const};
-        await using session = await createTestSession({retry: retry(), approve, tools: [{id: "lab.ask", ...shared, execute: () => "问了"}, {id: "lab.auto", ...shared, execute: () => "自动"}]});
+        await using session = await createTestSession({retry: retry(), approve, extensions: [rewrite], tools: [{id: "lab.ask", ...shared, execute: () => "问了"}, {id: "lab.auto", ...shared, execute: () => "自动"}]});
         session.model.script({tools: [{tool: "lab.ask"}, {tool: "lab.auto"}]}, network, "批了", "完");
         const runId = await start(session, "问");
+        await session.clock.advance(0);
+        const first = (await session.raw.snapshot()).status;
+        if (first.state !== "waiting") throw new Error(`expected waiting, got ${first.state}`);
+        expect(await session.raw.resolve({commandId: id(), id: first.pending[0]!.id, decision: "allow"})).toMatchObject({ok: true});
         await session.clock.advance(0);
         const waiting = (await session.raw.snapshot()).status;
         expect(waiting.state).toBe("waiting");

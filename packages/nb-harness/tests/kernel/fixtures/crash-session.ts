@@ -4,7 +4,7 @@
  *
  * - in-tool：缓冲区先排一条 followup，再发一条话；模型调用 `lab.block`（开始执行后停住）与 `lab.never`（排在后面，没开始）。
  * - after-accept：`runStarted` 的反应停住：受理批已经落盘，运行循环还没开始。
- * - waiting-approval：模型先调用 `lab.asker`（提一个异步问题就返回），再调用 `lab.gated`（审批判定 ask），运行进 waiting 时停住。
+ * - waiting-approval：模型先调用 `lab.asker`（提一个异步问题就返回），下一条回复调用 `lab.gated`（审批判定 ask），运行进 waiting 时停住。
  * - compacting：一轮对话之后开一次只压缩的运行，压缩方法的模型请求（`modelStarted{purpose: "compaction"}`）写下后停住。
  * - retry-wait：模型请求失败，在等重发（时钟没人推，一直等）。
  */
@@ -59,7 +59,7 @@ if (mode === "compacting") {
     session.raw.subscribe((frame) => {
         if (frame.type === "status" && frame.status.state === "waiting") announce("waiting");
     });
-    session.model.script({tools: [{tool: "lab.asker"}, {tool: "lab.gated"}]});
+    session.model.script({tools: [{tool: "lab.asker"}]}, {tools: [{tool: "lab.gated"}]});
 } else if (mode === "retry-wait") {
     session.raw.subscribe((frame) => {
         if (frame.type === "status" && frame.status.state === "running" && frame.status.retry !== undefined) announce("retrying");

@@ -19,6 +19,10 @@ export type ModelErrorKind = "network" | "rate_limit" | "auth" | "quota" | "cont
 export interface Spend {
     readonly cost: number;
     readonly unpriced: number;
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead: number;
+    readonly cacheWrite: number;
 }
 
 /** OMP `Usage` 的全部计数。用量是下界：`complete` 为 false 表示取消过或可能漏计了服务商层的重试。 */
@@ -112,6 +116,8 @@ export interface ModelResponse {
 export interface ModelDelta {
     readonly part: "text" | "thinking" | "toolArgs";
     readonly callId?: string;
+    /** `toolArgs` 的第一块带工具 id：参数要几分钟才写完时（写一整章），界面靠它先画出这是什么调用。 */
+    readonly tool?: string;
     readonly text: string;
 }
 

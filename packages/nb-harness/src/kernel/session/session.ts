@@ -11,7 +11,7 @@
 import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, Frame, LogHandle, ModelInfo, OutboundContext, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, Frame, LogHandle, ModelInfo, ModelResolution, OutboundContext, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
 import {LogBrokenError, SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
@@ -38,6 +38,8 @@ interface Internals {
     readonly mounts: Mounts;
     readonly box: ToolBox;
     readonly environment: Omit<ViewEnvironment, "now">;
+    /** 现在发对话请求会用哪个模型。 */
+    turnModel(): ModelResolution;
     /** 会话为什么只读；可写时为 null。运行中发现必需工具缺失时变成 `tools-missing`（直到重开）。 */
     readOnly: string | null;
     closed: boolean;
@@ -100,7 +102,7 @@ const UNKNOWN_MODEL: ModelInfo = {id: "unknown/unknown", contextWindow: 0, capab
 function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | null): Internals {
     const control = new RunControl(core);
     // 交给宿主的上下文按当前装配取 Profile：换过 Profile（或重开时按最后一条 profileChanged 装配）后不是会话头里最初的。
-    const context = (): ToolSessionContext => ({sessionId: core.header.id, profile: core.assembly.profile.id, ...(core.header.project === undefined ? {} : {project: core.header.project})});
+    const context = (): ToolSessionContext => ({sessionId: core.header.id, profile: core.assembly.profile.id, ...(core.header.project === undefined ? {} : {project: core.header.project}), ...(core.header.background === true ? {background: true as const} : {})});
     const box = new ToolBox(core, env, context);
     const tools = () => box.current().map(toolInfo);
     // 初始输入在 sessionCreated 里；新建会话时它在这个对象建好之后才写下，所以用到时再找（找到一次就记住）。
@@ -113,16 +115,19 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         return initialCache.value;
     };
     let modelResolveReported = false;
-    const modelInfo = (): ModelInfo => {
+    const turnModel = (): ModelResolution => {
         try {
-            const resolution = env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
-            return resolution.ok ? resolution.info : UNKNOWN_MODEL;
+            return env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
         } catch (error) {
-            // 视图与反应的环境只拿模型信息来读（runtime.md 输出 75）：宿主这时可能正在停止、服务已撤回，不能让它打断收口。
+            // 视图、反应与快照只拿模型信息来读（runtime.md 输出 75）：宿主这时可能正在停止、服务已撤回，不能让它打断收口。
             if (!modelResolveReported) core.diagnostics.add({code: "model-resolve-threw", entry: "host", subject: "models", message: "the host's model port threw; the view sees an unknown model", cause: error}, core.head);
             modelResolveReported = true;
-            return UNKNOWN_MODEL;
+            return {ok: false, code: "no-model"};
         }
+    };
+    const modelInfo = (): ModelInfo => {
+        const resolution = turnModel();
+        return resolution.ok ? resolution.info : UNKNOWN_MODEL;
     };
     const environment = {get tools() {
         return tools();
@@ -136,7 +141,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources, session: context};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, profileLost: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
+    const state: Internals = {core, control, react, mounts, box, environment, turnModel, readOnly, closed: false, pendingReassembly: null, profileLost: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
         currentResources = env.resources(context());
         // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
         await box.retire([]);
@@ -310,6 +315,10 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 extensions: core.assembly.order.filter((item) => item.role !== "profile").map((item) => ({id: item.definition.id, plugin: item.plugin, version: item.version, status: core.revoked.has(item.definition.id) ? "revoked" : core.failedExtensions.has(item.definition.id) ? "failed" : "active", tags: item.definition.tags ?? []})),
                 status: control.status,
                 usage: core.spend,
+                model: (() => {
+                    const resolution = state.turnModel();
+                    return resolution.ok ? {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts} : {ok: false as const, code: resolution.code};
+                })(),
                 buffer: [...kernel.buffer],
                 settings: kernel.core,
                 title: kernel.title,
