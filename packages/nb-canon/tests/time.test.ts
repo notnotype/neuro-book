@@ -190,9 +190,58 @@ describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
             const audit = service.viewAudit();
             expect(audit !== "cursor-stale" && audit.items.map((item) => item.method)).toEqual(["time"]);
             expect(service.time({kind: "calendar"})).toMatchObject({answer: {kind: "calendar", unit: "minute"}});
+            // 按计划模式带令牌：计划的进展按上限算。第 1 章的计划在第 2 章才兑现：不带视图时它已兑现、不在网络里，带视图时还未兑现、在。
+            const planned = await service.publish({requestId: "q3", by: author, what: "edit", title: "计划", baseVersion: 2, puts: [
+                {ref: {kind: "change", id: "tmp:p"}, after: change("tmp:p", {kind: "chapter", chapter: "ch1", key: 9}, {kind: "plan", when: [date(2012, 3)]})},
+                {ref: {kind: "change", id: "tmp:f"}, after: change("tmp:f", {kind: "chapter", chapter: "ch2", key: 9}, {links: [{kind: "fulfills", plan: "tmp:p"}]})},
+            ]});
+            if (!planned.ok) throw new Error(JSON.stringify(planned.failure));
+            const p = planned.ids["tmp:p"]!;
+            const whole = service.time({kind: "event", change: p}, "planned");
+            expect(whole !== "cursor-stale" && (whole.answer as {start: {state: string}}).start.state).toBe("unconstrained");
+            const window = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch2", edge: "start"}, purpose: "writer"});
+            if (typeof window === "string" || !("token" in window)) throw new Error(JSON.stringify(window));
+            const early = service.viewed(window.token).time({kind: "event", change: p}, "planned");
+            expect(early !== "view-denied" && (early.answer as {start: {text: string}}).start.text).toBe("公元2012年3月");
         } finally {
             await service.stop();
             await rm(root, {recursive: true, force: true});
         }
+    });
+});
+
+describe("canon.time 输出 1、14、15、17：事件集与键（计划审查 P4 的 omp 份）", () => {
+    const at = (chapter: string, key: number) => ({kind: "chapter" as const, chapter, key});
+
+    test("同一变更里两条完全相同的不成立说法各成一项（键带出现序号）", () => {
+        const {world} = start();
+        const twice = ok(world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", at("ch1", 5), {when: [date(2012, 13), date(2012, 13)].map((statement) => ({...statement, month: "m13"}))})}], 1), "t"));
+        const keys = twice.revision.impact.pendingAdded.filter((key) => key.startsWith("time-invalid"));
+        expect(keys).toHaveLength(2);
+        expect(new Set(keys).size).toBe(2);
+    });
+
+    test("所在章删了的已写变更不算事件：指向它的说法跳过、不报", () => {
+        const {world, c1} = start();
+        const later = ok(world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", at("ch2", 0), {when: [{kind: "after", of: c1, gap: {min: 1, max: 1, unit: "day"}, basis: author}]})}], 1), "t"));
+        const dropped = later.world.withOptions({...later.world.options, order: new ChapterOrder(["ch2"])});
+        expect(dropped.time().built.network.component(c1)).toBeUndefined();
+        expect(dropped.time().items).toEqual([]);
+        expect(dropped.time().built.network.range(later.ids["tmp:x"]!)).toEqual({state: "unconstrained"});
+    });
+
+    test("按计划模式：登记换了、兑现变更不再套得上，计划回到未兑现、进事件集（缓存键带计划集合）", () => {
+        const {world} = start();
+        const hero: Entry = {...person("tmp:h", "勇者"), init: {name: "勇者", aliases: [], summary: "", text: [], data: {character: {type: PERSON.id, version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: null}}}}};
+        const planned = ok(world.publish(request([
+            {ref: {kind: "entry", id: "tmp:h"}, after: hero},
+            {ref: {kind: "change", id: "tmp:p"}, after: change("tmp:p", at("ch2", 0), {kind: "plan", when: [date(2012, 7)]})},
+            {ref: {kind: "change", id: "tmp:w"}, after: change("tmp:w", at("ch2", 5), {links: [{kind: "fulfills", plan: "tmp:p"}], patches: [{op: "set", at: {entry: "tmp:h", path: "character.状态"}, value: "走了"}]})},
+        ], 1), "t"));
+        const plan = planned.ids["tmp:p"]!;
+        expect(planned.world.time("planned").built.network.component(plan)).toBeUndefined();
+        // “状态”改成数字字段：兑现变更写的文字套不上了（数据没变，引擎随登记重建）。
+        const broken = planned.world.withOptions({...planned.world.options, registry: buildRegistry([{...PERSON, fields: PERSON.fields.map((field) => (field.id === "状态" ? {id: "状态", label: "状态", kind: "number" as const} : field))}])});
+        expect(broken.time("planned").built.network.component(plan)).toBeDefined();
     });
 });

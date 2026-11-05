@@ -31,9 +31,23 @@ export function compiledOf(calendar: Calendar): CompiledCalendar {
     return compiled;
 }
 
-/** 一条说法的键（待处理项与依据里用）：所在的变更与说法的规范 JSON，不按它在列表里的下标（输出 14）。 */
-export function statementKey(change: string, statement: Statement): string {
-    return `${change}|${canonicalJson(statement)}`;
+/**
+ * 一条说法的键（待处理项与依据里用）：所在的变更与说法的规范 JSON，不按它在列表里的下标（输出 14）。同一变更里写了几条完全相同
+ * 的说法时，从第二条起带出现的序号（`#1`、`#2`）：插进别的说法不扰动它们，删掉一条重复的也只少一个键。
+ */
+export function statementKey(change: string, statement: Statement, occurrence = 0): string {
+    return `${change}|${canonicalJson(statement)}${occurrence === 0 ? "" : `#${String(occurrence)}`}`;
+}
+
+/** 一条变更的全部说法与它们的键（重复的按出现先后编号）。 */
+export function keyedStatements(change: StoryChange): {readonly key: string; readonly statement: Statement}[] {
+    const seen = new Map<string, number>();
+    return ((change.when ?? []) as Statement[]).map((statement) => {
+        const json = canonicalJson(statement);
+        const occurrence = seen.get(json) ?? 0;
+        seen.set(json, occurrence + 1);
+        return {key: statementKey(change.id, statement, occurrence), statement};
+    });
 }
 
 const loweredCache = new WeakMap<TimeSettings, Map<string, Lowered>>();
@@ -69,7 +83,8 @@ export interface BuiltNetwork {
 /** 按事件集组网并求解。`plans` 是按计划模式加进来的计划（实际模式为空）。 */
 export function buildNetwork(input: TimeInput, settings: TimeSettings, plans: readonly string[] = []): BuiltNetwork {
     const events: StoryChange[] = [];
-    for (const change of input.changes.values()) if (change.kind === "written" && change.status === "active" && change.nature !== "narration") events.push(change);
+    // 安放在章序之外（所在章删了）的已写变更这时不算发生，不进网络（输出 17）；指向它的说法按“不是事件”跳过。
+    for (const change of input.changes.values()) if (change.kind === "written" && change.status === "active" && change.nature !== "narration" && placementRank(input.order, change.at) !== null) events.push(change);
     for (const id of plans) {
         const plan = input.changes.get(id);
         if (plan !== undefined && plan.nature !== "narration") events.push(plan);
@@ -79,7 +94,7 @@ export function buildNetwork(input: TimeInput, settings: TimeSettings, plans: re
     const tie = (a: StoryChange, b: StoryChange) => (input.createdAt.get(a.id) ?? 0) - (input.createdAt.get(b.id) ?? 0) || compareIds(a.id, b.id);
     ranked.sort((a, b) => (a.rank === null || b.rank === null ? (a.rank === b.rank ? tie(a.change, b.change) : a.rank === null ? 1 : -1) : compareRanks(a.rank, b.rank) || tie(a.change, b.change)));
     const assembled = assembleNetwork({
-        events: ranked.map(({change}) => ({id: change.id, statements: (change.when ?? []).map((statement) => ({ref: statementKey(change.id, statement as Statement), lowered: lowered(settings, statement as Statement)}))})),
+        events: ranked.map(({change}) => ({id: change.id, statements: keyedStatements(change).map(({key, statement}) => ({ref: key, lowered: lowered(settings, statement)}))})),
         exists: (id) => input.changes.has(id),
         bodyOf: (id) => input.entries.get(id)?.sameAs ?? id,
     });

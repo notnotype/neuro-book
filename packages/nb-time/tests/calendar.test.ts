@@ -42,6 +42,19 @@ describe("canon.time 输出 13：历法的校验", () => {
         expect(problemsOf({...ROYAL, periods: [{id: "p", name: "时", from: 0, to: 1}, {id: "p", name: "又", from: 1, to: 2}]})).toEqual(["/periods/1/id"]);
     });
 
+    test("周期上百万年的合法历法照样校验通过（不撑爆调用栈）；月很多的历法里，日期的开头照样按前缀和算对", () => {
+        expect(validateCalendar({version: 1, unit: "day", hoursPerDay: 24, minutesPerHour: 60, months: [{id: "m", name: "月", days: 30}], leap: [{every: 1_000_000, months: {m: 31}}]}).ok).toBe(true);
+        const many: Calendar = {version: 1, unit: "day", hoursPerDay: 24, minutesPerHour: 60, months: Array.from({length: 100_000}, (_, i) => ({id: `m${String(i)}`, name: `${String(i)}`, days: 1 + (i % 3)}))};
+        const compiled = compileCalendar(many);
+        expect(compiled.monthStart(0, 99_999)).toBe(Array.from({length: 99_999}, (_, i) => 1 + (i % 3)).reduce((sum, value) => sum + value, 0));
+        expect(dateRange(compiled, {year: 3, month: "m5", day: 1})).toMatchObject({lo: compiled.daysBefore(3) + compiled.monthStart(0, 5)});
+    });
+
+    test("“约”放得极大、超出时间的范围：不成立（out-of-range），不让不精确的数进网络", () => {
+        const compiled = compileCalendar(GREGORIAN);
+        expect(dateRange(compiled, {year: 0}, {year: Number.MAX_SAFE_INTEGER, month: 0, day: 0, hour: 0})).toEqual({invalid: "out-of-range"});
+    });
+
     test("两条上限：闰年周期乘月数不超过两百万；一年的最小单位数乘一千万零一要小于 2^53；纪的 start 在正负一千万以内", () => {
         expect(problemsOf({...ROYAL, leap: [{every: 99991, months: {r12: 31}}, {every: 99989, months: {r12: 30}}]})).toEqual(["/leap"]);
         expect(problemsOf({...ROYAL, hoursPerDay: 10_000, minutesPerHour: 10_000})).toEqual([""]);

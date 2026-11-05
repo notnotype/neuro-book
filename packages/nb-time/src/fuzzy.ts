@@ -3,7 +3,7 @@
  * 的最短与最长（`L_min`、`L_max`），不看起点，所以范围比按具体日期推算宽（Spec 的取舍）。
  */
 
-import type {Approx, Calendar, CompiledCalendar} from "./calendar";
+import {withinTime, type Approx, type Calendar, type CompiledCalendar} from "./calendar";
 
 export type GapUnit = "minute" | "hour" | "day" | "month" | "year";
 
@@ -98,7 +98,14 @@ export function resolveFuzzy(raw: unknown, calendar: Calendar): {readonly table:
 }
 
 /** 间隔换成 tick 的闭区间（上界可以是无穷）；词不在表里、单位比历法细时给原因。 */
-export function gapRange(compiled: CompiledCalendar, fuzzy: FuzzyTable, spec: GapSpec): {readonly lo: number; readonly hi: number} | {readonly invalid: "word-missing" | "unit-too-fine"} {
+export function gapRange(compiled: CompiledCalendar, fuzzy: FuzzyTable, spec: GapSpec): {readonly lo: number; readonly hi: number} | {readonly invalid: "word-missing" | "unit-too-fine" | "out-of-range"} {
+    const range = gapRangeRaw(compiled, fuzzy, spec);
+    if ("invalid" in range) return range;
+    // 间隔也要在时间的范围里（与日期同一条上限）：写得极大的年数不让不精确的数进网络。
+    return withinTime(compiled, range.lo) && (!Number.isFinite(range.hi) || withinTime(compiled, range.hi)) ? range : {invalid: "out-of-range"};
+}
+
+function gapRangeRaw(compiled: CompiledCalendar, fuzzy: FuzzyTable, spec: GapSpec): {readonly lo: number; readonly hi: number} | {readonly invalid: "word-missing" | "unit-too-fine"} {
     const gap = "word" in spec ? fuzzy.words[spec.word] : spec;
     if (gap === undefined) return {invalid: "word-missing"};
     if (unitTooFine(gap.unit, compiled.calendar)) return {invalid: "unit-too-fine"};

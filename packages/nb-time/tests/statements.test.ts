@@ -54,6 +54,11 @@ describe("canon.time 输入表：说法降成约束", () => {
         expect(lowerStatement({kind: "birth", who: "e1", basis: author}, compiled, DEFAULT_FUZZY)).toEqual({kind: "birth", who: "e1"});
     });
 
+    test("间隔与年数大到超出时间的范围：不成立（out-of-range）", () => {
+        expect(gapRange(compiled, DEFAULT_FUZZY, {min: Number.MAX_SAFE_INTEGER, unit: "year"})).toEqual({invalid: "out-of-range"});
+        expect(lowerStatement({kind: "age", who: "e1", years: {min: 1, max: 20_000_000}, basis: author}, compiled, DEFAULT_FUZZY)).toEqual({kind: "invalid", reason: "out-of-range"});
+    });
+
     test("不成立的给原因（输出 3）：月不在、词不在", () => {
         expect(lowerStatement({kind: "date", year: 2012, month: "m13", basis: author}, compiled, DEFAULT_FUZZY)).toEqual({kind: "invalid", reason: "month-missing"});
         expect(lowerStatement({kind: "after", of: "c1", gap: {word: "好些天"}, basis: author}, compiled, DEFAULT_FUZZY)).toEqual({kind: "invalid", reason: "word-missing"});

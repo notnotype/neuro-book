@@ -70,6 +70,13 @@ describe("canon.time 输出 5、验收 4：安放与时间对不上", () => {
             {id: "y", when: [{kind: "date", year: 2020, month: "m6", basis: author}]},
         ]);
         expect(placementMismatches(statementOnly.network, statementOnly.assembled.constraints)).toEqual([{event: "y", partner: "x", count: 1, criterion: "statement"}]);
+        // 只有说法判据成立、有两件：代表取最早时间最晚的那件，件数是 2。
+        const two = solve([
+            {id: "p", when: [{kind: "date", year: 2020, month: "m6", basis: author}, {kind: "after", of: "b", gap: {min: 1, max: 1, unit: "day"}, basis: author}]},
+            {id: "q", when: [{kind: "date", year: 2020, month: "m6", basis: author}, {kind: "after", of: "b", gap: {min: 2, max: 2, unit: "day"}, basis: author}]},
+            {id: "b", when: [{kind: "date", year: 2020, month: "m6", basis: author}]},
+        ]);
+        expect(placementMismatches(two.network, two.assembled.constraints)).toEqual([{event: "b", partner: "q", count: 2, criterion: "statement"}]);
         // 在 X 结束前一天之前：只推得出早于 X 的终点，推不出早于 X 的起点，不算对不上。
         const beforeEnd = solve([
             {id: "x", when: [{kind: "lasts", lasts: {min: 5, max: 5, unit: "day"}, basis: author}]},

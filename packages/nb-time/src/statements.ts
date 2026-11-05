@@ -5,7 +5,7 @@
  * `of` 那件事算不算事件、谁的出生事件是哪一件）。所以降约束的结果可以按（说法的内容、历法、词表）缓存，别的变更变了不会用到旧结果。
  */
 
-import {dateRange, type Calendar, type CompiledCalendar, type DateInvalid, type DateParts} from "./calendar";
+import {dateRange, MAX_ABS_YEAR, type Calendar, type CompiledCalendar, type DateInvalid, type DateParts} from "./calendar";
 import {gapProblem, gapRange, type FuzzyTable, type GapSpec} from "./fuzzy";
 
 export type Basis = {readonly kind: "telling"; readonly id: string} | {readonly kind: "author"} | {readonly kind: "inferred"; readonly note?: string};
@@ -40,7 +40,7 @@ export interface ConstraintTemplate {
 }
 
 /** 说法在当前历法与词表里不成立的原因（输出 3）。 */
-export type StatementInvalid = DateInvalid | "word-missing";
+export type StatementInvalid = DateInvalid | "word-missing" | "out-of-range";
 
 export type Lowered =
     | {readonly kind: "constraints"; readonly constraints: readonly ConstraintTemplate[]}
@@ -127,6 +127,7 @@ export function lowerStatement(statement: Statement, compiled: CompiledCalendar,
         case "age": {
             // E.s 减出生落在 [L_min(min), L_max(max + 1))：半开区间换成闭区间减一个 tick（输出 12）。
             const ticks = (n: number, extreme: "min" | "max") => compiled.spanDays("year", n, extreme) * compiled.ticksPerDay;
+            if (statement.years.max >= MAX_ABS_YEAR) return {kind: "invalid", reason: "out-of-range"};
             return {kind: "constraints", constraints: [{from: {kind: "birth", who: statement.who}, to: SELF_START, lo: ticks(statement.years.min, "min"), hi: ticks(statement.years.max + 1, "max") - 1}]};
         }
         case "birth":

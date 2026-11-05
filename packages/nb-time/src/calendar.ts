@@ -204,6 +204,12 @@ export function compileCalendar(calendar: Calendar): CompiledCalendar {
     }
     const prefixYears = [0];
     for (const days of yearDays) prefixYears.push(prefixYears.at(-1)! + days);
+    // 周期内每一年各月开头距年初的天数：monthStart 常数时间（月很多的历法也不按月扫）。
+    const monthCount = calendar.months.length;
+    const monthPrefix = new Float64Array(cycle * (monthCount + 1));
+    for (let r = 0; r < cycle; r += 1) for (let m = 0; m < monthCount; m += 1) monthPrefix[r * (monthCount + 1) + m + 1] = monthPrefix[r * (monthCount + 1) + m]! + table[r]![m]!;
+    let longestYear = 0;
+    for (const days of yearDays) if (days > longestYear) longestYear = days;
     const cycleDays = prefixYears.at(-1)!;
     const ticksPerMinute = calendar.unit === "minute" ? 1 : 0;
     const ticksPerHour = calendar.unit === "day" ? 0 : calendar.unit === "hour" ? 1 : calendar.minutesPerHour;
@@ -236,10 +242,11 @@ export function compileCalendar(calendar: Calendar): CompiledCalendar {
         ticksPerHour,
         ticksPerMinute,
         cycle,
-        longestYearTicks: Math.max(...yearDays) * ticksPerDay,
+        // 不用 Math.max(...yearDays)：周期可以有上百万年，展开成参数会撑爆调用栈。
+        longestYearTicks: longestYear * ticksPerDay,
         monthDays: (year) => table[mod(year, cycle)]!,
         daysBefore,
-        monthStart: (year, month) => daysBefore(year) + table[mod(year, cycle)]!.slice(0, month).reduce((sum, value) => sum + value, 0),
+        monthStart: (year, month) => daysBefore(year) + monthPrefix[mod(year, cycle) * (monthCount + 1) + month]!,
         dayParts: (day) => {
             const turns = Math.floor(day / cycleDays);
             const rest = day - turns * cycleDays;
@@ -287,7 +294,7 @@ export interface Approx {
     readonly hour: number;
 }
 
-export type DateInvalid = "era-missing" | "month-missing" | "period-missing" | "day-out-of-range" | "hour-out-of-range" | "minute-out-of-range" | "year-out-of-range" | "unit-too-fine" | "not-contiguous";
+export type DateInvalid = "era-missing" | "month-missing" | "period-missing" | "day-out-of-range" | "hour-out-of-range" | "minute-out-of-range" | "year-out-of-range" | "unit-too-fine" | "not-contiguous" | "out-of-range";
 
 /** 日期给到的最细一级。 */
 export type Precision = "year" | "month" | "day" | "period" | "hour" | "minute";
@@ -297,6 +304,17 @@ export type Precision = "year" | "month" | "day" | "period" | "hour" | "minute";
  * （分钟与时段用小时那一级）。不成立时给原因（输出 3）。
  */
 export function dateRange(compiled: CompiledCalendar, date: DateParts, approx?: Approx): {readonly lo: number; readonly hi: number; readonly precision: Precision} | {readonly invalid: DateInvalid} {
+    const result = dateRangeRaw(compiled, date, approx);
+    // 放宽以后的端点也要在时间的范围里（输出 13 的上限）：“约”的量写得极大时不让不精确的数进网络。
+    return "invalid" in result || (withinTime(compiled, result.lo) && withinTime(compiled, result.hi)) ? result : {invalid: "out-of-range"};
+}
+
+/** 一个 tick 在时间的范围里：绝对年份正负一千万以内（输出 13），换成 tick 一定是安全整数。 */
+export function withinTime(compiled: CompiledCalendar, tick: number): boolean {
+    return Math.abs(tick) <= compiled.longestYearTicks * (MAX_ABS_YEAR + 1);
+}
+
+function dateRangeRaw(compiled: CompiledCalendar, date: DateParts, approx?: Approx): {readonly lo: number; readonly hi: number; readonly precision: Precision} | {readonly invalid: DateInvalid} {
     const {calendar} = compiled;
     if ((date.day !== undefined && date.month === undefined) || ((date.period !== undefined || date.hour !== undefined) && date.day === undefined) || (date.period !== undefined && date.hour !== undefined) || (date.minute !== undefined && date.hour === undefined)) return {invalid: "not-contiguous"};
     if (calendar.unit === "day" && (date.hour !== undefined || date.minute !== undefined || date.period !== undefined)) return {invalid: "unit-too-fine"};

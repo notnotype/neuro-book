@@ -83,7 +83,13 @@ export function placementMismatches(network: TimeNetwork, constraints: readonly 
         if (placement.get(laterInTime)! > placement.get(earlierInTime)!) continue;
         const item = found.get(earlierInTime);
         if (item === undefined) found.set(earlierInTime, {partner: laterInTime, count: 1, criterion: "statement", partners: new Set([laterInTime])});
-        else if (!item.partners.has(laterInTime) && !(ranges.get(laterInTime)!.lo > ranges.get(earlierInTime)!.hi)) {
+        else if (item.criterion === "statement" && !item.partners.has(laterInTime)) {
+            // 只有说法判据成立时，代表取最早时间最晚的那件（与范围判据的代表同一规则）。
+            item.partners.add(laterInTime);
+            item.count += 1;
+            if (ranges.get(laterInTime)!.lo > ranges.get(item.partner)!.lo) item.partner = laterInTime;
+        }
+        else if (item.criterion === "range" && !item.partners.has(laterInTime) && !(ranges.get(laterInTime)!.lo > ranges.get(earlierInTime)!.hi)) {
             // 范围判据没数到的 A 另加一件。
             item.partners.add(laterInTime);
             item.count += 1;
