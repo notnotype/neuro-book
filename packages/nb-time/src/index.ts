@@ -8,3 +8,5 @@ export {DEFAULT_FUZZY, gapProblem, gapRange, resolveFuzzy, unitTooFine} from "./
 export type {FuzzyProblem, FuzzyTable, Gap, GapSpec, GapUnit} from "./fuzzy";
 export {lowerStatement, validateStatements} from "./statements";
 export type {Basis, ConstraintTemplate, Edge, Endpoint, Lowered, Statement, StatementInvalid, StatementProblem} from "./statements";
+export {assembleNetwork, MAX_CYCLES_PER_COMPONENT, solveNetwork} from "./network";
+export type {AssembledNetwork, Between, Conflict, EndpointInvalid, EventRange, NetworkConstraint, NetworkEventInput, NodeRef, RangeBasis, TimeNetwork} from "./network";
