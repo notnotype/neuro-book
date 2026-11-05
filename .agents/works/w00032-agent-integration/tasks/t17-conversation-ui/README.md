@@ -162,7 +162,9 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 
 ## 当前状态
 
-计划第二稿已确认：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。执行位置 `.worktree/w00032-t17-conversation-ui`，分支 `feat/w00032-t17-conversation-ui`。实施中，第 1 片圆角与对齐。继续按钮的图标在 review v6 待确认。
+计划第二稿已确认：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。执行位置 `.worktree/w00032-t17-conversation-ui`，分支 `feat/w00032-t17-conversation-ui`。实施中，第 1 片圆角与对齐。
+
+继续按钮（review v6 答复）：开发者说“现在图标没有在按钮内居中了”。静态稿是用一个假图标盖在发送按钮上的，第 6 片换成发送按钮里真的图标，并量它和按钮的中心重合，再截图给开发者看。
 
 ## 下一步
 
