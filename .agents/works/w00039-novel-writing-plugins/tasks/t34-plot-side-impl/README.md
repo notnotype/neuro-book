@@ -27,12 +27,11 @@ updated: 2026-11-05
 
 ## 当前状态
 
-2026-11-05 经 nbdev 新建；写好 [`plan.md`](plan.md)（总的 6 个阶段，阶段 A 分 8 片写细），开发者同意按它自主推进。下一步：计划审查（快速审查：Claude Opus 为 P1，omp 为 P2 在后台）。
-
-技术选型的初步结论（写进计划前再核实）：
-- 标注载荷的校验用 TypeBox 1.x 的 `typebox/schema`（`Check`、`Errors` 直接校验 JSON Schema），nb-canon 已经依赖 TypeBox，不另加库；
-- 摘要用内核现有的、由宿主注入的 `digest` 端口（同步 SHA-256），规范的 JSON 用现有的 `stableStringify`（与 RFC 8785 的键序和数的写法一致）。
+2026-11-05：
+- 计划第二版（处理计划审查 P1 的 17 条，[`evidences/plan-review-P1-resolution.txt`](evidences/plan-review-P1-resolution.txt)）；P2（omp）在后台。
+- 阶段 A：
+  - A1 已提交（分支 26e40e341）：日志格式 2；未决问题改成决策；讲述的 id（程序发、全局不复用）与按来源的形状校验，只查新写或改过的讲述；修订里按路径声明哪些数组按 id 拆；列表末尾的追加互不依赖。nb-canon 248 个测试、canon 插件 8 个测试通过，两个包类型检查通过。
 
 ## 下一步
 
-1. 计划审查，处理后开工 A1。
+1. A2：正文快照与读取输入、游标、`canonicalJson`。

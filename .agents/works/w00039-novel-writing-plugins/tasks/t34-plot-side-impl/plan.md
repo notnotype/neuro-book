@@ -190,7 +190,7 @@
    - 样本转换与回放、node-log 测试、`scripts/scale.ts` 跟着改。
 2. **A2 正文快照与读取输入**：服务持有正文快照、`textChanged`、读取输入的摘要、游标改成“摘要加偏移”、`canonicalJson`。
 3. **A3 引用与替换**：`references.ts` 的两份清单、修订的 `refs`、依赖与改动记录读 `refs`、`ref`、`keyedBy`、元素语义档；替换掉三张键表。
-4. **A4 讲述**：id 的分配与 observe、发生点、失联、读过的讲述、`tellings` 方法。
+4. **A4 讲述**：发生点、失联、读过的讲述、`tellings` 方法。（讲述 id 的分配与 observe 在 A1 做了：它和 `told[id]` 的修订路径是同一件事。）
 5. **A5 标注种类与诊断的登记**：`canon.marks`、`canon.diagnostics` 的声明与校验，三张版本表；标注挂在讲述、剧情变更、决策上，载荷校验与只读规则。
 6. **A6 参与者、在场、叙述**：`cast`、`presence`、`nature: narration`、本章涉及的条目、`changes` 的新筛选。
 7. **A7 决策与作者授权**：状态表、转换与字段去留、建议、挂的对象（含诊断键）、授权与校验、还原的授权与预览。
