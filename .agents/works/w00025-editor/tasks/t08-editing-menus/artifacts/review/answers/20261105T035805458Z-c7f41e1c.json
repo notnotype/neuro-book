@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t08-editing-menus",
+    "artifactId": "review",
+    "answerId": "20261105T035805458Z-c7f41e1c",
+    "artifactVersion": 5,
+    "contentHash": "f07ff5543aedb0ea9a9d58944e932d30a47728f393110339c18eb70c0192b267",
+    "submittedAt": "2026-11-05T03:58:04.827Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r3-block": "core",
+        "r3-context": "basic",
+        "r3-slash": "plain"
+    },
+    "comments": {},
+    "note": null
+}
