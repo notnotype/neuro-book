@@ -19,8 +19,8 @@ updated: 2026-11-05
 
 ## 当前状态
 
-计划：[plan.md](plan.md)，开发者已确认。设计审查中，处理后开工。
+计划：[plan.md](plan.md)。设计审查（前端 12 条、后端 6 条，[处理](evidences/design-review-disposition.txt)）已改进计划。开发者确认的“遮罩下限 75%”依据不足，评审板第 2 轮 `r2-legibility` 在重新问，答复前不开工。
 
 ## 下一步
 
-处理设计审查，按切片实施。
+开发者答复 `r2-legibility` 后按切片实施。
