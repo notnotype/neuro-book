@@ -35,13 +35,13 @@ updated: 2026-11-05
 
 ## 当前状态
 
-完成，已合入本地 master（`fcefe8f4a`），没有 push。合同：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)，状态 `planned`、待晋升，晋升由开发者批准。
+完成，已合入本地 master（`fcefe8f4a`、`b079a5834`），没有 push。合同：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)，状态 `planned`、待晋升，晋升由开发者批准。
 
 做了：`nbook.edit.*` 命令与公开键、五个菜单位置、固定工具栏（可在“视图”菜单关掉）、选区浮动菜单、斜杠菜单（拼音首字母筛选）、块按钮与拖动、块菜单、正文右键菜单。nb-ui 新增 `AnchoredPopover`，`Toolbar` 加 `variant="flat"`。Composer 与正文共用抽出来的触发插件。
 
 验证：
 
-- 新 e2e `markdown-editing.e2e.ts` 31 条（真实 Chrome、产品页、真实文件服务），改完后连跑两轮 62 次全过；现有编辑器 e2e（`markdown-input`、`lab-markdown`、`lab-editor`、`editor-area`、`editor-types`）同跑：两条失败，一条是这份新测试的写法错误，已改；另一条 `markdown-input` 的“行尾用输入法打字”是打开文件时的竞争，单独跑三次全过。之前一轮 `editor-area` 的“重新打开回到上次的光标”在负载下失败一次，单独跑两次全过，判断是按键早于聚焦。这两条老用例的等待没有改。
+- 新 e2e `markdown-editing.e2e.ts` 32 条（真实 Chrome、产品页、真实文件服务），合入 master 的改动之后连跑两轮 64 次全过；复跑时抓到一个真缺陷：工具栏下拉菜单关闭时把焦点还给按钮，已修（`b079a5834`）；现有编辑器 e2e（`markdown-input`、`lab-markdown`、`lab-editor`、`editor-area`、`editor-types`）同跑：两条失败，一条是这份新测试的写法错误，已改；另一条 `markdown-input` 的“行尾用输入法打字”是打开文件时的竞争，单独跑三次全过。之前一轮 `editor-area` 的“重新打开回到上次的光标”在负载下失败一次，单独跑两次全过，判断是按键早于聚焦。这两条老用例的等待没有改。
 - `test:affected --since master --typecheck`：只有 nb-story 类型检查失败（`qa-service.ts:548`，老问题）。
 - `governance:check`、`docs:check` 通过。
 - 入口 chunk 不含 Tiptap、ProseMirror，拼音库单独分块。
