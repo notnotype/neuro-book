@@ -115,6 +115,16 @@ export type PendingItem =
     | {readonly kind: "held"; readonly change: string; readonly reason: "conflict" | "unsure"}
     | {readonly kind: "chapter-deleted"; readonly ref: ObjectRef};
 
+/**
+ * 一个地址在某一刻的原始状态，带过去的值用（canon/worldlines.md 输出 6）：值（语义档是起点，不是拼起来的文字）、这个地址下面每个
+ * 语义档路径在起点之后的事件、是否不完整。
+ */
+export interface CarrySlot {
+    readonly value: unknown;
+    readonly events: Readonly<Record<string, readonly string[]>>;
+    readonly incomplete: boolean;
+}
+
 /** 引擎对外回答的问题；两种实现对同一输入的回答必须逐字相同。 */
 export interface Engine {
     /** 读取位置指向不在章序里的章时返回 `chapter-not-found`。 */
@@ -133,4 +143,9 @@ export interface Engine {
     pending(position: ReadPosition, mode?: Mode): readonly PendingItem[] | "chapter-not-found";
     /** 某一章涉及的条目（model.md 输出 20）。 */
     chapterEntries(chapter: string): readonly string[];
+    /**
+     * 实际模式下，安放的全序不晚于这条变更（含它自己；与它在不在事件序列里无关）的那一刻，这个地址的原始状态。变更不存在或没有
+     * 安放、条目不在（或已删除）时为 null。
+     */
+    slotAfter(change: string, at: Address): CarrySlot | null;
 }

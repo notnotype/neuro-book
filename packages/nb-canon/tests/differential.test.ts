@@ -251,6 +251,11 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
         for (const mode of ["actual", "planned"] as const) expect(inc.eventKey(change.id, mode), `${where()} eventKey ${change.id} ${mode}`).toEqual(ref.eventKey(change.id, mode));
         if (change.kind === "plan") for (const position of positions) expect(inc.progress(change.id, position), `${where()} progress ${change.id}`).toEqual(ref.progress(change.id, position));
     }
+    // 带过去的值要的原始状态（worldlines 输出 6）：每条变更之后，前三个条目的数、语义档与带语义档子字段的列表。
+    const entries = [...inputs.world.entries.keys()].slice(0, 3);
+    for (const change of inputs.world.changes.values()) {
+        for (const entry of entries) for (const path of ["panel.存款", "character.态度", "know.认得"]) expect(inc.slotAfter(change.id, {entry, path}), `${where()} slotAfter ${change.id} ${entry} ${path}`).toEqual(ref.slotAfter(change.id, {entry, path}));
+    }
     for (const position of positions) expect(inc.plannedAt(position), `${where()} plannedAt ${JSON.stringify(position)}`).toEqual(ref.plannedAt(position));
     for (const chapter of inputs.order.ids) expect(inc.chapterEntries(chapter)).toEqual(ref.chapterEntries(chapter));
 }

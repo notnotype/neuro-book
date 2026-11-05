@@ -28,7 +28,7 @@ import {applyChange, incompleteAt, replayAnchor, replayChangeOnEntry, type Chang
 import {fieldOf, reductionFieldId} from "./reference";
 import {sortPending, type RankedPending} from "./pending";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, WorldData} from "./types";
-import {buildEntryView, readEntryAddress, type EntryFold} from "./views";
+import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 
 const SNAPSHOT_EVERY = 8;
 
@@ -470,6 +470,13 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         },
 
         detail: (id) => actual.outcomes.get(id),
+
+        slotAfter(id, at) {
+            const change = world.changes.get(id);
+            const rank = change === undefined ? null : placementRank(order, change.at);
+            if (rank === null) return null;
+            return carrySlotOf(foldAtPoint(actual, world, registry, at.entry, {rank, tie: tieOf(id), inclusive: true}), at);
+        },
 
         valueBefore(id, at) {
             const event = actual.events.find((candidate) => candidate.kind === "change" && candidate.change.id === id);

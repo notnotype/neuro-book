@@ -18,7 +18,7 @@ import {ENABLE_FIELD} from "../core/identifiers";
 import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type OrderTie, type Rank} from "../core/position";
 import type {Address, Check, Entry, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
 import {applyChange, incompleteAt, initialFoldState, namespaceFields, type ChangeResult, type FoldState} from "../model/apply";
-import {buildEntryView, readEntryAddress, type EntryFold} from "./views";
+import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 import {sortPending, type RankedPending} from "./pending";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress} from "./types";
 
@@ -249,6 +249,14 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
     }
 
     return {
+        slotAfter(id, at) {
+            const change = world.changes.get(id);
+            const rank = change === undefined ? null : placementRank(order, change.at);
+            if (rank === null) return null;
+            const state = fold(actualEvents, beforePoint({rank, tie: tieOf(id), inclusive: true}));
+            return carrySlotOf(entryFold(state, at.entry), at);
+        },
+
         entry(id, position, mode) {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;

@@ -9,7 +9,7 @@ import {ENABLE_FIELD} from "../core/identifiers";
 import {placementRank, rankBefore, type ChapterOrder, type Rank} from "../core/position";
 import type {Address, Entry, EntryState, FieldDeclaration, Placement} from "../core/schema";
 import {incompleteAt, namespaceAvailability, namespaceFields, type IncompleteEvent} from "../model/apply";
-import type {EntryView, FieldState, NamespaceView, ReductionLookup, UpcomingNamespace} from "./types";
+import type {CarrySlot, EntryView, FieldState, NamespaceView, ReductionLookup, UpcomingNamespace} from "./types";
 
 /** 一个条目在某个位置上的折叠结果。 */
 export interface EntryFold {
@@ -40,6 +40,14 @@ function labelKeyedElements(value: unknown, context: ViewContext): unknown {
         const referenced = context.nameOf(String(element.id));
         return {...element, label: referenced === undefined || referenced.deleted ? DELETED_ENTRY_LABEL : referenced.name};
     });
+}
+
+/** 从一个条目的折叠结果取出一个地址的原始状态（两个引擎的 `slotAfter` 共用）。 */
+export function carrySlotOf(fold: EntryFold | undefined, at: Address): CarrySlot | null {
+    if (fold === undefined) return null;
+    const events: Record<string, readonly string[]> = {};
+    for (const [path, list] of fold.events) if (path === at.path || path.startsWith(`${at.path}.`) || path.startsWith(`${at.path}[`)) events[path] = [...list];
+    return {value: structuredClone(readEntryAddress(fold.state, at.path)), events, incomplete: incompleteAt(fold.incomplete, at.path) !== undefined};
 }
 
 export function buildEntryView(entry: Entry, fold: EntryFold | undefined, position: Rank, context: ViewContext): EntryView {
