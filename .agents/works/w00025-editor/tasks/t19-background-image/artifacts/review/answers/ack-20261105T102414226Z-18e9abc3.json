@@ -1,0 +1,17 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00025-editor",
+    "taskId": "t19-background-image",
+    "artifactId": "review",
+    "ackId": "20261105T102414226Z-18e9abc3",
+    "answers": [
+        "20261105T084259665Z-104a4abf",
+        "20261105T093321977Z-52b6959d",
+        "20261105T102408028Z-e56716e3"
+    ],
+    "through": "20261105T102408028Z-e56716e3",
+    "included": [
+        ".agents/works/w00025-editor/tasks/t19-background-image/README.md"
+    ],
+    "ackedAt": "2026-11-05T10:24:14.226Z"
+}
