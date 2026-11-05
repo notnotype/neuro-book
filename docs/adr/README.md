@@ -43,3 +43,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0041](0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md) | 世界引擎的内核只加通用机制（条目引用、讲述发生点与标注、在场、时间说法、世界线、决策存储、标注与诊断两个贡献点），知情、伏笔、目标、决策的语义与检查放进剧情插件 |
 | [0042](0042-world-engine-worldlines-as-per-line-views.md) | 世界线是每条线一份线性视图、复用现有引擎，日志加线与分叉；计划按写下的先后跨线，哪些线要更新在更新时按值比对（部分取代 0037 的“换掉位置模块”） |
 | [0043](0043-world-engine-placement-and-telling-orders.md) | 故事里的事实按安放折叠，读者看到的按当前正文里的讲述算；时间是约束网络算出的范围，不决定折叠 |
+| [0044](0044-workbench-single-layout-tree.md) | 工作台除标题栏外是一棵布局树，内容按矩形摆放，工作台拥有摆放、插件拥有内容，布局工具自写并全部收进 `nb-layout` |
