@@ -150,7 +150,7 @@ describe("主创", () => {
         const request = await turn(await createMain(w), "开始");
         for (const section of SECTIONS) expect(request.system).toContain(`<${section}>`);
         expect(request.system).toContain("<shell>");
-        expect([...request.tools].sort()).toEqual(["edit", "glob", "grep", "read", "shell", "write"]);
+        expect([...request.tools].sort()).toEqual(["ask", "edit", "glob", "grep", "read", "shell", "write"]);
     });
 
     /** 让模型调一次 `edit`，交回这次调用实际执行的工具 id。 */
@@ -176,7 +176,7 @@ describe("主创", () => {
         const session = await createMain(w);
         const request = await turn(session, "开始");
         expect(request.system).not.toContain("<shell>");
-        expect([...request.tools].sort()).toEqual(["edit", "glob", "grep", "read", "write"]);
+        expect([...request.tools].sort()).toEqual(["ask", "edit", "glob", "grep", "read", "write"]);
         expect(await editedBy(w, session, {input: "不是合法的 hashline"})).toBe("nbook.agent.edit");
     });
 

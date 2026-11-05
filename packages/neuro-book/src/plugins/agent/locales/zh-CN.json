@@ -83,7 +83,9 @@
         "followDefault": "跟随默认",
         "activity": {
             "title": "Agent 活动",
-            "text": "Agent：{{running}} 运行中 · {{waiting}} 等你处理"
+            "both": "Agent：{{running}} 运行中 · {{waiting}} 等你处理",
+            "waiting": "Agent：{{waiting}} 等你处理",
+            "running": "Agent：{{running}} 运行中"
         },
         "listFailed": "会话列表取不到（{{code}}）。",
         "pickProfile": "用哪个 Profile？",
@@ -114,7 +116,10 @@
         "focus-session": {
             "title": "切到 Agent 会话"
         },
-        "category": "Agent"
+        "category": "Agent",
+        "open-in-editor": {
+            "title": "在编辑区打开对话"
+        }
     },
     "state": {
         "active": {

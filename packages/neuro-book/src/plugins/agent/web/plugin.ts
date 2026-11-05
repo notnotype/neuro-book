@@ -53,6 +53,7 @@ const ACTIVITY_ITEM = "nbook.agent.activity";
 export const OPEN_COMMAND = "nbook.agent.open";
 export const NEW_SESSION_COMMAND = "nbook.agent.new-session";
 export const FOCUS_SESSION_COMMAND = "nbook.agent.focus-session";
+export const OPEN_IN_EDITOR_COMMAND = "nbook.agent.open-in-editor";
 /** 别的插件的命令，公开合同：打开编辑器的文件（docs/specs/workbench/editor.md）、打开视图（docs/specs/workbench/views.md 输出 14）。 */
 const EDITOR_OPEN_COMMAND = "nbook.editor.open";
 const OPEN_VIEW_COMMAND = "nbook.view.open";
@@ -70,6 +71,7 @@ const command = (description: string, args: WrittenCommandDeclaration["args"] = 
 });
 const COMMANDS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [OPEN_COMMAND]: command("Bring the Agent conversation to the front."),
+    [OPEN_IN_EDITOR_COMMAND]: command("Open the Agent conversation as a page in the editor area."),
     [NEW_SESSION_COMMAND]: command("Start a new Agent session in the conversation."),
     [FOCUS_SESSION_COMMAND]: command("Show an Agent session in the conversation; without an id, the one that needs the user.", Type.Object({sessionId: Type.Optional(Type.String())}, {additionalProperties: false})),
 };
@@ -292,6 +294,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                     await reveal();
                     return done;
                 }},
+                [OPEN_IN_EDITOR_COMMAND]: {run: async () => {
+                    ensureStarted();
+                    lastPosition = "page";
+                    await commands.execute(OPEN_PAGE_COMMAND, {id: CONVERSATION_PAGE});
+                    return done;
+                }},
                 [NEW_SESSION_COMMAND]: {run: async () => {
                     const host = await reveal();
                     const profile = await pickProfile();
@@ -307,7 +315,12 @@ export const agentBrowserPlugin: PluginDefinition = {
             };
 
             const item: ItemImplementation = {
-                text: () => agentText("conversation.activity.text", {running: activity.running.value, waiting: activity.waiting.value}),
+                text: () => {
+                    const running = activity.running.value;
+                    const waiting = activity.waiting.value;
+                    if (running > 0 && waiting > 0) return agentText("conversation.activity.both", {running, waiting});
+                    return waiting > 0 ? agentText("conversation.activity.waiting", {waiting}) : agentText("conversation.activity.running", {running});
+                },
                 state: () => (activity.waiting.value > 0 ? "warning" : "normal"),
             };
             const published = bindingsOf(agentState, {active: activity.active});

@@ -67,6 +67,7 @@ export function fakeEndpoint(): FakeEndpoint {
                     ...scriptedCalls.flatMap((call, index) => toolCalls(call, index, chunked)),
                     chunk({choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}]}),
                 ];
+            parts.push(chunk({choices: [], usage: {prompt_tokens: 12, completion_tokens: 3, total_tokens: 15}}));
             return new Response(`${parts.join("")}data: [DONE]\n\n`, {headers: {"content-type": "text/event-stream"}});
         },
     });

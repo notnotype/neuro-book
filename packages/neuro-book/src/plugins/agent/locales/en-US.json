@@ -83,7 +83,9 @@
         "followDefault": "Follow default",
         "activity": {
             "title": "Agent activity",
-            "text": "Agent: {{running}} running · {{waiting}} need you"
+            "both": "Agent: {{running}} running · {{waiting}} need you",
+            "waiting": "Agent: {{waiting}} need you",
+            "running": "Agent: {{running}} running"
         },
         "listFailed": "Couldn't get the session list ({{code}}).",
         "pickProfile": "Which Profile?",
@@ -114,7 +116,10 @@
         "focus-session": {
             "title": "Go to Agent session"
         },
-        "category": "Agent"
+        "category": "Agent",
+        "open-in-editor": {
+            "title": "Open conversation in editor"
+        }
     },
     "state": {
         "active": {
