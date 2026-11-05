@@ -5,7 +5,7 @@ import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import {blockAt, canConvertTo, insertSlashBlock, selectBlock, selectWholeBlock} from "@notnotype/nb-markdown/editor";
 import type {BlockTarget} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
-import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 
 import {EDITING_ACTIONS, EDITOR_BLOCK_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
@@ -20,7 +20,11 @@ const GROUP_WIDTH = 41;
 const GROUP_HEIGHT = 24;
 const GAP = 14;
 
-const target = shallowRef<BlockTarget | null>(null);
+/** 指针停着的块、光标所在的块与菜单打开时的块：按钮对着谁，按这个顺序（菜单优先，开着时指针和选区都可能变）。 */
+const hovered = shallowRef<BlockTarget | null>(null);
+const caret = shallowRef<BlockTarget | null>(null);
+const menuTarget = shallowRef<BlockTarget | null>(null);
+const target = computed(() => menuTarget.value ?? hovered.value ?? caret.value);
 const at = ref({top: 0, left: 0});
 const menuOpen = ref(false);
 const menuAt = ref({x: 0, y: 0});
@@ -52,39 +56,75 @@ function place(editor: Editor, scroller: HTMLElement, block: BlockTarget): void 
     };
 }
 
-const onPointerMove = (event: PointerEvent): void => {
+function placeTarget(): void {
     const editor = props.editor;
     const scroller = props.scroller;
-    if (editor === null || scroller === null || props.readonly || menuOpen.value) return;
+    if (editor !== null && scroller !== null && target.value !== null) place(editor, scroller, target.value);
+}
+watch(target, placeTarget, {flush: "sync"});
+
+/** 光标所在的块（输出 14）：正文有焦点、没有选中内容时才算；选中内容时是选区菜单的事。 */
+function syncCaret(): void {
+    const editor = props.editor;
+    if (editor === null || props.readonly || !editor.isFocused || !editor.state.selection.empty) {
+        caret.value = null;
+        return;
+    }
+    caret.value = blockAt(editor.state.doc, editor.state.selection.from);
+}
+
+const onPointerMove = (event: PointerEvent): void => {
+    const editor = props.editor;
+    if (editor === null || props.readonly || menuOpen.value) return;
     if ((event.target as Element | null)?.closest("[data-markdown-gutter]") != null) return;
     const prose = editor.view.dom.getBoundingClientRect();
     // 指针在左侧留白里时也算这一行的块。
     const found = editor.view.posAtCoords({left: Math.min(Math.max(event.clientX, prose.left + 1), prose.right - 1), top: event.clientY});
     const block = found === null ? null : blockAt(editor.state.doc, found.pos);
-    // 还是同一块时不重新量：`pointermove` 很密，量位置会强制布局。正文变了或滚动了都会先收起，所以位置不会过时。
-    const current = target.value;
+    // 还是同一块时不换：`pointermove` 很密，换了要重新量位置，量位置会强制布局。
+    const current = hovered.value;
     if (block !== null && current !== null && block.pos === current.pos && block.end === current.end) return;
-    target.value = block;
-    if (block !== null) place(editor, scroller, block);
+    hovered.value = block;
 };
-const hide = (): void => {
-    if (!menuOpen.value && !dragging) target.value = null;
+/** 指针离开或指针没动而正文滚动了：指针下面已经不是这一块，回到光标所在的块。 */
+const leave = (): void => {
+    if (!dragging) hovered.value = null;
 };
-// 正文变了或滚动了，指针没动：位置已经不对，等下一次指针移动。不进撤销历史的是交出后的写法回填，只改属性，用户正要去点按钮时不收起。
-const onTransaction = ({transaction}: {transaction: {docChanged: boolean; getMeta: (key: string) => unknown}}): void => {
-    if (transaction.docChanged && transaction.getMeta("addToHistory") !== false) hide();
+const onTransaction = ({transaction}: {transaction: {docChanged: boolean; selectionSet: boolean; getMeta: (key: string) => unknown}}): void => {
+    // 不进撤销历史的是交出后的写法回填，只改属性，用户正要去点按钮时不动。
+    const edited = transaction.docChanged && transaction.getMeta("addToHistory") !== false;
+    if (edited) leave();
+    if (!transaction.docChanged && !transaction.selectionSet) return;
+    syncCaret();
+    // 还对着同一块时也要重新量：上面的文字变了，这一块的位置会变。
+    placeTarget();
+};
+const onFocus = (): void => syncCaret();
+/** 焦点进了按钮不算离开：点手柄时焦点会落到按钮上，这时拿掉按钮就点不到了。 */
+const onBlur = ({event}: {event: FocusEvent}): void => {
+    if ((event.relatedTarget as Element | null)?.closest?.("[data-markdown-gutter]") != null) return;
+    caret.value = null;
 };
 
 function attach(editor: Editor, scroller: HTMLElement): () => void {
     scroller.addEventListener("pointermove", onPointerMove);
-    scroller.addEventListener("pointerleave", hide);
-    scroller.addEventListener("scroll", hide, {passive: true});
+    scroller.addEventListener("pointerleave", leave);
+    scroller.addEventListener("scroll", leave, {passive: true});
     editor.on("transaction", onTransaction);
+    editor.on("focus", onFocus);
+    editor.on("blur", onBlur);
+    // 版心宽度变了（拆分、关侧栏）：按钮的横向位置跟着变。
+    const observer = new ResizeObserver(placeTarget);
+    observer.observe(scroller);
+    syncCaret();
     return () => {
         scroller.removeEventListener("pointermove", onPointerMove);
-        scroller.removeEventListener("pointerleave", hide);
-        scroller.removeEventListener("scroll", hide);
+        scroller.removeEventListener("pointerleave", leave);
+        scroller.removeEventListener("scroll", leave);
         editor.off("transaction", onTransaction);
+        editor.off("focus", onFocus);
+        editor.off("blur", onBlur);
+        observer.disconnect();
     };
 }
 let detach: (() => void) | null = null;
@@ -93,9 +133,14 @@ watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
     detach = editor !== null && scroller !== null ? attach(editor, scroller) : null;
 }, {immediate: true});
 onBeforeUnmount(() => detach?.());
-watch(() => [props.binding, props.readonly] as const, () => {
+watch(() => [props.binding, props.readonly] as const, async () => {
     menuOpen.value = false;
-    target.value = null;
+    menuTarget.value = null;
+    hovered.value = null;
+    // 控件先换编辑状态，下一轮再读选区。
+    await nextTick();
+    syncCaret();
+    placeTarget();
 });
 
 function onPlus(event: MouseEvent): void {
@@ -110,6 +155,7 @@ function onHandleClick(event: MouseEvent): void {
     const editor = props.editor;
     const block = target.value;
     if (editor === null || block === null) return;
+    menuTarget.value = block;
     selectBlock(editor, block);
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
     menuAt.value = {x: box.left, y: box.bottom + 6};
@@ -140,7 +186,7 @@ function onDragStart(event: DragEvent): void {
 function onDragEnd(): void {
     dragging = false;
     if (props.editor !== null) props.editor.view.dragging = null;
-    target.value = null;
+    hovered.value = null;
 }
 
 const CONVERT: ReadonlyArray<EditingActionId> = ["paragraph", "heading-1", "heading-2", "heading-3", "bullet-list", "ordered-list", "task-list", "quote", "callout", "code-block"];
@@ -206,7 +252,8 @@ const items = computed<ContextMenuItem[]>(() => {
 
 function onRequestClose(reason: string): void {
     if (reason !== "outside") props.editor?.commands.focus();
-    target.value = null;
+    menuTarget.value = null;
+    hovered.value = null;
 }
 </script>
 

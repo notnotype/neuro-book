@@ -305,6 +305,39 @@ test.describe("块按钮", () => {
         expect(Math.round((text?.x ?? 0) - ((handle?.x ?? 0) + (handle?.width ?? 0)))).toBe(14);
     });
 
+    test("光标所在的块常显按钮：指针不在也有，打字时跟着，选中内容时不显示，失焦时收起", async ({page}) => {
+        await openFile(page, "notes/gutter-caret.md", "第一段\n\n第二段\n");
+        await prose(page).getByText("第二段").click();
+        await expect(prose(page)).toBeFocused();
+        await page.mouse.move(5, 5);
+        await expect(gutter(page)).toBeVisible();
+        const second = await prose(page).locator("p").nth(1).boundingBox();
+        const atSecond = await gutter(page).boundingBox();
+        expect(Math.abs((atSecond?.y ?? 0) - (second?.y ?? 0))).toBeLessThan(16);
+
+        await page.keyboard.press("ArrowUp");
+        const first = await prose(page).locator("p").first().boundingBox();
+        await expect.poll(async () => Math.abs(((await gutter(page).boundingBox())?.y ?? 0) - (first?.y ?? 0))).toBeLessThan(16);
+
+        await page.keyboard.press("End");
+        await page.keyboard.press("Enter");
+        await page.keyboard.type("新");
+        const third = await prose(page).locator("p").nth(1).boundingBox();
+        await expect.poll(async () => Math.abs(((await gutter(page).boundingBox())?.y ?? 0) - (third?.y ?? 0))).toBeLessThan(16);
+
+        await page.keyboard.press("Shift+Home");
+        await expect(gutter(page)).toHaveCount(0);
+        await page.keyboard.press("End");
+        await expect(gutter(page)).toBeVisible();
+
+        await gutter(page).getByRole("button", {name: "块菜单"}).click();
+        await expect(page.getByRole("menuitem", {name: "创建副本"})).toBeVisible();
+        await page.keyboard.press("Escape");
+
+        await item(page, "project://notes").click();
+        await expect(gutter(page)).toHaveCount(0);
+    });
+
     test("点 + 放弃：文件字节不变", async ({page}) => {
         await openFile(page, "notes/gutter-plus.md", "第一段\n");
         await hover(page, "第一段");
