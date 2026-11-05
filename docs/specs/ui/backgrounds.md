@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.backgrounds
 owners:
   - nbook.workbench
@@ -102,6 +102,16 @@ type WindowBackground = {kind: "none"} | BackgroundImage;
 
 Smoke：`e2e/backgrounds.e2e.ts`。
 
+## 实现合同
+
+- 公开入口：`workbench/shared/contracts.ts`（`editorBackgroundSetting`、`windowBackgroundSetting`、`BACKGROUND_SECTION`）；`files/shared/contracts.ts`（`BACKGROUND_UPLOAD_URL`、`BACKGROUND_MAX_BYTES`、`BACKGROUND_DIRECTORY_ADDRESS`）。
+- owner 与依赖方向：设置、窗口背景与设置页归 `nbook.workbench`，正文背景归 `nbook.editor`，都用 `src/ui/background/` 的画法与计算；图片字节归 `nbook.files`。
+- 不变量：窗口背景把算好的字面量写在文档根，先移除自己写的变量再读主题的值，否则切明暗时读到自己的半透明值（`backgrounds.e2e.ts` 的“切明暗”）。不在子作用域覆盖 `--panel-surface`：派生变量已在根上算好，层数还会相乘。
+- 不变量：写入不是乐观的，设置页的草稿留到写入回来，否则滑块先弹回旧值。
+
 ## 证据
 
 - 批准依据：开发者 2026-11-05 的决定，记在主工作区 master 的 `.agents/works/w00025-editor/tasks/t19-background-image/README.md` 决定 1–4。
+- 实现入口：[`src/ui/background/`](../../../packages/neuro-book/src/ui/background/use-background-image.ts)、[`WorkbenchShell.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue)、[`EditorGroup.vue`](../../../packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue)、[`BackgroundSettingsPage.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/BackgroundSettingsPage.vue)、[`background-route.ts`](../../../packages/neuro-book/src/plugins/files/backend/background-route.ts)
+- 合同测试：[`background-legibility.test.ts`](../../../packages/neuro-book/src/ui/background/background-legibility.test.ts)、[`background-route.test.ts`](../../../packages/neuro-book/src/plugins/files/background-route.test.ts)
+- Smoke：[`backgrounds.e2e.ts`](../../../packages/neuro-book/e2e/backgrounds.e2e.ts)；量出来的对比度在 master 的 `.agents/works/w00025-editor/tasks/t19-background-image/evidences/contrast.txt`

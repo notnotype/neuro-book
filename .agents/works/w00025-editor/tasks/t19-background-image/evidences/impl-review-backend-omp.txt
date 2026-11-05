@@ -1,0 +1,20 @@
+审查对象：3b4c72a3830178c0083362330fa402574c978a8e；仅后端。当前 HEAD 7c4298165e4fc82b386042a3d0056cd87d900297 的目标文件与该提交相同。依据均读取主工作区文件。未改仓库源码，未启动开发服务或 e2e。
+位置均相对 /home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t19-background-image/。
+
+### 1. backgrounds 的链接禁令只在暂存前检查，提交时仍可写入根内链接的目标
+严重程度：重要
+类别：安全与性能、不变量
+位置：packages/neuro-book/src/plugins/files/backend/background-route.ts:45-47、63-65；packages/neuro-book/src/plugins/files/backend/plugin.ts:245-246
+现象：请求通过 lstat 后，在真实暂存文件创建时把 backgrounds 移走并换成指向 user/notes 的符号链接，上传仍返回 200；图片实际出现在 notes/<sha256>.png，记账路径也是 notes/<sha256>.png。换成根外或悬空链接时没有写入，但返回 500 outside-root/not-found，而非合同的 409 invalid-target。
+为什么是问题：workspace/files.md:84 要求 backgrounds 必须是真实目录，符号链接时不写；WorkspaceFiles.write 的通用路径解析有意允许根内目录链接，不能代替这条路由的更窄限制。检查后还需建暂存、写满并 fsync 最多 20 MiB，窗口并非只剩一个系统调用。现有链接测试只预置链接，无法覆盖检查到提交间的替换。
+如何核实：在 packages/neuro-book 下执行 bun test --tsconfig-override /tmp/t19/omp-exp/tsconfig.json /tmp/t19/omp-exp/symlink-race.test.ts。实验使用真实插件贡献的路由、createDispatcher、真实 WorkspaceFiles 与记账槽；fs.watch 看见真实 .stage 创建后执行真实目录改名和 symlink，没有替换被测实现或直接调用其私有函数。输出 inside: changed=true、status=200、targetNames 含 a5b165673ff1afa23351aca7f99d2b20e3c3508676e9f18f8937ba677ab781a6.png，ledger.path=notes/该文件；outside/dangling: status=500、目标无文件、暂存已清空。
+建议改法：把“不得经过 backgrounds 链接”的约束传入实际提交边界，在提交时重验该目录的类型与身份，发现变更返回 409 invalid-target；不能只在调用 write 之前再补一次无锁 lstat。对这条不允许链接的目标，提交必须绑定已核验的真实目录，而不是再次跟随词法路径。补真实暂存期间替换目录的行为用例。
+
+### 2. 同内容快速返回绕开根身份核对，已失效的 user 根仍报告上传成功
+严重程度：重要
+类别：正确性、不变量
+位置：packages/neuro-book/src/plugins/files/backend/background-route.ts:52-64
+现象：先正常上传，再把 user 根移到 user.old、原位置新建另一个 user/backgrounds 并放同内容文件，重复上传返回 200 与原地址；同一状态下上传新内容则经 WorkspaceFiles.write 被 root-gone 拒绝。成功与否取决于是否命中路由自己的 existing()，不是当前工作区根是否仍有效。
+为什么是问题：workspace/files.md:64 要求每个请求核对方案根身份，根被移走或替换不能重新解析到新目录。existing() 直接按绝对路径 lstat/Bun.file，跳过 RootedRoot 的身份校验，因此将新根的文件当成绑定根的资产；后续字节读取仍会因 root-gone 失败，200 返回的地址在当前绑定下不可使用。这是本次新增快速路径的问题，不是 base 中根校验缺失。
+如何核实：同上命令的“已有内容的幂等返回没有复核 user 根身份”实验。实际输出 repeat.status=200；fresh.status=500、code=root-gone；ledgerCount=1（仅最初上传记了一次）。使用真实路由与实际文件系统改名，不伪造根状态。
+建议改法：已有文件检查也走拥有根的受约束读取/校验接口，在比较内容之前核对原根身份；复用现有打开句柄校验的实现，避免路由再维护一套裸路径读取。根失效时返回明确失败，不返回地址。

@@ -1,0 +1,62 @@
+审查对象：3b4c72a38（仅后端），接续 impl-backend/report.txt 已有的两条，不重复（检查到提交之间换目录的竞态；同内容快速返回跳过根身份核对）。
+位置相对 /home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t19-background-image/packages/neuro-book/src/。
+实验在 /tmp/t19/opus-exp/（wire.test.ts、concur.test.ts、probe.test.ts、world.ts），在 packages/neuro-book 下执行：bun test --tsconfig-override /tmp/t19/opus-exp/tsconfig.json /tmp/t19/opus-exp/<文件>。实验用真实 Bun.serve、真实 createDispatcher、files 插件真实贡献的路由、真实 WorkspaceFiles 与记账槽，客户端是原始 TCP 或 fetch；浏览器未验证。
+
+### 1. 合同测试没有经过 plugin.ts 的接线，Spec 明写的归属、不记账、挂载路径都没有被测到
+严重程度：重要
+类别：测试
+位置：plugins/files/background-route.test.ts:62；plugins/files/backend/plugin.ts:245-246
+现象：测试自建 `new Hono()`，自己调 addBackgroundRoutes，并自己写了一份 write 回调（`files.write(address, bytes, {expect: "absent", createParents: true})`），其中 files 是测试插件 x.writer 的门面。所以 plugin.ts:245-246 这两行（ownWorkspaceFiles、consumer 身份、expect、createParents、挂到 nbook.files 的 http.routes）不被合同测试执行。测试里的写入归属实际是 {kind: "system", plugin: "x.writer"}，与 Spec 要的 nbook.files 不同，只是没有断言。全文件没有 ledger、source、Origin、Host 的断言。e2e 只走一次成功上传，也不看这些。
+为什么是问题：workspace/files.md 写背景图片一节的判据里，“写入归属是 {kind: "system", plugin: "nbook.files"}”“已存在不发变更、不记账”“经统一的 Host、Origin 检查”都没有测试。把 plugin.ts:246 的 expect 改成 "any"、把归属身份改错、或把路由从 routes 上摘掉，合同测试都照过（从代码推断，未做变异）。文件头写“路由接真实的文件服务，提交走真实的暂存与记账”，读者会以为这些已被覆盖。“不留文件”也只看 backgrounds 目录，不看暂存目录。
+如何核实：读测试第 62 行；grep -n "ledger\|source\|Origin\|421\|403" background-route.test.ts 无结果。当前行为本身是对的，我用真实路由实测：ledger.source={kind:"system",plugin:"nbook.files"}、op=created；重复上传 ledgerDelta=0；8 个并发 ledgerDelta=1、暂存目录为空（wire.test.ts）。所以这条是缺护栏，不是缺陷。
+建议改法：scene() 改走真实贡献的路由：定义一个接收 HTTP_ROUTES_POINT 的小插件，放进 RouteTable，经 createDispatcher 发请求（/tmp/t19/opus-exp/world.ts 就是这样搭的，约 15 行），同时贡献一个记账者。补断言：记账来源、重复上传不增加记账条目、暂存目录为空、Host 非回环 421、Origin 不允许 403。顺带去掉 `app as never` 与 `files as unknown as WorkspaceFiles` 两处类型绕过。
+
+### 2. 所有用例都走 body-limit 的流式分支，浏览器实际走的 Content-Length 分支没有被测到
+严重程度：建议
+类别：测试
+位置：plugins/files/background-route.test.ts:63、87、105
+现象：hono/body-limit 按请求头分两支：有 Content-Length 且无 Transfer-Encoding 时只比较头的值；否则逐块读并计数。测试的 put 用进程内 `new Request(url, {body: Uint8Array})`，Bun 1.4.4 不给它补 Content-Length（实测 bytesHasCL=false），所以 PNG、边界 20 MiB 这些用例全部走流式分支。浏览器 `fetch(url, {body: file})` 带 Content-Length，走的是另一支。“超过上限但带 Content-Length”这条路径没有用例。
+为什么是问题：生产路径和被测路径不是同一分支，边界值只在流式分支上验过；升级 hono 或换限长写法时，真实路径出错测试不报。
+如何核实：probe.test.ts 输出 {"bytesHasCL":false,"streamHasCL":false}。真实行为目前是对的：真实 Bun.serve 上 Content-Length: 20971521 只发 1 MiB 就收到 JSON 413 too-large（wire.test.ts）。
+建议改法：在 put 上给字节请求显式写 content-length，或增加“超过 1 字节、带 Content-Length”和“正好上限、带 Content-Length”两个用例，判据是 413 too-large 与 200。第 1 条若改成经真实端口发请求，这条随之解决。
+
+### 3. 超过 128 MiB 的文件得到空正文的 413，设置页显示 JSON 解析错误，不是“超限”；封面在前端先查了大小，背景图片没有
+严重程度：建议
+类别：正确性、与封面上传的一致性
+位置：plugins/files/backend/background-route.ts:21；plugins/workbench/web/components/BackgroundSettingsPage.vue:42-45；对照 plugins/projects/shared/cover.ts:10、plugins/projects/web/components/ProjectInfoDialog.vue:146
+现象：Bun.serve 没有设 maxRequestBodySize，默认 128 MiB。Content-Length 超过它时请求到不了分发和路由，Bun 直接回 `HTTP/1.1 413 Request Entity Too Large` + `Connection: close`，正文为空。前端 `await response.json()` 抛错，落到 uploadFailed，显示的是 JSON Parse error: Unexpected EOF。
+为什么是问题：workspace/files.md 要求超限 413 `too-large`，ui/backgrounds.md 的失败表要求设置页显示原因（超限）。21 到 128 MiB 的结果正确（JSON too-large），问题只在 128 MiB 以上，比如一张未压缩的大扫描图。封面的做法是把上限放在 shared/cover.ts，前端发请求前就比较 file.size；背景图片把 BACKGROUND_MAX_BYTES 放在 backend/background-route.ts，前端拿不到，所以没法这样做。这也是“相邻上传不一致”的具体后果。
+如何核实：wire.test.ts 对 Content-Length: 135266304 的原始响应是 "HTTP/1.1 413 Request Entity Too Large\r\nConnection: close\r\n\r\n"；probe.test.ts 用真实 fetch 传 129 MiB 得到 {"big":413,"body":"","parsed":"SyntaxError: JSON Parse error: Unexpected EOF"}。Chrome 上可能表现为连接被重置而不是 413（未验证），两种都不是“超限”的提示。
+建议改法：把 BACKGROUND_MAX_BYTES 移到 plugins/files/shared/contracts.ts（BACKGROUND_UPLOAD_URL 已经在那里），设置页发请求前比较 file.size，超限直接显示 backgrounds.failure.tooLarge，服务端的限长不变。这同时省去把大文件发到服务端再被拒。前端部分的改动归前端审查者一并看。
+
+### 4. 冲突分支重读整个文件比较摘要，提交的结果里已经带着当前摘要
+严重程度：建议
+类别：代码质量
+位置：plugins/files/backend/background-route.ts:68-72
+现象：written.code === "conflict" 时再调一次 existing()，重新 lstat 并把文件整份读进内存算哈希。而写入接口的冲突结果已经带 `current: {hash}`（ServerFilesResult 的 current 字段；decide 在写入锁里算出）。existing() 返回 null（文件在冲突后又被删）时会走到第 72 行，得到 500 且 code 是 conflict，状态码和错误码互相矛盾。
+为什么是问题：多一次最多 20 MiB 的读取，多一个 Bun.file 可能抛错的位置（见第 5 条），还多一条状态码不对的路径。这条分支的判断其实一行就够。
+如何核实：concur.test.ts 打印的冲突结果：{"ok":false,"code":"conflict","detail":"backgrounds/915a….jpg 已存在","current":{"hash":"915a…"}}，hash 与文件名相同。实测这条分支确实走到（5 轮并发每轮一次 conflict），测试“两个窗口并发”是真竞争，不是碰巧串行。
+建议改法：`if (written.code === "conflict") return written.current?.hash === digest ? Response.json({address}) : failure(409, "conflict", ...)`。前面的第一次 existing() 另按 report.txt 第 2 条的修法处理。
+
+### 5. 路由抛出的异常被 Hono 默认处理器吞掉：纯文本 500、没有诊断（base 上就有，这条路由也踩到）
+严重程度：建议
+类别：不变量、诊断
+位置：plugins/files/backend/background-route.ts:41、59；plugins/http/backend/dispatch.ts:139-145（base）
+现象：background-route.ts 第 41 行读请求体、第 59 行 Bun.file 读文件都可能抛错。Hono 应用没有设 onError 时，默认处理器 console.error 后返回 text/plain 的 "Internal Server Error"，所以 handler.fetch 不抛，dispatch.ts 的 reportError 和 JSON 形式的 internal-error 都不生效。plugins 与 server 下没有任何 `.onError(`，这对所有 Hono 写的插件路由都成立；dispatch.test.ts:119 的用例用的是裸 `{fetch: () => {throw}}`，所以它通过而真实路由不走这条路。
+为什么是问题：DispatchOptions 注释写“处理器抛错时的诊断”，实际插件路由的错误进不了诊断，只到标准错误。对这条路由有两个可观察后果：已存在的文件读不出来（权限 000）时响应不是 {code, detail}，设置页显示 JSON 解析错误而不是原因；客户端中途断开时标准错误打一整段 DOMException。后者每次取消上传都会发生。前者少见，单独不值得报，所以按 base 问题记一条。
+如何核实：concur.test.ts：chmod 000 的同名文件得到 {"unreadable":500,"type":"text/plain; charset=UTF-8","body":"Internal Server Error","reported":0}，同时标准错误有 EACCES 栈。wire.test.ts：六种断开方式 errors=0，标准错误都有 AbortError。
+建议改法：在 base 上单独修，不放进本 Task：让插件路由的错误能到分发层（例如给各 Hono 应用设把错误重新抛出的 onError，或由 http 插件提供建应用的工厂，未实测），断开类错误不当错误报。本路由可以只做一点：第 59 行的读取失败转成 failure(500, "io-failed", ...)。
+
+### 未发现问题的方面（仔细检查后没有发现，均为真实 Bun.serve 实测）
+- 请求体上限（无 Content-Length）：原始 chunked 持续发 400 MiB，收到 413 too-large 时最多发出 25 MiB；此后 Bun 丢弃后续字节、连接不断，RSS 全程只增 23 MiB，不留文件和暂存。上限确实有界。body-limit 不取消 rawReader 没有造成内存增长。
+- 中途断开：chunked 与 Content-Length 各配 destroy、FIN、RST 共 6 种，都没有把截断的请求体当完整内容提交：无文件、无记账、无暂存残留，在途计数归还（排空能结算）。
+- 同时带 Content-Length 与 Transfer-Encoding：Bun 直接 400，请求到不了路由，绕不过 body-limit 的分支判断。空请求体 415。
+- 并发同内容：无 backgrounds 目录时 4 个 20 MiB 并发全部 200、一份文件、记账 1 条、暂存为空；8 个小文件并发同样。败者不记账、不发变更，暂存被 settle 删除。
+- 预占坏文件：内容不符与目录在现有测试里都是 409 且不覆盖；符号链接与 FIFO 按代码 lstat 非普通文件报 409，不跟随、不阻塞（从代码推断）。
+- 经 WorkspaceFiles.write 提交：暂存、记账、来源与 Spec 一致（来源实测见第 1 条），路由没有另写磁盘。
+- 准入：经真实分发到 /api/nbook.files/backgrounds，Host 非回环 421、Origin 不允许或为 null 403、排空 503，都先于路由、不写文件。只带 Sec-Fetch-Site: cross-site、不带 Origin 的请求返回 200，但浏览器的 PUT 必带 Origin，且 Spec 这一节只要求 Host 与 Origin，不算问题。
+- 字节路由的类型表有 jpg，.jpg 文件能按 image/jpeg 显示。sniffCoverType 移到 shared 后行为不变。
+- 现有 11 条合同测试通过。
+
+### 各级数量
+阻断 0，重要 1，建议 4。base 上已有的问题 1 条（第 5 条，含在建议内）。

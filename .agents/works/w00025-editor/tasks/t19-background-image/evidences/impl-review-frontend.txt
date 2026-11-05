@@ -1,0 +1,130 @@
+t19 前端实现审查（提交 7c4298165，worktree w00025-t19-background-image）
+审查方式：读代码；vue-tsc（tsconfig.web.json）通过，bun test src/ui/background 12 条通过；未跑 e2e 与开发服务，下面标“从代码推断”的需要 e2e 或截图复核。
+另用 /tmp/t19/sonnet-exp/floor.ts 对 nbook、macos 明暗四套配色按最坏图算了下限（blur 90 到 92，不模糊 92），没有出现下限为 100 的退化。
+
+=== 重要 ===
+
+[1] 重要 / 正确性 / 窗口背景下活动栏没有面，图标压在裸图上
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchActivityBar.vue:143（.workbench-activity-bar 的 background）
+现象：本提交把活动栏的底色从 var(--panel-surface) 改成 var(--editor-inner-surface, var(--panel-surface))。窗口背景生效时 WorkbenchShell.vue:103 把 --editor-inner-surface 写成 transparent，活动栏就没有任何底色。
+为什么是问题：活动栏是一张独立的卡片部件（shell/cards.ts 的 SHELL_CARD_PARTS 含 activitybar），WorkbenchShellLayout.vue 的 .workbench-shell-card 包装自己不画底色（注释写明“部件自己画面板底色”）。所以活动栏的图标和选中态直接落在窗口背景图上，没有遮罩。Spec ui/backgrounds.md 输出 2 要求各卡片是遮罩后的半透明面；--editor-inner-surface 的语义是“编辑组里层”，不该给活动栏用。侧栏用的是 --shell-card-surface，活动栏与侧栏本来是相连的一张卡（data-shell-join），现在两半颜色不同。
+如何核实：从代码推断。设窗口背景为 detail 图，截图左侧活动栏；或在 e2e 里把 .workbench-activity-bar 的 getComputedStyle(...).backgroundColor 与 [data-shell-card="sidebar"] 里的 .workbench-tool-part--sidebar 比。当前 e2e 的 WINDOW_TARGETS 没有活动栏，所以量不出来（见 [5]）。
+建议改法：WorkbenchActivityBar.vue:143 改用 var(--shell-card-surface, var(--panel-surface))；e2e 补一项活动栏（图标没有文字，measure 现在要求目标里有文字，可以给活动栏条目量图标按钮的 aria-label 旁的像素，或单独量活动栏背景像素与 4.5 的关系）。
+
+[2] 重要 / 交互正确性 / 遮罩滑块松手或按键后先弹回旧值，写入回来才到新值
+位置：packages/neuro-book/src/plugins/workbench/web/components/BackgroundSettingsBlock.vue:55、62、112-120（draftScrim、shownScrim、onScrimCommit）
+现象：onScrimCommit 一上来就 draftScrim.value = null，shownScrim 立刻回到 imageValue.scrim（设置里的旧值），这时才发出 change。settings.update 不是乐观更新（plugins/settings/shared/instance.ts:250-266，先 await link.write 再 apply），所以从松手到写入回来这段时间，滑块受控值和预览遮罩都回到旧值，再跳到新值。
+为什么是问题：1) 松手后拇指和预览先回弹再前进，用户会看成“没生效”。2) 键盘：Reka SliderRoot 每次方向键都是 update 加 valueCommit（node_modules/reka-ui/dist/Slider/SliderRoot.js:128、175），下一次按键从受控的旧值起算，按住方向键时步进丢失。3) 设置里已有的 value-commit 语义（输出 9 “松手才写”）要的是“写之前不写”，不是“写之前显示旧值”。
+如何核实：把 settings.update 的 link.write 延迟 300ms（或看 e2e 慢机），松手后看滑块数值；或 vue test 里 stub update 返回未决 Promise，断言松手后 [data-background-scrim-value] 仍是新值（现在会变回旧值）。
+建议改法：commit 时保留 draft，等 props.value.scrim 变成提交的值（watch）或写入失败（Page 的 write 返回结果交回 Block）再清；写入失败时清 draft 回到旧值，符合“显示保持原样”。
+
+[3] 重要 / 测试 / 验收 4 没有被覆盖，滚动那半条可能空过
+位置：packages/neuro-book/e2e/backgrounds.e2e.ts:351-365
+现象：Spec 验收 4 是“拆成两组，拖分隔条，每组的图按新尺寸重排，正文滚动时图不动”。测试只有一个编辑组，用 page.setViewportSize 改窗口尺寸；没有拆组，没有拖分隔条。滚动那半：page.mouse.wheel(0, 2000) 之后没有断言正文真的滚了（没读 scrollTop 或第一段的位置），layer 的 boundingBox 没变也就可能是“根本没滚”。
+为什么是问题：用户关心的“拖分隔条后图是否按新尺寸重排”只靠窗口尺寸变化推断；两条路径的几何来源不同（grid 分隔条改的是组的内容盒，窗口变化改的是整个布局）。
+如何核实：把 wheel 之后的 prose 第一段 boundingBox.y 与滚前比较，现在没有这条断言；变异：把 BackgroundLayer 改成 position: fixed，窗口尺寸那条仍会过，滚动那条在没滚的情况下也会过。
+建议改法：开两个编辑组（拆分命令或拖标签），读两组 [data-background-layer] 的宽度，拖 [data-sash] 后断言两组宽度按分隔条位置变化；滚动前后断言 prose 的 scrollTop 或段落位置真的变了。
+
+[4] 重要 / 测试 / 切明暗、切主题时重算没有测试，正是关注点 1 的风险所在
+位置：packages/neuro-book/e2e/backgrounds.e2e.ts:212-254（每个用例固定一个 theme、appearance，换图时只重写 background 项）
+现象：spec 输出 6 “切换明暗与主题：下限与面色跟着重算”，以及 WorkbenchShell.vue:92-105 那段先 clear 再 resolve 的逻辑（--editor-tabs-surface 不读自己写的旧值）、卸载时还原（输出“窗口背景只在工作台页面挂载期间生效”），e2e 里都没有。纯色那条测试（339-349）会改 appearance，但只看 BackgroundLayer 的 background-color，窗口背景的五个变量没有被运行时切换覆盖。
+为什么是问题：这五个字面量变量写在文档根，是最容易“切了明暗还留着旧色”的地方；一旦 clearBackgroundVars 的顺序被调换，当前所有用例仍然通过。
+如何核实：从代码推断的变异：把 WorkbenchShell.vue 里 clearBackgroundVars() 挪到 resolve() 之后，现有 e2e 应当全过（每个用例页面是新载入的，旧值读不到）；未实际跑。
+建议改法：在窗口背景开着时，同一页面里通过设置文件把 appearance 从 light 改 dark 再改 theme，断言 documentElement.style 里 --shell-card-surface 的 rgb 变成新配色的面色、--editor-tabs-surface 不等于上一次的值；再导航离开工作台页（或卸载）断言五个变量都被移除、data-nb-editor-transparent 不在。
+
+[5] 重要 / 测试 / 对比度机检的目标不全，次要文字、高亮、活动栏与标签条没有被量
+位置：packages/neuro-book/e2e/backgrounds.e2e.ts:203-206、240-245
+现象：WINDOW_TARGETS 与 EDITOR_TARGETS 只取每个选择器的 .first()：第一段 p、a、面包屑标签、项目名、标题栏菜单项、侧栏一行。DOCUMENT 里有一段引用（次要文字）但没有选择器指向它，也没有 mark（高亮）；活动栏、标签条、面板、弱化文字都不在。spec 验收 1 列了“次要文字”；scrimFloor 里 4 个角色里的次要文字和高亮这两个只能靠面包屑碰巧用 --text-secondary 间接覆盖，高亮完全没覆盖。
+另：不模糊的情形只有 detail 一张图，链接、面包屑、标题栏这些小盒子落在 160 像素格子的哪一格取决于布局，落在白格上时对“遮罩取下限偏低”的变异不敏感（正文 p 的盒子够宽，但它的对比度 16:1 本来就不敏感）。
+如何核实（从代码推断，未跑）：变异：把 scrimFloor 的 reachable 里去掉 --text-secondary 或高亮角色，或把 MODE_FLOOR.sharp 从 92 改成 85，看哪些用例会失败；高亮角色那条一定不会失败。
+建议改法：DOCUMENT 加一段 ==高亮== 和引用，targets 加 blockquote p、mark；活动栏、标签条、面板各取一项；不模糊也跑 white、black 两张纯色图（成本一张 64×64 PNG），让每个小盒子都落在极端格上。
+
+[6] 重要（可访问性）/ 缩略图按钮没有可访问名称
+位置：BackgroundSettingsBlock.vue:186-198
+现象：<button …aria-pressed> 里只有 <img alt="">，没有 aria-label、没有文字。读屏器读出“按钮，已按下/未按下”，一排缩略图无法区分。
+为什么是问题：按钮必须有可访问名称（WCAG 4.1.2）。文件名是 64 位十六进制的摘要，不能直接当名字。
+如何核实：Playwright page.getByRole("button", {pressed: true}) 的 name 为空；或 accessibility snapshot。
+建议改法：aria-label 用“图片 N”（按列表顺序，加上文案键，zh/en 都补）；当前选中的那张同时带 aria-pressed。
+
+=== 建议 ===
+
+[7] 建议 / 界面规范 / 缩略图焦点环手写，选中态与焦点态看起来一样
+位置：BackgroundSettingsBlock.vue:190-191
+现象：焦点环是手写的 outline 类（focus-visible:outline-2 focus-visible:outline-[var(--accent-main)]），选中态是 outline-2 outline-[var(--accent-main)]。选中的那一张拿到键盘焦点时，外观与未聚焦的选中态完全相同。
+为什么是问题：ui-development-spec 自检清单（“同类交互状态一致”）要求复用基座类 nb-ui-focus-ring（nb-ui/src/styles.css:56），不手写近似样式；键盘用户看不出焦点在哪张选中的图上。
+建议改法：按钮加 nb-ui-focus-ring，选中态用另一种表示（例如加粗的 outline 偏移，或角标），不与焦点环同色同宽。
+
+[8] 建议 / 竞态 / 上传期间切了种类或另选了图，上传完成后仍按“选中这张”覆盖用户的选择
+位置：BackgroundSettingsBlock.vue:123-135（onFile 里 await 之后无条件 pickImage）
+现象：上传进行中把种类切到“无”或“纯色”，或在图库里点了另一张，上传一完成就 pickImage(result.address)，写出 {kind:"image"}，随后 watch(props.value.kind) 把 mode 拖回 image。
+为什么是问题：用户的最后一次操作被覆盖。组件卸载后的 emit 是无效的（所以退出设置窗口那种不算），这里指同一页内。
+建议改法：开始上传时记下 mode 与一个序号，完成时 mode 还是 image 且序号一致才选中；否则只刷新图库。
+
+[9] 建议 / 失败语义 / 写入失败后种类选择器停在新种类，与真实显示不一致
+位置：BackgroundSettingsBlock.vue:76-88（selectKind 先改 mode.value 再 emit），watch 只在 props.value.kind 变化时同步（:36）
+现象：设置原来是 image，用户点“无”，写入失败（例如用户层文件不可写，Page 的 write 走 reportWriteFailure）：mode 已是 none，设置仍是 image，真实显示还是图。因为设置的 kind 没变，watch 不触发，选择器一直停在“无”。
+为什么是问题：spec 失败表“设置写入失败：设置页显示原因，显示保持原样”，选择器本身属于显示。
+建议改法：selectKind 不预先改 mode（除了“图片但还没有图”这种不写设置的情形），写成功后由 watch 带过去；或写失败时由 Page 把结果交回，Block 把 mode 重置为 props.value.kind。
+
+[10] 建议 / 性能与交互 / 自定义色的取色面板每次拖动都写一次设置
+位置：BackgroundSettingsBlock.vue:90-99（pickColor 直接 emit change），nb-ui ColorPickerPanel.vue 的 set() 每一步都发 update:modelValue
+现象：拖取色面板，每一个 pointermove 都经 Page 的 write 走一次用户层设置写入（文件写、快照、所有窗口同步、各编辑组重新读颜色和 getComputedStyle）。当前明暗下中途的不合格色会弹错误、不写，面板拇指却停在不合格的位置。
+为什么是问题：滑块有“松手才写”的约定（输出 9），取色面板没有；写入频繁。
+建议改法：用本地草稿在拖动时只改预览，面板关闭或停顿后再写，或者只写通过检查的值并把面板拇指约束回上一个合格值。
+
+[11] 建议 / 正确性（边角）/ 采样用非线性亮度挑最亮最暗，格数固定 64，与显示尺寸无关
+位置：use-background-image.ts:59-75（level = 0.2126*r + 0.7152*g + 0.0722*b 对 8 位通道直接加权），:55-57（非 repeat 时固定 64 格）
+现象：1) 挑“最亮、最暗”的排序用伽马编码值的加权和，而 contrast() 用线性化后的相对亮度；饱和蓝（0,0,255）的 level 为 18、灰 40 的 level 为 40，排序里蓝更暗，但相对亮度蓝 0.0722 大于灰 0.021，选出的“最暗”不是真正最暗的。2) 注释写“每格约等于模糊半径”，但格数固定 64：显示宽度约 1800px 时格宽才等于 σ=14px 的模糊；4K 宽屏或大窗口里格宽 60px，比实际模糊粗一倍多，小而极亮的细节被平均掉，真实的最亮最暗比算出的更极端。窄窗口则偏保守。
+为什么是问题：下限是“保证 4.5”的依据，两处都可能让个别图在极端屏幕下低于 4.5。影响面不大（需要饱和色或大屏加小而极端的细节），所以只是建议。
+如何核实：从代码推断。用 /tmp/t19/sonnet-exp/ 里建一张 4000×2250、中间有 20px 白点的黑图，4K 窗口截图量对比度。
+建议改法：排序用线性化后的相对亮度（background-legibility.ts 的 luminance 导出来复用）；格数按显示宽度除以 σ 取，或固定取更细（例如 128）并把注释改成真实依据。
+
+[12] 建议 / 视觉 / 窗口背景下标签条叠了三层半透明，比其它卡片实得多，活动标签与正文接不上
+位置：EditorGroup.vue:406（.editor-group__header background: var(--editor-tabs-surface)）加 EditorTabBar.vue:242（.editor-tabs 又是 var(--editor-tabs-surface)）加外层 EditorArea.vue:125（--shell-card-surface）；EditorTabBar.vue:276、280
+现象：WorkbenchShell.vue 注释写“里层透明、不透明度不相乘”，但标签条外层 header、内层 .editor-tabs 都画 face(tabs)，再叠 EditorArea 的卡片面：scrim 0.75 时有效不透明度约 1-(0.25)^3 = 0.98，标签条看起来几乎是实心。活动标签 is-active 是单层 --shell-card-surface，叠在实心的标签条上，颜色与它下面的正文区域（只有一层）对不上，“活动标签从正文里长出来”的效果破了。.editor-tab-frame:hover 的 color-mix(--panel-surface 50%, --editor-tabs-surface) 也用不透明的 --panel-surface，悬停时那一块更实。
+为什么是问题：非对比度问题（更实只会更清楚），是视觉不一致；从代码推断，需要截图复核。
+建议改法：窗口背景下让 .editor-tabs 本身透明（只由 header 画），hover 的混合用 transparent 代替 --panel-surface，或为标签条另设变量。
+
+[13] 建议 / 层叠 / 编辑器控件还没交付时的“正在加载”提示被遮罩盖住
+位置：EditorGroup.vue:342-349（BackgroundLayer 是第一个子元素，absolute）与 :365（.editor-group__pending 非定位）
+现象：binding 在文档就绪后就非空，所以 Markdown 的控件还是 pending 时 showsBackground 已经为真；absolute 的背景层按层叠顺序盖在非定位的 <p> 上面，800 毫秒后才出现的“编辑器加载中”被 0.75 以上的遮罩盖住。
+为什么是问题：只影响首次打开 Markdown 且控件慢于 800ms 的情形，影响小；同类的 binary、gone 是 binding 为 null 或另一类，不受影响。
+建议改法：showsBackground 再要求 unavailable 为 null；或给这几个提示块加 relative。
+
+[14] 建议 / 隐含耦合 / 窗口背景层依赖祖先恰好是视口大小
+位置：WorkbenchShell.vue:436-443 与 BackgroundLayer.vue（position: absolute; inset: 0），.workbench-shell-host（WorkbenchShell.vue:605）没有 position
+现象：窗口背景层定位到最近的定位祖先；.nb-workbench-page 也没有 position，所以实际是初始包含块（视口）。页面恰好占满 100dvh 时看起来对，但依赖这件事。
+为什么是问题：移动端 100dvh 与初始包含块（视口尺寸）可能不等；以后外壳前面多一个横幅，背景层仍从视口左上角起。
+建议改法：.workbench-shell-host 加 position: relative。
+
+[15] 建议 / 规范 / 组件文档的“验证入口”写错，BackgroundLayer 与设置页组件没有 Lab 场景
+位置：BackgroundLayer.md:2、BackgroundSettingsBlock.md:2、BackgroundSettingsPage.md:2（验证入口: EditorArea）；packages/neuro-book/src/plugins/lab/web/fixtures/README.md 第 5 节
+现象：验证入口只给 props 全部来自宿主链（state:inject、env:portal）的零件。BackgroundLayer 与 BackgroundSettingsBlock 的 props 是普通数据（url、fit、value、images、upload），可以独立挂载；设置页链上的同类零件登记的是 SettingsWindow（SettingsPageFrame.md 等），不是 EditorArea，EditorArea 场景里也看不到设置页。结果是这三个组件在 Lab 里都看不到：blur、contain、repeat、加载失败、减少透明下的状态、窄屏的状态行都没有场景。
+为什么是问题：components.md 完成标准“应用侧可挂载组件在 Component Lab 有场景登记”；全靠 e2e 又很重。
+建议改法：BackgroundLayer 与 BackgroundSettingsBlock 各登记一个 fixture（摆出几种 fit、blur、状态行、窄屏），去掉错误的验证入口；Page 的验证入口改为 SettingsWindow。
+
+[16] 建议 / 代码质量 / 重复的观察者与诊断，编辑组特有的开关放在颜色模块里
+位置：EditorGroup.vue:249-264（useBackgroundImage 里已有一份 useDocumentThemeVersion，EditorGroup 又自己调一次 backgroundTheme）；BackgroundSettingsBlock.vue:29（同样两份）；use-background-image.ts:95-108（report 每个实例都调）；document-colors.ts:91-99（setEditorTransparent）
+现象：每个编辑组有两个 MutationObserver 与三个 matchMedia 监听；图片加载失败时每个编辑组加窗口各 report 一次，同一个文件缺失会记 N+1 条诊断。setEditorTransparent 是“编辑器透明”的文档根标记，与“读文档颜色”没有关系，放在 document-colors.ts 里，读者要找 Monaco 为什么变透明时找不到。
+为什么是问题：重复诊断会淹没真正的信息；位置让关联不可发现。
+建议改法：useBackgroundImage 返回 themeVersion（或接收它），EditorGroup 复用；诊断在 plugin 层按 url 去重；setEditorTransparent 挪到 editor 插件共享合同或 monaco-theme 旁边。
+
+[17] 建议 / 测试 / 两处断言可能空过
+位置：backgrounds.e2e.ts:324（文件不见后 expect(...[data-background-image]).toHaveCount(0)）；:336 之前的“放回后恢复”
+现象：加载完成前本来就没有图，toHaveCount(0) 在第一次轮询就成立，“失败后退回没有背景”其实没被证明。后面设置页状态文字含“读不出来”是间接证明加载失败被识别，但编辑组自己那一份 useBackgroundImage 的失败分支没有被断言。
+如何核实：把 use-background-image.ts 的 catch 分支注释掉，这一条仍通过（图一直 loaded 为 null）。
+建议改法：先等设置页的 status 或一个明确的信号（例如在失败时给层加 data-background-failed），再断言 count 为 0。
+
+[18] 建议 / 无障碍 / 状态行是条件渲染的 role=status
+位置：BackgroundSettingsBlock.vue:233
+现象：<p v-if="status !== null" role="status"> 是出现时才插入 DOM，多数读屏器不会播报动态插入的 live region（要先有空的 live region 再改内容）；错误态应更强（role=alert）。
+建议改法：外层始终渲染 role=status 的容器，内容变化；错误用 role=alert。
+
+=== 未发现问题的方面 ===
+- use-background-image.ts 的加载竞态：token 防止换图、设为 null、A 到 B 到 A 的过期回调改状态；失败不进 loads 缓存（loading.catch 的 delete 发生在 set 之后，顺序正确），换到别的 url 再换回能重试；旧图留到新图好的行为与 spec 一致。唯一的限制是同一个 url 失败后不会自己重试（要换 url 或重新载入），与 spec“下次加载恢复”一致，不算问题。
+- computed 里读 DOM 与 themeVersion：active 在早返回之前依赖 loaded、input、solid，早返回路径上没读 themeVersion 但依赖变化时会重算后再收集，不会漏。
+- WorkbenchShell 的 watchEffect：先 clear 再读 --editor-tabs-surface，读的是主题原值；卸载时 stop、clear、释放登记都在；colorway 写的是同一个 style 属性但不同的变量名，没有互相覆盖。
+- setEditorTransparent：按 Symbol 登记、watch immediate 加 onBeforeUnmount 释放，多个编辑组、拆分、切到图片查看器、卸载都能回到正确的有无；binding 在文档失败或二进制时为 null，showsBackground 为假，不会出现“提示文字被盖住”的失败态（pending 除外，见 [13]）。
+- Monaco 主题：MonacoControl 的观察属性包含 data-nb-editor-transparent，开关两个方向都会重新 defineTheme；吸顶行用不透明 background，整行高亮改半透明。hex() 对 #rrggbbaa 原样放过，--bg-hover 若是 8 位十六进制会拼出 10 位，但现有配色都是 6 位，几乎不会发生，不报。
+- 预览与真实显示用的是同一个 useBackgroundImage 与 BackgroundLayer，遮罩 alpha 与下限算法一致；松手才写、键盘也写（Reka 的方向键、Home、End 都带 commit，已读源码核实）。
+- 纯色底的合格校验、亮暗各一个、窗口背景无 color（schema 与 UI 都限制）。
