@@ -90,6 +90,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - [`Menubar`](src/components/popup/Menubar.md)：窗口菜单栏。
 - [`ContextMenu`](src/components/popup/ContextMenu.md)：右键菜单。
 - [`QuickPick`](src/components/popup/QuickPick.md)：输入筛选、挑一项（命令面板、快速打开）；候选与前缀解析归宿主。
+- [`AnchoredPopover`](src/components/popup/AnchoredPopover.md)：贴在元素或选区旁边的浮层，不抢焦点，开关由宿主决定。
 - [`SuggestionMenu`](src/components/popup/SuggestionMenu.md)：输入时弹出的候选（`@`、`/`）：不抢焦点，键盘由宿主处理。
 - [`Popover`](src/components/feedback/Popover.md)：气泡。
 - [`Tooltip`](src/components/feedback/Tooltip.md)：悬停提示。

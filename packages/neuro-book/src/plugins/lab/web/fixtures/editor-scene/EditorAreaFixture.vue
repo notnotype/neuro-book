@@ -16,7 +16,7 @@ import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
 import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
 import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
-import {CODE_EDITOR, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
+import {CODE_EDITOR, editorMenusKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import {editorText} from "nbook/plugins/editor/shared/text";
 
 import {useLabEventSink} from "../../lab-event-sink";
@@ -24,6 +24,7 @@ import type {LabFixtureProps} from "../../lab-subject";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {createMemoryFiles} from "../explorer-scene/memory-files";
 import {provideEditorText} from "./editor-text";
+import {createLabEditorMenus} from "./lab-editor-menus";
 
 const props = defineProps<LabFixtureProps>();
 /** 界面语言只由场景决定（场景 `english` 用英文），端口注入给后代的编辑器区。 */
@@ -132,6 +133,7 @@ provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, (
 // 图片地址：内存适配器没有字节路由，作品里的 png 一律给一张画出来的图。
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#7287fd"/><text x="240" y="145" font-size="30" text-anchor="middle" fill="white">封面</text></svg>')}`;
 provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => (address.endsWith(".png") ? PICTURE : null), watch: () => () => undefined}));
+provide(editorMenusKey, createLabEditorMenus(area, text));
 const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
 /** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
 const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};

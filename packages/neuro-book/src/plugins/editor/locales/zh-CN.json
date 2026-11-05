@@ -148,11 +148,16 @@
             "wordWrap": {
                 "title": "自动换行"
             }
+        },
+        "markdownToolbar": {
+            "description": "Markdown 编辑器顶部的工具栏",
+            "title": "编辑器工具栏"
         }
     },
     "categories": {
         "editor": "编辑器",
-        "edit": "编辑"
+        "edit": "编辑",
+        "view": "视图"
     },
     "commands": {
         "open": {
@@ -222,6 +227,98 @@
                 },
                 "redo": {
                     "title": "重做"
+                },
+                "bold": {
+                    "title": "粗体"
+                },
+                "italic": {
+                    "title": "斜体"
+                },
+                "strike": {
+                    "title": "删除线"
+                },
+                "code": {
+                    "title": "行内代码"
+                },
+                "superscript": {
+                    "title": "上标"
+                },
+                "subscript": {
+                    "title": "下标"
+                },
+                "clear-format": {
+                    "title": "清除格式"
+                },
+                "text-color": {
+                    "title": "文字颜色"
+                },
+                "highlight": {
+                    "title": "高亮"
+                },
+                "ruby": {
+                    "title": "注音"
+                },
+                "paragraph": {
+                    "title": "正文"
+                },
+                "heading-1": {
+                    "title": "标题 1"
+                },
+                "heading-2": {
+                    "title": "标题 2"
+                },
+                "heading-3": {
+                    "title": "标题 3"
+                },
+                "bullet-list": {
+                    "title": "无序列表"
+                },
+                "ordered-list": {
+                    "title": "有序列表"
+                },
+                "task-list": {
+                    "title": "任务列表"
+                },
+                "quote": {
+                    "title": "引用"
+                },
+                "callout": {
+                    "title": "提示块"
+                },
+                "code-block": {
+                    "title": "代码块"
+                },
+                "align": {
+                    "title": "对齐"
+                },
+                "bilingual": {
+                    "title": "双语对照"
+                },
+                "divider": {
+                    "title": "分割线"
+                },
+                "table": {
+                    "title": "表格"
+                },
+                "block-up": {
+                    "title": "上移"
+                },
+                "block-down": {
+                    "title": "下移"
+                },
+                "block-duplicate": {
+                    "title": "创建副本"
+                },
+                "block-delete": {
+                    "title": "删除"
+                },
+                "block-unwrap": {
+                    "title": "解开块"
+                }
+            },
+            "view": {
+                "toggle-editor-toolbar": {
+                    "title": "显示编辑器工具栏"
                 }
             }
         },
@@ -277,6 +374,18 @@
         },
         "hasLanguage": {
             "reason": "活动的编辑器不分语言"
+        },
+        "canFormat": {
+            "reason": "光标所在的地方不能加格式"
+        },
+        "canConvertBlock": {
+            "reason": "光标所在的地方不能换块类型"
+        },
+        "hasSelection": {
+            "reason": "没有选中内容"
+        },
+        "toolbarVisible": {
+            "reason": "工具栏没有打开"
         }
     },
     "statusItems": {
@@ -384,9 +493,53 @@
         "targetChanged": "目标编辑器已关闭或切换",
         "lineUnsupported": "当前编辑器不支持行号跳转",
         "lineOutOfRangeOf": "行号超出范围：{{line}}（共 {{total}} 行）",
-        "lineOutOfRange": "行号超出范围：{{line}}"
+        "lineOutOfRange": "行号超出范围：{{line}}",
+        "editingUnsupported": "活动的编辑器不支持这个动作",
+        "editingUnavailable": "这里不能用这个动作"
     },
     "rescue": {
         "lostFormat": "这个视图有写不回 Markdown 的块，那些块只留下了文字（格式丢了）"
+    },
+    "menus": {
+        "blockType": "块类型",
+        "toolbar": "格式",
+        "more": "更多操作",
+        "colorNone": "默认",
+        "align-left": "左对齐",
+        "align-center": "居中",
+        "align-right": "右对齐",
+        "align-justify": "两端对齐",
+        "color-slate": "灰",
+        "color-orange": "橙",
+        "color-amber": "琥珀",
+        "color-yellow": "黄",
+        "color-emerald": "绿",
+        "color-sky": "蓝",
+        "color-violet": "紫",
+        "color-pink": "粉",
+        "color-red": "红",
+        "color-neutral": "浅灰",
+        "color-stone": "米色",
+        "color-green": "绿",
+        "color-blue": "蓝",
+        "color-purple": "紫",
+        "selection": "选区格式",
+        "promptRuby": "注音",
+        "promptBilingual": "对照原文",
+        "slash": "插入块",
+        "slash-basic": "基本",
+        "slash-lists": "列表",
+        "slash-blocks": "块",
+        "convert": "转换为",
+        "copy": "复制",
+        "cut": "剪切",
+        "paste": "粘贴",
+        "pastePlain": "粘贴为纯文本",
+        "selectAll": "全选",
+        "insertBlock": "插入块",
+        "blockMenu": "块菜单",
+        "pasteUnsupported": "浏览器不支持从菜单粘贴，请用 Ctrl+V",
+        "pasteDenied": "浏览器没有给读取剪贴板的权限，请用 Ctrl+V",
+        "pasteEmpty": "剪贴板里没有文字，图片或文件请用 Ctrl+V"
     }
 }

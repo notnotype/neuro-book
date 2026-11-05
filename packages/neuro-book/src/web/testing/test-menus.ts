@@ -9,8 +9,8 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
-import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT} from "nbook/plugins/editor/shared/contracts";
+import type {CommandDeclaration, MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {EXPLORER_CONTEXT_POINT} from "nbook/plugins/explorer/shared/contracts";
 import type {ExplorerContextItemDeclaration} from "nbook/plugins/explorer/shared/contracts";
@@ -52,6 +52,19 @@ const EDITOR_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: Ed
     {id: "test.menus.editor-md", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, icon: "i-lucide-eye", label: label("测试编辑区按钮"), extensions: [".md"], context: "resource"}},
 ];
 
+/** Markdown 编辑器的五个位置（docs/specs/workbench/markdown-editing.md 验收 6）：都排在内置项之后，收到活动标签的地址。 */
+const markdownItem = (name: string, text: string, extra: Partial<MenuItemDeclaration> = {}): {readonly id: string; readonly declaration: MenuItemDeclaration} => ({
+    id: `test.menus.markdown-${name}`,
+    declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, icon: "i-lucide-puzzle", label: label(text), context: "resource", ...extra},
+});
+const MARKDOWN_ITEMS: ReadonlyArray<{readonly point: string; readonly items: ReadonlyArray<{readonly id: string; readonly declaration: MenuItemDeclaration}>}> = [
+    {point: EDITOR_TOOLBAR_POINT, items: [markdownItem("toolbar", "测试工具栏项")]},
+    {point: EDITOR_SELECTION_POINT, items: [markdownItem("selection", "测试选区项")]},
+    {point: EDITOR_SLASH_POINT, items: [markdownItem("slash", "测试斜杠项")]},
+    {point: EDITOR_BLOCK_POINT, items: [markdownItem("block", "测试块菜单项")]},
+    {point: EDITOR_BODY_CONTEXT_POINT, items: [markdownItem("context", "测试右键项目")]},
+];
+
 /** 标签右键（docs/specs/workbench/editor.md 输出 57）：`.md` 文件标签上多一项，收到被右击标签的地址。 */
 const TAB_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: EditorTabContextItemDeclaration}> = [
     {id: "test.menus.tab-md", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, label: label("测试标签菜单"), extensions: [".md"], context: "resource"}},
@@ -72,6 +85,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                 ...EXPLORER_ITEMS.map(({id, declaration}) => ({capability: EXPLORER_CONTEXT_POINT, id, declaration})),
                 ...EDITOR_ITEMS.map(({id, declaration}) => ({capability: EDITOR_TITLE_POINT, id, declaration})),
                 ...TAB_ITEMS.map(({id, declaration}) => ({capability: EDITOR_TAB_CONTEXT_POINT, id, declaration})),
+                ...MARKDOWN_ITEMS.flatMap(({point, items}) => items.map(({id, declaration}) => ({capability: point, id, declaration}))),
             ],
             activate: (context) => {
                 const notifications = context.services.require(notificationsKey);
@@ -84,6 +98,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                     [EXPLORER_CONTEXT_POINT]: menuImplementations(EXPLORER_ITEMS),
                     [EDITOR_TITLE_POINT]: menuImplementations(EDITOR_ITEMS),
                     [EDITOR_TAB_CONTEXT_POINT]: menuImplementations(TAB_ITEMS),
+                    ...Object.fromEntries(MARKDOWN_ITEMS.map(({point, items}) => [point, menuImplementations(items)])),
                 }};
             },
         })],

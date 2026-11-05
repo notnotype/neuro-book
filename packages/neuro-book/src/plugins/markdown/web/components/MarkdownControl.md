@@ -46,8 +46,10 @@ type Emits = {
 - 上次的光标（输出 30）：第一次为这份文档建编辑状态、标签记着光标时，把选区放到记下的位置（正文变短时夹到末尾）并滚到它；编辑状态还在时用它自己的选区。光标停下 1 秒、失焦或换文档时把选区活动端交给 `binding.remember`。
 - 句柄：聚焦、撤销、重做、结算；不提供行号导航（富文本没有行号）。另交出大纲 `outline` 与 `revealHeading`（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 的控件合同，面包屑用）：大纲跟着当前绑定，`binding` 是它的 token，正文每变一次（含按文档的正文重载）`version` 加一，光标动了只换 `current`；换绑定、没有绑定、卸载时为 null。标题 id 按位置给（同名不冲突），位置只记在控件里；`revealHeading` 的 `binding` 或 `version` 对不上为 `stale`、不移动光标，对得上时把光标放到标题开头并滚到它。
 
+- 编辑动作与菜单（[`workbench/markdown-editing.md`](../../../../../../../docs/specs/workbench/markdown-editing.md)）：句柄交出 `editing`，动作实现在 `@notnotype/nb-markdown/editor`。菜单从编辑器区注入的 `editorMenusKey` 取，没有注入时（组件测试）不画工具栏与菜单。菜单状态按组件实例算，不写 ProseMirror 插件视图：换文档时 `plugins` 数组换了，插件视图会全部重建；组件重挂时也一样。
+
 `state:local`：编辑器实例与当前绑定。`state:inject`：方言目录与资产地址（`nbook.markdown` 交出组件时提供），以及窗口的翻译端口（[`ui/i18n.md`](../../../../../../../docs/specs/ui/i18n.md)）：引用小块的悬停提示与图片的说明经它取，`markdownViewContext()` 把它带进节点视图里挂的图片，换语言时不重建编辑器：图片跟着端口重画，引用小块的悬停提示由控件重算一次。`env:timer`：输入后的结算延迟与记下光标的延迟，卸载与结算时清除。
 
 ## 不支持
 
-批注侧栏、选区浮动菜单、斜杠命令、Agent 与 AI 引用、工作区引用标签与 frontmatter 面板（frontmatter 用源码编辑器改）。
+批注侧栏、Agent 与 AI 引用、工作区引用标签与 frontmatter 面板（frontmatter 用源码编辑器改）。

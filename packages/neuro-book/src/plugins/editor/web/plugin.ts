@@ -12,13 +12,14 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
+import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
 import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
+import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -28,7 +29,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
+import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorMenusKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
@@ -48,6 +49,8 @@ import {editorState, editorStateValues} from "./state";
 import {EDITOR_STATUS_ITEMS, editorStatusItems} from "./status-items";
 import {createEditorTabMenu} from "./tab-menu";
 import {createEditorTitleActions} from "./title-actions";
+import {EDITING_COMMAND_DECLARATIONS, editingCommands, TOGGLE_TOOLBAR_COMMAND} from "./editing-commands";
+import {createEditorMenus} from "./editing-menus";
 import {EDITOR_TITLEBAR_MENU_ITEMS} from "./titlebar-menu";
 
 export const EDITOR_AREA_ID = "nbook.editor.area";
@@ -77,6 +80,12 @@ export const editorBrowserPlugin: PluginDefinition = {
         {id: EDITOR_TITLE_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorTitleItem, idPrefix: "plugin"},
         // 标签右键的菜单项（输出 57）：同上，只有声明。
         {id: EDITOR_TAB_CONTEXT_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorTabContextItem, idPrefix: "plugin"},
+        // Markdown 编辑器的五个菜单位置（docs/specs/workbench/markdown-editing.md）：同上，只有声明。
+        {id: EDITOR_TOOLBAR_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorToolbarItem, idPrefix: "plugin"},
+        {id: EDITOR_SELECTION_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorSelectionItem, idPrefix: "plugin"},
+        {id: EDITOR_SLASH_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorSlashItem, idPrefix: "plugin"},
+        {id: EDITOR_BLOCK_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorBlockItem, idPrefix: "plugin"},
+        {id: EDITOR_BODY_CONTEXT_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorBodyContextItem, idPrefix: "plugin"},
         // 编辑器（docs/specs/workbench/editor.md 输出 36）：内置的两个也声明在这里。
         {id: EDITOR_EDITORS_POINT, implementation: "required", complete: completeEditorDeclaration, validate: validateEditorContribution, idPrefix: "plugin"},
         // 语言（输出 43）：源码编辑器（Monaco）自带的也声明在这里。
@@ -88,10 +97,11 @@ export const editorBrowserPlugin: PluginDefinition = {
         activationEvents: ["onStartup"],
         dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
         provides: [documentCoordinatorKey],
-        receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
+        receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TOOLBAR_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
             {capability: WORKBENCH_EDITOR_AREA_POINT, id: EDITOR_AREA_ID, declaration: {order: 0}},
             ...Object.entries(EDITOR_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            ...Object.entries(EDITING_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...editorState.contributions,
             ...EDITOR_TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
             ...Object.entries(EDITOR_STATUS_ITEMS).map(([id, declaration]) => ({capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id, declaration})),
@@ -209,6 +219,11 @@ export const editorBrowserPlugin: PluginDefinition = {
             };
             const titleItems = new MenuItemRegistry(context.declarations.list<EditorTitleItemDeclaration>(EDITOR_TITLE_POINT), context.signal);
             const tabMenuItems = new MenuItemRegistry(context.declarations.list<EditorTabContextItemDeclaration>(EDITOR_TAB_CONTEXT_POINT), context.signal);
+            const toolbarItems = new MenuItemRegistry(context.declarations.list<MenuItemDeclaration>(EDITOR_TOOLBAR_POINT), context.signal);
+            const selectionItems = new MenuItemRegistry(context.declarations.list<MenuItemDeclaration>(EDITOR_SELECTION_POINT), context.signal);
+            const slashItems = new MenuItemRegistry(context.declarations.list<MenuItemDeclaration>(EDITOR_SLASH_POINT), context.signal);
+            const blockItems = new MenuItemRegistry(context.declarations.list<MenuItemDeclaration>(EDITOR_BLOCK_POINT), context.signal);
+            const bodyContextItems = new MenuItemRegistry(context.declarations.list<MenuItemDeclaration>(EDITOR_BODY_CONTEXT_POINT), context.signal);
             const commandSources = {files: context.services.require(filesKey), clipboard: systemClipboard()};
             const tabMenuModel = createEditorTabMenu({
                 area: () => session.area.value,
@@ -237,6 +252,25 @@ export const editorBrowserPlugin: PluginDefinition = {
                     return current.model(maxButtons);
                 }};
             };
+            const toolbarVisible = computed(() => settings.get(markdownToolbarSetting));
+            const menus = createEditorMenus({
+                area: () => session.area.value,
+                commands,
+                state: context.services.require(publicStateKey),
+                items: {
+                    [EDITOR_TOOLBAR_POINT]: () => toolbarItems.items(),
+                    [EDITOR_SELECTION_POINT]: () => selectionItems.items(),
+                    [EDITOR_SLASH_POINT]: () => slashItems.items(),
+                    [EDITOR_BLOCK_POINT]: () => blockItems.items(),
+                    [EDITOR_BODY_CONTEXT_POINT]: () => bodyContextItems.items(),
+                },
+                platform,
+                text,
+                version: commandsVersion,
+                toolbarVisible,
+                notify: (message) => session.area.value?.notify(message),
+                report,
+            });
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
                     const {default: EditorArea} = await import("./components/EditorArea.vue");
@@ -247,6 +281,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         setup: () => {
                             provideToChildren(editorLanguagesKey, languages);
                             provideToChildren(codeEditorOptionsKey, codeOptions);
+                            provideToChildren(editorMenusKey, menus);
                             return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             tabMenuModel.run(tabId, key);
@@ -262,13 +297,13 @@ export const editorBrowserPlugin: PluginDefinition = {
                     });
                 },
             };
-            const published = bindingsOf(editorState, editorStateValues(session.area));
+            const published = bindingsOf(editorState, editorStateValues(session.area, toolbarVisible));
             return {
                 services: [provideService(documentCoordinatorKey, session.coordinator)],
-                receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_TAB_CONTEXT_POINT]: tabMenuItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver(), [EDITOR_LANGUAGES_POINT]: languages.receiver()},
+                receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_TAB_CONTEXT_POINT]: tabMenuItems.receiver(), [EDITOR_TOOLBAR_POINT]: toolbarItems.receiver(), [EDITOR_SELECTION_POINT]: selectionItems.receiver(), [EDITOR_SLASH_POINT]: slashItems.receiver(), [EDITOR_BLOCK_POINT]: blockItems.receiver(), [EDITOR_BODY_CONTEXT_POINT]: bodyContextItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver(), [EDITOR_LANGUAGES_POINT]: languages.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
-                    [COMMANDS_POINT]: editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null, ...commandSources}),
+                    [COMMANDS_POINT]: {...editingCommands(session.area, {toggleToolbar: () => settings.update(markdownToolbarSetting, !settings.get(markdownToolbarSetting))}), ...editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null, ...commandSources})},
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
