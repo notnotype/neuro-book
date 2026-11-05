@@ -273,6 +273,8 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
     const entries = [...inputs.world.entries.keys()].slice(0, 3);
     for (const change of inputs.world.changes.values()) {
         for (const entry of entries) for (const path of ["panel.存款", "character.态度", "know.认得"]) expect(inc.slotAfter(change.id, {entry, path}), `${where()} slotAfter ${change.id} ${entry} ${path}`).toEqual(ref.slotAfter(change.id, {entry, path}));
+        // 同一个点上的来历（含那一刻的归纳步）：只比第一个条目的数与语义档，全比太慢。
+        for (const path of ["panel.存款", "character.态度"]) expect(inc.originsAfter(change.id, {entry: entries[0]!, path}), `${where()} originsAfter ${change.id} ${path}`).toEqual(ref.originsAfter(change.id, {entry: entries[0]!, path}));
     }
     for (const position of positions) expect(inc.plannedAt(position), `${where()} plannedAt ${JSON.stringify(position)}`).toEqual(ref.plannedAt(position));
     for (const chapter of inputs.order.ids) expect(inc.chapterEntries(chapter)).toEqual(ref.chapterEntries(chapter));

@@ -356,6 +356,53 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
 
     const resolve = (position: ReadPosition): Rank | "chapter-not-found" => positionRank(order, position) ?? "chapter-not-found";
 
+    /** 一个地址到某一刻为止的来历：`include` 按全序给出这一刻之前（含）的事件，`checks` 是这一刻之前的精确档核对点。 */
+    function originsUpTo(at: Address, snapshot: Snapshot, include: (event: {readonly rank: Rank; readonly tie: OrderTie}) => boolean, checks: readonly CheckResult[]): readonly OriginStep[] {
+        const entry = world.entries.get(at.entry);
+        if (entry === undefined) return [];
+        type Keyed = {rank: Rank; tie: OrderTie; step: OriginStep};
+        const steps: Keyed[] = [];
+        const fold: MutableFold = {state: structuredClone(entry.init), events: new Map()};
+        const initValue = entry.deleted === true ? undefined : readEntryAddress(fold.state, at.path);
+        const basis = entry.initBasis?.[at.path];
+        const initStep: OriginStep = {kind: "init", value: initValue, ...(basis === undefined ? {} : {basis})};
+        const timeline = snapshot.timelines.get(at.entry);
+        for (const item of timeline?.items ?? []) {
+            if (!include(item.ev)) break;
+            if (item.ev.kind === "anchor") {
+                replayAnchor(fold.state, fold.events, item.ev.check.at.path, item.ev.check.value, item.ev.field);
+                if (item.ev.check.at.path === at.path) steps.push({rank: item.ev.rank, tie: item.ev.tie, step: {kind: "check", check: item.ev.check.id, written: item.ev.check.value, result: "anchor"}});
+                continue;
+            }
+            if (!item.applied) continue;
+            replayChangeOnEntry(fold.state, fold.events, item.ev.change, at.entry, registry);
+            const value = readEntryAddress(fold.state, at.path);
+            for (const patch of item.ev.change.patches) {
+                if (!addressesOverlap(patch.at, at)) continue;
+                steps.push({rank: item.ev.rank, tie: item.ev.tie, step: {kind: "patch", change: item.ev.change.id, op: patch.op, result: structuredClone(value), ...(patch.basis === undefined ? {} : {basis: patch.basis})}});
+            }
+        }
+        for (const result of checks) {
+            if (result.check.at.entry !== at.entry || result.check.at.path !== at.path) continue;
+            steps.push({rank: result.point.rank, tie: result.point.tie, step: {kind: "check", check: result.check.id, written: result.check.value, result: result.result}});
+        }
+        steps.sort(compareEvents);
+        const ordered = [initStep, ...steps.map((item) => item.step)];
+        const field = fieldOf(registry, entry, at);
+        if (field?.precision === "semantic") {
+            const events = fold.events.get(at.path) ?? [];
+            if (events.length > 0) {
+                const raw = readEntryAddress(fold.state, at.path);
+                const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
+                const namespace = at.path.split(".")[0]!;
+                const data = fold.state.data[namespace];
+                const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
+                ordered.push({kind: "reduce", anchor, events: [...events], cached: reduced !== undefined});
+            }
+        }
+        return ordered;
+    }
+
     return {
         inputs,
         recomputed,
@@ -424,50 +471,17 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         origins(at, position, mode) {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
-            const entry = world.entries.get(at.entry);
-            if (entry === undefined) return [];
-            type Keyed = {rank: Rank; tie: OrderTie; step: OriginStep};
-            const steps: Keyed[] = [];
-            const fold: MutableFold = {state: structuredClone(entry.init), events: new Map()};
-            const initValue = entry.deleted === true ? undefined : readEntryAddress(fold.state, at.path);
-            const basis = entry.initBasis?.[at.path];
-            const initStep: OriginStep = {kind: "init", value: initValue, ...(basis === undefined ? {} : {basis})};
-            const timeline = snapshotFor(mode, rank).timelines.get(at.entry);
-            for (const item of timeline?.items ?? []) {
-                if (!rankBefore(item.ev.rank, rank)) break;
-                if (item.ev.kind === "anchor") {
-                    replayAnchor(fold.state, fold.events, item.ev.check.at.path, item.ev.check.value, item.ev.field);
-                    if (item.ev.check.at.path === at.path) steps.push({rank: item.ev.rank, tie: item.ev.tie, step: {kind: "check", check: item.ev.check.id, written: item.ev.check.value, result: "anchor"}});
-                    continue;
-                }
-                if (!item.applied) continue;
-                replayChangeOnEntry(fold.state, fold.events, item.ev.change, at.entry, registry);
-                const value = readEntryAddress(fold.state, at.path);
-                for (const patch of item.ev.change.patches) {
-                    if (!addressesOverlap(patch.at, at)) continue;
-                    steps.push({rank: item.ev.rank, tie: item.ev.tie, step: {kind: "patch", change: item.ev.change.id, op: patch.op, result: structuredClone(value), ...(patch.basis === undefined ? {} : {basis: patch.basis})}});
-                }
-            }
-            for (const result of checksBefore(rank)) {
-                if (result.check.at.entry !== at.entry || result.check.at.path !== at.path) continue;
-                steps.push({rank: result.point.rank, tie: result.point.tie, step: {kind: "check", check: result.check.id, written: result.check.value, result: result.result}});
-            }
-            steps.sort(compareEvents);
-            const ordered = [initStep, ...steps.map((item) => item.step)];
-            const field = fieldOf(registry, entry, at);
-            if (field?.precision === "semantic") {
-                const events = fold.events.get(at.path) ?? [];
-                if (events.length > 0) {
-                    const raw = readEntryAddress(fold.state, at.path);
-                    const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
-                    const namespace = at.path.split(".")[0]!;
-                    const data = fold.state.data[namespace];
-                    const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
-                    ordered.push({kind: "reduce", anchor, events: [...events], cached: reduced !== undefined});
-                }
-            }
-            return ordered;
+            return originsUpTo(at, snapshotFor(mode, rank), (event) => rankBefore(event.rank, rank), checksBefore(rank));
         },
+
+        originsAfter(change, at) {
+            const placed = world.changes.get(change);
+            const rank = placed === undefined ? null : placementRank(order, placed.at);
+            if (rank === null) return null;
+            const point: Point = {rank, tie: tieOf(change), inclusive: true};
+            return originsUpTo(at, actual, (event) => compareEvents(event, point) <= 0, exactChecks().filter((item) => compareEvents(item.point, point) <= 0).map((item) => evaluate(item)));
+        },
+
 
         detail: (id) => actual.outcomes.get(id),
 

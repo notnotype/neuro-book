@@ -248,6 +248,54 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
         return positionRank(order, position) ?? "chapter-not-found";
     }
 
+    /** 一个地址到某一刻为止的来历：`include` 按全序给出这一刻之前（含）的事件，`checks` 是这一刻之前的精确档核对点。 */
+    function originsUpTo(at: Address, events: readonly FoldEvent[], include: (event: FoldEvent) => boolean, checks: readonly CheckResult[]): readonly OriginStep[] {
+        const entry = world.entries.get(at.entry);
+        if (entry === undefined) return [];
+        type Keyed = {rank: Rank; tie: OrderTie; step: OriginStep};
+        const steps: Keyed[] = [];
+        const state = initialFoldState(world.entries.values());
+        const initValue = readAddress(state, at);
+        const basis = entry.initBasis?.[at.path];
+        const initStep: OriginStep = {kind: "init", value: initValue, ...(basis === undefined ? {} : {basis})};
+        for (const event of events) {
+            if (!include(event)) break;
+            if (event.kind === "anchor") {
+                applyAnchor(state, event.check, event.field);
+                if (state.entries.has(at.entry) && event.check.at.entry === at.entry && event.check.at.path === at.path) {
+                    steps.push({rank: event.rank, tie: event.tie, step: {kind: "check", check: event.check.id, written: event.check.value, result: "anchor"}});
+                }
+                continue;
+            }
+            const result = applyChange(state, event.change, context);
+            if (!result.applied) continue;
+            const value = readAddress(state, at);
+            for (const patch of event.change.patches) {
+                if (!addressesOverlap(patch.at, at)) continue;
+                steps.push({rank: event.rank, tie: event.tie, step: {kind: "patch", change: event.change.id, op: patch.op, result: structuredClone(value), ...(patch.basis === undefined ? {} : {basis: patch.basis})}});
+            }
+        }
+        for (const result of checks) {
+            if (result.point.check.at.entry !== at.entry || result.point.check.at.path !== at.path) continue;
+            steps.push({rank: result.point.point.rank, tie: result.point.point.tie, step: {kind: "check", check: result.point.check.id, written: result.point.check.value, result: result.result}});
+        }
+        steps.sort(compareEvents);
+        const ordered = [initStep, ...steps.map((item) => item.step)];
+        const field = fieldOf(registry, entry, at);
+        if (field?.precision === "semantic") {
+            const events = state.events.get(addressKey(at)) ?? [];
+            if (events.length > 0) {
+                const parsed = parsePath(at.path);
+                const data = parsed?.root === "namespace" ? state.entries.get(at.entry)?.data[parsed.namespace] : undefined;
+                const raw = readAddress(state, at);
+                const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
+                const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
+                ordered.push({kind: "reduce", anchor, events: [...events], cached: reduced !== undefined});
+            }
+        }
+        return ordered;
+    }
+
     return {
         slotAfter(id, at) {
             const change = world.changes.get(id);
@@ -269,50 +317,15 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
         origins(at, position, mode) {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
-            const entry = world.entries.get(at.entry);
-            if (entry === undefined) return [];
-            type Keyed = {rank: Rank; tie: OrderTie; step: OriginStep};
-            const steps: Keyed[] = [];
-            const state = initialFoldState(world.entries.values());
-            const initValue = readAddress(state, at);
-            const basis = entry.initBasis?.[at.path];
-            const initStep: OriginStep = {kind: "init", value: initValue, ...(basis === undefined ? {} : {basis})};
-            for (const event of eventsFor(mode, rank)) {
-                if (!rankBefore(event.rank, rank)) break;
-                if (event.kind === "anchor") {
-                    applyAnchor(state, event.check, event.field);
-                    if (state.entries.has(at.entry) && event.check.at.entry === at.entry && event.check.at.path === at.path) {
-                        steps.push({rank: event.rank, tie: event.tie, step: {kind: "check", check: event.check.id, written: event.check.value, result: "anchor"}});
-                    }
-                    continue;
-                }
-                const result = applyChange(state, event.change, context);
-                if (!result.applied) continue;
-                const value = readAddress(state, at);
-                for (const patch of event.change.patches) {
-                    if (!addressesOverlap(patch.at, at)) continue;
-                    steps.push({rank: event.rank, tie: event.tie, step: {kind: "patch", change: event.change.id, op: patch.op, result: structuredClone(value), ...(patch.basis === undefined ? {} : {basis: patch.basis})}});
-                }
-            }
-            for (const result of checksBefore(rank)) {
-                if (result.point.check.at.entry !== at.entry || result.point.check.at.path !== at.path) continue;
-                steps.push({rank: result.point.point.rank, tie: result.point.point.tie, step: {kind: "check", check: result.point.check.id, written: result.point.check.value, result: result.result}});
-            }
-            steps.sort(compareEvents);
-            const ordered = [initStep, ...steps.map((item) => item.step)];
-            const field = fieldOf(registry, entry, at);
-            if (field?.precision === "semantic") {
-                const events = state.events.get(addressKey(at)) ?? [];
-                if (events.length > 0) {
-                    const parsed = parsePath(at.path);
-                    const data = parsed?.root === "namespace" ? state.entries.get(at.entry)?.data[parsed.namespace] : undefined;
-                    const raw = readAddress(state, at);
-                    const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
-                    const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
-                    ordered.push({kind: "reduce", anchor, events: [...events], cached: reduced !== undefined});
-                }
-            }
-            return ordered;
+            return originsUpTo(at, eventsFor(mode, rank), (event) => rankBefore(event.rank, rank), checksBefore(rank));
+        },
+
+        originsAfter(change, at) {
+            const placed = world.changes.get(change);
+            const rank = placed === undefined ? null : placementRank(order, placed.at);
+            if (rank === null) return null;
+            const point = {rank, tie: tieOf(change), inclusive: true};
+            return originsUpTo(at, actualEvents, beforePoint(point), exactChecks().filter((item) => compareEvents(item.point, point) <= 0).map((item) => evaluate(item, actualEvents)));
         },
 
         outcome(id): ChangeOutcome | undefined {

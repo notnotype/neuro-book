@@ -149,4 +149,6 @@ export interface Engine {
      * 安放、条目不在（或已删除）时为 null。
      */
     slotAfter(change: string, at: Address): CarrySlot | null;
+    /** 实际模式下，同一个全序点上（含这条变更自己）一个地址的来历，含那一刻的归纳步（worldlines 输出 6 的“接着看父线上的来历”）；变更不存在或没有安放时为 null。 */
+    originsAfter(change: string, at: Address): readonly OriginStep[] | null;
 }
