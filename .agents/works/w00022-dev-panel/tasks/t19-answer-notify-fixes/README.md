@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t19-answer-notify-fixes
-status: in_progress
+status: active
 updated: 2026-11-02
 ---
 
