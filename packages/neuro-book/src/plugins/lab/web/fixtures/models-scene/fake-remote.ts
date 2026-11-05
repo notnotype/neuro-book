@@ -46,7 +46,7 @@ export function createFakeModelsRemote(initial: ModelsSnapshot, options: {readon
         ...(config.maxOutput === undefined ? {} : {maxOutput: config.maxOutput}),
         ...(config.vision === undefined ? {} : {vision: config.vision}),
         ...(config.reasoning === undefined ? {} : {reasoning: config.reasoning}),
-        compactAt: config.compactAt ?? null,
+        compaction: config.compaction ?? (config.compactAt === undefined ? null : {mode: "tokens", value: config.compactAt}),
         ...(config.price === undefined ? {} : {price: config.price}),
         headers: {...config.headers},
         status: (config.contextWindow ?? previous?.contextWindow ?? null) === null ? "incomplete" : "ok",

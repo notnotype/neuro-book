@@ -102,7 +102,7 @@ function configOf(model: SnapshotModel, enabled: boolean): ModelConfig {
         vision: model.vision,
         reasoning: model.reasoning,
         efforts: [...model.efforts],
-        ...(model.compactAt === null ? {} : {compactAt: model.compactAt}),
+        ...(model.compaction === null ? {} : {compaction: model.compaction}),
         price: model.price,
         headers: {...model.headers},
     };

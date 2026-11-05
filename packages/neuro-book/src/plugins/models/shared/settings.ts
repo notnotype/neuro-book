@@ -9,6 +9,7 @@ import type {Static} from "typebox";
 
 import {defineSettings} from "nbook/shared/settings";
 
+import {CompactionSettingSchema, DEFAULT_COMPACTION} from "./compaction";
 import {modelsText} from "./text";
 
 /** 两个 page 分区的 id（界面在浏览器入口交付）。 */
@@ -33,7 +34,9 @@ export const ModelConfigSchema = Type.Object({
     vision: Type.Optional(Type.Boolean()),
     reasoning: Type.Optional(Type.Boolean()),
     efforts: Type.Optional(Type.Array(Type.String())),
+    /** 旧的固定触发点：读作 `compaction: {mode: "tokens"}`，保存时换成新的。 */
     compactAt: Type.Optional(Type.Integer({minimum: 1})),
+    compaction: Type.Optional(CompactionSettingSchema),
     price: Type.Optional(Price),
     headers: Type.Optional(Headers),
 }, {additionalProperties: false});
@@ -83,6 +86,16 @@ export const DEFAULT_ROLES: RolesConfig = {items: BUILTIN_ROLES.map((role) => ({
 const RUN_GUARDS_SECTION = "nbook.agent.reliability";
 
 export const modelsSettings = defineSettings("nbook.models", {
+    compaction: {
+        schema: CompactionSettingSchema,
+        default: DEFAULT_COMPACTION,
+        title: modelsText("settings.compaction.title"),
+        description: modelsText("settings.compaction.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "compaction",
+        order: 10,
+    },
     providers: {
         schema: ProvidersSchema,
         default: [],

@@ -15,6 +15,10 @@
         "streamIdleTimeoutSeconds": {
             "title": "Stream idle timeout (seconds)",
             "description": "Treats a reply as stuck when nothing new arrives for this long; 0 means no timeout"
+        },
+        "compaction": {
+            "title": "Auto-compaction trigger",
+            "description": "Compact automatically when the context reaches this size: keep a reserve, a percent of the window, or a fixed token count. Each model can override it."
         }
     },
     "settingsPages": {
@@ -176,9 +180,8 @@
         "priceCacheRead": "Cache read",
         "priceCacheWrite": "Cache write",
         "compaction": "Compaction",
-        "compactAt": "Trigger (tokens)",
-        "compactHint": "Compact when the context reaches this size; empty means the window minus a reserve.",
-        "compactPlaceholder": "From the window",
+        "compactHint": "Compact when the context reaches the trigger. Keep a reserve: the trigger is the window minus the larger of 15% of it and 16,384; a window size given here is used instead of the model's.",
+        "compactPlaceholder": "The model's window",
         "advanced": "Advanced",
         "headersHint": "Overrides the provider's header of the same name",
         "catalogFixed": "From the OMP model catalog; cannot be changed.",
@@ -188,7 +191,20 @@
         "idTaken": "This id is already in the list",
         "save": "Save",
         "cancel": "Cancel",
-        "headersPending": "Some header rows are unfinished: complete or remove them before saving"
+        "headersPending": "Some header rows are unfinished: complete or remove them before saving",
+        "compactTrigger": "Auto-compaction trigger",
+        "compactMode": {
+            "follow": "Follow the global setting",
+            "reserve": "Keep a reserve",
+            "percent": "Percent of the window",
+            "tokens": "Fixed token count"
+        },
+        "compactValue": {
+            "reserve": "Window size (tokens)",
+            "percent": "Percent",
+            "tokens": "Trigger (tokens)"
+        },
+        "percent": "Must be an integer from 1 to 100"
     },
     "manage": {
         "title": "Manage models: {{name}}",

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import {Collapsible, Dialog, Input, NumberInput, Switch} from "@notnotype/nb-ui/components";
+import {Collapsible, Dialog, Input, NumberInput, Select, Switch} from "@notnotype/nb-ui/components";
 import {computed, reactive, ref, watch} from "vue";
 
+import type {CompactionSetting} from "../../shared/compaction";
 import type {SnapshotModel} from "../../shared/contracts";
 import type {ModelConfig} from "../../shared/settings";
 import {useModelsText} from "../text";
@@ -35,7 +36,7 @@ const fromCatalog = computed(() => props.providerKind === "catalog");
 const adding = computed(() => props.model === null);
 
 const blank = (value: number | null | undefined): string => (value === null || value === undefined ? "" : String(value));
-const form = reactive({id: "", name: "", group: "", contextWindow: "", maxOutput: "", vision: false, reasoning: false, compactAt: "", price: ["", "", "", ""] as string[]});
+const form = reactive({id: "", name: "", group: "", contextWindow: "", maxOutput: "", vision: false, reasoning: false, compactMode: "follow" as "follow" | CompactionSetting["mode"], compactValue: "", price: ["", "", "", ""] as string[]});
 const headers = ref<Record<string, string>>({});
 /** 请求头里有没填完的行：保存要拦住，不悄悄丢掉它们。 */
 const headersPending = ref(false);
@@ -54,7 +55,8 @@ watch(() => props.open, (open) => {
         maxOutput: blank(model?.maxOutput),
         vision: model?.vision ?? false,
         reasoning: model?.reasoning ?? false,
-        compactAt: blank(model?.compactAt),
+        compactMode: model?.compaction?.mode ?? "follow",
+        compactValue: blank(model?.compaction?.value),
         price: model?.price === null || model?.price === undefined ? ["", "", "", ""] : model.price.map(String),
     });
     headers.value = {...model?.headers};
@@ -65,7 +67,7 @@ const positive = (value: string): boolean => /^[1-9]\d*$/u.test(value.trim());
 const PRICE = /^\d+(\.\d+)?$/u;
 
 const problems = computed(() => {
-    const found: Partial<Record<"id" | "contextWindow" | "maxOutput" | "compactAt" | "price" | "headers", string>> = {};
+    const found: Partial<Record<"id" | "contextWindow" | "maxOutput" | "compactValue" | "price" | "headers", string>> = {};
     if (adding.value) {
         if (form.id.trim() === "") found.id = text("edit.required");
         else if (props.takenIds.includes(form.id.trim())) found.id = text("edit.idTaken");
@@ -76,7 +78,11 @@ const problems = computed(() => {
         if (form.maxOutput.trim() !== "" && !positive(form.maxOutput)) found.maxOutput = text("edit.positive");
         if (form.price.some((value) => value.trim() !== "" && !PRICE.test(value.trim()))) found.price = text("edit.nonNegative");
     }
-    if (form.compactAt.trim() !== "" && !positive(form.compactAt)) found.compactAt = text("edit.positive");
+    // 预留量的基数可以留空（按窗口）；百分比与固定值要填，百分比不超过 100。
+    const value = form.compactValue.trim();
+    if (form.compactMode === "percent" && (!positive(value) || Number(value) > 100)) found.compactValue = text("edit.percent");
+    else if (form.compactMode === "tokens" && !positive(value)) found.compactValue = text("edit.positive");
+    else if (form.compactMode === "reserve" && value !== "" && !positive(value)) found.compactValue = text("edit.positive");
     if (headersPending.value) found.headers = text("edit.headersPending");
     return found;
 });
@@ -94,7 +100,7 @@ function save(): void {
         enabled: props.model?.enabled ?? true,
         ...optional("name", name === "" ? undefined : name),
         ...optional("group", group === "" ? undefined : group),
-        ...optional("compactAt", form.compactAt.trim() === "" ? undefined : Number(form.compactAt)),
+        ...optional("compaction", form.compactMode === "follow" ? undefined : {mode: form.compactMode, ...(form.compactValue.trim() === "" ? {} : {value: Number(form.compactValue)})} as CompactionSetting),
         ...optional("headers", Object.keys(headers.value).length === 0 ? undefined : headers.value),
     };
     if (fromCatalog.value) {
@@ -115,6 +121,7 @@ function save(): void {
     });
 }
 
+const COMPACT_MODES = computed(() => (["follow", "reserve", "percent", "tokens"] as const).map((value) => ({value, label: text(`edit.compactMode.${value}`)})));
 const PRICE_LABELS = ["edit.priceInput", "edit.priceOutput", "edit.priceCacheRead", "edit.priceCacheWrite"] as const;
 const title = computed(() => (props.model === null ? text("edit.addTitle") : text("edit.title", {name: props.model.name})));
 </script>
@@ -185,10 +192,14 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
             <section class="model-edit__section">
                 <h4>{{ text("edit.compaction") }}</h4>
                 <div class="model-edit__grid">
-                    <label class="model-edit__field">
-                        <span>{{ text("edit.compactAt") }}</span>
-                        <NumberInput v-model="form.compactAt" :placeholder="text('edit.compactPlaceholder')" :invalid="shown('compactAt') !== undefined" data-field="compactAt" />
-                        <small v-if="shown('compactAt')" class="model-edit__problem">{{ shown("compactAt") }}</small>
+                    <div class="model-edit__field">
+                        <span>{{ text("edit.compactTrigger") }}</span>
+                        <Select v-model="form.compactMode" :options="COMPACT_MODES" size="sm" :aria-label="text('edit.compactTrigger')" data-field="compactMode" />
+                    </div>
+                    <label v-if="form.compactMode !== 'follow'" class="model-edit__field">
+                        <span>{{ text(`edit.compactValue.${form.compactMode}`) }}</span>
+                        <NumberInput v-model="form.compactValue" :placeholder="form.compactMode === 'reserve' ? text('edit.compactPlaceholder') : ''" :invalid="shown('compactValue') !== undefined" data-field="compactValue" />
+                        <small v-if="shown('compactValue')" class="model-edit__problem">{{ shown("compactValue") }}</small>
                     </label>
                 </div>
                 <p class="model-edit__hint">{{ text("edit.compactHint") }}</p>

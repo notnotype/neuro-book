@@ -12,6 +12,7 @@ import type {Static} from "typebox";
 
 import type {ModelPort} from "@notnotype/nb-harness/kernel/contracts";
 
+import {CompactionSettingSchema} from "./compaction";
 import {ModelConfigSchema} from "./settings";
 
 const Nullable = <T extends Parameters<typeof Type.Union>[0][number]>(schema: T) => Type.Union([schema, Type.Null()]);
@@ -43,7 +44,7 @@ export const SnapshotModelSchema = Type.Object({
     vision: Type.Boolean(),
     reasoning: Type.Boolean(),
     efforts: Type.Array(Type.String()),
-    compactAt: Nullable(Type.Integer()),
+    compaction: Nullable(CompactionSettingSchema),
     price: Price,
     headers: Headers,
     status: Type.Union([Type.Literal("ok"), Type.Literal("missing"), Type.Literal("incomplete")]),

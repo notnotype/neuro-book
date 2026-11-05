@@ -79,6 +79,69 @@ async function addLocal(client: Awaited<ReturnType<ModelsWorld["window"]>>, name
     return id;
 }
 
+describe("压缩的触发点（输出 17）", () => {
+    /** 一个窗口 20 万的模型，绑在 main 上，交回端口与客户端。 */
+    async function bound(compaction: Record<string, unknown> = {}): Promise<{w: ModelsWorld; client: Awaited<ReturnType<ModelsWorld["window"]>>; trigger: () => number | undefined}> {
+        const w = await world();
+        const client = await w.window("w");
+        const {id} = ok(await client.addProvider({source: {kind: "custom", name: "本地端点", baseUrl: BASE, api: "openai-completions"}}));
+        ok(await client.upsertModel({provider: id, model: {id: "big", enabled: true, contextWindow: 200_000, ...compaction}}));
+        ok(await client.setRole({id: "main", model: `${id}/big`}));
+        ok(await client.setKey({provider: id, value: KEY}));
+        const port = w.service.port();
+        return {w, client, trigger: () => {
+            const resolution = port.resolve(query());
+            if (!resolution.ok) throw new Error(resolution.code);
+            return resolution.info.compactAt;
+        }};
+    }
+
+    test("缺省不给触发点（内核按窗口留预留量）；按模型的配置算成 token 数交给内核；快照里也是新的形状", async () => {
+        const plain = await bound();
+        expect(plain.trigger()).toBeUndefined();
+        const percent = await bound({compaction: {mode: "percent", value: 50}});
+        expect(percent.trigger()).toBe(100_000);
+        expect(percent.w.service.snapshot().providers[0]!.models[0]!.compaction).toEqual({mode: "percent", value: 50});
+        const reserve = await bound({compaction: {mode: "reserve", value: 100_000}});
+        expect(reserve.trigger()).toBe(83_616);
+    });
+
+    test("旧配置的 compactAt 读作固定的触发点，快照给新形状；再保存时换成新的", async () => {
+        const old = await bound({compactAt: 40_000});
+        expect(old.trigger()).toBe(40_000);
+        const snapshotModel = old.w.service.snapshot().providers[0]!.models[0]!;
+        expect(snapshotModel.compaction).toEqual({mode: "tokens", value: 40_000});
+        ok(await old.client.upsertModel({provider: "custom", model: {id: "big", enabled: true, contextWindow: 200_000, compaction: snapshotModel.compaction!}}));
+        const file = JSON.parse(readFileSync(old.w.settings.userFile, "utf8")) as {"nbook.models/providers": Array<{models: Array<Record<string, unknown>>}>};
+        expect(file["nbook.models/providers"][0]!.models[0]).not.toHaveProperty("compactAt");
+        expect(old.trigger()).toBe(40_000);
+    });
+
+    test("全局设置在没有按模型配置时生效，设置改了从下一次解析起跟着变；按模型的配置盖过全局", async () => {
+        const world = await bound();
+        const {w} = world;
+        const setGlobal = async (value: unknown): Promise<void> => {
+            const file = JSON.parse(await readFile(w.settings.userFile, "utf8")) as Record<string, unknown>;
+            file["nbook.models/compaction"] = value;
+            await writeFile(w.settings.userFile, JSON.stringify(file));
+        };
+        await setGlobal({mode: "percent", value: 25});
+        await waitUntil("全局的触发点生效", () => {
+            w.settings.clock.advance(RELOAD_DELAY_MS);
+            return world.trigger() === 50_000;
+        });
+        const override = await bound({compaction: {mode: "tokens", value: 70_000}});
+        const file = JSON.parse(await readFile(override.w.settings.userFile, "utf8")) as Record<string, unknown>;
+        file["nbook.models/compaction"] = {mode: "percent", value: 25};
+        await writeFile(override.w.settings.userFile, JSON.stringify(file));
+        await waitUntil("全局设置已读到", () => {
+            override.w.settings.clock.advance(RELOAD_DELAY_MS);
+            return JSON.stringify(override.w.service.snapshot()).length > 0;
+        });
+        expect(override.trigger()).toBe(70_000);
+    });
+});
+
 describe("解析（输出 8）", () => {
     test("角色未绑定为 role-unbound；没密钥为 no-credentials；设了密钥后能用，请求带上它；会话选的模型与 Profile 默认先于角色", async () => {
         const w = await world();
@@ -155,8 +218,8 @@ describe("配置的校验与写入（输出 5、6）", () => {
         expect(stored()).toEqual([{id: "deepseek-flash", enabled: true}]);
         expect(w.service.snapshot().providers.find((provider) => provider.id === "deepseek")!.models[0]).toMatchObject({id: "deepseek-flash", name: target.name, contextWindow: target.contextWindow});
 
-        ok(await client.upsertModel({provider: "deepseek", model: {id: "deepseek-flash", enabled: true, name: "快", group: "常用", compactAt: 50_000, headers: {"X-Team": "writing"}}}));
-        expect(stored()).toEqual([{id: "deepseek-flash", enabled: true, name: "快", group: "常用", compactAt: 50_000, headers: {"X-Team": "writing"}}]);
+        ok(await client.upsertModel({provider: "deepseek", model: {id: "deepseek-flash", enabled: true, name: "快", group: "常用", compaction: {mode: "tokens", value: 50_000}, headers: {"X-Team": "writing"}}}));
+        expect(stored()).toEqual([{id: "deepseek-flash", enabled: true, name: "快", group: "常用", compaction: {mode: "tokens", value: 50_000}, headers: {"X-Team": "writing"}}]);
     });
 
     test("两个窗口同时改不同的服务商，两处都在；设置文件被别处改过时重读后再合并，别处的内容不丢", async () => {

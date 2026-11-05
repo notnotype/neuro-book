@@ -50,6 +50,8 @@ export interface ModelTarget {
     readonly vision?: boolean;
     readonly reasoning?: boolean;
     readonly compactAt?: number;
+    /** 触发点要等窗口知道了才算得出（窗口可能来自目录）：给了就用它的结果，没有结果时退回 `compactAt`。 */
+    readonly compactAtFor?: (contextWindow: number) => number | undefined;
     /** 每百万 token 的美元单价：输入、输出、缓存读、缓存写；null 是未知，不写时用目录的。 */
     readonly price?: readonly [number, number, number, number] | null;
     readonly headers?: Readonly<Record<string, string>>;
@@ -81,7 +83,9 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
     const built = provider.kind === "catalog" ? catalogModel(provider, config) : customModel(provider, config);
     if (built === null) return {ok: false, code: "unknown-model"};
     const {model, priceKnown} = built;
-    const info: ModelInfo = {...ompModelInfo(model), ...(config.compactAt === undefined ? {} : {compactAt: config.compactAt})};
+    const base = ompModelInfo(model);
+    const compactAt = config.compactAtFor?.(base.contextWindow) ?? config.compactAt;
+    const info: ModelInfo = {...base, ...(compactAt === undefined ? {} : {compactAt})};
     return {
         ok: true,
         model,

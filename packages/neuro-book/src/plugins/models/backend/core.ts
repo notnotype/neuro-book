@@ -20,6 +20,7 @@ import type {SettingDefinition, SettingsService, SettingWriteResult} from "nbook
 
 import type {CheckResult, KeyStatus, ModelsService, ModelsSnapshot, ProfileModelDefaults, RoleStatus, SnapshotModel, SnapshotProvider} from "../shared/contracts";
 import type {modelsSettingsContract} from "../shared/contracts";
+import {compactionTrigger, effectiveCompaction} from "../shared/compaction";
 import {missingContextWindow, providerIdFor, referenceOf, rolesUsing, seriesOf, splitReference} from "../shared/rules";
 import {BUILTIN_ROLES, DEFAULT_ROLES, modelsSettings} from "../shared/settings";
 import type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "../shared/settings";
@@ -93,7 +94,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         changed.emit(next);
     };
     const offSettings = settings.onDidChange((keys) => {
-        if (keys.has(providersSetting.key) || keys.has(rolesSetting.key)) invalidate();
+        if (keys.has(providersSetting.key) || keys.has(rolesSetting.key) || keys.has(modelsSettings.settings.compaction.key)) invalidate();
     });
     const offCredentials = credentials.onChange(invalidate);
 
@@ -113,7 +114,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         ...(model.maxOutput === undefined ? {} : {maxOutput: model.maxOutput}),
         ...(model.vision === undefined ? {} : {vision: model.vision}),
         ...(model.reasoning === undefined ? {} : {reasoning: model.reasoning}),
-        ...(model.compactAt === undefined ? {} : {compactAt: model.compactAt}),
+        // 触发点要等窗口知道了才算得出；全局设置每次现读，设置改了从下一次解析起生效。
+        compactAtFor: (contextWindow) => compactionTrigger(effectiveCompaction(model, settings.get(modelsSettings.settings.compaction)), contextWindow),
         ...(model.price === undefined ? {} : {price: model.price}),
         ...(model.headers === undefined ? {} : {headers: model.headers}),
     });
@@ -170,7 +172,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             vision: model.vision ?? fromCatalog?.images ?? false,
             reasoning: model.reasoning ?? fromCatalog?.reasoning ?? false,
             efforts: [...(model.efforts ?? fromCatalog?.efforts ?? [])],
-            compactAt: model.compactAt ?? null,
+            compaction: model.compaction ?? (model.compactAt === undefined ? null : {mode: "tokens", value: model.compactAt}),
             price,
             headers: {...model.headers},
             status,
@@ -282,6 +284,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             ...(model.name === undefined || model.name === fromCatalog.name ? {} : {name: model.name}),
             ...(model.group === undefined || model.group === seriesOf(model.id) ? {} : {group: model.group}),
             ...(model.compactAt === undefined ? {} : {compactAt: model.compactAt}),
+            ...(model.compaction === undefined ? {} : {compaction: model.compaction}),
             ...(model.headers === undefined || Object.keys(model.headers).length === 0 ? {} : {headers: model.headers}),
         };
     };

@@ -3,7 +3,7 @@
 import type {CatalogProvider, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "nbook/plugins/models/shared/contracts";
 
 export const sampleModel = (id: string, patch: Partial<SnapshotModel> = {}): SnapshotModel => ({
-    id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, contextWindow: 128_000, maxOutput: 8_192, vision: false, reasoning: false, efforts: [], compactAt: null, price: null, headers: {}, status: "ok", ...patch,
+    id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, contextWindow: 128_000, maxOutput: 8_192, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok", ...patch,
 });
 
 export const SAMPLE_PROVIDERS: SnapshotProvider[] = [
@@ -39,7 +39,7 @@ export const SAMPLE_PROVIDERS: SnapshotProvider[] = [
     },
     {
         id: "ollama", kind: "custom", name: "本地 Ollama", baseUrl: "http://127.0.0.1:11434/v1", catalogBaseUrl: null, api: "openai-completions", auth: "none", headers: {}, key: {kind: "keyless"},
-        models: [sampleModel("qwen3:8b", {group: "qwen3", contextWindow: 32_768, reasoning: true, efforts: ["medium"], price: [0, 0, 0, 0], compactAt: 24_000})],
+        models: [sampleModel("qwen3:8b", {group: "qwen3", contextWindow: 32_768, reasoning: true, efforts: ["medium"], price: [0, 0, 0, 0], compaction: {mode: "tokens", value: 24_000}})],
     },
 ];
 

@@ -37,7 +37,7 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     icon: "i-lucide-shield-check",
     category: "ai",
     order: 30,
-    groups: [{id: "requests"}, {id: "guards"}],
+    groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}],
 };
 
 export const agentSettings = defineSettings("nbook.agent", {

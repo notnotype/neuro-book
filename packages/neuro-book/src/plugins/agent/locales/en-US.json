@@ -28,10 +28,13 @@
     "settingsSections": {
         "reliability": {
             "title": "Run reliability",
-            "description": "Retries for failed model requests, stall timeouts, and guards for cost and repeated calls",
+            "description": "Retries for failed model requests, stall timeouts, the context compaction trigger, and guards for cost and repeated calls",
             "groups": {
                 "requests": {
                     "title": "Model requests"
+                },
+                "compaction": {
+                    "title": "Context compaction"
                 },
                 "guards": {
                     "title": "Guards"
