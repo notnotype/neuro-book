@@ -324,6 +324,34 @@ describe("收口", () => {
         revoked = false;
         expect(dataOf(await session.events(), "runEnded")).toEqual([{runId: sent.value.runId, reason: "completed"}]);
     });
+
+    test("输出 75：响应收尾事件时宿主的模型端口已撤回：运行照常收口，写诊断，关闭放掉日志与锁", async () => {
+        let revoked = false;
+        const model = createTestModel();
+        const seen: string[] = [];
+        const watcher = defineExtension({id: "lab.closing", on: {
+            assistant: () => {
+                revoked = true;
+            },
+            turnEnded: () => {
+                seen.push("turnEnded");
+            },
+        }});
+        await using session = await createTestSession({store: {root}, extensions: [watcher], models: {resolve: (query) => {
+            if (revoked) throw new Error("the service was revoked");
+            return model.port.resolve(query);
+        }}});
+        model.script("答");
+        const sent = await session.raw.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        expect((await session.raw.waitRun(sent.value.runId)).reason).toBe("completed");
+        await session.raw.setTitle({commandId: id(), title: "排在收尾的反应后面"});
+        expect(seen).toEqual(["turnEnded"]);
+        expect((await session.raw.diagnostics()).map((item) => item.code)).toContain("model-resolve-threw");
+        revoked = false;
+        await session.reopen();
+        expect((await session.raw.snapshot()).title).toBe("排在收尾的反应后面");
+    });
 });
 
 describe("崩溃与恢复", () => {

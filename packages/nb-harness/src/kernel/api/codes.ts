@@ -137,6 +137,7 @@ export const diagnosticCodes = {
     // 拦截
     "intercept-threw": "error",
     "tool-declaration-invalid": "error",
+    "model-resolve-threw": "warn",
     "tools-missing": "error",
     "input-rejected": "info",
     // 装配与生命周期

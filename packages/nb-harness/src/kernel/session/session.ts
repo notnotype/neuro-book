@@ -112,9 +112,17 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         initialCache = {value: (created.data as {initial?: unknown}).initial ?? null};
         return initialCache.value;
     };
+    let modelResolveReported = false;
     const modelInfo = (): ModelInfo => {
-        const resolution = env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
-        return resolution.ok ? resolution.info : UNKNOWN_MODEL;
+        try {
+            const resolution = env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
+            return resolution.ok ? resolution.info : UNKNOWN_MODEL;
+        } catch (error) {
+            // 视图与反应的环境只拿模型信息来读（runtime.md 输出 75）：宿主这时可能正在停止、服务已撤回，不能让它打断收口。
+            if (!modelResolveReported) core.diagnostics.add({code: "model-resolve-threw", entry: "host", subject: "models", message: "the host's model port threw; the view sees an unknown model", cause: error}, core.head);
+            modelResolveReported = true;
+            return UNKNOWN_MODEL;
+        }
     };
     const environment = {get tools() {
         return tools();
@@ -714,15 +722,19 @@ export function closeSession(session: SessionApi, options: {readonly reason?: "i
 
 async function closeNow(state: Internals, options: {readonly reason?: "interrupted"}): Promise<void> {
     state.closed = true;
-    // 进行中的重新装配先做完：它装上的扩展要在下面一起摘下，清理函数才不会漏调。
-    if (state.reassembling !== null) await state.reassembling.promise;
-    if (!state.core.broken) await state.control.shutdown(options.reason === "interrupted" ? new ProcessInterrupt() : undefined);
-    await state.core.queue.drain();
-    await state.mounts.unmountAll();
-    await state.box.dispose();
-    state.core.close();
-    await state.core.store.close(state.core.handle);
-    releaseSettledWaiters(state);
+    try {
+        // 进行中的重新装配先做完：它装上的扩展要在下面一起摘下，清理函数才不会漏调。
+        if (state.reassembling !== null) await state.reassembling.promise;
+        if (!state.core.broken) await state.control.shutdown(options.reason === "interrupted" ? new ProcessInterrupt() : undefined);
+        await state.core.queue.drain();
+        await state.mounts.unmountAll();
+        await state.box.dispose();
+    } finally {
+        // 前面哪一步抛错，日志与锁都要放掉：否则这个会话在进程结束前都打不开（session-busy）。
+        state.core.close();
+        await state.core.store.close(state.core.handle);
+        releaseSettledWaiters(state);
+    }
 }
 
 /**
