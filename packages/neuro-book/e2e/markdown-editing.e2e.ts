@@ -229,3 +229,170 @@ test.describe("斜杠菜单", () => {
         await expect(slash(page)).toHaveCount(0);
     });
 });
+
+test.describe("块按钮", () => {
+    const gutter = (page: Page) => activeGroup(page).locator("[data-markdown-gutter]");
+    const slash = (page: Page) => page.locator("[data-suggestion-menu]");
+    async function hover(page: Page, text: string): Promise<void> {
+        await prose(page).getByText(text, {exact: false}).first().hover();
+        await expect(gutter(page)).toBeVisible();
+    }
+
+    test("指针停在块上出现按钮，右缘离正文 14px", async ({page}) => {
+        await openFile(page, "notes/gutter-pos.md", "第一段\n\n第二段\n");
+        await hover(page, "第二段");
+        const handle = await gutter(page).boundingBox();
+        const text = await prose(page).boundingBox();
+        expect(Math.round((text?.x ?? 0) - ((handle?.x ?? 0) + (handle?.width ?? 0)))).toBe(14);
+    });
+
+    test("点 + 放弃：文件字节不变", async ({page}) => {
+        await openFile(page, "notes/gutter-plus.md", "第一段\n");
+        await hover(page, "第一段");
+        await gutter(page).getByRole("button", {name: "插入块"}).click();
+        await expect(slash(page)).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(slash(page)).toHaveCount(0);
+        await expect(prose(page).locator("p")).toHaveCount(1);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-plus.md")).toBe("第一段\n");
+    });
+
+    test("点 + 选标题：新块是标题", async ({page}) => {
+        await openFile(page, "notes/gutter-plus-pick.md", "第一段\n");
+        await hover(page, "第一段");
+        await gutter(page).getByRole("button", {name: "插入块"}).click();
+        await slash(page).getByRole("option", {name: "标题 2"}).click();
+        await expect(prose(page).locator("h2")).toHaveCount(1);
+        await page.keyboard.type("新");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-plus-pick.md")).toBe("第一段\n\n## 新\n");
+    });
+
+    test("块菜单：下移、副本、删除", async ({page}) => {
+        await openFile(page, "notes/gutter-menu.md", "一\n\n二\n");
+        const open = async (text: string) => {
+            await hover(page, text);
+            await gutter(page).getByRole("button", {name: "块菜单"}).click();
+        };
+        await open("一");
+        await page.getByRole("menuitem", {name: "下移"}).click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-menu.md")).toBe("二\n\n一\n");
+        await open("二");
+        await page.getByRole("menuitem", {name: "创建副本"}).click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-menu.md")).toBe("二\n\n二\n\n一\n");
+        await open("一");
+        await page.getByRole("menuitem", {name: "删除"}).click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-menu.md")).toBe("二\n\n二\n");
+    });
+
+    test("块菜单：转换为标题；列表项的引用置灰", async ({page}) => {
+        await openFile(page, "notes/gutter-convert.md", "一\n\n- 项\n");
+        await hover(page, "一");
+        await gutter(page).getByRole("button", {name: "块菜单"}).click();
+        await page.getByRole("menuitem", {name: "转换为"}).click();
+        await page.getByRole("menuitemcheckbox", {name: "标题 1"}).click();
+        await expect(prose(page).locator("h1")).toHaveText("一");
+        await hover(page, "项");
+        await gutter(page).getByRole("button", {name: "块菜单"}).click();
+        await page.getByRole("menuitem", {name: "转换为"}).click();
+        await expect(page.getByRole("menuitemcheckbox", {name: "引用"})).toBeDisabled();
+    });
+
+    test("拖动手柄移动一块；按 Esc 取消后外部拖入不插入旧块", async ({page}) => {
+        await openFile(page, "notes/gutter-drag.md", "一\n\n二\n\n三\n");
+        await hover(page, "三");
+        const handle = await gutter(page).getByRole("button", {name: "块菜单"}).boundingBox();
+        const first = await prose(page).locator("p").first().boundingBox();
+        if (handle === null || first === null) throw new Error("看不见");
+        await page.mouse.move(handle.x + 9, handle.y + 12);
+        await page.mouse.down();
+        await page.mouse.move(handle.x + 12, handle.y - 8, {steps: 3});
+        await page.mouse.move(first.x + 1, first.y + 1, {steps: 6});
+        await page.mouse.up();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-drag.md")).toBe("三\n\n一\n\n二\n");
+
+        // 取消之后 `view.dragging` 要清掉：否则下面的拖入会把旧块当成要移动的内容。
+        await hover(page, "二");
+        const again = await gutter(page).getByRole("button", {name: "块菜单"}).boundingBox();
+        if (again === null) throw new Error("看不见");
+        await page.mouse.move(again.x + 9, again.y + 12);
+        await page.mouse.down();
+        await page.mouse.move(again.x + 12, again.y - 20, {steps: 4});
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        const dragging = await prose(page).evaluate((element) => {
+            const dataTransfer = new DataTransfer();
+            dataTransfer.setData("text/plain", "外来的字");
+            const box = element.getBoundingClientRect();
+            element.dispatchEvent(new DragEvent("drop", {bubbles: true, cancelable: true, dataTransfer, clientX: box.left + 2, clientY: box.top + 2}));
+            return element.textContent ?? "";
+        });
+        expect(dragging).toContain("外来的字");
+        await page.keyboard.press("Control+s");
+        const written = await disk("notes/gutter-drag.md");
+        expect(written.match(/二/gu)?.length).toBe(1);
+        expect(written.match(/三/gu)?.length).toBe(1);
+    });
+
+    test("Alt+↑ 移动光标所在的块", async ({page}) => {
+        await openFile(page, "notes/gutter-keys.md", "一\n\n二\n");
+        await prose(page).getByText("二").click();
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.press("Alt+ArrowUp");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/gutter-keys.md")).toBe("二\n\n一\n");
+    });
+});
+
+test.describe("右键菜单", () => {
+    async function rightClick(page: Page, text: string): Promise<void> {
+        await prose(page).getByText(text, {exact: false}).first().click({button: "right"});
+    }
+
+    test("没有选区时剪切、复制置灰；点在选区内保留选区", async ({page}) => {
+        await openFile(page, "notes/context-state.md", "一段文字\n");
+        await rightClick(page, "一段文字");
+        await expect(page.getByRole("menuitem", {name: "复制"})).toBeDisabled();
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Control+a");
+        await rightClick(page, "一段文字");
+        await expect(page.getByRole("menuitem", {name: "复制"})).toBeEnabled();
+        const selected = await page.evaluate(() => getSelection()?.toString() ?? "");
+        expect(selected).toContain("一段文字");
+    });
+
+    test("复制后粘贴，列表结构保留", async ({page, context}) => {
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await openFile(page, "notes/context-copy.md", "- 一\n- 二\n\n段落\n");
+        await prose(page).locator("li").first().click();
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.press("Control+a");
+        await rightClick(page, "一");
+        await page.getByRole("menuitem", {name: "复制"}).click();
+        await prose(page).getByText("段落").click();
+        await page.keyboard.press("End");
+        await page.keyboard.press("Enter");
+        await rightClick(page, "段落");
+        await page.getByRole("menuitem", {name: /^粘贴\s*Ctrl\+V/u}).click();
+        await expect.poll(() => prose(page).locator("li").count()).toBeGreaterThan(2);
+    });
+
+    test("权限被拒时给出通知，文档不变", async ({page}) => {
+        await openFile(page, "notes/context-denied.md", "字\n");
+        await page.evaluate(() => {
+            Object.defineProperty(navigator, "clipboard", {configurable: true, value: {
+                read: () => Promise.reject(new DOMException("denied", "NotAllowedError")),
+                readText: () => Promise.reject(new DOMException("denied", "NotAllowedError")),
+            }});
+        });
+        await rightClick(page, "字");
+        await page.getByRole("menuitem", {name: /^粘贴\s*Ctrl\+V/u}).click();
+        await expect(page.getByText("浏览器没有给读取剪贴板的权限，请用 Ctrl+V")).toBeVisible();
+        await expect(prose(page).locator("p").first()).toHaveText("字");
+    });
+});

@@ -26,6 +26,9 @@ function fixture(options: {readonly?: boolean; link?: boolean; bold?: boolean; c
         contributed: () => (options.contributed === true ? [[entry]] : []),
         runContributed: (point, id) => runs.push(["contributed", point, id]),
         toolbarVisible: ref(true),
+        keyLabel: (keybinding) => keybinding,
+        notify: () => undefined,
+        reportError: () => undefined,
     };
     const wrapper = mount(MarkdownToolbar, {props: {editing, menus, readonly: options.readonly === true}, attachTo: document.body});
     const button = (name: string) => wrapper.find(`button[aria-label="${name}"], button[title="${name}"]`);

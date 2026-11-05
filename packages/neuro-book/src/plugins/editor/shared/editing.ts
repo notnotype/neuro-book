@@ -46,6 +46,11 @@ export const EDITING_ACTIONS = {
     bilingual: {kind: "block", icon: "i-lucide-book-open-text", args: "text"},
     divider: {kind: "block", icon: "i-lucide-minus"},
     table: {kind: "block", icon: "i-lucide-table"},
+    "block-up": {kind: "move", icon: "i-lucide-arrow-up", keybinding: "Alt+ArrowUp"},
+    "block-down": {kind: "move", icon: "i-lucide-arrow-down", keybinding: "Alt+ArrowDown"},
+    "block-duplicate": {kind: "move", icon: "i-lucide-copy-plus"},
+    "block-delete": {kind: "move", icon: "i-lucide-trash-2"},
+    "block-unwrap": {kind: "move", icon: "i-lucide-pilcrow"},
 } as const satisfies Readonly<Record<string, EditingActionInfo>>;
 
 export type EditingActionId = keyof typeof EDITING_ACTIONS;

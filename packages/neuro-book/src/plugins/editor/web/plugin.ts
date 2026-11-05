@@ -268,6 +268,8 @@ export const editorBrowserPlugin: PluginDefinition = {
                 text,
                 version: commandsVersion,
                 toolbarVisible,
+                notify: (message) => session.area.value?.notify(message),
+                report,
             });
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {

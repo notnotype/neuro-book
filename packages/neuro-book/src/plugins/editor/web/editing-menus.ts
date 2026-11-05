@@ -9,7 +9,7 @@ import type {Ref} from "@vue/reactivity";
 import {arrangeMenu, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform, MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import type {TextResolver} from "nbook/shared/localized-text";
+import type {DisplayText, TextResolver} from "nbook/shared/localized-text";
 
 import type {EditorMenus} from "../shared/contracts";
 import {EDITING_ACTIONS, editingCommandId} from "../shared/editing";
@@ -33,6 +33,8 @@ export function createEditorMenus(options: {
     /** 命令增减不经响应式通知（同编辑区标题的动作）：读的时候依赖它。 */
     readonly version: Readonly<Ref<number>>;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
+    readonly notify: (text: DisplayText) => void;
+    readonly report: (error: unknown) => void;
 }): EditorMenus {
     const activeAddress = (): string | null => {
         const groups = options.area()?.groups;
@@ -85,5 +87,8 @@ export function createEditorMenus(options: {
             execute(declaration.command, declaration.args ?? {});
         },
         toolbarVisible: computed(() => options.toolbarVisible.value),
+        keyLabel: (keybinding) => formatKeybinding(keybinding, options.platform),
+        notify: (key) => options.notify(editorText(`menus.${key}` as never)),
+        reportError: options.report,
     };
 }

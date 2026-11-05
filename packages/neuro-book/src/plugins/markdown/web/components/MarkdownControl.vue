@@ -455,7 +455,7 @@ onBeforeUnmount(() => {
 <template>
     <div class="markdown-control-root flex h-full w-full flex-col">
         <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value" :editing="editing" :menus="menus" :readonly="props.readonly" @prompt="(action) => menuLayer?.prompt(action)" />
-        <div ref="scroller" class="min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
+        <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
             <div ref="root" class="markdown-control"></div>
         </div>
         <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.binding?.token ?? null" />

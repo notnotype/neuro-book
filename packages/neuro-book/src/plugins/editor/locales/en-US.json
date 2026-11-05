@@ -299,6 +299,21 @@
                 },
                 "table": {
                     "title": "Table"
+                },
+                "block-up": {
+                    "title": "Move Up"
+                },
+                "block-down": {
+                    "title": "Move Down"
+                },
+                "block-duplicate": {
+                    "title": "Duplicate"
+                },
+                "block-delete": {
+                    "title": "Delete"
+                },
+                "block-unwrap": {
+                    "title": "Unwrap Block"
                 }
             },
             "view": {
@@ -517,6 +532,17 @@
         "slash": "Insert Block",
         "slash-basic": "Basic",
         "slash-lists": "Lists",
-        "slash-blocks": "Blocks"
+        "slash-blocks": "Blocks",
+        "convert": "Turn Into",
+        "copy": "Copy",
+        "cut": "Cut",
+        "paste": "Paste",
+        "pastePlain": "Paste as Plain Text",
+        "selectAll": "Select All",
+        "insertBlock": "Insert Block",
+        "blockMenu": "Block Menu",
+        "pasteUnsupported": "This browser cannot paste from the menu. Use Ctrl+V.",
+        "pasteDenied": "Clipboard access was denied. Use Ctrl+V.",
+        "pasteEmpty": "The clipboard has no text. Use Ctrl+V for images or files."
     }
 }

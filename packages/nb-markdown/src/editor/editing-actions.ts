@@ -5,6 +5,8 @@
 
 import type {Editor} from "@tiptap/core";
 
+import {canMoveBlock, deleteBlock, duplicateBlock, moveBlock, selectedBlock, unwrapBlock} from "./block-actions";
+
 export type EditingArgs = Readonly<Record<string, unknown>>;
 
 export interface EditingAction {
@@ -123,6 +125,17 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
     table: {
         run: (editor) => editor.chain().focus().insertTable({rows: 3, cols: 3, withHeaderRow: true}).run(),
         enabled: (editor) => editor.can().insertTable({rows: 3, cols: 3, withHeaderRow: true}),
+    },
+    "block-up": {run: (editor) => moveBlock(editor, -1), enabled: (editor) => canMoveBlock(editor.state, -1)},
+    "block-down": {run: (editor) => moveBlock(editor, 1), enabled: (editor) => canMoveBlock(editor.state, 1)},
+    "block-duplicate": {run: duplicateBlock, enabled: (editor) => selectedBlock(editor.state) !== null},
+    "block-delete": {run: deleteBlock, enabled: (editor) => selectedBlock(editor.state) !== null},
+    "block-unwrap": {
+        run: unwrapBlock,
+        enabled: (editor) => {
+            const kind = selectedBlock(editor.state)?.kind;
+            return kind === "list-item" || kind === "container";
+        },
     },
 };
 

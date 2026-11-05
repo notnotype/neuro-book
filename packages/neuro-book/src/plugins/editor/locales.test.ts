@@ -182,6 +182,22 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
 
 const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     // Markdown 的编辑命令与菜单（docs/specs/workbench/markdown-editing.md）。
+    "commands.nbook.edit.block-up.title": {"zh-CN": "上移", "en-US": "Move Up"},
+    "commands.nbook.edit.block-down.title": {"zh-CN": "下移", "en-US": "Move Down"},
+    "commands.nbook.edit.block-duplicate.title": {"zh-CN": "创建副本", "en-US": "Duplicate"},
+    "commands.nbook.edit.block-delete.title": {"zh-CN": "删除", "en-US": "Delete"},
+    "commands.nbook.edit.block-unwrap.title": {"zh-CN": "解开块", "en-US": "Unwrap Block"},
+    "menus.convert": {"zh-CN": "转换为", "en-US": "Turn Into"},
+    "menus.copy": {"zh-CN": "复制", "en-US": "Copy"},
+    "menus.cut": {"zh-CN": "剪切", "en-US": "Cut"},
+    "menus.paste": {"zh-CN": "粘贴", "en-US": "Paste"},
+    "menus.pastePlain": {"zh-CN": "粘贴为纯文本", "en-US": "Paste as Plain Text"},
+    "menus.selectAll": {"zh-CN": "全选", "en-US": "Select All"},
+    "menus.insertBlock": {"zh-CN": "插入块", "en-US": "Insert Block"},
+    "menus.blockMenu": {"zh-CN": "块菜单", "en-US": "Block Menu"},
+    "menus.pasteUnsupported": {"zh-CN": "浏览器不支持从菜单粘贴，请用 Ctrl+V", "en-US": "This browser cannot paste from the menu. Use Ctrl+V."},
+    "menus.pasteDenied": {"zh-CN": "浏览器没有给读取剪贴板的权限，请用 Ctrl+V", "en-US": "Clipboard access was denied. Use Ctrl+V."},
+    "menus.pasteEmpty": {"zh-CN": "剪贴板里没有文字，图片或文件请用 Ctrl+V", "en-US": "The clipboard has no text. Use Ctrl+V for images or files."},
     "menus.slash": {"zh-CN": "插入块", "en-US": "Insert Block"},
     "menus.slash-basic": {"zh-CN": "基本", "en-US": "Basic"},
     "menus.slash-lists": {"zh-CN": "列表", "en-US": "Lists"},

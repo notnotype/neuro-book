@@ -3,6 +3,8 @@
  * 占位与行内代码快捷输入）。编辑器实例、文档绑定与工作台对接归宿主（neuro-book 的 `MarkdownControl.vue`）。
  */
 
+export {blockAt, canConvertTo, insertSlashBlock, removeSlashBlock, selectBlock, selectWholeBlock} from "./block-actions";
+export type {BlockKind, BlockTarget} from "./block-actions";
 export {markdownEditingActions} from "./editing-actions";
 export type {EditingAction, EditingArgs} from "./editing-actions";
 export {createMarkdownEditorExtensions} from "./markdown-editor-extensions";

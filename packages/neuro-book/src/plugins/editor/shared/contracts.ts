@@ -132,6 +132,11 @@ export interface EditorMenus {
     /** 点了贡献项：执行时按活动标签给 `{address}`。 */
     runContributed(point: string, id: string): void;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
+    /** 键位写法按平台写好（剪贴板这类不是命令的动作用）。 */
+    keyLabel(keybinding: string): string;
+    /** 给用户看的一条通知（`menus.<key>`）。 */
+    notify(key: string): void;
+    reportError(error: unknown): void;
 }
 
 export const editorMenusKey: InjectionKey<EditorMenus> = Symbol("nbook.editor/menus");

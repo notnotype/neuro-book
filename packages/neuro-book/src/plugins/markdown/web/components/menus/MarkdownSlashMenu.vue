@@ -128,14 +128,21 @@ function sync(): void {
     match.value = next;
 }
 
+/** 失焦时收起（输出 10、15）：菜单按下不夺焦，所以失焦就是离开了。 */
+const onBlur = (): void => {
+    if (open.value && props.editor !== null) dismissSlash(props.editor);
+};
+
 function attach(editor: Editor, scroller: HTMLElement): () => void {
     editor.on("transaction", sync);
+    editor.on("blur", onBlur);
     scroller.addEventListener("keydown", onKeyDown, true);
     scroller.addEventListener("compositionstart", onCompositionStart, true);
     // 冒泡阶段：ProseMirror 在 `view.dom` 上的处理器先跑，`view.composing` 这时才为假；上屏的文字可能在组字中就进了文档，之后没有事务。
     scroller.addEventListener("compositionend", onCompositionEnd);
     return () => {
         editor.off("transaction", sync);
+        editor.off("blur", onBlur);
         scroller.removeEventListener("keydown", onKeyDown, true);
         scroller.removeEventListener("compositionstart", onCompositionStart, true);
         scroller.removeEventListener("compositionend", onCompositionEnd);

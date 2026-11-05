@@ -11,9 +11,10 @@ import type {MarkdownLanguage} from "../language/language";
 import {MarkdownImageViews} from "./image-views";
 import {MarkdownInlineCodeShortcut} from "./inline-code-shortcut";
 import {MarkdownReferenceLinks} from "./reference-links";
+import {MarkdownBlockKeymap} from "./block-actions";
 import {MarkdownSlashTrigger} from "./slash-trigger";
 import type {MarkdownViewHost} from "./view-host";
 
 export function createMarkdownEditorExtensions(options: {readonly language: MarkdownLanguage; readonly placeholder: string; readonly host: MarkdownViewHost}): AnyExtension[] {
-    return [...options.language.extensions, MarkdownSlashTrigger, MarkdownReferenceLinks.configure({host: options.host}), MarkdownImageViews.configure({host: options.host}), Placeholder.configure({placeholder: options.placeholder, emptyEditorClass: "is-editor-empty"}), MarkdownInlineCodeShortcut];
+    return [...options.language.extensions, MarkdownSlashTrigger, MarkdownBlockKeymap, MarkdownReferenceLinks.configure({host: options.host}), MarkdownImageViews.configure({host: options.host}), Placeholder.configure({placeholder: options.placeholder, emptyEditorClass: "is-editor-empty"}), MarkdownInlineCodeShortcut];
 }
