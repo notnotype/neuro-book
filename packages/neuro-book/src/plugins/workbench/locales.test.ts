@@ -196,7 +196,6 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "backgrounds.upload": {"zh-CN": "上传", "en-US": "Upload"},
     "backgrounds.uploading": {"zh-CN": "上传中", "en-US": "Uploading"},
     "backgrounds.gallery": {"zh-CN": "已传过的图", "en-US": "Uploaded images"},
-    "backgrounds.galleryItem": {"zh-CN": "图片 {index}", "en-US": "Image {index}"},
     "backgrounds.fit": {"zh-CN": "填充", "en-US": "Fit"},
     "backgrounds.cover": {"zh-CN": "铺满", "en-US": "Cover"},
     "backgrounds.contain": {"zh-CN": "完整", "en-US": "Contain"},

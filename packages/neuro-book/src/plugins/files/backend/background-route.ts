@@ -16,9 +16,9 @@ import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {sniffImageType} from "nbook/shared/image-type";
 import type {RasterImageType} from "nbook/shared/image-type";
 
-import {BACKGROUND_MAX_BYTES} from "../shared/contracts";
 import type {ServerFilesResult} from "../shared/workspace-files";
 
+export const BACKGROUND_MAX_BYTES = 20 * 1024 * 1024;
 export const BACKGROUND_DIRECTORY = "backgrounds";
 
 const EXTENSIONS: Readonly<Record<RasterImageType, string>> = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"};
@@ -64,8 +64,11 @@ export function addBackgroundRoutes(app: Hono<{Bindings: HttpRouteEnv}>, sources
         if (found !== null) return found;
         const written = await sources.write(address, bytes);
         if (written.ok) return Response.json({address});
-        // 两个窗口同时传同一张图：另一个先提交了。提交的结果里带着已有文件的摘要，不用再读一遍。
-        if (written.code === "conflict") return written.current?.hash === digest ? Response.json({address}) : failure(409, "conflict", written.detail);
+        // 两个窗口同时传同一张图：另一个先提交了，按已有处理。
+        if (written.code === "conflict") {
+            const raced = await existing();
+            if (raced !== null) return raced;
+        }
         return failure(500, written.code, written.detail);
     });
 }

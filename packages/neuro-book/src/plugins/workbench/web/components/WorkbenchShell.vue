@@ -603,8 +603,6 @@ const dropFeedback = computed(() => {
 
 <style scoped>
 .workbench-shell-host {
-    /* 窗口背景层按它定位。 */
-    position: relative;
     width: 100%;
     height: 100%;
     min-width: 0;

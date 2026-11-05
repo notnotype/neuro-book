@@ -326,7 +326,6 @@
         "upload": "Upload",
         "uploading": "Uploading",
         "gallery": "Uploaded images",
-        "galleryItem": "Image {{index}}",
         "fit": "Fit",
         "cover": "Cover",
         "contain": "Contain",

@@ -1,5 +1,5 @@
 ---
-验证入口: SettingsWindow
+验证入口: EditorArea
 标签: [state:local]
 ---
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, onMounted, ref} from "vue";
 
-import {BACKGROUND_DIRECTORY_ADDRESS, BACKGROUND_MAX_BYTES, BACKGROUND_UPLOAD_URL} from "nbook/plugins/files/shared/contracts";
+import {BACKGROUND_DIRECTORY_ADDRESS, BACKGROUND_UPLOAD_URL} from "nbook/plugins/files/shared/contracts";
 import type {FilesResult, Listing} from "nbook/plugins/files/shared/contracts";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
@@ -40,11 +40,9 @@ async function refreshImages(): Promise<void> {
 onMounted(() => void refreshImages());
 
 async function upload(file: File): Promise<{readonly ok: true; readonly address: string} | {readonly ok: false; readonly reason: string}> {
-    if (file.size > BACKGROUND_MAX_BYTES) return {ok: false, reason: text("backgrounds.failure.tooLarge")};
     try {
         const response = await fetch(BACKGROUND_UPLOAD_URL, {method: "PUT", body: file});
-        // 路由抛错时回的是纯文本：按没有错误码处理，下面报状态码。
-        const body = (await response.json().catch(() => ({}))) as {readonly address?: string; readonly code?: string; readonly detail?: string};
+        const body = (await response.json()) as {readonly address?: string; readonly code?: string; readonly detail?: string};
         if (response.ok && body.address !== undefined) {
             await refreshImages();
             return {ok: true, address: body.address};
@@ -58,15 +56,15 @@ async function upload(file: File): Promise<{readonly ok: true; readonly address:
     }
 }
 
-async function write<T>(setting: SettingDefinition<T>, value: T): Promise<boolean> {
+async function write<T>(setting: SettingDefinition<T>, value: T): Promise<void> {
     const result = await props.settings.update(setting, value, {layer: "user"});
     if (!result.ok) props.context.reportWriteFailure(text("backgrounds.failure.writeSubject"), {reason: result.detail});
-    return result.ok;
 }
 
-const writeEditor = (value: EditorBackgroundSetting): Promise<boolean> => write(editorBackgroundSetting, value);
-// 窗口背景的块不给纯色；类型上收窄。
-const writeWindow = async (value: EditorBackgroundSetting): Promise<boolean> => (value.kind === "color" ? false : write(windowBackgroundSetting, value));
+function onWindowChange(value: EditorBackgroundSetting): void {
+    // 窗口背景的块不给纯色；类型上收窄。
+    if (value.kind !== "color") void write(windowBackgroundSetting, value);
+}
 </script>
 
 <template>
@@ -78,8 +76,8 @@ const writeWindow = async (value: EditorBackgroundSetting): Promise<boolean> => 
             :images="images"
             :upload="upload"
             :disabled="disabled"
-            :write="writeEditor"
             data-background-kind="editor"
+            @change="write(editorBackgroundSetting, $event)"
         />
         <BackgroundSettingsBlock
             :title="text('backgrounds.windowTitle')"
@@ -88,8 +86,8 @@ const writeWindow = async (value: EditorBackgroundSetting): Promise<boolean> => 
             :images="images"
             :upload="upload"
             :disabled="disabled"
-            :write="writeWindow"
             data-background-kind="window"
+            @change="onWindowChange"
         />
         <p v-if="listFailure !== null" class="m-0 text-sm text-[var(--status-danger)]" role="status">{{ text("backgrounds.failure.listFailed", {detail: listFailure}) }}</p>
     </div>

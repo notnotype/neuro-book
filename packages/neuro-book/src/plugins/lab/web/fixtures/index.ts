@@ -49,9 +49,6 @@ import type SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
-import type BackgroundLayer from "nbook/ui/background/BackgroundLayer.vue";
-import type {EditorBackgroundSetting} from "nbook/plugins/workbench/shared/contracts";
-import type BackgroundSettingsBlock from "nbook/plugins/workbench/web/components/BackgroundSettingsBlock.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
@@ -875,7 +872,6 @@ export const labFixtures: LabFixture[] = [
         subject: () => import("nbook/ui/brand/NeuroBookMood.vue"),
         class: "w-28",
     }),
-    ...backgroundFixtures(),
     ...shelfFixtures(),
     ...settingsFixtures(),
     ...nbUiFixtures,
@@ -885,38 +881,6 @@ export const labFixtures: LabFixture[] = [
 ];
 
 /** 书架页（docs/specs/workbench/bookshelf.md）：静态稿给开发者看，也是页面接上真实数据之后的回归场景。 */
-/** 背景（docs/specs/ui/backgrounds.md）：一层图加遮罩的画法，和设置页的一块。图是内联的渐变，不依赖文件服务。 */
-function backgroundFixtures(): LabFixture[] {
-    const url = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='320' height='200'><defs><linearGradient id='g' x2='1' y2='1'><stop stop-color='#2563eb'/><stop offset='1' stop-color='#f59e0b'/></linearGradient></defs><rect width='320' height='200' fill='url(#g)'/><circle cx='220' cy='70' r='40' fill='#fff'/></svg>")}`;
-    const image = (fit: "cover" | "contain" | "repeat", blur: boolean, alpha: number) => ({props: {url, fit, blur, alpha}});
-    const missing = "user://backgrounds/0000000000000000000000000000000000000000000000000000000000000000.png";
-    const block = (value: EditorBackgroundSetting, allowColor = true) => ({props: {title: "正文", value, allowColor, images: [], disabled: false}});
-    return [
-        defineSubjectFixture<typeof BackgroundLayer>({
-            component: "BackgroundLayer",
-            subject: () => import("nbook/ui/background/BackgroundLayer.vue"),
-            class: "h-full w-full",
-            scenes: [
-                {id: "blur", label: "铺满、模糊、遮罩 85%", input: image("cover", true, 0.85)},
-                {id: "sharp", label: "铺满、不模糊、遮罩 92%", input: image("cover", false, 0.92)},
-                {id: "contain", label: "完整显示，留边露面色", input: image("contain", false, 0.5)},
-                {id: "repeat", label: "平铺", input: image("repeat", false, 0.5)},
-                {id: "color", label: "纯色", input: {props: {url: null, color: "#f4ecd8"}}},
-            ],
-        }),
-        defineLabFixture<typeof BackgroundSettingsBlock>({
-            component: "BackgroundSettingsBlock",
-            scenes: [
-                {id: "none", label: "无", input: block({kind: "none"})},
-                {id: "color", label: "纯色", input: block({kind: "color", light: "#f4ecd8", dark: "#2a2520"})},
-                {id: "failed", label: "图片读不出来", input: block({kind: "image", image: missing, fit: "cover", blur: true, scrim: 85})},
-                {id: "window", label: "窗口：没有纯色", input: block({kind: "none"}, false)},
-            ],
-            load: async () => withWorkbenchText((await import("./BackgroundSettingsBlockFixture.vue")).default),
-        }),
-    ];
-}
-
 function shelfFixtures(): LabFixture[] {
     const [first, second, third, , long] = SHELF_ITEMS as [typeof SHELF_ITEMS[number], ...typeof SHELF_ITEMS];
     const page = {status: "ready" as const, items: SHELF_ITEMS, now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"};
