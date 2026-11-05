@@ -15,7 +15,8 @@ import {startProbeServer, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
 // 资源管理器的树是虚拟列表，用例的文件都在 notes 下：窗口高一些，靠后的文件也有行可以点。
-test.use({viewport: {width: 1280, height: 1800}});
+// 右栏默认开着对话（400 宽）：版心要在编辑区里放得下通栏的工具栏，视口留够宽。
+test.use({viewport: {width: 1700, height: 1800}});
 
 let tmp = "";
 let projectDir = "";
@@ -670,7 +671,7 @@ test.describe("插件贡献的菜单项", () => {
 
     test("五个位置都有，排在内置项之后，点了收到活动标签的地址", async ({page}) => {
         const received = `收到 ${JSON.stringify({address: "project://a.md"})}`;
-        await page.setViewportSize({width: 1440, height: 900});
+        await page.setViewportSize({width: 1860, height: 900});
         await page.goto(new URL("/?project=book", probe.url).href);
         await item(page, "project://a.md").dblclick();
         await expect(prose(page)).toBeVisible();
