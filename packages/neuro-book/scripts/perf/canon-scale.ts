@@ -8,6 +8,10 @@
  * 存款，对得上。`--diverge`：从中间那章起正文写的数一直比记录多 1,700、没人处理（漏记了一笔），之后的核对点全都对不上，
  * 每个的嫌疑区间都回到最后一个对得上的核对点，待处理随章数按平方变大。
  *
+ * 时间说法（canon.time 输出 11）：三成的已写变更带一到两条说法——每章算一天（从 2000 年 1 月 1 日起），按变更轮到的位置给日期（到日）、
+ * “在本章上一件之后 0 到 1 天”、日期加“持续 1 到 5 小时”或常出场的第一个人的年龄（前史里有他 1980 年的出生）。另量打开后第一次
+ * 时间查询（冷建网，预算 1 秒）、之后的查询（20 毫秒）与读待处理；“发布一次记账”含为新数据建网。
+ *
  * 用法（应用包目录）：bun scripts/perf/canon-scale.ts [章数=1000] [--diverge]
  * 测量前看 `uptime`：负载高时多跑几次按较低的一端判断，不与 omp 审查同时跑。
  */
@@ -76,6 +80,25 @@ function person(temp: string, index: number, appears?: string): Entry {
 }
 
 let sequence = 0;
+/** 带说法的变更的临时 id（发布后换成正式 id，查询时挑着用）。 */
+let dated: string[] = [];
+const datedIds: string[] = [];
+const author = {kind: "author"} as const;
+/** 第 n 章那一天（从 2000 年 1 月 1 日起每章一天）的公历年月日。 */
+function dayOf(n: number): {year: number; month: string; day: number} {
+    const date = new Date(Date.UTC(2000, 0, 1) + (n - 1) * 86_400_000);
+    return {year: date.getUTCFullYear(), month: `m${String(date.getUTCMonth() + 1)}`, day: date.getUTCDate()};
+}
+/** 第 n 章第 i 条已写变更的说法：三成带，形状见文件头。 */
+function timeOf(n: number, i: number, previous: string, person: string): {when?: StoryChangeDraft["when"]} {
+    const r = (n * 15 + i) % 10;
+    if (r > 2) return {};
+    const date = {kind: "date" as const, ...dayOf(n), basis: author};
+    if (r === 0) return {when: [date]};
+    if (r === 1) return i === 0 ? {when: [date]} : {when: [{kind: "after", of: previous, gap: {min: 0, max: 1, unit: "day"}, basis: author}]};
+    const year = dayOf(n).year;
+    return {when: [date, (n + i) % 2 === 0 ? {kind: "lasts", lasts: {min: 1, max: 5, unit: "hour"}, basis: author} : {kind: "age", who: person, years: {min: year - 1981, max: year - 1980}, basis: author}]};
+}
 /** 第一个常出场条目的存款：每次写入按本次的转账推进，核对点照它写。 */
 let balance = 1_000_000;
 /**
@@ -104,8 +127,10 @@ function bookkeeping(service: WorldService, chapter: string, hot: readonly strin
                 ...(i % 3 === 0 ? [{op: "note" as const, at: {entry: from, path: "character.态度"}, value: `第 ${String(n)} 章：软了一点`}] : []),
             ],
             status: "active", by: {kind: "agent", session: "记账"},
+            ...timeOf(n, i, `tmp:w${String(sequence - 1)}`, hot[0]!),
         };
         puts.push({ref: {kind: "change", id}, after: change});
+        if (timeOf(n, i, "", "").when !== undefined) dated.push(id);
     }
     // 第一个常出场条目在第 i 条变更里转出（i % 5 == 0）或转入（i % 5 == 4）100 + i。
     const delta = (i: number) => (i % 5 === 0 ? -(100 + i) : i % 5 === 4 ? 100 + i : 0);
@@ -134,7 +159,13 @@ const first = await open();
 const opening: WriteRequest["puts"] = Array.from({length: 20}, (_, index) => ({ref: {kind: "entry" as const, id: `tmp:o${String(index)}`}, after: person(`tmp:o${String(index)}`, index)}));
 const openingIds = await publish(first.service, {requestId: "scale-opening", by: {kind: "agent", session: "开局"}, what: "opening", title: "开局", baseVersion: first.service.status().version, puts: opening});
 const hot = Array.from({length: 5}, (_, index) => openingIds[`tmp:o${String(index)}`]!);
-for (let n = 1; n <= chapters; n += 1) await publish(first.service, bookkeeping(first.service, chapterIds[n - 1]!, hot, n));
+// 常出场的第一个人 1980 年出生（前史），年龄说法连到它。
+await publish(first.service, {requestId: "scale-birth", by: author, what: "edit", title: "出生", baseVersion: first.service.status().version, puts: [{ref: {kind: "change", id: "tmp:birth"}, after: {id: "tmp:birth", kind: "written", text: "出生", at: {kind: "prehistory", order: 0}, told: [], involves: [hot[0]!], lines: [], links: [], patches: [], status: "active", by: author, when: [{kind: "birth", who: hot[0]!, basis: author}, {kind: "date", year: 1980, month: "m1", day: 1, basis: author}]}}]});
+for (let n = 1; n <= chapters; n += 1) {
+    dated = [];
+    const ids = await publish(first.service, bookkeeping(first.service, chapterIds[n - 1]!, hot, n));
+    for (const temp of dated) datedIds.push(ids[temp]!);
+}
 const generated = performance.now() - started;
 const version = first.service.status().version;
 await first.stop();
@@ -196,6 +227,24 @@ service.textChanged(edited);
 const textChangedMs = performance.now() - editBegin;
 const tellingsAfterEdit = tellingsPage();
 
+// ---------- 时间（canon.time 输出 11） ----------
+started = performance.now();
+const firstTime = service.time({kind: "event", change: datedIds[Math.floor(datedIds.length / 2)]!});
+const timeColdMs = performance.now() - started;
+if (firstTime === "cursor-stale") throw new Error("cursor-stale");
+const timeReads = Array.from({length: 20}, () => {
+    const begin = performance.now();
+    service.time({kind: "event", change: datedIds[Math.floor(rnd() * datedIds.length)]!});
+    return performance.now() - begin;
+});
+const ageBegin = performance.now();
+const age = service.time({kind: "age", who: hot[0]!, at: datedIds.at(-1)!});
+const ageMs = performance.now() - ageBegin;
+const pendingBegin = performance.now();
+const timePending = service.pending({}, undefined, 50);
+const pendingMs = performance.now() - pendingBegin;
+const timeItemCount = typeof timePending === "string" ? -1 : timePending.items.filter((item) => item.kind === "canon" && item.item.kind.startsWith("time-")).length;
+
 // ---------- 在最新一章发布一次记账（含校验、计算、写入落盘） ----------
 const last = chapterIds.at(-1)!;
 const publishes: number[] = [];
@@ -238,4 +287,5 @@ console.log(`讲述（${String(chapters * 17)} 条）：不带筛选的第一页
 console.log(`最新一章发布一次记账：中位 ${ms(median(publishes))} 毫秒，最大 ${ms(Math.max(...publishes))}（预算 100）`);
 console.log(`改常出场条目的初值：中位 ${ms(median(initial))} 毫秒（预算 1000）`);
 console.log(`待处理：${String(pendingCount)} 条，嫌疑记录共 ${String(suspectCount)} 条`);
+console.log(`时间（${String(datedIds.length)} 条带说法的变更）：打开后第一次查询（冷建网）${ms(timeColdMs)} 毫秒（预算 1000），之后中位 ${ms(median(timeReads))}、最大 ${ms(Math.max(...timeReads))}（预算 20）；年龄 ${ms(ageMs)} 毫秒（${JSON.stringify((age as {answer: {text?: string}}).answer.text)}）；读待处理 ${ms(pendingMs)} 毫秒，时间的项 ${String(timeItemCount)} 条（第一页里）`);
 console.log(`堆：${ms(heap)} MB`);
