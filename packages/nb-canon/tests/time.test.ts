@@ -208,6 +208,45 @@ describe("canon.time 输出 13、16：作品设置里的历法", () => {
 });
 
 describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
+    test("一章给范围、定下两端的事与它们的依据和各级；不可确定给打架的说法；按纪逐级浏览并给这一级的事；带令牌的列表照样分页", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "answers");
+        const service = await openTestService(root, {texts: new Map([["ch1", "那年。"], ["ch2", "后来。"]]), chapters: ["ch1", "ch2"], registry: buildRegistry([PERSON])});
+        try {
+            const at = (key: number) => ({kind: "chapter" as const, chapter: "ch1", key});
+            const puts: WriteRequest["puts"] = Array.from({length: 30}, (_, index) => ({ref: {kind: "change" as const, id: `tmp:d${String(index)}`}, after: change(`tmp:d${String(index)}`, at(index), {when: [date(2012, 6, 1 + (index % 28))]})}));
+            puts.push({ref: {kind: "change", id: "tmp:p"}, after: change("tmp:p", at(40), {when: [{kind: "after", of: "tmp:q", basis: author}]})});
+            puts.push({ref: {kind: "change", id: "tmp:q"}, after: change("tmp:q", at(41), {when: [{kind: "after", of: "tmp:p", gap: {min: 1, max: 1, unit: "day"}, basis: author}]})});
+            const written = await service.publish({requestId: "a1", by: author, what: "edit", title: "许多", baseVersion: 0, puts});
+            if (!written.ok) throw new Error(JSON.stringify(written.failure));
+            const answer = (read: ReturnType<typeof service.time>) => {
+                if (read === "cursor-stale") throw new Error(read);
+                return read.answer as Record<string, unknown>;
+            };
+            const chapter = answer(service.time({kind: "chapter", chapter: "ch1"}));
+            expect(chapter).toMatchObject({text: "公元2012年6月", from: {year: 2012, month: {id: "m6"}}, anchored: 30, conflict: 2, earliest: {total: 1}, latest: {total: 1}});
+            expect(typeof chapter.earliestBy).toBe("string");
+            const conflicted = answer(service.time({kind: "event", change: written.ids["tmp:p"]!}));
+            expect((conflicted.start as {state: string; statements: string[]}).statements).toHaveLength(2);
+            expect(answer(service.time({kind: "browse"}))).toMatchObject({units: [{key: "ad", sure: 30}], total: 1});
+            expect(answer(service.time({kind: "browse", era: "ad"}))).toMatchObject({units: [{key: 2012, sure: 30, from: {year: 2012}}]});
+            const browsed = service.time({kind: "browse", year: 2012}, "actual", undefined, 10);
+            expect(browsed !== "cursor-stale" && (browsed.answer as {items: unknown[]}).items).toHaveLength(10);
+            const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch2", edge: "start"}, purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const june = {kind: "during" as const, from: {year: 2012, month: "m6"}, to: {year: 2012, month: "m6"}};
+            const first = service.viewed(opened.token).time(june, "actual", undefined, 20);
+            if (typeof first === "string") throw new Error(first);
+            expect((first.answer as {items: unknown[]}).items).toHaveLength(20);
+            const rest = service.viewed(opened.token).time(june, "actual", first.cursor, 20);
+            expect(typeof rest !== "string" && (rest.answer as {items: unknown[]}).items).toHaveLength(10);
+            // 游标带着令牌的上限：拿去不带令牌接着翻是另一组参数。
+            expect(service.time(june, "actual", first.cursor, 20)).toBe("cursor-stale");
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
     test("事件的范围按历法写；带视图令牌时只用上限之前的事建网，上限之后的说法不收窄可见的事；点名上限之后的事被拒并记审计", async () => {
         const root = await createTestTmpRoot("nb-canon-time", "query");
         const texts = new Map([["ch1", "那年。"], ["ch2", "第二天。"]]);
@@ -227,7 +266,7 @@ describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
             const viewed = service.viewed(opened.token);
             const bounded = viewed.time({kind: "event", change: x});
             // 带视图（上限第 2 章开头）：第 2 章那件不在网络里，X 仍是整个 2012 年。
-            expect(bounded !== "view-denied" && (bounded.answer as {start: {text: string}}).start.text).toBe("公元2012年");
+            expect(typeof bounded !== "string" && (bounded.answer as {start: {text: string}}).start.text).toBe("公元2012年");
             expect(viewed.time({kind: "event", change: y})).toBe("view-denied");
             const audit = service.viewAudit();
             expect(audit !== "cursor-stale" && audit.items.map((item) => item.method)).toEqual(["time"]);
@@ -244,7 +283,7 @@ describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
             const window = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch2", edge: "start"}, purpose: "writer"});
             if (typeof window === "string" || !("token" in window)) throw new Error(JSON.stringify(window));
             const early = service.viewed(window.token).time({kind: "event", change: p}, "planned");
-            expect(early !== "view-denied" && (early.answer as {start: {text: string}}).start.text).toBe("公元2012年3月");
+            expect(typeof early !== "string" && (early.answer as {start: {text: string}}).start.text).toBe("公元2012年3月");
         } finally {
             await service.stop();
             await rm(root, {recursive: true, force: true});

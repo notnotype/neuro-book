@@ -7,10 +7,39 @@ import {timeParts, type CompiledCalendar} from "./calendar";
 
 export type Level = "year" | "month" | "day" | "hour" | "minute";
 
+/** 一个时刻按历法拆开的各级，截到某一级（界面可以自己排、自己选语言）。年是绝对年份，在某个纪里时另给纪与纪内的年。 */
+export interface TimeLevels {
+    readonly year: number;
+    readonly era?: {readonly id: string; readonly name: string; readonly year: number};
+    readonly month?: {readonly id: string; readonly name: string};
+    readonly day?: number;
+    readonly hour?: number;
+    readonly minute?: number;
+}
+
 export interface FormattedRange {
     readonly text: string;
     /** 两端落在同一个单位里的最细一级；跨年时为 null。 */
     readonly level: Level | null;
+    /** 两端的各级，精度与 `text` 相同（跨年时写到日）；无穷的一端没有。 */
+    readonly from?: TimeLevels;
+    readonly to?: TimeLevels;
+}
+
+const DEPTH: Readonly<Record<Level, number>> = {year: 0, month: 1, day: 2, hour: 3, minute: 4};
+
+/** 一个绝对时间拆到某一级。 */
+export function levelsOf(compiled: CompiledCalendar, tick: number, level: Level): TimeLevels {
+    const parts = timeParts(compiled, tick);
+    const depth = DEPTH[level];
+    return {
+        year: parts.year,
+        ...(parts.era === undefined ? {} : {era: {id: parts.era.id, name: parts.era.name, year: parts.eraYear!}}),
+        ...(depth >= 1 ? {month: {id: parts.month.id, name: parts.month.name}} : {}),
+        ...(depth >= 2 ? {day: parts.day} : {}),
+        ...(depth >= 3 && parts.hour !== undefined ? {hour: parts.hour} : {}),
+        ...(depth >= 4 && parts.minute !== undefined ? {minute: parts.minute} : {}),
+    };
 }
 
 /** 一个绝对时间写到某一级。 */
@@ -31,8 +60,8 @@ export function formatTick(compiled: CompiledCalendar, tick: number, level: Leve
 /** 一个闭区间 `[lo, hi]` 按历法写出来。 */
 export function formatRange(compiled: CompiledCalendar, lo: number, hi: number): FormattedRange {
     if (!Number.isFinite(lo) && !Number.isFinite(hi)) return {text: "不知道", level: null};
-    if (!Number.isFinite(lo)) return {text: `${formatTick(compiled, hi, "day")}之前`, level: null};
-    if (!Number.isFinite(hi)) return {text: `${formatTick(compiled, lo, "day")}之后`, level: null};
+    if (!Number.isFinite(lo)) return {text: `${formatTick(compiled, hi, "day")}之前`, level: null, to: levelsOf(compiled, hi, "day")};
+    if (!Number.isFinite(hi)) return {text: `${formatTick(compiled, lo, "day")}之后`, level: null, from: levelsOf(compiled, lo, "day")};
     const a = timeParts(compiled, lo);
     const b = timeParts(compiled, hi);
     let level: Level | null = null;
@@ -49,8 +78,8 @@ export function formatRange(compiled: CompiledCalendar, lo: number, hi: number):
             }
         }
     }
-    if (level === null) return {text: `${formatTick(compiled, lo, "day")}至${formatTick(compiled, hi, "day")}`, level};
-    return {text: formatTick(compiled, lo, level), level};
+    if (level === null) return {text: `${formatTick(compiled, lo, "day")}至${formatTick(compiled, hi, "day")}`, level, from: levelsOf(compiled, lo, "day"), to: levelsOf(compiled, hi, "day")};
+    return {text: formatTick(compiled, lo, level), level, from: levelsOf(compiled, lo, level), to: levelsOf(compiled, hi, level)};
 }
 
 /** 一段时长（tick）写成天、时、分；相对范围用。 */

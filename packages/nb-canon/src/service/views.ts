@@ -54,7 +54,8 @@ export interface ViewedReads {
     changes(filter?: ChangeFilter, cursor?: string, limit?: number): ViewedPage<{readonly change: StoryChange; readonly outcome: ChangeOutcome | null}> | "cursor-stale" | "view-denied";
     tellings(filter?: TellingFilter, cursor?: string, limit?: number): ViewedPage<TellingItem> | "cursor-stale" | "view-denied";
     /** 时间的查询（canon.time 输出 15）：网络只用上限之前安放的事；点名上限之后的事或章得到 `view-denied` 并记审计。 */
-    time(query: TimeQuery, mode?: Mode): (ReadStamp & {readonly answer: TimeAnswer}) | "view-denied";
+    /** 列表（一段时间里的事、浏览的这一级里的事）分页，同不带令牌的 `time`。 */
+    time(query: TimeQuery, mode?: Mode, cursor?: string, limit?: number): (ReadStamp & {readonly answer: TimeAnswer; readonly cursor?: string}) | "view-denied" | "cursor-stale";
     /** 带令牌调了表里不许带令牌的方法（`object`、`pending`、写入……）：记一条审计并拒。 */
     deny(method: string): "view-denied";
 }

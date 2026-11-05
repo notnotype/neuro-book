@@ -89,7 +89,10 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(own(input.view)).lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).changes(input.filter ?? {}, input.cursor, limit)))),
             time: (input) => withWorld((service) => {
-                if (input.view !== undefined) return read(service.viewed(own(input.view)).time(input.query, input.mode));
+                if (input.view !== undefined) {
+                    const viewed = service.viewed(own(input.view));
+                    return paged(input.limit, (limit) => viewed.time(input.query, input.mode, input.cursor, limit));
+                }
                 return paged(input.limit, (limit) => service.time(input.query, input.mode, input.cursor, limit));
             }),
             tellings: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.tellings(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).tellings(input.filter ?? {}, input.cursor, limit)))),

@@ -423,13 +423,20 @@ export class WorldService {
     /** 时间的查询（canon.time 输出 8）：在当前世界的时间状态上回答；一段时间里的事分页。 */
     time(query: TimeQuery, mode: Mode = "actual", cursor?: string, limit = 50): (ReadStamp & {readonly answer: TimeAnswer; readonly cursor?: string}) | "cursor-stale" {
         const world = this.#world;
-        const stamp = this.#stampOf(world);
-        const answer = answerTime(world.time(mode), world.options.time ?? DEFAULT_TIME, world.data, query);
-        if (!("kind" in answer) || answer.kind !== "during") return {...stamp, answer};
-        const listed = [...(answer.sure as string[]).map((change) => ({change, sure: true})), ...(answer.maybe as string[]).map((change) => ({change, sure: false}))];
-        const page = this.#page(stamp, listed, cursor, limit, {method: "time", query, mode});
+        return this.#pagedTime(this.#stampOf(world), answerTime(world.time(mode), world.options.time ?? DEFAULT_TIME, world.data, query), cursor, limit, {method: "time", query, mode});
+    }
+
+    /**
+     * 时间回答里的列表（一段时间里的事、浏览的这一级里的事）按 project 输出 18 分页：一定的在前，可能的在后，每项带 `sure`。
+     * 带视图令牌时游标的参数另带令牌的上限，换令牌不能接着翻。
+     */
+    #pagedTime(stamp: ReadStamp, answer: TimeAnswer, cursor: string | undefined, limit: number, params: {readonly method: string} & Readonly<Record<string, unknown>>): (ReadStamp & {readonly answer: TimeAnswer; readonly cursor?: string}) | "cursor-stale" {
+        if (!("kind" in answer) || (answer.kind !== "during" && answer.kind !== "browse")) return {...stamp, answer};
+        const {sure, maybe, ...rest} = answer as {readonly sure: readonly string[]; readonly maybe: readonly string[]} & Readonly<Record<string, unknown>>;
+        const listed = [...sure.map((change) => ({change, sure: true})), ...maybe.map((change) => ({change, sure: false}))];
+        const page = this.#page(stamp, listed, cursor, limit, params);
         if (page === "cursor-stale") return page;
-        return {...stamp, answer: {kind: "during", text: answer.text, items: page.items}, ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, answer: {...rest, items: page.items}, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /**
@@ -605,7 +612,7 @@ export class WorldService {
                 if (page === "cursor-stale") return page;
                 return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
             },
-            time: (query, mode = "actual") => {
+            time: (query, mode = "actual", cursor, limit = 50) => {
                 const found = grant("time", query);
                 if (found === "view-denied") return found;
                 // 点名的事、章晚于上限：拒（上限之后的事在这张视图里不存在）。
@@ -616,7 +623,7 @@ export class WorldService {
                 }
                 if (query.kind === "chapter" && !chapterWithin(order(), found, query.chapter)) return this.#deny(found, "time", query);
                 const state = this.#boundedTime(world, found, mode);
-                return {...this.#stampOf(world), answer: answerTime(state, world.options.time ?? DEFAULT_TIME, world.data, query)};
+                return this.#pagedTime(this.#stampOf(world), answerTime(state, world.options.time ?? DEFAULT_TIME, world.data, query), cursor, limit, {method: "time", query, mode, until: found.until, line: found.line});
             },
             tellings: (filter = {}, cursor, limit = 50) => {
                 const found = chapters("tellings", filter.from, filter.to, filter.until?.chapter);

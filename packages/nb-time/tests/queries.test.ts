@@ -101,16 +101,18 @@ describe("canon.time 输出 5、验收 4：安放与时间对不上", () => {
 describe("canon.time 输出 8：查询与格式化", () => {
     test("精度到两端落在同一个单位里的最细一级；跨年写两端到日；无穷的一端写之前、之后；时长写成天时分", () => {
         const june = dateRange(compiled, {year: 2012, month: "m6"}) as {lo: number; hi: number};
-        expect(formatRange(compiled, june.lo, june.hi)).toEqual({text: "公元2012年6月", level: "month"});
+        // 同时给结构化的各级（精度与文字相同）。
+        expect(formatRange(compiled, june.lo, june.hi)).toEqual({text: "公元2012年6月", level: "month", from: {year: 2012, era: {id: "ad", name: "公元", year: 2012}, month: {id: "m6", name: "6月"}}, to: {year: 2012, era: {id: "ad", name: "公元", year: 2012}, month: {id: "m6", name: "6月"}}});
         const day = dateRange(compiled, {year: 2012, month: "m6", day: 3}) as {lo: number; hi: number};
         expect(formatRange(compiled, day.lo, day.hi).text).toBe("公元2012年6月3日");
         expect(formatRange(compiled, june.lo, day.hi + 400 * DAY).text).toBe("公元2012年6月1日至公元2013年7月8日");
-        expect(formatRange(compiled, june.lo, Number.POSITIVE_INFINITY).text).toBe("公元2012年6月1日之后");
+        expect(formatRange(compiled, june.lo, Number.POSITIVE_INFINITY)).toMatchObject({text: "公元2012年6月1日之后", from: {year: 2012, month: {id: "m6"}, day: 1}});
+        expect(formatRange(compiled, june.lo, Number.POSITIVE_INFINITY).to).toBeUndefined();
         expect(formatRange(compiled, 0, 0).text).toBe("公元前1年1月1日0时0分");
         expect(formatSpan(compiled, 3 * DAY + 90)).toBe("3天1时30分");
     });
 
-    test("一章合起来的范围、一段时间里一定与可能的事、按年月逐级的数目", () => {
+    test("一章合起来的范围与定下两端的事、一段时间里一定与可能的事、按纪年月日逐级的数目", () => {
         const {network} = solve([
             {id: "a", when: [{kind: "date", year: 2012, month: "m6", day: 3, basis: author}]},
             {id: "b", when: [{kind: "date", year: 2012, month: "m6", basis: author}]},
@@ -118,11 +120,37 @@ describe("canon.time 输出 8：查询与格式化", () => {
             {id: "d", when: []},
         ]);
         const june = dateRange(compiled, {year: 2012, month: "m6"}) as {lo: number; hi: number};
-        expect(chapterHull(network, ["a", "b", "c"])).toEqual({range: {lo: june.lo, hi: june.hi}, anchored: 2, unanchored: 1, conflict: 0});
+        expect(chapterHull(network, ["a", "b", "c"])).toEqual({range: {lo: june.lo, hi: june.hi}, earliestBy: "b", latestBy: "b", anchored: 2, unanchored: 1, conflict: 0});
         const third = dateRange(compiled, {year: 2012, month: "m6", day: 3}) as {lo: number; hi: number};
         expect(during(network, third.lo, third.hi)).toEqual({sure: ["a"], maybe: ["b"]});
-        expect(browse(network, compiled, {}).map((unit) => [unit.key, unit.sure, unit.maybe])).toEqual([[2012, 2, 0]]);
-        expect(browse(network, compiled, {year: 2012}).find((unit) => unit.key === 5)).toMatchObject({sure: 2, maybe: 0});
-        expect(browse(network, compiled, {year: 2012, month: 5}).find((unit) => unit.key === 3)).toMatchObject({sure: 1, maybe: 1});
+        const units = (path: Parameters<typeof browse>[2]) => {
+            const result = browse(network, compiled, path);
+            return result === "not-found" ? [] : result.units.map((unit) => [unit.key, unit.sure, unit.maybe]);
+        };
+        expect(units({})).toEqual([["ad", 2, 0]]);
+        expect(units({era: "ad"})).toEqual([[2012, 2, 0]]);
+        expect(units({year: 2012})).toEqual([[5, 2, 0]]);
+        expect(units({year: 2012, month: 5})).toEqual([[3, 1, 1], ...Array.from({length: 29}, (_, index) => [index + 1 + (index >= 2 ? 1 : 0), 0, 1]).filter(([key]) => key !== 3)].sort((x, y) => (x[0] as number) - (y[0] as number)));
+        expect(browse(network, compiled, {era: "nope"})).toBe("not-found");
+    });
+
+    test("逐级浏览：跨几百年的一件事不挤掉别的年，按时间先后取前 200 个并给总数；纪之前的年合成一个单位", () => {
+        const {network} = solve([
+            {id: "anchor", when: [{kind: "date", year: 2000, basis: author}]},
+            {id: "wide", when: [{kind: "after", of: "anchor", gap: {min: 0, max: 300, unit: "year"}, basis: author}]},
+            {id: "old", when: [{kind: "date", year: 1500, month: "m3", basis: author}]},
+            {id: "bc", when: [{kind: "date", year: -5, basis: author}]},
+        ]);
+        const top = browse(network, compiled, {});
+        expect(top !== "not-found" && top.units.map((unit) => [unit.key, unit.sure, unit.maybe])).toEqual([[null, 1, 0], ["ad", 3, 0]]);
+        const years = browse(network, compiled, {era: "ad"});
+        if (years === "not-found") throw new Error("no era");
+        expect(years.units[0]).toMatchObject({key: 1500, sure: 1});
+        expect(years.units[1]).toMatchObject({key: 2000, sure: 1, maybe: 1});
+        expect(years.units).toHaveLength(200);
+        // 宽的那件按全局的最长 300 年算上界（可能进到 2301 年初）：总数是 1500 年加 2000 年到它的上界所在的那一年。
+        const wide = network.bounds("wide");
+        if (wide.state !== "ok") throw new Error("no range");
+        expect(years.total).toBe(1 + (timeParts(compiled, wide.hi).year - 2000 + 1));
     });
 });
