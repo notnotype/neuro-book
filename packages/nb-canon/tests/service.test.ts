@@ -378,7 +378,7 @@ describe("canon.project：审查补的边界（输出 6、10、11、16、19、23
         const service = await open({now: 0}, {}, paused.files);
         const publishing = service.publish(entryRequest("星瑕", 1));
         await paused.reached;
-        const swapped = service.setRegistry(buildRegistry([PANEL]));
+        const swapped = service.setRegistries({registry: buildRegistry([PANEL])});
         paused.release();
         expect((await publishing).ok).toBe(true);
         await swapped;

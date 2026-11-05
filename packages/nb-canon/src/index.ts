@@ -28,6 +28,9 @@ export {
 } from "./core/position";
 export {canonicalJson, sameJson, stableStringify} from "./core/stable-json";
 export {buildRegistry, effectiveFields, fieldsProblem, generateFieldId, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
+export {buildMarkRegistry, EMPTY_MARK_REGISTRY, type MarkDeclaration, type MarkRefKind, type MarkRegistry, type MarkRegistryDiagnostic, type MarkTarget, type MarkType} from "./components/marks";
+export {buildDiagnosticRegistry, EMPTY_DIAGNOSTIC_REGISTRY, type DiagnosticDeclaration, type DiagnosticKeyPart, type DiagnosticRegistry, type DiagnosticRegistryDiagnostic} from "./components/diagnostics-registry";
+export type {PluginContribution} from "./components/declarations";
 export {assetPathProblem, listItemProblem, semanticText, valueProblem, type ValueProblem} from "./components/values";
 export {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "./engine/incremental";
 export {createReferenceEngine} from "./engine/reference";

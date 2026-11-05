@@ -8,6 +8,8 @@
  * World 是不可变的：发布返回新的 World，旧的照常可读，所以读取总是看到某一个版本。
  */
 
+import type {DiagnosticRegistry} from "../components/diagnostics-registry";
+import {EMPTY_MARK_REGISTRY, markProblem, type MarkRegistry} from "../components/marks";
 import {effectiveFields, fieldsProblem, type ComponentRegistry} from "../components/registry";
 import {valueProblem} from "../components/values";
 import {addressKey, parsePath} from "../core/address";
@@ -39,13 +41,17 @@ import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from 
 import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
-import {newReferences, referenceProblem, referencesOf, replaceTempIds, type ReferenceContext} from "./references";
+import {marksIn, newReferences, referenceProblem, referencesOf, replaceTempIds, type ReferenceContext} from "./references";
 import {countOccurrences} from "./tellings";
 
 /** 宿主提供的、计算要用的东西（project.md 输入与前置条件）。 */
 export interface WorldOptions {
     readonly order: ChapterOrder;
     readonly registry: ComponentRegistry;
+    /** 标注种类的登记（components.md 输出 17）；没给时是空的登记：没有插件登记标注种类。 */
+    readonly marks?: MarkRegistry;
+    /** 诊断的登记（model.md 输入的“诊断的登记”）；没给时是空的登记。 */
+    readonly diagnostics?: DiagnosticRegistry;
     readonly reductions: ReductionLookup;
     /** 按章 id 取当前正文；没有这一章返回 undefined。 */
     readonly chapterText: (chapter: string) => string | undefined;
@@ -320,7 +326,7 @@ export class World {
         // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
         if (!compensation) problems.push(...validate(this, data, engine, request, changed));
         const refs = writtenReferences(this, data, ops);
-        if (!compensation) problems.push(...referenceProblems(data, refs));
+        if (!compensation) problems.push(...markProblems(this, data, ops), ...referenceProblems(data, refs));
         if (problems.length > 0) return invalid(problems);
 
         const where = whereOf(request.chapter, this.options.order);
@@ -601,7 +607,8 @@ function applyOp(tables: Tables, op: Exclude<Op, {kind: "chapters"}>, createdAt:
 
 /** 这次修订新写或改过的引用（revisions.md 的“存下来的修订”里的 `refs`），连同它所在的对象。 */
 function writtenReferences(before: World, data: WorldData, ops: readonly Op[]): {readonly ref: ObjectRef; readonly reference: ReturnType<typeof referencesOf>[number]}[] {
-    const contextOf = (world: WorldData): ReferenceContext => ({registry: before.options.registry, entry: (id) => world.entries.get(id)});
+    const marks = before.options.marks ?? EMPTY_MARK_REGISTRY;
+    const contextOf = (world: WorldData): ReferenceContext => ({registry: before.options.registry, marks, entry: (id) => world.entries.get(id)});
     const old = contextOf(before.data);
     const now = contextOf(data);
     const found: {ref: ObjectRef; reference: ReturnType<typeof referencesOf>[number]}[] = [];
@@ -612,6 +619,34 @@ function writtenReferences(before: World, data: WorldData, ops: readonly Op[]): 
         for (const reference of added) found.push({ref: op.ref, reference});
     }
     return found;
+}
+
+/**
+ * 新加或改过的标注（model.md 输出 28）：同一位置（讲述按讲述 id）上逐字相同的标注算原样留着，不查，所以种类停用以后
+ * 只读的标注可以随对象改别的字段；其余的按当前登记查。载荷里的引用由引用的统一校验查。
+ */
+function markProblems(before: World, data: WorldData, ops: readonly Op[]): Problem[] {
+    const registry = before.options.marks ?? EMPTY_MARK_REGISTRY;
+    const problems: Problem[] = [];
+    for (const op of ops) {
+        if (op.kind === "chapters" || op.kind === "delete") continue;
+        const kept = new Map<string, string[]>();
+        for (const location of marksIn(op.ref.kind, before.object(op.ref))) kept.set(location.key, location.marks.map((mark) => stableStringify(mark)));
+        const after = (data[TABLE[op.ref.kind]] as ReadonlyMap<string, unknown>).get(op.ref.id);
+        for (const location of marksIn(op.ref.kind, after)) {
+            const old = [...(kept.get(location.key) ?? [])];
+            for (const [index, mark] of location.marks.entries()) {
+                const same = old.indexOf(stableStringify(mark));
+                if (same >= 0) {
+                    old.splice(same, 1);
+                    continue;
+                }
+                const problem = markProblem(registry, location.owner, mark);
+                if (problem !== null) problems.push({...problem, ref: op.ref, path: `${location.path}[${String(index)}]`});
+            }
+        }
+    }
+    return problems;
 }
 
 /** 新写或改过的、由引用模块负责校验的引用（components.md 输出 18 的 `ref-invalid`）。 */

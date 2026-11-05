@@ -219,7 +219,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             registryQueued = true;
             queueMicrotask(() => {
                 registryQueued = false;
-                service?.setRegistry(buildRegistry(components));
+                service?.setRegistries({registry: buildRegistry(components)});
             });
         },
         stop: async () => {

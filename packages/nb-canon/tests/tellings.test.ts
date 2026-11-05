@@ -81,12 +81,12 @@ describe("canon.model 输出 24、25：讲述的发生点与 id", () => {
         const service = await open(texts);
         const id = await tell(service, [{source: "chapter", chapter: "ch2", quote: "好"}]);
         const [first] = read(service);
-        expect(first).toMatchObject({owner: {kind: "change", id}, path: "told", located: {occurrence: {paragraph: 1, offset: 0}, count: 3}, hint: {code: "duplicate-quote"}});
+        expect(first).toMatchObject({owner: {kind: "change", id}, path: "told", located: {occurrence: {paragraph: 1, offset: 0}, count: 3}, hints: [{code: "duplicate-quote"}]});
         await retell(service, id, (told) => told.map((telling) => ({...telling, nth: 2})));
         const [second] = read(service);
         expect(second?.telling.id).toBe(first?.telling.id);
         expect(second?.located).toMatchObject({occurrence: {paragraph: 2, offset: 2}});
-        expect(second && "hint" in second).toBe(false);
+        expect(second && "hints" in second).toBe(false);
     });
 
     test("正文以外的讲述没有发生点，排在生效的讲述后面，也不进“读过的”", async () => {
@@ -109,7 +109,7 @@ describe("canon.model 输出 26、验收场景 7：失联与重新生效", () =>
 
         texts.set("ch2", "开头。\n她没有动那座钟。");
         service.textChanged("ch2");
-        expect(read(service)).toMatchObject([{located: {kind: "lost", reason: "quote-not-found"}, hint: {code: "telling-lost", detail: "quote-not-found"}}]);
+        expect(read(service)).toMatchObject([{located: {kind: "lost", reason: "quote-not-found"}, hints: [{code: "telling-lost", detail: "quote-not-found"}]}]);
         expect(read(service, {until: end})).toEqual([]);
         expect(read(service, {effective: false})).toHaveLength(1);
 

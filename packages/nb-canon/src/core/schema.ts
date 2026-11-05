@@ -33,6 +33,12 @@ export const ActorSchema = Type.Union([
 ]);
 
 /**
+ * 标注（model.md 输出 28）：`kind` 是登记的标注种类 id，`version` 是写入时登记的版本，其余的键是载荷，按种类登记的
+ * schema 校验（components.md 输出 17）。种类不在或版本对不上时原样保留、只读，所以这里只管这两个键。
+ */
+export const MarkSchema = Type.Intersect([Type.Object({kind: Id, version: Type.Integer({minimum: 1})}), Type.Record(Type.String(), Type.Unknown())]);
+
+/**
  * 讲述（model.md 输入的“讲述”表）。`id` 由程序在写入时补上，写入请求里新的讲述不带 id。按来源的必填项
  * （正文要章与原句，细纲要章与锚点，作者消息与界面要锚点）由写入时校验查（`invalid-telling`），这里只管形状。
  */
@@ -43,6 +49,7 @@ export const TellingSchema = Type.Object({
     quote: Type.Optional(Text),
     nth: Type.Optional(Type.Integer({minimum: 1})),
     anchor: Type.Optional(Text),
+    marks: Type.Optional(Type.Array(MarkSchema)),
 });
 
 export const BasisSchema = Type.Union([
@@ -156,6 +163,7 @@ export const StoryChangeSchema = Type.Object({
     held: Type.Optional(Type.Object({reason: Type.Union([Type.Literal("conflict"), Type.Literal("unsure")]), note: Text, against: Type.Optional(AddressSchema)})),
     undoneReason: Type.Optional(Text),
     by: ActorSchema,
+    marks: Type.Optional(Type.Array(MarkSchema)),
 });
 
 export const CheckSchema = Type.Object({
@@ -198,6 +206,7 @@ export const DecisionSchema = Type.Object({
     source: Type.Optional(Type.Unknown()),
     quote: Type.Optional(Text),
     hints: Type.Array(Type.Object({chapter: Id, quote: Text})),
+    marks: Type.Optional(Type.Array(MarkSchema)),
 });
 
 export const SuggestionSchema = Type.Object({
@@ -284,6 +293,7 @@ export type Placement = Static<typeof PlacementSchema>;
 export type ReadPosition = Static<typeof ReadPositionSchema>;
 export type Address = Static<typeof AddressSchema>;
 export type Actor = Static<typeof ActorSchema>;
+export type Mark = Static<typeof MarkSchema>;
 export type Telling = Static<typeof TellingSchema>;
 /** 写入请求里的讲述：新的不带 id（model.md 输出 25）。 */
 export type TellingDraft = Omit<Telling, "id"> & {readonly id?: string};

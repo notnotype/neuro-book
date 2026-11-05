@@ -9,9 +9,10 @@
  *   以引用为键的列表在地址路径里的元素 id 这些不算引用的位置。
  */
 
+import {markReferences, type MarkRegistry, type MarkTarget} from "../components/marks";
 import {effectiveFields, type ComponentRegistry} from "../components/registry";
 import {parsePath} from "../core/address";
-import type {Entry, FieldDeclaration, ObjectKind, Patch} from "../core/schema";
+import type {Check, Decision, Entry, FieldDeclaration, Mark, ObjectKind, Patch, StoryChange, Telling} from "../core/schema";
 
 export type RefTargetKind = "entry" | "change" | "line" | "decision" | "check";
 
@@ -30,11 +31,13 @@ export interface Reference {
 
 export interface ReferenceContext {
     readonly registry: ComponentRegistry;
+    /** 标注种类的登记：标注载荷里哪些路径是引用由它声明（components.md 输出 17）。 */
+    readonly marks: MarkRegistry;
     /** 写入以后的世界里的条目；补丁指到的字段声明从它取。 */
     readonly entry: (id: string) => Entry | undefined;
 }
 
-/** 一个对象里的全部引用（components.md 输出 18 的表；标注、参与者、时间与分叉的位置随各自的能力加进来）。 */
+/** 一个对象里的全部引用（components.md 输出 18 的表；参与者、时间与分叉的位置随各自的能力加进来）。 */
 export function referencesOf(kind: ObjectKind, value: unknown, context: ReferenceContext): Reference[] {
     if (value === null || typeof value !== "object") return [];
     const found: Reference[] = [];
@@ -84,6 +87,45 @@ export function referencesOf(kind: ObjectKind, value: unknown, context: Referenc
     if (kind === "suggestion") {
         const target = record.target as {kind?: unknown; entry?: unknown} | undefined;
         if (target?.kind === "entryText") add("target.entry", "entry", target.entry, true);
+    }
+    // 标注载荷里的引用：只认种类登记着、版本对得上的标注；只读的标注不会是新写的，它的引用在写入它的那次修订里存过。
+    for (const location of marksIn(kind, value)) {
+        for (const [index, mark] of location.marks.entries()) {
+            const type = context.marks.byKind(mark.kind);
+            if (type === undefined || type.version !== mark.version) continue;
+            for (const reference of markReferences(type, mark, `${location.path}[${String(index)}]`)) add(reference.path, reference.kind, reference.id, true, reference.targets);
+        }
+    }
+    return found;
+}
+
+/** 对象里挂标注的位置（model.md 输出 28）：`key` 在改前改后之间认同一个位置（讲述按讲述 id），`path` 给诊断看。 */
+export interface MarkLocation {
+    readonly owner: MarkTarget;
+    readonly key: string;
+    readonly path: string;
+    readonly marks: readonly Mark[];
+}
+
+export function marksIn(kind: ObjectKind, value: unknown): MarkLocation[] {
+    if (value === null || typeof value !== "object") return [];
+    const found: MarkLocation[] = [];
+    const tellings = (base: string, list: readonly Telling[] | undefined) => {
+        for (const telling of list ?? []) if (telling.marks !== undefined) found.push({owner: "telling", key: `${base}[${telling.id}]`, path: `${base}[${telling.id}].marks`, marks: telling.marks});
+    };
+    if (kind === "change") {
+        const change = value as StoryChange;
+        if (change.marks !== undefined) found.push({owner: "change", key: "", path: "marks", marks: change.marks});
+        tellings("told", change.told);
+    }
+    if (kind === "check") {
+        const told = (value as Check).told;
+        if (told?.marks !== undefined) found.push({owner: "telling", key: "told", path: "told.marks", marks: told.marks});
+    }
+    if (kind === "entry") for (const [address, list] of Object.entries((value as Entry).retold ?? {})) tellings(`retold[${JSON.stringify(address)}]`, list);
+    if (kind === "decision") {
+        const decision = value as Decision;
+        if (decision.marks !== undefined) found.push({owner: "decision", key: "", path: "marks", marks: decision.marks});
     }
     return found;
 }

@@ -6,4 +6,4 @@
 export {nodeFiles, type LogFiles} from "./files";
 export {appendRevision, LINE_LIMIT, openLog, readNew, SEGMENT_LIMIT, segmentName, type AppendFailure, type LogDiagnostic, type LogLock, type Opened, type Tail} from "./log";
 export {appendReduction, loadReductions, type ReductionCache} from "./cache";
-export {LEASE_MS, WorldService, type ServiceDiagnostic, type ServiceEvent, type ServiceFailure, type ServicePorts, type ServiceState, type WorldSnapshot} from "../service/service";
+export {LEASE_MS, WorldService, type MarkHint, type ServiceDiagnostic, type ServiceEvent, type ServiceFailure, type ServicePorts, type ServiceState, type TellingHint, type WorldSnapshot} from "../service/service";

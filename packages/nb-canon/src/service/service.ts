@@ -10,6 +10,8 @@
  *   所以补上以后不必重建引擎。
  */
 
+import {EMPTY_DIAGNOSTIC_REGISTRY, type DiagnosticRegistry} from "../components/diagnostics-registry";
+import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/marks";
 import type {ComponentRegistry} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
@@ -22,6 +24,7 @@ import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
+import {marksIn} from "../world/references";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import {World, type WriteResult} from "../world/world";
 
@@ -93,11 +96,40 @@ export type ServiceDiagnostic =
 
 export const LEASE_MS = 60_000;
 
-/** 讲述的提示（model.md 输出 24、26、34）：失联的、原句出现几次而没给 `nth` 的。 */
-function tellingHint(telling: Telling, located: Located): {readonly hint?: {readonly code: "telling-lost" | "duplicate-quote"; readonly detail: string}} {
-    if (located.kind === "lost") return {hint: {code: "telling-lost", detail: located.reason}};
-    if (located.kind === "found" && located.count > 1 && telling.nth === undefined) return {hint: {code: "duplicate-quote", detail: `${String(located.count)} occurrences`}};
-    return {};
+/** 一条讲述的提示（model.md 输出 24、26、28、34）：失联、原句出现几次而没给 `nth`、带的标注只读（`mark` 是它在 `marks` 里的下标）。 */
+export interface TellingHint {
+    readonly code: "telling-lost" | "duplicate-quote" | "mark-kind-unknown" | "mark-version-unsupported";
+    readonly detail: string;
+    readonly mark?: number;
+}
+
+function tellingHints(marks: MarkRegistry, telling: Telling, located: Located): TellingHint[] {
+    const hints: TellingHint[] = [];
+    if (located.kind === "lost") hints.push({code: "telling-lost", detail: located.reason});
+    if (located.kind === "found" && located.count > 1 && telling.nth === undefined) hints.push({code: "duplicate-quote", detail: `${String(located.count)} occurrences`});
+    for (const [index, mark] of (telling.marks ?? []).entries()) {
+        const code = markStatus(marks, mark);
+        if (code !== null) hints.push({code, detail: mark.kind, mark: index});
+    }
+    return hints;
+}
+
+/** 对象上一条只读的标注（model.md 输出 28）：在对象里的位置、种类与原因。 */
+export interface MarkHint {
+    readonly code: "mark-kind-unknown" | "mark-version-unsupported";
+    readonly path: string;
+    readonly kind: string;
+}
+
+function markHintsOf(marks: MarkRegistry, kind: ObjectRef["kind"], object: unknown): MarkHint[] {
+    const hints: MarkHint[] = [];
+    for (const location of marksIn(kind, object)) {
+        for (const [index, mark] of location.marks.entries()) {
+            const code = markStatus(marks, mark);
+            if (code !== null) hints.push({code, path: `${location.path}[${String(index)}]`, kind: mark.kind});
+        }
+    }
+    return hints;
 }
 
 /** 世界服务交出的世界：读的部分。写入的方法（publish、revert、reorder 等）不在其中。 */
@@ -149,7 +181,7 @@ export class WorldService {
      * 打开世界（输出 4）；章序与登记的类型由宿主给。打开后章序与记下的不同就发布章序调整（输出 9）。宿主读不出活页夹清单
      * 时给 `invalid`：按日志里最近一次记下的章序计算，不发布章序调整，写诊断（输出 23）。
      */
-    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly registry: ComponentRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
+    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
         const opened = await openLog(ports.files, ports.logDir, {lock: ports.lock, sideDir: ports.sideDir, now: ports.now});
         if ("code" in opened) return opened;
         const cache = await loadReductions(ports.files, ports.cachePath);
@@ -162,6 +194,8 @@ export class WorldService {
         const options = {
             order: new ChapterOrder(chapters),
             registry: initial.registry,
+            ...(initial.marks === undefined ? {} : {marks: initial.marks}),
+            ...(initial.diagnostics === undefined ? {} : {diagnostics: initial.diagnostics}),
             reductions: (input: ReductionInput) => service.#lookup(input),
             chapterText: (chapter: string) => service.#texts.get(chapter)?.text,
             digest: ports.digest,
@@ -201,7 +235,7 @@ export class WorldService {
             state: this.#state,
             ...(this.#readOnlyReason === null ? {} : {reason: this.#readOnlyReason}),
             exclusive: this.#lease === null ? null : {label: this.#lease.label, since: this.#lease.since},
-            diagnostics: [...this.diagnostics, ...this.#world.options.registry.diagnostics],
+            diagnostics: [...this.diagnostics, ...this.#world.options.registry.diagnostics, ...(this.#world.options.marks ?? EMPTY_MARK_REGISTRY).diagnostics, ...(this.#world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).diagnostics],
             recomputed: this.#world.engine.recomputed,
         };
     }
@@ -218,10 +252,15 @@ export class WorldService {
         return {...stamp, view, origins};
     }
 
-    /** 按 id 读一个存下来的对象（条目、剧情变更、核对点、决策、正文建议）；不存在时为 null（方法表 `object`）。 */
-    object(ref: ObjectRef): ReadStamp & {readonly object: unknown} {
+    /**
+     * 按 id 读一个存下来的对象（条目、剧情变更、核对点、决策、正文建议）；不存在时为 null（方法表 `object`）。
+     * 对象上只读的标注（种类不在、版本对不上）列在 `markHints` 里（model.md 输出 28）。
+     */
+    object(ref: ObjectRef): ReadStamp & {readonly object: unknown; readonly markHints?: readonly MarkHint[]} {
         const world = this.#world;
-        return {...this.#stamp(), object: world.object(ref) ?? null};
+        const object = world.object(ref) ?? null;
+        const hints = markHintsOf(world.options.marks ?? EMPTY_MARK_REGISTRY, ref.kind, object);
+        return {...this.#stamp(), object, ...(hints.length === 0 ? {} : {markHints: hints})};
     }
 
     pending(position?: ReadPosition): (ReadStamp & {items: readonly PendingItem[]}) | "chapter-not-found" {
@@ -285,9 +324,9 @@ export class WorldService {
     /**
      * 讲述（project.md 方法表的 `tellings`，model.md 输出 24 到 27）：每条带所在的对象、发生点或失联的原因。生效的按读的
      * 先后排（章序、段、段内偏移、讲述 id），其余排在后面（按对象、讲述 id）。`until` 只留在这个讲述位置读过的；
-     * `effective` 筛生效与否；`entry` 筛这个条目自己的、涉及它的剧情变更的、核对它的。
+     * `effective` 筛生效与否；`entry` 筛这个条目自己的、涉及它的剧情变更的、核对它的；`mark` 筛带这个种类标注的。
      */
-    tellings(filter: {readonly from?: string; readonly to?: string; readonly entry?: string; readonly effective?: boolean; readonly until?: TellingPosition} = {}, cursor?: string, limit = 50) {
+    tellings(filter: {readonly from?: string; readonly to?: string; readonly entry?: string; readonly effective?: boolean; readonly until?: TellingPosition; readonly mark?: string} = {}, cursor?: string, limit = 50) {
         const world = this.#world;
         const order = world.options.order;
         const inRange = (chapter: string | undefined) => {
@@ -301,6 +340,7 @@ export class WorldService {
             if (filter.entry !== undefined && !concerns) return;
             for (const telling of tellings) {
                 if (!inRange(telling.chapter)) continue;
+                if (filter.mark !== undefined && !(telling.marks ?? []).some((mark) => mark.kind === filter.mark)) continue;
                 const located = this.#locator.locate(telling);
                 const effective = located.kind === "found";
                 if (filter.effective !== undefined && filter.effective !== effective) continue;
@@ -320,9 +360,13 @@ export class WorldService {
         const stamp = this.#stamp();
         const page = this.#page(stamp, items, cursor, limit);
         if (page === "cursor-stale") return page;
+        const marks = world.options.marks ?? EMPTY_MARK_REGISTRY;
         return {
             ...stamp,
-            items: page.items.map((item) => ({...item, ...tellingHint(item.telling, item.located)})),
+            items: page.items.map((item) => {
+                const hints = tellingHints(marks, item.telling, item.located);
+                return {...item, ...(hints.length === 0 ? {} : {hints})};
+            }),
             ...(page.next === undefined ? {} : {cursor: page.next}),
         };
     }
@@ -515,12 +559,13 @@ export class WorldService {
     }
 
     /**
-     * 登记的 Component 类型变了（插件启停）：换上新登记整本重算，版本不变。排进写入队列：正在落盘的发布完成时会换上
-     * 它算出的世界，登记要在它之后换，否则被盖掉。
+     * 登记变了（插件启停）：换上新登记，版本不变。Component 类型变了整本重算；标注种类与诊断的登记变了只影响之后的
+     * 校验、提示与读取输入的摘要，不重算。排进写入队列：正在落盘的发布完成时会换上它算出的世界，登记要在它之后换，
+     * 否则被盖掉。
      */
-    setRegistry(registry: ComponentRegistry): Promise<void> {
+    setRegistries(registries: {readonly registry?: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<void> {
         const run = () => {
-            this.#world = this.#world.withOptions({...this.#world.options, registry});
+            this.#world = this.#world.withOptions({...this.#world.options, ...registries});
         };
         const next = this.#queue.then(run, run);
         this.#queue = next.catch(() => undefined);
@@ -698,7 +743,11 @@ export class WorldService {
             version: world.version,
             chapters: ids.map((id) => [id, "main"]),
             text: textDigest,
-            registry: {components: world.options.registry.versions.map(([id, version]) => [id, version]), marks: [], diagnostics: []},
+            registry: {
+                components: world.options.registry.versions.map(([id, version]) => [id, version]),
+                marks: (world.options.marks ?? EMPTY_MARK_REGISTRY).versions.map(([id, version]) => [id, version]),
+                diagnostics: (world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).versions.map(([id, version]) => [id, version]),
+            },
             pluginData: [],
             calendar: null,
             fuzzy: null,
