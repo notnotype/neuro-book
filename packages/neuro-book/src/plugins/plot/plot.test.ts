@@ -144,6 +144,9 @@ describe("剧情插件的远程合同", () => {
         expect(await plot.viewpointEntry({handle, id: king})).toMatchObject({ok: true, value: {kind: "entry"}});
         const audit = await window.canon.call("viewAudit", {viewer: guard});
         expect(audit.ok && audit.value.items.map((item) => item.kind)).toEqual(["placeholder"]);
+        // 视角挂在线上：线不存在开不了；位置写了不存在的线读知情得 line-not-found。
+        expect(await plot.openViewpoint({viewer: guard, until: {kind: "chapter", chapter: "2", edge: "end"}, purpose: "writer", line: "l404"})).toMatchObject({ok: false, code: "plot", detail: {code: "line-not-found"}});
+        expect(await plot.knowing({person: king, position: {kind: "chapter", chapter: "2", edge: "end", line: "l404"}})).toMatchObject({ok: false, code: "plot", detail: {code: "line-not-found"}});
         expect((await plot.closeViewpoint({handle})).ok).toBe(true);
         expect(await plot.viewpointEntry({handle, id: k})).toMatchObject({ok: false, code: "plot", detail: {code: "view-denied"}});
         expect(await plot.viewpointExperience({handle: "viewpoint-never"})).toMatchObject({ok: false, code: "plot", detail: {code: "view-denied"}});

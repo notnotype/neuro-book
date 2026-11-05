@@ -49,8 +49,8 @@ const methods = {
         effect: "read",
         errors,
     },
-    /** 给看的人开一张视图（线恒为主线，阶段 D 之前）。 */
-    openViewpoint: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), until: ReadPositionSchema, purpose: Type.String()}), output: Out, effect: "read", errors},
+    /** 给看的人开一张视图；`line` 不写时按活页夹上限那一章讲的线（canon.worldlines 输出 12）。 */
+    openViewpoint: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), until: ReadPositionSchema, purpose: Type.String(), line: Type.Optional(Type.String())}), output: Out, effect: "read", errors},
     closeViewpoint: {input: Type.Object({handle: Type.String()}), output: Type.Null(), effect: "read", errors},
     viewpointEntry: {input: Type.Object({handle: Type.String(), id: Type.String()}), output: Out, effect: "read", errors},
     viewpointLookup: {input: Type.Object({handle: Type.String(), names: Type.Array(Type.String(), {maxItems: 200})}), output: Out, effect: "read", errors},

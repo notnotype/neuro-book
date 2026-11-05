@@ -13,7 +13,7 @@
  */
 
 import {sameJson} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, EventKey, Mark, Mode, ReadPosition, StoryChange, TellingPosition} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, EventKey, Mark, Mode, OriginStep, ReadPosition, StoryChange, TellingPosition} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, MARK_IDS, type Degree, type How} from "../shared/declarations";
 import {perViewCache} from "./view-cache";
@@ -46,8 +46,11 @@ function knowingFields(row: KnowingRow | null): unknown {
     return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null && value !== undefined));
 }
 
-/** 读取位置，或“某条变更之前”（传话链用：比那条变更更早的变更之后）。 */
-export type KnowingAt = ReadPosition | {readonly before: string};
+/**
+ * 读取位置，或“某条变更之前”（传话链用：比那条变更更早的变更之后），或“某条变更之后”（含它；回溯带过去的知情取父线在触发处
+ * 那一刻的有效知情，knowledge 输出 4）。
+ */
+export type KnowingAt = ReadPosition | {readonly before: string} | {readonly after: string};
 
 /** 比任何安放都早的键：初值。 */
 const INITIAL_KEY: EventKey = {rank: [Number.NEGATIVE_INFINITY, 0, 0], tie: {version: -1, id: ""}};
@@ -82,27 +85,29 @@ export class KnowingIndex {
 
     /** 某人在这个位置（或某条变更之前）对一个知识点的有效知情；没有行时为 null。 */
     effective(person: string, point: string, at: KnowingAt = this.#position): KnowingRow | null {
-        const limit = "before" in at ? this.view.eventKey(at.before, this.mode) : at === this.#position ? this.#positionKey : this.view.positionKey(at);
+        const inclusive = "after" in at;
+        const limit = "before" in at ? this.view.eventKey(at.before, this.mode) : "after" in at ? this.view.eventKey(at.after, this.mode) : at === this.#position ? this.#positionKey : this.view.positionKey(at);
         if (limit === null) return null;
         let best: Candidate | null = null;
         for (const candidate of [...(this.#explicitOf(person).get(point) ?? []), ...(this.#derivedOf().get(person)?.get(point) ?? [])]) {
-            if (this.view.compareKeys(candidate.key, limit) >= 0) continue;
+            const order = this.view.compareKeys(candidate.key, limit);
+            if (inclusive ? order > 0 : order >= 0) continue;
             if (best === null) {
                 best = candidate;
                 continue;
             }
-            const order = this.view.compareKeys(candidate.key, best.key);
+            const against = this.view.compareKeys(candidate.key, best.key);
             // 同一条变更：显式的优先。
-            if (order > 0 || (order === 0 && candidate.change !== undefined && candidate.change === best.change && candidate.explicit && !best.explicit)) best = candidate;
+            if (against > 0 || (against === 0 && candidate.change !== undefined && candidate.change === best.change && candidate.explicit && !best.explicit)) best = candidate;
         }
         return best?.row ?? null;
     }
 
-    /** 某人在这个位置上全部有效的行（显式的与推出的涉及过的知识点）。 */
-    all(person: string): KnowingRow[] {
+    /** 某人在这个位置（缺省是索引的位置）上全部有效的行（显式的与推出的涉及过的知识点）。 */
+    all(person: string, at: KnowingAt = this.#position): KnowingRow[] {
         const points = new Set([...this.#explicitOf(person).keys(), ...(this.#derivedOf().get(person)?.keys() ?? [])]);
         return [...points].sort().flatMap((point) => {
-            const row = this.effective(person, point);
+            const row = this.effective(person, point, at);
             return row === null ? [] : [row];
         });
     }
@@ -148,29 +153,45 @@ export class KnowingIndex {
         let previous = new Map<string, Record<string, unknown>>();
         const seenChanges = new Set<string>();
         for (const step of steps) {
-            if (step.kind !== "init" && step.kind !== "patch") continue;
+            if (step.kind !== "init" && step.kind !== "patch" && step.kind !== "carried") continue;
             // 同一条变更的几个补丁各有一步，值都是这条变更套完以后的：只看一次。
             if (step.kind === "patch") {
                 if (seenChanges.has(step.change)) continue;
                 seenChanges.add(step.change);
             }
-            const list = new Map((Array.isArray(step.kind === "init" ? step.value : step.result) ? ((step.kind === "init" ? step.value : step.result) as Array<Record<string, unknown>>) : []).map((element) => [String(element.id), element]));
-            const key = step.kind === "init" ? INITIAL_KEY : this.view.eventKey(step.change, this.mode);
+            const value = step.kind === "patch" ? step.result : step.value;
+            const list = new Map((Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []).map((element) => [String(element.id), element]));
+            const key = step.kind === "init" ? INITIAL_KEY : step.kind === "carried" ? step.key : this.view.eventKey(step.change, this.mode);
             if (key !== null) {
-                for (const point of new Set([...previous.keys(), ...list.keys()])) {
+                // 回溯带过去的：这一步以后这个人的有效知情，从父线在触发处（没有时切口）算出的有效知情起（显式加推出，输出 4）。
+                const carried = step.kind === "carried" ? this.#parentRows(person, step) : null;
+                const points = new Set([...previous.keys(), ...list.keys(), ...(carried?.keys() ?? []), ...(carried === null ? [] : (this.#derivedOf().get(person)?.keys() ?? []))]);
+                for (const point of points) {
                     const before = previous.get(point);
                     const after = list.get(point);
                     // 按规范的 JSON 比（键排序）：整段替换写出相同的行、只是键的顺序不同，不算这一行的变化。
-                    if (step.kind !== "init" && sameJson(before, after)) continue;
+                    if (step.kind === "patch" && sameJson(before, after)) continue;
                     if (step.kind === "init" && after === undefined) continue;
                     const history = rows.get(point) ?? [];
-                    history.push({key, explicit: true, row: after === undefined ? null : explicitRow(point, after, step.kind === "patch" ? step.change : undefined), ...(step.kind === "patch" ? {change: step.change} : {})});
+                    if (step.kind === "carried") {
+                        // 父线上有行就取它；没有行就是这一行不带过去，回到“没有行”。
+                        history.push({key, explicit: true, row: carried!.get(point) ?? null});
+                    } else history.push({key, explicit: true, row: after === undefined ? null : explicitRow(point, after, step.kind === "patch" ? step.change : undefined), ...(step.kind === "patch" ? {change: step.change} : {})});
                     rows.set(point, history);
                 }
             }
             previous = list;
         }
         return rows;
+    }
+
+    /** 带过去的那一步上，父线在触发处（没有时切口）这个人全部有效的知情行。父线不在（线不可建）时没有。 */
+    #parentRows(person: string, step: Extract<OriginStep, {kind: "carried"}>): Map<string, KnowingRow> {
+        const parent = this.view.onLine(step.line, this.mode);
+        if ("code" in parent) return new Map();
+        const last = parent.chapters.at(-1);
+        const index = knowingIndex(parent, this.mode, last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last, edge: "end"});
+        return new Map(index.all(person, {after: step.change}).map((row) => [row.point, row]));
     }
 
     /** 推出的候选：在场的 `presentLearns`、隐秘目标的持有者。整份视图算一次。 */
@@ -270,6 +291,42 @@ export function presentChanges(view: CanonReadView, mode: Mode, position: ReadPo
         .map((change) => ({change, key: view.eventKey(change.id, mode)!}));
     keyed.sort((a, b) => view.compareKeys(a.key, b.key));
     return {changes: keyed.map((item) => item.change), uncast: counted.filter((change) => change.cast === undefined).length};
+}
+
+/** 视图所在线上的“当前”读取位置：最后一章末尾，没有章时是初值。 */
+function endOf(view: CanonReadView): ReadPosition {
+    const last = view.chapters.at(-1);
+    return last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last, edge: "end"};
+}
+
+/**
+ * 某人到一个位置为止的经历（knowledge 输出 8）：在场的剧情变更，回溯者在子线上另带“记得原线上的”——父线上切口之后、不晚于触发处
+ * 他在场的变更。顺序：切口之前共同的过去，记得的，再是他在这条线上自己经历的；`remembered` 是记得的那几条的 id，它们的知情变化
+ * 要在父线的视图上算（`parent`）。
+ */
+export function experienceChanges(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly changes: readonly StoryChange[]; readonly uncast: number; readonly remembered: ReadonlySet<string>; readonly parent: CanonReadView | null} {
+    const present = presentChanges(view, mode, position, person);
+    const fork = view.lines().find((line) => line.id === view.line);
+    if (fork === undefined || fork.type !== "rollback" || fork.trigger === undefined || fork.who === undefined || bodyOf(view, fork.who) !== bodyOf(view, person)) return {...present, remembered: new Set(), parent: null};
+    const parent = view.onLine(fork.parent, mode);
+    if ("code" in parent) return {...present, remembered: new Set(), parent: null};
+    const [cutOnParent, triggerOnParent, cutHere] = [parent.eventKey(fork.cut, mode), parent.eventKey(fork.trigger, mode), view.eventKey(fork.cut, mode)];
+    if (cutOnParent === null || triggerOnParent === null || cutHere === null) return {...present, remembered: new Set(), parent: null};
+    const remembered = presentChanges(parent, mode, endOf(parent), person).changes.filter((change) => {
+        const key = parent.eventKey(change.id, mode);
+        return key !== null && parent.compareKeys(key, cutOnParent) > 0 && parent.compareKeys(key, triggerOnParent) <= 0;
+    });
+    const shared = present.changes.filter((change) => {
+        const key = view.eventKey(change.id, mode);
+        return key !== null && view.compareKeys(key, cutHere) <= 0;
+    });
+    const own = present.changes.filter((change) => !shared.includes(change));
+    return {changes: [...shared, ...remembered, ...own], uncast: present.uncast, remembered: new Set(remembered.map((change) => change.id)), parent};
+}
+
+/** 一条变更让某人的有效知情起的变化，在 `view` 那条线上算（记得原线上的变更用父线的视图）。 */
+export function knowingChangesOf(view: CanonReadView, mode: Mode, person: string, change: string): KnowingChange[] {
+    return knowingIndex(view, mode, endOf(view)).changedBy(person, change);
 }
 
 /** 一个人是不是马甲：是就归到本体（传话人按本体算，knowledge.md 输出 5）。 */

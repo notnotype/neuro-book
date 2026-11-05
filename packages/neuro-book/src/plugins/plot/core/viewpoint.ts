@@ -15,7 +15,7 @@
 import type {CanonReadView, EntryView, ReadPosition, StoryChange, ViewedReads} from "@notnotype/nb-canon/schema";
 
 import {DEFAULT_SECRECY, ENTRY_TYPES, type Secrecy} from "../shared/declarations";
-import {knowingIndex, presentChanges, type KnowingChange, type KnowingIndex, type KnowingRow} from "./knowledge";
+import {experienceChanges, knowingChangesOf, knowingIndex, type KnowingChange, type KnowingIndex, type KnowingRow} from "./knowledge";
 
 export interface ViewpointGrant {
     /** 看的人（条目 id）；写手的视图可以没有，这时保密以上的知识点一律读不到。 */
@@ -39,6 +39,8 @@ export interface ExperienceItem {
     readonly cast: readonly ({readonly label: string} | {readonly who: string; readonly as?: string})[];
     /** 这条变更让 V 的有效知情起的变化（含去掉一行）。 */
     readonly knowing: readonly KnowingChange[];
+    /** 回溯者“记得原线上的”（父线上切口之后、不晚于触发处他在场的变更，knowledge 输出 8）。 */
+    readonly remembered?: true;
 }
 
 export class Viewpoint {
@@ -194,7 +196,7 @@ export class Viewpoint {
     experience(): {readonly items: readonly ExperienceItem[]; readonly uncast: number} | "no-viewer" {
         const viewer = this.grant.viewer;
         if (viewer === null) return "no-viewer";
-        const present = presentChanges(this.view, "actual", this.grant.until, viewer);
+        const present = experienceChanges(this.view, "actual", this.grant.until, viewer);
         const items = present.changes.map((change): ExperienceItem => ({
             id: change.id,
             at: change.at,
@@ -206,7 +208,9 @@ export class Viewpoint {
                 // 用了马甲：V 知道揭穿这个马甲的知识点才给本体（与称谓表同一规则，brief.md 输出 7）。
                 return this.#knowsUnmasking(member.as) ? {who: member.who, as: member.as} : {who: member.as};
             }),
-            knowing: this.#index.changedBy(viewer, change.id),
+            // 记得原线上的：这条变更不在这条线的视图里，让知情起的变化要在父线上算。
+            knowing: present.remembered.has(change.id) ? knowingChangesOf(present.parent!, "actual", viewer, change.id) : this.#index.changedBy(viewer, change.id),
+            ...(present.remembered.has(change.id) ? {remembered: true as const} : {}),
         }));
         return {items, uncast: present.uncast};
     }

@@ -12,14 +12,14 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 import {pageOf} from "@notnotype/nb-canon/node";
-import type {CanonReadView, ReadPosition} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {CANON_BUDGET_BYTES, canonProjectKey, encodedBytes} from "nbook/plugins/canon/shared/contracts";
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {foreshadowDiagnostics, ledger} from "../core/foreshadowing";
 import {conflictsOf} from "../core/goals";
-import {firstReveal, knowingIndex, presentChanges, readerKnowing} from "../core/knowledge";
+import {experienceChanges, firstReveal, knowingIndex, readerKnowing} from "../core/knowledge";
 import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
@@ -62,7 +62,7 @@ function latest(view: CanonReadView): ReadPosition {
 }
 
 /** 一个调用方打开的视角：句柄到内核令牌与看的人、上限、用途。 */
-type Viewpoints = Map<string, {readonly token: string; readonly grant: ViewpointGrant; readonly purpose: string}>;
+type Viewpoints = Map<string, {readonly token: string; readonly grant: ViewpointGrant; readonly purpose: string; readonly line: string}>;
 /** 最近关掉的句柄的看的人与用途（每个调用方最多留这么多）：之后再用它被拒时，审计里照样写得出是谁。 */
 const CLOSED_KEPT = 100;
 let viewpointSequence = 0;
@@ -76,6 +76,16 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints): RemoteImplemen
         return run(snapshot.view);
     };
     /**
+     * 读取位置那条线的视图（worldlines 输出 12）：位置写了线用写的，不写按活页夹那一章讲的线。线读不到（不存在、实际模式下的
+     * 计划线、不可建）是 `line-not-found`。
+     */
+    const lineViewOf = (view: CanonReadView, position: ReadPosition, mode: Mode): CanonReadView | Failure => {
+        const line = view.positionLine(position, mode);
+        if (line === view.line) return view;
+        const found = view.onLine(line, mode);
+        return "code" in found ? fail(found.code) : found;
+    };
+    /**
      * 带视角句柄的读取：取一份快照，在它上面建这张视图，同步算完。句柄不在（关了、别人的、从没有过）就是 `view-denied`，并记进
      * 内核的视图审计（knowledge.md 输出 9：每次拒绝都记）。
      */
@@ -87,28 +97,39 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints): RemoteImplemen
         }
         const snapshot = await canon.snapshot();
         if ("code" in snapshot) return fail(snapshot.code);
-        const viewpoint = new Viewpoint(snapshot.view, snapshot.viewed(held.token), held.grant, (method, blocked) => void canon.audit(held.token, {method, blocked: blocked.map((id) => ({kind: "entry" as const, id}))}));
+        // 视角挂在它开的那条线上：剧情的算法在这条线的读取视图上算。
+        const lineView = snapshot.view.line === held.line ? snapshot.view : snapshot.view.onLine(held.line);
+        if ("code" in lineView) return fail(lineView.code);
+        const viewpoint = new Viewpoint(lineView, snapshot.viewed(held.token), held.grant, (method, blocked) => void canon.audit(held.token, {method, blocked: blocked.map((id) => ({kind: "entry" as const, id}))}));
         const result = run(viewpoint);
         if (typeof result === "string") return fail(result);
         return page === undefined ? fitted(result) : page(viewpoint, result);
     };
     return {
         methods: {
-            knowing: (input) => withView((view) => {
-                const position = input.position ?? latest(view);
+            knowing: (input) => withView((main) => {
+                const position = input.position ?? latest(main);
+                const mode = input.mode ?? "actual";
+                const view = lineViewOf(main, position, mode);
+                if ("ok" in view) return view;
                 if (view.positionKey(position) === null) return fail("chapter-not-found");
                 const index = knowingIndex(view, input.mode ?? "actual", position);
                 const rows = input.point === undefined ? index.all(input.person) : [index.effective(input.person, input.point)].filter((row) => row !== null);
                 return pagedList(view, rows, input, {method: "knowing", person: input.person, point: input.point ?? null, position, mode: input.mode ?? "actual"});
             }),
-            experience: (input) => withView((view) => {
-                const position = input.position ?? latest(view);
+            experience: (input) => withView((main) => {
+                const position = input.position ?? latest(main);
+                const mode = input.mode ?? "actual";
+                const view = lineViewOf(main, position, mode);
+                if ("ok" in view) return view;
                 if (view.positionKey(position) === null) return fail("chapter-not-found");
-                const present = presentChanges(view, input.mode ?? "actual", position, input.person);
+                const present = experienceChanges(view, input.mode ?? "actual", position, input.person);
                 return pagedList(view, present.changes, input, {method: "experience", person: input.person, position, mode: input.mode ?? "actual"}, {uncast: present.uncast});
             }),
-            conflicts: (input) => withView((view) => {
-                const position = input.position ?? latest(view);
+            conflicts: (input) => withView((main) => {
+                const position = input.position ?? latest(main);
+                const view = lineViewOf(main, position, input.mode ?? "actual");
+                if ("ok" in view) return view;
                 if (view.positionKey(position) === null) return fail("chapter-not-found");
                 const conflicts = conflictsOf(view, input.goal, position, input.mode ?? "actual");
                 // 目标不存在、已删或在这个位置还没出场：同 canon 的 `not-found`（canon.project 的失败码）。
@@ -116,16 +137,22 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints): RemoteImplemen
                 return fitted({version: view.version, inputDigest: view.stamp.inputDigest, conflicts});
             }),
             reader: (input) => withView((view) => fitted({version: view.version, inputDigest: view.stamp.inputDigest, degree: readerKnowing(view, input.point, input.at), first: firstReveal(view, input.point)})),
-            ledger: (input) => withView((view) => {
-                const position = input.position ?? latest(view);
+            ledger: (input) => withView((main) => {
+                const position = input.position ?? latest(main);
+                const view = lineViewOf(main, position, input.mode ?? "actual");
+                if ("ok" in view) return view;
                 if (view.positionKey(position) === null) return fail("chapter-not-found");
                 return pagedList(view, ledger(view, position, input.mode ?? "actual", input.filter ?? {}), input, {method: "ledger", position, mode: input.mode ?? "actual", filter: input.filter ?? {}});
             }),
             openViewpoint: async (input) => {
-                const opened = await canon.openView({viewer: input.viewer, line: "main", until: input.until, purpose: input.purpose});
+                // 线：写了用写的，不写按活页夹上限那一章讲的线。
+                const snapshot = await canon.snapshot();
+                if ("code" in snapshot) return fail(snapshot.code);
+                const line = input.line ?? snapshot.view.positionLine(input.until);
+                const opened = await canon.openView({viewer: input.viewer, line, until: input.until, purpose: input.purpose});
                 if (!("token" in opened)) return fail(opened.code);
                 const handle = `viewpoint-${String(++viewpointSequence)}`;
-                viewpoints.set(handle, {token: opened.token, grant: {viewer: input.viewer, until: input.until}, purpose: input.purpose});
+                viewpoints.set(handle, {token: opened.token, grant: {viewer: input.viewer, until: input.until}, purpose: input.purpose, line});
                 return {ok: true as const, value: {handle}};
             },
             closeViewpoint: async (input) => {

@@ -1,8 +1,8 @@
 import {describe, expect, test} from "bun:test";
 
 import {COMPONENT_IDS, MARK_IDS} from "../shared/declarations";
-import {addRow, chapter, end, learns, PlotWorld, present, setSub, start} from "../testing/world";
-import {firstReveal, KnowingIndex, presentChanges, readerKnowing} from "./knowledge";
+import {addRow, chapter, drafts, end, learns, PlotWorld, present, setSub, start} from "../testing/world";
+import {experienceChanges, firstReveal, KnowingIndex, presentChanges, readerKnowing} from "./knowledge";
 import {knowingIncomplete, relayBroken} from "./knowledge-checks";
 
 const CHAPTERS = Array.from({length: 12}, (_, index) => `ch${String(index + 1)}`);
@@ -160,3 +160,42 @@ describe("plot.knowledge 输出 8：经历（作者看的全量）", () => {
         expect(planned.changes.map((change) => change.id)).toEqual([earlier, plan, later]);
     });
 });
+
+describe("plot.knowledge 输出 4、8、验收场景 6：回溯带过去的知情与记得原线上的", () => {
+    /** 主线：切口 c7（第 7 章）；第 8 章星瑕在场得知 K（推出的行），触发处 t8 在第 8 章末尾；回溯分叉 r1，r1 上第 9 章有一条她在场的变更。 */
+    function rolledBack() {
+        const w = new PlotWorld(CHAPTERS);
+        const xia = w.person("星瑕");
+        const k = w.point("K", xia);
+        const cut = w.change(chapter("ch7"));
+        const learned = w.change(chapter("ch8", 10), {cast: [present(xia)], marks: [learns(k)]});
+        const trigger = w.change(chapter("ch8", 50));
+        const ids = w.publish([
+            {ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch8", 60)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: xia}}},
+            {ref: {kind: "change", id: "tmp:own"}, after: {...drafts.change("tmp:own", {...chapter("ch9", 1), line: "tmp:r1"}, {cast: [present(xia)]})}},
+        ]);
+        const onLine = w.view().onLine(ids["tmp:r1"]!);
+        if ("code" in onLine) throw new Error(onLine.code);
+        return {w, xia, k, cut, learned, trigger, line: ids["tmp:r1"]!, own: ids["tmp:own"]!, view: onLine};
+    }
+
+    test("子线上第 9 章星瑕对 K 是知道：取父线在触发处推出的有效知情，不只是带过去的显式列表；主线同样知道；切口之后触发处之前得知的，子线上不靠记录也有", () => {
+        const {w, xia, k, view} = rolledBack();
+        expect(degree(new KnowingIndex(view, "actual", end("ch9")), xia, k)).toBe("knows");
+        expect(degree(new KnowingIndex(w.view(), "actual", end("ch9")), xia, k)).toBe("knows");
+        // 子线自己的视图里没有“得知”那条变更（它在切口之后）：知情是带过去的那一步给的。
+        expect(presentChanges(view, "actual", end("ch9"), xia).changes.map((change) => change.id)).toEqual([expect.any(String)]);
+    });
+
+    test("经历里记得原线上的：父线上切口之后、不晚于触发处她在场的变更排在共同的过去之后、自己经历的之前；没有回溯者身份的人没有", () => {
+        const {w, xia, learned, own, view} = rolledBack();
+        const other = w.person("别人");
+        const experience = experienceChanges(view, "actual", end("ch9"), xia);
+        expect(experience.changes.map((change) => change.id)).toEqual([learned, own]);
+        expect([...experience.remembered]).toEqual([learned]);
+        expect(experienceChanges(view, "actual", end("ch9"), other).remembered.size).toBe(0);
+        // 主线不是回溯线：没有记得的。
+        expect(experienceChanges(w.view(), "actual", end("ch9"), xia).remembered.size).toBe(0);
+    });
+});
+

@@ -98,6 +98,8 @@ export interface CanonReadView {
      * 不写模式按实际模式判（计划线只在按计划模式下存在）。
      */
     onLine(line: string, mode?: Mode): CanonReadView | {readonly code: "line-not-found"; readonly reason?: string};
+    /** 读取位置的线：位置写了线用写的，不写取那一章讲的线（活页夹，worldlines 输出 12）。 */
+    positionLine(position: ReadPosition, mode?: Mode): string;
     /** 章序。 */
     readonly chapters: readonly string[];
     entry(id: string, position: ReadPosition, mode: Mode): EntryView | null | "chapter-not-found";
@@ -182,6 +184,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         line,
         lines: () => deepFreeze(lineSummaries(world)),
         onLine,
+        positionLine: (position, mode = "actual") => world.positionLine(position, mode),
         chapters: deepFreeze([...order.ids]),
         // 引擎算出的结果可能与引擎的快照共用对象：交出去之前深冻结（core/freeze.ts）。存下来的对象在世界表里已经冻过。
         entry: (id, position, mode) => deepFreeze(lineEngine.entry(id, position, mode)),
@@ -228,7 +231,24 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
 export function createWorldReadView(world: World, texts: ReadonlyMap<string, string>): CanonReadView {
     const order = world.options.order;
     const stamp = readStampOf(world, (chapter) => (texts.has(chapter) ? world.options.digest(texts.get(chapter)!) : null), []);
-    return createReadView(world, new TellingLocator((chapter) => texts.get(chapter), () => order), stamp);
+    const locator = new TellingLocator((chapter) => texts.get(chapter), () => order);
+    // 各条线的视图按线缓存，`onLine` 与世界服务给的同一规矩：线要在这个模式下存在、且可建。
+    const views = new Map<string, CanonReadView>();
+    const viewOn = (line: string): CanonReadView => {
+        let view = views.get(line);
+        if (view === undefined) {
+            view = createReadView(world, locator, stamp, line, onLine);
+            views.set(line, view);
+        }
+        return view;
+    };
+    const onLine: CanonReadView["onLine"] = (other, mode = "actual") => {
+        const entry = lineTable(world.data, order).lines.get(other);
+        if (other !== MAIN_LINE && (entry === undefined || !entry.exists[mode])) return {code: "line-not-found"};
+        if (entry?.unbuildable !== null && entry !== undefined) return {code: "line-not-found", reason: entry.unbuildable};
+        return viewOn(other);
+    };
+    return viewOn(MAIN_LINE);
 }
 
 /**
