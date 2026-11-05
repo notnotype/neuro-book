@@ -33,6 +33,26 @@ updated: 2026-11-05
 | 12 接口太多 | 成立。去掉 `A`、`actionOf`、`sameAction`，换成 `actionKey`；`top` 不进状态机；`activate` 返回布尔 |
 | 13 几处约束没带过来 | 成立。keyup、`blur` 不加捕获、第一次发布的坐标、`nb-layout/AGENTS.md` 都补上 |
 
+实现审查（Sonnet，[报告](evidences/impl-review.txt)）11 条，都是建议级，对照旧实现没有发现回归：
+
+| 条 | 处理 |
+|---|---|
+| 1 放下中的守卫没有测试 | 成立。`move`、`withdraw` 各补一条；`resized` 的守卫本来多余（已排着那一帧），删掉 |
+| 2 `workbench-dnd.e2e.ts` 的捕获断言查错了元素 | 成立。改查外壳根；Lab 的取消用例都加上捕获已释放 |
+| 3 外壳没测松手时的 click | 成立。加用例：取消后回到标题上松手不收起，并用没过门槛的点击做对照 |
+| 4 核心入口多导出 | 成立。收窄到 Spec 列的，`DragState` 从 `./vue` 出 |
+| 5 过门槛那一下多判定一次 | 成立。拿起已发布，只排边缘滚动 |
+| 6 连发空格的守卫是空操作 | 成立。删掉，连同 `repeat` 字段 |
+| 7 `capture` 吞所有 `DOMException` | 成立。只收 `NotFoundError`、`InvalidStateError`，其余抛出 |
+| 8 注释与同名文档没跟上 | 成立。都补上 |
+| 9 小问题 | `hit` 别名、导入顺序已改。`Hovered.action` 与 `props.drag.action` 两份来源不改：前者是放下比较的快照，后者是控制器写回的显示状态，`transfer.test.ts` 经控制器公开接口测它；加了注释 |
+| 10 每帧 `elementsFromPoint` | 不改。没有实测的代价，工作台原来就这么用，只留一条路径 |
+| 11 Lab 触摸用例失败时不收口 | 成立。改用 `test.use({hasTouch: true})` |
+
+审查者没有证据的一项自己量了（真实 Chrome，外壳拖活动条目）：拖动中来源 `:active` 为真、`scale` 被样式撤回 1、宽 38px，光标 `grabbing`，捕获在外壳根上；松手后都复原。
+
+验证中一个教训：`setPointerCapture` 与 `releasePointerCapture` 都在下一个指针事件时才生效。过门槛后不再动就释放，捕获根本没生效，也就不会派发 `lostpointercapture`；用例靠 Chrome 在布局变化后补发的移动碰巧通过，负载高时失败。用例已改成先动一下再释放，单条重复 8 遍通过。
+
 ## 下一步
 
 按 `plan.md` 的切片实施。
