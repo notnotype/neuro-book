@@ -1,0 +1,103 @@
+w00041 t01 plan.md 设计审查报告（只读；除注明“实测”外均为读代码推断）
+对象：.agents/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/plan.md
+
+========== 重要 ==========
+
+[1] 重要 / 接口与合同 / plan.md:34、13-15、38-40
+现象：plan 让 nbook、macos 也改成 workbench.themes 贡献，且“贡献 id 以插件 id 为前缀”；themeSetting 现存值与默认值是裸字符串 "nbook"、"macos"。
+为什么是问题：贡献点若写 idPrefix: "plugin"（plan 说要前缀），内核核对规则是“以插件 id + '.' 开头，保留发布者的内置插件可只以 'nbook.' 开头”（packages/nb-runtime/src/plugins/host.ts:839-849）。裸 "nbook"/"macos" 不带点，必被拒；不写 idPrefix 则第三方可以抢注 "macos"。若 id 改成 nbook.workbench.macos 之类，用户设置文件与项目层里已存的 "macos"、默认值 "nbook"、现有测试（settings/commands.test.ts:206、window.test.ts、SettingsWindow.dom.test.ts:149、e2e/settings.e2e.ts）全部落空，会退回缺省主题，S1“产品外观不变”不成立。plan 没提迁移。
+如何核实：读 host.ts:839；grep themeSetting；themeSetting 定义在 plugins/workbench/shared/contracts.ts:130-144。
+建议改法：二选一并写进 plan：(a) 内置两套保留裸 id，贡献点自定义 validate（内置点可写 validate）规定“无点的 id 只许保留发布者 nbook.workbench 贡献”，其余走前缀；(b) 换成带前缀的 id，并写明读取设置时的别名映射（"nbook"→新 id）与是否改写存量设置。别名必须在 S1 完成，不能留到 S2。
+
+[2] 重要 / 依赖的机制不存在 / plan.md:33、59-61
+现象：plan 只说“Asset 是插件目录内相对路径，经现有插件文件端点取；内置插件在构建里给 URL”。
+为什么是问题（内置侧）：插件文件端点只服务 <State Root>/plugins 下已登记的第三方版本目录（plugin-code-loading.md 输出 8），内置插件的文件不在其中。内置插件的声明写在 plugins/<插件>/plugin.ts 的 descriptor.contributions 里，这个文件被 src/manifest.ts 引用，服务端、项目实例、浏览器三处都 import。若在其中 import "./assets/day.webp" 取 URL：实测（/tmp/w41/review/exp/bun1）bun build --target bun 会把图片作为 asset 复制进输出目录，产出字符串 "./a-<hash>.webp"（相对路径、与 Vite 的 URL 不同）；bun 直接运行得到的是磁盘绝对路径。即“服务端构建会把图片打进 dist/server，且两端 URL 不一致”。又 plugin-manifest.md 要求内置插件的代码定义必须能表达为 package.json 形式，所以声明里应是相对路径字符串，由浏览器侧再解析。
+如何核实：见上实验；architecture.test.ts 对 ui/ 与各位置的导入有限制，descriptor 在 shared 位置。
+建议改法：声明里一律是相对路径字符串；内置插件在 web 侧另有一个解析表（import.meta.glob("…/assets/*.webp", {query: "?url", eager: true}) 按相对路径取 URL），只在浏览器模块里引用，描述文件不 import 图片。plan 要写明这张表放哪、谁登记（例如 theme-study 的 web 入口位置没有入口，需要一个无入口也能被登记的位置，见 [3]）。
+
+[3] 重要 / 依赖的机制不存在 / plan.md:33、59-61、97
+现象：第三方侧，workbench 要把相对路径变成 /api/runtime/plugins/<id>/files/<摘要>/<路径>，需要文件 URL 前缀。
+为什么是问题：前缀由引导接口给窗口（browser-host.md 启动序列第 4 条），目前只被 src/web/host/window.ts 与 plugin-platform/web/styles.ts 用（pluginFileUrl），没有任何窗口能力（src/shared/host.ts 的 WindowPlugins 只有 entryState、onChange、retry、activationEvents、problems）交给插件。workbench 浏览器入口读不到它。内置侧“无入口的内置插件”描述机制是存在的（locations: [] 加 contributions，见 definitions.ts 的 definitionAt 与 window.test.ts:330 的测试用例），但产品里至今没有这样的内置插件；内置没有入口就没有 web 模块可放解析表。
+建议改法：plan 增加一条：新增窗口能力（例如 windowPluginFilesKey：pluginId → URL 前缀或 resolve(plugin, path)），内置插件的解析表也经同一个能力提供（内置资源用 Vite URL，第三方用文件端点），workbench 只调这一个函数。并把它写进 S3 范围。
+
+[4] 重要 / 与已确认静态稿不一致 / plan.md:25-29
+现象：已确认的草稿（StudySkinScene.vue）只用一张场景图（day.webp / night.webp，宽图：左窗与植物、右书架与台灯、中间墙面），空状态用 cover，左右两侧用 background-size:auto 118% 加 position 0% 100%、100% 100% 裁切，侧栏下角用 size:1000px auto、position:100% 2% 裁切。plan 的声明却分成 empty、margins.left/right、sidebarCorner 四个独立 Asset（亮暗各一套，共 8 张）。
+为什么是问题：照字面实现，S4 要另做 3 到 4 种裁切图，且各自的体积都要过 300KB；开发者在 r1-empty/r1-writing 看过并确认的是“同一张场景裁切”的观感，拆开后会出现接缝、构图和确认稿不同。同时，声明里没有任何字段能表达“同图不同裁切位置/缩放”（只有 empty.position）。另外 empty.contentX 的单位、含义没定义；草稿里内容位置是 margin-right:6%、margin-top:-4%、宽 460px。
+如何核实：读草稿 .vue:148、154-155、165-166；用 Read 看 day.webp（单张 1536 宽图）。
+建议改法：声明改成 scene.{light,dark}: Asset 一张，加 empty/margins/sidebarCorner 各自的 position、size（字符串，白名单校验）；或明确“每个位置各一张”是有意改动并让开发者确认。contentX 写明单位（0–1 比例？相对内容区宽）与方向。
+
+[5] 重要 / 机制遗漏 / plan.md:39
+现象：“选项经 settings.choices 从贡献点取；switch-theme 命令同样读贡献点”，没有列出做法与波及面。
+为什么是问题（逐项）：
+- settings.choices 只接受浏览器入口贡献，且需要 implementation（source()）（settings/shared/point.ts:43-48、sections.ts:137-141）。要用它，必须由 nbook.workbench 的浏览器入口 contributions 里贡献一个提供者（id 点分小写段），并在 themeSetting 里改成 choices: {from: "<提供者 id>"}、schema 改 Type.String()（shared/settings.ts:303-311，动态选项只用在字符串 schema 上）。plan 没写这一步，也没写提供者由谁实现。
+- 选项一律成了下拉：原来是两项分段控件，SettingsWindow.dom.test.ts:125-155 的 segment(...) 断言、e2e/settings.e2e.ts 会改；Lab 的设置场景（lab/web/fixtures/settings-scene/scene-data.ts:28）没有提供者，会显示“无法加载选项：没有选项提供者”。
+- 约定键 settings.theme.choices.nbook.title / macos.title（locales.test.ts、zh-CN.json）随静态 choices 消失，标题改走声明的 title。
+- 命令 args 是写死的 Type.Union(Literal "nbook","macos")（workbench/web/commands/theme-commands.ts:21-30），且 expose.agent: "auto"：Agent 看到的合同就是这个枚举；第三方皮肤 id 传进来会 invalid-args，描述文字也写着 “nbook or macos”。改成 String 后 switchSetting 对 {theme} 直传值不核对存在性（settings/shared/contracts.ts:148-178，只经 settings.update 的 schema 核对），写入任何字符串都成功。
+- 服务端校验改成 String 后对用户设置文件里的错别字不再报错（合理，但属于行为变化，要写进 Spec）。
+建议改法：S2 展开成上面几条；命令在 run 里按贡献表核对 id 并返回 invalid-args，args schema 与描述不再列枚举（或列“见贡献点”）。
+
+[6] 重要 / 遗漏（配色缺键）/ plan.md:19-24
+现象：colors?: {light: ColorVars; dark: ColorVars}，ColorVars、RoleVar、Both 在 plan 里都没定义；“没有就用 base 的缺省配色”只覆盖整体缺省，没有说明“给了但不全”。
+为什么是问题：配色契约 33 个键（nb-ui colorway-contract.ts:15-70），NbColorwayVars 是 Partial；nb-ui 与 neuro-book 的 CSS 里没有给任何配色变量的 :root 缺省（grep "--bg-main:" 无结果）。所以第三方只写 10 个变量时，其余变量在页面上是未定义，var(--bg-main) 失效，界面出现透明、继承色。theme-loader 的装载校验也不要求自带配色写满（theme-loader.test.ts 里有只写两个键的合法用例），不会兜住。vars 是一张平的表，没有亮暗分档，而草稿里一些角色变量（阴影、sheet 的边）亮暗取值不同；Both 的形状（{light,dark} 还是 [亮,暗]）也和 colors（先分明暗再分键）、margins（先分明暗再分左右）的嵌套方向不一致。
+建议改法：定义 ColorVars：要么 schema 要求写满 33 键（可由 nbColorwayVarKeys 生成 JSON Schema，纯 JSON 合规）、要么说明与 base 的 defaultColorway 合并（缺的键取 base）；vars 与 activityBar 一样按 {light,dark} 分档；整份声明统一一个“先明暗再键”的形状；RoleVar 白名单从 nbThemeTokens 的 Role 与 Decor 子集里列出（plan 说“从书房实际用到的开始”，但白名单取值与 nbThemeTokens/nbReservedTokens 的关系没写，白名单里不能混入 --font-ui 这类设计 token，也不能和 fonts 重叠）。
+
+[7] 重要 / 位置的画法 / plan.md:52-55
+现象：空状态“由 editor 的 EditorGroup 画（没开文件、欢迎页）”。
+为什么是问题：EditorGroup 里 activeTab===null 是 .editor-group__empty，欢迎页则是页面标签：渲染在 <div class="absolute inset-0 overflow-auto" :data-editor-page>，由 nbook.projects 通过 editor.pages 贡献（id nbook.projects.welcome）。EditorGroup 不知道哪个页面是欢迎页，也不该按 id 判断（违反跨插件只引 shared/contracts）；editor.pages 的声明 schema 是 additionalProperties:false 且只有 title、icon、openOnFirstVisit（editor/shared/contracts.ts:162-166），没有“要场景”的字段。如果所有页面标签都铺场景，插件设置页、作品设置页等表单页会盖在场景上，对比度要求不止于欢迎页。再有 contentX 的消费者：WelcomePage.vue 的根是 max-width:720px; margin-inline:auto，居中的栏要偏到留白上必须由页面自己（或容器的 padding）读变量；plan 没说谁读 contentX、怎么读。
+建议改法：EditorPageDeclaration 加一个可选字段（如 scene: true）；EditorGroup 只在 activeTab===null 或活动页面声明了 scene 时给内容区加场景层，并把 contentX 变成容器的 padding-inline-start（或 CSS 变量），欢迎页不用改。S3 的验收要包含“没开文件”和“欢迎页”两个状态各一条。
+
+[8] 重要 / 失败路径与验收映射 / plan.md:99、77-85
+现象：“每张限 300 KB，超了拒绝加载并记诊断”，没有执行者。
+为什么是问题：贡献点 validate 只拿到声明（没有文件系统，浏览器更不能 stat），运行时的 CSS url() 加载浏览器自己做，宿主无法“拒绝加载”。第三方在安装时才有检查机会（plugin-install 的校验），内置在构建时；plan 两者都没排。验收映射也缺：S1-S5 没有任何一条覆盖 300KB、url()/远程地址被拒、重复 id、id 前缀被拒、vars 白名单、未知 id 回退+诊断、setting 值“nbook/macos”兼容、命令传未知 id、服务端校验设置文件、Lab 不受影响、prefers-contrast/forced-colors（plan 只在验证节提到，没有切片归属）。S3 要测四个位置但素材在 S4 才有，S3 需要一个测试用主题夹具（不进产品）。
+建议改法：二选一：安装时检查（plugin-install 增 theme-asset-too-large）加内置的构建期测试；或删掉这条硬限制，改成作者文档里的建议值。并补一张“验收场景表”（见上列）归到 S1/S2/S3。
+
+========== 建议 ==========
+
+[9] 建议 / 贡献点只在浏览器定义 / plan.md:13-15
+现象：贡献点 workbench.themes 由 workbench 定义，而 workbench 的描述是 locations: ["browser"]，其所有贡献点定义只在浏览器的入口定义里。
+为什么是问题：顶层声明在服务端、项目实例也登记（manifest 输出 11），但服务端没有这个贡献点的定义，按 plugin-manifest 输出 10“没有任何已登记插件定义该贡献点：待校验，并在插件详情中标注未知贡献点”，第三方主题插件在插件页（数据来自服务端）会被标成“未知贡献点”；settings 为此把 properties/sections 在三个位置都定义（settings/shared/point.ts 顶部注释）。从代码推断，未实际装一个第三方插件验证。
+建议改法：themesPoint 放在 workbench/shared，三个位置的定义都带它（implementation:"none"），validate 不依赖浏览器；plan 在“关键设计 1”写明。
+
+[10] 建议 / 热插拔与首屏的描述不准 / plan.md:40、84、97
+现象：风险写“第三方主题的声明要等插件登记才有，首屏可能先画缺省主题再切；S5 实测”；验收“装、选、禁用、恢复”；“插件回来后恢复”。
+为什么是问题：browser-host 启动序列第 4 步先登记全部插件（含第三方的顶层贡献）、第 5 步才激活 workbench 并挂载页面，所以 WorkbenchDocument 首次写文档根时目录已齐，这条首屏风险不成立；真正的首屏差别在加载页只有颜色（appearance-hint 只记四种颜色，场景图在页面挂载后才加载，会有图片晚到）。另外运行期热插拔还没实现（plugins 页的提示仍是“下次启动后生效”，plugin-hot-plug 状态 planned），“禁用、启用”在窗口里要到重启后才变，e2e 需要重启服务或刷新；并且 context.declarations.list() 是激活时快照，只有走 receiver（published/revoke，顶层声明也会 backfill 给接收者）才跟随变化。plan 没说用哪一种。
+建议改法：改写这条风险；计划里写“主题目录用 receiver，不用 list 快照”，验收写成“重启后”；图片晚到用预加载或在写变量前 decode，另算一条。
+
+[11] 建议 / fonts.prose 没有消费者 / plan.md:23、52-57
+现象：声明有 fonts.display 与 fonts.prose，但“各位置由谁画”表里没有任何读 prose 字体的位置；MarkdownControl 用界面字体（其样式注释写“界面字体”），全仓库没有 --font-prose（只有草稿自己定义）。
+建议改法：要么加一行“MarkdownControl 正文读 --font-prose，缺省回落 --font-ui”，要么删 prose。fonts 只能命名系统字体、不内嵌字体，书房的宋体栈在没装对应字体的机器上就退到泛用衬线，plan 要说明这是已接受的限制。
+
+[12] 建议 / 侧栏下角的归属 / plan.md:56
+现象：“workbench 的侧栏”画下角。
+为什么是问题：WorkbenchPanelSurface.vue 是所有面板（左右上下）共用的壳，背景是 --panel-surface；视图可在面板间拖动。plan 没说“侧栏”是指哪块：左侧主面板？还是视图所在容器？没有主侧栏时是否画？
+建议改法：写明只在左侧面板（位置固定）画，且挂在面板壳而不是视图上；不足高度时不画。
+
+[13] 建议 / 无障碍偏好用 JS 写入 / plan.md:46、90
+现象：“prefers-contrast: more、forced-colors: active 下不写场景变量”。
+为什么是问题：写变量要在 WorkbenchDocument 再加两个 matchMedia 监听和清理（目前只有一个），而各位置本来只读变量；用 CSS 的 @media 在消费处把场景层 display:none 就够，也不需要写变量的分支。另 plan 第 9 行写“没有遮罩”，但四个位置都要往正文“淡出”，草稿用的是 mask-image 渐变，措辞会让实现者困惑。
+建议改法：改成消费端 @media 屏蔽；把“没有遮罩”改成“不压暗、不磨砂；场景边缘用渐变淡出”。
+
+[14] 建议 / 项目层回退 / plan.md:40、96
+现象：设置里的 id 找不到时“显示缺省主题”，主题设置继续允许项目层。
+为什么是问题：项目层设置文件跟着作品走（可能被带到没装这个皮肤的机器上），这时应先退到用户层的值，再退到缺省，而不是直接跳缺省；plan 的“缺省主题”可能被读成后者。诊断也要按 id 去重，否则每次 computed 重算都记一条。
+建议改法：写明回退顺序（项目层未知→用户层→缺省）和“只记一次”。
+
+[15] 建议 / 变量合同的位置 / plan.md:44、50
+现象：workbench 写 --skin-scene-*、活动栏变量，editor、markdown、workbench 侧栏读。
+为什么是问题：这是跨插件的约定，只写在 prose 里；architecture.test.ts:114 规定 src/ui/ 只能引用 ui/ 与 shared/，productTheme（在 src/ui/theme/）要拿贡献目录就得由调用方传参，不能 import workbench。变量名没有单一来源，容易各写各的（“同一件事各写一份”）。
+建议改法：新增 src/ui/theme/skin-vars.ts（或 shared）导出变量名常量，writer、各位置与 Spec 都引它；productTheme 接收已解析的皮肤结构作参数。DocumentThemeWriter 的 written 记录要覆盖新写的变量名，body 与 root 是否都写要说清（现有逻辑两处都写）。
+
+[16] 建议 / 文档一致性 / plan.md:7
+现象：“开发者已定：见 Task README 决定 1–8”，README 现在有 1–10，其中 9、10 是本计划产生的。无实质影响，改成“1–10”。同样，S6“Spec 晋升”前没有写明谁在何时把 SDK 文档的子路径表（若新增 SDK 类型或 defineTheme 辅助）与 authoring-themes.md 同步；不写代码的示例插件需要 SDK 构建预设支持零入口插件加静态资源目录（manifest 的 entries 可为空，但打包是否带资源目录未核实）。
+
+========== 未发现问题的方面 ==========
+- 顶层声明式贡献到达窗口的时机：第三方清单在引导第 4 步登记、早于 workbench 激活，WorkbenchDocument 首次写文档根读得到（见 [10]，只是 plan 的风险说法不准）。
+- 无入口的内置插件：descriptor.locations: [] 加 contributions 的装配路径存在（definitions.ts 的 pluginsAt、definitionAt），机制本身不缺；缺的是资源解析（见 [2][3]）。
+- 声明用 TypeBox 表达：只要不用 Refine/Codec/自定义 format，内置点可纯 JSON Schema 通过；“不能含 url()”需要内置点的 validate 函数（内置点允许写），不是 schema 表达。
+- 正文两侧的定位：MarkdownControl 的工具栏经 Teleport 放在 EditorGroup 的 toolbarSlot，控件根（.markdown-control-root）本来就在工具栏以下；滚动容器是整宽的 scroller，正文列 .markdown-control 在它里面（max-width 720px，margin-inline:auto）。场景层放在根里、与 scroller 同级即可不随滚动；放进 scroller 会随内容滚走。plan 没写此点，可在 S3 补一句，但不构成缺陷。
+- nb-ui 不改：配色与主题变量都可由文档根内联覆盖（writer 现状已如此），未发现阻碍。
+- appearance-hint：读的是文档根计算后的四种颜色，皮肤颜色经内联变量写到根上即被记录，无需改动。
+
+========== 数量 ==========
+阻断 0；重要 8（[1]-[8]）；建议 8（[9]-[16]）。
+最严重：[1] 内置 id 与存量设置值冲突；[2][3] Asset 在内置/第三方两侧都没有可用的 URL 解析途径（含服务端构建打进图片的实测）；[4] 声明结构偏离已确认的单图裁切草稿；[5] settings.choices、命令 args 与现有测试的波及面。
