@@ -45,6 +45,10 @@
 
     /* ---- 4.3 圆角（控件、面板、菜单、胶囊四档） ------------------------------ */
     --radius-control: 6px;
+    /* 按钮按尺寸取，不跟 --radius-control 走：主题可以只收按钮，也可以三档取一个值。 */
+    --radius-button-sm: 6px;
+    --radius-button-md: 8px;
+    --radius-button-lg: 10px;
     --radius-panel: 10px;
     --radius-menu: var(--radius-panel);
     --radius-pill: 999px;

@@ -244,6 +244,7 @@ Ant Design / Arco / TDesign 三家的排版规范页也都取不到正文。别�
 | `--control-h-sm`、`-md`、`-lg` | 控件高度三档 | 缺省在 `src/tokens.css`，主题覆盖 |
 | `--menu-item-h`、`--menu-item-font`、`--menu-pad` | 弹出列表一行的高度、字号与外框内边距 | 同上 |
 | `--radius-control` | 输入类控件的圆角 | 同上 |
+| `--radius-button-sm`、`--radius-button-md`、`--radius-button-lg` | `Button`、`IconButton` 按尺寸的圆角（缺省 6、8、10，nbook 三档都是 6） | 同上 |
 | `--radius-panel` | 面板与默认浮层的外圈圆角 | 同上 |
 | `--radius-menu` | 弹出列表的外圈圆角，独立语义档，不随 `--radius-panel` | 同上 |
 | `--radius-dialog`、`--radius-dialog-compact`、`--radius-window` | 对话框、小确认框、浮动窗口的外圈圆角 | 同上 |
@@ -251,7 +252,7 @@ Ant Design / Arco / TDesign 三家的排版规范页也都取不到正文。别�
 
 `Input`、`NumberInput`、`Select` 的默认单行高度消费 `.nb-ui-control-h-md`，
 水平内边距消费 `.nb-ui-control-px`，因此高度随主题。`Button` 的 `sm`、`md`、`lg` 同样取 `--control-h-*`，
-与输入框并排时等高，圆角是按尺寸写在 `Button.vue` 里的 6 / 8 / 10px，不是胶囊。`IconButton` 的尺寸是定值，
+与输入框并排时等高，圆角按尺寸取 `--radius-button-*`，不是胶囊。`IconButton` 的尺寸是定值，
 它多放在定宽的竖条与定高的工具条里。这几个静态类在 `src/styles.css` 登记，不依赖 Tailwind 对 arbitrary value 的扫描。
 
 nbook 面板圆角的取值有出处（macOS 26 窗口圆角的实测，见调研文档）；Apple 自己没公布这个数。
@@ -294,8 +295,7 @@ Apple 的官方落点是 UIKit 的 `containerConcentricRadius` 与 SwiftUI 的 `
 输入类控件（`Input`、`NumberInput`、`Textarea`、`Select`、`SearchSelect`）、分段控件、工具条、
 `ToggleGroup`、`Skeleton` 的圆角取 `rounded-[var(--radius-control)]`（或它的倍数）。**不要写 `rounded-md`**：
 那是 Tailwind 的 6px 常量，和主题没有任何关系，主题调整控件圆角时它一动不动。
-`Button` 与 `IconButton` 的尺寸档把圆角写成定值（各自 `.vue` 里的 `sizeClass`），不跟 `--radius-control` 走，
-这是现状；判据见坑 #44。
+`Button` 与 `IconButton` 的圆角按尺寸取 `--radius-button-*`，不跟 `--radius-control` 走；判据见坑 #44。
 
 ### 行内的文字块与控件同奇偶，行高取整数
 
@@ -344,7 +344,7 @@ CSS 侧从 Chrome 139 起有 `corner-shape`，技术上做得出来。本库试�
 4. **按钮平分整行还是右对齐，看框窄不窄**，不看它是不是对话框。窄框（决定）平分，
    宽框（表单）右对齐——宽框里平分会得到两根夸张的长条，而且按钮离它要确认的字段太远。
 
-按钮：`Button` 取 `--control-h-*`，圆角按尺寸写成 6 / 8 / 10px，不是胶囊。Apple UI Kit 里按钮是整颗胶囊，
+按钮：`Button` 取 `--control-h-*`，圆角取 `--radius-button-*`（缺省 6 / 8 / 10px，nbook 三档都是 6px），不是胶囊。Apple UI Kit 里按钮是整颗胶囊，
 高度刻度的读数见调研文档；这与本库现状不同，现状以 `Button.vue` 为准。
 
 ---

@@ -37,15 +37,15 @@ function sizeClass(): string {
     }
     if (props.size === "xs") {
         // 一行 32px 的头部里的图标按钮：四周各留 4px，外扩光晕不被头部所在的面板裁掉。
-        return "h-[24px] w-[24px] text-xs rounded-[6px]";
+        return "h-[24px] w-[24px] text-xs rounded-[var(--radius-button-sm)]";
     }
     if (props.size === "sm") {
-        return "h-[26px] w-[26px] text-xs rounded-[6px]";
+        return "h-[26px] w-[26px] text-xs rounded-[var(--radius-button-sm)]";
     }
     if (props.size === "lg") {
-        return "h-[38px] w-[38px] text-base rounded-[10px]";
+        return "h-[38px] w-[38px] text-base rounded-[var(--radius-button-lg)]";
     }
-    return "h-[32px] w-[32px] text-sm rounded-[8px]";
+    return "h-[32px] w-[32px] text-sm rounded-[var(--radius-button-md)]";
 }
 
 function variantClass(): string {

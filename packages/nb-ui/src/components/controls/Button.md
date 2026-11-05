@@ -8,7 +8,7 @@
 
 ## 布局
 
-按钮是 `inline-flex`，内容水平居中并保持单行。`sm`、`md`、`lg` 的高度取主题的 `--control-h-sm`、`--control-h-md`、`--control-h-lg`，字号取 `--text-xs`、`--text-sm`、`--text-md`；按钮内的图标和文字按间距排列。圆角随尺寸取 6、8、10px，与同档的 `IconButton` 一致。按钮带 1px 透明边框，边框占位，各变体与状态之间尺寸不抖动。`block` 为 `true` 时按钮占满父容器宽度，否则宽度由插槽和图标内容决定。内容变长时按钮不会换行，父级负责提供可用宽度；组件自身不提供横向滚动。
+按钮是 `inline-flex`，内容水平居中并保持单行。`sm`、`md`、`lg` 的高度取主题的 `--control-h-sm`、`--control-h-md`、`--control-h-lg`，字号取 `--text-xs`、`--text-sm`、`--text-md`；按钮内的图标和文字按间距排列。圆角取主题的 `--radius-button-sm`、`--radius-button-md`、`--radius-button-lg`（缺省 6、8、10px，nbook 三档都是 6px），与同档的 `IconButton` 一致。按钮带 1px 透明边框，边框占位，各变体与状态之间尺寸不抖动。`block` 为 `true` 时按钮占满父容器宽度，否则宽度由插槽和图标内容决定。内容变长时按钮不会换行，父级负责提供可用宽度；组件自身不提供横向滚动。
 
 在 `390×844` 的窄屏中，按钮仍保持所选尺寸和单行结构；需要全宽操作时使用 `block`，不要依赖按钮自动换行。
 

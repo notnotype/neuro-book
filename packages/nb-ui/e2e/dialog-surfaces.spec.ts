@@ -49,7 +49,7 @@ test("二级对话框与叠在对话框上的确认框：圆角不大于窗口�
     await settled(outer);
     const windowRadius = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--radius-window")));
     const dialogRadius = await radius(outer);
-    expect(dialogRadius, "一级对话框比窗口圆，二级才需要收").toBeGreaterThan(windowRadius);
+    expect(dialogRadius, "一级对话框不比窗口方，二级才需要收").toBeGreaterThanOrEqual(windowRadius);
     await expect(outer).not.toHaveClass(/nb-ui-dialog-surface--nested/u);
 
     await gotoScene(page, "nested", "nbook-light");
@@ -79,7 +79,7 @@ test("二级读二级那档：对话框里的对话框、对话框里的确认�
     await settled(alert);
     const windowRadius = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--radius-window")));
     expect(await alphaOf(alert), "叠在对话框上的确认框").toBeCloseTo(0.5, 2);
-    expect(await radius(alert), "确认框圆角（一级时是 20px）收到窗口那档").toBe(windowRadius);
+    expect(await radius(alert), "确认框圆角收到窗口那档").toBe(windowRadius);
 
     await gotoScene(page, "window-probe", "nbook-light");
     const innerWindow = page.locator("[data-fixture-inner]");

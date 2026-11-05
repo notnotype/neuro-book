@@ -35,12 +35,12 @@ const props = withDefaults(defineProps<{
  */
 function sizeClass(): string {
     if (props.size === "sm") {
-        return "h-[var(--control-h-sm)] px-2.5 text-[length:var(--text-xs)] gap-1 rounded-[6px]";
+        return "h-[var(--control-h-sm)] px-2.5 text-[length:var(--text-xs)] gap-1 rounded-[var(--radius-button-sm)]";
     }
     if (props.size === "lg") {
-        return "h-[var(--control-h-lg)] px-4.5 text-[length:var(--text-md)] gap-2 rounded-[10px]";
+        return "h-[var(--control-h-lg)] px-4.5 text-[length:var(--text-md)] gap-2 rounded-[var(--radius-button-lg)]";
     }
-    return "h-[var(--control-h-md)] px-3.5 text-[length:var(--text-sm)] gap-1.5 rounded-[8px]";
+    return "h-[var(--control-h-md)] px-3.5 text-[length:var(--text-sm)] gap-1.5 rounded-[var(--radius-button-md)]";
 }
 
 function variantClass(): string {
