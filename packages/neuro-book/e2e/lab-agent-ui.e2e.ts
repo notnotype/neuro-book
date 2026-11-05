@@ -544,3 +544,102 @@ test.describe("输入框", () => {
         await expect.poll(() => lastAction(page)).toEqual({type: "command.run", name: "rename", argsText: "雨夜"});
     });
 });
+
+test.describe("向导与状态栏（docs/specs/agent/conversation.md 输出 10–15）", () => {
+    const box = async (page: Page, selector: string) => (await page.locator(selector).first().boundingBox())!;
+
+    test("向导贴在消息流底部，不盖最后一条；往上滚时浮在内容上；最高占视图的 60%", async ({page}) => {
+        await openScene(page, "AgentConversationView", "approval-long", "tablet");
+        const wizard = page.locator("[data-agent-wizard]");
+        await expect(wizard).toBeVisible();
+        const stream = await box(page, "[data-agent-stream]");
+        expect(await wizard.locator(".acv-wizard-frame").evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(stream.height * 0.6 + TOLERANCE_PX);
+        // 贴底：最后一条在向导上方。
+        await scrollStreamTo(page, 1_000_000);
+        const covered = await page.evaluate(() => {
+            const content = document.querySelector(".acv-stream__content")!;
+            const wizardTop = document.querySelector("[data-agent-wizard]")!.getBoundingClientRect().top;
+            const siblings = [...content.children].filter((element) => !element.hasAttribute("data-agent-wizard"));
+            return siblings.at(-1)!.getBoundingClientRect().bottom - wizardTop;
+        });
+        expect(covered).toBeLessThanOrEqual(TOLERANCE_PX);
+        // 往上滚：还在视图底部，内容从它后面过去。
+        const bottom = (await wizard.boundingBox())!;
+        await scrollStreamTo(page, 0);
+        const scrolled = (await wizard.boundingBox())!;
+        expect(Math.abs(scrolled.y + scrolled.height - (bottom.y + bottom.height))).toBeLessThanOrEqual(TOLERANCE_PX);
+    });
+
+    test("等用户时输入框隐藏、不能操作，但草稿还在；焦点在向导容器，不在批准按钮", async ({page}) => {
+        await openScene(page, "AgentConversationView", "approval-edit");
+        await expect(page.locator("[data-agent-composer]")).toBeHidden();
+        await expect(page.locator("[data-agent-composer]")).toHaveAttribute("inert", "");
+        const focused = await page.evaluate(() => document.activeElement?.hasAttribute("data-agent-wizard") ?? false);
+        expect(focused).toBe(true);
+    });
+
+    test("收起成小条，没有批准按钮；Esc 不提交；用 action 提交一个事项一条", async ({page}) => {
+        await openScene(page, "AgentConversationView", "approval-batch");
+        await page.locator("[data-approval-decision='allow']").click();
+        await expect(page.locator("[data-wizard-count]")).toHaveText("第 2 / 3 个");
+        await page.keyboard.press("Escape");
+        await expect(page.locator("[data-wizard-collapsed]")).toBeVisible();
+        await expect(page.locator("[data-approval-decision='allow']")).toHaveCount(0);
+        await expect(page.locator("[data-wizard-expand]")).toBeFocused();
+        expect((await actions(page)).filter((action) => action.type === "input.submit")).toEqual([]);
+        await page.locator("[data-wizard-expand]").click();
+        await expect(page.locator("[data-wizard-count]")).toHaveText("第 2 / 3 个");
+    });
+
+    test("提问：选项、其它、表单都能填；表单不对不能提交", async ({page}) => {
+        await openScene(page, "AgentConversationView", "ask-form");
+        const submit = page.locator("[data-question-submit]");
+        await expect(submit).toBeDisabled();
+        await page.getByRole("textbox", {name: "名字"}).fill("苏晴");
+        await page.getByRole("textbox", {name: "名字"}).blur();
+        // 必填的年龄还没填：表单不对。
+        await expect(submit).toBeDisabled();
+        await page.getByRole("textbox", {name: "年龄"}).fill("27");
+        await page.getByRole("textbox", {name: "年龄"}).blur();
+        await expect(submit).toBeEnabled();
+        await submit.click();
+        const sent = (await actions(page)).find((action) => action.type === "input.submit") as {resolutions: {answer: {data: {answers: {form: unknown}[]}}}};
+        expect(sent.resolutions.answer.data.answers[0]!.form).toMatchObject({name: "苏晴", age: 27});
+    });
+
+    test("继续按钮和发送按钮一样大，图标在按钮正中；写了字变回发送", async ({page}) => {
+        await openScene(page, "AgentConversationView", "host-resume");
+        const button = page.locator("[data-composer-action='resume']");
+        await expect(button).toBeVisible();
+        const geometry = await button.evaluate((element) => {
+            const outer = element.getBoundingClientRect();
+            const icon = element.querySelector("span, svg")!.getBoundingClientRect();
+            return {width: outer.width, height: outer.height, dx: Math.abs(outer.left + outer.width / 2 - (icon.left + icon.width / 2)), dy: Math.abs(outer.top + outer.height / 2 - (icon.top + icon.height / 2)), iconWidth: icon.width};
+        });
+        expect(geometry.iconWidth).toBeGreaterThan(8);
+        expect(geometry.dx).toBeLessThanOrEqual(0.5);
+        expect(geometry.dy).toBeLessThanOrEqual(0.5);
+        await button.click();
+        expect(await lastAction(page)).toEqual({type: "run.continue"});
+        await page.getByRole("textbox", {name: "消息输入框"}).click();
+        await page.keyboard.type("再写点");
+        await expect(page.locator("[data-composer-action='send']")).toBeVisible();
+    });
+
+    for (const [viewport, name] of [["phone", "窄屏"], ["desktop", "宽屏"]] as const) {
+        test(`${name}：气泡、输入框、向导的左右边界对齐，滚动条不占宽度`, async ({page}) => {
+            await openScene(page, "AgentConversationView", "idle-host", viewport);
+            const stream = await box(page, "[data-agent-stream]");
+            const composer = await box(page, ".acv-composer__frame");
+            const width = await page.locator(".acv-stream__content").evaluate((element) => element.getBoundingClientRect().width);
+            // 滚动条是叠加的，不占宽度：内容只比消息流少左右各 12 的边距。
+            expect(Math.abs(width - (stream.width - 24))).toBeLessThanOrEqual(TOLERANCE_PX);
+            const left = stream.x + 12;
+            const right = stream.x + stream.width - 12;
+            if (stream.width <= 824) {
+                expect(Math.abs(composer.x - left)).toBeLessThanOrEqual(TOLERANCE_PX);
+                expect(Math.abs(composer.x + composer.width - right)).toBeLessThanOrEqual(TOLERANCE_PX);
+            }
+        });
+    }
+});

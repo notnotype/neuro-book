@@ -176,6 +176,10 @@ export type RunView = {
     status: RunStatus;
     /** 当前运行阶段的用户可读文案，例如“正在思考”；空闲时为空串。 */
     phase: string;
+    /** 这次运行的开始时刻（毫秒）；状态栏据此算用时。 */
+    startedAt?: number | null;
+    /** 模型请求失败、在等重发：第几次、最多几次、什么时候再发。 */
+    retry?: {attempt: number; max: number; resumeAt: number} | null;
 };
 
 export type HistoryView = {
@@ -201,15 +205,39 @@ export type PendingQuestionView = {
     header?: string;
     question: string;
     options: Array<{label: string; description?: string}>;
-    /** 表单型提问的规格，由提问向导解释。 */
+    multiSelect?: boolean;
+    /** 表单型提问的规格（JSON Schema），由 `renderers.form` 画。 */
     form?: JsonValue;
 };
 
-export type PendingInputView = {
-    batchKey: string;
+/** 审批预览：宿主取来之前是 `loading`。文件级的 `failed` 是这个文件算不出来，整个查询失败是 `failed`。 */
+export type ApprovalPreviewView =
+    | {state: "loading"}
+    | {state: "failed"}
+    | {state: "ready"; files: Array<{address: string; kind: "diff"; before: string; after: string} | {address: string; kind: "too-large"; bytes: number} | {address: string; kind: "failed"; code: string}>};
+
+/** 一个等批准的工具调用。`tool` 是显示给用户的工具名，也按它选怎么画（`edit`、`write` 看预览，`shell` 看命令，别的看参数）。 */
+export type PendingApprovalView = {
+    kind: "approval";
+    /** 事项 id；提交时放在 `input.submit` 的 `batchKey` 里。 */
+    id: string;
+    toolCallId: string;
+    tool: string;
+    args: JsonValue;
+    reason?: string;
+    preview: ApprovalPreviewView;
+};
+
+/** 一次提问：一个工具调用里 1 到 4 题。 */
+export type PendingQuestionsView = {
+    kind: "question";
+    id: string;
     toolCallId: string;
     questions: PendingQuestionView[];
 };
+
+/** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
+export type PendingInputView = PendingApprovalView | PendingQuestionsView;
 
 export type WorkflowView = {
     runId: string;
@@ -256,6 +284,15 @@ export type ComposerModelView = {
     unavailable?: string;
 };
 
+/** 审批模式的一项；`danger` 的（全部放行）选中时状态栏有警告。 */
+export type ComposerApprovalOption = {
+    key: string;
+    label: Text;
+    description: Text;
+    icon: string;
+    danger?: boolean;
+};
+
 export type ComposerView = {
     models: ComposerModelView[];
     modelKey: string | null;
@@ -265,6 +302,10 @@ export type ComposerView = {
     /** 第一项是普通模式；不是第一项时模式按钮用强调色。 */
     modes: ComposerModeView[];
     mode: string;
+    /** 审批模式的菜单，和 `modes` 平行；缺省没有。 */
+    approval?: {options: ComposerApprovalOption[]; value: string};
+    /** 上次运行被中断：占位文字换掉，发送按钮换成继续，空着也能发。 */
+    resume?: boolean;
     queued: Array<{id: string; text: string; delivery: "steer" | "followup"}>;
     attachments: ComposerAttachmentView[];
     /** 已发送的内容，最新的在前，供输入历史使用。 */
@@ -282,6 +323,10 @@ export type UsageSummaryView = {
     contextTokens: number;
     contextLimit: number | null;
     totalTokens: number;
+    input?: number;
+    output?: number;
+    /** `warned`：累计费用到了告警线；`unpriced`：有没有单价的请求，费用上限对它不起作用。 */
+    costState?: "ok" | "warned" | "unpriced";
     cacheRead: number;
     cacheWrite: number;
     /** 0 到 1；没有数据时为 null。 */
@@ -315,6 +360,10 @@ export type AgentConversationContext = {
     branches: {[messageId: string]: BranchView};
     editing: EditingView | null;
     pendingInputs: PendingInputView[];
+    /** 用户按下停止的时刻（毫秒）；状态栏据此在超过 10 秒时提示工具没有响应。 */
+    stopRequestedAt?: number;
+    /** 向导的界面状态，向导经 `wizard.state` 交出来，宿主原样放回：编辑区页面切标签会卸载，切回来答案还在。 */
+    wizardState?: JsonValue;
     /** 按工具调用 id 索引。 */
     workflows: {[toolCallId: string]: WorkflowView};
     workspaceChanges: WorkspaceChangesView;
@@ -349,6 +398,11 @@ export type AgentConversationServices = {
 // ─── action ─────────────────────────────────────────────────────────────
 
 export type SubmitDelivery = "prompt" | "steer" | "followup";
+
+/** 一个等用户事项的答复：审批的决定（`note` 是拒绝时给模型的话），或提问的回答（`text` 是拼好的人话，`data` 是逐题的回答）。 */
+export type InputResolution =
+    | {kind: "approval"; decision: "allow" | "allow-session" | "deny"; note?: string}
+    | {kind: "question"; answer: {text: string; data: {answers: JsonValue}}};
 
 export type BuiltinAgentViewAction =
     // 会话
@@ -396,8 +450,14 @@ export type BuiltinAgentViewAction =
     | {type: "model.manage"}
     | {type: "runtime.reset"}
     // 提问
-    | {type: "input.submit"; batchKey: string; resolutions: JsonValue}
+    | {type: "input.submit"; batchKey: string; resolutions: InputResolution}
     | {type: "input.cancelRun"}
+    | {type: "wizard.state"; state: JsonValue}
+    | {type: "run.continue"}
+    | {type: "queued.edit"; id: string}
+    | {type: "queued.remove"; id: string}
+    | {type: "approval.set"; mode: string}
+    | {type: "sessions.open"}
     | {type: "input.resync"}
     // 恢复
     | {type: "availability.act"; action: string}
@@ -438,8 +498,13 @@ export type AgentSessionListItem = {
     description?: string;
     /** 最近活动的时刻（毫秒）。 */
     updatedAt: number;
-    /** 宿主按自己的状态映射，例如问答记录的中断与出错。 */
-    status: "idle" | "running" | "interrupted" | "error";
+    /** 宿主按自己的状态映射，例如问答记录的中断与出错。`waiting` 是等用户批准或回答。 */
+    status: "idle" | "running" | "waiting" | "interrupted" | "error";
+    /** 图标 class（Profile 的图标）；缺省用通用图标。 */
+    icon?: string;
+    /** 图标的悬停提示（Profile 的名字）。 */
+    iconTitle?: string;
+    archived?: boolean;
     /** 需要注意的一句，提醒色另起一行，例如“读到 38.12，早于你现在的位置”；图标缺省 i-lucide-circle-alert。 */
     note?: {text: string; icon?: string};
 };

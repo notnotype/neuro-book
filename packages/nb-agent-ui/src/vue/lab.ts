@@ -9,6 +9,12 @@
 export {default as AgentConversationComposer} from "./composer/AgentConversationComposer.vue";
 export {default as AgentModelPicker} from "./composer/AgentModelPicker.vue";
 export {default as AgentQueuedMessages} from "./composer/AgentQueuedMessages.vue";
+export {default as AgentStatusBar} from "./composer/AgentStatusBar.vue";
+export {default as AgentWizard} from "./wizard/AgentWizard.vue";
+export {default as AgentWizardFrame} from "./wizard/AgentWizardFrame.vue";
+export {default as AgentApprovalWizard} from "./wizard/AgentApprovalWizard.vue";
+export {default as AgentQuestionWizard} from "./wizard/AgentQuestionWizard.vue";
+export {default as PlainForm} from "./fallback/PlainForm.vue";
 export {default as AgentMarkdown} from "./parts/AgentMarkdown.vue";
 export {default as OriginalImagePreviewDialog} from "./parts/OriginalImagePreviewDialog.vue";
 export {default as AgentChainSummary} from "./stream/AgentChainSummary.vue";

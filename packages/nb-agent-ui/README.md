@@ -4,7 +4,7 @@ Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/s
 
 - `@notnotype/nb-agent-ui`：核心，纯 TS。视图合同（`ctx`、`services`、`action`）、注册表、界面文字的引用（`agentRef`），以及宿主注入组件要满足的形状（`ports.ts`）。
 - `@notnotype/nb-agent-ui/locales`：本包界面文字的消息目录（命名空间 `nb-agent-ui`，源语言 zh-CN），注入翻译端口的宿主登记它，见“[界面文字](#界面文字)”。
-- `@notnotype/nb-agent-ui/vue`：渲染层。宿主挂 `AgentConversationView`，要会话列表时另挂 `AgentSessionList`；注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
+- `@notnotype/nb-agent-ui/vue`：渲染层。宿主挂 `AgentConversationView`，要会话列表时另挂 `AgentSessionList` 或带搜索与过滤的 `AgentSessionPanel`；注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
 - `@notnotype/nb-agent-ui/lab`：只给应用的 Component Lab，单独挂内部零件与算轮次样例；不是宿主接口，形状随时会变。
 
 ## 安装

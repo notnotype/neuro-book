@@ -9,6 +9,7 @@
  * 本文件静态引用了 Markdown 插件的组件，场景登记（`index.ts`）只能动态 import 它，选中场景时才加载。
  */
 
+import AgentFormRenderer from "nbook/plugins/agent/web/form-renderer.vue";
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
 import type {AgentConversationServices, AgentViewRegistry} from "@notnotype/nb-agent-ui";
 import * as nbAgentUiLab from "@notnotype/nb-agent-ui/lab";
@@ -27,7 +28,7 @@ import {provideAgentSceneText} from "./agent-text";
 import {labAttachmentUrls} from "./data";
 import {labDomainToolsContribution} from "./domain-tools";
 
-export const labAgentRenderers: AgentViewRenderers = {markdown: MarkdownDisplay, promptEditor: PromptEditor, promptTextView: PromptTextView};
+export const labAgentRenderers: AgentViewRenderers = {form: AgentFormRenderer, markdown: MarkdownDisplay, promptEditor: PromptEditor, promptTextView: PromptTextView};
 
 /**
  * 给对话视图的祖先提供 nbook 的 Markdown 宿主（作品文件的小块、文件图标；只有内置方言）；挂 `AgentConversationView` 的夹具

@@ -5,7 +5,7 @@
  * 一起加载。要注入 Markdown 与编辑器的零件经 `host.ts` 包一层，`host.ts` 引用了 Markdown 插件的组件，只在选中场景时动态加载。
  */
 
-import type {AgentConversationView, AgentModelCatalog, AgentSessionList} from "@notnotype/nb-agent-ui/vue";
+import type {AgentConversationView, AgentModelCatalog, AgentSessionList, AgentSessionPanel} from "@notnotype/nb-agent-ui/vue";
 import type {
     AgentChainSummary,
     AgentCommandDetail,
@@ -34,7 +34,7 @@ import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {agentModelCatalogScenes} from "./catalog.scenes";
-import {agentSessionListScenes} from "./session-list.scenes";
+import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
 import {agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
@@ -71,6 +71,11 @@ export const nbAgentUiFixtures: LabFixture[] = [
         component: "AgentSessionList", scenes: agentSessionListScenes, class: "h-[480px] w-[280px]",
         subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionList)}),
         events: ["action"],
+    }),
+    defineSubjectFixture<typeof AgentSessionPanel>({
+        component: "AgentSessionPanel", scenes: agentSessionPanelScenes, class: "h-[480px] w-[420px]",
+        subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionPanel)}),
+        events: ["action", "update:query", "update:scope", "toggle-profile", "update:show-archived"],
     }),
     // 目录对话框同样从公开入口取、套一层场景的翻译端口；它渲染到 body，根是传送门。
     defineSubjectFixture<typeof AgentModelCatalog>({

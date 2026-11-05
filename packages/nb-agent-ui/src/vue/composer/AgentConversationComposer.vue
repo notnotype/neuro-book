@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed, nextTick, ref, watch} from "vue";
-import {IconButton} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     PromptAttachmentKind,
     PromptEditorPortExpose,
@@ -138,20 +139,26 @@ function resolve(mod: boolean) {
 
 const showStop = computed(() => running.value && currentText.value.trim() === "" && props.ctx.interaction.canStop);
 // 运行中两种投递都不允许时能写不能发；登记的命令不受限制，所以按算出的结果判断，不只看开关。
-const sendDisabled = computed(() => readonly.value || blockedReason.value !== null || resolve(false) === null);
+const sendDisabled = computed(() => readonly.value || blockedReason.value !== null || (resolve(false) === null && !resuming.value));
+const showResume = computed(() => resuming.value && currentText.value.trim() === "");
 
 const sendTitle = computed(() => {
     if (showStop.value) {
         return t("composer.stop");
     }
     if (blockedReason.value !== null) return blockedReason.value;
+    if (showResume.value) return t("composer.resume");
     // 运行中也照常执行的命令：标题写“发送”，不写“运行结束后发送”。
     if (!running.value || resolve(false)?.kind === "command") return t("composer.send");
     if (deliveries.value.steer) return t("composer.sendRunning");
     return deliveries.value.followup ? t("composer.sendQueued") : t("composer.sendAfterRun");
 });
 
+/** 上次运行被中断：空着也能发，发出去就是继续（docs/specs/agent/conversation.md 输出 9）。 */
+const resuming = computed(() => composer.value.resume === true && !running.value);
+
 const placeholder = computed(() => {
+    if (resuming.value) return t("composer.placeholderResume");
     if (!running.value) return t("composer.placeholder");
     const {steer, followup} = deliveries.value;
     if (steer && followup) return t("composer.placeholderRunning");
@@ -170,6 +177,10 @@ function submit(mod: boolean): void {
         return;
     }
     // 展开时回车是换行，Ctrl/⌘+回车是唯一的键盘发送；不允许排队时它按回车的规则发（补充说明），否则只许补充说明的宿主没法用键盘发送。
+    if (showResume.value) {
+        emit("action", {type: "run.continue"});
+        return;
+    }
     const result = resolve(mod && !(expanded.value && !deliveries.value.followup));
     if (result !== null) {
         rejectNotice.value = null;
@@ -203,6 +214,23 @@ function cycleMode(): void {
     if (next !== null) {
         emit("action", {type: "mode.set", mode: next});
     }
+}
+
+const approvalMenu = computed<DropdownMenuItemData[]>(() => (composer.value.approval?.options ?? []).map((option) => ({
+    id: option.key,
+    label: text(option.label),
+    title: text(option.description),
+    iconClass: option.icon,
+    type: "radio",
+    group: "approval",
+    checked: option.key === composer.value.approval?.value,
+    ...(option.danger === true ? {tone: "danger" as const} : {}),
+})));
+const currentApproval = computed(() => composer.value.approval?.options.find((option) => option.key === composer.value.approval?.value) ?? null);
+
+function descriptionOf(id: string): string {
+    const option = composer.value.approval?.options.find((item) => item.key === id);
+    return option === undefined ? "" : text(option.description);
 }
 
 // ─── 附件 ───────────────────────────────────────────────────────────────
@@ -290,7 +318,7 @@ defineExpose({
 
 <template>
     <footer class="acv-composer" :class="{'is-expanded': expanded}" data-agent-composer>
-        <AgentQueuedMessages :queued="composer.queued" />
+        <AgentQueuedMessages :queued="composer.queued" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" />
         <p v-if="rejectNotice !== null" class="acv-composer__notice" role="status">
             <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
             <span class="acv-composer__notice-text">{{ rejectNotice }}</span>
@@ -388,6 +416,34 @@ defineExpose({
                         <span :class="currentMode.icon ?? 'i-lucide-circle-dot'" class="acv-composer__chip-icon" aria-hidden="true" />
                         <span class="acv-composer__mode-label">{{ currentMode.label }}</span>
                     </button>
+                    <DropdownMenu
+                        v-if="composer.approval !== undefined && currentApproval !== null"
+                        :items="approvalMenu"
+                        :disabled="runtimeDisabled"
+                        wrap
+                        align="start"
+                        side="top"
+                        @select="emit('action', {type: 'approval.set', mode: $event})"
+                    >
+                        <button
+                            type="button"
+                            class="acv-composer__chip acv-composer__mode"
+                            :class="{'is-accent': currentApproval.danger === true}"
+                            :disabled="runtimeDisabled"
+                            :title="t('composer.approvalMode', {mode: text(currentApproval.label)})"
+                            :aria-label="t('composer.approvalMode', {mode: text(currentApproval.label)})"
+                            data-composer-action="approval"
+                        >
+                            <span :class="currentApproval.icon" class="acv-composer__chip-icon" aria-hidden="true" />
+                            <span class="acv-composer__mode-label">{{ text(currentApproval.label) }}</span>
+                        </button>
+                        <template #item="{item}">
+                            <span class="acv-composer__approval-item">
+                                <span>{{ item.label }}</span>
+                                <small>{{ descriptionOf(item.id) }}</small>
+                            </span>
+                        </template>
+                    </DropdownMenu>
                     <AgentModelPicker
                         v-if="composer.models.length > 0 || composer.thinkingLevels.length > 0"
                         :models="composer.models"
@@ -427,12 +483,12 @@ defineExpose({
                     <IconButton
                         class="acv-composer__primary"
                         :class="{'is-stop': showStop}"
-                        :icon-class="showStop ? 'i-lucide-square' : 'i-lucide-arrow-up'"
+                        :icon-class="showStop ? 'i-lucide-square' : showResume ? 'acv-composer__resume-icon' : 'i-lucide-arrow-up'"
                         size="sm"
                         :disabled="showStop ? false : sendDisabled"
                         :title="sendTitle"
                         :aria-label="sendTitle"
-                        :data-composer-action="showStop ? 'stop' : 'send'"
+                        :data-composer-action="showStop ? 'stop' : showResume ? 'resume' : 'send'"
                         @click="onPrimaryButton"
                     />
                 </div>
@@ -455,6 +511,28 @@ defineExpose({
 /* 展开后占视图高度的大部分，消息流让出高度；百分比相对对话视图这一列。 */
 .acv-composer.is-expanded {
     height: min(55%, 560px);
+}
+
+.acv-composer__approval-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.acv-composer__approval-item small {
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+}
+
+/*
+ * 继续按钮的 >>>：lucide 没有三个的箭头，用同样的线宽画一个遮罩，宽高和别的图标相同（IconButton 把图标放在按钮正中），所以和发送的箭头
+ * 同一个中心。开发者看过盖上去的版本没居中，这里是按钮自己的图标。
+ */
+:global(.acv-composer__resume-icon) {
+    display: inline-block;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7l5 5-5 5M10 7l5 5-5 5M17 7l5 5-5 5'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7l5 5-5 5M10 7l5 5-5 5M17 7l5 5-5 5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .acv-composer__notice {

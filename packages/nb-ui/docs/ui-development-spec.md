@@ -57,6 +57,7 @@
 | 浮动窗口（`FloatingWindow`） | 同上，加 `.nb-ui-dialog-surface--window` | 圆角 `--radius-window`；常开、占大块屏幕的窗口与工作台部件卡片是同一类面，圆角取同一档 |
 | 小确认框（`AlertDialog`） | `.nb-ui-dialog-surface`，加 `--compact` | 圆角 `--radius-dialog-compact`；不加镜面层 |
 | 抽屉（`Drawer`） | `.nb-ui-dialog-surface`、`.nb-ui-drawer-surface` | 面沿用小浮层的 `--overlay-surface` |
+| 对话内浮动面板（`AgentWizard`） | 无 | 不写模糊；设 `--nb-popover-pad` 为实际内边距，内圈半径由它推出 |
 
 小提示（`Tooltip`）不用基座，只用 `.nb-ui-tooltip-surface`：实心面板底，不用玻璃；无箭头，靠间隙与翻转表达关系；指针穿透。
 

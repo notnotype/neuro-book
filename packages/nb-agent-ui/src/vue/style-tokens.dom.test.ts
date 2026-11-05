@@ -40,6 +40,12 @@ describe("渲染层的样式 token", () => {
         });
     }
 
+    it("向导与小条的磨砂走浮层外框类，不自己写 backdrop-filter（packages/nb-ui/docs/ui-development-spec.md 的浮层表）", () => {
+        const wizard = readFileSync(join(import.meta.dirname, "wizard/AgentWizard.vue"), "utf8") + readFileSync(join(import.meta.dirname, "wizard/AgentWizardFrame.vue"), "utf8");
+        expect(wizard).toContain("nb-ui-popover-surface");
+        expect(wizard).not.toContain("backdrop-filter");
+    });
+
     it("用到的 CSS 变量都有声明", () => {
         const require = createRequire(import.meta.url);
         const nbUiSource = dirname(require.resolve("@notnotype/nb-ui/colorway").replace(/colorway[/\\]index\.ts$/u, "index.ts"));
