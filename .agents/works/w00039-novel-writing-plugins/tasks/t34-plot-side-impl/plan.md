@@ -189,7 +189,8 @@
    - `question` 改成 `decision`（形状、名字、`not-deletable`），状态表留到 A7；
    - 样本转换与回放、node-log 测试、`scripts/scale.ts` 跟着改。
 2. **A2 正文快照与读取输入**：服务持有正文快照、`textChanged`、读取输入的摘要、游标改成“摘要加偏移”、`canonicalJson`。
-3. **A3 引用与替换**：`references.ts` 的两份清单、修订的 `refs`、依赖与改动记录读 `refs`、`ref`、`keyedBy`、元素语义档；替换掉三张键表。
+3. **A3 引用与替换**：`references.ts` 的引用位置、修订的 `refs`、依赖与改动记录读 `refs`、`ref`、`keyedBy`；替换掉三张键表。实施时改了一处：临时 id 的替换不另列清单，按保留写法替换（与这次发出的某个临时 id 完全相同的字符串，加上地址路径里的 `[临时 id]` 段），天然包含全部引用位置。
+3b. **A3b 列表元素的语义档**（从 A3 拆出）：两个引擎的语义档事件与归纳按元素子字段的地址记，视图按同样的规则给值。
 4. **A4 讲述**：发生点、失联、读过的讲述、`tellings` 方法。（讲述 id 的分配与 observe 在 A1 做了：它和 `told[id]` 的修订路径是同一件事。）
 5. **A5 标注种类与诊断的登记**：`canon.marks`、`canon.diagnostics` 的声明与校验，三张版本表；标注挂在讲述、剧情变更、决策上，载荷校验与只读规则。
 6. **A6 参与者、在场、叙述**：`cast`、`presence`、`nature: narration`、本章涉及的条目、`changes` 的新筛选。
