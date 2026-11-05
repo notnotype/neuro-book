@@ -164,3 +164,35 @@ describe("canon.time 输出 13、16：作品设置里的历法", () => {
         }
     });
 });
+
+describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
+    test("事件的范围按历法写；带视图令牌时只用上限之前的事建网，上限之后的说法不收窄可见的事；点名上限之后的事被拒并记审计", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "query");
+        const texts = new Map([["ch1", "那年。"], ["ch2", "第二天。"]]);
+        const service = await openTestService(root, {texts, chapters: ["ch1", "ch2"], registry: buildRegistry([PERSON])});
+        try {
+            const first = await service.publish({requestId: "q1", by: author, what: "edit", title: "x", baseVersion: 0, puts: [{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", {kind: "chapter", chapter: "ch1", key: 0}, {when: [date(2012)]})}]});
+            if (!first.ok) throw new Error(JSON.stringify(first.failure));
+            const x = first.ids["tmp:x"]!;
+            const second = await service.publish({requestId: "q2", by: author, what: "edit", title: "y", baseVersion: 1, puts: [{ref: {kind: "change", id: "tmp:y"}, after: change("tmp:y", {kind: "chapter", chapter: "ch2", key: 0}, {when: [date(2012, 6, 5), {kind: "after", of: x, gap: {min: 1, max: 1, unit: "day"}, basis: author}]})}]});
+            if (!second.ok) throw new Error(JSON.stringify(second.failure));
+            const y = second.ids["tmp:y"]!;
+            const plain = service.time({kind: "event", change: x});
+            // 不带视图：第 2 章那件说 X 早它一天，X 收窄到 6 月 4 日。
+            expect(plain !== "cursor-stale" && (plain.answer as {start: {text: string}}).start.text).toBe("公元2012年6月4日");
+            const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch2", edge: "start"}, purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const viewed = service.viewed(opened.token);
+            const bounded = viewed.time({kind: "event", change: x});
+            // 带视图（上限第 2 章开头）：第 2 章那件不在网络里，X 仍是整个 2012 年。
+            expect(bounded !== "view-denied" && (bounded.answer as {start: {text: string}}).start.text).toBe("公元2012年");
+            expect(viewed.time({kind: "event", change: y})).toBe("view-denied");
+            const audit = service.viewAudit();
+            expect(audit !== "cursor-stale" && audit.items.map((item) => item.method)).toEqual(["time"]);
+            expect(service.time({kind: "calendar"})).toMatchObject({answer: {kind: "calendar", unit: "minute"}});
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});

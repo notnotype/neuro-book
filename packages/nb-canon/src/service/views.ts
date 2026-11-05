@@ -11,6 +11,7 @@ import {placementRank, positionRank, rankBefore, type ChapterOrder, type Rank} f
 import type {ObjectRef, Placement, ReadPosition, StoryChange} from "../core/schema";
 import type {ChangeOutcome, EntryView, Mode} from "../engine/types";
 import type {AgentBlock, AuthorBlock} from "../render/render";
+import type {TimeAnswer, TimeQuery} from "../time/queries";
 import {readBy, type TellingPosition} from "../world/tellings";
 import type {ChangeFilter, PresenceFilter, ReadStamp, TellingFilter, TellingItem} from "./reads";
 
@@ -52,6 +53,8 @@ export interface ViewedReads {
     presence(person: string, filter?: PresenceFilter, cursor?: string, limit?: number): (ViewedPage<{readonly change: StoryChange}> & {readonly uncast: number}) | "chapter-not-found" | "cursor-stale" | "view-denied";
     changes(filter?: ChangeFilter, cursor?: string, limit?: number): ViewedPage<{readonly change: StoryChange; readonly outcome: ChangeOutcome | null}> | "cursor-stale" | "view-denied";
     tellings(filter?: TellingFilter, cursor?: string, limit?: number): ViewedPage<TellingItem> | "cursor-stale" | "view-denied";
+    /** 时间的查询（canon.time 输出 15）：网络只用上限之前安放的事；点名上限之后的事或章得到 `view-denied` 并记审计。 */
+    time(query: TimeQuery, mode?: Mode): (ReadStamp & {readonly answer: TimeAnswer}) | "view-denied";
     /** 带令牌调了表里不许带令牌的方法（`object`、`pending`、写入……）：记一条审计并拒。 */
     deny(method: string): "view-denied";
 }

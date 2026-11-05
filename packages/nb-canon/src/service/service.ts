@@ -31,6 +31,9 @@ import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
 import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ViewedReads, type ViewGrant} from "./views";
+import {DEFAULT_TIME} from "../time/network";
+import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
+import {timeState, type TimeState} from "../time/state";
 import {createReadView, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
@@ -191,6 +194,7 @@ export class WorldService {
     readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
     #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
     #viewCache: {readonly world: World; readonly generation: number; readonly view: CanonReadView} | null = null;
+    readonly #boundedStates = new WeakMap<World, Map<string, TimeState>>();
     /** 讲述按正文快照与当前章序定位（model.md 输出 24、26）；结果按章与那一章的正文缓存。 */
     readonly #locator = new TellingLocator((chapter) => this.#texts.get(chapter)?.text, () => this.#world.options.order);
     readonly diagnostics: ServiceDiagnostic[];
@@ -414,6 +418,44 @@ export class WorldService {
         if (this.#timings.length > TIMINGS_KEPT) this.#timings.shift();
     }
 
+    /* ---------- 时间（canon.time） ---------- */
+
+    /** 时间的查询（canon.time 输出 8）：在当前世界的时间状态上回答；一段时间里的事分页。 */
+    time(query: TimeQuery, mode: Mode = "actual", cursor?: string, limit = 50): (ReadStamp & {readonly answer: TimeAnswer; readonly cursor?: string}) | "cursor-stale" {
+        const world = this.#world;
+        const stamp = this.#stampOf(world);
+        const answer = answerTime(world.time(mode), world.options.time ?? DEFAULT_TIME, world.data, query);
+        if (!("kind" in answer) || answer.kind !== "during") return {...stamp, answer};
+        const listed = [...(answer.sure as string[]).map((change) => ({change, sure: true})), ...(answer.maybe as string[]).map((change) => ({change, sure: false}))];
+        const page = this.#page(stamp, listed, cursor, limit, {method: "time", query, mode});
+        if (page === "cursor-stale") return page;
+        return {...stamp, answer: {kind: "during", text: answer.text, items: page.items}, ...(page.next === undefined ? {} : {cursor: page.next})};
+    }
+
+    /**
+     * 带视图令牌时的时间状态（canon.time 输出 15）：网络只用安放在上限之前的事，否则上限之后的说法会收窄可见的事的范围。按世界、模式与
+     * 上限缓存最多 8 份，不同令牌同一上限共用。
+     */
+    #boundedTime(world: World, grant: ViewGrant, mode: Mode): TimeState {
+        let byWorld = this.#boundedStates.get(world);
+        if (byWorld === undefined) {
+            byWorld = new Map();
+            this.#boundedStates.set(world, byWorld);
+        }
+        const key = `${mode}|${stableStringify(grant.until)}`;
+        let state = byWorld.get(key);
+        if (state === undefined) {
+            const order = world.options.order;
+            const visible = new Map([...world.data.changes].filter(([, change]) => placementWithin(order, grant, change.at)));
+            const plans = mode === "planned" ? [...visible.values()].filter((change) => change.kind === "plan" && change.status === "active" && world.engine.progress(change.id, grant.until) === "unfulfilled").map((change) => change.id) : [];
+            const settings = world.options.time ?? DEFAULT_TIME;
+            state = timeState(visible, {changes: visible, entries: world.data.entries, order, createdAt: world.data.createdAt}, settings, mode, plans);
+            byWorld.set(key, state);
+            if (byWorld.size > 8) byWorld.delete(byWorld.keys().next().value!);
+        }
+        return state;
+    }
+
     /* ---------- 项目内的快照 ---------- */
 
     /**
@@ -562,6 +604,19 @@ export class WorldService {
                 const page = this.#page(stamp, listChanges(world, filter, found.until).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...filter});
                 if (page === "cursor-stale") return page;
                 return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+            },
+            time: (query, mode = "actual") => {
+                const found = grant("time", query);
+                if (found === "view-denied") return found;
+                // 点名的事、章晚于上限：拒（上限之后的事在这张视图里不存在）。
+                const named = query.kind === "event" ? [query.change] : query.kind === "between" ? [query.a, query.b] : query.kind === "age" ? [query.at] : [];
+                for (const id of named) {
+                    const at = world.data.changes.get(id)?.at;
+                    if (at !== undefined && !placementWithin(order(), found, at)) return this.#deny(found, "time", query);
+                }
+                if (query.kind === "chapter" && !chapterWithin(order(), found, query.chapter)) return this.#deny(found, "time", query);
+                const state = this.#boundedTime(world, found, mode);
+                return {...this.#stampOf(world), answer: answerTime(state, world.options.time ?? DEFAULT_TIME, world.data, query)};
             },
             tellings: (filter = {}, cursor, limit = 50) => {
                 const found = chapters("tellings", filter.from, filter.to, filter.until?.chapter);

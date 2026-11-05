@@ -10,6 +10,7 @@ import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry, type MarkType} from 
 import {effectiveFields} from "../components/registry";
 import {deepFreeze} from "../core/freeze";
 import {DEFAULT_TIME} from "../time/network";
+import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {compareIds} from "../core/ids";
 import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
 import type {Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
@@ -116,6 +117,8 @@ export interface CanonReadView {
     fields(entry: string, namespace: string): readonly FieldDeclaration[] | undefined;
     /** 登记的标注种类（引用路径在 `refs`）；没登记时为 undefined。 */
     markType(kind: string): MarkType | undefined;
+    /** 时间的查询（canon.time 输出 8），同步；剧情的诊断按需用。 */
+    time(query: TimeQuery, mode: Mode): TimeAnswer;
 }
 
 export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp): CanonReadView {
@@ -155,6 +158,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             return data === undefined || type === undefined || type.id !== data.type ? undefined : deepFreeze(effectiveFields(type, data.declared));
         },
         markType: (kind) => deepFreeze((world.options.marks ?? EMPTY_MARK_REGISTRY).byKind(kind)),
+        time: (query, mode) => deepFreeze(answerTime(world.time(mode), world.options.time ?? DEFAULT_TIME, world.data, query)),
     };
     return Object.freeze(view);
 }
