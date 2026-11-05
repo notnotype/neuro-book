@@ -10,12 +10,12 @@ export type ActiveLease = {sessionKey: string; agent: string; label: string | nu
 
 export type OverviewTask = {
     taskId: string; title: string | null; status: RecordedValue<TaskStatus>; updated: RecordedValue; currentState: string | null;
-    source: "master" | "branch"; uncommitted: boolean; openRequired: number; artifactCount: number; leaseCount: number;
+    source: "master" | "branch"; uncommitted: boolean; waiting: number; artifactCount: number; leaseCount: number;
 };
 export type OverviewWork = {
     workId: string; title: string | null; status: RecordedValue<WorkStatus>; goal: RecordedValue; updated: RecordedValue; source: "master" | "branch";
     branch: string | null; checkoutKey: string | null; executionRule: string | null; uncommitted: boolean;
-    taskCounts: Record<TaskStatus | "unset" | "invalid", number>; openRequired: number; activeLeases: ActiveLease[]; tasks: OverviewTask[];
+    taskCounts: Record<TaskStatus | "unset" | "invalid", number>; waiting: number; activeLeases: ActiveLease[]; tasks: OverviewTask[];
 };
 export type InboxQuestion = {kind: "question"; workId: string; taskId: string; artifactId: string; artifactTitle: string | null; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null; askerActive: boolean | null};
 export type ConflictLocation = {source: "main" | "worktree" | "ref"; checkout?: string; ref?: string; head?: string};
@@ -48,7 +48,7 @@ export type Meta = {
     mainWritable: {ok: boolean; code: string | null; message: string | null};
 };
 
-export type ArtifactSummary = {artifactId: string; kind: string | null; title: string | null; version: number | null; state: "open" | "closed" | "unpublished"; publishedAt: string | null; openRequired: number; adoption: "none" | "waiting" | "adopted" | null};
+export type ArtifactSummary = {artifactId: string; kind: string | null; title: string | null; version: number | null; state: "open" | "closed" | "unpublished"; publishedAt: string | null; waiting: number; adoption: "none" | "waiting" | "adopted" | null};
 export type DocumentEntry = {path: string; title: string | null};
 /** `/api/work` 的 Task：概览里的字段加上记录来源、租约与产物；不带概览才有的 `artifactCount`、`leaseCount`。 */
 export type TaskView = Omit<OverviewTask, "artifactCount" | "leaseCount"> & {

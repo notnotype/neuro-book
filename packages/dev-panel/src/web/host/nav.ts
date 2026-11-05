@@ -1,5 +1,5 @@
 import {daysSince} from "./format.js";
-import type {OverviewWork} from "./types.js";
+import type {OverviewTask, OverviewWork} from "./types.js";
 
 /**
  * 左栏的描述表与 Work 树的取舍（t15 阶段 2b）。左栏的条目从这里来，路由仍在 `router.ts` 里显式声明；
@@ -75,8 +75,28 @@ export function byUpdated(left: OverviewWork, right: OverviewWork): number {
 }
 /** 有事等我在前：有待答题的，其次进行中，再按最近更新。首页的 Work 卡片与左栏的“有事等我在前”共用。 */
 export function byAttention(left: OverviewWork, right: OverviewWork): number {
-    const rank = (work: OverviewWork) => (work.openRequired > 0 ? 0 : work.status.value === "active" ? 1 : 2);
+    const rank = (work: OverviewWork) => (work.waiting > 0 ? 0 : work.status.value === "active" ? 1 : 2);
     return rank(left) - rank(right) || byUpdated(left, right);
+}
+
+/** 一个 Work 的 Task 超过这么多才折叠；只多一两个时折叠比全列还费事。 */
+export const NAV_TASK_FOLD_ABOVE = 8;
+/** 折叠时最少留几个。 */
+export const NAV_TASK_SHOWN = 6;
+
+/**
+ * Task 多的 Work 缺省只列要看的（开发者 11-05）：当前 Task、有题待答、有会话在动、进行中的总留着，再按编号从新到旧补到 `NAV_TASK_SHOWN` 个，
+ * 其余收起。列出来的保持原来的顺序。
+ */
+export function foldNavTasks(tasks: readonly OverviewTask[], currentTaskId: string | null): {shown: OverviewTask[]; folded: number} {
+    if (tasks.length <= NAV_TASK_FOLD_ABOVE) return {shown: [...tasks], folded: 0};
+    const keep = new Set(tasks.filter((task) => task.taskId === currentTaskId || task.waiting > 0 || task.leaseCount > 0 || task.status.value === "active").map((task) => task.taskId));
+    for (const task of [...tasks].sort((left, right) => right.taskId.localeCompare(left.taskId, "en"))) {
+        if (keep.size >= NAV_TASK_SHOWN) break;
+        keep.add(task.taskId);
+    }
+    const shown = tasks.filter((task) => keep.has(task.taskId));
+    return {shown, folded: tasks.length - shown.length};
 }
 
 /** 筛选：编号（含 w00022 这种前缀）或标题里有这段文字，不分大小写。 */

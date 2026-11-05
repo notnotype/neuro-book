@@ -4,7 +4,7 @@ import {randomBytes, randomUUID} from "node:crypto";
 import {once} from "node:events";
 import {readdir, readFile, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {submitAnswer} from "../src/core/artifact-ops.js";
+import {closeArtifact, submitAnswer} from "../src/core/artifact-ops.js";
 import {readArtifact} from "../src/core/artifacts.js";
 import {askerOf} from "../src/core/provenance.js";
 import {locateRepository} from "../src/core/repo.js";
@@ -125,7 +125,7 @@ describe("产物与答复的命令（场景）", () => {
         expect(data<{artifacts: Array<{questions: Array<{question: {id: string}}>}>}>(pending.json).artifacts.map((artifact) => artifact.questions.map((state) => state.question.id))).toEqual([["layout-v2"]]);
     });
 
-    test("场景 3：ask 登记的题进收件箱，ask withdraw 之后消失；选答题不进收件箱", async () => {
+    test("场景 3：ask 登记的题进收件箱，ask withdraw 之后消失；缺省选答，选答题交过一次答复就离开收件箱，必答题要答了才离开", async () => {
         const fixture = await createFixture("cli-ask");
         const asked = await fixture.cli(["ask", "w00001", "t01", "--id", "migrate-order", "--type", "text", "--label", "迁移顺序怎么排", "--as", "bob", "--json"]);
         expect([asked.exitCode, data<{artifactId: string; version: number}>(asked.json)]).toEqual([0, expect.objectContaining({artifactId: "questions", version: 1, waitCommand: "nbdev answers w00001 t01 questions --wait"})]);
@@ -133,10 +133,11 @@ describe("产物与答复的命令（场景）", () => {
         expect((await fixture.cli(["ask", "withdraw", "w00001", "t01", "migrate-order", "--as", "bob", "--json"])).exitCode).toBe(0);
         expect(await inbox(fixture)).toEqual([]);
         const fromFile = join(fixture.root, "questions.json");
-        await writeFile(fromFile, JSON.stringify({questions: [{id: "pick", type: "single", label: "选一个", options: "a:甲|b:乙", recommend: "a"}, {id: "ok", type: "confirm", label: "同意吗", required: false}]}));
+        await writeFile(fromFile, JSON.stringify({questions: [{id: "pick", type: "single", label: "选一个", options: "a:甲|b:乙", recommend: "a", required: true}, {id: "ok", type: "confirm", label: "同意吗"}, {id: "note", type: "text", label: "还有什么"}]}));
         const batch = await fixture.cli(["ask", "w00001", "t01", "--from", fromFile, "--as", "bob", "--json"]);
-        expect([batch.exitCode, data<{affected: string[]}>(batch.json).affected]).toEqual([0, ["pick", "ok"]]);
-        // 选答题（ok）不进收件箱。
+        expect([batch.exitCode, data<{affected: string[]}>(batch.json).affected]).toEqual([0, ["pick", "ok", "note"]]);
+        expect((await inbox(fixture)).map((item) => item.questionId).sort()).toEqual(["note", "ok", "pick"]);
+        expect((await fixture.cli(["answers", "record", "w00001", "t01", "questions", "--set", "ok=true", "--as", "bob", "--json"])).exitCode).toBe(0);
         expect((await inbox(fixture)).map((item) => item.questionId)).toEqual(["pick"]);
         expect((await fixture.cli(["ask", "w00001", "t01", "--from", fromFile, "--id", "x", "--json"])).exitCode).toBe(2);
     });
@@ -168,6 +169,20 @@ describe("产物与答复的命令（场景）", () => {
         expect((await fixture.cli(["answers", "--wait", "--pending", "--json"])).exitCode).toBe(2);
         expect((await fixture.cli(["answers", "w00099", "--json"])).json?.errors[0]?.code).toBe("work_not_found");
     }, 60_000);
+
+    test("开发者关了评审：挂着的 --wait 退出 0，产物的 state 是 closed；已经关了的再挂立即返回；等整个 Task 时只有刚关的才算", async () => {
+        const fixture = await published("cli-wait-close");
+        const context = await locateRepository(fixture.main);
+        const target = {workRef: "w00001", taskRef: "t01", artifactId: "review"};
+        const waiter = await startWaiter(fixture, ["w00001", "t01", "review", "--timeout", "60"]);
+        await closeArtifact(context, target);
+        const result = await waiter.result;
+        expect([result.exitCode, data<{artifacts: Array<{state: string}>}>(JSON.parse(result.stdout) as CliEnvelope).artifacts.map((view) => view.state)]).toEqual([0, ["closed"]]);
+        const again = await fixture.cli(["answers", "w00001", "t01", "review", "--wait", "--timeout", "60", "--json"]);
+        expect([again.exitCode, data<{artifacts: Array<{state: string}>}>(again.json).artifacts.map((view) => view.state)]).toEqual([0, ["closed"]]);
+        const wholeTask = await fixture.cli(["answers", "w00001", "t01", "--wait", "--timeout", "1", "--json"]);
+        expect([wholeTask.exitCode, wholeTask.json?.errors[0]?.code]).toEqual([4, "wait_timeout"]);
+    }, 30_000);
 
     test("先 --wait 后 ask：范围为空照常等并给警告，等待期间建出的 Task 提问集有了答复也能叫醒它", async () => {
         const fixture = await createFixture("cli-wait-empty");
@@ -209,7 +224,8 @@ describe("产物与答复的命令（场景）", () => {
         expect([late.exitCode, late.json?.errors[0]?.code]).toEqual([3, "artifact_closed"]);
         const reopened = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--as", "bob", "--json"]);
         expect([reopened.exitCode, data<{restored: string[]}>(reopened.json).restored, reopened.json?.warnings.map((warning) => warning.code)]).toEqual([0, ["approve", "extra"], ["artifact_reopened"]]);
-        expect((await inbox(fixture)).map((item) => item.questionId).sort()).toEqual(["approve", "extra"]);
+        // approve 是选答、出现之后交过答复（第 1 版的 layout），恢复了能答，但不再进收件箱；extra 是那份答复之后才出的。
+        expect((await inbox(fixture)).map((item) => item.questionId)).toEqual(["extra"]);
         expect((await fixture.cli(["answers", "record", "w00001", "t01", "review", "--set", "extra=好", "--as", "bob", "--json"])).exitCode).toBe(0);
     });
 
@@ -399,7 +415,7 @@ describe("产物与答复的命令（场景）", () => {
         expect(invalid.updated).toEqual({value: null, origin: "invalid", raw: "someday"});
     });
 
-    test("status 不加载 parse5、不写任何文件；发布路径才加载；Task 改成 done 时提醒还有没答的必答题", async () => {
+    test("status 不加载 parse5、不写任何文件；发布路径才加载；Task 改成 done 时提醒还有没答的题", async () => {
         const fixture = await published("cli-status-light");
         const before = (await git(fixture.main, "status", "--porcelain", "--untracked-files=all", "--ignored")).split("\n").sort().join("\n");
         const light = await run(process.execPath, ["--preload", NO_PARSE5, CLI_PATH, "status", "--json"], fixture.main);

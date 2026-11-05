@@ -71,7 +71,7 @@ export async function initAudit(paths: AuditPaths, now: Date = new Date()): Prom
     return {created: true, initAt: after.initAt};
 }
 
-export type AuditAction = "notify" | "prompt" | "keys" | "takeover" | "release" | "answer" | "create_work" | "create_task" | "status" | "edit";
+export type AuditAction = "notify" | "prompt" | "keys" | "takeover" | "release" | "answer" | "close_artifact" | "create_work" | "create_task" | "status" | "edit";
 export type AuditEntry = {
     actionId: string;
     /** herdr 的输入类动作先写一行意图（`intent`），再写结果（`result`）；写仓库只写结果。 */

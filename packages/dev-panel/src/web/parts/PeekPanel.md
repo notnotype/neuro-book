@@ -46,7 +46,7 @@ interface PeekPanelSlots {
     default: () => unknown;
     /** 标题行里的操作（“去答复”“打开完整页”）；可选 */
     actions?: () => unknown;
-    /** 标题下面的一行状态（产物的状态、必答数、版本）；可选 */
+    /** 标题下面的一行状态（产物的状态、待答数、版本）；可选 */
     status?: () => unknown;
 }
 ```

@@ -3,8 +3,9 @@ import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 import {cleanupFixtures, createFixture, git} from "../../tests/git-fixture.js";
 import {claimTask, claimWork, emptyRegistry} from "./registry.js";
-import {listCheckouts} from "./repo.js";
+import {listCheckouts, locateRepository} from "./repo.js";
 import {findConflicts, nextTaskNumber, nextWorkNumber, partitionConflicts, scanNumbers, type NumberConflict} from "./scan.js";
+import {readProjectStatus} from "./status.js";
 
 afterEach(cleanupFixtures);
 
@@ -58,6 +59,12 @@ describe("编号扫描", () => {
             "w00007": [true, [["w00007-desktop-fix", true], ["w00007-message-invoke", true]]],
             "w00003-ui/t05": [false, [["t05-component-lab", true], ["t05-preview-retirement", false]]],
         });
+
+        // 只在旧副本里的那组没有什么可动手的：不进收件箱、警告不提它，`conflicts` 里仍列着。
+        const {status, warnings} = await readProjectStatus(await locateRepository(fixture.main));
+        expect(status.inbox.flatMap((item) => (item.kind === "number_conflict" ? [item.label] : []))).toEqual(["w00007"]);
+        expect(warnings.find((warning) => warning.code === "number_conflicts")?.details).toEqual({labels: ["w00007"]});
+        expect(status.conflicts.map((conflict) => conflict.label).sort()).toEqual(["w00003-ui/t05", "w00007"]);
     });
 
     test("领号时的撞号只留涉及这次领的号：Work 按 wNNNNN，Task 按完整 workId 加 tNN，不拿裸的 t01 与别的 Work 比", () => {

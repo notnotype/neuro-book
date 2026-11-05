@@ -2,7 +2,7 @@
 import {Badge, Input, Select, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
 import {statusDisplay, taskLabel, workLabel, type Tone} from "../host/format.js";
-import {arrangeNavWorks, entryActive, NAV_ARRANGES, NAV_GROUPS, NAV_RECENT_DAYS, type NavArrange, type NavCount} from "../host/nav.js";
+import {arrangeNavWorks, entryActive, foldNavTasks, NAV_ARRANGES, NAV_GROUPS, NAV_RECENT_DAYS, type NavArrange, type NavCount} from "../host/nav.js";
 import {isPlainClick, taskHref, workHref} from "../host/routes.js";
 import type {OverviewWork} from "../host/types.js";
 
@@ -22,12 +22,12 @@ const emit = defineEmits<{navigate: [href: string]; toggle: [workId: string, ope
 const worksHeadingId = `nbdev-nav-works-${useId()}`;
 
 type Row = {
-    key: string; kind: "work" | "task"; workId: string; href: string; number: string; title: string; current: boolean; ancestor: boolean; open: boolean;
+    key: string; kind: "work" | "task" | "fold"; workId: string; href: string; number: string; title: string; current: boolean; ancestor: boolean; open: boolean;
     /** Work 行的状态色点与角标（Task 行不画）。 */
     tone: Tone | null; marked: boolean; statusText: string; waiting: number; moving: boolean;
 };
 /** 树里的一个 Work 与它展开后的 Task（读屏器按 tree、treeitem、group 读出层级）。 */
-type Branch = {work: Row; tasks: Row[]};
+type Branch = {work: Row; tasks: Row[]; fold: Row | null};
 
 /** 筛选词：只在本页有效，不记进偏好（下次打开要看全的）。 */
 const query = ref("");
@@ -42,23 +42,29 @@ watch(currentFold, (key) => {
 }, {immediate: true});
 const arrangeOptions = NAV_ARRANGES.map((entry) => ({value: entry.value, label: entry.label}));
 const isOpen = (workId: string) => props.expanded[workId] ?? workId === props.current.workId;
+/** 哪些 Work 的 Task 点开了全部（Task 多的 Work 缺省只列一部分）。只在本页有效，不记进偏好。 */
+const allTasksOpen = ref<Record<string, boolean>>({});
+const IDLE_ROW = {current: false, ancestor: false, open: false, tone: null, marked: false, statusText: "", waiting: 0, moving: false};
 
 function branchesOf(works: readonly OverviewWork[]): Branch[] {
     return works.map((work) => {
         const href = workHref(work.workId);
         const open = isOpen(work.workId);
-        const tasks = open ? work.tasks.map((task): Row => {
+        const fold = foldNavTasks(work.tasks, props.current.workId === work.workId ? props.current.taskId : null);
+        const showAll = allTasksOpen.value[work.workId] === true;
+        const tasks = open ? (showAll ? work.tasks : fold.shown).map((task): Row => {
             const taskPath = taskHref(work.workId, task.taskId);
-            return {key: `t:${work.workId}/${task.taskId}`, kind: "task", workId: work.workId, href: taskPath, number: taskLabel(task.taskId), title: task.title ?? task.taskId, current: props.current.path === taskPath, ancestor: props.current.path !== taskPath && props.current.workId === work.workId && props.current.taskId === task.taskId, open: false, tone: null, marked: false, statusText: "", waiting: 0, moving: false};
+            return {...IDLE_ROW, key: `t:${work.workId}/${task.taskId}`, kind: "task", workId: work.workId, href: taskPath, number: taskLabel(task.taskId), title: task.title ?? task.taskId, current: props.current.path === taskPath, ancestor: props.current.path !== taskPath && props.current.workId === work.workId && props.current.taskId === task.taskId};
         }) : [];
+        const foldRow: Row | null = open && fold.folded > 0 ? {...IDLE_ROW, key: `f:${work.workId}`, kind: "fold", workId: work.workId, href: "", number: "", title: showAll ? "收起一部分 Task" : `其余 ${fold.folded} 个 Task`, open: showAll} : null;
         const status = statusDisplay(work.status);
-        return {work: {key: `w:${work.workId}`, kind: "work", workId: work.workId, href, number: workLabel(work.workId), title: work.title ?? work.workId, current: props.current.path === href, ancestor: props.current.path !== href && props.current.workId === work.workId, open, tone: status.tone, marked: status.marked, statusText: status.label, waiting: work.openRequired, moving: work.activeLeases.length > 0}, tasks};
+        return {work: {key: `w:${work.workId}`, kind: "work", workId: work.workId, href, number: workLabel(work.workId), title: work.title ?? work.workId, current: props.current.path === href, ancestor: props.current.path !== href && props.current.workId === work.workId, open, tone: status.tone, marked: status.marked, statusText: status.label, waiting: work.waiting, moving: work.activeLeases.length > 0}, tasks, fold: foldRow};
     });
 }
 /** 展开着的组依次接在树里（收起的组只在树外留一个按钮）；方向键在整棵树里走。 */
 const sections = computed(() => groups.value.filter((group) => groupOpen(group.key, group.foldable)).map((group) => ({key: group.key, label: group.label, foldable: group.foldable, branches: branchesOf(group.works)})));
 const folded = computed(() => groups.value.filter((group) => group.foldable));
-const allRows = computed(() => sections.value.flatMap((section) => section.branches.flatMap((branch) => [branch.work, ...branch.tasks])));
+const allRows = computed(() => sections.value.flatMap((section) => section.branches.flatMap((branch) => [branch.work, ...branch.tasks, ...(branch.fold ? [branch.fold] : [])])));
 /** 状态色点的颜色类：与 StatusChip 同一套色调。 */
 const TONE_CLASS: Record<Tone, string> = {neutral: "nbdev-empty", accent: "nbdev-accent", success: "nbdev-ok", warning: "nbdev-warn", danger: "nbdev-danger"};
 
@@ -98,7 +104,7 @@ function onTreeKey(event: KeyboardEvent): void {
         if (!row.open) emit("toggle", row.workId, true);
         else if (rows[index + 1]?.kind === "task") focusRow(rows[index + 1]!.key);
     } else if (event.key === "ArrowLeft") {
-        if (row.kind === "task") focusRow(`w:${row.workId}`);
+        if (row.kind !== "work") focusRow(`w:${row.workId}`);
         else if (row.open) emit("toggle", row.workId, false);
     } else handled = false;
     if (handled) event.preventDefault();
@@ -216,12 +222,17 @@ onBeforeUnmount(() => observer?.disconnect());
                                 </a>
                             </Tooltip>
                         </div>
-                        <div v-if="branch.tasks.length > 0" role="group" class="flex flex-col pl-5">
+                        <div v-if="branch.tasks.length > 0 || branch.fold" role="group" class="flex flex-col pl-5">
                             <Tooltip v-for="row in branch.tasks" :key="row.key" :text="`${row.number} ${row.title}`" side="right" :disabled="!truncated.has(row.key)">
                                 <a role="treeitem" aria-level="2" :href="row.href" class="nbdev-nav-item min-w-0" :class="{'nbdev-nav-current': row.current, 'nbdev-nav-ancestor': row.ancestor}" :aria-current="row.current ? 'page' : undefined" :data-ancestor="row.ancestor || undefined" :data-row-key="row.key" :tabindex="row.key === rovingKey ? 0 : -1" @focus="focusKey = row.key" @click="follow($event, row.href)">
                                     <span class="min-w-0 truncate" :data-label-key="row.key"><span class="nbdev-secondary">{{ row.number }}</span> {{ row.title }}</span>
                                 </a>
                             </Tooltip>
+                            <!-- 折叠按钮是树里的一行：方向键走得到，Enter 与空格是按钮自己的。 -->
+                            <button v-if="branch.fold" type="button" role="treeitem" aria-level="2" :aria-expanded="branch.fold.open" class="nbdev-nav-item nbdev-nav-more w-full" :data-row-key="branch.fold.key" :tabindex="branch.fold.key === rovingKey ? 0 : -1" @focus="focusKey = branch.fold!.key" @click="allTasksOpen = {...allTasksOpen, [branch.work.workId]: !branch.fold!.open}">
+                                <span :class="branch.fold.open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-3.5 shrink-0" aria-hidden="true" />
+                                <span class="min-w-0 truncate">{{ branch.fold.title }}</span>
+                            </button>
                         </div>
                     </div>
                 </div>

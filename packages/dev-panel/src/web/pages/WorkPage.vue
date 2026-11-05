@@ -71,8 +71,8 @@ const details = computed<Record<string, TaskTableDetail>>(() => {
             currentHtml: section("当前状态"),
             nextHtml: section("下一步"),
             artifacts: [
-                ...data.task.artifacts.map((artifact) => ({key: `a:${artifact.artifactId}`, label: artifact.title ?? artifact.artifactId, href: taskPeekHref(props.workId, taskId, {kind: "artifact", artifactId: artifact.artifactId}), openRequired: artifact.openRequired})),
-                ...data.task.documents.map((document) => ({key: `d:${document.path}`, label: document.title ?? document.path.slice(document.path.lastIndexOf("/") + 1), href: taskPeekHref(props.workId, taskId, {kind: "doc", checkout: checkoutKey, path: document.path}), openRequired: 0})),
+                ...data.task.artifacts.map((artifact) => ({key: `a:${artifact.artifactId}`, label: artifact.title ?? artifact.artifactId, href: taskPeekHref(props.workId, taskId, {kind: "artifact", artifactId: artifact.artifactId}), waiting: artifact.waiting})),
+                ...data.task.documents.map((document) => ({key: `d:${document.path}`, label: document.title ?? document.path.slice(document.path.lastIndexOf("/") + 1), href: taskPeekHref(props.workId, taskId, {kind: "doc", checkout: checkoutKey, path: document.path}), waiting: 0})),
             ],
             evidences: data.detail.evidences.map((evidence) => ({key: evidence.path, label: `${evidence.name}${evidence.kind === "dir" ? "/" : ""}`, href: evidence.kind === "file" ? taskPeekHref(props.workId, taskId, {kind: "evidence", path: evidence.path}) : null})),
         };

@@ -9,7 +9,6 @@ import {
     answersAfter,
     artifactContentHash,
     artifactFileSet,
-    awaitsAnswer,
     closeQuestions,
     listArtifactFiles,
     listDocuments,
@@ -19,6 +18,7 @@ import {
     readArtifact,
     RECORD_ID_PATTERN,
     unackedAnswers,
+    waitingStates,
     versionPath,
     type AckRecord,
     type AnswerRecord,
@@ -149,21 +149,19 @@ describe("题的状态与未确认的答复", () => {
         expect(questionStates(v4, answers, new Map())[0]?.stale?.code).toBe("invalid_value");
     });
 
-    test("待答（awaitsAnswer）：open 的必答题与 ask 登记的 open 题算；选答、之前几版的题（答复作废后也是 open）不算", () => {
+    test("待答（waitingStates）：没答的题都算，选答题在它出现之后交过一次答复就不再算；之前几版的题（答复作废后也是 open）不算", () => {
         const current = version(3, [
             question("required"),
             question("optional", {required: false}),
             question("earlier", {page: null}),
             question("asked", {origin: "ask", page: null, type: "text", options: []}),
+            question("newer", {required: false, since: 3}),
         ]);
-        // 之前几版的题的答复按它那一版也不合法（手改坏的文件）：作废，状态回到 open。
-        const states = questionStates(current, [answer(id("20261012T100000000Z"), {earlier: "zzz"})], new Map());
-        expect(states.map((state) => [state.question.id, state.state, awaitsAnswer(state)])).toEqual([
-            ["required", "open", true],
-            ["optional", "open", false],
-            ["earlier", "open", false],
-            ["asked", "open", true],
-        ]);
+        const waitingIds = (answers: AnswerRecord[]) => waitingStates(questionStates(current, answers, new Map()), answers).map((state) => state.question.id);
+        expect(waitingIds([])).toEqual(["required", "optional", "asked", "newer"]);
+        // 之前几版的题的答复按它那一版也不合法（手改坏的文件）：作废，状态回到 open。这份答复交在 v2：v1 就有的选答题算理过，v3 才出的还在等；必答题没答照样等。
+        const onV2 = {...answer(id("20261012T100000000Z"), {earlier: "zzz"}), artifactVersion: 2};
+        expect(waitingIds([onV2])).toEqual(["required", "asked", "newer"]);
     });
 
     test("未确认按集合差算：落位晚、id 小的答复也不会被漏掉；through 不参与判断", () => {

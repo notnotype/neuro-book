@@ -457,11 +457,13 @@ export function questionStates(version: ArtifactVersion, answers: readonly Answe
 }
 
 /**
- * 等开发者答的题：open、必答、属于这一版。之前几版留下的题（`isEarlierPageQuestion`）答复作废时也是 open，但它不再收答复，
- * 不能算待答。收件箱、产物的 `openRequired`、`answers --pending` 与 Task 收尾的提醒共用这一条。
+ * 等开发者答的题：open、属于这一版、开发者还没理过。之前几版留下的题（`isEarlierPageQuestion`）答复作废时也是 open，但它不再收答复，
+ * 不能算待答。必答题答了才算理过；选答题（题的缺省）在它出现之后交过一次答复就算理过：开发者看过这块板，没答的是不想答，不再催
+ * （开发者 11-05：评审默认选答）。一次也没交的板要关掉才离开收件箱。收件箱、产物的 `waiting`、`answers --pending` 与 Task 收尾的提醒共用这一条。
  */
-export function awaitsAnswer(state: QuestionState): boolean {
-    return state.state === "open" && state.question.required && !isEarlierPageQuestion(state.question);
+export function waitingStates(states: readonly QuestionState[], answers: readonly AnswerRecord[]): QuestionState[] {
+    const lastAnswered = answers.reduce((latest, answer) => Math.max(latest, answer.artifactVersion), 0);
+    return states.filter((state) => state.state === "open" && !isEarlierPageQuestion(state.question) && (state.question.required || state.question.since > lastAnswered));
 }
 
 function staleCode(questionId: string, use: AnswerUse, latest: ArtifactVersion, answeredVersions: ReadonlyMap<number, ArtifactVersion>): StaleCode {
@@ -777,15 +779,15 @@ export async function listDocuments(root: string, dir: string): Promise<Document
     return documents;
 }
 
-/** 一个 Task 的产物里还 `open` 的必答题（`task status … done` 的提醒与收件箱共用）。 */
-export async function openRequiredQuestions(root: string, workId: string, taskId: string, warnings: Warning[] = []): Promise<Array<{artifactId: string; version: number; question: VersionQuestion}>> {
+/** 一个 Task 的产物里还在等开发者答的题（`task status … done` 的提醒）。 */
+export async function waitingQuestionsOfTask(root: string, workId: string, taskId: string, warnings: Warning[] = []): Promise<Array<{artifactId: string; version: number; question: VersionQuestion}>> {
     const open: Array<{artifactId: string; version: number; question: VersionQuestion}> = [];
     for (const artifactId of await listArtifactIds(root, workId, taskId)) {
         const snapshot = await readArtifact(root, {workId, taskId, artifactId});
         warnings.push(...snapshot.warnings);
         if (!snapshot.latest) continue;
-        for (const state of questionStates(snapshot.latest, snapshot.answers, snapshot.answeredVersions)) {
-            if (awaitsAnswer(state)) open.push({artifactId, version: snapshot.latest.version, question: state.question});
+        for (const state of waitingStates(questionStates(snapshot.latest, snapshot.answers, snapshot.answeredVersions), snapshot.answers)) {
+            open.push({artifactId, version: snapshot.latest.version, question: state.question});
         }
     }
     return open;

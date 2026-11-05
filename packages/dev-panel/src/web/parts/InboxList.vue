@@ -8,7 +8,7 @@ import type {ConflictLocation, InboxItem, SessionTitle} from "../host/types.js";
 import ActionLink from "./ActionLink.vue";
 import LeaseChip from "./LeaseChip.vue";
 
-/** 首页收件箱：待答的提问按产物合并成一行，撞号一条一行。契约见同名 .md。 */
+/** 首页收件箱：待答的提问按产物合并成一行，正在发生的撞号一条一行。契约见同名 .md。 */
 const props = defineProps<{
     items: InboxItem[];
     /** 会话标题（首页数据的 `sessionTitles`，t17），提问者写标题加短键。 */
@@ -43,15 +43,14 @@ function follow(event: MouseEvent, href: string): void {
 </script>
 
 <template>
-    <EmptyState v-if="items.length === 0" icon-class="i-lucide-inbox" title="收件箱是空的" description="没有待答的必答题，也没有撞号" />
+    <EmptyState v-if="items.length === 0" icon-class="i-lucide-inbox" title="收件箱是空的" description="没有等你答的题，也没有正在发生的撞号" />
     <ul v-else class="flex flex-col">
         <li v-for="row in rows" :key="row.kind === 'artifact' ? row.key : `conflict:${row.label}`" class="border-b last:border-b-0 nbdev-divider">
             <a v-if="row.kind === 'artifact'" :href="artifactHref(row.workId, row.taskId, row.artifactId)" class="flex w-full min-w-0 flex-col gap-1 px-1 py-2 hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)]" @click="follow($event, artifactHref(row.workId, row.taskId, row.artifactId))">
                 <span class="flex min-w-0 items-center gap-2">
                     <span class="i-lucide-message-circle-question size-4 shrink-0 nbdev-warn" aria-hidden="true" />
                     <span class="truncate font-medium">{{ row.title ?? row.artifactId }}</span>
-                    <!-- 收件箱只收必答题；产物页的“待答”也把必答单独数出来，两边都是“必答 N”。 -->
-                    <Badge class="shrink-0" tone="warning" variant="soft" size="sm">必答 {{ row.questions.length }}</Badge>
+                    <Badge class="shrink-0" tone="warning" variant="soft" size="sm">待答 {{ row.questions.length }}</Badge>
                 </span>
                 <span class="nbdev-secondary min-w-0 pl-6 break-words">
                     {{ row.questions.slice(0, SHOWN).map((question) => question.label).join("；") }}<template v-if="row.questions.length > SHOWN">；等 {{ row.questions.length }} 道</template>
@@ -66,7 +65,7 @@ function follow(event: MouseEvent, href: string): void {
                 <span class="flex min-w-0 flex-wrap items-center gap-2">
                     <span class="i-lucide-triangle-alert size-4 shrink-0 nbdev-danger" aria-hidden="true" />
                     <span class="font-medium">撞号 {{ row.label }}</span>
-                    <Badge v-if="row.live" tone="danger" variant="soft" size="sm">正在发生</Badge>
+                    <Badge tone="danger" variant="soft" size="sm">正在发生</Badge>
                 </span>
                 <!-- 原因：同一个号被哪几个名字用了、各在哪里；只在改名或删除后留下的旧副本里的，标出来。 -->
                 <span class="nbdev-secondary min-w-0 pl-6 break-words">{{ row.ids.length }} 个名字用了同一个号：</span>

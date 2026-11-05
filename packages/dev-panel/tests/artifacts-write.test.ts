@@ -2,7 +2,7 @@ import {afterEach, describe, expect, test} from "bun:test";
 import {randomBytes} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {ackAnswers, askQuestions, closeArtifact, publishArtifact, readAnswers, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
+import {ackAnswers, askQuestions, closeArtifact, publishArtifact, readAnswers, submitAnswer, supersedeQuestion, withdrawQuestion, withdrawUnanswered, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
 import {answerPath, currentContentHash, readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
 import type {SessionCaller} from "../src/core/identity.js";
 import {askerOf} from "../src/core/provenance.js";
@@ -185,6 +185,20 @@ describe("登记、撤回与取代", () => {
         await expect(askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "Bad", type: "single", label: "x"}]}, asBob)).rejects.toMatchObject({code: "invalid_questions"});
         await expect(closeArtifact(context, {workRef: "w00001", taskRef: "t01", artifactId: "questions"}, asBob)).rejects.toMatchObject({code: "usage"});
         expect((await readArtifact(fixture.main, {...REF, artifactId: "questions"})).latest?.state).toBe("open");
+    });
+
+    test("提问集的“撤回没答的题”：ask 的题缺省选答；答过的留着，没答的一次撤回；再撤一次不出新版本", async () => {
+        const fixture = await createFixture("write-withdraw-unanswered");
+        const context = await locateRepository(fixture.main);
+        const target = {workRef: "w00001", taskRef: "t01", artifactId: "questions"};
+        await askQuestions(context, {workRef: "w00001", taskRef: "t01", questions: [{id: "answered", type: "text", label: "答了"}, {id: "skipped", type: "text", label: "不想答", required: true}]}, asBob);
+        const ref = {...REF, artifactId: "questions"};
+        expect((await readArtifact(fixture.main, ref)).latest?.questions.map((question) => question.required)).toEqual([false, true]);
+        await submitAnswer(context, {...target, values: {answered: "好"}, submittedBy: {kind: "developer", device: "test"}});
+        const withdrawn = await withdrawUnanswered(context, target, asBob);
+        expect(withdrawn.data.affected).toEqual(["skipped"]);
+        expect((await readArtifact(fixture.main, ref)).latest?.questions.map((question) => [question.id, question.outcome?.kind ?? null])).toEqual([["answered", null], ["skipped", "withdrawn"]]);
+        expect((await withdrawUnanswered(context, target, asBob)).warnings.map((warning) => warning.code)).toEqual(["nothing_to_withdraw"]);
     });
 });
 

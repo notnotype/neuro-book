@@ -111,15 +111,14 @@ function submit(): void {
     <form class="flex flex-col gap-4" @submit.prevent="submit">
         <p v-if="disabledReason" class="nbdev-hint">{{ disabledReason }}</p>
         <section class="nbdev-stack" aria-label="待答">
-            <!-- 必答与选答分开数：首页收件箱只收必答题，写的是“必答 N”，两边对得上。 -->
-            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">必答 {{ pendingRequired }}<template v-if="groups.pending.length > pendingRequired"> · 选答 {{ groups.pending.length - pendingRequired }}</template></span></h3>
+            <!-- 题缺省是选答，能只答一部分就提交；只有标了必答的单独数出来。 -->
+            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}<template v-if="pendingRequired > 0"> · 必答 {{ pendingRequired }}</template></span></h3>
             <p v-if="groups.pending.length === 0" class="nbdev-empty">没有待答的题</p>
             <fieldset v-for="state in groups.pending" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
                     <span class="font-medium">{{ state.question.label }}</span>
                     <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
                     <Badge v-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
-                    <Badge v-else tone="neutral" variant="soft" size="sm">选答</Badge>
                     <span class="nbdev-note">#{{ state.question.id }}</span>
                 </legend>
                 <p v-if="state.question.about" class="nbdev-note">关于 {{ state.question.about }}</p>

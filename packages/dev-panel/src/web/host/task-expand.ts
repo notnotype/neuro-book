@@ -38,6 +38,6 @@ export type TaskTableDetail = {
     /** README“当前状态”“下一步”两节渲染后的 HTML；没有这一节为 null。 */
     currentHtml: string | null;
     nextHtml: string | null;
-    artifacts: Array<{key: string; label: string; href: string; openRequired: number}>;
+    artifacts: Array<{key: string; label: string; href: string; waiting: number}>;
     evidences: Array<{key: string; label: string; href: string | null}>;
 };
