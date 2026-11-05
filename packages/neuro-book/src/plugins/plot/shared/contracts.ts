@@ -1,5 +1,5 @@
 /**
- * `nbook.plot` 的远程合同（docs/specs/plot/knowledge.md 输出 3、6 到 9）：剧情的读取视图，项目实例提供。读取结果的形状由
+ * `nbook.plot` 的远程合同（docs/specs/plot/knowledge.md 输出 3、6 到 9，foreshadowing.md 输出 8，goals.md 输出 2）：剧情的读取视图，项目实例提供。读取结果的形状由
  * `core/` 给出，链路上不逐字段核对（同 canon 的远程合同）。
  *
  * 按视角的视图（输出 9）：`openViewpoint` 给调用方一个句柄，之后的 `viewpoint*` 方法带它读；内核的视图令牌只在项目进程里，
@@ -23,6 +23,10 @@ const errors = {plot: Type.Object({code: Type.String()})};
 const methods = {
     /** 某人在一个读取位置上的有效知情（输出 3）：给了知识点只给那一行。 */
     knowing: {input: Type.Object({person: Type.String(), point: Type.Optional(Type.String()), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
+    /** 某人到一个读取位置为止的经历（输出 8）：在场的剧情变更（整条，按先后）、没记参与者的变更数、他的有效知情。 */
+    experience: {input: Type.Object({person: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
+    /** 一个目标在一个读取位置上的冲突（goals.md 输出 2）：自己写的加上写了它的，两边都只列这个位置上在的目标。 */
+    conflicts: {input: Type.Object({goal: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode)}), output: Out, effect: "read", errors},
     /** 读者在一个讲述位置上对一个知识点的程度（输出 6），与读者第一次到怀疑、知道的讲述（输出 7）。 */
     reader: {input: Type.Object({point: Type.String(), at: TellingPositionSchema}), output: Out, effect: "read", errors},
     /** 伏笔的账本（foreshadowing.md 输出 8）：可按阶段、重要程度、意图、章的范围筛。 */

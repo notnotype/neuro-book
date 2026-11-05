@@ -15,7 +15,8 @@ import {canonProjectKey} from "nbook/plugins/canon/shared/contracts";
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {foreshadowDiagnostics, ledger} from "../core/foreshadowing";
-import {firstReveal, readerKnowing} from "../core/knowledge";
+import {conflictsOf} from "../core/goals";
+import {experienceOf, firstReveal, readerKnowing} from "../core/knowledge";
 import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics, knowingIndex} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
@@ -62,6 +63,19 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints): RemoteImplemen
                 const index = knowingIndex(view, input.mode ?? "actual", position);
                 const rows = input.point === undefined ? index.all(input.person) : [index.effective(input.person, input.point)].filter((row) => row !== null);
                 return {ok: true as const, value: {version: view.version, inputDigest: view.stamp.inputDigest, rows}};
+            }),
+            experience: (input) => withView((view) => {
+                const position = input.position ?? latest(view);
+                if (view.positionKey(position) === null) return fail("chapter-not-found");
+                return {ok: true as const, value: {version: view.version, inputDigest: view.stamp.inputDigest, ...experienceOf(knowingIndex(view, input.mode ?? "actual", position), input.person)}};
+            }),
+            conflicts: (input) => withView((view) => {
+                const position = input.position ?? latest(view);
+                if (view.positionKey(position) === null) return fail("chapter-not-found");
+                const conflicts = conflictsOf(view, input.goal, position, input.mode ?? "actual");
+                // 目标不存在、已删或在这个位置还没出场：同 canon 的 `not-found`（canon.project 的失败码）。
+                if (conflicts === null) return fail("not-found");
+                return {ok: true as const, value: {version: view.version, inputDigest: view.stamp.inputDigest, conflicts}};
             }),
             reader: (input) => withView((view) => ({ok: true as const, value: {version: view.version, inputDigest: view.stamp.inputDigest, degree: readerKnowing(view, input.point, input.at), first: firstReveal(view, input.point)}})),
             ledger: (input) => withView((view) => {

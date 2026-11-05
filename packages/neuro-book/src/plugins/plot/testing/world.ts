@@ -28,6 +28,8 @@ export const drafts = {
     person: (id: string, name: string, extra: Partial<Entry> = {}): Entry => ({id, type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {know: {type: COMPONENT_IDS.knowing, version: 1, enabled: true, fields: {知情: [], 听过的说法: null}}}}, ...extra}),
     point: (id: string, name: string, subject: string | null, fields: Record<string, unknown> = {}): Entry => ({id, type: "知识点", parent: subject, folder: "", order: 0, init: {name, aliases: [], summary: name, text: [], data: {point: {type: COMPONENT_IDS.point, version: 1, enabled: true, fields: {保密: "secret", 规则: null, 表现: null, 揭穿: null, 读者问题: null, ...fields}}}}}),
     foreshadow: (id: string, name: string, fields: Record<string, unknown> = {}): Entry => ({id, type: "伏笔", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: name, text: [], data: {fs: {type: COMPONENT_IDS.foreshadow, version: 1, enabled: true, fields: {种类: "setupPayoff", 重要程度: "main", 意图: "active", 答案: null, 物件: [], 参考间隔: null, ...fields}}}}}),
+    /** 一个目标，挂在持有者下面；缺省进行、主要、想要。 */
+    goal: (id: string, name: string, holder: string, fields: Record<string, unknown> = {}, extra: Partial<Entry> = {}): Entry => ({id, type: "目标", parent: holder, folder: "", order: 0, init: {name, aliases: [], summary: name, text: [], data: {goal: {type: COMPONENT_IDS.goal, version: 1, enabled: true, fields: {状态: "active", 轻重: "major", 层次: "want", 为什么: null, 基于: [], 冲突: [], 后继: null, 隐秘: null, ...fields}}}}, ...extra}),
     /** 一件物件（带测试用的人物类型，补丁改它的 `character.状态`）。 */
     thing: (id: string, name: string): Entry => ({id, type: "物件", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: [], data: {character: {type: "test.person", version: 1, enabled: true, fields: {状态: "原样"}}}}}),
     change: (id: string, at: Placement, options: ChangeOptions = {}): StoryChangeDraft => ({id, kind: options.kind ?? "written", text: options.text ?? id, at, told: options.told ?? [], involves: [], lines: [], links: options.links ?? [], patches: options.patches ?? [], status: "active", by: {kind: "author"}, ...(options.cast === undefined ? {} : {cast: options.cast}), ...(options.marks === undefined ? {} : {marks: options.marks})}),
@@ -89,6 +91,12 @@ export class PlotWorld {
     foreshadow(name: string, fields: Record<string, unknown> = {}): string {
         const id = `tmp:f${String(++this.#sequence)}`;
         return this.publish([{ref: {kind: "entry", id}, after: drafts.foreshadow(id, name, fields)}])[id]!;
+    }
+
+    /** 一个目标。 */
+    goal(name: string, holder: string, fields: Record<string, unknown> = {}, extra: Partial<Entry> = {}): string {
+        const id = `tmp:g${String(++this.#sequence)}`;
+        return this.publish([{ref: {kind: "entry", id}, after: drafts.goal(id, name, holder, fields, extra)}])[id]!;
     }
 
     /** 一件物件。 */

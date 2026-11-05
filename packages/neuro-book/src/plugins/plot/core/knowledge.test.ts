@@ -2,7 +2,7 @@ import {describe, expect, test} from "bun:test";
 
 import {COMPONENT_IDS, MARK_IDS} from "../shared/declarations";
 import {addRow, chapter, end, learns, PlotWorld, present, setSub, start} from "../testing/world";
-import {firstReveal, KnowingIndex, readerKnowing} from "./knowledge";
+import {experienceOf, firstReveal, KnowingIndex, readerKnowing} from "./knowledge";
 import {knowingIncomplete, relayBroken} from "./knowledge-checks";
 
 const CHAPTERS = Array.from({length: 12}, (_, index) => `ch${String(index + 1)}`);
@@ -135,5 +135,27 @@ describe("plot.knowledge 输出 6、7、验收场景 5：读者的知情", () =>
         expect(explicit).toBeDefined();
         w.texts.set("ch12", "第一段。\n第二段。\n他什么也没说。");
         expect(readerKnowing(w.view(), k, {chapter: "ch12", edge: "end"})).toBe("suspects");
+    });
+});
+
+describe("plot.knowledge 输出 8：经历（作者看的全量）", () => {
+    test("到这个位置为止他在场的变更按故事先后排（不按写入先后），没记参与者的另计数，加他的有效知情；之后的与不在场的不算", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [king, guard] = [w.person("国王"), w.person("卫兵")];
+        const k = w.point("勇者左手有星形的疤", w.person("勇者"));
+        const later = w.change(chapter("ch4"), {cast: [present(king)]});
+        const earlier = w.change(chapter("ch2"), {cast: [present(king), present(guard)], marks: [learns(k)]});
+        w.change(chapter("ch3"), {cast: [present(guard)]});
+        w.change(chapter("ch3"));
+        w.change(chapter("ch6"), {cast: [present(king)]});
+        const experience = experienceOf(new KnowingIndex(w.view(), "actual", end("ch5")), king);
+        expect(experience.changes.map((change) => change.id)).toEqual([earlier, later]);
+        expect(experience.uncast).toBe(1);
+        expect(experience.knowing).toMatchObject([{point: k, 程度: "knows", source: "present", change: earlier}]);
+
+        // 按计划模式：这个位置计入的计划也算，排在故事先后里（不是排在已写的变更后面）。
+        const plan = w.change(chapter("ch3"), {kind: "plan", cast: [present(king)]});
+        const planned = experienceOf(new KnowingIndex(w.view(), "planned", end("ch5")), king);
+        expect(planned.changes.map((change) => change.id)).toEqual([earlier, plan, later]);
     });
 });

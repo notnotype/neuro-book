@@ -15,7 +15,7 @@
 import type {CanonReadView, EntryView, ReadPosition, StoryChange, ViewedReads} from "@notnotype/nb-canon/schema";
 
 import {DEFAULT_SECRECY, ENTRY_TYPES, type Secrecy} from "../shared/declarations";
-import {countedChanges, KnowingIndex, type KnowingRow} from "./knowledge";
+import {KnowingIndex, presentChanges, type KnowingRow} from "./knowledge";
 
 export interface ViewpointGrant {
     /** 看的人（条目 id）；写手的视图可以没有，这时保密以上的知识点一律读不到。 */
@@ -183,28 +183,26 @@ export class Viewpoint {
     }
 
     /**
-     * V 的经历（输出 8、9 第四条）：上限之前 V 在场的剧情变更，每条只给 id、安放、描述、同时在场的人、让 V 的知情起的变化；
+     * V 的经历（输出 8、9 第四条）：上限之前 V 在场的剧情变更（按先后），每条只给 id、安放、描述、同时在场的人、让 V 的知情起的变化；
      * 不给补丁、讲述、标注与别人的知情行。另给这段里没记参与者的变更数。
      */
     experience(): {readonly items: readonly ExperienceItem[]; readonly uncast: number} | "no-viewer" {
         const viewer = this.grant.viewer;
         if (viewer === null) return "no-viewer";
-        const counted = countedChanges(this.view, "actual", this.grant.until);
-        const items = counted
-            .filter((change) => (change.cast ?? []).some((member) => member.role === "present" && (member.who === viewer || member.as === viewer)))
-            .map((change): ExperienceItem => ({
-                id: change.id,
-                at: change.at,
-                text: change.text,
-                cast: (change.cast ?? []).filter((member) => member.who !== viewer && member.as !== viewer).map((member) => {
-                    if (member.who === undefined) return {label: member.label ?? ""};
-                    if (member.as === undefined) return {who: member.who};
-                    // 用了马甲：V 知道揭穿这个马甲的知识点才给本体（与称谓表同一规则，brief.md 输出 7）。
-                    return this.#knowsUnmasking(member.as) ? {who: member.who, as: member.as} : {who: member.as};
-                }),
-                knowing: this.#index.changedBy(viewer, change.id),
-            }));
-        return {items, uncast: counted.filter((change) => change.cast === undefined).length};
+        const present = presentChanges(this.view, "actual", this.grant.until, viewer);
+        const items = present.changes.map((change): ExperienceItem => ({
+            id: change.id,
+            at: change.at,
+            text: change.text,
+            cast: (change.cast ?? []).filter((member) => member.who !== viewer && member.as !== viewer).map((member) => {
+                if (member.who === undefined) return {label: member.label ?? ""};
+                if (member.as === undefined) return {who: member.who};
+                // 用了马甲：V 知道揭穿这个马甲的知识点才给本体（与称谓表同一规则，brief.md 输出 7）。
+                return this.#knowsUnmasking(member.as) ? {who: member.who, as: member.as} : {who: member.as};
+            }),
+            knowing: this.#index.changedBy(viewer, change.id),
+        }));
+        return {items, uncast: present.uncast};
     }
 
     #knowsUnmasking(alias: string): boolean {

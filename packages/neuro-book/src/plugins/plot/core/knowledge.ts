@@ -218,6 +218,24 @@ export function countedChanges(view: CanonReadView, mode: Mode, position: ReadPo
     return [...counted, ...view.changes({kind: "plan", status: "active"}).filter((plan) => plans.has(plan.id))];
 }
 
+/**
+ * 某人到一个位置为止在场的剧情变更（canon.model 输出 29），按这个模式的先后排；另给这段里没记参与者的变更数。`cast` 里写成
+ * 马甲的存成本体加 `as`，按本体或马甲都算他在场。
+ */
+export function presentChanges(view: CanonReadView, mode: Mode, position: ReadPosition, person: string): {readonly changes: readonly StoryChange[]; readonly uncast: number} {
+    const counted = countedChanges(view, mode, position);
+    const keyed = counted
+        .filter((change) => (change.cast ?? []).some((member) => member.role === "present" && (member.who === person || member.as === person)))
+        .map((change) => ({change, key: view.eventKey(change.id, mode)!}));
+    keyed.sort((a, b) => view.compareKeys(a.key, b.key));
+    return {changes: keyed.map((item) => item.change), uncast: counted.filter((change) => change.cast === undefined).length};
+}
+
+/** 某人到这个索引的位置为止的经历（输出 8），作者看的全量：在场的剧情变更（整条）、没记参与者的变更数、他的有效知情。 */
+export function experienceOf(index: KnowingIndex, person: string): {readonly changes: readonly StoryChange[]; readonly uncast: number; readonly knowing: readonly KnowingRow[]} {
+    return {...presentChanges(index.view, index.mode, index.position, person), knowing: index.all(person)};
+}
+
 /** 一个人是不是马甲：是就归到本体（传话人按本体算，knowledge.md 输出 5）。 */
 export function bodyOf(view: CanonReadView, entry: string): string {
     const stored = view.object({kind: "entry", id: entry}) as {sameAs?: string} | undefined;

@@ -92,7 +92,7 @@ describe("剧情插件的声明", () => {
 });
 
 describe("剧情插件的远程合同", () => {
-    it("knowledge 输出 3、9：有效知情的读取；按视角开视图、读到占位，关掉以后句柄失效", async () => {
+    it("knowledge 输出 3、8、9：有效知情与经历的读取（不是目标的读冲突得到 not-found）；按视角开视图、读到占位，关掉以后句柄失效", async () => {
         const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
             const dir = join(paths.project.path, "manuscripts.binder");
             await mkdir(dir, {recursive: true});
@@ -121,6 +121,8 @@ describe("剧情插件的远程合同", () => {
         const plot = caller.plot();
         expect(await plot.knowing({person: king, point: k})).toMatchObject({ok: true, value: {rows: [{point: k, 程度: "knows", source: "present"}]}});
         expect(await plot.ledger({})).toMatchObject({ok: true, value: {items: []}});
+        expect(await plot.experience({person: king})).toMatchObject({ok: true, value: {changes: [{text: "tmp:c"}], uncast: 0, knowing: [{point: k}]}});
+        expect(await plot.conflicts({goal: k})).toMatchObject({ok: false, code: "plot", detail: {code: "not-found"}});
         // 剧情插件声明的诊断都登记了计算：待处理是完整的。
         const pending = await window.canon.call("pending", {});
         expect(pending.ok && [pending.value.complete, pending.value.unavailable]).toEqual([true, []]);
