@@ -35,9 +35,16 @@ export function forkProblems(input: ForkCheckInput): Problem[] {
     const table = lineTable(after, order);
     const earlier = lineTable(before, order);
     const problems: Problem[] = [];
+    // 同一个请求里两条已写分叉不能占同一个线 id（临时线 id 只发一个号，线表对重复定义只认最早写下的，另一条会静默没有效果）。
+    const claimed = new Map<string, string>();
     for (const id of input.changed) {
         const change = after.changes.get(id);
         if (change === undefined) continue;
+        if (change.fork !== undefined && change.kind === "written" && change.status !== "undone") {
+            const other = claimed.get(change.fork.line);
+            if (other !== undefined) problems.push({code: "line-taken", ref: {kind: "change", id}, path: "fork.line", message: `world line "${change.fork.line}" is already defined by ${other} in this request`});
+            else claimed.set(change.fork.line, id);
+        }
         const ref: ObjectRef = {kind: "change", id};
         // `line-taken` 是 validation-failed 里单独的码（worldlines 失败表），其余是 invalid-fork。
         const fail = (path: string, message: string, code = "invalid-fork") => problems.push({code, ref, path, message});
@@ -100,6 +107,8 @@ function forkRecordProblems(change: StoryChange & {fork: Fork}, input: ForkCheck
     }
     // 分叉安放的位置：回溯不早于触发处，其余晚于切口。
     const self = table.point(change.id);
+    // 已写分叉要有安放的全序位置（计划分叉可以暂时不排章）；没有位置就无从判断它晚不晚于切口。
+    if (self === null && change.kind === "written") fail("at", "a written fork must be placed in a scheduled chapter");
     const rollback = fork.type === "rollback" && fork.trigger !== undefined;
     const bound = rollback ? table.point(fork.trigger!) : cut;
     if (self !== null && bound !== null && (rollback ? compareOrder(self, bound) < 0 : compareOrder(self, bound) <= 0)) fail("at", rollback ? "a rollback is placed no earlier than its trigger" : "a fork is placed after its cut");

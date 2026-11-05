@@ -93,7 +93,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                     const viewed = service.viewed(own(input.view));
                     return paged(input.limit, (limit) => viewed.time(input.query, input.mode, input.cursor, limit));
                 }
-                return paged(input.limit, (limit) => service.time(input.query, input.mode, input.cursor, limit));
+                return paged(input.limit, (limit) => service.time(input.query, input.mode, input.cursor, limit, input.line));
             }),
             tellings: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.tellings(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).tellings(input.filter ?? {}, input.cursor, limit)))),
             presence: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.presence(input.person, input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).presence(input.person, input.filter ?? {}, input.cursor, limit)))),

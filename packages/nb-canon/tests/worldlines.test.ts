@@ -1040,3 +1040,83 @@ describe("canon.worldlines 实现审查 I4 之后：子线上的写入校验与�
         }
     });
 });
+
+describe("canon.worldlines 实现审查 I4 omp 份：当前线、服务的 time、视图的默认范围、未排章与重复线 id", () => {
+    const end = (chapter: string, line?: string) => ({kind: "chapter" as const, chapter, edge: "end" as const, ...(line === undefined ? {} : {line})});
+
+    test("活页夹最新一章讲子线：这条线算当前线、常驻，不占名额；服务的 time 可指定线，线读不到得 line-not-found", async () => {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "i4-omp");
+        const service = await openTestService(root, {texts: new Map(CHAPTERS.map((chapter) => [chapter, ""])), chapters: CHAPTERS, registry: options().registry});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const xia = (await publish([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}]))["tmp:xia"]!;
+            const story = await publish([{ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))}]);
+            const forks = await publish([1, 2, 3, 4, 5].map((i) => ({ref: {kind: "change", id: `tmp:f${String(i)}`} as const, after: written(`tmp:f${String(i)}`, at("ch2", 40 + i), [], {nature: "fork", fork: {line: `tmp:r${String(i)}`, name: `分支${String(i)}`, parent: "main", cut: story["tmp:c1"]!, type: "branch"} as Fork})})));
+            const lines = [1, 2, 3, 4, 5].map((i) => forks[`tmp:r${String(i)}`]!);
+            const own = await publish([{ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, lines[0]!), [spend(xia, -1000)])}]);
+            await service.setChapters(CHAPTERS, new Map([["ch4", [{line: lines[0]!, from: 1}]]]));
+            // 读到别的四条线：名额三条，当前线 r1 不被淘汰。
+            const view = service.snapshot().view;
+            for (const line of lines) {
+                const found = view.onLine(line);
+                if (!("code" in found)) found.entry(xia, end("ch3"), "actual");
+            }
+            const built = service.status().lines.built;
+            expect(built.find((item) => item.line === lines[0]!)).toEqual({line: lines[0]!, resident: true});
+            const query = {kind: "event" as const, change: own["tmp:own"]!};
+            const onChild = service.time(query, "actual", undefined, 50, lines[0]!);
+            const onMain = service.time(query, "actual", undefined, 50, "main");
+            if (typeof onChild === "string" || typeof onMain === "string") throw new Error("time failed");
+            expect(JSON.stringify(onChild.answer)).not.toBe(JSON.stringify(onMain.answer));
+            // 缺省取当前线（r1）。
+            const byDefault = service.time(query);
+            expect(typeof byDefault !== "string" && JSON.stringify(byDefault.answer)).toBe(JSON.stringify(onChild.answer));
+            expect(service.time(query, "actual", undefined, 50, "l404")).toBe("line-not-found");
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    test("子线的读取视图默认只列这条线看得到的变更：分叉之后主线才写的计划不在", async () => {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "i4-omp-view");
+        const service = await openTestService(root, {texts: new Map(CHAPTERS.map((chapter) => [chapter, ""])), chapters: CHAPTERS, registry: options().registry});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            await publish([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}]);
+            const story = await publish([{ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))}]);
+            const forks = await publish([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 20), [], {nature: "fork", fork: {line: "tmp:r", name: "分支", parent: "main", cut: story["tmp:c1"]!, type: "branch"} as Fork})}]);
+            const later = await publish([{ref: {kind: "change", id: "tmp:p2"}, after: {...written("tmp:p2", at("ch3", 5)), kind: "plan"}}]);
+            const child = service.snapshot().view.onLine(forks["tmp:r"]!);
+            if ("code" in child) throw new Error(child.code);
+            const ids = child.changes({kind: "plan"}).map((change) => change.id);
+            expect(ids).not.toContain(later["tmp:p2"]!);
+            expect(service.snapshot().view.changes({kind: "plan"}).map((change) => change.id)).toContain(later["tmp:p2"]!);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    test("同一请求里两条已写分叉占同一个临时线 id：line-taken；已写分叉与子线上的已写记录都要排章", () => {
+        const {world, c1, c2} = base();
+        const fork = (id: string, cut: string, key: number, line = "tmp:l", placement: StoryChangeDraft["at"] = at("ch2", key)) => ({ref: {kind: "change", id: `tmp:${id}`} as const, after: written(`tmp:${id}`, placement, [], {nature: "fork", fork: {line, name: id, parent: "main", cut, type: "branch"} as Fork})});
+        expect(problems(world.publish(request([fork("a", c1, 40), fork("b", c2, 41)], world.version), "t")).map(([code, path]) => [code, path])).toEqual([["line-taken", "fork.line"]]);
+        // 已写分叉不排章：没有位置判断晚不晚于切口。
+        expect(problems(world.publish(request([fork("a", c1, 40, "tmp:l", {kind: "unscheduled"})], world.version), "t")).map(([code, path]) => [code, path])).toEqual([["invalid-fork", "at"]]);
+        // 子线上的已写记录不排章；计划可以。
+        const created = ok(world.publish(request([fork("a", c1, 40)], world.version), "t"));
+        const line = created.ids["tmp:l"]!;
+        const unscheduled = (kind: "written" | "plan") => request([{ref: {kind: "change", id: "tmp:u"}, after: {...written("tmp:u", {kind: "unscheduled", line}), kind}}], created.world.version);
+        expect(problems(created.world.publish(unscheduled("written"), "t")).map(([code]) => code)).toContain("line-out-of-bounds");
+        expect(created.world.publish(unscheduled("plan"), "t").ok).toBe(true);
+    });
+});

@@ -219,7 +219,7 @@ describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
             const written = await service.publish({requestId: "a1", by: author, what: "edit", title: "许多", baseVersion: 0, puts});
             if (!written.ok) throw new Error(JSON.stringify(written.failure));
             const answer = (read: ReturnType<typeof service.time>) => {
-                if (read === "cursor-stale") throw new Error(read);
+                if (typeof read === "string") throw new Error(read);
                 return read.answer as Record<string, unknown>;
             };
             const chapter = answer(service.time({kind: "chapter", chapter: "ch1"}));
@@ -230,7 +230,7 @@ describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
             expect(answer(service.time({kind: "browse"}))).toMatchObject({units: [{key: "ad", sure: 30}], total: 1});
             expect(answer(service.time({kind: "browse", era: "ad"}))).toMatchObject({units: [{key: 2012, sure: 30, from: {year: 2012}}]});
             const browsed = service.time({kind: "browse", year: 2012}, "actual", undefined, 10);
-            expect(browsed !== "cursor-stale" && (browsed.answer as {items: unknown[]}).items).toHaveLength(10);
+            expect(typeof browsed !== "string" && (browsed.answer as {items: unknown[]}).items).toHaveLength(10);
             const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch2", edge: "start"}, purpose: "writer"});
             if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
             const june = {kind: "during" as const, from: {year: 2012, month: "m6"}, to: {year: 2012, month: "m6"}};
@@ -260,7 +260,7 @@ describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
             const y = second.ids["tmp:y"]!;
             const plain = service.time({kind: "event", change: x});
             // 不带视图：第 2 章那件说 X 早它一天，X 收窄到 6 月 4 日。
-            expect(plain !== "cursor-stale" && (plain.answer as {start: {text: string}}).start.text).toBe("公元2012年6月4日");
+            expect(typeof plain !== "string" && (plain.answer as {start: {text: string}}).start.text).toBe("公元2012年6月4日");
             const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch2", edge: "start"}, purpose: "writer"});
             if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
             const viewed = service.viewed(opened.token);
@@ -279,7 +279,7 @@ describe("canon.time 输出 8、15：服务的时间查询与视图", () => {
             if (!planned.ok) throw new Error(JSON.stringify(planned.failure));
             const p = planned.ids["tmp:p"]!;
             const whole = service.time({kind: "event", change: p}, "planned");
-            expect(whole !== "cursor-stale" && (whole.answer as {start: {state: string}}).start.state).toBe("unconstrained");
+            expect(typeof whole !== "string" && (whole.answer as {start: {state: string}}).start.state).toBe("unconstrained");
             const window = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch2", edge: "start"}, purpose: "writer"});
             if (typeof window === "string" || !("token" in window)) throw new Error(JSON.stringify(window));
             const early = service.viewed(window.token).time({kind: "event", change: p}, "planned");

@@ -104,7 +104,7 @@ const methods = {
     },
     /** 时间的查询（canon.time 输出 8）：带视图令牌时只用上限之前的事（输出 15）；一段时间里的事分页。 */
     time: {
-        input: Type.Object({query: TimeQuerySchema, mode: Type.Optional(Mode), cursor: Cursor, limit: Limit, view: View}),
+        input: Type.Object({query: TimeQuerySchema, mode: Type.Optional(Mode), line: Type.Optional(Type.String()), cursor: Cursor, limit: Limit, view: View}),
         output: Out,
         effect: "read",
         errors,

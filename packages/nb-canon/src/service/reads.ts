@@ -194,8 +194,9 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         entry: (id, position, mode) => deepFreeze(lineView().engine.entry(id, position, mode)),
         object: (ref) => world.object(ref),
         entries: () => [...world.data.entries.values()],
-        changes: (filter = {}) => listChanges(world, filter),
-        tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter)),
+        // 这张视图是一条线的视图：默认只列这条线看得到的变更与讲述，套没套上与计划进展也按这条线算；要看别的线显式写筛选。
+        changes: (filter = {}) => listChanges(world, {inView: line, worldline: line, ...filter}),
+        tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter).filter((item) => tellingInLine(world, line, item))),
         presence: (person, filter = {}) => listPresence(world, person, filter, undefined, line),
         decisions: (filter = {}) => listDecisions(world, filter),
         chapterEntries: (chapter) => deepFreeze(lineView().engine.chapterEntries(chapter)),

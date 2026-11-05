@@ -158,7 +158,12 @@ export class World {
         readonly revisions: readonly Revision[],
         private readonly index: Indexes,
         readonly options: WorldOptions,
-    ) {}
+    ) {
+        // 当前线 = 活页夹最新一章的最后一段讲的线（实际模式下的有效线）：它与祖先线常驻，不占名额（worldlines 输出 9）。
+        const last = options.order.ids.at(-1);
+        const told = last === undefined ? undefined : options.chapterLines?.get(last)?.at(-1)?.line;
+        lines.setCurrent(told === undefined ? MAIN_LINE : effectiveLine(lineTable(data, options.order), told, "actual"));
+    }
 
     /** 空世界。 */
     static empty(options: WorldOptions): World {

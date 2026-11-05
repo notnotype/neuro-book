@@ -451,9 +451,12 @@ export class WorldService {
     /* ---------- 时间（canon.time） ---------- */
 
     /** 时间的查询（canon.time 输出 8）：在当前世界的时间状态上回答；一段时间里的事分页。 */
-    time(query: TimeQuery, mode: Mode = "actual", cursor?: string, limit = 50): (ReadStamp & {readonly answer: TimeAnswer; readonly cursor?: string}) | "cursor-stale" {
+    time(query: TimeQuery, mode: Mode = "actual", cursor?: string, limit = 50, line?: string): (ReadStamp & {readonly answer: TimeAnswer; readonly cursor?: string}) | "cursor-stale" | "line-not-found" {
         const world = this.#world;
-        return this.#pagedTime(this.#stampOf(world), answerTime(world.time(mode), world.options.time ?? DEFAULT_TIME, world.data, query), cursor, limit, {method: "time", query, mode});
+        // 线缺省取当前线（最新一章讲的线）；这条线在这个模式下读不到得 `line-not-found`（project.md 方法表 `time`）。
+        const on = line ?? world.positionLine(defaultPosition(world.options.order), mode);
+        if (world.lineAt({...defaultPosition(world.options.order), line: on}, mode) === undefined) return "line-not-found";
+        return this.#pagedTime(this.#stampOf(world), answerTime(world.time(mode, on), world.options.time ?? DEFAULT_TIME, world.data, query), cursor, limit, {method: "time", query, mode, line: on});
     }
 
     /**

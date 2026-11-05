@@ -34,6 +34,8 @@ export function lineRuleProblems(data: WorldData, order: ChapterOrder, changed: 
             // 子线自己的记录晚于切口，同一位置也不行（输出 3）。
             const rank = placementRank(order, record.placement);
             const cut = table.point(entry.fork.fork.cut);
+            // 已写记录没有排章就没有全序位置，无从判断晚不晚于切口（计划可以暂时不排章）。
+            if (rank === null && written && entry.exists.actual) problems.push({code: "line-out-of-bounds", ref, path: record.kind === "change" ? "at" : "place", message: `a written record on world line "${line}" must be placed in a scheduled chapter, after its cut ${entry.fork.fork.cut}`});
             if (rank !== null && cut !== null && compareRanks(rank, cut.rank) <= 0) problems.push({code: "line-out-of-bounds", ref, path: record.kind === "change" ? "at" : "place", message: `a record on world line "${line}" must be placed after its cut ${entry.fork.fork.cut}`});
             // 结束的线：晚于结束点的新记录拒收（输出 3）。
             const {end, endAt} = entry.fork.fork;
