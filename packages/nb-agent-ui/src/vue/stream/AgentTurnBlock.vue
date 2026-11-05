@@ -283,10 +283,16 @@ function nodeSubtitle(step: ToolStep): string {
 }
 
 .acv-notice__label {
-    flex-shrink: 0;
+    /* 标签通常是短词；压缩失败这类整句说明放在标签里，窄宽度下换行而不是把箭头挤出视区。 */
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: left;
 }
 
 .acv-notice__text {
+    /* 正文预览先于标签收缩。 */
+    flex: 0 100 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

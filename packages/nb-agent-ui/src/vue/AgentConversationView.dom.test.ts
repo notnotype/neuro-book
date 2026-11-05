@@ -181,7 +181,7 @@ describe("压缩的分隔线（t11）", () => {
         kind: "system", id, timestamp: 3, source: "compaction", label: {key: "harness.compaction"} as never, text: "", ...patch,
     });
     const shaken = {method: "nbook.agent.shake", tokensBefore: 90_000, tokensAfter: 40_000, model: null, require: [], restored: [], omitted: 3, keptTurns: null} as const;
-    const summarized = {method: "nbook.agent.summary", tokensBefore: 90_000, tokensAfter: 9_000, model: {name: "p/small", input: 8_000, output: 900, cost: null}, require: ["保留人名"], restored: [{kind: "file", target: "project://a.md", tokens: 500, truncated: true}], omitted: 0, keptTurns: 2} as const;
+    const summarized = {method: "nbook.agent.summary", tokensBefore: 90_000, tokensAfter: 9_000, model: {name: "p/small", input: 2_000, output: 900, cacheRead: 6_000, cacheWrite: 0, cost: null}, require: ["保留人名"], restored: [{kind: "file", target: "project://a.md", tokens: 500, truncated: true}], omitted: 0, keptTurns: 2} as const;
 
     it("整理工具结果的压缩没有摘要也能点开：写“没有调用模型”与省略的条数，没有花费与放回", async () => {
         const ctx = context();
@@ -206,7 +206,7 @@ describe("压缩的分隔线（t11）", () => {
         const view = mountView("zh-CN", {}, {ctx});
         await view.get("[data-divider] button.acv-divider__toggle").trigger("click");
         const text = view.get("[data-compaction-detail]").text();
-        for (const expected of ["摘要模型", "p/small", "输入 8.0k，输出 900", "单价未知", "保留人名", "最近 2 轮的原文", "project://a.md", "已截断"]) expect(text).toContain(expected);
+        for (const expected of ["用压缩模型摘要", "p/small", "输入 8.0k（缓存读 6.0k），输出 900", "单价未知", "90.0k → 9.5k", "保留人名", "最近 2 轮的原文", "project://a.md", "只放回了前一部分"]) expect(text).toContain(expected);
         expect(view.find("[data-divider] .acv-divider__body").exists()).toBe(true);
         view.unmount();
     });
@@ -224,6 +224,21 @@ describe("压缩的分隔线（t11）", () => {
         expect(view.findAll("[data-divider]")).toHaveLength(1);
         await view.get("[data-divider] button.acv-divider__toggle").trigger("click");
         expect(view.find("[data-compaction-detail]").exists()).toBe(true);
+        view.unmount();
+    });
+
+    it("一轮中途压缩过：整轮展开后分隔线只出现一次（在过程里），不再在摘要行下重复", async () => {
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a0", timestamp: 2, status: "done", text: "", thinking: "", model: "m", toolCalls: [{id: "t1", name: "read", status: "success", args: {path: "a.md"}}], contentOmitted: false},
+            divider("c1", {compaction: summarized, text: "摘要"}),
+            {kind: "assistant", id: "a1", timestamp: 4, status: "done", text: "写好了", thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+        ];
+        const view = mountView("zh-CN", {}, {ctx});
+        await view.get("[data-turn-summary]").trigger("click");
+        expect(view.find("[data-turn-summary]").attributes("aria-expanded")).toBe("true");
+        expect(view.findAll("[data-divider]")).toHaveLength(1);
         view.unmount();
     });
 });

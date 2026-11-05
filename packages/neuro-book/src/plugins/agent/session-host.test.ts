@@ -553,9 +553,15 @@ describe("手动压缩（输出 20）", () => {
         await idle(h);
         endpoint.script("压缩后的摘要");
         const before = endpoint.requests.length;
+        const hold = endpoint.hold();
         compact(h, "保留人名");
+        await hold.arrived;
+        // 压缩在跑：视图拿到 kind，上一轮不被画成运行中。
+        expect(h.ctx().run).toMatchObject({status: "running", kind: "compact"});
+        hold.release();
         await until("分隔线", () => dividers(h.ctx()).length === 1);
         await idle(h);
+        expect(h.ctx().run.kind).toBeUndefined();
         const divider = dividers(h.ctx())[0] as Extract<MessageView, {kind: "system"}>;
         expect(divider.text).toBe("压缩后的摘要");
         expect(divider.compaction).toMatchObject({method: "nbook.agent.inplace", require: ["保留人名"], keptTurns: null});

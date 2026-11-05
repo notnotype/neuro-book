@@ -360,15 +360,15 @@ export default {
         method: "Method",
         methods: {
             shake: "Trim tool results",
-            inplace: "In-place summary",
-            summary: "Summary model",
+            inplace: "Summary by the chat model",
+            summary: "Summary by the compaction model",
         },
         model: "Model",
         noModel: "No model call",
         context: "Context (estimate)",
         contextValue: "{{before}} → {{after}} tokens",
         usage: "Usage",
-        usageValue: "{{input}} in, {{output}} out",
+        usageValue: "{{input}} in ({{cacheRead}} cached), {{output}} out",
         costUnknown: "Price unknown",
         require: "Requirements",
         kept: "Kept",
@@ -382,7 +382,7 @@ export default {
             plan: "Plan",
             log: "Conversation log",
         },
-        truncated: "truncated",
+        truncated: "only the first part",
     },
     kernel: {
         error: {

@@ -22,6 +22,8 @@ const methodName = computed(() => {
         default: return name;
     }
 });
+/** 和压缩后马上显示的上下文读数同一口径：压缩后的消息加上放回的内容。 */
+const after = computed(() => props.detail.tokensAfter + props.detail.restored.reduce((sum, item) => sum + item.tokens, 0));
 const cost = computed(() => {
     const model = props.detail.model;
     if (model === null) return null;
@@ -39,11 +41,11 @@ const kind = (value: "file" | "plan" | "log"): string => t(`compactionDetail.kin
         <dd>{{ detail.model === null ? t("compactionDetail.noModel") : detail.model.name }}</dd>
 
         <dt>{{ t("compactionDetail.context") }}</dt>
-        <dd>{{ t("compactionDetail.contextValue", {before: formatTokens(detail.tokensBefore), after: formatTokens(detail.tokensAfter)}) }}</dd>
+        <dd>{{ t("compactionDetail.contextValue", {before: formatTokens(detail.tokensBefore), after: formatTokens(after)}) }}</dd>
 
         <template v-if="detail.model !== null">
             <dt>{{ t("compactionDetail.usage") }}</dt>
-            <dd>{{ t("compactionDetail.usageValue", {input: formatTokens(detail.model.input), output: formatTokens(detail.model.output)}) }}<template v-if="cost !== null"> · {{ cost }}</template></dd>
+            <dd>{{ t("compactionDetail.usageValue", {input: formatTokens(detail.model.input + detail.model.cacheRead + detail.model.cacheWrite), cacheRead: formatTokens(detail.model.cacheRead), output: formatTokens(detail.model.output)}) }}<template v-if="cost !== null"> · {{ cost }}</template></dd>
         </template>
 
         <template v-if="detail.require.length > 0">

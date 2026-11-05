@@ -390,14 +390,14 @@ describe("压缩（runtime.md 输出 46–52，t11）", () => {
             ...turn(1, 1), ...turn(2, 2), ...turn(3, 3),
             {id: "c", type: "compaction", at: 4, data: {
                 method: "nbook.agent.summary", firstKeptEntryId: "t3", replacement: "摘要正文", omitted: [], tokensBefore: 3_000, tokensAfter: 700,
-                details: {model: "p/small", usage: {input: 2_000, output: 300, cacheRead: 0, cacheWrite: 0, cost: 0.02, complete: true}, require: ["保留人名"]},
+                details: {model: "p/small", usage: {input: 2_000, output: 300, cacheRead: 40_000, cacheWrite: 10, cost: 0.02, complete: true}, require: ["保留人名"]},
                 restored: [{kind: "file", target: "project://a.md", tokens: 120, truncated: true}, {kind: "log", target: "sessions://s/session.jsonl", tokens: 0, truncated: false}, {kind: "bogus", target: "x"}],
             }},
         ]);
         const [divider] = system(transcript);
         expect(divider).toMatchObject({source: "compaction", text: "摘要正文", compaction: {
             method: "nbook.agent.summary", tokensBefore: 3_000, tokensAfter: 700, keptTurns: 1, omitted: 0, require: ["保留人名"],
-            model: {name: "p/small", input: 2_000, output: 300, cost: 0.02},
+            model: {name: "p/small", input: 2_000, output: 300, cacheRead: 40_000, cacheWrite: 10, cost: 0.02},
         }});
         expect((divider as {compaction: {restored: readonly unknown[]}}).compaction.restored).toEqual([{kind: "file", target: "project://a.md", tokens: 120, truncated: true}, {kind: "log", target: "sessions://s/session.jsonl", tokens: 0, truncated: false}]);
         expect(transcript.usage().context).toBe(820);
@@ -405,10 +405,10 @@ describe("压缩（runtime.md 输出 46–52，t11）", () => {
 
     test("shake：没有调模型、没有摘要、没有放回；省略的条数写在详情里，原来的消息都还在", () => {
         const transcript = createKernelTranscript();
-        transcript.applyPath([...turn(1, 1), {id: "c", type: "compaction", at: 2, data: {method: "nbook.agent.shake", firstKeptEntryId: "t1", replacement: null, omitted: [{entryId: "r1", placeholder: "…"}, {entryId: "r2", placeholder: "…"}], tokensBefore: 3_000, tokensAfter: 1_000, details: {require: []}}}]);
+        transcript.applyPath([...turn(1, 1), ...turn(2, 10), {id: "c", type: "compaction", at: 20, data: {method: "nbook.agent.shake", firstKeptEntryId: "t1", replacement: null, omitted: [{entryId: "r1", placeholder: "…"}, {entryId: "r2", placeholder: "…"}], tokensBefore: 3_000, tokensAfter: 1_000, details: {require: []}}}]);
         const [divider] = system(transcript);
-        expect(divider).toMatchObject({text: "", compaction: {model: null, omitted: 2, restored: [], keptTurns: 1}});
-        expect(transcript.messages().filter((message) => message.kind === "user")).toHaveLength(1);
+        expect(divider).toMatchObject({text: "", compaction: {model: null, omitted: 2, restored: [], keptTurns: null}});
+        expect(transcript.messages().filter((message) => message.kind === "user")).toHaveLength(2);
     });
 
     test("只压缩的运行：run 带 kind，收口后恢复；停止与失败不碰上一轮的回复，各给一行自己的说明", () => {
@@ -433,5 +433,23 @@ describe("压缩（runtime.md 输出 46–52，t11）", () => {
         const replayed = createKernelTranscript();
         replayed.applyPath([...turn(1, 1), {id: "r1", type: "runStarted", at: 2, data: {runId: "x", kind: "compact"}}, {id: "r2", type: "runEnded", at: 3, data: {runId: "x", reason: "aborted"}}, {id: "r3", type: "runStarted", at: 4, data: {runId: "y", kind: "compact"}}, {id: "r4", type: "runEnded", at: 5, data: {runId: "y", reason: "error", error: {kind: "local", code: "compaction-failed"}}}]);
         expect(replayed.messages()).toEqual(failed);
+    });
+
+    test("run.kind 不依赖 status 帧与 runStarted 事件的到达先后：先快照后路径、先帧后事件都带 kind；被打断的只压缩运行不给“继续”", () => {
+        const opened = createKernelTranscript();
+        opened.applySnapshot({head: 5, status: {state: "running", phase: "compacting"}} as never);
+        opened.applyPath([...turn(1, 1), {id: "r1", type: "runStarted", at: 2, data: {runId: "x", kind: "compact"}}]);
+        expect(opened.run()).toMatchObject({status: "running", kind: "compact", startedAt: 2});
+
+        const live = createKernelTranscript();
+        live.applyPath(turn(1, 1));
+        live.applyFrame({type: "status", status: {state: "running", phase: "compacting"}});
+        live.applyEvent({id: "r1", type: "runStarted", at: 2, data: {runId: "x", kind: "compact"}});
+        expect(live.run()).toMatchObject({status: "running", kind: "compact"});
+
+        live.applyEvent({id: "r2", type: "runEnded", at: 3, data: {runId: "x", reason: "interrupted"}});
+        live.applyFrame({type: "status", status: {state: "idle"}});
+        expect(live.interrupted()).toBe(false);
+        expect(live.run().kind).toBeNull();
     });
 });

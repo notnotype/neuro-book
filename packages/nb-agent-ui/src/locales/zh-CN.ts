@@ -354,15 +354,15 @@ export default {
         method: "方法",
         methods: {
             shake: "精简工具结果",
-            inplace: "就地摘要",
-            summary: "摘要模型",
+            inplace: "沿用对话模型摘要",
+            summary: "用压缩模型摘要",
         },
         model: "模型",
         noModel: "没有调用模型",
         context: "上下文（估算）",
         contextValue: "{{before}} → {{after}} tokens",
         usage: "用量",
-        usageValue: "输入 {{input}}，输出 {{output}}",
+        usageValue: "输入 {{input}}（缓存读 {{cacheRead}}），输出 {{output}}",
         costUnknown: "单价未知",
         require: "要求",
         kept: "保留",
@@ -374,7 +374,7 @@ export default {
             plan: "计划",
             log: "对话记录",
         },
-        truncated: "已截断",
+        truncated: "只放回了前一部分",
     },
     kernel: {
         error: {

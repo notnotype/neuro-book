@@ -63,6 +63,12 @@ watch(() => props.open, (open) => {
     headersPending.value = false;
 }, {immediate: true});
 
+/** 三种模式的数值不是同一种量（窗口大小、百分比、token 数）：换模式时清掉，不让上一种模式的数字当成下一种的值通过校验。 */
+function setCompactMode(mode: string): void {
+    form.compactMode = mode as typeof form.compactMode;
+    form.compactValue = "";
+}
+
 const positive = (value: string): boolean => /^[1-9]\d*$/u.test(value.trim());
 const PRICE = /^\d+(\.\d+)?$/u;
 
@@ -194,7 +200,7 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
                 <div class="model-edit__grid">
                     <div class="model-edit__field">
                         <span>{{ text("edit.compactTrigger") }}</span>
-                        <Select v-model="form.compactMode" :options="COMPACT_MODES" size="sm" :aria-label="text('edit.compactTrigger')" data-field="compactMode" />
+                        <Select :model-value="form.compactMode" :options="COMPACT_MODES" size="sm" :aria-label="text('edit.compactTrigger')" data-field="compactMode" @update:model-value="setCompactMode" />
                     </div>
                     <label v-if="form.compactMode !== 'follow'" class="model-edit__field">
                         <span>{{ text(`edit.compactValue.${form.compactMode}`) }}</span>
@@ -202,7 +208,7 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
                         <small v-if="shown('compactValue')" class="model-edit__problem">{{ shown("compactValue") }}</small>
                     </label>
                 </div>
-                <p class="model-edit__hint">{{ text("edit.compactHint") }}</p>
+                <p v-if="form.compactMode === 'reserve'" class="model-edit__hint">{{ text("edit.compactHint") }}</p>
             </section>
             <Collapsible>
                 <template #trigger>

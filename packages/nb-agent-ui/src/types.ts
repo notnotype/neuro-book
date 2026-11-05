@@ -112,11 +112,11 @@ export type SystemMessageSource = "prompt" | "reminder" | "compaction" | "branch
 export type CompactionView = {
     /** 方法名，例如 `nbook.agent.shake`；显示末一段。 */
     method: string;
-    /** 压缩前后的上下文，都是估算（不含系统提示与工具）。 */
+    /** 压缩前后的上下文，都是估算（不含系统提示与工具）。`tokensAfter` 不含放回的内容，视图自己加上。 */
     tokensBefore: number;
     tokensAfter: number;
-    /** 调了模型的方法才有：模型全名、各次调用的输入输出 token 与花费（null 是单价未知）。没调模型（shake）是 null。 */
-    model: {name: string; input: number; output: number; cost: number | null} | null;
+    /** 调了模型的方法才有：模型全名、各次调用的输入输出与缓存读写 token、花费（null 是单价未知）。没调模型（shake）是 null。`input` 只含没命中缓存的部分。 */
+    model: {name: string; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null} | null;
     /** 用到的压缩要求。 */
     require: readonly string[];
     /** 放回了什么；没有放回（shake）是空数组。 */

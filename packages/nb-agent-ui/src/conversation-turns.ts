@@ -613,7 +613,8 @@ function computeMetrics(
     const tokens = hasUsage ? totals.input + totals.output + totals.cacheRead + totals.cacheWrite : null;
     const live = status === "running" || status === "waiting";
     // 消息只有开始时间，结束于最后一条消息开始的时刻是近似值；运行中按宿主提供的 now 计算。
-    const end = live ? now : group.at(-1)!.timestamp;
+    // 系统条目不算：手动压缩的分隔线可以在回复完成很久之后才进这一轮的 group。
+    const end = live ? now : (group.findLast((message) => message.kind !== "system") ?? group.at(-1)!).timestamp;
     return {
         durationMs: truncatedStart ? null : Math.max(0, end - group[0]!.timestamp),
         steps: tools.filter((tool) => !outcomeCalls.has(tool.call.id)).length,

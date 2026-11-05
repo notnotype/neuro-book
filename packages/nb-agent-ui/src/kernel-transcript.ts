@@ -157,11 +157,12 @@ function compactionView(data: JsonRecord, turnStarts: readonly string[]): Compac
         method,
         tokensBefore: before,
         tokensAfter: after,
-        model: modelName === null || usage === null ? null : {name: modelName, input: numberField(usage, "input") ?? 0, output: numberField(usage, "output") ?? 0, cost: usage.cost === null ? null : numberField(usage, "cost")},
+        model: modelName === null || usage === null ? null : {name: modelName, input: numberField(usage, "input") ?? 0, output: numberField(usage, "output") ?? 0, cacheRead: numberField(usage, "cacheRead") ?? 0, cacheWrite: numberField(usage, "cacheWrite") ?? 0, cost: usage.cost === null ? null : numberField(usage, "cost")},
         require: Array.isArray(details.require) ? details.require.filter((item): item is string => typeof item === "string") : [],
         restored,
         omitted: Array.isArray(data.omitted) ? data.omitted.length : 0,
-        keptTurns: keptAt === -1 ? null : turnStarts.length - keptAt,
+        // 没有摘要（shake）时每一轮都还在、只换了占位，“保留最近几轮”没有意思。
+        keptTurns: keptAt === -1 || data.replacement === null ? null : turnStarts.length - keptAt,
     };
 }
 
@@ -353,8 +354,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 finishedCalls = new Map();
                 startedAt = null;
                 const reason = stringField(data, "reason");
-                interrupted = reason === "interrupted";
                 const compactRun = runKind === "compact";
+                // 只压缩的运行被打断时没有可继续的东西：“继续”会续跑已经完成的上一轮。
+                interrupted = reason === "interrupted" && !compactRun;
                 runKind = null;
                 if (compactRun) {
                     // 只压缩的运行没有这一轮：上一轮的回复不是它的，不改；停止与失败各给一行自己的说明。失败也写成系统条目，
@@ -527,7 +529,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             phase: state === "running" && (status.phase === "requesting" || status.phase === "streaming" || status.phase === "tools" || status.phase === "compacting") ? status.phase : null,
             startedAt,
             retry: state === "running" && status.retry !== undefined ? toJsonValue(status.retry) : null,
-            kind: state === "idle" ? null : runKind,
+            kind: null,
         };
     }
 
@@ -657,7 +659,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             return cached;
         },
         pending: () => pending,
-        run: () => run,
+        // `kind` 来自路径上的 `runStarted`，与 status 帧是两路输入、到达先后不定：读的时候现算，不在收到帧时抄一份。
+        run: () => (run.status === "idle" || runKind === null ? run : {...run, kind: runKind}),
         usage: () => ({...usage, context}),
         queue: () => queue,
         meta: () => meta,

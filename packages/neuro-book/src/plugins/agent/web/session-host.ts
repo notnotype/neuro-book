@@ -142,6 +142,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let notice: Text | null = null;
     /** 运行中受理压缩时给的那句话：运行结束就收掉。 */
     let queuedCompactNotice: Text | null = null;
+    /** 说明挂上时路径上已有的压缩分隔线条数：多出一条就是排着的压缩做完了。 */
+    let queuedCompactDividers = 0;
     /** 结果未知的乐观消息，可以重发（同一个指令 id）或移除。 */
     const unknownSends = new Map<string, {readonly commandId: string; readonly text: string}>();
 
@@ -265,10 +267,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let cancelTick: (() => void) | null = null;
     function syncTicker(target: Current): void {
         const running = target.transcript.run().status !== "idle";
-        if (!running) {
-            stopRequestedAt = null;
-            // 排着的压缩已经做过或运行已结束：“将在这一步结束后压缩”不再成立。
-            if (queuedCompactNotice !== null && notice === queuedCompactNotice) notice = null;
+        if (!running) stopRequestedAt = null;
+        // 排着的压缩已经做过或运行已结束：“将在这一步结束后压缩”不再成立。
+        if (queuedCompactNotice !== null && (!running || countCompactions(target) > queuedCompactDividers)) {
+            if (notice === queuedCompactNotice) notice = null;
             queuedCompactNotice = null;
         }
         if (running && cancelTick === null) {
@@ -440,6 +442,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
     }
 
+    const countCompactions = (target: Current): number => target.transcript.messages().filter((message) => message.kind === "system" && message.source === "compaction").length;
+
     /** 手动压缩（docs/specs/agent/conversation.md 输出 20）：不新建会话，不发送文字，被拒时文字放回输入框。 */
     async function compactCommand(argsText: string): Promise<void> {
         const typed = argsText === "" ? "/compact" : `/compact ${argsText}`;
@@ -456,9 +460,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         if (current !== target) return;
         if (result.ok) {
             // 运行中受理的在下一个边界做：给一句话，运行结束时收掉。
-            if (result.value.value.scheduled === "next-boundary") {
+            // 回复到的时候运行可能已经结束：那就没有“下一步”可等，不挂说明。
+            if (result.value.value.scheduled === "next-boundary" && target.transcript.run().status !== "idle") {
                 notice = agentText("conversation.compact.queued");
                 queuedCompactNotice = notice;
+                queuedCompactDividers = countCompactions(target);
             }
         } else if (UNKNOWN_OUTCOME.has(result.code)) {
             notice = agentText("conversation.compact.unknown");
@@ -670,6 +676,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
                 startedAt: run.startedAt,
                 retry: run.retry as never,
+                ...(run.kind === null ? {} : {kind: run.kind}),
             },
             messages: target?.transcript.messages() ?? [],
             pendingInputs: target === null || target === undefined ? [] : pendingViews(target),

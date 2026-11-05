@@ -161,9 +161,12 @@ describe("buildTurns 三层", () => {
         // 对照：普通运行里最新一轮跟随运行状态。
         const [normal] = buildTurns(input(messages, running));
         expect(normal!.status).toBe("running");
-        const [after] = buildTurns(input([...messages, {kind: "system", id: "c1", timestamp: tick(), source: "compaction", label: "上下文已压缩", text: "摘要"}], {run: {status: "idle", phase: ""}}));
+        const [idle] = buildTurns(input(messages, {run: {status: "idle", phase: ""}}));
+        const [after] = buildTurns(input([...messages, {kind: "system", id: "c1", timestamp: tick() + 3_600_000, source: "compaction", label: "上下文已压缩", text: "摘要"}], {run: {status: "idle", phase: ""}}));
         expect(after!.trailing.map((block) => block.id)).toEqual(["c1"]);
         expect(after!.status).toBe("done");
+        // 手动压缩可以在回复完成很久之后：这一轮的用时不受它影响。
+        expect(after!.metrics.durationMs).toBe(idle!.metrics.durationMs);
     });
 
     it("最终回复之后的分隔线移到 trailing", () => {

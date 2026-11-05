@@ -83,4 +83,18 @@ describe("触发点", () => {
         await save(wrapper);
         expect((wrapper.emitted("save")!.at(-1)![0] as {compaction: unknown}).compaction).toEqual({mode: "reserve"});
     });
+
+    it("固定的 token 数必填；换模式时清掉上一种模式的数值，不让 80（百分比）当成 80 token 保存", async () => {
+        const wrapper = await open(model());
+        await modeSelect(wrapper).vm.$emit("update:modelValue", "percent");
+        await flushPromises();
+        valueInput(wrapper)!.vm.$emit("update:modelValue", "80");
+        await flushPromises();
+        await modeSelect(wrapper).vm.$emit("update:modelValue", "tokens");
+        await flushPromises();
+        expect(valueInput(wrapper)!.props("modelValue")).toBe("");
+        await save(wrapper);
+        expect(wrapper.emitted("save")).toBeUndefined();
+        expect(document.body.textContent).toContain("要是正整数");
+    });
 });
