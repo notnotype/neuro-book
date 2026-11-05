@@ -306,7 +306,7 @@ export const RevisionSchema = Type.Object({
      * 这次修订新写或改过的引用（revisions.md 的“存下来的修订”）：发布时按当时的登记算好；依赖与改动记录按条目筛只读它，
      * 插件停用以后结果也不变。
      */
-    refs: Type.Optional(Type.Array(Type.Object({ref: ObjectRefSchema, path: Text, target: Type.Object({kind: Type.Union([Type.Literal("entry"), Type.Literal("change"), Type.Literal("line"), Type.Literal("decision"), Type.Literal("check")]), id: Id})}))),
+    refs: Type.Optional(Type.Array(Type.Object({path: Text, target: Type.Object({kind: Type.Union([Type.Literal("entry"), Type.Literal("change"), Type.Literal("line"), Type.Literal("decision"), Type.Literal("check")]), id: Id})}))),
 });
 
 export const ReadSchema = Type.Object({at: AddressSchema, position: ReadPositionSchema, value: Type.Unknown(), origin: Type.Unknown()});

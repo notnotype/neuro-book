@@ -45,6 +45,13 @@ function start(extra: Partial<WorldOptions> = {}): {world: World; id: string} {
 const stored = (world: World, id: string) => world.data.decisions.get(id)!;
 
 describe("canon.model 验收场景 9：决策", () => {
+    test("新建的待定决策不能带结论、理由、约束（只在已定时起作用的字段），否则读起来像作者定过又重新打开", () => {
+        const world = World.empty(options());
+        const forged = world.publish(request([putDecision(pending("tmp:d", {conclusion: "第 3 章揭开", reason: "作者说过", constraints: ["只给暗示"]}))], 0), "t");
+        expect(problems(forged as WriteResult).map(([code]) => code)).toEqual(["invalid-transition"]);
+        expect(ok(world.publish(request([putDecision(pending("tmp:d", {candidates: ["第 3 章", "第 20 章"]}))], 0), "t")).world.data.decisions.size).toBe(1);
+    });
+
     test("建议标作者未确认；不带来源转成已定被拒；带来源转成已定；之后 Agent 改约束被拒；作者带来源重新打开", () => {
         const {world, id} = start();
         expect(decisionView(stored(world, id), () => undefined).unconfirmed).toBe(true);
@@ -56,6 +63,8 @@ describe("canon.model 验收场景 9：决策", () => {
         expect(after).toMatchObject({status: "decided", conclusion: "定在第 20 章，前面只给暗示", source: {author: "作者", id: "m1"}});
         expect(after.suggestion).toBeUndefined();
         expect(decided.revision.authorizations).toHaveLength(1);
+        // 存下的授权事后能核对绑的就是这次修订：`binds.request` 与修订存的请求摘要相同。
+        expect(decided.revision.authorizations![0]!.source.binds.request).toBe(decided.revision.requestDigest);
         expect(decisionView(after, () => undefined).reason).toBe("作者没说理由");
 
         const constrain = request([putDecision({...after, constraints: ["第 19 章前不能明说"]})], 2);
@@ -74,6 +83,9 @@ describe("canon.model 状态与转换、输出 31、32：决策的转换", () =>
     test("不在表里的转换与改法都拒收；已定里改要定的事拒收；待定里 Agent 改候选不要来源", () => {
         const {world, id} = start();
         expect(problems(world.publish(request([putDecision({...stored(world, id), status: "superseded"})], 1), "t"))).toContainEqual(["invalid-transition", undefined]);
+        // 带上宿主签好的授权也一样：报的是转换不合法，不是授权没用上。
+        const skip = request([putDecision({...stored(world, id), status: "superseded"})], 1);
+        expect(problems(world.publish(withAuth(skip, sign(skip, id, "pending→superseded" as Parameters<typeof sign>[2])), "t"))).toContainEqual(["invalid-transition", undefined]);
         expect(problems(world.publish(request([putDecision({...stored(world, id), conclusion: "偷偷写进去"})], 1), "t"))).toEqual([["invalid-transition", undefined]]);
         expect(ok(world.publish(request([putDecision({...stored(world, id), candidates: ["第 20 章", "第 25 章"]})], 1), "t")).ok).toBe(true);
         expect(problems(World.empty(options()).publish(request([putDecision(pending("tmp:x", {status: "dropped"}))], 0), "t"))).toEqual([["invalid-transition", undefined]]);
@@ -170,6 +182,10 @@ describe("canon.revisions 输出 21、验收场景 7：作者来源", () => {
 
         const noVerifier = two.world.withOptions({...two.world.options, verifyAuthorSource: undefined});
         expect(failure(noVerifier.publish(withAuth(decideA, auth), "t"))).toMatchObject({code: "author-source-invalid", problems: [{reason: "no-verifier"}]});
+        // 宿主没给项目标识：同样不验。否则一个按空项目标识签的来源（这里的校验对什么都答通过）就能在各个项目之间挪用。
+        const noProject = two.world.withOptions({...two.world.options, project: undefined});
+        const anyProject = {...auth, source: {...auth.source, binds: {...auth.source.binds, project: ""}}};
+        expect(failure(noProject.publish(withAuth(decideA, anyProject), "t"))).toMatchObject({code: "author-source-invalid", problems: [{reason: "no-verifier"}]});
         const candidates = request([putDecision({...stored(two.world, a), candidates: ["第 20 章"]})], 1);
         expect(failure(two.world.publish(withAuth(candidates, sign(candidates, a, "edit")), "t"))).toMatchObject({code: "author-source-invalid", problems: [{reason: "authorization-unused"}]});
         expect(failure(two.world.publish(withAuth(decideA, auth, auth), "t"))).toMatchObject({code: "author-source-invalid", problems: [{reason: "authorization-duplicate"}]});
@@ -189,6 +205,7 @@ describe("canon.revisions 输出 21、验收场景 7：作者来源", () => {
         const revertRequest: RevertRequest = {revert: decided.revision.id, withDependents: false, requestId: meta.requestId, by: meta.by};
         const authorizations = preview.needed.map((item) => sign(revertRequest, item.decision, "revert", item.fields));
         const reverted = ok(decided.world.revert(decided.revision.id, false, {...meta, authorizations}, "t"));
+        expect(reverted.revision.authorizations!.map((item) => item.source.binds.request)).toEqual([reverted.revision.requestDigest, reverted.revision.requestDigest]);
         expect([stored(reverted.world, a).status, stored(reverted.world, b).status]).toEqual(["pending", "pending"]);
         expect(stored(reverted.world, a).source).toBeUndefined();
         expect(reverted.revision.authorizations).toHaveLength(2);

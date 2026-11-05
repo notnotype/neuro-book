@@ -163,6 +163,8 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
         await mkdir(locks, {recursive: true});
         const binder = await readBinder(root);
         if (!binder.ok) record("warn", "canon.binder.invalid", `活页夹清单坏了，按日志里记下的章序打开：${binder.detail}`);
+        // 打开要等日志重放（规模上一两秒）；这期间贡献点送来的登记变化排进的微任务看不到 `service`，打开后按这份比对补上。
+        const usedAtOpen = {components, marks, diagnostics};
         const opened = await WorldService.open(
             {
                 files: nodeFiles,
@@ -195,6 +197,12 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             return {code: "stopping"};
         }
         service = opened;
+        const missed = {
+            ...(components !== usedAtOpen.components ? {registry: buildRegistry(components)} : {}),
+            ...(marks !== usedAtOpen.marks ? {marks: buildMarkRegistry(marks)} : {}),
+            ...(diagnostics !== usedAtOpen.diagnostics ? {diagnostics: buildDiagnosticRegistry(diagnostics)} : {}),
+        };
+        if (Object.keys(missed).length > 0) opened.setRegistries(missed);
         for (const [plugin, item] of computers) item.detach = opened.registerDiagnostics(plugin, item.registration);
         const status = opened.status();
         // 打开的耗时与规模（Spec project 输出 14 的“打开到可以读”；measure-project.ts 等这一条再量常驻内存）。

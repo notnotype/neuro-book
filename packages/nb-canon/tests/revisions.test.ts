@@ -84,6 +84,14 @@ describe("canon.revisions 输出 1、2、16：发布、只存变了的叶子、�
         expect(published.world.publish({...first, title: "别的"}, "t3")).toEqual({ok: false, failure: {code: "request-id-reused"}});
         const reopened = World.replay(published.world.revisions, options());
         expect(ok(reopened.publish(first, "t4")).repeated).toBe(true);
+
+        // 还原同样按内容判：用了别的请求的 id 拒收；同一个还原重发（重开项目后也一样）返回第一次的结果。
+        expect(published.world.revert(published.revision.id, false, {requestId: "same", by: {kind: "author"}}, "t5")).toEqual({ok: false, failure: {code: "request-id-reused"}});
+        const undo = {requestId: "undo-same", by: {kind: "author"}} as const;
+        const undone = ok(published.world.revert(published.revision.id, false, undo, "t5") as WriteResult);
+        expect((undone.world.revert(published.revision.id, false, undo, "t6") as WriteResult & {repeated?: boolean}).repeated).toBe(true);
+        expect(undone.world.revert(published.revision.id, true, undo, "t6")).toEqual({ok: false, failure: {code: "request-id-reused"}});
+        expect((World.replay(undone.world.revisions, options()).revert(published.revision.id, false, undo, "t7") as WriteResult & {repeated?: boolean}).repeated).toBe(true);
     });
 
     test("失败的请求不改世界、不占版本号", () => {

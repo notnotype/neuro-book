@@ -34,6 +34,11 @@ const STATUS_TRANSITIONS: ReadonlyMap<string, {readonly transition: Transition; 
 /** 状态不变时能改的字段：待定里不要来源的，已定里要来源的（`edit`）。别的状态、别的字段都不能单独改。 */
 const FREE_IN_PENDING: ReadonlySet<string> = new Set(["text", "candidates", "due", "about", "suggestion", "hints", "quote"]);
 const SOURCED_IN_DECIDED: ReadonlySet<string> = new Set(["conclusion", "reason", "risks", "constraints", "marks", "scope", "about"]);
+/**
+ * 新建的待定决策不能带的字段：读取时列在“重新打开前定下的”下面的那几项（`decisionView` 的 `earlier`，model.md“状态与转换”）。
+ * 范围不在里面：它不进 `earlier`，新建时可以先写上。
+ */
+const DECIDED_ONLY = ["conclusion", "reason", "risks", "constraints", "marks"] as const;
 
 /** 授权的 `fields` 摘要取的键（revisions.md 输出 21）。 */
 export const AUTHORIZED_KEYS = ["status", "conclusion", "reason", "risks", "constraints", "marks", "scope", "about", "supersededBy"] as const;
@@ -52,6 +57,12 @@ export function classifyDecisionWrite(before: Decision | undefined, after: Decis
     if (before === undefined) {
         const row = STATUS_TRANSITIONS.get(`new→${after.status}`);
         if (row === undefined) return {kind: "invalid", message: `a new decision cannot start as ${after.status}`};
+        // 新建的待定决策只能带待定里能改的字段：结论、理由这些只在已定时起作用、要作者来源，新建时带上会被读成
+        // “重新打开前定下的”（decisionView 的 `earlier`），等于不带来源写出一段作者定过的历史。
+        if (!row.needsSource) {
+            const decidedOnly = DECIDED_ONLY.filter((key) => after[key] !== undefined);
+            if (decidedOnly.length > 0) return {kind: "invalid", message: `a new pending decision cannot carry ${decidedOnly.join(", ")}`};
+        }
         return row.needsSource ? {kind: "sourced", transition: row.transition} : {kind: "free"};
     }
     if (before.status !== after.status) {

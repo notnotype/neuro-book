@@ -47,7 +47,7 @@ import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
-import {authorizationBinds, checkAuthorizations, fieldsDigest, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
+import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
 import {classifyDecisionWrite, missingFields, revertNeedsSource, type Classified} from "./decisions";
 import {countOccurrences} from "./tellings";
 
@@ -222,19 +222,25 @@ export class World {
      * 作为一次补偿修订发布。补偿只恢复被还原的修订改过的东西，不覆盖后面的修改（有依赖的已被拒或一起还原）。
      */
     revert(target: string, withDependents: boolean, meta: RevertMeta, time: string): WriteResult | {readonly ok: false; readonly failure: RevertFailure} {
+        const revertRequest: RevertRequest = {revert: target, withDependents, requestId: meta.requestId, by: meta.by, ...(meta.title === undefined ? {} : {title: meta.title})};
+        // 请求 id 重发（revisions.md 输出 16）：还原修订存的是还原请求本身的摘要（补偿请求随世界变，重算不出来），对得上才返回
+        // 第一次的结果；别的请求用过这个 id 时拒收，不答“已发布”。
+        const requestDigest = requestDigestOf(revertRequest, this.options.digest);
         const previous = this.index.requests.get(meta.requestId);
-        if (previous !== undefined) return {ok: true, world: this, revision: previous.revision, ids: {}, repeated: true};
+        if (previous !== undefined) {
+            if (previous.revision.requestDigest !== requestDigest) return {ok: false, failure: {code: "request-id-reused"}};
+            return {ok: true, world: this, revision: previous.revision, ids: {}, repeated: true};
+        }
         const plan = this.#revertPlan(target, withDependents, meta);
         if ("failure" in plan) return {ok: false, failure: plan.failure};
         // 还原的授权（revisions.md 输出 21 的“还原”）：只查有没有、对不对；不写出处，补偿恢复的出处就是那时的。
         const project = this.options.project ?? "";
-        const revertRequest: RevertRequest = {revert: target, withDependents, requestId: meta.requestId, by: meta.by, ...(meta.title === undefined ? {} : {title: meta.title})};
-        const checked = checkAuthorizations(plan.needed, meta.authorizations ?? [], (item) => authorizationBinds({project, request: revertRequest, decision: item.decision, transition: "revert", fields: item.fields}, this.options.digest), this.options.verifyAuthorSource);
+        const checked = checkAuthorizations(plan.needed, meta.authorizations ?? [], (item) => authorizationBinds({project, request: revertRequest, decision: item.decision, transition: "revert", fields: item.fields}, this.options.digest), this.#verifier());
         const invalidOnes = checked.problems.filter((problem): problem is Extract<AuthorizationProblem, {code: "author-source-invalid"}> => problem.code === "author-source-invalid");
         if (invalidOnes.length > 0) return {ok: false, failure: {code: "author-source-invalid", problems: invalidOnes}};
         if (checked.problems.length > 0) return {ok: false, failure: {code: "author-source-required", needed: plan.needed}};
         const authorizations = meta.authorizations ?? [];
-        return this.#publish(plan.request, time, true, {reverts: [...plan.set], ...(authorizations.length === 0 ? {} : {authorizations: [...authorizations]})});
+        return this.#publish(plan.request, time, true, {reverts: [...plan.set], ...(authorizations.length === 0 ? {} : {authorizations: [...authorizations]})}, requestDigest);
     }
 
     /** 还原的预览（revisions.md 输出 5、21）：补偿算出的结果，加上需要的作者授权（宿主照它签发）。 */
@@ -311,8 +317,10 @@ export class World {
             if (kind.kind === "sourced") needed.push({decision: original.get(put.ref.id) ?? put.ref.id, transition: kind.transition, fields: fieldsDigest(input.puts[index]!.after as Decision, this.options.digest)});
         }
         const project = this.options.project ?? "";
-        const checked = checkAuthorizations(needed, input.authorizations ?? [], (item) => authorizationBinds({project, request: input, decision: item.decision, transition: item.transition, fields: item.fields}, this.options.digest), this.options.verifyAuthorSource);
-        const invalidOnes = checked.problems.filter((problem): problem is Extract<AuthorizationProblem, {code: "author-source-invalid"}> => problem.code === "author-source-invalid");
+        const checked = checkAuthorizations(needed, input.authorizations ?? [], (item) => authorizationBinds({project, request: input, decision: item.decision, transition: item.transition, fields: item.fields}, this.options.digest), this.#verifier());
+        // 转换不在状态表里的决策带了授权：授权自然“没用上”，但真正的错是转换本身（校验报 invalid-transition），不拿授权的错盖住它。
+        const invalidTransition = (decision: string) => classified.get(ids[decision] ?? decision)?.kind === "invalid";
+        const invalidOnes = checked.problems.filter((problem): problem is Extract<AuthorizationProblem, {code: "author-source-invalid"}> => problem.code === "author-source-invalid" && !(problem.reason === "authorization-unused" && invalidTransition(problem.decision)));
         if (invalidOnes.length > 0) return {failure: {code: "author-source-invalid", problems: invalidOnes}};
         return {
             classified,
@@ -321,11 +329,20 @@ export class World {
         };
     }
 
-    #publish(input: WriteRequest, time: string, compensation: boolean, extra: Pick<Revision, "reverts" | "authorizations"> = {}): WriteResult {
+    /**
+     * 宿主给的来源校验。没给项目标识时当作没有校验（`no-verifier`）：`binds.project` 是一个来源不能挪到别的项目用的保证，
+     * 按空字符串签、按空字符串验，各个项目的来源就能互相挪用（revisions.md 输出 21）。
+     */
+    #verifier(): WorldOptions["verifyAuthorSource"] {
+        return this.options.project === undefined ? undefined : this.options.verifyAuthorSource;
+    }
+
+    /** `digestOverride`：还原时存还原请求本身的摘要（见 `revert`），不存补偿请求的。 */
+    #publish(input: WriteRequest, time: string, compensation: boolean, extra: Pick<Revision, "reverts" | "authorizations"> = {}, digestOverride?: string): WriteResult {
         const shape = schemaProblems(WriteRequestSchema, input);
         if (shape !== null) return invalid(shape.map((problem) => ({code: "type-mismatch", path: problem.path, message: problem.message})));
-        const {baseVersion: _baseVersion, ...meaning} = input;
-        const requestDigest = this.options.digest(stableStringify(meaning));
+        // 修订存的请求摘要与授权的 `binds.request` 同一种算法（不含基于的版本与授权本身）：存下的授权事后能核对绑的就是这次。
+        const requestDigest = digestOverride ?? requestDigestOf(input, this.options.digest);
         const previous = this.index.requests.get(input.requestId);
         if (previous !== undefined) {
             if (previous.revision.requestDigest !== requestDigest) return {ok: false, failure: {code: "request-id-reused"}};
@@ -435,7 +452,8 @@ export class World {
             ...extra,
             impact,
             ...(Object.keys(ids).length === 0 ? {} : {idMap: ids}),
-            ...(refs.length === 0 ? {} : {refs: refs.map(({ref, reference}) => ({ref, path: reference.path, target: reference.target}))}),
+            // 只存 Spec 的形状 `{path, target}`（revisions.md“存下来的修订”）：读的人只按目标筛；所属对象在 ops 里，不再存一遍。
+            ...(refs.length === 0 ? {} : {refs: refs.map(({reference}) => ({path: reference.path, target: reference.target}))}),
             // 存请求原样的授权：签名是按原样（临时 id 换掉之前）签的，换过 id 就验不过了；新对象的 id 对照在 `idMap` 里。
             ...(input.authorizations === undefined || input.authorizations.length === 0 ? {} : {authorizations: input.authorizations}),
         };

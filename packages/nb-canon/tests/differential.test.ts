@@ -141,7 +141,8 @@ class Sim {
         }
         if (roll < 0.5) {
             const id = this.id("c");
-            const patches = Array.from({length: this.int(1, 2)}, () => this.patch());
+            // 四分之一的计划不带补丁：按计划模式时覆盖层里只有不碰条目的计划，套用结果只能靠 touchesNothing 记。
+            const patches = this.rnd() < 0.25 ? [] : Array.from({length: this.int(1, 2)}, () => this.patch());
             const links: StoryChange["links"] = [];
             const plans = this.plans();
             const fulfilling = this.written().filter((change) => change.links.some((link) => link.kind === "fulfills"));
@@ -164,6 +165,13 @@ class Sim {
         }
         if (roll < 0.7 && this.changes.size > 0) {
             const change = this.changes.get(this.pick([...this.changes.keys()]))!;
+            // 一半改成换补丁（四成换成空）：有补丁改成没补丁只能靠旧版本弄脏条目，没补丁改成有补丁反过来。
+            if (this.rnd() < 0.5) {
+                const patches = this.rnd() < 0.4 ? [] : Array.from({length: this.int(1, 2)}, () => this.patch());
+                this.changes.set(change.id, {...change, patches});
+                this.log.push(`改补丁 ${change.id} → ${String(patches.length)}`);
+                return {changes: [change.id]};
+            }
             this.changes.set(change.id, {...change, at: this.placement()});
             this.log.push(`挪 ${change.id}`);
             return {changes: [change.id]};
@@ -230,9 +238,10 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
                 expect(inc.entry(id, position, mode), `${where()} entry ${id} ${JSON.stringify(position)} ${mode}`).toEqual(ref.entry(id, position, mode));
             }
         }
-        for (const path of ["panel.存款", "character.态度"]) {
+        // 列表元素子字段的来历（事件与归纳键）也比，两种模式都比；只取前三个条目的那一行，全比会让每个种子慢几倍。
+        for (const path of ["panel.存款", "character.态度", ...[...inputs.world.entries.keys()].slice(0, 3).map((other) => `know.认得[${other}].看法`)]) {
             for (const position of positions.filter((_, index) => index % 3 === 0)) {
-                expect(inc.origins({entry: id, path}, position, "actual"), `${where()} origins ${id} ${path}`).toEqual(ref.origins({entry: id, path}, position, "actual"));
+                for (const mode of ["actual", "planned"] as const) expect(inc.origins({entry: id, path}, position, mode), `${where()} origins ${id} ${path} ${mode}`).toEqual(ref.origins({entry: id, path}, position, mode));
             }
         }
     }
@@ -248,7 +257,8 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
 
 describe("差分：增量更新与整本重算逐字相同", () => {
     const failures = {applied: 0, failed: 0};
-    // 平时跑 6 个种子、每个 60 步；改引擎后可以用环境变量跑得更多（例如 CANON_DIFF_SEEDS=20 CANON_DIFF_STEPS=100）。
+    // 平时跑 6 个种子、每个 60 步；改引擎后可以用环境变量跑得更多（例如 CANON_DIFF_SEEDS=20 CANON_DIFF_STEPS=100），步数多时
+    // 单个种子会超过每条 30 秒的上限，要给 `bun test --timeout`。
     const seeds = Array.from({length: Number(process.env.CANON_DIFF_SEEDS ?? 6)}, (_, index) => index + 1);
     const steps = Number(process.env.CANON_DIFF_STEPS ?? 60);
     test.each(seeds)(`种子 %d，${String(steps)} 步`, (seed) => {
@@ -267,7 +277,7 @@ describe("差分：增量更新与整本重算逐字相同", () => {
                 else failures.failed += 1;
             }
         }
-    });
+    }, 30_000);
 
     test("序列里套不上的变更足够多（至少 10%），翻转与传染的路径走到了", () => {
         expect(failures.failed / (failures.applied + failures.failed)).toBeGreaterThanOrEqual(0.1);
