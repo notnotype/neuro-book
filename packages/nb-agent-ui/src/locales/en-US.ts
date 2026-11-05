@@ -338,6 +338,7 @@ export default {
         create: "New session",
         showArchived: "Show archived",
         archivedTag: "Archived",
+        clearFilters: "Clear filters",
         removeFilter: "Remove filter: {{name}}",
         today: "Today",
         yesterday: "Yesterday",

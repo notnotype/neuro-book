@@ -332,6 +332,7 @@ export default {
         create: "新建会话",
         showArchived: "显示已归档的",
         archivedTag: "已归档",
+        clearFilters: "清除过滤条件",
         removeFilter: "去掉过滤条件：{{name}}",
         today: "今天",
         yesterday: "昨天",

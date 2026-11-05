@@ -68,17 +68,23 @@ const groups = computed(() => {
 const STATE_KEYS = {running: "panel.state.running", waiting: "panel.state.waiting", interrupted: "panel.state.interrupted", error: "panel.state.error"} as const;
 
 const scopeLabel = computed(() => (props.scope?.value === "all" ? t("panel.scopeAll") : t("panel.scopeProject")));
+/** 选了的过滤条件。只显示成过滤按钮上的条数：有没有选，面板都不多占一行，下面的列表不动。 */
+const activeFilters = computed(() => [
+    ...props.profiles.filter((profile) => profile.active).map((profile) => `profile:${profile.id}`),
+    ...(props.showArchived ? ["archived"] : []),
+]);
+
 const filterItems = computed<DropdownMenuItemData[]>(() => [
     ...props.profiles.map((profile) => ({id: `profile:${profile.id}`, label: profile.label, ...(profile.icon === undefined ? {} : {iconClass: profile.icon}), type: "checkbox" as const, checked: profile.active})),
     ...(props.profiles.length === 0 ? [] : [{id: "separator", label: "", separator: true}]),
     {id: "archived", label: t("panel.showArchived"), type: "checkbox" as const, checked: props.showArchived},
+    ...(activeFilters.value.length === 0 ? [] : [{id: "separator-clear", label: "", separator: true}, {id: "clear", label: t("panel.clearFilters")}]),
 ]);
-const activeTags = computed(() => [
-    ...props.profiles.filter((profile) => profile.active).map((profile) => ({id: `profile:${profile.id}`, label: profile.label})),
-    ...(props.showArchived ? [{id: "archived", label: t("panel.archivedTag")}] : []),
-]);
-
 function onFilter(id: string): void {
+    if (id === "clear") {
+        for (const filter of activeFilters.value) onFilter(filter);
+        return;
+    }
     if (id === "archived") emit("update:show-archived", !props.showArchived);
     else if (id.startsWith("profile:")) emit("toggle-profile", id.slice("profile:".length));
 }
@@ -112,19 +118,17 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                 <button type="button" class="acv-panel__scope" data-panel-scope>{{ scopeLabel }}<span class="i-lucide-chevron-down" aria-hidden="true" /></button>
             </DropdownMenu>
             <DropdownMenu :items="filterItems" align="end" @select="onFilter">
-                <IconButton icon-class="i-lucide-list-filter" size="sm" :class="{'acv-panel__filter-on': activeTags.length > 0}" :title="t('panel.filter')" :aria-label="t('panel.filter')" data-panel-filter />
+                <span class="acv-panel__filter">
+                    <IconButton icon-class="i-lucide-list-filter" size="sm" :class="{'acv-panel__filter-on': activeFilters.length > 0}" :title="t('panel.filter')" :aria-label="t('panel.filter')" data-panel-filter />
+                    <span v-if="activeFilters.length > 0" class="acv-panel__filter-count" data-panel-filter-count>{{ activeFilters.length }}</span>
+                </span>
             </DropdownMenu>
             <IconButton icon-class="i-lucide-plus" size="sm" :title="t('panel.create')" :aria-label="t('panel.create')" data-panel-create @click="emit('action', {type: 'session.create'})" />
         </div>
-        <div v-if="activeTags.length > 0" class="acv-panel__tags">
-            <button v-for="tag in activeTags" :key="tag.id" type="button" class="acv-panel__tag" :aria-label="t('panel.removeFilter', {name: tag.label})" data-panel-tag @click="onFilter(tag.id)">
-                {{ tag.label }}<span class="i-lucide-x" aria-hidden="true" />
-            </button>
-        </div>
         <div class="acv-panel__list">
             <p v-if="props.error !== null" class="acv-panel__empty" role="alert">{{ props.error }}</p>
-            <p v-else-if="props.items.length === 0" class="acv-panel__empty">{{ props.loading ? t("panel.loading") : t("panel.empty") }}</p>
-            <template v-for="group in groups" v-else :key="group.key">
+            <p v-if="props.error === null && props.items.length === 0" class="acv-panel__empty">{{ props.loading ? t("panel.loading") : t("panel.empty") }}</p>
+            <template v-for="group in groups" :key="group.key">
                 <div class="acv-panel__group">{{ group.label }}</div>
                 <div v-for="item in group.rows" :key="item.id" class="acv-panel__row" :class="{'is-current': item.id === props.selectedId, 'is-archived': item.archived === true}">
                     <button type="button" class="acv-panel__open" :aria-current="item.id === props.selectedId ? 'true' : undefined" data-panel-row @click="emit('action', {type: 'session.select', sessionId: item.id})">
@@ -198,26 +202,25 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
     color: var(--accent-text);
 }
 
-.acv-panel__tags {
-    display: flex;
-    flex-shrink: 0;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 0 8px 4px;
-    font-size: var(--text-xs);
+.acv-panel__filter {
+    position: relative;
+    display: inline-flex;
 }
 
-.acv-panel__tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    padding: 1px 4px 1px 7px;
-    border: 0;
-    border-radius: 6px;
-    background: var(--accent-bg);
-    color: var(--accent-text);
-    font: inherit;
-    cursor: pointer;
+.acv-panel__filter-count {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--accent-main);
+    color: var(--accent-on);
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+    pointer-events: none;
 }
 
 .acv-panel__list {

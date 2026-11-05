@@ -91,7 +91,8 @@
         "pickProfile": "选择 Profile",
         "renameTitle": "改名",
         "rename": "改名",
-        "cancel": "取消"
+        "cancel": "取消",
+        "loading": "正在加载…"
     },
     "views": {
         "conversation": {

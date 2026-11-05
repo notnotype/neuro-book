@@ -255,7 +255,7 @@ Ant Design / Arco / TDesign 三家的排版规范页也都取不到正文。别�
 与输入框并排时等高，圆角按尺寸取 `--radius-button-*`，不是胶囊。`IconButton` 的尺寸是定值，
 它多放在定宽的竖条与定高的工具条里。这几个静态类在 `src/styles.css` 登记，不依赖 Tailwind 对 arbitrary value 的扫描。
 
-nbook 面板圆角的取值有出处（macOS 26 窗口圆角的实测，见调研文档）；Apple 自己没公布这个数。
+nbook 的窗口圆角取值有出处（macOS 26 窗口圆角的实测，见调研文档）；Apple 自己没公布这个数。面板、气泡与输入框是 10，开发者 2026-11-05 定。
 `macos` 主题的面板圆角保持更早的目测近似，那是用户已经认可的观感。
 
 ### 同心圆角

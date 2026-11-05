@@ -118,6 +118,25 @@ describe("一轮对话", () => {
         expect(transcript.messages()).toEqual([]);
     });
 
+    test("路径重建不碰乐观消息：结果未知的消息重连之后还能重发", () => {
+        const transcript = createKernelTranscript();
+        const history = [{id: "a", type: "input", at: 1, data: {text: "早先的", queued: "q"}}];
+        transcript.applyPath(history);
+        transcript.addOptimistic({id: "o", commandId: "x", text: "没确认的", timestamp: 2});
+        transcript.markOptimisticUnknown("o");
+        transcript.applyPath(history);
+        expect(transcript.messages().map((message) => [message.id, (message as {delivery?: string}).delivery])).toEqual([["a", undefined], ["o", "unknown"]]);
+    });
+
+    test("回复已经写下了，晚到的增量不再画一条“正在生成”", () => {
+        const transcript = createKernelTranscript();
+        transcript.applyPath([{id: "a", type: "assistant", at: 1, data: {request: 7, content: [{kind: "text", text: "回复"}], toolCalls: []}}]);
+        transcript.applyFrame({type: "delta", request: 7, purpose: "turn", n: 1, part: "text", text: "回复"});
+        expect(transcript.messages().map((message) => (message as {status?: string}).status)).toEqual(["done"]);
+        transcript.applyFrame({type: "delta", request: 8, purpose: "turn", n: 1, part: "text", text: "下一条"});
+        expect(transcript.messages().map((message) => (message as {status?: string}).status)).toEqual(["done", "streaming"]);
+    });
+
     test("别的用途的增量不是回复", () => {
         const transcript = createKernelTranscript();
         transcript.applyFrame({type: "delta", request: 1, purpose: "compaction", n: 1, part: "text", text: "摘要"});

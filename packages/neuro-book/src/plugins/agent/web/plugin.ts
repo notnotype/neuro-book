@@ -3,7 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {markRaw, defineComponent, h, shallowRef} from "vue";
+import {markRaw, defineComponent, h, onBeforeUnmount, shallowRef} from "vue";
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -33,7 +33,7 @@ import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
 import {Type} from "typebox";
 
-import type {AgentViewAction, ComposerModelView} from "@notnotype/nb-agent-ui";
+import type {ComposerModelView} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
@@ -136,6 +136,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const loadProfiles = async (): Promise<void> => {
                 const result = await remote.profiles({});
                 if (result.ok) profiles.value = result.value;
+                else report("profiles-failed", result.code);
             };
             const models = shallowRef<readonly ComposerModelView[] | null>(null);
             let started = false;
@@ -149,11 +150,17 @@ export const agentBrowserPlugin: PluginDefinition = {
                     const subscription = await modelsRemote.events.changed.subscribe({}, (snapshot) => {
                         models.value = modelOptions(snapshot);
                     });
-                    if (!subscription.ok) return;
+                    if (!subscription.ok) {
+                        // 模型服务不在是正常情况（下拉隐藏），别的失败下一个对话位置再试。
+                        report("models-failed", subscription.code);
+                        started = false;
+                        return;
+                    }
                     context.signal.addEventListener("abort", () => subscription.value.release(), {once: true});
                     const snapshot = await modelsRemote.snapshot({});
                     if (snapshot.ok) models.value = modelOptions(snapshot.value);
-                })().catch(() => undefined);
+                    else report("models-failed", snapshot.code);
+                })().catch((error: unknown) => report("models-failed", String(error)));
             };
 
             const openRecent = async (position: string) => {
@@ -205,6 +212,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 profileEntries: () => profiles.value,
                 activity: () => activity.items.value,
                 failed: (code) => text.t(agentText("conversation.listFailed", {code})),
+                now: () => clock.now(),
             });
 
             /** 新建时选 Profile：目录里不隐藏、可用的多于一个才问；交回 null 是取消，undefined 是用缺省。 */
@@ -215,6 +223,18 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const picked = await quickPick.pick({title: agentText("conversation.pickProfile"), placeholder: agentText("conversation.pickProfile"), items: options.map((profile) => ({id: profile.key, label: profile.name, detail: profile.description}))});
                 return picked.kind === "item" ? picked.id : null;
             };
+
+            const panelLabels = () => ({
+                get renameTitle() {
+                    return text.t(agentText("conversation.renameTitle"));
+                },
+                get rename() {
+                    return text.t(agentText("conversation.rename"));
+                },
+                get cancel() {
+                    return text.t(agentText("conversation.cancel"));
+                },
+            });
 
             // 组件与渲染组件用到时才加载（nb-agent-ui 的 Vue 层不小）。
             const loadVue = async () => {
@@ -240,22 +260,16 @@ export const agentBrowserPlugin: PluginDefinition = {
                     form: markRaw(AgentFormRenderer),
                     ...(components === null ? {} : {markdown: markRaw(components.MarkdownDisplay), promptEditor: markRaw(components.PromptEditor), promptTextView: markRaw(components.PromptTextView)}),
                 };
-                const labels = {
-                    get renameTitle() {
-                        return text.t(agentText("conversation.renameTitle"));
-                    },
-                    get rename() {
-                        return text.t(agentText("conversation.rename"));
-                    },
-                    get cancel() {
-                        return text.t(agentText("conversation.cancel"));
-                    },
-                };
+                const labels = panelLabels();
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,
                     setup() {
                         lastPosition = position;
+                        // 页面标签关了或切走了：命令回到右栏，不再把它开回来。
+                        onBeforeUnmount(() => {
+                            if (lastPosition === position) lastPosition = "view";
+                        });
                         return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: {}, pickProfile, labels});
                     },
                 });
@@ -267,15 +281,13 @@ export const agentBrowserPlugin: PluginDefinition = {
                 load: async () => {
                     ensureStarted();
                     const {SessionPanelHost} = await vueOnce();
+                    const labels = panelLabels();
                     return defineComponent({
                         name: "AgentSessionsView",
                         inheritAttrs: false,
                         setup() {
                             const host = hostAt("view");
-                            return () => h(SessionPanelHost, {store: list, selectedId: host.sessionId.value, now: host.ctx.value.now, onAction: (action: AgentViewAction) => {
-                                host.act(action);
-                                void commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
-                            }});
+                            return () => h(SessionPanelHost, {store: list, host, pickProfile, labels, onOpened: () => void commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW})});
                         },
                     });
                 },

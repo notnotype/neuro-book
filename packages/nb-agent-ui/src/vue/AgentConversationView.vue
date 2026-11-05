@@ -55,8 +55,8 @@ const props = withDefaults(defineProps<{
 });
 
 const slots = defineSlots<{
-    /** 点标题弹出的下拉里放的内容（会话面板）。 */
-    sessions?: () => unknown;
+    /** 点标题弹出的下拉里放的内容（会话面板）。`close` 关下拉：切了会话之后不该还开着。 */
+    sessions?: (scope: {close: () => void}) => unknown;
 }>();
 
 const emit = defineEmits<{
@@ -268,7 +268,7 @@ defineExpose({focusComposer, scrollToLatest});
                         <span class="i-lucide-chevron-down acv-header__chevron" aria-hidden="true" />
                     </button>
                 </template>
-                <slot name="sessions" />
+                <slot name="sessions" :close="() => (sessionsOpen = false)" />
             </Popover>
             <div v-else class="acv-header__title" :title="props.ctx.session?.summary || undefined">
                 <span class="acv-header__name">{{ props.ctx.session ? (props.ctx.session.title || t("header.untitled")) : t("header.noSession") }}</span>

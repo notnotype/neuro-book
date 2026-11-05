@@ -12,7 +12,7 @@ import {computed, nextTick, onMounted, ref, watch} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 
 import type {InputResolution, JsonValue, PendingInputView} from "../../types";
-import {approvalResolution, EMPTY_WIZARD, isApproval, isQuestions, questionResolution, readWizardState} from "../../wizard";
+import {approvalResolution, isApproval, isQuestions, questionResolution, readWizardState} from "../../wizard";
 import type {WizardState} from "../../wizard";
 import {useAgentText} from "../host";
 import type {ViewAction} from "../view-action";
@@ -57,19 +57,12 @@ onMounted(() => {
     if (props.pending.length > 0) focusRoot();
 });
 
-// 这一批的 id 变了：新的一批从头来，上一批选的不算数。别的窗口先答了的事项从列表里消失，这里跟着走（输出 14）。
-const batchKey = computed(() => props.pending.map((item) => item.id).join(" "));
-watch(batchKey, (key, previous) => {
-    if (key === "") {
-        setState(EMPTY_WIZARD);
-        return;
-    }
-    const known = new Set(previous.split(" "));
-    if (props.pending.some((item) => !known.has(item.id))) {
-        setState({...EMPTY_WIZARD, approvals: {}, answers: {}});
-        void nextTick(focusRoot);
-    }
-});
+// 一批事项全部答完时，视图连这个组件一起卸载，状态由宿主清（session-host.ts）。这里只管还在等时来了新事项：一批是逐条写下的，
+// 新到的并进来，选了的留着；别的窗口先答了的从列表里消失，跟着走（输出 14）。
+const pendingIds = computed(() => props.pending.map((item) => item.id).join(" "));
+watch(pendingIds, () => void nextTick(() => {
+    if (!state.value.collapsed && !rootRef.value?.contains(document.activeElement)) focusRoot();
+}));
 
 function submit(id: string, resolutions: InputResolution): void {
     emit("action", {type: "input.submit", batchKey: id, resolutions});

@@ -276,6 +276,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "panel.create": {"zh-CN": "新建会话", "en-US": "New session"},
     "panel.showArchived": {"zh-CN": "显示已归档的", "en-US": "Show archived"},
     "panel.archivedTag": {"zh-CN": "已归档", "en-US": "Archived"},
+    "panel.clearFilters": {"zh-CN": "清除过滤条件", "en-US": "Clear filters"},
     "panel.removeFilter": {"zh-CN": "去掉过滤条件：{name}", "en-US": "Remove filter: {name}"},
     "panel.today": {"zh-CN": "今天", "en-US": "Today"},
     "panel.yesterday": {"zh-CN": "昨天", "en-US": "Yesterday"},

@@ -17,6 +17,11 @@ describe("审批向导", () => {
         expect(choose(state, items, "b", "allow").approvals.b).toEqual({decision: "allow"});
     });
 
+    test("本会话都批准不改已经选了的：拒绝还是拒绝，附言还在", () => {
+        const denied = choose(EMPTY_WIZARD, items, "c", "deny", "这个不要");
+        expect(choose(denied, items, "a", "allow-session").approvals).toEqual({a: {decision: "allow-session"}, c: {decision: "deny", note: "这个不要"}});
+    });
+
     test("本会话都批准同时选中这批里同一个工具的其余调用，别的工具不动", () => {
         const state = choose(EMPTY_WIZARD, items, "a", "allow-session");
         expect(state.approvals).toEqual({a: {decision: "allow-session"}, c: {decision: "allow-session"}});
@@ -41,13 +46,13 @@ describe("提问向导", () => {
     const formQuestion = {...question, form: {type: "object"}};
 
     test("选了选项、写了其它、填了对的表单才算答了", () => {
-        expect(answered(question, undefined, true)).toBe(false);
-        expect(answered(question, {selected: []}, true)).toBe(false);
-        expect(answered(question, {selected: [], other: "   "}, true)).toBe(false);
-        expect(answered(question, {selected: ["第一人称"]}, true)).toBe(true);
-        expect(answered(question, {selected: [], other: "第二人称"}, true)).toBe(true);
-        expect(answered(formQuestion, {selected: [], form: {a: 1}}, true)).toBe(true);
-        expect(answered(formQuestion, {selected: [], form: {a: 1}}, false)).toBe(false);
+        expect(answered(question, undefined)).toBe(false);
+        expect(answered(question, {selected: []})).toBe(false);
+        expect(answered(question, {selected: [], other: "   "})).toBe(false);
+        expect(answered(question, {selected: ["第一人称"]})).toBe(true);
+        expect(answered(question, {selected: [], other: "第二人称"})).toBe(true);
+        expect(answered(formQuestion, {selected: [], form: {a: 1}})).toBe(true);
+        expect(answered(formQuestion, {selected: [], form: {a: 1}, formInvalid: true})).toBe(false);
     });
 
     test("提交的回答：文字非空，给人看；结构化的值逐题；其它去掉空白", () => {

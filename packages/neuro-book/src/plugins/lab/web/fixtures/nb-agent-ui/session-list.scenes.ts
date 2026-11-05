@@ -39,7 +39,7 @@ const panelModel = {scope: {value: "project" as const}};
 
 export const agentSessionPanelScenes: PanelScene[] = [
     {id: "list", label: "分组、图标、状态、已归档", input: {props: panelBase, model: panelModel}},
-    {id: "filtered", label: "选了过滤条件：标签可去掉", input: {props: {...panelBase, profiles: [{...PROFILES[0]!, active: true}, PROFILES[1]!]}, model: {...panelModel, showArchived: true}}},
+    {id: "filtered", label: "选了过滤条件：过滤按钮上是条数", input: {props: {...panelBase, profiles: [{...PROFILES[0]!, active: true}, PROFILES[1]!]}, model: {...panelModel, showArchived: true}}},
     {id: "no-project", label: "没有打开作品：没有范围按钮", input: {props: panelBase, model: {scope: null}}},
     {id: "empty", label: "没有会话", input: {props: {...panelBase, items: []}, model: panelModel}},
     {id: "error", label: "取不到", input: {props: {...panelBase, items: [], error: "会话列表取不到，请稍后重试。"}, model: panelModel}},

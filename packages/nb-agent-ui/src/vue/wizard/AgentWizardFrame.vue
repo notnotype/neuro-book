@@ -25,6 +25,7 @@ const {t} = useAgentText();
 
 <template>
     <div class="acv-wizard-frame nb-ui-popover-surface">
+        <div class="acv-wizard-frame__scroll">
         <div class="acv-wizard-frame__head">
             <span :class="[props.icon, 'acv-wizard-frame__icon']" aria-hidden="true" />
             <span class="acv-wizard-frame__title">{{ props.title }}</span>
@@ -39,17 +40,25 @@ const {t} = useAgentText();
         <div class="acv-wizard-frame__foot">
             <slot name="foot" />
         </div>
+        </div>
     </div>
 </template>
 
 <style scoped>
-/* 固定部分放不下时（很矮的视图）整个框滚动。 */
+/* 滚动不加在浮层外框上（styles.css 的“浮层内部的滚动区”）：滚动条会画在圆角里。固定部分放不下时（很矮的视图）里面这层整个滚动。 */
 .acv-wizard-frame {
     --nb-popover-pad: 10px;
     display: flex;
+    max-height: 60cqh;
+    overflow: hidden;
+}
+
+.acv-wizard-frame__scroll {
+    display: flex;
+    flex: 1;
     flex-direction: column;
     gap: 8px;
-    max-height: 60cqh;
+    min-width: 0;
     overflow-y: auto;
     padding: var(--nb-popover-pad) 12px;
 }

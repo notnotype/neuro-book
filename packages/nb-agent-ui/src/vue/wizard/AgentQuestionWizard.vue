@@ -3,7 +3,7 @@
  * 提问向导（docs/specs/agent/conversation.md 输出 13）：一次 1 到 4 题，单选或多选，总带“其它”；带表单的题用 `renderers.form`。
  * 已答的答案在提交前可以来回改。
  */
-import {computed, ref} from "vue";
+import {computed} from "vue";
 import {Button, CheckboxGroup, Input, RadioGroup} from "@notnotype/nb-ui/components";
 
 import type {JsonValue, PendingQuestionsView} from "../../types";
@@ -33,15 +33,19 @@ const answers = computed(() => props.state.answers[props.item.id] ?? []);
 const answer = computed(() => answers.value[step.value] ?? emptyAnswer());
 const total = computed(() => props.item.questions.length);
 
-/** 表单的对错由表单组件说；没有表单或还没填的题算对。按题记，切走再回来不丢。 */
-const formValid = ref<{[step: number]: boolean}>({});
-const isAnswered = (index: number) => answered(props.item.questions[index]!, answers.value[index], formValid.value[index] !== false);
+const isAnswered = (index: number) => answered(props.item.questions[index]!, answers.value[index]);
 const allAnswered = computed(() => props.item.questions.every((_, index) => isAnswered(index)));
 
 function update(change: Partial<QuestionAnswer>): void {
     const next = [...answers.value];
     next[step.value] = {...answer.value, ...change};
     emit("update:state", {...props.state, answers: {...props.state.answers, [props.item.id]: next}});
+}
+
+/** 表单组件一挂上就报一次；没变时不写，免得切回来多发一次状态。 */
+function onFormValid(valid: boolean): void {
+    if ((answer.value.formInvalid === true) !== valid) return;
+    update({formInvalid: !valid});
 }
 
 function go(delta: number): void {
@@ -67,7 +71,7 @@ const count = computed(() => (total.value > 1 ? t("wizard.questionCount", {index
             :model-value="answer.form"
             data-question-form
             @update:model-value="update({form: $event as JsonValue})"
-            @update:valid="formValid = {...formValid, [step]: $event}"
+            @update:valid="onFormValid($event)"
         />
         <Input :model-value="answer.other ?? ''" class="acv-question__other" :placeholder="t('wizard.question.otherPlaceholder')" :aria-label="t('wizard.question.otherPlaceholder')" data-question-other @update:model-value="update({other: String($event)})" />
         <template #foot>

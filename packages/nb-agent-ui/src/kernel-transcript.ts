@@ -186,6 +186,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     /** `modelStarted` 记下的用途：`modelFailed` 不带用途，半截文字只有对话请求的才算回复。 */
     let purposes = new Map<number, string>();
     let live: Live | null = null;
+    let lastSettledRequest = 0;
     /** 执行完、结果还没写下的调用（`tool` 帧）。 */
     let finishedCalls = new Map<string, ToolCallStatus>();
 
@@ -233,6 +234,13 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         if (view !== null) context = view.input + view.cacheRead + view.cacheWrite;
     };
 
+    /** 这次请求写下来了：它的增量到此为止。打开、重建时缓存的增量在路径之后才处理，晚到的不能再画出一条“正在生成”。 */
+    const settleRequest = (request: number | null): void => {
+        if (request === null) return;
+        lastSettledRequest = Math.max(lastSettledRequest, request);
+        if (live?.request === request) live = null;
+    };
+
     /** 路径上的事件。session 事件走 `reduceSession`。 */
     function reducePath(type: string, data: JsonRecord, id: string, at: number): void {
         const source = `${type} ${id}`;
@@ -242,8 +250,6 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 const text = stringField(data, "text") ?? "";
                 const attachments = Array.isArray(data.attachments) ? data.attachments.flatMap((item): ContentBlockView[] => (isRecord(item) && typeof item.uri === "string" ? [{kind: "attachment", locator: item.uri, name: item.uri.slice(item.uri.lastIndexOf("/") + 1), mimeType: item.kind === "image" ? "image/*" : "", bytes: 0}] : [])) : [];
                 logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false});
-                // 内核确认了：换掉最早的乐观消息。拦截可能改写了文字，所以只按先后，不按内容。
-                optimistic = optimistic.slice(1);
                 return;
             }
             case "assistant": {
@@ -251,7 +257,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     problem(source, "assistant 缺 content 或 toolCalls");
                     return;
                 }
-                if (live?.request === numberField(data, "request")) live = null;
+                settleRequest(numberField(data, "request"));
                 logged.push(assistantFrom(data, id, at, "done", data.content, data.toolCalls));
                 contextOf(data);
                 return;
@@ -289,7 +295,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             case "modelFailed": {
                 const request = numberField(data, "request");
                 if (request === null || (purposes.get(request) ?? "turn") !== "turn") return;
-                if (live?.request === request) live = null;
+                settleRequest(request);
                 // 带 retry：这次运行还要接着发，半截文字作废。没带的半截落成一条消息，已经花了钱，不能丢。
                 if (data.retry !== undefined || !Array.isArray(data.partial) || data.partial.length === 0) return;
                 const kind = stringField(data, "kind");
@@ -444,6 +450,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             problem("delta", "增量缺 request、n 或 text");
             return;
         }
+        if (request <= lastSettledRequest) return;
         // n 从 1 重新开始：重连后服务端的合并器重新编号，手里的内容接不上，清空重来；后面的增量会补上重连之后的部分。
         if (live === null || live.request !== request || n === 1) live = {request, next: 1, text: "", thinking: "", calls: [], broken: false};
         // 中间丢了帧：这条回复的临时内容已经不完整，不再画，等 `assistant` 事件。
@@ -483,6 +490,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         context = null;
         purposes = new Map();
         live = null;
+        lastSettledRequest = 0;
         finishedCalls = new Map();
     };
 
@@ -544,6 +552,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             }
             touched();
             if (USAGE_EVENTS.has(parsed.type)) addUsage(parsed.data);
+            // 内核确认了：换掉最早的乐观消息。拦截可能改写了文字，所以只按先后，不按内容。只看实时到的：`applyPath` 重放的是历史，
+            // 不是这条乐观消息的确认，重连重建时吃掉它，“结果未知、可以重发”的消息就没了。
+            if (parsed.type === "input" || parsed.type === "steer") optimistic = optimistic.slice(1);
             if (parsed.type === "leafChanged") return "leaf-changed";
             if (isExtensionEvent(parsed) || reduceSession(parsed.type, parsed.data)) return null;
             reducePath(parsed.type, parsed.data, parsed.id, parsed.at);

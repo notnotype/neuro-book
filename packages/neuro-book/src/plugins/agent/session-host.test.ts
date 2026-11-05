@@ -157,6 +157,36 @@ describe("打开会话（输出 5）", () => {
         expect(again.host.sessionId.value).toBe(h.host.sessionId.value);
     });
 
+    test("打开过程中：视图显示加载中；快照之后、路径之前的状态变化不丢", async () => {
+        const w = await world();
+        const first = await started(w);
+        const id = first.host.sessionId.value!;
+        let openPath = () => undefined as void;
+        const pathGate = new Promise<void>((resolve) => {
+            openPath = resolve;
+        });
+        const gated = new Proxy(first.client, {get(target, key, receiver) {
+            if (key !== "path") return Reflect.get(target, key, receiver);
+            return async (input: never) => {
+                await pathGate;
+                return target.path(input);
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: gated});
+        const opening = h.host.open(id);
+        await until("开始加载", () => h.ctx().availability.status === "loading");
+        endpoint.script({tool: "write", args: {path: "session://一.md", content: "内容"}}, "好了");
+        // 路径还没取回来时，别的窗口发了一条，运行进了等批准。
+        first.host.act({type: "composer.submit", text: "写", delivery: "prompt"});
+        await until("服务端在等批准", async () => (await w.service.session(id).snapshot()).status.state === "waiting");
+        openPath();
+        await opening;
+        await until("这个窗口也知道在等批准", () => h.ctx().run.status === "waiting" && approvals(h.ctx()).length === 1);
+        expect(h.ctx().availability.status).toBe("ready");
+        first.host.act({type: "input.submit", batchKey: approvals(first.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
+        await idle(first);
+    });
+
     test("最近用过的会话不在了：显示未选择，记录清掉", async () => {
         const w = await world();
         const h = await harness(w);
@@ -284,10 +314,13 @@ describe("发送、排队与停止（输出 6）", () => {
         h.host.act({type: "composer.submit", text: "排一条", delivery: "followup"});
         await until("进了排队", () => h.ctx().composer.queued.length === 1);
         expect(h.ctx().composer.queued[0]).toMatchObject({text: "排一条", delivery: "followup"});
+        // 输入框里有没发的字：取出来接在后面，不丢。
+        h.host.act({type: "composer.draftChanged", text: "正在写的"});
         h.host.act({type: "queued.edit", id: h.ctx().composer.queued[0]!.id});
-        await until("取出到输入框", () => h.ctx().composer.draft.text === "排一条");
+        await until("取出到输入框", () => h.ctx().composer.draft.text === "正在写的\n排一条");
+        await until("从队列拿掉了", () => h.ctx().composer.queued.length === 0);
         h.host.act({type: "composer.submit", text: "改过的", delivery: "followup"});
-        await until("排队的改了", () => h.ctx().composer.queued[0]?.text === "改过的");
+        await until("改过的重新排上", () => h.ctx().composer.queued[0]?.text === "改过的");
         h.host.act({type: "composer.submit", text: "要删的", delivery: "followup"});
         await until("两条", () => h.ctx().composer.queued.length === 2);
         h.host.act({type: "queued.remove", id: h.ctx().composer.queued[1]!.id});
@@ -359,11 +392,27 @@ describe("审批与提问（输出 10–14）", () => {
         expect(JSON.stringify(endpoint.requests.at(-1)!.messages)).toContain("第三人称");
     });
 
-    test("向导的界面状态交给宿主：组件卸载再挂回来还在", async () => {
+    test("向导的界面状态交给宿主：归还超过 30 秒再借回还在；这一批答完就清，下一批从头来", async () => {
         const w = await world();
         const h = await started(w);
+        endpoint.script({tool: "write", args: {path: "session://一.md", content: "内容"}}, {tool: "write", args: {path: "session://二.md", content: "内容"}}, "好了");
+        h.host.act({type: "composer.submit", text: "写", delivery: "prompt"});
+        await until("审批", () => approvals(h.ctx()).length === 1);
         h.host.act({type: "wizard.state", state: {collapsed: true, step: 1}});
+        const give = h.host.borrow();
+        give();
+        w.settings.clock.advance(RELEASE_DELAY_MS + 1);
+        const back = h.host.borrow();
+        await until("重新打开", () => approvals(h.ctx()).length === 1);
         expect(h.ctx().wizardState).toEqual({collapsed: true, step: 1});
+        back();
+
+        h.host.act({type: "input.submit", batchKey: approvals(h.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
+        await until("这一批答完", () => h.ctx().wizardState === undefined);
+        await until("下一批", () => approvals(h.ctx()).length === 1);
+        expect(h.ctx().wizardState).toBeUndefined();
+        h.host.act({type: "input.submit", batchKey: approvals(h.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
+        await idle(h);
     });
 });
 

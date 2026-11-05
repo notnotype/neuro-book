@@ -110,6 +110,8 @@ type Current = {
     chain: Promise<void>;
     /** 这个会话打开失败的说明。 */
     failed: {readonly code: string} | null;
+    /** 快照和路径还没到：视图显示加载中，不说“还没有消息”。 */
+    loading: boolean;
 };
 
 export function createSessionHost(deps: SessionHostDeps): SessionHost {
@@ -130,8 +132,6 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let draft = {text: "", version: 0};
     let draftText = "";
     let notice: Text | null = null;
-    /** “改”排队的消息：取出到输入框，再发送走 `edit`。 */
-    let editing: string | null = null;
     /** 结果未知的乐观消息，可以重发（同一个指令 id）或移除。 */
     const unknownSends = new Map<string, {readonly commandId: string; readonly text: string}>();
 
@@ -224,7 +224,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     /** 等用户的事项变了：给新的审批取预览；运行状态变了：开关计时。 */
     function afterChange(target: Current): void {
         if (current !== target || disposed) return;
-        for (const item of target.transcript.pending()) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id);
+        const pending = target.transcript.pending();
+        for (const item of pending) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id);
+        // 这一批答完了：下一批从头来，不沿用“收起”和第几步。
+        if (pending.length === 0) wizardState = undefined;
         syncTicker(target);
         bump();
     }
@@ -276,21 +279,25 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         wizardState = undefined;
         stopRequestedAt = null;
         unknownSends.clear();
-        editing = null;
         notice = null;
     }
 
     async function open(id: string): Promise<void> {
         generation += 1;
         const token = generation;
+        // 同一个会话重新打开（归还 30 秒后借回）：未提交的答案还要；换了会话才清。事项答完了的话，`afterChange` 会清。
+        const keptWizard = sessionId.value === id ? wizardState : undefined;
         closeCurrent();
-        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null};
+        wizardState = keptWizard;
+        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null, loading: true};
         current = target;
         sessionId.value = id;
         deps.recent.write(id);
         bump();
 
         const early: RemoteFrame[] = [];
+        /** 快照返回时 `early` 有多长：这之前的状态帧过时了，这之后的是快照之后的变化，不能丢（输出 5）。 */
+        let staleUntil = 0;
         let live = false;
         const subscription = await remote.events.frames.subscribe({sessionId: id}, (frame) => {
             if (current !== target) return;
@@ -324,6 +331,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             bump();
             return;
         }
+        staleUntil = early.length;
         target.transcript.applySnapshot(snapshot.value);
         const loaded = await loadPath(target, snapshot.value.leaf);
         if (token !== generation) return;
@@ -332,9 +340,12 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             bump();
             return;
         }
+        target.loading = false;
         live = true;
-        // 快照之前的状态帧已经过时；日志帧不大于 `head` 的由适配器丢掉。
-        for (const frame of early) if (frame.type !== "status") take(target, frame);
+        // 日志帧不大于 `head` 的由适配器丢掉。
+        early.forEach((frame, index) => {
+            if (frame.type !== "status" || index >= staleUntil) take(target, frame);
+        });
         await target.chain;
         afterChange(target);
     }
@@ -369,7 +380,13 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     /** 发送结果未知：消息标出来，可以重发或移除。明确被拒：撤掉，文字放回输入框，说明原因。 */
     function settleSend(target: Current, optimisticId: string, id: string, text: string, result: {ok: boolean; code?: string}): void {
-        if (result.ok || current !== target) return;
+        if (current !== target) return;
+        if (result.ok) {
+            // 受理了：`input` 帧先于响应到达，通常已经换掉；重连重建时帧被跳过，这里兜住，不留一条永远“发送中”的。
+            target.transcript.removeOptimistic(optimisticId);
+            bump();
+            return;
+        }
         if (UNKNOWN_OUTCOME.has(result.code ?? "")) {
             target.transcript.markOptimisticUnknown(optimisticId);
             unknownSends.set(optimisticId, {commandId: id, text});
@@ -392,13 +409,6 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             return;
         }
         const target = current!;
-        if (editing !== null) {
-            const inputId = editing;
-            editing = null;
-            const edited = await remote.edit({sessionId: target.id, commandId: commandId(), inputId, input: {text}});
-            // 排队的那条已经发出去了：当成新的一条。
-            if (edited.ok) return;
-        }
         if (delivery === "prompt") {
             const id = commandId();
             const optimisticId = `optimistic-${id}`;
@@ -490,10 +500,12 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 if (target !== null) await remote.remove({sessionId: target.id, commandId: commandId(), inputId: action.id});
                 return;
             case "queued.edit": {
+                // 取出来就是取出来：从队列删掉、放进输入框，改了再发是一条新消息。输入框里已有的不丢，接在后面。
                 const queued = target?.transcript.queue().find((item) => item.id === action.id);
-                if (queued === undefined) return;
-                editing = queued.id;
-                setDraft(queued.text);
+                if (queued === undefined || target === null) return;
+                const removed = await remote.remove({sessionId: target.id, commandId: commandId(), inputId: queued.id});
+                if (!removed.ok) return;
+                setDraft(draftText === "" ? queued.text : `${draftText}\n${queued.text}`);
                 bump();
                 return;
             }
@@ -584,7 +596,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const warnCost = deps.warnCost();
         const models = deps.models();
         const settings = (meta?.settings ?? {}) as {model?: string | null; effort?: string | null; approvalMode?: string};
-        const availability = target?.failed !== null && target?.failed !== undefined
+        const availability = target?.loading === true && target.failed === null
+            ? {status: "loading" as const, message: "", actions: []}
+            : target?.failed !== null && target?.failed !== undefined
             ? {status: "load-error" as const, message: deps.text.t(agentText("conversation.openFailed", {code: target.failed.code})), actions: [{id: "retry", label: deps.text.t(agentText("conversation.retry"))}]}
             : meta?.archived === true
                 ? {status: "archived" as const, message: deps.text.t(agentText("conversation.archived")), actions: [{id: "restore", label: deps.text.t(agentText("conversation.restore"))}]}
@@ -594,7 +608,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         return createAgentContext({
             session: target === null || meta === undefined ? null : {
                 id: target.id,
-                title: meta.title ?? "",
+                title: target.loading ? deps.text.t(agentText("conversation.loading")) : meta.title ?? "",
                 summary: meta.description ?? "",
                 profileName: profile?.name ?? meta.profile ?? "",
                 profileIcon: profile?.icon ?? "i-lucide-bot",
@@ -670,7 +684,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                         const keptDraft = draftText;
                         closeCurrent();
                         wizardState = keptState;
-                        setDraft(keptDraft);
+                        draftText = keptDraft;
                     }
                 }, RELEASE_DELAY_MS);
             };

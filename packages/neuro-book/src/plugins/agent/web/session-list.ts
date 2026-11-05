@@ -23,6 +23,8 @@ export interface SessionListStore {
     readonly showArchived: Ref<boolean>;
     readonly loading: Ref<boolean>;
     readonly error: Ref<string | null>;
+    /** 分组与时间列按它算，每次刷新更新：空闲时也要跨过午夜。 */
+    readonly now: Ref<number>;
     toggleProfile(id: string): void;
     setScope(scope: "project" | "all"): void;
     setShowArchived(show: boolean): void;
@@ -35,6 +37,7 @@ export function createSessionList(options: {
     readonly profileEntries: () => readonly ProfileEntry[];
     readonly activity: () => readonly ActivityItem[];
     readonly failed: (code: string) => string;
+    readonly now: () => number;
 }): SessionListStore {
     const entries = shallowRef<readonly SessionIndexEntry[]>([]);
     const query = ref("");
@@ -43,6 +46,7 @@ export function createSessionList(options: {
     const showArchived = ref(false);
     const loading = ref(false);
     const error = ref<string | null>(null);
+    const now = ref(options.now());
 
     /** 只有最后一次请求的结果算数：换范围时前一次可能还在路上。 */
     let latest = 0;
@@ -50,6 +54,7 @@ export function createSessionList(options: {
         latest += 1;
         const token = latest;
         loading.value = true;
+        now.value = options.now();
         const filter = {...(scope.value === "project" && options.project !== null ? {project: options.project} : {}), ...(showArchived.value ? {archived: true} : {})};
         const result = await options.remote.list(filter);
         if (token !== latest) return;
@@ -93,6 +98,7 @@ export function createSessionList(options: {
         showArchived,
         loading,
         error,
+        now,
         toggleProfile(id) {
             const next = new Set(selectedProfiles.value);
             if (!next.delete(id)) next.add(id);

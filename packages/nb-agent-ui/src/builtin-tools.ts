@@ -109,7 +109,7 @@ function streamingPath(call: ToolCallView): string {
     const path = argString(call, "path");
     const args = call.args;
     const chars = call.status === "streaming" && args !== null && typeof args === "object" && !Array.isArray(args) && typeof args.partialChars === "number" ? args.partialChars : null;
-    return chars === null ? path : `${path} · ${String(chars)}`;
+    return chars === null || path === "" ? path : `${path} · ${String(chars)}`;
 }
 
 function firstQuestion(call: ToolCallView): string {

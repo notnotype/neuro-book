@@ -35,14 +35,13 @@ describe("AgentSessionPanel", () => {
         expect(view.emitted("update:query")).toEqual([["钟声"]]);
     });
 
-    it("选了的过滤条件显示成可去掉的标签", async () => {
-        const view = panel({profiles: [{id: "writer", label: "写作助手", active: true}, {id: "qa", label: "问答", active: false}], showArchived: true});
-        const tags = view.findAll("[data-panel-tag]");
-        expect(tags.map((tag) => tag.text())).toEqual(["写作助手", "已归档"]);
-        await tags[0]!.trigger("click");
-        await tags[1]!.trigger("click");
-        expect(view.emitted("toggle-profile")).toEqual([["writer"]]);
-        expect(view.emitted("update:show-archived")).toEqual([[false]]);
+    it("选了的过滤条件是按钮上的条数，不多占一行", () => {
+        const none = panel();
+        expect(none.find("[data-panel-filter-count]").exists()).toBe(false);
+        const filtered = panel({profiles: [{id: "writer", label: "写作助手", active: true}, {id: "qa", label: "问答", active: false}], showArchived: true});
+        expect(filtered.get("[data-panel-filter-count]").text()).toBe("2");
+        // 列表前面的元素个数一样：有没有条件，列表都不被推动。
+        expect(filtered.get(".acv-panel__list").element.parentElement!.children.length).toBe(none.get(".acv-panel__list").element.parentElement!.children.length);
     });
 
     it("没打开作品时没有范围按钮；空与出错写明", () => {
@@ -50,5 +49,7 @@ describe("AgentSessionPanel", () => {
         expect(panel({scope: {value: "all"}}).get("[data-panel-scope]").text()).toBe("全部作品");
         expect(panel({items: []}).text()).toContain("没有会话");
         expect(panel({items: [], error: "取不到"}).get("[role='alert']").text()).toBe("取不到");
+        // 刷新失败不盖掉已经取到的列表：断线时还要能切会话。
+        expect(panel({error: "取不到"}).findAll("[data-panel-row]")).toHaveLength(4);
     });
 });

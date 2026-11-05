@@ -158,15 +158,27 @@ describe("收起与焦点", () => {
         second.unmount();
     });
 
-    it("别的窗口先答了：跟着消失；这一批没了状态清空；来了新的一批从头来", async () => {
-        const view = wizard([approval("a"), approval("b")]);
+    it("别的窗口先答了：跟着消失；一批是逐条到的，后到的不清掉已经选的", async () => {
+        const view = wizard([approval("a")]);
+        await view.setProps({pending: [approval("a"), approval("b")]});
         await view.get("[data-approval-decision='allow']").trigger("click");
+        await view.setProps({pending: [approval("a"), approval("b"), approval("c")]});
+        await nextTick();
+        expect(view.get("[data-wizard-count]").text()).toBe("第 2 / 3 个");
+        await view.get("[data-approval-decision='allow']").trigger("click");
+        await view.get("[data-approval-decision='deny']").trigger("click");
+        // a 不用再选一次就能提交。
+        expect(view.get("[data-approval-submit]").attributes("disabled")).toBeUndefined();
         await view.setProps({pending: [approval("b")]});
         expect(view.find("[data-wizard-count]").exists()).toBe(false);
-        await view.setProps({pending: [approval("x"), approval("y")]});
-        await nextTick();
-        expect(view.get("[data-wizard-count]").text()).toBe("第 1 / 2 个");
-        expect(view.get("[data-approval-submit]").attributes("disabled")).toBeDefined();
+        view.unmount();
+    });
+
+    it("表单填错了：看着别的题、表单没挂载时，提交还是不可点", () => {
+        const pending: PendingInputView[] = [{kind: "question", id: "f", toolCallId: "c", questions: [{question: "填", options: [], form: {type: "object"}}, {question: "选", options: [{label: "甲"}]}]}];
+        const answers = {f: [{selected: [], form: {a: 1}, formInvalid: true}, {selected: ["甲"]}]};
+        const view = wizard(pending, {collapsed: false, step: 1, approvals: {}, notes: {}, answers} as never);
+        expect(view.get("[data-question-submit]").attributes("disabled")).toBeDefined();
         view.unmount();
     });
 });

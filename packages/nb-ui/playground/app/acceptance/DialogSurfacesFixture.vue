@@ -22,7 +22,8 @@ const props = defineProps<{
 }>();
 
 const PROBE_OVERRIDES: Record<string, Record<string, string>> = {
-    "nested-probe": {"--dialog-surface-nested": "color-mix(in srgb, var(--bg-panel) 50%, transparent)"},
+    // 一级对话框比窗口圆，二级才看得出收到了窗口那档（nbook 下两者同值，看不出）。
+    "nested-probe": {"--dialog-surface-nested": "color-mix(in srgb, var(--bg-panel) 50%, transparent)", "--radius-dialog": "20px"},
     "alert-probe": {"--dialog-surface-nested": "color-mix(in srgb, var(--bg-panel) 50%, transparent)", "--radius-dialog-compact": "20px"},
     "window-probe": {"--dialog-surface-nested": "color-mix(in srgb, var(--bg-panel) 50%, transparent)", "--radius-dialog": "8px"},
 };

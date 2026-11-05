@@ -7,7 +7,8 @@ import type {InputResolution, JsonValue, PendingApprovalView, PendingInputView, 
 
 export type ApprovalDecision = "allow" | "allow-session" | "deny";
 export type ApprovalChoice = {decision: ApprovalDecision; note?: string};
-export type QuestionAnswer = {selected: string[]; other?: string; form?: JsonValue};
+/** `formInvalid`：表单现在填得不对。跟着答案存：向导收起、切标签都会卸载表单，不能只记在组件里。提交时不带它。 */
+export type QuestionAnswer = {selected: string[]; other?: string; form?: JsonValue; formInvalid?: boolean};
 
 /** 向导的界面状态，能完整表示成 JSON：宿主替它存着，切标签回来还在。 */
 export type WizardState = {
@@ -33,12 +34,12 @@ export function readWizardState(value: JsonValue | undefined): WizardState {
 export const isApproval = (item: PendingInputView): item is PendingApprovalView => item.kind === "approval";
 export const isQuestions = (item: PendingInputView): item is PendingQuestionsView => item.kind === "question";
 
-/** 选了一个决定。“本会话都批准”同时选中这批里同一个工具的其余调用：它们也不会再问了。 */
+/** 选了一个决定。“本会话都批准”同时选中这批里同一个工具还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
 export function choose(state: WizardState, items: readonly PendingApprovalView[], id: string, decision: ApprovalDecision, note?: string): WizardState {
     const approvals = {...state.approvals, [id]: {decision, ...(note === undefined || note === "" ? {} : {note})}};
     if (decision === "allow-session") {
         const tool = items.find((item) => item.id === id)?.tool;
-        for (const item of items) if (item.tool === tool) approvals[item.id] = {decision: "allow-session"};
+        for (const item of items) if (item.tool === tool && approvals[item.id] === undefined) approvals[item.id] = {decision: "allow-session"};
     }
     return {...state, approvals};
 }
@@ -59,10 +60,10 @@ export const approvalResolution = (choice: ApprovalChoice): InputResolution => (
 
 export const emptyAnswer = (): QuestionAnswer => ({selected: []});
 
-/** 这一题答了没有：选了选项、写了“其它”，或填了表单。表单对不对由 `formValid` 判断（向导问 nb-form）。 */
-export function answered(question: PendingQuestionView, answer: QuestionAnswer | undefined, formValid: boolean): boolean {
+/** 这一题答了没有：选了选项、写了“其它”，或填了对的表单。 */
+export function answered(question: PendingQuestionView, answer: QuestionAnswer | undefined): boolean {
     if (answer === undefined) return false;
-    if (question.form !== undefined && answer.form !== undefined && !formValid) return false;
+    if (question.form !== undefined && answer.form !== undefined && answer.formInvalid === true) return false;
     return answer.selected.length > 0 || (answer.other ?? "").trim() !== "" || answer.form !== undefined;
 }
 
