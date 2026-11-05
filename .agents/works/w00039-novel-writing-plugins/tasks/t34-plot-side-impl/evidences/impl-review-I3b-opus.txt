@@ -1,0 +1,144 @@
+# w00039 t34 阶段 C 实现审查（Claude Opus，只读）
+审查对象：0a6028673..30f2ec74c（审查 worktree 提交 30f2ec74c）。实验脚本在 /tmp/w00039-t34-impl-review-c-lab/。
+条目按核实先后追加，严重程度见每条；排序见文末汇总。
+
+### 1. 没有 `lasts` 的事被 `of … edge: end` 指到时，终点成了“不早于起点的任意时刻”，违反“E.e = E.s”
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-time/src/network.ts:210-221（`usesEnd` 只要有约束提到某事的 end 就给它建终点节点）、:277-278（终点只加 `e ≥ s` 一条隐含边，权 0，方向 end→start）
+**现象**：X 只有日期（2000-01-01），E 写 `after X edge:end gap 1..3 天`，F 写 `after X edge:start gap 1..3 天`。实测（lab/end-edge.ts，真实 nb-time 源码）：F 的范围 `[1051899840, 1051904159]`，E 的范围 `[1051899840, +∞)`，`bounds("X","end")` 为 `[1051898400, +∞)`。
+**为什么是问题**：time.md 输入表 `lasts` 一行写明“没有这条说法时 E.e = E.s”，代码注释（network.ts:276）也这样说，但只在没人提到 X 的终点时成立；一旦有说法指向 X 的 end，X.e 只受 `X.e ≥ X.s` 约束、上方无界。后果：凡是相对一件“没写持续多久”的事的终点说的“之后几天”，上界全部丢掉；`before … edge:end` 一类（E.s 早于 X.e）则永远不会和 X 的日期打架，该报的 time-conflict 漏掉；同一件 X 的终点范围随“有没有别人提到它的终点”而变，查询结果自相矛盾。
+**如何核实**：`bun run /tmp/w00039-t34-impl-review-c-lab/end-edge.ts`。
+**建议改法**：组网时知道哪些事有 `lasts`（assembleNetwork 可以从降好的约束里看出 self.end 的模板）。没有 `lasts` 的事，`end` 端点直接解析成它的起点节点（nodeOf 回落到 startNode），不建终点节点；或者建节点时再加一条 `s → e` 权 0 的边让两者相等。补一条网络测试：没 `lasts` 的事被 `edge:end` 指到时与 `edge:start` 结果相同。
+
+### 2. 清空作品设置里的历法以后仍沿用上一份自定义历法，没有诊断，且经 `.nbook/world/calendar.json` 跨重启保留
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/service/service.ts（`setTime` 的 `checked === null` 分支：`calendar = checked === null ? (this.#lastValidCalendar ?? GREGORIAN) : …`）；packages/neuro-book/src/plugins/canon/backend/world-host.ts（`applyTime` 把 `null` 换成 `undefined`，并把 calendar.json 作为 `previous` 传入）；packages/neuro-book/src/plugins/canon/shared/settings.ts（设置说明“不填时用公历”）
+**现象**：在真实 WorldService 上先 `setTime({calendar: royal})`，再 `setTime({calendar: undefined})`（作者把设置清空时宿主送来的就是这个），返回的仍是 royal，`valid: true`，诊断为空（lab/settime-absent.test.ts，在实现 worktree 的 nb-canon 里 `bun test` 实测）。重启后宿主从 calendar.json 读出 royal 作为 `previous`，同样沿用。
+**为什么是问题**：设置项的说明写“不填时用公历”，`WorldOptions.time` 的注释也写“没给时是内置的公历”；time.md 输出 13、16 只规定“不合法时”用最近一次合法的，没有说“没填”也算。现在作者一旦设过自定义历法，就再也回不到公历（除非手写一份公历），而且界面上没有任何提示说明用的不是公历；范围、打架、对不上全按旧历法算。
+**如何核实**：在实现 worktree 的 packages/nb-canon 里运行 `bun test /tmp/w00039-t34-impl-review-c-lab/settime-absent.test.ts`。
+**建议改法**：`checked === null`（设置里没有历法）时用 `GREGORIAN`，不读 `#lastValidCalendar`；“最近一次合法的”只在设置存在但不合法时用。宿主可以在设置清空时删掉 calendar.json，或保留但不再传 `previous`。若开发者确实想要“清空也沿用”，就改设置说明与 Spec 输出 16，并给一条提示性诊断。补一条测试：设过自定义历法再清空，回到公历。
+
+### 3. 世界宿主的 `applyTime` 可以并发跑：后到的设置可能先进服务队列，最终生效的是旧的一份；两次写 calendar.json 共用同一个临时文件名
+**严重程度**：建议　**类别**：正确性
+**位置**：packages/neuro-book/src/plugins/canon/backend/world-host.ts（`applyTime`：先 `await readFile(calendarFile)` 再 `target.setTime(...)`；`setTime: (raw) => { timeSettings = raw; if (service !== null) void applyTime(service); }`；open 里 `service = opened` 在 `await applyTime(opened)` 之前赋值）
+**现象**：每次调用 `applyTime` 在入口处取 `sent = timeSettings`，然后 await 一次读文件，读完才把 `sent` 排进服务的写入队列。两次调用（打开期间到达一次设置变化，或设置服务对一次保存发出两次变化）各自 await 读文件，完成顺序不保证与调用顺序相同；先读完的先排队。若第二次先读完，队列里就是“新值、旧值”，最后生效的是旧设置，直到下一次设置变化。写文件时两次用同一个 `${calendarFile}.${pid}.tmp`，并发 `writeFile` 同一路径、先改名的那次让后一次 `rename` 报 ENOENT（只记 warn），或把旧历法改名成正式文件。
+**为什么是问题**：plan 写的是“打开期间到达的设置变化在打开后比对补上”，注释写“交的是最新的那一份”，但最新的一份只在入口处取了一次，没有在排队前再核对；结果依赖文件读的完成次序。概率不高（要两次变化落在一次读文件的几毫秒里），出现时作品静默用错历法。
+**如何核实**：从代码推断，未实测。可以在 lab 里把 `readFile` 换成随机延迟的假实现，连续两次 `host.setTime` 后看服务最终的 `options.time.calendar`。
+**建议改法**：把 `applyTime` 串成一条链（`chain = chain.then(() => applyOnce(target))`），每次在链上执行时再读 `timeSettings` 的当前值；calendar.json 只在 open 时读一次放进内存，之后由宿主自己维护；临时文件名加一个递增序号。
+
+### 4. “同一件事最多一条 birth”在只查新写的说法时可以绕过：新的 birth 插在旧的前面就不报
+**严重程度**：建议　**类别**：正确性
+**位置**：packages/nb-canon/src/world/world.ts `statementProblems`（`validateStatements(...).filter((problem) => fresh.has(problem.index))`）；packages/nb-time/src/statements.ts `validateStatements`（第二条 birth 才 `fail(index, ...)`）
+**现象**：一条已写变更原有 `when: [birth(甲)]`。改写成 `[...旧, birth(乙)]` 被拒（`invalid-time when[1]`）；改写成 `[birth(乙), ...旧]` 发布成功（lab/birth-bypass.test.ts，真实 World 实测：`appended ok? false`，`prepended ok? true`）。
+**为什么是问题**：nb-time 把“几条 birth”的问题记在第二条的下标上，nb-canon 再按“这条是不是新写的”过滤；规则是整件事的属性，不是某一条说法的，按下标过滤就让结果取决于新说法插在哪儿。绕过以后这件事同时是两个人的出生事件，两人的年龄都从同一刻起算，time.md 输出 9 的规则失效。
+**如何核实**：在实现 worktree 的 packages/nb-canon 里运行 `bun test /tmp/w00039-t34-impl-review-c-lab/birth-bypass.test.ts`。
+**建议改法**：birth 的条数检查在 nb-canon 里单独做：新写或改过的说法里有 birth、且整份 `when` 里 birth 多于一条就报（报在新写的那条上）。或者让 `validateStatements` 把“多条 birth”报在每一条 birth 上，过滤时只要有一条是新写的就保留。
+
+### 5. 带视图令牌的 `time` 不分页：`during` 的整份 sure/maybe 列表一次返回，超预算只能得到 `too-large`
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/service/service.ts `viewed(...).time`（直接 `answerTime(state, …, query)`，没有 cursor、limit 参数）；packages/nb-canon/src/service/views.ts `ViewedReads.time(query, mode?)` 的签名；packages/neuro-book/src/plugins/canon/backend/remote.ts 的 `time`（`input.view !== undefined` 时走 `read(...)`，丢掉 `input.cursor`、`input.limit`）
+**现象**：不带令牌时 `service.time` 把 `during` 的结果按 `#page` 分页；带令牌时同一个查询返回 `{kind: "during", sure: [...全部], maybe: [...全部]}`。远程合同的 `time` 方法收 `cursor`、`limit`，但令牌路径不用它们；结果超过 `CANON_BUDGET_BYTES` 时 `within` 直接给 `too-large`，调用方没有任何办法分页取完。
+**为什么是问题**：time.md 输出 8 “列表的结果按 canon.project 输出 18 分页”，plan 的 C7 也写“服务的 time(query, line, mode, cursor?, limit?)”；令牌路径正是按视角读的 Agent 与剧情插件用的那条，模拟世界（三成变更带说法、上千件事）里一段时间宽一点的 `during` 就会超预算。阶段 B 的审查刚为别的列表补过“远程列表分页并守单次预算”，这里重新留了一个口子。
+**如何核实**：读代码可见；可以在 nb-canon 的 time.test.ts 的视图用例里写几百件同一年的事，带令牌查 `during` 那一年，看返回里没有 cursor、条数是全部。
+**建议改法**：`ViewedReads.time` 加 `cursor?`、`limit?`，`during` 与不带令牌的路径共用同一段分页（游标的 `query` 里带上令牌的上限，免得换令牌复用游标）；远程的令牌分支改用 `paged(input.limit, …)`。补一条带令牌分页的测试。
+
+### 6. 逐级浏览与 Spec 输出 8 不符：没有“纪”这一级、不给事件列表；顶层 200 年按安放先后挑，宽范围的一件事能把别的年份全挤掉，结果不说被截了
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-time/src/queries.ts `browse`（顶层：`for (let year = first; year <= last && years.size < 200; year += 1) years.add(year)`，按 `network.events` 的安放顺序逐件加）；packages/nb-canon/src/time/queries.ts `browse` 分支；contracts.ts 的 `TimeQuerySchema` browse 只有 `year`、`month`
+**现象**：实测（lab/browse.ts，真实 nb-time）：锚在 2000 年的一件事、一件“在它之后 0 到 300 年”的事、一件 1500 年 3 月的事（安放在最后）。顶层浏览返回 200 个单位，2000 到 2199 年，没有 1500 年，返回里也没有“还有更多”的标记或总数。另外每一级只给 `sure`、`maybe` 两个数，叶子（日）不给是哪几件事；顶层直接是绝对年份，不按纪分。
+**为什么是问题**：time.md 输出 8 写的是“按纪、年、月、日逐级列出这一级里一定、可能发生的事件的数目与列表”，plan 写“每级最多 200 个子单位，叶子的事件列表分页”。现在 (1) 列表缺失，要靠调用方另用 `during` 拼；(2) 截到 200 的是“先安放的事碰到的年份”而不是时间上的前 200 个或与事件相交最多的，一条宽范围的说法（几年、多年这类词、`after` 不带上界的不算，但带上界的 300 年就够）就让后面所有事的年份在顶层消失；(3) 截了不告诉调用方，看上去像“只有这些年有事”。
+**如何核实**：`bun run /tmp/w00039-t34-impl-review-c-lab/browse.ts`。现有测试只有一件事落在 2012 年的用例（queries.test.ts:124）。
+**建议改法**：顶层先按纪分（没有纪的历法直接列年），每一级先收齐与事件相交的单位（宽范围的事按“可能”计入它跨过的单位，但单位集合按时间排序后取前 200 个，并返回 `total`/`truncated`），或者对跨过太多单位的事只计数不展开；叶子加分页的事件列表（复用 `during` 的分页）。若开发者接受“只给数目”，改 Spec 输出 8 与 plan 的这一句。
+
+### 7. 打架项的键随安放先后变：章序调整没碰那个环，回执里同一个打架既“消失”又“出现”
+**严重程度**：重要　**类别**：不变量
+**位置**：packages/nb-time/src/network.ts（`constraintIds` 按约束下标排序后取 `ref`；约束下标来自 assembleNetwork 按事件安放顺序逐件展开）；packages/nb-canon/src/time/state.ts `timeItemKey`（`time-conflict:${canonicalJson(item.statements)}`，`statements` 即 `conflict.refs`，保持这个顺序）
+**现象**：真实 World 上（lab/reorder-key.test.ts）：第 1 章 p 写“在 q 之后至少一天”，第 2 章 q 写“在 p 之后正好五天”，成一个打架，键为 `["c1|…","c2|…"]`。把章序换成 [ch2, ch1]，`reorder` 修订的 `impact.pendingAdded` 是 `["c2|…","c1|…"]`，`pendingResolved` 是 `["c1|…","c2|…"]`——同一个环、同两条说法，只是顺序反了。
+**为什么是问题**：time.md 输出 14 定的键是“环上说法的有序列表”，目的是“在前面插一条说法不会让别的项消失又出现”（state.ts 注释原话）；但顺序取自约束在网络里的下标，而下标随事件的安放先后变，所以章序调整、给前史补 order、把一件事挪到别的章，都会让没变的打架换一个键。后果：回执里多出一对假的“解决/新增”，按键挂在待处理项上的处理记录（排序 id 也是这个键，pending-groups.ts）对不上。环上的事“打架”与否本身也只取决于说法，与安放无关。
+**如何核实**：在实现 worktree 的 packages/nb-canon 里运行 `bun test /tmp/w00039-t34-impl-review-c-lab/reorder-key.test.ts`；纯 nb-time 的对照见 lab/conflict-key.ts。
+**建议改法**：键用排序后的说法键（`[...new Set(refs)].sort()`），展示时仍可以按沿环的方向列。另外“同一组约束里先找到哪个环”也取决于节点编号（安放顺序），有几个共用说法的环时，换章序可能报出另一个环；这一点可以在 Spec 里写明“哪一个环先报不保证跨章序稳定”，或者在取环前按说法键给节点与边定序。
+
+### 8. 删掉一条讲述时，原样留着的说法仍以它为依据：存下指向不存在讲述的 `basis`
+**严重程度**：建议　**类别**：不变量
+**位置**：packages/nb-canon/src/world/world.ts `statementProblems`（`basis` 的讲述在不在 `told` 里只对 `fresh` 的说法查）
+**现象**：真实 World（lab/basis-dangling.test.ts）：变更带讲述 t1，说法 `date 2012, basis {telling, told: 0}` 存成 `{telling, id: "t1"}`；再改写这条变更、把 `told` 清空、`when` 原样，发布成功，存下的说法依据仍是 `t1`，而这条变更已经没有 t1。
+**为什么是问题**：“原样留着的不查”是为了改历法以后旧说法不挡别的修改（statementProblems 的注释），针对的是历法相关的规则；`basis` 指向本对象的讲述，是同一次写入里能确定的对象内一致性，删讲述的就是这次写入。现在世界里会积累指向不存在讲述的依据，读依据的界面或 Agent 拿着 id 找不到原话；time.md 输出 9 要的“`basis` 指的讲述在这条变更的 `told` 里”也就不是一个不变量。
+**如何核实**：在实现 worktree 的 packages/nb-canon 里运行 `bun test /tmp/w00039-t34-impl-review-c-lab/basis-dangling.test.ts`。
+**建议改法**：`basis` 的讲述检查对全部说法做（它不随历法变，不会出现“改了历法以后旧说法挡修改”）；或者把“删掉被说法当依据的讲述”报在 `told` 上。`of`、`who` 的存在性同理可以考虑（被指的变更不会被删除，条目只会加墓碑，所以风险小一些）。
+
+### 9. canon 项目入口对可选依赖 `settingsKey` 的异步接法没有收口：入口停了以后回调照样交设置、登记监听，作用域已关闭时 `register` 抛出成未处理的 rejection，监听泄漏
+**严重程度**：建议　**类别**：不变量
+**位置**：packages/neuro-book/src/plugins/canon/backend/plugin.ts（`void context.services.resolve(settingsKey).then((resolved) => { … sendTime(); context.scope.register({… value: settings.onDidChange(…) …}) })`）；nb-runtime/src/lifecycle/scope.ts `register`（`#phase === "closed"` 时 throw）
+**现象**：`resolve` 不带 `signal`，回调里不看 `context.signal.aborted`。入口在设置服务解析完成之前停止时：回调仍调用 `host.setTime`（宿主已 stop，`service` 不为 null 时还会对已停止的服务排一次 `setTime` 并写 calendar.json）；先调用 `settings.onDidChange(...)` 拿到订阅，再 `context.scope.register(...)`——作用域已 closed 时这里抛 LifecycleStateError，这个 promise 链没有 catch，成未处理的 rejection，而刚拿到的订阅没有任何地方释放，之后每次改设置都会再调一次停掉的宿主。
+**为什么是问题**：仓库里别的入口对可选依赖都是在 activate 里 `await context.services.resolve(...)`（agent、commands、editor 等），受激活作用域的收口保护；这里为了“内置类型在 activate 返回前交完”改成不等，但没有补上停止时的检查。窗口不大（停止与解析完成撞在一起），出现时是泄漏加一条未处理的 rejection。
+**如何核实**：从代码推断，未实测。
+**建议改法**：`resolve(settingsKey, {signal: context.signal})`；回调开头 `if (context.signal.aborted) return;`；先 `register` 一个占位资源（或用 `context.onStop`）再订阅，订阅失败或作用域不可用时立即退订；链尾加 `.catch` 记诊断。
+
+### 10. 一条说法自己成的环（自环）在 `Conflict.events` 里记的是分量里编号最小的那件事，不是说法所在的事
+**严重程度**：建议　**类别**：正确性
+**位置**：packages/nb-time/src/network.ts（`conflicts.push({refs: [input.constraints[constraint]!.ref], events: [eventOfNode[group.nodes[0]!]!]})`）
+**现象**：E 同时写 `birth(x)` 与 `age(x, 3 到 3 岁)`（两端都解析成 E 的起点，`lo > 0`，自环打架），另一件安放更早的事 early 写“在 E 之后”，与 E 同一分量。实测（lab/selfloop.ts）：`conflicts = [{refs: ["E|age3"], events: ["early"]}]`，涉及的事写成了 early。
+**为什么是问题**：`Conflict.events` 是 nb-time 的公开结果（Spec 的公开接口写明 nb-story 用同一个包），自环时给错事件；nb-canon 现在用说法键反推变更，所以内核的待处理与截取不受影响，但别的使用方按 `events` 截取或定位会出错。
+**如何核实**：`bun run /tmp/w00039-t34-impl-review-c-lab/selfloop.ts`。
+**建议改法**：自环记下它的节点（`fromRaw`），`events: [eventOfNode[fromRaw]]`。
+
+### 11. 时间查询里“不可确定”的原因只是网络内部 `conflicts` 数组的下标，调用方拿不到那个数组
+**严重程度**：建议　**类别**：正确性
+**位置**：packages/nb-canon/src/time/queries.ts `describe`（`if (range.state !== "ok") return range;`，原样交出 `{state: "conflict", conflicts: [下标…]}`）；packages/nb-time/src/network.ts `EventRange` 的 `conflicts: readonly number[]`
+**现象**：`time` 查询 `event` 落在打架的分量里时，回答是 `{state: "conflict", conflicts: [0, 3]}`。这些下标指向 `TimeNetwork.conflicts`，而服务、远程合同与 `CanonReadView.time` 都不交出这个数组；待处理里的 `time-conflict` 项按说法键标识，不带下标，也对不上。带令牌时网络是另建的，下标与整条线的又不同。
+**为什么是问题**：time.md 输出 2 写“这个分量里的事件范围都是不可确定，带原因”；现在的“原因”在进程外没有意义，Agent 看到“不可确定”后要去翻待处理才能知道是哪几条说法，且无法确认是同一个环。
+**如何核实**：读代码可见；`time.test.ts` 没有对打架分量做 `event` 查询的断言。
+**建议改法**：`describe` 遇到 conflict 时把下标换成那几个环的说法键（与 `time-conflict` 项的 `statements` 相同），必要时连同所在变更 id；带令牌时用受限网络自己的环（只含可见的说法，不会漏出上限之后的内容）。
+
+### 12. 形状不对的 `when`（`[null]`、字符串）让发布直接抛 TypeError，而不是 `validation-failed`
+**严重程度**：建议　**类别**：正确性
+**位置**：packages/nb-canon/src/world/world.ts `fillDefaults`（`for (const statement of Array.isArray(change.when) ? change.when : []) { const basis = (statement as …).basis; …`，在形状校验 `schemaProblems` 之前跑）；packages/nb-canon/src/world/references.ts `walkReferences`（`((record.when as …) ?? []).entries()`，换临时 id 时对原样的 `after` 跑）
+**现象**：真实 World（lab/null-statement.test.ts）：`when: [null]` 抛 `TypeError: null is not an object (evaluating 'statement.basis')`；`when: "x"` 抛 `TypeError: (record.when ?? []).entries is not a function`；`when: [{kind: "date", year: 1, basis: null}]` 正常得到 `validation-failed`。`WriteRequestSchema` 的 `puts[].after` 是 `Type.Unknown()`，所以这类输入能一路走到这两处。
+**为什么是问题**：写入方主要是 Agent，形状写错是常见情况；抛错经服务的写入队列变成 rejected promise，远程调用方拿到的是内部错误而不是可以照着改的 `type-mismatch` 详情。同样的写法在 `cast`、`links` 上早就存在（`links: "x"` 同样会抛），这次的 `when` 照抄了一份。
+**如何核实**：在实现 worktree 的 packages/nb-canon 里运行 `bun test /tmp/w00039-t34-impl-review-c-lab/null-statement.test.ts`。
+**建议改法**：两处都先判 `Array.isArray(record.when)`，元素先判是不是对象再取字段；或者在换临时 id 与 fillDefaults 之前先按 `OBJECT_SCHEMAS` 做一次形状校验（顺手把 `cast`、`links` 的同类问题一起收掉）。
+
+### 13. 时间查询的结果没有 Spec 输出 8 要的“结构化的各级”，一章的查询不给依据；远程调用方也无法自己从 tick 还原
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-time/src/format.ts（`FormattedRange` 只有 `text` 与 `level`，文件头注释写“同时给结构化的各级”但没有实现）；packages/nb-canon/src/time/queries.ts（`describe`、`chapter`、`during`、`browse` 只取 `.text`）；`calendarSummary`（只给月、纪、时段、词表，不给闰年规则、`hoursPerDay`、`minutesPerHour`）
+**现象**：`event` 的回答是网络的 `{lo, hi, earliest, latest}` 加一段中文 `text`；`chapter` 的回答是 `{range: {lo, hi}, anchored, unanchored, conflict, text}`，没有依据。没有任何一处返回年、纪、月、日、时的结构化分量。
+**为什么是问题**：time.md 输出 8：“结果的时间按历法的写法给出，精度到依据能确定的那一级……同时给结构化的各级”；“一件事、一章……的范围与依据”。plan 的 C4 也写 `format.ts` “同时返回结构化的 parts”。现在界面只能显示固定的中文串（format.ts 写死“年、月、日、时、分”），英文界面或要按级排版时无从下手；而 tick 是绝对的最小单位数，调用方没有闰年规则就换算不回日期（`calendar` 查询不给闰年规则），所以也不能在客户端自己算。一章的依据缺失，Agent 看到一章的范围很窄时不知道是哪几条说法定的。
+**如何核实**：读代码可见；`nb-time/tests/queries.test.ts` 只断言 `text`。
+**建议改法**：`formatRange` 返回两端的 `timeParts`（纪、纪内年、绝对年、月 id 与名字、日、时、分）截到 `level`，nb-canon 的回答带上；`chapter` 给决定合成范围最早、最晚的那两件事的依据（取 lo 最小、hi 最大的那件的 `range` 依据即可）。若决定不做，改 Spec 输出 8。
+
+### 14. 打架项随读取位置截取时只看“说法所在的变更”，不看环经过、被 `of` 指到的事：牵涉后面章的打架在前面就列出
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/time/state.ts（`changes: [...new Set(conflict.refs.map(changeOf))]`；`timeItemChanges` 对 time-conflict 只返回它）、`truncateTime`
+**现象**：真实 World（lab/truncate-of.test.ts）：第 5 章一件 x 没有说法；第 1 章 a 写“在 x 之后正好三天”，b 写“在 x 之后正好五天”且“在 a 之前”。环是 x→a、x→b、b→a，经过第 5 章的 x。在第 1 章末尾读待处理，列出 `["time-conflict", ["c2","c3"]]`；nb-time 的 `Conflict.events` 是 `["c2","c3","c1"]`，含 x。
+**为什么是问题**：time.md 输出 14：“读待处理时随读取位置截取：所涉的事都安放在读取位置之前的才列出”。环上的事 x 安放在第 5 章，这一项按 Spec 不该在第 1 章出现；排序位置（pending-groups.ts 取所涉变更里最早的安放）同样漏掉 x。对不上一项用 B 与代表 A 两件、不成立一项用自己这一件，都没有这个问题，只有打架项把“所涉的事”换成了“说法的主人”。
+**如何核实**：在实现 worktree 的 packages/nb-canon 里运行 `bun test /tmp/w00039-t34-impl-review-c-lab/truncate-of.test.ts`。
+**建议改法**：TimePendingItem 的 time-conflict 带上 `events`（nb-time 已经算好），`timeItemChanges` 返回说法所在变更与环上事件的并集；截取与排序都用它。补一条测试：环经过读取位置之后的事时不列。
+
+### 15. 同一类问题：`birth-ambiguous` 的不成立项只算说法所在的那件事，后面章里的第二件出生事件不参与截取
+**严重程度**：建议　**类别**：正确性
+**位置**：packages/nb-canon/src/time/state.ts（time-invalid 项只有 `change: invalid.event`）；packages/nb-time/src/network.ts `assembleNetwork`（`birth-ambiguous` 时不记是哪几件出生事件）
+**现象**：从代码推断：第 1 章一条 `age(x)` 说法，x 的出生事件一件在前史、一件在第 9 章。整条线算出 `time-invalid(birth-ambiguous)`，项里只有第 1 章那件事；第 1 章末尾读待处理就会列出“x 有几件出生事件”，而读者此时只知道一件。
+**为什么是问题**：与第 14 条同一根因——“所涉的事”被换成了说法的主人；这里还会让前面章的读者提前知道后面章另有一次出生（time.md 输出 14 的截取正是为了不这样）。
+**如何核实**：仿照 lab/truncate-of.test.ts 写两件 birth（前史一件、ch5 一件）与 ch1 的 age，在 ch1 末尾读待处理。未实测。
+**建议改法**：`invalid` 里 `birth-ambiguous` 一并给出那几件出生事件，nb-canon 把它们并进所涉的事。
+**补充（第 15 条已实测）**：lab/birth-trunc.test.ts 在实现 worktree 的 packages/nb-canon 里运行：前史一件 birth(p)、第 5 章一件 birth(p)、第 1 章 age(p)，第 1 章末尾读待处理得到 `[["time-invalid","birth-ambiguous"]]`。上面“未实测”一句以此为准。
+
+## 按影响排序
+重要：1（无 lasts 的事被指 end 时终点无上界，范围变宽、打架漏报）> 14（打架项截取漏掉环上被 of 指到的后面章的事）> 7（打架键随安放先后变，章序调整产生假的解决/新增）> 5（带令牌的 time 不分页）> 2（清空历法设置仍沿用自定义历法）> 6（逐级浏览缺纪与列表、200 年按安放挑且不报截断）> 13（结果没有结构化各级、一章没有依据）。
+建议：15（birth-ambiguous 截取同 14）> 4（新 birth 插在前面绕过“最多一条”）> 8（删讲述后留下悬空的 basis）> 3（applyTime 并发与临时文件名）> 9（settingsKey 异步接法不收口）> 12（形状不对的 when 抛 TypeError）> 11（不可确定的原因只是内部下标）> 10（自环的 Conflict.events 记错事）。
+
+## 未发现问题的方面
+- 网络求解：按分量各带元年副本与整体求解等价；队列版 Bellman-Ford 在负环上终止、取出的环都是负环（lab/fuzz-cycles.ts 两万组小网络、lab/fuzz-cycles-big.ts 四百组 20 到 60 件事、最多 120 条约束，0 个反例，最慢 42 毫秒）；重赋权 Dijkstra 与还原公式、`bounds` 与 `range` 的上下界、带终点节点时的范围与 `between`（同分量）与 Floyd-Warshall 逐字相同（lab/fuzz-ranges.ts 五千组、六万次比较，0 个反例）；紧边依据的回溯一定终止且确定。
+- 84ba1b9d8 的“没有约束的分量不求解”：这种分量只可能有一件事、一个节点，`range`/`between`/`component` 的回答与改前相同。
+- 说法的键按变更对象缓存：表里的变更只经 `applyOp` 与前史补 order 两处写入，都是新对象并深冻结，没有改写同一对象的路径。
+- f5fc26c34 的 `textSaysAt`：与原来“过滤全书核对点再取同地址的最后一个”等价（同一份排好序的 exactChecks、同一个 actual 快照上 evaluate）。
+- 30f2ec74c 的读视图 `eventKey` 不冻结：`eventKey` 每次新建 `{rank, tie}`，不与引擎共用对象；伏笔的章下标表与 indexOf 在章 id 唯一时等价。
+- `touchesTime`：实际模式下网络与对不上只取决于带说法的变更、被 of 指到的变更、被 who 指到的条目与章序，条件是完整的。
+- 前史补 order：重写后的操作与表里的对象一致，重放得到同样的世界；临时 id 在此之前已换成正式 id，told 下标的依据也已换成讲述 id。
+- 带令牌的 time：网络只用上限之前的事，点名上限之后的事被拒，年龄、一章、逐级浏览、计划模式（按上限算进展、只取可见的计划）都没有经网络漏出上限之后的事（列表分页问题见第 5 条）。
+- 历法的负年份、纪的换算、闰年周期表与 L_min/L_max 的循环窗口、跨夜时段、“约”跨月跨年、tick 上限；对不上两类判据（含无穷端）、树状数组件数与代表的取法、键用 B 的 id；年龄的二分边界。
+- 现有测试在实现 worktree 上通过：nb-time 39 个，nb-canon 的 time、views、architecture 22 个。
+
+## 各级数量
+阻断 0；重要 7；建议 8；共 15 条。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
