@@ -124,6 +124,8 @@ owners:
 
 ### 命令目录（第一批 · 本批全部交付）
 
+Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-editing`](markdown-editing.md)（planned）。
+
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
 | `nbook.editor.focus` | 聚焦编辑器 / Focus Editor | `{}` | 活动编辑器 | read | auto | `nbook.editor`（[workbench.editor](editor.md)，planned；此前由 Lab 命令场景在样板编辑器上登记） |
