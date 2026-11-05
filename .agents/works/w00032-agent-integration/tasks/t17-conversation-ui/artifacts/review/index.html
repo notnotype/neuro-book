@@ -31,22 +31,11 @@ table { border-collapse:collapse; width:100%; font-size:14px; background:var(--p
 </head>
 <body>
 <main>
-<h1>t17 对话界面第一版：静态稿（第 5 轮）</h1>
-<p>已定：会话列表要 A 和 C，用同一个组件。这轮看你提的改动。</p>
-<section data-nbdev-question="r5-sessions" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>1. 会话面板</h2>
-<ul>
-<li><b>图标：</b>每行前面是 Profile 的图标。<code>agent.profiles</code> 的声明加 <code>icon?</code>，没写用缺省图标（图里“我的润色”）。Profile 名字放在图标的悬停提示里，列表里不重复写。</li>
-<li><b>过滤器：</b>不再是一排小块。平时只有搜索、作品范围、一个过滤按钮；过滤按钮打开菜单选 Profile、显示已归档、显示子代理。选了的条件才显示成可去掉的标签（第二张图），按钮变色。</li>
-<li><b>子代理：</b>默认不显示。父会话那行写“2 个子代理”，点开在下面展开（t14 才有，第一版不显示这一项）。过滤菜单里也能打开“显示子代理的会话”。</li>
-<li><b>圆角：</b>标签是 6（原来 4，大了 2）。</li>
-</ul>
-<div class="grid"><figure><a href="r5/sessions-a.webp"><img src="r5/sessions-a.webp" alt="平时" loading="lazy"></a><figcaption>平时</figcaption></figure><figure><a href="r5/sessions-filter.webp"><img src="r5/sessions-filter.webp" alt="有过滤条件、菜单打开" loading="lazy"></a><figcaption>有过滤条件、菜单打开</figcaption></figure></div>
-</section>
-<section data-nbdev-question="r5-resume" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>2. 继续按钮</h2>
-<p>图标换成 <code>&gt;&gt;&gt;</code>。<b>上一轮的重影是我的静态稿造成的：</b>我把假按钮盖在真发送按钮上，下面的箭头露出来了，实现里不会有。图标库里没有三个箭头的现成图标，这里是自己画的 SVG；如果两个也行，可以直接用 <code>chevrons-right</code>。按钮尺寸实现时和发送按钮一样。</p>
-<div class="grid"><figure><a href="r5/interrupted-composer.webp"><img src="r5/interrupted-composer.webp" alt="继续按钮" loading="lazy"></a><figcaption>继续按钮</figcaption></figure></div>
+<h1>t17 对话界面第一版：静态稿（第 6 轮）</h1>
+<section data-nbdev-question="r6-resume" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>继续按钮</h2>
+<p>上一轮是我把假按钮画大了。这轮直接用真实的发送按钮，大小和位置不变，只换图标。</p>
+<div class="grid"><figure><a href="r6/interrupted-composer.webp"><img src="r6/interrupted-composer.webp" alt="继续按钮" loading="lazy"></a><figcaption>中断后的输入框</figcaption></figure></div>
 </section>
 </main>
 </body>
