@@ -143,9 +143,11 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                             </span>
                         </span>
                     </button>
-                    <DropdownMenu :items="rowMenu(item)" align="end" root-class="acv-panel__more" @select="onRowMenu(item, $event)">
-                        <IconButton icon-class="i-lucide-ellipsis" size="xs" :title="t('panel.more')" :aria-label="t('panel.more')" data-panel-more />
-                    </DropdownMenu>
+                    <span class="acv-panel__more">
+                        <DropdownMenu :items="rowMenu(item)" align="end" @select="onRowMenu(item, $event)">
+                            <IconButton icon-class="i-lucide-ellipsis" size="xs" :title="t('panel.more')" :aria-label="t('panel.more')" data-panel-more />
+                        </DropdownMenu>
+                    </span>
                 </div>
             </template>
         </div>
@@ -338,16 +340,21 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
     color: var(--status-danger);
 }
 
-/* 悬停才出现，叠在时间上面；键盘走到它时也要看得见。 */
-:global(.acv-panel__more) {
-    position: absolute !important;
+/* 悬停才出现，占时间的位置；键盘走到它时也要看得见。 */
+.acv-panel__more {
+    position: absolute;
     top: 4px;
     right: 4px;
     opacity: 0;
 }
 
-.acv-panel__row:hover :global(.acv-panel__more),
-.acv-panel__row:focus-within :global(.acv-panel__more) {
+.acv-panel__row:hover .acv-panel__more,
+.acv-panel__row:focus-within .acv-panel__more {
     opacity: 1;
+}
+
+.acv-panel__row:hover .acv-panel__time,
+.acv-panel__row:focus-within .acv-panel__time {
+    visibility: hidden;
 }
 </style>

@@ -73,7 +73,7 @@ export const nbAgentUiFixtures: LabFixture[] = [
         events: ["action"],
     }),
     defineSubjectFixture<typeof AgentSessionPanel>({
-        component: "AgentSessionPanel", scenes: agentSessionPanelScenes, class: "h-[480px] w-[420px]",
+        component: "AgentSessionPanel", scenes: agentSessionPanelScenes, class: "h-[480px] w-[360px]",
         subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionPanel)}),
         events: ["action", "update:query", "update:scope", "toggle-profile", "update:show-archived"],
     }),
