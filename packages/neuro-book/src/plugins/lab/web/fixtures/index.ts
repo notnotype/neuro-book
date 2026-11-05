@@ -889,7 +889,6 @@ export const labFixtures: LabFixture[] = [
 function backgroundFixtures(): LabFixture[] {
     const url = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='320' height='200'><defs><linearGradient id='g' x2='1' y2='1'><stop stop-color='#2563eb'/><stop offset='1' stop-color='#f59e0b'/></linearGradient></defs><rect width='320' height='200' fill='url(#g)'/><circle cx='220' cy='70' r='40' fill='#fff'/></svg>")}`;
     const image = (fit: "cover" | "contain" | "repeat", blur: boolean, alpha: number) => ({props: {url, fit, blur, alpha}});
-    const missing = "user://backgrounds/0000000000000000000000000000000000000000000000000000000000000000.png";
     const block = (value: EditorBackgroundSetting, allowColor = true) => ({props: {title: "正文", value, allowColor, images: [], disabled: false}});
     return [
         defineSubjectFixture<typeof BackgroundLayer>({
@@ -909,7 +908,6 @@ function backgroundFixtures(): LabFixture[] {
             scenes: [
                 {id: "none", label: "无", input: block({kind: "none"})},
                 {id: "color", label: "纯色", input: block({kind: "color", light: "#f4ecd8", dark: "#2a2520"})},
-                {id: "failed", label: "图片读不出来", input: block({kind: "image", image: missing, fit: "cover", blur: true, scrim: 85})},
                 {id: "window", label: "窗口：没有纯色", input: block({kind: "none"}, false)},
             ],
             load: async () => withWorkbenchText((await import("./BackgroundSettingsBlockFixture.vue")).default),

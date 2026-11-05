@@ -1,6 +1,6 @@
 ---
 验证入口: SettingsWindow
-标签: [state:local]
+标签: [state:local, state:inject]
 ---
 
 # BackgroundSettingsPage
@@ -22,3 +22,7 @@ type Props = {
 ## 不支持
 
 删除已传过的图：设置只记引用，图不随设置删除，也没有清理入口。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：界面文字经 `useWorkbenchText()` 取宿主注入的翻译端口，语言跟着端口走。

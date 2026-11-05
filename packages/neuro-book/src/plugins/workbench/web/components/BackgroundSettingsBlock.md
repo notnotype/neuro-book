@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 ---
 
 # BackgroundSettingsBlock
@@ -37,3 +37,7 @@ type Props = {
 ## 不支持
 
 自己写设置：写入与失败通知都在页面。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：界面文字经 `useWorkbenchText()` 取宿主注入的翻译端口，语言跟着端口走。
