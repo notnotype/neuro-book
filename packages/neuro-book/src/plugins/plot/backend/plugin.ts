@@ -24,9 +24,11 @@ import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
 import {plotWorldContract} from "../shared/contracts";
+import {plotInstructionsContract} from "../shared/instructions";
+import {InstructionTable, PLOT_DATA_VERSION} from "./instructions";
 
-/** 剧情插件自己的数据版本：阶段 B 还没有插件自己存的数据（窄问题的答案在阶段 F），固定不变。 */
-export const PLOT_DATA_VERSION = "1";
+export {PLOT_DATA_VERSION};
+
 
 type Failure = {readonly ok: false; readonly code: "plot"; readonly detail: {readonly code: string}};
 const fail = (code: string): Failure => ({ok: false, code: "plot", detail: {code}});
@@ -181,10 +183,12 @@ export const plotProjectPlugin: PluginDefinition = {
         location: "project",
         activationEvents: ["onStartup"],
         dependencies: [{key: canonProjectKey}],
-        remoteProvides: [plotWorldContract],
+        remoteProvides: [plotWorldContract, plotInstructionsContract],
         activate: (context) => {
             const canon = context.services.require(canonProjectKey);
-            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics()}, dataVersion: PLOT_DATA_VERSION});
+            // 写作指示快照表：这个项目实例的所有调用方与诊断计算共用（闭包里，不放模块级）。
+            const instructions = new InstructionTable();
+            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics()}, dataVersion: instructions.dataVersion});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();
             const remote = provideRemote(plotWorldContract, () => {
@@ -200,7 +204,21 @@ export const plotProjectPlugin: PluginDefinition = {
                     viewpoints.clear();
                 },
             });
-            return {remote: [remote]};
+            const instructionsRemote = provideRemote(plotInstructionsContract, () => ({
+                methods: {
+                    put: (input) => {
+                        // 单条消息的上限：整份快照一次装不下就拒（按章推，不要整书推）。
+                        if (encodedBytes(input) > CANON_BUDGET_BYTES) return fail("too-large");
+                        const result = instructions.put(input.chapter, input.snapshot, input.base);
+                        if (!result.ok) return fail(result.code);
+                        if (result.changed) canon.reportDataVersion(result.dataVersion);
+                        return {ok: true as const, value: {dataVersion: result.dataVersion}};
+                    },
+                    current: () => ({ok: true as const, value: {dataVersion: instructions.dataVersion}}),
+                },
+                events: {},
+            }));
+            return {remote: [remote, instructionsRemote]};
         },
     })],
 };
