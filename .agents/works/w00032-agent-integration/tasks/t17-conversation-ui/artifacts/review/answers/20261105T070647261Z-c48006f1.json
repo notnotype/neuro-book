@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t17-conversation-ui",
+    "artifactId": "review",
+    "answerId": "20261105T070647261Z-c48006f1",
+    "artifactVersion": 5,
+    "contentHash": "61dcf645cb5d18cd53ec695dd82791ac534632e0f21d04841fa094fee99e5af6",
+    "submittedAt": "2026-11-05T07:06:46.481Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r5-sessions": "ok",
+        "r5-resume": "change"
+    },
+    "comments": {
+        "r5-resume": "这个按钮现在完全不对了，太大了。"
+    },
+    "note": null
+}
