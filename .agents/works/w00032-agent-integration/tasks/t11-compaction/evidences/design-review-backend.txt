@@ -1,0 +1,103 @@
+### 1. 转录文件绕过按读取者执行的出站过滤
+严重程度：重要；类别：安全与性能；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:38`、`packages/nb-harness/src/kernel/session/session.ts:197`
+现象：计划把压缩前的路径直接渲染并写入 `session://transcripts/<n>.md`。`SessionApi` 的出站过滤只应用于 `log()`、`path()` 和订阅帧；转录是共享文件，之后经 Agent 资源接口读取不会调用 `outbound.event`。
+为什么是问题：出站过滤按 issuer/reader 选择性脱敏或隐藏事件。用原始路径生成共享转录会把本应对某些读取者隐藏的内容复制到未过滤的资源地址，形成绕过过滤边界的持久副本。
+如何核实：用真实 SessionEnv 注册一个只对 `reader.kind === "session"` 隐藏特定 `toolResult` 的 outbound filter；触发压缩生成转录，再由该 reader 通过 `session://transcripts/<n>.md` 读取，检查隐藏内容是否出现。过滤日志查询应看不到原事件，文件读取不经过过滤器。
+建议改法：生成转录时明确读者身份并对每个事件应用同一过滤链；若不能对所有授权读者保证一致视图，不把转录作为共享资源持久化，改为按读者生成或仅保存与原始会话日志同权限的内容。
+### 2. 单独压缩运行在对话模型不可用时缺少可执行的默认方法
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:24-26`、`:100`、`packages/nb-harness/src/kernel/compaction/compact.ts:166`、`packages/nb-harness/src/kernel/run/loop.ts:178-190`
+现象：Spec 输出 52 明确承诺只压缩运行使用压缩模型、对话模型不可用时仍能运行。计划却让手动压缩仍按 `onThreshold` 取序列，缺省为 `shake → inplace`；shake 若省下不足 20% 返回失败，就地方法按计划改用会话模型，而不是已绑定且已解析的 `compaction` 角色。手动运行的序列没有 `summary`，所以没有一个可调用压缩模型的后备方法。
+为什么是问题：用户只配了压缩角色、对话模型不可用时，压缩运行虽然能启动，shake 未达 20% 门槛后仍会以 `compaction-failed` 收口，违反输出 52。计划第 100 行只要求“能算出请求”，没有处理就地方法解析会话模型失败及方法序列耗尽。
+如何核实：真实内核场景：只绑定 `compaction` 角色、让 Profile 的会话模型不可解析；触发空闲 `compact`，构造 shake 省幅不足 20% 的多轮历史；观察 `runEnded.error.code`。内核按 `reason: "manual"` 选择 `onThreshold` 的实现见 `compact.ts:166`，只压缩运行先解析压缩角色见 `loop.ts:182`。
+建议改法：为手动压缩定义包含压缩角色方法的缺省序列，或在就地方法解析会话模型失败时回退到摘要模型；把“对话模型不可用仍可运行”验收扩成 shake 失败后的真实内核路径，并明确 Profile 自定义顺序下该保证是否仍成立。
+### 3. 就地压缩丢失会话的推理档
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:17`、`:25`、`packages/nb-harness/src/kernel/compaction/compact.ts:168`、`packages/nb-harness/src/kernel/run/loop.ts:240-247`、`packages/nb-harness/src/kernel/run/model-call.ts:143`
+现象：普通对话请求把 `core.effort` 传入 `computeRequest`；当前压缩请求调用没有 `effort`，`ModelDraft` 也没有默认补回会话设置。计划新增的 `sessionModel?: true` 只说明解析模型，不说明推理档。结果是就地压缩复用会话模型，却按模型默认推理档运行。
+为什么是问题：用户选的推理档决定模型行为与用量。DeepSeek 官方 API 在不提供 `reasoning_effort` 时默认 high；会话设为 low/max 后就地压缩仍用 high，可能改变摘要质量、成本与输出长度，也使“用会话模型、原样上下文末尾追加”的语义不完整。
+如何核实：已运行 `bun run /tmp/review-t11-design/backend-smoke.ts`，真实会话经 `changeSettings` 设 `core.effort: "low"` 后触发阈值压缩；普通 turn 请求为 `low`，方法拿到的 `job.request.effort` 与经 `job.model` 发出的 compaction 请求均为 undefined。未调用真实模型。默认推理档的具体数值不作为本条成立的前提，已验证的是会话选择没有被继承。
+建议改法：明确就地方法继承会话推理档，并让 `CompactionJob.request` 带与对话请求相同的 `effort`；摘要方法仍按压缩角色的设置解析推理档。验收加入非默认 effort 的真实内核请求比较。
+
+### 4. DeepSeek V4 Flash 不支持 tool_choice，计划中的禁止工具调用不会生效
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:25`、`node_modules/@oh-my-pi/pi-catalog/src/compat/rules/providers/deepseek.kdl:91-105`、`packages/nb-harness/src/kernel/model/omp.ts:301-315`
+现象：就地方法计划给原样工具声明附加 `toolChoice: "none"`。安装的 OMP 目录对 DeepSeek 的 `deepseek-flash` / V4 Flash 明确设 `supports-tool-choice: false`；适配器仍把工具声明转入 Context，但 OMP 在该能力标记下不序列化 `tool_choice`。于是这类会话模型收到工具声明时仍可能返回工具调用，而不是计划假定的纯摘要文字。
+为什么是问题：就地方法依赖“回复文字就是摘要”，没有规定工具调用回复如何判失败或重试；被返回的工具调用既不会执行，也不等于摘要。阈值缺省顺序在 shake 未达 20% 后只剩 inplace，可能使一次本可用的压缩失败。固定相同工具声明不代表供应商真的执行了 `none`。
+如何核实：已运行 `bun run /tmp/review-t11-design/adapter-smoke.ts`，直接使用产品 `buildResolution` 解析目录服务商 `deepseek/deepseek-flash`、只把 baseUrl 改成本机端点、`auth: "none"`；实际 body 为 `tools: 1`、`hasToolChoice: false`。端点给出的工具回复被真实 OMP 适配器交回为 `stopReason: "tool"`、`toolCalls[0].tool === "review.lookup"`。没有伪造目录能力，也没有访问真实服务商。
+建议改法：在就地方法合同中拒绝含工具调用的回复，并定义可用的后备路径；更根本地，只有端点能保证禁止工具调用时才执行就地压缩，或在不破坏缓存前缀的前提下解决无工具请求。测试覆盖这个 OMP 兼容档与非空工具集。
+### 5. shake 的切点会永久丢掉旧轮次（撤回）
+撤回依据：重新逐字核对计划第 24 行，它明确写的是 `firstKeptEntryId` 用“第一个切点”，并没有写 shake 调用 `pickCut` 返回的较晚切点。按 `job.cuts[0]` 和 `replacement: null` 执行不会丢掉旧轮。第 23 行称 `pickCut`“公用”与第 24 行的具体约定有歧义，但不能把歧义判成已经选择删除轮次；原阻断结论撤回。实施时应明确 `pickCut` 仅供需要摘要的两种方法选尾窗，shake 保留第一切点。
+### 6. 公用 pickCut 没把旧摘要和不可切分单元纳入 20,000 token 判据（收窄）
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:23-26`、`packages/nb-harness/src/kernel/compaction/compact.ts:82-107`
+现象：`CompactionCut.tokensKept` 只累加切点及之后的对话事件，`job.tokens` 则含旧摘要。计划用 `tokensKept <= 20_000` 选切点、无达标项时返回最后一项，却没有说明不可切分的最后一轮/步已经超出 20,000 时应该失败还是突破上限；shake 明确保留第一切点，因此本条不再断言它会通过较晚切点删除轮次。
+为什么是问题：摘要方法仍可能保留大于目标的尾窗，`replacement: null` 的方法还会同时保留旧摘要，不能只拿 `tokensKept` 当实际 after；若 before/after 与节省比例采用不同口径，shake 的 20% 门槛会错误地选择后备方法。小窗口模型的总预算问题另见第 8、13 条。
+如何核实：已运行 `bun run /tmp/review-t11-design/backend-smoke.ts`，通过真实会话先写摘要再调用保留旧摘要的方法，观察 `job.tokens = 21086`、第一切点 `tokensKept = 86`，下一请求仍含 21,000 token 旧摘要。该合成摘要只证明内核计量字段不等价，不主张内置摘要会超过决定中的 16,384 上限；即使旧摘要只有 16,384，另保留 19,000 的尾窗也不能把 19,000 当实际 after。
+建议改法：明确 tail-window 预算与请求级 before/after 是不同量；方法按实际保留摘要、尾窗和占位计算 after，20% 使用同一计量口径；不可切分的最后单元超限时显式失败或说明允许超限的边界，不把“取最后一项”等同于“已经满足 20,000”。
+### 7. 压缩请求会重新调用本次运行已撤回扩展的内容槽
+严重程度：重要；类别：不变量；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:17`、`packages/nb-harness/src/kernel/compaction/compact.ts:168`、`packages/nb-harness/src/kernel/view/request.ts:109-117`、`packages/nb-harness/src/kernel/run/loop.ts:240-250`
+现象：输出 57 要求扩展运行中撤回时，本次运行跳过其槽。普通 turn 请求把 `inactive: extension => core.revoked.has(extension)` 传给 `computeRequest`；当前压缩请求构造没传。计划把 `CompactionJob.request` 改为按会话模型计算，但未要求它沿用普通请求的撤回过滤参数。
+为什么是问题：同一运行里插件在模型调用期间被撤回，下一边界因阈值触发压缩时，压缩模型请求会再次求值已撤回扩展的 `contribute`，把其数据发送给模型。行为违反 runtime.md 输出 57 的明确不变量；如果贡献读取扩展外部状态，还可能触发本应在撤回后停止的访问。
+如何核实：已运行 `bun run /tmp/review-t11-design/backend-smoke.ts`。真实 `createAgentHost` 在首个模型调用挂起期间撤回 `review.slot`，快照先观察到 `revoked`；释放模型返回工具调用及高用量，让同一运行的下一边界触发压缩。压缩 job 含 `WITHDRAWN_SLOT_MARKER`，之后 turn 请求不含该标记，运行以 completed 收口。该实验观察的是方法收到的请求内容，不声称已经运行尚未实现的内置 inplace。
+建议改法：压缩请求计算也传 `inactive: extension => core.revoked.has(extension)`，并让就地/摘要方法都消费同一过滤后的请求；测试同时断言 compaction 与后续 turn 请求不含撤回槽。
+### 8. 放回预算固定 20,000 token，小窗口模型无法容纳
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:36-40`、`packages/nb-harness/src/kernel/run/loop.ts:222-247`、`packages/nb-harness/src/kernel/api/model.ts:123-132`
+现象：计划无条件放回最近最多 5 个文件、每个 8,000 token、总计 20,000 token，之后还重读 `opening()`；`ModelInfo.contextWindow` 对自定义模型可为任意正整数，压缩后请求还包含系统提示、工具声明、摘要/保留窗口及当前输入。放回上限没有按本次会话模型窗口或剩余容量调整。
+为什么是问题：例如窗口为 4,096 token 的模型，放回内容上限可约为窗口的 4.9 倍，还没算系统与工具开销。下一个请求会再次 context overflow；溢出自动压缩仅允许对同一请求重发一次，压缩与放回再次占满时最终仍以 `context_overflow` 失败。只压缩运行本身成功收口，无法保证其恢复内容能被后续对话模型读取。
+如何核实：真实内核加小窗口测试模型（例如 `contextWindow: 4_096`），构造多个可恢复文件使放回接近 20,000 token，并使用一个对请求总 token 超窗返回 `context_overflow` 的本机 OpenAI 兼容端点；观察首次对话请求、一次溢出压缩与最终 `runEnded`。不调用真实模型。
+建议改法：让 restore 的合计预算受当前对话模型的窗口约束，并预留系统提示、opening、工具声明、当前请求与输出空间；或者让放回内容按需读而非整块塞回。把“放回量小于模型窗口”及恢复后实际请求不溢出的判据加入内核场景。
+### 9. 压缩放回与内置工具没有约定共用同一个 EditStore
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:22`、`:36`、`packages/neuro-book/src/plugins/agent/backend/plugin.ts:73-100`、`packages/neuro-book/src/plugins/agent/backend/builtin/common.ts:26-47`
+现象：计划要求 restored 文件把快照记进 `EditStore`，但行锚的 `SessionEditStores` 实例由 Agent 插件入口创建，并只传给 `builtinTools(editStores)` 与审批预览。压缩方法由 `createAgentRuntime`/`createAgentHost` 安装；计划没有说明同一 registry 如何注入 `restore.ts`。若 restore 自己 `new EditStore()`，或另建 `SessionEditStores`，后续 `edit` 读取的是不同实例。
+为什么是问题：`EditStore` 的行锚纯内存，按会话共享；不同实例之间没有快照同步。restore 展示的锚即使格式正确，`edit` 也会因找不到 tag / seen lines 而失败。t12 合同要求 read、write、edit 使用同一份按会话引用计数的快照。
+如何核实：按计划实现后的真实 AgentHost 场景：先让压缩恢复文件并生成行锚，再从同一真实会话调用 `nbook.agent.edit`；检查它能解析该锚并成功更新文件。先看两个路径是否取自同一 `SessionEditStores` 实例，不以各自直接调用 `EditStore` 的单元测试替代。
+建议改法：把 Agent 入口拥有的 `SessionEditStores` 明确注入 `compactionFor`/restore，并用 `sessionId` 取得同一 store；store 引用必须覆盖整个 restore 与后续会话工具寿命。指定在共享 `read` 渲染函数里记录完整文件快照、只把完整显示的行登记为 seen，保留分页 offset 与截断长行不算 seen 的现有合同。
+### 10. 新建 transcripts 目录与只读会话日志重复，且 Agent 不能读 transcript 方案
+严重程度：重要；类别：接口与合同；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:38`、`packages/neuro-book/src/plugins/agent/backend/schemes.ts:43-51`、`packages/neuro-book/src/plugins/agent/backend/schemes.ts:105-113`、`/home/notnotype/CodeRepository/neuro-book/docs/specs/harness/session.md:40-48`
+现象：`sessions://<id>/session.jsonl` 已是可读的会话日志资源，文件内有有序、可分支的完整事件；计划另外把路径事件渲染成 `session://transcripts/<n>.md`。当前 `session://` 只映射到本会话 `home/`，所有子目录可写，只有 `attachments/`、`artifacts/` 为宿主写入只读；没有针对 `transcripts/` 的只读授权规则。计划既未登记这个特殊目录，也未定义它与会话 JSONL 的差异、过滤版本、分支身份或写入权限。
+为什么是问题：实现者若按计划把转录写到新方案，会把整份持久对话副本放进 Agent 自己可写的 home，和内核只追加、只读的权威日志出现双写真相；若写进 `session.jsonl` 旁边则需要新增方案授权与清理合同。该副本不支持按原事件 id / 分支重放，且现有 Agent 内核资源只支持文本读取，无法自然替代 `/path`、分页与 blob 取回能力。另第 1 条已指出转录脱敏风险，本条只针对存储合同和重复能力。
+如何核实：对照 `agent.resources.md` 输出 10、会话方案 `sessionRule` 与 `harness/session.md` 的文件表；用真实 `nbook.agent` 资源视图试读 `session://transcripts/1.md`，当前会被映射到 home 文件而非由内核产生。内核 JSONL 提供只读的 `sessions://<id>/session.jsonl`，记录全事件与分支信息。
+建议改法：先定义用户侧必须获得的差异化功能。若只需完整对话记录地址，沿用 `sessions://<id>/session.jsonl` 并补充 Agent 可读的渲染/查询能力；若确需 Markdown 转录，明确其只读所有权、生成视图、过滤身份、分支与版本，并把转录放在现有的受保护资源边界内，避免使用可写的 `home/` 作为副本。
+### 11. 放回按工具参数选文件，未限定成功且实际写入的目标
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:36`、`packages/nb-harness/src/kernel/api/events.ts:120-137`、`packages/nb-harness/src/kernel/run/tools.ts:247-318`、`packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts:93-109`、`:156-174`
+现象：计划仅说从路径里的 `read`、`edit`、`write` 目标按时间取最近 5 个文件，未说与 `toolResult` 关联、只纳入成功读取/写入，或按每文件成功状态过滤。内核 `toolStarted.args` 是经工具拦截后的执行参数，但 `edit` 是一段 Lark 格式 `input`，可有多个目标；部分失败结果在 `toolResult.details.files` 中区分已写与失败。若只解析参数，失败的读/写目标和部分失败的 edit 文件会被一律重读、登记锚点。
+为什么是问题：放回会把没有成功读到、没有成功改过或被文件级写回拒绝的目标当作“最近读过/改过”。这会令压缩上下文反映与工具实际结果不一致，还可能在工具拦截拒绝后通过直接文件资源读绕过扩展的策略。对成功 read 而文件权限后来改变，必须重新执行资源授权，而不能复用旧访问事实。
+如何核实：用真实 Agent 插件宿主与本机模型端点：使 read 执行后返回 `permission-denied`/工具拦截策略阻止，或让多文件 edit 一份成功一份失败；接着触发压缩，检查恢复 notices 与工具资源 read 调用是否只含成功、可见的文件。对照 `toolStarted` 写在实际执行前、`toolResult` 才记状态，以及 edit 的 `details.files`。
+建议改法：从工具调用与结果按 `callId` 配对；只将 read 成功结果与 write 成功结果纳入，edit 按成功文件项分别恢复；调用统一的资源地址解析与会话资源授权，并规定恢复目标被撤权、删除、改成非文本时跳过且诊断。禁止直接从失败调用参数导入正文。
+### 12. 压缩内核接受方法伪报另一个 method 的成功结果
+严重程度：重要；类别：正确性；位置：`packages/nb-harness/src/kernel/compaction/compact.ts:139-157`、`:181-217`、`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:22-30`
+现象：内核逐个调用 Profile 指定的 `method`，再用 `resultProblem` 检查结果；它只验证 `result.method` 是字符串，没有验证等于当前被调用的方法。方法注册表以 key 查到实现，成功后日志却直接记录结果自报的 `result.method`。第三方实现可以返回 `{method: "shake", replacement: "…", ...}`，而实际运行的是 `summary` 或其它方法。
+为什么是问题：日志会错误呈现实际压缩方法；按结果 method 解释 `replacement: null`、恢复策略、费用与 UI 详情的消费者也可能把一套语义误认为另一套。计划要求第三方方法加入、结果不合格换下一个，但目前判据没有防住这一种错误成功结果。
+如何核实：已运行 `bun run /tmp/review-t11-design/backend-smoke.ts`，真实会话把 `onThreshold` 设为 `vendor.summary` 并调用该宿主方法；方法交回 `method: "shake"`，运行 completed，实际事件记 `shake`，没有 `compaction-invalid`。这是现行内核边界的行为，不是新增贡献点的已完成验收；新贡献点尚不存在。
+建议改法：把当前调用的 method 作为结果校验的期望值，要求 `result.method === final.method`；不匹配时作为 `compaction-invalid` 记录并按既定规则换下一个。增加第三方方法错误标识的真实内核合同场景。
+### 13. 摘要分段未定义不可拆分的超窗口消息处理
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:26`、`:78-81`、`packages/nb-harness/src/kernel/compaction/compact.ts:27-29`、`packages/nb-harness/src/kernel/api/model.ts:44-47`
+现象：计划只说序列化对话后“按窗口分段”，验收映射没有摘要角色窗口小于会话窗口、单条消息超窗、图片块或估算偏差场景。分段需要处理的输入单位可含单个长 `toolResult`；工具结果文字可达数十 KB，图片块还含 base64，`estimateTokens` 是 UTF-8 字节除以 3 的粗估，无法给模型分词上界。计划没有说明单条被序列化消息超出压缩角色上下文窗口时如何拆分/失败，也没有说明按窗口预算要扣除 16,384 输出 token。
+为什么是问题：如果分段器只在消息边界切分，遇到一个超窗口工具结果就没有可发送的分段，压缩失败；若按 `contextWindow` 而非输入可用预算切，摘要输入加 16,384 输出可超过窗口。使用宽松的每 3 字节估算时，非英语文本可能被高估、图片 base64 虽不代表视觉 token 却会在摘要序列化中变成巨量文本，进而产生错误分段或让压缩模型收到图片编码原文。
+如何核实：真实内核加本机 OpenAI 兼容端点：让摘要角色 `contextWindow` 小于对话模型；产生单条大于该窗口的工具结果，以及一条带 image content block 的 `toolResult`；观察压缩请求序列是否有单段超窗、分段停滞或将 base64 序列化进摘要。验证预算时设置模型端点对 `input + maxTokens > contextWindow` 明确回溢出。
+建议改法：定义对序列化后的单条消息再切块的算法，并以“输入预算 = 压缩模型窗口 − 实际输出上限 − 安全余量”分段；图片改用文字描述/尺寸占位，不序列化 base64；无法安全切分时明确返回 `{failed}` 并继续方法序列。用确定性边界验收覆盖单条超长文本、图片与比会话模型更小的摘要模型窗口。
+
+### 14. HTTP 413 不进入压缩路径，“缺省先 shake”不能兑现载荷过大恢复
+严重程度：重要；类别：正确性；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:98`、`README.md:52`、`packages/nb-harness/src/kernel/model/classify.ts:19-25`、`packages/nb-harness/src/kernel/run/loop.ts:277-290`、`packages/nb-harness/src/kernel/model/omp-failures.test.ts:53`
+现象：决定 4 单独要求字节太大（413）时先 shake；计划以“缺省顺序本来就先走 shake”为由不再处理。真实适配器把普通 HTTP 413 归成 `provider`、不可重发，不是 `context_overflow`；运行循环只在 `response.error.kind === "context_overflow"` 时调用溢出压缩。先有压缩调度才会读取方法顺序，413 当前根本到不了 shake。
+为什么是问题：低 token、高字节的请求（例如多张图片）可在没到阈值时被 413 拒绝，直接结束运行；计划没有改分类或调度边界，也没有 413 验收，已确认的恢复行为会缺失。现有每图最多 1,600 token 的估算使这条路径不能靠提前阈值压缩代替。
+如何核实：已运行 `bun run /tmp/review-t11-design/adapter-smoke.ts`。产品 `buildResolution`、真实 OMP 适配器、真实会话与本机 HTTP 端点串起，端点回 413；日志 `modelFailed.status === 413`，运行错误 `kind === "provider"`，只发 1 次 HTTP，shake 与 summary 调用次数都为 0，压缩事件 0。
+建议改法：给载荷拒绝一个可区分的结构化失败条件，并在运行循环显式进入允许的方法序列；明确先 shake、不能减小则怎样失败、同一请求最多重发一次。同步修订 `harness/models.md` 的类别合同或新增状态码分派合同，并补实际 HTTP 413 的端到端内核场景。
+
+### 15. 新贡献点照 agent.tools 写法时，内置方法名与平台前缀规则不兼容
+严重程度：重要；类别：接口与合同；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:22`、`packages/neuro-book/src/plugins/agent/shared/points.ts:93-95`、`packages/nb-runtime/src/plugins/host.ts:835-845`、`packages/nb-harness/src/kernel/compaction/compact.ts:22-23,192-194`
+现象：计划要求内置三方法也经 `agent.compactionMethods`，写法照 `agent.tools`。工具贡献点使用 `idPrefix: "plugin"`，平台只接受 `<插件 id>.…`，内置保留发布者也至少要 `nbook.…`；裸名 `shake`、`inplace`、`summary` 均不符合。但内核缺省序列和 Profile 合同仍使用裸名，方法表按字符串直接索引；计划没有定义贡献 id 与调用名的区别或映射。
+为什么是问题：照搬工具贡献点会拒绝三条裸名内置贡献；改成 namespaced id 又使内核缺省顺序找不到方法。如果去掉前缀以容纳裸名，又需要明确保留内置名字与重复贡献策略，否则第三方能与内置名字冲突，违反内置与第三方走同一机制的决定。不能让调用是否成功依赖实现者自行猜一个别名表。
+如何核实：已核对平台 `#idPrefixProblem` 和工具贡献点定义；它明确对 nbook 内置插件要求 `nbook.` 前缀。真实内核实验已经验证未知方法会继续下一个，但尚无新贡献点可注册，不能声称已经复现其最终实现错误。
+建议改法：在 Spec 写清唯一标识策略：例如贡献 id 一律命名空间化，并在内核缺省序列与 Profile 一并迁移；或声明一个受保留规则约束的调用名字段，贡献 id 只作平台身份。避免隐式双名；同时验收缺省三方法和第三方方法在真实平台登记、按序取到实现。
+
+### 16. 压缩方法贡献的激活、撤回与在途结果有效性没有合同
+严重程度：重要；类别：不变量；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:22,30,83`、`packages/neuro-book/src/plugins/agent/backend/tools.ts:51-59,101-106,165-209`、`packages/nb-harness/src/kernel/compaction/compact.ts:181-201`、`packages/nb-harness/src/kernel/run/chain.ts:77-78,117-130`
+现象：`agent.tools` 不是简单的实现字典：声明可在未激活时读，第一次用触发专属激活事件；撤回识别句柄代次，作废包装，在途调用最多 5 秒收口，真正 dispose 等底层结束。新方法点只写“照 agent.tools”，未定义激活事件、是否每会话建工厂、停止时等还是取消、晚到结果是否仍能提交。内核对压缩方法 terminal 本身没有 handler 超时；30,000 ms 只算拦截层自身时间，等待 next 的方法时间不计。
+为什么是问题：把发布时的函数拷进静态 methods 表会在撤回后继续调用旧实现；只删表项也不能裁决已在途返回的结果和提供方资源释放顺序。不返回的第三方方法会无限保持 compacting、不自动换后备方法；用户手动中止能收口，但这不等于撤回/失败隔离已成立。不能把拦截层超时误当方法超时，也不宜给长摘要调用无依据地套 30 秒。
+如何核实：已运行 `bun run /tmp/review-t11-design/backend-smoke.ts`：真实会话 Profile 顺序为 stuck → fallback，在 stuck 已进入后推进注入时钟 120,000 ms，fallback 调用仍为 0；用户 abort 后运行 aborted、压缩事件 0。此实验证明内核不会为 terminal 兜底超时；新贡献点尚不存在，撤回竞态只能作为待定义合同，未伪造平台时序。
+建议改法：先明确方法的激活及一代实现寿命，按句柄代次取实现，撤回后阻止新调用并裁决在途结果、关闭与释放；若允许方法长等但仅靠用户中止，写清这个取舍，否则定义独立方法时限而非借用拦截超时。验收至少覆盖未激活提供方、激活失败、运行中撤回、撤回后同 id 再发布，以及不理会 signal 的晚到结果。
+
+### 17. 摘要分段要用的压缩角色窗口不在现有 job / ModelCaller 接口里
+严重程度：重要；类别：接口与合同；位置：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t11-compaction/plan.md:17,26`、`packages/nb-harness/src/kernel/api/extension.ts:26-40`、`packages/nb-harness/src/kernel/api/model.ts:124-132,174-181`、`packages/nb-harness/src/kernel/run/model-call.ts:139-143`
+现象：计划把 `job.request` 改按会话模型算，再让 summary 用压缩角色窗口分段；但 `CompactionJob` 只有完整请求、切点、token、要求、signal 和调用函数，`ModelRequest` 没有 contextWindow/maxOutput，`ModelCaller` 只交回回复，不暴露解析信息。调用函数内部才解析压缩角色。summary 如果只拿计划所说的 job.model，就不知道压缩角色实际窗口，也不能知道可用输出上限。
+为什么是问题：会话模型窗口和压缩角色模型窗口可以不同，不能拿前者分段。直接绕过内核查应用模型服务又会使插件方法与当前角色解析、会话上下文各走一份；计划称内核只有两处小改，但这个必需输入尚无交接接口。第 13 条是分段边界算法，本条是算法在既有接口上拿不到预算来源。
+如何核实：已核对全部公开形状与 modelCaller 的解析点；没有把内部 resolve 暴露给方法。新 summary 尚未实现，因此这是明确的接口缺口，不把它写成已运行的溢出 bug。
+建议改法：让内核给方法一个与实际调用同源的模型解析信息/调用句柄，至少带压缩角色的 contextWindow、maxOutput 与解析失败结果；或由宿主明确注入同一模型端口的只读解析能力。先设计预算与调用共用同一次解析的约束，再补大对话窗口配小压缩窗口的场景。
