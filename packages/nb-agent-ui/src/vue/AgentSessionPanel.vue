@@ -216,8 +216,8 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
     padding: 0 3px;
     border-radius: 7px;
     background: var(--accent-main);
-    color: var(--accent-on);
-    font-size: 10px;
+    color: var(--text-inverse);
+    font-size: var(--text-2xs);
     line-height: 14px;
     text-align: center;
     pointer-events: none;
