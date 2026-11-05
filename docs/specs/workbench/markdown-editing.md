@@ -35,7 +35,7 @@ owners:
 
 ```ts
 interface EditorEditing {
-    run(action: string, args?: Readonly<Record<string, unknown>>): {ok: true} | {ok: false; reason: Text};
+    run(action: string, args?: Readonly<Record<string, unknown>>): boolean;
     active(action: string): boolean;
     enabled(action: string): boolean;
     readonly hasSelection: Readonly<Ref<boolean>>;
