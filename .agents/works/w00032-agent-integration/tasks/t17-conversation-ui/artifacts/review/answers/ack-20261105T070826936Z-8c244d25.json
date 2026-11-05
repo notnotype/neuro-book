@@ -1,0 +1,13 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t17-conversation-ui",
+    "artifactId": "review",
+    "ackId": "20261105T070826936Z-8c244d25",
+    "answers": [
+        "20261105T070647261Z-c48006f1"
+    ],
+    "through": "20261105T070647261Z-c48006f1",
+    "included": [],
+    "ackedAt": "2026-11-05T07:08:26.936Z"
+}
