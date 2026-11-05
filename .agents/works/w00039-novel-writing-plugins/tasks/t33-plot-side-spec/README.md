@@ -47,10 +47,10 @@ updated: 2026-11-05
   - [`evidences/spec-review-round1-S2-omp.txt`](evidences/spec-review-round1-S2-omp.txt)
   - [`evidences/spec-review-round1-resolution.txt`](evidences/spec-review-round1-resolution.txt)
 - 第二轮：S1b（内核，omp）核完第一轮 18 条、写出 19、20 后因上游额度用完退出，剩下的改派 Claude Opus（S1c，21 到 41）；S2b（剧情插件，omp）有效 8 条。共 31 条，阻断 2（19、S2b 23），都成立，已改进 2a8a2a99d。报告与归类：`evidences/spec-review-round2-*`（[归类](evidences/spec-review-round2-resolution.txt)）。
-- 第三轮（最后一轮）：omp 上游额度用完，按规则改派两个 Claude Opus 子代理（S3a 内核、S3b 剧情插件），在跑，报告在 `.local` 的 `reports/S3a/`、`S3b/`。
+- 第三轮（最后一轮，两个 Claude Opus 子代理）：S3a（内核）15 条、S3b（剧情插件）12 条，没有阻断，都成立，已改进 ad3d802c1。报告与归类：`evidences/spec-review-round3-*`（[归类](evidences/spec-review-round3-resolution.txt)）。三轮已满，本轮修正没有再经独立审查；等开发者批准 Spec。
 
 
 ## 下一步
 
-1. 第二轮报告回来以后归类、修正，向开发者汇报；同一对象最多三轮，之后仍有实质问题交开发者定。
-2. 开发者批准以后，Spec 在分支上定稿；接着写实施计划（另开 Task）。
+1. 开发者看过以后批准 Spec（分支上，`planned`）。
+2. 接着写实施计划（另开 Task）：按提案的实施先后分阶段；计划审查与合同测试兜底本轮没有再审的修正。
