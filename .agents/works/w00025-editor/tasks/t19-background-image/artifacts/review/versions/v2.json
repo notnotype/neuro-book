@@ -1,0 +1,109 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t19-background-image",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "背景图片与护眼底色",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "a3b1f7e01b6794b09ce431fae466c30e3df5b0ff941b4b0fbfa9abe9f32a1a0d",
+    "files": [
+        "index.html",
+        "r1/paper-dark.webp",
+        "r1/paper-light.webp",
+        "r1/tint-green.webp",
+        "r1/tint-parchment.webp",
+        "r1/window-light.webp",
+        "r2/blur-75-dark.webp",
+        "r2/blur-75-light.webp",
+        "r2/blur-85-dark.webp",
+        "r2/blur-85-light.webp",
+        "r2/sharp-75-dark.webp",
+        "r2/sharp-75-light.webp",
+        "r2/sharp-92-dark.webp",
+        "r2/sharp-92-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-scope",
+            "type": "single",
+            "label": "背景放在哪里",
+            "options": [
+                {
+                    "value": "paper",
+                    "label": "只在正文区域"
+                },
+                {
+                    "value": "window",
+                    "label": "整个窗口"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "paper"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-eye",
+            "type": "single",
+            "label": "护眼模式怎么做",
+            "options": [
+                {
+                    "value": "both",
+                    "label": "图片之外，再给几个纯色底"
+                },
+                {
+                    "value": "image",
+                    "label": "只做图片"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "both"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-legibility",
+            "type": "single",
+            "label": "图片怎样才读得动",
+            "options": [
+                {
+                    "value": "sharp",
+                    "label": "图保持清晰，遮罩下限 92%"
+                },
+                {
+                    "value": "blur",
+                    "label": "图固定模糊，遮罩下限 75%"
+                },
+                {
+                    "value": "both",
+                    "label": "都给：一个“模糊”开关，下限跟着变"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "both"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-05T10:08:50.841Z"
+}

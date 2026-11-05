@@ -49,8 +49,36 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <p>对比度是把文字隐藏后，量正文区域每个位置的背景与文字的 WCAG 对比度。正文要求至少 4.5。</p>
 </div>
 
+<div class="round">第 2 轮</div>
+<p>第 1 轮的遮罩下限 75% 要重新定：当时说“任何图片都读得清”说过头了。75% 只保证正文主色逐像素的对比度够，图的细节还是和字混在一起；次要文字、链接在 75% 也不到 4.5。下面是一张细节很多的图上的长文，比值之外用眼睛看。</p>
+
+<section class="q" data-nbdev-question="r2-legibility" data-nbdev-type="single" data-nbdev-recommend="both">
+<h2>图片怎样才读得动 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt" data-nbdev-option="sharp"><h3>图保持清晰，遮罩下限 92%</h3>
+<p>看得出是什么图，但很淡。75% 的样子放在后面作对照：字和图混在一起，暗色尤其明显。</p>
+<figure><img src="r2/sharp-92-light.webp" alt="清晰 92%，亮色"><figcaption>清晰 92%，亮色</figcaption></figure>
+<figure><img src="r2/sharp-92-dark.webp" alt="清晰 92%，暗色"><figcaption>清晰 92%，暗色</figcaption></figure>
+<figure><img src="r2/sharp-75-light.webp" alt="对照：清晰 75%，亮色（不采用）"><figcaption>对照：清晰 75%，亮色（不采用）</figcaption></figure>
+<figure><img src="r2/sharp-75-dark.webp" alt="对照：清晰 75%，暗色（不采用）"><figcaption>对照：清晰 75%，暗色（不采用）</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="blur"><h3>图固定模糊，遮罩下限 75%</h3>
+<p>色彩更浓，读起来也舒服，但看不出图的内容，只剩氛围。</p>
+<figure><img src="r2/blur-75-light.webp" alt="模糊 75%，亮色"><figcaption>模糊 75%，亮色</figcaption></figure>
+<figure><img src="r2/blur-75-dark.webp" alt="模糊 75%，暗色"><figcaption>模糊 75%，暗色</figcaption></figure>
+<figure><img src="r2/blur-85-light.webp" alt="模糊 85%，亮色"><figcaption>模糊 85%，亮色</figcaption></figure>
+<figure><img src="r2/blur-85-dark.webp" alt="模糊 85%，暗色"><figcaption>模糊 85%，暗色</figcaption></figure>
+</div>
+<div class="opt rec" data-nbdev-option="both"><h3>都给：一个“模糊”开关，下限跟着变</h3>
+<p>开模糊时下限 75%，关模糊时下限 92%。缺省开模糊、遮罩 85%。滑块到下限就停。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐都给。</b>想要氛围的人和想看清自己照片的人都有路，读不动的组合选不出来。多一个开关，代价很小。正文之外的文字（次要文字、链接）的下限实施时按主题实测，可能比这两个数再高一点。</div>
+</section>
+
+<div class="round">第 1 轮</div>
 <section class="q" data-nbdev-question="r1-scope" data-nbdev-type="single" data-nbdev-recommend="paper">
-<h2>背景放在哪里 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>背景放在哪里 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="paper"><h3>只在正文区域</h3>
 <p>只改编辑区，侧栏、标签这些不动。</p>
@@ -75,11 +103,11 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <p>只量了亮色的正文。暗色、侧栏与标签的小字都没量，它们字更小，要求更严。</p>
 </div>
 </div>
-<div class="rec-note"><b>推荐只在正文区域。</b>写作时看的就是这一块，影响范围小，也能先把可读性的下限做对。整个窗口以后还能加，要动所有面板的面色，主题也要一起验。</div>
+<div class="rec-note"><b>开发者定了两种都做。</b>当时的推荐是只在正文区域：写作时看的就是这一块，影响范围小，也能先把可读性的下限做对。整个窗口以后还能加，要动所有面板的面色，主题也要一起验。</div>
 </section>
 
 <section class="q" data-nbdev-question="r1-eye" data-nbdev-type="single" data-nbdev-recommend="both">
-<h2>护眼模式怎么做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>护眼模式怎么做 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="both"><h3>图片之外，再给几个纯色底</h3>
 <p>豆沙绿、羊皮纸这类预设，也能自己选颜色。纯色不需要遮罩。</p>
@@ -88,7 +116,7 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 </div>
 <div class="opt" data-nbdev-option="image"><h3>只做图片</h3><p>想要纯色就自己传一张纯色图。</p></div>
 </div>
-<div class="rec-note"><b>推荐都做。</b>护眼要的多半就是一个颜色，让人为此找图不合理；两者是同一个设置项的两种取值，多不了多少工作。</div>
+<div class="rec-note"><b>开发者选了都做。</b>护眼要的多半就是一个颜色，让人为此找图不合理；两者是同一个设置项的两种取值，多不了多少工作。</div>
 </section>
 </main>
 </body>
