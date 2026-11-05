@@ -11,6 +11,7 @@ import {valueAt, type ViewValue} from "../core/view-value";
 import type {Actor, Address, Entry, FieldDeclaration, Patch, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
+import {MAIN_LINE} from "../lines/table";
 import type {World, WriteFailure, WriteResult} from "./world";
 
 export interface InPlaceEdit {
@@ -28,6 +29,7 @@ export interface InPlaceEdit {
 export type EditFailure =
     | WriteFailure
     | {readonly code: "chapter-not-found"}
+    | {readonly code: "line-not-found"}
     | {readonly code: "value-conflict"; readonly current: unknown}
     | {readonly code: "accumulated-value"; readonly origins: readonly OriginStep[]}
     | {readonly code: "incomplete-field"}
@@ -38,25 +40,29 @@ export type EditFailure =
 export type EditResult = (Extract<WriteResult, {ok: true}> & {readonly laterRecords: readonly string[]}) | {readonly ok: false; readonly failure: EditFailure};
 
 /** 一个地址在某个位置上的值、是否不完整、所在命名空间是否可写。 */
-function currentAt(world: World, position: ReadPosition, at: Address): ViewValue | "chapter-not-found" {
-    const view = world.line().engine.entry(at.entry, position, "actual");
+function currentAt(world: World, position: ReadPosition, at: Address): ViewValue | "chapter-not-found" | "line-not-found" {
+    const line = world.lineAt(position);
+    if (line === undefined) return "line-not-found";
+    const view = line.engine.entry(at.entry, position, "actual");
     return view === "chapter-not-found" ? view : valueAt(view, at.path);
 }
 
-/** 剧情变化在读取位置的排序键：开头落在本章最前（最小键减一），末尾落在本章最后（最大键加一）（输出 18）。 */
-function keyAt(world: World, chapter: string, edge: "start" | "end"): number {
-    // 只看这条线视图里的记录（worldlines 输出 19）。
-    const {records} = world.line();
+/**
+ * 剧情变化在读取位置的排序键：开头落在本章最前（最小键减一），末尾落在本章最后（最大键加一）（输出 18）。只看读取位置那条线视图里的
+ * 记录（worldlines 输出 19）：切口在本章时它在视图里，所以末尾的键必然晚于切口；开头落在切口之前的写入由线的规则拒收。
+ */
+function keyAt(world: World, position: ReadPosition & {readonly kind: "chapter"}): number {
+    const {records} = world.lineAt(position)!;
     const keys: number[] = [];
-    for (const change of records.changes.values()) if (change.at.kind === "chapter" && change.at.chapter === chapter) keys.push(change.at.key);
-    for (const check of records.checks.values()) if (check.place.kind === "chapter" && check.place.chapter === chapter) keys.push(check.place.key);
+    for (const change of records.changes.values()) if (change.at.kind === "chapter" && change.at.chapter === position.chapter) keys.push(change.at.key);
+    for (const check of records.checks.values()) if (check.place.kind === "chapter" && check.place.chapter === position.chapter) keys.push(check.place.key);
     if (keys.length === 0) return 0;
-    return edge === "start" ? Math.min(...keys) - 1 : Math.max(...keys) + 1;
+    return position.edge === "start" ? Math.min(...keys) - 1 : Math.max(...keys) + 1;
 }
 
 export function editInPlace(world: World, edit: InPlaceEdit, time: string): EditResult {
     const current = currentAt(world, edit.position, edit.at);
-    if (current === "chapter-not-found") return {ok: false, failure: {code: "chapter-not-found"}};
+    if (current === "chapter-not-found" || current === "line-not-found") return {ok: false, failure: {code: current}};
     if (!current.available) return {ok: false, failure: {code: "field-unavailable"}};
     if (!sameJson(current.value, edit.read.value)) return {ok: false, failure: {code: "value-conflict", current: current.value}};
     const intent = edit.intent ?? "creative";
@@ -77,7 +83,7 @@ export function editInPlace(world: World, edit: InPlaceEdit, time: string): Edit
             id: "tmp:edit",
             kind: "written",
             text: edit.title ?? "就地改",
-            at: {kind: "chapter", chapter: edit.position.chapter, key: keyAt(world, edit.position.chapter, edit.position.edge)},
+            at: {kind: "chapter", chapter: edit.position.chapter, key: keyAt(world, edit.position), ...(edit.position.line === undefined || edit.position.line === MAIN_LINE ? {} : {line: edit.position.line})},
             told: [],
             involves: [edit.at.entry],
             lines: [],
@@ -89,10 +95,13 @@ export function editInPlace(world: World, edit: InPlaceEdit, time: string): Edit
         request = {requestId: edit.requestId, by: edit.by, what: "edit", title: edit.title ?? "就地改", baseVersion: edit.read.version, chapter: edit.position.chapter, puts: [{ref: {kind: "change", id: "tmp:edit"}, after: change}]};
     } else {
         if (current.incomplete) return {ok: false, failure: {code: "incomplete-field"}};
-        const origins = world.line().engine.origins(edit.at, edit.position, "actual");
+        const origins = world.lineAt(edit.position)!.engine.origins(edit.at, edit.position, "actual");
         if (origins === "chapter-not-found") return {ok: false, failure: {code: "chapter-not-found"}};
         const steps = origins.filter((step) => step.kind !== "check" || step.result === "anchor");
         const last = steps.at(-1)!;
+        // 带过去的值不是哪条记录写的：要改它，在这条线上记一条剧情变化（worldlines 输出 19）。
+        const view = world.lineAt(edit.position)!;
+        if (last.kind === "patch" && view.synthetic.has(last.change)) return {ok: false, failure: {code: "validation-failed", problems: [{code: "carried-value", message: "the value was carried over from another world line; record a story change on this line instead"}]}};
         if (last.kind === "reduce" || last.kind === "check" || (last.kind === "patch" && (last.op === "add" || last.op === "note"))) {
             return {ok: false, failure: {code: "accumulated-value", origins}};
         }
@@ -118,7 +127,7 @@ export function editInPlace(world: World, edit: InPlaceEdit, time: string): Edit
     if (!result.ok) return result;
     if (!result.repeated) {
         const after = currentAt(result.world, edit.position, edit.at);
-        if (after === "chapter-not-found" || !sameJson(after.value, edit.value)) return {ok: false, failure: {code: "result-mismatch", got: after === "chapter-not-found" ? undefined : after.value}};
+        if (after === "chapter-not-found" || after === "line-not-found" || !sameJson(after.value, edit.value)) return {ok: false, failure: {code: "result-mismatch", got: typeof after === "string" ? undefined : after.value}};
     }
     return {...result, laterRecords: laterRecords(result.world, edit)};
 }
@@ -189,7 +198,8 @@ function laterRecords(world: World, edit: InPlaceEdit): string[] {
     const ids: string[] = [];
     const last = world.options.order.ids.at(-1);
     if (last === undefined) return ids;
-    const origins = world.line().engine.origins(edit.at, chapterEnd(last), "actual");
+    const origins = world.lineAt(edit.position)?.engine.origins(edit.at, {...chapterEnd(last), ...(edit.position.line === undefined ? {} : {line: edit.position.line})}, "actual");
+    if (origins === undefined) return ids;
     if (origins === "chapter-not-found") return ids;
     for (const step of origins) {
         if (step.kind !== "patch") continue;

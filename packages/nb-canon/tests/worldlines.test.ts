@@ -6,6 +6,7 @@ import {describe, expect, test} from "bun:test";
 import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type Fork, type Patch, type StoryChangeDraft, type WriteRequest} from "../src/index";
 import {affectedLines, touchedOf} from "../src/lines/affected";
 import {lineTable} from "../src/lines/table";
+import {editInPlace} from "../src/world/edits";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {openTestService} from "./fixtures/service";
@@ -469,6 +470,53 @@ describe("canon.worldlines 输出 11、验收 7、8：跨线的还原依赖", ()
         const result = ok(broken.world.publish(undo, "t"));
         expect(result.revision.impact.brokenOn).toEqual([{line, change: wind}]);
         expect(result.world.pending({kind: "chapter", chapter: "ch4", edge: "end", line})).toContainEqual({kind: "cannot-apply", root: result.revision.id, changes: [wind]});
+    });
+});
+
+describe("canon.worldlines 输出 19、revisions 输出 8：子线上的就地改", () => {
+    const end = (chapter: string, line: string) => ({kind: "chapter" as const, chapter, edge: "end" as const, line});
+    const valueOf = (world: World, line: string, entry: string, path: string, chapter: string) => {
+        const read = world.line(line)!.engine.entry(entry, end(chapter, line), "actual");
+        if (read === null || read === "chapter-not-found") throw new Error("not found");
+        const [namespace, field] = path.split(".") as [string, string];
+        return read.namespaces[namespace]!.fields[field]!.value;
+    };
+
+    test("剧情变化就地改：新建的变更安放在读取位置的线上，键晚于切口；这条线的值变了，主线不变；末尾落在本线视图里所有记录之后、切口所在的章落在切口之后", () => {
+        const {world, xia, c2} = base();
+        const created = forked(world, c2, {patches: [spend(xia, -1000)]});
+        const line = created.ids["tmp:l"]!;
+        const edit = (position: ReturnType<typeof end>, value: number, read: number, version: number) =>
+            editInPlace(created.world, {requestId: `ed-${String(++sequence)}`, by: {kind: "author"}, position, at: {entry: xia, path: "panel.存款"}, value, read: {value: read, version}, intent: "story"}, "t");
+        const result = edit(end("ch3", line), 13000, 14000, created.world.version);
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        const record = [...result.world.data.changes.values()].find((change) => change.text === "就地改")!;
+        // 末尾在本线视图里所有记录之后：含继承来的计划（ch3 键 5）。
+        expect(record.at).toEqual({kind: "chapter", chapter: "ch3", key: 6, line});
+        expect(valueOf(result.world, line, xia, "panel.存款", "ch4")).toBe(13000);
+        expect(valueOf(result.world, "main", xia, "panel.存款", "ch4")).toBe(15000);
+        // 切口所在的章：键落在切口之后（ch2 键 20），不与继承来的同章记录混。
+        const inCut = edit(end("ch2", line), 14500, 15000, created.world.version);
+        if (!inCut.ok) throw new Error(JSON.stringify(inCut.failure));
+        expect([...inCut.world.data.changes.values()].find((change) => change.text === "就地改")!.at).toEqual({kind: "chapter", chapter: "ch2", key: 21, line});
+        // 线不存在：line-not-found。
+        expect(edit(end("ch3", "l404"), 1, 1, created.world.version)).toEqual({ok: false, failure: {code: "line-not-found"}});
+    });
+
+    test("创作修改改带过去的值：拒收 carried-value；记一条剧情变化照常", () => {
+        const {world, xia, c1, c3} = base();
+        const used = ok(world.publish(request([{ref: {kind: "change", id: c3}, after: {...structuredClone(world.data.changes.get(c3)!), patches: [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 0}]}}], world.version), "t"));
+        const forkedLine = ok(used.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: c1, trigger: c3, type: "rollback", who: xia} as Fork})},
+            {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"))},
+        ], used.world.version), "t"));
+        const line = forkedLine.ids["tmp:r1"]!;
+        const input = {requestId: "", by: {kind: "author" as const}, position: end("ch3", line), at: {entry: xia, path: "rb.次数"}, value: 1, read: {value: 0, version: forkedLine.world.version}};
+        const refused = editInPlace(forkedLine.world, {...input, requestId: `ed-${String(++sequence)}`}, "t");
+        expect(refused.ok === false && refused.failure).toMatchObject({code: "validation-failed", problems: [{code: "carried-value"}]});
+        const story = editInPlace(forkedLine.world, {...input, requestId: `ed-${String(++sequence)}`, intent: "story"}, "t");
+        if (!story.ok) throw new Error(JSON.stringify(story.failure));
+        expect(valueOf(story.world, line, xia, "rb.次数", "ch4")).toBe(1);
     });
 });
 
