@@ -81,9 +81,11 @@ Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`
 ## 隐藏通道理由
 
 - `state:local`：保存拖动预览、布局盒测量和手势 scope 生命周期状态，仅在本实例的交互期间存在。
-- `state:inject`：向递归的 `Splitter` 提供共享 sash gesture scope，使整棵嵌套 Grid 共用一次会话；这让交叉处的两根轴能一起预览和一次提交，避免每个分支各自提交半场手势。没有这个父级时独立 `Splitter` 会自行建立 scope。
+- `state:inject`：向后代的分隔线（`SashHandle`）提供共享 sash gesture scope，使整个 Grid 共用一次会话；这让交叉处的两根轴能一起预览和一次提交，避免每个分支各自提交半场手势。叶槽里再嵌一个公开 `NestedGrid` 或独立 `Splitter` 会得到自己的 scope。
 - `env:global`：`useSashGesture` 在手势根、`window` 和 `document` 上监听指针捕获/释放、窗口失焦与 Escape，并按 viewport pointer 坐标命中分隔线；组件卸载或会话结束时移除监听。该通道为手势生命周期服务，不是常驻快捷键。
 
 ## 上游边界
 
-`Splitter` 负责面板渲染与 sash 输入绑定，`useSashGesture` 负责命中、指针/键盘生命周期、取消和手势仲裁；布局计算与手势求解由 grid 几何模块及 Grid session 提供。`NestedGrid` 承诺递归映射、预览呈现、事件和同步提交回调语义，不承诺这些局部模块未声明的实现细节。
+`SashHandle` 负责分隔线元素，`useSashGesture` 负责命中、指针/键盘生命周期、取消和手势仲裁；布局计算与手势求解由 grid 几何模块及 Grid session 提供，矩形由 `placeGrid` 给。`NestedGrid` 承诺摆放、预览呈现、事件和同步提交：宿主拒绝提交时回滚预览并给出诊断。
+
+公开面相对递归版的变化：grid 里不再有 `data-splitter`、`data-panel-id`；`data-leaf` 在外框上，过渡中会动，读最终尺寸用 `data-leaf-content`。
