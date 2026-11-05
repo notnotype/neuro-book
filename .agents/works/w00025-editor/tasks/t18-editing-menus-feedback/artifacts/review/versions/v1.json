@@ -1,0 +1,61 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t18-editing-menus-feedback",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "工具栏放在哪里",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "6381e43138e5337842916b641975bc49d865663cc996e409bb6275b76f752a62",
+    "files": [
+        "index.html",
+        "r1/bottom.webp",
+        "r1/full.webp",
+        "r1/hidden.webp",
+        "r1/merged.webp",
+        "r1/now.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-place",
+            "type": "single",
+            "label": "工具栏放哪里",
+            "options": [
+                {
+                    "value": "keep",
+                    "label": "现在的样子"
+                },
+                {
+                    "value": "merged",
+                    "label": "并入面包屑那一行"
+                },
+                {
+                    "value": "bottom",
+                    "label": "底部浮条"
+                },
+                {
+                    "value": "full",
+                    "label": "留在原位，改成通栏"
+                },
+                {
+                    "value": "hidden",
+                    "label": "缺省不显示"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "merged"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-05T08:36:20.170Z"
+}
