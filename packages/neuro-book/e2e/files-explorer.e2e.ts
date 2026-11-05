@@ -885,6 +885,32 @@ test("边缘滚动中松手：文件落到松手时指针下的位置（docs/spe
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 
+test.describe("触摸（docs/specs/ui/layout-drag.md 验收 5）", () => {
+    test.use({hasTouch: true});
+
+    test("行上按下带 1 px 抖动，按住后拖到别的目录：不被隐式捕获的换手取消，也不让给树的滚动", async ({page}) => {
+        await open(page);
+        await writeFile(join(projectDir, "plain", "touch-drop.md"), "T");
+        await item(page, "project://plain").click();
+        await expect(item(page, "project://plain/touch-drop.md")).toBeVisible();
+        await barrier(page, "plain");
+        await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-motion");
+        const from = await center(page, "project://plain/touch-drop.md");
+        const to = await center(page, "project://drags");
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [from]});
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + 1, y: from.y}]});
+        await expect(page.locator("[data-explorer-drag-ghost]")).toBeVisible();
+        for (const ratio of [0.25, 0.5, 0.75, 1]) {
+            await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio}]});
+        }
+        await expect(page.locator("[data-explorer-drop-live]")).toHaveText("移入 drags");
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
+        await expect.poll(() => exists(join(projectDir, "drags", "touch-drop.md"))).toBe(true);
+        await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+    });
+});
+
 test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：都不写", async ({page}) => {
     const sent = recordWrites(page);
     await open(page);

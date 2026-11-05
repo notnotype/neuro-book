@@ -522,6 +522,37 @@ test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区�
     await closeAll(page);
 });
 
+test.describe("触摸（docs/specs/ui/layout-drag.md 验收 5）", () => {
+    test.use({hasTouch: true});
+
+    test("标签上按下带 1 px 抖动，按住后拖到别的标签前：不被隐式捕获的换手取消，顺序变了", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 900});
+        await open(page);
+        await closeAll(page);
+        for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
+        const boxOf = async (name: string) => {
+            const box = await tabs(page).filter({hasText: name}).boundingBox();
+            if (box === null) throw new Error("标签不在页面上");
+            return box;
+        };
+        const c = await boxOf("c.md");
+        const a = await boxOf("a.md");
+        const from = {x: c.x + c.width / 2, y: c.y + c.height / 2};
+        const to = {x: a.x + 4, y: a.y + a.height / 2};
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [from]});
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + 1, y: from.y}]});
+        await expect(page.locator("[data-editor-drag-ghost]")).toBeVisible();
+        for (const ratio of [0.25, 0.5, 0.75, 1]) {
+            await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio}]});
+        }
+        await expect(page.locator("[data-editor-drop]")).toHaveCount(1);
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
+        await expect.poll(() => labels(page).allTextContents()).toEqual(["c.md", "a.md", "b.md"]);
+        await closeAll(page);
+    });
+});
+
 test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看得见的最后一个后面落在它的后继之前；只有一个固定标签的组，拖到正文中央取消固定", async ({page}) => {
     await page.setViewportSize({width: 1000, height: 800});
     await open(page);
