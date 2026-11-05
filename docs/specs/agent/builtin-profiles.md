@@ -35,7 +35,7 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 
 | key | 名字 | `tools.required` | `tools.optional` | 其它 |
 |---|---|---|---|---|
-| `nbook.agent.main` | 写作助手 | `read`、`write`、`grep`、`glob` | `edit-replace`、`shell` | — |
+| `nbook.agent.main` | 写作助手 | `read`、`write`、`grep`、`glob` | `edit-replace`、`shell`、`ask-form`（planned） | `icon`（planned） |
 | `nbook.agent.session-title` | 会话标题 | 无 | 无 | `role: "tiny"`、`hidden: true`、`defaultTools: false` |
 
 会话标题 Profile 的结果 schema：`{title: string（1 到 40 个字符）, description: string（1 到 120 个字符）}`，必须交回。

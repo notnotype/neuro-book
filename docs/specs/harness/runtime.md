@@ -139,7 +139,10 @@ owners:
 73. 有 `description` 时写 `descriptionChanged{description}`（会话级控制事件，经出站过滤的文字映射）；快照的 `description` 随之变化，没写过时为 null。
 74. `fork` 出的新会话不带说明，也不带“用户改过标题”的记录。
 75. 模型端口的 `resolve` 在算视图与反应的环境时抛错（宿主正在停止、服务已撤回）：环境里按未知模型算，写诊断 `model-resolve-threw`（每个会话一次），运行照常收口。`closeSession` 的任何一步抛错，日志与锁都照样关闭，错误之后再交给调用方。
-76. 工具实现可以有 `preview(args)`：审批判定是 `ask` 时，内核在写 `interactionRequested` 之前调一次，结果放进 `request.preview`（`{kind: "diff", address, before, after}` 或 `{kind: "too-large"}`，单份上限 256 KiB）。抛错或 2 秒没有结果时不带预览，写诊断 `preview-failed`，审批照常。预览不改任何文件。（planned）
+76. 帧 `{type: "tool", callId, status}`：工具调用执行完时推，不进日志；权威仍是这批调用的 `toolResult`。`toolArgs` 增量的第一块带 `tool`（工具 id），同一 `callId` 的片段按 `n` 连接就是参数的 JSON 文本。（planned）
+77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。（planned）
+78. `ToolSessionContext` 带 `background`。（planned）
+79. 同一条回复的调用先过审批阶段再执行：切段之前按调用顺序逐个判定，判定 `ask` 的都写 `interactionRequested`（运行状态 `waiting{pending}` 列出全部），等全部应答；之后才执行，这条回复里不用审批的调用也等这个阶段结束，执行顺序不变。应答 `deny` 的调用轮到时得 `denied`，别的调用照常。拦截层改了参数、和批准时不同时，这个调用按输出 39 再问一次。（planned，改输出 39 的“同一段里别的调用照常”）
 
 ## 状态与转换
 

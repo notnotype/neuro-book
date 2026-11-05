@@ -1,0 +1,81 @@
+### 1. 把预览加在 ToolImplementation 上，越不过现有的懒加载包装
+**严重程度**：重要
+**类别**：接口与不变量
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:60-68；/home/notnotype/CodeRepository/neuro-book/docs/specs/harness/runtime.md:142；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/contributions.md:28,59-60；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/src/plugins/agent/backend/tools.ts:92-99,154-199,220-233
+**现象**：内核 tools.create 得到的是 ToolWrapper，不是 edit/write 的真正实现。包装目前只暴露 execute/dispose，真正工厂在 execute 内的 #ensure 才激活和创建。照计划只改内核 api/tool.ts、run/tools.ts 和 builtin/edit.ts、write.ts，内核读到的 preview 始终不存在，审批仍没有 diff。把 preview 简单转发到 #ensure 又会在批准之前激活提供方、建真实实现，改变 contributions 输出 5 的首次执行才激活合同。
+**为什么是问题**：预览跨越了一个已存在的生命周期边界，不是给内核接口添一个可选方法就能接通。工厂等待、代次撤回、5 秒收口和底层工作结束后 dispose 都由包装管理；另开预览路径而不规定所有权，会绕开这些保证。计划的 Spec/切片/验收没有覆盖包装或懒激活提供方，只有预览抛错和超时的内核测试，抓不到此断链。
+**如何核实**：只读沿真实调用链核对：run/tools.ts:271-283 → ToolBox.implementation → AgentTools.create → ToolWrapper.execute → #ensure。尚无 preview 实现可运行；以上是现有实现和拟定接口的直接对照，不把未来的竞态当成已复现故障。
+**建议改法**：先定预览是否允许激活工具提供方。更简单的方案是由宿主对内置工具按实际审批 args 发独立的只读预览查询，经会话资源权限读取，不启动执行实现、不把预览放入内核执行路径。若保留内核方案，必须把包装列入切片，明确激活时机、创建与预览共同的超时/取消、代次撤回和释放合同，并加真实插件懒加载、拒绝审批、预览中撤回的验收。
+
+### 2. 单文件 ToolPreview 无法表示现有 hashline edit 的一次多文件审批
+**严重程度**：重要
+**类别**：接口与正确性
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:60-68；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/builtin-tools.md:23,99,138；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts:90-105,132-159；同 worktree 的 packages/neuro-book/src/plugins/agent/builtin-tools.test.ts:427-450
+**现象**：ToolPreview 固定为一个 address/before/after，而 hashline edit 支持一个调用修改多个文件，内核也只为这次调用创建一个 approval。计划又要求 edit 提供预览，没有定义第二个及后续文件放在哪里、是否必须全部预览，也没有表达逐文件过大或无法试算的结果。
+**为什么是问题**：按接口字面实现只能漏掉一部分待批准的变更，或把多个文件伪装成一个 diff；用户批准的对象和真正执行的多文件操作不一致。这不是未来能力，现有合同与真实文件测试已经有一次 edit 改两个文件、第二个 conflict 而第一个落盘的场景。
+**如何核实**：从 editInspect 的 inspection.paths 到 baselines、writer 的逐文件循环核对；既有 builtin-tools.test.ts:427-450 通过真实内核、文件服务和编辑引擎发出一次两文件 edit。没有假造运行时事件。
+**建议改法**：把预览定义成按调用分组的文件列表，每个文件分别有 diff/too-large/failed，并明确整次调用仍只批准一次；或明确多文件只能显示完整目标列表与“无法预览”，不能只展示第一个文件却批准全部。补一次两文件调用和一大一小文件的验收。
+
+### 3. 批量 ask 没有回答的数据合同，内核也不会校验选项或表单值
+**严重程度**：重要
+**类别**：接口与正确性
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:53-58,150；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:67；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/run/interaction.ts:113-123；同 worktree 的 packages/neuro-book/src/plugins/agent/shared/remote.ts:72-76
+**现象**：计划只定义 questions 的请求形状，把回答放在自由 JSON data 中，未定义按题号如何对应、单选与多选、其它文字、form 值的结构，也没有服务端验证或失败后的处理。resolve 只要求 answer.text 去空白后非空，data 可以是任意 JSON。checkDescription 检查的是 schema 是否允许展示，不检查用户交回的值。
+**为什么是问题**：视图和工具两片无法独立按同一合同实现；纯结构化回答没有 text 会被拒绝，随便给一个非空 text 却能让不合 schema 或题目选项的 data 被记录成最终答案并叫醒工具。多窗口或 questions: caller 的父会话回答同样走此入口，不能以浏览器表单的本地校验代替服务端合同。现有验收只查“不合规 form、无 ctx.ask、答案回模型”，遗漏了回答本身。
+**如何核实**：命令 bun /tmp/review-t17-design/kernel-review.ts，经公开 createTestSession 和真实 send → ctx.ask → resolve → waitRun 路径：{text:"", data:{choice:"甲", age:20}} 得 invalid-answer；{text:"已填", data:{choice:"不存在", age:"不是数字"}} 得 ok:true，工具收到完全相同的非法值。没有直接调用 interaction 内部函数。
+**建议改法**：定义稳定的逐题回答 schema 和非空 text 的生成规则，明确多选、其它、form 同时出现的语义；在结算之前按本次请求校验回答，失败保留事项以便修正。若刻意保持内核只懂自由 JSON，就给工具/宿主一个结算前校验 seam，而不是先永久结算再让工具发现坏答案。加空 text、缺题、越界选项、错误 form 值和 caller 回答的合同场景。
+
+### 4. 用 path 的最后 seq 作补齐游标，会把回退掉的分支重新接进当前对话
+**严重程度**：重要
+**类别**：正确性与并发
+**位置**：/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:56；/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:74-81,98；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/session/session.ts:326-340；同 worktree 的 packages/neuro-book/src/plugins/agent/backend/remote.ts:121-125；packages/neuro-book/src/plugins/agent/shared/remote.ts:143-144
+**现象**：path 的事件确实有 seq，但只包含当前路径的 path-scope 事件，不返回日志 head/through/实际 leaf；log 则包含所有分支及 session 事件。Spec 要求“取 path，丢掉 seq 不大于它的帧”，没有一个可用的日志游标，也没定义 leafChanged 的重投影。远程分页每页都重新读当前叶子，未固定 leaf 时页间切分支会混合两条路径。
+**为什么是问题**：先订阅只能防漏帧，不能把路径末尾的 seq 变成全日志的扫描边界。已经回退的会话打开或重连时，会重放被放弃的旧回复；只依靠事件类型追加的适配器也处理不了 leafChanged。第一版没有分支树入口不等于不存在回退后的会话，远程服务与其他调用方已经能改树。
+**如何核实**：bun /tmp/review-t17-design/kernel-review.ts，经真实两轮 send 后 rewind：日志 head 从 23 到 25，当前 path 最大 seq 为 13；按它补 log 立即读到第二轮被回退的 runStarted/input/assistant/runEnded（seq 15/18/21/23），以及 seq 24 的 leafChanged。无内部函数调用。另据 remote.ts，path 每页只带 items/more/next，from 是数组下标；snapshot.head 与 leaf 尚未纳入计划中的同一补齐协议。
+**建议改法**：定义两个独立状态：全日志游标和当前叶子。最小接法为先订阅并缓存，再取 snapshot 的 head/leaf，所有 path 页固定该 leaf，按 snapshot.head 补齐并处理缓存；遇到 leafChanged 按指定叶子重建路径，不把各分支日志直接追加成对话。也可让远程首屏查询原子返回 leaf/head 与有界路径页。覆盖页间回退、订阅期间切分支、回退后首次打开、带过滤的 progress。
+
+### 5. 后台会话可进入同步提问等待态，但 planned ask 与运行清单没有分开处理
+**严重程度**：重要
+**类别**：状态与接口
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:58,98,101,150；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/builtin-tools.md:96-98；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/run/tools.ts:181-190,283；同 worktree 的 packages/neuro-book/src/plugins/agent/backend/sessions.ts:118-120,234-244
+**现象**：实现按工具是否有 host.interactions 注入 ctx.ask。后台 `startTask` 与前台都走同一 AgentSession，不带 UI 的后台任务也有 interactions，所以同步 ask 会永久等待用户。`running()` 刻意排除后台会话，且 SessionTable 在 30 秒无引用时会关闭空闲会话；计划新增的 activity 只覆盖“前台”，没有后台等待的结算策略。单独的 builtin-tools Spec 承诺没有等用户通道时返回 `ask-unavailable`，但现有 `SessionEnv` 没有按会话隐藏 ask 的选项，计划未列出要改它。
+**为什么是问题**：可显示的前台问答通道和 `ctx.ask` 能否调用是两个合同，不能从“后台任务没有对话界面”推断内核不提供 ask。真实启用后台的 Profile 若调用 ask 会挂在 waiting；启动服务端前台 UI 的活动扫描也不会发现它，无法回答或中止。即使会话在 30 秒后可被关闭重开，`pending` 事项按日志仍存在，重开后还是没有明确后台恢复策略。
+**如何核实**：/tmp/review-t17-design/remote-review.ts 经 `agentWorld`、真实远程 send、真实工具 ctx.ask 运行：background=true 的会话进入 `waiting{question}`，同时 `service.running()` 返回空列表。前台同一工具等待 31 秒手动时钟后仍是 waiting，说明 30 秒计时只针对 idle，不会消灭活动等待；这是实际运行状态，不是伪造快照。
+**建议改法**：把“可供界面呈现的前台等待”和“工具是否可以同步等待”明确分开，并在运行开始时确定 UI 应答能力：没有应答者时不调用工具或返回 `ask-unavailable`，需要后台等用户的产品能力则由可枚举、可恢复的后台收件箱/活动服务拥有。至少覆盖后台同步 ask、异步 ask、关闭重开与中止；不要只在前端过滤 `background`。
+
+### 6. activity 快照没有现成的完整数据源：异步待答在 idle 会话关闭后不可发现
+**严重程度**：重要
+**类别**：状态与生命周期
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:74-81,101；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:50,79,91-94；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/src/plugins/agent/backend/sessions.ts:118-120,234-257；同 worktree 的 packages/nb-harness/src/kernel/run/interaction.ts:43-45,52-63；packages/nb-harness/src/kernel/api/storage.ts:12-25
+**现象**：running() 只列已打开且非 idle 的前台会话 id，不区分运行或等待；SessionTable 的 watcher 只保留 idle 布尔量，没有事件源给全局订阅。异步提问写入路径后返回，运行结束可 idle，但快照只在同步等待时带 pending；30 秒后没有引用的 idle 句柄关闭。会话 list 索引没有 pending 或 interrupted 字段。计划只说 `activity` 加一个事件和一个快照、内核不动，没有定义如何发现关闭会话上的异步事项、如何初始化快照，或新状态从哪里发布。
+**为什么是问题**：首个窗口启动、另一个窗口提问、对话位置关闭、服务重启后都必须发现全局活动；仅转发 running() 或让客户端只订阅自己打开过的会话均做不到。特别是 t20 留给 t17 的 F14 与现有扩展公开的 async ask 已存在，不是“t14 以后才有”的新 API。把 `interactionRequested - interactionResolved` 放在单个 session-host 中，只能发现该宿主已经打开的会话，不会给全窗口活动栏完整计数。
+**如何核实**：bun /tmp/review-t17-design/async-ask.ts：真实工具调用 `ctx.ask(...,{async:true})` 后，运行已正常完成、snapshot.status={state:"idle"}，路径仍有一条未结算的 interactionRequested；/tmp/review-t17-design/remote-review.ts 同时证实同步 waiting 在无窗口订阅、手动时钟推进 31 秒后仍在 running() 中，故同步 waiting 本身不会被 30 秒空闲关闭。SessionIndexEntry 与会话关闭逻辑见上述实现。
+**建议改法**：定义活动服务对同步等待、异步待答、暂停运行、后台、归档及断线时的边界；若产品明确第一版排除异步待答，写入 Spec 并保证这类事项有其他可达入口，不要把完整 pending/活动声称已覆盖。若要覆盖，为当前叶子未结算事项建立可随写入、回退和恢复更新的受控索引，或提供一次性有界恢复扫描和增量事件；订阅先于快照并规定版本/恢复、停止时清空公开布尔状态。测试两个窗口、关闭位置、30 秒关闭、重启及切分支。
+
+### 7. 快照 usage 只有费用，没有状态栏承诺的累计 token
+**严重程度**：重要
+**类别**：接口与验收
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:74-76,81,146；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:72-75；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/api/host.ts:134-155；同 worktree 的 packages/nb-harness/src/kernel/api/model.ts:18-33；packages/nb-harness/src/kernel/dispatch/core.ts:229-233
+**现象**：计划令 `usage()` 的累计值来自 snapshot.usage，但其类型 `Spend` 只有 `{cost, unpriced}`，没有 input、output、cacheRead、cacheWrite、totalTokens 和 complete。用量散在每次 assistant、modelEnded、modelFailed 事件；费用告警扩展的 costWarned/costUnpriced 是 session-scope，path 不返回。回退不减少累计费用或已花 token，但 path 会丢掉旧分支记录。
+**为什么是问题**：按计划实现不出 Spec 输出 15 的累计 tokens、输入、输出和缓存命中；按当前路径累加又会漏掉重试失败、被回退分支及非对话模型请求，和会话实际发生的用量不符。仅靠首屏 path 还无法在刷新后恢复告警，实时订阅也不会补建立前的 session 事件。表单测试与一条笼统的适配器测试不足以覆盖这些口径。
+**如何核实**：读取 Spend 和 SessionSnapshot 的接口；既有真实内核 spend.test.ts:17-33 把两次有价请求与一次无价请求汇总为 `{cost:5, unpriced:1}`，回退与重开均不减少；run/results.ts:51-55 包含 assistant、modelEnded、modelFailed。计划未定义所有日志分支 token 的求和或快照扩展。
+**建议改法**：明确累计量是否跨回退且包含失败和后台用途，选择一种唯一真相：扩展内核快照维护所有日志范围的 token/complete 与告警状态，或者首屏按 `log` 从头重放 session 和全部请求并在新帧增量更新。上下文占用则从当前路径最近对话 assistant 的 usage 取，窗口取对应实际模型信息，勿混用两种口径。覆盖有价/无价、失败重试、模型用途、回退与重开。
+
+### 8. 转录映射只处理重试的 modelFailed，停止后的已生成文字会在刷新后消失
+**严重程度**：重要
+**类别**：正确性与验收
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:74-77,131,144；/home/notnotype/CodeRepository/neuro-book/docs/specs/harness/runtime.md:44-45；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/run/loop.ts:266-278；同 worktree 的 packages/nb-agent-ui/src/conversation-turns.test.ts:298；packages/nb-agent-ui/src/harness.ts:256-275
+**现象**：映射只列 `assistant`、`modelFailed{retry}`（丢半截）与 `runEnded{error}`。用户停止时，真实内核写 `modelFailed{kind:"aborted",partial,usage}` 和 `runEnded{aborted}`，没有 assistant。非重试失败也可带 partial；超时中断进程时可能没有 partial。计划没有定义这些结局与临时流、已停止状态、继续输入框之间的对应关系，也没有给映射 `runEnded{interrupted}` 的算法。
+**为什么是问题**：按列出的映射，停止前已显示的文字没有权威落盘投影，刷新后消失；若 runEnded 仅清流还会当场消失。旧视图已有“被停止的正文仍是最终回复”合同，并将 stopped、interrupted、error 区分；Spec 不承诺的是“刷新进行中的回复补前半段”，不是停止后丢掉内核已保存的正文。把所有未正常结束都判 interrupted 又会把用户主动停止和一般报错误当作服务崩溃的继续。
+**如何核实**：bun /tmp/review-t17-design/kernel-review.ts，经真实 send、delta、abort、waitRun：输出两帧 delta，path 中无 assistant，而有一条 modelFailed.partial=`中止前已生成的文字` 和 runEnded.reason=`aborted`；内核现有 control.test.ts:195-210 也覆盖同一真实路径。
+**建议改法**：按 request 关联 modelStarted/purpose 与 modelFailed，retry 的丢弃、终止的 partial 落成 stopped/error 消息及 usage，无 partial 时保留空状态；runEnded 明确区分 aborted/error/interrupted 并只在当前路径最新 interrupted 之后尚无后续 run/turn 时给继续提示。对停止生成、工具期间停止、进程中断、失败重试、刷新和重连分别做真实内核契约测试。
+
+### 9. 服务端换进程后不能在原窗口节点“重新打开会话”
+**严重程度**：重要
+**类别**：跨进程合同与验收
+**位置**：/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:56,93,106,120；/home/notnotype/CodeRepository/neuro-book/docs/specs/runtime/plugin-channel.md:125,151；/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:98-101,143-148
+**现象**：对话 Spec 要求服务端换进程后自动重新打开会话，验收 5 又要求重启后能回车继续；平台的远程链路合同明确，旧浏览器节点收到 server-restarted 后是终态：所有订阅结束、不再重建、之后远程调用一律 unavailable、再次连接仍失败，客户端宿主要求重新加载。只重新调用 agent.sessions.create/subscribe 并不能修复该节点。
+**为什么是问题**：后续实现若照对话 Spec 在同一 host 上自动重订阅，会持续失败，且依赖旧订阅的 activity 可能保留过时的 active=true。不能把“本页重连恢复”当成已有能力，也没有定义自动重载与本地状态、未确认写入、多个窗口之间的边界。
+**如何核实**：对照上述两个 Spec 和 packages/nb-runtime/src/remote 的服务端进程标识握手实现；这是两份现行合同的直接矛盾，尚未运行浏览器或服务重启。用户禁止开发服务与 e2e，因此不以未运行场景声称复现。
+**建议改法**：明确使用既有宿主的刷新/重新加载合同，或先改平台使节点支持安全重建；分别写明用户提示、重载后按当前窗口与位置恢复 sessionId、幂等 commandId 重试以及 activity 状态清理。验收应从 server-restarted 到真实宿主终态再到重新加载后的完整会话恢复，不只在同进程假断线中重新订阅。
+

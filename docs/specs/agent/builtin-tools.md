@@ -93,10 +93,13 @@ owners:
 
 ### ask（planned）
 
-23. 整批问题交给内核的提问通道（`ctx.ask`，[`harness/runtime.md`](../harness/runtime.md) 输出 40），运行停下等回答；每题总带“其它”。回答写成工具结果交回模型，结构化的值在 `details`。
+23. 整批问题交给内核的提问通道（`ctx.ask`，[`harness/runtime.md`](../harness/runtime.md) 输出 40），运行停下等回答；每题总带“其它”。回答是 `{answers: [{selected: string[], other?: string, form?: unknown}]}`，工具按请求校验（题数、选项范围、`form` 的 schema），不合规得 `ask-invalid-answer`。写成工具结果交回模型，结构化的值在 `details`。
 24. `form` 先过 nb-form 的 Agent 策略（[`ui/forms.md`](../ui/forms.md) 输出 23），不合规得 `ask-form-invalid`，问题列在结果里，不打扰用户。
-25. 两条 `ask` 给模型的名字相同，Profile 只绑一条（主创绑 `ask-form`），用工具绑定能换。没有等用户通道的运行（后台）得 `ask-unavailable`。用户停止这一轮时运行中止。
-26. `edit`、`write` 给审批提供预览（[`harness/runtime.md`](../harness/runtime.md) 输出 76）：按将要执行的结果试算改前改后，不落盘。
+25. 两条 `ask` 给模型的名字相同，Profile 只绑一条（主创绑 `ask-form`），用工具绑定能换。后台会话得 `ask-unavailable`，不进等待。用户没有回答（`declined`、`interrupted`、`aborted`）得 `ask-declined`。说明里写单独调用，不和别的工具放在同一条回复。
+
+### 审批预览（planned）
+
+26. `edit`、`edit-replace`、`write` 有只读预览：`approvalPreview({sessionId, interactionId})` 按这个事项的参数试算，不写盘、不激活提供方，按会话的资源权限读。结果按文件分组：`diff`（`before`、`after`）、`too-large`（单个文件超过 256 KiB）、`failed`（`code`）。别的工具得空列表。
 
 ## 状态与转换
 

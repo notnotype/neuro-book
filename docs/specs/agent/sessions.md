@@ -72,6 +72,9 @@ owners:
 13. **模型服务不在。** 会话照常打开、能读；发出模型请求时以 `no-model` 失败。
 14. **停止。** `nbook.agent` 停止时：先拒绝新的调用（远程与 `agentKey` 都得 `unavailable`，新订阅以同样的原因结束）；停 Profile 的监听，等进行中的打包结束、丢掉结果；等已接纳的打开、建会话与指令登记完，把所有打开着的会话按 `interrupted` 关闭（运行写 `interrupted`，重新打开后显示“上次运行被中断”，不自动续跑）。某个会话关闭失败写诊断，其余照常关闭。
 
+15. 远程 `activity`：快照与事件，列出运行中与等用户的前台会话（`{id, state: "running" | "waiting"}`），只看打开着的句柄；先订阅后取快照，`onResync` 重取。异步提问不在内。（planned）
+16. 远程 `approvalPreview`，见 [`builtin-tools.md`](builtin-tools.md)。（planned）
+
 ## 状态与转换
 
 句柄表的一条记录：

@@ -153,10 +153,17 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 12. **中断之后：** 不提醒。占位文字变成“上次运行被中断。回车继续，或者写点什么再继续”，发送按钮换成继续（`>>>` 图标，大小不变）。写了字就是带着这段话继续。
 13. **工作台状态栏条目：** 空闲时不显示，有事时“Agent：1 运行中 · 1 等你处理”，点击打开对话视图并切到那个会话。
 
+## 计划第二稿的决定（开发者 2026-11-05）
+
+1. 同一条回复的审批一起问：“模型一次性可以发起多个编辑和 shell，要求用户全部作答，和 ask 一样，也可以直接拒绝。”
+2. 按停止时排队的消息保留。
+3. 当前会话运行期间各窗口各选各的，刷新后回到最近切到的，先接受两个窗口刷新后可能回到同一个（改上面第 2 条）。
+4. 没有第二轮设计审查。设计审查 51 条的处理：[evidences/design-review-disposition.md](evidences/design-review-disposition.md)。
+
 ## 当前状态
 
-静态稿定稿，继续按钮的图标在 review v6 待确认（不挡进度）。计划第一稿已确认（开发者 2026-11-05）：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。设计审查进行中。
+计划第二稿已确认：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。执行位置 `.worktree/w00032-t17-conversation-ui`，分支 `feat/w00032-t17-conversation-ui`。实施中，第 1 片圆角与对齐。继续按钮的图标在 review v6 待确认。
 
 ## 下一步
 
-处理设计审查的结果后按切片实施。
+按切片实施，第 1、6 片发截图给开发者看。
