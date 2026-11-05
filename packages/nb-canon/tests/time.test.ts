@@ -241,7 +241,7 @@ describe("canon.time 输出 1、14、15、17：事件集与键（计划审查 P4
         const plan = planned.ids["tmp:p"]!;
         expect(planned.world.time("planned").built.network.component(plan)).toBeUndefined();
         // “状态”改成数字字段：兑现变更写的文字套不上了（数据没变，引擎随登记重建）。
-        const broken = planned.world.withOptions({...planned.world.options, registry: buildRegistry([{...PERSON, fields: PERSON.fields.map((field) => (field.id === "状态" ? {id: "状态", label: "状态", kind: "number" as const} : field))}])});
+        const broken = planned.world.withOptions({...planned.world.options, registry: buildRegistry([{...PERSON, fields: (PERSON.fields ?? []).map((field) => (field.id === "状态" ? {id: "状态", label: "状态", kind: "number" as const} : field))}])});
         expect(broken.time("planned").built.network.component(plan)).toBeDefined();
     });
 });
