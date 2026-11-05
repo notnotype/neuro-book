@@ -46,7 +46,8 @@ updated: 2026-11-05
   - [`evidences/spec-review-round1-S1-omp.txt`](evidences/spec-review-round1-S1-omp.txt)
   - [`evidences/spec-review-round1-S2-omp.txt`](evidences/spec-review-round1-S2-omp.txt)
   - [`evidences/spec-review-round1-resolution.txt`](evidences/spec-review-round1-resolution.txt)
-- 第二轮（S1b、S2b）：S1b（内核）核完第一轮 18 条、写出新发现 19、20 后因上游额度用完退出，剩下的改派一个 Claude Opus 审查者（S1c）；S2b（剧情插件）在跑。报告在 `.local` 的 `reports/S1b/`、`S1c/`、`S2b/`。
+- 第二轮：S1b（内核，omp）核完第一轮 18 条、写出 19、20 后因上游额度用完退出，剩下的改派 Claude Opus（S1c，21 到 41）；S2b（剧情插件，omp）有效 8 条。共 31 条，阻断 2（19、S2b 23），都成立，已改进 2a8a2a99d。报告与归类：`evidences/spec-review-round2-*`（[归类](evidences/spec-review-round2-resolution.txt)）。
+- 第三轮（最后一轮）：omp 上游额度用完，按规则改派两个 Claude Opus 子代理（S3a 内核、S3b 剧情插件），在跑，报告在 `.local` 的 `reports/S3a/`、`S3b/`。
 
 
 ## 下一步
