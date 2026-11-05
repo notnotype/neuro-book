@@ -162,9 +162,16 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 
 ## 当前状态
 
-计划第二稿已确认：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。执行位置 `.worktree/w00032-t17-conversation-ui`，分支 `feat/w00032-t17-conversation-ui`。实施中。第 1–5 片已提交：圆角与对齐（review v7 发给开发者看）、`DiffView`、内核小改动（含同一条回复的审批一起问）、`ask` 与审批预览、`kernel-transcript`。下一片是视图零件。`ask` 两条声明的大小见 [evidences/ask-tool-size.txt](evidences/ask-tool-size.txt)。
+计划第二稿已确认：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。执行位置 `.worktree/w00032-t17-conversation-ui`，分支 `feat/w00032-t17-conversation-ui`。第 1–8 片都已提交在分支上。验证只跑了改动直接覆盖的文件（开发者 2026-11-05：不跑全量）：五个包的 bun、vitest 全过；`agent-conversation`、`lab-agent-ui`（向导与状态栏）、`editor-area`（拖分隔线那条）、`lab-commands`（命令场景）、nb-story `qa`、nb-ui `popup-lists`、`dialog-surfaces` 这些 e2e 全过；真实模型冒烟过了。没跑的：其余 e2e。变异检查 13 处全部抓到。nb-story 的 `qa-service.ts` 类型错误在 master 上也有，不是这次的。实现审查进行中（前端 Sonnet、后端 omp）。
+
+`ask` 两条声明的大小见 [evidences/ask-tool-size.txt](evidences/ask-tool-size.txt)。右栏新增对话视图后默认打开，编辑区变窄：`editor-area` 拖分隔线的用例因此把视口加宽。
 
 第 1 片的圆角（review v7）：开发者答“可以”。
+
+第 6 片（review v8）：审批向导、提问向导、状态栏与继续按钮都可以。开发者另外要求：
+
+- 向导附言的占位“写了话就是拒绝，这段话交给模型”要改得专业、简单易懂，规则写进规范（不是第一次犯了）。已改全部新文案，规则写进 `ui-development-spec.md` 的自检清单。
+- 会话面板的过滤要改：不好看；有无标签时高度不同，不能因状态不同重新布局。候选发 review v9。
 
 继续按钮（review v6 答复）：开发者说“现在图标没有在按钮内居中了”。静态稿是用一个假图标盖在发送按钮上的，第 6 片换成发送按钮里真的图标，并量它和按钮的中心重合，再截图给开发者看。
 
