@@ -525,7 +525,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 - **配方只有一个来源**：基座里的 `.nb-ui-switch-*`（`src/styles.css`）就是上面这行 `out-in` 配方，
   用法是 `<Transition name="nb-ui-switch" mode="out-in">` + 给内容换一个稳定 `:key`。
   需要内容换页的地方一律引它；**不要各自在 scoped 里复制一份同配方**——复制出来的迟早会漂移，
-  而「同一动作在多处时长不同」正是这节要避免的事。目前仓库内还没有组件或应用消费这个类名。
+  而「同一动作在多处时长不同」正是这节要避免的事。目前只有旧应用的设置页消费这个类名，新应用和本库的组件还没有用到。
 
 ### 缓动只有一个来源
 

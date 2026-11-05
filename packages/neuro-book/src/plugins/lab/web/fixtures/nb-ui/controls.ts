@@ -97,6 +97,7 @@ export const controlsFixtures: LabFixture[] = [
             {id: "danger", label: "危险", input: {props: {variant: "danger", size: "md", iconClass: "i-lucide-trash-2"}, slots: {default: true}}},
             {id: "ghost", label: "幽灵", input: {props: {variant: "ghost", size: "md"}, slots: {default: true}}},
             {id: "loading", label: "加载中", input: {props: {variant: "primary", size: "md", loading: true}, slots: {default: true}}},
+            {id: "loading-icon", label: "带图标加载中", input: {props: {variant: "secondary", size: "md", iconClass: "i-lucide-download", loading: true}, slots: {default: true}}},
             {id: "disabled", label: "禁用", input: {props: {variant: "primary", size: "md", disabled: true}, slots: {default: true}}},
             {id: "block", label: "撑满宽度", input: {props: {variant: "secondary", size: "lg", block: true}, slots: {default: true}}},
         ],
