@@ -144,7 +144,8 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         clock,
         // “全部放行”只是测试的一种显式策略，不是产品缺省。
         approve: options.approve ?? (async () => ({verdict: "allow", by: "test-policy"})),
-        ...(options.compaction === undefined ? {} : {compaction: options.compaction}),
+        // 内核没有缺省顺序（宿主给）：测试里的方法就叫这几个名字。
+        ...(options.compaction === undefined ? {} : {compaction: {order: {onThreshold: ["shake", "inplace"], onOverflow: ["shake", "summary"]}, ...options.compaction}}),
         ...(options.outbound === undefined ? {} : {outbound: options.outbound}),
         ...(options.retry === undefined ? {} : {retry: options.retry}),
     };

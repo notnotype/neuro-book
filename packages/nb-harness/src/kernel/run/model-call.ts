@@ -138,7 +138,7 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
  */
 export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, signal: AbortSignal): ModelCaller {
     return async (draft, options) => {
-        const resolution = host.resolve(options.purpose, options.role);
+        const resolution = options.sessionModel === true ? host.resolve("turn", undefined) : host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
         const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};
         // 每次重新进链：费用这类检查要看发请求这一刻的累计（docs/specs/harness/runtime.md 输出 67）。

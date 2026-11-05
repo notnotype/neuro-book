@@ -11,7 +11,7 @@
  */
 
 import {replyText} from "../api/index.js";
-import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelCaller, ModelInfo, ModelPort, ReplyEvent, Resources, RetryPolicy, RetryWait, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
+import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelCaller, ModelInfoLookup, ModelInfo, ModelPort, ReplyEvent, Resources, RetryPolicy, RetryWait, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {LogBrokenError} from "../dispatch/core.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
@@ -60,7 +60,7 @@ export interface RunCompaction {
     /** 当前上下文的 token 估算与这个模型的触发点。 */
     estimate(): number;
     trigger(model: ModelInfo): number;
-    run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller}): Promise<CompactOutcome>;
+    run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller; modelInfo: ModelInfoLookup; contextWindow: number}): Promise<CompactOutcome>;
 }
 
 /** 取走一条输入开新的一轮：`inputConsumed`、`turnStarted`、`input` 同批（提案第 2 节“写入批”）。 */
@@ -164,6 +164,10 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         // 等待只会因中止而失败，循环顶部会收口。
         await core.clock.wait(wait.resumeAt - core.clock.now(), signal).catch(() => undefined);
     };
+    const modelInfo: ModelInfoLookup = (options) => {
+        const found = host.models.resolve({settings: core.session.kernel.core, purpose: options.sessionModel === true ? "turn" : "compaction", profile: core.assembly.profile.id, ...(options.role === undefined ? {} : {role: options.role})});
+        return found.ok ? {contextWindow: found.info.contextWindow, ...(found.info.maxOutput === undefined ? {} : {maxOutput: found.info.maxOutput})} : null;
+    };
     const modelHostFor = (environment: ViewEnvironment): ModelCallHost & {resolve: Parameters<typeof modelCaller>[0]["resolve"]} => ({
         core,
         resources: host.resources,
@@ -178,12 +182,14 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         if (run.compact !== undefined) {
             // 只压缩的运行：做一次压缩就收口（runtime.md 输出 52）。
             host.phase("compacting", null);
-            // 只压缩的运行用压缩的模型：对话模型不可用时也能先压缩（受理时已查过压缩的模型）。
-            const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "compaction", profile: core.assembly.profile.id});
+            // 压缩前的请求按会话的模型算，就地压缩的前缀才和对话请求相同。对话模型不可用时按压缩的模型算（受理时已查过它）：
+            // 就地方法这时解析不到模型而失败，换下一个（runtime.md 输出 52）。
+            const session = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
+            const resolution = session.ok ? session : host.models.resolve({settings: core.session.kernel.core, purpose: "compaction", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const tools = host.box.current();
             const environment = host.environment(resolution.info, tools.map(toolInfo));
-            const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)}), abortedNow]);
+            const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
             if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
             if (outcome.ok) return await end("completed", {reason: "completed"});
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
@@ -230,7 +236,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (requested.length > 0 || (trigger !== Number.POSITIVE_INFINITY && host.compaction.estimate() > trigger)) {
                 host.phase("compacting", null);
                 // 和中止赛跑：不理会信号的压缩方法或放回内容的回调挡不住中止（runtime.md 输出 51）；收口之后它们的写入被拒绝。
-                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)}), abortedNow]);
+                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                 if (outcome === "aborted" || (!outcome.ok && (outcome.code === "aborted" || signal.aborted))) return await end("aborted", {reason: "aborted"});
                 host.phase("requesting", null);
             }
@@ -280,7 +286,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     // 溢出：记下这次失败的请求，按溢出的顺序压缩，成功就把请求再发一次（runtime.md 输出 50）。
                     await write([...modelFailures, failure]);
                     host.phase("compacting", null);
-                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal)}), abortedNow]);
+                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                     if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
                     if (outcome.ok) {
                         overflowRetried = true;

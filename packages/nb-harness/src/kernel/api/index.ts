@@ -17,6 +17,7 @@ export type {
     AnyExtension, CompactionCut, CompactionJob, CompactionMethod, CompactionMethodImpl, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,
 } from "./extension.js";
 export type {FinalOnlyHelper, OpeningHelper, ReminderHelper, ReminderOptions, StandardLayoutHelper, StandardLayoutOptions, WithoutEventsHelper} from "./helpers.js";
+export type {CompactionRestored, CompactionRestoreArgs} from "./host.js";
 export type {
     AgentHost, ApprovalCtx, ApprovalInfo, ApproveHook, BufferedInput, CommandErrorCode, CommandErrorDetails, CommandFailure, CommandMap, CommandName, CommandOk, CommandResult, Complete,
     CreateSession, CreateSessionOptions, DeltaFrame, Diagnostic, ExtensionDeclaration, ExtensionHandle, ExtensionInfo, ExtensionReceiver, Frame, InputMode, InteractionSummary, OpenSession,
@@ -24,7 +25,7 @@ export type {
     SessionSnapshot, SlotReport, ToolSessionContext,
 } from "./host.js";
 export type {
-    ApprovalMode, Spend, ContentBlock, CoreSettings, Message, ModelCaller, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolution, ModelResolutionCode, ModelResponse,
+    ApprovalMode, Spend, ContentBlock, CoreSettings, Message, ModelCaller, ModelCallOptions, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelInfoLookup, ModelPort, ModelQuery, ModelRequest, ModelResolution, ModelResolutionCode, ModelResponse,
     Origin, RequestBlock, RequestPurpose, StopReason, Usage,
 } from "./model.js";
 export type {AnyProfile, CommitFn, DefineProfile, DeriveProfile, Profile, ProfileFields, ProfileRender, TurnFn} from "./profile.js";

@@ -402,14 +402,33 @@ export interface SessionEnv {
     readonly approve: ApproveHook;
     readonly outbound?: OutboundFilter;
     /**
-     * 压缩：方法表（按名字，Profile 的 `compaction` 给顺序）与压缩之后放回的内容（最近读过的文件、计划、Skill，
+     * 压缩：方法表（按名字）、缺省顺序（Profile 的 `compaction` 写了的优先）与压缩之后放回的内容（最近读过的文件、计划，
      * 每段一条给模型的文字）。不给时压缩方法都算没有，压缩总是失败（docs/specs/harness/runtime.md 输出 46–52）。
      */
     readonly compaction?: {
         readonly methods?: Readonly<Record<string, CompactionMethodImpl>>;
-        /** `signal` 在运行被中止时触发；不理会它也不会挡住中止（内核不再等）。 */
-        restore?(context: ToolSessionContext, signal: AbortSignal): Promise<readonly string[]> | readonly string[];
+        readonly order?: {readonly onThreshold?: readonly string[]; readonly onOverflow?: readonly string[]};
+        restore?(context: ToolSessionContext, args: CompactionRestoreArgs): Promise<CompactionRestored> | CompactionRestored;
     };
+}
+
+/** 放回时知道的这次压缩的情况（docs/specs/harness/runtime.md 输出 48）。 */
+export interface CompactionRestoreArgs {
+    /** 在运行被中止时触发；不理会它也不会挡住中止（内核不再等）。 */
+    readonly signal: AbortSignal;
+    readonly method: string;
+    readonly replacement: string | null;
+    /** 压缩前的路径。 */
+    readonly path: readonly LogEvent[];
+    /** 这次压缩按哪个模型算的窗口；未知是 0。 */
+    readonly contextWindow: number;
+}
+
+export interface CompactionRestored {
+    /** 每段一条给模型的文字。 */
+    readonly notices: readonly string[];
+    /** 放回了什么，写进 `compaction` 事件给界面看；不进请求。 */
+    readonly restored?: JsonValue;
 }
 
 // ====================================================================

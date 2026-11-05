@@ -6,7 +6,7 @@ import type {DeepReadonly, JsonValue, Rejection, UserInput} from "./basics.js";
 import type {Contract, DepList, EventName, EventOf, ExportsOfContract, NoKernelNames, OwnConvNames, ScopeOf} from "./contract.js";
 import type {AssistantCtx, InterceptCtx, MountCtx, ReactCtx, ViewCtx} from "./ctx.js";
 import type {EventsDecl} from "./events.js";
-import type {ModelCaller, ModelRequest, ModelResponse} from "./model.js";
+import type {ModelCaller, ModelInfoLookup, ModelRequest, ModelResponse} from "./model.js";
 import type {PatchIn, SlicesIn, StateDecl, StateValues} from "./state.js";
 import type {ToolCall, ToolResult} from "./tool.js";
 import type {Static, TObject, TSchema} from "typebox";
@@ -37,6 +37,8 @@ export interface CompactionJob {
     readonly require: readonly string[];
     readonly signal: AbortSignal;
     readonly model: ModelCaller;
+    /** 发请求之前要知道模型的窗口时用（摘要分段），解析规则同 `model`。 */
+    readonly modelInfo: ModelInfoLookup;
 }
 /** 方法交回的结果；放回的内容由内核的公共流程写，不归方法。`{failed}` 表示这个方法失败，换下一个。 */
 export type CompactionResult =
@@ -50,7 +52,8 @@ export type CompactionResult =
           readonly details?: JsonValue;
       }
     | {readonly failed: string};
-export type CompactionMethod = "shake" | "inplace" | "summary" | (string & {});
+/** 方法名：内核不认识任何一个，按字符串查 `SessionEnv.compaction.methods`。 */
+export type CompactionMethod = string;
 /** 压缩方法的实现：插件贡献（t11 决定 8），宿主经 `SessionEnv.compaction.methods` 交给内核。 */
 export type CompactionMethodImpl = (job: CompactionJob) => Promise<CompactionResult>;
 

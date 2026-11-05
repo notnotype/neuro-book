@@ -617,6 +617,45 @@ describe("插件宿主", () => {
         await host.close(session.id);
     });
 
+    test("输出 57：运行中撤回的扩展也不进压缩前的请求", async () => {
+        const model = createTestModel();
+        const started = gate();
+        const release = gate();
+        const systems: string[] = [];
+        const host = createAgentHost({
+            ...hostEnv(model, [{id: "lab.hold", execute: async () => {
+                started.open();
+                await release.promise;
+                return "好了";
+            }}]),
+            compaction: {
+                order: {onThreshold: ["record"]},
+                methods: {record: async (job) => {
+                    systems.push(JSON.stringify(job.request.system));
+                    return {failed: "recorded"};
+                }},
+            },
+        });
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        // 这条回复的用量超过触发点：同一次运行的下一个边界压缩，这时扩展已经撤回。
+        model.script({tools: [{tool: "lab.hold"}], usage: {cacheRead: 90_000}}, "完成");
+        const sent = await session.send({commandId: "c1", input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await started.promise;
+        expect(JSON.stringify(model.requests[0]!.system)).toContain("计数器在");
+        host.extensions.revoke(handle, "deactivated");
+        release.open();
+        await session.waitRun(sent.value.runId);
+        expect(systems).toHaveLength(1);
+        expect(systems[0]).not.toContain("计数器在");
+        await host.close(session.id);
+    });
+
     test("输出 57：撤回后重新装配失败（依赖没了）时会话进只读", async () => {
         const host = createAgentHost(hostEnv());
         const handle = handleOf(counter);

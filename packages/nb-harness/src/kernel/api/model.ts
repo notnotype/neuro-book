@@ -178,4 +178,14 @@ export type ModelDraft = Omit<ModelRequest, "purpose" | "model"> & {readonly mod
  * 主动调模型（压缩方法、审批钩子）：内核写 `modelStarted`、过模型拦截链、计用量、接中止。
  * 失败不抛错，以 `stopReason: "error"` 的回复交回。
  */
-export type ModelCaller = (request: ModelDraft, options: {readonly purpose: Exclude<RequestPurpose, "turn">; readonly role?: string}) => Promise<ModelResponse>;
+export type ModelCaller = (request: ModelDraft, options: ModelCallOptions) => Promise<ModelResponse>;
+
+export interface ModelCallOptions {
+    readonly purpose: Exclude<RequestPurpose, "turn">;
+    readonly role?: string;
+    /** 按对话请求解析模型（就地压缩吃缓存要用同一个模型），记录的用途仍是 `purpose`（docs/specs/harness/runtime.md 输出 47）。 */
+    readonly sessionModel?: true;
+}
+
+/** 这次调用会用的模型的预算：和 `ModelCaller` 同一次解析的来源，解析不到时是 null。 */
+export type ModelInfoLookup = (options: Pick<ModelCallOptions, "role" | "sessionModel">) => {readonly contextWindow: number; readonly maxOutput?: number} | null;

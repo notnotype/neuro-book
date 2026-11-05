@@ -203,6 +203,7 @@ export interface KernelEvents {
         tokensBefore: number;
         tokensAfter: number;
         details?: JsonValue;
+        restored?: JsonValue;
     }>;
     /** 改变了结果的扩展失败（输出被丢弃、拦截被跳过、工具被缺省拒绝）：重放不跑处理函数，所以要记在日志里。 */
     extensionFailed: K<"path", "ctrl", {extension: string; entry: EntryPoint; code: FailureCode; dropped?: {events: number; sets: number}}>;

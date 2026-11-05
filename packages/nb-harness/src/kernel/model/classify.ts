@@ -19,7 +19,8 @@ export function classifyProviderError(message: Pick<AssistantMessage, "errorStat
     if (has(Flag.UsageLimit) || status === 402) kind = "quota";
     else if (has(Flag.AuthFailed) || status === 401 || status === 403) kind = "auth";
     else if (status === 429) kind = "rate_limit";
-    else if (has(Flag.ContextOverflow)) kind = "context_overflow";
+    // 413 是请求太大：按溢出的路压缩后重发一次（t11 决定 4）。
+    else if (has(Flag.ContextOverflow) || status === 413) kind = "context_overflow";
     else if (has(Flag.ContentBlocked) || has(Flag.ProviderFinishError)) kind = "provider";
     else if ((status !== null && NETWORK_STATUSES.has(status)) || has(Flag.Timeout) || (status === null && has(Flag.Transient))) kind = "network";
     else kind = "provider";
