@@ -34,6 +34,8 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
     set(SKIN_VARS.activityBarForeground, look.activityBar?.foreground);
     set(SKIN_VARS.activityBarActive, look.activityBar?.active);
     set(SKIN_VARS.activityBarOrnament, look.activityBar?.ornament);
+    if (look.activityBar !== undefined) vars[SKIN_VARS.activityBarHover] = "color-mix(in srgb, currentColor 14%, transparent)";
+    if (look.activityBar?.ornament !== undefined) vars[SKIN_VARS.activityBarOrnamentSize] = "5px";
     const url = look.scene === undefined ? null : assetUrl(plugin, look.scene);
     if (url !== null) {
         const {crop} = declaration;

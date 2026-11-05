@@ -124,5 +124,12 @@ export interface WindowRescue {
 
 export const windowRescueKey: ServiceKey<WindowRescue> = defineServiceKey<WindowRescue>("nbook/window-rescue");
 
+/** 插件的静态文件（docs/specs/theme/skins.md）：内置的随前端构建，第三方的经插件文件端点；不认识的插件或路径为 null。 */
+export interface WindowPluginFiles {
+    fileUrl(plugin: string, path: string): string | null;
+}
+
+export const windowPluginFilesKey: ServiceKey<WindowPluginFiles> = defineServiceKey<WindowPluginFiles>("nbook/window-plugin-files");
+
 /** 浏览器宿主提供给本窗口的插件。 */
 export const windowPluginsKey: ServiceKey<WindowPlugins> = defineServiceKey<WindowPlugins>("nbook/window-plugins");

@@ -17,6 +17,8 @@ export const SKIN_VARS = {
     activityBarForeground: "--skin-activitybar-foreground",
     activityBarActive: "--skin-activitybar-active",
     activityBarOrnament: "--skin-activitybar-ornament",
+    activityBarOrnamentSize: "--skin-activitybar-ornament-size",
+    activityBarHover: "--skin-activitybar-hover",
     fontDisplay: "--font-display",
     fontProse: "--font-prose",
 } as const;

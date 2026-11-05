@@ -163,6 +163,8 @@ export const EditorPageDeclarationSchema = Type.Object({
     title: TextSchema,
     icon: Type.String({pattern: "\\S"}),
     openOnFirstVisit: Type.Optional(Type.Boolean()),
+    /** 铺主题的场景图（docs/specs/theme/skins.md 输出 4）：欢迎页这类内容少的页面才写；表单页不写，字不能叠在图上。 */
+    scene: Type.Optional(Type.Boolean()),
 }, {additionalProperties: false});
 
 export type EditorPageDeclaration = Static<typeof EditorPageDeclarationSchema>;

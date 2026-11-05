@@ -20,7 +20,7 @@ import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
 import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, SETTINGS_CHOICES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
+import {windowNavigationKey, windowPluginFilesKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
@@ -33,7 +33,7 @@ import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands"
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {NotificationInput} from "../shared/contracts";
-import {WORKBENCH_THEMES_POINT} from "../shared/themes";
+import {themesPoint, WORKBENCH_THEMES_POINT} from "../shared/themes";
 import type {ThemeDeclaration} from "../shared/themes";
 import {ThemeCatalog} from "./themes";
 import {completeHomeDeclaration, validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
@@ -78,6 +78,7 @@ const NO_IMPLEMENTATION: ActivityBarItemImplementation = Object.freeze({});
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
+        themesPoint,
         {id: WORKBENCH_PAGES_POINT, implementation: "required", validate: validatePageContribution},
         viewsPoint,
         {id: WORKBENCH_EDITOR_AREA_POINT, implementation: "required", validate: validateEditorAreaContribution},
@@ -92,7 +93,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}, {key: windowPluginFilesKey, required: false}, {key: windowTextKey, required: false}],
         provides: [workbenchRootKey, quickPickKey, notificationsKey],
         receives: [WORKBENCH_THEMES_POINT, WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT],
         contributions: [
@@ -118,6 +119,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const project = context.services.require(windowProjectKey).project;
             const storage = context.services.require(storageKey);
             const plugins = await context.services.resolve(windowPluginsKey);
+            const pluginFiles = await context.services.resolve(windowPluginFilesKey);
             const editorArea = new EditorAreaSlot((message) => diagnostics.record({level: "warn", event: "workbench.editor-area", message, source: {plugin: descriptor.id}}));
             const stateService = context.services.require(publicStateKey);
             const reportItem = (message: string): void => {
@@ -151,7 +153,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
             const text = await windowTextPort(context.services, () => displayLocale(settings));
-            const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), () => null, (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}));
+            const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), (plugin, path) => (pluginFiles.status === "resolved" ? pluginFiles.instance.fileUrl(plugin, path) : null), (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}));
             const effectiveTheme = (): string => {
                 const inspected = settings.inspect(themeSetting);
                 return themes.effectiveId([inspected.value as string, inspected.user?.status === "ok" ? inspected.user.value as string | undefined : undefined]);

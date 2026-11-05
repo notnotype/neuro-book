@@ -126,6 +126,9 @@ export interface Notifications {
 /** 工作台提供的通知服务（本窗口一份队列，视口挂在页面根上）；需要它的插件在入口依赖里声明。 */
 export const notificationsKey: ServiceKey<Notifications> = defineServiceKey<Notifications>("nbook.workbench/notifications");
 
+export {WORKBENCH_THEMES_POINT} from "./themes";
+export type {ThemeDeclaration} from "./themes";
+
 /** 选项提供者（`settings.choices`），工作台的浏览器入口贡献。 */
 export const THEME_CHOICES_PROVIDER = "nbook.workbench.themes";
 

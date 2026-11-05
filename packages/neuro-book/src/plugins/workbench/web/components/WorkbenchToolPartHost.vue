@@ -122,6 +122,44 @@ onBeforeUnmount(() => {
     background: var(--panel-surface);
 }
 
+/*
+ * 侧栏下角的场景图（docs/specs/theme/skins.md 输出 6）：只有 sidebar 这个 Part，挂在 Part 上不挂视图。高度不足 300px 不画，靠容器查询。
+ */
+.workbench-tool-part--sidebar {
+    position: relative;
+    /* 自成一层：下面的 z-index 只在这一层里，图盖在面上、列表盖在图上。 */
+    isolation: isolate;
+    container-type: size;
+}
+
+:global([data-nb-skin-scene] .workbench-tool-part--sidebar::after) {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 240px;
+    background-image: var(--skin-scene);
+    background-position: var(--skin-sidebar-corner-position, 0 0);
+    background-repeat: no-repeat;
+    background-size: var(--skin-sidebar-corner-size, 0 0);
+    content: "";
+    mask-image: linear-gradient(to top, #000 10%, transparent 92%);
+    pointer-events: none;
+    z-index: -1;
+}
+
+@container (max-height: 299px) {
+    :global([data-nb-skin-scene] .workbench-tool-part--sidebar::after) {
+        display: none;
+    }
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .workbench-tool-part--sidebar::after) {
+        display: none;
+    }
+}
+
 .workbench-tool-part__head {
     display: flex;
     flex: 0 0 32px;

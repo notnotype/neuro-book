@@ -67,7 +67,7 @@ const WELCOME_DECLARATION: WrittenCommandDeclaration = {
     expose: {agent: "never"},
 };
 /** 作品第一次在本窗口打开时自动打开（docs/specs/workbench/editor.md 输出 33）。 */
-const WELCOME_PAGE: Written<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", openOnFirstVisit: true};
+const WELCOME_PAGE: Written<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", openOnFirstVisit: true, scene: true};
 
 /** 命令面板的命令（与工作台的命令搜索同一条）：欢迎页的入门提示显示它的快捷键。 */
 const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";

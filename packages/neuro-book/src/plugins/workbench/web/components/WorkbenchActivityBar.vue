@@ -140,7 +140,18 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
     height: 100%;
     min-height: 0;
     padding-block: var(--space-1);
-    background: var(--panel-surface);
+    background: var(--skin-activitybar-surface, var(--panel-surface));
+}
+
+/* 书脊首尾的两条（docs/specs/theme/skins.md 输出 7）。主题没写时高度是 0，和没有一样。 */
+.workbench-activity-bar::before,
+.workbench-activity-bar::after {
+    flex: none;
+    box-sizing: border-box;
+    width: 34px;
+    height: var(--skin-activitybar-ornament-size, 0);
+    border-block: min(1px, var(--skin-activitybar-ornament-size, 0)) solid var(--skin-activitybar-ornament, transparent);
+    content: "";
 }
 
 .workbench-activity-bar__containers {
@@ -175,25 +186,25 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
 .workbench-activity-bar .workbench-activity-bar__item {
     flex: 0 0 auto;
     border-radius: var(--radius-control);
-    color: var(--text-muted);
+    color: var(--skin-activitybar-foreground, var(--text-muted));
     /* 活动条目也是整容器的拖动源：触摸按住起拖。 */
     touch-action: none;
 }
 
 .workbench-activity-bar .workbench-activity-bar__item:hover {
-    background: var(--bg-hover);
-    color: var(--text-main);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    color: var(--skin-activitybar-active, var(--text-main));
 }
 
 .workbench-activity-bar .workbench-activity-bar__item--active {
-    background: var(--bg-hover);
-    color: var(--accent-text);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    color: var(--skin-activitybar-active, var(--accent-text));
 }
 
 /* 底段的切换按钮按下（例如设置窗口开着）：灰底、正文色，不用强调色；强调色只给上段的当前容器。 */
 .workbench-activity-bar .workbench-activity-bar__item--pressed {
-    background: var(--bg-hover);
-    color: var(--text-main);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    color: var(--skin-activitybar-active, var(--text-main));
 }
 
 /* 占位与按钮同占一格（38px），圆形的样子与书架右上角的头像位一致。 */

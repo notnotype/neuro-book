@@ -216,6 +216,8 @@ const unavailable = computed((): "binary" | "gone" | "pending" | null => {
 
 /** 活动标签是页面时的页面 id；文件标签为 null。 */
 const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(activeTab.value.address)));
+/** 铺场景图的状态（docs/specs/theme/skins.md 输出 4）：没开文件，或活动页声明了要。主题没有场景时这一层不显示。 */
+const showsScene = computed(() => activeTab.value === null || (pageId.value !== null && props.pages?.scene(pageId.value) === true));
 const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
 
 // 控件按编辑器各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。只挂已交付的编辑器。
@@ -315,6 +317,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
             </template>
         </Banner>
         <div class="relative min-h-7 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
+            <div v-if="showsScene" class="editor-group__scene" aria-hidden="true" data-editor-scene></div>
             <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
                 <NeuroBookMark class="editor-group__mark" decorative />
                 <div v-if="emptyTips.length > 0" class="editor-group__tips">
@@ -336,7 +339,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 <Button v-if="failure.retry" size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ t("document.retry") }}</Button>
             </div>
             <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
-            <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :data-editor-page="pageId">
+            <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :class="showsScene ? 'editor-group__on-scene' : ''" :data-editor-page="pageId">
                 <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
                 <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
             </div>
@@ -406,8 +409,37 @@ provide(editorToolbarSlotKey, toolbarSlot);
     }
 }
 
+/* 变量名见 src/ui/theme/skin-vars.ts。没有场景的主题不写 data-nb-skin-scene，这一层不占地方。 */
+.editor-group__scene {
+    display: none;
+}
+
+:global([data-nb-skin-scene] .editor-group__scene) {
+    position: absolute;
+    inset: 0;
+    display: block;
+    background-image: var(--skin-scene);
+    background-position: var(--skin-empty-position, center);
+    background-repeat: no-repeat;
+    background-size: cover;
+    pointer-events: none;
+}
+
+:global([data-nb-skin-scene] .editor-group__on-scene),
+:global([data-nb-skin-scene] .editor-group__empty) {
+    padding-inline-end: var(--skin-empty-shift, 0);
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .editor-group__scene) {
+        display: none;
+    }
+}
+
 /* 空态（docs/specs/workbench/editor.md 输出 32）：正中一个淡色的图形标志，下面几行提示，说明靠右、按键或位置靠左。 */
 .editor-group__empty {
+    /* 场景层是定位元素，不定位的内容会被它盖住。 */
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;

@@ -3,6 +3,8 @@
  */
 
 import {describe, expect, it} from "bun:test";
+import {statSync} from "node:fs";
+import {join} from "node:path";
 
 import {createApplication} from "nbook/application";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -10,6 +12,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {BUILTIN_THEME_CONTRIBUTIONS, themesPoint, WORKBENCH_THEMES_POINT} from "./shared/themes";
 import type {ThemeDeclaration} from "./shared/themes";
+import {SWITCH_THEME_COMMAND, themeCommands} from "./web/commands/theme-commands";
 import {ThemeCatalog, themeVars} from "./web/themes";
 
 const plain = (extra: Partial<ThemeDeclaration> = {}): ThemeDeclaration => ({title: "x", base: "nbook", light: {}, dark: {}, ...extra});
@@ -103,3 +106,28 @@ describe("主题的取值", () => {
         expect(reported).toEqual(["gone", "also-gone"]);
     });
 });
+
+describe("切换主题的命令", () => {
+    const declared = (id: string) => ({capability: WORKBENCH_THEMES_POINT, id, plugin: "acme.skin", declaration: plain()}) as unknown as ConstructorParameters<typeof ThemeCatalog>[0][number];
+    it("传目录里没有的 id：invalid-args，不写设置", async () => {
+        const writes: unknown[] = [];
+        const settings = {update: async (_setting: unknown, value: unknown) => {
+            writes.push(value);
+            return {ok: true as const};
+        }} as unknown as Parameters<typeof themeCommands>[0];
+        const text = {t: (value: unknown) => String(value)} as unknown as Parameters<typeof themeCommands>[2];
+        const commands = themeCommands(settings, {} as Parameters<typeof themeCommands>[1], text, new ThemeCatalog([declared("acme.skin.study")], () => null, () => undefined));
+        const run = (theme: string) => commands[SWITCH_THEME_COMMAND].run({theme});
+        expect(await run("gone")).toMatchObject({ok: false, code: "invalid-args"});
+        expect(writes).toEqual([]);
+        expect(await run("acme.skin.study")).toEqual({ok: true, value: null});
+        expect(writes).toEqual(["acme.skin.study"]);
+    });
+});
+
+describe("书房的素材", () => {
+    it.each(["study-day.webp", "study-night.webp"])("%s 不超过 300 KB", (name) => {
+        expect(statSync(join(import.meta.dir, "../theme-study/assets", name)).size).toBeLessThanOrEqual(300 * 1024);
+    });
+});
+

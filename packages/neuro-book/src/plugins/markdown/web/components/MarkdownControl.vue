@@ -460,6 +460,8 @@ onBeforeUnmount(() => {
         <Teleport :to="toolbarTarget" :disabled="toolbarTarget === null">
             <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value && (toolbarTarget === null || props.visible)" :editing="editing" :menus="menus" :readonly="props.readonly" @prompt="(action) => menuLayer?.prompt(action)" @refocus="currentEditor?.commands.focus()" />
         </Teleport>
+        <div class="markdown-control__margin markdown-control__margin--left" aria-hidden="true" data-markdown-margin="left"></div>
+        <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
         <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
             <div ref="root" class="markdown-control"></div>
         </div>
@@ -482,6 +484,55 @@ onBeforeUnmount(() => {
     --markdown-block-gap: 1.1em;
 }
 
+/*
+ * 正文两侧的场景图（docs/specs/theme/skins.md 输出 5）：和滚动容器同级，所以不随正文滚；工具栏传送到外面，所以从工具栏以下开始。
+ * 一侧不足 120px 不画，靠容器查询：拆分后每组各自判断。变量名见 src/ui/theme/skin-vars.ts。
+ */
+.markdown-control-root {
+    container-type: inline-size;
+}
+
+.markdown-control__margin {
+    display: none;
+}
+
+:global([data-nb-skin-scene] .markdown-control__margin) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: block;
+    width: calc((100% - var(--markdown-measure)) / 2);
+    background-image: var(--skin-scene);
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
+
+:global([data-nb-skin-scene] .markdown-control__margin--left) {
+    left: 0;
+    background-position: var(--skin-margin-left-position, 0 0);
+    background-size: var(--skin-margin-left-size, 0 0);
+    mask-image: linear-gradient(to right, #000 55%, transparent);
+}
+
+:global([data-nb-skin-scene] .markdown-control__margin--right) {
+    right: 0;
+    background-position: var(--skin-margin-right-position, 0 0);
+    background-size: var(--skin-margin-right-size, 0 0);
+    mask-image: linear-gradient(to left, #000 55%, transparent);
+}
+
+@container (max-width: 959px) {
+    :global([data-nb-skin-scene] .markdown-control__margin) {
+        display: none;
+    }
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .markdown-control__margin) {
+        display: none;
+    }
+}
+
 .markdown-control {
     box-sizing: border-box;
     max-width: var(--markdown-measure);
@@ -490,6 +541,7 @@ onBeforeUnmount(() => {
 }
 
 .markdown-control :deep(.markdown-control__prose) {
+    font-family: var(--font-prose, inherit);
     min-height: 60vh;
     outline: none;
     color: var(--text-main);
