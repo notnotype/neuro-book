@@ -459,7 +459,6 @@ export type BuiltinAgentViewAction =
     | {type: "queued.edit"; id: string}
     | {type: "queued.remove"; id: string}
     | {type: "approval.set"; mode: string}
-    | {type: "sessions.open"}
     | {type: "input.resync"}
     // 恢复
     | {type: "availability.act"; action: string}
