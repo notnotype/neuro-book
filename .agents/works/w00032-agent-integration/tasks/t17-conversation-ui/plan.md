@@ -163,7 +163,7 @@ createKernelTranscript({toolName?: (id: string) => string, text})
 - 顶栏：标题按钮、Profile 名、新建、溢出。写死，不经 `headerActions`。
 - `AgentSessionPanel`：`./vue` 入口导出（改 `AGENTS.md`、`README`）。
 - `AgentStatusBar`：接 `statusItems`。`trayItems` 接排队消息。`headerActions`、`panels` 留给 w00019 t11，登记时给开发期警告。
-- `AgentQueuedMessages`：每行删和改（改是取出到输入框，再发送走 `edit`）。
+- `AgentQueuedMessages`：每行删和改（改是从队列删掉、取出到输入框，再发送是一条新消息；实现审查发现走 `edit` 时消息可能已经发出，改了）。
 - 向导 `AgentWizardFrame`、`AgentApprovalWizard`、`AgentQuestionWizard`：表单经 `renderers.form` 注入，缺省实现是只读键值加 JSON 文本框。
 
 **向导的位置（审查的改法，比第二个 `ResizeObserver` 好）：** 放进 `.acv-stream__content` 末尾，`position: sticky; bottom: 0`，最高 `60cqh`（`.acv-body` 设 `container-type: size`）。它占的高度就是留白，贴在底部时不盖最后一条，往上滚时浮在内容上，贴底逻辑不用改。`useStreamScroll` 的点击锚点要排除向导。输入框用 `v-show` 加 `inert`，不卸载，草稿与撤销栈都在。固定部分超过上限时整体滚动，diff 区最少 8 行高。
