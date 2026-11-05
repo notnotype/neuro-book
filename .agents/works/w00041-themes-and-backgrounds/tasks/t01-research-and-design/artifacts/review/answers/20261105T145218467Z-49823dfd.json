@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t01-research-and-design",
+    "artifactId": "review",
+    "answerId": "20261105T145218467Z-49823dfd",
+    "artifactVersion": 1,
+    "contentHash": "bf353cb4bf5a95de3b2321b0c335e4136e5ece656fd3eb69dca0837c6b875697",
+    "submittedAt": "2026-11-05T14:52:17.801Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-empty": "yes",
+        "r1-writing": "scene"
+    },
+    "comments": {},
+    "note": null
+}
