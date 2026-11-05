@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t05-drag-session
-status: planned
+status: done
 updated: 2026-11-05
 ---
 
