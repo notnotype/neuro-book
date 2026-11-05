@@ -294,7 +294,7 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
                     const data = parsed?.root === "namespace" ? state.entries.get(at.entry)?.data[parsed.namespace] : undefined;
                     const raw = readAddress(state, at);
                     const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
-                    const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: field.id, label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
+                    const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
                     ordered.push({kind: "reduce", anchor, events: [...events], cached: reduced !== undefined});
                 }
             }
@@ -383,13 +383,27 @@ function applyAnchor(state: FoldState, check: Check, field: FieldDeclaration): v
 }
 
 /** 字段声明：条目初值里的命名空间按当前登记取；不是命名空间里的字段时为 undefined。 */
+/**
+ * 地址指到的叶子的声明：字段，或列表元素的子字段（components.md 的值表：地址只能指到字段、列表元素、元素的子字段）。
+ * 指到整个列表元素时为 undefined：它不是可以比较、归纳的单个值。
+ */
 export function fieldOf(registry: ComponentRegistry, entry: Entry | undefined, at: Address): FieldDeclaration | undefined {
     if (entry === undefined) return undefined;
     const parsed = parsePath(at.path);
-    if (parsed?.root !== "namespace" || parsed.element !== undefined) return undefined;
+    if (parsed?.root !== "namespace") return undefined;
     const data = entry.init.data[parsed.namespace];
     if (data === undefined) return undefined;
-    return namespaceFields(registry, parsed.namespace, data).find((field) => field.id === parsed.field);
+    const field = namespaceFields(registry, parsed.namespace, data).find((candidate) => candidate.id === parsed.field);
+    if (parsed.element === undefined) return field;
+    if (parsed.sub === undefined || field?.kind !== "list") return undefined;
+    return field.item?.find((sub) => sub.id === parsed.sub);
+}
+
+/** 归纳缓存的输入里“字段”那一项：字段 id，列表元素的子字段写成 `列表.子字段`（同一列表各元素的同一子字段共用一种归纳）。 */
+export function reductionFieldId(at: Address): string {
+    const parsed = parsePath(at.path);
+    if (parsed?.root !== "namespace") return at.path;
+    return parsed.sub === undefined ? parsed.field : `${parsed.field}.${parsed.sub}`;
 }
 
 /** 折叠状态里一个地址的值；不存在时为 undefined。 */

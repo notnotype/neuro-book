@@ -14,7 +14,7 @@ import {createReferenceEngine} from "../src/engine/reference";
 import type {Engine, EngineInputs, WorldData} from "../src/engine/types";
 import {PANEL, PERSON} from "./fixtures/world";
 
-const KNOWING: ComponentDeclaration = {id: "test.knowing", label: "认得", namespace: "know", version: 1, fields: [{id: "认得", label: "认得", kind: "list", keyedBy: "ref"}]};
+const KNOWING: ComponentDeclaration = {id: "test.knowing", label: "认得", namespace: "know", version: 1, fields: [{id: "认得", label: "认得", kind: "list", keyedBy: "ref", item: [{id: "看法", label: "看法", kind: "text", precision: "semantic"}]}]};
 
 function random(seed: number): () => number {
     let state = seed >>> 0;
@@ -90,8 +90,10 @@ class Sim {
         const keyed = this.rnd();
         if (keyed < 0.12) {
             const other = this.pick(this.entryIds());
-            if (keyed < 0.06) return {op: "listAdd", at: {entry, path: "know.认得"}, value: {id: other}};
-            if (keyed < 0.09) return {op: "listRemove", at: {entry, path: "know.认得"}, value: other};
+            if (keyed < 0.04) return {op: "listAdd", at: {entry, path: "know.认得"}, value: {id: other, 看法: "陌生"}};
+            if (keyed < 0.06) return {op: "listRemove", at: {entry, path: "know.认得"}, value: other};
+            if (keyed < 0.09) return {op: "note", at: {entry, path: `know.认得[${other}].看法`}, value: this.pick(["熟了点", "起疑", "信任"])};
+            if (keyed < 0.1) return {op: "set", at: {entry, path: `know.认得[${other}].看法`}, value: "重新认识"};
             return {op: "set", at: {entry: other, path: "entry.name"}, value: this.pick(["甲", "乙", "丙"])};
         }
         const roll = this.rnd();

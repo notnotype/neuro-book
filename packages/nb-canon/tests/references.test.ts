@@ -16,6 +16,7 @@ const KNOWING: ComponentDeclaration = {
         {id: "知情", label: "知情", kind: "list", keyedBy: "ref", targets: ["知识点"], item: [
             {id: "程度", label: "程度", kind: "enum", options: ["knows", "unaware"]},
             {id: "谁告诉的", label: "谁告诉的", kind: "ref", targets: ["人物"]},
+            {id: "看法", label: "看法", kind: "text", precision: "semantic"},
         ]},
         {id: "基于", label: "基于", kind: "ref", targets: ["知识点"]},
     ],
@@ -114,5 +115,40 @@ describe("canon.components 输出 18、19、场景 5：引用与以引用为键�
         expect(bad({id: "甲", label: "甲", kind: "text", keyedBy: "ref"})).toEqual(["component-declaration-invalid"]);
         expect(bad({id: "乙", label: "乙", kind: "text", targets: ["知识点"]})).toEqual(["component-declaration-invalid"]);
         expect(bad({id: "丙", label: "丙", kind: "list", keyedBy: "ref", targets: ["知识点"]})).toEqual([]);
+    });
+});
+
+describe("canon.components 输出 20：列表元素的语义档", () => {
+    const end = {kind: "chapter", chapter: "ch2", edge: "end"} as const;
+    const knowing = (world: World) => {
+        const view = world.engine.entry("e1", end, "actual");
+        if (view === null || view === "chapter-not-found") throw new Error("no view");
+        return view.namespaces.know!.fields.知情!;
+    };
+    const setup = () => {
+        const created = ok(start().publish(request([{ref: {kind: "entry", id: "tmp:k"}, after: point("tmp:k", "哥哥能回溯")}], 1), "t"));
+        const k = created.ids["tmp:k"]!;
+        const row = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", [{op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: k, 程度: "knows", 看法: "不信"}}])}], 2), "t"));
+        return {world: row.world, k};
+    };
+    const note = (world: World, k: string, value: string, version: number, op: Patch["op"] = "note") =>
+        ok(world.publish(request([{ref: {kind: "change", id: "tmp:n"}, after: change("tmp:n", [{op, at: {entry: "e1", path: `know.知情[${k}].看法`}, value}], {at: {kind: "chapter", chapter: "ch2", key: version}})}], version), "t")).world;
+
+    test("元素子字段的事件按它自己的地址记：没有归纳时写成“起点；之后：……”并标未归纳；赋值是新的起点", () => {
+        const {world, k} = setup();
+        const noted = note(note(world, k, "开始怀疑", 3), k, "又不信了", 4);
+        expect(knowing(noted)).toMatchObject({value: [{id: k, 看法: "不信；之后：开始怀疑；又不信了"}], notReduced: true});
+        const restarted = note(noted, k, "信了", 5, "set");
+        expect(knowing(restarted)).toEqual({value: [{id: k, 程度: "knows", 看法: "信了", label: "哥哥能回溯"}]});
+    });
+
+    test("去掉元素再加回来，旧的事件不再参与归纳", () => {
+        const {world, k} = setup();
+        const noted = note(world, k, "开始怀疑", 3);
+        const removed = ok(noted.publish(request([{ref: {kind: "change", id: "tmp:r"}, after: change("tmp:r", [
+            {op: "listRemove", at: {entry: "e1", path: "know.知情"}, value: k},
+            {op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: k, 程度: "unaware", 看法: "没听说过"}},
+        ], {at: {kind: "chapter", chapter: "ch2", key: 9}})}], 4), "t")).world;
+        expect(knowing(removed)).toEqual({value: [{id: k, 程度: "unaware", 看法: "没听说过", label: "哥哥能回溯"}]});
     });
 });

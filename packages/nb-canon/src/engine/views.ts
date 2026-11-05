@@ -100,13 +100,40 @@ export function fieldValue(
     raw: unknown,
     reductions: ReductionLookup,
 ): {value: unknown; notReduced?: true; unreduced?: {anchor: string | null; events: number}} {
+    if (field?.kind === "list" && Array.isArray(raw) && (field.item ?? []).some((sub) => sub.precision === "semantic")) return listValue(fold, namespace, type, field, raw as Array<Record<string, unknown>>, reductions);
     if (field?.precision !== "semantic") return {value: structuredClone(raw)};
-    const anchor = raw === null ? null : semanticText(field, raw as string | number);
-    const events = fold.events.get(`${namespace}.${field.id}`) ?? [];
+    return semanticValue(fold.events.get(`${namespace}.${field.id}`) ?? [], type, field, field.id, raw, reductions);
+}
+
+/** 语义档的一个值（字段或列表元素的子字段）：起点加事件，有归纳取归纳，没有就写成“起点；之后：……”。 */
+function semanticValue(events: readonly string[], type: string, field: FieldDeclaration, reductionField: string, raw: unknown, reductions: ReductionLookup): {value: unknown; notReduced?: true; unreduced?: {anchor: string | null; events: number}} {
+    const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
     if (events.length === 0) return {value: anchor};
-    const reduced = reductions({type, field: field.id, label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
+    const reduced = reductions({type, field: reductionField, label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events: [...events]});
     if (reduced !== undefined) return {value: reduced};
     return {value: `${anchor ?? "未知"}；之后：${events.join("；")}`, notReduced: true, unreduced: {anchor, events: events.length}};
+}
+
+/**
+ * 带语义档子字段的列表（components.md 输出 20）：每个元素的语义档子字段按它自己的地址取事件与归纳。有一个还没归纳，
+ * 整个字段标“未归纳”（列表的值里那个子字段是“起点；之后：……”的写法）。
+ */
+function listValue(fold: Pick<EntryFold, "events">, namespace: string, type: string, field: FieldDeclaration, raw: readonly Record<string, unknown>[], reductions: ReductionLookup): {value: unknown; notReduced?: true} {
+    let notReduced = false;
+    const value = raw.map((element) => {
+        const next: Record<string, unknown> = structuredClone(element);
+        for (const sub of field.item ?? []) {
+            if (sub.precision !== "semantic") continue;
+            const events = fold.events.get(`${namespace}.${field.id}[${String(element.id)}].${sub.id}`) ?? [];
+            // 没写过、也没有事件的子字段照原样不出现，与别的子字段一样。
+            if (!(sub.id in element) && events.length === 0) continue;
+            const result = semanticValue(events, type, sub, `${field.id}.${sub.id}`, element[sub.id] ?? null, reductions);
+            next[sub.id] = result.value;
+            if (result.notReduced === true) notReduced = true;
+        }
+        return next;
+    });
+    return notReduced ? {value, notReduced: true} : {value};
 }
 
 /** 一个条目折叠状态里某个地址的值；不存在时为 undefined。 */

@@ -183,8 +183,10 @@ function applyPatch(state: EntryState, parsed: ParsedPath, patch: Patch, registr
     const field = namespaceFields(registry, parsed.namespace, data).find((candidate) => candidate.id === parsed.field);
     // 删除了声明的字段：数据保留、读取时看不到，对它的补丁不适用（components.md 输出 4）。
     if (field === undefined) return {notApplicable: "undeclared"};
-    if (parsed.element !== undefined) return applyElementPatch(data, field, parsed.element, parsed.sub, patch);
-    return applyFieldPatch(data, field, patch, () => events(`${parsed.namespace}.${parsed.field}`));
+    // 语义档的事件按地址记：字段是 `命名空间.字段`，列表元素的子字段是 `命名空间.字段[元素].子字段`（components.md 输出 20）。
+    const elementEvents = (element: string, sub: string) => events(`${parsed.namespace}.${parsed.field}[${element}].${sub}`);
+    if (parsed.element !== undefined) return applyElementPatch(data, field, parsed.element, parsed.sub, patch, (sub) => elementEvents(parsed.element!, sub));
+    return applyFieldPatch(data, field, patch, () => events(`${parsed.namespace}.${parsed.field}`), elementEvents);
 }
 
 function applyEntryPatch(state: EntryState, field: "name" | "aliases" | "summary", patch: Patch): PatchOutcome {
@@ -236,7 +238,12 @@ function applyBlockPatch(state: EntryState, block: string, patch: Patch): PatchO
     return "type-mismatch";
 }
 
-function applyFieldPatch(data: NamespaceData, field: FieldDeclaration, patch: Patch, events: () => string[]): PatchOutcome {
+/** 一个元素的语义档子字段的事件清空：元素加进来、去掉、整个换掉时，旧的事件不再参与归纳（components.md 输出 20）。 */
+function clearElementEvents(field: FieldDeclaration, element: string, elementEvents: (element: string, sub: string) => string[]): void {
+    for (const sub of field.item ?? []) if (sub.precision === "semantic") elementEvents(element, sub.id).length = 0;
+}
+
+function applyFieldPatch(data: NamespaceData, field: FieldDeclaration, patch: Patch, events: () => string[], elementEvents: (element: string, sub: string) => string[]): PatchOutcome {
     const current = data.fields[field.id] ?? null;
     if (field.precision === "semantic") {
         if (patch.op === "set") {
@@ -274,6 +281,7 @@ function applyFieldPatch(data: NamespaceData, field: FieldDeclaration, patch: Pa
             const item = patch.value as {id: string};
             if (list.some((existing) => existing.id === item.id)) return "type-mismatch";
             data.fields[field.id] = [...list, structuredClone(item)];
+            clearElementEvents(field, item.id, elementEvents);
             return "applied";
         }
         case "listRemove": {
@@ -281,6 +289,7 @@ function applyFieldPatch(data: NamespaceData, field: FieldDeclaration, patch: Pa
             const list = (current as Array<{id: string}> | null) ?? [];
             if (!list.some((existing) => existing.id === patch.value)) return "element-missing";
             data.fields[field.id] = list.filter((existing) => existing.id !== patch.value);
+            clearElementEvents(field, patch.value, elementEvents);
             return "applied";
         }
         default:
@@ -288,7 +297,7 @@ function applyFieldPatch(data: NamespaceData, field: FieldDeclaration, patch: Pa
     }
 }
 
-function applyElementPatch(data: NamespaceData, field: FieldDeclaration, element: string, sub: string | undefined, patch: Patch): PatchOutcome {
+function applyElementPatch(data: NamespaceData, field: FieldDeclaration, element: string, sub: string | undefined, patch: Patch, events: (sub: string) => string[]): PatchOutcome {
     if (field.kind !== "list") return "type-mismatch";
     const list = [...((data.fields[field.id] as Array<Record<string, unknown>> | null) ?? [])];
     const index = list.findIndex((item) => item.id === element);
@@ -297,11 +306,19 @@ function applyElementPatch(data: NamespaceData, field: FieldDeclaration, element
     if (sub === undefined) {
         if (patch.op !== "set" || listItemProblem(field, patch.value) !== null || (patch.value as {id: string}).id !== element) return "type-mismatch";
         list[index] = structuredClone(patch.value as Record<string, unknown>);
+        for (const candidate of field.item ?? []) if (candidate.precision === "semantic") events(candidate.id).length = 0;
     } else {
         const subField = sub === "label" ? ({id: "label", label: "label", kind: "text"} as FieldDeclaration) : field.item?.find((candidate) => candidate.id === sub);
         if (subField === undefined) return "type-mismatch";
         const current = item[sub] ?? null;
-        if (patch.op === "set") {
+        if (subField.precision === "semantic") {
+            if (patch.op === "set") {
+                if (patch.value !== null && typeof patch.value !== "string" && typeof patch.value !== "number") return "type-mismatch";
+                item[sub] = patch.value === null ? null : semanticText(subField, patch.value as string | number);
+                events(sub).length = 0;
+            } else if (patch.op === "note" && typeof patch.value === "string") events(sub).push(patch.value);
+            else return "type-mismatch";
+        } else if (patch.op === "set") {
             const problem = valueProblem(subField, patch.value);
             if (problem !== null) return problem === "number-out-of-range" ? problem : "type-mismatch";
             item[sub] = structuredClone(patch.value);
@@ -356,9 +373,20 @@ export function replayChangeOnEntry(state: EntryState, events: Map<string, strin
 /** 语义档的核对点在 `place` 上成为新的起点（model.md 输出 9、11）。 */
 export function replayAnchor(state: EntryState, events: Map<string, string[]>, path: string, value: number, field: FieldDeclaration): void {
     const parsed = parsePath(path);
-    if (parsed?.root !== "namespace" || parsed.element !== undefined) return;
+    if (parsed?.root !== "namespace") return;
     const data = state.data[parsed.namespace];
     if (data === undefined) return;
-    data.fields[parsed.field] = semanticText(field, value);
+    if (parsed.element === undefined) data.fields[parsed.field] = semanticText(field, value);
+    else {
+        // 列表元素的子字段：元素还在时把起点写进它（components.md 输出 20）；元素不在时没有可写的地方。
+        if (parsed.sub === undefined) return;
+        const list = data.fields[parsed.field];
+        if (!Array.isArray(list)) return;
+        const index = (list as Array<{id?: unknown}>).findIndex((item) => item.id === parsed.element);
+        if (index < 0) return;
+        const next = [...list] as Array<Record<string, unknown>>;
+        next[index] = {...next[index], [parsed.sub]: semanticText(field, value)};
+        data.fields[parsed.field] = next;
+    }
     events.set(path, []);
 }

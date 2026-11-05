@@ -25,7 +25,7 @@ import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type 
 import type {Address, Check, Entry, EntryState, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
 import {sameJson} from "../core/stable-json";
 import {applyChange, incompleteAt, replayAnchor, replayChangeOnEntry, type ChangeResult, type FoldState, type IncompleteEvent} from "../model/apply";
-import {fieldOf} from "./reference";
+import {fieldOf, reductionFieldId} from "./reference";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, WorldData} from "./types";
 import {buildEntryView, readEntryAddress, type EntryFold} from "./views";
 
@@ -432,7 +432,7 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                     const anchor = raw === null || raw === undefined ? null : semanticText(field, raw as string | number);
                     const namespace = at.path.split(".")[0]!;
                     const data = fold.state.data[namespace];
-                    const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: field.id, label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
+                    const reduced = data === undefined ? undefined : inputs.reductions({type: data.type, field: reductionFieldId(at), label: field.label, kind: field.kind, ...(field.unit === undefined ? {} : {unit: field.unit}), anchor, events});
                     ordered.push({kind: "reduce", anchor, events: [...events], cached: reduced !== undefined});
                 }
             }
