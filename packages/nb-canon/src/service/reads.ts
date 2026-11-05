@@ -20,6 +20,7 @@ import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import type {World} from "../world/world";
 import {compareOrder, lineOf, lineTable, MAIN_LINE} from "../lines/table";
+import type {LineView} from "../lines/set";
 
 export interface ChangeFilter {
     readonly chapter?: string;
@@ -52,6 +53,8 @@ export interface PresenceFilter {
     readonly from?: string;
     readonly to?: string;
     readonly mode?: Mode;
+    /** 在哪条线的视图里算；缺省是当前线（project.md 方法表 `presence`）。 */
+    readonly line?: string;
 }
 
 export interface DecisionFilter {
@@ -109,7 +112,7 @@ export interface CanonReadView {
     entries(): readonly Entry[];
     changes(filter?: ChangeFilter): readonly StoryChange[];
     tellings(filter?: TellingFilter): readonly TellingItem[];
-    presence(person: string, filter?: PresenceFilter): {readonly changes: readonly StoryChange[]; readonly uncast: number} | "chapter-not-found";
+    presence(person: string, filter?: PresenceFilter): {readonly changes: readonly StoryChange[]; readonly uncast: number} | "chapter-not-found" | "line-not-found";
     decisions(filter?: DecisionFilter): readonly Decision[];
     /** 某一章涉及的条目（model.md 输出 20）。 */
     chapterEntries(chapter: string): readonly string[];
@@ -168,14 +171,15 @@ export function lineSummaries(world: World): LineSummary[] {
  */
 export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp, line: string = MAIN_LINE, onLine: CanonReadView["onLine"] = () => ({code: "line-not-found"})): CanonReadView {
     const order = world.options.order;
-    const lineView = world.line(line)!;
-    const lineEngine = lineView.engine;
+    // 视图不拉住线视图与引擎：每次调用再取（LineSet 里有备忘），这样线集淘汰一条线时，缓存着的读取视图不会让它的引擎活下去
+    // （worldlines 输出 9 的常驻名额）；被淘汰的线再被读到时重建。
+    const lineView = (): LineView => world.line(line)!;
     const table = lineTable(world.data, order);
     const carried = (steps: readonly OriginStep[]): OriginStep[] => steps.map((step) => {
-        if (step.kind !== "patch" || !lineView.synthetic.has(step.change)) return step;
+        if (step.kind !== "patch" || !lineView().synthetic.has(step.change)) return step;
         const definer = [...table.lines.values()].find((entry) => entry.fork.id === step.change)!;
         const {fork} = definer.fork;
-        return {kind: "carried", fork: step.change, line: definer.parent, change: fork.trigger ?? fork.cut, value: step.result, key: lineEngine.eventKey(step.change, "actual")};
+        return {kind: "carried", fork: step.change, line: definer.parent, change: fork.trigger ?? fork.cut, value: step.result, key: lineView().engine.eventKey(step.change, "actual")};
     });
     // 视图本身、章序与戳都冻结：同一个视图对象会交给一份读取输入上的几个插件（服务的 `#readViewOf`），谁改了都会影响别人。
     const view: CanonReadView = {
@@ -187,22 +191,22 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         positionLine: (position, mode = "actual") => world.positionLine(position, mode),
         chapters: deepFreeze([...order.ids]),
         // 引擎算出的结果可能与引擎的快照共用对象：交出去之前深冻结（core/freeze.ts）。存下来的对象在世界表里已经冻过。
-        entry: (id, position, mode) => deepFreeze(lineEngine.entry(id, position, mode)),
+        entry: (id, position, mode) => deepFreeze(lineView().engine.entry(id, position, mode)),
         object: (ref) => world.object(ref),
         entries: () => [...world.data.entries.values()],
         changes: (filter = {}) => listChanges(world, filter),
         tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter)),
         presence: (person, filter = {}) => listPresence(world, person, filter, undefined, line),
         decisions: (filter = {}) => listDecisions(world, filter),
-        chapterEntries: (chapter) => deepFreeze(lineEngine.chapterEntries(chapter)),
+        chapterEntries: (chapter) => deepFreeze(lineView().engine.chapterEntries(chapter)),
         origins: (address, position, mode) => {
-            const steps = lineEngine.origins(address, position, mode);
+            const steps = lineView().engine.origins(address, position, mode);
             return deepFreeze(steps === "chapter-not-found" ? steps : carried(steps));
         },
-        outcome: (change) => deepFreeze(lineEngine.outcome(change)),
-        progress: (plan, position) => lineEngine.progress(plan, position),
+        outcome: (change) => deepFreeze(lineView().engine.outcome(change)),
+        progress: (plan, position) => lineView().engine.progress(plan, position),
         // 排序键与下面两个键一样每次新算、不与引擎的快照共用对象，不冻结：剧情建知情索引时对每条变更取一次，冻结是这一步最大的开销。
-        eventKey: (change, mode) => lineEngine.eventKey(change, mode),
+        eventKey: (change, mode) => lineView().engine.eventKey(change, mode),
         placementKey: (placement) => {
             const rank = placementRank(order, placement);
             return rank === null ? null : {rank, tie: {version: -1, id: ""}};
@@ -212,7 +216,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             return rank === null ? null : {rank, tie: {version: Number.POSITIVE_INFINITY, id: ""}};
         },
         compareKeys: (a, b) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie),
-        plannedAt: (position) => deepFreeze(lineEngine.plannedAt(position)),
+        plannedAt: (position) => deepFreeze(lineView().engine.plannedAt(position)),
         fields: (entry, namespace) => {
             const data = world.data.entries.get(entry)?.init.data[namespace];
             const type = world.options.registry.byNamespace(namespace);
@@ -400,7 +404,7 @@ function tellingHints(marks: MarkRegistry, telling: Telling, located: Located): 
  * 已写、生效、套上的变更；按计划模式再加上在 `to` 的章末（没写时在缺省读取位置）计入的计划。参与者里 `who` 或 `as` 是他、
  * `role` 为 `present` 的算在场；没记参与者的变更不算，只计数（`uncast`）。
  */
-export function listPresence(world: World, person: string, filter: PresenceFilter, until?: ReadPosition, line: string = MAIN_LINE): {readonly changes: StoryChange[]; readonly uncast: number} | "chapter-not-found" {
+export function listPresence(world: World, person: string, filter: PresenceFilter, until?: ReadPosition, line: string = filter.line ?? MAIN_LINE): {readonly changes: StoryChange[]; readonly uncast: number} | "chapter-not-found" | "line-not-found" {
     const order = world.options.order;
     const from = filter.from === undefined ? undefined : order.index(filter.from);
     const to = filter.to === undefined ? undefined : order.index(filter.to);
@@ -415,7 +419,9 @@ export function listPresence(world: World, person: string, filter: PresenceFilte
         return to === undefined || rank[0] !== 1 || rank[1] <= to;
     };
     // 在场按线视图算：这条线看得到的记录与它的引擎。
-    const {records, engine} = world.line(line)!;
+    const lineView = world.line(line);
+    if (lineView === undefined) return "line-not-found";
+    const {records, engine} = lineView;
     const counted: StoryChange[] = [];
     for (const change of records.changes.values()) {
         if (change.kind !== "written" || change.status !== "active" || !inRange(change)) continue;
@@ -450,3 +456,9 @@ export function changeItem(world: World, change: StoryChange, worldline: string)
     return {change, outcome: view?.engine.outcome(change.id) ?? null, placedOn: lineOf(change.at)};
 }
 
+
+/** 一条讲述的属主在这条线的视图里吗：变更与核对点按线表的成员规则；条目的重述是条目共用的，各条线都有。 */
+export function tellingInLine(world: World, line: string, item: TellingItem): boolean {
+    if (item.owner.kind === "entry") return true;
+    return lineTable(world.data, world.options.order).visible(line, item.owner.id);
+}

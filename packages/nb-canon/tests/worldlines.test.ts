@@ -7,6 +7,7 @@ import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type
 import {affectedLines, touchedOf} from "../src/lines/affected";
 import {lineTable} from "../src/lines/table";
 import {editInPlace} from "../src/world/edits";
+import {renderEntryForAgent} from "../src/render/entry";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {openTestService} from "./fixtures/service";
@@ -598,7 +599,7 @@ describe("canon.worldlines 输出 8、9、验收 4、5：写入以后与从头�
         // 挪切口 c1 到 c2 之后同一章靠后的位置：r1、r2 的定义变了，丢掉；算“让哪些记录套不上”要它们改后的结果，所以当场从头建。
         const cut = structuredClone(renamed.world.data.changes.get(c1)!);
         const moved = ok(renamed.world.publish(request([{ref: {kind: "change", id: c1}, after: {...cut, at: at("ch2", 25)}}], renamed.world.version), "t"));
-        expect(updated(moved.world).sort()).toEqual([`${r1}:built`, `${r1}:structural`, `${r2}:built`, `${r2}:structural`]);
+        expect(updated(moved.world).sort()).toEqual([`${r1}:structural+built`, `${r2}:structural+built`]);
         matchesReplay(moved.world, lines);
         // 章序调整：全部丢掉。
         const reordered = moved.world.reorder(new ChapterOrder(["ch1", "ch2", "ch4", "ch3"]), "t", "ro-1");
@@ -878,3 +879,164 @@ describe("canon.worldlines 验收 9：计划线的兑现与撤销", () => {
     });
 });
 
+
+describe("canon.worldlines 实现审查 I4 之后：子线上的写入校验与按线的读取", () => {
+    const end = (chapter: string, line?: string) => ({kind: "chapter" as const, chapter, edge: "end" as const, ...(line === undefined ? {} : {line})});
+
+    test("子线上套不上的已写记录被拒（constraint-violated），主线同样；由核对点推出的依据按子线的值复算", () => {
+        const {world, c1, xia} = base();
+        const text = "余额显示一万九";
+        const checked = world.withOptions({...world.options, chapterText: () => text});
+        const created = ok(checked.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})}], checked.version), "t"));
+        const line = created.ids["tmp:l"]!;
+        const tooMuch = (placed?: string) => request([{ref: {kind: "change", id: "tmp:x"}, after: written("tmp:x", at("ch3", 1, placed), [spend(xia, -50000)])}], created.world.version);
+        expect(problems(created.world.publish(tooMuch(), "t")).map(([code]) => code)).toContain("constraint-violated");
+        expect(problems(created.world.publish(tooMuch(line), "t")).map(([code]) => code)).toContain("constraint-violated");
+        // 子线切口在 c1，存款还是两万；核对点写一万九，记一笔 -1000 由它推出：主线是一万五，推不出，子线推得出。
+        const derived = (placed?: string) => request([
+            {ref: {kind: "check", id: "tmp:k"}, after: {id: "tmp:k", at: {entry: xia, path: "panel.存款"}, value: 19000, told: {source: "chapter", chapter: "ch3", quote: text}, place: at("ch3", 5, placed)}},
+            {ref: {kind: "change", id: "tmp:y"}, after: written("tmp:y", at("ch3", 1, placed), [{op: "add", at: {entry: xia, path: "panel.存款"}, value: -1000, basis: {kind: "derived", check: "tmp:k"}}])},
+        ], created.world.version);
+        expect(problems(created.world.publish(derived(), "t")).map(([code]) => code)).toContain("basis-mismatch");
+        expect(created.world.publish(derived(line), "t").ok).toBe(true);
+    });
+
+    test("时间说法的 of 要在记录所在线的视图里：指向兄弟线上的变更被拒", () => {
+        const {world, c1} = base();
+        const forkOf = (id: string, name: string, cut: string) => ({ref: {kind: "change", id: `tmp:f-${id}`} as const, after: written(`tmp:f-${id}`, at("ch2", 40 + id.length), [], {nature: "fork", fork: {line: `tmp:${id}`, name, parent: "main", cut, type: "branch"}})});
+        const created = ok(world.publish(request([forkOf("a", "甲", c1), forkOf("b", "乙", c1)], world.version), "t"));
+        const [a, b] = [created.ids["tmp:a"]!, created.ids["tmp:b"]!];
+        const onA = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:ra"}, after: written("tmp:ra", at("ch3", 1, a))}], created.world.version), "t"));
+        const statement = [{kind: "after" as const, of: onA.ids["tmp:ra"]!, gap: {min: 1, max: 1, unit: "day" as const}, basis: {kind: "author" as const}}];
+        const onB = onA.world.publish(request([{ref: {kind: "change", id: "tmp:rb"}, after: written("tmp:rb", at("ch3", 2, b), [], {when: statement})}], onA.world.version), "t");
+        expect(problems(onB)).toEqual([["invalid-time", "when[0].of", null]]);
+        expect(onA.world.publish(request([{ref: {kind: "change", id: "tmp:rc"}, after: written("tmp:rc", at("ch3", 2, a), [], {when: statement})}], onA.world.version), "t").ok).toBe(true);
+    });
+
+    test("活页夹讲子线、位置不写线：就地改读、排序与安放都在子线上，结果与显式写线一样", () => {
+        const {world, c1, xia} = base();
+        const created = ok(world.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})}], world.version), "t"));
+        const line = created.ids["tmp:l"]!;
+        const told = created.world.withOptions({...created.world.options, chapterLines: new Map([["ch3", [{line, from: 1}]]])});
+        const read = told.lineAt(end("ch3"))!.engine.entry(xia, end("ch3"), "actual");
+        if (read === null || read === "chapter-not-found") throw new Error("not found");
+        expect(read.namespaces.panel!.fields.存款!.value).toBe(20000);
+        const result = editInPlace(told, {requestId: `ed-${String(++sequence)}`, by: {kind: "author"}, position: end("ch3"), at: {entry: xia, path: "panel.存款"}, value: 18000, read: {value: 20000, version: told.version}, intent: "story"}, "t");
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        const record = [...result.world.data.changes.values()].find((change) => change.text === "就地改")!;
+        expect(record.at).toMatchObject({chapter: "ch3", line});
+        const main = result.world.line().engine.entry(xia, end("ch3"), "actual");
+        expect(main !== null && main !== "chapter-not-found" && main.namespaces.panel!.fields.存款!.value).toBe(15000);
+    });
+
+    test("渲染与回写按读取位置的线：子线渲染子线的值，读不到的线得 line-not-found", () => {
+        const {world, c1, xia} = base();
+        const entry = structuredClone(world.data.entries.get(xia)!);
+        entry.init.text = [{id: "b1", source: "存款 {panel.存款}"}];
+        const texted = ok(world.publish(request([{ref: {kind: "entry", id: xia}, after: entry}], world.version), "t")).world;
+        const created = ok(texted.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})}], texted.version), "t"));
+        const line = created.ids["tmp:l"]!;
+        const onChild = renderEntryForAgent(created.world, xia, end("ch3", line), "actual");
+        const onMain = renderEntryForAgent(created.world, xia, end("ch3"), "actual");
+        expect(typeof onChild !== "string" && onChild?.blocks[0]?.text).toContain("20000");
+        expect(typeof onMain !== "string" && onMain?.blocks[0]?.text).toContain("15000");
+        expect(renderEntryForAgent(created.world, xia, end("ch3", "l404"), "actual")).toBe("line-not-found");
+    });
+
+    test("带令牌的 presence、tellings 只给令牌那条线视图里的；服务的 presence 可指定线；读计划线的实际模式得 line-not-found；视图读过的线不因缓存而逃过淘汰", async () => {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "i4");
+        const texts = new Map(CHAPTERS.map((chapter) => [chapter, chapter === "ch2" ? "星瑕在码头看见了沉船。" : ""]));
+        const service = await openTestService(root, {texts, chapters: CHAPTERS, registry: options().registry});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const xia = (await publish([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}]))["tmp:xia"]!;
+            const story = await publish([
+                {ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))},
+                {ref: {kind: "change", id: "tmp:c3"}, after: written("tmp:c3", at("ch2", 30), [], {cast: [{who: xia, role: "present"}], told: [{source: "chapter", chapter: "ch2", quote: "看见了沉船"}]})},
+            ]);
+            const forks = await publish([
+                ...[1, 2, 3, 4, 5].map((i) => ({ref: {kind: "change", id: `tmp:f${String(i)}`} as const, after: written(`tmp:f${String(i)}`, at("ch2", 40 + i), [], {nature: "fork", fork: {line: `tmp:r${String(i)}`, name: `分支${String(i)}`, parent: "main", cut: story["tmp:c1"]!, type: "branch"} as Fork})})),
+                {ref: {kind: "change", id: "tmp:if"}, after: {...written("tmp:if", at("ch2", 50), [], {nature: "fork", fork: {line: "tmp:if1", name: "如果", parent: "main", cut: story["tmp:c1"]!, type: "if"} as Fork}), kind: "plan"}},
+            ]);
+            const r1 = forks["tmp:r1"]!;
+            // 令牌在 r1 上：c3 在主线切口之后，不在 r1 的视图里。
+            const opened = service.openView({viewer: null, line: r1, until: end("ch3"), purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const viewed = service.viewed(opened.token);
+            const presence = viewed.presence(xia, {});
+            const tellings = viewed.tellings({});
+            expect(typeof presence !== "string" && presence.items.map((item) => item.change.id)).toEqual([]);
+            expect(typeof tellings !== "string" && tellings.items.map((item) => item.owner.id)).toEqual([]);
+            // 不带令牌：主线上看得到 c3；指定线 r1 看不到。
+            const onMain = service.presence(xia, {});
+            const onChild = service.presence(xia, {line: r1});
+            expect(typeof onMain !== "string" && onMain.items.map((item) => item.change.id)).toEqual([story["tmp:c3"]!]);
+            expect(typeof onChild !== "string" && onChild.items.length).toBe(0);
+            expect(service.presence(xia, {line: "l404"})).toBe("line-not-found");
+            // 计划线在实际模式下读不到（输出 1）。
+            const planned = {kind: "chapter" as const, chapter: "ch3", edge: "end" as const, line: forks["tmp:if1"]!};
+            expect(service.entry(xia, planned, "actual")).toBe("line-not-found");
+            expect(service.pending({position: planned})).toBe("line-not-found");
+            expect(typeof service.entry(xia, planned, "planned")).toBe("object");
+            // 一份快照视图读过五条线：被淘汰的线再经缓存着的视图读，也重新进已建的线里，名额仍是三条加常驻的。
+            const view = service.snapshot().view;
+            const lines = [1, 2, 3, 4, 5].map((i) => forks[`tmp:r${String(i)}`]!);
+            const views = lines.map((line) => {
+                const found = view.onLine(line);
+                if ("code" in found) throw new Error(found.code);
+                found.entry(xia, end("ch3"), "actual");
+                return found;
+            });
+            const builtOf = () => service.status().lines.built.map((item) => item.line);
+            expect(builtOf()).not.toContain(lines[0]!);
+            views[0]!.entry(xia, end("ch3"), "actual");
+            expect(builtOf()).toContain(lines[0]!);
+            expect(builtOf().length).toBeLessThanOrEqual(3);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    test("线已由已写分叉定义以后，再写一条兑现同一计划的已写分叉得 line-taken", () => {
+        const {world, c1, c2} = base();
+        const plannedFork = ok(world.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: {...written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "如果", parent: "main", cut: c1, type: "if"}}), kind: "plan"}}], world.version), "t"));
+        const [line, plan] = [plannedFork.ids["tmp:l"]!, plannedFork.ids["tmp:f"]!];
+        const writtenFork = (id: string, cut: string, key: number) => written(id, at("ch2", key), [], {nature: "fork", fork: {line, name: id, parent: "main", cut, type: "if"}, links: [{kind: "fulfills", plan}]});
+        const first = ok(plannedFork.world.publish(request([{ref: {kind: "change", id: "tmp:g"}, after: writtenFork("tmp:g", c1, 45)}], plannedFork.world.version), "t"));
+        const second = first.world.publish(request([{ref: {kind: "change", id: "tmp:h"}, after: writtenFork("tmp:h", c2, 46)}], first.world.version), "t");
+        expect(problems(second).map(([code]) => code)).toContain("line-taken");
+    });
+
+    test("发布时受影响的线多于名额：status 里同一条线只出现一项，刚增量更新过的线不被淘汰重建", async () => {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "i4-updates");
+        const service = await openTestService(root, {texts: new Map(CHAPTERS.map((chapter) => [chapter, ""])), chapters: CHAPTERS, registry: options().registry});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const xia = (await publish([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}]))["tmp:xia"]!;
+            const story = await publish([{ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))}]);
+            const ids = await publish([1, 2, 3, 4, 5].map((i) => ({ref: {kind: "change", id: `tmp:f${String(i)}`} as const, after: written(`tmp:f${String(i)}`, at("ch2", 40 + i), [], {nature: "fork", fork: {line: `tmp:r${String(i)}`, name: `分支${String(i)}`, parent: "main", cut: story["tmp:c1"]!, type: "branch"} as Fork})})));
+            const view = service.snapshot().view;
+            for (let i = 1; i <= 5; i += 1) {
+                const found = view.onLine(ids[`tmp:r${String(i)}`]!);
+                if (!("code" in found)) found.entry(xia, end("ch3"), "actual");
+            }
+            const entry = structuredClone(service.snapshot().view.entries().find((candidate) => candidate.id === xia)!);
+            entry.init.data.panel!.fields.存款 = 25000;
+            await publish([{ref: {kind: "entry", id: xia}, after: entry}]);
+            const updated = service.status().lines.updated.map((item) => item.line);
+            expect(new Set(updated).size).toBe(updated.length);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});

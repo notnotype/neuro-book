@@ -60,7 +60,12 @@ function keyAt(world: World, position: ReadPosition & {readonly kind: "chapter"}
     return position.edge === "start" ? Math.min(...keys) - 1 : Math.max(...keys) + 1;
 }
 
-export function editInPlace(world: World, edit: InPlaceEdit, time: string): EditResult {
+export function editInPlace(world: World, original: InPlaceEdit, time: string): EditResult {
+    // 位置不写线时按那一章讲的线（worldlines 输出 12）；读、排序键、新记录的安放与“后面改过”的查找都用同一条线，不然读到子线的值、
+    // 记录却落在主线上，改后读到的还是旧值。
+    const line = world.positionLine(original.position);
+    const {line: _written, ...positionWithoutLine} = original.position;
+    const edit: InPlaceEdit = {...original, position: line === MAIN_LINE ? positionWithoutLine : {...positionWithoutLine, line}};
     const current = currentAt(world, edit.position, edit.at);
     if (current === "chapter-not-found" || current === "line-not-found") return {ok: false, failure: {code: current}};
     if (!current.available) return {ok: false, failure: {code: "field-unavailable"}};

@@ -112,7 +112,7 @@ describe("canon.rendering 场景 1：两种渲染与读不到的值（输出 6�
     test("第 5 章末尾：作者看到值与千位分隔，Agent 读到带值写法", () => {
         const base = world();
         const forAuthor = renderEntryForAuthor(base, "e1", at("ch5"), "actual");
-        if (forAuthor === null || forAuthor === "chapter-not-found") throw new Error("no render");
+        if (forAuthor === null || typeof forAuthor === "string") throw new Error("no render");
         const paragraph = (forAuthor.blocks[0] as unknown as {tree: {children: Array<{children: Array<Record<string, unknown>>}>}}).tree.children[0]!.children;
         expect(paragraph.filter((node) => node.type !== "text")).toEqual([
             {type: "canonValue", path: "panel.魔力", entry: null, label: "魔力", raw: 3110, display: "3,110"},
@@ -120,20 +120,20 @@ describe("canon.rendering 场景 1：两种渲染与读不到的值（输出 6�
             {type: "canonComputed", source: "panel.魔力 >= 1000 ? \"能变身\" : \"变不了身\"", raw: "能变身", display: "能变身"},
         ]);
         const agent = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (agent === null || agent === "chapter-not-found") throw new Error("no render");
+        if (agent === null || typeof agent === "string") throw new Error("no render");
         expect(agent.blocks[0]!.text).toBe('魔力 {panel.魔力 = 3110}/{panel.魔力上限 = 12000}，{panel.魔力 >= 1000 ? "能变身" : "变不了身" -> "能变身"}');
     });
 
     test("第 1 章面板还没启用：作者看到占位，Agent 读到 null 与不可用的装饰，条件是 null", () => {
         const agent = renderEntryForAgent(world(), "e1", at("ch1"), "actual");
-        if (agent === null || agent === "chapter-not-found") throw new Error("no render");
+        if (agent === null || typeof agent === "string") throw new Error("no render");
         expect(agent.blocks[0]!.text).toBe('魔力 {panel.魔力 = null # 不可用：面板第 3 章起生效}/{panel.魔力上限 = null # 不可用：面板第 3 章起生效}，{panel.魔力 >= 1000 ? "能变身" : "变不了身" -> null # 不可用：面板第 3 章起生效}');
     });
 
     test("条目引用补上这个位置的名字；源文里作者写的括注是注记以外的字", () => {
         const base = world(['见<Ref id="e2" />（化名）{panel.存款}（未知）']);
         const agent = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (agent === null || agent === "chapter-not-found") throw new Error("no render");
+        if (agent === null || typeof agent === "string") throw new Error("no render");
         expect(agent.blocks[0]!.text).toBe('见<Ref id="e2" name="星瑾" />（化名）{panel.存款 = 0}（未知）');
     });
 });
@@ -141,14 +141,14 @@ describe("canon.rendering 场景 1：两种渲染与读不到的值（输出 6�
 describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () => {
     const agentText = (base: World) => {
         const agent = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (agent === null || agent === "chapter-not-found") throw new Error("no render");
+        if (agent === null || typeof agent === "string") throw new Error("no render");
         return agent.blocks[0]!.text;
     };
 
     test("按计划模式读到的块原样交回：拒收 planned-not-writable，世界不变（输出 12）", () => {
         const base = world();
         const planned = renderEntryForAgent(base, "e1", at("ch5"), "planned");
-        if (planned === null || planned === "chapter-not-found") throw new Error("no render");
+        if (planned === null || typeof planned === "string") throw new Error("no render");
         expect(planned.mode).toBe("planned");
         const result = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: planned.position, version: planned.version, mode: planned.mode, text: planned.blocks[0]!.text}, "t");
         expect(result).toEqual({ok: false, failure: {code: "planned-not-writable"}});
@@ -201,10 +201,10 @@ describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () 
             {...base.revisions.at(-1)!, id: "r9", version: base.version + 1, requestId: "legacy", ops: [{ref: {kind: "entry", id: "e1"}, kind: "modify", fields: [{path: "init.text[b2]", after: {id: "b2", source: "<Foo />"}}, {path: "init.text#order", before: ["b1"], after: ["b1", "b2"]}]}]},
         ], options());
         const forAuthor = renderEntryForAuthor(broken, "e1", at("ch5"), "actual");
-        if (forAuthor === null || forAuthor === "chapter-not-found") throw new Error("no render");
+        if (forAuthor === null || typeof forAuthor === "string") throw new Error("no render");
         expect(forAuthor.blocks[1]).toMatchObject({id: "b2", error: {code: "unknown-tag"}, text: "<Foo />"});
         const agent = renderEntryForAgent(broken, "e1", at("ch5"), "actual");
-        if (agent === null || agent === "chapter-not-found") throw new Error("no render");
+        if (agent === null || typeof agent === "string") throw new Error("no render");
         expect(agent.blocks[1]).toMatchObject({id: "b2", text: "<Foo />", error: {code: "unknown-tag"}});
         const fixed = ok(writeBack(broken, {requestId: id(), by: author, entry: "e1", block: "b2", position: at("ch5"), version: broken.version, mode: "actual", text: "修好了"}, "t"));
         expect(fixed.world.data.entries.get("e1")!.init.text[1]).toEqual({id: "b2", source: "修好了"});

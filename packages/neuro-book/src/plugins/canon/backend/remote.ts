@@ -68,7 +68,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
         if ("code" in service) return fail({code: service.code});
         return run(service);
     };
-    const read = <T>(value: T | "chapter-not-found" | "cursor-stale" | "view-denied"): {readonly ok: true; readonly value: T} | Failure => (typeof value === "string" ? fail({code: value}) : within(value));
+    const read = <T>(value: T | "chapter-not-found" | "line-not-found" | "cursor-stale" | "view-denied"): {readonly ok: true; readonly value: T} | Failure => (typeof value === "string" ? fail({code: value}) : within(value));
     /**
      * 只认这个调用方自己打开的视图令牌：别人的令牌（例如剧情插件在项目里为看的人开的）按不存在处理，拒绝并记审计、不借用那张
      * 视图的看的人。否则拿到或猜到别人的令牌，就能绕过建在视图之上的过滤（剧情插件的按视角读取）。

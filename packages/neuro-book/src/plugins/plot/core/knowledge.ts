@@ -187,10 +187,11 @@ export class KnowingIndex {
 
     /** 带过去的那一步上，父线在触发处（没有时切口）这个人全部有效的知情行。父线不在（线不可建）时没有。 */
     #parentRows(person: string, step: Extract<OriginStep, {kind: "carried"}>): Map<string, KnowingRow> {
-        const parent = this.view.onLine(step.line, this.mode);
+        // 带过去的值只按实际模式取（worldlines 输出 6）：父线上切口与触发处之间的计划不带过去，计划模式读子线也一样。
+        const parent = this.view.onLine(step.line, "actual");
         if ("code" in parent) return new Map();
         const last = parent.chapters.at(-1);
-        const index = knowingIndex(parent, this.mode, last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last, edge: "end"});
+        const index = knowingIndex(parent, "actual", last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last, edge: "end"});
         return new Map(index.all(person, {after: step.change}).map((row) => [row.point, row]));
     }
 

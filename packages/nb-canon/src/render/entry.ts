@@ -8,40 +8,45 @@ import {mdxjs} from "micromark-extension-mdxjs";
 
 import {LOCAL_ID_PREFIX} from "../core/ids";
 import type {Block, ReadPosition} from "../core/schema";
-import type {Mode} from "../engine/types";
+import type {Engine, Mode} from "../engine/types";
 import type {World} from "../world/world";
 import {renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type RenderContext} from "./render";
 
 /** 渲染结果带着读取它的版本、位置与模式：回写时照带（rendering.md 输出 12）。 */
-export type EntryRender<T> = {readonly version: number; readonly position: ReadPosition; readonly mode: Mode; readonly blocks: readonly T[]} | "chapter-not-found" | null;
+export type EntryRender<T> = {readonly version: number; readonly position: ReadPosition; readonly mode: Mode; readonly blocks: readonly T[]} | "chapter-not-found" | "line-not-found" | null;
 
 /** 渲染的选项：`hideUpcoming` 给带视图令牌的渲染用，不提“之后才启用”。 */
 export interface RenderOptions {
     readonly hideUpcoming?: boolean;
 }
 
-function context(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions): RenderContext {
-    const resolve = resolverFor(world.line().engine, world.options.registry, world.options.order, entry, position, mode, options.hideUpcoming === true);
+/** 渲染按读取位置的线算（worldlines 输出 1、12）；那条线读不到时调用方得 `line-not-found`。 */
+function context(engine: Engine, world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions): RenderContext {
+    const resolve = resolverFor(engine, world.options.registry, world.options.order, entry, position, mode, options.hideUpcoming === true);
     return {
         resolve,
         entryName: (id) => {
-            const view = world.line().engine.entry(id, position, mode);
+            const view = engine.entry(id, position, mode);
             return view === null || view === "chapter-not-found" || view.deleted ? null : view.name;
         },
     };
 }
 
 export function renderEntryForAuthor(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions = {}): EntryRender<AuthorBlock> {
-    const view = world.line().engine.entry(entry, position, mode);
+    const engine = world.lineAt(position, mode)?.engine;
+    if (engine === undefined) return "line-not-found";
+    const view = engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
-    const shared = context(world, entry, position, mode, options);
+    const shared = context(engine, world, entry, position, mode, options);
     return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAuthor(block.id, block.source, shared))};
 }
 
 export function renderEntryForAgent(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions = {}): EntryRender<AgentBlock> {
-    const view = world.line().engine.entry(entry, position, mode);
+    const engine = world.lineAt(position, mode)?.engine;
+    if (engine === undefined) return "line-not-found";
+    const view = engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
-    const shared = context(world, entry, position, mode, options);
+    const shared = context(engine, world, entry, position, mode, options);
     return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAgent(block.id, block.source, shared))};
 }
 

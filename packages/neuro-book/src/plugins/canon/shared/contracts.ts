@@ -110,7 +110,7 @@ const methods = {
         errors,
     },
     presence: {
-        input: Type.Object({person: Type.String(), filter: Type.Optional(Type.Object({...ChapterRange, mode: Type.Optional(Mode)}, {additionalProperties: false})), cursor: Cursor, limit: Limit, view: View}),
+        input: Type.Object({person: Type.String(), filter: Type.Optional(Type.Object({...ChapterRange, mode: Type.Optional(Mode), line: Type.Optional(Type.String())}, {additionalProperties: false})), cursor: Cursor, limit: Limit, view: View}),
         output: Out,
         effect: "read",
         errors,

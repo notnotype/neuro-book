@@ -35,7 +35,7 @@ import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
 import {lineTable, MAIN_LINE} from "../lines/table";
-import {changeItem, createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
+import {changeItem, createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, tellingInLine, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
 import {decisionView} from "../world/decisions";
 import {World, type ChapterLine, type RevertMeta, type WriteResult} from "../world/world";
@@ -649,8 +649,10 @@ export class WorldService {
                 // 已写的兑现还没发生）。上限只截、不替换调用方给的更早的范围。
                 const toEnd = filter.to === undefined ? undefined : ({kind: "chapter", chapter: filter.to, edge: "end"} as const);
                 const upTo = toEnd !== undefined && positionWithin(order(), found, toEnd) ? toEnd : found.until;
-                const listed = listPresence(world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})}, upTo);
-                if (listed === "chapter-not-found") return listed;
+                // 令牌只读它那条线：筛选里写了别的线拒，没写补上令牌的线。
+                if (filter.line !== undefined && filter.line !== found.line) return this.#deny(found, "presence", filter);
+                const listed = listPresence(world, person, {...filter, ...(filter.to === undefined && found.until.kind === "chapter" ? {to: found.until.chapter} : {})}, upTo, found.line);
+                if (typeof listed === "string") return listed;
                 const stamp = this.#stampOf(world);
                 const page = this.#page(stamp, listed.changes.filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "presence", view: token, person, ...filter});
                 if (page === "cursor-stale") return page;
@@ -686,7 +688,7 @@ export class WorldService {
                 if (found === "view-denied") return found;
                 if (filter.until !== undefined && !tellingPositionWithin(order(), found, filter.until)) return this.#deny(found, "tellings", filter.until);
                 const stamp = this.#stampOf(world);
-                const page = this.#page(stamp, listTellings(world, this.#locator, filter).filter((item) => tellingWithin(order(), found, item)), cursor, limit, {method: "tellings", view: token, ...filter});
+                const page = this.#page(stamp, listTellings(world, this.#locator, filter).filter((item) => tellingWithin(order(), found, item) && tellingInLine(world, found.line, item)), cursor, limit, {method: "tellings", view: token, ...filter});
                 if (page === "cursor-stale") return page;
                 return {...stamp, items: page.items, ...(page.next === undefined ? {} : {cursor: page.next})};
             },
@@ -750,9 +752,12 @@ export class WorldService {
     #lookupOn(world: World, names: readonly string[], position: ReadPosition) {
         const found: Record<string, string[]> = {};
         for (const name of names) found[name] = [];
+        // 按读取位置的线（输出 12）：线读不到得 `line-not-found`。
+        const engine = world.lineAt(position)?.engine;
+        if (engine === undefined) return "line-not-found" as const;
         for (const entry of world.data.entries.values()) {
             if (entry.deleted === true) continue;
-            const view = world.line().engine.entry(entry.id, position, "actual");
+            const view = engine.entry(entry.id, position, "actual");
             if (view === "chapter-not-found") return view;
             if (view === null || view.deleted || !view.appeared) continue;
             for (const name of names) if (view.name === name || view.aliases.includes(name)) found[name]!.push(entry.id);
@@ -782,8 +787,8 @@ export class WorldService {
 
     /** 某人在场的剧情变更（方法表 `presence`，model.md 输出 29；取法见 reads.ts），另给没记参与者的条数。 */
     presence(person: string, filter: PresenceFilter = {}, cursor?: string, limit = 50) {
-        const found = listPresence(this.#world, person, filter);
-        if (found === "chapter-not-found") return found;
+        const found = listPresence(this.#world, person, filter, undefined, filter.line ?? this.#world.positionLine(defaultPosition(this.#world.options.order)));
+        if (typeof found === "string") return found;
         const stamp = this.#stamp();
         const page = this.#page(stamp, found.changes, cursor, limit, {method: "presence", person, ...filter});
         if (page === "cursor-stale") return page;
@@ -842,7 +847,7 @@ export class WorldService {
 
     #renderOn(world: World, entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent", options: RenderOptions = {}) {
         const result = audience === "author" ? renderEntryForAuthor(world, entry, position, mode, options) : renderEntryForAgent(world, entry, position, mode, options);
-        return result === null || result === "chapter-not-found" ? result : {...result, ...this.#stampOf(world)};
+        return result === null || typeof result === "string" ? result : {...result, ...this.#stampOf(world)};
     }
 
     /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */

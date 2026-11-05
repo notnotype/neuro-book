@@ -253,7 +253,16 @@ export class LineSet {
 
     /** 最近一次推进更新了哪些线、各自为什么，加上当场建的（project.md 输出 26）。 */
     get updates(): readonly LineUpdate[] {
-        return [...this.updated, ...[...this.#onTheSpot].map((line) => ({line, reasons: ["built"] as const}))];
+        // 同一条线的几个原因并成一项（先增量更新、后来又被淘汰重建的线也只出现一次）。
+        const merged = new Map<string, UpdateReason[]>();
+        for (const {line, reasons} of this.updated) merged.set(line, [...reasons]);
+        for (const line of this.#onTheSpot) merged.set(line, [...(merged.get(line) ?? []).filter((reason) => reason !== "built"), "built"]);
+        return [...merged].map(([line, reasons]) => ({line, reasons}));
+    }
+
+    /** 这条线现在建着吗（主线总是）；不触发构建、不算用过。 */
+    isBuilt(line: string): boolean {
+        return line === MAIN_LINE || this.#children.get(line) != null;
     }
 
     /** 各条已建的线的状态：是否常驻（当前线与它的祖先线）。 */

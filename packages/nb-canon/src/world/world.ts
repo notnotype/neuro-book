@@ -202,7 +202,10 @@ export class World {
 
     /** 读取位置的线的线视图（worldlines 输出 12；活页夹章讲的线随后接上，现在不写线就是主线）；线不存在或不可建时为 undefined。 */
     lineAt(position: ReadPosition, mode: Mode = "actual"): LineView | undefined {
-        return this.lines.get(this.positionLine(position, mode));
+        const line = this.positionLine(position, mode);
+        // 位置显式写了计划线、读的又是实际模式时，计划线在这个模式下不存在（worldlines 输出 1）；活页夹给的线已经按模式换成了祖先线。
+        if (!lineTable(this.data, this.options.order).exists(line, mode)) return undefined;
+        return this.lines.get(line);
     }
 
     /**
@@ -553,7 +556,7 @@ export class World {
         }
         const engine = lines.main.engine;
         // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
-        if (!compensation) problems.push(...validate(this, data, engine, request, changed));
+        if (!compensation) problems.push(...validate(this, data, lines, request, changed));
         if (!compensation) problems.push(...lineRuleProblems(data, this.options.order, changed));
         if (!compensation) problems.push(...forkProblems({before: this.data, after: data, order: this.options.order, registry: this.options.registry, calendar: (this.options.time ?? DEFAULT_TIME).calendar, changed: changed.changes, issuedLines: new Set(Object.values(ids).filter((id) => id.startsWith(ID_PREFIX.line))), slotAfter: slotOn}));
         const refs = writtenReferences(this, data, ops);
@@ -565,7 +568,7 @@ export class World {
 
         // 写到的线建不出来（已存的记录留在不可建的线上、这次只改了它的别处）时，带来的变化按主线读。
         const writtenLine = requestLine(data, ops);
-        const where = whereOf(request.chapter, this.options.order, lines.get(writtenLine) === undefined ? MAIN_LINE : writtenLine);
+        const where = whereOf(request.chapter, this.options.order, lines.ensure(writtenLine) === undefined ? MAIN_LINE : writtenLine);
         const impact = computeImpact(this, data, lines, where, ops, this.options, affectedLines({data: this.data, order: this.options.order}, {data, order: this.options.order}, touchedOf(ops, false)));
         const revision: Revision = {
             id: allocator.next(ID_PREFIX.revision),
@@ -1182,7 +1185,7 @@ function tellingProblem(telling: Telling, chapterText: (chapter: string) => stri
 }
 
 /** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16）。 */
-function validate(world: World, data: WorldData, engine: IncrementalEngine, request: WriteRequest, changed: {entries: string[]; changes: string[]; checks: string[]}): Problem[] {
+function validate(world: World, data: WorldData, lines: LineSet, request: WriteRequest, changed: {entries: string[]; changes: string[]; checks: string[]}): Problem[] {
     const problems: Problem[] = [];
     const {registry, chapterText} = world.options;
     const strictBasis = request.by.kind === "agent" || request.by.kind === "task";
@@ -1277,6 +1280,9 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
         const change = data.changes.get(id);
         if (change === undefined || change.status === "undone") continue;
         const ref: ObjectRef = {kind: "change", id};
+        // 套得上、依据复算都在记录所在的那条线的视图里问（子线上的数与主线不同）；线不存在或不可建时没有引擎，由线的规则另报。
+        const placedLine = lineOf(change.at);
+        const engineOfChange = lines.get(placedLine)?.engine;
         for (const line of change.lines) if (data.entries.get(line)?.type !== "剧情线") problems.push({code: "invalid-line", ref, path: "lines", message: `"${line}" is not a plot line entry`});
         for (const link of change.links) {
             const plan = data.changes.get(link.plan);
@@ -1303,7 +1309,7 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
         }
         problems.push(...tellingProblems(ref, "told", change.told, (world.object(ref) as StoryChange | undefined)?.told ?? []));
         problems.push(...castProblems(ref, change, data));
-        problems.push(...statementProblems(ref, change, (world.object(ref) as StoryChange | undefined)?.when ?? [], data, world.options.time ?? DEFAULT_TIME));
+        problems.push(...statementProblems(ref, change, (world.object(ref) as StoryChange | undefined)?.when ?? [], data, world.options.time ?? DEFAULT_TIME, (of) => lineTable(data, world.options.order).visible(placedLine, of)));
         if (change.nature === "narration") {
             if (change.patches.length > 0) problems.push({code: "narration-with-patches", ref, path: "patches", message: "a narration only tells; it cannot change the world"});
             if (change.told.length === 0) problems.push({code: "narration-without-telling", ref, path: "told", message: "a narration needs at least one telling"});
@@ -1318,7 +1324,7 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
                 if (problem !== null) problems.push({code: problem.code, ref, path: `patches[${String(index)}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
             }
             if (typeof patch.value === "number" && patch.op !== "note") {
-                const basisProblem = checkBasis(patch, change, engine, data, chapterText, strictBasis);
+                const basisProblem = checkBasis(patch, change, engineOfChange, data, chapterText, strictBasis);
                 if (basisProblem !== null) problems.push({...basisProblem, ref, path: `patches[${String(index)}]`});
             }
         }
@@ -1335,7 +1341,7 @@ function validate(world: World, data: WorldData, engine: IncrementalEngine, requ
                 problems.push({code: "not-appeared", ref, message: `entry "${entryId}" has not appeared at this placement`});
             }
         }
-        const detail = engine.detail(id);
+        const detail = engineOfChange?.detail(id);
         if (detail === undefined) continue;
         if (!detail.applied) {
             problems.push({code: detail.reason, ref, path: detail.failedPatch >= 0 ? `patches[${String(detail.failedPatch)}]` : "patches", message: `change cannot apply at its placement (${detail.reason})`});
@@ -1385,7 +1391,7 @@ function castProblems(ref: ObjectRef, change: StoryChange, data: WorldData): Pro
 }
 
 /** 每个数有依据（revisions.md 输出 3）：原文里读得出这个数（加减取绝对值）、核对点推出的差额复算相等、作者给的或估计。 */
-function checkBasis(patch: Patch, change: StoryChange, engine: IncrementalEngine, data: WorldData, chapterText: (chapter: string) => string | undefined, strict: boolean): Omit<Problem, "ref"> | null {
+function checkBasis(patch: Patch, change: StoryChange, engine: IncrementalEngine | undefined, data: WorldData, chapterText: (chapter: string) => string | undefined, strict: boolean): Omit<Problem, "ref"> | null {
     const value = patch.value as number;
     const basis = patch.basis;
     if (basis === undefined) return strict ? {code: "number-without-basis", message: "every number needs a basis (quote, derived, author, or estimate)"} : null;
@@ -1400,6 +1406,8 @@ function checkBasis(patch: Patch, change: StoryChange, engine: IncrementalEngine
     const check = data.checks.get(basis.check);
     if (check === undefined || check.at.entry !== patch.at.entry || check.at.path !== patch.at.path) return {code: "basis-mismatch", message: "derived basis must name a check on the same address"};
     if (patch.op === "set") return value === check.value ? null : {code: "basis-mismatch", message: "derived value differs from the check"};
+    // 记录所在的线建不出来（不存在、不可建）时没有引擎可问：线的问题由别处另报，这里不再添一条。
+    if (engine === undefined) return null;
     const before = engine.valueBefore(change.id, patch.at);
     return typeof before === "number" && before + value === check.value ? null : {code: "basis-mismatch", message: "derived difference does not recompute"};
 }
@@ -1408,7 +1416,7 @@ function checkBasis(patch: Patch, change: StoryChange, engine: IncrementalEngine
  * 时间说法的写入校验（canon.time 输出 9）：只查新写或改过的说法（原样留着的不查，改了历法以后旧说法照样能随变更改别的字段）。
  * 说法自己的规则交给 nb-time；引用存在、不是叙述、`basis` 的讲述在这条变更的 `told` 里在这里查。叙述不能有说法。
  */
-function statementProblems(ref: ObjectRef, change: StoryChange, previous: readonly unknown[], data: WorldData, time: TimeSettings): Problem[] {
+function statementProblems(ref: ObjectRef, change: StoryChange, previous: readonly unknown[], data: WorldData, time: TimeSettings, inView: (change: string) => boolean): Problem[] {
     const statements = (change.when ?? []) as Statement[];
     if (statements.length === 0) return [];
     if (change.nature === "narration") return [{code: "invalid-time", ref, path: "when", message: "a narration cannot carry time statements"}];
@@ -1428,6 +1436,8 @@ function statementProblems(ref: ObjectRef, change: StoryChange, previous: readon
             const target = data.changes.get(statement.of);
             if (target === undefined) problems.push({code: "invalid-time", ref, path: `${path}.of`, message: "of must name an existing story change"});
             else if (target.nature === "narration") problems.push({code: "invalid-time", ref, path: `${path}.of`, message: "of cannot name a narration"});
+            // 说法的 `of` 要在这条变更所在线的视图里：兄弟线上的、或父线上切口之后的事，在这条线的时间网络里找不到。
+            else if (!inView(statement.of)) problems.push({code: "invalid-time", ref, path: `${path}.of`, message: "of must name a change in the view of the line this change is placed on"});
         }
         if ((statement.kind === "age" || statement.kind === "birth") && (data.entries.get(statement.who) === undefined || data.entries.get(statement.who)!.deleted === true)) problems.push({code: "invalid-time", ref, path: `${path}.who`, message: "who must name an existing entry"});
     }
@@ -1536,7 +1546,9 @@ function computeImpact(before: World, data: WorldData, lines: LineSet, where: Re
     const brokenOn: {line: string; change: string}[] = [];
     // 只由计划分叉定义的线（实际模式下不存在）没有实际结果可比，也不为它当场建。
     const [oldTable, newTable] = [lineTable(before.data, before.options.order), lineTable(data, options.order)];
-    for (const id of [...affected].sort(compareIds)) {
+    // 已建的线先算：先去建没建的线会按名额把还没轮到的已建线淘汰，下一轮又从头建一遍（它们刚刚才增量更新过）。
+    const order = [...affected].sort((a, b) => Number(lines.isBuilt(b)) - Number(lines.isBuilt(a)) || compareIds(a, b));
+    for (const id of order) {
         if (oldTable.lines.get(id)?.exists.actual !== true || newTable.lines.get(id)?.exists.actual !== true) continue;
         const [was, now] = [before.line(id), lines.ensure(id)];
         if (was === undefined || now === undefined) continue;

@@ -73,7 +73,8 @@ function forkRecordProblems(change: StoryChange & {fork: Fork}, input: ForkCheck
     const previous = input.before.changes.get(change.id)?.fork;
     if (fork.line === MAIN_LINE) fail("fork.line", "the main line is not defined by a fork");
     else if (!input.issuedLines.has(fork.line) && previous?.line !== fork.line) {
-        const fulfilled = change.kind === "written" && change.links.some((link) => {
+        // 线已经由一条已写分叉定义时不再兑现：第二条的切口与带过去的地址没有任何效果，等于静默忽略（输出 14）。
+        const fulfilled = change.kind === "written" && earlier.lines.get(fork.line)?.planned !== false && change.links.some((link) => {
             const plan = after.changes.get(link.kind === "fulfills" ? link.plan : "");
             return plan !== undefined && plan.kind === "plan" && plan.fork?.line === fork.line && plan.fork.parent === fork.parent;
         });
