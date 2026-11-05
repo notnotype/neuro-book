@@ -35,7 +35,7 @@ updated: 2026-11-05
 
 ## 当前状态
 
-完成，已合入本地 master（`fcefe8f4a`、`b079a5834`），没有 push。合同：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)，状态 `planned`、待晋升，晋升由开发者批准。
+完成，已合入本地 master（`fcefe8f4a`、`b079a5834`），没有 push。合同：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)，开发者 2026-11-05 批准晋升为 `implemented`。
 
 做了：`nbook.edit.*` 命令与公开键、五个菜单位置、固定工具栏（可在“视图”菜单关掉）、选区浮动菜单、斜杠菜单（拼音首字母筛选）、块按钮与拖动、块菜单、正文右键菜单。nb-ui 新增 `AnchoredPopover`，`Toolbar` 加 `variant="flat"`。Composer 与正文共用抽出来的触发插件。
 
@@ -51,7 +51,7 @@ updated: 2026-11-05
 
 审查：设计审查 17 条（[报告](evidences/design-review.txt)、[处理](evidences/design-review-disposition.txt)），实现审查 13 条（[报告](evidences/impl-review.txt)、[处理](evidences/impl-review-disposition.txt)）。
 
-待开发者追认（都是审查后主会话定的）：
+审查后主会话定的，开发者 2026-11-05 都追认了：
 
 1. 命令、公开键与菜单位置归 `nbook.editor`。要改回：加反向连接与类型互引。
 2. 行首的 `、` 算斜杠（中文输入法下这个键打出的字符）。要改回：删一个正则。
@@ -62,4 +62,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-开发者看过实际效果后决定是否批准 Spec 晋升。草稿 worktree `.worktree/w00025-t08-drafts` 不再需要。
+开发者在体验并审查。有问题再开新的修正。草稿分支 `t08/drafts` 留着（第 3 轮的改动已提交，不合并），worktree 已删。

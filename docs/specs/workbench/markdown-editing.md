@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.markdown-editing
 owners:
   - nbook.editor
@@ -149,6 +149,15 @@ interface EditorEditing {
 6. Given 测试插件往五个位置各贡献一条，When 打开各菜单，Then 都排在内置项之后，点了收到 `{address}`；When 入口停止，Then 都不再显示。
 
 Smoke：`e2e/markdown-editing.e2e.ts`。
+
+## 实现合同
+
+- 公开入口：`editor/shared/contracts.ts`（`EditorEditing`、`EDITING_ACTIONS`、`EditorMenus`、`editorMenusKey`、五个贡献点 id）；`@notnotype/nb-markdown/editor`（`markdownEditingActions`、块与斜杠的操作）；nb-ui 的 `AnchoredPopover`、`Toolbar` 的 `variant="flat"`。
+- owner 与依赖方向：命令、公开键、菜单位置与设置归 `nbook.editor`；菜单界面在 `nbook.markdown` 的控件里，只引 `editor/shared/contracts.ts`；动作实现在 `nb-markdown`，不引宿主。
+- 不变量：动作目录不引 Tiptap，插件入口静态引用它，首屏不含编辑内核；目录里的每个动作都有实现（`MarkdownControl.dom.test.ts`）。
+- 不变量：菜单状态按控件实例算，不写 ProseMirror 插件视图、不在扩展配置里捕获组件 DOM：换 `EditorState` 时 `plugins` 数组换了，插件视图全部重建（`markdown-editing.e2e.ts` 的“切标签回来”“组件重挂”）。
+- 不变量：内置菜单读自己控件的 `editing`，公开键只服务命令的 `when`、贡献项与命令面板，拆分后互不带偏（`markdown-editing.e2e.ts` 的“拆分后”）。
+- 不变量：块菜单的动作从选区反推块，容器与原子块用节点选区（`block-actions.dom.test.ts`）；拖动结束自己清 `view.dragging`（`markdown-editing.e2e.ts` 的拖动用例）。
 
 ## 证据
 

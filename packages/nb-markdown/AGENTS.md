@@ -11,6 +11,10 @@
 - 不认任何作品的文件方案：链接目标怎样归类由宿主给（`MarkdownTargets`），包里只有认外部链接的缺省规则。
 - 界面文字在本包的目录（`src/locales/`，命名空间 `nb-markdown`），组件经 nb-ui 的翻译端口取（`src/host/text.ts`，取法见 [README](README.md#界面文字)）；纯 TS 入口不翻译 `TextRef`。改文字时同步改 `src/locales.test.ts` 的迁移对照表。
 
+## 编辑器实例
+
+一个编辑器实例换 `EditorState` 时插件视图会重建（`plugins` 数组换了，prosemirror-view 按数组身份判断），组件重挂时也一样，所以界面状态不放在插件视图里，也不在扩展配置里捕获组件的 DOM 或回调。
+
 ## 验证
 
 ```text

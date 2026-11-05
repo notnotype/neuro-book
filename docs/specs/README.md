@@ -187,6 +187,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算、编辑器与语言贡献点、选择顺序、字节标签、预览的打开方式 |
+| Markdown 编辑命令与菜单 | [`workbench/markdown-editing.md`](workbench/markdown-editing.md) | 编辑命令与公开键、固定工具栏、选区菜单、斜杠菜单、块按钮与块菜单、正文右键 |
 | 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
 | HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
@@ -211,7 +212,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| Markdown 编辑命令与菜单 | [`workbench/markdown-editing.md`](workbench/markdown-editing.md) | 编辑命令与公开键、固定工具栏、选区菜单、斜杠菜单、块按钮与块菜单、正文右键。待晋升 |
 | Agent 的对话界面 | [`agent/conversation.md`](agent/conversation.md) | 对话视图接新内核：工作台位置、会话面板、发送与运行控制、审批与提问向导、状态栏 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |

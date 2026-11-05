@@ -136,6 +136,7 @@
 - **事件**：`request-close(reason)` 是关闭请求，随后发 `update:open(false)`；打开态受控，宿主不接 `update:open`（或 `Dialog`、`FloatingWindow` 传 `:close-on-request="false"`）就等于拒绝，浮层保持打开；`closed` 在关闭完成、内容卸载并释放焦点之后发，宿主在它之后才执行命令或打开下一层，不用固定毫秒数代替。`AlertDialog`、`Drawer` 由 reka 直接关闭，不发请求。
 - **关闭原因** `OverlayCloseReason`（`shared-types.ts`）：`escape`、`outside`、`close-button`、`cancel`、`select`、`tab`，各浮层只发自己有的那几种，保留各自的子集类型（`DialogCloseReason` 等）。“取消”与“关闭按钮”分开：宿主可能用取消按钮退回上一步、用关闭按钮关窗。
 - **点外面关闭不回滚值**：回滚是 Escape 的语义，点外面只是不再编辑。
+- **从正在编辑的内容旁打开的菜单**：选了一项后焦点回到内容，不回触发按钮（`closeAutoFocus` 里阻止默认行为）；Esc 和点外面仍按原语的规则。原语在关闭动画之后才还焦点，不拦的话会抢走用户接着点进内容的焦点。
 - **`Dialog` 关不关只看 `closeOnRequest`**（缺省 `true`），不看宿主挂了哪些监听；要拦（脏表单、守卫）就传 `false`，在 `request-close` 里自己决定。确认按钮只发 `confirm`，关不关由宿主决定。
 
 ### 4.5 弹出列表的共同合同
