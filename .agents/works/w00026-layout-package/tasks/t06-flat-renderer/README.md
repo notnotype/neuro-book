@@ -44,6 +44,25 @@ updated: 2026-11-05
 | 21 公开面的变化 | 成立。写进 `NestedGrid.md`；包还没发布 |
 | 22 根上的标记与 t08 不相容 | 成立。标记写在外框上 |
 
+实现审查（Sonnet，[报告](evidences/impl-review.txt)）14 条，阻断 1、重要 3、建议 10：
+
+| 条 | 处理 |
+|---|---|
+| 1 改窗口高度也过渡 | 成立（审查用假 `ResizeObserver` 复现，Chrome 里两个回调之间确实跑微任务）。实测盒也算容器尺寸变化，用例改成高度也变、等两帧再看 |
+| 2 新分隔线直接在终点 | 成立。`enteringRects`：从挨着同一节点的旧分隔线出发，否则从新叶的起点出发 |
+| 3 单元测试放过关键行为 | 成立。补上。其中“长出方向”查出来确实写反了：第一块应当起点不动，否则中间露空白，我推了一遍几何才确认 |
+| 4 默认减少动态后老用例变弱 | 成立。`lab-nb-ui`、`markdown-editing` 开回动画，写进 `docs/testing/README.md` |
+| 5 `fromGesture` 的合并情形 | 接受取舍：手势进行中改树极少见，代价只是这一次不过渡。第三点（外壳的第二次发布）加了真实用例 |
+| 6 `domIds` 与分隔线 key | 成立。清理不再用的 id，key 用 JSON，节点 id 含分隔符也不撞。`renderedKeys` 在 `computed` 里写闭包不改：审查推演没有失败路径，放进 watch 反而赶不上外壳的 Teleport 时序 |
+| 7 每次 resize 重建 `matchMedia` | 成立。缩放比变了才重建 |
+| 8 文档与公开面 | 成立。`WorkbenchShellLayout.md`、实现合同改了；`index.ts` 显式导出，`panelBounds`、`ariaMax` 不公开 |
+| 9 `attachPaneFocus(null)` | 成立。返回只清自己的撤销函数 |
+| 10 `NestedGrid` 太长 | 成立。动效、停放拆成 `useGridMotion`、`useLeafParking`（494 行到 407 行） |
+| 11 `getElementById` | 部分成立。改用 `getRootNode()`，Shadow DOM 里也查得到；不改函数 ref，每次渲染换闭包更不值 |
+| 12 卸载后又排一帧 | 成立。`useSashSnap` 卸载后不再排 |
+| 13 定时器早于过渡结束 | 部分成立。计时加 50ms 余量；不用 `transitionend` 计数，多个属性、中途打断都要处理，末端曲线很平，不值 |
+| 14 半像素比较 | 成立。`lab-nested-grid.e2e.ts` 同样改 |
+
 ## 下一步
 
 开发者确认计划后，按 `plan.md` 的切片实施。
