@@ -454,11 +454,13 @@ export class WorldService {
             byWorld = new Map();
             this.#boundedStates.set(world, byWorld);
         }
-        const key = `${mode}|${stableStringify(grant.until)}`;
+        const key = `${mode}|${grant.line}|${stableStringify(grant.until)}`;
         let state = byWorld.get(key);
         if (state === undefined) {
             const order = world.options.order;
-            const {records, engine} = world.line();
+            const lineView = world.line(grant.line);
+            if (lineView === undefined) return timeState(new Map(), {changes: new Map(), entries: world.data.entries, order, createdAt: world.data.createdAt}, world.options.time ?? DEFAULT_TIME, mode, []);
+            const {records, engine} = lineView;
             const visible = new Map([...records.changes].filter(([, change]) => placementWithin(order, grant, change.at)));
             const plans = mode === "planned" ? [...visible.values()].filter((change) => change.kind === "plan" && change.status === "active" && engine.progress(change.id, grant.until) === "unfulfilled").map((change) => change.id) : [];
             const settings = world.options.time ?? DEFAULT_TIME;
@@ -528,7 +530,9 @@ export class WorldService {
 
     /** 打开一张视图：上限要在章序里；阶段 D 之前只有主线。 */
     openView(grant: ViewGrant): {readonly token: string} | "chapter-not-found" | {readonly code: "line-not-found"} {
-        if (grant.line !== "main") return {code: "line-not-found"};
+        // 线要存在（至少按计划模式）且可建（worldlines 输出 1、18）。
+        const entry = lineTable(this.#world.data, this.#world.options.order).lines.get(grant.line);
+        if (grant.line !== MAIN_LINE && (entry === undefined || !entry.exists.planned || entry.unbuildable !== null)) return {code: "line-not-found"};
         if (boundRank(this.#world.options.order, grant) === null) return "chapter-not-found";
         // 令牌不可预测：拿着它的读取在服务里只按令牌认，可猜的连续编号会让别的调用方冒用（远程门面另外只认调用方自己开的）。
         const token = `view-${globalThis.crypto.randomUUID()}`;
@@ -587,7 +591,9 @@ export class WorldService {
             const found = grant(method, position);
             if (found === "view-denied") return found;
             if (position !== undefined && !positionWithin(order(), found, position)) return this.#deny(found, method, position);
-            return {grant: found, position: position ?? found.until};
+            // 令牌只读它那条线（project 输出 24）：位置写了别的线拒，没写补上令牌的线。
+            if (position?.line !== undefined && position.line !== found.line) return this.#deny(found, method, position);
+            return {grant: found, position: {...(position ?? found.until), line: found.line}};
         };
         const chapters = (method: string, ...ids: (string | undefined)[]): ViewGrant | "view-denied" => {
             const found = grant(method, ids);

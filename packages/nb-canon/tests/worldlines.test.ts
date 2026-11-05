@@ -288,6 +288,14 @@ describe("canon.worldlines 输出 1、6、project 方法表 lines：按线的读
             expect(service.entry(xia, {kind: "chapter", chapter: "ch3", edge: "end", line: "l404"}, "actual")).toBe("line-not-found");
             expect(service.pending({position: {kind: "chapter", chapter: "ch3", edge: "end", line: "l404"}})).toBe("line-not-found");
             expect(typeof service.pending({position: {kind: "chapter", chapter: "ch3", edge: "end", line: r1}})).toBe("object");
+            // 带令牌：令牌的线上读；位置写了别的线被拒（project 输出 24）；不存在的线开不了。
+            const opened = service.openView({viewer: null, line: r1, until: {kind: "chapter", chapter: "ch3", edge: "end"}, purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const viewed = service.viewed(opened.token);
+            const bounded = viewed.entry(xia, undefined, "actual");
+            expect(typeof bounded !== "string" && bounded.view?.namespaces.rb?.fields.次数?.value).toBe(0);
+            expect(viewed.entry(xia, {kind: "chapter", chapter: "ch3", edge: "end", line: "main"}, "actual")).toBe("view-denied");
+            expect(service.openView({viewer: null, line: "l404", until: {kind: "chapter", chapter: "ch3", edge: "end"}, purpose: "writer"})).toEqual({code: "line-not-found"});
             const steps = child.origins({entry: xia, path: "rb.次数"}, {kind: "chapter", chapter: "ch3", edge: "end"}, "actual");
             expect(steps !== "chapter-not-found" && steps.at(-1)).toMatchObject({kind: "carried", fork: forks["tmp:f"], line: "main", change: story["tmp:c3"], value: 0});
         } finally {
