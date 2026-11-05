@@ -13,7 +13,8 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createJsonlStore, defineExtension} from "@notnotype/nb-harness/kernel";
-import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import type {CompactionJob, CompactionResult, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -21,7 +22,8 @@ import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 
 import {loadRules} from "./backend/builtin/profiles/rules";
 import {ResourceReadError} from "./backend/resources";
-import {titleSessionId} from "./backend/session-meta";
+import {sessionMetaExtension, titleSessionId} from "./backend/session-meta";
+import type {MetaTrigger} from "./backend/session-meta";
 import {MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
 import {agentExtension, agentTool} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
@@ -290,6 +292,8 @@ describe("标题和说明", () => {
         await waitUntil("标题写下", async () => (await metaOf(session))[0] !== null);
         await marker(session, "标记");
         expect(tiny.requests).toHaveLength(2);
+        // 排着队，不是撞上标题会话正在跑才没发出去。
+        expect(diagnosticEvents(w)).not.toContain("agent.session-meta-failed");
     });
 
     test("输出 7：材料是第一条用户的话和第一条有文字的回复，各取前 2000 个字符，标明是材料", async () => {
@@ -355,6 +359,59 @@ describe("标题和说明", () => {
         await turn(other, "第三轮");
         expect(await metaOf(other)).toEqual(["雨夜", "说明"]);
         expect(tiny.requests.length - before).toBe(2);
+    });
+
+    test("输出 6、8：触发器在真实内核上：一轮完成时通知、压缩带摘要时通知；压缩运行收口与失败的轮不通知", async () => {
+        const seen: MetaTrigger[] = [];
+        let summary: string | null = "前情摘要";
+        const method = async (job: CompactionJob): Promise<CompactionResult> => {
+            const cut = job.cuts.filter((item) => item.kind === "turn").at(-1);
+            return cut === undefined ? {failed: "no-cut"} : {method: job.method, firstKeptEntryId: cut.entryId, replacement: summary, omitted: [], tokensBefore: 100, tokensAfter: 10};
+        };
+        await using session = await createTestSession({extensions: [sessionMetaExtension((_id, trigger) => seen.push(trigger))], compaction: {methods: {shake: method, inplace: method}}});
+        session.model.script("一", "二");
+        await session.say("第一轮");
+        await session.say("第二轮");
+        expect(seen).toEqual([{kind: "turn"}, {kind: "turn"}]);
+
+        const compactNow = async () => {
+            const compacted = await session.raw.compact({commandId: cid()});
+            if (!compacted.ok || compacted.value.runId === undefined) throw new Error(`compact failed: ${JSON.stringify(compacted)}`);
+            await session.raw.waitRun(compacted.value.runId);
+        };
+        await compactNow();
+        expect(seen.slice(2)).toEqual([{kind: "compaction", summary: "前情摘要"}]);
+
+        session.model.script("三");
+        await session.say("第三轮");
+        summary = null;
+        await compactNow();
+        expect(seen.slice(3)).toEqual([{kind: "turn"}]);
+
+        session.model.script({fail: "provider"});
+        await session.say("这一轮失败");
+        expect(seen.slice(4)).toEqual([]);
+    });
+
+    test("输出 6、8：还没有说明时压缩，下一轮结束才生成，生成的还是第一轮的内容", async () => {
+        const w = await world({settings: withTiny(), plugins: [compactor("前情摘要")]});
+        const session = await createMain(w);
+        const failures = () => diagnosticEvents(w).filter((event) => event === "agent.session-meta-failed").length;
+        tiny.script({status: 400});
+        await turn(session, "第一轮");
+        await waitUntil("第一轮的生成失败", () => failures() === 1);
+        tiny.script({status: 400});
+        await turn(session, "第二轮");
+        await waitUntil("第二轮的生成失败", () => failures() === 2);
+        tiny.script({status: 400});
+        await compact(session);
+        await waitUntil("压缩后的更新失败", () => failures() === 3);
+        expect(tiny.requests).toHaveLength(3);
+        tiny.script(generated("雨夜", "说明"));
+        await turn(session, "第三轮");
+        await waitUntil("下一轮结束生成", async () => (await metaOf(session))[1] !== null);
+        expect(tiny.requests).toHaveLength(4);
+        expect(messagesText(tiny.requests[3]!)).toContain("第一轮");
     });
 
     test("输出 9：标题会话不进列表、running() 与 sessions://；按 id 读得到；前台费用不算它；第二次请求不带第一次的内容", async () => {
@@ -447,6 +504,10 @@ describe("标题和说明", () => {
         expect(main.tools).toContain("test__every__tool");
         await waitUntil("标题写下", async () => (await metaOf(session))[1] !== null);
         expect(tiny.requests[0]!.tools).toEqual(["yield"]);
+        // 标题会话不装触发器，费用与循环的保护照常装。
+        const installed = (await w.service.session(titleSessionId(session.id)).snapshot()).extensions.map((item) => item.id);
+        expect(installed).not.toContain("nbook.agent.session-meta");
+        expect(installed).toContain("nbook.agent.cost-guard");
     });
 
     test("时序：生成中停止插件不写诊断，不留下打开的会话；重启后下一轮结束再生成，上次中断的标题会话接着用", async () => {
