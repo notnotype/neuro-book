@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t01-research-and-design
-status: planned
+status: active
 updated: 2026-11-05
 ---
 
@@ -11,7 +11,6 @@ updated: 2026-11-05
 
 弄清背景图片和主题该是什么关系，交开发者确认方向，再写 Spec 与计划。
 
-- 先问清第一版哪里效果不好：这是重做的出发点，还没有问。
 - 看 dsh 社区主题怎么处理背景、透明与文字可读性，从[主题列表](https://github.com/Renakoni/awesome-dsh-themes/blob/main/THEMES.md)按 Stars 取代表性的几个读上游仓库，调研写进 `docs/research/`，只写事实。
 - 对照现有主题合同：[`theme/system.md`](../../../../../docs/specs/theme/system.md)、`packages/nb-ui/docs/authoring-themes.md`。
 - 界面要拍板的部分走 design-review。
@@ -22,6 +21,10 @@ updated: 2026-11-05
 
 2026-11-05 经 nbdev 新建，尚未开工。
 
+## 开发者的决定
+
+1. （2026-11-05）要的是整套主题换皮肤，不是“单独贴一张图”；也不是把图片放到最底层，靠半透明磨砂产生效果。
+
 ## 第一版留下的可复用事实
 
 都在 [t19 的证据](../../../w00025-editor/tasks/t19-background-image/README.md)里，是否沿用由这里的设计决定：
@@ -31,4 +34,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-等开发者说明第一版哪里效果不好，然后开始调研。
+调研 dsh 社区主题的做法，对照现有主题合同，再交开发者定方向。
