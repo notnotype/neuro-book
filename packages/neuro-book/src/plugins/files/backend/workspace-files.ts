@@ -93,11 +93,6 @@ export function provideWorkspaceFiles(deps: WorkspaceFilesDeps): ProvidedService
     }});
 }
 
-/** 插件自己（不经服务解析）用的门面：`nbook.files` 的 HTTP 路由没有调用方身份，写入归属是它自己。 */
-export function ownWorkspaceFiles(deps: WorkspaceFilesDeps, consumer: ConsumerIdentity): WorkspaceFiles {
-    return facadeFor(deps, consumer, new AbortController().signal, undefined);
-}
-
 function facadeFor(deps: WorkspaceFilesDeps, consumer: ConsumerIdentity, gone: AbortSignal, group: ChangeGroup | undefined): WorkspaceFiles {
     const {own, projects} = deps;
     const user = own.root;
