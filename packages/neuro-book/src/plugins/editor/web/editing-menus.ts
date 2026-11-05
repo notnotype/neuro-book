@@ -43,7 +43,7 @@ export function createEditorMenus(options: {
         void options.commands.execute(command, args, {source: "user"});
     };
     return {
-        title: (action) => options.text.t(editorText(`commands.${action}.title` as never)),
+        title: (action) => options.text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
         label: (key) => options.text.t(editorText(`menus.${key}` as never)),
         shortcut: (action) => {
             const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;

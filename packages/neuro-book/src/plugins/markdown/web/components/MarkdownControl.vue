@@ -14,9 +14,7 @@ import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
 import {editorMenusKey} from "nbook/plugins/editor/shared/contracts";
-import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
-import type {EditorEditing} from "nbook/plugins/editor/shared/editing";
-import {editorText} from "nbook/plugins/editor/shared/text";
+import type {EditorControlHandle, EditorEditing, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
@@ -323,10 +321,7 @@ const editingVersion = ref(0);
 const editing: EditorEditing = {
     run: (action, args = {}) => {
         const implementation = markdownEditingActions[action];
-        if (editor === null || props.readonly || implementation === undefined || !implementation.enabled(editor, args) || !implementation.run(editor, args)) {
-            return {ok: false, reason: editorText("refusal.editingUnavailable")};
-        }
-        return {ok: true};
+        return editor !== null && !props.readonly && implementation !== undefined && implementation.enabled(editor, args) && implementation.run(editor, args);
     },
     active: (action) => {
         void editingVersion.value;

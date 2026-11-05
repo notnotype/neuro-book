@@ -19,9 +19,9 @@ function areaWith(editing: EditorEditing | undefined) {
 
 describe("编辑命令", () => {
     it("每条声明都被命令表接受", () => {
-        for (const id of ids) {
-            const commandId = editingCommandId(id);
-            expect(commandDeclarationProblems(commandId, "nbook.editor", EDITING_COMMAND_DECLARATIONS[commandId])).toEqual([]);
+        // 声明不写标题：登记时取约定键（`convention-keys.test.ts` 核对它们都有文字）。
+        for (const [id, declaration] of Object.entries(EDITING_COMMAND_DECLARATIONS)) {
+            expect(commandDeclarationProblems(id, "nbook.editor", {...declaration, title: "标题"})).toEqual([]);
         }
     });
 
@@ -42,20 +42,20 @@ describe("编辑命令", () => {
         }
     });
 
-    it("执行转给活动控件，控件拒绝时是 unavailable 与原因", async () => {
+    it("执行转给活动控件，控件拒绝时是 unavailable", async () => {
         const calls: Array<[string, unknown]> = [];
         let accept = true;
         const editing = {
             run: (action: string, args: unknown) => {
                 calls.push([action, args]);
-                return accept ? {ok: true} : {ok: false, reason: "不行"};
+                return accept;
             },
         } as unknown as EditorEditing;
         const commands = editingCommands(areaWith(editing), SOURCES);
         expect(await commands["nbook.edit.bold"]?.run({})).toEqual({ok: true, value: null});
         expect(calls).toEqual([["bold", {}]]);
         accept = false;
-        expect(await commands["nbook.edit.bold"]?.run({})).toEqual({ok: false, code: "unavailable", reason: "不行"});
+        expect(await commands["nbook.edit.bold"]?.run({})).toMatchObject({ok: false, code: "unavailable"});
     });
 
     it("活动控件没有编辑动作（例如源码编辑器）时 unavailable，不静默成功", async () => {

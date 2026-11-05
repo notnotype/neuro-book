@@ -220,7 +220,7 @@ describe("编辑动作（workbench.markdown-editing）", () => {
         editor.commands.setTextSelection({from: 1, to: 2});
         expect(editing.hasSelection.value).toBe(true);
         expect(bold.value).toBe(false);
-        expect(editing.run("bold")).toEqual({ok: true});
+        expect(editing.run("bold")).toBe(true);
         expect(bold.value).toBe(true);
         editor.commands.setTextSelection(5);
         expect(bold.value).toBe(false);
@@ -233,14 +233,14 @@ describe("编辑动作（workbench.markdown-editing）", () => {
         editor.commands.selectAll();
         const before = editor.getJSON();
         expect(handle.editing!.enabled("bold")).toBe(false);
-        expect(handle.editing!.run("bold").ok).toBe(false);
+        expect(handle.editing!.run("bold")).toBe(false);
         expect(editor.getJSON()).toEqual(before);
     });
 
     it("不认识的动作不可用", async () => {
         const {handle} = await opened("字\n");
         expect(handle.editing!.enabled("没有这个")).toBe(false);
-        expect(handle.editing!.run("没有这个").ok).toBe(false);
+        expect(handle.editing!.run("没有这个")).toBe(false);
     });
 });
 

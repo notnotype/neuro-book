@@ -15,7 +15,7 @@ import type {EditorArea} from "nbook/plugins/editor/web/area";
 export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMenus {
     const editing = () => area.activeHandle.value?.editing;
     return {
-        title: (action) => text.t(editorText(`commands.${action}.title` as never)),
+        title: (action) => text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
         label: (key) => text.t(editorText(`menus.${key}` as never)),
         shortcut: (action) => (EDITING_ACTIONS[action] as EditingActionInfo).keybinding?.replace("Mod", "Ctrl") ?? null,
         has: () => false,

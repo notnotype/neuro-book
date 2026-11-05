@@ -4,8 +4,8 @@ import {ColorSwatches, DropdownMenu, IconButton, Popover, Toolbar} from "@notnot
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
 
-import {EDITOR_TOOLBAR_POINT, type EditorMenus} from "nbook/plugins/editor/shared/contracts";
-import {EDITING_ACTIONS, type EditingActionId, type EditorEditing} from "nbook/plugins/editor/shared/editing";
+import {EDITING_ACTIONS, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
+import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
 import {HIGHLIGHT_COLORS, LINK_COMMAND, TEXT_COLORS} from "./palette";
 import type {PaletteColor} from "./palette";

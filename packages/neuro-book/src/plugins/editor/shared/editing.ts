@@ -5,8 +5,6 @@
 
 import type {Ref} from "@vue/reactivity";
 
-import type {DisplayText} from "nbook/shared/localized-text";
-
 /** 决定命令要哪些公开键：`format` 改文字，`block` 改块，`move` 只要可写。 */
 export type EditingKind = "format" | "block" | "move";
 
@@ -56,7 +54,8 @@ export const editingCommandId = (action: EditingActionId): string => `nbook.edit
 
 /** 控件交出的编辑动作（控件句柄的 `editing`）：`active`、`enabled` 在选区或文档变化时重新求值，放进 computed 里读会跟着变。 */
 export interface EditorEditing {
-    run(action: string, args?: Readonly<Record<string, unknown>>): {readonly ok: true} | {readonly ok: false; readonly reason: DisplayText};
+    /** 这一刻做不了（不可用、只读）时返回 false，文档不变。 */
+    run(action: string, args?: Readonly<Record<string, unknown>>): boolean;
     active(action: string): boolean;
     enabled(action: string): boolean;
     readonly hasSelection: Readonly<Ref<boolean>>;

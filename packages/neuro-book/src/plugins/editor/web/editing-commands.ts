@@ -52,8 +52,9 @@ export function editingCommands(area: Readonly<ShallowRef<EditorArea | null>>, s
         run: (args: unknown) => {
             const editing = area.value?.activeHandle.value?.editing;
             if (editing === undefined) return {ok: false, code: "unavailable", reason: editorText("refusal.editingUnsupported")} as const;
-            const result = editing.run(action, args as Readonly<Record<string, unknown>>);
-            return result.ok ? {ok: true, value: null} as const : {ok: false, code: "unavailable", reason: result.reason} as const;
+            return editing.run(action, args as Readonly<Record<string, unknown>>)
+                ? {ok: true, value: null} as const
+                : {ok: false, code: "unavailable", reason: editorText("refusal.editingUnavailable")} as const;
         },
     } satisfies CommandImplementation]));
     return {

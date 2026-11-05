@@ -3,15 +3,14 @@ import {mount} from "@vue/test-utils";
 import {computed, ref} from "vue";
 import {describe, expect, it} from "vitest";
 
-import type {EditorMenus} from "nbook/plugins/editor/shared/contracts";
-import type {EditorEditing} from "nbook/plugins/editor/shared/editing";
+import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
 import MarkdownToolbar from "./MarkdownToolbar.vue";
 
 function fixture(options: {readonly?: boolean; link?: boolean; bold?: boolean; contributed?: boolean} = {}) {
     const runs: unknown[] = [];
     const editing: EditorEditing = {
-        run: () => ({ok: true}),
+        run: () => true,
         active: (action) => action === "bold" && options.bold === true,
         enabled: () => true,
         hasSelection: computed(() => false),

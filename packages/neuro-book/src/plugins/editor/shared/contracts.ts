@@ -13,6 +13,9 @@ import type {InjectionKey} from "vue";
 import type {languages as MonacoLanguages} from "monaco-editor/esm/vs/editor/editor.api.js";
 
 import type {EditingActionId, EditorEditing} from "./editing";
+
+export {EDITING_ACTIONS} from "./editing";
+export type {EditingActionId, EditorEditing} from "./editing";
 import type {Component} from "vue";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";

@@ -1,4 +1,5 @@
 ---
+验证入口: EditorArea
 标签: [state:local, state:inject, env:global]
 ---
 
