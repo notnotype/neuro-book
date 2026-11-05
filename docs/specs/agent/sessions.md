@@ -19,7 +19,7 @@ owners:
 - 不做“积压过多就断开”：远程通道没有发送背压（[`runtime/plugin-channel.md`](../runtime/plugin-channel.md)），只把流式增量合并压低帧数。
 - 资源方案只有 `session://`；其余由资源能力定义。
 - 审批只有按模式的最小规则（输出 4），没有按工具的规则表。
-- 没有压缩方法与出站过滤。
+- 没有出站过滤；压缩方法见 [`compaction.md`](compaction.md)。
 - 旧格式的会话不在读取时转换。
 
 ## 术语与参与者

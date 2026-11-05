@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 只有三个贡献点：`agent.extensions`、`agent.tools`、`agent.profiles`。文档、压缩方法、Skill、斜杠命令、`@` 引用与工具渲染器的贡献点由各自的能力定义。
+- 这里只定义三个贡献点：`agent.extensions`、`agent.tools`、`agent.profiles`。压缩方法的 `agent.compactionMethods` 见 [`compaction.md`](compaction.md)。文档、Skill、斜杠命令、`@` 引用与工具渲染器的贡献点由各自的能力定义。
 - 没有内置 Profile；内置工具见 [`agent.builtin-tools`](builtin-tools.md)，内置扩展见 [`agent.run-guards`](run-guards.md)。它们同样经这三个贡献点交出，没有内部登记表（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 - 工具绑定与 Profile 设置没有界面，只能在设置文件里改。
 - 禁用插件前列出运行中会话的确认，依赖平台的运行期热插拔（[`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。
