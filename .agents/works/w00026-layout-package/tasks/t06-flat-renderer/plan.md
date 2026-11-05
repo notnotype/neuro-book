@@ -107,11 +107,11 @@ export function nextFocusStop(input: FocusStopInput): {readonly stop: number; re
 
 `nb-layout/vue` 导出 `moveGridFocus(from: Element | null, direction: "next" | "previous"): boolean`：从 `from` 找最近的 grid（`closest("[data-grid-scope]")`，走树序不走 DOM 序），走到头就交给外层，最外层绕回。回到这块上次的焦点（grid 用 `focusin` 记，叶关闭时清），没有就是第一个可聚焦的元素。
 
-工作台登记两条命令 `nbook.workbench.focus-next-pane`（F6）、`focus-previous-pane`（Shift+F6），键位走命令系统，有冲突检测，也进命令面板。F6 在浏览器里是聚焦地址栏，提案定了要用，取舍写进 Spec。
+工作台登记两条命令 `nbook.view.focus-next-pane`（F6）、`nbook.view.focus-previous-pane`（Shift+F6），键位走命令系统，有冲突检测，也进命令面板。走法要用 nb-layout 的 Vue 层，插件入口的类型检查不带 DOM，所以外壳挂上时把实现交给命令（`attachPaneFocus`）。F6 在浏览器里是聚焦地址栏，提案定了要用，取舍写进 Spec。
 
 ### `packages/nb-ui/src/tokens.css`
 
-加 `--motion-layout: 470ms`、`--ease-layout: cubic-bezier(.23, 1, .32, 1)`，减少动态效果时归零。`docs/specs/theme/system.md` 同步。
+加 `--motion-layout: 470ms`、`--ease-layout: cubic-bezier(.23, 1, .32, 1)`，减少动态效果时归零。`docs/specs/theme/system.md` 没有列 motion 令牌，不用改。
 
 ### 宿主
 
@@ -131,7 +131,6 @@ export function nextFocusStop(input: FocusStopInput): {readonly stop: number; re
 | 文件 | 改什么 |
 |---|---|
 | `docs/specs/ui/nested-grid.md` | 新增的输出与验收 8、9（已写）；实现合同里“每个分支一个 Splitter”随实现改 |
-| `docs/specs/theme/system.md` | 两个 motion 令牌 |
 | `docs/specs/workbench/commands.md` | 两条焦点命令 |
 | `docs/testing/README.md` | e2e 默认减少动态效果，测动画的用例开回来 |
 | `packages/nb-layout/src/grid.md`、`src/vue/NestedGrid.md` | 渲染一节、公开面的变化 |

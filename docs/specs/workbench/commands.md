@@ -170,6 +170,8 @@ Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-edit
 | `nbook.view.open` | 打开视图 / Open View | `{viewId?}`；省略时经选择列出已落位的视图 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
 | `nbook.view.set-part-hidden` | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`activitybar`；`hidden` 布尔）；`part` 省略时经选择列出三个区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.focus-next-pane` | 聚焦下一个面板 / Focus Next Pane | `{}`；缺省键位 F6 | 无 | read | never |
+| `nbook.view.focus-previous-pane` | 聚焦上一个面板 / Focus Previous Pane | `{}`；缺省键位 Shift+F6 | 无 | read | never |
 
 - 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
 - `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按记忆尺寸回来（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 32）。
