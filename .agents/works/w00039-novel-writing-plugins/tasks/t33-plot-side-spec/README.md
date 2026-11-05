@@ -36,6 +36,7 @@ updated: 2026-11-05
 |---|---|
 | 2026-11-05 | 开发者（t32 记录）：照 t27 的先例新开本 Task；Spec 写在内核分支上、不合并；能力地图 12 份，世界线单独一份；先写内核 6 份、再写剧情插件 6 份，每批交 omp 审；各种上限先按样例简报定缺省值、等 t26 校准；写作指示的存放随 t19、t11，Agent 工具的参数随 t20，Spec 只写剧情插件读进来的输入与对外的读取视图；剧情插件照 canon 插件做成应用里的内置插件，纯计算是否另拆包在实施计划时定 |
 | 2026-11-05 | 开发者：nbdev 的操作（关 t32、建本 Task 等）主会话自己做 |
+| 2026-11-05 | 开发者（“按你推荐的来”）：还原照 11-02 的“有后续依赖时不单独还原”，跨线也一样（连同依赖一起还原，或不还原）；提案第 7 小节说的“保留并进待处理”，由撤销那条剧情变更来做：撤销不挡写入，子线上因此算不出来的记录各成待处理。写进 `canon/worldlines.md` 输出 11 与场景 8（分支 519d65056） |
 
 ## 当前状态
 
@@ -45,9 +46,8 @@ updated: 2026-11-05
   - [`evidences/spec-review-round1-S1-omp.txt`](evidences/spec-review-round1-S1-omp.txt)
   - [`evidences/spec-review-round1-S2-omp.txt`](evidences/spec-review-round1-S2-omp.txt)
   - [`evidences/spec-review-round1-resolution.txt`](evidences/spec-review-round1-resolution.txt)
-- 第二轮（S1b、S2b）在跑，报告在 `.local` 的 `reports/S1b/`、`reports/S2b/`。
+- 第二轮（S1b、S2b）：S1b（内核）核完第一轮 18 条、写出新发现 19、20 后因上游额度用完退出，剩下的改派一个 Claude Opus 审查者（S1c）；S2b（剧情插件）在跑。报告在 `.local` 的 `reports/S1b/`、`S1c/`、`S2b/`。
 
-待开发者定：还原被子线继承的父线变更时，提案第 7 小节说作者可以“保留并进待处理”，与 11-02 的“有后续依赖时不单独还原”冲突；Spec 暂按 11-02 写（只能连同依赖一起还原，或者不还原）。
 
 ## 下一步
 
