@@ -41,9 +41,9 @@ const CHARACTER = {
 };
 const APPROVAL_MODES = {
     options: [
-        {key: "ask", label: "每次都问", description: "读以外的调用都等你批准（默认）", icon: "i-lucide-shield-question"},
-        {key: "allow-writes", label: "放行写入", description: "改文件不问，运行命令还要问", icon: "i-lucide-pencil-line"},
-        {key: "yolo", label: "全部放行", description: "都不问，只有拒绝规则能拦", icon: "i-lucide-triangle-alert", danger: true},
+        {key: "ask", label: "每次询问", description: "除读取外，每次调用都需要批准（默认）", icon: "i-lucide-shield-question"},
+        {key: "allow-writes", label: "放行写入", description: "修改文件无需批准，运行命令仍需批准", icon: "i-lucide-pencil-line"},
+        {key: "yolo", label: "全部放行", description: "所有调用都无需批准，仅拒绝规则可拦截", icon: "i-lucide-triangle-alert", danger: true},
     ],
     value: "ask",
 };

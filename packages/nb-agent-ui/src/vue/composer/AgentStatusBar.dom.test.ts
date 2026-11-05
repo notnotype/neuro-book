@@ -27,7 +27,7 @@ describe("AgentStatusBar", () => {
     it("单价未知不显示费用，为 0 写免费；没有单价的请求在悬停里说明", () => {
         expect(bar(createAgentContext({usage: {...usage, cost: null}})).find("[data-status-cost]").exists()).toBe(false);
         expect(bar(createAgentContext({usage: {...usage, cost: 0}})).get("[data-status-cost]").text()).toBe("免费");
-        expect(bar(createAgentContext({usage: {...usage, costState: "unpriced"}})).get("[data-status-cost]").attributes("title")).toContain("费用上限对它不起作用");
+        expect(bar(createAgentContext({usage: {...usage, costState: "unpriced"}})).get("[data-status-cost]").attributes("title")).toContain("费用上限对它无效");
     });
 
     it("输出 17：到告警线，费用变色，左边写超过告警线", () => {
@@ -48,7 +48,7 @@ describe("AgentStatusBar", () => {
         const now = 1_000_000;
         const stopping = {status: "stopping" as const, phase: "", startedAt: now - 60_000};
         expect(bar(createAgentContext({now, run: stopping, stopRequestedAt: now - 5_000})).get("[data-status-phase]").text()).toBe("正在停止");
-        expect(bar(createAgentContext({now, run: stopping, stopRequestedAt: now - 11_000})).get("[data-status-phase]").text()).toContain("工具没有响应");
+        expect(bar(createAgentContext({now, run: stopping, stopRequestedAt: now - 11_000})).get("[data-status-phase]").text()).toContain("工具未响应");
     });
 
     it("全部放行有警告；断线写连接状态", () => {

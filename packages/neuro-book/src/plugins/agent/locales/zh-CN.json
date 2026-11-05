@@ -47,37 +47,37 @@
             "compacting": "正在压缩"
         },
         "reject": {
-            "emptyInput": "消息是空的。",
-            "inputTooLarge": "消息太长了。",
-            "inputRejected": "这条消息被规则拦下了。",
-            "readOnly": "这个会话现在只读。",
-            "other": "没发出去（{{code}}）。"
+            "emptyInput": "消息为空。",
+            "inputTooLarge": "消息过长。",
+            "inputRejected": "消息被规则拦截。",
+            "readOnly": "当前会话为只读。",
+            "other": "发送失败（{{code}}）。"
         },
         "model": {
-            "none": "还没有可用的模型。",
-            "noCredentials": "模型的密钥没有设置。",
-            "unknown": "这个会话选的模型不存在或用不了。",
-            "roleUnbound": "这个 Profile 要的模型角色还没有绑定模型。",
+            "none": "暂无可用模型。",
+            "noCredentials": "未设置模型密钥。",
+            "unknown": "当前会话选择的模型不存在或不可用。",
+            "roleUnbound": "此 Profile 需要的模型角色未绑定模型。",
             "unavailable": "不可用"
         },
         "approval": {
             "ask": {
-                "label": "每次都问",
-                "description": "读以外的调用都等你批准（默认）"
+                "label": "每次询问",
+                "description": "除读取外，每次调用都需要批准（默认）"
             },
             "allowWrites": {
                 "label": "放行写入",
-                "description": "改文件不问，运行命令还要问"
+                "description": "修改文件无需批准，运行命令仍需批准"
             },
             "yolo": {
                 "label": "全部放行",
-                "description": "都不问，只有拒绝规则能拦"
+                "description": "所有调用都无需批准，仅拒绝规则可拦截"
             }
         },
         "createFailed": "新建会话失败（{{code}}）。",
-        "openFailed": "这个会话打不开（{{code}}）。",
+        "openFailed": "无法打开此会话（{{code}}）。",
         "retry": "重试",
-        "archived": "这个会话已归档。",
+        "archived": "此会话已归档。",
         "restore": "恢复",
         "openSettings": "打开设置",
         "followDefault": "跟随默认",
@@ -87,8 +87,8 @@
             "waiting": "Agent：{{waiting}} 等你处理",
             "running": "Agent：{{running}} 运行中"
         },
-        "listFailed": "会话列表取不到（{{code}}）。",
-        "pickProfile": "用哪个 Profile？",
+        "listFailed": "无法获取会话列表（{{code}}）。",
+        "pickProfile": "选择 Profile",
         "renameTitle": "改名",
         "rename": "改名",
         "cancel": "取消"

@@ -88,7 +88,7 @@
             "running": "Agent: {{running}} running"
         },
         "listFailed": "Couldn't get the session list ({{code}}).",
-        "pickProfile": "Which Profile?",
+        "pickProfile": "Choose a Profile",
         "renameTitle": "Rename",
         "rename": "Rename",
         "cancel": "Cancel"

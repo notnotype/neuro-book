@@ -91,8 +91,8 @@ describe("审批向导", () => {
     it("多文件按文件分节：过大、算不出来的写明原因，也列出参数", () => {
         const view = wizard([{...approval("m"), args: {input: "补丁正文"}, preview: {state: "ready", files: [{address: "project://a.md", kind: "diff", before: "旧", after: "新"}, {address: "project://大.md", kind: "too-large", bytes: 999}, {address: "project://b.md", kind: "failed", code: "edit-stale"}]}}]);
         expect(view.findAll("[data-preview-file]").map((node) => node.attributes("data-preview-file"))).toEqual(["diff", "too-large", "failed"]);
-        expect(view.text()).toContain("太大了");
-        expect(view.text()).toContain("预览不到");
+        expect(view.text()).toContain("文件过大");
+        expect(view.text()).toContain("无法预览");
         expect(view.text()).toContain("补丁正文");
         view.unmount();
     });
@@ -113,7 +113,7 @@ describe("提问向导", () => {
         expect((view.get("[data-question-other] input, input[data-question-other]").element as HTMLInputElement).value).toBe("第二人称");
         await view.get("[data-question-step='next']").trigger("click");
         await view.get("[data-question-submit]").trigger("click");
-        expect(submitted(view)).toEqual([{type: "input.submit", batchKey: "q", resolutions: {kind: "question", answer: {text: "视角？ 其它：第二人称\n人物？ 乙", data: {answers: [{selected: [], other: "第二人称"}, {selected: ["乙"]}]}}}}]);
+        expect(submitted(view)).toEqual([{type: "input.submit", batchKey: "q", resolutions: {kind: "question", answer: {text: "视角？ 其他：第二人称\n人物？ 乙", data: {answers: [{selected: [], other: "第二人称"}, {selected: ["乙"]}]}}}}]);
         view.unmount();
     });
 

@@ -14,16 +14,16 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {AgentConversationContext, AssistantMessageView, MessageView, PendingApprovalView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 
-import {EVENT_INLINE_BYTES} from "../backend/frames";
-import {MAIN_PROFILE} from "../shared/contracts";
-import {agentProfile} from "../shared/points";
-import {fakeEndpoint, localModelSettings} from "../testing/endpoint";
-import type {FakeEndpoint} from "../testing/endpoint";
-import {agentWorld} from "../testing/world";
-import type {AgentWorld, SessionsClient} from "../testing/world";
-import {createAgentActivity} from "./activity";
-import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./session-host";
-import type {SessionHost, SessionHostDeps} from "./session-host";
+import {EVENT_INLINE_BYTES} from "./backend/frames";
+import {MAIN_PROFILE} from "./shared/contracts";
+import {agentProfile} from "./shared/points";
+import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
+import type {FakeEndpoint} from "./testing/endpoint";
+import {agentWorld} from "./testing/world";
+import type {AgentWorld, SessionsClient} from "./testing/world";
+import {createAgentActivity} from "./web/activity";
+import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./web/session-host";
+import type {SessionHost, SessionHostDeps} from "./web/session-host";
 
 let root = "";
 let counter = 0;
@@ -87,7 +87,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         project: null,
         now: () => w.settings.clock.now(),
         schedule: (run, delay) => w.settings.clock.schedule(run, delay),
-        text: {t: (value) => (typeof value === "string" ? value : (value as {key: string}).key), variants: () => []} as never,
+        text: {t: (value: unknown) => (typeof value === "string" ? value : (value as {key: string}).key), variants: () => []} as never,
         newId: () => crypto.randomUUID(),
         recent: {read: async () => recent.value, write: (id) => {
             recent.value = id;
@@ -234,12 +234,12 @@ describe("发送、排队与停止（输出 6）", () => {
         const seen: string[] = [];
         const flaky = new Proxy(base.client, {get(target, key, receiver) {
             if (key !== "send") return Reflect.get(target, key, receiver);
-            return async (input: Parameters<SessionsClient["send"]>[0]) => {
+            return async (input: {sessionId: string; commandId: string; input: {text: string}}) => {
                 seen.push(input.commandId);
                 const current = mode;
                 mode = "normal";
                 if (current === "lost") return {ok: false, code: "unknown-outcome"};
-                const real = await target.send(input);
+                const real = await target.send(input as never);
                 return current === "delivered" && real.ok ? {ok: false, code: "unknown-outcome"} : real;
             };
         }}) as SessionsClient;
