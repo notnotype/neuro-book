@@ -175,7 +175,7 @@ Monaco 控件；语法模块的合同；`Editor` 实例的生命周期。
 
 ## 验收映射
 
-编号在 S0 写进 Spec 后回填到这里。
+行为按下表映射，Spec 的输出编号见 [`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)；实际交付与本表的差异见 [Task README](README.md)。
 
 | 行为 | 测试 |
 |---|---|

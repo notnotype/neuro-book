@@ -35,12 +35,31 @@ updated: 2026-11-05
 
 ## 当前状态
 
-2026-10-16 开发者定：下一个先做本 Task。现状与旧应用的对照见 [research.md](research.md)。2026-10-20 定了范围与注意力排序（决定 1–4）。第 1 轮静态稿已发布到[评审板](artifacts/review/index.html)（工具栏放哪些按钮、样子，块左侧两个按钮）；草稿在 worktree `.worktree/w00025-t08-drafts`（分支 `t08/drafts`，不合并），原图在本地 `.local/agent/works/w00025-editor/tasks/t08-editing-menus/shots/`。
+完成，已合入本地 master（`fcefe8f4a`），没有 push。合同：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md)，状态 `planned`、待晋升，晋升由开发者批准。
 
-搭稿时发现（已由 t14 修好）：Markdown 编辑器与展示器里粗体、斜体、删除线、四到六级标题、分割线都没有样式（计算出的字重 400、无斜体、无删除线、`hr` 边框 0）。原因是 `src/web/boot.ts` 引入的 `the-new-css-reset` 把这些元素的默认样式清掉了，`markdown/web/parts/markdown.css` 没有补回来。
+做了：`nbook.edit.*` 命令与公开键、五个菜单位置、固定工具栏（可在“视图”菜单关掉）、选区浮动菜单、斜杠菜单（拼音首字母筛选）、块按钮与拖动、块菜单、正文右键菜单。nb-ui 新增 `AnchoredPopover`，`Toolbar` 加 `variant="flat"`。Composer 与正文共用抽出来的触发插件。
+
+验证：
+
+- 新 e2e `markdown-editing.e2e.ts` 31 条（真实 Chrome、产品页、真实文件服务），改完后连跑两轮 62 次全过；现有编辑器 e2e（`markdown-input`、`lab-markdown`、`lab-editor`、`editor-area`、`editor-types`）同跑：两条失败，一条是这份新测试的写法错误，已改；另一条 `markdown-input` 的“行尾用输入法打字”是打开文件时的竞争，单独跑三次全过。之前一轮 `editor-area` 的“重新打开回到上次的光标”在负载下失败一次，单独跑两次全过，判断是按键早于聚焦。这两条老用例的等待没有改。
+- `test:affected --since master --typecheck`：只有 nb-story 类型检查失败（`qa-service.ts:548`，老问题）。
+- `governance:check`、`docs:check` 通过。
+- 入口 chunk 不含 Tiptap、ProseMirror，拼音库单独分块。
+- nb-ui 两处改动：nbook、macos × 明暗 × 1100px、390px 量过，没有横向溢出，`AnchoredPopover` 的外框没有 `role`。
+
+没有验证到的：`AnchoredPopover` 翻到另一侧（Lab 的窗口里锚点上方总有空间，场景已删，翻转由 floating-ui 负责）；拖到边缘自动滚动的路径；Firefox 与 Safari 的剪贴板差异；换文档时注音弹层收起（只有代码，没有单独的 e2e）。
+
+审查：设计审查 17 条（[报告](evidences/design-review.txt)、[处理](evidences/design-review-disposition.txt)），实现审查 13 条（[报告](evidences/impl-review.txt)、[处理](evidences/impl-review-disposition.txt)）。
+
+待开发者追认（都是审查后主会话定的）：
+
+1. 命令、公开键与菜单位置归 `nbook.editor`。要改回：加反向连接与类型互引。
+2. 行首的 `、` 算斜杠（中文输入法下这个键打出的字符）。要改回：删一个正则。
+3. 列表项转换为正文或标题时把列表断开。
+4. 容器块（引用、提示块等）的手柄对着整个容器。
+5. 解开带标题的提示块时，标题留成开头一段。
+6. 多块选区上的块动作只作用于第一块。
 
 ## 下一步
 
-w00029 已完成，开发者 2026-11-05 定现在接。三轮评审都定了（决定 6–14）。实施计划：[plan.md](plan.md)，开发者 2026-11-05 确认了要点与末尾四项（决定 15）。设计审查 17 条（[报告](evidences/design-review.txt)、[处理](evidences/design-review-disposition.txt)）已改进计划，主要变化：命令与位置归 `nbook.editor`、不用 BubbleMenu、块模型写定。
-
-待开发者追认（都是审查后主会话定的）：归属改到 `nbook.editor`（要改回：反向连接加类型互引）；行首的 `、` 算斜杠（要改回：删一个字符配置）；列表项转换为正文或标题时把列表断开；容器块的手柄对着整个容器。草稿 worktree `.worktree/w00025-t08-drafts` 留着，已跟上 master。
+开发者看过实际效果后决定是否批准 Spec 晋升。草稿 worktree `.worktree/w00025-t08-drafts` 不再需要。
