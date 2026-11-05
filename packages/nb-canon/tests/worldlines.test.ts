@@ -15,8 +15,8 @@ import {PANEL, PERSON} from "./fixtures/world";
 /** 回溯时随回溯者保留的字段（输出 7 的缺省）：回溯次数带过去，别的不带。 */
 const ROLLBACK: ComponentDeclaration = {id: "test.rollback", label: "回溯", namespace: "rb", version: 1, fields: [{id: "次数", label: "次数", kind: "number", carry: true}, {id: "别的", label: "别的", kind: "number"}]};
 const CHAPTERS = ["ch1", "ch2", "ch3", "ch4"];
-function options(): WorldOptions {
-    return {order: new ChapterOrder(CHAPTERS), registry: buildRegistry([PANEL, PERSON, ROLLBACK]), reductions: () => undefined, chapterText: () => "", digest: (text) => createHash("sha256").update(text).digest("hex")};
+function options(residentLines?: number): WorldOptions {
+    return {order: new ChapterOrder(CHAPTERS), registry: buildRegistry([PANEL, PERSON, ROLLBACK]), reductions: () => undefined, chapterText: () => "", digest: (text) => createHash("sha256").update(text).digest("hex"), ...(residentLines === undefined ? {} : {residentLines})};
 }
 let sequence = 0;
 const request = (puts: WriteRequest["puts"], baseVersion: number): WriteRequest => ({requestId: `wl-${String(++sequence)}`, by: {kind: "author"}, what: "edit", title: "世界线", baseVersion, puts});
@@ -31,8 +31,8 @@ const written = (id: string, placement: StoryChangeDraft["at"], patches: Patch[]
 const spend = (entry: string, value: number): Patch => ({op: "add", at: {entry, path: "panel.存款"}, value});
 
 /** 主线：星瑕存款两万；第 2 章 c1、c2（同键、写得更晚的 c2b）、c3；第 3 章计划 p1（分叉之前写下）。 */
-function base() {
-    const opened = ok(World.empty(options()).publish(request([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}], 0), "t"));
+function base(residentLines?: number) {
+    const opened = ok(World.empty(options(residentLines)).publish(request([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}], 0), "t"));
     const xia = opened.ids["tmp:xia"]!;
     const story = ok(opened.world.publish(request([
         {ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))},
@@ -520,3 +520,127 @@ describe("canon.worldlines 输出 19、revisions 输出 8：子线上的就地�
     });
 });
 
+describe("canon.worldlines 输出 8、9、验收 4、5：写入以后与从头建一致，常驻与淘汰", () => {
+    /** 一个世界上各条线的读取结果（两种模式、每章开头与末尾、待处理、每条记录套没套上），与从头重放出的世界逐条线比。 */
+    function snapshot(world: World, lines: readonly string[]): string[] {
+        return lines.map((line) => {
+            const view = world.line(line);
+            if (view === undefined) return "absent";
+            const out: unknown[] = [];
+            for (const entry of world.data.entries.keys()) {
+                for (const chapter of CHAPTERS) {
+                    for (const edge of ["start", "end"] as const) {
+                        for (const mode of ["actual", "planned"] as const) out.push(view.engine.entry(entry, {kind: "chapter", chapter, edge, line}, mode));
+                    }
+                }
+            }
+            out.push(view.engine.pending({kind: "chapter", chapter: "ch4", edge: "end", line}));
+            for (const id of [...view.records.changes.keys()].sort()) out.push([id, view.engine.outcome(id)]);
+            return JSON.stringify(out);
+        });
+    }
+    const matchesReplay = (world: World, lines: readonly string[]) => expect(snapshot(world, lines)).toEqual(snapshot(World.replay(world.revisions, world.options), lines));
+    const updated = (world: World) => world.lines.updates.map((update) => `${update.line}:${update.reasons.join("+")}`);
+
+    /** 主线 c1（ch2 键 10）、c2（20）、c3（30）；r1 从 c1 分出，自己 own1（ch3 键 1）；r2 从 r1 在 own1 处分出，自己 own2（ch3 键 20）。读过 r1、r2。 */
+    function tree(residentLines?: number) {
+        const {world, xia, c1, c2, c3} = base(residentLines);
+        const first = ok(world.publish(request([
+            {ref: {kind: "change", id: "tmp:f1"}, after: written("tmp:f1", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "一", parent: "main", cut: c1, type: "branch"}})},
+            {ref: {kind: "change", id: "tmp:own1"}, after: written("tmp:own1", at("ch3", 1, "tmp:r1"), [spend(xia, -1000)])},
+        ], world.version), "t"));
+        const r1 = first.ids["tmp:r1"]!;
+        const second = ok(first.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f2"}, after: written("tmp:f2", at("ch3", 10, r1), [], {nature: "fork", fork: {line: "tmp:r2", name: "二", parent: r1, cut: first.ids["tmp:own1"]!, type: "branch"}})},
+            {ref: {kind: "change", id: "tmp:own2"}, after: written("tmp:own2", at("ch3", 20, "tmp:r2"), [spend(xia, -2000)])},
+        ], first.world.version), "t"));
+        const r2 = second.ids["tmp:r2"]!;
+        for (const line of [r1, r2]) second.world.line(line);
+        return {world: second.world, xia, c1, c2, c3, r1, r2, own1: first.ids["tmp:own1"]!, own2: second.ids["tmp:own2"]!, fork1: first.ids["tmp:f1"]!};
+    }
+    const patch = (world: World, id: string, patches: Patch[]) => ok(world.publish(request([{ref: {kind: "change", id}, after: {...structuredClone(world.data.changes.get(id)!), patches}}], world.version), "t"));
+
+    test("改的记录没落进子线的视图、也没改带过去的值：子线不更新，沿用同一个引擎；只改子线自己的记录：只更新它与看得到它的后代", () => {
+        const {world, xia, c2, r1, r2, own2} = tree();
+        const lines = ["main", r1, r2];
+        // c2 在切口之后，r1、r2 看不到。
+        const main = patch(world, c2, [spend(xia, -4000)]);
+        expect(updated(main.world)).toEqual([]);
+        expect(main.world.line(r1)!.engine).toBe(world.line(r1)!.engine);
+        expect(main.world.line(r2)!.engine).toBe(world.line(r2)!.engine);
+        matchesReplay(main.world, lines);
+        // 只改 r2 上的一条记录。
+        const own = patch(main.world, own2, [spend(xia, -2500)]);
+        expect(updated(own.world)).toEqual([`${r2}:records`]);
+        expect(own.world.line(r1)!.engine).toBe(main.world.line(r1)!.engine);
+        matchesReplay(own.world, lines);
+        // 改到 r1 与 r2 都继承的记录（c1 是 r1 的切口，两条都看得到）：两条都更新。
+        const shared = patch(own.world, world.line(r1)!.records.changes.keys().next().value!, [spend(xia, -100)]);
+        expect(updated(shared.world)).toEqual([`${r1}:records`, `${r2}:records`]);
+        matchesReplay(shared.world, lines);
+    });
+
+    test("条目的初值、分叉改名、挪切口、调章序：各自的原因；改名不重建；定义变了与章序变了的丢掉重建，结果与重放相同", () => {
+        const {world, xia, c1, r1, r2, fork1} = tree();
+        const lines = ["main", r1, r2];
+        const entry = structuredClone(world.data.entries.get(xia)!);
+        entry.init.summary = "改";
+        const edited = ok(world.publish(request([{ref: {kind: "entry", id: xia}, after: entry}], world.version), "t"));
+        expect(updated(edited.world)).toEqual([`${r1}:entries`, `${r2}:entries`]);
+        matchesReplay(edited.world, lines);
+        // 改分叉的名字：线表变、视图不重建。
+        const fork = structuredClone(edited.world.data.changes.get(fork1)!);
+        const renamed = ok(edited.world.publish(request([{ref: {kind: "change", id: fork1}, after: {...fork, fork: {...fork.fork!, name: "新名字"}}}], edited.world.version), "t"));
+        expect(updated(renamed.world)).toEqual([]);
+        expect(renamed.world.line(r1)!.engine).toBe(edited.world.line(r1)!.engine);
+        expect(renamed.world.line(r2)!.engine).toBe(edited.world.line(r2)!.engine);
+        matchesReplay(renamed.world, lines);
+        // 挪切口 c1 到 c2 之后同一章靠后的位置：r1、r2 的定义变了，丢掉；算“让哪些记录套不上”要它们改后的结果，所以当场从头建。
+        const cut = structuredClone(renamed.world.data.changes.get(c1)!);
+        const moved = ok(renamed.world.publish(request([{ref: {kind: "change", id: c1}, after: {...cut, at: at("ch2", 25)}}], renamed.world.version), "t"));
+        expect(updated(moved.world).sort()).toEqual([`${r1}:built`, `${r1}:structural`, `${r2}:built`, `${r2}:structural`]);
+        matchesReplay(moved.world, lines);
+        // 章序调整：全部丢掉。
+        const reordered = moved.world.reorder(new ChapterOrder(["ch1", "ch2", "ch4", "ch3"]), "t", "ro-1");
+        if (reordered === null || !reordered.ok) throw new Error("reorder");
+        matchesReplay(reordered.world, lines);
+    });
+
+    test("带过去的值变了而没有记录进视图：只因 carry 更新", () => {
+        const {world, xia, c1, c3} = base();
+        const used = ok(world.publish(request([{ref: {kind: "change", id: c3}, after: {...structuredClone(world.data.changes.get(c3)!), patches: [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 0}]}}], world.version), "t"));
+        const created = ok(used.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: c1, trigger: c3, type: "rollback", who: xia} as Fork})},
+            {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"))},
+        ], used.world.version), "t"));
+        const line = created.ids["tmp:r1"]!;
+        created.world.line(line);
+        const next = patch(created.world, c3, [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 5}]);
+        // c3 在切口之后、触发处上：不在 r1 的记录里，但它带过去的值变了。
+        expect(updated(next.world)).toEqual([`${line}:carry`]);
+        matchesReplay(next.world, ["main", line]);
+        const read = next.world.line(line)!.engine.entry(xia, {kind: "chapter", chapter: "ch4", edge: "end", line}, "actual");
+        expect(read !== null && read !== "chapter-not-found" && read.namespaces.rb!.fields.次数!.value).toBe(5);
+    });
+
+    test("常驻与淘汰：最近使用最早的先淘汰，再读时与淘汰前逐字相同；当前线与它的祖先线常驻；祖先线随后代一起读到、一起淘汰", () => {
+        const {world, c1} = base(2);
+        // 五条从主线分出的线。
+        const forks = [1, 2, 3, 4, 5].map((n) => ({ref: {kind: "change" as const, id: `tmp:f${String(n)}`}, after: written(`tmp:f${String(n)}`, at("ch2", 40 + n), [], {nature: "fork", fork: {line: `tmp:l${String(n)}`, name: `线${String(n)}`, parent: "main", cut: c1, type: "branch"}})}));
+        const created = ok(world.publish(request(forks, world.version), "t"));
+        const lines = [1, 2, 3, 4, 5].map((n) => created.ids[`tmp:l${String(n)}`]!);
+        const full = created.world;
+        const before = snapshot(full, lines);
+        const built = () => full.lines.builtLines.map((item) => item.line);
+        for (const line of lines.slice(0, 3)) full.line(line);
+        expect(built()).toEqual(lines.slice(1, 3));
+        full.line(lines[3]!);
+        expect(built()).toEqual([lines[2]!, lines[3]!]);
+        // 当前线常驻，不占名额。
+        full.lines.setCurrent(lines[2]!);
+        full.line(lines[4]!);
+        expect(built()).toEqual([lines[2]!, lines[3]!, lines[4]!].sort());
+        expect(full.lines.builtLines.find((item) => item.line === lines[2])).toMatchObject({resident: true});
+        expect(snapshot(full, lines)).toEqual(before);
+    });
+});

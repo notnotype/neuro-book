@@ -83,6 +83,8 @@ export interface WorldOptions {
     readonly digest: (text: string) => string;
     /** 生效的历法与模糊词表（canon.time）；没给时是内置的公历与缺省词表。 */
     readonly time?: TimeSettings;
+    /** 常驻的世界线条数，祖先线不占（canon.worldlines 输出 9）；没给是 3。 */
+    readonly residentLines?: number;
 }
 
 export interface Problem {
@@ -179,7 +181,7 @@ export class World {
         }
         const version = revisions.at(-1)?.version ?? 0;
         const data = freeze(tables, createdAt, version);
-        return new World(data, LineSet.build(engineInputs(data, options)), [...revisions], {requests, touched, brokenBy, allocator, recordedChapters}, options);
+        return new World(data, LineSet.build(engineInputs(data, options), options.residentLines), [...revisions], {requests, touched, brokenBy, allocator, recordedChapters}, options);
     }
 
     /** 一条世界线的线视图（不写是主线）；线不存在或不可建时为 undefined。 */
@@ -1482,7 +1484,7 @@ function computeImpact(before: World, data: WorldData, lines: LineSet, where: Re
     }
     const brokenOn: {line: string; change: string}[] = [];
     for (const id of [...affected].sort(compareIds)) {
-        const [was, now] = [before.line(id), lines.get(id)];
+        const [was, now] = [before.line(id), lines.ensure(id)];
         if (was === undefined || now === undefined) continue;
         for (const change of now.records.changes.keys()) {
             if (was.engine.outcome(change)?.applied === true && now.engine.outcome(change)?.applied === false) brokenOn.push({line: id, change});

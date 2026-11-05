@@ -282,6 +282,8 @@ export class WorldService {
             /** 当前打开的视图数（project.md 输出 26）：看令牌有没有随调用方收口。 */
             openViews: this.#views.size,
             recomputed: this.#world.line().engine.recomputed,
+            /** 各条世界线：已建的与是否常驻、最近一次发布更新了哪些线与原因（project.md 输出 26）。 */
+            lines: {built: this.#world.lines.builtLines, updated: this.#world.lines.updates},
         };
     }
 

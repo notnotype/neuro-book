@@ -249,6 +249,11 @@ export interface CanonStatus {
     readonly diagnosticTimings: readonly {readonly diagnostic: string; readonly ms: number; readonly slow?: true}[];
     /** 当前打开的视图数。 */
     readonly openViews: number;
+    /** 世界线的诊断（project.md 输出 26）：已建的线与是否常驻、最近一次发布更新了哪些线与原因。 */
+    readonly lines: {
+        readonly built: readonly {readonly line: string; readonly resident: boolean}[];
+        readonly updated: readonly {readonly line: string; readonly reasons: readonly ("records" | "carry" | "entries" | "structural" | "built")[]}[];
+    };
 }
 
 export interface Page<T> {

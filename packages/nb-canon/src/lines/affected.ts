@@ -70,12 +70,17 @@ function reach(table: LineTable, line: string): Map<string, OrderPoint> | null {
     }
 }
 
-/** 定义里影响结果的部分：哪条分叉、父线、切口、触发处、带过去的地址。 */
-function definitionOf(side: Side, line: string): unknown {
-    const entry = side.table.lines.get(line);
+/** 定义里影响结果的部分：哪条分叉、父线、切口、触发处、带过去的地址、能不能建。线不存在时为 null。 */
+export function definitionKey(table: LineTable, line: string): unknown {
+    const entry = table.lines.get(line);
     if (entry === undefined) return null;
     const {fork} = entry.fork;
-    return {id: entry.fork.id, parent: fork.parent, cut: fork.cut, trigger: fork.trigger ?? null, carry: fork.carry ?? null, unbuildable: entry.unbuildable};
+    // 切口与触发处的位置也算：它们被挪动，线的视图里谁在谁不在就跟着变，不只是被改到的那条记录。
+    const place = (id: string | undefined) => {
+        const point = id === undefined ? null : table.point(id);
+        return point === null ? null : `${point.rank.join(",")}:${String(point.version)}:${point.id}`;
+    };
+    return {id: entry.fork.id, parent: fork.parent, cut: fork.cut, cutAt: place(fork.cut), trigger: fork.trigger ?? null, triggerAt: place(fork.trigger), carry: fork.carry ?? null, unbuildable: entry.unbuildable};
 }
 
 /**
@@ -99,7 +104,7 @@ export function affectedLines(before: {readonly data: WorldData; readonly order:
         // 定义变了（含一边不存在、一边存在）：L 或祖先任何一环不同。
         const chain = new Set([line]);
         for (const side of [old, now]) for (const ancestor of side.table.ancestors(line)) if (ancestor !== MAIN_LINE) chain.add(ancestor);
-        if ([...chain].some((member) => !sameJson(definitionOf(old, member), definitionOf(now, member)))) {
+        if ([...chain].some((member) => !sameJson(definitionKey(old.table, member), definitionKey(now.table, member)))) {
             affected.add(line);
             continue;
         }
