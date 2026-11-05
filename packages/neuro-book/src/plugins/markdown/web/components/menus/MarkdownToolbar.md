@@ -5,7 +5,7 @@
 
 # MarkdownToolbar
 
-Markdown 编辑器的固定工具栏（[`workbench/markdown-editing.md`](../../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 1–5）。位置按设置：缺省通栏，在滚动容器之上、面包屑之下，下面一条分隔线；也可以并入面包屑那一行（`MarkdownControl` 传送到编辑组留的位置），或做成编辑区底部的浮条。
+Markdown 编辑器的固定工具栏（[`workbench/markdown-editing.md`](../../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 1–5）。位置按设置：缺省通栏，在滚动容器之上、面包屑之下，按钮居中，下面一条贯通的分隔线；也可以并入面包屑那一行（`MarkdownControl` 传送到编辑组留的位置），或做成编辑区底部的浮条。
 
 ## 数据
 

@@ -146,7 +146,7 @@ test.describe("工具栏的位置", () => {
         await rm(settings(), {force: true});
     });
 
-    test("缺省通栏：和面包屑左对齐，占满这一列，在面包屑下面", async ({page}) => {
+    test("缺省通栏：占满这一列，在面包屑下面，按钮居中、和版心同一条中轴", async ({page}) => {
         await openFile(page, "notes/place-full.md", "字\n");
         const toolbar = await activeGroup(page).locator(".markdown-toolbar").boundingBox();
         const crumbs = await activeGroup(page).locator("[data-editor-breadcrumbs]").boundingBox();
@@ -154,6 +154,10 @@ test.describe("工具栏的位置", () => {
         expect(toolbar?.x).toBe(crumbs?.x);
         expect(toolbar?.width).toBe(group?.width);
         expect((toolbar?.y ?? 0)).toBeGreaterThanOrEqual((crumbs?.y ?? 0) + (crumbs?.height ?? 0));
+        const buttons = await activeGroup(page).locator(".markdown-toolbar").getByRole("button").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()).map(({left, right}) => ({left, right})));
+        const middle = ((buttons[0]?.left ?? 0) + (buttons.at(-1)?.right ?? 0)) / 2;
+        const text = await prose(page).boundingBox();
+        expect(Math.abs(middle - ((text?.x ?? 0) + (text?.width ?? 0) / 2))).toBeLessThan(8);
     });
 
     test("并入面包屑：同一行，切到源码编辑器时不留着", async ({page}) => {
