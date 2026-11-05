@@ -730,10 +730,13 @@ async function closeNow(state: Internals, options: {readonly reason?: "interrupt
         await state.mounts.unmountAll();
         await state.box.dispose();
     } finally {
-        // 前面哪一步抛错，日志与锁都要放掉：否则这个会话在进程结束前都打不开（session-busy）。
-        state.core.close();
-        await state.core.store.close(state.core.handle);
-        releaseSettledWaiters(state);
+        // 前面哪一步抛错，日志与锁都要放掉：否则这个会话在进程结束前都打不开（session-busy）。等待者也要放行，撤回扩展在等它们。
+        try {
+            state.core.close();
+            await state.core.store.close(state.core.handle);
+        } finally {
+            releaseSettledWaiters(state);
+        }
     }
 }
 

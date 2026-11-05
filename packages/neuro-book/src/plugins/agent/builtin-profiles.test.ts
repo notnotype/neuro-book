@@ -460,6 +460,11 @@ describe("标题和说明", () => {
 很长很长，${"字".repeat(40)}`);
         await waitUntil("兜底标题", async () => (await metaOf(session))[0] !== null);
         expect(await metaOf(session)).toEqual([`第一句话 很长很长，${"字".repeat(20)}`, null]);
+        // 空白先折叠再截：跨过给模型的 2000 个字符也不丢。
+        const spaced = await createMain(w);
+        await turn(spaced, `甲${" ".repeat(2000)}乙`);
+        await waitUntil("空白很长的兜底标题", async () => (await metaOf(spaced))[0] !== null);
+        expect((await metaOf(spaced))[0]).toBe("甲 乙");
         expect(tiny.requests).toHaveLength(0);
 
         const settings = JSON.parse(await readFile(w.settings.userFile, "utf8")) as Record<string, unknown>;
@@ -593,5 +598,22 @@ describe("标题和说明", () => {
         expect(tiny.requests.length).toBe(before);
         expect((await squatter.value.snapshot()).head).toBe(untouched);
         expect(await metaOf(victim.value)).toEqual([null, null]);
+    });
+
+    test("失败码：标题会话被换成别的 Profile 也算冲突，对话内容不发给它和它的工具", async () => {
+        const w = await world({settings: withTiny()});
+        const session = await createMain(w);
+        const failures = () => diagnosticEvents(w).filter((event) => event === "agent.session-meta-failed").length;
+        tiny.script({status: 400});
+        await turn(session, "第一轮的独有内容");
+        await waitUntil("标题会话建好、生成失败", () => failures() === 1);
+        const changed = await w.service.session(titleSessionId(session.id)).changeProfile({commandId: cid(), profile: MAIN_PROFILE});
+        expect(changed).toMatchObject({ok: true, value: {changed: true}});
+
+        const sent = endpoint.requests.length;
+        await turn(session, "第二轮");
+        await waitUntil("冲突的诊断", () => diagnosticEvents(w).includes("agent.session-meta-conflict"));
+        expect(endpoint.requests.slice(sent).filter((request) => messagesText(request).includes("第一轮的独有内容"))).toHaveLength(1);
+        expect(endpoint.requests.slice(sent).filter((request) => messagesText(request).includes("<conversation>"))).toHaveLength(0);
     });
 });

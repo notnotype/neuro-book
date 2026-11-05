@@ -110,26 +110,26 @@ export class SessionMeta {
         const resolved = this.options.models.resolve({settings: TITLE_SESSION_SETTINGS, purpose: "background", profile: SESSION_TITLE_PROFILE});
         if (!resolved.ok) {
             if (trigger.kind !== "turn" || snapshot.title !== null) return;
-            const title = firstChars(firstInput!.input.replace(/\s+/gu, " ").trim(), FALLBACK_TITLE_CHARS);
+            const title = firstChars(firstInput!.input.replace(/\s+/gu, " "), FALLBACK_TITLE_CHARS);
             await this.#write(view, session, {title});
             return;
         }
 
         const text = trigger.kind === "turn"
-            ? `<conversation>\n用户：${firstInput!.input}\n\n助手：${firstInput!.reply}\n</conversation>`
+            ? `<conversation>\n用户：${firstChars(firstInput!.input, FIRST_TURN_CHARS)}\n\n助手：${firstChars(firstInput!.reply, FIRST_TURN_CHARS)}\n</conversation>`
             : `这段对话已经写过摘要，请按摘要写说明（标题照旧也要交）。当前标题：${snapshot.title ?? "（没有）"}\n\n<conversation>\n${firstChars(trigger.summary, SUMMARY_CHARS)}\n</conversation>`;
         const generated = await this.#ask(session, text);
         if (generated === null) return;
         await this.#write(view, session, trigger.kind === "turn" ? generated : {description: generated.description});
     }
 
-    /** 当前路径上第一条用户的话与第一条有文字的回复；用户的话没有文字时为 null。 */
+    /** 当前路径上第一条用户的话与第一条有文字的回复（都是全文，给模型时才截，兜底标题要先折叠空白）；用户的话没有文字时为 null。 */
     async #material(view: SessionApi): Promise<{readonly input: string; readonly reply: string} | null> {
         const events = await this.#step(() => view.path());
         const input = (events.find((event) => event.type === "input")?.data as {text: string} | undefined)?.text.trim() ?? "";
         if (input === "") return null;
         const reply = events.filter((event) => event.type === "assistant").map(textOf).find((text) => text.trim() !== "") ?? "";
-        return {input: firstChars(input, FIRST_TURN_CHARS), reply: firstChars(reply, FIRST_TURN_CHARS)};
+        return {input, reply};
     }
 
     /** 在标题会话里跑一次；失败写诊断，交回 null。 */
@@ -142,8 +142,9 @@ export class SessionMeta {
                 this.#failed(session, `could not create the title session: ${created.code}`);
                 return null;
             }
-            const {header} = await this.#step(() => titleSession.snapshot());
-            if (header.profile !== SESSION_TITLE_PROFILE || header.background !== true) {
+            // 看当前的 Profile，不看会话头：会话头只记建会话时的，`changeProfile` 之后这里交给的就是别的 Profile 与它的工具。
+            const {header, profile} = await this.#step(() => titleSession.snapshot());
+            if (profile.id !== SESSION_TITLE_PROFILE || header.background !== true) {
                 this.options.report("session-meta-conflict", `session ${id} is not the title session of ${session}; nothing was sent to it`, {session, titleSession: id});
                 return null;
             }
