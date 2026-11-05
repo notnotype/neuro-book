@@ -1,0 +1,827 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t17-conversation-ui",
+    "artifactId": "review",
+    "version": 8,
+    "supersedes": 7,
+    "action": "publish",
+    "kind": "design",
+    "title": "t17 对话界面第一版：静态稿",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "03f15cba0b4a6c70a6aff1e11d69822a476e9c41493855eb575da97596cbb900",
+    "files": [
+        "index.html",
+        "r1/approval-edit.webp",
+        "r1/approval-long.webp",
+        "r1/approval-shell.webp",
+        "r1/ask-choice.webp",
+        "r1/ask-form.webp",
+        "r1/ask-multi.webp",
+        "r1/context-high.webp",
+        "r1/cost-warned.webp",
+        "r1/dark-approval.webp",
+        "r1/idle.webp",
+        "r1/interrupted.webp",
+        "r1/mode-menu.webp",
+        "r1/retry.webp",
+        "r1/running.webp",
+        "r1/session-list.webp",
+        "r1/wide-approval-edit.webp",
+        "r1/wide-ask-choice.webp",
+        "r1/wide-ask-form.webp",
+        "r1/wide-idle.webp",
+        "r1/yolo.webp",
+        "r2/approval-edit.webp",
+        "r2/approval-float.webp",
+        "r2/approval-long.webp",
+        "r2/approval-shell.webp",
+        "r2/approval-split.webp",
+        "r2/banner-attached.webp",
+        "r2/banner-line.webp",
+        "r2/context-high.webp",
+        "r2/mode-menu-a.webp",
+        "r2/radius-a.webp",
+        "r2/radius-b.webp",
+        "r2/session-list-a.webp",
+        "r2/status-a-idle.webp",
+        "r2/status-a.webp",
+        "r2/status-b-idle.webp",
+        "r2/status-b.webp",
+        "r2/status-c-idle.webp",
+        "r2/status-c.webp",
+        "r2/status-d-idle.webp",
+        "r2/status-d.webp",
+        "r3/aligned.webp",
+        "r3/ask-frost.webp",
+        "r3/mode-menu-a.webp",
+        "r3/notice-a.webp",
+        "r3/notice-b.webp",
+        "r3/notice-c.webp",
+        "r3/notice-cost-c.webp",
+        "r3/notice-d.webp",
+        "r3/radius-lab.webp",
+        "r3/session-list-a.webp",
+        "r3/wizard-collapsed.webp",
+        "r3/wizard-frost-dark.webp",
+        "r3/wizard-frost.webp",
+        "r3/wizard-glass.webp",
+        "r3/wizard-solid.webp",
+        "r4/interrupted-composer.webp",
+        "r4/sessions-a.webp",
+        "r4/sessions-b.webp",
+        "r4/sessions-c.webp",
+        "r4/wizard-collapsed.webp",
+        "r5/interrupted-composer.webp",
+        "r5/sessions-a.webp",
+        "r5/sessions-filter.webp",
+        "r6/interrupted-composer.webp",
+        "r7/answer.webp",
+        "r7/conversation.webp",
+        "r7/dialog.webp",
+        "r7/menu4x.webp",
+        "r7/panel.webp",
+        "r7/settings.webp",
+        "r7/shelf.webp",
+        "r7/shell.webp",
+        "r7/story-qa.webp",
+        "r8/approval-batch.webp",
+        "r8/approval-collapsed.webp",
+        "r8/approval-edit.webp",
+        "r8/approval-long.webp",
+        "r8/approval-multi-file.webp",
+        "r8/approval-shell.webp",
+        "r8/ask-choice.webp",
+        "r8/ask-form.webp",
+        "r8/ask-multi.webp",
+        "r8/dark.webp",
+        "r8/host-cost.webp",
+        "r8/host-resume.webp",
+        "r8/host-retry.webp",
+        "r8/host-running.webp",
+        "r8/idle-host.webp",
+        "r8/panel-filtered.webp",
+        "r8/panel.webp"
+    ],
+    "questions": [
+        {
+            "id": "header-sessions",
+            "type": "single",
+            "label": "1. 顶栏与会话切换",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "status-bar",
+            "type": "single",
+            "label": "2. 状态栏",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "mode-menu",
+            "type": "single",
+            "label": "3. 模式菜单",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "approval",
+            "type": "single",
+            "label": "4. 审批向导",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "ask",
+            "type": "single",
+            "label": "5. 提问向导",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "banners",
+            "type": "single",
+            "label": "6. 横幅与工作台状态栏条目",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-radius",
+            "type": "single",
+            "label": "1. 圆角改多小",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 控件 6，面板 8"
+                },
+                {
+                    "value": "b",
+                    "label": "B 控件 4，面板 6"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "a"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-align",
+            "type": "single",
+            "label": "2. 对齐",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "对齐了"
+                },
+                {
+                    "value": "change",
+                    "label": "不是这个意思（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-status",
+            "type": "single",
+            "label": "3. 状态栏",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 文字加分隔"
+                },
+                {
+                    "value": "b",
+                    "label": "B 图标，和轮末用量同一套"
+                },
+                {
+                    "value": "c",
+                    "label": "C 上下文进度条"
+                },
+                {
+                    "value": "d",
+                    "label": "D 可点的小块"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "b"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-diff",
+            "type": "single",
+            "label": "4. diff 组件",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-command",
+            "type": "single",
+            "label": "5. 命令审批",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-layer",
+            "type": "single",
+            "label": "6. 审批和提问：同一层还是浮动",
+            "options": [
+                {
+                    "value": "same",
+                    "label": "A 同一层，和消息流分高度"
+                },
+                {
+                    "value": "float",
+                    "label": "B 浮在消息流上面"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "same"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-banner",
+            "type": "single",
+            "label": "7. 横幅",
+            "options": [
+                {
+                    "value": "attached",
+                    "label": "A 贴着输入框，共用边框"
+                },
+                {
+                    "value": "line",
+                    "label": "B 一行文字，没有底"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "attached"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r3-radius",
+            "type": "text",
+            "label": "1. 圆角：你自己调",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-align",
+            "type": "single",
+            "label": "2. 左右宽度对齐",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "对齐了"
+                },
+                {
+                    "value": "change",
+                    "label": "还不对（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-surface",
+            "type": "single",
+            "label": "3. 浮动向导的表面",
+            "options": [
+                {
+                    "value": "frost",
+                    "label": "A 磨砂"
+                },
+                {
+                    "value": "glass",
+                    "label": "B 半透明，不模糊"
+                },
+                {
+                    "value": "solid",
+                    "label": "C 不透明"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "frost"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-collapsed",
+            "type": "single",
+            "label": "4. 收起之后",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-notice",
+            "type": "single",
+            "label": "5. 提示（原来的横幅）",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 消息流里的分隔线"
+                },
+                {
+                    "value": "b",
+                    "label": "B 输入框里的第一行"
+                },
+                {
+                    "value": "c",
+                    "label": "C 状态栏左边"
+                },
+                {
+                    "value": "d",
+                    "label": "D 磨砂小条"
+                },
+                {
+                    "value": "mix",
+                    "label": "混用：中断用 A，费用告警用 C"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "mix"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r4-sessions",
+            "type": "single",
+            "label": "1. 会话列表",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 大下拉"
+                },
+                {
+                    "value": "b",
+                    "label": "B 命令面板"
+                },
+                {
+                    "value": "c",
+                    "label": "C 只有侧栏视图"
+                },
+                {
+                    "value": "ac",
+                    "label": "A 和 C 都要，同一个组件"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ac"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "r4-resume",
+            "type": "single",
+            "label": "2. 中断之后的输入框",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "r4-collapsed",
+            "type": "single",
+            "label": "3. 收起的小条",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "r5-sessions",
+            "type": "single",
+            "label": "1. 会话面板",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "r5-resume",
+            "type": "single",
+            "label": "2. 继续按钮",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "r6-resume",
+            "type": "single",
+            "label": "继续按钮",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "s1-radius",
+            "type": "single",
+            "label": "全局圆角落到真实界面",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "s6-wizard",
+            "type": "single",
+            "label": "审批向导",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "s6-ask",
+            "type": "single",
+            "label": "提问向导",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "s6-status",
+            "type": "single",
+            "label": "状态栏与继续按钮",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "s6-panel",
+            "type": "single",
+            "label": "会话面板",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 8,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-05T10:36:31.914Z"
+}

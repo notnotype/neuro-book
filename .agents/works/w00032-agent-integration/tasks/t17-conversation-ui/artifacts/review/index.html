@@ -31,23 +31,47 @@ table { border-collapse:collapse; width:100%; font-size:14px; background:var(--p
 </head>
 <body>
 <main>
-<h1>t17 对话界面第一版：第 1 片，圆角与对齐（第 7 轮）</h1>
-<section data-nbdev-question="s1-radius" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
-<h2><span class="badge" data-nbdev-skip>待定</span>全局圆角落到真实界面</h2>
-<p>这是 nbook 主题的实际代码，不是草稿：控件与按钮 6，气泡、输入框、面板 10，菜单 8，对话框 12。nb-story 和 nbdev 面板用同一个主题，一起变了。对话里的左右边距都是 12，滚动条改成浮在内容上，不再占宽度，所以右边和左边对齐了。</p>
-<p>别的主题（aurora、editorial、macos）只有气泡跟着各自的面板圆角走，按钮和菜单不变，这几张没放进来。推荐：可以。</p>
+<h1>t17 对话界面第一版：第 6 片，视图零件（第 8 轮）</h1>
+<p>这些是真实组件在 Lab 里的样子，数据是样本，宿主还没接（第 7 片）。对照前几轮的静态稿看。有几处和静态稿不一样或静态稿没有的，下面写明。</p>
+<section data-nbdev-question="s6-wizard" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>审批向导</h2>
+<p>一条回复一批，一步一个，全部选完才能提交。选了之后走到下一个没选的，选中的按钮是蓝的，能回去改。静态稿只画了单个的，一批的底部按钮是新的：上一个、下一个、全部拒绝、提交。别的工具（静态稿没画）列参数，没有用 nb-form 的展示态，因为这里只有参数，没有 schema，画出来也都是 JSON 框。推荐：可以。</p>
 <div class="grid">
-<figure><a href="r7/conversation.webp"><img src="r7/conversation.webp" alt="对话（运行中）" loading="lazy"></a><figcaption>对话（运行中）</figcaption></figure>
-<figure><a href="r7/answer.webp"><img src="r7/answer.webp" alt="对话（结构化答案）" loading="lazy"></a><figcaption>对话（等回答）</figcaption></figure>
-<figure><a href="r7/menu4x.webp"><img src="r7/menu4x.webp" alt="菜单放大 4 倍：外圈 8，内圈 3" loading="lazy"></a><figcaption>菜单放大 4 倍：外圈 8，内圈 3</figcaption></figure>
+<figure><a href="r8/approval-edit.webp"><img src="r8/approval-edit.webp" alt="改一个文件" loading="lazy"></a><figcaption>改一个文件</figcaption></figure>
+<figure><a href="r8/approval-batch.webp"><img src="r8/approval-batch.webp" alt="一批三个（第 1 个）" loading="lazy"></a><figcaption>一批三个（第 1 个）</figcaption></figure>
+<figure><a href="r8/approval-long.webp"><img src="r8/approval-long.webp" alt="长 diff，内部滚动" loading="lazy"></a><figcaption>长 diff，内部滚动</figcaption></figure>
+<figure><a href="r8/approval-shell.webp"><img src="r8/approval-shell.webp" alt="命令" loading="lazy"></a><figcaption>命令</figcaption></figure>
+<figure><a href="r8/approval-multi-file.webp"><img src="r8/approval-multi-file.webp" alt="一次改多个文件：有的太大、有的算不出来" loading="lazy"></a><figcaption>一次改多个文件：有的太大、有的算不出来</figcaption></figure>
+<figure><a href="r8/approval-collapsed.webp"><img src="r8/approval-collapsed.webp" alt="收起的小条" loading="lazy"></a><figcaption>收起的小条</figcaption></figure>
+<figure><a href="r8/dark.webp"><img src="r8/dark.webp" alt="深色" loading="lazy"></a><figcaption>深色</figcaption></figure>
 </div>
-<div class="grid wide">
-<figure><a href="r7/shelf.webp"><img src="r7/shelf.webp" alt="书架" loading="lazy"></a><figcaption>书架</figcaption></figure>
-<figure><a href="r7/settings.webp"><img src="r7/settings.webp" alt="设置" loading="lazy"></a><figcaption>设置</figcaption></figure>
-<figure><a href="r7/dialog.webp"><img src="r7/dialog.webp" alt="对话框" loading="lazy"></a><figcaption>对话框</figcaption></figure>
-<figure><a href="r7/shell.webp"><img src="r7/shell.webp" alt="工作台外壳（Lab 场景，没开真实编辑器）" loading="lazy"></a><figcaption>工作台外壳（Lab 场景，没开真实编辑器）</figcaption></figure>
-<figure><a href="r7/story-qa.webp"><img src="r7/story-qa.webp" alt="nb-story 问答" loading="lazy"></a><figcaption>nb-story 问答</figcaption></figure>
-<figure><a href="r7/panel.webp"><img src="r7/panel.webp" alt="nbdev 面板（临时仓库的数据）" loading="lazy"></a><figcaption>nbdev 面板（临时仓库的数据）</figcaption></figure>
+</section>
+<section data-nbdev-question="s6-ask" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>提问向导</h2>
+<p>和审批同一个位置、同一种外框。表单没填对时提交是灰的。推荐：可以。</p>
+<div class="grid">
+<figure><a href="r8/ask-choice.webp"><img src="r8/ask-choice.webp" alt="单选加其它" loading="lazy"></a><figcaption>单选加其它</figcaption></figure>
+<figure><a href="r8/ask-multi.webp"><img src="r8/ask-multi.webp" alt="多选（第 2 题）" loading="lazy"></a><figcaption>多选（第 2 题）</figcaption></figure>
+<figure><a href="r8/ask-form.webp"><img src="r8/ask-form.webp" alt="表单" loading="lazy"></a><figcaption>表单</figcaption></figure>
+</div>
+</section>
+<section data-nbdev-question="s6-status" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>状态栏与继续按钮</h2>
+<p>状态栏是定稿的样子。继续按钮现在是发送按钮里真的图标，量过和按钮中心偏差不到半个像素。审批模式的菜单每项两行。另外把轮上的“等待回答”改成了“等你处理”：现在审批也停在这里，写“回答”不对。推荐：可以。</p>
+<div class="grid">
+<figure><a href="r8/idle-host.webp"><img src="r8/idle-host.webp" alt="空闲" loading="lazy"></a><figcaption>空闲</figcaption></figure>
+<figure><a href="r8/host-running.webp"><img src="r8/host-running.webp" alt="运行中" loading="lazy"></a><figcaption>运行中</figcaption></figure>
+<figure><a href="r8/host-retry.webp"><img src="r8/host-retry.webp" alt="等重发" loading="lazy"></a><figcaption>等重发</figcaption></figure>
+<figure><a href="r8/host-cost.webp"><img src="r8/host-cost.webp" alt="超过告警线、全部放行" loading="lazy"></a><figcaption>超过告警线、全部放行</figcaption></figure>
+<figure><a href="r8/host-resume.webp"><img src="r8/host-resume.webp" alt="中断之后：继续按钮" loading="lazy"></a><figcaption>中断之后：继续按钮</figcaption></figure>
+</div>
+</section>
+<section data-nbdev-question="s6-panel" data-nbdev-type="single" data-nbdev-recommend="ok" data-nbdev-options="ok:可以|change:要改（写在备注里）">
+<h2><span class="badge" data-nbdev-skip>待定</span>会话面板</h2>
+<p>和第 5 轮定的一样。子代理的入口随多 Agent 再做，这里没有。推荐：可以。</p>
+<div class="grid">
+<figure><a href="r8/panel.webp"><img src="r8/panel.webp" alt="列表" loading="lazy"></a><figcaption>列表</figcaption></figure>
+<figure><a href="r8/panel-filtered.webp"><img src="r8/panel-filtered.webp" alt="选了过滤条件" loading="lazy"></a><figcaption>选了过滤条件</figcaption></figure>
 </div>
 </section>
 </main>
