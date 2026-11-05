@@ -1,8 +1,9 @@
 import {describe, expect, test} from "bun:test";
 
 import {DECISION_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
-import {chapter, drafts, end, PlotWorld} from "../testing/world";
+import {chapter, drafts, end, PlotWorld, present} from "../testing/world";
 import {readerTellings} from "./knowledge";
+import {beforeWriting} from "./before-writing";
 import {guardDiagnostics} from "./guards";
 
 const CHAPTERS = Array.from({length: 24}, (_, index) => `ch${String(index + 1)}`);
@@ -104,5 +105,28 @@ describe("plot.decisions 输出 3、验收 2：读者守卫", () => {
         w2.change(chapter("ch12"), {told: [{source: "chapter", chapter: "ch12", quote: "原来管家就是凶手", marks: [{kind: MARK_IDS.reveal, version: 1, point: p2, mode: "explicit"}]}]});
         w2.decision("12 章之前", {about: [], conclusion: "x", marks: [{kind: MARK_IDS.guardReader, version: 1, point: p2, atMost: "unaware", until: "ch12"}]});
         expect(guardDiagnostics(digest)[DECISION_DIAGNOSTIC_IDS.readerGuardViolated]!(w2.view(), end("ch22"), "actual")).toEqual([]);
+    });
+});
+
+describe("plot.decisions 输出 6：开写前的视图", () => {
+    test("到期的待定决策、涉及本章的前提变了、本章计划触发的地址守卫违反；别的章的计划不算", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        const thing = w.thing("身份");
+        w.decision("哥哥的秘密在哪一章揭开", {due: "ch15"});
+        w.decision("不暴露", {about: [], conclusion: "x", marks: [address(thing, {to: "ch20"})]});
+        const plan18 = w.change(chapter("ch18"), {kind: "plan", patches: [setState(thing, "暴露")], cast: [present(jin)]});
+        w.change(chapter("ch22"), {kind: "plan", patches: [setState(thing, "暴露")]});
+        void brother;
+        const result = beforeWriting(w.view(), "ch18", digest);
+        if (typeof result === "string") throw new Error(result);
+        expect(result.lines).toHaveLength(1);
+        expect(result.lines[0]!.overdue).toHaveLength(1);
+        expect(result.lines[0]!.guards.map((finding) => (finding.key.objects as Array<{id: string}>).at(-1)!.id)).toEqual([plan18]);
+        expect(beforeWriting(w.view(), "ch99", digest)).toBe("chapter-not-found");
+        // 第 14 章：决策还没到期；本章没有计划，也没有违反。
+        const early = beforeWriting(w.view(), "ch14", digest);
+        if (typeof early === "string") throw new Error(early);
+        expect(early.lines[0]).toMatchObject({overdue: [], guards: []});
     });
 });
