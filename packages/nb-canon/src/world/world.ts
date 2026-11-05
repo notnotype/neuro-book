@@ -40,6 +40,7 @@ import type {EngineInputs, PendingItem, ReductionLookup, WorldData} from "../eng
 import {readEntryAddress} from "../engine/views";
 import {blockProblem} from "../render/syntax";
 import {newReferences, referenceProblem, referencesOf, replaceTempIds, type ReferenceContext} from "./references";
+import {countOccurrences} from "./tellings";
 
 /** 宿主提供的、计算要用的东西（project.md 输入与前置条件）。 */
 export interface WorldOptions {
@@ -699,16 +700,10 @@ function tellingProblem(telling: Telling, chapterText: (chapter: string) => stri
     if (telling.source !== "chapter") return null;
     if (telling.chapter === undefined) return invalid("a chapter telling needs a chapter");
     if (telling.quote === undefined || telling.quote === "" || /[\r\n]/u.test(telling.quote)) return invalid("a chapter telling needs a non-empty, single-line quote");
-    const count = occurrences(chapterText(telling.chapter) ?? "", telling.quote);
+    const count = countOccurrences(chapterText(telling.chapter) ?? "", telling.quote);
     if (count === 0) return {code: "quote-not-found", message: "quote is not in the chapter text"};
     if (telling.nth !== undefined && telling.nth > count) return invalid(`nth ${String(telling.nth)} exceeds the ${String(count)} occurrence(s) of the quote`);
     return null;
-}
-
-function occurrences(text: string, quote: string): number {
-    let count = 0;
-    for (let at = text.indexOf(quote); at >= 0; at = text.indexOf(quote, at + quote.length)) count += 1;
-    return count;
 }
 
 /** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16）。 */

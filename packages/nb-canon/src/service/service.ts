@@ -13,7 +13,7 @@
 import type {ComponentRegistry} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
-import type {Decision, ObjectRef, ReadPosition, Revision, WriteRequest} from "../core/schema";
+import type {Decision, ObjectRef, ReadPosition, Revision, Telling, WriteRequest} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {Mode, PendingItem, ReductionInput} from "../engine/types";
 import type {LogFiles} from "../node/files";
@@ -22,6 +22,7 @@ import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
+import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import {World, type WriteResult} from "../world/world";
 
 export interface ServicePorts {
@@ -92,6 +93,13 @@ export type ServiceDiagnostic =
 
 export const LEASE_MS = 60_000;
 
+/** 讲述的提示（model.md 输出 24、26、34）：失联的、原句出现几次而没给 `nth` 的。 */
+function tellingHint(telling: Telling, located: Located): {readonly hint?: {readonly code: "telling-lost" | "duplicate-quote"; readonly detail: string}} {
+    if (located.kind === "lost") return {hint: {code: "telling-lost", detail: located.reason}};
+    if (located.kind === "found" && located.count > 1 && telling.nth === undefined) return {hint: {code: "duplicate-quote", detail: `${String(located.count)} occurrences`}};
+    return {};
+}
+
 /** 世界服务交出的世界：读的部分。写入的方法（publish、revert、reorder 等）不在其中。 */
 export type WorldSnapshot = Pick<World, "version" | "data" | "options" | "engine" | "revisions" | "recordedChapters" | "object" | "pending" | "dependents" | "requested">;
 
@@ -122,6 +130,8 @@ export class WorldService {
     readonly #texts = new Map<string, {readonly text: string | undefined; readonly digest: string | null}>();
     #textGeneration = 0;
     #stampCache: {readonly world: World; readonly generation: number; readonly stamp: ReadStamp} | null = null;
+    /** 讲述按正文快照与当前章序定位（model.md 输出 24、26）；结果按章与那一章的正文缓存。 */
+    readonly #locator = new TellingLocator((chapter) => this.#texts.get(chapter)?.text, () => this.#world.options.order);
     readonly diagnostics: ServiceDiagnostic[];
     readonly #ports: ServicePorts;
 
@@ -270,6 +280,51 @@ export class WorldService {
         const page = this.#page(stamp, matching, cursor, limit);
         if (page === "cursor-stale") return page;
         return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+    }
+
+    /**
+     * 讲述（project.md 方法表的 `tellings`，model.md 输出 24 到 27）：每条带所在的对象、发生点或失联的原因。生效的按读的
+     * 先后排（章序、段、段内偏移、讲述 id），其余排在后面（按对象、讲述 id）。`until` 只留在这个讲述位置读过的；
+     * `effective` 筛生效与否；`entry` 筛这个条目自己的、涉及它的剧情变更的、核对它的。
+     */
+    tellings(filter: {readonly from?: string; readonly to?: string; readonly entry?: string; readonly effective?: boolean; readonly until?: TellingPosition} = {}, cursor?: string, limit = 50) {
+        const world = this.#world;
+        const order = world.options.order;
+        const inRange = (chapter: string | undefined) => {
+            if (filter.from === undefined && filter.to === undefined) return true;
+            const index = chapter === undefined ? undefined : order.index(chapter);
+            if (index === undefined) return false;
+            return (filter.from === undefined || index >= (order.index(filter.from) ?? Infinity)) && (filter.to === undefined || index <= (order.index(filter.to) ?? -Infinity));
+        };
+        const items: {telling: Telling; owner: ObjectRef; path: string; located: Located}[] = [];
+        const collect = (owner: ObjectRef, path: string, tellings: readonly Telling[], concerns: boolean) => {
+            if (filter.entry !== undefined && !concerns) return;
+            for (const telling of tellings) {
+                if (!inRange(telling.chapter)) continue;
+                const located = this.#locator.locate(telling);
+                const effective = located.kind === "found";
+                if (filter.effective !== undefined && filter.effective !== effective) continue;
+                if (filter.until !== undefined && (located.kind !== "found" || !readBy(order, located.occurrence, filter.until))) continue;
+                items.push({telling, owner, path, located});
+            }
+        };
+        for (const change of world.data.changes.values()) collect({kind: "change", id: change.id}, "told", change.told, filter.entry === undefined || change.involves.includes(filter.entry) || change.patches.some((patch) => patch.at.entry === filter.entry));
+        for (const check of world.data.checks.values()) collect({kind: "check", id: check.id}, "told", [check.told], filter.entry === undefined || check.at.entry === filter.entry);
+        for (const entry of world.data.entries.values()) for (const [address, tellings] of Object.entries(entry.retold ?? {})) collect({kind: "entry", id: entry.id}, `retold[${JSON.stringify(address)}]`, tellings, filter.entry === undefined || entry.id === filter.entry);
+        items.sort((a, b) => {
+            if (a.located.kind === "found" && b.located.kind === "found") return compareOccurrences(order, a.located.occurrence, b.located.occurrence) || compareIds(a.telling.id, b.telling.id);
+            if (a.located.kind === "found") return -1;
+            if (b.located.kind === "found") return 1;
+            return a.owner.kind.localeCompare(b.owner.kind) || compareIds(a.owner.id, b.owner.id) || compareIds(a.telling.id, b.telling.id);
+        });
+        const stamp = this.#stamp();
+        const page = this.#page(stamp, items, cursor, limit);
+        if (page === "cursor-stale") return page;
+        return {
+            ...stamp,
+            items: page.items.map((item) => ({...item, ...tellingHint(item.telling, item.located)})),
+            ...(page.next === undefined ? {} : {cursor: page.next}),
+        };
     }
 
     /** 决策，按 id；状态筛选、游标分页（project.md 方法表的 `decisions`）。 */

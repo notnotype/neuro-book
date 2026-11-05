@@ -175,6 +175,27 @@ const plannedFirsts = plannedPositions.map((position) => {
 const plannedFirst = Math.max(...plannedFirsts);
 const plannedReads = timedReads("planned", () => plannedPositions[Math.floor(rnd() * plannedPositions.length)]!);
 
+// ---------- 讲述（canon.model 输出 24 到 27） ----------
+// 不带筛选的第一页要定位全部讲述（每章 17 条）再排序；第一次读要把每章正文切成段，之后按章缓存。
+const tellingsPage = (filter: Parameters<WorldService["tellings"]>[0] = {}): number => {
+    const begin = performance.now();
+    if (service.tellings(filter) === "cursor-stale") throw new Error("cursor-stale");
+    return performance.now() - begin;
+};
+const tellingsFirst = tellingsPage();
+const tellingsAll = Array.from({length: 10}, () => tellingsPage());
+const tellingsOneChapter = Array.from({length: 10}, () => {
+    const chapter = chapterIds[Math.floor(rnd() * chapterIds.length)]!;
+    return tellingsPage({from: chapter, to: chapter});
+});
+// 宿主通知一章正文变了：重读这一章、重算正文快照的摘要；下一次读取只重新切这一章。
+const edited = chapterIds[0]!;
+await writeFile(join(root, BINDER_DIR, `${edited.padStart(5, "0")}-第${edited}章.md`), `第${edited}章。改过了。原句。${"正文".repeat(1500)}\n`);
+const editBegin = performance.now();
+service.textChanged(edited);
+const textChangedMs = performance.now() - editBegin;
+const tellingsAfterEdit = tellingsPage();
+
 // ---------- 在最新一章发布一次记账（含校验、计算、写入落盘） ----------
 const last = chapterIds.at(-1)!;
 const publishes: number[] = [];
@@ -213,6 +234,7 @@ console.log(`生成（每章一次发布）：${ms(generated / 1000)} 秒`);
 console.log(`打开到可以读：${ms(openMs)} 毫秒（预算 2000）`);
 console.log(`随机读（实际）：中位 ${ms(median(actualReads))} 毫秒，最大 ${ms(Math.max(...actualReads))}（预算 20）`);
 console.log(`按计划第一次读（5 个位置里最慢的）：${ms(plannedFirst)} 毫秒（预算 1000）；之后在这些位置上读，中位 ${ms(median(plannedReads))} 毫秒（预算 20）`);
+console.log(`讲述（${String(chapters * 17)} 条）：不带筛选的第一页，第一次 ${ms(tellingsFirst)} 毫秒，之后中位 ${ms(median(tellingsAll))}；只读一章，中位 ${ms(median(tellingsOneChapter))}；改一章正文后通知 ${ms(textChangedMs)} 毫秒，接着读第一页 ${ms(tellingsAfterEdit)} 毫秒`);
 console.log(`最新一章发布一次记账：中位 ${ms(median(publishes))} 毫秒，最大 ${ms(Math.max(...publishes))}（预算 100）`);
 console.log(`改常出场条目的初值：中位 ${ms(median(initial))} 毫秒（预算 1000）`);
 console.log(`待处理：${String(pendingCount)} 条，嫌疑记录共 ${String(suspectCount)} 条`);
