@@ -29,6 +29,7 @@ export {default as Notification} from "./feedback/Notification.vue";
 export {default as NotificationStack} from "./feedback/NotificationStack.vue";
 export {default as Popover} from "./feedback/Popover.vue";
 export {default as QuickPick} from "./popup/QuickPick.vue";
+export {default as AnchoredPopover} from "./popup/AnchoredPopover.vue";
 export {default as SuggestionMenu} from "./popup/SuggestionMenu.vue";
 export {suggestionMenuOptions, suggestionOptionId} from "./popup/suggestion-menu";
 export {default as Tooltip} from "./feedback/Tooltip.vue";

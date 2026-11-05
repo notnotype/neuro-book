@@ -5,7 +5,7 @@
  */
 
 import {computed} from "@vue/reactivity";
-import type {ShallowRef} from "@vue/reactivity";
+import type {Ref, ShallowRef} from "@vue/reactivity";
 
 import {definePublicState} from "nbook/shared/store/public";
 import type {PublicBindings} from "nbook/shared/store/public";
@@ -40,6 +40,7 @@ export const editorState = definePublicState("nbook.editor", {
     canFormat: {type: "boolean", unready: false, reason: editorText("state.canFormat.reason")},
     canConvertBlock: {type: "boolean", unready: false, reason: editorText("state.canConvertBlock.reason")},
     hasSelection: {type: "boolean", unready: false, reason: editorText("state.hasSelection.reason")},
+    toolbarVisible: {type: "boolean", unready: false, reason: editorText("state.toolbarVisible.reason")},
     formatBold: {type: "boolean", unready: false},
     formatItalic: {type: "boolean", unready: false},
     formatStrike: {type: "boolean", unready: false},
@@ -63,7 +64,7 @@ export function needsSaving(document: TextDocument): boolean {
 }
 
 /** 各公开键此刻的值；编辑器区还没建立时都为假。 */
-export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>): PublicBindings<typeof editorState.declarations> {
+export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>, toolbarVisible: Readonly<Ref<boolean>> = computed(() => true)): PublicBindings<typeof editorState.declarations> {
     const document = computed(() => area.value?.activeDocument.value ?? null);
     const handle = computed(() => area.value?.activeHandle.value ?? null);
     const fileTab = computed(() => {
@@ -92,6 +93,7 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>)
         canFormat: computed(() => handle.value?.editing?.enabled("bold") === true),
         canConvertBlock: computed(() => handle.value?.editing?.enabled("paragraph") === true),
         hasSelection: computed(() => handle.value?.editing?.hasSelection.value === true),
+        toolbarVisible: computed(() => toolbarVisible.value),
         formatBold: active("bold"),
         formatItalic: active("italic"),
         formatStrike: active("strike"),

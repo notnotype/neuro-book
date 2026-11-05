@@ -148,11 +148,16 @@
             "wordWrap": {
                 "title": "Word Wrap"
             }
+        },
+        "markdownToolbar": {
+            "description": "The toolbar above the Markdown editor",
+            "title": "Editor Toolbar"
         }
     },
     "categories": {
         "editor": "Editor",
-        "edit": "Edit"
+        "edit": "Edit",
+        "view": "View"
     },
     "commands": {
         "open": {
@@ -299,6 +304,12 @@
         },
         "table": {
             "title": "Table"
+        },
+        "toggle-editor-toolbar": {
+            "title": "Show Editor Toolbar"
+        },
+        "link": {
+            "title": "Link"
         }
     },
     "quickPick": {
@@ -358,6 +369,9 @@
         },
         "hasSelection": {
             "reason": "Nothing is selected"
+        },
+        "toolbarVisible": {
+            "reason": "The toolbar is hidden"
         }
     },
     "statusItems": {
@@ -474,5 +488,29 @@
     },
     "rescue": {
         "lostFormat": "This view has blocks that cannot be written back as Markdown; only their text was kept (the formatting is lost)"
+    },
+    "menus": {
+        "blockType": "Block Type",
+        "toolbar": "Formatting",
+        "more": "More Actions",
+        "colorNone": "Default",
+        "align-left": "Align Left",
+        "align-center": "Center",
+        "align-right": "Align Right",
+        "align-justify": "Justify",
+        "color-slate": "Slate",
+        "color-orange": "Orange",
+        "color-amber": "Amber",
+        "color-yellow": "Yellow",
+        "color-emerald": "Green",
+        "color-sky": "Blue",
+        "color-violet": "Purple",
+        "color-pink": "Pink",
+        "color-red": "Red",
+        "color-neutral": "Light Gray",
+        "color-stone": "Beige",
+        "color-green": "Green",
+        "color-blue": "Blue",
+        "color-purple": "Purple"
     }
 }

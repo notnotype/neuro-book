@@ -35,7 +35,22 @@ const colorMark = (mark: string): EditingAction => ({
 
 const text = (args: EditingArgs): string => (typeof args.text === "string" ? args.text : "");
 
+/**
+ * 块类型能不能换。不用 `editor.can()`：Tiptap 的 `toggleList` 与 `setNode` 先 `clearNodes` 再转换，`can()` 下 `clearNodes`
+ * 不改文档，后面的转换按没清过的文档判断，从标题换列表时得到假。这里按光标所在的块判断：原样块是原文，表格单元格只放行内内容。
+ */
+function canConvertBlock(editor: Editor): boolean {
+    const {$from} = editor.state.selection;
+    if (!$from.parent.isTextblock || $from.parent.type.name === "rawBlock") return false;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+        if ($from.node(depth).type.spec.tableRole !== undefined) return false;
+    }
+    return true;
+}
+
 export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
+    undo: {run: (editor) => editor.chain().focus().undo().run(), enabled: (editor) => editor.can().undo()},
+    redo: {run: (editor) => editor.chain().focus().redo().run(), enabled: (editor) => editor.can().redo()},
     bold: toggleMark("bold"),
     italic: toggleMark("italic"),
     strike: toggleMark("strike"),
@@ -56,7 +71,7 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
     paragraph: {
         run: (editor) => editor.chain().focus().setParagraph().run(),
         active: (editor) => editor.isActive("paragraph"),
-        enabled: (editor) => editor.can().setParagraph(),
+        enabled: canConvertBlock,
     },
     "heading-1": heading(1),
     "heading-2": heading(2),
@@ -64,42 +79,42 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
     "bullet-list": {
         run: (editor) => editor.chain().focus().toggleBulletList().run(),
         active: (editor) => editor.isActive("bulletList"),
-        enabled: (editor) => editor.can().toggleBulletList(),
+        enabled: canConvertBlock,
     },
     "ordered-list": {
         run: (editor) => editor.chain().focus().toggleOrderedList().run(),
         active: (editor) => editor.isActive("orderedList"),
-        enabled: (editor) => editor.can().toggleOrderedList(),
+        enabled: canConvertBlock,
     },
     "task-list": {
         run: (editor) => editor.chain().focus().toggleTaskList().run(),
         active: (editor) => editor.isActive("taskList"),
-        enabled: (editor) => editor.can().toggleTaskList(),
+        enabled: canConvertBlock,
     },
     quote: {
         run: (editor) => editor.chain().focus().toggleBlockquote().run(),
         active: (editor) => editor.isActive("blockquote"),
-        enabled: (editor) => editor.can().toggleBlockquote(),
+        enabled: canConvertBlock,
     },
     callout: {
         run: (editor) => (editor.isActive("callout") ? editor.chain().focus().unsetCallout() : editor.chain().focus().setCallout()).run(),
         active: (editor) => editor.isActive("callout"),
-        enabled: (editor) => editor.isActive("callout") || editor.can().setCallout(),
+        enabled: canConvertBlock,
     },
     "code-block": {
         run: (editor) => editor.chain().focus().toggleCodeBlock().run(),
         active: (editor) => editor.isActive("codeBlock"),
-        enabled: (editor) => editor.can().toggleCodeBlock(),
+        enabled: canConvertBlock,
     },
     align: {
         run: (editor, args) => editor.chain().focus().setMarkdownAlign(args.value as "left" | "center" | "right" | "justify").run(),
         active: (editor) => editor.isActive("markdownAlign"),
-        enabled: (editor) => editor.can().setMarkdownAlign("center"),
+        enabled: canConvertBlock,
     },
     bilingual: {
         run: (editor, args) => editor.chain().focus().setMarkdownBilingual(text(args)).run(),
         active: (editor) => editor.isActive("markdownBilingual"),
-        enabled: (editor) => editor.can().setMarkdownBilingual("x"),
+        enabled: canConvertBlock,
     },
     divider: {
         run: (editor) => editor.chain().focus().setHorizontalRule().run(),
@@ -115,6 +130,6 @@ function heading(level: 1 | 2 | 3): EditingAction {
     return {
         run: (editor) => editor.chain().focus().setHeading({level}).run(),
         active: (editor) => editor.isActive("heading", {level}),
-        enabled: (editor) => editor.can().setHeading({level}),
+        enabled: canConvertBlock,
     };
 }

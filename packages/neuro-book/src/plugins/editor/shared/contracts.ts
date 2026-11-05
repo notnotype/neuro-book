@@ -9,9 +9,10 @@ import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
 import type {Ref} from "@vue/reactivity";
+import type {InjectionKey} from "vue";
 import type {languages as MonacoLanguages} from "monaco-editor/esm/vs/editor/editor.api.js";
 
-import type {EditorEditing} from "./editing";
+import type {EditingActionId, EditorEditing} from "./editing";
 import type {Component} from "vue";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
@@ -19,7 +20,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
-import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {MenuEntry, MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
 import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
@@ -108,6 +109,29 @@ export const validateEditorSelectionItem = menuItemValidator(editorSelectionLoca
 export const validateEditorSlashItem = menuItemValidator(editorSlashLocation);
 export const validateEditorBlockItem = menuItemValidator(editorBlockLocation);
 export const validateEditorBodyContextItem = menuItemValidator(editorBodyContextLocation);
+
+/** 编辑器区交给控件的菜单（`provide`）：控件画内置项，命令、贡献项、文字都从这里取。响应式：在渲染函数或 computed 里读。 */
+export interface EditorMenus {
+    /** 动作的显示标题。 */
+    title(action: string): string;
+    /** 菜单自己的文字（`menus.<key>`）。 */
+    label(key: string): string;
+    /** 按平台写好的快捷键，没有为 null。 */
+    shortcut(action: EditingActionId): string | null;
+    /** 这条命令此刻在目录里：t09 登记 `nbook.edit.link` 之前，链接按钮不出现。 */
+    has(command: string): boolean;
+    /** 经命令服务执行编辑动作。 */
+    run(action: EditingActionId, args?: Readonly<Record<string, unknown>>): void;
+    /** 执行不在目录表里的命令（撤销、重做、链接）。 */
+    execute(command: string, args?: Readonly<Record<string, unknown>>): void;
+    /** 位置上此刻显示的贡献项，按节分好。 */
+    contributed(point: string): ReadonlyArray<ReadonlyArray<MenuEntry>>;
+    /** 点了贡献项：执行时按活动标签给 `{address}`。 */
+    runContributed(point: string, id: string): void;
+    readonly toolbarVisible: Readonly<Ref<boolean>>;
+}
+
+export const editorMenusKey: InjectionKey<EditorMenus> = Symbol("nbook.editor/menus");
 
 /** 按 id 打开一个页面（同一页面在窗口里只开一个，已开就切过去）。 */
 export const OPEN_PAGE_COMMAND = "nbook.editor.open-page";

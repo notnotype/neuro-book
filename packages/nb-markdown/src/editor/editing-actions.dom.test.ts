@@ -63,6 +63,24 @@ describe("编辑动作", () => {
         expect(active(editor, "paragraph")).toBe(true);
     });
 
+    it("从标题也能换成列表、引用与提示块", () => {
+        for (const id of ["bullet-list", "ordered-list", "task-list", "quote", "callout", "code-block"]) {
+            const {editor} = open("# 字\n");
+            editor.commands.setTextSelection(2);
+            expect(enabled(editor, id), id).toBe(true);
+            expect(act(editor, id), id).toBe(true);
+            expect(active(editor, id), id).toBe(true);
+        }
+    });
+
+    it("表格单元格里不能换块类型", () => {
+        const {editor} = open("| a |\n| --- |\n| b |\n");
+        editor.commands.setTextSelection(3);
+        expect(enabled(editor, "heading-1")).toBe(false);
+        expect(enabled(editor, "bullet-list")).toBe(false);
+        expect(enabled(editor, "bold")).toBe(true);
+    });
+
     it("光标在代码块里时格式动作不可用", () => {
         const {editor} = open("```\ncode\n```\n");
         editor.commands.selectAll();

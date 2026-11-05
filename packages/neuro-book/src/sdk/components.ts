@@ -9,7 +9,7 @@
  */
 
 export {
-    AlertDialog, Badge, Banner, Breadcrumb, Button, Checkbox,
+    AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
     ContextMenu, Dialog, Drawer, FloatingWindow, DropFeedbackOverlay, DropIndicatorLabel, DropdownMenu,
     EmptyState, Field, IconButton, InfoTip, Input, Kbd,

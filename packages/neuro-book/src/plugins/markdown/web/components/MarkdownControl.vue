@@ -13,6 +13,7 @@ import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host"
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
+import {editorMenusKey} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {EditorEditing} from "nbook/plugins/editor/shared/editing";
 import {editorText} from "nbook/plugins/editor/shared/text";
@@ -21,6 +22,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
 import {languageFor} from "../language-registry";
+import MarkdownToolbar from "./menus/MarkdownToolbar.vue";
 import {markdownAssetsKey} from "../parts/asset-urls";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
@@ -29,6 +31,8 @@ import {syntaxCatalogKey} from "../syntax-catalog";
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
 
+/** 编辑器区给的菜单；Lab 与组件测试不经插件挂控件时没有，就没有工具栏与菜单。 */
+const menus = inject(editorMenusKey, null);
 const catalog = inject(syntaxCatalogKey, null);
 if (catalog === null) throw new Error("MarkdownControl 要由 nbook.markdown 交出的组件挂上：缺少方言目录（syntaxCatalogKey）");
 
@@ -448,8 +452,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="scroller" class="h-full w-full overflow-auto" data-editor-control="markdown">
-        <div ref="root" class="markdown-control"></div>
+    <div class="markdown-control-root flex h-full w-full flex-col">
+        <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value" :editing="editing" :menus="menus" :readonly="props.readonly" />
+        <div ref="scroller" class="min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
+            <div ref="root" class="markdown-control"></div>
+        </div>
     </div>
 </template>
 
@@ -458,7 +465,7 @@ onBeforeUnmount(() => {
  * 纸面（docs/specs/workbench/editor.md 输出 32）：界面字体，版心、留白、字号、行距与段距是这个控件自己的变量，以后做成
  * 偏好（例如宋体与更宽的版心）时只换这几个值。版心含左右留白。
  */
-.markdown-control {
+.markdown-control-root {
     --markdown-measure: 720px;
     --markdown-padding-top: 64px;
     --markdown-padding-bottom: 120px;
@@ -466,6 +473,9 @@ onBeforeUnmount(() => {
     --markdown-font-size: 17px;
     --markdown-line-height: 1.95;
     --markdown-block-gap: 1.1em;
+}
+
+.markdown-control {
     box-sizing: border-box;
     max-width: var(--markdown-measure);
     margin-inline: auto;

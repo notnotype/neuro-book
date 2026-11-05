@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -169,6 +169,14 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "success", label: "成功", input: {props: {tone: "success", message: "已重新连接。", dismissible: true}}},
         ],
         subject: nbUiSubject("Banner"),
+    }),
+    defineLabFixture<typeof AnchoredPopover>({
+        component: "AnchoredPopover",
+        scenes: [
+            {id: "top", label: "在锚点上方", input: {props: {open: true, side: "top", anchor: null}}},
+            {id: "flip", label: "上方放不下时翻到下方", input: {props: {open: true, side: "top", anchor: null}}},
+        ],
+        load: async () => (await import("./AnchoredPopoverFixture.vue")).default,
     }),
     defineLabFixture<typeof SuggestionMenu>({
         component: "SuggestionMenu",

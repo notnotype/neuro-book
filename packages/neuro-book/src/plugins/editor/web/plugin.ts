@@ -19,7 +19,7 @@ import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/s
 import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
+import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -29,7 +29,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
+import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, editorMenusKey, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TOOLBAR_POINT, validateEditorBlockItem, validateEditorBodyContextItem, validateEditorSelectionItem, validateEditorSlashItem, validateEditorToolbarItem, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
@@ -49,7 +49,8 @@ import {editorState, editorStateValues} from "./state";
 import {EDITOR_STATUS_ITEMS, editorStatusItems} from "./status-items";
 import {createEditorTabMenu} from "./tab-menu";
 import {createEditorTitleActions} from "./title-actions";
-import {EDITING_COMMAND_DECLARATIONS, editingCommands} from "./editing-commands";
+import {EDITING_COMMAND_DECLARATIONS, editingCommands, TOGGLE_TOOLBAR_COMMAND} from "./editing-commands";
+import {createEditorMenus} from "./editing-menus";
 import {EDITOR_TITLEBAR_MENU_ITEMS} from "./titlebar-menu";
 
 export const EDITOR_AREA_ID = "nbook.editor.area";
@@ -251,6 +252,23 @@ export const editorBrowserPlugin: PluginDefinition = {
                     return current.model(maxButtons);
                 }};
             };
+            const toolbarVisible = computed(() => settings.get(markdownToolbarSetting));
+            const menus = createEditorMenus({
+                area: () => session.area.value,
+                commands,
+                state: context.services.require(publicStateKey),
+                items: {
+                    [EDITOR_TOOLBAR_POINT]: () => toolbarItems.items(),
+                    [EDITOR_SELECTION_POINT]: () => selectionItems.items(),
+                    [EDITOR_SLASH_POINT]: () => slashItems.items(),
+                    [EDITOR_BLOCK_POINT]: () => blockItems.items(),
+                    [EDITOR_BODY_CONTEXT_POINT]: () => bodyContextItems.items(),
+                },
+                platform,
+                text,
+                version: commandsVersion,
+                toolbarVisible,
+            });
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
                     const {default: EditorArea} = await import("./components/EditorArea.vue");
@@ -261,6 +279,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         setup: () => {
                             provideToChildren(editorLanguagesKey, languages);
                             provideToChildren(codeEditorOptionsKey, codeOptions);
+                            provideToChildren(editorMenusKey, menus);
                             return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             tabMenuModel.run(tabId, key);
@@ -276,13 +295,13 @@ export const editorBrowserPlugin: PluginDefinition = {
                     });
                 },
             };
-            const published = bindingsOf(editorState, editorStateValues(session.area));
+            const published = bindingsOf(editorState, editorStateValues(session.area, toolbarVisible));
             return {
                 services: [provideService(documentCoordinatorKey, session.coordinator)],
                 receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_TAB_CONTEXT_POINT]: tabMenuItems.receiver(), [EDITOR_TOOLBAR_POINT]: toolbarItems.receiver(), [EDITOR_SELECTION_POINT]: selectionItems.receiver(), [EDITOR_SLASH_POINT]: slashItems.receiver(), [EDITOR_BLOCK_POINT]: blockItems.receiver(), [EDITOR_BODY_CONTEXT_POINT]: bodyContextItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver(), [EDITOR_LANGUAGES_POINT]: languages.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
-                    [COMMANDS_POINT]: {...editingCommands(session.area), ...editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null, ...commandSources})},
+                    [COMMANDS_POINT]: {...editingCommands(session.area, {toggleToolbar: () => settings.update(markdownToolbarSetting, !settings.get(markdownToolbarSetting))}), ...editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null, ...commandSources})},
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),

@@ -148,11 +148,16 @@
             "wordWrap": {
                 "title": "自动换行"
             }
+        },
+        "markdownToolbar": {
+            "description": "Markdown 编辑器顶部的工具栏",
+            "title": "编辑器工具栏"
         }
     },
     "categories": {
         "editor": "编辑器",
-        "edit": "编辑"
+        "edit": "编辑",
+        "view": "视图"
     },
     "commands": {
         "open": {
@@ -299,6 +304,12 @@
         },
         "table": {
             "title": "表格"
+        },
+        "toggle-editor-toolbar": {
+            "title": "显示编辑器工具栏"
+        },
+        "link": {
+            "title": "链接"
         }
     },
     "quickPick": {
@@ -358,6 +369,9 @@
         },
         "hasSelection": {
             "reason": "没有选中内容"
+        },
+        "toolbarVisible": {
+            "reason": "工具栏没有打开"
         }
     },
     "statusItems": {
@@ -471,5 +485,29 @@
     },
     "rescue": {
         "lostFormat": "这个视图有写不回 Markdown 的块，那些块只留下了文字（格式丢了）"
+    },
+    "menus": {
+        "blockType": "块类型",
+        "toolbar": "格式",
+        "more": "更多操作",
+        "colorNone": "默认",
+        "align-left": "左对齐",
+        "align-center": "居中",
+        "align-right": "右对齐",
+        "align-justify": "两端对齐",
+        "color-slate": "灰",
+        "color-orange": "橙",
+        "color-amber": "琥珀",
+        "color-yellow": "黄",
+        "color-emerald": "绿",
+        "color-sky": "蓝",
+        "color-violet": "紫",
+        "color-pink": "粉",
+        "color-red": "红",
+        "color-neutral": "浅灰",
+        "color-stone": "米色",
+        "color-green": "绿",
+        "color-blue": "蓝",
+        "color-purple": "紫"
     }
 }

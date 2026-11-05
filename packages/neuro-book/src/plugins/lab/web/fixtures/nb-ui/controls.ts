@@ -204,6 +204,7 @@ export const controlsFixtures: LabFixture[] = [
         scenes: [
             {id: "horizontal", label: "横向", input: {props: {orientation: "horizontal", ariaLabel: "资源管理器工具"}, slots: {default: true}}},
             {id: "vertical", label: "纵向", input: {props: {orientation: "vertical", ariaLabel: "资源管理器工具"}, slots: {default: true}}},
+            {id: "flat", label: "没有面板外观", input: {props: {orientation: "horizontal", variant: "flat", ariaLabel: "资源管理器工具"}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Toolbar"),
     }),

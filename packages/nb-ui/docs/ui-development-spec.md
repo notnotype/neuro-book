@@ -51,7 +51,7 @@
 
 | 浮层 | 基座之外的类 | 覆盖什么 |
 | --- | --- | --- |
-| 气泡（`Popover`） | 无 | |
+| 气泡（`Popover`、`AnchoredPopover`） | 无 | |
 | 弹出列表（`DropdownMenu`、`Select`、`Menubar`、`ContextMenu`、`QuickPick`、`SuggestionMenu`） | `.nb-ui-menu-surface` | 圆角 `--radius-menu`、内边距 `--menu-pad`、投影 `--elevation-menu`（主题可单独收小）；其余见“弹出列表的共同合同” |
 | 对话框（`Dialog`） | `.nb-ui-dialog-surface`、`.nb-ui-surface-rim` | 圆角 `--radius-dialog`、面 `--dialog-surface`、投影 `--elevation-dialog`；镜面层 `--overlay-sheen`。叠在对话框上时加 `--nested`，面取 `--dialog-surface-nested` |
 | 浮动窗口（`FloatingWindow`） | 同上，加 `.nb-ui-dialog-surface--window` | 圆角 `--radius-window`；常开、占大块屏幕的窗口与工作台部件卡片是同一类面，圆角取同一档 |

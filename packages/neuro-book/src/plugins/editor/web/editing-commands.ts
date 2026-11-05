@@ -22,6 +22,7 @@ const ARGS: Readonly<Record<NonNullable<EditingActionInfo["args"]>, ReturnType<t
 };
 
 const EDIT = editorText("categories.edit");
+const VIEW = editorText("categories.view");
 
 const requires = (info: EditingActionInfo): ReadonlyArray<string> => {
     const keys = [editorState.key("writable")];
@@ -33,16 +34,21 @@ const requires = (info: EditingActionInfo): ReadonlyArray<string> => {
 
 const ACTIONS: ReadonlyArray<readonly [EditingActionId, EditingActionInfo]> = Object.entries(EDITING_ACTIONS) as never;
 
-export const EDITING_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandDeclaration>> = Object.fromEntries(ACTIONS.map(([action, info]) => [editingCommandId(action), {
+export const TOGGLE_TOOLBAR_COMMAND = "nbook.view.toggle-editor-toolbar";
+
+export const EDITING_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandDeclaration>> = {
+    [TOGGLE_TOOLBAR_COMMAND]: {category: VIEW, description: "Show or hide the toolbar above the Markdown editor.", args: NO_ARGS, effect: "read"},
+    ...Object.fromEntries(ACTIONS.map(([action, info]) => [editingCommandId(action), {
     category: EDIT,
     description: `Apply the "${action}" edit in the active Markdown editor.`,
     args: info.args === undefined ? NO_ARGS : ARGS[info.args],
     effect: "write",
     when: {requires: requires(info)},
-} satisfies WrittenCommandDeclaration]));
+} satisfies WrittenCommandDeclaration])),
+};
 
-export function editingCommands(area: Readonly<ShallowRef<EditorArea | null>>): Record<string, CommandImplementation> {
-    return Object.fromEntries(ACTIONS.map(([action]) => [editingCommandId(action), {
+export function editingCommands(area: Readonly<ShallowRef<EditorArea | null>>, sources: {readonly toggleToolbar: () => Promise<unknown>}): Record<string, CommandImplementation> {
+    const actions = Object.fromEntries(ACTIONS.map(([action]) => [editingCommandId(action), {
         run: (args: unknown) => {
             const editing = area.value?.activeHandle.value?.editing;
             if (editing === undefined) return {ok: false, code: "unavailable", reason: editorText("refusal.editingUnsupported")} as const;
@@ -50,4 +56,13 @@ export function editingCommands(area: Readonly<ShallowRef<EditorArea | null>>): 
             return result.ok ? {ok: true, value: null} as const : {ok: false, code: "unavailable", reason: result.reason} as const;
         },
     } satisfies CommandImplementation]));
+    return {
+        ...actions,
+        [TOGGLE_TOOLBAR_COMMAND]: {
+            run: async () => {
+                await sources.toggleToolbar();
+                return {ok: true, value: null};
+            },
+        },
+    };
 }

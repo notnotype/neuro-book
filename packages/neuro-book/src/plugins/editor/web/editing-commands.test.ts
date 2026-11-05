@@ -11,6 +11,7 @@ import {EDITING_COMMAND_DECLARATIONS, editingCommands} from "./editing-commands"
 import {editorState} from "./state";
 
 const ids = Object.keys(EDITING_ACTIONS) as EditingActionId[];
+const SOURCES = {toggleToolbar: async () => undefined};
 
 function areaWith(editing: EditorEditing | undefined) {
     return shallowRef({activeHandle: {value: {editing}}} as unknown as EditorArea);
@@ -50,7 +51,7 @@ describe("编辑命令", () => {
                 return accept ? {ok: true} : {ok: false, reason: "不行"};
             },
         } as unknown as EditorEditing;
-        const commands = editingCommands(areaWith(editing));
+        const commands = editingCommands(areaWith(editing), SOURCES);
         expect(await commands["nbook.edit.bold"]?.run({})).toEqual({ok: true, value: null});
         expect(calls).toEqual([["bold", {}]]);
         accept = false;
@@ -58,7 +59,7 @@ describe("编辑命令", () => {
     });
 
     it("活动控件没有编辑动作（例如源码编辑器）时 unavailable，不静默成功", async () => {
-        const result = await editingCommands(areaWith(undefined))["nbook.edit.bold"]?.run({});
+        const result = await editingCommands(areaWith(undefined), SOURCES)["nbook.edit.bold"]?.run({});
         expect(result).toMatchObject({ok: false, code: "unavailable"});
     });
 });
