@@ -1,5 +1,5 @@
 /**
- * 树 / 布局 → `Splitter` 面板配置的薄投影。
+ * 树 / 布局 → 面板配置的薄投影，分隔线的 aria 用它。
  *
  * 只做字段搬运：呈现 px 来自 `GridLayoutResult`（宿主已夹取并结算），约束也是布局层已经
  * 求过值的有效区间。这里不重算分配、不换算百分比、不二次夹取——数值算法只有
@@ -9,15 +9,6 @@ import type {GridAxis, GridLayoutResult, GridNode, GridSizing} from "../grid-typ
 import type {SashPanel} from "../grid-geometry";
 import type {SplitterPanelConfig} from "./Splitter.vue";
 import type {SashCollapseState} from "../grid-types";
-
-/** 该分支直接子节点沿主轴的呈现 px（顺序与 children 一致）。 */
-export function gridBranchSizesPx(
-    children: readonly GridNode<unknown>[],
-    layout: GridLayoutResult,
-    axis: GridAxis,
-): number[] {
-    return children.map((child) => Math.max(0, layout.sizes[child.id]?.[axis] ?? 0));
-}
 
 /** 面板配置：呈现 px、有效约束、分配策略与收起状态原样交给渲染层。 */
 export function buildGridBranchPanels(

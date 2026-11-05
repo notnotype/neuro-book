@@ -2,7 +2,6 @@ import {afterEach, describe, expect, it} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
-import Splitter, {type SplitterPanelConfig} from "./Splitter.vue";
 import {createGrid, type Grid, type GridLayoutResult, type GridNode} from "../grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "../grid-gesture";
 
@@ -105,11 +104,11 @@ async function settleFrame(): Promise<void> {
     await nextTick();
 }
 
-/** 面板沿主轴的内联 px（交叉轴由 flex 拉伸，不写尺寸）。 */
-function panelMainPx(wrapper: VueWrapper, id: string): number {
-    const style = wrapper.get<HTMLElement>(`[data-panel-id="${id}"]`).element.style;
-    const value = style.width || style.height;
-    return value === "" ? Number.NaN : Number.parseFloat(value);
+/** 叶外框的矩形（相对 grid 根，已按设备像素取整）。 */
+function frameRect(wrapper: VueWrapper, id: string): {x: number; y: number; width: number; height: number} {
+    const {style} = wrapper.get<HTMLElement>(`[data-leaf="${id}"]`).element;
+    const position = /translate\(([-\d.]+)px, ([-\d.]+)px\)/u.exec(style.transform);
+    return {x: Number(position?.[1]), y: Number(position?.[2]), width: Number.parseFloat(style.width), height: Number.parseFloat(style.height)};
 }
 
 type RendererOptions = {
@@ -135,12 +134,11 @@ function mountRenderer(node: GridNode<string> | null, layout: GridLayoutResult, 
     return wrapper;
 }
 
-describe("NestedGrid 递归渲染", () => {
-    it("单叶根直接交给叶插槽，不挂 Splitter", () => {
+describe("NestedGrid 按矩形摆放", () => {
+    it("单叶根直接交给叶插槽", () => {
         const grid = createGrid<string>({kind: "leaf", id: "only", ref: "only", size: {width: 0, height: 0}}, {sashSize: SASH});
         const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
 
-        expect(wrapper.find("[data-splitter]").exists()).toBe(false);
         expect(wrapper.find("[data-leaf='only']").text()).toBe("only");
     });
 
@@ -149,40 +147,46 @@ describe("NestedGrid 递归渲染", () => {
         const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
 
         expect(wrapper.find(".empty-body").text()).toBe("empty");
-        expect(wrapper.find("[data-splitter]").exists()).toBe(false);
+        expect(wrapper.find("[data-leaf]").exists()).toBe(false);
     });
 
-    it("分支递归成每层一个 Splitter，叶插槽收到各自节点", async () => {
+    it("叶与分隔线都是根的直接子元素，按树序交替，叶插槽收到各自节点", async () => {
         const grid = nestedGrid();
         const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
         await nextTick();
 
-        expect(wrapper.findAll("[data-splitter]").map((node) => node.attributes("data-splitter"))).toEqual(["root", "right"]);
-        expect(wrapper.findAll("[data-panel-id]").map((node) => node.attributes("data-panel-id"))).toEqual(["left", "right", "top", "bottom"]);
-        expect(wrapper.findAll("[data-leaf]").map((node) => node.attributes("data-leaf"))).toEqual(["left", "top", "bottom"]);
+        const children = [...wrapper.get("[data-grid-scope]").element.children] as HTMLElement[];
+        expect(children.map((element) => element.dataset.leaf ?? element.dataset.sash)).toEqual(["left", "root:0", "top", "right:0", "bottom"]);
+        expect(wrapper.find("[data-leaf='top']").text()).toBe("top");
     });
 
-    it("面板 px 与 Splitter 配置来自同一份 grid 呈现", async () => {
+    it("外框的矩形来自同一份布局，按设备像素取整，分隔线的 aria 取有效约束", async () => {
         const grid = nestedGrid();
         const layout = grid.layout(CONTAINER);
         const wrapper = mountRenderer(grid.root(), layout);
+        stubLayout(wrapper);
         await nextTick();
 
-        // 面板空间不含 sash：根分支 300 / 699，内层纵向各 299.5
-        expect(layout.sizes.left!.width).toBeCloseTo(300, 6);
-        expect(layout.sizes.right!.width).toBeCloseTo(699, 6);
+        // 面板空间不含 sash：根分支 300 / 699，内层纵向各 299.5，取整后前一块多半个像素，缝宽不变
         expect(layout.sizes.top!.height).toBeCloseTo(299.5, 6);
-        expect(panelMainPx(wrapper, "left")).toBeCloseTo(layout.sizes.left!.width, 6);
-        expect(panelMainPx(wrapper, "right")).toBeCloseTo(layout.sizes.right!.width, 6);
-        expect(panelMainPx(wrapper, "top")).toBeCloseTo(layout.sizes.top!.height, 6);
-        expect(panelMainPx(wrapper, "bottom")).toBeCloseTo(layout.sizes.bottom!.height, 6);
+        expect(frameRect(wrapper, "left")).toEqual({x: 0, y: 0, width: 300, height: 600});
+        expect(frameRect(wrapper, "top")).toEqual({x: 301, y: 0, width: 699, height: 300});
+        expect(frameRect(wrapper, "bottom")).toEqual({x: 301, y: 301, width: 699, height: 299});
 
-        const outer = wrapper.findAllComponents(Splitter)[0]!;
-        const panels = outer.props("panels") as SplitterPanelConfig[];
-        expect(panels.map((panel) => panel.id)).toEqual(["left", "right"]);
-        expect(panels.map((panel) => panel.defaultSizePx)).toEqual([layout.sizes.left!.width, layout.sizes.right!.width]);
-        expect(outer.props("sizesPx")).toEqual([layout.sizes.left!.width, layout.sizes.right!.width]);
-        expect(panels[0]!.maxSizePx).toBe(layout.constraints.left!.maximumSize.width);
+        const sash = wrapper.get('[data-sash="root:0"]');
+        expect(sash.attributes("aria-valuenow")).toBe("300");
+        expect(sash.attributes("aria-valuemin")).toBe(String(layout.constraints.left!.minimumSize.width));
+        expect(sash.attributes("aria-controls")).toBe(wrapper.get('[data-leaf="left"]').attributes("id"));
+    });
+
+    it("内容容器与外框一样大，Teleport 的目标带部件 id", async () => {
+        const grid = nestedGrid();
+        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
+        stubLayout(wrapper);
+        await nextTick();
+
+        const {style} = wrapper.get<HTMLElement>('[data-leaf="top"] > [data-leaf-content="top"]').element;
+        expect([style.width, style.height]).toEqual(["699px", "300px"]);
     });
 });
 
@@ -360,81 +364,6 @@ describe("命中结果映射到分界线的状态", () => {
         expect(ends("right:0")).toEqual({start: false, end: false});
         innerSash.dispatchEvent(pointerEvent("pointerup", 600, 300));
     });
-
-    it("每个分支的线两端挨着哪条外层分隔线按树结构算：前后有兄弟时是本层的分隔线，没有就沿用外层的边", () => {
-        // root 横排 [left | mid | right]，mid 竖排 [top | inner]，inner 横排 [a | b]
-        const grid = createGrid<string>({
-            kind: "branch",
-            id: "root",
-            orientation: "horizontal",
-            children: [
-                {kind: "leaf", id: "left", ref: "left", size: {width: 200, height: 0}},
-                {
-                    kind: "branch",
-                    id: "mid",
-                    orientation: "vertical",
-                    size: {width: 500, height: 0},
-                    children: [
-                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 200}},
-                        {
-                            kind: "branch",
-                            id: "inner",
-                            orientation: "horizontal",
-                            size: {width: 0, height: 300},
-                            children: [
-                                {kind: "leaf", id: "a", ref: "a", size: {width: 250, height: 0}},
-                                {kind: "leaf", id: "b", ref: "b", size: {width: 250, height: 0}},
-                            ],
-                        },
-                    ],
-                },
-                {kind: "leaf", id: "right", ref: "right", size: {width: 200, height: 0}},
-            ],
-        }, {sashSize: SASH});
-        const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
-        const ends = Object.fromEntries(wrapper.findAllComponents(Splitter).map((splitter) => [splitter.props("branchId"), splitter.props("sashLineEnds")]));
-        expect(ends).toEqual({
-            // 根的竖线上下都是网格外缘
-            root: {start: null, end: null},
-            // mid 的横线左右挨着根的两条竖线
-            mid: {start: "root:0", end: "root:1"},
-            // inner 的竖线上端挨着 mid 的横线，下端是网格外缘
-            inner: {start: "mid:0", end: null},
-        });
-    });
-
-    it("0px 边界没有线：它那一侧的兄弟也是 0 时沿用外层的边，兄弟有尺寸时是自由端", () => {
-        // root 横排 [left | right]，right 横排 [zero(0px) | stack]、二者之间 0px；stack 竖排 [a | b]
-        const tree = (zeroWidth: number) => createGrid<string>({
-            kind: "branch",
-            id: "root",
-            orientation: "horizontal",
-            children: [
-                {kind: "leaf", id: "left", ref: "left", size: {width: 300, height: 0}},
-                {
-                    kind: "branch",
-                    id: "right",
-                    orientation: "horizontal",
-                    size: {width: 699, height: 0},
-                    children: [
-                        {kind: "leaf", id: "zero", ref: "zero", size: {width: zeroWidth, height: 0}, ...(zeroWidth === 0 ? {minimumSize: {width: 0, height: 0}, maximumSize: {width: 0, height: Number.POSITIVE_INFINITY}, sizing: "fixed" as const} : {})},
-                        {kind: "branch", id: "stack", orientation: "vertical", size: {width: 699 - zeroWidth, height: 0}, children: [
-                            {kind: "leaf", id: "a", ref: "a", size: {width: 0, height: 300}},
-                            {kind: "leaf", id: "b", ref: "b", size: {width: 0, height: 299}},
-                        ]},
-                    ],
-                },
-            ],
-        }, {sashSize: (branchId) => (branchId === "right" ? 0 : SASH)});
-        const endsOf = (grid: Grid<string>) => {
-            const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));
-            return Object.fromEntries(wrapper.findAllComponents(Splitter).map((splitter) => [splitter.props("branchId"), splitter.props("sashLineEnds")]));
-        };
-        // 0px 的兄弟：stack 的横线左端其实挨着根的竖线
-        expect(endsOf(tree(0)).stack).toEqual({start: "root:0", end: null});
-        // 兄弟有 120px：左端挨着的是兄弟的内容，没有线
-        expect(endsOf(tree(120)).stack).toEqual({start: null, end: null});
-    });
 });
 
 describe("拖动期间的预览布局", () => {
@@ -467,11 +396,10 @@ describe("拖动期间的预览布局", () => {
         expect(preview.layout.sizes.left!.width).toBeCloseTo(420, 6);
         expect(preview.layout.sizes.right!.width).toBeCloseTo(579, 6);
         // 同时刻 DOM 就是预览 px：不要求松手后才更新
-        expect(panelMainPx(wrapper, "left")).toBeCloseTo(preview.layout.sizes.left!.width, 6);
-        expect(panelMainPx(wrapper, "right")).toBeCloseTo(preview.layout.sizes.right!.width, 6);
+        expect(frameRect(wrapper, "left").width).toBe(420);
+        expect(frameRect(wrapper, "top")).toMatchObject({x: 421, width: 579});
         // 嵌套分支的盒跟着当前父盒重投影：交叉轴就是现在的父面板 px，而不是按下时的 699
         expect(preview.layout.sizes.top!.width).toBeCloseTo(579, 6);
-        expect(panelMainPx(wrapper, "top")).toBeCloseTo(preview.layout.sizes.top!.height, 6);
         // 内层主轴不受外层拖动影响
         expect(preview.layout.sizes.top!.height).toBeCloseTo(299.5, 6);
 
@@ -483,8 +411,8 @@ describe("拖动期间的预览布局", () => {
         // 宿主发布新布局即成为受控事实，预览与之无关
         await wrapper.setProps({layout: published});
         await nextTick();
-        expect(panelMainPx(wrapper, "left")).toBeCloseTo(published.sizes.left!.width, 6);
-        expect(panelMainPx(wrapper, "right")).toBeCloseTo(published.sizes.right!.width, 6);
+        expect(frameRect(wrapper, "left").width).toBe(Math.round(published.sizes.left!.width));
+        expect(frameRect(wrapper, "top").width).toBe(Math.round(published.sizes.top!.width));
         expect(wrapper.emitted("gesture-cancel")).toBeUndefined();
     });
 });
@@ -507,7 +435,7 @@ describe("预览撤回也通知宿主", () => {
         const back = wrapper.emitted("gesture-update")!.at(-1)![0] as GridGesturePreview<string>;
         expect(back.changes).toHaveLength(0);
         expect(back.layout.sizes.left!.width).toBeCloseTo(published.sizes.left!.width, 6);
-        expect(panelMainPx(wrapper, "left")).toBeCloseTo(published.sizes.left!.width, 6);
+        expect(frameRect(wrapper, "left").width).toBe(Math.round(published.sizes.left!.width));
         const count = wrapper.emitted("gesture-update")!.length;
 
         // 已经在基线上时不重复发

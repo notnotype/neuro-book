@@ -1,7 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {createGrid, type Grid, type GridNode} from "../grid";
 import {sashPanelBounds} from "../grid-geometry";
-import {buildGridBranchPanels, gridBranchSizesPx, sashPanelsOfConfig} from "./grid-splitter";
+import {buildGridBranchPanels, sashPanelsOfConfig} from "./grid-splitter";
 import type {SashCollapseState} from "../grid-types";
 import type {SplitterPanelConfig} from "./Splitter.vue";
 
@@ -28,7 +28,7 @@ describe("grid 与 Splitter 的几何映射（px）", () => {
         const layout = grid.layout({width: 501, height: 100});
         const children = childrenOf(grid);
 
-        const sizes = gridBranchSizesPx(children, layout, "width");
+        const sizes = children.map((child) => layout.sizes[child.id]!.width);
         const panels = buildGridBranchPanels(children, layout, "width");
 
         // 501 - 1 的可用空间按声明最小值的比例降级：合计守恒，且不是各 300 的溢出

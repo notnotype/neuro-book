@@ -145,11 +145,28 @@ describe("分隔线的身份与两端", () => {
         expect(placed.find((item) => item.sashKey === "left:0")?.controls).toBe("a");
     });
 
-    it("悬停线两端：内层的线挨着外层的线时相连，挨着 grid 外缘时是自由端", () => {
-        const {node, layout} = grid(NESTED(), 1, {width: 1000, height: 401});
-        const placed = sashes(placeGrid(node, layout, {width: 1000, height: 401}, 1));
-        expect(placed.find((item) => item.sashKey === "root:0")?.ends).toEqual({start: null, end: null});
-        expect(placed.find((item) => item.sashKey === "right:0")?.ends).toEqual({start: "root:0", end: null});
+    it("悬停线两端：前后有兄弟时挨着本层的分隔线，没有就沿用外层的边", () => {
+        const root: GridNodeInput<string> = {
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                leaf("left", 200),
+                {kind: "branch", id: "mid", orientation: "vertical", size: {width: 500, height: 0}, children: [
+                    leaf("top", 0, 200),
+                    {kind: "branch", id: "inner", orientation: "horizontal", size: {width: 0, height: 200}, children: [leaf("a", 100), leaf("b", 100)]},
+                ]},
+                leaf("right", 200),
+            ],
+        };
+        const {node, layout} = grid(root, 1, {width: 1000, height: 600});
+        const ends = Object.fromEntries(sashes(placeGrid(node, layout, {width: 1000, height: 600}, 1)).map((item) => [item.sashKey, item.ends]));
+        // 根的竖线上下都是网格外缘
+        expect(ends["root:0"]).toEqual({start: null, end: null});
+        // mid 的横线左右挨着根的两条竖线
+        expect(ends["mid:0"]).toEqual({start: "root:0", end: "root:1"});
+        // inner 的竖线上端挨着 mid 的横线，下端是网格外缘
+        expect(ends["inner:0"]).toEqual({start: "mid:0", end: null});
     });
 
     it("0px 的边界没有线：那一侧的兄弟都是 0 时沿用外层的，有尺寸时是自由端", () => {

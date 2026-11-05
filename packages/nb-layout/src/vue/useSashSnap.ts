@@ -28,7 +28,6 @@ const SASH_SNAP_KEY: InjectionKey<SashSnapHost> = Symbol("nb-layout.sash-snap");
 export function useSashSnap(): SashSnapHost {
     const snaps = new Set<(dpr: number) => void>();
     let frame = 0;
-    let dpr = typeof window === "undefined" ? 1 : (window.devicePixelRatio || 1);
 
     function schedule(): void {
         if (typeof requestAnimationFrame !== "function") {
@@ -39,33 +38,25 @@ export function useSashSnap(): SashSnapHost {
         }
         frame = requestAnimationFrame(() => {
             frame = 0;
+            const dpr = window.devicePixelRatio || 1;
             for (const snap of snaps) {
                 snap(dpr);
             }
         });
     }
 
-    function onViewportChange(): void {
-        dpr = window.devicePixelRatio || 1;
-        schedule();
-    }
-
     /**
      * 滚动改变接缝在视口里的位置，叠加 dpr 后会算出不同的对齐位移：捕获阶段监听（滚动不冒泡）挂到 window，
      * 一次覆盖所有滚动容器；只排一帧几何，不读布局，也不产生滚动副作用。
      */
-    function onViewportScroll(): void {
-        schedule();
-    }
-
     onMounted(() => {
-        window.addEventListener("resize", onViewportChange);
-        window.addEventListener("scroll", onViewportScroll, {capture: true, passive: true});
+        window.addEventListener("resize", schedule);
+        window.addEventListener("scroll", schedule, {capture: true, passive: true});
     });
 
     onBeforeUnmount(() => {
-        window.removeEventListener("resize", onViewportChange);
-        window.removeEventListener("scroll", onViewportScroll, {capture: true});
+        window.removeEventListener("resize", schedule);
+        window.removeEventListener("scroll", schedule, {capture: true});
         if (frame) {
             cancelAnimationFrame(frame);
         }

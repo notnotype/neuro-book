@@ -282,7 +282,7 @@ describe("useGridLayout 与渲染层的真实提交", () => {
         harness.host.invalidate();
         await nextTick();
         expect(harness.host.revision.value).toBeGreaterThan(revisionBefore);
-        expect(harness.wrapper.find('[data-splitter="right-split"]').exists()).toBe(true);
+        expect(harness.wrapper.find('[data-sash="right-split:0"]').exists()).toBe(true);
         expect(harness.wrapper.find('[data-leaf="extra"]').exists()).toBe(true);
     });
 });

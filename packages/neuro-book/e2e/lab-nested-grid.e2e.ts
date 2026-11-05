@@ -84,7 +84,6 @@ function nestedGridLocators(page: Page) {
         leftLeaf: page.locator("#nb-lab-target [data-leaf='left']"),
         topLeaf: page.locator("#nb-lab-target [data-leaf='top']"),
         bottomLeaf: page.locator("#nb-lab-target [data-leaf='bottom']"),
-        rightPanel: page.locator("#nb-lab-target [data-splitter='root'] [data-panel-id='right']"),
         gesture: page.locator("[data-lab-gesture]"),
         recovery: page.locator("[data-lab-recovery]"),
     };
@@ -93,14 +92,14 @@ function nestedGridLocators(page: Page) {
 test("外层拖动守恒与内层高不变", async ({page}) => {
     await gotoNestedGrid(page);
 
-    const {outerSash, innerSash, leftLeaf, rightPanel, topLeaf, bottomLeaf, gesture} = nestedGridLocators(page);
+    const {outerSash, innerSash, leftLeaf, topLeaf, bottomLeaf, gesture} = nestedGridLocators(page);
     await expect(outerSash).toBeVisible();
     await expect(innerSash).toBeVisible();
     await expect(outerSash).toHaveCSS("width", "7px");
     await expect(innerSash).toHaveCSS("height", "7px");
 
     const beforeLeft = (await leftLeaf.boundingBox())!;
-    const beforeRight = (await rightPanel.boundingBox())!;
+    const beforeRight = (await topLeaf.boundingBox())!;
     const beforeTop = (await topLeaf.boundingBox())!;
     const beforeBottom = (await bottomLeaf.boundingBox())!;
     expect(beforeLeft).not.toBeNull();
@@ -127,7 +126,7 @@ test("外层拖动守恒与内层高不变", async ({page}) => {
     expect(JSON.parse(activeText!)).toEqual(["left", "right"]);
 
     const afterLeft = (await leftLeaf.boundingBox())!;
-    const afterRight = (await rightPanel.boundingBox())!;
+    const afterRight = (await topLeaf.boundingBox())!;
     const afterTop = (await topLeaf.boundingBox())!;
     const afterBottom = (await bottomLeaf.boundingBox())!;
 
@@ -160,12 +159,12 @@ test("外层拖动守恒与内层高不变", async ({page}) => {
 test("内层拖动不改外层宽", async ({page}) => {
     await gotoNestedGrid(page);
 
-    const {outerSash, innerSash, leftLeaf, rightPanel, topLeaf, bottomLeaf, gesture} = nestedGridLocators(page);
+    const {outerSash, innerSash, leftLeaf, topLeaf, bottomLeaf, gesture} = nestedGridLocators(page);
     await expect(outerSash).toBeVisible();
     await expect(innerSash).toBeVisible();
 
     const beforeLeft = (await leftLeaf.boundingBox())!;
-    const beforeRight = (await rightPanel.boundingBox())!;
+    const beforeRight = (await topLeaf.boundingBox())!;
     const beforeTop = (await topLeaf.boundingBox())!;
     const beforeBottom = (await bottomLeaf.boundingBox())!;
 
@@ -188,7 +187,7 @@ test("内层拖动不改外层宽", async ({page}) => {
     expect(JSON.parse(activeText!)).toEqual(["top", "bottom"]);
 
     const afterLeft = (await leftLeaf.boundingBox())!;
-    const afterRight = (await rightPanel.boundingBox())!;
+    const afterRight = (await topLeaf.boundingBox())!;
     const afterTop = (await topLeaf.boundingBox())!;
     const afterBottom = (await bottomLeaf.boundingBox())!;
 

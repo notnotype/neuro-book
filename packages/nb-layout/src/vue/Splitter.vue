@@ -1,24 +1,21 @@
 <script setup lang="ts">
 import type {HTMLAttributes} from "vue";
 /**
- * 一维分隔面板。两种用法共用一个组件：
- *
- * - **受控**（Grid 的每个分支）：宿主给 `sizesPx`，分隔线把元素注册进外层 `useSashGesture` scope，
- *   自己不开始手势——一整棵 Grid 只有一份会话，交汇处两根轴才能一起提交。几何改动由 scope 拥有者发布。
- * - **独立**：没有外层 scope 时自建单层 scope，用同一批纯函数在自己身上求解，发 `gesture-*` 与 `layout`。
+ * 一维分隔面板：自建一份手势 scope，用纯函数在自己身上求解，发 `gesture-*` 与 `layout`。Grid 不用它，叶与分隔线由 `NestedGrid`
+ * 直接摆放，两边共用的是 `SashHandle`。
  *
  * 几何一律 CSS px：`sizesPx` 与 `panels` 同序，合计等于面板空间（不含 sash 占用）。没有百分比往返。
  */
-import {computed, inject, onBeforeUnmount, provide, ref, useId, watch} from "vue";
+import {computed, onBeforeUnmount, provide, ref, useId, watch} from "vue";
 import {allocateSashPanels, sashPanelBounds, type SashPanel} from "../grid-geometry";
 import {ariaMax, panelBounds, sashPanelsOfConfig} from "./grid-splitter";
-import SashHandle, {STANDALONE_SASH_SCOPE_KEY} from "./SashHandle.vue";
+import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {createSplitterSession, type SplitterGestureChange} from "../splitter-session";
 import {useLayoutExtent} from "./useLayoutExtent";
 import {useLayoutText} from "./text";
 import {useSashSnap} from "./useSashSnap";
-import {useSashGesture, type SashGestureScope} from "./useSashGesture";
+import {useSashGesture} from "./useSashGesture";
 import type {SashGestureBinding, SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancellation, SplitterGestureState} from "../splitter-gesture";
 import type {GridAxis, GridExtent, SashCollapseState} from "../grid-types";
@@ -43,21 +40,12 @@ const props = withDefaults(defineProps<{
     sashSizes?: readonly number[];
     /** 受控呈现 px（合计 = 面板空间，不含 sash）。缺省时组件在自己的 scope 内分配。 */
     sizesPx?: readonly number[];
-    /** 所属 Grid 的分支 id；独立使用时省略。分隔线身份与 aria 都用它。 */
-    branchId?: string;
-    /**
-     * Grid 内部用：本分支的分隔线沿长轴两端挨着的外层分隔线（`<branchId>:<index>`），挨着的是容器边缘时为 null。
-     * 那条线此刻也亮着，这一端就连着它，不按 `--sash-line-inset` 缩进。
-     */
-    sashLineEnds?: {start: string | null; end: string | null};
 } & /* @vue-ignore */ HTMLAttributes>(), {
     direction: "horizontal",
     disabled: false,
     panels: () => [],
     sashSizes: () => [],
     sizesPx: undefined,
-    branchId: "panels",
-    sashLineEnds: () => ({start: null, end: null}),
 });
 
 const emit = defineEmits<{
@@ -71,6 +59,8 @@ const emit = defineEmits<{
 defineSlots<Record<`panel-${string}`, (props: {panel: SplitterPanelConfig; index: number}) => unknown> & {default(): unknown}>();
 
 const DEFAULT_SASH_SIZE = 1;
+/** 分隔线身份（`data-sash`、会话）里的分支 id：独立的 Splitter 只有这一个。 */
+const BRANCH_ID = "panels";
 
 const text = useLayoutText();
 const axis = computed<GridAxis>(() => props.direction === "horizontal" ? "width" : "height");
@@ -110,10 +100,6 @@ const measuredMain = computed(() => {
     return axis.value === "width" ? extent.width : extent.height;
 });
 
-/**
- * 独立模式：自建 scope。受控模式下分隔线只注册进外层 scope，本组件不再持有第二份手势状态。
- */
-const parentScope = inject(SASH_GESTURE_SCOPE_KEY, null);
 const localSizes = ref<number[]>([]);
 let localSnapshot: readonly number[] | null = null;
 let lastState: SplitterGestureState | null = null;
@@ -121,7 +107,7 @@ let sessionCounter = 0;
 
 const localHost: SashGestureHost<SplitterGestureState, SplitterGestureChange> = {
     begin(input) {
-        const sashIndex = input.sashes.find((sash) => sash.branchId === props.branchId)?.index ?? input.sashes[0]?.index;
+        const sashIndex = input.sashes[0]?.index;
         if (sashIndex === undefined || props.panels.length < 2) {
             return null;
         }
@@ -132,10 +118,10 @@ const localHost: SashGestureHost<SplitterGestureState, SplitterGestureChange> = 
         sessionCounter += 1;
         const session = createSplitterSession({
             sessionId: `${instanceId}-${sessionCounter}`,
-            contextKey: props.branchId,
+            contextKey: BRANCH_ID,
             source: input.source,
             revision: 0,
-            branchId: props.branchId,
+            branchId: BRANCH_ID,
             axis: axis.value,
             ids: panelIds.value,
             panels: sashPanels.value,
@@ -184,20 +170,12 @@ const localHost: SashGestureHost<SplitterGestureState, SplitterGestureChange> = 
     },
 };
 
-/**
- * 受控模式只注册进外层 scope，本组件不再持有第二份手势状态；
- * 独立模式的 scope 根就是本组件根元素。两条路径的判定在 setup 阶段一次性完成。
- */
-const localScope: SashGestureScope | null = parentScope === null
-    ? useSashGesture<SplitterGestureState, SplitterGestureChange>({
-        host: () => localHost,
-        root: rootEl,
-        disabled: () => props.disabled,
-    })
-    : null;
-const scope: SashGestureScope = parentScope ?? localScope!;
-// 只给本组件的分隔线用，不能用公开的键：见 `STANDALONE_SASH_SCOPE_KEY`。
-provide(STANDALONE_SASH_SCOPE_KEY, scope);
+const scope = useSashGesture<SplitterGestureState, SplitterGestureChange>({
+    host: () => localHost,
+    root: rootEl,
+    disabled: () => props.disabled,
+});
+provide(SASH_GESTURE_SCOPE_KEY, scope);
 const snapHost = useSashSnap();
 
 function extentOf(): GridExtent {
@@ -276,7 +254,7 @@ const panelConstraintsKey = computed(() => JSON.stringify(props.panels.map((pane
     panel.collapse?.expandThreshold ?? null,
 ])));
 
-watch(() => [props.branchId, props.direction, panelIdsKey.value, panelConstraintsKey.value, isControlled.value ? null : sashSizesKey.value].join("|"), () => {
+watch(() => [props.direction, panelIdsKey.value, panelConstraintsKey.value, isControlled.value ? null : sashSizesKey.value].join("|"), () => {
     scope.invalidate();
 });
 
@@ -347,7 +325,7 @@ onBeforeUnmount(() => {
         ref="rootEl"
         class="nb-splitter"
         :class="props.direction === 'vertical' ? 'nb-splitter--vertical' : 'nb-splitter--horizontal'"
-        :data-splitter="props.branchId"
+        :data-splitter="BRANCH_ID"
         :data-splitter-axis="axis"
     >
         <template v-if="props.panels.length > 0">
@@ -365,14 +343,14 @@ onBeforeUnmount(() => {
 
                 <SashHandle
                     v-if="index < props.panels.length - 1"
-                    :branch-id="props.branchId"
+                    :branch-id="BRANCH_ID"
                     :index="index"
                     :axis="axis"
                     :size="sashSizes[index] ?? DEFAULT_SASH_SIZE"
                     :before-px="renderedSizes[index] ?? 0"
                     :after-px="renderedSizes[index + 1] ?? 0"
                     :disabled="props.disabled"
-                    :ends="props.sashLineEnds"
+                    :ends="{start: null, end: null}"
                     :ariaLabel="text(axis === 'width' ? 'splitter.resizeWidth' : 'splitter.resizeHeight', {before: panelIds[index] ?? '', after: panelIds[index + 1] ?? ''})"
                     :ariaControls="domPanelIds[index]"
                     :ariaMin="Math.round(panelBounds(props.panels[index]).low)"

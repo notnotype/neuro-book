@@ -239,7 +239,7 @@ function syncTargets(): void {
     const next: Partial<Record<ShellPartId, Element>> = {};
     for (const part of SHELL_PART_IDS) {
         if (parked.has(part)) continue;
-        const element = root?.querySelector(`[data-leaf="${part}"]`);
+        const element = root?.querySelector(`[data-leaf-content="${part}"]`);
         if (element !== null && element !== undefined) next[part] = element;
     }
     targets.value = next;
@@ -314,7 +314,7 @@ function joinOf(part: ShellPartId): "start" | "end" | undefined {
  */
 function revealZoneRects(): Array<{part: RevealPart; rect: {left: number; top: number; right: number; bottom: number}}> {
     const measured = extent.value;
-    const origin = rootEl.value?.querySelector<HTMLElement>(`[data-splitter="${SHELL_ROOT_ID}"]`)?.getBoundingClientRect();
+    const origin = rootEl.value?.querySelector<HTMLElement>("[data-grid-scope]")?.getBoundingClientRect();
     if (measured === null || origin === undefined) return [];
     const zones = revealZones({extent: measured, preferences: props.sizes, panel: props.panel, hiddenParts: props.hiddenParts, dragCollapsedParts: props.dragCollapsedParts, cardGap: cardGap.value});
     return zones.map(({part, rect}) => ({part, rect: {left: origin.left + rect.left, top: origin.top + rect.top, right: origin.left + rect.right, bottom: origin.top + rect.bottom}}));
@@ -348,14 +348,14 @@ defineExpose({revealZoneRects});
 
         <!-- 紧凑呈现：activitybar 仍是主体左侧通高列，其余 Part 在它右侧纵向排布，没有可拖边界。 -->
         <div v-else class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden" data-shell-compact>
-            <div v-if="compactChrome.titlebar > 0" class="flex w-full flex-none flex-col overflow-hidden" :style="{height: `${compactChrome.titlebar}px`}" data-leaf="titlebar"></div>
+            <div v-if="compactChrome.titlebar > 0" class="flex w-full flex-none flex-col overflow-hidden" :style="{height: `${compactChrome.titlebar}px`}" data-leaf="titlebar" data-leaf-content="titlebar"></div>
             <div class="flex min-h-0 w-full flex-1 overflow-hidden">
-                <div v-if="compactChrome.activitybar !== null" class="flex min-h-0 flex-none flex-col overflow-hidden" :style="{width: `${compactChrome.activitybar}px`}" data-leaf="activitybar"></div>
+                <div v-if="compactChrome.activitybar !== null" class="flex min-h-0 flex-none flex-col overflow-hidden" :style="{width: `${compactChrome.activitybar}px`}" data-leaf="activitybar" data-leaf-content="activitybar"></div>
                 <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                    <div v-for="leaf in compactLeaves" :key="leaf.id" class="flex min-h-0 w-full flex-col overflow-hidden" :style="leaf.style" :data-leaf="leaf.id"></div>
+                    <div v-for="leaf in compactLeaves" :key="leaf.id" class="flex min-h-0 w-full flex-col overflow-hidden" :style="leaf.style" :data-leaf="leaf.id" :data-leaf-content="leaf.id"></div>
                 </div>
             </div>
-            <div class="flex w-full flex-none flex-col overflow-hidden" :style="{height: `${compactChrome.statusbar}px`}" data-leaf="statusbar"></div>
+            <div class="flex w-full flex-none flex-col overflow-hidden" :style="{height: `${compactChrome.statusbar}px`}" data-leaf="statusbar" data-leaf-content="statusbar"></div>
         </div>
 
         <!-- 停放区：没有落点的 Part 内容留在这里，保持挂载，不进焦点顺序与读屏。 -->

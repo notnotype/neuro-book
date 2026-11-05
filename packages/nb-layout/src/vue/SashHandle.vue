@@ -1,15 +1,3 @@
-<script lang="ts">
-import type {InjectionKey} from "vue";
-import type {SashGestureScope} from "./useSashGesture";
-
-/**
- * 独立 `Splitter` 自建的 scope。它不能 provide 公开的 `SASH_GESTURE_SCOPE_KEY`：
- * 面板插槽里嵌套的另一个独立 `Splitter` 会把它当成外层 scope，从而放弃自建 scope、不再自己开始手势。
- * 所以只给分隔线一个私有的键；`SashHandle` 先取公开的键（Grid 提供的那份），取不到再取这个。
- */
-export const STANDALONE_SASH_SCOPE_KEY: InjectionKey<SashGestureScope> = Symbol("nb-layout.standalone-sash-scope");
-</script>
-
 <script setup lang="ts">
 /**
  * 一条分隔线：`role="separator"` 的元素、它的 aria、命中登记与两层装饰。
@@ -22,6 +10,7 @@ import {computed, inject, onBeforeUnmount, watch} from "vue";
 import {sashBandBox, type SashBandBox} from "./sash-feedback";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {injectSashSnap} from "./useSashSnap";
+import type {SashGestureScope} from "./useSashGesture";
 
 const props = defineProps<{
     /** 所属分支的 id 与第几条边界：`data-sash` 与登记的身份。 */
@@ -56,7 +45,7 @@ const scope = resolveScope();
 const snapHost = injectSashSnap();
 
 function resolveScope(): SashGestureScope {
-    const found = inject(SASH_GESTURE_SCOPE_KEY, null) ?? inject(STANDALONE_SASH_SCOPE_KEY, null);
+    const found = inject(SASH_GESTURE_SCOPE_KEY, null);
     if (found === null) {
         throw new Error("[nb-layout] SashHandle must be rendered inside a Grid or Splitter that provides a sash gesture scope.");
     }

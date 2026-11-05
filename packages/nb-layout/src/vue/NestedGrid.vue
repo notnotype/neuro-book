@@ -2,19 +2,25 @@
 /**
  * 一个公开 Grid：树与几何由宿主给出（`node` + 同一容器下的 `layout`），手势由本组件独占一份会话。
  *
- * - 递归渲染交给私有 `GridBranchRenderer`，只有本组件持有 `useSashGesture` scope，
- *   因此一次按下命中的**最多两根轴**（一根 width + 一根 height）属于同一场手势、只提交一次；
- *   叶槽里再嵌一个公开 `NestedGrid` 会得到自己的 scope，不会继承外层拖动成员。
- * - 手势期间发布预览布局给整棵子树（编辑器等内容随父盒实时变化），松手时才把冻结的
- *   `GridGestureCommit` 交给宿主的 `onGestureCommit`；宿主拒绝就地回滚并给出诊断。
- * - 这里没有百分比往返、不读存储、不写意图：几何算法全在 `grid-geometry` / `sash-drag`。
+ * - 叶与分隔线是同一父元素的子元素，矩形来自 `placeGrid`（docs/specs/ui/nested-grid.md 的“按矩形摆放”）。树的结构变了只换矩形，
+ *   不搬、不重建还在的叶，内容的滚动、输入与焦点都留着。
+ * - 一次按下命中的**最多两根轴**（一根 width + 一根 height）属于同一场手势、只提交一次；叶槽里再嵌一个公开
+ *   `NestedGrid` 会得到自己的 scope，不会继承外层拖动成员。
+ * - 手势期间发布预览布局（编辑器等内容随外框实时变化），松手时才把冻结的 `GridGestureCommit` 交给宿主的
+ *   `onGestureCommit`；宿主拒绝就地回滚并给出诊断。
+ * - 这里没有百分比往返、不读存储、不写意图：几何算法全在 `grid-geometry` / `sash-drag` / `grid-rects`。
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
-import GridBranchRenderer from "./GridBranchRenderer.vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
+import {placeGrid, stableOrder, type GridPlacementItem, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
+import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
+import {useLayoutText} from "./text";
+import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useLayoutExtent} from "./useLayoutExtent";
 import {useSashGesture} from "./useSashGesture";
+import {useSashSnap} from "./useSashSnap";
 import type {GridExtent, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
 import type {GridBranchChange as GridBranchChangeType} from "../grid-gesture";
 import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
@@ -23,7 +29,7 @@ import type {SplitterGestureCancelReason, SplitterGestureSource} from "../splitt
 defineOptions({name: "NestedGrid"});
 
 const props = withDefaults(defineProps<{
-    /** 当前树上这一层：分支递归渲染、叶交给插槽、`null` 交给 `empty` 插槽。 */
+    /** 当前的树：叶交给 `leaf` 插槽，`null` 交给 `empty` 插槽。 */
     node: GridNode<unknown> | null;
     /** 与 `node` 同源的呈现结果；约束按「能够承载的语法」直接消费，不再夹取。 */
     layout: GridLayoutResult;
@@ -67,6 +73,73 @@ let sessionCounter = 0;
 /** 手势期间渲染预览；提交被拒绝、取消或宿主发布新布局后回到受控事实。 */
 const renderTree = computed(() => preview.value?.tree ?? props.node);
 const renderLayout = computed(() => preview.value?.layout ?? props.layout);
+
+const dpr = useDevicePixelRatio();
+const text = useLayoutText();
+const snapHost = useSashSnap();
+
+/** 摆放的容器：实测盒；还没挂上时退回布局发布的根节点尺寸。 */
+const placementExtent = computed<GridExtent>(() => sessionExtent() ?? {width: 0, height: 0});
+const placement = computed(() => {
+    const root = renderTree.value;
+    return root === null ? null : placeGrid(root, renderLayout.value, placementExtent.value, dpr.value);
+});
+
+/**
+ * 渲染序列（`stableOrder`）：这一轮的序列要由上一轮的算出来，所以记在外面。要同步算，不能放进 watch：外壳在下一个 tick 就按
+ * `data-leaf-content` 找 Teleport 的目标，新叶的外框必须在同一轮渲染里出来。
+ */
+let renderedKeys: string[] = [];
+const renderItems = computed<ReadonlyArray<GridPlacementItem<unknown>>>(() => {
+    const items = placement.value?.items ?? [];
+    const byKey = new Map(items.map((item) => [item.key, item]));
+    renderedKeys = stableOrder(renderedKeys, items.map((item) => item.key));
+    return renderedKeys.map((key) => byKey.get(key) as GridPlacementItem<unknown>);
+});
+
+/** 叶外框的 DOM id：节点 id 可以含空格，`aria-controls` 按空白切分，所以用不透明的串。 */
+const domIds = new Map<string, string>();
+function domIdOf(key: string): string {
+    let id = domIds.get(key);
+    if (id === undefined) {
+        id = `${instanceId}-${domIds.size}`;
+        domIds.set(key, id);
+    }
+    return id;
+}
+
+function rectStyle(rect: GridRect): Record<string, string> {
+    return {transform: `translate(${rect.x}px, ${rect.y}px)`, width: `${rect.width}px`, height: `${rect.height}px`};
+}
+
+function sashStyle(rect: GridRect): Record<string, string> {
+    return {position: "absolute", left: "0", top: "0", ...rectStyle(rect)};
+}
+
+function sashProps(sash: GridSashPlacement<unknown>) {
+    const sizes = renderLayout.value.sizes;
+    const nowPx = Math.max(0, sizes[sash.before]?.[sash.axis] ?? 0);
+    const panel = buildGridBranchPanels(sash.branch.children, renderLayout.value, sash.axis)[sash.index];
+    return {
+        branchId: sash.branch.id,
+        index: sash.index,
+        axis: sash.axis,
+        size: sash.size,
+        beforePx: nowPx,
+        afterPx: Math.max(0, sizes[sash.after]?.[sash.axis] ?? 0),
+        disabled: props.disabled,
+        ends: sash.ends,
+        ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
+        ariaControls: domIdOf(`leaf:${sash.controls}`),
+        ariaMin: Math.round(panelBounds(panel).low),
+        ariaMax: ariaMax(panel, sash.branchLength),
+        ariaNow: Math.round(nowPx),
+        ariaValueText: panel?.collapse?.collapsed === true ? text("splitter.collapsed") : text("splitter.pixels", {size: Math.round(nowPx)}),
+    };
+}
+
+// 分隔线的矩形变了要重新对齐设备像素。
+watch(placement, () => snapHost.schedule());
 
 /**
  * 会话的根盒：优先用本组件实测盒（宿主正是按这个盒算布局），拿不到测量时退回布局发布的根节点尺寸。
@@ -213,28 +286,47 @@ onBeforeUnmount(() => {
 
 <template>
     <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId">
-        <GridBranchRenderer
-            v-if="node"
-            :node="renderTree ?? node"
-            :layout="renderLayout"
-            :disabled="disabled"
-        >
-            <template #leaf="leafScope">
-                <slot name="leaf" :node="leafScope.node"></slot>
-            </template>
-            <template #empty>
-                <slot name="empty"></slot>
-            </template>
-        </GridBranchRenderer>
-        <slot v-else name="empty"></slot>
+        <template v-for="item in renderItems" :key="item.key">
+            <div
+                v-if="item.kind === 'leaf'"
+                :id="domIdOf(item.key)"
+                class="nb-grid-frame"
+                :data-leaf="item.node.id"
+                :style="rectStyle(item.rect)"
+            >
+                <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :style="{width: `${item.rect.width}px`, height: `${item.rect.height}px`}">
+                    <slot name="leaf" :node="item.node"></slot>
+                </div>
+            </div>
+            <SashHandle v-else v-bind="sashProps(item)" :style="sashStyle(item.rect)" />
+        </template>
+        <slot v-if="node === null" name="empty"></slot>
     </div>
 </template>
 
 <style scoped>
+/* `clip` 不用 `hidden`：`scrollIntoView` 滚不动 `clip`，否则内容里的滚动会把外框挪走。 */
 .nb-nested-grid {
+    position: relative;
     width: 100%;
     height: 100%;
     min-width: 0;
     min-height: 0;
+    overflow: clip;
+}
+
+.nb-grid-frame {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: clip;
+}
+
+.nb-grid-leaf {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
 }
 </style>

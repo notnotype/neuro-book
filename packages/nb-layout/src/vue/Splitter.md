@@ -48,13 +48,6 @@ type SplitterProps = {
     sashSizes?: readonly number[];
     /** 受控呈现尺寸，须与 panels 等长，单位 CSS px 且不含 sash；默认未提供，本地按 defaultSizePx 分配。 */
     sizesPx?: readonly number[];
-    /** 所属 Grid 的分支 id；独立使用时省略。用于分隔线身份；默认 "panels"。 */
-    branchId?: string;
-    /**
-     * Grid 内部用：分隔线沿长轴两端挨着的外层分隔线键（`<branchId>:<index>`），挨着容器边缘为 null；默认两端都是 null。
-     * 那条线也亮着时这一端连着（T 形交汇），否则按 `--sash-line-inset` 缩进。
-     */
-    sashLineEnds?: {start: string | null; end: string | null};
 };
 
 type SplitterEmits = {
