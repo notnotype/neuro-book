@@ -1,0 +1,40 @@
+### 1. 兜底标题在折叠空白之前截断材料，合法首句话被截成错误标题
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/session-meta.ts:113-115,132-137`（本报告源码路径均相对于 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t18-builtin-profiles`）。
+- **现象**：tiny 未绑定时，输入 `a + 2000 个空格 + b`，实际标题为 `a`，合同要求先把空白折叠再取前 30 个字符，应该得到 `a b`。`#material` 先把原始输入截成 2000 个字符，`#generate` 再折叠空白，后半段已丢失。
+- **为什么是问题**：违反 `agent/builtin-profiles.md` 输出 11；长空行、缩进或粘贴文本会让本应进入 30 字兜底标题的有效文字丢失。模型材料的 2000 字上限不应该限制另一个用途的兜底标题。
+- **如何核实**：真实 `agentWorld`、真实设置/文件服务与内核，本机端点，不调用真实模型。命令：`bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t18-impl/runtime-smoke.ts fallback`。输出：`{"scenario":"fallback","meta":{"title":"a","description":null},"expected":"a b"}`。
+- **建议改法**：读取第一条输入时保留原文，兜底路径先折叠空白再取 30 个字符；只有构造模型材料时才分别截取 2000 个字符。把跨过材料截断边界的空白加入输出 11 的行为测试。
+
+### 2. 日志关闭失败会跳过撤回等待者的放行，插件停止挂住
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-harness/src/kernel/session/session.ts:723-736`，`packages/nb-harness/src/kernel/session/agent-host.ts:100-105`。
+- **现象**：运行中撤回扩展后，同时关闭会话；`store.close()` 释放底层句柄后抛错，`host.close()` 已经 reject，运行也已 `interrupted`，但 `host.extensions.revoke()` 永远 pending。`releaseSettledWaiters` 放在会抛错的 `await store.close()` 后面，因此走不到。`AgentHost.close` 已把会话从表里移除，后续关闭也不会再放行这批等待者。
+- **为什么是问题**：新修正承诺关闭时照常收口并把错误交回调用方（`harness/runtime.md` 输出 75），扩展撤回又承诺在会话关闭后完成（同文件输出 57、`ExtensionReceiver.revoke`）。真实 JSONL 的 `file.close()` 或锁释放可抛错；底层已经释放锁不等于上层插件停止已经完成。另一个收尾错误也会覆盖 try 中的原始错误，主故障丢失。
+- **如何核实**：命令 `bun /tmp/review-t18-impl/close-failure.ts`，真实 `createAgentHost`、运行循环、扩展撤回与关闭接口；只在公开 `LogStore` seam 包一层可失败的 close，底层正常 close 后抛 `store-close-error`，没有伪造内核事件。输出 `{"error":"store-close-error","revokeSettled":false,"runReason":"interrupted"}`；`clock.advance(0)` 排空后撤回仍未完成。
+- **建议改法**：把 `releaseSettledWaiters` 放进包围 `core.close` 与 `store.close` 的最内层 finally，任何清理失败都必须执行；显式保留第一个错误，次生清理错误附为 cause/AggregateError 或诊断。补上“关闭端口失败仍能完成撤回”的公开行为测试。
+
+### 3. 复用标题会话只校验创建时的 Profile，changeProfile 后会把材料交给主创及其工具
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/session-meta.ts:145-151`。
+- **现象**：标题会话创建时的 `header.profile` 永远是 `nbook.agent.session-title`；经公开 `changeProfile` 把它换成主创后，快照的 `profile.id` 已是 `nbook.agent.main`，但冲突检查仍通过。随后自动生成把原会话材料发到主创模型，实际工具集为 `yield、read、write、grep、glob、edit、shell`，tiny 端点没有收到请求。
+- **为什么是问题**：违反 `builtin-profiles.md` 的标题会话模型/工具合同与 `session-meta-conflict` 的“不往不匹配的会话发内容”。Profile 是可变的，会话头只记初始值（内核 `session.ts` 打开时也按最后一条 `profileChanged` 取当前 Profile）；这里只看头不能验证实际运行的 Profile。其它插件经 `AgentService.session()`、用户经远程 `changeProfile` 都能产生此状态，不需要改日志或内部变量。
+- **如何核实**：`bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t18-impl/runtime-smoke.ts changed-title-profile`。真实服务端与公开命令。输出确认 `header="nbook.agent.session-title"`、`current="nbook.agent.main"`；源会话一轮后主模型共收到 3 次请求，其中 2 次带 `<conversation>` 且工具集多出上述 6 个文件/执行工具；`tinyRequests=0`，诊断为 `session-meta-failed`，没有报冲突。
+- **建议改法**：核对快照当前的 `profile.id` 与后台标记；在同一个受控的会话操作里校验与发送，或在这一内部标题会话上禁止外部换 Profile，消除检查与 send 之间再次换 Profile 的窗口。测试覆盖“初始 Profile 正确、当前 Profile 已改变”的复用冲突，而不仅是创建时就占错 id。
+
+### 未发现问题的方面
+
+- `backend/docs-root.ts`、`scripts/agent-docs.ts` 与 `pack-app.ts` 的开发 `dist/docs` 和打包 `docs/` 布局吻合；`docs://agent/addresses.md` 确实存在。主创提示词引用的 `project://`、`session://`、`tmp://`、shell 工作目录及 `builtin-tools.md` 的替换规则一致。
+- `rules.ts` 按 `ResourceReadError.code` 分类；普通 `Error` 都报告 `rules-unreadable`，未发现按错误文案分支。规则片中含 `</user_rules>` 可以闭合外层标记并注入额外标签，但这里由开发者明确接受书中 AGENTS.md 可带指令，且材料输入/提示词约束与设计决定一致，不列为实现偏差。
+- Profile 声明的 `role`、`hidden`、`defaultTools` 沿插件声明路径接到模型角色、目录标志、工具集；用户级 Profile 没有 `AgentProfileDeclaration`，保留它自己的工具需求及 `profileSettings` role/model 路径符合合同。`SESSION_META_TAG` 由 session-title 模块导出供宿主触发器排除，未发现有实际循环依赖或跨包深导入。
+- `setGeneratedMeta` 的写入经 `accept`，重放沿用 `commandAccepted` 的 `argsHash` 与 `value`；`titleBy` 由 `titleChanged.by` 日志归约恢复。`SessionApi.as(issuer)` 与 `AgentService.session()` 可触达宿主命令，但 `agentKey` 按既有合同允许同进程插件任意身份与能力；此处不构成远程暴露，因为 `hostOnlyCommands` 已从两端远程派发表排除。
+- 停止正常路径、生成请求中的停止、空闲 30 秒后标题会话触发、关闭中请求被停止门拒绝均以真实插件宿主复现通过。`waitRun` 不经 `accept` 避免 stop 等待环；`table.view` 懒打开、引用持有与关闭完成后重开在验证路径中按预期工作。`fork` 新会话事件路径会重新产生标题；回退不撤销 session 级标题与说明，符合合同。
+- `3a12017ed` 的模型解析异常在终止反应中被捕获，`core.head` 指向终止批提交后的当前头；直接运行 99 条内核相关测试与 39 条 Agent 相邻测试均通过。类型检查命令 `bun run --cwd packages/nb-harness typecheck && bun run --cwd packages/neuro-book typecheck` 完成；`git diff --check 0d4e3798e f2d0391eb -- packages` 无输出。
+- 测试的主要缺口包括：新增标题会话仅检查 header Profile/background、未检查当前 Profile（已列为发现 3）；兜底标题未覆盖折叠空白跨过 2000 字符边界（已列为发现 1）；关闭 Store 抛错时释放撤回等待者未测（已列为发现 2）。其余规则读取、默认工具、角色覆盖、`hidden`、出站说明文字过滤、压缩说明更新、后台目录过滤、旧索引兼容与测试服务器布局均有对应测试。标题触发器使用 `TestSession` 的那一条只验证真实内核对 `turnEnded`/`compaction` 的事件语义，插件级行为另以真实 `agentWorld` 和本机 HTTP 端点覆盖；未发现固定非零等待。
+
+### 分级数量
+
+- 有效发现 3 条：阻断 0 条，重要 3 条，建议 0 条。有效发现编号：1–3。

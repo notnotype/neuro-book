@@ -67,7 +67,7 @@ t05、t12、t15。
 
 ## 当前状态
 
-切片 0 到 5 都已提交（分支 `feat/w00032-t18-builtin-profiles`，`115ad3f43` 到 `f2d0391eb`，未合入）。实现审查进行中。
+实现、审查与收口验证都做完了（分支 `feat/w00032-t18-builtin-profiles`）。实现审查 3 条都修了：[evidences/impl-review-disposition.md](evidences/impl-review-disposition.md)；验证：[evidences/closing-verification.txt](evidences/closing-verification.txt)。待合入，Spec 待开发者批准晋升。
 
 实施中的发现与变化：
 
@@ -77,4 +77,4 @@ t05、t12、t15。
 
 ## 下一步
 
-处理实现审查的结果，收口验证，合入。
+开发者批准后晋升 Spec，清理 worktree。主创提示词之后按实际创作继续改（决定 13）。
