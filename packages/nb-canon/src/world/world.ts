@@ -190,7 +190,6 @@ export class World {
         return new World(this.data, engine, this.revisions, this.index, options);
     }
 
-    /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
     /** 这份世界在一个模式上的时间状态（canon.time）：网络、整条线上的时间待处理；按数据、设置与模式缓存。 */
     time(mode: Mode = "actual"): TimeState {
         const order = this.options.order;
@@ -198,6 +197,7 @@ export class World {
         return timeState(this.data, timeInputOf(this.data, order), this.options.time ?? DEFAULT_TIME, mode, plans);
     }
 
+    /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
     pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem)[] | "chapter-not-found" {
         const items = this.engine.pending(position, mode);
         if (items === "chapter-not-found") return items;

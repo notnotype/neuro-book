@@ -271,10 +271,27 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         return null;
     }
 
-    function latestMismatch(checks: readonly CheckResult[], at: Address): number | undefined {
-        let latest: CheckResult | undefined;
-        for (const result of checks) if (result.check.at.entry === at.entry && result.check.at.path === at.path) latest = result;
-        return latest?.result === "mismatch" ? latest.check.value : undefined;
+    let checksByAddress: Map<string, Array<{check: Check; point: Point}>> | undefined;
+    /**
+     * 这个位置之前对这个地址最近一次核对不符时正文写的数（model.md 输出 11）。只求这个地址自己的核对点：读一个条目时不必把全书的
+     * 核对点都求一遍。`exactChecks` 按先后排好，按地址分出来的每一组也是有序的，排在位置之前的是一段前缀。
+     */
+    function textSaysAt(rank: Rank, at: Address): number | undefined {
+        if (checksByAddress === undefined) {
+            checksByAddress = new Map();
+            for (const item of exactChecks()) {
+                const key = addressKey(item.check.at);
+                const list = checksByAddress.get(key);
+                if (list === undefined) checksByAddress.set(key, [item]);
+                else list.push(item);
+            }
+        }
+        const list = checksByAddress.get(addressKey(at)) ?? [];
+        for (let index = list.length - 1; index >= 0; index -= 1) {
+            if (!rankBefore(list[index]!.point.rank, rank)) continue;
+            return evaluate(list[index]!).result === "mismatch" ? list[index]!.check.value : undefined;
+        }
+        return undefined;
     }
 
     /** 时间线里第一个不早于 `point` 的位置（按事件先后二分）。 */
@@ -394,7 +411,6 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             if (entry === undefined) return null;
             const snapshot = snapshotFor(mode, rank);
             const fold = foldAtPoint(snapshot, world, registry, id, {rank, tie: {version: -Infinity, id: ""}, inclusive: false});
-            const checks = checksBefore(rank);
             const point = {rank, tie: {version: -Infinity, id: ""}, inclusive: false};
             const nameOf = (other: string) => {
                 const referenced = world.entries.get(other);
@@ -402,7 +418,7 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
                 if (referenced.deleted === true) return {name: referenced.init.name, deleted: true};
                 return {name: foldAtPoint(snapshot, world, registry, other, point)?.state.name ?? referenced.init.name, deleted: false};
             };
-            return buildEntryView(entry, fold, rank, {order, registry, reductions: inputs.reductions, textSays: (at) => latestMismatch(checks, at), upcoming: (namespace) => upcoming(id, namespace, rank), nameOf});
+            return buildEntryView(entry, fold, rank, {order, registry, reductions: inputs.reductions, textSays: (at) => textSaysAt(rank, at), upcoming: (namespace) => upcoming(id, namespace, rank), nameOf});
         },
 
         origins(at, position, mode) {
