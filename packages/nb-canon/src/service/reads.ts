@@ -9,6 +9,7 @@
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry, type MarkType} from "../components/marks";
 import {effectiveFields} from "../components/registry";
 import {deepFreeze} from "../core/freeze";
+import {DEFAULT_TIME} from "../time/network";
 import {compareIds} from "../core/ids";
 import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
 import type {Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
@@ -186,8 +187,9 @@ export function readStampOf(world: World, chapterDigest: (chapter: string) => st
             diagnostics: [...(world.options.diagnostics?.versions ?? [])].map(([id, version]) => [id, version]),
         },
         pluginData: [...pluginData].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([plugin, version]) => [plugin, version]),
-        calendar: null,
-        fuzzy: null,
+        // 历法与词表按内容取摘要（model.md 输出 36）：作者改了历法没加版本号，缓存与游标照样作废。没给时用内置的那一份。
+        calendar: digest(canonicalJson((world.options.time ?? DEFAULT_TIME).calendar)),
+        fuzzy: digest(canonicalJson((world.options.time ?? DEFAULT_TIME).fuzzy)),
     }));
     return Object.freeze({version: world.version, textDigest, inputDigest});
 }

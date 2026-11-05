@@ -10,6 +10,8 @@
  *   所以补上以后不必重建引擎。
  */
 
+import {GREGORIAN, resolveFuzzy, validateCalendar, type Calendar, type CalendarProblem, type FuzzyProblem} from "@notnotype/nb-time";
+
 import {EMPTY_DIAGNOSTIC_REGISTRY, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/marks";
 import type {ComponentRegistry} from "../components/registry";
@@ -95,6 +97,10 @@ export type ServiceDiagnostic =
     | {readonly code: "duplicate-version"}
     | {readonly code: "external-change"; readonly message: string}
     | {readonly code: "reduction-cache-bad-line"; readonly line: number}
+    /** 作品设置里的历法不合法（canon.time 输出 13、16）：`using` 是现在用的那一份。 */
+    | {readonly code: "calendar-invalid"; readonly problems: readonly CalendarProblem[]; readonly using: "previous" | "builtin"}
+    /** 模糊词表里某一项不合法，作废（canon.time 输入表）。 */
+    | {readonly code: "fuzzy-word-invalid"; readonly problems: readonly FuzzyProblem[]}
     | {readonly code: "reduce-failed"; readonly message: string};
 
 export const LEASE_MS = 60_000;
@@ -188,6 +194,10 @@ export class WorldService {
     /** 讲述按正文快照与当前章序定位（model.md 输出 24、26）；结果按章与那一章的正文缓存。 */
     readonly #locator = new TellingLocator((chapter) => this.#texts.get(chapter)?.text, () => this.#world.options.order);
     readonly diagnostics: ServiceDiagnostic[];
+    /** 历法与词表的诊断（`setTime` 整份重算）。 */
+    #timeDiagnostics: ServiceDiagnostic[] = [];
+    /** 最近一次合法的历法（canon.time 输出 16）。 */
+    #lastValidCalendar: Calendar | null = null;
     readonly #ports: ServicePorts;
 
     private constructor(ports: ServicePorts, world: World, tail: Tail, readOnly: string | null, diagnostics: ServiceDiagnostic[], reductions: Map<string, string>) {
@@ -261,7 +271,7 @@ export class WorldService {
             state: this.#state,
             ...(this.#readOnlyReason === null ? {} : {reason: this.#readOnlyReason}),
             exclusive: this.#lease === null ? null : {label: this.#lease.label, since: this.#lease.since},
-            diagnostics: [...this.diagnostics, ...this.#world.options.registry.diagnostics, ...(this.#world.options.marks ?? EMPTY_MARK_REGISTRY).diagnostics, ...(this.#world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).diagnostics],
+            diagnostics: [...this.diagnostics, ...this.#timeDiagnostics, ...this.#world.options.registry.diagnostics, ...(this.#world.options.marks ?? EMPTY_MARK_REGISTRY).diagnostics, ...(this.#world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY).diagnostics],
             /** 最近几次插件诊断的计算耗时，超过 200 毫秒的标 `slow`（project.md 输出 26）。 */
             diagnosticTimings: this.#timings.map((timing) => ({...timing, ...(timing.ms > SLOW_DIAGNOSTIC_MS ? {slow: true as const} : {})})),
             /** 当前打开的视图数（project.md 输出 26）：看令牌有没有随调用方收口。 */
@@ -863,6 +873,35 @@ export class WorldService {
      * 校验、提示与读取输入的摘要，不重算。排进写入队列：正在落盘的发布完成时会换上它算出的世界，登记要在它之后换，
      * 否则被盖掉。
      */
+    /**
+     * 作品设置里的历法与模糊词表变了（canon.time 输出 4、13、16）：历法合法就用它并记成“最近一次合法的”；不合法就用最近一次合法的，
+     * 从来没有合法的用内置公历，诊断写明用的是哪一份。词表不合法的项作废。诊断每次整份重算，设置修好以后消失。范围、打架与依据都按
+     * 新的重算（换一份世界，读取输入的摘要随之变）。`previous` 是宿主存下的最近一次合法的历法（输出 16 的持久化由宿主做）。
+     */
+    setTime(raw: {readonly calendar?: unknown; readonly fuzzy?: unknown; readonly previous?: Calendar}): Promise<{readonly calendar: Calendar; readonly valid: boolean}> {
+        const run = () => {
+            if (raw.previous !== undefined && this.#lastValidCalendar === null && validateCalendar(raw.previous).ok) this.#lastValidCalendar = raw.previous;
+            const checked = raw.calendar === undefined ? null : validateCalendar(raw.calendar);
+            const diagnostics: ServiceDiagnostic[] = [];
+            let calendar: Calendar;
+            if (checked === null || checked.ok) {
+                calendar = checked === null ? (this.#lastValidCalendar ?? GREGORIAN) : checked.calendar;
+                if (checked !== null) this.#lastValidCalendar = calendar;
+            } else {
+                calendar = this.#lastValidCalendar ?? GREGORIAN;
+                diagnostics.push({code: "calendar-invalid", problems: checked.problems, using: this.#lastValidCalendar === null ? "builtin" : "previous"});
+            }
+            const fuzzy = resolveFuzzy(raw.fuzzy, calendar);
+            if (fuzzy.problems.length > 0) diagnostics.push({code: "fuzzy-word-invalid", problems: fuzzy.problems});
+            this.#timeDiagnostics = diagnostics;
+            this.#world = this.#world.withOptions({...this.#world.options, time: {calendar, fuzzy: fuzzy.table}});
+            return {calendar, valid: checked === null || checked.ok};
+        };
+        const next = this.#queue.then(run, run);
+        this.#queue = next.then(() => undefined, () => undefined);
+        return next;
+    }
+
     setRegistries(registries: {readonly registry?: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<void> {
         const run = () => {
             this.#noteDiagnostics(registries.diagnostics);

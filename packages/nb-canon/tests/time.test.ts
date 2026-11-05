@@ -1,11 +1,15 @@
 import {createHash} from "node:crypto";
 
+import {rm} from "node:fs/promises";
+
 import {describe, expect, test} from "bun:test";
 import {GREGORIAN, type Calendar} from "@notnotype/nb-time";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {buildRegistry, ChapterOrder, type Entry, type StoryChangeDraft, type WriteRequest} from "../src/index";
 import {World, type WorldOptions, type WriteResult} from "../src/world/world";
 import {DEFAULT_TIME} from "../src/time/network";
+import {openTestService} from "./fixtures/service";
 import {PERSON} from "./fixtures/world";
 
 const TEXT: Record<string, string> = {ch1: "那天下了雨。", ch2: "三天后她走了。"};
@@ -95,5 +99,68 @@ describe("canon.revisions 输出 12 的时间部分：说法指的变更是引�
         const later = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:z"}, after: change("tmp:z", {kind: "chapter", chapter: "ch2", key: 0}, {when: [{kind: "after", of: y, basis: author}]})}], 2), "t"));
         expect(later.world.dependents(created.revision.id)).toEqual([created.revision.id, later.revision.id]);
         expect(c1).toBeString();
+    });
+});
+
+describe("canon.model 输出 16、canon.time 输出 2、3、5、14：时间的待处理", () => {
+    const at = (chapter: string, key: number) => ({kind: "chapter" as const, chapter, key});
+    /** 第 1 章：a 在 b 之后三天、b 在 a 之后（打架）；一条日期写了不存在的月（不成立）。第 2 章一件说在第 1 章那件之前一年（对不上）。 */
+    test("打架、不成立、对不上各成一项，排在内核的几种之后；随读取位置截取：所涉的事都在读取位置之前的才列", () => {
+        const {world, c1} = start();
+        const day = {min: 3, max: 3, unit: "day" as const};
+        const conflict = ok(world.publish(request([
+            {ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", at("ch1", 10), {when: [{kind: "after", of: "tmp:b", gap: day, basis: author}]})},
+            {ref: {kind: "change", id: "tmp:b"}, after: change("tmp:b", at("ch1", 20), {when: [{kind: "after", of: "tmp:a", basis: author}]})},
+            {ref: {kind: "change", id: "tmp:bad"}, after: change("tmp:bad", at("ch1", 30), {when: [{kind: "date", year: 2012, month: "m13", basis: author}]})},
+            {ref: {kind: "change", id: "tmp:late"}, after: change("tmp:late", at("ch2", 0), {when: [{kind: "before", of: c1, gap: {min: 1, max: 1, unit: "year"}, basis: author}]})},
+        ], 1), "t"));
+        const kinds = (position: Parameters<World["pending"]>[0]) => {
+            const items = conflict.world.pending(position);
+            return items === "chapter-not-found" ? [] : items.map((item) => item.kind);
+        };
+        expect(kinds({kind: "chapter", chapter: "ch2", edge: "end"}).sort()).toEqual(["time-conflict", "time-invalid", "time-placement-mismatch"]);
+        // 第 1 章末尾：对不上牵涉第 2 章那件，还没到。
+        expect(kinds({kind: "chapter", chapter: "ch1", edge: "end"}).sort()).toEqual(["time-conflict", "time-invalid"]);
+        expect(conflict.revision.impact.pendingAdded.filter((key) => key.startsWith("time-")).map((key) => key.split(":")[0])).toEqual(["time-conflict", "time-invalid", "time-mismatch"]);
+    });
+
+    test("改历法：存下来的说法不改，范围与不成立按新的重算（输出 4）", () => {
+        const {world} = start();
+        const without = world.withOptions({...world.options, time: {...DEFAULT_TIME, calendar: {...GREGORIAN, months: GREGORIAN.months.filter((month) => month.id !== "m6"), leap: []}}});
+        const items = without.pending({kind: "chapter", chapter: "ch2", edge: "end"});
+        expect(items !== "chapter-not-found" && items.map((item) => [item.kind, "reason" in item ? item.reason : null])).toEqual([["time-invalid", "month-missing"]]);
+        expect(world.pending({kind: "chapter", chapter: "ch2", edge: "end"})).toEqual([]);
+    });
+
+    test("章序调整让安放与时间对不上：记进那次修订的带来的变化", () => {
+        const {world, c1} = start();
+        const later = ok(world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", at("ch2", 0), {when: [{kind: "after", of: c1, gap: {min: 1, max: 1, unit: "day"}, basis: author}]})}], 1), "t"));
+        const swapped = later.world.reorder(new ChapterOrder(["ch2", "ch1"]), "t", "swap");
+        if (swapped === null || !swapped.ok) throw new Error("no reorder");
+        expect(swapped.revision.impact.pendingAdded).toEqual([`time-mismatch:${c1}`]);
+    });
+});
+
+describe("canon.time 输出 13、16：作品设置里的历法", () => {
+    test("不合法时用内置公历并给诊断；合法以后用它；再不合法时用最近一次合法的；词表不合法的项作废；修好以后诊断消失", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "settings");
+        const service = await openTestService(root, {texts: new Map([["ch1", "那天下了雨。"]]), chapters: ["ch1"], registry: buildRegistry([PERSON])});
+        try {
+            const codes = () => service.status().diagnostics.flatMap((item) => (item.code === "calendar-invalid" ? [`calendar-invalid:${item.using}`] : item.code === "fuzzy-word-invalid" ? ["fuzzy-word-invalid"] : []));
+            const royal: Calendar = {...GREGORIAN, version: 2, eras: [{id: "royal", name: "王历", start: 1}]};
+            expect(await service.setTime({calendar: {...royal, months: []}})).toMatchObject({calendar: GREGORIAN, valid: false});
+            expect(codes()).toEqual(["calendar-invalid:builtin"]);
+            const before = service.snapshot().stamp.inputDigest;
+            expect((await service.setTime({calendar: royal, fuzzy: {words: {片刻: {min: 9, max: 1, unit: "minute"}}}})).valid).toBe(true);
+            expect(codes()).toEqual(["fuzzy-word-invalid"]);
+            expect(service.snapshot().stamp.inputDigest).not.toBe(before);
+            expect(await service.setTime({calendar: {...royal, version: 0}})).toMatchObject({calendar: royal, valid: false});
+            expect(codes()).toEqual(["calendar-invalid:previous"]);
+            await service.setTime({calendar: royal});
+            expect(codes()).toEqual([]);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
     });
 });

@@ -11,6 +11,7 @@ import {placementRank, type ChapterOrder} from "../core/position";
 import type {ObjectRef, Placement, Telling} from "../core/schema";
 import {stableStringify} from "../core/stable-json";
 import type {PendingItem} from "../engine/types";
+import {timeItemChanges, timeItemKey, type TimePendingItem} from "../time/state";
 import {namespaceAvailability} from "../model/apply";
 import {marksIn} from "../world/references";
 import type {LostReason, Occurrence, TellingLocator} from "../world/tellings";
@@ -27,7 +28,7 @@ export type CanonHint =
 
 /** 三组里的一项。插件的发现带诊断 id 与级别；已处理组里的带处理它的决策，旧版本的决策放在 `earlierDecision`。 */
 export type GroupItem =
-    | {readonly kind: "canon"; readonly item: PendingItem}
+    | {readonly kind: "canon"; readonly item: PendingItem | TimePendingItem}
     | {readonly kind: "hint"; readonly hint: CanonHint}
     | {
           readonly kind: "finding";
@@ -98,12 +99,12 @@ export function sortGroup(items: Sortable[]): GroupItem[] {
 }
 
 /** 待处理组里内核各种项的先后；插件的发现排在最后（输出 16）。 */
-export const PENDING_GROUP_ORDER = {"check-mismatch": 0, "cannot-apply": 1, held: 2, "chapter-deleted": 3, finding: 6} as const;
+export const PENDING_GROUP_ORDER = {"check-mismatch": 0, "cannot-apply": 1, held: 2, "chapter-deleted": 3, "time-conflict": 5, "time-invalid": 5, "time-placement-mismatch": 5, finding: 6} as const;
 /** 提示组里的先后：讲述失联、原句重复、标注与 Component 的版本与类型不在、插件的诊断。 */
 export const HINT_GROUP_ORDER = {"telling-lost": 0, "duplicate-quote": 1, mark: 2, finding: 5} as const;
 
 /** 内核自己的待处理项的排序位置与排序 id（输出 16：核对点取比较时点，按根因合并的取最早那条的安放）。 */
-export function sortableCanonItem(world: World, item: PendingItem): Sortable {
+export function sortableCanonItem(world: World, item: PendingItem | TimePendingItem): Sortable {
     const order = world.options.order;
     const changeAt = (id: string) => world.data.changes.get(id)?.at;
     let position: SortPosition = null;
@@ -119,6 +120,10 @@ export function sortableCanonItem(world: World, item: PendingItem): Sortable {
     } else if (item.kind === "held") {
         position = placementPosition(order, changeAt(item.change));
         sortId = item.change;
+    } else if (item.kind === "time-conflict" || item.kind === "time-invalid" || item.kind === "time-placement-mismatch") {
+        // 涉及几件事的取其中最早的安放（输出 16）；排序 id 是项的键。
+        position = timeItemChanges(item).map((id) => placementPosition(order, changeAt(id))).reduce<SortPosition>((earliest, next) => (comparePositions(next, earliest) < 0 ? next : earliest), null);
+        sortId = timeItemKey(item);
     } else {
         sortId = item.ref.id;
     }

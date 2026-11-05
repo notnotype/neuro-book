@@ -19,6 +19,7 @@ import {addressKey, parsePath} from "../core/address";
 import {deepFreeze} from "../core/freeze";
 import {DEFAULT_TIME, type TimeSettings} from "../time/network";
 import {placePrehistory} from "../time/prehistory";
+import {timeItemKey, timeState, truncateTime, type TimePendingItem, type TimeState} from "../time/state";
 import {RESERVED_ROOTS} from "../core/identifiers";
 import {idListsOf} from "../core/id-lists";
 import {compareIds, ID_PREFIX, IdAllocator} from "../core/ids";
@@ -190,7 +191,14 @@ export class World {
     }
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
-    pending(position: ReadPosition, mode: Mode = "actual"): readonly PendingItem[] | "chapter-not-found" {
+    /** 这份世界在一个模式上的时间状态（canon.time）：网络、整条线上的时间待处理；按数据、设置与模式缓存。 */
+    time(mode: Mode = "actual"): TimeState {
+        const order = this.options.order;
+        const plans = mode === "planned" ? [...this.data.changes.values()].filter((change) => change.kind === "plan" && change.status === "active" && this.engine.progress(change.id, defaultPosition(order)) === "unfulfilled").map((change) => change.id) : [];
+        return timeState(this.data, timeInputOf(this.data, order), this.options.time ?? DEFAULT_TIME, mode, plans);
+    }
+
+    pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem)[] | "chapter-not-found" {
         const items = this.engine.pending(position, mode);
         if (items === "chapter-not-found") return items;
         const grouped: PendingItem[] = [];
@@ -210,7 +218,9 @@ export class World {
                 grouped.push({kind: "cannot-apply", root, changes: created.changes});
             }
         }
-        return grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
+        const canon = grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
+        // 时间的几种（canon.time 输出 2、3、5）：整条线算一次，随读取位置截取（输出 14）。
+        return [...canon, ...truncateTime(this.time(mode).items, (id) => this.data.changes.get(id)?.at, this.options.order, position)];
     }
 
     /** 预览：做发布的全部计算，不发布（输出 5）。 */
@@ -457,7 +467,7 @@ export class World {
         if (decisions !== null && decisions.required.length > 0) return {ok: false, failure: {code: "author-source-required", needed: decisions.required}};
 
         const where = whereOf(request.chapter, this.options.order);
-        const impact = computeImpact(this, data, engine, where, ops);
+        const impact = computeImpact(this, data, engine, where, ops, this.options);
         const revision: Revision = {
             id: allocator.next(ID_PREFIX.revision),
             version,
@@ -503,7 +513,7 @@ export class World {
             title: "章序调整",
             baseVersion: this.version,
             ops: [{kind: "chapters", before: [...(recorded ?? [])], after: [...order.ids]}],
-            impact: computeImpact(this, moved.data, moved.engine, whereOf(undefined, order), []),
+            impact: computeImpact(this, moved.data, moved.engine, whereOf(undefined, order), [], options),
         };
         const data: WorldData = {...moved.data, version};
         const engine = moved.engine.update(engineInputs(data, options), {});
@@ -1283,8 +1293,47 @@ function statementProblems(ref: ObjectRef, change: StoryChange, previous: readon
     return problems;
 }
 
+/** 时间层的输入（canon.time）。 */
+function timeInputOf(data: WorldData, order: ChapterOrder) {
+    return {changes: data.changes, entries: data.entries, order, createdAt: data.createdAt};
+}
+
+const timeReferences = new WeakMap<WorldData, {readonly changes: ReadonlySet<string>; readonly entries: ReadonlySet<string>}>();
+/** 一份数据里被说法指到的变更（`of`）与条目（`who`），按数据对象缓存。 */
+function referencedByTime(data: WorldData) {
+    let found = timeReferences.get(data);
+    if (found === undefined) {
+        const changes = new Set<string>();
+        const entries = new Set<string>();
+        for (const change of data.changes.values()) {
+            for (const statement of change.when ?? []) {
+                if ("of" in statement) changes.add(statement.of);
+                if ("who" in statement) entries.add(statement.who);
+            }
+        }
+        found = {changes, entries};
+        timeReferences.set(data, found);
+    }
+    return found;
+}
+
+/**
+ * 这次写入碰没碰到与时间相关的对象（canon.time 输出 14、P4 第 4 条）：改前或改后带说法的变更、被某条说法的 `of` 指到的变更、被
+ * `who` 指到的条目。碰不到的写入不改变时间的待处理，不必为新数据建网。
+ */
+function touchesTime(before: WorldData, after: WorldData, ops: readonly Op[]): boolean {
+    const [old, now] = [referencedByTime(before), referencedByTime(after)];
+    return ops.some((op) => {
+        if (op.kind === "chapters") return true;
+        const id = op.ref.id;
+        if (op.ref.kind === "change") return (before.changes.get(id)?.when?.length ?? 0) > 0 || (after.changes.get(id)?.when?.length ?? 0) > 0 || old.changes.has(id) || now.changes.has(id);
+        if (op.ref.kind === "entry") return old.entries.has(id) || now.entries.has(id);
+        return false;
+    });
+}
+
 /** 带来的变化：待处理的增减、相关地址的改前改后、让后面哪些变更套不上（revisions.md 输出 4、6）。 */
-function computeImpact(before: World, data: WorldData, engine: IncrementalEngine, where: ReadPosition, ops: readonly Op[]): Revision["impact"] {
+function computeImpact(before: World, data: WorldData, engine: IncrementalEngine, where: ReadPosition, ops: readonly Op[], options: WorldOptions): Revision["impact"] {
     const key = (item: PendingItem) => (item.kind === "check-mismatch" ? `check:${item.check}` : item.kind === "cannot-apply" ? `cannot:${item.changes[0]!}` : item.kind === "held" ? `held:${item.change}` : `deleted:${item.ref.kind}:${item.ref.id}`);
     const was = before.engine.pending(where);
     const now = engine.pending(where);
@@ -1336,6 +1385,12 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
     const broken: string[] = [];
     for (const change of data.changes.values()) {
         if (before.engine.outcome(change.id)?.applied === true && engine.outcome(change.id)?.applied === false) broken.push(change.id);
+    }
+    // 时间的几种按整条线算、不截取（canon.time 输出 14）；只在这次碰到与时间相关的对象或调整了章序时为新数据建网。
+    if (options.order !== before.options.order || touchesTime(before.data, data, ops)) {
+        for (const item of before.time("actual").items) wasKeys.add(timeItemKey(item));
+        const settings = options.time ?? DEFAULT_TIME;
+        for (const item of timeState(data, timeInputOf(data, options.order), settings, "actual", []).items) nowKeys.add(timeItemKey(item));
     }
     return {
         where,
