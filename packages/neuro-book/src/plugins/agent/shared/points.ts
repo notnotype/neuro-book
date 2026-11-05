@@ -67,6 +67,8 @@ const ProfileDeclarationSchema = Type.Object({
     role: Type.Optional(Type.String({minLength: 1})),
     /** 不给人选：仍在目录里，选 Profile 的界面不列出（输出 7）。 */
     hidden: Type.Optional(Type.Boolean()),
+    /** 图标 class，例如 `i-lucide-feather`；会话面板与对话顶栏用，缺省用通用图标。 */
+    icon: Type.Optional(Type.String({minLength: 1})),
     /** `false`：不加 `defaultForAll` 的工具（输出 4）。 */
     defaultTools: Type.Optional(Type.Literal(false)),
 }, {additionalProperties: false});

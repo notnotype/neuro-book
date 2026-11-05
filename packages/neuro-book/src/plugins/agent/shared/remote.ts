@@ -115,6 +115,8 @@ const wholeErrors = errorsOf([...OPEN_CODES, "result-too-large"] as const);
 export type LogItem = {readonly kind: "event"; readonly event: LogEvent} | {readonly kind: "oversized"; readonly seq: number; readonly type: string; readonly bytes: number};
 export type PreviewItem = {readonly kind: "inline"; readonly preview: PreviewResult} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
 
+export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting"};
+
 /** 审批预览（builtin-tools.md 输出 26）：按文件分组。 */
 export type ApprovalPreview = {readonly files: ReadonlyArray<{readonly address: string; readonly kind: "diff"; readonly before: string; readonly after: string} | {readonly address: string; readonly kind: "too-large"; readonly bytes: number} | {readonly address: string; readonly kind: "failed"; readonly code: string}>};
 /** 放不进一条消息时和 `preview` 一样经 `previewChunk` 分段读。 */
@@ -161,6 +163,8 @@ const methods = {
         effect: "read",
         errors: errorsOf([...OPEN_CODES, "unknown-interaction"] as const),
     },
+    /** 运行中与等用户的前台会话（sessions.md 输出 15）：先订阅事件 `activityChanged`，再取这份。 */
+    activity: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ActivityItem[]>(Type.Array(Type.Unknown())), effect: "read"},
     /** 按页读诊断：`after` 是上一页最后一条的 id（诊断按 id 合并、按出现先后排）；长文字截短。 */
     diagnostics: {
         input: Type.Object({...BySession, afterSeq: Type.Optional(Type.Integer({minimum: 0})), extension: Type.Optional(Type.String()), level: Type.Optional(Type.Unsafe<DiagnosticLevel>(Type.String())), after: Type.Optional(Type.String())}, {additionalProperties: false}),
@@ -200,6 +204,7 @@ const methods = {
 const events = {
     /** 先订阅、再用 `log` 补到 `through`；`onResync` 时按最后收到的 seq 再补（sessions.md 输出 7、8）。 */
     frames: {filter: Type.Object(BySession, {additionalProperties: false}), payload: object<RemoteFrame>()},
+    activityChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Unsafe<readonly ActivityItem[]>(Type.Array(Type.Unknown()))},
 } as const;
 
 export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessions", version: 1, provider: "server", callers: ["browser"], methods, events});

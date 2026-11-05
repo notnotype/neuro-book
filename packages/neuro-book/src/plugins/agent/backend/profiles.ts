@@ -72,6 +72,7 @@ export class ProfileCatalog {
             source: descriptor.plugin,
             ...availability(descriptor.declaration.tools),
             ...(descriptor.declaration.hidden === true ? {hidden: true as const} : {}),
+            ...(descriptor.declaration.icon === undefined ? {} : {icon: descriptor.declaration.icon}),
         }));
         const pluginKeys = new Set(fromPlugins.map((entry) => entry.key));
         const fromUser = (this.#user?.list() ?? []).map((profile): ProfileEntry => ({

@@ -38,5 +38,87 @@
                 }
             }
         }
+    },
+    "conversation": {
+        "phase": {
+            "requesting": "请求中",
+            "streaming": "生成中",
+            "tools": "执行工具",
+            "compacting": "正在压缩"
+        },
+        "reject": {
+            "emptyInput": "消息是空的。",
+            "inputTooLarge": "消息太长了。",
+            "inputRejected": "这条消息被规则拦下了。",
+            "readOnly": "这个会话现在只读。",
+            "other": "没发出去（{{code}}）。"
+        },
+        "model": {
+            "none": "还没有可用的模型。",
+            "noCredentials": "模型的密钥没有设置。",
+            "unknown": "这个会话选的模型不存在或用不了。",
+            "roleUnbound": "这个 Profile 要的模型角色还没有绑定模型。",
+            "unavailable": "不可用"
+        },
+        "approval": {
+            "ask": {
+                "label": "每次都问",
+                "description": "读以外的调用都等你批准（默认）"
+            },
+            "allowWrites": {
+                "label": "放行写入",
+                "description": "改文件不问，运行命令还要问"
+            },
+            "yolo": {
+                "label": "全部放行",
+                "description": "都不问，只有拒绝规则能拦"
+            }
+        },
+        "createFailed": "新建会话失败（{{code}}）。",
+        "openFailed": "这个会话打不开（{{code}}）。",
+        "retry": "重试",
+        "archived": "这个会话已归档。",
+        "restore": "恢复",
+        "openSettings": "打开设置",
+        "followDefault": "跟随默认",
+        "activity": {
+            "title": "Agent 活动",
+            "text": "Agent：{{running}} 运行中 · {{waiting}} 等你处理"
+        },
+        "listFailed": "会话列表取不到（{{code}}）。",
+        "pickProfile": "用哪个 Profile？",
+        "renameTitle": "改名",
+        "rename": "改名",
+        "cancel": "取消"
+    },
+    "views": {
+        "conversation": {
+            "title": "对话"
+        },
+        "sessions": {
+            "title": "会话"
+        }
+    },
+    "editorPages": {
+        "conversation": {
+            "title": "Agent 对话"
+        }
+    },
+    "commands": {
+        "open": {
+            "title": "打开对话"
+        },
+        "new-session": {
+            "title": "新建 Agent 会话"
+        },
+        "focus-session": {
+            "title": "切到 Agent 会话"
+        },
+        "category": "Agent"
+    },
+    "state": {
+        "active": {
+            "reason": "没有运行中或等用户的会话"
+        }
     }
 }

@@ -1,5 +1,5 @@
 ---
-标签: [event, state:inject]
+标签: [state:local, state:inject]
 别名: ["向导"]
 ---
 

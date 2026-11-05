@@ -306,6 +306,8 @@ export type ComposerView = {
     approval?: {options: ComposerApprovalOption[]; value: string};
     /** 上次运行被中断：占位文字换掉，发送按钮换成继续，空着也能发。 */
     resume?: boolean;
+    /** 宿主要说的一句，例如发送被拒的原因；显示在输入框上方。 */
+    notice?: Text;
     queued: Array<{id: string; text: string; delivery: "steer" | "followup"}>;
     attachments: ComposerAttachmentView[];
     /** 已发送的内容，最新的在前，供输入历史使用。 */
@@ -510,3 +512,6 @@ export type AgentSessionListItem = {
 };
 
 export type AgentSessionListState = "ready" | "loading" | "error";
+
+/** 会话面板过滤菜单的一项（Profile）。 */
+export type SessionPanelFilter = {id: string; label: string; icon?: string; active: boolean};

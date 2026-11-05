@@ -1,5 +1,5 @@
 ---
-标签: [state:inject, event]
+标签: [state:local, state:inject]
 别名: ["差异视图", "改前改后", "Diff"]
 ---
 

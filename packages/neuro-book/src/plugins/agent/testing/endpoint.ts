@@ -3,8 +3,8 @@
  * 请求挂着、直到测试放行，看运行中的行为。只由测试使用。
  */
 
-/** 一条回复：一段文字、分几块流出的文字、一次工具调用，或一个错误状态码。 */
-export type Scripted = string | {readonly status: number} | {readonly chunks: readonly string[]} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
+/** 一条回复：一段文字、分几块流出的文字、一次或几次工具调用（`chunked`：参数分块流出），或一个错误状态码。 */
+export type Scripted = string | {readonly status: number} | {readonly chunks: readonly string[]} | {readonly tools: ReadonlyArray<{readonly tool: string; readonly args?: Readonly<Record<string, unknown>>}>; readonly chunked?: boolean} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
 
 export interface SeenRequest {
     readonly model: string;
@@ -52,10 +52,19 @@ export function fakeEndpoint(): FakeEndpoint {
             calls += 1;
             if (typeof reply === "object" && "status" in reply) return Response.json({error: {message: "Service overloaded"}}, {status: reply.status});
             const texts = typeof reply === "string" ? [reply] : "chunks" in reply ? reply.chunks : null;
+            const toolCalls = (scripted: {readonly tool: string; readonly args?: unknown}, index: number, chunked: boolean): string[] => {
+                const id = `call-${String(calls)}-${String(index)}`;
+                const args = JSON.stringify(scripted.args ?? {});
+                // 分块时第一块只带名字，参数切成几段：服务商给长参数就是这样流式的。
+                const pieces = chunked ? ["", args.slice(0, Math.ceil(args.length / 2)), args.slice(Math.ceil(args.length / 2))] : [args];
+                return pieces.map((piece, position) => chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [{index, ...(position === 0 ? {id, type: "function"} : {}), function: {...(position === 0 ? {name: scripted.tool} : {}), arguments: piece}}]}, finish_reason: null}]}));
+            };
+            const scriptedCalls = typeof reply === "object" && "tools" in reply ? reply.tools : typeof reply === "object" && "tool" in reply ? [reply] : [];
+            const chunked = typeof reply === "object" && "chunked" in reply && reply.chunked === true;
             const parts = texts !== null
                 ? [...texts.map((text) => chunk({choices: [{index: 0, delta: {role: "assistant", content: text}, finish_reason: null}]})), chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]})]
                 : [
-                    chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [{index: 0, id: `call-${String(calls)}`, type: "function", function: {name: (reply as {tool: string}).tool, arguments: JSON.stringify((reply as {args?: unknown}).args ?? {})}}]}, finish_reason: null}]}),
+                    ...scriptedCalls.flatMap((call, index) => toolCalls(call, index, chunked)),
                     chunk({choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}]}),
                 ];
             return new Response(`${parts.join("")}data: [DONE]\n\n`, {headers: {"content-type": "text/event-stream"}});

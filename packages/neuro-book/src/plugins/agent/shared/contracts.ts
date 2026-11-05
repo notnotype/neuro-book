@@ -26,6 +26,8 @@ export interface ProfileEntry {
     readonly reason?: string;
     /** 不给人选（contributions.md 输出 7）。 */
     readonly hidden?: true;
+    /** 图标 class：会话面板每行与对话顶栏用。 */
+    readonly icon?: string;
 }
 
 export type CreateResult = {readonly ok: true; readonly value: SessionApi} | {readonly ok: false; readonly code: string; readonly detail?: unknown};

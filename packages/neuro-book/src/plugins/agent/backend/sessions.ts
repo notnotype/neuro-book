@@ -41,6 +41,8 @@ interface Entry {
     session: SessionApi | null;
     /** 后台会话不算“正在运行”（sessions.md 的 `running()`）。 */
     background: boolean;
+    /** 运行中还是在等用户；活动条目读它（sessions.md 输出 15）。 */
+    waiting: boolean;
     /** 打开的结果：同时到达的请求等同一个。 */
     ready: Promise<{readonly ok: true} | OpenFailure>;
     refs: number;
@@ -62,6 +64,7 @@ export interface SessionTableOptions {
 }
 
 export class SessionTable {
+    readonly #activityListeners = new Set<() => void>();
     readonly #entries = new Map<string, Entry>();
     /** 已接纳、还没登记进表的操作（建会话与它之后的初始设置）：停止要等它们登记完再关。 */
     readonly #accepted = new Set<Promise<unknown>>();
@@ -93,7 +96,7 @@ export class SessionTable {
         if (!created.ok) return created;
         const session = created.value;
         // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
-        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
         this.#maybeIdle(entry);
@@ -113,6 +116,20 @@ export class SessionTable {
         for (const name of COMMANDS) api[name] = (args: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args: unknown) => Promise<unknown>)(args), "command");
         for (const name of QUERIES) api[name] = (args?: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args?: unknown) => Promise<unknown>)(args), "query");
         return api as unknown as SessionApi;
+    }
+
+    /** 运行中与等用户的前台会话（sessions.md 输出 15）。只看打开着的：同步等待不会被空闲关闭，所以打开着的表就够。 */
+    activity(): {id: string; state: "running" | "waiting"}[] {
+        return [...this.#entries.values()].filter((entry) => entry.state === "open" && !entry.idle && !entry.background).map((entry) => ({id: entry.id, state: entry.waiting ? "waiting" : "running"}));
+    }
+
+    onActivityChanged(listener: () => void): () => void {
+        this.#activityListeners.add(listener);
+        return () => this.#activityListeners.delete(listener);
+    }
+
+    #activityChanged(): void {
+        for (const listener of this.#activityListeners) listener();
     }
 
     /** 打开着、正在运行的前台会话（以后禁用前的确认用）。 */
@@ -189,7 +206,7 @@ export class SessionTable {
                 continue;
             }
             if (entry === undefined) {
-                entry = {id, state: "opening", session: null, background: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+                entry = {id, state: "opening", session: null, background: false, waiting: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
                 this.#entries.set(id, entry);
             }
@@ -235,7 +252,11 @@ export class SessionTable {
     #watch(entry: Entry, session: SessionApi): void {
         entry.stopWatching = session.subscribe((frame) => {
             if (frame.type !== "status") return;
+            const wasWaiting = entry.waiting;
+            const wasIdle = entry.idle;
             entry.idle = frame.status.state === "idle" || frame.status.state === "broken";
+            entry.waiting = frame.status.state === "waiting";
+            if (entry.idle !== wasIdle || entry.waiting !== wasWaiting) this.#activityChanged();
             if (entry.idle) this.#maybeIdle(entry);
             else {
                 entry.cancelIdle?.();
@@ -273,6 +294,7 @@ export class SessionTable {
             } finally {
                 if (this.#entries.get(entry.id) === entry) this.#entries.delete(entry.id);
                 entry.session = null;
+                this.#activityChanged();
             }
         })();
         return entry.closed;

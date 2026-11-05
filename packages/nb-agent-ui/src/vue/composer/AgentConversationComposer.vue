@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, ref, watch} from "vue";
-import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import {Button, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     PromptAttachmentKind,
@@ -319,6 +319,15 @@ defineExpose({
 <template>
     <footer class="acv-composer" :class="{'is-expanded': expanded}" data-agent-composer>
         <AgentQueuedMessages :queued="composer.queued" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" />
+        <p v-if="props.ctx.availability.message !== ''" class="acv-composer__notice" role="status" data-composer-availability>
+            <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
+            <span class="acv-composer__notice-text">{{ props.ctx.availability.message }}</span>
+            <Button v-for="item in props.ctx.availability.actions" :key="item.id" size="sm" variant="subtle" :data-availability-action="item.id" @click="emit('action', {type: 'availability.act', action: item.id})">{{ item.label }}</Button>
+        </p>
+        <p v-if="composer.notice !== undefined" class="acv-composer__notice" role="status" data-composer-notice>
+            <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
+            <span class="acv-composer__notice-text">{{ text(composer.notice) }}</span>
+        </p>
         <p v-if="rejectNotice !== null" class="acv-composer__notice" role="status">
             <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
             <span class="acv-composer__notice-text">{{ rejectNotice }}</span>

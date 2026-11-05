@@ -8,10 +8,8 @@ import {Badge, DropdownMenu, IconButton, Input} from "@notnotype/nb-ui/component
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
 import {formatListTime} from "../format";
-import type {AgentLocale, AgentSessionListItem, AgentViewAction} from "../types";
+import type {AgentLocale, AgentSessionListItem, AgentViewAction, SessionPanelFilter} from "../types";
 import {provideAgentText} from "./text";
-
-export type SessionPanelFilter = {id: string; label: string; icon?: string; active: boolean};
 
 const props = withDefaults(defineProps<{
     items: readonly AgentSessionListItem[];

@@ -1,5 +1,5 @@
 ---
-标签: [event, state:inject]
+标签: [state:inject]
 别名: ["会话面板", "会话列表"]
 ---
 

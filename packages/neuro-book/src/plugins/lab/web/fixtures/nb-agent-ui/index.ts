@@ -17,7 +17,13 @@ import type {
     AgentMarkdown,
     AgentMessageActions,
     AgentModelPicker,
+    AgentApprovalWizard,
+    AgentQuestionWizard,
     AgentQueuedMessages,
+    AgentStatusBar,
+    AgentWizard,
+    AgentWizardFrame,
+    PlainForm,
     AgentRawView,
     AgentTaskList,
     AgentTaskListNode,
@@ -33,6 +39,7 @@ import type {Component} from "vue";
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
+import {agentApprovalWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
 import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
 import {agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes} from "./composer.scenes";
@@ -131,6 +138,12 @@ export const nbAgentUiFixtures: LabFixture[] = [
         events: ["select-model", "select-thinking", "manage"],
         writeBack: {"select-model": {layer: "props", key: "modelKey"}, "select-thinking": {layer: "props", key: "thinking"}},
     }),
+    defineLabFixture<typeof AgentStatusBar>({component: "AgentStatusBar", scenes: agentStatusBarScenes, load: async () => (await import("./AgentStatusBarFixture.vue")).default}),
+    defineSubjectFixture<typeof AgentWizard>({component: "AgentWizard", scenes: agentWizardScenes, subject: agentSubject("AgentWizard"), events: ["action"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentWizardFrame>({component: "AgentWizardFrame", scenes: agentWizardFrameScenes, subject: agentSubject("AgentWizardFrame"), slotPresets: {default: () => "内容区", foot: () => "按钮"}, events: ["collapse"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentApprovalWizard>({component: "AgentApprovalWizard", scenes: agentApprovalWizardScenes, subject: agentSubject("AgentApprovalWizard"), events: ["update:state", "submit", "denyAll", "collapse"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentQuestionWizard>({component: "AgentQuestionWizard", scenes: agentQuestionWizardScenes, subject: agentSubject("AgentQuestionWizard"), events: ["update:state", "submit", "stop", "collapse"], class: "w-full"}),
+    defineSubjectFixture<typeof PlainForm>({component: "PlainForm", scenes: [{id: "empty", label: "JSON 文本框", input: {props: {schema: {type: "object"}}, model: {modelValue: {name: "苏晴"}}}}], subject: agentSubject("PlainForm"), events: ["update:modelValue", "update:valid"], class: "w-full"}),
     defineSubjectFixture<typeof AgentQueuedMessages>({component: "AgentQueuedMessages", scenes: agentQueuedMessagesScenes, subject: agentSubject("AgentQueuedMessages"), class: "w-full"}),
     defineSubjectFixture<typeof AgentDeliveryNotice>({
         component: "AgentDeliveryNotice", noInput: "只有“重新发送”“移除”两个事件，没有数据 prop", scenes: agentDeliveryNoticeScenes,
