@@ -159,10 +159,10 @@ describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () 
         const text = agentText(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}").replace("魔力 {", "魔法力 {");
         const result = ok(writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text, intent: "story"}, "t"));
         expect(result.world.version).toBe(base.version + 1);
-        const view = result.world.engine.entry("e1", at("ch5"), "actual");
+        const view = result.world.line().engine.entry("e1", at("ch5"), "actual");
         expect(view).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
         expect(view !== null && view !== "chapter-not-found" && view.text[0]!.source).toBe('魔法力 {panel.魔力}/{panel.魔力上限}，{panel.魔力 >= 1000 ? "能变身" : "变不了身"}');
-        expect(result.world.engine.entry("e1", at("ch4"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3110}}}}});
+        expect(result.world.line().engine.entry("e1", at("ch4"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3110}}}}});
     });
 
     test("改了 -> 的部分得到 computed-edited；删掉注记得到 annotation-mismatch；同一字段两个不同值得到 conflicting-values", () => {

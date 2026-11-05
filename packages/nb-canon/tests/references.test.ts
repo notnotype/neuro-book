@@ -78,7 +78,7 @@ describe("canon.components 输出 18、19、场景 5：引用与以引用为键�
         const stored = result.world.data.changes.get(result.ids["tmp:c"]!)!;
         expect(stored.patches.map((patch) => [patch.at.path, (patch.value as {id?: string}).id ?? patch.value])).toEqual([["know.知情", k], [`know.知情[${k}].程度`, "knows"]]);
         expect(result.revision.refs?.filter((reference) => reference.target.id === k).map((reference) => reference.path)).toEqual(["patches[0].value"]);
-        const view = result.world.engine.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
+        const view = result.world.line().engine.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
         expect(view !== null && view !== "chapter-not-found" && view.namespaces.know!.fields.知情!.value).toEqual([{id: k, 程度: "knows", label: "哥哥能回溯"}]);
     });
 
@@ -112,7 +112,7 @@ describe("canon.components 输出 18、19、场景 5：引用与以引用为键�
         const k = created.ids["tmp:k"]!;
         const row = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", [{op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: k, 程度: "knows"}}])}], 2), "t"));
         const deleted = ok(row.world.publish(request([{ref: {kind: "entry", id: k}, after: {...row.world.data.entries.get(k)!, deleted: true}}], 3), "t"));
-        const view = deleted.world.engine.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
+        const view = deleted.world.line().engine.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
         expect(view !== null && view !== "chapter-not-found" && view.namespaces.know!.fields.知情!.value).toEqual([{id: k, 程度: "knows", label: "已删除的条目"}]);
         expect(row.world.dependents(created.revision.id)).toEqual([created.revision.id, row.revision.id]);
     });
@@ -136,7 +136,7 @@ describe("canon.components 输出 18、19、场景 5：引用与以引用为键�
 describe("canon.components 输出 20：列表元素的语义档", () => {
     const end = {kind: "chapter", chapter: "ch2", edge: "end"} as const;
     const knowing = (world: World) => {
-        const view = world.engine.entry("e1", end, "actual");
+        const view = world.line().engine.entry("e1", end, "actual");
         if (view === null || view === "chapter-not-found") throw new Error("no view");
         return view.namespaces.know!.fields.知情!;
     };

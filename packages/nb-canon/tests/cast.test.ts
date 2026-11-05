@@ -65,7 +65,7 @@ describe("canon.model 验收场景 8：在场", () => {
         expect(read.items.map((item) => item.change.id)).toEqual([guard, night]);
         expect(read.uncast).toBe(1);
         expect((service.object({kind: "change", id: night}).object as StoryChange).cast).toEqual([{who: jin, as: mask, role: "present"}]);
-        expect(service.world.engine.chapterEntries("ch3")).toContain(bro);
+        expect(service.world.line().engine.chapterEntries("ch3")).toContain(bro);
         // 被提到不算在场。
         const brother = service.presence(bro, {from: "ch1", to: "ch4"});
         expect(typeof brother !== "string" && brother.items).toEqual([]);

@@ -21,25 +21,25 @@ export interface RenderOptions {
 }
 
 function context(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions): RenderContext {
-    const resolve = resolverFor(world.engine, world.options.registry, world.options.order, entry, position, mode, options.hideUpcoming === true);
+    const resolve = resolverFor(world.line().engine, world.options.registry, world.options.order, entry, position, mode, options.hideUpcoming === true);
     return {
         resolve,
         entryName: (id) => {
-            const view = world.engine.entry(id, position, mode);
+            const view = world.line().engine.entry(id, position, mode);
             return view === null || view === "chapter-not-found" || view.deleted ? null : view.name;
         },
     };
 }
 
 export function renderEntryForAuthor(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions = {}): EntryRender<AuthorBlock> {
-    const view = world.engine.entry(entry, position, mode);
+    const view = world.line().engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
     const shared = context(world, entry, position, mode, options);
     return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAuthor(block.id, block.source, shared))};
 }
 
 export function renderEntryForAgent(world: World, entry: string, position: ReadPosition, mode: Mode, options: RenderOptions = {}): EntryRender<AgentBlock> {
-    const view = world.engine.entry(entry, position, mode);
+    const view = world.line().engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
     const shared = context(world, entry, position, mode, options);
     return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAgent(block.id, block.source, shared))};

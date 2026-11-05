@@ -152,7 +152,7 @@ function markHintsOf(marks: MarkRegistry, kind: ObjectRef["kind"], object: unkno
 }
 
 /** 世界服务交出的世界：读的部分。写入的方法（publish、revert、reorder 等）不在其中。 */
-export type WorldSnapshot = Pick<World, "version" | "data" | "options" | "engine" | "revisions" | "recordedChapters" | "object" | "pending" | "dependents" | "requested">;
+export type WorldSnapshot = Pick<World, "version" | "data" | "options" | "line" | "revisions" | "recordedChapters" | "object" | "pending" | "dependents" | "requested">;
 
 interface Lease {
     readonly token: string;
@@ -280,7 +280,7 @@ export class WorldService {
             diagnosticTimings: this.#timings.map((timing) => ({...timing, ...(timing.ms > SLOW_DIAGNOSTIC_MS ? {slow: true as const} : {})})),
             /** 当前打开的视图数（project.md 输出 26）：看令牌有没有随调用方收口。 */
             openViews: this.#views.size,
-            recomputed: this.#world.engine.recomputed,
+            recomputed: this.#world.line().engine.recomputed,
         };
     }
 
@@ -290,11 +290,11 @@ export class WorldService {
 
     #entryOn(world: World, id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
         const stamp = this.#stampOf(world);
-        const view = world.engine.entry(id, position, mode);
+        const view = world.line().engine.entry(id, position, mode);
         if (view === "chapter-not-found" || view === null || !withOrigins) return view === "chapter-not-found" ? view : {...stamp, view};
         const origins: Record<string, unknown> = {};
         for (const [namespace, data] of Object.entries(view.namespaces)) {
-            for (const field of Object.keys(data.fields)) origins[`${namespace}.${field}`] = world.engine.origins({entry: id, path: `${namespace}.${field}`}, position, mode);
+            for (const field of Object.keys(data.fields)) origins[`${namespace}.${field}`] = world.line().engine.origins({entry: id, path: `${namespace}.${field}`}, position, mode);
         }
         return {...stamp, view, origins};
     }
@@ -453,8 +453,9 @@ export class WorldService {
         let state = byWorld.get(key);
         if (state === undefined) {
             const order = world.options.order;
-            const visible = new Map([...world.data.changes].filter(([, change]) => placementWithin(order, grant, change.at)));
-            const plans = mode === "planned" ? [...visible.values()].filter((change) => change.kind === "plan" && change.status === "active" && world.engine.progress(change.id, grant.until) === "unfulfilled").map((change) => change.id) : [];
+            const {records, engine} = world.line();
+            const visible = new Map([...records.changes].filter(([, change]) => placementWithin(order, grant, change.at)));
+            const plans = mode === "planned" ? [...visible.values()].filter((change) => change.kind === "plan" && change.status === "active" && engine.progress(change.id, grant.until) === "unfulfilled").map((change) => change.id) : [];
             const settings = world.options.time ?? DEFAULT_TIME;
             state = timeState(visible, {changes: visible, entries: world.data.entries, order, createdAt: world.data.createdAt}, settings, mode, plans);
             byWorld.set(key, state);
@@ -610,7 +611,7 @@ export class WorldService {
                 // 计划的进展按上限算，不按全书：上限之后才兑现的计划在视图里是未兑现。
                 const page = this.#page(stamp, listChanges(world, filter, found.until).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...filter});
                 if (page === "cursor-stale") return page;
-                return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+                return {...stamp, items: page.items.map((change) => ({change, outcome: world.line().engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
             },
             time: (query, mode = "actual", cursor, limit = 50) => {
                 const found = grant("time", query);
@@ -696,7 +697,7 @@ export class WorldService {
         for (const name of names) found[name] = [];
         for (const entry of world.data.entries.values()) {
             if (entry.deleted === true) continue;
-            const view = world.engine.entry(entry.id, position, "actual");
+            const view = world.line().engine.entry(entry.id, position, "actual");
             if (view === "chapter-not-found") return view;
             if (view === null || view.deleted || !view.appeared) continue;
             for (const name of names) if (view.name === name || view.aliases.includes(name)) found[name]!.push(entry.id);
@@ -710,7 +711,7 @@ export class WorldService {
         const stamp = this.#stamp();
         const page = this.#page(stamp, listChanges(world, filter), cursor, limit, {method: "changes", ...filter});
         if (page === "cursor-stale") return page;
-        return {...stamp, items: page.items.map((change) => ({change, outcome: world.engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items.map((change) => ({change, outcome: world.line().engine.outcome(change.id) ?? null})), ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 讲述（方法表 `tellings`，model.md 输出 24 到 27；筛选与先后见 reads.ts）。 */
@@ -1067,7 +1068,7 @@ export class WorldService {
             if (op.ref.kind === "entry") entries.add(op.ref.id);
             if (op.ref.kind === "change") for (const patch of world.data.changes.get(op.ref.id)?.patches ?? []) entries.add(patch.at.entry);
         }
-        for (const entry of entries) world.engine.entry(entry, {kind: "chapter", chapter: last, edge: "end"}, "actual");
+        for (const entry of entries) world.line().engine.entry(entry, {kind: "chapter", chapter: last, edge: "end"}, "actual");
     }
 
     /** 补算排着的归纳；同一个输入同一时刻只算一次。失败的丢掉，下次遇到再排。 */

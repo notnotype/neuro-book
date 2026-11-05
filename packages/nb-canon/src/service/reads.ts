@@ -130,19 +130,19 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         line: "main",
         chapters: deepFreeze([...order.ids]),
         // 引擎算出的结果可能与引擎的快照共用对象：交出去之前深冻结（core/freeze.ts）。存下来的对象在世界表里已经冻过。
-        entry: (id, position, mode) => deepFreeze(world.engine.entry(id, position, mode)),
+        entry: (id, position, mode) => deepFreeze(world.line().engine.entry(id, position, mode)),
         object: (ref) => world.object(ref),
         entries: () => [...world.data.entries.values()],
         changes: (filter = {}) => listChanges(world, filter),
         tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter)),
         presence: (person, filter = {}) => listPresence(world, person, filter),
         decisions: (filter = {}) => listDecisions(world, filter),
-        chapterEntries: (chapter) => deepFreeze(world.engine.chapterEntries(chapter)),
-        origins: (address, position, mode) => deepFreeze(world.engine.origins(address, position, mode)),
-        outcome: (change) => deepFreeze(world.engine.outcome(change)),
-        progress: (plan, position) => world.engine.progress(plan, position),
+        chapterEntries: (chapter) => deepFreeze(world.line().engine.chapterEntries(chapter)),
+        origins: (address, position, mode) => deepFreeze(world.line().engine.origins(address, position, mode)),
+        outcome: (change) => deepFreeze(world.line().engine.outcome(change)),
+        progress: (plan, position) => world.line().engine.progress(plan, position),
         // 排序键与下面两个键一样每次新算、不与引擎的快照共用对象，不冻结：剧情建知情索引时对每条变更取一次，冻结是这一步最大的开销。
-        eventKey: (change, mode) => world.engine.eventKey(change, mode),
+        eventKey: (change, mode) => world.line().engine.eventKey(change, mode),
         placementKey: (placement) => {
             const rank = placementRank(order, placement);
             return rank === null ? null : {rank, tie: {version: -1, id: ""}};
@@ -152,7 +152,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             return rank === null ? null : {rank, tie: {version: Number.POSITIVE_INFINITY, id: ""}};
         },
         compareKeys: (a, b) => compareRanks(a.rank, b.rank) || compareTie(a.tie, b.tie),
-        plannedAt: (position) => deepFreeze(world.engine.plannedAt(position)),
+        plannedAt: (position) => deepFreeze(world.line().engine.plannedAt(position)),
         fields: (entry, namespace) => {
             const data = world.data.entries.get(entry)?.init.data[namespace];
             const type = world.options.registry.byNamespace(namespace);
@@ -245,7 +245,7 @@ export function listChanges(world: World, filter: ChangeFilter, progressAt?: Rea
         (filter.kind === undefined || change.kind === filter.kind) &&
         (filter.status === undefined || change.status === filter.status) &&
         (filter.nature === undefined || (change.nature ?? "event") === filter.nature) &&
-        (filter.progress === undefined || (change.kind === "plan" && world.engine.progress(change.id, latest) === filter.progress)),
+        (filter.progress === undefined || (change.kind === "plan" && world.line().engine.progress(change.id, latest) === filter.progress)),
     );
     sortByPlacement(order, matching);
     return matching;
@@ -320,16 +320,18 @@ export function listPresence(world: World, person: string, filter: PresenceFilte
         if (from !== undefined && (rank[0] !== 1 || rank[1] < from)) return false;
         return to === undefined || rank[0] !== 1 || rank[1] <= to;
     };
+    // 在场按线视图算：这条线看得到的记录与它的引擎。
+    const {records, engine} = world.line();
     const counted: StoryChange[] = [];
-    for (const change of world.data.changes.values()) {
+    for (const change of records.changes.values()) {
         if (change.kind !== "written" || change.status !== "active" || !inRange(change)) continue;
-        if (change.patches.length === 0 || world.engine.outcome(change.id)?.applied === true) counted.push(change);
+        if (change.patches.length === 0 || engine.outcome(change.id)?.applied === true) counted.push(change);
     }
     if (filter.mode === "planned") {
-        const planned = world.engine.plannedAt(until ?? (filter.to === undefined ? defaultPosition(order) : {kind: "chapter", chapter: filter.to, edge: "end"}));
+        const planned = engine.plannedAt(until ?? (filter.to === undefined ? defaultPosition(order) : {kind: "chapter", chapter: filter.to, edge: "end"}));
         if (planned === "chapter-not-found") return planned;
         for (const id of planned) {
-            const plan = world.data.changes.get(id);
+            const plan = records.changes.get(id);
             if (plan !== undefined && inRange(plan)) counted.push(plan);
         }
     }

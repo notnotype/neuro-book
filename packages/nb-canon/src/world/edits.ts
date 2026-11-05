@@ -39,15 +39,17 @@ export type EditResult = (Extract<WriteResult, {ok: true}> & {readonly laterReco
 
 /** 一个地址在某个位置上的值、是否不完整、所在命名空间是否可写。 */
 function currentAt(world: World, position: ReadPosition, at: Address): ViewValue | "chapter-not-found" {
-    const view = world.engine.entry(at.entry, position, "actual");
+    const view = world.line().engine.entry(at.entry, position, "actual");
     return view === "chapter-not-found" ? view : valueAt(view, at.path);
 }
 
 /** 剧情变化在读取位置的排序键：开头落在本章最前（最小键减一），末尾落在本章最后（最大键加一）（输出 18）。 */
 function keyAt(world: World, chapter: string, edge: "start" | "end"): number {
+    // 只看这条线视图里的记录（worldlines 输出 19）。
+    const {records} = world.line();
     const keys: number[] = [];
-    for (const change of world.data.changes.values()) if (change.at.kind === "chapter" && change.at.chapter === chapter) keys.push(change.at.key);
-    for (const check of world.data.checks.values()) if (check.place.kind === "chapter" && check.place.chapter === chapter) keys.push(check.place.key);
+    for (const change of records.changes.values()) if (change.at.kind === "chapter" && change.at.chapter === chapter) keys.push(change.at.key);
+    for (const check of records.checks.values()) if (check.place.kind === "chapter" && check.place.chapter === chapter) keys.push(check.place.key);
     if (keys.length === 0) return 0;
     return edge === "start" ? Math.min(...keys) - 1 : Math.max(...keys) + 1;
 }
@@ -87,7 +89,7 @@ export function editInPlace(world: World, edit: InPlaceEdit, time: string): Edit
         request = {requestId: edit.requestId, by: edit.by, what: "edit", title: edit.title ?? "就地改", baseVersion: edit.read.version, chapter: edit.position.chapter, puts: [{ref: {kind: "change", id: "tmp:edit"}, after: change}]};
     } else {
         if (current.incomplete) return {ok: false, failure: {code: "incomplete-field"}};
-        const origins = world.engine.origins(edit.at, edit.position, "actual");
+        const origins = world.line().engine.origins(edit.at, edit.position, "actual");
         if (origins === "chapter-not-found") return {ok: false, failure: {code: "chapter-not-found"}};
         const steps = origins.filter((step) => step.kind !== "check" || step.result === "anchor");
         const last = steps.at(-1)!;
@@ -187,7 +189,7 @@ function laterRecords(world: World, edit: InPlaceEdit): string[] {
     const ids: string[] = [];
     const last = world.options.order.ids.at(-1);
     if (last === undefined) return ids;
-    const origins = world.engine.origins(edit.at, chapterEnd(last), "actual");
+    const origins = world.line().engine.origins(edit.at, chapterEnd(last), "actual");
     if (origins === "chapter-not-found") return ids;
     for (const step of origins) {
         if (step.kind !== "patch") continue;

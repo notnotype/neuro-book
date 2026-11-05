@@ -73,17 +73,17 @@ describe("canon.components 场景 3：撞名", () => {
         const opened = World.empty(options([panel])).publish({requestId: "open", by: {kind: "author"}, what: "opening", title: "开局", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:xia"}, after: star}]}, "t");
         if (!opened.ok) throw new Error(JSON.stringify(opened.failure));
         const end = {kind: "chapter", chapter: "ch1", edge: "end"} as const;
-        const before = opened.world.engine.entry("e1", end, "actual");
+        const before = opened.world.line().engine.entry("e1", end, "actual");
 
         const clashing = opened.world.withOptions(options([panel, other]));
-        const clashView = clashing.engine.entry("e1", end, "actual");
+        const clashView = clashing.line().engine.entry("e1", end, "actual");
         expect(clashView !== null && clashView !== "chapter-not-found" && clashView.namespaces.panel).toMatchObject({readOnly: "component-unknown", fields: {魔力上限: {value: 12000}, 魔力: {value: 3200}}});
         expect(clashing.options.registry.diagnostics).toEqual([{code: "component-namespace-conflict", namespace: "panel", types: ["canon.panel", "other.panel"]}]);
         const write = clashing.publish({requestId: "write", by: {kind: "author"}, what: "edit", title: "记一笔", baseVersion: 1, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "用了魔力", at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: -100}], status: "active", by: {kind: "author"}}}]}, "t");
         expect(write.ok).toBe(false);
 
         const resolved = clashing.withOptions(options([panel]));
-        expect(resolved.engine.entry("e1", end, "actual")).toEqual(before);
+        expect(resolved.line().engine.entry("e1", end, "actual")).toEqual(before);
         expect(resolved.publish({requestId: "write-2", by: {kind: "author"}, what: "edit", title: "记一笔", baseVersion: 1, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "用了魔力", at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: -100}], status: "active", by: {kind: "author"}}}]}, "t").ok).toBe(true);
     });
 });

@@ -51,7 +51,7 @@ describe("canon.revisions 输出 8、9、10 与场景 2：就地改", () => {
         const dye = [...result.world.data.changes.values()].find((change) => change.text === "dye")!;
         expect(dye.patches[0]!.value).toBe("深棕");
         expect(result.world.data.entries.get("e1")!.init.data.character!.fields.外观).toBe("银白");
-        expect(result.world.engine.entry("e1", end("ch44"), "actual")).toMatchObject({namespaces: {character: {fields: {外观: {value: "银白"}}}}});
+        expect(result.world.line().engine.entry("e1", end("ch44"), "actual")).toMatchObject({namespaces: {character: {fields: {外观: {value: "银白"}}}}});
     });
 
     test("几笔累出来的数不直接改，给出来历；勾剧情变化后在这个位置记一条差额", () => {
@@ -63,7 +63,7 @@ describe("canon.revisions 输出 8、9、10 与场景 2：就地改", () => {
         const story = ok(editInPlace(base, {...edit, requestId: id(), intent: "story"}, "t"));
         const added = story.revision.ops[0]!;
         expect(added.kind === "create" && (added.after as {patches: Array<{value: unknown}>}).patches[0]!.value).toBe(-800);
-        expect(story.world.engine.entry("e1", end("ch50"), "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 41000}}}}});
+        expect(story.world.line().engine.entry("e1", end("ch50"), "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 41000}}}}});
     });
 
     test("只有初值的改初值；读到的值过期报 value-conflict；初值位置不能记剧情变化", () => {
@@ -78,7 +78,7 @@ describe("canon.revisions 输出 8、9、10 与场景 2：就地改", () => {
 
     test("记一笔是剧情变化的一次加减", () => {
         const result = ok(recordDelta(world(), {requestId: id(), by: author, position: end("ch50"), at: {entry: "e1", path: "panel.存款"}, delta: -300, reason: "买药", read: {value: 41800, version: 2}}, "t"));
-        expect(result.world.engine.entry("e1", end("ch50"), "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 41500}}}}});
+        expect(result.world.line().engine.entry("e1", end("ch50"), "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 41500}}}}});
     });
 
     test("记一笔的差额超过 4 位小数被拒收，不悄悄舍入；列表元素里的数同样记成一次加减", () => {

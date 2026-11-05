@@ -61,7 +61,7 @@ describe("canon.revisions 输出 1、2、16：发布、只存变了的叶子、�
         expect(world.revisions[0]!.idMap).toEqual({"tmp:xia": "e1", "tmp:jin": "e2"});
         const result = ok(world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [add("e1", -2000), add("e2", 2000)])}], {baseVersion: 1}), "t2"));
         expect(result.revision.ops).toHaveLength(1);
-        expect(result.world.engine.entry("e2", {kind: "chapter", chapter: "ch2", edge: "end"}, "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 2000}}}}});
+        expect(result.world.line().engine.entry("e2", {kind: "chapter", chapter: "ch2", edge: "end"}, "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 2000}}}}});
     });
 
     test("修改只存变了的叶子", () => {
@@ -107,7 +107,7 @@ describe("canon.revisions 输出 1、2、16：发布、只存变了的叶子、�
         const reopened = World.replay(published.revisions, options());
         expect([...reopened.data.changes.entries()]).toEqual([...published.data.changes.entries()]);
         expect([...reopened.data.entries.entries()]).toEqual([...published.data.entries.entries()]);
-        expect(reopened.engine.entry("e1", {kind: "chapter", chapter: "ch3", edge: "end"}, "actual")).toEqual(published.engine.entry("e1", {kind: "chapter", chapter: "ch3", edge: "end"}, "actual"));
+        expect(reopened.line().engine.entry("e1", {kind: "chapter", chapter: "ch3", edge: "end"}, "actual")).toEqual(published.line().engine.entry("e1", {kind: "chapter", chapter: "ch3", edge: "end"}, "actual"));
     });
 });
 

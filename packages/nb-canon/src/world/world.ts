@@ -47,9 +47,10 @@ import {
     type WriteRequest,
 } from "../core/schema";
 import {sameJson, stableStringify} from "../core/stable-json";
-import {createIncrementalEngine, type ChangedRefs, type IncrementalEngine} from "../engine/incremental";
+import type {ChangedRefs, IncrementalEngine} from "../engine/incremental";
 import type {EngineInputs, Mode, PendingItem, ReductionLookup, WorldData} from "../engine/types";
 import {readEntryAddress} from "../engine/views";
+import {LineSet, type LineView} from "../lines/set";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
@@ -134,7 +135,8 @@ const refKey = (ref: ObjectRef) => `${ref.kind}:${ref.id}`;
 export class World {
     private constructor(
         readonly data: WorldData,
-        readonly engine: IncrementalEngine,
+        /** 各条世界线的线视图（lines/set.ts）：引擎只经它取。 */
+        readonly lines: LineSet,
         readonly revisions: readonly Revision[],
         private readonly index: Indexes,
         readonly options: WorldOptions,
@@ -170,8 +172,12 @@ export class World {
         }
         const version = revisions.at(-1)?.version ?? 0;
         const data = freeze(tables, createdAt, version);
-        const engine = createIncrementalEngine(engineInputs(data, options));
-        return new World(data, engine, [...revisions], {requests, touched, brokenBy, allocator, recordedChapters}, options);
+        return new World(data, LineSet.build(engineInputs(data, options)), [...revisions], {requests, touched, brokenBy, allocator, recordedChapters}, options);
+    }
+
+    /** 主线的线视图。 */
+    line(): LineView {
+        return this.lines.main;
     }
 
     get version(): number {
@@ -186,20 +192,22 @@ export class World {
     /** 宿主的输入变了（章序、登记的类型、归纳缓存、正文）：换上新输入重算，版本不变。 */
     withOptions(options: WorldOptions): World {
         const structural = !sameJson(options.order.ids, this.options.order.ids) || options.registry.digest !== this.options.registry.digest || options.reductions !== this.options.reductions;
-        const engine = structural ? this.engine.update(engineInputs(this.data, options), {structural: true}) : this.engine;
-        return new World(this.data, engine, this.revisions, this.index, options);
+        const lines = structural ? this.lines.advance(engineInputs(this.data, options), {structural: true}) : this.lines;
+        return new World(this.data, lines, this.revisions, this.index, options);
     }
 
     /** 这份世界在一个模式上的时间状态（canon.time）：网络、整条线上的时间待处理；按数据、设置与模式缓存。 */
     time(mode: Mode = "actual"): TimeState {
         const order = this.options.order;
-        const plans = mode === "planned" ? [...this.data.changes.values()].filter((change) => change.kind === "plan" && change.status === "active" && this.engine.progress(change.id, defaultPosition(order)) === "unfulfilled").map((change) => change.id) : [];
-        return timeState(this.data, timeInputOf(this.data, order), this.options.time ?? DEFAULT_TIME, mode, plans);
+        const {records, engine} = this.line();
+        const plans = mode === "planned" ? [...records.changes.values()].filter((change) => change.kind === "plan" && change.status === "active" && engine.progress(change.id, defaultPosition(order)) === "unfulfilled").map((change) => change.id) : [];
+        return timeState(records, timeInputOf(records, order), this.options.time ?? DEFAULT_TIME, mode, plans);
     }
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
     pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem)[] | "chapter-not-found" {
-        const items = this.engine.pending(position, mode);
+        const {records, engine} = this.line();
+        const items = engine.pending(position, mode);
         if (items === "chapter-not-found") return items;
         const grouped: PendingItem[] = [];
         const groups = new Map<string, {root: string; changes: string[]}>();
@@ -220,7 +228,7 @@ export class World {
         }
         const canon = grouped.map((item) => (item.kind === "cannot-apply" ? {...item, changes: [...item.changes].sort(compareIds)} : item));
         // 时间的几种（canon.time 输出 2、3、5）：整条线算一次，随读取位置截取（输出 14）。
-        return [...canon, ...truncateTime(this.time(mode).items, (id) => this.data.changes.get(id)?.at, this.options.order, position)];
+        return [...canon, ...truncateTime(this.time(mode).items, (id) => records.changes.get(id)?.at, this.options.order, position)];
     }
 
     /** 预览：做发布的全部计算，不发布（输出 5）。 */
@@ -456,7 +464,8 @@ export class World {
         }
 
         const data = freeze(tables, createdAt, version);
-        const engine = this.engine.update(engineInputs(data, this.options), changed);
+        const lines = this.lines.advance(engineInputs(data, this.options), changed);
+        const engine = lines.main.engine;
         // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
         if (!compensation) problems.push(...validate(this, data, engine, request, changed));
         const refs = writtenReferences(this, data, ops);
@@ -490,7 +499,7 @@ export class World {
             // 存请求原样的授权：签名是按原样（临时 id 换掉之前）签的，换过 id 就验不过了；新对象的 id 对照在 `idMap` 里。
             ...(input.authorizations === undefined || input.authorizations.length === 0 ? {} : {authorizations: input.authorizations}),
         };
-        return {ok: true, world: this.next(data, engine, revision), revision, ids, repeated: false};
+        return {ok: true, world: this.next(data, lines, revision), revision, ids, repeated: false};
     }
 
     /** 章序调整（model.md 输出 3，revisions.md 输出 13）：宿主给的章序与记下的不同时，返回发布它的写入结果。 */
@@ -513,11 +522,11 @@ export class World {
             title: "章序调整",
             baseVersion: this.version,
             ops: [{kind: "chapters", before: [...(recorded ?? [])], after: [...order.ids]}],
-            impact: computeImpact(this, moved.data, moved.engine, whereOf(undefined, order), [], options),
+            impact: computeImpact(this, moved.data, moved.line().engine, whereOf(undefined, order), [], options),
         };
         const data: WorldData = {...moved.data, version};
-        const engine = moved.engine.update(engineInputs(data, options), {});
-        const next = new World(data, engine, [...this.revisions, revision], {...this.index, allocator, recordedChapters: [...order.ids], requests: new Map(this.index.requests).set(requestId, {revision})}, options);
+        const lines = moved.lines.advance(engineInputs(data, options), {});
+        const next = new World(data, lines, [...this.revisions, revision], {...this.index, allocator, recordedChapters: [...order.ids], requests: new Map(this.index.requests).set(requestId, {revision})}, options);
         return {ok: true, world: next, revision, ids: {}, repeated: false};
     }
 
@@ -547,12 +556,11 @@ export class World {
             if (op.ref.kind === "check") changed.checks.push(op.ref.id);
         }
         const data = freeze(tables, createdAt, revision.version);
-        const engine = this.engine.update(engineInputs(data, this.options), changed);
-        const world = this.next(data, engine, revision);
-        return recordedChapters === this.index.recordedChapters ? world : new World(world.data, world.engine, world.revisions, {...world.index, recordedChapters}, world.options);
+        const world = this.next(data, this.lines.advance(engineInputs(data, this.options), changed), revision);
+        return recordedChapters === this.index.recordedChapters ? world : new World(world.data, world.lines, world.revisions, {...world.index, recordedChapters}, world.options);
     }
 
-    private next(data: WorldData, engine: IncrementalEngine, revision: Revision): World {
+    private next(data: WorldData, lines: LineSet, revision: Revision): World {
         const touched = new Map(this.index.touched);
         for (const op of revision.ops) if (op.kind !== "chapters") touched.set(refKey(op.ref), revision.version);
         const brokenBy = new Map(this.index.brokenBy);
@@ -560,7 +568,7 @@ export class World {
         const allocator = cloneAllocator(this.index.allocator, [revision]);
         for (const op of revision.ops) if (op.kind !== "chapters") observeIds(allocator, op);
         const requests = new Map(this.index.requests).set(revision.requestId, {revision});
-        return new World(data, engine, [...this.revisions, revision], {requests, touched, brokenBy, allocator, recordedChapters: this.index.recordedChapters}, this.options);
+        return new World(data, lines, [...this.revisions, revision], {requests, touched, brokenBy, allocator, recordedChapters: this.index.recordedChapters}, this.options);
     }
 }
 
@@ -1341,7 +1349,7 @@ function touchesTime(before: WorldData, after: WorldData, ops: readonly Op[]): b
 /** 带来的变化：待处理的增减、相关地址的改前改后、让后面哪些变更套不上（revisions.md 输出 4、6）。 */
 function computeImpact(before: World, data: WorldData, engine: IncrementalEngine, where: ReadPosition, ops: readonly Op[], options: WorldOptions): Revision["impact"] {
     const key = (item: PendingItem) => (item.kind === "check-mismatch" ? `check:${item.check}` : item.kind === "cannot-apply" ? `cannot:${item.changes[0]!}` : item.kind === "held" ? `held:${item.change}` : `deleted:${item.ref.kind}:${item.ref.id}`);
-    const was = before.engine.pending(where);
+    const was = before.line().engine.pending(where);
     const now = engine.pending(where);
     const wasKeys = new Set(was === "chapter-not-found" ? [] : was.map(key));
     const nowKeys = new Set(now === "chapter-not-found" ? [] : now.map(key));
@@ -1369,7 +1377,7 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
             }
         }
     }
-    const read = (target: World["engine"], at: Address) => {
+    const read = (target: IncrementalEngine, at: Address) => {
         const view = target.entry(at.entry, where, "actual");
         if (view === null || view === "chapter-not-found" || view.deleted) return undefined;
         const block = /^text\[([^\]]+)\]$/u.exec(at.path);
@@ -1383,14 +1391,14 @@ function computeImpact(before: World, data: WorldData, engine: IncrementalEngine
     };
     const values: Revision["impact"]["values"] = [];
     for (const at of [...addresses.values()].sort((a, b) => (addressKey(a) < addressKey(b) ? -1 : 1))) {
-        const old = read(before.engine, at);
+        const old = read(before.line().engine, at);
         const fresh = read(engine, at);
         if (sameJson(old, fresh)) continue;
         values.push({at, ...(old === undefined ? {} : {before: old}), ...(fresh === undefined ? {} : {after: fresh})});
     }
     const broken: string[] = [];
     for (const change of data.changes.values()) {
-        if (before.engine.outcome(change.id)?.applied === true && engine.outcome(change.id)?.applied === false) broken.push(change.id);
+        if (before.line().engine.outcome(change.id)?.applied === true && engine.outcome(change.id)?.applied === false) broken.push(change.id);
     }
     // 时间的几种按整条线算、不截取（canon.time 输出 14）；只在这次碰到与时间相关的对象或调整了章序时为新数据建网。
     if (options.order !== before.options.order || touchesTime(before.data, data, ops)) {

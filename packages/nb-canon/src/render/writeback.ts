@@ -175,13 +175,13 @@ const REF_TAG = /<Ref\s+id=("(?:[^"\\]|\\.)*")\s+name="(?:[^"\\]|\\.)*"\s*\/>/gu
 export function writeBack(world: World, input: WriteBackInput, time: string): WriteBackResult {
     // 计划里的值不是现在的值：按计划模式读到的块原样交回也会被当成改动，悄悄改写设定。
     if (input.mode !== "actual") return {ok: false, failure: {code: "planned-not-writable"}};
-    const view = world.engine.entry(input.entry, input.position, "actual");
+    const view = world.line().engine.entry(input.entry, input.position, "actual");
     if (view === "chapter-not-found") return {ok: false, failure: {code: "chapter-not-found"}};
     const block = view === null || view.deleted ? undefined : view.text.find((candidate) => candidate.id === input.block);
     if (block === undefined) return {ok: false, failure: {code: "not-found"}};
     const original = block.source;
     const parsed = parseBlock(original);
-    const resolve = resolverFor(world.engine, world.options.registry, world.options.order, input.entry, input.position, "actual");
+    const resolve = resolverFor(world.line().engine, world.options.registry, world.options.order, input.entry, input.position, "actual");
 
     let newSource: string;
     const fieldOps: Array<{at: Address; value: unknown; read: unknown}> = [];
