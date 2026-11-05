@@ -17,10 +17,6 @@ updated: 2026-11-05
 
 2026-11-05 经 nbdev 新建，尚未开工。
 
-## 下一步
-
-待补充。
-
 ## 已知事实
 
 来自 w00025 t19 的实现审查（[报告第 5 条](../../../w00025-editor/tasks/t19-background-image/evidences/impl-review-backend-opus.txt)），开发者 2026-11-05 要求单开：
