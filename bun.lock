@@ -497,6 +497,7 @@
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
+        "@notnotype/nb-time": "workspace:*",
         "@vue/reactivity": "^3.5.39",
         "commander": "^14.0.2",
         "entities": "8.0.0",

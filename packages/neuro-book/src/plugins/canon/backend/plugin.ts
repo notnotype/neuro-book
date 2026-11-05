@@ -13,9 +13,11 @@ import type {ContributionHandle, ContributionReceiver, PluginDefinition} from "@
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {ComponentDeclaration, DiagnosticDeclaration, MarkDeclaration, PluginContribution} from "@notnotype/nb-canon";
 
+import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {currentProjectKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
+import {canonSettings} from "../shared/settings";
 import {componentsPoint} from "../shared/components";
 import type {ComponentContribution} from "../shared/components";
 import {CANON_COMPONENTS_POINT, canonWorldContract} from "../shared/contracts";
@@ -34,13 +36,25 @@ export const canonProjectPlugin: PluginDefinition = {
         id: "project",
         location: "project",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: currentProjectKey}],
+        dependencies: [{key: diagnosticsKey}, {key: currentProjectKey}, {key: settingsKey, required: false}],
         receives: [CANON_COMPONENTS_POINT, CANON_MARKS_POINT, CANON_DIAGNOSTICS_POINT],
         provides: [canonProjectKey],
         remoteProvides: [canonWorldContract],
         activate: (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const host = createWorldHost(context.services.require(currentProjectKey).root, (input) => void diagnostics.record(input));
+            // 作品设置里的历法与词表（canon.time）：先交一次当前值，之后变了再交。没有配置服务时用内置的公历与词表。
+            // 不在 activate 里等它：内置类型要在 activate 返回前交完（见下）。世界打开前到的设置由宿主先记下。
+            void context.services.resolve(settingsKey).then((resolved) => {
+                if (resolved.status !== "resolved") return;
+                const settings = resolved.instance;
+                const keys = new Set([canonSettings.settings.calendar.key, canonSettings.settings.fuzzyWords.key]);
+                const sendTime = () => host.setTime({calendar: settings.get(canonSettings.settings.calendar), fuzzy: settings.get(canonSettings.settings.fuzzyWords)});
+                sendTime();
+                context.scope.register({kind: "canon-time-settings", label: `${descriptor.id} time settings`, value: settings.onDidChange((changed) => {
+                    if ([...changed].some((key) => keys.has(key))) sendTime();
+                }), release: (stop) => stop()});
+            });
             // 补交在 activate 返回前完成，所以内置类型在打开世界之前就在登记里。
             const declared = new Map<ContributionHandle<ComponentContribution>, ComponentDeclaration>();
             const update = () => host.setComponents([...declared.values()]);

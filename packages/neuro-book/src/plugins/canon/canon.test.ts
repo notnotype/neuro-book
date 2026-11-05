@@ -237,6 +237,42 @@ describe("canon.project：世界服务在项目子进程里", () => {
 });
 
 /** 活页夹三章，正文各一段；章节文件名按活页夹的写法（`00001-…md`）。 */
+describe("canon.time 输出 4、8、16：作品设置里的历法", () => {
+    it("项目层设置里的自定义历法生效：时间查询按它回答，最近一次合法的历法存进 .nbook；改成不合法的以后照样用它", async () => {
+        const royal = {version: 1, unit: "day", hoursPerDay: 24, minutesPerHour: 60, months: [{id: "frost", name: "霜月", days: 30}], eras: [{id: "royal", name: "王历", start: 1}]};
+        let book = "";
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
+            book = paths.project.path;
+            await threeChapters(paths);
+            await mkdir(join(paths.project.path, ".nbook"), {recursive: true});
+            await writeFile(join(paths.project.path, ".nbook", "settings.json"), JSON.stringify({"nbook.canon/calendar": royal}));
+        }});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const window = await windowOf(h, "browser-1", "profile-1");
+        const eras = async () => {
+            const read = await window.canon.call("time", {query: {kind: "calendar"}});
+            return read.ok ? ((read.value.answer as {eras?: {id: string}[]}).eras ?? []).map((era) => era.id) : [];
+        };
+        await until(async () => (await eras()).includes("royal"));
+        const created = await publish(window.canon, {requestId: "dated", by: {kind: "author"}, what: "edit", title: "定日子", baseVersion: await version(window.canon), puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "那一天", at: {kind: "chapter", chapter: "1", key: 0}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}, when: [{kind: "date", era: "royal", year: 612, month: "frost", day: 5, basis: {kind: "author"}}]}}]});
+        if (!created.ok) throw new Error(JSON.stringify(created.failure));
+        const event = await window.canon.call("time", {query: {kind: "event", change: created.value.ids["tmp:c"]!}});
+        expect(event.ok && (event.value.answer as {start: {text: string}}).start.text).toBe("王历612年霜月5日");
+        const stored = join(book, ".nbook", "world", "calendar.json");
+        await until(async () => existsSync(stored));
+        // 设置改坏：照样用最近一次合法的那一份，不退回公历。
+        await writeFile(join(book, ".nbook", "settings.json"), JSON.stringify({"nbook.canon/calendar": {...royal, months: []}}));
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.diagnostics.some((item) => (item as {code: string}).code === "calendar-invalid");
+        });
+        expect(await eras()).toEqual(["royal"]);
+        await window.close();
+        keep.release();
+    }, 30_000);
+});
+
 async function threeChapters(paths: {readonly project: {readonly path: string}}): Promise<void> {
     const dir = join(paths.project.path, "manuscripts.binder");
     await mkdir(dir, {recursive: true});

@@ -88,6 +88,10 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => service.tree(input.parent, input.cursor, limit))),
             lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(own(input.view)).lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).changes(input.filter ?? {}, input.cursor, limit)))),
+            time: (input) => withWorld((service) => {
+                if (input.view !== undefined) return read(service.viewed(own(input.view)).time(input.query, input.mode));
+                return paged(input.limit, (limit) => service.time(input.query, input.mode, input.cursor, limit));
+            }),
             tellings: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.tellings(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).tellings(input.filter ?? {}, input.cursor, limit)))),
             presence: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.presence(input.person, input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).presence(input.person, input.filter ?? {}, input.cursor, limit)))),
             object: (input) => withWorld((service) => denied(service, input.view, "object") ?? within(service.object(input.ref))),

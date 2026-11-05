@@ -39,6 +39,17 @@ const Read = Type.Object({value: Type.Unknown(), version: Type.Integer()});
  * 别的方法带它一律 `view-denied`。所以每个方法都收这一项，由实现按方法表决定。
  */
 const View = Type.Optional(Type.String());
+/** 按历法写的日期（canon.time 输入表的 `date`，只含日期本身）。 */
+const DatePartsSchema = Type.Object({era: Type.Optional(Type.String()), year: Type.Integer(), month: Type.Optional(Type.String()), day: Type.Optional(Type.Integer()), period: Type.Optional(Type.String()), hour: Type.Optional(Type.Integer()), minute: Type.Optional(Type.Integer())}, {additionalProperties: false});
+const TimeQuerySchema = Type.Union([
+    Type.Object({kind: Type.Literal("event"), change: Type.String()}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("chapter"), chapter: Type.String()}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("during"), from: DatePartsSchema, to: DatePartsSchema}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("between"), a: Type.String(), b: Type.String()}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("age"), who: Type.String(), at: Type.String()}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("browse"), year: Type.Optional(Type.Integer()), month: Type.Optional(Type.Integer({minimum: 0}))}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("calendar")}, {additionalProperties: false}),
+]);
 const ChapterRange = {from: Type.Optional(Type.String()), to: Type.Optional(Type.String())};
 const TellingPositionSchema = Type.Union([
     Type.Object({chapter: Type.String(), paragraph: Type.Integer({minimum: 1})}),
@@ -82,6 +93,13 @@ const methods = {
             limit: Limit,
             view: View,
         }),
+        output: Out,
+        effect: "read",
+        errors,
+    },
+    /** 时间的查询（canon.time 输出 8）：带视图令牌时只用上限之前的事（输出 15）；一段时间里的事分页。 */
+    time: {
+        input: Type.Object({query: TimeQuerySchema, mode: Type.Optional(Mode), cursor: Cursor, limit: Limit, view: View}),
         output: Out,
         effect: "read",
         errors,
@@ -247,6 +265,8 @@ export interface CanonOutputs {
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
     readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown}>;
     readonly tellings: Page<TellingItem>;
+    /** 时间的回答（形状见 nb-canon 的 time/queries.ts）；一段时间里的事分页时带游标。 */
+    readonly time: {readonly version: number; readonly inputDigest: string; readonly answer: Readonly<Record<string, unknown>>; readonly cursor?: string};
     readonly presence: Page<{readonly change: StoryChange}> & {readonly uncast: number};
     readonly pending: PendingPage;
     readonly decisions: Page<DecisionView>;

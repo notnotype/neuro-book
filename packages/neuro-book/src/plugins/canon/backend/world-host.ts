@@ -15,12 +15,13 @@
 import {createHash} from "node:crypto";
 import {watch} from "node:fs";
 import type {FSWatcher} from "node:fs";
-import {mkdir} from "node:fs/promises";
+import {mkdir, readFile, rename, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry} from "@notnotype/nb-canon";
 import type {ComponentDeclaration, DiagnosticDeclaration, MarkDeclaration, PluginContribution} from "@notnotype/nb-canon";
 import {nodeFiles, WorldService} from "@notnotype/nb-canon/node";
+import type {Calendar} from "@notnotype/nb-time";
 import type {DiagnosticCompute, LogLock} from "@notnotype/nb-canon/node";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
@@ -44,6 +45,8 @@ export interface WorldHost {
     /** 一个插件登记它的诊断计算；返回的函数撤销这次登记（调用方的入口停止时）。 */
     registerDiagnostics(plugin: string, registration: {readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}): () => void;
     reportDataVersion(plugin: string, dataVersion: string): void;
+    /** 作品设置里的历法与模糊词表变了（canon.time 输出 4、16）：交给世界服务；合法的历法记成最近一次合法的，存进 `.nbook`。 */
+    setTime(raw: {readonly calendar: unknown; readonly fuzzy: unknown}): void;
     stop(): Promise<void>;
 }
 
@@ -69,6 +72,31 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     let components: readonly ComponentDeclaration[] = [];
     let marks: readonly PluginContribution<MarkDeclaration>[] = [];
     let diagnostics: readonly PluginContribution<DiagnosticDeclaration>[] = [];
+    /** 作品设置里的历法与词表（原样）；打开前送来的先记下，打开后交给服务。 */
+    let timeSettings: {readonly calendar: unknown; readonly fuzzy: unknown} | null = null;
+    /** 最近一次合法的历法存在这里（canon.time 输出 16）：重启与别的进程里，设置不合法时照样用它。 */
+    const calendarFile = join(nbook, "world", "calendar.json");
+    const applyTime = async (target: WorldService) => {
+        if (timeSettings === null) return;
+        const sent = timeSettings;
+        let previous: Calendar | undefined;
+        try {
+            previous = JSON.parse(await readFile(calendarFile, "utf8")) as Calendar;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") record("warn", "canon.time.calendar-file", "读不了存下的历法，当作没有", error);
+        }
+        const result = await target.setTime({calendar: sent.calendar ?? undefined, fuzzy: sent.fuzzy ?? undefined, ...(previous === undefined ? {} : {previous})});
+        if (result.valid && sent.calendar !== null && sent.calendar !== undefined) {
+            // 先写临时文件再改名：写到一半中断时留下的是旧的那份。
+            const temporary = `${calendarFile}.${String(process.pid)}.tmp`;
+            try {
+                await writeFile(temporary, JSON.stringify(result.calendar));
+                await rename(temporary, calendarFile);
+            } catch (error) {
+                record("warn", "canon.time.calendar-file", "存不下最近一次合法的历法", error);
+            }
+        }
+    };
     /** 各插件登记的诊断计算，连同接到世界服务上以后的撤销函数（世界还没打开时为 null）。 */
     const computers = new Map<string, {registration: {readonly compute: Readonly<Record<string, DiagnosticCompute>>; readonly dataVersion: string}; detach: (() => void) | null}>();
     let service: WorldService | null = null;
@@ -203,6 +231,8 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             ...(diagnostics !== usedAtOpen.diagnostics ? {diagnostics: buildDiagnosticRegistry(diagnostics)} : {}),
         };
         if (Object.keys(missed).length > 0) opened.setRegistries(missed);
+        // 打开前与打开期间送来的作品设置：打开后交给服务（交的是最新的那一份）。
+        await applyTime(opened);
         for (const [plugin, item] of computers) item.detach = opened.registerDiagnostics(plugin, item.registration);
         const status = opened.status();
         // 打开的耗时与规模（Spec project 输出 14 的“打开到可以读”；measure-project.ts 等这一条再量常驻内存）。
@@ -269,6 +299,10 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
                 computers.delete(plugin);
                 item.detach?.();
             };
+        },
+        setTime: (raw) => {
+            timeSettings = raw;
+            if (service !== null) void applyTime(service);
         },
         reportDataVersion: (plugin, dataVersion) => {
             const item = computers.get(plugin);
