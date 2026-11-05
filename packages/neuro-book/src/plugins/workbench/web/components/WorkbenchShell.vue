@@ -300,7 +300,7 @@ onBeforeUnmount(() => drag.value?.dispose());
 let detachPaneFocus: (() => void) | undefined;
 onMounted(() => {
     detachPaneFocus = props.attachPaneFocus?.((direction) => {
-        if (!moveGridFocus(document.activeElement, direction)) moveGridFocus(hostEl.value?.querySelector("[data-grid-scope]") ?? null, direction);
+        moveGridFocus(hostEl.value, direction);
     });
 });
 onBeforeUnmount(() => detachPaneFocus?.());

@@ -7,7 +7,6 @@
 
 import {tabbable} from "tabbable";
 
-import {nextFocusStop} from "../grid-rects";
 
 export interface GridFocusItems {
     /** 树序的叶外框与分隔线元素；`leaf` 为假的不是 `moveGridFocus` 的落点。 */
@@ -66,11 +65,15 @@ export function noteFocus(scope: GridFocusItems, target: EventTarget | null): vo
 }
 
 /**
- * 在叶之间按树序移动焦点：从 `from` 所在的 grid 开始，走到头交给外层，最外层绕回。`from` 就是 grid 根时从第一块开始。返回是否移动了。
+ * 在叶之间按树序移动焦点：从 `from` 所在的 grid 开始，走到头交给外层，最外层绕回。`container` 是宿主已知的、包着 grid 的元素（或 grid 根本身）。返回是否移动了。
  */
-export function moveGridFocus(from: Element | null, direction: "next" | "previous"): boolean {
+export function moveGridFocus(container: Element | null, direction: "next" | "previous"): boolean {
     const step = direction === "next" ? 1 : -1;
-    let root = from?.closest("[data-grid-scope]") ?? null;
+    // 焦点在 `container` 里就从那一块往外走；不在（页面根、菜单）就从 `container` 里第一个 grid 的第一块（往前走时最后一块）开始。
+    const active = container?.ownerDocument.activeElement ?? null;
+    let from: Element | null = active !== null && container?.contains(active) === true ? active : null;
+    let root: Element | null = from?.closest("[data-grid-scope]") ?? container?.querySelector("[data-grid-scope]") ?? container?.closest("[data-grid-scope]") ?? null;
+    if (root !== null && from !== null && !root.contains(from)) from = null;
     while (root !== null) {
         const outer = root.parentElement?.closest("[data-grid-scope]") ?? null;
         const scope = scopes.get(root);
@@ -98,4 +101,19 @@ export function moveGridFocus(from: Element | null, direction: "next" | "previou
         root = outer;
     }
     return false;
+}
+
+/**
+ * 按树序找下一个能停的项：跳过没有可聚焦元素的。`wrap` 为假时走到头返回 null（Tab 离开这个 grid）；为真时绕回（最外层的
+ * `moveGridFocus`），都没有返回 null。
+ */
+export function nextFocusStop(input: {readonly count: number; readonly from: number; readonly direction: 1 | -1; readonly wrap: boolean; focusable(index: number): boolean}): number | null {
+    const {count, from, direction, wrap, focusable} = input;
+    for (let step = 1; step <= count; step += 1) {
+        const raw = from + direction * step;
+        if (!wrap && (raw < 0 || raw >= count)) return null;
+        const index = ((raw % count) + count) % count;
+        if (focusable(index)) return index;
+    }
+    return null;
 }

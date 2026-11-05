@@ -1,7 +1,8 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {defineComponent, h, nextTick, onMounted, type Component} from "vue";
-import Splitter, {type SplitterPanelConfig} from "./Splitter.vue";
+import Splitter from "./Splitter.vue";
+import type {SplitterPanelConfig} from "./grid-splitter";
 import {sashPanelsOfConfig} from "./grid-splitter";
 import {createSplitterSession, type SplitterGestureSession} from "../splitter-session";
 import {SASH_HOVER_DELAY_MS, sashBandBox} from "./sash-feedback";

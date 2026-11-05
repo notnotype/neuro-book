@@ -9,7 +9,7 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, placementMoved} from "../grid-rects";
+import {enteringRects, placementMoved} from "../grid-motion";
 import type {GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
@@ -26,20 +26,56 @@ export interface GridMotionFrame {
     /** 这个 grid 自己量到的容器。 */
     readonly extent: GridExtent;
     readonly dpr: number;
+    /** 手势预览进行中。 */
+    readonly previewing: boolean;
 }
 
+/** 上一次判定时记下的事实：判容器尺寸、缩放与手势收尾要比它。 */
+export interface GridMotionMemory {
+    rootSize: GridExtent | null;
+    extent: GridExtent | null;
+    dpr: number | null;
+    previewing: boolean;
+}
+
+export const EMPTY_GRID_MOTION_MEMORY = (): GridMotionMemory => ({rootSize: null, extent: null, dpr: null, previewing: false});
+
+export type GridMotionDecision =
+    /** 不过渡：没变、手势引起的、第一次。 */
+    | {readonly kind: "none"}
+    /** 容器尺寸或缩放变了：进行中的过渡直接到终点。 */
+    | {readonly kind: "stop"}
+    | {readonly kind: "move"; readonly entering: ReadonlyMap<string, GridRect>};
+
 const sameExtent = (left: GridExtent, right: GridExtent): boolean => left.width === right.width && left.height === right.height;
+
+/**
+ * 要不要过渡（纯函数，改 `memory`）。来源是数据：预览进行中，或上一次还在预览中（松手、取消、被拒撤下预览的那一次），都算手势引起的。
+ * 不靠谁先调了什么、watcher 谁先建。
+ */
+export function decideMotion(frame: GridMotionFrame, memory: GridMotionMemory): GridMotionDecision {
+    const gesture = frame.previewing || memory.previewing;
+    // 第一次有真实布局：之前的矩形都是 0，不算移动。
+    const first = memory.rootSize === null;
+    const resized = (memory.rootSize !== null && frame.rootSize !== null && !sameExtent(memory.rootSize, frame.rootSize))
+        || (memory.extent !== null && !sameExtent(memory.extent, frame.extent));
+    const rescaled = memory.dpr !== null && memory.dpr !== frame.dpr;
+    if (frame.rootSize !== null) memory.rootSize = {...frame.rootSize};
+    memory.extent = {...frame.extent};
+    memory.dpr = frame.dpr;
+    memory.previewing = frame.previewing;
+    if (resized || rescaled) return {kind: "stop"};
+    if (first || gesture || frame.previous === null || frame.previous.length === 0) return {kind: "none"};
+    if (!placementMoved(frame.items, frame.previous)) return {kind: "none"};
+    return {kind: "move", entering: enteringRects(frame.items, frame.previous)};
+}
 
 export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly onSettled: () => void}) {
     const moving = ref(false);
     /** 新项第一帧的矩形；下一轮写终点，过渡才启动。 */
     const growing = shallowRef<ReadonlyMap<string, GridRect>>(new Map());
     let timer: ReturnType<typeof setTimeout> | null = null;
-    /** 这一轮的几何变化来自手势（预览、撤回、落账）：不过渡。消费一次就清。 */
-    let fromGesture = false;
-    let lastRootSize: GridExtent | null = null;
-    let lastExtent: GridExtent | null = null;
-    let lastDpr: number | null = null;
+    const memory = EMPTY_GRID_MOTION_MEMORY();
 
     function stop(): void {
         if (timer !== null) clearTimeout(timer);
@@ -66,25 +102,15 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
 
     /** 布局变了（渲染之前调）。 */
     function update(frame: GridMotionFrame): void {
-        const gesture = fromGesture;
-        fromGesture = false;
-        // 第一次有真实布局：之前的矩形都是 0，不算移动。
-        const first = lastRootSize === null;
-        const resized = (lastRootSize !== null && frame.rootSize !== null && !sameExtent(lastRootSize, frame.rootSize))
-            || (lastExtent !== null && !sameExtent(lastExtent, frame.extent));
-        const rescaled = lastDpr !== null && lastDpr !== frame.dpr;
-        if (frame.rootSize !== null) lastRootSize = {...frame.rootSize};
-        lastExtent = {...frame.extent};
-        lastDpr = frame.dpr;
-        if (resized || rescaled) {
+        const decision = decideMotion(frame, memory);
+        if (decision.kind === "stop") {
             stop();
             return;
         }
-        if (first || gesture || frame.previous === null || frame.previous.length === 0) return;
-        if (!placementMoved(frame.items, frame.previous)) return;
+        if (decision.kind === "none") return;
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
-        if (duration > 0) start(duration, enteringRects(frame.items, frame.previous));
+        if (duration > 0) start(duration, decision.entering);
     }
 
     onBeforeUnmount(() => {
@@ -98,9 +124,5 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         update,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */
         stop,
-        /** 接下来这次几何变化来自手势。 */
-        markGesture: () => {
-            fromGesture = true;
-        },
     };
 }

@@ -10,10 +10,9 @@
  *   `onGestureCommit`；宿主拒绝就地回滚并给出诊断。
  * - 这里没有百分比往返、不读存储、不写意图：几何算法全在 `grid-geometry` / `sash-drag` / `grid-rects`。
  */
-import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
-import {placeGrid, stableOrder, type GridLeafPlacement, type GridPlacementItem, type GridRect, type GridSashPlacement} from "../grid-rects";
-import {moveTab, noteFocus, registerGridFocus, type GridFocusItems} from "./grid-focus";
+import {placeGrid, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -21,11 +20,12 @@ import {useLayoutText} from "./text";
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useGridMotion} from "./useGridMotion";
 import {useLeafParking} from "./useLeafParking";
+import {useGridFocus} from "./useGridFocus";
 import {useLayoutExtent} from "./useLayoutExtent";
+import {useRenderOrder} from "./useRenderOrder";
 import {useSashGesture} from "./useSashGesture";
 import {useSashSnap} from "./useSashSnap";
 import type {GridExtent, GridLayoutResult, GridLeaf, GridNode} from "../grid-types";
-import type {GridBranchChange as GridBranchChangeType} from "../grid-gesture";
 import type {GridSashRef, SashGestureBinding, SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancelReason, SplitterGestureSource} from "../splitter-gesture";
 
@@ -82,68 +82,15 @@ const text = useLayoutText();
 const snapHost = useSashSnap();
 
 /** 摆放的容器：实测盒；还没挂上时退回布局发布的根节点尺寸。 */
-const placementExtent = computed<GridExtent>(() => sessionExtent() ?? {width: 0, height: 0});
+const placementExtent = computed<GridExtent>(() => rootExtent() ?? {width: 0, height: 0});
 const placement = computed(() => {
     const root = renderTree.value;
     return root === null ? null : placeGrid(root, renderLayout.value, placementExtent.value, dpr.value);
 });
 
-/**
- * 渲染序列（`stableOrder`）：这一轮的序列要由上一轮的算出来，所以记在外面。要同步算，不能放进 watch：外壳在下一个 tick 就按
- * `data-leaf-content` 找 Teleport 的目标，新叶的外框必须在同一轮渲染里出来。
- */
-let renderedKeys: string[] = [];
-const renderItems = computed<ReadonlyArray<GridPlacementItem<unknown>>>(() => {
-    const items = placement.value?.items ?? [];
-    const byKey = new Map(items.map((item) => [item.key, item]));
-    renderedKeys = stableOrder(renderedKeys, items.map((item) => item.key));
-    for (const key of domIds.keys()) {
-        if (!byKey.has(key)) domIds.delete(key);
-    }
-    return renderedKeys.map((key) => byKey.get(key) as GridPlacementItem<unknown>);
-});
-
-/** 叶外框与分隔线的 DOM id：节点 id 可以含空格，`aria-owns`、`aria-controls` 按空白切分，所以用不透明的串。 */
-const domIds = new Map<string, string>();
-let nextDomId = 0;
-function domIdOf(key: string): string {
-    let id = domIds.get(key);
-    if (id === undefined) {
-        nextDomId += 1;
-        id = `${instanceId}-${nextDomId}`;
-        domIds.set(key, id);
-    }
-    return id;
-}
-
-/** DOM 序与树序不一致（叶换了位置）：Tab 由布局层接管，读屏顺序靠 `aria-owns`。一致时全是浏览器的原生行为。 */
-const outOfOrder = computed(() => {
-    const tree = placement.value?.items ?? [];
-    return renderItems.value.some((item, index) => item.key !== tree[index]?.key);
-});
-const ariaOwns = computed(() => (outOfOrder.value ? (placement.value?.items ?? []).map((item) => domIdOf(item.key)).join(" ") : undefined));
-
-const focusScope: GridFocusItems = {
-    items: () => (placement.value?.items ?? []).flatMap((item) => {
-        // 经 `getRootNode` 取：grid 可能在 Shadow DOM 里。
-        const element = (rootEl.value?.getRootNode() as Document | ShadowRoot | undefined)?.getElementById(domIdOf(item.key));
-        return element == null ? [] : [{element, leaf: item.kind === "leaf"}];
-    }),
-};
-const enterSentinel = useTemplateRef<HTMLElement>("enterSentinel");
-const exitSentinel = useTemplateRef<HTMLElement>("exitSentinel");
-
-function onKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Tab" || !outOfOrder.value) return;
-    if (moveTab(event, focusScope) !== "leave") return;
-    // 走完了：焦点放到边上的哨兵，这次按键的默认动作从那里移到 grid 外面，不按 DOM 序回到里面的别的块。
-    (event.shiftKey ? enterSentinel.value : exitSentinel.value)?.focus();
-}
-
-let releaseFocusScope: (() => void) | null = null;
-onMounted(() => {
-    if (rootEl.value !== null) releaseFocusScope = registerGridFocus(rootEl.value, focusScope);
-});
+const order = useRenderOrder(placement, instanceId);
+const {domIdOf} = order;
+const focus = useGridFocus({root: rootEl, placement, order});
 
 function rectStyle(rect: GridRect): Record<string, string> {
     return {transform: `translate(${rect.x}px, ${rect.y}px)`, width: `${rect.width}px`, height: `${rect.height}px`};
@@ -185,22 +132,20 @@ function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> 
     return {width: `${size.width}px`, height: `${size.height}px`, ...(parked.value.has(item.node.id) ? {visibility: "hidden"} : {})};
 }
 
-// 这个 watcher 要建在下面的 `watch(props.layout, releasePreview)` 之前：预览被保持时 `placement` 不依赖 `props.layout`，所以是
-// `releasePreview` 先标记手势，这里随后消费。
 watch(placement, (next, previous) => {
     // 分隔线的矩形变了要重新对齐设备像素。
     snapHost.schedule();
     const items = next?.items ?? [];
     parking.update(items, preview.value !== null);
     const root = renderTree.value;
-    motion.update({items, previous: previous?.items ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value});
+    motion.update({items, previous: previous?.items ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value, previewing: preview.value !== null});
 }, {immediate: true});
 
 /**
  * 会话的根盒：优先用本组件实测盒（宿主正是按这个盒算布局），拿不到测量时退回布局发布的根节点尺寸。
  * 两者都拿不到（未挂载 / 无布局）时不开始手势。
  */
-function sessionExtent(): GridExtent | null {
+function rootExtent(): GridExtent | null {
     if (measuredExtent.value !== null) {
         return measuredExtent.value;
     }
@@ -221,7 +166,7 @@ function sashResolver(): (branchId: string, sashIndex: number) => number {
 }
 
 /** 宿主发布的新布局是否已经反映本次提交（只核对真正改变的叶）。 */
-function publishedMatches(previewLayout: GridLayoutResult, published: GridLayoutResult, changes: readonly GridBranchChangeType[]): boolean {
+function publishedMatches(previewLayout: GridLayoutResult, published: GridLayoutResult, changes: readonly GridBranchChange[]): boolean {
     for (const change of changes) {
         for (const id of [...change.active, ...change.compensated]) {
             const before = previewLayout.sizes[id];
@@ -237,10 +182,8 @@ function publishedMatches(previewLayout: GridLayoutResult, published: GridLayout
     return true;
 }
 
-/** 手势撤下预览：回到已发布的布局，这次几何变化不过渡。 */
+/** 手势撤下预览：回到已发布的布局。这次几何变化不过渡，`useGridMotion` 按“上一次还在预览中”认出来。 */
 function releasePreview(): void {
-    if (preview.value === null) return;
-    motion.markGesture();
     preview.value = null;
 }
 
@@ -253,7 +196,6 @@ function onPreview(next: GridGesturePreview<unknown> | null): void {
         if (wasPreviewing) emit("gesture-update", {layout: props.layout, tree: props.node, changes: [], issues: []});
         return;
     }
-    motion.markGesture();
     preview.value = next;
     emit("gesture-update", next);
 }
@@ -261,7 +203,7 @@ function onPreview(next: GridGesturePreview<unknown> | null): void {
 const host: SashGestureHost<GridGesturePreview<unknown>, GridBranchChange> = {
     begin(input) {
         const root = renderTree.value;
-        const extent = sessionExtent();
+        const extent = rootExtent();
         if (root === null || extent === null) {
             return null;
         }
@@ -344,15 +286,14 @@ watch(() => scope.active.size > 0, (active) => {
 });
 
 onBeforeUnmount(() => {
-    releaseFocusScope?.();
     scope.dispose();
 });
 </script>
 
 <template>
-    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="ariaOwns" @keydown="onKeydown" @focusin="noteFocus(focusScope, $event.target)">
-        <span v-if="outOfOrder" ref="enterSentinel" tabindex="-1" aria-hidden="true"></span>
-        <template v-for="item in renderItems" :key="item.key">
+    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="order.ariaOwns.value" @keydown="focus.onKeydown" @focusin="focus.onFocusin">
+        <span v-if="order.outOfOrder.value" :ref="(el) => (focus.enterSentinel.value = el as HTMLElement | null)" tabindex="-1" aria-hidden="true"></span>
+        <template v-for="item in order.items.value" :key="item.key">
             <div
                 v-if="item.kind === 'leaf'"
                 :id="domIdOf(item.key)"
@@ -367,7 +308,7 @@ onBeforeUnmount(() => {
             </div>
             <SashHandle v-else :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
         </template>
-        <span v-if="outOfOrder" ref="exitSentinel" tabindex="-1" aria-hidden="true"></span>
+        <span v-if="order.outOfOrder.value" :ref="(el) => (focus.exitSentinel.value = el as HTMLElement | null)" tabindex="-1" aria-hidden="true"></span>
         <slot v-if="node === null" name="empty"></slot>
     </div>
 </template>

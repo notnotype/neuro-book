@@ -3,7 +3,7 @@ import {createGrid, type Grid, type GridNode} from "../grid";
 import {sashPanelBounds} from "../grid-geometry";
 import {buildGridBranchPanels, sashPanelsOfConfig} from "./grid-splitter";
 import type {SashCollapseState} from "../grid-types";
-import type {SplitterPanelConfig} from "./Splitter.vue";
+import type {SplitterPanelConfig} from "./grid-splitter";
 
 /** 该 grid 根分支的直接子节点：投影的输入顺序必须与呈现一致。 */
 function childrenOf(grid: Grid<string>): GridNode<string>[] {

@@ -7,7 +7,6 @@
  */
 import type {GridAxis, GridLayoutResult, GridNode, GridSizing} from "../grid-types";
 import type {SashPanel} from "../grid-geometry";
-import type {SplitterPanelConfig} from "./Splitter.vue";
 import type {SashCollapseState} from "../grid-types";
 
 /** 面板配置：呈现 px、有效约束、分配策略与收起状态原样交给渲染层。 */
@@ -69,4 +68,17 @@ export function panelBounds(panel: SplitterPanelConfig | undefined): {low: numbe
 export function ariaMax(panel: SplitterPanelConfig | undefined, available: number): number {
     const {low, high} = panelBounds(panel);
     return Math.round(Math.max(low, Math.min(high, available)));
+}
+
+/** 面板配置：Splitter 的面板声明，也是分隔线 aria 的输入。 */
+export interface SplitterPanelConfig {
+    id?: string;
+    /** 主轴初始 px（独立模式下未受控时由它分配）。 */
+    defaultSizePx?: number;
+    minSizePx?: number;
+    maxSizePx?: number;
+    /** 主轴分配策略；缺省 `weight`。 */
+    sizing?: "fixed" | "weight";
+    /** 收起策略与状态；缺省不可收起。 */
+    collapse?: SashCollapseState;
 }

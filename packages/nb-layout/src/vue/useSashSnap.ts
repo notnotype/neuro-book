@@ -7,7 +7,9 @@
  *
  * 对齐函数读布局，所以过渡中的几何要等过渡结束再 `schedule()` 一次，否则读到的是旧位置。
  */
-import {inject, onBeforeUnmount, onMounted, provide, type InjectionKey} from "vue";
+import {inject, onBeforeUnmount, onMounted, provide, watch, type InjectionKey} from "vue";
+
+import {useDevicePixelRatio} from "./useDevicePixelRatio";
 
 export interface SashSnapHost {
     /** 登记一条分隔线的对齐函数，返回注销。参数是当前的设备像素比。 */
@@ -29,6 +31,9 @@ export function useSashSnap(): SashSnapHost {
     const snaps = new Set<(dpr: number) => void>();
     let frame = 0;
     let disposed = false;
+    // 设备像素比只有一个来源：缩放变了要重新对齐，不靠别处顺带触发。
+    const dpr = useDevicePixelRatio();
+    watch(dpr, () => schedule());
 
     function schedule(): void {
         if (disposed || typeof requestAnimationFrame !== "function") {
@@ -39,9 +44,8 @@ export function useSashSnap(): SashSnapHost {
         }
         frame = requestAnimationFrame(() => {
             frame = 0;
-            const dpr = window.devicePixelRatio || 1;
             for (const snap of snaps) {
-                snap(dpr);
+                snap(dpr.value);
             }
         });
     }

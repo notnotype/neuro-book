@@ -8,7 +8,9 @@ import type {HTMLAttributes} from "vue";
  */
 import {computed, onBeforeUnmount, provide, ref, useId, watch} from "vue";
 import {allocateSashPanels, sashPanelBounds, type SashPanel} from "../grid-geometry";
+import {DEFAULT_SASH_SIZE} from "../grid-rects";
 import {ariaMax, panelBounds, sashPanelsOfConfig} from "./grid-splitter";
+import type {SplitterPanelConfig} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {createSplitterSession, type SplitterGestureChange} from "../splitter-session";
@@ -19,18 +21,6 @@ import {useSashGesture} from "./useSashGesture";
 import type {SashGestureBinding, SashGestureHost} from "../sash-gesture";
 import type {SplitterGestureCancellation, SplitterGestureState} from "../splitter-gesture";
 import type {GridAxis, GridExtent, SashCollapseState} from "../grid-types";
-
-export interface SplitterPanelConfig {
-    id?: string;
-    /** 主轴初始 px（独立模式下未受控时由它分配）。 */
-    defaultSizePx?: number;
-    minSizePx?: number;
-    maxSizePx?: number;
-    /** 主轴分配策略；缺省 `weight`。 */
-    sizing?: "fixed" | "weight";
-    /** 收起策略与状态；缺省不可收起。 */
-    collapse?: SashCollapseState;
-}
 
 const props = withDefaults(defineProps<{
     direction?: "horizontal" | "vertical";
@@ -58,7 +48,6 @@ const emit = defineEmits<{
 
 defineSlots<Record<`panel-${string}`, (props: {panel: SplitterPanelConfig; index: number}) => unknown> & {default(): unknown}>();
 
-const DEFAULT_SASH_SIZE = 1;
 /** 分隔线身份（`data-sash`、会话）里的分支 id：独立的 Splitter 只有这一个。 */
 const BRANCH_ID = "panels";
 
@@ -232,10 +221,6 @@ function allocateLocal(): number[] {
 
 const isControlled = computed(() => props.sizesPx !== undefined && props.sizesPx.length === props.panels.length);
 
-/**
- * 取消必须先于重排：约束变化时本 watcher 先作废手势（`dragging` 变 false），
- * 紧接着的分配 watcher 才有机会按新约束重新分配。注册顺序就是执行顺序。
- */
 /**
  * 约束语义（面板身份、上下界、分配策略、收起策略）变化会让进行中的手势基线作废；
  * **呈现 px 与收起状态不在其中**：手势预览每帧都会重发它们，把它们当外部变化会让拖动自己取消自己。

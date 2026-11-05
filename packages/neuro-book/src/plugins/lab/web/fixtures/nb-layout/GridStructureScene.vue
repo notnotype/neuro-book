@@ -51,7 +51,7 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
 
 /** 产品里是工作台的两条命令；这里不接命令系统，直接调。 */
 function onKeydown(event: KeyboardEvent): void {
-    if (event.key === "F6" && moveGridFocus(document.activeElement, event.shiftKey ? "previous" : "next")) event.preventDefault();
+    if (event.key === "F6" && moveGridFocus(containerEl.value, event.shiftKey ? "previous" : "next")) event.preventDefault();
 }
 
 function run(name: string): void {

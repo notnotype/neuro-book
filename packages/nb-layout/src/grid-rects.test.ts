@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, grownRect, nextFocusStop, placeGrid, placementMoved, stableOrder} from "./grid-rects";
+import {placeGrid} from "./grid-rects";
 import type {GridLeafPlacement, GridPlacement, GridSashPlacement} from "./grid-rects";
 import type {GridLayoutResult, GridNode, GridNodeInput} from "./grid-types";
 
@@ -36,7 +36,12 @@ describe("按矩形摆放", () => {
     it("一层：叶与分隔线交替，首尾贴容器，合计守恒", () => {
         const {node, layout} = grid(THREE(), 1, {width: 302, height: 200});
         const placement = placeGrid(node, layout, {width: 302, height: 200}, 1);
-        expect(placement.items.map((item) => item.key)).toEqual(["leaf:a", 'sash:["a","b"]', "leaf:b", 'sash:["b","c"]', "leaf:c"]);
+        expect(placement.items.map((item) => item.kind)).toEqual(["leaf", "sash", "leaf", "sash", "leaf"]);
+        expect(placement.items.map((item) => item.key)).toEqual(expect.arrayContaining(["leaf:a", "leaf:b", "leaf:c"]));
+        // 分隔线的身份跟着前后节点走：同一对节点两次摆放里相同，不同的对不同，节点 id 含分隔符也不撞。
+        expect(new Set(placement.items.map((item) => item.key)).size).toBe(5);
+        const again = placeGrid(node, layout, {width: 302, height: 200}, 1);
+        expect(again.items.map((item) => item.key)).toEqual(placement.items.map((item) => item.key));
         expect(leaves(placement).map((item) => item.rect)).toEqual([
             {x: 0, y: 0, width: 100, height: 200},
             {x: 101, y: 0, width: 100, height: 200},
@@ -203,123 +208,5 @@ describe("分隔线的身份与两端", () => {
         const endsOf = (result: GridLayoutResult) => sashes(placeGrid(instance.root() as GridNode<string>, result, {width: 1000, height: 401}, 1)).find((item) => item.sashKey === "stack:0")?.ends;
         expect(endsOf(zeroGap)).toEqual({start: "root:0", end: null});
         expect(endsOf(free)).toEqual({start: null, end: null});
-    });
-});
-
-describe("新出现的项从哪里开始", () => {
-    const placeOf = (root: GridNodeInput<string>) => {
-        const {node, layout} = grid(root, 4, {width: 1000, height: 300});
-        return placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
-    };
-    const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
-
-    it("第一块的起点不动，其余的终点不动：另一条边跟着让位的兄弟走，中间不露空白", () => {
-        const items = placeOf(branch(leaf("n"), leaf("a")));
-        const [first, , second] = items;
-        if (first?.kind !== "leaf" || second?.kind !== "leaf") throw new Error("树序不对");
-        expect(first.grow).toEqual({axis: "width", edge: "start"});
-        expect(second.grow).toEqual({axis: "width", edge: "end"});
-        expect(grownRect(first.rect, first.grow)).toEqual({...first.rect, width: 0});
-        expect(grownRect(second.rect, second.grow)).toEqual({...second.rect, x: second.rect.x + second.rect.width, width: 0});
-    });
-
-    it("纵向分支按高度长", () => {
-        const items = placeOf({kind: "branch", id: "root", orientation: "vertical", children: [leaf("n"), leaf("a")]});
-        const second = items[2];
-        if (second?.kind !== "leaf") throw new Error("树序不对");
-        expect(second.grow).toEqual({axis: "height", edge: "end"});
-        expect(grownRect(second.rect, second.grow)).toEqual({...second.rect, y: second.rect.y + second.rect.height, height: 0});
-    });
-
-    it("根上的叶没有兄弟，第一帧就是终点", () => {
-        const only = placeOf(leaf("only"))[0];
-        if (only?.kind !== "leaf") throw new Error("树序不对");
-        expect(grownRect(only.rect, only.grow)).toEqual(only.rect);
-    });
-
-    it("分隔线从挨着同一个节点的旧分隔线出发", () => {
-        const before = placeOf(branch(leaf("a"), leaf("b"), leaf("c")));
-        const after = placeOf(branch(leaf("a"), leaf("c")));
-        const old = before.find((item) => item.kind === "sash" && item.before === "a");
-        const sash = after.find((item) => item.kind === "sash");
-        expect(enteringRects(after, before).get(sash?.key ?? "")?.x).toBe(old?.rect.x);
-    });
-
-    it("没有旧分隔线可接时从新叶的起点出发：线一开始就在外框的边上", () => {
-        const before = placeOf(leaf("a"));
-        const after = placeOf(branch(leaf("n"), leaf("a")));
-        const entering = enteringRects(after, before);
-        const newLeaf = entering.get("leaf:n");
-        const sash = after.find((item) => item.kind === "sash");
-        expect(newLeaf).toEqual({...after[0]?.rect, width: 0});
-        expect(entering.get(sash?.key ?? "")?.x).toBe(0);
-
-        const appended = placeOf(branch(leaf("a"), leaf("n")));
-        const appendedSash = appended.find((item) => item.kind === "sash");
-        const appendedEntering = enteringRects(appended, before);
-        expect(appendedEntering.get(appendedSash?.key ?? "")?.x).toBe(1000 - 4);
-    });
-
-    it("已有的项不在里面", () => {
-        const items = placeOf(branch(leaf("a"), leaf("b")));
-        expect(enteringRects(items, items).size).toBe(0);
-    });
-});
-
-describe("placementMoved", () => {
-    const items = () => {
-        const {node, layout} = grid(THREE(), 1, {width: 302, height: 200});
-        return placeGrid(node, layout, {width: 302, height: 200}, 1).items;
-    };
-
-    it("完全相同、差不到 1px：没动；差得更多、多了少了：动了", () => {
-        const base = items();
-        expect(placementMoved(base, base)).toBe(false);
-        const shift = (dx: number) => base.map((item) => ({...item, rect: {...item.rect, x: item.rect.x + dx}}));
-        expect(placementMoved(shift(1), base)).toBe(false);
-        expect(placementMoved(shift(2), base)).toBe(true);
-        expect(placementMoved(base.slice(0, 3), base)).toBe(true);
-    });
-});
-
-describe("stableOrder", () => {
-    it("第一次就是树序", () => {
-        expect(stableOrder([], ["a", "s", "b"])).toEqual(["a", "s", "b"]);
-    });
-
-    it("拆分：新项紧接在树序的前一项之后，已有的不动，结果仍等于树序", () => {
-        expect(stableOrder(["a", "a|b", "b"], ["a", "a|n", "n", "n|b", "b"])).toEqual(["a", "a|n", "n", "n|b", "b"]);
-    });
-
-    it("在最前面拆分：新项排在最前", () => {
-        expect(stableOrder(["a"], ["n", "n|a", "a"])).toEqual(["n", "n|a", "a"]);
-    });
-
-    it("关闭：只去掉它", () => {
-        expect(stableOrder(["a", "a|b", "b", "b|c", "c"], ["a", "a|c", "c"])).toEqual(["a", "a|c", "c"]);
-    });
-
-    it("换位置：已有的保持原来的相对次序，不搬 DOM", () => {
-        expect(stableOrder(["a", "a|b", "b"], ["b", "b|a", "a"])).toEqual(["a", "b", "b|a"]);
-    });
-});
-
-describe("nextFocusStop", () => {
-    const focusable = (...indexes: number[]) => (index: number): boolean => indexes.includes(index);
-
-    it("跳过没有可聚焦元素的项", () => {
-        expect(nextFocusStop({count: 5, from: 0, direction: 1, wrap: false, focusable: focusable(0, 3)})).toBe(3);
-        expect(nextFocusStop({count: 5, from: 4, direction: -1, wrap: false, focusable: focusable(1, 4)})).toBe(1);
-    });
-
-    it("不绕回：走到头返回 null", () => {
-        expect(nextFocusStop({count: 3, from: 2, direction: 1, wrap: false, focusable: focusable(0, 1, 2)})).toBeNull();
-        expect(nextFocusStop({count: 3, from: 0, direction: -1, wrap: false, focusable: focusable(0, 1, 2)})).toBeNull();
-    });
-
-    it("绕回：回到另一头；只有自己能停时停在自己；都不能停返回 null", () => {
-        expect(nextFocusStop({count: 3, from: 2, direction: 1, wrap: true, focusable: focusable(0, 1, 2)})).toBe(0);
-        expect(nextFocusStop({count: 3, from: 1, direction: 1, wrap: true, focusable: focusable(1)})).toBe(1);
-        expect(nextFocusStop({count: 3, from: 1, direction: 1, wrap: true, focusable: focusable()})).toBeNull();
     });
 });
