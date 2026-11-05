@@ -185,6 +185,11 @@ export class World {
         return this.lines.get(id);
     }
 
+    /** 读取位置的线的线视图（worldlines 输出 12；活页夹章讲的线随后接上，现在不写线就是主线）；线不存在或不可建时为 undefined。 */
+    lineAt(position: ReadPosition): LineView | undefined {
+        return this.lines.get(position.line ?? MAIN_LINE);
+    }
+
     get version(): number {
         return this.data.version;
     }
@@ -210,8 +215,10 @@ export class World {
     }
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
-    pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem)[] | "chapter-not-found" {
-        const {records, engine} = this.line();
+    pending(position: ReadPosition, mode: Mode = "actual"): readonly (PendingItem | TimePendingItem)[] | "chapter-not-found" | "line-not-found" {
+        const view = this.lineAt(position);
+        if (view === undefined) return "line-not-found";
+        const {records, engine} = view;
         const items = engine.pending(position, mode);
         if (items === "chapter-not-found") return items;
         const grouped: PendingItem[] = [];

@@ -291,11 +291,14 @@ export class WorldService {
 
     #entryOn(world: World, id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
         const stamp = this.#stampOf(world);
-        const view = world.line().engine.entry(id, position, mode);
+        // 读取位置的线（worldlines 输出 12）：经那条线的读取视图读，来历里带过去的那一步才换成 carried。
+        if (world.lineAt(position) === undefined) return "line-not-found" as const;
+        const lineRead = this.#readViewOf(world, position.line ?? MAIN_LINE);
+        const view = lineRead.entry(id, position, mode);
         if (view === "chapter-not-found" || view === null || !withOrigins) return view === "chapter-not-found" ? view : {...stamp, view};
         const origins: Record<string, unknown> = {};
         for (const [namespace, data] of Object.entries(view.namespaces)) {
-            for (const field of Object.keys(data.fields)) origins[`${namespace}.${field}`] = world.line().engine.origins({entry: id, path: `${namespace}.${field}`}, position, mode);
+            for (const field of Object.keys(data.fields)) origins[`${namespace}.${field}`] = lineRead.origins({entry: id, path: `${namespace}.${field}`}, position, mode);
         }
         return {...stamp, view, origins};
     }
@@ -315,13 +318,13 @@ export class WorldService {
      * 待处理、提示或已处理的一页（方法表 `pending`，model.md 输出 16、34、35）：内核自己的与插件诊断的按同一个全序排。
      * 每页都带完整与否、没算出与被截断的诊断、因插件停用而未计算的诊断、各组的总数，以及待定的决策与未处理的正文建议各有几条。
      */
-    pending(query: {readonly position?: ReadPosition; readonly mode?: Mode; readonly group?: PendingGroupName} = {}, cursor?: string, limit = 50): PendingPage | "chapter-not-found" | "cursor-stale" {
+    pending(query: {readonly position?: ReadPosition; readonly mode?: Mode; readonly group?: PendingGroupName} = {}, cursor?: string, limit = 50): PendingPage | "chapter-not-found" | "line-not-found" | "cursor-stale" {
         const world = this.#world;
         const position = query.position ?? defaultPosition(world.options.order);
         const mode = query.mode ?? "actual";
         const group = query.group ?? "pending";
         const groups = this.#groups(world, position, mode);
-        if (groups === "chapter-not-found") return groups;
+        if (typeof groups === "string") return groups;
         const stamp = this.#stamp();
         const page = this.#page(stamp, groups[group], cursor, limit, {method: "pending", position, mode, group});
         if (page === "cursor-stale") return page;
@@ -341,12 +344,12 @@ export class WorldService {
     }
 
     /** 三组的计算：内核的待处理与提示，再调每个登记了的诊断（输出 34 的处理顺序见 diagnostics.ts）。按读取输入缓存。 */
-    #groups(world: World, position: ReadPosition, mode: Mode): PendingGroups | "chapter-not-found" {
+    #groups(world: World, position: ReadPosition, mode: Mode): PendingGroups | "chapter-not-found" | "line-not-found" {
         const key = `${this.#stamp().inputDigest}|${mode}|${stableStringify(position)}`;
         const cached = this.#groupsCache.get(key);
         if (cached !== undefined) return cached;
         const canon = world.pending(position, mode);
-        if (canon === "chapter-not-found") return canon;
+        if (typeof canon === "string") return canon;
         const order = world.options.order;
         const pending: Sortable[] = canon.map((item) => sortableCanonItem(world, item));
         const hints: Sortable[] = canonHints(world, this.#locator);
@@ -354,7 +357,8 @@ export class WorldService {
         const unavailable: {diagnostic: string; reason: string}[] = [];
         const truncated: string[] = [];
         const registry = world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY;
-        const view = this.#readViewOf(world);
+        // 插件诊断按读取位置的线的视图算（DS：与内核的待处理同一条线）；线在上面已查过存在。
+        const view = this.#readViewOf(world, position.line ?? MAIN_LINE);
         let tellings: Map<string, Telling> | undefined;
         const findingPosition = (finding: Finding): {position: SortPosition; occurrence?: Occurrence} => {
             if (finding.at === undefined) return {position: null};

@@ -127,7 +127,7 @@ describe("canon.model 输出 16、canon.time 输出 2、3、5、14：时间的�
         ], 1), "t"));
         const kinds = (position: Parameters<World["pending"]>[0]) => {
             const items = conflict.world.pending(position);
-            return items === "chapter-not-found" ? [] : items.map((item) => item.kind);
+            return typeof items === "string" ? [] : items.map((item) => item.kind);
         };
         expect(kinds({kind: "chapter", chapter: "ch2", edge: "end"}).sort()).toEqual(["time-conflict", "time-invalid", "time-placement-mismatch"]);
         // 第 1 章末尾：对不上牵涉第 2 章那件，还没到。
@@ -153,7 +153,7 @@ describe("canon.model 输出 16、canon.time 输出 2、3、5、14：时间的�
         ], 1), "t"));
         const listed = (world: World, chapter: string) => {
             const items = world.pending({kind: "chapter", chapter, edge: "end"});
-            return items === "chapter-not-found" ? [] : items.map((item) => item.kind).sort();
+            return typeof items === "string" ? [] : items.map((item) => item.kind).sort();
         };
         expect(listed(written.world, "ch1")).toEqual([]);
         expect(listed(written.world, "ch2")).toEqual(["time-conflict", "time-conflict", "time-invalid"]);
@@ -166,7 +166,7 @@ describe("canon.model 输出 16、canon.time 输出 2、3、5、14：时间的�
         const {world} = start();
         const without = world.withOptions({...world.options, time: {...DEFAULT_TIME, calendar: {...GREGORIAN, months: GREGORIAN.months.filter((month) => month.id !== "m6"), leap: []}}});
         const items = without.pending({kind: "chapter", chapter: "ch2", edge: "end"});
-        expect(items !== "chapter-not-found" && items.map((item) => [item.kind, "reason" in item ? item.reason : null])).toEqual([["time-invalid", "month-missing"]]);
+        expect(typeof items !== "string" && items.map((item) => [item.kind, "reason" in item ? item.reason : null])).toEqual([["time-invalid", "month-missing"]]);
         expect(world.pending({kind: "chapter", chapter: "ch2", edge: "end"})).toEqual([]);
     });
 

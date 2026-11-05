@@ -47,7 +47,7 @@ export type ViewedPage<T> = ReadStamp & {readonly items: readonly T[]; readonly 
 
 /** 带视图令牌的读取（`WorldService.viewed`、项目内快照的 `viewed`）：方法表里允许带令牌的几种，越界的得到 `view-denied`。 */
 export interface ViewedReads {
-    entry(id: string, position: ReadPosition | undefined, mode?: Mode): (ReadStamp & {readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>}) | "chapter-not-found" | "view-denied";
+    entry(id: string, position: ReadPosition | undefined, mode?: Mode): (ReadStamp & {readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>}) | "chapter-not-found" | "line-not-found" | "view-denied";
     render(entry: string, position: ReadPosition | undefined, mode: Mode, audience: "author" | "agent"): (ReadStamp & {readonly position: ReadPosition; readonly mode: Mode; readonly blocks: readonly (AuthorBlock | AgentBlock)[]}) | null | "chapter-not-found" | "view-denied";
     lookup(names: readonly string[], position: ReadPosition | undefined): (ReadStamp & {readonly found: Readonly<Record<string, readonly string[]>>}) | "chapter-not-found" | "view-denied";
     presence(person: string, filter?: PresenceFilter, cursor?: string, limit?: number): (ViewedPage<{readonly change: StoryChange}> & {readonly uncast: number}) | "chapter-not-found" | "cursor-stale" | "view-denied";

@@ -110,7 +110,7 @@ export class Viewpoint {
         }
         const read = this.viewed.entry(id, undefined, "actual");
         if (read === "view-denied") return read;
-        if (read === "chapter-not-found" || read.view === null) return "not-found";
+        if (read === "chapter-not-found" || read === "line-not-found" || read.view === null) return "not-found";
         const blocked = new Set<string>();
         const filtered = this.#filterEntry(read.view, blocked);
         const children = this.view.entries()

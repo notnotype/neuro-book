@@ -132,7 +132,7 @@ describe("canon.project 输出 24：视图不漏上限之后的事，审计记�
         await write(service, [{ref: {kind: "entry", id: xia}, after: {...entry, init: {...entry.init, data: {panel: {...entry.init.data.panel!, enabled: false}}}}}]);
         await write(service, [{ref: {kind: "change", id: "tmp:on"}, after: {id: "tmp:on", kind: "written", text: "启用面板", at: {kind: "chapter", chapter: "ch11", key: 5}, told: [], involves: [xia], lines: [], links: [], patches: [{op: "set", at: {entry: xia, path: "panel.启用"}, value: true}], status: "active", by: {kind: "author"}}}]);
         const plain = service.entry(xia, {kind: "chapter", chapter: "ch10", edge: "end"}, "actual");
-        expect(plain !== "chapter-not-found" && plain.view?.upcoming.map((item) => item.namespace)).toEqual(["panel"]);
+        expect(typeof plain !== "string" && plain.view?.upcoming.map((item) => item.namespace)).toEqual(["panel"]);
         const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch10", edge: "end"}, purpose: "writer"});
         if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
         const read = service.viewed(opened.token).entry(xia, undefined);

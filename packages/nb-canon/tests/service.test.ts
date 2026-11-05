@@ -271,7 +271,7 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         service.subscribe((event) => events.push(event));
         const attitude = (from: WorldService) => {
             const read = from.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
-            return read === "chapter-not-found" ? read : read?.view?.namespaces.character?.fields.态度;
+            return typeof read === "string" ? read : read?.view?.namespaces.character?.fields.态度;
         };
         expect(attitude(service)).toEqual({value: "冷淡；之后：软了一点", notReduced: true, unreduced: {anchor: "冷淡", events: 1}});
         release();
@@ -303,7 +303,7 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         await service.idle();
         expect(inputs).toContain("热情|软了一点/叫了一声哥");
         const read = service.entry("e1", latest, "actual");
-        expect(read !== "chapter-not-found" && read?.view?.namespaces.character?.fields.态度).toEqual({value: "归纳"});
+        expect(typeof read !== "string" && read?.view?.namespaces.character?.fields.态度).toEqual({value: "归纳"});
     });
 
     test("小模型失败写诊断，值保持未归纳；下次读到再排，补上后读到归纳", async () => {
@@ -319,10 +319,10 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         expect(service.status().diagnostics).toContainEqual({code: "reduce-failed", message: "模型超时"});
         fail = false;
         const before = service.entry("e1", latest, "actual");
-        expect(before !== "chapter-not-found" && before?.view?.namespaces.character?.fields.态度).toMatchObject({notReduced: true});
+        expect(typeof before !== "string" && before?.view?.namespaces.character?.fields.态度).toMatchObject({notReduced: true});
         await service.idle();
         const after = service.entry("e1", latest, "actual");
-        expect(after !== "chapter-not-found" && after?.view?.namespaces.character?.fields.态度).toEqual({value: "归纳"});
+        expect(typeof after !== "string" && after?.view?.namespaces.character?.fields.态度).toEqual({value: "归纳"});
     });
 
     test("归纳缓存里的坏行跳过并写诊断", async () => {
@@ -406,7 +406,7 @@ describe("canon.project：审查补的边界（输出 6、10、11、16、19、23
         expect(service.status().diagnostics).toContainEqual({code: "reduce-failed", message: "EIO: cache"});
         const read = () => {
             const view = service.entry("e1", latest, "actual");
-            return view === "chapter-not-found" ? view : view?.view?.namespaces.character?.fields.态度;
+            return typeof view === "string" ? view : view?.view?.namespaces.character?.fields.态度;
         };
         // 失败的那次没留在内存里：同一次发布后排的那次读到它时又排了一次，这次写进了缓存。
         await service.idle();

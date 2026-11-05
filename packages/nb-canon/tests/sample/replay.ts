@@ -79,8 +79,8 @@ export function differences(sample: PrototypeSample, replayed: Replayed): Differ
         const position = result.position as ReadPosition;
         for (const [protoId, expected] of Object.entries(result.entries)) {
             const read = replayed.service.entry(replayed.ids.get(protoId), position, "actual");
-            if (read === "chapter-not-found" || read.view === null) {
-                found.push({where: label(position), entry: protoId, path: "", prototype: "有", canon: read === "chapter-not-found" ? read : null});
+            if (typeof read === "string" || read.view === null) {
+                found.push({where: label(position), entry: protoId, path: "", prototype: "有", canon: typeof read === "string" ? read : null});
                 continue;
             }
             const view = read.view;

@@ -282,6 +282,12 @@ describe("canon.worldlines 输出 1、6、project 方法表 lines：按线的读
             if ("code" in child) throw new Error(child.code);
             expect(child.line).toBe(r1);
             expect(view.onLine(r1)).toBe(child);
+            // 服务的读取按位置的线（输出 12）：不存在的线 line-not-found。
+            const onChild = service.entry(xia, {kind: "chapter", chapter: "ch3", edge: "end", line: r1}, "actual");
+            expect(typeof onChild !== "string" && onChild.view?.namespaces.rb?.fields.次数?.value).toBe(0);
+            expect(service.entry(xia, {kind: "chapter", chapter: "ch3", edge: "end", line: "l404"}, "actual")).toBe("line-not-found");
+            expect(service.pending({position: {kind: "chapter", chapter: "ch3", edge: "end", line: "l404"}})).toBe("line-not-found");
+            expect(typeof service.pending({position: {kind: "chapter", chapter: "ch3", edge: "end", line: r1}})).toBe("object");
             const steps = child.origins({entry: xia, path: "rb.次数"}, {kind: "chapter", chapter: "ch3", edge: "end"}, "actual");
             expect(steps !== "chapter-not-found" && steps.at(-1)).toMatchObject({kind: "carried", fork: forks["tmp:f"], line: "main", change: story["tmp:c3"], value: 0});
         } finally {

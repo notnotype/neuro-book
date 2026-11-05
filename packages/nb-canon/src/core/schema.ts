@@ -19,9 +19,10 @@ export const PlacementSchema = Type.Union([
     Type.Object({kind: Type.Literal("unscheduled"), line: Type.Optional(Id)}),
 ]);
 
+/** 读取位置。`line` 是读哪条世界线（canon/worldlines.md 输出 12）；不写时取那一章讲的线，活页夹没给时是主线。 */
 export const ReadPositionSchema = Type.Union([
-    Type.Object({kind: Type.Literal("initial")}),
-    Type.Object({kind: Type.Literal("chapter"), chapter: Id, edge: Type.Union([Type.Literal("start"), Type.Literal("end")])}),
+    Type.Object({kind: Type.Literal("initial"), line: Type.Optional(Id)}),
+    Type.Object({kind: Type.Literal("chapter"), chapter: Id, edge: Type.Union([Type.Literal("start"), Type.Literal("end")]), line: Type.Optional(Id)}),
 ]);
 
 export const AddressSchema = Type.Object({entry: Id, path: Text});
