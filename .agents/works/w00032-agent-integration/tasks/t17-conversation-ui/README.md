@@ -164,6 +164,8 @@ t20 实现的深入审查（[处置](../t20-hooks/evidences/deep-review-disposit
 
 计划第二稿已确认：[plan.md](plan.md)，Spec [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。执行位置 `.worktree/w00032-t17-conversation-ui`，分支 `feat/w00032-t17-conversation-ui`。实施中。第 1–5 片已提交：圆角与对齐（review v7 发给开发者看）、`DiffView`、内核小改动（含同一条回复的审批一起问）、`ask` 与审批预览、`kernel-transcript`。下一片是视图零件。`ask` 两条声明的大小见 [evidences/ask-tool-size.txt](evidences/ask-tool-size.txt)。
 
+第 1 片的圆角（review v7）：开发者答“可以”。
+
 继续按钮（review v6 答复）：开发者说“现在图标没有在按钮内居中了”。静态稿是用一个假图标盖在发送按钮上的，第 6 片换成发送按钮里真的图标，并量它和按钮的中心重合，再截图给开发者看。
 
 ## 下一步
