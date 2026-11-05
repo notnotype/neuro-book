@@ -26,6 +26,7 @@
     "packages/llmlint",
     "packages/dev-panel",
     "packages/nb-story",
+    "packages/nb-time",
     "packages/nb-canon",
     "packages/neuro-book",
     "packages/neuro-book-legacy"

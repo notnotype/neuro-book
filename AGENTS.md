@@ -72,6 +72,8 @@ neuro-book/
 │   ├── file-snapshot-cache/        # 文件快照缓存
 │   ├── dev-panel/                  # 开发工具：nbdev 命令行与开发者面板（w00022）
 │   ├── nb-story/                   # 剧情图谱：小说记忆图的书库、查询、nbstory 命令行、查看器、内置问答与 Skill（w00024）
+│   ├── nb-canon/                   # 作者视角的世界引擎内核：条目、剧情变更与修订的模型与计算、世界服务的语义（w00039）
+│   ├── nb-time/                    # 故事时间：历法、时间说法、时间约束网络与查询；没有运行时依赖，前后端共用（w00039）
 │   └── neuro-book-test-support/    # 系统临时根与 fixture 支持
 ├── scripts/                        # 仓库治理与自动化
 ├── docs/                           # monorepo 级文档治理
