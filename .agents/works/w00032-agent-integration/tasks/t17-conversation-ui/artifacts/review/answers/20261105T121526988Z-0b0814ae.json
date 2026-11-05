@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t17-conversation-ui",
+    "artifactId": "review",
+    "answerId": "20261105T121526988Z-0b0814ae",
+    "artifactVersion": 8,
+    "contentHash": "03f15cba0b4a6c70a6aff1e11d69822a476e9c41493855eb575da97596cbb900",
+    "submittedAt": "2026-11-05T12:15:25.280Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "s6-wizard": "ok",
+        "s6-ask": "ok",
+        "s6-status": "ok",
+        "s6-panel": "change"
+    },
+    "comments": {
+        "s6-wizard": "写了话就是拒绝，这段话交给模型\n文案改的专业点，但是也要简单易懂。这个规则可以写进规范，因为不是第一次犯了",
+        "s6-panel": "过滤这里要改。当前这个不是很好看。而且也犯了一个错误：\n无标签和有标签这两种状态所占据的高度不同。这里不能因状态不同而导致重新布局"
+    },
+    "note": null
+}
