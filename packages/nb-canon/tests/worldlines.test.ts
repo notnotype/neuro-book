@@ -304,3 +304,24 @@ describe("canon.worldlines 输出 1、6、project 方法表 lines：按线的读
         }
     });
 });
+
+describe("canon.worldlines 失败与恢复、验收 3：写入时的线规则", () => {
+    test("子线上安放在切口之前或就在切口上：line-out-of-bounds；兑现子线看不到的计划：plan-not-visible；计划线上记已写的：line-planned", () => {
+        const {world, c2, p1} = base();
+        const result = forked(world, c2);
+        const line = result.ids["tmp:l"]!;
+        const write = (target: World, draft: StoryChangeDraft) => target.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: draft}], target.version), "t");
+        const codes = (outcome: WriteResult) => problems(outcome).map(([code]) => code);
+        expect(codes(write(result.world, written("tmp:x", at("ch2", 20, line))))).toContain("line-out-of-bounds");
+        expect(codes(write(result.world, written("tmp:x", at("ch2", 5, line))))).toContain("line-out-of-bounds");
+        expect(write(result.world, written("tmp:x", at("ch2", 21, line))).ok).toBe(true);
+        // 分叉之后在主线写的计划，子线看不到：兑现它拒收。
+        const later = ok(result.world.publish(request([{ref: {kind: "change", id: "tmp:p2"}, after: {...written("tmp:p2", at("ch3", 9)), kind: "plan"}}], result.world.version), "t"));
+        expect(codes(write(later.world, written("tmp:x", at("ch3", 10, line), [], {links: [{kind: "fulfills", plan: later.ids["tmp:p2"]!}]})))).toContain("plan-not-visible");
+        expect(write(later.world, written("tmp:x", at("ch3", 10, line), [], {links: [{kind: "fulfills", plan: p1}]})).ok).toBe(true);
+        const planned = forked(world, c2, {kind: "plan"});
+        const plannedLine = planned.ids["tmp:l"]!;
+        expect(codes(write(planned.world, written("tmp:x", at("ch3", 2, plannedLine))))).toContain("line-planned");
+        expect(write(planned.world, {...written("tmp:x", at("ch3", 2, plannedLine)), kind: "plan"}).ok).toBe(true);
+    });
+});

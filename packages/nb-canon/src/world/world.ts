@@ -54,6 +54,7 @@ import {readEntryAddress} from "../engine/views";
 import {LineSet, type LineView} from "../lines/set";
 import {lineTable, MAIN_LINE} from "../lines/table";
 import {defaultCarry, forkProblems} from "./forks";
+import {lineRuleProblems} from "./line-rules";
 import {blockProblem} from "../render/syntax";
 import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
@@ -490,6 +491,7 @@ export class World {
         const engine = lines.main.engine;
         // 补偿修订只恢复旧值：恢复出来的记录套不上时不拒收，进待处理（输出 11）。
         if (!compensation) problems.push(...validate(this, data, engine, request, changed));
+        if (!compensation) problems.push(...lineRuleProblems(data, this.options.order, changed));
         if (!compensation) problems.push(...forkProblems({before: this.data, after: data, order: this.options.order, registry: this.options.registry, calendar: (this.options.time ?? DEFAULT_TIME).calendar, changed: changed.changes, issuedLines: new Set(Object.values(ids).filter((id) => id.startsWith(ID_PREFIX.line))), slotAfter: slotOn}));
         const refs = writtenReferences(this, data, ops);
         if (!compensation) problems.push(...markProblems(this, data, ops), ...referenceProblems(data, this.options.order, refs));
