@@ -73,6 +73,12 @@ describe("编辑动作", () => {
         }
     });
 
+    it("全选后也能换块类型", () => {
+        const {editor} = open("一\n\n二\n");
+        editor.commands.selectAll();
+        expect(enabled(editor, "bullet-list")).toBe(true);
+    });
+
     it("表格单元格里不能换块类型", () => {
         const {editor} = open("| a |\n| --- |\n| b |\n");
         editor.commands.setTextSelection(3);

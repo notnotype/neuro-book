@@ -43,6 +43,8 @@ const text = (args: EditingArgs): string => (typeof args.text === "string" ? arg
  */
 function canConvertBlock(editor: Editor): boolean {
     const {$from} = editor.state.selection;
+    // 全选（Ctrl+A）的选区落在文档这一层，不在哪一块里：照常能换。
+    if ($from.depth === 0) return true;
     if (!$from.parent.isTextblock || $from.parent.type.name === "rawBlock") return false;
     for (let depth = $from.depth; depth > 0; depth -= 1) {
         if ($from.node(depth).type.spec.tableRole !== undefined) return false;
