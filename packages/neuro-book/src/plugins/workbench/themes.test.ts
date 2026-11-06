@@ -61,6 +61,15 @@ describe("workbench.themes", () => {
         ["scene 是远程地址", plain({dark: {scene: "https://example.com/x.webp"}})],
         ["scene 从根开始", plain({dark: {scene: "/etc/x.webp"}})],
         ["scene 往上走", plain({dark: {scene: "assets/../../x.webp"}})],
+        ["workingScene 是远程地址", plain({light: {workingScene: "https://example.com/x.webp"}})],
+        ["workingScene 往上走", plain({light: {workingScene: "../x.webp"}})],
+        ["sceneProvider 不是点分的贡献 id", plain({sceneProvider: "Clock Provider"})],
+        ["图标名带大写或斜杠", plain({light: {icons: {"Files/x": "assets/a.svg"}}})],
+        ["图标名想闭合选择器", plain({light: {icons: {"files{}x": "assets/a.svg"}}})],
+        ["图标不是 svg", plain({light: {icons: {files: "assets/a.png"}}})],
+        ["图标是远程地址", plain({dark: {icons: {files: "https://example.com/a.svg"}}})],
+        ["图标往上走", plain({dark: {icons: {files: "../a.svg"}}})],
+        ["图标超过 64 个", plain({dark: {icons: Object.fromEntries(Array.from({length: 65}, (_, index) => [`icon-${String(index)}`, "a.svg"]))}})],
         ["base 不认识", {...plain(), base: "other"}],
         ["多余的字段", {...plain(), extra: 1}],
     ])("%s：这一条不接受，别的照常", async (_name, declaration) => {
@@ -74,7 +83,7 @@ describe("主题的取值", () => {
     const study: ThemeDeclaration = plain({
         fonts: {display: "serif", prose: "serif"},
         crop: {empty: {position: "center 70%", contentX: 0.44}, marginLeft: {size: "auto 118%", position: "0% 100%"}, auxiliaryCorner: {size: "1000px auto", position: "0% 100%"}},
-        light: {colors: {"--bg-main": "#fff"}, vars: {"--divider": "#eee"}, activityBar: {surface: "#111", foreground: "#222", active: "#333", ornament: "#444"}, scene: "assets/day.webp", frame: {line: "#abc"}},
+        light: {colors: {"--bg-main": "#fff"}, vars: {"--divider": "#eee"}, activityBar: {surface: "#111", foreground: "#222", active: "#333", ornament: "#444"}, scene: "assets/day.webp", workingScene: "assets/day-working.webp", frame: {line: "#abc"}, icons: {files: "assets/icons/files.svg", search: "assets/icons/search.svg"}},
         dark: {colors: {"--bg-main": "#000"}},
     });
     const entry = {id: "acme.skin.study", plugin: "acme.skin", declaration: study};
@@ -93,14 +102,29 @@ describe("主题的取值", () => {
     });
 
     it("素材解析不出来时没有场景，配色照旧", () => {
-        const {scene, vars} = themeVars(entry, "light", () => null);
+        const {scene, vars, icons} = themeVars(entry, "light", () => null);
         expect(scene).toBe(false);
         expect(vars["--bg-main"]).toBe("#fff");
+        expect(icons).toEqual({});
+    });
+
+    it("工作中且写了工作态场景时换那一张，其余情形仍是平常的场景图；工作态场景解析不出来时退回平常的", () => {
+        const url = (plugin: string, path: string): string => `/files/${plugin}/${path}`;
+        expect(themeVars(entry, "light", url).vars["--skin-scene"]).toBe('url("/files/acme.skin/assets/day.webp")');
+        expect(themeVars(entry, "light", url, true).vars["--skin-scene"]).toBe('url("/files/acme.skin/assets/day-working.webp")');
+        expect(themeVars(entry, "light", (plugin, path) => (path.includes("working") ? null : url(plugin, path)), true).vars["--skin-scene"]).toBe('url("/files/acme.skin/assets/day.webp")');
+        // 暗色没写工作态场景，也没有平常的场景图：工作中也没有场景。
+        expect(themeVars(entry, "dark", url, true).scene).toBe(false);
+    });
+
+    it("图标集按名解析成 URL，解析不出的那个不换，没写的明暗没有", () => {
+        expect(themeVars(entry, "light", (plugin, path) => (path.endsWith("search.svg") ? null : `/files/${plugin}/${path}`)).icons).toEqual({files: "/files/acme.skin/assets/icons/files.svg"});
+        expect(themeVars(entry, "dark", () => "/x").icons).toEqual({});
     });
 
     it("目录里没有的 id 用缺省主题", () => {
         const catalog = new ThemeCatalog([], () => null, () => undefined);
-        expect(catalog.resolve("gone", "light")).toEqual({base: "nbook", skin: "nbook", vars: {}, scene: false});
+        expect(catalog.resolve("gone", "light")).toEqual({base: "nbook", skin: "nbook", vars: {}, scene: false, icons: {}});
     });
 
     it("退回：项目层不认识取用户层，都不认识取缺省；没认出的 id 只报一次", () => {

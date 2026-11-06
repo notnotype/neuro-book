@@ -3,6 +3,8 @@
  */
 
 import {randomUUID} from "node:crypto";
+import {createServer} from "node:http";
+import type {AddressInfo} from "node:net";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -383,6 +385,68 @@ test("浮层画框：书房的菜单与设置窗口有，亮暗各取各的色�
     await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-frame", "");
     await openMenu();
     expect(await outline(".nb-ui-menu-surface")).toMatch(/^none /u);
+});
+
+test("图标集：书房把活动栏等处的 lucide 图标换成自己的；高对比度下不换；切回 NeuroBook 恢复", async ({page}) => {
+    // 图标文件小，构建会内联成 data: 地址，不能按文件名认；比的是同一个图标类在不同主题下画的蒙版是否不同。
+    const mask = (): Promise<string | null> => page.evaluate(() => {
+        const element = document.querySelector(".i-lucide-files");
+        return element === null ? null : getComputedStyle(element).maskImage;
+    });
+    await writeSettings({[THEME]: "nbook", [APPEARANCE]: "light"});
+    await openProject(page);
+    const original = await mask();
+    expect(original).toContain("url(");
+    await expect(page.locator("style[data-nb-skin-icons]")).toHaveCount(0);
+
+    await writeSettings({[THEME]: STUDY, [APPEARANCE]: "light"});
+    await expect(page.locator("style[data-nb-skin-icons]")).toHaveCount(1);
+    await expect.poll(mask).not.toBe(original);
+    const study = await mask();
+
+    // 暗色用同一批文件。
+    await writeSettings({[THEME]: STUDY, [APPEARANCE]: "dark"});
+    // 先等明暗真的换过去，再比蒙版：不然轮询在切换落下前就拿到亮色那一份，断言形同虚设。
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    await expect.poll(mask).toBe(study);
+
+    await page.emulateMedia({contrast: "more"});
+    await expect.poll(mask).toBe(original);
+    await page.emulateMedia({contrast: "no-preference"});
+    await expect.poll(mask).toBe(study);
+
+    await writeSettings({[THEME]: "nbook", [APPEARANCE]: "dark"});
+    await expect(page.locator("style[data-nb-skin-icons]")).toHaveCount(0);
+    await expect.poll(mask).toBe(original);
+});
+
+test("图标 SVG 当蒙版用时浏览器不加载它引用的外部资源（图标集只收 .svg 的依据）", async ({page}) => {
+    const paths: string[] = [];
+    let origin = "";
+    const svg = (): string => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><image href="${origin}/inner-image.png" width="24" height="24"/><rect width="24" height="24" style="fill:url(${origin}/inner-paint.svg#x)"/></svg>`;
+    const probe = createServer((request, response) => {
+        paths.push(request.url ?? "");
+        // 蒙版图是跨源取的，要带 CORS 头；SVG 本身必须取得到，里面的引用才有机会被取。
+        const headers = {"access-control-allow-origin": "*"};
+        if (request.url === "/icon.svg") response.writeHead(200, {...headers, "content-type": "image/svg+xml"}).end(svg());
+        else response.writeHead(404, headers).end();
+    });
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    try {
+        origin = `http://127.0.0.1:${String((probe.address() as AddressInfo).port)}`;
+        await page.setContent(`<div style="width:24px;height:24px;background:#000;mask-image:url('${origin}/icon.svg')"></div>`);
+        await expect.poll(() => paths).toContain("/icon.svg");
+        // 对照 + 哨兵：普通 <img> 一定会取到，说明探针灵；它是在 SVG 取到之后才发的，要是 SVG 里的引用会被取，早该排在它前面。
+        await page.evaluate((url) => {
+            const image = document.createElement("img");
+            image.src = url;
+            document.body.append(image);
+        }, `${origin}/control.png`);
+        await expect.poll(() => paths).toContain("/control.png");
+        expect(paths.filter((path) => path.startsWith("/inner-"))).toEqual([]);
+    } finally {
+        await new Promise((resolve) => probe.close(resolve));
+    }
 });
 
 test("设置里的主题不存在：项目层退到用户层，再退到缺省，设置不改写", async ({page}) => {

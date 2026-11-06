@@ -17,7 +17,7 @@ import {checkContrast} from "nbook/ui/theme/contrast-checks";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
 import type {ThemeDeclaration} from "../../../shared/themes";
-import {THEME_ASSET_NAME, userThemeProblem, validUserThemes} from "../../../shared/user-themes";
+import {forUserLayer, THEME_ASSET_NAME, userThemeProblem, validUserThemes} from "../../../shared/user-themes";
 import type {CropCss, CropRegion} from "./crop-model";
 import type {UserTheme} from "../../../shared/user-themes";
 import type {CommitResult} from "nbook/shared/store/store";
@@ -154,10 +154,11 @@ export class ThemeEditorModel {
 
     /**
      * 复制出的声明：标题加“副本”。场景图：给了 `scenes` 就用它；没给时保留原声明里的（用户主题的素材文件名可以直接共用——文件名是
-     * 内容摘要），插件主题的是包内相对路径，不能直接用，所以去掉。
+     * 内容摘要），插件主题的是包内相对路径，不能直接用，所以去掉；图标集与工作态场景同理，一律不带。
      */
     #copied(declaration: ThemeDeclaration, shown?: string, scenes?: {readonly light?: string; readonly dark?: string}): ThemeDeclaration {
-        const copy = structuredClone(declaration);
+        // 图标集与工作态场景是包内素材，用户层没有放它们的地方（docs/specs/theme/editor.md 边界与兼容），复制时不带。
+        const copy = structuredClone(forUserLayer(declaration));
         for (const appearance of ["light", "dark"] as const) {
             const scene = scenes === undefined ? copy[appearance].scene : scenes[appearance];
             // 只有“我的素材”的文件名（内容摘要加扩展名）能直接共用；插件主题里的包内相对路径不行。

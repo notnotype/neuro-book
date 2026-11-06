@@ -12,7 +12,11 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {productPlugins} from "nbook/manifest";
 import {localModelSettings} from "nbook/plugins/agent/testing/endpoint";
+import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
+import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
 import {PACKAGE_ROOT, startProductServer, track} from "./fixtures";
 import type {ProcessHandle, ProductServer} from "./fixtures";
@@ -207,6 +211,42 @@ test("验收 5：服务端在运行中重启：重新加载后回到这个会话
     await page.keyboard.press("Enter");
     await expect(page.getByText("接着写完了")).toBeVisible();
     await expect(resume).toHaveCount(0);
+});
+
+test("按状态换场景（theme.skins 输出 17）：会话在运行时换成主题的工作态场景，结束后换回", async ({page}) => {
+    // 主题来自装进来的插件（暮色写了工作态场景），所以另起一个带它的服务；模型端点与项目照旧。
+    const root = join(tmp, "with-theme");
+    const plugins = createPluginInventory({root: join(root, "plugins"), profile: NEUROBOOK_PROFILE, builtin: productPlugins, startup: NO_INSTALLED_PLUGINS, record: () => undefined});
+    await mkdir(join(root, "user"), {recursive: true});
+    await writeFile(join(root, "projects.json"), await readFile(join(stateRoot, "projects.json")));
+    const installed = await plugins.install(join(PACKAGE_ROOT, "plugin-sdk/examples/external/theme-dusk"));
+    if (!installed.ok) throw new Error(`安装失败：${JSON.stringify(installed)}`);
+    const base = JSON.parse(await readFile(join(stateRoot, "settings.json"), "utf8")) as Record<string, unknown>;
+    await writeFile(join(root, "settings.json"), JSON.stringify({...base, "nbook.workbench/theme": "example.theme-dusk.dusk", "nbook.workbench/appearance": "light"}));
+    const themed = await startProductServer(root);
+    const sceneVar = (): Promise<string> => page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+    try {
+        await page.goto(new URL("/?project=book", themed.url).href);
+        await expect(page.locator("[data-explorer-row]").first()).toBeVisible();
+        await expect.poll(sceneVar).toMatch(/dusk-day\.webp/u);
+        await page.keyboard.press("Control+Shift+P");
+        await page.keyboard.type("打开对话");
+        await page.keyboard.press("Enter");
+        await expect(input(page)).toBeVisible();
+        await newSession(page);
+        await control("/hold");
+        await script("好了");
+        await send(page, "写一章");
+        await control("/hold/arrived");
+        await expect.poll(sceneVar).toMatch(/dusk-day-working\.webp/u);
+        await control("/hold/release");
+        await expect(page.getByText("好了")).toBeVisible();
+        await expect.poll(sceneVar).toMatch(/dusk-day\.webp/u);
+        expect(await sceneVar()).not.toMatch(/working/u);
+    } finally {
+        await page.goto("about:blank");
+        expect(await themed.stop()).toBe(0);
+    }
 });
 
 test("验收 6：把对话打开到编辑区页面：能发消息", async ({page}) => {

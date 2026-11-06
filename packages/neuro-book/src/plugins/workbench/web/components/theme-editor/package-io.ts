@@ -12,6 +12,7 @@ import {sniffImageType} from "nbook/shared/image-type";
 
 import {declarationProblem, ThemeDeclarationSchema, WORKBENCH_THEMES_POINT} from "../../../shared/themes";
 import type {ThemeDeclaration} from "../../../shared/themes";
+import {forUserLayer} from "../../../shared/user-themes";
 import type {UserTheme} from "../../../shared/user-themes";
 
 /** 一个包的上限：压缩包大小、文件数、单个文件解压后的大小与全部文件解压后的总大小（字节）。 */
@@ -165,9 +166,11 @@ export function readPackage(archive: Uint8Array): ImportResult {
         if (seen.has(id)) return {ok: false, reason: `主题 id 重复：${id}`};
         seen.add(id);
         if (!Value.Check(ThemeDeclarationSchema, item.declaration)) return {ok: false, reason: `主题 ${id} 的声明不合格`};
-        const declaration = item.declaration as ThemeDeclaration;
-        const problem = declarationProblem(id, declaration);
+        const written = item.declaration as ThemeDeclaration;
+        const problem = declarationProblem(id, written);
         if (problem !== null) return {ok: false, reason: problem};
+        // 导入的主题进用户层：图标集与工作态场景的素材放不下，读的时候就去掉（docs/specs/theme/editor.md 边界与兼容）。
+        const declaration = forUserLayer(written);
         const assets = new Map<string, Uint8Array>();
         for (const appearance of ["light", "dark"] as const) {
             const scene = declaration[appearance].scene;

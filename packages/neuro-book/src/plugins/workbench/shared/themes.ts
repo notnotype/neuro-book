@@ -11,10 +11,12 @@ import type {Static} from "typebox";
 import {TextSchema} from "nbook/shared/text";
 
 import {workbenchText} from "./text";
+import {WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "./theme-points";
 
 import {EYE_GREEN_LOOKS, EYE_SEPIA_LOOKS} from "./eye-care-themes";
 
-export const WORKBENCH_THEMES_POINT = "workbench.themes";
+export {MAX_SCENE_BYTES, WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "./theme-points";
+export type {SceneProviderImplementation, SceneRequest, SceneResult} from "./theme-points";
 export const DEFAULT_THEME_ID = "nbook";
 
 /** 主题能改的角色变量。从“书房”用到的开始：名字一旦公开，改名会破坏第三方主题。 */
@@ -27,6 +29,10 @@ const LookSchema = Type.Object({
     vars: Type.Optional(StringMap),
     activityBar: Type.Optional(Type.Object({surface: Type.String(), foreground: Type.String(), active: Type.String(), ornament: Type.Optional(Type.String())}, {additionalProperties: false})),
     scene: Type.Optional(Type.String({minLength: 1})),
+    /** Agent 工作中（有会话在运行或等用户处理）时用的场景图（docs/specs/theme/skins.md 输出 17）；没写或解析不出时仍用 `scene`。 */
+    workingScene: Type.Optional(Type.String({minLength: 1})),
+    /** 图标集（docs/specs/theme/skins.md 输出 16）：图标名（`i-lucide-<名>` 的 <名>）到插件目录内 .svg 的相对路径，按名覆盖，没写的保持原图标。 */
+    icons: Type.Optional(StringMap),
     /** 浮层的画框：描边里面再画一道细线（docs/specs/theme/skins.md 输出 13）。 */
     frame: Type.Optional(Type.Object({line: Type.String({minLength: 1})}, {additionalProperties: false})),
 }, {additionalProperties: false});
@@ -42,6 +48,8 @@ export const ThemeDeclarationSchema = Type.Object({
         sidebarCorner: Type.Optional(CropSchema),
         auxiliaryCorner: Type.Optional(CropSchema),
     }, {additionalProperties: false})),
+    /** 场景图由哪个提供者画（`workbench.theme-scenes` 的贡献 id）；提供者没发布或失败时用 `Look.scene` 作后备。 */
+    sceneProvider: Type.Optional(Type.String({minLength: 1})),
     light: LookSchema,
     dark: LookSchema,
 }, {additionalProperties: false});
@@ -63,12 +71,33 @@ function stringsIn(value: unknown): string[] {
     return [];
 }
 
+/** 图标名只收小写字母、数字与连字符（lucide 的写法）：它会拼进样式表的选择器。 */
+const ICON_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+export const MAX_ICONS = 64;
+const SCENE_PROVIDER_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
+
+/** 只能是插件目录内的相对路径：不能带方案、不能从根开始、不能往上走。 */
+function pathProblem(label: string, path: string): string | null {
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(path) || /^[/\\]/u.test(path) || path.split(/[/\\]/u).includes("..")) return `${label} 要是插件目录内的相对路径：${path}`;
+    return null;
+}
+
 function lookProblem(name: string, look: ThemeLook): string | null {
     for (const key of Object.keys(look.colors ?? {})) if (!COLOR_VARS.has(key)) return `${name}.colors 不收 ${key}：不是配色变量`;
     for (const key of Object.keys(look.vars ?? {})) if (!ROLE_VARS.has(key)) return `${name}.vars 不收 ${key}：不在主题角色变量里`;
-    const {scene} = look;
-    // 只能是插件目录内的相对路径：不能带方案、不能从根开始、不能往上走。
-    if (scene !== undefined && (/^[a-z][a-z0-9+.-]*:/iu.test(scene) || /^[/\\]/u.test(scene) || scene.split(/[/\\]/u).includes(".."))) return `${name}.scene 要是插件目录内的相对路径：${scene}`;
+    for (const [field, path] of [["scene", look.scene], ["workingScene", look.workingScene]] as const) {
+        if (path === undefined) continue;
+        const problem = pathProblem(`${name}.${field}`, path);
+        if (problem !== null) return problem;
+    }
+    const icons = Object.entries(look.icons ?? {});
+    if (icons.length > MAX_ICONS) return `${name}.icons 最多 ${String(MAX_ICONS)} 个：写了 ${String(icons.length)} 个`;
+    for (const [icon, path] of icons) {
+        if (!ICON_NAME.test(icon)) return `${name}.icons 的图标名只收小写字母、数字与连字符：${icon}`;
+        if (!path.toLowerCase().endsWith(".svg")) return `${name}.icons.${icon} 只收 .svg：${path}`;
+        const problem = pathProblem(`${name}.icons.${icon}`, path);
+        if (problem !== null) return problem;
+    }
     return null;
 }
 
@@ -86,9 +115,10 @@ export function themeProblem(descriptor: ContributionDescriptor<ThemeDeclaration
 /** 声明内容的规则，插件主题与“我的主题”（`user-themes.ts`）共用：取值不能引外部资源，`vars`、`colors` 在白名单里，`scene` 是相对路径。 */
 export function declarationProblem(id: string, declaration: ThemeDeclaration): string | null {
     const {title: _title, ...rest} = declaration;
-    const {scene: _light, ...light} = declaration.light;
-    const {scene: _dark, ...dark} = declaration.dark;
+    const {scene: _light, workingScene: _lightWorking, icons: _lightIcons, ...light} = declaration.light;
+    const {scene: _dark, workingScene: _darkWorking, icons: _darkIcons, ...dark} = declaration.dark;
     if (stringsIn({...rest, light, dark}).some((value) => LOADS_RESOURCE.test(value))) return `主题 ${id} 的取值不能引外部资源（url()）`;
+    if (declaration.sceneProvider !== undefined && !SCENE_PROVIDER_ID.test(declaration.sceneProvider)) return `主题 ${id} 的 sceneProvider 要是点分的小写贡献 id：${declaration.sceneProvider}`;
     return lookProblem("light", declaration.light) ?? lookProblem("dark", declaration.dark);
 }
 
@@ -106,3 +136,16 @@ export const BUILTIN_THEME_CONTRIBUTIONS = [
     {capability: WORKBENCH_THEMES_POINT, id: "eye-green", declaration: {title: workbenchText("themes.eyeGreen.title"), base: "nbook", ...EYE_GREEN_LOOKS} satisfies ThemeDeclaration},
     {capability: WORKBENCH_THEMES_POINT, id: "eye-sepia", declaration: {title: workbenchText("themes.eyeSepia.title"), base: "nbook", ...EYE_SEPIA_LOOKS} satisfies ThemeDeclaration},
 ];
+
+/** 提供者的声明没有字段：它只是个有实现的名字，主题经 id 引用。 */
+export const SceneProviderDeclarationSchema = Type.Object({}, {additionalProperties: false});
+export type SceneProviderDeclaration = Static<typeof SceneProviderDeclarationSchema>;
+
+/** `workbench.theme-scenes` 贡献点：实现只在浏览器入口交付，提供者所在入口要在启动时激活，工作台不替它激活。 */
+export const themeScenesPoint: ContributionPointDefinition<SceneProviderDeclaration> = {
+    id: WORKBENCH_THEME_SCENES_POINT,
+    implementation: "required",
+    idPrefix: "plugin",
+    schema: SceneProviderDeclarationSchema,
+    validate: (descriptor) => (descriptor.location === "browser" ? null : `${WORKBENCH_THEME_SCENES_POINT} 只接受浏览器入口的贡献`),
+};

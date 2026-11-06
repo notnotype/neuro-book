@@ -75,6 +75,16 @@ describe("导入", () => {
         expect(read.ok).toBe(true);
     });
 
+    it("导入时去掉用户层放不下的图标集与工作态场景，场景图照常带进来；场景提供者保留", () => {
+        const declaration = {title: "x", base: "nbook", sceneProvider: "acme.sky.clock", light: {scene: HASH_DAY, workingScene: "assets/w.webp", icons: {files: "assets/files.svg"}}, dark: {scene: HASH_NIGHT, icons: {files: "assets/files.svg"}}};
+        const read = readPackage(zipSync({"package.json": text(manifestOf(declaration)), [HASH_DAY]: WEBP, [HASH_NIGHT]: PNG}));
+        expect(read.ok).toBe(true);
+        const [imported] = read.ok ? read.themes : [];
+        expect(imported?.declaration.light).toEqual({scene: HASH_DAY});
+        expect(imported?.declaration.dark).toEqual({scene: HASH_NIGHT});
+        expect(imported?.declaration.sceneProvider).toBe("acme.sky.clock");
+    });
+
     const good = {title: "x", base: "nbook", light: {}, dark: {}};
     it.each<[string, Record<string, Uint8Array> | Uint8Array, RegExp]>([
         ["不是 zip", new Uint8Array([1, 2, 3, 4]), /读不了/u],
