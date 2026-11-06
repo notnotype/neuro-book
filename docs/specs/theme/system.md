@@ -36,7 +36,7 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 3. 产品页面（首页与工作台根）的背景、文字颜色与字体消费 nb-ui 的 token，切换主题后看得见变化；宿主的启动与失败页保留自己的样式。
 4. Lab（`/lab`）是离开时整页加载的独立页面，自己管文档根与偏好，不读产品配置（[`ui.component-lab`](../ui/component-lab.md)）；离开 Lab 后整页加载，工作台按最新配置重新应用。
 5. 切换走命令 `nbook.settings.switch-theme`、`nbook.settings.switch-appearance`（[`workbench.commands`](../workbench/commands.md)），写入目标为 `auto`：项目层已覆盖主题时写项目层，否则写用户层。
-6. **切换过渡**：换主题包或换明暗时，整页用浏览器的 View Transitions 渐变到新主题（约 250ms 的交叉淡入）。第一次写入、只改配色变量（编辑器里改色、拖动）、浏览器不支持、系统偏好“减弱动效”时直接写，不渐变。渐变期间写入由浏览器在下一帧调用：期间又来了新的应用、或页面已卸载，迟到的旧主题不写。
+6. **切换过渡**：换主题包或换明暗时，整页用浏览器的 View Transitions 渐变到新主题（约 250ms 的交叉淡入）。第一次写入、只改配色变量（编辑器里改色、拖动）、浏览器不支持、系统偏好“减弱动效”时直接写，不渐变。渐变期间写入由浏览器在下一帧调用：期间又来了新的应用、或页面已卸载，迟到的旧主题不写；被后来的渐变跳过的渐变（浏览器以 `AbortError` 拒绝它的几个 Promise）不算失败，页面不留未处理的拒绝。
 
 ## 变量体系
 
@@ -100,7 +100,7 @@ NotificationStack 挂在页面根节点之外，但配色变量写在 `<html>` �
 ## 验证
 
 - 变量新增、删除、重命名时同步 nb-ui 侧契约（`colorway-contract.ts` / `tokens.css`）与主题包，本参考只记映射与规则。
-- 四个组合（nbook / macos × light / dark）写到文档根的取值与主题包逐项一致，`system` 跟随系统明暗，由 `src/ui/theme/` 的组件测试锁定；产品页面随配置换主题、Lab 显示期间不被改写，由 `e2e/settings.e2e.ts` 验证；切换时整页渐变、编辑器里改色不渐变，由 `e2e/theme-editor.e2e.ts` 验证。
+- 四个组合（nbook / macos × light / dark）写到文档根的取值与主题包逐项一致，`system` 跟随系统明暗，由 `src/ui/theme/` 的组件测试锁定；产品页面随配置换主题、Lab 显示期间不被改写，由 `e2e/settings.e2e.ts` 验证；切换时整页渐变、编辑器里改色不渐变、连续切换不留未处理的拒绝，由 `e2e/theme-editor.e2e.ts` 验证。
 - 常用命令：
   - `bun run --cwd packages/neuro-book typecheck`
   - `bun run --cwd packages/neuro-book test`
