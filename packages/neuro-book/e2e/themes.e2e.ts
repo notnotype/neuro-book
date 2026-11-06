@@ -419,23 +419,29 @@ test("图标集：书房把活动栏等处的 lucide 图标换成自己的；高
 });
 
 test("图标 SVG 当蒙版用时浏览器不加载它引用的外部资源（图标集只收 .svg 的依据）", async ({page}) => {
-    let hits = 0;
-    const probe = createServer((_request, response) => {
-        hits += 1;
-        response.writeHead(404).end();
+    const paths: string[] = [];
+    let origin = "";
+    const svg = (): string => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><image href="${origin}/inner-image.png" width="24" height="24"/><rect width="24" height="24" style="fill:url(${origin}/inner-paint.svg#x)"/></svg>`;
+    const probe = createServer((request, response) => {
+        paths.push(request.url ?? "");
+        // 蒙版图是跨源取的，要带 CORS 头；SVG 本身必须取得到，里面的引用才有机会被取。
+        const headers = {"access-control-allow-origin": "*"};
+        if (request.url === "/icon.svg") response.writeHead(200, {...headers, "content-type": "image/svg+xml"}).end(svg());
+        else response.writeHead(404, headers).end();
     });
     await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
     try {
-        const {port} = probe.address() as AddressInfo;
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24"><image href="http://127.0.0.1:${String(port)}/img.png" width="24" height="24"/><rect width="24" height="24" style="fill:url(http://127.0.0.1:${String(port)}/paint.svg#x)"/></svg>`;
-        // 对照：同一个探针对普通 <img> 一定收得到请求，没收到就说明探针本身不灵。
-        await page.setContent(`<img src="http://127.0.0.1:${String(port)}/control.png">`);
-        await expect.poll(() => hits).toBeGreaterThan(0);
-        hits = 0;
-        await page.setContent(`<div id="icon" style="width:24px;height:24px;background:#000;mask-image:url('data:image/svg+xml,${encodeURIComponent(svg)}')"></div>`);
-        // 蒙版图加载是异步的：等一帧再多等一会儿，请求若会发出此时早已发出。
-        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 500))));
-        expect(hits).toBe(0);
+        origin = `http://127.0.0.1:${String((probe.address() as AddressInfo).port)}`;
+        await page.setContent(`<div style="width:24px;height:24px;background:#000;mask-image:url('${origin}/icon.svg')"></div>`);
+        await expect.poll(() => paths).toContain("/icon.svg");
+        // 对照 + 哨兵：普通 <img> 一定会取到，说明探针灵；它是在 SVG 取到之后才发的，要是 SVG 里的引用会被取，早该排在它前面。
+        await page.evaluate((url) => {
+            const image = document.createElement("img");
+            image.src = url;
+            document.body.append(image);
+        }, `${origin}/control.png`);
+        await expect.poll(() => paths).toContain("/control.png");
+        expect(paths.filter((path) => path.startsWith("/inner-"))).toEqual([]);
     } finally {
         await new Promise((resolve) => probe.close(resolve));
     }

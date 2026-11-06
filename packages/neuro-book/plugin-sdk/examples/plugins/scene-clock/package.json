@@ -1,0 +1,8 @@
+{
+    "name": "scene-clock",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "天空：用代码画场景图的主题插件，天空的颜色随钟点变，演示场景提供者",
+    "private": true,
+    "type": "module"
+}

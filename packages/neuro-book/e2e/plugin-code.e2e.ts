@@ -32,6 +32,8 @@ let built = "";
 /** clock、notes、counter 的构建产物（服务端与项目入口）。 */
 let backend: string[] = [];
 let focus = "";
+/** scene-clock 的构建产物：主题加浏览器入口里的场景提供者。 */
+let sceneClock = "";
 
 /** 一个手写的、故意写坏的插件：浏览器入口贡献一个 page 分区，`body` 是登记工厂里的模块体。 */
 interface Broken {
@@ -101,7 +103,8 @@ test.beforeAll(async () => {
     const backendExamples = ["clock", "notes", "counter", "menu", "file-menu"];
     focus = join(tmp, "focus-dist");
     backend = backendExamples.map((name) => join(tmp, `${name}-dist`));
-    const builds = [["snippets", built], ["focus", focus], ...backendExamples.map((name, index) => [name, backend[index]!])];
+    sceneClock = join(tmp, "scene-clock-dist");
+    const builds = [["snippets", built], ["focus", focus], ["scene-clock", sceneClock], ...backendExamples.map((name, index) => [name, backend[index]!])];
     await run("bun", ["-e", `import {buildExample} from "./plugin-sdk/build-examples"; for (const [name, out] of ${JSON.stringify(builds)}) await buildExample(name, out);`]);
 });
 
@@ -176,6 +179,39 @@ test("snippets 外置：打开分区时才取回代码、只取一次；图标�
         await page.locator(`[data-settings-nav="${SNIPPETS_SECTION}"]`).click();
         await expect(page.locator("[data-snippets-editor]")).toBeVisible();
         expect(code.count()).toBe(1);
+    } finally {
+        await page.goto("about:blank");
+        expect(await server.stop()).toBe(0);
+    }
+});
+
+test("场景提供者外置（theme.skins 输出 18）：主题的场景图由插件代码在窗口里画，变量是 blob 地址，换明暗换图，PNG 解得开", async ({page}) => {
+    const stateRoot = await stateRootWith("scene-clock", [sceneClock]);
+    const setting = (appearance: string): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/theme": "example.scene-clock.sky", "nbook.workbench/appearance": appearance}));
+    await setting("light");
+    const server: ProductServer = await startProductServer(stateRoot);
+    const sceneVar = (): Promise<string> => page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+    try {
+        await page.goto(bookUrl(server.url));
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        // 入口启动即激活，画好并解码之后才有变量与 `data-nb-skin-scene`。
+        await expect.poll(sceneVar).toMatch(/^url\("blob:/u);
+        await expect(page.locator("html")).toHaveAttribute("data-nb-skin-scene", "");
+        const light = await sceneVar();
+        const size = await page.evaluate(async (css) => {
+            const image = new Image();
+            image.src = /url\("(.+)"\)/u.exec(css)?.[1] ?? "";
+            await image.decode();
+            return [image.naturalWidth, image.naturalHeight];
+        }, light);
+        expect(size).toEqual([1600, 900]);
+
+        // 换明暗是另一个键：另画一张。
+        await setting("dark");
+        await expect.poll(async () => {
+            const now = await sceneVar();
+            return now.startsWith("url(\"blob:") && now !== light;
+        }).toBe(true);
     } finally {
         await page.goto("about:blank");
         expect(await server.stop()).toBe(0);

@@ -10,7 +10,10 @@ const ICONS = Object.fromEntries(ICON_NAMES.map((name) => [name, `assets/icons/$
 
 const SERIF = "\"Noto Serif CJK SC\", \"Source Han Serif SC\", \"Songti SC\", serif";
 
-/** “书房”（docs/specs/theme/skins.md 输出 11）：白天窗边、夜里台灯。只有声明与素材，没有入口；一张图裁给各位置。 */
+/**
+ * “书房”（docs/specs/theme/skins.md 输出 11）：白天窗边、夜里台灯。只有声明与素材，没有入口；一张图裁给各位置。
+ * 它随产品提供，也是字段最全的主题参考（plugin-sdk/examples/README.md 的“主题的三份参考”）：改字段要同步 Spec 与那份说明。
+ */
 const STUDY: ThemeDeclaration = {
     title: {"zh-CN": "书房", "en-US": "Study"},
     base: "nbook",
