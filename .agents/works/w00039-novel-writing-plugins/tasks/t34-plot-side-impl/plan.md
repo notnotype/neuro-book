@@ -791,3 +791,155 @@ omp 的 21 条里 17 条与 Opus 份重合、第二版已覆盖（诊断个数�
 
 - 不做：窄问题的 `constraintViolated`、`decidedInText`（阶段 F）；写作指示快照与细纲的文件和存盘（F）；“照写”的交互；简报各段上限的最终数字；泄底、穿帮诊断附决策（B 的知情诊断与 F）。
 - 风险：(1) 地址守卫按线按模式乘开，只对已定且带守卫的决策算，线数大于常驻名额时每条线要建一次，量法里有分叉与决策的数量；(2) 简报固定句多，措辞一改就是行为变化，集中在 `fixed.ts`；(3) EP 片改内核读取，有差分覆盖，且读取视图的新方法只加不改；(4) 补叙章近似读章首，可能让作者在补叙章拿到不准的简报，提示里写“补叙按所在章章首读”；(5) 本阶段的 Spec 补充多，全部先记待确认清单。
+
+## 阶段 F 细计划：写完以后的检查（第一版，2026-11-06）
+
+开发者 11-06：“模型调用好像实现并合并到 master 了，agent 插件应该是依赖他的。可以继续阶段 F”。核实：`nbook.models` 已实现，内核分支上也有。上面“阶段 B 到 F”一节写的模型角色合同就是它。依据：`docs/specs/plot/checks.md`（全部）、`plot/decisions.md` 输出 4、`plot/foreshadowing.md` 输出 7 的 `objectTouchedInText`、`plot/knowledge.md` 输出 10 的写完以后的集合、`plot/brief.md` 输出 11、14、15。
+
+### 核对过的事实
+
+- `modelsKey`（`plugins/models/shared/contracts.ts`）是服务端进程的进程内服务，`port().resolve({settings, purpose, profile, role})` 给出 `call(request, signal, onDelta)`。剧情插件在项目子进程（`docs/specs/runtime/glossary.md` 项目实例），依赖不到它，只能走远程服务。现有 `callers` 含 `project` 的合同只有配置与存储。
+- 请求支持工具与 `toolChoice: {tool}`（`nb-harness` 的 `ModelRequest`）；回复的 `toolCalls` 是结构化答案的通道。失败不抛错，`stopReason: "error"` 带 `error.kind`、`retryable`。`maxHttpAttempts` 固定为 1（models 输出 16）。
+- 远程调用不写 `timeout` 就不限时（`nb-runtime/src/remote/node.ts`），激活期间才有 10 秒上限；单条消息上限 1 MiB。
+- 正文快照在 `WorldService.#texts`（带摘要），世界的 `options.chapterText` 读它；`CanonReadView` 没有正文的读取。段的切法是 `world/tellings.ts` 的 `paragraphsOf`（去掉首尾空白仍不为空的行），未从包入口导出。
+- `storage.persistence`：`keyed: true` 的记录按资源 id 寻址，资源 id 只能 `[a-z0-9][a-z0-9._-]*`（最长 128），`maxBytes` 上限 1 MiB；**没有列举接口**；状态是 `corrupt`、`unsupported-version` 时 `save` 得 `protected`，要用 `reset`。项目分区由项目实例提供，进程内调用。
+- 诊断的计算是同步的（`DiagnosticCompute`），所以检查记录、写作指示、自陈要全放在内存里，存储只是落盘。
+- `composeBrief` 在 1000 章最后一章第一次读要 211 ms（`evidences/scale-e4.txt`），`new KnowingIndex` 每个位置要重建 `#derivedOf`（扫全部计入的变更）。按输出 7 对每条记录都重拼，1000 章全跑过检查时要几分钟，一定要先比依赖的摘要。
+- `pointsBeforeWriting` 在 `core/brief/context.ts`；`secrecyOf` 没判 `appeared`，还没出场的知识点也算进去，F2 一并修（否则“本章之后的世界变了”会让候选变）。
+
+### 技术选型
+
+- 结构化答案：强制调用一个 `answer` 工具（`toolChoice: {tool: "answer"}`），参数用 TypeBox schema 声明并用 `Value.Check` 校验（仓库已有）。否决：让模型写 JSON 再解析（没有 schema 约束，多一层容错）；服务商的 `response_format`（适配器没开放）。
+- 并发：自己写一个不到十行的上限为 4 的循环（`models` 的 `checkAll` 同样做法）。没有引库的必要。
+
+### FS：Spec 的补充与解读（在分支上，各记待确认清单）
+
+1. `plot/checks.md` 输入：写手的自陈存成 `{report: {names, unsure, deviations}, outline, targetWords}`。细纲与目标字数要存：固定调用的材料是那一段的写手上下文，要能重拼。没有自陈的章（作者自己写的）照跑：细纲为空串、目标字数 0，自陈写“没有”。
+2. `plot/checks.md` 输出 11 解读：写手上下文只给固定的一次调用。窄问题的材料是那一段的正文加题面里写明的事实，不带上下文（20 个问题各带一份上下文，每章多十万字的输入，看不到好处）。
+3. `plot/checks.md` 输出 2 解读：有效知情按第 N 章**章末**、段所在的线读（本章里得知的人不算候选）。在场的人取已写变更的 `cast` 里 `present`，只有 `label` 没有条目的也算（没有知情行）；没记 `cast` 的变更不提供候选。变更归哪一段：讲述的发生点落在哪段归哪段；本章没有发生点的归这条线的每一段。
+4. `plot/checks.md` 失败表加 `plot-check-busy`（这一章的检查正在跑）；输出 5 补问：`run` 带 `followUps` 时，输入摘要相同的调用沿用上一条记录的答案，不重新花钱；不带时全部重问。
+5. `plot/checks.md` 边界：远程合同 `nbook.plot/checks`；模型的角色是记账 `main`、试读 `fast`（Spec 说用哪个模型随实现，写在实现合同里，不进条目）。
+6. `plot/brief.md` 输出 15 的记录：上一章末尾改由插件从正文快照取（撤回阶段 E 的“由调用方给”，待确认清单改判那一行）。
+7. `canon/model.md` 补 `CanonReadView.chapterText`、`chapterTextDigest`，`stamp.declarationsDigest`（读取输入里登记与历法那一部分）。
+
+### F0：内核的读取（`packages/nb-canon`）与上一章末尾
+
+- `reads.ts`：`chapterText(chapter): string | undefined`、`chapterTextDigest(chapter): string | null`，读 `#texts`，经 `createReadView` 的参数传入；随输入代次作废（`#guarded` 已有）。
+- `schema.ts` 导出 `paragraphsOf`。`ReadStamp` 加 `declarationsDigest`（`#stampOf` 里算输入摘要时已有这一部分）。
+- 剧情插件：`composeBrief` 不再收 `previousTail`，从 `view.chapterText(上一章)` 取；远程 `brief` 去掉这个参数，`previous-tail-not-allowed` 这个码一并去掉。
+
+### F1：`packages/neuro-book/src/plugins/plot/backend/store.ts`（新）：落盘的三张表
+
+- 三条记录定义：`plot-instruction`、`plot-self-report`、`plot-check`，都是 `scope: "project"`、`locality: "shared"`、`keyed: true`，`maxBytes` 分别 64 KiB、256 KiB、1 MiB。资源 id 取章 id 的 SHA-256 前 40 位（章 id 不一定合资源 id 的规则），值里自带 `chapter`。
+- 另有一条不按键的 `plot-chapters`（`{chapters: string[]}`）：有记录的章的清单，补存储没有列举接口。写入顺序是先清单后记录：中途崩溃时清单里多一章，读出来 `missing`，无害。
+- `ChapterTable<T>`：`load()`、`get(chapter)`、`all()`、`put(chapter, value | null)`。内存里存值、revision 与值的摘要。写入：当前是 `corrupt` 或 `unsupported-version` 时用 `reset`，否则带 revision 的 `save`；成功后才改内存。`load` 读到坏记录写一条诊断、按没有算（checks “检查记录的形状变了时升版本；旧版本的记录不读”）。
+- 数据版本：三张表各章摘要合起来的摘要（`1+<hex>`），空是 `1`。替代 `InstructionTable` 的全表重算：记录大、改一条不重算全部。重启后同内容同版本。
+- `InstructionTable` 的接口（`put(chapter, snapshot, base)`、`dataVersion`、`empty`、`all`）改成建在 `ChapterTable` 上，`put` 变异步，`base` 语义不变；`nbook.plot/instructions` 跟着改。
+- 入口激活：`await` 读完（存储在本进程，读清单里的章）。之前先 `register` 不含这几项的计算，读完再 `register` 全部：窗口期里这些诊断是“不完整”，不是“查过没有发现”。这样就改掉阶段 E 记的“重启后提示消失”。
+
+### F2：`core/checks/segments.ts`、`points.ts`、`candidates.ts`（新，纯计算）
+
+- `segmentsOf(view, chapter)`：`chapterLines` 加段落范围与这段正文、段的身份 `main#2`（这条线在本章第几次出现）、起始段号；`inSegment(segment, quote)`。
+- `pointsAfterWriting(frame, chapter, text)`（knowledge 输出 10）：`pointsBeforeWriting` 加第 N 章已写变更的补丁与标注（`patchPoints`、`marksOf` 从 `context.ts` 导出）加正文里出现主体或 `揭穿` 马甲的名字、别名的。
+- `candidates(input)`：
+  - 在场层、叙述层按输出 2，读 `knowingIndex(view, "actual", 最新一章末尾).effective(person, point, 章末)`（同一份索引查不同位置，不为每章重建）；
+  - 伏笔物件层：`foreshadowIndex` 取已埋未回收的伏笔的 `物件`，本章已写变更涉及或正文里出现名字的；每个物件一问，题面合并各伏笔；
+  - 时间层：每段一问；
+  - 候选的 id 稳定：`presence:<段>:<知识点>:<人>`、`narration:<段>:<知识点>`、`object:<段>:<物件>`、`time:<段>`。
+- `budgeted(candidates, followUps)`：按输出 5 排，取前 20，加补问清单里仍是候选的；其余记 `unasked`。
+
+### F3：`core/checks/questions.ts`、`trial.ts`、`plan.ts`（新，纯计算）
+
+- `planCheck(input): CheckPlan`：`input` 是 `{view, chapter, instruction, selfReport, followUps, pluginVersion, digest}`，同步、不碰存储与模型。给出段、窄问题、固定调用、试读、`unasked`、提示。**运行与校验有效性共用它**，这是输出 7 “重拼”的依据。
+- 每次调用 `{id, layer, role: "ledger" | "reader", question, request: {system, user, answer: 哪个 schema}, digest}`。`digest` 是 `canonicalJson({system, user, answer})` 的 SHA-256。`user` 里材料在前、题面在后（服务商的前缀缓存能吃到同一段正文）。`question` 只是题面，进记录；材料不进记录（输出“副作用”：输入输出不另存）。
+- 固定调用的规则项：`pov:<段>`（有视角人物且方式是第一人称或有限视角）、`ending`、`avoid:<文字的摘要>`、`constraint:<决策>:<下标>`、`pending:<决策>`。决策用 `involvedDecisions(view, chapter, "actual", points)`。写作指示写在题面，材料是 `composeBrief` 按段拼的文字、自陈、标明段的整章正文。
+- 试读（输出 4）：条件读 `readerKnowing`（上一章末尾）与本章之后的明说揭示（新写 `revealTable(view)`，每个视图扫一次，得每个知识点最晚的明说揭示所在章，计划与已写都算）。材料按悬念的 `nodesRead` 取段（`paragraphsOf`）加上一章与本章全文；题面不含命题、id、伏笔名。缺读者问题或读者问题含命题：`noReaderQuestion`，不做。没悬念：`noSuspense`，材料标 `twoChapters`。按输出 5 取前 3。
+- 判一致的调用不在 `planCheck` 里（输入含试读的答案）：`judgeCall(point, truth, trialAnswer)`，校验有效性时用记录里的答案重算摘要。
+
+### F4：`core/checks/run.ts`、`shared/checks.ts`、`record.ts`（新）
+
+- 端口 `CheckModels`：`available(): Promise<code | null>`、`ask(role, request, signal): Promise<{ok, answer, usage} | {ok: false, code}>`。`ask` 把 `answer` 的名字换成 schema，核对后交回。
+- `runCheck(plan, models, previous, signal)`：先 `available`，不可用回 `plot-check-unavailable`，不花钱。并发上限 4 跑完窄问题、固定调用与试读，再跑判一致。单次调用失败或结构不对时重试一次（`maxHttpAttempts` 是 1，中转站的偶发错误不该让前面二十几次都白花）；重试后仍失败就是 `plot-check-failed`，不存记录。
+- 答案的校验（输出 6）：引文按切段后的原文核对（段内、试读在给它的材料内）。对不上的答案改成“看不出”并计 `badQuote`。试读改成“看不出”以后不判一致。固定调用：缺的规则项记 `incomplete`；新事实超过 30 条记 `unlisted`。新事实按第一处引文归段；带 `name` 的 `invention` 按那段线的 `lookup` 写法查世界，查到就不算（这一步在开始时的快照上算好表，`await` 之后不再碰视图）。
+- 快照只在同步段用：`planCheck` 与新事实要的名字表都在第一次 `await` 之前算完（canon 项目内接口的约束）。
+- 记录形状见 `shared/checks.ts`（版本 1，TypeBox）：`chapter`、开始时的世界版本与正文摘要、插件版本、段、补问清单、调用（`id, layer, role, question, digest, answer, usage`）、试读的材料清单、`unasked`、`unlisted`、`incomplete`、`badQuotes`、提示、用量。
+- 远程合同 `nbook.plot/checks`（项目提供，调用方 browser、tui、server）：`run({chapter, followUps?})`（`effect: "write"`，调用方自己给 `timeout`）、`record({chapter})` 给 `{status: "none" | "valid" | "stale", record}`、`putSelfReport({chapter, value})`。正在跑的章放在进程内的一个集合里，重复回 `plot-check-busy`。
+
+### F5：`plot/backend/server.ts`（新）：经 `nbook.models` 调模型
+
+- 描述符 `locations` 加 `server`，`server/plugins.ts` 登记。入口 `location: "server"`、`dependencies: [{key: modelsKey, required: false}]`，提供远程合同 `nbook.plot/model`（`provider: "server"`、`callers: ["project"]`、`effect: "read"`）：`available({roles})`、`ask({role, system, user, schema, maxTokens})`。
+- `ask`：`modelsKey.port().resolve({settings: {model: null, effort: null, approvalMode: "ask", readOnly: true}, purpose: "background", profile: "nbook.plot.check", role})`，组 `ModelRequest`（工具 `answer`、`toolChoice`），`call` 后取工具参数，连用量交回。解析失败的码（`role-unbound`、`no-credentials`、`unknown-model`、`no-model`）给 `available`；调用失败给 `{kind, code, retryable}`。**没有密钥经过这条通道**。
+- 为什么放在剧情插件而不是给 `nbook.models` 加通用远程合同：现在只有这一个调用方；`nbook.models` 在 master 上还在改（分支落后 556 个提交）。第二个项目侧的调用方出现时再上移，代价是一个合同换位置，记待确认清单。
+- 项目侧 `RemoteCheckModels` 实现 `CheckModels`：调不到（`not-provided`、`denied`、服务端入口没有）算 `plot-check-unavailable`。
+
+### F6：`core/checks/diagnostics.ts`、`validity.ts`（新）
+
+- `validity(view, record, tables)`：`planCheck` 重拼，比调用集合与每个摘要；判一致用记录里的试读答案。
+- 诊断（输出 8）：记录有效才报，过期只报 `stale`。逐段的（`possibleSlip`、`forkSuspected`、新事实两项）在段的线的视图上报，只按章的（`earlyReveal`、`instructionViolated`、决策两项、提示）在这一章第一段的线的视图上报；都不晚于读取位置所在章。键按 Spec 的表；`Finding.params` 只放字符串和数。
+- 声明随计算一起加：`check.*`、`decision.constraintViolated`、`decision.decidedInText`、`fs.objectTouchedInText`。`objectTouchedInText`：物件层答“动了”，且本章没有改这个物件的已写变更。`earlyReveal` 的对象追加挂在 K 上的读者守卫与决策。
+
+### F7：`core/checks/ledgers.ts`（新）
+
+`secretLedger`（保密以上，在给定线与位置上谁知道、误信、怀疑；读者从哪一段起）、`readerKnown`（最新一章末尾不是 `unaware` 的）、`revealDependencies(point)`（带指向 K 的揭示的计划、答案是 K 的悬念连节点、挂在 K 上的决策、写作指示文字含 K 的名字的章）。经 `nbook.plot/checks` 分页给出（`pagedList` 复用）。
+
+### F8：`core/checks/fingerprint.ts`（新）：先比依赖的摘要
+
+- 输出 7 允许“先比各项依赖的摘要、不同时才重拼”。摘要**只能多算不能漏**：依赖没变就直接用上次的结论；变了才 `planCheck`。
+- 依赖：
+  - 正文：第 N 章、上一章、记录的试读材料列到的章（`chapterTextDigest`）；
+  - 写作指示、自陈的摘要，补问清单，插件版本，`stamp.declarationsDigest`，章序与各章讲的线；
+  - 世界的前缀：段的线的视图上，最早的章（安放与各讲述的章取最早）不晚于 N 的变更；未排章的算全局。每条变更的摘要按对象缓存（世界不可变，`WeakMap`），按章滚动：`h(n) = sha(h(n-1), 第 n 章的摘要)`，一份视图算一次；
+  - 条目：出场不晚于 N 的条目（没写出场的算全局），同样按对象缓存、按章滚动；
+  - 决策：全部决策的摘要（决策要过 `involves` 才知道相关，写决策不频繁，多算可以接受）；
+  - 后面的揭示：`revealTable` 里最晚的明说揭示在 N 之后的知识点集合；
+  - 子线：祖先线的全部记录（带过去的值读父线切口到触发处，不在子线视图里）。
+- `Verdicts`：章到 `{fingerprint, valid}`，只在内存里。诊断的计算先比，不同才 `planCheck`。
+- **差分测试**（`core/checks/fingerprint.test.ts`）：随机改动序列（加变更、改初值、加条目、改决策、改正文、加后面的揭示、加分叉），每步比“走摘要的结论”与“总是重拼的结论”，相同。这条测试兜“只能多算不能漏”。
+- `plot-scale.ts` 加载荷：1000 章都有记录。量两件事：(a) 在最新一章发布一次以后读待处理；(b) 改一个常出场条目的初值以后读待处理。预算：(a) 不让读待处理多过 20 ms；(b) 记下数字。(b) 全部重拼预计要几十秒，**(b) 超过 1 秒时**加分片校验：一次读只重拼 150 ms 以内，其余这次按过期报（参数 `verifying: 1`），后台接着校验，做完报新的数据版本（`reportDataVersion`），这之后的读取得到准确结论。Spec 输出 7 补这个过渡态。先量再定，不提前写。
+
+### F9：真实模型与收口
+
+- `plugins/plot/plot.llm.test.ts`：验收 1（卫兵认出勇者，改正文后消失）、验收 2（试读与泄底）用真实模型。用 `NBOOK_LLM_*`（gpt-6-luna，开发者 10-27 全面授权）配成自定义服务商，绑 `main` 与 `fast`。只验证“问得到、答得上、结构对、能落成诊断”，不断言模型一定判对（模型判错的情况记进证据，交 t26）。
+- 实现审查：Opus 加 omp（快速审查）。
+
+### 切片（阶段 F）
+
+| 片 | 内容 | 提交边界与验证 |
+|---|---|---|
+| FS | Spec 补充 | `bun run docs:check` |
+| F0 | 内核读取、上一章末尾改从正文取 | `test:affected`（nb-canon、plot），差分测试不变 |
+| F1 | 三张表落盘、激活时读回 | `plot.test.ts` 真实项目子进程：写入、停掉重开、诊断仍在、数据版本相同 |
+| F2 | 候选与预算 | `core/checks/*.test.ts`，验收 3 |
+| F3 | 问题、试读、`planCheck` | 同上；总断言：试读的请求里没有命题、id、伏笔名 |
+| F4 | 运行、记录、校验、`nbook.plot/checks` | 端口替身跑验收 1、4、5 的流程；失败路径（结构不对、重试、不可用、busy） |
+| F5 | 服务端入口与模型通道 | `plot.test.ts`：项目子进程 → 服务端 → `nbook.models` → OMP 适配器 → 本机假端点（`Bun.serve`，同 `models.test.ts`），不用 mock；未绑角色时 `plot-check-unavailable` 且假端点收到 0 个请求 |
+| F6 | 诊断与有效性 | 验收 1 到 5 的完整断言，含改正文变 `stale`、本章之后的世界变了仍有效 |
+| F7 | 账本视图 | `core/checks/ledgers.test.ts` |
+| F8 | 摘要、差分测试、规模 | 差分测试；`plot-scale.ts` 低负载量，证据 `scale-f8.txt` |
+| F9 | 真实模型一遍 | `NBOOK_LLM_TESTS=1 bun run test --tier llm`，证据 `llm-f9.txt` |
+
+每片做变异检查（改候选条件、引文核对、摘要字段、诊断的线），记进提交说明或证据。
+
+### 验收映射（阶段 F）
+
+| Spec | 测试 |
+|---|---|
+| checks 输出 1、knowledge 输出 10 | `points.test.ts` |
+| checks 输出 2、5、11 | `candidates.test.ts`，验收 3 |
+| checks 输出 3、6 | `run.test.ts`，验收 4、5 |
+| checks 输出 4 | `trial.test.ts`、`run.test.ts`，验收 2 |
+| checks 输出 7 | `validity.test.ts`、`fingerprint.test.ts`，验收 1 |
+| checks 输出 8、decisions 输出 4、foreshadowing 输出 7 | `diagnostics.test.ts` |
+| checks 输出 9 | `ledgers.test.ts` |
+| checks 输出 10 | `run.test.ts` |
+| 失败码 `plot-check-unavailable`、`plot-check-failed`、`plot-check-busy` | `plot.test.ts`、`run.test.ts` |
+| 插件存储（输入；边界“旧版本的记录不读”） | `plot.test.ts`（重开）、`store.test.ts` |
+
+### 不做与风险
+
+- 不做：检查在写作流程里什么时候跑（t19、t20）、界面（t16）、提示词的校准（t26）。
+- 模型判得准不准只在 F9 看一眼，真正的评估在 t26。提示词随实现改，所以输入摘要会随插件升级变，升级后的旧记录按过期报，这是 Spec 的结论。
+- 摘要漏算依赖是最大的风险：有效性判错时作者看到过时的结论。差分测试用真实的 `planCheck`，覆盖 F8 列的每一类依赖。
+- 校验有效性里全书重拼太慢，F8 量过再定分片校验。
+- 记录超过 1 MiB 的上限（30 条新事实、23 次调用，每条引文上限 500 字）算不上现实风险；真超了 `save` 失败，按 `plot-check-failed` 报。
+- `main` 角色 25 次调用的费用没量过。F9 记下一章的用量，交开发者看。
