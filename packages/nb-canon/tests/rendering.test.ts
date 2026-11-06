@@ -210,3 +210,129 @@ describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () 
         expect(fixed.world.data.entries.get("e1")!.init.text[1]).toEqual({id: "b2", source: "修好了"});
     });
 });
+
+describe("canon.rendering 输出 12、13：读取之后世界前进过", () => {
+    const later = (base: World) => ok(base.publish({requestId: id(), by: author, what: "bookkeeping", title: "加 50", baseVersion: base.version, puts: [{ref: {kind: "change", id: "tmp:d"}, after: {id: "tmp:d", kind: "written", text: "加 50", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: [], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: 50, basis: {kind: "author"}}], status: "active", by: author}}]}, "t")).world;
+    const blockOf = (base: World) => {
+        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        return rendered.blocks[0]!.text;
+    };
+    const send = (now: World, read: World, text: string, intent?: "creative" | "story") => writeBack(now, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: read.version, mode: "actual", text, ...(intent === undefined ? {} : {intent})}, "t");
+
+    test("别的修订改了值，Agent 把旧文字原样交回：value-conflict，值不被改回去，也不发布", () => {
+        const base = world();
+        const now = later(base);
+        for (const intent of ["story", "creative"] as const) {
+            const result = send(now, base, blockOf(base), intent);
+            expect(result).toEqual({ok: false, failure: {code: "value-conflict", current: 3160}});
+        }
+        expect(now.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3160}}}}});
+    });
+
+    test("`->` 的值因为别的修订变了：是过期，不是 computed-edited", () => {
+        const base = world(['{panel.魔力 >= 3150 ? "够" : "不够"}']);
+        const now = later(base);
+        const result = send(now, base, blockOf(base));
+        expect(result).toEqual({ok: false, failure: {code: "value-conflict", current: "够"}});
+    });
+
+    test("世界前进过、交回的值与现在相同：没有改动，什么都不发布；有文字改动：version-conflict", () => {
+        const base = world();
+        const now = later(base);
+        const fresh = blockOf(now);
+        const same = send(now, base, fresh);
+        expect(same.ok && same.repeated).toBe(true);
+        expect(now.version).toBe(base.version + 1);
+        expect(send(now, base, fresh.replace("魔力 {", "魔法力 {"))).toMatchObject({ok: false, failure: {code: "version-conflict"}});
+    });
+
+    test("重新读到新版本后再交回：照常发布", () => {
+        const now = later(world());
+        const result = send(now, now, blockOf(now).replace("{panel.魔力 = 3160}", "{panel.魔力 = 3000}"), "story");
+        expect(result.ok).toBe(true);
+    });
+});
+
+describe("canon.rendering 输出 1、8、10：写入检查与注记的扫描", () => {
+    test("`set` 整段替换一块也过白名单", () => {
+        const base = world();
+        const result = base.publish({requestId: id(), by: author, what: "edit", title: "坏", baseVersion: base.version, puts: [{ref: {kind: "change", id: "tmp:b"}, after: {id: "tmp:b", kind: "written", text: "坏", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: [], lines: [], links: [], patches: [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: "他说{+5}"}], status: "active", by: author}}]}, "t");
+        expect(result.ok === false && result.failure.code === "validation-failed" && result.failure.problems.map((problem) => problem.code)).toEqual(["no-field-expression"]);
+    });
+
+    test.each([
+        ["波浪线围栏", "~~~\n{x}\n~~~\n\n魔力 {panel.魔力}"],
+        ["开头带空格的围栏", "  ```\n{x}\n  ```\n\n魔力 {panel.魔力}"],
+        ["长围栏里有短围栏", "````\n```\n{x}\n```\n````\n\n魔力 {panel.魔力}"],
+        ["行内代码", "`{x}` 魔力 {panel.魔力}"],
+        ["转义", "\\{x} 魔力 {panel.魔力}"],
+    ])("%s里的花括号不当注记：原样交回没有改动，改值照常", (_name, source) => {
+        const base = world([source]);
+        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        const text = rendered.blocks[0]!.text;
+        const send = (changed: string) => writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: changed, intent: "story"}, "t");
+        const same = send(text);
+        expect(same.ok && same.repeated).toBe(true);
+        const edited = ok(send(text.replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}")));
+        expect(edited.world.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
+    });
+
+    test("`->` 的左边按 JS 词法跳过注释：注释里的 `->` 不算分隔", () => {
+        const base = world(['{panel.魔力 /* a -> b */ >= 1 ? "a" : "b"}']);
+        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        const same = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: rendered.blocks[0]!.text}, "t");
+        expect(same.ok && same.repeated).toBe(true);
+    });
+});
+
+describe("canon.rendering 输出 6、7、9：读不到的值、引用与显示名", () => {
+    const LINK = {id: "test.link", label: "关系", namespace: "link", version: 1, instanceFields: true, fields: [{id: "友", label: "朋友", kind: "ref"}, {id: "n", label: "n", kind: "number"}]} as const;
+    /** 星瑕带引用字段与一个实例字段；星瑾被她引用。 */
+    function linked(): World {
+        const order = new ChapterOrder(["ch1"]);
+        const base = {order, registry: buildRegistry([LINK as never]), reductions: () => undefined, chapterText: () => "", digest: options().digest};
+        const person = (tmp: string, name: string, data: Entry["init"]["data"], text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data}});
+        const jin = ok(World.empty(base).publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:j"}, after: person("tmp:j", "星瑾", {}, [])}]}, "t"));
+        return ok(jin.world.publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 1, puts: [{ref: {kind: "entry", id: "tmp:x"}, after: person("tmp:x", "星瑕", {link: {type: LINK.id, version: 1, enabled: true, declared: [{id: "额外", label: "额 外", kind: "number"}], fields: {友: {ref: "e1"}, n: 1, 额外: 7}}}, ["朋友 {link.友}，额外 {link.额外}，n {link.n}"])}]}, "t")).world;
+    }
+    const position = {kind: "chapter" as const, chapter: "ch1", edge: "end" as const};
+
+    test("给作者：引用字段显示当时的名字，id 不出现；实例字段带显示名", () => {
+        const rendered = renderEntryForAuthor(linked(), "e2", position, "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        const text = JSON.stringify(rendered.blocks[0]);
+        expect(text).toContain('"type":"canonRef","id":"e1","name":"星瑾","deleted":false');
+        expect(text).toContain('"label":"额 外"');
+    });
+
+    test("给 Agent：显示名与 id 不同时带装饰，相同时不带；读取结果里也有显示名", () => {
+        const world = linked();
+        const rendered = renderEntryForAgent(world, "e2", position, "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        expect(rendered.blocks[0]!.text).toBe('朋友 {link.友 = {"ref":"e1"} # 显示名：朋友}，额外 {link.额外 = 7 # 显示名：额 外}，n {link.n = 1}');
+        expect(world.line().engine.entry("e2", position, "actual")).toMatchObject({namespaces: {link: {fields: {额外: {label: "额 外", value: 7}, n: {value: 1}}}}});
+    });
+
+    test("类型不在：作者看到占位，Agent 看到 null 加不可用；存下的值不丢", () => {
+        const world = linked();
+        const gone = world.withOptions({...world.options, registry: buildRegistry([])});
+        const agent = renderEntryForAgent(gone, "e2", position, "actual");
+        if (agent === null || typeof agent === "string") throw new Error("no render");
+        expect(agent.blocks[0]!.text).toContain("{link.n = null # 不可用：类型不可用}");
+        const shown = renderEntryForAuthor(gone, "e2", position, "actual");
+        if (shown === null || typeof shown === "string") throw new Error("no render");
+        expect(JSON.stringify(shown.blocks[0])).toContain('"type":"canonPlaceholder","reason":"类型不可用"');
+        expect(gone.line().engine.entry("e2", position, "actual")).toMatchObject({namespaces: {link: {readOnly: "component-unknown", fields: {n: {value: 1}}}}});
+    });
+
+    test("版本对不上：照常给值", () => {
+        const world = linked();
+        const moved = world.withOptions({...world.options, registry: buildRegistry([{...LINK, version: 2} as never])});
+        const agent = renderEntryForAgent(moved, "e2", position, "actual");
+        if (agent === null || typeof agent === "string") throw new Error("no render");
+        expect(agent.blocks[0]!.text).toContain("{link.n = 1}");
+    });
+});

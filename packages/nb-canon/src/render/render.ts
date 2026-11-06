@@ -71,11 +71,12 @@ export function resolverFor(engine: Engine, registry: ComponentRegistry, order: 
             }
             return {value: null, unavailable: "未启用"};
         }
+        // 类型不在：字段是什么都不知道，只能占位（components.md 输出 12）。版本对不上时值照常给（输出 11）。
+        if (nsView.readOnly === "component-unknown") return {value: null, unavailable: "类型不可用"};
         const field = nsView.fields[fieldId];
         if (field === undefined) return {value: null, unavailable: "没有这个字段"};
-        const declaration = registry.byNamespace(namespace)?.fields.find((candidate) => candidate.id === fieldId);
-        const label = declaration?.label;
-        const base = {...(field.incomplete === undefined ? {} : {incomplete: field.incomplete}), ...(label === undefined ? {} : {label}), field: fieldId};
+        const label = field.label ?? fieldId;
+        const base = {...(field.incomplete === undefined ? {} : {incomplete: field.incomplete}), label, field: fieldId};
         const element = /\[([^\]]+)\](?:\.(.+))?$/u.exec(rest);
         if (element === null) return {value: structuredClone(field.value), ...base};
         const item = Array.isArray(field.value) ? (field.value as Array<Record<string, unknown>>).find((candidate) => candidate.id === element[1]) : undefined;
@@ -189,7 +190,7 @@ export function renderBlockForAuthor(id: string, source: string, context: Render
     const replace = (node: Record<string, unknown> & {type: string; children?: unknown[]; position?: {start: {offset?: number}}}): unknown => {
         if (node.type === "mdxFlowExpression" || node.type === "mdxTextExpression") {
             const site = sites.get(node.position?.start.offset ?? -1);
-            return site === undefined || site.expression === null ? null : authorNode(site, context.resolve);
+            return site === undefined || site.expression === null ? null : authorNode(site, context);
         }
         if ((node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") && node.name === "Ref") {
             const refId = String((node.attributes as Array<{name: string; value: unknown}>).find((attribute) => attribute.name === "id")?.value ?? "");
@@ -214,10 +215,16 @@ export function renderBlockForAuthor(id: string, source: string, context: Render
     return {id, tree: replace(tree as never) as Root};
 }
 
-function authorNode(site: ExpressionSite, resolve: Resolve): AuthorNode {
+function authorNode(site: ExpressionSite, {resolve, entryName}: RenderContext): AuthorNode {
     if (site.reference !== null) {
         const resolved = resolve(site.reference);
         if (resolved.unavailable !== undefined) return {type: "canonPlaceholder", reason: resolved.unavailable};
+        // 引用字段的值是 `{ref: 条目 id}`：显示当时的名字，id 不出现在显示文字里（输出 7）。
+        const referred = resolved.value !== null && typeof resolved.value === "object" && !Array.isArray(resolved.value) ? (resolved.value as {ref?: unknown}).ref : undefined;
+        if (typeof referred === "string") {
+            const name = entryName(referred);
+            return {type: "canonRef", id: referred, name: name ?? "已删除的条目", deleted: name === null};
+        }
         if (resolved.value !== null && typeof resolved.value === "object" && !Array.isArray(resolved.value) && "图片" in (resolved.value as object)) {
             const image = resolved.value as {图片: string; 说明?: string};
             return {type: "canonImage", path: image.图片, caption: image.说明 ?? ""};

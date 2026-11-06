@@ -251,15 +251,25 @@ export class World {
         const view = this.line(line) ?? this.line();
         const {records, engine} = view;
         const plans = mode === "planned" ? [...records.changes.values()].filter((change) => change.kind === "plan" && change.status === "active" && engine.progress(change.id, defaultPosition(order)) === "unfulfilled").map((change) => change.id) : [];
-        return timeState(records, timeInputOf(records, order), this.options.time ?? DEFAULT_TIME, mode, plans, view.line === MAIN_LINE ? undefined : this.#rollbackOf(view.line, mode));
+        return timeState(records, {...timeInputOf(records, order), known: this.data.changes}, this.options.time ?? DEFAULT_TIME, mode, plans, view.line === MAIN_LINE ? undefined : this.#rollbackOf(view.line, mode));
+    }
+
+    /** 换上写入之后的数据、还没有新修订的世界：算“带来的变化”时读它，读到的缓存与发布之后共用。 */
+    probe(data: WorldData, lines: LineSet, options: WorldOptions): World {
+        return new World(data, lines, this.revisions, this.index, options);
     }
 
     /** 一条线接上父线时间的回溯分叉（有 `back` 的）。 */
     #rollbackOf(line: string, mode: Mode): RollbackLine | undefined {
+        return this.rollbackOf(line, (parent) => this.time(mode, parent));
+    }
+
+    /** 同上，父线的状态由调用方给：带视图令牌的查询要用同一上限截过的父线（canon.time 输出 15）。 */
+    rollbackOf(line: string, parentState: (parent: string) => TimeState): RollbackLine | undefined {
         const entry = lineTable(this.data, this.options.order).lines.get(line);
         const fork = entry?.fork.fork;
         if (entry === undefined || fork === undefined || fork.back === undefined || fork.trigger === undefined) return undefined;
-        return {line, fork: entry.fork.id, cut: fork.cut, trigger: fork.trigger, back: fork.back, parent: this.time(mode, entry.parent)};
+        return {line, fork: entry.fork.id, cut: fork.cut, trigger: fork.trigger, back: fork.back, parent: parentState(entry.parent)};
     }
 
     /** 待处理，套不上的按根因合并（model.md 输出 16、22）。 */
@@ -471,7 +481,11 @@ export class World {
 
         const problems: Problem[] = [];
         const conflicts: ConflictDetail[] = [];
+        const seen = new Set<string>();
         for (const put of request.puts) {
+            // 同一个对象写两次（包括两个 put 用同一个临时 id）：后一个会盖掉前一个，写的人看不出来。
+            if (seen.has(refKey(put.ref))) problems.push({code: "id-taken", ref: put.ref, message: "the same object is written twice in this request"});
+            seen.add(refKey(put.ref));
             const existing = this.object(put.ref);
             const isNew = Object.values(ids).includes(put.ref.id);
             // 补偿修订会按原来的 id 建回被还原删掉的对象（id 不复用，所以不会撞）。
@@ -505,8 +519,9 @@ export class World {
         const entryOf = (id: string) => written.get(id) ?? this.data.entries.get(id);
         let prehistoryEnd = Math.max(-1, ...[...this.data.changes.values()].flatMap((change) => (change.at.kind === "prehistory" ? [change.at.order] : [])));
         const prehistory: PrehistoryPending = {ids: new Set(), next: () => ++prehistoryEnd};
+        const tailKey = tailKeys(this, request);
         for (const put of request.puts) {
-            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator, entryOf, prehistory);
+            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator, entryOf, prehistory, tailKey, this.object(put.ref));
             if (after !== undefined) {
                 const shapeProblems = schemaProblems(OBJECT_SCHEMAS[put.ref.kind], after);
                 if (shapeProblems !== null) {
@@ -1073,12 +1088,37 @@ interface PrehistoryPending {
 }
 
 /**
+ * 没给排序键、也没有正文讲述的记录排在这条线这一章的最后（revisions.md 输出 18）；同一请求里几条按写的先后。看线视图里的记录（worldlines 输出 19）：
+ * 切口在这一章时它在视图里，所以键必然晚于切口。这条线是这次新开的（还没有视图）时看全部记录。
+ */
+function tailKeys(world: World, request: WriteRequest): (chapter: string, line: string) => number {
+    const last = new Map<string, number>();
+    return (chapter, line) => {
+        const key = `${line}\u0000${chapter}`;
+        let top = last.get(key);
+        if (top === undefined) {
+            const records = world.line(line)?.records ?? world.data;
+            top = -1;
+            for (const change of records.changes.values()) if (change.at.kind === "chapter" && change.at.chapter === chapter) top = Math.max(top, change.at.key);
+            for (const check of records.checks.values()) if (check.place.kind === "chapter" && check.place.chapter === chapter) top = Math.max(top, check.place.key);
+            // 同一请求里显式给了键的记录也算：写在它们后面的没给键的记录不能排到它们前面。
+            for (const put of request.puts) {
+                const placed = put.after === null || typeof put.after !== "object" ? undefined : (put.after as {at?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}; place?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}}).at ?? (put.after as {place?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}}).place;
+                if (placed?.kind === "chapter" && placed.chapter === chapter && (placed.line ?? MAIN_LINE) === line && typeof placed.key === "number") top = Math.max(top, placed.key);
+            }
+        }
+        last.set(key, top + 1);
+        return top + 1;
+    };
+}
+
+/**
  * 写入时补上的缺省值：新讲述的 id（model.md 输出 25）；章内排序键（revisions.md 输出 18）；作者与系统写的数没给依据时记成“作者给的”
  * （Agent 与后台任务必须自己给，输出 3）；对命名空间的补丁记上写入时登记的类型版本（components.md 输出 10）；参与者的 `who`
  * 写成马甲的，存成本体加 `as`（model.md 输出 29；同时给了 `as` 的不动，由校验报 `invalid-cast`）。在形状校验之前跑：列表里不是对象的项
  * 跳过，留给形状校验报错。
  */
-function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator, entryOf: (id: string) => Entry | undefined, prehistory: PrehistoryPending): unknown {
+function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, options: WorldOptions, allocator: IdAllocator, entryOf: (id: string) => Entry | undefined, prehistory: PrehistoryPending, tailKey: (chapter: string, line: string) => number, previous: unknown): unknown {
     const authored = request.by.kind === "author" || request.by.kind === "system";
     // 新的讲述不带 id，在这里发（model.md 输出 25）。带了 id 的照留，是不是这个对象原有的由校验查。
     for (const telling of tellingsOf(kind, after)) if ((telling as {id?: unknown}).id === undefined) (telling as {id: string}).id = allocator.next(ID_PREFIX.telling);
@@ -1087,11 +1127,14 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
         const at = change.at;
         // 主线的 `line` 不存（canon/worldlines.md“边界与兼容”）：只有主线的作品日志逐字节不变。
         if (at !== null && typeof at === "object" && at.line === MAIN_LINE) delete (at as {line?: string}).line;
-        if (at?.kind === "chapter" && typeof at.key !== "number") {
-            const text = options.chapterText(at.chapter) ?? "";
-            const quote = (objectItems(change.told).map(([, telling]) => telling) as Telling[]).find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
-            const index = quote === undefined ? -1 : text.indexOf(quote);
-            (change.at as {key: number}).key = index >= 0 ? index : 0;
+        if (at?.kind === "chapter") {
+            const bodyQuote = (tellings: unknown) => (objectItems(tellings).map(([, telling]) => telling) as Telling[]).find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
+            const old = previous as StoryChange | undefined;
+            const quote = bodyQuote(change.told);
+            const index = quote === undefined ? -1 : (options.chapterText(at.chapter) ?? "").indexOf(quote);
+            if (typeof at.key !== "number") (change.at as {key: number}).key = index >= 0 ? index : tailKey(at.chapter, at.line ?? MAIN_LINE);
+            // 给已有记录补上第一条正文讲述：它现在按正文排（输出 18）。写的人同时改了键的，按写的。
+            else if (index >= 0 && old?.at.kind === "chapter" && old.at.chapter === at.chapter && old.at.key === at.key && bodyQuote(old.told) === undefined) (change.at as {key: number}).key = index;
         }
         if (authored) for (const [, patch] of objectItems(change.patches)) if (patch.basis === undefined && typeof patch.value === "number") patch.basis = {kind: "author"};
         if (at?.kind === "prehistory" && typeof (at as {order?: unknown}).order !== "number") {
@@ -1128,7 +1171,7 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
         if (check.place?.kind === "chapter" && typeof check.place.key !== "number") {
             const text = options.chapterText(check.place.chapter) ?? "";
             const index = text.indexOf(check.told?.quote ?? "\u0000");
-            (check.place as {key: number}).key = index >= 0 ? index : 0;
+            (check.place as {key: number}).key = index >= 0 ? index : tailKey(check.place.chapter, check.place.line ?? MAIN_LINE);
         }
     }
     return after;
@@ -1326,7 +1369,7 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
             const target = data.entries.get(patch.at.entry);
             if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
             if (parsePath(patch.at.path) === null) problems.push({code: "unknown-field", ref, path: `patches[${String(index)}]`, message: `bad address "${patch.at.path}"`});
-            const blockSource = patch.op === "addBlock" ? (patch.value as {source?: unknown} | null)?.source : patch.op === "replaceBlock" && patch.at.path.startsWith("text[") ? patch.value : undefined;
+            const blockSource = patch.op === "addBlock" ? (patch.value as {source?: unknown} | null)?.source : (patch.op === "replaceBlock" || patch.op === "set") && patch.at.path.startsWith("text[") ? patch.value : undefined;
             if (typeof blockSource === "string") {
                 const problem = blockProblem(blockSource);
                 if (problem !== null) problems.push({code: problem.code, ref, path: `patches[${String(index)}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
@@ -1345,7 +1388,8 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
             const appears = target.appears;
             const appearsRank = appears.kind === "chapter" ? world.options.order.index(appears.chapter) : -1;
             const changeRank = change.at.kind === "chapter" ? world.options.order.index(change.at.chapter) : -1;
-            if (appearsRank !== undefined && changeRank !== undefined && (changeRank < appearsRank || (changeRank === appearsRank && change.at.kind === "chapter" && appears.kind === "chapter" && change.at.key < appears.key))) {
+            const earlierInPrehistory = change.at.kind === "prehistory" && appears.kind === "prehistory" && change.at.order < appears.order;
+            if (appearsRank !== undefined && changeRank !== undefined && (earlierInPrehistory || changeRank < appearsRank || (changeRank === appearsRank && change.at.kind === "chapter" && appears.kind === "chapter" && change.at.key < appears.key))) {
                 problems.push({code: "not-appeared", ref, message: `entry "${entryId}" has not appeared at this placement`});
             }
         }
@@ -1565,13 +1609,19 @@ function computeImpact(before: World, data: WorldData, lines: LineSet, where: Re
         }
     }
     brokenOn.sort((a, b) => compareIds(a.line, b.line) || compareIds(a.change, b.change));
+    const rekeyed: {change: string; from: number; to: number}[] = [];
+    for (const op of ops) {
+        if (op.kind !== "modify" || op.ref.kind !== "change") continue;
+        const was = before.data.changes.get(op.ref.id)?.at;
+        const now = data.changes.get(op.ref.id)?.at;
+        if (was?.kind === "chapter" && now?.kind === "chapter" && was.chapter === now.chapter && was.key !== now.key) rekeyed.push({change: op.ref.id, from: was.key, to: now.key});
+    }
     // 时间的几种按整条线算、不截取（canon.time 输出 14）；只在这次碰到与时间相关的对象或调整了章序时为新数据建网。
     if (options.order !== before.options.order || touchesTime(before.data, data, ops)) {
-        for (const item of before.time("actual").items) wasKeys.add(timeItemKey(item));
-        const settings = options.time ?? DEFAULT_TIME;
-        // 主线的时间状态按主线视图的记录建（子线上的事件不进主线的网络）；与之后 `World.time()` 用同一份，缓存共用。
-        const main = lines.main.records;
-        for (const item of timeState(main, timeInputOf(main, options.order), settings, "actual", []).items) nowKeys.add(timeItemKey(item));
+        // 与上面的待处理同样按请求所写的线算；这条线是这次新开的（改前没有）时，改前视为什么都没有。子线要接父线的状态，所以经 `World.time()`，
+        // 缓存与之后的读取共用。
+        if (before.line(line) !== undefined) for (const item of before.time("actual", line).items) wasKeys.add(timeItemKey(item));
+        for (const item of before.probe(data, lines, options).time("actual", line).items) nowKeys.add(timeItemKey(item));
     }
     return {
         where,
@@ -1580,5 +1630,6 @@ function computeImpact(before: World, data: WorldData, lines: LineSet, where: Re
         values,
         broken: broken.sort(compareIds),
         ...(brokenOn.length === 0 ? {} : {brokenOn}),
+        ...(rekeyed.length === 0 ? {} : {rekeyed}),
     };
 }

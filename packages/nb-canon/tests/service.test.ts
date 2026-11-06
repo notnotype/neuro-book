@@ -248,6 +248,8 @@ describe("canon.project 输出 17：别的进程写的行", () => {
         expect(reader.status().state).toBe("read-only");
         expect(reader.status().diagnostics).toContainEqual(expect.objectContaining({code: "external-change"}));
         expect(await reader.publish(entryRequest("星瑾", 1))).toMatchObject({ok: false, failure: {code: "world-read-only"}});
+        // 日志没读全：内存里没有这个请求不等于没发布（输出 16）。
+        expect(reader.outcome("没记录的请求")).toEqual({code: "write-unknown"});
     });
 });
 
@@ -273,13 +275,13 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
             const read = from.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
             return typeof read === "string" ? read : read?.view?.namespaces.character?.fields.态度;
         };
-        expect(attitude(service)).toEqual({value: "冷淡；之后：软了一点", notReduced: true, unreduced: {anchor: "冷淡", events: 1}});
+        expect(attitude(service)).toEqual({label: "现在的态度", value: "冷淡；之后：软了一点", notReduced: true, unreduced: {anchor: "冷淡", events: 1}});
         release();
         await service.idle();
         expect(events).toContainEqual({kind: "reduced"});
-        expect(attitude(service)).toEqual({value: "归纳：冷淡"});
+        expect(attitude(service)).toEqual({label: "现在的态度", value: "归纳：冷淡"});
         const reopened = await open({now: 0}, {reducer});
-        expect(attitude(reopened)).toEqual({value: "归纳：冷淡"});
+        expect(attitude(reopened)).toEqual({label: "现在的态度", value: "归纳：冷淡"});
         await reopened.idle();
         expect(reduced).toHaveLength(1);
     });
@@ -303,7 +305,7 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         await service.idle();
         expect(inputs).toContain("热情|软了一点/叫了一声哥");
         const read = service.entry("e1", latest, "actual");
-        expect(typeof read !== "string" && read?.view?.namespaces.character?.fields.态度).toEqual({value: "归纳"});
+        expect(typeof read !== "string" && read?.view?.namespaces.character?.fields.态度).toEqual({label: "现在的态度", value: "归纳"});
     });
 
     test("小模型失败写诊断，值保持未归纳；下次读到再排，补上后读到归纳", async () => {
@@ -322,7 +324,7 @@ describe("canon.project 输出 11、12、15、19：补归纳、游标与停止",
         expect(typeof before !== "string" && before?.view?.namespaces.character?.fields.态度).toMatchObject({notReduced: true});
         await service.idle();
         const after = service.entry("e1", latest, "actual");
-        expect(typeof after !== "string" && after?.view?.namespaces.character?.fields.态度).toEqual({value: "归纳"});
+        expect(typeof after !== "string" && after?.view?.namespaces.character?.fields.态度).toEqual({label: "现在的态度", value: "归纳"});
     });
 
     test("归纳缓存里的坏行跳过并写诊断", async () => {
@@ -410,7 +412,7 @@ describe("canon.project：审查补的边界（输出 6、10、11、16、19、23
         };
         // 失败的那次没留在内存里：同一次发布后排的那次读到它时又排了一次，这次写进了缓存。
         await service.idle();
-        expect(read()).toEqual({value: "归纳"});
+        expect(read()).toEqual({label: "现在的态度", value: "归纳"});
         expect(calls).toBe(2);
         expect(await readFile(join(root, ".nbook", "cache", "reductions.jsonl"), "utf8")).toContain("归纳");
     });
@@ -546,5 +548,20 @@ describe("canon.model 输出 36、canon.project 输出 19、25：正文快照、
         await service.stop();
         const reopened = await open({now: 0}, {chapterText: (chapter) => texts.get(chapter)});
         expect(stamp(reopened)).toEqual(first);
+    });
+});
+
+describe("canon.project 输出 5、16、17：结局与读进别的进程的行", () => {
+    test("读进别的进程的几行：第一条 changed 里读到的已是读全了的世界", async () => {
+        const writer = await open();
+        const reader = await open();
+        const versions: number[] = [];
+        reader.subscribe((event) => {
+            if (event.kind === "changed") versions.push(reader.status().version);
+        });
+        expect((await writer.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        expect((await writer.publish(entryRequest("星瑾", 2))).ok).toBe(true);
+        await reader.externalChanged();
+        expect(versions).toEqual([3, 3]);
     });
 });

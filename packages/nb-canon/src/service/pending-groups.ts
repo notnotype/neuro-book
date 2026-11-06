@@ -117,8 +117,9 @@ export function sortableCanonItem(world: World, item: PendingItem | TimePendingI
     let sortId = "";
     if (item.kind === "check-mismatch") {
         const check = world.data.checks.get(item.check);
-        const anchored = check?.anchor === undefined ? undefined : changeAt(check.anchor.change);
-        position = placementPosition(order, anchored ?? check?.place);
+        // 比较时点（model.md 输出 11）：挂靠的变更套上了取它的安放，否则回到核对点自己的安放。
+        const anchorApplied = check?.anchor !== undefined && world.line(check.place.line ?? MAIN_LINE)?.engine.detail(check.anchor.change)?.applied === true;
+        position = placementPosition(order, anchorApplied ? changeAt(check.anchor!.change) : check?.place);
         sortId = item.check;
     } else if (item.kind === "cannot-apply") {
         position = item.changes.map((id) => placementPosition(order, changeAt(id))).reduce<SortPosition>((earliest, next) => (comparePositions(next, earliest) < 0 ? next : earliest), null);

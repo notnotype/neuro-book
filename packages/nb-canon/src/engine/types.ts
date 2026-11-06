@@ -42,7 +42,7 @@ export interface EngineInputs {
 export type Mode = "actual" | "planned";
 
 /** 一个补丁、一条变更套不上的原因（model.md 输出 7、失败与恢复）。 */
-export type ApplyFailure = "entry-missing" | "element-missing" | "type-mismatch" | "unknown-value" | "constraint-violated" | "number-out-of-range";
+export type ApplyFailure = "entry-missing" | "element-missing" | "type-mismatch" | "unknown-value" | "constraint-violated" | "number-out-of-range" | "invalid-asset-path";
 
 export interface IncompleteMark {
     readonly change: string;
@@ -52,6 +52,8 @@ export interface IncompleteMark {
 
 export interface FieldState {
     readonly value: unknown;
+    /** 显示名与字段 id 不同时才有（components.md 输出 8）。 */
+    readonly label?: string;
     readonly incomplete?: IncompleteMark;
     /** 语义档有事件、缓存里没有归纳（model.md 输出 9）。 */
     readonly notReduced?: true;

@@ -17,7 +17,7 @@ import {compareIds} from "../core/ids";
 import {ENABLE_FIELD} from "../core/identifiers";
 import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type OrderTie, type Rank} from "../core/position";
 import type {Address, Check, Entry, FieldDeclaration, ReadPosition, StoryChange} from "../core/schema";
-import {applyChange, incompleteAt, initialFoldState, isCarry, namespaceFields, type ChangeResult, type FoldState} from "../model/apply";
+import {applyChange, incompleteAt, initialFoldState, isCarry, namespaceFields, replayAnchor, type ChangeResult, type FoldState} from "../model/apply";
 import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 import {sortPending, type RankedPending} from "./pending";
 import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress} from "./types";
@@ -411,12 +411,12 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
 /** 语义档的核对点：在 `place` 上成为新的起点（输出 9、11）。 */
 function applyAnchor(state: FoldState, check: Check, field: FieldDeclaration): void {
     const entry = state.entries.get(check.at.entry);
-    const parsed = parsePath(check.at.path);
-    if (entry === undefined || parsed?.root !== "namespace" || parsed.element !== undefined) return;
-    const data = entry.data[parsed.namespace];
-    if (data === undefined) return;
+    if (entry === undefined) return;
     const next = structuredClone(entry);
-    next.data[parsed.namespace]!.fields[parsed.field] = semanticText(field, check.value);
+    // 与增量引擎同一份逻辑（`replayAnchor`）：元素的子字段也能成为起点，元素不在时没有可写的地方。
+    const events = new Map<string, string[]>();
+    replayAnchor(next, events, check.at.path, check.value, field);
+    if (!events.has(check.at.path)) return;
     state.entries.set(check.at.entry, next);
     state.events.set(addressKey(check.at), []);
 }

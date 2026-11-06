@@ -81,6 +81,8 @@ function lowered(settings: TimeSettings, {json, statement}: KeyedStatement): Low
 
 export interface TimeInput {
     readonly changes: ReadonlyMap<string, StoryChange>;
+    /** 全世界的变更（缺省同 `changes`）：`of` 指到不在这份网络里、但还存在的变更时不进网络、不报，真的不存在才算 `target-missing`（输出 17）。 */
+    readonly known?: ReadonlyMap<string, StoryChange>;
     readonly entries: ReadonlyMap<string, Entry>;
     readonly order: ChapterOrder;
     /** 对象第一次写入的版本（同一安放上先后的打破，同 canon.model 输出 2）。 */
@@ -110,7 +112,7 @@ export function buildNetwork(input: TimeInput, settings: TimeSettings, plans: re
     ranked.sort((a, b) => (a.rank === null || b.rank === null ? (a.rank === b.rank ? tie(a.change, b.change) : a.rank === null ? 1 : -1) : compareRanks(a.rank, b.rank) || tie(a.change, b.change)));
     const assembled = assembleNetwork({
         events: ranked.map(({change}) => ({id: change.id, statements: keyedStatements(change).map((keyed) => ({ref: keyed.key, lowered: lowered(settings, keyed)}))})),
-        exists: (id) => input.changes.has(id),
+        exists: (id) => (input.known ?? input.changes).has(id),
         bodyOf: (id) => input.entries.get(id)?.sameAs ?? id,
     });
     if (rollback === undefined) return {assembled, network: solveNetwork(assembled), mismatch: null};

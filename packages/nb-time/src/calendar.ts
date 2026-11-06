@@ -158,7 +158,7 @@ export function validateCalendar(raw: unknown): {readonly ok: true; readonly cal
     const calendar = value as unknown as Calendar;
     // tick 要在 2^53 以内（输出 13）：一年最长的最小单位数乘一千万零一。
     const compiled = compileCalendar(calendar);
-    if (compiled.longestYearTicks * (MAX_ABS_YEAR + 1) >= Number.MAX_SAFE_INTEGER) return {ok: false, problems: [{path: "", code: "calendar-invalid", message: "a year is too long for the time range: make the unit coarser"}]};
+    if (compiled.longestYearTicks * (MAX_ABS_YEAR + 1) > Number.MAX_SAFE_INTEGER) return {ok: false, problems: [{path: "", code: "calendar-invalid", message: "a year is too long for the time range: make the unit coarser"}]};
     return {ok: true, calendar};
 }
 

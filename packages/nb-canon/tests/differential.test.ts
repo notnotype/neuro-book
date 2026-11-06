@@ -216,7 +216,9 @@ class Sim {
             const semantic = this.rnd() < 0.25;
             const anchorable = this.written();
             const anchor = !semantic && anchorable.length > 0 && this.rnd() < 0.4 ? {change: this.pick(anchorable).id, side: this.pick(["before", "after"] as const)} : undefined;
-            this.checks.set(id, {id, at: {entry, path: semantic ? "character.态度" : "panel.存款"}, value: this.int(0, 5), told: {id: `t${id}`, source: "chapter", quote: "x"}, place: this.placement(), ...(anchor === undefined ? {} : {anchor})});
+            // 语义档的核对点有一半落在列表元素的子字段上（元素不在时不生效，两个引擎都要这样）。
+            const semanticPath = this.rnd() < 0.5 ? "character.态度" : `know.认得[${this.pick(this.entryIds())}].看法`;
+            this.checks.set(id, {id, at: {entry, path: semantic ? semanticPath : "panel.存款"}, value: this.int(0, 5), told: {id: `t${id}`, source: "chapter", quote: "x"}, place: this.placement(), ...(anchor === undefined ? {} : {anchor})});
             this.createdAt.set(id, ++this.version);
             this.log.push(`核对点 ${id}`);
             return {checks: [id]};

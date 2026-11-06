@@ -305,6 +305,8 @@ export const ImpactSchema = Type.Object({
     broken: Type.Array(Id),
     /** 别的世界线上的（canon/worldlines.md 输出 17）；只有主线的作品没有这一项。 */
     brokenOn: Type.Optional(Type.Array(Type.Object({line: Id, change: Id}))),
+    /** 这次改了排序键的变更（revisions.md 输出 18）。 */
+    rekeyed: Type.Optional(Type.Array(Type.Object({change: Id, from: Type.Number(), to: Type.Number()}))),
 });
 
 export const RevisionWhatSchema = Type.Union([Type.Literal("opening"), Type.Literal("plan"), Type.Literal("bookkeeping"), Type.Literal("edit"), Type.Literal("creative"), Type.Literal("resolve"), Type.Literal("suggest"), Type.Literal("revert"), Type.Literal("reorder")]);

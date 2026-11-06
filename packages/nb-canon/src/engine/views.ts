@@ -81,7 +81,7 @@ export function buildEntryView(entry: Entry, fold: EntryFold | undefined, positi
             const textSays = context.textSays({entry: entry.id, path});
             const raw = fieldValue(fold, namespace, data.type, field, data.fields[fieldId] ?? null, context.reductions);
             const base = field?.kind === "list" && field.keyedBy === "ref" ? {...raw, value: labelKeyedElements(raw.value, context)} : raw;
-            fields[fieldId] = {...base, ...(incomplete === undefined ? {} : {incomplete}), ...(textSays === undefined ? {} : {textSays})};
+            fields[fieldId] = {...base, ...(field === undefined || field.label === fieldId ? {} : {label: field.label}), ...(incomplete === undefined ? {} : {incomplete}), ...(textSays === undefined ? {} : {textSays})};
         }
         namespaces[namespace] = {type: data.type, version: data.version, ...(availability === "ok" ? {} : {readOnly: availability}), fields};
     }

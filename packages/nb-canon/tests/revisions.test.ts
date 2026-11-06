@@ -443,3 +443,90 @@ describe("canon.model 输出 25 与 canon.revisions 输出 3、20：讲述的 id
         expect(decided.ids["tmp:d"]).toBe("d1");
     });
 });
+
+describe("canon.components 输出 14、15：补丁的值按字段核对", () => {
+    const failure = (result: WriteResult) => (result.ok ? "ok" : result.failure.code === "validation-failed" ? result.failure.problems.map((problem) => problem.code).join() : result.failure.code);
+
+    test("场景 4：直接发布 0.1 加 0.2 读到 0.3；加 0.00001 拒收，不悄悄舍掉", () => {
+        const world = ok(World.empty(options()).publish(request([{ref: {kind: "entry", id: "tmp:x"}, after: entry("tmp:x", "星瑕", {存款: 0.1})}], {what: "opening"}), "t")).world;
+        const summed = ok(world.publish(request([{ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", "ch1", [add("e1", 0.2)])}], {baseVersion: 1}), "t"));
+        expect(summed.world.line().engine.entry("e1", {kind: "chapter", chapter: "ch1", edge: "end"}, "actual")).toMatchObject({namespaces: {panel: {fields: {存款: {value: 0.3}}}}});
+        expect(failure(world.publish(request([{ref: {kind: "change", id: "tmp:b"}, after: change("tmp:b", "ch1", [add("e1", 0.00001)])}], {baseVersion: 1}), "t"))).toBe("number-out-of-range");
+    });
+
+    test("补丁写坏图片路径：invalid-asset-path，与写在初值里同一个码", () => {
+        const IMAGE = {id: "test.image", label: "图", namespace: "pic", version: 1, fields: [{id: "图", label: "图", kind: "image"}, {id: "相册", label: "相册", kind: "list", item: [{id: "图", label: "图", kind: "image"}]}]};
+        const base = {...options(), registry: buildRegistry([IMAGE as never])};
+        const made: Entry = {id: "tmp:x", type: "物", parent: null, folder: "", order: 0, init: {name: "画", aliases: [], summary: "", text: [], data: {pic: {type: IMAGE.id, version: 1, enabled: true, fields: {图: null, 相册: [{id: "a", label: "a", 图: null}]}}}}};
+        const world = ok(World.empty(base).publish(request([{ref: {kind: "entry", id: "tmp:x"}, after: made}], {what: "opening"}), "t")).world;
+        const write = (patch: Patch) => failure(world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch1", [patch])}], {baseVersion: 1}), "t"));
+        const bad = {"图片": "https://x/y.png"};
+        expect(write({op: "set", at: {entry: "e1", path: "pic.图"}, value: bad})).toBe("invalid-asset-path");
+        expect(write({op: "set", at: {entry: "e1", path: "pic.相册[a].图"}, value: bad})).toBe("invalid-asset-path");
+        expect(write({op: "listAdd", at: {entry: "e1", path: "pic.相册"}, value: {id: "b", label: "b", 图: bad}})).toBe("invalid-asset-path");
+        expect(write({op: "set", at: {entry: "e1", path: "pic.图"}, value: {"图片": "assets/y.png"}})).toBe("ok");
+        const inInit = {...made, init: {...made.init, data: {pic: {...made.init.data.pic!, fields: {图: bad, 相册: []}}}}};
+        expect(failure(World.empty(base).publish(request([{ref: {kind: "entry", id: "tmp:x"}, after: inInit}]), "t"))).toBe("invalid-asset-path");
+    });
+});
+
+describe("canon.revisions 输出 3、18：id 与排序键", () => {
+    const keyOf = (world: World, id: string) => (world.data.changes.get(id)!.at as {key: number}).key;
+    const draft = (id: string, chapter: string, extra: Partial<StoryChangeDraft> = {}) => {
+        const {at: _at, ...rest} = change(id, chapter, []);
+        return {...rest, at: {kind: "chapter", chapter}, ...extra} as unknown as StoryChangeDraft;
+    };
+
+    test("同一请求里两个 put 写同一个对象：id-taken，不让后一个悄悄盖掉前一个", () => {
+        const result = start().publish(request([
+            {ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", "ch1", [])},
+            {ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", "ch2", [])},
+        ], {baseVersion: 1}), "t");
+        expect(result.ok === false && result.failure.code === "validation-failed" && result.failure.problems.map((problem) => problem.code)).toEqual(["id-taken"]);
+    });
+
+    test("没给键、没有正文讲述：排在本章最后；空章从 0 起；同一请求里按写的先后", () => {
+        const world = start();
+        const first = ok(world.publish(request([{ref: {kind: "change", id: "tmp:a"}, after: draft("tmp:a", "ch1")}], {baseVersion: 1}), "t"));
+        expect(keyOf(first.world, first.ids["tmp:a"]!)).toBe(0);
+        const keyed = ok(first.world.publish(request([{ref: {kind: "change", id: "tmp:b"}, after: change("tmp:b", "ch1", [])}], {baseVersion: 2}), "t"));
+        expect(keyOf(keyed.world, keyed.ids["tmp:b"]!)).toBe(10);
+        const next = ok(keyed.world.publish(request([
+            {ref: {kind: "change", id: "tmp:c"}, after: draft("tmp:c", "ch1")},
+            {ref: {kind: "change", id: "tmp:d"}, after: draft("tmp:d", "ch1")},
+            {ref: {kind: "change", id: "tmp:e"}, after: change("tmp:e", "ch1", [], {at: {kind: "chapter", chapter: "ch1", key: 50}})},
+        ], {baseVersion: 3}), "t"));
+        expect([keyOf(next.world, next.ids["tmp:c"]!), keyOf(next.world, next.ids["tmp:d"]!)]).toEqual([51, 52]);
+    });
+
+    test("没给键、有正文讲述：按原句在本章第一次出现的位置", () => {
+        const written = ok(start().publish(request([{ref: {kind: "change", id: "tmp:a"}, after: draft("tmp:a", "ch2", {told: [{source: "chapter", chapter: "ch2", quote: "又花了三千五"}]})}], {baseVersion: 1}), "t"));
+        expect(keyOf(written.world, written.ids["tmp:a"]!)).toBe(TEXT.ch2!.indexOf("又花了三千五"));
+    });
+
+    test("给已有记录补上第一条正文讲述：键改成这处讲述的位置，写进带来的变化；已有正文讲述的或写的人改了键的不动", () => {
+        const written = ok(start().publish(request([{ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", "ch2", [])}], {baseVersion: 1}), "t"));
+        const id = written.ids["tmp:a"]!;
+        const stored = written.world.data.changes.get(id)!;
+        const told = ok(written.world.publish(request([{ref: {kind: "change", id}, after: {...structuredClone(stored), told: [{source: "chapter", chapter: "ch2", quote: "又花了三千五"}]}}], {baseVersion: 2}), "t"));
+        const position = TEXT.ch2!.indexOf("又花了三千五");
+        expect(keyOf(told.world, id)).toBe(position);
+        expect(told.revision.impact.rekeyed).toEqual([{change: id, from: 10, to: position}]);
+
+        const again = told.world.data.changes.get(id)!;
+        const second = ok(told.world.publish(request([{ref: {kind: "change", id}, after: {...structuredClone(again), told: [...structuredClone(again.told), {source: "chapter", chapter: "ch2", quote: "她花了两千买药"}]}}], {baseVersion: 3}), "t"));
+        expect(keyOf(second.world, id)).toBe(position);
+        expect(second.revision.impact.rekeyed).toBeUndefined();
+
+        const manual = ok(written.world.publish(request([{ref: {kind: "change", id}, after: {...structuredClone(stored), at: {kind: "chapter", chapter: "ch2", key: 99}, told: [{source: "chapter", chapter: "ch2", quote: "又花了三千五"}]}}], {baseVersion: 2}), "t"));
+        expect(keyOf(manual.world, id)).toBe(99);
+    });
+
+    test("前史里的先后也比：出场在前史 5 的条目，不能被安放在前史 2 的变更引用", () => {
+        const world = ok(World.empty(options()).publish(request([{ref: {kind: "entry", id: "tmp:x"}, after: entry("tmp:x", "星瑕", {}, {appears: {kind: "prehistory", order: 5}})}], {what: "opening"}), "t")).world;
+        const write = (order: number) => world.publish(request([{ref: {kind: "change", id: "tmp:a"}, after: {...change("tmp:a", "ch1", [add("e1", 1)]), at: {kind: "prehistory", order}}}], {baseVersion: 1}), "t");
+        const early = write(2);
+        expect(early.ok === false && early.failure.code === "validation-failed" && early.failure.problems.map((problem) => problem.code)).toContain("not-appeared");
+        expect(write(7).ok).toBe(true);
+    });
+});

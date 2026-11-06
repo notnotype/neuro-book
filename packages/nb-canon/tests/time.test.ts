@@ -326,3 +326,89 @@ describe("canon.time 输出 1、14、15、17：事件集与键（计划审查 P4
         expect(broken.time("planned").built.network.component(plan)).toBeDefined();
     });
 });
+
+describe("canon.time 输出 6、14、15、17：回溯与线", () => {
+    const CH = ["ch1", "ch2", "ch3", "ch4"];
+    const after = (of: string, days: number) => ({kind: "after" as const, of, gap: {min: days, max: days, unit: "day" as const}, basis: author});
+    const lineOptions = () => options({order: new ChapterOrder(CH)});
+    /** 主线第 2 章 c1、c2（c1 后一天）、c3（c2 后两天）；回溯线 r 从 c1 切、由 c3 触发，往回 12 小时；r 上第 3 章一件事 own（c1 后一天）。 */
+    function rollback(back = {min: 12, max: 12, unit: "hour" as const}) {
+        const first = ok(World.empty(lineOptions()).publish(request([
+            {ref: {kind: "change", id: "tmp:c1"}, after: change("tmp:c1", {kind: "chapter", chapter: "ch2", key: 10})},
+        ], 0), "t"));
+        const c1 = first.ids["tmp:c1"]!;
+        const second = ok(first.world.publish(request([{ref: {kind: "change", id: "tmp:c2"}, after: change("tmp:c2", {kind: "chapter", chapter: "ch2", key: 20}, {when: [after(c1, 1)]})}], 1), "t"));
+        const c2 = second.ids["tmp:c2"]!;
+        const third = ok(second.world.publish(request([{ref: {kind: "change", id: "tmp:c3"}, after: change("tmp:c3", {kind: "chapter", chapter: "ch2", key: 30}, {when: [after(c2, 2)]})}], 2), "t"));
+        const c3 = third.ids["tmp:c3"]!;
+        const forked = ok(third.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: change("tmp:f", {kind: "chapter", chapter: "ch2", key: 35}, {nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut: c1, trigger: c3, back, type: "rollback"}} as never)},
+            {ref: {kind: "change", id: "tmp:own"}, after: change("tmp:own", {kind: "chapter", chapter: "ch3", key: 1, line: "tmp:r"}, {when: [after(c1, 1)]})},
+        ], 3), "t"));
+        return {world: forked.world, c1, c2, c3, line: forked.ids["tmp:r"]!, fork: forked.ids["tmp:f"]!, own: forked.ids["tmp:own"]!};
+    }
+
+    test("改分叉的 back：子线视图的记录没变，时间照样按新的往回多久重算", () => {
+        const {world, fork, line} = rollback();
+        const mismatches = (target: World) => target.time("actual", line).items.filter((item) => item.kind === "fork-time-mismatch");
+        expect(mismatches(world)).toEqual([]);
+        // c3 比切口 c1 晚三天：往回一百小时就回到了切口之前。
+        const stored = structuredClone(world.data.changes.get(fork)!);
+        (stored as {fork: {back: unknown}}).fork.back = {min: 100, max: 100, unit: "hour"};
+        const moved = ok(world.publish(request([{ref: {kind: "change", id: fork}, after: stored}], world.version), "t"));
+        expect(mismatches(moved.world)).toMatchObject([{kind: "fork-time-mismatch", reason: "cut-after-back"}]);
+    });
+
+    test("写在子线上引起的打架进那次修订的“带来的变化”", () => {
+        const {world, c1, line} = rollback();
+        const clash = ok(world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", {kind: "chapter", chapter: "ch3", key: 5, line}, {when: [after(c1, 1), {kind: "before", of: c1, gap: {min: 1, max: 1, unit: "day"}, basis: author}]})}], world.version), "t"));
+        expect(clash.revision.impact.pendingAdded.filter((key) => key.startsWith("time-conflict"))).toHaveLength(1);
+    });
+
+    test("`of` 指向存在、但不在这条线视图里的变更：不报；真不存在才报 target-missing", () => {
+        const first = ok(World.empty(lineOptions()).publish(request([
+            {ref: {kind: "change", id: "tmp:c1"}, after: change("tmp:c1", {kind: "chapter", chapter: "ch2", key: 10})},
+            {ref: {kind: "change", id: "tmp:c2"}, after: change("tmp:c2", {kind: "chapter", chapter: "ch2", key: 20})},
+            {ref: {kind: "change", id: "tmp:c3"}, after: change("tmp:c3", {kind: "chapter", chapter: "ch2", key: 30})},
+        ], 0), "t"));
+        const [c1, c2, c3] = [first.ids["tmp:c1"]!, first.ids["tmp:c2"]!, first.ids["tmp:c3"]!];
+        const forked = ok(first.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: change("tmp:f", {kind: "chapter", chapter: "ch2", key: 40}, {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c3, type: "branch"}} as never)},
+            {ref: {kind: "change", id: "tmp:own"}, after: change("tmp:own", {kind: "chapter", chapter: "ch3", key: 1, line: "tmp:l"}, {when: [after(c2, 1)]})},
+        ], 1), "t"));
+        const line = forked.ids["tmp:l"]!;
+        const fork = structuredClone(forked.world.data.changes.get(forked.ids["tmp:f"]!)!);
+        (fork as {fork: {cut: string}}).fork.cut = c1;
+        const moved = ok(forked.world.publish(request([{ref: {kind: "change", id: fork.id}, after: fork}], 2), "t"));
+        expect(moved.world.time("actual", line).items.filter((item) => item.kind === "time-invalid")).toEqual([]);
+    });
+
+    test("带令牌的查询：回溯到的那一刻照样进网络，与不带令牌答得一样", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "bounded-rollback");
+        const service = await openTestService(root, {texts: new Map(CH.map((chapter) => [chapter, ""])), chapters: CH, registry: buildRegistry([PERSON])});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const c1 = (await publish([{ref: {kind: "change", id: "tmp:c1"}, after: change("tmp:c1", {kind: "chapter", chapter: "ch2", key: 10})}]))["tmp:c1"]!;
+            const c2 = (await publish([{ref: {kind: "change", id: "tmp:c2"}, after: change("tmp:c2", {kind: "chapter", chapter: "ch2", key: 20}, {when: [after(c1, 1)]})}]))["tmp:c2"]!;
+            const c3 = (await publish([{ref: {kind: "change", id: "tmp:c3"}, after: change("tmp:c3", {kind: "chapter", chapter: "ch2", key: 30}, {when: [after(c2, 2)]})}]))["tmp:c3"]!;
+            const ids = await publish([
+                {ref: {kind: "change", id: "tmp:f"}, after: change("tmp:f", {kind: "chapter", chapter: "ch2", key: 35}, {nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut: c1, trigger: c3, back: {min: 12, max: 12, unit: "hour"}, type: "rollback"}} as never)},
+                {ref: {kind: "change", id: "tmp:own"}, after: change("tmp:own", {kind: "chapter", chapter: "ch3", key: 1, line: "tmp:r"}, {when: [after(c1, 1)]})},
+            ]);
+            const line = ids["tmp:r"]!;
+            const own = ids["tmp:own"]!;
+            const plain = service.time({kind: "event", change: own}, "actual", undefined, 50, line);
+            const opened = service.openView({viewer: null, line, until: {kind: "chapter", chapter: "ch4", edge: "end"}, purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const bounded = service.viewed(opened.token).time({kind: "event", change: own});
+            expect(JSON.stringify(bounded)).toBe(JSON.stringify(plain));
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});

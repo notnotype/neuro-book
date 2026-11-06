@@ -15,7 +15,7 @@
 import {effectiveFields, type ComponentRegistry} from "../components/registry";
 import {semanticText, valueProblem, listItemProblem} from "../components/values";
 import {addressKey, parsePath, type ParsedPath} from "../core/address";
-import {addExact} from "../core/decimal";
+import {addExact, exactProblem} from "../core/decimal";
 import {ENABLE_FIELD} from "../core/identifiers";
 import type {Address, Entry, EntryState, FieldDeclaration, NamespaceData, Patch, StoryChange} from "../core/schema";
 import type {ApplyFailure, CarrySlot, IncompleteMark} from "../engine/types";
@@ -303,12 +303,14 @@ function applyFieldPatch(data: NamespaceData, field: FieldDeclaration, patch: Pa
         case "replaceBlock": {
             if (patch.op === "replaceBlock" && field.kind !== "text") return "type-mismatch";
             const problem = valueProblem(field, patch.value);
-            if (problem !== null) return problem === "number-out-of-range" ? problem : "type-mismatch";
+            if (problem !== null) return problem;
             data.fields[field.id] = structuredClone(patch.value);
             return "applied";
         }
         case "add": {
             if (field.kind !== "number" || typeof patch.value !== "number") return "type-mismatch";
+            // 差额本身也按精确档的数核对：`addExact` 按四位小数算，超精度的差额会被悄悄舍掉（components.md 输出 14）。
+            if (exactProblem(patch.value) !== null) return "number-out-of-range";
             if (current === null) return "unknown-value";
             const sum = addExact(current as number, patch.value);
             if (sum === null) return "number-out-of-range";
@@ -316,7 +318,9 @@ function applyFieldPatch(data: NamespaceData, field: FieldDeclaration, patch: Pa
             return "applied";
         }
         case "listAdd": {
-            if (field.kind !== "list" || listItemProblem(field, patch.value) !== null) return "type-mismatch";
+            if (field.kind !== "list") return "type-mismatch";
+            const problem = listItemProblem(field, patch.value);
+            if (problem !== null) return problem;
             const list = (current as Array<{id: string}> | null) ?? [];
             const item = patch.value as {id: string};
             if (list.some((existing) => existing.id === item.id)) return "type-mismatch";
@@ -344,7 +348,10 @@ function applyElementPatch(data: NamespaceData, field: FieldDeclaration, element
     if (index < 0) return "element-missing";
     const item = {...list[index]!};
     if (sub === undefined) {
-        if (patch.op !== "set" || listItemProblem(field, patch.value) !== null || (patch.value as {id: string}).id !== element) return "type-mismatch";
+        if (patch.op !== "set") return "type-mismatch";
+        const problem = listItemProblem(field, patch.value);
+        if (problem !== null) return problem;
+        if ((patch.value as {id: string}).id !== element) return "type-mismatch";
         list[index] = structuredClone(patch.value as Record<string, unknown>);
         for (const candidate of field.item ?? []) if (candidate.precision === "semantic") events(candidate.id).length = 0;
     } else {
@@ -360,10 +367,11 @@ function applyElementPatch(data: NamespaceData, field: FieldDeclaration, element
             else return "type-mismatch";
         } else if (patch.op === "set") {
             const problem = valueProblem(subField, patch.value);
-            if (problem !== null) return problem === "number-out-of-range" ? problem : "type-mismatch";
+            if (problem !== null) return problem;
             item[sub] = structuredClone(patch.value);
         } else if (patch.op === "add") {
             if (subField.kind !== "number" || typeof patch.value !== "number") return "type-mismatch";
+            if (exactProblem(patch.value) !== null) return "number-out-of-range";
             if (current === null) return "unknown-value";
             const sum = addExact(current as number, patch.value);
             if (sum === null) return "number-out-of-range";

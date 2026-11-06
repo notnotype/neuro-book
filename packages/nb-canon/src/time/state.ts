@@ -72,7 +72,7 @@ export function timeState(data: object, input: TimeInput, settings: TimeSettings
     }
     // 对不上要看章序：章序调整以后数据没变、章序变了，键里带上章序。按计划模式的事件集还看计划的进展（引擎随登记重建时会变），
     // 键里带上计入的计划。
-    const key = `${mode}|${input.order.ids.join("\u0000")}|${plans.join("\u0000")}${rollback === undefined ? "" : `|${rollback.line}|${rollback.fork}|${String(idOfState(rollback.parent))}`}`;
+    const key = `${mode}|${input.order.ids.join("\u0000")}|${plans.join("\u0000")}${rollback === undefined ? "" : `|${rollback.line}|${rollback.fork}|${String(idOfState(rollback.parent))}|${canonicalJson(rollback.back)}`}`;
     let state = byMode.get(key);
     if (state === undefined) {
         const built = buildNetwork(input, settings, mode === "planned" ? plans : [], rollback === undefined ? undefined : {line: rollback.line, spec: {fork: rollback.fork, cut: rollback.cut, trigger: rollback.trigger, back: rollback.back, parent: rollback.parent.built.network}});

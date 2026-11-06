@@ -54,10 +54,13 @@ export function scanAnnotations(text: string): Item[] | null {
     let lineStart = true;
     while (index < text.length) {
         const char = text[index]!;
-        if (lineStart && text.startsWith("```", index)) {
-            const close = text.indexOf("\n```", index + 3);
-            index = close < 0 ? text.length : close + 4;
-            continue;
+        if (lineStart) {
+            const fence = FENCE_OPEN.exec(text.slice(index, text.indexOf("\n", index) < 0 ? undefined : text.indexOf("\n", index)));
+            if (fence !== null) {
+                index = fenceEnd(text, index, fence[1]!);
+                lineStart = true;
+                continue;
+            }
         }
         lineStart = char === "\n";
         if (char === "\\") {
@@ -84,6 +87,22 @@ export function scanAnnotations(text: string): Item[] | null {
     return items;
 }
 
+/** Markdown 的围栏代码块开头（CommonMark：行首最多三个空格；反引号围栏的信息串里不能再有反引号）。 */
+const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/u;
+
+/** 围栏代码块结束之后的位置：闭合行同一种字符、不短于开头；没有闭合时到文末。 */
+function fenceEnd(text: string, start: number, fence: string): number {
+    const closing = new RegExp(`^ {0,3}${fence[0]!}{${String(fence.length)},}[ \\t]*$`, "u");
+    let lineEnd = text.indexOf("\n", start);
+    while (lineEnd >= 0) {
+        const next = text.indexOf("\n", lineEnd + 1);
+        const line = text.slice(lineEnd + 1, next < 0 ? undefined : next);
+        if (closing.test(line)) return next < 0 ? text.length : next + 1;
+        lineEnd = next;
+    }
+    return text.length;
+}
+
 function scanOne(text: string, start: number): Item | null {
     let cursor = start + 1;
     while (text[cursor] === " ") cursor += 1;
@@ -93,7 +112,7 @@ function scanOne(text: string, start: number): Item | null {
         const end = text.indexOf("}", close);
         return end < 0 ? null : {start, end: end + 1, kind: "comment", left: text.slice(start + 1, end), value: null};
     }
-    // 按 JS 的词法扫到顶层的 `=` 或 `->`：跳过字符串与括号（输出 10）。
+    // 按 JS 的词法扫到顶层的 `=` 或 `->`：跳过字符串、注释与括号（输出 10）。
     let depth = 0;
     let separator = -1;
     let kind: "assign" | "computed" = "assign";
@@ -101,6 +120,18 @@ function scanOne(text: string, start: number): Item | null {
         const char = text[index]!;
         if (char === "\"" || char === "'" || char === "`") {
             index = skipString(text, index);
+            continue;
+        }
+        if (char === "/" && text[index + 1] === "*") {
+            const close = text.indexOf("*/", index + 2);
+            if (close < 0) return null;
+            index = close + 1;
+            continue;
+        }
+        if (char === "/" && text[index + 1] === "/") {
+            const close = text.indexOf("\n", index + 2);
+            if (close < 0) return null;
+            index = close;
             continue;
         }
         if (char === "(" || char === "[" || char === "{") depth += 1;
@@ -183,6 +214,10 @@ export function writeBack(world: World, input: WriteBackInput, time: string): Wr
     if (block === undefined) return {ok: false, failure: {code: "not-found"}};
     const original = block.source;
     const parsed = parseBlock(original);
+    // 交回的文字是读取时那个版本的样子。世界前进过以后，它和现在的差别分不清是 Agent 改的还是别的修订改的；当成改动会把别人写的值悄悄
+    // 改回去（输出 13）。这里不回放旧版本，有差别一律请它重读：只会多拒，不会写错。
+    const stale = input.version !== world.version;
+    const staleConflict = (): WriteBackResult => ({ok: false, failure: {code: "version-conflict", objects: [{ref: {kind: "entry", id: input.entry}, changed: true, current: structuredClone(world.data.entries.get(input.entry))}]}});
     const resolve = resolverFor(engine, world.options.registry, world.options.order, input.entry, input.position, "actual");
 
     let newSource: string;
@@ -194,21 +229,22 @@ export function writeBack(world: World, input: WriteBackInput, time: string): Wr
         const items = scanAnnotations(input.text);
         if (items === null) return {ok: false, failure: {code: "annotation-mismatch"}};
         const sites = parsed.block.expressions;
-        if (items.length !== sites.length) return {ok: false, failure: {code: "annotation-mismatch"}};
+        if (items.length !== sites.length) return stale ? staleConflict() : {ok: false, failure: {code: "annotation-mismatch"}};
         const chosen = new Map<string, unknown>();
         for (const [index, item] of items.entries()) {
             const site = sites[index]!;
-            if (!matches(item, site)) return {ok: false, failure: {code: "annotation-mismatch"}};
+            if (!matches(item, site)) return stale ? staleConflict() : {ok: false, failure: {code: "annotation-mismatch"}};
             if (item.kind === "comment") continue;
             if (item.kind === "computed") {
                 const current = evaluate(site.expression!, site.references, resolve).value;
-                if (!sameJson(current ?? null, item.value)) return {ok: false, failure: {code: "computed-edited"}};
+                if (!sameJson(current ?? null, item.value)) return {ok: false, failure: stale ? {code: "value-conflict", current: current ?? null} : {code: "computed-edited"}};
                 continue;
             }
             const reference = site.reference!;
             const current = resolve(reference);
             const currentValue = current.unavailable === undefined ? (current.value ?? null) : null;
             if (sameJson(currentValue, item.value)) continue;
+            if (stale) return {ok: false, failure: {code: "value-conflict", current: currentValue}};
             const at: Address = {entry: reference.entry ?? input.entry, path: reference.path};
             const key = `${at.entry}\u0000${at.path}`;
             if (chosen.has(key) && !sameJson(chosen.get(key), item.value)) return {ok: false, failure: {code: "conflicting-values", at}};
@@ -234,6 +270,7 @@ export function writeBack(world: World, input: WriteBackInput, time: string): Wr
         if (problem !== null) return {ok: false, failure: {code: "validation-failed", problems: [{code: problem.code, path: `text[${input.block}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`}]}};
     }
     if (fieldOps.length === 0 && newSource === original) return {ok: true, world, revision: world.revisions.at(-1)!, ids: {}, repeated: true};
+    if (stale) return staleConflict();
 
     let scratch = world;
     let step = 0;

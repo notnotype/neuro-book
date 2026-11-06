@@ -121,15 +121,15 @@ describe.each(ENGINES)("%s", (_name, createEngine) => {
 
         test("缓存里有归纳时读到归纳，没有时读到起点加事件并标未归纳", () => {
             const plain = createEngine(world().inputs());
-            expect(panelOf(plain, "jin", end("ch2")).namespaces.character!.fields.态度).toEqual({value: "冷淡；之后：第 1 章：软了一点；第 2 章：叫了一声哥", notReduced: true, unreduced: {anchor: "冷淡", events: 2}});
+            expect(panelOf(plain, "jin", end("ch2")).namespaces.character!.fields.态度).toEqual({label: "现在的态度", value: "冷淡；之后：第 1 章：软了一点；第 2 章：叫了一声哥", notReduced: true, unreduced: {anchor: "冷淡", events: 2}});
             const cached = world();
             cached.reductions = (input) => (input.anchor === "冷淡" && input.events.length === 2 ? "开始缓和" : undefined);
-            expect(panelOf(createEngine(cached.inputs()), "jin", end("ch2")).namespaces.character!.fields.态度).toEqual({value: "开始缓和"});
+            expect(panelOf(createEngine(cached.inputs()), "jin", end("ch2")).namespaces.character!.fields.态度).toEqual({label: "现在的态度", value: "开始缓和"});
         });
 
         test("正文写明的数是新的起点，之后从这里重新开始", () => {
             const engine = createEngine(world().inputs());
-            expect(panelOf(engine, "jin", end("ch3")).namespaces.character!.fields.态度).toEqual({value: "1"});
+            expect(panelOf(engine, "jin", end("ch3")).namespaces.character!.fields.态度).toEqual({label: "现在的态度", value: "1"});
         });
     });
 

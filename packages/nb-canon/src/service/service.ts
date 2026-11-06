@@ -492,7 +492,9 @@ export class WorldService {
             const visible = new Map([...records.changes].filter(([, change]) => placementWithin(order, grant, change.at)));
             const plans = mode === "planned" ? [...visible.values()].filter((change) => change.kind === "plan" && change.status === "active" && engine.progress(change.id, grant.until) === "unfulfilled").map((change) => change.id) : [];
             const settings = world.options.time ?? DEFAULT_TIME;
-            state = timeState(visible, {changes: visible, entries: world.data.entries, order, createdAt: world.data.createdAt}, settings, mode, plans);
+            // 回溯到的那一刻（输出 6）照样进网络；父线也按同一上限截，上限之后的说法不能收窄切口与触发处的差。
+            const rollback = world.rollbackOf(grant.line, (parent) => this.#boundedTime(world, {...grant, line: parent}, mode));
+            state = timeState(visible, {changes: visible, known: world.data.changes, entries: world.data.entries, order, createdAt: world.data.createdAt}, settings, mode, plans, rollback);
             byWorld.set(key, state);
             if (byWorld.size > 8) byWorld.delete(byWorld.keys().next().value!);
         }
@@ -866,7 +868,9 @@ export class WorldService {
     outcome(requestId: string): {readonly published: true; readonly revision: string; readonly version: number} | {readonly published: false} | {readonly code: "write-unknown"} {
         if (this.#state === "read-only" && this.#readOnlyReason === "write-unknown") return {code: "write-unknown"};
         const revision = this.#world.requested(requestId);
-        return revision === undefined ? {published: false} : {published: true, revision: revision.id, version: revision.version};
+        if (revision !== undefined) return {published: true, revision: revision.id, version: revision.version};
+        // 只读时日志可能没读全（坏行、外部改动）：内存里没有这个请求不等于没发布。
+        return this.#state === "read-only" ? {code: "write-unknown"} : {published: false};
     }
 
     /* ---------- 写 ---------- */
@@ -949,11 +953,10 @@ export class WorldService {
             this.diagnostics.push({code: "external-change", message: caught.message ?? ""});
             return {code: "world-read-only", reason: this.#readOnlyReason};
         }
-        for (const revision of caught.revisions) {
-            this.#world = this.#world.absorb(revision);
-            this.#emit({kind: "changed", version: revision.version, revision: revision.id, by: revision.by, what: revision.what, title: revision.title});
-        }
+        // 整批换上再发事件（输出 17）：监听者在第一条 `changed` 里读到的也是读全了的世界，不是读了一半的中间版本（输出 5）。
+        this.#world = caught.revisions.reduce((world, revision) => world.absorb(revision), this.#world);
         this.#tail = caught.tail;
+        for (const revision of caught.revisions) this.#emit({kind: "changed", version: revision.version, revision: revision.id, by: revision.by, what: revision.what, title: revision.title});
         return null;
     }
 
