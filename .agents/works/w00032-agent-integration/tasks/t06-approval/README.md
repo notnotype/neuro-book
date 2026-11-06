@@ -57,8 +57,15 @@ t03、t04。
 
 ## 当前状态
 
-计划与设计审查都过了，开发者 2026-11-06 确认（[plan.md](plan.md) 文末“确认结果”，[审查处理](evidences/design-review-disposition.md)）。正在做切片 1：解析库对照与 `bash` 方言。
+切片 1 到 4 写完，在分支 `feat/w00032-t06-permissions`（worktree `.worktree/w00032-t06-permissions`），还没合入。
+
+- 切片 1：`bash` 方言，解析用 `unbash`。
+- 切片 2：规则、匹配器、三层合并、判定流水线，替换 `approveByMode`；`shell` 按命令算等级；项目规则文件；“本会话都批准”之前没生效，接上了。
+- 切片 3：记命令规则，按钮写明记什么，太宽的不能记。
+- 切片 4：模式扩展、闸门、重判、提示、`switch_mode`、退出 `plan` 的向导、两个控件、状态栏、`/plan`、`/mode`。内核的审批读到的是批开始时的快照，新测试抓到，改成判定这一刻读。
+
+验证：`plugins/agent`、`plugins/markdown`、内核、`nb-agent-ui`、`nb-markdown`、类型检查；e2e `agent-conversation` 17 条。没验证：真实模型走完 `plan`（收口时做）；计划超长时窄屏的版式。
 
 ## 下一步
 
-按 plan.md 的切片实施。退出 `plan` 向导与规则设置页先出静态稿给开发者看。
+等开发者看评审板 review v2（模式控件与退出计划的向导）。之后切片 5（规则设置入口、以后都允许，先出静态稿）、切片 6（`auto`），收口：真实模型冒烟、实现审查 omp 一次、Sonnet 一次，合入。
