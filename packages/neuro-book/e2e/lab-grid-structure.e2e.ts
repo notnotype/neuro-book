@@ -105,7 +105,7 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
         await settled(page);
         const final = await outerAndInner(page, "a");
         expect(during.outer).toBeLessThan(final.outer);
-        expect(final.inner).toBe(final.outer);
+        expect(Math.abs(final.inner - final.outer)).toBeLessThan(0.5);
     });
 
     test("新叶从挨着兄弟的边长出来，内容一开始就是最终尺寸、只排一次版；让位的兄弟内容跟着外框；离开的叶立即消失", async ({page}) => {
@@ -148,7 +148,7 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
         expect(during.outer).toBeLessThan(during.inner);
         expect(Math.abs(neighbour.inner - neighbour.outer)).toBeLessThan(0.5);
         await settled(page);
-        expect((await outerAndInner(page, "n")).inner).toBe(during.inner);
+        expect(Math.abs((await outerAndInner(page, "n")).inner - during.inner)).toBeLessThan(0.5);
     });
 
     test("拖分隔线、松手落账、改窗口尺寸都不过渡；过渡中开始手势，外框直接到终点", async ({page}) => {

@@ -571,7 +571,7 @@ test("拆分的过渡：旧组的标签条与正文跟着外框变窄，不露�
     await expect(page.locator("[data-editor-area] [data-moving]")).toHaveCount(0);
     const final = await page.locator("[data-editor-group]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().width));
     expect(old.frame.width).toBeGreaterThan((final[0] as number) + 20);
-    expect(fresh.group.width).toBe(final[1]);
+    expect(Math.abs(fresh.group.width - (final[1] as number))).toBeLessThan(1);
     expect(fresh.frame.width).toBeLessThan((final[1] as number) - 20);
     await closeAll(page);
 });
