@@ -8,12 +8,12 @@ import {
     ORIGIN_POINTER_WINDOW_MS,
     captureDialogOrigin,
     dialogOriginOffset,
-    resetDialogOriginForTest,
     trackDialogOrigin,
 } from "./dialog-origin";
 
 afterEach(() => {
-    resetDialogOriginForTest();
+    // 取一次就用掉了记下的按下，用例之间不串。
+    captureDialogOrigin();
     document.body.innerHTML = "";
 });
 
@@ -47,7 +47,15 @@ describe("captureDialogOrigin", () => {
         trackDialogOrigin();
         press(120, 340);
         expect(captureDialogOrigin(performance.now() + ORIGIN_POINTER_WINDOW_MS / 2)).toEqual({x: 120, y: 340});
+        press(120, 340);
         expect(captureDialogOrigin(performance.now() + ORIGIN_POINTER_WINDOW_MS + 1000)).toBeNull();
+    });
+
+    it("一次按下只算一次打开：紧接着打开的第二个对话框没有来处", () => {
+        trackDialogOrigin();
+        press(120, 340);
+        expect(captureDialogOrigin()).toEqual({x: 120, y: 340});
+        expect(captureDialogOrigin()).toBeNull();
     });
 
     it("内容里 stopPropagation 也挡不住按下的记录", () => {

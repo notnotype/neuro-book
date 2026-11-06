@@ -9,12 +9,12 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
 
 import Dialog from "./Dialog.vue";
-import {resetDialogOriginForTest} from "./dialog-origin";
+import {captureDialogOrigin} from "./dialog-origin";
 import Select from "../popup/Select.vue";
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
-    resetDialogOriginForTest();
+    captureDialogOrigin();
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
     document.body.innerHTML = "";
 });

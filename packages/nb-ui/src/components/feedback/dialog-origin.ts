@@ -45,7 +45,10 @@ export function trackDialogOrigin(): void {
  */
 export function captureDialogOrigin(now: number = performance.now()): DialogOrigin | null {
     trackDialogOrigin();
-    if (lastPress !== null && now - lastPress.at <= ORIGIN_POINTER_WINDOW_MS) return {x: lastPress.x, y: lastPress.y};
+    // 一次按下只算一次打开：同一次点击里紧接着打开的第二个对话框（比如第一个的确认框）不是这个按钮打开的。
+    const press = lastPress;
+    lastPress = null;
+    if (press !== null && now - press.at <= ORIGIN_POINTER_WINDOW_MS) return {x: press.x, y: press.y};
     if (typeof document === "undefined") return null;
     const active = document.activeElement;
     if (!(active instanceof Element) || !active.matches(TRIGGER_SELECTOR)) return null;
@@ -111,9 +114,4 @@ export function useDialogOrigin(options: DialogOriginOptions): {style: ComputedR
         };
     });
     return {style};
-}
-
-/** 测试用：丢掉记下的按下，让各用例互不影响。监听本身只装一次，留着。 */
-export function resetDialogOriginForTest(): void {
-    lastPress = null;
 }
