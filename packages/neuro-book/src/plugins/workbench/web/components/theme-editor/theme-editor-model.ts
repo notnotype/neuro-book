@@ -17,7 +17,8 @@ import {checkContrast} from "nbook/ui/theme/contrast-checks";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
 import type {ThemeDeclaration} from "../../../shared/themes";
-import {forUserLayer, THEME_ASSET_NAME, userThemeProblem, validUserThemes} from "../../../shared/user-themes";
+import {userThemeProblem, validUserThemes} from "../../../shared/user-themes";
+import {keepUserAssets} from "./assets";
 import type {CropCss, CropRegion} from "./crop-model";
 import type {UserTheme} from "../../../shared/user-themes";
 import type {CommitResult} from "nbook/shared/store/store";
@@ -65,6 +66,8 @@ export class ThemeEditorModel {
     readonly #selectedId: ShallowRef<string | null>;
     /** 最近一次被拒绝或没能保存的修改的原因；下一次成功的修改清掉。界面据此显示“没有写入”。 */
     readonly rejected = shallowRef<string | null>(null);
+    /** 预览哪种 Agent 状态的场景：`null` 跟随真实状态。只在模型里，不进会话保留的状态：每次打开编辑器都是跟随（docs/specs/theme/editor.md 输出 19）。 */
+    readonly previewWorking = shallowRef<boolean | null>(null);
 
     /** 我的主题，按库里的顺序；记录里不合格的条目不在这里（它们留在记录里，只是不进列表也不进编辑器）。 */
     readonly mine = computed(() => validUserThemes(this.#env.store.state.themes.display.themes));
@@ -104,7 +107,8 @@ export class ThemeEditorModel {
         // 编辑器开着（这个模型活着）时，工作台用选中的主题与明暗预览；没有可编的主题时不覆盖。
         watchEffect(() => {
             const id = this.selectedId.value;
-            env.catalog.setPreview(id === null ? null : {id, appearance: this.appearance.value});
+            const working = this.previewWorking.value;
+            env.catalog.setPreview(id === null ? null : {id, appearance: this.appearance.value, ...(working === null ? {} : {working})});
         });
         onScopeDispose(() => this.dispose());
     }
@@ -137,15 +141,15 @@ export class ThemeEditorModel {
 
     /**
      * 新建：从主题包缺省配色起步，或复制目录里任一套。复制时标题加“副本”（`fromTitle` 是界面上现在显示的标题：插件主题的标题常是
-     * 文字引用，解不出两种语言）；`scenes` 是已经复制成我的素材的场景图文件名，不给时复制用户主题保留原名、插件主题不带图。
-     * 返回新条目的 id，没写成功时为 null。
+     * 文字引用，解不出两种语言）；`copied` 是插件主题的素材已经复制成我的素材、路径已换成素材文件名的声明，给了就用它代替 `from`
+     * 的声明。返回新条目的 id，没写成功时为 null。
      */
-    async create(from: ThemeEntry | null = null, fromTitle?: string, scenes?: {readonly light?: string; readonly dark?: string}): Promise<string | null> {
+    async create(from: ThemeEntry | null = null, fromTitle?: string, copied?: ThemeDeclaration): Promise<string | null> {
         const id = `user:${this.#env.newId()}`;
         const base = from?.declaration.base ?? "nbook";
         const declaration: ThemeDeclaration = from === null
             ? {title: {"zh-CN": "新主题", "en-US": "New theme"}, base, light: {colors: {...this.#env.baseColors(base, "light")}}, dark: {colors: {...this.#env.baseColors(base, "dark")}}}
-            : this.#copied(from.declaration, fromTitle, scenes);
+            : this.#copied(copied ?? from.declaration, fromTitle);
         if (!this.#settle(await this.#env.store.actions.create({id, declaration}))) return null;
         this.rejected.value = null;
         this.#selectedId.value = id;
@@ -153,18 +157,11 @@ export class ThemeEditorModel {
     }
 
     /**
-     * 复制出的声明：标题加“副本”。场景图：给了 `scenes` 就用它；没给时保留原声明里的（用户主题的素材文件名可以直接共用——文件名是
-     * 内容摘要），插件主题的是包内相对路径，不能直接用，所以去掉；图标集与工作态场景同理，一律不带。
+     * 复制出的声明：标题加“副本”。素材只留“我的素材”写法的引用（文件名是内容摘要，用户主题的可以直接共用）；插件主题里的包内相对路径
+     * 在用户层解析不了，要先由传输层复制成我的素材再传进来，没复制的就不带。
      */
-    #copied(declaration: ThemeDeclaration, shown?: string, scenes?: {readonly light?: string; readonly dark?: string}): ThemeDeclaration {
-        // 图标集与工作态场景是包内素材，用户层没有放它们的地方（docs/specs/theme/editor.md 边界与兼容），复制时不带。
-        const copy = structuredClone(forUserLayer(declaration));
-        for (const appearance of ["light", "dark"] as const) {
-            const scene = scenes === undefined ? copy[appearance].scene : scenes[appearance];
-            // 只有“我的素材”的文件名（内容摘要加扩展名）能直接共用；插件主题里的包内相对路径不行。
-            if (scene !== undefined && THEME_ASSET_NAME.test(scene)) copy[appearance].scene = scene;
-            else delete copy[appearance].scene;
-        }
+    #copied(declaration: ThemeDeclaration, shown?: string): ThemeDeclaration {
+        const copy = keepUserAssets(declaration);
         const title = copy.title as unknown;
         const both = typeof title === "object" && title !== null && "zh-CN" in title && "en-US" in title ? title as Record<string, string> : null;
         const zh = both?.["zh-CN"] ?? shown ?? (typeof title === "string" ? title : "");
@@ -364,6 +361,56 @@ export class ThemeEditorModel {
             if (name === undefined) delete look.scene;
             else look.scene = name;
         }, target?.id ?? this.selectedId.value, target?.appearance ?? this.appearance.value);
+    }
+
+    /** 一个明暗的工作态场景（位图素材文件名）；`undefined` 去掉。目标在发起时定下，同 `setScene`。 */
+    setWorkingScene(name: string | undefined, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<unknown> {
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
+            if (name === undefined) delete look.workingScene;
+            else look.workingScene = name;
+        }, target?.id ?? this.selectedId.value, target?.appearance ?? this.appearance.value);
+    }
+
+    /** 场景提供者（`workbench.theme-scenes` 的贡献 id）；`undefined` 去掉。两种明暗共用，写在声明顶层。 */
+    setSceneProvider(id: string | undefined): Promise<unknown> {
+        return this.#update((draft) => {
+            if (id === undefined || id === "") delete draft.declaration.sceneProvider;
+            else draft.declaration.sceneProvider = id;
+        });
+    }
+
+    // ---- 图标 ----
+
+    /**
+     * 一个图标的覆盖：写图标素材文件名；对已有的名字就是替换。`target` 是发起时定下的主题与明暗（上传要几秒，期间用户可能切走），
+     * 图标名由调用方在同一时刻规范化后传入（首尾空白去掉）。图标名不合规则由 `userThemeProblem` 拒绝。
+     */
+    setIcon(iconName: string, assetName: string, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<unknown> {
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
+            look.icons = {...look.icons, [iconName]: assetName};
+        }, target?.id ?? this.selectedId.value, target?.appearance ?? this.appearance.value);
+    }
+
+    removeIcon(iconName: string, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<unknown> {
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
+            const icons = {...look.icons};
+            delete icons[iconName];
+            if (Object.keys(icons).length === 0) delete look.icons;
+            else look.icons = icons;
+        }, target?.id ?? this.selectedId.value, target?.appearance ?? this.appearance.value);
+    }
+
+    /** 把当前明暗的图标整份复制到另一套明暗，覆盖它原有的。当前明暗没有图标时清空另一套。 */
+    copyIconsToOther(): Promise<unknown> {
+        return this.#update((draft, appearance) => {
+            const other: Appearance = appearance === "light" ? "dark" : "light";
+            const icons = draft.declaration[appearance].icons;
+            if (icons === undefined) delete draft.declaration[other].icons;
+            else draft.declaration[other].icons = {...icons};
+        });
     }
 
     /**

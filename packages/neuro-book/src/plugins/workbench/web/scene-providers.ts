@@ -98,7 +98,7 @@ export class SceneProviders {
     sceneFor(entry: {readonly id: string; readonly declaration: {readonly sceneProvider?: string}}, appearance: "light" | "dark", working: boolean): string | undefined {
         const providerId = entry.declaration.sceneProvider;
         if (providerId === undefined || this.#disposed) return undefined;
-        if (!this.#handles.value.has(providerId)) {
+        if (!this.#available(providerId)) {
             this.#watchPublished(providerId);
             return undefined;
         }
@@ -110,6 +110,19 @@ export class SceneProviders {
             void this.#run(key);
         }
         return url;
+    }
+
+    /** 当前可用的提供者 id（已发布）。响应式：发布与撤回会让读过它的 effect 重算。 */
+    get published(): ReadonlyArray<string> {
+        return [...this.#handles.value].filter(([, handle]) => handle.published).map(([id]) => id).sort();
+    }
+
+    /**
+     * 可用 = 句柄在表里且仍处于发布状态：入口开始停止时句柄先失去 `published`，撤回通知稍后才到，这段时间不能再列出、也不能再调实现
+     * （docs/specs/runtime/plugins.md 的贡献状态）。
+     */
+    #available(providerId: string): boolean {
+        return this.#handles.value.get(providerId)?.published === true;
     }
 
     receiver(): ContributionReceiver<SceneProviderDeclaration, SceneProviderImplementation> {
@@ -196,7 +209,7 @@ export class SceneProviders {
             await Promise.resolve();
             if (stale()) return;
             const handle = this.#handles.value.get(spec.providerId);
-            if (handle === undefined) return;
+            if (handle === undefined || !handle.published) return;
             const result = await handle.implementation().scene({appearance: spec.appearance, working: spec.working}, signal);
             if (stale()) return;
             if (!result.image.type.startsWith("image/")) throw new Error(`返回的不是图片：${result.image.type === "" ? "没有类型" : result.image.type}`);

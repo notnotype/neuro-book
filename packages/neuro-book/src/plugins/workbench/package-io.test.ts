@@ -5,6 +5,7 @@
 import {describe, expect, it} from "bun:test";
 import {unzipSync, zipSync} from "fflate";
 
+import {THEME_ICON_MAX_BYTES} from "nbook/plugins/files/shared/contracts";
 import {exportPackage, PACKAGE_LIMITS, readPackage} from "./web/components/theme-editor/package-io";
 import type {UserTheme} from "./shared/user-themes";
 
@@ -70,19 +71,40 @@ describe("导入", () => {
     it("仓库里的示例主题插件（theme-dusk）也读得进来", async () => {
         const root = new URL("../../../plugin-sdk/examples/external/theme-dusk/", import.meta.url);
         const files: Record<string, Uint8Array> = {"package.json": new Uint8Array(await Bun.file(new URL("package.json", root)).arrayBuffer())};
-        for (const name of ["dusk-day.webp", "dusk-night.webp"]) files[`assets/${name}`] = new Uint8Array(await Bun.file(new URL(`assets/${name}`, root)).arrayBuffer());
+        for (const name of ["dusk-day.webp", "dusk-night.webp", "dusk-day-working.webp", "dusk-night-working.webp"]) files[`assets/${name}`] = new Uint8Array(await Bun.file(new URL(`assets/${name}`, root)).arrayBuffer());
         const read = readPackage(zipSync(files));
         expect(read.ok).toBe(true);
     });
 
-    it("导入时去掉用户层放不下的图标集与工作态场景，场景图照常带进来；场景提供者保留", () => {
-        const declaration = {title: "x", base: "nbook", sceneProvider: "acme.sky.clock", light: {scene: HASH_DAY, workingScene: "assets/w.webp", icons: {files: "assets/files.svg"}}, dark: {scene: HASH_NIGHT, icons: {files: "assets/files.svg"}}};
-        const read = readPackage(zipSync({"package.json": text(manifestOf(declaration)), [HASH_DAY]: WEBP, [HASH_NIGHT]: PNG}));
+    it("图标与工作态场景往返：两套明暗共用的文件在包里只有一份，两处声明指向同一个包内路径；场景提供者保留", async () => {
+        const WORKING = `${"c".repeat(64)}.webp`;
+        const FILES = `${"d".repeat(64)}.svg`;
+        const SEARCH = `${"e".repeat(64)}.svg`;
+        const withAll = theme({sceneProvider: "acme.sky.clock", light: {scene: HASH_DAY, workingScene: WORKING, icons: {files: FILES, search: SEARCH}}, dark: {scene: HASH_NIGHT, workingScene: WORKING, icons: {files: FILES}}});
+        const svg = new TextEncoder().encode('<svg viewBox="0 0 24 24"><path d="M0 0h4"/></svg>');
+        const bytes: Record<string, Uint8Array> = {...assets, [WORKING]: WEBP, [FILES]: svg, [SEARCH]: svg};
+        const exported = await exportPackage(withAll, async (name) => bytes[name] ?? null);
+        if (!exported.ok) throw new Error(exported.reason);
+        const files = unzipSync(exported.package.bytes);
+        expect(Object.keys(files).sort()).toEqual([`assets/${HASH_DAY}`, `assets/${HASH_NIGHT}`, `assets/${WORKING}`, `assets/${FILES}`, `assets/${SEARCH}`, "package.json"].sort());
+
+        const read = readPackage(exported.package.bytes);
         expect(read.ok).toBe(true);
         const [imported] = read.ok ? read.themes : [];
-        expect(imported?.declaration.light).toEqual({scene: HASH_DAY});
-        expect(imported?.declaration.dark).toEqual({scene: HASH_NIGHT});
+        expect(imported?.declaration.light).toEqual({scene: `assets/${HASH_DAY}`, workingScene: `assets/${WORKING}`, icons: {files: `assets/${FILES}`, search: `assets/${SEARCH}`}});
+        expect(imported?.declaration.dark).toEqual({scene: `assets/${HASH_NIGHT}`, workingScene: `assets/${WORKING}`, icons: {files: `assets/${FILES}`}});
         expect(imported?.declaration.sceneProvider).toBe("acme.sky.clock");
+        expect([...(imported?.assets.keys() ?? [])].sort()).toEqual([`assets/${HASH_DAY}`, `assets/${HASH_NIGHT}`, `assets/${WORKING}`, `assets/${FILES}`, `assets/${SEARCH}`].sort());
+    });
+
+    it("满额的主题（4 张位图、每套 64 个图标）导出的包，自己导得回来", async () => {
+        const icons = (tag: string) => Object.fromEntries(Array.from({length: 64}, (_unused, index) => [`icon-${String(index)}`, `${String(index).padStart(2, "0")}${tag.repeat(62)}.svg`]));
+        const full = theme({light: {scene: HASH_DAY, workingScene: `${"c".repeat(64)}.webp`, icons: icons("a")}, dark: {scene: HASH_NIGHT, workingScene: `${"d".repeat(64)}.webp`, icons: icons("b")}});
+        const read = async (name: string): Promise<Uint8Array | null> => (name.endsWith(".svg") ? new TextEncoder().encode(`<svg viewBox="0 0 1 1"><title>${name}</title></svg>`) : WEBP);
+        const exported = await exportPackage(full, read);
+        if (!exported.ok) throw new Error(exported.reason);
+        expect(Object.keys(unzipSync(exported.package.bytes))).toHaveLength(4 + 128 + 1);
+        expect(readPackage(exported.package.bytes).ok).toBe(true);
     });
 
     const good = {title: "x", base: "nbook", light: {}, dark: {}};
@@ -106,6 +128,11 @@ describe("导入", () => {
         ["声明形状不对", {"package.json": text(manifestOf({title: "x", base: "other", light: {}, dark: {}}))}, /不合格/u],
         ["声明里引外部资源", {"package.json": text(manifestOf({...good, light: {colors: {"--bg-main": "url(https://example.com/x.png)"}}}))}, /url\(\)/u],
         ["场景图不在包里", {"package.json": text(manifestOf({...good, light: {scene: "assets/missing.webp"}}))}, /不在包里/u],
+        ["图标不在包里", {"package.json": text(manifestOf({...good, light: {icons: {files: "assets/files.svg"}}}))}, /图标 assets\/files\.svg 不在包里/u],
+        ["图标超过上限", {"package.json": text(manifestOf({...good, light: {icons: {files: "assets/files.svg"}}})), "assets/files.svg": new Uint8Array(THEME_ICON_MAX_BYTES + 1)}, /超过/u],
+        ["图标路径不是 .svg", {"package.json": text(manifestOf({...good, light: {icons: {files: "assets/files.png"}}})), "assets/files.png": new Uint8Array([1])}, /只收 \.svg/u],
+        ["工作态场景不在包里", {"package.json": text(manifestOf({...good, light: {workingScene: "assets/w.webp"}}))}, /不在包里/u],
+        ["工作态场景不是图片", {"package.json": text(manifestOf({...good, light: {workingScene: "assets/w.webp"}})), "assets/w.webp": new Uint8Array([1, 2, 3, 4])}, /不是 PNG/u],
         ["场景图不是图片", {"package.json": text(manifestOf({...good, light: {scene: "assets/x.webp"}})), "assets/x.webp": new Uint8Array([1, 2, 3, 4])}, /不是 PNG/u],
         ["没有主题贡献", {"package.json": text({...identity, contributes: [{capability: "commands", id: "local.x.c", declaration: {}}]})}, /没有主题|不合格/u],
     ])("坏包：%s，整个拒绝", (_name, content, reason) => {

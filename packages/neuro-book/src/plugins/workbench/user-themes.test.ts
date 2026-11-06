@@ -20,7 +20,7 @@ import {DEFAULT_THEME_ID, WORKBENCH_THEMES_POINT} from "./shared/themes";
 import type {ThemeDeclaration} from "./shared/themes";
 import {userThemeProblem, validUserThemes} from "./shared/user-themes";
 import type {UserTheme} from "./shared/user-themes";
-import {ThemeCatalog, userThemeSceneUrl} from "./web/themes";
+import {ThemeCatalog, userThemeAssetUrl} from "./web/themes";
 import {userThemesStore} from "./web/user-themes-store";
 import type {UserThemesStore} from "./web/user-themes-store";
 
@@ -72,7 +72,7 @@ describe("主题目录里的我的主题", () => {
     });
 
     it("场景图经字节读取路由显示；预览覆盖设置里选的，清掉后回去", () => {
-        const catalog = new ThemeCatalog([], (plugin, path) => (plugin === "user" ? userThemeSceneUrl(path) : null), () => undefined);
+        const catalog = new ThemeCatalog([], (plugin, path) => (plugin === "user" ? userThemeAssetUrl(path) : null), () => undefined);
         catalog.setUserThemes([theme("1")], () => undefined);
         const resolved = catalog.resolve(theme("1").id, "dark");
         expect(resolved.scene).toBe(true);

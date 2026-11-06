@@ -53,7 +53,8 @@ const transfer: ThemeTransfer = {
     exportTheme: async () => null,
     importArchive: async () => ({ok: false, message: {key: "importFailed", params: {reason: "Lab"}}}),
     uploadScene: async () => ({ok: false, reason: "Lab"}),
-    copyScenes: async () => ({ok: true, scenes: {}}),
+    uploadIcon: async () => ({ok: false, reason: "Lab"}),
+    copyAssets: async (entry) => ({ok: true, declaration: entry.declaration}),
 };
 </script>
 

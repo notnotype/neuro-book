@@ -5,7 +5,7 @@ import {computed, ref, watch} from "vue";
 import {Button} from "@notnotype/nb-ui/components";
 
 import {useWorkbenchText} from "../../text";
-import {userThemeSceneUrl} from "../../themes";
+import {userThemeAssetUrl} from "../../themes";
 import CropEditor from "./CropEditor.vue";
 import {prepareImage, SCENE_SUGGESTED_BYTES} from "./scene-upload";
 import type {ThemeEditorModel} from "./theme-editor-model";
@@ -19,7 +19,7 @@ const model = props.model;
 
 const theme = computed(() => model.current.value);
 const sceneName = computed(() => theme.value?.declaration[model.appearance.value].scene ?? null);
-const sceneUrl = computed(() => (sceneName.value === null ? null : userThemeSceneUrl(sceneName.value)));
+const sceneUrl = computed(() => (sceneName.value === null ? null : userThemeAssetUrl(sceneName.value)));
 
 const input = ref<HTMLInputElement | null>(null);
 const busy = ref(false);

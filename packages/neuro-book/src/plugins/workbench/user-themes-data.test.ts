@@ -214,13 +214,13 @@ describe("复制", () => {
         expect(copy.declaration.title).toEqual({"zh-CN": "Original title 副本", "en-US": "Original title copy"});
     });
 
-    it("复制插件主题：给了复制好的素材名就用它，没给就不带图（插件里的是包内相对路径，不能直接用）", async () => {
+    it("复制插件主题：给了素材已复制好的声明就用它，没给就不带素材（插件里的是包内相对路径，不能直接用）", async () => {
         const w = await newWorld();
         const {store, storage, model} = await openWindow(w, "a");
         const editor = model();
         const plugin = {id: "acme.skin.x", plugin: "acme.skin", declaration: {title: "Dusk", base: "macos" as const, light: {scene: "assets/day.webp"}, dark: {scene: "assets/night.webp"}}};
         await editor.create(plugin, "Dusk");
-        await editor.create(plugin, "Dusk", {light: HASH_A});
+        await editor.create(plugin, "Dusk", {...plugin.declaration, light: {scene: HASH_A}, dark: {scene: "assets/night.webp"}});
         await waitUntil("写完", () => store.state.themes.queue === 0);
         const [bare, withScene] = (await persisted(storage)) as UserTheme[];
         expect(bare?.declaration.light.scene).toBeUndefined();

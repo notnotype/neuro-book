@@ -86,15 +86,18 @@ const createFrom = async (id: string): Promise<void> => {
     const entry = props.themes.find((candidate) => candidate.id === id);
     copyFrom.value = "";
     if (entry === undefined) return;
-    // 复制插件主题：先把它的场景图读出来、传成我的素材，全部成功才建副本（失败不留半个副本）。我的主题的图文件名可以直接共用。
-    const hasScene = entry.declaration.light.scene !== undefined || entry.declaration.dark.scene !== undefined;
-    if (hasScene && entry.plugin !== "user") {
-        const copied = await props.transfer.copyScenes(entry);
+    // 复制插件主题：先把它的场景图、工作态场景和图标读出来、传成我的素材，全部成功才建副本（主题记录是原子的）。我的主题的素材文件名可以直接共用。
+    const hasAssets = ["light", "dark"].some((appearance) => {
+        const look = entry.declaration[appearance as "light" | "dark"];
+        return look.scene !== undefined || look.workingScene !== undefined || look.icons !== undefined;
+    });
+    if (hasAssets && entry.plugin !== "user") {
+        const copied = await props.transfer.copyAssets(entry);
         if (!copied.ok) {
             transferResult.value = {ok: false, message: {key: "copyFailed", params: {reason: copied.reason}}};
             return;
         }
-        await model.create(entry, titleOf(entry.declaration.title), copied.scenes);
+        await model.create(entry, titleOf(entry.declaration.title), copied.declaration);
         return;
     }
     await model.create(entry, titleOf(entry.declaration.title));
