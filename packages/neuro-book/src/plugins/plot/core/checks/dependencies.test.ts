@@ -8,11 +8,12 @@ import {describe, expect, test} from "bun:test";
 import type {Mark, TellingDraft} from "@notnotype/nb-canon/schema";
 
 import type {SelfReport} from "../../shared/checks";
-import {MARK_IDS} from "../../shared/declarations";
+import {ENTRY_TYPES, MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {addRow, chapter, drafts, learns, PlotWorld, present, setSub} from "../../testing/world";
 import {randomBook, seeded} from "../../testing/random-edits";
-import {dependenciesOf} from "./dependencies";
+import {dependenciesOf, entriesRead} from "./dependencies";
+import {planCheck} from "./plan";
 import {digest, planOf, type Scene} from "../../testing/checks";
 
 const CHAPTERS = Array.from({length: 22}, (_, index) => `ch${String(index + 1)}`);
@@ -184,7 +185,7 @@ describe("改了这一样，结论变了，摘要也变", () => {
     test("讲支线的章：分叉定义在这一章之后时，边界到分叉所在章（线能不能建读切口）", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
-        w.point("勇者左手有星形的疤", hero, {保密: "secret"});
+        const k = w.point("勇者左手有星形的疤", hero, {保密: "secret"});
         w.texts.set("ch8", "勇者走进客栈。\n");
         const cut = w.change(chapter("ch12"));
         const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch13")), nature: "fork", fork: {line: "tmp:r1", name: "支线", parent: "main", cut, type: "branch"}}}]);
@@ -192,10 +193,11 @@ describe("改了这一样，结论变了，摘要也变", () => {
         const stored = planOf(w, "ch8");
         const before = deps(w, "ch8", {}, stored);
         // 切口之前的事在分叉所在章之前：算。分叉之后的不算。
-        w.change(chapter("ch11"), {});
+        const secret = (value: string) => ({patches: [{op: "set" as const, at: {entry: k, path: "point.保密"}, value}]});
+        w.change(chapter("ch11"), secret("topSecret"));
         expect(deps(w, "ch8", {}, stored)).not.toBe(before);
         const after = deps(w, "ch8", {}, stored);
-        w.change(chapter("ch15"), {});
+        w.change(chapter("ch15"), secret("secret"));
         expect(deps(w, "ch8", {}, stored)).toBe(after);
     });
 });
@@ -472,6 +474,112 @@ describe("跨条目的间接影响、身份与讲述", () => {
     });
 });
 
+describe("与这一章无关的改动：结论没变，摘要也不变，不用重拼", () => {
+    test("条目在树里怎么摆：`folder`、`order`，普通条目与伏笔都一样", () => {
+        const {w, hero, fs} = book();
+        for (const id of [hero, fs]) {
+            const stored = w.world.data.entries.get(id)!;
+            mustStay(w, () => w.publish([{ref: {kind: "entry", id}, after: {...stored, folder: "改过的", order: 7}}]));
+        }
+    });
+
+    test("早先的章加一条不提到本章条目的变更", () => {
+        const {w} = book();
+        const other = w.person("路人甲");
+        mustStay(w, () => w.change(chapter("ch5"), {text: "中间补一句"}));
+        mustStay(w, () => w.change(chapter("ch5", 1), {cast: [present(other)]}));
+    });
+
+    test("改早先一章的正文：段落、引文与试读材料用到的那一段都没动", () => {
+        const {w} = book();
+        w.texts.set("ch5", "第五章的话。\n");
+        mustStay(w, () => w.texts.set("ch5", "第五章改过的话。\n"));
+        // 试读材料用到的是第 3 章第 1 段，改第 2 段不影响。
+        w.texts.set("ch3", `${w.texts.get("ch3")!}第二段。\n`);
+        mustStay(w, () => w.texts.set("ch3", w.texts.get("ch3")!.replace("第二段", "改过的第二段")));
+    });
+
+    test("加一个没人提到的人；改一个本章不读的人的初值", () => {
+        const {w} = book();
+        const other = w.person("路人乙");
+        mustStay(w, () => w.person("路人丙"));
+        const stored = w.world.data.entries.get(other)!;
+        mustStay(w, () => w.publish([{ref: {kind: "entry", id: other}, after: {...stored, init: {...stored.init, summary: "改过"}}}]));
+    });
+});
+
+/**
+ * 记录视图：计划读了哪些条目、读了哪些字段。每次计划一个新的包装，绕开按视图的共用索引，这样每一章的读取都记得全。产品路径不这样走：重拼一章要慢几倍。
+ */
+function readsOfPlan(w: PlotWorld, chapterId: string, scene: Scene) {
+    const fields = new Map<string, Set<string>>();
+    const note = (id: string, field: string) => fields.set(id, (fields.get(id) ?? new Set()).add(field));
+    const watch = (id: string, read: unknown): unknown => {
+        if (typeof read !== "object" || read === null) return read;
+        // 读取视图交出的是冻结的：包它的拷贝，代理才能交出别的值。
+        return new Proxy({...read}, {get: (target, key, receiver) => {
+            const value = Reflect.get(target, key, receiver) as unknown;
+            if (key !== "namespaces") {
+                if (typeof key === "string") note(id, key);
+                return value;
+            }
+            return new Proxy({...(value as object)}, {get: (spaces, space) => {
+                const data = Reflect.get(spaces, space) as {fields?: object} | undefined;
+                if (data === undefined || typeof space !== "string") return data;
+                return {...data, fields: new Proxy({...data.fields}, {get: (all, field) => {
+                    if (typeof field === "string") note(id, `${space}.${field}`);
+                    return Reflect.get(all, field) as unknown;
+                }})};
+            }});
+        }});
+    };
+    const wrapped = new Map<object, object>();
+    const wrap = (view: ReturnType<PlotWorld["view"]>): ReturnType<PlotWorld["view"]> => {
+        const known = wrapped.get(view);
+        if (known !== undefined) return known as typeof view;
+        const copy: Record<string, unknown> = {...view};
+        wrapped.set(view, copy);
+        copy.entry = (id: string, position: never, mode: never) => watch(id, view.entry(id, position, mode));
+        copy.onLine = (line: string, mode: never) => {
+            const on = view.onLine(line, mode);
+            return "code" in on ? on : wrap(on);
+        };
+        copy.origins = (at: {entry: string}, position: never, mode: never) => {
+            note(at.entry, "origins");
+            return view.origins(at as never, position, mode);
+        };
+        copy.changes = (filter?: {entry?: string}) => {
+            if (filter?.entry !== undefined) note(filter.entry, "changes");
+            return view.changes(filter as never);
+        };
+        return copy as unknown as typeof view;
+    };
+    const plan = planCheck({view: wrap(w.view()), chapter: chapterId, followUps: [], digest, ...(scene.instruction === undefined ? {} : {instruction: scene.instruction})});
+    if ("code" in plan) throw new Error(plan.code);
+    return {fields, plan};
+}
+
+/** 只读这些字段的条目，身份那一项就覆盖了（全部知识点的 `揭穿`、名字，被引条目的名字）。 */
+const IDENTITY_FIELDS = new Set(["name", "aliases", "deleted", "appeared", "point.揭穿", "id"]);
+
+/** 计划读到的条目都有归属：不靠人列举，机械地核对“计划读了什么”那张表。 */
+function expectReadsCovered(w: PlotWorld, chapterId: string, scene: Scene) {
+    const {fields, plan} = readsOfPlan(w, chapterId, scene);
+    const read = entriesRead({view: w.view(), chapter: chapterId, followUps: [], points: plan.points, concerns: plan.concerns, pluginVersion: "test", digest, ...(scene.instruction === undefined ? {} : {instruction: {snapshot: scene.instruction, digest: "-"}})});
+    for (const [id, names] of fields) {
+        if (read.has(id)) continue;
+        const stored = w.world.data.entries.get(id);
+        // 全表扫描：全部伏笔的字段（`foreshadow` 项），全部隐秘目标（只影响它的持有者，持有者在 `R` 里时目标也在）。
+        if (stored?.type === ENTRY_TYPES.foreshadow) continue;
+        if (stored?.type === ENTRY_TYPES.goal && [...names].every((name) => IDENTITY_FIELDS.has(name) || name === "goal.隐秘")) continue;
+        // 还没出场的知识点：写之前的集合先读它的保密档，最后按出场筛掉（`pointsAfterWriting` 末尾），出场在身份那一项里。
+        const atEnd = w.view().entry(id, {kind: "chapter", chapter: chapterId, edge: "end"}, "actual");
+        if (stored?.type === ENTRY_TYPES.point && atEnd !== null && atEnd !== "chapter-not-found" && !atEnd.appeared) continue;
+        const beyond = [...names].filter((name) => !IDENTITY_FIELDS.has(name));
+        if (beyond.length > 0) throw new Error(`${chapterId} 的计划读了 ${id}（${stored?.type ?? "?"}）的 ${beyond.join("、")}，它不在摘要覆盖的条目里`);
+    }
+}
+
 /** 随机序列的步数与种子：离线要多跑一轮时用环境变量给，不改用例。 */
 const STEPS = Number(process.env.PLOT_RANDOM_STEPS ?? 240);
 const SEED = Number(process.env.PLOT_RANDOM_SEED ?? 20261106);
@@ -502,7 +610,9 @@ describe("随机序列", () => {
                 if (after.get(id)!.sign !== old.sign) moved += 1;
             }
             before = after;
+            if (step % 40 === 0) for (const id of chapters) expectReadsCovered(w, id, sceneOf(id));
         }
+        for (const id of chapters) expectReadsCovered(w, id, sceneOf(id));
         expect(quiet).toBeGreaterThan(50);
         expect(moved).toBeGreaterThan(50);
         expect(book.ops.filter((op) => !applied.has(op))).toEqual([]);
