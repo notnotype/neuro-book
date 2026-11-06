@@ -170,6 +170,7 @@ export class WorldService {
     #state: ServiceState;
     #readOnlyReason: string | null;
     #lease: Lease | null = null;
+    readonly #work: {open: {readonly recomputed: number; readonly ms: number} | null; publish: {readonly recomputed: number; readonly ms: number} | null} = {open: null, publish: null};
     #queue: Promise<unknown> = Promise.resolve();
     #listeners = new Set<(event: ServiceEvent) => void>();
     #reductions: Map<string, string>;
@@ -222,6 +223,7 @@ export class WorldService {
      * 时给 `invalid`：按日志里最近一次记下的章序计算，不发布章序调整，写诊断（输出 23）。
      */
     static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
+        const started = performance.now();
         const opened = await openLog(ports.files, ports.logDir, {lock: ports.lock, sideDir: ports.sideDir, now: ports.now});
         if ("code" in opened) return opened;
         const cache = await loadReductions(ports.files, ports.cachePath);
@@ -249,6 +251,7 @@ export class WorldService {
         service.#syncTexts(chapters);
         service.#noteDiagnostics(initial.diagnostics);
         await service.setChapters(initial.chapters, initial.chapterLines);
+        service.#work.open = {recomputed: service.#world.line().engine.recomputed, ms: performance.now() - started};
         return service;
     }
 
@@ -284,6 +287,8 @@ export class WorldService {
             /** 当前打开的视图数（project.md 输出 26）：看令牌有没有随调用方收口。 */
             openViews: this.#views.size,
             recomputed: this.#world.line().engine.recomputed,
+            /** 最近一次打开与发布的重算量与耗时（project.md 方法表 `status`）。 */
+            work: {...this.#work},
             /** 各条世界线：已建的与是否常驻、最近一次发布更新了哪些线与原因（project.md 输出 26）。 */
             lines: {built: this.#world.lines.builtLines, updated: this.#world.lines.updates},
         };
@@ -911,13 +916,16 @@ export class WorldService {
                 this.#scheduleExpiry();
             }
             for (let attempt = 0; attempt < 3; attempt += 1) {
+                const started = performance.now();
                 const result = compute(this.#world);
                 if (!result.ok || (result as {repeated?: boolean}).repeated === true) return result;
                 const published = result as unknown as Extract<WriteResult, {ok: true}>;
+                const work = {recomputed: published.world.line().engine.recomputed, ms: performance.now() - started};
                 const appended = await appendRevision(this.#ports.files, this.#ports.logDir, this.#tail, published.revision, this.#ports.lock);
                 if ("tail" in appended) {
                     this.#world = published.world;
                     this.#tail = appended.tail;
+                    this.#work.publish = work;
                     const revision = published.revision;
                     this.#emit({kind: "changed", version: revision.version, revision: revision.id, by: revision.by, what: revision.what, title: revision.title});
                     this.#queueLatestReductions(revision);

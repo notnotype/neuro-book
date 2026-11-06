@@ -252,6 +252,7 @@ export interface CanonStatus {
     readonly exclusive: {readonly label: string; readonly since: number} | null;
     readonly diagnostics: readonly unknown[];
     readonly recomputed: unknown;
+    readonly work: unknown;
     /** 最近几次插件诊断的计算耗时（project.md 输出 26）。 */
     readonly diagnosticTimings: readonly {readonly diagnostic: string; readonly ms: number; readonly slow?: true}[];
     /** 当前打开的视图数。 */

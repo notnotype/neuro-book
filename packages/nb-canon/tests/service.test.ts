@@ -551,6 +551,16 @@ describe("canon.model 输出 36、canon.project 输出 19、25：正文快照、
     });
 });
 
+describe("canon.project 方法表 status：重算量与耗时", () => {
+    test("打开后有打开的一份；发布后有发布的一份", async () => {
+        const service = await open();
+        const opened = service.status().work;
+        expect(opened.open).toEqual({recomputed: expect.any(Number), ms: expect.any(Number)});
+        expect((await service.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        expect(service.status().work.publish).toEqual({recomputed: expect.any(Number), ms: expect.any(Number)});
+    });
+});
+
 describe("canon.project 输出 5、16、17：结局与读进别的进程的行", () => {
     test("读进别的进程的几行：第一条 changed 里读到的已是读全了的世界", async () => {
         const writer = await open();
