@@ -263,17 +263,20 @@ function run(seed: number, steps: number, residentLines: number, stats?: Stats):
     return {log: JSON.stringify(world.revisions), trace};
 }
 
+/** 一个种子平时两三秒；别的进程占着 CPU 时能超过缺省的 5 秒（这条用例在负载 19 时失败过，单独跑通过）。 */
+const BUSY_MACHINE_TIMEOUT = 30_000;
+
 describe("线层的差分：写入以后与从头重放一致，受影响的线不漏", () => {
     const seeds = Array.from({length: Number(process.env.CANON_LINE_SEEDS ?? 16)}, (_, index) => index + 1);
     const steps = Number(process.env.CANON_LINE_STEPS ?? 60);
     const stats: Stats = {steps: 0, accepted: 0, forks: 0, childRecords: 0, brokenOn: 0, plannedForks: 0, reasons: new Set()};
     test.each(seeds)(`种子 %d，${String(steps)} 步，常驻 3 条`, (seed) => {
         run(seed, steps, 3, stats);
-    });
+    }, BUSY_MACHINE_TIMEOUT);
     test.each(seeds.slice(0, 3))(`种子 %d：常驻 1 条、全部淘汰时结果与日志与常驻 3 条的相同`, (seed) => {
         const reference = run(seed, steps, 3);
         for (const limit of [1, 0]) expect(run(seed, steps, limit).log).toBe(reference.log);
-    });
+    }, BUSY_MACHINE_TIMEOUT);
     test("各类情形都走到：分叉、子线上的记录、子线上套不上的、几种更新原因", () => {
         expect(stats.forks).toBeGreaterThanOrEqual(seeds.length);
         expect(stats.childRecords).toBeGreaterThanOrEqual(seeds.length);
