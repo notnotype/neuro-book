@@ -207,3 +207,22 @@ describe("canon.components 验收场景 6：标注种类的版本", () => {
         expect(problems(await publish(edited))).toEqual([["mark-version-unsupported", "told[t1].marks[0]"]]);
     });
 });
+
+describe("canon.components 输出 18：标注载荷里指向决策的引用", () => {
+    /** 挂在剧情变更上，载荷里的 ruling 指向一条决策。 */
+    const RULING: MarkDeclaration = {
+        id: "nbook.plot.ruling",
+        version: 1,
+        label: "裁定",
+        attachTo: ["change"],
+        schema: {type: "object", properties: {ruling: {type: "string"}}, required: ["ruling"], additionalProperties: false},
+        refs: [{path: "ruling", kind: "decision"}],
+    };
+
+    test("决策不存在：拒收，原因 decision-missing；决策存在时通过", () => {
+        const world = ok(World.empty(options(buildMarkRegistry([plot(RULING)]))).publish(request([{ref: {kind: "decision", id: "tmp:d"}, after: {id: "tmp:d", text: "要定的事", status: "pending", about: [], hints: []}}], 0), "t")).world;
+        const ruled = (decision: string) => world.publish(request(put(change([], {marks: [{kind: RULING.id, version: 1, ruling: decision}]})), 1), "t");
+        expect(problems(ruled("d99"))).toEqual([["ref-invalid", "marks[0].ruling", "decision-missing"]]);
+        expect(ruled("d1").ok).toBe(true);
+    });
+});

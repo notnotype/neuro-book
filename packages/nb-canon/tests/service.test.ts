@@ -575,3 +575,176 @@ describe("canon.project 输出 5、16、17：结局与读进别的进程的行",
         expect(versions).toEqual([3, 3]);
     });
 });
+
+describe("canon.model 输出 14：按名字找条目", () => {
+    test("尚未出场的条目不在结果里，出场以后才找得到；别名同样；删除的条目不返回", async () => {
+        const service = await open();
+        const request = entryRequest("白灵", 1);
+        const entry = request.puts[0]!.after as Entry;
+        const appearing: Entry = {...entry, init: {...entry.init, aliases: ["小白"]}, appears: {kind: "chapter", chapter: "ch3", key: 0}};
+        expect((await service.publish({...request, puts: [{ref: request.puts[0]!.ref, after: appearing}]})).ok).toBe(true);
+        const at = (chapter: string, edge: "start" | "end") => service.lookup(["白灵", "小白"], {kind: "chapter", chapter, edge});
+        expect(at("ch2", "end")).toMatchObject({found: {白灵: [], 小白: []}});
+        expect(at("ch3", "start")).toMatchObject({found: {白灵: [], 小白: []}});
+        expect(at("ch3", "end")).toMatchObject({found: {白灵: ["e1"], 小白: ["e1"]}});
+
+        const stored = service.object({kind: "entry", id: "e1"}).object as Entry;
+        expect((await service.publish({requestId: "delete", by: {kind: "author"}, what: "edit", title: "删除", baseVersion: 2, puts: [{ref: {kind: "entry", id: "e1"}, after: {...stored, deleted: true}}]})).ok).toBe(true);
+        expect(at("ch3", "end")).toMatchObject({found: {白灵: [], 小白: []}});
+    });
+});
+
+describe("canon.model 输出 23：父条目被删除以后的条目树", () => {
+    test("子条目照常存在，仍在原父条目下面，父条目在树里显示为已删除", async () => {
+        const service = await open();
+        expect((await service.publish(entryRequest("父", 1))).ok).toBe(true);
+        const child = entryRequest("子", 2);
+        const childEntry = child.puts[0]!.after as Entry;
+        expect((await service.publish({...child, puts: [{ref: child.puts[0]!.ref, after: {...childEntry, parent: "e1"}}]})).ok).toBe(true);
+        const parent = service.object({kind: "entry", id: "e1"}).object as Entry;
+        expect((await service.publish({requestId: "delete-parent", by: {kind: "author"}, what: "edit", title: "删除父条目", baseVersion: 3, puts: [{ref: {kind: "entry", id: "e1"}, after: {...parent, deleted: true}}]})).ok).toBe(true);
+
+        const roots = service.tree(null);
+        const below = service.tree("e1");
+        expect(roots !== "cursor-stale" && roots.items).toEqual([expect.objectContaining({id: "e1", name: "父", deleted: true, hasChildren: true})]);
+        expect(below !== "cursor-stale" && below.items).toEqual([expect.objectContaining({id: "e2", name: "子", deleted: false})]);
+    });
+});
+
+describe("canon.model 输出 17、正文建议的状态：写入、读取、状态只由修订改变", () => {
+    const suggestion = (status: "open" | "applied" | "declined", extra: Record<string, unknown> = {}) => ({
+        id: "tmp:s", cause: "r2", target: {kind: "chapter" as const, chapter: "ch2"}, group: "称呼", before: "她叫他先生", after: "她叫他哥哥" as string | null, reason: "星瑾改口了", judgment: "ask" as const, found: "agent" as const, status, ...extra,
+    });
+    const suggest = (baseVersion: number, put: WriteRequest["puts"][number]): WriteRequest => ({requestId: `suggest-${String(++sequence)}`, by: {kind: "agent", session: "改稿"}, what: "suggest", title: "称呼要改", baseVersion, puts: [put]});
+    const itemsOf = (service: WorldService, status?: "open" | "applied" | "declined") => {
+        const page = service.suggestions(status);
+        if (page === "cursor-stale") throw new Error("cursor-stale");
+        return page.items;
+    };
+    const openCount = (service: WorldService) => {
+        const page = service.pending();
+        if (typeof page === "string") throw new Error(page);
+        return page.suggestionsOpen;
+    };
+
+    test("写进去得到 s 开头的号；读取原样给出，按状态筛；待处理页数着未处理的条数", async () => {
+        const service = await open();
+        expect((await service.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        const written = await service.publish(suggest(2, {ref: {kind: "suggestion", id: "tmp:s"}, after: suggestion("open") as never}));
+        expect(written.ok && written.ids).toEqual({"tmp:s": "s1"});
+        // “建议不改”：after 为空。
+        expect((await service.publish(suggest(3, {ref: {kind: "suggestion", id: "tmp:t"}, after: suggestion("open", {id: "tmp:t", after: null, judgment: "notThisOne", found: "linked"}) as never}))).ok).toBe(true);
+
+        expect(itemsOf(service).map((item) => item.id)).toEqual(["s1", "s2"]);
+        expect(itemsOf(service)[0]).toEqual({...suggestion("open"), id: "s1"});
+        expect(itemsOf(service)[1]).toMatchObject({id: "s2", after: null, judgment: "notThisOne", found: "linked"});
+        expect(itemsOf(service, "open")).toHaveLength(2);
+        expect(itemsOf(service, "applied")).toEqual([]);
+        expect(openCount(service)).toBe(2);
+    });
+
+    test("状态由修订改变：采纳与不采纳各进自己的筛选，不再算未处理；还原那次修订，状态回到未处理", async () => {
+        const service = await open();
+        expect((await service.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        expect((await service.publish(suggest(2, {ref: {kind: "suggestion", id: "tmp:s"}, after: suggestion("open") as never}))).ok).toBe(true);
+        expect((await service.publish(suggest(3, {ref: {kind: "suggestion", id: "tmp:t"}, after: suggestion("open", {id: "tmp:t"}) as never}))).ok).toBe(true);
+
+        const applied = await service.publish({...suggest(4, {ref: {kind: "suggestion", id: "s1"}, after: {...suggestion("applied"), id: "s1"} as never}), by: {kind: "author"}, what: "resolve"});
+        expect(applied.ok).toBe(true);
+        expect((await service.publish({...suggest(5, {ref: {kind: "suggestion", id: "s2"}, after: {...suggestion("declined"), id: "s2"} as never}), by: {kind: "author"}, what: "resolve"})).ok).toBe(true);
+        expect(itemsOf(service, "applied").map((item) => item.id)).toEqual(["s1"]);
+        expect(itemsOf(service, "declined").map((item) => item.id)).toEqual(["s2"]);
+        expect(itemsOf(service, "open")).toEqual([]);
+        expect(openCount(service)).toBe(0);
+
+        if (!applied.ok) throw new Error("not applied");
+        const undone = await service.revert(applied.revision.id, false, {requestId: "undo-apply", by: {kind: "author"}});
+        expect(undone.ok).toBe(true);
+        expect(itemsOf(service, "open").map((item) => item.id)).toEqual(["s1"]);
+        expect(openCount(service)).toBe(1);
+    });
+});
+
+describe("canon.revisions 输出 14：改动记录按章、按写入者筛，并给出能不能还原", () => {
+    const itemsOf = (service: WorldService, filter: Parameters<WorldService["revisions"]>[0] = {}) => {
+        const page = service.revisions(filter);
+        if (page === "cursor-stale") throw new Error("cursor-stale");
+        return page.items;
+    };
+
+    test("按章、按写入者筛；不能还原的给原因（有依赖、章序调整），能还原的标可以", async () => {
+        const service = await open();
+        expect((await service.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        expect((await service.publish({...noteRequest(2, "ch1", "软了一点"), chapter: "ch1"})).ok).toBe(true);
+        expect((await service.publish({...noteRequest(3, "ch2", "叫了一声哥"), chapter: "ch2", by: {kind: "agent", session: "记账"}})).ok).toBe(true);
+
+        expect(itemsOf(service).map((item) => item.version)).toEqual([4, 3, 2, 1]);
+        expect(itemsOf(service, {chapter: "ch1"}).map((item) => item.version)).toEqual([3]);
+        expect(itemsOf(service, {chapter: "ch2"}).map((item) => item.version)).toEqual([4]);
+        expect(itemsOf(service, {by: "agent"}).map((item) => item.version)).toEqual([4]);
+        expect(itemsOf(service, {by: "system"}).map((item) => item.version)).toEqual([1]);
+        expect(itemsOf(service, {by: "author"}).map((item) => item.version)).toEqual([3, 2]);
+
+        const byVersion = new Map(itemsOf(service).map((item) => [item.version, item]));
+        // 星瑕是第 2 版新建的，后面两次修订都在它身上记了事件，所以还原它得连同依赖一起。
+        expect(byVersion.get(2)!.revertable).toEqual({ok: false, reason: "has-dependents", dependents: [byVersion.get(3)!.id, byVersion.get(4)!.id]});
+        expect(byVersion.get(4)!.revertable).toEqual({ok: true});
+        expect(byVersion.get(1)!.revertable).toEqual({ok: false, reason: "not-revertable"});
+    });
+});
+
+describe("canon.components 输出 18：改动记录按条目筛选，指向这个条目的引用也算", () => {
+    test("新写的剧情变更涉及这个条目（引用）：出现在这个条目下；自由文字里写到条目 id 的不算", async () => {
+        const service = await open();
+        expect((await service.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        expect((await service.publish(entryRequest("星瑾", 2))).ok).toBe(true);
+        const change = (text: string, involves: string[]): WriteRequest => ({requestId: `involve-${String(++sequence)}`, by: {kind: "author"}, what: "edit", title: text, baseVersion: 0, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text, at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves, lines: [], links: [], patches: [], status: "active", by: {kind: "author"}}}]});
+        expect((await service.publish({...change("涉及星瑕", ["e1"]), baseVersion: 3})).ok).toBe(true);
+        expect((await service.publish({...change("e1", []), baseVersion: 4})).ok).toBe(true);
+        const filtered = service.revisions({entry: "e1"});
+        expect(filtered !== "cursor-stale" && filtered.items.map((item) => item.title)).toEqual(["涉及星瑕", "星瑕"]);
+    });
+});
+
+describe("canon.model 边界与兼容、canon.revisions 边界与兼容：未知的字段原样保留", () => {
+    test("对象里未知的字段（顶层与初值里）不报错、不丢弃：写入、读取、重开以后都在，计算照常", async () => {
+        const service = await open();
+        const request = entryRequest("星瑕", 1);
+        const entry = request.puts[0]!.after as Entry;
+        const future = {...entry, 将来的字段: {层级: [1, 2]}, init: {...entry.init, 将来的初值项: "x"}};
+        expect((await service.publish({...request, puts: [{ref: request.puts[0]!.ref, after: future as Entry}]})).ok).toBe(true);
+        const change = {id: "tmp:c", kind: "written", text: "有未知字段的变更", at: {kind: "chapter", chapter: "ch1", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "set", at: {entry: "e1", path: "character.状态"}, value: "出门", 补丁上的未知项: true}], status: "active", by: {kind: "author"}, 将来的字段: "y"};
+        expect((await service.publish({requestId: "future-change", by: {kind: "author"}, what: "edit", title: "变更", baseVersion: 2, puts: [{ref: {kind: "change", id: "tmp:c"}, after: change as never}]})).ok).toBe(true);
+        const decision = {id: "tmp:d", text: "要定的事", status: "pending", about: [], hints: [], 将来的字段: [1]};
+        expect((await service.publish({requestId: "future-decision", by: {kind: "author"}, what: "edit", title: "决策", baseVersion: 3, puts: [{ref: {kind: "decision", id: "tmp:d"}, after: decision as never}]})).ok).toBe(true);
+
+        const check = async (opened: WorldService) => {
+            expect(opened.object({kind: "entry", id: "e1"}).object).toMatchObject({将来的字段: {层级: [1, 2]}, init: {将来的初值项: "x"}});
+            expect(opened.object({kind: "change", id: "c1"}).object).toMatchObject({将来的字段: "y", patches: [{补丁上的未知项: true}]});
+            expect(opened.object({kind: "decision", id: "d1"}).object).toMatchObject({将来的字段: [1]});
+            const read = opened.entry("e1", latest, "actual");
+            expect(read).not.toBeNull();
+            expect(read).not.toBe("chapter-not-found");
+            expect(read).not.toBe("line-not-found");
+            const view = typeof read === "object" && read !== null ? read.view : null;
+            expect(view?.namespaces.character!.fields.状态).toEqual({value: "出门"});
+        };
+        await check(service);
+        await check(await open());
+    });
+
+    test("修订里未知的字段（更新的版本写的）原样保留：重开以后修订里还在，世界可写，之后的修订照常追加", async () => {
+        const first = await open();
+        expect((await first.publish(entryRequest("星瑕", 1))).ok).toBe(true);
+        await first.stop();
+        const lines = (await readFile(segment(), "utf8")).trim().split("\n");
+        const tail = JSON.parse(lines.at(-1)!) as Record<string, unknown>;
+        await writeFile(segment(), `${[...lines.slice(0, -1), JSON.stringify({...tail, 将来的字段: {版本: 9}})].join("\n")}\n`);
+
+        const reopened = await open();
+        expect(reopened.status()).toMatchObject({version: 2, state: "writable"});
+        expect(reopened.world.revisions.at(-1)).toMatchObject({version: 2, 将来的字段: {版本: 9}});
+        expect((await reopened.publish(entryRequest("星瑾", 2))).ok).toBe(true);
+        expect((await open()).status().version).toBe(3);
+    });
+});

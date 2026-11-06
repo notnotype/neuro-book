@@ -9,6 +9,7 @@ import {existsSync} from "node:fs";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {Entry, WriteRequest} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -19,6 +20,7 @@ import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
 
+import {componentsPoint, type ComponentContribution} from "./shared/components";
 import {CANON_BUDGET_BYTES, canonClientKey} from "./shared/contracts";
 import type {CanonClient, CanonEvent} from "./shared/contracts";
 import {publish, serverPlugins, until, version, windowOf} from "./testing/harness";
@@ -391,4 +393,24 @@ describe("canon.project：正文快照、视图与插件的登记", () => {
         await window.close();
         keep.release();
     }, 30_000);
+});
+
+describe("canon.components 输出 1：经宿主的贡献点载入的声明", () => {
+    // 宿主载入贡献时调用的就是贡献点定义里的 `validate`：用它本身核对，不另起项目子进程。
+    const descriptor = (id: string, declaration: unknown): ContributionDescriptor<ComponentContribution> => ({capability: "canon.components", id, declaration: declaration as ComponentContribution, plugin: "acme.cast", entry: null, location: "server"});
+    const person = {label: "人物", namespace: "character", version: 1, fields: [{id: "状态", label: "状态", kind: "text"}]};
+    const problemOf = (id: string, declaration: unknown) => componentsPoint.validate!(descriptor(id, declaration));
+
+    it("贡献 id 就是类型 id，贡献点要求它以贡献方插件 id 开头；声明里不写 id", () => {
+        expect(componentsPoint.idPrefix).toBe("plugin");
+        expect(problemOf("acme.cast.person", person)).toBeNull();
+        expect(problemOf("acme.cast.person", {...person, id: "acme.cast.person"})).toContain("不写 id");
+    });
+
+    it("声明不是对象，或内核的单条校验不过：这一条被拒，原因指出哪一项", () => {
+        for (const declaration of [null, "人物", ["人物"]]) expect(problemOf("acme.cast.person", declaration)).toContain("声明必须是对象");
+        expect(problemOf("acme.cast.person", {...person, version: 0})).toStartWith("version");
+        expect(problemOf("acme.cast.person", {...person, namespace: "text"})).toStartWith("namespace");
+        expect(problemOf("acme.cast.person", {...person, fields: [{id: "启用", label: "启用", kind: "boolean"}]})).toStartWith("fields[0].id");
+    });
 });

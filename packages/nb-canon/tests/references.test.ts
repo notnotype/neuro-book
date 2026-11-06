@@ -167,3 +167,63 @@ describe("canon.components 输出 20：列表元素的语义档", () => {
         expect(knowing(removed)).toEqual({value: [{id: k, 程度: "unaware", 看法: "没听说过", label: "哥哥能回溯"}]});
     });
 });
+
+describe("canon.components 输出 18、19：引用已删除的条目、保存引用的条目照常可写、以引用为键的列表一条目一行", () => {
+    const reasonsOf = (result: WriteResult) => problemsOf(result).filter(([code]) => code === "ref-invalid").map(([, reason]) => reason);
+    const ch1End = {kind: "chapter", chapter: "ch1", edge: "end"} as const;
+    const rowsOf = (world: World) => {
+        const view = world.line().engine.entry("e1", ch1End, "actual");
+        if (view === null || view === "chapter-not-found") throw new Error("no view");
+        return view.namespaces.know!.fields.知情!.value;
+    };
+
+    /** 星瑾（e1）有一行指向知识点 k，且“基于”也指向它；然后知识点被删除。 */
+    function withDeletedPoint() {
+        const created = ok(start().publish(request([{ref: {kind: "entry", id: "tmp:k"}, after: point("tmp:k", "哥哥能回溯")}, {ref: {kind: "entry", id: "tmp:other"}, after: point("tmp:other", "钟会停")}], 1), "t"));
+        const k = created.ids["tmp:k"]!;
+        const other = created.ids["tmp:other"]!;
+        const row = ok(created.world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", [
+            {op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: k, 程度: "knows"}},
+            {op: "set", at: {entry: "e1", path: "know.基于"}, value: {ref: k}},
+        ])}], 3), "t"));
+        const entryOfK = row.world.data.entries.get(k)!;
+        const deleted = ok(row.world.publish(request([{ref: {kind: "entry", id: k}, after: {...entryOfK, deleted: true}}], 4), "t"));
+        return {world: deleted.world, k, other};
+    }
+
+    test("引用已删除的条目：新写的拒收（entry-deleted）", () => {
+        const {world, k} = withDeletedPoint();
+        expect(reasonsOf(world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", [{op: "set", at: {entry: "e2", path: "know.基于"}, value: {ref: k}}])}], world.version), "t"))).toEqual(["entry-deleted"]);
+        expect(reasonsOf(world.publish(request([{ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", [{op: "listAdd", at: {entry: "e2", path: "know.知情"}, value: {id: k, 程度: "knows"}}])}], world.version), "t"))).toEqual(["entry-deleted"]);
+    });
+
+    test("保存引用的条目照常可写：改这个引用字段、改以被删条目为键的那一行的子字段、去掉那一行；条目自己改名也不重查旧引用", () => {
+        const {world, k, other} = withDeletedPoint();
+        expect(rowsOf(world)).toEqual([{id: k, 程度: "knows", label: "已删除的条目"}]);
+
+        const next = (patches: Patch[], version: number, source = world) => ok(source.publish(request([{ref: {kind: "change", id: "tmp:w"}, after: change("tmp:w", patches)}], version), "t")).world;
+        // 改这个引用字段：换成活着的知识点。
+        const rebased = next([{op: "set", at: {entry: "e1", path: "know.基于"}, value: {ref: other}}], world.version);
+        expect(rebased.data.changes.size).toBe(world.data.changes.size + 1);
+        // 改那一行的子字段。
+        const edited = next([{op: "set", at: {entry: "e1", path: `know.知情[${k}].程度`}, value: "unaware"}], world.version);
+        expect(rowsOf(edited)).toEqual([{id: k, 程度: "unaware", label: "已删除的条目"}]);
+        // 去掉那一行。
+        expect(rowsOf(next([{op: "listRemove", at: {entry: "e1", path: "know.知情"}, value: k}], world.version))).toEqual([]);
+        // 条目自己改名：初值里没动的引用不重查。
+        const renamed = structuredClone(world.data.entries.get("e1")!);
+        renamed.init.name = "星瑾（改名）";
+        expect(world.publish(request([{ref: {kind: "entry", id: "e1"}, after: renamed}], world.version), "t").ok).toBe(true);
+    });
+
+    test("同一条目在以引用为键的列表里最多一行：增一个已有的 id 被拒，世界不变", () => {
+        const created = ok(start().publish(request([{ref: {kind: "entry", id: "tmp:k"}, after: point("tmp:k", "哥哥能回溯")}], 1), "t"));
+        const k = created.ids["tmp:k"]!;
+        const listAdd = (version: number, world: World) => world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", [{op: "listAdd", at: {entry: "e1", path: "know.知情"}, value: {id: k, 程度: "knows"}}])}], version), "t");
+        const row = ok(listAdd(2, created.world));
+        const again = listAdd(row.world.version, row.world);
+        expect(again.ok).toBe(false);
+        expect(row.world.version).toBe(3);
+        expect(rowsOf(row.world)).toHaveLength(1);
+    });
+});

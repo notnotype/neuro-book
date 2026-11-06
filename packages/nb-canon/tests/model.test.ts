@@ -3,6 +3,7 @@ import {describe, expect, test} from "bun:test";
 import {createIncrementalEngine} from "../src/engine/incremental";
 import {createReferenceEngine} from "../src/engine/reference";
 import type {Engine, EngineInputs} from "../src/engine/types";
+import type {Patch} from "../src/index";
 import {add, chapter, end, note, set, start, WorldBuilder} from "./fixtures/world";
 
 /** 两种引擎对同一份输入的回答必须相同。 */
@@ -246,6 +247,104 @@ describe.each(ENGINES)("%s", (_name, createEngine) => {
             ]);
             // 读取位置在计划之前：计划不计入，待处理照实际模式。
             expect(engine.pending(end("ch1"), "planned")).toEqual([]);
+        });
+    });
+
+    describe("canon.model 输出 7、8 与失败表 cannot-apply：套不上的原因、跨字段约束标在哪里", () => {
+        test.each<[string, string, Patch]>([
+            ["类型不符（给数值字段赋文字）", "type-mismatch", set("xia", "panel.存款", "四万")],
+            ["增一个已有的元素 id 套不上", "type-mismatch", {op: "listAdd", at: {entry: "xia", path: "panel.物品"}, value: {id: "i1", label: "药", 数量: 1}}],
+            ["赋的数超出精确档的范围", "number-out-of-range", set("xia", "panel.存款", 1e11)],
+            ["加的数超出精确档的范围", "number-out-of-range", add("xia", "panel.存款", 1e11)],
+            ["加的数超过 4 位小数", "number-out-of-range", add("xia", "panel.存款", 0.00001)],
+        ])("%s：整条套不上，原因是 %s，该地址从这里起不完整", (_name, reason, patch) => {
+            const world = new WorldBuilder()
+                .entry("xia", "星瑕", {panel: {存款: 100, 物品: [{id: "i1", label: "药", 数量: 1}]}})
+                .change("c1", chapter("ch1"), [patch]);
+            const engine = createEngine(world.inputs());
+            expect(engine.outcome("c1")).toMatchObject({applied: false, reason});
+            expect(engine.pending(end("ch1"))).toEqual([{kind: "cannot-apply", root: "c1", changes: ["c1"]}]);
+        });
+
+        test("跨字段约束（魔力的 max 引用魔力上限）不满足：标不完整的是被约束的字段魔力，不只是补丁写的地址", () => {
+            // c1 把上限调到 3，魔力 5 就超了：补丁写的是魔力上限，被约束的是魔力。
+            const lowered = new WorldBuilder().entry("xia", "星瑕", {panel: {魔力上限: 10, 魔力: 5}}).change("c1", chapter("ch1"), [set("xia", "panel.魔力上限", 3)]);
+            const engine = createEngine(lowered.inputs());
+            expect(engine.outcome("c1")).toMatchObject({applied: false, reason: "constraint-violated"});
+            const fields = panelOf(engine, "xia", end("ch1")).namespaces.panel!.fields;
+            expect(fields.魔力).toEqual({value: 5, incomplete: {change: "c1", reason: "constraint-violated"}});
+            expect(fields.魔力上限).toEqual({value: 10, incomplete: {change: "c1", reason: "constraint-violated"}});
+
+            // c2 直接给魔力加到超过上限：只标魔力，上限本身没有被动。
+            const exceeded = new WorldBuilder().entry("xia", "星瑕", {panel: {魔力上限: 10, 魔力: 5}}).change("c2", chapter("ch1"), [add("xia", "panel.魔力", 8)]);
+            const exceededFields = panelOf(createEngine(exceeded.inputs()), "xia", end("ch1")).namespaces.panel!.fields;
+            expect(exceededFields.魔力).toEqual({value: 5, incomplete: {change: "c2", reason: "constraint-violated"}});
+            expect(exceededFields.魔力上限).toEqual({value: 10});
+        });
+
+        test("上限是未知时这一项不检查：加到多大都套得上", () => {
+            const world = new WorldBuilder().entry("xia", "星瑕", {panel: {魔力上限: null, 魔力: 5}}).change("c1", chapter("ch1"), [add("xia", "panel.魔力", 1000)]);
+            const engine = createEngine(world.inputs());
+            expect(engine.outcome("c1")).toEqual({applied: true});
+            expect(panelOf(engine, "xia", end("ch1")).namespaces.panel!.fields.魔力).toEqual({value: 1005});
+        });
+    });
+
+    describe("canon.model 输出 11：不比较的两种情形", () => {
+        test("核对点的地址在比较时点不完整：不比较，不成待处理；来历里记“无法核对”", () => {
+            // c1 让存款低于下限而套不上，存款从第 1 章起不完整；第 2 章的核对点写的数与算出来的不同，也不报。
+            const world = new WorldBuilder()
+                .entry("xia", "星瑕", {panel: {存款: 1000}})
+                .change("c1", chapter("ch1"), [add("xia", "panel.存款", -5000)])
+                .check("k1", "xia", "panel.存款", 777, chapter("ch2"));
+            const engine = createEngine(world.inputs());
+            expect(engine.pending(end("ch3"))).toEqual([{kind: "cannot-apply", root: "c1", changes: ["c1"]}]);
+            expect(engine.origins({entry: "xia", path: "panel.存款"}, end("ch3"), "actual")).toEqual([
+                {kind: "init", value: 1000},
+                {kind: "check", check: "k1", written: 777, result: "skipped"},
+            ]);
+        });
+
+        test("核对点所在的条目已删除：不比较，不成待处理", () => {
+            const world = new WorldBuilder()
+                .entry("old", "旧人", {panel: {存款: 5}}, {deleted: true})
+                .entry("xia", "星瑕", {panel: {存款: 5}})
+                .check("k1", "old", "panel.存款", 99, chapter("ch2"))
+                .check("k2", "xia", "panel.存款", 99, chapter("ch2"));
+            const engine = createEngine(world.inputs());
+            // 没有被删的条目上同样的核对点会报，说明上面的不报不是核对点本身的问题。
+            expect(engine.pending(end("ch3"))).toEqual([{kind: "check-mismatch", check: "k2", at: {entry: "xia", path: "panel.存款"}, computed: 5, written: 99, suspects: ["init"]}]);
+        });
+    });
+
+    describe("canon.model 验收场景 6：删章", () => {
+        const world = () =>
+            new WorldBuilder()
+                .entry("xia", "星瑕", {panel: {存款: 1000}})
+                .change("c2", chapter("ch2"), [add("xia", "panel.存款", 200)])
+                .change("c3", chapter("ch3"), [add("xia", "panel.存款", 30)]);
+        const withoutCh2 = (builder: WorldBuilder) => {
+            builder.chapters = builder.chapters.filter((id) => id !== "ch2");
+            return builder;
+        };
+
+        test("安放在被删章上的变更不再套用，各成一条“章已删除”；第 3 章以后的值相应变化；读被删章得 chapter-not-found", () => {
+            const before = createEngine(world().inputs());
+            expect(panelOf(before, "xia", end("ch3")).namespaces.panel!.fields.存款).toEqual({value: 1230});
+            expect(before.pending(end("ch6"))).toEqual([]);
+
+            const engine = createEngine(withoutCh2(world()).inputs());
+            expect(panelOf(engine, "xia", end("ch3")).namespaces.panel!.fields.存款).toEqual({value: 1030});
+            expect(engine.pending(end("ch6"))).toEqual([{kind: "chapter-deleted", ref: {kind: "change", id: "c2"}}]);
+            expect(engine.entry("xia", start("ch2"), "actual")).toBe("chapter-not-found");
+        });
+
+        test("把它们挪到第 3 章后，待处理消失，值回来", () => {
+            const moved = withoutCh2(world());
+            moved.changes.set("c2", {...moved.changes.get("c2")!, at: chapter("ch3", 90)});
+            const engine = createEngine(moved.inputs());
+            expect(engine.pending(end("ch6"))).toEqual([]);
+            expect(panelOf(engine, "xia", end("ch3")).namespaces.panel!.fields.存款).toEqual({value: 1230});
         });
     });
 

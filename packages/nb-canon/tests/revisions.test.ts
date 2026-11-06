@@ -470,6 +470,21 @@ describe("canon.components 输出 14、15：补丁的值按字段核对", () => 
     });
 });
 
+describe("canon.components 失败码 unknown-field：地址指到没声明的字段、子键或图片的一部分", () => {
+    const IMAGE = {id: "test.image", label: "图", namespace: "pic", version: 1, fields: [{id: "图", label: "图", kind: "image"}]};
+    const failure = (result: WriteResult) => (result.ok ? ["ok"] : result.failure.code === "validation-failed" ? result.failure.problems.map((problem) => problem.code) : [result.failure.code]);
+
+    test("单写图片的路径或说明（图片值是整体）被拒；整体写入可以", () => {
+        const base = {...options(), registry: buildRegistry([IMAGE as never])};
+        const made: Entry = {id: "tmp:x", type: "物", parent: null, folder: "", order: 0, init: {name: "画", aliases: [], summary: "", text: [], data: {pic: {type: IMAGE.id, version: 1, enabled: true, fields: {图: null}}}}};
+        const world = ok(World.empty(base).publish(request([{ref: {kind: "entry", id: "tmp:x"}, after: made}], {what: "opening"}), "t")).world;
+        const write = (path: string, value: unknown) => failure(world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch1", [{op: "set", at: {entry: "e1", path}, value: value as never}])}], {baseVersion: 1}), "t"));
+        expect(write("pic.图.图片", "assets/y.png")).toContain("unknown-field");
+        expect(write("pic.图.说明", "原身")).toContain("unknown-field");
+        expect(write("pic.图", {"图片": "assets/y.png", "说明": "原身"})).toEqual(["ok"]);
+    });
+});
+
 describe("canon.revisions 输出 3、18：id 与排序键", () => {
     const keyOf = (world: World, id: string) => (world.data.changes.get(id)!.at as {key: number}).key;
     const draft = (id: string, chapter: string, extra: Partial<StoryChangeDraft> = {}) => {
@@ -528,5 +543,52 @@ describe("canon.revisions 输出 3、18：id 与排序键", () => {
         const early = write(2);
         expect(early.ok === false && early.failure.code === "validation-failed" && early.failure.problems.map((problem) => problem.code)).toContain("not-appeared");
         expect(write(7).ok).toBe(true);
+    });
+});
+
+describe("canon.model 输出 23：条目树与身份同一的约束", () => {
+    const problemCodes = (result: WriteResult) => (!result.ok && result.failure.code === "validation-failed" ? result.failure.problems.map((problem) => `${problem.code}@${problem.path}`) : result.ok ? ["发布成功"] : [result.failure.code]);
+    const modified = (world: World, id: string, change: (next: Entry) => void) => {
+        const next = structuredClone(world.data.entries.get(id)!);
+        change(next);
+        return next;
+    };
+    const put = (world: World, entryValue: Entry, extra: Partial<WriteRequest> = {}) => world.publish(request([{ref: {kind: "entry", id: entryValue.id}, after: entryValue}], {baseVersion: world.version, ...extra}), "t");
+
+    test("马甲不嵌套：指向的条目自己已经是马甲，被拒；指向本体可以", () => {
+        const masked = ok(put(start(), entry("tmp:mask", "夜行人", {}, {sameAs: "e2"})));
+        const mask = masked.ids["tmp:mask"]!;
+        expect(problemCodes(put(masked.world, entry("tmp:mask2", "夜行人二号", {}, {sameAs: mask})))).toEqual(["invalid-tree@sameAs"]);
+        expect(put(masked.world, entry("tmp:mask3", "夜行人三号", {}, {sameAs: "e2"})).ok).toBe(true);
+    });
+
+    test("sameAs 指向自己被拒", () => {
+        const world = start();
+        expect(problemCodes(put(world, modified(world, "e1", (next) => (next.sameAs = "e1"))))).toEqual(["invalid-tree@sameAs"]);
+    });
+
+    test("parent 指向已删除的条目被拒；删除父条目本身可以，子条目照常存在", () => {
+        const world = start();
+        const gone = ok(put(world, modified(world, "e2", (next) => (next.deleted = true)))).world;
+        expect(problemCodes(put(gone, entry("tmp:child", "新人", {}, {parent: "e2"})))).toEqual(["invalid-tree@parent"]);
+
+        const parented = ok(put(world, entry("tmp:child", "孩子", {}, {parent: "e2"})));
+        const child = parented.ids["tmp:child"]!;
+        const orphaned = ok(put(parented.world, modified(parented.world, "e2", (next) => (next.deleted = true)))).world;
+        expect(orphaned.data.entries.get(child)).toMatchObject({parent: "e2", init: {name: "孩子"}});
+        expect(orphaned.line().engine.entry(child, {kind: "chapter", chapter: "ch1", edge: "end"}, "actual")).toMatchObject({name: "孩子", deleted: false});
+    });
+
+    test("非自指的环被拒：甲的父是乙之后，乙的父不能是甲；同一请求里互为父子同样被拒", () => {
+        const world = start();
+        const first = ok(put(world, modified(world, "e1", (next) => (next.parent = "e2")))).world;
+        expect(problemCodes(put(first, modified(first, "e2", (next) => (next.parent = "e1"))))).toEqual(["invalid-tree@parent"]);
+
+        const both = world.publish(request([
+            {ref: {kind: "entry", id: "e1"}, after: modified(world, "e1", (next) => (next.parent = "e2"))},
+            {ref: {kind: "entry", id: "e2"}, after: modified(world, "e2", (next) => (next.parent = "e1"))},
+        ], {baseVersion: 1}), "t");
+        expect(problemCodes(both)).toContain("invalid-tree@parent");
+        expect(both.ok).toBe(false);
     });
 });
