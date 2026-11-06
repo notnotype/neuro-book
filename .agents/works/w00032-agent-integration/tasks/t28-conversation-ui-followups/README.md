@@ -52,8 +52,12 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 ## 当前状态
 
-设计审查（omp 14 条、Sonnet 16 条）处理完，计划已修订（[处理](evidences/design-review-disposition.md)）。Agent 模式移到 [t06](../t06-approval/plan.md)，紧接本 Task。批 1 的静态稿已定，开始实现。
+批 1 完成并合入：角色绑定后当前会话不重开就恢复（模型库变化、设置变化两条路径都接上，不重建对话）；`role:<id>`；选择器 `AgentRoleModelPicker`（没有角色的宿主如 nb-story 还用原来的下拉）；状态栏窄时留缓存命中与费用，缓存命中率口径修正。
+
+验证：`nb-agent-ui` 全部 bun 与 vitest、`plugins/models`、`session-host.test.ts`、类型检查、`governance:check`；e2e `agent-conversation`（10 条）、`lab-agent-ui` 与 `models`（36 条，其中 `lab-agent-ui` 的“停在底部时跟随”在负载 10 下失败一次，单独连跑两次都过，与本批无关）。变异检查 2 处（去掉代次判断、去掉设置变化的重读）都抓到。没跑 nb-story 的 e2e：它走原来的下拉，组件未改。上下文圆环与缓存项的点击随批 2。
+
+顺手修了 t11 留下的 `AgentCompactionDetail.md` 缺 `state:inject` 标签（`governance:check` 报错）。
 
 ## 下一步
 
-实现批 1。
+批 2：面板宿主与上下文检查器，先出检查器的静态稿。

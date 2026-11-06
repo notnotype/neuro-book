@@ -79,6 +79,8 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
    | `compaction` | 调用方指名的角色 → `compaction` |
    | `approval` | 调用方指名的角色 → `fast` |
 
+   `settings.model` 除了模型引用，还可以是 `role:<角色 id>`（会话选的是角色，改绑后跟着变）：角色不存在或 id 为空得 `unknown-model`，存在但没绑定得 `role-unbound`。
+
    走到角色而它没有绑定：`role-unbound`（不回落到别的模型）；指名的或绑定的模型不在、没启用、自定义模型缺上下文窗口：`unknown-model`；没有可用的密钥：`no-credentials`；`main` 也解析不到时同样按这几条。推理档按模型支持的档夹取（同 harness）。
 9. **目录漂移**：设置里引用的目录模型不在目录里了（OMP 升级），引用保留并在快照里标 `missing`（原服务商与模型 id），解析为 `unknown-model`，写一条诊断；用户在界面里重新选。
 10. **`modelsKey`**：`port(profileDefaults?)` 交出所有会话共用的模型端口，`profileDefaults(profile)` 每次解析都调，换 Profile、改 Profile 设置即时生效；`snapshot()` 给出启用的模型、角色及其有效性；`onChange`。
