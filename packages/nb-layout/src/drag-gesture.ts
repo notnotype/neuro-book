@@ -59,7 +59,8 @@ export interface DragClock {
 
 /** 区域里键盘能停的位置与方向键的轴。 */
 export interface DragStops {
-    readonly axis: "horizontal" | "vertical" | null;
+    /** 方向键的轴。`both` 是四个方向键都走同一列位置：右、下往后，左、上往前（位置不在一条线上时）。 */
+    readonly axis: "horizontal" | "vertical" | "both" | null;
     readonly points: ReadonlyArray<GridDropPoint>;
 }
 
@@ -153,6 +154,7 @@ const SESSION_KEYS: ReadonlySet<string> = new Set([" ", "Enter", "Escape", "Tab"
 
 /** 方向键在轴上的步进：沿轴的前进与后退，其它方向键不动。 */
 function stepOf(key: string, axis: DragStops["axis"]): number {
+    if (axis === "both") return key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
     if (axis === "horizontal") return key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0;
     if (axis === "vertical") return key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
     return 0;

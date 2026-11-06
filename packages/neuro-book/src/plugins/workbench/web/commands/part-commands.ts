@@ -1,6 +1,6 @@
 /**
- * 区域显隐命令 `nbook.view.set-part-hidden`（docs/specs/workbench/commands.md 第二批，docs/specs/ui/workbench-shell.md
- * 外壳四输出 32）：标题栏的布局按钮、视图菜单与命令面板走同一条。参数都可以省略：`part` 省略时经选择服务选区域
+ * 区域显隐命令 `nbook.view.set-part-hidden`（docs/specs/workbench/commands.md 第二批，docs/specs/ui/workbench-layout.md
+ * 输出 35）：标题栏的布局按钮、视图菜单与命令面板走同一条。参数都可以省略：`part` 省略时经选择服务选区域
  * （命令面板对普通候选执行 `{}`），`hidden` 省略时按“可见”切换。
  */
 
@@ -11,18 +11,18 @@ import type {DisplayText} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
 import {workbenchText} from "../../shared/text";
-import type {LayoutStore} from "../state/layout-store";
+import type {LayoutDocStore} from "../state/layout-doc-store";
 import {workbenchState} from "../state/public-state";
 
 export const SET_PART_HIDDEN_COMMAND = "nbook.view.set-part-hidden";
 
-export const TOGGLEABLE_PARTS = ["sidebar", "auxiliarybar", "activitybar"] as const;
+export const TOGGLEABLE_PARTS = ["sidebar", "auxiliarybar", "panel", "activitybar", "statusbar"] as const;
 export type ToggleablePart = (typeof TOGGLEABLE_PARTS)[number];
 
 export const PART_COMMAND_DECLARATIONS = {
     [SET_PART_HIDDEN_COMMAND]: {
         category: workbenchText("categories.view"),
-        description: "Hide or show the sidebar, the auxiliary bar or the activity bar; showing also restores a dragged-closed area. Without a part, the user picks one; without hidden, toggles.",
+        description: "Hide or show the sidebar, the auxiliary bar, the panel, the activity bar or the status bar; showing also restores a collapsed or dragged-closed area. Without a part, the user picks one; without hidden, toggles.",
         args: Type.Object({
             part: Type.Optional(Type.Union(TOGGLEABLE_PARTS.map((part) => Type.Literal(part)))),
             hidden: Type.Optional(Type.Boolean()),
@@ -36,7 +36,9 @@ export const PART_COMMAND_DECLARATIONS = {
 const PART_LABELS: Readonly<Record<ToggleablePart, DisplayText>> = {
     sidebar: workbenchText("partCommands.parts.sidebar"),
     auxiliarybar: workbenchText("partCommands.parts.auxiliarybar"),
+    panel: workbenchText("partCommands.parts.panel"),
     activitybar: workbenchText("partCommands.parts.activitybar"),
+    statusbar: workbenchText("partCommands.parts.statusbar"),
 };
 
 const TEXT = {
@@ -48,7 +50,7 @@ const TEXT = {
 
 const DONE: CommandResult<null> = {ok: true, value: null};
 
-export function partCommands(layout: () => LayoutStore | null, quickPick: QuickPick): {readonly [SET_PART_HIDDEN_COMMAND]: CommandImplementation} {
+export function partCommands(layout: () => LayoutDocStore | null, quickPick: QuickPick): {readonly [SET_PART_HIDDEN_COMMAND]: CommandImplementation} {
     return {
         [SET_PART_HIDDEN_COMMAND]: {
             run: async (args) => {

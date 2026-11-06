@@ -70,6 +70,11 @@ async function openFile(page: Page, name: string): Promise<void> {
     await expect(async () => {
         const folder = item(page, "project://notes");
         if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
+        // 文件树是虚拟滚动：别的用例留下的文件多时，这一行可能还没渲染，要滚到它出现。
+        if (await item(page, `project://notes/${name}`).count() === 0) {
+            await folder.hover();
+            await page.mouse.wheel(0, 3000);
+        }
         await item(page, `project://notes/${name}`).dblclick({timeout: 3000});
         await expect(activeGroup(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
     }).toPass();
@@ -236,7 +241,7 @@ test("高对比度、强制颜色下不画场景，配色照旧", async ({page})
     await writeSettings({[THEME]: STUDY, [APPEARANCE]: "light"});
     await openProject(page);
     await expect(scene(page)).toBeVisible();
-    const corner = (part: string) => () => page.locator(`[data-tool-part="${part}"]`).evaluate((element) => getComputedStyle(element, "::after").display);
+    const corner = (part: string) => () => page.locator(`[data-shell-card="${part}"]`).evaluate((element) => getComputedStyle(element, "::after").display);
     const expectScenes = async (shown: boolean): Promise<void> => {
         const [welcome, left, right] = [scene(page), margin(page, "left"), margin(page, "right")];
         await expect.poll(corner("sidebar")).toBe(shown ? "block" : "none");
@@ -603,16 +608,16 @@ test.describe("可读性", () => {
             await expect(prose(page)).toBeVisible();
             for (const selector of ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
             // 侧栏下角：文件多到列表压在图上时，压在图上的那几行也读得动。
-            const rows = await page.locator("[data-tool-part=\"sidebar\"] [data-explorer-label]").evaluateAll((labels, height) => labels.flatMap((label, index) => (label.getBoundingClientRect().bottom > height - 230 && label.getBoundingClientRect().bottom < height - 30 ? [index] : [])), page.viewportSize()?.height ?? 0);
+            const rows = await page.locator("[data-content-leaf=\"sidebar\"] [data-explorer-label]").evaluateAll((labels, height) => labels.flatMap((label, index) => (label.getBoundingClientRect().bottom > height - 230 && label.getBoundingClientRect().bottom < height - 30 ? [index] : [])), page.viewportSize()?.height ?? 0);
             expect(rows.length, "要有压在下角图上的行").toBeGreaterThan(0);
             for (const index of rows) {
-                const result = await measure(page, `[data-tool-part="sidebar"] [data-explorer-row]:nth-child(n) [data-explorer-label] >> nth=${String(index)}`);
+                const result = await measure(page, `[data-content-leaf="sidebar"] [data-explorer-row]:nth-child(n) [data-explorer-label] >> nth=${String(index)}`);
                 report.push(`${appearance} 侧栏第 ${String(index)} 行：${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
                 expect(result.worst, `侧栏第 ${String(index)} 行`).toBeGreaterThanOrEqual(4.5);
             }
             // 右栏下角：对话列表长了会压在图上，所以最下面 240px 里、输入框以上的部分，放正文与次要文字都读得动。
             const palette = await page.evaluate(() => ["--text-main", "--text-secondary"].map((name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()));
-            const strip = await measure(page, "[data-tool-part=\"auxiliarybar\"]", {colors: palette, bottom: 240, above: "[data-agent-composer]"});
+            const strip = await measure(page, "[data-shell-card=\"auxiliarybar\"]", {colors: palette, bottom: 240, above: "[data-agent-composer]"});
             report.push(`${appearance} 右栏下角：${strip.worst.toFixed(2)}（${String(strip.distinct)} 种像素）`);
             expect(strip.distinct, "右栏下角要有图").toBeGreaterThan(20);
             expect(strip.worst, "右栏下角").toBeGreaterThanOrEqual(4.5);

@@ -19,6 +19,7 @@ import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 import type {RecordDefinition, StorageService} from "nbook/shared/storage";
 
 import {openLayoutDoc} from "../testing/layout-doc";
+import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/placement";
 import {createLayoutPolicy} from "./layout-constraints";
 import type {LayoutDocStore} from "./layout-doc-store";
@@ -302,14 +303,62 @@ describe("呈现事实", () => {
     it("结构操作之前把呈现尺寸写回意图；手势落账立刻存，收起状态来自手势", async () => {
         const {store, storage} = await open();
         store.actions.acceptExtent({width: 1440, height: 900});
-        store.actions.acceptPresented({sidebar: {width: 411, height: 878}});
+        // 吸收余量的节点：呈现尺寸就是这一刻的份额。保留像素的节点见下面“被压缩的尺寸不是意图”。
+        store.actions.acceptPresented({g0: {width: 611, height: 600}});
         store.actions.setCollapsed("panel", true);
-        expect(sizeIn(store.state.doc, "sidebar").width).toBe(411);
+        expect(sizeIn(store.state.doc, "g0").width).toBe(611);
         store.actions.commitGesture({sidebar: {width: 222, height: 878}}, {auxiliarybar: true});
         await settled(store);
         const saved = await savedDoc(storage, USER);
         expect(sizeIn(saved, "sidebar").width).toBe(222);
         expect(saved.panels.auxiliarybar?.collapsed).toBe(true);
+    });
+
+    it("手势把面板收成标题行：呈现的高度是标题行，不是意图，展开回到原来的高度（输出 8、12）", async () => {
+        const {store, storage} = await open();
+        const before = sizeIn(store.actions.document(), "panel").height;
+        store.actions.commitGesture({panel: {width: 600, height: PANEL_HEAD_HEIGHT}}, {panel: true});
+        await settled(store);
+        const saved = await savedDoc(storage, USER);
+        expect(saved.panels.panel?.collapsed).toBe(true);
+        expect(sizeIn(saved, "panel").height).toBe(before);
+        // 拉回时呈现的高度才是新的意图。
+        store.actions.commitGesture({panel: {width: 600, height: 260}}, {panel: false});
+        expect(sizeIn(store.actions.document(), "panel").height).toBe(260);
+    });
+
+    it("放不下时被压缩的尺寸不是意图：切标签、别处的手势都不写，这块自己被拖了才写（输出 8；验收 6）", async () => {
+        const {store} = await open();
+        const widths = () => [sizeIn(store.actions.document(), "sidebar").width, sizeIn(store.actions.document(), "auxiliarybar").width];
+        const before = widths();
+        const squeezed = {sidebar: {width: 160, height: 700}, auxiliarybar: {width: 160, height: 700}, g0: {width: 300, height: 500}, panel: {width: 300, height: 200}};
+        store.actions.acceptPresented(squeezed);
+        store.actions.setCollapsed("panel", false);
+        store.actions.activate("view:test.side");
+        expect(widths()).toEqual(before);
+        // 拖面板的高度：侧栏、右栏这次没动，还是压缩的结果。
+        store.actions.commitGesture({...squeezed, g0: {width: 300, height: 400}, panel: {width: 300, height: 300}}, {});
+        expect(widths()).toEqual(before);
+        expect(sizeIn(store.actions.document(), "panel").height).toBe(300);
+        // 拖侧栏的边界：写。
+        store.actions.commitGesture({...squeezed, sidebar: {width: 200, height: 700}, g0: {width: 260, height: 400}, panel: {width: 260, height: 300}}, {});
+        expect(sizeIn(store.actions.document(), "sidebar").width).toBe(200);
+    });
+
+    it("最大化的面板被搬空、或要显示被它盖住的面板：退出最大化，不把工作台留在全都看不见的样子（输出 13）", async () => {
+        const {store} = await open();
+        store.actions.toggleMaximized("sidebar");
+        expect(store.state.maximized).toBe("sidebar");
+        expect(store.actions.moveView("test.side", "auxiliarybar").ok).toBe(true);
+        expect(store.state.doc.panels.sidebar?.hidden).toBe(true);
+        expect(store.state.maximized).toBeNull();
+        expect(store.actions.partVisible("auxiliarybar")).toBe(true);
+
+        store.actions.toggleMaximized("auxiliarybar");
+        expect(store.actions.partVisible("panel")).toBe(false);
+        store.actions.setPartHidden("panel", false);
+        expect(store.state.maximized).toBeNull();
+        expect(store.actions.partVisible("panel")).toBe(true);
     });
 
     it("放回原处：不写盘", async () => {

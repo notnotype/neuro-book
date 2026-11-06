@@ -230,9 +230,11 @@ function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
  * 全是工具面板的分支按比例分（`projectLayoutDoc`）：里面有收起或隐藏的兄弟时，其余的呈现尺寸是占了它们的空间之后的，直接写进去，兄弟回来时比例就错了，展开只回到一部分。
  * 所以这些子节点只更新彼此的比例，总量保持原来的份额。含编辑组的分支不用：工具面板保留像素，余量归编辑组。
  */
-export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, GridExtent>>, collapsedTo: ReadonlyMap<string, string> = new Map()): LayoutDoc {
+export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, GridExtent>>, collapsedTo: ReadonlyMap<string, string> = new Map(), frozen: ReadonlySet<string> = new Set()): LayoutDoc {
     const sizeOfNode = (node: GridSnapshotNode): GridExtent | undefined => sizes[node.id] ?? sizes[collapsedTo.get(node.id) ?? ""];
-    const isSkipped = (node: GridSnapshotNode): boolean => node.kind === "leaf" && (barOfRef(node.ref) !== null || doc.panels[node.id]?.collapsed === true);
+    // `frozen`：呈现尺寸不是意图的节点。保留像素的节点只会被压缩，不会自己变（输出 8）；由调用方给，因为谁保留像素是呈现树决定的。
+    const isFrozen = (node: GridSnapshotNode): boolean => frozen.has(node.id) || frozen.has(collapsedTo.get(node.id) ?? "");
+    const isSkipped = (node: GridSnapshotNode): boolean => isFrozen(node) || (node.kind === "leaf" && (barOfRef(node.ref) !== null || doc.panels[node.id]?.collapsed === true));
     const holdsEditor = (node: GridSnapshotNode): boolean => treeLeaves(node).some((leaf) => doc.panels[leaf.id]?.role === "editor");
 
     const write = (node: GridSnapshotNode): GridSnapshotNode => {

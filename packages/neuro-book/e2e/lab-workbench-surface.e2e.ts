@@ -241,14 +241,14 @@ test.describe("卡片按邻接算", () => {
         expect(sidebar.left).toBe(0);
         expect(sidebar.top).toBe(8);
         expect(sidebar.right).toBeLessThan(4);
-        await expect(page.locator("[data-surface-card='activitybar']")).toHaveAttribute("data-surface-join", "start");
-        await expect(page.locator("[data-surface-card='sidebar']")).toHaveAttribute("data-surface-join", "end");
+        await expect(page.locator("[data-shell-card='activitybar']")).toHaveAttribute("data-shell-join", "start");
+        await expect(page.locator("[data-shell-card='sidebar']")).toHaveAttribute("data-shell-join", "end");
 
         // 活动栏的卡片宽不变，叶宽加上缝。
-        expect((await rectOf(page, "[data-surface-card='activitybar']")).width).toBe(48);
+        expect((await rectOf(page, "[data-shell-card='activitybar']")).width).toBe(48);
 
         // 内容的左右和卡片对齐，下边也是。
-        const card = await rectOf(page, "[data-surface-card='sidebar']");
+        const card = await rectOf(page, "[data-shell-card='sidebar']");
         const content = await rectOf(page, "[data-content='view:a'] .workbench-surface__content-clip");
         expect(content.x).toBe(card.x);
         expect(content.width).toBe(card.width);
@@ -259,7 +259,7 @@ test.describe("卡片按邻接算", () => {
     test("侧栏隐藏后活动栏不再相连；最大化时盖住的面板四边贴窗体", async ({page}) => {
         await open(page, "cards");
         await frameButton(page, "sidebar", "hide").click();
-        await expect(page.locator("[data-surface-card='activitybar']")).not.toHaveAttribute("data-surface-join", /.+/);
+        await expect(page.locator("[data-shell-card='activitybar']")).not.toHaveAttribute("data-shell-join", /.+/);
 
         await frameButton(page, "panel", "maximize").click();
         await expect.poll(async () => (await paddingOf(page, "panel")).right).toBe(8);
@@ -278,12 +278,27 @@ test.describe("卡片按邻接算", () => {
     });
 });
 
+test.describe("放不下", () => {
+    test("工具面板全收走还放不下：只压编辑组，条的尺寸不变，焦点光晕不被裁（输出 5、10）", async ({page}) => {
+        await page.setViewportSize({width: 1280, height: 720});
+        await page.goto(`${dev.pageUrl}lab?c=WorkbenchSurface&s=default&theme=nbook&cw=light&vp=phone`);
+        await expect.poll(async () => (await labState(page))?.ready).toBe(true);
+        await expect(page.locator("[data-shell-card='activitybar']")).toBeVisible();
+        // 两个编辑组的最小宽度加起来就超过手机画布了。活动栏的叶宽还是 48 加主题的缝（nbook 是 4）。
+        await expect.poll(() => rectOf(page, "[data-leaf='activitybar']").then((rect) => rect.width)).toBe(52);
+        const groups = await Promise.all(["g0", "g1"].map((id) => rectOf(page, `[data-leaf='${id}']`)));
+        for (const group of groups) expect(group.width).toBeLessThan(220);
+        const clipped = await page.evaluate(() => (window as unknown as {__nbLab: {measure(): {clippedFocus: ReadonlyArray<{selector: string}>}}}).__nbLab.measure().clippedFocus.map((item) => item.selector));
+        expect(clipped).toEqual([]);
+    });
+});
+
 test.describe("主题的场景图", () => {
     test("挂在侧栏和右栏上，高度不足 300px 不画", async ({page}) => {
         await open(page);
         await page.evaluate(() => document.documentElement.setAttribute("data-nb-skin-scene", ""));
-        const scene = (panel: string) => page.locator(`[data-surface-card="${panel}"]`).evaluate((element) => getComputedStyle(element, "::after").display);
-        const content = (panel: string) => page.locator(`[data-surface-card="${panel}"]`).evaluate((element) => getComputedStyle(element, "::after").content);
+        const scene = (panel: string) => page.locator(`[data-shell-card="${panel}"]`).evaluate((element) => getComputedStyle(element, "::after").display);
+        const content = (panel: string) => page.locator(`[data-shell-card="${panel}"]`).evaluate((element) => getComputedStyle(element, "::after").content);
         expect(await content("sidebar")).not.toBe("none");
         expect(await content("auxiliarybar")).not.toBe("none");
         expect(await content("panel")).toBe("none");
@@ -296,7 +311,7 @@ test.describe("主题的场景图", () => {
         await page.mouse.down();
         await page.mouse.move(split.x + 100, split.y + 200, {steps: 6});
         await page.mouse.up();
-        await expect.poll(() => rectOf(page, "[data-surface-card='sidebar']").then((rect) => rect.height)).toBeLessThan(300);
+        await expect.poll(() => rectOf(page, "[data-shell-card='sidebar']").then((rect) => rect.height)).toBeLessThan(300);
         await expect.poll(() => scene("sidebar")).toBe("none");
     });
 });

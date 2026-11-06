@@ -8,6 +8,9 @@
  * 写成代入前的模板），英文是迁入目录时新写的。`REVISED` 是有意改过的文字（旧文字仍在上两张表里），按带复数后缀的完整键给出。
  * 目录里的每个键都要在前两张表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同。以后有意改文字时，同一次改动里
  * 在 `REVISED` 里登记。
+ *
+ * `ADDED` 是 w00026 t07 片 7a（工作台外壳换成一棵树）新增的键，迁移前没有字面量，中英文都是新写的。这一片里被取代但目录没删的旧键
+ * （面板位置与对齐、紧凑呈现、容器相关的文字）仍留在上两张表里，随旧代码在片 8 一起删，那时同一次改动里从表里去掉。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -318,7 +321,34 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "themeCommands.unknownTheme": {"zh-CN": "没有这个主题：{id}。已有：{ids}", "en-US": "No such theme: {id}. Installed: {ids}"},
 };
 
-/** 有意改过的英文：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数。 */
+/** 片 7a 新增的键（见文件头）。 */
+const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
+    "panelCommands.noPanel": {"zh-CN": "没有可以操作的面板", "en-US": "No panel to act on"},
+    "panelCommands.editorCollapse": {"zh-CN": "编辑组不能收起", "en-US": "An editor group cannot be collapsed"},
+    "viewCommands.rejected": {"zh-CN": "这个视图不能放到那里", "en-US": "This view can't go there"},
+    "viewCommands.limit": {"zh-CN": "布局已经太复杂，放不下新面板", "en-US": "The layout is too complex for another panel"},
+    "partCommands.parts.panel": {"zh-CN": "面板", "en-US": "Panel"},
+    "partCommands.parts.statusbar": {"zh-CN": "状态栏", "en-US": "Status bar"},
+    "viewCommands.parts.editor": {"zh-CN": "编辑区", "en-US": "Editor area"},
+    "viewCommands.newPanelNextTo": {"zh-CN": "新面板（挨着{panel}）", "en-US": "New panel (next to {panel})"},
+    "shell.drop.addTab": {"zh-CN": "添加为标签", "en-US": "Add as a tab"},
+    "shell.drop.insert": {"zh-CN": "放在这里", "en-US": "Place here"},
+    "shell.drop.between": {"zh-CN": "放到两块之间", "en-US": "Place between the two"},
+    "shell.drop.split": {"zh-CN": "拆到这一边", "en-US": "Split to this side"},
+    "shell.drop.inPlace": {"zh-CN": "原位", "en-US": "In place"},
+    "shell.frame.hide": {"zh-CN": "隐藏", "en-US": "Hide"},
+    "shell.tools": {"zh-CN": "工具", "en-US": "Tools"},
+    "shell.missing.view": {"zh-CN": "提供这个视图的插件现在不在：{viewId}", "en-US": "The plugin providing this view is not here: {viewId}"},
+    "shell.missing.close": {"zh-CN": "关闭这个标签", "en-US": "Close this tab"},
+    "state.nonPhone.reason": {"zh-CN": "手机呈现下不可用", "en-US": "Not available in the phone layout"},
+    "state.hasCurrentPanel.reason": {"zh-CN": "还没有面板获得过焦点", "en-US": "No panel has had focus yet"},
+    "state.maximized.reason": {"zh-CN": "没有最大化的面板", "en-US": "No panel is maximized"},
+};
+
+/**
+ * 有意改过的文字：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数；
+ * 片 7a 起“移动到”的目标是面板、不再是容器，`viewCommands.partial` 与 `stale` 两句中英文都跟着改。
+ */
 const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-US"?: string}>> = {
     "titlebar.toggle.auxiliarybar": {"en-US": "Toggle Secondary Side Bar"},
     "titlebar.menuItems.auxiliarybar": {"en-US": "Secondary Side Bar"},
@@ -327,9 +357,11 @@ const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-
     "state.auxiliaryBarVisible.reason": {"en-US": "The secondary side bar is hidden or dragged closed"},
     "shell.moveTo": {"en-US": "Move to"},
     "shell.drop.mergeContainer_one": {"en-US": "Merge {count} view"},
+    "viewCommands.partial": {"zh-CN": "要么都不给，要么同时给 viewId 和 target", "en-US": "Give nothing, or both viewId and target"},
+    "viewCommands.stale": {"zh-CN": "视图或目标面板已经不在了，没有移动", "en-US": "The view or the target panel is gone; nothing moved"},
 };
 
-const EXPECTED = {...LEGACY, ...RUNTIME};
+const EXPECTED = {...LEGACY, ...RUNTIME, ...ADDED};
 
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 

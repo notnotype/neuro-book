@@ -77,6 +77,20 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
     }
 }
 
+/** 呈现树里保留像素的节点：它们的呈现尺寸小于意图，只可能是放不下被压缩了（输出 7、8）。 */
+export function fixedNodesOf(root: GridNodeInput<string>): ReadonlySet<string> {
+    const fixed = new Set<string>();
+    const visit = (node: GridNodeInput<string>): void => {
+        if (node.kind === "leaf") return;
+        for (const child of node.children) {
+            if (child.sizing === "fixed") fixed.add(child.id);
+            visit(child);
+        }
+    };
+    visit(root);
+    return fixed;
+}
+
 export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOptions): LayoutProjection {
     const collapsedTo = new Map<string, string>();
     const sashes = new Map<string, number[]>();
@@ -135,18 +149,29 @@ export interface PresentationCollapse {
  * 焦点所在的面板最后收。结果只影响呈现，不写文档。
  */
 export function presentationCollapse(doc: LayoutDoc, extent: GridExtent, options: LayoutProjectionOptions & {readonly order: ReadonlyArray<string>; readonly focused?: string | null}): PresentationCollapse {
-    const fits = (removed: ReadonlySet<string>): boolean => {
+    /** 最小值超出窗口多少；0 是放得下。 */
+    const overflowOf = (removed: ReadonlySet<string>): number => {
         const {input, sashSize} = projectLayoutDoc(doc, {...options, removed});
-        return minimumOf(input, "width", null, sashSize) <= extent.width && minimumOf(input, "height", null, sashSize) <= extent.height;
+        return Math.max(0, minimumOf(input, "width", null, sashSize) - extent.width) + Math.max(0, minimumOf(input, "height", null, sashSize) - extent.height);
     };
     const removed = new Set<string>();
-    if (fits(removed)) return {removed, squeezed: false};
+    if (overflowOf(removed) === 0) return {removed, squeezed: false};
     const shown = new Set(treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "tool" && doc.panels[id]?.hidden !== true));
     const queue = [...options.order.filter((id) => shown.has(id)), ...[...shown].filter((id) => !options.order.includes(id))];
     const ordered = [...queue.filter((id) => id !== options.focused), ...queue.filter((id) => id === options.focused)];
+    let squeezed = true;
     for (const id of ordered) {
         removed.add(id);
-        if (fits(removed)) return {removed, squeezed: false};
+        if (overflowOf(removed) === 0) {
+            squeezed = false;
+            break;
+        }
     }
-    return {removed, squeezed: true};
+    // 前面收走的不一定帮上了忙（窄的时候，收走纵向的那块不省宽度）：从后往前放回来，放回来不更挤的就不收。全收走还放不下时也一样，不然窗口再窄一点底部面板反而不见了。
+    for (const back of [...removed].reverse()) {
+        const before = overflowOf(removed);
+        removed.delete(back);
+        if (overflowOf(removed) > before) removed.add(back);
+    }
+    return {removed, squeezed};
 }

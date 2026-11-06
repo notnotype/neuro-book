@@ -77,7 +77,8 @@ function onContextMenu(event: MouseEvent): void {
 </script>
 
 <template>
-    <header class="workbench-panel-head" :data-panel-head="panelId">
+    <!-- 面板头也是可聚焦的拖动源（docs/specs/ui/workbench-layout.md 输出 31）：焦点在它自己身上时空格拿起整块面板。 -->
+    <header class="workbench-panel-head nb-ui-focus-ring-inset" :data-panel-head="panelId" tabindex="0" role="group" :aria-label="label" :aria-description="dragHint === '' ? undefined : dragHint">
         <div class="workbench-panel-head__band" :data-panel-band="panelId" @contextmenu="onContextMenu">
             <Tabs
                 v-if="items.length > 0"

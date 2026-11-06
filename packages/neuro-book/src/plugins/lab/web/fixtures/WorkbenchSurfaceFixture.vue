@@ -67,8 +67,8 @@ const lastMenu = ref("");
 const surface = ref<InstanceType<typeof WorkbenchSurface> | null>(null);
 
 const options = computed(() => layoutProjectionOptions({catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value}));
-const collapse = computed(() => (extent.value === null ? {removed: new Set<string>()} : presentationCollapse(doc.value, extent.value, {...options.value, order: COLLAPSE_ORDER, focused: focusedPanel.value})));
-const projection = computed(() => projectLayoutDoc(doc.value, {...options.value, removed: collapse.value.removed}));
+const collapse = computed(() => (extent.value === null ? {removed: new Set<string>(), squeezed: false} : presentationCollapse(doc.value, extent.value, {...options.value, order: COLLAPSE_ORDER, focused: focusedPanel.value})));
+const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
 const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value}));
 
 /** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），和产品的 store 同一个次序。 */
@@ -78,9 +78,10 @@ function commit(operation: (current: LayoutDoc) => LayoutResult): void {
 }
 
 function onGestureCommit(sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
-    let next = rebaseIntents(doc.value, sizes, projection.value.collapsedTo);
+    // 先改收起状态再写回意图，和产品的 store 同一个次序：收起的面板呈现尺寸不是意图。
+    let next = doc.value;
     for (const [id, value] of Object.entries(collapsed)) next = unwrap(setPanelCollapsed(next, id, value), next);
-    doc.value = next;
+    doc.value = rebaseIntents(next, sizes, projection.value.collapsedTo);
 }
 
 const moveTo = (tab: string, panel: string, edge: "left" | "right" | "top" | "bottom") => (current: LayoutDoc): LayoutResult => {

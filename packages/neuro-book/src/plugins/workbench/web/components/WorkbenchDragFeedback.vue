@@ -136,8 +136,8 @@ defineEmits<{
  * 拖动源保持原尺寸：按钮按下的缩放在拖动开始后撤掉（按住期间 `:active` 会一直生效）。只写 `scale`：与
  * `transform` 写在同一条规则里时，构建的 CSS 压缩会把两者并成一条 `transform`，`scale` 就丢了。
  */
-:root[data-workbench-dragging] :is([data-drag-container], [data-drag-view]),
-:root[data-workbench-dragging] :is([data-drag-container], [data-drag-view]) * {
+:root[data-workbench-dragging] :is([data-drag-container], [data-drag-view], [data-tool-entry], [data-panel-tab], [data-panel-head]),
+:root[data-workbench-dragging] :is([data-drag-container], [data-drag-view], [data-tool-entry], [data-panel-tab], [data-panel-head]) * {
     scale: 1 !important;
 }
 </style>

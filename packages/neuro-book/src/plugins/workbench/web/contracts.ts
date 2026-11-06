@@ -82,5 +82,6 @@ export interface ViewContext {
     readonly generation: number;
     /** 有效可见；停放、收起与加载中都不算。 */
     readonly visible: Readonly<Ref<boolean>>;
-    readonly location: Readonly<Ref<ViewLocation>>;
+    /** 视图在哪个具名面板；无名面板是 null（docs/specs/ui/workbench-layout.md“边界与兼容”）。 */
+    readonly location: Readonly<Ref<ViewLocation | null>>;
 }

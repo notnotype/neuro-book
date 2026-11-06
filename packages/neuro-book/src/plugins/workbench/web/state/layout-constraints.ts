@@ -26,8 +26,9 @@ export const EDITOR_GROUP_MINIMUM: GridExtent = {width: 220, height: 120};
 /** 放不下时收走的先后（输出 10）。别的工具面板排在后面。 */
 export const COLLAPSE_ORDER: ReadonlyArray<string> = ["auxiliarybar", "panel", "sidebar"];
 
-export function panelConstraints(panel: PanelRecord, catalog: ViewCatalog, viewportWidth: number): {readonly minimumSize: GridExtent; readonly maximumSize: GridExtent} {
-    if (panel.role === "editor") return {minimumSize: EDITOR_GROUP_MINIMUM, maximumSize: {width: GRID_UNBOUNDED, height: GRID_UNBOUNDED}};
+export function panelConstraints(panel: PanelRecord, catalog: ViewCatalog, viewportWidth: number, squeezed = false): {readonly minimumSize: GridExtent; readonly maximumSize: GridExtent} {
+    // 工具面板全收走了还放不下：只压编辑组（输出 10）。它们的最小值还在的话约束解不出来，求解器会连条一起按比例压。
+    if (panel.role === "editor") return {minimumSize: squeezed ? {width: 0, height: 0} : EDITOR_GROUP_MINIMUM, maximumSize: {width: GRID_UNBOUNDED, height: GRID_UNBOUNDED}};
     const minimumWidth = panel.name === "sidebar" ? SHELL_SIDEBAR_MIN_WIDTH : (panel.name === "auxiliarybar" ? SHELL_AUXILIARYBAR_MIN_WIDTH : SHELL_PANEL_MIN_WIDTH);
     const maximumWidth = panel.name === "sidebar" ? SHELL_SIDEBAR_MAX_WIDTH : (panel.name === "auxiliarybar" ? Math.max(SHELL_AUXILIARYBAR_MAX_FLOOR_WIDTH, viewportWidth * SHELL_AUXILIARYBAR_MAX_VIEWPORT_RATIO) : GRID_UNBOUNDED);
     // 取所有标签的并（最大的最小值、最小的最大值）：切标签不改布局。
@@ -39,9 +40,9 @@ export function panelConstraints(panel: PanelRecord, catalog: ViewCatalog, viewp
     return {minimumSize: {width: minWidth, height: minHeight}, maximumSize: {width: maxWidth, height: maxHeight}};
 }
 
-export function layoutProjectionOptions(input: {readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number}): LayoutProjectionOptions {
+export function layoutProjectionOptions(input: {readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number; readonly squeezed?: boolean}): LayoutProjectionOptions {
     return {
-        constraints: (_id, panel) => panelConstraints(panel, input.catalog, input.viewportWidth),
+        constraints: (_id, panel) => panelConstraints(panel, input.catalog, input.viewportWidth, input.squeezed),
         // 主题的缝宽进几何：活动栏的卡片宽不变，叶宽要加上它和窗体、侧栏之间的缝。
         barThickness: (bar) => (bar === "activitybar" ? SHELL_ACTIVITYBAR_WIDTH + Math.max(0, input.cardGap ?? 0) : SHELL_STATUSBAR_HEIGHT),
         headHeight: PANEL_HEAD_HEIGHT,

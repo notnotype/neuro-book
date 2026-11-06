@@ -213,8 +213,8 @@ defineExpose({
                     <div
                         v-else
                         class="workbench-surface__card"
-                        :data-surface-card="node.id"
-                        :data-surface-join="joinOf(node.id)"
+                        :data-shell-card="node.id"
+                        :data-shell-join="joinOf(node.id)"
                         :data-panel-role="roleOf(node.id) ?? undefined"
                         :data-panel-name="doc.panels[node.id]?.name"
                         :data-hover-actions-scope="roleOf(node.id) === 'tool' ? '' : undefined"
@@ -233,7 +233,7 @@ defineExpose({
                         :role="roleOf(leaf) === 'tool' ? 'tabpanel' : undefined"
                         :aria-labelledby="roleOf(leaf) === 'tool' ? panelTabDomId(idPrefix, contentKey) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
-                        :data-surface-join="joinOf(leaf)"
+                        :data-shell-join="joinOf(leaf)"
                     >
                         <slot name="content" :content-key="contentKey" :panel-id="leaf" :active="active"></slot>
                     </div>
@@ -298,18 +298,18 @@ defineExpose({
     background: var(--panel-surface);
 }
 
-.workbench-surface__card[data-surface-join="start"] {
+.workbench-surface__card[data-shell-join="start"] {
     border-start-end-radius: 0;
     border-end-end-radius: 0;
 }
 
-.workbench-surface__card[data-surface-join="end"] {
+.workbench-surface__card[data-shell-join="end"] {
     border-start-start-radius: 0;
     border-end-start-radius: 0;
 }
 
 /* 相连的活动栏与面板之间一条两端不碰顶底的短线；不需要时主题把颜色设成透明。 */
-.workbench-surface__card[data-surface-join="start"]::after {
+.workbench-surface__card[data-shell-join="start"]::after {
     content: "";
     position: absolute;
     inset-block: 10px;
@@ -392,12 +392,17 @@ defineExpose({
     border-end-end-radius: var(--shell-card-radius, 0px);
 }
 
+/* 飞行中压在别的面板上面（输出 15）：内容平时透明，露出卡片的底与场景图；飞的时候离开了卡片，要自己带底，不和下面的字叠在一起。 */
+.workbench-surface :deep(.nb-grid-content[data-flying]) .workbench-surface__content-clip {
+    background: var(--panel-surface);
+}
+
 .workbench-surface__content-clip[data-panel-role="editor"] {
     border-start-start-radius: var(--shell-card-radius, 0px);
     border-start-end-radius: var(--shell-card-radius, 0px);
 }
 
-.workbench-surface__content-clip[data-surface-join="end"] {
+.workbench-surface__content-clip[data-shell-join="end"] {
     border-end-start-radius: 0;
 }
 </style>

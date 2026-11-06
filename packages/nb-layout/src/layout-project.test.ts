@@ -2,7 +2,7 @@ import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
 import {docOf, H, sizeOf, testPolicy, V} from "./layout-doc-fixtures";
-import {projectLayoutDoc, presentationCollapse} from "./layout-project";
+import {fixedNodesOf, projectLayoutDoc, presentationCollapse} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridAxis, GridExtent, GridNodeInput} from "./grid-types";
 import {moveTabToEdge, rebaseIntents, setPanelCollapsed} from "./layout-doc";
@@ -149,6 +149,19 @@ describe("意图只从呈现尺寸写回", () => {
     });
 });
 
+describe("保留像素的节点", () => {
+    it("和编辑区并排的工具面板与条是，吸收余量的不是；全是工具面板的一列按比例分，也不是", () => {
+        const doc = docOf(V([H(["activitybar", V(["sidebar", "tool"]), V(["ea", "panel"]), "auxiliarybar"]), "statusbar"]));
+        const fixed = fixedNodesOf(projectLayoutDoc(doc, OPTIONS).input);
+        expect(fixed.has("panel")).toBe(true);
+        expect(fixed.has("auxiliarybar")).toBe(true);
+        expect(fixed.has("activitybar")).toBe(true);
+        expect(fixed.has("ea")).toBe(false);
+        expect(fixed.has("sidebar")).toBe(false);
+        expect(fixed.has("tool")).toBe(false);
+    });
+});
+
 describe("放不下时收走", () => {
     const ORDER = ["auxiliarybar", "panel", "sidebar"];
     const doc = (): LayoutDoc => docOf(DEFAULT_TREE());
@@ -156,19 +169,19 @@ describe("放不下时收走", () => {
     it.each<[string, GridExtent, ReadonlyArray<string>, boolean]>([
         ["放得下什么都不收", {width: 1000, height: 600}, [], false],
         ["窄了先收右栏", {width: 500, height: 600}, ["auxiliarybar"], false],
-        ["再窄收侧栏（面板和编辑组同列，不省宽度也会收）", {width: 400, height: 600}, ["auxiliarybar", "panel", "sidebar"], false],
-        ["矮了收面板", {width: 1000, height: 200}, ["auxiliarybar", "panel"], false],
-        ["全收走还放不下：压编辑组", {width: 200, height: 600}, ["auxiliarybar", "panel", "sidebar"], true],
+        ["再窄收侧栏；面板和编辑组同列，收它不省宽度，留着", {width: 400, height: 600}, ["auxiliarybar", "sidebar"], false],
+        ["矮了收面板；右栏是整高的一列，收它不省高度，留着", {width: 1000, height: 200}, ["panel"], false],
+        ["全收走还放不下：压编辑组；面板不占宽度，留着", {width: 200, height: 600}, ["auxiliarybar", "sidebar"], true],
     ])("%s", (_name, extent, removed, squeezed) => {
         const result = presentationCollapse(doc(), extent, {...OPTIONS, order: ORDER});
-        expect([...result.removed]).toEqual([...removed]);
+        expect([...result.removed].sort()).toEqual([...removed].sort());
         expect(result.squeezed).toBe(squeezed);
     });
 
     it("焦点所在的面板最后收", () => {
         const result = presentationCollapse(doc(), {width: 500, height: 600}, {...OPTIONS, order: ORDER, focused: "auxiliarybar"});
         expect(result.removed.has("auxiliarybar")).toBe(false);
-        expect(result.removed.has("panel")).toBe(true);
+        expect([...result.removed]).toEqual(["sidebar"]);
     });
 
     it("隐藏的面板不算：不在队列里", () => {

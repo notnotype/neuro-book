@@ -88,13 +88,13 @@ const host = useGridLayout({
     extent,
     contextKey: () => "panels",
     onApplied: (_commit, result) => {
-        // 意图只从呈现尺寸写回（workbench-layout 输出 8）；收起状态来自这次手势。
-        let next = rebaseIntents(doc.value, host.layout.value.sizes, projection.value.collapsedTo);
+        // 意图只从呈现尺寸写回（workbench-layout 输出 8）；收起状态来自这次手势，先改它：收起的面板呈现尺寸不是意图。
+        let next = doc.value;
         for (const [id, collapsed] of Object.entries(result.collapsed)) {
             const updated = setPanelCollapsed(next, id, collapsed);
             if (updated.ok) next = updated.doc;
         }
-        doc.value = next;
+        doc.value = rebaseIntents(next, host.layout.value.sizes, projection.value.collapsedTo);
     },
 });
 

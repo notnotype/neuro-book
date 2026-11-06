@@ -369,10 +369,9 @@ test("完整示例 focus 外置：状态栏条目显示今天的个数；在侧�
         const item = page.locator("[data-workbench-status-bar] [data-workbench-item='example.focus.status']");
         await expect(item).toHaveText("今天 0 个番茄");
 
-        // 侧栏显示 focus 的容器。侧栏打开时显示哪个容器取决于各容器的排序与上次的布局，点一下已选中的容器会把侧栏收起，
-        // 所以只在它没选中时点；先等活动栏画出选中的那个，免得布局还没恢复时读错。
-        const container = page.locator("[data-activity-container='view:example.focus.panel']");
-        await expect(page.locator("[data-activity-container][aria-pressed='true']")).toHaveCount(1);
+        // 显示 focus 的视图。活动栏条目点一下已经聚焦的视图会隐藏它，所以只在它没按下时点。
+        const container = page.locator("[data-tool-entry='example.focus.panel']");
+        await expect(container).toBeVisible();
         if ((await container.getAttribute("aria-pressed")) !== "true") await container.click();
         await expect(container).toHaveAttribute("aria-pressed", "true");
         const panel = page.locator("[data-focus-panel]");

@@ -96,7 +96,7 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
                 <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-tool-strip__item" data-tool-more />
             </DropdownMenu>
         </div>
-        <div class="workbench-tool-strip__footer">
+        <div class="workbench-tool-strip__footer" data-activity-items>
             <template v-for="item in items" :key="item.id">
                 <!-- 停用的按钮不触发悬停提示组件：停用时原因写在原生 title 上。 -->
                 <Tooltip v-if="item.interactive" :text="item.title" side="right" :disabled="item.disabledReason !== null">
@@ -107,7 +107,7 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
                         :title="item.disabledReason ?? ''"
                         :aria-pressed="item.pressed ?? undefined"
                         :disabled="item.disabledReason !== null"
-                        :data-tool-item="item.id"
+                        :data-activity-item="item.id"
                         class="workbench-tool-strip__item"
                         :class="{'workbench-tool-strip__item--pressed': item.pressed === true}"
                         @click="emit('run-item', item.id)"
@@ -115,7 +115,7 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
                 </Tooltip>
                 <!-- 没有命令：不可点的占位（不以可操作的假入口呈现），样子同书架右上角的头像位。 -->
                 <Tooltip v-else :text="item.title" side="right">
-                    <span class="workbench-tool-strip__placeholder" role="img" :aria-label="item.title" :data-tool-item="item.id" data-tool-placeholder>
+                    <span class="workbench-tool-strip__placeholder" role="img" :aria-label="item.title" :data-activity-item="item.id" data-activity-item-placeholder>
                         <span class="workbench-tool-strip__placeholder-circle"><span class="workbench-tool-strip__placeholder-icon" :class="item.icon" aria-hidden="true"></span></span>
                     </span>
                 </Tooltip>

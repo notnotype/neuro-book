@@ -9,7 +9,7 @@ import {resolveGridEdgeDrop} from "./grid-drop";
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, findTab, findTreeNode, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, showPanelAndInsert, treeLeaves} from "./layout-doc";
+import {edgeTargetOf, findTab, findTreeNode, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, setPanelHidden, showPanelAndInsert, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutPolicy, LayoutResult, LayoutSource, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -70,9 +70,9 @@ function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometr
         if (!input.policy.accepts(tabs, panel, "strip")) return null;
         return {kind: "strip", panel: geometry.id, index: geometry.insertionAt?.(input.point) ?? panel.tabs.length};
     }
-    // 空面板整块都是中央。指针可能在缝上（这块之外），夹回来再判。
+    // 空面板整块都是中央；进不了这块的（工具视图拖到空编辑组）仍按外缘判，外缘什么面板都接受。指针可能在缝上（这块之外），夹回来再判。
     const point = {x: Math.min(Math.max(input.point.x, geometry.body.left), geometry.body.right - 1), y: Math.min(Math.max(input.point.y, geometry.body.top), geometry.body.bottom - 1)};
-    const zone = panel.tabs.length === 0 ? "center" : resolveGridEdgeDrop({point, rect: geometry.body, edgeRatio: input.edgeRatio ?? LAYOUT_EDGE_RATIO});
+    const zone = panel.tabs.length === 0 && input.policy.accepts(tabs, panel, "center") ? "center" : resolveGridEdgeDrop({point, rect: geometry.body, edgeRatio: input.edgeRatio ?? LAYOUT_EDGE_RATIO});
     if (zone === null) return null;
     if (zone === "center") return input.policy.accepts(tabs, panel, "center") ? {kind: "center", panel: geometry.id} : null;
     if (!input.policy.accepts(tabs, panel, "edge")) return null;
@@ -91,16 +91,14 @@ export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | nu
         .map((geometry) => ({geometry, distance: Math.min(distanceTo(geometry.body, input.point), geometry.strip === null ? Number.POSITIVE_INFINITY : distanceTo(geometry.strip, input.point))}))
         .filter(({distance}) => distance <= SEAM_PX)
         .sort((left, right) => left.distance - right.distance)[0]?.geometry;
-    if (hit !== undefined) {
-        const panel = input.doc.panels[hit.id];
-        return panel === undefined ? null : resolveInPanel(input, hit, panel, tabs);
-    }
-    for (const zone of input.zones ?? []) {
-        if (!contains(zone.rect, input.point)) continue;
-        const panel = input.doc.panels[zone.panel];
-        return panel !== undefined && input.policy.accepts(tabs, panel, "center") ? {kind: "reveal", panel: zone.panel} : null;
-    }
-    return null;
+    const panel = hit === undefined ? undefined : input.doc.panels[hit.id];
+    const action = hit === undefined || panel === undefined ? null : resolveInPanel(input, hit, panel, tabs);
+    // 工具面板上的真实落点优先。预备区浮在编辑组上面，编辑组的外缘窄带（28%）差不多正好盖住它：编辑组让位，否则指针永远到不了预备区。
+    if (action !== null && panel?.role === "tool") return action;
+    const zone = input.zones?.find((candidate) => contains(candidate.rect, input.point));
+    const target = zone === undefined ? undefined : input.doc.panels[zone.panel];
+    if (zone !== undefined && target !== undefined && input.policy.accepts(tabs, target, "center")) return {kind: "reveal", panel: zone.panel};
+    return action;
 }
 
 /** 提交落点。结果和现状一样时返回原文档对象（放回原处），宿主据此不提交。 */
@@ -145,6 +143,18 @@ export function previewEdgeDrop(doc: LayoutDoc, source: LayoutSource, action: Ex
     const item = placement.items.find((candidate) => candidate.kind === "leaf" && candidate.node.id === placed);
     if (item === undefined) return null;
     return {left: item.rect.x, top: item.rect.y, right: item.rect.x + item.rect.width, bottom: item.rect.y + item.rect.height};
+}
+
+/** 此刻没显示的具名面板显示出来会在的矩形（相对树的根）：预备区按它浮出（输出 29）。放不进呈现树时是 `null`。 */
+export function previewRevealRect(doc: LayoutDoc, panel: string, projection: LayoutProjectionOptions, extent: GridExtent, dpr: number): GridDropRect | null {
+    const shown = setPanelHidden(doc, panel, false);
+    if (!shown.ok) return null;
+    const {input, sashSize} = projectLayoutDoc(shown.doc, projection);
+    const grid = createGrid<string>(input, {sashSize});
+    const root = grid.root();
+    if (root === null) return null;
+    const item = placeGrid(root, grid.layout(extent), extent, dpr).items.find((candidate) => candidate.kind === "leaf" && candidate.node.id === panel);
+    return item === undefined ? null : {left: item.rect.x, top: item.rect.y, right: item.rect.x + item.rect.width, bottom: item.rect.y + item.rect.height};
 }
 
 export interface LayoutDropCandidate {

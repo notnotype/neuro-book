@@ -712,7 +712,8 @@ test.describe("触摸（docs/specs/ui/layout-drag.md 验收 5）", () => {
 });
 
 test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看得见的最后一个后面落在它的后继之前；只有一个固定标签的组，拖到正文中央取消固定", async ({page}) => {
-    await page.setViewportSize({width: 1000, height: 800});
+    // 要放得下几个标签、又放不下十个：被拖的第二个标签不能正好是看得见的最后一个。
+    await page.setViewportSize({width: 1400, height: 800});
     await open(page);
     await closeAll(page);
     const settings = join(projectDir, ".nbook", "settings.json");

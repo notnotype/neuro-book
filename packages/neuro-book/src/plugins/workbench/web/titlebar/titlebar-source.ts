@@ -42,7 +42,8 @@ export interface ShellChrome {
      * `workbench.view-title` 贡献的在后；按钮至多 8 个，多出的收进“⋯”。可用与否看命令的 `when`（不可用时带原因），按下态看
      * `toggled` 的公开键；视图实例还没建立（`instance` 为 null）时，要实例的动作不可用。
      */
-    viewActions(viewId: string, actions: ReadonlyArray<ViewAction>, text: TextResolver, instance: ViewInstanceRef | null): TitleActionsModel;
+    /** `maxButtons`：这一行还放得下几个按钮，放不下的收进“⋯”；缺省不再少。 */
+    viewActions(viewId: string, actions: ReadonlyArray<ViewAction>, text: TextResolver, instance: ViewInstanceRef | null, maxButtons?: number): TitleActionsModel;
     /**
      * 点了视图标题的一个动作（按 `TitleActionEntry.key` 找，不按位置找：显示的列表会随 `when` 与按钮预算变）：执行它的命令，
      * 要实例的带上被点的视图实例；要实例而实例还没建立、或这一项已不在时不执行。
@@ -137,7 +138,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
             void version.value;
             return options.activityItems.shown(text).map((item) => ({...item, disabledReason: disabledReason(item, text)}));
         },
-        viewActions: (viewId, actions, text, instance) => {
+        viewActions: (viewId, actions, text, instance, maxButtons = Number.POSITIVE_INFINITY) => {
             void version.value;
             const loading = text.t(workbenchText("viewActions.instanceLoading"));
             const own = actions.map((action, index): TitleActionCandidate => {
@@ -167,7 +168,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                     ...(item.checked === null ? {} : {pressed: item.checked}),
                     ...(item.shortcut === null ? {} : {shortcut: item.shortcut}),
                 }})));
-            return assembleTitleActions(own, contributed, VIEW_ACTIONS_MAX);
+            return assembleTitleActions(own, contributed, Math.min(VIEW_ACTIONS_MAX, maxButtons));
         },
         runViewAction: (viewId, actions, key, instance) => {
             const target = instance === null ? {} : {viewId: instance.viewId, generation: instance.generation};

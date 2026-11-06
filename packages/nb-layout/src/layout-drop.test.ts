@@ -66,6 +66,14 @@ describe("有序规则", () => {
         expect(drop(doc, VIEW, 305, 40)).toEqual({kind: "center", panel: "b"});
     });
 
+    it("进不了空面板的：中央没有落点，外缘照常（工具视图拖到空编辑组）", () => {
+        const doc = docOf(H(["a", "b", "ec"]), {a: {tabs: [view("a"), view("x")], active: "view:a"}, ec: {tabs: [], active: null}});
+        const body = GEOMETRY.find((geometry) => geometry.id === "ec")?.body;
+        if (body === undefined) throw new Error("夹具没有编辑组");
+        expect(drop(doc, VIEW, (body.left + body.right) / 2, (body.top + body.bottom) / 2)).toBeNull();
+        expect(drop(doc, VIEW, body.right - 5, (body.top + body.bottom) / 2)).toMatchObject({kind: "edge"});
+    });
+
     it("来源标签已经不在了：没有落点", () => {
         expect(drop(THREE(), {kind: "tab", tab: "view:gone"}, 450, 300)).toBeNull();
     });
@@ -107,6 +115,15 @@ describe("预备区（输出 29）", () => {
 
     it("接受矩阵拒绝时不算", () => {
         expect(drop(doc(), EDITOR_TAB, 1000, 300, {zones})).toBeNull();
+    });
+
+    it("工具面板上的真实落点优先；编辑组让位：它的外缘窄带差不多正好盖住预备区", () => {
+        const wide = [{panel: "auxiliarybar", rect: rect(0, 0, 1200, 600)}];
+        expect(drop(doc(), VIEW, 450, 300, {zones: wide})).toEqual({kind: "center", panel: "b"});
+        const inEditor = GEOMETRY.find((geometry) => geometry.id === "ec")?.body;
+        if (inEditor === undefined) throw new Error("夹具没有编辑组");
+        expect(drop(doc(), VIEW, (inEditor.left + inEditor.right) / 2, 300, {zones: wide})).toEqual({kind: "reveal", panel: "auxiliarybar"});
+        expect(drop(doc(), VIEW, inEditor.right - 5, 300, {zones: wide})).toEqual({kind: "reveal", panel: "auxiliarybar"});
     });
 });
 

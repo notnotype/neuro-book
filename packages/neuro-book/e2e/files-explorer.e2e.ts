@@ -117,11 +117,23 @@ test.afterAll(async () => {
 const tree = (page: Page) => page.getByRole("tree", {name: "文件"});
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
 
+const WIDE_SIDEBAR = 400;
+
 async function open(page: Page, bound = true): Promise<void> {
     // 没有项目的 `/` 是书架页；外壳（含资源管理器）在 `/workbench`。
     await page.goto(new URL(bound ? "/?project=book" : "/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(tree(page)).toBeVisible();
+    // 标题动作放不下的收进“⋯”（ui/workbench-layout.md 输出 20）。这里测的是动作本身，把侧栏拉到五个都放得下。
+    const sidebar = await page.locator('[data-leaf="sidebar"]').boundingBox();
+    if (sidebar !== null && sidebar.width < WIDE_SIDEBAR) {
+        const edge = {x: sidebar.x + sidebar.width, y: sidebar.y + 100};
+        await page.mouse.move(edge.x, edge.y);
+        await page.mouse.down();
+        await page.mouse.move(edge.x + WIDE_SIDEBAR - sidebar.width, edge.y, {steps: 3});
+        await page.mouse.up();
+        await expect(page.locator('[data-panel-head="sidebar"] [data-title-action]')).toHaveCount(5);
+    }
 }
 
 test("项目根是作品名、标题行五个动作；展开时新行滑下淡入、动画后撤掉标记；鼠标点行不画焦点线、方向键之后画 1.5px 内嵌线；减少动态时不动画（验收 18、19）", async ({page}) => {
@@ -129,7 +141,7 @@ test("项目根是作品名、标题行五个动作；展开时新行滑下淡�
     await open(page);
     // 作品没有书名：项目根显示目录原名。
     await expect(item(page, "project://").locator("[data-explorer-label]")).toHaveText("Book");
-    const actions = page.locator('[data-tool-part="sidebar"] [data-title-action]');
+    const actions = page.locator('[data-panel-head="sidebar"] [data-title-action]');
     await expect(actions).toHaveCount(5);
     for (const box of await actions.evaluateAll((buttons) => buttons.map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]))) expect(box).toEqual([24, 24]);
     await expect(page.locator("[data-explorer-view] [role=toolbar]")).toHaveCount(0);
@@ -614,8 +626,8 @@ test("行的样子与设置（验收 21、23、29）：中文数字排序、内�
     expect((await paint()).background).not.toBe(focused.background);
     await tree(page).focus();
     await expect.poll(paint).toEqual(focused);
-    // 视图标题的“移动到”菜单盖在选中的行上：树里给行与落点反馈分的层不越出树，菜单项上最上面的元素属于菜单。
-    await page.locator('[data-tool-part="sidebar"]').getByRole("button", {name: "移动到", exact: true}).click();
+    // 标签的右键菜单（“移动到”）盖在选中的行上：树里给行与落点反馈分的层不越出树，菜单项上最上面的元素属于菜单。
+    await page.locator('[data-panel-tab="view:nbook.explorer"]').click({button: "right"});
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
     const covered = await menu.getByRole("menuitem").evaluateAll((items) => items.filter((entry) => {

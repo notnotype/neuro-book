@@ -68,7 +68,7 @@ import {WORKBENCH_TITLEBAR_MENU_ITEMS} from "./titlebar/menu-items";
 import {createShellChrome} from "./titlebar/titlebar-source";
 import {PageTable, validatePageContribution} from "./pages";
 import {createLayoutHost} from "./state/layout-host";
-import {layoutStoreFor} from "./state/layout-store";
+import {layoutDocStoreFor} from "./state/layout-doc-store";
 import {workbenchState, workbenchStateBindings} from "./state/public-state";
 import {ViewRegistry} from "./views/registry";
 
@@ -162,18 +162,24 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const OverlayHost = createOverlayHost(overlays, (message) => diagnostics.record({level: "warn", event: "workbench.overlays", message, source: {plugin: descriptor.id}}));
             const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
             const layout = createLayoutHost(() => {
-                const store = layoutStoreFor(project !== null).create(context, {storage, diagnostics});
+                const store = layoutDocStoreFor(project !== null).create(context, {storage, diagnostics});
                 store.actions.acceptViewCatalog(views.catalog);
-                // 落位与呈现的诊断（未知引用、默认位置已变、起源声明不在）：同一条只记一次。
+                // 记录读不了时回落默认树，原件不覆盖（输出见“失败与恢复”）：同一条只记一次。
                 const recorded = new Set<string>();
-                const stop = watch(() => [...store.state.presentation.diagnostics, ...store.state.patchProblems], (lines) => {
+                const stop = watch(() => store.state.problems.map((problem) => `${problem.kind}:${problem.code}`), (lines) => {
                     for (const line of lines) {
                         if (recorded.has(line)) continue;
                         recorded.add(line);
-                        diagnostics.record({level: "warn", event: "workbench.views.placement", message: line, source: {plugin: descriptor.id}});
+                        diagnostics.record({level: "warn", event: "workbench.layout", message: line, source: {plugin: descriptor.id}});
                     }
                 }, {immediate: true});
-                context.signal.addEventListener("abort", () => stop(), {once: true});
+                const stopFailure = watch(() => store.state.structureFailure, (detail) => {
+                    if (detail !== null) diagnostics.record({level: "warn", event: "workbench.layout.limit", message: detail, source: {plugin: descriptor.id}});
+                });
+                context.signal.addEventListener("abort", () => {
+                    stop();
+                    stopFailure();
+                }, {once: true});
                 return store;
             });
             const publicState = bindingsOf(workbenchState, workbenchStateBindings(layout.current));
@@ -270,7 +276,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                         appearance: resolvedAppearance(),
                         onOpen: (where: "tab" | "floating") => void commands.execute(where === "tab" ? OPEN_THEME_EDITOR_COMMAND : OPEN_THEME_EDITOR_FLOATING_COMMAND, {}, {source: "user"}),
                     }))},
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick, text), ...appCommands(context.services.require(windowNavigationKey))},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

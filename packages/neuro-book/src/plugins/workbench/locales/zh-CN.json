@@ -151,13 +151,17 @@
             "justify": "两端（含左右侧栏）"
         },
         "current": "当前",
-        "placeholder": "选中后立即生效"
+        "placeholder": "选中后立即生效",
+        "noPanel": "没有可以操作的面板",
+        "editorCollapse": "编辑组不能收起"
     },
     "partCommands": {
         "parts": {
             "sidebar": "侧栏",
             "auxiliarybar": "右栏",
-            "activitybar": "活动栏"
+            "activitybar": "活动栏",
+            "panel": "面板",
+            "statusbar": "状态栏"
         },
         "visible": "显示中",
         "hidden": "已隐藏",
@@ -175,7 +179,8 @@
         "parts": {
             "sidebar": "侧栏",
             "auxiliarybar": "右栏",
-            "panel": "面板"
+            "panel": "面板",
+            "editor": "编辑区"
         },
         "pickView": "选择要移动的视图",
         "pickOpen": "选择要打开的视图",
@@ -184,13 +189,16 @@
         "unplaced": "视图不在布局里：{{viewId}}",
         "pickTarget": "移动到",
         "noViews": "没有可以移动的视图",
-        "partial": "要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个",
-        "stale": "视图已经不在发起时的容器里，没有移动",
+        "partial": "要么都不给，要么同时给 viewId 和 target",
+        "stale": "视图或目标面板已经不在了，没有移动",
         "newContainer": {
             "sidebar": "新建容器（在侧栏）",
             "auxiliarybar": "新建容器（在右栏）",
             "panel": "新建容器（在面板）"
-        }
+        },
+        "newPanelNextTo": "新面板（挨着{{panel}}）",
+        "rejected": "这个视图不能放到那里",
+        "limit": "布局已经太复杂，放不下新面板"
     },
     "views": {
         "resetLocation": "重置位置",
@@ -224,9 +232,22 @@
             "mergeContainer_other": "并入 {{count}} 个视图",
             "reveal": "放到{{part}}",
             "before": "放在“{{title}}”前",
-            "after": "放在“{{title}}”后"
+            "after": "放在“{{title}}”后",
+            "addTab": "添加为标签",
+            "insert": "放在这里",
+            "between": "放到两块之间",
+            "split": "拆到这一边",
+            "inPlace": "原位"
         },
-        "moreActions": "更多操作"
+        "moreActions": "更多操作",
+        "frame": {
+            "hide": "隐藏"
+        },
+        "tools": "工具",
+        "missing": {
+            "view": "提供这个视图的插件现在不在：{{viewId}}",
+            "close": "关闭这个标签"
+        }
     },
     "viewFrame": {
         "declared": "正在等待视图所属的插件启动",
@@ -299,6 +320,15 @@
         },
         "panelMaximized": {
             "reason": "面板没有最大化"
+        },
+        "nonPhone": {
+            "reason": "手机呈现下不可用"
+        },
+        "hasCurrentPanel": {
+            "reason": "还没有面板获得过焦点"
+        },
+        "maximized": {
+            "reason": "没有最大化的面板"
         }
     },
     "themes": {
