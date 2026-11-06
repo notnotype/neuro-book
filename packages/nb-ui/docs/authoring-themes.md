@@ -99,7 +99,7 @@ installTheme(myTheme);
 - 密度：`--control-h-sm/md/lg` `--control-px` `--panel-p` `--stack-gap`
 - 形状：`--radius-control` `--radius-control-lg` `--radius-panel` `--radius-dialog` `--radius-dialog-compact` `--radius-window` `--border-w`（`--radius-window` 是浮动窗口的圆角，主题有工作台卡片时让它等于 `--shell-card-radius`，两者同一类面；`--radius-dialog-compact` 不大于它）
 - 装饰：`--surface-raise` `--inset-shadow` `--elevation-raised/popover/dialog` `--focus-ring`
-- 动效：`--motion-fast` `--motion-base` `--motion-enter` `--ease-standard`
+- 动效：`--motion-fast` `--motion-base` `--motion-enter` `--ease-standard`（主曲线 `--ease-layout` 不随主题变，见 [设计语言](./design-language.md) 的“缓动”；`--ease-standard` 迁移完成后不再需要主题登记）
 - **角色映射**：`--control-surface` `--button-surface` `--panel-surface` `--sidebar-surface`
   `--toolbar-surface` `--overlay-surface` `--dialog-surface` `--dialog-surface-nested` `--overlay-blur` `--strip-surface` `--divider` 及对应的 `-outline`
 
