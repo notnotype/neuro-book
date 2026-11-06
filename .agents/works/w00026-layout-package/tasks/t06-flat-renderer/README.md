@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t06-flat-renderer
-status: done
-updated: 2026-11-05
+status: active
+updated: 2026-11-06
 ---
 
 # 扁平渲染层
