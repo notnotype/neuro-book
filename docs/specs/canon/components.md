@@ -124,7 +124,7 @@ owners:
     | 核对点 | 依据里的 `check`（由核对点推出的差额） |
 
     稳定键（[`canon.model`](model.md) 输入）里的对象引用不是引用位置。对所有引用位置，内核统一做：
-    - 写入时，新写或改过的引用指向的对象存在（条目还要没删除、种类在 `targets` 里；世界线还要至少在按计划模式下存在，计划线也算；已写的记录安放在计划线上时只报 `line-planned`，[`canon.worldlines`](worldlines.md) 输出 1）；不过拒收，详情给出路径与原因（`ref-invalid`：`entry-missing`、`entry-deleted`、`ref-type-mismatch`、`change-missing`、`line-not-found`、`decision-missing`、`check-missing`）；地址里的条目只做临时 id 的替换，存在与否由补丁能不能套上判断（[`canon.revisions`](revisions.md) 输出 3）；各 Spec 另有的规则（例如切口要在父线视图里、计划线上只收计划）照常另查；
+    - 写入时，新写或改过的引用指向的对象存在（条目还要没删除、种类在 `targets` 里；世界线还要至少在按计划模式下存在，计划线也算；已写的记录安放在计划线上时只报 `line-planned`，[`canon.worldlines`](worldlines.md) 输出 1）；不过拒收，详情给出路径与原因（`ref-invalid`：`entry-missing`、`entry-deleted`、`ref-type-mismatch`、`change-missing`、`line-not-found`、`decision-missing`、`check-missing`）；地址里的条目只做临时 id 的替换，存在与否由补丁能不能套上判断（[`canon.revisions`](revisions.md) 输出 3）；这几处由各自的规则查、报各自的码：依据里的 `check`（`basis-mismatch`）、决策 `about`（`invalid-about`，[`canon.model`](model.md) 输出 33）、`supersededBy`（`invalid-transition`）、条目的 `parent` 与 `sameAs`（`invalid-tree`）；各 Spec 另有的规则（例如切口要在父线视图里、计划线上只收计划）照常另查；
     - 写入请求里的临时 id（`tmp:` 开头）在引用位置上换成程序生成的 id，新线的 `fork.line` 也一样（[`canon.revisions`](revisions.md) 输入）；不在引用位置上的 `tmp:` 文字原样存下；
     - 指向的条目后来删除时，存下来的引用照常给出，读取与渲染标“已删除的条目”并带它原来的名字。保存引用的那个条目照常可写：改这个引用字段、改以被删条目为键的那一行的子字段、去掉那一行，补丁照常套上（新写的引用仍不能指向已删除的条目）；对被删除的条目自己的补丁套不上（[`canon.model`](model.md) 输出 14）；
     - 改动记录按条目筛选时，新写或改过指向这个条目的引用的修订也算（[`canon.revisions`](revisions.md) 输出 14）；
