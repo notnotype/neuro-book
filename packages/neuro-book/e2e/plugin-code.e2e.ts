@@ -10,7 +10,7 @@
 
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
@@ -212,6 +212,76 @@ test("场景提供者外置（theme.skins 输出 18）：主题的场景图由�
             const now = await sceneVar();
             return now.startsWith("url(\"blob:") && now !== light;
         }).toBe(true);
+    } finally {
+        await page.goto("about:blank");
+        expect(await server.stop()).toBe(0);
+    }
+});
+
+/**
+ * 手写的场景提供者插件（不经构建预设）：两个提供者、两个主题。`broken` 交出解不开的“图片”，主题带后备图；`refresh` 画 1×1 的图并在
+ * 半秒后过期，重画时尺寸加一，所以每次的 blob 地址与内容都不同。
+ */
+async function sceneFixture(): Promise<string> {
+    const directory = join(tmp, "sources", "scenefx");
+    await mkdir(join(directory, "assets"), {recursive: true});
+    await copyFile(join(PACKAGE_ROOT, "plugin-sdk/examples/external/theme-dusk/assets/dusk-day.webp"), join(directory, "assets/day.webp"));
+    const look = (extra: Record<string, unknown> = {}) => ({colors: {"--accent-main": "#a4552a"}, ...extra});
+    const theme = (id: string, provider: string, light: Record<string, unknown>) => ({capability: "workbench.themes", id, declaration: {title: {"zh-CN": id, "en-US": id}, base: "nbook", sceneProvider: provider, light, dark: look()}});
+    await writeFile(join(directory, "package.json"), JSON.stringify({
+        publisher: "fixture",
+        name: "scenefx",
+        version: "1.0.0",
+        engines: {neurobook: ">=0.1.0"},
+        contributes: [theme("fixture.scenefx.broken", "fixture.scenefx.garbage", look({scene: "assets/day.webp"})), theme("fixture.scenefx.refresh", "fixture.scenefx.ticker", look())],
+        entries: {browser: {
+            location: "browser",
+            main: "browser.js",
+            activationEvents: ["onStartup"],
+            contributes: [
+                {capability: "workbench.theme-scenes", id: "fixture.scenefx.garbage", declaration: {}},
+                {capability: "workbench.theme-scenes", id: "fixture.scenefx.ticker", declaration: {}},
+            ],
+        }},
+    }));
+    await writeFile(join(directory, "browser.js"), `${REGISTER}
+let round = 0;
+const ticker = {scene: () => new Promise((resolve, reject) => {
+    round += 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = round;
+    canvas.height = 1;
+    canvas.getContext("2d").fillRect(0, 0, round, 1);
+    canvas.toBlob((blob) => (blob === null ? reject(new Error("toBlob")) : resolve({image: blob, expiresAt: round === 1 ? Date.now() + 500 : undefined})), "image/png");
+})};
+const garbage = {scene: async () => ({image: new Blob([new Uint8Array(64)], {type: "image/png"})})};
+exports.activate = () => ({contributions: {"workbench.theme-scenes": {"fixture.scenefx.garbage": garbage, "fixture.scenefx.ticker": ticker}}});
+});
+`);
+    return directory;
+}
+
+test("场景提供者的失败与刷新（theme.skins 输出 18）：解不开的图回退到后备图；expiresAt 到点换成新画的图", async ({page}) => {
+    const stateRoot = await stateRootWith("scene-fixture", [await sceneFixture()]);
+    const setTheme = (theme: string): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/theme": theme, "nbook.workbench/appearance": "light"}));
+    await setTheme("fixture.scenefx.broken");
+    const server: ProductServer = await startProductServer(stateRoot);
+    const sceneVar = (): Promise<string> => page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+    try {
+        await page.goto(bookUrl(server.url));
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        // 提供者画出来的东西浏览器解不开：场景用后备的静态图（插件文件端点），不是 blob。
+        await expect.poll(sceneVar).toMatch(/\/plugins\/fixture\.scenefx\/files\/.+day\.webp/u);
+        expect(await sceneVar()).not.toContain("blob:");
+
+        await setTheme("fixture.scenefx.refresh");
+        await expect.poll(sceneVar, {timeout: 20_000}).toMatch(/^url\("blob:/u);
+        const first = await sceneVar();
+        // 半秒后过期，至少隔 5 秒重画；新图解码成功后才换上。
+        await expect.poll(async () => {
+            const now = await sceneVar();
+            return now.startsWith("url(\"blob:") && now !== first;
+        }, {timeout: 30_000}).toBe(true);
     } finally {
         await page.goto("about:blank");
         expect(await server.stop()).toBe(0);

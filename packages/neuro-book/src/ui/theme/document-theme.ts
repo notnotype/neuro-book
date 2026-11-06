@@ -77,7 +77,8 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
         }
         iconSheet ??= document.createElement("style");
         iconSheet.dataset.nbSkinIcons = "";
-        iconSheet.textContent = iconRules(entries);
+        const rules = iconRules(entries);
+        if (iconSheet.textContent !== rules) iconSheet.textContent = rules;
         if (!iconSheet.isConnected) document.head.append(iconSheet);
     };
     const clearIcons = (): void => {

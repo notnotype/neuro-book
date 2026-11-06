@@ -151,3 +151,45 @@ describe("我的主题的记录", () => {
         expect(validUserThemes(other.state.themes.display.themes)[0]?.declaration.title).toEqual({"zh-CN": "改了", "en-US": "Renamed"});
     });
 });
+
+describe("我的主题的场景提供者", () => {
+    const published = (catalog: ThemeCatalog, id: string, image: Blob): void => {
+        catalog.sceneReceiver().published?.({
+            capability: "workbench.theme-scenes",
+            id,
+            plugin: "acme.sky",
+            entry: "browser",
+            generation: 1,
+            kind: "entry",
+            declaration: {},
+            published: true,
+            implementation: () => ({scene: async () => ({image})}),
+        }, undefined);
+    };
+    const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+    const png = (size: number): Blob => new Blob([new Uint8Array(size)], {type: "image/png"});
+
+    it("换了提供者：旧提供者画的图作废，换成新提供者的；删掉的我的主题名下的图也撤销", async () => {
+        const catalog = new ThemeCatalog([pluginTheme("nbook")], () => null, () => undefined, {decode: async () => undefined});
+        published(catalog, "acme.sky.first", png(8));
+        published(catalog, "acme.sky.second", png(16));
+        const id = theme("1").id;
+        catalog.setUserThemes([theme("1", {sceneProvider: "acme.sky.first"})], () => undefined);
+        catalog.resolve(id, "light");
+        await settle();
+        const first = catalog.resolve(id, "light").vars["--skin-scene"];
+        expect(first).toMatch(/^url\("blob:/u);
+
+        catalog.setUserThemes([theme("1", {sceneProvider: "acme.sky.second"})], () => undefined);
+        // 旧图作废；读一次发起新提供者的请求，画好后是另一张。
+        expect(catalog.resolve(id, "light").vars["--skin-scene"]).toBeUndefined();
+        await settle();
+        const second = catalog.resolve(id, "light").vars["--skin-scene"];
+        expect(second).toMatch(/^url\("blob:/u);
+        expect(second).not.toBe(first);
+
+        catalog.setUserThemes([], () => undefined);
+        expect(catalog.resolve(id, "light").scene).toBe(false);
+        catalog.dispose();
+    });
+});

@@ -406,6 +406,8 @@ test("图标集：书房把活动栏等处的 lucide 图标换成自己的；高
 
     // 暗色用同一批文件。
     await writeSettings({[THEME]: STUDY, [APPEARANCE]: "dark"});
+    // 先等明暗真的换过去，再比蒙版：不然轮询在切换落下前就拿到亮色那一份，断言形同虚设。
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
     await expect.poll(mask).toBe(study);
 
     await page.emulateMedia({contrast: "more"});

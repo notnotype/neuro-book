@@ -9,6 +9,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {Catalog} from "@notnotype/nb-ui/text";
 
 import {pluginsAt, productPlugins} from "nbook/manifest";
+import {STUDY_ICON_NAMES} from "nbook/plugins/theme-study/plugin";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
@@ -107,14 +108,12 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
  * 内置插件的静态文件，按插件目录内的相对路径（docs/specs/theme/skins.md）。放在浏览器这边，不放进插件描述：描述三个位置都引，import 图片会被
  * 服务端构建打进产物，URL 也和 Vite 的不一样。
  */
-/** 书房的图标集（`theme-study/plugin.ts` 的 `icons`）。`new URL` 要字面量模板，Vite 才会把这些文件打进产物。 */
-const STUDY_ICONS = ["files", "search", "settings", "message-square", "messages-square", "palette", "feather", "book-open-text", "pencil-line", "file-text"];
-
 export const builtinPluginAssets: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     "nbook.theme-study": {
         "assets/study-day.webp": new URL("../plugins/theme-study/assets/study-day.webp", import.meta.url).href,
         "assets/study-night.webp": new URL("../plugins/theme-study/assets/study-night.webp", import.meta.url).href,
-        ...Object.fromEntries(STUDY_ICONS.map((name) => [`assets/icons/${name}.svg`, new URL(`../plugins/theme-study/assets/icons/${name}.svg`, import.meta.url).href])),
+        // `new URL` 的路径要是字面量模板，Vite 才会把这些文件打进产物；名单与书房声明的图标集是同一份。
+        ...Object.fromEntries(STUDY_ICON_NAMES.map((name) => [`assets/icons/${name}.svg`, new URL(`../plugins/theme-study/assets/icons/${name}.svg`, import.meta.url).href])),
     },
 };
 

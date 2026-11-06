@@ -31,7 +31,7 @@ type ProviderHandle = ContributionHandle<SceneProviderDeclaration, SceneProvider
 
 function fixture(options: SceneProviderOptions = {}): Fixture {
     const reports: Array<readonly [string, string]> = [];
-    const scenes = new SceneProviders({decode: async () => undefined, report: (id, problem) => reports.push([id, problem]), ...options});
+    const scenes = new SceneProviders({decode: async () => undefined, report: (id, problem) => reports.push([id, problem]), minRefreshMs: 0, retryMs: 20, publishGraceMs: 20, ...options});
     const requests: Fixture["requests"] = [];
     const receiver = scenes.receiver();
     return {
@@ -129,8 +129,11 @@ describe("workbench.theme-scenes", () => {
         expect(reports).toHaveLength(1);
         expect(reports[0]![0]).toBe("acme.sky.clock");
         expect(reports[0]![1]).toContain(problem);
-        // 失败的图没有留下对象 URL。
+        // 失败的图没有留下对象 URL：建出来的都撤销了（reject 与非图片、超限在建 URL 之前就拦下，只有解不开的建过）。
         await settle();
+        expect(scenes.sceneFor(entry("acme.sky.a"), "light", false)).toBeUndefined();
+        if ("decode" in options) expect(revoked.filter((url) => url.startsWith("blob:"))).toHaveLength(2);
+        else expect(revoked).toEqual([]);
         scenes.dispose();
     });
 
@@ -179,7 +182,7 @@ describe("workbench.theme-scenes", () => {
         // 请求中作废：图画好时已经过期，不建对象 URL。
         scenes.sceneFor(entry("acme.sky.study"), "light", false);
         await settle();
-        scenes.generationChanged("acme.sky.study");
+        scenes.entryChanged("acme.sky.study");
         finish({image: png()});
         await settle();
         expect(decoding).toBe(0);
@@ -190,7 +193,7 @@ describe("workbench.theme-scenes", () => {
         finish({image: png()});
         await settle();
         expect(decoding).toBe(1);
-        scenes.generationChanged("acme.sky.study");
+        scenes.entryChanged("acme.sky.study");
         release();
         await settle();
         expect(revoked.filter((url) => url.startsWith("blob:"))).toHaveLength(1);
@@ -217,6 +220,85 @@ describe("workbench.theme-scenes", () => {
         expect(second).toMatch(/^blob:/u);
         expect(second).not.toBe(first);
         expect(revoked).toContain(first!);
+        scenes.dispose();
+    });
+
+    it.each([
+        ["过去的时刻", () => 1],
+        ["0", () => 0],
+        ["不是数", () => Number.NaN],
+    ])("expiresAt 是%s：不会变成请求死循环（至少隔 minRefreshMs 才重画，不是数时只画一次）", async (_name, expires) => {
+        const {scenes, requests, publish} = fixture({minRefreshMs: 5_000});
+        publish(async () => ({image: png(), expiresAt: expires()}));
+        scenes.sceneFor(entry("acme.sky.study"), "light", false);
+        for (let round = 0; round < 40; round += 1) await settle();
+        expect(requests).toHaveLength(1);
+        scenes.dispose();
+    });
+
+    it("刷新失败：旧图继续显示，隔一阵再试，试成功了换新图", async () => {
+        const {scenes, requests, reports, publish} = fixture();
+        let round = 0;
+        publish(async () => {
+            round += 1;
+            if (round === 2) throw new Error("这一次画不出");
+            return {image: png(round), expiresAt: round < 3 ? Date.now() + 10 : undefined};
+        });
+        scenes.sceneFor(entry("acme.sky.study"), "light", false);
+        await settle();
+        const first = scenes.sceneFor(entry("acme.sky.study"), "light", false);
+        const deadline = Date.now() + 3000;
+        while (requests.length < 3 && Date.now() < deadline) await settle();
+        await settle();
+        expect(requests).toHaveLength(3);
+        expect(reports).toHaveLength(1);
+        const last = scenes.sceneFor(entry("acme.sky.study"), "light", false);
+        expect(last).toMatch(/^blob:/u);
+        expect(last).not.toBe(first);
+        scenes.dispose();
+    });
+
+    it("dispose 之后定时器不再触发请求", async () => {
+        const {scenes, requests, publish} = fixture();
+        publish(async () => ({image: png(), expiresAt: Date.now() + 15}));
+        scenes.sceneFor(entry("acme.sky.study"), "light", false);
+        await settle();
+        scenes.dispose();
+        // 没有可观察的“没发生”：让出足够多轮，定时器（15 毫秒）若还活着早该触发。
+        for (let round = 0; round < 120; round += 1) await settle();
+        expect(requests).toHaveLength(1);
+    });
+
+    it("主题引用的提供者一直没发布：隔一阵记一条诊断，同一个提供者一次；发布了就不记", async () => {
+        const {scenes, reports, publish} = fixture();
+        scenes.sceneFor(entry("acme.sky.a"), "light", false);
+        scenes.sceneFor(entry("acme.sky.b"), "light", false);
+        const deadline = Date.now() + 2000;
+        while (reports.length === 0 && Date.now() < deadline) await settle();
+        expect(reports).toHaveLength(1);
+        expect(reports[0]![0]).toBe("acme.sky.clock");
+        expect(reports[0]![1]).toContain("onStartup");
+
+        const other = fixture();
+        other.scenes.sceneFor(entry("acme.sky.a", "acme.sky.late"), "light", false);
+        other.publish(async () => ({image: png()}), "acme.sky.late");
+        for (let round = 0; round < 120; round += 1) await settle();
+        expect(other.reports).toEqual([]);
+        scenes.dispose();
+        other.scenes.dispose();
+    });
+
+    it("提供者撤回后再出问题能再记一次诊断", async () => {
+        const {scenes, reports, publish, revoke} = fixture();
+        const first = publish(async () => { throw new Error("第一次的问题"); });
+        scenes.sceneFor(entry("acme.sky.a"), "light", false);
+        await settle();
+        expect(reports).toHaveLength(1);
+        revoke(first);
+        publish(async () => { throw new Error("第二次的问题"); });
+        scenes.sceneFor(entry("acme.sky.a"), "light", false);
+        await settle();
+        expect(reports).toHaveLength(2);
         scenes.dispose();
     });
 

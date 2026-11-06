@@ -10,6 +10,7 @@ import {Value} from "typebox/value";
 import {defineRecord} from "nbook/shared/storage";
 
 import {declarationProblem, ThemeDeclarationSchema} from "./themes";
+import type {ThemeDeclaration} from "./themes";
 
 /** 我的主题的 id：冒号不会出现在插件 id 里，所以不会和第三方的撞。 */
 export const USER_THEME_ID = /^user:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
@@ -56,4 +57,13 @@ export function userThemeProblem(value: unknown): string | null {
         if (look.icons !== undefined || look.workingScene !== undefined) return `主题 ${id} 不收图标集与工作态场景：“我的主题”只有一张场景图的素材`;
     }
     return declarationProblem(id, declaration);
+}
+
+/**
+ * 放进用户层之前去掉用户层放不下的东西：图标集与工作态场景是插件包内的素材路径，用户素材只有按内容摘要命名的场景图。复制插件主题与
+ * 导入主题包都用它（docs/specs/theme/editor.md 边界与兼容）；返回新对象，不改入参。
+ */
+export function forUserLayer(declaration: ThemeDeclaration): ThemeDeclaration {
+    const strip = ({icons: _icons, workingScene: _working, ...look}: ThemeDeclaration["light"]): ThemeDeclaration["light"] => look;
+    return {...declaration, light: strip(declaration.light), dark: strip(declaration.dark)};
 }

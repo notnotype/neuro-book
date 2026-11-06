@@ -105,13 +105,13 @@ export class ThemeCatalog {
     receiver(): ContributionReceiver<ThemeDeclaration> {
         return {
             published: (handle) => {
-                this.#scenes.generationChanged(handle.id);
+                this.#scenes.entryChanged(handle.id);
                 const next = new Map(this.#entries.value);
                 next.set(handle.id, {id: handle.id, plugin: handle.plugin, declaration: handle.declaration});
                 this.#entries.value = next;
             },
             revoke: (handle) => {
-                this.#scenes.generationChanged(handle.id);
+                this.#scenes.entryChanged(handle.id);
                 const next = new Map(this.#entries.value);
                 next.delete(handle.id);
                 this.#entries.value = next;
@@ -143,6 +143,10 @@ export class ThemeCatalog {
             }
             const {id, declaration} = theme as UserTheme;
             next.set(id, {id, plugin: USER_THEME_PLUGIN, declaration});
+        }
+        // 换了提供者或删掉的我的主题：它名下画好的图作废（缓存键不含提供者，不清就会拿到旧提供者的图）。
+        for (const [id, previous] of this.#mine.value) {
+            if (next.get(id)?.declaration.sceneProvider !== previous.declaration.sceneProvider) this.#scenes.entryChanged(id);
         }
         this.#mine.value = next;
     }
