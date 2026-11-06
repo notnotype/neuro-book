@@ -57,8 +57,8 @@ t03、t04。
 
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+计划与设计审查都过了，开发者 2026-11-06 确认（[plan.md](plan.md) 文末“确认结果”，[审查处理](evidences/design-review-disposition.md)）。正在做切片 1：解析库对照与 `bash` 方言。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`，细节与 Spec 届时再与开发者讨论。
+按 plan.md 的切片实施。退出 `plan` 向导与规则设置页先出静态稿给开发者看。

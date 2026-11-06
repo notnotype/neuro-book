@@ -1,6 +1,6 @@
 # t06 实施计划：权限规则与 Agent 模式
 
-开发者 2026-11-06 确认方向（下面“开发者的决定”）；设计审查（omp 31 条、Sonnet 14 条）已处理，修订后的计划待开发者确认（文末“待确认”）。处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)。来源：开发者 2026-11-06 重新对了 Agent 模式，并要求黑白名单做成类似 clash 的规则系统（[t28 README](../t28-conversation-ui-followups/README.md) 的“Agent 模式”）；原来排在 t28 批 6，范围变大后放回本 Task，推进顺序不变：t28 前五批之后接着做。调研：[`research/2026-11-06-agent-modes-survey.md`](../../research/2026-11-06-agent-modes-survey.md)。
+开发者 2026-11-06 确认方向（下面“开发者的决定”）；设计审查（omp 31 条、Sonnet 14 条）已处理，修订后的计划开发者已确认（文末“确认结果”）。处理见 [evidences/design-review-disposition.md](evidences/design-review-disposition.md)。来源：开发者 2026-11-06 重新对了 Agent 模式，并要求黑白名单做成类似 clash 的规则系统（[t28 README](../t28-conversation-ui-followups/README.md) 的“Agent 模式”）；原来排在 t28 批 6，范围变大后放回本 Task，推进顺序不变：t28 前五批之后接着做。调研：[`research/2026-11-06-agent-modes-survey.md`](../../research/2026-11-06-agent-modes-survey.md)。
 
 依据：本 Task 决定 1–8 与“规则与模式的关系”；[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md) 输出 39；改判决定 2（见“Agent 模式”）。
 
@@ -127,7 +127,7 @@ type SimpleCommand = {argv: string[]; redirects: {write: boolean; target: string
 
 ### 界面
 
-静态稿另出，定了再写：模式控件的形态（见文末第 3 问）、退出 `plan` 向导的版式（长计划占满向导、批准控件固定在下面）、状态栏标记、规则设置页。行为先定下面这些：
+静态稿另出，定了再写：退出 `plan` 向导的版式（长计划占满向导、批准控件固定在下面）、状态栏标记、规则设置页。行为先定下面这些：
 
 - `mode-blocked` 单独的文字（“计划模式下不能修改文件”），不落到“已被规则拒绝”。不做卡片上的一键切换：闸门拒绝时没有向导，输入框上的模式控件就在。规则拒绝显示 `reason`。
 - Shift+Tab：补全菜单开着时不切模式；没有监听者的编辑器（就地编辑）不吞这个键；切换后 `aria-live` 播报。
@@ -136,7 +136,7 @@ type SimpleCommand = {argv: string[]; redirects: {write: boolean; target: string
 
 ## Spec 与文档改动
 
-新 `agent/permissions.md`（规则、判定对象、方言、流水线与结果表）、新 `agent/modes.md`，注册表加行；`harness/runtime.md` 输出 39 改 `approvalRemembered` 与 `judgingSettings`；`agent/builtin-tools.md` 写工具的判定对象与 `switch_mode`；`agent/conversation.md` 与 `ui/agent-conversation-view.md` 模式控件（Spec 现在写“点开菜单分两组”，和实现不符，按第 3 问改）与向导。t06 决定 2 记改判，决定 3 的“没声明按执行”删掉（`effect` 是必填）。
+新 `agent/permissions.md`（规则、判定对象、方言、流水线与结果表）、新 `agent/modes.md`，注册表加行；`harness/runtime.md` 输出 39 改 `approvalRemembered` 与 `judgingSettings`；`agent/builtin-tools.md` 写工具的判定对象与 `switch_mode`；`agent/conversation.md` 与 `ui/agent-conversation-view.md` 模式控件（Spec 现在写“点开菜单分两组”，和实现不符，改成两个控件）与向导。t06 决定 2 记改判，决定 3 的“没声明按执行”删掉（`effect` 是必填）。
 
 ## 切片
 
@@ -175,9 +175,10 @@ type SimpleCommand = {argv: string[]; redirects: {write: boolean; target: string
 - 不做：操作系统沙箱；PowerShell 方言；模型自己免批准进 `plan`；规则集从远端订阅（clash 的 rule-providers）；批准版本的哈希校验（工具结果带的就是向导里那份）；把规则拒绝的理由分成给模型和给用户两份。
 - 风险：只读清单写错会放过写操作，大表测试加 Spec 写明“不是安全边界”。第一条命中的列表写错顺序可能盖掉拒绝：规则设置页要标出永远不会命中的规则（以后做）。
 
-## 待确认
+## 确认结果
 
 1. **三层怎样合并**：开发者 2026-11-06 同意按“规则”一节的优先级。
 2. **贡献点**：开发者 2026-11-06 同意这次不开：匹配器与方言是代码里的表，形状就是将来贡献点的形状，第一个真实消费者（`ssh`）来时再开；工具的 `subjects` 与规则现在就对第三方可用。
-3. **模式控件**：现在是两个独立控件（Agent 模式点一下切下一种、审批模式下拉），Spec 写的是一个菜单分两组，`DropdownMenu` 不支持组标题。推荐保持两个控件，两个状态都一直看得见，改 Spec。
+3. **模式控件**：开发者 2026-11-06 选两个控件并排（评审板 review v1 的 A），改 Spec。非 `normal` 时审批模式控件变淡，提示“规划中不改作品；批准计划后按放行写入”，仍可点；全部放行保留红色警告。
 4. **`auto` 放进 t06**：开发者 2026-11-06 同意，放最后一片（切片 6）。
+5. **退出 `plan` 向导的默认值**：开发者 2026-11-06 同意保持当前审批模式，不自动放宽。
