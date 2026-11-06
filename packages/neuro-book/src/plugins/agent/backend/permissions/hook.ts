@@ -16,6 +16,7 @@ import {joinAddress, workingAddress} from "../builtin/common";
 import {sessionResources} from "../resources";
 import type {CommandDialect, SimpleCommand} from "./bash-dialect";
 import type {Dialects} from "./dialects";
+import {autoReview} from "./auto-review";
 import {decide} from "./judge";
 import type {GateClass, ModeWriteAction} from "./judge";
 import {readProjectRules} from "./project-rules";
@@ -71,7 +72,7 @@ export function createPermissionHook(options: PermissionHookOptions): ApproveHoo
         ];
 
         const identity = {tool: call.tool, ...(info.tool.providerName === undefined ? {} : {toolName: info.tool.providerName})};
-        const needed = gated && info.effect !== "read" || [...user, ...projectRules].some((rule) => matchesTool(rule.tool, identity) && rule.when !== undefined && needsSubjects(rule.when));
+        const needed = (gated || info.mode === "auto") && info.effect !== "read" || [...user, ...projectRules].some((rule) => matchesTool(rule.tool, identity) && rule.when !== undefined && needsSubjects(rule.when));
         const subjects = await options.subjectsOf(call.tool, call.args, needed);
 
         const views = buildViews(call.args, identity, subjects, options.dialects, context, resources);
@@ -84,7 +85,11 @@ export function createPermissionHook(options: PermissionHookOptions): ApproveHoo
 
         const scratch: Scratch = {session: address(resources, "session://"), temp: address(resources, "tmp://")};
         const gate: GateClass | null = gated ? classify(info.effect, views, scratch) : null;
-        const verdict = decide({rules, gate, modeWriteAction: options.modeWriteAction(), effect: info.effect, approvalMode: info.mode});
+        const projectRoot = address(resources, "project://");
+        const decided = decide({rules, gate, modeWriteAction: options.modeWriteAction(), effect: info.effect, approvalMode: info.mode, localWrite: isLocalWrite(info.effect, views, [projectRoot, scratch.session, scratch.temp])});
+        const verdict = decided.verdict === "review"
+            ? await autoReview({call, effect: info.effect, paths: views.views.flatMap((view) => view.paths), project: projectRoot}, ctx, options.report)
+            : decided;
         if (verdict.verdict !== "ask" || !views.hasCommand) return verdict;
         return {...verdict, remember: rememberFor(call.tool, views) as unknown as JsonValue};
     };
@@ -200,6 +205,13 @@ function rememberFor(tool: string, views: Views): {readonly label: string; reado
     if (prefixes.length === 0 || prefixes.some((prefix) => prefix === null)) return false;
     const unique = [...new Set(prefixes as string[])];
     return {label: unique.join("、"), rules: unique.map((pattern) => ({tool, when: {type: "command", pattern}, action: "allow"}))};
+}
+
+/** `auto` 不问模型的写（输出 19）：写工具，每个写路径都认得出、都落在这几个根里。命令与没交出路径的工具（第三方、MCP）不算。 */
+function isLocalWrite(effect: ToolEffect, views: Views, roots: readonly (string | null)[]): boolean {
+    if (effect !== "write" || views.hasCommand || views.views.some((view) => view.unresolvedPaths || !view.subjectsAvailable)) return false;
+    const writes = views.views.flatMap((view) => view.paths.filter((path) => path.access === "write"));
+    return writes.length > 0 && writes.every((path) => roots.some((root) => inside(path.address, root)));
 }
 
 /** 闸门分类（agent/modes.md 输出 1）：只读；写路径全部落在草稿、命令都只读（不看重定向）算只写草稿；其余算写。 */

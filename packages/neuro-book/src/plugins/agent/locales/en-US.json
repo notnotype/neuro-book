@@ -187,6 +187,15 @@
             "yolo": {
                 "label": "Allow everything",
                 "description": "Never asks; only deny rules can stop a call"
+            },
+            "auto": {
+                "label": "Auto",
+                "description": "Commands go to an approval model first, and to you if it is unsure. The model can miss things, so this is not a security boundary"
+            },
+            "reason": {
+                "mode": "This session is in Discuss or Plan mode, and this call counts as a write.",
+                "autoFailed": "The approval model gave no verdict this time. Please decide.",
+                "autoEscalated": "The approval model passed this to you: {{reason}}"
             }
         },
         "createFailed": "Couldn't create a session ({{code}}).",

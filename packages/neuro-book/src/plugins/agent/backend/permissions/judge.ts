@@ -5,6 +5,7 @@
 
 import type {ApprovalMode, ApprovalVerdict, ToolEffect} from "@notnotype/nb-harness/kernel/contracts";
 
+import {MODE_ASK_REASON} from "../../shared/permissions";
 import type {RuleHit} from "./rules";
 
 /** 闸门对一次调用的分类；不在 `discuss`、`plan` 时是 null。 */
@@ -16,17 +17,22 @@ const denied = (code: string, reason?: string, by = "permissions"): ApprovalVerd
 
 export const MODE_BLOCKED_TEXT = "This session is in a read-only mode (discuss or plan), so this call was not run. Call switch_mode to ask the user to change modes, or use a read-only approach.";
 
+/** `review`：`auto` 下交审批模型；模型的结论由钩子换成放行或询问（输出 19）。 */
+export type Decision = ApprovalVerdict | {readonly verdict: "review"};
+
 export function decide(input: {
     readonly rules: RuleHit | null;
     readonly gate: GateClass | null;
     readonly modeWriteAction: ModeWriteAction;
     readonly effect: ToolEffect;
     readonly approvalMode: ApprovalMode;
-}): ApprovalVerdict {
+    /** 写工具，写路径全部落在作品与会话草稿里；只有 `auto` 看。 */
+    readonly localWrite?: boolean;
+}): Decision {
     const {rules, gate, effect, approvalMode} = input;
     if (rules?.action === "deny") return denied("rule-denied", rules.reason, "rule");
     if (gate === "write") {
-        return input.modeWriteAction === "deny" ? denied("mode-blocked", MODE_BLOCKED_TEXT, "mode") : {verdict: "ask", reason: "mode"};
+        return input.modeWriteAction === "deny" ? denied("mode-blocked", MODE_BLOCKED_TEXT, "mode") : {verdict: "ask", reason: MODE_ASK_REASON};
     }
     if (rules?.action === "allow") return {verdict: "allow", by: "rule"};
     if (rules?.action === "ask") {
@@ -36,5 +42,6 @@ export function decide(input: {
     if (effect === "read") return {verdict: "allow", by: "mode:read"};
     if (approvalMode === "yolo") return {verdict: "allow", by: "mode:yolo"};
     if (approvalMode === "allow-writes" && effect === "write") return {verdict: "allow", by: "mode:allow-writes"};
+    if (approvalMode === "auto") return input.localWrite === true ? {verdict: "allow", by: "mode:auto"} : {verdict: "review"};
     return {verdict: "ask"};
 }

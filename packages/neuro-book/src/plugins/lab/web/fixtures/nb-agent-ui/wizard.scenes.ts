@@ -2,8 +2,8 @@
  * 向导与状态栏单独挂的场景（docs/specs/agent/conversation.md 输出 10–15）。放进整个视图的样子见 `view.scenes.ts`。
  */
 import {createAgentContext} from "@notnotype/nb-agent-ui";
-import type {PendingApprovalView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
-import type {AgentApprovalWizard, AgentQuestionWizard, AgentStatusBar, AgentWizard, AgentWizardFrame} from "@notnotype/nb-agent-ui/lab";
+import type {CompactionView, PendingApprovalView, PendingModeSwitchView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
+import type {AgentApprovalWizard, AgentCompactionDetail, AgentModeSwitchWizard, AgentQuestionWizard, AgentStatusBar, AgentWizard, AgentWizardFrame} from "@notnotype/nb-agent-ui/lab";
 
 import type {LabFixtureDefinition} from "../index";
 
@@ -29,6 +29,28 @@ export const agentApprovalWizardScenes: LabFixtureDefinition<typeof AgentApprova
 
 export const agentQuestionWizardScenes: LabFixtureDefinition<typeof AgentQuestionWizard>["scenes"] = [
     {id: "first", label: "第 1 题", input: {props: {item: questions}, model: {state: EMPTY}}},
+];
+
+const approvalChoice = {
+    value: "ask",
+    options: [
+        {key: "ask", label: "每次询问", description: "除读取外，每次调用都需要批准", icon: "i-lucide-shield-question"},
+        {key: "allow-writes", label: "放行写入", description: "修改文件无需批准，运行命令仍需批准", icon: "i-lucide-pencil"},
+        {key: "auto", label: "自动判断", description: "执行命令先交审批模型判断，判不了再问你", icon: "i-lucide-bot"},
+    ],
+};
+const exitPlan: PendingModeSwitchView = {kind: "mode-switch", id: "m", toolCallId: "c-m", fromLabel: "计划", toLabel: "普通", plan: "# 改第三章\n\n1. 压缩雨夜的回忆\n2. 把巷口那段前移", approval: approvalChoice};
+
+export const agentModeSwitchWizardScenes: LabFixtureDefinition<typeof AgentModeSwitchWizard>["scenes"] = [
+    {id: "exit-plan", label: "退出计划，带计划正文", input: {props: {item: exitPlan}, model: {state: EMPTY}}},
+    {id: "no-plan", label: "切换模式，没有计划", input: {props: {item: {kind: "mode-switch", id: "m", toolCallId: "c-m", fromLabel: "普通", toLabel: "讨论", approval: approvalChoice}}, model: {state: EMPTY}}},
+];
+
+const compacted: CompactionView = {method: "nbook.agent.summary", tokensBefore: 96_000, tokensAfter: 8_200, model: {name: "deepseek/deepseek-flash", input: 90_000, output: 1_200, cacheRead: 0, cacheWrite: 0, cost: 0.03}, require: ["保留人物关系"], restored: [{kind: "file", target: "project://正文/第三章.md", tokens: 2_100, truncated: false}], omitted: 14, keptTurns: 3};
+
+export const agentCompactionDetailScenes: LabFixtureDefinition<typeof AgentCompactionDetail>["scenes"] = [
+    {id: "summary", label: "摘要：调了模型，放回文件", input: {props: {detail: compacted, currency: "USD"}}},
+    {id: "shake", label: "清理：没调模型", input: {props: {detail: {...compacted, method: "nbook.agent.shake", model: null, require: [], restored: [], keptTurns: null}, currency: "USD"}}},
 ];
 
 const usage = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 162_400, input: 101_200, output: 3_100, cacheRead: 58_100, cacheWrite: 0, cacheHitRate: 0.62, cost: 0.07, currency: "USD" as const};

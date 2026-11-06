@@ -24,7 +24,7 @@ import type {TextRef} from "@notnotype/nb-ui/text";
 import type {BranchPoint, PreviewResult, RewindTarget} from "@notnotype/nb-harness/kernel/contracts";
 
 import {MAIN_PROFILE} from "../shared/contracts";
-import {AGENT_MODES_EXTENSION, MODE_SWITCH_KIND} from "../shared/permissions";
+import {AGENT_MODES_EXTENSION, AUTO_ESCALATED_PREFIX, AUTO_FAILED_REASON, MODE_ASK_REASON, MODE_SWITCH_KIND} from "../shared/permissions";
 import type {AgentMode, ModeSwitchRequest, Rule} from "../shared/permissions";
 import {rulesToRemember} from "./permission-rules";
 import type {SettingWriteResult} from "nbook/shared/settings";
@@ -86,6 +86,7 @@ const PHASE_KEYS = {
 const APPROVAL_OPTIONS: readonly ComposerApprovalOption[] = [
     {key: "ask", label: agentText("conversation.approval.ask.label"), description: agentText("conversation.approval.ask.description"), icon: "i-lucide-shield-question"},
     {key: "allow-writes", label: agentText("conversation.approval.allowWrites.label"), description: agentText("conversation.approval.allowWrites.description"), icon: "i-lucide-pencil-line"},
+    {key: "auto", label: agentText("conversation.approval.auto.label"), description: agentText("conversation.approval.auto.description"), icon: "i-lucide-bot"},
     {key: "yolo", label: agentText("conversation.approval.yolo.label"), description: agentText("conversation.approval.yolo.description"), icon: "i-lucide-triangle-alert", danger: true},
 ];
 
@@ -1266,11 +1267,19 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
     }
 
+    /** 规则的理由是用户写的，原样显示；别的几种是约定的码（输出 21）。 */
+    function approvalReason(reason: string): string {
+        if (reason === MODE_ASK_REASON) return deps.text.t(agentText("conversation.approval.reason.mode"));
+        if (reason === AUTO_FAILED_REASON) return deps.text.t(agentText("conversation.approval.reason.autoFailed"));
+        if (reason.startsWith(AUTO_ESCALATED_PREFIX)) return deps.text.t(agentText("conversation.approval.reason.autoEscalated", {reason: reason.slice(AUTO_ESCALATED_PREFIX.length)}));
+        return reason;
+    }
+
     function pendingViews(target: Current): PendingInputView[] {
         return target.transcript.pending().map((item): PendingInputView => {
             const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest};
             if (item.kind === "approval") {
-                return {kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: request.reason}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
+                return {kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: approvalReason(request.reason)}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
             }
             const data = request.data;
             if (data !== undefined && "kind" in data && data.kind === MODE_SWITCH_KIND) {

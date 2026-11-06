@@ -424,6 +424,22 @@ describe("审批与提问（输出 10–14）", () => {
     });
 });
 
+describe("自动判断（permissions.md 输出 19、21）", () => {
+    test("审批控件有这一项；模型转人工时向导显示它的理由", async () => {
+        const w = await world();
+        const h = await started(w);
+        expect(h.ctx().composer.approval?.options.map((option) => option.key)).toContain("auto");
+        h.host.act({type: "approval.set", mode: "auto"});
+        await until("切到自动判断", () => h.ctx().composer.approval?.value === "auto");
+        endpoint.script({tools: [{tool: "shell", args: {command: "git push"}}]}, {tool: "submit_verdict", args: {decision: "escalate", reason: "用户没说要推送"}});
+        h.host.act({type: "composer.submit", text: "看看状态", delivery: "prompt"});
+        const pending = await until("审批", () => approvals(h.ctx())[0]);
+        expect(pending.reason).toBe("conversation.approval.reason.autoEscalated");
+        h.host.act({type: "input.submit", batchKey: pending.id, resolutions: {kind: "approval", decision: "deny"}});
+        await idle(h);
+    });
+});
+
 describe("以后都允许（permissions.md 输出 23）", () => {
     const shellCall = (command: string) => ({tools: [{tool: "shell", args: {command}}]});
 

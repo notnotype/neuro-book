@@ -299,6 +299,7 @@ export function ompCall(target: OmpTarget): (request: ModelRequest, signal: Abor
             headers: {...target.headers, ...request.headers},
             ...(request.params.maxTokens === undefined ? {} : {maxTokens: request.params.maxTokens}),
             ...(request.params.temperature === undefined ? {} : {temperature: request.params.temperature}),
+            ...(request.params.disableReasoning === true ? {disableReasoning: true} : {}),
             ...(effort === undefined ? {} : {reasoning: effort}),
             ...(choice === undefined ? {} : {toolChoice: choice}),
             ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),

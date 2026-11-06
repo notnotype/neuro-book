@@ -33,3 +33,11 @@ export interface ModeSwitchAnswer {
     readonly approvalMode?: "ask" | "allow-writes" | "auto" | "yolo";
     readonly note?: string;
 }
+
+/**
+ * 审批请求 `reason` 里不是规则理由的几种：宿主换成当前语言的文字（permissions.md 输出 21）。规则的理由是用户写的，原样显示。
+ * 模型转人工的理由放在前缀之后。
+ */
+export const MODE_ASK_REASON = "mode";
+export const AUTO_FAILED_REASON = "auto:failed";
+export const AUTO_ESCALATED_PREFIX = "auto:escalated:";

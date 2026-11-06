@@ -191,6 +191,18 @@ describe("判定顺序（输出 1）", () => {
         expect(judged(null, null, "yolo", "exec")).toBe("allow");
     });
 
+    test("auto：读与作品内写放行，其余交审批模型；规则与闸门排在模型前面", () => {
+        const auto = {rules: null, gate: null, modeWriteAction: "deny", approvalMode: "auto"} as const;
+        expect(decide({...auto, effect: "read"})).toEqual({verdict: "allow", by: "mode:read"});
+        expect(decide({...auto, effect: "write", localWrite: true})).toEqual({verdict: "allow", by: "mode:auto"});
+        expect(decide({...auto, effect: "write"})).toEqual({verdict: "review"});
+        expect(decide({...auto, effect: "exec"})).toEqual({verdict: "review"});
+        expect(decide({...auto, effect: "exec", rules: {action: "allow"}})).toEqual({verdict: "allow", by: "rule"});
+        expect(decide({...auto, effect: "exec", rules: {action: "ask"}})).toEqual({verdict: "ask"});
+        expect(decide({...auto, effect: "exec", rules: {action: "deny"}}).verdict).toBe("deny");
+        expect(decide({...auto, effect: "exec", gate: "write"}).verdict).toBe("deny");
+    });
+
     test("规则的 reason 进给模型的拒绝文字", () => {
         const verdict = decide({rules: {action: "deny", reason: "不许推送"}, gate: null, modeWriteAction: "deny", effect: "exec", approvalMode: "ask"});
         expect(verdict).toEqual({verdict: "deny", rejection: {code: "rule-denied", by: "rule", params: {reason: "不许推送"}}});

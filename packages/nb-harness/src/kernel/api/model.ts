@@ -79,7 +79,8 @@ export interface ModelRequest {
     /** 模型的全名 `<服务商>/<模型>`。 */
     readonly model: string;
     readonly effort?: string;
-    readonly params: {readonly maxTokens?: number; readonly temperature?: number};
+    /** `disableReasoning`：显式关掉思考。不写 `effort` 只是不指定，默认开思考的模型照样思考，而它们常常拒收强制的 `toolChoice`。 */
+    readonly params: {readonly maxTokens?: number; readonly temperature?: number; readonly disableReasoning?: boolean};
     readonly headers: Readonly<Record<string, string>>;
     readonly system: readonly RequestBlock[];
     readonly messages: readonly Message[];
@@ -190,6 +191,8 @@ export interface ModelCallOptions {
     readonly role?: string;
     /** 按对话请求解析模型（就地压缩吃缓存要用同一个模型），记录的用途仍是 `purpose`（docs/specs/harness/runtime.md 输出 47）。 */
     readonly sessionModel?: true;
+    /** 只中止这一次（调用方自己的超时）；运行中止时同样中止。 */
+    readonly signal?: AbortSignal;
 }
 
 /** 这次调用会用的模型的预算：和 `ModelCaller` 同一次解析的来源，解析不到时是 null。 */

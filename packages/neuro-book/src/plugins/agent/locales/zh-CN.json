@@ -187,6 +187,15 @@
             "yolo": {
                 "label": "全部放行",
                 "description": "所有调用都无需批准，仅拒绝规则可拦截"
+            },
+            "auto": {
+                "label": "自动判断",
+                "description": "执行命令先交审批模型判断，判不了再问你；模型会漏判，不是安全边界"
+            },
+            "reason": {
+                "mode": "当前是讨论或计划模式，这次调用算写。",
+                "autoFailed": "审批模型这次没有给出判断，请你决定。",
+                "autoEscalated": "审批模型转给你：{{reason}}"
             }
         },
         "createFailed": "新建会话失败（{{code}}）。",

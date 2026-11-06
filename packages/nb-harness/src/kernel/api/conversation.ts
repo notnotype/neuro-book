@@ -50,6 +50,8 @@ export type CoreHistory = Contract<"core.history", {}, {
     /** 进行中这一轮的输入；没有时为 null。 */
     input: {text: string; payload?: JsonValue} | null;
     current: ConversationTurn | null;
+    /** 已提交的轮；压缩之后只剩切点及其后的。 */
+    committed: readonly ConversationTurn[];
     /** 单调增加、不受压缩影响的计数：“每 8 轮”“每 16 次运行”不用自己数。 */
     turns: number;
     runs: number;
