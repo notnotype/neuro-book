@@ -1,0 +1,162 @@
+# t19 落点分区：计划设计审查报告
+
+审查对象：.agents/works/w00026-layout-package/tasks/t19-drop-zones/plan.md（计划，尚未实现）
+代码基线：worktree w00026-t07-single-tree（含 t17），路径均相对 packages/，除非另写。
+只读审查；实验文件在 /tmp/review-t19-design/exp/。未跑 e2e 与开发服务。
+
+======================================================================
+重要
+======================================================================
+
+[1] 重要 / 与 Spec 和既有测试冲突 / plan.md:60,66,100
+现象：计划让分区写字时 DropFeedbackOverlay 的药丸不显示（hideLabel），激活的那块分区只写“上方/右侧/添加为标签”这类固定词。
+为什么是问题：
+  a. 药丸现在承载的信息比分区字多：workbench-layout 输出 28 要求“放回原处……提示‘原位’”，药丸还区分“放到两块之间 / 拆到这一边 / 放在这里（标签条插入）/ 放到 X（预备区）”（WorkbenchShell.vue 的 dropLabel）。分区字只有方向，“原位”“两块之间 vs 拆”在可见层面消失，只剩 live 区（只给读屏）。Spec 28 计划没有改，等于违反。
+  b. 既有 e2e 直接读药丸：workbench-dnd.e2e.ts 里 label(page) / labelText(page) 共 19 处调用（如 280、362、440、479、506、601 到 635、737、845、897），editor-area.e2e.ts 三处 [data-drop-feedback-label]（550、563、1017）。计划缺省开关为开，hideLabel 生效后药丸节点不渲染，这 22 处全部失败；计划的“验证”一节只写“workbench-dnd 新增用例”，没有迁移这些断言。
+  c. “分区写了字时药丸不显示”的条件没定义。指针在标签条上、预备区上、活动栏上（zonesAt 为 null）时没有分区字，药丸必须照旧显示（插入标签、放到 X）；计划只写了有分区的情况。
+如何核实：grep -n "drop-feedback-label\|label(page)\|labelText(page)" e2e/workbench-dnd.e2e.ts e2e/editor-area.e2e.ts；读 DropFeedbackOverlay.vue 的 labelVisible（标签为空则不渲染）。
+建议改法：不隐藏药丸，改成把激活分区的字换成当前落点的 dropLabel（原位、两块之间、拆到这一边），未激活的分区才写方向词；药丸仍可保留，或只在分区没有激活项时显示。若坚持隐藏药丸，须同时改 Spec 28 并列出要迁移的 22 处断言，hideLabel 的条件写成“zones 非空且有激活分区”。
+
+[2] 重要 / 隐含耦合与遗漏 / plan.md:64,65,67；layout-drag.ts:343-347,299-307；drag-gesture.ts:280-293
+现象：zonesAt(source, point) 由 WorkbenchShell 在 computed 里另算，不经会话的 resolve。
+为什么是问题（逐项核实）：
+  a. 遮挡：会话的 resolve 先判“被菜单、对话框挡住、data-no-drag 不接收”（layout-drag.ts:345，读 elementsFromPoint）；这些不在纯函数输入里。zonesAt 只用同一份 panelGeometry、excludedRects、策略，不知道 top 元素，所以菜单或对话框盖在面板上时 drop 为 null 而分区仍然显示（压暗层还画在下面）。Spec 25 末句“被菜单、对话框挡住的不接收”。
+  b. 键盘：dropAt 的 region 参数决定“键盘停在预备区上就是它”（layout-drag.ts:299-307，不按坐标）；zonesAt 的签名没有 region。键盘停在 reveal:<面板> 时，point 是预备区矩形中心，zonesAt 会给出它底下那块面板（若接收）的分区，激活项为空，画面与落点不符。
+  c. 重复：每帧 dropAt 与 zonesAt 各做一遍 panelGeometry（每块面板 3 次 querySelector + 3 次 getBoundingClientRect）加 excludedRects（3 次），计划说“量级不变”，实际是每帧翻倍；放下那一刻会话又 evaluate 一次（drag-gesture.ts:316 以后）。
+  d. 接线两份：WorkbenchShell 与 EditorAreaFixture（editor-scene/EditorAreaFixture.vue:206-262，各自 createLayoutDrag、各自算 dragState/dropFeedback）都要写 dropZones、activeZone、标签三段计算。
+  e. 计划对缓存的推理本身是对的：previews 的键是 [source, action, extent]，同一个 between 从两块面板进来共用一个对象，分区不能存进缓存对象。
+建议改法：让 dropAt 在返回前给结果挂一个每帧新的 zones 包装（{...cached, zones}，不进 previews 缓存；actionKey 不受影响），分区跟随 resolve 的遮挡、region 与同一次几何读取；LayoutDragDrop 加可选的 zones/activeZone，宿主两处只做透传。这样 a、b、c、d 一并解决，activeZone 也不必在宿主比对 JSON。（drop 为 null 时不画分区即可得到“被挡住不显示”。）
+
+[3] 重要 / 层级 / plan.md:54；nb-ui/src/theme/z-index.ts:14；WorkbenchDragFeedback.vue 的 .workbench-reveal-zone
+现象：计划写“层级在 DropFeedbackOverlay 之下”，但 NB_Z_INDEX 只有 dropFeedback: 60，且预备区（.workbench-reveal-zone）和 DropFeedbackOverlay 都用 NB_Z_INDEX.dropFeedback，三者靠同值加 DOM 顺序决定先后。
+为什么是问题：Teleport 到 body 的节点按挂载先后追加，DropFeedbackOverlay 由 v-if="hasVisibleFeedback" 控制，分区层也是 v-if，谁后挂谁在上，顺序随指针路径变。分区线和压暗层一旦盖在区域高亮上，高亮被压暗；预备区的 72% 面板底（--panel-surface）盖在分区线上，则线被挡。z-index.ts 头注释要求“新增整页浮层时在此登记，并保持各档的先后”，z-index.test.ts 守着先后，计划没有登记。
+如何核实：读 z-index.ts 与 WorkbenchDragFeedback.vue 的 zIndex 绑定；读 DropFeedbackOverlay.vue 的 v-if。
+建议改法：在 NB_Z_INDEX 新增一档（预备区 < 分区 < 区域高亮，例如分别 58、59、60 或拆开 dropFeedback 的用法），更新 z-index.test.ts；预备区也要明确在分区下面还是上面（预备区叠在真实面板上，分区描的是真实面板，应在预备区之上）。
+
+[4] 重要 / 接口与上游选择 / plan.md:50,54,75；提案第 3 节手感表
+现象：variant: "live" 的外观“在卡片后面”，但组件 Teleport 到 body、position: fixed。
+为什么是问题：t01 决定 14 与提案手感表写的“卡片”是实时布局里跟手的那张卡片（原型 LayoutTreeDraft.vue 的 lt-card 层级 1000，分区层 999，同一个定位上下文），不是面板卡片。Teleport 到 body 的层不可能夹在“树内渲染层的卡片”之后，除非卡片也放到 body 下并共用层级。t08 照字面接上时只能改挂载点或层级合同，等于返工。另外 live 变体在 t19 里没有真实运行时可验（计划自己写“产品里 t08 接上之前只用 indicator”，验收只有 Lab 截图），是无法检验的推测性接口。
+建议改法：t19 只做 indicator，令牌两组照登记，live 变体与它的层级由 t08 在拿到卡片实现后定；或者现在就在 plan 里写明 live 的挂载点和层级由宿主传入（例如 teleport 目标与 zIndex 属性），不要先固定 body。
+
+[5] 重要 / 命名 / plan.md:23-33,64-66
+现象：计划新增 LayoutDropZones、LayoutDropZone、resolveLayoutDropZones、zonesAt、DropZonesOverlay、dropZones，而“zones”在同一批文件里已经是“预备区”：LayoutDropInput.zones（layout-drop.ts:47）、LayoutDrag.zones()（layout-drag.ts，frozenZones）、WorkbenchDragFeedback 的 zones 属性、WorkbenchShell 的 revealZones、.workbench-reveal-zone。计划的 LayoutDropZones 还有一个 zones 字段，与 LayoutDropInput.zones 同名不同义。
+为什么是问题：同一个函数的输入里有 zones（预备区）、输出里有 zones（分区），读代码和 Spec 的人会混；“分区”在编辑器里也指标签的分区（partition，layout-drag.ts:221、data-tab-partition）。
+建议改法：换一个词，例如 sectors / 落点扇区（LayoutDropSectors、resolveLayoutDropSectors、sectorsAt、DropSectorsOverlay、data-drop-sector）；中文仍可叫“落点分区”，代码不用 zone。
+
+[6] 重要 / 令牌 / plan.md:54；nb-ui/src/tokens.css:223-229；nb-ui/src/theme/tokens.ts:123-131；packages/neuro-book/plugin-sdk/pack.ts:286；docs/specs/theme/system.md:46
+现象：计划列了六个名字，又说“两种手感各一组”，没有说两组分别叫什么（六个名字是同一组还是缺了一半）；没有说是否登记，也没有写默认值从哪来。
+为什么是问题：
+  a. 名字不全：每个手感一组至少 6 个，计划只写了 6 个，live 与 indicator 要么共用（外观就不能不同），要么另有 6 个未列出的名字。
+  b. 未登记：theme/tokens.ts 的 nbThemeFeedbackTokens 登记了 --sash-line-*、--drop-area-*；loader 用 nbReservedTokens 拒绝主题 declares 同名变量（theme-loader.ts:62-90）。--layout-* 不登记，第三方主题可以重新声明而不报错。tokens.test.ts 只检查“已登记的必须声明”，反向漏登记没有任何检查。现有先例 --motion-layout 就是声明了但没登记（tokens.css:88，不在 nbMotionTokens），是在重复同一个漏洞。
+  c. 主题已经在覆盖相邻变量：themes/nbook/vars.css:332-333 把 --drop-area-fill 改成 20%、--drop-area-border 改成实色。新的分区令牌缺省不从 --drop-area-* 派生，就会出现区域高亮与分区线两套互不相干的强调。
+  d. 公开面：pack.ts 的 DESIGN_GROUPS 按前缀分组生成 SDK 的“主题变量”文档，--layout-* 不匹配“拖动与落点的反馈”那一组，会落进“其它”；docs/specs/theme/system.md:46 列了交互反馈令牌，没有更新。
+  e. 值的形态：原型用百分比（zoneFill: 5 等），主题作者要给的是颜色；--drop-area-fill 是整段 color-mix 颜色，应沿用，百分比只能留在缺省表达式里。
+建议改法：把 12 个名字全列进计划（--layout-zone-* 与 --layout-live-zone-* 之类）；登记进 nbThemeFeedbackTokens；缺省从 --drop-area-fill/border、--accent-main 派生；压暗层写成颜色（--layout-scrim）；同步 theme/system.md 与 pack.ts 的分组；顺手把 --motion-layout 补登记。
+
+[7] 重要 / 被破坏的既有约定 / plan.md:23,54；WorkbenchSurface.vue:320-328,418-426；themes/nbook/vars.css:316
+现象：分区层的矩形是 geometry.body（直角矩形），压暗层是整块矩形的背景。
+为什么是问题：卡片有 overflow: hidden 和 border-radius: var(--shell-card-radius)（nbook 主题 12px），内容区的下两个角是圆角（WorkbenchSurface.vue:425-426）。body 是卡片去掉头的部分，底部两角在圆角里；直角压暗层会在这两个角露出 12px 的方角，压暗色盖到卡片之间的底色上。nb-layout 不知道 --shell-card-radius（宿主变量），原型用了硬编码的 border-radius: 0 0 10px 10px，plan 没有提及。
+如何核实：读上面两处 CSS；Lab 里用 nbook 主题拖一次即可看到。
+建议改法：DropZonesOverlay 加 radius 属性（或 --layout-zone-radius 变量），宿主传 var(--shell-card-radius)；overlay 自身 overflow: hidden。底部圆角只在 body 的底边贴着卡片底边时才有，宿主要告诉组件哪几个角是圆的（编辑组头以下的上两角是直角）。
+
+[8] 重要 / 不变量与测试设计 / plan.md:36,38,97；layout-drop.ts:119-122；layout-drop.test.ts:121
+现象：
+  a. “指针在……预备区上……返回 null”表述有歧义。现行规则是真实落点优先，预备区只在没有真实落点时才算（layout-drop.ts:119-122，测试 121 行“有真实落点就是它，预备区盖着也一样”）。如果 resolveLayoutDropZones 看到指针落在任何预备区矩形里就返回 null，那么预备区盖在接收的工具面板上时，drop 是真实落点而分区消失，违反“形状与判定一致”。
+  b. 不变量测试只用“四种策略”（假策略）随机点。工作台策略 layoutEdgeTarget 的组合只有三种：编辑组四边恒非 null（edgeTargetOf 永不返回 null，只在 between 且邻居不全是编辑组时改写成 split）；工具面板只有所在轴的两条边。真实形状由策略 + 真实文档决定，假策略测不到。
+  c. 随机点落在多边形边界上时（整数像素，宽高相等的正文对角线上），“点所在多边形”不唯一，测试必须定义归属或避开边界。
+建议改法：规则写成“仅当该点的真实动作为 null 且落在预备区里时，分区为 null”；neuro-book 加一条单元测试：createLayoutPolicy + 默认树，对每块面板扫整数网格（含缝上 -4 到 +4 像素和夹角），断言 resolveLayoutDrop 的动作等于分区命中；nb-layout 里用浮点随机点避开边界。
+
+======================================================================
+建议
+======================================================================
+
+[9] 建议 / 一致性 / plan.md:36；layout-drag.ts:113-117,368-369；workbench-layout 输出 25 第 4 行
+现象：zonesAt 在标签条（含 titleOnly 面板的整个头）上返回 null，但 titleOnly 面板的头在 Spec 里等于中央（“侧栏这一列只有标题，没有插入位，等于中央”；dropAt 把 strip 改成 center）。
+为什么：指针从侧栏正文上移到它的标题，压暗与分区整层消失，同时落点是“添加为标签”、区域高亮在正文上。分区的存在与落点不同步。编辑组的标签条上无分区合理（那里是插入线）。
+建议改法：titleOnly 面板的头也算中央（zonesAt 接 titleOnly，把头并入 center 的命中区，或压暗层覆盖整块卡片），或者在 Spec 里写明“头上没有分区”。
+
+[10] 建议 / 边界 / layout-drop.ts:76,89-90
+现象：正文零高或零宽（收成标题行的工具面板：strip = 整个头，body 零高）时 nearestEdge 里 relative 是除零（NaN / -Infinity）。实验（/tmp/review-t19-design/exp/e1.ts）：宽松策略下零高正文，头下 1 到 2 像素的缝里指针得到 {edge, top}，不是 strip 也不是 null。
+为什么：resolveLayoutDropZones 对零面积正文没有定义；多边形比例化会得到 NaN 点，不变量测试在这些点上必然不一致。工作台策略下 top 对水平排不可用，会落到 center，没有直接外露，但分区函数自己要处理。
+建议改法：零面积正文直接返回 null，并在不变量测试里加一例；resolveLayoutDrop 的同一处也应守住。
+
+[11] 建议 / 视觉 / plan.md:56
+现象：每块分区在重心写字，没有尺寸判断。
+为什么：以编辑组最小尺寸 220x120 算（EDITOR_GROUP_MINIMUM），左右窄带宽 61.6 像素，药丸=字宽加左右各 12 像素的内边距；“Left”“Right”“Add as tab”（en-US）会超出窄带，左侧药丸会压到左边界外并与中央药丸重叠（左药丸中心 31 像素，宽约 70，覆盖 -4 到 66；中央药丸中心 110，宽约 114，覆盖 53 到 167）。上下带高 33.6 像素，药丸 22 像素勉强。这是算术推断，未跑浏览器。
+建议改法：药丸宽度超过多边形外接盒时不写字（或只写图标）；激活项永远写；Lab 夹具加最小尺寸场景。
+
+[12] 建议 / 无障碍 / plan.md:54,56
+现象与问题：
+  a. 计划写“缺省只读屏不读”，没写 aria-hidden；SVG 与字应 aria-hidden="true"，否则读屏虚拟光标会读到五个方向词。
+  b. forced-colors 只处理了线用 Highlight；压暗层是背景色，强制颜色下作者背景色会被换成系统色（Canvas），压暗层可能变成不透明遮住内容。这一条我没有在浏览器里取证，需要在 Chrome 的 forced-colors 模拟里看一次再定（当前只能说计划没有处理）。
+  c. 现有 DropIndicatorLabel 已经处理 prefers-contrast: more 与 prefers-reduced-transparency（DropIndicatorLabel.vue:50）；分区线、压暗层计划没有对应，高对比度下线与压暗对比不足时没有加强。
+  d. “淡入 120ms，减少动效时直接出现”：120ms 就是 --motion-fast 的值，应使用 var(--motion-fast)（tokens.css:79，减少动效时被置 0ms !important），不要再写一条硬编码加媒体查询。
+  e. live 区：DropFeedbackOverlay 的 live 区挂在 v-if="hasVisibleFeedback" 的根下，没有可见几何（区域、线、条目都无效）时整层连播报一起不在。分区模式下有分区没有药丸时，这一缝隙里读屏无声。预览 areaRect 全为 null 的落点极少（previewEdgeDrop 返回 null），但 hideLabel 把可见文字撤了，等于只剩这条脆弱通道。
+建议改法：补 aria-hidden；强制颜色用 forced-color-adjust: none 加系统色或去掉压暗并只留线（待取证）；动效用令牌；live 区与可见几何解耦（独立于 v-if）。
+
+[13] 建议 / 文档位置 / plan.md:78-81；docs/specs/ui/layout-drag.md:12-21,170-172；docs/standards/code/components.md:19
+现象：计划把 DropZonesOverlay 的合同和 hideLabel 写进 ui/layout-drag.md。
+为什么：layout-drag.md 的“不承诺”写明“落点的几何与规则……在 ui.workbench-layout”“落点长什么样……由宿主给”，且全文没有提到 DropFeedbackOverlay（grep 无命中），它是会话 Spec，不放反馈组件合同。组件合同在同名 .md（DropFeedbackOverlay.md 就是这样写的，hideLabel 属于它）。真正要改的：新增 DropZonesOverlay.md；DropFeedbackOverlay.md（hideLabel 与播报）；WorkbenchDragFeedback.md（新属性）；workbench-layout.md 输出末尾的“落点分区”还要对应“验收与 Smoke”里新增一条（计划没有列）；theme/system.md（见 6）；components.md:19 列的受管组件目录没有 nb-layout，计划写“若列了……则补”，结论是没列，应补上（check-documentation.ts:60 的 COMPONENT_BARRELS 已含 nb-layout，是文档落后于脚本）。
+建议改法：按上面的清单改计划的“Spec 与文档改动”一节。
+
+[14] 建议 / 设置项 / plan.md:71；workbench/shared/contracts.ts:139-163；workbench/plugin.ts:8；settings/locales.test.ts:22-25
+现象：计划只写“放外观分区，defineSetting”。
+遗漏：group（nbook.appearance 只有 ui 和 language 两个小组，描述写的是“界面的主题、明暗与语言”，落点分区开关并不是外观）；layers（缺省两层都允许，这是个人交互偏好，应只开 user，主题设置才两层）；zh-CN 与 en-US 的 settings.dropZones.* 文字及 locales.test.ts 的键校验；要加进 workbench/plugin.ts 的 descriptor contributions；WorkbenchShell 目前不读设置，怎么拿到（新属性，还是 layout store）没写；Lab 夹具怎么给值没写。
+更重要的是：提案手感表里“分区（开关）”是按手感分的两行（实时布局：淡线；落点指示：压暗），而 t08 要加“拖动手感”设置，缺省实时布局。一个全局布尔“缺省开”，到 t08 就要决定实时布局下是否缺省画淡线；开发者已把缺省留待确认，建议此刻就问清“开关是一个还是按手感各一个”，免得 t08 改键。
+建议改法：补全上述各项；把设置项和 t08 的手感设置放在同一个分区决定。
+
+[15] 建议 / 合同标记 / plan.md:54；drag-session.ts:76-82；layout-drag.md:124,172；WorkbenchDragFeedback.md
+现象：计划的标记只有 data-drop-zones、data-drop-zone、data-drop-zone-active。
+问题：layout-drag.md 把 data-drag-feedback 列为公开标记（“反馈元素不挡命中”），其余反馈（拖影、预备区、DropFeedbackOverlay）全都带它。计划靠 pointer-events: none 也不会被 elementsFromPoint 命中，但这是把合同建在 CSS 上；少了标记，以后有人给覆盖层去掉 pointer-events（例如要做可点击的分区）时 root.contains(top) 失败，整场 resolve 返回 null（layout-drag.ts:345）。
+建议改法：覆盖层根加 data-drag-feedback，并在计划里写明。
+
+[16] 建议 / 验收映射 / plan.md:92-100
+缺口：
+  a. “压暗不用模糊”只写“Lab 截图人工看”，可机检：Lab e2e 读压暗层的 getComputedStyle，backdropFilter 与 filter 为 none。
+  b. 决定 18“参数化到 CSS 变量”没有判据：改变量值后线色、压暗不透明度的计算样式随之变。
+  c. 决定 14“线和字都显眼”没有判据：每个主题（nbook、macos）× 明暗，线色对压暗后底色的对比度不低于 3:1，字不低于 4.5:1，可以在 Lab 里读计算色算。
+  d. 没有键盘拖动出现分区的用例、没有“被菜单挡住不显示”“预备区上的行为”“最大化”“拖动结束或取消后零残留”的用例（见 2、8）。
+  e. 22 处既有药丸断言的迁移（见 1）。
+  f. 计划的验证命令写 bun run test:affected --since master，但 e2e 文件清单没列出 workbench-dnd 之外要跑哪些（editor-area.e2e.ts、lab-drag-session.e2e.ts 读药丸/反馈层），按 AGENTS 的 e2e 规则应列出并说明理由。
+
+[17] 建议 / 文案 / plan.md:66；zh-CN.json:192-199
+现象：新增 shell.drop.zone.center “添加为标签”与现有 shell.drop.addTab 完全同字；空面板新字“放到这里”与现有 shell.drop.insert “放在这里”（标签条插入）只差一个字，读起来是同一句话两个落点。
+建议改法：中央复用 shell.drop.addTab；空面板用不同的词（如“放进这块面板”）或直接复用 addTab。
+
+[18] 建议 / 键盘 / layout-drop.ts:236-243（enumerateDropCandidates）、78（centered）；layout-drag.ts:367-378
+现象：对空面板，enumerateDropCandidates 仍给出四条边的候选（只检查 accepts(edge)），pointOfCandidate 把停靠点放在边内 2 像素，但 resolveInPanel 对空面板（centered）整块判中央。键盘走这几个停靠点，落点其实都是 center。这是既有不一致，计划引入后会显性：分区只画一块“中央”，键盘却有五个停靠点。
+建议改法：枚举时空面板（接受中央时）只列中央，与 resolveInPanel 对齐，并加一条测试。
+
+[19] 建议 / SDK 与登记 / plan.md:23-26,88；sdk/components.ts:41-42；fixtures/nb-layout/index.ts
+现象：sdk/components.ts 公开导出了 DropFeedbackOverlay、DropIndicatorLabel、NestedGrid、Splitter、TabStrip；计划没说 DropZonesOverlay 是否导出。Lab 场景登记在 fixtures/nb-layout/index.ts（defineLabFixture，场景 id 列表加夹具）计划只写“Lab 场景”。
+建议改法：写明“暂不导出 SDK，理由……”或同步导出与类型；列出要改的文件：nb-layout/src/vue/index.ts、lab-sources 自动覆盖 .md、fixtures/nb-layout/index.ts、夹具 .vue、e2e/lab-scenes.e2e.ts 条目。
+
+======================================================================
+参照有而计划没有的项
+======================================================================
+
+- 原型 LayoutTreeDraft.vue：border-radius: 0 0 10px 10px 与 overflow: hidden 裁圆角（见 7）；分区层相对跟手卡片的层级（999 对 1000，见 4）；:key=zones.panelId 换面板时重建并重放淡入（计划没写换面板时是否重放，扫过几块面板时会逐块闪一次，建议同一覆盖层复用节点，只过渡位置）。
+- VS Code 的编辑器拖放覆盖层：本次没有读到它的源码，未核对，不列。
+
+======================================================================
+未发现问题的方面
+======================================================================
+
+- “形状由 nearestEdge 的规则推出来”这个推导本身成立：读 layout-drop.ts:86-99。窄带是 depth < 比例，按深度升序、取第一个策略给的边；所以相邻边都可用时角按对角线切成梯形，相邻边不可用时窄带占满该角成矩形，最近边不可用且次近边不在窄带内时落到中央。四角、只有对边可用（工具面板）、空面板（centered 整块中央）、进不了中央（无中央块）都与计划描述一致。
+- edgeTargetFor 的依赖：工作台的 layoutEdgeTarget 只读 doc、panelId、edge，忽略 tabs（constraints.ts），所以“某条边是否可用依赖被拖的标签”的组合在工作台里不存在；实际只有三种形状：编辑组四边恒可用（edgeTargetOf 对存在的面板永不返回 null），工具面板在所在轴的两条边可用（侧栏、右栏上下，面板左右）。计划“编辑组五块、列上下中、排左右中”与 Spec 输出 10 一致。
+- dragState 每帧发布：drag-gesture.ts 的 publish 每次 current.last 是新对象，shallowRef 必然触发，rAF 每帧一次；拖影已依赖它，计划说法属实。
+- 缓存不能存分区的推理成立（previews 键只含 source、action、extent）。
+- activeZone 用 JSON.stringify 比较 action：zone 与 drop 的动作由同一批构造函数生成，键序相同；放回原处（inPlace）的 center/edge 动作与分区动作相同，自动算当前块，无须特判；strip 与 reveal 没有对应分区所以无激活项，行为符合预期。
+- 指针在缝上：resolveInPanel 把点夹进正文再判，分区与落点一致；缝里的归属沿用 4 像素最近接收面板规则。
+- 面板最大化：panelGeometry 只返回最大化的那块，分区随之只对它；收成标题行的面板正文零高，指针在头上走 strip，无分区（边界见 10）。
+- Teleport 到 body + pointer-events: none 不影响 elementsFromPoint（见 15 的合同提醒）。
+- 库边界：resolveLayoutDropZones 是纯函数，放在 layout-drop.ts 符合 nb-layout 核心不依赖 DOM 的约定（boundary.test.ts）。
+- 依赖方向：nb-layout 依赖 nb-ui 的令牌，与 --motion-layout、--sash-line-* 的先例一致，不需要反向依赖。
+
+======================================================================
+数量
+======================================================================
+阻断：0
+重要：8（1 到 8）
+建议：11（9 到 19）
+合计：19
