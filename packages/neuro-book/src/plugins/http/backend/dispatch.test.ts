@@ -2,13 +2,15 @@ import {afterAll, describe, expect, it} from "bun:test";
 import {rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {Hono} from "hono";
+import {HTTPException} from "hono/http-exception";
 
 import {PluginStateError} from "@notnotype/nb-runtime/plugins";
 import type {ContributionDescriptor, ContributionHandle} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {HttpAdmission} from "./admission";
-import {HTTP_ROUTES_POINT} from "../shared/contracts";
+import {HTTP_ROUTES_POINT, rethrowRouteError} from "../shared/contracts";
 import type {HttpRouteEnv, HttpRouteHandler} from "../shared/contracts";
 import {createDispatcher, RouteTable, validateRouteContribution} from "./dispatch";
 import {openStaticFiles} from "./static";
@@ -55,9 +57,9 @@ function setup(staticFiles: StaticFiles | null = null) {
     const admission = new HttpAdmission();
     admission.ready();
     const routes = new RouteTable();
-    const errors: Array<{error: unknown; plugin: string | null}> = [];
+    const errors: Array<{error: unknown; plugin: string | null; clientGone: boolean}> = [];
     const hostRoutes = new Hono<{Bindings: HttpRouteEnv}>().get("/health", (c) => c.json({status: "ok"}));
-    const dispatch = createDispatcher({admission, routes, hostRoutes, staticFiles, reportError: (error, {plugin}) => errors.push({error, plugin}), allowOrigin: (origin) => origin === PAGE_ORIGIN});
+    const dispatch = createDispatcher({admission, routes, hostRoutes, staticFiles, reportError: (error, {plugin, clientGone}) => errors.push({error, plugin, clientGone}), allowOrigin: (origin) => origin === PAGE_ORIGIN});
     const request = (path: string, init?: RequestInit, host = "127.0.0.1") => dispatch(new Request(`http://${host}${path}`, init));
     return {admission, routes, errors, request, dispatch};
 }
@@ -122,8 +124,66 @@ describe("请求分发", () => {
         mount(routes, routeHandle("nbook.broken", {fetch: () => { throw failure; }}));
         const response = await request("/api/nbook.broken/x");
         expect(response.status).toBe(500);
-        expect(errors).toEqual([{error: failure, plugin: "nbook.broken"}]);
+        expect(errors).toEqual([{error: failure, plugin: "nbook.broken", clientGone: false}]);
         expect(admission.active).toBe(0);
+    });
+
+    describe("Hono 写的路由", () => {
+        const failure = new Error("boom");
+        const app = new Hono<{Bindings: HttpRouteEnv}>().onError(rethrowRouteError)
+            .get("/sync", () => { throw failure; })
+            .get("/async", async () => { await Promise.resolve(); throw failure; })
+            .use("/chained", async (_c, next) => { await next(); })
+            .get("/chained", () => { throw failure; })
+            .get("/refused", () => { throw new HTTPException(418, {message: "refused"}); });
+
+        for (const path of ["/sync", "/async", "/chained"]) {
+            it(`${path} 抛错：回 JSON 的 internal-error 并进诊断，在途计数归还`, async () => {
+                const {routes, request, errors, admission} = setup();
+                mount(routes, routeHandle("nbook.broken", app));
+                const response = await request(`/api/nbook.broken${path}`);
+                expect(response.status).toBe(500);
+                expect(await response.json()).toEqual({error: {code: "internal-error", message: "处理请求时出错。"}});
+                expect(errors).toEqual([{error: failure, plugin: "nbook.broken", clientGone: false}]);
+                expect(admission.active).toBe(0);
+            });
+        }
+
+        it("HTTPException 是给客户端的响应：状态码照旧，不进诊断", async () => {
+            const {routes, request, errors} = setup();
+            mount(routes, routeHandle("nbook.broken", app));
+            const response = await request("/api/nbook.broken/refused");
+            expect(response.status).toBe(418);
+            expect(await response.text()).toBe("refused");
+            expect(errors).toEqual([]);
+        });
+
+        it("客户端上传到一半断开：读请求体失败算断开，不算出错", async () => {
+            const {routes, dispatch, errors, admission} = setup();
+            const reading = Promise.withResolvers<void>();
+            const finished = Promise.withResolvers<void>();
+            mount(routes, routeHandle("nbook.broken", new Hono<{Bindings: HttpRouteEnv}>().onError(rethrowRouteError).put("/upload", async (c) => {
+                reading.resolve();
+                try {
+                    return c.json({size: (await c.req.arrayBuffer()).byteLength});
+                } finally {
+                    finished.resolve();
+                }
+            })));
+            const server = Bun.serve({port: 0, hostname: "127.0.0.1", idleTimeout: 0, fetch: dispatch});
+            try {
+                const socket = await Bun.connect({hostname: "127.0.0.1", port: server.port as number, socket: {data() {}}});
+                socket.write(`PUT /api/nbook.broken/upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000000\r\n\r\npartial`);
+                await reading.promise;
+                socket.end();
+                await finished.promise;
+                await waitUntil("上传失败已报告", () => errors.length > 0);
+                expect(errors).toEqual([{error: expect.anything(), plugin: "nbook.broken", clientGone: true}]);
+                await waitUntil("在途计数归还", () => admission.active === 0);
+            } finally {
+                await server.stop(true);
+            }
+        });
     });
 
     it("流式响应在正文读完前计入在途，读完后归还；排空在那之前不结算", async () => {

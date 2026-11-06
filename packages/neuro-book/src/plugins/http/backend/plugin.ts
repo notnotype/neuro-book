@@ -13,9 +13,10 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {descriptor} from "../plugin";
 import type {HttpAdmission} from "./admission";
-import {HTTP_ROUTES_POINT} from "../shared/contracts";
+import {HTTP_ROUTES_POINT, rethrowRouteError} from "../shared/contracts";
 import type {HttpRouteEnv} from "../shared/contracts";
 import {createDispatcher, errorResponse, RouteTable, validateRouteContribution} from "./dispatch";
+import type {RequestFailureContext} from "./dispatch";
 import {openStaticFiles} from "./static";
 
 /** 宿主自有接口：挂在 `/api/runtime/` 下，`path` 是去掉该前缀后的路径。只由装配方提供，插件用 `http.routes`。 */
@@ -57,18 +58,18 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
             receives: [HTTP_ROUTES_POINT],
             activate: async (context) => {
                 const diagnostics = context.services.require(diagnosticsKey);
-                const reportError = (error: unknown, detail: {readonly plugin: string | null; readonly path: string}): void => {
+                const reportError = (error: unknown, {clientGone, ...detail}: RequestFailureContext): void => {
                     diagnostics.record({
-                        level: "error",
-                        event: "http.request.failed",
-                        message: "处理请求时出错",
+                        level: clientGone ? "debug" : "error",
+                        event: clientGone ? "http.request.aborted" : "http.request.failed",
+                        message: clientGone ? "客户端断开，请求没有处理完" : "处理请求时出错",
                         error,
                         data: detail,
                         source: {plugin: detail.plugin ?? descriptor.id},
                     });
                 };
                 const routes = new RouteTable();
-                const hostRoutes = new Hono<{Bindings: HttpRouteEnv}>().get(HEALTH_PATH, (c) => c.json({status: "ok"}));
+                const hostRoutes = new Hono<{Bindings: HttpRouteEnv}>().onError(rethrowRouteError).get(HEALTH_PATH, (c) => c.json({status: "ok"}));
                 for (const route of extraRoutes) hostRoutes.get(route.path, (c) => route.handle(c.req.raw));
                 const staticFiles = options.staticRoot ? await openStaticFiles(options.staticRoot) : null;
                 const server = Bun.serve({
@@ -78,7 +79,7 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
                     idleTimeout: 0,
                     fetch: createDispatcher({admission: options.admission, routes, hostRoutes, staticFiles, reportError, allowOrigin: options.allowOrigin}),
                     error: (error) => {
-                        reportError(error, {plugin: null, path: ""});
+                        reportError(error, {plugin: null, path: "", clientGone: false});
                         return errorResponse(500, "internal-error", "处理请求时出错。");
                     },
                 });
