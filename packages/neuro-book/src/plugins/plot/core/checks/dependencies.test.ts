@@ -10,7 +10,8 @@ import type {Mark, TellingDraft} from "@notnotype/nb-canon/schema";
 import type {SelfReport} from "../../shared/checks";
 import {MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
-import {addRow, chapter, drafts, PlotWorld, present} from "../../testing/world";
+import {addRow, chapter, drafts, learns, PlotWorld, present, setSub} from "../../testing/world";
+import {randomBook, seeded} from "../../testing/random-edits";
 import {dependenciesOf} from "./dependencies";
 import {digest, planOf, type Scene} from "../../testing/checks";
 
@@ -298,54 +299,212 @@ describe("补叙章", () => {
     });
 });
 
-describe("随机序列", () => {
-    test("摘要没变时，重拼的结论一定没变", () => {
-        // 固定种子：失败时能复现。
-        let seed = 20261106;
-        const random = (limit: number) => {
-            seed = (seed * 1103515245 + 12345) % 2147483648;
-            return seed % limit;
+describe("跨条目的间接影响、身份与讲述", () => {
+    const undo = (w: PlotWorld, id: string) => w.publish([{ref: {kind: "change", id}, after: {...w.world.data.changes.get(id)!, status: "undone", undoneReason: "不要了"}}]);
+    /** 路人有一行；`touch` 改这一行，带上它的变更整条才套得上；`breaker` 在第 3 章把这一行去掉，这样的变更就整条不套。 */
+    function rig(w: PlotWorld) {
+        const bystander = w.person("路人");
+        const trifle = w.point("无关的事", null, {保密: "common"});
+        w.change(chapter("ch1"), {patches: [addRow(bystander, trifle, {程度: "knows"})]});
+        return {touch: setSub(bystander, trifle, "程度", "suspects"), breaker: () => w.change(chapter("ch3"), {patches: [{op: "listRemove", at: {entry: bystander, path: "know.知情"}, value: trifle}]})};
+    }
+    const addText = (w: PlotWorld, id: string, text: string) => w.texts.set(id, `${w.texts.get(id) ?? ""}${text}。\n`);
+    function keyBook() {
+        const w = new PlotWorld(CHAPTERS);
+        const key = w.thing("铜钥匙");
+        const k = w.point("钥匙是假的", null, {保密: "secret"});
+        const fs = w.foreshadow("钥匙之谜", {种类: "mystery", 答案: {ref: k}, 物件: [{id: key}]});
+        w.change(chapter("ch2"), {told: [inText(w, "ch2", "他拾起一把钥匙", [node(fs, "plant")])]});
+        addText(w, "ch8", "铜钥匙在桌上");
+        return {w, key, k, fs};
+    }
+
+    test("悬念答案上的揭示改成暗示：阶段从已回收回到呼应，物件层候选出现", () => {
+        const {w, k} = keyBook();
+        const id = w.change(chapter("ch5"), {told: [inText(w, "ch5", "原来那把是假的", [reveal(k, "explicit")])]});
+        mustChange(w, () => w.publish([{ref: {kind: "change", id}, after: {...w.world.data.changes.get(id)!, told: w.world.data.changes.get(id)!.told.map((telling) => ({...telling, marks: [reveal(k, "hint")]}))}}]));
+    });
+
+    test("删掉早先一章被引的句子：答案上的揭示失联、节点失联", () => {
+        const first = keyBook();
+        first.w.change(chapter("ch5"), {told: [inText(first.w, "ch5", "原来那把是假的", [reveal(first.k, "explicit")])]});
+        mustChange(first.w, () => first.w.texts.set("ch5", "别的话。\n"));
+        const second = keyBook();
+        mustChange(second.w, () => second.w.texts.set("ch2", "别的话。\n"));
+    });
+
+    test("新写一条兑现带回收节点的计划的变更：它不提到伏笔，继承节点，阶段变成已回收", () => {
+        const {w, fs} = keyBook();
+        const plan = w.change(chapter("ch5"), {kind: "plan", told: [{source: "outline", chapter: "ch5", anchor: "细纲", marks: [node(fs, "payoff")]}]});
+        mustChange(w, () => w.change(chapter("ch5", 1), {links: [{kind: "fulfills", plan}], told: [inText(w, "ch5", "钥匙的事说开了")]}));
+    });
+
+    test("撤销 D，给伏笔加物件的 C 才套上：D 只提到路人，物件层候选出现", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const {touch, breaker} = rig(w);
+        const key = w.thing("铜钥匙");
+        const fs = w.foreshadow("钥匙伏笔", {物件: []});
+        w.change(chapter("ch2"), {told: [inText(w, "ch2", "他拾起一把钥匙", [node(fs, "plant")])]});
+        w.change(chapter("ch4"), {patches: [{op: "listAdd", at: {entry: fs, path: "fs.物件"}, value: {id: key}}, touch]});
+        const d = breaker();
+        addText(w, "ch8", "铜钥匙在桌上");
+        mustChange(w, () => undo(w, d));
+    });
+
+    test("撤销 D，改名的补丁才套上：父条目改名，知识点进本章；物件改名，物件层候选出现", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const {touch, breaker} = rig(w);
+        const holder = w.person("老周");
+        const watcher = w.person("卫兵");
+        w.point("老周的秘密", holder, {保密: "secret"});
+        w.change(chapter("ch4"), {patches: [{op: "set", at: {entry: holder, path: "entry.name"}, value: "周掌柜"}, touch]});
+        const d = breaker();
+        addText(w, "ch8", "周掌柜在柜台后面");
+        w.change(chapter("ch8"), {cast: [present(watcher)]});
+        mustChange(w, () => undo(w, d));
+
+        const other = new PlotWorld(CHAPTERS);
+        const rigged = rig(other);
+        const key = other.thing("旧物");
+        const fs = other.foreshadow("钥匙伏笔", {物件: [{id: key}]});
+        other.change(chapter("ch2"), {told: [inText(other, "ch2", "他拾起一把钥匙", [node(fs, "plant")])]});
+        other.change(chapter("ch4"), {patches: [{op: "set", at: {entry: key, path: "entry.name"}, value: "铜钥匙"}, rigged.touch]});
+        const breaking = rigged.breaker();
+        addText(other, "ch8", "铜钥匙在桌上");
+        mustChange(other, () => undo(other, breaking));
+    });
+
+    test("撤销 D，C 才套上：C 的在场得知生效，人的知情变了", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const {touch, breaker} = rig(w);
+        const hero = w.person("勇者");
+        const guard = w.person("卫兵");
+        w.point("勇者的秘密", hero, {保密: "secret"});
+        const k = w.point("别的秘密", hero, {保密: "secret"});
+        w.change(chapter("ch4"), {cast: [present(guard)], marks: [learns(k)], patches: [touch]});
+        const d = breaker();
+        addText(w, "ch8", "勇者走进客栈");
+        w.change(chapter("ch8"), {cast: [present(guard)]});
+        mustChange(w, () => undo(w, d));
+    });
+
+    test("计划在按计划模式下才套上：改两个条目的计划，保密档变了、目标的隐秘变了", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const {touch, breaker} = rig(w);
+        const hero = w.person("勇者");
+        const k = w.point("勇者的小事", hero, {保密: "common"});
+        w.change(chapter("ch4"), {kind: "plan", patches: [{op: "set", at: {entry: k, path: "point.保密"}, value: "secret"}, touch]});
+        const d = breaker();
+        addText(w, "ch8", "这里没有写到主角的名字");
+        w.change(chapter("ch8"), {cast: [present(hero)]});
+        mustChange(w, () => undo(w, d), {instruction: {chapter: "ch8", version: "v1", pov: {id: hero}, povMode: "limited"}});
+
+        const other = new PlotWorld(CHAPTERS);
+        const rigged = rig(other);
+        const person = other.person("勇者");
+        const secret = other.point("暗藏的事", null, {保密: "secret"});
+        const goal = other.goal("藏起来", person, {状态: "active", 隐秘: null});
+        other.change(chapter("ch4"), {kind: "plan", patches: [{op: "set", at: {entry: goal, path: "goal.隐秘"}, value: {ref: secret}}, rigged.touch]});
+        const breaking = rigged.breaker();
+        addText(other, "ch8", "这里没有写到主角的名字");
+        other.change(chapter("ch8"), {cast: [present(person)]});
+        mustChange(other, () => undo(other, breaking));
+    });
+
+    test("讲述在本章、安放在别处的变更：在场的人有了隐秘目标、改了名", () => {
+        const scene = () => {
+            const w = new PlotWorld(CHAPTERS);
+            const hero = w.person("勇者");
+            const witness = w.person("目击者");
+            const k = w.point("勇者的秘密", hero, {保密: "secret"});
+            w.change(chapter("ch3"), {cast: [present(witness)], told: [inText(w, "ch8", "目击者想起那一夜")]});
+            w.change(chapter("ch8"), {cast: [present(hero)], told: [inText(w, "ch8", "勇者走进客栈")]});
+            return {w, witness, k};
         };
-        const {w, hero, guard, k, fs} = book();
-        const others = Array.from({length: 4}, (_, index) => w.person(`人${String(index)}`));
-        const target = () => `ch${String(1 + random(22))}`;
+        const first = scene();
+        mustChange(first.w, () => first.w.goal("守住秘密", first.witness, {隐秘: {ref: first.k}}));
+        const second = scene();
+        const stored = second.w.world.data.entries.get(second.witness)!;
+        mustChange(second.w, () => second.w.publish([{ref: {kind: "entry", id: second.witness}, after: {...stored, init: {...stored.init, name: "老更夫"}}}]));
+    });
+
+    test("`揭穿`、`物件` 由补丁写：改马甲、物件的初值名字，正文里有新名字", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const mask = w.person("黑衣人");
+        const watcher = w.person("卫兵");
+        const k = w.point("黑衣人是谁", null, {保密: "secret"});
+        w.change(chapter("ch3"), {patches: [{op: "set", at: {entry: k, path: "point.揭穿"}, value: {ref: mask}}]});
+        addText(w, "ch8", "灰袍客走过");
+        w.change(chapter("ch8"), {cast: [present(watcher)]});
+        const stored = w.world.data.entries.get(mask)!;
+        mustChange(w, () => w.publish([{ref: {kind: "entry", id: mask}, after: {...stored, init: {...stored.init, name: "灰袍客"}}}]));
+
+        const other = new PlotWorld(CHAPTERS);
+        const key = other.thing("旧名");
+        const fs = other.foreshadow("钥匙伏笔", {物件: []});
+        other.change(chapter("ch2"), {patches: [{op: "listAdd", at: {entry: fs, path: "fs.物件"}, value: {id: key}}], told: [inText(other, "ch2", "他拾起一把钥匙", [node(fs, "plant")])]});
+        addText(other, "ch8", "铜钥匙在桌上");
+        const thing = other.world.data.entries.get(key)!;
+        mustChange(other, () => other.publish([{ref: {kind: "entry", id: key}, after: {...thing, init: {...thing.init, name: "铜钥匙"}}}]));
+    });
+
+    test("改了告诉他的人的名字：误信的题面写了这个人", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const guard = w.person("卫兵");
+        const teller = w.person("老周");
+        const k = w.point("勇者的秘密", hero, {保密: "secret"});
+        w.change(chapter("ch2"), {patches: [addRow(guard, k, {程度: "misbelieves", 他以为的: "疤在右手", 怎么知道: "told", 谁告诉的: {ref: teller}})]});
+        addText(w, "ch8", "勇者走进客栈，卫兵盘问");
+        w.change(chapter("ch8"), {cast: [present(guard)]});
+        const stored = w.world.data.entries.get(teller)!;
+        mustChange(w, () => w.publish([{ref: {kind: "entry", id: teller}, after: {...stored, init: {...stored.init, name: "周掌柜"}}}]));
+    });
+
+    test("核对点挂在早先的变更上：放在第 10 章，比较时点在第 3 章，第 3 章涉及的条目多了一个", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const ledger = w.thing("账房");
+        const hero = w.person("勇者");
+        w.point("账房的秘密", ledger, {保密: "secret"});
+        const anchor = w.change(chapter("ch3"), {cast: [present(hero)], told: [inText(w, "ch3", "勇者数钱")]});
+        addText(w, "ch10", "账上一文");
+        mustChange(w, () => w.publish([{ref: {kind: "check", id: "tmp:k"}, after: {id: "tmp:k", at: {entry: ledger, path: "character.状态"}, value: 1, told: {source: "chapter", chapter: "ch10", quote: "账上一文"}, place: chapter("ch10"), anchor: {change: anchor, side: "after"}}}]), {}, "ch3");
+    });
+});
+
+/** 随机序列的步数与种子：离线要多跑一轮时用环境变量给，不改用例。 */
+const STEPS = Number(process.env.PLOT_RANDOM_STEPS ?? 240);
+const SEED = Number(process.env.PLOT_RANDOM_SEED ?? 20261106);
+
+describe("随机序列", () => {
+    test("摘要没变时，重拼的结论一定没变；每步比全部章，每种操作都真的走到", () => {
+        const book = randomBook(seeded(SEED));
+        const {w, chapters, instructions} = book;
+        const sceneOf = (id: string): Scene => (instructions.has(id) ? {instruction: instructions.get(id)!} : {});
+        const snapshot = () => new Map(chapters.map((id) => {
+            const stored = planOf(w, id, sceneOf(id));
+            return [id, {stored, deps: deps(w, id, sceneOf(id), stored), sign: JSON.stringify(stored.calls.map((call) => [call.id, call.digest]))}] as const;
+        }));
+        let before = snapshot();
         let quiet = 0;
-        for (let step = 0; step < 300; step += 1) {
-            const before = new Map(["ch8", "ch12"].map((id) => {
-                const stored = planOf(w, id);
-                return [id, {stored, deps: deps(w, id, {}, stored), sign: signature(w, id)}];
-            }));
-            const place = target();
-            switch (random(7)) {
-                case 0:
-                    w.change(chapter(place), {cast: [present(others[random(4)]!)]});
-                    break;
-                case 1:
-                    w.texts.set(place, `${w.texts.get(place) ?? ""}第 ${String(step)} 句话。\n`);
-                    break;
-                case 2:
-                    w.change(chapter(place), {told: [inText(w, target(), `第 ${String(step)} 处线索`, [node(fs, "echo")])]});
-                    break;
-                case 3:
-                    w.change(chapter(place), {told: [inText(w, target(), `第 ${String(step)} 处暗示`, [reveal(k, "hint")])]});
-                    break;
-                case 4:
-                    w.point(`第 ${String(step)} 个秘密`, random(2) === 0 ? hero : guard, {保密: "secret"});
-                    break;
-                case 5:
-                    w.change(chapter(place), {kind: "plan", told: [{source: "outline", chapter: place, anchor: "细纲", marks: [reveal(k, "explicit")]}]});
-                    break;
-                case 6:
-                    w.decision(`第 ${String(step)} 个决策`, {about: [{kind: "chapter", id: place}]});
-                    break;
+        let moved = 0;
+        const applied = new Set<string>();
+        for (let step = 0; step < STEPS; step += 1) {
+            const done = book.step(step);
+            if (done.applied) applied.add(done.op);
+            const after = snapshot();
+            for (const id of chapters) {
+                const old = before.get(id)!;
+                const same = deps(w, id, sceneOf(id), old.stored) === old.deps;
+                if (same) quiet += 1;
+                // 这是要守的不变量：摘要没变，结论就没变。失败时说出是哪一步的哪种操作。
+                if (same && after.get(id)!.sign !== old.sign) throw new Error(`第 ${String(step)} 步（${done.op}）：${id} 的摘要没变，结论变了`);
+                if (after.get(id)!.sign !== old.sign) moved += 1;
             }
-            for (const [id, old] of before) {
-                if (deps(w, id, {}, old.stored) !== old.deps) continue;
-                quiet += 1;
-                expect(signature(w, id)).toBe(old.sign);
-            }
+            before = after;
         }
-        // 确实走到了“摘要没变”的情形，这条断言不是空转。
         expect(quiet).toBeGreaterThan(50);
-    }, 30_000);
+        expect(moved).toBeGreaterThan(50);
+        expect(book.ops.filter((op) => !applied.has(op))).toEqual([]);
+    }, 120_000);
 });

@@ -162,10 +162,10 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             addOther(bucket, entry);
         }
         for (const check of view.allChecks()) {
-            // 核对点的讲述算读者读过，比较时点决定本章涉及的条目（canon.model 输出 20）：两头取早的。
-            const told = toldIndex(check.told.chapter);
-            const placed = placementIndex(view, check.place);
-            addOther(told === undefined || told === -1 ? placed : Math.min(placed === -1 ? told : placed, told), check);
+            // 核对点的讲述算读者读过；比较时点决定本章涉及的条目（canon.model 输出 20），挂靠了变更时比较时点在那条变更上。三处取最早的。
+            const anchored = check.anchor === undefined ? -1 : placementIndex(view, (view.object({kind: "change", id: check.anchor.change}) as StoryChange | undefined)?.at);
+            const known = [toldIndex(check.told.chapter) ?? -1, placementIndex(view, check.place), anchored].filter((index) => index !== -1);
+            addOther(known.length === 0 ? -1 : Math.min(...known), check);
         }
         const bucketDigest = (index: number) => {
             const ofChanges = (changeBuckets.get(index) ?? []).map((change) => objectDigest(change, digest)).sort();
