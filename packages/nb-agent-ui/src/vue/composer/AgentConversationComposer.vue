@@ -405,6 +405,17 @@ defineExpose({
                     @attachment-reject="onAttachmentReject"
                 />
             </div>
+            <IconButton
+        v-if="!inline"
+        class="acv-composer__expand"
+                size="sm"
+                :icon-class="expanded ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
+                :title="expanded ? t('composer.collapse') : t('composer.expand')"
+                :aria-label="expanded ? t('composer.collapse') : t('composer.expand')"
+                :aria-pressed="expanded"
+                data-composer-action="expand"
+                @click="toggleExpanded"
+            />
             <div class="acv-composer__toolbar">
                 <div class="acv-composer__tools">
                     <template v-if="!inline">
@@ -474,6 +485,19 @@ defineExpose({
                             </span>
                         </template>
                     </DropdownMenu>
+                    <IconButton
+                        v-for="button in trailingButtons"
+                        :key="button.id"
+                        size="sm"
+                        :icon-class="button.icon"
+                        :disabled="readonly"
+                        :title="text(button.label)"
+                        :aria-label="text(button.label)"
+                        :data-composer-toolbar="button.id"
+                        @click="onToolbarButton(button)"
+                    />
+                </div>
+                <div class="acv-composer__send">
                     <AgentRoleModelPicker
                         v-if="(composer.roles?.length ?? 0) > 0"
                         ref="rolePickerRef"
@@ -506,19 +530,7 @@ defineExpose({
                     />
                     <AgentContextMeter v-if="contextMeter !== null" :used="contextMeter.used" :limit="contextMeter.limit" />
                     <IconButton
-                        v-for="button in trailingButtons"
-                        :key="button.id"
-                        size="sm"
-                        :icon-class="button.icon"
-                        :disabled="readonly"
-                        :title="text(button.label)"
-                        :aria-label="text(button.label)"
-                        :data-composer-toolbar="button.id"
-                        @click="onToolbarButton(button)"
-                    />
-                </div>
-                <div class="acv-composer__send">
-                    <IconButton
+                        v-if="inline"
                         size="sm"
                         :icon-class="expanded ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
                         :title="expanded ? t('composer.collapse') : t('composer.expand')"
@@ -605,6 +617,7 @@ defineExpose({
 }
 
 .acv-composer__frame {
+    position: relative;
     display: flex;
     min-height: 0;
     flex-direction: column;
@@ -652,9 +665,21 @@ defineExpose({
     gap: 2px;
 }
 
+/* 展开按钮在外框右上角，正好在发送按钮上方：它改的是编辑区，不是这一轮的设置。 */
+.acv-composer__expand {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}
+
+.acv-composer__frame:not(.is-inline) .acv-composer__editor {
+    padding-right: 28px;
+}
+
 .acv-composer__send {
     display: flex;
-    flex: none;
+    min-width: 0;
+    flex: 0 1 auto;
     align-items: center;
     gap: 4px;
 }
