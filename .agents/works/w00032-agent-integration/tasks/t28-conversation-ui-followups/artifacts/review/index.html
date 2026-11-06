@@ -16,14 +16,29 @@ section { margin-bottom: 32px; }
 <body>
 <h1>对话界面第二批</h1>
 
-<section data-nbdev-question="s3-inspector" data-nbdev-type="confirm">
-<h2>批 2：上下文检查器 <span class="badge" data-nbdev-skip>待定</span></h2>
+<section data-nbdev-question="s4-edit" data-nbdev-type="confirm">
+<h2>批 3：就地编辑与分支切换 <span class="badge" data-nbdev-skip>待定</span></h2>
+<p>点用户消息的“编辑”，气泡就地变成编辑器，发送后从这里开一条新分支，原来的还在。回复有多个分支时，气泡右下出现“‹ 2/3 ›”。旁边是复制、重试、从此处分支。</p>
+<p>“从此处分支”只把对话退回到这条消息之后，不发送，等你写下一句；“重试”退回之后马上再要一次回复。这一批编辑只改文字，<code>@</code> 引用随批 4，插图随批 5 接上。</p>
+<figure><img src="r3/edit.webp" alt="就地编辑" width="520"></figure>
+<p><strong>这样可以吗？</strong>不可以的话写上要改的地方。</p>
+</section>
+
+<section data-nbdev-question="s5-tree" data-nbdev-type="confirm">
+<h2>批 3：分支树 <span class="badge" data-nbdev-skip>待定</span></h2>
+<p>从顶栏菜单打开。当前路径亮、别的分支暗，分叉处缩进一级；长的分支可以收起。可搜索，过滤留“默认”“不含工具”“只看用户”“全部”，旧应用的“带标签”不做（没有标签这个功能）。选中一行后底部写节点 id（可复制）和“切换到这条分支”，也支持键盘上下选、回车切换。</p>
+<figure><img src="r3/tree.webp" alt="分支树" width="520"></figure>
+<p><strong>这样可以吗？</strong>不可以的话写上要改的地方。</p>
+</section>
+
+<section>
+<h3>批 2：上下文检查器：可以</h3>
 <p>点状态栏的上下文圆环或缓存命中打开，顶栏菜单也有入口。数据是假的。上面是下一次请求的组成和压缩线，中间是缓存（本会话与最近一次的命中率，累计用量），下面三块默认收起的只有系统提示词和诊断。不做缓存时间线与请求选择（已定）。</p>
 <div class="row">
 <figure><figcaption>有数据</figcaption><img src="r2/inspector.webp" alt="检查器" width="520"></figure>
 <figure><figcaption>算不出（模型用不了）</figcaption><img src="r2/inspector-unavailable.webp" alt="检查器算不出" width="520"></figure>
 </div>
-<p><strong>这样可以吗？</strong>组成用估算值（内核的 <code>preview</code>，不调模型），所以写了“下一次回复后状态栏显示真实用量”。不可以的话写上要改的地方。</p>
+<p>组成用估算值（内核的 <code>preview</code>，不调模型），所以写了“下一次回复后状态栏显示真实用量”。</p>
 </section>
 
 <h2>第 1 轮（已定）</h2>
