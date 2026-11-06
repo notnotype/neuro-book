@@ -135,7 +135,7 @@ updated: 2026-11-06
 
 开发者 2026-11-06 试了第 7a 片：“拖拽动画没有问题，就是拖拽逻辑和行为需要更新”，要求继续做第 7b 片。理解为编辑器标签还是旧的拖动逻辑，第 7b 片并进新规则；如果指的还有视图拖动的具体行为，试完再说。
 
-第 7b 片（分支 `feat/w00026-t07-single-tree`，`c074772d8`）：编辑组是树上 `role: "editor"` 的面板，每块一个 `EditorGroup`，结构由布局文档持有。
+第 7b 片已合入（`bdd8abf9b`，审查修正 `51658f4c0`）：编辑组是树上 `role: "editor"` 的面板，每块一个 `EditorGroup`，结构由布局文档持有。
 
 - **接缝**：接口与服务键 `editorPanelsKey` 在 `workbench/shared/contracts.ts`（跨插件的运行时导入只能指向那里），实现 `createEditorPanels` 在 `shared/editor-panels.ts`，单元测试与 Lab 用同一份操作的内存版 `createMemoryEditorPanels`。`groups/panels.ts` 的本地 grid 删掉。计划里的 `canInsert` 不放进接缝：写结构的只有编辑器，放下前自己查。
 - **记录**：`editor.tabs` 按键合并，只写本窗口有的、只删本窗口知道且关掉的（`known` 在记录读完那一刻定下）。页面标签留一个记号，恢复时从文档里拿掉，才分得清“页面不恢复”和“记录丢了”。丢了记录的标签是一个打不开的页面，显示原因、能关。属性变了自己写，布局存盘前走关卡再写一次；只改属性时写失败没人走关卡，所以 `session.ts` 看到失败就让布局走一次（`flush`），状态栏才亮。
@@ -165,7 +165,9 @@ updated: 2026-11-06
 | G8 失败路径与会话接线没有测试 | a、b、c 补了（`tabs-record.test.ts`、`session.test.ts`、`groups.test.ts`）；d 的标签条几何靠 `editor-area` e2e，happy-dom 量不了矩形 |
 | G9 零散 | a 文档、b 标签键写死、c computed 外部变量、f 结构键拼接改了。d（`editorContexts` 不清，每块编辑组一个小对象；`context` 没有消费者，以前就没有）、e（`restoreTabs` 构造时改文档，只重排已有的 id）不改，收益小 |
 
-最后一轮：类型检查通过；`test:affected` 只剩两条别的 Work 的；e2e 第二轮只跑第一轮没覆盖的 9 个文件（`NB_E2E_WIDE`：记录、标记、命令参数变了）98 条全过，`editor-area` 里刷新与恢复相关的 5 条重跑通过。
+最后一轮（变基到合入前的 master 之后）：类型检查通过；`neuro-book` 的单元测试 bun 2556 过、vitest 431 过，失败 3 条都不在这片：`plugins/agent` 的跨插件导入、`AgentCompactionDetail` 没有场景、`asset-urls` 的“失同步”（整包跑时超时，单独跑通过，没动它和它的依赖）。e2e 第二轮只跑第一轮没覆盖的 9 个文件（`NB_E2E_WIDE`：记录、标记、命令参数变了）98 条全过，`editor-area` 里刷新与恢复相关的 5 条重跑通过；变基后 master 改了主题编辑器，重跑 `theme-editor`、`themes` 36 条全过。
+
+提交之后 `test:affected` 什么都不跑（缺省只看未提交的改动，“改动文件 0 个”，退出码 0）。收口时没注意到就会以为过了，这次是看到输出才改跑整包。
 
 ## 下一步
 
