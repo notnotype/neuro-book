@@ -254,7 +254,6 @@ const instantModels: CheckModels = {
 const recordsByChapter = new Map<string, CheckRecord>();
 const emptySelf = {get: () => undefined, digestOf: () => undefined};
 const checkInstructions = {get: (chapter: string) => instructions.get(chapter), digestOf: (chapter: string) => (instructions.has(chapter) ? sha(JSON.stringify(instructions.get(chapter))) : undefined)};
-let writeBacks = 0;
 /** 记录的内容摘要：产品里按行存着（`ChapterTable.digestOf`），这里同样不把整条记录重算一遍。 */
 const recordDigests = new Map<CheckRecord, string>();
 const recordDigest = (record: CheckRecord) => {
@@ -266,7 +265,6 @@ const recordDigest = (record: CheckRecord) => {
 };
 const dependenciesByChapter = new Map<string, CheckDependencies>();
 const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, writeBack: (updated) => {
-    writeBacks += 1;
     dependenciesByChapter.set(updated.chapter, updated);
 }});
 const planned: number[] = [];
@@ -311,10 +309,13 @@ const CHECK_IDS = new Set(Object.keys(checkDiagnostics(checkSource, sha)));
 /** 最近一次读待处理里检查这几个诊断的耗时。 */
 const checkTiming = () => service.status().diagnosticTimings.slice(-(Object.keys(allCompute).length + CHECK_IDS.size)).filter((timing) => CHECK_IDS.has(timing.diagnostic)).reduce((sum, timing) => sum + timing.ms, 0);
 const scenario = async (name: string, edit: () => Promise<unknown>): Promise<string> => {
-    const backsBefore = writeBacks;
+    // 重拼的章数：摘要对不上的都重拼，重拼后过期的不回写，所以不能数回写。
+    const rows = [...dependenciesByChapter.values()];
     await edit();
     const first = readPending();
-    return `${name}：读待处理 ${ms(first.ms)} 毫秒（其中检查的诊断 ${ms(checkTiming())}），重拼后仍有效回写 ${String(writeBacks - backsBefore)} 章`;
+    const view = service.snapshot().view;
+    const replanned = rows.filter((row) => checkSource.dependencies(view, row.chapter, [], row) !== row.dependencies).length;
+    return `${name}：读待处理 ${ms(first.ms)} 毫秒（其中检查的诊断 ${ms(checkTiming())}），重拼 ${String(replanned)} 章`;
 };
 const checkReports: string[] = [];
 checkReports.push(await scenario("(a) 在最新一章发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_000}, {text: "补一句"})));

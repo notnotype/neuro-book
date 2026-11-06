@@ -130,7 +130,8 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
     function planRank(plan: StoryChange): Rank | null {
         const rank = placementRank(order, plan.at);
         if (rank === null || plan.at.kind !== "chapter" || !writtenChapters.has(plan.at.chapter)) return rank;
-        return [1, rank[1] + 0.5, 0];
+        // 同一章的计划保留键：先后不随这一章有没有已写变更翻转。
+        return [1, rank[1] + 0.5, rank[2]];
     }
 
     function progressAt(plan: StoryChange, positionRankValue: Rank): PlanProgress {

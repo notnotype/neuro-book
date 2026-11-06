@@ -72,8 +72,14 @@ export function randomBook(random: (limit: number) => number): RandomBook {
     for (const id of chapters) addText(id, `第 ${id} 章开头，勇者走进客栈`);
     addText("ch10", "回溯以后的第二段，卫兵还在门口");
     const cut = w.change(chapter("ch1"), {told: [{source: "chapter", chapter: "ch1", quote: "勇者走进客栈"}]});
-    const line = w.publish([{ref: {kind: "change", id: "tmp:fork"}, after: {...drafts.change("tmp:fork", chapter("ch2")), nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut, type: "branch"}}}])["tmp:r"]!;
-    w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch6", [{line, from: 1}]], ["ch10", [{line: "main", from: 1}, {line, from: 2}]]])});
+    const forked = w.publish([{ref: {kind: "change", id: "tmp:fork"}, after: {...drafts.change("tmp:fork", chapter("ch5")), nature: "fork", fork: {line: "tmp:r", name: "支线", parent: "main", cut, type: "branch"}}}]);
+    const line = forked["tmp:r"]!;
+    const forkId = forked["tmp:fork"]!;
+    // 第二条线是回溯：有触发处，带过去的知情走另一条路。第 7 章讲它。
+    const rollbackCut = w.change(chapter("ch1", 2), {told: [{source: "chapter", chapter: "ch1", quote: "勇者走进客栈"}]});
+    const rollbackTrigger = w.change(chapter("ch3", 2), {told: [{source: "chapter", chapter: "ch3", quote: "勇者走进客栈"}]});
+    const rollback = w.publish([{ref: {kind: "change", id: "tmp:rollback"}, after: {...drafts.change("tmp:rollback", chapter("ch4")), nature: "fork", fork: {line: "tmp:r2", name: "回溯", parent: "main", cut: rollbackCut, trigger: rollbackTrigger, type: "rollback", who: hero}}}])["tmp:r2"]!;
+    w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch6", [{line, from: 1}]], ["ch10", [{line: "main", from: 1}, {line, from: 2}]], ["ch7", [{line: rollback, from: 1}]]])});
 
     const written: string[] = [cut];
     const plans: string[] = [];
@@ -112,6 +118,47 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         nodePlan: () => change(chapter(place()), {kind: "plan", told: [{source: "outline", chapter: place(), anchor: "细纲", marks: [node(mystery, "payoff")]}]}),
         linkedPlan: () => change(chapter(place()), {kind: "plan", patches: [{op: "set", at: {entry: point(), path: "point.保密"}, value: random(2) === 0 ? "secret" : "common"}, touch]}),
         linkedWritten: (index) => change(beforeBreak(), {patches: [{op: "set", at: {entry: person(), path: "entry.name"}, value: `改名${String(index)}`}, touch]}),
+        planBreaker: () => change(chapter(place()), {kind: "plan", patches: [{op: "listRemove", at: {entry: bystander, path: "know.知情"}, value: trifle}]}),
+        linkedPlanEarlyTold: () => change(chapter(chapters[6 + random(8)]!), {kind: "plan", told: [{source: "outline", chapter: chapters[random(4)]!, anchor: "细纲"}], patches: [{op: "set", at: {entry: point(), path: "point.保密"}, value: random(2) === 0 ? "secret" : "common"}, touch]}),
+        replaceLinked: () => {
+            const plan = pickFrom(plans);
+            if (plan !== undefined) change(chapter(chapters[6 + random(8)]!), {kind: "plan", links: [{kind: "replaces", plan}], patches: [{op: "set", at: {entry: point(), path: "point.保密"}, value: "secret"}, touch]});
+        },
+        sameChapterPlans: () => {
+            const [at, target] = [place(), point()];
+            change(chapter(at, 10), {kind: "plan", patches: [{op: "set", at: {entry: target, path: "point.保密"}, value: "common"}]});
+            change(chapter(at, 5), {kind: "plan", patches: [{op: "set", at: {entry: target, path: "point.保密"}, value: "secret"}]});
+        },
+        plain: (index) => change(chapter(place(), 200 + random(50)), {text: `第 ${String(index)} 处补一句`}),
+        plainPlan: (index) => change(chapter(place(), 300 + random(50)), {kind: "plan", text: `第 ${String(index)} 条打算`}),
+        togglePatchEnabled: () => change(chapter(place()), {patches: [{op: "set", at: {entry: point(), path: "point.启用"}, value: random(2) === 0}]}),
+        toggleInitEnabled: () => {
+            const id = point();
+            const data = entryOf(id).init.data;
+            editInit(id, {data: {...data, point: {...data.point!, enabled: data.point!.enabled !== true}}});
+        },
+        aliasPatch: (index) => change(chapter(place()), {patches: [{op: "aliasAdd", at: {entry: person(), path: "entry.aliases"}, value: `别名${String(index)}`}]}),
+        deleteEntry: () => {
+            const id = people[3 + random(people.length - 3)]!;
+            w.publish([{ref: {kind: "entry", id}, after: {...entryOf(id), deleted: true}}]);
+        },
+        swapChapters: () => {
+            const order = [...w.world.options.order.ids];
+            const at = random(order.length - 1);
+            [order[at], order[at + 1]] = [order[at + 1]!, order[at]!];
+            w.world = w.world.withOptions({...w.world.options, order: new (w.world.options.order.constructor as new (ids: readonly string[]) => typeof w.world.options.order)(order)});
+        },
+        rebind: () => {
+            const lines = [["ch6", [{line, from: 1}]], ["ch10", [{line: "main", from: 1}, {line, from: 2}]], ["ch7", [{line: rollback, from: 1}]]] as [string, {line: string; from: number}[]][];
+            w.world = w.world.withOptions({...w.world.options, chapterLines: new Map(lines.slice(random(2)))});
+        },
+        decisionOnChange: (index) => {
+            const on = pickFrom(written);
+            if (on !== undefined) w.decision(`第 ${String(index)} 个挂在变更上的决策`, {about: [{kind: "change", id: on}]});
+        },
+        decisionOnAddress: (index) => w.decision(`第 ${String(index)} 个挂在地址上的决策`, {about: [{kind: "address", at: {entry: point(), path: "entry.name"}}]}),
+        decisionScoped: (index) => w.decision(`第 ${String(index)} 个有范围的决策`, {about: [], scope: {from: "ch2", to: place()}}),
+        rowOnRollback: () => change({kind: "chapter", chapter: "ch7", key: 100 + random(50), line: rollback}, {patches: [addRow(person(), point(), {程度: "knows"})]}),
         breaker: () => breakers.push(change(chapter(chapters[2 + random(chapters.length - 2)]!), {patches: [{op: "listRemove", at: {entry: bystander, path: "know.知情"}, value: trifle}]})),
         fulfill: (index) => {
             const plan = pickFrom(plans);
@@ -127,11 +174,19 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         },
         undo: () => {
             const id = pickFrom([...written, ...plans]);
-            if (id !== undefined && id !== cut) w.publish([{ref: {kind: "change", id}, after: {...stored(id), status: "undone", undoneReason: "不要了"}}]);
+            if (id !== undefined) w.publish([{ref: {kind: "change", id}, after: {...stored(id), status: "undone", undoneReason: "不要了"}}]);
         },
         move: () => {
             const id = pickFrom([...written, ...plans]);
-            if (id !== undefined && id !== cut) w.publish([{ref: {kind: "change", id}, after: {...stored(id), at: chapter(place(), random(50))}}]);
+            if (id !== undefined) w.publish([{ref: {kind: "change", id}, after: {...stored(id), at: chapter(place(), random(50))}}]);
+        },
+        moveLineEdge: () => {
+            const id = [cut, rollbackCut, rollbackTrigger][random(3)]!;
+            w.publish([{ref: {kind: "change", id}, after: {...stored(id), at: chapter(chapters[random(4)]!, random(50))}}]);
+        },
+        renameLine: (index) => {
+            const fork = stored(forkId);
+            w.publish([{ref: {kind: "change", id: forkId}, after: {...fork, fork: {...fork.fork!, name: `第 ${String(index)} 个名字`}}}]);
         },
         rowOnLine: () => change({kind: "chapter", chapter: "ch6", key: 100 + random(50), line}, {patches: [addRow(person(), point(), {程度: "knows"})]}),
         labelOnly: (index) => change(chapter(place()), {cast: [{label: `路人${String(index)}`, role: "present"}]}),
@@ -145,7 +200,7 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         },
         anchoredCheck: (index) => {
             const [id, anchor] = [`tmp:anchored${String(index)}`, pickFrom(written)];
-            if (anchor !== undefined) w.publish([{ref: {kind: "check", id}, after: {id, at: {entry: person(), path: "character.状态"}, value: index, told: inText(place(), `第 ${String(index)} 处账目`), place: chapter(place()), anchor: {change: anchor, side: "after"}}}]);
+            if (anchor !== undefined) w.publish([{ref: {kind: "check", id}, after: {id, at: {entry: thing, path: "character.状态"}, value: index, told: inText(place(), `第 ${String(index)} 处账目`), place: chapter(place()), anchor: {change: anchor, side: "after"}}}]);
         },
         retold: (index) => w.publish([{ref: {kind: "entry", id: spare}, after: {...entryOf(spare), retold: {"character.状态": [inText(place(), `第 ${String(index)} 处重述`, [reveal(point(), "explicit")])]}}}]),
         renameInit: (index) => editInit(person(), {name: `新名${String(index)}`}),
@@ -176,6 +231,18 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         decision: (index) => w.decision(`第 ${String(index)} 个决策`, {about: [random(2) === 0 ? {kind: "chapter", id: place()} : {kind: "entry", id: person()}]}),
     };
     const names = Object.keys(operations);
+    // 一副牌：每一轮把全部操作洗一遍轮着出。纯随机时 240 步里总有几种一次也轮不到。
+    let deck: string[] = [];
+    const draw = () => {
+        if (deck.length === 0) {
+            deck = [...names];
+            for (let index = deck.length - 1; index > 0; index -= 1) {
+                const other = random(index + 1);
+                [deck[index], deck[other]] = [deck[other]!, deck[index]!];
+            }
+        }
+        return deck.pop()!;
+    };
     return {
         w,
         chapters,
@@ -185,7 +252,7 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         ]),
         ops: names,
         step: (index) => {
-            const op = names[random(names.length)]!;
+            const op = draw();
             try {
                 operations[op]!(index);
                 return {op, applied: true};

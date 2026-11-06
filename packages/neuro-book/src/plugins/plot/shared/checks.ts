@@ -93,7 +93,6 @@ export type CallRecord = Static<typeof CallRecord>;
 
 const CheckUsageCounts = Type.Object({narrow: Type.Integer(), fixed: Type.Integer(), trial: Type.Integer(), judge: Type.Integer(), reused: Type.Integer(), total: UsageSchema});
 
-/** 一条检查记录（checks.md 输出 7）。模型调用的输入不存，只存摘要。 */
 /**
  * 一条记录的依赖摘要（`core/checks/dependencies.ts`）。与记录分开存：世界变了而结论没变时要回写它，不该把整条记录重写一遍。`of` 是它算的是哪条记录（记录内容的摘要）：对不上的按没有，
  * 只多重拼一次。`points`、`concerns` 是本章涉及的知识点与条目，摘要按它们取条目的历史。
@@ -107,6 +106,7 @@ export const CheckDependenciesSchema = Type.Object({
 });
 export type CheckDependencies = Static<typeof CheckDependenciesSchema>;
 
+/** 一条检查记录（checks.md 输出 7）。模型调用的输入不存，只存摘要。 */
 export const CheckRecordSchema = Type.Object({
     chapter: Type.String(),
     /** 开始时的世界版本与正文摘要（有效与否不读它们，只给作者看）。 */

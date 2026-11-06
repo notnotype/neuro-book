@@ -191,7 +191,8 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
     function planRank(plan: StoryChange): Rank | null {
         const rank = placementRank(order, plan.at);
         if (rank === null || plan.at.kind !== "chapter" || !writtenChapters.has(plan.at.chapter)) return rank;
-        return [1, rank[1] + 0.5, 0];
+        // 同一章的计划保留键：先后不随这一章有没有已写变更翻转。
+        return [1, rank[1] + 0.5, rank[2]];
     }
 
     // 计划进展要的两份索引在建引擎时算一次：被生效的计划替代的计划，与每个计划的兑现变更（生效、在序里的已写变更）。

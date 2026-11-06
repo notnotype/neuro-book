@@ -192,7 +192,7 @@ export class PlotStore {
         return table;
     }
 
-    /** 全部表合起来的数据版本：报给 canon。三张表都空是 `1`。 */
+    /** 全部表合起来的数据版本：报给 canon。都空是 `1`；只是缓存的表不算。 */
     get dataVersion(): string {
         const versions = this.#tables.map((table) => table.version);
         return versions.every((version) => version === PLOT_DATA_VERSION) ? PLOT_DATA_VERSION : `${PLOT_DATA_VERSION}+${sha(canonicalJson(versions))}`;
