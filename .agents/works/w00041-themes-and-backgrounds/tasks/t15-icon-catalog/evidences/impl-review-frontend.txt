@@ -1,0 +1,76 @@
+# w00041 t15 实现审查（合入提交 dc29250a2）
+
+## 1. [重要] 行为/合同：回车选中候选，会让“输入完整名字后回车添加”失效，且选中后第二次回车仍是选中而不是添加
+- 位置：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/ThemeEditorIcons.vue` 的 `candidates`（约 L55）、`activeId`（L56）与 `onKeydown` 的 Enter 分支（L73-78）
+- 现象：`candidates` 只排除“等于当前输入”的名字，其余以它为前缀或包含它的名字仍留在候选里；`activeIndex` 默认 0，所以只要还有别的候选，`activeId` 就非空，回车永远走 `choose(activeId)`，不会走 `add()`。
+  - 输入完整名字 `folder`（目录里还有 `folder-open`、`folder-plus`）：回车 -> 输入框被改成 `folder-open`。原来的“回车即添加 / 更换 folder”变成了静默换目标；再按一次回车添加的是 `folder-open`，不是用户输入的 `folder`。
+  - 按 Spec 说的“选中一项，再按一次才添加”：输入 `fol`，回车选中 `folder`；此时 draft=`folder`，`candidates` 变成 `[folder-open, folder-plus…]`，`activeIndex` 被 `choose` 置 0，所以第二次回车又选中 `folder-open`。凡是名字是别的图标名前缀的图标（folder、file、git、arrow-left 等），都无法只靠键盘回车添加；只能 Escape 后再回车，或点按钮。
+- 核实：照 `candidates`/`activeId` 的公式用真实 `matchIcons` 复刻（`/tmp/review-w00041-t15-impl/lab/enter.test.ts`，names=[folder, folder-open, folder-plus, file]）：`fol -> [folder, folder-open, folder-plus]`；选 `folder` 后 `candidates=[folder-open, folder-plus]`，第二次回车会选 `folder-open`；直接输入 `folder` 回车同样选 `folder-open`。只有输入 `folder-plus` 这种“无更长同前缀名”才候选为空、回车才添加。e2e 里 `loader-c` 恰好只有一个候选，所以没暴露；e2e 里 `folder` 的覆盖是点按钮（chooseIcon），不是回车。代码是从实现推断，未在浏览器跑（规则禁止 e2e）。
+- 为什么是问题：违反 Spec 输出 21 的“回车只填入名字，再按一次才添加”，也让原有“回车添加”在常见情况下不可达；错误目标是静默的（只有文件选择框弹出前输入框里的字变了）。
+- 建议改法：回车选中只在“用户用方向键动过高亮”或“输入还不是目录里存在的名字/已覆盖名字”时生效；最简单是引入 `navigated` 状态：未用方向键、未悬停高亮时回车一律 `add()`；或候选里包含与输入相等的项时（不再排除）让 `activeId` 指向它、`choose` 后回车走添加。并在 e2e 加一条“输入 folder 回车 -> 文件选择器弹出（或名字不变）”。
+
+补充（用真实产物核对第 1 条）：`dist/web/assets/*.css` 里 `.i-lucide-folder` 与 `.i-lucide-folder-plus` 都在（用 headless Chrome 读真实样式表，见第 8 条数字）。所以在真实页面里输入完整的 `folder` 再回车，会被改成 `folder-plus`，不是示例里的 `folder-open`；`file` / `file-text`、`git` / `git-branch` 同理。点候选选中后菜单也不收（还有别的含该名字的候选时仍开着），与“选中即完成”的预期不符。
+
+## 2. [建议] 一致性/输入法：回车、方向键没有处理输入法组字，与 nb-ui 同类控件的写法不一致
+- 位置：`ThemeEditorIcons.vue` `onKeydown`（L65-85）
+- 现象：`SearchSelect.vue:161-162` 与 `QuickPick` 都在入口处 `if (event.isComposing || event.keyCode === 229) return;`（注释写明：组字中的 Enter 是上屏、方向键是翻候选词；Safari 的上屏 Enter 是 `isComposing=false` 加 `keyCode 229`）。新代码没有这道门：组字中按回车，除了上屏文字，还会 `choose(activeId)` 把输入替换成第一个候选；方向键会被 `preventDefault` 并移动高亮，抢了输入法翻候选词。
+- 为什么是问题：改动前只有 `@keydown.enter="add"`，组字回车最多误触“添加”；现在改成会改写输入框内容，影响更大。开发者的主力输入法是中文，即使图标名是 ASCII，也可能在中文输入法的英文模式/拼音态里敲名字。
+- 如何核实：对照 `packages/nb-ui/src/components/form/SearchSelect.vue:161`；这条从代码推断，没跑浏览器。
+- 建议改法：`onKeydown` 开头加同样的 `isComposing`/`keyCode === 229` 返回。
+
+## 3. [建议] 交互：非阻断提示在逐字输入时闪现，并与候选菜单同时出现
+- 位置：`ThemeEditorIcons.vue` `unknownName`（L45）与模板 `data-icon-unknown`（L151）
+- 现象：`unknownName` 只要“输入合规且不在目录里”就为真，没有排除“还在输入、候选菜单正开着”的状态。输入 `ice-cream-cone` 时，敲到第一个字母 `i`（目录里没有名字叫 `i`）提示就出现，敲到 `ice-c`、`ice-cr` 候选没有时一直在；输入 `fol`（不是完整名字，候选里有 `folder`）也会弹“当前页面没有这个图标的样式”，输到 `folder` 又消失。提示是 `v-if` 插入/删除一整行，文字区高度每次跳动，下方列表上下抖。
+- 为什么是问题：提示的意思是“这个名字不对”，而此刻用户还没输完，菜单正在给出正确名字；两个相反的信号同时在屏。Spec 只要求“名字合规但当前页面没有它的样式时给一行说明”，没要求逐字出现。
+- 如何核实：读 `unknownName` 与 `candidates` 的定义（从代码推断，没跑浏览器）。
+- 建议改法：有候选（菜单开着）时不显示；或输入失焦/停顿后再显示；至少给这一行预留固定高度避免布局跳动。
+
+## 4. [建议] 违反仓库禁令：`SecurityError` 只计数、没有任何人读，等于静默吞掉
+- 位置：`packages/neuro-book/src/plugins/workbench/web/icon-scan.ts` L38-46、`IconScan.unreadable`（L19）
+- 现象：`unreadable` 在 `ThemeEditorIcons.vue` 的 `refreshCatalog` 里被丢掉（只取 `.icons`），全仓库 grep `unreadable` 没有这个字段的使用者。接口注释写“非 0 说明目录可能不全”，但没有任何地方让人看到。
+- 为什么是问题：AGENTS 的任务说明禁止清单写的是“不用静默的 catch 吞掉错误，至少写一条诊断”；现在的唯一输出是一个无人消费的数字，目录不全时用户看到的是“当前页面没有这个图标”的误导提示（把读不了的样式表当成“没有”）。我用 headless Chrome 以 file:// 加载真实 `dist/web/assets/*.css` 的 29 张表，不加 `--allow-file-access-from-files` 时 29 张全部抛 `SecurityError`，目录为空（图标数 0）；此时组件按“目录读不到（空）”退回不补全不提示，所以不会误报，但一部分表可读、一部分不可读时（例如以后挂了跨域字体表）目录残缺，提示会误报。
+- 如何核实：`grep -rn unreadable packages/neuro-book/src/plugins/workbench`；`/tmp/review-w00041-t15-impl/lab/real.html`。
+- 建议改法：要么在 `unreadable > 0` 时 `console.warn`/记诊断一次，要么在 `unreadable > 0` 时不显示“当前页面没有”（目录不全，不能下结论）；要么删掉这个字段。另外：`document.styleSheets` 里不含 `@import` 引入的表，代码也没有进 `CSSImportRule.styleSheet`（我用 Chrome 156 验证：`@import url(data:…)` 的规则读不到）。产品产物里没有 `@import`，所以只是低风险的假设，建议在注释里写明。
+
+## 5. [建议] 键盘/ARIA：Escape 后方向键不能重新打开菜单；`aria-controls` 始终指向可能不存在的 id
+- 位置：`ThemeEditorIcons.vue` L69-72（ArrowDown/Up 在 `count === 0` 时直接返回）、L145 `:aria-controls="menuId"`
+- 现象：Escape 后 `dismissed=true`，`candidates` 为空，之后按 ArrowDown 什么也不发生，只能再输入一个字符或失焦再聚焦才能重开。`SearchSelect.vue:164-166` 的做法是方向键在菜单关着时打开它。另外 `aria-controls` 不管菜单开没开都写，菜单关时 `SuggestionMenu` 的 listbox 不在 DOM 里（PopoverRoot `open=false`，内容不渲染），引用悬空；`SearchSelect.vue:221` 是 `open ? menuId : undefined`。
+- 为什么是问题：与同库同类控件行为不一致；读屏用户 Escape 后无法用标准方式重开。
+- 如何核实：读 `SearchSelect.vue:160-175, 214-225`；从代码推断，未跑浏览器。
+- 建议改法：ArrowDown/Up 在 `dismissed` 时先 `dismissed=false`；`aria-controls` 只在 `candidates.length > 0` 时给。
+
+## 6. [建议] 治理：组件文档标签没有声明 `env:portal`（嵌入 `SuggestionMenu` 的传送）
+- 位置：`ThemeEditorIcons.md` frontmatter（`标签: [state:local, state:inject]`）
+- 现象：组件现在把候选菜单经 `SuggestionMenu` 传送到 `body`（`SuggestionMenu.md` 标签含 `env:portal, env:timer`）。先例不一致：`SearchSelect.md` 为同样的嵌入声明了 `env:portal`；`MarkdownSlashMenu.md` 没声明。`docs/standards/code/components.md` 的“声明是对实现的如实描述”与“`env:portal` 须在正文写明渲染目标和目标不存在时的表现”。
+- 为什么是问题：新增的隐藏通道没有登记，规范说“以实现为准，整份声明不予采信”。这类组件不在受管名单里（`docs:check` 不会阻断），所以只是报告级。另外它还读了全局的 `document.styleSheets`（这个通道标签清单里没有合适的项，.md 已在“目录”一条里写明）。
+- 建议改法：加 `env:portal`，并在“交互”里写一句“候选菜单传送到 body，贴在名字输入框外框下”。若项目决定“嵌入子组件的传送不算自己的”，则改 `SearchSelect.md` 去统一，不要让两边相反。
+
+## 7. [建议] 无障碍/可理解性：“原图标”预览没有文字或提示说明它是什么
+- 位置：`ThemeEditorIcons.vue` L159-161 模板，`.theme-editor-icons__original`（opacity 0.55）
+- 现象：两个并排的预览，一个上传的，一个调淡的“原图标”，除了透明度没有任何区分；`aria-hidden` 让读屏完全看不到，视觉用户也没有 `title`/文字。
+- 为什么是问题：对照功能靠用户“猜”哪个是原来的；两者一个被染成 currentColor 的蒙版，调淡后看上去像“禁用的”。Spec 写的是“并排显示这个图标原来的样子”，没限定怎么标注。
+- 建议改法：给 `__original` 加 `title`（“原图标”，走翻译），或在行里加一个 `sr-only` 之外的小标签；不需要 `aria-hidden` 去掉。
+
+## 8. [建议] 测试缺口：验收 21 点名的“上下键”“第二次回车才添加”没有任何用例
+- 位置：`packages/neuro-book/e2e/theme-editor.e2e.ts` 新增用例（约 L276-331）；`icon-catalog.test.ts`
+- 现象：Spec 验收 21 写“上下键与回车选中、Escape 收起”。e2e 只按了 `Enter`（候选只有一个）和 `Escape`；`ArrowDown`/`ArrowUp`、`aria-activedescendant`、`aria-expanded`、“回车只选中、再按一次才添加”（候选多于一个/输入是别的名字前缀的情形）都没测，`grep -n "ArrowDown\|ArrowUp\|activedescendant" e2e/theme-editor.e2e.ts` 无命中。第 1 条的缺陷正因为这个缺口没被抓到。`scanIconCatalog` 本身（递归、跳过覆盖表、同名取第一条）只靠 e2e 里的一段，也没有对“同名取第一条”的断言。
+- 为什么是问题：键盘交互是这次改动的主体，却没有可观察行为的测试守着；e2e 的“候选”断言又只用单候选，区分不了第 1 条的错误行为。
+- 建议改法：e2e 增加：`fol` 时 ArrowDown 后 `aria-activedescendant` 指向第二项且回车填入第二项；填入后再按一次回车弹出文件选择器（或 `fileChooser` 事件）；输入已存在的完整名字（例如 `folder`）回车仍走添加。`aria-controls` 只在开时存在，也可一并断言。
+
+## 未发现问题的方面（核实过的）
+- 递归与分组选择器：用 headless Chrome 156 读 `packages/neuro-book/dist/web/assets/*.css` 全部 29 张表（`--allow-file-access-from-files`），按 `icon-scan.ts` 同样的算法得 129 个图标，等于 `grep -o '\.i-lucide-[a-z0-9-]*' index-*.css | sort -u | wc -l` 的 129；分组选择器 `.i-lucide-loader-2,.i-lucide-loader-circle` 与 `@layer utilities`、`@media`、`@supports` 里的规则都读到，`selectorText` 在分组里带空格（`".i-lucide-a, .i-lucide-b"`），`parseIconSelector` 已 `trim`。
+- `rule.style.getPropertyValue("--svg")` 对自定义属性取得到值（含 `@layer` 里的），已验证。
+- 嵌套 CSS：Chrome 把嵌套规则的 `selectorText` 序列化成 `& .i-lucide-nested`，不会被 `ICON_CLASS` 误收；`.i-lucide-x::before` 也不会误收。
+- 跨 realm：iframe 里建的规则 `instanceof` 父页面 `CSSStyleRule` 为 false（已验证），但 `scanIconCatalog` 默认读本 realm 的 `document.styleSheets`，规则和构造器同属一个 realm；工作台的浮动窗口是页内组件，不是新窗口/iframe，所以不受影响。
+- 成本：真实产物 2144 条顶层规则、29 张表，扫一遍 8.6 ms（headless，20 次平均）；挂载与每次聚焦各一次，可接受。`catalog` 每次换新 `Map` 触发一次重渲染，DOM 无变化。
+- 覆盖表隔离：覆盖表由 `document-theme.ts` 唯一创建，`dataset.nbSkinIcons=""`，扫描按 `dataset` 跳过；原图标预览用行内 `--icon-url`、元素类名里不含 `i-lucide-`（`theme-editor-icons__preview/original` 不匹配 `[class*="i-lucide-"]`），不受覆盖表影响；与 e2e 里 `not.toContain(hash.svg)` 的断言一致。
+- Escape：`dialog-close.ts` 的 `onEscapeKeyDown` 尊重 `defaultPrevented`，且菜单开着时 Escape 只投给最上层，所以不会连带关掉浮动窗口。
+- 失焦与点候选：`SuggestionMenu` 阻止了浮层内 `mousedown` 的默认动作，点候选不触发输入框 `blur`；`aria-activedescendant` 用 `suggestionOptionId(menuId, candidates.indexOf(activeId))`，与菜单内部下标算法一致；`Input` 把 `role`、`aria-*` 落到原生 input 上，`@blur`/`@input`/`@keydown` 经 `$attrs` 也落到原生 input。
+- 模块拆分：`icon-catalog.ts`（无 DOM）与 `icon-scan.ts`（DOM）的理由成立：happy-dom 会丢弃 `@layer`（我用仓库里的 happy-dom 验证：`@layer` 块整个消失，只剩 `@media` 与顶层规则），节点侧 tsconfig 没有 DOM 库。
+- 验证：`bun test src/plugins/workbench/icon-catalog.test.ts src/plugins/workbench/locales.test.ts` 11 通过 0 失败；`vue-tsc --noEmit -p tsconfig.web.json` 通过；`bun run typecheck` 的 `tsc --noEmit` 一步在 master 上因缺 `unbash` 模块失败（`src/plugins/agent/backend/permissions/bash-dialect.ts`），与本次改动无关，也因此链上后两步没有被它跑到，我单独跑了 web 那一步。
+- 未做：不跑 e2e 与开发服务（规则）；窄屏 390px 与实际键盘行为都是从代码和 Spec 推断，未在浏览器验证。
+
+## 数量
+- 阻断 0
+- 重要 1（第 1 条）
+- 建议 7（第 2 至 8 条）
