@@ -723,5 +723,5 @@ describe("随机序列", () => {
         expect(quiet).toBeGreaterThan(50);
         expect(moved).toBeGreaterThan(50);
         expect(book.ops.filter((op) => !applied.has(op))).toEqual([]);
-    }, 120_000);
+    }, Math.max(120_000, STEPS * 1_000));
 });

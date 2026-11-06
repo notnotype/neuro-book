@@ -170,5 +170,5 @@ describe("随机序列", () => {
         // 两种结论都走到了，这条断言不是空转。
         expect(stale).toBeGreaterThan(5);
         expect(kept).toBeGreaterThan(20);
-    }, 120_000);
+    }, Math.max(120_000, Number(process.env.PLOT_RANDOM_STEPS ?? 0) * 2_000));
 });
