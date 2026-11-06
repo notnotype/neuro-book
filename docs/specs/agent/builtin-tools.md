@@ -41,6 +41,7 @@ owners:
 | `nbook.agent.grep` | `grep` | 读 | shared | `pattern`、`path?`、`glob?`、`ignoreCase?`、`context?`（0 到 10）、`limit?`（1 到 500，缺省 100） |
 | `nbook.agent.glob` | `glob` | 读 | shared | `pattern`、`path?`、`limit?`（1 到 1000，缺省 200） |
 | `nbook.agent.shell` | `shell` | 全部只读时是读，否则执行（[`agent/permissions.md`](permissions.md) 输出 17） | exclusive | `command`、`timeout?`（秒，1 到 3600，缺省 300） |
+| `nbook.agent.switch-mode` | `switch_mode` | 读（自己问用户，见 [`agent/modes.md`](modes.md) 输出 8） | exclusive | `mode`：`normal`、`discuss`、`plan` |
 | `nbook.agent.ask` | `ask` | 读 | exclusive | `questions`：1 到 4 题，每题 `question`、`header?`、`options`（2 到 4 个，`label`、`description?`）、`multiSelect?` |
 | `nbook.agent.ask-form` | `ask` | 读 | exclusive | 同上，每题多一个 `form?`（JSON Schema） |
 
