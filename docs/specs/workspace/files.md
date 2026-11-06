@@ -74,6 +74,10 @@ owners:
 - **响应头**：`Content-Type` 按扩展名的白名单（png、jpeg、gif、webp、svg、avif、bmp、ico、html、css、js、mjs、json、txt、md、woff、woff2、ttf、otf），其它为 `application/octet-stream`；`X-Content-Type-Options: nosniff`；`Content-Security-Policy: sandbox`（直接打开一个 HTML 或 SVG 的地址也不在应用的源里运行）；`ETag`（修改时间与大小），`If-None-Match` 命中时 304；`Cache-Control: no-cache`。
 - **跨站读取**：带 `Sec-Fetch-Site` 且既不是 `same-origin` 也不是 `none` 的请求为 403 `cross-site`：别的网页不能把这条路由当作读取接口；`none` 是用户自己打开，照同样的读取与沙箱规则放行。不带这个头的本机进程照常（与 HTTP 端口未加载鉴权时的信任相同，[runtime.server-host](../runtime/server-host.md)）。
 
+### 写主题场景素材（planned）
+
+主题编辑器（[`theme.editor`](../theme/editor.md)）经 `PUT /api/nbook.files/theme-assets` 把场景图写进 `user://theme-assets/`：请求体是原始字节，限长、按字节判定类型、文件名取 SHA-256、拒绝符号链接目录，细则在“主题编辑器”的“写场景素材”一节。
+
 ### 预览的受限读取
 
 HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在不透明源的沙箱里，它对文件的每个请求都是跨站的。这里给它一个只认令牌的只读入口：

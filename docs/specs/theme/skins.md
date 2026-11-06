@@ -68,7 +68,7 @@ type Look = {
 
 ## 输出与可观察行为
 
-1. **一个列表**：设置窗口的“主题”项与命令 `nbook.settings.switch-theme` 列出全部已接受的主题，标题取声明的 `title`。
+1. **一个列表**：设置窗口的“主题”项与命令 `nbook.settings.switch-theme` 列出全部已接受的主题，标题取声明的 `title`。用户自己做的“我的主题”（[`theme.editor`](editor.md)，id 为 `user:<uuid>`）也在其中，声明与校验同一份。
 2. **选了什么就写什么**：文档根的 `data-nb-theme` 是 `base`；配色变量是 `colors` 盖在 `base` 缺省配色上的结果，没有未定义的配色变量；`vars`、活动栏、字体、场景都写成变量。换主题时上一套写下的全部清掉。
 3. **明暗**：`Look` 按解析后的明暗取，`system` 跟随系统。
 4. **空状态**：编辑组没开文件，或活动页面声明了 `scene`（欢迎页），内容区铺场景图，裁切取 `crop.empty`，内容中心按 `contentX` 偏到留白上。别的页面标签不铺。
