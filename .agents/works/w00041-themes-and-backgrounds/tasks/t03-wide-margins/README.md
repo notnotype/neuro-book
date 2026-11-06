@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t03-wide-margins
-status: active
+status: done
 updated: 2026-11-06
 ---
 
