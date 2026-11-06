@@ -372,7 +372,18 @@
             "failed": "Your themes could not be read: {{reason}}",
             "deleteConfirm": "Confirm delete",
             "export": "Export…",
-            "import": "Import…"
+            "import": "Import…",
+            "sweep": "Clean up assets",
+            "sweepWorking": "Working…",
+            "sweepNone": "There are no assets to clean up.",
+            "sweepAsk": "{{count}} unused assets, {{kb}} KB in total. This cannot be undone. Clean up?",
+            "sweepConfirm": "Clean up",
+            "sweepCancel": "Cancel",
+            "sweepDone": "Cleaned up {{removed}} assets.",
+            "sweepDoneSkipped": "Cleaned up {{removed}} assets; {{skipped}} more were just referenced or just written and were left alone.",
+            "sweepFailed": "Cleanup failed: {{reason}}",
+            "sweepNotReady": "My themes have not finished loading, so cleanup is not available yet.",
+            "sweepTooMany": "Too many assets are referenced for one cleanup to handle."
         },
         "appearance": {
             "label": "Appearance being edited",

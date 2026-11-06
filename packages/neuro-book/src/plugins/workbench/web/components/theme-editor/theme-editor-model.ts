@@ -18,12 +18,15 @@ import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
 import type {ThemeDeclaration} from "../../../shared/themes";
 import {userThemeProblem, validUserThemes} from "../../../shared/user-themes";
-import {keepUserAssets} from "./assets";
+import {THEME_ASSET_SWEEP_MAX_NAMES} from "nbook/plugins/files/shared/contracts";
+
+import {keepUserAssets, referencedAssetNames} from "./assets";
 import type {CropCss, CropRegion} from "./crop-model";
 import type {UserTheme} from "../../../shared/user-themes";
 import type {CommitResult} from "nbook/shared/store/store";
 import type {ThemeCatalog, ThemeEntry} from "../../themes";
 import type {UserThemesStore} from "../../user-themes-store";
+import type {ThemeTransfer} from "./transfer";
 
 /** 标题为空被拒绝时 `rejected` 的值；界面据此显示专门的文案。 */
 export const TITLE_EMPTY = "title-empty";
@@ -59,6 +62,16 @@ const edited = (theme: UserTheme, change: (draft: UserTheme) => void): UserTheme
     return draft;
 };
 
+/** 清理未使用素材要用的两个请求（`ThemeTransfer` 的一部分）。 */
+export type AssetSweeper = Pick<ThemeTransfer, "statUnusedAssets" | "removeUnusedAssets">;
+
+/**
+ * 清理统计的结果：可清理的素材名与总字节数；失败时 `reason` 是 `not-ready`（库还没读完或读取失败）、`too-many`（引用的素材超过路由
+ * 一次能收的数量）或路由给的原因。
+ */
+export type SweepPlan = {readonly ok: true; readonly names: ReadonlyArray<string>; readonly bytes: number} | {readonly ok: false; readonly reason: string};
+export type SweepDone = {readonly ok: true; readonly removed: number; readonly skipped: number} | {readonly ok: false; readonly reason: string};
+
 export class ThemeEditorModel {
     readonly #env: ThemeEditorEnvironment;
     readonly section: ShallowRef<EditorSection>;
@@ -79,6 +92,8 @@ export class ThemeEditorModel {
     readonly current = computed(() => this.mine.value.find((theme) => theme.id === this.selectedId.value) ?? null);
     /** 当前已发布的场景提供者的贡献 id（响应式：发布与撤回会更新）。 */
     readonly sceneProviders = computed(() => this.#env.catalog.sceneProviders);
+    /** 正在写素材的操作数（上传、导入、复制）：清理据此停用，免得删掉刚传上、还没写进记录的素材（见 `trackAssetWork`）。 */
+    readonly assetWork = shallowRef(0);
     /** 库读完了没有；没读完时不显示“还没有主题”。 */
     readonly ready = computed(() => this.#env.store.state.themes.ready);
     readonly failure = computed(() => this.#env.store.state.themes.failure);
@@ -403,6 +418,44 @@ export class ThemeEditorModel {
             if (Object.keys(icons).length === 0) delete look.icons;
             else look.icons = icons;
         }, target?.id ?? this.selectedId.value, target?.appearance ?? this.appearance.value);
+    }
+
+    /** 包住一次写素材的操作：期间 `assetWork` 大于 0。所有写素材的入口（上传、导入、复制）都经 `ThemeTransfer`，在那里包一次就够。 */
+    trackAssetWork<T>(task: () => Promise<T>): Promise<T> {
+        this.assetWork.value += 1;
+        return task().finally(() => {
+            this.assetWork.value -= 1;
+        });
+    }
+
+    /**
+     * 现在仍被引用的素材名。从已确认的记录与本窗口显示的值两处，在原始 JSON 里找全部素材文件名（不看 schema：记录里按设计留着不合格的
+     * 条目，只认合格声明会把它们引用的素材当成没人用）；每次调用都现读，不用旧的快照。库没读完或读取失败时没有可靠的清单，返回 null。
+     */
+    #keepNames(): string[] | null {
+        const themes = this.#env.store.state.themes;
+        if (!themes.ready || themes.failure !== null) return null;
+        return referencedAssetNames(themes.base, themes.display);
+    }
+
+    /** 统计没人引用的素材（不删任何东西）。 */
+    async unusedAssets(sweep: AssetSweeper): Promise<SweepPlan> {
+        const keep = this.#keepNames();
+        if (keep === null) return {ok: false, reason: "not-ready"};
+        if (keep.length > THEME_ASSET_SWEEP_MAX_NAMES) return {ok: false, reason: "too-many"};
+        const stats = await sweep.statUnusedAssets(keep);
+        if (!stats.ok) return stats;
+        return {ok: true, names: stats.value.removable.map(({name}) => name), bytes: stats.value.removable.reduce((total, {bytes}) => total + bytes, 0)};
+    }
+
+    /** 删掉用户确认过的那份统计里的素材；清单现读：确认期间别处新引用的素材，路由会因为它在 `keep` 里而跳过。 */
+    async removeUnused(sweep: AssetSweeper, names: ReadonlyArray<string>): Promise<SweepDone> {
+        const keep = this.#keepNames();
+        if (keep === null) return {ok: false, reason: "not-ready"};
+        if (keep.length > THEME_ASSET_SWEEP_MAX_NAMES) return {ok: false, reason: "too-many"};
+        const result = await sweep.removeUnusedAssets(keep, names);
+        if (!result.ok) return result;
+        return {ok: true, removed: result.value.removed.length, skipped: result.value.skipped.length};
     }
 
     /** 把当前明暗的图标整份复制到另一套明暗，覆盖它原有的。当前明暗没有图标时清空另一套。 */

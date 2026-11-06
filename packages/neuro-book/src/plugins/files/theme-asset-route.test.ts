@@ -4,7 +4,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {createHash} from "node:crypto";
-import {mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, stat, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -21,7 +21,8 @@ import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 
 import {filesBackendPlugin} from "./backend/plugin";
 import {descriptor} from "./plugin";
-import {THEME_ASSET_MAX_BYTES, THEME_ICON_MAX_BYTES} from "./shared/contracts";
+import {THEME_ASSET_MAX_BYTES, THEME_ASSET_SWEEP_MAX_BYTES, THEME_ASSET_SWEEP_MAX_NAMES, THEME_ICON_MAX_BYTES} from "./shared/contracts";
+import type {ThemeAssetSweepResult, ThemeAssetSweepStats} from "./shared/contracts";
 import {LEDGER_POINT} from "./shared/ledger";
 import type {LedgerEntry} from "./shared/ledger";
 
@@ -76,7 +77,12 @@ async function scene() {
         return new Response(await response.arrayBuffer(), {status: response.status, headers: response.headers});
     };
     const staged = async (): Promise<string[]> => readdir(join(h.stateRoot, "staging")).catch(() => []);
-    return {user, put: putTo("theme-assets"), putIcon: putTo("theme-icons"), ledger, staged};
+    /** 清理：`POST` JSON；`raw` 给了就原样当请求体（测坏请求）。 */
+    const sweep = async (body: unknown, host = "127.0.0.1", raw?: string): Promise<Response> => {
+        const response = await dispatch(new Request(`http://${host}:4217/api/nbook.files/theme-assets/sweep`, {method: "POST", body: raw ?? JSON.stringify(body), headers: {"content-type": "application/json"}}));
+        return new Response(await response.arrayBuffer(), {status: response.status, headers: response.headers});
+    };
+    return {user, put: putTo("theme-assets"), putIcon: putTo("theme-icons"), sweep, ledger, staged};
 }
 
 describe("写主题场景素材", () => {
@@ -265,5 +271,162 @@ describe("写主题图标素材", () => {
         expect(linked.status).toBe(409);
         expect(await linked.json()).toMatchObject({code: "invalid-target"});
         expect(await readdir(join(user, "outside"))).toEqual([]);
+    });
+});
+
+describe("清理没人引用的主题素材", () => {
+    const HOUR = 60 * 60 * 1000;
+    const nameOf = (seed: string): string => `${createHash("sha256").update(seed).digest("hex")}.png`;
+    /** 在素材目录里放一个文件，修改时间是 `age` 毫秒之前。 */
+    const plant = async (user: string, name: string, age = 2 * HOUR, content = "素材"): Promise<string> => {
+        await mkdir(join(user, "theme-assets"), {recursive: true});
+        const path = join(user, "theme-assets", name);
+        await writeFile(path, content);
+        const at = new Date(Date.now() - age);
+        await utimes(path, at, at);
+        return path;
+    };
+    const names = async (user: string): Promise<string[]> => (await readdir(join(user, "theme-assets"))).sort();
+
+    it("统计：只列摘要命名的普通文件里没被引用、过了保护期的；别的名字、子目录、符号链接、被引用的、刚写的都不列；统计不删任何东西", async () => {
+        const {user, sweep} = await scene();
+        const old = nameOf("old");
+        const kept = nameOf("kept");
+        const fresh = nameOf("fresh");
+        await plant(user, old, 2 * HOUR, "12345");
+        await plant(user, kept);
+        await plant(user, fresh, 60 * 1000);
+        await plant(user, "notes.txt");
+        await mkdir(join(user, "theme-assets", nameOf("dir")));
+        await symlink(join(user, "notes.txt"), join(user, "theme-assets", nameOf("link")));
+        const before = await names(user);
+
+        const response = await sweep({keep: [kept]});
+        expect(response.status).toBe(200);
+        expect(await response.json() as ThemeAssetSweepStats).toEqual({removable: [{name: old, bytes: 5}]});
+        expect(await names(user)).toEqual(before);
+    });
+
+    it("真删只删 names 里的：未列入统计的不动；列入的删掉，结果逐项交回，别的文件原样", async () => {
+        const {user, sweep} = await scene();
+        const a = nameOf("a");
+        const b = nameOf("b");
+        const other = nameOf("other");
+        await plant(user, a);
+        await plant(user, b);
+        await plant(user, other);
+        const response = await sweep({keep: [], names: [a, b]});
+        expect(response.status).toBe(200);
+        expect(await response.json() as ThemeAssetSweepResult).toEqual({removed: [a, b], skipped: []});
+        expect(await names(user)).toEqual([other]);
+    });
+
+    it("确认期间情况变了：别处新引用了它、或它刚被写过，真删时跳过并说明原因，文件还在；文件已经不在了算 not-file", async () => {
+        const {user, sweep} = await scene();
+        const nowKept = nameOf("now-kept");
+        const touched = nameOf("touched");
+        const gone = nameOf("gone");
+        await plant(user, nowKept);
+        const touchedPath = await plant(user, touched);
+        // 统计之后，原地改写并刷新修改时间：目录项身份令牌不变，靠重新核对修改时间挡住。
+        const ino = (await stat(touchedPath)).ino;
+        await writeFile(touchedPath, "新内容");
+        expect((await stat(touchedPath)).ino).toBe(ino);
+        const response = await sweep({keep: [nowKept], names: [nowKept, touched, gone]});
+        expect(await response.json() as ThemeAssetSweepResult).toEqual({removed: [], skipped: [{name: nowKept, reason: "kept"}, {name: touched, reason: "recent"}, {name: gone, reason: "not-file"}]});
+        expect(await names(user)).toEqual([nowKept, touched].sort());
+    });
+
+    it("只刷新修改时间（同一个 inode）也在保护期里，不删", async () => {
+        const {user, sweep} = await scene();
+        const name = nameOf("touch-only");
+        const path = await plant(user, name);
+        const ino = (await stat(path)).ino;
+        await utimes(path, new Date(), new Date());
+        expect((await stat(path)).ino).toBe(ino);
+        expect(await (await sweep({keep: []})).json()).toEqual({removable: []});
+        expect(await (await sweep({keep: [], names: [name]})).json()).toEqual({removed: [], skipped: [{name, reason: "recent"}]});
+        expect(await names(user)).toEqual([name]);
+    });
+
+    it("上传命中已有的旧文件：磁盘上的文件不被改动，但清理把它当刚被引用，不删（不用 utimes）", async () => {
+        const {user, put, sweep, ledger} = await scene();
+        const name = `${digest(PNG)}.png`;
+        const path = await plant(user, name, 2 * HOUR, "x");
+        await writeFile(path, PNG);
+        const at = new Date(Date.now() - 2 * HOUR);
+        await utimes(path, at, at);
+        const before = (await stat(path)).mtimeMs;
+        expect(await (await sweep({keep: []})).json()).toEqual({removable: [{name, bytes: PNG.length}]});
+
+        expect((await put(PNG)).status).toBe(200);
+        expect((await stat(path)).mtimeMs).toBe(before);
+        expect(ledger).toHaveLength(0);
+        expect(await (await sweep({keep: []})).json()).toEqual({removable: []});
+        expect(await (await sweep({keep: [], names: [name]})).json()).toEqual({removed: [], skipped: [{name, reason: "recent"}]});
+        expect(await names(user)).toEqual([name]);
+    });
+
+    it("清理与同一份素材的上传同时来：不管谁先，上传交出的地址指向的文件总是存在", async () => {
+        const {user, put, sweep} = await scene();
+        const name = `${digest(PNG)}.png`;
+        const path = await plant(user, name);
+        await writeFile(path, PNG);
+        const at = new Date(Date.now() - 2 * HOUR);
+        await utimes(path, at, at);
+        for (const order of ["upload-first", "sweep-first"] as const) {
+            const run = order === "upload-first" ? [put(PNG), sweep({keep: [], names: [name]})] : [sweep({keep: [], names: [name]}), put(PNG)];
+            const results = await Promise.all(run);
+            expect(results.map((response) => response.status)).toEqual([200, 200]);
+            expect(await names(user)).toEqual([name]);
+            expect(new Uint8Array(await readFile(path))).toEqual(PNG);
+            await utimes(path, at, at);
+        }
+    });
+
+    it("keep 超过 4096 个唯一名字也照常清理；超过上限、不是名字数组、名字不合格、不是 JSON：400，不删任何东西", async () => {
+        const {user, sweep} = await scene();
+        const old = nameOf("old");
+        await plant(user, old);
+        const many = Array.from({length: 5000}, (_, index) => nameOf(`keep-${String(index)}`));
+        expect(await (await sweep({keep: many})).json()).toEqual({removable: [{name: old, bytes: 6}]});
+        // 8192 项正好可以，装得下 user-themes 记录最大能表达的唯一引用数。
+        const full = Array.from({length: THEME_ASSET_SWEEP_MAX_NAMES}, (_, index) => nameOf(`full-${String(index)}`));
+        expect((await sweep({keep: full})).status).toBe(200);
+        for (const body of [{keep: [...full, nameOf("one-more")]}, {keep: "x"}, {keep: ["../etc/passwd"]}, {keep: [nameOf("a").toUpperCase()]}, {keep: [], names: [nameOf("x"), 3]}, {keep: [], names: "x"}, {}, null, [1]]) {
+            const response = await sweep(body);
+            expect(response.status).toBe(400);
+            expect(await response.json()).toMatchObject({code: "bad-request"});
+        }
+        expect((await sweep(null, "127.0.0.1", "不是 JSON")).status).toBe(400);
+        expect(await names(user)).toEqual([old]);
+        const oversize = await sweep(null, "127.0.0.1", JSON.stringify({keep: [], pad: "x".repeat(THEME_ASSET_SWEEP_MAX_BYTES)}));
+        expect(oversize.status).toBe(413);
+    });
+
+    it("素材目录不存在：统计与真删都返回空；是链接：409，目标目录不变", async () => {
+        const {user, sweep} = await scene();
+        expect(await (await sweep({keep: []})).json()).toEqual({removable: []});
+        expect(await (await sweep({keep: [], names: [nameOf("a")]})).json()).toEqual({removed: [], skipped: []});
+        await mkdir(join(user, "outside"), {recursive: true});
+        await writeFile(join(user, "outside", nameOf("a")), "别的目录里的");
+        await symlink(join(user, "outside"), join(user, "theme-assets"));
+        const response = await sweep({keep: [], names: [nameOf("a")]});
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({code: "invalid-target"});
+        expect(await readdir(join(user, "outside"))).toEqual([nameOf("a")]);
+    });
+
+    it("符号链接与子目录即使点名也不删；经统一的准入：Host 不是回环 421", async () => {
+        const {user, sweep} = await scene();
+        await plant(user, "target.txt");
+        const link = nameOf("link");
+        await symlink(join(user, "theme-assets", "target.txt"), join(user, "theme-assets", link));
+        const dir = nameOf("dir");
+        await mkdir(join(user, "theme-assets", dir));
+        const response = await sweep({keep: [], names: [link, dir]});
+        expect(await response.json()).toEqual({removed: [], skipped: [{name: link, reason: "not-file"}, {name: dir, reason: "not-file"}]});
+        expect(await names(user)).toEqual([dir, link, "target.txt"].sort());
+        expect((await sweep({keep: []}, "example.com")).status).toBe(421);
     });
 });

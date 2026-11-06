@@ -4,7 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, rm, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {zipSync} from "fflate";
 import {Hono} from "hono";
@@ -28,7 +28,9 @@ import {ThemeCatalog} from "./web/themes";
 import type {ThemeEntry} from "./web/themes";
 import {ThemeEditorModel, TITLE_EMPTY} from "./web/components/theme-editor/theme-editor-model";
 import {ThemeEditorSession} from "./web/components/theme-editor/theme-editor-session";
+import {sweepAssets, uploadScene} from "./web/components/theme-editor/asset-upload";
 import {copyPluginAssets, importArchive} from "./web/components/theme-editor/transfer";
+import type {AssetSweeper} from "./web/components/theme-editor/theme-editor-model";
 import {userThemesStore} from "./web/user-themes-store";
 
 /** 两个明暗的缺省配色：故意写成一套不合格的（弱化文字对背景太淡），和主题包缺省的取值无关，测试不依赖 nb-ui。 */
@@ -431,9 +433,10 @@ describe("会话：页签切走再回来", () => {
 /**
  * 素材传输（docs/specs/theme/editor.md 验收 12、20）：浏览器一侧的 `fetch` 接到真实的上传路由处理（真实的白名单检查、哈希定址、
  * 已存在判断），写盘落在 tmp 目录里（Files 真实的暂存、提交与记账由 `files/theme-asset-route.test.ts` 覆盖），另有一张表充当“插件
- * 文件端点”。判据是上传了什么、主题库里有什么。
+ * 文件端点”。判据是上传了什么、主题库里有什么。清理未使用素材也走这条真实路由（删除由 Files 的删除换成直接删文件的替身；删除的语义——
+ * 保护期、令牌、互斥——由 `files/theme-asset-route.test.ts` 在真实 Files 上覆盖，这里只验客户端：交什么清单、统计与真删怎么衔接）。
  */
-describe("复制插件主题与导入主题包的素材传输", () => {
+describe("素材传输：复制插件主题、导入主题包与清理未使用素材", () => {
     const SVG = (tag: string): Uint8Array => new TextEncoder().encode(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h${tag}"/></svg>`);
     const WEBP_A = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 1]);
     const WEBP_B = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 2]);
@@ -443,7 +446,7 @@ describe("复制插件主题与导入主题包的素材传输", () => {
     let stored: string[] = [];
 
     /** 真实路由接在 tmp 目录上；`files` 是插件文件端点上的文件（地址 → 字节）。 */
-    async function wire(files: Record<string, Uint8Array> = {}): Promise<void> {
+    async function wire(files: Record<string, Uint8Array> = {}): Promise<string> {
         counter += 1;
         const userRoot = join(tmp, `transfer-${String(counter)}`);
         await mkdir(userRoot, {recursive: true});
@@ -456,16 +459,20 @@ describe("复制插件主题与导入主题包的素材传输", () => {
             await writeFile(path, bytes);
             stored.push(address.slice("user://theme-assets/".length));
             return {ok: true, value: {baseline: undefined}} as never;
+        }, delete: async (items) => {
+            for (const {address} of items) await rm(join(userRoot, address.slice("user://".length)));
+            return {ok: true, value: {items: items.map(() => ({status: "done" as const})), manifests: []}};
         }});
         globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
             const url = String(input);
             if (url.startsWith("/api/nbook.files/theme-")) {
-                puts.push(url);
+                if (!url.endsWith("/sweep")) puts.push(url);
                 return app.request(url.slice("/api/nbook.files".length), init);
             }
             const bytes = files[url];
             return bytes === undefined ? new Response("missing", {status: 404}) : new Response(bytes.slice());
         }) as typeof fetch;
+        return userRoot;
     }
     afterEach(() => {
         globalThis.fetch = original;
@@ -559,4 +566,83 @@ describe("复制插件主题与导入主题包的素材传输", () => {
         expect(stored).toEqual([`${hashOf(WEBP_A)}.webp`]);
         dispose();
     });
+    describe("清理未使用素材（theme.editor 输出 22）", () => {
+        const sweeper: AssetSweeper = {
+            statUnusedAssets: (keep) => sweepAssets({keep}),
+            removeUnusedAssets: (keep, names) => sweepAssets({keep, names}),
+        };
+        const HOUR = 60 * 60 * 1000;
+        const theme = (id: string, scene: string): UserTheme => ({id, declaration: {title: id, base: "nbook", light: {scene}, dark: {}}} as UserTheme);
+        /** 放一个旧文件到素材目录。 */
+        const plantOld = async (root: string, bytes: Uint8Array): Promise<string> => {
+            const name = `${hashOf(bytes)}.webp`;
+            await mkdir(join(root, "theme-assets"), {recursive: true});
+            await writeFile(join(root, "theme-assets", name), bytes);
+            const at = new Date(Date.now() - 2 * HOUR);
+            await utimes(join(root, "theme-assets", name), at, at);
+            return name;
+        };
+        const WEBP_C = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 3]);
+        const WEBP_D = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 4]);
+
+        it("统计只列没人引用的旧素材：主题引用的、记录里不合格条目引用的、刚上传还没写进记录的都保留；真删只删统计里的", async () => {
+            const root = await wire();
+            const {model, store, dispose} = await session();
+            const referenced = await plantOld(root, WEBP_A);
+            const orphan = await plantOld(root, WEBP_B);
+            const inBadEntry = await plantOld(root, WEBP_C);
+            expect(await store.actions.create(theme("mine", referenced))).toBe("saved");
+            // 记录里按设计留着不合格的条目（这里是多了一个未知字段，像是较新的版本写的）：它引用的素材不能被当成没人用。
+            expect(await store.actions.create({id: "future", futureField: true, declaration: {light: {scene: inBadEntry}}} as unknown as UserTheme)).toBe("saved");
+            // 刚上传、还没来得及写进记录：路由的保护期不让它出现在统计里。
+            const fresh = await uploadScene(new Blob([WEBP_D]));
+            if (!fresh.ok) throw new Error(fresh.reason);
+
+            const plan = await model.unusedAssets(sweeper);
+            expect(plan).toEqual({ok: true, names: [orphan], bytes: WEBP_B.length});
+            // 确认期间另一处新引用了它：真删时清单现读，它在 keep 里，路由跳过。
+            const done = await model.removeUnused(sweeper, [orphan]);
+            expect(done).toEqual({ok: true, removed: 1, skipped: 0});
+            expect((await readdir(join(root, "theme-assets"))).sort()).toEqual([referenced, inBadEntry, fresh.name].sort());
+            dispose();
+        });
+
+        it("确认期间别处新引用了统计里的素材：真删跳过它，文件还在", async () => {
+            const root = await wire();
+            const {model, store, dispose} = await session();
+            const orphan = await plantOld(root, WEBP_B);
+            const plan = await model.unusedAssets(sweeper);
+            expect(plan).toMatchObject({ok: true, names: [orphan]});
+            expect(await store.actions.create(theme("later", orphan))).toBe("saved");
+            expect(await model.removeUnused(sweeper, [orphan])).toEqual({ok: true, removed: 0, skipped: 1});
+            expect(await readdir(join(root, "theme-assets"))).toEqual([orphan]);
+            dispose();
+        });
+
+        it("路由说不行：原因原样交回，不当作成功", async () => {
+            const root = await wire();
+            const {model, dispose} = await session();
+            // 素材目录是个普通文件：路由 409 invalid-target，原因里有说明。
+            await writeFile(join(root, "theme-assets"), "不是目录");
+            const plan = await model.unusedAssets(sweeper);
+            expect(plan.ok).toBe(false);
+            if (!plan.ok) expect(plan.reason).toContain("theme-assets");
+            dispose();
+        });
+
+        it("写素材的操作进行中 assetWork 大于 0，结束（含失败）后回到 0", async () => {
+            const {model, dispose} = await session();
+            const gate = Promise.withResolvers<string>();
+            const running = model.trackAssetWork(() => gate.promise);
+            expect(model.assetWork.value).toBe(1);
+            const failing = model.trackAssetWork(() => Promise.reject(new Error("坏了")));
+            await expect(failing).rejects.toThrow("坏了");
+            expect(model.assetWork.value).toBe(1);
+            gate.resolve("ok");
+            expect(await running).toBe("ok");
+            expect(model.assetWork.value).toBe(0);
+            dispose();
+        });
+    });
+
 });

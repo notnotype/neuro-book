@@ -4,7 +4,7 @@
  */
 
 import {createHash, randomUUID} from "node:crypto";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -350,6 +350,50 @@ test("图标名补全与原图标：候选取自页面里产品能画的图标�
         await expect(page.locator(`[data-icon-row="${unknown}"] [data-icon-original]`)).toHaveCount(0);
         await field.fill("ice-cream");
         await expect(page.getByRole("option")).toHaveCount(0);
+    });
+});
+
+test("清理未使用素材：先统计、确认后只删统计里的；被引用的、刚写入的、不是素材的都不动；取消不删", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=scene]").click();
+        await page.locator("[data-scene-file]").setInputFiles(SCENE_IMAGE);
+        await expect(page.locator("[data-scene-note]")).toContainText("KB");
+
+        // 素材目录里：上面传的（被主题引用，也是刚写的）；一个旧孤儿；一个刚写的孤儿（保护期内）；一个不是素材的文件。
+        const dir = join(session.stateRoot, "user", "theme-assets");
+        const orphan = `${createHash("sha256").update("old orphan").digest("hex")}.webp`;
+        const fresh = `${createHash("sha256").update("fresh orphan").digest("hex")}.webp`;
+        await writeFile(join(dir, orphan), "old orphan");
+        const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+        await utimes(join(dir, orphan), old, old);
+        await writeFile(join(dir, fresh), "fresh orphan");
+        await writeFile(join(dir, "notes.txt"), "不是素材");
+        const before = (await readdir(dir)).sort();
+        expect(before).toHaveLength(4);
+
+        // 统计：只有那个旧孤儿；取消后什么都没删。
+        await page.locator("[data-sweep]").click();
+        await expect(page.locator("[data-sweep-text]")).toContainText("有 1 个没人用的素材");
+        await page.locator("[data-sweep-cancel]").click();
+        await expect(page.locator("[data-sweep-text]")).toHaveCount(0);
+        expect((await readdir(dir)).sort()).toEqual(before);
+
+        // 确认：只删旧孤儿；被引用的上传、刚写的孤儿、别的文件都在。
+        await page.locator("[data-sweep]").click();
+        await expect(page.locator("[data-sweep-confirm]")).toBeVisible();
+        // 有素材操作在进行时（这里没有）确认与开始都停用；统计出来后“清理素材”本身也停用，免得重复开始。
+        await expect(page.locator("[data-sweep]")).toBeDisabled();
+        await page.locator("[data-sweep-confirm]").click();
+        await expect(page.locator("[data-sweep-text]")).toContainText("已清理 1 个素材");
+        expect((await readdir(dir)).sort()).toEqual(before.filter((name) => name !== orphan));
+
+        // 再统计：剩下的刚写的孤儿还在保护期内，没有可清理的。
+        await page.locator("[data-sweep]").click();
+        await expect(page.locator("[data-sweep-text]")).toContainText("没有可清理的素材");
+        expect((await readdir(dir)).sort()).toEqual(before.filter((name) => name !== orphan));
     });
 });
 

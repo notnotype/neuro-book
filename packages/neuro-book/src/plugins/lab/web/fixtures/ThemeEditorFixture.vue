@@ -66,6 +66,8 @@ const transfer: ThemeTransfer = {
     uploadScene: async () => ({ok: false, reason: "Lab"}),
     uploadIcon: async () => ({ok: false, reason: "Lab"}),
     copyAssets: async (entry) => ({ok: true, declaration: entry.declaration}),
+    statUnusedAssets: async () => ({ok: true, value: {removable: []}}),
+    removeUnusedAssets: async () => ({ok: true, value: {removed: [], skipped: []}}),
 };
 </script>
 

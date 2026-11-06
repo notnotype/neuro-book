@@ -1,8 +1,10 @@
 /**
  * 主题包的导入与插件主题的素材复制的浏览器一侧（docs/specs/theme/editor.md 输出 2、16）：读素材、上传成我的素材。下载导出的 zip 在
  * `export-current.ts`；包的格式与校验在 `package-io.ts`（纯函数）。导入分两步：先把所有素材传完，再写主题；中途任何一步失败都不写主题记录（主题记录是原子的）。素材写入
- * 不可回滚：已经传上的留在素材目录里成为孤儿，文件名是内容摘要，重试不会重复。
+ * 不可回滚：已经传上的留在素材目录里成为孤儿，文件名是内容摘要，重试不会重复；孤儿由用户手动清理（`theme-editor-model.ts` 的 `unusedAssets`）。
  */
+
+import type {ThemeAssetSweepResult, ThemeAssetSweepStats} from "nbook/plugins/files/shared/contracts";
 
 import type {ThemeEntry} from "../../themes";
 import type {ThemeDeclaration} from "../../../shared/themes";
@@ -10,6 +12,7 @@ import {readPackage} from "./package-io";
 import {keepUserAssets, assetRefs, renameAssets} from "./assets";
 import type {AssetKind, AssetRef} from "./assets";
 import {uploadIcon, uploadScene} from "./asset-upload";
+import type {SweepOutcome} from "./asset-upload";
 import type {UploadResult} from "./asset-upload";
 import type {ThemeEditorModel} from "./theme-editor-model";
 
@@ -22,6 +25,10 @@ export interface ThemeTransfer {
     uploadScene(blob: Blob): Promise<UploadResult>;
     /** 上传一个图标 SVG，成功返回素材文件名。 */
     uploadIcon(blob: Blob): Promise<UploadResult>;
+    /** 统计没人引用、过了保护期的素材（不删任何东西）。`keep` 是仍被引用的素材名。 */
+    statUnusedAssets(keep: ReadonlyArray<string>): Promise<SweepOutcome<ThemeAssetSweepStats>>;
+    /** 删掉用户确认过的那份统计里的素材（只删 `names` 里的，每个仍要满足清理条件）。 */
+    removeUnusedAssets(keep: ReadonlyArray<string>, names: ReadonlyArray<string>): Promise<SweepOutcome<ThemeAssetSweepResult>>;
     /**
      * 复制插件主题的素材（场景图、工作态场景、图标）：读出来、传成我的素材，全部成功才返回换成素材文件名的声明；任何一个读不到或
      * 传不上就整个失败，不建副本。

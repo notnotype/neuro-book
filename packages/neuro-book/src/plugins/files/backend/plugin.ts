@@ -244,7 +244,7 @@ const serverEntry = defineEntry({
         }});
         const workspaceDeps = {own: {scheme: "user", root: backend}, registry: schemes, projects: registry === null ? null : createProjectsAccess(registry, context.remote), signal: context.signal, sourceOf, report: reportStage} as const;
         const ownFiles = ownWorkspaceFiles(workspaceDeps, {instanceId: "nbook.files/http", location: "server", client: null, plugin: descriptor.id, entry: "server", generation: null, via: null});
-        addThemeAssetRoutes(routes, {userRoot: root.real, write: (address, bytes) => ownFiles.write(address, bytes, {expect: "absent", createParents: true})});
+        addThemeAssetRoutes(routes, {userRoot: root.real, write: (address, bytes) => ownFiles.write(address, bytes, {expect: "absent", createParents: true}), delete: (items) => ownFiles.delete(items)});
         return {
             services: [
                 provideWorkspaceFiles(workspaceDeps),
