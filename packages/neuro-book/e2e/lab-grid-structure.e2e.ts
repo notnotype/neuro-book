@@ -137,6 +137,20 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
         await expect(frame(page, "n")).toHaveCount(0);
     });
 
+    test("过渡中又来一次变化：新叶的内容仍是最终尺寸，不被压到外框此刻的宽度；还在的叶继续跟外框", async ({page}) => {
+        await open(page, true);
+        await slowMotion(page);
+        await act(page, "split-before");
+        await expect(frame(page, "n")).toHaveAttribute("data-moving", "");
+        await act(page, "narrow");
+        const during = await outerAndInner(page, "n");
+        const neighbour = await outerAndInner(page, "a");
+        expect(during.outer).toBeLessThan(during.inner);
+        expect(Math.abs(neighbour.inner - neighbour.outer)).toBeLessThan(0.5);
+        await settled(page);
+        expect((await outerAndInner(page, "n")).inner).toBe(during.inner);
+    });
+
     test("拖分隔线、松手落账、改窗口尺寸都不过渡；过渡中开始手势，外框直接到终点", async ({page}) => {
         await open(page, true);
         const sash = page.locator("[data-sash='root:0']");

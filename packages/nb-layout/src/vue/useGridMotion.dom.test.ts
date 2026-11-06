@@ -1,10 +1,12 @@
-import {describe, expect, it} from "vitest";
+import {mount} from "@vue/test-utils";
+import {afterEach, describe, expect, it} from "vitest";
+import {defineComponent, ref} from "vue";
 
 import {createGrid} from "../grid";
 import {placeGrid} from "../grid-rects";
 import type {GridPlacementItem} from "../grid-rects";
 import type {GridNodeInput} from "../grid-types";
-import {EMPTY_GRID_MOTION_MEMORY, decideMotion} from "./useGridMotion";
+import {EMPTY_GRID_MOTION_MEMORY, decideMotion, useGridMotion} from "./useGridMotion";
 import type {GridMotionFrame, GridMotionMemory} from "./useGridMotion";
 
 /**
@@ -68,6 +70,11 @@ describe("decideMotion", () => {
         expect(decideMotion(frame({items: items([400, 100, 200], smaller), previous: settled, rootSize: smaller, extent: smaller}), memory).kind).toBe("move");
     });
 
+    it("根尺寸只差舍入（子项加出来的 699.9999999999999）：不算容器变了，照常过渡", () => {
+        const {memory, base} = warmed();
+        expect(decideMotion(frame({items: items([400, 100, 200]), previous: base, rootSize: {width: 699.9999999999999, height: 300}}), memory).kind).toBe("move");
+    });
+
     it("设备像素比变了：不过渡", () => {
         const {memory, base} = warmed();
         expect(decideMotion(frame({items: items([400, 100, 200]), previous: base, dpr: 1.25}), memory).kind).toBe("stop");
@@ -93,5 +100,72 @@ describe("decideMotion", () => {
         const now = items([200, 200, 150, 150]);
         expect(decideMotion(frame({items: now, previous: now}), memory).kind).toBe("none");
         expect(decideMotion(frame({items: items([300, 100, 150, 150]), previous: now}), memory).kind).toBe("move");
+    });
+});
+
+describe("过渡中内容跟外框的叶", () => {
+    const cleanups: Array<() => void> = [];
+    afterEach(() => {
+        for (const cleanup of cleanups.splice(0)) cleanup();
+    });
+
+    /** 挂一个带令牌的根，喂第一帧。 */
+    function started(duration = "470ms") {
+        const root = document.createElement("div");
+        root.style.setProperty("--motion-layout", duration);
+        document.body.append(root);
+        let motion!: ReturnType<typeof useGridMotion>;
+        const wrapper = mount(defineComponent({
+            setup() {
+                motion = useGridMotion({root: ref(root), onSettled: () => undefined});
+                return () => null;
+            },
+        }));
+        cleanups.push(() => {
+            wrapper.unmount();
+            root.remove();
+        });
+        const base = items([300, 200, 200]);
+        motion.update(frame({items: base}));
+        return {motion, base};
+    }
+    const followingOf = (motion: ReturnType<typeof useGridMotion>) => [...motion.following.value];
+
+    it("拆分：还在的叶跟，新叶不跟；结束后清空", () => {
+        const {motion, base} = started();
+        motion.update(frame({items: items([200, 200, 150, 150]), previous: base}));
+        expect(motion.moving.value).toBe(true);
+        expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2"]);
+        motion.stop();
+        expect(motion.moving.value).toBe(false);
+        expect(followingOf(motion)).toEqual([]);
+    });
+
+    it("过渡中又来一次变化：上一轮的新叶继续不跟；过渡结束之后的变化才跟", () => {
+        const {motion, base} = started();
+        const split = items([200, 200, 150, 150]);
+        motion.update(frame({items: split, previous: base}));
+        const again = items([100, 300, 150, 150]);
+        motion.update(frame({items: again, previous: split}));
+        expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2"]);
+        motion.stop();
+        motion.update(frame({items: split, previous: again}));
+        expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2", "leaf:l3"]);
+    });
+
+    it("容差之内的第二次发布不改名单", () => {
+        const {motion, base} = started();
+        const split = items([200, 200, 150, 150]);
+        motion.update(frame({items: split, previous: base}));
+        motion.update(frame({items: split, previous: split}));
+        expect(motion.moving.value).toBe(true);
+        expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2"]);
+    });
+
+    it("减少动态效果（令牌为零）：没有过渡，内容直接是最终尺寸", () => {
+        const {motion, base} = started("0ms");
+        motion.update(frame({items: items([200, 200, 150, 150]), previous: base}));
+        expect(motion.moving.value).toBe(false);
+        expect(followingOf(motion)).toEqual([]);
     });
 });

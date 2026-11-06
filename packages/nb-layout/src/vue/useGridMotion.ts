@@ -47,7 +47,10 @@ export type GridMotionDecision =
     | {readonly kind: "stop"}
     | {readonly kind: "move"; readonly entering: ReadonlyMap<string, GridRect>; readonly following: ReadonlySet<string>};
 
-const sameExtent = (left: GridExtent, right: GridExtent): boolean => left.width === right.width && left.height === right.height;
+/** 根尺寸是子项加出来的（621.9999999999999 与 622），差一点舍入不算容器变了：算成变了，程序调整的过渡会直接跳到终点。 */
+const EXTENT_TOLERANCE_PX = 0.5;
+
+const sameExtent = (left: GridExtent, right: GridExtent): boolean => Math.abs(left.width - right.width) <= EXTENT_TOLERANCE_PX && Math.abs(left.height - right.height) <= EXTENT_TOLERANCE_PX;
 
 /**
  * 要不要过渡（纯函数，改 `memory`）。来源是数据：预览进行中，或上一次还在预览中（松手、取消、被拒撤下预览的那一次），都算手势引起的。
@@ -92,8 +95,9 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
 
     function start(durationMs: number, entering: ReadonlyMap<string, GridRect>, nextFollowing: ReadonlySet<string>): void {
         if (timer !== null) clearTimeout(timer);
+        // 过渡中又来一次变化：上一轮保持最终尺寸的叶（新叶、从零出来的）继续保持，否则内容会被压到外框此刻的宽度，再跟着长回去。
+        following.value = moving.value ? new Set([...nextFollowing].filter((key) => following.value.has(key))) : nextFollowing;
         moving.value = true;
-        following.value = nextFollowing;
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
         if (entering.size === 0) return;
         growing.value = entering;
