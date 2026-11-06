@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t16-tab-strip
-status: active
+status: done
 updated: 2026-11-06
 ---
 
@@ -40,8 +40,16 @@ nb-layout 提供一个标签条，工具面板和编辑组共用：语义、方�
 | F17 Spec 与样式遗漏 | 成立，补；“开发者说过没有问题”没有出处，改成推断并记入待确认清单 |
 | F18 与提案的差别 | 成立，写明 |
 
+已合入。`TabStrip` 在 nb-layout，工具面板（`adapt`）与编辑组（分区、多行）共用；插入判定 `resolveTabStripInsertion` 返回邻居，工作台按文档换算；`useTabsAdapt` 从 nb-ui `Tabs` 抽出来共用。编辑组的头（`EditorGroupHead`）搬到外框，内容按实测头高从它下面开始。`data-editor-group` 只在内容根，头写 `data-editor-group-head`。e2e 选择器由一个 Sonnet 迁移，主会话审 diff。
+
+和计划不一样的地方：`TabStrip` 进了 SDK 的组件清单（`sdk.test.ts` 要求入口里的单文件组件逐个对上）。“更多”的图标由宿主给（`moreIconClass`）：应用的 Tailwind 不扫 nb-layout 的源码，库里写图标类不生效。
+
+验证：类型检查只剩别的 Work 的（`plugins/agent` 的 `permission-page.dom.test.ts`、`nb-agent-ui`、`nb-story` 的 `qa-service`）；`test:affected --since master` 在 dev-panel、nb-agent-ui、nb-form、nb-layout、nb-markdown、nb-story、nb-ui、neuro-book 上只有已知的 `plugins/agent` 跨插件导入；e2e `lab-tab-strip`、`editor-area`、`workbench-views`、`workbench-dnd`、`editor-types`、`editor-code-settings`、`lab-editor`、`files-explorer`、`markdown-editing`、`markdown-input`、`themes`、`workbench-titlebar`、`bookshelf-stats`、`welcome`、`theme-editor` 全过；`scripts/perf` 改了选择器，只过了类型检查，没跑。
+
+实现审查后台进行中，报告回来后处理。
+
 ## 下一步
 
-片 1。
+[t17](../t17-per-tab-instance/README.md)。
 
 从 t07 片 7b 审查留下的：关掉多行（`wrapTabs` 为假）且标签条横向滚动时，键盘拖动把滚出视口的标签也算成落点，停靠点落到标签条外面（工具面板的标签条只数看得见的，编辑组没有）。换成统一标签条时一起解决。
