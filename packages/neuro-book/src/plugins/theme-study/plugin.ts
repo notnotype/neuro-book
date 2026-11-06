@@ -12,6 +12,8 @@ const SERIF = "\"Noto Serif CJK SC\", \"Source Han Serif SC\", \"Songti SC\", se
 
 /**
  * “书房”（docs/specs/theme/skins.md 输出 11）：白天窗边、夜里台灯。只有声明与素材，没有入口；一张图裁给各位置。
+ * 工作态场景（输出 17）与空闲图构图相同，只有桌面区域换成了忙碌的样子（稿纸、笔记本、一杯茶），其余像素一致，所以空闲与工作中之间切换
+ * 时房间不跳，`crop` 也不用另写。
  * 它随产品提供，也是字段最全的主题参考（plugin-sdk/examples/README.md 的“主题的三份参考”）：改字段要同步 Spec 与那份说明。
  */
 const STUDY: ThemeDeclaration = {
@@ -37,6 +39,7 @@ const STUDY: ThemeDeclaration = {
         activityBar: {surface: "linear-gradient(90deg, #553a22, #6b4a2c 45%, #553a22)", foreground: "#f3e7d0", active: "#d9b878", ornament: "#d9b878"},
         frame: {line: "#8a5a24"},
         scene: "assets/study-day.webp",
+        workingScene: "assets/study-day-working.webp",
         icons: ICONS,
     },
     dark: {
@@ -51,6 +54,7 @@ const STUDY: ThemeDeclaration = {
         activityBar: {surface: "linear-gradient(90deg, #2c1c10, #3a2616 45%, #2c1c10)", foreground: "#e9d9bc", active: "#c9a35f", ornament: "#c9a35f"},
         frame: {line: "#e0ac62"},
         scene: "assets/study-night.webp",
+        workingScene: "assets/study-night-working.webp",
         icons: ICONS,
     },
 };
