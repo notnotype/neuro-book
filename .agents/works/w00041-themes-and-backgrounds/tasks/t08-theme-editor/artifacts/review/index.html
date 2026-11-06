@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>主题编辑器：范围与结构</title>
+<title>主题编辑器：界面草图</title>
 <style>
 :root { --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef; --warn: #b45309; --warn-soft: #fdf1df; --radius: 10px; }
 @media (prefers-color-scheme: dark) { :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123330; --warn: #fbbf24; --warn-soft: #3a2e12; } }
@@ -20,113 +20,123 @@ section.q, section.plain { margin-top: 28px; padding: 18px 20px; background: var
 .opt { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); }
 .opt.rec { border-color: var(--accent); background: var(--accent-soft); }
 .rec-note { margin: 10px 0 0; }
-table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; }
-.yes { color: var(--accent); font-weight: 600; }
-.no { color: var(--warn); font-weight: 600; }
-/* 线框 */
-.wire { display: grid; gap: 4px; padding: 8px; margin: 8px 0; border: 1px dashed var(--muted); border-radius: 8px; font-size: 12px; color: var(--muted); }
-.wire div { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: color-mix(in srgb, var(--card) 70%, var(--bg)); }
-.wire .hi { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-.w-a { grid-template-columns: 90px 1fr 1fr 110px; min-height: 150px; }
-.w-b { grid-template-columns: 90px 1fr 110px; min-height: 150px; }
-.w-b .win { grid-column: 2; border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-.w-c { grid-template-columns: 1fr 1fr; min-height: 150px; }
+.note { color: var(--muted); font-size: 12px; }
+/* 草图：中性灰，不代表最终视觉 */
+.m { --m-line: #cfcac0; --m-bg: #fbfaf7; --m-panel: #fff; --m-sub: #f0eee8; --m-text: #2b2823; --m-mut: #8a857b; --m-acc: #8a5a24;
+     border: 1px solid var(--m-line); border-radius: 10px; background: var(--m-bg); color: var(--m-text); font-size: 12px; line-height: 1.5; overflow: hidden; margin: 10px 0; }
+.m * { box-sizing: border-box; }
+.m .bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--m-line); background: var(--m-panel); }
+.m .bar b { font-size: 13px; }
+.m .sp { flex: 1; }
+.m .btn { border: 1px solid var(--m-line); border-radius: 6px; padding: 1px 8px; background: var(--m-panel); }
+.m .btn.on { background: var(--m-acc); color: #fff; border-color: var(--m-acc); }
+.m .body { display: grid; min-height: 360px; }
+.m .nav { border-right: 1px solid var(--m-line); padding: 8px; background: var(--m-sub); }
+.m .nav div { padding: 3px 8px; border-radius: 6px; }
+.m .nav .cur { background: var(--m-panel); font-weight: 600; box-shadow: 0 0 0 1px var(--m-line); }
+.m .main { padding: 10px 12px; }
+.m h4 { margin: 8px 0 4px; font-size: 12px; color: var(--m-mut); font-weight: 600; }
+.sw { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--m-line); border-radius: 6px; padding: 2px 8px 2px 3px; margin: 0 6px 6px 0; background: var(--m-panel); }
+.sw i { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,.15); display: inline-block; }
+.sw .ok { color: #166534; } .sw .bad { color: #b91c1c; font-weight: 700; } .sw .dot { color: var(--m-acc); }
+.derive { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px dashed var(--m-line); border-radius: 8px; background: var(--m-panel); margin-bottom: 8px; }
+.img { position: relative; height: 230px; border-radius: 8px; border: 1px solid var(--m-line); background: linear-gradient(90deg, #cdd9e8, #efe3cf 55%, #b98a58); overflow: hidden; }
+.frame { position: absolute; border: 2px solid; border-radius: 4px; font-size: 11px; padding: 0 4px; background: rgba(255,255,255,.55); }
+.f1 { left: 22%; top: 16%; width: 40%; height: 55%; border-color: #0f766e; }
+.f2 { left: 2%; top: 8%; width: 18%; height: 82%; border-color: #b45309; }
+.f3 { right: 2%; top: 8%; width: 18%; height: 82%; border-color: #7c3aed; }
+.f4 { left: 24%; bottom: 3%; width: 20%; height: 22%; border-color: #be123c; opacity: .55; }
+.f5 { right: 24%; bottom: 3%; width: 20%; height: 22%; border-color: #1d4ed8; opacity: .55; }
+.list div { display: grid; grid-template-columns: 16px 1fr 70px 70px; gap: 6px; align-items: center; padding: 2px 0; }
+.list i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.list span.in { border: 1px solid var(--m-line); border-radius: 4px; padding: 0 4px; background: var(--m-panel); color: var(--m-mut); }
+.ws { display: grid; grid-template-columns: 60px 1fr 60px; min-height: 260px; background: #e8e3d8; }
+.ws > div { margin: 4px; border-radius: 6px; background: #d9d2c2; display: flex; align-items: center; justify-content: center; color: var(--m-mut); }
+.ws .fw { grid-column: 2; background: var(--m-panel); border: 1px solid var(--m-line); box-shadow: 0 10px 30px rgba(0,0,0,.2); display: block; padding: 8px; }
 </style>
 </head>
 <body>
 <main>
 <div class="lead">
-<h1>主题编辑器：范围与结构</h1>
-<p>目标：做一个相对完整的编辑器，绝大部分声明式主题都能用它做出来。这一轮不看外观，只定四件事：用户做的主题存在哪、编辑器放在哪、配色怎么编、怎么分享。定了之后我再出界面静态稿。</p>
-<p>下面先说清楚“声明式主题”目前能写什么，也就是编辑器要覆盖的范围。</p>
+<h1>主题编辑器：界面草图</h1>
+<p>第 1 轮的结构决定已经记下：用户主题存在“我的主题”库里即时生效；编辑器是页签，也能放进浮动窗口；配色先推导再微调；取景在原图上拖框；分享导出成插件。</p>
+<p>这一轮看界面怎么组织。下面是线框草图，灰色、不代表最终外观，也不是真实组件；定了结构之后，我会在 Lab 里用真实组件搭一版再给你看。</p>
 </div>
 
 <section class="plain">
-<h2>编辑器要覆盖的范围</h2>
-<table>
-<tr><th>声明里的内容</th><th>编辑器怎么编</th><th>第一版</th></tr>
-<tr><td>标题（中英文）、主题包（NeuroBook 或 macos）</td><td>输入框、选择框</td><td class="yes">做</td></tr>
-<tr><td>亮、暗两套配色：33 个变量（背景、文字、边框、强调、状态色等）</td><td>按组展示，每项一个取色器；可从现有主题复制起步；见第 3 题的推导</td><td class="yes">做</td></tr>
-<tr><td>十个角色变量（控件面、按钮面、面板面、分隔线等）</td><td>取色器或渐变输入，折叠在“高级”里</td><td class="yes">做</td></tr>
-<tr><td>活动栏（面、前景、当前项、两端装饰）</td><td>取色器，旁边有活动栏预览</td><td class="yes">做</td></tr>
-<tr><td>浮层画框的线色</td><td>取色器</td><td class="yes">做</td></tr>
-<tr><td>字体（欢迎页标题、正文）</td><td>常用字体栈下拉加自填；浏览器无法列出本机字体，所以不做“选本机字体”</td><td class="yes">做</td></tr>
-<tr><td>场景图（亮、暗各一张）</td><td>上传，自动压缩成 webp、限制尺寸</td><td class="yes">做</td></tr>
-<tr><td>场景在各位置的取景（空状态、正文左右、侧栏下角、右栏下角）</td><td>第 2 题的取景方式</td><td class="yes">做</td></tr>
-<tr><td>对比度检查</td><td>文字、次要文字、链接、状态色逐项显示比值，低于 4.5 标红</td><td class="yes">做</td></tr>
-<tr><td>导出成插件、导入插件里的主题</td><td>见第 4 题</td><td class="yes">做</td></tr>
-<tr><td>图标集、按状态换场景、由代码提供的场景</td><td>声明里还没有这些字段，所以编辑器也做不了；等 t06 把它们加进声明，编辑器再跟上</td><td class="no">不做</td></tr>
-</table>
+<h2>草图 1：整体（页签形态）</h2>
+<div class="m">
+<div class="bar"><b>主题编辑器</b><span class="btn">我的 · 深夜书房 ▾</span><span class="btn on">暗色</span><span class="btn">亮色</span><span class="sp"></span><span class="btn">复制</span><span class="btn">导出插件…</span><span class="btn">导入…</span></div>
+<div class="body" style="grid-template-columns: 150px 1fr 250px;">
+<div class="nav"><div>基本信息</div><div class="cur">配色</div><div>字体</div><div>活动栏与画框</div><div>场景与取景</div><div>对比度检查 <span class="sw bad" style="border:0;margin:0;padding:0">2</span></div></div>
+<div class="main"><div class="derive"><b>主色</b><span class="sw"><i style="background:#241c15"></i>背景</span><span class="sw"><i style="background:#efe4d0"></i>文字</span><span class="sw"><i style="background:#e0ac62"></i>强调</span><span class="btn on">推导整套</span><span class="note">改过的项不会被覆盖</span></div>
+<h4>背景</h4><span class="sw"><i style="background:#241c15"></i>--bg-main <span class="dot">●</span></span><span class="sw"><i style="background:#241c15"></i>--bg-panel</span><span class="sw"><i style="background:#1b150f"></i>--bg-sidebar</span><span class="sw"><i style="background:#2c2319"></i>--bg-subtle</span>
+<h4>文字</h4><span class="sw"><i style="background:#efe4d0"></i>--text-main <span class="ok">9.8</span></span><span class="sw"><i style="background:#d6c7ad"></i>--text-secondary <span class="ok">7.1</span></span><span class="sw"><i style="background:#9a8a70"></i>--text-muted <span class="bad">3.9</span></span>
+<h4>强调与状态</h4><span class="sw"><i style="background:#e0ac62"></i>--accent-main</span><span class="sw"><i style="background:#5fa8d3"></i>--status-info</span><span class="sw"><i style="background:#6fb36f"></i>--status-success</span><span class="note">…共 33 项，分组折叠</span></div>
+<div class="main" style="border-left:1px solid var(--m-line);background:var(--m-sub)"><h4>预览</h4><div style="height:220px;border:1px dashed var(--m-line);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--m-mut);text-align:center">不放假界面：<br>真实的工作台就在<br>编辑页签两侧实时变化</div><div class="note" style="margin-top:6px">预览的是当前选的“暗色”；点上面的“亮色”切换。</div></div>
+</div></div>
+<p class="note">要点：顶部切亮暗；左边分区导航；颜色项旁实时显示对比度，低于 4.5 标红；右侧窄栏放当前分区的辅助预览（例如配色时的文字样例）。</p>
 </section>
 
-<section class="q" data-nbdev-question="r1-home" data-nbdev-type="single" data-nbdev-recommend="library" data-nbdev-required>
-<h2>用户做的主题存在哪里、怎么生效 <span class="badge" data-nbdev-skip>待定</span></h2>
-<p>现在的主题全部来自插件：不写代码的插件也要装、重启才生效（热插拔还没做）。编辑器每改一下就要能立刻看到，所以不能走“装插件”这条路。</p>
+<section class="plain">
+<h2>草图 2：场景与取景</h2>
+<div class="m">
+<div class="bar"><b>场景与取景</b><span class="btn">更换暗色场景图…</span><span class="sp"></span><span class="note">1536×1024 · 90 KB（已压缩）</span></div>
+<div class="body" style="grid-template-columns: 1fr 260px;">
+<div class="main"><div class="img"><div class="frame f1">① 空状态</div><div class="frame f2">② 正文左</div><div class="frame f3">③ 正文右</div><div class="frame f4">④ 侧栏下角</div><div class="frame f5">⑤ 右栏下角</div></div><p class="note">在原图上拖框、拉角缩放；当前选中的框实线，其余淡显。真实工作台里对应位置同时变化。</p></div>
+<div class="main list" style="border-left:1px solid var(--m-line);background:var(--m-sub)"><h4>五个位置</h4>
+<div><i style="background:#0f766e"></i><b>空状态</b><span class="in">X 47%</span><span class="in">居中 70%</span></div>
+<div><i style="background:#b45309"></i><b>正文左</b><span class="in">118%</span><span class="in">0% 100%</span></div>
+<div><i style="background:#7c3aed"></i><b>正文右</b><span class="in">118%</span><span class="in">100% 100%</span></div>
+<div><i style="background:#be123c"></i><b>侧栏下角</b><span class="in">1000px</span><span class="in">100% 2%</span></div>
+<div><i style="background:#1d4ed8"></i><b>右栏下角</b><span class="in">1000px</span><span class="in">0% 100%</span></div>
+<p class="note">右边的数值就是声明里的 size 和 position，拖框写回这里，直接改数值也能改框。</p></div>
+</div></div>
+</section>
+
+<section class="plain">
+<h2>草图 3：浮动窗口形态</h2>
+<div class="m"><div class="ws"><div>活动栏</div><div class="fw"><b>主题编辑器</b>（可拖动、缩放的浮动窗口，内容和页签里一样）<p class="note">窗口可以拖到一边，露出后面的真实工作台。现在只有 nb-ui 的浮动窗口（设置窗口在用）；布局包的应用内浮动做完后，改走布局包。</p></div><div>右栏</div></div></div>
+</section>
+
+<section class="q" data-nbdev-question="r2-organise" data-nbdev-type="single" data-nbdev-recommend="nav" data-nbdev-required>
+<h2>分区怎么组织 <span class="badge" data-nbdev-skip>待定</span></h2>
 <div class="opts">
-<div class="opt rec" data-nbdev-option="library"><h3>A：“我的主题”库，存在用户数据里，改完即时生效</h3>
-<p>主题声明与图片存在用户数据目录，和插件提供的主题出现在同一个“主题”列表里，标明“我的”。不需要重启。想分享时再导出成插件（见第 4 题）。声明走和插件主题同一套校验，所以不会多出一个能写 <code>url()</code> 的口子。</p></div>
-<div class="opt" data-nbdev-option="plugin"><h3>B：直接生成成第三方插件</h3>
-<p>每个主题就是装进去的一个插件。分享最直接，但每次改动要重新安装、重启才生效，预览只能靠编辑器里的假界面；而且依赖“插件安装”这个还没验收的能力。</p></div>
+<div class="opt rec" data-nbdev-option="nav"><h3>A：左边竖向分区导航，右边一次只看一个分区（草图 1）</h3><p>基本信息、配色、字体、活动栏与画框、场景与取景、对比度检查。每个分区内容少、清楚；浮动窗口窄时导航可收成顶部标签。</p></div>
+<div class="opt" data-nbdev-option="scroll"><h3>B：一页长滚动，各分区可折叠</h3><p>所有项在一页里，滚着看。分区之间不用来回点，但配色一页就很长，场景取景又需要很大的图，放在一起会互相挤。</p></div>
 </div>
-<p class="rec-note"><b>推荐：A。</b>实时预览是编辑器的核心，B 做不到；A 加上导出就覆盖了分享。</p>
+<p class="rec-note"><b>推荐：A。</b>场景取景要占大画面，和 33 个取色块不适合同屏。</p>
 </section>
 
-<section class="q" data-nbdev-question="r2-entry" data-nbdev-type="single" data-nbdev-recommend="tab" data-nbdev-required>
-<h2>编辑器放在哪里 <span class="badge" data-nbdev-skip>待定</span></h2>
+<section class="q" data-nbdev-question="r2-lightdark" data-nbdev-type="single" data-nbdev-recommend="switch" data-nbdev-required>
+<h2>亮色和暗色怎么编 <span class="badge" data-nbdev-skip>待定</span></h2>
 <div class="opts">
-<div class="opt rec" data-nbdev-option="tab"><h3>A：编辑区里的一个页签（和欢迎页一样的页面）</h3>
-<p>在设置的“主题”项旁点“编辑…”，或用命令打开。编辑面板在中间，两侧的真实工作台（活动栏、侧栏、右栏、菜单）随改动实时变化，所以活动栏、侧栏下角、画框都是真实预览，不是画出来的。</p>
-<div class="wire w-a"><div>活动栏<br>（实时）</div><div class="hi">编辑面板<br>配色 / 字体 / 场景…</div><div class="hi">预览区<br>取景框、对比度</div><div>右栏<br>（实时）</div></div></div>
-<div class="opt" data-nbdev-option="settings"><h3>B：设置窗口里的一页</h3>
-<p>和其它设置在一起，入口最自然。但设置窗口是个浮层，会盖住大半个工作台，要看真实效果得关掉窗口，和“边改边看”冲突。</p>
-<div class="wire w-b"><div>活动栏</div><div class="win">设置窗口盖在上面：编辑项…… 预览被挡住</div><div>右栏</div></div></div>
-<div class="opt" data-nbdev-option="page"><h3>C：独立的全屏页面（像书架页）</h3>
-<p>空间最大，但离开了工作台，预览只能是自己画的一个假界面，改完回来才知道真实效果。</p>
-<div class="wire w-c"><div class="hi">编辑项</div><div>假界面预览</div></div></div>
+<div class="opt rec" data-nbdev-option="switch"><h3>A：顶部一个亮/暗切换，编辑区与真实工作台都跟着切（草图 1）</h3><p>一次只编一套，界面简单；真实预览也跟着切，所见即所得。提供“从亮色派生暗色（或反过来）”。</p></div>
+<div class="opt" data-nbdev-option="side"><h3>B：亮暗并排两列，同时编</h3><p>方便对照同一个变量，但每个分区都翻倍变宽，窗口窄时放不下，真实预览也只能显示其中一套。</p></div>
 </div>
-<p class="rec-note"><b>推荐：A。</b>它是三种里唯一能让活动栏、侧栏下角、画框等“真实位置”边改边看的。代价：编辑页本身也在被预览的主题里，编辑面板的配色会跟着变，这点要在可读性上特别处理（编辑面板始终用实心面）。</p>
+<p class="rec-note"><b>推荐：A。</b>真实预览一次只能是一套，两列编辑反而对不上。</p>
 </section>
 
-<section class="q" data-nbdev-question="r3-palette" data-nbdev-type="single" data-nbdev-recommend="derive" data-nbdev-required>
-<h2>配色怎么编 <span class="badge" data-nbdev-skip>待定</span></h2>
-<p>一套主题的亮暗各有 33 个配色变量，逐项手调对大多数人太多了。</p>
+<section class="q" data-nbdev-question="r2-contrast" data-nbdev-type="single" data-nbdev-recommend="inline" data-nbdev-required>
+<h2>对比度检查放哪 <span class="badge" data-nbdev-skip>待定</span></h2>
 <div class="opts">
-<div class="opt rec" data-nbdev-option="derive"><h3>A：先选几个主色，一键推导整套，再逐项微调</h3>
-<p>选“背景色、文字色、强调色”三个，推导出另外 30 个（面板、悬停、边框、状态色的底色与边框……），推导出的值可以逐项改；改过的项重新推导时保持不变。亮暗两套各推导一次，也可以“从亮色派生暗色”。</p></div>
-<div class="opt" data-nbdev-option="manual"><h3>B：只做逐项手调</h3>
-<p>33 项分组列出，每项一个取色器，可以从现有主题复制起步。实现最简单，但从零做一套要点 66 次。</p></div>
+<div class="opt rec" data-nbdev-option="inline"><h3>A：每个颜色项旁实时显示比值，低于 4.5 标红；另有一个汇总分区（草图 1）</h3><p>改的时候立刻知道。汇总分区列出全部不合格项和对应的另一端（文字对什么背景）。导出时若有不合格项，提示但不阻止。</p></div>
+<div class="opt" data-nbdev-option="summary"><h3>B：只有汇总分区</h3><p>界面更干净，但改完一个颜色要切过去才知道。</p></div>
 </div>
-<p class="rec-note"><b>推荐：A。</b>“绝大部分主题都能做出来”靠的是普通人也能在几分钟里做出一套能看的，而不是把 66 个取色器摆出来。推导规则要自己写，且要保证推导结果的文字对比度不低于 4.5；这是 A 比 B 多出的主要工作量。</p>
+<p class="rec-note"><b>推荐：A。</b>“不阻止”是因为第三方主题的对比度本来就由作者负责（Spec 已写），编辑器只提醒。</p>
 </section>
 
-<section class="q" data-nbdev-question="r4-crop" data-nbdev-type="single" data-nbdev-recommend="drag" data-nbdev-required>
-<h2>场景图在各位置的取景怎么编 <span class="badge" data-nbdev-skip>待定</span></h2>
-<p>一张图要裁给五个位置：空状态、正文左侧、正文右侧、侧栏下角、右栏下角。每个位置要定“放大多少、对准图的哪里”。</p>
+<section class="q" data-nbdev-question="r2-crop" data-nbdev-type="single" data-nbdev-recommend="one" data-nbdev-required>
+<h2>五个取景框怎么摆（草图 2） <span class="badge" data-nbdev-skip>待定</span></h2>
 <div class="opts">
-<div class="opt rec" data-nbdev-option="drag"><h3>A：在原图上拖出取景框，所见即所得</h3>
-<p>原图显示在预览区，每个位置一个可拖、可缩放的取景框；同时真实工作台里对应位置实时变化。最直观，也是做出一套好看皮肤的关键。</p></div>
-<div class="opt" data-nbdev-option="numeric"><h3>B：只填数值（大小、位置）</h3>
-<p>和声明里的写法一一对应，实现简单；但要靠反复试数字，等于没有编辑器的效果。</p></div>
+<div class="opt rec" data-nbdev-option="one"><h3>A：五个框叠在同一张原图上，选中的实线，其余淡显；右边列表选框、改数值</h3><p>一眼看出各位置取了图的哪里、有没有取重叠。框重叠时靠右边列表切换选中。</p></div>
+<div class="opt" data-nbdev-option="tiles"><h3>B：五张小图各自一个取景，一次编一个</h3><p>每个位置一块和真实形状一致的小窗口，在里面拖图。不会重叠，但看不到各位置之间的关系。</p></div>
 </div>
-<p class="rec-note"><b>推荐：A。</b>数值输入框也保留，取景框的结果写回数值，两者始终一致。</p>
+<p class="rec-note"><b>推荐：A。</b>做皮肤时最常见的毛病是左右两侧取到同一块，叠在一张图上马上看得出来。</p>
 </section>
 
-<section class="q" data-nbdev-question="r5-share" data-nbdev-type="single" data-nbdev-recommend="zip" data-nbdev-required>
-<h2>分享与导入 <span class="badge" data-nbdev-skip>待定</span></h2>
-<div class="opts">
-<div class="opt rec" data-nbdev-option="zip"><h3>A：导出成可安装的主题插件（zip），也能把插件里的主题导入编辑</h3>
-<p>导出的就是现在“不写代码的主题插件”的目录（清单加声明加图片），别人用“插件”页的“安装…”装上。导入时选一个插件里的主题，复制成自己的“我的主题”再改（原插件不动）。</p></div>
-<div class="opt" data-nbdev-option="json"><h3>B：只导出一个 JSON 声明文件</h3>
-<p>文件小、好看好改，但图片要另外带，别人装不上，只能再导入到同样有编辑器的 NeuroBook 里。</p></div>
-</div>
-<p class="rec-note"><b>推荐：A。</b>它让编辑器做出来的主题和仓库里的示例（<code>theme-dusk</code>）是同一种东西，没有第二种格式要维护。注意：“插件”页的安装仍要重启才生效，这是插件平台的限制，不是编辑器的。</p>
-</section>
-
-<section class="q" data-nbdev-question="r-notes" data-nbdev-type="text" data-nbdev-label="还有什么想说的">
+<section class="q" data-nbdev-question="r2-notes" data-nbdev-type="text" data-nbdev-label="还有什么想说的">
 <h2>还有什么想说的</h2>
-<p>比如想从哪套主题起步、必须有的功能、不想要的功能。</p>
 </section>
 </main>
 </body>
