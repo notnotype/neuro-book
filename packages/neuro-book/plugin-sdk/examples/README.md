@@ -123,7 +123,7 @@ examples/
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明这里为什么仍启动即激活、按需激活怎样写 |
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list；界面文字的消息目录、约定键与组件里的 `usePluginText`，失败提示存码、显示时按语言拼 |
 | [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`view` 助手的 `implement` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个请求各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
-| [scene-clock](plugins/scene-clock/) | browser | 一个主题（顶层声明，描述里的 `workbench.themes`）加浏览器入口里的场景提供者（`sceneProvider` 助手）：场景图由代码在画布上画，天空的颜色随钟点变，`expiresAt` 取下一个整点；入口写 `onStartup`，工作台不替提供者激活入口 |
+| [scene-clock](plugins/scene-clock/) | browser | 一个主题（顶层声明，描述里的 `workbench.themes`）加浏览器入口里的场景提供者（`sceneProvider` 助手）：场景图由代码在画布上画，天空的颜色随钟点变，`expiresAt` 取下一个整点；入口写 `onStartup`，工作台不替提供者激活入口；提供者声明带 `title`，主题编辑器的下拉显示它 |
 
 ## 主题的三份参考
 
@@ -162,7 +162,7 @@ examples/
 | [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新 | [services](../../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
 | [06-settings-page](scenarios/06-settings-page.test.ts) | snippets | 配置项在服务端、项目实例与窗口都被接受；page 分区交付给设置窗口、插件停用后撤回；按层写用户层与本作品层，`inspect` 读回各层、`get` 读有效值，删掉本作品层回到沿用，不带 `layer` 时按 `auto` 选层；写别人的项为 `denied`、不合 schema 为 `invalid-value` | [settings-window](../../../../docs/specs/settings/settings-window.md)、[configuration](../../../../docs/specs/settings/configuration.md) 输出第 3、6、11、12 条 |
 | [07-focus](scenarios/07-focus.test.ts) | focus | 命令开始、时长取设置项、到点结算后状态栏更新；`already-running`、`not-running`；没有窗口时服务端到点推送；服务端入口停止时计时器跟着取消，停着时到点的那次之后第一次读时记上；记录版本不同时换成空记录；两个窗口同时开始只开始一次、同时结算只记一次；跨零点算在结束那天；断线重连后补上断开期间的变化；入口停止、空闲后不占计时器 | [plugin-api](../../../../docs/specs/runtime/plugin-api.md)、[persistence](../../../../docs/specs/storage/persistence.md)、[plugin-channel](../../../../docs/specs/runtime/plugin-channel.md)、[workbench-shell](../../../../docs/specs/ui/workbench-shell.md) |
-| [08-scene-provider](scenarios/08-scene-provider.test.ts) | scene-clock | 主题被接受且 `sceneProvider` 指向入口贡献的提供者；入口启动即激活、实现交到工作台，入口停止后撤回；天空颜色随钟点、明暗与工作中变，`expiresAt` 取下一个整点 | [theme.skins](../../../../docs/specs/theme/skins.md) 输出 18、[plugins](../../../../docs/specs/runtime/plugins.md) |
+| [08-scene-provider](scenarios/08-scene-provider.test.ts) | scene-clock | 主题被接受且 `sceneProvider` 指向入口贡献的提供者（声明带显示名）；入口启动即激活、实现交到工作台，入口停止后撤回；天空颜色随钟点、明暗与工作中变，`expiresAt` 取下一个整点 | [theme.skins](../../../../docs/specs/theme/skins.md) 输出 18、[plugins](../../../../docs/specs/runtime/plugins.md) |
 
 ## 场地与探针
 

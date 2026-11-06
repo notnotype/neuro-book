@@ -232,10 +232,11 @@ test("编辑器里选场景提供者（theme.editor 输出 20）：下拉列出�
         await page.locator("[data-new-empty]").click();
         await page.locator("[data-section-tab=scene]").click();
 
-        // 已发布的提供者在下拉里：显示它声明的标题，右侧是贡献 id（选项名两者都含）；选中后预览的场景是它画的 blob 图。
+        // 已发布的提供者在下拉里：选项名是它声明的标题，右侧的次要文字是贡献 id；选中后预览的场景是它画的 blob 图。
         await provider.click();
-        const option = page.getByRole("option", {name: /天空时钟.*example\.scene-clock\.sky-painter/u});
+        const option = page.getByRole("option", {name: "天空时钟", exact: true});
         await expect(option).toBeVisible();
+        await expect(option).toContainText("example.scene-clock.sky-painter");
         await option.click();
         await expect(provider).toContainText("天空时钟");
         await expect.poll(sceneVar).toMatch(/^url\("blob:/u);
