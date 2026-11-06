@@ -25,6 +25,14 @@ const ORIGIN = {kind: "fixed", by: "kernel"} as const;
 
 const usageOf = (response: ModelResponse): CheckUsage => ({input: response.usage.input, output: response.usage.output, cacheRead: response.usage.cacheRead, cacheWrite: response.usage.cacheWrite, cost: response.usage.cost});
 
+const failedOutcome = (response: ModelResponse, usage: CheckUsage): AskOutcome => ({
+    outcome: "failed",
+    kind: response.error?.kind ?? "provider",
+    retryable: response.error?.retryable === true,
+    ...(response.error?.retryAfterMs === undefined ? {} : {retryAfterMs: response.error.retryAfterMs}),
+    usage,
+});
+
 const toolOf = (answer: AnswerKind): ToolDeclaration => ({
     id: TOOL_ID,
     description: "交回结构化的答案。",
@@ -54,7 +62,7 @@ export function plotModelImplementation(port: ModelPort | null, consumer: Pick<C
             ask: async (input: {role: CheckRole; system: string; user: string; answer: AnswerKind; maxTokens: number}, context: {signal: AbortSignal}) => {
                 if (consumer.plugin !== descriptor.id) return fail("wrong-caller");
                 const resolution = resolve(input.role);
-                if (!resolution.ok) return {ok: true as const, value: {outcome: "failed", kind: resolution.code, usage: ZERO_USAGE} satisfies AskOutcome};
+                if (!resolution.ok) return {ok: true as const, value: {outcome: "failed", kind: resolution.code, retryable: false, usage: ZERO_USAGE} satisfies AskOutcome};
                 const tool = toolOf(input.answer);
                 const limit = resolution.info.maxOutput ?? Number.POSITIVE_INFINITY;
                 const request: ModelRequest = {
@@ -71,7 +79,7 @@ export function plotModelImplementation(port: ModelPort | null, consumer: Pick<C
                 const usage = usageOf(response);
                 const outcome: AskOutcome =
                     response.stopReason === "aborted" ? {outcome: "aborted", usage}
-                    : response.stopReason === "error" ? {outcome: "failed", kind: response.error?.kind ?? "provider", usage}
+                    : response.stopReason === "error" ? failedOutcome(response, usage)
                     : response.stopReason === "length" ? {outcome: "length", capped: input.maxTokens >= limit, usage}
                     // 模型没调工具时答案是 null：项目入口按结构不对处理（重试一次）。
                     : {outcome: "answer", answer: response.toolCalls.find((call) => call.tool === TOOL_ID)?.args ?? null, usage};

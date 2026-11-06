@@ -15,7 +15,8 @@ const AskOutcome = Type.Union([
     /** 撞上输出上限。`capped`：这次已经是模型的上限，加大也没用。 */
     Type.Object({outcome: Type.Literal("length"), capped: Type.Boolean(), usage: Usage}),
     Type.Object({outcome: Type.Literal("aborted"), usage: Usage}),
-    Type.Object({outcome: Type.Literal("failed"), kind: Type.String(), usage: Usage}),
+    /** `retryable` 与 `retryAfterMs` 照抄模型端口的判断（docs/specs/harness/runtime.md 输出 62），项目入口不按类别猜。 */
+    Type.Object({outcome: Type.Literal("failed"), kind: Type.String(), retryable: Type.Boolean(), retryAfterMs: Type.Optional(Type.Number()), usage: Usage}),
 ]);
 export type AskOutcome = Static<typeof AskOutcome>;
 
