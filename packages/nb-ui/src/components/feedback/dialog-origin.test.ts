@@ -1,0 +1,71 @@
+/**
+ * 触发点的取法与入场位移的算法（dialog-origin.ts）。位移表驱动；取点用真的 document 与 PointerEvent。
+ */
+import {afterEach, describe, expect, it} from "vitest";
+
+import {
+    ORIGIN_OFFSET_LIMIT,
+    ORIGIN_POINTER_WINDOW_MS,
+    captureDialogOrigin,
+    dialogOriginOffset,
+    resetDialogOriginForTest,
+    trackDialogOrigin,
+} from "./dialog-origin";
+
+afterEach(() => {
+    resetDialogOriginForTest();
+    document.body.innerHTML = "";
+});
+
+describe("dialogOriginOffset", () => {
+    // 面 400x200，左上角 (300, 200)，中心 (500, 300)
+    const panel = {left: 300, top: 200, width: 400, height: 200};
+
+    it.each([
+        {name: "没有触发点时不偏", origin: null, expected: {x: 0, y: 0}},
+        {name: "触发点就在中心时不偏", origin: {x: 500, y: 300}, expected: {x: 0, y: 0}},
+        {name: "朝触发点偏一成多的距离（左上）", origin: {x: 400, y: 250}, expected: {x: -18, y: -9}},
+        {name: "朝触发点偏一成多的距离（右下）", origin: {x: 600, y: 350}, expected: {x: 18, y: 9}},
+        {name: "触发点很远时每个轴钳到上限", origin: {x: -5000, y: 5000}, expected: {x: -ORIGIN_OFFSET_LIMIT, y: ORIGIN_OFFSET_LIMIT}},
+        {name: "只有一个轴超限时另一个轴照常", origin: {x: 500, y: -2000}, expected: {x: 0, y: -ORIGIN_OFFSET_LIMIT}},
+    ])("$name", ({origin, expected}) => {
+        expect(dialogOriginOffset(panel, origin)).toEqual(expected);
+    });
+});
+
+describe("captureDialogOrigin", () => {
+    function press(x: number, y: number): void {
+        document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: x, clientY: y}));
+    }
+
+    it("没有按下也没有焦点按钮时没有来处", () => {
+        trackDialogOrigin();
+        expect(captureDialogOrigin()).toBeNull();
+    });
+
+    it("时限内的按下用按下的坐标，过了时限就不算", () => {
+        trackDialogOrigin();
+        press(120, 340);
+        expect(captureDialogOrigin(performance.now() + ORIGIN_POINTER_WINDOW_MS / 2)).toEqual({x: 120, y: 340});
+        expect(captureDialogOrigin(performance.now() + ORIGIN_POINTER_WINDOW_MS + 1000)).toBeNull();
+    });
+
+    it("内容里 stopPropagation 也挡不住按下的记录", () => {
+        trackDialogOrigin();
+        const inner = document.body.appendChild(document.createElement("div"));
+        inner.addEventListener("pointerdown", (event) => event.stopPropagation());
+        inner.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 7, clientY: 8}));
+        expect(captureDialogOrigin()).toEqual({x: 7, y: 8});
+    });
+
+    it("没有按下时用焦点所在按钮的中心；焦点在输入框里不算来处", () => {
+        const button = document.body.appendChild(document.createElement("button"));
+        button.getBoundingClientRect = () => ({left: 10, top: 20, width: 40, height: 30}) as DOMRect;
+        button.focus();
+        expect(captureDialogOrigin()).toEqual({x: 30, y: 35});
+
+        const input = document.body.appendChild(document.createElement("input"));
+        input.focus();
+        expect(captureDialogOrigin()).toBeNull();
+    });
+});
