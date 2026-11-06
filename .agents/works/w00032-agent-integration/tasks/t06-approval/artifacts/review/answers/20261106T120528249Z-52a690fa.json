@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t06-approval",
+    "artifactId": "review",
+    "answerId": "20261106T120528249Z-52a690fa",
+    "artifactVersion": 1,
+    "contentHash": "9bd31740a79bdc8dbc1e297377bbe5d827553d123096cc7120b1f502f8818351",
+    "submittedAt": "2026-11-06T12:05:28.249Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "mode-control": "two-controls"
+    },
+    "comments": {},
+    "note": null
+}
