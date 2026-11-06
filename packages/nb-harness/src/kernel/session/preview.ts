@@ -17,6 +17,7 @@ import {chainLayers, runChain, type ChainFailure} from "../run/chain.js";
 import {takeInputDrafts, takeSteerDrafts} from "../run/loop.js";
 import {freezeRequest, isResponse} from "../run/model-call.js";
 import {toolInfo, type ToolBox} from "../run/tools.js";
+import {limitImages} from "../dispatch/attachments.js";
 import {computeRequest} from "../view/request.js";
 
 /** 这一版不支持的预览（过去的请求），或这一刻算不出请求（没有模型、Profile 出错）。 */
@@ -91,7 +92,7 @@ function changesBetween(before: ModelRequest, after: ModelRequest, extension: st
 
 /** 一块内容大约多少 token：文字与思考按文字，图片按固定口径，与压缩估算事件数据的口径一致。 */
 function blockTokens(block: RequestBlock): number {
-    return block.kind === "image" ? estimateImageTokens(block) : estimateTokens(block.text);
+    return block.kind === "image" || block.kind === "imageRef" ? estimateImageTokens(block) : estimateTokens(block.text);
 }
 /** 一条消息里内容块之外的部分（工具调用及其参数、回应的调用 id）。 */
 const messageExtraTokens = (message: Message): number => (message.toolCalls === undefined || message.toolCalls.length === 0 ? 0 : estimateTokens(JSON.stringify(message.toolCalls))) + (message.callId === undefined ? 0 : estimateTokens(message.callId));
@@ -137,7 +138,8 @@ export async function previewRequest(host: PreviewHost, args: PreviewArgs = {}):
             if (received !== passed) changes.push(...changesBetween(received, passed, item.definition.id));
         },
         terminal: async (final) => {
-            captured = final;
+            // 同真实请求的张数上限。不读字节：预览只算大小，交回的请求带图就放不进一条消息了。
+            captured = limitImages(final);
             return synthetic;
         },
         onFailure: () => ({kind: "skip"}),

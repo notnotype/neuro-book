@@ -44,7 +44,12 @@ export interface Usage {
 export type ContentBlock =
     | {readonly kind: "text"; readonly text: string; readonly provider?: JsonValue}
     | {readonly kind: "thinking"; readonly text: string; readonly signature?: string; readonly redacted?: boolean; readonly provider?: JsonValue}
-    | {readonly kind: "image"; readonly data: string; readonly mime: string; readonly width?: number; readonly height?: number};
+    | {readonly kind: "image"; readonly data: string; readonly mime: string; readonly width?: number; readonly height?: number}
+    /**
+     * 用户附件的引用（runtime.md 输出 82）：请求里只带地址，发给模型之前才读字节，提交缓存与拦截层都不碰图片的内容。
+     * 适配器收不到它。
+     */
+    | {readonly kind: "imageRef"; readonly uri: string; readonly mime?: string; readonly width?: number; readonly height?: number};
 
 /** 请求里一块内容的来源：预览、修改记录、诊断与测试都按它定位，不解析字符串。 */
 export type Origin =

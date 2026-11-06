@@ -5,7 +5,7 @@
  * 这一版有：`say`、请求的 `outline`、事件与状态、重开、假工具与审批策略。手动模式、严格模式随后续切片加入。
  */
 
-import type {AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelInfo, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
+import type {AttachmentPort, AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelInfo, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
 import {defineProfile} from "../extension/profile.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
 import {createMemoryStore} from "../log/memory-store.js";
@@ -36,6 +36,8 @@ export interface TestSessionOptions {
     /** 要测的扩展；直接给扩展时所属插件为 null，要测插件 id 前缀时给 `{extension, plugin}`。 */
     readonly extensions?: readonly (AnyExtension | ContributedExtension)[];
     readonly initial?: JsonValue;
+    /** 读用户附件的端口（runtime.md 输出 82）。 */
+    readonly attachments?: AttachmentPort;
     /** 缺省内存存储；给 `{root}` 用会话目录上的 JSONL。 */
     readonly store?: {readonly root: string};
     readonly startAt?: number;
@@ -147,6 +149,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         // 内核没有缺省顺序（宿主给）：测试里的方法就叫这几个名字。
         ...(options.compaction === undefined ? {} : {compaction: {order: {onThreshold: ["shake", "inplace"], onOverflow: ["shake", "summary"]}, ...options.compaction}}),
         ...(options.outbound === undefined ? {} : {outbound: options.outbound}),
+        ...(options.attachments === undefined ? {} : {attachments: options.attachments}),
         ...(options.retry === undefined ? {} : {retry: options.retry}),
     };
     sessionCounter += 1;

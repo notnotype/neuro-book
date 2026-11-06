@@ -422,6 +422,64 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await expect(input(page)).not.toContainText("/new");
 });
 
+/** 1×1 的 PNG。 */
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+
+test("附件：选图片上传，消息里显示；模型不能看图时请求里换成一行字；读取路由给图，带脚本的 SVG 进沙箱、超限被拒", async ({page}, testInfo) => {
+    await script("收到图了");
+    await openConversation(page);
+    await newSession(page);
+    await page.locator("[data-composer-action='attach']").waitFor();
+    await page.locator(".acv-composer__file-input").setInputFiles({name: "封面.png", mimeType: "image/png", buffer: PNG});
+    await expect(page.getByRole("list", {name: "附件"}).getByRole("listitem")).toHaveCount(1);
+    await input(page).click();
+    await page.keyboard.type("看这张");
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("收到图了")).toBeVisible();
+    await page.screenshot({path: testInfo.outputPath("attachment.png")});
+
+    const sent = JSON.stringify((await requests()).at(-1)!.messages);
+    // 本机端点的模型不支持图片：换成一行字，不报错；标签本身不进请求。
+    expect(sent).toContain("当前模型不能看图");
+    expect(sent).not.toContain("![image");
+
+    const session = await page.evaluate(async () => {
+        const names = performance.getEntriesByType("resource").map((entry) => entry.name).filter((name) => name.includes("/attachments"));
+        return names.at(-1) ?? "";
+    });
+    expect(session).toContain("/api/nbook.agent/sessions/");
+    const base = session.slice(0, session.indexOf("/attachments") + "/attachments".length);
+
+    const image = await page.request.get(session);
+    expect(image.status()).toBe(200);
+    expect(image.headers()["content-type"]).toBe("image/png");
+    expect(image.headers()["content-security-policy"]).toBe("sandbox");
+    expect(image.headers()["x-content-type-options"]).toBe("nosniff");
+
+    const svg = await page.request.post(base, {headers: {"Content-Type": "image/svg+xml", "X-Attachment-Name": encodeURIComponent("脚本.svg")}, data: "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"});
+    expect(svg.status()).toBe(200);
+    const uploaded = await svg.json() as {kind: string; uri: string; name: string};
+    // 文件头不是图片：按普通文件存，读的时候只能下载。
+    expect(uploaded).toMatchObject({kind: "file", name: "脚本.svg"});
+    const read = await page.request.get(`${base}/${uploaded.uri.slice(uploaded.uri.lastIndexOf("/") + 1)}`);
+    expect(read.headers()["content-type"]).toBe("application/octet-stream");
+    expect(read.headers()["content-disposition"]).toContain("attachment");
+    expect(read.headers()["content-security-policy"]).toBe("sandbox");
+
+    // 分块上传没有 Content-Length：边读边数，超了就拒。
+    const stream = new ReadableStream({
+        start(controller) {
+            for (let index = 0; index < 26; index += 1) controller.enqueue(new Uint8Array(1024 * 1024));
+            controller.close();
+        },
+    });
+    // 服务端读到超限就回 413 并断开：对方还在发的时候，客户端可能先看到连接断了。两种都算拒了。
+    const tooLarge = await fetch(new URL(base, server.url), {method: "POST", body: stream, duplex: "half"} as RequestInit).then((response) => response.status, () => 413);
+    expect(tooLarge).toBe(413);
+    expect((await page.request.post(base.replace("/sessions/", "/sessions/no-such-"), {data: "x"})).status()).toBe(404);
+    expect((await page.request.get(`${base}/..%2F..%2Fsession.jsonl`)).status()).toBeGreaterThanOrEqual(400);
+});
+
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
     await script("答一", "摘要正文");
     await openConversation(page);

@@ -5,6 +5,7 @@
  * 写日志都经 `write`（排进单写者队列）。链本身不和中止赛跑；调用方拿 `signal` 赛跑决定还等不等。
  */
 
+import {limitImages} from "../dispatch/attachments.js";
 import {createHash} from "node:crypto";
 import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
@@ -102,14 +103,16 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             const fields = Object.keys({...received, ...passed}).filter((key) => (received as unknown as Record<string, unknown>)[key] !== (passed as unknown as Record<string, unknown>)[key]);
             if (fields.length > 0) modifiedBy.push({extension: item.definition.id, fields});
         },
-        terminal: async (final) => {
+        terminal: async (received) => {
+            // 放在链的最里面：拦截层加的图也算进上限，`modelCaller` 的请求也走这里。哈希按引用算，图的字节不进哈希。
+            const final = limitImages(received);
             const number = core.reserveRequest();
             await host.write([ctrl("modelStarted", {request: number, purpose: final.purpose, model: final.model, hash: requestHash(final), now: core.clock.now(), invocation: core.newId(), modifiedBy: modifiedBy.map((item) => ({...item}))})]);
             lastRequest = number;
             // 只有对话请求让运行进入 streaming：压缩与审批模型的请求流式时，运行状态仍是 compacting、tools。
             if (final.purpose === "turn") host.streaming?.(number);
             let deltaNumber = 0;
-            const response = await resolution.call(final, signal, (delta) => {
+            const response = await resolution.call(await core.attachments.resolve(final, signal), signal, (delta) => {
                 deltaNumber += 1;
                 core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId}), ...(delta.tool === undefined ? {} : {tool: delta.tool})});
             });

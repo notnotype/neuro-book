@@ -30,6 +30,11 @@ export interface HistoryState {
     readonly summary: {readonly compactionId: string; readonly text: string} | null;
     /** 压缩省略的条目：事件 id → 给模型看的占位（消息还在，文字换掉）。 */
     readonly omitted: ReadonlyMap<string, string>;
+    /**
+     * 最近一次摘要的 seq：它之前写下的用户消息，图片不再随请求发（runtime.md 输出 83）。要不然当前这一轮的图撑爆窗口时，摘要写好了，
+     * 重发还是原来那些图。在路径状态里，回退到压缩前恢复原样。
+     */
+    readonly imagesBefore: number;
     /** 每一轮的 `turnStarted` 事件 id 与轮 id（新的在前）：压缩的切点按它找到轮。 */
     readonly starts: List<{readonly eventId: string; readonly turnId: string}>;
     /** 进行中的轮。 */
@@ -40,7 +45,7 @@ export interface HistoryState {
     readonly runs: number;
 }
 
-export const initialHistory: HistoryState = {committed: null, summary: null, omitted: new Map(), starts: null, current: null, waiting: [], turns: 0, runs: 0};
+export const initialHistory: HistoryState = {committed: null, summary: null, omitted: new Map(), imagesBefore: 0, starts: null, current: null, waiting: [], turns: 0, runs: 0};
 
 function withLastStep(turn: ConversationTurn, update: (step: Step) => Step): ConversationTurn {
     const last = turn.steps.at(-1);
@@ -117,8 +122,10 @@ function compacted(state: HistoryState, event: LogEvent): HistoryState {
         }
     }
     let committed: List<ConversationTurn> = null;
-    for (const turn of kept) committed = cons(touches(turn, omitted) && omitted !== state.omitted ? {...turn} : turn, committed);
-    return {...state, committed, current, omitted, summary: data.replacement === null ? state.summary : {compactionId: event.id, text: data.replacement}};
+    const summarized = data.replacement !== null;
+    // 提交缓存按轮对象记：要重新渲染的换一个新对象。
+    for (const turn of kept) committed = cons(summarized || (touches(turn, omitted) && omitted !== state.omitted) ? {...turn} : turn, committed);
+    return {...state, committed, current, omitted, imagesBefore: summarized ? event.seq : state.imagesBefore, summary: data.replacement === null ? state.summary : {compactionId: event.id, text: data.replacement}};
 }
 
 export function committedTurns(state: HistoryState): readonly ConversationTurn[] {

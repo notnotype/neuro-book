@@ -20,7 +20,7 @@ function messageText(message: Message): string {
     const parts = message.content.filter(isConversation).flatMap((block) => {
         if (block.kind === "text") return [block.text];
         // 思考不进摘要；图片的 base64 不当文字，只留尺寸。
-        if (block.kind === "image") return [`[图片${block.width === undefined || block.height === undefined ? "" : ` ${String(block.width)}×${String(block.height)}`}]`];
+        if (block.kind === "imageRef" || block.kind === "image") return [`[图片${block.width === undefined || block.height === undefined ? "" : ` ${String(block.width)}×${String(block.height)}`}]`];
         return [];
     });
     for (const call of message.toolCalls ?? []) parts.push(`[调用 ${call.tool}] ${JSON.stringify(call.args)}`);

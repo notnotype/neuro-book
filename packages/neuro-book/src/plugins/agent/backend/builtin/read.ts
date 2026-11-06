@@ -17,7 +17,8 @@ import type {SessionResources} from "../../shared/resources";
 
 import {failed, failure, globalAddress, joinAddress} from "./common";
 import type {SessionEditStores} from "./common";
-import {prepareImage} from "./image";
+import {imageFormat, prepareImage} from "./image";
+import type {ImageFormat} from "./image";
 
 const MAX_LINES = 2_000;
 const MAX_BYTES = 50 * 1024;
@@ -46,17 +47,6 @@ export const readDeclaration: AgentToolDeclaration = {
     concurrency: "shared",
     effect: "read",
 };
-
-type ImageFormat = "png" | "jpeg" | "gif" | "webp";
-
-function imageFormat(head: Uint8Array): ImageFormat | null {
-    const starts = (...bytes: number[]) => bytes.every((byte, index) => head[index] === byte);
-    if (starts(0x89, 0x50, 0x4e, 0x47)) return "png";
-    if (starts(0xff, 0xd8, 0xff)) return "jpeg";
-    if (starts(0x47, 0x49, 0x46, 0x38)) return "gif";
-    if (starts(0x52, 0x49, 0x46, 0x46) && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50) return "webp";
-    return null;
-}
 
 async function readImage(path: string, address: string, format: ImageFormat, size: number): Promise<ToolResult> {
     if (size > IMAGE_LIMIT) return failed("too-large", `too-large: ${address} 有 ${String(size)} 字节，图片至多 ${String(IMAGE_LIMIT)} 字节`);

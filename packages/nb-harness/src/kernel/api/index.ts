@@ -1,6 +1,6 @@
 /** 内核的全部公开类型与码表；运行时的部分只有常量数据与工具名的换算（请求校验与适配器共用）。 */
 
-export type {Actor, Attributed, Clock, DeepReadonly, Issuer, JsonValue, Rejection, Scope, UserInput} from "./basics.js";
+export type {Actor, Attributed, Clock, DeepReadonly, Issuer, JsonValue, Rejection, Scope, UserAttachment, UserInput} from "./basics.js";
 export {commandErrors, diagnosticCodes, hostOnlyCommands, runErrorCodes, storageErrors, toolResultCodes} from "./codes.js";
 export type {CommandErrorTable, DiagnosticCode, DiagnosticLevel, HostOnlyCommand, RunErrorCode, StorageError, ToolResultCode} from "./codes.js";
 export type {
@@ -21,7 +21,7 @@ export type {CompactionRestored, CompactionRestoreArgs} from "./host.js";
 export type {
     AgentHost, ApprovalCtx, ApprovalInfo, ApproveHook, BufferedInput, CommandErrorCode, CommandErrorDetails, CommandFailure, CommandMap, CommandName, CommandOk, CommandResult, Complete,
     CreateSession, CreateSessionOptions, DeltaFrame, Diagnostic, ExtensionDeclaration, ExtensionHandle, ExtensionInfo, ExtensionReceiver, Frame, InputMode, InteractionSummary, OpenSession,
-    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, TreeNode, BranchPoint, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
+    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, AttachmentPort, AttachmentRead, BranchPoint, TreeNode, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
     SessionSnapshot, SlotReport, ToolSessionContext,
 } from "./host.js";
 export type {

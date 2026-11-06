@@ -33,6 +33,12 @@ export type MetaTrigger = {readonly kind: "turn"} | {readonly kind: "compaction"
 const FIRST_TURN_CHARS = 2000;
 const SUMMARY_CHARS = 4000;
 const FALLBACK_TITLE_CHARS = 30;
+
+/** 标题不要附件的标签（一长串地址）。后面的先去掉，前面的范围才还准。 */
+function withoutAttachmentLabels(text: string, attachments: readonly {readonly from?: number; readonly to?: number}[]): string {
+    const ranges = attachments.flatMap(({from, to}) => (from === undefined || to === undefined ? [] : [{from, to}])).sort((a, b) => b.from - a.from);
+    return ranges.reduce((rest, {from, to}) => rest.slice(0, from) + rest.slice(to), text);
+}
 /** 解析标题会话的模型时用：它自己的设置是缺省值，不看前台会话选的模型。 */
 const TITLE_SESSION_SETTINGS: CoreSettings = {model: null, effort: null, approvalMode: "ask", readOnly: false};
 
@@ -126,7 +132,8 @@ export class SessionMeta {
     /** 当前路径上第一条用户的话与第一条有文字的回复（都是全文，给模型时才截，兜底标题要先折叠空白）；用户的话没有文字时为 null。 */
     async #material(view: SessionApi): Promise<{readonly input: string; readonly reply: string} | null> {
         const events = await this.#step(() => view.path());
-        const input = (events.find((event) => event.type === "input")?.data as {text: string} | undefined)?.text.trim() ?? "";
+        const first = events.find((event) => event.type === "input")?.data as {text: string; attachments?: readonly {from?: number; to?: number}[]} | undefined;
+        const input = withoutAttachmentLabels(first?.text ?? "", first?.attachments ?? []).trim();
         if (input === "") return null;
         const reply = events.filter((event) => event.type === "assistant").map(textOf).find((text) => text.trim() !== "") ?? "";
         return {input, reply};

@@ -136,6 +136,7 @@ export const diagnosticCodes = {
     "request-invalid": "error",
     // 拦截
     "intercept-threw": "error",
+    "attachment-unreadable": "warn",
     "tool-declaration-invalid": "error",
     "model-resolve-threw": "warn",
     "tools-missing": "error",

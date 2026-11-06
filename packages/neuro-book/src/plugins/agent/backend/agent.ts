@@ -25,6 +25,7 @@ import {agentSettings} from "../shared/settings";
 
 import {ProfileBundles} from "./profile-bundles";
 import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
+import {createAttachmentPort} from "./attachments";
 import {ProfileCatalog} from "./profiles";
 import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
@@ -140,6 +141,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: approveByMode,
+        attachments: createAttachmentPort(options.files),
         compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: restore.run},
     });
     hostRef = host;

@@ -10,6 +10,9 @@
  * session 一侧只有当前一份（session 事件线性、不随回退）。
  */
 
+import type {AttachmentPort} from "../api/index.js";
+import {createAttachmentResolver} from "./attachments.js";
+import type {AttachmentResolver} from "./attachments.js";
 import {randomBytes} from "node:crypto";
 import type {Clock, Frame, JsonValue, LogEvent, LogHandle, LogStore, Position, SessionHeader, Spend, Usage} from "../api/index.js";
 import type {Assembly} from "../extension/assemble.js";
@@ -58,6 +61,7 @@ export interface CoreOptions {
     readonly clock: Clock;
     /** 开发模式：冻结状态与事件（改了就抛错），视图做前缀与提交检查（harness/profile.md 输出 19）。 */
     readonly dev: boolean;
+    readonly attachments?: AttachmentPort;
 }
 
 /** 会话关闭之后还有写入（迟到的回调）。只写诊断，不进日志。 */
@@ -80,6 +84,8 @@ export class SessionCore {
     readonly diagnostics = new Diagnostics();
     /** 视图记住的已提交轮的渲染与开发检查的上一次渲染（不进日志）。 */
     readonly view = new ViewCache();
+    /** 把请求里的附件引用换成图片（runtime.md 输出 82）。 */
+    readonly attachments: AttachmentResolver;
     readonly events: LogEvent[] = [];
     readonly byId = new Map<string, LogEvent>();
     /** 受理过的指令：`commandId` → 第一次的结果。由 `commandAccepted` 建，重开时从日志重建。 */
@@ -127,6 +133,7 @@ export class SessionCore {
 
     constructor(options: CoreOptions) {
         this.header = options.header;
+        this.attachments = createAttachmentResolver(options.attachments, (input) => this.diagnostics.add(input, this.head));
         this.store = options.store;
         this.handle = options.handle;
         this.clock = options.clock;

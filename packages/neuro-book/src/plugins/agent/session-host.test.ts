@@ -98,6 +98,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
         roles: () => null,
         drafts: {read: async () => null, write: () => undefined},
+        attachments: {upload: async () => ({ok: false, code: "not-used"})},
         profiles: () => [{key: PROFILE, name: "测试", description: "", source: "test", status: "ok", icon: "i-lucide-feather"}],
         copy: (value) => void copied.push(value),
         openSettings: () => {
@@ -539,6 +540,120 @@ describe("命令、草稿与输入历史（输出 28–30）", () => {
             await idle(h);
         }
         expect(h.ctx().composer.recall).toEqual(["同一句", "另一句"]);
+    });
+});
+
+describe("附件（输出 31）", () => {
+    const FILE = new File(["x"], "图.png", {type: "image/png"});
+    const uploaded = (name: string) => ({uri: `sessions://s/home/attachments/${name}.png`, kind: "image" as const, name: `${name}.png`, mime: "image/png", width: 800, height: 600});
+
+    test("第一次加附件就建会话，几个一起加只建一个；就绪后发送带上范围；迟到的结果不算；移除的不带", async () => {
+        const w = await world();
+        const gates: (() => void)[] = [];
+        const h = await harness(w, {attachments: {upload: async (_session, file) => {
+            await new Promise<void>((resolve) => gates.push(resolve));
+            return {ok: true, value: uploaded(file.name)};
+        }}});
+        expect(h.ctx().interaction.canRegisterAttachments).toBe(true);
+        h.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: new File(["1"], "a", {type: "image/png"})});
+        h.host.act({type: "composer.attachmentAdded", localId: "l2", kind: "image", file: new File(["2"], "b", {type: "image/png"})});
+        await until("两个都在上传", () => gates.length === 2);
+        expect(h.ctx().session).not.toBeNull();
+        const listed = await w.service.list({});
+        expect(listed.ok && listed.value).toHaveLength(1);
+        gates[0]!();
+        await until("第一个就绪", () => h.ctx().composer.attachments.find((item) => item.localId === "l1")?.state === "ready");
+        h.host.act({type: "composer.attachmentRemoved", localId: "l2"});
+        gates[1]!();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(h.ctx().composer.attachments.map((item) => item.localId)).toEqual(["l1"]);
+
+        const label = `![image #1](${uploaded("a").uri})`;
+        endpoint.script("看到了");
+        h.host.act({type: "composer.submit", text: `看${label}这张`, delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "看到了");
+        await idle(h);
+        expect(h.ctx().composer.attachments).toEqual([]);
+        const view = w.service.session(h.host.sessionId.value!);
+        const input = (await view.path()).find((event) => event.type === "input")!;
+        expect((input.data as {attachments: unknown}).attachments).toEqual([{...uploaded("a"), from: 1, to: 1 + label.length}]);
+        // 兜底标题不带附件的标签（tiny 角色没绑定时用第一句话）。
+        await until("标题", () => h.ctx().session?.title === "看这张");
+    });
+
+    test("超限与失败写原因，能重试；切会话时草稿的附件清掉，迟到的结果不算；没用上的不带", async () => {
+        const w = await world();
+        let results: ({ok: true; value: ReturnType<typeof uploaded>} | {ok: false; code: string})[] = [{ok: false, code: "too-large"}, {ok: true, value: uploaded("a")}];
+        const h = await harness(w, {attachments: {upload: async () => results.shift()!}});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        h.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: FILE});
+        await until("失败", () => h.ctx().composer.attachments[0]?.state === "failed");
+        h.host.act({type: "composer.attachmentRetry", localId: "l1"});
+        await until("就绪", () => h.ctx().composer.attachments[0]?.state === "ready");
+
+        endpoint.script("好");
+        h.host.act({type: "composer.submit", text: "标签删掉了", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "好");
+        await idle(h);
+        const view = w.service.session(h.host.sessionId.value!);
+        const input = (await view.path()).find((event) => event.type === "input")!;
+        expect((input.data as {attachments?: unknown}).attachments).toBeUndefined();
+
+        const first = h.host.sessionId.value!;
+        results = [{ok: true, value: uploaded("b")}];
+        h.host.act({type: "composer.attachmentAdded", localId: "l2", kind: "image", file: FILE});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        expect(h.host.sessionId.value).not.toBe(first);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(h.ctx().composer.attachments).toEqual([]);
+    });
+
+    test("建会话时用户去了别的会话：不抢界面", async () => {
+        const w = await world();
+        const first = await w.window("sh-create-gate");
+        let release = () => undefined as void;
+        let gating = false;
+        const gated = new Proxy(first.client, {get(target, key, receiver) {
+            if (key !== "create") return Reflect.get(target, key, receiver);
+            return async (input: never) => {
+                const result = await target.create(input);
+                if (gating) await new Promise<void>((resolve) => { release = resolve; });
+                return result;
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: gated});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        const existing = h.host.sessionId.value!;
+        const fresh = await harness(w, {remote: gated});
+        gating = true;
+        fresh.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: FILE});
+        await until("create 在等", () => release !== undefined && fresh.ctx().composer.attachments.length === 1);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        await fresh.host.open(existing);
+        release();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(fresh.host.sessionId.value).toBe(existing);
+    });
+
+    test("编辑重发带上原来的附件", async () => {
+        const w = await world();
+        const h = await harness(w, {attachments: {upload: async () => ({ok: true, value: uploaded("a")})}});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        h.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: FILE});
+        await until("就绪", () => h.ctx().composer.attachments[0]?.state === "ready");
+        const label = `![image #1](${uploaded("a").uri})`;
+        endpoint.script("一");
+        h.host.act({type: "composer.submit", text: `看${label}`, delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "一");
+        await idle(h);
+        const user = h.ctx().messages.find((item) => item.kind === "user")!;
+        endpoint.script("二");
+        h.host.act({type: "message.editSubmit", messageId: user.id, text: `再看看${label}`});
+        await until("新回复", () => assistants(h.ctx().messages).at(-1)?.text === "二");
+        await idle(h);
+        const view = w.service.session(h.host.sessionId.value!);
+        const input = (await view.path()).find((event) => event.type === "input")!;
+        expect((input.data as {attachments: {from: number}[]}).attachments[0]!.from).toBe(3);
     });
 });
 

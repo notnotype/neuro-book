@@ -92,17 +92,31 @@ const CONTENT_FIELDS: Record<KernelEventName, Mapper | null> = {
     reactionLimit: null,
 };
 
+/**
+ * 文字里的附件地址被过滤掉了，结构化的那份也得去掉，不然读者照样拿得到原图（runtime.md 输出 82）。文字改过，范围就都不准了：去掉范围，留下的放末尾。
+ */
+function mappedAttachments(attachments: unknown, before: string, after: string): {attachments?: unknown} {
+    if (!Array.isArray(attachments)) return {};
+    if (before === after) return {attachments};
+    const kept = (attachments as readonly {uri: string; from?: number; to?: number}[]).filter((item) => after.includes(item.uri)).map(({from: _from, to: _to, ...rest}) => rest);
+    return kept.length === 0 ? {} : {attachments: kept};
+}
+
 async function queued(data: Record<string, unknown>, map: Required<ContentMap>, type: string): Promise<Record<string, unknown>> {
-    const input = data.input as {text: string; payload?: JsonValue};
+    const input = data.input as {text: string; payload?: JsonValue; attachments?: unknown};
+    const text = await map.text(input.text, {type, field: "input.text"});
+    const {attachments: _attachments, ...rest} = input;
     return {
         ...data,
-        input: {...input, text: await map.text(input.text, {type, field: "input.text"}), ...(input.payload === undefined ? {} : {payload: await map.data(input.payload, {type, field: "input.payload"})})},
+        input: {...rest, text, ...mappedAttachments(input.attachments, input.text, text), ...(input.payload === undefined ? {} : {payload: await map.data(input.payload, {type, field: "input.payload"})})},
         ...(data.original === undefined ? {} : {original: await map.text(data.original as string, {type, field: "original"})}),
     };
 }
 
 async function said(data: Record<string, unknown>, map: Required<ContentMap>, type: string): Promise<Record<string, unknown>> {
-    return {...data, text: await map.text(data.text as string, {type, field: "text"}), ...(data.payload === undefined ? {} : {payload: await map.data(data.payload as JsonValue, {type, field: "payload"})})};
+    const text = await map.text(data.text as string, {type, field: "text"});
+    const {attachments: _attachments, ...rest} = data;
+    return {...rest, text, ...mappedAttachments(data.attachments, data.text as string, text), ...(data.payload === undefined ? {} : {payload: await map.data(data.payload as JsonValue, {type, field: "payload"})})};
 }
 
 async function blocks(list: readonly Record<string, unknown>[], map: Required<ContentMap>, type: string, field: string): Promise<Record<string, unknown>[]> {

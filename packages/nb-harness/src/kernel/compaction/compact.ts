@@ -17,6 +17,7 @@ import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {chainLayers, failureDrafts, runChain} from "../run/chain.js";
 import {ctrl} from "../run/writes.js";
 import {committedTurns} from "../state/history.js";
+import type {UserAttachment} from "../api/basics.js";
 import {computeRequest} from "../view/request.js";
 
 
@@ -33,6 +34,11 @@ const finiteNonNegative = (value: unknown): value is number => typeof value === 
 function estimateEvent(event: LogEvent, omitted: ReadonlyMap<string, string>): number {
     const placeholder = omitted.get(event.id);
     if (placeholder === undefined) {
+        // 用户的图按尺寸算；压缩之前的那些已经换成占位，这里按写下来的算，多估一点（宁可早压缩）。
+        if (event.type === "input" || event.type === "steer") {
+            const {attachments} = event.data as {attachments?: readonly UserAttachment[]};
+            return estimateTokens(JSON.stringify(event.data)) + (attachments ?? []).reduce((sum, item) => sum + (item.kind === "image" ? estimateImageTokens(item) : 0), 0);
+        }
         if (event.type !== "toolResult") return estimateTokens(JSON.stringify(event.data));
         // base64 不按长度算，否则一张几百 KB 的图就会触发压缩；`rawImages` 不进请求，不算。
         const {images, rawImages: _rawImages, ...rest} = event.data as {images?: readonly ToolImage[]; rawImages?: unknown};

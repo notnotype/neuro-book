@@ -246,10 +246,10 @@ function descriptionOf(id: string): string {
 
 // ─── 附件 ───────────────────────────────────────────────────────────────
 
-const currentModel = computed(() => composer.value.models.find((model) => model.key === composer.value.modelKey) ?? null);
 // 缺省的普通文本框收不了附件（host.ts 的 plainEditor）。
 const acceptFiles = computed(() => props.ctx.interaction.canRegisterAttachments && !renderers.value.plainEditor);
-const acceptImages = computed(() => acceptFiles.value && (currentModel.value?.supportsImages ?? false));
+/** 不按模型能力拒绝：模型不能看图时发送的时候换成一行字（docs/specs/harness/runtime.md 输出 61），要是在这里拦，角色与跟随默认都会被误拒。 */
+const acceptImages = acceptFiles;
 
 // ─── 单行版式 ───────────────────────────────────────────────────────────
 
@@ -278,9 +278,7 @@ function onAttachmentReject(payload: {kind: PromptAttachmentKind; count: number}
         rejectNotice.value = t("composer.reject.file", {count: payload.count});
     }
     else {
-        rejectNotice.value = acceptFiles.value
-            ? t("composer.reject.imageModel", {count: payload.count})
-            : t("composer.reject.imageSession", {count: payload.count});
+        rejectNotice.value = t("composer.reject.imageSession", {count: payload.count});
     }
 }
 

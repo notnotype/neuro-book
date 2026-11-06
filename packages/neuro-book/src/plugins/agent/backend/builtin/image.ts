@@ -14,6 +14,18 @@ const SCALES = [1, 0.75, 0.5, 0.35, 0.25];
 /** 缩小到这以下模型也看不清了，不再往下缩。 */
 const SMALLEST_EDGE = 100;
 
+export type ImageFormat = "png" | "jpeg" | "gif" | "webp";
+
+/** 按文件头认格式，不信扩展名。 */
+export function imageFormat(head: Uint8Array): ImageFormat | null {
+    const starts = (...bytes: number[]) => bytes.every((byte, index) => head[index] === byte);
+    if (starts(0x89, 0x50, 0x4e, 0x47)) return "png";
+    if (starts(0xff, 0xd8, 0xff)) return "jpeg";
+    if (starts(0x47, 0x49, 0x46, 0x38)) return "gif";
+    if (starts(0x52, 0x49, 0x46, 0x46) && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50) return "webp";
+    return null;
+}
+
 export interface PreparedImage {
     readonly data: Uint8Array;
     readonly mime: string;

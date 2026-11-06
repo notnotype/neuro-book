@@ -43,6 +43,7 @@ function resource(scheme: "project" | "user", path: string | null): string | nul
 
 /** 会话附件在 `session://` 下的目录（docs/specs/agent/resources.md；Composer 的附件，workspace/markdown-dialect.md）。 */
 const ATTACHMENTS_PATH = "attachments/";
+const SESSION_ATTACHMENT = /^[^/]+\/home\/attachments\/[^/]+$/u;
 
 /**
  * 归类并解析一个目标。`base` 是目标所在文件的地址（编辑器里的文档）；没有所在文件时（Composer、展示器）为 null，这时以 `/`
@@ -57,6 +58,8 @@ export function classifyTarget(target: string, base: string | null): Target {
         // 方案名不分大小写（与下面的 `project`、`user` 一致），只比较方案之后的部分。
         const rest = path.slice(path.indexOf("://") + 3);
         if (scheme === "session" && rest.startsWith(ATTACHMENTS_PATH)) return {kind: "attachment", address: null, name: lastSegment(rest.slice(ATTACHMENTS_PATH.length))};
+        // 附件写全局地址（docs/specs/agent/sessions.md 的“附件”），`fork` 之后还指向原来的文件。
+        if (scheme === "sessions" && SESSION_ATTACHMENT.test(rest)) return {kind: "attachment", address: null, name: rest.slice(rest.lastIndexOf("/") + 1)};
         if (scheme === "project" || scheme === "user") {
             const rest = path.slice(`${scheme}://`.length);
             return {kind: scheme === "project" ? "work" : "user", address: resource(scheme, normalized(decodeTarget(rest).split("/"))), name: lastSegment(rest)};

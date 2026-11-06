@@ -169,7 +169,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "composer.thinking.high": {"zh-CN": "高", "en-US": "High"},
     "composer.thinking.xhigh": {"zh-CN": "极高", "en-US": "Extra high"},
     "composer.thinking.max": {"zh-CN": "最大", "en-US": "Max"},
-    "composer.reject.imageModel": {"zh-CN": "当前模型不支持图片，已忽略 {count} 张", "en-US": "The current model does not support images; ignored {count}"},
     "composer.reject.imageSession": {"zh-CN": "当前会话不能添加图片，已忽略 {count} 张", "en-US": "This session cannot take images; ignored {count}"},
     "composer.reject.file": {"zh-CN": "当前会话不能添加文件，已忽略 {count} 个", "en-US": "This session cannot take files; ignored {count}"},
     "composer.reject.dismiss": {"zh-CN": "关闭提示", "en-US": "Dismiss"},

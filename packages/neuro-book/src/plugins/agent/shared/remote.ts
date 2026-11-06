@@ -59,7 +59,17 @@ function commandErrorsOf<const Codes extends readonly string[]>(codes: Codes) {
 const Json = Type.Unsafe<JsonValue>(Type.Unknown());
 const SessionId = Type.String({minLength: 1});
 const CommandId = Type.String({minLength: 1, maxLength: 200});
-const Attachment = Type.Object({kind: Type.Union([Type.Literal("image"), Type.Literal("file")]), uri: Type.String({minLength: 1})}, {additionalProperties: false});
+const Offset = Type.Integer({minimum: 0});
+const Attachment = Type.Object({
+    kind: Type.Union([Type.Literal("image"), Type.Literal("file")]),
+    uri: Type.String({minLength: 1}),
+    name: Type.Optional(Type.String()),
+    mime: Type.Optional(Type.String()),
+    width: Type.Optional(Type.Integer({minimum: 0})),
+    height: Type.Optional(Type.Integer({minimum: 0})),
+    from: Type.Optional(Offset),
+    to: Type.Optional(Offset),
+}, {additionalProperties: false});
 const Input = Type.Object({text: Type.String(), payload: Type.Optional(Json), attachments: Type.Optional(Type.Array(Attachment))}, {additionalProperties: false});
 const Mode = Type.Unsafe<InputMode>(Type.Union([Type.Literal("steer"), Type.Literal("followup")]));
 

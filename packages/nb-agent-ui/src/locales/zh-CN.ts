@@ -192,7 +192,6 @@ export default {
             max: "最大",
         },
         reject: {
-            imageModel: "当前模型不支持图片，已忽略 {{count}} 张",
             imageSession: "当前会话不能添加图片，已忽略 {{count}} 张",
             file: "当前会话不能添加文件，已忽略 {{count}} 个",
             dismiss: "关闭提示",

@@ -95,20 +95,8 @@ function textOf(block: ContentBlock): string {
     throw new UnsupportedContent(`${block.kind} block is not supported here`);
 }
 
-/** user 与工具结果消息的内容：相邻的文字块合成一块、中间空一行（块是按来源分的，服务商不一定在块之间加分隔）。 */
-function userContent(blocks: readonly ContentBlock[]): TextContent[] {
-    const out: TextContent[] = [];
-    for (const block of blocks) {
-        if (block.kind !== "text") throw new UnsupportedContent(`${block.kind} block in a user message is not supported`);
-        const last = out.at(-1);
-        if (last === undefined) out.push({type: "text", text: block.text});
-        else out[out.length - 1] = {type: "text", text: `${last.text}\n\n${block.text}`};
-    }
-    return out;
-}
-
-/** 工具结果消息的内容：文字合并同 `userContent`；图片转成服务商的图片块，模型不能看图时换成一行文字。 */
-function toolContent(blocks: readonly ContentBlock[], vision: boolean): (TextContent | ImageContent)[] {
+/** 用户与工具结果消息的内容：相邻的文字块合成一块、中间空一行（块是按来源分的，服务商不一定在块之间加分隔）；图片转成服务商的图片块，模型不能看图时换成一行文字（runtime.md 输出 61）。 */
+function textAndImages(blocks: readonly ContentBlock[], vision: boolean): (TextContent | ImageContent)[] {
     const out: (TextContent | ImageContent)[] = [];
     const pushText = (text: string): void => {
         const last = out.at(-1);
@@ -117,7 +105,7 @@ function toolContent(blocks: readonly ContentBlock[], vision: boolean): (TextCon
     };
     for (const block of blocks) {
         if (block.kind === "text") pushText(block.text);
-        else if (block.kind !== "image") throw new UnsupportedContent(`${block.kind} block in a tool message is not supported`);
+        else if (block.kind !== "image") throw new UnsupportedContent(`${block.kind} block in a user or tool message is not supported`);
         else if (vision) out.push({type: "image", data: block.data, mimeType: block.mime});
         else pushText(`[图片 ${block.mime}${block.width === undefined || block.height === undefined ? "" : ` ${block.width}x${block.height}`}：当前模型不能看图]`);
     }
@@ -134,7 +122,7 @@ export function lacksWebp(model: Pick<Model, "provider" | "api" | "baseUrl" | "i
         || /^https?:\/\/(?:localhost|127\.|\[::1\])/u.test(model.baseUrl);
 }
 
-/** 发送前把工具消息里的 WebP 转成 PNG；转不了的换成一行文字，不能让一张图卡死这个会话之后的每次请求。 */
+/** 发送前把用户与工具消息里的 WebP 转成 PNG；转不了的换成一行文字，不能让一张图卡死这个会话之后的每次请求。 */
 async function withoutWebp(request: ModelRequest): Promise<ModelRequest> {
     const convert = async (block: Message["content"][number]): Promise<Message["content"][number]> => {
         if (block.kind !== "image" || block.mime !== "image/webp") return block;
@@ -148,7 +136,7 @@ async function withoutWebp(request: ModelRequest): Promise<ModelRequest> {
             return {kind: "text", text: `[图片 image/webp：转换失败（${error instanceof Error ? error.message : String(error)}）]`, origin: block.origin};
         }
     };
-    const messages = await Promise.all(request.messages.map(async (message) => (message.role === "tool" ? {...message, content: await Promise.all(message.content.map(convert))} : message)));
+    const messages = await Promise.all(request.messages.map(async (message) => (message.role !== "assistant" ? {...message, content: await Promise.all(message.content.map(convert))} : message)));
     return {...request, messages};
 }
 
@@ -161,7 +149,8 @@ function assistantContent(blocks: readonly ContentBlock[], calls: readonly ToolC
                 if (block.redacted) return {type: "redactedThinking", data: block.signature ?? ""};
                 return {...restore(block.provider), type: "thinking", thinking: block.text, ...(block.signature === undefined ? {} : {thinkingSignature: block.signature})} as ThinkingContent;
             case "image":
-                throw new UnsupportedContent("image block in an assistant message is not supported yet");
+            case "imageRef":
+                throw new UnsupportedContent(`${block.kind} block in an assistant message is not supported yet`);
         }
     });
     for (const call of calls) {
@@ -194,7 +183,7 @@ function toContext(request: ModelRequest, model: Model, now: number): Context {
     const names = new Map(request.tools.map((tool) => [tool.id, providerToolName(tool)] as const));
     const toolOfCall = new Map<string, string>();
     const messages: OmpMessage[] = request.messages.map((message: Message): OmpMessage => {
-        if (message.role === "user") return {role: "user", content: userContent(message.content), timestamp: now};
+        if (message.role === "user") return {role: "user", content: textAndImages(message.content, model.input.includes("image")), timestamp: now};
         if (message.role === "assistant") {
             for (const call of message.toolCalls ?? []) toolOfCall.set(call.id, call.tool);
             const [provider, ...rest] = (message.model ?? `${model.provider}/${model.id}`).split("/");
@@ -211,7 +200,7 @@ function toContext(request: ModelRequest, model: Model, now: number): Context {
             } as AssistantMessage;
         }
         const tool = toolOfCall.get(message.callId ?? "") ?? "";
-        return {role: "toolResult", toolCallId: message.callId ?? "", toolName: names.get(tool) ?? tool.replaceAll(".", "__"), content: toolContent(message.content, model.input.includes("image")), isError: message.isError ?? false, timestamp: now};
+        return {role: "toolResult", toolCallId: message.callId ?? "", toolName: names.get(tool) ?? tool.replaceAll(".", "__"), content: textAndImages(message.content, model.input.includes("image")), isError: message.isError ?? false, timestamp: now};
     });
     const tools: Tool[] = request.tools.map((tool) => ({
         name: providerToolName(tool),

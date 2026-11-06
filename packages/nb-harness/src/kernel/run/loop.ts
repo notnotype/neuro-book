@@ -69,7 +69,7 @@ export function takeInputDrafts(inputId: string, input: UserInput, turnId: strin
     return [
         {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: inputId}},
         ctrl("turnStarted", {turnId, inputId}),
-        {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as JsonValue}), queued: inputId} as JsonValue},
+        {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: inputId} as JsonValue},
     ];
 }
 
@@ -79,7 +79,7 @@ export function takeSteerDrafts(core: SessionCore): EventDraft[] {
         const {text, payload, attachments} = item.input;
         return [
             {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id}},
-            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as JsonValue}), queued: item.id} as JsonValue},
+            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id} as JsonValue},
         ];
     });
 }

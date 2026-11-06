@@ -176,6 +176,16 @@ export interface BranchPoint {
     children: {node: string; latestLeaf: string}[];
 }
 
+/** `missing`：地址读不到（会话被删了）。`unusable`：读到了但发不了（损坏、格式不支持），`reason` 写进诊断。 */
+export type AttachmentRead =
+    | {readonly data: string; readonly mime: string; readonly width?: number; readonly height?: number}
+    | {readonly missing: true}
+    | {readonly unusable: string};
+
+export interface AttachmentPort {
+    read(uri: string, options: {readonly signal: AbortSignal}): Promise<AttachmentRead>;
+}
+
 export interface RewindTarget {
     /** 传给 `rewind` 的 id。 */
     id: string;
@@ -407,6 +417,8 @@ export interface SessionEnv {
     /** 插件经 `agent.extensions` 贡献的扩展（Profile 可按标签排除）。 */
     readonly extensions?: () => readonly ContributedExtension[];
     readonly models: ModelPort;
+    /** 读用户附件的图片（runtime.md 输出 82）：交回能发给模型的样子（缩放由宿主做）。没有时图片换一行文字。 */
+    readonly attachments?: AttachmentPort;
     /** 每次失败时现读，设置改了下一次失败就生效。不给就不重发。 */
     readonly retry?: () => RetryPolicy;
     readonly tools: {

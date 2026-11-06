@@ -138,6 +138,23 @@ describe("OMP 适配器", () => {
         expect(JSON.parse(parts.map((delta) => delta.text).join(""))).toEqual({q: "钟声"});
     });
 
+    test("用户消息的图片：位置不变；能看图的模型收到图片块，不能看图的换成一行文字", async () => {
+        const origin = {kind: "fixed", by: "kernel"} as const;
+        const messages = [{role: "user" as const, content: [{kind: "text" as const, text: "前", origin}, {kind: "image" as const, data: "QUJD", mime: "image/png", width: 800, height: 600, origin}, {kind: "text" as const, text: "后", origin}]}];
+        const seen = async (run: typeof call): Promise<string> => {
+            bodies.length = 0;
+            await run(request({messages}), new AbortController().signal, () => undefined);
+            return JSON.stringify(bodies.at(-1));
+        };
+        const plain = await seen(call);
+        expect(plain).toContain("当前模型不能看图");
+        expect(plain).not.toContain("QUJD");
+        const vision = await seen(ompCall({model: {...resolved.model, input: ["text", "image"]}, apiKey: resolved.apiKey, priceKnown: false}));
+        expect(vision).toContain("data:image/png;base64,QUJD");
+        expect(vision.indexOf("前")).toBeLessThan(vision.indexOf("QUJD"));
+        expect(vision.indexOf("QUJD")).toBeLessThan(vision.indexOf("后"));
+    });
+
     test("工具消息的图片：能看图的模型收到图片块，不能看图的换成一行文字", async () => {
         const messages = (): ModelRequest["messages"] => [
             {role: "user", content: [text("看图")]},
@@ -267,7 +284,7 @@ describe("OMP 适配器", () => {
 
     test("不支持的内容在发请求前失败：unsupported-content", async () => {
         requestCount = 0;
-        const response = await call(request({messages: [{role: "user", content: [{kind: "image", data: "AAAA", mime: "image/png", origin: {kind: "fixed", by: "kernel"}}]}]}), new AbortController().signal, () => undefined);
+        const response = await call(request({messages: [{role: "user", content: [{kind: "thinking", text: "想", origin: {kind: "fixed", by: "kernel"}}]}]}), new AbortController().signal, () => undefined);
         expect(response.error).toMatchObject({kind: "local", code: "unsupported-content"});
         expect(requestCount).toBe(0);
     });

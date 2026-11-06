@@ -117,6 +117,10 @@ export interface SessionHostDeps {
     readonly newId: () => string;
     /** 这个位置最近用过的会话（`nbook.storage` 的本地记录）。 */
     readonly recent: {read(): Promise<string | null>; write(id: string | null): void};
+    /** 上传附件（docs/specs/agent/sessions.md 的“附件”）；地址给 `<img>` 用。 */
+    readonly attachments: {
+        upload(session: string, file: File): Promise<{readonly ok: true; readonly value: UploadedAttachment} | {readonly ok: false; readonly code: string}>;
+    };
     /** 按会话的草稿；写是尽力而为，丢了只是少一份没发的字。 */
     readonly drafts: {read(session: string): Promise<string | null>; write(session: string, text: string): void};
     readonly warnCost: () => number;
@@ -131,6 +135,15 @@ export interface SessionHostDeps {
     readonly openLink: (href: string) => void;
     /** 视图要换新的会话面板（点标题）；打开列表的动作归面板。 */
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+}
+
+export interface UploadedAttachment {
+    readonly uri: string;
+    readonly kind: "image" | "file";
+    readonly name?: string;
+    readonly mime?: string;
+    readonly width?: number;
+    readonly height?: number;
 }
 
 /** 宿主从模型服务的快照映射来，界面文字在这里按 `status` 取。 */
@@ -348,6 +361,58 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         })();
     }
 
+    // ─── 附件 ───────────────────────────────────────────────────────────
+
+    /** 这一条草稿的附件，按编辑器给的 `localId`。切会话时清掉：迟到的上传结果找不到自己，就不算数。 */
+    type Uploading = {readonly file: File; state: "uploading" | "failed" | "ready"; error?: string; uploaded?: UploadedAttachment};
+    let uploads = new Map<string, Uploading>();
+
+    async function startUpload(localId: string, file: File): Promise<void> {
+        const entry: Uploading = {file, state: "uploading"};
+        uploads.set(localId, entry);
+        bump();
+        const owner = uploads;
+        // 第一次加附件就建会话：地址要带会话 id。迟到时用户已经去了别的会话：`create` 不抢界面，这个附件标失败。
+        const session = sessionId.value ?? await createOnce();
+        if (owner !== uploads || uploads.get(localId) !== entry) return;
+        if (session === null) {
+            entry.state = "failed";
+            entry.error = deps.text.t(agentText("conversation.attachment.noSession"));
+            bump();
+            return;
+        }
+        const result = await deps.attachments.upload(session, file);
+        if (owner !== uploads || uploads.get(localId) !== entry) return;
+        if (result.ok) {
+            entry.state = "ready";
+            entry.uploaded = result.value;
+        } else {
+            entry.state = "failed";
+            entry.error = deps.text.t(agentText(result.code === "too-large" ? "conversation.attachment.tooLarge" : "conversation.attachment.failed", {code: result.code}));
+        }
+        bump();
+    }
+
+    /** 这句话带哪些附件：文字里出现了地址的才算（用户可能删掉了标签）。范围指向标签，图片放在那个位置。 */
+    function attachmentsFor(text: string, candidates: readonly UploadedAttachment[]): UploadedAttachment[] {
+        return candidates.flatMap(({uri, kind, name, mime, width, height}) => {
+            // 逐项取字段：路由还交回 `bytes` 这些，指令的校验不收多余的字段。
+            const item: UploadedAttachment = {uri, kind, ...(name === undefined ? {} : {name}), ...(mime === undefined ? {} : {mime}), ...(width === undefined ? {} : {width}), ...(height === undefined ? {} : {height})};
+            const close = text.indexOf(`](${item.uri})`);
+            if (close < 0) return [];
+            const open = text.lastIndexOf("[", close);
+            if (open < 0) return [item];
+            const from = text[open - 1] === "!" ? open - 1 : open;
+            return [{...item, from, to: close + item.uri.length + 3} as UploadedAttachment];
+        });
+    }
+
+    function takeAttachments(text: string): readonly UploadedAttachment[] {
+        const ready = [...uploads.values()].flatMap((entry) => (entry.uploaded === undefined ? [] : [entry.uploaded]));
+        uploads = new Map();
+        return attachmentsFor(text, ready);
+    }
+
     // ─── 改写历史 ───────────────────────────────────────────────────────
 
     let editing: EditingView | null = null;
@@ -447,7 +512,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             if (to === null && !pausedHere) return fail("no-target");
             if (to !== null) {
                 const key = `rewind:${target.id}:${to.id}:${resend ?? ""}`;
-                const rewound = await remote.rewind({sessionId: target.id, commandId: commandIdOf(key), to: to.id, ...(resend === undefined ? {} : {resend: {text: resend}})});
+                const attachments = resend === undefined ? [] : attachmentsFor(resend, target.transcript.attachmentsOf(messageId) as unknown as readonly UploadedAttachment[]);
+                const rewound = await remote.rewind({sessionId: target.id, commandId: commandIdOf(key), to: to.id, ...(resend === undefined ? {} : {resend: attachments.length === 0 ? {text: resend} : {text: resend, attachments}})});
                 settleCommand(key, rewound.ok ? undefined : rewound.code);
                 if (!rewound.ok) return fail(rewound.code);
             }
@@ -636,7 +702,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         closeCurrent();
         wizardState = keptWizard;
         // A 会话没发的字不带到 B；还没有会话时写的字留着（第一次发送才建会话）。
-        if (switching) setDraftSilently("");
+        if (switching) {
+            setDraftSilently("");
+            uploads = new Map();
+        }
         const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: []};
         current = target;
         sessionId.value = id;
@@ -707,14 +776,26 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     }
 
     async function create(profile = MAIN_PROFILE): Promise<string | null> {
+        // 建好之前用户去了别的会话：不抢界面。建好的空会话留在列表里。
+        const started = generation;
         const created = await remote.create({profile, ...(deps.project === null ? {} : {project: deps.project})});
         if (!created.ok) {
             notice = agentText("conversation.createFailed", {code: created.code});
             bump();
             return null;
         }
+        if (generation !== started) return null;
         await open(created.value.sessionId);
         return created.value.sessionId;
+    }
+
+    /** 几个附件一起加时只建一个会话。`create` 没有幂等键：失败或结果未知不重试，免得多建，附件标失败，用户再加。 */
+    let creating: Promise<string | null> | null = null;
+    function createOnce(): Promise<string | null> {
+        creating ??= create().finally(() => {
+            creating = null;
+        });
+        return creating;
     }
 
     const failedToOpen = (id: string): boolean => current?.id === id && current.failed !== null;
@@ -765,15 +846,17 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             return;
         }
         const target = current!;
+        const attachments = takeAttachments(text);
+        const input = attachments.length === 0 ? {text} : {text, attachments: [...attachments]};
         if (delivery === "prompt") {
             const id = commandId();
             const optimisticId = `optimistic-${id}`;
             target.transcript.addOptimistic({id: optimisticId, commandId: id, text, timestamp: deps.now()});
             bump();
-            settleSend(target, optimisticId, id, text, await remote.send({sessionId: target.id, commandId: id, input: {text}}));
+            settleSend(target, optimisticId, id, text, await remote.send({sessionId: target.id, commandId: id, input}));
             return;
         }
-        const queued = await remote.enqueue({sessionId: target.id, commandId: commandId(), input: {text}, mode: delivery});
+        const queued = await remote.enqueue({sessionId: target.id, commandId: commandId(), input, mode: delivery});
         if (!queued.ok && !UNKNOWN_OUTCOME.has(queued.code) && current === target) {
             setDraft(text);
             notice = agentText("conversation.reject.other", {code: queued.code});
@@ -921,6 +1004,18 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             case "composer.draftChanged":
                 draftText = action.text;
                 noteDraft(action.text);
+                return;
+            case "composer.attachmentAdded":
+                await startUpload(action.localId, action.file);
+                return;
+            case "composer.attachmentRetry": {
+                const entry = uploads.get(action.localId);
+                if (entry !== undefined) await startUpload(action.localId, entry.file);
+                return;
+            }
+            case "composer.attachmentRemoved":
+                uploads.delete(action.localId);
+                bump();
                 return;
             case "composer.commandHandled":
                 setDraft("");
@@ -1131,7 +1226,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 summaryState: "idle",
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
@@ -1162,6 +1257,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 queued: (target?.transcript.queue() ?? []).map((item) => ({id: item.id, text: item.text, delivery: item.mode})),
                 draft,
                 recall: target === null || target === undefined ? [] : recallOf(target.transcript.messages()),
+                attachments: [...uploads].map(([localId, entry]) => (entry.state === "ready"
+                    ? {localId, state: "ready" as const, target: entry.uploaded!.uri}
+                    : entry.state === "failed" ? {localId, state: "failed" as const, error: entry.error ?? ""} : {localId, state: "uploading" as const})),
                 ...(notice === null ? {} : {notice}),
             },
             usage: usage === undefined ? {} : {

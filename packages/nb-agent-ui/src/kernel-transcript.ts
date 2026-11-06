@@ -89,6 +89,8 @@ export type KernelTranscript = {
     run(): KernelRun;
     /** 这条消息在树上的位置，改写历史时用它精确选回退目标（docs/specs/agent/conversation.md 输出 25）。 */
     anchorOf(messageId: string): KernelAnchor | null;
+    /** 这句话带的附件（事件里写的样子）：编辑重发时带上，不然图就丢了。 */
+    attachmentsOf(messageId: string): readonly JsonValue[];
     /** 当前路径上所有 path 事件的 id，按路径顺序。 */
     pathIds(): readonly string[];
     usage(): KernelUsage;
@@ -229,6 +231,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let context: number | null = null;
     let lastCacheHitRate: number | null = null;
     let anchors = new Map<string, KernelAnchor>();
+    let inputAttachments = new Map<string, readonly JsonValue[]>();
     let pathIds: string[] = [];
     let anchorTurn: string | null = null;
     let anchorModelParent: string | null = null;
@@ -323,6 +326,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             case "input":
             case "steer":
                 anchors.set(parsed.id, {turnId: anchorTurn, modelParent: null});
+                if (Array.isArray(parsed.data.attachments)) inputAttachments.set(parsed.id, parsed.data.attachments.map((item) => toJsonValue(item)));
                 return;
             case "assistant":
             case "modelFailed":
@@ -342,7 +346,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             case "input":
             case "steer": {
                 const text = stringField(data, "text") ?? "";
-                const attachments = Array.isArray(data.attachments) ? data.attachments.flatMap((item): ContentBlockView[] => (isRecord(item) && typeof item.uri === "string" ? [{kind: "attachment", locator: item.uri, name: item.uri.slice(item.uri.lastIndexOf("/") + 1), mimeType: item.kind === "image" ? "image/*" : "", bytes: 0}] : [])) : [];
+                // 带范围的附件文字里已经有它的标签，气泡按标签显示，不再单列一块。
+                const attachments = Array.isArray(data.attachments) ? data.attachments.flatMap((item): ContentBlockView[] => (isRecord(item) && typeof item.uri === "string" && typeof item.from !== "number" ? [{kind: "attachment", locator: item.uri, name: item.uri.slice(item.uri.lastIndexOf("/") + 1), mimeType: item.kind === "image" ? "image/*" : "", bytes: 0}] : [])) : [];
                 logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false});
                 return;
             }
@@ -598,6 +603,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         context = null;
         lastCacheHitRate = null;
         anchors = new Map();
+        inputAttachments = new Map();
         pathIds = [];
         anchorTurn = null;
         anchorModelParent = null;
@@ -731,6 +737,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         // `kind` 来自路径上的 `runStarted`，与 status 帧是两路输入、到达先后不定：读的时候现算，不在收到帧时抄一份。
         run: () => (run.status === "idle" || runKind === null ? run : {...run, kind: runKind}),
         anchorOf: (messageId) => anchors.get(messageId) ?? null,
+        attachmentsOf: (messageId) => inputAttachments.get(messageId) ?? [],
         pathIds: () => pathIds,
         usage: () => ({...usage, context, lastCacheHitRate}),
         queue: () => queue,

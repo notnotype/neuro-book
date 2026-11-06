@@ -45,10 +45,11 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentSettings} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {createAgentActivity} from "./activity";
+import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
-import type {RoleOption, SessionHost} from "./session-host";
+import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
 import {createSessionList} from "./session-list";
 
 export const CONVERSATION_VIEW = "nbook.agent.conversation";
@@ -107,6 +108,12 @@ function modelOptions(snapshot: ModelsSnapshot): ComposerModelView[] {
             reasoning: model.reasoning,
             price: model.price === null ? null : {input: model.price[0], output: model.price[1]},
         })));
+}
+
+/** 附件地址换成读取路由。不是附件的（别的方案）不显示。 */
+function attachmentUrl(locator: string): string | null {
+    const match = /^sessions:\/\/([^/]+)\/home\/attachments\/([^/]+)$/u.exec(locator);
+    return match === null ? null : `/api/${descriptor.id}/sessions/${encodeURIComponent(match[1]!)}/attachments/${encodeURIComponent(match[2]!)}`;
 }
 
 function roleNameOf(role: ModelsSnapshot["roles"][number]): RoleOption["name"] {
@@ -224,6 +231,25 @@ export const agentBrowserPlugin: PluginDefinition = {
                             void openRecent(position).then((handle) => handle?.update(() => ({id}))).catch((error: unknown) => report("recent-save-failed", String(error)));
                         },
                     },
+                    attachments: {
+                        upload: async (session, file) => {
+                            // 服务端读到超限会断开，浏览器只看到网络错误：大小先在这里说清楚。
+                            if (file.size > ATTACHMENT_LIMIT_BYTES) return {ok: false, code: "too-large"};
+                            try {
+                                const response = await fetch(`/api/${descriptor.id}/sessions/${encodeURIComponent(session)}/attachments`, {
+                                    method: "POST",
+                                    body: file,
+                                    headers: {"Content-Type": file.type === "" ? "application/octet-stream" : file.type, "X-Attachment-Name": encodeURIComponent(file.name)},
+                                });
+                                if (response.ok) return {ok: true, value: await response.json() as UploadedAttachment};
+                                const body = await response.json().catch(() => null) as {error?: {code?: string}} | null;
+                                return {ok: false, code: body?.error?.code ?? `http-${String(response.status)}`};
+                            } catch (error) {
+                                report("attachment-upload-failed", String(error));
+                                return {ok: false, code: "network"};
+                            }
+                        },
+                    },
                     drafts: {
                         read: async (session) => {
                             const opened = await storage.open(DRAFTS_RECORD, "drafts");
@@ -321,10 +347,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                         failed: text.t(agentText("conversation.mentions.failed")),
                     }),
                     onChange: () => {
-                        services.value = {resolveTriggerMenu: (context) => mentions.resolve(context)};
+                        services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
                     },
                 });
-                services.value = {resolveTriggerMenu: (context) => mentions.resolve(context)};
+                services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,

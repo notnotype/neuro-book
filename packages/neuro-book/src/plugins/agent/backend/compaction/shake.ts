@@ -30,7 +30,7 @@ function placeholderFor(call: ToolCall, tokens: number): string | null {
     }
 }
 
-const messageTokens = (message: Message): number => message.content.reduce((sum, block) => sum + (block.kind === "image" ? estimateImageTokens(block) : estimateTokens(block.text)), 0)
+const messageTokens = (message: Message): number => message.content.reduce((sum, block) => sum + (block.kind === "image" || block.kind === "imageRef" ? estimateImageTokens(block) : estimateTokens(block.text)), 0)
     + estimateTokens(JSON.stringify(message.toolCalls ?? []));
 
 export const shakeMethod: CompactionMethodImpl = async (job) => {

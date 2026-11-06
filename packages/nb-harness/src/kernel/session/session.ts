@@ -477,7 +477,7 @@ export async function createSession(env: SessionEnv, options: CreateSessionOptio
     };
     const created = await env.store.create(header);
     if (!created.ok) return created;
-    const core = new SessionCore({header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, dev: DEV});
+    const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, dev: DEV});
     const {assembly} = assembled;
     reportAssemblyWarnings(core);
     const api = buildApi(env, core, null, {kind: "user"});
@@ -519,7 +519,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     const lastChange = [...handle.events].reverse().find((event) => event.type === "profileChanged");
     const profileId = (lastChange?.data as {profile?: string} | undefined)?.profile ?? handle.header.profile;
     const {assembly, readOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(profileId), profileId);
-    const core = new SessionCore({header: handle.header, store: env.store, handle, assembly, clock: env.clock, dev: DEV});
+    const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header: handle.header, store: env.store, handle, assembly, clock: env.clock, dev: DEV});
     core.load(handle.events);
     core.reportOpenNotices();
     reportAssemblyWarnings(core);
@@ -765,6 +765,7 @@ export function closeSession(session: SessionApi, options: {readonly reason?: "i
 }
 
 async function closeNow(state: Internals, options: {readonly reason?: "interrupted"}): Promise<void> {
+    state.core.attachments.clear();
     state.closed = true;
     try {
         // 进行中的重新装配先做完：它装上的扩展要在下面一起摘下，清理函数才不会漏调。

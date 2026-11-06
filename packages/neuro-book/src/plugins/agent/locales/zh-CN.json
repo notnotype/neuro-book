@@ -108,6 +108,11 @@
             "noProject": "打开作品之后才能引用文件",
             "failed": "查找文件没有成功，再试一次"
         },
+        "attachment": {
+            "tooLarge": "单个文件不能超过 25 MB。",
+            "failed": "上传没有成功（{{code}}）。",
+            "noSession": "没能新建会话，附件放不进去。"
+        },
         "history": {
             "unknown": "不确定这步做成了没有。再点一次，不会重复。",
             "failed": "这步没做成（{{code}}）。对话没动。"

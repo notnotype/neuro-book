@@ -198,7 +198,6 @@ export default {
             max: "Max",
         },
         reject: {
-            imageModel: "The current model does not support images; ignored {{count}}",
             imageSession: "This session cannot take images; ignored {{count}}",
             file: "This session cannot take files; ignored {{count}}",
             dismiss: "Dismiss",

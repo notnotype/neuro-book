@@ -81,11 +81,11 @@ function messageList(entry: "commit" | "turn", value: unknown): Message[] {
     return value.filter((message): message is Message => message !== null && message !== undefined);
 }
 
-export function renderSources(assembly: Assembly, onProblem: RenderSources["onProblem"], omitted: ReadonlyMap<string, string> = new Map()): RenderSources {
+export function renderSources(assembly: Assembly, onProblem: RenderSources["onProblem"], omitted: ReadonlyMap<string, string> = new Map(), imagesBefore = 0): RenderSources {
     const profile = assembly.profile as unknown as ProfileShape;
     const extensions = new Map<string, RenderTable>();
     for (const item of assembly.order) if (item.role !== "profile" && item.definition.render !== undefined) extensions.set(item.definition.id, item.definition.render as RenderTable);
-    return {profile: profile.render ?? {}, extensions, profileId: assembly.profile.id, onProblem, omitted};
+    return {profile: profile.render ?? {}, extensions, profileId: assembly.profile.id, onProblem, omitted, imagesBefore};
 }
 
 export function computeRequest(inputs: RequestInputs): ComputedRequest {
@@ -102,7 +102,7 @@ export function computeRequest(inputs: RequestInputs): ComputedRequest {
         event: {id: event.id, type: event.type, seq: event.seq},
         message: `render of ${event.type} in ${extension} threw; the default text is used`,
         error,
-    }), state.history.omitted));
+    }), state.history.omitted, state.history.imagesBefore));
     const commits = cache.commits(assembly);
     const previousTurn = cache.lastTurn;
 

@@ -108,6 +108,11 @@
             "noProject": "Open a work to reference its files",
             "failed": "Could not search files. Try again"
         },
+        "attachment": {
+            "tooLarge": "A file can be at most 25 MB.",
+            "failed": "The upload failed ({{code}}).",
+            "noSession": "Could not create a session for this attachment."
+        },
         "history": {
             "unknown": "Not sure whether that worked. Try again; it will not run twice.",
             "failed": "That did not work ({{code}}). The conversation is unchanged."
