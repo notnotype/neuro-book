@@ -344,6 +344,7 @@ export default {
             title: "分支树",
             open: "分支树",
             list: "列表",
+            trail: "单线",
             graph: "图",
             down: "从上往下",
             right: "从左往右",

@@ -18,7 +18,7 @@ const tree: SessionTreeView = {
 };
 const show = (props: Partial<{tree: SessionTreeView; canActivate: boolean}> = {}) => mount(AgentSessionTree, {attachTo: document.body, props: {tree, canActivate: true, ...props}});
 const toGraph = async (view: ReturnType<typeof show>) => {
-    await view.get("[data-tree-modes] button:last-child").trigger("click");
+    await view.findAll("[data-tree-modes] button").at(-1)!.trigger("click");
     await nextTick();
 };
 
@@ -95,6 +95,32 @@ describe("AgentSessionTree", () => {
         expect(view.get("[data-tree-node='a1'] [data-tree-switch]").text()).toContain("2/2");
         await view.get("[data-tree-activate]").trigger("click");
         expect(view.emitted("activate")).toEqual([["u3"]]);
+    });
+
+    it("单线：不缩进；分叉上左右换分支，后面的行跟着换，能切过去", async () => {
+        const view = show();
+        await view.findAll("[data-tree-modes] button")[1]!.trigger("click");
+        expect(view.findAll("[data-tree-trail]").map((row) => row.attributes("data-tree-trail"))).toEqual(["u1", "a1", "u2"]);
+        const fork = view.get("[data-tree-trail='a1'] [data-tree-trail-switch]");
+        expect(fork.text()).toContain("1/2");
+        await fork.findAll("button")[1]!.trigger("click");
+        expect(view.findAll("[data-tree-trail]").map((row) => row.attributes("data-tree-trail"))).toEqual(["u1", "a1", "u3", "a3"]);
+        await view.get("[data-tree-activate]").trigger("click");
+        expect(view.emitted("activate")).toEqual([["u3"]]);
+    });
+
+    it("单线的键盘：选中分叉，左右换分支，选中留在分叉上", async () => {
+        const view = show();
+        await view.findAll("[data-tree-modes] button")[1]!.trigger("click");
+        await view.get("[data-tree-trail='a1']").trigger("click");
+        const body = view.get("[data-tree-body]");
+        await body.trigger("keydown", {key: "ArrowRight"});
+        expect(view.get("[data-tree-trail='a1'] [data-tree-trail-switch]").text()).toContain("2/2");
+        expect(view.get("[data-tree-trail='a1']").classes()).toContain("is-selected");
+        await body.trigger("keydown", {key: "ArrowLeft"});
+        expect(view.get("[data-tree-trail='a1'] [data-tree-trail-switch]").text()).toContain("1/2");
+        await body.trigger("keydown", {key: "ArrowDown"});
+        expect(view.get("[data-tree-trail='u2']").classes()).toContain("is-selected");
     });
 
     it("底部的节点 id 能复制", async () => {

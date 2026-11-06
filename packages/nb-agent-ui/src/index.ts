@@ -42,5 +42,5 @@ export type {KernelAnchor, KernelMeta, KernelPending, KernelQueued, KernelRun, K
 export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";
 export type {CatalogAccess, CatalogModelView, CatalogProviderView} from "./model-catalog";
-export {graphEdgePath, graphPosition, graphSize, SESSION_TREE_GRAPH_LIMIT, SESSION_TREE_NODE_SIZE, sessionTreeGraph, sessionTreeRows} from "./session-tree";
-export type {SessionTreeDirection, SessionTreeFilter, SessionTreeGraph, SessionTreeGraphNode, SessionTreeNodeKind, SessionTreeNodeView, SessionTreeRow, TreeGuide} from "./session-tree";
+export {graphEdgePath, graphPosition, graphSize, SESSION_TREE_GRAPH_LIMIT, SESSION_TREE_NODE_SIZE, sessionTreeGraph, sessionTreeRows, sessionTreeTrail} from "./session-tree";
+export type {SessionTreeDirection, SessionTreeFilter, SessionTreeGraph, SessionTreeGraphNode, SessionTreeNodeKind, SessionTreeNodeView, SessionTreeRow, SessionTreeTrailRow, TreeGuide} from "./session-tree";

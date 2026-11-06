@@ -25,6 +25,10 @@ export type SessionTreeRow = {
     label: string;
     /** 缩进线，一层一个。 */
     guides: TreeGuide[];
+    /** 每层缩进线属于哪条分支道，和 `guides` 一一对应，颜色按它取。 */
+    guideLanes: number[];
+    /** 这一行所在的分支道：当前路径是 0，和图用同一种算法。 */
+    lane: number;
     onPath: boolean;
     /** 当前路径的末端（显示的节点里最后一个）。 */
     current: boolean;
@@ -151,10 +155,12 @@ export function sessionTreeRows(input: {
     const rows: SessionTreeRow[] = [];
 
     /** `lead` 是这一行的缩进线，`rest` 是它后面的行（同一条线）接着用的。线性的孩子不缩进，只有分叉才进一层。 */
-    const stack: {item: Shown; lead: TreeGuide[]; rest: TreeGuide[]; branchHead: boolean}[] = [];
-    for (let index = roots.length - 1; index >= 0; index -= 1) stack.push({item: roots[index]!, lead: [], rest: [], branchHead: false});
+    let lanes = 0;
+    const stack: {item: Shown; lead: TreeGuide[]; rest: TreeGuide[]; leadLanes: number[]; restLanes: number[]; branchHead: boolean; lane: number}[] = [];
+    for (let index = roots.length - 1; index >= 0; index -= 1) stack.push({item: roots[index]!, lead: [], rest: [], leadLanes: [], restLanes: [], branchHead: false, lane: -1});
     while (stack.length > 0) {
-        const {item, lead, rest, branchHead} = stack.pop()!;
+        const {item, lead, rest, leadLanes, restLanes, branchHead, lane: given} = stack.pop()!;
+        const lane = given < 0 ? lanes++ : given;
         const hide = collapsed.has(item.node.id);
         rows.push({
             id: item.node.id,
@@ -162,6 +168,8 @@ export function sessionTreeRows(input: {
             type: item.node.type,
             label: item.node.label ?? item.node.type,
             guides: lead,
+            guideLanes: leadLanes,
+            lane,
             onPath: onPath.has(item.node.id),
             current: item.node.id === current,
             forks: item.children.length > 1 ? item.children.length : 0,
@@ -171,17 +179,71 @@ export function sessionTreeRows(input: {
         });
         if (hide) continue;
         if (item.children.length === 1) {
-            stack.push({item: item.children[0]!, lead: rest, rest, branchHead: false});
+            stack.push({item: item.children[0]!, lead: rest, rest, leadLanes: restLanes, restLanes, branchHead: false, lane});
             continue;
         }
-        // 反着压栈：第一个孩子先出来，整条分支走完才轮到下一个。
+        // 第一个孩子沿用这一道，别的孩子开新道。反着压栈：第一个孩子先出来，整条分支走完才轮到下一个。
+        const childLanes = item.children.map((_, index) => (index === 0 ? lane : lanes++));
         for (let index = item.children.length - 1; index >= 0; index -= 1) {
             const last = index === item.children.length - 1;
-            stack.push({item: item.children[index]!, lead: [...rest, last ? "end" : "branch"], rest: [...rest, last ? "space" : "line"], branchHead: true});
+            stack.push({
+                item: item.children[index]!,
+                lead: [...rest, last ? "end" : "branch"],
+                rest: [...rest, last ? "space" : "line"],
+                leadLanes: [...restLanes, childLanes[index]!],
+                restLanes: [...restLanes, childLanes[index]!],
+                branchHead: true,
+                lane: childLanes[index]!,
+            });
         }
     }
     if (query === "") return rows;
-    return rows.filter((row) => row.label.toLowerCase().includes(query)).map((row) => ({...row, guides: [], collapsible: false}));
+    return rows.filter((row) => row.label.toLowerCase().includes(query)).map((row) => ({...row, guides: [], guideLanes: [], collapsible: false}));
+}
+
+export type SessionTreeTrailRow = {
+    id: string;
+    kind: SessionTreeNodeKind;
+    label: string;
+    onPath: boolean;
+    current: boolean;
+    /** 分叉：孩子的 id，现在显示第几条（从 0 起）。 */
+    fork: {children: string[]; index: number} | null;
+};
+
+/**
+ * 单线视图：不缩进，一条路径从头走到尾；到分叉只走选的那条，别的分支不占行，左右切换。`choices` 是用户在分叉上选的孩子，
+ * 没选的走当前路径，当前路径也不经过的走第一条。
+ */
+export function sessionTreeTrail(input: {
+    nodes: readonly SessionTreeNodeView[];
+    activePath: readonly string[];
+    filter: SessionTreeFilter;
+    choices?: ReadonlyMap<string, string>;
+    query?: string;
+}): SessionTreeTrailRow[] {
+    const onPath = new Set(input.activePath);
+    const roots = buildShown(input.nodes, input.filter, onPath);
+    const current = currentOf(roots, onPath);
+    const rows: SessionTreeTrailRow[] = [];
+    let item: Shown | undefined = roots[0];
+    while (item !== undefined) {
+        const from: Shown = item;
+        const chosen = input.choices?.get(from.node.id);
+        // 孩子已经把当前路径排在最前，所以没选时第一个就是该走的。
+        const index = Math.max(from.children.findIndex((child) => child.node.id === chosen), 0);
+        rows.push({
+            id: from.node.id,
+            kind: from.kind,
+            label: from.node.label ?? from.node.type,
+            onPath: onPath.has(from.node.id),
+            current: from.node.id === current,
+            fork: from.children.length > 1 ? {children: from.children.map((child) => child.node.id), index} : null,
+        });
+        item = from.children[index];
+    }
+    const query = input.query?.trim().toLowerCase() ?? "";
+    return query === "" ? rows : rows.filter((row) => row.label.toLowerCase().includes(query));
 }
 
 export function sessionTreeGraph(input: {

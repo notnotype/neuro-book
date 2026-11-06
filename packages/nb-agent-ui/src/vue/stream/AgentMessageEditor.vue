@@ -78,7 +78,7 @@ onMounted(() => void nextTick(() => {
     gap: 8px;
     padding: 10px 12px;
     border: 1px solid var(--focus-outline);
-    border-radius: var(--radius-bubble, 10px);
+    border-radius: var(--nb-agent-bubble-radius);
     background: var(--bg-panel);
 }
 

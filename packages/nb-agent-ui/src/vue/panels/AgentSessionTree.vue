@@ -14,6 +14,7 @@ import {
     SESSION_TREE_NODE_SIZE,
     sessionTreeGraph,
     sessionTreeRows,
+    sessionTreeTrail,
 } from "../../session-tree";
 import type {SessionTreeDirection, SessionTreeFilter, SessionTreeGraphNode, SessionTreeNodeKind} from "../../session-tree";
 import type {SessionTreeView} from "../../types";
@@ -39,7 +40,7 @@ const KIND_ICONS: Record<SessionTreeNodeKind, string> = {
     other: "i-lucide-dot",
 };
 
-const mode = ref<"list" | "graph">("list");
+const mode = ref<"list" | "trail" | "graph">("list");
 const direction = ref<SessionTreeDirection>("down");
 const filter = ref<SessionTreeFilter>("default");
 const query = ref("");
@@ -48,7 +49,11 @@ const selected = ref<string | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
 
 const ready = computed(() => (props.tree.state === "ready" ? props.tree : null));
-const modes = computed(() => [{label: t("panel.tree.list"), value: "list"}, {label: t("panel.tree.graph"), value: "graph"}]);
+const modes = computed(() => [{label: t("panel.tree.list"), value: "list"}, {label: t("panel.tree.trail"), value: "trail"}, {label: t("panel.tree.graph"), value: "graph"}]);
+
+/** 每条分支一种颜色，当前路径（0）是强调色；分支多于颜色时循环。 */
+const LANE_COLORS = ["var(--accent-main)", "var(--status-success)", "var(--status-warning)", "var(--status-danger)"];
+const laneColor = (lane: number): string => LANE_COLORS[lane % LANE_COLORS.length]!;
 const filters = computed(() => (["default", "no-tools", "user", "all"] as const).map((value) => ({label: t(`panel.tree.filter.${value}`), value})));
 
 const rows = computed(() => (ready.value === null ? [] : sessionTreeRows({nodes: ready.value.nodes, activePath: ready.value.activePath, filter: filter.value, query: query.value, collapsed: collapsed.value})));
@@ -59,6 +64,17 @@ const forkCount = computed(() => {
     return [...seen.values()].filter((count) => count > 1).length;
 });
 
+/** 单线视图里各分叉选的孩子。选了之后选中跟过去，底部的按钮就是切到这条。 */
+const choices = ref(new Map<string, string>());
+const trail = computed(() => (ready.value === null || mode.value !== "trail" ? [] : sessionTreeTrail({nodes: ready.value.nodes, activePath: ready.value.activePath, filter: filter.value, choices: choices.value, query: query.value})));
+
+function chooseFork(id: string, children: readonly string[], index: number): void {
+    const child = children[index];
+    if (child === undefined) return;
+    choices.value = new Map(choices.value).set(id, child);
+    selected.value = child;
+}
+
 const graph = computed(() => (ready.value === null || mode.value !== "graph" ? null : sessionTreeGraph({nodes: ready.value.nodes, activePath: ready.value.activePath, filter: filter.value, query: query.value})));
 const tooLarge = computed(() => graph.value !== null && graph.value.nodes.length > SESSION_TREE_GRAPH_LIMIT);
 const graphNodes = computed(() => new Map((graph.value?.nodes ?? []).map((node) => [node.id, node])));
@@ -67,7 +83,7 @@ const canvas = computed(() => (graph.value === null ? {width: 0, height: 0} : gr
 const edges = computed(() => (graph.value?.edges ?? []).flatMap((edge) => {
     const from = graphNodes.value.get(edge.from);
     const to = graphNodes.value.get(edge.to);
-    return from === undefined || to === undefined ? [] : [{key: `${edge.from}>${edge.to}`, path: graphEdgePath(from, to, direction.value), onPath: edge.onPath}];
+    return from === undefined || to === undefined ? [] : [{key: `${edge.from}>${edge.to}`, path: graphEdgePath(from, to, direction.value), onPath: edge.onPath, color: laneColor(to.lane)}];
 }));
 
 /** 从根到选中节点的路径：分叉上写走到第几条时按它算，切分支前先看得到要切去哪。 */
@@ -137,7 +153,28 @@ function moveInGraph(along: number, across: number): void {
 
 function onKeydown(event: KeyboardEvent): void {
     const down = direction.value === "down";
-    const keys: Record<string, () => void> = mode.value === "list"
+    const selectedFork = trail.value.find((row) => row.id === selected.value)?.fork ?? null;
+    const moveInTrail = (step: number): void => {
+        const at = trail.value.findIndex((row) => row.id === selected.value);
+        const next = trail.value[at < 0 ? 0 : at + step];
+        if (next !== undefined) selected.value = next.id;
+    };
+    /** 单线的左右换分支，选中留在分叉这一行，接着按还能再换。 */
+    const switchTrail = (step: number): void => {
+        const id = selected.value;
+        if (id === null || selectedFork === null) return;
+        chooseFork(id, selectedFork.children, selectedFork.index + step);
+        selected.value = id;
+    };
+    const keys: Record<string, () => void> = mode.value === "trail"
+        ? {
+            ArrowDown: () => moveInTrail(1),
+            ArrowUp: () => moveInTrail(-1),
+            ArrowLeft: () => switchTrail(-1),
+            ArrowRight: () => switchTrail(1),
+            Enter: activate,
+        }
+        : mode.value === "list"
         ? {
             ArrowDown: () => moveInList(1),
             ArrowUp: () => moveInList(-1),
@@ -209,30 +246,56 @@ watch(selected, () => {
                         @click="selected = row.id"
                         @dblclick="activate"
                     >
-                        <span v-for="(guide, index) in row.guides" :key="index" class="acv-tree__guide" :data-kind="guide" />
+                        <span v-for="(guide, index) in row.guides" :key="index" class="acv-tree__guide" :data-kind="guide" :style="{'--acv-lane': laneColor(row.guideLanes[index] ?? 0)}" />
                         <button v-if="row.collapsible" type="button" class="acv-tree__fold" :aria-label="t(row.collapsed ? 'panel.tree.expand' : 'panel.tree.collapse')" data-tree-fold @click.stop="toggle(row.id)">
                             <span :class="row.collapsed ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" aria-hidden="true" />
                         </button>
                         <!-- 分支里没有折叠箭头的行留出同样的宽度，图标才对得齐。 -->
                         <span v-else-if="row.guides.length > 0" class="acv-tree__fold" aria-hidden="true" />
-                        <span :class="KIND_ICONS[row.kind]" class="acv-tree__icon" aria-hidden="true" />
+                        <span :class="KIND_ICONS[row.kind]" class="acv-tree__icon" :data-kind="row.kind" aria-hidden="true" />
                         <span class="acv-tree__label">{{ row.label }}</span>
                         <span v-if="row.forks > 0" class="acv-tree__tag" data-tree-fork>{{ t("panel.tree.fork", {count: row.forks}) }}</span>
                         <span v-if="row.collapsed" class="acv-tree__tag">{{ t("panel.tree.hidden", {count: row.hidden}) }}</span>
                         <span v-if="row.current" class="acv-tree__tag is-accent">{{ t("panel.tree.current") }}</span>
                     </div>
                 </template>
+                <template v-else-if="mode === 'trail'">
+                    <p v-if="trail.length === 0" class="acv-tree__state">{{ t("panel.tree.empty") }}</p>
+                    <div
+                        v-for="row in trail"
+                        :key="row.id"
+                        class="acv-tree__row"
+                        :class="{'is-on': row.onPath, 'is-off': !row.onPath, 'is-current': row.current, 'is-selected': row.id === selected}"
+                        role="treeitem"
+                        :aria-selected="row.id === selected"
+                        :data-tree-trail="row.id"
+                        :data-tree-current="row.current ? '' : undefined"
+                        :data-tree-selected="row.id === selected ? '' : undefined"
+                        @click="selected = row.id"
+                        @dblclick="activate"
+                    >
+                        <span class="acv-tree__rail" />
+                        <span :class="KIND_ICONS[row.kind]" class="acv-tree__icon" :data-kind="row.kind" aria-hidden="true" />
+                        <span class="acv-tree__label">{{ row.label }}</span>
+                        <span v-if="row.fork !== null" class="acv-tree__trail-switch" data-tree-trail-switch>
+                            <button type="button" :aria-label="t('panel.tree.previous')" :disabled="row.fork.index === 0" @click.stop="chooseFork(row.id, row.fork.children, row.fork.index - 1)"><span class="i-lucide-chevron-left" aria-hidden="true" /></button>
+                            <span class="i-lucide-git-branch" aria-hidden="true" />{{ row.fork.index + 1 }}/{{ row.fork.children.length }}
+                            <button type="button" :aria-label="t('panel.tree.next')" :disabled="row.fork.index === row.fork.children.length - 1" @click.stop="chooseFork(row.id, row.fork.children, row.fork.index + 1)"><span class="i-lucide-chevron-right" aria-hidden="true" /></button>
+                        </span>
+                        <span v-if="row.current" class="acv-tree__tag is-accent">{{ t("panel.tree.current") }}</span>
+                    </div>
+                </template>
                 <p v-else-if="tooLarge" class="acv-tree__state" data-tree-too-large>{{ t("panel.tree.tooLarge", {limit: SESSION_TREE_GRAPH_LIMIT}) }}</p>
                 <div v-else-if="graph !== null" class="acv-tree__canvas" :style="{width: `${canvas.width}px`, height: `${canvas.height}px`}" data-tree-canvas :data-direction="direction">
                     <svg class="acv-tree__edges" :width="canvas.width" :height="canvas.height" aria-hidden="true">
-                        <path v-for="edge in edges" :key="edge.key" :d="edge.path" class="acv-tree__edge" :class="{'is-on': edge.onPath}" />
+                        <path v-for="edge in edges" :key="edge.key" :d="edge.path" class="acv-tree__edge" :class="{'is-on': edge.onPath}" :style="{stroke: edge.color}" />
                     </svg>
                     <div
                         v-for="node in graph.nodes"
                         :key="node.id"
                         class="acv-tree__node"
                         :class="{'is-on': node.onPath, 'is-current': node.current, 'is-selected': node.id === selected}"
-                        :style="{left: `${graphPosition(node, direction).x}px`, top: `${graphPosition(node, direction).y}px`, width: `${SESSION_TREE_NODE_SIZE.width}px`, height: `${SESSION_TREE_NODE_SIZE.height}px`}"
+                        :style="{left: `${graphPosition(node, direction).x}px`, top: `${graphPosition(node, direction).y}px`, width: `${SESSION_TREE_NODE_SIZE.width}px`, height: `${SESSION_TREE_NODE_SIZE.height}px`, '--acv-lane': laneColor(node.lane)}"
                         role="treeitem"
                         :aria-selected="node.id === selected"
                         :title="node.label"
@@ -242,7 +305,7 @@ watch(selected, () => {
                         @click="selected = node.id"
                         @dblclick="activate"
                     >
-                        <span :class="KIND_ICONS[node.kind]" class="acv-tree__icon" aria-hidden="true" />
+                        <span :class="KIND_ICONS[node.kind]" class="acv-tree__icon" :data-kind="node.kind" aria-hidden="true" />
                         <span class="acv-tree__label">{{ node.label }}</span>
                         <span v-if="node.fork !== null" class="acv-tree__switch" data-tree-switch>
                             <button type="button" :aria-label="t('panel.tree.previous')" :disabled="forkIndex(node) === 0" @click.stop="switchFork(node, -1)"><span class="i-lucide-chevron-left" aria-hidden="true" /></button>
@@ -314,7 +377,7 @@ watch(selected, () => {
 }
 
 .acv-tree__modes {
-    width: 112px;
+    width: 156px;
     flex: none;
 }
 
@@ -383,8 +446,8 @@ watch(selected, () => {
     top: 0;
     bottom: 0;
     left: 8px;
-    width: 1px;
-    background: var(--border-color);
+    width: 2px;
+    background: var(--acv-lane);
     content: "";
 }
 
@@ -402,8 +465,8 @@ watch(selected, () => {
     top: 50%;
     right: 0;
     left: 8px;
-    height: 1px;
-    background: var(--border-color);
+    height: 2px;
+    background: var(--acv-lane);
     content: "";
 }
 
@@ -418,6 +481,58 @@ watch(selected, () => {
     width: 13px;
     height: 13px;
     flex: none;
+}
+
+/* 说话的人一眼分得开；不在当前路径的整行暗下去，颜色也跟着淡。 */
+.acv-tree__icon[data-kind="user"] {
+    color: var(--accent-text);
+}
+
+.acv-tree__icon[data-kind="assistant"] {
+    color: var(--status-success);
+}
+
+.acv-tree__icon[data-kind="tool"] {
+    color: var(--status-warning);
+}
+
+.acv-tree__row:not(.is-on) .acv-tree__icon,
+.acv-tree__node:not(.is-on) .acv-tree__icon {
+    opacity: 0.65;
+}
+
+.acv-tree__rail {
+    width: 2px;
+    height: 28px;
+    flex: none;
+    background: var(--accent-main);
+}
+
+.acv-tree__row.is-off .acv-tree__rail {
+    background: var(--status-warning);
+}
+
+.acv-tree__trail-switch {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    padding: 0 3px;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--accent-main) 14%, transparent);
+    color: var(--accent-text);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-strong);
+}
+
+.acv-tree__trail-switch button {
+    display: inline-flex;
+    color: inherit;
+}
+
+.acv-tree__trail-switch button:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
 }
 
 .acv-tree__label {
@@ -456,13 +571,13 @@ watch(selected, () => {
 
 .acv-tree__edge {
     fill: none;
-    stroke: var(--border-color);
-    stroke-width: 1.5;
+    stroke-opacity: 0.7;
+    stroke-width: 2;
 }
 
 .acv-tree__edge.is-on {
-    stroke: var(--accent-main);
-    stroke-width: 2;
+    stroke-opacity: 1;
+    stroke-width: 2.5;
 }
 
 .acv-tree__node {
@@ -471,7 +586,7 @@ watch(selected, () => {
     align-items: center;
     gap: 4px;
     padding: 0 6px;
-    border: 1px solid var(--border-color);
+    border: 1px solid color-mix(in srgb, var(--acv-lane) 55%, transparent);
     border-radius: var(--radius-control);
     background: var(--bg-panel);
     color: var(--text-muted);
@@ -482,6 +597,10 @@ watch(selected, () => {
 .acv-tree__node.is-on {
     border-color: var(--accent-main);
     color: var(--text-main);
+}
+
+.acv-tree__row.is-off {
+    color: var(--text-secondary);
 }
 
 .acv-tree__node.is-current {
