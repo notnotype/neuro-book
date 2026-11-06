@@ -16,18 +16,30 @@ section { margin-bottom: 32px; }
 <body>
 <h1>对话界面第二批</h1>
 
-<section data-nbdev-question="s6-tree-group" data-nbdev-type="confirm">
-<h2>分支树：分组与高亮 <span class="badge" data-nbdev-skip>待定</span></h2>
-<p>上一稿只靠线条，看不出有没有分支。这一稿：标题旁写“2 处分叉”；当前路径左边一条强调色的竖线；分叉处写“从这里分成 3 条”，每条分支一个框，当前的框高亮并标“当前路径”，别的框有“切换”；你所在的那行写“你在这里”。</p>
-<figure><img src="r4/tree.webp" alt="分组的分支树" width="620"></figure>
+<section data-nbdev-question="s8-tree-lines" data-nbdev-type="confirm">
+<h2>分支树：线条树的优化 <span class="badge" data-nbdev-skip>待定</span></h2>
+<p>回到第 3 轮的线条树，不用框。上一稿看不出分支，这样改：当前路径的线条是强调色、别的线条灰但加粗；有分叉的那行右边一个醒目的“3 条分支”；当前路径的字亮、别的分支暗；你所在的那行有底色和“当前”。标题旁仍写“2 处分叉”。选中一行有描边，底部显示它和“切换到这条分支”。</p>
+<figure><img src="r5/tree.webp" alt="线条树" width="620"></figure>
 <p><strong>这样可以吗？</strong></p>
 </section>
 
-<section data-nbdev-question="s7-tree-path" data-nbdev-type="confirm">
-<h2>分支树：横向模式 <span class="badge" data-nbdev-skip>待定</span></h2>
+<section data-nbdev-question="s9-tree-horizontal" data-nbdev-type="confirm">
+<h2>分支树：横向 <span class="badge" data-nbdev-skip>待定</span></h2>
+<p>同一棵树横过来：时间从左到右，分支上下分道，线条和高亮的规则与纵向一样。分叉节点上方有“‹ 1 / 3 ›”，点一下把高亮的路径换到另一条分支（和点那条分支上的节点效果相同），底部的“切换到这条分支”才真的切过去。放不下时横竖都能滚，打开时滚到当前位置。搜索和过滤两种模式共用。</p>
+<figure><img src="r5/horizontal.webp" alt="横向的树" width="620"></figure>
+<p><strong>这样可以吗？</strong></p>
+</section>
+
+<section>
+<h3>分支树：分组的框（不要）</h3>
+<p>上一稿只靠线条，看不出有没有分支。这一稿：标题旁写“2 处分叉”；当前路径左边一条强调色的竖线；分叉处写“从这里分成 3 条”，每条分支一个框，当前的框高亮并标“当前路径”，别的框有“切换”；你所在的那行写“你在这里”。</p>
+<figure><img src="r4/tree.webp" alt="分组的分支树" width="620"></figure>
+</section>
+
+<section>
+<h3>分支树：一张张卡片的横向（不要）</h3>
 <p>你提的“横向展示、分支点左右调整”，好做，数据和树一样。右上角“树 / 横向”切换。当前路径从左到右一张张卡片，工具调用并进前面那张；分叉的卡片上有“‹ 1 / 3 ›”，点一下这张和后面的都换成那条分支。这时只是预览，点“切换到这条路径”才真的切过去，关掉就放弃：切换会改变接下来发送时的对话历史，不能一点就生效。键盘：左右在卡片之间走，在分叉上按 ‹ › 换分支。放不下时横向滚动，打开时滚到当前位置。</p>
 <figure><img src="r4/path.webp" alt="横向模式" width="620"></figure>
-<p><strong>这样可以吗？</strong>不可以的话写上你想象的样子。</p>
 </section>
 
 <section>
