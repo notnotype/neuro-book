@@ -244,7 +244,7 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比�
     await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page, "/?project=book");
     // 放慢入场令牌：动画停在起点读矩形，不依赖时序。（Vue 的 scoped 样式会给关键帧名加哈希后缀，所以按前缀找动画。）
-    await page.addStyleTag({content: ":root { --motion-enter: 4000ms !important; }"});
+    await page.addStyleTag({content: ":root { --motion-layout: 4000ms !important; --motion-enter: 3000ms !important; }"});
     const gear = await workbenchGear(page).boundingBox();
     if (gear === null) throw new Error("活动栏的设置齿轮不可见");
     const gearCenter = {x: gear.x + gear.width / 2, y: gear.y + gear.height / 2};
@@ -266,7 +266,24 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比�
     const distance = (point: {x: number; y: number}): number => Math.hypot(point.x - gearCenter.x, point.y - gearCenter.y);
     expect(run.duration).toBe(4000);
     expect(distance(run.start)).toBeLessThan(distance(run.end));
-    expect(run.start.width).toBeLessThan(run.end.width);
+    expect(run.start.width).toBeLessThan(run.end.width * 0.5);
+
+    // 关闭：朝齿轮收回去，时长看得出来。
+    await page.keyboard.press("Escape");
+    const leaving = await settingsSurface(page).evaluate((surface) => {
+        const animation = surface.getAnimations().find((candidate) => (candidate as CSSAnimation).animationName.startsWith("nb-dialog-out"));
+        if (animation === undefined) throw new Error("退场动画不存在");
+        const duration = animation.effect?.getTiming().duration;
+        animation.pause();
+        animation.currentTime = Number(duration) - 1;
+        const rect = surface.getBoundingClientRect();
+        animation.finish();
+        return {duration, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width};
+    });
+    expect(leaving.duration).toBe(3000);
+    expect(distance(leaving)).toBeLessThan(distance(run.end));
+    expect(leaving.width).toBeLessThan(run.end.width * 0.5);
+    await expect(settingsSurface(page)).toHaveCount(0);
 
     // 减少动态效果：重新载入（放慢令牌的样式随页面丢掉），第一帧就是终点。
     await page.emulateMedia({reducedMotion: "reduce"});

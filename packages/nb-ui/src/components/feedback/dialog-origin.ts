@@ -14,12 +14,10 @@ export type DialogOffset = {readonly x: number; readonly y: number};
 
 /** 按下之后多久内打开的对话框算这次按下触发的；再晚就是别的事（比如定时器、异步请求回来）打开的。 */
 export const ORIGIN_POINTER_WINDOW_MS = 600;
-/** 入场只朝触发点偏“面中心到触发点”这段距离的这一成：只给方向感，不飞过去。 */
-export const ORIGIN_OFFSET_RATIO = 0.18;
-/** 每个轴的最大位移（px）：触发点离得再远，偏的也不超过这个数，频繁打开时不烦。 */
-export const ORIGIN_OFFSET_LIMIT = 64;
+/** 入场起点的中心离触发点还差多少：起点的中心几乎就在触发点上，面看得出是从那里长出来的（开发者 2026-11-06 试过 18% 加 64px 上限，太小）。 */
+export const ORIGIN_OFFSET_RATIO = 0.85;
 /** 有来处时的起始缩放；没有来处用 DialogSurface 里的 0.96。 */
-export const ORIGIN_FROM_SCALE = 0.9;
+export const ORIGIN_FROM_SCALE = 0.3;
 
 /** 焦点落在这些元素上时，键盘触发的打开从它们的中心展开。 */
 const TRIGGER_SELECTOR = "button, [role=\"button\"], [role^=\"menuitem\"], a";
@@ -58,17 +56,11 @@ export function captureDialogOrigin(now: number = performance.now()): DialogOrig
     return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
 }
 
-/** 面的矩形（视口坐标）和触发点算出入场起点相对终点的位移：从面中心指向触发点，取这段距离的一成多，每个轴钳到上限。 */
+/** 面的矩形（视口坐标）和触发点算出入场起点相对终点的位移：从面中心指向触发点。 */
 export function dialogOriginOffset(panelRect: {left: number; top: number; width: number; height: number}, origin: DialogOrigin | null): DialogOffset {
     if (origin === null) return {x: 0, y: 0};
-    const towardX = origin.x - (panelRect.left + panelRect.width / 2);
-    const towardY = origin.y - (panelRect.top + panelRect.height / 2);
-    return {x: clampAxis(towardX * ORIGIN_OFFSET_RATIO), y: clampAxis(towardY * ORIGIN_OFFSET_RATIO)};
-}
-
-function clampAxis(value: number): number {
     // `+ 0` 把 -0 变成 0，免得测试与调试输出里出现 "-0px"
-    return Math.min(Math.max(value, -ORIGIN_OFFSET_LIMIT), ORIGIN_OFFSET_LIMIT) + 0;
+    return {x: (origin.x - (panelRect.left + panelRect.width / 2)) * ORIGIN_OFFSET_RATIO + 0, y: (origin.y - (panelRect.top + panelRect.height / 2)) * ORIGIN_OFFSET_RATIO + 0};
 }
 
 export type DialogOriginOptions = {
@@ -81,12 +73,12 @@ export type DialogOriginOptions = {
 };
 
 /**
- * 把触发点接到面板的入场动画上，返回要合进面板 `style` 的 CSS 变量（`--nb-dialog-from-x/y/scale`、`--nb-dialog-enter-duration`）。
+ * 把触发点接到面板的入场动画上，返回要合进面板 `style` 的 CSS 变量（`--nb-dialog-from-x/y/scale` 与入场、退场的时长和曲线）。
  *
  * 时序：触发点在 `open` 变 true 的那次更新里取（`pre` 刷新，早于 reka 把焦点移进面板）；位移在面板挂好、位置定下来的
  * `post` 刷新里量一次，随后的那次渲染把变量写上。这几步都在同一个微任务队列里，先于浏览器的第一帧绘制，看不到跳动。
  * 量的时候入场动画才刚开始，缩放围绕面板中心，所以矩形的中心就是终点的中心；位移只在这里量一次，关闭沿用同一组变量，
- * 窗口被拖动后也不重量（收回的方向仍朝向当初的触发点，只有一小段，看不出差别）。
+ * 窗口被拖动后也不重量（收回时起点是窗口现在的位置，终点差出拖动的距离，飞行中看不出来）。
  */
 export function useDialogOrigin(options: DialogOriginOptions): {style: ComputedRef<Record<string, string>>} {
     trackDialogOrigin();
@@ -110,7 +102,9 @@ export function useDialogOrigin(options: DialogOriginOptions): {style: ComputedR
             "--nb-dialog-from-x": `${String(offset.value.x)}px`,
             "--nb-dialog-from-y": `${String(offset.value.y)}px`,
             "--nb-dialog-from-scale": String(ORIGIN_FROM_SCALE),
-            "--nb-dialog-enter-duration": "var(--motion-enter)",
+            "--nb-dialog-enter-duration": "var(--motion-layout)",
+            "--nb-dialog-enter-ease": "var(--ease-layout)",
+            "--nb-dialog-leave-duration": "var(--motion-enter)",
         };
     });
     return {style};

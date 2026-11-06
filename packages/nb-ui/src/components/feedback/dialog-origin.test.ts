@@ -4,7 +4,6 @@
 import {afterEach, describe, expect, it} from "vitest";
 
 import {
-    ORIGIN_OFFSET_LIMIT,
     ORIGIN_POINTER_WINDOW_MS,
     captureDialogOrigin,
     dialogOriginOffset,
@@ -24,10 +23,9 @@ describe("dialogOriginOffset", () => {
     it.each([
         {name: "没有触发点时不偏", origin: null, expected: {x: 0, y: 0}},
         {name: "触发点就在中心时不偏", origin: {x: 500, y: 300}, expected: {x: 0, y: 0}},
-        {name: "朝触发点偏一成多的距离（左上）", origin: {x: 400, y: 250}, expected: {x: -18, y: -9}},
-        {name: "朝触发点偏一成多的距离（右下）", origin: {x: 600, y: 350}, expected: {x: 18, y: 9}},
-        {name: "触发点很远时每个轴钳到上限", origin: {x: -5000, y: 5000}, expected: {x: -ORIGIN_OFFSET_LIMIT, y: ORIGIN_OFFSET_LIMIT}},
-        {name: "只有一个轴超限时另一个轴照常", origin: {x: 500, y: -2000}, expected: {x: 0, y: -ORIGIN_OFFSET_LIMIT}},
+        {name: "朝触发点（左上）", origin: {x: 400, y: 250}, expected: {x: -85, y: -42.5}},
+        {name: "朝触发点（右下）", origin: {x: 600, y: 350}, expected: {x: 85, y: 42.5}},
+        {name: "触发点很远也不设上限：面看得出从那里长出来", origin: {x: -500, y: 300}, expected: {x: -850, y: 0}},
     ])("$name", ({origin, expected}) => {
         expect(dialogOriginOffset(panel, origin)).toEqual(expected);
     });

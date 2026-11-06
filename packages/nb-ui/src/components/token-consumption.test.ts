@@ -43,7 +43,7 @@ const HOST_HOOK_VARS = new Map<string, string>([
 ]);
 
 /** reka 在运行时写到元素上的尺寸、Tailwind 自己的内部变量，以及对话框入场的起点（useDialogOrigin 打开时量了写到面上）。 */
-const RUNTIME_VAR_PREFIXES = ["--reka-", "--tw-", "--nb-dialog-from-", "--nb-dialog-enter-"];
+const RUNTIME_VAR_PREFIXES = ["--reka-", "--tw-", "--nb-dialog-from-", "--nb-dialog-enter-", "--nb-dialog-leave-"];
 
 const RULES = styleTokenRules({typographyTokens: nbTypographyTokens});
 

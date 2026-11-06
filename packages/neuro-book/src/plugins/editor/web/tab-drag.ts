@@ -166,10 +166,12 @@ function contentDrop(root: HTMLElement, groupElement: HTMLElement, content: HTML
     // 源组只有这一个标签：拆它自己拆不出东西；它已经紧贴这条边时，放下去还是现在的样子。
     const source = group === dragged.group ? groupElement : root.querySelector<HTMLElement>(`[data-editor-group="${CSS.escape(dragged.group)}"]`);
     const lone = source !== null && source.querySelectorAll("[data-editor-tab]").length === 1;
-    const alone = lone && (group === dragged.group || sitsAtEdge(groupRect, rectOf(source), zone));
+    const stays = lone && group !== dragged.group && sitsAtEdge(groupRect, rectOf(source), zone);
+    const alone = lone && (group === dragged.group || stays);
     return {
         action: alone ? null : {kind: "split", tabId: dragged.tabId, group, edge: zone},
-        preview: {areaRect: half, entryRect: null, indicator: null, orientation: zone === "left" || zone === "right" ? "horizontal" : "vertical", armed: !alone},
+        // 指示画真实结果：紧贴这条边的组放下去还在原处，亮它自己，不亮目标的半边（看着像要拆分）。
+        preview: {areaRect: stays ? rectOf(source) : half, entryRect: null, indicator: null, orientation: zone === "left" || zone === "right" ? "horizontal" : "vertical", armed: !alone},
         label: alone ? "keep" : `split-${zone}`,
     };
 }

@@ -21,11 +21,11 @@
 - `data-dialog-surface`、`data-dialog-window`（窗口时）、`data-dialog-drag`（标题栏，窗口时）、`data-dialog-body`、`data-dialog-status`、`data-dialog-status-error`；
 - `.nb-dialog`、`.nb-dialog__header`、`.nb-dialog__body`、`.nb-dialog__corner-close`、`.nb-ui-dialog-surface--window`、`.nb-ui-dialog-surface--nested`；
 - CSS 变量 `--nb-dialog-close-room`（没有标题栏时角上关闭按钮占的见方，宿主的正文按它让位）；
-- CSS 变量 `--nb-dialog-from-x`、`--nb-dialog-from-y`、`--nb-dialog-from-scale`、`--nb-dialog-enter-duration`：入场与关闭动画的起点，由宿主经 `style` 写进来（见下一节），没写就是原地缩放淡入。
+- CSS 变量 `--nb-dialog-from-x`、`--nb-dialog-from-y`、`--nb-dialog-from-scale`、`--nb-dialog-enter-duration`、`--nb-dialog-enter-ease`、`--nb-dialog-leave-duration`：入场与关闭动画的起点，由宿主经 `style` 写进来（见下一节），没写就是原地缩放淡入。
 
 ## 入场与关闭
 
-用关键帧而不是过渡：reka 关闭时等的是 `animationend`，过渡来不及播就被卸掉了。起点读上面那几个变量：有来处时（用户点按钮、菜单项打开）朝来处偏一小段并放大（起始缩放 0.9，时长 `--motion-enter`），没有来处时（快捷键、命令面板、程序打开）原地缩放（0.96，`--motion-base`）。关闭沿用同一组变量，朝同一方向收回。系统要求减少动态效果时时长令牌是 0，动画不播，第一帧就是终点。变量怎么算见 [`Dialog.md`](Dialog.md) 的“从触发点展开”。
+用关键帧而不是过渡：reka 关闭时等的是 `animationend`，过渡来不及播就被卸掉了。起点读上面那几个变量：有来处时（用户点按钮、菜单项打开）从来处长出来（起始缩放 0.3，入场 `--motion-layout`、退场 `--motion-enter`），没有来处时（快捷键、命令面板、程序打开）原地缩放（0.96，入场 `--motion-base`、退场 `--motion-fast`）。关闭沿用同一组起点变量，收回去。系统要求减少动态效果时时长令牌是 0，动画不播，第一帧就是终点。变量怎么算见 [`Dialog.md`](Dialog.md) 的“从触发点展开”。
 
 `defineExpose({panel})`：外框元素，宿主用它做初始焦点、窗口拖动与“遮罩下是不是最上层”的判断。
 

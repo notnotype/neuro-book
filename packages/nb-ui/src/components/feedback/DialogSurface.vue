@@ -206,18 +206,17 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
 }
 
 /*
- * 入场：有来处的（用户点按钮或菜单项打开的）朝来处偏一小段并放大，没有来处的（快捷键、命令面板、程序打开）原地缩放淡入。
- * 偏移与起始缩放由宿主经 `--nb-dialog-from-x/y/scale` 写在面板上（useDialogOrigin，规则见 dialog-origin.ts），没写就是原地；
- * 有来处时入场用 `--motion-enter`（由 `--nb-dialog-enter-duration` 带进来），否则 `--motion-base`。关闭沿用同一组变量，朝同一方向收回。
- * 系统要求减少动态效果时这些时长令牌都是 0，动画不播，第一帧就是终点。
+ * 入场：有来处的（用户点按钮或菜单项打开的）从来处长出来，关闭时收回去；没有来处的（快捷键、命令面板、程序打开）原地缩放淡入。
+ * 起点、时长与曲线由宿主经 `--nb-dialog-from-x/y/scale`、`--nb-dialog-enter-*`、`--nb-dialog-leave-*` 写在面板上（useDialogOrigin，规则见
+ * dialog-origin.ts），没写就是原地。系统要求减少动态效果时这些时长令牌都是 0，动画不播，第一帧就是终点。
  * 用关键帧而不是过渡：reka 关闭时等的是 animationend，过渡来不及播就被卸掉了。
  */
 .nb-dialog[data-state="open"] {
-    animation: nb-dialog-in var(--nb-dialog-enter-duration, var(--motion-base)) var(--ease-standard);
+    animation: nb-dialog-in var(--nb-dialog-enter-duration, var(--motion-base)) var(--nb-dialog-enter-ease, var(--ease-standard));
 }
 
 .nb-dialog[data-state="closed"] {
-    animation: nb-dialog-out var(--motion-fast) var(--ease-standard) forwards;
+    animation: nb-dialog-out var(--nb-dialog-leave-duration, var(--motion-fast)) var(--ease-standard) forwards;
 }
 
 @keyframes nb-dialog-in {

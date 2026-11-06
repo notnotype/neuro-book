@@ -503,9 +503,15 @@ test("只有一个标签的组拖到紧贴它的那条边：放下去还是现�
         await page.mouse.move(to.x, to.y, {steps: 8});
     };
 
-    // 右组唯一的标签拖到左组的右边：落点写“原位”，松手什么都不变。
+    // 右组唯一的标签拖到左组的右边：落点写“原位”，亮的是右组自己，不是左组的半边；松手什么都不变。
     await dragRightTabTo(await edgeOf(0, "right"));
     await expect(page.locator("[data-drop-feedback-label]")).toHaveText("原位");
+    const rightGroup = await groups.nth(1).boundingBox();
+    // 高亮比组内缩一点；它在右组里、差不多和右组一样宽，不是左组的半边。
+    await expect.poll(async () => {
+        const area = await page.locator("[data-drop-feedback-area]").boundingBox();
+        return area !== null && rightGroup !== null && area.x >= rightGroup.x && area.x + area.width <= rightGroup.x + rightGroup.width && area.width > rightGroup.width * 0.9;
+    }).toBe(true);
     await page.mouse.up();
     expect(await moving.count()).toBe(0);
     expect(await idsOf()).toEqual(before);

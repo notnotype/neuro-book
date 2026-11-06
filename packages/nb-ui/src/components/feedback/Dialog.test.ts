@@ -270,7 +270,7 @@ describe("Dialog（模态）", () => {
         it("点按钮打开时面朝按下的位置偏一小段，起始缩放更小", async () => {
             track(mount(Host, {attachTo: document.body}));
             const opener = query<HTMLButtonElement>("[data-opener]");
-            // happy-dom 不排版，面的矩形是零，中心在 (0, 0)：触发点在 (200, -300) 时位移是它的一成多
+            // happy-dom 不排版，面的矩形是零，中心在 (0, 0)：触发点在 (200, -300)
             opener.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 200, clientY: -300}));
             opener.click();
             await flushPromises();
