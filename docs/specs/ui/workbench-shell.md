@@ -149,7 +149,7 @@ Workbench（每个窗口一个；nbook.workbench 浏览器入口激活时建立�
       |---|---|---|
       | 文件 | 打开项目（`nbook.project.open`）｜保存、全部保存、还原为磁盘版本（`nbook.editor.save`、`save-all`、`revert`）｜关闭编辑器、关闭其它编辑器（`nbook.editor.close`、`close-others`） | 作品、编辑器 |
       | 编辑 | 撤销、重做（`nbook.edit.undo`、`redo`） | 编辑器 |
-      | 视图 | 命令面板（`nbook.quick-open.open-commands`）｜侧栏、右栏、活动栏（`nbook.view.set-part-hidden {part}`，勾选）、面板（`nbook.view.set-panel-hidden`，勾选）、面板位置（`set-panel-position`）、最大化面板（`toggle-panel-maximized`）｜向右拆分、向下拆分、用其它编辑器重新打开（`nbook.editor.split-right`、`split-down`、`reopen-with`）｜切换主题、明暗、界面语言（`nbook.settings.switch-theme`、`switch-appearance`、`switch-locale`）｜重新载入（`nbook.app.reload`） | 工作台、编辑器、设置 |
+      | 视图 | 命令面板（`nbook.quick-open.open-commands`）｜侧栏、右栏、活动栏（`nbook.view.set-part-hidden {part}`，勾选）、面板（`nbook.view.set-panel-hidden`，勾选）、面板位置（`set-panel-position`）、最大化面板（`toggle-panel-maximized`）｜向右拆分、向下拆分、用其它编辑器重新打开（`nbook.editor.split-right`、`split-down`、`reopen-with`）、显示编辑器工具栏（`nbook.view.toggle-editor-toolbar`，勾选）｜切换主题、明暗、界面语言（`nbook.settings.switch-theme`、`switch-appearance`、`switch-locale`）｜重新载入（`nbook.app.reload`） | 工作台、编辑器、设置 |
       | 帮助 | 欢迎（`nbook.help.welcome`）、文档（`nbook.help.documentation`） | 作品、工作台 |
 
     - 节名：文件 `1_open`、`2_save`、`3_close`；编辑 `1_undo`；视图 `1_palette`、`2_layout`、`3_editor`、`4_appearance`、`5_reload`；帮助 `1_help`（上表里以“｜”分开的就是这些节）。别的插件的条目写同样的节名就排进同一节，写别的名字就按名字另起一节。
