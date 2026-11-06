@@ -43,7 +43,7 @@ updated: 2026-11-05
 已合入 master。计划：[plan.md](plan.md)；设计审查 16 条（[处理](evidences/design-review-disposition.txt)）、实现审查 15 条（[处理](evidences/impl-review-disposition.txt)）。Spec：[`theme/skins.md`](../../../../../docs/specs/theme/skins.md)（`implemented`）。
 
 - 评审板第 2 轮 `r2-real`（真实工作台截图）开发者答“可以”（决定 11），合入时的处理不变。
-- 书房的素材是图片生成的草稿（共 2 次生成请求，原图与提示词在本地 `.local/agent/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/assets/`），正式发布前要定稿。
+- 书房的素材是图片生成的草稿（共 2 次生成请求，原图与提示词在本地 `.local/agent/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/assets/`）。2026-11-06 开发者决定不再重新生图，这两张就是正式素材（见 t05）。
 
 ## 遗留
 
