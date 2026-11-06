@@ -19,6 +19,7 @@ import ThemeEditorColors from "./ThemeEditorColors.vue";
 import ThemeEditorContrast from "./ThemeEditorContrast.vue";
 import ThemeEditorTypography from "./ThemeEditorTypography.vue";
 import {SAVE_FAILED, ThemeEditorModel, TITLE_EMPTY} from "./theme-editor-model";
+import type {SweepFailure} from "./theme-editor-model";
 import type {EditorSection} from "./theme-editor-model";
 
 defineOptions({name: "ThemeEditor"});
@@ -174,30 +175,56 @@ type Sweep =
     | {readonly kind: "working"}
     | {readonly kind: "none"}
     | {readonly kind: "ask"; readonly names: ReadonlyArray<string>; readonly bytes: number}
-    | {readonly kind: "done"; readonly removed: number; readonly skipped: number}
-    | {readonly kind: "failed"; readonly reason: string};
+    | {readonly kind: "done"; readonly removed: number; readonly skipped: number; readonly failed: number; readonly code?: string}
+    | {readonly kind: "failed"; readonly failure: SweepFailure};
 const sweep = ref<Sweep>({kind: "idle"});
-const sweepFailure = (reason: string): Sweep => ({kind: "failed", reason});
+const sweepCancel = ref<{readonly $el?: HTMLElement} | HTMLElement | null>(null);
+/** 请求抛出的意外（统计与真删都先把 working 设上，不能让它卡住）：当作路由失败交回，不留未处理的拒绝。 */
+const unexpectedFailure = (error: unknown): Sweep => ({kind: "failed", failure: {ok: false, kind: "route", reason: error instanceof Error ? error.message : String(error)}});
 const startSweep = async (): Promise<void> => {
     if (sweep.value.kind === "working") return;
     sweep.value = {kind: "working"};
-    const plan = await model.unusedAssets(props.transfer);
-    sweep.value = !plan.ok ? sweepFailure(plan.reason) : plan.names.length === 0 ? {kind: "none"} : {kind: "ask", names: plan.names, bytes: plan.bytes};
+    try {
+        const plan = await model.unusedAssets(props.transfer);
+        sweep.value = !plan.ok ? {kind: "failed", failure: plan} : plan.names.length === 0 ? {kind: "none"} : {kind: "ask", names: plan.names, bytes: plan.bytes};
+    } catch (error) {
+        sweep.value = unexpectedFailure(error);
+    }
+    // 统计出来后“清理素材”停用，焦点留在停用的按钮上就丢了：不可恢复的确认默认落在更安全的“取消”上。
+    if (sweep.value.kind === "ask") {
+        await nextTick();
+        const target = sweepCancel.value;
+        (target instanceof HTMLElement ? target : target?.$el)?.focus();
+    }
 };
 const confirmSweep = async (): Promise<void> => {
     const asked = sweep.value;
     if (asked.kind !== "ask") return;
     sweep.value = {kind: "working"};
-    const done = await model.removeUnused(props.transfer, asked.names);
-    sweep.value = done.ok ? {kind: "done", removed: done.removed, skipped: done.skipped} : sweepFailure(done.reason);
+    try {
+        const done = await model.removeUnused(props.transfer, asked.names);
+        sweep.value = done.ok ? {kind: "done", removed: done.removed, skipped: done.skipped, failed: done.failed, ...(done.code === undefined ? {} : {code: done.code})} : {kind: "failed", failure: done};
+    } catch (error) {
+        sweep.value = unexpectedFailure(error);
+    }
 };
+/** 失败的一行用 `alert`，其余是 `status`；删除失败的素材（权限、被占用）与路由失败一样要让人看见。 */
+const sweepBad = computed(() => sweep.value.kind === "failed" || (sweep.value.kind === "done" && sweep.value.failed > 0));
 const sweepText = computed(() => {
     const state = sweep.value;
     switch (state.kind) {
         case "none": return text("themeEditor.library.sweepNone");
         case "ask": return text("themeEditor.library.sweepAsk", {count: state.names.length, kb: Math.max(1, Math.round(state.bytes / 1024))});
-        case "done": return state.skipped === 0 ? text("themeEditor.library.sweepDone", {removed: state.removed}) : text("themeEditor.library.sweepDoneSkipped", {removed: state.removed, skipped: state.skipped});
-        case "failed": return state.reason === "not-ready" ? text("themeEditor.library.sweepNotReady") : state.reason === "too-many" ? text("themeEditor.library.sweepTooMany") : text("themeEditor.library.sweepFailed", {reason: state.reason});
+        case "done":
+            if (state.failed > 0) return text("themeEditor.library.sweepDoneFailed", {removed: state.removed, failed: state.failed, code: state.code ?? "?"});
+            return state.skipped === 0 ? text("themeEditor.library.sweepDone", {removed: state.removed}) : text("themeEditor.library.sweepDoneSkipped", {removed: state.removed, skipped: state.skipped});
+        case "failed":
+            switch (state.failure.kind) {
+                case "not-ready": return text("themeEditor.library.sweepNotReady");
+                case "unreadable": return text("themeEditor.library.sweepUnreadable");
+                case "too-many": return text("themeEditor.library.sweepTooMany");
+                default: return text("themeEditor.library.sweepFailed", {reason: state.failure.reason});
+            }
         default: return "";
     }
 });
@@ -206,6 +233,8 @@ const sweepText = computed(() => {
 watch(() => [model.selectedId.value, model.section.value], () => {
     transferResult.value = null;
     unexpected.value = null;
+    // 清理的提示也只属于那一次操作；统计出来的名单会过时，要重新统计（正在进行的不打断）。
+    if (sweep.value.kind !== "working") sweep.value = {kind: "idle"};
 });
 
 /** 最近一次被拒绝的修改：标题空、取值引外部资源这类写不进去的，行内给原因，不静默。 */
@@ -250,7 +279,7 @@ const rejectedText = computed(() => {
                 <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null || transferring" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
                 <Button size="sm" variant="ghost" icon-class="i-lucide-upload" :disabled="transferring" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
                 <input ref="importInput" type="file" accept=".zip,application/zip" class="theme-editor__file" data-import-file @change="onImportFile" />
-                <Button size="sm" variant="ghost" icon-class="i-lucide-eraser" :loading="sweep.kind === 'working'" :disabled="sweep.kind === 'working' || sweep.kind === 'ask' || model.assetWork.value > 0 || !model.ready.value" data-sweep @click="startSweep">{{ text("themeEditor.library.sweep") }}</Button>
+                <Button size="sm" variant="ghost" icon-class="i-lucide-eraser" :loading="sweep.kind === 'working'" :disabled="sweep.kind === 'working' || sweep.kind === 'ask' || model.assetWork.value > 0 || !model.canClean.value" data-sweep @click="startSweep">{{ text("themeEditor.library.sweep") }}</Button>
             </div>
             <div class="theme-editor__view">
                 <SegmentedControl
@@ -267,11 +296,12 @@ const rejectedText = computed(() => {
 
         <!-- 常驻的提示区：读屏对“刚插入”的提示区往往不播报，所以元素一直在，只换内容。 -->
         <p class="theme-editor__transfer" :data-tone="unexpected !== null || transferResult?.ok === false ? 'bad' : transferResult === null ? '' : 'ok'" role="status" data-transfer>{{ transferText }}</p>
-        <div class="theme-editor__sweep" :data-tone="sweep.kind === 'failed' ? 'bad' : ''" role="status" data-sweep-status>
-            <span v-if="sweepText !== ''" data-sweep-text>{{ sweepText }}</span>
+        <!-- 文字在常驻的提示区里（失败的一行是 alert），按钮在它旁边：礼貌型提示区里不放可点的控件。 -->
+        <div class="theme-editor__sweep" :data-tone="sweepBad ? 'bad' : ''" data-sweep-status>
+            <span v-if="sweepText !== ''" :role="sweepBad ? 'alert' : 'status'" data-sweep-text>{{ sweepText }}</span>
             <template v-if="sweep.kind === 'ask'">
                 <Button size="sm" variant="danger" :disabled="model.assetWork.value > 0" data-sweep-confirm @click="confirmSweep">{{ text("themeEditor.library.sweepConfirm") }}</Button>
-                <Button size="sm" variant="ghost" data-sweep-cancel @click="sweep = {kind: 'idle'}">{{ text("themeEditor.library.sweepCancel") }}</Button>
+                <Button ref="sweepCancel" size="sm" variant="ghost" data-sweep-cancel @click="sweep = {kind: 'idle'}">{{ text("themeEditor.library.sweepCancel") }}</Button>
             </template>
         </div>
         <p v-if="rejectedText !== null" class="theme-editor__error" role="alert" data-rejected>{{ rejectedText }}</p>

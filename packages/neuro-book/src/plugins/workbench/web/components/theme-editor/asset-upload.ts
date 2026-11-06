@@ -39,7 +39,10 @@ export async function sweepAssets(request: ThemeAssetSweepRequest): Promise<Swee
         const body = await response.json().catch(() => null) as {code?: string; detail?: string} | null;
         return {ok: false, reason: body?.detail ?? body?.code ?? `${String(response.status)} ${response.statusText}`};
     }
-    return {ok: true, value: await response.json() as ThemeAssetSweepStats | ThemeAssetSweepResult};
+    // 响应体读断、不是 JSON（例如开发中后端没重启，回退页给了 200 的 HTML）或形状不对，都按失败交回，不抛。
+    const body = await response.json().catch(() => null) as {removable?: unknown; removed?: unknown; skipped?: unknown} | null;
+    const shaped = request.names === undefined ? Array.isArray(body?.removable) : Array.isArray(body?.removed) && Array.isArray(body?.skipped);
+    return shaped ? {ok: true, value: body as unknown as ThemeAssetSweepStats | ThemeAssetSweepResult} : {ok: false, reason: "路由给了读不懂的响应"};
 }
 
 /** 上传一张图，成功返回素材文件名（`<sha256>.<扩展名>`）；失败返回路由给的原因。 */

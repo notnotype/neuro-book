@@ -66,8 +66,9 @@ const transfer: ThemeTransfer = {
     uploadScene: async () => ({ok: false, reason: "Lab"}),
     uploadIcon: async () => ({ok: false, reason: "Lab"}),
     copyAssets: async (entry) => ({ok: true, declaration: entry.declaration}),
-    statUnusedAssets: async () => ({ok: true, value: {removable: []}}),
-    removeUnusedAssets: async () => ({ok: true, value: {removed: [], skipped: []}}),
+    // Lab 里能点“清理素材”看确认行与结果：统计给两个、真删都成功。
+    statUnusedAssets: async () => ({ok: true, value: {removable: [{name: `${"a".repeat(64)}.webp`, bytes: 120_000}, {name: `${"b".repeat(64)}.svg`, bytes: 800}]}}),
+    removeUnusedAssets: async (_keep, names) => ({ok: true, value: {removed: names, skipped: []}}),
 };
 </script>
 
