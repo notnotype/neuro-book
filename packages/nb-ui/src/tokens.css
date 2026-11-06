@@ -87,6 +87,13 @@
     /* 布局的外框移动（开关面板、拆分与关闭）：距离长、要看清东西去了哪，所以比控件的形变慢。 */
     --motion-layout: 470ms;
     --ease-layout: cubic-bezier(0.23, 1, 0.32, 1);
+    /*
+     * 对话框、浮动窗口从触发点展开与收回：只是一层浮层，比布局的移动快。收回用加速的曲线：起步慢才看得出它在往回走，
+     * --ease-standard 前三成就走完了，加上淡出，肉眼看就是直接消失（开发者 2026-11-06 实测）。
+     */
+    --motion-dialog: 340ms;
+    --motion-dialog-leave: 260ms;
+    --ease-dialog-leave: cubic-bezier(0.4, 0, 0.8, 0.5);
 
     /*
      * 滚动条：自绘滑块（OverlayScrollbar、ScrollArea、PopupScrollbar）与原生细滚动条（.nb-ui-scrollbar-thin）共用
@@ -241,5 +248,7 @@
         --motion-reveal-hold: 0ms !important;
         --motion-reveal-out: 0ms !important;
         --motion-layout: 0ms !important;
+        --motion-dialog: 0ms !important;
+        --motion-dialog-leave: 0ms !important;
     }
 }

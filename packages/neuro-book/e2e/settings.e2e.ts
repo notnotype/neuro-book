@@ -244,7 +244,7 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比�
     await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page, "/?project=book");
     // 放慢入场令牌：动画停在起点读矩形，不依赖时序。（Vue 的 scoped 样式会给关键帧名加哈希后缀，所以按前缀找动画。）
-    await page.addStyleTag({content: ":root { --motion-layout: 4000ms !important; --motion-enter: 3000ms !important; }"});
+    await page.addStyleTag({content: ":root { --motion-dialog: 4000ms !important; --motion-dialog-leave: 3000ms !important; }"});
     const gear = await workbenchGear(page).boundingBox();
     if (gear === null) throw new Error("活动栏的设置齿轮不可见");
     const gearCenter = {x: gear.x + gear.width / 2, y: gear.y + gear.height / 2};
@@ -275,12 +275,16 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比�
         if (animation === undefined) throw new Error("退场动画不存在");
         const duration = animation.effect?.getTiming().duration;
         animation.pause();
+        // 走到一半还看得清：收回是先慢后快，不是一按就没了。
+        animation.currentTime = Number(duration) / 2;
+        const halfway = Number(getComputedStyle(surface).opacity);
         animation.currentTime = Number(duration) - 1;
         const rect = surface.getBoundingClientRect();
         animation.finish();
-        return {duration, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width};
+        return {duration, halfway, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width};
     });
     expect(leaving.duration).toBe(3000);
+    expect(leaving.halfway).toBeGreaterThan(0.6);
     expect(distance(leaving)).toBeLessThan(distance(run.end));
     expect(leaving.width).toBeLessThan(run.end.width * 0.5);
     await expect(settingsSurface(page)).toHaveCount(0);
@@ -359,7 +363,7 @@ test("浏览器窗口变化：没拖过的保持居中；拖过的放得下不�
     expect((await box()).height).toBe(dragged.height);
 });
 
-test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗口；再触发只聚焦；窗口开着时齿轮按下", async ({page}) => {
+test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗口；再按 Ctrl+, 只聚焦，再点齿轮关闭；窗口开着时齿轮按下", async ({page}) => {
     const problems: string[] = [];
     watchConsole(page, problems);
     await open(page, "/?project=book");
@@ -373,14 +377,19 @@ test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗
     await workbenchGear(page).click();
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "true");
-    // 焦点挪到窗口里别处，再点齿轮：还是这一个窗口，焦点回到左栏的当前项。
-    await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
-    await workbenchGear(page).click();
-    await expect(settingsWindow(page)).toHaveCount(1);
-    await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
+    // 焦点挪到窗口里别处，再按打开设置的键：还是这一个窗口，焦点回到左栏的当前项。
     await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
     await pressOpenSettings(page);
     await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
+
+    // 再点齿轮是关闭，齿轮回到没按下；再点又打开。
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(0);
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "false");
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "true");
 
     // Esc 关窗口：焦点回到打开窗口之前的位置（第一次是点齿轮打开的），齿轮回到没按下；Ctrl+, 再打开同一个窗口。
     await page.keyboard.press("Escape");
@@ -400,11 +409,15 @@ test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(shelfGear(page)).toHaveAttribute("aria-pressed", "true");
     await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
-    await shelfGear(page).click();
+    await pressOpenSettings(page);
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
     // 没有绑定作品：没有“用户 | 本作品”。
     await expect(page.locator("[data-settings-tabs]")).toHaveCount(0);
+    // 书架的齿轮再点也是关闭。
+    await shelfGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(0);
+    await expect(shelfGear(page)).toHaveAttribute("aria-pressed", "false");
     expect(problems).toEqual([]);
 });
 

@@ -6,7 +6,7 @@
 import {AlertDialog} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref} from "vue";
 
-import {OPEN_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
+import {TOGGLE_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
 
 import {projectCoverUrl} from "../../shared/cover";
 import {projectDisplayName} from "../../shared/shelf";
@@ -191,7 +191,7 @@ async function confirmRemove(): Promise<void> {
         @create="startCreate"
         @add-existing="startAddExisting"
         @retry="page.refresh(true)"
-        @open-settings="page.runCommand(OPEN_SETTINGS_COMMAND)"
+        @open-settings="page.runCommand(TOGGLE_SETTINGS_COMMAND)"
     />
     <ProjectInfoDialog
         v-model:location="infoLocation"

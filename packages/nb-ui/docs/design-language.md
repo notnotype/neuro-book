@@ -496,7 +496,8 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 | --- | --- | --- |
 | `--motion-fast` | 状态反馈 | hover / 按压变色、chevron 旋转、选项高亮、菜单类浮层的入场与退场 |
 | `--motion-base` | 控件形变 | 开关滑球与轨道、分段控件与标签页指示线移动、对话框进出 |
-| `--motion-enter` | 大位移入场 | 通知横幅从边缘滑入；有来处的对话框、浮动窗口收回去 |
+| `--motion-enter` | 大位移入场 | 通知横幅从边缘滑入 |
+| `--motion-dialog`、`--motion-dialog-leave` | 有来处的浮层展开与收回 | 点按钮、菜单项打开的对话框、浮动窗口；收回配 `--ease-dialog-leave`（先慢后快），不用 `--ease-standard`：它前三成就走完，加上淡出看着就是直接消失 |
 
 **`fast < base < enter` 这个顺序是合同，绝对值归主题。** 各主题的登记值在 `themes/*/vars.css`，
 没装主题时的基线在 `src/tokens.css`。这些数值是**目测决定，没有可引的规范**——Apple 没有公开过

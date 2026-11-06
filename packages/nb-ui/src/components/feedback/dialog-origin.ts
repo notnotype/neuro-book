@@ -102,9 +102,10 @@ export function useDialogOrigin(options: DialogOriginOptions): {style: ComputedR
             "--nb-dialog-from-x": `${String(offset.value.x)}px`,
             "--nb-dialog-from-y": `${String(offset.value.y)}px`,
             "--nb-dialog-from-scale": String(ORIGIN_FROM_SCALE),
-            "--nb-dialog-enter-duration": "var(--motion-layout)",
+            "--nb-dialog-enter-duration": "var(--motion-dialog)",
             "--nb-dialog-enter-ease": "var(--ease-layout)",
-            "--nb-dialog-leave-duration": "var(--motion-enter)",
+            "--nb-dialog-leave-duration": "var(--motion-dialog-leave)",
+            "--nb-dialog-leave-ease": "var(--ease-dialog-leave)",
         };
     });
     return {style};

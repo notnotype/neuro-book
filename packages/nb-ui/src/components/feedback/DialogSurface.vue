@@ -216,7 +216,7 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
 }
 
 .nb-dialog[data-state="closed"] {
-    animation: nb-dialog-out var(--nb-dialog-leave-duration, var(--motion-fast)) var(--ease-standard) forwards;
+    animation: nb-dialog-out var(--nb-dialog-leave-duration, var(--motion-fast)) var(--nb-dialog-leave-ease, var(--ease-standard)) forwards;
 }
 
 @keyframes nb-dialog-in {

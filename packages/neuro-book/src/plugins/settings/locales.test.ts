@@ -30,6 +30,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "commands.switch-locale.title": {"zh-CN": "切换界面语言", "en-US": "Change Display Language"},
     "commands.category": {"zh-CN": "设置", "en-US": "Settings"},
     "commands.open.title": {"zh-CN": "打开设置", "en-US": "Open Settings"},
+    "commands.toggle.title": {"zh-CN": "打开或关闭设置", "en-US": "Toggle Settings"},
     "state.windowOpen.reason": {"zh-CN": "设置窗口没有打开", "en-US": "The settings window is not open"},
     "activityItems.nbook.settings.title": {"zh-CN": "设置", "en-US": "Settings"},
     "model.otherTitle": {"zh-CN": "插件设置", "en-US": "Plugin Settings"},

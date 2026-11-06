@@ -34,7 +34,7 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import {descriptor} from "../plugin";
-import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_CHOICES_ACTIVATION_PREFIX, SETTINGS_CHOICES_POINT, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
+import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, TOGGLE_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_CHOICES_ACTIVATION_PREFIX, SETTINGS_CHOICES_POINT, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
 import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
 import {acceptedSettings, choicesPoint, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
@@ -79,6 +79,15 @@ export const OPEN_SETTINGS_DECLARATION: WrittenCommandDeclaration = {
     expose: {agent: "never"},
 };
 
+/** 齿轮执行的（输出 15）：窗口开着是关闭，有未保存的改动时同关闭按钮一样先确认；关着是打开。 */
+export const TOGGLE_SETTINGS_DECLARATION: WrittenCommandDeclaration = {
+    category: settingsText("commands.category"),
+    description: "Close the settings window of this page if it is open, otherwise open it.",
+    args: Type.Object({}, {additionalProperties: false}),
+    effect: "read",
+    expose: {agent: "never"},
+};
+
 /** 设置窗口的公开状态；限定名即 `SETTINGS_WINDOW_OPEN_KEY`。 */
 export const settingsWindowState = definePublicState(descriptor.id, {
     windowOpen: {type: "boolean", unready: false, reason: settingsText("state.windowOpen.reason")},
@@ -92,7 +101,7 @@ export const SETTINGS_GEAR_ITEM = "nbook.settings";
 const GEAR_DECLARATION: Written<ActivityBarItemDeclaration, "title"> = {
     icon: "i-lucide-settings",
     order: 1000,
-    command: {id: OPEN_SETTINGS_COMMAND},
+    command: {id: TOGGLE_SETTINGS_COMMAND},
     toggled: SETTINGS_WINDOW_OPEN_KEY,
 };
 const GEAR: ActivityBarItemImplementation = Object.freeze({});
@@ -113,6 +122,7 @@ export const settingsWindowEntry = defineEntry({
     dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: settingsWindowSourceKey}, {key: notificationsKey}, {key: storageKey}, {key: windowProjectKey}, {key: windowTextKey, required: false}],
     contributions: [
         {capability: COMMANDS_POINT, id: OPEN_SETTINGS_COMMAND, declaration: OPEN_SETTINGS_DECLARATION},
+        {capability: COMMANDS_POINT, id: TOGGLE_SETTINGS_COMMAND, declaration: TOGGLE_SETTINGS_DECLARATION},
         {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: SETTINGS_GEAR_ITEM, declaration: GEAR_DECLARATION},
         {capability: WORKBENCH_OVERLAYS_POINT, id: SETTINGS_WINDOW_OVERLAY, declaration: OVERLAY_DECLARATION},
         ...settingsWindowState.contributions,
@@ -150,7 +160,7 @@ export const settingsWindowEntry = defineEntry({
         };
         return {
             contributions: {
-                [COMMANDS_POINT]: {[OPEN_SETTINGS_COMMAND]: {run}},
+                [COMMANDS_POINT]: {[OPEN_SETTINGS_COMMAND]: {run}, [TOGGLE_SETTINGS_COMMAND]: {run: () => settingsWindow.toggleWindow()}},
                 [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                 [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[SETTINGS_GEAR_ITEM]: GEAR},
                 [WORKBENCH_OVERLAYS_POINT]: {[SETTINGS_WINDOW_OVERLAY]: overlay},
