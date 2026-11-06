@@ -39,10 +39,11 @@ export function panelConstraints(panel: PanelRecord, catalog: ViewCatalog, viewp
     return {minimumSize: {width: minWidth, height: minHeight}, maximumSize: {width: maxWidth, height: maxHeight}};
 }
 
-export function layoutProjectionOptions(input: {readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>}): LayoutProjectionOptions {
+export function layoutProjectionOptions(input: {readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number}): LayoutProjectionOptions {
     return {
         constraints: (_id, panel) => panelConstraints(panel, input.catalog, input.viewportWidth),
-        barThickness: (bar) => (bar === "activitybar" ? SHELL_ACTIVITYBAR_WIDTH : SHELL_STATUSBAR_HEIGHT),
+        // 主题的缝宽进几何：活动栏的卡片宽不变，叶宽要加上它和窗体、侧栏之间的缝。
+        barThickness: (bar) => (bar === "activitybar" ? SHELL_ACTIVITYBAR_WIDTH + Math.max(0, input.cardGap ?? 0) : SHELL_STATUSBAR_HEIGHT),
         headHeight: PANEL_HEAD_HEIGHT,
         collapseThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
         sashSize: SASH_PX,

@@ -55,6 +55,9 @@ import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/W
 import type WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
+import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
+import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type WorkbenchItemStrip from "nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue";
 import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
@@ -351,6 +354,68 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => withWorkbenchText((await import("./WorkbenchShellLayoutFixture.vue")).default),
+    }),
+    defineLabFixture<typeof WorkbenchSurface>({
+        component: "WorkbenchSurface",
+        // 文档与呈现树由夹具自己算（它扮演工作台），不是 JSON 输入；输入只是占位（类型要求登记必填的 doc、projection），夹具不读它。断言见 e2e/lab-workbench-surface.e2e.ts。
+        scenes: (() => {
+            const leaf = {kind: "leaf" as const, id: "g0", ref: "panel:g0"};
+            const base = {
+                contextKey: "lab:surface",
+                doc: {version: 1 as const, tree: {version: 2 as const, root: {...leaf, size: {width: 0, height: 0}}}, panels: {g0: {role: "editor" as const, tabs: [], active: null}}, floats: [], hiddenBars: [], currentEditor: "g0"},
+                projection: {input: leaf},
+            };
+            return [
+                {id: "default", label: "侧栏、两个编辑组、右栏、面板（平铺）", input: {props: base}},
+                {id: "cards", label: "卡片：缝、圆角、相连按邻接算", input: {props: base}},
+            ];
+        })(),
+        load: async () => (await import("./WorkbenchSurfaceFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof WorkbenchPanelHead>({
+        component: "WorkbenchPanelHead",
+        events: ["activate", "action", "context-menu"],
+        writeBack: {activate: {layer: "props", key: "active"}},
+        class: "w-full",
+        scenes: (() => {
+            const tab = (id: string, label: string, icon: string) => ({id: `view:${id}`, label, icon});
+            const tabs = [tab("files", "资源管理器", "i-lucide-files"), tab("search", "搜索", "i-lucide-search"), tab("outline", "大纲", "i-lucide-list-tree"), tab("chat", "对话", "i-lucide-message-square"), tab("output", "输出", "i-lucide-terminal")];
+            const named = [
+                {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: false},
+                {id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: false},
+                {id: "hide", label: "隐藏", icon: "i-lucide-x", disabled: false},
+            ];
+            const base = {panelId: "sidebar", label: "侧栏", moreLabel: "更多", active: "view:files"};
+            return [
+                {id: "default", label: "几个标签、框架按钮", input: {props: {...base, tabs: tabs.slice(0, 3), frameActions: named}}},
+                {id: "many", label: "标签多：放不下时逐级让位（拖窄画布看）", input: {props: {...base, tabs, frameActions: named}}},
+                {id: "anonymous", label: "无名面板：没有隐藏按钮", input: {props: {...base, panelId: "p-1", label: "面板", tabs: tabs.slice(0, 2), frameActions: named.slice(0, 2)}}},
+                {id: "disabled", label: "框架按钮不可用", input: {props: {...base, tabs: tabs.slice(0, 2), frameActions: [{...named[0]!, disabled: true, reason: "编辑组不能收起"}, named[1]!, named[2]!]}}},
+                {id: "empty", label: "没有标签：显示名称", input: {props: {...base, tabs: [], active: null, frameActions: named}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchToolStrip>({
+        component: "WorkbenchToolStrip",
+        events: ["select", "run-item"],
+        class: "h-full",
+        scenes: (() => {
+            const entry = (id: string, label: string, icon: string, pressed: boolean) => ({id, label, icon, pressed});
+            const entries = [entry("files", "资源管理器", "i-lucide-files", true), entry("search", "搜索", "i-lucide-search", false), entry("outline", "大纲", "i-lucide-list-tree", false), entry("chat", "对话", "i-lucide-message-square", true)];
+            const items = [
+                {id: "profile", title: "个人资料尚未开放", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
+                {id: "settings", title: "设置", icon: "i-lucide-settings", interactive: true, pressed: true, disabledReason: null},
+                {id: "sync", title: "同步", icon: "i-lucide-refresh-cw", interactive: true, pressed: null, disabledReason: "没有打开项目"},
+            ];
+            const base = {label: "活动栏", moreLabel: "更多"};
+            return [
+                {id: "default", label: "两个视图同时按下，底段全局项", input: {props: {...base, entries, items}}},
+                {id: "many", label: "视图多：放不下时后面的收进“更多”，按下的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的可见视图", "i-lucide-star", true)], items}}},
+                {id: "empty", label: "没有视图", input: {props: {...base, entries: [], items}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
     }),
     defineSubjectFixture<typeof WorkbenchPanelSurface>({
         component: "WorkbenchPanelSurface",

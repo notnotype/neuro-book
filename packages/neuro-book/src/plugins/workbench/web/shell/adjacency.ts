@@ -121,3 +121,31 @@ export function cardInset(side: CardSide): string {
             return `max(0px, calc(var(--shell-gap, 0px) / 2 - ${String(side.occupied / 2)}px))`;
     }
 }
+
+/**
+ * 最大化的面板盖住除条以外的全部区域（输出 13）：它的矩形不来自布局，四边都挨着窗体，左边有活动栏时挨着活动栏；被盖住的面板不动，它们的边照旧。活动栏这时不和底下的侧栏相连。
+ */
+export function maximizedCardEdges(cards: Readonly<Record<string, CardEdges>>, panel: string, activitybar: string): Readonly<Record<string, CardEdges>> {
+    if (cards[panel] === undefined) return cards;
+    const outer: CardSide = {kind: "outer", occupied: 0};
+    const bar = cards[activitybar];
+    const next: Record<string, CardEdges> = {...cards, [panel]: {top: outer, right: outer, bottom: outer, left: bar === undefined ? outer : {kind: "inner", occupied: 0}}};
+    if (bar !== undefined) next[activitybar] = {...bar, right: {kind: "inner", occupied: 0}};
+    return next;
+}
+
+export type SashKind = "panes" | "editors" | "shell";
+
+function everyLeaf(node: GridNodeInput<string>, test: (id: string) => boolean): boolean {
+    return node.kind === "leaf" ? test(node.id) : node.children.every((child) => everyLeaf(child, test));
+}
+
+/**
+ * 分隔线的种类（输出 19）：工具面板之间的线和编辑组之间的线归它们自己的颜色；卡片主题里主体的接缝透明，卡片之间的缝就是边界，这两种线还要看得见。
+ */
+export function sashKindOf(branch: GridBranchInput<string>, before: string, after: string, roleOf: (id: string) => "tool" | "editor" | null): SashKind {
+    const nodes = branch.children.filter((child) => child.id === before || child.id === after);
+    if (nodes.every((node) => everyLeaf(node, (id) => roleOf(id) === "tool"))) return "panes";
+    if (nodes.every((node) => everyLeaf(node, (id) => roleOf(id) === "editor"))) return "editors";
+    return "shell";
+}

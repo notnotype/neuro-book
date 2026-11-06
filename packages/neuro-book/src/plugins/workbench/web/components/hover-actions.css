@@ -2,6 +2,7 @@
  * 视图标题动作随鼠标显示（docs/specs/workbench/views.md 输出 10）：动作区 `[data-hover-actions]` 在所在范围
  * `[data-hover-actions-scope]`（视图的窗格、single 时整个侧栏或右栏、面板）上有指针、范围里有焦点、或它自己的菜单开着时
  * 显示，其余时候透明。用透明度不用 display：标题行宽度不跳，按钮仍能被 Tab 到（Tab 进去即 focus-within，随之出现）。
+ * 内容层和面板头不在同一个元素里（docs/specs/ui/nested-grid.md 的“内容层”）：指针或焦点在内容上时，宿主给范围写 `data-hover-actions-active`。
  * 不能悬停的设备一直显示；系统减少动画时 `--motion-reveal-in` 是 0。几个宿主组件各自引入本文件，Lab 里单独摆它们时规则同样生效。
  */
 [data-hover-actions] {
@@ -9,7 +10,7 @@
 }
 
 @media (hover: hover) {
-    [data-hover-actions-scope]:not(:hover):not(:focus-within) [data-hover-actions]:not(:has([aria-expanded="true"], [data-state="open"])) {
+    [data-hover-actions-scope]:not(:hover):not(:focus-within):not([data-hover-actions-active]) [data-hover-actions]:not(:has([aria-expanded="true"], [data-state="open"])) {
         opacity: 0;
     }
 }

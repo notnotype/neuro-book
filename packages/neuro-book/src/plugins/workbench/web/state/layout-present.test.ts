@@ -1,0 +1,92 @@
+import {describe, expect, test} from "bun:test";
+import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
+
+import {defaultLayoutDoc} from "./default-tree";
+import {effectiveVisibleTabs, layoutContents, toolEntryIntent} from "./layout-present";
+import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
+import type {ViewCatalog} from "../views/placement";
+
+const CATALOG: ViewCatalog = new Map([
+    ["files", {title: {"zh-CN": "文件", "en-US": "Files"}, icon: "i-a", location: "sidebar", layout: "scroll"}],
+    ["outline", {title: {"zh-CN": "大纲", "en-US": "Outline"}, icon: "i-b", location: "sidebar", layout: "scroll"}],
+    ["chat", {title: {"zh-CN": "对话", "en-US": "Chat"}, icon: "i-c", location: "auxiliarybar", layout: "fill"}],
+    ["output", {title: {"zh-CN": "输出", "en-US": "Output"}, icon: "i-d", location: "panel", layout: "scroll"}],
+]);
+
+const doc = (): LayoutDoc => defaultLayoutDoc(CATALOG);
+const ROOMY: GridExtent = {width: 300, height: 400};
+const SIZES = {sidebar: ROOMY, auxiliarybar: ROOMY, panel: ROOMY, g0: ROOMY};
+const FACTS = {sizes: SIZES, preview: null, removed: new Set<string>(), maximized: null};
+
+function withPanel(base: LayoutDoc, id: string, patch: Partial<LayoutDoc["panels"][string]>): LayoutDoc {
+    return {...base, panels: {...base.panels, [id]: {...base.panels[id], ...patch} as LayoutDoc["panels"][string]}};
+}
+
+describe("内容项", () => {
+    test("工具视图一个标签一项，只有活动标签是 active；编辑组一块面板一项", () => {
+        const contents = layoutContents(doc());
+        expect(contents.filter((item) => item.leaf === "sidebar").map((item) => [item.key, item.active, item.insetTop])).toEqual([
+            ["view:files", true, PANEL_HEAD_HEIGHT],
+            ["view:outline", false, PANEL_HEAD_HEIGHT],
+        ]);
+        expect(contents.filter((item) => item.leaf === "g0")).toEqual([{key: "editor:g0", leaf: "g0", insetTop: 0, active: true}]);
+    });
+});
+
+describe("有效可见", () => {
+    test("只有活动标签可见，切走的不算", () => {
+        const visible = effectiveVisibleTabs(doc(), FACTS);
+        expect(visible.has("view:files")).toBe(true);
+        expect(visible.has("view:outline")).toBe(false);
+        expect(visible.has("view:chat")).toBe(true);
+    });
+
+    test("隐藏、收起、放不下被收走、被最大化盖住都不算", () => {
+        expect(effectiveVisibleTabs(withPanel(doc(), "sidebar", {hidden: true}), FACTS).has("view:files")).toBe(false);
+        expect(effectiveVisibleTabs(withPanel(doc(), "sidebar", {collapsed: true}), FACTS).has("view:files")).toBe(false);
+        expect(effectiveVisibleTabs(doc(), {...FACTS, removed: new Set(["sidebar"])}).has("view:files")).toBe(false);
+        const covered = effectiveVisibleTabs(doc(), {...FACTS, maximized: "panel"});
+        expect([...covered]).toEqual(["view:output"]);
+    });
+
+    test("收成标题行的尺寸没有内容的地方：不可见；拉回时按拖动中的几何", () => {
+        const collapsed = withPanel(doc(), "panel", {collapsed: true});
+        const sizes = {...SIZES, panel: {width: 600, height: PANEL_HEAD_HEIGHT}};
+        expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes}).has("view:output")).toBe(false);
+        // 拉到正好一行头：内容还没地方。
+        expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes, preview: sizes}).has("view:output")).toBe(false);
+        const pulled = {...sizes, panel: {width: 600, height: 120}};
+        expect(effectiveVisibleTabs(collapsed, {...FACTS, sizes, preview: pulled}).has("view:output")).toBe(true);
+    });
+
+    test("手势预览不改已经可见的面板：往零拖过阈值时还算可见", () => {
+        const zeroed = {...SIZES, sidebar: {width: 0, height: 400}};
+        expect(effectiveVisibleTabs(doc(), {...FACTS, preview: zeroed}).has("view:files")).toBe(true);
+    });
+
+    test("最大化的面板收起过也算可见：盖在上面，内容有地方", () => {
+        const collapsed = withPanel(doc(), "panel", {collapsed: true});
+        expect(effectiveVisibleTabs(collapsed, {...FACTS, maximized: "panel"}).has("view:output")).toBe(true);
+    });
+});
+
+describe("活动栏条目", () => {
+    const facts = (visible: ReadonlyArray<string>, focusedPanel: string | null) => ({visible: new Set(visible), focusedPanel});
+
+    test("不可见显示，可见没焦点聚焦，已聚焦的具名面板隐藏", () => {
+        expect(toolEntryIntent(doc(), "outline", facts(["view:files"], "sidebar"))).toEqual({kind: "reveal", panel: "sidebar"});
+        expect(toolEntryIntent(doc(), "files", facts(["view:files"], "g0"))).toEqual({kind: "focus", panel: "sidebar"});
+        expect(toolEntryIntent(doc(), "files", facts(["view:files"], "sidebar"))).toEqual({kind: "hide", panel: "sidebar"});
+    });
+
+    test("无名面板没有隐藏，已聚焦时是收起", () => {
+        const base = doc();
+        const {name: _name, ...anonymous} = base.panels.sidebar as NonNullable<LayoutDoc["panels"][string]>;
+        const moved: LayoutDoc = {...base, panels: {...base.panels, sidebar: anonymous}};
+        expect(toolEntryIntent(moved, "files", facts(["view:files"], "sidebar"))).toEqual({kind: "collapse", panel: "sidebar"});
+    });
+
+    test("目录里有、树上没有的视图什么都不做", () => {
+        expect(toolEntryIntent(doc(), "missing", facts([], null))).toEqual({kind: "none"});
+    });
+});

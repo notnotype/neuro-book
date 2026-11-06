@@ -67,6 +67,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 | `data-grid-scope` | grid 根 | 值是实例 id；`moveGridFocus` 靠它找 grid，宿主取根用它 |
 | `data-leaf` | 叶外框 | 值是节点 id；外框带 `transform`，过渡中会动 |
 | `data-content`、`data-content-leaf` | 内容项的外层 | 值是它的 key、所属叶 id；过渡中会动，飞行中带 `data-flying` |
+| `data-sash-kind` | 分隔线 | 值是宿主 `sashKind` 给的种类，没给时没有这个属性；宿主据此设 `--nb-splitter-seam` |
 | `data-leaf-content` | 叶的内容容器 | 值是节点 id；宿主 Teleport 内容用它。过渡中的尺寸见上；要最终尺寸读宿主自己的布局结果。`node` 变化后的同一次渲染里新叶的它已经存在 |
 | `data-moving` | 外框与分隔线 | 过渡进行中 |
 | `data-sash` | 分隔线 | 值是 `分支 id:序号`；`data-sash-hover`、`-active`、`-revealed`、`-cross` 是它的状态 |
@@ -94,6 +95,12 @@ type NestedGridProps = {
     onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
     /** 会话诊断出口；默认未提供。 */
     onIssues?: (issues: readonly string[]) => void;
+    /** 内容层：和叶外框同一父元素的内容，换叶不重建；默认无，内容放在 leaf 插槽里。 */
+    contents?: ReadonlyArray<GridContentInput>;
+    /** 这块叶盖住除 exclude 以外的全部区域，别的叶不动；默认 null。只在内存，宿主决定。 */
+    maximized?: {leaf: string; exclude: ReadonlyArray<string>} | null;
+    /** 分隔线的种类，写到 data-sash-kind，宿主据此给不同的线不同的颜色；默认不写。 */
+    sashKind?: (sash: {branch: string; before: string; after: string}) => string | undefined;
 };
 
 type NestedGridEmits = {
@@ -107,10 +114,14 @@ type NestedGridEmits = {
     (event: "gesture-cancel", info: {reason: SplitterGestureCancelReason; sashes: readonly GridSashRef[]}): void;
     /** 会话诊断，包括容量不足、提交拒绝或宿主发布不匹配。 */
     (event: "issues", issues: readonly string[]): void;
+    /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定。 */
+    (event: "content-parked", key: string): void;
 };
 
 type NestedGridSlots = {
     leaf(props: {node: GridLeaf<unknown>}): unknown;
+    /** 内容层的一项；leaf 是它此刻所属的叶。 */
+    content(props: {contentKey: string; leaf: string; active: boolean}): unknown;
     empty(): unknown;
 };
 ```

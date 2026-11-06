@@ -38,6 +38,8 @@ function defineLayoutDocStore(bound: boolean) {
         /** 这个窗口的文档。打开时读到记录才有；没有记录时是 null，默认树跟着视图目录（目录是陆续交进来的），第一次改动才定下来。 */
         const local = shallowRef<LayoutDoc | null>(null);
         const extent = shallowRef<GridExtent | null>(null);
+        /** 主题的缝宽（`--shell-gap`）：活动栏的叶宽要算上它。 */
+        const cardGap = shallowRef(0);
         const presented = shallowRef<Readonly<Record<string, GridExtent>>>({});
         const maximized = shallowRef<string | null>(null);
         const currentPanel = shallowRef<string | null>(null);
@@ -90,9 +92,9 @@ function defineLayoutDocStore(bound: boolean) {
         const collapse = computed(() => {
             const current = extent.value;
             if (current === null) return {removed: new Set<string>() as ReadonlySet<string>, squeezed: false};
-            return presentationCollapse(doc.value, current, {...layoutProjectionOptions({catalog: catalog.value, viewportWidth: current.width}), order: COLLAPSE_ORDER, focused: currentPanel.value});
+            return presentationCollapse(doc.value, current, {...layoutProjectionOptions({catalog: catalog.value, viewportWidth: current.width, cardGap: cardGap.value}), order: COLLAPSE_ORDER, focused: currentPanel.value});
         });
-        const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed})));
+        const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed, cardGap: cardGap.value})));
         /** 放不下把最大化的面板收走了：退出最大化，不写文档。 */
         const effectiveMaximized = computed(() => (maximized.value !== null && !collapse.value.removed.has(maximized.value) ? maximized.value : null));
 
@@ -145,6 +147,9 @@ function defineLayoutDocStore(bound: boolean) {
                 },
                 acceptExtent: (next: GridExtent | null): void => {
                     extent.value = next;
+                },
+                acceptCardGap: (next: number): void => {
+                    cardGap.value = next;
                 },
                 /** 这一刻的呈现尺寸（布局发布时交进来）。 */
                 acceptPresented: (next: Readonly<Record<string, GridExtent>>): void => {

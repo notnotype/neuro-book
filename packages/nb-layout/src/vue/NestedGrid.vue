@@ -50,6 +50,8 @@ const props = withDefaults(defineProps<{
     contents?: ReadonlyArray<GridContentInput>;
     /** 最大化（docs/specs/ui/nested-grid.md 的“最大化”）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
     maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
+    /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
+    sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
 }>(), {
     disabled: false,
     contextKey: "",
@@ -58,6 +60,7 @@ const props = withDefaults(defineProps<{
     onIssues: undefined,
     contents: () => [],
     maximized: null,
+    sashKind: undefined,
 });
 
 const emit = defineEmits<{
@@ -72,7 +75,7 @@ const emit = defineEmits<{
 
 defineSlots<{
     leaf(props: {node: GridLeaf<unknown>}): unknown;
-    content(props: {contentKey: string; active: boolean}): unknown;
+    content(props: {contentKey: string; leaf: string; active: boolean}): unknown;
     empty(): unknown;
 }>();
 
@@ -362,7 +365,7 @@ onBeforeUnmount(() => {
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-sash-kind="sashKind?.({branch: item.branch.id, before: item.before, after: item.after})" :data-moving="moving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
             <div
                 v-else
                 :id="domIdOf(item.key)"
@@ -375,7 +378,7 @@ onBeforeUnmount(() => {
                 :style="contentLayer.frameStyle(item)"
             >
                 <div class="nb-grid-content__body" :style="contentLayer.bodyStyle(item)">
-                    <slot name="content" :content-key="item.contentKey" :active="item.active"></slot>
+                    <slot name="content" :content-key="item.contentKey" :leaf="item.leaf" :active="item.active"></slot>
                 </div>
             </div>
         </template>
