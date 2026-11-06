@@ -118,8 +118,11 @@ export interface TrialCandidates {
     readonly noReaderQuestion: readonly string[];
 }
 
+/** 一次试读的调用 id；未问清单与补问清单都用它。 */
+export const readerCallId = (point: string) => `reader:${point}`;
+
 /** 涉及本章、保密以上、读者上一章末尾还没知道、本章之后有明说揭示（计划或已写）的知识点：做试读的，或给提示的。 */
-export function trialsOf(view: CanonReadView, chapter: string, points: readonly string[]): TrialCandidates {
+export function trialsOf(view: CanonReadView, chapter: string, points: readonly string[], followUps: readonly string[]): TrialCandidates {
     const here = view.chapters.indexOf(chapter);
     const previous = view.chapters[here - 1];
     const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
@@ -148,7 +151,11 @@ export function trialsOf(view: CanonReadView, chapter: string, points: readonly 
     }
     const rank = (trial: TrialPlan) => (trial.secrecy === "topSecret" ? 0 : 1);
     const sorted = planned.sort((a, b) => rank(a) - rank(b) || (a.point < b.point ? -1 : 1));
-    return {trials: sorted.slice(0, TRIAL_BUDGET), unasked: sorted.slice(TRIAL_BUDGET).map((trial) => trial.point), noSuspense, noReaderQuestion};
+    // 补问清单里仍是候选的，预算之外再加（输出 5）。
+    const wanted = new Set(followUps);
+    const beyond = sorted.slice(TRIAL_BUDGET);
+    const extra = beyond.filter((trial) => wanted.has(readerCallId(trial.point)));
+    return {trials: [...sorted.slice(0, TRIAL_BUDGET), ...extra], unasked: beyond.filter((trial) => !extra.includes(trial)).map((trial) => trial.point), noSuspense, noReaderQuestion};
 }
 
 function buildTrial(view: CanonReadView, chapter: string, previous: string | undefined, point: string, truth: string, secrecy: "secret" | "topSecret", question: string, suspense: readonly {readonly chapter: string; readonly paragraph: number}[] | null): TrialPlan {

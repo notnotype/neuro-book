@@ -12,7 +12,7 @@ import {ANSWER_SCHEMAS, ZERO_USAGE} from "../../shared/checks";
 import type {CallRecord, CheckRecord, CheckRequest, CheckRole, CheckUsage, FixedAnswer, ObjectAnswer, SelfReport, TrialAnswer, YesNoAnswer} from "../../shared/checks";
 import type {Digest} from "../guards";
 import {inputDigest, type CheckPlan, type PlannedCall} from "./plan";
-import {quoteIn} from "./segments";
+import {quoteIn, segmentOfQuote} from "./segments";
 import {judgeRequest} from "./trial";
 
 /** 模型调用的结果。`failure` 是错误类别（`network`、`auth`……），`cancelled` 是这次调用被取消或超时。 */
@@ -335,9 +335,11 @@ function checkNewFacts(plan: CheckPlan, facts: FixedAnswer["newFacts"], names: R
     const kept: CheckRecord["newFacts"] = [];
     let unlisted = 0;
     const reported = reportedNames(selfReport?.report.names ?? []);
+    const whole = plan.segments.flatMap((segment) => segment.paragraphs);
     for (const fact of facts) {
-        const home = fact.quotes.length === 0 ? undefined : plan.segments.find((segment) => quoteIn(segment.paragraphs, fact.quotes[0]!));
-        if (home === undefined || !fact.quotes.every((quote) => plan.segments.some((segment) => quoteIn(segment.paragraphs, quote)))) {
+        // 一条事实的引文可以跨段，一条引文也可以（输出 3、6）：都按整章核对，引文的分组不影响结果。
+        const home = quotesHold(fact.quotes, whole) ? segmentOfQuote(plan.segments, fact.quotes[0]!) : undefined;
+        if (home === undefined) {
             bad();
             continue;
         }

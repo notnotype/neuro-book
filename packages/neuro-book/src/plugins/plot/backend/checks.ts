@@ -23,8 +23,8 @@ export interface CheckFailure {
 }
 
 export interface ChecksInput {
-    readonly canon: CanonProject;
-    readonly store: PlotStore;
+    readonly canon: Pick<CanonProject, "snapshot">;
+    readonly store: Pick<PlotStore, "queued" | "write">;
     readonly instructions: ChapterTable<InstructionSnapshot>;
     readonly selfReports: ChapterTable<SelfReport>;
     readonly checks: ChapterTable<CheckRecord>;
@@ -40,6 +40,17 @@ export interface ChecksInput {
 }
 
 export type RunResult = {readonly ok: true; readonly record: CheckRecord} | ({readonly ok: false} & CheckFailure);
+
+/** 依赖摘要的回写（`core/checks/source.ts`）：轮到它时表里还是原来那条才写，排队期间跑了新的检查就不把它换回旧记录。 */
+export function writeBackRecord(store: Pick<PlotStore, "queued" | "write">, checks: ChapterTable<CheckRecord>, warn: (event: string, detail: string) => void) {
+    return (original: CheckRecord, updated: CheckRecord): void => {
+        void store.queued(async () => {
+            if (checks.get(original.chapter) !== original) return;
+            const written = await store.write(checks, original.chapter, updated);
+            if (!written.ok) warn("plot.store.write-back", `${written.code}: ${written.detail}`);
+        }).catch((error: unknown) => warn("plot.store.write-back", String(error)));
+    };
+}
 
 export function createChecks(input: ChecksInput) {
     const {canon, store, instructions, selfReports, checks, models, digest} = input;
@@ -82,11 +93,14 @@ export function createChecks(input: ChecksInput) {
             const start = {worldVersion: view.version, textDigest: view.chapterTextDigest(chapter), pluginVersion: input.pluginVersion, dependencies};
             const result = await runCheck({plan, models, limiter, signal: controller.signal, digest, followUps, names, start, ...(selfReport === undefined ? {} : {selfReport}), ...(given !== undefined && previous !== undefined ? {reuse: previous} : {})});
             if (!result.ok) return fail({code: result.code, ...(result.kind === undefined ? {} : {kind: result.kind}), ...(result.resolution === undefined ? {} : {resolution: result.resolution}), usage: result.usage});
+            // 模型都答完了，排队等存储时仍可能被取消或入口停止：这次不存（失败表）。信号只在队列里看，轮到它之后就不再能取消。
             const saved = await store.queued(async () => {
+                if (controller.signal.aborted) return null;
                 const written = await store.write(checks, chapter, result.record);
                 if (written.ok) input.changed();
                 return written;
             });
+            if (saved === null) return fail({code: "plot-check-cancelled", kind: "cancelled", usage: result.record.usage.total});
             if (!saved.ok) return fail({code: "plot-check-failed", kind: saved.code, usage: result.record.usage.total});
             return {ok: true, record: result.record};
         } catch (error) {

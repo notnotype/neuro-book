@@ -73,10 +73,17 @@ export function readAppeared(view: CanonReadView, id: string, position: ReadPosi
  * 夹在里面不算错。
  */
 export const MIN_QUOTE = 4;
+const quoteLines = (quote: string) => quote.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line !== "");
 export function quoteIn(paragraphs: readonly string[], quote: string): boolean {
-    const lines = quote.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line !== "");
+    const lines = quoteLines(quote);
     if (!lines.some((line) => [...line].length >= MIN_QUOTE)) return false;
     return lines.every((line) => paragraphs.some((paragraph) => paragraph.includes(line)));
+}
+
+/** 引文从哪一段开始（输出 3 的“第一处引文所在的段”）：看第一行，后面的行可以落在别的段。 */
+export function segmentOfQuote<S extends {readonly paragraphs: readonly string[]}>(segments: readonly S[], quote: string): S | undefined {
+    const first = quoteLines(quote)[0];
+    return first === undefined ? undefined : segments.find((segment) => segment.paragraphs.some((paragraph) => paragraph.includes(first)));
 }
 
 /** 这一段涉及的已写变更（输出 2）：讲述的发生点落在这一段的（包括安放在别处的补叙），加安放在本章、本章没有发生点的。 */

@@ -85,6 +85,9 @@ describe("验收 1：卫兵认出勇者", () => {
         expect(slips.length).toBe(1);
         expect(String(slips[0]!.params.people).split("、").sort()).toEqual(["侍女", "勇者", "卫兵", "骗子"].sort());
         expect(reported(w, [record], {}, "ch3")).toEqual({});
+        // 章首还没读到这一章；章末才报。
+        expect(reported(w, [record], {}, "ch4", "start")).toEqual({});
+        expect(reported(w, [record], {}, "ch4")[CHECK.possibleSlip]!.length).toBe(1);
     });
 });
 
@@ -104,11 +107,13 @@ describe("验收 2：试读与泄底", () => {
     test("强烈倾向且判一致：提前泄底，附上读者守卫与挂在 K 上的决策；判一致的输入只有答案与命题", async () => {
         const {w, k} = baron();
         const guardDecision = w.decision("第 20 章之前不能让读者猜到", {about: [{kind: "entry", id: k}], conclusion: "瞒到第 20 章"});
+        const onAddress = w.decision("名字先不露", {about: [{kind: "address", at: {entry: k, path: "entry.name"}}], conclusion: "瞒到第 20 章"});
         const {models, asked} = scripted(trial("strong"));
         const record = await runOk(w, "ch12", models);
         const [found] = reported(w, [record])[CHECK.earlyReveal]!;
         expect(found).toMatchObject({key: {objects: [{kind: "entry", id: k}], range: {from: "ch12", to: "ch12"}}, params: {guess: "管家", confidence: "strong", verdict: "consistent"}});
         expect(found!.objects).toContainEqual({kind: "decision", id: guardDecision});
+        expect(found!.objects).toContainEqual({kind: "decision", id: onAddress});
         const judge = asked.find((call) => call.request.answer === "judge")!;
         expect(judge.role).toBe("ledger");
         expect(judge.request.user).toContain("管家是凶手");
@@ -463,6 +468,26 @@ describe("审查找到的（各是一个真实的反例）", () => {
         expect(exact.newFacts).toEqual([]);
     });
 
+    test("新事实的引文跨两条线：一条带换行的与拆成两条结果相同，归第一处引文所在的段；窄问题仍要落在同一段", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        w.texts.set("ch1", "开头。\n");
+        const cut = w.change(chapter("ch1"));
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch2")), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}}]);
+        const [first, second] = ["小梅说十一点在桥头见", "回溯以后约定还是十一点"];
+        w.texts.set("ch3", `${first}。\n${second}。\n`);
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch3", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 2}]]])});
+        const answering = (quotes: string[]) => scripted((_, request) => (request.answer === "fixed" ? {items: [], newFacts: [{kind: "knowing", text: "约定十一点在桥头见", quotes}]} : undefined)).models;
+        const separate = await runOk(w, "ch3", answering([first, second]));
+        const multiline = await runOk(w, "ch3", answering([`${first}\n${second}`]));
+        expect(separate.newFacts[0]).toMatchObject({segment: "main#1", line: "main"});
+        expect(multiline.newFacts[0]).toMatchObject({segment: "main#1", line: "main"});
+        expect(badQuotesOf(multiline)).toBe(0);
+        // 一行对得上、一行对不上：还是丢掉。
+        const broken = await runOk(w, "ch3", answering([`${first}\n正文里没有的一句话`]));
+        expect(broken.newFacts).toEqual([]);
+        expect(badQuotesOf(broken)).toBe(1);
+    });
+
     test("引文拆成单字逐行：不算有效；真的跨两行的算；夹一行短的不算错", async () => {
         const answerWith = (quote: string) => (_: string, request: {answer: string; user: string}) => (request.answer === "yesNo" && request.user.includes("把这件事当真") ? {answer: "yes", quotes: [quote]} : undefined);
         const scene = () => {
@@ -559,6 +584,24 @@ describe("补问与费用", () => {
         expect(second.followUps).toEqual([named]);
         expect(second.calls.some((call) => call.id === named)).toBe(true);
         expect(isValid({view: w.view(), record: second, digest})).toBe(true);
+    });
+
+    test("超预算的试读可以补问：补问的那次才调模型，不再列为没问；不是候选的 id 忽略；清掉清单又回到没问", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const points = Array.from({length: 4}, (_, index) => w.point(`秘密${String(index)}`, butler, {保密: "secret", 读者问题: `问题${String(index)}`}));
+        w.texts.set("ch12", "管家端着茶。\n");
+        for (const point of points) w.change(chapter("ch20"), {kind: "plan", told: [{source: "outline", chapter: "ch20", anchor: "细纲", marks: [reveal(point, "explicit")]}]});
+        const first = await runOk(w, "ch12", scripted().models);
+        const named = first.unasked.find((item) => item.layer === "reader")!.id;
+        const {models, asked} = scripted();
+        const second = await runOk(w, "ch12", models, {followUps: [named, "reader:不是候选"], reuse: first});
+        expect(asked.filter((call) => call.role === "reader").length).toBe(1);
+        expect(second.calls.some((call) => call.id === named)).toBe(true);
+        expect(second.calls.some((call) => call.id === "reader:不是候选")).toBe(false);
+        expect(second.unasked.some((item) => item.layer === "reader")).toBe(false);
+        expect(isValid({view: w.view(), record: second, digest})).toBe(true);
+        expect(planOf(w, "ch12").unasked.map((item) => item.id)).toEqual([named]);
     });
 
     test("记下各种调用的次数与合计用量", async () => {

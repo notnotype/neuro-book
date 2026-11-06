@@ -20,7 +20,7 @@ import {budgeted, candidatesOf, type Candidate} from "./candidates";
 import {pointsAfterWriting} from "./points";
 import {fixedRequest, narrowRequest, stemOf, type RuleItem} from "./questions";
 import {readAppeared, segmentsOf, writtenIn, type CheckSegment} from "./segments";
-import {trialsOf, type MaterialItem} from "./trial";
+import {readerCallId, trialsOf, type MaterialItem} from "./trial";
 
 export type CallLayer = "presence" | "narration" | "object" | "time" | "fixed" | "reader";
 
@@ -212,8 +212,8 @@ export function planCheck(input: PlanInput): CheckPlan | {readonly code: "chapte
     const fixedCall: PlannedCall = {id: "fixed", layer: "fixed", role: "ledger", question: rules.map((rule) => `${rule.item}：${rule.text}`).join("\n"), request: fixed, digest: inputDigest(fixed, digest), paragraphs: segments.flatMap((segment) => segment.paragraphs)};
 
     // 试读按整章做；知识点的字段按第一段的线读：结果与调用时拿的是哪条线的视图无关（诊断的计算可能拿着别的线）。
-    const trial = trialsOf(segments[0]!.view, chapter, [...pointsBySegment.values()].flat());
-    const trialCalls: PlannedCall[] = trial.trials.map((item) => ({id: `reader:${item.point}`, layer: "reader", role: "reader", question: item.question, request: item.request, digest: inputDigest(item.request, digest), point: item.point, paragraphs: item.paragraphs}));
+    const trial = trialsOf(segments[0]!.view, chapter, [...pointsBySegment.values()].flat(), followUps);
+    const trialCalls: PlannedCall[] = trial.trials.map((item) => ({id: readerCallId(item.point), layer: "reader", role: "reader", question: item.question, request: item.request, digest: inputDigest(item.request, digest), point: item.point, paragraphs: item.paragraphs}));
 
     const points = [...new Set([...pointsBySegment.values()].flat())].sort();
     const concerns = [...new Set([...points, ...segments.flatMap((segment) => segment.view.chapterEntries(chapter, "actual"))])].sort();
@@ -223,7 +223,7 @@ export function planCheck(input: PlanInput): CheckPlan | {readonly code: "chapte
         calls: [...narrow, fixedCall, ...trialCalls],
         rules,
         trials: trial.trials.map(({point, truth, materialKind, material}) => ({point, truth, materialKind, material})),
-        unasked: [...unasked.map((candidate) => ({id: candidate.id, layer: candidate.layer})), ...trial.unasked.map((point) => ({id: `reader:${point}`, layer: "reader" as const}))],
+        unasked: [...unasked.map((candidate) => ({id: candidate.id, layer: candidate.layer})), ...trial.unasked.map((point) => ({id: readerCallId(point), layer: "reader" as const}))],
         uncast: uncast.size,
         noSuspense: trial.noSuspense,
         noReaderQuestion: trial.noReaderQuestion,

@@ -40,7 +40,7 @@ import {CheckRecordSchema, plotChecksContract, SelfReportSchema, type CheckRecor
 import {plotModelContract} from "../shared/model";
 import {InstructionSnapshotSchema, plotInstructionsContract, type InstructionSnapshot} from "../shared/instructions";
 import {remoteCheckModels} from "./check-models";
-import {createChecks} from "./checks";
+import {createChecks, writeBackRecord} from "./checks";
 import {PlotStore, type ChapterTable} from "./store";
 
 
@@ -244,12 +244,7 @@ export const plotProjectPlugin: PluginDefinition = {
                 selfReports,
                 pluginVersion: descriptor.version,
                 digest,
-                writeBack: (original, updated) => void store.queued(async () => {
-                    // 排队期间跑了新的检查：不把它换回旧记录。
-                    if (records.get(original.chapter) !== original) return;
-                    const written = await store.write(records, original.chapter, updated);
-                    if (!written.ok) warn("plot.store.write-back", `${written.code}: ${written.detail}`);
-                }).catch((error: unknown) => warn("plot.store.write-back", String(error))),
+                writeBack: writeBackRecord(store, records, warn),
             });
             canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? {...instructionDiagnostics(instructions), ...checkDiagnostics(source, digest)} : {})}, dataVersion: store.dataVersion});
             const checks = createChecks({canon, store, instructions, selfReports, checks: records, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps, concerned) => source.dependencies(view, chapter, followUps, concerned) ?? "", changed: report, stop: context.signal, warn});

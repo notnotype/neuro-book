@@ -6,6 +6,7 @@ import type {CanonReadView, Mode, ReadPosition, StoryChange} from "@notnotype/nb
 
 import {DEFAULT_SECRECY, ENTRY_TYPES, MARK_IDS, type Secrecy} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
+import {decisionHangsOn} from "../decisions";
 import {foreshadowIndex} from "../foreshadowing";
 import {firstReveal, knowingIndex, readerKnowing, type KnowingRow} from "../knowledge";
 import {readAppeared} from "./segments";
@@ -90,7 +91,7 @@ export function revealDependencies(view: CanonReadView, point: string, instructi
         name: index.foreshadows.find((candidate) => candidate.id === foreshadow)?.name ?? foreshadow,
         nodes: index.nodesRead(foreshadow, until).map((node) => ({role: node.role, chapter: node.occurrence.chapter, paragraph: node.occurrence.paragraph})),
     }));
-    const decisions = view.decisions().filter((decision) => decision.about.some((about) => about.kind === "entry" && about.id === point) || (decision.marks ?? []).some((mark) => mark.kind === MARK_IDS.guardReader && mark.point === point)).map((decision) => decision.id);
+    const decisions = view.decisions().filter((decision) => decisionHangsOn(decision, point)).map((decision) => decision.id);
     const read = view.entry(point, position, "actual");
     const name = read === null || read === "chapter-not-found" ? null : read.name;
     const inText = (snapshot: InstructionSnapshot) => name !== null && [snapshot.readerChange, snapshot.tone, snapshot.opening, snapshot.ending, snapshot.other, ...(snapshot.avoid ?? [])].some((text) => text?.includes(name) === true);

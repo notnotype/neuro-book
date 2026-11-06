@@ -96,6 +96,11 @@ function involves(view: CanonReadView, decision: Decision, chapter: string, inde
     return false;
 }
 
+/** 这条决策挂在这个知识点上吗：挂点是它或它的地址（与 `involves` 同一个口径），或者读者守卫指向它（输出 3、7）。 */
+export function decisionHangsOn(decision: Decision, point: string): boolean {
+    return decision.about.some((about) => (about.kind === "entry" && about.id === point) || (about.kind === "address" && about.at.entry === point)) || (decision.marks ?? []).some((mark) => mark.kind === MARK_IDS.guardReader && (mark as {point?: unknown}).point === point);
+}
+
 const aboutKey = (decision: Decision) => decision.about.map((about) => (about.kind === "address" ? `address:${about.at.entry}:${about.at.path}` : `${about.kind}:${"id" in about ? about.id : ""}`)).sort()[0] ?? "";
 
 /**

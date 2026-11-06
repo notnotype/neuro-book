@@ -9,7 +9,8 @@
 import type {CanonReadView, DiagnosticCompute, Finding, ObjectRef, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
 import type {CheckRecord, FixedAnswer, JudgeAnswer, ObjectAnswer, TrialAnswer, YesNoAnswer} from "../../shared/checks";
-import {CHECK_DIAGNOSTIC_IDS, DECISION_DIAGNOSTIC_IDS, FS_DIAGNOSTIC_IDS, MARK_IDS} from "../../shared/declarations";
+import {CHECK_DIAGNOSTIC_IDS, DECISION_DIAGNOSTIC_IDS, FS_DIAGNOSTIC_IDS} from "../../shared/declarations";
+import {decisionHangsOn} from "../decisions";
 import type {Digest} from "../guards";
 import {perViewCache} from "../view-cache";
 
@@ -63,7 +64,7 @@ class Collector {
 function decisionsOn(view: CanonReadView, point: string): ObjectRef[] {
     return view.decisions()
         .filter((decision) => decision.status === "decided" || decision.status === "pending")
-        .filter((decision) => decision.about.some((about) => about.kind === "entry" && about.id === point) || (decision.marks ?? []).some((mark) => mark.kind === MARK_IDS.guardReader && (mark as {point?: unknown}).point === point))
+        .filter((decision) => decisionHangsOn(decision, point))
         .map((decision) => ({kind: "decision" as const, id: decision.id}));
 }
 
@@ -150,7 +151,8 @@ const results = perViewCache<Findings>();
 function findingsAt(view: CanonReadView, at: ReadPosition, source: CheckSource, digest: Digest): Findings {
     return results(view, JSON.stringify(at), () => {
         const out = new Collector();
-        const now = at.kind === "chapter" ? view.chapters.indexOf(at.chapter) : -1;
+        // 章首还没读到这一章，它的检查结果从章末起才算。
+        const now = at.kind === "chapter" ? view.chapters.indexOf(at.chapter) - (at.edge === "start" ? 1 : 0) : -1;
         for (const record of source.all()) {
             const index = view.chapters.indexOf(record.chapter);
             if (index === -1 || index > now) continue;

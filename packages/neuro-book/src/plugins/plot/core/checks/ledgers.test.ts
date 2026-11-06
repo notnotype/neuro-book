@@ -47,11 +47,12 @@ describe("账本视图", () => {
         w.texts.set("ch4", "手套上有血。\n");
         w.change(chapter("ch4"), {told: [{source: "chapter", chapter: "ch4", quote: "手套上有血", marks: [node(fs, "plant")]}]});
         const decision = w.decision("瞒到第 10 章", {about: [{kind: "entry", id: k}], conclusion: "瞒"});
+        const onAddress = w.decision("名字先不露", {about: [{kind: "address", at: {entry: k, path: "entry.name"}}], conclusion: "瞒"});
         const deps = revealDependencies(w.view(), k, [{chapter: "ch9", version: "v1", avoid: ["写明管家是凶手"]}, {chapter: "ch8", version: "v1", tone: "冷"}]);
         expect(deps.plans).toEqual([{plan, chapter: "ch10", mode: "explicit"}]);
         expect(deps.foreshadows).toMatchObject([{foreshadow: fs, name: "真凶之谜"}]);
         expect(deps.foreshadows[0]!.nodes).toContainEqual({role: "plant", chapter: "ch4", paragraph: 1});
-        expect(deps.decisions).toEqual([decision]);
+        expect(deps.decisions).toEqual([decision, onAddress]);
         expect(deps.instructions).toEqual(["ch9"]);
     });
 });

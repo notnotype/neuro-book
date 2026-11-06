@@ -95,13 +95,13 @@ export async function runOk(w: PlotWorld, chapter: string, models: CheckModels, 
 }
 
 /** 这些记录现在报出什么：诊断 id 到发现。 */
-export function reported(w: PlotWorld, records: readonly CheckRecord[], scene: Scene = {}, at?: string) {
+export function reported(w: PlotWorld, records: readonly CheckRecord[], scene: Scene = {}, at?: string, edge: "start" | "end" = "end") {
     const compute = checkDiagnostics({
         all: () => records,
         valid: (view, record) => isValid({view, record, digest, ...(scene.instruction === undefined ? {} : {instruction: scene.instruction}), ...(scene.selfReport === undefined ? {} : {selfReport: scene.selfReport})}),
     }, digest);
     const view = w.view();
-    const position = {kind: "chapter" as const, chapter: at ?? view.chapters.at(-1)!, edge: "end" as const};
+    const position = {kind: "chapter" as const, chapter: at ?? view.chapters.at(-1)!, edge};
     return Object.fromEntries(Object.entries(compute).flatMap(([id, fn]) => {
         const found = fn(view, position, "actual");
         return found.length === 0 ? [] : [[id, found] as const];
