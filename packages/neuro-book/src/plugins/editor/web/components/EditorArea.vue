@@ -118,7 +118,7 @@ const dialog = computed(() => props.area.dialog.value);
 <template>
     <div
         ref="root"
-        class="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[var(--panel-surface)]"
+        class="editor-area flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[var(--panel-surface)]"
         data-editor-area
         @keydown="onKeydown"
         @focusin="area.focused.value = true"
@@ -183,6 +183,16 @@ const dialog = computed(() => props.area.dialog.value);
 </template>
 
 <style scoped>
+/*
+ * 组之间的线由编辑区自己定（docs/specs/workbench/editor.md 输出 2）：外壳根上的 `--nb-splitter-seam` 是外壳网格的接缝，卡片主题里透明，
+ * 继承下来组之间就看不出分界。线贯通整个高度，悬停线也贴满，亮起来正好盖住它。
+ */
+.editor-area {
+    --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
+    --nb-splitter-seam-inset: 0px;
+    --sash-line-inset: 0px;
+}
+
 /*
  * 拖影：与标签同字号、同底色的一小块（图标加名字），跟着指针、不挡命中（落点用 elementFromPoint 算）。它在 body 下，
  * 不受编辑器区的裁剪；scoped 的类名照样生效。

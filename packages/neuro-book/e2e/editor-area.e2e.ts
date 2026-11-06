@@ -549,6 +549,29 @@ test("提示条占着编辑区顶部时，grid 不超出编辑区：底部不被
     await closeAll(page);
 });
 
+test("组与组之间画得出分隔线：卡片主题的外壳接缝是透明的，不继承到编辑区（docs/specs/workbench/editor.md 输出 2）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/a.md").dblclick();
+    await expect(tabs(page)).toHaveCount(1);
+    await tabs(page).first().focus();
+    await page.keyboard.press("Control+\\");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    const seam = page.locator("[data-editor-area] .sash-seam");
+    await expect(seam).toHaveCount(1);
+    const line = await seam.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const area = element.closest("[data-editor-area]")!.getBoundingClientRect();
+        return {color: getComputedStyle(element).backgroundColor, width: box.width, height: box.height, areaHeight: area.height, shell: getComputedStyle(element.closest("[data-editor-area]")!.parentElement!).getPropertyValue("--nb-splitter-seam")};
+    });
+    expect(line.shell).toBe("transparent");
+    expect(line.color).not.toBe("rgba(0, 0, 0, 0)");
+    expect(line.width).toBeGreaterThan(0);
+    expect(Math.abs(line.height - line.areaHeight)).toBeLessThan(1);
+    await closeAll(page);
+});
+
 test("拆分的过渡：旧组的标签条与正文跟着外框变窄，不露空白；新组一开始就是最终宽度，从右边滑入（docs/specs/ui/nested-grid.md 的“过渡”）", async ({page}) => {
     await page.emulateMedia({reducedMotion: "no-preference"});
     await page.setViewportSize({width: 1440, height: 900});
