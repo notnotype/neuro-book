@@ -51,7 +51,9 @@ export function userThemeProblem(value: unknown): string | null {
     const names = [declaration.light.scene, declaration.dark.scene].filter((scene): scene is string => scene !== undefined);
     const wrong = names.find((name) => !THEME_ASSET_NAME.test(name));
     if (wrong !== undefined) return `主题 ${id} 的场景图要写素材文件名：${wrong}`;
-    // 编辑器不产出图标集；用户层的素材只有场景图，图标的相对路径在这里没有可解析的位置。
-    if (declaration.light.icons !== undefined || declaration.dark.icons !== undefined) return `主题 ${id} 不收图标集：“我的主题”只有场景图素材`;
+    // 用户层的素材只有按哈希命名的场景图，图标集与工作态场景的相对路径在这里没有可解析的位置（复制与导入时丢弃，见 theme.editor）。
+    for (const look of [declaration.light, declaration.dark]) {
+        if (look.icons !== undefined || look.workingScene !== undefined) return `主题 ${id} 不收图标集与工作态场景：“我的主题”只有一张场景图的素材`;
+    }
     return declarationProblem(id, declaration);
 }

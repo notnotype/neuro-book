@@ -27,6 +27,8 @@ const LookSchema = Type.Object({
     vars: Type.Optional(StringMap),
     activityBar: Type.Optional(Type.Object({surface: Type.String(), foreground: Type.String(), active: Type.String(), ornament: Type.Optional(Type.String())}, {additionalProperties: false})),
     scene: Type.Optional(Type.String({minLength: 1})),
+    /** Agent 工作中（有会话在运行或等用户处理）时用的场景图（docs/specs/theme/skins.md 输出 17）；没写或解析不出时仍用 `scene`。 */
+    workingScene: Type.Optional(Type.String({minLength: 1})),
     /** 图标集（docs/specs/theme/skins.md 输出 16）：图标名（`i-lucide-<名>` 的 <名>）到插件目录内 .svg 的相对路径，按名覆盖，没写的保持原图标。 */
     icons: Type.Optional(StringMap),
     /** 浮层的画框：描边里面再画一道细线（docs/specs/theme/skins.md 输出 13）。 */
@@ -78,8 +80,9 @@ function pathProblem(label: string, path: string): string | null {
 function lookProblem(name: string, look: ThemeLook): string | null {
     for (const key of Object.keys(look.colors ?? {})) if (!COLOR_VARS.has(key)) return `${name}.colors 不收 ${key}：不是配色变量`;
     for (const key of Object.keys(look.vars ?? {})) if (!ROLE_VARS.has(key)) return `${name}.vars 不收 ${key}：不在主题角色变量里`;
-    if (look.scene !== undefined) {
-        const problem = pathProblem(`${name}.scene`, look.scene);
+    for (const [field, path] of [["scene", look.scene], ["workingScene", look.workingScene]] as const) {
+        if (path === undefined) continue;
+        const problem = pathProblem(`${name}.${field}`, path);
         if (problem !== null) return problem;
     }
     const icons = Object.entries(look.icons ?? {});
@@ -107,8 +110,8 @@ export function themeProblem(descriptor: ContributionDescriptor<ThemeDeclaration
 /** 声明内容的规则，插件主题与“我的主题”（`user-themes.ts`）共用：取值不能引外部资源，`vars`、`colors` 在白名单里，`scene` 是相对路径。 */
 export function declarationProblem(id: string, declaration: ThemeDeclaration): string | null {
     const {title: _title, ...rest} = declaration;
-    const {scene: _light, icons: _lightIcons, ...light} = declaration.light;
-    const {scene: _dark, icons: _darkIcons, ...dark} = declaration.dark;
+    const {scene: _light, workingScene: _lightWorking, icons: _lightIcons, ...light} = declaration.light;
+    const {scene: _dark, workingScene: _darkWorking, icons: _darkIcons, ...dark} = declaration.dark;
     if (stringsIn({...rest, light, dark}).some((value) => LOADS_RESOURCE.test(value))) return `主题 ${id} 的取值不能引外部资源（url()）`;
     return lookProblem("light", declaration.light) ?? lookProblem("dark", declaration.dark);
 }

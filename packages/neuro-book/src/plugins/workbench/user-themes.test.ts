@@ -42,6 +42,7 @@ describe("我的主题的校验", () => {
         ["多余的字段", {...theme("1"), extra: 1}],
         ["场景图不是素材文件名", theme("1", {dark: {scene: "assets/day.webp"}})],
         ["场景图往上走", theme("1", {dark: {scene: "../x.webp"}})],
+        ["工作态场景：我的主题只有一张场景图的素材", theme("1", {dark: {workingScene: `${HASH}.webp`}})],
         ["图标集：我的主题只有场景图素材", theme("1", {dark: {icons: {files: "files.svg"}}})],
         ["取值含 url()", theme("1", {light: {colors: {"--bg-main": "url(https://example.com/x.png)"}}})],
         ["字体里藏 url()", theme("1", {fonts: {display: "u\\72l(x)"}})],

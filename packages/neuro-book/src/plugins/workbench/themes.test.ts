@@ -61,6 +61,8 @@ describe("workbench.themes", () => {
         ["scene 是远程地址", plain({dark: {scene: "https://example.com/x.webp"}})],
         ["scene 从根开始", plain({dark: {scene: "/etc/x.webp"}})],
         ["scene 往上走", plain({dark: {scene: "assets/../../x.webp"}})],
+        ["workingScene 是远程地址", plain({light: {workingScene: "https://example.com/x.webp"}})],
+        ["workingScene 往上走", plain({light: {workingScene: "../x.webp"}})],
         ["图标名带大写或斜杠", plain({light: {icons: {"Files/x": "assets/a.svg"}}})],
         ["图标名想闭合选择器", plain({light: {icons: {"files{}x": "assets/a.svg"}}})],
         ["图标不是 svg", plain({light: {icons: {files: "assets/a.png"}}})],
@@ -80,7 +82,7 @@ describe("主题的取值", () => {
     const study: ThemeDeclaration = plain({
         fonts: {display: "serif", prose: "serif"},
         crop: {empty: {position: "center 70%", contentX: 0.44}, marginLeft: {size: "auto 118%", position: "0% 100%"}, auxiliaryCorner: {size: "1000px auto", position: "0% 100%"}},
-        light: {colors: {"--bg-main": "#fff"}, vars: {"--divider": "#eee"}, activityBar: {surface: "#111", foreground: "#222", active: "#333", ornament: "#444"}, scene: "assets/day.webp", frame: {line: "#abc"}, icons: {files: "assets/icons/files.svg", search: "assets/icons/search.svg"}},
+        light: {colors: {"--bg-main": "#fff"}, vars: {"--divider": "#eee"}, activityBar: {surface: "#111", foreground: "#222", active: "#333", ornament: "#444"}, scene: "assets/day.webp", workingScene: "assets/day-working.webp", frame: {line: "#abc"}, icons: {files: "assets/icons/files.svg", search: "assets/icons/search.svg"}},
         dark: {colors: {"--bg-main": "#000"}},
     });
     const entry = {id: "acme.skin.study", plugin: "acme.skin", declaration: study};
@@ -103,6 +105,15 @@ describe("主题的取值", () => {
         expect(scene).toBe(false);
         expect(vars["--bg-main"]).toBe("#fff");
         expect(icons).toEqual({});
+    });
+
+    it("工作中且写了工作态场景时换那一张，其余情形仍是平常的场景图；工作态场景解析不出来时退回平常的", () => {
+        const url = (plugin: string, path: string): string => `/files/${plugin}/${path}`;
+        expect(themeVars(entry, "light", url).vars["--skin-scene"]).toBe('url("/files/acme.skin/assets/day.webp")');
+        expect(themeVars(entry, "light", url, true).vars["--skin-scene"]).toBe('url("/files/acme.skin/assets/day-working.webp")');
+        expect(themeVars(entry, "light", (plugin, path) => (path.includes("working") ? null : url(plugin, path)), true).vars["--skin-scene"]).toBe('url("/files/acme.skin/assets/day.webp")');
+        // 暗色没写工作态场景，也没有平常的场景图：工作中也没有场景。
+        expect(themeVars(entry, "dark", url, true).scene).toBe(false);
     });
 
     it("图标集按名解析成 URL，解析不出的那个不换，没写的明暗没有", () => {

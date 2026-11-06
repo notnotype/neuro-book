@@ -143,6 +143,11 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const pluginFiles = await context.services.resolve(windowPluginFilesKey);
             const editorArea = new EditorAreaSlot((message) => diagnostics.record({level: "warn", event: "workbench.editor-area", message, source: {plugin: descriptor.id}}));
             const stateService = context.services.require(publicStateKey);
+            /** Agent 工作中：有会话在运行或等用户处理（`nbook.agent/active`，状态栏“Agent：1 运行中”的同一个信号）。Agent 插件没启用时读不到，按空闲。 */
+            const agentWorking = (): boolean => {
+                const read = stateService.read("nbook.agent/active");
+                return read.status === "ready" && read.value === true;
+            };
             const reportItem = (message: string): void => {
                 diagnostics.record({level: "warn", event: "workbench.items", message, source: {plugin: descriptor.id}});
             };
@@ -219,7 +224,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             let movePaneFocus: PaneFocusMover | null = null;
             const workbenchPages = createWorkbenchPages({
                 // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
-                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(themes.preview?.id ?? effectiveTheme(), resolved)})},
+                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(themes.preview?.id ?? effectiveTheme(), resolved, agentWorking())})},
                 // 布局 store 在要显示外壳时才创建：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。开始加载外壳时就
                 // 创建、开始读布局记录，与下载外壳代码并行：等外壳挂上才读的话，每次打开都先按缺省布局画出来（Spec 失败表的“记录
                 // 未读完”），记录到了再变过去，侧栏、面板从缺省尺寸动画收起，缺省可见的视图也被加载。
