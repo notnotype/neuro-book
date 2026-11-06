@@ -15,8 +15,28 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 <body>
 <h1>t06 权限与 Agent 模式</h1>
 
+<section data-nbdev-question="rules-page" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>规则设置页与“以后都允许”，这样可以吗</h2>
+  <p>设置窗口“AI”一类里新增一页“权限规则”。都是真实组件的 Lab 场景，还没接到设置窗口。模型控件已按你选的 A 改好（一行文字，思考档位用强调色），在下面第三张图的向导背后能看到输入框的样子。</p>
+  <ul>
+    <li><b>我的规则</b>：所有作品生效，从上到下第一条命中算数，所以能上移下移。每条写动作、工具、条件，理由写在下面一行。</li>
+    <li><b>这本书的规则</b>：绑定作品时才有，只读。放行规则变淡，写明不生效；文件坏了写明后果。</li>
+    <li><b>对话框</b>：工具、条件（所有调用、命令、路径、参数含关键词、工具交出的对象、自定义 JSON）、动作、理由。常见的不用写 JSON；嵌套条件才要。</li>
+    <li><b>以后都允许</b>：审批向导多一个按钮，排在“本会话都批准”后面，悬停写明会写进“我的规则”、所有作品生效。规则加在列表末尾，所以不会盖过你已有的拒绝；这个会话当场生效。太宽的命令没有这个按钮。</li>
+  </ul>
+  <div class="row">
+    <figure><figcaption>绑定作品时：我的规则与这本书的规则</figcaption><img src="r7/rules-project.webp" alt="规则列表，上面是我的规则，下面是这本书的规则，放行规则变淡"></figure>
+    <figure><figcaption>还没有规则</figcaption><img src="r7/rules-empty.webp" alt="空状态，写着可以写什么样的规则"></figure>
+    <figure><figcaption>添加规则</figcaption><img src="r7/rules-add.webp" alt="对话框：工具、条件、动作、理由"></figure>
+    <figure><figcaption>嵌套条件用 JSON</figcaption><img src="r7/rules-json.webp" alt="编辑规则，条件是一段 JSON"></figure>
+    <figure><figcaption>审批向导里的“以后都允许”</figcaption><img src="r7/wizard-always.webp" alt="审批向导按钮：批准、本会话都批准、以后都允许、拒绝"></figure>
+  </div>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>照这样接到设置窗口。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
 <section data-nbdev-question="model-trigger" data-nbdev-type="single" data-nbdev-recommend="c">
-  <h2><span class="badge" data-nbdev-skip>待定</span>模型控件选哪一种</h2>
+  <h2><span class="badge" data-nbdev-skip>已定 A</span>模型控件选哪一种</h2>
   <p>都放在真实工具栏里看：每张图上面是选了角色（主力，实际用 Claude Sonnet，思考中），下面是直接选模型（Claude Sonnet，思考高）。其余部分不变。</p>
   <div data-nbdev-option="a" data-nbdev-label="A 纯文字">
     <figure><figcaption>A 纯文字</figcaption><img src="r5/a.webp" alt="A 纯文字的样子"></figure>
