@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t13-bars-move
-status: planned
-updated: 2026-11-05
+status: shelved
+updated: 2026-11-06
 ---
 
 # 活动栏、状态栏移到四边
