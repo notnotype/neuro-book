@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t15-dialog-origin
-status: planned
+status: done
 updated: 2026-11-06
 ---
 
