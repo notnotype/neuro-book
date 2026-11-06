@@ -273,6 +273,63 @@ test("图标：上传 SVG 后工作台里该图标换成它，不合格的被路
     });
 });
 
+test("图标名补全与原图标：候选取自页面里产品能画的图标（含别名、不含自己的覆盖表），不在其中的名字给非阻断提示，行里的原图标不被覆盖污染", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=icons]").click();
+        const field = page.locator("[data-icon-name]");
+
+        // 候选：输入前缀，产品里用着的图标出现（只断言包含，不断言条数：开发服务与 e2e 外壳的样式比产品多出 Lab 里的图标）。
+        await field.click();
+        await field.fill("folder");
+        await expect(page.getByRole("option", {name: "folder-plus", exact: true})).toBeVisible();
+        // 别名写成分组选择器（`.i-lucide-loader-2,.i-lucide-loader-circle`），两个名字都要在目录里。
+        await field.fill("loader");
+        await expect(page.getByRole("option", {name: "loader-2", exact: true})).toBeVisible();
+        await expect(page.getByRole("option", {name: "loader-circle", exact: true})).toBeVisible();
+        // 键盘：回车选中当前项（不添加），Escape 收起。
+        await field.fill("loader-c");
+        await expect(page.getByRole("option", {name: "loader-circle", exact: true})).toBeVisible();
+        await field.press("Enter");
+        await expect(field).toHaveValue("loader-circle");
+        await expect(page.locator("[data-icon-row]")).toHaveCount(0);
+        await field.fill("fold");
+        await expect(page.getByRole("option").first()).toBeVisible();
+        await field.press("Escape");
+        await expect(page.getByRole("option")).toHaveCount(0);
+
+        // 不在目录里的名字：非阻断提示，仍然合规（没有“名字不合规则”的报错）。先确认这个名字真的不在页面样式里（lucide 里有，仓库源码里没用）。
+        const unknown = "ice-cream-cone";
+        expect(await page.evaluate((name) => Array.from(document.styleSheets).some((sheet) => Array.from(sheet.cssRules).some((rule) => rule.cssText.includes(`.i-lucide-${name}`))), unknown)).toBe(false);
+        await field.fill(unknown);
+        await expect(page.locator("[data-icon-unknown]")).toBeVisible();
+        await expect(page.locator("[data-icon-name-problem]")).toHaveCount(0);
+        await field.fill("folder");
+        await expect(page.locator("[data-icon-unknown]")).toHaveCount(0);
+
+        // 覆盖 folder：行里的预览是上传的 SVG，旁边的“原图标”仍是产品默认的，两者不同（预览的蒙版取自素材目录的文件）。
+        const hash = createHash("sha256").update(ICON_SVG).digest("hex");
+        await chooseIcon(page, "mine.svg", ICON_SVG);
+        const row = page.locator('[data-icon-row="folder"]');
+        await expect(row).toBeVisible();
+        const maskOf = (selector: string) => row.locator(selector).evaluate((element) => getComputedStyle(element).maskImage);
+        await expect.poll(() => maskOf(".theme-editor-icons__preview:not([data-icon-original])")).toContain(`${hash}.svg`);
+        const original = await maskOf("[data-icon-original]");
+        expect(original).toContain("data:image/svg+xml");
+        expect(original).not.toContain(`${hash}.svg`);
+
+        // 自己的覆盖表不算“产品能画的”：folder 已被覆盖，但目录里它的默认图标仍是产品那个；一个只存在于覆盖里的名字不进候选。
+        await field.fill(unknown);
+        await chooseIcon(page, "cone.svg", ICON_SVG);
+        await expect(page.locator(`[data-icon-row="${unknown}"]`)).toBeVisible();
+        await expect(page.locator(`[data-icon-row="${unknown}"] [data-icon-original]`)).toHaveCount(0);
+        await field.fill("ice-cream");
+        await expect(page.getByRole("option")).toHaveCount(0);
+    });
+});
+
 test("工作态场景与预览状态：上传后预览选“工作中”场景换成它，“空闲”换回，“跟随”回到真实状态；关掉编辑器后回到真实状态", async ({page}) => {
     await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
         await open(page, session);
@@ -328,7 +385,7 @@ test("复制书房：它的场景图与全部图标都传成我的素材（真�
 
         // 传成我的素材：每个图标行预览的地址都是素材目录里 `<sha256>.svg` 的读取地址，取得到 SVG；素材目录里的文件都是摘要命名。
         const assetPath = /^\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.svg$/u;
-        const urls = await page.locator("[data-icon-row] [aria-hidden=true]").evaluateAll((previews) => previews.map((element) => /url\("(.+)"\)/u.exec((element as HTMLElement).style.getPropertyValue("--icon-url"))?.[1] ?? ""));
+        const urls = await page.locator("[data-icon-row] [aria-hidden=true]:not([data-icon-original])").evaluateAll((previews) => previews.map((element) => /url\("(.+)"\)/u.exec((element as HTMLElement).style.getPropertyValue("--icon-url"))?.[1] ?? ""));
         expect(urls).toHaveLength(STUDY_ICON_NAMES.length);
         for (const url of urls) {
             expect(url).toMatch(assetPath);
@@ -343,6 +400,8 @@ test("复制书房：它的场景图与全部图标都传成我的素材（真�
         // 场景图一并复制：取景编辑里画的就是我的素材。
         await page.locator("[data-section-tab=scene]").click();
         await expect(page.locator("[data-crop-editor] img")).toHaveAttribute("src", /\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.(?:webp|png|jpg)$/u);
+        // 书房的工作态场景也一并复制（t14 起书房带了亮暗各一张）。
+        await expect(page.locator("[data-working-thumb]")).toHaveAttribute("src", /\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.(?:webp|png|jpg)$/u);
     });
 });
 

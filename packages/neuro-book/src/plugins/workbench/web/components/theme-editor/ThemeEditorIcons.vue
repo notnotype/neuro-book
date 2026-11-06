@@ -1,10 +1,16 @@
 <script setup lang="ts">
-/** 主题编辑器的“图标”分区（同名 .md）：当前明暗下的图标覆盖，每一项把一个 lucide 图标名换成上传的 SVG。 */
-import {computed, ref} from "vue";
+/**
+ * 主题编辑器的“图标”分区（同名 .md）：当前明暗下的图标覆盖，每一项把一个 lucide 图标名换成上传的 SVG。名字输入有补全，
+ * 候选取自页面里已加载的样式（`icon-scan.ts`）：产品此刻能画的图标。
+ */
+import {computed, onMounted, ref, shallowRef, useId} from "vue";
 
-import {Button, Input} from "@notnotype/nb-ui/components";
+import {Button, Input, SuggestionMenu, suggestionOptionId} from "@notnotype/nb-ui/components";
+import type {SuggestionMenuGroup} from "@notnotype/nb-ui/components";
 
 import {ICON_NAME} from "../../../shared/themes";
+import {matchIcons} from "../../icon-catalog";
+import {scanIconCatalog} from "../../icon-scan";
 import {useWorkbenchText} from "../../text";
 import {userThemeAssetUrl} from "../../themes";
 import type {ThemeEditorModel} from "./theme-editor-model";
@@ -26,7 +32,57 @@ const nameFailure = ref<string | null>(null);
 /** 本次要换的图标名：选文件时定下（“添加”取输入框、“更换”取那一行），选完文件仍用它。 */
 let pendingName = "";
 
+/**
+ * 产品此刻能画的图标（名字到默认 `--svg`）。每次打开分区、输入框获得焦点时重扫，不缓存（原因见 `icon-scan.ts`）。目录是页面里已加载
+ * 的样式：开发服务与 Lab 里比产品多出只在 Lab 夹具里用到的图标，所以“没有”只说当前页面没有，不说产品没有。
+ */
+const catalog = shallowRef<ReadonlyMap<string, string>>(new Map());
+const refreshCatalog = (): void => {
+    catalog.value = new Map(scanIconCatalog().icons.map(({name, svg}) => [name, svg]));
+};
+onMounted(refreshCatalog);
+
 const trimmed = computed(() => draft.value.trim());
+/** 目录读不到（空）时退回只有说明的做法：不补全，也不提示。 */
+const unknownName = computed(() => trimmed.value !== "" && ICON_NAME.test(trimmed.value) && catalog.value.size > 0 && !catalog.value.has(trimmed.value));
+
+// 补全：焦点留在输入框里（候选菜单按下时不夺焦点），上下键移动、回车选中，Escape 收起；高亮经 `aria-activedescendant` 交给读屏。
+const menuId = useId();
+const field = ref<HTMLElement | null>(null);
+const focused = ref(false);
+const dismissed = ref(false);
+const activeIndex = ref(0);
+const candidates = computed(() => (focused.value && !dismissed.value ? matchIcons([...catalog.value.keys()], draft.value).filter((name) => name !== trimmed.value) : []));
+const menuGroups = computed<SuggestionMenuGroup[]>(() => [{id: "icons", items: candidates.value.map((name) => ({id: name, label: name}))}]);
+const activeId = computed(() => candidates.value[Math.min(activeIndex.value, candidates.value.length - 1)] ?? null);
+const activeDescendant = computed(() => (activeId.value === null ? undefined : suggestionOptionId(menuId, candidates.value.indexOf(activeId.value))));
+const choose = (name: string): void => {
+    draft.value = name;
+    nameFailure.value = null;
+    activeIndex.value = 0;
+};
+const onFocus = (): void => {
+    focused.value = true;
+    dismissed.value = false;
+    refreshCatalog();
+};
+const onKeydown = (event: KeyboardEvent): void => {
+    const count = candidates.value.length;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (count === 0) return;
+        event.preventDefault();
+        activeIndex.value = (activeIndex.value + (event.key === "ArrowDown" ? 1 : count - 1)) % count;
+    } else if (event.key === "Enter") {
+        // 菜单开着且有当前项：回车只是选中它，再按一次回车才添加。
+        if (activeId.value !== null) {
+            event.preventDefault();
+            choose(activeId.value);
+        } else add();
+    } else if (event.key === "Escape" && count > 0) {
+        event.preventDefault();
+        dismissed.value = true;
+    }
+};
 const replacing = computed(() => icons.value.some(([name]) => name === trimmed.value));
 /** 输入时就提示不合规则的名字，不等到点“添加”。 */
 const nameProblem = computed(() => (trimmed.value === "" || ICON_NAME.test(trimmed.value) ? null : text("themeEditor.icons.nameInvalid")));
@@ -83,14 +139,16 @@ const previewStyle = (asset: string): Record<string, string> => ({"--icon-url": 
         <p class="theme-editor-icons__hint">{{ text("themeEditor.icons.hint") }}</p>
 
         <div class="theme-editor-icons__add" data-icon-add>
-            <div class="theme-editor-icons__name">
-                <Input v-model="draft" size="sm" :placeholder="text('themeEditor.icons.placeholder')" :aria-label="text('themeEditor.icons.name')" data-icon-name @keydown.enter="add" />
+            <div ref="field" class="theme-editor-icons__name">
+                <Input v-model="draft" size="sm" :placeholder="text('themeEditor.icons.placeholder')" :aria-label="text('themeEditor.icons.name')" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="menuId" :aria-activedescendant="activeDescendant" data-icon-name @focus="onFocus" @blur="focused = false" @input="dismissed = false; activeIndex = 0" @keydown="onKeydown" />
+                <SuggestionMenu :id="menuId" :groups="menuGroups" :active-id="activeId" :anchor="candidates.length > 0 ? field : null" :label="text('themeEditor.icons.suggestions')" match-anchor-width @select="choose" @highlight="(name: string) => (activeIndex = candidates.indexOf(name))" />
             </div>
             <Button size="sm" :loading="status.shownBusy.value" :disabled="status.busy.value" icon-class="i-lucide-image-plus" data-icon-choose @click="add">{{ replacing ? text("themeEditor.icons.replace") : text("themeEditor.icons.add") }}</Button>
             <Button size="sm" variant="ghost" :disabled="status.busy.value || icons.length === 0" icon-class="i-lucide-copy" data-icons-copy @click="model.copyIconsToOther()">{{ text("themeEditor.icons.copyToOther") }}</Button>
             <input ref="input" type="file" accept=".svg,image/svg+xml" class="theme-editor-icons__file" data-icon-file @change="onFile" />
         </div>
         <p v-if="nameProblem !== null || nameFailure !== null" class="theme-editor-icons__error" role="alert" data-icon-name-problem>{{ nameProblem ?? nameFailure }}</p>
+        <p v-if="unknownName" class="theme-editor-icons__note" role="status" data-icon-unknown>{{ text("themeEditor.icons.unknownName") }}</p>
         <p v-if="status.failure.value !== null" class="theme-editor-icons__error" role="alert" data-icon-error>{{ status.failure.value }}</p>
 
         <p v-if="icons.length === 0" class="theme-editor-icons__empty" data-icons-none>{{ text("themeEditor.icons.none") }}</p>
@@ -98,6 +156,9 @@ const previewStyle = (asset: string): Record<string, string> => ({"--icon-url": 
             <li v-for="[name, asset] in icons" :key="name" class="theme-editor-icons__row" :data-icon-row="name">
                 <!-- 预览只是名字的装饰画：名字就在旁边，读屏不重复读。 -->
                 <span class="theme-editor-icons__preview" :style="previewStyle(asset)" aria-hidden="true" />
+                <!-- 原图标：蒙版直接用目录里取到的默认 `--svg`，不挂 `i-lucide-<名>` 类。实时预览会注入不分层的同名规则去覆盖产品里的图标，
+                     挂了类，这里画出来的就是正在编辑的那个 SVG，对照就没有意义了。目录里没有这个名字时不画。 -->
+                <span v-if="catalog.has(name)" class="theme-editor-icons__preview theme-editor-icons__original" :style="{'--icon-url': catalog.get(name)}" aria-hidden="true" data-icon-original />
                 <code class="theme-editor-icons__row-name">{{ name }}</code>
                 <Button size="sm" variant="secondary" :disabled="status.busy.value" :aria-label="text('themeEditor.icons.replaceNamed', {name})" @click="pick(name)">{{ text("themeEditor.icons.replace") }}</Button>
                 <Button size="sm" variant="ghost" :disabled="status.busy.value" :aria-label="text('themeEditor.icons.removeNamed', {name})" data-icon-remove @click="remove(name)">{{ text("themeEditor.icons.remove") }}</Button>
@@ -130,6 +191,16 @@ const previewStyle = (asset: string): Record<string, string> => ({"--icon-url": 
     flex: 1 1 160px;
     min-width: 0;
     max-width: 280px;
+}
+
+.theme-editor-icons__note {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+
+.theme-editor-icons__original {
+    opacity: 0.55;
 }
 
 .theme-editor-icons__file {
