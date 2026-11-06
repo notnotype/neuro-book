@@ -80,4 +80,12 @@ t03、t04。
 
 ## 下一步
 
-等开发者看评审板 review v2（模式控件与退出计划的向导）。之后切片 5（规则设置入口、以后都允许，先出静态稿）、切片 6（`auto`），收口：真实模型冒烟、实现审查 omp 一次、Sonnet 一次，合入。
+切片 1 到 6 都写完，实现审查进行中（omp 审后端，Sonnet 审前端；被审提交 `5f5ed11db`，审查 worktree `.worktree/t06-review`）。处理完审查后合入 master，清理两个 worktree，Task 设为 done。
+
+验证（2026-11-06）：
+- 单元与合同：`test:affected` 除下面两项外通过；`auto` 13 条（`auto-review.test.ts`），真实内核加本机端点。
+- 真实模型（deepseek-flash）：`permissions.llm.test.ts` 3 条通过：`auto` 放行一次、转人工一次；`plan` 写计划、批准、按计划做。冒烟查出 DeepSeek 默认开思考时拒收强制的 `toolChoice`（400），审批请求改为显式关思考。
+- e2e：`agent-conversation`、`settings`、`lab-agent-ui` 全过；`lab-scenes` 剩 `WorkbenchSurface` 两个场景的焦点光晕被裁。
+- 不是这个分支引入的（从代码推断，分支没碰这些文件）：`architecture.test.ts` 报 `agent/web/mentions.ts`、`agent/web/plugin.ts` 跨插件运行时导入；`lab-scenes` 的 `WorkbenchSurface`。
+
+待开发者答复：`docs/specs/ui/agent-conversation-view.md` 要不要晋升 implemented；`agent/permissions.md`、`agent/modes.md` 同样等合入后晋升。
