@@ -17,7 +17,7 @@ import type {ModelsWorld} from "nbook/plugins/models/testing/world";
 
 import {remoteCheckModels} from "./backend/check-models";
 import {plotModelImplementation} from "./backend/server";
-import {reported, runOk} from "./core/checks/fixtures";
+import {reported, runOk} from "./testing/checks";
 import {descriptor} from "./plugin";
 import type {CheckRecord} from "./shared/checks";
 import {CHECK_DIAGNOSTIC_IDS, MARK_IDS} from "./shared/declarations";

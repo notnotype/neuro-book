@@ -6,9 +6,9 @@ import type {SelfReport} from "../../shared/checks";
 import {CHECK_DIAGNOSTIC_IDS as CHECK, DECISION_DIAGNOSTIC_IDS as DECISION, FS_DIAGNOSTIC_IDS as FS, MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {addRow, chapter, drafts, PlotWorld, present} from "../../testing/world";
-import {failure, planOf, reported, ruleIds, run, runOk, scripted, USAGE} from "./fixtures";
+import {failure, planOf, reported, ruleIds, run, runOk, scripted, USAGE} from "../../testing/checks";
 import {isValid} from "./validity";
-import {digest} from "./fixtures";
+import {digest} from "../../testing/checks";
 
 const CHAPTERS = Array.from({length: 22}, (_, index) => `ch${String(index + 1)}`);
 const reveal = (point: string, mode: "hint" | "explicit"): Mark => ({kind: MARK_IDS.reveal, version: 1, point, mode});

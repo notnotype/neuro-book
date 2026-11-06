@@ -4,14 +4,14 @@
 
 import {createHash} from "node:crypto";
 
-import type {CheckRecord, CheckRequest, CheckRole, FixedAnswer, SelfReport} from "../../shared/checks";
-import {ZERO_USAGE} from "../../shared/checks";
-import type {InstructionSnapshot} from "../../shared/instructions";
-import type {PlotWorld} from "../../testing/world";
-import {checkDiagnostics} from "./diagnostics";
-import {namesOfSegments, planCheck, type CheckPlan} from "./plan";
-import {createLimiter, runCheck, type AskResult, type CheckModels, type RunFailure} from "./run";
-import {isValid} from "./validity";
+import type {CheckRecord, CheckRequest, CheckRole, FixedAnswer, SelfReport} from "../shared/checks";
+import {ZERO_USAGE} from "../shared/checks";
+import type {InstructionSnapshot} from "../shared/instructions";
+import type {PlotWorld} from "./world";
+import {checkDiagnostics} from "../core/checks/diagnostics";
+import {namesOfSegments, planCheck, type CheckPlan} from "../core/checks/plan";
+import {createLimiter, runCheck, type AskResult, type CheckModels, type RunFailure} from "../core/checks/run";
+import {isValid} from "../core/checks/validity";
 
 export const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 export const USAGE = {input: 10, output: 2, cacheRead: 0, cacheWrite: 0, cost: null};

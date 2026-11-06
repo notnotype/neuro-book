@@ -12,7 +12,7 @@ import {MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {addRow, chapter, drafts, PlotWorld, present} from "../../testing/world";
 import {dependenciesOf} from "./dependencies";
-import {digest, planOf, type Scene} from "./fixtures";
+import {digest, planOf, type Scene} from "../../testing/checks";
 
 const CHAPTERS = Array.from({length: 22}, (_, index) => `ch${String(index + 1)}`);
 const reveal = (point: string, mode: "hint" | "explicit"): Mark => ({kind: MARK_IDS.reveal, version: 1, point, mode});

@@ -86,7 +86,6 @@ export const plotServerPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
-        activationEvents: ["onStartup"],
         dependencies: [{key: modelsKey, required: false}],
         remoteProvides: [plotModelContract],
         activate: async (context) => {
