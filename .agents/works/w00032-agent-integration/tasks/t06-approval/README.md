@@ -13,7 +13,7 @@ updated: 2026-11-06
 
 来源：需求 9；清单外第 8 项（[报告](../t01-survey/artifacts/report/index.html)）。
 
-合同：本 Task 只做设计讨论，行为合同未变；定稿后在计划里写明改哪些 Spec。
+合同：[`agent/permissions.md`](../../../../../docs/specs/agent/permissions.md)、[`agent/modes.md`](../../../../../docs/specs/agent/modes.md)。
 
 ## 要讨论的问题
 

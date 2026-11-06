@@ -174,6 +174,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 的贡献点 | [`agent/contributions.md`](agent/contributions.md) | `nbook.agent` 的 `agent.extensions`、`agent.tools`、`agent.profiles`：声明形状、激活事件、工具集的合成、Profile 目录与用户级 Profile 的打包与重载、提供方停止的影响 |
 | Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口 |
 | Agent 的运行保护 | [`agent/run-guards.md`](agent/run-guards.md) | `nbook.agent` 默认装上的扩展：费用告警与上限、重复工具调用的提醒与停止；重发次数与卡死超时的设置、设置分区 |
+| Agent 模式 | [`agent/modes.md`](agent/modes.md) | `normal`、`discuss`、`plan`：闸门、提示、切换、退出计划的向导 |
+| Agent 的权限规则 | [`agent/permissions.md`](agent/permissions.md) | 规则的三层与合并、判定流水线、判定对象、`bash` 方言与只读清单、本会话批准的规则 |
 | Agent 的内置工具 | [`agent/builtin-tools.md`](agent/builtin-tools.md) | `nbook.agent` 交出的 `read`、`write`、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`、`ask`：参数、输出、上限、失败码、全局地址、`shell` 的地址替换与全文、审批预览 |
 | Agent 的对话界面 | [`agent/conversation.md`](agent/conversation.md) | 对话视图接新内核：工作台位置、会话面板、发送与运行控制、审批与提问向导、状态栏 |
 | Agent 的上下文压缩 | [`agent/compaction.md`](agent/compaction.md) | 三种压缩方法与缺省顺序、放回的内容、贡献点 `agent.compactionMethods` |

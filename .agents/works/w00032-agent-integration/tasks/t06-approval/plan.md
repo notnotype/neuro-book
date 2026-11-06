@@ -17,7 +17,7 @@
 
 ## 技术选型
 
-- shell 解析：`pi-natives` 的类型声明里没有解析接口，要另选库。候选 `unbash`（纯 TS、零依赖）与 `web-tree-sitter` 加 `tree-sitter-bash`（Codex 用 tree-sitter，要带 wasm）。第一片用约 30 条难样本（复合、管道、`$(...)`、重定向、here-doc、`bash -c`、环境变量前缀、未闭合引号）对照，能过就用 `unbash`，否则 tree-sitter。不手写解析器。否决 `shell-quote`（不懂语法结构）、`mvdan-sh`（GopherJS 产物、久未更新）。
+- shell 解析：`unbash`（纯 TS、零依赖、472 KB，文档把“给权限提示分类”列为用途）。第一片的难样本（复合、管道、`$(...)`、重定向、here-doc、`bash -c`、环境变量前缀、未闭合引号，共 40 多条，见 `bash-dialect.test.ts`）全过，按计划不再引入 tree-sitter（`web-tree-sitter` 加语法 wasm 约 25 MB）。它是容错解析，所以有 `errors` 时一律算看不懂。否决 `shell-quote`（不懂语法结构）、`mvdan-sh`（GopherJS 产物、久未更新）。
 - 不做操作系统沙箱：与 t12 决定一致。
 
 ## 关键设计
