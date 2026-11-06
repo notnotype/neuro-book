@@ -23,7 +23,7 @@ interface Base {
 export interface PresenceCandidate extends Base {
     readonly layer: "presence";
     readonly point: string;
-    readonly pointName: string;
+    readonly truth: string;
     readonly secrecy: "secret" | "topSecret";
     /** 条目 id；只有 label 的人没有。 */
     readonly person?: string;
@@ -36,7 +36,7 @@ export interface PresenceCandidate extends Base {
 export interface NarrationCandidate extends Base {
     readonly layer: "narration";
     readonly point: string;
-    readonly pointName: string;
+    readonly truth: string;
     readonly secrecy: "secret" | "topSecret";
     readonly person: string;
     readonly personName: string;
@@ -67,6 +67,11 @@ const secrecyOf = (read: EntryView): Secrecy => {
     return typeof value === "string" ? (value as Secrecy) : DEFAULT_SECRECY;
 };
 
+/** 知识点的命题：名字，简介与名字不同时再加简介。 */
+export function truthOf(read: EntryView): string {
+    return read.summary === "" || read.summary === read.name ? read.name : `${read.name}（${read.summary}）`;
+}
+
 /** 这一段的知识点里保密以上的。 */
 function secretPoints(view: CanonReadView, points: readonly string[], position: ReadPosition, end: ReadPosition) {
     return points.flatMap((point) => {
@@ -74,7 +79,7 @@ function secretPoints(view: CanonReadView, points: readonly string[], position: 
         const read = readAppeared(view, point, position) ?? readAppeared(view, point, end);
         if (read === null) return [];
         const secrecy = secrecyOf(read);
-        return secrecy === "secret" || secrecy === "topSecret" ? [{point, name: read.name, secrecy}] : [];
+        return secrecy === "secret" || secrecy === "topSecret" ? [{point, truth: truthOf(read), secrecy}] : [];
     });
 }
 
@@ -111,23 +116,23 @@ export function candidatesOf(input: CandidateInput): Candidate[] {
     const secrets = secretPoints(view, points, position, end);
     const found: Candidate[] = [];
 
-    for (const {point, name: pointName, secrecy} of secrets) {
+    for (const {point, truth, secrecy} of secrets) {
         for (const person of presentPeople(view, written, end)) {
             const row = person.person === undefined ? null : knowing.effective(person.person, point);
             if (row !== null && (row.程度 === null || !UNKNOWING.has(row.程度))) continue;
             const who = person.person ?? `label:${person.name}`;
-            found.push({id: `presence:${seg}:${point}:${who}`, layer: "presence", segment: seg, point, pointName, secrecy, ...(person.person === undefined ? {} : {person: person.person}), personName: person.name, row, contradicts: false});
-            if (row?.程度 === "misbelieves") found.push({id: `presence-misbelief:${seg}:${point}:${who}`, layer: "presence", segment: seg, point, pointName, secrecy, ...(person.person === undefined ? {} : {person: person.person}), personName: person.name, row, contradicts: true});
+            found.push({id: `presence:${seg}:${point}:${who}`, layer: "presence", segment: seg, point, truth, secrecy, ...(person.person === undefined ? {} : {person: person.person}), personName: person.name, row, contradicts: false});
+            if (row?.程度 === "misbelieves") found.push({id: `presence-misbelief:${seg}:${point}:${who}`, layer: "presence", segment: seg, point, truth, secrecy, ...(person.person === undefined ? {} : {person: person.person}), personName: person.name, row, contradicts: true});
         }
     }
 
     if (instruction?.pov !== undefined && (instruction.povMode === "first" || instruction.povMode === "limited")) {
         const pov = instruction.pov.id;
         const read = readAppeared(view, pov, end);
-        for (const {point, name: pointName, secrecy} of secrets) {
+        for (const {point, truth, secrecy} of secrets) {
             const row = knowing.effective(pov, point);
             if (row !== null && row.程度 !== "unaware" && row.程度 !== "misbelieves" && row.程度 !== "forgot") continue;
-            found.push({id: `narration:${seg}:${point}`, layer: "narration", segment: seg, point, pointName, secrecy, person: pov, personName: read?.name ?? pov, row});
+            found.push({id: `narration:${seg}:${point}`, layer: "narration", segment: seg, point, truth, secrecy, person: pov, personName: read?.name ?? pov, row});
         }
     }
 
