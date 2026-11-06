@@ -185,9 +185,12 @@ onBeforeUnmount(() => {
         data-model-picker
         @click="toggle"
     >
-        <span class="i-lucide-cpu acv-role-picker__icon" aria-hidden="true" />
-        <span class="acv-role-picker__text">{{ triggerText }}</span>
-        <span class="i-lucide-chevrons-up-down acv-role-picker__icon acv-role-picker__chevron" aria-hidden="true" />
+        <span class="acv-role-picker__text">
+            <span class="acv-role-picker__name">{{ selectedName }}</span>
+            <span v-if="usedModel !== null" class="acv-role-picker__used">{{ usedModel }}</span>
+        </span>
+        <span v-if="thinkingText !== null" class="acv-role-picker__level">{{ thinkingText }}</span>
+        <span class="i-lucide-chevron-down acv-role-picker__chevron" aria-hidden="true" />
     </button>
     <AnchoredPopover ref="popoverRef" :open="open" :anchor="props.anchor ?? triggerRef" side="top" :side-offset="6">
         <div
@@ -345,6 +348,45 @@ onBeforeUnmount(() => {
 .acv-role-picker__trigger:disabled {
     cursor: not-allowed;
     opacity: 0.5;
+}
+
+.acv-role-picker__trigger .acv-role-picker__text {
+    display: inline-flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 4px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.acv-role-picker__name {
+    overflow: hidden;
+    color: var(--text-main);
+    font-weight: 500;
+    text-overflow: ellipsis;
+}
+
+.acv-role-picker__used {
+    overflow: hidden;
+    color: var(--text-muted);
+    text-overflow: ellipsis;
+}
+
+/* 思考档位是模型之外的另一个设置，用小标签分开，不和名字连成一串。 */
+.acv-role-picker__level {
+    flex: none;
+    padding: 0 5px;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--text-main) 8%, transparent);
+    color: var(--text-secondary);
+    line-height: 18px;
+}
+
+.acv-role-picker__trigger .acv-role-picker__chevron {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--text-muted);
 }
 
 .acv-role-picker__icon {

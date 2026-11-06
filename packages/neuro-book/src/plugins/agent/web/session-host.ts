@@ -88,7 +88,7 @@ const APPROVAL_OPTIONS: readonly ComposerApprovalOption[] = [
 ];
 
 const MODE_OPTIONS: readonly {readonly key: AgentMode; readonly icon: string}[] = [
-    {key: "normal", icon: "i-lucide-pencil-line"},
+    {key: "normal", icon: "i-lucide-feather"},
     {key: "discuss", icon: "i-lucide-messages-square"},
     {key: "plan", icon: "i-lucide-clipboard-list"},
 ];

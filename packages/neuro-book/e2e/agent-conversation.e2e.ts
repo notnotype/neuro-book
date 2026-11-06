@@ -484,7 +484,7 @@ test("附件：选图片上传，消息里显示；模型不能看图时请求�
     await script("收到图了");
     await openConversation(page);
     await newSession(page);
-    await page.locator("[data-composer-action='attach']").waitFor();
+    await page.locator("[data-composer-action='plus']").waitFor();
     await page.locator(".acv-composer__file-input").setInputFiles({name: "封面.png", mimeType: "image/png", buffer: PNG});
     await expect(page.getByRole("list", {name: "附件"}).getByRole("listitem")).toHaveCount(1);
     await input(page).click();

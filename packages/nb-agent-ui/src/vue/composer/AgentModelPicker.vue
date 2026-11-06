@@ -105,10 +105,9 @@ function onSelect(value: string): void {
             v-bind="$attrs"
             data-model-picker
         >
-            <span class="i-lucide-cpu acv-model-picker__icon" aria-hidden="true" />
             <span class="acv-model-picker__model">{{ currentModel?.label ?? t("composer.model.none") }}</span>
-            <span v-if="currentThinking !== null" class="acv-model-picker__thinking">· {{ currentThinking }}</span>
-            <span class="i-lucide-chevrons-up-down acv-model-picker__chevron" aria-hidden="true" />
+            <span v-if="currentThinking !== null" class="acv-model-picker__thinking">{{ currentThinking }}</span>
+            <span class="i-lucide-chevron-down acv-model-picker__chevron" aria-hidden="true" />
         </button>
         <!-- 不支持图片的模型在右侧标一个图标；DropdownMenu 的 rightIconClass 目前不渲染，所以用插槽画。 -->
         <template #item-right="{item}">
@@ -170,14 +169,20 @@ function onSelect(value: string): void {
 
 .acv-model-picker__model {
     min-width: 0;
-    max-width: 12em;
     overflow: hidden;
+    color: var(--text-main);
+    font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+/* 与 AgentRoleModelPicker 的触发器同样的写法：名字清楚，思考档位是小标签。 */
 .acv-model-picker__thinking {
     flex: none;
-    color: var(--text-muted);
+    padding: 0 5px;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--text-main) 8%, transparent);
+    color: var(--text-secondary);
+    line-height: 18px;
 }
 </style>

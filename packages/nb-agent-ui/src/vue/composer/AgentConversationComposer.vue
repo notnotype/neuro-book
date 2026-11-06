@@ -62,6 +62,21 @@ const toolbarButtons = computed(() => visibleEntries(props.registry.list("toolba
 const leadingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement === "leading"));
 const trailingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement !== "leading"));
 
+/** `+` 菜单：把打字才找得到的入口（`@`、`/`）和选文件放在一处。单行版式没有它：那里没有附件，触发符也有自己的登记按钮。 */
+const plusMenu = computed<DropdownMenuItemData[]>(() => {
+    if (inline.value) return [];
+    return [
+        ...(acceptFiles.value ? [{id: "attach", label: t("composer.attach"), iconClass: "i-lucide-paperclip"}] : []),
+        ...(triggers.value.includes("@") ? [{id: "@", label: t("composer.plusReference"), iconClass: "i-lucide-at-sign"}] : []),
+        ...(triggers.value.includes("$") ? [{id: "$", label: t("composer.plusSkill"), iconClass: "i-lucide-sparkles"}] : []),
+        ...(triggers.value.includes("/") ? [{id: "/", label: t("composer.plusCommand"), iconClass: "i-lucide-slash"}] : []),
+    ];
+});
+function onPlusMenu(id: string): void {
+    if (id === "attach") chooseFiles();
+    else withEditor((editor) => editor.openTrigger(id));
+}
+
 /** 带 `trigger` 的按钮往编辑器里插触发字符、打开它的菜单（编辑器负责聚焦与补空格），其余发出登记的 action。 */
 function onToolbarButton(button: ToolbarButtonEntry): void {
     if (button.trigger !== undefined) {
@@ -431,16 +446,23 @@ defineExpose({
                             @click="onToolbarButton(button)"
                         />
                     </template>
-                    <IconButton
-                        v-if="acceptFiles"
-                        size="sm"
-                        icon-class="i-lucide-paperclip"
+                    <DropdownMenu
+                        v-if="plusMenu.length > 0"
+                        :items="plusMenu"
                         :disabled="readonly"
-                        :title="t('composer.attach')"
-                        :aria-label="t('composer.attach')"
-                        data-composer-action="attach"
-                        @click="chooseFiles"
-                    />
+                        align="start"
+                        side="top"
+                        @select="onPlusMenu($event)"
+                    >
+                        <IconButton
+                            size="sm"
+                            icon-class="i-lucide-plus"
+                            :disabled="readonly"
+                            :title="t('composer.plus')"
+                            :aria-label="t('composer.plus')"
+                            data-composer-action="plus"
+                        />
+                    </DropdownMenu>
                     <input ref="fileInputRef" type="file" multiple class="acv-composer__file-input" tabindex="-1" aria-hidden="true" @change="onFilesChosen">
                     <span class="sr-only" aria-live="polite">{{ modeAnnouncement }}</span>
                     <button
