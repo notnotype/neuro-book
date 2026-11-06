@@ -230,7 +230,7 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
                         :tabindex="item.id === tabStop ? 0 : -1"
                         :title="item.tooltip ?? (truncating ? item.title : undefined)"
                         :data-panel-tab="item.id"
-                        :data-tab-partition="item.partition"
+                        :data-tab-partition="item.partition ?? row.partition"
                         @click="emit('activate', item.id)"
                         @dblclick="emit('keep', item.id)"
                         @auxclick="onAuxClick($event, item.id)"

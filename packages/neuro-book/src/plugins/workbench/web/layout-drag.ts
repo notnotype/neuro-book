@@ -180,16 +180,13 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return [...entries.map((box) => ({x, y: box.top + 1})), {x, y: Math.min(band.bottom - 1, (last?.bottom ?? band.top) + 1)}];
     }
 
-    function previewOf(doc: LayoutDoc, source: LayoutTabSource, action: LayoutDropAction, inPlace: boolean, panels: ReadonlyArray<LayoutDropPanelGeometry>): LayoutDropPreview {
+    function previewOf(doc: LayoutDoc, source: LayoutTabSource, action: Exclude<LayoutDropAction, {readonly kind: "strip"}>, inPlace: boolean, panels: ReadonlyArray<LayoutDropPanelGeometry>): LayoutDropPreview {
         const none: LayoutDropPreview = {areaRect: null, indicator: null, orientation: "horizontal"};
         if (inPlace) {
             const home = findTab(doc, source.tab)?.panel;
             return {...none, areaRect: panels.find((geometry) => geometry.id === home)?.body ?? null};
         }
         switch (action.kind) {
-            case "strip":
-                // 标签条的落点走 `stripDrop`，不到这里。
-                return none;
             case "center":
                 return {...none, areaRect: panels.find((geometry) => geometry.id === action.panel)?.body ?? null};
             case "reveal":
@@ -229,7 +226,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             return {action, ...(part === undefined ? {} : {part}), inPlace: own >= 0 && ownPartition === measured.partition && (index === own || index === own + 1), preview};
         }
         const result = applyLayoutDrop(doc, source, action, options.policy());
-        return result.ok ? {action, inPlace: result.doc === doc, preview} : null;
+        if (!result.ok) return null;
+        // 工具面板放回原处：预览画来源自己所在的位置（输出 28）。
+        const inPlace = result.doc === doc;
+        return {action, inPlace, preview: inPlace ? previewOf(doc, source, {kind: "center", panel}, true, panelGeometry(doc)) : preview};
     }
 
     /** 键盘在这块标签条上能停的位置：看得见的标签之间。 */
@@ -260,7 +260,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (resolved === null) return null;
         if (resolved.kind === "strip" && !options.titleOnly(resolved.panel)) return stripDrop(doc, source, resolved.panel, point);
         // 头只写标题的面板没有插入位：落在标题上就是添加为标签。
-        const action: LayoutDropAction = resolved.kind === "strip" ? {kind: "center", panel: resolved.panel} : resolved;
+        const action = resolved.kind === "strip" ? ({kind: "center", panel: resolved.panel} as const) : resolved;
         const key = JSON.stringify([source, action, options.extent()]);
         const cached = previews.get(key);
         if (cached !== undefined) return cached;

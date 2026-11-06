@@ -12,7 +12,6 @@ import {cardInset, layoutCardEdges, maximizedCardEdges, sashKindOf} from "../she
 import type {CardEdges} from "../shell/adjacency";
 import {layoutContents, panelTabDomId, panelTabpanelDomId} from "../state/layout-present";
 import "./hover-actions.css";
-import "./hover-actions.css";
 
 const ACTIVITY_BAR = "activitybar";
 const STATUS_BAR = "statusbar";
@@ -103,15 +102,17 @@ function onGestureSettled(): void {
 }
 
 /**
- * 编辑组的头高（标签折行、提示条都会变）：内容从它下面开始。`ResizeObserver` 的回调在绘制之前，第一帧就是对的；回调里改了内容的矩形，浏览器在同一帧里重新布局。
- * 头被拿掉（编辑器撤回、提供者不给）时高度是 0，内容占满。
+ * 编辑组的头高（标签折行、提示条都会变）：内容从它下面开始。`ResizeObserver` 的回调在绘制之前，回调里改了内容的矩形，浏览器在同一帧里重新布局。
+ * 新拆出来的组第一次发布时头还没挂上，这时按一行算：新叶正在长出来，内容带着过渡，从 0 开始的话会先盖住头再滑下去。没有头（编辑器撤回、提供者不给）时量出来是 0，内容占满。
  */
+const EDITOR_HEAD_ONE_ROW = 34;
 const editorHeadHeights = shallowRef<Readonly<Record<string, number>>>({});
 const headObserver = typeof ResizeObserver === "function" ? new ResizeObserver((entries) => {
     const next = {...editorHeadHeights.value};
     for (const entry of entries) {
         const panel = (entry.target as HTMLElement).dataset.surfaceHead;
-        if (panel !== undefined) next[panel] = entry.target.getBoundingClientRect().height;
+        // 布局尺寸，不用 `getBoundingClientRect`：Lab 的画布有 CSS `zoom`，内容的矩形也是布局尺寸。
+        if (panel !== undefined) next[panel] = entry.borderBoxSize[0]?.blockSize ?? 0;
     }
     editorHeadHeights.value = next;
 }) : null;
@@ -128,7 +129,7 @@ const vEditorHead: Directive<HTMLElement> = {
     },
 };
 
-const contents = computed(() => layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? 0));
+const contents = computed(() => layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW));
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
 const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;

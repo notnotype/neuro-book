@@ -789,7 +789,7 @@ test("头在外框里：正文从头下面开始；标签折到第二行时正�
 });
 
 test("键盘拖标签：关掉多行、标签滚出视口时，停靠点都在标签条里（docs/specs/ui/workbench-layout.md 输出 31）", async ({page}) => {
-    await page.setViewportSize({width: 1000, height: 800});
+    await page.setViewportSize({width: 1300, height: 800});
     await open(page);
     await closeAll(page);
     const settings = join(projectDir, ".nbook", "settings.json");
@@ -798,18 +798,27 @@ test("键盘拖标签：关掉多行、标签滚出视口时，停靠点都在�
         for (const name of ["a", "b", "c", "d", "e", "h", "i", "u", "v", "w"]) await item(page, `project://notes/${name}.md`).dblclick();
         const strip = page.locator("[data-editor-group-head-active] [data-editor-tabs]");
         await expect(strip).not.toHaveAttribute("data-wrap", "");
+        // 标签确实滚出了视口：不然这个用例什么都没验。
+        await expect.poll(() => strip.locator("[data-tab-row]").evaluate((row) => row.scrollWidth > row.clientWidth + 10)).toBe(true);
         const stripBox = (await strip.boundingBox())!;
         await page.locator("[data-editor-group-head-active] [data-editor-tab][aria-selected=\"true\"]").focus();
         await page.keyboard.press("Space");
         await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
+        let lines = 0;
         for (let step = 0; step < 14; step += 1) {
-            await page.keyboard.press("ArrowLeft");
+            // 第一下回到第一个位置，之后往后走。
+            await page.keyboard.press(step === 0 ? "ArrowLeft" : "ArrowRight");
             const line = page.locator("[data-drop-kind='strip'] .nb-ui-drop-feedback__line");
             if (await line.count() === 0) continue;
+            lines += 1;
             const box = (await line.first().boundingBox())!;
             expect(box.x).toBeGreaterThanOrEqual(stripBox.x - 2);
             expect(box.x).toBeLessThanOrEqual(stripBox.x + stripBox.width + 2);
+            expect(box.y).toBeGreaterThanOrEqual(stripBox.y - 2);
+            expect(box.y + box.height).toBeLessThanOrEqual(stripBox.y + stripBox.height + 2);
         }
+        // 确实走到了标签条上的位置：不是每一步都空过。
+        expect(lines).toBeGreaterThan(0);
         await page.keyboard.press("Escape");
         await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
     } finally {

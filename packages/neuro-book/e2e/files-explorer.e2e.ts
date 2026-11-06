@@ -832,6 +832,29 @@ test("拖到编辑组经落点登记查到，不读 data-editor-group（docs/spe
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 
+test("文件拖到编辑组的标签条上也在那一组打开；高亮是整块编辑组，头和内容一起算（docs/specs/ui/workbench-layout.md 输出 21）", async ({page}) => {
+    await open(page);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/a.md")).toBeVisible();
+    await barrier(page, "plain");
+    const head = await headOf(page.locator("[data-editor-group]").first());
+    const headBox = (await head.boundingBox())!;
+    const from = await center(page, "project://plain/a.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y + 8, {steps: 2});
+    await page.mouse.move(headBox.x + headBox.width / 2, headBox.y + headBox.height / 2, {steps: 8});
+    const shown = page.locator("[data-explorer-drop=\"open\"].nb-ui-drop-feedback .nb-ui-drop-feedback__area, [data-explorer-drop=\"open\"] .nb-ui-drop-feedback__area");
+    await expect(shown).toBeVisible();
+    const highlight = (await shown.boundingBox())!;
+    expect(Math.abs(highlight.y - headBox.y)).toBeLessThan(8);
+    const body = (await page.locator("[data-editor-group]").first().boundingBox())!;
+    expect(Math.abs(highlight.y + highlight.height - (body.y + body.height))).toBeLessThan(8);
+    await page.mouse.up();
+    await expect(head.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
 test("拖动中按键归拖动；失去捕获、焦点移到树外都取消且不写，松手不算点击（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
     await open(page);
     await item(page, "project://plain").click();

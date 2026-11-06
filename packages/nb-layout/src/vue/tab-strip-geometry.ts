@@ -57,7 +57,7 @@ function linesOf(strip: Element): Line[] {
 export interface TabStripInsertion {
     /** 插到这个标签前面；分区末尾时是 null。 */
     readonly before: string | null;
-    /** 分区里看得见的最后一个标签；`before` 为 null 时插到它后面，它也没有时分区是空的。 */
+    /** 插入位前面那个标签（分区里）；`before` 为 null 时插到它后面，它也没有时分区是空的。 */
     readonly after: string | null;
     /** 落到哪个分区；没有分区的标签条是 null。 */
     readonly partition: string | null;
@@ -97,17 +97,20 @@ export function resolveTabStripInsertion(strip: Element, point: GridDropPoint): 
 }
 
 /**
- * 键盘能停的位置：每个看得见的标签的左缘，和每行最后一个的右缘。放回 `resolveTabStripInsertion` 就是对应的插入位。滚出视口的标签不算：指针也到不了那里，停靠点落在标签条外面就看不见了。
+ * 键盘能停的位置：每个标签的左缘，和每行最后一个的右缘。放回 `resolveTabStripInsertion` 就是对应的插入位。只留落在标签条看得见的范围里的点（横向滚走的、纵向收起来的行都不算）：
+ * 指针也到不了那里，停靠点落在标签条外面就看不见了。比行还宽的标签只看它的边，不会让一整行都没有位置。
  */
 export function tabStripStops(strip: Element): ReadonlyArray<GridDropPoint> {
+    const view = rectOf(strip.querySelector("[role='tablist']") ?? strip);
     const stops: GridDropPoint[] = [];
     for (const line of linesOf(strip)) {
         const y = (line.rect.top + line.rect.bottom) / 2;
-        const seen = line.members.filter((member) => member.rect.left >= line.rect.left - 1 && member.rect.right <= line.rect.right + 1);
-        for (const member of seen) stops.push({x: member.rect.left + 1, y});
-        const last = seen.at(-1);
-        if (last !== undefined) stops.push({x: last.rect.right - 1, y});
-        else if (line.members.length === 0) stops.push({x: line.rect.left + 1, y});
+        if (y < view.top || y > view.bottom) continue;
+        const seen = (x: number): boolean => x >= line.rect.left && x <= line.rect.right;
+        for (const member of line.members) if (seen(member.rect.left + 1)) stops.push({x: member.rect.left + 1, y});
+        const last = line.members.at(-1);
+        if (last !== undefined && seen(last.rect.right - 1)) stops.push({x: last.rect.right - 1, y});
+        if (line.members.length === 0) stops.push({x: line.rect.left + 1, y});
     }
     return stops;
 }
