@@ -143,6 +143,8 @@ owners:
 77. 快照带 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`，由 `models.resolve` 按当前设置算；`usage` 除费用外累计 `input`、`output`、`cacheRead`、`cacheWrite`，口径同输出 70。
 78. `ToolSessionContext` 带 `background`。
 79. 同一条回复的调用先过审批阶段再执行：切段之前按调用顺序逐个判定，判定 `ask` 的都写 `interactionRequested`（运行状态 `waiting{pending}` 列出全部），等全部应答；之后才执行，这条回复里不用审批的调用也等这个阶段结束，执行顺序不变。应答 `deny` 的调用轮到时得 `denied`，别的调用照常。拦截层改了工具或参数、和判定时不同时，这个调用按现在的重新判定，要问就按输出 39 再问一次。放行之后、轮到它之前只读或审批模式变了，也按现在的设置重新判定；已经拒绝的不重新判定。
+80. `treeNodes({afterSeq?, limit?})` 按 seq 分页读所有 path 事件的结构 `{id, parent, type, seq, label?}`，不读全文，所以再大的事件也不会让树断开；一页至多 2,000 个。`label` 是用户的话、回复文字或工具名的前 80 字，经出站过滤，过滤掉的节点还在，只是没有 `label`。
+81. `branchPoints()` 交回有多于一个孩子的节点 `{parent, children: [{node, latestLeaf}]}`，一次查询就能知道所有分叉。
 
 ## 状态与转换
 

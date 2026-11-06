@@ -108,6 +108,8 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 
 批 2：`agent/conversation.md` 输出 24 → `session-host.test.ts`“上下文详情”、`agent-conversation.e2e.ts`“上下文详情”；`ui/agent-conversation-view.md`“上下文检查器” → `AgentContextInspector.dom.test.ts`、`AgentStatusBar.dom.test.ts`“能点”；`agent/sessions.md` 输出 9 的 `preview` → `session-host.test.ts`“上下文详情”。
 
+批 3（不含分支树界面）：`harness/runtime.md` 输出 80、81 → `tree.test.ts`；`agent/conversation.md` 输出 25、26 → `session-host.test.ts`“改写历史”、`agent-conversation.e2e.ts`“改写历史”；就地编辑 → `AgentMessageEditor.dom.test.ts`。
+
 每批开工先把行为写进 Spec，再在这里写编号映射。下面的场景必须有测试，都用真实内核加本机端点，断言码、事件或请求块；真实模型冒烟只作额外证据：
 
 - 批 1：`role:<id>` 的绑定、未绑定、不存在、改绑；生成中模型库变化，正在生成的那条还在；快照晚到不倒退；`model.set` 后思考档跟着变。

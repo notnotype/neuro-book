@@ -41,7 +41,7 @@ owners:
 | `list({project?, archived?, background?})` | 读 | 会话列表（缺省不列后台会话） |
 | `create({profile, initial?, project?})` | 写 | 建会话 |
 | `send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`switchBranch`、`fork`、`compact`、`changeSettings`、`changeProfile`、`setTitle`、`archive` | 写 | 内核的指令，各带 `sessionId` 与 `commandId` |
-| `snapshot`、`log`、`rewindTargets`、`path`、`siblings`、`runResult`、`preview`、`diagnostics` | 读 | 内核的查询，各带 `sessionId` |
+| `snapshot`、`log`、`rewindTargets`、`path`、`treeNodes`、`branchPoints`、`siblings`、`runResult`、`preview`、`diagnostics` | 读 | 内核的查询，各带 `sessionId` |
 | `eventChunk({sessionId, seq, index})`、`previewChunk({token, index})` | 读 | 分段读回大的事件与预览 |
 | `profiles()` | 读 | Profile 目录（[`agent/contributions.md`](contributions.md) 输出 7） |
 | `startTask({taskId, profile, initial?, input, project?, background?})` | 写 | 发起任务 |

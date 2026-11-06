@@ -73,6 +73,8 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 验证：`nb-agent-ui` 的组件测试、`kernel-transcript.test.ts`、`session-host.test.ts`、`sessions.test.ts`、类型检查；e2e `agent-conversation`。
 
+批 3 前半合入：转录器记消息的锚点与路径，宿主按锚点精确选回退目标（重试、编辑重发、从此处分支），`AgentMessageEditor`，内核新查询 `treeNodes`、`branchPoints`，分支切换。分支树界面等 review v4 的两题。没做 `after-step` 暂停后的“继续”按钮：从此处分支退到用户消息后，用户要写一句才接着跑，想直接接着跑用“重新生成”。
+
 ## 下一步
 
-批 3：就地编辑（已定）、重试、编辑重发、分支、结构查询先做；分支树等 review v4 的两题（分组高亮、横向模式）。
+等 review v4 的 `s6-tree-group`、`s7-tree-path`，定了写分支树；批 3 收口开一次 omp 实现审查（改了内核）。
