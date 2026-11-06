@@ -76,7 +76,7 @@ owners:
 
 ### 写主题场景素材
 
-主题编辑器（[`theme.editor`](../theme/editor.md)）经 `PUT /api/nbook.files/theme-assets` 把场景图写进 `user://theme-assets/`：请求体是原始字节，限长、按字节判定类型、文件名取 SHA-256、拒绝符号链接目录，细则在“主题编辑器”的“写场景素材”一节。同目录还有 `PUT /api/nbook.files/theme-icons`，只收通过严格检查的 SVG 图标（文件名 `<SHA-256>.svg`），细则在“写图标素材”一节。
+主题编辑器（[`theme.editor`](../theme/editor.md)）经 `PUT /api/nbook.files/theme-assets` 把场景图写进 `user://theme-assets/`：请求体是原始字节，限长、按字节判定类型、文件名取 SHA-256、拒绝符号链接目录，细则在“主题编辑器”的“写场景素材”一节。同目录还有 `PUT /api/nbook.files/theme-icons`，只收通过严格检查的 SVG 图标（文件名 `<SHA-256>.svg`），细则在“写图标素材”一节。没人引用的素材由 `POST /api/nbook.files/theme-assets/sweep` 清理：先统计、再按用户确认过的名单删除，只碰摘要命名的普通文件，保护期内的不删，上传与清理互斥，细则在 [`theme.editor`](../theme/editor.md) 输出 22；删除经本能力的“删除”操作，`expected` 是目录项身份令牌。
 
 ### 预览的受限读取
 
