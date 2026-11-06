@@ -157,7 +157,8 @@
 | 5 | `WorkbenchSurface`、面板头、工具条，Lab 场景（用夹具文档） | 不接产品，合入 | Lab e2e |
 | 6 | `groups.ts` 拆成 `PanelTabs`、`PanelTree` 本地实现，`tabId` 改随机串 | 行为不变，合入 | `groups.test.ts`、`editor-area` |
 | 7a | **外壳切换**：表面、工具面板、条、记录、命令与状态键、工具视图的拖动（指针、键盘、预备区）。编辑区暂时是树里一块 `role: "editor"` 的面板，里面还是现有的 `EditorArea`。重写 `workbench-shell`、`workbench-views`、`workbench-dnd`。t06 接入遗留 1、2、5、10 跟着宿主改。**真实产品里你的验收场景到这一片成立，请开发者再试一次**。开工前用 `nbdev status` 看谁在改外壳，排先后 | 一个分支，整片合入 | 见“验证” |
-| 7b | **编辑组归面板**：`PanelTabs`、`PanelTree` 换工作台实现，`editor.tabs`，`EditorHost`，标签拖动并入。编辑器标签能拆到工具面板旁边 | 合入 | `editor-area` 与下面列的编辑器相关 e2e |
+| 7b | **编辑组归面板**：`PanelTabs`、`PanelTree` 换工作台实现，`editor.tabs`，`EditorHost`，标签拖动并入。编辑器标签能拆到工具面板旁边（片 7c 取消） | 合入 | `editor-area` 与下面列的编辑器相关 e2e |
+| 7c | **收紧到骨架**：规则、活动栏、预备区、不合骨架的记录，见下面“片 7c” | 合入 | 见“片 7c”的验证 |
 | 8 | 删旧代码，晋升 Spec。`shell/layout.ts`、`cards.ts`、`panel-state.ts`、`teleport-memory.ts`、`sizes.ts` 不再用的部分、`views/` 的落位与容器网格、`public-state.ts` 与 `panel-commands.ts` 的旧键、locales 的旧条目、`WorkbenchShellLayout`、`ToolPartHost`、`ViewContainerHost`、`PanelSurface`、Lab 的 `WorkbenchShellLayoutFixture`、`ShellViewsScene`（迁到新场景）、旧记录的读写 | 合入 | 类型检查，全部相关 e2e |
 
 派发：片 1 的去向表、片 5 的组件样式、片 7a 的 e2e 重写、片 8 派 Sonnet；片 2、3、4、6 与片 7 的接线主会话写。片 2、3 没把握，当场派实现审查（前端，Sonnet）。
@@ -206,6 +207,51 @@
 - **别的 Work 同时改外壳**：`WorkbenchShell.vue` 三天内被改 10 次。片 7a 开工前看 `nbdev status`，切换分支尽量短。
 - **内容层的外层不在叶里**：视图里用 `closest("[data-leaf]")` 的代码会失效。片 3 全仓搜一遍，现有只有 `WorkbenchShellLayout` 用 `data-leaf-content`。
 - **重内容**：内容跟随的代价在 t06 量过（`t06 evidences/follow-content.txt`）；飞行中的内容如果换尺寸也要每帧排版。
+
+## 片 7c：收紧到骨架（开发者 2026-11-06）
+
+**为什么。** 开发者试了片 7b：放到两块之间、整块拖动、编辑器标签拆到工具面板旁边给了太多自由度，会破坏 `活动栏 | 侧栏 | 编辑区 | 右栏`；活动栏应该只显示侧栏的图标；预备区位置不对。根因是提案（t03）放宽了 t02 原型里“工具视图不进编辑区”的边界，写了具名面板可整块拖走、活动栏列全部视图。开发者回复“都按推荐”，决定写在提案决策记录与 [workbench-layout](../../../../../docs/specs/ui/workbench-layout.md) 输出 1、20、22 到 31。
+
+**不变量（这片的核心）：任何操作之后树都合骨架。** `V[H[活动栏, 侧栏这一列, V[编辑区…, 面板这一排], 右栏这一列], 状态栏]`。靠两件事保证：落点只给合骨架的目标（`layoutEdgeTarget`）；具名面板不会被移走（`moveTabToEdge` 的单标签整块移动只给无名面板）。用随机操作的性质测试钉住：从默认树出发，反复取 `enumerateDropCandidates` 的候选提交，`fitsSkeleton` 恒真。
+
+### `packages/nb-layout/src`（小改，如实告诉开发者：策略要多一个按边回答的钩子）
+
+- `LayoutPolicy.edgeTarget?(doc, tabs, panel, edge): LayoutEdgeTarget | null`，缺省 `edgeTargetOf`。`null` 表示这条边没有窄带，指针在那里算中央。`resolveInPanel` 与 `enumerateDropCandidates` 都问它。窄带按“最近的允许的边”判（四角按对角线分，Spec 本来就这么写，`resolveGridEdgeDrop` 是先判 x）。
+- `moveTabToEdge`：先判目标挨着来源那块（放回原处，返回原对象）；来源只有这个标签且是**无名**面板才整块移动；具名面板的单标签拆出新面板，具名面板拖空隐藏，留在骨架上。`movePanelToEdge`、`movePanelToStrip` 留给 t09（浮动窗整块停靠），工作台的拖动不再用。
+- `previewRevealRects(doc, panels, projection, extent, dpr)` 取代 `previewRevealRect`：几块一起显示后取各自矩形。
+- `LayoutDropAction` 的 `reveal` 加可选 `index`，`showPanelAndInsert` 同。活动栏放到隐藏的侧栏时要按位置插。
+- `resolveLayoutDrop` 去掉 `panel?.role === "tool"` 这条（库不该知道角色）：有真实落点就是它，没有才看预备区。工具视图在编辑组上本来就没有落点，编辑器标签没有预备区。
+
+### `packages/neuro-book/src/plugins/workbench/web/state`
+
+- `layout-constraints.ts`：`layoutAccepts` 只看角色相配，不再分区域。新增 `layoutEdgeTarget`（工具面板按所在方向限轴：`sidebar`、`auxiliarybar` 上下，`panel` 左右，无名面板看父分支的方向；编辑组的 `between` 对面不全是编辑组时改成 `split`）；`createLayoutPolicy` 带上它。
+- `default-tree.ts`：`fitsSkeleton(doc)`。
+- `layout-doc-store.ts`：`readStored` 过了校验还要合骨架，不合按没有记录处理（不算 `guarded`，下次保存覆盖）。`moveView` 的新面板用 `layoutEdgeTarget`，方向按所在这一列或这一排，不再按名字。
+- `layout-present.ts`：`sidebarColumnPanels(doc)`、`sidebarColumnViews(doc)`；`toolEntryIntent` 去掉“可见但没聚焦时聚焦”这一步（改回旧外壳输出 15 的切换）；`moveTargetsOf` 的 `beside` 只列工具面板。
+
+### `web/layout-drag.ts`
+
+- 只留标签来源：去掉 `data-panel-head` 拖动源与键盘来源、整块相关分支；源的类型收窄为 `Extract<LayoutSource, {kind: "tab"}>`。
+- 活动栏落点：`barDrop(source, point)`，工具视图且指针在上段（`data-tool-band`）时走这里，不经 `resolveLayoutDrop`；按条目中线算 `(panel, index)`，条目下面的空白等于最后一个条目之后，这一列没有视图时是 `sidebar` 的 0。目标隐藏或拖到零且来源不在同一面板时是 `reveal`（带 `index`），否则 `strip`。预览是一条横线。`excludedRects` 照旧含活动栏，别的来源在它上面没有落点。
+- 侧栏这一列只有标题：新选项 `titleOnly(panel)`。`strip` 动作换成 `center`；键盘的 `stripCount` 是 0。
+- 键盘：活动栏是第一个区域（只对工具视图），位置是各条目之间。
+
+### `web/components`
+
+- `WorkbenchPanelHead`：去掉头自己的 `tabindex`、`role="group"` 与拖动描述；加 `titleOnly`，只写活动标签的标题，它是 `data-panel-tab` 的可聚焦把手（`aria-label` “拖动 X”、`aria-description` 按空格拿起，内容的 `aria-labelledby` 仍指向它），点它发 `activate`（收成标题行时展开）。
+- `WorkbenchToolStrip`：条目区写 `data-tool-band`；条目右键发 `context-menu`。
+- `WorkbenchShell`：`toolEntries` 取 `sidebarColumnViews`；`titleOnly(panelId)` 是“在侧栏这一列且活动栏没隐藏”；焦点交接的选择器不再只认 `role="tab"`。
+- 同名 `.md`、Lab 夹具（`WorkbenchSurfaceFixture`、`EditorAreaFixture`）跟着改。
+
+### 验证
+
+单元：`layout-drop.test.ts`（钩子、最近的边、预备区）、`layout-doc.test.ts`（具名单标签不整块移动）、`layout-constraints.test.ts`（规则表、骨架性质测试、`fitsSkeleton`）、`layout-present.test.ts`（活动栏、`moveTargetsOf`）、`layout-doc-store.test.ts`（不合骨架的记录回落且可覆盖）。
+
+e2e（改了什么跑什么，都在这张清单里，不超过 8 个文件）：`workbench-dnd`（重写规则相关用例：验收 2、8、10、14）、`workbench-views`、`workbench-shell`、`editor-area`（“编辑器标签和工具面板”重写）、`lab-workbench-surface`、`files-explorer`、`plugin-authoring`、`plugin-code`（后三个读活动栏条目，先全仓搜旧名字再定）。
+
+**验收映射**：输出 1 → 骨架性质测试；输出 20 → `workbench-views`；输出 22 → `workbench-views`、`workbench-dnd`（验收 14）；输出 25、26 → `layout-drop`、`layout-constraints` 单元，`workbench-dnd`（验收 10）；输出 29 → `previewRevealRects` 单元，`workbench-dnd`（验收 8，三块都隐藏不重叠）；状态表“不合骨架” → store 单元（验收 20）。
+
+**不做**：重置布局命令（开发者没要）；不合骨架的记录不抢救编辑器标签（一次性的，只影响试过片 7b 的本机记录）。
 
 ## 已确认
 
