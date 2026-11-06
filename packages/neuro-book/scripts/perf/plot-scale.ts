@@ -291,6 +291,14 @@ const checksGenerated = performance.now() - startedChecks;
 Bun.gc(true);
 const recordsHeap = (process.memoryUsage().heapUsed - beforeRecords) / 1024 / 1024;
 const recordBytes = [...recordsByChapter.values()].reduce((sum, record) => sum + JSON.stringify(record).length, 0);
+// 这个世界上不算检查诊断的基线：(a) 要和它比，和前面那个没有计划与子线的世界比不出来。
+const baselineReads: number[] = [];
+for (let round = 0; round < 3; round += 1) {
+    await plot.change({kind: "chapter", chapter: last, key: 4_900 + round}, {text: "基线"});
+    const begin = performance.now();
+    if (typeof service.pending({}, undefined, 50) === "string") throw new Error("pending");
+    baselineReads.push(performance.now() - begin);
+}
 service.registerDiagnostics(PLOT_PLUGIN_ID, {compute: {...allCompute, ...checkDiagnostics(checkSource, sha)}, dataVersion: "scale-f"});
 const readPending = () => {
     const begin = performance.now();
@@ -311,6 +319,23 @@ const scenario = async (name: string, edit: () => Promise<unknown>): Promise<str
 const checkReports: string[] = [];
 checkReports.push(await scenario("(a) 在最新一章发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_000}, {text: "补一句"})));
 checkReports.push(await scenario("(a2) 再发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_001}, {text: "补一句"})));
+{
+    // 别的会话占着 CPU 时单次不可信：多跑几轮取最小的。
+    const [folds, sweeps]: [number[], number[]] = [[], []];
+    const stored = [...dependenciesByChapter.values()];
+    for (let round = 0; round < 6; round += 1) {
+        await plot.change({kind: "chapter", chapter: last, key: 5_010 + round}, {text: "补一句"});
+        const view = service.snapshot().view;
+        const foldBegin = performance.now();
+        checkSource.dependencies(view, stored[0]!.chapter, [], stored[0]!);
+        folds.push(performance.now() - foldBegin);
+        const sweepBegin = performance.now();
+        for (const row of stored) checkSource.dependencies(view, row.chapter, [], row);
+        sweeps.push(performance.now() - sweepBegin);
+    }
+    checkReports.push(`（发布以后摘要的开销，六轮取最小：建折叠 ${ms(Math.min(...folds))} 毫秒，${String(stored.length)} 章各算一次 ${ms(Math.min(...sweeps))} 毫秒；不算检查诊断的基线读待处理 ${baselineReads.map(ms).join("、")} 毫秒）`);
+    readPending();
+}
 checkReports.push(await scenario("(c) 改第 500 章的一条变更", () => plot.change({kind: "chapter", chapter: chapterIds[Math.floor(chapterIds.length / 2)]!, key: 5_002}, {text: "中间补一句"})));
 checkReports.push(await scenario("(c2) 这之后再在最新一章发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_003}, {text: "补一句"})));
 const frequent = person(1);

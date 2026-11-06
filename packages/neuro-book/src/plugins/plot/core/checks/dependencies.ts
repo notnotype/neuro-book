@@ -64,12 +64,13 @@ interface Caches {
     readonly projections: WeakMap<object, string>;
     readonly items: WeakMap<object, ItemValue>;
     readonly exact: WeakMap<object, ItemValue>;
+    readonly identities: WeakMap<object, ItemValue>;
 }
 const perDigest = new WeakMap<Digest, Caches>();
 function cachesOf(digest: Digest): Caches {
     let found = perDigest.get(digest);
     if (found === undefined) {
-        found = {facts: new WeakMap(), projections: new WeakMap(), items: new WeakMap(), exact: new WeakMap()};
+        found = {facts: new WeakMap(), projections: new WeakMap(), items: new WeakMap(), exact: new WeakMap(), identities: new WeakMap()};
         perDigest.set(digest, found);
     }
     return found;
@@ -93,47 +94,54 @@ function valueOf(cache: WeakMap<object, ItemValue>, owner: object, key: string, 
     return made;
 }
 
-/** 按桶累加的前缀：累加与顺序无关，项的键里已经有 `at`，桶也由内容决定。查询之前排一次序。 */
+/** 按桶累加的前缀：累加与顺序无关，项的键里已经有 `at`，桶也由内容决定。调用方按桶升序加（`worldFold` 的主循环），所以这里只是加法。 */
 class Prefix {
-    readonly #items: {readonly bucket: number; readonly a: number; readonly b: number}[] = [];
-    #sorted: {readonly buckets: number[]; readonly a: number[]; readonly b: number[]; readonly n: number[]} | null = null;
+    readonly #buckets: number[] = [];
+    readonly #a: number[] = [];
+    readonly #b: number[] = [];
+    readonly #n: number[] = [];
+    readonly #texts: (string | undefined)[] = [];
 
     add(bucket: number, value: {readonly a: number; readonly b: number}): void {
-        this.#items.push({bucket, a: value.a, b: value.b});
-        this.#sorted = null;
+        const last = this.#buckets.length - 1;
+        const [nextA, nextB] = [((this.#a[last] ?? 0) + value.a) % MODULUS, ((this.#b[last] ?? 0) + value.b) % MODULUS];
+        if (this.#buckets[last] === bucket) {
+            this.#a[last] = nextA;
+            this.#b[last] = nextB;
+            this.#n[last]! += 1;
+            this.#texts[last] = undefined;
+        } else {
+            this.#buckets.push(bucket);
+            this.#a.push(nextA);
+            this.#b.push(nextB);
+            this.#n.push((this.#n[last] ?? 0) + 1);
+        }
     }
 
-    #sort() {
-        if (this.#sorted !== null) return this.#sorted;
-        const [buckets, a, b, n]: [number[], number[], number[], number[]] = [[], [], [], []];
-        for (const item of [...this.#items].sort((x, y) => x.bucket - y.bucket)) {
-            const last = buckets.length - 1;
-            const [nextA, nextB] = [((a[last] ?? 0) + item.a) % MODULUS, ((b[last] ?? 0) + item.b) % MODULUS];
-            if (buckets[last] === item.bucket) {
-                a[last] = nextA;
-                b[last] = nextB;
-                n[last]! += 1;
-            } else {
-                buckets.push(item.bucket);
-                a.push(nextA);
-                b.push(nextB);
-                n.push((n[last] ?? 0) + 1);
-            }
+    #indexAt(bound: number): number {
+        let [low, high] = [0, this.#buckets.length];
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if (this.#buckets[middle]! <= bound) low = middle + 1;
+            else high = middle;
         }
-        this.#sorted = {buckets, a, b, n};
-        return this.#sorted;
+        return low - 1;
     }
 
     /** 到桶 `bound`（含）为止的累加。 */
     at(bound: number): string {
-        const {buckets, a, b, n} = this.#sort();
-        let [low, high] = [0, buckets.length];
-        while (low < high) {
-            const middle = (low + high) >> 1;
-            if (buckets[middle]! <= bound) low = middle + 1;
-            else high = middle;
-        }
-        return low === 0 ? "0" : `${String(a[low - 1]!)}.${String(b[low - 1]!)}.${String(n[low - 1]!)}`;
+        const index = this.#indexAt(bound);
+        if (index < 0) return "0";
+        return (this.#texts[index] ??= `${String(this.#a[index]!)}.${String(this.#b[index]!)}.${String(this.#n[index]!)}`);
+    }
+
+    /** 把到桶 `bound`（含）为止的累加并进 `total`：一千章每次发布各并上百个条目，不拼字符串，也不用排序。 */
+    addTo(total: {a: number; b: number; n: number}, bound: number): void {
+        const index = this.#indexAt(bound);
+        if (index < 0) return;
+        total.a = (total.a + this.#a[index]!) % MODULUS;
+        total.b = (total.b + this.#b[index]!) % MODULUS;
+        total.n += this.#n[index]!;
     }
 }
 
@@ -267,6 +275,8 @@ interface WorldFold {
     readonly children: ReadonlyMap<string, readonly {readonly id: string; readonly bucket: number}[]>;
     /** 条目的桶：出场与重述取早的，没写出场的算全局。 */
     readonly entryBuckets: ReadonlyMap<string, number>;
+    /** 每一章的分段：视图的方法每次都要冻结，一千章各读几次。 */
+    readonly chapterSegments: ReadonlyMap<string, readonly {readonly line: string}[]>;
     readonly own: ReadonlyMap<string, OwnFold>;
     readonly material: ReadonlyMap<string, Prefix>;
     readonly decisions: DecisionFold;
@@ -378,7 +388,11 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
         for (const thing of things) for (const patch of thing.change?.patches ?? []) if (foreshadowIds.has(patch.at.entry)) for (const mention of factsOf(patch, digest, caches).mentions) addAnswer(mention, patch.at.entry);
         const answersOfForeshadow = new Map<string, string[]>();
         for (const [point, by] of answeredBy) for (const id of by) answersOfForeshadow.set(id, [...(answersOfForeshadow.get(id) ?? []), point]);
-        const revealedAnswers = (thing: Thing) => thing.tellings.flatMap((telling) => marksOf(telling).flatMap((mark) => (mark.kind === MARK_IDS.reveal && mark.version === 1 && typeof mark.point === "string" && answeredBy.has(mark.point) ? [mark.point] : [])));
+        const revealedAnswers = (thing: Thing) => {
+            const found: string[] = [];
+            for (const telling of thing.tellings) for (const mark of marksOf(telling)) if (mark.kind === MARK_IDS.reveal && mark.version === 1 && typeof mark.point === "string" && answeredBy.has(mark.point)) found.push(mark.point);
+            return found;
+        };
         const inForeshadow = (thing: Thing) => thing.mentions.some((id) => foreshadowIds.has(id)) || revealedAnswers(thing).length > 0;
         const isMaskChange = (thing: Thing) => (thing.change?.patches ?? []).some((patch) => isMaskPath(patch.at.path));
         const identitySet = new Set<string>([...pointIds, ...foreshadowIds]);
@@ -456,7 +470,8 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             if (inForeshadow(thing)) foreshadow.add(thing.bucket, value);
             if (isMaskChange(thing) || isNameChange(thing)) identity.add(thing.bucket, value);
             // 试读的材料：可能以 K 为答案的伏笔涉及的项（标它的节点、K 上的揭示、继承）里每处讲述的段落与那一段的文字。
-            const answers = new Set([...revealedAnswers(thing), ...thing.mentions.flatMap((id) => answersOfForeshadow.get(id) ?? [])]);
+            const answers = new Set(revealedAnswers(thing));
+            for (const id of thing.mentions) for (const point of answersOfForeshadow.get(id) ?? []) answers.add(point);
             if (answers.size > 0) {
                 const where = thing.tellings.map((telling) => {
                     const found = telling.id === undefined ? undefined : located.get(telling.id);
@@ -466,17 +481,28 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
                 for (const point of answers) materialOf(point).add(thing.bucket, exactValue);
             }
             // 本章的对象：只放对象本身，提到的条目进 `R`。发生点由本章正文与引文决定（都在摘要里）；套没套上、联动戳在提到的条目的历史里。
-            const chapters = new Set([...thing.placedIn, ...thing.tellings.flatMap((telling) => (telling.chapter === undefined ? [] : [telling.chapter]))]);
-            if (chapters.size > 0) {
-                for (const chapter of chapters) {
-                    const fold = ownOf(chapter);
-                    fold.digests.push(objectDigest);
-                    for (const id of thing.mentions) fold.mentions.add(id);
-                }
+            const chapters = new Set(thing.placedIn);
+            for (const telling of thing.tellings) if (telling.chapter !== undefined) chapters.add(telling.chapter);
+            for (const chapter of chapters) {
+                const fold = ownOf(chapter);
+                fold.digests.push(objectDigest);
+                for (const id of thing.mentions) fold.mentions.add(id);
             }
         };
 
-        // 按桶升序：计划的联动戳只依赖更早的，加同一桶里的已写变更。
+        // 条目本身：进它自己的历史（全局那一桶，改了条目本身读它的章都要重拼），身份集合里的进 `identity`，伏笔进 `foreshadow`。
+        const entriesInBucket = new Map<number, Entry[]>();
+        for (const entry of entries) {
+            if (!identitySet.has(entry.id)) continue;
+            const bucket = foreshadowIds.has(entry.id) ? -1 : entryBuckets.get(entry.id)!;
+            entriesInBucket.set(bucket, [...(entriesInBucket.get(bucket) ?? []), entry]);
+        }
+        for (const entry of entries) {
+            historyOf(entry.id).add(-1, valueOf(caches.items, entry, entryDigest(entry, digest, caches), digest));
+            if (foreshadowIds.has(entry.id)) foreshadow.add(-1, valueOf(caches.items, entry, entryDigest(entry, digest, caches), digest));
+        }
+
+        // 按桶升序：计划的联动戳只依赖更早的，加同一桶里的已写变更；累加要求升序。
         const byBucket = new Map<number, Thing[]>();
         for (const thing of things) {
             const list = byBucket.get(thing.bucket);
@@ -484,8 +510,16 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             else list.push(thing);
         }
         const targetsOf = (thing: Thing) => [...new Set((thing.change?.patches ?? []).map((patch) => patch.at.entry))];
-        for (const bucket of [...byBucket.keys()].sort((a, b) => a - b)) {
-            const inBucket = byBucket.get(bucket)!;
+        for (const bucket of [...new Set([...byBucket.keys(), ...entriesInBucket.keys()])].sort((a, b) => a - b)) {
+            for (const entry of entriesInBucket.get(bucket) ?? []) {
+                let value = caches.identities.get(entry);
+                if (value === undefined) {
+                    value = valueOf(caches.exact, entry, canonicalJson(identityValue(entry)), digest);
+                    caches.identities.set(entry, value);
+                }
+                identity.add(bucket, value);
+            }
+            const inBucket = byBucket.get(bucket) ?? [];
             // 改两个以上条目的计划：能不能整条套上取决于别的条目的历史，引擎又没有计划的结论（`outcome` 只有已写变更）。只改一个条目的，这个条目自己的历史已经覆盖。
             const linked = inBucket.filter((thing) => thing.change?.kind === "plan" && targetsOf(thing).length >= 2);
             for (const thing of inBucket) if (!linked.includes(thing)) addItem(thing, "");
@@ -494,14 +528,6 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
                 const stamp = digest(canonicalJson({plans: linked.map((thing) => factsOf(thing.value, digest, caches).digest).sort(), targets: targets.map((id) => [id, histories.get(id)?.at(bucket) ?? "0"])}));
                 for (const thing of linked) addItem(thing, stamp);
             }
-        }
-
-        // 身份与伏笔的条目。
-        for (const entry of entries) {
-            if (identitySet.has(entry.id)) {
-                identity.add(foreshadowIds.has(entry.id) ? -1 : entryBuckets.get(entry.id)!, valueOf(caches.exact, entry, canonicalJson(identityValue(entry)), digest));
-            }
-            if (foreshadowIds.has(entry.id)) foreshadow.add(-1, valueOf(caches.items, entry, entryDigest(entry, digest, caches), digest));
         }
 
         const children = new Map<string, {id: string; bucket: number}[]>();
@@ -524,7 +550,7 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             }
             lineBound.set(summary.id, bound);
         }
-        return {order, identity, foreshadow, histories, children, entryBuckets, own, material, decisions: decisionFold(view, digest), reveals: revealTable(view), declarations: view.declarationsDigest(), lineBound};
+        return {order, identity, foreshadow, histories, children, entryBuckets, chapterSegments, own, material, decisions: decisionFold(view, digest), reveals: revealTable(view), declarations: view.declarationsDigest(), lineBound};
     });
 }
 
@@ -544,7 +570,7 @@ export interface DependencyInput {
 function boundOf(input: DependencyInput, fold: WorldFold): number {
     const {view, chapter} = input;
     const flashback = placementIndex(view, flashbackOf(input.instruction?.snapshot));
-    return Math.max(view.chapters.indexOf(chapter), flashback, ...view.chapterLines(chapter).map((segment) => fold.lineBound.get(segment.line) ?? -1));
+    return Math.max(view.chapters.indexOf(chapter), flashback, ...(fold.chapterSegments.get(chapter) ?? []).map((segment) => fold.lineBound.get(segment.line) ?? -1));
 }
 
 /** `R`：摘要按条目本身与它的历史覆盖的条目。 */
@@ -566,7 +592,6 @@ export function dependenciesOf(input: DependencyInput): string | null {
     const here = view.chapters.indexOf(chapter);
     if (here === -1) return null;
     const fold = worldFold(view, digest);
-    const caches = cachesOf(digest);
     const bound = boundOf(input, fold);
     const own = fold.own.get(chapter);
     const read = entriesRead(input);
@@ -574,26 +599,30 @@ export function dependenciesOf(input: DependencyInput): string | null {
     const decisions = new Set([...everywhere, ...(byChapter.get(chapter) ?? [])]);
     for (const entry of read) for (const content of byEntry.get(entry) ?? []) decisions.add(content);
     for (const range of scoped) if (range.from <= here && here <= range.to) decisions.add(range.digest);
-    const entries = [...read].sort().map((id) => {
-        const stored = view.object({kind: "entry", id}) as Entry | undefined;
-        return [id, stored === undefined ? null : entryDigest(stored, digest, caches), fold.histories.get(id)?.at(bound) ?? "0"];
-    });
     const previous = view.chapters[here - 1];
-    return digest(canonicalJson({
-        algorithm: ALGORITHM,
-        plugin: input.pluginVersion,
-        declarations: fold.declarations,
-        instruction: input.instruction?.digest ?? null,
-        selfReport: input.selfReport ?? null,
-        followUps: input.followUps,
-        order: [fold.order[0]!, fold.order[bound + 1]!],
-        identity: fold.identity.at(bound),
-        foreshadow: fold.foreshadow.at(bound),
-        text: [view.chapterTextDigest(chapter) ?? null, previous === undefined ? null : (view.chapterTextDigest(previous) ?? null)],
-        own: [...(own?.digests ?? [])].sort(),
-        entries,
-        material: points.map((point) => [point, fold.material.get(point)?.at(bound) ?? "0"]),
-        decisions: [...decisions].sort(),
-        later: points.filter((point) => (fold.reveals.get(point) ?? -1) > here),
-    }));
+    // 条目历史的累加里已经有条目本身（全局那一桶，内容带 id）。累加与顺序无关，一千章每次发布各算一遍，不用排序、拼字符串。
+    const entries = {a: 0, b: 0, n: 0};
+    for (const id of read) fold.histories.get(id)?.addTo(entries, bound);
+    // 次序都是这里定死的，不用规范 JSON 排键。
+    return digest(JSON.stringify([
+        ALGORITHM,
+        input.pluginVersion,
+        fold.declarations,
+        input.instruction?.digest ?? null,
+        input.selfReport ?? null,
+        input.followUps,
+        fold.order[0]!,
+        fold.order[bound + 1]!,
+        fold.identity.at(bound),
+        fold.foreshadow.at(bound),
+        view.chapterTextDigest(chapter) ?? null,
+        previous === undefined ? null : (view.chapterTextDigest(previous) ?? null),
+        [...(own?.digests ?? [])].sort(),
+        entries.a,
+        entries.b,
+        entries.n,
+        points.map((point) => [point, fold.material.get(point)?.at(bound) ?? "0"]),
+        [...decisions].sort(),
+        points.filter((point) => (fold.reveals.get(point) ?? -1) > here),
+    ]));
 }
