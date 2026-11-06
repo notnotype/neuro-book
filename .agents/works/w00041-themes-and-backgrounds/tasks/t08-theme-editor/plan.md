@@ -23,8 +23,8 @@
 
 ### 3. 我的主题库（`src/plugins/workbench/`）
 
-- `shared/contracts.ts`：配置项 `nbook.workbench/userThemes`，用户层，不允许项目层；schema 是 `{id: "user:<uuid>", declaration: ThemeDeclaration, editor?: {touched: string[]}}` 的数组。id 用 `user:` 前缀：冒号不会出现在插件 id 里，不会和第三方撞。
-- `web/themes.ts` 的 `ThemeCatalog`：增加第二个来源，读 `userThemes` 经 `themeProblem`（同一份校验）逐条过，不合格的记诊断、不进目录。素材地址：`scene` 是文件名，我的主题解析为 `/api/nbook.files/raw/user/theme-assets/<名>`；解析函数在 `web/plugin.ts` 登记素材表的地方补一个“我的主题”分支。
+- `shared/user-themes.ts` 与 `web/user-themes-store.ts`：Storage 用户记录 `user-themes`（scope user、locality shared，不用配置项：配置项会在设置窗口的“其它”里显示一大块 JSON），经 `defineStore` 的 `persist` 投影；schema 是 `{id: "user:<uuid>", declaration: ThemeDeclaration, editor?: {touched: string[]}}` 的数组。id 用 `user:` 前缀：冒号不会出现在插件 id 里，不会和第三方撞。
+- `web/themes.ts` 的 `ThemeCatalog`：增加第二个来源，读这份记录经 `declarationProblem`（同一份校验）逐条过，不合格的记诊断、不进目录。素材地址：`scene` 是文件名，我的主题解析为 `/api/nbook.files/raw/user/theme-assets/<名>`；解析函数在 `web/plugin.ts` 登记素材表的地方补一个“我的主题”分支。
 - 设置里的主题列表与命令 `switch-theme`：`THEME_CHOICES_PROVIDER` 列出时包含我的主题，标题后标“我的”；退回规则不变。
 - 编辑器预览：`WorkbenchDocument.vue` 的 `resolveTheme` 之前加一个“预览覆盖”：编辑器开着时用编辑中的主题与顶部选的明暗；关闭即清掉。覆盖放在工作台的一个小服务（`windowThemePreviewKey`），编辑器写、文档写入方读。
 - 测试：库的校验与退回（合同测试）、预览覆盖（DOM 测试，真实写入方）、素材地址。
@@ -33,7 +33,7 @@
 
 - 组件：`ThemeEditor.vue`（主体）、`ThemeEditorNav.vue`、各分区 `sections/`（基本信息、配色、字体、活动栏与画框、场景与取景、对比度）、`ColorField.vue`（取色器加色值输入加对比度徽标）、`CropEditor.vue`（原图加五个取景框）；每个有同名 `.md` 与 Lab 场景。复用 nb-ui 的输入、选择、分段、按钮、对话框；表单行沿用设置页的行组件风格，不另造。
 - 页签：`editor.pages` 贡献页面 `nbook.workbench.theme-editor`；命令 `nbook.workbench.theme-editor.open`。浮动：`ThemeEditorWindow.vue` 用 `FloatingWindow` 包同一个主体，命令 `…open-floating`。同一时刻只有一个，由一个小的单例状态管，再开是聚焦。
-- 数据流：编辑器只读写 `userThemes`（经配置服务），自己不存声明副本；输入框改动防抖后写入；写失败时不改显示（回到库里的值）。
+- 数据流：编辑器只读写 `user-themes` store，自己不存声明副本；输入框改动防抖后写入；写失败时不改显示（回到库里的值）。
 - 取景的读写（`crop-model.ts`，纯 TS）：只认编辑器自己写的几种形式，其余不解析：空状态 `position: "<x>% <y>%"` 加 `contentX`；正文两侧 `size: "auto <H>%"` 加 `position: "<x>% <y>%"`；两个角 `size: "<W>px auto"` 加 `position`。每个位置有一个参照盒子（空状态按内容区、两侧按默认宽度的版心留白、角按默认栏宽与 240px 高），框的几何与数值互相换算。读不懂返回 `null`，界面把框标成不可拖。
 - 上传：浏览器侧缩到最长边 2560px、转 WebP（canvas），经路由写入；超 300 KB 提示不拒绝。
 - 对比度：`ColorField` 按它的“另一端”（文字对 `--bg-main`/`--bg-panel`/`--bg-sidebar`，强调文字对 `--accent-bg`，状态色对各自的底色）算，汇总分区列全部不合格对。
@@ -41,7 +41,7 @@
 
 ### 5. 导出与导入（`src/plugins/workbench/web/theme-editor/package.ts`）
 
-- 都在浏览器里做，用根依赖里已有的 `fflate`（核实它在浏览器构建里可用）：导出读场景图（走素材读取地址），打成 zip 经 Blob 下载；导入读 zip，校验后把素材经路由写入，再写 `userThemes`。
+- 都在浏览器里做，用根依赖里已有的 `fflate`（核实它在浏览器构建里可用）：导出读场景图（走素材读取地址），打成 zip 经 Blob 下载；导入读 zip，校验后把素材经路由写入，再写 `user-themes` 记录。
 - 导出包：`package.json`（发布者 `local`，名字取标题的拼写，版本 `0.1.0`，`engines`，一条 `workbench.themes` 贡献，贡献 id `local.<name>.<slug>`）加 `assets/`，格式与 `plugin-sdk/examples/external/theme-dusk` 相同；测试里把导出包交给真实的插件安装（`createPluginInventory`，同 `themes.e2e.ts` 的装法），重启后在列表里出现。
 - 导入校验：zip 20 MiB、文件数 64、单文件 20 MiB、路径无 `..` 与根；`package.json` 与声明走同一份校验；素材按字节判类型。不合格不写任何东西（先全部校验，再写）。
 
