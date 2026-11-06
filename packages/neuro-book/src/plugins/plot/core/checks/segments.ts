@@ -64,9 +64,32 @@ export function flashbackOf(instruction: InstructionSnapshot | undefined): Place
  * 之后才建的条目不会让这一章的记录过期。
  */
 export function readAppeared(view: CanonReadView, id: string, position: ReadPosition, mode: Mode = "actual"): EntryView | null {
+    let positions = readCache.get(view);
+    if (positions === undefined) {
+        positions = new Map();
+        readCache.set(view, positions);
+    }
+    const key = `${mode}|${position.kind === "chapter" ? `${position.chapter}|${position.edge}` : position.kind}`;
+    let reads = positions.get(key);
+    if (reads === undefined) {
+        reads = new Map();
+        positions.set(key, reads);
+        if (positions.size > READ_POSITIONS) positions.delete(positions.keys().next().value!);
+    }
+    const known = reads.get(id);
+    if (known !== undefined) return known;
     const read = view.entry(id, position, mode);
-    return read === null || read === "chapter-not-found" || read.deleted || !read.appeared ? null : read;
+    const found = read === null || read === "chapter-not-found" || read.deleted || !read.appeared ? null : read;
+    reads.set(id, found);
+    return found;
 }
+
+/**
+ * 同一章里同一个条目同一个位置要读很多遍，而读一次要几十微秒。检查按章往后走，一个位置读完就不再读，所以每张视图只留最近几个位置。
+ * 归纳补上时视图不换，语义档的值会变：检查只读名字、别名、简介与精确档的字段，不受影响。
+ */
+const readCache = new WeakMap<CanonReadView, Map<string, Map<string, EntryView | null>>>();
+const READ_POSITIONS = 4;
 
 /**
  * 一条引文落在这一段里吗（输出 6）：含换行的逐行核对，每行都要在同一段里；至少要有一行不短于 `MIN_QUOTE` 个码点，否则把一句话拆成单字就能混过去。短的一行（一声“嗯”）

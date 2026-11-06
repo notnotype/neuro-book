@@ -19,6 +19,7 @@
 import type {ComponentRegistry} from "../components/registry";
 import {semanticText} from "../components/values";
 import {addressKey, addressesOverlap} from "../core/address";
+import {deepFreeze} from "../core/freeze";
 import {compareIds} from "../core/ids";
 import {ENABLE_FIELD} from "../core/identifiers";
 import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type OrderTie, type Rank} from "../core/position";
@@ -49,6 +50,8 @@ interface MutableFold {
 
 /** 按计划模式的覆盖层最多留几份（每份是受影响条目的一套时间线）。 */
 const OVERLAY_LIMIT = 8;
+/** 计入的计划最多留几个位置的结果。 */
+const INCLUDED_LIMIT = 8;
 
 interface Item {
     readonly ev: Ev;
@@ -57,6 +60,8 @@ interface Item {
 
 interface Timeline {
     readonly items: Item[];
+    /** 上一次只读折叠的结果：同一个条目在两次事件之间的各个位置读到的相同，连读时不用再回放。折叠结果是深冻结的。 */
+    lastRead?: {readonly entry: Entry; readonly count: number; readonly fold: Pick<MutableFold, "state" | "events">};
     /** `snapshots[k]` 是套完第 `(k + 1) * 8 - 1` 个事件之后的折叠结果。 */
     readonly snapshots: MutableFold[];
     /** 不完整的标记与解除，带它发生在第几个事件。 */
@@ -214,11 +219,57 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         return "unfulfilled";
     }
 
+    interface ChapterEntryIndex {
+        /** 章 id 到安放在那一章、生效的已写变更涉及的条目。 */
+        readonly written: ReadonlyMap<string, ReadonlySet<string>>;
+        /** 同上，计划。按计划模式才并上（同一条线的视图里只有这条线看得到的记录）。 */
+        readonly planned: ReadonlyMap<string, ReadonlySet<string>>;
+        /** 章的下标到比较时点在那一章的核对点的条目。 */
+        readonly checks: ReadonlyMap<number, ReadonlySet<string>>;
+    }
+    let chapterEntryCache: ChapterEntryIndex | undefined;
+    /** 每章涉及的条目（model.md 输出 20）：一份世界建一次，不是每一章扫一遍全部变更。 */
+    function chapterEntryIndex(): ChapterEntryIndex {
+        if (chapterEntryCache !== undefined) return chapterEntryCache;
+        const written = new Map<string, Set<string>>();
+        const planned = new Map<string, Set<string>>();
+        const add = <K>(map: Map<K, Set<string>>, key: K, id: string) => {
+            const known = map.get(key);
+            if (known === undefined) map.set(key, new Set([id]));
+            else known.add(id);
+        };
+        for (const change of world.changes.values()) {
+            if (change.status !== "active" || change.at.kind !== "chapter" || (change.kind !== "written" && change.kind !== "plan")) continue;
+            const target = change.kind === "written" ? written : planned;
+            const chapterId = change.at.chapter;
+            for (const id of change.involves) add(target, chapterId, id);
+            for (const member of change.cast ?? []) for (const id of [member.who, member.as]) if (id !== undefined) add(target, chapterId, id);
+            for (const patch of change.patches) if (!isCarry(patch)) add(target, chapterId, patch.at.entry);
+        }
+        const checks = new Map<number, Set<string>>();
+        for (const item of exactChecks()) if (item.point.rank[0] === 1) add(checks, item.point.rank[1], item.check.at.entry);
+        return (chapterEntryCache = {written, planned, checks});
+    }
+
+    let activePlans: readonly StoryChange[] | undefined;
+    /** 最近读过的几个位置计入的计划。检查与诊断在一个位置上连读很多个条目，读完这个位置就往后走，所以只留几份。调用方不改返回的数组。 */
+    const includedAt = new Map<string, ReadonlyArray<Extract<Ev, {kind: "change"}>>>();
+
     /** 按计划模式在这个位置计入的计划（model.md 输出 5），按先后排。 */
-    function includedPlans(rank: Rank): Array<Extract<Ev, {kind: "change"}>> {
+    function includedPlans(rank: Rank): ReadonlyArray<Extract<Ev, {kind: "change"}>> {
+        const key = rank.join(",");
+        const known = includedAt.get(key);
+        if (known !== undefined) return known;
+        const included = computeIncludedPlans(rank);
+        includedAt.set(key, included);
+        if (includedAt.size > INCLUDED_LIMIT) includedAt.delete(includedAt.keys().next().value!);
+        return included;
+    }
+
+    function computeIncludedPlans(rank: Rank): Array<Extract<Ev, {kind: "change"}>> {
+        activePlans ??= [...world.changes.values()].filter((change) => change.kind === "plan" && change.status === "active");
         const included: Array<Extract<Ev, {kind: "change"}>> = [];
-        for (const plan of world.changes.values()) {
-            if (plan.kind !== "plan" || plan.status !== "active") continue;
+        for (const plan of activePlans) {
             const planRankValue = planRank(plan);
             if (planRankValue === null || !rankBefore(planRankValue, rank)) continue;
             if (progressAt(plan, rank) !== "unfulfilled") continue;
@@ -573,17 +624,11 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         },
 
         chapterEntries(chapterId, mode = "actual") {
-            const ids = new Set<string>();
-            for (const change of world.changes.values()) {
-                // 按计划模式再收计划：同一条线的视图里只有这条线看得到的记录，计划是否生效（不是已撤销）看 `status`。
-                const counted = change.kind === "written" || (mode === "planned" && change.kind === "plan");
-                if (!counted || change.status !== "active" || change.at.kind !== "chapter" || change.at.chapter !== chapterId) continue;
-                for (const id of change.involves) ids.add(id);
-                for (const member of change.cast ?? []) for (const id of [member.who, member.as]) if (id !== undefined) ids.add(id);
-                for (const patch of change.patches) if (!isCarry(patch)) ids.add(patch.at.entry);
-            }
-            const index = order.index(chapterId);
-            for (const item of exactChecks()) if (index !== undefined && item.point.rank[0] === 1 && item.point.rank[1] === index) ids.add(item.check.at.entry);
+            const index = chapterEntryIndex();
+            const ids = new Set(index.written.get(chapterId));
+            if (mode === "planned") for (const id of index.planned.get(chapterId) ?? []) ids.add(id);
+            const position = order.index(chapterId);
+            if (position !== undefined) for (const id of index.checks.get(position) ?? []) ids.add(id);
             return [...ids].sort(compareIds);
         },
     };
@@ -660,10 +705,17 @@ function foldAtPoint(snapshot: Snapshot, world: EngineInputs["world"], registry:
     const timeline = snapshot.timelines.get(entryId);
     if (entry === undefined || entry.deleted === true || timeline === undefined) return undefined;
     const count = countBefore(timeline, point);
-    const fold = count === 0 ? initialFold(entry) : foldThrough(timeline, entry, registry, count - 1);
     const incomplete = timeline.incomplete.filter((mark) => mark.item < count).map((mark) => mark.event);
+    // 没有事件时就是初值：世界表里的对象已经冻结，只读共用，不用克隆。
+    if (count === 0) return {state: entry.init, events: NO_EVENTS, incomplete};
+    if (timeline.lastRead?.entry === entry && timeline.lastRead.count === count) return {...timeline.lastRead.fold, incomplete};
+    const fold = foldThrough(timeline, entry, registry, count - 1);
+    deepFreeze(fold.state);
+    timeline.lastRead = {entry, count, fold};
     return {state: fold.state, events: fold.events, incomplete};
 }
+
+const NO_EVENTS: ReadonlyMap<string, string[]> = new Map();
 
 /**
  * 从 `from` 起重算：`dirty` 里的条目从 `from` 的状态（取自 `base`，没有 base 时从初值）开始，按全序处理碰到脏条目的

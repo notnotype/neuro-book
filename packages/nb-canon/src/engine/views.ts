@@ -109,7 +109,8 @@ export function fieldValue(
     reductions: ReductionLookup,
 ): {value: unknown; notReduced?: true; unreduced?: {anchor: string | null; events: number}} {
     if (field?.kind === "list" && Array.isArray(raw) && (field.item ?? []).some((sub) => sub.precision === "semantic")) return listValue(fold, namespace, type, field, raw as Array<Record<string, unknown>>, reductions);
-    if (field?.precision !== "semantic") return {value: structuredClone(raw)};
+    // 精确档的值只读共用：折叠结果是冻结的，读取视图交出去之前也会冻结。
+    if (field?.precision !== "semantic") return {value: raw};
     return semanticValue(fold.events.get(`${namespace}.${field.id}`) ?? [], type, field, field.id, raw, reductions);
 }
 
