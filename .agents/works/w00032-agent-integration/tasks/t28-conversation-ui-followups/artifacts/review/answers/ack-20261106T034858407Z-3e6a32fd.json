@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t28-conversation-ui-followups",
+    "artifactId": "review",
+    "ackId": "20261106T034858407Z-3e6a32fd",
+    "answers": [
+        "20261106T034834913Z-92c0cd25"
+    ],
+    "through": "20261106T034834913Z-92c0cd25",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/README.md"
+    ],
+    "ackedAt": "2026-11-06T03:48:58.407Z"
+}

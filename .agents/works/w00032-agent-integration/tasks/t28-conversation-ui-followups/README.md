@@ -45,10 +45,15 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 开发者提醒：现在有计划（模式）和权限两个维度，架构可能要稍微改一下；要简单调研 omp、Codex、Claude Code 的做法。调研写到 [`research/2026-11-06-agent-modes-survey.md`](../../research/2026-11-06-agent-modes-survey.md)。
 
+## 静态稿第 1 轮的答复（开发者 2026-11-06，评审板 review v1）
+
+1. 模型选择器用 A：分“角色”“模型库”两页，同旧应用；与输入框同宽，两页同一高度，切换时面板不跳。
+2. 状态栏窄时右边留缓存命中与费用，累计、输入、输出进悬停，左边的告警先省略；缓存命中和上下文圆环能点。
+
 ## 当前状态
 
-设计审查（omp 14 条、Sonnet 16 条）处理完，计划已修订（[处理](evidences/design-review-disposition.md)）。Agent 模式移到 [t06](../t06-approval/plan.md)，紧接本 Task。批 1 开工。
+设计审查（omp 14 条、Sonnet 16 条）处理完，计划已修订（[处理](evidences/design-review-disposition.md)）。Agent 模式移到 [t06](../t06-approval/plan.md)，紧接本 Task。批 1 的静态稿已定，开始实现。
 
 ## 下一步
 
-批 1：先出选择器与状态栏的静态稿给开发者看，定了再写。
+实现批 1。
