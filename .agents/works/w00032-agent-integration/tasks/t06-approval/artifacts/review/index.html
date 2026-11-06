@@ -15,8 +15,37 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 <body>
 <h1>t06 权限与 Agent 模式</h1>
 
+<section data-nbdev-question="model-trigger" data-nbdev-type="single" data-nbdev-recommend="c">
+  <h2><span class="badge" data-nbdev-skip>待定</span>模型控件选哪一种</h2>
+  <p>都放在真实工具栏里看：每张图上面是选了角色（主力，实际用 Claude Sonnet，思考中），下面是直接选模型（Claude Sonnet，思考高）。其余部分不变。</p>
+  <div data-nbdev-option="a" data-nbdev-label="A 纯文字">
+    <figure><figcaption>A 纯文字</figcaption><img src="r5/a.webp" alt="A 纯文字的样子"></figure>
+    <p>一行灰字，名字、模型、档位连着写，只有 hover 才有底色。最安静，但三样东西连成一串，分不出主次。</p>
+  </div>
+  <div data-nbdev-option="b" data-nbdev-label="B 描边胶囊分两段">
+    <figure><figcaption>B 描边胶囊分两段</figcaption><img src="r5/b.webp" alt="B 描边胶囊分两段的样子"></figure>
+    <p>左边模型，右边档位，一条竖线隔开。结构最清楚，也最像一个控件；在这一行里比两个模式抢眼。</p>
+  </div>
+  <div data-nbdev-option="c" data-nbdev-label="C 文字加信号条（推荐）">
+    <figure><figcaption>C 文字加信号条（推荐）</figcaption><img src="r5/c.webp" alt="C 文字加信号条（推荐）的样子"></figure>
+    <p>角色名深色、实际模型淡色，档位换成三格信号条。三样都在，没有边框和箭头，和左边的模式控件一样轻。信号条看不出确切档位，悬停写明。</p>
+  </div>
+  <div data-nbdev-option="d" data-nbdev-label="D 上下两行">
+    <figure><figcaption>D 上下两行</figcaption><img src="r5/d.webp" alt="D 上下两行的样子"></figure>
+    <p>上行角色或模型，下行实际模型与档位。信息最全，但这一行变成两行字，和别的控件不齐。</p>
+  </div>
+  <div data-nbdev-option="e" data-nbdev-label="E 只留名字加圆点">
+    <figure><figcaption>E 只留名字加圆点</figcaption><img src="r5/e.webp" alt="E 只留名字加圆点的样子"></figure>
+    <p>选了角色时只写“主力”，档位三个圆点，实际模型放到悬停和面板里。最干净，但看不到现在用的是哪个模型。</p>
+  </div>
+  <div data-nbdev-option="f" data-nbdev-label="F 实底小块">
+    <figure><figcaption>F 实底小块</figcaption><img src="r5/f.webp" alt="F 实底小块的样子"></figure>
+    <p>和“计划”那种高亮控件同一类，带一个小图标，写角色名与档位。一眼能看出是可点的，但右边多了一块色。</p>
+  </div>
+</section>
+
 <section data-nbdev-question="toolbar-v2" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>加上 + 菜单、调过模型控件之后，这样可以吗</h2>
+  <h2><span class="badge" data-nbdev-skip>已答</span>加上 + 菜单、调过模型控件之后，这样可以吗</h2>
   <ul>
     <li><b>+ 菜单</b>：放在最左，收了原来的回形针：添加附件、引用文件（@）、运行命令（/）。技能（$）等 t15 做了才出现，真实应用现在没有这一项（图里是 Lab 的数据）。粘贴和拖入照旧。</li>
     <li><b>模型控件</b>：去掉芯片图标和上下双箭头；名字用主文字色加粗，实际用的模型淡一些，思考档位单独一个小标签，后面一个小下箭头。下拉版（nb-story 用的）同样改了。</li>

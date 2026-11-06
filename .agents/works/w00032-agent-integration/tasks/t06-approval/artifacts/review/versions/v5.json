@@ -1,0 +1,174 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t06-approval",
+    "artifactId": "review",
+    "version": 5,
+    "supersedes": 4,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t06 权限与 Agent 模式：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "fdc1877708297674671079ff98769b15ae415c5f47f1089d7d9dd9be7eb76a38",
+    "files": [
+        "index.html",
+        "r1/app-today.webp",
+        "r1/lab-mode-chip.webp",
+        "r2/exit-plan-long.webp",
+        "r2/exit-plan.webp",
+        "r2/plan-allow-writes.webp",
+        "r2/plan-yolo.webp",
+        "r2/switch-simple.webp",
+        "r3/toolbar-phone.webp",
+        "r3/toolbar-wide.webp",
+        "r4/plus-menu.webp",
+        "r4/role-phone.webp",
+        "r4/role-wide.webp",
+        "r5/a.webp",
+        "r5/b.webp",
+        "r5/c.webp",
+        "r5/d.webp",
+        "r5/e.webp",
+        "r5/f.webp"
+    ],
+    "questions": [
+        {
+            "id": "mode-control",
+            "type": "single",
+            "label": "模式控件保持两个，还是合成一个菜单",
+            "options": [
+                {
+                    "value": "two-controls",
+                    "label": "A 两个控件并排（推荐）"
+                },
+                {
+                    "value": "one-menu",
+                    "label": "B 合成一个菜单"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "two-controls"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "plan-wizard",
+            "type": "single",
+            "label": "模式控件与退出计划的向导，这样可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "toolbar-layout",
+            "type": "single",
+            "label": "输入框工具栏这样排可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "toolbar-v2",
+            "type": "single",
+            "label": "加上 + 菜单、调过模型控件之后，这样可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "model-trigger",
+            "type": "single",
+            "label": "模型控件选哪一种",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 纯文字"
+                },
+                {
+                    "value": "b",
+                    "label": "B 描边胶囊分两段"
+                },
+                {
+                    "value": "c",
+                    "label": "C 文字加信号条（推荐）"
+                },
+                {
+                    "value": "d",
+                    "label": "D 上下两行"
+                },
+                {
+                    "value": "e",
+                    "label": "E 只留名字加圆点"
+                },
+                {
+                    "value": "f",
+                    "label": "F 实底小块"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "c"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T14:07:28.623Z"
+}
