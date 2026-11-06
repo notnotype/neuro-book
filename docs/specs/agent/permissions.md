@@ -90,7 +90,7 @@ type Subject =
 13. 反复剥包装（`timeout`、`time`、`nice`、`nohup`、`stdbuf`、`command`、`builtin`、`exec`、`env`）与环境变量前缀；选项认不出算看不懂。`bash -c '<字面量>'`（`sh`、`dash`、`zsh` 同）递归解析，最多 8 层。系统目录（`/bin`、`/sbin`、`/usr/bin`、`/usr/sbin`、`/usr/local/bin`、`/usr/local/sbin`）下的程序取文件名，别处的不取。
 14. 看不懂的：语法错误、命令名有展开、`eval`、`xargs`、`source`、`.`、`parallel`、`find -exec` 这类、`bash -c` 的脚本不是字面量、从标准输入读脚本。这时放行规则不生效，询问与拒绝规则按整段文本包含比对（`git push *` 命中 `eval git push`）；闸门算写；`ask`、`allow-writes` 下询问；`yolo` 下放行。没有方言的命令同样处理。
 15. 写重定向的目标作为 `path` 对象参加匹配（`/dev/null`、`/dev/stdout`、`/dev/stderr` 与文件描述符复制除外）。目标有展开时算“算不出来”。只看命令的放行规则不放行有写重定向的命令（`echo *` 不放行 `echo a > f`），要写路径规则。
-16. 只读是白名单，到子命令与选项，清单外的都不算：`git log` 算，`git push`、`git branch -D`、`git -c x log`、`git log --output=f`、`find -delete`、`sed -i`、`sort -o`、`cp`、`mkdir` 不算。环境变量前缀除语言、时区、颜色、终端尺寸类之外不算只读。设置 `nbook.agent/readOnlyCommands` 能按词前缀追加（`npm ls`），不能删。
+16. 只读是白名单，到子命令与选项，清单外的都不算：`git log` 算，`git push`、`git branch -D`、`git -c x log`、`git log --output=f`、`find -delete`、`sed -i`、`sort -o`、`cp`、`mkdir` 不算。环境变量（前缀、`env`、外层 `bash -c` 上的）除语言、时区、颜色、终端尺寸类之外不算只读。要看选项才知道读写的命令（`find`、`sed`、`sort`、`git` 这类）参数有展开时不算只读；`sed` 脚本也是白名单，只认 `p`、`d`、`q`、`n`、`=` 与标志只有 `gpiIm` 和数字的替换。设置 `nbook.agent/readOnlyCommands` 能按词前缀追加（`npm ls`），不能删。
 17. 一段命令全部只读且没有写重定向时，`shell` 的 `effect` 是 `read`；否则是 `exec`。
 
 ### 记住
