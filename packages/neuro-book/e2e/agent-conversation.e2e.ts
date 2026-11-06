@@ -575,8 +575,8 @@ test("权限规则：以后都允许写进用户规则；设置页列出我的�
         await newSession(page);
         await script({tool: "shell", args: {command: "mkdir 新目录"}}, "建好了");
         await send(page, "建个目录");
+        // 只有一个事项：点决定就提交。
         await page.locator('[data-approval-decision="allow-always"]').click();
-        await page.locator("[data-approval-submit]").click();
         await expect(page.getByText("建好了")).toBeVisible();
         const file = join(stateRoot, "settings.json");
         const remembered = {tool: "nbook.agent.shell", when: {type: "command", pattern: "mkdir *"}, action: "allow"};
