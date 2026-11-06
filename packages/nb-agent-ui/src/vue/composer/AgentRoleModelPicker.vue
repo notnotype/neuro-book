@@ -187,9 +187,9 @@ onBeforeUnmount(() => {
     >
         <span class="acv-role-picker__text">
             <span class="acv-role-picker__name">{{ selectedName }}</span>
-            <span v-if="usedModel !== null" class="acv-role-picker__used">{{ usedModel }}</span>
+            <template v-if="usedModel !== null"> · {{ usedModel }}</template>
+            <template v-if="thinkingText !== null"> · <span class="acv-role-picker__level">{{ thinkingText }}</span></template>
         </span>
-        <span v-if="thinkingText !== null" class="acv-role-picker__level">{{ thinkingText }}</span>
         <span class="i-lucide-chevron-down acv-role-picker__chevron" aria-hidden="true" />
     </button>
     <AnchoredPopover ref="popoverRef" :open="open" :anchor="props.anchor ?? triggerRef" side="top" :side-offset="6">
@@ -350,36 +350,18 @@ onBeforeUnmount(() => {
     opacity: 0.5;
 }
 
+/* 一行文字（开发者在评审板 review v5 选的）：靠颜色分主次，不靠边框。 */
 .acv-role-picker__trigger .acv-role-picker__text {
-    display: inline-flex;
-    min-width: 0;
-    align-items: baseline;
-    gap: 4px;
-    overflow: hidden;
-    white-space: nowrap;
-}
-
-.acv-role-picker__name {
-    overflow: hidden;
-    color: var(--text-main);
-    font-weight: 500;
-    text-overflow: ellipsis;
-}
-
-.acv-role-picker__used {
-    overflow: hidden;
     color: var(--text-muted);
-    text-overflow: ellipsis;
 }
 
-/* 思考档位是模型之外的另一个设置，用小标签分开，不和名字连成一串。 */
-.acv-role-picker__level {
-    flex: none;
-    padding: 0 5px;
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--text-main) 8%, transparent);
+.acv-role-picker__trigger .acv-role-picker__name {
     color: var(--text-secondary);
-    line-height: 18px;
+    font-weight: 400;
+}
+
+.acv-role-picker__trigger .acv-role-picker__level {
+    color: var(--accent-text);
 }
 
 .acv-role-picker__trigger .acv-role-picker__chevron {

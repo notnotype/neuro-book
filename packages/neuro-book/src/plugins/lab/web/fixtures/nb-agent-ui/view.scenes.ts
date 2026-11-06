@@ -97,7 +97,7 @@ export const agentConversationViewScenes: Scene[] = [
     hostScene("approval-batch", "审批：一条回复三个调用，一步一个", {...WAITING, pendingInputs: [editApproval("a"), shellApproval, editApproval("c", "project://正文/第四章.md")]}),
     hostScene("modes-normal", "两个控件并排：普通模式", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
     hostScene("modes-plan-allow-writes", "两个控件并排：计划模式加放行写入，审批控件变淡，状态栏标出", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
-    hostScene("modes-with-role", "选了模型角色：角色名、实际用的模型、思考档位", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}, roles: [{key: "role:main", name: "主力", axis: "主力", modelLabel: "Claude Sonnet"}] as never, modelKey: "role:main", effectiveModel: "Claude Sonnet", thinkingLevels: ["low", "medium", "high"], thinking: "medium"}}),
+    hostScene("modes-with-role", "选了模型角色：角色名、实际用的模型、思考档位", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}, roles: [{key: "role:main", name: "主力", axis: "gradient", modelLabel: "Claude Sonnet"}], modelKey: "role:main", effectiveModel: "Claude Sonnet", thinkingLevels: ["low", "medium", "high"], thinking: "medium"}}),
     hostScene("modes-plan-yolo", "计划模式加全部放行：红色警告保留", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "yolo"}}}),
     hostScene("mode-switch-plan", "退出计划：批准计划", {...WAITING, composer: {modes: MODES, mode: "plan"}, pendingInputs: [modeSwitchPlan(SHORT_PLAN)]}),
     hostScene("mode-switch-plan-long", "退出计划：长计划，内容区滚动，按钮固定", {...WAITING, composer: {modes: MODES, mode: "plan"}, pendingInputs: [modeSwitchPlan(LONG_PLAN)]}),
