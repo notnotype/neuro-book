@@ -69,15 +69,20 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 
 ### 附件（批 5）
 
-这批动内核，开工前单独写一页设计给开发者看要点，再开 omp 审一次。
+开发者 2026-11-06 确认的方向：模型现在看不到图，要补进请求；地址带会话 id；模型不支持图片时换一行文字，不报错；不做缩略图；第一次加附件就建会话。限制按查 omp 之后的结论改（[README](README.md) 的“附件的限制”）：不限张数；单个文件 25 MB；发送时自动缩放；请求里的图太多时最旧的换占位。
 
-- **地址**：`sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址，不写 `session://`：`fork` 只复制日志，单数地址到新会话就读不到了；全局地址任何会话都能读（t14 决定），`fork` 不用复制文件。删除会话会让引用它的 fork 读不到，按缺失处理。
-- **内核**：`Resources.read` 只返回字符串，`format.user()` 不读附件，`computeRequest` 是同步的。`SessionEnv` 加 `attachments.read(uri): Promise<{data, mime, width?, height?} | null>`；进 `computeRequest` 之前先把路径上的附件解析好传进去（发请求、`preview`、压缩三处共用），按 uri 缓存、有总量上限。图片在文字里 uri 出现的位置切开，放图片块；文字里没有的放末尾；文件只给地址。读不到写一行文字占位。
-- **规则对齐工具结果的图片**（`runtime.md` 输出 58–61）：估算按 宽 × 高 / 750；模型不支持图片时适配器换成一行文字（`userContent()` 要扩展，现在只收文字）；摘要写尺寸占位；回退到压缩前恢复原样。shake 不动用户的图。
-- **发送形状**：文字里留 `![image #N](地址)`，`attachments` 另带列表。转录器文字里已有这个地址时不再生成附件块，否则气泡显示两次。
-- **上传路由** `POST /agent/sessions/<id>/attachments`：Host/Origin 准入同 raw 路由；校验会话存在；用服务端文件接口（不用 `sessionResources` 的门面，它按 Agent 身份拒写 `attachments`）；边读边计数，超 16 MB 中止并丢弃暂存，不信 `Content-Length`；同哈希并发写的 `conflict` 算成功。
-- **读取路由** `GET`、`HEAD` 同前缀，按扩展名给 MIME，`nosniff`，`ETag` 用哈希。不做缩略图：`variant` 都给原图，`<img loading="lazy">` 限尺寸，长会话慢了再说。
-- **宿主**：没有会话时第一次加附件先建会话（`submit` 已有这个做法）；每条输入最多 8 个，多的标失败写原因。
+- **地址**：`sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址，不写 `session://`：`fork` 只复制日志，单数地址到新会话就读不到了；全局地址任何会话都能读（t14 决定），`fork` 不用复制文件。原会话被删后读不到，按缺失处理。`markdown/shared/targets.ts` 的分类要认这个写法（现在只认 `session://attachments/`），算附件。
+- **内核的端口**：`SessionEnv` 加可选的 `attachments.read(uri): Promise<{data: string; mime: string; width?: number; height?: number} | {missing: true}>`，`data` 是 base64，由宿主缩放后交回。内核不懂缩放也不懂文件。没给端口的宿主（nb-story）按缺失处理。
+- **进请求**：`computeRequest` 是同步的，`Format` 也是，所以在调它之前（`run/loop.ts`、`session/preview.ts`、`compaction/compact.ts` 三处）先把路径上要用到的附件解析好，放进 `RequestInputs.attachments: Map<uri, ...>`，`format.user` 同步取。按 uri 缓存（一个会话一份，总量上限 64 MB，超了丢最早的，用时再读）：每次请求都读一遍盘和解码太慢，附件是内容寻址的，不会变。
+- **块的位置**：`format.user` 给 `input`、`steer` 事件出块时，把文字按 `![image #N](uri)` 切开，图片块放在原来的位置，标签本身不进请求；`attachments` 里有、文字里没写的放末尾。文件给一行文字 `[文件 名字：地址]`，模型按需 `read`。缺失的图换一行文字占位。Profile 的自定义 `render` 只换文字，附件照放（同工具结果的图，`runtime.md` 输出 58）。
+- **发送形状**：文字里留标签，`attachments` 带 `{kind, uri}` 列表。转录器文字里已有这个地址时不再生成附件块，否则气泡显示两次。
+- **模型不支持图片**：`kernel/model/omp.ts` 的 `userContent()` 现在只收文字，扩展成和工具结果一样：图片转服务商的块，模型不能看图时换一行文字（格式、尺寸、“当前模型不能看图”），WebP 的转换共用。Spec：`runtime.md` 输出 61 改成工具消息与用户消息都这样。
+- **张数预算**：组请求时数全部图片块（用户的与工具结果的），超过 100 张时从最旧的起换成一行占位。放在 `computeRequest` 之后、拦截之前，所以 `preview` 与真实请求一致。第一版一个固定值，不按服务商分。
+- **估算与压缩**：用户图片的估算同工具结果（宽 × 高 / 750，至多 1,600；`runtime.md` 输出 60）。摘要写尺寸占位（`summary` 已有这个规则，核对用户消息走不走到）。`shake` 不动用户的图。回退到压缩前恢复原样，事件没变。
+- **缩放**（`plugins/agent/backend`，端口的实现）：`Bun.Image` 解码，最长边超过 1568 就缩，再编码到 500 KB 以内（PNG 太大转 JPEG，质量 80 起，降两次）；缩放失败交原图。结果按 uri 留在内存（内核的缓存管），不写盘；原图不动。
+- **上传路由** `POST /agent/sessions/<id>/attachments`，体是文件字节，`Content-Type` 与原名放头里：Host/Origin 准入同 raw 路由（`crossSite`）；校验会话存在；用服务端文件接口写 `sessions://<id>/home/attachments/`（不用 `sessionResources` 的门面，它按 Agent 身份拒写）；边读边计数并算哈希，超 25 MB 中止、丢弃暂存，不信 `Content-Length`；同哈希已存在或并发写撞上算成功。交回 `{uri, kind, mime, bytes}`。
+- **读取路由** `GET`、`HEAD` 同前缀加 `/<文件名>`：同样的准入；文件名只接受 `<64 位十六进制>.<扩展名>`；按扩展名给 MIME，`X-Content-Type-Options: nosniff`，不可渲染的类型 `Content-Disposition: attachment`，`ETag` 用哈希，`Cache-Control: immutable`。预览看原图。
+- **宿主**：`composer.attachmentAdded` 上传，`composer.attachments` 给状态（上传中、就绪、失败带原因）；重试、移除接上；没有会话时先 `create()`（并发的几个文件等同一次）；`resolveAttachmentUrl` 给读取路由的地址；`canRegisterAttachments` 打开。发送时 `attachments` 取文字里出现的。编辑重发把原消息的附件带上，就地编辑开放插图。
 
 ### Agent 模式
 
