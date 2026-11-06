@@ -1,0 +1,167 @@
+# w00032 t28 前端实现审查报告
+
+被审提交：df8c95885（批 1 至批 5）。依据与范围见 brief.md。没有装依赖、没有跑 e2e 与开发服务，凡标“从代码推断”的都没在浏览器里验证；纯逻辑部分（`session-tree.ts`）用 bun 跑了基准，脚本在同目录 bench-tree.ts。
+
+### 1. 重要｜交互｜就地编辑器：用 Esc 关 `@` 菜单会取消整个编辑，丢掉已改的字
+位置：packages/nb-agent-ui/src/vue/stream/AgentMessageEditor.vue:50（`@keydown.esc.prevent="emit('cancel')"`）；编辑器侧 packages/nb-markdown/src/prompt/PromptEditor.vue:512 附近（菜单开着时 Escape 走 `dismissTrigger` 并返回 true）。
+现象：外层 div 在冒泡阶段收 Esc 就发 `cancel`，不看这个键是不是已被编辑器用掉。
+为什么是问题：ProseMirror 的 `handleKeyDown` 返回 true 只会 `preventDefault`，不会 `stopPropagation`。用户在就地编辑里打了 `@`、菜单弹出，按 Esc 想关菜单，同一个 keydown 冒泡到外层，整个编辑被取消，`message.editCancel` 让改过的文字消失，没有确认。输入框（composer）不受影响，因为它不在外层挂 Esc。
+如何核实：从代码推断。读 PromptEditor.vue 的 keydown 处理链（菜单键先于 `Escape` 分支）即可；dom 测试里的假编辑器不会复现，要用真的 PromptEditor 在 Lab 里输入 `@` 后按 Esc。
+建议改法：不要在外层监听冒泡的 Esc；改听编辑器自己发的 `escape` 事件（PromptEditor 在菜单没有消费 Esc 时才 `emit("escape")`），或至少在外层判断 `event.defaultPrevented` 后再取消。
+
+### 2. 重要｜键盘｜分支树：Enter 被容器吞掉，折叠按钮与分叉切换按钮用键盘按 Enter 不起作用，反而“切换分支”
+位置：packages/nb-agent-ui/src/vue/panels/AgentSessionTree.vue:171 起的 `onKeydown`（挂在 `role="tree"` 的容器上，约 233 行），按钮在 211、255 行附近。
+现象：`acv-tree__fold` 按钮（列表）和 `‹ 1/3 ›` 的两个按钮（图）是原生 button，可以 Tab 聚焦；它们的 keydown 冒泡到容器，容器对 `Enter` 一律 `preventDefault()` 并执行 `activate()`。
+为什么是问题：`preventDefault` 阻止了 button 由 Enter 触发的 click，所以键盘用户按 Enter 既不能折叠，也不能切分叉；同时若已有选中节点，会触发 `tree.activate`，会话被切到别的分支并关掉弹窗。只有 Space 能用。
+如何核实：从代码推断。Tab 到任一折叠按钮后按 Enter，观察 `selected` 是否被激活、折叠状态是否不变。
+建议改法：`onKeydown` 开头判断 `event.target !== event.currentTarget` 且目标是 button/input 时直接返回；或把方向键与 Enter 只在容器自身为目标时处理。
+
+### 3. 重要｜无障碍｜分支树的 `role="tree"` 语义不完整，读屏与键盘用户看不到“选中”
+位置：AgentSessionTree.vue:233（容器），:238、:263（`role="treeitem"`）。
+现象：容器 `tabindex="0"`，选中靠 `selected` 与样式 `is-selected`；treeitem 不可聚焦、没有 `id`，容器没有 `aria-activedescendant`；列表里没有 `aria-level`、`aria-expanded`（有折叠的行）、`role="group"`，图里 treeitem 里嵌着按钮；也没有 Home、End、PageUp、PageDown，Left 不能回到父节点、Right 不能进入子节点。
+为什么是问题：宣告了 `tree` 角色就要满足它的键盘与属性约定。现在方向键移动选中时读屏没有任何播报，等于只有看得见的人能用；折叠状态只靠图标，读屏读不到。
+如何核实：从代码推断，读模板即可；用读屏或浏览器无障碍树面板看 treeitem 的属性。
+建议改法：给每个 treeitem 唯一 id，容器写 `aria-activedescendant`；折叠行写 `aria-expanded`，行写 `aria-level`；补 Home、End，Left 回父、Right 进子。图模式不是树，可以改用 `role="application"` 加说明，或把节点做成 roving tabindex 的按钮。
+
+### 4. 重要｜性能与布局｜列表模式下主干每遇到一次分叉就多缩进一层，没有上限，标签会被挤没
+位置：packages/nb-agent-ui/src/session-tree.ts:190 起（`sessionTreeRows` 里 `rest: [...rest, last ? "space" : "line"]`），样式 AgentSessionTree.vue 的 `.acv-tree__guide { width: 18px }`。
+现象：当前路径是第一个孩子，沿用 `rest`（带上新增的一层“line”）。所以每个分叉都让此后主干上的每一行多一层缩进，旧分支（编辑、重试留下的）反而排在主干全部走完之后。
+为什么是问题：对话里“编辑重发”和“重试”是核心功能，分叉数随使用线性增长。弹窗内容区约 388px（`default` 档 420px 宽扣内边距，右栏更窄时更小），每层缩进 18px，再加折叠位 14px、图标 13px、间距：我用 bun 造了 300 轮、每 5 轮分叉一次的会话，最深一行有 59 层缩进，即 1,062px，远超弹窗宽度，标签宽度为 0（`min-width:0; flex:1; overflow:hidden`），只剩线条；每轮都分叉时 299 层。约 15 个分叉后（270px 缩进）标签已不足 80px。
+如何核实：bench-tree.ts 的输出里 `maxGuides` 一列（forkEvery 5：59；forkEvery 1：299）。
+建议改法：缩进封顶（例如超过 6 层后改成固定宽度加数字标记，或悬停提示深度），或者主干不缩进、只让旁支缩进（主干永远在最左，旁支才进一层）。至少给列表加横向滚动，别让标签变 0 宽。
+
+### 5. 重要｜文档｜组件同名 .md 与实现不一致（至少四处）
+位置与现象：
+- packages/nb-agent-ui/src/vue/composer/AgentContextMeter.md:19、:32 写“没有事件、slot 与 expose”“不点开上下文详情”；实现已有 `interactive` 属性和 `inspect` 事件（AgentContextMeter.vue:9-14），数据一节的属性表也没有 `interactive`。
+- packages/nb-agent-ui/src/vue/composer/AgentStatusBar.md 没有写圆环与缓存命中可点、发 `inspect`，也没写 `canInspectContext` 决定它们是不是按钮。
+- packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.md:19、:40 的工具栏仍只写 `AgentModelPicker`，没有 `AgentRoleModelPicker`（`composer.roles` 非空时换用）和 `/model` 由输入框自己处理（`openPicker`、`composer.commandHandled`）。
+- packages/nb-agent-ui/src/vue/AgentConversationView.md:106-112“已知偏差”仍写“历史消息的就地编辑尚未实现”“顶栏动作、面板、状态栏与弹窗（S7）”未做；批 2、3 已做；也没写视图持有的两个弹窗、`context.refresh/context.closed`、`tree.refresh/tree.closed`，以及换会话时关弹窗。`env:portal` 一段写弹窗渲染到 `teleportTarget`，实际宿主（ConversationHost.vue）没传，弹窗在右栏里就地渲染（见第 12 条）。
+为什么是问题：AGENTS.md 要求同名 .md 与实现一致，查组件的人（含 Agent）会按 .md 判断“不能点”“没有事件”。
+如何核实：对照上面的位置读即可。
+建议改法：一并更新这四份 .md，删掉已不成立的“已知偏差”。
+
+### 6. 重要｜交互｜思考档滑块：拖动时每过一档发一次 `thinking.set`，没有乐观更新
+位置：packages/nb-agent-ui/src/vue/composer/AgentRoleModelPicker.vue 的 `onThinking` 与 `<Slider @update:model-value>`；宿主 packages/neuro-book/src/plugins/agent/web/session-host.ts:1081、:969（`changeSettings` 无乐观更新）。
+现象：Slider 的 `update:modelValue` 在拖动途中每跨一档就触发；选择器据此 `emit("select-thinking")`，宿主每次都 `remote.changeSettings`（会往会话日志写一条设置变更）。滑块是受控的，值取自 `props.thinking`，要等设置变更事件回到界面才更新，期间拇指会停在旧位置。
+为什么是问题：一次从“关”拖到“高”产生 3 到 4 次远程写入和日志项，并发的 `changeSettings` 之间没有顺序保证，晚到的可能盖掉后发的，最终档位可能不是手松开时的那档；拖动手感发涩。无障碍上滑块值是下标（0..n），没有 `aria-valuetext`，读屏读“2”而不是档位名。
+如何核实：从代码推断。看 nb-ui `Slider.vue` 已提供 `valueCommit`，选择器没用。
+建议改法：拖动中只改本地显示，松手的 `valueCommit` 才发 `select-thinking`；键盘步进时 commit 也会触发。给档位文字加 `aria-valuetext`（需要 nb-ui Slider 透传，或改在选择器里补）。
+
+### 7. 重要｜文字与布局｜思考档文字宽度写死 2.5em，英文档位名放不下
+位置：AgentRoleModelPicker.vue 样式 `.acv-role-picker__thinking-value { width: 2.5em; flex: none }`；档位名见 packages/nb-agent-ui/src/locales/en-US.ts:193-197（Minimal、Extra high 等）。
+现象：注释与 .md 都说“固定宽度，滑块不动”，但 2.5em 只够两个汉字（zh-CN 的“极高”“极低”）。en-US 的 “Medium”“Minimal”“Extra high” 加粗 12px 约 45 到 65px，是 2.5em（约 30px）的 1.5 到 2 倍，没有 `overflow` 或省略号：要么折行撑高头部（头部高度不固定，“两页同高、切换不跳”是对整个面板而言，此处只会让头部变高），要么压到滑块上。provider 报的自定义档位名（`thinkingLabel` 对未登记档位原样显示，如 Lab 里的 “turbo”）同样。
+如何核实：从代码推断，Lab 里把语言切成 en-US、选 xhigh 档即可看到。
+建议改法：按最长档位名的显示宽度（`ch`，或用最长文字量出来）定宽，或者改成文字放在滑块下方/上方一行，不占滑块一侧；加 `overflow: hidden; text-overflow: ellipsis`。
+
+### 8. 建议｜键盘｜选择器面板：初始焦点在面板容器上，第一次 Shift+Tab 会跳出面板且面板不关
+位置：AgentRoleModelPicker.vue 的 `toggle()`（`panelRef.value?.focus()`，面板 `tabindex="-1"`）与 packages/nb-ui/src/components/popup/AnchoredPopover.vue（FocusScope 由 reka 提供，循环只在第一个与最后一个可 Tab 元素之间发生）。
+现象：初始焦点是面板 div，不是“第一个可 Tab 元素”。reka 的 FocusScope（loop）只在焦点正好等于首/尾元素时才拦 Tab，所以在面板 div 上按 Shift+Tab，浏览器按文档顺序跳到 portal 之前的元素（页面里最后一个可聚焦元素），面板仍开着；此后 Tab 才会回到面板里。点外面才有的关闭时序，也没有“焦点离开就关”。
+为什么是问题：键盘用户一按 Shift+Tab 就丢失位置，浮在输入框上的面板还挡着输入。
+如何核实：从代码推断，未在浏览器验证（需要读 reka FocusScope 的 `handleKeyDown`）。
+建议改法：初始焦点放到第一个可 Tab 元素（页签），或在面板上自己处理 Shift+Tab/Tab 的首尾环绕；或焦点离开面板且不在触发器上时关闭。
+同类小问题：`/model foo` 打开模型库后搜索词填好但没聚焦搜索框（要再 Tab 一次）；`openPicker` 在 `disabled` 时静默返回，而 AgentConversationComposer.vue:196 之后照样发 `composer.commandHandled`，输入框被清空却什么都没发生。
+
+### 9. 建议｜无障碍｜选择器面板用 `<header>`、`<main>`、`<footer>`，传送到 body 后成了页面级地标
+位置：AgentRoleModelPicker.vue 模板（`<header class="acv-role-picker__head">`、`<main class="acv-role-picker__body">`、`<footer ...>`）。
+现象：面板经 AnchoredPopover 传送到 body，这几个元素的最近分区祖先是 body，分别成为 banner、main、contentinfo 地标；页面本来已有 main。
+为什么是问题：重复的 main 地标是常见的无障碍检查失败项，读屏的地标导航里会多出三项。
+如何核实：从代码推断；用 axe 的 `landmark-no-duplicate-main` 或浏览器无障碍树看。
+建议改法：全部换成 `div`。
+
+### 10. 建议｜状态一致性｜分支树：选中的节点被过滤、搜索或折叠掉之后，底部仍显示它并允许“切换到这条分支”；ArrowDown/ArrowUp 跳到第一行
+位置：AgentSessionTree.vue 的 `selectedLabel`（用全部节点找，不看当前显示的行）、`moveInList`（`list[at < 0 ? 0 : at + step]`，找不到时两个方向都选第 0 行）、`switchFork`（图里可以选到搜索后不显示的孩子）。
+现象：选中一个助手回复，切到“只看用户”，列表里它不见了，底部仍写着它的文字与 id，按钮可点；折叠它所在的分支同样。再按方向键，两个方向都跳到第一行（长会话是最远处），并且 `scrollIntoView`。图里搜索后，分叉器的 `1/3` 仍按全部孩子算，点到被搜索排除的孩子，选中项不可见。
+为什么是问题：用户可以对看不见的节点执行“切换”，这是改写活动路径的动作；方向键在选中丢失后的反应不可预期。
+如何核实：从代码推断；Lab 场景里选节点后换过滤即可。
+建议改法：行、过滤、折叠、搜索变化后，若选中项不在显示集合里就清空 `selected`（或移到最近的可见祖先）；`moveInList` 找不到时从“当前”节点开始，方向键按方向取首或尾；图里 `switchFork` 只在显示的孩子之间走。
+
+### 11. 建议｜状态一致性｜分支树顶部的“节点数”随折叠变化，且与图不一致
+位置：AgentSessionTree.vue 的 `count` 模板（`rows.length`）与 `rows` 计算（传入 `collapsed`）；`forkCount` 数的是未过滤的原始节点。
+现象：折叠一条有 100 行的分支，“N 个节点”立刻少 100；在列表里折叠后切到图（图不管折叠），顶部数字与图里的节点数不符。分叉数按原始节点算，节点数按显示行算，换过滤（例如只看用户）时两者口径不同。
+为什么是问题：数字应是节点总数，现在是“可见行数”。
+如何核实：读 `sessionTreeRows` 的 `if (hide) continue;`，折叠的子树不进 `rows`。
+建议改法：节点数取 `sessionTreeRows` 不带折叠的结果长度（或单独返回 `total`），分叉数也从显示树算。
+
+### 12. 建议｜布局｜分支树固定 `height: min(560px, 70vh)`，弹窗上限却按容器高度 85cqh，两者单位不同
+位置：AgentSessionTree.vue `.acv-tree { height: min(560px, 70vh) }`；packages/nb-ui/src/components/feedback/dialog-frame.ts:17（`default`：`maxHeight: 85cqh`）；AgentConversationView.vue 的 `<Dialog ... :teleport-target="props.teleportTarget">`，宿主 ConversationHost.vue 没有传，弹窗在右栏里就地渲染，`cqh` 取的是右栏容器。
+现象：右栏高度比视口矮时（右栏约 VH 减 60），弹窗最大高度 0.85 倍右栏高度，扣掉标题栏与内边距后装不下 560px 的树。按右栏 660px（720px 高的笔记本）估算：最大 561px，扣标题与内边距约 90px 后正文可用约 470px，树 504px，多出约 30px，弹窗正文（`overflow-y-auto`）出现第二层滚动条，底部的“切换到这条分支”按钮被推到可视区外。数字是估算，没有量过标题栏的实际高度。
+为什么是问题：用 `vh` 与 `cqh` 两套基准定高，随窗口高度与右栏高度的比例而错位。
+如何核实：未验证。在 720px 高的窗口、右栏打开对话、开分支树，看弹窗底部是否被裁。
+建议改法：树的高度改成相对弹窗：`height: 100%` 加弹窗给定高度，或用 `max-height: calc(85cqh - 90px)`；弹窗用 `height` 显式给。
+
+### 13. 建议｜键盘｜分支树与上下文弹窗打开后初始焦点在标题栏，要多次 Tab 才到树
+位置：AgentConversationView.vue 的两个 `<Dialog>`（没有传 `initial-focus`）；Dialog.vue 注释：不给时是第一个可聚焦元素。
+现象：分支树弹窗打开后焦点落在头部的关闭钮（上下文弹窗在刷新钮）；`role="tree"` 的容器在搜索、两个分段控件之后，键盘用户要先 Tab 5 到 6 次才能用方向键。读取中状态下容器还不存在。
+为什么是问题：键盘/读屏用户的主要操作被推后。
+如何核实：从代码推断。
+建议改法：传 `initial-focus="[data-tree-body]"`；容器还没出现时回落到面板（Dialog 已支持“找不到时聚焦面板”）。
+
+### 14. 建议｜状态｜上下文检查器：刷新时三块折叠整个卸载；`systemOpen` 是死变量；系统提示词没有加载与失败状态
+位置：packages/nb-agent-ui/src/vue/panels/AgentContextInspector.vue:34-38（`systemOpen` 只赋值不读）、:101 起的 `v-if="ready !== null"`；宿主 session-host.ts:610-634。
+现象：点“刷新”时宿主先把 `inspection` 设成 `{state:"loading"}`，`ready` 变 null，系统提示词、槽、诊断三个 `<details>` 以及组成那一节全部卸载；数据回来重新挂载，`details` 都是收起的。用户展开着系统提示词、点刷新，数据回来后它被收起，但宿主因为 `hadPrompt` 为真已经把内容放回了 `ctx`，界面与数据不一致（下次展开又发一次 `systemPrompt.load`）。同时，整页除缓存外都变成转圈，高度塌缩再弹开。`systemOpen` 被赋值但从未读取，.md 里“state:local 系统提示词那一块开着没有”那一条没有实际作用。`SystemPromptView` 只有 `text`，展开后宿主没给就是一个空的展开区，没有“读取中/失败”文案（宿主现在是同步从内存给，所以暂时看不到）。
+为什么是问题：展开状态应该保留；死状态误导读代码的人；以后系统提示词改成异步取时这里没有位置放加载与失败。
+如何核实：读代码；Lab 的 `ready` 场景 `systemPrompt: null` 也没有展开后的场景。
+建议改法：刷新时保留上一份 ready 数据并在上面盖一个加载中标记；`details` 用 `:open="systemOpen"`（受控）或把它们移出 `v-if`；`SystemPromptView` 改为 `{state:"loading"|"ready"|"failed"}`，或删掉 `systemOpen`。
+
+### 15. 建议｜就地编辑器：`loading` 为真时原文到达后不会显示，提交的是旧文字
+位置：AgentMessageEditor.vue:23-26（`value = ref(props.text)`；`draft = computed(() => ({text: props.text, version: 1}))`）。
+现象：版本号恒为 1，`value` 只在创建时取一次。PromptEditor.md:190 明说“只改 text 不改版本号不会生效”。所以原文晚到（`loading` 变 false 并带上完整 `text`）时编辑器仍显示最初的内容，`value` 也是旧的，用户点“发送”提交的是旧文字。
+为什么是问题：`EditingView.loading` 与 Spec“原文仍在加载时只读”就是为这条路径设的。宿主现在（session-host.ts:1087）永远给 `loading:false`，所以眼下碰不到，但组件契约是坏的；Lab 的“原文加载中”场景 `text: ""` 也没演示到达。
+如何核实：读代码对照 PromptEditor.md:190。
+建议改法：`text` 变化时递增版本并同步 `value`（`watch(() => props.text)`）。
+
+### 16. 建议｜无障碍｜状态栏：左区 `overflow:hidden` 裁掉上下文圆环的焦点环；用量区嵌套交互元素
+位置：packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue 样式 `.acv-status__left { overflow: hidden }`；AgentContextMeter.vue 的 `.is-interactive:focus-visible { outline: 2px; outline-offset: 1px }`，高度 26px。
+现象：焦点环向外画 3px，左区高度就是圆环 26px，所以上下和左边的环被裁掉。用量区是 `tabindex="0"` 的 span（`aria-label` 写在无角色的 span 上不生效），里面的缓存命中又是 button，`aria-label` 换成“打开上下文详情”，读屏读不到百分比。
+为什么是问题：键盘用户看不见焦点；读屏用户读不到缓存命中率数值（`aria-label` 覆盖了文本）。
+如何核实：从代码推断；Tab 到圆环看焦点环。
+建议改法：左区用 `clip-path` 或给上下留空间（`padding: 3px`、负外边距），或只对文字截断的元素设 `overflow:hidden`；button 的 `aria-label` 带上百分比（“缓存命中 85%，打开上下文详情”）；外层 span 去掉 `tabindex`，把悬停明细挂在可聚焦的 button 上。
+
+### 17. 建议｜颜色｜分支色与说话者色复用状态色；低对比的文字色用在主要内容
+位置：AgentSessionTree.vue 的 `LANE_COLORS`（accent、success、warning、danger 四色循环）与 `.acv-tree__icon[data-kind]`；`.acv-tree__row { color: var(--text-muted) }`（不在当前路径的行）。
+现象与数字（我用 WCAG 公式对 packages/nb-ui/themes/macos/colorways.ts 与 presets.ts 的色值算过）：
+- 亮色主题 `--text-muted` #9ca3af 在 #fff 上 2.54:1，在悬停底 #e6e8ec 上 2.07:1；不在当前路径的行标签（12px）用它，低于 4.5:1。图标再叠 0.65 不透明度，绿色图标约 2:1。暗色 5.4:1，没问题。
+- 分支线按 4 色循环，第 5 条分支与当前路径同色（lane % 4），无法区分“当前主干”和第 5、9 条分支；红色（`--status-danger`）在别处表示错误，这里只是“第 4 条分支”。
+- nb-ui 内置 dark 配色里 `--accent-main`、`--status-warning` 都是 #f59e0b，用户图标（accent-text #fbbd23）和工具图标（warning #f59e0b）对比度 1.27:1，几乎分不开；第 0 道与第 2 道线同色。
+为什么是问题：规范要求色值经 token，也要求状态不只靠颜色；这里不只靠颜色（有图标形状与标签），但“当前主干”与“某条分支”撞色、语义色被借来当分类色。
+如何核实：上面的对比度是算出来的；暗色 dark 配色的 aurora/editorial 主题是否真用这套未验证。
+建议改法：分支色用专门的一组分类色 token（不借 status），第 0 道固定强调色、别的道从不含强调色的序列循环；不在路径的行用 `--text-secondary` 加降低不透明度的办法，而不是 `--text-muted`。
+
+### 18. 建议｜覆盖｜Lab 场景缺少关键状态
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/composer.scenes.ts:76-120。
+现象：
+- 分支树：只有 12 个节点、两处分叉的一个数据集；没有 1,500 节点“太大”的说明（`tooLarge`）、没有深层嵌套的缩进（第 4 条）、没有搜索、折叠、图的“从左往右”方向，也没有选中项消失的情形。场景是静态 props，模式（列表/图）、方向、搜索都是组件内部状态，进场景后要手点，e2e 之外没有固定入口。
+- 上下文检查器：`systemPrompt` 永远是 null，没有展开系统提示词后的样子；没有“缓存命中率为 null（服务商不报缓存）”的场景；没有诊断为空的场景。
+- 选择器：没有 `disabled`、模型库页的“没有匹配”、模型 `unavailable`、`thinkingLevels` 长名/英文、以及窄锚点（< 320px）的场景。
+- 就地编辑：“原文加载中”只给 `text: ""`，没有到达（第 15 条）。
+为什么是问题：规范要求场景覆盖状态；这几条正是上面几处缺陷没被 Lab 看见的原因。
+如何核实：读文件。
+建议改法：补 `tree-large`（>1,500，显示太大说明）、`tree-deep-forks`（15 个分叉）、`inspector-with-prompt`、`inspector-no-cache`；场景支持传入初始视图模式与方向。
+
+## 更正（追加，上面各条的行号与一处错误陈述）
+- 第 1 条：Esc 监听在 AgentMessageEditor.vue:41，不是 50。
+- 第 2、3 条：`onKeydown` 在 AgentSessionTree.vue:142；`role="tree"` 容器在 :200；折叠按钮 :217；分叉切换器 :251。
+- 第 5 条：最后一项关于 `env:portal` 的陈述不成立，AgentConversationView.md 写的是“目标不存在时就地渲染”，与实现一致，请忽略；该条其余三项仍成立。第 12 条对弹窗“就地渲染”的描述不受影响。
+- 第 8 条：`composer.commandHandled` 在 AgentConversationComposer.vue:197。
+- 第 10 条：`selectedLabel` 在 AgentSessionTree.vue:96，`moveInList` 在 :113。
+- 第 14 条：`systemOpen` 在 AgentContextInspector.vue:39-42，两个 `v-if="ready !== null"` 在 :54 与 :88。
+
+## 基准数据（bench-tree.ts，bun，每项 5 次均值，只算纯逻辑，不含 Vue 渲染与 DOM）
+| 会话 | 原始节点 | 显示行/图节点 | 图的道数 | 最深缩进层 | 列表计算 | 图计算 | 画布（向下） |
+|---|---|---|---|---|---|---|---|
+| 300 轮无分叉 | 1,800 | 1,200 | 1 | 0 | 8.6 ms | 4.1 ms | 120 x 59,978 px |
+| 300 轮每 5 轮分叉 | 1,918 | 1,318 | 60 | 59 | 4.1 ms | 4.2 ms | 8,026 x 59,978 px |
+| 300 轮每轮分叉 | 2,398 | 1,798 | 300 | 299 | 9.3 ms | 3.7 ms | 40,186 x 59,978 px |
+| 2,000 轮无分叉 | 12,000 | 8,000 | 1 | 0 | 19.9 ms | 21.6 ms | 120 x 399,978 px |
+| 2,000 轮每 10 轮分叉 | 12,398 | 8,398 | 200 | 199 | 16.7 ms | 13.6 ms | 26,786 x 399,978 px |
+结论：计算量不是问题（1,500 量级几毫秒，万级二十毫秒，栈是显式的不会爆）。画布尺寸才是：1,200 节点的单链“向右”画布宽 170,378 px，向下高 59,978 px，一次分叉都没有也是一条极长的细带，“图”对长对话几乎没有信息量（每轮分叉时宽 40,186 px）。DOM 数没有实测（没有依赖、不开浏览器）；按模板估算 1,500 个图节点约 4,500 个元素加 1,500 条 path 与每个分叉节点另加约 5 个，约 6,400 个元素；列表 8,000 行约 3 万多个元素，且是整表 `v-for`、没有虚拟化，选中一行就整表重新 diff；`content-visibility: auto` 只省排版与绘制，不省创建与 diff（估算，未实测）。
+
+## 未发现问题的方面
+- `session-tree.ts` 的算法本身：显式栈、没有递归；父节点缺失当根；孩子顺序“当前路径在前”；折叠计数与过滤后重算都正确；图的道分配在 DFS 先序下不会让两个节点重叠。
+- AgentRoleModelPicker 的“点外面关闭”时序：捕获阶段监听 pointerdown，触发器与面板内都排除在外，触发器点击由 click 负责切换，不会“关了又开”；`disabled` 变真时关闭、卸载时移除监听，都正确。
+- 视图的弹窗开关：换会话时两个弹窗都关并发出 `context.closed`、`tree.closed`；宿主用代次（token）丢弃晚到的数据，活动路径与会话切换的竞态处理得当。
+- 状态栏的 `:has` 与容器查询：容器就是状态栏自己，`:has([data-status-cache])` 的特异性高于 `display:none`，没有缓存时留累计的退路有效。
+- 用到的 token（`--divider`、`--focus-outline`、`--weight-*`、`--text-2xs` 等）都有声明。
+
+## 汇总
+共 18 条：阻断 0，重要 7（第 1 到 7 条），建议 11（第 8 到 18 条）。最该先处理的三条：第 1 条（就地编辑里按 Esc 关 `@` 菜单会丢掉已改的字）、第 2 条（分支树里 Enter 被容器吞掉，键盘用户不能折叠或切分叉，还可能误切分支）、第 4 条（列表缩进随分叉无上限，约 15 个分叉后标签读不了）。

@@ -120,6 +120,8 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 验证：内核全部、`nb-agent-ui` 全部、`session-host.test.ts`、`sessions.test.ts`、类型检查；e2e `agent-conversation`（真实文件选择、上传、读取、SVG 沙箱、超限）。真实模型：一次性脚本用 gpt-6-luna 经 `ompCall` 发一张绿图，模型答“绿色”；没写成常驻冒烟。就地编辑时加新图没做（范围缩小，记在 Spec）。
 
+前端实现审查（Sonnet 18 条）处理完（[处理](evidences/impl-review-frontend-disposition.md)）。
+
 ## 下一步
 
-收口：批 5 的 omp 实现审查与整个 t28 的前端审查（Sonnet）。之后 t06，再 t14、t15。
+批 5 的 omp 实现审查：第一个会话额度用完退出，没写出报告，新开了一个在跑。处理完 t28 收口。之后 t06，再 t14、t15。
