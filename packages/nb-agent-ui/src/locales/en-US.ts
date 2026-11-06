@@ -332,6 +332,8 @@ export default {
             noteHint: "A reason was entered, so this call can only be denied",
             allow: "Approve",
             allowSession: "Approve for this session",
+            allowAlways: "Always allow",
+            allowAlwaysHint: "Added to My rules, for every book; you can change it in Settings",
             allowSessionRule: "Approve {{rule}} for this session",
             deny: "Deny",
             denyAll: "Deny all",

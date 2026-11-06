@@ -1,4 +1,82 @@
 {
+    "permissions": {
+        "action": {
+            "allow": "放行",
+            "ask": "询问",
+            "deny": "拒绝"
+        },
+        "summary": {
+            "none": "所有调用",
+            "json": "自定义条件",
+            "keywords": "{{field}} 含 {{value}}",
+            "subject": "{{field}} 匹配 {{value}}",
+            "command": "命令 {{value}}",
+            "path": "路径 {{value}}",
+            "pathRead": "读路径 {{value}}",
+            "pathWrite": "写路径 {{value}}"
+        },
+        "user": {
+            "title": "我的规则",
+            "hint": "对所有作品生效。从上到下，第一条命中的算数；都没命中时按审批模式。"
+        },
+        "add": "添加规则",
+        "empty": {
+            "title": "还没有规则",
+            "description": "没有规则时全按审批模式。可以写“不许 git push”“写正文前先问我”“提示词里有这些词就拒绝”。"
+        },
+        "moveUp": "上移",
+        "moveDown": "下移",
+        "edit": "编辑",
+        "remove": "删除",
+        "project": {
+            "title": "《{{title}}》的规则",
+            "hint": "写在作品目录的 .nbook/permissions.json，只对这本书生效。只能询问和拒绝。",
+            "invalid": "这个文件读不了或格式不对：这本书里写和执行的调用都会询问。",
+            "empty": "这本书没有自己的规则。",
+            "allowIgnored": "作品里的放行不生效：别人给的作品不能替你放行。"
+        },
+        "dialog": {
+            "add": "添加规则",
+            "edit": "编辑规则",
+            "save": "保存",
+            "cancel": "取消"
+        },
+        "field": {
+            "tool": "工具",
+            "kind": "条件",
+            "arg": "参数",
+            "subjectKind": "对象种类",
+            "access": "访问",
+            "action": "动作",
+            "reason": "理由（选填，写给模型看，告诉它该怎么办）",
+            "value": {
+                "command": "命令",
+                "path": "路径",
+                "keywords": "关键词",
+                "subject": "匹配"
+            }
+        },
+        "kind": {
+            "none": "所有调用",
+            "command": "命令",
+            "path": "路径",
+            "keywords": "参数含关键词",
+            "subject": "工具交出的对象",
+            "json": "自定义（JSON）"
+        },
+        "access": {
+            "any": "读和写",
+            "read": "只算读",
+            "write": "只算写"
+        },
+        "placeholder": {
+            "command": "git push *",
+            "path": "project://正文/**",
+            "keywords": "血腥、暴力",
+            "subject": "prod*",
+            "reason": "先让用户看"
+        }
+    },
     "settings": {
         "toolBindings": {
             "title": "Agent 工具绑定",

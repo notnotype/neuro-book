@@ -504,7 +504,7 @@ export type SubmitDelivery = "prompt" | "steer" | "followup";
 
 /** 一个等用户事项的答复：审批的决定（`note` 是拒绝时给模型的话），或提问的回答（`text` 是拼好的人话，`data` 是逐题的回答）。 */
 export type InputResolution =
-    | {kind: "approval"; decision: "allow" | "allow-session" | "deny"; note?: string}
+    | {kind: "approval"; decision: "allow" | "allow-session" | "allow-always" | "deny"; note?: string}
     | {kind: "question"; answer: {text: string; data: {answers: JsonValue}}}
     | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}};
 

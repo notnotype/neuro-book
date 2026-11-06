@@ -290,6 +290,8 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "composer.modeChanged": {"zh-CN": "已切到{mode}模式", "en-US": "Switched to {mode} mode"},
     "status.modeFlag": {"zh-CN": "{mode}模式", "en-US": "{mode} mode"},
     "kernel.tool.modeBlocked": {"zh-CN": "当前模式下不能修改，切换模式后再试", "en-US": "Not allowed in the current mode; switch modes and try again"},
+    "wizard.approval.allowAlways": {"zh-CN": "以后都允许", "en-US": "Always allow"},
+    "wizard.approval.allowAlwaysHint": {"zh-CN": "写进“我的规则”，所有作品都生效；可以在设置里改", "en-US": "Added to My rules, for every book; you can change it in Settings"},
     "wizard.approval.allowSessionRule": {"zh-CN": "本会话都批准 {rule}", "en-US": "Approve {rule} for this session"},
     "wizard.approval.deny": {"zh-CN": "拒绝", "en-US": "Deny"},
     "wizard.approval.denyAll": {"zh-CN": "全部拒绝", "en-US": "Deny all"},

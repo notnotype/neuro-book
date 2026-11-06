@@ -978,9 +978,14 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         bump();
     }
 
-    async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "deny"; note?: string} | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}): Promise<void> {
+    async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "allow-always" | "deny"; note?: string} | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}): Promise<void> {
         const target = current;
         if (target === null) return;
+        // 写进用户规则在这一片的后半接上；先按本会话批准，这一次与本会话都生效。
+        if (resolutions.kind === "approval" && resolutions.decision === "allow-always") {
+            await resolveInput(id, {kind: "approval", decision: "allow-session"});
+            return;
+        }
         const answer = resolutions.kind === "mode-switch"
             // 内核要求回答有文字，写进日志；工具看的是 `data`。
             ? {text: resolutions.answer.note ?? (resolutions.answer.approved ? "批准" : "不同意"), data: resolutions.answer}

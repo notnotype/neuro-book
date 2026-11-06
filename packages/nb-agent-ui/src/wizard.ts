@@ -5,7 +5,7 @@
  */
 import type {InputResolution, JsonValue, PendingApprovalView, PendingInputView, PendingModeSwitchView, PendingQuestionsView, PendingQuestionView} from "./types";
 
-export type ApprovalDecision = "allow" | "allow-session" | "deny";
+export type ApprovalDecision = "allow" | "allow-session" | "allow-always" | "deny";
 export type ApprovalChoice = {decision: ApprovalDecision; note?: string};
 /** `formInvalid`：表单现在填得不对。跟着答案存：向导收起、切标签都会卸载表单，不能只记在组件里。提交时不带它。 */
 export type QuestionAnswer = {selected: string[]; other?: string; form?: JsonValue; formInvalid?: boolean};

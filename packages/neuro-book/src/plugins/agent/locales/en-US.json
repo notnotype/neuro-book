@@ -1,4 +1,82 @@
 {
+    "permissions": {
+        "action": {
+            "allow": "Allow",
+            "ask": "Ask",
+            "deny": "Deny"
+        },
+        "summary": {
+            "none": "All calls",
+            "json": "Custom condition",
+            "keywords": "{{field}} contains {{value}}",
+            "subject": "{{field}} matches {{value}}",
+            "command": "Command {{value}}",
+            "path": "Path {{value}}",
+            "pathRead": "Reading {{value}}",
+            "pathWrite": "Writing {{value}}"
+        },
+        "user": {
+            "title": "My rules",
+            "hint": "Apply to every book. The first match from the top wins; if nothing matches, the approval mode decides."
+        },
+        "add": "Add rule",
+        "empty": {
+            "title": "No rules yet",
+            "description": "Without rules the approval mode decides everything. You could deny git push, ask before writing chapters, or deny prompts with certain words."
+        },
+        "moveUp": "Move up",
+        "moveDown": "Move down",
+        "edit": "Edit",
+        "remove": "Delete",
+        "project": {
+            "title": "Rules for {{title}}",
+            "hint": "In .nbook/permissions.json in the book's folder; apply to this book only. They can only ask or deny.",
+            "invalid": "This file can't be read or isn't valid, so writes and commands in this book will ask.",
+            "empty": "This book has no rules of its own.",
+            "allowIgnored": "Allow has no effect here: a book someone gave you can't allow things on your behalf."
+        },
+        "dialog": {
+            "add": "Add rule",
+            "edit": "Edit rule",
+            "save": "Save",
+            "cancel": "Cancel"
+        },
+        "field": {
+            "tool": "Tool",
+            "kind": "Condition",
+            "arg": "Argument",
+            "subjectKind": "Subject kind",
+            "access": "Access",
+            "action": "Action",
+            "reason": "Reason (optional; tells the model what to do instead)",
+            "value": {
+                "command": "Command",
+                "path": "Path",
+                "keywords": "Keywords",
+                "subject": "Matches"
+            }
+        },
+        "kind": {
+            "none": "All calls",
+            "command": "Command",
+            "path": "Path",
+            "keywords": "Argument contains keywords",
+            "subject": "Subject from the tool",
+            "json": "Custom (JSON)"
+        },
+        "access": {
+            "any": "Read and write",
+            "read": "Reading only",
+            "write": "Writing only"
+        },
+        "placeholder": {
+            "command": "git push *",
+            "path": "project://chapters/**",
+            "keywords": "gore, violence",
+            "subject": "prod*",
+            "reason": "Let the user review first"
+        }
+    },
     "settings": {
         "toolBindings": {
             "title": "Agent tool bindings",
