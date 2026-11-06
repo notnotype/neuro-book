@@ -1,0 +1,122 @@
+# w00041/t06 只读设计审查
+
+审查对象：`.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md`。依据为本次读取的 master 计划、Spec 与实现；未修改仓库，未启动开发服务或 e2e。
+
+## 已核实发现
+
+### 1. [重要][不变量] 拒绝“我的主题”三项扩展违反现有保留与复制合同
+
+- 位置：`.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:46,64,76,94`；`docs/specs/theme/editor.md:47,102,117`。
+- 现象：计划要求 `userThemeProblem` 拒绝三项，而编辑器现行合同明确要求声明新增字段在编辑器跟进前仍生效、保存保留，并允许复制任一插件主题。只给 editor Spec 加一句“不收”不足以处理这些既有承诺。
+- 为什么是问题：书房将增加 icons；当前复制流程深拷贝全部声明，只转换 scene。新增拒绝后，用户复制内置书房会失败；若不拒绝 icons/workingScene，它们的插件相对路径会作为 user 素材路径解析，指向错误地址。workingScene 段还把“编辑器不产出”等同于“不接受”，与末尾验收互相矛盾。
+- 如何核实：`shared/user-themes.ts:23-28,48-54` 直接复用 ThemeDeclarationSchema，当前没有三项的拒绝；`web/components/theme-editor/theme-editor-model.ts:143-171` 深拷贝声明，只改 scene；`transfer.ts:79-90` 也只复制 scene。对照 editor Spec 输出 2、验收 12、边界与兼容。此项为代码路径推导，未运行修改后的实现。
+- 建议改法：先明确扩展字段的用户层合同。优先按既有合同保留字段并补齐素材转换；若本次明确要限制用户主题，须完整修订兼容与复制/导入合同，为带三项的插件主题规定可见的拒绝或有说明的降级行为，更新对应模型、导入边界与测试，不能靠“UI 不产出”充当校验。
+
+
+### 2. [重要][正确性] 永久缓存使“按小时变的天空”最多生成 4 张，时间变化不会更新
+
+- 位置：`.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:53-61,70`。
+- 现象：提供者输入只有 appearance 与 working，目录按（主题 id、明暗、working）缓存结果；示例却要求按小时变化。
+- 为什么是问题：固定同一主题、同一明暗且 Agent 空闲时，第一张 Blob 会一直命中缓存。跨整点甚至切走再切回均没有失效条件；2 种明暗 × 2 种状态最多 4 个缓存结果，时钟不再变化。提供者自己设定时器也没有途径通知目录换掉缓存。
+- 如何核实：计划未定义 refresh、订阅、有效期或失效事件；现有 `web/themes.ts:165-170` 的 resolve 为同步求值，只有主题/配置等响应式输入触发时才再求值，时间不是依赖。属于接口反例，不需要运行未实现代码。
+- 建议改法：明确场景提供者是一次性静态生成还是可更新源。如果保留 scene-clock 的逐小时行为，合同必须提供带寿命的失效通知或 nextUpdateAt 等刷新机制，由目录取消旧请求、替换 URL 并通知当前页面；补“同一主题与状态跨整点”的验收。若不需要动态时间能力，改成与 request 两个输入相符的示例并说明缓存语义。
+
+
+### 3. [重要][正确性] 异步场景结果没有同步回文档根的通知路径
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:55-61,84,93。
+- 现象：provider 返回 Promise<Blob>，而现有 ThemeCatalog.resolve、ProductTheme、WorkbenchDocument.vue 的 watchEffect 同步算出变量并调用 apply。计划只说缓存、完成后切换，没有规定何时让 effect 重跑。
+- 为什么是问题：watchEffect 不会因 Promise settle 自动重跑；Blob 成功后不会自动显示。若 resolve 内启动异步请求，每次 effect 重算又可能重复启动。目录缓存状态和取消/重试需要响应式可观察接口。
+- 如何核实：代码链见 workbench/web/plugin.ts:222、WorkbenchDocument.vue:36-38、ui/theme/product-themes.ts:22-28、web/themes.ts:165-170；计划 93 仅安排目录层测试。
+- 建议改法：ThemeCatalog 持有加载生命周期并暴露响应式 ready/error/URL，或由独立 watch 在完成后 apply；明确 fallback、失败、过期请求规则。用真实页面证明 Blob resolve 后文档根和场景更新。
+
+### 4. [重要][正确性] 动态图加载成功的判据不包括浏览器解码成功
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:60-61,84,93。
+- 现象：只拒绝非 image/* 或超 4 MB 的 Blob；image/* 的损坏内容仍会创建 blob URL 并取代静态 fallback。
+- 为什么是问题：URL.createObjectURL 成功不代表图片可解码。CSS 图片加载失败后用户看到空场景，计划的“失败回退静态图”无法兑现。
+- 如何核实：计划把动态成功定义为返回 Blob 与创建对象 URL；没有 decode/load 验证。对照 skins Spec 失败表第 3 项。
+- 建议改法：通过真实浏览器 decode 后才切到动态 URL；解码失败撤销 URL、诊断并恢复静态图。加入损坏 image Blob 的浏览器验收。
+
+### 5. [重要][不变量] 未规定 provider 入口何时激活，延迟激活的贡献拿不到实现
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:50-61,84。
+- 现象：贡献点要求实现，provider 可与主题来自不同插件，但没有规定贡献属于哪个 browser 入口或入口何时激活。
+- 为什么是问题：runtime 合同规定入口下贡献实现只有入口激活才交付；声明存在不代表实现已激活。若 scene-clock 是惰性入口且无启动事件或服务依赖，ThemeCatalog 只读顶层 ThemeDeclaration，不会触发入口激活，provider 永远不可用。若强制所有 provider onStartup，则每个窗口都会加载所有场景代码，和按需语义不同。
+- 如何核实：docs/specs/runtime/plugins.md:30-33,46-50,70；plugin-manifest.md:61,95；当前 theme 点为顶层 implementation:none，见 shared/themes.ts:95-100。
+- 建议改法：规定 provider contribution 必须来自 browser 入口，并描述懒激活路径如何通过 WindowPlugins 激活 owner，再处理未激活、受阻、失败、停止五态。不要仅按 id 找实现。
+
+### 6. [重要][不变量] provider 撤回、重启和失败状态没有完整生命周期合同
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:60-64,84,93。
+- 现象：theme declaration 是顶层声明，provider implementation 随入口激活/关闭；计划只说禁用或卸载后退回，并以同一 id 记诊断。
+- 为什么是问题：runtime 普通关闭时静态描述保留、可调用实现撤回；顶层 sceneProvider id 仍然存在。消费者需要按 contribution handle 的 published 状态区分未激活、失败、停止和已撤回。不同主题可引用同一个 provider，逐主题重复诊断也违背“同一 id 一条”含义。
+- 如何核实：runtime/plugins.md:31-34,61-65,70-72；plugin-manifest.md:104；WindowPlugins 接口仅有 entryState/onChange/activationEvents/retry，见 shared/host.ts:90-103。
+- 建议改法：限定 browser contribution，按真实句柄 published 状态调用；明确入口激活失败/停止/撤回时的响应订阅、缓存清理与重试规则；诊断按 provider id 去重。
+
+
+### 7. [重要][正确性] 场景图对比度媒体规则只影响现有背景节点，不能保护新插入图标 
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:13,29,82-83,106。
+- 现象：主题图标由 head 的全局 style 覆写 --svg；现有 prefers-contrast / forced-colors 的规则是按 data-nb-skin-scene 隐藏各位置的背景图，不会触碰图标 mask。计划没规定图标样式写在 @media 外还是写入侧检测。
+- 为什么是问题：规则默认无条件替换，系统高对比度/强制颜色下继续显示主题图标，违反“图标集不换（保持系统默认图标）”。现有规则只停止皮肤场景，不会恢复预生成 --svg。
+- 如何核实：EditorGroup.vue:428-432、WorkbenchSurface.vue:368-372、WorkbenchDocument.vue:64-68 均只隐藏场景/画框；DocumentThemeWriter 目前没有 matchMedia 对比度监听。
+- 建议改法：用全局 @media 条件为皮肤图标恢复 Tailwind 预生成默认值不可行，因为默认值被覆盖后没有独立快照。可靠做法是在写入侧根据 prefers-contrast/forced-colors 决定是否生成覆盖，并监听偏好变化，清理 style 元素后恢复原规则；测试两种偏好进入、退出动态切换。
+
+### 8. [重要][正确性] provider 按小时缓存使 scene-clock 示例只能生成四种固定图
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:53-61,70。
+- 现象：provider 参数只有 appearance、working，缓存键只有 theme id/appearance/working；示例要求“按小时变的天空”。
+- 为什么是问题：固定主题、明暗与 working 时，第一次 Blob 会永久复用；整点后没有失效、通知或重新调用入口，最多四张结果。提供者自行设 timer 也没有通知目录替换 URL 的接口。
+- 如何核实：计划未定义 refresh、订阅或过期条件；resolve 是同步函数。
+- 建议改法：若逐小时动态是目标，增加 nextUpdateAt/失效订阅等契约并定义停止时释放；否则改为快照型时钟画面并标明不实时。增加跨整点同键刷新验收。
+
+### 9. [重要][正确性] contribution implementation 尚未激活时没有 provider 的取用与懒激活路径
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:50-61,84。
+- 现象：provider 是有实现的贡献点，但主题声明和 provider 可来自不同插件；未说明 contribution 必须属于哪个 browser 入口、入口如何激活。
+- 为什么是问题：Runtime 合同要求入口激活后才交付实现。provider 若按需入口且无 onStartup，ThemeCatalog 读取顶层主题声明不会激活 provider，贡献一直是 pending，页面不会生成场景。
+- 如何核实：docs/specs/runtime/plugins.md:30-33,46-50,70；docs/specs/runtime/plugin-manifest.md:61,95。
+- 建议改法：定义 browser 入口绑定与按需激活步骤，读取 handle 状态，覆盖未激活、受阻、失败、撤回与恢复；或明确强制 onStartup 并接受成本。
+
+### 10. [重要][不变量] 用户层拒绝扩展字段与编辑器保留、复制合同冲突
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:46,64,76,94；docs/specs/theme/editor.md:47,102,117。
+- 现象：计划让 userThemeProblem 拒绝 icons、workingScene、sceneProvider；editor Spec 要求编辑器暂不提供输入时保留新增字段，且复制任一插件主题。
+- 为什么是问题：书房增加 icons 后，复制该内置插件主题会被拒绝；直接保留插件相对路径则会被 user://theme-assets 解析成错误素材路径。只写“编辑器不产出”没有覆盖已存在字段。
+- 如何核实：user-themes.ts:23-28,48-54 共用 ThemeDeclarationSchema；theme-editor-model.ts:143-171 深拷贝后只转换 scene；transfer.ts:79-90 只复制 scene。
+- 建议改法：按 editor Spec 补齐 icons 素材复制与 user 文件名验证，并保留其他新字段；若要拒绝，需修订复制/导入/兼容合同并明确降级行为，不能只改 validator。
+
+
+### 11. [重要][正确性] 主题静态回退缓存只在 Promise reject 定义，未定义图片解码失败
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:60-61,84,93。
+- 现象：非 image/*、超 4 MB 或 reject 会按无 provider 处理，但符合 MIME 的损坏图片仍会创建 URL 并取代静态 fallback。
+- 为什么是问题：createObjectURL 成功不代表浏览器解码成功。CSS 图片请求后解码失败会显示空白，用户看不到静态场景，违背 skins Spec 对图加载/解码失败的处理。
+- 如何核实：对照 skins.md 失败表第 3 项。计划没有 image decode 验证或解码失败时撤销 URL 的状态。
+- 建议改法：以浏览器 image.decode 成功作为 dynamic ready；失败时撤回对象 URL、记录诊断并恢复静态图。增加真实浏览器错误图片验收。
+
+### 12. [重要][安全与性能] 缓存对象 URL 的生命周期和同 id 新代次隔离未定义
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:61,63,84,106。
+- 现象：只写“换掉时 revokeObjectURL”，未定义 ThemeCatalog 页面停止时清理、贡献撤回时清理、主题撤回重发同 id 时防旧 Promise 回写，也未定义不同缓存键能否共用/撤销 URL。
+- 为什么是问题：receiver 支持贡献撤回与重新发布；目录当前只按 id 替换 entry。旧代次迟到 Promise 可在撤回后生成或缓存 URL；新代次复用 theme id 会被旧缓存污染。若多个用户/显示位置引用同 URL，撤销必须在最后一个消费者不用后发生。
+- 如何核实：当前 receiver published/revoke 只改 Map，见 workbench/web/themes.ts:91-104；runtime/plugins.md:34,65,72 定义代次和旧句柄失效。计划没有 dispose、缓存代次或引用计数。
+- 建议改法：缓存键包含贡献句柄/代次身份；每键有 generation token，撤回/停止后禁止迟到结果发布；Catalog.dispose 清理未引用 URL；明确共享缓存的引用所有权。用同 id 重发和在途撤回测试。
+
+### 13. [重要][不变量] 当前插件禁用路径重启生效，不支持计划写的在线回退
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:63,84,93；docs/specs/theme/skins.md:23。
+- 现象：计划写 provider 禁用/卸载后引用主题退回，并把卸载后的回退放进 resolve 验收；当前禁用、卸载重启后生效，热插拔仍未实现。
+- 为什么是问题：普通目录 receiver 的 revoke 合同不等于插件在线禁用。实现者无法在当前产品路径观察到承诺的禁用事件；用内核单测模拟 revoke 不能充当真实在线产品路径。
+- 如何核实：runtime/plugin-install.md:14,50-51；skins Spec 第 23 条；runtime.plugin-hot-plug Spec 状态 planned。
+- 建议改法：将 provider 禁用/卸载行为限定为重启重建目录后的回退；普通 contribution 撤回单独测接收者清理，不称在线禁用。等热插拔实现后补对应场景。
+
+### 14. [重要][安全与性能] SVG 的“不会加载引用的外部资源”没有依据
+
+- 位置：.agents/works/w00041-themes-and-backgrounds/tasks/t06-skin-extensions/plan.md:31。
+- 现象：计划以 mask-image 加载 SVG 后脚本不执行为据，断言浏览器也不会加载 SVG 引用的外部资源。
+- 为什么是问题：禁用脚本不能推导外部资源不被请求；外部 href、CSS url 等可能导致请求或读取插件外内容，违反“素材只取插件自己目录”的合同。插件静态文件端点只给 CORP 与 nosniff，没有 SVG 子资源策略。
+- 如何核实：runtime/plugin-code-loading.md:30-31 允许插件样式/资源；plugin-platform/backend/plugin-files.ts:24,72-74 只设置 CORP、nosniff；计划没有 SVG 内容白名单或资源引用校验。未在真实浏览器跑网络请求实验。
+- 建议改法：不要把 mask 消费等同 SVG sanitize；约束/清洗 SVG 为无 href、style url、foreignObject、script 和外部资源引用的静态几何，或限定为受控产品资产。以真实 Chromium 验证同源、跨源引用不会发出请求。
+
