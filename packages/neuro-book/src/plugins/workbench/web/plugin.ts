@@ -177,11 +177,22 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                     reportedUserThemes.add(`${id}:${problem}`);
                     diagnostics.record({level: "warn", event: "workbench.theme.user-invalid", message: `我的主题 ${id} 不合格，不进主题列表：${problem}`, data: {id}});
                 }), {immediate: true}),
-                watch(() => userThemes.state.themes.base, () => userThemes.actions.adoptConfirmed()),
+                // 别的窗口保存了新值（base 变）或本窗口排队的修改写完了（queue 归零）：都可能轮到采纳，只盯 base 会在有排队修改时错过它。
+                watch(() => [userThemes.state.themes.base, userThemes.state.themes.queue], () => userThemes.actions.adoptConfirmed()),
             ];
             context.signal.addEventListener("abort", () => { for (const stop of stopUserThemes) stop(); }, {once: true});
             // 主题编辑器：页签与浮动窗口共用一份模型（docs/specs/theme/editor.md 输出 1）；入口停止时预览一并清掉。
-            const editorSession = new ThemeEditorSession({store: userThemes, catalog: themes, newId: () => crypto.randomUUID()});
+            const editorSession = new ThemeEditorSession({
+                store: userThemes,
+                catalog: themes,
+                newId: () => crypto.randomUUID(),
+                // 打开时取当前生效的明暗（`system` 按系统偏好换成亮或暗），初始预览不改变眼前的明暗。
+                currentAppearance: () => {
+                    const setting = settings.get(appearanceSetting);
+                    const media = (globalThis as {matchMedia?: (query: string) => {readonly matches: boolean}}).matchMedia;
+                    return setting === "system" ? (media?.("(prefers-color-scheme: dark)").matches === true ? "dark" : "light") : setting;
+                },
+            });
             context.signal.addEventListener("abort", () => editorSession.dispose(), {once: true});
             const effectiveTheme = (): string => {
                 const inspected = settings.inspect(themeSetting);

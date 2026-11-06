@@ -2,13 +2,14 @@
 /** 主题编辑器的“配色”分区（同名 .md）：主色与推导、按用途分组的 33 个配色变量、折叠的角色变量。 */
 import {computed, ref} from "vue";
 
-import {Button, Collapsible, Input} from "@notnotype/nb-ui/components";
+import {Button, Collapsible} from "@notnotype/nb-ui/components";
 
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
 import {THEME_ROLE_VARS} from "../../../shared/themes";
 import {useWorkbenchText} from "../../text";
 import ColorField from "./ColorField.vue";
+import DraftInput from "./DraftInput.vue";
 import {SEED_KEYS} from "./theme-editor-model";
 import type {SeedName, ThemeEditorModel} from "./theme-editor-model";
 
@@ -40,6 +41,10 @@ const failed = ref(false);
 const derive = async (): Promise<void> => {
     failed.value = !(await model.derive());
 };
+/** 单项还原：主色读不懂时推不出值，和“推导整套”一样给提示，不让按钮静默无效。 */
+const resetOne = async (name: string): Promise<void> => {
+    failed.value = !(await model.resetColor(name));
+};
 const deriveFromOther = async (): Promise<void> => {
     failed.value = !(await model.deriveFromOther());
 };
@@ -58,7 +63,7 @@ const roleValue = (name: string): string => model.current.value?.declaration[mod
                 :label="seedLabel(seed)"
                 :value="colors[SEED_KEYS[seed]] ?? ''"
                 :check="checks.get(SEED_KEYS[seed]) ?? null"
-                @change="model.setSeed(seed, $event)"
+                @change="failed = false; model.setSeed(seed, $event)"
             />
             <div class="theme-editor-colors__actions">
                 <Button size="sm" data-derive @click="derive">{{ text("themeEditor.colors.derive") }}</Button>
@@ -80,7 +85,7 @@ const roleValue = (name: string): string => model.current.value?.declaration[mod
                 :resettable="true"
                 :plain="PLAIN.has(name)"
                 @change="model.setColor(name, $event)"
-                @reset="model.resetColor(name)"
+                @reset="resetOne(name)"
             />
         </section>
 
@@ -91,7 +96,7 @@ const roleValue = (name: string): string => model.current.value?.declaration[mod
             <p class="theme-editor-colors__hint">{{ text("themeEditor.colors.advancedHint") }}</p>
             <div v-for="name in THEME_ROLE_VARS" :key="name" class="theme-editor-colors__role" :data-role-var="name">
                 <code class="theme-editor-colors__role-name">{{ name }}</code>
-                <Input size="sm" :model-value="roleValue(name)" :aria-label="name" @update:model-value="model.setRoleVar(name, $event)" />
+                <DraftInput size="sm" :value="roleValue(name)" :aria-label="name" allow-empty @change="model.setRoleVar(name, $event)" />
                 <Button size="sm" variant="ghost" :disabled="roleValue(name) === ''" @click="model.setRoleVar(name, undefined)">{{ text("themeEditor.colors.clear") }}</Button>
             </div>
         </Collapsible>

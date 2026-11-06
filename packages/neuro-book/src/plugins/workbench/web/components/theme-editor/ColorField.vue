@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 一个配色变量的一行（同名 .md）：色块取色器、色值输入、对比度比值与“手改过”标记；改动防抖后交给模型。 */
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed} from "vue";
 
 import {IconButton, Input} from "@notnotype/nb-ui/components";
 
@@ -8,6 +8,7 @@ import {formatColor, parseColor} from "nbook/ui/theme/color";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
 import {useWorkbenchText} from "../../text";
+import {useDebouncedDraft} from "./use-debounced-draft";
 
 defineOptions({name: "ColorField"});
 
@@ -32,31 +33,8 @@ const emit = defineEmits<{
 
 const text = useWorkbenchText();
 
-/** 输入的本地值：外面的值变了（别处改、换了主题）就跟过来；自己输入时先留在本地，停手后再交出去。 */
-const draft = ref(props.value);
-watch(() => props.value, (value) => {
-    draft.value = value;
-});
-
-let timer: ReturnType<typeof setTimeout> | null = null;
-const commit = (value: string): void => {
-    draft.value = value;
-    if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(() => {
-        timer = null;
-        if (value !== props.value) emit("change", value);
-    }, 250);
-};
-/** 焦点离开这一行时立刻交出还在等的值：输入完马上点“推导整套”，推导读到的必须是刚输入的主色，不是 250ms 前的。 */
-const flush = (): void => {
-    if (timer === null) return;
-    clearTimeout(timer);
-    timer = null;
-    if (draft.value !== props.value) emit("change", draft.value);
-};
-onBeforeUnmount(() => {
-    if (timer !== null) clearTimeout(timer);
-});
+/** 输入先留在本地，停手后再交出；外面的值变了就作废待交出的（见 `use-debounced-draft.ts`）。 */
+const {draft, input: commit, flush} = useDebouncedDraft(() => props.value, (value) => emit("change", value));
 
 /** 取色器只认不透明的 `#rrggbb`；半透明与别的写法只显示色块，改色值用右边的输入。 */
 const pickable = computed(() => {
@@ -71,7 +49,7 @@ const checkText = computed(() => {
     const ratio = check.ratio.toFixed(2);
     return {
         label: ratio,
-        title: `${text("themeEditor.contrast.ratio", {ratio})}${check.ok === false ? `，${text("themeEditor.contrast.low")}` : ""}，${text("themeEditor.contrast.against", {surface: check.against ?? ""})}`,
+        title: text(check.ok === false ? "themeEditor.contrast.summaryLow" : "themeEditor.contrast.summary1", {ratio, surface: check.against ?? ""}),
         tone: check.ok === false ? "bad" : "ok",
     };
 });
@@ -87,7 +65,7 @@ const checkText = computed(() => {
                 type="color"
                 class="color-field__picker"
                 :value="pickable"
-                :aria-label="`${name} ${text('themeEditor.colors.pick')}`"
+                :aria-label="`${label ?? name} ${text('themeEditor.colors.pick')}`"
                 @input="commit(($event.target as HTMLInputElement).value)"
             />
         </span>
@@ -95,11 +73,11 @@ const checkText = computed(() => {
             class="color-field__input"
             size="sm"
             :model-value="draft"
-            :aria-label="`${name} ${text('themeEditor.colors.value')}`"
+            :aria-label="`${label ?? name} ${text('themeEditor.colors.value')}`"
             @update:model-value="commit($event)"
         />
-        <span v-if="checkText !== null" class="color-field__check" :data-tone="checkText.tone" :title="checkText.title" data-color-check>{{ checkText.label }}</span>
-        <span v-if="touched === true" class="color-field__touched" :title="text('themeEditor.colors.touched')" aria-hidden="true">●</span>
+        <span v-if="checkText !== null" class="color-field__check" :data-tone="checkText.tone" :title="checkText.title" :aria-label="checkText.title" role="img" data-color-check>{{ checkText.tone === "bad" ? "! " : "" }}{{ checkText.label }}</span>
+        <span v-if="touched === true" class="color-field__touched" :title="text('themeEditor.colors.touched')" data-touched-mark><span aria-hidden="true">●</span><span class="sr-only">{{ text("themeEditor.colors.touched") }}</span></span>
         <IconButton
             v-if="touched === true && resettable === true"
             size="xs"
@@ -143,6 +121,11 @@ const checkText = computed(() => {
     overflow: hidden;
 }
 
+.color-field__swatch:focus-within {
+    outline: 2px solid var(--accent-main);
+    outline-offset: 2px;
+}
+
 .color-field__picker {
     position: absolute;
     inset: -4px;
@@ -180,7 +163,8 @@ const checkText = computed(() => {
 }
 
 /* 窄屏：变量名单独占一行，色值输入才有地方放下完整的色值。 */
-@container (max-width: 520px) {
+/* 容器是 `.theme-editor__section`（分区内容，不含导航）：不足 440px 时变量名单独一行。 */
+@container (max-width: 440px) {
     .color-field {
         grid-template-columns: 24px minmax(0, 1fr) 44px 12px 24px;
         row-gap: var(--space-1);

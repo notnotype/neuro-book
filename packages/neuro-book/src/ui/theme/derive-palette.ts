@@ -39,12 +39,14 @@ export function derivePalette(seed: PaletteSeed): DerivedPalette | null {
     if (background === null || text === null || accent === null || background.a < 1 || text.a < 1 || accent.a < 1) return null;
     const dark = seed.appearance === "dark";
     const lightness = toOklch(background).l;
+    // 每个面都先写成 `#rrggbb` 再读回来：对比度要对“写出去的颜色”算，不是对中间的浮点值算。
+    const snap = (color: Rgba): Rgba => parseColor(formatColor(color)) as Rgba;
 
-    const panel = withLightness(background, dark ? lightness + 0.035 : Math.min(0.985, lightness + 0.025));
-    const sidebar = withLightness(background, dark ? lightness - 0.02 : lightness - 0.03);
-    const input = dark ? withLightness(background, lightness - 0.03) : panel;
-    const hover = withLightness(background, dark ? lightness + 0.075 : lightness - 0.055);
-    const subtle = dark ? mix(sidebar, panel, 0.22) : sidebar;
+    const panel = snap(withLightness(background, dark ? lightness + 0.035 : Math.min(0.985, lightness + 0.025)));
+    const sidebar = snap(withLightness(background, dark ? lightness - 0.02 : lightness - 0.03));
+    const input = dark ? snap(withLightness(background, lightness - 0.03)) : panel;
+    const hover = snap(withLightness(background, dark ? lightness + 0.075 : lightness - 0.055));
+    const subtle = snap(dark ? mix(sidebar, panel, 0.22) : sidebar);
     const surfaces = [background, panel, sidebar, hover];
 
     const main = ensureContrast(text, surfaces, MINIMUM_TEXT_CONTRAST);
@@ -56,10 +58,10 @@ export function derivePalette(seed: PaletteSeed): DerivedPalette | null {
     const accentBg = withAlpha(accent, dark ? 0.15 : 0.14);
     const accentText = ensureContrast(accent, [...surfaces, composite(accentBg, panel)], MINIMUM_TEXT_CONTRAST);
 
+    // 状态色的底是它自己叠出来的半透明色：前景一调，底就跟着变，所以每个候选按它自己的底判断（不是原始状态色的底）。
     const status = (base: string, alphaBg: number): [Rgba, Rgba, Rgba] => {
         const color = parseColor(base) as Rgba;
-        const tint = withAlpha(color, alphaBg);
-        const adjusted = ensureContrast(color, [...surfaces, composite(tint, panel)], MINIMUM_TEXT_CONTRAST);
+        const adjusted = ensureContrast(color, (candidate) => [...surfaces, composite(withAlpha(candidate, alphaBg), panel)], MINIMUM_TEXT_CONTRAST);
         return [adjusted, withAlpha(adjusted, alphaBg), withAlpha(adjusted, dark ? 0.32 : 0.3)];
     };
     const [info, success, warning, danger] = (["info", "success", "warning", "danger"] as const).map((kind) => status(STATUS_BASE[seed.appearance][kind], dark ? 0.15 : 0.12)) as [[Rgba, Rgba, Rgba], [Rgba, Rgba, Rgba], [Rgba, Rgba, Rgba], [Rgba, Rgba, Rgba]];

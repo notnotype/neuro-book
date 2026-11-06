@@ -43,7 +43,7 @@ const catalog = new ThemeCatalog([], () => null, () => undefined);
 const store = createLabUserThemes(themes, base !== "loading");
 
 const scope = effectScope();
-const model = scope.run(() => new ThemeEditorModel({store, catalog, baseColors, newId: () => crypto.randomUUID()})) as ThemeEditorModel;
+const model = scope.run(() => new ThemeEditorModel({store, catalog, baseColors, newId: () => crypto.randomUUID(), currentAppearance: () => "light"})) as ThemeEditorModel;
 model.section.value = SECTIONS[base] ?? "basic";
 if (base === "dark") model.appearance.value = "dark";
 onBeforeUnmount(() => scope.stop());
@@ -52,6 +52,8 @@ onBeforeUnmount(() => scope.stop());
 const transfer: ThemeTransfer = {
     exportTheme: async () => null,
     importArchive: async () => ({ok: false, message: {key: "importFailed", params: {reason: "Lab"}}}),
+    uploadScene: async () => ({ok: false, reason: "Lab"}),
+    copyScenes: async () => ({ok: true, scenes: {}}),
 };
 </script>
 

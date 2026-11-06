@@ -382,13 +382,13 @@
             "clear": "Clear"
         },
         "contrast": {
-            "ratio": "Contrast {{ratio}}",
-            "low": "Below 4.5",
             "unknown": "No contrast computed: the editor does not parse this form",
             "against": "Worst on {{surface}}",
             "summary": "Entries below the bar",
             "none": "No entry is below the bar",
-            "legend": "Text, secondary text, muted text, links and status colors against their own backgrounds, at least 4.5. Exporting with entries below the bar only warns."
+            "legend": "Text, secondary text, muted text, links and status colors against their own backgrounds, at least 4.5. Exporting with entries below the bar only warns.",
+            "summary1": "Contrast {{ratio}}, worst on {{surface}}",
+            "summaryLow": "Contrast {{ratio}}, below 4.5, worst on {{surface}}"
         },
         "fonts": {
             "display": "Welcome page title",
@@ -398,7 +398,9 @@
             "sans": "Sans-serif",
             "mono": "Monospace",
             "clear": "Use the current font",
-            "hint": "The browser cannot list installed fonts, so write the stack yourself; leave empty to keep the current font."
+            "hint": "The browser cannot list installed fonts, so write the stack yourself; leave empty to keep the current font.",
+            "sampleDisplay": "NeuroBook · Welcome back",
+            "sampleProse": "Rain began at dusk and never let up."
         },
         "chrome": {
             "activityBar": "Activity bar",
@@ -407,10 +409,8 @@
             "foreground": "Foreground",
             "active": "Current item",
             "ornament": "End ornaments",
-            "ornamentNone": "None",
             "frame": "Overlay frame",
             "frameLine": "Line color",
-            "frameNone": "None",
             "frameHint": "Draws a thin line inside the outline of menus, dialogs and the settings window."
         },
         "scene": {
@@ -423,7 +423,6 @@
             "large": "The image is {{kb}} KB, over the suggested 300 KB",
             "stored": "{{kb}} KB",
             "loadFailed": "The image could not be loaded",
-            "pending": "Scene images and framing are edited in this section.",
             "region": {
                 "empty": "Empty state",
                 "marginLeft": "Text left",
@@ -438,14 +437,22 @@
             "unparsable": "The editor cannot read this position's value: the frame is not draggable, the values still edit.",
             "hint": "Drag a frame on the image and pull its lower-right corner to scale; the workbench changes at the same place. Frames are approximate; real positions follow the window size.",
             "frame": "{{region}} frame",
-            "image": "Scene image"
+            "image": "Scene image",
+            "regions": "Framing positions"
         },
         "transfer": {
             "exported": "Exported {{name}}",
-            "exportedWarn": "Exported {{name}}, but {{count}} entries are below the contrast bar",
+            "exportedWarn": "Exported {{name}}; entries below the contrast bar: {{count}}",
             "exportFailed": "Export failed: cannot read scene image {{reason}}",
-            "imported": "Imported {{count}} theme(s)",
-            "importFailed": "Import failed: {{reason}}"
+            "imported": "Themes imported: {{count}}",
+            "importFailed": "Import failed: {{reason}}",
+            "unexpected": "Something went wrong: {{reason}}",
+            "copyFailed": "Copy failed: the scene image {{reason}} could not be read or uploaded"
+        },
+        "rejected": {
+            "titleEmpty": "The title cannot be empty; nothing was saved",
+            "invalid": "This value cannot be saved: {{reason}}",
+            "saveFailed": "Not saved: {{code}}; the change was undone"
         }
     },
     "editorPages": {

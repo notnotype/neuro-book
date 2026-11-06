@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /** 主题编辑器的“字体”分区（同名 .md）：欢迎页标题与正文各一个字体栈。 */
-import {Button, Input} from "@notnotype/nb-ui/components";
+import {Button} from "@notnotype/nb-ui/components";
 
 import {useWorkbenchText} from "../../text";
+import DraftInput from "./DraftInput.vue";
 import type {ThemeEditorModel} from "./theme-editor-model";
 
 defineOptions({name: "ThemeEditorTypography"});
@@ -27,12 +28,12 @@ const valueOf = (which: "display" | "prose"): string => model.current.value?.dec
         <p class="theme-editor-fonts__hint">{{ text("themeEditor.fonts.hint") }}</p>
         <section v-for="which in FIELDS" :key="which" class="theme-editor-fonts__field" :data-font="which">
             <h3 class="theme-editor-fonts__title">{{ text(`themeEditor.fonts.${which}` as "themeEditor.fonts.display") }}</h3>
-            <Input :model-value="valueOf(which)" :placeholder="text('themeEditor.fonts.placeholder')" :aria-label="text(`themeEditor.fonts.${which}` as 'themeEditor.fonts.display')" @update:model-value="model.setFont(which, $event)" />
+            <DraftInput :value="valueOf(which)" :placeholder="text('themeEditor.fonts.placeholder')" :aria-label="text(`themeEditor.fonts.${which}` as 'themeEditor.fonts.display')" allow-empty @change="model.setFont(which, $event)" />
             <div class="theme-editor-fonts__presets">
                 <Button v-for="preset in PRESETS" :key="preset.id" size="sm" variant="secondary" @click="model.setFont(which, preset.value)">{{ text(`themeEditor.fonts.${preset.id}` as "themeEditor.fonts.serif") }}</Button>
                 <Button size="sm" variant="ghost" :disabled="valueOf(which) === ''" @click="model.setFont(which, '')">{{ text("themeEditor.fonts.clear") }}</Button>
             </div>
-            <p v-if="valueOf(which) !== ''" class="theme-editor-fonts__sample" :style="{fontFamily: valueOf(which)}">{{ which === "display" ? "NeuroBook · 欢迎回来" : "雨从傍晚开始下，一直没有停。" }}</p>
+            <p v-if="valueOf(which) !== ''" class="theme-editor-fonts__sample" :style="{fontFamily: valueOf(which)}">{{ which === "display" ? text("themeEditor.fonts.sampleDisplay") : text("themeEditor.fonts.sampleProse") }}</p>
         </section>
     </div>
 </template>

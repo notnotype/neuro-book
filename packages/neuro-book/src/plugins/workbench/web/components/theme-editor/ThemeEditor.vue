@@ -3,19 +3,20 @@
  * 主题编辑器（同名 .md，docs/specs/theme/editor.md）：我的主题库的选择与增删，左边分区导航，右边一次一个分区。页签与浮动窗口放的
  * 是同一个主体；所有修改交给模型，这里只呈现与转发。
  */
-import {computed, ref} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 
-import {Button, EmptyState, Input, ScrollArea, SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import {Button, EmptyState, ScrollArea, SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {useWorkbenchText} from "../../text";
 import type {ThemeEntry} from "../../themes";
+import DraftInput from "./DraftInput.vue";
 import ThemeEditorChrome from "./ThemeEditorChrome.vue";
 import ThemeEditorScene from "./ThemeEditorScene.vue";
 import type {ThemeTransfer, TransferResult} from "./transfer";
 import ThemeEditorColors from "./ThemeEditorColors.vue";
 import ThemeEditorTypography from "./ThemeEditorTypography.vue";
-import {ThemeEditorModel} from "./theme-editor-model";
+import {SAVE_FAILED, ThemeEditorModel, TITLE_EMPTY} from "./theme-editor-model";
 import type {EditorSection} from "./theme-editor-model";
 
 defineOptions({name: "ThemeEditor"});
@@ -54,40 +55,96 @@ const titleValue = (language: "zh-CN" | "en-US"): string => {
     return typeof title === "object" && title !== null && language in title ? String((title as Record<string, string>)[language]) : "";
 };
 
-/** 删除要点两次：第一次变成“确认删除”，换了主题或点别处就回去。 */
+/**
+ * 删除要点两次：第一次变成“确认删除”，4 秒不再点、换了主题或失焦就回去；第二次点得太快（不到 400ms）不算——快速双击来不及读到
+ * “确认删除”，不该直接删掉。不靠失焦一条：Safari 与 macOS 的 Firefox 点按钮不给按钮焦点。
+ */
 const confirming = ref(false);
+let confirmStarted = 0;
+let confirmTimer: ReturnType<typeof setTimeout> | null = null;
+const resetConfirm = (): void => {
+    confirming.value = false;
+    if (confirmTimer !== null) clearTimeout(confirmTimer);
+    confirmTimer = null;
+};
 const remove = async (): Promise<void> => {
     if (!confirming.value) {
         confirming.value = true;
+        confirmStarted = Date.now();
+        confirmTimer = setTimeout(resetConfirm, 4000);
         return;
     }
-    confirming.value = false;
+    if (Date.now() - confirmStarted < 400) return;
+    resetConfirm();
     await model.remove();
 };
+watch(() => model.selectedId.value, resetConfirm);
+onBeforeUnmount(resetConfirm);
 
 const createFrom = async (id: string): Promise<void> => {
     const entry = props.themes.find((candidate) => candidate.id === id);
     copyFrom.value = "";
-    await model.create(entry ?? null);
+    if (entry === undefined) return;
+    // 复制插件主题：先把它的场景图读出来、传成我的素材，全部成功才建副本（失败不留半个副本）。我的主题的图文件名可以直接共用。
+    const hasScene = entry.declaration.light.scene !== undefined || entry.declaration.dark.scene !== undefined;
+    if (hasScene && entry.plugin !== "user") {
+        const copied = await props.transfer.copyScenes(entry);
+        if (!copied.ok) {
+            transferResult.value = {ok: false, message: {key: "copyFailed", params: {reason: copied.reason}}};
+            return;
+        }
+        await model.create(entry, titleOf(entry.declaration.title), copied.scenes);
+        return;
+    }
+    await model.create(entry, titleOf(entry.declaration.title));
 };
 
 /** 导出与导入的结果：一行提示，成功与失败各一种色。 */
-const transfer = ref<TransferResult | null>(null);
+const transferResult = ref<TransferResult | null>(null);
+/** 意外（读不了的响应、抛错的文件读取）：不当成未处理的拒绝，给一行通用的原因。 */
+const unexpected = ref<string | null>(null);
+const transferring = ref(false);
 const importInput = ref<HTMLInputElement | null>(null);
-const exportTheme = async (): Promise<void> => {
-    transfer.value = await props.transfer.exportTheme();
+const transferWith = async (run: () => Promise<TransferResult | null>): Promise<void> => {
+    if (transferring.value) return;
+    transferring.value = true;
+    unexpected.value = null;
+    try {
+        transferResult.value = await run();
+    } catch (error) {
+        transferResult.value = null;
+        unexpected.value = text("themeEditor.transfer.unexpected", {reason: error instanceof Error ? error.message : String(error)});
+    } finally {
+        transferring.value = false;
+    }
 };
+const exportTheme = (): Promise<void> => transferWith(() => props.transfer.exportTheme());
 const onImportFile = async (event: Event): Promise<void> => {
     const element = event.target as HTMLInputElement;
     const file = element.files?.[0];
     element.value = "";
     if (file === undefined) return;
-    transfer.value = await props.transfer.importArchive(new Uint8Array(await file.arrayBuffer()));
+    await transferWith(async () => props.transfer.importArchive(new Uint8Array(await file.arrayBuffer())));
 };
 const transferText = computed(() => {
-    const result = transfer.value;
-    if (result === null) return null;
+    if (unexpected.value !== null) return unexpected.value;
+    const result = transferResult.value;
+    if (result === null) return "";
     return text(`themeEditor.transfer.${result.message.key}` as "themeEditor.transfer.exported", result.message.params as never);
+});
+/** 提示只属于那一次操作：换了主题或分区就清掉。 */
+watch(() => [model.selectedId.value, model.section.value], () => {
+    transferResult.value = null;
+    unexpected.value = null;
+});
+
+/** 最近一次被拒绝的修改：标题空、取值引外部资源这类写不进去的，行内给原因，不静默。 */
+const rejectedText = computed(() => {
+    const reason = model.rejected.value;
+    if (reason === null) return null;
+    if (reason === TITLE_EMPTY) return text("themeEditor.rejected.titleEmpty");
+    if (reason.startsWith(SAVE_FAILED)) return text("themeEditor.rejected.saveFailed", {code: reason.slice(SAVE_FAILED.length)});
+    return text("themeEditor.rejected.invalid", {reason});
 });
 
 const lightName = computed(() => text("themeEditor.appearance.light"));
@@ -108,12 +165,22 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
                 />
             </div>
             <Button size="sm" variant="secondary" icon-class="i-lucide-plus" data-new @click="model.create()">{{ text("themeEditor.library.new") }}</Button>
+            <div class="theme-editor__copy-from" data-copy-from>
+                <Select
+                    size="sm"
+                    :model-value="copyFrom"
+                    :options="copyOptions"
+                    :placeholder="text('themeEditor.library.copyFrom')"
+                    :aria-label="text('themeEditor.library.copyFrom')"
+                    @update:model-value="createFrom($event)"
+                />
+            </div>
             <Button size="sm" variant="secondary" icon-class="i-lucide-copy" :disabled="model.current.value === null" data-duplicate @click="model.duplicate()">{{ text("themeEditor.library.duplicate") }}</Button>
-            <Button size="sm" :variant="confirming ? 'danger' : 'ghost'" icon-class="i-lucide-trash-2" :disabled="model.current.value === null" data-delete @click="remove" @blur="confirming = false">
+            <Button size="sm" :variant="confirming ? 'danger' : 'ghost'" icon-class="i-lucide-trash-2" :disabled="model.current.value === null" data-delete @click="remove" @blur="resetConfirm">
                 {{ confirming ? text("themeEditor.library.deleteConfirm") : text("themeEditor.library.delete") }}
             </Button>
-            <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
-            <Button size="sm" variant="ghost" icon-class="i-lucide-upload" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
+            <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null || transferring" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
+            <Button size="sm" variant="ghost" icon-class="i-lucide-upload" :disabled="transferring" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
             <input ref="importInput" type="file" accept=".zip,application/zip" class="theme-editor__file" data-import-file @change="onImportFile" />
             <span class="theme-editor__spacer" />
             <SegmentedControl
@@ -127,7 +194,9 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
             <Button v-if="closable" size="sm" variant="ghost" icon-class="i-lucide-x" data-close @click="emit('close')">{{ text("themeEditor.close") }}</Button>
         </header>
 
-        <p v-if="transferText !== null" class="theme-editor__transfer" :data-tone="transfer?.ok ? 'ok' : 'bad'" role="status" data-transfer>{{ transferText }}</p>
+        <!-- 常驻的提示区：读屏对“刚插入”的提示区往往不播报，所以元素一直在，只换内容。 -->
+        <p class="theme-editor__transfer" :data-tone="unexpected !== null || transferResult?.ok === false ? 'bad' : transferResult === null ? '' : 'ok'" role="status" data-transfer>{{ transferText }}</p>
+        <p v-if="rejectedText !== null" class="theme-editor__error" role="alert" data-rejected>{{ rejectedText }}</p>
         <p v-if="model.failure.value !== null" class="theme-editor__error" role="alert" data-library-failed>{{ text("themeEditor.library.failed", {reason: model.failure.value}) }}</p>
 
         <div v-if="!model.ready.value" class="theme-editor__state" role="status" aria-busy="true">{{ text("themeEditor.library.loading") }}</div>
@@ -167,11 +236,11 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
                     <div v-if="model.section.value === 'basic'" class="theme-editor__basic" data-section="basic">
                         <label class="theme-editor__field">
                             <span>{{ text("themeEditor.basic.titleZh") }}</span>
-                            <Input :model-value="titleValue('zh-CN')" @update:model-value="model.setTitle('zh-CN', $event)" />
+                            <DraftInput :value="titleValue('zh-CN')" @change="model.setTitle('zh-CN', $event)" />
                         </label>
                         <label class="theme-editor__field">
                             <span>{{ text("themeEditor.basic.titleEn") }}</span>
-                            <Input :model-value="titleValue('en-US')" @update:model-value="model.setTitle('en-US', $event)" />
+                            <DraftInput :value="titleValue('en-US')" @change="model.setTitle('en-US', $event)" />
                         </label>
                         <div class="theme-editor__field">
                             <span>{{ text("themeEditor.basic.base") }}</span>
@@ -189,7 +258,7 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
                     <ThemeEditorColors v-else-if="model.section.value === 'colors'" :model="model" />
                     <ThemeEditorTypography v-else-if="model.section.value === 'fonts'" :model="model" />
                     <ThemeEditorChrome v-else-if="model.section.value === 'chrome'" :model="model" />
-                    <ThemeEditorScene v-else-if="model.section.value === 'scene'" :model="model" />
+                    <ThemeEditorScene v-else-if="model.section.value === 'scene'" :model="model" :transfer="transfer" />
                     <div v-else class="theme-editor__contrast" data-section="contrast">
                         <p class="theme-editor__hint">{{ text("themeEditor.contrast.legend") }}</p>
                         <h3 class="theme-editor__heading">{{ text("themeEditor.contrast.summary") }}</h3>
@@ -218,7 +287,11 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
     width: 100%;
     height: 100%;
     min-height: 0;
-    background: var(--bg-panel);
+    /*
+     * 实心：正在编辑的 `--bg-panel` 可以写成半透明（取色器与色值输入都允许 rgba），这时面板不能跟着透出后面的工作台。
+     * 把它叠在 `Canvas`（随 color-scheme 的不透明系统底色）上，写成半透明也只是变浅，不会透。
+     */
+    background: linear-gradient(var(--bg-panel), var(--bg-panel)), Canvas;
     color: var(--text-main);
 }
 
@@ -229,6 +302,11 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
     gap: var(--space-3);
     padding: var(--space-4) var(--space-6);
     border-bottom: var(--border-w) solid var(--border-color);
+}
+
+.theme-editor__copy-from {
+    flex: 0 1 150px;
+    min-width: 120px;
 }
 
 .theme-editor__picker {
@@ -244,6 +322,10 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
     margin: 0;
     padding: var(--space-3) var(--space-6);
     font-size: var(--text-xs);
+}
+
+.theme-editor__transfer:empty {
+    padding: 0;
 }
 
 .theme-editor__transfer[data-tone="ok"] {
@@ -297,6 +379,8 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
 }
 
 .theme-editor__nav-item {
+    flex: none;
+    white-space: nowrap;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -335,7 +419,9 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
     min-height: 0;
 }
 
+/* 分区内容自己是容器：配色行与取景编辑按“内容有多宽”换排法，不按整个编辑器（含导航）的宽。 */
 .theme-editor__section {
+    container-type: inline-size;
     max-width: 920px;
     padding: var(--space-6) var(--space-8);
 }

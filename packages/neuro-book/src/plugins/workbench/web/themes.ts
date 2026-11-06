@@ -131,6 +131,12 @@ export class ThemeCatalog {
         return this.#preview.value;
     }
 
+    /** 一个主题在某个明暗下的场景图地址（插件主题走插件文件端点，我的主题走字节读取路由）；没有场景图或解析不出时为 null。 */
+    sceneUrl(entry: ThemeEntry, appearance: "light" | "dark"): string | null {
+        const scene = entry.declaration[appearance].scene;
+        return scene === undefined ? null : this.#assetUrl(entry.plugin, scene);
+    }
+
     get list(): ReadonlyArray<ThemeEntry> {
         return [...this.#entries.value.values(), ...this.#mine.value.values()];
     }

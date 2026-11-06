@@ -260,7 +260,94 @@ test("浮动窗口里是同一个编辑器：实心面、可关闭，关掉后�
 
         await openEditorTab(page);
         await page.setViewportSize({width: 390, height: 844});
-        const overflow = await editor(page).evaluate((element) => element.scrollWidth - element.clientWidth);
-        expect(overflow).toBeLessThanOrEqual(0);
+        // 每个分区都量一次：分区里是 ScrollArea，横向溢出不会让编辑器根的 scrollWidth 变大，所以量分区内容自己和每个配色行。
+        for (const section of ["basic", "colors", "fonts", "chrome", "scene", "contrast"]) {
+            await page.locator(`[data-section-tab=${section}]`).click();
+            const content = page.locator(`[data-section=${section}]`);
+            await expect(content).toBeVisible();
+            await expect.poll(() => content.evaluate((element) => element.scrollWidth - element.clientWidth), {message: `${section} 分区横向溢出`}).toBeLessThanOrEqual(0);
+        }
+        await page.locator("[data-section-tab=colors]").click();
+        const overflowing = await page.locator("[data-color-field]").evaluateAll((rows) => rows.filter((row) => row.scrollWidth > row.clientWidth + 1).map((row) => (row as HTMLElement).dataset.colorField));
+        expect(overflowing).toEqual([]);
+        // 窄屏下色值输入放得下完整的色值（#rrggbb 要 70px 以上）。
+        expect((await colorInput(page, "--bg-panel").boundingBox())?.width ?? 0).toBeGreaterThan(90);
+    });
+});
+
+test("复制插件主题（库里已有主题时也能）；删除正在使用的主题：设置不改写，退回缺省；快速双击不会直接删除", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+
+        // 库里已有一套：顶栏的“复制自…”照样能从插件主题（macOS）起步。
+        await page.locator("[data-copy-from]").getByRole("combobox").click();
+        await page.getByRole("option", {name: "macOS"}).click();
+        await expect(page.locator("[data-theme-editor] [data-section=basic] input").first()).toHaveValue("macOS 副本");
+        await page.locator("[data-section-tab=basic]").click();
+        await expect(page.locator("[data-base]").getByRole("radio", {name: "macOS"})).toBeChecked();
+
+        // 选它为当前主题，再删掉：设置里的值不改写。
+        await expect(async () => {
+            await page.keyboard.press("Control+,");
+            await expect(page.locator("[data-settings-nav-current]")).toBeFocused({timeout: 500});
+        }).toPass();
+        await page.locator("[data-settings-row=\"nbook.workbench/theme\"]").getByRole("combobox").click();
+        await page.getByRole("option", {name: "macOS 副本 · 我的"}).click();
+        await expect.poll(async () => (JSON.parse(await readFile(join(session.stateRoot, "settings.json"), "utf8")) as Record<string, string>)[THEME]).toMatch(/^user:/u);
+        const chosen = (JSON.parse(await readFile(join(session.stateRoot, "settings.json"), "utf8")) as Record<string, string>)[THEME];
+        await page.keyboard.press("Escape");
+
+        // 快速双击“删除”不删：第二下来不及读到“确认删除”。
+        await page.locator("[data-delete]").dblclick();
+        await expect(page.locator("[data-delete]")).toContainText("确认删除");
+        const before = await page.locator("[data-theme-editor] [data-section-tab]").count();
+        expect(before).toBeGreaterThan(0);
+        // 隔开一会儿再点第二下：真的删。
+        await page.waitForTimeout(600);
+        await page.locator("[data-delete]").click();
+        await expect.poll(async () => (JSON.parse(await readFile(join(session.stateRoot, "settings.json"), "utf8")) as Record<string, string>)[THEME]).toBe(chosen);
+        await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
+    });
+});
+
+test("编辑面板始终实心：把正在编辑的 --bg-panel 改成半透明，面板的背景仍不透；取值引外部资源被拒绝并给出原因", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=colors]").click();
+
+        await colorInput(page, "--bg-panel").fill("rgba(0, 0, 0, 0.3)");
+        await expect.poll(() => rootVar(page, "--bg-panel")).toBe("rgba(0, 0, 0, 0.3)");
+        // 面板的底是“--bg-panel 叠在不透明的 Canvas 上”：最底下一层不透明。
+        const layers = await editor(page).evaluate((element) => getComputedStyle(element).backgroundColor);
+        expect(layers, `编辑面板的底色（Canvas 层）不能透明：${layers}`).not.toMatch(/rgba\(.*,\s*0\)$/u);
+
+        await colorInput(page, "--bg-main").fill("url(https://example.com/x.png)");
+        await expect(page.locator("[data-rejected]")).toBeVisible();
+        await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
+        expect(await rootVar(page, "--bg-main")).not.toContain("url(");
+    });
+});
+
+test("切到别的页签再回来：编辑的还是同一套、同一个明暗、同一个分区", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-appearance]").getByText("暗色").click();
+        await page.locator("[data-section-tab=colors]").click();
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+
+        // 切到欢迎页再切回来。
+        await page.locator("[data-editor-tab]").first().click();
+        await expect(editor(page)).toBeHidden();
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "light");
+        await page.locator("[data-editor-tab]").last().click();
+        await expect(editor(page)).toBeVisible();
+        await expect(page.locator("[data-section-tab=colors]")).toHaveAttribute("aria-current", "page");
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
     });
 });

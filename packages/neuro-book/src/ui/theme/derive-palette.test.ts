@@ -15,6 +15,11 @@ const SEEDS: ReadonlyArray<[string, PaletteSeed]> = [
     ["纯黑底", {background: "#000000", text: "#ffffff", accent: "#22c55e", appearance: "dark"}],
     ["文字太浅的亮色", {background: "#f5f5f5", text: "#bbbbbb", accent: "#fbbf24", appearance: "light"}],
     ["文字太深的暗色", {background: "#1a1a1a", text: "#555555", accent: "#7c3aed", appearance: "dark"}],
+    ["中灰底（回归：曾往白调，最差只有 3.19）", {background: "#888888", text: "#777777", accent: "#527f57", appearance: "light"}],
+    ["取整后才够的粉底（回归：弱化文字对悬停底曾是 4.4964）", {background: "#f4c2b4", text: "#888888", accent: "#527f57", appearance: "light"}],
+    ["蓝底亮色（回归：危险色对自己的底曾是 4.14）", {background: "#0000ff", text: "#ffffff", accent: "#ff00ff", appearance: "light"}],
+    ["黑底亮色（回归：危险色曾是 4.48）", {background: "#000000", text: "#ffffff", accent: "#22c55e", appearance: "light"}],
+    ["白底暗色（回归：曾是 4.36）", {background: "#ffffff", text: "#000000", accent: "#2563eb", appearance: "dark"}],
     ["通道取整后才够的浅绿（回归：弱化文字曾是 4.49）", {background: "#e8f0e0", text: "#1d2a20", accent: "#2f6f4f", appearance: "light"}],
 ];
 

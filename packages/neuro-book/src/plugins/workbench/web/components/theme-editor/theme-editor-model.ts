@@ -6,6 +6,10 @@
  */
 
 import {computed, onScopeDispose, shallowRef, watchEffect} from "vue";
+import type {ShallowRef} from "vue";
+
+import {createEditorState} from "./editor-state";
+import type {Appearance, EditorSection, ThemeEditorState} from "./editor-state";
 
 import {derivePalette, mirrorSeed} from "nbook/ui/theme/derive-palette";
 import type {PaletteSeed} from "nbook/ui/theme/derive-palette";
@@ -13,13 +17,18 @@ import {checkContrast} from "nbook/ui/theme/contrast-checks";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
 import type {ThemeDeclaration} from "../../../shared/themes";
+import {THEME_ASSET_NAME, userThemeProblem, validUserThemes} from "../../../shared/user-themes";
 import type {CropCss, CropRegion} from "./crop-model";
 import type {UserTheme} from "../../../shared/user-themes";
+import type {CommitResult} from "nbook/shared/store/store";
 import type {ThemeCatalog, ThemeEntry} from "../../themes";
 import type {UserThemesStore} from "../../user-themes-store";
 
-export type EditorSection = "basic" | "colors" | "fonts" | "chrome" | "scene" | "contrast";
-export type Appearance = "light" | "dark";
+/** 标题为空被拒绝时 `rejected` 的值；界面据此显示专门的文案。 */
+export const TITLE_EMPTY = "title-empty";
+/** 保存确定失败（超限、值不合法、读写出错）时 `rejected` 的前缀，后面跟失败码；这次改动已经撤回。 */
+export const SAVE_FAILED = "save-failed:";
+
 
 /** 三个主色对应的变量：推导整套的输入。 */
 export const SEED_KEYS = {background: "--bg-main", text: "--text-main", accent: "--accent-main"} as const;
@@ -31,7 +40,12 @@ export interface ThemeEditorEnvironment {
     /** 主题包在某个明暗下的缺省配色（`ui/theme/product-themes.ts` 的 `baseColors`）。 */
     readonly baseColors: (base: string, appearance: Appearance) => Readonly<Record<string, string>>;
     readonly newId: () => string;
+    /** 打开编辑器时正在用的明暗（`system` 已按系统换成亮或暗）：初始预览取它，不让暗色界面一打开就跳成亮色。 */
+    readonly currentAppearance: () => Appearance;
 }
+
+export {createEditorState} from "./editor-state";
+export type {Appearance, EditorSection, ThemeEditorState} from "./editor-state";
 
 type Look = ThemeDeclaration["light"];
 
@@ -46,12 +60,14 @@ const edited = (theme: UserTheme, change: (draft: UserTheme) => void): UserTheme
 
 export class ThemeEditorModel {
     readonly #env: ThemeEditorEnvironment;
-    readonly section = shallowRef<EditorSection>("basic");
-    readonly appearance = shallowRef<Appearance>("light");
-    readonly #selectedId = shallowRef<string | null>(null);
+    readonly section: ShallowRef<EditorSection>;
+    readonly appearance: ShallowRef<Appearance>;
+    readonly #selectedId: ShallowRef<string | null>;
+    /** 最近一次被拒绝或没能保存的修改的原因；下一次成功的修改清掉。界面据此显示“没有写入”。 */
+    readonly rejected = shallowRef<string | null>(null);
 
-    /** 我的主题，按库里的顺序。 */
-    readonly mine = computed(() => this.#env.store.state.themes.display.themes as ReadonlyArray<UserTheme>);
+    /** 我的主题，按库里的顺序；记录里不合格的条目不在这里（它们留在记录里，只是不进列表也不进编辑器）。 */
+    readonly mine = computed(() => validUserThemes(this.#env.store.state.themes.display.themes));
     readonly selectedId = computed(() => {
         const id = this.#selectedId.value;
         if (id !== null && this.mine.value.some((theme) => theme.id === id)) return id;
@@ -78,8 +94,11 @@ export class ThemeEditorModel {
             .map((check) => ({appearance, check})));
     });
 
-    constructor(env: ThemeEditorEnvironment) {
+    constructor(env: ThemeEditorEnvironment, state: ThemeEditorState = createEditorState(env.currentAppearance())) {
         this.#env = env;
+        this.section = state.section;
+        this.appearance = state.appearance;
+        this.#selectedId = state.selectedId;
         // 编辑器开着（这个模型活着）时，工作台用选中的主题与明暗预览；没有可编的主题时不覆盖。
         watchEffect(() => {
             const id = this.selectedId.value;
@@ -100,34 +119,63 @@ export class ThemeEditorModel {
         this.#selectedId.value = id;
     }
 
+    // ---- 提交的结果 ----
+
+    /** 一次提交的结果：确定失败就撤回这次改动（含排在它后面的），原因记进 `rejected`；返回有没有成功。 */
+    #settle(result: CommitResult): boolean {
+        if (result === "failed" || result === "protected" || result === "unknown") {
+            const code = this.#env.store.actions.discardFailed();
+            this.rejected.value = `${SAVE_FAILED}${code ?? result}`;
+            return false;
+        }
+        return true;
+    }
+
     // ---- 库 ----
 
-    /** 新建：从主题包缺省配色起步，或复制目录里任一套（插件主题的场景图在这里不带，见复制素材）。返回新条目的 id。 */
-    async create(from: ThemeEntry | null = null): Promise<string> {
+    /**
+     * 新建：从主题包缺省配色起步，或复制目录里任一套。复制时标题加“副本”（`fromTitle` 是界面上现在显示的标题：插件主题的标题常是
+     * 文字引用，解不出两种语言）；`scenes` 是已经复制成我的素材的场景图文件名，不给时复制用户主题保留原名、插件主题不带图。
+     * 返回新条目的 id，没写成功时为 null。
+     */
+    async create(from: ThemeEntry | null = null, fromTitle?: string, scenes?: {readonly light?: string; readonly dark?: string}): Promise<string | null> {
         const id = `user:${this.#env.newId()}`;
         const base = from?.declaration.base ?? "nbook";
         const declaration: ThemeDeclaration = from === null
             ? {title: {"zh-CN": "新主题", "en-US": "New theme"}, base, light: {colors: {...this.#env.baseColors(base, "light")}}, dark: {colors: {...this.#env.baseColors(base, "dark")}}}
-            : this.#copied(from.declaration);
-        await this.#env.store.actions.create({id, declaration});
+            : this.#copied(from.declaration, fromTitle, scenes);
+        if (!this.#settle(await this.#env.store.actions.create({id, declaration}))) return null;
+        this.rejected.value = null;
         this.#selectedId.value = id;
         return id;
     }
 
-    #copied(declaration: ThemeDeclaration): ThemeDeclaration {
+    /**
+     * 复制出的声明：标题加“副本”。场景图：给了 `scenes` 就用它；没给时保留原声明里的（用户主题的素材文件名可以直接共用——文件名是
+     * 内容摘要），插件主题的是包内相对路径，不能直接用，所以去掉。
+     */
+    #copied(declaration: ThemeDeclaration, shown?: string, scenes?: {readonly light?: string; readonly dark?: string}): ThemeDeclaration {
         const copy = structuredClone(declaration);
-        delete copy.light.scene;
-        delete copy.dark.scene;
-        const title = typeof copy.title === "object" && "zh-CN" in copy.title ? copy.title : {"zh-CN": "副本", "en-US": "Copy"};
-        return {...copy, title: {"zh-CN": `${String((title as Record<string, string>)["zh-CN"])} 副本`, "en-US": `${String((title as Record<string, string>)["en-US"] ?? (title as Record<string, string>)["zh-CN"])} copy`}};
+        for (const appearance of ["light", "dark"] as const) {
+            const scene = scenes === undefined ? copy[appearance].scene : scenes[appearance];
+            // 只有“我的素材”的文件名（内容摘要加扩展名）能直接共用；插件主题里的包内相对路径不行。
+            if (scene !== undefined && THEME_ASSET_NAME.test(scene)) copy[appearance].scene = scene;
+            else delete copy[appearance].scene;
+        }
+        const title = copy.title as unknown;
+        const both = typeof title === "object" && title !== null && "zh-CN" in title && "en-US" in title ? title as Record<string, string> : null;
+        const zh = both?.["zh-CN"] ?? shown ?? (typeof title === "string" ? title : "");
+        const en = both?.["en-US"] ?? shown ?? (typeof title === "string" ? title : "");
+        return {...copy, title: {"zh-CN": zh === "" ? "副本" : `${zh} 副本`, "en-US": en === "" ? "Copy" : `${en} copy`}};
     }
 
-    /** 导入：把一份声明（素材已经写好、`scene` 已换成素材文件名）加进库里，选中它。 */
-    async add(declaration: ThemeDeclaration): Promise<string> {
-        const id = `user:${this.#env.newId()}`;
-        await this.#env.store.actions.create({id, declaration});
-        this.#selectedId.value = id;
-        return id;
+    /** 导入：把几份声明（素材已经写好、`scene` 已换成素材文件名）一次加进库里，选中第一套。一个提交点：要么都进要么都不进。 */
+    async addMany(declarations: ReadonlyArray<ThemeDeclaration>): Promise<boolean> {
+        const added = declarations.map((declaration) => ({id: `user:${this.#env.newId()}`, declaration}));
+        if (!this.#settle(await this.#env.store.actions.createMany(added))) return false;
+        this.rejected.value = null;
+        this.#selectedId.value = added[0]?.id ?? this.#selectedId.value;
+        return true;
     }
 
     async duplicate(): Promise<string | null> {
@@ -139,25 +187,43 @@ export class ThemeEditorModel {
     async remove(): Promise<void> {
         const id = this.selectedId.value;
         if (id === null) return;
-        await this.#env.store.actions.remove(id);
+        if (!this.#settle(await this.#env.store.actions.remove(id))) return;
         this.#selectedId.value = null;
     }
 
     // ---- 修改 ----
 
-    #update(change: (draft: UserTheme) => void): Promise<unknown> {
-        const id = this.selectedId.value;
-        return id === null ? Promise.resolve() : this.#env.store.actions.update(id, (theme) => edited(theme, change));
+    /**
+     * 所有修改的入口：先在副本上改、过一遍“我的主题”的校验，不合格不写（原因记在 `rejected`）；写了再看提交结果，确定失败就撤回。
+     * 目标主题与明暗都在动作发起时定下（`target`、`appearance` 参数，缺省取此刻的），提交排队、重放、跨 await 时都不再读界面上
+     * 可变的“当前”：否则亮色下的修改在排队时切到暗色，会写进暗色并留下相反的手改标记。
+     */
+    async #update(change: (draft: UserTheme, appearance: Appearance) => void, target: string | null = this.selectedId.value, appearance: Appearance = this.appearance.value): Promise<unknown> {
+        if (target === null) return undefined;
+        const current = this.mine.value.find((theme) => theme.id === target);
+        if (current === undefined) return undefined;
+        const problem = this.#problemOf(edited(current, (draft) => change(draft, appearance)));
+        this.rejected.value = problem;
+        if (problem !== null) return undefined;
+        const result = await this.#env.store.actions.update(target, (theme) => edited(theme, (draft) => change(draft, appearance)));
+        this.#settle(result);
+        return result;
     }
 
-    #look(draft: UserTheme): Look {
-        return draft.declaration[this.appearance.value];
+    #problemOf(theme: UserTheme): string | null {
+        const title = theme.declaration.title;
+        const names = typeof title === "object" && title !== null ? Object.values(title as Record<string, unknown>) : [title];
+        if (names.every((name) => typeof name !== "string" || name.trim() === "")) return TITLE_EMPTY;
+        return userThemeProblem(theme);
     }
 
     setTitle(language: "zh-CN" | "en-US", value: string): Promise<unknown> {
         return this.#update((draft) => {
-            const title = typeof draft.declaration.title === "object" ? draft.declaration.title as Record<string, string> : {};
-            draft.declaration.title = {"zh-CN": title["zh-CN"] ?? "", "en-US": title["en-US"] ?? "", [language]: value};
+            const title = draft.declaration.title as unknown;
+            const known = typeof title === "object" && title !== null ? title as Record<string, string> : {};
+            // 标题是字符串时它对两种语言都显示：改一种语言，另一种保留原来的字。
+            const base = typeof title === "string" ? title : "";
+            draft.declaration.title = {"zh-CN": known["zh-CN"] ?? base, "en-US": known["en-US"] ?? base, [language]: value};
         });
     }
 
@@ -169,9 +235,8 @@ export class ThemeEditorModel {
 
     /** 手改一个配色变量：记为手改过，再推导时不覆盖。 */
     setColor(name: string, value: string): Promise<unknown> {
-        const appearance = this.appearance.value;
-        return this.#update((draft) => {
-            const look = this.#look(draft);
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
             look.colors = {...look.colors, [name]: value};
             const touched = new Set(draft.editor?.touched ?? []);
             touched.add(touchedKey(appearance, name));
@@ -181,8 +246,8 @@ export class ThemeEditorModel {
 
     /** 改一个主色：它是推导的输入，不算手改。 */
     setSeed(seed: SeedName, value: string): Promise<unknown> {
-        return this.#update((draft) => {
-            const look = this.#look(draft);
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
             look.colors = {...look.colors, [SEED_KEYS[seed]]: value};
         });
     }
@@ -192,17 +257,16 @@ export class ThemeEditorModel {
         return {background: colors[SEED_KEYS.background] ?? "", text: colors[SEED_KEYS.text] ?? "", accent: colors[SEED_KEYS.accent] ?? "", appearance: this.appearance.value};
     }
 
-    /** 由三个主色推导整套：只填没手改过的项；主色读不懂时什么都不做并返回 false。 */
+    /** 由三个主色推导整套：除了手改过的项都填（主色里的文字色不够对比度时推导会调它，也要写回）；主色读不懂时什么都不做并返回 false。 */
     async derive(): Promise<boolean> {
         const palette = derivePalette(this.seeds());
         if (palette === null) return false;
-        const appearance = this.appearance.value;
-        await this.#update((draft) => {
+        await this.#update((draft, appearance) => {
             const touched = new Set(draft.editor?.touched ?? []);
-            const look = this.#look(draft);
+            const look = draft.declaration[appearance];
             const next: Record<string, string> = {...look.colors};
             for (const [name, value] of Object.entries(palette)) {
-                if (touched.has(touchedKey(appearance, name)) || Object.values(SEED_KEYS).includes(name as never)) continue;
+                if (touched.has(touchedKey(appearance, name))) continue;
                 next[name] = value;
             }
             look.colors = next;
@@ -214,9 +278,8 @@ export class ThemeEditorModel {
     async resetColor(name: string): Promise<boolean> {
         const palette = derivePalette(this.seeds());
         if (palette === null || !(name in palette)) return false;
-        const appearance = this.appearance.value;
-        await this.#update((draft) => {
-            const look = this.#look(draft);
+        await this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
             look.colors = {...look.colors, [name]: palette[name as keyof typeof palette]};
             draft.editor = {touched: (draft.editor?.touched ?? []).filter((entry) => entry !== touchedKey(appearance, name))};
         });
@@ -227,20 +290,21 @@ export class ThemeEditorModel {
     async deriveFromOther(): Promise<boolean> {
         const theme = this.current.value;
         if (theme === null) return false;
-        const other: Appearance = this.appearance.value === "light" ? "dark" : "light";
+        const appearance = this.appearance.value;
+        const other: Appearance = appearance === "light" ? "dark" : "light";
         const colors = {...this.#env.baseColors(theme.declaration.base, other), ...(theme.declaration[other].colors ?? {})};
-        const mirrored = mirrorSeed({background: colors[SEED_KEYS.background] ?? "", text: colors[SEED_KEYS.text] ?? "", accent: colors[SEED_KEYS.accent] ?? "", appearance: other}, this.appearance.value);
+        const mirrored = mirrorSeed({background: colors[SEED_KEYS.background] ?? "", text: colors[SEED_KEYS.text] ?? "", accent: colors[SEED_KEYS.accent] ?? "", appearance: other}, appearance);
         if (mirrored === null) return false;
-        await this.#update((draft) => {
-            const look = this.#look(draft);
+        await this.#update((draft, at) => {
+            const look = draft.declaration[at];
             look.colors = {...look.colors, [SEED_KEYS.background]: mirrored.background, [SEED_KEYS.text]: mirrored.text, [SEED_KEYS.accent]: mirrored.accent};
         });
         return this.derive();
     }
 
     setRoleVar(name: string, value: string | undefined): Promise<unknown> {
-        return this.#update((draft) => {
-            const look = this.#look(draft);
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
             const vars: Record<string, string> = {...look.vars};
             if (value === undefined || value === "") delete vars[name];
             else vars[name] = value;
@@ -262,8 +326,8 @@ export class ThemeEditorModel {
     /** 活动栏的一个字段；还没有活动栏声明时先用当前配色补全三个必填项。传 `undefined` 的 `ornament` 去掉装饰。 */
     setActivityBar(field: "surface" | "foreground" | "active" | "ornament", value: string | undefined): Promise<unknown> {
         const colors = this.colors.value;
-        return this.#update((draft) => {
-            const look = this.#look(draft);
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
             const bar = {surface: colors["--bg-sidebar"] ?? "#222222", foreground: colors["--text-main"] ?? "#eeeeee", active: colors["--accent-main"] ?? "#cc8800", ...look.activityBar};
             if (value === undefined || value === "") {
                 if (field === "ornament") delete (bar as {ornament?: string}).ornament;
@@ -275,14 +339,14 @@ export class ThemeEditorModel {
     }
 
     removeActivityBar(): Promise<unknown> {
-        return this.#update((draft) => {
-            delete this.#look(draft).activityBar;
+        return this.#update((draft, appearance) => {
+            delete draft.declaration[appearance].activityBar;
         });
     }
 
     setFrameLine(value: string | undefined): Promise<unknown> {
-        return this.#update((draft) => {
-            const look = this.#look(draft);
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
             if (value === undefined || value === "") delete look.frame;
             else look.frame = {line: value};
         });
@@ -290,13 +354,13 @@ export class ThemeEditorModel {
 
     // ---- 场景 ----
 
-    /** 当前明暗的场景图：写素材文件名；`undefined` 去掉。 */
-    setScene(name: string | undefined): Promise<unknown> {
-        return this.#update((draft) => {
-            const look = this.#look(draft);
+    /** 一个明暗的场景图：写素材文件名；`undefined` 去掉。`target` 是发起时定下的主题与明暗（上传要几秒，期间用户可能切走）。 */
+    setScene(name: string | undefined, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<unknown> {
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
             if (name === undefined) delete look.scene;
             else look.scene = name;
-        });
+        }, target?.id ?? this.selectedId.value, target?.appearance ?? this.appearance.value);
     }
 
     /**

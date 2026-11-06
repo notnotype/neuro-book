@@ -128,20 +128,39 @@ export function withLightness(color: Rgba, lightness: number): Rgba {
 }
 
 /**
- * 把前景往“更醒目”的方向调明度，直到对每个背景都不低于 `minimum`。背景是亮色时往暗调，暗色时往亮调；一直到头都不够时，
- * 返回已经调到极限的那个（纯黑或纯白）。
+ * 把前景调到对每个背景都不低于 `minimum`，保持色相与色度，只调明度。方向由“哪一端能达标”决定：纯黑与纯白里只有一端对所有背景
+ * 达标就往那一端调；两端都行就留在前景原来偏的那一侧（比背景浅的往更浅、比背景深的往更深）；两端都不行（背景在中灰上）没有
+ * 单个颜色能满足，返回对最差背景更好的那一端，不假装达标。
+ *
+ * 结果要写成 `#rrggbb`，通道会取整：判断都按取整后的颜色做，否则 4.5 整的边界上写出去的值会掉到 4.49。背景可以是函数：
+ * 状态色的底是它自己叠出来的半透明色，前景一变底就变，每个候选都要按它自己的底重新判断。
  */
-export function ensureContrast(foreground: Rgba, backgrounds: ReadonlyArray<Rgba>, minimum: number): Rgba {
-    // 结果要写成 `#rrggbb`，通道会取整：按取整后的颜色判断，否则 4.5 整的边界上写出去的值会掉到 4.49。
+export function ensureContrast(foreground: Rgba, backgrounds: ReadonlyArray<Rgba> | ((candidate: Rgba) => ReadonlyArray<Rgba>), minimum: number): Rgba {
     const rounded = (color: Rgba): Rgba => ({r: clampByte(color.r), g: clampByte(color.g), b: clampByte(color.b), a: color.a});
-    const meets = (candidate: Rgba): boolean => backgrounds.every((background) => contrast(rounded(candidate), background) >= minimum);
+    const surfacesOf = (candidate: Rgba): ReadonlyArray<Rgba> => (typeof backgrounds === "function" ? backgrounds(candidate) : backgrounds);
+    const worst = (candidate: Rgba): number => {
+        const fixed = rounded(candidate);
+        return Math.min(...surfacesOf(fixed).map((background) => contrast(fixed, background)));
+    };
+    const meets = (candidate: Rgba): boolean => worst(candidate) >= minimum;
     if (meets(foreground)) return foreground;
-    const averageLuminance = backgrounds.reduce((sum, background) => sum + luminance(background), 0) / backgrounds.length;
-    const direction = averageLuminance > 0.4 ? -1 : 1;
-    let candidate = foreground;
+
+    const black: Rgba = {r: 0, g: 0, b: 0, a: 1};
+    const white: Rgba = {r: 255, g: 255, b: 255, a: 1};
+    const [blackWorks, whiteWorks] = [meets(black), meets(white)];
+    let direction: -1 | 1;
+    if (blackWorks !== whiteWorks) {
+        direction = blackWorks ? -1 : 1;
+    } else if (blackWorks) {
+        const surfaces = surfacesOf(rounded(foreground));
+        const average = surfaces.reduce((sum, background) => sum + luminance(background), 0) / surfaces.length;
+        direction = luminance(foreground) > average ? 1 : -1;
+    } else {
+        return worst(black) >= worst(white) ? black : white;
+    }
     for (let step = 1; step <= 40; step += 1) {
-        candidate = withLightness(foreground, toOklch(foreground).l + (direction * step) / 40);
+        const candidate = withLightness(foreground, toOklch(foreground).l + (direction * step) / 40);
         if (meets(candidate)) return candidate;
     }
-    return direction < 0 ? {r: 0, g: 0, b: 0, a: 1} : {r: 255, g: 255, b: 255, a: 1};
+    return direction < 0 ? black : white;
 }

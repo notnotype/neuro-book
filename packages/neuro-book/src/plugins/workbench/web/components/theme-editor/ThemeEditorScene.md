@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject, io:mutate]
+标签: [state:local, state:inject]
 别名: ["主题编辑器的场景分区", "Theme Editor Scene"]
 验证入口: ThemeEditor
 ---
@@ -14,19 +14,15 @@
 
 ## 交互
 
-- 选文件：浏览器先把图缩到最长边 2560px 以内、转成 WebP（不支持时 PNG），再经 `PUT /api/nbook.files/theme-assets` 上传；原图不留。成功后把返回的文件名写进当前明暗的 `scene`，状态文字写体积，超过建议的 300 KB 时改写成提示，不拒绝。
+- 选文件：浏览器先把图缩到最长边 2560px 以内、转成 WebP（不支持时 PNG），再经 `transfer.uploadScene`（持有者发 `PUT /api/nbook.files/theme-assets`）上传；原图不留。目标（哪一套主题、哪个明暗）在选文件时就定下，处理与上传期间切了明暗或换了主题，图也落在发起时的那一套上。成功后把返回的文件名写进当前明暗的 `scene`，状态文字写体积，超过建议的 300 KB 时改写成提示，不拒绝。
 - 失败（超限、类型不对、符号链接、网络）：显示路由给的原因，原来的图不动。
 - 移除：只去掉当前明暗的 `scene`，素材文件不删（文件名是内容摘要，留着不重复）。
-- 换了图：取景编辑整个重建（按图的地址作 key），框按新图的比例重新算。
-
-## 为什么自己发请求
-
-上传是用户选了文件之后才发生的一次写入：文件在这个组件的 `<input type=file>` 里，要先在浏览器里缩小、转码再上传，结果（文件名）立刻要写进声明并显示进度与失败原因。这一串由同一个用户动作驱动，放在宿主里再传回结果只会多一层转发；写入本身经路由的校验（类型、大小、符号链接），组件不做授权判断。
+- 换了图：取景编辑整个重建（按图的地址作 key），框按新图的比例重新算；上一张图的“图片加载失败”随图换掉。
 
 ## 数据
 
 ```ts
-type Props = {model: ThemeEditorModel};
+type Props = {model: ThemeEditorModel; transfer: ThemeTransfer};
 ```
 
 文字取自 `nbook.workbench` 的 `themeEditor.scene.*`，经注入的翻译端口。

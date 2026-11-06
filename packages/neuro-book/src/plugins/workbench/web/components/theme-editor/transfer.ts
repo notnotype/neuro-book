@@ -4,9 +4,11 @@
  */
 
 import {userThemeSceneUrl} from "../../themes";
+import type {ThemeEntry} from "../../themes";
 import type {ThemeDeclaration} from "../../../shared/themes";
 import {exportPackage, readPackage} from "./package-io";
 import {uploadScene} from "./scene-upload";
+import type {UploadResult} from "./scene-upload";
 import type {ThemeEditorModel} from "./theme-editor-model";
 
 /** 编辑器主体要的两个动作：由持有者（`ThemeEditorHolder`）用真实的请求实现，Lab 里换成空的。 */
@@ -14,9 +16,13 @@ export interface ThemeTransfer {
     /** 导出当前选中的主题；没有选中的主题时返回 null。 */
     exportTheme(): Promise<TransferResult | null>;
     importArchive(archive: Uint8Array): Promise<TransferResult>;
+    /** 上传一张已经缩好、转好码的场景图，成功返回素材文件名。 */
+    uploadScene(blob: Blob): Promise<UploadResult>;
+    /** 复制插件主题的场景图：读出来、传成我的素材，全部成功才返回文件名；任何一张读不到或传不上就整个失败，不留半个副本。 */
+    copyScenes(entry: ThemeEntry): Promise<{readonly ok: true; readonly scenes: {readonly light?: string; readonly dark?: string}} | {readonly ok: false; readonly reason: string}>;
 }
 
-export type TransferResult = {readonly ok: true; readonly message: {readonly key: "exported" | "exportedWarn" | "imported"; readonly params: Readonly<Record<string, string | number>>}} | {readonly ok: false; readonly message: {readonly key: "exportFailed" | "importFailed"; readonly params: Readonly<Record<string, string>>}};
+export type TransferResult = {readonly ok: true; readonly message: {readonly key: "exported" | "exportedWarn" | "imported"; readonly params: Readonly<Record<string, string | number>>}} | {readonly ok: false; readonly message: {readonly key: "exportFailed" | "importFailed" | "copyFailed"; readonly params: Readonly<Record<string, string>>}};
 
 const readAsset = async (name: string): Promise<Uint8Array | null> => {
     const url = userThemeSceneUrl(name);
@@ -64,6 +70,22 @@ export async function importArchive(model: ThemeEditorModel, archive: Uint8Array
         }
         prepared.push(declaration);
     }
-    for (const declaration of prepared) await model.add(declaration);
+    // 一个提交点：几套一起进，超限或写失败时一套也不进，不留半个包。
+    if (!(await model.addMany(prepared))) return {ok: false, message: {key: "importFailed", params: {reason: model.rejected.value ?? ""}}};
     return {ok: true, message: {key: "imported", params: {count: prepared.length}}};
+}
+
+/** 复制插件主题的场景图：地址由持有者按插件解析好；读不到、传不上都整个失败。 */
+export async function copyPluginScenes(entry: ThemeEntry, sceneUrl: (appearance: "light" | "dark") => string | null): Promise<Awaited<ReturnType<ThemeTransfer["copyScenes"]>>> {
+    const scenes: {light?: string; dark?: string} = {};
+    for (const appearance of ["light", "dark"] as const) {
+        if (entry.declaration[appearance].scene === undefined) continue;
+        const url = sceneUrl(appearance);
+        const response = url === null ? null : await fetch(url).catch(() => null);
+        if (response === null || !response.ok) return {ok: false, reason: entry.declaration[appearance].scene ?? ""};
+        const uploaded = await uploadScene(await response.blob());
+        if (!uploaded.ok) return {ok: false, reason: uploaded.reason};
+        scenes[appearance] = uploaded.name;
+    }
+    return {ok: true, scenes};
 }

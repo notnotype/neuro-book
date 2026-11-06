@@ -29,10 +29,17 @@ export const UserThemeSchema = Type.Object({
 
 export type UserTheme = Static<typeof UserThemeSchema>;
 
-/** 记录值：用对象包一层，Storage 的记录顶层必须是对象。 */
-export const UserThemesSchema = Type.Object({themes: Type.Array(UserThemeSchema)}, {additionalProperties: false});
+/**
+ * 记录值：用对象包一层（Storage 的记录顶层必须是对象）。条目在记录层只当“任意值”：一条坏条目（别的版本写的、手改坏的）让整个
+ * 记录被 Storage 判为损坏，别的正常主题也跟着消失；所以记录只验容器，条目由 `userThemeProblem` 逐条验，坏条目留在记录里不改写、
+ * 只是不进主题列表也不进编辑器。
+ */
+export const UserThemesSchema = Type.Object({themes: Type.Array(Type.Unknown())}, {additionalProperties: false});
 
 export type UserThemes = Static<typeof UserThemesSchema>;
+
+/** 记录里合格的条目；坏条目跳过。 */
+export const validUserThemes = (themes: ReadonlyArray<unknown>): ReadonlyArray<UserTheme> => themes.filter((theme) => userThemeProblem(theme) === null) as ReadonlyArray<UserTheme>;
 
 /** 每套声明几 KB，512 KiB 够放一百多套带 `editor` 标记的主题；素材不在记录里。 */
 export const USER_THEMES_RECORD = defineRecord({key: "user-themes", scope: "user", locality: "shared", version: 1, maxBytes: 512 * 1024, schema: UserThemesSchema});

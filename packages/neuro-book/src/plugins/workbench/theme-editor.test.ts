@@ -22,7 +22,8 @@ import type {Rgba} from "nbook/ui/theme/color";
 import type {UserTheme} from "./shared/user-themes";
 import {ThemeCatalog} from "./web/themes";
 import type {ThemeEntry} from "./web/themes";
-import {ThemeEditorModel} from "./web/components/theme-editor/theme-editor-model";
+import {ThemeEditorModel, TITLE_EMPTY} from "./web/components/theme-editor/theme-editor-model";
+import {ThemeEditorSession} from "./web/components/theme-editor/theme-editor-session";
 import {userThemesStore} from "./web/user-themes-store";
 
 /** 两个明暗的缺省配色：故意写成一套不合格的（弱化文字对背景太淡），和主题包缺省的取值无关，测试不依赖 nb-ui。 */
@@ -49,7 +50,7 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-async function session(): Promise<{model: ThemeEditorModel; catalog: ThemeCatalog; mine: () => ReadonlyArray<UserTheme>; settled: () => Promise<void>; dispose: () => void}> {
+async function session(): Promise<{model: ThemeEditorModel; catalog: ThemeCatalog; store: ReturnType<typeof userThemesStore.create>; mine: () => ReadonlyArray<UserTheme>; settled: () => Promise<void>; dispose: () => void}> {
     counter += 1;
     const w = await storageWorld(join(tmp, `case-${String(counter)}`), []);
     worlds.push(w);
@@ -79,6 +80,7 @@ async function session(): Promise<{model: ThemeEditorModel; catalog: ThemeCatalo
         catalog,
         baseColors: (_base, appearance) => BASES[appearance] ?? {},
         newId: () => `00000000-0000-4000-8000-${String(++counterId).padStart(12, "0")}`,
+        currentAppearance: () => "light",
     })) as ThemeEditorModel;
     // 主题目录读的是 store 的显示值：模拟入口里的那条 watch。
     const sync = () => catalog.setUserThemes(store.state.themes.display.themes, () => undefined);
@@ -86,6 +88,7 @@ async function session(): Promise<{model: ThemeEditorModel; catalog: ThemeCatalo
     return {
         model,
         catalog,
+        store,
         mine: () => {
             sync();
             return store.state.themes.display.themes as ReadonlyArray<UserTheme>;
@@ -108,7 +111,7 @@ describe("新建与库", () => {
         expect(model.selectedId.value).toBeNull();
         expect(catalog.preview).toBeNull();
 
-        const id = await model.create();
+        const id = await model.create() as string;
         expect(id).toBe("user:00000000-0000-4000-8000-000000000001");
         expect(model.selectedId.value).toBe(id);
         expect(mine()[0]?.declaration.light.colors?.["--bg-main"]).toBe("#f3ead8");
@@ -238,5 +241,75 @@ describe("字体、活动栏与画框", () => {
         expect(mine()[0]?.declaration.light.frame).toBeUndefined();
         await settled();
         dispose();
+    });
+});
+
+describe("写不进去的修改被拒绝，不进乐观显示", () => {
+    it("取值引外部资源：记录不变、预览不退回缺省，原因留在 rejected，下一次合格的修改清掉它", async () => {
+        const {model, mine, dispose} = await session();
+        await model.create();
+        const before = JSON.stringify(mine()[0]);
+        await model.setColor("--bg-main", "url(https://example.com/x.png)");
+        expect(JSON.stringify(mine()[0])).toBe(before);
+        expect(model.rejected.value).toMatch(/外部资源/u);
+        await model.setColor("--bg-main", "#123456");
+        expect(model.rejected.value).toBeNull();
+        expect(mine()[0]?.declaration.light.colors?.["--bg-main"]).toBe("#123456");
+        dispose();
+    });
+
+    it("标题两种语言都空：拒绝并给出专门的原因；只清一种语言可以", async () => {
+        const {model, mine, dispose} = await session();
+        await model.create();
+        await model.setTitle("zh-CN", "");
+        expect(model.rejected.value).toBeNull();
+        expect(mine()[0]?.declaration.title).toEqual({"zh-CN": "", "en-US": "New theme"});
+        await model.setTitle("en-US", "");
+        expect(model.rejected.value).toBe(TITLE_EMPTY);
+        expect(mine()[0]?.declaration.title).toEqual({"zh-CN": "", "en-US": "New theme"});
+        dispose();
+    });
+
+    it("场景图落在发起时的主题与明暗，不是完成时选中的", async () => {
+        const {model, mine, dispose} = await session();
+        const first = await model.create() as string;
+        const second = await model.create() as string;
+        model.appearance.value = "dark";
+        const hash = `${"c".repeat(64)}.webp`;
+        await model.setScene(hash, {id: first, appearance: "light"});
+        expect(mine().find((theme) => theme.id === first)?.declaration.light.scene).toBe(hash);
+        expect(mine().find((theme) => theme.id === first)?.declaration.dark.scene).toBeUndefined();
+        expect(mine().find((theme) => theme.id === second)?.declaration.light.scene).toBeUndefined();
+        dispose();
+    });
+});
+
+describe("会话：页签切走再回来", () => {
+    it("编辑状态（选中的主题、明暗、分区）保留；切走期间预览暂停、回来恢复；入口停止时全部丢掉", async () => {
+        const {catalog, store, dispose} = await session();
+        dispose();
+        const sessionObject = new ThemeEditorSession({store, catalog, newId: () => `00000000-0000-4000-8000-${String(Math.random()).slice(2).padEnd(12, "0").slice(0, 12)}`, currentAppearance: () => "dark"});
+        const first = sessionObject.acquire((env, state) => new ThemeEditorModel({...env, baseColors: (_base, appearance) => BASES[appearance] ?? {}}, state));
+        expect(first.appearance.value).toBe("dark");
+        await first.create();
+        const second = await first.create() as string;
+        first.section.value = "colors";
+        first.appearance.value = "light";
+        expect(catalog.preview?.id).toBe(second);
+
+        sessionObject.release();
+        expect(catalog.preview).toBeNull();
+
+        const again = sessionObject.acquire((env, state) => new ThemeEditorModel({...env, baseColors: (_base, appearance) => BASES[appearance] ?? {}}, state));
+        expect(again.selectedId.value).toBe(second);
+        expect(again.appearance.value).toBe("light");
+        expect(again.section.value).toBe("colors");
+        expect(catalog.preview).toEqual({id: second, appearance: "light"});
+
+        sessionObject.dispose();
+        expect(catalog.preview).toBeNull();
+        const fresh = sessionObject.acquire((env, state) => new ThemeEditorModel({...env, baseColors: (_base, appearance) => BASES[appearance] ?? {}}, state));
+        expect(fresh.section.value).toBe("basic");
+        sessionObject.dispose();
     });
 });

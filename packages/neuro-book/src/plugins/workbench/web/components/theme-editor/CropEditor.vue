@@ -5,10 +5,11 @@
  */
 import {computed, onBeforeUnmount, ref} from "vue";
 
-import {Button, Input} from "@notnotype/nb-ui/components";
+import {Button} from "@notnotype/nb-ui/components";
 
 import type {ThemeDeclaration} from "../../../shared/themes";
 import {useWorkbenchText} from "../../text";
+import DraftInput from "./DraftInput.vue";
 import {clampFrame, CROP_REGIONS, readFrame, writeFrame} from "./crop-model";
 import type {CropCss, CropFrame, CropRegion, ImageSize} from "./crop-model";
 
@@ -55,6 +56,7 @@ const onLoad = (event: Event): void => {
 // ---- 拖框与缩放 ----
 
 interface Gesture {
+    readonly pointerId: number;
     readonly region: CropRegion;
     readonly mode: "move" | "resize";
     readonly startX: number;
@@ -81,7 +83,7 @@ const startGesture = (event: PointerEvent, region: CropRegion, mode: "move" | "r
     const rect = picture.value?.getBoundingClientRect();
     if (frame === null || rect === undefined || image.value === null) return;
     selected.value = region;
-    gesture = {region, mode, startX: event.clientX, startY: event.clientY, frame, width: rect.width, height: rect.height};
+    gesture = {pointerId: event.pointerId, region, mode, startX: event.clientX, startY: event.clientY, frame, width: rect.width, height: rect.height};
     draft.value = {region, frame};
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     event.preventDefault();
@@ -91,7 +93,8 @@ const startGesture = (event: PointerEvent, region: CropRegion, mode: "move" | "r
 const moveGesture = (event: PointerEvent): void => {
     const active = gesture;
     const size = image.value;
-    if (active === null || size === null) return;
+    // 只认按下的那根手指：第二根手指按到别处不能改写进行中的手势。
+    if (active === null || size === null || event.pointerId !== active.pointerId) return;
     const [dx, dy] = [(event.clientX - active.startX) / active.width, (event.clientY - active.startY) / active.height];
     let frame: CropFrame;
     if (active.mode === "move") {
@@ -107,11 +110,43 @@ const moveGesture = (event: PointerEvent): void => {
     schedule();
 };
 
-const endGesture = (): void => {
-    if (gesture === null) return;
+const endGesture = (event: PointerEvent): void => {
+    if (gesture === null || event.pointerId !== gesture.pointerId) return;
     gesture = null;
     commit();
     draft.value = null;
+};
+
+/** 系统接管了手势（来电、滚动接管）：这次拖动没有被确认，丢弃草稿，不写。 */
+const cancelGesture = (event: PointerEvent): void => {
+    if (gesture === null || event.pointerId !== gesture.pointerId) return;
+    gesture = null;
+    if (pending !== null) clearTimeout(pending);
+    pending = null;
+    draft.value = null;
+};
+
+// ---- 键盘：方向键移动 1%（Shift 为 5%），加减号缩放 ----
+
+const STEP = 0.01;
+const onFrameKey = (event: KeyboardEvent, region: CropRegion): void => {
+    const frame = frameOf(region);
+    const size = image.value;
+    if (frame === null || size === null) return;
+    const step = event.shiftKey ? STEP * 5 : STEP;
+    const moves: Readonly<Record<string, readonly [number, number]>> = {ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step]};
+    const move = moves[event.key];
+    let next: CropFrame | null = null;
+    if (move !== undefined) {
+        const room = (span: number): number => Math.max(0, 1 - span);
+        next = {...frame, x: Math.min(room(frame.w), Math.max(0, frame.x + move[0])), y: Math.min(room(frame.h), Math.max(0, frame.y + move[1]))};
+    } else if ((event.key === "+" || event.key === "=" || event.key === "-") && region !== "empty") {
+        const grown = clampFrame(region, {...frame, w: frame.w + (event.key === "-" ? -step : step)}, size);
+        next = {...grown, x: Math.min(1 - grown.w, frame.x), y: Math.min(1 - grown.h, frame.y)};
+    }
+    if (next === null) return;
+    event.preventDefault();
+    emit("change", region, writeFrame(region, next));
 };
 
 onBeforeUnmount(() => {
@@ -150,7 +185,7 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
 <template>
     <div class="crop-editor" data-crop-editor>
         <div class="crop-editor__stage">
-            <div ref="picture" class="crop-editor__picture" @pointermove="moveGesture" @pointerup="endGesture" @pointercancel="endGesture">
+            <div ref="picture" class="crop-editor__picture" @pointermove="moveGesture" @pointerup="endGesture" @pointercancel="cancelGesture">
                 <img class="crop-editor__image" :src="imageUrl" :alt="text('themeEditor.scene.image')" draggable="false" @load="onLoad" @error="emit('load-failed')" />
                 <template v-for="item in frames" :key="item.region">
                     <div
@@ -158,9 +193,10 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
                         class="crop-editor__frame"
                         :class="{'crop-editor__frame--selected': selected === item.region}"
                         :style="{...styleOf(item.frame), '--frame-color': COLORS[item.region]}"
-                        role="button"
+                        role="group"
                         tabindex="0"
                         :aria-label="text('themeEditor.scene.frame', {region: regionName(item.region)})"
+                        @keydown="onFrameKey($event, item.region)"
                         :data-crop-frame="item.region"
                         @pointerdown="startGesture($event, item.region, 'move')"
                         @focus="selected = item.region"
@@ -174,9 +210,9 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
         </div>
 
         <div class="crop-editor__side">
-            <ul class="crop-editor__list" role="listbox" :aria-label="text('themeEditor.scene.image')">
+            <ul class="crop-editor__list" :aria-label="text('themeEditor.scene.regions')">
                 <li v-for="region in CROP_REGIONS" :key="region">
-                    <button type="button" role="option" class="crop-editor__item" :aria-selected="selected === region" :data-crop-item="region" @click="selected = region">
+                    <button type="button" class="crop-editor__item" :aria-pressed="selected === region" :data-crop-item="region" @click="selected = region">
                         <i class="crop-editor__chip" :style="{background: COLORS[region]}" />
                         <span>{{ regionName(region) }}</span>
                     </button>
@@ -186,15 +222,15 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
             <div class="crop-editor__numbers" :data-crop-numbers="selected">
                 <label v-if="selected !== 'empty'" class="crop-editor__number">
                     <span>{{ text("themeEditor.scene.size") }}</span>
-                    <Input size="sm" :model-value="sizeValue" @update:model-value="editNumbers('size', $event)" />
+                    <DraftInput size="sm" :value="sizeValue" @change="editNumbers('size', $event)" />
                 </label>
                 <label class="crop-editor__number">
                     <span>{{ text("themeEditor.scene.position") }}</span>
-                    <Input size="sm" :model-value="positionValue" @update:model-value="editNumbers('position', $event)" />
+                    <DraftInput size="sm" :value="positionValue" @change="editNumbers('position', $event)" />
                 </label>
                 <label v-if="selected === 'empty'" class="crop-editor__number">
                     <span>{{ text("themeEditor.scene.contentX") }}</span>
-                    <Input size="sm" :model-value="contentX" placeholder="0.25 – 0.5" @update:model-value="editContentX($event)" />
+                    <DraftInput size="sm" :value="contentX" placeholder="0.25 – 0.5" allow-empty @change="editContentX($event)" />
                 </label>
                 <p v-if="unparsable" class="crop-editor__warn" data-crop-unparsable>{{ text("themeEditor.scene.unparsable") }}</p>
                 <Button size="sm" variant="ghost" :disabled="sizeValue === '' && positionValue === ''" @click="emit('change', selected, undefined)">{{ text("themeEditor.scene.clear") }}</Button>
@@ -221,7 +257,6 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
     border: var(--border-w) solid var(--control-outline);
     border-radius: var(--radius-control);
     overflow: hidden;
-    touch-action: none;
     user-select: none;
 }
 
@@ -239,6 +274,13 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
     background: color-mix(in srgb, var(--frame-color) 8%, transparent);
     opacity: 0.55;
     cursor: grab;
+    /* 只有框与手柄拦手势：手指从图上划过去还是滚动分区。 */
+    touch-action: none;
+}
+
+.crop-editor__frame:focus-visible {
+    outline: 2px solid var(--frame-color);
+    outline-offset: 2px;
 }
 
 .crop-editor__frame--selected {
@@ -270,6 +312,14 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
     border-radius: 50%;
     background: var(--frame-color);
     cursor: nwse-resize;
+    touch-action: none;
+}
+
+/* 12px 的点手指按不中：命中区扩到 36px，看上去还是小点。 */
+.crop-editor__handle::before {
+    position: absolute;
+    inset: -12px;
+    content: "";
 }
 
 .crop-editor__hint {
@@ -312,7 +362,7 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
     background: var(--bg-hover);
 }
 
-.crop-editor__item[aria-selected="true"] {
+.crop-editor__item[aria-pressed="true"] {
     background: var(--accent-bg);
     font-weight: 600;
 }
@@ -343,7 +393,8 @@ const styleOf = (frame: CropFrame): Record<string, string> => ({
     font-size: var(--text-xs);
 }
 
-@container (max-width: 520px) {
+/* 分区内容（不含导航）不足 560px：图与列表上下排；容器是 `.theme-editor__section`。 */
+@container (max-width: 560px) {
     .crop-editor {
         grid-template-columns: minmax(0, 1fr);
     }

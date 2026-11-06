@@ -18,7 +18,7 @@ import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 
 import {DEFAULT_THEME_ID, WORKBENCH_THEMES_POINT} from "./shared/themes";
 import type {ThemeDeclaration} from "./shared/themes";
-import {userThemeProblem} from "./shared/user-themes";
+import {userThemeProblem, validUserThemes} from "./shared/user-themes";
 import type {UserTheme} from "./shared/user-themes";
 import {ThemeCatalog, userThemeSceneUrl} from "./web/themes";
 import {userThemesStore} from "./web/user-themes-store";
@@ -136,7 +136,7 @@ describe("我的主题的记录", () => {
         await store.actions.create(theme("1"));
         await store.actions.create(theme("2"));
         await store.actions.create(theme("2"));
-        expect(store.state.themes.display.themes.map((item) => item.id)).toEqual([theme("1").id, theme("2").id]);
+        expect(validUserThemes(store.state.themes.display.themes).map((item) => item.id)).toEqual([theme("1").id, theme("2").id]);
 
         await store.actions.update(theme("1").id, (item) => ({...item, declaration: {...item.declaration, title: {"zh-CN": "改了", "en-US": "Renamed"}}}));
         await store.actions.remove(theme("2").id);
@@ -144,6 +144,6 @@ describe("我的主题的记录", () => {
 
         const other = await openStore(w, "b");
         expect(other.state.themes.display.themes).toHaveLength(1);
-        expect(other.state.themes.display.themes[0]?.declaration.title).toEqual({"zh-CN": "改了", "en-US": "Renamed"});
+        expect(validUserThemes(other.state.themes.display.themes)[0]?.declaration.title).toEqual({"zh-CN": "改了", "en-US": "Renamed"});
     });
 });

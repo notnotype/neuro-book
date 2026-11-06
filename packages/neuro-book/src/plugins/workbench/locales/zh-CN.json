@@ -381,13 +381,13 @@
             "clear": "清除"
         },
         "contrast": {
-            "ratio": "对比度 {{ratio}}",
-            "low": "低于 4.5",
             "unknown": "没有算出对比度：写法编辑器不解析",
             "against": "落在 {{surface}} 上最差",
             "summary": "不合格的项",
             "none": "没有不合格的项",
-            "legend": "文字、次要文字、弱化文字、链接与状态色，对各自的底色不低于 4.5。导出时有不合格项只提示。"
+            "legend": "文字、次要文字、弱化文字、链接与状态色，对各自的底色不低于 4.5。导出时有不合格项只提示。",
+            "summary1": "对比度 {{ratio}}，落在 {{surface}} 上最差",
+            "summaryLow": "对比度 {{ratio}}，低于 4.5，落在 {{surface}} 上最差"
         },
         "fonts": {
             "display": "欢迎页标题",
@@ -397,7 +397,9 @@
             "sans": "无衬线",
             "mono": "等宽",
             "clear": "用现有字体",
-            "hint": "浏览器列不出本机字体，所以字体栈要自己写；不填就用现有字体。"
+            "hint": "浏览器列不出本机字体，所以字体栈要自己写；不填就用现有字体。",
+            "sampleDisplay": "NeuroBook · 欢迎回来",
+            "sampleProse": "雨从傍晚开始下，一直没有停。"
         },
         "chrome": {
             "activityBar": "活动栏",
@@ -406,10 +408,8 @@
             "foreground": "前景",
             "active": "当前项",
             "ornament": "两端装饰",
-            "ornamentNone": "不画",
             "frame": "浮层画框",
             "frameLine": "线色",
-            "frameNone": "不画",
             "frameHint": "菜单、对话框与设置窗口的描边里面再画一道细线。"
         },
         "scene": {
@@ -422,7 +422,6 @@
             "large": "图片 {{kb}} KB，超过建议的 300 KB",
             "stored": "{{kb}} KB",
             "loadFailed": "图片加载失败",
-            "pending": "场景图与取景在这个分区里编辑。",
             "region": {
                 "empty": "空状态",
                 "marginLeft": "正文左",
@@ -437,14 +436,22 @@
             "unparsable": "这个位置的写法编辑器读不懂：框不可拖，数值照常能改。",
             "hint": "在图上拖框、拉右下角缩放；工作台里对应位置同时变化。框是示意，真实位置随窗口尺寸变。",
             "frame": "{{region}}取景框",
-            "image": "场景图"
+            "image": "场景图",
+            "regions": "取景位置"
         },
         "transfer": {
             "exported": "已导出 {{name}}",
             "exportedWarn": "已导出 {{name}}，但有 {{count}} 项对比度不合格",
             "exportFailed": "导出失败：读不到场景图 {{reason}}",
             "imported": "已导入 {{count}} 套主题",
-            "importFailed": "导入失败：{{reason}}"
+            "importFailed": "导入失败：{{reason}}",
+            "unexpected": "出了点意外：{{reason}}",
+            "copyFailed": "复制失败：读不到或传不上场景图 {{reason}}"
+        },
+        "rejected": {
+            "titleEmpty": "标题不能为空，没有写入",
+            "invalid": "这个取值写不进去：{{reason}}",
+            "saveFailed": "没有保存：{{code}}，这次改动已撤回"
         }
     },
     "editorPages": {
