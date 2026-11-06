@@ -132,7 +132,9 @@ export function withLightness(color: Rgba, lightness: number): Rgba {
  * 返回已经调到极限的那个（纯黑或纯白）。
  */
 export function ensureContrast(foreground: Rgba, backgrounds: ReadonlyArray<Rgba>, minimum: number): Rgba {
-    const meets = (candidate: Rgba): boolean => backgrounds.every((background) => contrast(candidate, background) >= minimum);
+    // 结果要写成 `#rrggbb`，通道会取整：按取整后的颜色判断，否则 4.5 整的边界上写出去的值会掉到 4.49。
+    const rounded = (color: Rgba): Rgba => ({r: clampByte(color.r), g: clampByte(color.g), b: clampByte(color.b), a: color.a});
+    const meets = (candidate: Rgba): boolean => backgrounds.every((background) => contrast(rounded(candidate), background) >= minimum);
     if (meets(foreground)) return foreground;
     const averageLuminance = backgrounds.reduce((sum, background) => sum + luminance(background), 0) / backgrounds.length;
     const direction = averageLuminance > 0.4 ? -1 : 1;

@@ -74,15 +74,15 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
 <template>
     <div class="theme-editor" data-theme-editor>
         <header class="theme-editor__bar">
-            <Select
-                v-if="model.mine.value.length > 0"
-                class="theme-editor__picker"
-                size="sm"
-                :model-value="model.selectedId.value ?? ''"
-                :options="options"
-                :aria-label="text('themeEditor.library.label')"
-                @update:model-value="model.select($event)"
-            />
+            <div v-if="model.mine.value.length > 0" class="theme-editor__picker">
+                <Select
+                    size="sm"
+                    :model-value="model.selectedId.value ?? ''"
+                    :options="options"
+                    :aria-label="text('themeEditor.library.label')"
+                    @update:model-value="model.select($event)"
+                />
+            </div>
             <Button size="sm" variant="secondary" icon-class="i-lucide-plus" data-new @click="model.create()">{{ text("themeEditor.library.new") }}</Button>
             <Button size="sm" variant="secondary" icon-class="i-lucide-copy" :disabled="model.current.value === null" data-duplicate @click="model.duplicate()">{{ text("themeEditor.library.duplicate") }}</Button>
             <Button size="sm" :variant="confirming ? 'danger' : 'ghost'" icon-class="i-lucide-trash-2" :disabled="model.current.value === null" data-delete @click="remove" @blur="confirming = false">
@@ -206,7 +206,8 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
 }
 
 .theme-editor__picker {
-    min-width: 180px;
+    flex: 0 1 240px;
+    min-width: 160px;
 }
 
 .theme-editor__spacer {
@@ -291,6 +292,7 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
 }
 
 .theme-editor__section {
+    max-width: 920px;
     padding: var(--space-6) var(--space-8);
 }
 
