@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t07-study-base-nbook
-status: active
+status: done
 updated: 2026-11-06
 ---
 
