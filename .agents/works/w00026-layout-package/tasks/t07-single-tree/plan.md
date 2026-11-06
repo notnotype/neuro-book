@@ -84,7 +84,7 @@
 - **动画判定（第 5 条）**：`GridMotionFrame` 带上内容矩形，`placementMoved` 一起比；`watch` 同时看叶与内容。所以“标签并入已有面板，两块叶都不动”时内容也滑过去。
 - **叠放（第 6 条）**：根上 `isolation: isolate`，三层固定：外框 0、内容 1、分隔线 2；飞行中的内容在内容层里再抬一级。
 - **停放**：不活动的标签、叶为零、找不到叶（第 20 条，文档与树发布不同步的瞬间）都是 `visibility: hidden` 加 `inert`，保持最后的非零尺寸，不卸载。
-- **焦点（第 7 条）**：`GridFocusItems` 的一“站”改成 `{frame, content | null}` 的并集，`contains`、`atEdge`、`lastFocused`、哨兵都按并集算。DOM 序：新内容紧跟它的叶外框之后；换叶之后不搬，靠 `aria-owns` 与接管 Tab，这条路径 t07 之后是常态。t06 遗留的“从 grid 外 Tab 进来、点空白后 Tab”这里解决：根上 `focusin` 从外面进来且不在树序首尾时，重定向到首或尾；叶外框给 `tabindex="-1"` 接住点击。
+- **焦点（第 7 条）**：`GridFocusItems` 的一“站”改成 `{frame, content | null}` 的并集，`contains`、`atEdge`、`lastFocused`、哨兵都按并集算。DOM 序：新内容紧跟它的叶外框之后；换叶之后不搬，靠 `aria-owns` 与接管 Tab，这条路径 t07 之后是常态。t06 遗留的“从 grid 外 Tab 进来、点空白后 Tab”这里解决：Tab 从外面进来时重定向到树序的首或尾；点空白之后按 Tab 从按下的那一块按树序走。外框和内容都不接焦点（第 3 片审查 F11：接了会打断内部滚动区的键盘滚动）。
 - **焦点交接（第 21 条）**：新事件 `content-parked(key)`，发出时焦点还在里面；`WorkbenchSurface` 把焦点移到同面板的标签或最近的框架控件，焦点在外壳之外时不抢。取代 `WorkbenchShellLayout` 的 `focusTarget`。
 - **无障碍（第 24 条）**：分隔线的 `aria-controls` 列外框与活动内容的 id。
 

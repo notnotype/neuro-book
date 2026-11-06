@@ -1,0 +1,147 @@
+# w00026 t07 片 3 实现审查报告（内容层）
+审查对象：HEAD 544f0ecf4（对照 HEAD~2）。条目按核实先后追加，按影响的排序见文末“排序索引”。
+实验文件都在 /tmp/review-w00026-t07-s3/（vitest 用 /tmp 下的配置指向包，未改仓库）。
+
+---
+[F1] 重要 | 正确性 / 无障碍 | NestedGrid.vue:128-149（rememberContents / isZero），useLeafParking.ts:5-6
+现象：面板一开始就是收起的（恢复布局时 collapsed，内容矩形从第一次摆放起就是零高）时，内容项不停放：没有 inert、没有 visibility: hidden。内容里的按钮、输入框仍在 Tab 顺序与读屏树里，只是被零高的外框裁掉，看不见。
+为什么是问题：规则“曾有过非零尺寸才算停放”是为叶设计的（叶收成标题行时叶本身还有标题高度，叶不会是零）。内容层是新引入的“叶非零而内容为零”的情形，收起的面板是常态而不是边角，用户 Tab 会停在看不见的控件上；Spec 的“停放”写的是“已发布的布局里叶曾有过非零尺寸、现在在任一轴上为零”，对内容层“零”的来源（面板头吃掉全部高度）没有覆盖到这种开局。useLeafParking 注释里“第一帧还没量到不算停放（inert 会让 onMounted 里的 focus() 静默失败）”只需要排除“还没量到”，不需要排除“量到了就是零”。
+如何核实：/tmp/review-w00026-t07-s3/probe1.dom.test.ts（stub 掉 clientWidth/Height，叶 a 高 36、insetTop 40）：渲染后内容 x 的外框样式是 `transform: translate(0px, 36px); width: 1000px; height: 0px;`，inert=false，无 visibility:hidden。对照：同一夹具先 32 后降到零时会停放（e2e “收成标题行”覆盖的是这条，不是开局收起）。
+建议：isZero 去掉 `contentMemory.has(item.key)` 这一条，改为“已经量到非空容器（measuredExtent 非空且有尺寸）时零即停放”；“没量到”由 measuredExtent === null 判断，不由“有没有记忆”间接判断。补一条 DOM 用例：开局矩形为零的内容是 inert。
+
+---
+[F2] 重要 | 正确性（Shadow DOM） | NestedGrid.vue:140-142（rememberContents 里的 getElementById / activeElement）
+现象：grid 挂在 Shadow DOM 里时，内容被停放而焦点在里面，不发 content-parked。
+为什么是问题：同一个提交里 useGridFocus.elementOf 特意用 `getRootNode()` 并注明“grid 可能在 Shadow DOM 里”，这里却用 `rootEl.value.ownerDocument.getElementById(...)`（取不到影子树里的元素）和 `element.ownerDocument.activeElement`（在影子树里返回的是宿主元素）。结果焦点被 inert 静默吞掉，回到 body，宿主收不到交接通知。同一模块里两套取法，其中一套错。
+如何核实：/tmp/review-w00026-t07-s3/probe2.dom.test.ts：同一用例 shadow=false 时 emitted=[["x"]]，shadow=true 时 emitted=undefined（焦点确实在影子根内的按钮上：root.activeElement 是该按钮）。
+建议：用 `const scope = rootEl.value.getRootNode() as Document | ShadowRoot` 取元素与 `scope.activeElement`；把 elementOf 抽成 useRenderOrder 或 grid-focus 里共享的一个函数，两处共用。
+
+---
+[F3] 重要 | 竞态 / 正确性 | useGridFocus.ts:50-58, 73-85（tabPending）
+现象：`tabPending` 在 document 的 keydown（捕获）里设成 ±1，只在 focusin 或 keyup 里清。Tab 把焦点送出页面（进浏览器地址栏、扩展、别的窗口）时，keyup 落在页面外，`tabPending` 一直留着。之后用户用鼠标点 grid 里的控件（或窗口重新获得焦点，浏览器恢复上次焦点），focusin 的 relatedTarget 是 null，被当成“从外面 Tab 进来”，焦点被改到树序的第一个（或最后一个）可聚焦元素，而不是用户点的那个。
+为什么是问题：这条正是计划/注释里写的“程序 focus() 与点击不能改落点”想挡住的情形，只挡住了 keyup 正常到达的路径。而 t07 之后 DOM 序与树序不一致是常态（outOfOrder 为真才触发重定向），所以不是边角。另外 Ctrl/Alt/Meta+Tab 也会设上 `tabPending`（moveTab 里对修饰键是排除的，这里没有），Alt+Tab 切走再切回时同样残留。
+如何核实：/tmp/review-w00026-t07-s3/probe3.dom.test.ts：两块叶、内容 x、y 交换叶后 outOfOrder 为真（aria-owns 出现）；在 grid 外的按钮上派发 Tab keydown、blur、不派 keyup；之后对 x 的按钮 focus()，document.activeElement 变成 y 的按钮（"clicked x; activeElement = y"）。
+建议：不依赖 keyup。Tab 的默认动作（移焦点）与 keydown 在同一个任务里完成，所以 keydown 之后用 `setTimeout(() => (tabPending = null), 0)`（或在同一个 keydown 里读 document.activeElement 与 grid 的关系）；同时对带修饰键的 Tab 不设；window blur 时清。补一条 DOM 用例：Tab keydown 之后不触发 focusin，再程序聚焦时不改落点。
+
+---
+[F4] 建议 | 正确性（既有约定被改） | grid-focus.ts:85-89（noteFocus），NestedGrid.vue 模板里 tabindex="-1"
+现象：外框与内容外层加了 `tabindex="-1"` 之后，点内容里不可聚焦的空白处，焦点落到外层容器，`focusin` 照常触发 `noteFocus`，把这一站的“上次焦点”改写成容器本身。容器是 tabindex -1，不在 `tabbable()` 的结果里，`moveGridFocus` 里 `focusables.includes(last)` 为假，退回到“第一个可聚焦元素”。
+为什么是问题：Spec“移动焦点”写的是“回到这块上次的焦点”。t07 之前外框不接焦点，点空白焦点去 body，`lastFocused` 不受影响；这是 tabindex 引入的回退。
+如何核实：/tmp/review-w00026-t07-s3/probe4.dom.test.ts：x 内容里两个按钮，聚焦第二个，再 focus() 内容外层（模拟点空白），再聚焦另一块的按钮，`moveGridFocus(root, "previous")`，落点是 x 的第一个按钮（"active=x1"），不是第二个。
+建议：noteFocus 只记 `tabbable` 的目标（或排除外框/内容外层本身，即 `owner.elements.includes(target)` 时不记）。补一条用例。
+
+---
+[F5] 建议 | 正确性 / Spec 一致性 | grid-focus.ts:63-72（moveTab 站内分支）
+现象：焦点在 tabindex=-1 的内容外层（点内容空白处得到）时，Shift+Tab 返回 "browser"，由浏览器按 DOM 序走。DOM 序与树序不一致时，内容外层在 DOM 里的前一个可聚焦元素不一定是它自己外框的面板头，而可能是别的面板。
+为什么是问题：计划“焦点”一节写明 t06 遗留的“点空白后 Tab”这里解决，靠“外框 tabindex=-1 接住点击”；但接住之后 moveTab 里 `!inside.includes(target)` 一律交还浏览器，只有目标本身是 tabbable 才走手动的站内步进。Spec“Tab 顺序”末尾的“已知限制：……点击空白处后按 Tab 仍按 DOM 序”这句也没有改（从外面 Tab 进来已经由 entryFocusTarget 处理，这一半限制过期了；点空白这一半没有处理）。两边口径不一致。
+如何核实：/tmp/review-w00026-t07-s3/probe5.dom.test.ts：DOM 为 frameA、frameB、contentA，树序站 A=[frameA, contentA]、站 B=[frameB]；目标是 contentA 外层（tabindex -1，里面有按钮），moveTab(Shift+Tab) 返回 "browser"（期望是移到 frameA 里的按钮；浏览器会去 frameB 的按钮）。对照：目标是 contentA 里的按钮时返回 "moved" 且落在 frameA 的按钮上。
+建议：站内步进对非 tabbable 的目标也生效：把目标当作它所在元素在 stop.elements 里的位置，往前走就是前一个元素的最后一个可聚焦项，往后走就是当前元素里的第一个；或者承认这半条限制，改计划/Spec 的措辞，并在 Spec 里把“从外面 Tab 进来”一半的限制删掉。
+
+---
+[F6] 重要 | 正确性 | useGridFocus.ts:73-85（onFocusin 的“进入”判定）
+现象：弹层（Teleport 到 body 的菜单、下拉）在 Tab 的 keydown 里关闭并把焦点还给它的触发器（Radix/Reka 类菜单、Popover 的常见做法）时，这次程序 focus() 的 focusin 与 Tab 的 keydown 在同一个任务里：`tabPending` 还是 ±1，relatedTarget 是弹层里的元素（在 root 外），被判成“Tab 从外面进来”，焦点被改到树序的第一个可聚焦元素。DOM 序与树序不一致时发生。
+为什么是问题：代码注释说“程序 focus() 与点击也会从外面进来，那些不能改落点”，但“Tab 的 keydown 期间发生的程序 focus()”无法和 Tab 引起的移动区分，靠 keydown 设的标志判不出来。后果是焦点还给触发器这个动作被无声改写，随后浏览器的 Tab 默认动作又从错的位置继续往后走。
+如何核实：/tmp/review-w00026-t07-s3/probe6.dom.test.ts：x、y 交换叶使 outOfOrder 为真；body 下一个 tabindex=0 的弹层，它的 keydown(Tab) 监听里调 trigger.focus()（trigger 是 x 的按钮）；派发 Tab 后 document.activeElement 是 y 的按钮（树序第一个），不是 trigger。
+建议：不要用“keydown 设标志、focusin 读标志”这个办法判断 Tab 引起的进入。可选：在 keydown 捕获阶段只在“当前焦点在 grid 外、且事件没有被别的监听 preventDefault、且 Tab 后确实把焦点移进 root”时处理；或者改成在 root 上用 `focusin` 且 `relatedTarget === null || 在 root 外` 之外，再加“上一次 focusout 在同一任务内没有被程序 focus 打断”的判断。较简单的做法：keydown 后把标志在微任务里清掉（Tab 默认动作发生在 keydown 派发完成之后，会漏掉），所以更稳的是在 grid 外的 keydown(Tab) 捕获时算出“浏览器按 DOM 序会去的下一个元素”，改成在 keydown 里 preventDefault 并自己 focus 到树序的首尾（grid 外面最后一个 Tab 停点的 keydown 处理），避开 focusin 事后补救。
+
+---
+[F7] 建议 | 性能 / 一致性 | NestedGrid.vue:158-163（contentBodyStyle），:128-149（contentMemory 只在未停放时写）
+现象：从没活动过的标签（还原布局后台标签的常态）内容内层的尺寸跟着叶的实时矩形走；活动过又切走的标签内层停在最后一个活动尺寸。拖分隔线预览的每一帧，所有“从没活动过”的后台标签都被重新排版，而它们是 visibility:hidden + inert 的。
+为什么是问题：前一类被 `contentMemory` 冻住，后一类没有，规则不统一；后台内容多的面板（编辑器标签）预览拖动时白白重排。停放的目的之一就是“重新有尺寸时不重排”和不跟着动。
+如何核实：/tmp/review-w00026-t07-s3/probe8.dom.test.ts：x 活动、n 不活动（从没活动过）同在叶 a，把叶 a 从 500 改到 300：两者内层都变成 300px；x 切走之后再变不会再跟（x 的 memory 是 300）；n 在 resize 时已经跟着变了。
+建议：不活动的内容第一次出现就记下一份尺寸（或不活动时一律用 memory ?? 第一次的 rect 并冻住），激活时再按当前矩形排一次。
+---
+[F8] 建议 | 合同一致性（不传 contents 的宿主行为） | useGridFocus.ts:50-85，docs/specs/ui/nested-grid.md“内容层”末句与“Tab 顺序”末句
+现象：Spec 写“不传内容项的宿主行为不变”，但这次提交里 `onFocusin` 的“从外面 Tab 进来落在树序首尾”和 document 级的 keydown/keyup 捕获监听对不传 contents 的宿主也生效（e2e lab-grid-structure 的 structure 场景就是这样一个宿主），Spec“Tab 顺序”里“已知限制：从 grid 外面 Tab 进来……仍按 DOM 序”这半句也已经不成立。其余项我核对过没有变化：不传时 placeContents 返回 []、layerItems 返回 [...items]、followingLeaves/placementMoved/enteringRects 对叶与分隔线的判定与 HEAD~2 逐条一致，外框不加 tabindex，分隔线 z-index 3 取代原来 SashHandle 的 z-index 1（仍在叶之上）。
+为什么是问题：这是有意的改进，但没有给不传 contents 的宿主补测试（grid-focus/useGridFocus 的重定向没有任何 DOM 或 e2e 用例，grep entryFocusTarget / onFocusin 只出现在实现里），Spec 两处措辞相互矛盾。
+如何核实：grep -rn "entryFocusTarget\|onFocusin\|tabPending" packages/nb-layout/src packages/neuro-book/e2e 只有实现文件命中；e2e lab-grid-panels 的“从 grid 外面按 Tab 进来”只测了 Tab 向前一种，Shift+Tab 从后面进来、弹层 Tab 还焦点（F6）、keyup 丢失（F3）都没有用例。
+建议：补 DOM 用例（stub clientWidth 后可用 happy-dom 做，见 probe3/probe6 的写法）；Spec 的“已知限制”改成只剩点空白（F5）的那一半，或把两处都改对。
+
+---
+[F9] 重要 | 测试缺口 | NestedGrid.dom.test.ts:747-807，grid-focus.dom.test.ts，grid-rects.test.ts:216-228
+现象：我在 /tmp/review-w00026-t07-s3/mut/pkg（拷贝出来的包，原仓库未动）里做了变异，跑 bun test 加 vitest。杀掉的：去掉 content-parked 的 emit（M1）、aria-controls 不含内容（M10）、不调 rememberContents（M15）、内容不并入树序（M11）、不取整 inset（M12）、flyingContents 恒空（M13）。活下来的（单元与 DOM 测试全绿）：
+  M2 去掉“零尺寸即停放”（isContentParked 里 zeroContents）
+  M3 去掉“预览不停放”规则（rememberContents 里 preview.value === null || …）
+  M4 去掉 data-flying 标记
+  M5 内容内层永不 following（总是最终尺寸，不随外框逐帧）
+  M6 去掉“从外面 Tab 进来”的重定向（onFocusin）
+  M7 去掉 tabPending 的 keyup 清除
+  M8 内容不并入站（scope.items 里 stops[...] = {...elements:[...,element]}）
+  M9 内容外层去掉 tabindex="-1"
+  M14 contentMemory 不记（停放后尺寸丢）
+  M16 moveTab 的站内手动步进改为返回 "browser"
+为什么是问题：这些是这一片的核心行为，却只靠 e2e。e2e 由主会话跑，我无法确认；按我读到的断言，估计 e2e 能杀 M2（“收成标题行”）、M4（data-flying 属性）、M5（ResizeObserver 一次与内外同宽）、M6（“从 grid 外面按 Tab 进来”）、M8；估计杀不掉的是 M3、M7、M9、M14、M16（e2e “移动之后 Tab 与 F6”里内容紧跟在自己外框后面，浏览器原生就能走对，不会逼出手动步进；要让外框与内容在 DOM 里不相邻，例如先把标签并入别的面板再 Tab）。主会话跑 e2e 时请对这几条做同样的变异验证。
+另外两处断言本身不严：
+  - grid-rects.test.ts:223-227 的“设备像素比 …没有缝也不重叠”用同一个表达式 `Math.round(32 * dpr) / dpr` 当期望，没有和任何真实的面板头底比较；Spec 验收 10 写的是“读内容顶与面板头底”，这需要 e2e 在多个 deviceScaleFactor 下读 DOM，lab-grid-panels 里没有。
+  - lab-grid-panels.e2e.ts 的 `expect(await focusedPlace(page)).toMatch(/:/u)` 只要不是 null 就过。
+  - NestedGrid.dom.test.ts 的内容用例没有 stub clientWidth/clientHeight：happy-dom 下 mount 后实测盒是 0×0，所有内容矩形都为零，“同一父元素/换叶不重建”之外的几何行为（跟随、停放、位置）全是在零矩形上跑的，用例只能证明与几何无关的断言。
+建议：补 DOM 用例（stub clientWidth/Height 之后）覆盖 M2、M3、M5、M6、M8、M9、M14、M16；dpr 一条改成 e2e 读真实 DOM。
+---
+[F10] 建议 | 测试：靠时序碰巧 | e2e/lab-grid-panels.e2e.ts:83-110（第一个用例的 during 与 top）
+现象：用例要证明“内容压在别的面板上”，但读 `top` 的时刻是 `expect.poll(x > before.x + 1)` 刚成立之后。--ease-layout 是 cubic-bezier(0.23, 1, 0.32, 1)（缓出很急），4000ms 里前 100ms 约走总路程的一成多，内容 a（宽约 280）从 x≈60 起，要走到和编辑器 ea（x≈330 起）相交需要大约数十到一百多毫秒；读的时刻落在相交之前时，`top` 在 a 自己的原位置上取到的也是 view:a，去掉 [data-flying] 的 z-index 规则也一样过。
+为什么是问题：判据“飞行中的内容在内容层里再抬一级”与 Spec 验收 10“压在别的面板上”要求读到的点在 a 与别的内容的重叠区里；现在的写法取决于 poll 与帧的先后。
+如何核实：主会话 e2e 里做变异：去掉 `.nb-grid-content[data-flying]{z-index:2}` 看该用例是否变红，重复跑 10 次（或把过渡再放慢、CPU 慢一点）。我没有跑 e2e。
+建议：poll 的条件改成“a 的内容矩形与 ea 的内容矩形相交”（取相交区中心做 elementFromPoint），再断言 top 是 view:a；并加一条反向：把 data-flying 去掉后该点上是 view:ea 的内容。
+
+---
+[F11] 重要（需实机验证） | 兼容性 / 宿主行为 | NestedGrid.vue 模板 tabindex="-1"（外框 hasContents 时、内容外层无条件）
+现象：点内容里的可滚动区空白处（`overflow:auto` 的 div，没有自己的 tabindex）时，焦点现在落在祖先 `.nb-grid-content`（tabindex -1），不再留在 body。Chromium 的键盘滚动（方向键、PageUp/PageDown、空格）从“有焦点的元素”开始向上找可滚动祖先，只有焦点在 body/无焦点时才退回到“最后按下鼠标的节点”。内容外层是 `overflow: clip`，不可滚动，它的祖先里也没有那个内部滚动区，所以点了之后按 PageDown，内部滚动区不会动。t07 之前外框没有 tabindex，这条路径是通的。
+为什么是问题：简报重点 5 点名“滚动容器的键盘滚动”。这是已知的浏览器行为（给滚动容器的祖先加 tabindex 会改变键盘滚动的起点），所以影响面是整个产品里所有内容里的非聚焦滚动区（对话视图、列表）。我没有在真实 Chrome 里验证，是从浏览器行为推断。
+如何核实（主会话在 e2e 里加一条即可）：Lab 场景 panels，点 `[data-content="view:a"] [data-structure-scroll]` 里的文字，按 PageDown，读该滚动区的 scrollTop；对照：去掉内容外层的 tabindex 再做同一件事。
+建议：如果实机确认，内容外层不加 tabindex（点空白让焦点去 body，行为和以前一样）；外框的 tabindex 只用来“接住点击”，也同理，要的话只给外框加，因为外框里只有面板头，没有滚动区。计划里“叶外框给 tabindex=-1 接住点击”的目的是 Tab 起点，看是否真的需要内容外层也接。
+---
+[F12] 建议 | 边界（输入） | NestedGrid.vue props.contents，grid-rects.ts:94-117（placeContents）
+现象：宿主传的 contents 没有任何校验。(a) 重复的 key：第二项被静默吞掉（只渲染一个 [data-content]，没有警告也没有 issues）；(b) insetTop 为 NaN：style 变成 `transform: translate(0px, NaNpx); width: 500px;`，高度整条声明丢失，内容外层成了 auto 高度并停在 y=0，压在别的内容上，没有诊断。
+为什么是问题：Spec 的“失败与恢复”要求畸形输入“必须返回诊断，不抛出未处理异常”，同一个组件对树做了，对 contents 没做；组件已有 issues 事件与 onIssues 出口。
+如何核实：/tmp/review-w00026-t07-s3/probe9.dom.test.ts（dup keys: content elements = 1，warns=[]；NaN inset 的 style 如上）。
+建议：placeContents 里 `Number.isFinite(insetTop)` 才用，否则当 0 并报 issue；重复 key 报 issue 并只取第一项（现在恰好是这个结果，但是靠 Map 的副作用）。
+---
+[F13] 建议 | 代码质量 | NestedGrid.vue:118-165（rememberContents 一块），useLeafParking.ts
+现象：(1) NestedGrid.vue 这次涨了约 135 行，其中“内容的停放记忆”（contentMemory、parkedContents、zeroContents、isContentParked、rememberContents、contentFrameStyle、contentBodyStyle）与 useLeafParking 是同一条规则（曾有过尺寸才算零、预览不停放、记最后的非零尺寸）的第二份，措辞与分支几乎逐行对应，且已经出现分歧（F1 的开局收起、F7 的从没活动过）。(2) rememberContents 同时做四件事：算 zeroContents、判停放并发 content-parked、写 contentMemory、清理三张表，读者要同时推演 `parking.update` 先于它执行、`pre` 刷新里 DOM 未更新这两个先后。(3) followingLeaves 现在也处理内容项，名字过时；`rectOf` 只是读 `item.rect` 的一层包装；GridMotionFrame 的字段注释仍称“叶”。(4) useGridFocus.elementOf 用 getRootNode，NestedGrid 用 ownerDocument（F2），同一件事两种写法。
+建议：抽一个按 key 通用的停放组合式函数（输入矩形或 null，输出 parked 集合与最后的非零尺寸），useLeafParking 与内容共用，焦点交接作为它的回调；NestedGrid.vue 只留接线。followingLeaves 改名 followingItems 并改注释。
+---
+[F14] 建议 | 隐含耦合（从代码推断，未跑） | grid-focus.ts:63-72 + useGridFocus.ts:68-72
+现象：嵌套场景：外层 grid 的站有两个元素（外框 + 内容）并且外层 outOfOrder，内层 grid 嵌在它的内容里也 outOfOrder。内层的 onKeydown 在“走完内层最后一项”时返回 "leave" 并 `exitSentinel.focus()`，不 preventDefault，事件继续冒泡到外层；外层的 moveTab 用的仍是原始 event.target（内层的某个元素），它在外层 `inside` 列表里且不在边上，于是外层 `preventDefault()` 并手动 `inside[i+1].focus()`，覆盖了内层刚做的“离开”。HEAD~2 里外层站只有一个元素，同一路径走 "browser" 什么都不做。
+为什么是问题：新增的站内手动步进对 `elements.length >= 2` 的站无条件生效，没有区分事件是否已被内层处理过。内层 Tab 被内层 grid 处理后应该标记（例如 event.defaultPrevented 或在内层 "leave" 时 preventDefault 并自己 focus 哨兵之后再返回）。
+如何核实：写 DOM 用例，嵌套两层 NestedGrid（外层传 contents 并把内层放进 content 插槽），两层都做换位；在内层最后一项按 Tab。我没有跑，所以标“从代码推断”。目前产品里是否存在“内容里嵌 grid”，我不知道。
+建议：内层 "leave" 之后调用 `event.stopPropagation()`，或在 moveTab 开头检查 `event.target` 是否属于更内层的 grid（`closest("[data-grid-scope]") !== 本 root`）并交给内层。
+
+---
+[F15] 建议 | Spec 一致性 / 分类口径 | NestedGrid.vue 样式 .nb-grid-frame[data-flying]（z-index 2），grid-motion.ts flyingContents
+现象：(a) Spec“内容层”与计划写的是“三层叠放固定：外框、内容、分隔线；飞行中的内容在内容层里再抬一级”，实现里 flying 的叶外框（z 2）也压过所有不飞的内容（z 1），分隔线是 3 而不是计划里的 2。为了让面板头不钻到别的面板内容下面，抬外框是对的，但 Spec/计划没写。(b) flyingContents 的 `overlaps` 对零宽/零高的旧矩形恒为假，所以从零展开（侧栏开关）或收到零的叶与它的内容也被标成 flying。注释写的是“原地变宽变窄的不算”。
+为什么是问题：(a) 是文档缺项；(b) 口径与注释不一致。(b) 在视觉上我没有找到副作用（同一缓动下相邻两块不相交），所以只是建议。
+如何核实：bun /tmp/review-w00026-t07-s3/fly.ts：叶 a 宽度 0 → 300，flying 为 ["leaf:a","content:x"]。
+建议：Spec 里补一句外框飞行时也抬；零尺寸的旧/新矩形不算“飞过别的面板”，在 flyingContents 里把 hasSize 作为前置。
+
+---
+[F6 补充] 针对 F6 的建议改法再说清楚：不要用 keydown 设标志 + focusin 事后补救。更稳的做法是在 document 的 keydown(Tab) 捕获阶段，且 event.target 在 root 外、grid 为 outOfOrder、事件没被 preventDefault 时，用 tabbable 算出浏览器按 DOM 序会去的下一个元素；它落在 root 里时 preventDefault，并直接 focus 到 entryFocusTarget 的结果。这样只有真正的 Tab 键移动会被改写，弹层关闭时的程序 focus() 与丢失 keyup 都不会影响（因为没有跨事件的状态）。代价：要在 keydown 里复刻浏览器的顺序焦点导航（shadow DOM、tabindex 排序要用 tabbable 的同一套规则）。若嫌复杂，退一步：用 `setTimeout(0)` 清标志并忽略带修饰键的 Tab，可挡住 F3，挡不住 F6。
+
+---
+## 未发现问题的方面（逐项核对过）
+- 不传 contents 的宿主，渲染与动效判定：placeContents 返回 []，layerItems 返回 [...items]，placementMoved / followingLeaves / enteringRects 对叶与分隔线的判定与 HEAD~2 一致；`watch(layers)` 与原 `watch(placement)` 一样，每次 placement 重算触发一次（两者都是每次新对象）；外框不加 tabindex。bun test 361、vitest 159 全过，vue-tsc 与 tsc 通过。
+- isolation: isolate：根本来就是 position: relative + overflow: clip，外框有 transform，内部的 fixed/绝对定位本来就出不去；分隔线原来是 z-index 1（SashHandle），现在 3，仍在叶之上；Teleport 到 body 的东西不受影响。没有找到被关住的东西。
+- 外框与内容的同步：`growing` 的第一帧与终点的两次写入在同一个 `nextTick` 里，`offsetWidth` 触发整页样式重算，对叶和内容两个元素都生效；内容内层 `100%` 与 px 的切换发生在外框过渡的起点和终点，两处数值相同，没有跳；`stop()` 同时清 moving、following、flying，内容外层失去过渡与内层回到 px 在同一次渲染里完成；连续两次变化时 following 取交集，新项继续保持最终尺寸。
+- rememberContents 的先后：isContentParked 判定在 contentMemory 更新之前，所以停放那一帧不会用零尺寸覆盖记忆；“预览不停放”往零拖、往外拉、拖回三种路径我逐一推演过（拖到零时 isZero 为真但不在 zeroContents，预览撤回后才进）；新项第一帧（有尺寸）直接按最终矩形渲染；首次 immediate 运行时 rootEl 为空，optional chaining 安全。
+- 性能：layers 每次变化的工作是 O(叶 + 内容)，没有逐帧的大对象；模板里 isContentParked / contentFrameStyle 每项每次渲染只是几次 Set 查询；controlledIds 的 find 是 O(分隔线 × 内容)，规模在几十以内。唯一的额外开销是 contents 的数组身份每次变化都会让 watch(layers) 重跑（宿主在模板里写内联数组时）；Lab 场景用 computed，没有这个问题。
+- aria-owns / aria-controls / inert：aria-owns 列出的 id 集合与渲染项一致；停放的内容 inert + visibility:hidden，不进读屏与 Tab（F1 的开局收起除外）。
+- DOM 不变量：内容不换父元素，由 stableOrder 保持相对次序，我没有找到会让已有内容被 Vue 移动 DOM 的路径；DOM 测试“换叶不重建”也覆盖了。
+
+## 数量
+阻断 0；重要 6（F1、F2、F3、F6、F9、F11，其中 F11 需实机验证）；建议 9（F4、F5、F7、F8、F10、F12、F13、F14、F15）。F6 补充为说明，不单独计数。
+
+## 排序索引（按影响）
+1. F1 开局收起的面板内容不停放，隐藏控件留在 Tab 与读屏里
+2. F3 keyup 丢失后 tabPending 残留，点击被改落点
+3. F6 弹层在 Tab 的 keydown 里还焦点，被改写到树序首尾
+4. F11 内容外层 tabindex=-1 可能打断内部滚动区的键盘滚动（需实机验证）
+5. F9 核心行为单元/DOM 测试缺口（10 个变异存活）与不严的断言
+6. F2 Shadow DOM 下 content-parked 不发
+7. F5 点内容空白后 Shift+Tab 仍按 DOM 序；Spec 措辞矛盾
+8. F4 点空白覆盖“上次焦点”
+9. F10 e2e “压在别的面板上”靠时序
+10. F12 contents 输入无校验（重复 key、NaN）
+11. F14 嵌套 + 多元素站的 Tab 覆盖内层决定（从代码推断）
+12. F7 从没活动过的标签跟着实时尺寸重排
+13. F8 不传 contents 的宿主也受 Tab 重定向影响，无测试，Spec 两处矛盾
+14. F13 停放逻辑与 useLeafParking 重复，NestedGrid.vue 变胖
+15. F15 Spec 与飞行外框的叠放、零尺寸被判飞行

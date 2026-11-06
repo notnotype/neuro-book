@@ -72,6 +72,25 @@ updated: 2026-11-06
 
 第 3 片（内容层）实现后，Lab 的 11 条用例抓到两个真问题：整块面板移动时被别的面板盖住（`data-flying` 改成也看新旧矩形是否相交，外框也抬）；收成标题行时内容没停放（内容自己的矩形为零也算）。
 
+第 3 片的实现审查（一个 Sonnet，[`evidences/slice3-review.txt`](evidences/slice3-review.txt)，15 条：重要 6、建议 9）：
+
+| 条目 | 处理 |
+|---|---|
+| F11 内容外层 `tabindex` 打断内部滚动区的键盘滚动（推断） | 成立，代价不对等。外框和内容都不接焦点；点空白后的 Tab 改成记下按下的元素，在 `document` 上接，从那一块按树序走。F4、F5 随之消失。e2e 补“点内部滚动区之后键盘还能滚动” |
+| F1 开局收起的内容不停放 | 成立。量到容器之后矩形为零就算，不要求有过尺寸 |
+| F3、F6 `tabPending` 残留、弹层还焦点被改写 | 成立。在 `document` 冒泡阶段设（别的处理器跑完之后），`preventDefault` 了的不算，定时器在任务结束时清。不靠 keyup |
+| F2 Shadow DOM | 成立，改用 `getRootNode` |
+| F9 变异存活 | 成立。M7、M9 随设计改动消失；其余补 e2e 与 DOM 用例（预览不停放、内层保持尺寸、站内走进内容、程序聚焦与点击不改落点）；dpr 用例改成写死的期望 |
+| F7、F12、F15 | 成立，已改：没活动过的也记尺寸；非法 inset 按 0；从零展开的不算飞。重复 key 不校验：内容来自文档，`validateLayoutDoc` 已保证 |
+| F8 不传 `contents` 也受 Tab 重定向影响 | 设计如此（DOM 序与树序不一致时才走），Spec 改清楚了 |
+| F10 “压在上面”靠时机 | 成立。改成等飞到重叠处再点 |
+| F13 `NestedGrid.vue` 变胖、停放两份 | 成立。抽出 `useContentLayer`，叶的停放仍归 `useLeafParking`，内容只加自己的情况 |
+| F14 外层站内步进覆盖内层“离开”（推断） | 不改：结果和浏览器相同；片 7b 之后内层 grid 没有了 |
+
+回归：`lab-grid-panels`、`lab-grid-structure`、`lab-nested-grid`、`workbench-shell`、`workbench-views`、`workbench-dnd`、`editor-area` 共 156 条，153 条过；`workbench-shell` 的 3 条 Lab 用例在负载 15 以上时超时，单跑全过。
+
+第 1、2、3 片已合入 master。
+
 ## 下一步
 
-写第 1 片的 Spec 与去向表，交开发者看。
+开发者在 Lab 试跨面板的手感（`/lab?c=NestedGrid&s=panels`），确认后做第 4 片。
