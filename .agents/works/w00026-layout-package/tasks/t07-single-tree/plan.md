@@ -126,6 +126,8 @@
 
 `EditorArea.vue` 拆开：组级的（提示条、键位）进 `EditorGroup`；区级的（关闭询问、拖影、`focusin`）进一个无布局的 `EditorHost`，工作台挂一次。贡献点 `workbench.editor-area` 改成给 `EditorHost` 与按面板 id 渲染的组组件。
 
+片 6 定下的接缝在 `groups/panels.ts`，片 7b 由工作台的布局文档实现它，`panels.test.ts` 的场景要对工作台实现再跑一遍。为此 nb-layout 的领域操作要补三处，片 7b 一起做：`moveTabToStrip` 能只换位置不激活（`activate: false`，固定与键盘排序用）；`openPanelAtEdge` 能不改 `currentEditor`（“在侧边打开”只建组）；`settleEmptyPanel` 移除编辑组后 `currentEditor` 换到相邻的，现在取第一个，和 workbench/editor.md 输出 3 不符。
+
 一个组仍是一个控件（每标签一实例见 t17），所以多标签组里的标签跨组移动时视图按现行输出 49 重建；**单标签的组移动是面板移动，不重建**。
 
 ### 拖动

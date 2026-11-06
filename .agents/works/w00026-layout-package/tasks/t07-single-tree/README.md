@@ -105,6 +105,8 @@ updated: 2026-11-06
 
 片 7b 要请开发者看一眼：Spec 输出 19 按邻接算，卡片主题里相邻的两个编辑组是两张卡片加半缝，中间还有一条线；现在的产品里编辑区是一张卡片加一条线。
 
+第 6 片已合入：`groups/panels.ts` 是接缝（`PanelTabs`、`PanelTree`，本地实现 `createLocalPanels`），`groups.ts` 只留标签属性；标签 id 改随机串。`groups.test.ts` 原有用例一条没改，新增 12 条接缝测试、2 条身份测试；`editor-area` 37 条全过。
+
 ## 下一步
 
-第 6 片：`groups.ts` 拆成 `PanelTabs`、`PanelTree` 本地实现，`tabId` 改随机串，行为不变。
+第 7a 片：外壳切换。开工前看 `nbdev status`，并先把切换计划要点交开发者（这一片之后产品里就是新外壳）。
