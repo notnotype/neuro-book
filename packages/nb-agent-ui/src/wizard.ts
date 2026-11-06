@@ -34,12 +34,15 @@ export function readWizardState(value: JsonValue | undefined): WizardState {
 export const isApproval = (item: PendingInputView): item is PendingApprovalView => item.kind === "approval";
 export const isQuestions = (item: PendingInputView): item is PendingQuestionsView => item.kind === "question";
 
-/** 选了一个决定。“本会话都批准”同时选中这批里同一个工具还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
+const rememberKey = (item: PendingApprovalView): string | null => (item.remember === false ? null : `${item.tool}\n${item.remember?.label ?? ""}`);
+
+/** 选了一个决定。“本会话都批准”同时选中这批里记的东西相同、还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
 export function choose(state: WizardState, items: readonly PendingApprovalView[], id: string, decision: ApprovalDecision, note?: string): WizardState {
     const approvals = {...state.approvals, [id]: {decision, ...(note === undefined || note === "" ? {} : {note})}};
     if (decision === "allow-session") {
-        const tool = items.find((item) => item.id === id)?.tool;
-        for (const item of items) if (item.tool === tool && approvals[item.id] === undefined) approvals[item.id] = {decision: "allow-session"};
+        const chosen = items.find((item) => item.id === id);
+        const key = chosen === undefined ? null : rememberKey(chosen);
+        for (const item of items) if (key !== null && rememberKey(item) === key && approvals[item.id] === undefined) approvals[item.id] = {decision: "allow-session"};
     }
     return {...state, approvals};
 }

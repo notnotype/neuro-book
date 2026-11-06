@@ -308,6 +308,7 @@ export default {
             noteHint: "已填写拒绝原因，只能拒绝",
             allow: "批准",
             allowSession: "本会话都批准",
+            allowSessionRule: "本会话都批准 {{rule}}",
             deny: "拒绝",
             denyAll: "全部拒绝",
         },

@@ -259,6 +259,8 @@ export type PendingApprovalView = {
     args: JsonValue;
     reason?: string;
     preview: ApprovalPreviewView;
+    /** “本会话都批准”要记什么：`label` 是规则（`git diff *`）；不写是记整个工具；`false` 是这次不能记，没有这个选项。 */
+    remember?: {label: string} | false;
 };
 
 /** 一次提问：一个工具调用里 1 到 4 题。 */

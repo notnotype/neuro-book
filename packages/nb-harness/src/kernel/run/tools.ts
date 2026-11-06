@@ -247,14 +247,14 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         if (settings.readOnly && effect !== "read") return {kind: "settled", value: {text: `${call.tool} is not allowed in read-only mode.`, status: "denied", code: "read-only"}, by: "core"};
         let verdict;
         try {
-            verdict = await host.approve(call, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered}, {signal, sessionId: core.header.id, context: host.box.sessionContext(), model: host.model, read: reader as ApprovalCtx["read"]});
+            verdict = await host.approve(call, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered, rememberedRules: core.session.kernel.rememberedRules}, {signal, sessionId: core.header.id, context: host.box.sessionContext(), model: host.model, read: reader as ApprovalCtx["read"]});
         } catch (error) {
             core.diagnostics.add({code: "intercept-threw", entry: "intercept.tool", subject: "approve", params: {tool: call.tool}, message: `the approval hook threw for ${call.tool}; the call is denied`, cause: error}, core.head);
             return {kind: "settled", value: {text: `The call to ${call.tool} was denied because approval failed.`, status: "denied", code: "intercept-failed"}, by: "core"};
         }
         if (verdict.verdict === "deny") return {kind: "settled", value: {text: `The call to ${call.tool} was denied (${verdict.rejection.code}).${typeof verdict.rejection.params?.reason === "string" ? ` ${verdict.rejection.params.reason}` : ""}`, status: "denied", code: verdict.rejection.code}, by: verdict.rejection.by};
         if (verdict.verdict === "allow") return {kind: "allowed", by: verdict.by};
-        return {kind: "ask", request: {tool: call.tool, args: call.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason})} as unknown as JsonValue};
+        return {kind: "ask", request: {tool: call.tool, args: call.args, effect, ...(verdict.reason === undefined ? {} : {reason: verdict.reason}), ...(verdict.remember === undefined ? {} : {remember: verdict.remember})} as unknown as JsonValue};
     };
 
     /** 问用户（runtime.md 输出 39）并等应答。 */

@@ -91,13 +91,14 @@ export interface SessionKernelState {
     readonly description: string | null;
     readonly archived: boolean;
     readonly remembered: readonly string[];
+    readonly rememberedRules: readonly JsonValue[];
     readonly profile: {readonly id: string; readonly hash: string} | null;
 }
 
 export const DEFAULT_CORE_SETTINGS: CoreSettings = {model: null, effort: null, approvalMode: "ask", readOnly: false};
 
 export function initialSessionKernel(core: CoreSettings = DEFAULT_CORE_SETTINGS): SessionKernelState {
-    return {buffer: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], profile: null};
+    return {buffer: [], core, settings: {}, title: null, titleBy: null, description: null, archived: false, remembered: [], rememberedRules: [], profile: null};
 }
 
 export function reduceSessionKernel(state: SessionKernelState, event: LogEvent): SessionKernelState {
@@ -123,6 +124,7 @@ export function reduceSessionKernel(state: SessionKernelState, event: LogEvent):
         case "archived":
             return {...state, archived: data.archived as boolean};
         case "approvalRemembered":
+            if (data.scope === "rule") return {...state, rememberedRules: [...state.rememberedRules, data.rules as JsonValue]};
             return state.remembered.includes(data.tool as string) ? state : {...state, remembered: [...state.remembered, data.tool as string]};
         case "profileChanged":
             return {...state, profile: {id: data.profile as string, hash: data.hash as string}};

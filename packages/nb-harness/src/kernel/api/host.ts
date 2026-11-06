@@ -374,6 +374,8 @@ export interface ApprovalInfo {
     readonly readOnly: boolean;
     /** “本会话都批准”过的工具 id。 */
     readonly remembered: readonly string[];
+    /** “本会话都批准”记下的规则，原样（`scope: "rule"` 的 `approvalRemembered`）。 */
+    readonly rememberedRules: readonly JsonValue[];
 }
 export interface ApprovalCtx {
     readonly signal: AbortSignal;

@@ -29,6 +29,10 @@ export interface CallView {
     readonly argv: readonly string[] | null;
     /** 看不懂的命令的原文（没有方言的也是）。 */
     readonly opaqueText: string | null;
+    /** 这一条是只读命令：合并时没命中也不拦别的条的放行（`cd a && touch b` 只要放行 `touch`）。 */
+    readonly readOnly: boolean;
+    /** 这一条有写重定向：只看命令的放行规则不放行它，要写路径规则（输出 15）。 */
+    readonly redirectWrites: boolean;
 }
 
 type Tri = true | false | "unknown";
@@ -147,28 +151,33 @@ export interface RuleHit {
     readonly reason?: string;
 }
 
-/** 一条视图在一层里第一条命中的规则。 */
+const mentionsPath = (matcher: unknown): boolean => {
+    if (typeof matcher !== "object" || matcher === null) return false;
+    const node = matcher as Record<string, unknown>;
+    if (Array.isArray(node.all)) return node.all.some(mentionsPath);
+    if (Array.isArray(node.any)) return node.any.some(mentionsPath);
+    return node.type === "path";
+};
+
+/** 一条视图在一层里第一条命中的规则。看不懂的命令放行规则不生效（输出 14）；写重定向要路径规则才放行（输出 15）。 */
 function firstHit(rules: readonly Rule[], view: CallView, expand: GlobExpander, report: (rule: Rule) => void): RuleHit | null {
     for (const rule of rules) {
         if (!matchesTool(rule.tool, view)) continue;
         const matched = rule.when === undefined ? true : evaluate(rule.when, view, expand);
         if (matched === "unknown") report(rule);
-        if (matched === true || (matched === "unknown" && rule.action !== "allow")) return {action: rule.action, ...(rule.reason === undefined ? {} : {reason: rule.reason})};
+        if (matched === false || (matched === "unknown" && rule.action === "allow")) continue;
+        if (rule.action === "allow" && (view.opaqueText !== null || (view.redirectWrites && !mentionsPath(rule.when)))) return null;
+        return {action: rule.action, ...(rule.reason === undefined ? {} : {reason: rule.reason})};
     }
     return null;
 }
 
-/**
- * 一层的结果：逐条命令按第一条命中算，再合并（输出 12）。看不懂的命令放行规则不生效（输出 14）。
- */
+/** 一层的结果：逐条命令按第一条命中算，再合并（输出 12）。只读的条没命中不算数。 */
 export function layerResult(rules: readonly Rule[], views: readonly CallView[], expand: GlobExpander, report: (rule: Rule) => void): RuleHit | null {
-    const hits = views.map((view) => {
-        const hit = firstHit(rules, view, expand, report);
-        return hit?.action === "allow" && view.opaqueText !== null ? null : hit;
-    });
-    return hits.find((hit) => hit?.action === "deny")
-        ?? hits.find((hit) => hit?.action === "ask")
-        ?? (hits.length > 0 && hits.every((hit) => hit?.action === "allow") ? hits[0]! : null);
+    const hits = views.map((view) => ({view, hit: firstHit(rules, view, expand, report)}));
+    const found = (action: RuleAction): RuleHit | undefined => hits.find(({hit}) => hit?.action === action)?.hit ?? undefined;
+    const allowed = found("allow");
+    return found("deny") ?? found("ask") ?? (allowed !== undefined && hits.every(({view, hit}) => hit?.action === "allow" || view.readOnly) ? allowed : null);
 }
 
 /** 三层合并（输出 2）：任一层拒绝；会话层放行；任一层询问；用户层放行。 */

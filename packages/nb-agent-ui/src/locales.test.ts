@@ -272,6 +272,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "wizard.approval.noteHint": {"zh-CN": "已填写拒绝原因，只能拒绝", "en-US": "A reason was entered, so this call can only be denied"},
     "wizard.approval.allow": {"zh-CN": "批准", "en-US": "Approve"},
     "wizard.approval.allowSession": {"zh-CN": "本会话都批准", "en-US": "Approve for this session"},
+    "wizard.approval.allowSessionRule": {"zh-CN": "本会话都批准 {rule}", "en-US": "Approve {rule} for this session"},
     "wizard.approval.deny": {"zh-CN": "拒绝", "en-US": "Deny"},
     "wizard.approval.denyAll": {"zh-CN": "全部拒绝", "en-US": "Deny all"},
     "wizard.question.otherPlaceholder": {"zh-CN": "其他（可直接填写）", "en-US": "Other (type your answer)"},

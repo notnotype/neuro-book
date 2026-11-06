@@ -8,7 +8,7 @@ import {join} from "node:path";
 
 import {Value} from "typebox/value";
 
-import type {ApproveHook, ToolEffect, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {ApproveHook, JsonValue, ToolEffect, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 
@@ -82,8 +82,14 @@ export function createPermissionHook(options: PermissionHookOptions): ApproveHoo
             options.report("permission-allow-ignored", "allow rules in a project's permissions file have no effect", {rule: rule.tool});
             return false;
         });
-        // 会话层先按整个工具：记住规则在“本会话都批准”那片接上。
-        const session: readonly Rule[] = info.remembered.map((tool) => ({tool, action: "allow"}));
+        // 记整个工具的是旧日志与不看命令的工具；记规则的来自 `remember`。
+        const session: readonly Rule[] = [
+            ...info.remembered.map((tool): Rule => ({tool, action: "allow"})),
+            ...info.rememberedRules.flatMap((item) => {
+                const rules = (item as {rules?: unknown} | null)?.rules;
+                return Value.Check(RulesSchema, rules) ? rules : [];
+            }),
+        ];
 
         const identity = {tool: call.tool, ...(info.tool.providerName === undefined ? {} : {toolName: info.tool.providerName})};
         const needed = gated && info.effect !== "read" || [...user, ...projectRules].some((rule) => matchesTool(rule.tool, identity) && rule.when !== undefined && needsSubjects(rule.when));
@@ -99,7 +105,9 @@ export function createPermissionHook(options: PermissionHookOptions): ApproveHoo
 
         const scratch: Scratch = {session: address(resources, "session://"), temp: address(resources, "tmp://")};
         const gate: GateClass | null = gated ? classify(info.effect, views, scratch) : null;
-        return decide({rules, gate, modeWriteAction: options.modeWriteAction(), effect: info.effect, approvalMode: info.mode});
+        const verdict = decide({rules, gate, modeWriteAction: options.modeWriteAction(), effect: info.effect, approvalMode: info.mode});
+        if (verdict.verdict !== "ask" || !views.hasCommand) return verdict;
+        return {...verdict, remember: rememberFor(call.tool, views) as unknown as JsonValue};
     };
 }
 
@@ -149,7 +157,7 @@ function buildViews(
             base.others.push(subject as {kind: string; value: string});
         }
     }
-    if (commandSubjects.length === 0) return {views: [{...base, paths, unresolvedPaths: unresolved, argv: null, opaqueText: null}], commands: [], hasCommand: false};
+    if (commandSubjects.length === 0) return {views: [{...base, paths, unresolvedPaths: unresolved, argv: null, opaqueText: null, readOnly: false, redirectWrites: false}], commands: [], hasCommand: false};
 
     const views: CallView[] = [];
     const known: {dialect: CommandDialect; command: SimpleCommand}[] = [];
@@ -167,7 +175,7 @@ function buildViews(
         })();
         if (parsed === null) {
             opaque = true;
-            views.push({...base, paths, unresolvedPaths: unresolved, argv: null, opaqueText: text});
+            views.push({...base, paths, unresolvedPaths: unresolved, argv: null, opaqueText: text, readOnly: false, redirectWrites: false});
             continue;
         }
         const list = parsed.commands.length === 0 ? [{argv: [], redirects: [], assignments: [], hasExpansion: false}] : parsed.commands;
@@ -182,10 +190,37 @@ function buildViews(
                 }
                 return [{access: "write", address: target}];
             });
-            views.push({...base, paths: [...paths, ...redirects], unresolvedPaths: viewUnresolved, argv: command.argv, opaqueText: null});
+            views.push({...base, paths: [...paths, ...redirects], unresolvedPaths: viewUnresolved, argv: command.argv, opaqueText: null, readOnly: dialect!.readOnly(command), redirectWrites: command.redirects.some((item) => item.write)});
         }
     }
     return {views, commands: opaque ? null : known, hasCommand: true};
+}
+
+/** 这些记成前缀等于放开任意代码或任意删除，不给“本会话都批准”（名单参照 Codex）。 */
+const TOO_WIDE = new Set(["bash", "sh", "dash", "zsh", "fish", "pwsh", "powershell", "python", "python3", "node", "bun", "deno", "perl", "ruby", "php", "lua", "osascript", "sudo", "su", "doas", "rm", "dd", "chmod", "chown", "ssh", "scp", "curl", "wget", "env", "exec"]);
+/** 第二个词是子命令的：前缀到子命令；没有子命令（`git --help`）不记。 */
+const HAS_SUBCOMMAND = new Set(["git", "npm", "pnpm", "yarn", "cargo", "go", "docker", "kubectl", "gh", "uv", "pip", "pip3"]);
+
+function commandPrefix(argv: readonly string[]): string | null {
+    const [name, sub] = argv;
+    if (name === undefined || TOO_WIDE.has(name)) return null;
+    if (!HAS_SUBCOMMAND.has(name)) return `${name} *`;
+    return sub === undefined || sub.startsWith("-") || sub.includes("$") ? null : `${name} ${sub} *`;
+}
+
+/**
+ * “本会话都批准”要记的规则（permissions.md 输出 18）：要拦的每条命令一条前缀。看不懂、有写重定向、前缀太宽时不能记。
+ * 全是只读命令（询问规则问的）时按全部算。
+ */
+function rememberFor(tool: string, views: Views): {readonly label: string; readonly rules: readonly Rule[]} | false {
+    if (views.commands === null) return false;
+    const pending = views.views.filter((view) => !view.readOnly);
+    const list = pending.length > 0 ? pending : views.views;
+    if (list.some((view) => view.redirectWrites)) return false;
+    const prefixes = list.map((view) => commandPrefix(view.argv ?? []));
+    if (prefixes.length === 0 || prefixes.some((prefix) => prefix === null)) return false;
+    const unique = [...new Set(prefixes as string[])];
+    return {label: unique.join("、"), rules: unique.map((pattern) => ({tool, when: {type: "command", pattern}, action: "allow"}))};
 }
 
 /** 闸门分类（agent/modes.md 输出 1）：只读；写路径全部落在草稿、命令都只读（不看重定向）算只写草稿；其余算写。 */

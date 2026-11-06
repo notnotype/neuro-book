@@ -1192,9 +1192,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     function pendingViews(target: Current): PendingInputView[] {
         return target.transcript.pending().map((item): PendingInputView => {
-            const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; data?: {questions?: PendingQuestionView[]}};
+            const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]}};
             if (item.kind === "approval") {
-                return {kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: request.reason}), preview: previews.get(item.id) ?? {state: "loading"}};
+                return {kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: request.reason}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
             }
             return {kind: "question", id: item.id, toolCallId: item.callId, questions: request.data?.questions ?? []};
         });

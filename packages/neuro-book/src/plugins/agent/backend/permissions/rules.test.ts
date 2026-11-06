@@ -12,7 +12,7 @@ import type {GateClass, ModeWriteAction} from "./judge";
 import {evaluate, layerResult, matchesCommand, mergeLayers} from "./rules";
 import type {CallView, RuleHit} from "./rules";
 
-const view = (patch: Partial<CallView> = {}): CallView => ({tool: "nbook.agent.shell", toolName: "shell", args: {}, paths: [], unresolvedPaths: false, others: [], subjectsAvailable: true, argv: null, opaqueText: null, ...patch});
+const view = (patch: Partial<CallView> = {}): CallView => ({tool: "nbook.agent.shell", toolName: "shell", args: {}, paths: [], unresolvedPaths: false, others: [], subjectsAvailable: true, argv: null, opaqueText: null, readOnly: false, redirectWrites: false, ...patch});
 const noExpand = (glob: string): string => glob;
 const hit = (action: RuleHit["action"]): RuleHit => ({action});
 
@@ -93,6 +93,20 @@ describe("一层的结果（输出 5、12、14）", () => {
         expect(of(rules, commands(["git", "status"], ["ls"]))).toBeUndefined();
         expect(of(rules, commands(["git", "status"], ["git", "push"]))).toBe("ask");
         expect(of(rules, commands(["git", "push"], ["rm", "x"]))).toBe("deny");
+    });
+
+    test("只读的条没命中不拦放行；全是只读且没命中算没命中", () => {
+        const rules = [shell("touch *", "allow")];
+        expect(of(rules, [view({argv: ["cd", "a"], readOnly: true}), view({argv: ["touch", "b"]})])).toBe("allow");
+        expect(of(rules, [view({argv: ["cd", "a"], readOnly: true})])).toBeUndefined();
+    });
+
+    test("写重定向：只看命令的放行规则不放行，路径规则可以；拒绝规则不受影响", () => {
+        const redirected = [view({argv: ["echo", "a"], redirectWrites: true, paths: [{access: "write", address: "temps://s/a"}]})];
+        expect(of([shell("echo *", "allow")], redirected)).toBeUndefined();
+        expect(of([{tool: "shell", action: "allow"}], redirected)).toBeUndefined();
+        expect(of([{tool: "shell", when: {type: "path", glob: "temps://**", access: "write"}, action: "allow"}], redirected)).toBe("allow");
+        expect(of([shell("echo *", "deny")], redirected)).toBe("deny");
     });
 
     test("算不出来：拒绝与询问算命中，放行不算，都报告", () => {

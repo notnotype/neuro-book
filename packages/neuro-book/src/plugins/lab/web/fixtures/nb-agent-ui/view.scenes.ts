@@ -87,6 +87,8 @@ export const agentConversationViewScenes: Scene[] = [
     hostScene("approval-long", "审批：长 diff，向导内部滚动", {...WAITING, pendingInputs: [editApproval("long", CHAPTER, LONG_BEFORE, LONG_AFTER)]}),
     hostScene("approval-batch", "审批：一条回复三个调用，一步一个", {...WAITING, pendingInputs: [editApproval("a"), shellApproval, editApproval("c", "project://正文/第四章.md")]}),
     hostScene("approval-shell", "审批：命令", {...WAITING, pendingInputs: [shellApproval]}),
+    hostScene("approval-shell-remember", "审批：命令，按钮写明要记住的规则", {...WAITING, pendingInputs: [{...shellApproval, remember: {label: "git diff *、touch *"}} as PendingInputView]}),
+    hostScene("approval-shell-no-remember", "审批：命令太宽，不能本会话都批准", {...WAITING, pendingInputs: [{...shellApproval, remember: false} as PendingInputView]}),
     hostScene("approval-other", "审批：别的工具，列参数", {...WAITING, pendingInputs: [{kind: "approval", id: "other", toolCallId: "call-other", tool: "publish_chapter", args: {chapter: 3, draft: false, tags: ["连载", "第三卷"]}, preview: {state: "ready", files: []}}]}),
     hostScene("approval-multi-file", "审批：一次改两个文件，一个太大、一个算不出来", {...WAITING, pendingInputs: [{kind: "approval", id: "multi", toolCallId: "call-multi", tool: "edit", args: {input: "[project://正文/第三章.md#ab12]\nPUT 2.=2:\n+改了"}, preview: {state: "ready", files: [{address: CHAPTER, kind: "diff", before: BEFORE, after: AFTER}, {address: "project://正文/全书.md", kind: "too-large", bytes: 2_000_000}, {address: "project://正文/第四章.md", kind: "failed", code: "edit-stale"}]}}]}),
     hostScene("approval-loading", "审批：预览还在算", {...WAITING, pendingInputs: [{kind: "approval", id: "loading", toolCallId: "call-loading", tool: "write", args: {path: CHAPTER, content: "整章"}, preview: {state: "loading"}}]}),

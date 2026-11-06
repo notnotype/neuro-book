@@ -27,6 +27,12 @@ describe("审批向导", () => {
         expect(state.approvals).toEqual({a: {decision: "allow-session"}, c: {decision: "allow-session"}});
     });
 
+    test("记规则时只联动记同一条的：别的前缀不动，不能记的不动", () => {
+        const shell = (id: string, remember: PendingApprovalView["remember"]): PendingApprovalView => ({...approval(id, "shell"), ...(remember === undefined ? {} : {remember})});
+        const batch = [shell("a", {label: "git diff *"}), shell("b", {label: "touch *"}), shell("c", {label: "git diff *"}), shell("d", false)];
+        expect(choose(EMPTY_WIZARD, batch, "a", "allow-session").approvals).toEqual({a: {decision: "allow-session"}, c: {decision: "allow-session"}});
+    });
+
     test("下一个没选的：往后找，转一圈；都选了是 null", () => {
         const state = choose(EMPTY_WIZARD, items, "b", "allow");
         expect(nextUnchosen(state, items, 0)).toBe(2);

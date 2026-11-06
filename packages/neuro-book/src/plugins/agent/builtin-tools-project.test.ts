@@ -102,7 +102,7 @@ describe("项目规则文件（docs/specs/agent/permissions.md 输出 6）", () 
         });
         const ask = async (tool: string, effect: ToolEffect) => hook(
             {id: "c", tool, args: {}} as ToolCall,
-            {tool: {id: tool} as ToolInfo, effect, mode: "allow-writes", readOnly: false, remembered: []},
+            {tool: {id: tool} as ToolInfo, effect, mode: "allow-writes", readOnly: false, remembered: [], rememberedRules: []},
             {signal: new AbortController().signal, sessionId: "s1", context: {sessionId: "s1", profile: "p", project: "book"}, model: (() => undefined) as never, read: () => undefined},
         );
         return {book, reported, ask};

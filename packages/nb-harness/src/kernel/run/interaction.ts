@@ -112,6 +112,8 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
         if (!allowed(core, item, issuer)) return {fail: "not-allowed"};
         const decisions = item.kind === "approval" ? ["allow", "allow-session", "deny"] : ["answer", "deny"];
         if (!decisions.includes(args.decision)) return {fail: "invalid-answer"};
+        const remember = item.kind === "approval" ? (item.request as {remember?: JsonValue}).remember : undefined;
+        if (args.decision === "allow-session" && remember === false) return {fail: "invalid-answer"};
         if (args.decision === "answer" && (args.answer === undefined || isEmpty({text: args.answer.text}))) return {fail: "invalid-answer"};
 
         const resolution: Resolution = {
@@ -122,7 +124,7 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
         };
         const drafts: EventDraft[] = [ctrl("interactionResolved", {id: item.id, ...resolution})];
         if (args.decision === "allow-session") {
-            drafts.push({type: "approvalRemembered", kind: "ctrl", scope: "session", data: {tool: (item.request as {tool: string}).tool, scope: "tool", by: issuer as unknown as JsonValue}});
+            drafts.push({type: "approvalRemembered", kind: "ctrl", scope: "session", data: {tool: (item.request as {tool: string}).tool, ...(remember === undefined ? {scope: "tool"} : {scope: "rule", rules: remember}), by: issuer as unknown as JsonValue}});
         }
         let launch: string | undefined;
         if (item.async && args.decision === "answer") {

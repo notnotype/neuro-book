@@ -93,7 +93,8 @@ export interface KernelEvents {
         manifest: readonly {id: string; version: string; plugin: string | null}[];
     }>;
     /** “本会话都批准”：批准记忆只从它归约，回退不撤销。 */
-    approvalRemembered: K<"session", "ctrl", {tool: string; scope: "tool"; by: Actor}>;
+    /** `scope: "rule"` 时 `rules` 是审批请求里的 `remember`，交给钩子解释；旧日志只有 `scope: "tool"`，记整个工具。 */
+    approvalRemembered: K<"session", "ctrl", {tool: string; scope: "tool" | "rule"; rules?: JsonValue; by: Actor}>;
     titleChanged: K<"session", "ctrl", {title: string; by: "user" | "auto"}>;
     /** 会话的一句话说明（宿主自动生成，`setGeneratedMeta`）。 */
     descriptionChanged: K<"session", "ctrl", {description: string}>;

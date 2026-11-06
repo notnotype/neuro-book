@@ -69,7 +69,7 @@ async function callTool(session: SessionApi, tool: string, args: Readonly<Record
 }
 
 /** 模型调工具，等到它停在审批上，交回事项 id 与放行的办法。 */
-async function untilAsked(session: SessionApi, tool: string, args: Readonly<Record<string, unknown>>): Promise<{readonly reason?: string; answer(decision: "allow" | "allow-session" | "deny"): Promise<void>}> {
+async function untilAsked(session: SessionApi, tool: string, args: Readonly<Record<string, unknown>>): Promise<{readonly id: string; readonly reason?: string; readonly remember?: unknown; answer(decision: "allow" | "allow-session" | "deny"): Promise<void>}> {
     const known = new Set((await session.path()).filter((event) => event.type === "interactionRequested").map((event) => event.id));
     endpoint.script({tool, args}, "好");
     const sent = await session.send({commandId: cid(), input: {text: "做"}});
@@ -78,8 +78,10 @@ async function untilAsked(session: SessionApi, tool: string, args: Readonly<Reco
     const asked = async () => (await session.path()).find((event) => event.type === "interactionRequested" && !known.has(event.id));
     await waitUntil("等审批", async () => (await asked()) !== undefined);
     const event = (await asked())!;
-    const data = event.data as unknown as {id: string; request: {reason?: string}};
+    const data = event.data as unknown as {id: string; request: {reason?: string; remember?: unknown}};
     return {
+        id: data.id,
+        remember: data.request.remember,
         ...(data.request.reason === undefined ? {} : {reason: data.request.reason}),
         answer: async (decision) => {
             const resolved = await session.resolve({commandId: cid(), id: data.id, decision});
@@ -176,12 +178,62 @@ describe("规则", () => {
     });
 });
 
-describe("本会话都批准", () => {
-    test("批准过的工具之后不再问，拒绝规则还是拦", async () => {
-        const session = await open([shell("rm *", "deny")]);
+describe("本会话都批准（输出 18）", () => {
+    test("记的是命令前缀：同前缀不再问，别的还问；拒绝规则还是拦；请求里写明要记什么", async () => {
+        const session = await open([shell("git push *", "deny")]);
         const asked = await untilAsked(session, "shell", {command: "touch a"});
+        expect(asked.remember).toMatchObject({label: "touch *"});
         await asked.answer("allow-session");
         expect((await callTool(session, "shell", {command: "touch b"})).status).toBe("ok");
-        expect((await callTool(session, "shell", {command: "rm b"})).code).toBe("rule-denied");
+        expect((await callTool(session, "shell", {command: "git push origin"})).code).toBe("rule-denied");
+        const other = await untilAsked(session, "shell", {command: "mkdir c"});
+        await other.answer("deny");
+    });
+
+    test("复合命令记多条；前缀到子命令；只读的不记", async () => {
+        const session = await open([]);
+        const asked = await untilAsked(session, "shell", {command: "cd . && touch a && git init b"});
+        expect(asked.remember).toMatchObject({label: "touch *、git init *"});
+        await asked.answer("allow-session");
+        expect((await callTool(session, "shell", {command: "touch c; git init d"})).status).toBe("ok");
+    });
+
+    test("太宽的、看不懂的、有写重定向的不能记，应答 allow-session 被拒", async () => {
+        const session = await open([]);
+        for (const command of ["rm a", "python a.py", "git --help", "eval touch a", "echo a > b"]) {
+            const asked = await untilAsked(session, "shell", {command});
+            expect(asked.remember).toBe(false);
+            const refused = await session.resolve({commandId: cid(), id: asked.id, decision: "allow-session"});
+            expect(refused).toMatchObject({ok: false, code: "invalid-answer"});
+            await asked.answer("deny");
+        }
+    });
+
+    test("别的工具记整个工具：用户的询问规则盖得过，拒绝规则盖不过", async () => {
+        const session = await open([{tool: "write", when: {type: "arg", path: "content", op: "eq", value: "不行"}, action: "deny"}, {tool: "write", action: "ask"}]);
+        const asked = await untilAsked(session, "write", {path: "session://a.md", content: "x"});
+        expect(asked.remember).toBeUndefined();
+        await asked.answer("allow-session");
+        expect((await callTool(session, "write", {path: "session://b.md", content: "x"})).status).toBe("ok");
+        expect((await callTool(session, "write", {path: "session://c.md", content: "不行"})).code).toBe("rule-denied");
+    });
+
+    test("fork 不带：新会话还要问", async () => {
+        const session = await open([]);
+        const asked = await untilAsked(session, "write", {path: "session://a.md", content: "x"});
+        await asked.answer("allow-session");
+        const forked = await session.fork({commandId: cid()});
+        if (!forked.ok) throw new Error(forked.code);
+        const again = await untilAsked(worlds.at(-1)!.service.session(forked.value.sessionId), "write", {path: "session://b.md", content: "x"});
+        await again.answer("deny");
+    });
+});
+
+describe("命令的放行规则", () => {
+    test("复合命令里的只读条不用写规则；写重定向不被命令规则放行", async () => {
+        const session = await open([shell("touch *", "allow"), shell("echo *", "allow")]);
+        expect((await callTool(session, "shell", {command: "cd . && touch a"})).status).toBe("ok");
+        const asked = await untilAsked(session, "shell", {command: "echo hi > b"});
+        await asked.answer("deny");
     });
 });

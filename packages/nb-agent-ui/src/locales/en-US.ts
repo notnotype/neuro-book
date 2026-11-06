@@ -314,6 +314,7 @@ export default {
             noteHint: "A reason was entered, so this call can only be denied",
             allow: "Approve",
             allowSession: "Approve for this session",
+            allowSessionRule: "Approve {{rule}} for this session",
             deny: "Deny",
             denyAll: "Deny all",
         },

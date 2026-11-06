@@ -112,7 +112,7 @@ function go(delta: number): void {
             <p v-if="noted" class="acv-approval__hint">{{ t("wizard.approval.noteHint") }}</p>
             <div class="acv-approval__actions">
                 <Button size="sm" :variant="chosen?.decision === 'allow' || !batch ? 'primary' : 'subtle'" :disabled="noted" data-approval-decision="allow" @click="pick('allow')">{{ t("wizard.approval.allow") }}</Button>
-                <Button size="sm" :variant="chosen?.decision === 'allow-session' ? 'primary' : 'subtle'" :disabled="noted" data-approval-decision="allow-session" @click="pick('allow-session')">{{ t("wizard.approval.allowSession") }}</Button>
+                <Button v-if="item.remember !== false" size="sm" :variant="chosen?.decision === 'allow-session' ? 'primary' : 'subtle'" :disabled="noted" data-approval-decision="allow-session" @click="pick('allow-session')">{{ item.remember === undefined ? t("wizard.approval.allowSession") : t("wizard.approval.allowSessionRule", {rule: item.remember.label}) }}</Button>
                 <Button size="sm" :variant="chosen?.decision === 'deny' ? 'primary' : 'subtle'" data-approval-decision="deny" @click="pick('deny')">{{ t("wizard.approval.deny") }}</Button>
             </div>
             <div v-if="batch" class="acv-approval__actions">
