@@ -38,7 +38,7 @@ import {checkDiagnostics} from "nbook/plugins/plot/core/checks/diagnostics";
 import {namesOfSegments, planCheck} from "nbook/plugins/plot/core/checks/plan";
 import {createLimiter, runCheck, type CheckModels} from "nbook/plugins/plot/core/checks/run";
 import {createCheckSource} from "nbook/plugins/plot/core/checks/source";
-import type {CheckDependencies, CheckRecord} from "nbook/plugins/plot/shared/checks";
+import {CheckDependenciesSchema, type CheckDependencies, type CheckRecord} from "nbook/plugins/plot/shared/checks";
 import {createPartitionOwner} from "nbook/plugins/storage/backend/owner";
 import {createPartition} from "nbook/plugins/storage/backend/partition";
 import {createStorageFacade} from "nbook/plugins/storage/shared/facade";
@@ -210,6 +210,40 @@ service.closeView(opened.token);
 // ---------- 阶段 F：写完以后的检查（1000 章都有检查记录） ----------
 // 模型是立刻回答的替身：这里量的是圈候选、拼输入、校验有效性，不是模型。Spec 没给校验定预算（只要求按这个规模量），下面的参考数是作者定的。
 const sha = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
+// 让检查的路径都走到：带答案与物件的悬念、未兑现的与改两个条目的计划、活页夹里讲到的子线。没有这些，试读的材料、按计划模式的覆盖层、按线取结论都量不到。
+const THINGS = 10;
+const reveal = (id: string): Mark => ({kind: MARK_IDS.reveal, version: 1, point: id, mode: "explicit"});
+const thingIds = await plot.publish(Array.from({length: THINGS}, (_, index) => ({ref: {kind: "entry" as const, id: `tmp:thing${String(index)}`}, after: drafts.thing(`tmp:thing${String(index)}`, `物件${String(index)}`)})));
+const thing = (index: number) => thingIds[`tmp:thing${String(index % THINGS)}`]!;
+const mysteryIds = await plot.publish(Array.from({length: THINGS}, (_, index) => ({ref: {kind: "entry" as const, id: `tmp:mystery${String(index)}`}, after: drafts.foreshadow(`tmp:mystery${String(index)}`, `悬念${String(index)}`, {种类: "mystery", 答案: {ref: point(index)}, 物件: [{id: thing(index)}]})})));
+const mystery = (index: number) => mysteryIds[`tmp:mystery${String(index % THINGS)}`]!;
+const richPuts: WriteRequest["puts"] = [];
+for (let n = 1; n <= chapters; n += 1) {
+    const chapter = chapterIds[n - 1]!;
+    if (n % 3 === 0) {
+        const id = `tmp:plan${String(n)}`;
+        richPuts.push({ref: {kind: "change", id}, after: drafts.change(id, {kind: "chapter", chapter, key: 600}, {kind: "plan", told: [{source: "outline", chapter, anchor: "细纲", marks: [reveal(point(n))]}]})});
+    }
+    if (n % 50 === 0) {
+        const id = `tmp:linked${String(n)}`;
+        richPuts.push({ref: {kind: "change", id}, after: drafts.change(id, {kind: "chapter", chapter, key: 610}, {kind: "plan", patches: [{op: "set", at: {entry: point(n + 1), path: "point.保密"}, value: "topSecret"}, {op: "set", at: {entry: thing(n), path: "character.状态"}, value: "变了"}]})});
+    }
+    if (n % 40 === 0) {
+        const id = `tmp:node${String(n)}`;
+        richPuts.push({ref: {kind: "change", id}, after: drafts.change(id, {kind: "chapter", chapter, key: 620}, {told: [{source: "chapter", chapter, quote: `第${String(n)}章第2句`, marks: [{kind: MARK_IDS.node, version: 1, foreshadow: mystery(n / 40), role: "echo"}]}]})});
+    }
+}
+await plot.publish(richPuts);
+const toldForkChapter = chapterIds[Math.floor(chapters * 0.3)]!;
+const toldFork = await plot.publish([{ref: {kind: "change", id: "tmp:toldFork"}, after: {...drafts.change("tmp:toldFork", {kind: "chapter", chapter: toldForkChapter, key: 700}), nature: "fork" as const, fork: {line: "tmp:toldLine", name: "讲到的子线", parent: "main", cut: forkCuts[0]!, type: "branch" as const}}}]);
+const toldLine = toldFork["tmp:toldLine"]!;
+const binderLines = new Map<string, {line: string; from: number}[]>();
+for (let n = Math.floor(chapters * 0.3) + 2; n <= Math.floor(chapters * 0.3) + 11; n += 1) {
+    const chapter = chapterIds[n - 1]!;
+    binderLines.set(chapter, n % 2 === 0 ? [{line: toldLine, from: 1}] : [{line: "main", from: 1}, {line: toldLine, from: 2}]);
+    await plot.change({kind: "chapter", chapter, key: 0, line: toldLine}, {cast: [present(person(n)), present(person(n + 1))]});
+}
+await service.setChapters(chapterIds, binderLines);
 const padding = Array.from({length: 30}, (_, index) => `这是第 ${String(index)} 段铺陈的文字，让一章有接近真实的长度，大约一百个字上下，写的都是些不相干的日常。`.repeat(1)).join("\n");
 for (const id of chapterIds) plot.texts.set(id, `${plot.texts.get(id) ?? ""}${padding}\n`);
 service.textChanged();
@@ -281,7 +315,21 @@ checkReports.push(await scenario("(c) 改第 500 章的一条变更", () => plot
 checkReports.push(await scenario("(c2) 这之后再在最新一章发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_003}, {text: "补一句"})));
 const frequent = person(1);
 const storedPerson = service.world.data.entries.get(frequent)!;
-checkReports.push(await scenario("(b) 改一个常出场条目的初值", () => plot.publish([{ref: {kind: "entry", id: frequent}, after: {...storedPerson, folder: "改过的"}}])));
+checkReports.push(await scenario("(b) 改一个条目的 folder（计划不读）", () => plot.publish([{ref: {kind: "entry", id: frequent}, after: {...storedPerson, folder: "改过的"}}])));
+const editInit = (id: string, fields: Partial<typeof storedPerson.init>) => {
+    const stored = service.world.data.entries.get(id)!;
+    return plot.publish([{ref: {kind: "entry", id}, after: {...stored, init: {...stored.init, ...fields}}}]);
+};
+checkReports.push(await scenario("(e) 改一个常出场条目的简介", () => editInit(frequent, {summary: "改过的简介"})));
+const fifth = chapterIds[Math.floor(chapterIds.length / 2)]!;
+checkReports.push(await scenario("(f) 改第 500 章的正文（段落与引文都没动）", async () => {
+    plot.texts.set(fifth, plot.texts.get(fifth)!.replace("不相干的日常", "不相干的琐事"));
+    service.textChanged(fifth);
+}));
+checkReports.push(await scenario("(g) 第 500 章加一条变更，两个人在场", () => plot.change({kind: "chapter", chapter: fifth, key: 5_004}, {cast: [present(person(3)), present(person(4))]})));
+checkReports.push(await scenario("(h) 第 500 章加一个伏笔节点", () => plot.change({kind: "chapter", chapter: fifth, key: 5_005}, {told: [{source: "chapter", chapter: fifth, quote: `第${String(Math.floor(chapterIds.length / 2) + 1)}章第0句`, marks: [{kind: MARK_IDS.node, version: 1, foreshadow: mystery(1), role: "echo"}]}]})));
+checkReports.push(await scenario("(i) 新建一个知识点，没写出场", () => plot.point("新的秘密", person(5), {保密: "secret"})));
+checkReports.push(await scenario("(j) 新建一个知识点，出场在最新一章", () => plot.entry({...drafts.point("tmp:latest", "最新的秘密", person(5), {保密: "secret"}), appears: {kind: "chapter", chapter: last, key: 0}})));
 // (d) 重启后第一次读：对象摘要的缓存是空的（换一个摘要函数），结论的缓存也是空的。
 const coldDigest = (text: string) => sha(text);
 const coldSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: coldDigest, writeBack: () => undefined});
@@ -325,6 +373,21 @@ for (const [count, bytes] of [[100, 1024], [1000, 1024], [100, 64 * 1024], [1000
     Bun.gc(true);
     loadReports.push(`${String(count)} 章、每张表每章 ${String(bytes / 1024)} KiB：读回 ${ms(took)} 毫秒，堆增加 ${ms((process.memoryUsage().heapUsed - before) / 1024 / 1024)} MB`);
     second.owner.close();
+}
+// 回写的存储：只写摘要表，1000 章（一行约 1 KiB），真实的分区库。
+{
+    const path = join(storeRoot, "dependencies.sqlite");
+    const owner = createPartitionOwner(createPartition({path}), "project", () => undefined);
+    const writer = new PlotStore(createStorageFacade(consumer, {user: () => ({ok: false, code: "no-project", detail: ""}), project: () => owner.route(consumer)}).service, () => undefined);
+    const table = writer.table<CheckDependencies>({key: "plot-check-deps", shape: 1, schema: CheckDependenciesSchema, cache: true});
+    if ((await writer.load()) !== null) throw new Error("load");
+    const rows = [...dependenciesByChapter.values()];
+    for (const row of rows) await writer.queued(() => writer.write(table, row.chapter, row));
+    const begin = performance.now();
+    for (const row of rows) await writer.queued(() => writer.write(table, row.chapter, {...row, dependencies: `${row.dependencies}x`}));
+    const took = performance.now() - begin;
+    loadReports.push(`回写 ${String(rows.length)} 章的摘要（一行平均 ${ms(rows.reduce((sum, row) => sum + JSON.stringify(row).length, 0) / rows.length / 1024)} KiB）：${ms(took)} 毫秒`);
+    owner.close();
 }
 await rm(storeRoot, {recursive: true, force: true});
 await plot.stop();
