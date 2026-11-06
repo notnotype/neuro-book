@@ -64,15 +64,15 @@ type Subject =
    5. 闸门判定只写草稿：放行。
    6. 按审批模式：`effect` 是读放行；`ask` 询问；`allow-writes` 写放行、执行询问；`auto` 问审批模型（输出 19）；`yolo` 放行。
 2. 规则结果按层算：每层内从上到下第一条命中；再合并，取第一个成立的：任一层拒绝；会话层放行；任一层询问；用户层放行；没命中。
-3. `tool` 是工具 id 的通配（`*` 匹配任意字符），第三方与 MCP 工具同样写。
+3. `tool` 是工具 id 或给模型的名字的通配（`*` 匹配任意字符），`shell` 与 `nbook.agent.shell` 都算；第三方与 MCP 工具同样写。
 4. `reason` 写进给模型的拒绝文字；没写时拒绝文字不带命中的条件。
 5. 算不出来时（匹配器类型未知、抛错、判定对象取不到、工具提供方激活失败），拒绝与询问规则算命中，放行规则不算，写诊断 `permission-rule-unevaluable`。
-6. 项目规则文件不存在时项目层为空；解析或校验不过时写诊断 `permission-rules-invalid`，这一层对写与执行的调用按询问算，读不受影响。项目层的放行规则不生效，写诊断 `permission-allow-ignored`。规则每次判定时读，改了下一次就生效。
-7. 写 `project://.nbook/**` 与用户设置文件永远询问：内置，排在所有层之前，只有拒绝规则能盖过，免得模型在放行写入下改掉自己的规则。
+6. 项目规则文件由宿主直接读（`.nbook/` 不经 Agent 的文件权限）。不存在时项目层为空；解析或校验不过时写诊断 `permission-rules-invalid`，这一层对写与执行的调用按询问算，读不受影响。项目层的放行规则不生效，写诊断 `permission-allow-ignored`。规则每次判定时读，改了下一次就生效。
+7. 地址分类为“写入要询问”的（`user://`，[`agent/resources.md`](resources.md)）：规则结果不是拒绝时一律按询问算，放行规则、会话层与放行写入都不免，`yolo` 下放行。免得模型在放行写入下改掉用户设置里的规则。项目的 `.nbook/` 是控制目录，Agent 的文件工具本来就碰不到。
 
 ### 判定对象与匹配
 
-8. `path` 对象的 `address` 是展开后的全局地址，规则里的 `glob` 也先展开，所以 `project://a/*` 与全局写法等价。区分大小写，不跟随符号链接。展开失败算“算不出来”。
+8. `path` 对象的 `address` 是展开后的全局地址，规则里带方案的 `glob` 也先展开，所以 `project://a/*` 与全局写法等价；不带方案的（`**/.env`）原样比对。写重定向的相对路径从工作目录算，磁盘路径原样比对。区分大小写，不跟随符号链接。展开失败算“算不出来”。
 9. 规则需要判定对象（`path`、`command`、`subject` 匹配器）而工具提供方还没激活时，先激活再判定；只看工具名与 `arg` 的规则不触发激活。
 10. `arg` 的 `path` 是点分路径。`keywords` 是任一关键词出现，不分大小写；`regex` 是 ECMAScript 语法，写错算“算不出来”。
 
@@ -88,7 +88,7 @@ type Subject =
 
 12. 一段命令拆成单条命令，包括 `$(...)`、反引号、进程替换、子 shell、循环与条件体、函数体、会展开的 here-doc 里的。逐条按第一条命中算，再合并：任一条拒绝就拒绝；任一条询问就询问；全部放行才放行；否则没命中。
 13. 反复剥包装（`timeout`、`time`、`nice`、`nohup`、`stdbuf`、`command`、`builtin`、`exec`、`env`）与环境变量前缀；选项认不出算看不懂。`bash -c '<字面量>'`（`sh`、`dash`、`zsh` 同）递归解析，最多 8 层。系统目录（`/bin`、`/sbin`、`/usr/bin`、`/usr/sbin`、`/usr/local/bin`、`/usr/local/sbin`）下的程序取文件名，别处的不取。
-14. 看不懂的：语法错误、命令名有展开、`eval`、`xargs`、`source`、`.`、`parallel`、`find -exec` 这类、`bash -c` 的脚本不是字面量、从标准输入读脚本。这时放行规则不生效，询问与拒绝规则按整段文本通配比对；闸门算写；`ask`、`allow-writes` 下询问；`yolo` 下放行。没有方言的命令同样处理。
+14. 看不懂的：语法错误、命令名有展开、`eval`、`xargs`、`source`、`.`、`parallel`、`find -exec` 这类、`bash -c` 的脚本不是字面量、从标准输入读脚本。这时放行规则不生效，询问与拒绝规则按整段文本包含比对（`git push *` 命中 `eval git push`）；闸门算写；`ask`、`allow-writes` 下询问；`yolo` 下放行。没有方言的命令同样处理。
 15. 写重定向的目标作为 `path` 对象参加匹配（`/dev/null`、`/dev/stdout`、`/dev/stderr` 与文件描述符复制除外）。目标有展开时算“算不出来”。
 16. 只读是白名单，到子命令与选项，清单外的都不算：`git log` 算，`git push`、`git branch -D`、`git -c x log`、`git log --output=f`、`find -delete`、`sed -i`、`sort -o`、`cp`、`mkdir` 不算。环境变量前缀除语言、时区、颜色、终端尺寸类之外不算只读。设置 `nbook.agent/readOnlyCommands` 能按词前缀追加（`npm ls`），不能删。
 17. 一段命令全部只读且没有写重定向时，`shell` 的 `effect` 是 `read`；否则是 `exec`。
