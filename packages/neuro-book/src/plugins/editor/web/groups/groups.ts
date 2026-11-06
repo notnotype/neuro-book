@@ -1,33 +1,25 @@
 /**
- * 编辑组与标签（docs/specs/workbench/editor.md 输出 1–5）：纯模型，不打开文档。组按 nb-layout 的 grid 排列（叶的引用是组
- * id），每组一列标签与活动标签；活动组是最近获得焦点或执行过打开的组。打开文档与释放引用由控制器按这里的结果做，
- * 所以每个会让标签消失的动作都返回消失的标签。
+ * 编辑组与标签（docs/specs/workbench/editor.md 输出 1–5）：纯模型，不打开文档。标签的属性（地址、编辑器、preview、固定、光标、语言）在这里，标签在哪块面板、面板怎么排经
+ * `panels.ts` 的接缝；活动组是最近获得焦点或执行过打开的组。打开文档与释放引用由控制器按这里的结果做，所以每个会让标签消失的动作都返回消失的标签。
  */
 
-import {shallowRef} from "@vue/reactivity";
-import type {ShallowRef} from "@vue/reactivity";
+import {computed, shallowRef} from "@vue/reactivity";
+import type {Ref, ShallowRef} from "@vue/reactivity";
 
-// 只要 grid 的结构与快照，不要渲染器：`./grid` 不依赖 Vue 与 DOM，插件激活时就能用、Bun 里也能测。
-import {createGrid} from "@notnotype/nb-layout";
-import type {Grid, GridDropRect, GridLeafInput, GridNode, GridSnapshot} from "@notnotype/nb-layout";
+import type {Grid, GridDropRect, GridSnapshot} from "@notnotype/nb-layout";
 
 import {isWithin, rebase} from "../documents/address";
+import {createLocalPanels, restorePanelGrid} from "./panels";
+import type {LocalPanelsSeed, PanelCanInsert, PanelEdge} from "./panels";
 
 import type {TabCursor} from "../../shared/contracts";
 
 export type {TabCursor} from "../../shared/contracts";
 
 /**
- * 组与组之间的分隔线占 1px（与工作台的分隔线相同）。nb-ui 把 0px 的分隔线当作不可交互的接缝：不画线、不能拖，
- * 所以这里不能取 0。
+ * 标签 id 是随机串：合成一棵树之后它是两条记录（布局文档与 `editor.tabs`）之间的键，几个窗口各自新建也不能撞（docs/specs/ui/workbench-layout.md 输出 33）。
  */
-const GROUP_SASH_PX = 1;
-/** 编辑组的最小尺寸：再窄放不下一个截断的标签与标题动作的“⋯”。 */
-const GROUP_MIN_SIZE = {width: 220, height: 120} as const;
-
-function groupLeaf(id: string): GridLeafInput<string> {
-    return {kind: "leaf", id, ref: id, minimumSize: GROUP_MIN_SIZE};
-}
+const newTabId = (): string => `t-${crypto.randomUUID()}`;
 
 /**
  * 打开文件的标签：`editor` 是编辑器 id（docs/specs/workbench/editor.md 输出 36）。标签按“地址 + 编辑器”区分，同一组里
@@ -72,7 +64,7 @@ export interface TabPlace {
     readonly before: string | null;
 }
 
-export type GroupEdge = "left" | "right" | "top" | "bottom";
+export type GroupEdge = PanelEdge;
 
 /** 差不到这么多算贴着：组之间的分隔线 1px 加取整。 */
 const EDGE_TOLERANCE_PX = 2;
@@ -122,7 +114,7 @@ export interface GroupsSnapshot {
 export type SplitDirection = "right" | "down";
 
 export interface EditorGroups {
-    readonly groups: Readonly<ShallowRef<ReadonlyArray<EditorGroup>>>;
+    readonly groups: Readonly<Ref<ReadonlyArray<EditorGroup>>>;
     readonly activeGroup: Readonly<ShallowRef<string>>;
     /** 布局的 grid；结构变化时 `layoutVersion` 加一。 */
     readonly grid: Grid<string>;
@@ -183,27 +175,40 @@ export interface EditorGroups {
 /** 默认的光标写法：只认内置的两个编辑器（测试与没有编辑器目录的场合）。 */
 const BUILTIN_CURSOR: CursorKind = (editor) => (editor === "nbook.editor.markdown" ? "offset" : editor === "nbook.editor.code" ? "line" : null);
 
+/** 两份列表的项都是同一个对象吗。 */
+const sameItems = <T>(left: ReadonlyArray<T>, right: ReadonlyArray<T>): boolean => left.length === right.length && left.every((item, index) => item === right[index]);
+
 /** 至少一组；记录坏了或组不对应布局时从一个空组开始。 */
 export function createEditorGroups(initial: GroupsSnapshot | null = null, cursorKind: CursorKind = BUILTIN_CURSOR): EditorGroups {
-    let nextId = 0;
-    /** 新的组、分支与标签 id：跳过恢复出来的布局里已有的。 */
-    const newId = (prefix: string): string => {
-        for (;;) {
-            nextId += 1;
-            const id = `${prefix}${String(nextId)}`;
-            if (restored === null || restored.grid.find(id) === null) return id;
-        }
-    };
     const restored = initial === null ? null : restore(initial, cursorKind);
-    const grid = restored?.grid ?? createGrid<string>(groupLeaf("g0"), {sashSize: GROUP_SASH_PX});
-    const groups = shallowRef<ReadonlyArray<EditorGroup>>(restored?.groups ?? [{id: "g0", tabs: [], active: null}]);
-    const activeGroup = shallowRef(restored?.activeGroup ?? groups.value[0]?.id ?? "g0");
-    const layoutVersion = shallowRef(0);
+    /** 标签的属性。结构（标签在哪、活动的是谁）在接缝后面，两边只靠 id 对上。 */
+    const attributes = shallowRef<ReadonlyMap<string, EditorTab>>(restored?.attributes ?? new Map());
+    const pinnedIn = (ids: ReadonlyArray<string>): number => pinnedCount(ids.flatMap((id) => attributes.value.get(id) ?? []));
+
+    /** 固定的排在普通的前面（输出 50）。 */
+    const canInsert: PanelCanInsert = (tabId, panel, at) => {
+        const tab = attributes.value.get(tabId);
+        if (tab === undefined) return false;
+        const boundary = pinnedIn(panel.tabs.filter((id) => id !== tabId));
+        return isPinned(tab) ? at <= boundary : at >= boundary;
+    };
+    const {tabs: panelTabs, tree, grid, layoutVersion} = createLocalPanels(restored?.seed ?? null, canInsert);
+
+    /**
+     * 结构和属性合成的组。没变的组和标签保持同一个对象：光标一动属性就变，别的组不该跟着重新渲染。
+     */
+    let joined: ReadonlyArray<EditorGroup> = [];
+    const groups = computed<ReadonlyArray<EditorGroup>>(() => {
+        const next = panelTabs.panels.value.map((panel): EditorGroup => {
+            const tabs = panel.tabs.flatMap((id) => attributes.value.get(id) ?? []);
+            const previous = joined.find((group) => group.id === panel.id);
+            return previous !== undefined && previous.active === panel.active && sameItems(previous.tabs, tabs) ? previous : {id: panel.id, tabs, active: panel.active};
+        });
+        if (!sameItems(joined, next)) joined = next;
+        return joined;
+    });
 
     const groupOf = (id: string): EditorGroup | undefined => groups.value.find((group) => group.id === id);
-    const replace = (group: EditorGroup): void => {
-        groups.value = groups.value.map((candidate) => (candidate.id === group.id ? group : candidate));
-    };
     const locate = (tabId: string): {group: EditorGroup; tab: EditorTab; index: number} | null => {
         for (const group of groups.value) {
             const index = group.tabs.findIndex((tab) => tab.id === tabId);
@@ -211,32 +216,20 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
         }
         return null;
     };
-
-    /** 组空了且还有别的组：从布局与列表里去掉，活动组换到列表里的相邻组。 */
-    const dropIfEmpty = (group: EditorGroup): void => {
-        if (group.tabs.length > 0 || groups.value.length <= 1) return;
-        const index = groups.value.findIndex((candidate) => candidate.id === group.id);
-        const removed = grid.removeLeaf(group.id);
-        if (!removed.ok) return;
-        groups.value = groups.value.filter((candidate) => candidate.id !== group.id);
-        layoutVersion.value += 1;
-        if (activeGroup.value === group.id) activeGroup.value = (groups.value[Math.min(index, groups.value.length - 1)] as EditorGroup).id;
+    const setTab = (tab: EditorTab): void => {
+        attributes.value = new Map(attributes.value).set(tab.id, tab);
+    };
+    const forgetTab = (tabId: string): void => {
+        const next = new Map(attributes.value);
+        next.delete(tabId);
+        attributes.value = next;
     };
 
-    /** 插在组的活动标签之后、但不插进固定区（新标签不固定），成为活动标签。 */
+    /** 插在组的活动标签之后、但不插进固定区（新标签不固定），成为活动标签。属性先写：结构一变，读组的就要找得到它。 */
     const insert = (group: EditorGroup, tab: EditorTab): void => {
         const at = group.tabs.findIndex((candidate) => candidate.id === group.active);
-        const tabs = [...group.tabs];
-        tabs.splice(at < 0 ? tabs.length : Math.max(at + 1, pinnedCount(tabs)), 0, tab);
-        replace({...group, tabs, active: tab.id});
-    };
-
-    /** 从组里拿掉一个标签后的组（活动标签被拿掉时同 `remove` 换到相邻的），不落库。 */
-    const without = (group: EditorGroup, index: number): EditorGroup => {
-        const removed = group.tabs[index] as EditorTab;
-        const tabs = group.tabs.filter((_, at) => at !== index);
-        const active = group.active === removed.id ? ((tabs[index] ?? tabs[index - 1])?.id ?? null) : group.active;
-        return {...group, tabs, active};
+        setTab(tab);
+        panelTabs.insert(group.id, tab.id, at < 0 ? group.tabs.length : Math.max(at + 1, pinnedCount(group.tabs)));
     };
 
     /** 移动后的标签：preview 转正，按目标区固定或取消固定。 */
@@ -246,25 +239,39 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
         return pinned ? {...rest, preview: false, pinned: true} : {...rest, preview: false};
     };
 
+    /**
+     * 同时改属性和位置。固定区的检查看的是新属性，所以属性先写；接缝不答应时写回去。`at` 是摘掉来源之后的位置。
+     */
+    const moveWith = (found: {readonly group: EditorGroup; readonly tab: EditorTab; readonly index: number}, tab: EditorTab, panel: string, at: number, options?: {readonly activate?: boolean}): boolean => {
+        setTab(tab);
+        const index = found.group.id === panel && at >= found.index ? at + 1 : at;
+        if (panelTabs.move(tab.id, panel, index, options)) return true;
+        setTab(found.tab);
+        return false;
+    };
+
     const remove = (tabId: string): EditorTab | null => {
         const found = locate(tabId);
         if (found === null) return null;
-        const tabs = found.group.tabs.filter((tab) => tab.id !== tabId);
-        let active = found.group.active;
-        if (active === tabId) active = (tabs[found.index] ?? tabs[found.index - 1])?.id ?? null;
-        const next = {...found.group, tabs, active};
-        replace(next);
-        dropIfEmpty(next);
+        panelTabs.remove(tabId);
+        forgetTab(tabId);
         return found.tab;
+    };
+
+    /** 换一个位置但不动活动标签和活动组（固定与取消固定）。 */
+    const repin = (found: {readonly group: EditorGroup; readonly tab: EditorTab; readonly index: number}, pinned: boolean): void => {
+        // 固定区末尾与普通区开头是同一个位置：拿掉它之后的分界处。
+        const rest = found.group.tabs.filter((tab) => tab.id !== found.tab.id);
+        moveWith(found, placed(found.tab, pinned), found.group.id, pinnedCount(rest), {activate: false});
     };
 
     return {
         groups,
-        activeGroup,
+        activeGroup: tree.current,
         grid,
         layoutVersion,
         activeTab: () => {
-            const group = groupOf(activeGroup.value);
+            const group = groupOf(tree.current.value);
             return group?.tabs.find((tab) => tab.id === group.active) ?? null;
         },
         find: (tabId) => {
@@ -272,89 +279,65 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             return found === null ? null : {group: found.group, tab: found.tab};
         },
         open: (address, options) => {
-            const group = groupOf(options.group ?? activeGroup.value) ?? (groups.value[0] as EditorGroup);
-            activeGroup.value = group.id;
+            const group = groupOf(options.group ?? tree.current.value) ?? (groups.value[0] as EditorGroup);
+            tree.setCurrent(group.id);
             const reuse = options.reuse ?? ((tab: FileTab) => tab.editor === options.editor);
             const existing = group.tabs.find((tab): tab is FileTab => tab.kind === "file" && tab.address === address && reuse(tab));
             if (existing !== undefined) {
                 const tab = options.mode === "permanent" && existing.preview ? {...existing, preview: false} : existing;
-                replace({...group, tabs: group.tabs.map((candidate) => (candidate.id === existing.id ? tab : candidate)), active: tab.id});
+                if (tab !== existing) setTab(tab);
+                panelTabs.activate(tab.id);
                 return {tab, replaced: null};
             }
-            const tab: FileTab = {kind: "file", id: newId("t"), address, editor: options.editor, preview: options.mode === "preview"};
+            const tab: FileTab = {kind: "file", id: newTabId(), address, editor: options.editor, preview: options.mode === "preview"};
             const preview = options.mode === "preview" ? group.tabs.find((candidate) => candidate.preview) : undefined;
             if (preview !== undefined) {
-                replace({...group, tabs: group.tabs.map((candidate) => (candidate.id === preview.id ? tab : candidate)), active: tab.id});
+                setTab(tab);
+                panelTabs.replace(preview.id, tab.id);
+                panelTabs.activate(tab.id);
+                forgetTab(preview.id);
                 return {tab, replaced: preview};
             }
             insert(group, tab);
             return {tab, replaced: null};
         },
         openPage: (address) => {
-            const group = groupOf(activeGroup.value) ?? (groups.value[0] as EditorGroup);
-            activeGroup.value = group.id;
-            const tab: PageTab = {kind: "page", id: newId("t"), address, preview: false};
+            const group = groupOf(tree.current.value) ?? (groups.value[0] as EditorGroup);
+            const tab: PageTab = {kind: "page", id: newTabId(), address, preview: false};
             insert(group, tab);
             return tab;
         },
         keep: (tabId) => {
             const found = locate(tabId);
             if (found === null || !found.tab.preview) return;
-            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, preview: false} : tab))});
+            setTab({...found.tab, preview: false});
         },
         setPinned: (tabId, pinned) => {
             const found = locate(tabId);
             if (found === null || found.tab.kind === "page" || isPinned(found.tab) === pinned) return;
-            const rest = found.group.tabs.filter((tab) => tab.id !== tabId);
-            const tabs = [...rest];
-            // 固定区末尾与普通区开头是同一个位置：拿掉它之后的分界处。
-            tabs.splice(pinnedCount(rest), 0, placed(found.tab, pinned));
-            replace({...found.group, tabs});
+            repin(found, pinned);
         },
         activate: (tabId) => {
-            const found = locate(tabId);
-            if (found === null) return;
-            activeGroup.value = found.group.id;
-            if (found.group.active !== tabId) replace({...found.group, active: tabId});
+            panelTabs.activate(tabId);
         },
         focusGroup: (groupId) => {
-            if (groupOf(groupId) !== undefined) activeGroup.value = groupId;
+            tree.setCurrent(groupId);
         },
         close: (tabId) => remove(tabId),
         split: (tabId, direction) => {
             const found = locate(tabId);
             if (found === null || found.tab.kind === "page") return null;
-            const id = newId("g");
-            const result = grid.splitLeaf(found.group.id, {branchId: newId("b"), orientation: direction === "right" ? "horizontal" : "vertical", side: "after", leaf: groupLeaf(id)});
-            if (!result.ok) return null;
+            const id = tree.openAtEdge(found.group.id, direction === "right" ? "right" : "bottom");
+            if (id === null) return null;
             // 新组的视图从原标签记下的光标开始，语言也跟过去（输出 30、45）。
             const source = found.tab;
-            const tab: FileTab = {kind: "file", id: newId("t"), address: source.address, editor: source.editor, preview: false, ...(source.cursor === undefined ? {} : {cursor: source.cursor}), ...(source.language === undefined ? {} : {language: source.language})};
-            const index = groups.value.findIndex((group) => group.id === found.group.id);
-            const next = [...groups.value];
-            next.splice(index + 1, 0, {id, tabs: [tab], active: tab.id});
-            groups.value = next;
-            activeGroup.value = id;
-            layoutVersion.value += 1;
+            const tab: FileTab = {kind: "file", id: newTabId(), address: source.address, editor: source.editor, preview: false, ...(source.cursor === undefined ? {} : {cursor: source.cursor}), ...(source.language === undefined ? {} : {language: source.language})};
+            setTab(tab);
+            panelTabs.insert(id, tab.id, 0);
             return tab;
         },
-        rightOf: (groupId) => {
-            const right = rightNeighbor(grid.root(), groupId);
-            return right !== null && groupOf(right) !== undefined ? right : null;
-        },
-        sideGroup: () => {
-            const right = rightNeighbor(grid.root(), activeGroup.value);
-            if (right !== null && groupOf(right) !== undefined) return right;
-            const id = newId("g");
-            const result = grid.splitLeaf(activeGroup.value, {branchId: newId("b"), orientation: "horizontal", side: "after", leaf: groupLeaf(id)});
-            if (!result.ok) return activeGroup.value;
-            const index = groups.value.findIndex((group) => group.id === activeGroup.value);
-            const next = [...groups.value];
-            next.splice(index + 1, 0, {id, tabs: [], active: null});
-            groups.value = next;
-            layoutVersion.value += 1;
-            return id;
-        },
+        rightOf: (groupId) => tree.rightOf(groupId),
+        sideGroup: () => tree.rightOf(tree.current.value) ?? tree.openAtEdge(tree.current.value, "right") ?? tree.current.value,
         move: (tabId, delta) => {
             const found = locate(tabId);
             if (found === null) return;
@@ -362,10 +345,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             const boundary = pinnedCount(found.group.tabs);
             const [low, high] = isPinned(found.tab) ? [0, boundary - 1] : [boundary, found.group.tabs.length - 1];
             if (target < low || target > high) return;
-            const tabs = [...found.group.tabs];
-            tabs.splice(found.index, 1);
-            tabs.splice(target, 0, found.tab);
-            replace({...found.group, tabs});
+            moveWith(found, found.tab, found.group.id, target, {activate: false});
         },
         moveTab: (tabId, place) => {
             const found = locate(tabId);
@@ -374,51 +354,29 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             if (place.partition === "pinned" && found.tab.kind === "page") return null;
             if (target.id !== found.group.id && target.tabs.some((tab) => tab.kind === "file" && found.tab.kind === "file" && tab.address === found.tab.address && tab.editor === found.tab.editor)) return null;
             // 目标组拿掉源标签之后的样子（同组时就是源组本身拿掉它）。
-            const base = target.id === found.group.id ? without(found.group, found.index) : target;
-            const boundary = pinnedCount(base.tabs);
+            const base = target.id === found.group.id ? target.tabs.filter((tab) => tab.id !== tabId) : target.tabs;
+            const boundary = pinnedCount(base);
             let at: number;
-            if (place.before === null) at = place.partition === "pinned" ? boundary : base.tabs.length;
+            if (place.before === null) at = place.partition === "pinned" ? boundary : base.length;
             else {
-                at = base.tabs.findIndex((tab) => tab.id === place.before);
+                at = base.findIndex((tab) => tab.id === place.before);
                 if (at < 0 || (place.partition === "pinned") !== (at < boundary)) return null;
             }
             const tab = placed(found.tab, place.partition === "pinned");
             // 原位：同组、同区、位置没变。
             if (target.id === found.group.id && at === found.index && isPinned(found.tab) === isPinned(tab)) return null;
-            const tabs = [...base.tabs];
-            tabs.splice(at, 0, tab);
-            const moved = {...base, tabs, active: tab.id};
-            activeGroup.value = target.id;
-            if (target.id === found.group.id) {
-                replace(moved);
-                return {tab, droppedGroup: null};
-            }
-            const source = without(found.group, found.index);
-            replace(source);
-            replace(moved);
-            const before = groups.value.length;
-            dropIfEmpty(source);
-            return {tab, droppedGroup: groups.value.length < before ? source.id : null};
+            if (!moveWith(found, tab, target.id, at)) return null;
+            return {tab, droppedGroup: groupOf(found.group.id) === undefined ? found.group.id : null};
         },
         moveToNewGroup: (tabId, groupId, edge) => {
             const found = locate(tabId);
             if (found === null || groupOf(groupId) === undefined) return null;
             if (found.group.id === groupId && found.group.tabs.length === 1) return null;
-            const id = newId("g");
-            const result = grid.splitLeaf(groupId, {branchId: newId("b"), orientation: edge === "left" || edge === "right" ? "horizontal" : "vertical", side: edge === "left" || edge === "top" ? "before" : "after", leaf: groupLeaf(id)});
-            if (!result.ok) return null;
+            const id = tree.openAtEdge(groupId, edge);
+            if (id === null) return null;
             const tab = placed(found.tab, false);
-            const source = without(found.group, found.index);
-            replace(source);
-            const index = groups.value.findIndex((group) => group.id === groupId);
-            const next = [...groups.value];
-            next.splice(edge === "left" || edge === "top" ? index : index + 1, 0, {id, tabs: [tab], active: tab.id});
-            groups.value = next;
-            activeGroup.value = id;
-            layoutVersion.value += 1;
-            const before = groups.value.length;
-            dropIfEmpty(source);
-            return {tab, group: id, droppedGroup: groups.value.length < before ? source.id : null};
+            if (!moveWith(found, tab, id, 0)) return null;
+            return {tab, group: id, droppedGroup: groupOf(found.group.id) === undefined ? found.group.id : null};
         },
         setEditor: (tabId, editor) => {
             const found = locate(tabId);
@@ -426,43 +384,38 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             const address = found.tab.address;
             const twin = found.group.tabs.find((tab) => tab.kind === "file" && tab.id !== tabId && tab.address === address && tab.editor === editor);
             if (twin !== undefined) {
-                replace({...found.group, active: twin.id});
+                // 切到已有的那个，活动组不变：可能是在别的组的标签上点的。
+                const current = tree.current.value;
+                panelTabs.activate(twin.id);
+                tree.setCurrent(current);
                 const closed = remove(tabId);
                 // 两个有一个固定就固定（输出 50）。
                 if (isPinned(found.tab) && !isPinned(twin)) {
-                    const group = locate(twin.id)?.group;
-                    if (group !== undefined) {
-                        const rest = group.tabs.filter((tab) => tab.id !== twin.id);
-                        const tabs = [...rest];
-                        tabs.splice(pinnedCount(rest), 0, placed(twin, true));
-                        replace({...group, tabs});
-                    }
+                    const located = locate(twin.id);
+                    if (located !== null) repin(located, true);
                 }
                 return closed;
             }
             // 换编辑器丢掉光标与语言（输出 39），保留 preview 与固定。
-            replace({...found.group, tabs: found.group.tabs.map((tab): EditorTab => (tab.id === tabId ? {kind: "file", id: tab.id, address, editor, preview: tab.preview, ...(isPinned(tab) ? {pinned: true as const} : {})} : tab))});
+            setTab({kind: "file", id: found.tab.id, address, editor, preview: found.tab.preview, ...(isPinned(found.tab) ? {pinned: true as const} : {})});
             return null;
         },
         setLanguage: (tabId, language) => {
             const found = locate(tabId);
             if (found === null || found.tab.kind === "page" || (found.tab.language ?? null) === language) return;
-            replace({...found.group, tabs: found.group.tabs.map((tab): EditorTab => {
-                if (tab.id !== tabId || tab.kind === "page") return tab;
-                const {language: _dropped, ...rest} = tab;
-                return language === null ? rest : {...rest, language};
-            })});
+            const {language: _dropped, ...rest} = found.tab;
+            setTab(language === null ? rest : {...rest, language});
         },
         setCursor: (tabId, cursor) => {
             const found = locate(tabId);
             if (found === null || found.tab.kind === "page" || !cursorFits(cursorKind(found.tab.editor), cursor) || sameCursor(found.tab.cursor, cursor)) return;
-            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, cursor} : tab))});
+            setTab({...found.tab, cursor});
         },
         rebind: (from, to, kept = []) => {
             const follows = (address: string): boolean => isWithin(address, from) && !kept.includes(address);
-            groups.value = groups.value.map((group) => (group.tabs.some((tab) => follows(tab.address))
-                ? {...group, tabs: group.tabs.map((tab) => (follows(tab.address) ? {...tab, address: rebase(tab.address, from, to)} : tab))}
-                : group));
+            const next = new Map(attributes.value);
+            for (const [id, tab] of attributes.value) if (follows(tab.address)) next.set(id, {...tab, address: rebase(tab.address, from, to)});
+            attributes.value = next;
         },
         closeWithin: (addresses) => {
             const doomed = groups.value.flatMap((group) => group.tabs.filter((tab) => addresses.some((address) => isWithin(tab.address, address))));
@@ -478,7 +431,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
                 tabs: filesOf(group).map((tab) => ({address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.pinned === true ? {pinned: true as const} : {}), ...(tab.cursor === undefined ? {} : {cursor: tab.cursor}), ...(tab.language === undefined ? {} : {language: tab.language})})),
                 active: activeFileIndex(group),
             })),
-            activeGroup: activeGroup.value,
+            activeGroup: tree.current.value,
         }),
     };
 }
@@ -497,59 +450,23 @@ function activeFileIndex(group: EditorGroup): number | null {
     return nearest === undefined ? null : files.findIndex((tab) => tab.id === nearest.id);
 }
 
-/**
- * 叶 `id` 右侧相邻的叶：自下而上找第一个横向分支里它后面还有兄弟的祖先，再从那个兄弟里取最左（横向取第一个、纵向取第一个）
- * 的叶。没有右侧的组时为 null。
- */
-function rightNeighbor(root: GridNode<string> | null, id: string): string | null {
-    const path: GridNode<string>[] = [];
-    const walk = (node: GridNode<string>): boolean => {
-        path.push(node);
-        if (node.kind === "leaf" ? node.id === id : node.children.some(walk)) return true;
-        path.pop();
-        return false;
-    };
-    if (root === null || !walk(root)) return null;
-    for (let at = path.length - 2; at >= 0; at -= 1) {
-        const branch = path[at] as GridNode<string>;
-        if (branch.kind !== "branch" || branch.orientation !== "horizontal") continue;
-        const index = branch.children.indexOf(path[at + 1] as GridNode<string>);
-        let next = branch.children[index + 1];
-        if (next === undefined) continue;
-        while (next.kind === "branch") next = next.children[0] as GridNode<string>;
-        return next.id;
-    }
-    return null;
-}
-
 /** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
-function restore(snapshot: GroupsSnapshot, cursorKind: CursorKind): {grid: Grid<string>; groups: EditorGroup[]; activeGroup: string} | null {
+function restore(snapshot: GroupsSnapshot, cursorKind: CursorKind): {readonly seed: LocalPanelsSeed; readonly attributes: ReadonlyMap<string, EditorTab>} | null {
     const ids = new Set(snapshot.groups.map((group) => group.id));
     if (ids.size !== snapshot.groups.length || ids.size === 0 || !ids.has(snapshot.activeGroup)) return null;
-    const grid = createGrid<string>(null, {sashSize: GROUP_SASH_PX});
-    const restored = grid.restore(snapshot.layout, (ref) => (ids.has(ref) ? {ref, minimumSize: GROUP_MIN_SIZE} : null));
-    if (!restored.ok || restored.dropped.length > 0) return null;
-    // 渲染按叶的 id 找组：叶的 id 与 ref 不一致的记录同样当作坏了。
-    const leaves = leafNodesOf(grid.root());
-    if (leaves.length !== ids.size || leaves.some((leaf) => leaf.id !== leaf.ref || !ids.has(leaf.ref))) return null;
-    let tab = 0;
-    const groups = snapshot.groups.map((group): EditorGroup => {
+    const grid = restorePanelGrid(snapshot.layout, ids);
+    if (grid === null) return null;
+    const attributes = new Map<string, EditorTab>();
+    const panels = snapshot.groups.map((group) => {
         const all = group.tabs.map((saved): EditorTab => {
-            tab += 1;
             // 固定的不是 preview：记录里两者都有时以固定为准。
-            const restored: FileTab = {kind: "file", id: `r${String(tab)}`, address: saved.address, editor: saved.editor, preview: saved.pinned === true ? false : saved.preview, ...(saved.pinned === true ? {pinned: true as const} : {}), ...(saved.language === undefined ? {} : {language: saved.language})};
-            return saved.cursor !== undefined && cursorFits(cursorKind(saved.editor), saved.cursor) ? {...restored, cursor: saved.cursor} : restored;
+            const tab: FileTab = {kind: "file", id: newTabId(), address: saved.address, editor: saved.editor, preview: saved.pinned === true ? false : saved.preview, ...(saved.pinned === true ? {pinned: true as const} : {}), ...(saved.language === undefined ? {} : {language: saved.language})};
+            return saved.cursor !== undefined && cursorFits(cursorKind(saved.editor), saved.cursor) ? {...tab, cursor: saved.cursor} : tab;
         });
         // 记录里固定与普通交错时，按出现顺序把固定的排到前面；活动项按标签身份找，不受换位影响。
         const tabs = [...all.filter(isPinned), ...all.filter((candidate) => !isPinned(candidate))];
-        const active = group.active === null ? null : (all[group.active]?.id ?? tabs[0]?.id ?? null);
-        return {id: group.id, tabs, active};
+        for (const tab of tabs) attributes.set(tab.id, tab);
+        return {id: group.id, tabs: tabs.map((tab) => tab.id), active: group.active === null ? null : (all[group.active]?.id ?? tabs[0]?.id ?? null)};
     });
-    return {grid, groups, activeGroup: snapshot.activeGroup};
-}
-
-function leafNodesOf(node: GridNode<string> | null): Array<{readonly id: string; readonly ref: string}> {
-    if (node === null) return [];
-    if (node.kind === "leaf") return [{id: node.id, ref: node.ref}];
-    return node.children.flatMap(leafNodesOf);
+    return {seed: {grid, panels, current: snapshot.activeGroup}, attributes};
 }

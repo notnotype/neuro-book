@@ -399,6 +399,38 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
     });
 });
 
+describe("标签的身份", () => {
+    it("两个窗口各自新建、各自恢复，标签 id 都不撞：合成一棵树之后它是两条记录之间的键（docs/specs/ui/workbench-layout.md 输出 33）", () => {
+        const left = createEditorGroups();
+        const right = createEditorGroups();
+        const opened = left.open("project://a.md", {mode: "permanent", editor: CODE_EDITOR}).tab;
+        expect(right.open("project://a.md", {mode: "permanent", editor: CODE_EDITOR}).tab.id).not.toBe(opened.id);
+        const snapshot = left.snapshot();
+        const ids = [createEditorGroups(snapshot), createEditorGroups(snapshot)].map((groups) => groups.groups.value[0]?.tabs[0]?.id);
+        expect(new Set([...ids, opened.id]).size).toBe(3);
+    });
+
+    it("只改一个标签的属性：别的组和别的标签还是同一个对象，不跟着重新渲染", () => {
+        const groups = createEditorGroups();
+        const first = groups.open("project://a.md", {mode: "permanent", editor: CODE_EDITOR}).tab;
+        const second = groups.open("project://b.md", {mode: "permanent", editor: CODE_EDITOR}).tab;
+        groups.split(first.id, "right");
+        const [left, right] = groups.groups.value;
+        groups.setCursor(first.id, {line: 3, column: 1});
+        const [nextLeft, nextRight] = groups.groups.value;
+        expect(nextRight).toBe(right);
+        expect(nextLeft).not.toBe(left);
+        expect(nextLeft?.tabs[1]).toBe(left?.tabs[1]);
+        expect(nextLeft?.tabs[1]?.id).toBe(second.id);
+
+        // 什么都没变：列表本身也是同一个。
+        const list = groups.groups.value;
+        groups.setCursor(first.id, {line: 3, column: 1});
+        groups.rebind("project://none", "project://other");
+        expect(groups.groups.value).toBe(list);
+    });
+});
+
 describe("组已经紧贴目标的这条边：放下去还是现在的样子", () => {
     const left = {left: 0, top: 0, right: 400, bottom: 800};
     const right = {left: 401, top: 0, right: 800, bottom: 800};
