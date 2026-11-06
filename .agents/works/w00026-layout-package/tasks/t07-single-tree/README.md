@@ -150,6 +150,23 @@ updated: 2026-11-06
 
 验证：类型检查通过；`test:affected` 除两条别的 Work 的（`plugins/agent` 的跨插件导入、`AgentCompactionDetail` 没有场景）全过；e2e `editor-area` 40 条、`workbench-dnd`、`workbench-shell`、`markdown-editing`、`lab-editor`、`editor-types` 全过。
 
+第 7b 片的实现审查（一个 Sonnet，[`evidences/slice7b-review.txt`](evidences/slice7b-review.txt)，阻断 1、重要 2、建议 7）：
+
+| 条目 | 处理 |
+|---|---|
+| G0 `editor.tabs` 写失败后无间隔重试，事件循环被占满 | 成立，真实 Storage 场地复现。我为了“失败要亮出来”加的 `flush` 和关卡里的自动重试首尾相接。关卡不再重试（`EditorSaveGate` 分 `pass`、`recover`），只有状态栏的“重试”走 `recover`；监听只看“进入失败”这一下。`session.test.ts` 用断线钉住：只亮一次，事件循环不被占 |
+| G1 放弃只回滚布局，标签属性不回滚，组里出现关不掉的幽灵标签 | 成立。比报告的两个改法都小：`carryDynamicTabs` 放弃时结构回到已确认的，动态标签以现在为准 |
+| G7 `bookshelf-stats.e2e` 还读 `editor.session` | 成立，改了。我只在自己列的文件里搜了旧键。这次把用到编辑器标记的 e2e 全跑了 |
+| G2 记录读不了时重试不重新打开 | 成立，`recover` 里先 `reopen` |
+| G3 关闭标签时记录比布局早写 | 成立。删除只在关卡写，两次写之间只隔一次往返 |
+| G4 布局被保护时清掉旧记录 | 成立，随 G3 解决：布局损坏时关卡不走；读不了时也不走关卡 |
+| G5 关掉多行时键盘落点算上滚出视口的标签 | 不改：要关掉多行、标签多到滚动、又用键盘拖，统一标签条（t16）整个换掉这段，写进那边 |
+| G6 几块编辑组的“移动到”重名 | 成立，按树序写序号 |
+| G8 失败路径与会话接线没有测试 | a、b、c 补了（`tabs-record.test.ts`、`session.test.ts`、`groups.test.ts`）；d 的标签条几何靠 `editor-area` e2e，happy-dom 量不了矩形 |
+| G9 零散 | a 文档、b 标签键写死、c computed 外部变量、f 结构键拼接改了。d（`editorContexts` 不清，每块编辑组一个小对象；`context` 没有消费者，以前就没有）、e（`restoreTabs` 构造时改文档，只重排已有的 id）不改，收益小 |
+
+最后一轮：类型检查通过；`test:affected` 只剩两条别的 Work 的；e2e 第二轮只跑第一轮没覆盖的 9 个文件（`NB_E2E_WIDE`：记录、标记、命令参数变了）98 条全过，`editor-area` 里刷新与恢复相关的 5 条重跑通过。
+
 ## 下一步
 
-第 7b 片的实现审查（一个 Sonnet）处理完就合入，然后请开发者在产品里试编辑器标签的拖动。之后第 8 片：删旧代码，晋升 Spec。
+合入后请开发者在产品里试编辑器标签的拖动。之后第 8 片：删旧代码，晋升 Spec。

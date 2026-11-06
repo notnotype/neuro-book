@@ -1,0 +1,119 @@
+w00026 t07 片 7b 实现审查（提交 c074772d8，范围 HEAD~1..HEAD）
+只读审查；每核实一条就追加。严重程度：阻断 / 重要 / 建议。最后一节汇总编号与数量。
+实验文件在 /tmp/review-w00026-t07-7b/exp/（node_modules 是指向 worktree 的软链）。
+
+========================================================================
+G0 【阻断】【不变量/并发】`editor.tabs` 记录一旦进入 failed/unknown，session 里的 watch、布局保存关卡、`record.retry()` 组成无间隔的重试死循环（连接断开时就能触发），实测不加上限时 1.5 秒计时器都不触发（整个事件循环被饿死）
+位置：editor/web/session.ts 100-102 行（`watch(() => store.state.record.save.state, ... options.panels.flush())`）；editor/web/tabs-record.ts saveBeforeLayout（74-77 行 `if (paused()) await record.retry()`）；workbench/web/plugin.ts `flush: () => void layout.current.value?.actions.save()`；workbench/web/state/layout-doc-store.ts save（126-129 行）；shared/store/persisted.ts #send 先把 `save` 置为 `{state:"saving"}` 再置回 `failed`（348 行）
+现象：循环是这样转的。
+ 1. 记录写失败，`record.save.state` 变 failed 或 unknown。
+ 2. session 的 watch 看到 failed/unknown，调 `panels.flush()`，即布局的 `save()`。
+ 3. `save()` 走关卡 `saveBeforeLayout`：`paused()` 为真，于是 `await record.retry()`。
+ 4. `retry` 重发，`#send` 把 state 置为 "saving"，再次失败后置回 "failed"。state 的值从 "saving" 变成 "failed" 是一次变化，watch 又触发。回到第 2 步。
+ 没有退避、没有“已经在重试”的判断，只要失败持续就一直转。
+ 实验（/tmp/review-w00026-t07-7b/exp/loop.test.ts，真实 Storage 测试场地，真实 editorTabsStore；watch 与 flush 按 session.ts 与 plugin.ts 的接线写，关卡直接调 saveBeforeLayout）：
+ a) 连接断开（`WorldWindow.disconnect()`）后保存一份合法快照：state 变 unknown，随后 watch→flush→关卡→retry 反复。我在 flush 里加了 300 次上限，1.76 秒内 attempts=301、flushes=301，上限一去掉就停不下来。
+ b) 不加上限：`bun test` 在 120 秒超时前没有输出，连 `setTimeout(…,1500)` 都没触发，说明循环全在微任务里，主线程被占满。
+ c) 另一种永久失败（写入内容不过校验）同样 attempts=301。
+ 测试场地用的是与产品相同的远程层（createRemoteNode、链路对），断线后 Storage 调用立刻以失败返回（实验 a），所以我判断真实页面也会卡死；产品里 WebSocket 断线的行为我没有在浏览器里验证，请主 Agent 用 e2e 或手工断网确认。永久失败（实验 c）与连接无关，一定触发。真实页面会卡死：UI 不响应，WebSocket 重连需要的宏任务也跑不到，等于连接恢复不了。触发条件很宽：连接断开期间任意一次属性保存（光标停下 1 秒、固定）或布局保存（开关标签、聚焦换组，7b 起聚焦换组也写布局）。服务端重启、网络抖动都算。
+为什么是问题：7b 之前布局记录与会话记录互不挂钩，会话记录写失败只是暂停，等拥有者重试。现在新加的“失败要亮出来：让布局走一次关卡”把“亮出来”实现成了自动重试，而重试本身又产生同一个失败信号。注释写的是“失败要亮出来，状态栏才显示‘布局未保存’和重试”，需要的是一次保存失败的通知，不是循环。
+如何核实：运行 /tmp/review-w00026-t07-7b/exp/loop.test.ts（有上限版本，约 2 秒）；e2e 里让 Storage 断线后在编辑器里改一次光标，观察页面是否仍响应。可在 tabs-record.test.ts 增一条：失败后 flush 次数有界（例如失败一次只触发一次布局保存）。
+建议改法：关卡里不要自动重试，只在用户点“重试”时重试。具体：a) saveBeforeLayout 在 paused() 时直接返回 false（不 `record.retry()`）；重试动作单独走 layout-doc-store.retry → 它先 `recover` editor.tabs（reopen 加 retry，顺带解决 G2）再 `save()`。b) session 的 watch 只在“从未失败到失败”时 flush，且布局已经 saveBlocked 时不再 flush（例如加一个“已通知”标志，retry 成功后复位）。a 与 b 都做更稳。
+
+========================================================================
+G1 【重要】【不变量/正确性】放弃（discard）把布局文档回滚到已确认值，但编辑器的标签属性、文档引用、视图绑定不跟着回滚：文档里的标签没有属性，组里出现“活动标签不在标签列表里”的幽灵状态
+位置：workbench/web/state/layout-doc-store.ts discard（304-308 行 `local.value = readStored()`）；editor/web/groups/groups.ts 的 groups computed（约 187-196 行 `attributes.value.get(id) ?? []`）与 attributes 只在建立时恢复（185 行）
+现象：布局保存失败（或 editor.tabs 写不下去使关卡返回假）时状态栏给“放弃”（WorkbenchShell.vue 461 行 `@discard="layout.actions.discard()"`）。discard 把整份布局文档换回上次确认的版本。7b 之前布局文档只有尺寸、摆放，回滚无害；7b 起文档里还有“有哪些编辑器标签、哪个活动”，而这些标签的属性（地址、编辑器、光标）、文档引用（references）、视图绑定、未保存正文在编辑器区里，不会回滚。
+ 实验（/tmp/review-w00026-t07-7b/exp/discard.test.ts，createMemoryEditorPanels + createEditorGroups，把文档换回旧值，与 discard 对文档做的事相同）：
+ a) 放弃后文档里没有、属性里仍有的标签 b：组里看不到它（文档说了算），属性表与 snapshot() 里还留着它，下一次关卡把它写进 editor.tabs，成为没有主的记录项。
+ b) 放弃前关掉的标签 a：文档回滚后仍列着 a，属性已忘掉它。实测 groups 为 `{tabs: 0 个, active: "t-…"}`：组里标签条空、活动标签 id 指向一个不存在的标签；这个标签没有任何入口能关（close 要先 locate，locate 只看 groups，groups 滤掉了它），也不会被占位（占位只在 restoreTabs 建立时做一次）。
+ c) 未绑定项目的窗口同样走 discard：`local.value = readStored()` 把内存里所有打开的编辑器标签从文档里抹掉（未绑定窗口的已确认文档没有动态标签），而它们的 references、绑定和未保存正文还在 area 里。needsLeaveConfirm 遍历的是 references（area.ts 962-969 行），所以离开页面时仍会警告“有未保存的修改”，但用户已经没有任何标签可以打开、保存或放弃那份正文，只能整页离开丢掉（从代码推断，未跑）。
+为什么是问题：Spec ui/workbench-layout.md“失败与恢复”写“放弃回到已确认值”指布局；输出 33 又把标签顺序、活动标签放进这份文档，两边靠 tabId 对上。回滚只回一边，对不上之后没有任何收敛路径。这是 7b 才有的回归（旧会话记录是编辑器自己的，放弃只影响布局）。触发要先有保存失败，所以概率低，后果是标签卡死与可能丢未保存正文，按重要记。
+如何核实：运行上面的实验；真实运行时 e2e：让布局记录写失败（Storage 注入失败）、开一个标签、点状态栏放弃，读 `[data-editor-tab]` 与 `data-editor-notice`。
+建议改法：二选一。a) 放弃只回滚“与编辑器无关”的部分：discard 时把已确认文档里的编辑器标签换成当前文档里的（编辑组结构与标签以当前为准），或 discard 在有编辑器会话时让编辑器区重新对账（对账：文档里有而属性没有的补占位，属性有而文档没有的丢并释放引用）。b) 把 groups 的 attributes 对账做成对文档变化的响应（watch 文档里的标签集合），而不是只在建立时做一次 restoreTabs；这同时覆盖别的“文档被外部整份换掉”的路径。
+
+========================================================================
+G7 【重要】【测试/不变量】`bookshelf-stats.e2e.ts` 还在读已经没人写的 `editor.session` 记录，光标断言必然超时失败；它不在片 7b 的 e2e 清单里，所以不会被发现
+位置：packages/neuro-book/e2e/bookshelf-stats.e2e.ts 63-74 行（savedCursor 查 `key = 'editor.session'`）与 121 行 `await expect.poll(() => savedCursor(page)).toEqual({offset: 1});`
+现象：7b 把标签记录换成 `editor.tabs`，旧记录“不读、不写、不删”，所以这个 SQLite 查询永远查不到行，savedCursor 恒为 null，121 行的 poll 超时，整条“书架统计加继续写作”的 e2e 失败。同一个提交里 editor-area.e2e.ts 已经把自己的 savedCursor 改成读 `editor.tabs`（163-166 行），这一份漏了。
+为什么是问题：e2e 清单只列了 editor-area、workbench-dnd、workbench-shell、markdown-editing、lab-editor；改了记录 key 却没有全仓 grep 旧 key（`grep -rn "editor\.session" e2e src` 只剩这两行）。AGENTS.md“e2e 改了什么就跑覆盖它的文件”，这里是改了记录合同，覆盖面不止清单里的文件。
+如何核实：`grep -rn "editor.session" packages/neuro-book/e2e packages/neuro-book/src`（只有 bookshelf-stats.e2e.ts 两行命中）；跑 `bookshelf-stats` e2e 看 121 行（我没跑 e2e，留给主 Agent）。
+建议改法：savedCursor 改成读 `editor.tabs`：`{tabs: {<tabId>: {address, cursor}}}`，按地址找；与 editor-area.e2e.ts 的同名函数合并成共用的 e2e 支持函数更好。
+
+========================================================================
+G2 【建议】【不变量】`editor.tabs` 的记录读取失败、打开失败或订阅结束后，布局的保存关卡永远过不去：重试不会 `reopen` 这条记录
+位置：editor/web/tabs-record.ts saveBeforeLayout（74-77 行）；workbench/web/state/layout-doc-store.ts retry（296-302 行）
+现象：布局字段自己的重试写了 `if (field.failure !== null) await field.reopen()`（layout-doc-store.ts 297 行），editor.tabs 记录没有对应的一步。persisted.ts 里 `#retry` 在 `#failure !== null` 时直接返回 `head.state`（persisted.ts 约 413 行 `if (this.#base.value === null || this.#failure.value !== null) return head.state;`），failure 只有两种方式清掉：`reopen`，或（仅 read 类）下一个正常快照。open 失败与 ended（订阅结束）两类只能靠 reopen。
+ 流程：editor.tabs 打开失败（或订阅中途结束）→ 编辑器区仍然建起（settled 里把 failure 也算已定，所有标签变占位）→ 任一次布局保存走关卡 → write 里 commit 排队即暂停，result 为 "failed" → saveBlocked=true，状态栏“布局未保存”→ 用户点重试 → layout-doc-store.retry → `field.retry()`（布局字段没有待重试的，返回 nothing）→ `save()` → 关卡 → paused() 为真 → `record.retry()` 返回 head.state（没有 reopen）→ 仍 paused → 返回 false。如此循环，直到刷新页面。期间所有布局改动（尺寸、摆放、拆分、移动）都不落盘。
+为什么是问题：7b 之前布局记录与会话记录互不挂钩，会话记录读不出来只影响会话；现在一条记录的瞬时失败（Storage 服务断开、打开超时）会把布局的保存整个卡死，并且重试按钮看上去能用而实际永远不可能成功。Spec“失败与恢复”：“`editor.tabs` 保存失败同样显示”，并且“重试”应当能重试。
+如何核实：从代码推断，未复现。我试过 Storage 测试场地的断线再重连（/tmp/review-w00026-t07-7b/exp/recover.test.ts）：断开时 `failure` 仍为 null、只有 save 状态 failed，重连后 saveBeforeLayout 第一次重试就成功，所以这条路径不触发本条；只有 `failure` 非空（打开失败、订阅结束、读取错误）才触发，场地里没找到注入办法。降为建议：触发窄，刷新页面可恢复，但重试按钮在这种状态下永远无效。可用 Storage 的测试世界让 `open(EDITOR_TABS_RECORD)` 第一次返回失败再恢复来复现。可在 tabs-record.test.ts 增一条：打开失败后恢复，`saveBeforeLayout` 应当在 reopen 之后返回 true。
+建议改法：saveBeforeLayout 里 `if (record.failure !== null) await record.reopen()` 再 `record.retry()`，与布局字段同写法；或把“重新打开并重试”提成 store 的 `recover()` 动作，两处共用。
+
+========================================================================
+G3 【建议】【不变量】关闭标签时 `editor.tabs` 比布局早写约 150 毫秒以上：此间刷新或崩溃，重开后已关的标签显示成“记录丢了”的占位
+位置：editor/web/groups/groups.ts remove（251-256 行：254 行先 `panelTabs.remove`，255 行再 `forgetTab`）；editor/web/area.ts 421-425 行（属性一变就同步 `persist`）；workbench/web/state/layout-doc-store.ts LAYOUT_SAVE_COALESCE_MS = 150 与 schedule（非手势的结构操作合并着存）
+现象：打开标签时先写属性再改结构（insert 的注释写了“属性先写”），记录是布局的超集，崩在中间无害。关闭正好反过来：`remove` 里布局文档先改但要等合并计时（至少 150 毫秒，再加 Storage 往返），`forgetTab` 一执行属性表就变，area 的 watch 同步把删除写进 `editor.tabs`。在这段时间里页面刷新、崩溃，磁盘上是旧布局（还列着这个标签）加新记录（已没有它），重开就是 Spec 输出 34 的“记录丢了”占位，用户看到一个自己已经关掉的标签，还要再关一次。closeWithin（文件被删）、preview 替换（forgetTab(preview)）同样。
+为什么是问题：注释与 Spec 都把“两条记录不是一次写的”当作要处理的对象，但只保证了新增方向。关闭方向的窗口比打开方向大得多（打开时记录比布局早，没有可见后果；关闭时记录比布局早，有可见后果）。
+如何核实：从代码推断；在 groups.test 的真实组模型上记录 persist 调用与布局文档变化的先后即可看到；e2e：关一个标签后 100 毫秒内刷新。
+建议改法：删除不要即时写。`save`（属性变了）只写新增和修改，删除交给关卡：关卡先写“新增与修改”，布局写成功之后再补写删除（known 里有、快照里没有的）。或者最小改法：`write` 里 `removed` 只在 `saveBeforeLayout` 路径生效，并把关卡拆成“前置写新增、后置写删除”两步。
+
+========================================================================
+G4 【建议】【正确性/数据】布局文档或其读取被保护（损坏、版本不支持、读取失败）时，`editor.tabs` 里打开时读到的旧项仍会在第一次保存时被清掉，布局原件保留、标签属性却没了
+位置：editor/web/tabs-record.ts 51-54 行（`known` = 读到的全部键）、57-65 行（`removed`）；editor/web/session.ts 82-100 行；workbench/web/state/layout-doc-store.ts guarded（70 行）、readStored
+现象：布局记录损坏或版本不支持时 store 回落默认树（`local = null`），原件不覆盖。编辑器此时从“没有任何标签”的文档起步：restoreTabs 不恢复任何属性，`known` 里却有记录里的所有键。用户随手开一个文件，属性变化触发 `write`，`removed` = known 里的全部旧键，`editor.tabs` 被整份清掉，布局原件仍留在盘上。之后用户（或新版本）把布局修好，标签全是“记录丢了”。Spec“失败与恢复”要求“原件保留”，这里只保了一条。
+为什么是问题：两条记录的保护应当一致：一条被保护另一条就不该照常删。典型触发是同一个状态目录被两个版本的程序读写（开发时 master 与分支并存、升级后回退），不是纯理论。
+如何核实：从代码推断。可在 session 测试里：布局记录放一份 version 不支持的值、`editor.tabs` 放几个标签，开一个文件，读 `editor.tabs`。
+建议改法：布局被保护（store 的 `problems` 含 unread，或 `guarded`）时，编辑器区建好后 `known` 置空（不清别人的也不清旧的）；或 EditorPanelsService 加一个只读的 `protected` 状态，write 看到它时不带 removed。
+
+========================================================================
+G5 【建议】【对照需求/正确性】键盘拖动：关掉多行（`wrapTabs` 为假）且标签条横向滚动时，滚出视口的标签也被列为落点，停靠点落在标签条之外，实际解析成别的落点
+位置：workbench/web/layout-drag.ts 312 行 stripCount（编辑组取 `doc.panels[panel].tabs.length`）与 pointOfCandidate（230 行 `tabElement(tabs[action.index])` 的 `getBoundingClientRect`）；editor/web/components/EditorTabBar.vue 260 行 `overflow-x: auto`
+现象：注释写“编辑组的标签条多行时都看得见”，只在 wrapTabs 为真（缺省）成立。`wrapTabs=false` 或固定行标签很多时标签条横向滚动，滚出视口的标签的矩形在标签条之外（左边的 x 小于标签条左缘，落到侧栏上方；右边的落到下一块面板）。pointOfCandidate 取 `box.left + 1`，dropAt 对非预备区的区域仍按坐标解析，所以这些候选实际得到的是别的面板的落点（工具面板拒绝时变成没有落点，邻近编辑组则变成放到那一组的某处）。工具面板的 stripCount 特意只数看得见的，编辑组没有同样处理。
+为什么是问题：键盘方向键逐个走位置时会跳到与候选无关的地方，Enter 提交的是跳去的地方（预览如实显示，但路径莫名其妙）。Spec 输出 31“与指针同一套规则”。
+如何核实：从代码推断，未跑 e2e：设置 wrapTabs 为假，开 20 个标签，键盘拿起最左的标签，连按右方向键，读 data-drop-kind 与高亮位置。
+建议改法：编辑组的 stripCount 与工具面板同一写法，只数标签条可见区域内的标签（`[data-panel-tab]` 的矩形与 `[data-panel-strip]` 求交），其余并入“最后一个看得见的之后”；或 pointOfCandidate 把 x 夹到标签条可见范围内，同时让 stopsOf 去重。
+
+========================================================================
+G6 【建议】【对照需求/代码质量】多块编辑组时“移动到”菜单与命令面板里的目标重名：每块编辑组都叫“新面板（挨着编辑器）”，分不出是哪一块
+位置：workbench/web/state/layout-present.ts moveTargetsOf（84-92 行）、panelTitle（101-109 行：编辑组一律 `viewCommands.parts.editor`）；workbench/web/components/WorkbenchShell.vue moveMenuItems（222 行）
+现象：7a 只有一块编辑组，7b 起可以有多块（moveTargetsOf 对每个未隐藏的叶都给一个 `new-panel`，包括每块编辑组）。N 块编辑组就有 N 条同名菜单项，且 ContextMenu 里没有任何区分。
+为什么是问题：用户看不出点哪一条会挨着哪一块；Agent 与命令面板里也一样。Spec 输出 23 写“无名面板写它活动标签的标题”，编辑组被一刀切成“编辑器”。
+如何核实：从代码推断；Lab 或产品里拆出两块编辑组，右键工具视图标签看“移动到”。
+建议改法：编辑组按树序加序号（“编辑器 1”“编辑器 2”）或用它活动标签的文件名；同一次列表里有重名时才加序号也行。
+
+========================================================================
+G8 【建议】【测试】新增的两条记录的失败路径与会话接线没有任何测试，已有测试没测到自己标题里的判据
+位置：editor/tabs-record.test.ts（只有“按键合并”两个用例）；editor/web/session.ts 新增的等待、关卡、failed 通知没有 session 级测试（目录里没有 session.test.ts）；editor/web/groups/groups.test.ts 301-311 行
+现象：
+ a) tabs-record.test.ts 只测了两个窗口合并。没测：`saveBeforeLayout` 在 paused 时重试后仍失败返回 false（G0、G2 的入口）；记录被保护（损坏）时 `write` 视为成功、布局照常存；`known` 在读取失败时为空；失败后 `save`（属性变化）在暂停期间不排队、恢复后写的是那一刻的全部。
+ b) session.ts 的新逻辑（等 panels.ready 与记录读完再建区、建好后装关卡、失败时 flush、dispose 时卸关卡）只被 e2e 间接走到，而 G0 就出在这里。用真实的 Storage 场地加 createMemoryEditorPanels（`flush` 记次数）就能写，我的 /tmp/review-w00026-t07-7b/exp/loop.test.ts 就是这个写法。
+ c) groups.test.ts 301 行的用例标题是“多标签组拆出新组并移过去，转正、不固定，成为活动组；放下去和现在一样时不变”，断言只看组 id、标签列表与活动组，没有看被移动标签的 `pinned`、`preview`，也没看原位时 `moveToNewGroup` 的写回（`setTab(found.tab)`）把属性还原了。我另写了 /tmp/review-w00026-t07-7b/exp/edge.test.ts 核对过，行为是对的（固定被清、原位时固定保留），只是没有被测试钉住。
+ d) `resolveStripInsertion` 的新 `index`/`part` 计算、`editorStripDrop`、预备区按接受矩阵过滤、`stripCount` 对编辑组的分支只靠 e2e（7a 审查 F9 提过，7b 又加了编辑器这半边）。
+为什么是问题：AGENTS.md“bug 修复补在暴露出缺口的那条行为的测试里”“每条判据要真被测到”；失败路径是这次最危险的部分，恰好没有测试。
+建议改法：a、b、c 补成真实场地上的用例（见上）；d 里 `index` 的换算是纯函数式的，至少把 `resolveStripInsertion` 的“行尾插入位换算成后继”“固定分区边界”放进 dom 测试（happy-dom 量不了矩形的话，保留 e2e 但列进验收清单）。
+
+========================================================================
+G9 【建议】【代码质量】零散项
+ a) editor/web/components/EditorGroup.md 46 行仍写“经 `useDropTarget` 登记两种落点：`EDITOR_GROUP_FILE` 给资源管理器拖文件，`EDITOR_GROUP_TAB` 给标签拖动”，而 EditorGroup.vue 现在只登记 `EDITOR_GROUP_FILE`（标签拖动归工作台的手势）。组件说明与实现不一致，文档要改。
+ b) editor/web/components/EditorTabBar.vue 180 行写死 `:data-panel-tab="`tab:${tab.id}`"`，而键的写法是 `workbench/shared/editor-panels.ts` 的 `editorTabKey`（nb-layout 的 `tabKey`）。键格式改了这里不会报错，拖动会静默失效。改成经属性传入或直接 import `editorTabKey`。
+ c) editor/web/groups/groups.ts 197-206 行：computed 的 getter 里读写外部变量 `joined`，靠它保持对象身份。Vue 3.4 起 computed 的 getter 第一个参数就是上一次的值，用它可以去掉这个外部可变量与“没变就不换”的手写对比。
+ d) workbench/web/components/WorkbenchShell.vue 的 `editorContexts` Map 只增不减（每块编辑组一个 computed），组关闭后不清；规模很小，但与同文件里别的“随面板消失而清理”的写法不一致。`EditorGroupPart` 声明了 `context` 属性却没有用到（editor/web/plugin.ts），`EditorAreaContext.visible` 因此没有消费者，Spec 里“编辑组有效可见”对提供者没有实际效果（7a 之前同样没用，不是回归）。
+ e) editor/web/groups/groups.ts restoreTabs（443-466 行）在构造 `attributes` 的表达式里改布局文档（remove、move），构造函数带副作用，且 move 走 flush 会立刻存盘，那时关卡还没装上（session.ts 在 start 之后才 acceptSaveGate）。目前后果无害（只是重排已有的 id，不新增），但顺序靠巧合成立；建议 restoreTabs 返回“要对布局做的修正”，由 session 在关卡装好后执行。
+ f) workbench/web/layout-drag.ts：`structure()` 里 `${layoutStructureKey(...)}${...}` 直接拼接两个字符串，不留分隔；两边内容都是 JSON，不会撞，但读的人要想一下。写成 JSON.stringify 的数组更清楚。
+
+========================================================================
+未发现问题的方面（仔细检查后没有发现）
+ - `known` 的时点：读完记录那一刻由同步的 effect 定下，早于 session 的 watch 取 base（我用 @vue/reactivity 复核了两者的先后：先建的 effect 先跑，session 看到的 local 文档已经读好）；读取失败时为空集合，不会误删别人的键；两个窗口并发的合并（只写自己有的、只删自己确实关掉的）在真实 Storage 场地上成立。
+ - 记录损坏（protected）时 `write` 返回成功、布局照常存，是有意的设计，注释写明；7b 之前的旧会话记录同样不落盘，所以不算回归。
+ - 单个标签的组移到外缘：area.moveToNewGroup 不结算、afterMove 在组 id 不变时直接返回，绑定、视图状态槽、控件槽都按组 id 记，组 id 不变没有残留；多标签时先 leave 再 moveToEdge，afterMove 撤下源组里的绑定与槽，与 moveTab 一致。我另跑了 groups 层的实验：固定标签拆出时被取消固定并转正，原位时属性写回（edge.test.ts）。
+ - `restoreTabs` 迭代的是文档的快照数组，中途 remove/move 不影响后续项；固定重排的 `at` 都小于等于当前位置，不会错一位；`moveWith` 先过 fitsPartition 再写属性，接缝不答应时写回。
+ - 内容层 DOM 顺序：NestedGrid 的 `useRenderOrder`（aria-owns 与哨兵）与 `moveGridFocus` 按树序取项，EditorGroup 与 EditorHost 没有按 DOM 顺序取东西的地方（只有 `document.querySelector` 取 `[data-panel-strip]`，id 唯一）。
+ - 编辑组的焦点：`focused`、`focusLeft` 改成按最近的 `[data-editor-group]` 判，与旧写法在“对话框、被 Teleport 的菜单”上行为一致；从一个组到另一个组不算离开；提示条只在活动组显示，`moveTab` 的提示落在源组（用户刚点的那一组），可接受。
+ - 工作台这半边：`editorStripDrop` 绕开预览缓存是对的（缓存键不含编辑器的度量）；结构键加了编辑器的部分，只比固定状态与多行设置，不会因为 pointerdown 引起的 currentEditor 变化取消拖动（layoutStructureKey 不含活动面板）；预备区按接受矩阵过滤，编辑器标签不会看到预备区；自己组的正文中央是原位是 Spec 与 README“行为变了要告诉开发者”里记录过的改动，不当作缺陷。
+ - 类型检查：`vue-tsc --noEmit -p tsconfig.web.json` 退出码 0；`bun test src/plugins/editor src/plugins/workbench/shared src/plugins/workbench/web/state src/plugins/workbench/web/commands` 276 通过、0 失败。
+ - 没有发现：按错误文案做程序分支、静默 catch、放宽断言、跨包深导入、固定等待（新增 e2e 没有 waitForTimeout、skip、fixme）。
+
+未验证：所有需要真实浏览器的条目（G0 在产品里的断线表现、G5、G7 的 e2e 结果）；未跑任何 e2e。
+
+有效发现：G0 G1 G7 G2 G3 G4 G5 G6 G8 G9
+各级数量：阻断 1（G0），重要 2（G1、G7），建议 7（G2 到 G6、G8、G9；G9 含 6 个小项）。
