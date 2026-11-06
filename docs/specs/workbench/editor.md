@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-随 [ui.workbench-layout](../ui/workbench-layout.md)（planned）：编辑组变成树上 `role: "editor"` 的面板，结构归工作台（它的输出 33、34），组与标签的记录换成 `editor.tabs`，拖动按它的落点规则，标签不离开编辑区；一个组仍是一个控件。下文已按它写，随它一起晋升。
+编辑组是工作台布局树上 `role: "editor"` 的面板，结构归工作台（[ui.workbench-layout](../ui/workbench-layout.md) 输出 33、34），拖动按它的落点规则，标签不离开编辑区；一个组仍是一个控件。
 
 主页面的编辑器区：插件 `nbook.editor` 把打开的文件放进编辑组与标签，持有每份打开文件的权威正文与磁盘基线，按文件类型选编辑器（自带 Markdown 富文本与源码编辑器，别的插件经贡献点加编辑器与语言），按基线保存并处理冲突与外部修改；资源管理器复制、移动、删除前经它结算未保存的修改；页面因服务端重启或项目关闭进入终态时，未保存的正文仍可取回。
 
@@ -45,7 +45,7 @@ owners:
 ## 输入与前置条件
 
 - 插件 `nbook.editor` 只有浏览器入口；依赖 `nbook.files` 的文件客户端、命令服务、Storage、窗口的项目绑定、配置、宿主时钟与宿主的抢救能力（[runtime.browser-host](../runtime/browser-host.md)）。
-- 编辑器槽：工作台的贡献点 `workbench.editor-area`（[ui.workbench-shell](../ui/workbench-shell.md)）。
+- 编辑器槽：工作台的贡献点 `workbench.editor-area`（[ui.workbench-layout](../ui/workbench-layout.md) 的“边界与兼容”）。
 - 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: string, reveal?: "end", group?: string}`；`editor` 是编辑器 id，缺省按输出 37 的顺序选；`reveal: "end"` 打开后把光标放到末尾（输出 29）；`group` 见输出 35。
 - 页面贡献点 `editor.pages`（输出 33，只接受浏览器入口）：声明 `{title, icon, openOnFirstVisit?}`，实现 `{load(): Promise<Component>}`，组件收到 `{context: {recent}}`（`recent` 是输出 31 的最近打开）。页面 id 的规则与视图相同。
 - 编辑器贡献点 `editor.editors`（输出 36–41，只接受浏览器入口）：

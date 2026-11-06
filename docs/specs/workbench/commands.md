@@ -11,15 +11,13 @@ owners:
 
 ## 目标与非目标
 
-随 [ui.workbench-layout](../ui/workbench-layout.md)（planned）：第二批的面板与视图命令按它的输出 35 改，`set-panel-position`、`set-panel-alignment` 删除。切换之前下文仍是现行合同。
-
 **目标**：NeuroBook 的**具名可发现动作**——命令面板、快捷键、按钮、未来的菜单与外部调用——拥有单一身份与单一执行入口。每条命令携带：全局唯一 id、人类标题（界面文字值）与语义描述、参数形状（`args`）、可用性条件（`when`）、默认快捷键、作用类型（`effect`）与对外暴露策略。执行产生结构化结果与审计事件；触发面只引用命令身份。
 
 命令系统是内置插件 `nbook.commands` 提供的能力，与运行位置无关（2026-10-06 开发者确认，见 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 决策 2）：服务端、每个浏览器窗口（以后的终端界面）各有一份命令表，登记本位置入口贡献的命令；用户与 Agent 可以不经界面执行命令。界面只是命令的触发面：浏览器里的命令面板与键位分发归 `nbook.workbench`，界面没有加载时（例如终端界面打开、或页面不挂命令宿主）命令照样能执行。
 
 **本批（命令底座与 Lab 闭环）**交付六条命令——`nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line`、`nbook.quick-open.open-commands`、`nbook.quick-open.open-line`——以及机制底座与 Component Lab 可见闭环。
 
-**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的七条命令：面板位置/对齐/隐藏/收起/最大化切换、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一命令表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。新应用里五条面板命令随外壳一、移动视图随外壳二、刷新文件随 Files 迁入（[`ui.workbench-shell`](../ui/workbench-shell.md) 定义外壳的行为与公开状态）。
+**第二批（外壳与 View 标题操作，2026-09-19）**交付 `view` 域的命令：面板收起与最大化、区域显隐、工具视图移动，以及一个真实 View 贡献的刷新入口。它们复用同一命令表与同一执行入口，不新开命令总线；面板标题的框架控件与 View 贡献操作分别调用这两组命令。新应用里五条面板命令随外壳一、移动视图随外壳二、刷新文件随 Files 迁入（[`ui.workbench-shell`](../ui/workbench-shell.md) 定义外壳的行为与公开状态）。
 
 **非目标**：
 
@@ -159,28 +157,25 @@ Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-edit
 
 ### 命令目录（第二批 · 外壳与 View 标题）
 
-五条面板命令由 `nbook.workbench` 的浏览器入口贡献（随外壳一），`when` 读工作台的公开状态（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 13）；移动视图随外壳二，刷新文件随 Files。
+面板与视图命令由 `nbook.workbench` 的浏览器入口贡献，`when` 读工作台的公开状态（[ui.workbench-layout](../ui/workbench-layout.md) 输出 36）；刷新文件随 Files。
 
 | 命令 id | 标题 | 参数 | `when.requires` | `effect` | agent 暴露 |
 |---|---|---|---|---|---|
-| `nbook.view.set-panel-position` | 面板位置 / Panel Position | `{position?}`（`bottom`\|`top`\|`left`\|`right`）；省略时经选择列出四个位置、标出当前 | `nbook.workbench/layoutReady`、`nbook.workbench/nonCompact` | write | never |
-| `nbook.view.set-panel-alignment` | 面板对齐 / Panel Alignment | `{alignment?}`（`center`\|`left`\|`right`\|`justify`）；省略时经选择 | `nbook.workbench/panelHorizontal`、`nbook.workbench/nonCompact` | write | never |
-| `nbook.view.set-panel-hidden` | 隐藏/显示面板 / Hide or Show Panel | `{hidden?}`（布尔）；省略时切换 | `nbook.workbench/layoutReady` | write | never |
-| `nbook.view.set-panel-collapsed` | 收起为标题头 / Collapse to Title Bar | `{collapsed?}`（布尔）；省略时切换 | `nbook.workbench/panelHorizontal` | write | never |
-| `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{}` | `nbook.workbench/panelMaximizable`、`nbook.workbench/nonCompact` | write | never |
-| `nbook.view.move-view` | 移动视图 / Move View | `{viewId, sourceContainerId, targetContainerId}` 或 `{viewId, sourceContainerId, newContainerIn}`（`sidebar`\|`auxiliarybar`\|`panel`），或全部省略；省略时经选择先选视图、再选目标 | `nbook.workbench/layoutReady` | write | never |
-| `nbook.view.open` | 打开视图 / Open View | `{viewId?}`；省略时经选择列出已落位的视图 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.set-panel-collapsed` | 收起为标题头 / Collapse to Title Bar | `{panelId?, collapsed?}`；`panelId` 缺省当前面板，`collapsed` 省略时切换 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{panelId?}`；缺省当前面板 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.move-view` | 移动视图 / Move View | `{viewId, target}`（工具面板 id）或 `{viewId, newPanelNextTo}`（工具面板 id），或全部省略；省略时经选择先选视图、再选目标 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.open` | 打开视图 / Open View | `{viewId?}`；省略时经选择列出树上的视图 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
-| `nbook.view.set-part-hidden` | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`activitybar`；`hidden` 布尔）；`part` 省略时经选择列出三个区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.set-part-hidden` | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`panel`\|`activitybar`\|`statusbar`；`hidden` 布尔）；`part` 省略时经选择列出区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.focus-next-pane` | 聚焦下一个面板 / Focus Next Pane | `{}`；缺省键位 F6 | 无 | read | never |
 | `nbook.view.focus-previous-pane` | 聚焦上一个面板 / Focus Previous Pane | `{}`；缺省键位 Shift+F6 | 无 | read | never |
 
-- 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
-- `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按记忆尺寸回来（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 32）。
-- 前六条写的是**同一份用户定制记录**（面板状态）或既有移动写入路径；尺寸（高度/宽度）不在这里写，只由手势落点提交，避免两个写者。
-- `move-view` 的目标是除来源外的已有容器，或 `newContainerIn` 指定的 ToolPart 里新建的自建容器（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 24；自建容器的身份在这次执行接纳时生成一次）。`targetContainerId` 与 `newContainerIn` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动或目标容器不存在为 `invalid-args`；视图已不在 `sourceContainerId`（菜单或选择过期）为 `stale-target` 且零写入；目标就是当前容器为成功且不写。无参的两步选择之间视图被移走，同样按过期拒绝。
+- 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；选择被取消为成功且不写。
+- 当前面板执行时重验，已不存在时返回 `unavailable`。
+- `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按意图尺寸回来（[ui.workbench-layout](../ui/workbench-layout.md) 输出 11）。
+- `move-view` 的目标是别的工具面板，或挨着一块工具面板开新面板（[ui.workbench-layout](../ui/workbench-layout.md) 输出 23）。`target` 与 `newPanelNextTo` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动，或目标是编辑组为失败且零写入；目标面板中途不在了为 `stale-target`。
 - `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。它由资源管理器声明的视图标题动作触发（`args: "instance"`，[workbench.views](views.md) 输出 10）：外壳带上被点的视图实例的 id 与代际调用它。
-- 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 11），命令不等保存完成、也不把“已接纳”说成“已保存”。
+- 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[ui.workbench-layout](../ui/workbench-layout.md) 的“失败与恢复”），命令不等保存完成、也不把“已接纳”说成“已保存”。
 
 ### 命令目录（应用）
 

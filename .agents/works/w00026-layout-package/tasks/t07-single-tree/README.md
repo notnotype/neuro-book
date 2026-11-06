@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t07-single-tree
-status: active
+status: done
 updated: 2026-11-06
 ---
 
@@ -195,6 +195,14 @@ updated: 2026-11-06
 
 验证：类型检查通过；`test:affected --since master` 失败两条都是别的 Work 的（`plugins/agent` 跨插件导入、`AgentCompactionDetail` 没有场景）；e2e 子代理跑过 `workbench-shell`、`lab-workbench-surface`、`files-explorer`、`plugin-authoring`、`plugin-code`（改了注释），主会话改完收起按钮后跑 `workbench-dnd`、`workbench-views`、`editor-area`、`lab-editor`、`editor-types`、`lab-grid-panels` 123 条全过。
 
+片 8 已合入（`0a4492bd3`）：删掉旧的多棵树布局（49 个文件约 8700 行，连同语言文件的旧键、覆盖层的收尾、`NestedGrid` 的 `onIssues`，一共少了约 9400 行），由一个 Sonnet 按清单删，主会话审 diff。子代理多删了 w00041 的 `themeEditor.icons.preview`，已恢复：全仓没有使用方，但那是别的 Work 的键。`ui/workbench-layout.md` 晋升 `implemented`，`ui/workbench-shell.md` 裁到标题栏、状态栏与贡献点，`workbench/commands.md`、`views.md` 按现行合同改。
+
+验证：`bun run typecheck` 只剩 `plugins/agent/web/permission-page.dom.test.ts` 两个错（别的 Work）；`test:affected --since master` 只剩已知的 `plugins/agent` 跨插件导入；e2e `lab-workbench-surface`、`workbench-shell`、`workbench-views`、`workbench-dnd`、`lab-grid-panels`、`lab-drag-session`、`lab-editor` 128 条全过。
+
+t06 接入遗留：1（`useGridLayout` 的 `v-bind` 对象）不做：宿主只有 `WorkbenchSurface` 一处，收益小；2（测量盒合同）随 `EditorArea` 拆掉不再有“提示条算进测量根”的问题；5（`onIssues` 重复）已做。其余（6、7、10、11）留在 t06 记录里，包发布之前再看。
+
+实现审查（片 7c、片 8）后台进行中，报告回来后处理。
+
 ## 下一步
 
-片 8（删旧代码、晋升 Spec）。之后按 [Work 的顺序](../../README.md#推进顺序)。
+按 [Work 的顺序](../../README.md#推进顺序)进 t16。

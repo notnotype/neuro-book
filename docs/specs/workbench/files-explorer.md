@@ -11,8 +11,6 @@ owners:
 
 ## 目标与非目标
 
-随 [ui.workbench-layout](../ui/workbench-layout.md)（planned）：`data-editor-group` 改放在编辑组内容项的根上，文件拖到编辑组的行为不变。切换之前下文仍是现行合同。
-
 在 NeuroBook 主页面左侧提供基础文件管理，按文件夹类型呈现（普通文件夹、内容文件夹、活页夹，见 [workspace.folder-kinds](../workspace/folder-kinds.md)），显示项目与用户资产两个根。支持浏览、新建、打开、重命名、删除、拖动移动、多选及复制/剪切/粘贴；打开后进入真实编辑与保存链，而不止展示文件树。用起来要和本地 IDE 一样流畅，见[打开与切换](#打开与切换)的性能标准。
 
 2026-09-26 开发者确认首版意图，并以“可以，就这么做，收口”批准 [Files 与资源管理器首版设计](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)中的 F1–F9。本文固定面板展示、交互、确认与反馈；实际文件写入、服务端校验和逐项结果归 [workspace.files](../workspace/files.md)。2026-10-02 开发者接受 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)：全局的普通/内容节点双模式由文件夹类型取代，新增用户资产根、按需加载、乐观切换与性能标准。
@@ -210,7 +208,7 @@ owners:
 ## 边界与兼容
 
 - 文件数据与访问合同归 `workspace.files`，文件夹类型与清单归 `workspace.folder-kinds`；本能力只拥有用户呈现、操作发起与反馈。
-- 文档/编辑器继续拥有打开、输入和保存；[工作台外壳](../ui/workbench-shell.md)拥有布局/实例，[命令系统](commands.md)拥有统一分发与执行策略，本能力不复制这些合同。
+- 文档/编辑器继续拥有打开、输入和保存；[工作台布局](../ui/workbench-layout.md)拥有布局/实例，[命令系统](commands.md)拥有统一分发与执行策略，本能力不复制这些合同。
 - 内容格式继续引用 [Content Reference](../../../packages/neuro-book-legacy/assets/reference/content/README.md)；内容文件夹的持久格式是其清单，归 `workspace.folder-kinds`。
 - 内置 Files/资源管理器通过显式接口接入主页面，经 [插件通道](../runtime/plugin-channel.md) 通信（迁移完成前沿用 HTTP 与 SSE），组件不绑定协议；以视图与命令贡献给 workbench，打开文件执行 `nbook.editor.open`；右键菜单的贡献点 `explorer.context` 见 [workbench.menus](menus.md)。不支持外部可执行插件安装和动态 API 注册不妨碍主页面真实使用。
 - 领域功能移除仅限本资源管理器适配及其专用入口，不授权清理独立领域模块或用户数据。实现切换时同步真实组件文档与能力标签，不提前把文档目标写成当前实现。

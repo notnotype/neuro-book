@@ -187,7 +187,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
 | 主题皮肤 | [`theme/skins.md`](theme/skins.md) | 插件提供的整套外观：配色、字体、活动栏与场景图在各位置的裁切，主题列表与退回 |
 | 主题编辑器 | [`theme/editor.md`](theme/editor.md) | 在界面里做主题：我的主题库、实时预览、推导配色、场景取景、对比度提示、导出为插件与导入 |
-| 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 七个 Part 的几何与面板形态、紧凑呈现、布局记录与公开状态（外壳一）；容器与视图（外壳二）；拖放（外壳三）；标题栏、状态栏与条目贡献点（外壳四）；无项目首页、工作台打磨、活动栏底部条目与页面浮层 |
+| 工作台布局 | [`ui/workbench-layout.md`](ui/workbench-layout.md) | 一棵树：骨架、面板与条、规范形、尺寸与放不下、内容层上的位移、落点规则与接受矩阵、活动栏、布局记录 |
+| 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 标题栏、状态栏与条目贡献点；无项目首页、卡片还是平铺、活动栏底部条目与页面浮层 |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算、编辑器与语言贡献点、选择顺序、字节标签、预览的打开方式 |
@@ -217,7 +218,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
-| 工作台布局 | [`ui/workbench-layout.md`](ui/workbench-layout.md) | 一棵树：面板与条、规范形、尺寸与放不下、内容层上的位移、落点规则与接受矩阵、布局记录。实现后取代 `ui/workbench-shell.md` 的外壳一到三 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随、按矩形摆放与 Tab 顺序 |
 | 布局拖动 | [`ui/layout-drag.md`](ui/layout-drag.md) | `nb-layout` 的手势会话：起拖门槛、指针与键盘、取消、放下规则、边缘滚动，以及跨插件的落点登记。待晋升 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |

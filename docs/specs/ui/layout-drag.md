@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 落点的几何与规则：外壳的在 [ui.workbench-shell](workbench-shell.md)，标签的在 [workbench.editor](../workbench/editor.md)，树的在 [workbench.files-explorer](../workbench/files-explorer.md)。[布局提案](../../proposals/workbench-single-tree-layout.md#3-拖动) 第 3 节的有序规则随一棵树写进本 Spec。
+- 落点的几何与规则：工作台布局的在 [ui.workbench-layout](workbench-layout.md)，标签的在 [workbench.editor](../workbench/editor.md)，树的在 [workbench.files-explorer](../workbench/files-explorer.md)。[布局提案](../../proposals/workbench-single-tree-layout.md#3-拖动) 第 3 节的有序规则随一棵树写进本 Spec。
 - 实时布局的让位、粘滞与稳定时长：随实时布局写进本 Spec。
 - 分隔线手势：见 [ui.nested-grid](nested-grid.md)。
 - 跨窗口拖动。

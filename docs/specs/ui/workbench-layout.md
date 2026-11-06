@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.workbench-layout
 owners:
   - nbook.workbench
@@ -13,7 +13,7 @@ owners:
 
 除标题栏外，工作台是一棵布局树：工具视图和编辑组都是树上的面板，活动栏和状态栏是树上的条。骨架固定：`活动栏 | 侧栏 | 编辑区 | 右栏`，面板在编辑区下面（输出 1）。面板在骨架内换位置时，它的内容不重建，并从旧位置滑到新位置。工作台是这棵树的唯一写者，插件只提交意图。
 
-本 Spec 实现后取代 [ui.workbench-shell](workbench-shell.md) 的外壳一到三与输出 38、39。标题栏、状态栏的条目（外壳四）、无项目首页、活动栏底部条目与页面浮层留在那里。设计理由见[布局提案](../../proposals/workbench-single-tree-layout.md)与 [ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。
+本 Spec 取代了 [ui.workbench-shell](workbench-shell.md) 的外壳一到三与输出 39。标题栏、状态栏的条目、无项目首页、活动栏底部条目、页面浮层与主题变量表（输出 38）留在那里。设计理由见[布局提案](../../proposals/workbench-single-tree-layout.md)与 [ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。
 
 不承诺：
 
@@ -23,7 +23,7 @@ owners:
 - **手机呈现**：窄于 600 时只有这棵树，界面会很挤，放不下按输出 10 降级。
 - **条移到四边**：条在树里，位置固定。
 - **统一的标签条与每标签一实例**：工具面板和编辑组各用各的标签条；一个编辑组仍是一个控件，多标签组里的标签跨组移动时视图重建（[workbench.editor](../workbench/editor.md) 输出 49），单标签的组是整块移动，不重建。
-- **改变骨架**：面板移到编辑器旁边、工具视图夹在编辑组之间、编辑器标签拆到工具面板旁边、整块拖动面板，都没有入口（开发者 2026-11-06）。编辑器标签想离开编辑区用浮动（w00026 t09）。
+- **改变骨架**：面板移到编辑器旁边、工具视图夹在编辑组之间、编辑器标签拆到工具面板旁边、整块拖动面板，都没有入口（开发者 2026-11-06）。编辑器标签想离开编辑区要等应用内浮动。
 - **面板横跨左右侧栏**这类摆法没有拖动入口。
 
 ## 术语与参与者
@@ -278,54 +278,17 @@ type TabRef =
 
 Smoke 入口：`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`、`e2e/workbench-dnd.e2e.ts`、`e2e/lab-grid-structure.e2e.ts`；生产构建下打开 `/?project=…`。
 
-### 现行合同的去向
+## 实现合同
 
-[ui.workbench-shell](workbench-shell.md) 外壳一到三与输出 38、39：
-
-| 现行 | 去向 |
-|---|---|
-| 输出 1 拓扑、2 位置与对齐 | 改写为输出 1；位置与对齐删除 |
-| 输出 3、4 固定与可调尺寸 | 输出 5、6；拖过最小尺寸变最大化的手势删除 |
-| 输出 5 装不下、6 紧凑 | 输出 10；紧凑呈现取消 |
-| 输出 7 四种消失 | 输出 11、13；32px 竖条与拖动手势版最大化删除 |
-| 输出 8 恢复与键盘 | 输出 9、12 |
-| 输出 9 显隐、10 停放 | 输出 11、14、16 |
-| 输出 11 框架与状态栏 | 输出 20；状态栏不变 |
-| 输出 13 公开状态 | 输出 36 |
-| 输出 14 布局恢复 | 状态与转换 |
-| 输出 15 活动栏 | 输出 22；至多一项选中改成按有效可见，一列可以有几块面板 |
-| 输出 16、17 容器模式与动作 | 删除，随 ViewContainer 取消；视图动作在面板头（输出 20）；点标题行收起删除 |
-| 输出 18 实例保留 | 输出 14 |
-| 输出 19、20、21 行为表、方向、半区 | 输出 25 到 27；半区分配公式删除 |
-| 输出 22 反馈 | 输出 29、30；放下后高亮滑向结果删除 |
-| 输出 23 键盘 | 输出 31 |
-| 输出 24 移动到 | 输出 23 |
-| 输出 25 标题行 | 输出 20 |
-| 输出 26 起源声明消失 | 输出 4 |
-| 输出 27 焦点 Part | 输出 36 |
-| 输出 38 卡片 | 输出 19；主题变量表留在原处 |
-| 输出 39 空着不显示 | 输出 1、4、29 |
-| 验收 1、2 | 验收 2、5；位置与对齐删除 |
-| 验收 3、4、5 | 验收 5、6、18 |
-| 验收 6 | 验收 7 |
-| 验收 7 | 验收 12 |
-| 验收 8、9 | 验收 11；摆放改成每个项目一份，整棵后写胜出 |
-| 验收 10 | 验收 12 |
-| 验收 11 | 输出 35、36 的命令用例 |
-| 验收 12、13 | 验收 17 |
-| 验收 14 | 验收 14 |
-| 验收 15、16、17 | 删除，随容器取消 |
-| 验收 18 | 验收 13；未知条目改成显示占位，不再只在呈现中忽略 |
-| 验收 19、20、21、22 | 验收 8、9、10 与输出 30 |
-| 验收 23、24、25 | 验收 1、2；半区比例删除 |
-| 验收 26、27 | 验收 15 |
-| 验收 28 | 删除，32px 竖条取消 |
-| 验收 29 | 验收 4、5 |
-| 验收 30 | 验收 7 |
-| 验收 31 | 验收 15、18 |
-| 验收 41 | 验收 16 |
-| 验收 42 | 输出 1、4；已声明视图的面板隐藏时保持隐藏 |
+- **公开入口**：`@notnotype/nb-layout`（`layout-doc`、`layout-drop`、`layout-project`）与 `./vue`（`NestedGrid`）；工作台的 `web/state/layout-doc-store.ts`（store）、`web/components/WorkbenchSurface.vue`（表面）、`web/layout-drag.ts`（拖动）；服务键 `editorPanelsKey`（`workbench/shared/contracts.ts`）。
+- **owner 与依赖方向**：`nbook.workbench` 是树的唯一写者。`nb-layout` 不知道角色与骨架的含义，规则经 `LayoutPolicy` 由 `web/state/layout-constraints.ts` 给。编辑器只经 `editorPanelsKey` 改结构。
+- **骨架靠三处守住**：落点只给合骨架的目标（`layoutEdgeTarget`）；具名面板不移动（`moveTabToEdge`）；store 的 `apply` 出口过 `fitsSkeleton`。`default-tree.test.ts` 的随机操作性质测试钉住。
+- **文档只在内存里有一份**：打开时从记录读一次，之后记录只管存，别的窗口保存不改本窗口的显示。
+- **内容项不换父元素**：这是内容不重建、滚动不丢的唯一保证（[ui.nested-grid](nested-grid.md) 的“内容层”）。
 
 ## 证据
 
-- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md)，开发者 2026-11-05 接受，决策记录含 2026-11-06 的三条；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。
+- 实现入口：[`web/state/layout-doc-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts)、[`web/layout-drag.ts`](../../../packages/neuro-book/src/plugins/workbench/web/layout-drag.ts)、[`web/components/WorkbenchSurface.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue)、[`nb-layout/src/layout-doc.ts`](../../../packages/nb-layout/src/layout-doc.ts)、[`nb-layout/src/layout-drop.ts`](../../../packages/nb-layout/src/layout-drop.ts)。
+- 合同测试：[`web/state/default-tree.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/default-tree.test.ts)、[`web/state/layout-doc-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts)、[`web/state/layout-constraints.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.test.ts)、[`nb-layout/src/layout-doc.test.ts`](../../../packages/nb-layout/src/layout-doc.test.ts)、[`nb-layout/src/layout-drop.test.ts`](../../../packages/nb-layout/src/layout-drop.test.ts)。
+- Smoke：[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`e2e/workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)。
+- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md)，开发者 2026-11-05 接受，决策记录含 2026-11-06 的四条；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。
