@@ -76,7 +76,7 @@ function inboxLines(inbox: ProjectStatus["inbox"]): string[] {
     const lines = [`收件箱：${questions.length} 道待答${inbox.length > questions.length ? `，${inbox.length - questions.length} 处撞号` : ""}`];
     for (const item of inbox) {
         if (item.kind === "question") lines.push(`  ${item.workId.slice(0, 6)}/${item.taskId.slice(0, item.taskId.indexOf("-"))} ${item.artifactId}#${item.questionId}  ${item.label}${item.askedBy ? `（${shortSession(item.askedBy)} 问的）` : ""}`);
-        else lines.push(`  撞号 ${item.label}${item.live ? "（live）" : "（旧副本）"}`);
+        else lines.push(`  撞号 ${item.label}（live）`);
     }
     return lines;
 }
@@ -255,7 +255,7 @@ const COMMANDS: Record<string, CommandSpec> = {
                     ...inboxLines(status.inbox),
                     ...statusLines(status.works, workRef !== undefined),
                     ...activityLines(status.sessions, status.unownedRuns, now),
-                    ...status.conflicts.map((conflict) => `撞号 ${conflict.label}${conflict.live ? "（live）" : "（旧副本）"}：${conflict.ids.map((entry) => entry.id).join("、")}`),
+                    ...status.conflicts.filter((conflict) => conflict.live).map((conflict) => `撞号 ${conflict.label}（live）：${conflict.ids.map((entry) => entry.id).join("、")}`),
                     `下一个 Work 号：${status.nextWorkNumber}`,
                 ],
             };

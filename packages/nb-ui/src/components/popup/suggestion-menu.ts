@@ -24,7 +24,7 @@ export type SuggestionMenuGroup = Readonly<{
 /** 贴光标时宿主给的虚拟锚点：每帧都会重新读一次矩形。 */
 export type SuggestionMenuAnchor = Element | {getBoundingClientRect: () => DOMRect; contextElement?: Element};
 
-export type SuggestionMenuPlacement = "auto" | "top" | "bottom";
+export type SuggestionSide = "auto" | "top" | "bottom";
 
 /**
  * 第 `index` 个可选项的 DOM id。`index` 按分组的输入顺序跨组累计，只数可选项（不数禁用项与分组标题），

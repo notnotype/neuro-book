@@ -34,6 +34,8 @@ updated: 2026-11-02
 - **范围**：模型与计算（六种对象、位置与排序、补丁与折叠、核对点、待处理、发布与冲突、按字段的还原、Component 类型登记与字段声明、精确与语义两档）；分段日志存储（ADR 0039）；白名单 MDX 渲染、带值写法与回写（ADR 0038）；接进应用的服务合同。
 - **第一版不做**：schema 升级函数（只存版本号）；数值溢出“截到上限”（只做拒绝）；Agent 工具与记账管线、作者界面、内置 Component 的完整字段清单。
 
+Spec 写在 t29 的分支上：worktree `.worktree/w00039-t29-canon-kernel`，分支 `feat/w00039-t29-canon-kernel`（开发者 11-02：本次在单独的分支上进行，没有允许不合并）。
+
 ## 下一步
 
 按 writing-specs 写内核 Spec（`docs/specs/canon/` 下几份），把提案第四版、t16 第 1 到 3 轮的决定、第三轮审查的 24 条处理（`../t02-story-model/evidences/design-review-r3-resolution.txt`）与 ADR 0039 逐条对上；写完给开发者看要点，再交 omp 审一轮。

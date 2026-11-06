@@ -6,8 +6,8 @@
  * - 手势落账后只取主动且真实变化、没有收起的叶，折成视图尺寸补丁；补偿与降级不写。
  */
 
-import {createGrid} from "@notnotype/nb-ui/layout";
-import type {Grid, GridBranchInput, GridGestureCommit, GridLeafInput} from "@notnotype/nb-ui/layout";
+import {createGrid} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridGestureCommit, GridLeafInput} from "@notnotype/nb-layout";
 
 import {SASH_PX} from "../shell/sizes";
 import {sizeFieldOf} from "./presentation";

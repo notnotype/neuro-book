@@ -7,7 +7,7 @@ import {
     DialogTitle,
     type PointerDownOutsideEvent,
 } from "reka-ui";
-import {computed, nextTick, ref, useId, watch} from "vue";
+import {computed, mergeProps, nextTick, ref, useId, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {usePopupScroll} from "../../composables/usePopupScroll";
@@ -17,9 +17,10 @@ import Kbd from "../display/Kbd.vue";
 import Spinner from "../display/Spinner.vue";
 import {moveRoving, rovingMove, type RovingMove} from "../../utils/roving";
 import {useCloseHandoff} from "../feedback/close-handoff";
+import type {OverlayCloseReason} from "../shared-types";
 
 /**
- * 输入筛选、挑选一项的浮层（S4 命令面板基座）：纯受控，不持数据。
+ * 输入筛选、挑选一项的浮层（命令面板基座）：纯受控，不持数据。
  *
  * 组件只报告请求——`update:query` / `update:activeId` / `accept` / `close`——候选项顺序、
  * 查询含义、活动项与执行时机全归宿主；`>` 命令与 `:` 行号的前缀解析不在这里。
@@ -37,7 +38,8 @@ export type QuickPickItem = Readonly<{
     labelMatches?: readonly (readonly [number, number])[];
 }>;
 
-export type QuickPickCloseReason = "escape" | "outside";
+/** `QuickPick` 发出的关闭原因：`OverlayCloseReason` 的子集。 */
+export type QuickPickCloseReason = Extract<OverlayCloseReason, "escape" | "outside">;
 
 export type QuickPickProps = {
     open: boolean;
@@ -68,7 +70,7 @@ const emit = defineEmits<{
     (event: "update:query", value: string): void;
     (event: "update:activeId", value: string | null): void;
     (event: "accept", id: string): void;
-    (event: "close", reason: QuickPickCloseReason): void;
+    (event: "request-close", reason: QuickPickCloseReason): void;
     (event: "closed"): void;
 }>();
 
@@ -138,8 +140,8 @@ function onCloseAutoFocus(event: Event): void {
 function requestClose(reason: QuickPickCloseReason): void {
     if (!props.open) return;
     // 组件只报这一次请求：宿主不接就还是打开状态，下一次按键照常再报
+    emit("request-close", reason);
     emit("update:open", false);
-    emit("close", reason);
 }
 
 function onRootOpenChange(value: boolean): void {
@@ -150,7 +152,7 @@ function onRootOpenChange(value: boolean): void {
 function onPointerDownOutside(event: PointerDownOutsideEvent): void {
     // 右键与 ctrl+左键不关面板（与 Reka 模态对话框的判断一致）
     if (event.detail.originalEvent.button !== 0) return;
-    // 阻止 Reka 自己 dismiss：关闭只由宿主按 update:open / close 决定
+    // 阻止 Reka 自己 dismiss：关闭只由宿主按 update:open / request-close 决定
     event.preventDefault();
     requestClose("outside");
 }
@@ -286,19 +288,18 @@ function isLowSurrogate(code: number): boolean {
 <template>
     <DialogRoot :open="props.open" :modal="true" @update:open="onRootOpenChange">
         <DialogPortal :to="teleportTo()">
-            <!-- 透明遮罩与面板同为 S4 层级、面板在后绘制：外点落在遮罩上被消费，不穿透底层 -->
+            <!-- 透明遮罩与面板同为命令面板层级、面板在后绘制：外点落在遮罩上被消费，不穿透底层 -->
             <DialogOverlay class="fixed inset-0" :style="{zIndex: NB_Z_INDEX.commandPalette}" />
             <!-- 面板没有描述节点：先清掉 Reka 默认指向描述 id 的 aria-describedby（否则引用悬空并告警），宿主显式传入时仍以宿主为准 -->
             <DialogContent
                 :aria-describedby="undefined"
-                v-bind="$attrs"
+                v-bind="mergeProps($attrs, {onKeydown: onPanelKeydown})"
                 :style="panelStyle"
                 class="nb-ui-popover-surface nb-ui-menu-surface fixed inset-x-0 mx-auto flex flex-col gap-[var(--space-2)] overflow-hidden text-[var(--text-main)] outline-none"
                 :class="{ 'nb-ui-popover-motion': props.open }"
                 @open-auto-focus="onOpenAutoFocus"
                 @close-auto-focus="onCloseAutoFocus"
                 @pointer-down-outside="onPointerDownOutside"
-                @keydown="onPanelKeydown"
             >
                 <DialogTitle class="sr-only">{{ props.title }}</DialogTitle>
 

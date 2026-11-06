@@ -12,7 +12,7 @@
 - 附注（`annotations`）：没有文字的助手消息带的附注单独成块，位置规则同信息条目。
 - 人机交互控件（`node`）：渲染器登记了 `node` 组件时用它，否则用通用卡片；Workflow 运行中卡片副标题显示当前动作。
 - 信息条目（`notice`）：淡色一行，写标签和正文第一行（经 `renderers.markdownPreview` 去掉 Markdown 标记）；整行是按钮，点开在下方显示全文（Markdown，淡色小字）。
-- 分隔线（`divider`）：上下文压缩、分支摘要居中一条线；带摘要正文时标签可点，点开在线下显示摘要全文。
+- 分隔线（`divider`）：上下文压缩、分支摘要居中一条线；带摘要正文或压缩详情（`message.compaction`）时标签可点，点开在线下先显示压缩详情（[`AgentCompactionDetail`](AgentCompactionDetail.md)），再显示摘要全文。整理工具结果的压缩没有摘要，详情是它唯一的内容。
 - steer：左侧强调色竖线的浅底条，“补充说明”标签后面是 `AgentUserContent`；还在发送时末尾一个小转圈，投递状态未知时下一行是 `AgentDeliveryNotice`。
 - 错误：危险色气泡。
 

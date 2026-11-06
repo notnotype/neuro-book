@@ -11,5 +11,5 @@ export {finalOnly, mapEventContent, opening, reminder, standardLayout, withoutEv
 export type {ContentMap, ContentWhere} from "@notnotype/nb-harness/kernel/helpers";
 export {Assistant, Fragment, History, If, P, Slot, System, Tag, ToolName, Turn, User} from "@notnotype/nb-harness/prompt";
 export type {PromptChild, PromptComponent, PromptNode} from "@notnotype/nb-harness/prompt";
-export {agentExtension, agentProfile, agentTool, EXTENSIONS_POINT, PROFILES_POINT, TOOLS_POINT} from "nbook/plugins/agent/shared/points";
-export type {AgentExtensionDeclaration, AgentProfileDeclaration, AgentToolDeclaration, AgentToolImplementation} from "nbook/plugins/agent/shared/points";
+export {agentCompactionMethod, agentExtension, agentProfile, agentTool, COMPACTION_METHODS_POINT, EXTENSIONS_POINT, PROFILES_POINT, TOOLS_POINT} from "nbook/plugins/agent/shared/points";
+export type {AgentCompactionMethodDeclaration, AgentExtensionDeclaration, AgentProfileDeclaration, AgentToolDeclaration, AgentToolImplementation} from "nbook/plugins/agent/shared/points";

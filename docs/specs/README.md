@@ -173,6 +173,11 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 模型服务的设置页 | [`models/settings-pages.md`](models/settings-pages.md) | “服务商与模型”“模型角色”两页：服务商列表与详情、连接与请求头、模型列表与检测、编辑与管理模型、删除确认、角色表 |
 | Agent 的贡献点 | [`agent/contributions.md`](agent/contributions.md) | `nbook.agent` 的 `agent.extensions`、`agent.tools`、`agent.profiles`：声明形状、激活事件、工具集的合成、Profile 目录与用户级 Profile 的打包与重载、提供方停止的影响 |
 | Agent 的会话服务 | [`agent/sessions.md`](agent/sessions.md) | 会话存放与句柄寿命、远程合同与失败码、帧的合并与补齐、大小上限、`startTask` 的幂等、停止的收口 |
+| Agent 的运行保护 | [`agent/run-guards.md`](agent/run-guards.md) | `nbook.agent` 默认装上的扩展：费用告警与上限、重复工具调用的提醒与停止；重发次数与卡死超时的设置、设置分区 |
+| Agent 的内置工具 | [`agent/builtin-tools.md`](agent/builtin-tools.md) | `nbook.agent` 交出的 `read`、`write`、`edit`（hashline 与 replace）、`grep`、`glob`、`shell`、`ask`：参数、输出、上限、失败码、全局地址、`shell` 的地址替换与全文、审批预览 |
+| Agent 的对话界面 | [`agent/conversation.md`](agent/conversation.md) | 对话视图接新内核：工作台位置、会话面板、发送与运行控制、审批与提问向导、状态栏 |
+| Agent 的上下文压缩 | [`agent/compaction.md`](agent/compaction.md) | 三种压缩方法与缺省顺序、放回的内容、贡献点 `agent.compactionMethods` |
+| Agent 的内置 Profile | [`agent/builtin-profiles.md`](agent/builtin-profiles.md) | 主创与会话标题：工具、规则文件进开场、标题和说明的生成时机与兜底 |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
@@ -180,14 +185,17 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 工作台通知 | [`workbench/notifications.md`](workbench/notifications.md) | 提示的三个去处、本窗口的通知服务与右下角视口、常驻与时长、进度与动作 |
 | 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
 | 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
+| 主题皮肤 | [`theme/skins.md`](theme/skins.md) | 插件提供的整套外观：配色、字体、活动栏与场景图在各位置的裁切，主题列表与退回 |
+| 主题编辑器 | [`theme/editor.md`](theme/editor.md) | 在界面里做主题：我的主题库、实时预览、推导配色、场景取景、对比度提示、导出为插件与导入 |
 | 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 七个 Part 的几何与面板形态、紧凑呈现、布局记录与公开状态（外壳一）；容器与视图（外壳二）；拖放（外壳三）；标题栏、状态栏与条目贡献点（外壳四）；无项目首页、工作台打磨、活动栏底部条目与页面浮层 |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
 | 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算、编辑器与语言贡献点、选择顺序、字节标签、预览的打开方式 |
+| Markdown 编辑命令与菜单 | [`workbench/markdown-editing.md`](workbench/markdown-editing.md) | 编辑命令与公开键、固定工具栏、选区菜单、斜杠菜单、块按钮与块菜单、正文右键 |
 | 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
 | HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
-| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；方案注册与挂载方案、服务端文件服务、`projects://`；浏览器访问已注册方案、第三方注册、glob、grep 与 shell 标 `(planned)` |
+| 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；方案注册与挂载方案、服务端文件服务、`projects://`、写入接口（读、暂存与提交、文件操作、操作分组、记账槽）；浏览器访问已注册方案、第三方注册标 `(planned)` |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | 普通、内容、活页夹三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点 |
 | Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验 |
 | Markdown 方言的贡献 | [`workspace/markdown-syntaxes.md`](workspace/markdown-syntaxes.md) | 方言的声明与实现两个贡献点、生效条件与冲突、视图在建立时取定语言、字数按声明 |
@@ -209,7 +217,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
-| 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |
+| 工作台布局 | [`ui/workbench-layout.md`](ui/workbench-layout.md) | 一棵树：面板与条、规范形、尺寸与放不下、内容层上的位移、落点规则与接受矩阵、布局记录。实现后取代 `ui/workbench-shell.md` 的外壳一到三 |
+| 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随、按矩形摆放与 Tab 顺序 |
+| 布局拖动 | [`ui/layout-drag.md`](ui/layout-drag.md) | `nb-layout` 的手势会话：起拖门槛、指针与键盘、取消、放下规则、边缘滚动，以及跨插件的落点登记。待晋升 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
@@ -219,6 +229,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Agent 对话视图 | [`ui/agent-conversation-view.md`](ui/agent-conversation-view.md) | `nb-agent-ui` 包：分轮与过程时间线、工具渲染、输入框、注册表扩展点、宿主注入的 Markdown 与编辑器；2026-10-22 从归档搬回 |
+| Agent 模式 | [`agent/modes.md`](agent/modes.md) | `normal`、`discuss`、`plan`：闸门、提示、切换、退出计划的向导 |
+| Agent 的权限规则 | [`agent/permissions.md`](agent/permissions.md) | 规则的三层与合并、判定流水线、判定对象、`bash` 方言与只读清单、本会话批准的规则 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | 新内核的会话日志：会话目录与 JSONL、写入批、大块内容、锁、修复与校验、恢复、指令幂等、索引与 fork |
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |

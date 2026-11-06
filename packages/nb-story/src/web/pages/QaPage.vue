@@ -567,7 +567,7 @@ const unsaved = computed(() => {
                     v-model:open="removeOpen"
                     title="删除这个对话"
                     :description="running ? '这个对话正在回答，会先停下再删除。删除后不能恢复。' : '删除后不能恢复。'"
-                    confirm-text="删除"
+                    confirm-label="删除"
                     tone="danger"
                     @confirm="removeConversation"
                 >
@@ -582,12 +582,12 @@ const unsaved = computed(() => {
                 <Banner v-if="configured === false" tone="warning" title="还没有配置问答用的模型" message="先在设置页填好模型，才能提问。">
                     <template #actions><RouterLink to="/settings" class="qa-link">去设置</RouterLink></template>
                 </Banner>
-                <Banner v-if="brokenIds.has(selectedId ?? '')" tone="error" title="这份记录读不出来" message="只能删除。" />
+                <Banner v-if="brokenIds.has(selectedId ?? '')" tone="danger" title="这份记录读不出来" message="只能删除。" />
                 <Banner v-if="unsaved" tone="warning" :message="unsaved" data-qa-unsaved />
                 <Banner v-if="sourceState?.detached" tone="warning" message="这个对话在别处（命令行）也续问了，这一轮基于较早的记录，结束后不会保存。" />
                 <Banner v-if="sourceState?.logProblem" tone="info" :message="`过程没有保留（${sourceState.logProblem}），只显示每一轮的问题与结果。`" />
                 <Banner v-else-if="selectedId !== null && sourceState?.phase === 'ready' && !sourceState.continuable.ok && !running" tone="info" :message="`不能续问：${sourceState.continuable.reason}`" />
-                <Banner v-if="startError" tone="error" :message="startError" dismissible data-qa-start-error @dismiss="startError = null" />
+                <Banner v-if="startError" tone="danger" :message="startError" dismissible data-qa-start-error @dismiss="startError = null" />
             </div>
 
             <div class="qa-view">

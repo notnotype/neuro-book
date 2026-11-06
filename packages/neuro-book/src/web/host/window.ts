@@ -36,7 +36,8 @@ import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
+import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
+import type {WindowPluginFiles} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowTextKey} from "nbook/shared/window-text";
@@ -45,7 +46,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
-import {builtinPluginCatalogs} from "../plugins";
+import {builtinPluginAssets, builtinPluginCatalogs} from "../plugins";
 import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext, BuiltinCatalogs} from "../plugins";
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
@@ -259,6 +260,12 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const builtinDefinitions = selected.flatMap((plugin) => (plugin.kind === "definition" ? [plugin.definition] : []));
             const thirdPartyPlugins = selected.flatMap((plugin) => (plugin.kind === "third-party" ? [plugin] : []));
             const loadCode = code();
+            const pluginFiles: WindowPluginFiles = {
+                fileUrl: (id, path) => {
+                    const third = thirdPartyPlugins.find((plugin) => plugin.id === id);
+                    return third === undefined ? builtinPluginAssets[id]?.[path] ?? null : pluginFileUrl(third.files, path);
+                },
+            };
             const thirdParty = new Map(thirdPartyDefinitionsFor("browser", thirdPartyPlugins.map((plugin) => ({
                 manifest: plugin.manifest,
                 load: (entry, activation) => loadCode().activateOf({plugin: plugin.id, entry: entry.id, url: pluginFileUrl(plugin.files, entry.main), signal: activation.signal}),
@@ -286,6 +293,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "clock", key: clockKey, create: () => clock},
                         {id: "window.text", key: windowTextKey, create: () => text},
                         {id: "window.plugins", key: windowPluginsKey, create: () => windowPlugins.capability},
+                        {id: "window.plugin-files", key: windowPluginFilesKey, create: () => pluginFiles},
                         {id: "window.rescue", key: windowRescueKey, create: () => rescue.capability},
                     ],
                     plugins,

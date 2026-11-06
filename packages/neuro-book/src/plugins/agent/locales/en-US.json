@@ -7,6 +7,158 @@
         "profileSettings": {
             "title": "Profile settings",
             "description": "The model or model role per profile, and the approval mode new sessions start with"
+        },
+        "modelRetries": {
+            "title": "Model request retries",
+            "description": "How many times a failed model request is sent again; 0 turns retries off"
+        },
+        "warnCost": {
+            "title": "Cost warning (USD)",
+            "description": "Warns once when this session's cost reaches this amount; 0 turns it off. Models without a price are not counted"
+        },
+        "maxCost": {
+            "title": "Cost limit (USD)",
+            "description": "Stops sending model requests when this session's cost reaches this amount; the last request may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
+        },
+        "toolLoopThreshold": {
+            "title": "Repeated call threshold",
+            "description": "Reminds the model after this many identical tool calls in a row, and stops the run if the results stay the same after the reminder; 0 turns it off"
+        }
+    },
+    "settingsSections": {
+        "reliability": {
+            "title": "Run reliability",
+            "description": "Retries for failed model requests, stall timeouts, the context compaction trigger, and guards for cost and repeated calls",
+            "groups": {
+                "requests": {
+                    "title": "Model requests"
+                },
+                "compaction": {
+                    "title": "Context compaction"
+                },
+                "guards": {
+                    "title": "Guards"
+                }
+            }
+        }
+    },
+    "conversation": {
+        "phase": {
+            "requesting": "Requesting",
+            "streaming": "Generating",
+            "tools": "Running tools",
+            "compacting": "Compacting"
+        },
+        "reject": {
+            "emptyInput": "The message is empty.",
+            "inputTooLarge": "The message is too long.",
+            "inputRejected": "A rule stopped this message.",
+            "readOnly": "This session is read-only right now.",
+            "other": "Not sent ({{code}})."
+        },
+        "model": {
+            "none": "No model is available yet.",
+            "noCredentials": "The model's key isn't set.",
+            "unknown": "The model this session uses doesn't exist or can't be used.",
+            "roleUnbound": "The model role this Profile wants has no model.",
+            "unavailable": "Unavailable"
+        },
+        "approval": {
+            "ask": {
+                "label": "Always ask",
+                "description": "Everything except reads waits for your approval (default)"
+            },
+            "allowWrites": {
+                "label": "Allow writes",
+                "description": "Edits go ahead, commands still ask"
+            },
+            "yolo": {
+                "label": "Allow everything",
+                "description": "Never asks; only deny rules can stop a call"
+            }
+        },
+        "createFailed": "Couldn't create a session ({{code}}).",
+        "openFailed": "This session can't be opened ({{code}}).",
+        "retry": "Retry",
+        "archived": "This session is archived.",
+        "restore": "Restore",
+        "openSettings": "Open settings",
+        "followDefault": "Follow default",
+        "activity": {
+            "title": "Agent activity",
+            "both": "Agent: {{running}} running · {{waiting}} need you",
+            "waiting": "Agent: {{waiting}} need you",
+            "running": "Agent: {{running}} running"
+        },
+        "listFailed": "Couldn't get the session list ({{code}}).",
+        "pickProfile": "Choose a Profile",
+        "renameTitle": "Rename",
+        "rename": "Rename",
+        "cancel": "Cancel",
+        "loading": "Loading…",
+        "fork": {
+            "unknown": "Not sure whether the fork was created. Run /fork again; it will not create a second one."
+        },
+        "renameCommand": {
+            "needTitle": "Add the new title, for example /rename Ending of chapter three."
+        },
+        "mentions": {
+            "title": "Project files",
+            "empty": "No matching files",
+            "noProject": "Open a work to reference its files",
+            "failed": "Could not search files. Try again"
+        },
+        "attachment": {
+            "tooLarge": "A file can be at most 25 MB.",
+            "failed": "The upload failed ({{code}}).",
+            "noSession": "Could not create a session for this attachment."
+        },
+        "history": {
+            "unknown": "Not sure whether that worked. Try again; it will not run twice.",
+            "failed": "That did not work ({{code}}). The conversation is unchanged."
+        },
+        "context": {
+            "unavailable": "The next request cannot be worked out: this session has no usable model or profile."
+        },
+        "compact": {
+            "nothingToCompact": "There is nothing to compact.",
+            "noModel": "No model is set for compaction. Bind one to the Compaction role in settings.",
+            "noSession": "There is no conversation yet, so there is nothing to compact.",
+            "queued": "Will compact when this step finishes.",
+            "unknown": "The result of the compact command is unknown. Check whether a compaction divider appeared; if not, send it again."
+        }
+    },
+    "views": {
+        "conversation": {
+            "title": "Conversation"
+        },
+        "sessions": {
+            "title": "Sessions"
+        }
+    },
+    "editorPages": {
+        "conversation": {
+            "title": "Agent conversation"
+        }
+    },
+    "commands": {
+        "open": {
+            "title": "Open conversation"
+        },
+        "new-session": {
+            "title": "New Agent session"
+        },
+        "focus-session": {
+            "title": "Go to Agent session"
+        },
+        "category": "Agent",
+        "open-in-editor": {
+            "title": "Open conversation in editor"
+        }
+    },
+    "state": {
+        "active": {
+            "reason": "No session is running or waiting for you"
         }
     }
 }

@@ -17,6 +17,8 @@ type AgentMessageActionsProps = {
     branch?: {index: number; total: number} | null;
     /** 为 true 时全部按钮不可点，例如运行中。默认 false。 */
     disabled?: boolean;
+    /** 为 true 时只有分支切换不可点（运行中不能改树，复制还要能用）。默认 false。 */
+    branchDisabled?: boolean;
 };
 
 type AgentMessageActionsEmits = {

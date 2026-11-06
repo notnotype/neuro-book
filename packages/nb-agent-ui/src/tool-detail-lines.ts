@@ -19,8 +19,33 @@ export function textLines(text: string): CodeLine[] {
     return splitLines(text).map((line) => ({text: line}));
 }
 
+/**
+ * `read` 的结果：NeuroBook 的格式是头一行 `[地址#标记]`、每行 `行号:正文`，后面可能有说明（还有多少行怎么翻页）。
+ * 去掉这些给模型看的写法：行号由代码块画，说明单独一行淡色。目录与图片的结果没有带行号的行，原样显示。
+ */
+const READ_HEADER = /^\[[^\]\n]+#[^\]\n]*\]/u;
+const NUMBERED_LINE = /^(\d+):(.*)$/u;
+
+function hashlineContent(text: string): {lines: CodeLine[]; startLine: number} | null {
+    const rows = splitLines(text);
+    if (rows.length < 2 || !READ_HEADER.test(rows[0]!)) return null;
+    const first = NUMBERED_LINE.exec(rows[1]!);
+    if (first === null) return null;
+    const lines: CodeLine[] = [];
+    let index = 1;
+    for (; index < rows.length; index += 1) {
+        const match = NUMBERED_LINE.exec(rows[index]!);
+        if (match === null) break;
+        lines.push({text: match[2]!});
+    }
+    for (; index < rows.length; index += 1) lines.push({text: rows[index]!, tone: "muted"});
+    return {lines, startLine: Number(first[1])};
+}
+
 /** 读取结果按文件行号显示；带 offset 参数时从该行开始编号。 */
 export function fileContentLines(call: ToolCallView): {lines: CodeLine[]; startLine: number} {
+    const hashline = hashlineContent(call.result?.text ?? "");
+    if (hashline !== null) return hashline;
     return {lines: textLines(call.result?.text ?? ""), startLine: argNumber(call, "offset") ?? 1};
 }
 

@@ -1,0 +1,155 @@
+### 阻断｜正确性｜计划“拥有根的一侧”第 24、26 行；`backend/locked-replace.ts:57-60,68-72,163-193`、`backend/rooted.ts:263-275`
+**现象：** `adopt` 必须把已写完的 stage 文件交给 `replaceLocked`，但现有替换算法在文件身份变化时会删除临时文件再重做（第 180-185 行），重做机会最多 3 次；catch 失败也会删除临时文件（第 189-192 行）。这些都是原有临时副本的正确收尾，不适用于可消费的 stage token。`adopt` 改名成功后 stage 源路径也已消失。计划仅写“身份变了从新字节重做”，没有规定改动通用清理逻辑还是 adopt 专用保留/重建，也未规定失败后 token 是否仍可提交或 discard。
+**为什么是问题：** 若照原有 cleanup 复用，第一次发现目标身份变化就删掉唯一暂存内容，第二次 `replaceOnce` 无法打开 stage 文件，符合期望基线的提交也会以 I/O 错误结束；若为支持 retry 而全局改变 cleanup，则配置层与普通保存的失败清理行为会变化。项目根还需要把不存在目标交给 `decide(null)`，而 `RootedRoot.replace` 当前先 `resolve(path)` 并要求目标已是普通文件（`rooted.ts:263-266`），虽然下层 `replaceLocked` 支持 `current === null`，项目根入口仍需新增不存在目标的解析与锁路径才能兑现 `expect: "absent"`。
+**如何核实：** 逐步跟踪 `replaceLocked` 的最多 3 次循环、`replaceOnce` 的 `modified` 清理和 catch 清理；对照 `RootedRoot.replace` 的目标预解析，以及计划第 27 行的 `absent` 期望。
+**建议改法：** 把“可消费 stage”建模为独立替换输入，明确暂存源的所有权与状态转换：冲突/身份变化/锁丢失/I/O 错误后源保留可 discard（除非已原子消费）；提交时目标不存在可安全排他创建并在锁内核对；配置层保留原有临时文件清理。用真实文件系统覆盖身份变化一次后重做成功、三次不稳定后 stage 仍可 discard、目标不存在的 absent 提交。
+
+### 阻断｜不变量｜计划“拥有根的一侧”第 32 行；`backend/changes.ts:54-60,89-90,132-145,283`、`backend/rooted.ts:221-236`
+**现象：** 计划要求 `.nbook-staging-` 临时文件在列出里隐藏、监视里忽略，并说与现有临时文件前缀同一处处理；现状没有共享过滤点：`root.list()` 只隐藏控制目录别名，`FilesService.list()` 原样映射目录项；`ChangeHub` 只忽略本实例随机 token 形成的 `.<basename>.nbook-<token>-<uuid>.tmp` 模式，不匹配固定 `.nbook-staging-` 前缀，也不知道其他进程的随机 token。
+**为什么是问题：** 跨盘回退暂存文件放在普通目标目录中，提交前会被 `list` 暴露；watcher 会把创建/写入/删除当外部变化，产生虚假事件与来源。两个服务端各有不同 token，同一本书被两个实例打开是允许的，现有 token 过滤不能屏蔽对方实例的临时文件。验收 11 要求没有外部回声，新增的跨盘路径会直接破坏它。
+**如何核实：** 读 `rooted.ts:221-236`、`changes.ts:132-145` 与 `temporaryPath` 实现 `changes.ts:283`；比较其匹配模式与计划的固定前缀。用真实目录在普通目录里创建 `.nbook-staging-*`，分别调用 `list` 并订阅监视即可观察。
+**建议改法：** 在受根列出与 ChangeHub 的共同目录项过滤规则中定义稳定的临时前缀（与既有实例临时名兼容），并覆盖所有实例；或为 fallback 临时文件增加可跨进程识别且不泄露的标记/登记机制。验收同时核实列出隐藏、创建期间无外部事件、提交后没有额外删除事件。
+
+### 重要｜并发与资源寿命｜计划“拥有根的一侧”第 29 行；`runtime.projects.md` 输出 21 条、`runtime/projects.md` 输出 21 条
+**现象：** 项目 staging 目录由多个 NeuroBook 服务端实例共享（项目 Spec 明确不防不同状态根的两个服务端同时打开同一项目）。计划在打开根时按 1 小时未修改时间清理目录内容，却没有跨进程活动 token/租约登记。另一实例里一个仍活着的写入函数可以暂停超过 1 小时（外部流等待、背压或长时间空闲），此时其暂存文件 mtime 不再更新，后来打开根的实例会把它删掉。
+**为什么是问题：** 正在进行的 stage 会被另一实例清理，后续 `sink.write` 或 commit 失败；“1 小时未改动”不能证明 token 已失效。它也与 Spec 明写的“正在写的暂存文件不删”不符。仅在进程退出时清理并不能解决双服务端并发。
+**如何核实：** 对照 `docs/specs/workspace/resources.md` 副作用 151 行与 `runtime/projects.md` 边界 175 行；构造实例 A 创建 stage 后等待超过 1 小时不写，实例 B 打开同一项目触发清理，观察 A 的文件被删除。
+**建议改法：** 清理需能排除跨进程仍活跃的 stage，例如每 token 持有与 stage 生命周期同寿命的跨进程租约/锁，清理先尝试非阻塞取得该 token 的回收锁；写者进程崩溃后锁释放，老文件才可回收。对 staging 目录清理使用逐 token 原子回收，不以 mtime 单独判活性。
+
+### 重要｜正确性｜计划“服务端：写入接口”第 46 行；`docs/specs/workspace/resources.md` 122 行、`runtime/plugin-channel.md` 90-94 行
+**现象：** 计划把“目标当前 baseline 哈希等于 stage 哈希”当成提交成功证明。远程写请求一旦交给链路就可能 `unknown-outcome`，包括没有到达提供方、没有执行的时序；若调用前目标已经恰好等于 stage 内容，或请求用 `expect: "absent"` 但目标原本就存在同内容，当前哈希仍相同，计划会把未提交/冲突误报为成功。相同内容也可能由另一外部写者在未知期间写入。
+**为什么是问题：** 内容相等只能证明当前末态相等，不能证明本次操作被执行，也不能证明它满足了本次 `expect` 条件；调用者会把未执行的副作用当作成功，并可能推进自己的状态。远程合同明确 ACK 不证明副作用，未 ACK 也不证明没执行。
+**如何核实：** 真实子进程中预先写入目标内容 `X`，stage 相同的 `X` 且 `expect: "absent"`，在请求已发出、项目端尚未执行时断链产生 `unknown-outcome`；哈希判定会回成功，而项目端若执行应返回 conflict。另测 `expect: "any"`、内容已相同但服务端未处理的未知结果。
+**建议改法：** 不把字节相等表述成“已提交”的确定证明。采用可核对的提交身份（例如稳定 operation id 与拥有根侧持久/可恢复的提交回执），或将该分支保留为结果不确定并交 `unknown-outcome`；同步修订 planned Spec 和验收，明确能证明什么、何时允许报告成功。
+
+### 重要｜不变量｜计划“服务端：写入接口”第 46 行；`backend/projects-scheme.ts:55-71`
+**现象：** 计划要求 `projects://` 的租约从 `stage` 持到 `commit` 或 `discard`，但现有 `withProject` 仅在单次远程方法调用期间 acquire，并在该调用返回时 `finally` 释放。`stage` 先返回 token、用户写入函数可持续任意时长，之后才发 `commit`；按现有项目路由实现，每个阶段都会各自取得并释放租约，无法保护两阶段间代次不进入宽限期/停止。计划没有写持租约句柄如何从第一次调用跨到第二次调用、如何绑定服务门面与在门面释放/取消时释放，也没给远程项目入口提供的资源句柄协议。
+**为什么是问题：** 照字面复用 `projects-scheme.ts` 会导致 commit 可能面对已结束的旧代次或不同代次，违反资源 Spec“绑定代次结束失败、不改投新代次”和项目租约寿命；若为实现要求另造 token→lease 的服务端状态，还会造成入口释放、stage 调用方取消和项目崩溃下租约泄漏，且 `projects://` 暂存路径的 owner/清理变复杂。
+**如何核实：** 读 `docs/specs/runtime/projects.md` 输出 37-39、81 条及 `docs/specs/workspace/resources.md` 跨项目访问、代次条款；读 `projects-scheme.ts:55-71`，其租约在每次 `withProject` 调用的 `finally` 释放；读计划第 46 行的两阶段调用时序。
+**建议改法：** 明确协议所有权：把 stage+write+commit 包成一次服务端持租约调用（项目侧执行写入回调不可跨 IPC，故需另行设计可续存的事务句柄），或为项目入口定义可撤销的多阶段租约句柄并写清唯一归属、门面/入口停止、取消、超时和代次撤回时的清理；在不能证明租约可跨调用持有前，不把它写成“现有 projects-scheme 可直接承载”。
+
+### 重要｜正确性｜计划“服务端：写入接口”第 45 行；`backend/server-files.ts:77-107`、`backend/registry.ts:43-44`
+**现象：** 新 `read` 被描述为先取 `readPath` 再在本机读，但现有方案路由的 `read` 不一定对应磁盘文件：挂载方案虚拟根由注册方生成文本、`projects://` 根会合成登记项目列表，Agent 的 `sessions://`、`profiles://`、`docs://` 根及其虚拟清单同样通过挂载方案提供。现有 `ServerFiles.read` 可以直接对任意地址调用并返回这些虚拟呈现；`realPath` 对根可能是 unsupported-capability，不能把“每种地址先 readPath”普遍化。
+**为什么是问题：** 计划列出 SDK/Agent 的通用 `read` 接口并将旧 `serverFilesKey` 替换。若实现把所有 read 都强制走本机文件路径，会破坏虚拟根读取与挂载授权合同；若只对真实路径做分支，则需要明确定义 `kind`、虚拟根与不支持 readPath 的方案如何取字节/文本及基线，否则照计划实现必然出现缺失分支或绕过提供者语义。
+**如何核实：** 查看 `server-files.ts:77-107` 的 scheme 分派、`projects-scheme.ts:78-85` 根读取、`mounted.ts:119-124` 虚拟根读取，以及 `resources.md` 输出 80、127-132；计划第 45 行仅写“先 readPath，再在本机读”。
+**建议改法：** 在 WorkspaceFiles 合同中区分真实文件与虚拟提供者：真实文件通过按授权取得的路径/字节读取；虚拟根保留提供者的结构化读取，或明确 `read` 对虚拟根返回能力错误并同步调整 Agent 对虚拟根的合同与验收。不要让 `readPath` 代替 `read` 的方案分派。
+### 阻断｜接口与合同｜计划“Agent”第 59 行；`shared/contracts.ts:181-188,222-226`、`agent/resources.md` 验收 6
+**现象：** 计划要求 `call(ctx)` 把 `ctx.callId` 写进事件来源的 `entry`，但现有 `ChangeSource` 的 agent 形状只有 `{kind, session}`；事件 `ChangeSchema` 又是 `additionalProperties: false`。计划第 36、39 行只说 `as` 与事件增加 group，没有明确把 `entry` 加入共享来源 schema，也没写 Agent `SessionResources` 返回类型与项目远程 `as` schema 同步扩展。
+**为什么是问题：** 若照列出的改动实现，`entry` 会被 TypeScript 类型拒绝或在远程合同校验时被拒；即便本地对象带上该字段，事件输出也无法通过 schema，Agent 验收 6 的条目 id 永远到不了浏览器。项目合同虽升版本 7，版本号本身不会扩展 schema。
+**如何核实：** 对照 `contracts.ts:181-188` 的 `ChangeSource`、`222-226` 的事件来源校验，与 `agent/resources.md` 输出 10、验收 6；计划第 59 行只有调用方式，没有合同字段改动。
+**建议改法：** 明确将 `entry?: string` 放进 Agent 来源 schema，并在事件与 `as` 远程输入共享同一个扩展后的 schema；统一更新 `ChangeSource`、`ServerFilesResult`/SDK 类型及 browser/project 两份合同版本说明，再为真实项目子进程的 Agent 调用断言 `entry` 到达事件。
+
+### 重要｜安全与权限｜计划“项目合同”第 37 行；`shared/contracts.ts:196-200,242-251`、`backend/plugin.ts:86-93`
+**现象：** `realPath(read: true)` 被加到项目文件合同，但现有 `projectFilesContract` 允许 `browser` 调用，且计划没有把 `read` 标记为仅 `nbook.files` 可用。浏览器可直接以自身身份调用项目远程合同；因此它能提交 `read: true`，要求解析并返回根外链接的最终绝对路径。此模式的目的原本是服务端写入接口按授权读取，而不是给浏览器新增路径能力。
+**为什么是问题：** `workspace.resources` 规定资源地址不向浏览器暴露服务端绝对路径；根外目标尤其超出项目根的信息范围。现有 `realPath` 只返回根内路径，并拒绝根外符号链接；新增布尔参数会在未校验调用方的情况下扩大 browser 可见路径集合。`as` 的来源校验只用于写入，不能保护这个读方法。
+**如何核实：** 读 `CALLERS` 与 `projectFilesContract` 的 `browser` 调用许可（`contracts.ts:242-251`），及 `backend/plugin.ts:88-90` 对所有调用方直接提供 `realPath`；对照 `resources.md` 边界 153 行。
+**建议改法：** 不把 root-escape 的读路径能力开放给浏览器合同。将它限制在本地 `workspaceFilesKey` / 服务端 Files 转发路径；若远程能力必须存在，在方法入口核对调用方必须是服务端 `nbook.files`，而不能用调用者可自填的 `read` 布尔值代替授权。测试直接从真实 browser 实例调用该参数时必须拒绝且不返回路径。
+
+### 重要｜正确性｜计划“拥有根的一侧”第 24、31 行；`backend/changes.ts:237-245,248-253`、`backend/rooted.ts:263-275`
+**现象：** 计划把大文件回声改成 `entry` 身份，不再读内容。当前 `entry` 精确比较 `dev/ino/birthtime/ctime`，但 `root.replace`/`replaceLocked` 直到文件锁释放后才返回；计划随后才登记回声。若外部编辑器在锁释放与登记间原位改写同一 inode，`expectEntry` 会采样到外部改写后的 ctime，并把它登记成这次提交的回声，watcher 随后匹配并吞掉真正的外部变化。内容哈希回声不会有此问题：它仍比较本次 stage 的已知哈希。
+**为什么是问题：** 切换为 identity echo 虽避免读大文件，却把“提交后、登记回声前”的竞态从可检测的内容不一致改为不可检测；外部编辑器不取锁，正是现有合同承认的并发者。结果是事件来源与后续 History 记录丢失一次真实外部修改。
+**如何核实：** `rooted.ts:274` 在 `replaceLocked` 返回后回传，内部 `finally` 在 `locked-replace.ts:73-75` 释放锁；`changes.ts:248-253` 的 `expectEntry` 读取当前 stat，`changes.ts:243-245` 以登记状态相等即抑制。可在返回与 expectEntry 之间用屏障插入一次原位写，随后观察该写未发 `external` 事件。
+**建议改法：** 在锁仍持有且替换/原位写完成后立即采样、登记目标的 entry 状态，再释放锁；不要在 `replaceLocked` 返回后重新 stat 作为回声身份。对落在登记之前的外部写，保留可区分的身份或已知提交状态，不能将任意当前 inode state 当作自身回声。
+### 阻断｜安全与权限｜计划“项目合同”第 37 行；`backend/rooted.ts:147-172`、`backend/mounted.ts:98-113,188-207`、`shared/contracts.ts:242-251`
+**现象：** 计划允许 `realPath(read: true)` 跟随根外链接，但现有 `RootedRoot.resolve` 在 168 行对根外目标直接返回 `outside-root`，而且它的最终路径与控制目录检查都以根内相对路径为前提。挂载方案第二次授权也要求挂载内路径；对根外目标计划没定义传给 `authorize` 的 canonical path 形状。与此同时，项目远程文件合同 caller 列含 `browser`，没有服务端-only gate。
+**为什么是问题：** 照现有 resolver 实现会无法满足根外读路径验收；绕开它直接 `realpath()` 又容易漏掉悬空链接、目标类型、控制目录 alias 与根身份约束。若把 `read: true` 参数加进现有 project 合同，浏览器可直接传参调用并取得根外目标的服务端绝对路径，超出现有仅允许复制路径的暴露面；挂载授权若只按词法路径核对，还会让根外链接逃过目标授权。
+**如何核实：** `rooted.ts:147-172` 在结果生成前拒绝根外；`mounted.ts:98-113` 对词法路径与解析后相对路径各授权一次，`realPathFor` 使用同一个根约束 resolver；`contracts.ts:242-251` 的 `CALLERS` 明确包含 browser；对照 Spec `resources.md:115,129`。
+**建议改法：** 设计单独只读解析路径：先核对词法路径和根身份，再解析最终目标；对根内目标继续做 `.nbook` 名称与 inode alias 拒绝，对根外只允许按专门的 read 授权继续；挂载方案规定外部目标授权传入的真实绝对路径/注册方可判定身份，并测试拒绝目标。`read: true` 应是本地授权调用选项而非浏览器可控的远程输入；远程合同保持当前根内 `realPath` 语义，或明确拒绝浏览器调用根外路径能力。
+
+### 阻断｜并发与原子性｜计划“拥有根的一侧”第 24 行；`backend/rooted.ts:263-275`、`backend/changes.ts:237-245`
+**现象：** 硬链接数大于 1 时改为锁内原位写，但现有写入锁按解析后的相对路径 hash 命名（`rooted.ts:267-274`），而两个硬链接名的路径不同、inode 相同，因此不会拿到同一把锁。计划只按目标路径锁沿用现有规则，没有说明 hard-link 目标改按 inode 锁或串行化所有链接名。两个并发 writer 可各自通过基线检查后同时 truncate/write 同一 inode。
+**为什么是问题：** 会交错写出损坏/混合字节，且两个提交都可能报告成功；这是为保留 hard link 而新引入的就地写路径特有竞态，不是开发者已决定的锁范围取舍可以覆盖的：该决定保留按目标路径写锁，但硬链接别名不是同一目标路径。内容写入也不再原子，监视器可看到半文件。
+**如何核实：** `rooted.ts:267-274` 的锁名取 `resolved.realPath`，`resolve` 对硬链接保持各自词法目录项路径；`replaceLocked` 的锁覆盖单次写；为 `a`、`b` 建硬链接并从两个路径同时使用相同基线提交不同大块内容即可观察锁互不相同且写入可交错。
+**建议改法：** 针对硬链接分支使用基于 inode 身份的跨进程锁，并确保目标锁身份在锁内重新核对；另需承认此分支不是原子替换，定义监视如何等锁释放/避免半写事件，或选择拒绝无法同时满足链接保留与原子性的情况。并发硬链接别名必须成为验收用例。
+### 阻断｜结果结算与资源释放｜计划“服务端：写入接口”第 46 行；`backend/projects-scheme.ts:55-71`、`runtime/plugin-channel.md` 输出 90-94
+**现象：** `unknown-outcome` 可由调用取消、超时、断链造成，项目实例在 ACK 后仍可能继续提交。计划随后还要发起一次 `read` 比较目标基线，但没规定它使用什么 signal；若沿用同一调用 signal，取消/超时后它已 aborted，核对直接失败。也没有说明 unknown 后是否调用 `discard(token)`：立即删 token 文件会与仍执行的 commit 竞争；不删则只剩 1 小时清理，可能泄漏到下次启动或误删仍在写的 token。
+**为什么是问题：** 结果未知必须同时处理“再次查询可用性”与“暂存仍可能被提供方消费”两种状态。复用已中止 signal 会使计划承诺的核对在常见取消时序完全不可执行；主动 discard 又可能删除仍在进行的原子替换输入。项目进程退出或调用方 facade 释放也不能等同于远端操作已停。
+**如何核实：** `runtime/plugin-channel.md` 输出 90-94 明确写请求发出后取消/超时都为 `unknown-outcome` 且不自动重放；`projects-scheme.ts:66-71` 将 request.signal 传到远程调用并只在其返回后释放租约；按计划用同一 signal 做 post-error read 将在 abort 下被拒。
+**建议改法：** 明确 commit 的状态机与 token 所有权：提交帧发出前取消可 discard；帧发出后未知必须保留 token，不能由调用方直接 discard；核对使用有单独预算、不会被原请求取消的信号，并在提供方仍不可达时返回 unknown。增加拥有根侧可判断 commit 是否仍在执行的状态/租约，或明确 token 只能在 owner 确认结算后删除、否则进入可安全回收的状态。
+
+### 重要｜兼容与文件系统｜计划“拥有根的一侧”第 26 行；`backend/entry-ops.ts:68-82,121-128`
+**现象：** 暂存位置靠比较 `st_dev` 判定是否与目标同盘，否则才落到目标目录。`dev` 不同足以表明设备不同，但相同不保证同一可改名挂载点：bind mount/子挂载可以报告相同设备号，而跨挂载点 rename 仍返回 `EXDEV`。现有文件操作明确处理 `EXDEV` 为 `cross-device`/`unsupported`，说明仅按名字或同一个 device id 推断改名一定可用并不成立。
+**为什么是问题：** 这类目标会被判为 staging 与目标同盘，随后 adopt 的 rename 返回跨设备错误；若 `replaceOnce` 将错误收成普通 `io-failed` 并清理 stage，数据写入失败且用户无法重试。用户指定的“跨盘回退判定（dev 比较）”正是未覆盖的边界。
+**如何核实：** 核实 `prepare` 的比较是 `stat.dev`；对照 `entry-ops.ts` 已将系统 `EXDEV` 单独识别。Linux 可在同一文件系统 bind mount 的源/目标之间尝试 rename，`stat.dev` 相同而 rename 报 `EXDEV`。
+**建议改法：** 把 `dev` 仅作快速预判，不作改名成功保证；若 adopt/rename 实际返回 `EXDEV`，在 stage 未消费前迁移/重写到目标目录的 fallback 文件并重试，或在提交前用不会覆盖数据的能力检测确认同一 rename 域。验收增加 same-dev mountpoint 跨挂载用例。
+
+### 重要｜行为兼容｜计划“拥有根的一侧”第 26 行；`backend/entry-ops.ts:42-49`、`locked-replace.ts:163-171`
+**现象：** stage 文件固定以 `0o600` 创建。覆盖已有目标时计划恢复原权限位，但 `expect: "absent"` 创建新文件时没有指定最终模式；若直接 rename adopt，最终文件保持 `0o600`。现有普通空文件新建由 `open(path, "wx")` 使用进程 umask（通常 `0644`），原子替换新文件则使用 `0644` 后应用 umask。
+**为什么是问题：** 同一项目中“创建空文件”与“stage 后创建文件”权限不同；在共享组、外部工具或构建流程依赖可读文件时，新写文件会意外不可读。临时文件的安全权限不应隐式变成发布后目标文件的权限策略。
+**如何核实：** `entry-ops.ts:42-46` 的新建不传 mode；`locked-replace.ts:165` 在目标不存在时用 `0o644`，并说明 umask 作用；对照计划 stage `0o600` 与 absent adopt。
+**建议改法：** 在计划明确 absent 目标的最终权限：沿用当前写入新文件的 `0644 & ~umask` 行为，或作出有依据的产品权限决定；暂存期间仍保持 `0600`，commit 前显式设置最终模式。加入真实 umask 下 create 与 staged absent 的 mode 等价验收。
+### 阻断｜一致性与锁内顺序｜计划“拥有根的一侧”第 27 行、“记账槽”第 55 行；`backend/rooted.ts:263-275`、`backend/locked-replace.ts:53-76`
+**现象：** 计划要求回声登记、事件与 ledger 记账都在提交文件锁里完成；但 `RootedRoot.replace()` 直接调用 `replaceLocked()`，后者在返回结果前已于 `finally` 释放锁，接口也没有成功后回调。计划还把 ledger 放在事件之后（第 27、55 行），而 Spec `workspace/resources.md:119` 明确顺序是替换、记账槽、登记回声/发事件、放锁。
+**为什么是问题：** 按现有接口把 ledger/event 放在 `root.replace` 后，调用时锁已释放，其他同路径写可以插入并改动文件，History 可能以错误顺序记账；按“记账在锁内”硬做则需要新增内层 hook，若 staging manager 自己 `holdLock` 再调用 `root.replace` 会对同一把锁重入等待。事件提前发出也违反 Spec 顺序，消费者可在对应 ledger 记录尚不存在时观察到提交。
+**如何核实：** `rooted.ts:267-275` 调 `replaceLocked` 并直接返回；`locked-replace.ts:64-75` 在结果返回前释放锁，`ReplaceOptions` 仅有 `decide` 与 `report`，没有提交成功 hook。对照计划第 27、55 行与 resources Spec 第 119 行的顺序。
+**建议改法：** 在 `replaceLocked`/`RootedRoot.replace` 提供明确定义的锁内成功阶段，在目标替换已完成后按 Spec 顺序调用 ledger、采样回声、发事件，最后释放锁；把回调失败限定为诊断且不回滚磁盘写入，并说明 2 秒预算。不要在锁外再调一层 `holdLock`。
+
+### 阻断｜并发与条件写｜计划“拥有根的一侧”第 27 行；`backend/entry-ops.ts:42-58`、`backend/rooted.ts:263-275`
+**现象：** `expect: "absent"` 的 stage commit 是目标文件新建，但文件操作 `create` 按开发者决定只取根操作锁，而暂存提交按目标文件写锁；两把锁互不排斥。现有 `entry-ops.createFile` 用 `open("wx")` 排他，而计划的 adopt 是 `rename` 替换，未规定 absent 路径用系统排他 rename/no-replace。
+**为什么是问题：** 同时 `create(path)` 与 `commit(expect:"absent")` 时，commit 可能在 absent 检查之后覆盖 create 新建的文件，违反 `absent` 必须不存在和“不覆盖既有文件”的合同；若发生在内容文件夹，`create` 还可能更新清单，提交覆盖正文后清单与写入意图不一致。即使提交逻辑在通常情况下用 target identity retry 发现并发创建，也仍有最终身份检查与 rename 之间的窗口；两种协作操作并未共用锁。
+**如何核实：** 对照计划末尾锁决定与 `rooted.ts:267-274` 的路径锁、`commit.ts` 文件操作使用的根操作锁；对照 `entry-ops.ts:42-58` 排他新建与 `replaceOnce` 的普通 `rename`（`locked-replace.ts:183-188`）。用真实 barrier 在 absent 最后身份检查后执行 `createFile`，再让 adopt rename 继续即可复现覆盖。
+**建议改法：** absent commit 必须有系统级 no-replace 提交原语，不能依赖两个不相交的互斥锁；若平台无原子 no-replace 替换，定义目标存在即冲突且保留 stage，或给这个精确路径的创建协议增加共享锁，而不是让写入覆盖先前的 `create`。验收并发 stage-absent 与 create/createContent，断言恰有一方成功且清单/字节一致。
+
+### 重要｜接口与可观察行为｜计划“Agent”第 59 行；`packages/neuro-book/src/plugins/agent/backend/tools.ts:152-156,214-226`、`packages/nb-harness/src/kernel/api/tool.ts:71-85`
+**现象：** 计划要求 `call(ctx)` 默认用工具名作 group 标题。`ToolContext` 只有 `signal`、`callId`、`sessionId`、`initial`、`read`、可选 `ask`，没有工具名；`AgentToolImplementation.create` 收到的 `ToolSessionContext` 也没有工具 id。当前 wrapper 自己持有 `this.id`，但传给资源构造器的 `services` 只接收 `ToolSessionContext`，计划文件清单未说明把工具 id 传到会话门面/调用绑定层。
+**为什么是问题：** 照 `call(ctx)` 从 ctx 读取标题会编译失败；若默认标题退为空或固定值，Agent 验收与 group 时间线失去工具名。未来实现者必须再修改 `AgentToolsOptions.services`/`ToolWrapper` 接口，而这不在计划列出的 Agent 迁移文件与步骤中，容易漏迁或把调用信息塞进不相关的 `ToolContext`。
+**如何核实：** `ToolContext` 定义列出全部字段；`AgentTools` 在 `tools.ts:220` 调 `services(this.context)`，而当前 wrapper 以 `this.id` 保存工具 id。
+**建议改法：** 明确在 `AgentToolsOptions.services(context, toolId)` 或 `sessionResources(context, toolId)` 注入稳定工具 id，并将 `tools.ts` 纳入切片；`call(ctx, {title?})` 以该 id 默认标题，工具显式 title 覆盖。验收用不同工具 id 验证默认标题与显式覆盖。
+
+### 重要｜兼容与文本语义｜计划“Agent”第 60 行；`backend/files-service.ts:61-69,152-161`、`backend/resources.ts:92-96`
+**现象：** 内核资源接口目前从严格 UTF-8 文件读取 `text`：非法 UTF-8 与含 NUL 返回 `not-text`，UTF-8 BOM 保留在字符串里（`TextDecoder` 使用 `fatal:true, ignoreBOM:true`）。计划改成 `read` 字节后“按 UTF-8 解码”，没有要求保留这些规则；默认 `TextDecoder` 会替换非法序列、删除 BOM，普通 `decode()` 也会把 NUL 交给上层。
+**为什么是问题：** `SessionEnv.resources.read` 行为被计划标为不变；系统/扩展读取 Agent 资源时可能把二进制或损坏文本当成合法提示内容，或悄悄改变 BOM 前缀，和现有 `not-text` 失败合同不同。
+**如何核实：** 读取 `files-service.ts:61-69` 的 `decodeText` 与 `agent/backend/resources.ts:92-96` 现行转接；对照计划第 60 行没有解码器选项或错误映射。
+**建议改法：** kernel adapter 复用严格的 `decodeText` 语义（或明确相同的 `fatal:true`、保留 BOM、拒绝 NUL），解码失败仍经 `not-text` 抛出；在 `agent/resources.test.ts` 增加 BOM 字节原样保留及非法 UTF-8/NUL 失败的真实挂载文件用例。
+### 阻断｜内存与大文件｜计划“拥有根的一侧”第 24、27 行、“技术选型”第 17 行；`backend/locked-replace.ts:143-160`、`backend/files-service.ts:164-179`
+**现象：** stage 的新内容可以流式任意大小，但 adopt 提交仍沿用现有 `replaceLocked` 的 `readFile(target)`，把目标旧版本完整读进内存，再由 `decide` 对 `current.bytes` 调 `hashOf`。计划只把写入中间内容与回声做成流式，并将超 32 MB 的 Ledger `bytes` 设为 null；没有限制或流式处理提交前的基线计算。将 100 GB 文件替换为小文件，当前逻辑仍会先分配/读入约 100 GB。
+**为什么是问题：** “流式写任意大小”只解决新版本一侧，旧版仍导致 O(目标文件大小) 的内存峰值与 I/O；大文件实际会 OOM 或长时间占住文件锁。Ledger 记录字段设 null 不能解决 `replaceLocked` 的旧内容副本。
+**如何核实：** `locked-replace.ts:143-160` 在决定前 `await readFile(file)`，`files-service.ts:169-172` 对完整 `current.bytes` 算 SHA-256；计划第 24 行写“其余步骤（读当前字节）不变”，第 27 行仍以 `hashOf` 比基线。
+**建议改法：** 为 adopt 增加独立提交决策：锁内用打开的文件句柄分块计算基线哈希；只在 `record` 上限内收集旧内容，超过 32 MB 不保存 bytes，避免完整缓存；改名前再按现有身份/锁规则核对。若保持现有 full-read，需明确 `stage` 可接受的最大目标大小，不能同时承诺任意大文件流式写。
+
+### 阻断｜安全与文件系统边界｜计划“拥有根的一侧”第 29-30 行；`backend/rooted.ts:109-119,288-309`、`server/projects/identity.ts:226-242`
+**现象：** 计划把 staging 放到 `root.real/.nbook/staging/`，并在打开根时扫描、删除超龄文件，但没有定义这条内部路径如何安全建目录及拒绝符号链接。`RootedRoot` 仅在用户资源路径 API 层保护 `.nbook`；直接 join 该控制目录绕开了解析器。项目身份现有合同还允许 `.nbook/project.json` 本身是符号链接，所以不能假设 `.nbook` 及其子目录一定是可信普通目录。
+**为什么是问题：** 若 `.nbook` 或 `.nbook/staging` 被替换为指向根外的链接，管理器可能在项目外创建暂存文件；启动清理遍历链接后会删除目标目录中超过 1 小时的文件。控制目录保护不自动覆盖新管理器直接执行的 `mkdir/readdir/unlink`。
+**如何核实：** `rooted.ts` 的控制目录检查只在 `resolve/resolveSlot` 路径中；项目身份 `identityTarget()` 对链接调用 `realpath` 并接受有效目标；按计划路径预置 `.nbook/staging -> /tmp/受控测试目录`，触发根打开清理即可核实是否越界。
+**建议改法：** staging 管理器初始化前逐层 `lstat` 并验证 `.nbook`、`staging` 是根内真实目录，不跟随符号链接；清理只枚举并 unlink 自己登记的普通文件，核对文件身份/前缀与目录身份。失败时整项报告 `protected-path`/`io-failed`，绝不进入链接目标。
+
+### 重要（收窄，见第 12 条）｜超时与锁寿命｜计划“记账槽”第 55 行；`backend/locked-replace.ts:64-75`
+**现象：** 计划只写 `record(entry, signal)`、“2 秒为限”，没有规定超时后 callback 必须停止、不得迟到提交，还是 Files 必须继续持锁等待它完成。现有 `record()` 是任意贡献者 Promise，传 `AbortSignal` 本身不强制 Promise settle。
+**为什么是问题：** 若实现用 `await record()`，一个忽略 signal 的记账者会让保存锁无界等待；若 2 秒 race 后放锁，迟到的 `record()` 仍能写入 History，可能打乱与后续同路径提交的记账顺序。提案要求 History 可选、记账失败不阻断落盘，计划又要求锁内调用；必须定义超时确切语义。
+**如何核实：** `replaceLocked()` 只有在调用方工作结束后才从 `finally` 释放锁；检查插件贡献接收者契约，未要求普通回调在 signal 时必须结束。可用忽略 signal 的 Promise 测试计划所说 2 秒后保存是否结束、晚到写是否仍发生。
+**建议改法：** 将 2 秒预算语义写清：要么规定 ledger writer 在超时后保证不提交并结束其 Promise（并测试撤回/超时），要么 Files 超时后脱离等待并用 operation id/幂等接收与顺序约束隔离迟到写。不能仅以 AbortSignal 宣称硬截止。
+
+### 重要｜正确性｜计划“拥有根的一侧”第 24 行、“服务端”第 27 行；`backend/entry-ops.ts:42-49`、`backend/locked-replace.ts:163-188`
+**现象：** `expect: "absent"` 与现有“创建文件”并发时，创建取操作锁，stage commit 取目标写入锁；两者不互斥。计划要求 absent 是条件创建，但 `adopt` 替换目前走普通 `rename`，没有 no-replace 原语或与 `createFile` 共用的提交锁。目标在 `decide` 的 absent 检查后被 `createFile(open "wx")` 占用，后续普通 rename 会以 stage 文件替换它。
+**为什么是问题：** 这会把提交检查和副作用分开，违反 `expect: "absent"`“仅当目标不存在才创建”，也可覆盖一个已成功的显式 create；若路径位于内容树，create 与 adopt 还可能分别造成清单状态与正文不一致。现有 Files 对普通操作锁的取舍并未免除每个提交原语本身必须原子满足条件。
+**如何核实：** `entry-ops.ts:42-49` 用 `open("wx")` 排他创建；`locked-replace.ts:183-188` 以 stat 检查后调用普通 `rename`；计划把文件操作锁与文件写锁分开。Linux barrier 可在身份复核后、rename 前执行一次 create，验证其文件被覆盖。
+**建议改法：** absent 写入采用系统级排他提交/创建原语并保留 stage；若要复用文件操作，明确其交叉锁方案并在提交前重新核实目录身份。为 `create` 与 staged absent 的真实并发加验收，断言最多一个成功且目标字节不被覆盖。
+
+### 重要｜访问控制与合同边界｜计划“项目合同”第 36 行；`shared/contracts.ts:242-251`、计划第 43-46 行
+**现象：** `projectFilesContract` 的 `CALLERS` 明确含 `browser`，合同 caller 是整份服务级别限制。计划新增 `stage/commit/discard` 同一项目合同，并只规定“带 `as` 时只接受服务端 `nbook.files`”；`as?` 可省略，因此 browser 可直接调用新阶段方法，和本 Task 服务端写入接口、避免浏览器直用新写入方案的范围不一致。stage 远程返回还包含绝对 `path`。
+**为什么是问题：** 远程方法是公开合同入口，不是只能经服务端 façade 到达。照计划，浏览器能直接创建任意目标的 stage token 并取得 staging 绝对路径，也能在后续提交时绕过 Agent 的 `classify`/会话绑定授权；现有 `sourceFor` 只验证请求里确实带了 `as` 的情形，未带则把 browser 当普通用户放行。
+**如何核实：** `contracts.ts:242-251` 证明 project/user 文件合同允许 browser；计划第 36 行把 `as` 设为 optional 且仅拒绝“别的调用方带了 as”；`server-files.ts` 只在服务入口做 Agent 权限判断，远程项目入口 `plugin.ts` 的 `implementation(backend, consumer)` 直接按远程身份生成方法。
+**建议改法：** 在项目服务端 implementation 明确将 stage、commit、discard 限定为 server 位置的 `nbook.files`（并验证该调用方的 `as`/来源字段）；不以可选来源字段代替 caller 身份校验。若用户浏览器保存继续走旧接口，就不要向 browser 提供这几个方法；也不要把服务端临时绝对路径作为远程输出交给 browser。
+
+### 重要｜取消与资源收口｜计划“服务端：写入接口”第 46 行、“Agent”第 59 行；`shared/resources.ts:18-21,23-32`、`backend/mounted.ts:159-163`
+**现象：** `call(ctx)` 需把工具调用绑定到一次操作分组，但计划未说明这个门面如何传播 `ctx.signal`。现有 `ResourceCallOptions` 只在每个方法的可选参数里接受 signal；现有挂载方案只在文件操作开始前查 signal，开始后的操作不被取消。内核 `ToolContext.signal` 在调用 abort 时触发，而 Agent wrapper 在撤回宽限期后可先对工具调用返回，底层实现仍可能继续。
+**为什么是问题：** 若工具用 `const at = resources.call(ctx); await at.stage(...)` 而未手动对每个方法传 signal，取消不会触发 stage 的 discard；若 `call(ctx)` 仅绑 group/source 而不绑 signal，就没有任何地方把取消合同落实到 scoped facade。门面被 revoke 后延迟写入会继续产生文件副作用并落在原 group/entry 上。
+**如何核实：** `ToolContext.signal` 是每调用的字段；`AgentToolServices.resources` 按会话创建一次，`ResourceCallOptions.signal` 目前由方法调用者逐项传入；计划 `call(ctx)` 新增每调用门面但没列 signal 注入规则；对照 `mounted.ts:159-163` 开始后的动作不因 signal 中途停止。
+**建议改法：** 定义 `call(ctx)` 返回的 scoped 门面把 `ctx.signal` 作为默认 signal 注入所有读写与文件操作，显式调用参数不得静默覆盖取消信号；stage 的 sink 与 token 生命周期在 abort/门面释放时立即封闭，迟到 write 必须确定失败且不能再 commit。验收在真实工具执行期间 abort，确认目标不变、token 收口、无迟到事件。
+### 重要｜远程失败语义｜计划“服务端：写入接口”第 46 行；`runtime/plugin-channel.md` 输出 90-94、`backend/projects-scheme.ts:55-71`
+**现象：** `stage` 自己就是项目合同上的远程写请求：它创建暂存文件与 token 并返回 token/path。帧一旦发出后若断线或 timeout，即使项目端已创建文件，调用方也会得到 `unknown-outcome` 且拿不到返回 token；计划只描述 commit 的 unknown-outcome 比较，没有为 stage 的未知结果提供提交身份、查找方式或可定向 discard 的句柄。
+**为什么是问题：** 该暂存文件既不能由调用者提交，也不能按 token 主动删除，只能等 1 小时清理；若 staging token 同时持有项目租约，租约也会在响应未知时失去 owner。按当前 RPC 合同无法把写请求断线解释为 stage 未执行。
+**如何核实：** `runtime/plugin-channel.md` 输出 90-94 将已发出的写请求断线/timeout/cancel 全部结算为 `unknown-outcome`；计划 `stage` 的远程分支在第 46 行、项目合同 stage 输出 `{token,path}` 在第 36 行。用 barrier 让项目端创建 stage 后、返回帧到达前断开即可验证调用方无 token。
+**建议改法：** 给 stage 设计调用前由服务端生成的稳定 operation/token id，使重试/查询能幂等找回同一 staging 资源；或者把 stage 与数据写入/commit 合并为有明确定义的单一事务协议。未知时不能自动重试创建，也不能依赖定时清理作为正常收口。
+
+### 重要｜接口与可观察行为｜计划“项目合同”第 39 行、“服务端”第 49 行；`resources.md` 操作分组第 37、73、125 行
+**现象：** Spec 与已接受提案的 group 有必需 `title` 与可选 `note`；SDK 合同接口明确 `group(info: {title; note?}, …)`。计划事件只写 `{id,title}`，LedgerEntry 的 group 未列 shape，`group(info,run)` 只把“组号与标题”带给 scoped 门面；`call(ctx, {title})` 也没有 `note`。
+**为什么是问题：** `note` 会在从用户/API 到事件与 History 的路径上丢失；后续 t13 需要标题与说明做分组展示时，必须再改事件合同、记账合同及已升到版本 7 的项目/用户合同。
+**如何核实：** 查 `workspace/resources.md` 术语 37 行、API 73 行和输出 125 行的可选 note，提案接口 `WorkspaceFiles.group` 也含 note；对照计划 39、49、55、59 行的 group 形状。
+**建议改法：** 明确 group metadata 为 `{id, title, note?}` 并在 scoped facade、事件 schema、LedgerEntry 与 Agent `call(ctx, {title?, note?})` 间保持同一字段；若刻意不在事件传播 note，写明仅存在 group 元数据/记账项中的哪个边界及原因。
+
+### 重要｜Agent 权限兼容｜计划“Agent”第 59 行；`agent/resources.md` 输出 2、4、5，`packages/neuro-book/src/plugins/agent/resources.test.ts:148-202`
+**现象：** 计划说每个 `SessionResources` 方法都在改写后“按第 4 条判权限”。第 4 条限制的是 Agent 写入不可写位置；`classify()` 返回的 `write: "denied"` 不代表读权限也拒绝。当前已有合法行为包括读其它会话的 `session.jsonl`、读 `docs://` 与读虚拟根，同时禁止写入这些位置。
+**为什么是问题：** 若照“每个方法都判权限”的字面实现，把 `classify().write === "denied"` 当作方法总门禁，既有合法读取会被拒，违反 Agent 输出 4、5 与当前合同测试；若每个操作分开判断，计划应写明只有写方法检查 `write` 分类，读取沿 Files 的读授权。
+**如何核实：** 对照 `resources.test.ts:155-163,184-202` 当前允许读而拒绝写的场景及 Agent Spec 输出 4、5；计划第 59 行要求每个方法均按权限判断。
+**建议改法：** 在计划明确“按 operation 判权限”：读/列出/路径解析按方案的 read 授权，只有 write/create/文件操作按 `classify.write` 决定拒绝或审批；保留读其它会话日志、docs 和虚拟根的验收。

@@ -337,6 +337,15 @@ describe("打开窗口（输出 15、16）", () => {
         expect([window.open.value, window.section.value, window.layer.value]).toEqual([true, "x.notes.main", "project"]);
     });
 
+    it("齿轮：关着打开，开着关闭；关掉再开回到上次的分区与标签", async () => {
+        const {window} = await plain(true);
+        window.openWindow({section: "x.notes.main", layer: "project"});
+        expect(window.toggleWindow()).toEqual({ok: true, value: null});
+        expect(window.open.value).toBe(false);
+        expect(window.toggleWindow()).toEqual({ok: true, value: null});
+        expect([window.open.value, window.section.value, window.layer.value]).toEqual([true, "x.notes.main", "project"]);
+    });
+
     it("尺寸缺省 960×640；调整后记住（不小于下限），没变不重复记", async () => {
         const started = await start([]);
         const {window, recorder} = windowFor(started.probe, false);
@@ -552,6 +561,7 @@ describe("未保存保护（输出 22）", () => {
             ["切分区", () => window.select("x.notes.other"), {kind: "section", id: "x.notes.other"}],
             ["切标签", () => window.setLayer("project"), {kind: "layer", layer: "project"}],
             ["关窗口", () => window.close(), {kind: "close"}],
+            ["齿轮", () => void window.toggleWindow(), {kind: "close"}],
             ["命令", () => void window.openWindow({section: "nbook.appearance"}), {kind: "open", section: "nbook.appearance"}],
             ["搜索", () => window.search("语气"), {kind: "search", query: "语气"}],
         ];
@@ -849,7 +859,7 @@ describe("通用列表的写入（输出 10、12、14）", () => {
         expect(english.title).toBe("Setting not saved");
         expect(english.message).toStartWith(beforeDetail(`主题: ${t("writeFailure.writeFailed", {detail: DETAIL})}`));
 
-        await window.write(themeOf(window), "solarized");
+        await window.write(themeOf(window), "");
         expect(shown(recorder.notices[1]).message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.invalidValue", {detail: DETAIL})})));
     });
 

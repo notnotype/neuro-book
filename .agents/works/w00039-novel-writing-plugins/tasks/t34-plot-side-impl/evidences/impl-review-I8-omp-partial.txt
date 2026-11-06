@@ -1,0 +1,20 @@
+### 1. 覆盖层计划漏掉同桶中前置计划的状态（撤回）
+撤回说明：原复现只改变中间计划状态，没有改变依赖摘要对应的检查调用集合，不能据此认定问题。后续同桶测试也未能重现，撤回该候选。
+
+### 2. 多目标计划联动戳遗漏条目初值
+严重程度：重要；类别：正确性
+位置：`packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:508`
+现象：覆盖层计划的联动戳只累计此前写入的 `Thing` 项，没有纳入目标条目的初值。一个多目标计划的补丁能否原子套用取决于另一目标的初值时，摘要不反映该依赖。
+为什么是问题：计划的一条补丁可能在 U 上套不上，导致整条回滚；这会改变另一目标上 `goal.隐秘` 等值，重新圈出知识点与模型调用。若 U 不在记录的 `R`，仍会复用旧结论，违反 Spec 输出 7。
+如何核实：在固定审查提交 `a2c08aa8bd1071aef60bf16db6c14867f0a906f4` 上，从 `/tmp/review-w00039-t34-I8-wt/packages/neuro-book` 执行 `bun /tmp/review-w00039-t34-I8/scratch/plan-overlay-end-to-end.ts`。真实 `PlotWorld`、`createCheckSource` 与 `validityOf`：初始账簿 `e3` 有知情行 `[e5]`；旧记录 `R` 为 `points=["e4"]`、`concerns=["e1","e2","e4"]`，不含 `e3`。把 `e3` 的初值知情行改成 `[]` 后，目标隐秘引用由 `e4` 变 `null`，重拼 points 从 `[e4]` 变 `[]`，调用从 4 条变 2 条；`createCheckSource.valid` 仍为 `true`，直接 `validityOf` 为 `false`。依赖摘要前后同为 `434bda0a7348591425e41a03bbe39b2ff2b791c1171c2be2ee0ac17bb7054246`。本次加载器从固定审查 worktree 读源码；实现 worktree 已移动到 `cc09e2534ea45147699c9076b628026d743dd1ff`，未用于此复现。
+建议改法：联动状态的初始前缀纳入所有目标条目的初值，再累积前序项；或按计划覆盖层真实折叠结果生成状态摘要。增加这条初值翻转的端到端用例。
+
+
+### 3. 同章的单目标前置计划没有进入后续多目标计划的联动戳
+严重程度：重要；类别：正确性、缓存依赖漏项
+位置：`packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:528`
+现象：同章第一个计划 P1 只给路人 U 添加一行知情；第二个计划 P2 重复添加该行，并清空勇者目标的隐秘引用。P1 生效时 P2 因重复行整体失败，撤销 P1 后 P2 整体成功。U 不在旧 R，P1 的变化没有传入 P2 的联动戳，缓存继续沿用过期记录。
+原因：528 行生成戳时只读此前章节累计的 running 和本章 linked（至少两个目标的变更）。本章的单目标 P1 既不属于 linked，也尚未累计进 running；直到 534–539 行才累计整章。因而 P1 的状态或补丁变化没有传给 P2。这是依赖戳的遗漏，不是首轮已修的内核同章计划排序；真实内核此次正确改变了折叠结果。
+核实命令与实际输出：在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t29-canon-kernel/packages/neuro-book` 执行 `git rev-parse HEAD && bun /tmp/review-w00039-t34-I8/scratch/same-bucket-end-to-end.ts`。实现 HEAD 为 `cc09e2534ea45147699c9076b628026d743dd1ff`，冻结加载器将所有 workspace 包源码映射到固定审查 worktree（其 HEAD 为 `a2c08aa8bd1071aef60bf16db6c14867f0a906f4`），只从实现 worktree 解析第三方依赖。实际输出：`storedPoints=["e5"]`、`storedConcerns=["e1","e2","e5"]`、`actualReadSet=["e5","e1","e2","e6"]`、`bystanderInReadSet=false`；隐秘引用从 `{"ref":"e5"}` 变 `null`，points 从 `["e5"]` 变 `[]`，calls 从 3 条变 2 条；修改前 `sourceValid=true,directValid=true`，修改后 `sourceValid=true,directValid=false`。`dependencyBefore` 与 `dependencyAfter` 均为 `8e8fb52a756a6f8c29aa46ee557664985601edddace57ca559549f0acfef59f8`，`sameDependency=true,callsChanged=true`。脚本通过末尾判据，退出码 0。
+建议改法：按引擎实际安放全序传播每个目标的前缀，或者在不遗漏同章前置单目标计划的前提下保守合并整章依赖；不可仅依赖本章多目标计划的对象摘要。补上述固定旧 R 的 source.valid 与全量重拼对照回归。
+更正：编号 1 的撤回说明只适用于此前未改变调用的旧样本；“后续同桶测试也未能重现”与后来的实测输出不符。现以本条的独立端到端证据确认同章依赖漏项，编号 1 保留为已撤回的历史记录，不重复计数。

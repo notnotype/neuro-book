@@ -2,7 +2,7 @@ import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {assertSlug, formatTaskId, formatWorkId, parseWorkId, taskNumberLabel, workNumberLabel} from "./ids.js";
-import {openRequiredQuestions} from "./artifacts.js";
+import {waitingQuestionsOfTask} from "./artifacts.js";
 import {parseFrontmatter, setFrontmatterFields} from "./frontmatter.js";
 import {listTaskIds, listWorkIds, TASK_STATUSES, taskReadmePath, WORK_STATUSES, workReadmePath, type TaskStatus} from "./records.js";
 import type {Caller, DeveloperCaller} from "./identity.js";
@@ -264,9 +264,9 @@ export async function setTaskStatus(context: RepoContext, input: {
     if (!failed && (input.status === "done" || input.status === "shelved")) {
         effects = {lease: null, released: await releaseTaskLeases(context, target, input.status === "done" ? "task_done" : "task_shelved", leaseOptions, outcome.warnings)};
         // 只提醒、不自动撤回：自动撤回会抹掉“开发者还没答”这个事实，由会话决定撤回还是留着。
-        const open = await openRequiredQuestions(context.mainRoot, target.workId, target.taskId);
+        const open = await waitingQuestionsOfTask(context.mainRoot, target.workId, target.taskId);
         if (open.length > 0) {
-            outcome.warnings.push({code: "open_questions", message: `这个 Task 还有 ${open.length} 道没答的必答题，仍在收件箱里；不再需要的用 nbdev ask withdraw 撤回`, details: {questions: open.map((entry) => `${entry.artifactId}#${entry.question.id}`)}});
+            outcome.warnings.push({code: "open_questions", message: `这个 Task 还有 ${open.length} 道题在等开发者答，仍在收件箱里；不再需要的用 nbdev ask withdraw 撤回或 nbdev artifact close 关闭`, details: {questions: open.map((entry) => `${entry.artifactId}#${entry.question.id}`)}});
         }
     } else if (!failed) {
         effects = {lease: await touchCallerLease(context, {...target, action: "task status"}, leaseOptions, outcome.warnings), released: []};

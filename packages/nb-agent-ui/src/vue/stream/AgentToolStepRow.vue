@@ -29,6 +29,14 @@ const emit = defineEmits<{
 
 const {t, text} = useAgentText();
 
+/** 没有执行、不确定有没有执行完：说明跟在摘要后面。 */
+const detail = computed(() => {
+    const summary = renderer.value.summary(props.step.call);
+    const {note} = props.step.call;
+    if (note === undefined) return summary;
+    return summary === "" ? text(note) : `${summary} · ${text(note)}`;
+});
+
 const renderer = computed(() => props.registry.resolveTool(props.step.call.name));
 
 /** 单文件改动的增删行；多文件的补丁不在行内显示统计。 */
@@ -44,7 +52,7 @@ const stat = computed(() => {
         :running-label="t('turn.running')"
         :icon="renderer.icon"
         :label="text(renderer.label)"
-        :detail="renderer.summary(props.step.call)"
+        :detail="detail"
         :stat="stat"
         :status="toolCallPhase(props.step.call.status)"
         :expanded="props.expanded"

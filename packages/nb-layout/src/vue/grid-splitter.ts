@@ -1,0 +1,84 @@
+/**
+ * 树 / 布局 → 面板配置的薄投影，分隔线的 aria 用它。
+ *
+ * 只做字段搬运：呈现 px 来自 `GridLayoutResult`（宿主已夹取并结算），约束也是布局层已经
+ * 求过值的有效区间。这里不重算分配、不换算百分比、不二次夹取——数值算法只有
+ * `grid-geometry.ts` 一份。
+ */
+import type {GridAxis, GridLayoutResult, GridNode, GridSizing} from "../grid-types";
+import type {SashPanel} from "../grid-geometry";
+import type {SashCollapseState} from "../grid-types";
+
+/** 面板配置：呈现 px、有效约束、分配策略与收起状态原样交给渲染层。 */
+export function buildGridBranchPanels(
+    children: readonly GridNode<unknown>[],
+    layout: GridLayoutResult,
+    axis: GridAxis,
+): SplitterPanelConfig[] {
+    return children.map((child) => {
+        const bounds = layout.constraints[child.id];
+        return {
+            id: child.id,
+            defaultSizePx: Math.max(0, layout.sizes[child.id]?.[axis] ?? 0),
+            minSizePx: bounds?.minimumSize[axis] ?? 0,
+            maxSizePx: bounds?.maximumSize[axis],
+            sizing: child.sizing,
+            ...(child.collapse === undefined ? {} : {collapse: child.collapse}),
+        };
+    });
+}
+
+/**
+ * 面板配置 → 会话输入。`sizesPx` 是当前呈现；缺省时按 `defaultSizePx` 兜底。
+ * 独立 `Splitter` 与测试共用这一份换算，避免两处各写一遍默认值。
+ */
+export function sashPanelsOfConfig(
+    panels: readonly SplitterPanelConfig[],
+    sizesPx?: readonly number[],
+): SashPanel[] {
+    return panels.map((panel, index) => {
+        const minimum = Math.max(0, panel.minSizePx ?? 0);
+        const maximum = Math.max(minimum, panel.maxSizePx ?? Number.MAX_SAFE_INTEGER);
+        const collapse: (SashCollapseState & {collapsed: boolean}) | undefined = panel.collapse;
+        return {
+            id: panel.id ?? `panel-${index}`,
+            size: Math.max(0, sizesPx?.[index] ?? panel.defaultSizePx ?? 0),
+            minimum,
+            maximum,
+            sizing: (panel.sizing ?? "weight") satisfies GridSizing,
+            ...(collapse === undefined ? {} : {collapse}),
+        };
+    });
+}
+
+/** 面板的主轴区间：收起时锁在收起尺寸，否则取声明的上下界；面板不存在时不设限。 */
+export function panelBounds(panel: SplitterPanelConfig | undefined): {low: number; high: number} {
+    if (panel === undefined) {
+        return {low: 0, high: Number.MAX_SAFE_INTEGER};
+    }
+    if (panel.collapse?.collapsed === true) {
+        const size = Math.max(0, panel.collapse.collapsedSize);
+        return {low: size, high: size};
+    }
+    const low = Math.max(0, panel.minSizePx ?? 0);
+    return {low, high: Math.max(low, panel.maxSizePx ?? Number.MAX_SAFE_INTEGER)};
+}
+
+/** 可访问性上限：面板的主轴上限不可能超过容器可用空间；`available` 是调用方量到的可用长度（CSS px）。 */
+export function ariaMax(panel: SplitterPanelConfig | undefined, available: number): number {
+    const {low, high} = panelBounds(panel);
+    return Math.round(Math.max(low, Math.min(high, available)));
+}
+
+/** 面板配置：Splitter 的面板声明，也是分隔线 aria 的输入。 */
+export interface SplitterPanelConfig {
+    id?: string;
+    /** 主轴初始 px（独立模式下未受控时由它分配）。 */
+    defaultSizePx?: number;
+    minSizePx?: number;
+    maxSizePx?: number;
+    /** 主轴分配策略；缺省 `weight`。 */
+    sizing?: "fixed" | "weight";
+    /** 收起策略与状态；缺省不可收起。 */
+    collapse?: SashCollapseState;
+}

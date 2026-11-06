@@ -10,13 +10,13 @@ import type {Component} from "vue";
 
 import {APPEARANCE_SECTION, APPEARANCE_SECTION_DECLARATION, localeSetting} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
-import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
+import {appearanceSetting} from "nbook/plugins/workbench/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 
 import SampleModelsPage from "./SampleModelsPage.vue";
 import SampleSnippetsPage from "./SampleSnippetsPage.vue";
-import {MODELS_PROVIDER, MODELS_SECTION, modelChoice, modelsSettings, notesSettings, SNIPPETS_SECTION, snippetsSettings, TEMPLATES_PROVIDER} from "./scene-settings";
+import {MODELS_PROVIDER, MODELS_SECTION, modelChoice, modelsSettings, notesSettings, sceneThemeSetting, SNIPPETS_SECTION, snippetsSettings, TEMPLATES_PROVIDER} from "./scene-settings";
 import type {SettingsWindowSceneId} from "./scene-settings";
 import {createSettingsHost} from "./settings-host";
 import type {HostLayer, HostSection, SettingsHost} from "./settings-host";
@@ -25,7 +25,7 @@ type SceneSetting = {readonly plugin: string; readonly definition: SettingDefini
 
 /** 场景里已接受的全部配置项：产品的三项加示例插件的。 */
 export const SCENE_SETTINGS: ReadonlyArray<SceneSetting> = [
-    {plugin: "nbook.workbench", definition: themeSetting},
+    {plugin: "nbook.workbench", definition: sceneThemeSetting},
     {plugin: "nbook.workbench", definition: appearanceSetting},
     {plugin: "nbook.settings", definition: localeSetting},
     ...Object.values(notesSettings).map((definition) => ({plugin: "example.notes", definition})),

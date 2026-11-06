@@ -989,8 +989,7 @@ defineExpose({
                 v-if="editor"
                 :editor="editor"
                 class="prompt-editor__content"
-                @focusin="onContentFocusIn"
-                @focusout="onContentFocusOut"
+                v-bind="{onFocusin: onContentFocusIn, onFocusout: onContentFocusOut}"
             />
         </div>
         <!-- 候选菜单与输入历史：与外框同宽，按 menuPlacement 在上方或下方，不跟随光标（ui/prompt-editor.md 的“不做”）。 -->
@@ -1004,7 +1003,7 @@ defineExpose({
             :loading="menu.loading"
             :loading-text="t('prompt.menuLoading')"
             :empty-text="menu.emptyText || t('prompt.menuEmpty')"
-            :placement="menuSide"
+            :side="menuSide"
             match-anchor-width
             @select="confirmItem"
             @highlight="activeItemId = $event"
@@ -1022,7 +1021,7 @@ defineExpose({
             :anchor="rootRef"
             :label="t('prompt.historyTitle')"
             :empty-text="props.recall.length > 0 ? t('prompt.historyNoMatch') : t('prompt.historyEmpty')"
-            :placement="menuSide"
+            :side="menuSide"
             match-anchor-width
             @select="selectHistory"
             @highlight="historyActiveId = $event"

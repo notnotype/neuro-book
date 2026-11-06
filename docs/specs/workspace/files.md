@@ -72,7 +72,11 @@ owners:
 - **规则**：路径包含、符号链接与控制目录的规则与“读取与保存”相同（同一实现），根身份同样逐请求核对。上限 32 MiB，超过为 413 `too-large`。
 - **状态码**：`not-found`、`not-a-file`、`invalid-address`、`outside-root`、`protected-path` 一律 404，不区分受保护与不存在；`permission-denied` 403；`root-gone` 410；`io-failed` 500。错误体与 HTTP 端口的其它错误相同：`{error: {code, message}}`。
 - **响应头**：`Content-Type` 按扩展名的白名单（png、jpeg、gif、webp、svg、avif、bmp、ico、html、css、js、mjs、json、txt、md、woff、woff2、ttf、otf），其它为 `application/octet-stream`；`X-Content-Type-Options: nosniff`；`Content-Security-Policy: sandbox`（直接打开一个 HTML 或 SVG 的地址也不在应用的源里运行）；`ETag`（修改时间与大小），`If-None-Match` 命中时 304；`Cache-Control: no-cache`。
-- **跨站读取**：带 `Sec-Fetch-Site` 且不是 `same-origin` 的请求为 403 `cross-site`：别的网页不能把这条路由当作读取接口。不带这个头的本机进程照常（与 HTTP 端口未加载鉴权时的信任相同，[runtime.server-host](../runtime/server-host.md)）。
+- **跨站读取**：带 `Sec-Fetch-Site` 且既不是 `same-origin` 也不是 `none` 的请求为 403 `cross-site`：别的网页不能把这条路由当作读取接口；`none` 是用户自己打开，照同样的读取与沙箱规则放行。不带这个头的本机进程照常（与 HTTP 端口未加载鉴权时的信任相同，[runtime.server-host](../runtime/server-host.md)）。
+
+### 写主题场景素材
+
+主题编辑器（[`theme.editor`](../theme/editor.md)）经 `PUT /api/nbook.files/theme-assets` 把场景图写进 `user://theme-assets/`：请求体是原始字节，限长、按字节判定类型、文件名取 SHA-256、拒绝符号链接目录，细则在“主题编辑器”的“写场景素材”一节。同目录还有 `PUT /api/nbook.files/theme-icons`，只收通过严格检查的 SVG 图标（文件名 `<SHA-256>.svg`），细则在“写图标素材”一节。
 
 ### 预览的受限读取
 

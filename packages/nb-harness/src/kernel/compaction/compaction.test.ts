@@ -50,7 +50,7 @@ describe("阈值触发", () => {
         await using session = await createTestSession({
             store: {root},
             profile: profileWith({onThreshold: ["fail", "summarize"], require: "保留人名"}),
-            compaction: {methods: {fail: recording(failingCompaction), summarize: recording(summarizingCompaction)}, restore: () => ["放回的计划"]},
+            compaction: {methods: {fail: recording(failingCompaction), summarize: recording(summarizingCompaction)}, restore: () => ({notices: ["放回的计划"], restored: [{kind: "plan"}]})},
         });
         session.model.script("答一", {text: "答二", usage: HEAVY}, "前两轮的摘要", "答三");
         await session.say("第一问");
@@ -62,7 +62,7 @@ describe("阈值触发", () => {
         expect(dataOf(third.events, "modelStarted").map((data) => data.purpose)).toEqual(["compaction", "turn"]);
         expect(dataOf(third.events, "modelEnded")).toHaveLength(1);
         const compaction = third.events.find((event) => event.type === "compaction")!;
-        expect(compaction.data).toMatchObject({method: "summarize", replacement: "前两轮的摘要", firstKeptEntryId: jobs[1]!.cuts[2]!.entryId});
+        expect(compaction.data).toMatchObject({method: "summarize", replacement: "前两轮的摘要", firstKeptEntryId: jobs[1]!.cuts[2]!.entryId, restored: [{kind: "plan"}]});
         const restored = third.events.find((event) => event.type === "notice")!;
         expect(restored.data).toEqual({code: "restored", text: "放回的计划"});
         const batches = await batchOf(session);
@@ -103,6 +103,40 @@ describe("阈值触发", () => {
         expect(tool.content).toMatchObject([{kind: "text", text: "（已省略工具结果，需要时重新读取）"}]);
         expect(request.messages[0]!.content).toMatchObject([{kind: "text", text: "（已省略的提问）"}]);
         expect(request.messages.find((message) => message.toolCalls !== undefined)!.toolCalls).toHaveLength(1);
+    });
+
+    test("输出 58：被省略的工具结果只发占位、不附图，重开后仍如此", async () => {
+        const image = {data: "QUJD", mime: "image/png", width: 800, height: 600};
+        const omitResults: CompactionMethodImpl = async (job) => {
+            const blocks = job.request.messages.filter((message) => message.role === "tool").flatMap((message) => message.content);
+            expect(blocks.map((block) => block.kind)).toEqual(["text", "image"]);
+            const entryId = (blocks[0]!.origin as {eventId: string}).eventId;
+            return {method: job.method, firstKeptEntryId: job.cuts[0]!.entryId, replacement: null, omitted: [{entryId, placeholder: "（已省略）"}], tokensBefore: job.tokens, tokensAfter: job.tokens / 2};
+        };
+        await using session = await createTestSession({store: {root}, profile: profileWith({onThreshold: ["shake"]}), compaction: {methods: {shake: omitResults}}, tools: [{id: "lab.pic", execute: () => ({text: "图", images: [image]})}]});
+        session.model.script({tools: [{tool: "lab.pic"}]}, {text: "看完了", usage: HEAVY}, "答二", "答三");
+        await session.say("看图");
+        const second = await session.say("接着");
+        expect(second.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!.content).toMatchObject([{kind: "text", text: "（已省略）"}]);
+        await session.reopen();
+        const third = await session.say("再接着");
+        expect(third.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!.content).toHaveLength(1);
+    });
+
+    test("输出 60：500 KiB 的图按固定口径估算，不触发压缩；预览也按这个口径", async () => {
+        const image = {data: "A".repeat(500 * 1024), mime: "image/png", width: 800, height: 600};
+        let compactions = 0;
+        const count: CompactionMethodImpl = async (job) => {
+            compactions += 1;
+            return {method: job.method, firstKeptEntryId: null, replacement: null, omitted: [], tokensBefore: job.tokens, tokensAfter: job.tokens};
+        };
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["shake"]}), compaction: {methods: {shake: count}}, tools: [{id: "lab.pic", execute: () => ({text: "图", images: [image]})}]});
+        session.model.script({tools: [{tool: "lab.pic"}]}, "看完了", "答二");
+        await session.say("看图");
+        await session.say("接着");
+        expect(compactions).toBe(0);
+        const preview = await session.raw.preview();
+        expect(preview.tokens.estimated).toBeLessThan(5_000);
     });
 
     test("输出 49、extensions 输出 9：写了 resetOnCompaction 的片回到初始值；回退到压缩之前，对话是压缩前的", async () => {
@@ -318,6 +352,23 @@ describe("估算的来源", () => {
         expect(types((await byCompactAt.say("第二问")).events)).toContain("compaction");
     });
 
+    test("输出 46：窗口比缺省预留量还小的模型：触发点是窗口的一半，不是负数（每个边界都压缩）", async () => {
+        let calls = 0;
+        const summarize: CompactionMethodImpl = async (job) => {
+            calls += 1;
+            return summarizingCompaction(job);
+        };
+        await using session = await createTestSession({modelInfo: {id: "test/tiny", contextWindow: 8_000, capabilities: {vision: false, thinking: false}, efforts: []}, profile: profileWith({onThreshold: ["summarize"]}), compaction: {methods: {summarize}}});
+        session.model.script({text: "答一", usage: {input: 100}}, {text: "答二", usage: {input: 100}});
+        await session.say("第一问");
+        expect(types((await session.say("第二问")).events)).not.toContain("compaction");
+        expect(calls).toBe(0);
+        session.model.script({text: "答三", usage: {input: 4_500}}, "摘要", "答四");
+        await session.say("第三问");
+        expect(types((await session.say("第四问")).events)).toContain("compaction");
+        expect(calls).toBe(1);
+    });
+
     test("输出 46、47：省略之后按占位估算，再次压缩时的 token 估算变小", async () => {
         const jobs: CompactionJob[] = [];
         let round = 0;
@@ -355,7 +406,7 @@ describe("失败与边界", () => {
             };
             await using session = await createTestSession({profile: profileWith({onThreshold: ["m"]}), compaction: {methods: {m: method}, restore: () => {
                 entered();
-                return hang<readonly string[]>();
+                return hang<{notices: readonly string[]}>();
             }}});
             session.model.script({text: "答一", usage: HEAVY});
             await session.say("第一问");
@@ -457,6 +508,72 @@ describe("失败与边界", () => {
         expect(asked).toEqual([expect.objectContaining({purpose: "compaction", profile: "lab.compact", role: "lab.summary"})]);
         expect(codesSeen).toEqual(["role-unbound"]);
         expect((await session.events()).filter((event) => (event.type === "modelStarted" || event.type === "modelFailed") && (event.data as {purpose?: string}).purpose === "compaction")).toEqual([]);
+    });
+
+    test("输出 47：请求和对话请求同一算法：带会话的推理档；sessionModel 按对话解析、用途仍是 compaction；modelInfo 同源", async () => {
+        const windows: unknown[] = [];
+        const inplace: CompactionMethodImpl = async (job) => {
+            windows.push(job.modelInfo({sessionModel: true}), job.modelInfo({role: "lab.summary"}));
+            const response = await job.model({...job.request}, {purpose: "compaction", sessionModel: true});
+            const text = response.content.map((block) => (block.kind === "text" ? block.text : "")).join("");
+            return {method: job.method, firstKeptEntryId: job.cuts[0]!.entryId, replacement: text, omitted: [], tokensBefore: job.tokens, tokensAfter: 1};
+        };
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["inplace"]}), compaction: {methods: {inplace}}});
+        await session.raw.changeSettings({commandId: id(), patch: {core: {effort: "low"}}});
+        session.model.script("答一", {text: "答二", usage: HEAVY}, "摘要", "答三");
+        await session.say("第一问");
+        await session.say("第二问");
+        session.model.unavailable.set("compaction", "role-unbound");
+        const third = await session.say("第三问");
+        expect(dataOf(third.events, "modelStarted").map((data) => data.purpose)).toEqual(["compaction", "turn"]);
+        expect(third.requests[0]!.raw).toMatchObject({purpose: "compaction", effort: "low"});
+        expect(third.requests[1]!.raw).toMatchObject({purpose: "turn", effort: "low"});
+        expect(third.requests[0]!.raw.model).toBe(third.requests[1]!.raw.model);
+        expect(windows).toEqual([expect.objectContaining({contextWindow: 100_000}), null]);
+    });
+
+    test("输出 47：方法自报别的名字算不合格，换下一个", async () => {
+        const lying: CompactionMethodImpl = async (job) => ({method: "shake", firstKeptEntryId: job.cuts[0]!.entryId, replacement: "假的", omitted: [], tokensBefore: 1, tokensAfter: 1});
+        await using session = await createTestSession({profile: profileWith({onThreshold: ["vendor.lying", "summarize"]}), compaction: {methods: {"vendor.lying": lying, summarize: summarizingCompaction}}});
+        session.model.script("答一", {text: "答二", usage: HEAVY}, "摘要", "答三");
+        await session.say("第一问");
+        await session.say("第二问");
+        const third = await session.say("第三问");
+        expect(third.events.find((event) => event.type === "compaction")!.data).toMatchObject({method: "summarize", replacement: "摘要"});
+        expect(await codes(session)).toContain("compaction-invalid");
+    });
+
+    test("输出 48：放回拿到方法、摘要、压缩前的路径与窗口", async () => {
+        const seen: {method: string; replacement: string | null; types: string[]; contextWindow: number}[] = [];
+        await using session = await createTestSession({
+            profile: profileWith({onThreshold: ["summarize"]}),
+            compaction: {
+                methods: {summarize: summarizingCompaction},
+                restore: (_context, args) => {
+                    seen.push({method: args.method, replacement: args.replacement, types: args.path.map((event) => event.type), contextWindow: args.contextWindow});
+                    return {notices: []};
+                },
+            },
+        });
+        session.model.script("答一", {text: "答二", usage: HEAVY}, "摘要", "答三");
+        await session.say("第一问");
+        await session.say("第二问");
+        await session.say("第三问");
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({method: "summarize", replacement: "摘要", contextWindow: 100_000});
+        expect(seen[0]!.types).toContain("assistant");
+        expect(seen[0]!.types).not.toContain("compaction");
+    });
+
+    test("输出 52：宿主没给顺序、Profile 也没写时，压缩失败不做任何事", async () => {
+        const called: string[] = [];
+        await using session = await createTestSession({compaction: {order: {}, methods: {shake: async () => (called.push("shake"), {failed: "x"})}}});
+        session.model.script("答一", {text: "答二", usage: HEAVY}, "答三");
+        await session.say("第一问");
+        await session.say("第二问");
+        expect((await session.say("第三问")).result.reason).toBe("completed");
+        expect(called).toEqual([]);
+        expect(await codes(session)).toContain("compaction-failed");
     });
 
     test("输出 52：对话模型不可用时只压缩的运行照样用压缩的模型跑", async () => {

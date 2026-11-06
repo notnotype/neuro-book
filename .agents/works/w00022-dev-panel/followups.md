@@ -42,8 +42,8 @@
 | 2026-10-14 | Agent（w00024 t01 设计评审时） | 在 Claude Code 里调用 `nbdev artifact publish` 时，每次都打印 `警告 [herdr_tag_skipped] 没有写 herdr pane 标签（只影响显示）`：调用者的会话进程不在那格 pane 的前台。后台会话本来就不在前台，这条每次都出现、又不用处理，是噪音。建议这种情况降为只在 `--verbose` 时显示，或同一会话只提示一次 | Claude Code 的后台会话（`run_in_background`、后台任务）都会碰到 | 待定 |
 | 2026-10-15 | Agent（w00024 t01 设计评审时） | `lab:shot`（`nbdev shot` 也经它）把 Chrome 自己打印的 `GL Driver Message (OpenGL, Performance …): GPU stall due to ReadPixels` 当成页面问题，用 WebGL 画的组件（这次是 Sigma.js 的图）每次截图都报问题、退出码 1，只能加 `--no-fail`，真正的页面报错也就跟着被放过了。建议把浏览器驱动层的性能提示（`GL Driver Message`）从“问题”里过滤掉 | 无头 Chrome 走软件渲染时必出；Sigma 判断鼠标点中哪个点要读像素 | 待定 |
 | 2026-10-15 | Agent（w00024 新建 t05、t06 时） | `nbdev task new w00024 t05-qa` 把带编号的 slug 原样接在新编号后，建出 `t05-t05-qa` 并提交，只能手工改目录名与 `taskId` 再补提交。建议 slug 以 `t<数字>-` 开头时拒绝（或提示“slug 不含编号”），`work new` 的 `w<数字>-` 同理 | 用法里写的是 `<slug>`，但 Task 目录名本身带编号，Agent 容易照目录名写 | 待定 |
-| 2026-11-02 | 开发者 | 评审板上有的题不能不选；有些题本该是选答 | 核实（从代码）：产物页的待答题点过之后回不到“没答”：单选、确认点了就收不回；多选全取消、文字删空后这题仍算“改过”，校验报“要选至少一个选项”“要填非空的文字”，整份答复交不了（`AnswerForm.vue` 的 `chosen` 与 `validateAnswerValue`）。另外题目缺省必答，现有评审板 145 道题里只有 39 道标了 `data-nbdev-optional`；design-review 没写什么时候该标选答 | 待定 |
-| 2026-11-02 | 开发者 | 很多会话发了评审板不挂 `answers --wait`，开发者答完要自己去通知；面板的自动通知也不发，明明输入框是空的 | 核实：审计里 10-13 以后的 7 次通知全是开发者手点的，自动投递一次也没成。原因是 Claude Code 升级（取样时 2.1.296，现在 2.1.316）后，带会话名的会话在输入框上沿那条横线里写了会话名（`──── nbook-agent ─`），`herdr/screens.ts` 的 `isRule` 只认纯横线，判成 `unknown_screen`“找不到夹在两条横线之间的输入框”；2026-11-02 只读取样 3 格空闲会话都是这样。挂等待的写法只在 design-review 里，`artifact publish` 与 `ask` 的输出没有提示 | 待定 |
+| 2026-11-02 | 开发者 | 评审板上有的题不能不选；有些题本该是选答 | 核实（从代码）：产物页的待答题点过之后回不到“没答”：单选、确认点了就收不回；多选全取消、文字删空后这题仍算“改过”，校验报“要选至少一个选项”“要填非空的文字”，整份答复交不了（`AnswerForm.vue` 的 `chosen` 与 `validateAnswerValue`）。另外题目缺省必答，现有评审板 145 道题里只有 39 道标了 `data-nbdev-optional`；design-review 没写什么时候该标选答 | t19 |
+| 2026-11-02 | 开发者 | 很多会话发了评审板不挂 `answers --wait`，开发者答完要自己去通知；面板的自动通知也不发，明明输入框是空的 | 核实：审计里 10-13 以后的 7 次通知全是开发者手点的，自动投递一次也没成。原因是 Claude Code 升级（取样时 2.1.296，现在 2.1.316）后，带会话名的会话在输入框上沿那条横线里写了会话名（`──── nbook-agent ─`），`herdr/screens.ts` 的 `isRule` 只认纯横线，判成 `unknown_screen`“找不到夹在两条横线之间的输入框”；2026-11-02 只读取样 3 格空闲会话都是这样。挂等待的写法只在 design-review 里，`artifact publish` 与 `ask` 的输出没有提示 | t19 |
 
 ## 推迟事项
 
@@ -53,7 +53,7 @@
 | `nbdev dev start --port` | t14 计划 S12：nbdev 先不分配也不传端口 | 待定 |
 | 产物页内就地答复（页面里填，外壳里提交） | t10 原 S4，见[待确认清单](pending-confirmations.md) | 待定 |
 | 跨设备访问（Tailscale） | t13，开发者 2026-10-13 定先不做 | 搁置 |
-| 存量撞号 `w00003/t05` | nbdev 撞号检查，不在本 Work 范围 | 待定 |
+| 存量撞号 `w00003/t05` | nbdev 撞号检查，不在本 Work 范围 | t20：只在旧副本里，不再进收件箱，不用改号 |
 | 细滚动条收进 nb-ui，两边共用，删掉主应用 `app.vue` 里那一份；补 nb-ui 规范第 15 条的缺口：`html` 预留槽位对内部滚动的应用是反效果，ScrollArea 与原生 CSS 的分工、xterm 等第三方自绘条的例外 | t15 决定 D3：先放面板自己，主应用正被别的会话改 | 待定（交 nb-ui） |
 | nb-ui `FormCheckbox` 的 `<label>` 没有 `relative`，里面 `sr-only`（绝对定位）的 input 聚焦时，包含块落到宿主的滚动容器之外，会把外面 `overflow: hidden` 的格子滚走、整页变空。面板这边已让滚动容器都带 `relative` 绕开；根上的修法是 label 加 `relative`（或 input 改用 `clip`、不绝对定位），并在 nb-ui 的组件测试里钉住，顺带查 `Dialog`、`QuickInput`、`FormField` 里可聚焦的 `sr-only` 元素 | t15 阶段 4 第 1 批（多选题点了页面变空白）与它的实现审查第 2 条 | t17 |
 | 文档页渲染 Markdown 里的外站图片（例如仓库根 `README.md` 的徽章）被面板的 CSP 拦下，控制台报错、图片空着 | t15 阶段 2 浏览器验收时看到 | 并入 t15 阶段 4 第 4 批 |

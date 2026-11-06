@@ -1,0 +1,184 @@
+w00025 t19 后端设计审查：写字节的文件路由
+
+审查范围：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md 第 1 节、第 4 节；附核对计划末尾三项已确认事项的事实。
+代码读取位置：/home/notnotype/CodeRepository/neuro-book/.worktree/review-t19-design（detached worktree）。Spec、提案与 Work/Task 依据读取主工作区 /home/notnotype/CodeRepository/neuro-book 的现行文件。
+审查方式：只读、自己顺序核实；仅本报告可写，所有后续内容只追加。不跑 e2e、开发服务、真实模型；不进行 Git 写操作。
+证据口径：区分代码/合同核实与实际运行；运行结果在末尾逐条列出，不将未执行场景写成已验证。
+
+发现（按影响排序；逐条核实后追加）
+
+### 1. `user://` 的根内检查不等于 `backgrounds/` 子目录隔离
+严重程度：重要
+类别：安全与性能
+位置：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md:44-46；审查 worktree packages/neuro-book/src/plugins/files/backend/rooted.ts:157-200、241-254、349-374。
+现象：计划只说“只允许 user://backgrounds/”，没有定义链接解析后仍须落在该子目录。现有 RootedRoot 的包含检查只保住整个 user 根，允许指向同一 user 根内其它目录的链接；提交还会跟随已有文件最后一段的链接。
+为什么是问题：例如 `<user>/backgrounds -> <user>/notes`，请求地址即使由服务端生成 `user://backgrounds/<sha256>.png`，现有 resolveSlot 仍把实际新文件放进 notes。它没有越过 user 根，因此常规“路径越界”测试会通过，但已经违反上传路由自己宣称的写入范围；允许覆盖时，最后一段链接还有同类问题。不需要恶意并发替换，预先存在的一条链接就够。
+如何核实：代码核实：rooted.ts:192 只比较 this.real（user 根），:195 返回真实相对路径；:248-254 把解析后的父目录用于创建；:350-357 明确跟随最终目标。需在 S1 真实文件服务测试增加 backgrounds 指向根内其它目录、根外目录、悬空链接、最终文件链接四种场景，核对被拒且目标目录未改变。尚无新上传路由，未把本发现写成已运行的上传漏洞。
+建议改法：明确 backgrounds 必须是 user 根内的真实目录、不可为符号链接；服务端只生成单段哈希文件名，目标已有时不得跟随链接当成可复用文件。若有意支持目录链接，则须按真实路径再核对 backgrounds 的子目录边界，并在提交时沿用既有根身份与冲突保护，不能只做字符串前缀检查。
+
+### 2. 新 HTTP 写入口没有接入现有暂存、来源、记账与变更链的合同
+严重程度：重要
+类别：不变量
+位置：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md:44-46、65；主工作区 docs/specs/workspace/resources.md:61-80、100-128、153；审查 worktree packages/neuro-book/src/plugins/files/backend/plugin.ts:48-61、155-184、205-211，http/shared/contracts.ts:12-27。
+现象：计划从“浏览器没有二进制 write”直接跳到“新增写字节路由”，没有说明 HTTP 上传怎样转入 Files 的既有提交链、写入归谁。服务端其实已有 WorkspaceFiles.stage/write（二进制 Uint8Array、流式 sink）；现有 raw-route 只拿 RootedRoot，不持有 changes、ledger、scope 或调用方身份。HTTP 的 HttpRouteEnv 也没有远程合同中的 ConsumerIdentity。
+为什么是问题：把 raw-route 扩为直接 fs 写入不会自动获得活性锁暂存、原子提交、精确 created 事件、回声抑制、记账槽和入口停止等待；只靠文件 watch 至多报 external，且没有订阅就不保证及时发现。直接套服务端插件的 WorkspaceFiles 门面，来源又会是 system，而不是这次浏览器用户操作。resources 合同规定所有写入走唯一入口、来源不能由请求自报，并在锁内按“提交 → 记账 → 回声/事件”结算；新传输入口不是豁免。断线、类型拒绝、超限、磁盘写满与进程中断如何丢弃暂存，也因此没有可执行的约定。
+如何核实：代码核实：execute.ts:31-55 的 WriteTarget/saveText、staging.ts:70-97 的活性锁与 discard、:196-227 的提交/记账/事件、workspace-files.ts:184-203、367-410 的 fill/settle。现有 workspace-files.test.ts:119-168 已覆盖 8 MiB 二进制、抛错与取消后目标不变且暂存不留；ledger.test.ts 是独立记账合同。S1 当前只列“类型、大小、路径越界”，没有来源、事件、ledger 或中断场景。实际运行结果另列于末尾。
+建议改法：新路由应并入 nbook.files 现有 server 入口的一份 http.routes 贡献（/api/nbook.files/），以薄传输层调用既有暂存/提交实现，不另造磁盘写入权威。明确上传的可信用户来源（由服务端固定并验证，不收业务参数 as/source），把 request.signal 与入口停止信号交给暂存过程；明确提交前失败不改变目标、确定失败清暂存、结果未知保留由现有恢复机制收口。提交成功照常进入 user 根的 ledger 与 changes，不承诺此时已有持久 History 贡献者。为来源、精确事件、回声、记账失败不反报写失败、取消与写满补 S1 验收。
+
+### 3. “图片类型受限 + 按哈希命名”还不足以接上现成 raw 路由
+严重程度：重要
+类别：正确性
+位置：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md:46、79；审查 worktree packages/neuro-book/src/plugins/files/backend/raw-route.ts:27-56、177-190；packages/neuro-book/src/plugins/projects/shared/cover.ts:53-59。
+现象：计划没列允许的图片格式、判定方法和哈希文件名的扩展名规则，也没说明 SVG 与动图怎么处理。raw 路由不探测内容，只按地址最后一段的扩展名返回 Content-Type；无扩展名的 `<sha256>` 一律是 application/octet-stream。上传时的 File.type、Content-Type 或原文件名不能充当内容证明。
+为什么是问题：照“按哈希命名”存成裸哈希，再照计划交给现成 rawUrl，并不会得到计划隐含依赖的 image/* 响应；保留用户给的扩展名又会使同一份字节因 a.jpg/a.jpeg/a.png 产生不同键，破坏去重及响应类型的一致性。SVG 是 XML，没有可当作图片安全证明的固定 magic；GIF、APNG、WebP 也可能有动画，单看图片魔数不能兑现第 79 行“不做动图”。现有 raw 响应已经带 CSP sandbox 与 nosniff，不能把“允许 SVG 就必定可执行应用同源脚本”当成现存漏洞，但这也不替上传入口决定格式白名单。
+如何核实：代码核实：raw-route.ts:52-56 对裸哈希返回兜底类型；:190 使用请求路径推导类型。已有封面路由 cover-routes.ts:87-90 先 sniffCoverType，再由服务端类型映射生成扩展名，且明确拒绝 SVG；这是可沿用的现成规则。S1 需验证真实 PNG 配假文件名/假 MIME、相同字节换文件名、SVG、非图片、截断头与动画容器；当前新路由尚未实现，不能声称这些上传测试已通过。
+建议改法：在计划固定白名单与规范文件名 `<服务端计算的 SHA-256>.<按字节判定的规范扩展名>`，不接收客户端目标名与客户端哈希作为权威。最小方案明确只收指定栅格格式、拒绝 SVG；若坚持支持 SVG，另定解析/净化及显示上下文合同，而不是按 image/svg+xml 自报放行。对“动图不做”明确是拒收还是只承诺静态显示，并按该决定检查相应容器字段。保留现有 raw 的 sandbox、nosniff、no-cache 与跨站拒绝，不为背景图放宽 CORS。
+
+### 4. 20 MB 只有产品口号，没有传输层可执行的上限
+严重程度：重要
+类别：安全与性能
+位置：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md:46、65；审查 worktree packages/neuro-book/src/plugins/http/backend/plugin.ts:74-83、dispatch.ts:137-146；projects/backend/cover-routes.ts:69-89。
+现象：计划没有决定上传方法、请求体编码、20 MB 是 20,000,000 还是 20,971,520 字节，也没区分文件上限与整个请求体上限。通用 HTTP 分发器只把标准 Request 原样转交；没有替此路由施加 20 MB 限额或读取背压。若等 formData()/arrayBuffer() 完成再看文件大小，检查发生时整个超限正文已经读完。
+为什么是问题：不带 Content-Length 的流式请求、虚报长度或 multipart 携带额外大字段，都能绕过仅检查请求头或 file.size 的早期限额；“最后回 413”也保护不了之前的内存/磁盘消耗。20 MiB 整份内存化时，每个并发请求光文件字节就有 20,971,520 字节，10 个为 209,715,200 字节，尚未算表单解析、字节复制与 raw 读取。用户写盘中断/写满时还要保证不会发布半份最终文件，不能只覆盖正常的大小测试。
+如何核实：代码核实：通用 HTTP 的 Bun.serve 未设置本业务上限；现有封面路由已用 hono/body-limit 在接收时限长，文件 5 MiB + multipart 64 KiB 包络，并再次核对 file.size；cover-routes.test.ts:131-150 用无 Content-Length、256 KiB 分块的流验证收到 413 时没读完整个正文。本次执行该合同测试包含在 8 文件命令中，整体结果见末尾，非新上传路由的验证。
+建议改法：固定 POST/PUT 与原始二进制或 multipart 的一种合同，列出精确最大字节数、状态码与错误体。原始字节的单文件入口最简单：读 Request.body 时逐块累计并 await 暂存 sink.write，超限即停读、取消 reader 并丢弃暂存；使用 multipart 则给整个请求体另设有限包络、拒绝多余文件/不受限字段。前端 File.size 只用于提前反馈，服务端仍按实际收到字节强制限制。S1 增加无长度流、超限中止、客户端断开与写满失败后的目标/暂存状态断言。
+
+### 5. 哈希命名没有定义“已有同名文件”的结果，现有 absent 提交不会自动去重
+严重程度：重要
+类别：正确性
+位置：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md:46、65；审查 worktree packages/neuro-book/src/plugins/files/backend/staging.ts:196-227；backend/staged-commit.ts:76-110、142-165；files/workspace-files.test.ts:140-188。
+现象：计划把“按哈希命名”当成“同一张不存两份”的完整机制，但现有提交合同没有“已存在且相同即复用”的分支：expect=absent 一遇已有目标就 conflict；expect=any 则真覆盖、再记账/发事件。先查是否存在、随后普通 rename 也不是排他去重。
+为什么是问题：两个窗口同时选同一张图，现有 absent 提交只会让一方成功，另一方冲突；重复上传一张已经存过的图也一样。若把所有 EEXIST 当成功，又会把同哈希文件名下被外部改坏的字节、目录或链接当成有效图片。若改用覆盖，已经被其它窗口引用的内容会在未核对现状的情况下替换，破坏哈希名代表固定内容的前提，产生额外 write 事件与账本记录。
+如何核实：代码核实：staging.ts:203 在已存在时返回 conflict 并附 current.hash；staged-commit.ts 在写入锁内判定，再用排他 link/复制提交 absent。现有 workspace-files.test.ts:170-188 断言并发 absent 与 create 恰好一方成功，不提供幂等成功。实际运行包含此用例，本次 8 文件结果见末尾。
+建议改法：固定服务端 SHA-256、规范扩展名及结果 `{address, ...}`；首次使用 absent 排他提交，冲突时只在目标是允许的普通文件、当前字节摘要等于本次摘要时返回同一个地址，并丢弃本次暂存；内容不同或类型不符明确报冲突/资产损坏，不覆盖、不自动删。复用不再发 created/write、不重复记账。哈希收齐之前的暂存与最终地址绑定要写清：现有 stage(address, ...) 要先有目标地址，不天然支持“流完才决定名称”；选定有界内存预哈希或在现有暂存实现内增加完成后定址，不能另建无清理 owner 的第二套临时文件。S1 增加重复上传、两个窗口并发同内容、预占坏文件三项验收。
+
+### 6. image:string 与 scrim:number 没有把地址和可读性限制变成配置合同
+严重程度：重要
+类别：正确性
+位置：主工作区 .agents/works/w00025-editor/tasks/t19-background-image/plan.md:12-24、30、46；docs/specs/settings/configuration.md:65-78、131-144；审查 worktree packages/neuro-book/src/shared/settings.ts:181-208、248-281，plugins/settings/shared/layer-text.ts:41-65。
+现象：计划只有 TypeScript 联合类型和“image 是 user:// 地址”的注释；没有写出设置 schema。一个 Background 类型又同时包含 color 分支，无法单靠这份类型保证窗口设置只有 none/image。scrim:number 也不包含 75–100 的约束。配置层接受何值只由 TypeBox schema 决定，不会理解注释或设置页滑块。
+为什么是问题：用户可直接编辑 settings.json 或设置文件视图，不必经过上传或滑块。把类型直译为 image:Type.String()/scrim:Type.Number()，则 scrim=0、image='project://...'、越界地址和窗口的 color 分支都可进入有效快照并即时同步到所有窗口；上传路由仅允许 backgrounds 对这些入口不起作用。rawUrlOf 还本来就支持 project:// 与整个 user://，不是背景地址验证器。于是“用户层/所有作品共用/遮罩不低于 75%”只对正常点击路径成立。
+如何核实：代码核实：settings 的默认值与层文件均经 Value.Check(schema, value)，没有每个配置项的第二套业务验证器；rawUrlOf 仅 parseResource 后转 URL，user 根下任意合法路径都可返回。defineSetting 本身能表达对象判别联合，现有接口不构成阻碍。用实际配置服务定义原样宽松 schema，再从一个窗口写 scrim=0 或 project://，另一个窗口能读到该值；收紧 schema 后应返回 invalid-value，外部无效项应被丢弃但原文件保留。该专项运行结果另列于末尾。
+建议改法：第 1 节写出两份可 JSON 序列化的 TypeBox 判别联合：editor=none/color/image，window=none/image；对象拒绝额外字段，image 仅允许有效的 user://backgrounds/<规范文件名>，fit 固定三值，scrim minimum=75、maximum=100，默认完整值 {kind:'none'}，切到 image 时显式填 scrim=85；声明 layers:['user']。读取后仍经资源解析器核对字节长度/路径，永不把设置字符串直接交 CSS url 或接受远程 URL。文件是否存在、能否解码是独立的运行状态：保留配置引用、只退回显示，不因短暂失败自动把全局设置改成 none。
+
+已运行的专项核实（补强第 1、3、5、6 条，不另计发现）
+
+执行位置：审查 worktree 的 packages/neuro-book。命令经 bun --eval 临时执行，不创建源码或脚本文件；调用真实 settingsWorld、插件登记、两个未绑定项目窗口的远程链路、WorkspaceFiles 服务及真实文件系统。
+原样命令：
+
+bun --eval '
+import {Type} from "typebox";
+import {defineSetting} from "./src/shared/settings.ts";
+import {settingsWorld} from "./src/plugins/settings/testing/world.ts";
+import {settingsKey} from "./src/plugins/settings/shared/contracts.ts";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import {definitionAt} from "./src/manifest.ts";
+import {filesBackendPlugin} from "./src/plugins/files/backend/plugin.ts";
+import {descriptor} from "./src/plugins/files/plugin.ts";
+import {workspaceFilesKey, rawUrlOf} from "./src/plugins/files/shared/contracts.ts";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {mkdir, symlink, readdir, readFile} from "node:fs/promises";
+import {join} from "node:path";
+import {contentTypeOf} from "./src/plugins/files/backend/raw-route.ts";
+const obj = fields => Type.Object(fields, {additionalProperties:false});
+const none = obj({kind:Type.Literal("none")});
+const fit = Type.Union([Type.Literal("cover"),Type.Literal("contain"),Type.Literal("repeat")]);
+const color = obj({kind:Type.Literal("color"),color:Type.String()});
+const loose = defineSetting({plugin:"x.background",name:"background.editor",schema:Type.Union([none,color,obj({kind:Type.Literal("image"),image:Type.String(),fit,scrim:Type.Number()})]),default:{kind:"none"},layers:["user"]});
+const strict = defineSetting({plugin:"x.background",name:"background.window",schema:Type.Union([none,obj({kind:Type.Literal("image"),image:Type.String({pattern:"^user://backgrounds/[0-9a-f]{64}\\.(png|jpg|webp)$"}),fit,scrim:Type.Number({minimum:75,maximum:100})})]),default:{kind:"none"},layers:["user"]});
+const contributions = [loose.contribution,strict.contribution];
+let ws;
+const writer = {id:"x.writer",entries:[defineEntry({id:"server",location:"server",activationEvents:["onStartup"],dependencies:[{key:workspaceFilesKey}],activate:c=>{ws=c.services.require(workspaceFilesKey);return {};}})]};
+const probe = holder => ({id:"x.background",contributions,entries:[defineEntry({id:"browser",location:"browser",activationEvents:["onStartup"],dependencies:[{key:settingsKey}],activate:c=>{holder.settings=c.services.require(settingsKey);return {};}})]});
+const root = await createTestTmpRoot("neuro-book-review","t19-readonly-check");
+const user = join(root,"state","user");
+await mkdir(join(user,"notes"),{recursive:true});
+await symlink("notes",join(user,"backgrounds"));
+const world = await settingsWorld(root,[definitionAt("server",descriptor,filesBackendPlugin),writer,{id:"x.background",entries:[],contributions}]);
+try {
+ const a={},b={};
+ await world.window("t19-a",[probe(a)],{bound:false});
+ await world.window("t19-b",[probe(b)],{bound:false});
+ const value={kind:"image",image:"project://image.png",fit:"cover",scrim:0};
+ console.log("looseUpdate",JSON.stringify(await a.settings.update(loose,value)));
+ await waitUntil("背景值同步",()=>b.settings.get(loose).kind==="image");
+ console.log("secondWindow",JSON.stringify(b.settings.get(loose)));
+ console.log("strictRejects",JSON.stringify(await a.settings.update(strict,value)));
+ console.log("strictWindowColor",JSON.stringify(await a.settings.update(strict,{kind:"color",color:"#ffffff"})));
+ const name="a".repeat(64)+".png";
+ console.log("strictValid",JSON.stringify(await a.settings.update(strict,{kind:"image",image:"user://backgrounds/"+name,fit:"cover",scrim:85})));
+ console.log("userWriteViaLink",JSON.stringify(await ws.write("user://backgrounds/"+name,new Uint8Array([1,2,3]),{expect:"absent"})));
+ console.log("actualNotesEntry",JSON.stringify(await readdir(join(user,"notes"))));
+ console.log("storedBytes",JSON.stringify(Array.from(await readFile(join(user,"notes",name)))));
+ console.log("repeatAbsent",JSON.stringify(await ws.write("user://backgrounds/"+name,new Uint8Array([1,2,3]),{expect:"absent"})));
+ console.log("rawBareHashType",contentTypeOf("backgrounds/"+"a".repeat(64)));
+ console.log("rawWithoutProject",rawUrlOf("user://backgrounds/"+name,null));
+ console.log("evidenceTmpRoot",root);
+} finally {
+ console.log("closeStatuses",JSON.stringify((await world.close()).map(x=>x.status)));
+}
+'
+
+实际输出：
+looseUpdate {"ok":true}
+secondWindow {"kind":"image","image":"project://image.png","fit":"cover","scrim":0}
+strictRejects {"ok":false,"code":"invalid-value","detail":"值不符合配置项 x.background/background.window 的 schema"}
+strictWindowColor {"ok":false,"code":"invalid-value","detail":"值不符合配置项 x.background/background.window 的 schema"}
+strictValid {"ok":true}
+userWriteViaLink {"ok":true,"value":{"baseline":{"hash":"039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"}}}
+actualNotesEntry ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"]
+storedBytes [1,2,3]
+repeatAbsent {"ok":false,"code":"conflict","detail":"backgrounds/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png 已存在","current":{"hash":"039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"}}
+rawBareHashType application/octet-stream
+rawWithoutProject /api/nbook.files/raw/user/backgrounds/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png
+closeStatuses ["closed","closed","closed"]
+耗时约 560 ms，命令退出 0。用于核实的 3 字节不是上传图片样本，只证明公共文件服务的链接与去重前提；新路由尚未实现，不冒充上传端到端证据。
+实验夹具先有两次构造错误：首次只在窗口登记配置声明，服务端按合同拒绝 undeclared，随后等待同步超时；补登记时漏写声明插件的 entries:[]，内核构造报 TypeError。修正夹具后得到上述结果。这两次不是产品缺陷，首次成功创建的 3 个实例已正常 closed，后续成功实验的 3 个实例也全部 closed。
+临时数据落在 createTestTmpRoot 分配的系统 Temp 子目录；遵守本次“不删除文件”指令，未执行清理删除，不触碰用户状态根。
+
+
+第 2 条来源部分的补充核对与收窄（不新增发现）：resources.md:109 明确调用方身份指执行入口，不一定是最初发起者。因此，服务端 HTTP 入口采用 {kind:'system', plugin:'nbook.files'} 本身不构成违反现行来源合同；第 2 条不能据“不是 user”单独判错。需要补定的是上传入口究竟保留这条系统归属，还是在 Spec 中明确一条固定的用户上传归属，以及如何进入现有提交、ledger 与 changes；不能从 HTTP 业务参数伪造浏览器 ConsumerIdentity。建议改法中的“可信用户来源”以本段为准，不要求为此任务另建通用身份桥。
+
+合同测试运行证据
+
+实际命令（cwd=/home/notnotype/CodeRepository/neuro-book/.worktree/review-t19-design/packages/neuro-book）：
+bun run test:bun src/plugins/files/raw-route.test.ts src/plugins/files/staging.test.ts src/plugins/files/ledger.test.ts src/plugins/files/workspace-files.test.ts src/plugins/http/backend/dispatch.test.ts src/plugins/projects/backend/cover-routes.test.ts src/shared/settings.test.ts src/plugins/settings/settings.test.ts
+
+实际结果：bun test v1.4.4 (38afee6c8)；8 个文件共 86 项，85 pass、1 fail、580 expect() calls；测试耗时 24.46s，命令退出 1。
+失败原文：
+(fail) 记账槽 > 记账者一直不完成：超过 2 秒不再等，写入成功、有诊断 [10001.79ms]
+  ^ a beforeEach/afterEach hook timed out for this test.
+error: script "test:bun" exited with code 1
+
+该失败来自已有 ledger.test.ts，不是尚未实现的新上传路由的回归；未为消除失败重跑、未改测试、未调超时。失败确因何种时序导致，本次未作运行诊断；不把“记账超时保证”写成已通过。其它 85 项通过只能证明各自既有合同，不能替新上传入口验收。
+跨包 workspace 依赖解析到了主工作区 packages/*（实验错误堆栈显示 nb-runtime、test-support 的主工作区路径）；未安装或替换依赖，不将本轮结果当成独立发布产物或实现分支集成验证。
+
+未运行：类型检查（无产品类型改动）；e2e、浏览器与开发服务（按审查限制）；新上传端到端、实际磁盘耗尽、进程强杀恢复、实际 SVG 脚本执行与多窗口背景绘制。它们不能由既有合同测试的通过代替。
+
+未发现问题的方面
+
+1. 文件与配置的归属没有冲突：图片在 user://backgrounds/，配置只记引用、填充与遮罩，符合 plugin-data-model.md:229；不应为了上传把 20 MB 图片改塞配置、Storage 或 1 MiB 的 RPC 帧。已核实的复用点是服务端 WorkspaceFiles.stage/write 与 projects 的封面 HTTP 上传；新应用 Composer 只交出 File action，Lab 的 composer-host.ts:75-90 用 URL.createObjectURL 模拟上传，不能当成已经存在的持久上传入口。
+2. 复用现有 raw 路由不会天然引入 SVG 同源脚本漏洞：raw-route.ts:178、202-203、245-249 已设置 nosniff、CSP sandbox（没有 allow-scripts）、Cache-Control:no-cache；正常 user/raw 不返回 Access-Control-Allow-Origin。跨站/同站但不同源的读取被拒，preview 的 Origin:null 例外是另一条仅项目令牌路由，不应用到背景。这里只核实响应实现及既有合同测试，没有实际浏览器 SVG 执行实验。
+3. 路由若挂在现有 http.routes 中，会经过统一 Host/Origin 检查与准入/排空：非回环 Host 得 421，非 GET/HEAD 的不允许 Origin（含 null）得 403；这些分发合同在本次 85 个通过项中。server-host.md:40 的现行部署合同仍是未加载鉴权只能监听回环；HttpRouteEnv 没有现成用户鉴权主体，不应声称这次自动获得远程用户隔离。计划没有承诺新增远程访问，本审查不据此要求另造认证系统。
+4. backgrounds 是没有 .content/.binder 后缀的普通目录，不需要 content.xml、include 或 createContent；createContent 只创建内容树节点的空 index.md（operations.ts:129-142），不是“创建任意二进制”的替代品。resources.md:125 还明确 stage 新建不改内容清单。正确限定到真实 backgrounds 普通目录后，哈希资产无需进入内容清单。
+5. 现有提交已经有跨进程写锁、absent 排他提交、暂存活性锁、fsync、失败 discard、重启 sweep；user 暂存位于状态根 staging/，不在可读取的 user 根内。不需要为背景重新设计这些 owner。注意 staged-commit.ts:150-151 对不支持硬链接的文件系统有“排他复制期间可读到不完整内容”的既有限制；本次未验证 FAT/网络盘，不声称现有实现对所有文件系统都有完整原子发布保证。
+6. defineSetting 能表达对象判别联合，不必改配置层或把对象拆成几个易失配的设置。用户层配置已有跨窗口订阅、重连快照、按键写入与失败返回；本次专项证实两个未绑定项目窗口同步同一个对象，strict 联合拒绝不合法分支与范围。失效资源应与配置值分开：计划已有“诊断、退回、设置页显示原因”的意图；恢复同地址、文件解码失败和快速换图的实际绘制仍未验证，不在此声称通过。
+
+计划末尾“开发者已确认”三项的事实核对（仅事实错误，不重开产品取舍）
+
+1. 第 86 行“75% 保证任何图片都读得清”不能覆盖第 74 行承诺的全部文字均不低于 4.5。用代码现行 nbook-dark 配色（packages/nb-ui/themes/nbook/colorways.ts:39、48-50），面色 #2d2925 以 75% 盖白图：主文字 #efe9df 为 5.2933，次要 #c3bcb0 为 3.3908，弱化 #918a7e 为 1.8690。弱化文字在 100% 实心面上也只有 4.2190，单纯抬遮罩下限达不到 4.5。第 32 行主文字的 60%=3.32、70%=4.51、75%=5.29、亮色 75%=9.05 数值计算正确，错误是把当前主文字的结论扩大成所有文字的保证；该项仍需前端审查与真实表面验收，不替另一位审查者决定样式。
+   核实方法：按标准 sRGB 相对亮度，通道 v=c/255；v<=0.04045 时 v/12.92，否则 ((v+0.055)/1.055)^2.4；亮度为 0.2126R+0.7152G+0.0722B；对比度 (Lmax+0.05)/(Lmin+0.05)。混合通道为 0.75*面色+0.25*白图。已用会话 Python 实际计算上述数字；不是浏览器视觉实测。
+2. 第 87 行“应用级、所有作品共用”：未发现事实错误；user 层与 user:// 都跨项目，专项实验中没有项目绑定也能保存并同步配置、得到 user raw URL。
+3. 第 88 行“Monaco 也透出”：未发现事实错误；这是已确认要实现的目标，不是现有能力的陈述。当前 monaco-theme.ts:29、39-41 确实把 editor.background 与 editorGutter.background 写为实色，计划识别到了这项实现前提。
+
+回写建议（不修改真相源，交主 Agent 决定）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+| 1 | 规范缺陷 | files Spec 写“Sec-Fetch-Site 不是 same-origin 一律 403”，但 raw-route.ts:197-199 与本次通过的 raw-route.test.ts:171-180 还允许 none（用户自己打开）。这是既有 Spec/实现差异，不是 t19 引入的问题。 | 确认现行用户直接打开行为后，改写为：“带 Sec-Fetch-Site 且既不是 same-origin 也不是 none 的请求为 403 cross-site；none 表示用户直接导航，沿同一读取与沙箱规则放行。” | 主工作区 docs/specs/workspace/files.md 的“按地址读取字节 / 跨站读取” |
+
+数量：阻断 0；重要 6；建议 0。第 2 条按后面的来源收窄说明成立，不把 system 归属本身算成违反合同。末尾可读性事实核对、既有测试失败与回写建议均不重复计入这 6 条后端发现。
+有效发现编号：1、2、3、4、5、6。
+
+条数自查：已用 grep 匹配 `^### [0-9]+\.|^严重程度：|^未发现问题的方面$|^数量：|^有效发现编号：|^计划末尾`；命中发现标题 6 条、严重程度 6 条（全部为重要），与数量栏一致；“未发现问题的方面”和三项事实核对均存在。审查未修改仓库产品文件或治理真相源，未执行 commit、push、stash、切换分支或删除命令。
+有效发现编号：1、2、3、4、5、6。

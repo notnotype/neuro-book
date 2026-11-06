@@ -1,0 +1,206 @@
+审查 w00039/t34 阶段 G 实现（7c61f6125..2a87397a6）。实验都在真实 PlotWorld（真实发布校验、createWorldReadView、dependenciesOf、planCheck）上跑，实现 worktree HEAD 核对过是 2a87397a6，脚本在 /tmp/review-w00039-t34-I7/scratch/（h.ts 是公共夹具，x1.ts、x2.ts…）。判定：改动前后 calls 的 [id, digest] 变了、dependenciesOf（用改动前计划存的 points、concerns）没变，记 LEAK；这正是 valid 走“摘要相同直接有效”的路径，用户看到的就是过期结论被当成有效。运行：cd .worktree/w00039-t29-canon-kernel/packages/neuro-book && bun run /tmp/review-w00039-t34-I7/scratch/x1.ts
+
+### 1. 摘要漏项：移动分叉的切口那条变更，子线看得到的前史变了，摘要不变
+严重程度：阻断（违反 Spec 输出 7 的硬性不变量，有可跑反例）
+类别：正确性
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:540（order[0] 只放 view.lines() 与分叉变更的摘要）；packages/nb-canon/src/lines/table.ts:150-170（visible 按切口变更当前的位置判断）
+现象：分叉的 fork.cut 是一个变更 id。切口变更自己挪位置（at 改了）时，fork 变更对象与 view.lines() 的摘要都不变，但子线看得到的父线变更变了。history(X) 里那条被“看见/看不见”的变更的项不变（项不带“在哪条线可见”），切口变更本身又不提到 X。
+为什么是问题：计划的调用集合变了，摘要一位不变，记录继续判有效。作者把一条变更挪位置是写作中的常规操作（random-edits 的 move 明确排除了 cut：`id !== cut`，所以随机序列永远走不到）。依赖表头的“章序、分段、线能不能建 → order”没写“线看得到什么”这一项。
+如何核实：x1.ts 第 4 段。切口 ch1，ch3 有 guard 的知情行，fork 在 ch5，ch8 讲子线、guard 在场；把切口挪到 ch4。输出：
+[move cut change past another change] LEAK: plan-changed=true digest-changed=false
+  calls before=["presence:l1#1:e3:e1","time:l1#1","fixed"]
+  calls after =["time:l1#1","fixed"]
+建议改法：order[0] 再放每条线切口与触发变更的“位置键”（或这两条变更的对象摘要）。切口变更的摘要进 order 后只有切口变更自身被改才全书重拼，这本来就要重拼讲子线的章；只算讲子线的章也可以（按 lineBound 同一处分线）。random-edits 的 move 去掉对 cut 的排除，并加一个 cut 挪动的确定用例。
+
+### 2. 摘要漏项：挂靠的变更撤销或翻转时，核对点回到 place 所在章，那一章涉及的条目多了一个，摘要不变
+严重程度：阻断
+类别：正确性
+位置：dependencies.ts:330（check 的 placedIn）与模块头第 11 行“核对点比较时点的翻转看挂靠的变更套没套上，在它提到的条目的历史里”；packages/nb-canon/src/engine/incremental.ts:149 附近 checkPoint（anchor 没套上时回到 place）
+现象：核对点 k（at E，place ch10，anchor c0@ch3，c0 不碰 E）。c0 套上时比较时点在 ch3，chapterEntries(ch10) 没有 E；撤销 c0 或 c0 变成套不上，比较时点回到 ch10，chapterEntries(ch10) 多了 E，E 名下的秘密进 points，候选多一个。ch10 的 R 里有 E（own 的 k 提到），但 c0 只提到路人，不在 ch10 的 R 里；k 的对象摘要不变；于是摘要不变。头注那句只在“比较时点所在章 = 挂靠变更的章”（ch3，c0 在 own）成立，place 那一章没有被覆盖。G3 的提交把“核对点按挂靠分桶”当多余项删掉时，变异检查只看 ch3 方向（dependencies.test.ts 的“核对点挂在早先的变更上”）。发布校验不要求 anchor 碰 at.entry，这个世界是真能写出来的。
+为什么是问题：撤销一条变更是常规操作；结论变了摘要不变。
+如何核实：x1.ts 第 1、1b 段。
+[anchor undone, check falls back to place chapter] LEAK: plan-changed=true digest-changed=false
+  calls before=["time:main#1","fixed"]
+  calls after =["presence:main#1:e5:e3","time:main#1","fixed"]
+[anchor flips via breaker] LEAK: plan-changed=true digest-changed=false
+  calls before=["time:main#1","fixed"]
+  calls after =["presence:main#1:e5:e3","time:main#1","fixed"]
+建议改法：本章对象里的核对点，把挂靠变更的“有效比较时点”算进键：例如 own 不只放 objectDigest，对带 anchor 的核对点加 `anchor 对象摘要 + on.outcome(anchor)?.applied`（读可读线上的结论），这样 place 与挂靠两章都看得见翻转。比把挂靠变更提到的条目并进 R 更窄。补一个 place 方向的确定用例。
+
+### 3. 摘要漏项：按计划模式读时，计划让已写变更在覆盖层上套不上，已写变更碰到的别的条目跟着变；“已写变更放引擎结论”用的是实际模式的结论
+严重程度：阻断
+类别：正确性
+位置：dependencies.ts:411-417（appliedOf 用 on.outcome，只有实际模式）；dependencies.ts:28（“跨条目的间接影响只有套不套得上这一条路：已写变更放引擎算出的结论，计划放联动戳”）；incremental.ts recompute 的 `clean.length > 0 && !sameJson(result, previous)` 分支（覆盖层上结果变了把干净条目接成脏条目）
+现象：W@ch3 同时改 K.保密 与路人那一行，实际模式套上。之后写一条只碰路人的计划 P@ch2 去掉那一行：覆盖层上 W 整条套不上，K 的按计划模式的保密档回到初值，pointsBeforeWriting（secrecyOf 按计划模式读）的结果变了。W 的实际结论没变（项不变），P 不提到 K，路人不在 R，摘要不变。这条路径计划的“为什么不会漏”段没有覆盖：它把“套不套得上”只分成已写（引擎实际结论）和计划（戳），没有“已写变更在覆盖层上的结论”。同样的路还能走到伏笔答案（pointsReferencedBy 按计划模式读 fs.答案）与目标的状态、隐秘（pointsBeforeWriting 按计划模式读）。
+为什么是问题：写一条计划本身是最常见的写入，而计划不提到 K。
+如何核实：x1.ts 第 2 段。
+[plan on bystander flips written in overlay] LEAK: plan-changed=true digest-changed=false
+  calls before=["presence:main#1:e5:e4","time:main#1","fixed"]
+  calls after =["time:main#1","fixed"]
+建议改法：选一种并写进头注。(1) 把联动戳推广：已写变更若改两个以上条目，它的项也带上“这些目标条目上全部计划”的累加（只算计划，不算已写，世界里这种变更与计划并存才受影响）。(2) 覆盖层结论直接读：引擎给 outcomeIn(mode, position)，代价是每张新视图要建覆盖层，开发者已否决读值这条路。(3) 接受并收窄 Spec 输出 7 的实现合同（这只能开发者定）。建议先做 (1)，随机序列 linkedPlan 目前是“计划放 touch”，加一个“计划放 breaker”的操作才走得到。
+
+### 4. 摘要漏项：改两个条目的计划，联动戳只算到计划的桶；桶因讲述或替代提前时，桶与安放之间的已写变更看不见
+严重程度：阻断
+类别：正确性
+位置：dependencies.ts:522-531（`histories.get(id)?.at(bucket)`）
+现象：戳用“计划的桶”截断目标的历史，但计划能不能套上取决于它安放位置（planRank）之前的状态，不是桶之前。桶可以远早于安放：细纲讲述写在前面的章（told 取早）、replaces、splitFrom、fulfills 都会把桶提前。P@ch9（细纲讲述记在 ch2，桶 1；或替代 ch2 的计划）改 K 与路人；在 ch5 写一条只碰路人的已写变更让 P 套不上：K 按计划模式的保密档变了，ch10 的结论变，戳不变（ch5 的桶 4 > 1），路人不在 R。对照实验：同样的世界桶等于安放时摘要变（x2.ts a3）。计划的“戳只依赖更早的”把桶当成了时间先后。
+为什么是问题：替代旧计划是作者的常规操作，安放往后挪的新计划与它之前的已写变更并存很普通。
+如何核实：x2.ts。
+[linked plan (bucket<at), written between on other target] LEAK: plan-changed=true digest-changed=false
+  calls before=["time:main#1","fixed"]
+  calls after =["presence:main#1:e5:e4","time:main#1","fixed"]
+[replacing linked plan, written between] LEAK: plan-changed=true digest-changed=false
+  calls before=["time:main#1","fixed"]
+  calls after =["presence:main#1:e5:e4","time:main#1","fixed"]
+[control: linked plan bucket==at] both-changed: plan-changed=true digest-changed=true
+建议改法：戳的截断用计划安放所在章的下标（at(max(bucket, atIndex))），但这样计划要在安放那一桶之后才能算戳，而项要加在提前的桶里；所以要把“戳”与“项”分开：摘要合成时按 B 取 `目标历史[≤min(B, 计划安放)]`，或者干脆把改两个以上条目的计划的目标全部并进它提到者的“联动组”。第二种更简单但会多重拼，第一种需要 Prefix 支持两段。无论哪种要加确定用例。
+
+### 5. 摘要漏项：只改知识点命名空间的启用（`揭穿` 写在初值），知识点因马甲名字进本章，身份那一项不变
+严重程度：重要（真实但比前几条少见）
+类别：正确性
+位置：dependencies.ts:301（identityValue 只取 fields.揭穿，不看 enabled）；dependencies.ts:304-305（isMaskPath 只认 `point`、`point.揭穿`，不认 `point.启用`）；points.ts maskingPoints 的同样口径
+现象：pointsAfterWriting 用 read.namespaces.point?.fields.揭穿 读，命名空间未启用时读不到（engine/views.ts:67）。K 不在本章时不在 R，于是 K 的启用状态只有 identity 能看见，而 identity 的投影没有 enabled。改初值的 enabled 从 false 到 true：K 进 points，候选多一个，摘要不变。
+如何核实：x2.ts 第 b 段。
+[init enabled flips true] LEAK: plan-changed=true digest-changed=false
+  calls before=["time:main#1","fixed"]
+  calls after =["presence:main#1:e3:e1","time:main#1","fixed"]
+建议改法：identityValue 的 mask 改成读 `{enabled, 揭穿}`；isMaskPath 加 `point.启用`（points.ts 的 maskingPoints 也加，否则计划本身也看不见补丁改启用的知识点）。
+
+### 6. 摘要漏项：同一章的计划先后取决于“这一章有没有已写变更”，往那一章加一条不提到任何条目的已写变更就翻转
+严重程度：重要
+类别：正确性
+位置：packages/nb-canon/src/engine/incremental.ts planRank（`[1, rank[1] + 0.5, 0]`，键丢了，同一章的计划改按 tie 排）；dependencies.ts 的 history 项（新变更不提到 K，只进那一章的 own）
+现象：ch4 有两条计划，先建的键 10 设 K.保密=common，后建的键 5 设 K.保密=secret。这一章没有已写变更时按键排，最后是 common；写一条 `{text}` 的已写变更（不提到任何条目）后 writtenChapters 有了 ch4，两条计划的 rank 相同，改按 tie（先建的在前）排，最后是 secret。ch8 按计划模式读 K 的保密档，结论变了；新变更不提到 K，只有 ch4 的 own 变，ch8 的摘要不变。
+为什么是问题：摘要的表把“计划的先后”当成计划自身与条目历史的函数，没写“本章有没有已写变更”这一条输入。这是合同允许的写入（写第 4 章的第一条变更是写作主流程），只是需要同一章有两条改同一地址的计划。
+如何核实：x4.ts 第 a 段。
+[written added to plan chapter flips plan order] LEAK: plan-changed=true digest-changed=false
+  calls before=["time:main#1","fixed"]
+  calls after =["presence:main#1:e3:e2","time:main#1","fixed"]
+建议改法：内核把键留在 rank 的第三位（`[1, rank[1] + 0.5, rank[2]]`），先后就与“有没有已写变更”无关；这是修根因，也让 canon.model 输出 5 的先后更稳（要对一下 Spec 的写法与差分测试）。这样摘要不用加新项。
+
+### 7. 补充第 1 条与第 5 条的范围：回溯的触发处挪动同样漏；补丁改 `point.启用` 同样漏
+严重程度：阻断（并入第 1 条）、重要（并入第 5 条）
+类别：正确性
+位置：同第 1、5 条
+现象：第 1 条的切口换成 fork.trigger 一样：触发处的变更挪过一条知情变更，带过去的知情变了，摘要不变。第 5 条换成已写补丁 `{op:"set", at:{entry:K, path:"point.启用"}, value:true}` 一样：isMaskChange 不认这条路径，K 不在 R。
+如何核实：x4.ts 第 b、c 段。
+[patch point.启用] LEAK: plan-changed=true digest-changed=false
+  calls before=["time:main#1","fixed"]  calls after =["presence:main#1:e3:e1","time:main#1","fixed"]
+[move rollback trigger] LEAK: plan-changed=true digest-changed=false
+  calls before=["presence:l1#1:e3:e1","time:l1#1","fixed"]  calls after =["time:l1#1","fixed"]
+建议改法：同第 1、5 条，order 放切口与触发处两条变更的位置。
+
+更正第 3 条建议改法里的一句：“开发者已否决读值”写错了，P8 处理里是作者（第 3 条）放弃读值而改联动戳，不是开发者的决定。
+
+### 8. 随机序列走不到上面这些漏项：跑了 8 个种子各 300 步 0 次失败，确定的反例有 6 类；anchoredCheck 操作是空转的
+严重程度：重要
+类别：测试
+位置：packages/neuro-book/src/plugins/plot/testing/random-edits.ts（anchoredCheck、move、linkedPlan、breaker、线的定义）；core/checks/dependencies.test.ts:694（随机序列）；random-edits.ts 文件头“作者能做的真实写入……新加一种读取，这里要加一种操作”，G0 的提交说明“随机序列扩到作者能做的全部写入”
+现象：
+- `anchoredCheck` 的 `at` 永远是 `{entry: person(), path: "character.状态"}`，而 person 没有 `character` 命名空间。发布校验放行、记录存下，但 exactChecks 的 `fieldOf` 为 undefined 直接跳过，核对点从不进 chapterEntries。实测 11 条全部落在人物上，0 条有这个命名空间（x5.ts：`anchored 11 on an entry with the namespace 0`）。第 2 条的路径因此从不被随机序列执行，“每种操作都真的走到”只查 applied，查不出这种空转。普通 `check` 用的是 thing，所以是这一条写错了实体。
+- `move` 明确排除 `id !== cut`；世界只有一条 `type: "branch"` 的线，没有 rollback（文件头的“回溯”和表里的“带过去的”随机序列完全走不到，dependencies.test.ts 也 grep 不到 rollback），所以第 1 条走不到。
+- `linkedPlan` 的两个补丁固定是“改 K + touch”，没有“计划去掉路人那一行”（第 3 条需要计划放 breaker），不带早于安放的讲述，`replace` 的新计划不带补丁（第 4 条要桶早于安放的两目标计划）。
+- 没有同一章两条改同一地址的计划（第 6 条），没有启用（第 5 条），没有删除条目、改别名、章序、活页夹、补问、决策范围或挂在变更与地址上的决策这些操作。文件头的“全部写入”不成立。
+为什么是问题：计划把“靠人列举”换成“机械核对”是这一版的主要安全论证。这个网的操作清单还是人列的，而且漏的正是不变量最容易破的路径。变异检查（作者的提交说明）依据的也是同一张网，所以“多余、已去掉”的判断（第 2 条就是这样来的）带着同样的盲区。
+如何核实：x3.ts 用 randomBook 跑 seeds 11..18、每个 300 步、每步比全部章：`seed 11: leak=0 rChanged=0` …（8 行都是 0）；同时 x1、x2、x4 手写的反例都是 LEAK。输出在 /tmp/review-w00039-t34-I7/scratch/x3-long.out。
+建议改法：anchoredCheck 的 at 改成 thing（或给核对点专门一个带数字字段的条目）。加操作：moveCut、rollback 线（带 trigger、carry）、planBreaker、linkedPlanEarlyTold、sameChapterPlans、toggleEnabled、deleteEntry、moveChapter。“每种操作都走到”加一个“这种操作至少让一章的 plan 变过一次”的统计（moved 分操作计），空转就报。
+
+### 9. 记录视图只看条目读取，不看计划读的其它东西；放行名字类字段时不查“在不在身份集合”
+严重程度：重要
+类别：测试
+位置：core/checks/dependencies.test.ts:621-691（readsOfPlan、IDENTITY_FIELDS、expectReadsCovered）
+现象：
+- 包装只拦 entry、onLine、origins、带 entry 的 changes。计划还读 view.chapterEntries、outcome、object、eventKey、plannedAt、tellings、lines、progress，这些都不记。第 1、2、3、4、6 条的漏项都不是“读了不在 R 的条目”，所以这个核对原理上看不见（它查的是读到的 id 有归属，不是读到的值有覆盖）。
+- `namespaces` 的代理只在读 `fields.x` 时记，读 `namespaces.point` 本身（启用与否决定有没有这个键）不记；第 5 条就是这样漏的。
+- 不在 R 的条目，只要读的字段全在 IDENTITY_FIELDS 里就放行，不查这个条目是否真在身份集合。`identitySet` 是 worldFold 的局部变量，测试拿不到。放行“没进身份集合的人的名字”正是 P8 第 4、5 条那一类；例如把 `readAlong` 里的 `谁告诉的` 删掉，靠的是确定用例，不是这个核对（记录视图不会报，因为读的是 name）。
+- `stored?.type === point && !atEnd.appeared` 放行读到的任何字段，只看“章末还没出场”。
+- `expectReadsCovered` 每 40 步跑一次，且 followUps 固定为空、不带 selfReport。
+- 随机序列的 sign 只比 calls，不比 plan.points、plan.concerns，而头注的“为什么不会漏”依赖“摘要不变则 R 不变”这条不动点。结论没变但 R 变了的情况测不到；一旦发生，存的 R 就落后于当前计划。x3.ts 额外统计了这一项（rChanged），这 8 个种子也是 0，但走不到第 2、3 条的路径，这个 0 不说明什么。第 3 条的世界去掉候选就是这种情况（points 变了 calls 没变，见 x1 第 3 段的旧写法：`before ["e5"] … after []`，plan-changed=false）。
+为什么是问题：计划第 7 条与第二版“三件事”的第三件，文件头写“不靠人列举，机械地核对”。它实际只守“条目读取”这一个切面。
+如何核实：读代码；x1.ts 旧的第 3 段（改两个条目的计划、K 初值 common）输出 `before [ "e5" ]`、`no-change`、`after []`，计划的 points 从 [e5] 变成 []，判定为 no-change。
+建议改法：sign 加上 points、concerns。identitySet 从 fold 交给测试（例如 entriesRead 旁边给一个 `identityOf`），IDENTITY_FIELDS 的放行改成“字段在表里且 id 在身份集合”。其它读取（chapterEntries、outcome、eventKey）至少把涉及的对象也记下来，或者诚实地把测试名与文件头改成“条目读取的归属”。
+
+### 10. 模块头的“为什么不会漏”论证不成立，表的前提写错了
+严重程度：重要
+类别：代码质量（合同与注释）
+位置：dependencies.ts:7-30（模块头）；plan.md 阶段 G 的“为什么不会漏”
+现象：论证是“计划是表里这些读取的纯函数；跨条目的间接影响只有套不套得上这一条路：已写变更放引擎结论，计划放联动戳”。第 1 到 6 条逐条否定了前提：
+- 线上看得到什么不是表里的一行（第 1 条）；
+- 比较时点不止在挂靠那一章起作用（第 2 条，头注第 11 行的括号写反了范围）；
+- 已写变更的引擎结论只有实际模式的，覆盖层上的不一样（第 3 条）；
+- 戳的“只依赖更早的”把桶当时间（第 4 条）；
+- 计划的先后还依赖本章有没有已写变更（第 6 条）。
+为什么是问题：这张表是下一个改计划的人判断“要不要加一项”的唯一依据，它现在声称的比它做到的多。开发者已定不做完整读取集合，所以这张表与随机网就是全部的防线；P8 找到 5 类、这一轮又找到 6 类，靠人列举仍在漏。
+如何核实：见第 1 到 6 条的实验。
+建议改法：修掉各条后把表改成事实；另外交开发者一个可选项（不是这次的决定）：产品路径上加一个抽样复核，摘要相同时每次读待处理顺带重拼一两章比一比，不符就报一条诊断并按重拼的结论，成本封顶（一章约 14 毫秒），这样漏项会被发现而不是一直沉默。这不是开发者否决的“预热”或“完整读取集合”，但确实多一点每次读的开销，所以交开发者定。
+
+### 11. “普通发布后第一次读”的目标没达到，证据的说法比数字轻
+严重程度：重要
+类别：性能
+位置：evidences/scale-g4.txt“普通发布后第一次读”段；plan.md 目标表最后一行“不变差”；dependencies.ts worldFold 与 dependenciesOf
+现象：同一份证据里的数：优化前读待处理 448 到 457 毫秒，基线 270 到 316，比基线多约 130 到 190；优化后 673 到 780，基线 348 到 425，多约 325 到 355；较安静的一轮 578 到 621，基线 212 到 330，多约 290 到 370。比基线的增量约翻了一倍。证据只写“比优化前多几十毫秒”，那是只算摘要自身（94 到 137 加 66 到 101，对优化前 70 加 39），差出来的约一百多毫秒没有解释。
+为什么是问题：这是每次发布都付的路径，也是计划写明要守的目标；(a) 比被优化的 (b)(c) 发生得频繁得多。没跑剖析，所以差额归因未验证。
+如何核实：读 scale-g4.txt 的数字（未重跑，负载一直 6 到 7）。
+建议改法：把没达成写明，交开发者知悉；再剖析一轮差额在哪。代码里看得见的可省处（未量）：entriesInBucket 与 children 用 `[...旧, 新]` 累积（dependencies.ts 的 entriesInBucket.set、children.set，同一个桶上是平方）；revealedAnswers 与 inForeshadow 每个对象算两三遍；每个条目一个 Prefix 五个数组，#texts 只有 identity、foreshadow、material 与戳用，条目历史多数只走 addTo。
+
+### 12. 规模证据的“重拼 N 章”数的是“重拼后仍有效回写”的章，过期的章不算
+严重程度：建议
+类别：测试（证据）
+位置：packages/neuro-book/scripts/perf/plot-scale.ts:317；evidences/scale-g4.txt 表头
+现象：脚本打印“重拼后仍有效回写 N 章”（writeBacks 的差），证据表把它写成“重拼 N 章”。重拼后判过期的章没有回写，不计入。(f) 改第 500 章正文：ch500 与 ch501 的摘要都变（own 放本章与上一章正文摘要）、都重拼，ch500 过期，表上是“重拼 1 章”，而计划目标写的是“这一章、下一章”。别的场景有过期章时同样偏小。
+建议改法：脚本数 planCheck 的调用次数（source 里已经有 validityOf 这一个入口，或包一层 digest 外的计数），证据表用实际重拼数。
+
+### 13. 小的注释与结构问题
+严重程度：建议
+类别：代码质量
+位置与现象：
+- packages/neuro-book/src/plugins/plot/shared/checks.ts:96 附近：`/** 一条检查记录（checks.md 输出 7）……*/` 留在 CheckDependenciesSchema 的文档块上面成了孤儿，CheckRecordSchema 自己没有文档块了。
+- backend/store.ts `dataVersion` 的注释“三张表都空是 1”，现在是四张表、其中一张不进版本。
+- backend/plugin.ts 的 recordDigest 是 `(record) => records.digestOf(record.chapter) ?? ""`：接口收一条记录、实现只看章；测试的 harness 又按记录内容算。两边语义不同，靠“诊断读到的都是表里现在的记录”这句注释连着。SourceInput 已有 ChapterRead，让 records 同时是 ChapterRead，valid 里直接 `records.digestOf(chapter)`，参数就少一个。
+- dependencies.ts:305 与 points.ts maskingPoints、knowledge.ts goalsWithSecret 里的 `path === "point"`、`path === "goal"`：core/address.ts 的 NAMESPACE_PATH 要求 `根.字段`，这样的路径 parsePath 给 null，套用时就是 type-mismatch，这个分支走不到。
+- dependencies.ts 的 caches.identities 与 caches.exact 对身份投影存了两层（identities 没有键比较，exact 那层在这里永远是第一次），可以只留一层。
+如何核实：读代码；NAMESPACE_PATH 在 packages/nb-canon/src/core/address.ts:20。
+
+补充（第 1 到 6 条的端到端复现）：x7.ts 走产品的 createCheckSource，记录由 runCheck 用替身模型真跑出来，摘要照 createChecks 那样存，改动后比 source.valid 与全量重拼的 isValid。实现 worktree 仍是 2a87397a6。输出：
+1 move cut: before source=true replan=true; after source=true replan=false << DIFFERENT
+2 undo anchor: before source=true replan=true; after source=true replan=false << DIFFERENT
+3 plan flips written in overlay: before source=true replan=true; after source=true replan=false << DIFFERENT
+4 linked plan early bucket: before source=true replan=true; after source=true replan=false << DIFFERENT
+5 enable patch: before source=true replan=true; after source=true replan=false << DIFFERENT
+6 written flips plan order: before source=true replan=true; after source=true replan=false << DIFFERENT
+也就是说这六种改动之后，诊断继续报过期的结论，不给 stale 提示，重启也不会好（摘要表还是对得上的）。
+
+### 14. 变异检查里活下来的项：摘要的三处读取没有用例守着（现在的代码是对的，改坏了没人知道）
+严重程度：重要
+类别：测试
+位置：dependencies.ts 的 coarse（段号）、order 的滚动（`JSON.stringify(chapterSegments.get(chapter))`）；core/checks/plan.ts 的 readAlong（物件）
+现象：用 Bun.plugin 在加载时改源码（不动仓库文件，scratch/mut-preload.ts、mut.ts、mut2.ts），对依赖摘要做 31 个变异、对内核与计划做 8 个变异，跑 dependencies、source、backend/checks、backend/store 四个测试文件（内核的跑 nb-canon 全部）。默认种子下，下面三个活下来，且我用确定的世界证明它们不是等价变异（真实代码 both-changed，变异后 LEAK）：
+- 粗定位去掉段线（M06）：x8.ts，引文从主线段挪到支线段，读者不再读到揭示，试读多一次。
+[telling moves across segments] LEAK: plan-changed=true digest-changed=false（变异后）；真实代码 both-changed。
+- order 不放分段（M26）：x10.ts，活页夹把第 5 章从主线改成讲支线，段号都是 0，粗定位不变。
+[binder of ch5 changes line] LEAK: plan-changed=true digest-changed=false（变异后）；真实代码 both-changed。
+- concerns 不放物件（P02，只跑了 dependencies.test.ts）：x9.ts，物件层候选的题面写“读者在本章之前见过/没见过”，前面加一条碰物件的已写变更。
+[object seen before flips] LEAK: plan-changed=true digest-changed=false（变异后）；真实代码 both-changed。
+为什么是问题：G3 提交说明里“变异检查证明多余的项去掉”的做法要求测试能杀死真需要的项。这三项今天没被去掉是运气：同样的流程跑下去，它们也会被判“多余”。
+另外两个存活项的判断：
+- order 不放分叉（M25）：没找到结论因此变的写入，分叉的切口、父线、类型都在 lines() 里，补丁提到的条目在历史里。像是多余项，可以去掉（未穷尽，从代码推断）。顺带：lines() 整份进 order，改线的名字会重拼全书（x10.ts 第 2 段 `digest-only`），计划不读线名，可以只取 id、parent、fork、type、cut、trigger、exists、unbuildable。
+- 内核 lastRead 不比 entry（K03）：条目变了时 recompute 总是建新时间线，这个比较走不到，是防御性的，留着无妨。K04（不冻结）活下来是预期的：冻结只在有人改的时候才抛错。
+readAlong 去掉谁告诉的（P01）只被两个确定用例杀死，随机序列与记录视图都没有报，印证第 9 条。
+如何核实：bun run /tmp/review-w00039-t34-I7/scratch/mut.ts（结果 scratch/mut.out）；单个变异：MUT='<JSON>' bun run --preload scratch/mut-preload.ts scratch/x9.ts。
+建议改法：把 x8、x9、x10 第 1 段写成确定用例，放进“改了这一样，结论变了，摘要也变”。
+
+## 未发现问题的方面
+- 累加：两路 52 位求和不会让两个不同状态相同（实际可达的范围内）。值在 2^53 以内没有精度问题；Prefix 的升序前提成立（条目本身先进 -1 桶，桶按升序处理，同桶里已写先于联动计划，at 之后加同桶会清 #texts）。条目数也进摘要。项的内容含 at 与提到的条目，所以换归属必然换值。两路求和丢掉“这个值归哪个条目”也没有造成问题，因为值里带着内容。
+- 提到：`\be\d+\b` 与 id 的发号规则（core/ids.ts 前缀 e 加数字）一致，中文相邻、路径方括号都有词界。
+- view.object、allChanges、allChecks、entries 都是全部线的，核对点与决策挂在子线变更上时 anchorAt、decisionFold 取得到。
+- 链接的桶：不动点循环正确（变异 M15 被杀死）；成组用并查集，根也记进 groups。
+- 内核 G1：foldAtPoint 的 lastRead 按时间线存，时间线只在 recompute 里新建与追加，算完不再变；干净条目跨版本、跨覆盖层共用时间线，共用的也是同一份内容。count 为 0 共用的 entry.init 在世界表里已冻结（world.ts:611、999、1002）。includedPlans 的键是完整 rank，引擎实例不变，返回数组没有调用方改。chapterEntryIndex 与旧循环的筛选一致，差分用例能杀死 K01、K02、K05、K06。fieldValue 不克隆：直接用 engine.entry 的 render/、world/edits.ts、service/service.ts、world/world.ts 的 impact 我逐处读过，都是只读或先 structuredClone。nb-canon 全部 417 个用例在固定提交上通过。
+- readAppeared 的缓存：检查路径（含 ledgers.ts、namesOfSegments）只读名字、别名、简介与精确档字段（保密、读者问题、揭穿），没读语义档；缓存 null 也生效（known !== undefined）；position.line 不进键没关系，engine.entry 不读它。
+- G2：记录写成功而摘要写失败时算成功并 changed；崩溃在两次写之间时 of 对不上走重拼；并发回写由队列与 of 比较挡住，同一条记录上的先后按队列；重启后 of 由读回的内容重算，x6.ts 证明 JSON 往返后规范 JSON 相同，所以不会因此全书重拼；旧形状记录按没有处理，槽位的 revision 保留，下次写正常覆盖。变异 M27 到 M31 都被杀死。
+- source.ts 的备忘按备忘的 R 重算的逻辑正确（前提是摘要本身不漏）。
+- 类型检查（tsc --noEmit）在固定提交上干净；dependencies、source、backend/checks、backend/store 用例通过，source 与 backend 用另一个种子跑 500 步也通过。
+
+## 各级数量
+阻断 4，重要 7，建议 2；第 7 条是对第 1、5 条的补充，不单独计。撤回 0。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

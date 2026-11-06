@@ -26,6 +26,7 @@ export const BUILTIN_PLUGIN_IDS = [
     "nbook.settings",
     "nbook.state",
     "nbook.storage",
+    "nbook.theme-study",
     "nbook.workbench",
     "runtime.diagnostics",
 ] as const;

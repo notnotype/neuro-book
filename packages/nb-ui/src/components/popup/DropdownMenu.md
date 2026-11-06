@@ -10,19 +10,19 @@
 
 组件由触发器、主菜单浮层和零个或多个级联子菜单组成。条目是弹出列表共用的一行（`.nb-ui-menu-item`）：高 `--menu-item-h`、字 `--menu-item-font`（缺省取 `--text-sm`），圆角由外框圆角减内边距推出；勾与图标共用左侧一列：`checked` 的项画勾（替代它的图标），其它项画 `iconClass`，同一级有 radio/checkbox 或有一项带图标时每行都留出这一列，名称左边对齐；勾选项与带图标的项通常不放在同一级。快捷键照常显示在右侧。主菜单默认宽度至少 160px，调用方可以用 `menuClass` 改写。菜单内容在内部滚动视口中：项超过 8 个时视口截在第 9 项的中间、露出半项提示还能滚（按真实盒子量，分隔线与换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧，空间不够时视口跟着收矮。可滚动时显示悬浮胶囊滑块，视口右侧给它让出 6px。级联子菜单每一级同样截断与滚动。
 
-浮层通过 `DropdownMenuPortal` 脱离触发器所在 stacking context。`side`、`align`、`sideOffset` 控制锚点关系，默认在底部、起点对齐并留 7px 间距；碰撞时由上游定位原语按 8px 边界向视口内调整。级联菜单与父项保留 6px 间隙并在空间不足时翻到另一侧。
+浮层通过 `DropdownMenuPortal` 脱离触发器所在 stacking context。`side`、`align`、`sideOffset` 控制锚点关系，默认在底部、起点对齐并留 7px 间距；碰撞时由上游定位原语按 8px 边界向视口内调整。级联菜单与父项保留 6px 间隙并在空间不足时翻到另一侧。触发器带按下缩放时，浮层按缩放前的外框定位，不跟着形变移动。
 
 组件本身不换行菜单项，条目文字超出时截断；在 `390×844` 窄屏中浮层会按定位原语的碰撞规则收进视口，但触发器的宽度和菜单项的内容宽度仍由父级提供。父级应给触发器合理的可用宽度。
 
 ## 交互
 
 - 默认插槽内容是触发器；点击或由上游菜单原语支持的键盘操作打开/关闭菜单。组件不锁定页面指针事件（`modal` 为 `false`）。
-- 点击普通叶子项发出 `select`，传该项的 `value`；禁用项不发出，带 `children` 的父项只展开子菜单，不选择自己。
+- 点击普通叶子项发出 `select`，传该项的 `id`；禁用项不发出，带 `children` 的父项只展开子菜单，不选择自己。
 - `type: "radio"` 或 `"checkbox"` 的项分别使用对应 menuitem 语义并显示 `checked`；组件只读 `checked`，选择后仍由宿主更新输入数据，不在内部切换。
 - 指针悬停首次展开子菜单等待 300ms；点击、键盘 ArrowRight（以及父项上的 Enter、空格）或已有同级面板切换立即展开。离开/关闭会清理级联状态。
 - 级联面板的键盘：键盘展开时焦点进新一级的第一项；上下键、Home、End 在本级可用项之间移动（跳过分隔线与禁用项）；ArrowRight、Enter、空格在父项上展开下一级；ArrowLeft 收起本级、焦点回到展开它的那一项；Escape 关掉整个菜单、焦点还给触发器。
 - 级联面板在上游菜单内容之外：面板里的指针按下与焦点不算“点了外部”，菜单不关；在面板里选中一项后整个菜单收起（非受控时由组件自己关，受控时经 `update:open` 报 `false`）。
-- 菜单关闭时 `update:open` 报告 `false`，上游负责把焦点归还触发器；打开后的方向键、Escape、Home/End 等菜单漫游行为由 Reka UI 负责。组件声明的 `focus` 事件当前实现没有发出路径，见「已知偏差」。
+- 菜单关闭时 `update:open` 报告 `false`，上游负责把焦点归还触发器；点外部关闭时焦点随用户点的位置，不抢回触发器；打开后的方向键、Escape、Home/End 等菜单漫游行为由 Reka UI 负责。组件声明的 `focus` 事件当前实现没有发出路径，见「已知偏差」。
 - 菜单内容溢出时可滚动；拖动右侧悬浮滑块滚动（指针捕获在滑块上，按下不夺焦点、不关菜单）。键盘移到看不见的项时：级联子菜单只滚动这一级的视口、滚最少的距离并让开渐隐；主菜单的项由 reka 聚焦，浏览器按聚焦的规则把它滚进视口（可能滚到中间）。
 - 某一级滚动时（滚轮或拖滑块），它展开的更深层级收起；焦点在被收起的层级里时回到展开它的那一项。
 
@@ -58,7 +58,7 @@ type DropdownMenuProps = {
 
 type DropdownMenuEmits = {
     /** 叶子项被选择时发出；禁用项和级联父项不发出 */
-    (event: "select", value: string): void;
+    (event: "select", id: string): void;
     /** 声明的焦点事件；当前实现没有触发路径，见「已知偏差」 */
     (event: "focus", payload: FocusEvent): void;
     /** 展开态变化时发出；受控和非受控两种用法都会发出 */
@@ -77,8 +77,8 @@ type DropdownMenuSlots = {
 interface DropdownMenuItemData {
     /** 菜单项可见文字；必填，分隔项会忽略 */
     label: string;
-    /** 菜单项稳定值；必填，也用作分隔项 key */
-    value: string;
+    /** 菜单项的身份；必填，`select` 事件发它，也用作分隔项 key */
+    id: string;
     /** 是否禁用选择；默认 false */
     disabled?: boolean;
     /** 左侧装饰图标 class；默认不显示 */
@@ -89,8 +89,8 @@ interface DropdownMenuItemData {
     shortcut?: string;
     /** 原生提示与读屏描述（`aria-description`），例如禁用原因；禁用项同样带上；默认 undefined */
     title?: string;
-    /** 视觉语气；"danger" 只换文字与图标的颜色，高亮底色与其它项相同；默认 "default" */
-    tone?: "default" | "danger";
+    /** 视觉语气；"danger" 只换文字与图标的颜色，高亮底色与其它项相同；默认 "neutral" */
+    tone?: "neutral" | "danger";
     /** 是否显示分隔线；默认 false */
     separator?: boolean;
     /** 子菜单数据；非空时本项只展开子菜单、不发 select；默认 undefined */
@@ -121,7 +121,7 @@ type DropdownMenuItemType = "item" | "radio" | "checkbox";
 
 ## 不支持
 
-- 不支持替宿主切换 radio/checkbox 的 `checked`，也不执行 `value` 对应的业务命令。
+- 不支持替宿主切换 radio/checkbox 的 `checked`，也不执行 `id` 对应的业务命令。
 - 不支持内置搜索、分页、异步加载或多选结果汇总；长列表只有滚动能力。
 - 不支持自定义 Portal 目标；目标位置及目标不可用时的具体表现由 Reka `DropdownMenuPortal` 决定，本地源码未核实。
 

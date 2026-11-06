@@ -47,6 +47,25 @@ export type DropAction =
 
 const NONE: DropAction = {kind: "none"};
 
+/**
+ * 动作的比较键：放下时重判的动作要与最后显示过的键相同才提交，没有落点为 null。只含决定结果的字段，插入线与标签的锚点只用来
+ * 画反馈，不算。
+ */
+export function dropKey(action: DropAction): string | null {
+    switch (action.kind) {
+        case "none":
+            return null;
+        case "move":
+            return JSON.stringify(["move", action.target]);
+        case "reorder":
+            return JSON.stringify(["reorder", action.parent, action.before, action.names]);
+        case "place":
+            return JSON.stringify(["place", action.target, action.before]);
+        case "open":
+            return JSON.stringify(["open", action.group, action.addresses]);
+    }
+}
+
 /** 缩进：与 `ExplorerRow` 的行内边距一致（第 d 层的展开箭头从 8 + 12d 起，宽 16）。 */
 const INDENT_PX = 12;
 /** 第 d 层展开箭头的中线：指针在它右边就算第 d 层（指针在名字上时取最深的一层）。 */

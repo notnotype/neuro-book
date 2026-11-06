@@ -11,11 +11,11 @@ import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.j
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
-import type {ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
+import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 import type {LogStore, StorageResult} from "./storage.js";
-import type {ApprovalVerdict, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo} from "./tool.js";
+import type {ApprovalVerdict, ToolCall, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolStatus} from "./tool.js";
 
 // ====================================================================
 // 指令
@@ -50,6 +50,8 @@ export interface CommandMap {
     changeProfile: {args: {profile: string}; value: {changed: boolean; hash: string; diagnostics: number}};
     setTitle: {args: {title: string}; value: {}};
     archive: {args: {archived: boolean}; value: {}};
+    /** 宿主写自动生成的标题与说明，不进远程合同；最近一次标题是用户改的时不改标题，`titleApplied` 为 false（runtime.md 输出 72）。 */
+    setGeneratedMeta: {args: {title?: string; description?: string}; value: {titleApplied: boolean}};
 }
 export type CommandName = keyof CommandMap;
 export type CommandErrorCode<K extends CommandName> = CommandErrorTable[K][number];
@@ -96,10 +98,17 @@ export interface InteractionSummary {
     kind: "approval" | "question";
 }
 
+/** 模型请求失败后在等重发（docs/specs/harness/runtime.md 输出 65）。`resumeAt` 是注入时钟上的毫秒。 */
+export interface RetryWait {
+    readonly attempt: number;
+    readonly max: number;
+    readonly resumeAt: number;
+}
+
 /** 运行到哪了。`aborting`、`compacting` 这类中间态不进日志，由服务端给。 */
 export type RunStatus =
     | {state: "idle"}
-    | {state: "running"; runId: string; turnId: string | null; phase: "requesting" | "streaming" | "tools" | "compacting"; request: number | null}
+    | {state: "running"; runId: string; turnId: string | null; phase: "requesting" | "streaming" | "tools" | "compacting"; request: number | null; retry?: RetryWait}
     | {state: "waiting"; runId: string; pending: InteractionSummary[]}
     | {state: "aborting"; runId: string}
     /** 写日志失败过：会话只能关闭后重开。 */
@@ -134,9 +143,15 @@ export interface SessionSnapshot {
     profile: {id: string; hash: string};
     extensions: ExtensionInfo[];
     status: RunStatus;
+    /** 这个会话累计的费用与 token。 */
+    usage: Spend;
+    /** 现在这个会话发对话请求会用哪个模型（runtime.md 输出 77）。 */
+    model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | {ok: false; code: ModelResolutionCode};
     buffer: BufferedInput[];
     settings: CoreSettings;
     title: string | null;
+    /** 会话的一句话说明；没写过时为 null。 */
+    description: string | null;
     archived: boolean;
     /** 会话为什么只读（Profile 解析不到、必需工具缺失、重新装配失败）；可写时为 null。 */
     readOnly: {code: "unknown-profile" | "tools-missing" | "dependency-missing" | "reassembly-failed"} | null;
@@ -144,6 +159,31 @@ export interface SessionSnapshot {
     /** `profile`：Profile 的代码变了、要重新解析（`AgentHost.profilesChanged`）。 */
     pendingReassembly: {added: string[]; removed: string[]; profile?: true} | null;
     diagnostics: {errors: number; warnings: number};
+}
+
+/** 会话树的一个节点，只有结构（runtime.md 输出 80）。`label` 是经出站过滤后的文字开头，过滤掉的或没有文字的没有。 */
+export interface TreeNode {
+    id: string;
+    parent: string | null;
+    type: string;
+    seq: number;
+    label?: string;
+}
+
+/** 有多于一个孩子的节点（runtime.md 输出 81）。 */
+export interface BranchPoint {
+    parent: string | null;
+    children: {node: string; latestLeaf: string}[];
+}
+
+/** `missing`：地址读不到（会话被删了）。`unusable`：读到了但发不了（损坏、格式不支持），`reason` 写进诊断。 */
+export type AttachmentRead =
+    | {readonly data: string; readonly mime: string; readonly width?: number; readonly height?: number}
+    | {readonly missing: true}
+    | {readonly unusable: string};
+
+export interface AttachmentPort {
+    read(uri: string, options: {readonly signal: AbortSignal}): Promise<AttachmentRead>;
 }
 
 export interface RewindTarget {
@@ -182,6 +222,9 @@ export interface SessionQueries {
     rewindTargets(): Promise<RewindTarget[]>;
     /** 从根到 `leaf`（缺省当前叶子）的路径上的事件。 */
     path(args?: {leaf?: string | null}): Promise<LogEvent[]>;
+    /** 按 seq 分页读整棵树的结构，不读事件全文。 */
+    treeNodes(args?: {afterSeq?: number; limit?: number}): Promise<{nodes: TreeNode[]; more: boolean; through: number}>;
+    branchPoints(): Promise<BranchPoint[]>;
     /** 与 `node` 同一个父节点的兄弟（重试与 swipe 的结果）。 */
     siblings(args: {node: string}): Promise<{node: string; latestLeaf: string}[]>;
     runResult(args: {runId: string}): Promise<RunResult | null>;
@@ -203,6 +246,8 @@ export interface DeltaFrame {
     n: number;
     part: "text" | "thinking" | "toolArgs";
     callId?: string;
+    /** `toolArgs` 的第一块带工具 id（runtime.md 输出 76）。 */
+    tool?: string;
     text: string;
 }
 export type Frame =
@@ -211,6 +256,8 @@ export type Frame =
     | DeltaFrame
     /** 不进日志的状态变化；`afterSeq` 说明它出现在哪条日志事件之后。 */
     | {type: "status"; status: RunStatus; afterSeq: number}
+    /** 一个工具调用执行完了（runtime.md 输出 76）。权威仍是这批调用的 `toolResult`：它们要等整批结束才一起写下。 */
+    | {type: "tool"; callId: string; status: ToolStatus}
     | {type: "diagnostic"; diagnostic: Diagnostic}
     /**
      * 有出站过滤时，一条事件不给这个读者看：订阅已经扫到 `through`。界面等指令的 `seq`（`CommandOk.seq`）时，log 帧的 seq
@@ -315,6 +362,8 @@ export interface ToolSessionContext {
     readonly sessionId: string;
     readonly profile: string;
     readonly project?: string;
+    /** 后台会话：没有人在看，工具不要等用户回答。 */
+    readonly background?: true;
 }
 
 /** 审批钩子看到的信息：工具声明、按参数求得的等级、核心设置、批准记忆。 */
@@ -356,12 +405,22 @@ export interface DeltaContext extends OutboundContext {
     readonly before: string;
 }
 
+/** 模型请求的重发（docs/specs/harness/runtime.md 输出 62）。 */
+export interface RetryPolicy {
+    /** 一次请求最多再发几次；0 表示不重发。 */
+    readonly maxRetries: number;
+}
+
 export interface SessionEnv {
     readonly store: LogStore;
     readonly profiles: {resolve(key: string): AnyProfile | undefined | Promise<AnyProfile | undefined>};
     /** 插件经 `agent.extensions` 贡献的扩展（Profile 可按标签排除）。 */
     readonly extensions?: () => readonly ContributedExtension[];
     readonly models: ModelPort;
+    /** 读用户附件的图片（runtime.md 输出 82）：交回能发给模型的样子（缩放由宿主做）。没有时图片换一行文字。 */
+    readonly attachments?: AttachmentPort;
+    /** 每次失败时现读，设置改了下一次失败就生效。不给就不重发。 */
+    readonly retry?: () => RetryPolicy;
     readonly tools: {
         declarations(context: ToolSessionContext): readonly ToolDeclaration[];
         create(id: string, context: ToolSessionContext): ToolImplementation | Promise<ToolImplementation>;
@@ -373,14 +432,33 @@ export interface SessionEnv {
     readonly approve: ApproveHook;
     readonly outbound?: OutboundFilter;
     /**
-     * 压缩：方法表（按名字，Profile 的 `compaction` 给顺序）与压缩之后放回的内容（最近读过的文件、计划、Skill，
+     * 压缩：方法表（按名字）、缺省顺序（Profile 的 `compaction` 写了的优先）与压缩之后放回的内容（最近读过的文件、计划，
      * 每段一条给模型的文字）。不给时压缩方法都算没有，压缩总是失败（docs/specs/harness/runtime.md 输出 46–52）。
      */
     readonly compaction?: {
         readonly methods?: Readonly<Record<string, CompactionMethodImpl>>;
-        /** `signal` 在运行被中止时触发；不理会它也不会挡住中止（内核不再等）。 */
-        restore?(context: ToolSessionContext, signal: AbortSignal): Promise<readonly string[]> | readonly string[];
+        readonly order?: {readonly onThreshold?: readonly string[]; readonly onOverflow?: readonly string[]};
+        restore?(context: ToolSessionContext, args: CompactionRestoreArgs): Promise<CompactionRestored> | CompactionRestored;
     };
+}
+
+/** 放回时知道的这次压缩的情况（docs/specs/harness/runtime.md 输出 48）。 */
+export interface CompactionRestoreArgs {
+    /** 在运行被中止时触发；不理会它也不会挡住中止（内核不再等）。 */
+    readonly signal: AbortSignal;
+    readonly method: string;
+    readonly replacement: string | null;
+    /** 压缩前的路径。 */
+    readonly path: readonly LogEvent[];
+    /** 这次压缩按哪个模型算的窗口；未知是 0。 */
+    readonly contextWindow: number;
+}
+
+export interface CompactionRestored {
+    /** 每段一条给模型的文字。 */
+    readonly notices: readonly string[];
+    /** 放回了什么，写进 `compaction` 事件给界面看；不进请求。 */
+    readonly restored?: JsonValue;
 }
 
 // ====================================================================
@@ -416,7 +494,7 @@ export type CreateSession = (env: SessionEnv, options: CreateSessionOptions) => 
 export type OpenSession = (env: SessionEnv, id: string) => Promise<StorageResult<SessionApi>>;
 
 /** 不带工具的单次请求：不读写会话日志；只接受不声明工具的 Profile。 */
-export type Complete = (env: Pick<SessionEnv, "models" | "resources" | "clock" | "profiles">, options: {readonly profile: string; readonly input: UserInput; readonly initial?: JsonValue; readonly signal?: AbortSignal}) =>
+export type Complete = (env: Pick<SessionEnv, "models" | "resources" | "clock" | "profiles" | "retry">, options: {readonly profile: string; readonly input: UserInput; readonly initial?: JsonValue; readonly signal?: AbortSignal}) =>
     Promise<{ok: true; result: Omit<RunResult, "runId" | "entries">} | {ok: false; code: "profile-has-tools" | "unknown-profile" | ModelResolutionCode}>;
 
 // ====================================================================

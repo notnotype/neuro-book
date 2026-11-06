@@ -1,0 +1,131 @@
+# w00032 t17 后端实现审查
+
+审查提交：`5eae766ff51e0d4ff52f14015a0ca9883ceac580..0c2ff91eaeeba6db9a4488e67a0ddf185c441206`。只读；实验在 `/tmp/claude-t17-review-lab`；合同采用主工作区版本。条目按严重程度编号，后续同级按影响追加。
+
+### 1. 用户省略结构化回答即可绕过 ask 的全部校验
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/neuro-book/src/plugins/agent/backend/builtin/ask.ts:116-120`。
+- **现象：** 前台用户经 `session.resolve` 提交 `decision: "answer", answer: {text: "plain text only"}`，不带 `data`，`ask-form` 直接返回 `status: "ok"`。请求有一道必填 `age: integer` 的表单时也如此；题数、选项和表单一项都没有校验。代码注释只为父会话纯文字回答开例外，分支实际没有区分回答者或 `questions: "caller"`。
+- **为什么是问题：** `builtin-tools.md` 输出 23 和计划的回答合同要求不合规回答得 `ask-invalid-answer`；这条分支使最需要防守的“其它调用方”反而能彻底绕过防守。结构化多选的 `selected: ["A", "A"]` 也被接受并原样作为 `A；A` 交给模型，没有唯一性校验。`ask.ts` 在 base 不存在，这是新增行为的问题。
+- **如何核实：** 从审查 worktree 执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-t17-review-lab/backend-probes.ts answer`。实验经真实插件运行时、JSON 远程链路场地、本机 OpenAI 兼容端点调用内置工具；不是直接调校验函数。三次回答结果依次为：空结构化答案 `ask-invalid-answer`；省略 data 的纯文字 `ok`；重复选项 `ok`。
+- **建议改法：** 用户回答统一要求 `data.answers`，始终走题数、选项、唯一性和表单校验；若保留父会话纯文字入口，须把内核已认证的回答者信息传给工具，再按该身份明确开放例外，而不是按 `data` 缺失推断。已有回答校验用例补齐这两种绕过方式。
+
+### 2. 拦截器只改工具 id 时，写工具沿用读工具的审批结论
+
+- **严重程度：重要；类别：安全与性能。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/nb-harness/src/kernel/run/tools.ts:262-267,302-307`。
+- **现象：** `lab.read` 的调用在拦截器中改成 `lab.write`，id 与参数不变时，`recorded` 只比较参数的规范化 JSON，因此直接复用 `lab.read` 的放行结论。实验中审批钩子明确拒绝 `lab.write`，当前实现仍执行了它，`toolStarted` 记录 `tool: "lab.write", approval.by: "rule:read"`。
+- **为什么是问题：** 工具拦截的公开 `next` 接受整份 `ToolCall`，没有禁止改 `tool` 的限制。审批缓存的身份却没有包含 `tool`。这是本次回归：base 在 terminal 内对 `final` 调审批钩子，同一实验得到 `write-forbidden`，执行次数为 0；当前执行次数为 1。不是已接受的“改参数后再问”取舍，而是对另一个工具完全没有重新判定。既有结果仍用原调用名的记录方式在 base 就存在，不单独算本次问题。
+- **如何核实：** 审查 worktree 运行 `bun /tmp/claude-t17-review-lab/approval-reroute.ts`，输出 `approved: ["lab.read"], ran: ["write"]`；`bun /tmp/claude-t17-review-lab/approval-reroute-base.ts` 输出 `approved: ["lab.write"], ran: []`。基线实验源码由 `git archive 5eae766ff51e0d4ff52f14015a0ca9883ceac580 packages/nb-harness` 导出到 `/tmp/claude-t17-review-lab/base`，使用本 worktree 的 node_modules；两次均经真实会话、模型回复、拦截链和执行入口。
+- **建议改法：** 复用结论至少同时核对原工具 id 与参数；改派时按目标工具的声明重新校验参数、求 effect 并审批，或把工具身份在拦截链中定义为不可修改并在 `onNext` 强制校验。补一条“读调用改派到被禁止的写工具不得执行”的行为用例。
+
+### 3. hashline 跨调用粘贴寄存器时，审批预览静默变成空列表
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts:181-202`；`/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/neuro-book/src/plugins/agent/backend/builtin/preview.ts:39-46`。
+- **现象：** 先执行 `CUT 2.=2 @saved` 把 `beta` 存进会话寄存器；下一次对另一个已读文件调用 `PUT >1 @saved`，远程 `approvalPreview` 成功返回 `{files: []}`。批准后目标实际从 `one\ntwo\n` 改成 `one\nbeta\ntwo\n`。
+- **为什么是问题：** 副本只复制了文本快照和 seenLines，没有复制 `EditStore` 的 clipboard registers。原生 `EditStore` 的公开声明明确还保存寄存器与 no-op guard；空的新 store 不等价于实际执行状态。试算失败时目标列表又依赖不完整的 `editInspect(...).paths`，导致连 `failed` 都没返回。内置 edit 的合法操作被展示为“没有专门预览”，用户失去文件清单与明确的预览失败原因，违反输出 26 的逐文件结果合同。这条预览路径为本次新增，base 的真实 edit 本来就保留会话寄存器。
+- **如何核实：** 审查 worktree 运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-t17-review-lab/backend-probes.ts register`。走真实插件、内置 read/edit、远程 approvalPreview 和批准执行；输出 `cut.status: ok`、`preview.files: []`，随后磁盘目标出现 `beta`，实验没有直接改会话 store。
+- **建议改法：** 在原生引擎提供完整只读 clone/preview 能力后复用完整状态；当前至少要可靠枚举 hashline 头里的全部目标，对不能复现的寄存器操作逐文件返回 `failed`，不能成功返回空列表。不要在真实 store 上试算再回滚，它会动行锚与寄存器。
+
+### 4. 只读 hashline 预览会创建尚不存在的 Profile 目录
+
+- **严重程度：重要；类别：不变量。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts:188-193`。
+- **现象：** 对一个此前没有笔记目录的 Profile，模型请求编辑 `profile://probe.md`；尚未批准时查询 `approvalPreview`，返回文件不存在，但 `<状态根>/agent/profiles/test.review.main/` 已在磁盘上创建。用户随后拒绝审批，目录仍然保留。
+- **为什么是问题：** 复制行锚前的 `resources.readPath` 不是无副作用的读取：Files 的 `workspace-files.ts:116-127` 把它映射到 `realPath`，`mounted.ts:33-35,297-300` 明确将 `realPath` 视为 materializing 操作；`profiles` 挂载声明 `create: true`。预览在 `runEngine` 的只读预检之前就走了这条路径，违反 `builtin-tools.md` 输出 26 和计划的“不写盘”。原有 edit 执行可物化目录不算回归；新预览在用户批准前调用它才是本次的问题。
+- **如何核实：** 审查 worktree 执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-t17-review-lab/backend-probes.ts readonly`。真实内置 edit 等审批，远程预览得 `{kind:"failed",code:"not-found"}`；文件系统检查 `directoryCreated true`，随后拒绝调用。实验没有提前创建该 Profile 目录。
+- **建议改法：** 预览需要 Files 的非物化定位入口，或先用只读 `resources.read` 验证目标存在与授权后再获取既有目标真实路径；不要用现有 materializing `readPath` 做快照种子预检。为预览被拒与不存在目标补磁盘无副作用的合同断言。
+
+#### 第 3 条原因补充（以此段为准）
+
+`bun /tmp/claude-t17-review-lab/edit-inspect.ts` 验证 `editInspect` 能枚举该目标，前述“目标列表不完整”归因不成立。`bun /tmp/claude-t17-review-lab/scratch-register.ts` 继续验证：缺寄存器的 scratch 引擎把 `PUT >1 @saved` 当成成功的 no-op（`isError: false`，没有调用 writer）；`previewEdit` 只收集 writer 的输出且成功时不处理 unwritten，所以最终空列表。第 3 条现象、影响和建议仍成立；应完整复制寄存器，且对“目标存在但没有生成内容”的结果明确处理，不能静默丢掉目标。
+
+### 5. 工具超过中止宽限期后仍推成功帧，覆盖已经结算的 unknown
+
+- **严重程度：重要；类别：不变量。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/nb-harness/src/kernel/run/tools.ts:356,393-405`。
+- **现象：** 工具不响应 AbortSignal，2,000 ms 宽限期到后日志已写 `toolResult{status:"unknown",code:"aborted"}` 与 `runEnded{aborted}`；之后工具才返回成功，新增的 `core.emit({type:"tool",callId,status:"ok"})` 仍然发给订阅者。真实帧顺序是 unknown、runEnded、ok，而不是“迟到结果只诊断”。
+- **为什么是问题：** 输出 25 要求宽限期后的结果丢弃；输出 76 明确批末 toolResult 才是权威。外层确实不再写日志，却挡不住 runCall 内直接 emit 的新帧。对应 transcript 的完成帧覆盖表按 callId 叠加显示，迟到 ok 会把已落盘 unknown 显示成成功；刷新又回 unknown。这个 emit 是本次新增，base 没有这条迟到状态通道。
+- **如何核实：** 审查 worktree 执行 `bun /tmp/claude-t17-review-lab/late-tool-frame.ts`。实际调用会话 send、等 execute 开始、abort、推进注入时钟 2,000 ms，得到 `afterGrace` 两帧：unknown 与 runEnded；释放真实工具 Promise 后 `afterLate` 追加第三帧 `{type:"tool",status:"ok"}`。不直接调用 runTools、不伪造帧。显示影响由现有消费者代码推断；未运行浏览器。
+- **建议改法：** 工具完成帧经运行所有者的有效期检查输出，宽限期结束后与日志写入一样拒绝；在段内确定该调用结果仍有效时再推帧，而不是在已经脱离运行的 runCall 内无条件 emit。现有中止测试同时断言不再推迟到完成帧。
+
+### 6. 256 KiB 限额在整份编辑之后才检查，预览会先分配巨量结果
+
+- **严重程度：重要；类别：安全与性能。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/neuro-book/src/plugins/agent/backend/builtin/preview.ts:39-43`；`/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts:104-109,146-150`。
+- **现象：** 一个 1,048,576 字节的文件（已经是预览上限的 4 倍），把每个 `a` 替换成 64 个 `b`，查询预览先经原生引擎生成 67,108,864 字节结果，再返回 `too-large`。实测仅这次预览耗时 1,525 ms，进程峰值 RSS 从 337,460 KiB 升到 688,160 KiB，增加 350,700 KiB；用户尚未批准执行。
+- **为什么是问题：** 明知输入文件超过 256 KiB，仍做全文读取、试算和大字符串复制，最后才在 `fileEntry` 判大。`replace_all` 的输出膨胀比例受参数控制，输入 32 MiB 的资源允许读入，输出没有预览预算，自动加载 diff 就能在批准之前消耗数百 MiB 乃至耗尽进程内存。base 没有这条自动预览入口；实际写工具被批准后执行的既有成本不算本次问题。大文件的通道分段解决不了服务端分配。
+- **如何核实：** 审查 worktree 执行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-t17-review-lab/large-preview.ts 1048576 64`。真实插件、内置 edit-replace 等审批、真实远程 approvalPreview；输出 `{kind:"too-large",bytes:67108864}` 及以上 RSS/耗时。实验只拒绝审批，没有执行编辑。
+- **建议改法：** 在跑引擎前，经会话权限的只读定位/stat 判断原文件字节数，超过预算立即返回 too-large；对小文件变成大结果也要在引擎内限制预览输出和计算预算，不等完整字符串造完再判断。需要原生引擎提供受限 preview，不能只在 JS writer 末端检查。
+
+### 7. 审批缓存不因核心设置变化失效，未启动的写调用绕过新只读设置
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00032-t17/packages/nb-harness/src/kernel/run/tools.ts:238-243,262-267,302-307`。
+- **现象：** 模型一条回复先后调用两个 exclusive 写工具；第一个已经开始但尚未结束时，`changeSettings({core:{readOnly:true}})` 成功。释放第一个后，第二个尚未启动的写调用仍使用审批阶段的 allowed 并执行，快照此时为 `readOnly: true`。同一实验在 base 上第二个得 `denied/read-only`，只执行第一个。
+- **为什么是问题：** 缓存只比较参数，既不重新检查内核只读门，也不校验判定时的 approvalMode 等设置。原本在实际执行入口受控的未启动调用，现在被整批提前判定成永久放行。输出 31 的返回仍是 `next-boundary`，但 base 对工具入口读取的是已写入的当前设置；本次没有记录把只读门也冻结到整条回复结束的已接受决定。该变化削弱了输出 18 的只读限制，不属于“同批审批先问完”本身必须付出的代价。
+- **如何核实：** 审查 worktree 执行 `bun /tmp/claude-t17-review-lab/approval-settings.ts`：`writes ["first","second"]`，两条结果均 ok；执行 `bun /tmp/claude-t17-review-lab/approval-settings-base.ts`：`writes ["first"]`，第二条为 `denied/read-only`。均经真实会话 send、工具执行门、changeSettings 和 waitRun，不直接调用审批函数；只用可控工具 Promise 确定用户改设置的时刻。
+- **建议改法：** terminal 必须重新检查当前核心只读门；审批缓存记录决策相关设置的版本，版本改变时按新设置重新判定，保留用户对同一调用的明确拒绝。为“排在慢调用后面尚未启动的写调用”补只读与审批模式中途收紧用例。
+
+#### 第 1 条补充证据
+
+将实验的回答入口改为真实 `client.resolve({sessionId,...})` 后，用同一命令再次运行：三次远程调用全部受理；内置工具结果仍依次是 `ask-invalid-answer`、`ok`、`ok`。已确认不是同进程宿主特权路径才有的绕过。
+
+## 最终影响排序与等级
+
+报告遵守只追加约束，核实条目保留原编号。最终按下面的影响顺序阅读；第 4 条降为“建议”，不影响功能与数据内容，只违反预览无磁盘副作用的合同，其余为“重要”。
+
+1. **第 2 条，重要：** 改派工具绕过目标工具审批，实际执行被禁止的写操作。
+2. **第 7 条，重要：** 尚未启动的写调用忽略刚启用的只读设置；已做 base 对照。
+3. **第 6 条，重要：** 超限文件仍先完整试算；一个 1 MiB 输入的自动预览增加峰值 RSS 350,700 KiB。
+4. **第 5 条，重要：** 中止收口后仍输出成功帧，与权威 unknown 矛盾；显示覆盖由消费代码推断，浏览器未验证。
+5. **第 1 条，重要：** 远程用户纯文字回答绕过题数、选项与表单校验；重复多选也被接受。
+6. **第 3 条，重要：** 合法的寄存器粘贴实际改文件，但预览成功返回空列表。原因采用“第 3 条原因补充”，不是 editInspect 漏路径。
+7. **第 4 条，建议：** 未批准的只读预览创建空 Profile 目录；没有把它夸大为正文写入或权限绕过。
+
+## 未发现问题的方面
+
+以下方面仔细检查后没有发现本次新增问题；范围仅限本次后端切片，不代表全应用无缺陷。
+
+- **审批阶段中止与三事项崩溃恢复，已验证。** 既有批量中止用例通过；`bun /tmp/claude-t17-review-lab/approval-abort.ts` 验证不理会中止的审批钩子在 2,000 ms 后不再阻塞收口，迟到判定没有新建事项；`bun /tmp/claude-t17-review-lab/recover-batch.ts` 用真实子进程在 3 项审批同时等待时 `kill -9`，重开得到 3 条 `interactionResolved/interrupted-before-approval`、3 条 denied 工具结果、1 条 interrupted 运行结算，状态 idle。
+- **并发段改参数后的再次提问，已验证。** `bun /tmp/claude-t17-review-lab/approval-shared.ts` 中两条 shared 调用均改参数，第一批批准后同时出现两条新的待审批，执行次数仍为 0；两项再次批准后按调用顺序执行并 completed。
+- **SessionTable 的正常活动状态与释放，已验证及源码检查。** 活动条目 2 条用例验证等待用户、结束消失与后台不计入；句柄表 4 条用例验证订阅引用、30,000 ms 空闲关闭、停止期间创建与运行的收口。`#watch` 在覆盖 idle/waiting 前保存旧值，状态变化比较时序正确；内核监听在 close 解除，远程活动监听由订阅 signal 解除，未发现本次引入的监听遗留。
+- **Spend 和快照模型，已验证及源码检查。** 回复、失败、回退与重新打开的 token 累计用例通过；模型解析失败与端口抛错时快照按失败码返回的用例通过。快照每次确实调用 resolve，但产品 ModelsCore 已缓存按引用的解析结果，设置与凭据变更时失效；未发现每次快照重新建模型客户端或读取磁盘凭据的证据。没有把一般接口可能有副作用当成已发生的性能缺陷。
+- **OMP 的工具名增量，已验证。** 第一块带内核工具 id、同 callId 的参数块拼回 JSON 的适配器合同通过。
+- **预览的资源权限与当前分支，已验证。** `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/claude-t17-review-lab/backend-probes.ts permissions`：`sessions://<id>/index.json` 得 protected-path；没有作品的 project:// 得 no-project；回退掉的审批事项得 unknown-interaction。资源视图从内核快照取会话、Profile 与作品，传 Files 的 as 仍为对应 Agent 身份。未发现绕成宿主身份读取受保护文件。
+- **表单描述及远程秘密边界，从代码检查。** ask-form 把原 schema 交 nb-form 的 Agent 策略检查；禁用关键字、深度、节点和字节限制均由现有 nb-form 实现，未发现本次增加 eval/任意模块加载等执行入口。新增 snapshot.model 只投影 id/contextWindow/efforts，不把 call、请求头或凭据传浏览器；预览传全局资源地址与允许读取的正文。不把浏览器用户本人可以读取的数据算成跨用户泄露。未做浏览器渲染注入实验。
+- **主创的工具绑定，从合同测试。** 两条 ask 共用模型名、主创可选 ask-form 与工具换绑相关用例通过。
+
+## 已运行的验证
+
+以下命令均在审查 worktree 或注明的包目录运行；没有修改被审源码、没有安装依赖、没有启动开发服务或调用真实 Provider。
+
+| 工作目录 | 命令 | 结果 |
+|---|---|---|
+| 审查 worktree | `bun test packages/nb-harness/src/kernel/run/interaction.test.ts packages/nb-harness/src/kernel/run/spend.test.ts packages/nb-harness/src/kernel/session/session.test.ts packages/nb-harness/src/kernel/model/omp.test.ts` | 54 pass，0 fail，210 expect |
+| 审查 worktree | `bun test packages/nb-harness/src/kernel/run/tools.test.ts` | 31 pass，0 fail，134 expect |
+| 审查 worktree 的 packages/neuro-book | `bun test --test-name-pattern 'ask|审批预览' src/plugins/agent/builtin-tools.test.ts` | 13 pass，27 filtered out，0 fail，50 expect |
+| 审查 worktree 的 packages/neuro-book | `bun test --test-name-pattern '活动条目' src/plugins/agent/session-host.test.ts` | 2 pass，18 filtered out，0 fail，5 expect |
+| 审查 worktree 的 packages/neuro-book | `bun test src/plugins/agent/builtin-profiles.test.ts` | 26 pass，0 fail，90 expect |
+| 审查 worktree 的 packages/neuro-book | `bun test --test-name-pattern '^会话' src/plugins/agent/agent.test.ts` | 4 pass，13 filtered out，0 fail，11 expect |
+| 审查 worktree 的 packages/neuro-book | `bun test src/plugins/agent/sessions.test.ts` | 9 pass，0 fail，37 expect |
+| 审查 worktree | `bun run --cwd packages/nb-harness typecheck` | `tsc --noEmit` 退出 0 |
+
+合计：**139 pass，0 fail，537 expect**。这些原有测试均通过，并没有覆盖报告中的失败方式。各发现的独立实验已写在对应条目；新增实验文件只在 `/tmp/claude-t17-review-lab`，继续保留供主 Agent 重现。
+
+未运行：全量测试、应用整包类型检查、E2E、开发服务、真实模型、浏览器视觉验证。第 5 条的浏览器显示后果仅由消费代码推断，后端异常帧顺序已实测；交给主 Agent 修正后在实际对话表面确认。
+
+## 基线与报告校准
+
+- 只读设置回归与工具改派回归都运行了 base 对照；工具改派后 toolResult 仍记录原始工具名是 base 就有的行为，不另计本次发现。
+- 第 3 条初次对空列表的一个归因不准确，已只追加更正：editInspect 没漏目标，scratch 缺寄存器造成成功 no-op，writer 没被调用。有效发现采用更正后的原因。
+- 第 4 条最终严重程度为“建议”，以“最终影响排序与等级”为准。复现实验进一步确认 `directoryBefore false`、`directoryCreated true`、拒绝后 `directoryAfterDeny true`。
+- 按 task-reflection 检查本次纠正与绕路：现有规范已覆盖实验脚本类型、Promise 与导入写法，不提重复规则；本次不建议新增治理规则，不修改真相源。
+
+## 各级数量
+
+**阻断：0；重要：6（第 1、2、3、5、6、7 条）；建议：1（第 4 条）；有效发现共 7 条。**
+
+有效发现编号：1、2、3、4、5、6、7；最终影响顺序：2、7、6、5、1、3、4。

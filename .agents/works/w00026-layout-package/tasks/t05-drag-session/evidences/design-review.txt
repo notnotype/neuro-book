@@ -1,0 +1,142 @@
+# w00026 t05 设计审查（前端）报告
+审查对象：.agents/works/w00026-layout-package/tasks/t05-drag-session/plan.md、docs/specs/ui/layout-drag.md
+实验文件：/tmp/review-w00026-t05-design/exp/（真实 Chrome，channel chrome，页面是独立 html，没有跑开发服务与仓库 e2e）
+说明：条目按核实顺序追加；最后一行给有效发现编号与严重程度。
+
+### 1. 触摸：根上的 lostpointercapture 会被"按下时的隐式捕获"冒泡误触发，拿起后第一次指针事件就取消
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：plan.md「drag-session.ts」第 3 条（"根上的 lostpointercapture"）；layout-drag.md 输出 7（"失去指针捕获"）；现有同类写法 editor/web/tab-drag.ts:265、explorer/web/tree-drag.ts:203
+- **现象**：触摸按下时浏览器把指针隐式捕获给按下的元素。门槛过后会话调 `root.setPointerCapture`，捕获从那个元素换到根，浏览器在下一次指针事件时在**旧元素**上派发 `lostpointercapture`，这个事件会冒泡到根。Spec 与计划只写"失去指针捕获就取消"，没有写"只认根自己失去"，照字面实现的监听（现有两份就是 `event.pointerId === active.pointerId` 就取消）会把它当成取消。
+- **为什么是问题**：Spec 输出 1、11 承诺的触摸拖动（按住 200 毫秒再动）在统一后的三个宿主上全部起不来。工作台现状不受影响（它把捕获给来源元素，没有这个监听），所以这是统一带来的**新回退**；标签与资源树现状也有同样的缺陷，只是没有人发现，因为三份 e2e 都没有触摸用例（grep e2e 目录：只有 workbench-dnd.e2e.ts:675 一处合成的 mouse 事件，没有 hasTouch、touchscreen、dispatchTouchEvent）。计划"验证"一节说触摸"由 Playwright 的触摸模拟覆盖"，实际并不存在。
+- **如何核实**（真实 Chrome，CDP `Input.dispatchTouchEvent`）：
+  1. /tmp/review-w00026-t05-design/exp/exp1.mjs（页面 page.html）：触摸按下 btn，移动超过门槛后 `root.setPointerCapture`。事件序列：`gotpointercapture target=btn`、`grab`、`lostpointercapture target=btn pid=2`（在根上的监听里收到，target 是 btn）、`gotpointercapture target=root`。
+  2. 用现有 tree-drag.ts（bun build 成 exp/tree-drag.js）复现：exp6.mjs，触摸按下后 50 毫秒内有 1 px 的抖动（落在 6 px 容差内，真实手指几乎必有），再按住到 200 毫秒触发拿起，结果 `start r1 | hover r1 | CANCEL`，touch-action 取 auto 与 none 都一样；没有那 1 px 抖动时（exp5.mjs）结果是 `DROP r5`，所以平时的触摸测试看不出来。
+- **建议改法**：规格写明"只认根自己失去捕获"，适配层的判断用 `event.target === root`（exp1b.mjs 实测：冒泡来的那次 `target=btn`，此时 `root.hasPointerCapture` 在 Chrome 里已为 true；真正失去时 `target=root`、`hasPointerCapture` 为 false；但 Pointer Events 规范的处理顺序是先在旧目标上派发 lost、后切换，所以别用 `hasPointerCapture` 做判断，用 `target`）；验收里加一条触摸用例（CDP 触摸，按下后带 1 px 抖动，再按住 200 毫秒），三个宿主各一条。工作台的 `:active` 之外，这一条是"捕获从来源换到根"最实在的后果，计划"风险"一节没有提到。
+
+### 2. 边缘滚动中松手：输出 7（失去捕获即取消）与输出 14（松手后等一帧再放下）互相打架，松手会被当成取消
+- **严重程度**：重要；**类别**：正确性
+- **位置**：layout-drag.md 输出 7、输出 14；plan.md 验收映射（输出 14 只映射到 drag-gesture.test.ts）；现有 explorer/web/tree-drag.ts:250-266
+- **现象**：浏览器在 `pointerup` 派发之后立即对捕获持有者派发 `lostpointercapture`（实测同一毫秒内，且早于 click）。输出 14 要求松手后"先停滚、等下一帧、再判定并发布、再放下"，也就是 `pointerup` 处理完时一场还没有收场，监听还在；这时 `lostpointercapture` 到达，输出 7 把它当取消。
+- **为什么是问题**：这是**现有代码里已经存在的 bug**，Spec 把它写成合同并推广到三个宿主。现有 e2e 只在边缘滚动后按 Escape（files-explorer.e2e.ts 约 569 到 577 行），从没有在滚动中松手，所以测不出。资源树靠近下边缘拖动再松手（最自然的操作）会取消，文件不动，也没有错误提示，拖影飞回。
+- **如何核实**：exp/exp1.mjs 的 MOUSE 段：`up target=root` 之后同一毫秒 `lostpointercapture target=root`，再之后才是 click。exp/exp4.mjs 用现有 tree-drag.ts（真实 Chrome、真实鼠标）：按下行、拖到树下边缘等它滚动（scrollTop 到 66）、`mouse.up()`，日志 `start r1 | hover r14 | CANCEL`，没有 DROP。
+- **建议改法**：Spec 加一句交互合同：`pointerup` 一到就把这一场标成"已松手"，之后到达的 `lostpointercapture`、`pointercancel` 之外的取消原因都忽略（或者在 `pointerup` 里就拆掉 lostpointercapture 监听，等待下一帧的那段只保留 Escape、blur 这类仍然有意义的取消）；并且把输出 14 的"松手"句子映射到真实浏览器用例（files-explorer.e2e.ts 里加：拖到下边缘、等 scrollTop 变化、mouse.up、断言文件移动），而不是只靠假时钟。
+
+### 3. 资源树：`hoverDrag` 改成 `watch(state)` 后变成异步，"边缘滚动中松手"的同步"发布加放下"会被控制器当成"与显示的不同"而静默不写
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：plan.md「资源树」第 2 条（"`hover` 的副作用（`hoverDrag`、停留展开计时）移到 `watch(session.state)`"、"控制器 `dropDrag` 不变"）与「不做与风险」末条；layout-drag.md 输出 14 末句；controller.ts:979-1001（`hoverDrag` 写 `drag.value.action`，`dropDrag` 拿重判结果与 `current.action` 比，不同就 return）；现有 tree-drag.ts:250-266（旧代码这里特意同步调 `options.hover` 再 `drop`，注释写明"不让这次放下因为'与显示的不同'而静默不写"）
+- **现象**：输出 14 末句要求"判定并发布一次，按这一次的落点放下"，状态机里这是同一个同步调用栈：`state.value = X`、随后 `state` 置空、`commit`。Vue 的 `watch` 默认 flush 为 pre，回调在微任务里才跑，`commit` 触发的 `emit("drag-drop")` 会先于它进入 `controller.dropDrag`；此时控制器里 `drag.value.action` 还是上一帧（滚动之前）发布的那个，`sameDrop` 为假，`dropDrag` 在第 990 行直接 return。
+- **为什么是问题**：同一件事现在有两份"最后显示的动作"：会话的 `shown` 与控制器的 `drag.action`，计划让会话承担比较，控制器又保留自己的比较，二者靠 watch 的时序对齐。边缘滚动后松手是用户最常见的"拖到很远的位置"的方式，一旦失败就是静默不写（没有错误提示）。非滚动路径下最后一次发布早在前几个任务里就 flush 了，所以只有这一条路径出问题，现有 e2e 也不覆盖它（见第 2 条）。
+- **如何核实**：读 controller.ts:984-1001 与 tree-drag.ts:250-266；Vue 的 pre watcher 是微任务（`state` 在 rAF 回调里被设置，`commit` 在同一同步栈里调用）。没有在真实应用里跑，属于从代码推断；第 2 条的复现脚本证明了"松手发生在边缘滚动中"这个入口真实存在。
+- **建议改法**：只留一份真相。把会话 `commit(action, drop, source)` 的 `action` 作为"最后显示过的动作"传给 `dropDrag(over, shown)`，控制器的 `hoverDrag` 不再写 `drag.action`（它只需要 `over`，用来在行消失时取消，controller.ts:342），`dropDrag` 里"重判与 shown 相同"改为与传入的 `shown` 比。这样不依赖 watch 的时序，也删掉了一份状态。
+
+### 4. 按下后"松手丢了"：现有三份都会在没有按键的情况下起一场拖动；Spec 的"捕获取不到按失去捕获算"没写怎么判断"取不到"
+- **严重程度**：建议；**类别**：正确性
+- **位置**：layout-drag.md 输出 7 末句（"捕获取不到（指针已经不在）按失去捕获算"）、输出 3；plan.md「drag-session.ts」（`grabbed(mode)` 门槛过后取捕获）；现有 tab-drag.ts:243、tree-drag.ts:182、drag-session.ts:359
+- **现象**：待起拖期间如果松手事件丢了（按住时窗口失焦、松手在原生菜单或别的窗口上），`pending` 一直留着，指针之后移动 6 px（`pointermove` 的 `buttons` 为 0）就起拖：没有按键、没有捕获，拖影跟着鼠标走，直到用户下一次点击。
+- **为什么是问题**：Spec 的补救句只有在"取不到"能被检测到时才成立，而真实 Chrome 里对没有按键的鼠标调 `setPointerCapture` **不抛异常**，只是 `hasPointerCapture` 为假；只有未知 pointerId（例如触摸手指已抬起）才抛 `NotFoundError`。照字面写 `try { setPointerCapture } catch { cancel }` 会漏掉最常见的这一种。happy-dom 里 `setPointerCapture` 永远成功，单元测试看不出。
+- **如何核实**：exp/exp2.mjs：鼠标无按键时 `setPointerCapture(1)` 不抛、`hasPointerCapture` 为 false；`setPointerCapture(99)` 抛 `NotFoundError`。exp/exp7.mjs（CDP 发 mousePressed 后不发 mouseReleased，再发 buttons=0 的 mouseMoved 两次）用现有 tree-drag.js：日志 `start r1 | hover r2 | hover r5`，`hasPointerCapture` 为 false，即起了一场无按键的拖动。
+- **建议改法**：Spec 输出 7 写成"取得捕获后 `hasPointerCapture` 为假，或调用抛错，都按失去捕获算"；再加一条：待起拖期间收到 `buttons === 0` 的鼠标或笔 `pointermove`，放弃这次按下（不是起拖）。
+
+### 5. 计划的 `released(mode)`（含"还焦点"）与 Spec 输出 15 的时序对不上，`mode` 也不够表达三种收场
+- **严重程度**：建议；**类别**：不变量 / 文档
+- **位置**：plan.md「drag-gesture.ts」末段（"`released(mode)`（拆监听、放捕获、还焦点）"）；layout-drag.md 输出 15 与"时序与寿命"；现有 drag-session.ts:219-251
+- **现象**：现有工作台键盘拖动有三种收场：Escape 取消（立即还焦点）、焦点移到外壳之外（不还）、放下（先 `commit`，**下一帧**才按标记找新元素还焦点，因为提交会让旧元素被换掉）。Spec 的收场顺序把 `commit` 放在最后，`released` 在它之前；计划却把"还焦点"放进 `released`，而 `released(mode)` 的参数（指针或键盘）既区分不了这三种，也不知道是否提交。
+- **为什么是问题**：照字面实现，键盘放下时焦点在提交之前就还给了旧元素，提交的重渲染随后把它摘掉，焦点落到页面根，键盘用户失去位置。现有 e2e 有键盘用例会抓到，但这是计划与 Spec 自相矛盾的地方，实施者会按其中一份写。
+- **建议改法**：状态机在 `commit` 之后自己排"下一帧还焦点"，调宿主的 `restoreFocus(source)`（适配层用拿起时的元素，被换掉再走 `refocus`）；`released` 只管拆监听与放捕获；Spec 的 `DragEnd` 已有 `committed`、`cancelled.reason`，直接据此决定"立即还、下一帧还、不还"，把这张三行表写进输出 15。`dispose()` 后要取消那次排好的下一帧，否则卸载后还会对旧元素 `focus()`。
+
+### 6. "滚动"算哪里的滚动没写；资源树与标签的行为在没被列为"接受的变化"的地方变了
+- **严重程度**：建议；**类别**：不变量 / 文档
+- **位置**：layout-drag.md 输出 12；plan.md「现有行为逐项对照」第 12 行与「drag-session.ts」第 2 条；现有 drag-session.ts:319（窗口捕获阶段，任何元素的滚动）、tab-drag.ts:266（只听编辑器区根内的滚动）、tree-drag.ts:204（只听树根自己的滚动，不捕获）
+- **现象**：三份现状的滚动来源各不同。计划说"装……滚动、`resize`"但没写挂在哪里。按工作台的写法（窗口捕获）统一，资源树选择 `scroll: "withdraw"` 后，页面上**任何元素**的滚动（编辑器内容、标签条滚动、别的面板）都会撤下落点，且直到指针再动之前松手不提交；按树根写法统一，工作台又会漏掉嵌套滚动容器之外的重判。另外窗口尺寸变化让资源树撤下落点，是现状没有的行为，表里没有加粗，不在开发者接受的五项里。
+- **为什么是问题**：用户把文件拖到编辑组上停住，编辑器区里任何一个滚动事件（平滑滚动、标签条自动滚到活动标签）都会让这次放下静默失效，且没有提示。
+- **如何核实**：读上面三处现有监听。没有在真实应用里复现，从代码推断。
+- **建议改法**：Spec 输出 12 写明"哪些滚动算"：建议只算根内部与 `autoScroll.element`（和现有标签、资源树一致），窗口 `resize` 单列；资源树的 resize 撤下要么从表里去掉，要么加粗交开发者确认。
+
+### 7. 验收映射的测试层选错：真正出问题的几处都是 happy-dom 里不会发生的时序
+- **严重程度**：重要；**类别**：测试
+- **位置**：plan.md「验收映射」（输出 2、5、7、10、11 到 `drag-session.dom.test.ts`；输出 14 只到 `drag-gesture.test.ts`；输出 17 无测试）、「验证」末段；docs/testing/README.md「依赖用真的」（"同步触发运行时只会异步派发的事件"）
+- **现象**：
+  1. happy-dom 20.11.2（实测）有 `setPointerCapture`、`hasPointerCapture`、`releasePointerCapture`，但它们只是往集合里加删，**从不派发** `gotpointercapture`、`lostpointercapture`，也不会对未知 pointerId 抛 `NotFoundError`；没有 `document.elementsFromPoint`（`elementFromPoint` 永远返回 null）。所以输出 5 的 `top` 只能靠测试自己塞一个替身，输出 7 的"失去捕获"只能靠测试手动派发事件。第 1 条与第 2 条的 bug（触摸隐式捕获冒泡、松手后立即 `lostpointercapture`）在 happy-dom 里都不会出现。
+  2. 输出 14 的"滚动中松手"依赖虚拟列表在滚动之后才补行、浏览器在 `pointerup` 后立即释放捕获，只有真实浏览器能测；映射只给了假时钟的单元测试。
+  3. 验收 1 要三个宿主各一条，但 nb-layout 没有自己的真实浏览器用例（packages/nb-layout/AGENTS.md：真实浏览器里的指针在应用 Lab 的场景与 Playwright 用例里），切片 1 的验证只有 `bun run test`、`typecheck`；会话的真实行为要到切片 2 到 4 才第一次在浏览器里跑，出问题时分不清是会话还是宿主。
+  4. 输出 17（"反馈可替换"）不是行为：换了反馈要不要改手势是设计属性，写不成测试或审查判据，违反 docs/specs/README.md 的"两条判据"第 2 条，计划也承认只是"由切片 2 到 4 证明"。
+  5. 无头 Chrome 里没有真实的窗口失焦与页面隐藏：exp/exp3.mjs 用两个页面 `bringToFront`，`blur`、`focus`、`visibilitychange` 一个都没有，`visibilityState` 保持 visible；现有 workbench-dnd.e2e.ts:826 已经是派发 `blur` 事件。验收 1 的"窗口失焦"因此只能是派发事件，要写明，不能写成真实输入。
+- **建议改法**：给 nb-layout 的会话单独做一个最小 Lab 场景（几个来源加几个落点，不依赖任何宿主），在这个场景上写真实浏览器用例：鼠标拖放、触摸（CDP 触摸，按下后 1 px 抖动，覆盖第 1 条）、边缘滚动中松手（第 2 条）、`releasePointerCapture` 触发失去捕获、焦点移到根外（页面里 `input.focus()`）、Escape、键盘拖动；三个宿主的 e2e 只保留各自的"现有断言不改"。`drag-session.dom.test.ts` 只测适配层能在 happy-dom 里真实观察到的（监听的装拆、`preventDefault`），并标明不能证明捕获时序。输出 17 删除或改写成 Spec 层面的约束（例如"会话不读写 DOM 标记"）。
+
+### 8. `EDITOR_GROUP_FILE` 放进 `editor/shared/contracts.ts` 要求 `shared` 对 `@notnotype/nb-layout/vue` 做运行时导入；`defineDropKind` 本身与 DOM 无关，该在核心入口
+- **严重程度**：建议；**类别**：代码质量 / 不变量
+- **位置**：plan.md「editor」第 1 条；layout-drag.md「输入与前置条件」（`defineDropKind` 列在 `./vue` 下）；packages/neuro-book/AGENTS.md 第 14 行（`shared/`：两端共用、"不碰 DOM、Bun 与 Node API 的逻辑"）；src/architecture.test.ts:88-92
+- **现象**：`shared` 导入 nb-layout 本身不违反方向（`commands/shared/contracts.ts` 已经导入 `@notnotype/nb-ui/text`），但 `defineDropKind` 现在在 `./vue` 入口，该入口的 index.ts 汇出的是一批 `.vue` 组件与 Vue 层 composable。`editor/shared/contracts.ts` 目前除类型外只有内核与 TypeBox 的运行时导入，加上这一条后，任何导入它的后端文件都会把 Vue 层拖进来。
+- **为什么是问题**：`architecture.test.ts` 的规则抓不到：`neutral` 规则只检查指向 src 内 backend 或 web 目录的相对目标，`server && isFrontendPackage` 只检查后端文件**自己**导入的说明符是不是 `vue`，传递依赖看不见。现在没有后端导入 editor 的 contracts（我查了 src 里非 web、非测试的引用，只有 markdown/shared 的一处注释和 testing 目录），所以不会立刻坏；但这是一个没有门禁保护的约束，下一个把校验器放到后端的人会踩。我实测 `bun -e` 导入 `@notnotype/nb-layout/vue` 能成功（Bun 把 `.vue` 当资源），耗时 73 ms 对 11 ms（核心入口），所以不是现在就有的性能或加载失败问题，不要夸大。
+- **如何核实**：读 editor/shared/contracts.ts:7-26 的导入、architecture.test.ts:88-92 的规则。
+- **建议改法**：`DropKind<T>` 只是带类型参数的标识，`defineDropKind` 放核心入口 `.`（纯 TS，`boundary.test.ts` 的核心规则也满足），`registerDropTarget`、`useDropTarget`、`dropTargetAt` 留在 `./vue`。`shared/contracts.ts` 只导入核心入口，与"nb-ui/text 这类纯入口"一致。
+
+### 9. 落点登记的"模块级 WeakMap"只对内置代码成立；种类的相等判断（对象还是 id）没写
+- **严重程度**：建议；**类别**：不变量 / 文档
+- **位置**：plan.md「drop-targets.ts」；layout-drag.md 输出 16、`defineDropKind<T>(id: string)`；packages/neuro-book/src/sdk/components.ts:41-47；docs/specs/runtime/plugin-code-loading.md 第 27、28、46 行
+- **现象**：
+  1. 内置插件由 Vite 打成一份，nb-layout 只有一个实例，WeakMap 没问题。第三方插件：宿主模块表里只有 SDK 子路径，nb-layout 不在其中；SDK 现在只汇出 `DropFeedbackOverlay、NestedGrid、Splitter` 等少数几项（components.ts:41），没有登记的函数，所以第三方插件**现在没办法**登记或查询落点，Spec 目标里"一个插件的来源能落到另一个插件的元素上"在第三方这一侧不成立，Spec 没有写"仅内置插件"。
+  2. 若以后在 SDK 里加汇出，运行时由宿主模块表给宿主那一份，单实例成立。但纯度检查（plugin-code-loading.md 第 28、46 行）列出的禁止打包项是 Vue、nb-ui、SDK、内核、nb-harness、TypeBox，**没有 nb-layout**；`@notnotype/nb-layout` 的 package.json 有 `publishConfig.access: public`，作者若直接依赖并把它打进插件，会得到第二份 WeakMap，登记和查询互相看不见，没有任何报错。
+  3. 种类用 `defineDropKind(id)` 创建，Spec 没说两个同 id 的 `DropKind` 是否相等。Vite 热更新重新求值 `contracts.ts` 会产生新的 `DropKind` 对象，已登记的元素用旧对象，`dropTargetAt` 用新对象就查不到，直到组件重挂；开发中会看到"拖到编辑组突然没反应"。
+- **如何核实**：读上述文件；第 3 条是从代码推断，没有实机热更新。
+- **建议改法**：Spec 在边界一节写明范围（"落点登记目前只用于内置插件；开放给第三方时经 SDK 汇出，并把 nb-layout 加入纯度检查的禁止打包项"）；`DropKind` 按 id 字符串比较，同 id 重复定义时取同一个标识（或登记表直接以 id 为键）；若要保险，把登记表挂在 `Symbol.for("nbook.layout.drop-targets")` 的全局上，两份副本也能互通。
+
+### 10. 回调抛出的恢复只对 `commit` 写了；`onEnd` 先于 `state` 置空的顺序是为一个已经不需要的读取方式存在
+- **严重程度**：建议；**类别**：不变量 / 代码质量
+- **位置**：layout-drag.md「时序与寿命」第 154 行、「失败与恢复」；plan.md 资源树第 2 条（`onEnd` 里飞回）；现有 ExplorerTree.vue:463-481（`flyBack` 读 `ghost` 与 `props.drag`）
+- **现象**：Spec 保证"`commit` 抛出时一场已经收场，不留监听"，但顺序是 `onActiveChange(false)`、`onEnd`、`state` 置空、`commit`：`onActiveChange(false)` 或 `onEnd` 抛出时，`state` 没被置空（拖影与落点反馈留在屏上），`commit` 也没有执行。同时 `onEnd(end, last)` 已经把最后的状态当参数传进来，"`onEnd` 里还能读到最后的状态"只服务于树的 `flyBack` 去读 `ghost` 这个 computed，这是为一个可以改的读法定的顺序。另外 `dispose()` 会以 `disposed` 调 `onEnd`，树的 `onEnd` 按计划会 `flyBack` 并发 `drag-cancel`，此时组件正在 `onBeforeUnmount`，会在已卸载的组件上写 `returning` 与计时器（现有 `dispose` 同样会，所以不是新回退，但 Spec 把它固定下来）。
+- **为什么是问题**：顺序约束越多，实现越脆；而唯一的用途可以由 `last` 参数满足。
+- **建议改法**：顺序改为：拆监听、释放捕获、`state` 置空、`onActiveChange(false)`、`onEnd`、`commit`，每一步包在 `try/finally` 里保证后面的步骤都执行，抛出的异常最后再抛（保持"不吞异常"）；`flyBack` 改用 `last.point`、`last.source`；`disposed` 不调 `onEnd`（与 `abort` 一致），或者 Spec 写明宿主要在 `disposed` 时跳过动画。
+
+### 11. t07、t08 接上来要改 Spec 里已经写死的三处；"一个根一个会话"与提案第 3 节"一场拖动归工作台的会话"之间的过渡形态没有标明
+- **严重程度**：建议；**类别**：不变量 / 文档
+- **位置**：layout-drag.md 输出 6、`DragSessionOptions.resolve/scroll/autoScroll`、术语"会话"；提案 workbench-single-tree-layout.md 第 200 到 204 行（实时布局：稳定 150 毫秒、粘滞、松手提交指针下的候选）与第 211 到 213 行（资源树提供钩子，一场拖动归工作台的会话）；plan.md「不做与风险」
+- **现象**：
+  1. **松手规则**：输出 6 写死"与最后显示过的动作相同才提交"。提案表里"落点指示"手感是这条规则，"实时布局"手感是"提交指针下的候选，不等预览稳定"，两种手感共用手势。t08 要么改 Spec 输出 6，要么给会话加一个提交规则选项；这条规则现在被三个宿主依赖，到 t08 再改就是改合同。
+  2. **粘滞与稳定时长**：`resolve(query)` 是"同步、只读"，`DragQuery` 里没有上一次的落点和时间。"指针在已显示空位内（含 8 px 边距）候选不变"需要上一次显示的落点，"稳定 150 毫秒才换预览"需要候选与显示是两个状态。`DragState.drop` 只有一个，t08 要加 `candidate` 与 `displayed` 的区分或让宿主自己防抖（那样"最后显示过"在会话里就不再是同一个东西）。
+  3. **`scroll` 与 `autoScroll` 是整个会话的静态选项**：提案里一场拖动归工作台，资源树只提供自动滚动与树内解析两个钩子，工作台的来源是"重判"，文件来源是"撤下"，这两项必须按来源取值。
+  4. **来源这一侧没有登记**：落点有 `registerDropTarget`，来源只有每个会话自己的 `sourceAt`。合并成一个会话时，编辑器标签、资源树文件、工作台视图都得由工作台知道，对称的"来源登记"（含 `scroll`、`autoScroll`、解析钩子）缺位。
+  5. Spec 术语写"几个会话的来源互不重叠"，计划在三个根上各装一个会话，这是过渡形态；但提案第 3 节的最终形态是一个会话，Spec 没有标注"过渡"，读者会当成长期设计。
+- **为什么是问题**：每一处都会在 t07 或 t08 触发对三个宿主的返工，而不是只改新增的代码。
+- **建议改法**：这一片不必实现，但 Spec 与接口现在就留位置：`DragQuery` 加 `previous: D | null`；提交规则作为选项（`release: "shown" | "candidate"`，缺省 `shown`）；`scroll`、`autoScroll` 允许写成 `(source) => …`；Spec 在目标与非目标里写一句"当前每个根一个会话，是过渡形态，合并为一个会话随一棵树"。来源登记等 t07 设计时再定，但在 plan 的"不做与风险"里记一条。
+
+### 12. 接口形状：能减掉 `A` 与 `sameAction`、把 `top` 从状态机的 `host` 里拿出来；`S` 同时表示"按下时"与"冻结后"两种值
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：layout-drag.md `DragSessionOptions<S, D, A, R>`、`activate?(source: S): S | null`；plan.md「drag-gesture.ts」（"`host` 里除了 Spec 列的回调，多四个……"）
+- **现象**：数一下：Spec 的选项里有 9 个函数（`sourceAt、activate、structure、resolve、actionOf、sameAction、commit、onEnd、onActiveChange`），键盘选项 5 个（`sourceAt、regions、stops、start、refocus`），计划再给状态机 host 加时钟 4 个、`top`、`grabbed`、`released`、`step`、`scrollBy`，合计 23 个回调；状态机本身 11 个方法。每个宿主前面再套一层绑定（`createShellDrag`、`createTabDrag`、树里的组件内联），一个按下要穿过四层。
+  - `A` 和 `actionOf`、`sameAction` 三者只为"最后显示过的动作"这一个比较。三个宿主现在都是对字段做逐项比较（`isSameDropAction`、`sameAction` 的 `JSON.stringify`、控制器的 `sameDrop`），换成一个 `actionKey?(drop: D): string | null`（`null` 表示只显示、不提交），`commit(drop, source)` 就够了，去掉一个类型参数和两个回调，也不用给 `sameDrop` 再加导出。
+  - `top(point)` 是读 DOM，却放在号称不碰 DOM 的状态机 host 里。适配层包一层 `resolve`（先取 `top` 再调宿主的 `resolve`），状态机的 host 就不再有 DOM 读取。
+  - `activate(source: S): S | null`：工作台的来源冻结后多了 `newContainerId`、`zones`，在 `S` 里只能写成可选字段再用非空断言，类型帮不上忙。
+- **为什么是问题**：不是错，是可读性：提案第 10 节要求核心有一份"事件与时钟注入"的状态机，两层是被接受的，这里不动；值得砍的是三个宿主都要实现一遍的回调。
+- **建议改法**：采纳上面三处中至少前两处；`activate` 的返回类型要么写成另一个类型参数，要么在 Spec 里写明 `S` 必须自己带可选的冻结字段。
+
+### 13. Spec 与计划里几处只写在现有代码注释里的约束没有带过来
+- **严重程度**：建议；**类别**：文档 / 测试
+- **位置**：layout-drag.md 输出 3、10；plan.md「要守住的」；现有 drag-session.ts:298-304（keyup）、:316（blur 不加捕获）、:360（首次发布用按下点）；packages/nb-layout/AGENTS.md 第 5 行
+- **现象**：
+  1. **keyup**：键盘拿起用的那一下空格的 keyup 要拦，否则按钮在抬起时激活、标签被选中。计划「要守住的」写了，Spec 输出 10 只说 keydown，验收里也没有；e2e 现有"键盘：……焦点回到标签"（workbench-dnd.e2e.ts:213）会间接抓到，但合同里没有，下一个重构者看不到。
+  2. **`blur` 不能加捕获**：现有注释写"不加捕获：子元素失焦也会冒到这里，只要窗口自己失焦那一种"。计划把窗口监听里 `pointermove、pointerup、pointercancel` 写成"（捕获）"，实施者为了统一给 `blur` 也加捕获，就会让页面里任何元素失焦都取消拖动（点击一个输入框、菜单关闭时焦点移动都会触发）。Spec 和计划都没有这条。
+  3. **输出 3 把"根取得指针捕获"写成无条件的**，键盘拖动没有指针，应写成"指针拖动时"。
+  4. **首次发布用哪个点**：工作台用按下点（drag-session.ts:360），标签与资源树用越过门槛的那次移动的点。统一后 Spec 没写，会有一帧的拖影位置差；写成"当前指针"即可，并在对照表里记为变化。
+  5. packages/nb-layout/AGENTS.md 第 5 行写"行为合同是 `ui.nested-grid`"，计划的「Spec 与文档改动」表没有列它，合入后包入口文档就少了 `ui.layout-drag`。
+- **建议改法**：Spec 输出 10 补 keyup；输出 7 或「状态与转换」注明 `blur` 只听窗口本身；输出 3 写"指针拖动时"；对照表加首次发布一行；文档表加 nb-layout/AGENTS.md。
+
+---
+## 未发现问题的方面
+- **焦点移出根取消推广到标签与资源树（重点 4）**：没有找到真实流程里会自己误触发的路径。按下时的焦点转移发生在 `pointerdown` 默认动作里，早于门槛，监听此时还没装；树行的 `press` 在 click 上（ExplorerRow.vue:212），被吞掉的 click 不会触发 `focusTree`；`focusTree`、编辑器的 `focusGroup`、停留展开引起的重渲染，焦点都落在各自的根里。唯一会取消的是真的打开了根外的对话框或菜单，这正是想要的行为。没有在真实应用里点过，是读代码得出的结论。
+- **按下改冒泡（重点 3，来源内是否有停止传播）**：查了 nb-ui（`OverlayScrollbar` 的滑块 `@pointerdown.stop`、`QuickPick`、`SearchSelect` 等）、外壳的组件（只有 `WorkbenchViewSection` 的 `@pointerdown` 记录按下点，不停止传播）和 reka-ui 的 Tabs、Menu 的 `pointerdown`（没有 `stopPropagation`）；外壳的拖动源（标签、活动条目、视图标题行、容器标题行）上没有会拦下按下的祖先。滑块不是拖动源。现状里外壳的捕获阶段监听在分隔线的捕获监听**之前**（外层先于内层），按下改冒泡之后验收 3 才成立，这一点计划的判断是对的。
+- **捕获换到根（重点 3，click 与光标）**：真实 Chrome 里有捕获时 click 的目标是持有捕获的根（exp1.mjs：`click target=root detail=1`，在 `lostpointercapture` 之后），所以拖动结束的 click 在根的捕获阶段被吞，源上的 `@click` 本来就收不到；光标靠 `:root[data-workbench-dragging] *` 覆盖整页（WorkbenchDragFeedback.vue:130-135），与捕获者是谁无关。`data-workbench-dragging` 一类标记由宿主经 `onActiveChange` 写，样式不变。
+- **根元素被换掉**：外壳根、编辑器区根、资源树的滚动元素都是各自组件的稳定模板根，没有 `v-if` 或 `key` 换元素；外壳的 Teleport 搬的是视图内容，不是根。
+- **工作台收尾动画 `startSettle`**：`commit` 在 `state` 置空之后调用，拿到的是松手时那次判定的预览，与现状 `end(false)` 加 `commit` 的先后一致（WorkbenchShell.vue:287-291、:318-346、:369-371），不受第 5、10 条影响。
+- **嵌套登记"往上找最近的"**：与现有 `hit.closest("[data-editor-group]")` 等价；编辑组里没有再嵌编辑组。
+- **与提案第 3、10 节、ADR 0044、开发者五项决定**：手势只有一份实现、纯逻辑进核心、DOM 适配进 `./vue`、落点登记、窗口外松手算无落点、`ownerDocument`、起拖门槛经配置对象，都对得上；五项决定中的"接受的行为变化"（工作台冒泡、捕获到根、失去捕获取消、触摸阻止 touchmove、标签与资源树加焦点移出根取消、按键归会话）计划都写明。有问题的是第 1 条（失去捕获取消在触摸上的实现）与第 6 条（未列入的变化），不是决定本身。
+
+## 数量
+- 阻断：1（第 1 条）
+- 重要：3（第 2、3、7 条）
+- 建议：9（第 4、5、6、8、9、10、11、12、13 条）
+- 撤回或收窄：0
+
+最重要的一条：第 1 条与第 2 条。真实 Chrome 里，触摸拿起后的 `lostpointercapture` 会从旧的隐式捕获元素冒泡到根，边缘滚动中松手时 `pointerup` 之后立即有 `lostpointercapture`，只要 Spec 的"失去捕获即取消"不限定"根自己、且未松手"，三个宿主的触摸拖动和资源树的边缘滚动放下都会被取消（现有代码已有此缺陷，用 exp/ 里的真实 Chrome 脚本复现）。
+
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13

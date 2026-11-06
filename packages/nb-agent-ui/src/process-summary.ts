@@ -72,12 +72,12 @@ export type UsageDescription = {
     detail: Text | null;
 };
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
     const seconds = Math.round(ms / 1000);
     return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function formatTokens(value: number): string {
+export function formatTokens(value: number): string {
     return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }
 

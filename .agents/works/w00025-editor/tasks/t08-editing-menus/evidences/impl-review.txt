@@ -1,0 +1,111 @@
+w00025 t08 实现审查报告（只读；分支 feat/w00025-t08-editing-menus，master...HEAD）
+标注：「已复现」= 在 happy-dom + 真实 Tiptap/真实语言与编解码器里跑过；「从代码推断」= 未在真实浏览器验证，需主 Agent 用 e2e 核实。
+实验文件在 /tmp/neuro-book/agent/review-t08-impl/exp/（a/b/c.dom.test.ts，out.txt 是输出）。
+
+==== 发现（按追加顺序，最后汇总分级） ====
+
+[F1] 重要 | 正确性/竞态 | MarkdownSlashMenu.vue:165-177 + MarkdownMenus.vue:31-34
+现象：`closed` 事件不是“菜单从开到关”的边沿事件，而是 watch([open, activeId]) 回调里 `if (!isOpen) emit("closed")`，只要 open 为假时 open 或 activeId 任何一个变化就发。`open` 为假的原因有四个（match 为空、组字中、只读、筛不出项），而 MarkdownMenus.onSlashClosed 一律当成“用户放弃了斜杠菜单”，去 removeSlashBlock 并把 insertedBlock 置 null。
+后果（均由代码推断）：
+ (a) 点 `+` 后用中文输入法打拼音：compositionstart 把 composing 置真 → open 为假 → emit closed → removeSlashBlock(editor, pos)；此刻文档里这一块还只有 `/`，于是整块被删，组字目标被拆掉。`+` 之后打中文查询（按名称筛“标题”）是这个功能的主路径，e2e 里“输入法组字”只测了手打 `/`，没测 `+` 之后组字。
+ (b) 点 `+` 后键入筛不出项的字（`/zz`）：open 为假 → closed → 块里不是单独的 `/`，不删，但 insertedBlock 被清成 null；退格回到 `/` 菜单重新打开，再 Esc，onSlashClosed 里 insertedBlock 已是 null，空的 `/` 段落留在文件里。违反 Spec 输出 15、验收 3（“文件字节不变”）。
+ (c) options 因贡献项变化而改变 activeId 时，菜单关着也会发 closed（无害，但说明事件语义不对）。
+如何核实：e2e 里点 `+` 后用 CDP Input.imeSetComposition 开始组字，看块是否还在；或点 `+` 后键入 zz、退格、Esc 看文件字节。
+建议：让 closed 只在 `match` 从非空变空（或用户 Esc、失焦、选中）时发，不看 `open`；或把“放弃”的判断放在触发状态（match 变 null 且不是因为组字/无匹配）上。insertedBlock 在“无匹配”期间不应清空。
+
+[F2] 重要 | 正确性 | block-actions.ts:53-61（selectedBlock 的 NodeSelection 分支）+ 所有块动作
+现象：NodeSelection 选中的是行内原子（图片、引用小块）时，blockAt 找不到 pos === selection.from 的块，落入兜底 `{kind: kindOfTop(selection.node), pos: selection.from, end: selection.to, node}`，于是把行内节点当成“块”。moveBlock 用 sibling() 在段落内部找兄弟：Alt+↑ 把图片挪到整段前面文字的前面。
+已复现（a.dom.test.ts）：文档 `前面的文字![图](a.png)后面的文字`，选中图片 Alt+↑ 后写回 `![图](a.png)前面的文字后面的文字`。
+影响：点图片后按 Alt+↑/↓（Spec 命令表，无另外条件）、命令面板的 上移/下移/创建副本/删除（block-duplicate/block-delete 对行内节点也 enabled）都作用在图片本身而不是它所在的块，且 `enabled` 为真。
+建议：NodeSelection 分支对行内节点（selection.node.isInline）改按其所在块取 blockAt(doc, selection.from)；兜底分支只留给块级节点。
+
+[F3] 重要 | 正确性 | MarkdownBlockGutter.vue:29-45（place）
+现象：折叠的提示块（NodeView 里 `content.hidden = isFolded`，callout/index.ts:187）：kind 为 container，place 取 `coordsAtPos(block.pos + 2)`，这个位置在被 hidden 的内容区里，量出来是全 0 矩形，top = 0 - 12 - scrollerBox.top + scrollTop，按钮组被摆到滚动容器上方之外，悬停折叠提示块时看不到手柄，也就没法移动、删除、复制折叠的提示块。计划表写的是“折叠的提示块照容器处理，折叠状态不变”。
+未实测（hidden 元素 coordsAtPos 的返回值是从 ProseMirror 实现推断）。
+建议：container 的 top 取容器 DOM（view.nodeDOM(block.pos)）的头部或第一个可见子元素的矩形；先判断 hidden 内容。补一个折叠提示块的 e2e。
+
+[F4] 建议 | 正确性/数据 | block-actions.ts:145-150（unwrapBlock 容器分支）
+现象：已复现（b.dom.test.ts）：`> [!NOTE] 标题\n> 内容` 对它“转换为 → 正文”（block-unwrap），写回 `内容`，提示块的标题文字被静默丢掉。可撤销，但块菜单里没有任何提示，且 Spec 表只写“解开容器”。
+建议：Spec 写明标题丢弃，或把标题放成一个段落留在解开后的内容之前；至少补测试固定行为。
+
+[F5] 重要 | 正确性/破坏合同 | block-actions.ts:64-70（selectBlock）+ 53-61（selectedBlock）+ MarkdownBlockGutter.vue:98-106
+现象：块菜单的对象不是手柄悬停的那个块。onHandleClick 先 selectBlock(target)：把光标放到“块里第一个文字位置”，之后所有动作（上移、下移、副本、删除、转换为、解开）都用 selectedBlock(state) 从光标反推块。容器块（引用、提示块）的第一个子块是列表时，光标落进列表项，反推出来是那一项，不是容器。
+已复现（g.dom.test.ts，真实语言与编解码器）：
+ - `> - a\n>\n> text`，悬停“text”：blockAt 给出 container(blockquote, 0..15)；selectBlock 后 selectedBlock 变成 list-item(2..7)；deleteBlock 写回 `> text`（只删了列表项 a，而用户点的是整个引用的手柄）。
+ - `> [!NOTE]\n> - a\n> - b\n>\n> text`：同样只删掉 `- a`。
+ - 第一个子块是表格时没问题（表格是 whole 且 blockAt 先找列表项，找不到才取 node(1)）。
+违反：Spec 块模型表“引用、提示块…整个容器”，计划的“容器块的手柄对着整个容器”（README 待追认项之一）。破坏性动作（删除、移动）落在错误对象上，用户看到的高亮/手柄是容器。
+根因：菜单把“对象”交给选区再反推，丢了 BlockTarget。
+建议：块菜单与拖动直接持有 BlockTarget，动作接收 target（或把选区放到能唯一反推出该块的位置，例如容器用节点选区）；补一个“容器首子块是列表”的块模型用例。
+
+[F6] 重要 | 正确性/状态一致 | MarkdownMenus.vue:25-53 + MarkdownTextPrompt.vue
+现象：注音/双语的输入弹层（prompting）开着时：
+ (a) 点击正文别处、切标签、换文档、变只读，弹层都不会关。AnchoredPopover 明确不处理点外面（AnchoredPopover.vue 的 pointer-down-outside/interact-outside 都 prevent），MarkdownTextPrompt 只在弹层自己的 keydown 里处理 Esc/Enter，焦点回到正文后 Esc 到不了它；MarkdownMenus 没有对 props.binding / props.readonly / props.editor 的 watch，prompting 也没人清。
+ (b) 选区菜单靠 suspended 在弹层开着时隐藏，所以点正文后这个浮层成了孤儿：悬在旧选区位置，必须点回它的输入框再按 Esc 才能关；切到别的文档后回车会把注音/双语套到新文档此刻的选区上（ruby 要有选区才可用，bilingual 作用于光标所在的块）。
+违反：Spec“状态与转换”：换文档、切标签时所有浮动菜单收起，查询作废。
+未实测（从代码推断；读 MarkdownMenus.vue 整个文件即可确认没有任何重置）。e2e 只测了“选区菜单里输入、回车写回”的顺路径。
+建议：MarkdownMenus 里 watch([binding, readonly, editor]) 清掉 prompting；弹层在编辑器 blur / 点外面时按取消处理（由宿主 MarkdownTextPrompt 听 focusout，AnchoredPopover 本身不管）。补 e2e：开弹层后点正文，弹层消失。
+
+[F7] 建议 | 正确性 | MarkdownContextMenu.vue:73-85
+现象：右键点在选区外时用 editor.commands.setTextSelection(found.pos)。view.posAtCoords 点在分割线（原子块）上时返回块边界位置（深度 0），Tiptap 的 setTextSelection 不找最近的合法位置。
+已复现（d.dom.test.ts）：`甲\n\n---\n\n乙` 里 setTextSelection(3) / (4) 得到 TextSelection，$from.depth 为 0、parent 是 doc，并输出 `TextSelection endpoint not pointing into a node with inline content (doc)`。随后工具栏的撤销/格式 enabled 状态与输入都在一个非法选区上。
+建议：用 Selection.near(doc.resolve(pos)) 建选区（原子块可用 NodeSelection），并补右键点分割线的用例。
+
+[F8] 建议 | 正确性 | block-actions.ts:53-61, 93-129（选区不止一块）+ editing-actions.ts:154-160
+现象：多块选区（含 Ctrl+A）时，上移/下移/副本/删除只作用于 selection.from 所在的那一块，选区被缩成光标。已复现（b.dom.test.ts）：选中“二”到“三”按 Alt+↓，只有“二”被挪动；全选后 block-delete 只删第一块（写回 `乙\n\n丙`）。
+另有 enabled 与 run 不一致：NodeSelection 选中分割线时 canConvertBlock 因 `$from.depth === 0` 返回真，heading-1 的 enabled 为真，但 run 返回 false（已复现，c.dom.test.ts），工具栏按钮亮着点了没反应。
+建议：多块选区时 block-* 动作 enabled 置假（或按选区覆盖的块整体处理）；canConvertBlock 的“全选放行”要排除 NodeSelection。
+
+[F9] 建议 | 性能 | MarkdownBlockGutter.vue:47-58
+现象：pointermove 每次都新建 BlockTarget 并 `target.value = block`（shallowRef 每次是新对象）、`at.value = {...}`（新对象），并在每次事件里同步读 getBoundingClientRect/coordsAtPos/posAtCoords，所以指针在同一块里移动也会每个事件强制布局并触发一次重渲染。长章节里更明显。
+建议：pos 不变就跳过；按 requestAnimationFrame 合并。未实测。
+
+[F10] 建议 | 文档/规范 | AnchoredPopover.md:1-3；MarkdownContextMenu.md、MarkdownBlockGutter.md
+ - AnchoredPopover.vue 调 usePopoverLayer()（里面 inject(NB_POPOVER_Z_INDEX)），components.md 第 63 行要求取注入的组件标签含 state:inject；同类 SuggestionMenu.md 是 [state:local, state:inject, env:portal, env:timer]，AnchoredPopover.md 只有 [env:portal]。
+ - MarkdownContextMenu.vue 与 MarkdownBlockGutter.vue 经 clipboard.ts 直接用 navigator.clipboard 与 document.execCommand，标签应含 env:clipboard（components.md 第 82 行），两份 .md 都没有。
+建议：补标签；这条 governance:check 查不到，靠评审。
+
+[F11] 建议 | 测试 | 见各条
+对照计划“验收映射”与 Spec 验收，缺的测试：
+ - “同一实例重挂、A↔B 切标签后菜单可用，恢复的选区不弹出菜单”：计划写在 MarkdownControl.dom.test.ts 的新夹具里，该文件只加了三条 editing 用例（MarkdownControl.dom.test.ts:215-245），没有重挂夹具，也没有恢复选区不弹出的用例；e2e 里也没有（grep 重挂/恢复无命中）。MarkdownControl.vue 里 currentEditor/editingVersion/attach 的重挂路径整条没被测。
+ - 粘贴三种失败只测了 NotAllowedError 一种（e2e:385-397）；pasteUnsupported、pasteEmpty 没有用例。该用例用 Object.defineProperty 把 navigator.clipboard 换成假对象，属于 docs/testing/README.md 不鼓励的替身，且没和真实 API 对过契约。
+ - 右键“点在选区外时光标移到点击处”（Spec 输出 21）没有断言（e2e:357-367 只测了选区内保留和置灰）。
+ - 折叠提示块、容器首子块是列表（见 F3、F5）、`+` 后组字（见 F1）都没有用例。
+ - MarkdownToolbar.dom.test.ts:71-77 “按下不夺走焦点”断言的是 mousedown 的 defaultPrevented（实现手段），不是焦点；“点按钮执行对应的命令”断言的是假 menus 的 runs 数组，只验证接线。真实行为在 e2e。
+ - 没有测试核对 EDITING_ACTIONS（neuro-book 的 id 表）与 markdownEditingActions（nb-markdown 的实现表）键集一致：新增一个 id 忘了写实现，editing-commands.test.ts 的“每条声明都被接受”照样通过，运行时才在 editing.run 返回 false。Alt+↑/↓ 与 Ctrl+Alt+0（paragraph）的键位也没进 editing-actions.dom.test.ts 的快捷键表。
+ - nb-ui 新组件 AnchoredPopover 没有 .test.ts（同类 SuggestionMenu、DropdownMenu 都有）。
+建议：按上面补。
+
+[F12] 建议 | 正确性 | MarkdownBlockGutter.vue:60-65（hide 在 scroll 上）+ onDragEnd
+现象：hide() 在 scroller 的 scroll 上把 target 清成 null，v-if 随之把手柄元素（拖动源）从 DOM 拿掉。拖动块到长文边缘时 ProseMirror/浏览器会自动滚动 scroller，触发 scroll → 源元素被移除。浏览器对“拖动源被移除”的 dragend 行为不一致（至少 Firefox/Safari 不保证派发），而 view.dragging 只在 onDragEnd 里清，这正是计划要避免的“外部拖入被当成旧块移动”那条路径。
+未实测，需主 Agent 在真实 Chromium 里拖到边缘滚动后再做外部拖入核实；若不确定，把 hide 在拖动期间（dragging 标志）静默，或把 view.dragging 的清理挂在 document 的 dragend/drop 上。
+
+[F13] 建议 | 代码质量 | MarkdownSlashMenu.vue:119-129, 165-177
+ - `sync` 的 `if (editor === null || !editor.view.composing) match.value = null;` 与上一行 next===null 的分支重复判断 composing（前面已经 `editor.view.composing ? null : ...`），可读性差，注释“组字中保留上一次的查询”与代码结果（next 在组字时恒为 null）一致但绕。
+ - emit("closed") 放在 watch 回调里（见 F1）是语义不清的主因：事件名叫 closed，实际语义是“open 为假时 open 或 activeId 变了”。
+ - MarkdownMenus.insertedBlock 存的是 `+` 当时的文档位置，没有随事务映射，也不绑定文档：换文档（Ctrl+Tab 这类不先失焦的路径）、撤销改到上方内容、连续两次点 `+`（第二次 insertSlashBlock 在第一块之上插入时旧位置整体后移）都会让 removeSlashBlock(pos) 指到别的节点；靠 `textContent === "/"` 这道判断兜底才不误删，但该删的块会漏删，留下 "/" 段落。建议存节点身份或用 tr.mapping 跟踪。
+
+==== 汇总（按影响排序） ====
+阻断：0
+重要：5
+ 1. [F5] 容器首子块是列表时，块菜单的删除/移动/副本落在第一个列表项上（已复现，会误删）。
+ 2. [F1] 斜杠菜单的 closed 事件在组字、筛不出项时也发：点 `+` 后用输入法打字会把刚插入的块删掉（从代码推断，需 e2e 核实），无匹配后退格再 Esc 会留下 "/" 段落（违反验收 3）。
+ 3. [F6] 注音/双语输入弹层没有点外面、换文档、变只读时关闭的路径，会成孤儿浮层并在别的文档上生效（从代码推断）。
+ 4. [F2] 选中行内图片/引用小块时 Alt+↑↓ 与块命令把行内节点当块，图片被挪到整段文字前面（已复现）。
+ 5. [F3] 折叠的提示块里块手柄位置量在被 hidden 的内容上，按钮飞出可视范围（从代码推断）。
+建议：8（F4 解开提示块丢标题；F7 右键点分割线产生非法选区；F8 多块选区与 enabled/run 不一致；F9 pointermove 每次重渲染；F10 能力标签缺 state:inject、env:clipboard；F11 缺的测试；F12 拖动源被 scroll 移除；F13 insertedBlock 位置不随文档走与其它可读性问题）
+
+==== 未发现问题的方面（仔细检查后） ====
+ - moveBlock 的 insertAt 算术：上移、下移、嵌套列表、同级到头都对（b.dom.test.ts 实测，写回字节符合预期）；节点身份保留，没动过的块字节不变。
+ - restoreSelection 对文字光标的偏移；对节点选区（表格等原子块）用 NodeSelection.create(blockPos)，合理。
+ - deleteBlock 用 deleteRange：删列表唯一一项连列表、删提示块、唯一一块留空段落都对（已跑）。
+ - unwrapBlock 的列表循环有 16 次上限且 isActive 为假即停，不会死循环；从引用里的列表项提出也对。
+ - 命令声明：未写 expose，按 commands.md 默认 never，与计划“Agent 不暴露”一致；when 引用的键都已声明（editing-commands.test.ts 覆盖）；TOGGLE_TOOLBAR 的 effect: "read" 与同文件其它界面状态命令一致。
+ - titlebar-menu.ts 新增的 ./editing-commands、./state 只引 typebox、@vue/reactivity 和 shared/editing（无 Tiptap），入口依赖没有问题；pinyin-pro 动态 import，不进首屏。
+ - 公开键增加 19 个都在 nbook.editor 命名空间下，unready 为 false；我没找到会因键多了而受影响的其它插件代码。
+ - 触发插件抽出：Prompt 的触发逻辑与原版逐行对应（meta 键用同一个 key），nb-markdown 的 src/editor 全部 57 个用例、neuro-book 的 markdown 组件与 editing-commands 共 51 个用例本地都通过。
+ - Toolbar variant：panel 的 class 与改动前逐字相同，其它调用方不受影响；.md 与代码一致。
+ - 颜色 Popover 的 close-auto-focus 被 nb-ui Popover 阻止，色板选完不会把焦点还给触发器；我另在 happy-dom 里试了 DropdownMenu 选中后焦点仍留在先聚焦的输入框（未在真实 Chromium 里验证，不作为问题）。
+ - 文字颜色写回的属性值经 escapeAttribute，命令参数不能注入标记。
+
+附：实验文件在 /tmp/neuro-book/agent/review-t08-impl/exp/（a–h 的 *.dom.test.ts、vitest.config.ts、out.txt 是最后一次输出）。未跑 e2e 与开发服务；F1(a)、F3、F6、F12 需要主 Agent 用 e2e/真实 Chromium 复现后再定最终严重程度。

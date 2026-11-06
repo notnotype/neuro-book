@@ -1,0 +1,200 @@
+w00025 t19 前端部分设计审查（只读；审查对象 plan.md 第 1、2、3、5 节与验证）
+审查日期 2026-11-05。凡写"探针"的，是我在 /tmp 下用本机 google-chrome 跑的最小 HTML，不是仓库 e2e；凡写"从代码推断"的未跑。
+数字脚本：/tmp/neuro-book/agent/review-t19-design/c.py、c2.py、c3.py（sRGB 伽马空间线性混合，复现了计划里的 3.32 / 4.51 / 5.29 / 9.05，说明计划的算法与 Chromium 对 rgba 的合成方式一致，8 位量化误差小于 0.01）。
+
+============================================================
+发现 1  [阻断] [窗口背景] 标题栏、状态栏和卡片缝在默认主题下直接压在图片上，"任何图片都保证 4.5"对整个窗口不成立
+============================================================
+位置：plan.md 第 2 节"这样任何图片都能保证正文对比度不低于 4.5"；第 3 节"整个窗口"
+现象：nbook 主题把 `--shell-chrome-surface` 设为 transparent（packages/nb-ui/themes/nbook/vars.css:315），标题栏与状态栏（WorkbenchTitleBar.vue:401、WorkbenchStatusBar.vue:101 取 `var(--shell-chrome-surface, var(--bg-panel))`）因此没有任何面色，直接落在窗口底上；卡片之间 4px 的缝同理。计划只说把 `--panel-surface`、`--sidebar-surface` 改半透明，这两条路都碰不到标题栏与状态栏。
+为什么是问题：标题栏里有项目名、搜索按钮（面是 `--control-surface` 即文字色 7%）、菜单、布局按钮，状态栏有 `--text-secondary` 文字。把图铺到 `.workbench-shell-layout` 之后它们就在裸图上。实算：夜间主题 text-main #efe9df 压在纯白图上 1.21，text-secondary #c3bcb0 为 1.88；昼间 text-main #1f1c17 压纯黑图 1.24，secondary 2.74。默认主题就是 nbook，所以这是默认配置下的可读性事故，而且恰好是计划自称"由构造保证"的那个保证。
+macos 的情形相反但同样没说清：macos 不设 `--shell-chrome-surface`，标题栏与状态栏取 `--bg-panel`（直接引用配色变量，不经 `--panel-surface`），所以覆盖 `--panel-surface` 也到不了它们，两条栏保持实心。可读，但"整个窗口都透出图"不成立，计划也没写这是有意的。
+如何核实：读 vars.css:315、WorkbenchTitleBar.vue:401、WorkbenchStatusBar.vue:101；用 c3.py 复算 1.21 / 1.88 / 1.24 / 2.74。
+建议改法：计划要列出窗口层真实的表面消费点，逐个定处理：标题栏与状态栏（给与面板同一遮罩，或不画图只画实心）、缝（无文字，可以不遮）、活动栏、两侧栏、面板、编辑器区。验收要把标题栏与状态栏纳入量测。
+
+============================================================
+发现 2  [阻断] [窗口背景] "只改作用域里的变量"的做法有三处直接失效，计划没有提到任何一处
+============================================================
+位置：plan.md 第 3 节"`--panel-surface`、`--sidebar-surface` 等改成'面色 + 遮罩'的半透明。只改这一层作用域的变量，主题包不动"
+探针（本机 Chrome，/tmp/neuro-book/agent/review-t19-design/probe.mjs）：
+  :root{--bg-panel:#2d2925;--panel-surface:var(--bg-panel);--shell-ground:var(--panel-surface);--tabs:color-mix(in srgb,var(--panel-surface) 93%,#fff)}
+  .scope{--panel-surface:color-mix(in srgb,var(--bg-panel) 85%,transparent)}
+  .self{--panel-surface:color-mix(in srgb,var(--panel-surface) 85%,transparent)}
+  结果：scope 内直接消费者 = color(srgb … / 0.85)；scope 内读 --shell-ground = rgb(45,41,37)（仍不透明）；读 --tabs = 不透明；.self 内 = rgba(0,0,0,0)（完全透明）。
+三处失效：
+ (a) 派生变量不会跟着变。自定义属性里的 var() 在声明它的元素（:root）上就替换完，后代继承的是替换后的值。仓库里这样的派生有：`--editor-tabs-surface`（nbook vars.css:323，取 panel-surface 混 7% 文字色）、`--shell-ground` 的 fallback `var(--panel-surface)`（nbook/manifest.ts:159，macos 平铺靠它）、`--chrome-surface: var(--sidebar-surface)`。后果：窗口层一开，标签条（EditorGroup.vue:371 `background: var(--editor-tabs-surface)`）仍是实心条，而活动标签（EditorTabBar.vue:280 `background: var(--panel-surface)`）变半透明，叠在实心条上，"活动标签与正文连成一体"的关系就破了；macos 的外壳根底色仍是不透明。
+ (b) 不能写 `--panel-surface: color-mix(… var(--panel-surface) …)`：同一元素上自引用是环，值在计算时无效，面板变成全透明（探针 .self）。要在祖先上先把原值存进别名变量，再在作用域里引用别名。计划没写，照字面实现会踩。
+ (c) 作用域只覆盖 `.workbench-shell-layout` 的后代；传送到 body 的浮层、对话框、设置窗口不受影响（这是计划想要的），但传送出去的拖影（EditorArea.vue 的 `.editor-drag-ghost`、背景 `var(--panel-surface)`）因此保持实心——这个是对的；而就地渲染、仍在作用域内的东西（DropFeedbackOverlay 的标签 `color-mix(var(--panel-surface) 90%, transparent)`，nb-ui/src/styles.css:863；WorkbenchDragFeedback.vue:82 的 72%）会乘出更低的不透明度（85% 的遮罩下约 76% 与 61%），拖放提示叠在正文上变淡。
+为什么是问题：计划把这件事写成"改几个变量"，实际要改的是一个"重新定义整组表面角色"的作用域块，且要对照每个主题的派生关系；漏一个就是视觉缺陷，漏在 (b) 就是整个窗口全透明。
+如何核实：运行 probe.mjs（node，需 /usr/bin/google-chrome-stable）。
+建议改法：不要覆盖 `--panel-surface` 本身去赌派生链。要么（首选）由 nb-ui 增加一个明确的"窗口底上的内容面"角色变量（`--panel-surface` 之外），主题映射它，工作台只切这一个变量的来源；要么在作用域里把 `--panel-surface`、`--shell-ground`、`--shell-chrome-surface`、`--editor-tabs-surface` 等受影响的变量一次重写，并加一条机检（读计算样式）保证清单与主题的派生变量同步。第二条路意味着每次主题加新派生就要回来改，这正是"同一件事各写一份"的信号。
+
+[发现 2 更正] (c) 里 WorkbenchDragFeedback.vue:82 的 72% 一项写错：WorkbenchDragFeedback 是 WorkbenchShellLayout 的兄弟节点且传送到 body（WorkbenchShell.vue:524、554，DragFeedback.vue:35），不在作用域内，不受影响，请忽略那一项。仍成立的只有编辑器区里就地渲染的 DropFeedbackOverlay（nb-ui styles.css:863，90% 乘 85% 约 76%）。
+
+============================================================
+发现 3  [重要] [窗口背景] 编辑器区内的面板底是叠了好几层的，"遮罩不透明度"实际会被乘高，滑块的 75–100 对不上看到的效果
+============================================================
+位置：plan.md 第 2 节"scrim 是盖在图片上的那层面色的不透明度，范围 75–100"；第 3 节整个窗口
+现象：编辑器区正文所在的像素上，`--panel-surface` 至少画了两层：EditorArea.vue 根（class `bg-[var(--panel-surface)]`）与 EditorGroup.vue:251 的 `<section class="… bg-[var(--panel-surface)]">`；面包屑行再多一层（EditorGroup.vue:289 的行、EditorBreadcrumbs.vue:253）。变量一旦半透明，各层的不透明度相乘：有效不透明度 = 1-(1-s)^n。s=75% 时 n=2 为 93.75%，n=3 为 98.4%；s=85% 时 n=2 为 97.75%，n=3 为 99.7%。
+为什么是问题：（1）窗口层的图在编辑器区里几乎看不见（缺省 85% 时只剩 2% 透出），用户拖滑块从 75 到 100 实际只在 94% 到 100% 之间变化——"整个窗口"这个功能在占屏幕最大的区域里等于没开；（2）第 2 节"下限是算出来的"的前提是单层，实际层数随 DOM 而不是随设计，下限与可见度都成了不可控的副作用；（3）后面谁给编辑器区再加一层背景，就悄悄把效果改了。
+如何核实：读 EditorArea.vue 的模板根与 EditorGroup.vue:251、289；用 c3.py 末尾的叠加公式。
+建议改法：材质层只画一次。窗口层生效时，只让"最外层的面"取半透明值，内层面板底改为 transparent（需要一个明确的"内层不再画底"的变量），或把遮罩做成单独的一层伪元素/兄弟元素，面板本身不动。无论哪种，都要在计划里写清"遮罩画在哪一层、几层"，并加一条读计算样式的检查：编辑器区正文点上叠加的有效 alpha 等于设置值。
+
+============================================================
+发现 4  [重要] [可读性] 75% 的下限只证了 text-main；次要文字、链接、状态色在 75% 与缺省 85% 下都不到 4.5，且 text-muted 在任何遮罩下都到不了
+============================================================
+位置：plan.md 第 2 节"取 75……次要文字实施时按四个主题配色实测，不够就抬下限"；验证节"全部不低于 4.5"
+实算（遮罩面色盖在最坏的图上：夜间主题盖纯白、昼间盖纯黑；各项为对比度，括号外是 75%，括号内是缺省 85%，最后是 100% 即没有图时的主题本身）：
+  nbook 夜  secondary #c3bcb0   3.39 (4.73)  100%: 7.65
+            accent-text #5eb0ff 2.78 (3.88)  100%: 6.27
+            status-warning      3.11 (4.34)  info 3.71 (5.18)  success 3.16 (4.41)  danger 1.88 (2.62)
+            muted #918a7e       1.87 (2.61)  100%: 4.22   ← 本来就不到 4.5
+  nbook 昼  secondary #57534b   4.08 (5.28)  100%: 7.47
+            accent-text #0060df 2.99 (3.88)  100%: 5.48
+            status-warning/success/danger 2.8–2.9 (3.7–3.9)；info 2.47 (3.20)，100% 也只有 4.52
+            muted #8b857b       1.95 (2.53)  100%: 3.57   ← 本来就不到 4.5
+  macos 夜  secondary #d4d4d8   4.20 (5.83)  accent-text 2.70 (3.75)  muted 2.42 (3.36)；100% muted 5.44
+  macos 昼  secondary #4b5563   4.12 (5.34)  accent-text 3.06 (3.97)  muted 1.38 (1.79)；100% muted 2.54
+让各角色刚好到 4.5 所需的最小遮罩：夜 secondary 84%、accent-text 89.5%、info 81%、success 86%、warning 86.5%；昼 secondary 79%、accent-text 91.5%、success 94%、warning 93%、danger 92%、info 到 100% 也不够；macos 夜 secondary 77.5%、accent-text 91%；macos 昼 secondary 78.5%、accent-text 90.5%、warning 95.5%、danger 97%。muted 在各主题 100% 处都不到 4.5（除 macos 夜 5.44），因此不可能有遮罩让它过。
+带底色的正文："高亮"mark（markdown.css:163，status-warning 32% 叠在面上）夜间主题 text-main 压在它上面：75% 时 3.63，85% 时 4.46（差 0.04），100% 时 6.17；昼间主题 6.54 / 7.98 / 10.5 没问题。所以缺省 85% 就让夜间主题的高亮正文跌破 4.5。
+正文里的链接（markdown.css:119-120 `color: var(--accent-text)`）：夜间 3.88、昼间 3.88（缺省 85% 时）。
+为什么是问题：（1）计划把"正文不低于 4.5"当作保证，但读者在正文区会同时看到链接、高亮、占位符、行号（`--text-muted`）、状态色；这些在所选下限和缺省值下都不合格，计划只留了一句"不够就抬下限或单独处理"；（2）验证节写"全部不低于 4.5，量不到的如实写"，按 text-muted 的主题自身对比度（昼 3.57、macos 昼 2.54）这条验收无论怎么实现都过不了——判据本身不可满足；（3）要靠抬下限满足链接，需要 90%–92%，这已经接近提案记录的 92%（见发现 5），"75% 下限"与"壁纸不鲜艳"的取舍就要重新问开发者，因为开发者确认的是 75 这个数，不是"保证全部文字"。
+如何核实：python3 -I c.py、c2.py（脚本里的色值来自 themes/*/colorways.ts 与 src/colorway/presets.ts）；markdown.css:119、163。
+建议改法：
+ · 把"保证"收窄并写成可检的判据：按角色分档。正文主色 ≥4.5（75% 即可）；次要文字、链接、状态色按"不低于它在无图主题面上的对比度的某个比例"或 ≥3（大字/非正文）另列；text-muted 只要求不低于它在无图时的对比度（已经是主题自己的问题）。
+ · 下限不要写成与主题无关的常量 75：从配色变量实时算（正文主色、次要文字对遮罩面色与最坏图的混合），再取 max(设置值, 下限)。这样 macos 夜 66.5%、nbook 夜 84% 各按各的，也不会被将来新增主题打破。下限在设置里是"有效值"，写入的是用户意图，二者分开存。
+ · 验证节的判据改成相对基线（无图时同一角色的对比度）加绝对下限，并列出哪些角色在判据之外。
+
+============================================================
+发现 5  [重要] [与已接受提案不一致] 对比度比值只证"逐像素够不够亮"，提案里已经走查出"大面积 + 复杂图"要 92%，计划没有引用也没有反驳
+============================================================
+位置：plan.md 第 2 节；依据栏引用了 nb-ui-surface-model.md 但只取"面板叠在照片上读不了的教训"
+现象：提案（status: accepted）「走查第二轮」：小色块上 65% 读得清，落到整条侧栏与顶栏后 65% 要盯着看，"面越大，同样的透光量累积出来的干扰越多，长文比几个词更受影响"，调到 92% 才可读，并把 92% 定为 nbook·昼 的走查基线。计划的论证是纯 WCAG 比值：最坏像素是纯白或纯黑，按比值反推 75%。比值保证了每个像素对文字的亮度差，但不保证"图的纹理不抢字"——高频细节（树叶、云边）在 75% 遮罩下仍有约 25% 的图透出，文字边缘与纹理在同一空间频率上。评审板第 1 轮只量了比值（"最差 / 中位"），没有量过人眼读不读得动，也没有给过开发者看长篇正文在 75% 下的样子（r1 的图是 78% 与 60% 两张静态稿）。开发者确认的 75% 是在不知道这条提案记录的前提下确认的。
+为什么是问题：计划把"比值够了"写成"可读性由构造保证"（"不用运行时量图"），而提案明说过比值之外还有面积效应，并且这条提案的材质层下限被规定为"走 manifest 申报、由库合成"（见发现 6）。如果 75% 在真实长文上仍然吵眼，补救不是调一个常量，而是回头改合同。
+如何核实：读 nb-ui-surface-model.md 的"走查第二轮：色块上的结论不能直接当下限"与决策记录"取值 材质层 92%"；读 artifacts/review/index.html 的表。
+建议改法：（1）计划里明确写出与 92% 的关系：窗口背景的面板是按提案的材质层看，还是不是；（2）把"人眼走查"列进验证：用一张高频真实照片、在 nbook·昼 / 夜 75% 与缺省 85% 下各打开一章长文，用 nbdev shot 留图，让开发者看一次，再定 75% 是否成立；（3）如果要保留低值，纹理问题可以用提案里已经验证过的办法：对图预模糊（固定值，不是设置）或在遮罩上叠 `backdrop-filter` 之外的降噪手段，计划"不做：模糊强度的设置"只排除了设置项，没排除固定模糊。
+
+============================================================
+发现 6  [重要] [违反合同] 把 `--panel-surface` 做成半透明，违反 ui-development-spec 的两条轴：它属于层级轴，层级轴"不透明、不定不透明度"；不透明度下限应由主题申报，而不是应用里的常量
+============================================================
+位置：plan.md 第 3 节"`--panel-surface`、`--sidebar-surface` 等改成半透明"，"主题包不动"；第 2 节下限常量 75
+现象：packages/nb-ui/docs/ui-development-spec.md 第 2 节第 1 条把 `--panel-surface` 和 `--strip-surface` 归为层级轴（"纯不透明色阶，不开模糊，不定不透明度"），只有材质轴（`--toolbar-surface`、`--sidebar-surface`、`--overlay-surface` 等）可以半透明、才有不透明度下限；提案把"下限"定为主题 manifest 申报、由库合成，"暗色材质的下限由各主题自行决定"。计划做的相反：在应用的作用域里把层级轴变量变半透明，并把下限放在工作台代码里的一个全局常量。同时，工作台实际消费的恰恰不是材质轴那两个变量（见发现 1，`--sidebar-surface`、`--toolbar-surface` 在工作台里根本没有消费者，grep 无命中），所以"半透明材质层"这个词在工作台里没有对应物。
+为什么是问题：规范写明"新写组件时按两条轴选角色"；现在是在没有任何文档说明"窗口背景的遮罩属于哪条轴"的情况下直接改。提案里的 Mica 先例（微软：内容层用低透明度纯色叠在材质上）恰好说明"叠在背景上的内容层"是个合法的东西，但那里的"低透明度"指的是内容层薄，计划反过来用厚遮罩（75–100%）把背景压下去，这在模型里应当是"材质层自己带一张壁纸"。把这个归位写清，才知道哪些变量该改、下限归谁。
+建议改法：在 docs/specs/theme/system.md 或新 Spec 里先回答"窗口背景遮罩是第几条轴上的什么"，推荐：它是材质层（壁纸 + 遮罩 = 一块材质），下限作为主题可读的数据（比如 `--window-ground-opaque-floor` 之类的 manifest 声明），工作台读取并 clamp；`--panel-surface` 保持不透明，工作台另取一个新的"窗口内容面"角色。这与发现 2 的建议是同一件事。如果要先绕开，计划必须把"暂时违反两条轴"写成明示的债，并链接到提案的未决项。
+
+[发现 5 更正] 三处措辞：（i）"开发者确认的 75% 是在不知道这条提案记录的前提下确认的"无从核实，请改读为"确认时给他看的材料里没有这条记录"（评审板与计划都没引用它）；（ii）评审板给开发者看的是 78% 的亮暗两张图加 60/78/90 三行比值表，没有 60% 的图；（iii）建议改法 (3) 里"在遮罩上叠 backdrop-filter 之外的降噪手段"请忽略，只保留"对图做固定值的预模糊"这一条。
+
+============================================================
+发现 7  [重要] [范围未定义] "正文背景"画在哪一层、盖住哪些东西、按组还是按区，计划写的做法对不上现有 DOM
+============================================================
+位置：plan.md 第 3 节"正文：`MarkdownControl`、Monaco 的滚动容器之下画一层（背景与面色遮罩），编辑组读设置后写变量；工具栏与面包屑同样透出"
+现象（逐条对 DOM）：
+ (a) 工具栏不在控件里。MarkdownControl 在 toolbarPlacement 为 merged 时用 Teleport 把工具栏送进编辑组的 `[data-editor-toolbar-slot]`（MarkdownControl.vue:37、460；EditorGroup.vue:302），这个槽在 EditorGroup 的一行里，那一行自带 `bg-[var(--panel-surface)]`（EditorGroup.vue:289）。面包屑（EditorBreadcrumbs.vue:253）也有自己的实心底。所以"滚动容器之下画一层"够不着它们，"同样透出"要改的是 EditorGroup。
+ (b) 标签条是 `--editor-tabs-surface`（EditorGroup.vue:371），在 :root 求值，保持实心（发现 2）。计划完全没提标签条算不算"正文"。结果是一条实心标签条下面接着半透明的面包屑行和图，外观不连贯；如果标签条要透出，活动标签（EditorTabBar.vue:280 `background: var(--panel-surface)`）与标签条的"低一档"关系要重新设计。
+ (c) 两个控件在两个插件里（`nbook.markdown` 的 MarkdownControl、`nbook.editor` 的 MonacoControl），计划让两边各画一层，等于同一张图的定位、缩放、遮罩算两遍；Lab 的 EditorAreaFixture 也直接挂这两个控件（EditorAreaFixture.vue:137-139），要不要跟着变也没说。
+ (d) 编辑器类型不止这两个：ImageViewer（`background: var(--panel-surface)`，ImageViewer.vue:258）、HtmlPreview（HtmlPreview.vue:150）、插件贡献的编辑器页都有自己的实心底。开发者确认第 3 项的理由是"否则切到源码时背景消失，很突兀"；这条理由对切到图片、HTML 预览同样成立，而按控件画层就一定会漏。
+ (e) 拆分后多组：每个 EditorGroup 是 NestedGrid 的一片叶子。"编辑组读设置后写变量"意味着每组各画一份 cover，两栏就是同一张图被各裁一次；拖分隔条时每一帧都要按新尺寸重新缩放（cover），大图（计划上限 20 MB）下很可能掉帧，且图的位置会随拖动跳变。计划没有说图是整个编辑器区一张，还是每组一张。
+ (f) 滚动：计划没写图在滚动时动不动。Markdown 的 `.markdown-control`（上留白 64px，下 120px，列宽封顶 720px）在 `overflow-auto` 的滚动器里；背景放在滚动器内容里，cover 会按整篇长文的高度缩放（几万字的章节图被放大到失去意义）；放在滚动器之下（计划的写法）则图固定、字动，这是合理的，但要写下来并测一次。Monaco 也是内部滚动，同理。
+ (g) fit=contain 时留边处露出什么、fit=repeat 的接缝，计划没说；contain 的留边露出的是遮罩面色还是下面的窗口层，会直接改变第 2 节的"最坏情形"假设（露出窗口层就是两层叠）。
+为什么是问题：这些决定一旦在编码时各自做，就是 4 个人做出 4 种范围；而且 (a)(b) 决定这一节"工具栏与面包屑同样透出"到底是不是可行。
+如何核实：读 EditorGroup.vue 的模板（245-330 行）、MarkdownControl.vue 的模板与 37 行、EditorTabBar.vue:276-280、editor/web/plugin.ts:60-70。
+建议改法：背景层只在 EditorArea 或 EditorGroup 画一次（首选 EditorArea：整个编辑器区一张图，各组以 `background-attachment: fixed`/同一定位框共享，分隔条拖动不重算），组内的面包屑、工具栏、控件容器、各类编辑器的实心底统一改取一个"编辑器区内容面"变量（在背景启用时为 transparent，由 EditorArea 画遮罩面色）；标签条与它的关系在计划里单列一条决定。把 (e)(f)(g) 写进 Spec 的可观察行为。
+
+============================================================
+发现 8  [重要] [Monaco] 透明可行（主题颜色接受 #RRGGBBAA），但现有主题构造有四处会出错：吸顶行、读色函数丢透明度、整行高亮是实心补丁、重建时机
+============================================================
+位置：plan.md 第 3 节"Monaco 的底色要跟着透明，实施第一步先核实"；风险节"透明可能要改主题定义；不行就只让 Markdown 编辑器透出"
+核实结果（读 MonacoControl.vue、code/monaco-theme.ts、node_modules/monaco-editor 0.55.1 源码）：
+ (a) 可行性：buildMonacoTheme 的 `colors` 是标准 Monaco 主题数据，颜色值认 `#RRGGBBAA`，`editor.background: "#00000000"` 与 `editorGutter.background` 同写即可；minimap 代码里背景有 alpha 通道（minimap.js:84-87、1586），默认关闭（options.ts minimap:false），未见阻碍。所以风险节里"不行就只让 Markdown 透出"的退路大概率用不上；那条退路还与开发者确认的第 3 项矛盾（确认的是"Monaco 也透出"），若要真走，必须回问开发者而不是计划里自行降级。
+ (b) 吸顶行：monaco 0.55.1 的 `stickyScroll.enabled` 缺省为 true（editorOptions.js:1361 附近 defaults `{enabled: true, maxLineCount: 5 …}`），而 MonacoControl 的 editorOptionsOf 没有关它（grep 无 stickyScroll）；吸顶行背景 `editorStickyScroll.background` 缺省取 `editor.background`（editorColors.js:14）。编辑器背景改透明后，吸顶的那几行没有底，下面滚动的字直接叠在它们后面——字叠字，读不了。主题里要单独给 `editorStickyScroll.background`、`editorStickyScrollGutter.background` 一个不透明面（遮罩面色与图合成后的实心近似），或关掉吸顶。
+ (c) 读色函数会丢透明度：monaco-theme.ts 的 `hex()` 只放行 `#rrggbb(aa)` 文本，其他经 canvas 转成 `#rrggbb`——canvas 对带透明度的颜色返回 `rgba(...)`，正则 `^#[0-9a-f]{6}$` 不匹配，函数静默退回 fallback（不透明深/浅灰）。所以如果让遮罩面色或半透明高亮色走 token → hex()，结果会悄悄变成不透明的 `#1f1f1f`/`#ffffff`，背景整块实心，没有任何报错。这条与设计语言"坑 55：自定义属性读到的是原文"同类。
+ (d) 整行高亮：`editor.lineHighlightBackground` 取的是 `--bg-hover`（不透明，如夜间 #3a3530）。透明编辑器上，当前行是一条实心带，把遮罩与图整行挡掉——正是设计语言坑 43 描述的"挖进材料里的实心补丁"。它还没有选区色：`editor.selectionBackground` 没配，走 vs/vs-dark 基底的不透明蓝（#264F78/#ADD6FF），对夜间主题文字 #efe9df 够读，但与主题的 `--selection-bg` 不一致（既有问题，不在本任务范围）。建议当前行高亮改为文字色 8–12% 的半透明色（`--overlay-item-active` 的手法）。
+ (e) 底色来源：Monaco 现在画的是 `--bg-main`（monaco-theme.ts:35 `token(style, "--bg-main", …)`），不是 Markdown 控件用的 `--panel-surface`（=bg-panel）。nbook 昼 bg-main #ece8df、夜 #201d1a；与 bg-panel（#fffcf5、#2d2925）不同，所以第 2 节的 9.05 / 5.29 对 Monaco 不适用。实算：昼 bg-main 盖纯黑 75% 时 text-main 7.67、secondary 3.46（85%：9.88 / 4.45）；夜 75% 时 6.09（85%：8.68）。透明化后 Monaco 底下的遮罩面色用哪一个，要在 Spec 里定：统一成 panel（与 Markdown 一致，切换源码不跳色，但无背景时源码视图与 Markdown 视图的现有差异就保留不下来）还是各用各的。
+ (f) 重建时机：MonacoControl.vue:304-305 的 MutationObserver 只观察 `document.documentElement` 的 style/class/data-nb-* 属性变化来重建主题。计划的变量写在"编辑组"/作用域里，不在 `<html>` 上，Monaco 不会知道背景模式变了；而 Monaco 的主题是全局的（`defineTheme`/`setTheme` 对所有编辑器实例生效），一次只能是一种。需要显式通知（背景设置变了就重建），并保证 Lab 等其他挂载点不被带歪。
+如何核实：读上面提到的行；node_modules/monaco-editor/esm/vs/editor/common/config/editorOptions.js 第 1359 行起；platform/theme/common/colors/editorColors.js 第 14-15 行。
+建议改法：把 Monaco 的主题构造改成"读背景模式 + 显式色"，写 `#00000000` 与半透明高亮；单独给吸顶行不透明背景；加一条读计算样式的单测（`.monaco-editor-background` 的 alpha 为 0，当前行高亮 alpha<1，吸顶背景 alpha=1）。
+
+[发现 8 更正] 8(e) 里 `--bg-main` 的读取在 monaco-theme.ts:29（不是 35），整行高亮在 :45。
+
+============================================================
+发现 9  [重要] [设置 schema] 纯色底的设计表达不了"亮色一个、暗色一个"，校验只对 text-main，类型也没限定成可算对比度的格式
+============================================================
+位置：plan.md 第 1 节 `{kind: "color", color: string}`；第 2 节"纯色底……切换明暗时，只对当前明暗不合格的颜色退回主题的底"
+现象与问题：
+ (a) 一个设置里只有一个 `color`。预设按明暗分开（亮：羊皮纸 #f4ecd8、豆沙绿 #cce8cf；暗：深棕、墨绿，计划没写暗色色值），但存进去的只是十六进制值，没有"预设 id"，也没有分明暗的两份。appearance 取 `system` 时（设置项存在，theme/appearance 两项还允许项目层覆盖，workbench/shared/contracts.ts:129-155）界面会自己在日出日落间切换：白天的羊皮纸夜里"不合格退回主题的底"，天亮再恢复——这套行为只在"退回"是派生（不改设置）时才对；计划没有写，一旦实现成"写回设置"，就是系统明暗切换触发配置文件写入、多窗口互相覆盖。要写明：退回是显示时的计算，设置值不动，设置页要提示"这个颜色在当前明暗下没有使用"。
+ (b) 项目层可以覆盖 appearance：同一个用户层颜色，换一个作品（项目层 dark）就变成不合格，窗口里退回。这是上一条的另一面，也要在 Spec 里写成可观察行为。
+ (c) 对比度只对"当前文字"算。实算（nbook 昼）：text-main #1f1c17 在灰度 132 以上通过 4.5，secondary #57534b 要灰度 199 以上；也就是灰度 132–198 的颜色通过校验、却让次要文字（面包屑、状态栏文字、树文字）全部不合格；夜间同理（text-main 到灰度 105 通过，secondary 只到 76）。预设自己也不是全合格：豆沙绿 #cce8cf 上 text-main 12.95、secondary 5.83，但链接 accent-text #0060df 4.28、status-info 3.53、muted 2.79；羊皮纸 #f4ecd8 上 info 3.93，也低于 4.5。这与评审板上"豆沙绿 12.9、羊皮纸 14.4"只报 text-main 的口径一致，开发者看到的是最好看的那一个数。
+ (d) `color: string` 什么都收：`red`、`transparent`、`rgb(0 0 0 / 0)`、`var(--x)`、`url(...)`。算对比度的代码只能解析一种写法，其他的不是算错就是抛异常；带透明度的颜色还会把"纯色底"变成"透出下一层"。要把 schema 写成 `Type.String({pattern: "^#[0-9a-fA-F]{6}$"})`（设置声明要求 schema 可 JSON 序列化，pattern 可以），并说明写非法值时是 `invalid-value`（settings.configuration 输出 11）、手改文件时被丢弃并记诊断（输出 5），不会让整层作废。
+ (e) 窗口不允许 color：计划用同一个 `Background` 类型写两个设置项，注释里说"window 只有 none 与 image"。两个设置项各自要独立的 TypeBox schema（window 的联合里没有 `color`），否则 `invalid-value` 的拒绝点就不在类型上；两个 default 也各自要符合自己的 schema。手改文件写进 window 的 color 会被丢弃并回到缺省，Spec 要把这条写成可观察行为（现有"层的校验"已覆盖，只需引用）。
+ (f) `scrim` 是 75–100 的整数还是小数、能不能写 60：schema 的 minimum 把"下限"写进了合同，主题自己的下限（发现 4：66.5% 到 91.5% 之间随主题与角色变）却不是常量；一旦换主题需要的下限比 75 高，schema 就拦不住。
+如何核实：workbench/shared/contracts.ts:129-155（theme、appearance 的层与取值）；configuration.md 输出 5、11；c3.py 的灰度与预设表。
+建议改法：把预设做成 id（`parchment`、`bean-green`、`ink-brown`、`ink-green`）并存自定义色；"亮色一个、暗色一个"要么存两个字段 `{light, dark}`，要么明确"一个颜色，适用不适用由当前明暗决定"并写出用户看到的提示；对比度校验按角色（至少 text-main 与 text-secondary 与链接）逐个算并说明是哪一个不过；`scrim` 的 schema 只给 [0,100] 的合法范围，下限留给运行时按主题算。
+
+============================================================
+发现 10  [重要] [设置页] 第 5 节的页面结构对不上设置窗口的合同；滑块写入、图片丢失检测、预览与真实渲染的一致性都没交代
+============================================================
+位置：plan.md 第 5 节"'外观'分区一页'背景'……旁边实时预览……没有说明文字；滑块到下限就停，不解释"；第 1 节"在设置窗口'外观'分区"
+现象与问题：
+ (a) `settings.pages` 贡献的是**分区**（左栏的一项，category 为 app/ai/plugins），不是已有分区里的一页。"外观"现在是 `settings.sections` 的 list 分区（settings/shared/contracts.ts:40 的 `APPEARANCE_SECTION = "nbook.appearance"`），list 分区由窗口按配置项声明画通用控件，不能挂页面组件；两个贡献点上同一 id 会让这个 id 的分区都不显示（settings-window.md "分区声明"表最后一行）。所以要么新增一个独立的左栏分区（例如"背景"，page 分区，配置项的 `section` 指向它，不在 list 里画——输出 2），要么把背景项留在"外观" list 里用通用控件、放弃预览与滑块。计划没有选，且措辞"外观分区一页"在合同里无对应物。
+ (b) 层：背景设置只在用户层。page 分区的声明要写 `layers: ["user"]`（缺省两者），配置项声明也只允许 user 层；绑定作品的窗口里"本作品"标签下这个分区停用并给原因（输出 8）。计划只说"用户层"，没写 page 声明的 `layers`。
+ (c) 滑块逐刻写入。配置的写入是"写入队列 + 写入锁"下的整文件落盘（configuration.md 输出 4/11 及 settings-window 输出 14），数字框的规矩是失去焦点或回车才写；计划没说滑块怎么提交。拖一次滑块若每刻 `update`，就是几十次用户设置文件写入、几十次 `layer` 事件回灌到其他窗口，回灌的值还会让正在拖的滑块跳动（控件显示"这次的值"直到结算，输出 14）。要么拖动时只改页面草稿（预览实时）、松手才写；要么走 `SettingsSaveBar` 的保存模式并报 `dirty`（输出 22）。
+ (d) 预览要和真实渲染同源。预览是"所选背景上一段真实正文样式的文字"，设置窗口是传送到 body 的浮动窗口，不在 `.workbench-shell-layout` 的作用域里，也不在编辑器区里；如果预览自己再写一份遮罩/图/填充方式的 CSS，就是第 2 份实现，改一处漏一处，且预览说"合格"时真实窗口不一定合格（发现 2、3 的叠加层数不同）。预览应当渲染与 EditorArea/外壳同一个"背景层"组件，同一套遮罩计算；这个组件放在哪个包、谁依赖谁，计划没提（editor、markdown、workbench、settings 四个插件都要用）。
+ (e) 图片丢失只能主动发现：CSS `background-image: url()` 加载失败不报事件，也不会改变样式。要"记诊断、退回没有背景、设置页显示原因"，必须由代码预加载（`Image.decode()` 或 `fetch`）并在成功后才写作用域变量；失败时遮罩变量也要一并撤销，否则面板留在 85% 半透明、只是没有图。反过来，设置刚到达到图解码完成之间也要不画遮罩，否则先出现一次"面板变半透明、露出空底色"再弹出图。计划的风险节只说"大图解码拖慢首屏，按需加载"，没有处理顺序。
+ (f) 自相矛盾：第 2 节要求自定义颜色不合格时"不应用，并说明原因"，第 5 节写"没有说明文字"，滑块到下限"不解释"。说明原因就是文字；要么这里需要一小块错误文案（并进 locales，zh-CN 与 en-US 各一份），要么改成"不让选"（取色器限制范围）。选哪个要先定，因为后者要自写取色限制，前者只要文案。
+如何核实：读 settings-window.md "分区声明"节、输出 2、8、14、22；settings/shared/contracts.ts:40；packages/neuro-book/src/plugins/workbench/shared/contracts.ts:129-155 看现有"外观"配置项如何指向 list 分区。
+建议改法：把第 5 节改写成：新增 page 分区 `nbook.<某>.background`（category app，`layers: ["user"]`，layout column），两个设置项的 section 指向它；滑块草稿 + 松手写；共享"背景层"组件作预览与真实渲染的唯一实现；图片预加载的成败状态经一个小的 composable 暴露给外壳、编辑器区和设置页三处使用。
+
+============================================================
+发现 11  [重要] [验收] "模拟不了的如实写未验证"这条退路不存在；对比度 e2e 写得出来，但没有正向对照就会空过
+============================================================
+位置：plan.md 验证节
+事实：
+ (a) 三个偏好都能在 Playwright（仓库用 1.61.1，只跑 Chromium）里模拟：`page.emulateMedia({contrast: "more"})`、`page.emulateMedia({forcedColors: "active"})`（types.d.ts 2597-2606）；`prefers-reduced-transparency` 不在 emulateMedia 里，但仓库已有现成写法：packages/nb-ui/e2e/dialog-surfaces.spec.ts:111-114 经 CDP `Emulation.setEmulatedMedia({features: [{name: "prefers-reduced-transparency", value: "reduce"}]})` 并用 `matchMedia` 自证生效；同文件 :134 用 `contrast: "more"`。所以计划"模拟不了的如实写未验证"里没有哪一项真模拟不了，三项都应当有 e2e。
+ (b) 逐像素量背景可行：`page.screenshot({clip})` 之后要有 PNG 解码器；根 package.json:128 有 `sharp`，但现有 e2e 没人用它（grep 无命中），要引入（或在页面里用 canvas 读自己的截图）。隐藏文字（`* { color: transparent !important }`）后 Monaco 与 Markdown 的字都是 DOM 文本，能被隐藏；SVG 图标靠 currentColor，也被隐藏。
+ (c) 空过风险：测试图是纯白/纯黑；如果图没加载成功（发现 10(e)）、遮罩作用域没写上，或标签/面包屑仍是实心，量到的是主题实心面，对比度反而更高——测试全绿，什么也没验证。必须先有正向对照：在窗口模式里先断言"缝"处像素等于测试图的颜色（证明图画出来了），在编辑器模式里断言正文点位的有效 alpha 与设置值一致（发现 3），再量对比度。这就是设计语言坑 53（"机检报 0 之前先让它报一次已知的坏样本"）。同一组坑里还有 #41（截图前 bringToFront）和 #18（切主题/设置后等 ≥500ms）。
+ (d) 判据本身：见发现 4——"全部不低于 4.5"对 text-muted、链接、状态色无论怎么实现都过不了；"量正文、次要文字、面包屑与侧栏"没包括标题栏与状态栏（发现 1）、标签条（发现 7）。纯色底的验证也没写：预设与自定义色在 nbook/macos × 明暗下的对比度，由单元测试算还是 e2e 量？第 4 节的 S2 只写了"对比度、下限"的单元测试。
+ (e) 切片验证里的"S4 加 390px"：紧凑呈现（WorkbenchShellLayout 的 compact 分支，没有 NestedGrid）里标题栏、状态栏、各 Part 的 DOM 与 split 不同，叶子是 `div[data-leaf]` 逐个排布；遮罩作用域在 `.workbench-shell-layout` 根上，两种呈现都在其下，大概率适用，但仍要在 390px 下单独量一次，不能只当截图取证。
+如何核实：读 dialog-surfaces.spec.ts 106-140 行；grep sharp 在 e2e 与 scripts 下无 import。
+建议改法：验证节改写成：三个偏好各一条 e2e（CDP + emulateMedia 两种），内容是"不画图、面板不透明（读计算样式 alpha=1、background-image 为 none）"；对比度 e2e 增加"图可见"与"有效 alpha"两条正向对照，判据分角色写。
+
+============================================================
+发现 12  [建议] [事实与既有消费方] 计划里有几处与代码对不上的前提；半透明 `--panel-surface` 还会波及几个依赖"它是不透明的"的现有消费方
+============================================================
+ (a) "四个主题"：计划第 2、3 节写"四个主题配色""要覆盖四个主题"。产品只装 nbook 与 macos 两套主题包（docs/specs/theme/system.md 概述，neuro-book/src/ui/theme/product-themes.ts:installThemePacks([nbookTheme, macosTheme])），aurora、editorial 只在 nb-ui 仓库里。"四个"指的应是 2 主题 × 明暗 4 个组合，但"覆盖四个主题"会被读成要为 aurora、editorial 也做一遍。
+ (b) "`macos` 自带玻璃，叠上去要验"：macos 的玻璃变量（`--sidebar-surface`、`--toolbar-surface` 的 26%/34% 半透明）在工作台里没有消费者（grep 只在 Lab 与 nb-ui tokens 命中）。工作台里 macos 是平铺：面板 `--panel-surface`、外壳根 `--shell-ground`（fallback 到 `--panel-surface`，发现 2）、标题/状态栏 `--bg-panel`，全是实心。所以这一条的"要验"没有对象；真正在 macos 下要验的是发现 1 里标题/状态栏不跟着变。
+ (c) 依赖 `--panel-surface` 不透明的现有消费方，窗口层一开就会变样（从代码推断，未跑）：
+   · ImageViewer.vue:258、276-279：透明格棋盘 `color-mix(var(--text-main) 4%/10%, var(--panel-surface))`——棋盘格变半透明，壁纸透进来，用户看不出图片到底透不透明；
+   · nb-ui styles.css:863 的 `.nb-ui-drop-indicator-label`：90% 再乘一次遮罩；
+   · nb-ui `Tree` 的 card 变体（Tree.vue:82 `bg-[var(--panel-surface)]` + 外框）——本来是"面板里的卡片 +1 层"，现在与外面同色同透明度，两层叠加后反而更不透明，层级关系靠偶然成立；
+   · EditorTabBar.vue:276 `color-mix(var(--panel-surface) 50%, var(--editor-tabs-surface))` 的悬停色（一个半透明、一个实心，叠在实心条上，悬停反馈可能比静止态更不透明）。
+   建议在计划里加一张"消费 `--panel-surface` 的位置清单"（grep 一遍全仓库，当前编辑器与工作台约 25 处），每处标"跟随/保持实心"。
+ (d) 无障碍偏好的写法：三个偏好下要"不画图、退回实心面"。主题里已有的三个 `@media` 块（nbook vars.css:522-569、macos vars.css:174-210）只重置主题层的变量，管不到计划在作用域里新定义的变量。作用域块要自带 `@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active)`，把背景图与遮罩变量一起撤销，且写在作用域块之后。作用域选择器在 `.workbench-shell-layout`（后代元素）上，对根上的特异性坑（设计语言坑 31）不适用，但仍要在两个明暗下各测一次；forced-colors 下 UA 会把 `background-color` 强制成 Canvas，`background-image` 不会被它撤掉，所以图的撤销必须由媒体查询明写。
+ (e) 窗口背景的 `backdrop-filter`：窗口层半透明面板下面是图，面板自己没有模糊（材质层模糊只在 `--overlay-blur` 的浮层上）。不用担心 backdrop-filter 创建包含块的问题；但如果以后要给遮罩加模糊，会撞设计语言"为什么材质只能有一层"的第 5 条（`position: fixed` 后代被关进面板）。仅作提醒，本计划未涉及。
+
+[更正] （i）发现 1 里"搜索按钮（面是 `--control-surface` 即文字色 7%）"没有核实到：WorkbenchTitleBar.vue 只在 :401 画了 `--shell-chrome-surface` 底和 :449 一条分隔线，搜索按钮的面来自 nb-ui 的 Button，我没有追到。请把该括号当作未核实，其余（标题栏文字、菜单、状态栏文字落在裸图上）不依赖它。（ii）发现 12(c) 的"约 25 处"实测为 37 处（packages 下 neuro-book、nb-ui、nb-markdown、nb-agent-ui、nb-form 的源码，排除 Lab、测试与 .md）。（iii）发现 12(d) 中"macos vars.css:174-210"的行号是约数，以文件里 `@media (prefers-reduced-transparency` 与 `prefers-contrast` 两块为准。
+
+============================================================
+未发现问题的方面
+============================================================
+ · 计划里的比值算法与数字：我用 sRGB 伽马空间线性混合复算，3.32 / 4.51 / 5.29（夜间 60/70/75%）与 9.05（昼间 75%）全部复现，方法与 Chromium 对 rgba 的合成一致；"最坏情形是纯白（夜）/纯黑（昼）"对 text-main 这类比遮罩面色亮或暗的文字成立，这个论断本身没有问题（问题在覆盖面，见发现 4）。评审板上的实测（夜 60% 最差 3.4）与理论值 3.32 吻合。
+ · 多窗口同步：配置层有订阅，"两个页面即时变化"已是 settings 的验收（settings-window 验收 2），背景设置作为普通的用户层配置项走同一条路，不需要额外同步；图片是静态文件，不涉及。
+ · 设置写入失败：page 分区自己发起的写入失败经 `reportWriteFailure` 交给窗口发通知（settings-window 输出 14），合同已有，计划只需引用。
+ · 打印与导出：neuro-book、nb-markdown、nb-ui 里没有 `@media print` 或打印入口，浏览器默认不打印背景图与背景色；没有现成的导出流程会读这些变量。没有发现影响。
+ · `--overlay-item-active`、浮层（菜单、对话框、设置窗口，传送到 body）、分隔线（`--divider` 是文字色 9%）：不依赖 `--panel-surface` 的不透明，作用域改写不会波及它们。
+ · Monaco 小地图：源码里背景带 alpha 通道，默认还是关闭的，没有看到阻碍。
+ · 窗口层不会碰到 `backdrop-filter` 包含块问题：计划不给面板加模糊。
+
+============================================================
+计划末尾"开发者已确认"三项的事实核对
+============================================================
+ 1. "遮罩下限 75%：滑块不能再低，保证任何图片都读得清"——"保证任何图片都读得清"不成立：只有 text-main 在 75% 达标（发现 4），窗口层的标题栏/状态栏根本没有遮罩（发现 1）。事实上 75% 保证的是"正文主色逐像素 ≥4.5"。这一项需要把"保证"改成准确的范围再给开发者确认一次。
+ 2. "设置是应用级的"——事实无误（用户层，page 分区需声明 `layers: ["user"]`，发现 10(b)）。
+ 3. "源码编辑器（Monaco）也透出"——事实无误，透明在 Monaco 里可行；但风险节写"不行就只让 Markdown 编辑器透出，并告诉开发者"，与这条已确认的决定互相抵触，且 Monaco 有吸顶行等四处需要处理（发现 8）。
+ 另：Task README 的当前状态写"计划：plan.md，开发者已确认"，但上面第 1 项的确认建立在"保证任何图片读得清"的说法上。
+
+============================================================
+各级数量
+============================================================
+ 阻断 2（发现 1、2）  重要 9（发现 3、4、5、6、7、8、9、10、11）  建议 1（发现 12，内含 5 小项）
+ 共 12 条，另有 3 处自我更正（发现 2、5、8 各一，加文末一处合并更正）。
+

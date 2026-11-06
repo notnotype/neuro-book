@@ -148,11 +148,31 @@
             "wordWrap": {
                 "title": "Word Wrap"
             }
+        },
+        "markdownToolbar": {
+            "description": "The toolbar above the Markdown editor",
+            "title": "Editor Toolbar"
+        },
+        "markdownToolbarPlacement": {
+            "title": "Toolbar Position",
+            "description": "Where the Markdown editor toolbar goes",
+            "choices": {
+                "full": {
+                    "title": "Below the Breadcrumbs"
+                },
+                "merged": {
+                    "title": "In the Breadcrumbs Row"
+                },
+                "bottom": {
+                    "title": "Floating at the Bottom"
+                }
+            }
         }
     },
     "categories": {
         "editor": "Editor",
-        "edit": "Edit"
+        "edit": "Edit",
+        "view": "View"
     },
     "commands": {
         "open": {
@@ -222,6 +242,98 @@
                 },
                 "redo": {
                     "title": "Redo"
+                },
+                "bold": {
+                    "title": "Bold"
+                },
+                "italic": {
+                    "title": "Italic"
+                },
+                "strike": {
+                    "title": "Strikethrough"
+                },
+                "code": {
+                    "title": "Inline Code"
+                },
+                "superscript": {
+                    "title": "Superscript"
+                },
+                "subscript": {
+                    "title": "Subscript"
+                },
+                "clear-format": {
+                    "title": "Clear Formatting"
+                },
+                "text-color": {
+                    "title": "Text Color"
+                },
+                "highlight": {
+                    "title": "Highlight"
+                },
+                "ruby": {
+                    "title": "Ruby"
+                },
+                "paragraph": {
+                    "title": "Paragraph"
+                },
+                "heading-1": {
+                    "title": "Heading 1"
+                },
+                "heading-2": {
+                    "title": "Heading 2"
+                },
+                "heading-3": {
+                    "title": "Heading 3"
+                },
+                "bullet-list": {
+                    "title": "Bulleted List"
+                },
+                "ordered-list": {
+                    "title": "Numbered List"
+                },
+                "task-list": {
+                    "title": "Task List"
+                },
+                "quote": {
+                    "title": "Quote"
+                },
+                "callout": {
+                    "title": "Callout"
+                },
+                "code-block": {
+                    "title": "Code Block"
+                },
+                "align": {
+                    "title": "Align"
+                },
+                "bilingual": {
+                    "title": "Bilingual"
+                },
+                "divider": {
+                    "title": "Divider"
+                },
+                "table": {
+                    "title": "Table"
+                },
+                "block-up": {
+                    "title": "Move Up"
+                },
+                "block-down": {
+                    "title": "Move Down"
+                },
+                "block-duplicate": {
+                    "title": "Duplicate"
+                },
+                "block-delete": {
+                    "title": "Delete"
+                },
+                "block-unwrap": {
+                    "title": "Unwrap Block"
+                }
+            },
+            "view": {
+                "toggle-editor-toolbar": {
+                    "title": "Show Editor Toolbar"
                 }
             }
         },
@@ -277,6 +389,18 @@
         },
         "hasLanguage": {
             "reason": "The active editor has no language mode"
+        },
+        "canFormat": {
+            "reason": "Formatting is not available here"
+        },
+        "canConvertBlock": {
+            "reason": "The block type cannot be changed here"
+        },
+        "hasSelection": {
+            "reason": "Nothing is selected"
+        },
+        "toolbarVisible": {
+            "reason": "The toolbar is hidden"
         }
     },
     "statusItems": {
@@ -387,9 +511,53 @@
         "targetChanged": "The target editor was closed or switched",
         "lineUnsupported": "The active editor does not support line navigation",
         "lineOutOfRangeOf": "Line {{line}} is out of range ({{total}} lines)",
-        "lineOutOfRange": "Line {{line}} is out of range"
+        "lineOutOfRange": "Line {{line}} is out of range",
+        "editingUnsupported": "The active editor does not support this action",
+        "editingUnavailable": "This action is not available here"
     },
     "rescue": {
         "lostFormat": "This view has blocks that cannot be written back as Markdown; only their text was kept (the formatting is lost)"
+    },
+    "menus": {
+        "blockType": "Block Type",
+        "toolbar": "Formatting",
+        "more": "More Actions",
+        "colorNone": "Default",
+        "align-left": "Align Left",
+        "align-center": "Center",
+        "align-right": "Align Right",
+        "align-justify": "Justify",
+        "color-slate": "Slate",
+        "color-orange": "Orange",
+        "color-amber": "Amber",
+        "color-yellow": "Yellow",
+        "color-emerald": "Green",
+        "color-sky": "Blue",
+        "color-violet": "Purple",
+        "color-pink": "Pink",
+        "color-red": "Red",
+        "color-neutral": "Light Gray",
+        "color-stone": "Beige",
+        "color-green": "Green",
+        "color-blue": "Blue",
+        "color-purple": "Purple",
+        "selection": "Selection Formatting",
+        "promptRuby": "Ruby Text",
+        "promptBilingual": "Source Text",
+        "slash": "Insert Block",
+        "slash-basic": "Basic",
+        "slash-lists": "Lists",
+        "slash-blocks": "Blocks",
+        "convert": "Turn Into",
+        "copy": "Copy",
+        "cut": "Cut",
+        "paste": "Paste",
+        "pastePlain": "Paste as Plain Text",
+        "selectAll": "Select All",
+        "insertBlock": "Insert Block",
+        "blockMenu": "Block Menu",
+        "pasteUnsupported": "This browser cannot paste from the menu. Use Ctrl+V.",
+        "pasteDenied": "Clipboard access was denied. Use Ctrl+V.",
+        "pasteEmpty": "The clipboard has no text. Use Ctrl+V for images or files."
     }
 }

@@ -75,7 +75,7 @@ const peekTitle = computed(() => {
     if (current.kind === "doc") return peekDoc.data.value?.title ?? fileName(current.path);
     return fileName(current.path);
 });
-const peekRequired = computed(() => (peekArtifact.data.value ? groupQuestions(peekArtifact.data.value.questions).pending.filter((state) => state.question.required).length : 0));
+const peekPending = computed(() => (peekArtifact.data.value ? groupQuestions(peekArtifact.data.value.questions).pending.length : 0));
 const peekDocHtml = computed(() => {
     const current = peek.value;
     const data = peekDoc.data.value;
@@ -219,7 +219,7 @@ const peekEvidence = computed(() => {
                             <ul class="nbdev-stack-tight">
                                 <li v-for="artifact in page.data.value.task.artifacts" :key="artifact.artifactId" class="flex flex-wrap items-center gap-1.5">
                                     <a :href="artifactHref(props.workId, props.taskId, artifact.artifactId)" @click="openPeek($event, {kind: 'artifact', artifactId: artifact.artifactId})">{{ artifact.title ?? artifact.artifactId }}</a>
-                                    <Badge v-if="artifact.openRequired > 0" tone="warning" variant="soft" size="sm">待答 {{ artifact.openRequired }}</Badge>
+                                    <Badge v-if="artifact.waiting > 0" tone="warning" variant="soft" size="sm">待答 {{ artifact.waiting }}</Badge>
                                     <span v-if="artifact.state === 'unpublished'" class="nbdev-empty nbdev-small">没发布</span>
                                 </li>
                                 <li v-for="document in page.data.value.task.documents" :key="document.path">
@@ -268,8 +268,8 @@ const peekEvidence = computed(() => {
             <template v-if="peek.kind === 'artifact' && peekArtifact.data.value" #status>
                 <Badge v-if="peekArtifact.data.value.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
                 <Badge v-else-if="peekArtifact.data.value.state === 'unpublished'" tone="warning" variant="soft" size="sm">还没发布</Badge>
-                <Badge v-if="peekRequired > 0" tone="warning" variant="soft" size="sm">必答 {{ peekRequired }}</Badge>
-                <span v-else>没有待答的必答题</span>
+                <Badge v-if="peekPending > 0" tone="warning" variant="soft" size="sm">待答 {{ peekPending }}</Badge>
+                <span v-else>没有待答的题</span>
                 <span v-if="peekArtifact.data.value.latestVersion !== null" class="nbdev-num">v{{ peekArtifact.data.value.latestVersion }}</span>
             </template>
             <template v-if="peek.kind === 'artifact'">

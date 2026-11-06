@@ -93,7 +93,7 @@ interface LogRecord {
 | 值 | 每个字段都能被 JSON 如实表示：没有 `undefined`、函数、`NaN`、`Infinity`、`bigint`、循环引用，对象只是普通对象；键 `$blob` 留给大块内容的引用 |
 | 类型名 | 内核事件是 `KernelEvents` 里的名字；扩展事件是 `<扩展 id>/<名字>`，扩展只能写以自己 id 开头的类型 |
 | 作用域与种类 | `conv` 事件只在 path；`ctrl` 只由内核写；扩展只能写 `conv`、`ext` |
-| 大块内容 | 任一字符串的 UTF-8 编码超过 16384 字节时，日志里写 `{"$blob": "<sha256>", "size": <字节数>}`；图片块总是大块内容 |
+| 大块内容 | 任一字符串的 UTF-8 编码超过 16384 字节时，日志里写 `{"$blob": "<sha256>", "size": <字节数>}`；工具结果的图片是 base64 字符串，同样按这条外置 |
 
 ### 接口
 
@@ -130,7 +130,7 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 16. 宿主登记进程中断与终止的收口后，进程退出前对每个运行中的会话走输出 15 的同一套结算，原因同为 `interrupted`。
 17. 被受理的指令在受理批里写一条 `commandAccepted{commandId, name, value, argsHash}`，与指令立即写的事件同批；`argsHash` 是指令参数（去掉 `commandId`）按键排序后的 SHA-256。同一会话里重发同一个 `commandId`、指令与参数都相同，返回第一次的 `value` 与 `replayed: true`，不再写事件；重启之后同样成立。指令或参数不同得 `command-id-conflict`，不当成重发（早先没有 `argsHash` 的记录只比指令名）。校验失败的指令不写日志，重发时重新校验。fork 的复制批没写下时（新会话只有会话头），重发同一个 `commandId` 补写复制批。
 18. 空闲时会开始运行的指令（`send`、`start`、`compact`、带 `resend` 的 `rewind`），受理批里含 `runStarted`；`send` 另含取走这条输入的 `inputConsumed`、`turnStarted` 与 `input`。受理之后、循环开始之前进程退出时，重开按输出 15 把这次运行结算为 `interrupted`。
-19. `list` 只读各会话目录的 `index.json`：项目、Profile、标题、是否归档、是否后台、创建与最后活动时刻、轮数、索引对应的最后一个 `seq`；可按项目、归档、后台筛。没有“是否后台”字段的旧索引按读不懂处理、打开时重建。索引经临时文件改名写入；打开会话时与日志末尾比对，不一致就重建并写诊断 `index-rebuilt`。崩溃之后到下次打开之前，`list` 可能给出略旧的值。
+19. `list` 只读各会话目录的 `index.json`：项目、Profile、标题、说明（`description`，没有这一项的旧索引读作 null，不算读不懂）、是否归档、是否后台、创建与最后活动时刻、轮数、索引对应的最后一个 `seq`；可按项目、归档、后台筛。没有“是否后台”字段的旧索引按读不懂处理、打开时重建。索引经临时文件改名写入；打开会话时与日志末尾比对，不一致就重建并写诊断 `index-rebuilt`。崩溃之后到下次打开之前，`list` 可能给出略旧的值。
 20. fork 把来源会话里根到所选节点的路径复制成新会话：新会话头的 `origin` 记来源会话与节点，路径上引用的大块内容一并写进新会话目录。来源会话不受影响。
 21. 内存存储与 JSONL 存储的行为相同，且每次读写都做 JSON 往返：在 JSONL 里会出错的值（`Date`、`Map`、`undefined`）在内存存储里同样出错。
 
@@ -188,4 +188,4 @@ Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（JSONL 存储加�
 
 ## 证据
 
-- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)
+- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；`description` 见 [w00032 t18](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)。

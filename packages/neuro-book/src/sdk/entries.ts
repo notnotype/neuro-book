@@ -25,6 +25,8 @@ export const SDK_ENTRIES = [
     {specifier: "@notnotype/nb-plugin-sdk/state", subpath: "./state", file: "state.ts", server: true},
     /** `nbook.storage`：私有存储。 */
     {specifier: "@notnotype/nb-plugin-sdk/storage", subpath: "./storage", file: "storage.ts", server: true},
+    /** `nbook.files`：写入接口，读写书里的文件；只在服务端与项目实例里用。 */
+    {specifier: "@notnotype/nb-plugin-sdk/files", subpath: "./files", file: "files.ts", server: true, browser: false},
     /** `nbook.settings`：设置项与 list 分区。 */
     {specifier: "@notnotype/nb-plugin-sdk/settings", subpath: "./settings", file: "settings.ts", server: true},
     /** `nbook.settings` 只在浏览器里有意义的部分：设置页、选项来源与设置页组件。 */

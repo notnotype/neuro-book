@@ -198,6 +198,8 @@ export interface PluginDescriptor {
      * （plugin-manifest.md 输出 11）；插件定义不再另写顶层 `contributions`。
      */
     readonly contributions?: ReadonlyArray<ContributionDeclaration>;
+    /** 收顶层贡献的贡献点，给没有入口的运行位置登记（有入口的位置由入口所在的定义写）：否则这些贡献在那里是“未知贡献点”。 */
+    readonly contributionPoints?: ReadonlyArray<ContributionPointDefinition>;
 }
 
 /** 随产品发布的静态描述；不是已激活实例。 */

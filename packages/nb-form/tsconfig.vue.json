@@ -10,5 +10,10 @@
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true
     },
-    "include": ["src/vue/**/*.ts", "src/vue/**/*.vue"]
+    "include": ["src/vue/**/*.ts", "src/vue/**/*.vue"],
+    "vueCompilerOptions": {
+        "checkUnknownProps": true,
+        "checkUnknownEvents": true,
+        "dataAttributes": ["data-*"]
+    }
 }

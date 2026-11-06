@@ -35,7 +35,7 @@ describe("createNotificationQueue", () => {
         const sticky = queue.notify({message: "任务进行中", duration: 0});
         // 它原来的时长比下面那条改出来的短：等那条消失时它早该到期了，还在就说明改成常驻真的取消了计时。
         const timed = queue.notify({message: "即将出错", duration: 20});
-        queue.update(timed, {tone: "error", duration: 0});
+        queue.update(timed, {tone: "danger", duration: 0});
         queue.update(sticky, {message: "任务完成", tone: "success", duration: 40});
         await vi.waitFor(() => {
             expect(ids(queue)).toEqual([timed]);

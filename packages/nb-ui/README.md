@@ -1,125 +1,137 @@
 # nb-ui
 
-Shared Vue/Nuxt UI primitives for NeuroBook-derived projects.
+NeuroBook 共用的 Vue 界面基础组件。
 
-## Install
+## 安装
 
 ```bash
 bun add @notnotype/nb-ui
 ```
 
-Bun only. The package ships TypeScript and `.vue` sources, no compiled output; the host's Vite and
-Tailwind v4 compile them ([ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md),
-[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)). Peer dependencies are `vue`
-and `typescript` (Vue's SFC compiler needs it to resolve imported prop types); Bun installs peers
-automatically. The host also installs `vite`, `@vitejs/plugin-vue`, `tailwindcss` and `@tailwindcss/vite`.
-The Tailwind icon plugin and the Lucide icon set come with nb-ui. Licence: AGPL-3.0-only.
+只支持 Bun。包里是 TypeScript 与 `.vue` 源码，没有编译产物，由宿主的 Vite 与 Tailwind v4 编译（[ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md)、[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。对等依赖是 `vue` 与 `typescript`（Vue 的单文件组件编译器要靠它解析导入的属性类型），Bun 会自动安装。宿主还要装 `vite`、`@vitejs/plugin-vue`、`tailwindcss` 与 `@tailwindcss/vite`。图标插件与 Lucide 图标集随 nb-ui 提供。许可证：AGPL-3.0-only。
 
-## Local development
+## 本地开发
 
 ```bash
 bun install
-bun run dev          # playground on :3004
+bun run dev          # playground
 bun run test
 bun run typecheck
 ```
 
-nb-ui ships no compiled CSS: the host compiles nb-ui's source with its own Tailwind (see
-[Styles in the host app](#styles-in-the-host-app)), so changing component classes, icons, tokens, or
-`src/styles.css` needs no build step.
+改组件类名、图标、token 或 `src/styles.css` 不需要构建，见“宿主里的样式”。
 
-## Use from a sibling app
+## 在仓库外的应用里用
 
-Register this package with Bun:
+先把本包登记到 Bun：
 
 ```bash
 cd ../nb-ui
 bun link
 ```
 
-Then reference the registered package name from the sibling app:
+再在应用里按登记的包名引用，并安装：
 
 ```json
 "@notnotype/nb-ui": "link:@notnotype/nb-ui"
 ```
 
-Install from the app:
+不要写 `link:../nb-ui`：Windows 上的 Bun 1.3.14 要求链接依赖写登记的包名，不认相对路径。
 
-```bash
-cd ../some-app
-bun install
-```
-
-Do not use `link:../nb-ui`: Bun 1.3.14 on Windows expects linked dependencies to reference a registered package name, not a relative path.
-
-## Nuxt module
-
-In `nuxt.config.ts`:
+## Nuxt 模块
 
 ```ts
+// nuxt.config.ts
 export default defineNuxtConfig({
     modules: ["@notnotype/nb-ui/nuxt"],
 });
 ```
 
-The module auto-registers the components exported from `@notnotype/nb-ui/components` and the composables exported from `@notnotype/nb-ui/composables`; internal parts are not registered. `nuxt` and `@nuxt/kit` are optional peer dependencies, needed only by this entry.
+模块自动注册 `@notnotype/nb-ui/components` 导出的组件与 `@notnotype/nb-ui/composables` 导出的组合函数，内部零件不注册。`nuxt` 与 `@nuxt/kit` 是可选的对等依赖，只有这个入口用到。
 
-## Manual imports
-
-Components can also be imported explicitly:
+## 手动导入
 
 ```ts
 import {Button, Dialog, IconButton, Notification, SegmentedControl} from "@notnotype/nb-ui/components";
 import {useNotification} from "@notnotype/nb-ui/composables";
 ```
 
-## Components
+## 组件
 
-### 基础交互与控制 (Controls & Form)
-- `Button`：primary / secondary / subtle / danger / ghost 变体，`sm` (26px) / `md` (32px) / `lg` (38px) 尺寸，支持 block、loading 与反色文字。
-- `IconButton`：紧凑图标操作按钮，`sm` / `md` / `lg` 尺寸，高精度触觉反馈与零尺寸抖动。
-- `Menubar`：桌面应用级主菜单栏（文件/编辑/视图/写作/帮助），支持横向方向键无缝穿梭与子菜单快捷键。
-- `DropdownMenu`：点一个按钮弹出一列动作（“更多”菜单、移动到…），可带勾选项与级联子菜单；从几项里选一个值用 `Select`。
-- `SegmentedControl`：换模式——同一处内容换个看法（列表 / 网格、文本 / 树形），几个里选一个，带滑动的选中块。
-- `ToggleGroup`：一组可叠加的开关（粗体、斜体），可以同时按下几个，也可以都不按下；不做单选。
-- `Switch`：现代胶囊开关控件。
-- `Slider`：连续与离散滑动条（支持单值/范围双滑块、垂直/水平方向、`sm`/`md`/`lg` 尺寸）。
-- `RadioGroup`：表单里从几项中选一个值，每项可带说明文字，纵向或横向排布。
-- `CheckboxGroup`：复选框受控组合容器（支持水平/垂直排布）。
-- `Field` / `Input` / `NumberInput` / `Select` / `Textarea` / `Checkbox`：无障碍表单控件。
-- `ColorSwatches`：单选色板，可带“自动”（值为 null）与“自定义”（旁边打开取色面板）。
+每个组件的行为、属性与注意事项见同名 `.md`。清单以 [`src/components/index.ts`](src/components/index.ts) 为准；几个相近的零件怎么选，见 [开发规范](docs/ui-development-spec.md) 的“同类零件的分工”。
 
-### 工作区布局与导航 (Layout & Navigation)
-- `Splitter`：多栏可调节分割面板（受控 `sizesPx` / 独立自分配两种用法），支持水平/垂直方向、收起策略与拖拽吸附；常驻 1px `--divider` 接缝与悬停/拖动高亮分层，零宽接缝不画线。几何一律 CSS px，拖动/命中/键盘由 nb-ui 自己的 `useSashGesture` 输入层与 `sash-drag` 求解器承担。
-- `createGrid`（`grid` / `grid-splitter`）：领域无关的可序列化拆分树——两轴几何、增删/移动/拆分叶、批量手势原子提交（`resizeBranches`）与快照 v2；`buildGridBranchPanels` / `gridBranchSizesPx` 只是把布局投影成面板配置，数值算法只有 `grid-geometry` / `sash-drag` 一份。
-- `NestedGrid`：把布局树递归渲染成 `Splitter`（分支一层一个、叶走插槽），独占一份手势会话：拖动中发布预览布局，松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit` 同步接纳。
-- `DropFeedbackOverlay` / `DropIndicatorLabel`：从 `@notnotype/nb-ui/components` 导入的拖放反馈层。`DropIndicatorLabel` 是纯视觉的提示药丸，接收 `label` / 可选 `iconClass`；画区域、条目与插入线的 `DropIndicator` 是覆盖层的内部件，不导出。`DropFeedbackOverlay` 是共享覆盖层：吃宿主给的 `preview`（边缘带 / 中央整片叶 / 条目 / 插入线 + 轴），自己负责 body Teleport、fixed 定位、6px（区域）与 2px（线）比例内缩、提示药丸的测量与视口夹紧、`aria-live` 播报和观察器生命周期；业务种类与数量由调用方以 `data-*` 透传到覆盖层根（`<Teleport>` 下手动 `useAttrs`）。纯几何入口 `@notnotype/nb-ui/layout` 另有 `resolveGridInsertion`（边缘插入带 / 中央保持布局 + 插入线）与 `resolveListInsertion`（列表插入位：同一插入位只有一条线）。Lab 的 `DropFeedbackOverlay` 场景按真实矩形演示区域与插入线。
-- `ScrollArea`：平滑滚动容器，内置自适应悬浮滚动条。
-- `Collapsible`：受控折叠展开容器。
-- `Separator`：水平 / 垂直语义分隔线。
-- `Tree`：通用层级树（章节、分类这类不带文件语义的内容），单选或多选、键盘遍历。
-- `Breadcrumb`：面包屑导航栏。
-- `Tabs`：换去处——下面的内容跟着换（设置的分页、面板里的几页）；只换看法、内容还是同一份时用 `SegmentedControl`。
+### 控件
 
-### 弹层与反馈 (Feedback & Overlays)
-- `Dialog`：对话框，一个组件两种用法：缺省模态（遮罩、焦点锁定、背景不可交互、点遮罩与 Escape 关闭，同时打开的按打开顺序叠放）；`modal=false` 是浮动窗口（无遮罩、标题栏可拖动、`resizable` 时六个缩放手柄与键盘调整）。外框只有一份。
-- `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `warning` / `accent` 语调）。
-- `Drawer`：侧边抽屉面板（支持 `top` / `bottom` / `left` / `right` 四向弹出与遮罩模糊）。
-- `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
-- `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
-- `InfoTip`：字段标签旁的问号说明图标，悬停或聚焦时用 Tooltip 显示说明。
-- `SuggestionMenu`：输入时弹出的候选菜单（Composer 的 `@`、`/`、`$`，编辑器的斜杠菜单）：不抢焦点，键盘由宿主处理；贴光标或贴输入框，逐帧跟随、按可用空间翻转与收矮；`suggestionOptionId` 给宿主的 `aria-activedescendant`。
-- `QuickPick`：输入筛选、从候选里挑一项的浮层（命令面板、快速打开、跳到行都用它，S4 层级）；纯受控候选项/查询/活动项，`>` 命令与 `:` 行号等前缀解析归宿主。模态键盘与焦点合同、`closed` 真实关闭交接事件、`NB_Z_INDEX.commandPalette`（9200）层级。
-- `Notification` / `NotificationStack`：一条通知，与屏幕一角排队显示通知的容器；队列可用 `createNotificationQueue()` 自建一份传给它，通知可带进度。队列本身不碰 DOM，从子路径 `@notnotype/nb-ui/notifications` 单独导入时不会把别的 composable 带进无 DOM 的编译组。
-- `Banner`：区域或页面顶部的常驻横幅（已断开正在重连、有新版本要刷新），不进队列、不自动消失。
+- [`Button`](src/components/controls/Button.md)：主要、次要、弱化、危险、幽灵几种按钮，可带加载态。
+- [`IconButton`](src/components/controls/IconButton.md)：只有图标的紧凑按钮。
+- [`SegmentedControl`](src/components/controls/SegmentedControl.md)：换模式：同一处内容换个看法（列表、网格），几个里选一个。
+- [`ToggleGroup`](src/components/controls/ToggleGroup.md)：一组可叠加的开关（粗体、斜体），可以同时按下几个；不做单选。
+- [`Switch`](src/components/controls/Switch.md)：开关。
+- [`Tabs`](src/components/controls/Tabs.md)：换去处：下面的内容跟着换；只换看法时用 `SegmentedControl`。
+- [`Toolbar`](src/components/controls/Toolbar.md)：一行工具按钮，按可用宽度让位。
 
-### 数据展示 (Display)
-- `Badge`：超椭圆现代状态徽章（支持 `dot` 发光点、`iconClass` 与温润深琥珀 Warning 调色）。
-- `Progress`：进度条（支持 `accent` / `success` / `warning` / `danger` 语调与平滑位移动效）。
-- `Kbd`：实体键盘键帽快捷键展示组件（`sm` / `md` / `lg`）。
-- `Table` / `Spinner` / `Skeleton` / `EmptyState`：数据表格与异步骨架/空状态指示。
+### 表单
 
-## Interface text
+- [`Field`](src/components/form/Field.md)：字段外壳：标题、说明、错误与读屏关联。
+- [`Input`](src/components/form/Input.md)：单行输入。
+- [`Textarea`](src/components/form/Textarea.md)：多行输入。
+- [`NumberInput`](src/components/form/NumberInput.md)：数值输入与步进。
+- [`Select`](src/components/popup/Select.md)：从一列值里选一个，收在下拉框里。
+- [`SearchSelect`](src/components/form/SearchSelect.md)：可搜索的下拉：输入的文字只是搜索词，选中才改值。
+- [`Checkbox`](src/components/form/Checkbox.md)：复选框。
+- [`CheckboxGroup`](src/components/form/CheckboxGroup.md)：一组复选框。
+- [`RadioGroup`](src/components/form/RadioGroup.md)：表单里选一个值，选项可带说明，纵向或横向。
+- [`Slider`](src/components/form/Slider.md)：单值或范围滑动条。
+- [`ColorSwatches`](src/components/form/ColorSwatches.md)：单选色板，可带“自动”与“自定义”。
+
+### 弹出列表与浮层
+
+- [`DropdownMenu`](src/components/popup/DropdownMenu.md)：点按钮弹出一列动作，可带勾选项与级联子菜单；选值用 `Select`。
+- [`Menubar`](src/components/popup/Menubar.md)：窗口菜单栏。
+- [`ContextMenu`](src/components/popup/ContextMenu.md)：右键菜单。
+- [`QuickPick`](src/components/popup/QuickPick.md)：输入筛选、挑一项（命令面板、快速打开）；候选与前缀解析归宿主。
+- [`AnchoredPopover`](src/components/popup/AnchoredPopover.md)：贴在元素或选区旁边的浮层，不抢焦点，开关由宿主决定。
+- [`SuggestionMenu`](src/components/popup/SuggestionMenu.md)：输入时弹出的候选（`@`、`/`）：不抢焦点，键盘由宿主处理。
+- [`Popover`](src/components/feedback/Popover.md)：气泡。
+- [`Tooltip`](src/components/feedback/Tooltip.md)：悬停提示。
+- [`InfoTip`](src/components/feedback/InfoTip.md)：字段标签旁的问号说明。
+- [`Dialog`](src/components/feedback/Dialog.md)：模态对话框。
+- [`FloatingWindow`](src/components/feedback/FloatingWindow.md)：非模态浮动窗口，可拖动、可缩放。
+- [`AlertDialog`](src/components/feedback/AlertDialog.md)：二次确认。
+- [`Drawer`](src/components/feedback/Drawer.md)：四向滑出的抽屉。
+
+### 反馈
+
+- [`Notification`](src/components/feedback/Notification.md)：一条通知。
+- [`NotificationStack`](src/components/feedback/NotificationStack.md)：在屏幕一角排队显示通知；队列从 `@notnotype/nb-ui/notifications` 导入，不碰 DOM。
+- [`Banner`](src/components/feedback/Banner.md)：区域或页面顶部的常驻横幅，不进队列、不自动消失。
+- [`Progress`](src/components/display/Progress.md)：进度条。
+- [`Spinner`](src/components/display/Spinner.md)：转动的加载指示。
+- [`Skeleton`](src/components/display/Skeleton.md)：结构已知时的装饰性占位。
+- [`EmptyState`](src/components/display/EmptyState.md)：空状态。
+
+### 布局与导航
+
+- [`Splitter`](src/components/layout/Splitter.md)：冻结，只给 nb-story、dev-panel 用。布局树、分割面板与拖放反馈都在 [`@notnotype/nb-layout`](../nb-layout/README.md)。
+- [`ScrollArea`](src/components/layout/ScrollArea.md)：自己建滚动容器、带自绘滑块。
+- [`OverlayScrollbar`](src/components/layout/OverlayScrollbar.md)：接到已有滚动元素上的叠加滑块。
+- [`Collapsible`](src/components/layout/Collapsible.md)：受控折叠。
+- [`CollapsibleCard`](src/components/layout/CollapsibleCard.md)：可折叠的卡片。
+- [`CollapsibleRow`](src/components/layout/CollapsibleRow.md)：可折叠的一行。
+- [`Separator`](src/components/layout/Separator.md)：分隔线。
+- [`DropIndicatorLabel`](src/components/layout/DropIndicatorLabel.md)：拖放的提示药丸。
+- [`Breadcrumb`](src/components/navigation/Breadcrumb.md)：面包屑。
+- [`Tree`](src/components/navigation/Tree.md)：通用层级树，单选或多选。
+
+### 展示
+
+- [`Badge`](src/components/display/Badge.md)：状态徽章。
+- [`Kbd`](src/components/display/Kbd.md)：键帽。
+- [`Table`](src/components/display/Table.md)：数据表格。
+- [`CodeBlock`](src/components/display/CodeBlock.md)：代码块。
+- [`DiffView`](src/components/display/DiffView.md)：比较改前改后，按行、按字标出改动。
+
+## 界面文字
 
 界面文字的值与翻译端口，行为合同见 [`ui/i18n`](../../docs/specs/ui/i18n.md)：
 
@@ -129,82 +141,46 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 
 组件的缺省文案（未传属性时的读屏名称、空态与按钮文字，例如 `Dialog` 的 `closeLabel`、`NumberInput` 的 `incrementLabel`、`Table` 的 `emptyText`）走翻译端口，取自这份目录：宿主注入了端口就跟着端口的语言，换语言不重新挂载；没有宿主时是中文。调用方显式传属性时以属性为准，宿主要给某处不同的文案，传属性即可。这些组件在同名 `.md` 里标 `state:inject`。组件内部用 `useUiText()`（`@notnotype/nb-ui/text-port`）取，键类型从中文目录推出，写错键编译不过。
 
-## Styles in the host app
+## 宿主里的样式
 
-nb-ui is styled with Tailwind v4 and ships no precompiled CSS. The host's CSS imports Tailwind first,
-then nb-ui's entry:
+nb-ui 用 Tailwind v4 写样式，不发预编译的 CSS。宿主的样式入口先导入 Tailwind，再导入 nb-ui：
 
 ```css
 @import "tailwindcss";
 @import "@notnotype/nb-ui/tailwind.css";
-@source "../";                           /* the host's own sources, when Vite's root is not the package root */
+@source "../";                           /* 宿主自己的源码，Vite 的根不是包根时要写 */
 ```
 
-The entry scans nb-ui's components for utility classes, so the host's build emits them and the host
-does not have to scan `node_modules`. The design is explained in the header comment of
-[`src/tailwind.css`](src/tailwind.css); the points a host needs:
+入口会扫描 nb-ui 的组件，所以宿主的构建会产出这些类，不用扫 `node_modules`。设计见 [`src/tailwind.css`](src/tailwind.css) 的头注释；宿主要知道的是：
 
-- **Layers.** Tailwind's standard order `theme, base, components, utilities`. nb-ui's design tokens
-  (`src/tokens.css`) sit in `base`, its semantic classes (`.nb-ui-*`, `src/styles.css`) in `components`.
-  Utility classes a caller passes to a component are in `utilities`, so they override the semantic
-  classes without any specificity tricks. Colourway and theme variables (`themes/*/vars.css`) are
-  unlayered and win over the `base` tokens by selector specificity.
-- **No preflight.** A library should not reset the host's elements. Use the preflight that
-  `@import "tailwindcss"` brings, or your own reset, and put it in `@layer base`. If you want only
-  Tailwind's theme and utilities, all three parts below are needed; drop the layer statement and
-  utilities end up ordered before nb-ui's `base` and `components`, drop `layer(…)` and they are
-  unlayered. Either way a caller's utility silently loses to nb-ui's semantic classes:
+- **分层**：Tailwind 的标准层序 `theme, base, components, utilities`。nb-ui 的设计 token（`src/tokens.css`）在 `base`，语义类（`.nb-ui-*`，`src/styles.css`）在 `components`。调用方传给组件的原子类在 `utilities`，不用提高特异性就能盖过语义类。配色与主题变量（`themes/*/vars.css`）不分层，靠选择器特异性压过 `base` 的 token。
+- **不带重置样式**：库不该重置宿主的元素。用 `@import "tailwindcss"` 带来的重置或你自己的，放进 `@layer base`。只要 Tailwind 的主题与原子类时，下面三部分都要有：少了层序声明，原子类会排到 nb-ui 的 `base` 与 `components` 之前；少了 `layer(…)`，原子类不分层。两种情况下调用方的原子类都会静默输给 nb-ui 的语义类。
 
   ```css
-  @layer theme, base, components, utilities;   /* before every @import: layer order is set by first appearance */
+  @layer theme, base, components, utilities;   /* 写在所有 @import 之前：层序按第一次出现定 */
   @import "tailwindcss/theme.css" layer(theme);
   @import "tailwindcss/utilities.css" layer(utilities);
   @import "@notnotype/nb-ui/tailwind.css";
   ```
-- **Global rules go in `base`.** An unlayered rule with specificity below one class (`html`, `body`,
-  `*`, a reset's `all: unset`) beats every layered utility class. Put such rules in `@layer base`.
-- **Type scale.** nb-ui declares `--text-2xs` to `--text-xl`, `--leading-tight|ui|reading` and the
-  `--font-*` families with `@theme static`, so `text-sm` is nb-ui's 13px and `text-md`, `leading-ui`
-  exist as utilities. Tailwind's other scales are untouched.
-- **Native scrollbars.** Put `nb-ui-scrollbar-thin` on the root element (`<html>`) to give the whole
-  app thin native scrollbars coloured by `--text-main` mixed at `--scrollbar-thumb-mix`; the rule has zero specificity, so
-  `nb-ui-scrollbar-none` or any utility overrides it where needed.
+- **全局规则放进 `base`**：不分层、特异性低于一个类的规则（`html`、`body`、`*`、重置样式的 `all: unset`）压过所有分层的原子类。
+- **字号刻度**：nb-ui 用 `@theme static` 声明 `--text-2xs` 到 `--text-xl`、`--leading-tight|ui|reading` 与 `--font-*`，所以 `text-sm` 取的是 nb-ui 的刻度（数值随主题），`text-md`、`leading-ui` 也能用。Tailwind 的其它刻度不动。
+- **原生滚动条**：在根元素（`<html>`）上挂 `nb-ui-scrollbar-thin`，整个应用的原生滚动条变细、按 `--text-main` 与 `--scrollbar-thumb-mix` 混色。这条规则特异性为 0，`nb-ui-scrollbar-none` 或任何原子类都盖得过。
 
-Icons used inside nb-ui components need no registration by the host app: the entry generates the icon
-rules (`@iconify/tailwind4`, `i-lucide-*`) and the mask shim itself. The one exception is icons **you**
-pass in: `iconClass` on `Badge` / `Banner` / `DropdownMenu` / `Tabs` / `SegmentedControl` /
-`ContextMenu` / `EmptyState` / `Tree` takes an arbitrary class from your code, and generating that
-class is still your build's job.
+nb-ui 组件内部的图标不用宿主登记：入口自己生成图标规则（`@iconify/tailwind4`、`i-lucide-*`）。例外是你传进去的图标：`Badge`、`Banner`、`DropdownMenu`、`Tabs`、`SegmentedControl`、`ContextMenu`、`EmptyState`、`Tree` 的 `iconClass` 接收你代码里的任意类名，生成这个类仍是你的构建的事。
 
-Shared style registries (register instead of copying values):
+共用的样式登记处（登记，不抄数值）：
 
-- `NB_Z_INDEX` (`@notnotype/nb-ui/theme`) — overlay z-indexes; bind via `:style`.
-- `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (DropdownMenu, Select, ContextMenu, Tooltip, Dialog).
-- `.nb-ui-tooltip-surface` (`styles.css`) — compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding.
-- `.nb-ui-menu-surface` — popup-list modifier (DropdownMenu, Select, Menubar, ContextMenu, QuickPick, SuggestionMenu): consumes `--radius-menu` and writes the `--menu-pad` padding, so nested items stay concentric.
-- `.nb-ui-menu-item` (+ `__icon`, `__label`, `__hint`, `--multiline`), `.nb-ui-menu-label`, `.nb-ui-menu-separator` — one popup-list row: `--menu-item-h` / `--menu-item-font`, concentric radius, highlight only on `[data-highlighted]`, one leading column shared by the check and the icon.
-- `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog surfaces (modal and window); nbook small popovers leave it off.
-- `.nb-ui-menu-item-danger` (`styles.css`) — destructive menu items: danger text and icon colour; the highlight stays neutral.
+- `NB_Z_INDEX`（`@notnotype/nb-ui/theme`）：浮层层级，用 `:style` 绑定。
+- 浮层外框类（`.nb-ui-popover-surface` 等，`src/styles.css`）：见 [开发规范](docs/ui-development-spec.md) 的“浮层外框”。
+- `.nb-ui-menu-item`（及 `__icon`、`__label`、`__hint`、`--multiline`）、`.nb-ui-menu-label`、`.nb-ui-menu-separator`、`.nb-ui-menu-item-danger`：弹出列表的一行，见开发规范的“弹出列表的共同合同”。
 
-## UI development contract
+## 开发规范
 
-公共组件、主题、token、样式与 playground 的当前工程规范见 [`docs/ui-development-spec.md`](docs/ui-development-spec.md)。
+公共组件、主题、token、样式与 playground 的工程规范见 [`docs/ui-development-spec.md`](docs/ui-development-spec.md)。组件场景登记在新应用的 Component Lab（`packages/neuro-book` 开发模式的 `/lab`，合同见 [`ui/component-lab`](../../docs/specs/ui/component-lab.md)），位置是 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/`。playground 只放需要真实浏览器的验收页。
 
-组件场景登记在新应用的 Component Lab（`packages/neuro-book` 的开发模式 `/lab`，合同见 [`ui/component-lab`](../../docs/specs/ui/component-lab.md)）：组件场景、主题 × 配色、手机与平板画布、检查器、事件日志与 `lab:shot` 截图。它与 playground 的全量 `/components` 画廊、设计语言 `/workbench` 分工不同。新增或修改公共组件时，先读规范并在 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/` 登记场景。
+## 配色
 
-## Colourway
-
-> **Renamed in 0.2.0-alpha.** What used to be called "theme" — a set of colour variables — is now a
-> **colourway**, and it moved from `@notnotype/nb-ui/theme` to `@notnotype/nb-ui/colorway`. "Theme"
-> now means a package that can change shape, rhythm, decoration and (later) component implementations
-> on top of any colourway. Rename map: `applyNbTheme` → `applyColorway`, `createThemeStore` →
-> `createColorwayStore`, `nbThemePresets` → `nbColorways`, `NbThemeVars` → `NbColorwayVars`,
-> `NB_UI_THEME_HOST_CLASS` → `NB_UI_COLORWAY_HOST_CLASS` (the CSS class it holds also changed from
-> `.nb-ui-theme` to `.nb-ui-colorway`). Store members follow: `setTheme` → `setColorway`,
-> `initTheme` → `initColorway`, `themeIds` → `colorwayIds`, `themeMeta` → `colorwayMeta`,
-> `themes` → `colorways`.
-
-The host app must provide the base colour variables listed in `src/colorway/colorway-contract.ts`.
+配色是一组颜色变量。宿主要提供 `src/colorway/colorway-contract.ts` 列出的基础变量：
 
 ```ts
 import {applyColorway, defaultDarkColorway} from "@notnotype/nb-ui/colorway";
@@ -212,8 +188,7 @@ import {applyColorway, defaultDarkColorway} from "@notnotype/nb-ui/colorway";
 applyColorway(document.body, defaultDarkColorway);
 ```
 
-Required public tokens (33 — aligned with the NeuroBook main repo's variable table, minus its six
-editor/domain-specific ones, plus nb-ui's own `--shadow-panel` / `--overlay-bg`):
+必须提供的公开变量（33 个）：
 
 ```text
 --color-scheme
@@ -243,8 +218,7 @@ editor/domain-specific ones, plus nb-ui's own `--shadow-panel` / `--overlay-bg`)
 --overlay-bg
 ```
 
-`defaultDarkColorway` is an alias of the built-in table (single source). One colourway ships with
-the library:
+库里只带一套配色，id 是 `dark`；`defaultDarkColorway` 是内置表的别名：
 
 ```ts
 import {applyColorway, nbColorways, nbColorwayIds, nbColorwayMeta, NB_DEFAULT_COLORWAY_ID} from "@notnotype/nb-ui/colorway";
@@ -252,39 +226,14 @@ import {applyColorway, nbColorways, nbColorwayIds, nbColorwayMeta, NB_DEFAULT_CO
 applyColorway(document.body, nbColorways.dark);
 ```
 
-Colourway id: `dark`. Products can add extra `--*` variables, but nb-ui components only depend on
-the listed public tokens.
+产品可以加别的 `--*` 变量，但 nb-ui 组件只依赖上面列出的公开变量。
 
-> **The library ships no light colourway.** If you install nb-ui without a theme, a light-mode OS
-> still gets a dark UI. Light colourways come from theme packages — `macos` brings `macos-light`
-> and `macos-dark`. A theme's `defaultColorway.light` must therefore point at one of its own
-> colourways.
+**库里没有亮色配色。** 不装主题时，亮色系统下界面仍是暗色。亮色配色来自主题包，例如 `macos` 带 `macos-light` 与 `macos-dark`；主题的 `defaultColorway.light` 因此要指向它自己的配色。
 
-> **Breaking change in 0.2.0-alpha.** The lineup was replaced. `catppuccin` / `dracula` /
-> `monokai` / `one-dark-pro` / `tokyo-night` are retired, and so are `sepia` / `light` (two light
-> colourways) and `midnight` / `slate` (which briefly shipped in an early 0.2.0-alpha). Stored ids
-> are migrated automatically by `createColorwayStore` via `retiredColorwayAliases` (all retired
-> ids → `dark`) instead of silently falling back. `defaultLightColorway` was removed with the
-> lineup. If you pass a custom `colorways` table, pass your own `aliases` map too.
-
-## Design tokens
-
-Beyond colour, nb-ui ships five groups of colourway-independent tokens (typography, spacing, radius,
-elevation, motion). Values live in `src/tokens.css`; the registry is exported for reference:
+配色的整套流程（应用、存进 localStorage、启动时恢复）用 `createColorwayStore`，不用每个应用各写一份：
 
 ```ts
-import {nbDesignTokens, nbTypographyTokens, nbRadiusTokens} from "@notnotype/nb-ui/theme";
-```
-
-Two things to know: nb-ui sets `--text-sm` to 13px and `--text-lg` to 16px (a deliberate
-control-surface type scale), which is what the `text-sm` / `text-lg` utilities mean in your app; and `--elevation-popover` / `--elevation-dialog` are derived from the colourway's
-`--shadow-color`, so never hard-code an rgba shadow.
-
-For the full colourway session (apply + localStorage persistence + startup restore), use
-`createColorwayStore` instead of re-implementing it per app:
-
-```ts
-// app/composables/useColorway.ts — module-level create = app-wide singleton
+// 模块顶层创建，就是全应用单例
 import {createColorwayStore} from "@notnotype/nb-ui/colorway";
 
 const store = createColorwayStore({storageKey: "my-app-colorway"});
@@ -293,58 +242,47 @@ export function useColorway() {
 }
 ```
 
-`createColorwayStore` accepts custom `colorways` / `meta` tables for products that ship their own ids.
-It also writes `data-nb-appearance="light" | "dark"` on `<html>` alongside `color-scheme`, so themes
-can branch on light/dark in plain CSS — `color-scheme` itself is not selectable.
+它接受自定义的 `colorways`、`meta` 表与 `aliases`（把存过的旧 id 映射到新 id，缺省的 `retiredColorwayAliases` 把已退役的 id 都映射到 `dark`）。它还会在 `<html>` 上写 `data-nb-appearance="light" | "dark"` 与 `color-scheme`，主题可以在纯 CSS 里按明暗分支（`color-scheme` 本身选不中）。
 
+## 设计 token
 
-## Themes
+颜色之外，nb-ui 有五组与配色无关的 token（排版、间距、圆角、投影、动效）。取值在 `src/tokens.css`，名单可以导入：
 
-A **theme** is the second axis, orthogonal to colourway: shape, density, decoration and role mapping.
-Colourway decides the colours; theme decides how tall a control is, how round it is, whether a surface
-carries a gradient, and which colourway variable each surface role resolves to. Any theme × any
-colourway is expected to work.
+```ts
+import {nbDesignTokens, nbTypographyTokens, nbRadiusTokens} from "@notnotype/nb-ui/theme";
+```
 
-A theme is a package — manifest, variable values, optionally its own colourways, static SVG assets,
-and optionally replacement implementations for whitelisted components:
+`--elevation-popover`、`--elevation-dialog` 由配色的 `--shadow-color` 推出，不要写死 rgba 投影。
+
+## 主题
+
+主题是与配色正交的第二条轴：形状、密度、装饰与角色映射。配色决定颜色；主题决定控件多高、多圆、面带不带渐变、每个表面角色取哪个配色变量。任意主题配任意配色都应当能用。
+
+主题是一个包：清单、变量取值，可选自带配色与静态 SVG 资源。不能替换组件的实现，也不能带 JS。
 
 ```ts
 import {installTheme, createThemeStore} from "@notnotype/nb-ui/theme";
-import {provideThemeComponents} from "@notnotype/nb-ui/theme";
 import nbook from "@notnotype/nb-ui/themes/nbook";
 import macos from "@notnotype/nb-ui/themes/macos";
 
-installTheme(nbook);   // install ≠ activate: install many, activate one
+installTheme(nbook);   // 安装不等于激活：可以装多套，激活一套
 installTheme(macos);
 
 const store = createThemeStore({storageKey: "my-app-theme", defaultId: "nbook"});
-provideThemeComponents(store.components);   // in the app root setup
 ```
 
-Four themes ship with the library: `nbook` (default), `macos`, `editorial`, `aurora`.
-They all go through the same loader as a third-party theme — there is no privileged path.
+库里带四套主题：`nbook`（默认）、`macos`、`editorial`、`aurora`，都走和第三方主题相同的装载路径。
 
-`nbook` is the product theme for long-form writing. It takes Apple's Liquid Glass layering rule —
-glass belongs to navigation and controls, never to content — and pushes the content side one step
-further: the manuscript is not merely opaque but paper, the one surface on screen that is warm,
-serif, and casts a shadow. Chrome floats over it as glass, blurred harder than macOS does, with
-edge refraction where the browser supports it. Its load-bearing inversion is that **in dark mode the
-manuscript is the brightest surface on screen**, not the darkest — a lamp falls on paper, so paper
-outranks the desk. Typography is set for Chinese: no negative tracking, one size step up from the
-Apple scale, and looser leading, because Han characters fill the em box where Latin lowercase
-does not.
+- `nbook` 是长篇写作的产品主题：玻璃属于导航与控件，正文是纸，是屏幕上唯一温暖、带衬线、有投影的面；暗色下稿面是最亮的面，不是最暗的。排版按中文定：不收字距，比 Apple 的刻度大一档，行距更松。
+- `macos` 是格式的参考实现，用到了所有扩展点，主题作者读这一个包就够了。
 
-`macos` stays in the library as the reference implementation of the format — it exercises every
-extension point at once, so a theme author can read one package instead of four.
+**不装主题是受支持的状态**：`src/tokens.css` 的裸 `:root` 缺省值生效，界面能用，只是没有设计特点。
 
-**Running with no theme installed is a supported state**, not a degraded one: the bare `:root`
-defaults in `src/tokens.css` apply, so the UI works, it just has no design character.
+装载器的每项检查不通过都给出能读懂的原因，不静默降级；清单是纯数据，市场不执行它也能建索引。写主题见 [主题作者规范](docs/authoring-themes.md)。
 
-Every loader check rejects with a readable reason rather than degrading silently, and the manifest is
-pure data so a marketplace can index a theme without executing it.
+## 文档
 
-## Documentation
-
-- [UI Development Specification](docs/ui-development-spec.md) — Comprehensive engineering contracts, token consumption, core component specifications (Button, IconButton, SegmentedControl, Checkbox, Select, DropdownMenu, ScrollArea), and Component Lab scene registration guidelines.
-- [Design Language](docs/design-language.md) — The rationale behind materials, layers, paper vs chrome, Chinese typography, and motion physics.
-- [Theme Authoring Guide](docs/authoring-themes.md) — Theme manifest structure, contracts, and override mechanisms.
+- [开发规范](docs/ui-development-spec.md)：工程合同、token 消费、浮层与滚动条、自检清单。
+- [设计语言](docs/design-language.md)：材质、层级、中文排版与动效的判据和取舍。
+- [主题作者规范](docs/authoring-themes.md)：主题包的结构、合同与装载。
+- [从 0.3 升级到 0.4](docs/migration-0.4.md)：公开 API 收成一套写法后的逐项对照。

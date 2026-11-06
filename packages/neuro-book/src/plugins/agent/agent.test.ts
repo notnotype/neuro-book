@@ -113,7 +113,7 @@ describe("贡献", () => {
     test("输出 2、5、7：建会话前激活扩展的提供方；工具声明不激活也交给模型，第一次执行才激活；Profile 解析时才激活提供方", async () => {
         const counts = {profiles: {count: 0}, tools: {count: 0}, ext: {count: 0}};
         const w = await world([profilesPlugin(counts.profiles), toolsPlugin(counts.tools), extensionsPlugin(counts.ext)]);
-        expect(w.service.profiles()).toEqual([{key: WRITER, name: "写手", description: "测试用", source: "test.profiles", status: "ok"}]);
+        expect(w.service.profiles().filter((profile) => profile.source !== "nbook.agent")).toEqual([{key: WRITER, name: "写手", description: "测试用", source: "test.profiles", status: "ok"}]);
         expect([counts.profiles.count, counts.tools.count, counts.ext.count]).toEqual([0, 0, 0]);
 
         const session = await createSession(w);
@@ -267,6 +267,40 @@ describe("贡献", () => {
         await say(session, "看看工具");
         expect([...endpoint.requests[sent]!.tools].sort()).toEqual(["test__tools__everywhere", "test__tools__extra", "test__tools__must"]);
     });
+
+    test("输出 4：声明 defaultTools: false 的 Profile 不加装到所有 Profile 的工具，绑定加的照样生效", async () => {
+        const lean = agentProfile("test.lean.writer", {name: "精简", description: "测试用", tools: {required: [], optional: [ECHO]}, defaultTools: false});
+        const leanPlugin: PluginDefinition = {id: "test.lean", entries: [defineEntry({id: "server", location: "server", activationEvents: [lean.activationEvent], contributions: [lean.contribution], activate: () => ({contributions: {"agent.profiles": {"test.lean.writer": defineProfile({id: "test.lean.writer", version: "1", name: "精简", description: "测试用", system: "你是写手。"})}}})})]};
+        const w = await world([leanPlugin, toolsPlugin({count: 0}, {tools: [{id: ECHO}, {id: "test.tools.extra"}, {id: "test.tools.everywhere", defaultForAll: true}]})], {"nbook.agent/toolBindings": {"test.lean.writer": {added: ["test.tools.extra"], removed: []}}});
+        const session = await createSession(w, "test.lean.writer");
+        const sent = endpoint.requests.length;
+        endpoint.script("好");
+        await say(session, "看看工具");
+        expect([...endpoint.requests[sent]!.tools].sort()).toEqual(["test__tools__echo", "test__tools__extra"]);
+    });
+
+    test("输出 7、13：声明的 role 是缺省角色，Profile 设置优先；hidden 的条目带标记、仍在目录里", async () => {
+        const tiny = agentProfile("test.small.namer", {name: "取名", description: "测试用", tools: {required: [], optional: []}, role: "tiny", hidden: true});
+        const smallPlugin: PluginDefinition = {id: "test.small", entries: [defineEntry({id: "server", location: "server", activationEvents: [tiny.activationEvent], contributions: [tiny.contribution], activate: () => ({contributions: {"agent.profiles": {"test.small.namer": defineProfile({id: "test.small.namer", version: "1", name: "取名", description: "测试用", system: "你取名。", pluginExtensions: {exclude: ["session-meta"]}})}}})})]};
+        const twoModels = {
+            "nbook.models/providers": [{id: "local", kind: "custom", name: "本机", baseUrl: endpoint.baseUrl, api: "openai-completions", auth: "none", models: [{id: "big", enabled: true, contextWindow: 32_000}, {id: "small", enabled: true, contextWindow: 32_000}]}],
+            "nbook.models/roles": {items: ["tiny", "fast", "main", "deep"].map((id) => ({id, axis: "gradient", name: "", description: "", model: id === "main" ? "local/big" : id === "tiny" ? "local/small" : null}))},
+        };
+        const w = await world([smallPlugin], twoModels);
+        expect(w.service.profiles()).toContainEqual(expect.objectContaining({key: "test.small.namer", hidden: true}));
+        const session = await createSession(w, "test.small.namer");
+        const sent = endpoint.requests.length;
+        endpoint.script("好");
+        await say(session, "取个名");
+        expect(endpoint.requests[sent]!.model).toBe("small");
+
+        const overridden = await world([smallPlugin], {...twoModels, "nbook.agent/profileSettings": {"test.small.namer": {role: "main"}}});
+        const other = await createSession(overridden, "test.small.namer");
+        const next = endpoint.requests.length;
+        endpoint.script("好");
+        await say(other, "取个名");
+        expect(endpoint.requests[next]!.model).toBe("big");
+    });
 });
 
 describe("会话", () => {
@@ -353,5 +387,67 @@ describe("会话", () => {
         const ended = opened.value.events.filter((event) => event.type === "runEnded").map((event) => (event.data as {reason: string}).reason);
         await store.close(opened.value);
         expect(ended).toEqual(["interrupted"]);
+    });
+});
+
+describe("运行保护的接线（docs/specs/agent/run-guards.md）", () => {
+    /** 手动时钟上的运行：推进时钟直到它结束。 */
+    async function finish(w: AgentWorld, session: SessionApi, text: string) {
+        const sent = await session.send({commandId: cid(), input: {text}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(`send failed: ${JSON.stringify(sent)}`);
+        let result: Awaited<ReturnType<SessionApi["waitRun"]>> | null = null;
+        void session.waitRun(sent.value.runId).then((value) => {
+            result = value;
+        });
+        await waitUntil("运行结束", () => {
+            w.settings.clock.advance(1000);
+            return result !== null;
+        });
+        return result!;
+    }
+    const providers = (activations = {count: 0}) => [profilesPlugin(activations), toolsPlugin(activations)];
+
+    test("验收 3、输出 1：新会话默认装着两个扩展", async () => {
+        const session = await createSession(await world(providers()));
+        const active = (await session.snapshot()).extensions.filter((item) => item.id.endsWith("-guard")).map((item) => [item.id, item.status]).sort();
+        expect(active).toEqual([["nbook.agent.cost-guard", "active"], ["nbook.agent.loop-guard", "active"]]);
+    });
+
+    test("输出 2：缺省重发一次失败的请求；modelRetries 是 0 时不重发", async () => {
+        const w = await world(providers());
+        const session = await createSession(w);
+        const before = endpoint.requests.length;
+        endpoint.script({status: 503}, "好了");
+        expect(await finish(w, session, "问")).toMatchObject({reason: "completed", text: "好了"});
+        expect(endpoint.requests.length - before).toBe(2);
+
+        const off = await world(providers(), {"nbook.agent/modelRetries": 0});
+        const offSession = await createSession(off);
+        const offBefore = endpoint.requests.length;
+        endpoint.script({status: 503});
+        expect((await finish(off, offSession, "问")).reason).toBe("error");
+        expect(endpoint.requests.length - offBefore).toBe(1);
+    });
+
+    test("卡死超时读模型服务的设置：等第一个事件超时按 network 失败", async () => {
+        const w = await world(providers(), {"nbook.agent/modelRetries": 0, "nbook.models/streamFirstEventTimeoutSeconds": 1});
+        const session = await createSession(w);
+        const hold = endpoint.hold();
+        try {
+            expect((await finish(w, session, "问")).error).toMatchObject({kind: "network", code: "first-event-timeout"});
+        } finally {
+            hold.release();
+        }
+    });
+
+    test("设置读真实的值：循环阈值、费用上限", async () => {
+        const w = await world(providers(), {"nbook.agent/toolLoopThreshold": 1, "nbook.agent/maxCost": 1});
+        const session = await createSession(w);
+        endpoint.script({tool: "test__tools__echo", args: {text: "同样"}}, {tool: "test__tools__echo", args: {text: "同样"}});
+        const result = await finish(w, session, "问");
+        expect(result.error).toMatchObject({code: "tool-call-loop"});
+        // 本机端点的模型没有单价：设了上限就要提示一次。
+        const events = (await session.log({afterSeq: 0, limit: 100_000})).events;
+        expect(events.filter((event) => event.type === "nbook.agent.cost-guard/costUnpriced")).toHaveLength(1);
     });
 });

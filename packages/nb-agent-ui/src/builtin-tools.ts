@@ -40,6 +40,8 @@ function editEffects(call: ToolCallView): ToolEffects {
     if (path === "") {
         return noEffects();
     }
+    // NeuroBook 的 `edit-replace`：一处替换。`replace_all` 时次数不知道，数字是一处的。
+    if (hasReplacement(call)) return {read: [], changed: [{path, added: countLines(argString(call, "new_string")), removed: countLines(argString(call, "old_string"))}]};
     let added = 0;
     let removed = 0;
     for (const edit of argArray(call, "edits")) {
@@ -47,6 +49,10 @@ function editEffects(call: ToolCallView): ToolEffects {
         removed += countLines(objectString(edit, "oldText") ?? "");
     }
     return {read: [], changed: [{path, added, removed}]};
+}
+
+function hasReplacement(call: ToolCallView): boolean {
+    return argString(call, "old_string") !== "" || argString(call, "new_string") !== "";
 }
 
 function applyPatchEffects(call: ToolCallView): ToolEffects {
@@ -70,7 +76,13 @@ function writeDiff(call: ToolCallView): CodeLine[] | null {
  * 旧的 `{path, edits}` 写法每个片段先删后增，片段之间一行淡色省略号。
  */
 function editDiff(call: ToolCallView): CodeLine[] | null {
-    if (pending(call, "input", "edits")) return null;
+    if (pending(call, "input", "edits", "old_string", "new_string")) return null;
+    if (hasReplacement(call)) {
+        return [
+            ...splitLines(argString(call, "old_string")).map((text): CodeLine => ({text, tone: "removed"})),
+            ...splitLines(argString(call, "new_string")).map((text): CodeLine => ({text, tone: "added"})),
+        ];
+    }
     const input = argString(call, "input");
     if (input !== "") {
         if (parsePatchChanges(input).length > 0) return splitLines(input).map(patchLine);
@@ -92,6 +104,14 @@ function applyPatchDiff(call: ToolCallView): CodeLine[] | null {
     return splitLines(argString(call, "patch")).map(patchLine);
 }
 
+/** 参数还在流式生成时适配器给的字数（一章要写几分钟）：先让人看到在写哪个文件、写了多少。 */
+function streamingPath(call: ToolCallView): string {
+    const path = argString(call, "path");
+    const args = call.args;
+    const chars = call.status === "streaming" && args !== null && typeof args === "object" && !Array.isArray(args) && typeof args.partialChars === "number" ? args.partialChars : null;
+    return chars === null || path === "" ? path : `${path} · ${String(chars)}`;
+}
+
 function firstQuestion(call: ToolCallView): string {
     const first = argArray(call, "questions")[0];
     return first === undefined ? "" : objectString(first, "question") ?? "";
@@ -104,6 +124,16 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
         label: agentRef("tool.read"), summary: (call) => argString(call, "path"),
         groupPhrase: (calls) => (agentRef("toolGroup.read", {count: calls.length})),
         effects: readEffects, presentation: "line",
+    },
+    {
+        id: "grep", toolNames: ["grep"], category: "explore", icon: "i-lucide-text-search",
+        label: agentRef("tool.grep"), summary: (call) => argString(call, "pattern"),
+        groupPhrase: (calls) => (agentRef("toolGroup.search", {count: calls.length})), presentation: "line",
+    },
+    {
+        id: "glob", toolNames: ["glob"], category: "explore", icon: "i-lucide-folder-search",
+        label: agentRef("tool.glob"), summary: (call) => argString(call, "pattern"),
+        groupPhrase: (calls) => (agentRef("toolGroup.lookup", {count: calls.length})), presentation: "line",
     },
     {
         id: "web_search", toolNames: ["web_search"], category: "explore", icon: "i-lucide-search",
@@ -123,12 +153,12 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     // mutate
     {
         id: "write", toolNames: ["write"], category: "mutate", icon: "i-lucide-file-plus",
-        label: agentRef("tool.write"), summary: (call) => argString(call, "path"),
+        label: agentRef("tool.write"), summary: streamingPath,
         effects: writeEffects, diff: writeDiff, presentation: "line",
     },
     {
         id: "edit", toolNames: ["edit"], category: "mutate", icon: "i-lucide-file-pen",
-        label: agentRef("tool.edit"), summary: (call) => argString(call, "path") || editInputChanges(call).map((change) => change.path).join(", "),
+        label: agentRef("tool.edit"), summary: (call) => streamingPath(call) || editInputChanges(call).map((change) => change.path).join(", "),
         effects: editEffects, diff: editDiff, presentation: "line",
     },
     {
@@ -139,7 +169,7 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     },
     // interact
     {
-        id: "request_user_input", toolNames: ["request_user_input"], category: "interact", icon: "i-lucide-message-circle-question",
+        id: "request_user_input", toolNames: ["request_user_input", "ask"], category: "interact", icon: "i-lucide-message-circle-question",
         label: agentRef("tool.requestUserInput"), summary: firstQuestion, presentation: "node",
     },
     {
@@ -156,7 +186,7 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
         label: agentRef("tool.runWorkflow"), summary: (call) => argString(call, "workflowKey"), presentation: "node",
     },
     {
-        id: "bash", toolNames: ["bash"], category: "other", icon: "i-lucide-terminal",
+        id: "bash", toolNames: ["bash", "shell"], category: "other", icon: "i-lucide-terminal",
         label: agentRef("tool.bash"), summary: (call) => argString(call, "command"), presentation: "card",
     },
     {

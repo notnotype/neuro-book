@@ -17,6 +17,7 @@
 | `@notnotype/nb-plugin-sdk/text/browser` | 组件里取文字：`usePluginText`、`useText`、`TextPort` | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/state` | 内置插件 `nbook.state`：插件状态 `defineStore`、公开状态 `definePublicState` | 各运行位置 |
 | `@notnotype/nb-plugin-sdk/storage` | 内置插件 `nbook.storage`：私有存储 `defineRecord`、`storageKey` | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/files` | 内置插件 `nbook.files` 的写入接口：`workspaceFilesKey`、`baselineOf` | 服务端与项目实例入口 |
 | `@notnotype/nb-plugin-sdk/settings` | 内置插件 `nbook.settings`：设置项 `setting`、list 分区 `section`、`settingsKey` | 各运行位置 |
 | `@notnotype/nb-plugin-sdk/settings/browser` | 设置页 `settingsPage`、选项来源 `choices`、设置页组件 `SettingsRow` 等 | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/commands` | 内置插件 `nbook.commands`：命令 `command`、从代码执行命令的 `commandServiceKey` | 各运行位置 |
@@ -139,6 +140,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 - **设置分区与设置项**：`/settings` 的 `section(plugin, {name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`setting(plugin, {name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。`layers` 是用户能在哪几层改它：缺省 `["user", "project"]`（用户层与作品层，作品层覆盖用户层）；服务端入口只读得到缺省值与用户层（作品层属于项目，项目实例与打开了项目的窗口才读得到），给服务端用的设置项写 `layers: ["user"]`。`applies` 告诉用户改了何时生效，只影响设置窗口的提示：缺省 `now`，另有 `next-run`、`next-session`、`restart`。两者都写进 `plugin.descriptor([…])`，漏写的构建时报。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项，`onDidChange((keys) => …)` 在有效值变化时通知（`keys` 是变了的键，和 `设置项.key` 比）。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
 - **page 分区**：值是列表、对象这类通用控件画不了的，用 `/settings/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
+- **主题**：不用写代码。在 `package.json` 的顶层 `contributes` 里写一条 `workbench.themes`，素材放在插件目录里，装上就能在设置的“主题”里选；声明的字段与规则见 [theme/skins](../../../docs/specs/theme/skins.md)，能照着改的例子是 `examples/external/theme-dusk`。这种插件不用构建，目录本身就能安装。单张场景图建议 300 KB 以内；文字落在场景上的对比度由你负责，不低于 4.5。
 - **视图**：`/workbench` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`bun run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
 - **命令**：`/commands` 的 `command(plugin, {name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。Agent 缺省不能调用命令：`expose.agent` 不写就是不开放，写 `"confirm"` 时每次调用先问用户，写 `"auto"` 时直接执行（同时写了 `hints.destructive: true` 的仍按 `"confirm"`）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
 - **状态栏条目**：`/workbench` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）或视图助手（点了打开那个视图）。实现是三个函数：
@@ -290,6 +292,28 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 规则见 [persistence](../../../docs/specs/storage/persistence.md)；写法见示例 notes 的 `backend/plugin.ts`。
 
+### 读写书里的文件
+
+书里的文件（`projects://<书>/…`，项目实例里是 `project://…`）与用户资产（`user://…`）经内置插件 `nbook.files` 的写入接口读写，规则见 `workspace/resources.md` 的“写入接口”：
+
+- 入口依赖 `workspaceFilesKey`，激活后拿到按插件生成的门面；改动的来源记为这个插件。
+- 读：`read(地址)` 交回字节与基线（32 MB 以内），读改写用它；要分页、流式或交给别的程序时用 `readPath(地址)` 拿本机路径自己读。这个路径只用来读，往里写会被当作外部改动。
+- 写：`write(地址, 内容, {expect})` 整份写入；大文件或边生成边写用 `stage(地址, async (sink) => …, {expect})`，写入函数正常结束才提交，抛错或取消就丢弃。`expect` 必填：给基线是条件写，`"absent"` 只在不存在时新建，`"any"` 不论现状。`update(地址, 文本 => 新文本)` 冲突时自己重读重算。
+- 一次逻辑操作跨多个文件时包在 `group({title}, async (g) => …)` 里，经 `g` 的改动带同一个组，审查时一起看；不保证原子。
+- 失败都经结果交回（`ok: false` 带 `code`），不抛出；`conflict` 带当前基线。
+
+  ```ts
+  import {workspaceFilesKey} from "@notnotype/nb-plugin-sdk/files";
+
+  const files = context.services.require(workspaceFilesKey);
+  await files.group({title: "生成封面插图"}, async (g) => {
+      await g.stage("projects://book/插图/封面.png", async (sink) => {
+          for await (const chunk of image) await sink.write(chunk);
+      }, {expect: "absent", createParents: true});
+      await g.update("projects://book/第一章.md", (text) => insertCover(text, "插图/封面.png"));
+  });
+  ```
+
 ### 作者可用的内置命令
 
 内置插件的命令很多，作者能依赖的（属于 `engines.neurobook` 的兼容范围）只有下面这些；别的内置命令随产品改动，不要写进插件。
@@ -306,6 +330,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ## 界面
 
+- **从上一个版本升级**：组件 API 在 nb-ui 0.4 收成了一套写法（`Dialog` 的 `v-model:open`、关闭原因、`FloatingWindow` 等），逐项对照见 [nb-ui 的迁移说明](https://github.com/notnotype/neuro-book/blob/master/packages/nb-ui/docs/migration-0.4.md)。
 - **只用 SDK 的组件、`<style scoped>` 与主题变量**：组件从 `@notnotype/nb-plugin-sdk/components` 导入（清单见 `docs/components.md`，属性看包里的 `components.d.ts`，编辑器里跳转到定义即可）；样式写在组件的 `<style scoped>` 里，尺寸、间距、颜色、字号都用主题变量（清单见 `docs/tokens.md`），例如 `padding: var(--space-3); color: var(--text-muted);`。
 - **不写原子类**（`p-4`、`flex`、`text-sm` 这类）：NeuroBook 的原子类只按它自己的源码生成，插件里写了要么不生效，要么碰巧因为宿主某处也用了同一个类而生效，换个版本就失效。
 - **不覆写组件内部的样式**（选组件的内部类名、`:deep(...)`）：构建预设把插件的样式整体包进 `@layer components`，与宿主组件的样式同一层，谁赢取决于样式表的先后，不可靠；要换外观用组件给的属性（`variant`、`size`）。
@@ -369,5 +394,5 @@ SDK 还没有给作者的测试替身（内存里的存储、设置与时钟，�
 
 - `docs/components.md`：组件清单，由 SDK 的组件入口生成。
 - `docs/tokens.md`：主题变量清单，由 NeuroBook 的主题文件生成。
-- `examples/`：示例插件的源码，`plugins/` 下每个目录是一个插件，`external/declarative` 是只有声明的插件。
+- `examples/`：示例插件的源码，`plugins/` 下每个目录是一个插件，`external/declarative`、`external/theme-dusk` 是只有声明的插件。
 - `specs/`：本文引用的 Spec 的副本：[plugin-api](../../../docs/specs/runtime/plugin-api.md)（SDK 与作者工具）、[plugin-code-loading](../../../docs/specs/runtime/plugin-code-loading.md)（构建预设、宿主模块表、纯度检查、插件样式）、[plugin-manifest](../../../docs/specs/runtime/plugin-manifest.md)（清单与 id 规则）、[plugin-install](../../../docs/specs/runtime/plugin-install.md)（安装、升级、卸载）、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)（远程服务）、[views](../../../docs/specs/workbench/views.md)（视图）、[workbench-shell](../../../docs/specs/ui/workbench-shell.md)（状态栏条目）、[configuration](../../../docs/specs/settings/configuration.md)（设置项）、[settings-window](../../../docs/specs/settings/settings-window.md)（设置分区）、[persistence](../../../docs/specs/storage/persistence.md)（私有存储）。

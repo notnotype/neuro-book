@@ -21,6 +21,8 @@ export const REVOKE_GRACE_MS = 5_000;
 type Handle = ContributionHandle<AgentToolDeclaration, AgentToolImplementation>;
 
 export interface ToolRequirements {
+    /** `false`：不加 `defaultForAll` 的工具（contributions.md 输出 4）。 */
+    readonly defaultTools?: false;
     readonly required: readonly string[];
     readonly optional: readonly string[];
 }
@@ -31,8 +33,9 @@ export interface AgentToolsOptions {
     /** 激活声明了 `onAgentTool:<id>` 的入口；有入口激活失败或受阻时交回 false。 */
     readonly activate: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
-    /** 交给工具工厂的会话服务（资源视图），按内核给的会话上下文构造。 */
-    readonly services: (context: ToolSessionContext) => AgentToolServices;
+    /** 交给工具工厂的会话服务（资源视图与全文保存），按内核给的会话上下文构造。 */
+    /** `toolId` 是要构造的工具，资源视图拿它作 `call(ctx)` 的分组缺省标题。 */
+    readonly services: (context: ToolSessionContext, toolId: string) => AgentToolServices;
 }
 
 const unavailable = (id: string): ToolResult => ({text: `Tool ${id} is not available right now; its plugin is not running.`, status: "error", code: "tool-unavailable"});
@@ -72,8 +75,10 @@ export class AgentTools {
     forProfile(requirements: ToolRequirements, binding: {readonly added: readonly string[]; readonly removed: readonly string[]} | undefined): ToolDeclaration[] {
         const all = this.all();
         const wanted = new Set([...requirements.required, ...requirements.optional]);
-        for (const descriptor of this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT)) {
-            if (descriptor.declaration.defaultForAll === true) wanted.add(descriptor.id);
+        if (requirements.defaultTools !== false) {
+            for (const descriptor of this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT)) {
+                if (descriptor.declaration.defaultForAll === true) wanted.add(descriptor.id);
+            }
         }
         for (const id of binding?.added ?? []) wanted.add(id);
         const required = new Set(requirements.required);
@@ -128,6 +133,7 @@ export class AgentTools {
             finish: declaration.finish ?? false,
             concurrency: declaration.concurrency ?? "exclusive",
             strict: declaration.strict ?? false,
+            ...(declaration.customFormat === undefined ? {} : {customFormat: declaration.customFormat}),
             effect,
         };
     }
@@ -217,7 +223,7 @@ class ToolWrapper implements ToolImplementation {
         if (this.#built?.handle === handle) return this.#built;
         let implementation: Promise<ToolImplementation>;
         try {
-            implementation = Promise.resolve(handle.implementation().create(this.context, this.options.services(this.context)));
+            implementation = Promise.resolve(handle.implementation().create(this.context, this.options.services(this.context, this.id)));
         } catch (error) {
             // 句柄在这之间被撤回，或工厂同步抛错。
             implementation = Promise.reject(error);

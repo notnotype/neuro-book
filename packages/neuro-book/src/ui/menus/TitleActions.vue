@@ -22,10 +22,10 @@ const open = ref(false);
 const origin = ref<string | null>(null);
 
 const items = computed<DropdownMenuItemData[]>(() => props.model.menu.flatMap((section, index) => [
-    ...(index > 0 ? [{label: "", value: `separator:${String(index)}`, separator: true}] : []),
+    ...(index > 0 ? [{label: "", id: `separator:${String(index)}`, separator: true}] : []),
     ...section.map((entry): DropdownMenuItemData => ({
         label: entry.title,
-        value: entry.key,
+        id: entry.key,
         ...(entry.icon === null ? {} : {iconClass: entry.icon}),
         disabled: entry.disabledReason !== null,
         ...(entry.disabledReason === null ? {} : {title: entry.disabledReason}),

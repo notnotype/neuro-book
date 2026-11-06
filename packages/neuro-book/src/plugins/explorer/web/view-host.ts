@@ -16,7 +16,7 @@ import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {diagnosticText} from "nbook/shared/localized-text";
 import type {TextResolver} from "nbook/shared/localized-text";
 
-import type {DropOver} from "./actions/drop";
+import type {DropAction, DropOver} from "./actions/drop";
 import type {CollisionChoice} from "./actions/paste-plan";
 import type {KeyOutcome} from "./controller";
 import {nameErrorText} from "./feedback-text";
@@ -142,6 +142,7 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     drag: controller?.drag.value ?? null,
                     motion: controller?.motion.value ?? null,
                     startDrag: (id: string): boolean => controller?.startDrag(id) ?? false,
+                    previewDrop: (over: DropOver | null): DropAction => controller?.previewDrop(over) ?? {kind: "none"},
                     focusRequest: controller?.focusRequest.value ?? 0,
                     handleKey: (key: TreeKey, page: number): KeyOutcome => controller?.key(key, page) ?? "none",
                     onRowPress: (id: string, modifiers: Modifiers, part: "twisty" | "row") => controller?.click(id, modifiers, part),

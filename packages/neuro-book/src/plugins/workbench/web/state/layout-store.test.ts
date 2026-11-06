@@ -20,14 +20,12 @@ import type {RecordDefinition, StorageService} from "nbook/shared/storage";
 
 import type {ShellLayoutFacts} from "../shell/sizes";
 import {PANEL_ALIGNMENTS, PANEL_POSITIONS} from "../shell/panel-state";
-import {shallowRef} from "@vue/reactivity";
 
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import {openLayout} from "../testing/layout";
 import type {LayoutWindow} from "../testing/layout";
 import type {ViewCatalog} from "../views/placement";
 import type {LayoutStore} from "./layout-store";
-import {workbenchStateBindings} from "./public-state";
 import {LAYOUT_RECORDS} from "./records";
 import type {Customizations} from "./records";
 
@@ -611,15 +609,13 @@ describe("视图与容器（外壳二）", () => {
         expect(store.state.problems).toEqual([]);
     });
 
-    it("focusedPart 默认 editor，随外壳上报变化并进入公开状态", async () => {
+    // 公开状态改读一棵树的 store（`commands/panel-commands.test.ts` 的“公开状态”），旧 store 只剩自己的 focusedPart；随旧代码在片 8 删。
+    it("focusedPart 默认 editor，随外壳上报变化", async () => {
         const w = await world();
         const {store} = await viewWindow(w, "w");
         expect(store.state.focusedPart).toBe("editor");
         store.actions.focusPart("sidebar");
         expect(store.state.focusedPart).toBe("sidebar");
-        const bindings = workbenchStateBindings(shallowRef(store));
-        expect(bindings.focusedPart.value).toBe("sidebar");
-        expect(workbenchStateBindings(shallowRef(null)).focusedPart.value).toBe("editor");
     });
 });
 

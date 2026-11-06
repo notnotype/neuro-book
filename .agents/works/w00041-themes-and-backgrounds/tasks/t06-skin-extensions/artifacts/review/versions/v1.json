@@ -1,0 +1,109 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t06-skin-extensions",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "主题皮肤的画框：菜单与设置窗口",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "86b0631a8b0d47827223a1ec83e60188dc944e94e6e40ae6d1e4860fefa55ddf",
+    "files": [
+        "index.html",
+        "r1/dark-corners-menu.webp",
+        "r1/dark-corners-window.webp",
+        "r1/dark-double-menu.webp",
+        "r1/dark-double-window.webp",
+        "r1/dark-mat-menu.webp",
+        "r1/dark-mat-window.webp",
+        "r1/dark-none-menu.webp",
+        "r1/dark-none-window.webp",
+        "r1/light-corners-menu.webp",
+        "r1/light-corners-window.webp",
+        "r1/light-double-menu.webp",
+        "r1/light-double-window.webp",
+        "r1/light-mat-menu.webp",
+        "r1/light-mat-window.webp",
+        "r1/light-none-menu.webp",
+        "r1/light-none-window.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-frame",
+            "type": "single",
+            "label": "画框用哪一种样式",
+            "options": [
+                {
+                    "value": "double",
+                    "label": "A：双线框"
+                },
+                {
+                    "value": "corners",
+                    "label": "B：四角"
+                },
+                {
+                    "value": "mat",
+                    "label": "C：宽边"
+                },
+                {
+                    "value": "none",
+                    "label": "D：不做画框"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "double"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-scope",
+            "type": "single",
+            "label": "画框加在哪些浮层上",
+            "options": [
+                {
+                    "value": "all",
+                    "label": "菜单、气泡、对话框与设置窗口都加"
+                },
+                {
+                    "value": "windows",
+                    "label": "只加对话框与设置窗口"
+                },
+                {
+                    "value": "menus",
+                    "label": "只加菜单"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "all"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-notes",
+            "type": "text",
+            "label": "还有什么想说的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T03:27:38.323Z"
+}

@@ -127,8 +127,8 @@ describe("面板服务（场景）", () => {
         ]);
         expect(body.data.works[1]!.tasks[0]).toMatchObject({taskId: "t01-board", currentState: "第二轮评审中。"});
         // Work 页的 Task 表与首页同一个口径数待答（t15 阶段 4 第 2 批审查：/api/work 原来不带这个数，表格总是 0）。
-        const workPage = await panel.json<{tasks: Array<{taskId: string; openRequired: number}>}>("/api/work/w00002-alpha");
-        expect(workPage.body.data.tasks.map((task) => [task.taskId, task.openRequired])).toEqual([["t01-board", 2]]);
+        const workPage = await panel.json<{tasks: Array<{taskId: string; waiting: number}>}>("/api/work/w00002-alpha");
+        expect(workPage.body.data.tasks.map((task) => [task.taskId, task.waiting])).toEqual([["t01-board", 2]]);
         expect(body.data.inbox.map((item) => [item.questionId, item.askedBy, item.askerActive])).toEqual([["approve", "external:bob", true], ["layout", "external:bob", true]]);
 
         while (panel.fake!.subscriberCount() === 0) await Bun.sleep(20);

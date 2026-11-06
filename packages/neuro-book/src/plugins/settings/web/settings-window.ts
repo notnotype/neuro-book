@@ -209,6 +209,8 @@ export interface SettingsWindow {
     openWindow(args: SettingsWindowOpenArgs): CommandResult<null>;
     /** 关窗口；页面有未保存的改动时先确认。 */
     close(): void;
+    /** 齿轮：开着是 `close`，关着是打开。 */
+    toggleWindow(): CommandResult<null>;
     select(sectionId: string): void;
     /**
      * 打开这一层的设置文件并把光标定位到 `position`（输出 13 的层警告）：与别的离开动作一样先过未保存确认，确认后切到
@@ -695,6 +697,21 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         else perform(target);
     };
 
+    const openWindow = (args: SettingsWindowOpenArgs): CommandResult<null> => {
+        if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text("model.unknownSection", {section: args.section})};
+        if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text("model.noProject")};
+        const target: SettingsLeaveTarget = {kind: "open", ...(args.section === undefined ? {} : {section: args.section}), ...(args.layer === undefined ? {} : {layer: args.layer})};
+        if (open.value) {
+            const moves = (args.section !== undefined && (args.section !== section.value || query.value !== "")) || (args.layer !== undefined && args.layer !== layer.value);
+            if (moves) requestLeave(target);
+            focusRequest.value += 1;
+        } else {
+            perform(target);
+            open.value = true;
+        }
+        return {ok: true, value: null};
+    };
+
     return {
         bound: readonly(ref(options.bound)),
         locale: options.locale,
@@ -715,21 +732,13 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         fileLocation: readonly(fileLocation) as Readonly<Ref<SettingsFileLocation | null>>,
         editing,
         options: () => source.options(),
-        openWindow: (args) => {
-            if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text("model.unknownSection", {section: args.section})};
-            if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text("model.noProject")};
-            const target: SettingsLeaveTarget = {kind: "open", ...(args.section === undefined ? {} : {section: args.section}), ...(args.layer === undefined ? {} : {layer: args.layer})};
-            if (open.value) {
-                const moves = (args.section !== undefined && (args.section !== section.value || query.value !== "")) || (args.layer !== undefined && args.layer !== layer.value);
-                if (moves) requestLeave(target);
-                focusRequest.value += 1;
-            } else {
-                perform(target);
-                open.value = true;
-            }
+        openWindow,
+        close: () => requestLeave({kind: "close"}),
+        toggleWindow: () => {
+            if (!open.value) return openWindow({});
+            requestLeave({kind: "close"});
             return {ok: true, value: null};
         },
-        close: () => requestLeave({kind: "close"}),
         select: (id) => {
             if (sectionOf(id) === undefined) return;
             if (id === section.value && query.value === "") return;

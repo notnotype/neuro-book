@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t28-conversation-ui-followups",
+    "artifactId": "review",
+    "answerId": "20261106T061907566Z-67e70567",
+    "artifactVersion": 7,
+    "contentHash": "bf394ffc7d81250747855978cc513b34ddc71d71aae3cdcfc1ee3d6d48ddc153",
+    "submittedAt": "2026-11-06T06:19:07.566Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "s11-tree-trail": "drop"
+    },
+    "comments": {},
+    "note": null
+}

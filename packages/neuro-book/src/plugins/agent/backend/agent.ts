@@ -14,7 +14,7 @@ import type {AgentHost, ApproveHook, Clock, ModelPort, RunResult, SessionIndexEn
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
-import type {ServerFiles} from "nbook/plugins/files/shared/contracts";
+import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
@@ -24,9 +24,14 @@ import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
 import {ProfileBundles} from "./profile-bundles";
-import {kernelResources, sessionResources} from "./resources";
+import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
+import {createAttachmentPort} from "./attachments";
 import {ProfileCatalog} from "./profiles";
+import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
+import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
+import {CompactionRestore} from "./compaction/restore";
+import type {SessionEditStores} from "./builtin/common";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -34,9 +39,11 @@ export interface AgentRuntimeOptions {
     readonly settings: SettingsService;
     readonly models: ModelsService | null;
     /** `nbook.agent` 自己的服务端文件服务门面：资源视图经它读写并注明代表哪个会话。 */
-    readonly files: ServerFiles;
+    readonly files: WorkspaceFiles;
     readonly clock: RuntimeClock;
     readonly declarations: ContributionDeclarations;
+    /** 行锚的快照：内置工具与压缩后的放回共用。 */
+    readonly editStores: SessionEditStores;
     /** 触发本插件前缀下的激活事件；有入口激活失败或受阻时交回 false。 */
     readonly trigger: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
@@ -45,9 +52,11 @@ export interface AgentRuntimeOptions {
 export interface AgentRuntime {
     readonly host: AgentHost;
     readonly tools: AgentTools;
+    readonly compaction: CompactionMethods;
     readonly profiles: ProfileCatalog;
     readonly userProfiles: ProfileBundles;
     readonly sessions: SessionTable;
+    readonly meta: SessionMeta;
     readonly service: AgentService;
     /** 会话目录的根：`sessions://` 的容器。 */
     readonly sessionsRoot: string;
@@ -100,7 +109,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
-    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context) => ({resources: sessionResources(options.files, context)})});
+    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,
@@ -109,23 +118,31 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         report: options.report,
     });
 
+    const compaction = new CompactionMethods({declarations: options.declarations, activate: options.trigger});
+    const restore = new CompactionRestore({files: options.files, editStores: options.editStores, report: options.report});
+
     const store = createJsonlStore({root: sessionsRoot});
     let sessions: SessionTable | null = null;
+    const models = options.models === null ? NO_MODELS : options.models.port((profile) => {
+        const setting = profileSettings()[profile];
+        const role = setting?.role ?? profiles.defaultRole(profile);
+        return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(role === undefined ? {} : {role})};
+    });
     const host = createAgentHost({
         store,
         profiles: {resolve: (key) => profiles.resolve(key)},
-        models: options.models === null ? NO_MODELS : options.models.port((profile) => {
-            const setting = profileSettings()[profile];
-            return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(setting?.role === undefined ? {} : {role: setting.role})};
-        }),
+        models,
+        retry: () => ({maxRetries: options.settings.get(agentSettings.settings.modelRetries)}),
         tools: {
             declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
             create: (id, context) => tools.create(id, context),
         },
-        resources: (context) => kernelResources(sessionResources(options.files, context)),
+        resources: (context) => kernelResources(sessionResources(options.files, context, null)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: approveByMode,
+        attachments: createAttachmentPort(options.files),
+        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: restore.run},
     });
     hostRef = host;
 
@@ -149,7 +166,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         });
         return activating;
     };
-    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, report: options.report});
+    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), report: options.report});
     const table = sessions;
 
     const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
@@ -215,12 +232,16 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
+    const meta = new SessionMeta({table, create: createSession, models, report: options.report});
+
     return {
         host,
         tools,
+        compaction,
         profiles,
         userProfiles,
         sessions: table,
+        meta,
         service,
         sessionsRoot,
         listSessions: async () => {
@@ -233,6 +254,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             table.closeGate();
             await userProfiles.stop();
             await table.stop();
+            await meta.settled();
         },
     };
 }

@@ -1,0 +1,60 @@
+### 1. 阻断：阶段 E 提交缺少 `before-writing.ts`（正确性）
+- 位置：`packages/neuro-book/src/plugins/plot/backend/plugin.ts:21,174-176`；`packages/neuro-book/src/plugins/plot/core/guards.test.ts:6,121`
+- 现象：提交 `e4e7cd1f6` 的 HEAD 不包含 `packages/neuro-book/src/plugins/plot/core/before-writing.ts`，但已提交代码静态导入并调用 `./core/before-writing`。提供依赖的实现 worktree 只能靠一个未跟踪文件才能通过剧情测试。
+- 为什么是问题：干净检出这 12 个提交时模块解析失败，阶段 E 的公开 `beforeWriting` 方法和其测试都不能构建或运行；未跟踪文件不会进入提交、评审或 CI。
+- 如何核实：在审查 worktree 执行 `git cat-file -e HEAD:packages/neuro-book/src/plugins/plot/core/before-writing.ts`，结果为 `fatal: path ... does not exist in 'HEAD'`；执行 `git status --short` 在实现 worktree 可见该文件为 `??`。
+- 建议改法：把实现 worktree 中与提交范围匹配的 `core/before-writing.ts` 纳入阶段 E 提交，并在干净 worktree 重新运行剧情测试与类型检查。
+### 2. 重要：读者已知段把未揭示绝密知识点的真实名字写出来（正确性 / 安全与性能）
+- 位置：`packages/neuro-book/src/plugins/plot/core/brief/parts.ts:185-199`
+- 现象：`readerItems` 对保密以上知识点统一使用 `secret.name` 生成 `（见这一场的秘密：${secret.name}）`。但 `buildSecrets` 对“绝密、本章不暗示也不揭示”返回的秘密项 `hidden: true`，正文只写“有一件涉及某某的绝密设定”，不包含知识点名字。
+- 为什么是问题：上一章读者已经知道一个绝密知识点时，简报会在“读者已知”段泄露本章不应给写手的名字，破坏 brief 输出 4/10 的保密合同。这里不是只给写手已知事实：绝密项的名称本身也被明确要求遮挡。
+- 如何核实：在实现 worktree 用 `bun /tmp/review-w00039-t34-I5/lab/top-secret-reader-leak.ts`；脚本经 `PlotWorld` 的 `World.publish` 写入第 2 章明说、第 4 章计划，在输出中观察到 `读者已经知道：（见这一场的秘密：管家是凶手）`，而秘密段只有 `有一件涉及管家的绝密设定`。
+- 建议改法：`readerItems` 对 `secret.hidden` 使用不含真实名字的固定引用（或不输出该项，沿用绝密项的遮挡标签）；补“此前已知、当前不暗示的绝密知识点”场景，断言完整简报不含真实名字。
+### 3. 重要：挂在绝密知识点地址上的决策没有走保密路由（正确性）
+- 位置：`packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:133-153`
+- 现象：`routeDecisions` 只从 `decision.about` 收集 `about.kind === "entry"` 的知识点，完全忽略 `about.kind === "address"` 的 `about.at.entry`。`involvedDecisions` 又明确把地址挂点作为涉及本章的来源，因此该决策会进入简报，但被当成“没有保密知识点”直接输出原话。
+- 为什么是问题：Spec 的决策归属要求检查 `about` 中所有保密以上知识点；地址挂点的条目同样是知识点。对绝密/保密知识点的 `conclusion`、`reason`、约束原话直出会绕过“只写有一条涉及保密设定的决定”的守卫，泄露决策内容。
+- 如何核实：运行 `bun /tmp/review-w00039-t34-I5/lab/address-decision-leak.ts`；经 `PlotWorld` 的 `World.publish` 创建保密知识点、计划和已定决策，输出的“决策”段直接出现 `不要明说：结论：只给暗示；理由：保留悬念`，而正确结果应路由到秘密项或只给泛化提示。
+- 建议改法：统一从 `entry` 与 `address.at.entry` 提取知识点，再按保密档与秘密项的 `hidden` 状态路由；补地址挂秘密、地址挂绝密未揭示、多个地址/entry 混合的测试。
+### 4. 重要：分段章的非首段世界线跳过写作指示诊断（正确性）
+- 位置：`packages/neuro-book/src/plugins/plot/core/instruction-checks.ts:34-40`
+- 现象：`perChapter` 只接受 `view.positionLine({chapter, edge: "start"}, mode)` 等于当前 `view.line` 才检查。分段章的 `positionLine` 在章首只返回第一段的线；当前视图若是第二段或后续段的线，即使该段有本章变更且视角人物缺席，也会被无条件跳过。
+- 为什么是问题：阶段 E 明确支持一章分段读不同世界线，`beforeWriting` 也按每段返回一条线；写作指示的 `povAbsent`、`flashbackMismatch` 应在当前讲述段的线视图上检查。现在第二段线永远没有对应诊断，实际待处理与简报/开写前视图不一致。
+- 如何核实：运行 `bun /tmp/review-w00039-t34-I5/lab/segmented-instruction.ts`；脚本经 `PlotWorld` 的 `World.publish` 建分支、把第 2 章从第 2 段起交给子线，并在子线视图放一条只有其他人在场的变更。`instructionDiagnostics(...).povAbsent` 对主线和子线都返回 `[]`，其中子线应报视角人物缺席。
+- 建议改法：按当前视图是否属于该章的任一 `chapterLines(chapter)` 段（或把段线作为诊断输入）判定，而不是只比较章首 `positionLine`；补多段章第二段/末段的真实视图测试。
+### 5. 重要：两种守卫诊断忽略诊断的读取位置，提前报告未来违规（正确性）
+- 位置：`packages/neuro-book/src/plugins/plot/core/guards.ts:40-44,63-77,125-143`
+- 现象：`guardDiagnostics` 接收 `at` 却不传给 `addressGuards` 或 `readerGuards`；地址守卫固定扫描到守卫 `to`/全书末尾，读者守卫固定扫描到 `until`，都没有限制在诊断读取位置之前。
+- 为什么是问题：内核诊断合同按 `(view, at, mode)` 计算当前读取位置的待处理；在第 10 章读待处理时，无法看到第 18 章未来写入导致的地址守卫违反，同样不能看到第 12 章才发生的读者泄底。现在历史读取会提前显示未来问题，读游标/开写前检查的结果也不再是该位置的快照。
+- 如何核实：运行 `bun /tmp/review-w00039-t34-I5/lab/guard-position.ts`；脚本经 `PlotWorld` 的 `World.publish` 在第 18 章写地址违规、在第 12 章写明揭示，却分别以 `end(ch10)` 和 `end(ch5)` 调诊断，结果仍各返回 1 条 finding。
+- 建议改法：把 `at` 传入两条扫描路径，用 `view.positionKey(at)`/讲述位置截断事件与讲述；保留守卫自身 `to`/`until` 作为第二层上限，并补“违规在读取位置之后不报、到达后才报”的测试。
+### 6. 重要：简报文字依赖条目 Map 插入顺序，违反相同输入的确定性合同（正确性 / 不变量）
+- 位置：`packages/neuro-book/src/plugins/plot/core/goals.ts:66-72,116-129`；`packages/neuro-book/src/plugins/plot/core/brief/parts.ts:60-81`
+- 现象：`goalsAt` 直接按 `view.entries()` 的 Map 插入顺序返回目标，`peopleItems` 再按该顺序写目标；没有按稳定 id/创建序列显式排序。两个世界可以有同样的章节、对象内容、变更内容和读取摘要，但不同发布批次顺序会留下不同的条目 Map 顺序，简报逐字不同。
+- 为什么是问题：brief 输出 15 要求记录输入相同则上下文逐字相同；发布先后属于记录输入之外的实现细节，不能改变写手上下文。缓存键或 `digest` 无法修复已经不同的正文。
+- 如何核实：运行 `bun /tmp/review-w00039-t34-I5/lab/brief-order.ts`；脚本经 `PlotWorld` 的 `World.publish` 构造相同内容，仅交换两个目标在同一写入中的顺序，输出 `equal:false`，在“在场的人”中目标顺序相反。
+- 建议改法：在领域读取边界为目标、持有者、态度、伏笔等输出建立明确稳定排序（至少按 id，若合同要求创建序则使用记录的创建序而非 Map 插入序）；补独立世界不同发布顺序的逐字确定性测试。
+### 7. 重要：地址守卫“无法检查”没有进入决策视图（正确性）
+- 位置：`packages/neuro-book/src/plugins/plot/core/guards.ts:84-94`；`packages/neuro-book/src/plugins/plot/core/decisions.ts:10-37`
+- 现象：`checkAddressGuard` 对线不在 `lines`、范围无效或起止值不完整时只返回空数组/`"unchecked"`；诊断层遇到 `"unchecked"` 直接 `continue`。`DecisionRead.guards` 却只是把原始 `Mark[]` 过滤后返回，没有 `unchecked` 结果或对应守卫状态。
+- 为什么是问题：阶段 E 计划和 Spec 约定“无法检查”不进待处理，但要在涉及本章的决策视图里记为 `unchecked: true`，否则作者无法区分“守卫已检查且没有违反”和“线已失效/值不完整而未检查”，也无法处理显式线失效的决策。
+- 如何核实：静态追踪 `checkAddressGuard` 的 `"unchecked"` 分支到 `addressGuards` 的 `continue`，再追 `involvedDecisions` 返回的 `DecisionRead.guards`，全程没有结果字段或 `unchecked` 映射；现有 `decisions.test.ts` 只断言决策筛选，不覆盖失效线/不完整值的视图结果。
+- 建议改法：把守卫读取结果建成包含原始标注和 `unchecked` 状态的公开结果，在决策视图按当前线、模式计算；诊断仍过滤 `unchecked`，补显式线失效和中间不完整值两类测试。
+### 8. 重要：阶段 E 的 1000 章待处理性能中位数超过 200 ms 预算（安全与性能 / 测试）
+- 位置：`packages/neuro-book/scripts/perf/plot-scale.ts:132-148,204-212`；证据 `.../t34-plot-side-impl/evidences/scale-e4.txt:8-9`
+- 现象：阶段 E 规模证据记录 1000 章负载下读待处理第一次约 `240 ms`，后续中位数 `204 ms`、最大 `216 ms`；同一记录明确预算为 `200 ms`。诊断合计约 `112 ms`，但内核部分与剧情计算合计仍超门槛。
+- 为什么是问题：计划 E4 的验收判据是全部剧情诊断合计不超过 200 ms；当前测量未达标，读待处理同步占用项目服务，规模达到目标时超过合同预算。不能把“诊断自身合计 112 ms”替代完整读取预算。
+- 如何核实：读取已提交的 `evidences/scale-e4.txt`，其第 8-9 行给出上述完整命令结果和预算；本次按规则未重新运行 `scripts/perf`。
+- 建议改法：先用同口径拆分内核与剧情部分，定位新增诊断/索引/线视图重建的热路径；优化后在同一 1000 章、200 人、500 知识点、200 条决策、3 条分叉线负载重跑，要求中位数回到 `<= 200 ms`，并保留冷读与热读两个数字。
+### 9. 建议：写作指示公开服务没有真实远程合同覆盖（测试）
+- 位置：`packages/neuro-book/src/plugins/plot/backend/instructions.test.ts:1-44`；`packages/neuro-book/src/plugins/plot/plot.test.ts:140-152`
+- 现象：`instructions.test.ts` 只直接实例化 `InstructionTable`，没有通过 `plotInstructionsContract` 调用 `put/current`；唯一的阶段 E 远程测试调用 `goals`、`decisionsFor`、`beforeWriting`、`brief`，没有推送写作指示。因而 `callers: ["server"]`、`effect: "write"`、输入编码上限、`instructions-conflict`、`reportDataVersion`/旧游标失效和浏览器拒绝均未在真实运行时验证。
+- 为什么是问题：这些行为发生在合同校验、调用方准入、插件闭包和 canon 服务之间，纯 `InstructionTable` 测试无法发现接线错误；计划 P6 明确要求至少一个真实远程场景覆盖 `too-large`、`instructions-conflict`、`view-denied`、`line-not-found`，当前阶段 E 的测试映射没有覆盖前两项，也无法证明写作指示服务实际更新诊断数据版本。
+- 如何核实：对照两个测试文件的调用路径；前者没有 `plotInstructionsContract`/`projectHarness`，后者只有 `plotWorldContract` 调用，没有 `plotInstructionsContract`。已运行的 `bun test src/plugins/plot` 只能证明这些未接线的测试通过。
+- 建议改法：在 `plot.test.ts` 增加真实 server caller，经项目子进程调用 `put/current`，检查同内容不作废游标、换内容作废游标、旧 base 冲突、超大输入拒绝；另用 browser caller 验证准入拒绝，并把测试映射写到验收条目。
+未发现问题的方面：
+- `InstructionTable` 纯逻辑的空表、同内容版本稳定、内容变更、删除回空、base 冲突，以及 `nb-canon` 两个引擎的 `chapterEntries` 差分在现有测试范围内通过；没有把这些通过结果外推到未覆盖的远程合同。
+- 已读的目标基础读取、冲突对称读取、到期/悬空基础场景、简报基本秘密/称谓/伏笔/预算场景没有另发现超出上述问题的缺陷。
+- 未运行 e2e、开发服务和 `scripts/perf`；性能条目使用已提交的 `scale-e4.txt` 证据，不把未重跑写成最新测量。
+各级数量：阻断 1，重要 7，建议 1。
+有效发现编号：1-9

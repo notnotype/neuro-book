@@ -36,7 +36,7 @@ function follow(event: MouseEvent, href: string): void {
         </p>
         <StatusBar :counts="work.taskCounts" />
         <div class="flex flex-wrap items-center gap-2 nbdev-note">
-            <Badge v-if="work.openRequired > 0" tone="warning" variant="soft" size="sm" icon-class="i-lucide-message-circle-question">待答 {{ work.openRequired }}</Badge>
+            <Badge v-if="work.waiting > 0" tone="warning" variant="soft" size="sm" icon-class="i-lucide-message-circle-question">待答 {{ work.waiting }}</Badge>
             <span v-if="work.updated.value">最近更新 {{ relativeDay(work.updated.value) }}</span>
             <span class="nbdev-empty" v-else>最近更新：未标</span>
             <span v-if="work.uncommitted">· 有未提交的改动</span>

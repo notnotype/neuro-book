@@ -37,6 +37,7 @@ const props = defineProps<{
     running?: {readonly action: BatchAction; readonly count: number} | null;
     unknown?: Unknown | null;
     startDrag?: (id: string) => boolean;
+    previewDrop?: (over: DropOver | null) => DropAction;
     drag?: {readonly sources: ReadonlyArray<string>; readonly action: DropAction} | null;
     /** 最近一次提交的结构变化预告，交给树放动画。 */
     motion?: MotionNote | null;
@@ -104,7 +105,7 @@ const menuItems = computed((): ContextMenuItem[] => (props.menu?.entries ?? []).
     : {
         label: entry.label,
         disabled: entry.disabled,
-        tone: entry.danger ? "danger" : "default",
+        tone: entry.danger ? "danger" : "neutral",
         ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}),
         ...(entry.reason === null ? {} : {title: entry.reason}),
         ...(entry.checked === null ? {} : {type: "checkbox" as const, checked: entry.checked}),
@@ -176,6 +177,7 @@ defineExpose({focusTree});
             :hide-markdown-extension="hideMarkdownExtension === true"
             :editing="editing ?? null"
             :start-drag="startDrag"
+            :preview-drop="previewDrop"
             :drag="drag ?? null"
             :motion="motion ?? null"
             @row-press="(id, modifiers, part) => emit('row-press', id, modifiers, part)"
@@ -203,12 +205,12 @@ defineExpose({focusTree});
             @recheck="emit('recheck')"
             @abandon="emit('abandon')"
         />
-        <ContextMenu :visible="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="closeMenu" />
+        <ContextMenu :open="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @request-close="closeMenu" />
         <AlertDialog
             :open="deleteDialog !== null"
             :title="text('dialog.delete.title', {count: deleteDialog?.items.length ?? 0})"
-            :confirm-text="text('dialog.delete.confirm')"
-            :cancel-text="text('common.cancel')"
+            :confirm-label="text('dialog.delete.confirm')"
+            :cancel-label="text('common.cancel')"
             tone="danger"
             @confirm="emit('delete-confirm')"
             @cancel="emit('dialog-close')"
@@ -228,7 +230,7 @@ defineExpose({focusTree});
             </template>
         </AlertDialog>
         <Dialog
-            :model-value="dirtyCopyDialog !== null"
+            :open="dirtyCopyDialog !== null"
             :title="text('dialog.dirtyCopy.title')"
             size="sm"
             @request-close="emit('dirty-copy', 'cancel')"
@@ -248,7 +250,7 @@ defineExpose({focusTree});
             </template>
         </Dialog>
         <Dialog
-            :model-value="displayDialog !== null"
+            :open="displayDialog !== null"
             :title="text('dialog.display.title', {name: displayDialog?.name ?? ''})"
             :busy="displayDialog?.busy === true"
             :show-cancel="true"
@@ -271,7 +273,7 @@ defineExpose({focusTree});
             </div>
         </Dialog>
         <Dialog
-            :model-value="collisionDialog !== null"
+            :open="collisionDialog !== null"
             :title="text('dialog.collision.title')"
             :cancel-label="text('dialog.collision.cancel')"
             size="sm"

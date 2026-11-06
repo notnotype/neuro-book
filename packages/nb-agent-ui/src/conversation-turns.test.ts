@@ -136,6 +136,39 @@ describe("buildTurns 三层", () => {
         expect(shape(turns[0]!)).toEqual(["chain(tool)", "notice", "divider", "notice", "reply"]);
     });
 
+    it("一轮中途的压缩（t11）：整轮收起时分隔线也在 processDividers 里；最终回复之后的不算", () => {
+        const [turn] = buildTurns(input([
+            user("u1", "写"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "a.md"})]}),
+            {kind: "system", id: "c1", timestamp: tick(), source: "compaction", label: "上下文已压缩", text: "摘要"},
+            assistant("a2", {text: "写好了"}),
+            {kind: "system", id: "c2", timestamp: tick(), source: "compaction", label: "上下文已压缩", text: "又压缩"},
+        ]));
+        expect(turn!.foldable).toBe(true);
+        expect(turn!.processDividers.map((block) => block.id)).toEqual(["c1"]);
+        expect(turn!.trailing.map((block) => block.id)).toEqual(["c2"]);
+    });
+
+    it("只压缩的运行（t11）：它没有用户消息，上一轮不算运行中，仍可收起；分隔线落在上一轮后面", () => {
+        const messages: MessageView[] = [
+            user("u1", "写"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "a.md"})]}),
+            assistant("a2", {text: "写好了"}),
+        ];
+        const [whileCompacting] = buildTurns(input(messages, {run: {status: "running", phase: "", kind: "compact"}}));
+        expect(whileCompacting!.status).toBe("done");
+        expect(whileCompacting!.foldable).toBe(true);
+        // 对照：普通运行里最新一轮跟随运行状态。
+        const [normal] = buildTurns(input(messages, running));
+        expect(normal!.status).toBe("running");
+        const [idle] = buildTurns(input(messages, {run: {status: "idle", phase: ""}}));
+        const [after] = buildTurns(input([...messages, {kind: "system", id: "c1", timestamp: tick() + 3_600_000, source: "compaction", label: "上下文已压缩", text: "摘要"}], {run: {status: "idle", phase: ""}}));
+        expect(after!.trailing.map((block) => block.id)).toEqual(["c1"]);
+        expect(after!.status).toBe("done");
+        // 手动压缩可以在回复完成很久之后：这一轮的用时不受它影响。
+        expect(after!.metrics.durationMs).toBe(idle!.metrics.durationMs);
+    });
+
     it("最终回复之后的分隔线移到 trailing", () => {
         const turns = buildTurns(input([
             user("u1", "a"),

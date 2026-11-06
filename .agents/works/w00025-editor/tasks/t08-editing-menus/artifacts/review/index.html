@@ -51,10 +51,66 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <p>第 1 轮已定：工具栏用完整的一套、平铺；点 <code>+</code> 在下方插入空块并打开斜杠菜单，点手柄打开块菜单。</p>
 </div>
 
+<div class="round">第 3 轮</div>
+<p>菜单都用 nb-ui 整理后的共用件：块菜单与右键菜单是 <code>ContextMenu</code>，斜杠菜单是 <code>SuggestionMenu</code>。图里的“AI 改写”只是示意插件贡献的菜单项，本 Task 不做这一项。</p>
+
+<section class="q" data-nbdev-question="r3-block" data-nbdev-type="single" data-nbdev-recommend="core">
+<h2>点手柄的块菜单放什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="core"><h3>基本（7 项）</h3>
+<p>转换为 ｜ 创建副本、复制 ｜ 上移、下移 ｜ 插件的菜单项 ｜ 删除</p>
+<figure><img src="r3/block-core-light.webp" alt="基本，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r3/block-core-dark.webp" alt="基本，暗色"><figcaption>暗色</figcaption></figure>
+<figure><img src="r3/block-convert-light.webp" alt="展开转换为"><figcaption>展开“转换为”：当前类型打勾；10 个类型超过 8 项，所以这一级可以滚动</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="full"><h3>加对齐与颜色（10 项）</h3>
+<p>多出对齐、文字颜色、高亮，其余相同。超过 8 项，主菜单要滚动，“删除”滚到下面才看得见。</p>
+<figure><img src="r3/block-full-light.webp" alt="加对齐与颜色，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r3/block-full-dark.webp" alt="加对齐与颜色，暗色"><figcaption>暗色</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>开发者选了基本。</b>块菜单只管这一块本身：变成什么、复制、移动、删除。对齐和颜色在常驻工具栏里已经有；“上移、下移”是拖动手柄之外的键盘路径。</div>
+</section>
+
+<section class="q" data-nbdev-question="r3-context" data-nbdev-type="single" data-nbdev-recommend="basic">
+<h2>正文右键菜单放什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>两个方案都会盖掉浏览器自带的右键菜单（拼写建议、翻译等）；菜单里的“粘贴”要读剪贴板，浏览器第一次会询问权限，Ctrl+V 不受影响。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="basic"><h3>基本（6 项）</h3>
+<p>剪切、复制、粘贴、粘贴为纯文本 ｜ 全选 ｜ 插件的菜单项。没有选区时，剪切和复制置灰。</p>
+<figure><img src="r3/context-basic-light.webp" alt="基本，有选区，亮色"><figcaption>有选区 · 亮色</figcaption></figure>
+<figure><img src="r3/context-basic-dark.webp" alt="基本，有选区，暗色"><figcaption>有选区 · 暗色</figcaption></figure>
+<figure><img src="r3/context-basic-empty-light.webp" alt="基本，没有选区"><figcaption>没有选区 · 亮色</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="legacy"><h3>照旧应用（11 项）</h3>
+<p>保存 ｜ 撤销、重做 ｜ 剪切、复制、粘贴、粘贴为纯文本 ｜ 插入、注音、双语 ｜ 插件的菜单项。“加批注”归 t13，这里不放。超过 8 项，要滚动。</p>
+<figure><img src="r3/context-legacy-light.webp" alt="照旧应用，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r3/context-legacy-dark.webp" alt="照旧应用，暗色"><figcaption>暗色</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>开发者选了基本。</b>格式在选区菜单里，插入在 <code>/</code> 和 <code>+</code> 里，撤销重做与保存有工具栏和快捷键。右键菜单只留别处没有入口的剪贴板动作，打开时一眼能看完。</div>
+</section>
+
+<section class="q" data-nbdev-question="r3-slash" data-nbdev-type="single" data-nbdev-recommend="plain">
+<h2>斜杠菜单右侧写不写 Markdown 写法 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>面板换成了 nb-ui 的 <code>SuggestionMenu</code>：磨砂半透明的面、悬浮滑块，底部的按键提示和输入框里的占位提示都去掉了。第 2 轮的右侧灰字要按新定的“界面不靠说明文字解释自己”再判断一次。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="plain"><h3>不写</h3>
+<figure><img src="r3/slash-plain-light.webp" alt="不写，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r3/slash-plain-dark.webp" alt="不写，暗色"><figcaption>暗色</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="hints"><h3>写</h3>
+<figure><img src="r3/slash-light.webp" alt="写，亮色"><figcaption>亮色</figcaption></figure>
+<figure><img src="r3/slash-dark.webp" alt="写，暗色"><figcaption>暗色</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>开发者选了不写。</b>遮住灰字，菜单照样能用；只有一部分项有写法，右边一列也参差不齐。代价是用户少一个顺带学会 Markdown 写法的地方。</div>
+</section>
+
 <div class="round">第 2 轮</div>
 
 <section class="q" data-nbdev-question="r2-gutter" data-nbdev-type="single" data-nbdev-recommend="g14">
-<h2>块左侧按钮离文字多远 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>块左侧按钮离文字多远 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>按第 1 轮的意见改：悬停底色的圆角改成 4px；按钮整体往左挪。第 1 轮手柄右缘离正文只有 5px，下面两档是 14px 与 20px。版心左侧留白是 48px，再远按钮就出了纸面；拆分后编辑区窄到没有页边时，按钮压进留白里，不会更远。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="g14"><h3>14px</h3>
@@ -67,11 +123,11 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r2/gutter-20-dark.webp" alt="20px，暗色"><figcaption>暗色</figcaption></figure>
 </div>
 </div>
-<div class="rec-note"><b>推荐 14px。</b>与 Notion 的距离相近，按钮还看得出是这一块的；20px 时 <code>+</code> 贴着纸面边缘，和正文像是两样东西。</div>
+<div class="rec-note"><b>开发者选了 14px。</b>与 Notion 的距离相近，按钮还看得出是这一块的；20px 时 <code>+</code> 贴着纸面边缘，和正文像是两样东西。</div>
 </section>
 
 <section class="q" data-nbdev-question="r2-bubble" data-nbdev-type="single" data-nbdev-recommend="inline">
-<h2>选中文字时的浮动菜单放什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>选中文字时的浮动菜单放什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>选中文字后在选区上方出现，松开鼠标或用键盘选完时出；选区折叠、打字或按 Esc 时收起。图里的选区是画出来的底色。最后的“AI 改写”只是示意：插件往这个菜单位置贡献的菜单项排在最后（决定 3），本 Task 不做这一项。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="inline"><h3>只放行内格式</h3>
@@ -85,11 +141,11 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r2/bubble-block-dark.webp" alt="加块类型，暗色"><figcaption>暗色</figcaption></figure>
 </div>
 </div>
-<div class="rec-note"><b>推荐只放行内格式。</b>选中文字是要改这几个字；改整块的类型在常驻工具栏、手柄的块菜单和 <code>/</code> 里都有。菜单短一些，挡住的正文也少。</div>
+<div class="rec-note"><b>开发者选了只放行内格式。</b>选中文字是要改这几个字；改整块的类型在常驻工具栏、手柄的块菜单和 <code>/</code> 里都有。菜单短一些，挡住的正文也少。</div>
 </section>
 
 <section class="q" data-nbdev-question="r2-slash" data-nbdev-type="confirm">
-<h2>斜杠菜单这样做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>斜杠菜单这样做 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>行首或空格之后打 <code>/</code> 出菜单（点 <code>+</code> 时也是它），接着打的字用来筛选，回车把这一块换成选中的类型（插入类的在光标处插入），Esc 或删掉 <code>/</code> 时收起。面板就是 Composer 里 <code>/</code> 菜单用的那个（<code>PromptMenuPanel</code>），两处一致；右侧灰字是对应的 Markdown 写法，看了能学会直接打。</p>
 <table>
 <tr><th>分组</th><th>项</th></tr>
@@ -99,6 +155,7 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <tr><td>插入</td><td>引用文件、图片（选文件与存放位置的做法在 t09，这里只是入口；t09 之前先不放）</td></tr>
 </table>
 <p>筛选按名称，也按拼音首字母（例如 <code>bt</code> 找到“标题”）；拼音要加一个第三方拼音库，库的选型写进计划。插件可以往这个菜单里加项，排在各组之后。</p>
+<div class="rec-note"><b>开发者定了内容与行为，</b>并要求去掉底部的按键提示、面板改用 nb-ui 下拉的外观。面板的新样子见第 3 轮；“引用文件、图片”等 t09。</div>
 <figure><img src="r2/slash-light.webp" alt="斜杠菜单，亮色"><figcaption>亮色（高亮在“标题 2”上）</figcaption></figure>
 <figure><img src="r2/slash-dark.webp" alt="斜杠菜单，暗色"><figcaption>暗色</figcaption></figure>
 </section>
@@ -149,8 +206,8 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r1/gutter-handle.webp" alt="悬停在列表项的手柄上"><figcaption>停在列表项的手柄上</figcaption></figure>
 </section>
 
-<div class="round">之后几轮</div>
-<p>块菜单（点手柄）与正文右键菜单放什么、什么样子；都定了再写实施计划。</p>
+<div class="round">之后</div>
+<p>三轮都定了，接下来写实施计划。</p>
 </main>
 </body>
 </html>

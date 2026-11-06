@@ -1,0 +1,38 @@
+### 重要｜正确性｜packages/neuro-book/src/backend/staged-commit.ts:95-100,156-164
+现象：目标已存在时提交无条件走 rename(options.staged, file)，没有检查目标 Stats.nlink；因此目标有硬链接时只替换当前目录项，其他硬链接仍指向旧 inode。计划与验收明确要求 nlink > 1 时锁内拷贝/就地写并保留硬链接关系。
+为什么是问题：同一文件的另一个硬链接会继续看到旧内容，写入接口对一个逻辑文件产生分裂版本，违反“硬链接仍在/提交内容一致”的文件合同；这不是外部并发窗口，而是每次硬链接目标覆盖的确定行为。
+如何核实：静态读取 staged-commit.ts 的 placeOver/commitOnce 路径可见仅执行 rename；在真实文件系统上创建 file 与 link(file, other)，经 WorkspaceFiles.write 或 commitStaged 覆盖 file，再分别读取两个路径，file 为新内容而 other 仍为旧内容。现有 staged-commit.test.ts 只断言普通覆盖、没有 nlink 用例；依赖缺失时该测试命令也无法启动。
+建议改法：在提交锁内按 nlink 判定；nlink 大于 1 时在目标 inode 上截断并从暂存文件分块拷贝、fsync，保留目录项和所有硬链接，并补真实硬链接验收；跨设备路径仍需使用目标目录临时文件的原子替换。
+### 重要｜正确性｜packages/neuro-book/src/backend/staged-commit.ts:141-151,167-191
+现象：新建目标的初始 link(staged, file) 遇到 EXDEV 时进入 placeCopy；placeCopy 把 staged 拷到目标目录临时文件后仍无条件 link(temporary, file)。目标文件系统不支持硬链接时，这第二次 link 返回 EPERM/ENOTSUP/EOPNOTSUPP，流程直接失败，没有走已有的 exclusiveCopy/open(wx) 回退。
+为什么是问题：提案与计划要求跨盘提交走目标目录临时文件再原子放到位，并同时覆盖不支持硬链接的文件系统；当前组合（暂存盘与目标盘不同、目标盘又禁用硬链接）会让本来可提交的新建写入稳定得到 io-failed，且暂存文件留下。该分支不是理论上的初始 link 失败：EXDEV 已经把流程带到这里。
+如何核实：真实文件系统上让 staged 位于 /dev/shm、目标位于不支持 hardlink 的挂载点，调用 commitStaged 的 absent 路径；或在测试中让第一次 link 返回 EXDEV、目标目录的 link 返回 EOPNOTSUPP，观察 placeCopy 未调用 exclusiveCopy。现有 staged-commit.test.ts 只覆盖跨盘覆盖已有文件（how=over），没有跨盘新建，也没有 hardlink 不支持的组合。
+建议改法：placeCopy 的 how=new 在 link(temporary,file) 遇到不支持硬链接的错误时改用目标目录的排他拷贝并 fsync；补跨盘新建与目标盘禁用硬链接的真实测试，并确认 temporary、staged 的收尾。
+### 重要｜不变量/安全与性能｜packages/neuro-book/src/plugins/files/backend/workspace-files.ts:163-170,179-194；packages/neuro-book/src/plugins/files/backend/projects-scheme.ts:438-450
+现象：projects:// 的 stagingTarget 只调用 projects.locate，立即用 record.path 在服务端创建 .nbook/staging 并写入暂存文件；真正的 projects.acquire 只在后续 commit 的 projects.call 里发生。写入函数运行的整个暂存阶段没有项目租约。
+为什么是问题：计划与资源 Spec 要求租约从 stage 持有到 commit 或 discard，保证目标项目代次与暂存目录在同一次操作内有效。当前项目可以在生成器写入数秒期间停止、换代或登记路径变更；服务端仍会直接写旧 record.path，既可能留下旧项目目录的残留，也可能在 commit 时重新租到另一代/另一目录而找不到刚写的 stage。它还绕过项目实例的 checkProjectDirectory/身份核对，在项目未运行时就直接向登记路径下建控制目录。
+如何核实：静态跟踪 stagingTarget → ensureStagingDirectory → createStage 与 projects.call 的调用顺序即可确认 acquire 在 stage 之后；真实场景先让 projects:// stage 的写入函数挂起，再停止/换代项目，随后放行写入，观察暂存建在旧路径而 commit 针对新租约失败或留下 .nbook/staging。现有 workspace-files.test.ts 只覆盖正常运行与提交后断开，不覆盖 stage 期间停止/换代。
+建议改法：ProjectsAccess 提供一次持有租约的 staging 会话（目录、项目客户端、commit、discard），stagingTarget 在 stage 开始前 acquire，直到 commit/discard/fill 异常的 finally 完成后 release；目录建立和身份核对也应在该受保护路径上执行。
+### 重要｜正确性/接口合同｜packages/neuro-book/src/plugins/files/shared/contracts.ts:220,270-272；packages/neuro-book/src/plugins/files/web/client.ts:67-73
+现象：版本 7 的远程方法表给 createContent、rename、convert、reorder、display、include、drop、move、copy、delete 和 commit 都声明了 group，但 write 方法仍只有 as，没有 group。后端 implementation 的 attributed 类型虽然接收 group，合同校验会在派发前拒绝带 group 的 write；浏览器 FilesService.write 也没有传 group 的参数。
+为什么是问题：任务合同把操作分组作为写入接口的共同元数据，group 门面应让其中每次写入都带同一个组；现在同一份 v7 合同下，直接按合同调用 write({group}) 得 invalid-input，浏览器保存无法表达组，事件/记账无法与同组文件操作关联。两份浏览器合同同时升版却没有把这条写方法闭合。
+如何核实：对 userFilesContract 或 projectFilesContract 的远程 write 发送合法的 group 字段，输入校验在提供方前返回 invalid-input；静态对照 contracts.ts 的 write schema 与其他写方法即可确认。现有 workspace-files.test.ts 只验证服务端 WorkspaceFiles.group 内的 stage/write，不验证浏览器合同 write 带组。
+建议改法：若 v7 设计确实要求浏览器写入也可分组，把 group: Group 加入 write schema、浏览器 FilesService/API 和调用方；若浏览器保存刻意不支持分组，则不要把它描述成“全部写方法”，并在合同/计划中明确该边界，避免后端接受形状与远程合同不一致。
+### 重要｜安全与正确性｜packages/neuro-book/src/plugins/files/backend/rooted.ts:204-234
+现象：resolveForRead 只调用平台无关的 pathProblem，然后直接 realpath；它没有像 resolve/resolveSlot 那样在 process.platform === win32 时逐段调用 windowsNameProblem。readPath/read 的新跟随链接入口因此绕过了 Windows 上拒绝冒号、点/空格结尾等文件名的校验。
+为什么是问题：resources/files Spec 明确把 Windows 的备用数据流、会被系统去尾的名字和设备名列为 invalid-address。新读接口在 Windows 上可能把同一资源地址解释成另一个目录项或 ADS，导致读路径和写/列出/文件操作的寻址规则不一致，并绕过预期的控制边界。
+如何核实：静态对照 rooted.ts 的 resolve（165-167）与 resolveForRead（204-217）可见唯一缺口；在 Windows 真实宿主上用 foo:bar、foo.、foo  创建/访问 readPath，期望 invalid-address，当前路径会进入 realpath。当前环境和计划未验证 Windows，不能把该平台行为写成已运行通过。
+建议改法：抽出共享的 Windows 段名校验，在 resolveForRead 的 pathProblem 之后、realpath 之前执行；补 Windows 条件测试覆盖 read/readPath，避免读路径独有的绕过。
+### 重要｜测试｜packages/neuro-book/src/plugins/files/ledger.test.ts:90-138
+现象：验收 14 的测试覆盖正常记账、抛错、超时和无贡献者四种场景，但没有贡献者撤回期间的提交，也没有超时后迟到完成/失败的可观察断言。测试插件只保存 mode=ok/throw/hang，无法触发撤回或在挂起后释放贡献。
+为什么是问题：实现的关键共享状态正是 holder/published 与迟到 Promise 的交界；撤回时是否仍调用旧实现、迟到结果是否被忽略、撤回后新贡献能否接管，都未被合同测试约束。作者计划把“撤回后提交照常”列为验收，但现有测试通过不能证明它。
+如何核实：读取 ledger.test.ts 的全部 4 个 it 可见没有 revoke/republish 操作；运行计划映射的相关测试在当前 worktree 因缺少 @notnotype/neuro-book-test-support/tmp、@notnotype/nb-runtime 等依赖无法启动（0 pass, 7 fail）。
+建议改法：增加真实贡献撤回与重新发布场景；让测试记账者在 timeout/revoke 前后分别完成并失败，断言写入成功、诊断数量/类型及新贡献接管；同时确认每根序号在迟到记录下仍可排序。
+## 未发现问题的方面
+- `replaceLocked` 新增的可选 `committed` 不改变配置层现有调用形状；锁释放仍在 finally，提交后回调失败不会撤回落盘。
+- `ChangeHub.placed` 按放置后 inode 登记预期状态，事件来源与 group/Agent entry 的 stamp 链路未发现额外问题。
+- Agent 资源绑定的地址改写、`as` 覆盖、信号合并、批量地址改写与内核严格 UTF-8/NUL 解码未发现额外问题。
+- 挂载方案 `read` 不物化、`readPath`/`realPath` 物化且按词法与解析后路径授权的分派未发现额外问题；但跨盘/硬链接提交缺口见前述发现。
+- 记账槽在没有已发布贡献者时不读取新内容的条件路径符合要求；撤回与迟到结果的测试缺口见前述发现。
+
+有效发现：6 条，阻断 0 条，重要 6 条，建议 0 条。

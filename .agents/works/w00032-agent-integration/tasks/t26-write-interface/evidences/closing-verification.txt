@@ -1,0 +1,11 @@
+t26 收口验证（2026-11-02，分支 feat/w00032-t26-write-interface，提交 2ff532c19；本机 Linux，负载约 1–2）
+
+1. bun run --cwd packages/neuro-book typecheck：通过（tsc、vue-tsc web、vue-tsc browser-test）。
+2. bun run test:affected --since master（neuro-book：test:bun、test:vitest）：
+   - test:bun 1745 pass、2 skip、1 fail（src/sdk/surface.test.ts 的公开面闭包缺 /files，已在 fae5e8e77 修正，修正后 src/sdk 与 plugin-sdk/pack.test.ts 23 pass）；
+   - test:vitest 72 个文件 412 个用例全过。
+3. bun run governance:check：1 条失败，packages/nb-ui/src/components/feedback/Drawer.md 缺 state:inject 标签；本分支没有改 nb-ui（git diff master...HEAD -- packages/nb-ui 为空），Drawer.vue 最近一次改动 7bffb3a8d 在分支起点 eb8d5b8c5 之前：基线问题，不在本 Task 修。
+4. bun run test:e2e：297 passed、2 failed（23.7 分钟）：
+   - e2e/lab-agent-ui.e2e.ts:484 附件：断言还写着 t08 改名前的 local://，改为 session://attachments/ 后单独重跑该组 3 passed；
+   - e2e/plugins.e2e.ts:72 安装 → … → 卸载：第 89 行“其它”分区不应出现；在分支起点 eb8d5b8c5 的干净 worktree（重新构建）上同样在第 89 行失败：基线问题，不在本 Task 修。
+5. 未验证：absent 提交在身份核对与 link 之间被并发新建的窗口（把 link 换成 rename 的变异没有被测试抓到；30 轮并发新建也撞不上这个窗口，不加测试专用钩子无法稳定复现）；Windows、macOS 上的改名、link 与跨盘。

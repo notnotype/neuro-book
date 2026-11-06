@@ -158,4 +158,3 @@ export function routeDecisions(frame: Frame, decided: readonly Decision[], secre
     if (guarded) inDecisions.push(fixed.DECISION_ABOUT_SECRET);
     return {inSecrets, inDecisions};
 }
-

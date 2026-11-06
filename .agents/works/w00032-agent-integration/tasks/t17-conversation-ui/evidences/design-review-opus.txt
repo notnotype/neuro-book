@@ -1,0 +1,192 @@
+### 1. 预览把审批事件撑过 256 KiB 内联上限，占位里没有 id 和请求，向导画不出来，运行一直等
+**严重程度**：重要
+**类别**：接口与不变量（两个上限互相矛盾）
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:68,74-75（`applyEvent(item)`、`pending()`）；/home/notnotype/CodeRepository/neuro-book/docs/specs/harness/runtime.md:142（输出 76“单份上限 256 KiB”）；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/src/plugins/agent/backend/frames.ts:14,26-29；同 worktree packages/nb-harness/src/kernel/run/tools.ts:265
+**现象**：单份预览上限是 256 KiB，而远程层对整条事件的内联上限也是 256 KiB。`interactionRequested` 同时带 `args`（`write` 的 `content`、`edit-replace` 的 `old_string`/`new_string`）、`preview.before`、`preview.after`，三者相加后，文件约 128 KiB（约 4.3 万个汉字）起就变成 `{kind:"oversized", seq, type, bytes}`。占位里没有事项 id、`callId`、请求内容。计划的 `pending()` 定义为“`interactionRequested` 减去 `interactionResolved`”，`applyEvent` 是同步纯函数、“认不出的跳过”，整份计划与 `conversation.md` 没有出现 `eventChunk`，也没说占位之后的帧怎样保序。
+**为什么是问题**：照字面实现，大文件的审批得不到向导：`pending()` 为空，运行在 `waiting`，用户看不到批准按钮。这正是“预览”这个新功能自己制造的路径，不是罕见旧数据；设定集、全书大纲这类文件在写作产品里能到这个大小。计划风险表只提了“预览进日志，每次多存一份”，没发现它撞内联上限。另外预览进日志后，首屏 `path` 每条历史审批都要重传一次全文（改一章 30 KiB 的文件 100 次，约多传 6 MB；磁盘上 blob 按内容去重，传输不去重），而审批结算之后这些预览再也不显示。
+**如何核实**：`bun /tmp/review-t17-design/opus/remote.ts`，经 `agentWorld`、真实远程 `send`、真实工具 `ctx.ask`，请求里放前后各 7 万字的文字（每份约 210 KiB，低于单份上限）：帧与 `path` 里都得到 `oversized:interactionRequested:420302`，同一时刻 `status:waiting` 只有 `{id, callId, kind}`。
+**建议改法**：二选一，都比现在简单。（甲）预览不进日志：`interactionRequested` 只带 `args`，预览由只读查询按事项 id 现算（报告 design-backend 第 1 条已建议的方向），同时解决这里、日志膨胀和懒加载三件事。（乙）若保留进日志：预览只存改动块与上下文，不存全文，整条事件预算压到内联上限以内，超了给 `too-large`；单份上限改成“整条事件不超过 200 KiB”。无论选哪个，都要给占位定接法：`session-host` 遇到 `oversized` 先经 `eventChunk` 拼回再按 seq 顺序交给 `applyEvent`，后续帧排队；`kernel-transcript` 不接触远程。向导的存在以 `status.waiting.pending` 为准，请求内容拿不到时降级显示“内容过大”，审批按钮仍在。加一条大文件审批的验收。
+
+### 2. “第 1 / 3 个”算不出来：写入工具都是 exclusive，待处理事项永远只有一条；拒绝第一个之后后面的照问
+**严重程度**：重要
+**类别**：依赖的机制不存在（已定设计与内核调度不符）
+**位置**：/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:65（输出 11）、“状态与转换”表；/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:75,81,88；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/builtin-tools.md:38-43（`write`、`edit`、`shell` 都是 exclusive）；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/run/tools.ts:340-345（只有连续的 shared 并发）、run/interaction.ts:43-46
+**现象**：计划的数据来源是 `pending()` = 请求减结算。一条回复里三个 `edit` 时，exclusive 工具逐个执行，第二个的审批要等第一个结算并执行完才写下。所以 `pending` 始终是 1 条，向导只能显示“第 1 / 1 个”三次。两次审批之间状态回到 `running/tools`，按 Spec 的状态表向导离开（“全部答完”）、输入框回来，下一个审批再把它盖住；“收起”状态也无处保留。另外用户拒绝第一个并写附言“停，别改了”之后，第二、第三个照常来问，已批准的那个工具卡片一直转到整条回复做完（F4）。
+**为什么是问题**：开发者定的是“几个审批逐个处理，向导标第 1 / 3 个”（README 注意力排序第 3 条）。这个行为没有数据来源；Lab 用静态夹具能画出来，所以到 e2e 才会发现。输入框在两次审批之间短暂可用，用户此时打字或回车会变成一次插话。拒绝加附言是审批向导的主要纠错手段，附言却要等后面的审批全部处理完才到模型手里，体验上是“我说了停，它还在问”。
+**如何核实**：`bun /tmp/review-t17-design/opus/approvals.ts`（真实内核、`createTestSession`、真实 `resolve`）：一条回复三个 exclusive 写工具，三次都打印 `pending 1`；帧序列 `waiting(1) -> interactionResolved -> running/tools -> interactionRequested -> waiting(1) -> ...`；三次之间 `toolResults so far` 是 0、0、3；第一个的结果 `denied/user-denied` 带附言，后两个 `ok`。
+**建议改法**：分母按 `assistant.toolCalls` 算：这条回复里还没有 `toolResult` 的调用数是上界，序号是其中已结算的数加一；Spec 写明分母可能减少（后面的调用不一定要审批）。若不想要会变的分母，就把 Spec 改成“这条回复还有 N 个调用”。向导状态表加“同一条回复的工具段内不离开”：`status.running.phase === "tools"` 且这条回复还有未开始的调用时保持向导外框与收起状态，输入框不回来。拒绝的后续行为交开发者定：要么维持现状并在向导里写明“后面的还会问”，要么内核加“这条回复里一旦用户拒绝，其余未开始的调用记 `denied`、码 `aborted-by-denial`”（改 `run/tools.ts` 的段循环，几行）。验收 2 加一条三个调用的回复；`testing/endpoint.ts` 目前一条回复只能脚本一个工具调用，要扩（见第 11 条）。
+
+### 3. F8 站不住：`write` 与 `edit-replace` 的流式内容第一版完全看不见，而这是写书的主路径
+**严重程度**：重要
+**类别**：遗漏（计划判断与真实用法不符）
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:77,81；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/model/omp.ts:330-332；同 worktree packages/nb-harness/src/kernel/api/host.ts（`DeltaFrame`）、packages/nb-agent-ui/src/types.ts:43-55
+**现象**：`toolArgs` 增量只有 `callId` 与 JSON 片段（`{"pa`、`th":"a.md"}`），`toolcall_start` 没有转发，工具名要等 `assistant`；`call` 取不到时 `callId` 也缺。`nb-agent-ui` 与 `nb-harness` 里没有 partial-JSON 解析器（grep `partial-json|parsePartial|partialJson` 无结果）。计划只写“增量只画正在生成的那条，`assistant` 到了换掉”，对 `part: "toolArgs"` 没有任何说明。视图一侧已经有 `ToolCallStatus: "streaming"` 与渲染器的 `pending()` 分支，等着一个带 `name` 和部分 `args` 的调用，计划没有喂给它的路径。
+**为什么是问题**：主创的工作说明要求“写进书里，不要只贴在回复里”，所以一章正文主要是 `write` 的 `content` 或 `edit-replace` 的 `new_string`。按 4000 字一章估算，模型要流几十秒到数分钟的工具参数，界面只有一行“生成中”和用时，文字区一动不动，用户无法判断是在写还是卡住了。第一版的标准是“能真的用它写书”，这条比 F5 的影响大得多，不该归在“够用”里。
+**如何核实**：读实现：omp.ts:330-332 只转 `toolcall_delta`；frames.ts:85 按 `callId` 分流，合并后的帧照样不带工具名。真实模型未运行；时长是估算。
+**建议改法**：最小两步。内核：`omp.ts` 取 `partial.content[contentIndex].name`（OMP 的事件里已经有），`ModelDelta`/`DeltaFrame` 的 `toolArgs` 第一块带 `tool`（工具 id，经 `toolIds` 换算，与 `fromOmpContent` 同一张表），Spec 写明“同一 `callId` 的 `toolArgs` 按 `n` 连接就是参数的 JSON 文本”。适配器：累加文本，用一个小的容错解析（或只从片段里抽 `path`、`content`、`new_string` 字符串字段）产出 `status: "streaming"` 的 `ToolCallView`。若第一版不做解析，退一步也要显示“正在写 <工具名> · 已生成 N 字”，让人知道它在动。加一条 `write` 流式的适配器契约测试。
+
+### 4. 浏览器没有“这个会话实际用哪个模型”的数据源：上下文百分比没有分母，“发送不可用”要在前端重写解析规则
+**严重程度**：重要
+**类别**：依赖的机制不存在；隐含耦合
+**位置**：/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:58,72-73,105；/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:75,103；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/model/omp.ts:355-356；同 worktree packages/nb-harness/src/kernel/run/commands.ts:90-94、packages/nb-harness/src/kernel/run/settings.ts:12、packages/neuro-book/src/plugins/models/shared/contracts.ts:36-50,93-99
+**现象**：Spec 输出 15 要“上下文圆环与百分比”，输出 16 只定义了分子，分母（模型窗口）在 Spec 与计划里都没有来源。能想到的来源各有问题：`assistant.model` 是 `answeredBy`，即服务商回的 `provider/model`，经中转站时可能与设置里的 id 不同，查不到快照；`core.model` 可以是 null，这时模型由 Profile 设置、角色解析（`models.port(profileDefaults)`，只在服务端）决定；模型快照的 `contextWindow` 可为 null（`incomplete`）。同样，“没有模型、没有凭据、角色未绑定：输入框上方显示原因，发送不可用”要在发送之前知道解析结果，而这个结果只有 `startProblem` 在 `send` 时才算，远程合同没有查询。输出 7 的下拉也没有“跟随默认”项，`core.model: null` 选上之后回不去，当前实际模型也显示不出来。报告 design-backend 第 7 条只在建议里顺带提到“窗口取实际模型信息”，没有说明这个来源不存在。
+**为什么是问题**：实现者要么在浏览器里重写一遍解析表（Profile 默认、角色、凭据状态），与 `models/service.md` 输出 8 形成两份真相；要么分母写死或不显示。首次发送之前没有任何 `assistant`，圆环与可用性都拿不到值。
+**如何核实**：读实现：`SessionSnapshot`（api/host.ts）没有模型字段；`ompModelInfo` 的 id 是 `provider/id`，与 `modelStarted.model` 相同（model-call.ts:107、143），可靠；`assistant.model` 取 `message.provider/message.model`（omp.ts:355）。未调用真实中转站，“回的名字不同”是从代码推断。
+**建议改法**：快照加 `model: {ok: true; id: string; contextWindow: number; efforts: string[]} | {ok: false; code: ModelResolutionCode}`，由内核调用已有的 `host.models.resolve({settings, purpose: "turn", profile})` 算，一处真相，`changeSettings`、模型服务变更后由宿主重取（`models` 的 `changed` 事件是现成的触发）。宿主只用它：分母、可用性、推理档夹取都来自这里。适配器按最近一次 `modelStarted.model` 判断“这个分子属于哪个模型”，与当前模型不同时百分比按当前窗口算，并在 Spec 写明。下拉加“跟随默认”对应 `core.model: null`。窗口为 0 或未知时不画圆环。这是对“内核不动”的一处小改动，计划第 3 节要相应改写。
+
+### 5. `toolResult.status` 的五个值对不上 `ToolCallStatus`，映射没写，`unknown` 和拒绝会显示错
+**严重程度**：重要
+**类别**：接口与合同
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:76；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-agent-ui/src/types.ts:43；同 worktree packages/nb-agent-ui/src/tool-status.ts:8-16、packages/nb-harness/src/kernel/api/tool.ts:47-50、packages/nb-harness/src/kernel/run/tools.ts:204-215、packages/nb-agent-ui/src/conversation-turns.ts:386-390
+**现象**：内核是 `ok | error | denied | blocked | unknown`，视图是 `streaming | running | success | error | invalid`。计划只写“`toolStarted`、`toolResult` 挂到调用上”。F15 第 4 点早就指出要视图新增状态，计划把 F15 一并判为不做，而 `ui/agent-conversation-view.md` 的改动清单里也没有工具状态。还有两个没有对应的中间态：调用在等审批（有 `interactionRequested`、没有 `toolStarted`）与等回答（`ask` 的 `toolStarted` 已写）。
+**为什么是问题**：最省事的实现是“不是 ok 就 error”，于是：用户自己拒绝的调用显示成红色失败，思维链把它算进失败；`unknown` 显示成普通失败，而内核专门区分它，就是因为这时副作用不确定（tools.ts:204-205 的注释：`denied` 不必提示用户核对副作用，言下之意 `unknown` 要）。服务端重启后用户看到的正是这种调用（验收 5 的场景），写文件可能已经落盘，用户不知道要去核对。`code` 为 `invalid-arguments` 才对应 `invalid`，也要写进映射。
+**如何核实**：对照两边类型；`/tmp/review-t17-design/opus/approvals.ts` 真实产生 `denied/user-denied`；recover.ts:25-30 产生 `unknown/interrupted` 与 `denied/interrupted-before-approval`。
+**建议改法**：Spec 写明映射表，视图 `ToolCallStatus` 加 `denied`、`unknown`（`toolCallPhase` 同步处理）：`ok → success`；`error` 且 `code: invalid-arguments → invalid`，其余 `error → error`；`denied`、`blocked → denied`，副文字按 `code` 与 `by` 区分“你拒绝了”“规则拒绝”“只读模式”“还没开始就停了”；`unknown → unknown`，文字写明“不确定有没有执行完，请核对”。等审批、等回答的调用状态按 `status.waiting.pending` 的 `callId` 标成 `running` 加“等你处理”，不让它和普通执行中无法区分。`result.text` 给模型看的英文（`The user denied the call…`）不直接显示。
+
+### 6. 转录映射其余部分的缺口：提醒文字、认不出的事件、增量用途、压缩之后、中断判定
+**严重程度**：重要
+**类别**：接口与合同；遗漏
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:72,76-77；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/api/events.ts:124-133,246-258；同 worktree packages/nb-harness/src/kernel/run/commands.ts:143-145、packages/nb-harness/src/kernel/api/host.ts（`DeltaFrame.purpose`）
+**现象**：逐项：
+- `notice`、`continued`：计划写“→ 系统条目”，但 `SystemMessageView.text` 必填，而事件里的 `text` 是写给模型的（带 `<system-reminder>`，events.ts 的注释明写“界面按 code、by 显示自己的文案”）。计划没给文案表，也没定 `tools-changed`、`restored` 这类内部提醒要不要出现在消息流里。
+- “认不出的跳过并记 `problems()`”：`problems()` 在旧适配器里表示数据坏了。新日志里一轮普通对话就有 `sessionCreated`、`runStarted`、`turnStarted`、`toolsAnnounced`、`modelStarted`、`turnEnded`，加上 `inputQueued`、`commandAccepted`、`settingsChanged`（实验时序里都出现了），映射表没列，照字面每条都记问题，问题列表失去意义。扩展声明的 `conv` 事件（压缩放回的内容就是这种）同样无处安放。
+- 增量用途：`DeltaFrame.purpose` 只有 `turn` 是助手回复，host.ts 注释写明“只认它”；计划的“增量只画正在生成的那条”没写过滤，而压缩、审批模型的请求也推增量。`applyFrame` 只列 `delta`、`status`，`diagnostic`、`progress`、`reset` 也要明确（`reset` 要清临时内容；app 现在没有出站过滤，`progress` 忽略即可，但要写下来）。
+- `compaction`：`firstKeptEntryId` 之前的事件仍在 `path` 上，`omitted` 是给模型视图的占位。计划没说压缩之后界面是否还显示全部旧消息。`replacement` 可为 null，`text` 必填要给缺省。输出 16 的占用在压缩之后、下一次回复之前仍是压缩前的数，圆环会一直红；`tokensAfter` 就是这段时间该显示的值。t11 紧接着做，现在定不增加工作量。
+- `interrupted()`：`start` 在最后一轮已完成时得 `nothing-to-continue`（commands.ts:143-144）。压缩运行（`runStarted{kind:"compact"}`）中断时 `runEnded{interrupted}` 写下了，最后一轮却是 completed，Spec 输出 9 的“回车继续”就失败。报告 design-backend 第 8 条要求区分结局，没涉及 `kind`。
+- 并发工具：结果是一个批按调用顺序到达，这部分映射按 `callId` 挂即可，没有问题。
+**为什么是问题**：这些都是实现时一定要做决定的点，没写就会各写各的；`text` 直接显示会把内部标签露给作者。
+**如何核实**：`opus/remote.ts` 的帧时序列出了实际事件类型；其余读 events.ts 与 commands.ts。压缩中断的 `nothing-to-continue` 是读代码得出，未跑（第一版没有压缩方法）。
+**建议改法**：计划或 Spec 里给一张完整事件表，每种事件三选一：产出视图内容、改状态、明确忽略；只有真正不认识的类型（且不是 `ext` 声明的）才记 `problems()`。提醒条目按 `code`、`by` 查文案，`tools-changed`、`restored` 第一版不进消息流，`result-requested`、`continued{by:"core"}` 显示一行小字。`applyFrame` 只画 `purpose === "turn"`。压缩写一句定论：界面照旧显示全部历史，只加一条分隔（`source: "compaction"`，`text` 取 `replacement ?? ""`），占用在下一次回复前取 `tokensAfter`。`interrupted()` 只看 `kind: "chat"` 的运行，或者 `start` 得 `nothing-to-continue` 时把输入框退回普通状态。
+
+### 7. 适配器的输入只有日志项和帧，`path` 又不含会话级事件：刷新后排队消息、标题、设置、归档都没有来源
+**严重程度**：重要
+**类别**：接口与合同；遗漏
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:74-75,98；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:56-59；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/api/events.ts:76-104；同 worktree packages/nb-harness/src/kernel/api/host.ts（`SessionSnapshot`）
+**现象**：`inputQueued`、`inputEdited`、`inputRemoved`、`inputConsumed`、`settingsChanged`、`titleChanged`、`descriptionChanged`、`archived`、`approvalRemembered`、`leafChanged` 都是 session 作用域，`path` 不返回。Spec 输出 5 只说“先订阅、再取 path”。这些状态的基线在 `snapshot`（`buffer`、`settings`、`title`、`description`、`archived`、`readOnly`、`status`、`usage`），增量在日志帧。计划的 `kernel-transcript` 输入没有快照，`usage()` 写“累计来自快照”，却没有任何帧带费用，运行中永远是打开时的值。报告 design-backend 第 4、7 条讲过游标与 token 口径，没讲基线与增量的合并。
+**为什么是问题**：照 Spec 字面实现：刷新后待处理区是空的（排队消息其实还在，几秒后被消费时凭空出现在对话里）；另一个窗口改了模型、审批模式，这边的下拉和“全部放行”警告不跟随，违反“两个窗口开同一会话看到同一份”；自动标题到达依赖日志帧，打开时的值又依赖快照。首屏的三个调用（订阅、快照、路径）谁先谁后也没定，`snapshot` 取到之后、订阅帧里更早的 `status` 帧该不该丢（F6 补充的那一半）同样没写。
+**如何核实**：读 events.ts 的作用域声明与 session.ts 的 `path`；`opus/remote.ts` 的时序显示 `inputQueued`、`commandAccepted` 只在帧里；sessions.test.ts 的现有接法只用 `log`，没有覆盖 `path` 加会话级状态。
+**建议改法**：把首屏写成一个算法放进 Spec 输出 5：先订阅并缓存；取 `snapshot` 作为会话级基线（同时拿 `head`、`leaf`）；固定该 `leaf` 分页取 `path`；再处理缓存，seq 不大于 `head` 的 log 帧丢掉，其余依次应用；`snapshot` 返回之前到达的 `status` 帧丢掉。适配器加 `applySnapshot(snapshot)`，并新增会话级投影（`queue()`、`settings()`、`title()`……），会话级事件走日志帧增量。费用与 token 按 design-backend 第 7 条定口径后，由 `assistant`、`modelEnded`、`modelFailed` 的日志帧增量累加，只把快照当基线。
+
+### 8. 渲染器适配漏了 `grep`、`glob`、`ask`，`read` 的输出会双重编号，`nbook.agent.*` 登记位置违反包的约定
+**严重程度**：重要
+**类别**：遗漏；包边界
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:79；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-agent-ui/src/builtin-tools.ts:1-6,23,103-171；同 worktree packages/nb-agent-ui/src/tool-detail-lines.ts:23-25、packages/nb-agent-ui/src/vue/tools/AgentFileContentDetail.vue、packages/neuro-book/src/plugins/agent/backend/builtin/read.ts:113-121、packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts（`run` 的 `notes`）；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:63（输出 12）
+**现象**：
+- `fileContentLines` 把 `result.text` 整段当文件内容，行号从 `offset ?? 1` 起。新 `read` 的输出是 `[project://正文/第一章.md#AB12]`、`41:他走进门。`、`42:雨停了。`，再加可能的“（第 41 到 42 行，共 N 行；用 offset=43 继续）”。照现在的渲染，gutter 第 41 行是表头，第 42 行显示 `41:他走进门。`：行号错一位且双重编号，写给模型的行锚与翻页提示都露给作者。目录列举、图片说明也走这个渲染器。
+- 计划只列 `nbook.agent.*` 的 id、`old_string`/`new_string`、`shell`。`nbook.agent.grep`、`glob` 没有对应项（注册表里 `explore` 类只有 `read`、`web_search`、`web_fetch`、`list_`），它们落到通用兜底，不进“探索”分组，探索的连读折叠（“查了 N 处”）对主创最常用的工具不生效。`ask` 也没提，现有 `request_user_input` 的 `firstQuestion` 能复用，但要登记。
+- builtin-tools.ts 文件头写明“只登记通用的 harness 工具；领域工具（例如 NeuroBook 的…）由宿主另行登记”。把 `nbook.agent.*` 写进这张表，让纯受控的视图包认识应用的工具 id，nb-story 这样的另一个消费者也跟着带上；同名登记还会撞 `AgentViewRegistryConflictError`。
+- `shell`：`bash` 的 `commandText` 取 `command` 能用，结果末尾的 `[退出码 0]`、`（输出 N 字节，这里只有一部分）`、`全文：…，用 read 分页读` 是写给模型的，结构化的 `exitCode`、`timedOut`、`artifact` 在 `details`，现有详情不读。退出码非 0 时状态是 `error`，正常的 `grep` 无结果（退出码 1）也会标红。
+- Spec 输出 12 要显示“工作目录与超时”，审批请求只有 `{tool, args, effect, reason}`：`args` 里没有工作目录，`timeout` 缺省时也没有值（工具里的缺省 300 秒）。浏览器只能按“有项目是 project://”重写一遍规则。
+**为什么是问题**：`read` 是出现最多的工具，这个错一开始就看得见；分组折叠是“注意力排序”依赖的降噪手段。
+**如何核实**：真实格式取自 `@oh-my-pi/pi-natives` 的 `hashlineFormatHeader`、`hashlineFormatNumberedLines`（已运行）与 builtin-tools.test.ts:178-187；`read` 分页真实输出含 `offset=3`；registry.ts:393 精确匹配 `toolNames`。Lab 未截图，渲染结果从代码推断。
+**建议改法**：工具 id 到渲染器的对应放在宿主：`nbook.agent` 的浏览器入口登记 contribution（把 `nbook.agent.read` 等映射到通用渲染器的条目，或给 `kernel-transcript` 一个 `toolName(id)` 选项，把 id 换成 `read`、`edit`、`grep`），nb-agent-ui 不出现 `nbook.`。给新格式加解析：`read` 去表头与 `^\d+:` 前缀、行号取自前缀、尾注单独一行；`grep`、`glob` 进 `explore`；`edit-replace` 走 `path`、`old_string`、`new_string`；`shell` 用 `details.exitCode` 与 `details.artifact`，文字结果去掉 `[…]` 尾注。工作目录由 `preview` 或审批请求带上（工具已知道），不在前端重算；超时缺省写进工具的 `preview`。
+
+### 9. 工作台状态栏条目依赖的激活时机没写：按需激活时条目不出现，`onStartup` 又把整个 Agent 运行时拉到每个窗口的启动路径上
+**严重程度**：重要
+**类别**：遗漏；隐含耦合
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:96,101-102；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:79,112；/home/notnotype/CodeRepository/neuro-book/docs/specs/workbench/views.md:19-20；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/src/plugins/agent/backend/plugin.ts:40-58；同 worktree packages/neuro-book/src/plugins/explorer/web/plugin.ts:93
+**现象**：计划只写“`plugin.ts` 的 `locations` 加 `browser`”。`workbench/views.md` 明写视图不触发 `onView`，贡献视图的入口按自己的激活事件激活。状态栏条目与公开状态 `nbook.agent/active` 要在“对话视图不在眼前”时工作（决定 11），入口只能 `onStartup`。入口一旦 `onStartup` 并在激活时订阅 `activity`，每个窗口启动都会经 `onRemote` 激活服务端的 `nbook.agent`（`createAgentRuntime`、扫描临时目录、加载 Profile），Lab 窗口也一样。`explorer/web/plugin.ts` 的文件头有相反的先例：“会话在激活时建立，视图第一次挂上时才打开……所以直接打开 Lab 的窗口不读产品偏好、不列目录”。入口静态导入 `AgentConversationView` 还会把对话视图打进首屏。
+**为什么是问题**：现在 `nbook.agent` 只在有调用方时才激活；这个改动没被计划当作改动提到，也没有门禁（`check:dist` 的首屏检查、Lab 测试）在计划里。宿主还要在 `nbook.agent` 激活失败、`nbook.models` 不存在（`withoutModels`、`modelsKey` 是 `required: false`）时不影响工作台启动。
+**如何核实**：读实现与 Spec；未测量激活耗时。结论“每窗口启动激活服务端”从 `remoteProvides` 与 `onRemote` 的规则推断（`plugin-manifest` 输出 21）。
+**建议改法**：在计划里明确：浏览器入口 `onStartup`，只贡献声明与轻量的 `activity.ts`，视图与宿主动态导入；Lab 窗口不启动 `activity`（判据沿用 explorer 的做法）；量一次首屏与服务端激活的耗时写进证据。`activity` 订阅失败时条目不显示、写诊断、不重试到死。把激活事件写进 Spec 的“贡献”表。
+
+### 10. 命令 `nbook.agent.focus-session` 在视图还没建好时没有落点，多个对话位置时也没定切哪个
+**严重程度**：建议
+**类别**：遗漏（跨组件时序）
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:98-102；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:79,92-96,112；/home/notnotype/CodeRepository/neuro-book/docs/specs/workbench/views.md:107（输出 14）、158（验收 1）
+**现象**：`createSessionHost` 一个对话位置一个，按视图实例存在。状态栏点击要“打开对话位置并切到那个会话”。可是 `nbook.view.open` 成功只表示“布局已改，视图在下一次渲染时出现”，视图“第一次有效可见才加载”：命令返回时宿主实例还不存在，目标会话 id 无处可交。右栏视图关着、编辑区页面开着、两个都开着这几种情况也没定（计划的 `SessionsView` 写“切到最近用过的对话位置”，状态栏条目和命令没写）。视图的当前会话 id“按窗口与对话位置存在浏览器本地”，会和刚传进来的目标竞争。
+**为什么是问题**：照字面实现，第一次点状态栏只打开视图、显示上次的会话，要点第二次才切过去。这是这个入口最常见的路径（视图不在眼前时才会点它）。
+**如何核实**：读 views.md 输出 14 与 plan；尚无实现可跑。
+**建议改法**：`activity.ts` 旁放一个窗口级的“对话位置登记”：宿主挂载时登记、记最近使用，命令把目标写进登记；没有活位置时记成待领取，下一个挂载的宿主优先读它而不是本地存的 id。Spec 写明优先级：最近用过的活位置，其次打开默认右栏视图。`focus-session` 的参数 schema、`when`、“不对 Agent 开放”按 `workbench/commands.md` 声明。验收写“视图关着时点条目，一次切到目标会话”。
+
+### 11. 验收映射有几行照字面写不出来：测试文件名不匹配、vitest 跑不了真实链路、端点脚本不够、e2e 里没有端点
+**严重程度**：重要
+**类别**：验收映射
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:142-151；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/e2e/playwright.config.ts:14；同 worktree packages/neuro-book/vitest.config.ts:19,25、packages/neuro-book/src/plugins/agent/testing/endpoint.ts:7,25-61、packages/neuro-book/src/plugins/agent/backend/builtin/read.ts:187、packages/neuro-book/src/plugins/models/web/models-store.test.ts:13,25、packages/neuro-book/e2e/models.e2e.ts:21
+**现象**：逐行：
+- “验收 1–6：`e2e/agent-conversation.spec.ts`”：Playwright 配置是 `testMatch: "*.e2e.ts"`，这个名字一条用例也不会跑，且不报错。应为 `agent-conversation.e2e.ts`。
+- “`session-host` vitest”“真实远程链路”“`activity` vitest”：应用包的 vitest 只收 `src/**/*.dom.test.ts`，环境 happy-dom；`agentWorld`、`fakeEndpoint`、内置工具都用 Bun API（`Bun.serve`、`Bun.file`）。现成的先例 `models/web/models-store.test.ts` 是 `bun test`：浏览器一侧的 store 加真实 world。第 3 节“纯 TS 加 Vue 响应式，能在 vitest 里用真实远程链路测”不成立，照写会退回假替身。
+- 验收 2 到 4 的“本机端点”：`fakeEndpoint` 用 `Bun.serve`，Playwright 进程是 Node，`e2e/` 里没有引用它；`models.e2e.ts:21` 自己用 `createServer` 起了一个不流式的桩。计划没有列“e2e 用的脚本化流式端点”这件事。它还只能脚本一条回复一个工具调用（`Scripted` 的 `{tool, args}`），第 1 / 3 个审批、并发工具都写不出来；流式的 `toolArgs`（第 3 条）也没有。
+- “`builtin-tools` 的 `ask`：后台没有 `ctx.ask`”：用真实运行时写不出来。`ctx.ask` 按 `host.interactions` 注入，agent 插件的后台会话也有它（design-backend 第 5 条的实验），判断条件要先改，否则这条测试只能伪造。
+- “验收 5 服务端在运行中重启”：`rpc.e2e.ts:137-152` 有重启夹具，节点进入 `server-restarted` 终态，要走到中断样子得刷新（design-backend 第 9 条）；Spec 这句要改写后才能写测试。验收 6 有 `workbench-dnd.e2e.ts` 可用。
+- “输出 15–18：`AgentStatusBar` dom 测试；`kernel-transcript`”：输出 18 的 `cost-limit` 等码要真内核产生，`run-guards` 的现有测试能借；可写。其余 `kernel-transcript` 的对契约测试沿用 `harness.contract.test.ts` 的做法（`nb-harness` 已是 nb-agent-ui 的开发依赖），可写。
+**为什么是问题**：第一条会让验收看起来过了；第二、三条要到第 6、7 片才暴露，那时才发现要补一个端点、换测试框架。
+**如何核实**：读配置与上述文件；vitest 不能跑 `agentWorld` 从 `Bun` 全局依赖与配置推断，未实际运行。
+**建议改法**：计划第 6 节改名 `agent-conversation.e2e.ts`；`session-host`、`activity` 用 `*.test.ts` 跑 `bun test` 加 `agentWorld`，向导等 DOM 行为留给 `*.dom.test.ts`。切片 6 之前加一项：把 `testing/endpoint.ts` 的脚本扩成一条回复多个工具调用、参数分块流出，并抽一个 Node 与 Bun 都能跑的版本（或由 e2e 起一个 Bun 子进程）。
+
+### 12. `ask` 的失败语义写不出来：工具没有中止运行的手段；同一条回复里 `ask` 与写工具并列时答案到不了模型；提示词的条件没考虑换绑
+**严重程度**：建议
+**类别**：接口与合同
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:58,107；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/builtin-tools.md:44-45,96-98；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-harness/src/kernel/run/tools.ts:186-190；同 worktree packages/nb-harness/src/kernel/api/tool.ts:61-71,81-95、packages/nb-harness/src/kernel/api/prompt.ts:23、packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts:45-58
+**现象**：
+- 计划写“`unavailable{declined}`、`aborted` 按运行中止处理”。`ToolContext` 没有中止运行的方法，`ToolResult.status` 只有 `ok | error | denied`，工具只能交回结果。`aborted` 时运行本来就在收口，不用工具做事；`declined` 只来自 `resolve{decision:"deny"}`（Spec 输出 13 没有这个按钮，只有别的调用方能发）或 `interrupted`（askFor 把 `interrupted` 也折成 `declined`），这时交回结果后模型会接着跑，不是“运行中止”。
+- `ask` 是 exclusive，但内核不要求它单独调用（只有 `finish` 工具有这条规则）。模型一条回复发 `[ask, write]` 时，`write` 在回答之后照常执行，模型当时还没看到回答，提问等于白问。
+- 主创的提示词要加“什么时候问”。现有写法是 `If({tool: SHELL})`，`If` 只接受一个 `tool`。主创绑 `ask-form`，用户换成 `ask` 或去掉时，不加条件的一句话会让模型去调不存在的工具，只写 `If({tool:"nbook.agent.ask-form"})` 又会让换绑的用户失去这句提示。
+**为什么是问题**：第一条按字面没法实现，实现者要自己定语义，容易写成抛错或 `ok`。第二条出错时用户答了题，文件却已按旧判断改了。
+**如何核实**：读 tools.ts:186-190 与 api/tool.ts；`[ask, write]` 的顺序由第 2 条实验同一段循环保证。未跑 `ask`（尚未实现）。
+**建议改法**：`declined` 与 `interrupted` 交回 `{status:"error", code:"ask-declined", text:"作者没有回答这些问题。"}`，模型自行决定；`aborted` 交回同样的结果，运行收口时不会再发给模型。工具说明写“单独调用，不要和别的工具放在同一条回复”，这一条只靠说明，代价可接受；若要硬保证，内核把 `finish` 的“必须单独调用”推广成声明字段（第一版不必）。提示词写两个 `If`，共用一个常量。
+
+### 13. 模型下拉：`modelsSettingsContract` 调得到，但取舍规则没写，整包管理接口给了对话视图
+**严重程度**：建议
+**类别**：接口与合同；别扭之处
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:103；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/conversation.md:58；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/src/plugins/models/shared/contracts.ts:36-65,209-212；同 worktree packages/neuro-book/src/plugins/models/backend/core.ts:348、packages/nb-agent-ui/src/model-catalog.ts:39
+**现象**：权限上没有障碍：合同 `callers: ["browser"]`，实现忽略 `_consumer`，任何浏览器入口都能调，不只设置页（这也意味着对话视图拿到的是含 `setKey`、`removeProvider` 的整包接口，插件平台没有按方法收窄）。真正缺的是：计划写“`snapshot` 与它的变更事件”，而 `changed` 订阅时先推一次当前快照，`snapshot` 调用多余，还多一个先后问题。Spec 输出 7 没定列表规则：快照的模型有 `enabled`、`status: ok|missing|incomplete`，服务商有 `key.status`，哪些进下拉没写。`nbook.models` 不在时（`modelsKey` 对 agent 是 `required: false`，`withoutModels` 的世界）`remote.use` 得 `not-provided`，Spec 的失败表没有这一行。`core.model` 的格式是 `provider/id`，与 `ModelInfo.id` 一致，这点没问题。
+**为什么是问题**：`incomplete` 的模型选了就报错，`missing` 的模型若已被会话选中却不在列表里，下拉显示不出当前值。规则各处写一份容易不一致；`nb-agent-ui/model-catalog.ts` 已有 `providerSelectable` 这类判断，计划没提复用。
+**如何核实**：读合同与 core.ts:348-355；未调用。
+**建议改法**：只订阅 `changed`。Spec 输出 7 写明：列 `enabled` 且 `status: ok` 且有凭据的模型，当前选中的即使不合格也列出并标“不可用”；`not-provided` 时下拉隐藏、失败表加一行。长期可以另开一个只读合同，第一版不必。
+
+### 14. 乐观用户消息没有对账键：`input` 帧先于 `send` 的响应到达
+**严重程度**：建议
+**类别**：并发；遗漏
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:98；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/nb-agent-ui/src/types.ts:60-70（`delivery`）；同 worktree packages/nb-harness/src/kernel/api/host.ts（`send` 的 `value: {inputId, runId}`）、packages/nb-harness/src/kernel/run/input.ts
+**现象**：计划只写“乐观显示用户消息”。真实时序是 `log:inputQueued | log:runStarted | log:inputConsumed | log:turnStarted | log:input | log:commandAccepted | <<send-response>>`：`input` 帧到的时候 `inputId` 还不知道，乐观消息与真实消息会并存到响应回来；输入链拦截还可能改写 `text`，不能按文字比。运行中 `enqueue` 走 `buffer`，是另一条路径。断线时写指令得 `unknown-outcome`，`delivery: "unknown"` 之后的重发（同一个 `commandId`）也没写。
+**为什么是问题**：每次发送都闪一下两条相同的消息，或者实现者按文字去重，遇到拦截改写就留下一条幽灵消息。
+**如何核实**：`opus/remote.ts` 的 `timeline` 输出（真实远程链路）。
+**建议改法**：同一批的 `commandAccepted` 带 `commandId` 与 `value.inputId`，但它排在 `input` 之后。宿主把日志帧按批缓一拍不划算，更简单的做法：适配器遇到 `input` 时，若有乐观消息就直接替换最早的一条（发送入口串行，窗口内只有一条在飞）；别的窗口发的同样会替换，所以再用 `commandAccepted.commandId` 核对，对不上就把乐观消息放回。失败与 `unknown-outcome` 的显示写进 Spec 输出 6。
+
+### 15. 计划第 4 节的 Spec 改动表漏了两份会被改动的 Spec
+**严重程度**：建议
+**类别**：与已定设计一致；文档真相源
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:101,107,113-124；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/builtin-profiles.md:39；/home/notnotype/CodeRepository/neuro-book/docs/specs/agent/sessions.md:49；/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t17-conversation-ui/packages/neuro-book/src/plugins/agent/shared/remote.ts:1-3
+**现象**：主创的 `tools.optional` 要加 `ask-form`，`builtin-profiles.md` 第 39 行的表是这个列表的真相源，且 Spec 已 `implemented`，不在改动表里。`agentSessionsContract` 要加 `activity`，合同正文在 `sessions.md`（`remote.ts` 文件头指向它），也不在表里。`activity` 的语义（前台、等待的范围）因此没有落点，只在 `conversation.md` 输出 19 有一句界面行为。
+**为什么是问题**：Spec 是行为的真相源；`builtin-profiles.test.ts` 锁工具，代码改了 Spec 没改，治理检查抓不到。`activity` 是跨进程合同，照字面实现时没有可对照的条文。
+**如何核实**：grep 计划第 4 节的表与上述两份 Spec。
+**建议改法**：表里加这两行。`sessions.md` 写 `activity` 的快照形状、事件、前台范围与断线后的基线（`onResync` 重取）；版本号不必升：合同版本是整数精确匹配，浏览器与服务端一起发布，现有调用方只有 agent 插件自己，加方法不影响它们。
+
+### 16. F4 到 F17 逐条判断：F4、F8 站不住，F14、F15 部分站不住，其余第一版站得住
+**严重程度**：重要（最严重的两项已在第 2、3 条展开）
+**类别**：计划判断核对
+**位置**：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/plan.md:81；/home/notnotype/CodeRepository/neuro-book/.agents/works/w00032-agent-integration/tasks/t20-hooks/evidences/deep-review-sonnet.txt:39-166
+**现象**：计划第 81 行“第一版都不做……够用”，对真实用法逐条：
+- **F4（逐个工具的结束帧）：站不住。** 一条回复多个调用时结果到最后才一起写，已批准并执行完的 `edit` 一直转圈，而下一个审批已经盖在上面（第 2 条实验：`toolResults so far` 0、0、3）。最小改法：内核加一个不进日志的帧 `{type: "tool", callId, status}`，在 `runCall` 收尾时推，权威仍是批末的 `toolResult`；`FrameMerger` 对非增量帧已经透传，远程层不用改。约 10 行。
+- **F5（刷新补半截）：站得住，写进不承诺是对的。** 补两句：重连后合并器按新订阅从 1 重新编号，适配器收到 `n === 1` 且已有内容时要清空重来，不是拼接；刷新后第一段可能从句子中间开始，`toolArgs` 片段解析不了，这时只显示“正在写”。
+- **F6（原子订阅起点）：站得住。** 先订阅后补的接法可行，sessions.test.ts:148 有真实链路测试。两处要写清：`node.ts` 里 `channel.accept()` 在 `handler.subscribe` 之前，所以 `await subscribe` 返回时内核订阅可能还没挂上；同一会话的查询经同一个 `#acquire` 排在它后面，读代码判断不会漏，但这个保证没有写在任何合同里，建议在 `session-host` 的测试里覆盖“会话未打开时先订阅再取路径，中间写入不丢”。`status` 与快照的取舍见第 7 条。
+- **F8（`toolArgs` 带工具名）：站不住，** 见第 3 条。
+- **F9（`path` 分页、`log` 带叶子、`parent` 断链）：站得住。** 应用没有配置出站过滤（`plugins/agent/backend` 里没有 `outbound`），断链只影响 nb-story；远程层已按页切 `path`。叶子问题已在 design-backend 第 4 条。
+- **F10（向前翻页、按类型筛、字节上限）：站得住。** 实测 `opus/remote.ts`：真实远程链路 300 轮、每轮回复 1.3 万汉字，共 2102 个事件、25 页（约 12 MB）、全部取完 222 毫秒，事件循环最长停顿 14 毫秒。虽然每页都重读重编码（`pageOf(events.map(logItem))`），这个规模不是问题；视图渲染与内存这里没量，计划已列为“量一次写进证据”。把 `history.hasMore` 固定为 false 要写进 `ui/agent-conversation-view.md`，否则顶部“更早的内容”合同悬空。
+- **F14（异步提问与暂停的运行进快照）：部分站不住。** 第一版的 `ask` 只用同步，第一版没有回退入口，所以这两项本身不会由第一版自己触发；但异步提问是公开能力，已写进 design-backend 第 6 条。结算瞬间 `running.request` 变 null（F14 第 5 点）只影响状态栏闪一下，计划不提可以接受。
+- **F15（附件、提醒文字、上下文用量、工具状态）：部分站不住。** 附件第一版不做，站得住；提醒文字见第 6 条，工具状态见第 5 条，上下文分母见第 4 条。
+- **F16（过滤队列背压）：站得住。** 应用没有出站过滤；`partial` 已入 Spec，`report` 已删。
+- **F17（过滤后没有流结束信号）：站得住，** 同样因为没有过滤；未过滤时 `assistant`、`modelFailed`、`runEnded` 都会到，结局映射见 design-backend 第 8 条。nb-story 迁移到这个适配器时要重新看。
+**为什么是问题**：“够用”这个判断里，F4 与 F8 恰好是这个产品主路径（改文件、写正文）上的体验，改动都很小；留到 t11 之后再补，要同时改适配器和已定的视图。
+**如何核实**：见各项。其中 F6 的先后是读 `nb-runtime/src/remote/node.ts:921,943` 与 `sessions.ts:152-163`、`183-205` 判断，未构造竞态。
+**建议改法**：把计划第 81 行改写成逐条结论；F4、F8 放进切片 3。
+
+## 未发现问题的方面
+
+- `checkDescription` 从服务端入口导入：符合包边界。`nb-form` 的 `.` 入口只依赖 TypeBox，只 `import type` 自 `nb-ui/text`，`boundary.test.ts` 锁住；`monorepo-boundaries.md` 写明应用可以用；`src/shared/settings.ts` 已经在用同一函数。`build-plugin` 的纯度名单只管第三方插件的构建，内置的 `nbook.agent` 不走它（第三方插件要在服务端入口用 `nb-form` 另算，不是本 Task 的事）。`checkDescription` 不抛异常、签名与计划一致。
+- 只读模式：`settings.readOnly && effect !== "read"` 才拒绝，`ask` 等级 `read` 能在只读模式下问，符合“只问人”。`read` 与 `exclusive` 的组合没有冲突：`read` 决定审批与只读判定，`exclusive` 决定调度，二者在 run/tools.ts 里互不相干；唯一的后果见第 12 条。
+- `questions: caller`：第一版没有子会话入口，`allowed()` 已按会话头处理，提问向导不受影响。`ask` 的回答校验问题已在 design-backend 第 3 条。
+- `ask` 工具说明的 token：按“汉字每字 1 个、其余每 3.5 字符 1 个”粗估（`opus/tokens.ts`，说明按计划与 `forms.md` 输出 23 试写）：`ask` 约 220，`ask-form` 约 443，差约 220，是主创现有 6 个工具（约 1370）的 16%。每次请求都带，缓存命中时代价小，默认绑 `ask-form` 可以接受。子集说明会抄 `AGENT_LIMITS`，实施时用常量拼接，避免漂移。实测值以计划要求的证据为准。
+- `agentSessionsContract` 的版本：加方法不必升版本，见第 15 条。
+- `strict`：内置工具缺省 `strict: false`，`form` 的自由 JSON Schema 不会被服务商的严格模式拒绝。
+- 并发工具的结果映射按 `callId` 挂，批内顺序稳定；缺 `toolStarted` 的结果（未知工具、参数错误、拒绝）调用仍在 `assistant.toolCalls` 里，挂得上。
+- 大事件的分段读：`eventChunk` 与 `chunkOf` 本身没有问题，有真实链路测试；问题只在没人接（第 1 条）。
+
+## 各级数量
+
+阻断 0；重要 10（第 1、2、3、4、5、6、7、8、9、11、16 中，第 16 条是汇总，不重复计数，故独立问题 10 条）；建议 5（第 10、12、13、14、15 条）。共 16 条。
+
+## 行号更正（报告只追加，不改前文）
+
+第 6 条的 events.ts 行号应为 130-140（`continued`、`notice`）与 192-206（`compaction`）；第 7 条的 events.ts 行号应为 71-100；第 15 条的计划行号应为 111-120。

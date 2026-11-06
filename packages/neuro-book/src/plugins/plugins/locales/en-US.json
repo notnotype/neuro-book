@@ -204,6 +204,10 @@
         "runtime-diagnostics": {
             "name": "Diagnostics",
             "description": "Runtime logs and diagnostic records."
+        },
+        "nbook-theme-study": {
+            "name": "Study Theme",
+            "description": "A look for writing: a window by day, a desk lamp by night."
         }
     }
 }

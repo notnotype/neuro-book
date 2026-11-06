@@ -1,0 +1,127 @@
+# w00026 t05 实现审查（前端）报告
+审查范围：merge-base c95a883c8 到 HEAD 66f5b2248（分支 feat/w00026-t05-drag-session）。
+已跑：nb-layout `bun test`（203 过）与 `vitest run`（129 过）、neuro-book `vue-tsc -p tsconfig.web.json`（无错）、`src/architecture.test.ts`（7 过）、explorer/editor/workbench/web 的 vitest（109 过）。未跑 e2e。
+变异实验（只在 /tmp/review-w00026-t05-impl/mut/ 的副本里，对 drag-gesture.ts 改一处后跑 drag-gesture.test.ts）：17 个变异，14 个被测试抓住，3 个存活（见第 1 条）。
+
+### 1. 放下中那一帧里 move、withdraw、resized 三个守卫没有测试（变异存活）
+**严重程度**：建议
+**类别**：测试
+**位置**：packages/nb-layout/src/drag-gesture.ts:410（move 里的 `current.dropping`）、:294（withdraw 里的 `current.dropping`）、:454（resized 里的 `!active.dropping`）；packages/nb-layout/src/drag-gesture.test.ts 的“输出 14：边缘滚动”一组（592 到 628 行）
+**现象**：在副本里分别删掉这三个 `dropping` 判断，drag-gesture.test.ts 仍是 67 过 0 败（变异 N2、N3、N5）。现有用例只覆盖了“放下中失去捕获不算取消”“放下中 Escape 仍取消”“放下中到来的 click 被吞”。
+**为什么是问题**：这三个守卫保护的是真实会发生的事：松手后同一帧里鼠标常有 buttons 为 0 的悬停移动，没有 move 的守卫，`current.point` 会被改到松手点之外，下一帧 `publish()` 与 `drop()` 就按移动后的坐标放下，违反 Spec 输出 6“用松手的坐标再判一次”。withdraw 的守卫保护的是边缘滚动最后一次滚动产生的 scroll 事件（在放下那一帧之前到达），没有它，`scroll: "withdraw"` 的资源树会在边缘滚动中松手时撤下落点、变成静默不写，正是验收 6 要防的问题。实现里这三处是对的，只是没有测试证明；以后有人整理“多余的判断”会静默破坏。
+**如何核实**：`/tmp/review-w00026-t05-impl/mut/run.sh N2|N3|N5`（脚本把 `dropping` 判断删掉后跑 bun test，全部通过）。
+**建议改法**：在“边缘滚动中松手”一组加三条用例：松手后、下一帧之前再 `move` 一次，断言提交的是松手点的落点；松手后派发 `scrolled()`（withdraw 配置），断言仍提交；松手后 `resized()`，断言不多排一帧。用手动时钟，几行即可。
+
+### 2. workbench-dnd.e2e.ts 里一条旧断言换了捕获持有者之后永远通过
+**严重程度**：建议
+**类别**：测试
+**位置**：packages/neuro-book/e2e/workbench-dnd.e2e.ts:608（用例“指针拖动中按方向键与 End：标签带不切换；Escape 取消后释放指针捕获，键盘触发的点击照常生效”）
+**现象**：断言是 `tabE.evaluate((element) => element.hasPointerCapture(1))` 为 false。外壳的指针捕获现在由 `.workbench-shell-host`（根）持有，`tabE` 从来不是捕获持有者，这个断言在 Escape 之后不释放捕获时也是 false。用例标题里“释放指针捕获”的判据实际没有被检查。本片改了持有者，却没有改这条老断言（diff 里没有这个文件的这一段）。
+**为什么是问题**：测试声称验证的事（Escape 取消后释放捕获、之后键盘触发的点击不被当成这次手势的尾巴）已经失去判别力。nb-layout 的 dom 测试只在“放下”路径断言了 `root.hasPointerCapture(1)` 为 false（drag-session.dom.test.ts:169；236 行是键盘拿起不取捕获，不相关），Escape 路径在 Lab e2e 里也没有这个断言，所以 Escape 后捕获残留（鼠标仍按着时之后的移动继续被根收走）目前没有测试会失败。
+**如何核实**：读 e2e 第 586 到 612 行；把 drag-session.ts 的 `released` 里 `releasePointerCapture` 那行注释掉，这条断言仍然通过（从代码推断，未跑 e2e）。
+**建议改法**：改成 `page.locator(".workbench-shell-host").evaluate((root) => root.hasPointerCapture(1))`；并在 lab-drag-session.e2e.ts 的“取消”一组里，Escape 之后鼠标仍按着时断言 `sessionRoot` 的 `hasPointerCapture(1)` 为 false。
+
+### 3. 验收 1“松手时的 click 不选中、不触发”对工作台来源没有被测到
+**严重程度**：建议
+**类别**：测试
+**位置**：packages/neuro-book/e2e/workbench-dnd.e2e.ts:811 到 839（用例“Escape 取消：拖影与预览消失，松手不写；窗口失焦同样取消”里新加的“失去指针捕获”段）
+**现象**：编辑器与资源树的新用例都先把鼠标移回按下的来源再松手，断言选中项没变（releaseOnSource）。工作台这一段松手在 `panel` 区，不在来源上，click 本来就不会落到来源，断言只有 `writesOf` 不变与 `entry` 可见。用例标题也没跟着改（仍是“Escape 取消……窗口失焦同样取消”），实际里面又多了失去捕获。
+**为什么是问题**：Spec 验收 1 对三种来源写的是“三处都不写、反馈撤下，松手时的 click 不选中标签也不打开文件”。工作台的来源有 `onHeadClick` 折叠切换，click 吞不掉就会折叠视图，这一半没有任何工作台测试覆盖（共享的吞 click 逻辑在 Lab 里验证了，但外壳根上捕获阶段监听与 `WorkbenchViewSection` 的 `@click` 的先后没有被证明）。
+**如何核实**：读上述用例；它与编辑器 editor-area.e2e.ts 的 releaseOnSource 对照。
+**建议改法**：工作台加一条：按住视图标题行拖过门槛，Escape（或失去捕获），把鼠标移回标题行松手，断言该视图的 `data-view-collapsed` 不变；标题改成覆盖失去捕获。
+
+### 4. 核心入口多导出了一批 Spec 没有登记的公开接口
+**严重程度**：建议
+**类别**：合同 / 代码质量
+**位置**：packages/nb-layout/src/index.ts:7 到 24（`createDragGesture`、`edgeScrollStep`、`DragClock`、`DragGesture`、`DragGestureHost`、`DragPress`、`DragGestureConfig`、`DragStops`、`DragState`）
+**现象**：Spec 的“输入与前置条件”与“边界与兼容”写明核心入口的公开接口只有 `DRAG_GESTURE_DEFAULTS`、`DragCancelReason`、`DragEnd`、`defineDropKind`（外加 `./vue` 的类型）。实现从 `.` 额外导出了状态机工厂和宿主接口；全仓库只有 `vue/drag-session.ts` 经相对路径 `../drag-gesture` 用 `createDragGesture`，没有任何包经包名用它们（grep 核实）。
+**为什么是问题**：nb-layout 有 `publishConfig.access: public`。多导出的接口一旦被依赖就成了要维护的合同（`DragGestureHost` 有 20 多个成员，t07 合并成一个会话时大概率要改），而 Spec 没有为它们写行为。
+**如何核实**：`grep -rn "createDragGesture\|DragGestureHost" packages --include=*.ts --include=*.vue`。
+**建议改法**：从 index.ts 去掉状态机工厂与宿主接口（测试与适配层都走相对路径，不受影响）；确要对外就把它们写进 Spec 的接口清单。`DragState` 同理：Spec 把它放在 `./vue` 的类型里，现在却从核心入口导出。
+
+### 5. 过门槛那一下 move 重复判定了一次
+**严重程度**：建议
+**类别**：性能 / 代码质量
+**位置**：packages/nb-layout/src/drag-gesture.ts:386 到 417（`move` 里 `begin(from, point)` 之后继续往下走）
+**现象**：`begin` → `start` 已经同步 `publish()` 了一次（按当前坐标判定并发布），接着 `move` 往下走又执行 `current.point = point; schedule()`，下一帧再判定、再发布一次，坐标没变。资源树每次起拖因此多一次 `resolve`（含 `elementsFromPoint`、`getBoundingClientRect`）和多一次 `drag-hover` 给控制器。注释写的理由是让边缘滚动能从过门槛这一下开始，但这只需要第 413 到 416 行的边缘检查，不需要 `schedule()`。
+**为什么是问题**：每场拖动固定多一帧的判定与发布，行为上无害，但 `resolve` 在 Spec 里被强调为每帧都跑的热路径，而且“第一次发布”与“下一帧的第二次发布”在状态机测试里没有区分，以后有人在 `resolve` 里依赖“一帧一次”会踩到。
+**如何核实**：已实测。/tmp/review-w00026-t05-impl/mut/base/probe.test.ts：press 加一次过门槛的 move 之后 `resolve` 调用 1 次、排着 1 个待跑的帧；跑完这一帧 `resolve` 变成 2 次。
+**建议改法**：`begin` 之后只做边缘滚动检查，不 `schedule()`；或者让 `begin` 返回是否已发布。
+
+### 6. `key()` 里连发空格的守卫是空操作，`repeat` 输入字段没有别的用处
+**严重程度**：建议
+**类别**：代码质量 / 测试
+**位置**：packages/nb-layout/src/drag-gesture.ts:490（`if (cursor === null || (repeat && key === " ")) return true;`）、DragGesture.key 的 `repeat` 参数；drag-gesture.test.ts:736 “连发的空格不做事”
+**现象**：空格在 `key()` 里没有任何动作（Enter、Tab、方向键之外落到 else 分支，`stepOf(" ", axis)` 为 0）。删掉 `repeat && key === " "` 之后 67 条测试仍全过（变异 N7），“连发的空格不做事”这条用例无论守卫在不在都通过。
+**为什么是问题**：这行是从旧工作台代码照搬来的（旧代码同样多余），带着一个只有它在用的输入字段 `repeat`，读者会以为连发空格有特殊处理；用例名也在声称一个没有被测到的行为。
+**如何核实**：`/tmp/review-w00026-t05-impl/mut/run.sh N7 ...`（删守卫，测试全过）。
+**建议改法**：删掉守卫和 `repeat` 字段（适配层的 onKeyDown 已经在拿起时拒绝 `event.repeat`），“连发的空格”用例并入“空格拿起后不动”。
+
+### 7. 取捕获的 catch 把所有 DOMException 都当成“失去捕获”，没有诊断
+**严重程度**：建议
+**类别**：错误处理
+**位置**：packages/nb-layout/src/vue/drag-session.ts:197 到 205（`capture`）
+**现象**：`setPointerCapture` 抛出的任何 `DOMException`（期望的是指针已不存在的 `NotFoundError`，也可能是 root 已脱离文档的 `InvalidStateError`）都被吞成 `false`，上层按 `capture-lost` 取消，原始错误没有留下任何记录。
+**为什么是问题**：项目的禁止清单要求 catch 至少写一条诊断。这里的取消原因会在 `onEnd` 里可见，但第二种异常（宿主把 root 卸下后还在拖）会被说成“失去捕获”，排查时误导。
+**如何核实**：读代码。
+**建议改法**：只收 `NotFoundError`（按 `error.name`，是错误类型不是文案），其余照常抛出；或者在 catch 里 `console.debug` 一条带 `error.name` 的诊断。
+
+### 8. 注释与同名文档没跟上实现
+**严重程度**：建议
+**类别**：文档
+**位置**：
+- packages/nb-layout/src/vue/drag-session.ts:5：“根上常驻的只有按下与 click”——实际根上还常驻捕获阶段的 `pointerdown`（`onPressedAnywhere`），配了 `keyboard` 时还有捕获阶段的 `keydown`。
+- packages/neuro-book/src/plugins/editor/web/components/EditorGroup.md:45 与 EditorArea.md:48：EditorGroup 现在经 `useDropTarget` 登记 `EDITOR_GROUP_FILE`、`EDITOR_GROUP_TAB` 两个落点种类，EditorArea 的手势是 nb-layout 的会话，这两份同名 md 都没提（本片只改了 ExplorerTree.md 与 WorkbenchDragFeedback.md）。仓库规则“查改组件必读并列同名 .md”意味着它们应当是组件契约的真相源。
+- packages/neuro-book/src/plugins/explorer/web/controller.ts:248：`sameDrop` 原有的一行文档注释（“放下时重判的动作要与最后显示过的逐字段相同才提交”）随函数体改写被删掉了，现在是无注释的一行包装。
+**为什么是问题**：第一条会让人以为闲时根上只有两个监听；后两条让新增的登记、会话入口在组件文档里查不到。
+**如何核实**：读上述位置。
+**建议改法**：各补一句；EditorGroup.md 的“无 slots、expose；attrs 落在根 section”后面加“根元素经 useDropTarget 登记……（ui.layout-drag 输出 16），data-editor-group 只是样式与测试钩子”。
+
+### 9. 小的代码质量问题
+**严重程度**：建议
+**类别**：代码质量
+**位置**：
+- packages/neuro-book/src/plugins/editor/web/tab-drag.ts:87 `const hit = top;`——重命名遗留的别名，`top` 在函数里已有名字，后面应直接用 `top`。
+- packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue:227、:238、:287（Hovered.action、previewDrop、actionKey）与 :258、:496、:521、:545（读 props.drag.action）：`Hovered.action` 是 `resolve` 时经 `previewDrop` 算的，用来给会话做 `actionKey`；而画落点（`dropMarks`、`dropPreview`、`dropLabel`、停留展开的 watch）读的仍是 `props.drag.action`，也就是控制器经 `drag-hover` 回写的那份。同一个动作有两份来源，靠“`hoverDrag` 与 `previewDrop` 调同一个 `dropAction`”保持一致；行变了而控制器还没回写的那一帧它们可以不同。
+- packages/neuro-book/src/plugins/explorer/web/controller.ts:18 import 列表 `dropKey` 追加在末尾，不按字母序，与同文件风格不一致。
+**如何核实**：读代码。
+**建议改法**：第一条直接改；第二条让画反馈也读 `hovered.value.action`（或不再在 `Hovered` 里放 action，让 `actionKey` 经 `props.previewDrop` 现算），只留一份；第三条调整顺序。
+
+### 10. 每帧用 elementsFromPoint 取遮挡，资源树与标签原来用的是更便宜的 elementFromPoint
+**严重程度**：建议
+**类别**：性能
+**位置**：packages/nb-layout/src/vue/drag-session.ts:78 起（`topElementAt`）
+**现象**：三个宿主共用一个 `topElementAt`，每次 `resolve` 都调 `document.elementsFromPoint`（整叠命中链），绝大多数帧里最上层元素就不是反馈元素，只需要第一个。工作台原来就用 elementsFromPoint，资源树与标签原来是 elementFromPoint。
+**为什么是问题**：热路径每帧一次，Spec 强调 `resolve` 每帧跑；整叠命中在深层 DOM（编辑器区里的 Monaco）上比单点命中重。没有数据说明它已经造成卡顿，所以只是建议。
+**如何核实**：没有实测，从代码推断。
+**建议改法**：先 `elementFromPoint`，结果在 `[data-drag-feedback]` 里再回退到 `elementsFromPoint`。
+
+### 11. Lab 触摸用例的 browser context 失败时不收口
+**严重程度**：建议
+**类别**：测试
+**位置**：packages/neuro-book/e2e/lab-drag-session.e2e.ts:199 到 239（`touchPage` 与两条触摸用例）
+**现象**：用 `browser.newContext({hasTouch: true})` 手建上下文，`page.context().close()` 写在用例最后；中途断言失败时这个上下文留到 worker 结束。另外三个宿主的触摸用例用的是 `test.use({hasTouch: true})`，同一片里两种写法并存。
+**为什么是问题**：违反“失败时也收口”，也多占一个 Chrome 上下文拖慢后续用例（本机内存紧，见 stop-extra-servers 的经验）。
+**如何核实**：读代码。
+**建议改法**：改成与另外三个文件一致的 `test.describe` + `test.use({hasTouch: true})`，由 Playwright 管理 page 的生命周期。
+
+### 未发现问题的方面（仔细检查后）
+- 工作台 `evaluate` 与 `publish` 的先后：新实现里 `resolve` 不再带副作用，`publish` 在 `evaluate` 之后写 `shown` 与 `state`，放下那次判定不发布，与旧代码一致；结构键由 `activate` 先验一次、`structure` 在每次判定与放下前再验，比旧代码多挡了触摸 200 毫秒里布局变了的情况。
+- 预备区 `zones` 冻结：`frozen` 在 `activate` 里写，早于第一次发布，也早于键盘的 `regions`；`state` 这个 `computed` 只在 `session.state` 换对象时重算，而 `frozen` 只在一场开始前改，所以读闭包是安全的（`startKeyboard` 里 `activate` 先于 `keyboard.regions` 已核对）。
+- 键盘起点、`refocus`：与旧 `begin` 里的起点计算、`returnFocus` 逐段对过，只有“起点区域是预备区且没有落点元素”时旧代码会拿预备区中心去试 `own` 矩形、新代码给空数组，实际走不到。
+- `swallowClick` 各条路径：拖动结束、取消、`abort`、失败的捕获都置位；放下中那一帧在 `release` 里提前置位（click 在放下那一帧之前到）；`takeClick` 对 `detail` 为 0 不吞。放下中的路径上 finish 会再置位一次，之后没有 click 到来，但下一次按下的 `pressed()` 会清掉，无害。
+- `finish` 重入：先 `active = null` 再回调，回调里再调 `cancel`、`abort`、`invalidate` 都是空操作；`commit` 抛出时监听、捕获已收；`grabbed` 失败走 `cancel("capture-lost")` 收场，`activeChanged(false)` 与 `ended` 都有，资源树的 `flyBack` 因 `props.drag` 尚为 null 不会飞。
+- `release` 的“放下中”一帧里各入口：`move`、`withdraw`、`resized`、`invalidate`、`scrolled` 都有守卫；Escape 与 dispose 照常收场并清帧（只是第 1 条说的三个守卫没有测试）。
+- 资源树：`watch(state, {flush: "sync"})` 建在 `onMounted` 里，处在实例作用域内，随组件卸载停止；`onBeforeUnmount` 的 `dispose` 先于作用域停止，所以 dispose 触发的 `publish(null)` 仍会清停留展开。`dropKey` 与旧 `sameDrop` 逐类等价（move 只比 target，不比 `ordered`；open 只比 group 与 addresses，不比 `skipped`）。`props.drag` 晚一拍时 `ghostAt` 返回 null、`flyBack` 直接不飞，不会抛。
+- 落点登记：`useDropTarget` 的 `flush: "post"` 与 `immediate: true` 组合下，`section` 的 ref 在同一轮后置队列里先赋值再登记，早于下一个指针事件；`resolveTabDrop` 的 `root.contains(target.element)` 与旧的 `root.contains(groupElement)` 等价；`sourceAt` 对 `tab` 为 null 的情形先短路。
+- 打包：`editor/shared/contracts.ts` 只被各插件的 web 侧与测试引用（grep 核实，后端、SDK 入口都没有），neuro-book 是 private 应用，nb-layout 在 devDependencies 里本来就被所有 web 组件运行时导入；`plugin-sdk/pack.ts` 与 `scripts/release/` 不涉及；`src/architecture.test.ts` 7 过。
+- Lab 场景：`DragSessionScene.vue` 根上有 `data-lab-subject`，Teleport 的拖影随 `v-if` 与卸载清理，输入是占位（与 NestedGrid 的先例一致）；`DropFeedbackOverlayFixture.vue` 保留原三个场景的绑定，并多登记了 `settled` 事件（原先没有，属于无害的小增补）。
+- 常见返工项：没有按错误文案分支（第 7 条是按异常类型）；没有 `as any`、`@ts-` 或跳过的测试；没有固定时长的等待（e2e 用 `expect.poll`/`toHaveAttribute` 与双 rAF）；没有跨包深导入。
+- 状态机单元测试的强度：17 个变异里 14 个被抓住（收场顺序、click 吞法、结构键、buttons 门槛、捕获忽略、焦点还法、边缘滚动自滚、放下比较都能抓到）。
+
+### 未验证
+- 全部 e2e（按规则不跑）：尤其是外壳捕获从来源换到根之后的 `:active` 与光标表现（计划里的风险项，`WorkbenchDragFeedback.md` 的新说法“按住期间 `:active` 会一直生效”是推断，没有真实浏览器证据）。
+- nb-layout 的 dom 测试变异（把包拷到 /tmp 后 vitest 解析不到依赖，没做）。
+
+各级数量：阻断 0，重要 0，建议 11。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11

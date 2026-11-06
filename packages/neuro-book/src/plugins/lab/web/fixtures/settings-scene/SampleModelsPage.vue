@@ -312,7 +312,7 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
                                         bare
                                         commit="change"
                                         :onUpdate:modelValue="handlersFor(current.key, field.name).update"
-                                        :onDraftState="handlersFor(current.key, field.name).draft"
+                                        @draft-state="handlersFor(current.key, field.name).draft"
                                     />
                                 </div>
                             </div>

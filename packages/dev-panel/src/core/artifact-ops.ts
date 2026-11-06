@@ -11,6 +11,7 @@ import {
     assertArtifactId,
     closeQuestions,
     listAnswerFileNames,
+    listVersionNumbers,
     listArtifactIds,
     nextQuestions,
     nextRecordId,
@@ -23,8 +24,8 @@ import {
     unackedAnswers,
     versionPath,
     versionSeeds,
+    waitingStates,
     adoptionOf,
-    awaitsAnswer,
     type AckRecord,
     type Adoption,
     type AnswerRecord,
@@ -474,7 +475,7 @@ export async function askQuestions(context: RepoContext, input: {workRef: string
             type: spec.type as QuestionType,
             label: spec.label,
             options: [...(spec.options ?? [])],
-            required: spec.required ?? true,
+            required: spec.required ?? false,
             recommend: [...(spec.recommend ?? [])],
             origin: "ask",
             page: null,
@@ -515,6 +516,27 @@ export function withdrawQuestion(context: RepoContext, input: {workRef: string; 
         liveQuestion(snapshot, questionId);
         const questions = snapshot.latest.questions.map((question): VersionQuestion => (question.id === questionId ? {...question, outcome: {kind: "withdrawn", in: version, reason: "explicit"}} : question));
         return {questions, affected: [questionId], text: `撤回提问 ${artifactId}#${questionId}`};
+    });
+}
+
+/**
+ * 面板的“撤回没答的题”：Task 的提问集不能关闭（见 `closeArtifact`），开发者不想答了就把没答的题一次撤回。已答的题不动。
+ * 没有可撤回的题时不出新版本。
+ */
+export function withdrawUnanswered(context: RepoContext, input: {workRef: string; taskRef: string; artifactId: string}, options: ArtifactOpOptions = {}): Promise<WriteOutcome<DerivedData>> {
+    return deriveVersion(context, input, "withdraw", options, async (snapshot, version, tx) => {
+        const answered = answeredIds(snapshot);
+        const affected: string[] = [];
+        const questions = snapshot.latest.questions.map((question): VersionQuestion => {
+            if (question.outcome || answered.has(question.id)) return question;
+            affected.push(question.id);
+            return {...question, outcome: {kind: "withdrawn", in: version, reason: "explicit"}};
+        });
+        if (affected.length === 0) {
+            tx.warn({code: "nothing_to_withdraw", message: `${snapshot.ref.artifactId} 没有可撤回的题，没有出新版本`, details: {version: snapshot.latest.version}});
+            return null;
+        }
+        return {questions, affected, text: `撤回 ${snapshot.ref.artifactId} 里没答的 ${affected.length} 道题`};
     });
 }
 
@@ -723,7 +745,7 @@ export type ArtifactAnswersView = {
     version: number;
     state: "open" | "closed";
     publishedAt: string;
-    openRequired: number;
+    waiting: number;
     adoption: Adoption;
     questions: QuestionState[];
     answers: AnswerRecord[];
@@ -745,7 +767,7 @@ function answersView(snapshot: ArtifactSnapshot & {latest: ArtifactVersion}): Ar
         version: latest.version,
         state: latest.state,
         publishedAt: latest.publishedAt,
-        openRequired: states.filter(awaitsAnswer).length,
+        waiting: waitingStates(states, snapshot.answers).length,
         adoption: adoptionOf(snapshot.answers, snapshot.acks),
         questions: states,
         answers: snapshot.answers,
@@ -755,7 +777,7 @@ function answersView(snapshot: ArtifactSnapshot & {latest: ArtifactVersion}): Ar
     };
 }
 
-/** 按查询挑出产物与题：`pending` 只留有 open 必答题的产物与这些题；`since` 只留有更新答复的；`unacked` 只留有未确认答复的。 */
+/** 按查询挑出产物与题：`pending` 只留有等开发者答的题的产物与这些题；`since` 只留有更新答复的；`unacked` 只留有未确认答复的。 */
 function select(views: readonly ArtifactAnswersView[], query: AnswersQuery): ArtifactAnswersView[] {
     if (query.since !== undefined) {
         return views.flatMap((view) => {
@@ -764,7 +786,7 @@ function select(views: readonly ArtifactAnswersView[], query: AnswersQuery): Art
         });
     }
     if (query.filter === "pending") {
-        return views.filter((view) => view.openRequired > 0).map((view) => ({...view, questions: view.questions.filter(awaitsAnswer)}));
+        return views.filter((view) => view.waiting > 0).map((view) => ({...view, questions: waitingStates(view.questions, view.answers)}));
     }
     if (query.filter === "unacked") return views.filter((view) => view.unacked.length > 0);
     return [...views];
@@ -834,9 +856,12 @@ async function readScope(entries: readonly ScopeEntry[], query: AnswersQuery): P
 
 export type WaitOptions = {timeoutMs: number; pollMs?: number; signal?: AbortSignal; onWaiting?: (scope: readonly ArtifactRef[]) => void; scope?: AnswersScope};
 
+/** 开发者把它关了或把题都撤了：没有题可答，等下去只会一直超时、重挂。 */
+const nothingLeftToAnswer = (view: ArtifactAnswersView) => view.state === "closed" || view.questions.every((state) => state.state !== "open");
+
 /**
- * `nbdev answers --wait`：选中的答复不为空就返回。范围在开始时完整读一次；之后每秒只 readdir 主工作区里（答复只写在 master 上）
- * 这些产物的 `answers/`，不跑 Git、不做过渡期判定，目录有变化才重读那个产物。没指定产物时还 readdir 范围内各 Task 的 `artifacts/`，
+ * `nbdev answers --wait`：选中的答复不为空，或者等着的产物被关闭、题都撤回了（开发者 11-05：评审能自己关）就返回。范围在开始时完整读一次；之后每秒只 readdir 主工作区里（答复只写在 master 上）
+ * 这些产物的 `answers/` 与 `versions/`，不跑 Git、不做过渡期判定，目录有变化才重读那个产物。没指定产物时还 readdir 范围内各 Task 的 `artifacts/`，
  * 新建的产物加入范围：会话常常先挂等待、后 `ask`，Task 的提问集是第一次登记时才建的。超时报 `wait_timeout`，被信号打断报 `wait_interrupted`。
  */
 export async function waitForAnswers(context: RepoContext, query: AnswersQuery, options: WaitOptions): Promise<AnswersResult> {
@@ -845,11 +870,17 @@ export async function waitForAnswers(context: RepoContext, query: AnswersQuery, 
     const scope = options.scope ?? await resolveAnswersScope(context, effective);
     const keyOf = (ref: ArtifactRef) => `${ref.workId}/${ref.taskId}/${ref.artifactId}`;
     const watched = scope.artifacts.map((entry) => entry.ref);
+    const listing = async (ref: ArtifactRef) => `${(await listAnswerFileNames(context.mainRoot, ref)).join("\n")}\n${(await listVersionNumbers(context.mainRoot, ref)).join(",")}`;
     // 先列 known、再完整读：反过来的话，完整读之后、列 known 之前落位的答复会被记成“看过了”，却不在读到的结果里，要等到超时才返回。
     const known = new Map<string, string>();
-    for (const ref of watched) known.set(keyOf(ref), (await listAnswerFileNames(context.mainRoot, ref)).join("\n"));
+    for (const ref of watched) known.set(keyOf(ref), await listing(ref));
     const first = await readScope(scope.artifacts, effective);
     if (first.artifacts.length > 0) return first;
+    // 只等一个产物、它已经关了：挂上就永远等不到。等整个 Task 时不看（Task 里关掉的老产物很常见）。
+    if (query.artifactId !== undefined && scope.artifacts.length === 1) {
+        const snapshot = await readArtifact(scope.artifacts[0]!.root, scope.artifacts[0]!.ref);
+        if (snapshot.latest?.state === "closed") return {...first, artifacts: [answersView({...snapshot, latest: snapshot.latest})]};
+    }
     if (watched.length === 0) {
         first.warnings.push({code: "wait_scope_empty", message: "范围里还没有产物，照常等；等待期间新建的产物会加入范围", details: {tasks: scope.tasks.map((task) => `${task.workId}/${task.taskId}`)}});
     }
@@ -871,20 +902,24 @@ export async function waitForAnswers(context: RepoContext, query: AnswersQuery, 
                 for (const artifactId of await listArtifactIds(context.mainRoot, task.workId, task.taskId)) {
                     const ref = {workId: task.workId, taskId: task.taskId, artifactId};
                     if (known.has(keyOf(ref))) continue;
-                    // 新产物按“answers/ 原本为空”登记，下面列出答复就会读它。
+                    // 新产物按“什么都没有”登记，下面列出答复或版本就会读它。
                     known.set(keyOf(ref), "");
                     watched.push(ref);
                 }
             }
         }
         for (const ref of watched) {
-            const names = (await listAnswerFileNames(context.mainRoot, ref)).join("\n");
+            const names = await listing(ref);
             if (names === known.get(keyOf(ref))) continue;
             known.set(keyOf(ref), names);
             const snapshot = await readArtifact(context.mainRoot, ref);
             if (snapshot.latest) views.set(keyOf(ref), answersView({...snapshot, latest: snapshot.latest}));
         }
         const selected = select([...views.values()], effective);
+        // `views` 里只有等待期间变过的产物：这时才没题可答的，是刚被关掉或撤完的；已经没题的老产物不会让等待立刻返回。
+        for (const view of views.values()) {
+            if (nothingLeftToAnswer(view) && !selected.some((entry) => entry.artifactId === view.artifactId && entry.taskId === view.taskId && entry.workId === view.workId)) selected.push(view);
+        }
         if (selected.length > 0) {
             const cursor = [first.cursor, ...[...views.values()].map((view) => view.cursor)].filter((value): value is string => value !== null).sort().at(-1) ?? null;
             return {artifacts: selected, cursor, scope: [...watched], warnings: first.warnings};

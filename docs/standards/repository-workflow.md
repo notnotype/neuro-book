@@ -30,6 +30,7 @@ Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主
 - 不同 Work 的分支各自并行推进。
 - 同一个 Work 里多个 Agent 并行做几个 Task 时，按是否冲突选位置：改动的文件与合同不重叠（例如一个写前端组件、一个写后端接口）时都在 Work 分支上做，各自路径限定提交；会改同一批文件或同一份合同时，基于 Work 分支另开 worktree `.worktree/<Work 编号>-<Task 编号>-<短名>`（`nbdev worktree new … --from <Work 分支>`），分支 `{type}/{Work 编号}-{Task 编号}-{slug}`，做完合回 Work 分支。Task 有依赖时顺序推进，不为并行而拆 Task。
 - 默认路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
+- worktree 变基后如果 master 新增了 workspace 包，先跑 `bun install`，否则模块解析到主工作区，Vite 报 `Denied ID`。
 - 直接改主工作区前先看 `git status`：目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动；主工作区定位与保护要求见根 [AGENTS.md](../../AGENTS.md#git-注意事项)。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
 - 验证和提交分成两步：看过验证结果再提交，不把测试与 `git commit` 串在一条命令里。

@@ -13,3 +13,8 @@ export const MODELS_TEXT_NAMESPACE = "nbook.models";
 export const modelsText = pluginText<typeof zhCN>(MODELS_TEXT_NAMESPACE);
 
 export type ModelsTextKey = CatalogKey<typeof zhCN>;
+
+/** 内置角色没改过名字时，名字在目录的这个键上（模型服务的设置页与对话的选择器共用）；别的情况交回 null。 */
+export function builtinRoleNameKey(role: {readonly id: string; readonly builtin: boolean; readonly name: string}): ModelsTextKey | null {
+    return role.name === "" && role.builtin ? `roles.builtin.${role.id}.name` as ModelsTextKey : null;
+}

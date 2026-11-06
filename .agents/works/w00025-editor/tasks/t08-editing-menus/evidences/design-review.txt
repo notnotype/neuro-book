@@ -1,0 +1,172 @@
+t08 实施计划设计审查报告（只追加；审查对象 .agents/works/w00025-editor/tasks/t08-editing-menus/plan.md）
+依据说明：除标明“实测”外，均为读代码与 node_modules 源码的推断，未跑 e2e。
+
+------------------------------------------------------------
+[01] 严重程度：阻断   类别：正确性
+位置：plan 第 3 节（命令 id `nbook.markdown.<动作>`）；packages/neuro-book/src/plugins/commands/shared/registry.ts:81、:131-134；docs/specs/workbench/commands.md “命名与域词表”
+现象：计划把全部编辑命令登记成 `nbook.markdown.bold`、`nbook.markdown.heading-1`、`nbook.markdown.toggle-toolbar` 等，但内置命令 id 的域必须在词表 COMMAND_DOMAINS（view、editor、edit、quick-open、settings、account、project、app、help、files）里。
+为什么是问题：`commandDeclarationProblems` 对 `nbook.` 开头的插件，域不在词表时给出“未登记的命令域：markdown”，这一条声明被拒（贡献点校验与命令表登记共用这一份规则）。后果是约 25 条命令一条也进不了命令表，菜单项“命令不在目录里不显示”，工具栏与全部菜单整体不出现。Spec 明说“内置命令的域表示功能领域，不等于提供方插件 id”。S0 的文档改动表里没有改 commands.md 的域词表，也没有改 registry.ts。
+如何核实：读 registry.ts:81 与 :131-134；`commands/shared/registry.test.ts:124` 有同类断言。可在 S1 写一条真实注册的测试看到被拒。
+建议改法：二选一并写进 S0：(a) 在词表里新增域 `markdown`（改 registry.ts 的 COMMAND_DOMAINS 与 commands.md 的域词表和命令目录，并在计划里列为改动文件）；(b) 把命令放进现有域，例如 `edit`（`nbook.edit.bold` 与已有 `nbook.edit.undo` 同域，且和“撤销、重做复用 nbook.edit.undo”一致）。(b) 不用扩词表，但域名撞“功能领域”的含义要在 Spec 里说一句。另外计划里 `when` 写的 `nbook.markdown.writable` 应是限定名 `nbook.markdown/writable`（public-state 的贡献 id 是 `<插件 id>/<名>`），文中几处点号写法在 S0 写 Spec 时要统一，否则 `when` 引用的键“未登记”，命令永远不可用。
+
+------------------------------------------------------------
+[02] 严重程度：重要   类别：正确性
+位置：plan 第 6 节、第 10 节；packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:155-157、:405-419；node_modules/@tiptap/extension-bubble-menu/src/bubble-menu-plugin.ts（BubbleMenuPluginProps.element、constructor）；node_modules/@tiptap/core/src/Editor.ts:192-222、:132-141（mount/unmount）
+现象：BubbleMenu 扩展的 `element` 在扩展配置时就固定（`BubbleMenu.configure({element})`，插件工厂 `view => new BubbleMenuView({view, ...options})` 每次都用这同一个 element）。但 MarkdownControl 的编辑器实例存在组的实例槽里，组件因布局变化重挂时走 `kept` 分支：`editor.mount(root)`，旧组件卸载。Editor.unmount() 会 `editorView.destroy()`，mount() 会 `createView` 重新建全部插件视图，用的还是第一次配置的 element。
+为什么是问题：Vue 的 MarkdownBubbleMenu 组件随旧的 MarkdownControl 卸载，它渲染的 DOM 元素（内容是 Vue 渲染的，非响应式）留在插件里；新挂的组件渲染的是另一个元素，插件不认识它。表现是拆分、关闭相邻组让 grid 重建后，选区浮动菜单显示的是死的旧元素（点不动或内容过期）或根本不出现。计划第 10 节说“不改 Editor 实例的生命周期”，但没处理“扩展选项里捕获了组件级 DOM”这一点。块按钮、斜杠菜单若同样把 DOM 或回调在扩展配置时绑定，也是同一类问题。
+如何核实：读上列源码；在 dom 测试里让同一个 Editor 实例卸载再挂到新的 MarkdownControl 上，选中文字后检查气泡元素是否是新组件渲染的那一个。
+建议改法：气泡的外框 DOM 由 KeptEditor（槽里的实例记录）持有，随编辑器实例一起建、一起销毁；Vue 内容用 `<Teleport :to="外框">` 渲染进去，每个 MarkdownControl 实例挂载时把自己的内容挂到外框、卸载时撤掉。不要用 `registerPlugin/unregisterPlugin` 在控件挂载时动态加：保存在 `binding.slot.state` 里的旧 EditorState 带着旧的插件集，`enter` 里 `updateState(view.state)` 会把动态插件换掉（见 [03]）。回调类的东西（块范围、触发状态交给 Vue）同理走“实例级的可替换回调”，不要在扩展配置时闭包住某个组件实例。
+
+------------------------------------------------------------
+[03] 严重程度：重要   类别：不变量
+位置：plan 第 10 节“新插件的状态按文档各一份，视图级的东西在换绑定时清掉”、风险 2；MarkdownControl.vue:158（load）、:195（enter）；node_modules/prosemirror-view/src/index.ts:256-273（updatePluginViews）；node_modules/prosemirror-state/src/state.ts:45-60
+现象：计划把“换文档”理解为共用一组插件、只有插件状态各一份。实际上 `EditorState.create({plugins: editor.state.plugins})` 每次都 new 一个 Configuration，`state.plugins` 是新数组。`updatePluginViews` 用 `prevState.plugins != this.state.plugins`（数组身份）判断，所以每次 `load()`（新文档），以及在两个不同 Configuration 的保存状态之间切换（A↔B 的 `enter`），都会销毁并重建全部插件视图（BubbleMenuView、计划的触发插件视图、块按钮插件视图都会 destroy 再 constructor）。
+为什么是问题：(1) 计划写的“换文档时菜单残留”风险方向不对：实际是插件视图每次都重建，要保证 destroy 干净、constructor 可重入（事件监听、定时器、交给 Vue 的“当前块/触发”状态必须在 destroy 时清空，否则 Vue 持有的是旧视图的数据）。(2) BubbleMenuView 的构造函数会 `getShouldShow()` 并直接 show：切回一个存着非空选区的标签，焦点一回来（focusHandler 的 setTimeout）就弹出气泡，切标签时闪一下。(3) 每次切标签都重建 DOM 监听，成本小但要有人负责释放。
+如何核实：在 dom 测试里给插件视图加一个 constructor/destroy 计数，对同一 Editor 先 load 再 enter 另一份状态，看计数；或读 prosemirror-view 的 updatePluginViews。
+建议改法：S1 的那条“换绑定后菜单都收起”测试改成真实判据：A、B 两文档来回切，插件视图 destroy 后 Vue 里的菜单状态为空、气泡不因恢复选区而弹出；气泡的 shouldShow 加“用户刚做出选择”的条件（见 [05]），不能只看选区非空。第 10 节的描述改成事实。
+
+------------------------------------------------------------
+[04] 严重程度：重要   类别：正确性（合同缺口）
+位置：plan 第 2、3 节（`enabled` 用 `editor.can()`、命令 `when` 只要求 writable）；docs/specs/workbench/commands.md “可用性求值”；menus.md 输出 2
+现象：计划说格式动作在代码块、原样块里“不可用，按钮置灰”，来源是动作目录里每个动作的 `enabled(editor)`。但命令的可用性只有一个口径：声明里的 `when`（公开布尔键的 all-of 正条件）。第 3 节给命令的 `when` 只写了 `writable`，公开键只有 `active`、`writable` 和每个动作的“已勾选”布尔键，没有任何键表示“这个动作此刻能不能做”。
+为什么是问题：(1) 命令面板、插件贡献的菜单项、Agent 以外的所有命令触发面都按 `when` 判断，代码块里的光标下粗体命令仍列在面板里、可点，执行时 `run` 返回“没生效”，计划没写这时 CommandResult 是什么码和原因（commands.md 规定失败必须结构化，面板与快捷键执行失败还会弹通知，需要原因文字）。(2) 工具栏按钮、右键菜单的置灰若直接读 `editing.state`，就出现“同一动作两套可用口径”：内置按钮灰、同一条命令从命令面板却可用。(3) 约 25 个布尔键里是“勾选态”，没有“可执行态”，插件贡献的菜单项（菜单项禁用取命令的 `when`）永远不会因代码块而灰。
+如何核实：读 commands.md “可用性求值”和“执行顺序”（`when` 是执行前的固定一步）；计划第 3 节没有任何 `can*` 键或对应的 `when.requires`。
+建议改法：不要一动作一个“可执行”键（会翻倍）。按可用性分类发粗粒度布尔键，命令的 `when.requires` 引用它们：例如 `canFormat`（行内格式能用：不在代码块、原样块）、`canConvertBlock`（块类型转换能用）、`hasSelection`。再规定 `run` 在条件失效时返回 `{ok:false, code:"unavailable", reason: 文字引用}`，工具栏、菜单一律读命令的可用性（`commands.isEnabled`），不再另读 `editing.state.enabled`。动作目录里的 `enabled` 只留给 `run` 内部做最后校验。
+
+------------------------------------------------------------
+[05] 严重程度：重要   类别：不变量（首屏体积、包边界）
+位置：plan 第 2、3 节（动作目录在 `nb-markdown/src/editor/editing-actions.ts`，`markdown/web/editing/commands.ts` 与 `state.ts` 登记命令和键）；markdown/web/plugin.ts 文件头注释；nb-markdown/src/editor/index.ts
+现象：`markdown/web/plugin.ts` 的头注释明确一条设计：nb-markdown 的组件、语法模块、解析器与编辑内核“只从 .vue 组件引用，入口本身不引它们，所以首屏不含它们”。计划把命令声明放在 `markdown/web/editing/commands.ts`（由 plugin.ts 静态引用），声明要从动作目录取 id、标题、图标、快捷键文字；而目录文件“纯 Tiptap”，与 `run/active/enabled` 写在同一处，从 `@notnotype/nb-markdown/editor` 导出（该入口的 index 还导出 `createMarkdownEditorExtensions`）。
+为什么是问题：插件入口一旦静态引用该目录，Tiptap core/pm/StarterKit 与（间接的）语言模块就进了首屏 chunk，违反上面这条已有设计，也让后端类型检查展开浏览器插件时多展开一批类型。计划没有提这件事，也没有首屏体积的验收。
+如何核实：看 plugin.ts 头注释；在实现后用构建产物检查入口 chunk 是否含 `@tiptap/core`（或 vite 的 manualChunks 报告）。
+建议改法：动作目录分两份：纯数据的（id、分类、参数 schema、图标、快捷键文字，不 import Tiptap）放 nb-markdown 的一个无 Tiptap 的子入口或 nbook 的 `markdown/shared/`，供命令声明、菜单与 Spec 对照；带 `run/active/can` 的实现留在 `.vue` 能到达的懒加载路径。命令的 `run` 本来就走 `editing.run(id,args)`，不需要静态引用实现。S1 加一条“入口 chunk 不含 Tiptap”的检查。
+
+------------------------------------------------------------
+[06] 严重程度：重要   类别：正确性
+位置：plan 第 4、5 节（工具栏按钮状态由公开键给出）；第 1 节“目标取活动控件”；EditorGroup.vue:252-253；editor/web/state.ts（active、writable 都按活动组）
+现象：工具栏是每个 MarkdownControl 自带的，拆分后每个 Markdown 组一份。按钮的勾选态与可用性来自 `nbook.markdown/*` 公开键，而这些键只反映“活动组”的控件。
+为什么是问题：拆分成左右两个 Markdown 组时，非活动组的工具栏显示的是活动组光标处的粗体/标题状态与活动组的 writable（例如活动组可写、非活动组是只读文档，非活动组的按钮仍是可用样子）。点击时 pointerdown 先 `focusGroup` 再执行，所以执行目标是对的，但点之前看到的状态是错的，键盘 Tab 进入或悬停提示也是。计划只写了“点按钮之前已把这一组设为活动”，没有处理显示。
+如何核实：计划第 3 节“由 connectActiveControl 给出的句柄的 editing.state 算出”只有活动句柄一个来源。拆分两个 Markdown 组实测即可（e2e）。
+建议改法：工具栏读自己控件的 `editing.state`（控件内部直接拿，不经公开键），公开键只服务命令的 `when`、插件菜单项与命令面板；执行仍走命令（先 `focusGroup`）。非活动组的工具栏要么按自己控件的状态显示，要么整体置灰直到点进去，计划里写死其一，并在 e2e 里加“拆分后非活动组的粗体状态不被活动组带偏”。
+
+------------------------------------------------------------
+[07] 严重程度：重要   类别：正确性
+位置：plan 第 1 节（connectActiveControl）；editor/web/plugin.ts:100-110（依赖 markdownKey）、:236-251（activate 返回）；editor/web/area.ts:460（activeHandle）；markdown/web/plugin.ts
+现象：两个插件的依赖和激活顺序其实支持计划的方向（editor 依赖 markdownKey，markdown 先激活，editor 激活时才能调 connect）。但计划没有写：(a) 释放时机：editor 的 activate 只有 `context.signal` 的 abort 可挂，计划没写“abort 时调返回的释放函数”；(b) markdown 先于 editor 激活，`nbook.markdown/*` 公开键和命令在 editor 连上之前就已登记，此时读到的是“未连接”，必须当 false，不是抛错；(c) 同一个 MarkdownService 对象在 editor 停止后重新激活时被再次 connect：旧连接没释放就连新连接时是覆盖还是报错没定；(d) `EditorControlHandle` 的 `editing` 字段需要 `editor/shared/contracts.ts` 引 `markdown/shared/contracts.ts` 的 `MarkdownEditing`，而 `markdown/shared/contracts.ts` 为了 `connectActiveControl(source: () => EditorControlHandle|null)` 又要引 editor 的类型：两个 shared/contracts 互相 `import type`。type-only 在 TS 里不报错，但这是 plan 自己说“不可接受就挪”的那一条，且这样 `nbook.markdown` 的公开合同第一次依赖 `nbook.editor` 的合同，方向与“editor 依赖 markdown”相反。
+为什么是问题：这些都是后续切片“照字面实现会返工”的地方；(a)(c) 不写，插件热停启后命令仍指向已释放的控件。
+如何核实：读两个 plugin.ts 的 dependencies 与 activate 返回；区内 `activeHandle` 是 computed，source 在 computed 里读是响应式的，这一点计划成立。
+建议改法：见 [08]（更简单的做法）。若仍保留 connect：写明 connect 只允许一个来源（第二次 connect 抛错或后者替换前者并释放前者）、`source` 在 computed 里读、editor 在 `context.signal` abort 时释放；`MarkdownEditing` 的形状放 editor 的 shared/contracts（markdown 不 import editor 合同，用泛型或最小结构 `{editing?: unknown}` 接收），避免互相引用。
+
+------------------------------------------------------------
+[08] 严重程度：建议   类别：代码质量（更简单的做法）
+位置：plan 第 1 节“限制”、第 3–4 节
+现象：为了让命令与五个菜单位置归 `nbook.markdown`，计划造了一个反向连接、一个 `MarkdownEditing` 句柄形状、markdown 插件新增对 commands、state、settings、workbench 菜单、编辑器设置分区的依赖（视图菜单勾选项、`nbook.markdown/toolbar` 设置、五个菜单位置、公开键、命令，全在 markdown 里）。这是在迁就“Markdown 控件放在 nbook.markdown、editor 又依赖它”这个上游拆分。
+为什么是问题：这个上游决定的理由是首屏懒加载（见 [05] 引的头注释），并不要求命令与菜单位置也在 markdown 里。`nbook.editor` 本来就拥有“活动组 → 活动控件句柄”的全部机制、`editor.title`/`editor.tab-context` 两个菜单位置、设置分区 `EDITOR_SECTION`、视图菜单项和 `nbook.editor/*` 公开键，并且已经依赖 commands、state、settings、workbench。把命令/菜单位置/公开键放进 `nbook.editor`，`EditorControlHandle.editing` 是 editor 自己合同里的可选字段（MonacoControl、HtmlPreview 照样可以以后提供自己的 `editing`），不需要 connectActiveControl，不需要 markdown→editor 的反向类型，设置分区也不必借用别人的（markdown 没有设置分区，计划写“照 breadcrumbsSetting”，但那个设置的 section 是 `EDITOR_SECTION`，markdown 要用就得 import editor 的 shared/settings，又是一条反向依赖）。
+如何核实：对比 editor/web/plugin.ts 的依赖列表与 markdown/web/plugin.ts 的依赖列表。
+建议改法：向开发者提“把命令、公开键、菜单位置、显隐设置归 nbook.editor（命令域选 edit 或新增 markdown 域）”作为候选，代价是 editor 合同里出现“编辑动作”的概念，但它是控件能力的泛化（`editing` 能力），不是 Markdown 专有。若坚持归 markdown，则回答 [05]、[07] 的问题。上游选择“命令与菜单跟着控件所在插件”没有记录的理由（Task README 与 plan 都只写了依赖方向）。
+
+------------------------------------------------------------
+[09] 严重程度：重要   类别：正确性（数据）
+位置：plan 第 5 节（工具栏“清除格式”）、选区菜单（决定 10 的“清除格式”）；plan 第 2 节没有列这个动作；packages/nb-markdown/src/language/syntax/comment/index.ts:102-135（`comment` 是 Mark）、ruby/text-marks 同为 Mark
+现象：计划里“清除格式”没有定义。最顺手的实现（Tiptap `unsetAllMarks`，即 `tr.removeMark(from, to)`）会移除选区内的全部标记，包括 `comment`（批注）、`markdownRuby`（注音）、`link`（t09 之后的链接）。
+为什么是问题：批注是审阅数据，不是“格式”；用户在带批注的段落上点“清除格式”，批注被静默删除，写回后文件里的 `<comment>` 标签消失，撤销之外没有恢复路径。选区菜单、工具栏、命令面板三处都有这个动作。块级“清除格式”（`clearNodes`）还会把提示块、引用、对齐、批注块一并拆开，计划也没写。
+如何核实：在 dom 测试里对带 `comment` 标记的选区执行候选实现，读回 doc。
+建议改法：S0 的 Spec 写明“清除格式”只移除哪些标记（粗体、斜体、删除线、行内代码、文字颜色、高亮、上标、下标，列成明确集合），保留 `comment`、`link`、`markdownRuby`；是否同时清块级（标题→正文）单独定，默认不清。测试用带批注的段落断言批注仍在。
+
+------------------------------------------------------------
+[10] 严重程度：重要   类别：正确性
+位置：plan 第 6 节 + 风险 1；node_modules/@tiptap/extension-bubble-menu/src/bubble-menu-plugin.ts（默认 shouldShow、updateDelay=250、show/hide、blurHandler、transactionHandler）
+现象：读了源码，计划里留给 S3“先核对”的结论现在就能下：(1) 默认 shouldShow 只看“有焦点、选区非空、可编辑”，没有鼠标状态，拖选过程中每次选区变化后 250 ms 防抖就会弹出，与 `r2-bubble`“松开鼠标后出现”不符；(2) `shouldShow` 只在编辑状态更新时调用，松开鼠标不产生事务，所以只在 shouldShow 里判断“鼠标是否按下”，松开后气泡不会出现，要额外派发事务或 meta，而 meta `'show'` 会绕过 shouldShow；(3) 插件没有“按 Esc 收起”“打字时收起”的状态，要自己写一份状态机；(4) `show()` 把元素 `appendChild` 到编辑器父元素、`hide()` 把它 `remove()`，元素 `tabIndex` 被设成 0，blur 时是否隐藏取决于 `relatedTarget` 是否在 `element.parentNode` 里。
+为什么是问题：计划的“注音：点了开一个带单个输入框的 Popover”和“文字颜色、高亮”的 Popover 都会被传送到 body（nb-ui Popover 的 Portal，见 feedback/Popover.md）。点注音按钮时焦点进输入框，编辑器 blur，`relatedTarget` 在传送出去的面板里，不在气泡元素的父元素内；是否隐藏全靠 `mousedown` 捕获阶段设的 `preventHide` 吞掉第一次 blur 这个时序，换成键盘或脚本聚焦就会 hide，气泡元素被 `remove()` 后，Popover 锚点脱离文档，面板落到视口左上角。再叠加 [02][03]（元素固定、插件视图每次换文档重建），扩展本身能省下的只剩“量矩形 + 调 floating-ui”。同一页面还会并存两套定位引擎：气泡用 floating-ui 直接摆 DOM，斜杠菜单、块菜单、Popover 用 nb-ui 的 Reka 弹层，违反设计语言“浮层外观只有一个登记处”的精神，也是“同一件事各写一份、靠加载顺序碰巧成立”的信号。
+如何核实：读上述源码；e2e：选区后点注音按钮并聚焦输入框，检查气泡是否仍在、Popover 是否在按钮附近。
+建议改法：不要把“配置不了就去依赖”留到 S3，现在就把兜底方案提为主方案：自写一个小的 ProseMirror 插件视图只负责状态机（选区非空、编辑器有焦点、鼠标已松开、非组字、非代码块、可写、未按 Esc、选区后未打字）并把虚拟锚点矩形交给 Vue，内容用 nb-ui 的 Popover/SuggestionMenu 同一套传送与定位（popover-anchor.ts 已支持虚拟锚点）。这样外框 DOM 不绑在 Editor 实例上，解决 [02]，不依赖 BubbleMenu 的 blur 时序，也不新增依赖。
+
+------------------------------------------------------------
+[11] 严重程度：重要   类别：正确性
+位置：plan 第 7、8 节（斜杠菜单触发；“`+` 插入空块并打开斜杠菜单”）；packages/nb-markdown/src/prompt/prompt-editor-extensions.ts:249-292（readTrigger、createTriggerPlugin）、prompt/PromptEditor.vue:329-346（syncTrigger 的组字判断）、:951-962（openTrigger）、prompt-text.ts:97、:366-384（findPromptTrigger）
+现象：(a) 触发状态完全由“光标前文字”重算，没有“强制打开”的入口；Composer 的 `+` 按钮是真往文档里插一个字符（`insertText(triggerChar)`）。计划第 8 节要“插入空块并打开斜杠菜单”，没写怎么开。照 Composer 的做法就是往空块里插一个字面 `/`：用户点了 `+` 再按 Esc 或点别处，文档里留下一个只有 `/` 的段落，150 ms 后连同它被写回文件；照“不插字符”做则插件根本没有这个状态，下一个事务（选区变化）就会把它清掉。(b) 计划把“组字时不触发”算作抽出来的模块的能力，但组字判断在 PromptEditor.vue 的 `syncTrigger` 里（`view.composing`），不在插件里；抽出的 trigger.ts 如果只搬 `createTriggerPlugin/readTrigger`，Markdown 宿主要自己再写一遍。(c) 触发前缀不只是“行首或空格后”：`TRIGGER_PREFIX` 还包括 `(` 与一批全角标点（`、，：“` 等），所以中文行文里“，/”“（/”也会开菜单；`atStart` 的含义是整篇文档的第一个块，不是“段首”。(d) `readTrigger` 只认 parent 为 `paragraph`，Markdown 里表格单元格（单段落）也满足，菜单会在单元格里弹出，而块类型命令在单元格里 `can()` 为假，菜单内容全灰或为空，计划没规定“没有可用项时菜单不显示、回车仍然换行”。(e) 只匹配 ASCII `/`：中文输入法下 `/` 键在中文标点状态通常输出 `、`，中文用户的斜杠菜单可能根本触发不了（未实测，写作用户主要在中文输入法下）。(f) 撤销：`/bt` 是逐字输入，history 的新分组间隔 500 ms 且相邻改动并入同一分组；“先删 /查询 再执行命令”如果在输入后 500 ms 内回车，删除与命令会并进输入那一组，撤销一步回到“空段落”而不是“还原成 /bt”。
+为什么是问题：(a) 是“不留脏数据”的硬问题；(b)(c)(d) 是抽出模块的边界没划对，后续切片按字面实现会返工；Composer 的现有测试（promptTriggerKey 从 prompt-editor-extensions 导入）也要求原位置继续导出。
+如何核实：读上列源码；dom 测试：在表格单元格里输入 `/`；点 `+` 后按 Esc 看文档。
+建议改法：触发模块抽成“触发状态 + 事务标记”，宿主层各管自己的组字与菜单；`+` 的做法写进计划：推荐插入字面 `/` 但标记事务 `triggerOpenedByButton`，菜单因 Esc、失焦、选区离开而关闭时，若该段仍只有这一个 `/` 且是刚插的空块，就在同一撤销步骤里删掉这个字符（或整块）；斜杠菜单筛不出项时不显示且不吞回车；表格单元格里不触发（读 `can()` 结果或直接排除）；`closeHistory(tr)` 后再执行“删查询 + 命令”；评估是否把 `、` 作为 `/` 的别名（需开发者决定，影响面是中文输入习惯）。
+
+（[11] 补充）`+` 若留下空块也不只是“看着乱”：新方言里空段落是间隔，写回时多一个空行（markdown-dialect.md 输出 2），用户点了 `+` 又放弃，文件字节就变了；核心语法关了 `trailingNode`（syntax/core/index.ts:384），文档末尾是表格、代码块、原样块时 `+` 是唯一能在其后落光标的入口，更要把“放弃时清掉”写成验收项。
+
+------------------------------------------------------------
+[12] 严重程度：重要   类别：正确性
+位置：plan 第 8 节（块模型、手柄、块菜单）；node_modules/prosemirror-view/src/input.ts:762-780、:782-835；@tiptap/extension-list（listItem `content: 'paragraph block*'`）；@tiptap/core/src/commands/toggleList.ts
+现象与问题（逐项）：
+(a) 拖动取消后留下过期的 `view.dragging`。计划不用 drag-handle 扩展，自己设 `view.dragging` 并依赖 ProseMirror 的 drop。ProseMirror 只在 `drop` 里清 `view.dragging`（input.ts:774-780 的 finally）；`dragend` 的清理（input.ts:765-768）挂在 `view.dom` 上，而手柄在编辑器 DOM 之外，原生 `dragend` 只在手柄元素上触发，传不到 view.dom。所以“按 Esc 取消”“松手在正文外”之后 `view.dragging` 一直保留，之后用户从别处（文件管理器拖文件、别的页面拖文字）拖进来，drop 会把这个过期的 slice 当成要移动的内容：插入旧块并 `deleteSelection()` 删掉当前选区。这是静默改文档的路径。计划写了取消条件，没写这一清理。
+(b) 移动要的两个前提计划没写：非节点来源的 `view.dragging` 移动走的是 `tr.deleteSelection()`（input.ts:807-811，`node` 字段是内部的，公开类型 `{slice, move}` 给不了），所以起拖时必须先把选区设成被拖的块（NodeSelection 或覆盖整块的选区），否则删的是别处；同样 `+` 与块菜单的“上移、下移”要一个不依赖拖放的路径（`tr.delete` + `tr.insert` 同一事务）。
+(c) “起拖门槛 4px”做不到原生拖放：HTML5 `draggable` 的起拖阈值由浏览器决定；要自定义门槛就得自己用 pointer 事件做拖动，则 dropcursor 插件（只听原生 dragover）和上面的 `view.dragging` 机制都用不上，要自己画落点线、自己算落点、自己滚动。计划同时写了“StarterKit 的 dropcursor 就够”和“门槛 4px”，二者互相排斥。
+(d) 块的定义只有一句“顶层块，列表按每一项算”，没覆盖：嵌套列表项（每一级都算吗？手柄 x 坐标跟着缩进跳，还是固定在顶层块左边？“右缘离正文 14px”对列表项落在项目符号上）；引用、提示块、对齐、批注块、双语这类 `block+` 容器里的多个段落（顶层块是整个容器，鼠标停在第二段上手柄对着整个容器，删除/转换/副本作用于整个容器，用户预期通常是那一段）；表格（单元格不是块，整表一块，没问题但要写）；原样块和 htmlEmbed（原子节点，NodeSelection 可用）；折叠的提示块（折叠只是装饰，块仍在，移动、副本照常，但“转换”会不会展开未写）；空段落（间隔，手柄出现在空段落上吗，删它就是删一个空行）。
+(e) “转换：把光标放进这一块再执行工具栏同一条块类型命令”在列表项上不成立：列表项的内容是 `paragraph block*`，标题不能作为列表项的第一个子节点，`setHeading` 在列表项里 `can()` 为假；`toggleBulletList/OrderedList` 在项上改的是整个列表（`setNodeMarkup(parentList.pos, listType)`），而手柄是按“每一项”算的，菜单里勾选的“当前类型”和实际被转换的范围不一致；引用/代码块/提示块对列表项是 wrap，会把整个列表或半个列表包进去。“把光标放进这一块”对容器块也没说放哪一段。
+(f) “创建副本”未定义实现。如果用 `tr.insert(pos, node)` 插入同一个 Node 实例，写回时 `originsOf(map, node)` 按节点身份登记原文（write.ts `itemsOf`，WeakMap 键），两处共用同一份原文来源，批注的 `id`、`body` 会原样重复写出两份。若走“序列化后重新解析”（同 Ctrl+C/V）则是新节点、按新块写出，批注由 `pastedComments` 处理。这是计划“新方言对移动块有无额外约束”的答案：移动（同一事务内 delete + insert，节点实例不变）没有额外约束，编解码器按身份识别未编辑的块，相邻关系变了的间隔重新写出，被拆开的多节点来源（一个原文块读出多个顶层节点）自动改为重新写出；副本则必须保证是新节点。
+如何核实：(a) 起拖、Esc 取消、再从外部拖一段文字进编辑器（Playwright 可做）；(b)(c) 读 input.ts 与 dropcursor；(d)(e) 在 dom 测试里对列表项调用 `can().setHeading`、`toggleOrderedList` 看范围；(f) 读 write.ts:95-138 与 comment/index.ts 的粘贴处理。
+建议改法：S5 开工前把块模型写成一张表（节点类型 × 手柄是否出现 × 对象是哪一层 × 转换/副本/移动/删除是否可用 × 失败时菜单项置灰）；转换对列表项只提供“列表类型之间互转（作用整个列表，菜单文字写明）”和“提到列表外后再转”，或干脆列表项的“转换为”置灰并把整个列表作为一块处理，二选一；手柄 `dragend` 里清 `view.dragging` 并还原选区，起拖前设 NodeSelection；取消“4px 门槛”或改成 pointer 自绘并自画落点；副本用 JSON 往返或 `node.type.create` 新建，写进验收；容器块的手柄对象按“最近的非容器块或整个容器”定死一种。
+
+------------------------------------------------------------
+[13] 严重程度：重要   类别：正确性
+位置：plan 第 9 节、第 8 节“复制”；nb-ui popup/ContextMenu.md（选择条目时“先调用 action，再请求关闭”；关闭后焦点去向由宿主按原因决定）
+现象：(a) 右键菜单的剪切、复制用 `document.execCommand`。ContextMenu 在选择条目时先同步调用 `action`，此刻焦点还在菜单的按钮上（打开时焦点移到第一项），不在编辑器里；`copy/cut` 事件的目标是焦点元素，不经过 `view.dom`，ProseMirror 的 copy 处理器（`serializeForClipboard`、`data-pm-slice`）不运行，写进剪贴板的是浏览器对原生选区的序列化，粘贴回编辑器时丢失列表/提示块的开闭层级。计划写的是“ProseMirror 自己的剪贴板处理照常生效”，没有“先把焦点还给编辑器再执行”这一步（从代码推断，需要真实浏览器核实）。(b) 同一份计划里块菜单的“复制”走 `view.serializeForClipboard` + 剪贴板 API，右键菜单走 `execCommand`，两条复制路径，行为本应一致（“和 Ctrl+C 同一个结果”）。`execCommand` 已废弃，剪切还会在菜单里连带删内容。(c) 粘贴：`navigator.clipboard.read()` 与 `writeText/write` 只在安全上下文有，且 `navigator.clipboard` 在非安全上下文是 `undefined`（直接 `.read` 抛 TypeError）；计划的失败处理只写了“权限被拒”。局域网 http 访问、Firefox（`read()` 支持有限）都会走到。(d) “和 Ctrl+V 同一条路径”只对文字与 HTML 成立：剪贴板里是图片或文件时 `read()` 拿到的是 Blob，`pasteHTML/pasteText` 不处理，Ctrl+V 的文件粘贴路径没有等价物，计划应写明“右键粘贴不支持文件”并给提示，否则静默无反应。(e) “右键点在选区外时光标移到点击处”要自己做：`contextmenu` 事件发生时 ProseMirror 与浏览器各自对选区的处理因平台不同（macOS 会选中单词），需在 `contextmenu` 里用 `posAtCoords` 明确设置选区，并区分点在原子节点（图片、原样块）上的情况。
+如何核实：真实 Chromium 里右键 → 复制，检查 `clipboardData` 里有无 `data-pm-slice`；在 http 非 localhost 页面里读 `navigator.clipboard`。
+建议改法：右键菜单所有剪贴板操作统一为：关闭菜单后 `view.focus()`，再用 `view.serializeForClipboard(selection.content())` 写剪贴板（块菜单同一函数）；剪切 = 写入 + `deleteSelection`，整个在一个事务/撤销步骤；粘贴检查 `navigator.clipboard?.read`，缺失、被拒、无文本/HTML 各给一条不同的提示文字；焦点恢复用 ContextMenu 的 `request-close` 原因（select 时宿主自己 focus 编辑器），不要用固定 `setTimeout`（ui-development-spec 自检“浮层关闭时序”）。
+
+（[12](f) 的“写出两份”是对 `itemsOf` 按节点身份取来源的推断，未跑；其余 (a)(b)(c)(e) 来自 prosemirror-view/Tiptap 源码，(a) 建议在 S5 先用 Playwright 复现再定严重程度。）
+
+------------------------------------------------------------
+[14] 严重程度：建议   类别：代码质量 / 文档
+位置：plan 第 5 节（工具栏用 nb-ui `Toolbar`、平铺无底色）、第 8 节（块按钮的只读行为）、待确认 1（链接按钮“命令不存在时不显示，t09 登记命令后自动出现”）
+现象与问题：
+(a) nb-ui `Toolbar` 的根容器自带面板底色、边框、内边距，水平方向超出时在内部横向滚动（controls/Toolbar.md“布局”）；决定 7 要的是平铺、无底色、下面一条分隔线，计划靠收进“⋯”避免滚动。Toolbar.md 没有公开覆盖点（只说 class/style 按 Vue 默认透传），ui-development-spec 自检要求“改别的组件的颜色字号走它文档公开的覆盖点”。计划没写怎么去掉底色与边框，实现时多半会写选择器硬覆盖。先到 nb-ui 补一个“平铺”变体或覆盖变量，比在宿主里压样式合规；按“质疑上游选择”，这是 nb-ui 的缺口，不是宿主的补丁。
+(b) 块按钮与块菜单在只读文档、预览视图、`binding === null` 时的行为没写（`+` 插入、拖动、删除、转换、上移下移都是写操作）。右键菜单写了“只读只留复制、全选”，块菜单应对齐：只读时手柄不出现，或只留“复制”。
+(c) “链接按钮在命令不存在时不显示”：内置的工具栏与选区菜单是“各菜单自己画”，不经菜单项机制（menus.md 输出 1 的“命令不在目录里不显示”只对贡献项成立）。要想 t09 登记后自动出现，现在就要保留一个命令 id 并在内置菜单里按 `commands.get(id)` 判断；这个 id 受 [01] 的域词表限制，计划没给。不预留的话，t09 要回头改 t08 的菜单。
+(d) 计划说“19 个按钮照决定 6”，去掉链接后是 18 个；固定宽度的算术（按钮个数 × 宽度）要用实际个数，放不下时收进“⋯”的顺序（从右往左）会让贡献项最先被收，而贡献项没有 `placement` 字段（见 menus.md 位置表，`markdown.toolbar` 只列了 `icon`），要么给 toolbar 位置加 `placement`，要么写明贡献项永远在“⋯”里。
+建议改法：(a) 先给 `Toolbar` 加 `flat`（或同类）属性并写进 Toolbar.md；(b)(c)(d) 补进 S0 的 Spec。
+
+------------------------------------------------------------
+[15] 严重程度：建议   类别：代码质量 / 性能
+位置：plan 第 3 节（公开键、`state.ts`）、第 8 节（Alt+↑、Alt+↓）、第 3 节“键位不写进声明”
+现象与问题：
+(a) 每次选区变化重算全部动作的 `active`：约 25 个。`isActive` 便宜，`enabled` 用 `editor.can()`，每个动作要在事务副本上试跑一遍命令，`wrapIn/lift/setNode` 一类不算便宜。计划还说“选区变化都跟着变”，若挂在 `transaction` 而不是 `selectionUpdate`，则每次击键都算一遍。规模上约 25 次/键，不会卡，但这是白做的功。建议：状态按 `selectionUpdate` 与“块结构变了”才重算，`can()` 只在工具栏/菜单可见且被读到时算（public 键的 computed 本身是惰性的，不要在 Ref 里提前全算）；公开键按 [04] 收成粗粒度几个。
+(b) 公开键名规则是小写字母开头、其余字母和数字（public-state.md 声明表）：`bold` 等可以，`heading1`、`bulletList` 可以，写成 `heading-1` 就被拒；计划命令 id 里用了 `heading-1`（命令 id 允许连字符），公开键要换写法并保持一一对应，写进 Spec 的命令表。
+(c) 快捷键：计划让 Ctrl+B 等继续由 Tiptap 处理、命令不写 `keybinding`，“按钮提示里的快捷键文字写在动作目录里”。这有两个后果：命令面板、菜单项按 menus.md 输出 2“快捷键取命令声明的键位”显示不出快捷键，插件贡献项和内置项显示不一致；快捷键文字与 Tiptap 实际 keymap 是两份，改一边另一边不会提示（还要自己做 Mac 的 ⌘ 写法，命令系统已有平台写法）。要么在命令声明里写 `keybinding`，让命令系统分发并拦下（`when` 里加 `nbook.editor/focused`），要么给动作目录加一条测试：用真实 Tiptap 按文字里写的键触发，断言生效。
+(d) Alt+↑、Alt+↓：计划没写它是 Tiptap 的 keymap 还是命令 `keybinding`。若是命令 `keybinding`，全局分发在焦点不在编辑器时（例如 Composer 输入框、命令面板）也会命中，`when` 只有 writable 不够，必须带 `nbook.editor/focused`。macOS 上 Option+↑/↓ 是浏览器的“跳到段首/段尾”，会和它冲突；这条已由开发者确认，仅提示平台差异需要在 Spec 里写明。
+
+------------------------------------------------------------
+[16] 严重程度：建议   类别：测试（验收映射缺口）
+位置：plan 验收映射表
+现象：下面这些计划里写了要求、但映射表里没有对应测试的项（编号在 S0 回填时应补上）：
+- 输入法组字时气泡不出现、斜杠不触发：映射写在“斜杠触发……dom 测试；e2e”，但 dom 环境没有真实组字；可在 dom 测试里派发 `compositionstart` 到 `view.dom` 检查 `view.composing`，e2e 用 CDP 的 `Input.imeSetComposition`，写明用哪种。
+- `+` 放弃后不留空块/斜杠字符（[11]）；拖动取消后外部拖入不被污染（[12](a)）。
+- 清除格式保留批注（[09]）；命令域登记（[01]，一条“全部命令被接受”的测试，比靠面板里看不到命令发现得早）。
+- 拆分后非活动组的工具栏状态（[06]）。
+- 首屏入口 chunk 不含 Tiptap（[05]）。
+- 插件视图重建后的菜单状态（[03]）；同一 Editor 实例重挂后气泡/块按钮仍可用（[02]）。
+- 只读文档下各菜单的表现（工具栏置灰版面不跳、气泡不出现、块按钮不出现、右键只留两项）。
+- 命令 `run` 在不可用状态下返回的失败码与原因（[04]）。
+如何核实：对照映射表逐行。
+建议改法：映射表按上面补行；其中 [02][03][05][06] 是同一个 dom 测试夹具（真实 Editor 实例卸载再挂到新 MarkdownControl）能覆盖的，先建这个夹具。
+
+------------------------------------------------------------
+[17] 严重程度：建议   类别：代码质量
+位置：plan 第 7 节“触发”（`nb-markdown/src/editor/trigger.ts` 从 `prompt-editor-extensions.ts` 抽出）
+现象与问题：被抽出的 `readTrigger` 依赖 `prompt/prompt-text.ts` 的 `findPromptTrigger`、`PROMPT_ATOM_CHAR`、Prompt 专用的 `TRIGGER_PREFIX`；类型叫 `PromptTriggerState/PromptTriggerActive`，PluginKey 叫 `promptTrigger`，`atStart` 字段是“整篇文档第一块”这种 Prompt 才有的含义。放到 `src/editor/` 下会让 editor 目录反向依赖 prompt 目录，命名也还带着 Prompt。Composer 的现有测试直接从 `prompt-editor-extensions` 导入 `promptTriggerKey`、`DISMISS_TRIGGER`，“不改即过”要求原位置继续导出，计划没写。Markdown 里 `PROMPT_ATOM_CHAR`（Prompt 的标签原子字符）无意义。
+建议改法：抽成与 Prompt、Markdown 都无关的 `trigger` 模块（放 `src/shared/` 或 `src/trigger/`），触发字符集、前缀字符集、可触发的 parent 类型、原子字符都做选项；Prompt 保留原名再导出；Markdown 用自己的前缀字符集（是否包含全角标点要重新定，见 [11](c)）。
+
+------------------------------------------------------------
+更正（追加，针对 [10] 与 [05]）：
+- [10] 的建议改法里“内容用 nb-ui 的 Popover/SuggestionMenu 同一套定位（popover-anchor.ts 已支持虚拟锚点）”说过头了：核实 feedback/Popover.vue 的属性只有 open、side、align 等，没有 anchor/reference 属性；虚拟锚点只有 SuggestionMenu、DropdownMenu 支持。准确的说法：nb-ui 里没有“跟着选区矩形的浮动工具条”这个件。所以选项是 (i) 在 nb-ui 补一个接受虚拟锚点的浮层（或给 Popover 加 anchor），气泡与注音输入弹层都用它，宿主里不再出现第二套定位引擎；(ii) 接受气泡直接用 floating-ui（兜底方案，计划里已写），但自写状态机、不依赖 BubbleMenu 扩展，外框 DOM 仍按 [02] 由实例槽持有。[10] 对 BubbleMenu 扩展本身的结论（默认显隐条件不符、blur/preventHide 时序、元素固定）不变。
+- [05] 里“命令声明要从动作目录取标题、图标、快捷键文字”是对计划措辞的推断（第 3 节只说每个动作一条命令、快捷键文字写在动作目录里，没说声明从哪里 import）；如果声明放在不 import 动作目录实现的数据文件里，这条不成立，但计划需要写明。
+------------------------------------------------------------
+未发现问题的方面（仔细检查后）：
+- 依赖与激活顺序本身：`nbook.editor` 的入口依赖 `markdownKey`，`nbook.markdown` 先激活，反向连接在时序上可行（问题在释放、重复连接与类型位置，见 [07]）。
+- 控件寿命：控件异步加载期间没有句柄，`activeHandle` 为 null，`nbook.markdown/*` 键读为 false，命令不可用，没有额外风险。
+- 点工具栏按钮前活动组的切换：EditorGroup 的 `pointerdown`（仅左键）与 `focusin` 确实调 `area.focusGroup`（EditorGroup.vue:252-253），计划的描述属实；右键靠 `focusin` 的描述也属实。
+- 命令的 `expose: {agent: "never"}` 符合 commands.md（缺省即 never）；约 25 条命令进命令面板：面板按 `runsWithoutArgs` 与 `when` 过滤（WorkbenchCommandPalette.vue:62），带参数的命令不进面板的说法属实。
+- 公开键声明的限定名规则允许这些键（小写字母开头、字母数字），数量没有上限；注意 [15](b) 的连字符问题。
+- 新方言写回对移动块的约束：编解码器按节点身份识别未编辑块，移动后相邻间隔重写、多节点来源拆开重写，没有额外硬约束（副本除外，见 [12](f)）。
+- 开发者决定 1–15 的覆盖：逐条对照，没有发现被悄悄改变的已定项（链接按钮的取舍已由决定 15 确认；决定 6 的“19 个”只是去掉链接后的个数问题，见 [14](d)）。
+- 待确认四项：未发现事实错误。pinyin-pro 版本写 3.29.5，而仓库 bun.lock 里是旧应用依赖的 3.28.1，装新包时会产生第二个版本，不是错误，提一句。
+
+各级数量：阻断 1（[01]），重要 11（[02][03][04][05][06][07][09][10][11][12][13]），建议 5（[08][14][15][16][17]），共 17 条；另有 [11] 补充、[12] 注、更正两处。
+未实测：所有结论都是读源码推断，未跑 e2e 或开发服务；[12](a)、[13](a) 建议在对应切片里先用真实浏览器复现。

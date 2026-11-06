@@ -1,0 +1,76 @@
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts:1483-1495
+- **严重程度**：重要；**类别**：正确性
+- **现象**：`locate` 在目标不存在时只有 `segments.length > 1` 才回退到祖先；挂载方案根下的单段目标（例如 `user://new.txt`）直接返回 `not-found`，没有按合同从方案根接上新段。
+- **为什么是问题**：`builtin-tools.md` 第 19 条要求不存在的地址从最近的已存在祖先定位，shell 应能把新文件重定向到资源根。`user://` 的根是常用的已存在目录，当前实现却在执行前拒绝，导致 `echo x > user://new.txt` 不能创建文件；项目、会话等被展开成带会话/项目段的全局地址，现有测试没有覆盖这个单段挂载根边界。
+- **如何核实**：用真实 `projectHarness`、真实 `WorkspaceFiles`、真实 `builtinTools` 和真实 `executeShell` 运行 `/tmp/review-t12-impl/lab/shell-user-root.ts`：结果为 `{"code":"not-found","text":"not-found: user://new.txt：new.txt 不存在"}`，目标文件不存在；同一实现对 `session://` 与 `project://` 的多段全局地址测试通过。
+- **建议改法**：完整地址首次 `readPath` 得 `not-found` 后，单段路径也继续探测 `scheme://`（或直接把它作为最后的已存在祖先），再把余下段接到其真实路径；仍以首次完整地址返回的保护/权限错误为准，不把受保护路径降级成祖先拼接。
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/search.ts:1112-1136,1164-1179
+- **严重程度**：重要；**类别**：正确性
+- **现象**：原生搜索的截止信号只传给 `nativeGrep`；异步 `drain` 既不检查 `deadline.signal`，`verdictOf` 也只收到调用方的 `signal`。原生搜索到期后，已经排队的候选仍逐个做资源路由核对，核对完成前工具不返回。
+- **为什么是问题**：合同把 30 秒定义为 grep 的搜索期限，并要求到期交回已有结果并标“不完整”。当前路径会在原生已经结束后继续读、继续做最多 10,000 个候选的 `readPath` 核对；路由慢或会话目录很大时，工具会明显超过期限，且配额/截止后仍消耗文件服务资源。`drain` 的循环条件只挡 `quota`，没有挡 `deadline`；`onMatches` 也没有在配额或截止后立即丢弃后续回调。
+- **如何核实**：运行真实 `projectHarness`、真实 `WorkspaceFiles`、真实 `pi-natives.grep` 与 `runGrep` 的 `/tmp/review-t12-impl/lab/grep-deadline-queue.ts`，给每个真实文件的 `readPath` 注入 5 ms 路由延迟、原生期限设为 20 ms；实测仍耗时 `351 ms`，返回 `incomplete: true` 且 `filesChecked: 8`。现有合同测试只断言到期结果有“不完整”，没有断言截止后不继续核对。
+- **建议改法**：把 `deadline` 纳入核对使用的合并信号，并让 `drain` 与 `onMatches` 在 `deadline.signal.aborted` 或 `quota.signal.aborted` 后停止入队/消费；退出时按 `signal`、路由失败、deadline 的优先级分类，保留已经完成的可见匹配。
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/shell-address.ts:1314-1318
+- **严重程度**：重要；**类别**：正确性
+- **现象**：注释扫描只把前一个字符是空白的 `#` 当作注释起点，没有覆盖 shell 允许的无空格边界（例如命令分隔符后的 `;#`、换行后的 `#`）。因此注释里的资源地址仍会进入 `replaceAddresses`，被解析、定位或因非法地址拒绝。
+- **为什么是问题**：shell 的 `#` 在命令开头或 shell 控制操作符后也开始注释；注释内容不应影响命令执行。当前实现会把本来合法且应输出 `ok` 的 `echo ok;#session://../bad` 变成 `invalid-address`，并且命令没有执行。模型生成无空格注释并不罕见，属于地址替换词法的直接边界错误。
+- **如何核实**：真实 brush 直接运行同一命令实测输出 `ok`、`exitCode: 0`；真实 `shellTool` 运行 `/tmp/review-t12-impl/lab/shell-user-root.ts` 实测结果为 `{"code":"invalid-address","text":"invalid-address: session://../bad：session://../bad：路径含 . 或 .. 段，命令没有执行"}`。现有测试只覆盖 `echo hello # ...`，没有覆盖 `;#`。
+- **建议改法**：把注释起点判断抽成 shell 词法边界：命令开头、空白，或 `;|&<>()` 等能开始新词的位置（并按当前引号状态处理），命中后跳到换行；不要只检查 `\s`。
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/read.ts:897-927,953-959
+- **严重程度**：重要；**类别**：正确性
+- **现象**：`readPath` 成功后，`stat`、`open`、流式读取和 `Bun.file(...).bytes()` 都没有把文件系统异常转换成工具结果。文件在定位与实际读取之间被删除时，`stat` 直接抛 `ENOENT`；经内核执行会变成通用 `tool-threw`，不是合同要求的 `not-found`。
+- **为什么是问题**：文件工具的定位与读取本来就跨多个异步边界，shell 或外部编辑器可以在此期间删除文件。当前实现把一个可预期的文件消失竞态暴露成工具执行异常，模型拿不到可重试的资源码；流错误或取消也会同样从 `collect` 拒绝并冒出。计划只明确不防链接替换竞态，不等于把读失败升级成未处理异常。
+- **如何核实**：用真实 `projectHarness`、真实文件服务和产品 `readTool`，在真实 `readPath` 返回后删除真实文件的 `/tmp/review-t12-impl/lab/read-delete-race.ts`；实测直接抛 `ENOENT: ... stat .../Book/gone.txt`，没有 `ToolResult`。代码中 `readTool` 的 `stat` 位于 `execute` 的裸 `await`，`readFile` 的 `open` 与两条读取路径也没有外围 `catch`。
+- **建议改法**：把定位后的 `stat`、`open`、流消费和字节读取放进统一的文件错误映射；`ENOENT` 返回 `not-found`，取消返回 `cancelled`，其余保留可诊断的文件服务/IO 码，并在 `finally` 中关闭接口与销毁流。
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/read.ts:911-920
+- **严重程度**：重要；**类别**：正确性
+- **现象**：超过 4 MiB 的文本走 `createReadStream(path, {encoding: "utf8"})`，Node 的 UTF-8 解码会把非法字节替换成 `�`；这条分支没有严格解码校验，非法 UTF-8 大文件被当成可读文本交回。
+- **为什么是问题**：同一个 `read` 工具对小文件用 `decodeText` 会拒绝非 UTF-8，而大文件却静默修改字节后给模型看，模型可能据此编辑或判断内容。大小阈值不应改变文本编码合同；而且该分支还要保留分页，不应通过把整个文件读入内存修复。
+- **如何核实**：真实 `projectHarness`、真实文件服务和产品 `readTool` 运行 `/tmp/review-t12-impl/lab/read-invalid-large.ts`，创建 `5 MiB` 的 `0xff` 加 ASCII 文件；实测结果是成功文本，首行以 `�aaaa...` 开头，而不是 `not-text`。小文件同类输入走 `decodeText` 会报 `not-text`。
+- **建议改法**：大文件使用带 `fatal: true` 且跨 chunk 保持状态的流式 UTF-8 解码（继续消费到 EOF，保留当前页），解码异常映射为 `not-text`；不要用默认 `encoding: "utf8"` 的替换语义。
+## 未发现问题的方面
+仔细检查后没有发现以下方面的另一个值得报告的问题：
+- `edit` 的 `editInspect` 预检、全局地址改写、`addressOf` 写回键、同会话快照与部分失败摘要；未发现超出已定合同的可观察回归。
+- 内核工具图片的事件字段、日志 blob、重开/fork、脱敏哈希、压缩省略、预览估算、OMP vision/非 vision 适配；旧日志与只有文字的结果路径未发现另一个问题。
+- `grep` 的配额、`pending`/`verdicts` 的常规上限、`maxCountPerFile = limit + 1` 与结果排序；另报的问题是截止信号未覆盖异步核对，不是这些上限本身。
+- `shell` 输出捕获在正常路径的 UTF-8 尾部边界、溢出前后不重复、64 MiB 前缀、正常 `dispose`、环境变量与取消收口；未发现另一个达到报告门槛的问题。
+- `read` 的 CRLF、BOM、图片编码分支与正常分页；另报的问题是定位后 IO 异常未映射，以及大文件非法 UTF-8 的替换解码。
+
+## 最终索引
+撤回或改级：无。
+有效发现索引：1、2、3、4、5。
+数量：阻断 0，重要 5，建议 0。
+## 第二段：00d85fdc8..HEAD
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/image.ts:172-179
+- **严重程度**：重要；**类别**：正确性
+- **现象**：实现识别了可能透明的图片并禁止 JPEG，但缩放前仍直接对 straight-alpha 的源图调用 `Bun.Image(...).resize(...).png()`；没有 omp 参照中的 premultiply、缩放后 unpremultiply。透明像素下的 RGB 会被插值到不透明边缘，生成明显彩边。
+- **为什么是问题**：`mayHaveAlpha` 只防止 JPEG 丢透明，不能防止缩放的颜色污染。带透明背景的图片是 read 的明确输入，模型看到的缩略图会出现原本不存在的红/黑边；这比单纯压缩画质更改了图像语义。参照实现专门为此把 RGBA 预乘后缩放，再还原颜色，本实现没有带过来。
+- **如何核实**：用真实 Bun.Image 路径运行 `/tmp/review-t12-impl/lab/image-alpha.ts`，生成左半蓝色不透明、右半红色全透明的 `3000x20` RGBA PNG，经过产品 `prepareImage` 缩到 `1568x10` 后解码输出；边界样本出现 `[255,0,1,1]`、`[229,0,27,27]`，透明/低 alpha 像素仍带大量红色。参照 omp `image-resize.ts:164-175` 明确执行 premultiply，现有测试只检查尺寸与字节上限，没有检查像素边缘。
+- **建议改法**：复用或移植 omp 的 `premultipliedPng`/`readRgba`/`unpremultiply` 路径：只要实际存在非 255 alpha，就以预乘 PNG 作为 resize 与有损编码输入，编码后恢复 RGBA；补带透明彩边的真实像素验收。
+### 重要｜正确性｜packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts:481-538
+- **严重程度**：重要；**类别**：正确性
+- **现象**：输出行数只按换行符计数。没有尾部换行的 `2001` 行输出只有 `2000` 个 `\n`，不会触发窗口截断；`window()` 的 `split("\\n").length - 1` 也把它当成 2000 行，完整交回，违反“至多 2000 行”。
+- **为什么是问题**：命令输出不保证以换行结束（`printf`、脚本最后一行、管道截断都常见）。模型可以一次收到超过合同上限的行数；同一内容仅加一个尾部换行就会进入另一条截断路径，窗口行为不稳定。
+- **如何核实**：真实 `projectHarness`、真实 `WorkspaceFiles`、真实 `builtinTools` 与真实 `executeShell` 运行 `/tmp/review-t12-impl/lab/shell-user-root.ts`，预置 `1` 到 `2001`、行间换行但末尾无换行的文件并执行 `cat user://lines.txt`；实测 `bytes: 8897`、`hasFirst: true`、`hasLast: true`、`hasMiddleNotice: false`，完整输出未截断。
+- **建议改法**：行数统一按“换行数加上非空尾部行”计算：`text.length === 0 ? 0 : newlineCount + (text.endsWith("\\n") ? 0 : 1)`；跨块统计时把当前未结束行计入阈值与 `window()` 判定，补有/无尾换行的 2000/2001 行边界测试。
+
+### 重要｜正确性｜第二段 3：OutputCapture 的完整内存分支绕过输出字节预算
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`/tmp/review-t12-impl/wt/packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts:94-98,121-130`。
+- **现象**：`push` 首次超限时把整块留在 `#memory`；如果命令此时结束，`totalBytes === #memoryBytes` 成立。`window()` 只再检查换行数，没有检查 `WINDOW_BYTES`，于是把超出 50 KB 的输出原样交回，没有头尾窗口或中间省略。
+- **为什么是问题**：`cat` 等命令可在单次原生回调交出超过 50 KB 的内容。这不是人为伪造回调；实际 `executeShell` 已出现。新分支让模型收到超出合同的工具正文；base 的 `tail()` 会无条件按 50 KB 修剪，属于本段引入的回归。
+- **如何核实**：在仓库根运行 `bun --no-install --tsconfig-override /tmp/review-t12-impl/lab/tsconfig.json /tmp/review-t12-impl/lab/review2-surface.ts`。脚本经真实 Agent、真实 Files 和真实 brush 执行 `cat session://output.txt`。输入分别为 `52,000`、`56,550`、`63,700`、`69,550` 字节，每行 `649` 字节；原生每次只有 1 个 chunk。工具正文分别为 `51,999`、`56,549`、`63,699`、`69,549` 字节（工具去掉末尾换行），全部没有“中间省略”。现有测试只用大量小块的循环输出，未覆盖单块跨过总字节上限。
+- **建议改法**：完整内存的快捷分支同时要求 `totalBytes <= WINDOW_BYTES`，超出总字节或行数预算时必须走头尾裁剪。更稳妥的是显式判断“仅单行超限”，避免用内存是否尚未修剪来代替输出是否满足预算。
+
+## 第二段复核补正（追加，保留原文）
+
+- **第二段第 2 条（总报告第 7 个问题标题，shell 无尾换行 2001 行）撤回**：`00d85fdc8` 的 `OutputCapture` 同样按换行符计数；本段没有引入此问题。按“base 已有的问题不计回归”的规则，不计入第二段数量。该条原位置使用了 diff 行号，准确 HEAD 位置为 `shell.ts:86-94,124`，以此补正。
+- 第二段第 1 条透明缩放正在补充正确的 PNG 解码与 base 对照；此前像素样本尚未还原 PNG 行过滤器，不能单凭这些数字定案。最终口径以末尾索引为准。
+
+## 第二段第 1 条补充核实（收窄为新增放大路径）
+
+- **准确位置**：`/tmp/review-t12-impl/wt/packages/neuro-book/src/plugins/agent/backend/builtin/image.ts:63-70,77`。原第 1 条误用了 diff 行号，以本位置为准。
+- **收窄后的现象**：base 对 `100x100`、小于 500 KiB 的静态 PNG 原样交回，不会重采样；本段新增最短边放大，使同一小图重采样到 `200x200`。这条新增路径没有透明预乘，隐藏 RGB 污染可见边缘。大图缩小本来已有同类风险，不计本段回归。
+- **真实入口与正确解码证据**：运行 `bun --no-install --tsconfig-override /tmp/review-t12-impl/lab/tsconfig.json /tmp/review-t12-impl/lab/review2-alpha.ts`。经实际 Agent 工具调用、Files 和 `read`，分别输入两张视觉相同的 `100x100` PNG：左半蓝色不透明，右半全透明；唯一差别是透明像素下面的 RGB 分别为红色、蓝色。输出都为 `200x200 WebP`。用 `/tmp/review-t12-impl/lab/png-pixels.ts` 解码全部 PNG 过滤器后，红色隐藏 RGB 的 x=99 边界为 `[66,2,185,201]`，蓝色隐藏 RGB 同位置为 `[0,0,255,201]`；x=100 分别为 `[163,6,104,54]` 与 `[0,0,255,54]`。同一可见输入因全透明区域不可见的 RGB 不同而产生不同彩边，问题成立。
+- **补正建议**：实际 alpha 非 255 时，先做预乘，再缩放、反预乘后编码。预乘只属于 resize；不能把预乘状态的颜色直接交给最终 WebP/JPEG 编码器。保留第 1 条重要级别；旧实验未还原 PNG 过滤器的样本不再作为依据。

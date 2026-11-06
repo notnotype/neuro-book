@@ -4,6 +4,7 @@ import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
 import {relativeTime} from "./host/format.js";
+import {groupInbox} from "./host/inbox.js";
 import {pageKey} from "./host/routes.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
 import {readAppearance, readDismissedAudit, readNavArrange, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeNavArrange, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
@@ -191,7 +192,8 @@ onBeforeUnmount(() => {
 });
 
 const mainWritable = computed(() => meta.data.value?.mainWritable ?? null);
-const navCounts = computed(() => ({inbox: overview.data.value?.inbox.length ?? 0, sessions: overview.data.value?.sessions.total, runs: overview.data.value?.runs}));
+/* 收件箱按行数：一块 30 道题的评审是一件事，不是 30 件。 */
+const navCounts = computed(() => ({inbox: groupInbox(overview.data.value?.inbox ?? []).length, sessions: overview.data.value?.sessions.total, runs: overview.data.value?.runs}));
 const navWritable = computed(() => (mainWritable.value ? {ok: mainWritable.value.ok, code: mainWritable.value.code} : null));
 
 const query = ref(typeof route.query.q === "string" ? route.query.q : "");
@@ -339,9 +341,9 @@ const banners = computed<ShellBanner[]>(() => {
     const data = meta.data.value;
     const list: ShellBanner[] = [];
     if (data?.codeChanged) list.push({key: "code", tone: "info", icon: "i-lucide-refresh-cw", text: restartHint.value});
-    if (data?.build.failed) list.push({key: "build", tone: "error", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
+    if (data?.build.failed) list.push({key: "build", tone: "danger", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
     if (data && !data.audit.enabled) {
-        if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "error", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
+        if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "danger", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
         else if (auditDismissed.value !== auditKey.value) list.push({key: "audit", tone: "warning", icon: "i-lucide-shield-off", text: "审计未开启：不发通知，也不能替你打字或按键。运行 bun run --cwd packages/dev-panel audit-init 开启", dismiss: dismissAudit});
     }
     for (const [name, part] of Object.entries(data?.parts ?? {})) {

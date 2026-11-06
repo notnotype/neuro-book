@@ -214,12 +214,15 @@
 }
 
 /*
- * 阅读卡片（t15 阶段 3b）：Task 页 README 这类正文卡片。字号取阅读字号，宽度是阅读宽度（--reading-measure，按阅读字号算的 em）
- * 加卡片两侧内边距，卡片就不比正文宽，右边不再空一片；窄时收到 100%。放在 PageShell 的阅读档里。
+ * 阅读卡片（t15 阶段 3b）：Task 页 README 这类正文卡片。字号取阅读字号，宽度是阅读宽度加卡片两侧内边距，
+ * 卡片就不比正文宽，右边不再空一片；窄时收到 100%。放在 PageShell 的阅读档里。
+ * 阅读宽度用面板自己的 --nbdev-reading-measure，不用主题的 --reading-measure（34em，约 580px，给小说正文的）：面板读的是
+ * Task 记录与文档，一半是表格和长路径，开发者 11-05 嫌窄。
  */
 .nbdev-reading-card {
+    --nbdev-reading-measure: 56em;
     font-size: var(--reading-size, var(--text-md));
-    width: calc(var(--reading-measure, 34em) + 3rem);
+    width: calc(var(--nbdev-reading-measure) + 3rem);
     max-width: 100%;
     padding: 1.5rem;
 }
@@ -230,8 +233,9 @@
 }
 /* 不带卡片的阅读栏（文档页的正文）：宽度就是阅读宽度，里面长的一行（最近改动的提交说明）不会把它撑宽。 */
 .nbdev-reading-column {
+    --nbdev-reading-measure: 56em;
     font-size: var(--reading-size, var(--text-md));
-    width: var(--reading-measure, 34em);
+    width: var(--nbdev-reading-measure);
     max-width: 100%;
 }
 
@@ -239,7 +243,7 @@
 .nbdev-markdown {
     font-size: var(--reading-size, var(--text-md));
     line-height: 1.7;
-    max-width: var(--reading-measure, 72ch);
+    max-width: 100%;
     overflow-wrap: anywhere;
 }
 .nbdev-markdown h1 { font-size: var(--text-xl); font-weight: 600; margin: 0 0 0.75em; }

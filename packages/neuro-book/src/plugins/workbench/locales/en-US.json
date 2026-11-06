@@ -2,15 +2,7 @@
     "settings": {
         "theme": {
             "title": "Theme",
-            "description": "Shape, typography and colors of the interface",
-            "choices": {
-                "nbook": {
-                    "title": "NeuroBook"
-                },
-                "macos": {
-                    "title": "macOS"
-                }
-            }
+            "description": "Shape, typography and colors of the interface"
         },
         "appearance": {
             "title": "Appearance",
@@ -91,6 +83,12 @@
                 "toggle-panel-maximized": {
                     "title": "Maximize or Restore Panel"
                 },
+                "focus-next-pane": {
+                    "title": "Focus Next Pane"
+                },
+                "focus-previous-pane": {
+                    "title": "Focus Previous Pane"
+                },
                 "set-part-hidden": {
                     "title": "Toggle Area Visibility"
                 },
@@ -107,6 +105,12 @@
                 },
                 "switch-appearance": {
                     "title": "Change Appearance"
+                },
+                "open-theme-editor": {
+                    "title": "Open Theme Editor"
+                },
+                "open-theme-editor-floating": {
+                    "title": "Open Theme Editor in a Floating Window"
                 }
             }
         }
@@ -147,13 +151,17 @@
             "justify": "Justify (both sidebars)"
         },
         "current": "current",
-        "placeholder": "Takes effect immediately"
+        "placeholder": "Takes effect immediately",
+        "noPanel": "No panel to act on",
+        "editorCollapse": "An editor group cannot be collapsed"
     },
     "partCommands": {
         "parts": {
             "sidebar": "Sidebar",
             "auxiliarybar": "Secondary Side Bar",
-            "activitybar": "Activity Bar"
+            "activitybar": "Activity Bar",
+            "panel": "Panel",
+            "statusbar": "Status bar"
         },
         "visible": "shown",
         "hidden": "hidden",
@@ -164,13 +172,15 @@
             "light": "Light",
             "dark": "Dark",
             "system": "Follow System"
-        }
+        },
+        "unknownTheme": "No such theme: {{id}}. Installed: {{ids}}"
     },
     "viewCommands": {
         "parts": {
             "sidebar": "Sidebar",
             "auxiliarybar": "Secondary Side Bar",
-            "panel": "Panel"
+            "panel": "Panel",
+            "editor": "Editor area"
         },
         "pickView": "Pick a view to move",
         "pickOpen": "Pick a view to open",
@@ -179,13 +189,16 @@
         "unplaced": "The view is not in the layout: {{viewId}}",
         "pickTarget": "Move to",
         "noViews": "No view can be moved",
-        "partial": "Give nothing, or give viewId, sourceContainerId and one of targetContainerId and newContainerIn",
-        "stale": "The view is no longer in the container it was in when the move started, so it was not moved",
+        "partial": "Give nothing, or both viewId and target",
+        "stale": "The view or the target panel is gone; nothing moved",
         "newContainer": {
             "sidebar": "New Container in Sidebar",
             "auxiliarybar": "New Container in Secondary Side Bar",
             "panel": "New Container in Panel"
-        }
+        },
+        "newPanelNextTo": "New panel (next to {{panel}})",
+        "rejected": "This view can't go there",
+        "limit": "The layout is too complex for another panel"
     },
     "views": {
         "resetLocation": "Reset Location",
@@ -220,9 +233,22 @@
             "mergeContainer_other": "Merge {{count}} views",
             "reveal": "Show in {{part}}",
             "before": "Place before “{{title}}”",
-            "after": "Place after “{{title}}”"
+            "after": "Place after “{{title}}”",
+            "addTab": "Add as a tab",
+            "insert": "Place here",
+            "between": "Place between the two",
+            "split": "Split to this side",
+            "inPlace": "In place"
         },
-        "moreActions": "More Actions"
+        "moreActions": "More Actions",
+        "frame": {
+            "hide": "Hide"
+        },
+        "tools": "Tools",
+        "missing": {
+            "view": "The plugin providing this view is not here: {{viewId}}",
+            "close": "Close this tab"
+        }
     },
     "viewFrame": {
         "declared": "Waiting for the view's plugin to start",
@@ -295,6 +321,199 @@
         },
         "panelMaximized": {
             "reason": "The panel is not maximized"
+        },
+        "nonPhone": {
+            "reason": "Not available in the phone layout"
+        },
+        "hasCurrentPanel": {
+            "reason": "No panel has had focus yet"
+        },
+        "maximized": {
+            "reason": "No panel is maximized"
+        }
+    },
+    "themes": {
+        "nbook": {
+            "title": "NeuroBook"
+        },
+        "macos": {
+            "title": "macOS"
+        },
+        "eyeGreen": {
+            "title": "Eye Care Green"
+        },
+        "mine": "Mine",
+        "eyeSepia": {
+            "title": "Eye Care Sepia"
+        }
+    },
+    "settingsPages": {
+        "themes": {
+            "title": "Themes",
+            "description": "Make a theme of your own, or see the one in use"
+        }
+    },
+    "themeEditor": {
+        "title": "Theme editor",
+        "close": "Close",
+        "empty": {
+            "title": "No themes of your own yet",
+            "hint": "Create one, or start from a copy of an existing theme."
+        },
+        "library": {
+            "label": "My themes",
+            "new": "New",
+            "duplicate": "Duplicate",
+            "delete": "Delete",
+            "copyFrom": "Copy from…",
+            "loading": "Reading your themes",
+            "failed": "Your themes could not be read: {{reason}}",
+            "deleteConfirm": "Confirm delete",
+            "export": "Export…",
+            "import": "Import…"
+        },
+        "appearance": {
+            "label": "Appearance being edited",
+            "light": "Light",
+            "dark": "Dark"
+        },
+        "sections": {
+            "label": "Sections",
+            "basic": "Basics",
+            "colors": "Colors",
+            "fonts": "Fonts",
+            "chrome": "Activity bar and frame",
+            "scene": "Scene and framing",
+            "contrast": "Contrast check"
+        },
+        "basic": {
+            "titleZh": "Title (Chinese)",
+            "titleEn": "Title (English)",
+            "base": "Theme pack",
+            "baseNbook": "NeuroBook",
+            "baseMacos": "macOS",
+            "baseHint": "Sets shape, density and motion; colors are edited under Colors."
+        },
+        "colors": {
+            "seeds": "Key colors",
+            "seedBackground": "Background",
+            "seedText": "Text",
+            "seedAccent": "Accent",
+            "derive": "Derive the set",
+            "deriveHint": "Fills only the entries you have not edited by hand; key colors stay.",
+            "fromOther": "Derive from {{other}}",
+            "deriveFailed": "A key color could not be read; nothing was derived",
+            "groupBackground": "Background",
+            "groupText": "Text",
+            "groupBorder": "Border",
+            "groupAccent": "Accent",
+            "groupStatus": "Status",
+            "groupOther": "Other",
+            "touched": "Edited by hand",
+            "reset": "Restore the derived value",
+            "pick": "Pick color",
+            "value": "Color value",
+            "advanced": "Advanced: role variables",
+            "advancedHint": "Surfaces and dividers for controls, buttons and panels; write a color or gradient, no images.",
+            "clear": "Clear"
+        },
+        "entry": {
+            "heroTitle": "Theme editor",
+            "openTab": "Open in a tab",
+            "openFloating": "Open in a floating window",
+            "intro": "Make a theme of your own: colors, fonts, the activity bar and scene images are all editable, and the real workbench changes as you edit.",
+            "current": "In use",
+            "switchHint": "To use another theme, pick it under Appearance.",
+            "mine": "My themes",
+            "mineEmpty": "You have no themes of your own yet. Open the editor to make one, or start from any theme.",
+            "inUse": "In use"
+        },
+        "contrast": {
+            "unknown": "No contrast computed: the editor does not parse this form",
+            "against": "Worst on {{surface}}",
+            "failingCount": "{{count}} below the bar",
+            "allPass": "All pass",
+            "sampleText": "Aa Sample text",
+            "sampleLabel": "How this text color looks on its background",
+            "locate": "Fix it",
+            "grade": {
+                "low": "Fail",
+                "aa": "AA",
+                "aaa": "AAA"
+            },
+            "none": "No entry is below the bar",
+            "legend": "Text, secondary text, muted text, links and status colors against their own backgrounds, at least 4.5. Exporting with entries below the bar only warns.",
+            "summary1": "Contrast {{ratio}}, worst on {{surface}}",
+            "summaryLow": "Contrast {{ratio}}, below 4.5, worst on {{surface}}"
+        },
+        "fonts": {
+            "display": "Welcome page title",
+            "prose": "Body text",
+            "placeholder": "Font stack, for example \"Noto Serif CJK SC\", serif",
+            "serif": "Serif",
+            "sans": "Sans-serif",
+            "mono": "Monospace",
+            "clear": "Use the current font",
+            "hint": "The browser cannot list installed fonts, so write the stack yourself; leave empty to keep the current font.",
+            "sampleDisplay": "NeuroBook · Welcome back",
+            "sampleProse": "Rain began at dusk and never let up."
+        },
+        "chrome": {
+            "activityBar": "Activity bar",
+            "activityBarOn": "Use its own activity bar",
+            "surface": "Surface (color or gradient)",
+            "foreground": "Foreground",
+            "active": "Current item",
+            "ornament": "End ornaments",
+            "frame": "Overlay frame",
+            "frameLine": "Line color",
+            "frameHint": "Draws a thin line inside the outline of menus, dialogs and the settings window."
+        },
+        "scene": {
+            "upload": "Upload scene image",
+            "replace": "Replace scene image",
+            "remove": "Remove",
+            "none": "This appearance has no scene image yet",
+            "uploading": "Processing the image",
+            "failed": "Upload failed: {{reason}}",
+            "large": "The image is {{kb}} KB, over the suggested 300 KB",
+            "stored": "{{kb}} KB",
+            "loadFailed": "The image could not be loaded",
+            "region": {
+                "empty": "Empty state",
+                "marginLeft": "Text left",
+                "marginRight": "Text right",
+                "sidebarCorner": "Sidebar corner",
+                "auxiliaryCorner": "Right bar corner"
+            },
+            "size": "Size",
+            "position": "Position",
+            "contentX": "Content center",
+            "clear": "Clear this position's framing",
+            "unparsable": "The editor cannot read this position's value: the frame is not draggable, the values still edit.",
+            "hint": "Drag a frame on the image and pull its lower-right corner to scale; the workbench changes at the same place. Frames are approximate; real positions follow the window size.",
+            "frame": "{{region}} frame",
+            "image": "Scene image",
+            "regions": "Framing positions"
+        },
+        "transfer": {
+            "exported": "Exported {{name}}",
+            "exportedWarn": "Exported {{name}}; entries below the contrast bar: {{count}}",
+            "exportFailed": "Export failed: cannot read scene image {{reason}}",
+            "imported": "Themes imported: {{count}}",
+            "importFailed": "Import failed: {{reason}}",
+            "unexpected": "Something went wrong: {{reason}}",
+            "copyFailed": "Copy failed: the scene image {{reason}} could not be read or uploaded"
+        },
+        "rejected": {
+            "titleEmpty": "The title cannot be empty; nothing was saved",
+            "invalid": "This value cannot be saved: {{reason}}",
+            "saveFailed": "Not saved: {{code}}; the change was undone"
+        }
+    },
+    "editorPages": {
+        "theme-editor": {
+            "title": "Theme Editor"
         }
     }
 }

@@ -9,6 +9,10 @@ import {join} from "node:path";
 
 import {defineConfig} from "@playwright/test";
 
+import {guardWideRun} from "./wide-run-guard";
+
+guardWideRun(import.meta.dirname);
+
 export default defineConfig({
     testDir: ".",
     testMatch: "*.e2e.ts",
@@ -18,5 +22,7 @@ export default defineConfig({
     expect: {timeout: 15_000},
     reporter: [["list"]],
     outputDir: join(tmpdir(), "neuro-book", "playwright", "neuro-book"),
-    use: {channel: "chrome", headless: true, trace: "retain-on-failure"},
+    // 默认减少动态效果：约 113 个用例在程序开关后马上量几何，470ms 的外框过渡会让它们量到中间值。测动画的用例用
+    // `page.emulateMedia({reducedMotion: "no-preference"})` 开回来。
+    use: {channel: "chrome", headless: true, trace: "retain-on-failure", contextOptions: {reducedMotion: "reduce"}},
 });

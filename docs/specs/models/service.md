@@ -16,7 +16,7 @@ owners:
 
 不承诺：
 
-- OAuth 登录（用订阅账号）；发现方式之外的协议（Ollama、LM Studio、LiteLLM 的专用接口）；兼容选项、扩展窗口、用命令取密钥；阶梯价；代理、超时与重试设置。
+- OAuth 登录（用订阅账号）；发现方式之外的协议（Ollama、LM Studio、LiteLLM 的专用接口）；兼容选项、扩展窗口、用命令取密钥；阶梯价；代理设置。重试次数在 [`agent.run-guards`](../agent/run-guards.md)。
 - 凭据库被外部工具修改时的热更新：重开应用才看得到。
 - 目录模型改名后的自动迁移：引用按“目录漂移”处理（输出 9）。
 
@@ -47,7 +47,7 @@ type Providers = Array<{
         name?: string; group?: string; enabled: boolean;
         contextWindow?: number;       // 自定义模型启用时必填、正整数
         maxOutput?: number; vision?: boolean; reasoning?: boolean; efforts?: string[];
-        compactAt?: number;
+        compaction?: {mode: "reserve" | "percent" | "tokens"; value?: number};   // 自动压缩的触发点，覆盖全局；旧的 compactAt 读作 {mode: "tokens"}，保存时写新形状
         price?: [number, number, number, number] | null;   // 美元每百万 token：输入、输出、缓存读、缓存写；null 未知
         headers: Record<string, string>;
     }>;
@@ -59,6 +59,8 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 目录模型在设置里只存用户改过的字段，其余每次从目录读。缺省的角色是四档加 `compaction`，都未绑定。
 
 进程内服务 `modelsKey` 与远程合同 `nbook.models/settings` 见输出 10、12。
+
+另有两个设置项 `nbook.models/streamFirstEventTimeoutSeconds`、`streamIdleTimeoutSeconds`：整数 0–3600，缺省 300，0 表示不设，只允许用户层，显示在 [`agent.run-guards`](../agent/run-guards.md) 的分区里。
 
 ## 输出与可观察行为
 
@@ -76,6 +78,8 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
    | `turn`、`background`（含预览、`complete()`） | 调用方指名的角色 → 会话里选的 `settings.model` → Profile 设置里的模型 → 角色（Profile 设置里的角色，没有则 `main`） |
    | `compaction` | 调用方指名的角色 → `compaction` |
    | `approval` | 调用方指名的角色 → `fast` |
+
+   `settings.model` 除了模型引用，还可以是 `role:<角色 id>`（会话选的是角色，改绑后跟着变）：角色不存在或 id 为空得 `unknown-model`，存在但没绑定得 `role-unbound`。
 
    走到角色而它没有绑定：`role-unbound`（不回落到别的模型）；指名的或绑定的模型不在、没启用、自定义模型缺上下文窗口：`unknown-model`；没有可用的密钥：`no-credentials`；`main` 也解析不到时同样按这几条。推理档按模型支持的档夹取（同 harness）。
 9. **目录漂移**：设置里引用的目录模型不在目录里了（OMP 升级），引用保留并在快照里标 `missing`（原服务商与模型 id），解析为 `unknown-model`，写一条诊断；用户在界面里重新选。
@@ -99,6 +103,8 @@ type Roles = {items: Array<{id: string; axis: "gradient" | "specialist"; name: s
 13. **`setKey`**：值以 `env:` 开头时先写 `apiKeyEnv`、再删库里的密钥；否则先写库、再清 `apiKeyEnv`。`apiKeyEnv` 有值时盖过库里的密钥，所以后一步失败时生效的仍是前一步之前的或之后的那一个、不会混用；这时返回 `partially-applied`，详情带写后的实际密钥状态。
 14. **压缩角色的初值**：第一次绑 `fast` 而 `compaction` 未绑时，同一次写把 `compaction` 设成同一个模型（压缩先跟着快速档，之后各改各的）。
 15. **删除时解除绑定**：删服务商、删模型（含“管理模型”里移出）之后，绑着它们的角色变成未绑定（`role-unbound`），不留指向不存在的模型的引用；停用模型不解除，角色这时解析为 `unknown-model`，重新启用即恢复。删服务商同时删掉凭据库里这家的密钥。
+16. **请求的传输**：每次请求现读两个超时设置交给适配器（[`harness/models.md`](../harness/models.md) 输出 18），`maxHttpAttempts` 固定为 1；检测同样这样。
+17. **压缩的触发点**：全局设置 `nbook.models/compaction`（在“运行可靠性”页的“上下文压缩”组）与模型配置的 `compaction` 同一个形状 `{mode, value?}`，模型的覆盖全局。`reserve`：留预留量，`value` 是把窗口当成这个数来算，没写就是内核的缺省；`percent`：窗口的百分比（`value` 必写、1 到 100，窗口未知时不给）；`tokens`：固定的触发点（`value` 必写）。超出范围的值在设置入口就按 `invalid-value` 拒绝。解析时窗口知道了才算成 `compactAt` 交给内核：超过窗口按窗口，没有意义或不大于 0 时不给，由内核按缺省算。全局设置改了，从下一次解析起生效。快照里的 `compaction` 是模型自己的配置，旧的 `compactAt` 给成 `{mode: "tokens"}`。
 
 ## 状态与转换
 

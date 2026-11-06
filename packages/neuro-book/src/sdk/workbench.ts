@@ -5,8 +5,13 @@
  * 规则同 `index.ts`：只再导出已有实现，每一项都是兼容范围内的承诺。
  */
 
-export {statusItem, view} from "./workbench-helpers";
-export type {PropsOf, StatusItemHelper, ViewHelper} from "./workbench-helpers";
+export {sceneProvider, statusItem, view} from "./workbench-helpers";
+export type {PropsOf, SceneProviderHelper, StatusItemHelper, ViewHelper} from "./workbench-helpers";
+
+// 主题与场景提供者（docs/specs/theme/skins.md）：主题是顶层声明，写进 `plugin.descriptor([…])`；提供者是浏览器入口的贡献。
+export {WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "nbook/plugins/workbench/shared/theme-points";
+export type {SceneProviderImplementation, SceneRequest, SceneResult} from "nbook/plugins/workbench/shared/theme-points";
+export type {ThemeDeclaration} from "nbook/plugins/workbench/shared/themes";
 
 export {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
 export type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";

@@ -8,12 +8,15 @@
  *   “认证方式”要把它放进请求头时也拿得到。取不到时交给适配器按 `auth`、`missing-key` 失败（不发请求）。
  */
 
+import {unlink} from "node:fs/promises";
+import {dirname, join, resolve} from "node:path";
 import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/auth-retry";
 import {getBundledModel, getBundledProviders, type Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
+import {getLogsDir} from "@oh-my-pi/pi-utils";
 
 import {ompCall, ompModelInfo} from "../kernel/index.js";
-import type {ModelInfo, ModelResolution} from "../kernel/index.js";
+import type {ModelInfo, ModelResolution, OmpTransport} from "../kernel/index.js";
 import {catalogPrice} from "./catalog.js";
 import {envRefName, envValue, type StartupEnv} from "./env.js";
 
@@ -47,6 +50,8 @@ export interface ModelTarget {
     readonly vision?: boolean;
     readonly reasoning?: boolean;
     readonly compactAt?: number;
+    /** 触发点要等窗口知道了才算得出（窗口可能来自目录）：给了就用它的结果，没有结果时退回 `compactAt`。 */
+    readonly compactAtFor?: (contextWindow: number) => number | undefined;
     /** 每百万 token 的美元单价：输入、输出、缓存读、缓存写；null 是未知，不写时用目录的。 */
     readonly price?: readonly [number, number, number, number] | null;
     readonly headers?: Readonly<Record<string, string>>;
@@ -60,11 +65,27 @@ export interface KeyAccess {
 
 export type BuildResult = {readonly ok: true; readonly resolution: Extract<ModelResolution, {ok: true}>; readonly model: Model} | {readonly ok: false; readonly code: "unknown-model"};
 
-export function buildResolution(provider: ProviderTarget, config: ModelTarget, access: KeyAccess): BuildResult {
+/**
+ * 删 `pi-ai` 落盘的请求全文（docs/specs/harness/models.md 输出 19）。路径是从错误文字里取的，而错误文字含服务商的正文，可以伪造：
+ * 不是它自己日志目录下的就不删。文件已经没了算达成（它后台清理也会删）。
+ */
+async function discardRequestDump(path: string): Promise<void> {
+    if (dirname(resolve(path)) !== join(getLogsDir(), "http-400-requests")) return;
+    try {
+        await unlink(path);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+}
+
+/** `transport` 每次请求现读：解析结果会被缓存，设置改了要从下一次请求起生效。 */
+export function buildResolution(provider: ProviderTarget, config: ModelTarget, access: KeyAccess, transport?: () => OmpTransport): BuildResult {
     const built = provider.kind === "catalog" ? catalogModel(provider, config) : customModel(provider, config);
     if (built === null) return {ok: false, code: "unknown-model"};
     const {model, priceKnown} = built;
-    const info: ModelInfo = {...ompModelInfo(model), ...(config.compactAt === undefined ? {} : {compactAt: config.compactAt})};
+    const base = ompModelInfo(model);
+    const compactAt = config.compactAtFor?.(base.contextWindow) ?? config.compactAt;
+    const info: ModelInfo = {...base, ...(compactAt === undefined ? {} : {compactAt})};
     return {
         ok: true,
         model,
@@ -77,6 +98,8 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
                     model,
                     priceKnown,
                     headers,
+                    onRequestDump: discardRequestDump,
+                    ...(transport === undefined ? {} : {transport: transport()}),
                     apiKey: () => {
                         if (missing.length > 0 || key === null) throw new Error(`no credential for provider ${provider.id}${missing.length > 0 ? ` (environment variable ${missing.join(", ")} is not set)` : ""}`);
                         return key;

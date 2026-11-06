@@ -1,0 +1,402 @@
+/**
+ * 嵌套 Grid 用户手势与两轴几何在 Component Lab 里的真实浏览器验收（docs/specs/ui/nested-grid.md）。原来在 nb-ui 的
+ * playground 验收页（`e2e/nested-grid.spec.ts`），NestedGrid 搬到 nb-layout 后并进应用的 Lab；场景夹具是
+ * `fixtures/nb-layout/NestedGridAcceptanceFixture.vue`，断言与旧用例相同。
+ * 1. 外层拖动守恒与内层高不变
+ * 2. 内层拖动不改外层宽
+ * 3. 键盘连发单次提交
+ * 4. Escape 零提交
+ * 5. 程序布局零提交
+ * 6. 三个恢复场景：未知引用过滤保留原件、畸形快照拒绝、高版本快照拒绝
+ * 7. 主题（nbook、macos）× 配色（light、dark）× 桌面与 390×844 画布的几何与一次键盘调整
+ *
+ * 手势一律以 px 提交（`GridGestureCommit.changes`），断言面是真实 DOM 几何与提交载荷。
+ */
+
+import {rm} from "node:fs/promises";
+import {join} from "node:path";
+
+import {expect, test} from "@playwright/test";
+import type {Page} from "@playwright/test";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import type {LabDebugState} from "nbook/plugins/lab/shared/debug-api";
+
+import {startDevSession} from "./fixtures";
+import type {DevSession} from "./fixtures";
+
+let tmp = "";
+let dev: DevSession;
+
+test.beforeAll(async () => {
+    tmp = await createTestTmpRoot("neuro-book-e2e", "lab-nested-grid");
+    dev = await startDevSession(join(tmp, "state"));
+});
+
+test.afterAll(async () => {
+    dev.child.kill("SIGTERM");
+    expect(await dev.exit).toBe(0);
+    if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
+
+const labState = (page: Page) => page.evaluate(() => (window as unknown as {__nbLab?: {state(): LabDebugState}}).__nbLab?.state() ?? null);
+
+/**
+ * 打开 NestedGrid 的一个场景。浏览器窗口固定足够大，Lab 外壳本身放不进 390 宽的窗口；窄屏用 `vp=` 把舞台画布设成
+ * 390×844，被测网格在画布里受窄。配色只写 `light`、`dark`：Lab 只装 nbook 的两套配色，写别的 id 会悄悄落回默认。
+ */
+async function gotoNestedGrid(
+    page: Page,
+    options: {
+        scene?: string;
+        theme?: string;
+        colorway?: "light" | "dark";
+        canvas?: string;
+    } = {},
+): Promise<void> {
+    await page.setViewportSize({width: 1440, height: 1200});
+    const query = new URLSearchParams({
+        c: "NestedGrid",
+        s: options.scene ?? "default",
+        theme: options.theme ?? "nbook",
+        cw: options.colorway ?? "light",
+    });
+    if (options.canvas !== undefined) query.set("vp", options.canvas);
+    await page.goto(`${dev.pageUrl}lab?${query.toString()}`);
+    await expect.poll(async () => (await labState(page))?.ready).toBe(true);
+    await expect(page.locator("#nb-lab-target")).toBeVisible();
+}
+
+async function showEventLog(page: Page): Promise<void> {
+    // 事件日志画在舞台里，一直显示，不用切页签。
+    await expect(page.locator(".acc-events__header")).toBeVisible();
+}
+
+async function eventNames(page: Page): Promise<string[]> {
+    return page.locator(".acc-events__row .acc-events__name").allTextContents();
+}
+
+function nestedGridLocators(page: Page) {
+    return {
+        // 分隔线身份就是分支 id 与边界序号：外层 root:0、内层 right:0
+        outerSash: page.locator("#nb-lab-target [data-sash='root:0']"),
+        innerSash: page.locator("#nb-lab-target [data-sash='right:0']"),
+        leftLeaf: page.locator("#nb-lab-target [data-leaf='left']"),
+        topLeaf: page.locator("#nb-lab-target [data-leaf='top']"),
+        bottomLeaf: page.locator("#nb-lab-target [data-leaf='bottom']"),
+        gesture: page.locator("[data-lab-gesture]"),
+        recovery: page.locator("[data-lab-recovery]"),
+    };
+}
+
+test("外层拖动守恒与内层高不变", async ({page}) => {
+    await gotoNestedGrid(page);
+
+    const {outerSash, innerSash, leftLeaf, topLeaf, bottomLeaf, gesture} = nestedGridLocators(page);
+    await expect(outerSash).toBeVisible();
+    await expect(innerSash).toBeVisible();
+    await expect(outerSash).toHaveCSS("width", "7px");
+    await expect(innerSash).toHaveCSS("height", "7px");
+
+    const beforeLeft = (await leftLeaf.boundingBox())!;
+    const beforeRight = (await topLeaf.boundingBox())!;
+    const beforeTop = (await topLeaf.boundingBox())!;
+    const beforeBottom = (await bottomLeaf.boundingBox())!;
+    expect(beforeLeft).not.toBeNull();
+    expect(beforeRight).not.toBeNull();
+    expect(beforeTop).not.toBeNull();
+    expect(beforeBottom).not.toBeNull();
+
+    const sashBox = (await outerSash.boundingBox())!;
+    expect(sashBox).not.toBeNull();
+    const startX = sashBox.x + sashBox.width / 2;
+    const startY = sashBox.y + sashBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 60, startY, {steps: 6});
+    await page.mouse.up();
+
+
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "commit");
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "1");
+    await expect(gesture).toHaveAttribute("data-lab-last-sash", "left~right");
+
+    const activeText = await gesture.getAttribute("data-lab-last-active");
+    expect(JSON.parse(activeText!)).toEqual(["left", "right"]);
+
+    const afterLeft = (await leftLeaf.boundingBox())!;
+    const afterRight = (await topLeaf.boundingBox())!;
+    const afterTop = (await topLeaf.boundingBox())!;
+    const afterBottom = (await bottomLeaf.boundingBox())!;
+
+    // 外层主轴：左栏变宽、右分支变窄，且两者之和守恒
+    expect(afterLeft.width).toBeGreaterThan(beforeLeft.width);
+    expect(afterRight.width).toBeLessThan(beforeRight.width);
+    expect(afterLeft.width + afterRight.width).toBeCloseTo(beforeLeft.width + beforeRight.width, 0);
+
+    // 内层纵轴：高完全不变（两轴独立性）
+    expect(afterTop.height).toBeCloseTo(beforeTop.height, 1);
+    expect(afterBottom.height).toBeCloseTo(beforeBottom.height, 1);
+
+    // 提交载荷是 px：同一分支的目标与基线守恒，且与真实渲染宽度同源
+    const payload = JSON.parse((await gesture.getAttribute("data-lab-gesture-payload"))!);
+    const change = payload.changes[0];
+    expect(change.axis).toBe("width");
+    const sum = (values: Record<string, number>) => Object.values(values).reduce((total, value) => total + value, 0);
+    expect(sum(change.target)).toBeCloseTo(sum(change.baseline), 5);
+    expect(change.target.left).toBeGreaterThan(change.baseline.left);
+    expect(change.target.left).toBeCloseTo(afterLeft.width, 0);
+    // 量到的宽度是外框取整后的，记下的意图没取整，最多差半个像素。
+    expect(Math.abs(change.target.right - afterRight.width)).toBeLessThanOrEqual(0.5);
+
+    await showEventLog(page);
+    const names = await eventNames(page);
+    expect(names.filter((n) => n === "gesture-start")).toHaveLength(1);
+    expect(names.filter((n) => n === "gesture-end")).toHaveLength(1);
+    expect(names.filter((n) => n === "gesture-cancel")).toHaveLength(0);
+});
+
+test("内层拖动不改外层宽", async ({page}) => {
+    await gotoNestedGrid(page);
+
+    const {outerSash, innerSash, leftLeaf, topLeaf, bottomLeaf, gesture} = nestedGridLocators(page);
+    await expect(outerSash).toBeVisible();
+    await expect(innerSash).toBeVisible();
+
+    const beforeLeft = (await leftLeaf.boundingBox())!;
+    const beforeRight = (await topLeaf.boundingBox())!;
+    const beforeTop = (await topLeaf.boundingBox())!;
+    const beforeBottom = (await bottomLeaf.boundingBox())!;
+
+    const sashBox = (await innerSash.boundingBox())!;
+    expect(sashBox).not.toBeNull();
+    const startX = sashBox.x + sashBox.width / 2;
+    const startY = sashBox.y + sashBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX, startY + 40, {steps: 6});
+    await page.mouse.up();
+
+
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "commit");
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "1");
+    await expect(gesture).toHaveAttribute("data-lab-last-sash", "top~bottom");
+
+    const activeText = await gesture.getAttribute("data-lab-last-active");
+    expect(JSON.parse(activeText!)).toEqual(["top", "bottom"]);
+
+    const afterLeft = (await leftLeaf.boundingBox())!;
+    const afterRight = (await topLeaf.boundingBox())!;
+    const afterTop = (await topLeaf.boundingBox())!;
+    const afterBottom = (await bottomLeaf.boundingBox())!;
+
+    // 内层纵轴：上栏变高、下栏变矮，且总高守恒
+    expect(afterTop.height).toBeGreaterThan(beforeTop.height);
+    expect(afterBottom.height).toBeLessThan(beforeBottom.height);
+    expect(afterTop.height + afterBottom.height).toBeCloseTo(beforeTop.height + beforeBottom.height, 0);
+
+    // 外层横轴：列宽完全不变（两轴独立性）
+    expect(afterLeft.width).toBeCloseTo(beforeLeft.width, 1);
+    expect(afterRight.width).toBeCloseTo(beforeRight.width, 1);
+
+    // 提交载荷只包含内层分支的高度变化
+    const payload = JSON.parse((await gesture.getAttribute("data-lab-gesture-payload"))!);
+    expect(payload.changes.map((change: {branchId: string; axis: string}) => [change.branchId, change.axis]))
+        .toEqual([["right", "height"]]);
+    expect(payload.changes[0].target.top).toBeCloseTo(afterTop.height, 0);
+    expect(payload.changes[0].target.bottom).toBeCloseTo(afterBottom.height, 0);
+});
+
+test("键盘连发单次提交", async ({page}) => {
+    await gotoNestedGrid(page);
+
+    const {outerSash, gesture} = nestedGridLocators(page);
+    await outerSash.focus();
+    await expect(outerSash).toBeFocused();
+
+    // 连续触发 keydown，最后释放
+    await page.keyboard.down("ArrowRight");
+    await page.keyboard.down("ArrowRight");
+    await page.keyboard.down("ArrowRight");
+    await page.keyboard.up("ArrowRight");
+
+
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "commit");
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "1");
+    await expect(gesture).toHaveAttribute("data-lab-gesture-source", "keyboard");
+
+    // 三次 10px 的位移一次提交：目标比基线多 30px
+    const payload = JSON.parse((await gesture.getAttribute("data-lab-gesture-payload"))!);
+    const change = payload.changes[0];
+    expect(change.target.left - change.baseline.left).toBeCloseTo(30, 5);
+
+    await showEventLog(page);
+    const names = await eventNames(page);
+    expect(names.filter((n) => n === "gesture-start")).toHaveLength(1);
+    expect(names.filter((n) => n === "gesture-end")).toHaveLength(1);
+});
+
+test("Escape 零提交", async ({page}) => {
+    await gotoNestedGrid(page);
+
+    const {outerSash, gesture} = nestedGridLocators(page);
+    const box = (await outerSash.boundingBox())!;
+    expect(box).not.toBeNull();
+
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 40, startY, {steps: 4});
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+
+
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "cancel");
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "0");
+    await expect(gesture).toHaveAttribute("data-lab-last-sash", "left~right");
+
+    await showEventLog(page);
+    const names = await eventNames(page);
+    expect(names.filter((n) => n === "gesture-end")).toHaveLength(0);
+    expect(names.filter((n) => n === "gesture-cancel")).toHaveLength(1);
+});
+
+test("程序布局零提交", async ({page}) => {
+    await gotoNestedGrid(page);
+
+    const {leftLeaf, gesture} = nestedGridLocators(page);
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "0");
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "none");
+
+    const beforeLeft = (await leftLeaf.boundingBox())!;
+    await page.locator("[data-lab-action=programmatic-layout]").click();
+
+    // 呈现几何已更新
+    const afterLeft = (await leftLeaf.boundingBox())!;
+    expect(afterLeft.width).not.toBeCloseTo(beforeLeft.width, 1);
+
+    // 提交次数保持为 0，手势状态保持为 none
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "0");
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "none");
+
+    await showEventLog(page);
+    const names = await eventNames(page);
+    expect(names.filter((n) => n === "gesture-end")).toHaveLength(0);
+});
+
+test("恢复场景：未知引用过滤但原件保留且调整后不丢", async ({page}) => {
+    await gotoNestedGrid(page, {scene: "unknown-ref"});
+
+    const {outerSash, leftLeaf, topLeaf, bottomLeaf, gesture, recovery} = nestedGridLocators(page);
+    await expect(recovery).toHaveAttribute("data-lab-restore-status", "dropped-unknown");
+    await expect(recovery).toHaveAttribute("data-lab-dropped-count", "1");
+
+    // 呈现层仅渲染已识别的节点，未识别的节点被过滤
+    await expect(leftLeaf).toBeVisible();
+    await expect(topLeaf).toBeVisible();
+    await expect(bottomLeaf).toBeVisible();
+    await expect(page.locator("#nb-lab-target [data-leaf=ghost-plugin]")).toHaveCount(0);
+
+    // 内存原件完整保留 ghost-plugin
+    const rawBefore = JSON.parse((await recovery.getAttribute("data-lab-raw-record"))!);
+    expect(JSON.stringify(rawBefore)).toContain("ghost-plugin");
+    expect(JSON.stringify(rawBefore)).toContain("unknown-plugin-view");
+
+    // 用户调整已知节点
+    await outerSash.focus();
+    await page.keyboard.press("ArrowRight");
+
+    await expect(gesture).toHaveAttribute("data-lab-gesture-state", "commit");
+    await expect(gesture).toHaveAttribute("data-lab-commit-count", "1");
+
+    // 调整后原件依然保留未知部分（未抹除）
+    const rawAfter = JSON.parse((await recovery.getAttribute("data-lab-raw-record"))!);
+    expect(JSON.stringify(rawAfter)).toContain("ghost-plugin");
+    expect(JSON.stringify(rawAfter)).toContain("unknown-plugin-view");
+});
+
+test("恢复场景：畸形重复身份整体拒绝且无异常", async ({page}) => {
+    await gotoNestedGrid(page, {scene: "malformed"});
+
+    const {leftLeaf, topLeaf, bottomLeaf, recovery} = nestedGridLocators(page);
+    await expect(recovery).toHaveAttribute("data-lab-restore-status", "rejected");
+    const reason = await recovery.getAttribute("data-lab-restore-reason");
+    expect(reason).toContain("重复节点 id");
+
+    // 安全回退默认布局，页面不抛未捕获异常
+    await expect(leftLeaf).toBeVisible();
+    await expect(topLeaf).toBeVisible();
+    await expect(bottomLeaf).toBeVisible();
+});
+
+test("恢复场景：高版本快照整体拒绝且保留原件", async ({page}) => {
+    await gotoNestedGrid(page, {scene: "high-version"});
+
+    const {leftLeaf, topLeaf, bottomLeaf, recovery} = nestedGridLocators(page);
+    await expect(recovery).toHaveAttribute("data-lab-restore-status", "rejected");
+    const reason = await recovery.getAttribute("data-lab-restore-reason");
+    expect(reason).toContain("99");
+
+    // 保留原件
+    const raw = JSON.parse((await recovery.getAttribute("data-lab-raw-record"))!);
+    expect(raw.version).toBe(99);
+
+    // 呈现安全默认布局
+    await expect(leftLeaf).toBeVisible();
+    await expect(topLeaf).toBeVisible();
+    await expect(bottomLeaf).toBeVisible();
+});
+
+for (const combination of [
+    {theme: "nbook", colorway: "light", colorwayId: "nbook-light"},
+    {theme: "nbook", colorway: "dark", colorwayId: "nbook-dark"},
+    {theme: "macos", colorway: "light", colorwayId: "nbook-light"},
+    {theme: "macos", colorway: "dark", colorwayId: "nbook-dark"},
+] as const) {
+    for (const viewport of [
+        {name: "desktop", canvas: undefined},
+        {name: "390×844", canvas: "390x844"},
+    ]) {
+        test(`主题配色 ${combination.theme}/${combination.colorwayId} 在 ${viewport.name} 保持真实几何与键盘调整`, async ({page}) => {
+            await gotoNestedGrid(page, {
+                theme: combination.theme,
+                colorway: combination.colorway,
+                canvas: viewport.canvas,
+            });
+            // 地址里的主题与配色确实生效：不装的 id 会悄悄落回默认，用例就成了重复跑同一组合。
+            expect(await labState(page)).toMatchObject({themeId: combination.theme, colorwayId: combination.colorwayId});
+
+            const target = page.locator("#nb-lab-target");
+            const {outerSash, innerSash, gesture} = nestedGridLocators(page);
+
+            await expect(target).toBeVisible();
+            await expect(outerSash).toBeVisible();
+            await expect(innerSash).toBeVisible();
+
+            const targetBox = (await target.boundingBox())!;
+            expect(targetBox, "容器必须具有真实可见尺寸").not.toBeNull();
+            expect(targetBox.width).toBeGreaterThan(0);
+            expect(targetBox.height).toBeGreaterThan(0);
+
+            if (viewport.name === "390×844") {
+                expect(targetBox.width).toBeLessThan(390);
+                const overflow = await page.evaluate(
+                    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                );
+                expect(overflow).toBeLessThanOrEqual(0);
+            }
+
+            // 一次键盘调整验证手势可用
+            await outerSash.focus();
+            await page.keyboard.press("ArrowRight");
+
+
+            await expect(gesture).toHaveAttribute("data-lab-gesture-state", "commit");
+            await expect(gesture).toHaveAttribute("data-lab-commit-count", "1");
+        });
+    }
+}

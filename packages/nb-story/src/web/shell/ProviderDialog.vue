@@ -208,7 +208,7 @@ function save(): void {
 </script>
 
 <template>
-    <Dialog :model-value="props.open" :title="props.provider === null ? '添加自定义服务商' : `编辑服务商 ${props.provider.id}`" size="lg" closable @update:model-value="emit('update:open', $event)">
+    <Dialog :open="props.open" :title="props.provider === null ? '添加自定义服务商' : `编辑服务商 ${props.provider.id}`" size="lg" closable @update:open="emit('update:open', $event)">
         <div class="pd" data-provider-dialog>
             <div class="pd-grid">
                 <Field label="名称" :description="props.provider === null ? `id：${id}（由名称生成，建好后不能改）` : `id：${id}`">

@@ -96,6 +96,7 @@ id 的规则：
 23. 各入口读到的状态：`reduce` 读这条事件之前；`on` 读这条事件写入之后；视图与模型拦截读这次请求所在的叶子；工具拦截读发出这批调用的回复所在的叶子；输入拦截读受理这条指令时的叶子。
 24. `read` 只放 `dependsOn` 里写了的依赖与内置的 `core.history`；`optional` 的依赖没装时返回 undefined。
 25. 设置按扩展分开，`settingsChanged` 只派发给设置所属的扩展；插件设置有全局缺省，用户可以按 Profile 覆盖。
+30. 处理函数与拦截的 `ctx.spend` 是这个会话累计的费用 `{cost, unpriced}`（[`harness/runtime.md`](runtime.md) 输出 70），含触发这次处理函数的事件；只读。
 
 插件装卸：
 

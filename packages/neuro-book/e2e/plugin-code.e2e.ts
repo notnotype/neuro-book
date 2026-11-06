@@ -10,7 +10,7 @@
 
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
@@ -32,6 +32,8 @@ let built = "";
 /** clock、notes、counter 的构建产物（服务端与项目入口）。 */
 let backend: string[] = [];
 let focus = "";
+/** scene-clock 的构建产物：主题加浏览器入口里的场景提供者。 */
+let sceneClock = "";
 
 /** 一个手写的、故意写坏的插件：浏览器入口贡献一个 page 分区，`body` 是登记工厂里的模块体。 */
 interface Broken {
@@ -101,7 +103,8 @@ test.beforeAll(async () => {
     const backendExamples = ["clock", "notes", "counter", "menu", "file-menu"];
     focus = join(tmp, "focus-dist");
     backend = backendExamples.map((name) => join(tmp, `${name}-dist`));
-    const builds = [["snippets", built], ["focus", focus], ...backendExamples.map((name, index) => [name, backend[index]!])];
+    sceneClock = join(tmp, "scene-clock-dist");
+    const builds = [["snippets", built], ["focus", focus], ["scene-clock", sceneClock], ...backendExamples.map((name, index) => [name, backend[index]!])];
     await run("bun", ["-e", `import {buildExample} from "./plugin-sdk/build-examples"; for (const [name, out] of ${JSON.stringify(builds)}) await buildExample(name, out);`]);
 });
 
@@ -176,6 +179,109 @@ test("snippets 外置：打开分区时才取回代码、只取一次；图标�
         await page.locator(`[data-settings-nav="${SNIPPETS_SECTION}"]`).click();
         await expect(page.locator("[data-snippets-editor]")).toBeVisible();
         expect(code.count()).toBe(1);
+    } finally {
+        await page.goto("about:blank");
+        expect(await server.stop()).toBe(0);
+    }
+});
+
+test("场景提供者外置（theme.skins 输出 18）：主题的场景图由插件代码在窗口里画，变量是 blob 地址，换明暗换图，PNG 解得开", async ({page}) => {
+    const stateRoot = await stateRootWith("scene-clock", [sceneClock]);
+    const setting = (appearance: string): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/theme": "example.scene-clock.sky", "nbook.workbench/appearance": appearance}));
+    await setting("light");
+    const server: ProductServer = await startProductServer(stateRoot);
+    const sceneVar = (): Promise<string> => page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+    try {
+        await page.goto(bookUrl(server.url));
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        // 入口启动即激活，画好并解码之后才有变量与 `data-nb-skin-scene`。
+        await expect.poll(sceneVar).toMatch(/^url\("blob:/u);
+        await expect(page.locator("html")).toHaveAttribute("data-nb-skin-scene", "");
+        const light = await sceneVar();
+        const size = await page.evaluate(async (css) => {
+            const image = new Image();
+            image.src = /url\("(.+)"\)/u.exec(css)?.[1] ?? "";
+            await image.decode();
+            return [image.naturalWidth, image.naturalHeight];
+        }, light);
+        expect(size).toEqual([1600, 900]);
+
+        // 换明暗是另一个键：另画一张。
+        await setting("dark");
+        await expect.poll(async () => {
+            const now = await sceneVar();
+            return now.startsWith("url(\"blob:") && now !== light;
+        }).toBe(true);
+    } finally {
+        await page.goto("about:blank");
+        expect(await server.stop()).toBe(0);
+    }
+});
+
+/**
+ * 手写的场景提供者插件（不经构建预设）：两个提供者、两个主题。`broken` 交出解不开的“图片”，主题带后备图；`refresh` 画 1×1 的图并在
+ * 半秒后过期，重画时尺寸加一，所以每次的 blob 地址与内容都不同。
+ */
+async function sceneFixture(): Promise<string> {
+    const directory = join(tmp, "sources", "scenefx");
+    await mkdir(join(directory, "assets"), {recursive: true});
+    await copyFile(join(PACKAGE_ROOT, "plugin-sdk/examples/external/theme-dusk/assets/dusk-day.webp"), join(directory, "assets/day.webp"));
+    const look = (extra: Record<string, unknown> = {}) => ({colors: {"--accent-main": "#a4552a"}, ...extra});
+    const theme = (id: string, provider: string, light: Record<string, unknown>) => ({capability: "workbench.themes", id, declaration: {title: {"zh-CN": id, "en-US": id}, base: "nbook", sceneProvider: provider, light, dark: look()}});
+    await writeFile(join(directory, "package.json"), JSON.stringify({
+        publisher: "fixture",
+        name: "scenefx",
+        version: "1.0.0",
+        engines: {neurobook: ">=0.1.0"},
+        contributes: [theme("fixture.scenefx.broken", "fixture.scenefx.garbage", look({scene: "assets/day.webp"})), theme("fixture.scenefx.refresh", "fixture.scenefx.ticker", look())],
+        entries: {browser: {
+            location: "browser",
+            main: "browser.js",
+            activationEvents: ["onStartup"],
+            contributes: [
+                {capability: "workbench.theme-scenes", id: "fixture.scenefx.garbage", declaration: {}},
+                {capability: "workbench.theme-scenes", id: "fixture.scenefx.ticker", declaration: {}},
+            ],
+        }},
+    }));
+    await writeFile(join(directory, "browser.js"), `${REGISTER}
+let round = 0;
+const ticker = {scene: () => new Promise((resolve, reject) => {
+    round += 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = round;
+    canvas.height = 1;
+    canvas.getContext("2d").fillRect(0, 0, round, 1);
+    canvas.toBlob((blob) => (blob === null ? reject(new Error("toBlob")) : resolve({image: blob, expiresAt: round === 1 ? Date.now() + 500 : undefined})), "image/png");
+})};
+const garbage = {scene: async () => ({image: new Blob([new Uint8Array(64)], {type: "image/png"})})};
+exports.activate = () => ({contributions: {"workbench.theme-scenes": {"fixture.scenefx.garbage": garbage, "fixture.scenefx.ticker": ticker}}});
+});
+`);
+    return directory;
+}
+
+test("场景提供者的失败与刷新（theme.skins 输出 18）：解不开的图回退到后备图；expiresAt 到点换成新画的图", async ({page}) => {
+    const stateRoot = await stateRootWith("scene-fixture", [await sceneFixture()]);
+    const setTheme = (theme: string): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/theme": theme, "nbook.workbench/appearance": "light"}));
+    await setTheme("fixture.scenefx.broken");
+    const server: ProductServer = await startProductServer(stateRoot);
+    const sceneVar = (): Promise<string> => page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+    try {
+        await page.goto(bookUrl(server.url));
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        // 提供者画出来的东西浏览器解不开：场景用后备的静态图（插件文件端点），不是 blob。
+        await expect.poll(sceneVar).toMatch(/\/plugins\/fixture\.scenefx\/files\/.+day\.webp/u);
+        expect(await sceneVar()).not.toContain("blob:");
+
+        await setTheme("fixture.scenefx.refresh");
+        await expect.poll(sceneVar, {timeout: 20_000}).toMatch(/^url\("blob:/u);
+        const first = await sceneVar();
+        // 半秒后过期，至少隔 5 秒重画；新图解码成功后才换上。
+        await expect.poll(async () => {
+            const now = await sceneVar();
+            return now.startsWith("url(\"blob:") && now !== first;
+        }, {timeout: 30_000}).toBe(true);
     } finally {
         await page.goto("about:blank");
         expect(await server.stop()).toBe(0);
@@ -263,10 +369,9 @@ test("完整示例 focus 外置：状态栏条目显示今天的个数；在侧�
         const item = page.locator("[data-workbench-status-bar] [data-workbench-item='example.focus.status']");
         await expect(item).toHaveText("今天 0 个番茄");
 
-        // 侧栏显示 focus 的容器。侧栏打开时显示哪个容器取决于各容器的排序与上次的布局，点一下已选中的容器会把侧栏收起，
-        // 所以只在它没选中时点；先等活动栏画出选中的那个，免得布局还没恢复时读错。
-        const container = page.locator("[data-activity-container='view:example.focus.panel']");
-        await expect(page.locator("[data-activity-container][aria-pressed='true']")).toHaveCount(1);
+        // 显示 focus 的视图。活动栏条目点一下已经聚焦的视图会隐藏它，所以只在它没按下时点。
+        const container = page.locator("[data-tool-entry='example.focus.panel']");
+        await expect(container).toBeVisible();
         if ((await container.getAttribute("aria-pressed")) !== "true") await container.click();
         await expect(container).toHaveAttribute("aria-pressed", "true");
         const panel = page.locator("[data-focus-panel]");

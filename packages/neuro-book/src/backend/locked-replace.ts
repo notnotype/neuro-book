@@ -58,6 +58,11 @@ export interface ReplaceOptions<T, W extends Uint8Array | string> {
     readonly temporaryPath?: (file: string) => string;
     /** 收尾时的次要错误（`lock.release-failed`、`temporary.cleanup-failed`）不改变结果，交给它记诊断；事件名由调用方加上自己的前缀。 */
     readonly report: (event: string, error: unknown) => void;
+    /**
+     * 锁内成功阶段：改名替换之后、释放锁之前调用（Files 在这里交记账槽）。它出错不撤回落盘，交给 `report`
+     * （`committed.failed`）。
+     */
+    readonly committed?: (written: W, before: CurrentFile, after: Stats) => Promise<void>;
 }
 
 /** 加锁替换 `file`；`file` 所在目录必须已存在。 */
@@ -88,11 +93,11 @@ export interface HeldLock {
  * proper-lockfile 删掉锁目录再建，所以比对锁目录的身份（连同 `onCompromised` 报告的失效）就能发现；持有者在提交前
  * 用 `stillHeld` 核对，核对与提交之间仍有一个很小的窗口。等不到为 `locked`。
  */
-export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void, options: {readonly stale?: number} = {}): Promise<{readonly ok: true; readonly lock: HeldLock} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string; readonly code?: string}> {
+export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void, options: {readonly stale?: number; readonly wait?: boolean} = {}): Promise<{readonly ok: true; readonly lock: HeldLock} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string; readonly code?: string}> {
     let unlock: () => Promise<void>;
     let compromised: unknown = null;
     try {
-        unlock = await lock(lockPath, {realpath: false, lockfilePath: lockPath, stale: options.stale ?? LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => {
+        unlock = await lock(lockPath, {realpath: false, lockfilePath: lockPath, stale: options.stale ?? LOCK_STALE_MS, retries: options.wait === false ? 0 : LOCK_RETRIES, onCompromised: (error) => {
             compromised = error;
             report("lock.compromised", error);
         }});
@@ -185,6 +190,13 @@ async function replaceOnce<T, W extends Uint8Array | string>(file: string, optio
             return "modified";
         }
         await rename(temporary, file);
+        if (options.committed !== undefined) {
+            try {
+                await options.committed(decision.write, current, after);
+            } catch (error) {
+                options.report("committed.failed", error);
+            }
+        }
         return {ok: true, written: decision.write, before, after};
     } catch (error) {
         await unlink(temporary).catch((cleanup: unknown) => {
@@ -194,7 +206,7 @@ async function replaceOnce<T, W extends Uint8Array | string>(file: string, optio
     }
 }
 
-async function statOrNull(file: string): Promise<Stats | null> {
+export async function statOrNull(file: string): Promise<Stats | null> {
     try {
         return await stat(file);
     } catch (error) {
@@ -204,12 +216,12 @@ async function statOrNull(file: string): Promise<Stats | null> {
 }
 
 /** 文件身份：设备、inode、大小、修改时间；原来不存在、现在被创建也算变了。 */
-function sameFile(left: Stats | null, right: Stats | null): boolean {
+export function sameFile(left: Stats | null, right: Stats | null): boolean {
     if (left === null || right === null) return left === right;
     return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs;
 }
 
-function readOnly(error: unknown): boolean {
+export function readOnly(error: unknown): boolean {
     return errno(error) === "EACCES" || errno(error) === "EPERM" || errno(error) === "EROFS";
 }
 

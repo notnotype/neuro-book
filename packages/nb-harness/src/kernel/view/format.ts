@@ -6,6 +6,7 @@
  */
 
 import {replyText} from "../api/index.js";
+import type {UserAttachment} from "../api/basics.js";
 import type {ConversationTurn, Format, LogEvent, Message, Origin, RenderTable, ReplyEvent, RequestBlock, Step, ToolResultEvent} from "../api/index.js";
 
 export type RenderFn = (event: LogEvent<string, any>) => string | null;
@@ -27,6 +28,8 @@ export interface RenderSources {
     readonly onProblem: (problem: RenderProblem) => void;
     /** 压缩省略的条目：渲染成占位（优先于一切 `render`），消息与工具调用照样在（runtime.md 输出 49）。 */
     readonly omitted: ReadonlyMap<string, string>;
+    /** 这个 seq 之前的用户消息，图片换成带地址的占位（runtime.md 输出 83）。 */
+    readonly imagesBefore?: number;
 }
 
 function originOf(event: LogEvent): Origin {
@@ -40,6 +43,13 @@ function defaultText(event: LogEvent): string {
     if (typeof data?.text === "string") return data.text;
     return `<system-reminder>\n${JSON.stringify(event.data)}\n</system-reminder>`;
 }
+
+function attachmentsOf(event: LogEvent): readonly UserAttachment[] {
+    if (event.type !== "input" && event.type !== "steer") return [];
+    return (event.data as {attachments?: readonly UserAttachment[]}).attachments ?? [];
+}
+
+const hasRange = (item: UserAttachment, text: string): boolean => item.from !== undefined && item.to !== undefined && item.from >= 0 && item.to <= text.length && item.from < item.to && text.slice(item.from, item.to).includes(item.uri);
 
 export function createFormat(sources: RenderSources, override: RenderTable = {}): Format<RenderTable> {
     /** 按优先级找到的 `render` 与它的主人；没有时为 null（用缺省）。 */
@@ -72,6 +82,40 @@ export function createFormat(sources: RenderSources, override: RenderTable = {})
     /** 回复与工具结果：覆盖返回 null 也用缺省。 */
     const requiredTextOf = (event: LogEvent): string | undefined => sources.omitted.get(event.id) ?? overriddenText(event) ?? undefined;
     const block = (text: string, origin: Origin): RequestBlock => ({kind: "text", text, origin});
+    /** 一个事件进用户消息的块：文字，加这个事件带的附件（runtime.md 输出 82）。 */
+    const userBlocks = (event: LogEvent): RequestBlock[] => {
+        const text = textOf(event);
+        // 渲染成 null 是不要这条，连图一起。被压缩省略的只留占位，也不附图。
+        if (text === null) return [];
+        const origin = originOf(event);
+        const attachments = sources.omitted.has(event.id) ? [] : attachmentsOf(event);
+        const plain = (value: string): RequestBlock[] => (value === "" ? [] : [block(value, origin)]);
+        if (attachments.length === 0) return plain(text);
+        const old = event.seq < (sources.imagesBefore ?? 0);
+        const imageOf = (item: UserAttachment): RequestBlock => (old
+            ? block(`[图片 ${item.name ?? item.uri}${item.width === undefined || item.height === undefined ? "" : ` ${String(item.width)}×${String(item.height)}`}：压缩之前的图不再随请求发送，需要时读 ${item.uri}]`, origin)
+            : {kind: "imageRef", uri: item.uri, ...(item.mime === undefined ? {} : {mime: item.mime}), ...(item.width === undefined ? {} : {width: item.width}), ...(item.height === undefined ? {} : {height: item.height}), origin});
+        const fileOf = (item: UserAttachment): RequestBlock => block(`[文件 ${item.name ?? item.uri}：${item.uri}]`, origin);
+        // 范围只在文字是原文时有效：Profile 的 `render` 改写过就对不上了。内核不解析写法，只核对范围里确实是这个地址。
+        const original = (event.data as {text?: unknown}).text;
+        const placed = text === original ? attachments.filter((item) => hasRange(item, text)).sort((a, b) => a.from! - b.from!) : [];
+        const blocks: RequestBlock[] = [];
+        let at = 0;
+        for (const item of placed) {
+            // 重叠的范围（宿主算错了）不切，放到末尾。
+            if (item.from! < at) continue;
+            if (item.kind === "file") continue;
+            blocks.push(...plain(text.slice(at, item.from!)), imageOf(item));
+            at = item.to!;
+        }
+        blocks.push(...plain(text.slice(at)));
+        const done = new Set(placed.filter((item) => item.kind === "file" || blocks.some((one) => one.kind === "imageRef" && one.uri === item.uri) || old));
+        for (const item of attachments) {
+            if (done.has(item)) continue;
+            blocks.push(item.kind === "image" ? imageOf(item) : fileOf(item));
+        }
+        return blocks;
+    };
     const format: Format<RenderTable> = {
         user(...parts) {
             const content: RequestBlock[] = [];
@@ -81,8 +125,7 @@ export function createFormat(sources: RenderSources, override: RenderTable = {})
                     if (part !== "") content.push(block(part, {kind: "fixed", by: "profile"}));
                     continue;
                 }
-                const text = textOf(part);
-                if (text !== null && text !== "") content.push(block(text, originOf(part)));
+                content.push(...userBlocks(part));
             }
             return content.length === 0 ? null : {role: "user", content};
         },
@@ -99,7 +142,10 @@ export function createFormat(sources: RenderSources, override: RenderTable = {})
             return text === null || text === "" ? null : {role: "assistant", content: [block(text, originOf(reply))], model: reply.data.model};
         },
         tool(result: ToolResultEvent): Message {
-            return {role: "tool", callId: result.data.callId, content: [block(requiredTextOf(result) ?? defaultText(result), originOf(result))], isError: result.data.status !== "ok"};
+            const origin = originOf(result);
+            // 被压缩省略的条目只发占位：图片再附上去，估算就和实际请求对不上了（docs/specs/harness/runtime.md 输出 58）。
+            const images = sources.omitted.has(result.id) ? [] : (result.data.images ?? []).map((image): RequestBlock => ({kind: "image", ...image, origin}));
+            return {role: "tool", callId: result.data.callId, content: [block(requiredTextOf(result) ?? defaultText(result), origin), ...images], isError: result.data.status !== "ok"};
         },
         step(step: Step) {
             return [format.assistant(step.reply), ...step.results.map((result) => format.tool(result)), format.user(...step.after)];

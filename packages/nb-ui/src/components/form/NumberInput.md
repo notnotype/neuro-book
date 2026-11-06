@@ -10,7 +10,7 @@
 
 根节点是全宽、可收缩的控制容器：左侧为可伸缩的等宽字体输入区，右侧为上下排列的两个微型步进按钮，中间以竖线分隔。按钮固定在容器右侧，不参与正常 Tab 顺序；输入区可在 `390×844` 下收缩，长值不会把步进器推出控件。
 
-`size="sm"` 使用紧凑高度与字号；`size="default"` 使用标准 md 高度。`title` 作用于根控制容器，不是原生 input 的独立 prop。
+`size="sm"` 使用紧凑高度与字号；`size="md"`（缺省）使用标准高度。`title` 作用于根控制容器，不是原生 input 的独立 prop。
 
 ## 交互
 
@@ -24,7 +24,7 @@
 ## 数据
 
 ```ts
-type NumberInputSize = "default" | "sm";
+type NumberInputSize = "sm" | "md";
 
 type NumberInputProps = {
     /** 受控字符串值；默认 ""，组件不把它转换为 number。 */
@@ -54,7 +54,7 @@ type NumberInputProps = {
     max?: string;
     /** 步进字符串；默认 "1"；无效或非正值步进回退为 1。 */
     step?: string;
-    /** 控件尺寸；默认 "default"。 */
+    /** 控件尺寸；默认 "md"。 */
     size?: NumberInputSize;
     /** 根控制容器的 title；默认 undefined。 */
     title?: string;
@@ -80,6 +80,7 @@ type NumberInputSlots = {
 
 - **默认/空值**：输入区为空，步进仍可按 `step` 与 min/max 计算下一值。
 - **受控**：父组件通过 `modelValue` 决定显示值；输入和步进结果必须由父组件回写才能持续显示。
+- **聚焦**：容器边框转 `--focus-outline`，外加 `--focus-ring` 光晕；悬停不改边框。禁用时不画这圈高亮。
 - **禁用**：输入与两个步进按钮均 disabled，容器降低不透明度。
 - **只读**：输入保留值但不允许修改，两个步进按钮禁用；外观与可编辑时相同，不像停用那样变淡（与 `Input` 等其它控件的只读一致）；Enter 提交行为见「交互」。
 - **错误**：Field 的 invalid 上下文使容器使用错误样式，并给 input 设置 `aria-invalid`。

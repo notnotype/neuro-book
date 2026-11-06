@@ -1,0 +1,20 @@
+t08 设计审查的处理（审查者 Claude Sonnet，报告 design-review.txt，17 条）。结论是读源码的推断，[01][03][10] 主会话另外对照源码核实。
+
+[01] 成立，要改。命令用现有域 edit：nbook.edit.<动作>，和 nbook.edit.undo 同域；键用限定名 nbook.editor/<名>。
+[02] 成立，因 [10] 消解。不用 BubbleMenu，不在扩展配置里捕获组件 DOM；菜单状态由 Vue 层监听 scroller 与编辑器事件得出。
+[03] 成立，要改。EditorState.create 每次换 plugins 数组，prosemirror-view 按数组身份重建插件视图。不写插件视图；状态按控件实例算，换绑定时清掉，并有测试。
+[04] 成立，要改。发粗粒度键 canFormat、canConvertBlock、hasSelection，命令 when 引用它们；不可用时 run 返回 unavailable 与原因。
+[05] 成立，要改。动作的元数据在 editor/shared/editing.ts（不引 Tiptap），实现在 nb-markdown，只从控件到达。收口检查入口 chunk 不含 Tiptap。
+[06] 成立，要改。内置菜单读自己控件的 editing.state；公开键只服务 when、贡献项与命令面板。
+[07] 不再适用：因 [08] 取消反向连接。
+[08] 采纳。命令、公开键、菜单位置、设置归 nbook.editor，控件能力放进 EditorControlHandle.editing。原计划归 markdown 没有记录的理由，只是跟着控件走。
+[09] 成立，要改。清除格式只移除粗体、斜体、删除线、行内代码、文字颜色、高亮、上标、下标；保留批注、注音、链接；不动块类型。
+[10] 成立，要改。不用 @tiptap/extension-bubble-menu。显隐状态机自己写，在 nb-ui 新增接受虚拟锚点、不抢焦点的 AnchoredPopover；更正里说的 Popover 没有 anchor 已核实。
+[11] 成立，要改。(a) + 插入字面 / 触发，放弃时删掉这一块；(b) 组字由宿主判断；(c) Markdown 只在行首或空白后触发；(d) 表格单元格、代码块、原样块不触发，筛不出项时不显示、不吞回车；(e) 行首的“、”算斜杠（中文输入法下 / 键输出“、”），只限行首；(f) closeHistory 后再删查询并执行。
+[12] 成立，要改。(a) 手柄 dragend 清 view.dragging，补外部拖入的 e2e；(b) 起拖先设 NodeSelection；上移下移走 delete+insert；(c) 取消 4px 门槛，用原生拖放；(d) 块模型写成表进 Spec；(e) 列表项转换规则见计划；(f) 副本用 nodeFromJSON 新建节点，测试核对批注。
+[13] 成立，要改。复制、剪切统一：先 view.focus()，再 execCommand，走 ProseMirror 的处理器，非安全上下文也可用；S6 在真实浏览器核实 data-pm-slice 还在。审查建议的 clipboard.write 不采纳：要多处理 Chrome 的 HTML 清洗，也到不了非安全上下文，而 execCommand 就是 Ctrl+C 的路径。粘贴检查 API 缺失、被拒、无文本三种提示；文件不支持并提示。右键点在选区外时自己移光标。
+[14] 成立，要改。(a) Toolbar 加 variant="flat"，现在没有产品调用方；(b) 只读时块按钮不出现；(c) 内置项按命令是否在目录里过滤，nbook.edit.link 留给 t09；(d) 工具栏 18 个，贡献项支持 placement，inline 项最先收进“⋯”。
+[15] 成立，要改。(a) 状态按需计算，版本号随选区或文档变化；(b) 键名 camelCase；(c) 快捷键留在 Tiptap，目录里的写法用测试对照真实按键；(d) Alt+↑↓ 放进 Tiptap 的 keymap，macOS 上与 Option+↑↓ 的冲突写进 Spec。
+[16] 成立，补进验收映射。
+[17] 成立，要改。触发模块放 nb-markdown/src/trigger/，字符集与 parent 判断做选项；Prompt 原位置继续导出。
+pinyin-pro 用旧应用已在 bun.lock 的 ^3.28.1，不多出第二个版本。

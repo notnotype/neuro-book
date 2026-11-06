@@ -66,6 +66,12 @@ async function openSettings(page: Page, section: string): Promise<void> {
 
 const pluginRow = (page: Page, id: string) => page.locator(`[data-plugin-row="${id}"]`);
 const settingRow = (page: Page) => page.locator(`[data-settings-row="${SETTING}"]`);
+/** “其它”分区里没有示例插件的配置项。分区本身还在（Agent 的工具绑定没有归到别的分区）：先等那一行，免得分区还没画出来就数到 0。 */
+async function expectNotInOther(page: Page): Promise<void> {
+    await page.locator("[data-settings-nav='other']").click();
+    await expect(page.locator("[data-settings-row='nbook.agent/toolBindings']")).toBeVisible();
+    await expect(settingRow(page)).toHaveCount(0);
+}
 const readJson = async (path: string): Promise<unknown> => parseJsonc(await readFile(path, "utf8")) as unknown;
 const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
 
@@ -86,7 +92,7 @@ test("安装 → 重启后配置项出现、能写进本作品层 → 禁用 →
     await expect(pluginRow(page, "example.hello").locator("[data-plugin-pending='install']")).toBeVisible();
     await expect(page.locator("[data-plugins-restart]")).toContainText("重启 NeuroBook 后生效");
     // 本次运行里插件没有登记：“其它”分区里没有它的配置项。
-    await expect(page.locator("[data-settings-nav='other']")).toHaveCount(0);
+    await expectNotInOther(page);
 
     await restart(page);
     await openSettings(page, "other");
@@ -112,7 +118,8 @@ test("安装 → 重启后配置项出现、能写进本作品层 → 禁用 →
 
     await restart(page);
     await openSettings(page, "nbook.plugins.installed");
-    await expect(page.locator("[data-settings-nav='other']")).toHaveCount(0);
+    await expectNotInOther(page);
+    await page.locator("[data-settings-nav='nbook.plugins.installed']").click();
     await pluginRow(page, "example.hello").locator("[data-plugin-uninstall]").click();
     await page.getByRole("dialog", {name: "卸载插件"}).getByRole("button", {name: "卸载"}).click();
     await expect(pluginRow(page, "example.hello").locator("[data-plugin-pending='uninstall']")).toBeVisible();

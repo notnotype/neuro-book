@@ -1,0 +1,74 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t28-conversation-ui-followups",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t28 对话界面第二批：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "c7486ebaf05c6f8a61784cc472d915c7aebba0c0c04c5e5c4eb8b18722a138c5",
+    "files": [
+        "index.html",
+        "r1/stacked.webp",
+        "r1/status.webp",
+        "r1/tabs-models.webp",
+        "r1/tabs-roles.webp",
+        "r2/inspector-unavailable.webp",
+        "r2/inspector.webp"
+    ],
+    "questions": [
+        {
+            "id": "s1-picker",
+            "type": "single",
+            "label": "模型选择器的版式",
+            "options": [
+                {
+                    "value": "tabs",
+                    "label": "A 分页（同旧应用）"
+                },
+                {
+                    "value": "stacked",
+                    "label": "B 一页到底"
+                }
+            ],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "s2-status",
+            "type": "confirm",
+            "label": "状态栏窄宽时留什么",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "s3-inspector",
+            "type": "confirm",
+            "label": "批 2：上下文检查器",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T04:21:46.079Z"
+}

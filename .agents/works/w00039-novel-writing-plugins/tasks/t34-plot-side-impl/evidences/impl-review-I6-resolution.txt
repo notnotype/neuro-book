@@ -1,0 +1,59 @@
+实现审查 I6（阶段 F，b78df0971..a2b4059a6）的处理。快速审查：Opus 份处理完就继续；omp 份回来后另记。
+
+Opus 22 条：阻断 2、重要 11、建议 9。都成立，都改了，修正在 d47f2e296dfd0e5a1eac39ab4c0cbaf7c4ed5aa6；每条反例都写成了回归测试，并做了变异检查（把修正改回去，对应的测试都失败）。
+
+1  成立（阻断）。回写时用重拼算出的 points、concerns，连同按它们算的摘要一起写。source.test.ts。
+2  成立（阻断）。读取视图加 allChecks；核对点按讲述与比较时点取早的分桶。
+3  成立。伏笔算全局（节点可以标在它的出场之前）；视角人物没出场不读他；条目按出场与 retold 讲述取早的分桶。
+4  成立。splitFrom 的 by 跟着计划。
+5  成立。备忘带记录的摘要，换了记录不沿用。
+6  成立。relay 挪到整个 runCheck 的 finally，判一致阶段也能取消。
+7  成立。只有 invention 查名字；提示词定义 name 是新名字本身；自陈按分隔符切开后整段比。
+8  成立。至少要有一行不短于 4 码点，单字拆行不算有效；夹一行短的不算错。
+9  成立。CallRecord 记 badQuotes，沿用时跟着走；记录上不再存总数，诊断加起来。
+10 成立。失败的用量等在途的都结束才取；次数按实际调用计（含重试）。
+11 成立。limiter 接信号，排队时取消立即返回。
+12 成立。ask 抛错算确定失败、取消同批；checks.run 加 catch，记诊断与 lastFailure。
+13 成立。失败详情带 kind、resolution、usage；status 也带。
+14 成立。hasFork 不按线读（分叉安放在父线，回溯段的子线视图看不到）。
+15 成立。三个账本接进 nbook.plot/checks，真实链路有测试。这条是我漏了，计划写了 F7 要经合同给出。
+16 成立。候选的伏笔列表存进调用记录，诊断只读记录，不重新推导。
+17 成立。回写在队列里比较当前记录还是不是原来那条；写失败记诊断。
+18 成立。打开时先读 revision，conflict 后重读；清单 conflict 时重读接着写；record 在读不出来时回 storage-unavailable，不当“没跑过”。
+19 成立，改法比建议更彻底：去掉“讲支线的章算全书”。它的理由是带过去的值读父线最新一章，改成按触发处所在章读（knowledge.ts #parentRows），这样支线也按前缀判断，只把边界取到定义这条线的分叉所在章。
+20 成立。被替代的计划不算后面的揭示。
+21 成立。新增 source.test.ts：记录跨步留存的随机序列，走摘要的结论与全量重拼对照；回写以后、换记录、重启各一条。
+22 (a) available 带信号与 30 秒超时。(b) 已到模型上限时 length 不重试（capped）。(c) 空段不问。(d) 合并用列表，不按顿号切。(e) 注释放回 involves。(f) run 的 usage 用真 schema。(g) 入口停止后的 run 直接回 plot-check-cancelled。(h) changedBy 也按读取位置截断。
+
+未处理：无。
+规模：改动碰了校验有效性的路径（核对点进分桶、支线不再算全书）；omp 审查跑完以后重量一次。
+
+omp 份（报告 impl-review-I6-omp.txt，审的是 a2b4059a6）：阻断 0、重要 15、撤回 1。开审以后我已经提交了 Opus 份的修正，所以先把它的反例脚本换到 d47f2e296 上重跑，再判断哪些还成立（脚本里路径换成实现 worktree，其余不动）。
+
+已被 Opus 份修掉（重跑的输出不再复现；编号是 omp 的）：
+2  回写覆盖新记录：plugin.ts 已在队列里比较当前记录。omp 的脚本用的是它自己写的无条件回写，所以脚本还会复现；这次把回写挪到 backend/checks.ts 的 writeBackRecord，用真实存储补了测试。
+5  available 取消：重跑 F5_CANCEL settled:true，入口停止回 plot-check-cancelled。
+6  并发失败的用量：3 次调用报 30。
+7  被替代的揭示计划：trials 为空。
+9  晚出场伏笔：依赖摘要变了。
+10 核对点：依赖摘要变了。
+11 判一致取消：remoteAborted:true。settled:false 是脚本的假服务端不理信号，真实链路有测试。
+12 存储冲突：第一次冲突，之后的重试都成功。
+13 备忘认记录：optimizedNewValid:true。
+16 排队取消：settled:true（它的包装没传新的 signal 参数才抛错，是脚本落后于新签名）。
+
+还成立，这次改了（1aefa6f39，都写了回归测试并做了变异检查：把修正改回去，对应测试都失败）：
+1  成立。第 N 章的结果从章末起才报，章首不报。ReadPosition 只有章首、章末、初值，不存在段内位置。
+3  成立。挂点是 K 的地址也算，泄底的 objects 与改揭晓章的依赖共用 decisionHangsOn，与 involves 同一个口径。
+4  成立。排队等存储时取消或入口停止：不写，回 plot-check-cancelled。信号只在队列闭包里看。这条的两个时序都用真实分区库测（新增 backend/checks.test.ts）；createChecks 的 store、canon 收窄成 Pick，测试才能只多记一下“排上队了”，不用替身。
+14 成立。新事实的引文按整章核对，归第一处引文第一行所在的段；窄问题与按段的规则项仍要落在同一段。
+15 成立。超预算的试读按 reader:K 补问，与窄问题的预算同一个语义；不是候选的 id 忽略。没有选“把 3 次定成硬限”：unasked 既然列了它，就该能补问，而且多花的钱是作者明确要的。
+
+不算发现：
+8  omp 自己撤回。新事实按当前世界重新分类这件事 Spec 没定义，记入待确认：名字后来入库，旧记录里的“新编”不会自动消失，要重跑。
+
+文档（7c61f6125）：checks.md 输出 3、4、6、8 与失败表（chapter-not-found、storage-unavailable）；canon/model.md 输出 20 补 allChanges、allChecks。
+
+omp 的回写建议（审查固定提交时运行证据要绑定实际加载的源码版本）转交最后的汇报。
+
+未处理：无。

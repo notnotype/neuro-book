@@ -1,0 +1,188 @@
+SPEC 4.2 迁移记录（w00029 t05 S1）。格式：项 | 原文要点 | 去向 | 核对依据
+核对对象：packages/nb-ui/src/components 下同名 .md 与 .vue；行号取自处理时的文件。
+
+== 1 Button ==
+1 Button | 高度字号取主题 token，sm/md/lg 对应 --control-h-* 与 --text-xs/sm/md | Button.md 已有（布局） | controls/Button.vue:106-112，Button.md:11
+1 Button | sm/md/lg 的圆角 6/8/10px，内边距、gap | 并入 Button.md 布局：圆角 6/8/10 与 IconButton 同档；内边距与 gap 丢弃（纯实现数值，无登记，不是合同） | controls/Button.vue:107-112
+1 Button | 严禁强制夸张最小宽度，告别胖胶囊 | 丢弃：形容词与历史叙述；宽度由内容决定已在 Button.md 布局 | Button.vue 无 min-width；Button.md:11
+1 Button | Primary：accent-main 底、text-inverse 字、0 1px 2px 微底影、悬停加深加同色柔晕 | 并入 Button.md 交互（variant 材质，不抄数） | Button.vue:128
+1 Button | Primary Active 回弹 scale(0.975) | 并入 Button.md 交互（按下缩小到 0.975，禁用/加载不缩放） | Button.vue:136 not-disabled:active:scale-[0.975]
+1 Button | Secondary 常态 8% 半透底、悬停 18% + 柔晕、按下 24% | 并入 Button.md 交互（写角色：--text-main 淡底，依次加深，悬停带柔晕；不抄百分比，组件里写死、无登记） | Button.vue:116-118，数值一致
+1 Button | Danger 绑定 --status-danger 与红色环境光晕 | 并入 Button.md 交互 | Button.vue:122-124
+1 Button | Subtle/Ghost 常态透明或 5% 浅底，悬停淡入 10%~14% | 并入 Button.md 交互（subtle 淡底、ghost 透明，悬停淡入底板） | Button.vue:119-127，subtle 5%/14%，ghost 透明/10%，与原文一致
+1 Button | 固定 1px transparent 边框 box-border 防 1px 抖动 | 并入 Button.md 布局 | Button.vue:136 border border-transparent box-border
+1 Button | disabled 屏蔽悬停阴影与 Active 缩放 | 并入 Button.md 交互；Button.md 状态已有“降低透明度，不触发点击” | Button.vue:136 disabled:hover:shadow-none disabled:active:transform-none
+1 Button | 加载态锁定安全内部尺寸，文案变动时零宽度跳变 | 丢弃：代码没有这个保证。加载时 spinner 为 1em，常态图标为 1.15em，宽度会差 0.15em；也没有固定宽度。见“疑似代码问题” | Button.vue:145-146
+
+== 2 IconButton ==
+2 IconButton | sm 26px/6、md 32px/8、lg 38px/10 圆角，定值不随控件高度变 | IconButton.md 已有尺寸与理由（布局）；圆角并入布局 | controls/IconButton.vue:248-264；SPEC 缺 2xs、xs 两档，.md 更全
+2 IconButton | Default 常态镂空透明，图标次要文字色；悬停 15% 实底、图标转深色；按下 24% + scale(0.93) | 并入 IconButton.md 交互（variant 材质与按下缩放 0.93，不抄百分比） | IconButton.vue:276、287
+2 IconButton | Accent/Danger 悬停 16% 品牌/危险色底，Active 24% | 并入 IconButton.md 交互；补常态图标色（danger 取 --text-muted，accent 取 --accent-text），悬停图标转状态色 | IconButton.vue:267-272
+2 IconButton | Secondary 悬停浮现 18% 次要底板 | 并入 IconButton.md，并更正：secondary 常态就带 8% 淡底，悬停 18%、按下 24%（原文只写悬停出现底板，与代码不符） | IconButton.vue:273-275
+2 IconButton | 盒模型尺寸绝对稳定，禁用态禁止缩放 | IconButton.md 已有（状态“不可按下缩放”）；稳定性用定值边长表达 | IconButton.md:208，IconButton.vue:287
+
+== 3 SegmentedControl ==
+3 SegmentedControl | 外槽 radius-control + 10% 底槽 + 1px 边框 | SegmentedControl.md 已有（布局“带边框和浅底色”）；百分比与圆角是组件内写死的实现数值，不抄 | controls/SegmentedControl.vue:265
+3 SegmentedControl | 选中滑块 accent-main + 反色文字 + 柔和微底影 | 并入 SegmentedControl.md 布局（accent-main 实底、--text-inverse 文字；底影丢弃，属实现细节） | SegmentedControl.vue:272、299
+3 SegmentedControl | 相邻未选项间 1px 竖线，选中项两侧自动隐去 | 并入 SegmentedControl.md 布局 | SegmentedControl.vue:324-328（isSelected 或 idx===selectedIndex-1 时 opacity-0）
+3 SegmentedControl | 动效消费 --motion-base，“300ms，cubic-bezier(0.22,1,0.36,1)” | 并入 SegmentedControl.md 布局（过渡取 --motion-base 与 --ease-standard）；“300ms”和具体曲线丢弃：代码取 token，时长随主题，原文数值不是代码的值 | SegmentedControl.vue:272
+3 SegmentedControl | 支持富文本样式 B/I/U/S 等独立多选，各激活项独立高亮 | 丢弃：和代码不符。组件只有单选（单个 modelValue、role=radio），SegmentedControl.md“不支持”已写不支持多选 | SegmentedControl.vue:143、284；SegmentedControl.md:102
+3 SegmentedControl | （第 8 节关联）按压缩放 | 并入 SegmentedControl.md 交互：按下选项缩到 0.96，只读/禁用不缩 | SegmentedControl.vue:304
+
+== 4 Checkbox（含 Radio 外观进 RadioGroup.md） ==
+4 Checkbox | 20px×20px，rounded-8px 饱满超椭圆 | 丢弃并更正：代码是 18×18px、圆角 5px（也不是 Squircle）。Checkbox.md 原写“18px 主题化 Squircle”，就地改为“18px 方框”并补圆角 5px | form/Checkbox.vue:186
+4 Checkbox | 未选中态 18% 半透深灰实心底座 | 丢弃并更正：代码是面板色 90% 底 + 20% 细边框 + 内凹阴影，悬停边框加深。并入 Checkbox.md 布局“外观”（不抄百分比） | Checkbox.vue:190
+4 Checkbox | 选中态 Apple 蓝底 + 加粗 SF Pro 对勾 | 并入 Checkbox.md 布局“外观”：--accent-main 实底（代码是轻渐变）+ 白色粗线勾；“Apple 蓝”“SF Pro”丢弃：代码取 accent token，勾是 SVG 路径 | Checkbox.vue:189、199-201
+4 Checkbox | 半选态蓝底 + 白色横杠，原生支持树状子级联动 | 并入 Checkbox.md 布局“外观”（短横）；“树状子级联动”丢弃：Checkbox 只发 boolean，不管理子级，Checkbox.md“不支持”已写不做全选联动 | Checkbox.vue:196-198；Checkbox.md:80
+4 Checkbox | 树状子项支持 32px 显式绝对层级缩进 | 丢弃：Checkbox、CheckboxGroup、Tree 里都没有 32px 缩进（Tree 缩进走 --space-5 刻度） | grep 32px/indent 于 form/CheckboxGroup.vue、navigation/Tree.vue；Tree.vue:91-93
+4 Checkbox | （第 8 节关联）按压缩放 | 并入 Checkbox.md 外观：按下缩到 0.92，禁用不缩 | Checkbox.vue:186 not-disabled:group-active:scale-[0.92]
+4 Checkbox(Radio) | 单选按钮：圆形深灰实心底座，选中为蓝底 + 居中白色实心圆点 | 并入 RadioGroup.md 布局与交互（圆钮外观）；补尺寸 md 20px/sm 16px、悬停边框转 accent、按下缩 0.92、只读不缩；“深灰实心底座”丢弃：代码是 8% 淡底 + 20% 边框 | form/RadioGroup.vue:373-387
+4 Checkbox(Radio) | RadioGroup.md 原写“小尺寸缩小标记与文字” | 就地改为具体尺寸（md 20px、sm 16px） | RadioGroup.vue:375
+
+== SPEC 第 8 节：Tree 两条 ==
+8 Tree | modelValue 对外用节点 id：单选 string|undefined，多选 string[]；内部映射为 Reka 节点对象，调用方不持有 | Tree.md 已有（数据节“对外使用 id”、状态节“不接受外部节点对象”） | navigation/Tree.vue:59-78；Tree.md:55、66
+8 Tree | 选中行整行淡强调底、强调文字、中等字重，不用常驻左边框或指示条；层级只由缩进与展开箭头；焦点由 focus-ring 独立表达 | 并入 Tree.md 布局与交互（补“中等字重”“竖线指示条”“层级只由缩进与展开箭头表达”；底色、强调文字、焦点环已有） | Tree.vue:139 data-[selected]:... font-weight medium，Tree.vue:124-131
+
+== 5 Select ==
+5 Select | 浮层外框 .nb-ui-popover-surface .nb-ui-menu-surface，内边距 --menu-pad，内圈圆角由外框推出，材质只来自两个类 | 留 SPEC 4.5（弹出列表外框，跨六个组件）；Select.md 上游边界已写浮层层级，不重复 | popup/Select.vue:336
+5 Select | :side-offset=7 避免遮挡触发器聚焦发光圈 | Select.md 已有 7px；补理由到 Select.md 布局（留出聚焦光圈位置） | Select.vue:332；Select.md:13
+5 Select | @close-auto-focus 消除二次弹回闪烁 | Select.md 已有（交互） | Select.vue:289-291；Select.md:24
+5 Select | 选项是共用的一行 .nb-ui-menu-item，行高/字号与 size 无关，description 右侧次要文字，所有项等高，选中项左列画勾，底色字重不变 | Select.md 已有（布局）；行结构本身留 SPEC 4.5 | Select.vue:352-358；Select.md:11
+5 Select | 截断与滚动：>8 项截在第 9 项中点，真实盒子量，外框按可用空间夹紧，打开时停在选中项；顶底 22px 渐隐、35% 透光；挂载与内容变化时重新测量 | 截断、夹紧、停在选中项：Select.md 已有（布局）；22px/35% 渐隐数值与重新测量时机：留 SPEC 4.5（usePopupScroll 的规则）并见 PopupViewport.md | Select.md:13；PopupViewport.md:12
+5 Select | 滚动条：4px 悬浮胶囊，仅可滚动时出现，视口右侧让 6px，按住拖动（指针捕获、CSS 像素折算） | PopupScrollbar.md、PopupViewport.md 已有（4px、6px、最短 20px）；Select.md 交互已有指针捕获；“Lab 画布缩放下也跟手”丢弃（实现细节） | PopupScrollbar.md:12；Select.md:25
+
+== 6 Input & NumberInput ==
+6 Input | 常态与悬停素雅不抖动，不改边框颜色；聚焦点亮 --focus-ring 蓝光晕 | 并入 Input.md 状态（聚焦）与 NumberInput.md 状态（聚焦）：边框转 --focus-outline + --focus-ring；悬停无样式（“Apple 原生 Focus 蓝”丢弃：取 token）。补充：只读/禁用聚焦时不画高亮 | styles.css:95-115（.nb-ui-control）、:116-130（只读/禁用重置）；全文件无 .nb-ui-control:hover，仅 invalid 有 hover(styles.css:164)
+6 Input | 控件填满所在的条时改画内嵌焦点线 .nb-ui-focus-ring-inset，Button/IconButton 的 focusRing="inset" | Button.md、IconButton.md 已有（交互）；Input/NumberInput 本身不用 inset 类，不并入 | styles.css:68-73；Button.md:20；IconButton.md:168
+6 NumberInput | 步进按钮支持滚轮、键盘上下键与 clamp 边界保护 | 键盘上下键、clamp：NumberInput.md 已有（交互）。滚轮：丢弃，和代码不符：NumberInput 没有任何 wheel 处理 | form/NumberInput.vue:73-100（无 wheel）；grep onWheel/@wheel 于 form/ 无命中；NumberInput.md:18-20
+
+== 7 DropdownMenu ==
+7 DropdownMenu | 外框 .nb-ui-popover-surface .nb-ui-menu-surface + --menu-pad；层级由 usePopoverLayer 给，Dialog 里跟随其层级；组件内不写死圆角面色描边内边距 | 外框类与内边距：留 SPEC 4.5；Dialog 内层级：DropdownMenu.md 隐藏通道理由已有（state:inject） | popup/DropdownMenu.vue:96、135；DropdownMenu.md:134
+7 DropdownMenu | 截断与滚动（与 Select 同一份 usePopupScroll，>8 项截第 9 项中点，夹紧可用空间） | DropdownMenu.md 已有（布局）；规则本体留 SPEC 4.5 | DropdownMenu.md:11
+7 DropdownMenu | 级联子菜单每一级同样截断与滚动；某一级一滚动，更深层级收起，焦点在被收起层里时回到展开它的那一项 | DropdownMenu.md 已有（布局、交互末条） | DropdownMenu.md:11、27
+7 DropdownMenu | 项 .nb-ui-menu-item，高亮只认 data-highlighted，底色 --overlay-item-active，不写 :hover，鼠标键盘指向同一项；reka 项自挂属性，手工级联由 MenuNodes 在指针移动时聚焦、聚焦时挂上 | “悬停项与键盘当前项是同一项，--overlay-item-active”DropdownMenu.md 已有（状态）；data-highlighted 机制留 SPEC 4.5 | DropdownMenu.md:116
+7 DropdownMenu | 展开了子菜单的父项保持高亮 | DropdownMenu.md 已有（状态） | DropdownMenu.md:116
+7 DropdownMenu | 勾与图标共用左侧一列（16px），有勾选项或带图标项时每行留列，名称左对齐；勾选项与图标项通常不同级 | DropdownMenu.md 已有（布局；16px 不抄）；列结构本身留 SPEC 4.5（MenuRow） | DropdownMenu.md:11
+7 DropdownMenu | 行高一致，说明/分类/路径放右侧次要文字 __hint，放不下先截它；只有 wrap 项由内容撑高 | wrap：DropdownMenu.md 数据 wrap 已有；__hint 与共同行结构留 SPEC 4.5 | DropdownMenu.md:55
+7 DropdownMenu | MenuRow 画行内几格；新写弹出列表用它；useMenuCascade 管手工级联；utils/roving.ts 管方向键漫游 | 留 SPEC 4.5；MenuRow.md、DropdownMenu.md 上游边界已有对应 | DropdownMenu.md:130
+7 DropdownMenu | 危险项 tone:"danger" 的 .nb-ui-menu-item-danger 只换文字与图标颜色，高亮底色同其它项 | DropdownMenu.md 已有（数据 tone 注释）；类名留 SPEC 4.5 | DropdownMenu.md:92
+7 DropdownMenu | 分隔线 .nb-ui-menu-separator，分组标题 .nb-ui-menu-label | 留 SPEC 4.5（类名，跨六个列表） | 未核对（共享 CSS 类名，归 4.5）
+7 DropdownMenu | 菜单结构：平面项、分隔线、任意层级 children，父项只展开不 select | DropdownMenu.md 已有 | DropdownMenu.md:20
+7 DropdownMenu | 右键、按钮下拉、窗口菜单栏共用级联几何（popup-geometry）与状态（useMenuCascade）；第一项与父项同一行，面板间隙 6px，靠近视口边缘翻到另一侧 | 6px 间隙与翻侧：DropdownMenu.md 已有；“第一项与父项同一行”与共用关系留 SPEC 4.5 | utils/popup-geometry.ts:104；DropdownMenu.md:13
+7 DropdownMenu | 子菜单悬停 300ms 才展开，点击/键盘立即，已展开后同级切换不等待 | DropdownMenu.md 已有（交互） | useMenuCascade.ts:8；DropdownMenu.md:22
+7 DropdownMenu | 每一级一个面板：首次展开缩放淡入；同级切换面板移动并改尺寸，内容快速淡入淡出；移到无子菜单项立刻收起；入退场取 --motion-fast | 留 SPEC 4.5（useMenuCascade），但原文与代码不全相符，请主会话按代码写：同级切换时面板的 top/left/width/height 过渡 --motion-fast，内容只有淡入没有淡出（styles.css:471-486）；移到无子菜单项立刻收起（useMenuCascade.ts:77-82）属实。“首次展开缩放淡入”：MenuLevelPanel 没有挂 nb-ui-popover-motion，代码里没有入场动画，退场也无动画。见“疑似代码问题” | styles.css:471-486；popup/MenuLevelPanel.vue:35；composables/useMenuCascade.ts:77-100
+7 DropdownMenu | type radio|checkbox，checked 受控，组件只发 select | DropdownMenu.md 已有（交互） | MenuNodes.vue:105；DropdownMenu.md:21
+7 DropdownMenu | radio 同组连排合成一个 RadioGroup，缺 group 按单项独立成组并给开发诊断 | 丢弃“合成 RadioGroup”：和代码不符，MenuNodes 没有 RadioGroup 合并，DropdownMenu 只对缺 group 的 radio 发 console.warn，DropdownMenu.md 已如实写“不执行分组或互斥” | DropdownMenu.vue:108-114；MenuNodes.vue 无 RadioGroup；DropdownMenu.md:109
+7 DropdownMenu | open 传入即受控，不传由原语自管，两种都发 update:open；关闭时清空已展开子级，重开只显示第一级 | DropdownMenu.md 已有（数据、交互） | DropdownMenu.vue:63-71；DropdownMenu.md:109
+7 DropdownMenu | 触发按钮可保留按下缩放；浮层按抵消缩放后的按钮外框定位，不跟着形变移动 | 并入 DropdownMenu.md 布局 | DropdownMenu.vue:95、129 → popup/popover-anchor.ts:1-30（unscaledRect）
+7 DropdownMenu | 完整键盘导航（Arrow 循环、Home/End、Right/Left 进出子菜单、Enter/Space、Tab/Esc 关闭） | DropdownMenu.md 已有（交互、上游边界）；“Tab 关闭”未写，该行为由 Reka 菜单给出，不并入 | DropdownMenu.md:23、130
+7 DropdownMenu | 关闭后焦点由 Reka 归还触发器；外部点击关闭时焦点随用户落点 | 归还：DropdownMenu.md 已有；外部点击不抢回：并入 DropdownMenu.md 交互 | reka-ui/dist/DropdownMenu/DropdownMenuContent.js:118-124、145（hasInteractedOutsideRef，非模态时置真，故不抢回）
+
+== 8 Badge ==
+8 Badge | 统一超椭圆，消费 --radius-control / 紧凑档 calc(--radius-control - 2px) | 并入 Badge.md 布局（md 取 --radius-control，sm 小 2px）；“Squircle”丢弃：代码只用圆角 token，没有超椭圆 | display/Badge.vue:94-96
+8 Badge | 用户明确裁决后续所有相关组件统一继承饱满超椭圆形态 | 丢弃：历史叙述，不是合同；与 DL“超椭圆目前未使用”的结论也不符 | 未核对（决策叙述，不是组件行为）
+8 Badge | solid：状态色实底 + 反色文字（--text-inverse，font-semibold）+ 16% 纯白微透光外边框 + 0 1px 2px 柔影 | 并入 Badge.md 布局（实底 + 反色文字 + 淡反光边 + 轻微底影；百分比与偏移不抄）；font-semibold 不抄：代码取 --weight-strong 字重 token | Badge.vue:101、153-158
+8 Badge | Warning 深琥珀暖金 #B45309 搭纯白文字，告别柠檬黄与黑字 | 丢弃十六进制并更正：代码是 --status-warning 与黑色混 82%（实底）/80%（文字），颜色随主题的 --status-warning 变，没有固定 #B45309。“基于状态警告色加深”Badge.md 已有，补“保证反色文字读得清” | Badge.vue:138-143
+8 Badge | 原生支持 dot（带柔和发光的圆点）、iconClass（14px 纯白矢量微图标）、count（内嵌半透徽标计数） | dot 微光、count 小块并入 Badge.md 布局；iconClass 的“14px 纯白”丢弃并更正：图标边长 1.15em、90% 不透明，颜色随文字色，不是固定纯白 | Badge.vue:104-110
+
+== 9 Slider ==
+9 Slider | 轨道胶囊圆角 --radius-pill，底槽 12% 柔和，激活范围 --accent-main | 并入 Slider.md 布局与交互（角色，不抄 12%） | form/Slider.vue:111-117
+9 Slider | Thumb：面板底色 + 14% 环境微边框 + 双层轻微柔影 | 并入 Slider.md（--bg-panel 底、细描边、轻微底影；14% 与阴影数值不抄） | Slider.vue:124
+9 Slider | 悬停 scale(1.1)，按压 scale(0.95)，禁用不缩放 | 并入 Slider.md | Slider.vue:124（hover:scale-110 not-disabled:active:scale-95 disabled:hover:scale-100）
+9 Slider | 单值与范围双滑块、水平垂直、sm/md/lg | Slider.md 已有 | Slider.md:11-13、18、27
+
+== 10 Collapsible ==
+10 Collapsible | 无侵入受控容器，data-[state=open] 高度自适应动效（--motion-base + --ease-standard） | 并入 Collapsible.md 布局与交互（过渡取 --motion-base 与 --ease-standard，其余已有）；“data-[state=open]”丢弃：实现细节，且代码里的选择器是 nb-collapsible-content 与 data-animating | layout/Collapsible.vue:92；Collapsible.md:11
+
+== 11 Popover ==
+11 Popover | 消费统一 .nb-ui-popover-surface 磨砂玻璃基底（75% 半透底色 + 12~14px 模糊 + 130% 饱和 + 1px 边框 + 立体柔影） | 丢弃数值并更正：浮层材质统一读 --overlay-surface 等 token，模糊为 8px（SPEC 第 9 节与浮层外框一节，不归我）；Popover.md 布局已有“面板材质”。类名由主会话写进浮层外框的表 | feedback/Popover.vue:138；Popover.md:11
+11 Popover | 禁用时 close-auto-focus 防止二次聚焦闪烁 | Popover.md 已有（交互，写作“面板关闭时阻止 Reka 的自动焦点恢复”）；原文“禁用时”不准确：无论何时关闭都阻止 | Popover.vue:140；Popover.md:17
+
+== 12a Splitter（多栏可调节工作区） ==
+12 Splitter | 双向分割，水平/垂直多栏 | Splitter.md 已有（布局） | Splitter.md:11
+12 Splitter | Splitter 内部不再使用 reka-ui 分割原语，走 grid-geometry / sash-drag 纯函数与 useSashGesture；Enter 折叠恢复与拖动共用收起策略 | 丢弃：内部实现与历史叙述（“不再使用”）；“Enter 与拖动共用收起策略”属实（sash-drag.ts:144-150 solveSashCollapse），Splitter.md 交互已写 Enter 切换可收起面板，上游边界已写共享模块 | layout/sash-drag.ts:144-150；Splitter.md:15、104
+12 Splitter | 受控尺寸：几何只有 CSS px，sizesPx 受控呈现（合计=面板空间，不含 sash），panels 配 defaultSizePx/minSizePx/maxSizePx/sizing/collapse | Splitter.md 已有（简介、数据、状态） | Splitter.vue:10、255-262；Splitter.md:49、91
+12 Splitter | 没有百分比往返，也没有 autoSaveId（原语不写存储） | 并入 Splitter.md 状态与边界（不写存储，没有自动保存；“原语”丢弃）；“没有百分比往返”Splitter.md 简介已有 | Splitter.vue 全文无 autoSaveId/localStorage（grep 无命中）
+12 Splitter | 等值发布被忽略，程序发布只改呈现、不产生用户提交 | 并入 Splitter.md 交互（手势进行中重发等值尺寸或收起状态不取消手势；只有身份/约束/策略变化才作废）。“程序发布不产生用户提交”：受控时只由 gesture-end 报提交，Splitter.md 数据已写 | Splitter.vue:279-300（panelConstraintsKey 注释）
+12 Splitter | sash 几何：默认 1px/条，sashSizes 按边界提供；零值不占布局且不可交互也不渲染装饰；非法值诊断后回退；主轴守恒不依赖 CSS 隐藏 | Splitter.md 已有（布局、状态与边界） | Splitter.md:47、90
+12 Splitter | 设备像素对齐只作用在装饰层内联几何，不移动 separator 命中盒，也不改子节点布局 | 并入 Splitter.md 布局 | Splitter.vue:446-478（snapLines 注释）
+12 Splitter | 常驻接缝厚度 1 CSS px、近端边对齐设备像素；交互装饰带最多 3px，按相邻面板与 sash 可用空间夹紧，收起边界不因 overflow 裁窄 | 并入 Splitter.md 布局 | sash-feedback.ts:108-125（sashBandBox 注释）；Splitter.vue:462-464
+12 Splitter | 拖拽触感：静止 1px --divider 分界线，悬浮/拖动点亮品牌色指示带；命中边距 fine 5px/coarse 15px，hover、光标、按下与高亮读同一份命中结果，T/十字处两条线一起点亮 | 静止线、命中边距、两线一起亮：Splitter.md、NestedGrid.md 已有；“读同一份命中结果”并入 Splitter.md 交互。“品牌色”丢弃：线芯颜色取 --sash-line-color，缺省值见 Splitter.md | Splitter.md:11、17；NestedGrid.md:交互首段
+12 Splitter | 相同命中 scope 连续停留约 250ms 后渐显，离开淡出；prefers-reduced-motion 保留延迟但取消中间渐变 | 250ms 已有；“离开淡出”“减少动效”并入 Splitter.md 交互 | layout/sash-feedback.ts:13；Splitter.vue:750-790
+12 Splitter | 悬停线样式归主题：--sash-line-color/-size/-radius/-glow，--sash-line-inset，sashLineEnds | Splitter.md 已有（交互、数据） | Splitter.md:17、55
+12 Splitter | 手势边界：NestedGrid 独占一份会话，一次按下最多两根轴；gesture-update 携带预览布局；松手发一次 gesture-end(commit)；commit.changes 每项为该分支全部直接子节点沿主轴 px（baseline/target/active/compensated/collapsed），宿主用 grid.resizeBranches(changes) 一次落账；独立 Splitter 仍用单分支 SplitterGestureState | 两根轴、预览、一次提交、独立 Splitter 的状态结构：NestedGrid.md、Splitter.md 已有；commit.changes 的结构与 resizeBranches 并入 NestedGrid.md 交互 | layout/grid-gesture.ts:35-52；grid.ts:71、374；splitter-gesture.ts:11-23
+12 Splitter | 边界规则：基线在开始时捕获，一次指针操作/键盘连发只结束一次；keyup 或失焦结束键盘手势；Escape/pointercancel/窗口失焦/卸载/panel 身份约束方向禁用变化取消且不产生保存意图，并复位上游拖动状态；挂载、约束变化与视口重算仍只发 layout | 取消条件与 keyup/失焦：Splitter.md 已有；“基线开始时捕获、只结束一次”并入 Splitter.md 交互；layout 事件：Splitter.md 数据已有；“复位上游拖动状态”丢弃（实现细节） | Splitter.md:15、83
+12 Splitter | 主动与补偿：active 只含 sash 两侧相对基线实际改变的面板；相邻候选触界未变化时不冒充主动；被推着让出空间的远端兄弟记为 compensated | 并入 Splitter.md 状态与边界 | layout/splitter-gesture.ts:15-18
+12 Splitter | 收起与恢复：按下基线+累计位移的绝对边界求解，吸附只改约束，展开跟随指针坐标；低于 minimum−24 吸附到 collapsedSize，回到 max(minimum, collapsedSize+24) 且容量允许时展开；记忆尺寸只服务按钮/Enter 的显式恢复（空间不足时保持收起并给诊断）；提交的就是最后发布的那份几何，finish 不拿最后位移重解 | 并入 Splitter.md 交互（阈值缺省 24px 来自 SASH_COLLAPSE_THRESHOLD，可由 collapse 的阈值字段覆盖）；“finish 不重解”丢弃（实现细节） | layout/sash-drag.ts:1-14、143-150、190-193、378；sash-drag.ts:436-437
+
+== 12b 拖放反馈（DropFeedbackOverlay / DropIndicatorLabel / DropIndicator） ==
+12 拖放 | DropFeedbackOverlay 与 DropIndicatorLabel 从 @notnotype/nb-ui/components 导出；DropIndicator 是内部件不导出；DropIndicatorLabel 的 label/iconClass，空白不渲染；Overlay 的 preview/label/iconClass，自己 Teleport 到 body | DropIndicator.md、DropIndicatorLabel.md、DropFeedbackOverlay.md 已有（数据与布局） | components/index.ts:38-39、94（未导出 DropIndicator）；DropIndicator.md:7
+12 拖放 | DropIndicator/Label 只渲染，不拥有手势/落点登记/业务状态/Teleport；根 aria-hidden、不可选、不接管指针 | aria-hidden 与“只渲染”已有；“不可选、不接管指针”并入 DropIndicator.md 数据 | styles.css:832-837；DropIndicator.vue:12；DropIndicator.md:125
+12 拖放 | DropFeedbackPreview 是宿主给的语义命中几何（areaRect/entryRect/indicator/orientation）；覆盖层只画，内缩只进绘制盒，命中序位提交用原始矩形 | 类型字段已有（数据）；“内缩只进绘制盒、命中提交用原始矩形”并入 DropFeedbackOverlay.md 布局与交互 | DropFeedbackOverlay.md:23-38
+12 拖放 | 覆盖层合同：无有效几何不渲染；有 areaRect 时不画插线；keep 只给整片叶区域，无锚点与插线，释放时也不提交；区域内缩 min(6,尺寸/4)，插线只缩长轴 min(2,长轴/4)；公共标记 data-drop-feedback 与 -area|-line|-entry|-label|-live；attrs 透传到根，业务语义由调用方写成 data-* | 无几何不渲染、不画插线、内缩数值、attrs 透传：DropFeedbackOverlay.md 已有；keep 并入“几何入口”；公共标记清单并入布局与交互 | DropFeedbackOverlay.vue:339-399；DropFeedbackOverlay.md:11、56
+12 拖放 | 提示药丸放在独立 fixed 包装里；区域容得下“药丸+16px”时居中，否则贴锚点外侧并夹进视口 8px；line-end；settling/settled；ResizeObserver 缓存尺寸；aria-live 独立区域只随文案变化 | DropFeedbackOverlay.md 已有（布局与交互、隐藏通道理由） | DropFeedbackOverlay.vue:270-300；DropFeedbackOverlay.md:13、15、69
+12 拖放 | area/entry 1px --drop-area-border（缺省 accent 70%）、--drop-area-fill（缺省 accent 12%）、--radius-control、--elevation-raised，深浅由主题定；原语只提供 opacity 过渡，区域几何过渡由共享覆盖层负责；line 实色 accent、--radius-pill、4px accent 光晕，无几何过渡；宿主保留 2px 厚度，不能与 3px sash 规则混用 | 并入 DropFeedbackOverlay.md 布局与交互、DropIndicator.md 状态与边界（写 token 角色，不抄 70%/12%/4px）；DropIndicator.md 原写“不提供默认样式”与代码不符，就地更正为“皮肤来自全局样式，不提供定位与几何动画” | styles.css:839-852；tokens.css:215-216；grid-drop.ts:53
+12 拖放 | 药丸 6px 图文间距、4px×12px 内边距、14px 图标、accent 40% 描边、90% --panel-surface 底、--accent-text，字体阴影模糊取 token；单行截断；减少透明或增强对比时改实色底并关闭模糊，减少动效取消过渡 | 并入 DropIndicatorLabel.md 状态与边界（角色，间距与内边距不抄）；图标 14px 保留（组件自己写死，合同的一部分） | styles.css:854-887、895-901
+12 拖放 | 几何入口 @notnotype/nb-ui/layout：resolveGridInsertion 前后 20% 插入位、targetId、halfRect，中央 60% keep；叶间隙归后一叶，非末叶后缘仍归自己；resolveListInsertion 一位一线，前项后半/间隙/后项前半同一位，线居中，追加锚末个可用成员后缘，空列表锚内容盒前缘 | 并入 DropFeedbackOverlay.md 数据（几何入口）；“中央 60%”改写为“前后各 20% 是插入带，edgeRatio 可改”（0.5 时无中央区，原文只写了缺省） | layout/index.ts:16-18；grid-drop.ts:56、120-235、251-330
+12 拖放 | resolveListInsertion 的 edgeGap（缺省 0）只给首尾留白，内部间隙居中，空列表不偏移，空间不足夹紧，负数/非有限退为 0 | 并入 DropFeedbackOverlay.md 数据（几何入口） | grid-drop.ts:238-266
+12 拖放 | Editor 标签带与 Workbench 容器切换器条目带都传 edgeGap 4px（Editor 配合标签左右 6px 外边距、内部 5px/2px/5px；Workbench 条目相邻、只在首尾留白）；内容区边缘插入带不消费 edgeGap | 留应用侧，不并入 nb-ui .md（是 packages/neuro-book 的取值）。Workbench 的 4px 属实；Editor 的 6px/5px/2px 未核对 | neuro-book/src/plugins/workbench/web/views/drop.ts:10、351；Editor 部分未核对
+12 拖放 | 区域及提示首次出现按 --motion-fast 淡入；连续换区保留同一节点，矩形 left/top/width/height 与提示 left/top 按 --motion-base 过渡，文案立即更新不重放淡入；过渡只影响 fixed 装饰盒；插线即时定位，取消立即卸载，无离场残留；reduced-motion 取消动画和过渡 | 并入 DropFeedbackOverlay.md 布局与交互（补 token 与“文案立即更新、取消即卸载”） | DropFeedbackOverlay.vue:426-460
+12 拖放 | 几何与视觉分开：Editor 与 Workbench 均用公共覆盖层的 fixed viewport 布局；不另写业务私有区域框、线宽、提示标签或几何过渡；只需静态药丸时直接用 DropIndicatorLabel；Lab 的两个场景提供对照 | 并入 DropFeedbackOverlay.md 状态与边界（宿主使用须知）；“Lab 场景提供对照”丢弃（Lab 场景清单会变，由 Lab 自己记录） | 未核对 Lab 场景是否仍存在，不影响取舍
+12 拖放 | 新接入步骤：宿主定义来源/目标/原子提交意图；dnd-kit 只管输入与手势生命周期，纯解析器一次返回动作与预览，宿主释放时提交；列表用 resolveListInsertion，四边/中心用 resolveGridEdgeDrop；不用默认 useSortable 的乐观 DOM 排序 | 并入 DropFeedbackOverlay.md 状态与边界（宿主使用须知）；dnd-kit 与 useSortable 的名字丢弃（nb-ui 不依赖它们，是应用选型）；resolver 对应关系在几何入口一段 | 未核对 dnd-kit 在应用中的用法（只核对 nb-ui 内无依赖）
+12 拖放 | Editor 原位落点显示插入线、正文中央保留整区反馈，均以 action:null 表示释放不提交；Workbench 展开内容区传 edgeRatio:0.5，中点归后半，非法方向无反馈；全部可见成员收成细条时剩余内容区作为一个落点；容器原位换序可 noop 显示一条插入线，View 投 Switcher 则创建新容器；Workbench 边缘消费 halfRect，条目反馈只有线 | 留应用侧（Editor/Workbench 的落点规则，不属于 nb-ui 组件合同）。核对：Workbench 的 edgeRatio 与 noop 带预览属实（views/drop.ts:214、268）；其余未逐条核对。应用侧的 WorkbenchDragFeedback.md 没有这些条目，建议主会话决定是否进 docs/specs/ui/workbench-shell.md | neuro-book/src/plugins/workbench/web/views/drop.ts:214、268；Editor 部分未核对
+12 拖放 | 登记真实元素，用可见 client 矩形并检查浮层遮挡；过滤拖动反馈与占位节点；示例源码 EditorDragProvider.vue/useEditorTabDrag.ts；需稳定来源几何用 DragOverlay，不要以为 Feedback 的 clone 模式会让原元素留在原位 | 登记与过滤并入 DropFeedbackOverlay.md（宿主使用须知）；示例文件名丢弃（已不存在：应用里是 editor/web/tab-drag.ts）；DragOverlay/clone 的说明属 dnd-kit 用法，丢弃 | 文件存在性：packages/neuro-book/src/plugins/editor/web/tab-drag.ts 存在，EditorDragProvider.vue 与 useEditorTabDrag.ts 未找到
+12 拖放 | 一场手势只发布一个落点、一份反馈；前一项后半/间隙/后一项前半归同一个插入位与线坐标；反馈不参与 flex 布局；每个宿主明确取消条件，停止/失焦/切换工作面/结构失效/卸载要清帧、监听、观察器 | 并入 DropFeedbackOverlay.md 状态与边界（宿主使用须知）；“同一插入位同一线坐标”也在几何入口一段 | grid-drop.ts:238-330
+12 拖放 | 指针停住时滚动/尺寸变化仍需重算；正常释放按最终坐标再验证，只提交最后已显示的同一动作，不允许失效锚点退化成末尾 | 并入 DropFeedbackOverlay.md（宿主使用须知） | 未核对（宿主侧行为，nb-ui 内无对应代码）
+12 拖放 | 外部文件/文本走原生数据交换；内部标签移动不能写 text/plain 把路径漏进正文；组件原语不拥有这些业务规则 | 留应用侧（Editor 的数据交换规则，不属于 nb-ui）；grep 在 neuro-book 的 editor/web 与 workbench/web 未命中 text/plain，规则是否仍适用未核对 | grep text/plain 于 packages/neuro-book/src/plugins/{editor,workbench}/web 无命中
+
+== 13 Drawer / Dialog / FloatingWindow / AlertDialog ==
+13 Drawer | 四向滑出；80% Scrim + 4px 模糊；右侧默认 380px 大纲与设定抽屉 | 四向与 380px：Drawer.md 已有。遮罩“取 --overlay-bg 并模糊 4px”并入 Drawer.md 布局与交互；“80%”丢弃（遮罩色取 token，百分比由主题定；未在 tokens.css 找到 --overlay-bg 的登记，值未核对）；“大纲与设定抽屉”丢弃（应用用途） | feedback/Drawer.vue:166、174-177
+13 Dialog/FloatingWindow | 模态与非模态是两个组件，共用外框 DialogSurface | Dialog.md、FloatingWindow.md 已有 | Dialog.md:7；FloatingWindow.md:7
+13 Dialog | 模态：遮罩、居中、焦点锁定、背景不可交互；关闭后焦点还给打开前的元素；点遮罩要按下与松开都在遮罩上；对话框里开着浮层时只关浮层；Escape 只关最上层，输入法组字与内层 preventDefault 的 Escape 不关 | Dialog.md 已有（交互） | Dialog.md:45-47
+13 FloatingWindow | 非模态：无遮罩、不困焦点、不锁指针与背景滚动；标题区可拖；resizable 缺省关，开启后右、下两边与四角手柄；鼠标松开时提交 update:width/height；方向键 10px、Shift 1px；不突破 minWidth/minHeight | FloatingWindow.md 已有（交互、数据） | FloatingWindow.md:11-16
+13 Dialog | 标题、header 插槽与无标题回退都生成对话框标题；关闭按钮有可访问名称；标题左对齐不做居中变体；关闭按钮 sm 贴右上、不贴圆角 | Dialog.md 已有（布局、可访问性） | Dialog.md:28、41、51
+13 Dialog | 遮罩、Escape、取消与关闭按钮一律经 request-close，由受控宿主决定最终关闭时机 | Dialog.md 已有 | Dialog.md:48
+13 Dialog | 默认 Portal 目标 body；公共组件不得绑定产品私有主题宿主；产品消费者必须显式传入主题宿主目标，避免 Portal 脱离主题变量作用域 | 默认 body、宿主可用 provideTeleportTarget 改：Dialog.md 隐藏通道理由已有。“产品消费者必须显式传目标”丢弃：代码不要求（useTeleportTarget 缺省 body，查不到也回退 body）。主题变量是否会因 Portal 到 body 丢失取决于应用把主题挂在哪，未核对，不确定；见“没把握” | composables/useTeleportTarget.ts:35-50；Dialog.md:包含“env:portal”
+13 Dialog/FloatingWindow | 向内容树提供局部浮层层级（useOverlayLayer），里面的下拉、提示、取色面板在面板之上 | Dialog.md 叠放与层级、FloatingWindow.md 叠放与层级已有 | Dialog.md:60；FloatingWindow.md:25
+13 Dialog | 窄屏宽度收敛到容器内，不产生页面级横向溢出；body 拥有长内容滚动权，footer 不随 body 滚动 | Dialog.md 已有（布局：各档在 390px 窄屏保留左右 16px；页脚固定在底部、不随正文滚动） | Dialog.md:28、39
+13 Dialog | 内边距只有一层：内容自带页面节律时宿主传 body-class="!p-0" 把这层交出去，两层叠起来 24–32px | 并入 Dialog.md 布局（理由保留，“24–32px”数字丢弃：随主题的 --space-* 变） | Dialog.md:41（原写“外框只给一层”，补宿主做法）
+13 AlertDialog | 居中破坏性二次确认，强制取消/确认按钮出口，danger/neutral 语调（neutral 确认用主按钮样式） | AlertDialog.md 已有 | AlertDialog.md:7、11；AlertDialog.vue:117-124
+13 AlertDialog | 受控模式可不提供 trigger slot，组件不得为无触发器实例渲染空的 AlertDialogTrigger | 并入 AlertDialog.md 布局与交互 | AlertDialog.vue:92（AlertDialogTrigger v-if="$slots.trigger"）
+
+== 14 Progress / Kbd ==
+14 Progress | 全胶囊圆角 | 并入 Progress.md 布局与交互（轨道与填充用 --radius-pill，轨道底色淡 --text-main） | display/Progress.vue:96、100
+14 Progress | 填充以 translateX 位移过渡，时长 --motion-base | 并入 Progress.md 布局与交互（位移过渡，--motion-base，--ease-standard；“translateX”是实现，只写“位移过渡”） | display/Progress.vue:100-102
+14 Progress | 四种语义色调 accent/success/warning/danger | Progress.md 已有（布局、数据） | Progress.vue:57、78-83
+14 Progress | 条高三档 | Progress.md 已有（size 改变条高）；具体 6/10/14px 未写：是组件内写死的 h-1.5/2.5/3.5，档位对应关系调用方不需要知道 | Progress.vue:85-89
+14 Kbd | 等宽、微浮雕：--control-outline 描边加实体投影 | Kbd.md 已有（“控件描边、浅色表面和凸起阴影”） | display/Kbd.vue:168
+14 Kbd | sm/md/lg 三档 | Kbd.md 已有 | Kbd.vue:155-163
+
+== 17 QuickPick ==
+17 QuickPick 定位 | 受控浮层原语；候选、查询、活动项、执行语义属宿主；`>`、`:` 前缀解析属宿主；无 slot、无 expose | QuickPick.md 已有（简介、不支持、数据） | popup/QuickPick.md:7、97-99
+17 QuickPick 层级 | 消费 NB_Z_INDEX.commandPalette（9200）；透明遮罩与 Content 同层，Content 在后；外点被遮罩消费 | 并入 QuickPick.md 布局（写角色“命令面板层级”与文件指引，9200 不写：登记在 z-index.ts；层级顺序表留 SPEC 叠放层级） | QuickPick.vue:95、292；theme/z-index.ts:26
+17 QuickPick role | 模态 Dialog 语义；sr-only DialogTitle 作可访问名；无 aria-describedby | 模态与标题关联：QuickPick.md 已有；无 aria-describedby 并入 QuickPick.md 布局 | QuickPick.vue:293-295、304
+17 QuickPick 几何 | 宽 min(640px, 100vw-24px)、top clamp(16px,8vh,72px)、max-height、圆角 14px、390px 留 12px | 640px、12px、顶距、最大高度：QuickPick.md 已有（容器单位，比 SPEC 更新）。圆角 14px 丢弃：代码已取 .nb-ui-menu-surface 的菜单圆角，没有 rounded-[14px] | QuickPick.vue:298
+17 QuickPick 材质 | 消费 .nb-ui-popover-surface、--nb-popover-pad，选中项 --overlay-item-active；不叠第二层磨砂 | 外框与行 .md 已有；--nb-popover-pad、--overlay-item-active 丢弃：代码用 .nb-ui-menu-surface / .nb-ui-menu-item，旧变量名已不是合同；弹出列表共用外框与行样式留 SPEC 4.5 | QuickPick.vue:298、332
+17 QuickPick 键盘 | combobox + aria-activedescendant；方向键、Home/End 走 moveRoving（跳过禁用、回绕）；Ctrl/Cmd+Home/End 留给输入框；Enter 组合态不提交；Escape 只关本层并 stopPropagation；Tab 交 FocusScope 后阻止冒泡 | 方向键、Home/End、Enter 组合态、Tab：QuickPick.md 已有；Ctrl/Cmd+Home/End 与 Escape 不传下层并入 QuickPick.md 交互；moveRoving 函数名丢弃（实现）；roving.ts 本体留 SPEC 4.5。role=combobox 未在 .md 写，未逐行核对 | QuickPick.vue:164-194
+17 QuickPick 关闭交接 | closed 在内容卸载、焦点栈/滚动锁/指针锁释放后按打开周期发一次；AlertDialog 复用；宿主不得用固定毫秒替代 | QuickPick.md 已有（交互、隐藏通道理由 env:timer）；AlertDialog 复用同一时序：AlertDialog.vue:66-78 属实。跨组件的浮层打开与关闭规则留 SPEC 4.4 | QuickPick.vue:86、130-136；AlertDialog.vue:66-78
+17 QuickPick 打开动效 | 挂载时消费 .nb-ui-popover-motion；关闭不加退场动画 | 并入 QuickPick.md 布局（入场 --motion-fast，关闭不播退场；类仅在 open 时挂载） | QuickPick.vue:299；styles.css:457-467
+
+== 疑似代码问题 ==
+1 Button loading 时宽度从 1em 到 1.15em 有跳动（Spinner 与图标尺寸不一）：SPEC 要求加载不改变按钮宽度；代码未改，供主会话判断
+2 级联面板（useMenuCascade）进出场没有动画：SPEC 声称有，代码里 .nb-menu-level 只做位置与尺寸过渡；留 SPEC 4.5 的主会话按真实代码写
+3 Badge 计数在 soft、outline 变体上文字对比度未单独调：SPEC 未要求，仅提示（未量化）
+4 DropdownMenu 单选项 group 语义：SPEC 要求，.md 未写，仅发现上游有 warning，未并入
+5 Progress 超界值：视觉裁剪到 0 至 100%，Reka 却把超界置为 indeterminate，视觉与 ARIA 不一致；Progress.md「已知偏差」已记录，代码未改
+6 QuickPick 的 "Tab 阻止冒泡" 与 Dialog 同类行为未对照 FloatingWindow：未核对
+
+== .md 自身改正 ==
+1 form/Checkbox.md：“Squircle”改为“方框”，补 5px 圆角（代码为方框，不是超椭圆）
+2 form/RadioGroup.md：尺寸措辞改为 md 20px、sm 16px 具体值
+3 layout/DropIndicator.md：删“不提供默认样式”，改写为皮肤来自全局样式（区域、入口、线）；补“不可选、不接管指针”
+4 controls/IconButton.md：secondary 补静止态淡底（SPEC 说无底，代码有），按代码写
+5 以上之外 .md 里指向 ui-development-spec.md#45-同类零件的分工 的链接，在 SPEC 改标题后会失效：未改，属主会话或 S5
+
+== 没把握 ==
+a Dialog“产品消费者必须显式传主题宿主目标”：代码缺省 body，丢弃；应用侧是否需要，未核对
+b 应用侧拖放规则（Editor/Workbench edgeGap 4px、edgeRatio 0.5、noop 预览、text/plain 规则）：留应用侧，未并入；WorkbenchDragFeedback.md 无此内容，主会话决定是否进 docs/specs/ui/workbench-shell.md。Editor 侧 6/5/2px 未核对；SPEC 里举例的 EditorDragProvider.vue、useEditorTabDrag.ts 在仓库里找不到
+c Drawer“80% Scrim”：--overlay-bg 的实际值未核对

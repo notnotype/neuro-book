@@ -1,0 +1,135 @@
+# w00032 t11 前端设计审查（Sonnet）
+审查对象：plan.md“界面”一节、切片 5、验收映射。基于 worktree .worktree/w00032-t11-review（代码）与主工作区 Spec。均为读代码推断，未跑 e2e。
+
+### 1. 轮中自动压缩的分隔线在已结束的轮次里看不到（阻断级影响，归重要）
+严重程度：重要
+位置：packages/nb-agent-ui/src/conversation-turns.ts:179-188（findOutcomeStart）、:357-364（buildBlocks 把 compaction 放成 divider）、:418-430（splitTrailing 只摘“答案之后”的分隔线）；vue/stream/AgentConversationTurn.vue:68-69、:200（processBlocks 只在展开时画）；conversation-turns.test.ts:136
+现象：阈值触发的压缩发生在一轮进行中（每次请求前检查），分隔线落在回复之前，属于“过程”。轮次结束后整轮收起，过程里的分隔线随之不可见。测试 136 行的形状 ["chain(tool)","notice","divider","notice","reply"] 证明这种分隔线在 outcomeStart 之前。Spec 只写了“结果之后跟着压缩分隔线”这一种位置，轮中位置没写。
+为什么是问题：计划要做的整套“点开看方法、token、花费、摘要”的详情，对最常见的自动压缩（长轮次里触发）默认看不到，要先展开整轮过程再在几十行里找；整轮摘要行（“过程 · N 次操作…”）也不提压缩。开发者在 README 决定 9 要的是“对话里一条分隔线”，这条做不到。
+如何核实：用 conversation-turns.test.ts 的写法造 [user, assistant(toolCalls), system(compaction), assistant(text 最终回复)]，buildTurn 后看 turn.blocks 的下标与 outcomeStart，divider 在 processBlocks 里；turn.foldable 为真，未展开时 DOM 里没有 [data-divider]。
+建议改法：二选一并写进 Spec。(a) buildTurn 把轮中的 compaction 分隔线提到结果区之前、整轮摘要之下常显（和 trailing 一样不被收起），摘要行加“含 1 次压缩”；(b) 整轮摘要行带上压缩次数，点开才见分隔线（需写进 Spec，并接受默认不可见）。无论哪种，切片 5 要有“轮中压缩、轮已结束”的 conversation-turns 用例。
+
+### 2. 手动 /compact 的“只压缩运行”没有用户消息，状态算到上一轮头上
+严重程度：重要
+位置：packages/nb-agent-ui/src/conversation-turns.ts:224-235（splitIntoTurnGroups 只在普通用户消息处开新组）、:548-557（resolveStatus：最新一组且 run.status 为 running 就是 running）、:285（foldable: finished && …）
+现象：`/compact` 在空闲时开 runStarted{kind:"compact"}，日志里没有 input，所以压缩分隔线并进上一轮的组。压缩期间 run.status 是 running，上一轮（已完成、已折叠）被算成 running：整轮过程展开（finished 为假、不可收起）、头部出现 Spinner 与“运行中”徽标、用时按 now 计算，压缩完又折回去。
+为什么是问题：作者只是点了一下压缩，上一轮的几十行过程突然展开又收起，贴底位置跟着乱跳；徽标显示的是上一轮回复的模型名与时间却在转圈。计划写“压缩中的状态与停止 t17 已有”，t17 的状态是围绕“一轮有用户消息”做的，这个前提对只压缩的运行不成立。
+如何核实：用 buildTurns 造 messages=[user,assistant(done)]，run={status:"running"}，看 turns[0].status 与 foldable；再看 AgentConversationTurn.vue 的 Spinner 条件。
+建议改法：让适配器告诉视图“这次运行不属于任何一轮”：kernel-transcript 记 runStarted 的 kind，run 视图加 kind: "compact"，resolveStatus 在 kind 为 compact 时不把最新轮算 running；状态栏照旧显示“正在压缩”。补一个 buildTurns 用例（上一轮 done，run=compact running，期望该轮仍 done、foldable）。
+
+### 3. 压缩运行被停止时，上一轮已完成的回复会被改标成“已停止”
+严重程度：重要
+位置：packages/nb-agent-ui/src/kernel-transcript.ts:311-323（runEnded 的 aborted 分支）
+现象：aborted 时取 logged.at(-1)，是助手消息就把它的 status 改成 "stopped"。普通运行开头总有 input 用户消息，最后一条不会是上一次运行的回复；只压缩的运行没有 input，最后一条就是上一轮最后的助手回复。用户在“正在压缩”时点停止，上一轮正常完成的回复被标 stopped，turn.status 变 stopped，轮尾显示“已停止”，而且重放日志（刷新、重开）得到同样结果，是永久的错标。
+为什么是问题：压缩可被停止是计划明确依赖的（决定 4 “可以停止”），这条路径一走就错标。
+如何核实：applyPath([input, assistant(done), runEnded{reason:"completed"}, runStarted{kind:"compact"}, runEnded{reason:"aborted"}])，看 messages() 里助手消息 status。
+建议改法：aborted 分支只改“本次运行里写下的”助手消息：记下 runStarted 时 logged 的长度，只在 logged.length 大于它时才改最后一条，否则补空的 stopped 助手消息；或按 kind 为 compact 时只显示“压缩已停止”的系统提示，不碰回复。补 kernel-transcript 用例。
+（同一问题：压缩失败的 runEnded{error} 会把错误气泡接在上一轮后面，使上一轮 status 变 error，见下一条。）
+
+### 4. 压缩失败的显示：只有“这次运行出错了。”，没有压缩的说法，也没有下一步
+严重程度：重要
+位置：packages/nb-agent-ui/src/kernel-transcript.ts:111-125（CODE_KEYS 没有 compaction-failed）、:128-133（errorText 退到 local）；nb-harness kernel/run/loop.ts:190（nothing-to-compact、disabled、全部方法失败都落成 error{kind:"local",code:"compaction-failed"}）
+现象：压缩全部失败时运行以 error 收口，界面显示 locales 里的 harness.error.local“这次运行出错了。”，retryable 为 false，接在上一轮后面（见第 2、3 条，上一轮被标 error 并默认展开）。计划只写了 nothing-to-compact 与 no-compaction-model 两个码的文案，没写 compaction-failed；中止、阈值触发时压缩失败（只诊断、请求照发）与溢出后压缩失败（以 context_overflow 收口，文案“对话太长，超出了模型能读的长度。”）也没说。
+为什么是问题：用户点了 /compact 得到的是一句和压缩无关的“出错了”，不知道是摘要模型不可用、方法失败还是别的；溢出收口的文案没有任何出路（该压缩了但压缩失败了）。
+如何核实：applyPath 喂 runEnded{reason:"error", error:{kind:"local",code:"compaction-failed"}}，看 messages() 末条的 message 文案键。
+建议改法：CODE_KEYS 加 compaction-failed（“压缩没有成功，对话没有改动。可以换一个压缩模型，或开新会话。”）；溢出收口且路径上刚有压缩失败时加一句出路；计划的验收映射里补“压缩失败、中止”两行界面用例。同时确认失败的 modelEnded 费用（压缩失败也花了钱）只出现在累计里，不会凭空消失。
+
+### 5. “放回了什么”在日志里没有结构：notice{restored} 只有 text，列文件名要解析给模型看的正文
+严重程度：重要
+位置：packages/nb-harness/src/kernel/api/events.ts:140（notice 的 data 只有 {text, code}）；kernel/compaction/compact.ts:230（每段 restored 文字写一条）；plan.md 界面一节“放回了什么”、restore.ts 一节“每段一条给模型的文字”
+现象：放回的每一段是“给模型的文字”，含文件正文（单文件最多 8,000 token，合计 20,000 token，带行锚）。事件里没有文件路径、行数、是否截断这些字段。计划要在详情里写“放回的文件”，适配器只能：(a) 解析正文（按 read 的显示格式抠首行，耦合到 builtin/read.ts 的 render，改格式即坏），或 (b) 把整段正文放进详情（一次压缩的详情里多出至多 2 万 token 的文件原文，和对话里已有内容重复，也可能含读者不该看的稿）。
+为什么是问题：计划把“放回”当作适配器随手并上去的一行，其实缺数据；而界面这边是纯受控，没有地方让它去问。
+如何核实：看 compact.ts:230 的 EventDraft：data 只有 code 与 text。
+建议改法：让方法或 restore 把结构放进已有的 compaction.details（例如 details.restored: [{kind:"file"|"plan"|"transcript", target, tokens, truncated}]），notice 只留给模型；界面只读 details，不碰 notice 正文。这样“并成一条”也不用合并 notice：见第 6 条。
+
+### 6. “并成一条、花费取之前的 modelEnded”的配对规则在边界上不成立
+严重程度：重要
+位置：kernel-transcript.ts:127（modelEnded 在 IGNORED 里，路径归约时直接丢）、:328-342；kernel/run/model-call.ts:78、:150-170（压缩方法的每次模型请求各写一条 modelEnded，重试各写 modelFailed+modelEnded）；compaction/compact.ts:196-232（失败的方法也已经花了钱）
+现象与边界（已核实相邻性，再逐项看配对）：
+- 相邻性：compaction 与 notice{restored} 在同一个写入批里，顺序固定，经 path 分页（loadPath 先累积全部再 applyPath 重放）、eventChunk 拼回、重连整份重建都保持顺序，实时帧也是逐条按 seq 到；半截刷新读不到半个批，所以“紧跟”在重放与实时两条路上都成立。但实时路径上分隔线先出现、restored 稍后才到，适配器要在原地改最后一条而不是新增，且只在“最后一条正好是刚写的压缩”时才并，否则（路径不从头、被出站过滤丢了中间项）会把 notice 并到不相干的分隔线上。
+- 花费：计划写“取它之前 purpose:compaction 的 modelEnded”，是单数。实际有三种多条：摘要方法分段（每段一条）；服务商重试（modelFailed{retry} 后再 modelEnded）；先试 inplace 失败再试 summary 成功（失败的那次已花钱）。再者，压缩全部失败时不写 compaction，那些 modelEnded 留在路径上，下一次成功的压缩若按“之前最近的”去找，会把几个边界之前的失败花费算到这一次头上（手动 /compact 失败再重试时必然如此）。
+- shake 没有模型调用：没有 modelEnded。“0 / 免费”与“单价未知”在界面上要分开，计划没有区分。
+- modelFailed 没有 purpose 字段，只能靠 modelStarted 记下的 purposes 表（已有，kernel-transcript.ts:187、:292）。
+为什么是问题：花费数字会错（少算或多算），而且错得不明显。
+如何核实：构造 [runStarted, modelStarted(p=compaction,r=1), modelEnded(r=1), modelStarted(r=2), modelEnded(r=2), compaction] 与 [失败的 compact 运行, 新 compact 运行成功] 两种日志，看计划的规则给出的花费。
+建议改法：不在适配器里配对。方法自己拿得到每次 ctx.model 的 response.usage（含 cost 与 model），累加后写进 compaction.details（{model, usage:{input,output,cacheRead,cacheWrite,cost}, require, restored}）；详情只读这一处，“花费”定义为“成功那一次压缩调用的花费”，失败尝试的钱只进累计。若坚持配对，则规则写成“自上一个 runStarted/assistant/compaction 起、purpose 为 compaction 的 modelEnded 与带 usage 的 modelFailed 之和”，并在 Spec 写清；仍然要为 shake 单独显示“未调用模型”。
+
+### 7. shake 的分隔线现在点不开，计划没提这道门
+严重程度：重要
+位置：packages/nb-agent-ui/src/vue/stream/AgentTurnBlock.vue:44-47（dividerHasBody）、:141（v-if 才画按钮）；kernel-transcript.ts:329（text: replacement ?? ""）
+现象：dividerHasBody 要求 text 非空且不等于标签。shake 的 replacement 是 null，text 为空，分隔线只是一行字，没有按钮，没法展开。计划“SystemMessage 加可选的 compaction 详情”但没改这个判断：不改时，缺省顺序里最常成功的 shake（超过阈值时 shake → 就地，shake 省够就停）的详情打不开；改成“有详情就可点”后，还要回答 shake 的详情给什么：压缩前后 token、省略了几条工具结果（compaction.omitted 有 entryId 与占位）、没调模型、没摘要、没放回。
+为什么是问题：计划的验收“分隔线详情”会在最常见的方法上失败。
+如何核实：applyEvent 一条 compaction{replacement:null, omitted:[…]}，看 divider 块渲染，没有 [aria-expanded]。
+建议改法：dividerHasBody 改为“text 有内容或 compaction 详情存在”；详情里按字段是否存在显示（没有 model 就不写模型与花费，没有 replacement 就不写摘要，omitted 写“省略了 N 条内容，需要时重新读取”）；加 shake 的组件测试。
+
+### 8. 状态栏的上下文占用在压缩后的读数：适配器已经用 tokensAfter，和 Spec 的口径不一致，且是低估
+严重程度：重要
+位置：kernel-transcript.ts:330-333（context = tokensAfter）、session-host.ts:642（contextTokens: usage.context ?? 0）；docs/specs/agent/conversation.md 输出 16、docs/specs/ui/agent-conversation-view.md 的 usage 行；runtime.md 输出 46；kernel/compaction/compact.ts:81-103（tokens 只加对话事件）
+现象：输出 16 写“上下文占用是最近一次模型回复的输入、缓存读取与缓存写入之和，即下一次请求至少要带的量”，视图 Spec 也写“取最近一次模型请求的输入”。适配器在压缩事件上改成 tokensAfter（早于 t11 就有，此前没有压缩事件所以没触发过）。tokensBefore/After 来自 job.tokens，只是“摘要加对话事件”的估算，不含系统提示、工具定义、开场，也不含 restored 放回的至多 2 万 token（适配器不看 notice，内核 estimateContext 却把 notice 算进去，两边已经差一块）。
+结果：压缩前环显示 92%（真实用量，含系统提示与工具），压缩后立刻掉到例如 5%（估算），第一次回复之后跳到例如 25%。分隔线详情里写“压缩前 178k → 压缩后 14k”，前者与刚才环里的数不是同一口径，作者会以为环和详情对不上。
+为什么是问题：计划没提这一点，Spec 输出 16 与现实现不一致，口径问题会被当成 bug 来回报。
+如何核实：applyPath 喂 assistant(usage input=180000) 再 compaction{tokensAfter:14000}，看 usage().context；对照 conversation.md 输出 16。
+建议改法：先定口径写进 Spec 输出 16：“压缩之后、下一次回复之前显示压缩的 tokensAfter，估算，不含系统提示与工具”，环悬停写“估算”；或让 tokensAfter 的计算加上系统提示、工具与放回的量（这是后端的事，请后端审查者一并看，tokensBefore 应与压缩前最近一次回复的真实用量同口径）。详情里把 tokensBefore/After 标成“估算”。同时加一个适配器用例固定这个读数。
+
+### 9. /compact：“登记进 commands”已经登记过了，真正缺的是宿主的 command.run 与其余 8 个已登记却不能用的命令
+严重程度：重要
+位置：packages/nb-agent-ui/src/vue/builtin-composer.ts:19-33（new、plan、mode、model、compact、rename、summarize、fork、clear 九个都已登记，compact 带 argsHint）；neuro-book/src/plugins/agent/web/plugin.ts:258（createAgentViewRegistry(builtinContributions)）；web/session-host.ts:571-573（run 的 default 直接 return，注释说“视图的 interaction 已经关掉入口”）；nb-agent-ui src/composer-actions.ts:21-38（只看登记名，不看 interaction）
+现象：计划“登记进 commands”是空操作；需要写的是 session-host.run 里 case "command.run"（调 remote.compact）。现在输入 `/compact 要求` 会被 resolveSubmission 当成命令，发出 command.run，宿主丢弃：文字不发、草稿不清、没有任何提示。同样的丢弃已经发生在另外 8 个命令上（菜单里列着，选了发不出去）；注释里“interaction 已经关掉入口”不属实，interaction 不管命令。实现 /compact 之后这 8 个仍是死入口，作者会按菜单试 /new、/clear，没有反馈。
+为什么是问题：计划把这件事写成“登记”，实现者会去改 registry，漏掉真正的缺口；而且没有人负责那 8 个。
+如何核实：看 plugin.ts:258 用的是 builtinContributions；输入 /clear 发送，session-host.run 走 default。
+建议改法：切片 5 写成“session-host 加 command.run：compact 调 remote.compact，其余命令名统一给一条‘暂不支持 /名称’的说明”；或给另外 8 项加 when:()=>false（宿主不支持时不进菜单）。Spec 视图条目 12 写“登记的命令宿主不支持时的行为”。
+
+### 10. /compact 的可用性判断与 Spec 输出 52 对不上：对话模型不可用时输入框就是只读的
+严重程度：重要
+位置：nb-agent-ui src/vue/composer/AgentConversationComposer.vue:44（readonly = availability.status !== "ready" || !interaction.canSend）；session-host.ts:596-601（model 不可用时 availability 为 profile-unavailable）；runtime.md 输出 52 末句
+现象：输出 52 特意写“只压缩的运行用压缩的模型，对话模型不可用时照样能跑”。但对话模型不可用时 availability 是 profile-unavailable，输入框只读，用户根本发不出 /compact。已归档会话同理（这条正确）。计划没说要不要打通这个场景，也没把这个理由列为不做。
+为什么是问题：后端为这个场景写了代码与测试，界面入口却关着，等于有人会以为可用。
+如何核实：模型配置里删掉当前会话的模型，打开会话，输入框 readonly。
+建议改法：二选一并写明：(a) 不做——在计划“不做与风险”里写“对话模型不可用时界面不开 /compact，输出 52 的这条只由后端测试覆盖”；(b) 做——profile-unavailable 时输入框仍可发命令（需要改 readonly 的定义与 Spec 视图输入框一节）。倾向 (a)，成本小。
+
+### 11. /compact 的结果显示：运行中受理（next-boundary）无反馈，被拒后的草稿与说明的时序没定
+严重程度：重要
+位置：shared/remote.ts:83（compact: {requirement?}）；session-host.ts:403-425（submit 的先清草稿、被拒再放回的做法）；runtime.md 输出 52；conversation.md 输出 6
+现象：
+- 空闲：成功值 scheduled:"now"，只压缩的运行启动，状态栏显示“正在压缩”。无问题。
+- 运行中：成功值 scheduled:"next-boundary"。命令在运行中照常发出（composer-actions.ts:33，命令先于投递方式判定），受理后草稿清空，界面上没有任何变化，用户不知道是否生效；要求只属于这次运行，没到下一个边界就结束时丢弃，用户看不到“要求被丢了”。计划没有“已排上、将在下一步前压缩”的说明。
+- 被拒：输出 6 对 send 的规定是“撤掉、文字放回输入框并说明原因”；计划对 /compact 只写“用输入框上方的说明显示”，没写草稿是否放回。nothing-to-compact、no-compaction-model、read-only 三个码要新增 locales（REJECT_KEYS 现在只有四个，其余落到“发送失败（{{code}}）”），no-compaction-model 应像 availability 的 open-settings 一样给“去设置”的动作而不是只给文字。
+- current 为 null（没有会话）时 submit 会先新建会话；/compact 不能这样做，否则为了说“没有可压缩的内容”白建一个会话。
+- 要求为空时应传 undefined，不要传 ""（Schema 是 Type.String()，空串是否算“有要求”由内核决定，别依赖）；要求里有多行文字时 argsText 保留换行（正则 [\s\S]*），但被拒后放回草稿时由宿主重拼成 `/compact …`，要保持原样（现 sameText 只在受理时用，放回时没用）。
+- 通信结果未知（UNKNOWN_OUTCOME）要用同一个 commandId 可重发；send 有“发送中/未知/重发”的乐观消息，compact 没有对应形态，计划没说怎么处理（建议：未知时只给说明，不重发，用户自己再点）。
+为什么是问题：这是用户发出命令后唯一的反馈，缺了就是“按了没反应”。
+如何核实：运行中输入 `/compact 保留人物设定` 并发送，界面无任何变化。
+建议改法：受理 next-boundary 时给一条临时说明（“将在这一步结束后压缩”，下一次 status 帧或运行结束时清掉）；被拒按 send 的规则放回草稿并给说明；three 个码加文案键；没有会话时直接给“还没有对话”的说明，不新建。
+
+### 12. 决定“不做看原文”的理由有一半不成立：分隔线上面不全是已压缩的内容
+严重程度：建议
+位置：README.md“计划确认时的修改”决定 9 的理由（“压缩前的内容就在分隔线上面”）；runtime.md 输出 49（firstKeptEntryId 之后保留）、compaction 事件的 omitted；kernel-transcript.ts:328（分隔线放在压缩事件的位置，不是切点的位置）
+现象：对话视图显示整条路径，分隔线画在压缩事件处。真实情况是：切点 firstKeptEntryId 之后到分隔线之间的几轮（至多约 2 万 token）仍原样在模型上下文里；shake 则是切点之前的某些工具结果被换成占位，界面上仍显示完整结果，模型看到的是占位。作者看到分隔线以为“上面的模型都记不住了”，实际并非如此；想知道“模型现在还看得到什么”没有地方看。
+为什么是问题：“不做原文”的结论（开发者已确认）可以保留，但它依据的“分隔线上面就是压缩前的内容”是一个不精确的说法，会让详情里的“压缩前/后”数字难以理解。
+如何核实：compaction 事件的 firstKeptEntryId 指向分隔线之前的某个 turnStarted。
+建议改法：详情里加一行“保留最近 N 轮原文”（适配器能算：firstKeptEntryId 到压缩事件之间的 turnStarted 数；shake 写“省略了 M 条工具结果”）；必要时在被保留的第一轮前画一条淡的“从这里起保留”标记，不做则至少把文案写准，不写“上面是被压缩的内容”。
+
+### 13. 摘要全文很长与详情的版式：撑得住，但详情不应走 Markdown，且 after 可能大于 before
+严重程度：建议
+位置：vue/stream/AgentTurnBlock.vue:151、:248-275（.acv-divider__body 无 max-height，宽度 90%）；packages/nb-ui/src/composables/useStreamScroll.ts（点击锚点两帧内固定被点项）
+现象与核实：
+- 摘要上限 16,384 token，约两万多汉字；展开后整段 Markdown 撑开消息流，没有内部滚动。消息流是唯一的滚动容器，useStreamScroll 的点击锚点会把被点的分隔线固定住，贴底时点开不会把它推走，所以“撑得住”；与思考全文的展开同一做法。不需要内部滚动（嵌套滚动在流里更难用）。
+- 不过方法、模型、token、花费、放回、要求这些字段不要拼进 text 交给宿主注入的 Markdown：它们是结构化数据，应在视图里用 nb-ui 的行内小块/键值版式画，摘要正文才走 AgentMarkdown。适配器只给数据（数字、字符串、JSON），文案在视图用 locales，纯受控这一条没有被破坏：SystemMessageView 已经带 label: Text，加一个与 UsageView 同类的 compaction?: CompactionView（数字与字符串，不引入内核类型，boundary.test.ts 不会报），适配器侧 harness.ts:309 的旧适配器不填即可。
+- 键盘与读屏：现有分隔线是 <button aria-expanded> + 兄弟节点，没有 aria-controls，与信息条目（acv-notice）同一做法；详情加了多个字段后建议给按钮与区域补 aria-controls/id，区域用 role="group" 加 aria-label；字段用 <dl>。运行中的“正在压缩”目前只有状态栏文字，读屏没有播报（向导有 aria-live，这里没有），建议状态栏的阶段文字在变为“正在压缩”时 aria-live="polite"。
+- tokensAfter 可能大于 tokensBefore（只有一轮、摘要比原文长、放回增加）。“节省 N”别写成负数，写“压缩前 X、压缩后 Y（估算）”，不算百分比。
+建议改法：如上；同时更新 AgentTurnBlock.md 并为分隔线加 Lab 场景（有摘要、shake 无摘要、含放回、含要求、tokens 增加五种）。
+
+### 14. 验收映射偏薄：缺的恰是上面这些边界
+严重程度：建议
+位置：plan.md“验收映射”的 `/compact 要求` 一行；packages/nb-agent-ui/src/kernel-transcript.test.ts（目前对 compaction 事件映射没有任何用例，只有第 142 行一条 purpose:"compaction" 的 delta）
+现象：计划的界面验收只有“agent-conversation.e2e 加一条”和“nb-agent-ui 组件测试”。第 1 到 11 条里的行为都落在 conversation-turns、kernel-transcript、session-host 三处纯逻辑上，不靠 e2e 也能便宜地测。
+建议改法：切片 5 的验证写明：kernel-transcript 用例（compaction + restored 并合、实时与重放一致、shake 无 notice、压缩运行 aborted/error 不碰上一轮回复、context 在压缩后的读数）；conversation-turns 用例（轮中压缩在已结束轮次里可见、只压缩运行不把上一轮算 running）；session-host 用例（command.run 空闲/运行中/被拒/没有会话）；组件测试（shake 分隔线可点开、详情字段）。e2e 那一条只留“空闲 /compact 后出现带详情的分隔线”。
+
+## 未发现问题的方面
+- 并合的相邻性：compaction 与 restored 同批写入、顺序固定；loadPath 先累积全部分页再整份 applyPath，eventChunk 拼回按序、重连整份重建，所以分页、分段、重放下“紧跟”都成立（只需要第 6 条那个“最后一条正好是刚写的压缩”的守卫）。
+- 纯受控：给 SystemMessageView 加 compaction 详情（数字与字符串）不破坏 nb-agent-ui 不依赖内核的约束，kernel-transcript 本来就在包内。
+- 压缩后贴底：新的分隔线是流里追加的块，useStreamScroll 在跟随时贴底，离开底部时阅读锚点不动；command.run 本来就 scrollToLatest（AgentConversationView.vue:186），被拒时也会跳到底部，无害。
+- compact 在 remote 合同里已有（shared/remote.ts:83），commandId 与参数形状与内核对得上（argsMatchKernel 机检）。
+
+## 数量
+阻断 0；重要 11 条中的 1、2、3、4、5、6、7、8、9、10、11（共 11 条）；建议 3 条（12、13、14）。合计 14 条。

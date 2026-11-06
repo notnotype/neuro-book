@@ -13,6 +13,7 @@ import AgentChainSummary from "./AgentChainSummary.vue";
 import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
 import AgentFileChanges from "./AgentFileChanges.vue";
 import AgentMessageActions from "./AgentMessageActions.vue";
+import AgentMessageEditor from "./AgentMessageEditor.vue";
 import AgentTurnBlock from "./AgentTurnBlock.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {describeTurn, describeUsage} from "../../process-summary";
@@ -152,11 +153,21 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     class="acv-message__actions"
                     :actions="messageActionItems(turn.user)"
                     :branch="props.ctx.branches[turn.user.id] ?? null"
+                    :branch-disabled="props.ctx.run.status !== 'idle'"
                     @select="runMessageAction(turn.user, $event)"
                     @branch="emit('action', {type: 'branch.switch', messageId: turn.user.id, direction: $event})"
                 />
             </header>
-            <div class="acv-user-bubble">
+            <AgentMessageEditor
+                v-if="props.ctx.editing?.messageId === turn.user.id"
+                class="acv-user-editor"
+                :text="props.ctx.editing.text"
+                :loading="props.ctx.editing.loading"
+                :services="props.services"
+                @submit="emit('action', {type: 'message.editSubmit', messageId: turn.user!.id, text: $event})"
+                @cancel="emit('action', {type: 'message.editCancel'})"
+            />
+            <div v-else class="acv-user-bubble">
                 <AgentUserContent
                     :message="turn.user"
                     :resolve-attachment-url="props.services.resolveAttachmentUrl"
@@ -184,6 +195,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     class="acv-message__actions"
                     :actions="messageActionItems(turn.outcomeMessage)"
                     :branch="props.ctx.branches[turn.outcomeMessage.id] ?? null"
+                    :branch-disabled="props.ctx.run.status !== 'idle'"
                     @select="runMessageAction(turn.outcomeMessage, $event, turn.outcomeCallId)"
                     @branch="emit('action', {type: 'branch.switch', messageId: turn.outcomeMessage!.id, direction: $event})"
                 />
@@ -201,6 +213,18 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     :title="turnLabel"
                     data-turn-summary
                     @update:expanded="manualExpanded = $event"
+                />
+                <!-- 一轮中途压缩过：收起时分隔线也要看得到（展开时它就在过程里） -->
+                <AgentTurnBlock
+                    v-for="block in (expanded ? [] : turn.processDividers)"
+                    :key="block.id"
+                    :block="block"
+                    :ctx="props.ctx"
+                    :services="props.services"
+                    :registry="props.registry"
+                    :turn-status="turn.status"
+                    :last="false"
+                    @action="emit('action', $event)"
                 />
                 <div v-if="expanded && processBlocks.length > 0" ref="processRef" class="acv-process" :data-foldable="turn.foldable || undefined">
                     <AgentTurnBlock
@@ -273,6 +297,8 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
     margin-bottom: 24px;
     /* 内容相对角色行的缩进；AgentTurnBlock 与 AgentChainBlock 读它，整轮展开的过程容器里改小。 */
     --nb-agent-block-indent: 24px;
+    /* 用户气泡与 Agent 气泡同一个值。 */
+    --nb-agent-bubble-radius: var(--radius-panel);
 }
 
 .acv-message {
@@ -377,12 +403,16 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
     }
 }
 
+.acv-user-editor {
+    margin-left: 24px;
+}
+
 .acv-user-bubble {
     min-width: 0;
     margin-left: var(--nb-agent-block-indent);
     padding: 12px 16px;
     border: var(--border-w, 1px) solid color-mix(in srgb, var(--accent-main) 18%, var(--border-color));
-    border-radius: 16px;
+    border-radius: var(--nb-agent-bubble-radius);
     background: color-mix(in srgb, var(--accent-main) 5%, var(--bg-subtle));
     box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 10%, transparent);
     color: var(--text-main);

@@ -1,0 +1,157 @@
+t06 plan.md 前端部分设计审查（Sonnet）
+依据：master 最新提交的 worktree（.worktree/t06-design-review）。路径均相对 worktree 根；plan.md 行号指 .agents/works/w00032-agent-integration/tasks/t06-approval/plan.md。
+条目按核实顺序追加，最后一节汇总排序。
+
+------------------------------------------------------------
+F1 [重要] 组件/Spec：“模式菜单分两组，组件已有两组的写法”的前提不成立
+位置：plan.md:100；packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:217-238、425-464；packages/nb-ui/src/components/popup/DropdownMenu.md:103、109；packages/nb-ui/src/components/popup/DropdownMenu.vue:110；docs/specs/ui/agent-conversation-view.md:279；packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.md:33、40
+现象：
+ 1) 现有输入框里是两个独立控件，不是一个两组的菜单：Agent 模式是一个循环按钮（点击与 Shift+Tab 同为 cycleMode，直接发 mode.set，没有菜单）；审批模式是另一个 chip 加 DropdownMenu（单组 radio，group:"approval"）。
+ 2) DropdownMenu 的 group 不执行分组：DropdownMenu.md:103、109 与 DropdownMenu.vue:110 写明 group 只用于“缺失值诊断”，不渲染分组标题、不加 radiogroup 语义、不管互斥。菜单项类型里除分隔线外没有“组标题”项，所以“Agent 模式 / 审批模式”两个组名没有地方放。
+ 3) 菜单 @select 只回传 id，不回传 group；合成一个菜单后要靠 id 前缀或 key 不重名来区分是哪一组（现在 normal/discuss/plan 与 ask/allow-writes/yolo 碰巧不重名，但这是隐含约束）。
+ 4) Spec(ui/agent-conversation-view.md:279)写的是“模式（点开菜单，分 Agent 模式与审批模式两组）”，实现与 Spec 已经不一致；plan 把“组件已有”当现成事实，实际要同时做：新增菜单触发器、组标题、两个 action 的分流、改掉 cycleMode 按钮。
+ 5) 触发器显示什么没定：一个 chip 要同时表达 Agent 模式与审批模式。现在两个 chip 各自 is-accent（模式非首项、审批 danger）；合并后哪个状态抢眼、yolo 的红色警告怎么保留、窄于 420px 时图标只留一个会表达哪个，plan 没写。
+ 6) 按钮的 title/aria-label 文案“模式：{{mode}}（Shift+Tab 切换）”（locales/zh-CN.ts:168）在点开菜单后依然写“Shift+Tab 切换”，但此时点击不再切换；Shift+Tab 循环的也只是 Agent 模式，不是菜单里的另一组。
+为什么是问题：实施者按 plan 会误判工作量，并在“分两组”处现发明一套；可访问性上，两组 radio 没有组名，读屏用户听不出“放行写入”属于哪一组。
+如何核实：读 DropdownMenu.md:103,109；在 AgentConversationComposer.vue 里 grep "cycleMode" 与 "approval" 看两个 chip；Lab 里看输入框。
+建议：plan 改成明确的设计决定：(a) 保持两个 chip（一个循环、一个菜单），则“分两组”从 plan 与 Spec 删掉；或 (b) 合一个菜单，则列出需要的 nb-ui 改动（组标题项、radiogroup 语义、select 带 group）和触发器的显示规则，并同步改 Spec 与 composer.md。不论哪个，把 Shift+Tab 只循环哪一组、点击行为写进去。
+
+------------------------------------------------------------
+F2 [重要] 向导：退出 plan 的向导无法在现有版式里放下，且计划全文没有展示通道
+位置：plan.md:99；packages/nb-agent-ui/src/vue/wizard/AgentApprovalWizard.vue:63-72、74-120；packages/nb-agent-ui/src/vue/wizard/AgentWizardFrame.vue:35-58、60-120（max-height 60cqh，foot 固定）；packages/nb-agent-ui/src/types.ts:246-262（ApprovalPreviewView）；packages/neuro-book/src/plugins/agent/backend/builtin/preview.ts:16、25
+现象：
+ 1) 长计划：向导最高 60cqh，内容区只保证 8 行（.is-tall），底部 foot（附言框、提示、三个按钮、批次导航行）是固定高度的。计划全文（常见几十到上百行）要在这个“8 行到十几行”的窗口里滚动阅读，而它正是用户要审批的核心内容；再加上审批模式选择，foot 更高，body 被挤到最小 8 行（手机 390×844 下尤其）。
+ 2) 展示通道：现在的预览类型只有 diff / too-large / failed，没有“正文”类型；计划是 Markdown，要“显示计划全文”需要新增预览种类，并用宿主注入的 Markdown 组件（AgentMarkdown 经 ports 注入，没注入时是纯文字）。用 DiffView 显示会变成全文新增的 diff，不是计划。
+ 3) 预览上限 PREVIEW_FILE_BYTES=256KB（preview.ts:16）：超过就变成“文件过大，不显示预览”(zh-CN wizard.approval.tooLarge)。批准按钮仍可点，用户在没看到计划时批准。plan 没处理“计划看不到”时的退路（至少应禁用“批准并开始”或给打开文件的入口）。
+ 4) 计划可能是“陈旧”的：同一回复里 write session://plan.md 与 switch_mode 是同一批审批时，批准前文件还没写（Spec conversation.md 输出 12 已写“一批审批是一起问的，还没执行”）；plan 没规定 switch_mode 步骤读的是磁盘现状还是同批写入的内容。若 plan.md 在 ask 审批模式下写入也要审批（plan.md:34 没把写计划列为免审），这种情况会常见。
+ 5) 跨前后端相关：yolo 下“询问也放行”（plan.md:34）会让 switch_mode 退出 plan 的审批被自动放行，用户从没见过计划；这与“退出 plan 批准计划”的目的冲突，需要写明 switch_mode 是否例外（实现放后端审查，这里只提示界面上看不到向导）。
+为什么是问题：向导的第一职责是让用户看清要批准什么；长计划看不全、超限看不到仍可批准，是审批失效。
+如何核实：AgentWizardFrame.vue 的 max-height/min-height；types.ts 的 ApprovalPreviewView；preview.ts:16。
+建议：计划全文用单独的预览种类（markdown 正文）；退出 plan 的向导放宽版式（例如该类型不受 60cqh 限制或可展开成全高/弹窗，附言与选项收进更紧凑的一行）；too-large/读取失败时“批准并开始”禁用并给出“在编辑器里打开 plan.md”的入口；计划和审批模式选择放在计划之下、按钮之上，正文区取剩余高度。明确 yolo 对 switch_mode 的处理。
+
+------------------------------------------------------------
+F3 [重要] 向导：“批准并开始（可同时选审批模式）”“继续改（带附言）”与现有决策模型合不上
+位置：packages/nb-agent-ui/src/wizard.ts:11-12、23-34、39-56；packages/nb-agent-ui/src/types.ts:488-492（InputResolution）；packages/nb-agent-ui/src/vue/wizard/AgentApprovalWizard.vue:63-72、109-119；packages/nb-agent-ui/src/vue/wizard/AgentWizard.vue:67-80；packages/neuro-book/src/plugins/agent/web/session-host.ts:969-977、1088-1090；docs/specs/agent/conversation.md 输出 11-12
+现象：
+ 1) 决策只有 allow / allow-session / deny，InputResolution 与宿主 resolveInput 的联合类型也是写死的；“批准并开始 + 审批模式”需要新增字段，且这个选择要进 WizardState（向导收起、切标签回来要保留；WizardState 要能完整表示成 JSON）。plan 只说“动内核的事件形状”(plan.md:85)，没提 UI 的 action 与 WizardState。
+ 2) “单个事项选了就提交”(AgentApprovalWizard.vue:70-72)：只有一个审批时点按钮即提交；退出 plan 向导需要先选审批模式再点“批准并开始”，必须例外；而且选择控件的默认值（保持当前 / 回到 ask）没定。
+ 3) 非原子：现有宿主是先 remote.resolve，再另一次 changeSettings（见 session-host.ts:1088 的 approval.set 路径）。如果“批准并开始”由宿主拆成“批准 + 设审批模式”两步，第二步失败时计划已开始执行而审批模式没改（只有 notice）。审批模式应跟着同一个 resolve 一起落到内核，否则界面不能保证“按你选的审批模式开始”。
+ 4) “继续改（带附言）”=现有“拒绝带附言”，但语义不同：拒绝 switch_mode 是“继续规划”，不是“驳回”。按钮文案、附言占位（现在是“拒绝原因（选填），会发送给模型”）、已有的规则“附言框写了字，批准不可点”(AgentApprovalWizard.md)都要重写；“全部拒绝”在含退出 plan 的一批里是什么意思也没定。
+ 5) 一批里有多项时，“本会话都批准”会按同一工具名联动选中（wizard.ts:35-41）；switch_mode 不应有“本会话都批准”，但 AgentApprovalWizard 的三个按钮是固定的，需要按工具变体。
+为什么是问题：这是向导的核心交互，plan 只用一句话带过，实施时要同时改 InputResolution、WizardState、宿主 resolveInput、向导按钮和内核事件，易漏一处（尤其是非原子问题）。
+如何核实：读 wizard.ts、types.ts:488、session-host.ts:969。
+建议：plan 增加“向导决策模型”小节：新增决策形状（approve-with-mode）、WizardState 字段、单项即提交的例外、变体按钮、附言含义、全部拒绝的含义；审批模式随 resolve 原子提交。
+
+------------------------------------------------------------
+F4 [重要] discuss/plan 下被模式闸门拒绝时，用户界面看不出是模式挡的，也没有一键切换
+位置：plan.md:32、95、97；packages/nb-agent-ui/src/kernel-transcript.ts:195-203；packages/nb-agent-ui/src/locales/zh-CN.ts:451-453；packages/nb-agent-ui/src/tool-status.ts:15-16
+现象：callOutcome 把 denied/blocked 按 code 映射成文字：user-denied -> “已被你拒绝”，read-only -> “只读模式下不可修改”，其余全部落到“已被规则拒绝”。模式闸门没有自己的 code，会显示成“已被规则拒绝”；而 read-only 的现有文字“只读模式下不可修改”指的是会话只读（meta.readOnly），用户很容易把它和 discuss/plan 搞混。拒绝的 reason（要给模型的“请切换模式”）不进用户界面。plan 没有写：闸门拒绝的 code、给用户的文字、卡片上有没有“切到 normal”的入口。
+为什么是问题：用户让模型改文件，模型被挡后回复“我无法写入”，用户看到的是“已被规则拒绝”，既不知道规则是哪条，也不知道是自己开的 discuss/plan 造成的；一键切换（或闸门配置成弹审批时的入口）缺失，要自己去找模式按钮，且按钮在输入框里（等待向导时输入框是 v-show 隐藏+inert）。
+如何核实：kernel-transcript.ts:195-203；构造 code 为 mode-gate 的 denied 结果看卡片显示。
+建议：给闸门拒绝单独的 code 与文字（“当前是讨论/计划模式，不能修改文件”）；工具卡片上的拒绝说明后面带一个“切到 normal”按钮（发 mode.set，运行中是否可用同模式按钮）；规则拒绝的文字带上命中的规则/reason（至少 reason）；同时在 plan 里写明 modeWriteAction:"ask" 时向导里怎么提示“这是因为当前模式”以及批准是否会同时退出模式。
+
+------------------------------------------------------------
+F5 [重要] “本会话都批准”：前缀太宽时静默降级为只批准一次，用户在向导上无从得知；复合命令/长命令文案未定
+位置：plan.md:85；packages/nb-agent-ui/src/vue/wizard/AgentApprovalWizard.vue:98-119（按钮固定）；packages/nb-agent-ui/src/wizard.ts:35-41（choose）；packages/nb-agent-ui/src/types.ts:253-262（PendingApprovalView 没有“要记住什么”字段）；packages/nb-agent-ui/src/locales/zh-CN.ts:309-310
+现象：
+ 1) 前缀由后端方言算（只有后端知道 `git diff *`），前端现在拿不到；PendingApprovalView 只有 tool/args/reason/preview。要在按钮点击前告诉用户“将记住 git diff *”或“这条太宽，只批准这一次”，需要后端把“可记住的规则 / 不可记住的原因”放进待审批视图。plan 只说“向导上写明要记住什么”，没有数据通道。
+ 2) 如果按钮仍叫“本会话都批准”而点了只批准一次，用户以为一类命令放开了，下一条同类命令又弹审批，会误以为是 bug，也可能因“已经批准过”而放松警惕。应该在点之前就变：按钮改名为“仅这一次”/禁用并解释，而不是点后降级。
+ 3) wizard.ts 的 choose() 按“同一工具名”联动选中同批其余调用；换成按前缀后，同批里其它 shell 命令是否也被记住取决于它们各自的前缀，联动规则（只联动被同一条规则覆盖的？每条各算？）没定，且一批里可能有的能记、有的太宽。
+ 4) 复合命令（a && b | c）：“一次一条命令一条规则”意味着一次点击记住多条规则；向导要列出全部，条数上限、超长怎么折叠没定。现有 shell 展示是整条命令的 pre-wrap 代码块，没有逐条拆解的显示位置；用户无法知道前缀是从哪一段得出的。
+ 5) 非 shell 工具（edit/write/ask-form/MCP 工具）“本会话都批准”仍是什么：plan 只改了 shell，其它工具若仍是“整个工具”，label 一致但含义完全不同（写任意文件）；而规则系统有 path 匹配器，向导对 edit 应记什么（这个文件？这个目录？）没写。
+ 6) 前缀展示用的文字（等宽小字，`git diff *`）、“会话”范围提示、和“记住的规则在哪里看、怎么撤销”（见 F6）没有对应的界面。
+为什么是问题：这是用户唯一能感知的权限边界；记住了什么必须在点之前就看得见。
+如何核实：AgentApprovalWizard.vue 的按钮区；types.ts PendingApprovalView。
+建议：PendingApprovalView 增加 remember: {rules: string[]} | {unavailable: reason} 之类的字段（由后端算）；按钮文案随之变化（“本会话都批准 `git diff *`” / 不可记住时隐藏或改成“仅这一次”并显示原因）；choose() 联动改为按规则覆盖；复合命令列成最多 N 条加“另有 M 条”；非 shell 工具的记忆范围单独写。
+
+------------------------------------------------------------
+F6 [重要] “以后都允许”：第四个决策没有位置，也没有管理/撤销入口，切片顺序有缺口
+位置：plan.md:85、106-112（切片 3 先于切片 5）；packages/nb-agent-ui/src/vue/wizard/AgentApprovalWizard.vue:109-119；packages/nb-agent-ui/src/types.ts:490-492
+现象：
+ 1) 按钮行现在有 批准 / 本会话都批准 / 拒绝，加上“以后都允许”共四个，390px 下会折行（flex-wrap），而且与“本会话都批准”文字很近，误点代价不同（写进用户级规则，跨会话、跨作品生效）。plan 没写位置、没有二次确认，也没有写进哪一级（用户规则；plan.md:66 说项目规则只收询问与拒绝）。
+ 2) 切片 3 就会交付“以后都允许”，而查看与删除规则的界面要到切片 5；这期间用户写进去的规则看不到、撤不掉。
+ 3) 只读/一次性：以后都允许写入的是什么规则（与 F5 一样同一前缀）、写到哪一位置（用户规则末尾？“从上到下第一条命中”下，末尾追加的允许会被前面已有的询问规则盖掉，用户看不到为什么没生效）。
+ 4) 内核事件形状要动、InputResolution 要加决策，这些与 F3 同一处改动，应放在一起设计。
+建议：把“以后都允许”放在“本会话都批准”的下拉/次级入口，写清楚范围与“可在设置里撤销”；切片 5（至少只读列表+删除）提前到与切片 3 同批，或切片 3 先不出“以后都允许”；写明追加位置并在向导提示“已有更靠前的规则时可能不生效”（或直接不允许这种情况）。
+
+------------------------------------------------------------
+F7 [重要] 用户手动切换与模型申请切换同时发生：向导与实际状态不一致，无规则
+位置：plan.md:98；packages/nb-agent-ui/src/builtin-tools.ts:176-177（summary 读 argString(call,"targetMode")）；packages/nb-agent-ui/src/vue/AgentConversationView.vue:413-419（输入框 v-show+inert）；packages/neuro-book/src/plugins/agent/web/session-host.ts:343-353、1088（没有 mode.set 的处理）
+现象：
+ 1) 参数名对不上：现有 switch_mode 工具渲染器读 `targetMode`，plan 写 `switch_mode{mode}`；有 summary 与 presentation:"node"，却没有 switch_mode 的 node 组件（vue/tools/ 下只有 AgentTaskListNode），会退回通用卡片。需要决定名字并补节点。
+ 2) 向导等待期间输入框被隐藏并 inert（AgentConversationView.vue:413-419），所以本窗口里用户既不能点模式菜单，也不能 Shift+Tab；“同时发生”只会来自另一个窗口、/mode 之外的通道（命令也在输入框里），所以主要风险是别的窗口把模式改了：这时本窗口的 switch_mode 向导显示的“从 A 到 B”若取申请时快照，会和实际不符；若目标就是当前模式，批准是空操作；若别的窗口已经手动退出 plan，退出 plan 向导还让用户“批准并开始”选审批模式，会再设一次审批模式。plan 没写：向导里“从”用什么（实时当前模式）、已无意义时的处理（自动结束并提示“已是 X”）。
+ 3) 还有其它转换没定：哪些模型发起的转换需要批准（plan.md:98 说“模型用 switch_mode 申请，走审批向导，用户批准才生效”，决定 4 说“模型进 plan 要用户批准”，但 normal->discuss、discuss->normal、plan->discuss 是否也弹向导、向导用同一版式还是退出 plan 专用版式没定）。
+ 4) 历史里怎么看：批准/拒绝后消息流里的 switch_mode 节点（node 呈现）显示什么没定；用户手动切换产生的“切换时一条完整提醒、之后每轮一句短的”(plan.md:97)是放在消息里的，这些提醒消息在对话视图里显示还是隐藏、用什么条目类型显示没定（Spec conversation.md 没有对应条目）。
+ 5) 宿主还没有 mode.set 的处理：session-host.ts 只有 approval.set（1088），ComposerView.modes 现在宿主传空（1268 附近只传 approval），composer 里的 mode 控件实际不会出现。
+建议：向导标题用实时模式写“从 X 到 Y”，目标已等于当前时自动结案；列全转换矩阵与各自的向导变体；定好 switch_mode 的参数名并补 node 组件；写明提醒消息在视图里的呈现（建议折叠的系统条目）。
+
+------------------------------------------------------------
+F8 [重要] 新会话（还没有会话）时模式控件不可用，无法“先开 plan 再发第一条”
+位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:1242（canChangeRuntime: target !== null）；packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:49、221、428、437
+现象：runtimeDisabled 包含 !canChangeRuntime，宿主在没有会话（target 为 null，第一次发送才建会话）时给 false，所以模式按钮、审批菜单和 Shift+Tab 在新对话里全部不可用（现有审批菜单同样）。用户想“一上来就让它先规划”，要先随便发一条消息，那一条会在 normal 下执行。/plan 命令在宿主 HOST_COMMANDS(session-host.ts:55)里也还没有。
+建议：plan 写明新会话的模式怎么设（草稿级设置，建会话时带上；或允许 canChangeRuntime 在无会话时开放并随建会话一起提交）。
+
+------------------------------------------------------------
+F9 [重要] Shift+Tab：与补全菜单、就地编辑器、反向焦点导航的冲突
+位置：packages/nb-markdown/src/prompt/PromptEditor.vue:423-452、494-513；packages/nb-agent-ui/src/vue/fallback/PlainPromptEditor.vue:65-68；packages/nb-agent-ui/src/vue/stream/AgentMessageEditor.vue:43-62；packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:388
+现象：
+ 1) PromptEditor 的 handleKeyDown 无条件吞掉 Shift+Tab（emit 后 return true）。补全菜单打开时 handleMenuKey 对 Shift+Tab 返回 false（它只在 !shiftKey 时确认），于是菜单开着时 Shift+Tab 也会切换模式，且菜单留在原地；用户本意可能是“反向移动”，结果是悄悄切到 discuss/plan 而且之后写入被挡。
+ 2) AgentMessageEditor（用户消息就地编辑）同样用注入的编辑器，但没有绑定 @shift-tab（模板只绑 change/submit/escape，见 AgentMessageEditor.vue:60-62），所以在那里 Shift+Tab 既不切模式又不移动焦点——一个死键。
+ 3) 无障碍：键盘用户从编辑器反向 Tab 到上一个控件（附件、会话面板）的唯一方式被占用；编辑器里 Tab 正向走照常（不吞），所以是反向不对称，WCAG 2.1.1/2.4.3 层面要有替代：当前替代是点击/Enter 模式按钮，而 plan 要把按钮改成菜单，对键盘用户是 Tab 到按钮再 Enter 打开菜单，这条路径能走，但需要在 Spec 里写明。（现状已存在，plan 扩大了它的后果：切到 plan 会开始拒绝写入，误触代价比以前切审批模式高。）
+ 4) 循环顺序 normal->discuss->plan->normal，只能向前；误触后要再按两次才能回 normal。nextMode 只会向前（composer-actions.ts:46）。
+ 5) 切到模式后没有读屏播报（只有 chip 文字变化）。
+建议：Shift+Tab 在补全菜单打开时不处理（让位给菜单或不动）；AgentMessageEditor 里不要吞（编辑器应在没有监听者时放行，或只在输入框传 onShiftTab 的情况下处理）；切换后给 aria-live 播报“已切到计划模式”；考虑 Shift+Tab 的反向（Ctrl+Shift+Tab？）或只循环 normal<->上次非 normal 的模式。
+
+------------------------------------------------------------
+F10 [重要] slice 5：nb-form 无法结构化编辑 Matcher，规则列表的“来源/顺序”也不是 nb-form 能表达的
+位置：plan.md:53-61、66、112；docs/specs/ui/forms.md:90、95-104、142(输出19)
+现象：
+ 1) Spec forms.md 输出 1：联合（非字面量联合、`T|null` 以外）、`$ref`、递归（超过 6 层）一律降级成该字段的 JSON 编辑。Rule 的 `when?: Matcher`（all/any/not 递归、type 判别联合）和 `value: string | string[]` 全是降级项，所以“nb-form 编辑列表”实际只能结构化编辑 tool / action / reason，真正的条件要手写 JSON。用户要的“image-gen 关键词”规则不用写代码，却要手写 JSON 的 when。
+ 2) 来源与顺序：规则有项目/用户/会话三层，第一条命中生效，项目层放行不生效（只读并带诊断）。nb-form 的列表只有上移/下移，没有“来源”分层、“只读项”、“不生效项”标注，且 plan.md:129 把“永远不会命中的规则标出”放“以后做”。第一版里用户不知道某条规则为什么不生效。
+ 3) 规则存储校验用 TypeBox 递归类型，而 nb-form 的 Agent 策略(输出 23)不接受 $ref/$defs/oneOf；若想用表单，需要为设置页另写一个“扁平”的 schema（例如 matcher 先限定为 arg/path/command 三种叶子）。
+ 4) “另出静态稿”没有写在哪个入口（设置页？命令？工作台里的位置）、空状态（0 条规则时怎么说默认规则是什么）、会话规则能否显示、校验失败（未知匹配器类型）如何呈现。
+建议：第一版规则编辑限定为“扁平规则”（tool + 一个叶子匹配器 + action + reason），schema 为 nb-form 可结构化的写法，更复杂的用 JSON 字段兜底并标明；列表按来源分区显示，项目区只读；静态稿覆盖空状态、不生效标记、错误诊断。
+
+------------------------------------------------------------
+F11 [建议] 状态栏标记：位置、窄宽取舍、颜色没定，且与输入框 chip 重复
+位置：plan.md:100；packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:57-60、89-91、159-181 及 .md；docs/specs/ui/agent-conversation-view.md:299
+现象：状态栏现在只有 yolo 一个“模式”标记（is-danger），左侧容器 overflow:hidden，放不下时从尾部被裁。如果 plan/discuss 标记放在 yolo 后面，它会比“等你批准”这类阶段文字更先被裁掉；放前面则压缩阶段文字。样式只有 is-warn / is-danger 两种，没有“中性/强调”的色调。同时输入框 chip 在非默认模式时已 is-accent，≤420px 只剩图标，状态栏标记是用户在窄屏唯一能读到文字的地方，但状态栏窄于 400px 还会收缩右栏。plan 里没有给标记文案（“计划模式”？“只读”？）、图标、与 yolo 并存的次序，也没有“已退出”的瞬态。
+建议：写明标记位置在阶段文字之前、并不参与省略；新增 is-accent 样式；文案统一用模式显示名；plan+yolo 同时出现的写法。
+
+------------------------------------------------------------
+F12 [建议] /plan、/mode 的语义与现有注册不一致
+位置：packages/nb-agent-ui/src/vue/builtin-composer.ts:15-30；packages/nb-agent-ui/src/locales/zh-CN.ts:251-253；packages/neuro-book/src/plugins/agent/web/session-host.ts:55、1040-1043；docs/specs/agent/conversation.md:输出 30
+现象：视图里已登记 /plan（“切到规划模式”）与 /mode（参数“模式名，省略时切到下一种”）；宿主 HOST_COMMANDS 没有它们。plan 没写：/plan 在已处于 plan 时是退出还是不动；/plan 后面带文字（“/plan 重构第三章”）是切模式后把文字作为首条发出还是丢弃；/mode 的参数匹配用 key（normal/discuss/plan）还是本地化显示名（中文用户输“讨论”）；非法参数的提示；/mode 与菜单里审批模式（yolo）是否也能通过 /mode 设置（“模式名”可能有歧义）。
+建议：补一张小表；沿用 /model 的做法（无参数打开菜单而不是循环）更符合“模式有两组”。
+
+------------------------------------------------------------
+F13 [建议] 重连、运行中、切会话回来时向导状态：单例 wizardState 与新增字段
+位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:217、353、695-712、1318-1335；packages/nb-agent-ui/src/wizard.ts:17-33
+现象：wizardState 是宿主级的单个变量，pending 清空就丢，换会话丢，同会话重开才保留。退出 plan 向导新增的字段（审批模式选择）放进 WizardState 后遵循同一套；需要确认：(a) 向导出现后运行状态是“等待批准”，若别的窗口已批准则向导消失（Spec 输出 14），本窗口选了一半的审批模式丢弃；(b) previews（计划正文）在 closeCurrent 时清空，重连/借回后重新取，期间显示“正在生成预览…”，批准按钮是否在预览未就绪时可点（现有 edit 向导是可点的）；(c) 计划在“看到”之后如果被别处改了（plan.md 被改写），批准的是用户看到的还是现在的版本，没定。
+建议：预览未就绪或失败时“批准并开始”禁用；把审批模式选择写进 WizardState 并说明不跨会话保留。
+
+------------------------------------------------------------
+F14 [建议] 计划没写、实施时要现发明的界面细节（汇总）
+- 模式的显示名、一句话说明、图标（normal/discuss/plan 各自）和强调色；ComposerModeView 现在只有 key/label/icon，没有 description（审批项有）。
+- 菜单内两组的组标题文案、菜单宽度（wrap 的 320px）、描述文字在窄屏的换行。
+- 切换成功的反馈（toast？消息流条目？），运行中切换的提示（“从下一次工具调用起生效”？）。
+- 回到 normal 时“已退出”那句提醒在界面上的出现方式。
+- 闸门拒绝的用户文案与“切回 normal”入口（F4）。
+- 向导里 switch_mode 的标题/图标/细节小字（现有 title 逻辑只认 shell/edit/write，其余统一“调用工具 switch_mode”，AgentApprovalWizard.vue:50-54）。
+- 退出 plan 向导里审批模式选择的控件（分段控件还是下拉）、默认值、yolo 选项的警告表达。
+- “本会话都批准 / 以后都允许”后的确认反馈（记住了什么）与“看规则”链接。
+- 规则设置入口的位置、空状态（默认没有规则时说什么）、错误规则的显示（F10）。
+- 无障碍：切换后的 aria-live 播报、向导新增控件的焦点顺序（出现时焦点到容器，不落到批准按钮，是现有规则，需要对退出 plan 向导确认依然成立）。
+
+============================================================
+汇总（按影响排序）
+重要（10）：F2 退出 plan 向导版式与计划全文通道；F3 决策模型/批准并开始/原子性；F1 “分两组”前提不成立；F4 闸门拒绝无法识别、无一键切换；F5 本会话都批准的前缀可见性；F7 手动与模型切换并发、switch_mode 参数名与历史呈现；F6 以后都允许与管理入口顺序；F9 Shift+Tab 冲突；F8 新会话无法设模式；F10 nb-form 编辑 Matcher
+建议（4）：F11 状态栏标记；F12 /plan /mode 语义；F13 重连/预览/WizardState；F14 未写界面细节清单
+阻断：0
+
+未发现问题的方面：
+- 模式菜单进入 DropdownMenu 后的键盘漫游与级联行为本身（DropdownMenu.md 已覆盖）；
+- “计划全文”的 Markdown 渲染必须经宿主注入组件的约束，plan 没有违反（只是未写预览通道，见 F2）；
+- Shift+Tab 在 PlainPromptEditor 与 PromptEditor 两个编辑器上的行为一致（均发出 shift-tab）；
+- 向导出现时焦点到容器、无焦点陷阱、Esc 只收起的现有规则与 plan 无冲突（仅需对新变体重新确认）；
+- 运行中切会话/重连时输入框 v-show+inert 的保留方式本身没发现问题。

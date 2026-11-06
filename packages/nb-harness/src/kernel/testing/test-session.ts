@@ -5,7 +5,7 @@
  * 这一版有：`say`、请求的 `outline`、事件与状态、重开、假工具与审批策略。手动模式、严格模式随后续切片加入。
  */
 
-import type {AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelInfo, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
+import type {AttachmentPort, AnyExtension, AnyProfile, ApproveHook, ContributedExtension, JsonValue, LogEvent, LogStore, ModelInfo, ModelRequest, RunResult, SessionHeader, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext, SessionApi, SessionEnv, StateOfExtension} from "../api/index.js";
 import {defineProfile} from "../extension/profile.js";
 import {createJsonlStore} from "../log/jsonl-store.js";
 import {createMemoryStore} from "../log/memory-store.js";
@@ -36,6 +36,8 @@ export interface TestSessionOptions {
     /** 要测的扩展；直接给扩展时所属插件为 null，要测插件 id 前缀时给 `{extension, plugin}`。 */
     readonly extensions?: readonly (AnyExtension | ContributedExtension)[];
     readonly initial?: JsonValue;
+    /** 读用户附件的端口（runtime.md 输出 82）。 */
+    readonly attachments?: AttachmentPort;
     /** 缺省内存存储；给 `{root}` 用会话目录上的 JSONL。 */
     readonly store?: {readonly root: string};
     readonly startAt?: number;
@@ -54,12 +56,18 @@ export interface TestSessionOptions {
     /** 会话头的 `caller` 与 `questions`（子会话：提问交给父会话）。 */
     readonly caller?: SessionHeader["caller"];
     readonly questions?: SessionHeader["questions"];
+    /** 后台会话（`agent.startTask` 的 `background`）。 */
+    readonly background?: boolean;
     /** 测试模型的模型信息（缺省 `TEST_MODEL_INFO`）。 */
     readonly modelInfo?: ModelInfo;
     /** 出站过滤（`SessionEnv.outbound`）。 */
     readonly outbound?: SessionEnv["outbound"];
     /** 压缩方法与放回的内容（`SessionEnv.compaction`）。 */
     readonly compaction?: SessionEnv["compaction"];
+    /** 模型请求的重发（`SessionEnv.retry`）。 */
+    readonly retry?: SessionEnv["retry"];
+    /** 换掉假模型（接真实适配器与本机端点）。`session.model` 仍是那个假模型，不会被调用。 */
+    readonly models?: SessionEnv["models"];
     /** 包一层存储（例如在某个写入批上失败，测写失败时内存不领先日志）。 */
     readonly wrapStore?: (store: LogStore) => LogStore;
 }
@@ -117,7 +125,7 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         store,
         profiles: {resolve: (key) => [profile, ...(options.profiles ?? [])].find((item) => item.id === key)},
         extensions: () => contributed,
-        models: model.port,
+        models: options.models ?? model.port,
         tools: {
             declarations: () => toolList().map(testToolDeclaration),
             create: (id, context) => {
@@ -138,13 +146,16 @@ export async function createTestSession(options: TestSessionOptions = {}): Promi
         clock,
         // “全部放行”只是测试的一种显式策略，不是产品缺省。
         approve: options.approve ?? (async () => ({verdict: "allow", by: "test-policy"})),
-        ...(options.compaction === undefined ? {} : {compaction: options.compaction}),
+        // 内核没有缺省顺序（宿主给）：测试里的方法就叫这几个名字。
+        ...(options.compaction === undefined ? {} : {compaction: {order: {onThreshold: ["shake", "inplace"], onOverflow: ["shake", "summary"]}, ...options.compaction}}),
         ...(options.outbound === undefined ? {} : {outbound: options.outbound}),
+        ...(options.attachments === undefined ? {} : {attachments: options.attachments}),
+        ...(options.retry === undefined ? {} : {retry: options.retry}),
     };
     sessionCounter += 1;
     const created = options.open !== undefined
         ? await openSession(env, options.open)
-        : await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result}), ...(options.caller === undefined ? {} : {caller: options.caller}), ...(options.questions === undefined ? {} : {questions: options.questions})});
+        : await createSession(env, {profile: profile.id, id: `test-${sessionCounter}`, ...(options.initial === undefined ? {} : {initial: options.initial}), ...(options.result === undefined ? {} : {result: options.result}), ...(options.background === undefined ? {} : {background: options.background}), ...(options.caller === undefined ? {} : {caller: options.caller}), ...(options.questions === undefined ? {} : {questions: options.questions})});
     if (!created.ok) throw new Error(`createTestSession failed: ${created.code} ${JSON.stringify("detail" in created ? created.detail : null)}`);
     let api = created.value;
     let commands = 0;

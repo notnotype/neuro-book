@@ -392,4 +392,3 @@ describe("canon.project：正文快照、视图与插件的登记", () => {
         keep.release();
     }, 30_000);
 });
-

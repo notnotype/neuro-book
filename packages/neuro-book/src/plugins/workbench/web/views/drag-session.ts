@@ -1,41 +1,28 @@
 /**
- * 拖放会话（docs/specs/ui/workbench-shell.md 外壳三输出 19–23）：装在外壳根上，一场指针或键盘拖动从拿起到放下。
- * 拖动源与落点由组件写的 DOM 标记声明（`drop-dom.ts`），判定是纯函数 `resolveDrop`，提交经调用方给的 `commit`
- * （布局 store 的 `applyView`）。本模块只管手势、帧与生命周期。
+ * 外壳的拖放（docs/specs/ui/workbench-shell.md 外壳三输出 19–23）：装在外壳根上。手势是 nb-layout 的拖动会话
+ * （docs/specs/ui/layout-drag.md），这里只给来源、判定与键盘的区域：拖动源与落点由组件写的 DOM 标记声明（`drop-dom.ts`），
+ * 判定是纯函数 `resolveDrop`，提交经调用方给的 `commit`（布局 store 的 `applyView`）。
  *
- * - 指针的激活门槛：鼠标与笔移动 6px；触摸按住 200ms 且不超过 6px（先动了就让给滚动）。没过门槛的按下照常是点击。
- * - 键盘：焦点在拖动源本身（或源里标了 `data-drag-handle` 的把手）上按空格拿起；Tab / Shift+Tab 在可见的落点区域间
- *   循环，方向键沿区域的轴逐个位置移动，Enter 放下，Escape 取消。每个位置是区域里的一个坐标，命中与判定与指针同一份。
- *   拖动中这些键归会话：在窗口捕获阶段拦下，标签带的方向键、收起开关与选择都收不到；指针拖动同样拦下它们（只有
- *   Escape 有动作），按着鼠标按方向键不会切换标签。放下或取消后焦点回到源。
- * - 冻结：拿起时冻结拖动源与布局代次（`layoutKeyOf`）、生成这场拖动建自建容器用的 id。之后布局代次变了，整场取消。
- * - 每次指针移动（一帧一次）或每次按键用当下坐标同步求一次命中与判定，发布预览；放下时用那一刻的坐标再判一次，与
- *   最后发布过的提交动作逐字段相同才提交（`isSameDropAction`），用户没看到过的动作不写。
- * - Escape、`pointercancel`、窗口失焦、页面隐藏、焦点移到外壳之外（命令面板、对话框打开）、会话销毁都取消且不提交。
- *   指针拖动结束时释放指针捕获，并吞掉同一手势末尾的那一次指针 click（松手在源自己身上时，标签会被选中、收起开关会
- *   被切换）；键盘触发的 click（`detail` 为 0）不吞。
+ * 拿起时冻结拖动源与布局代次（`layoutKeyOf`），并生成这场拖动建自建容器用的 id 与预备区；之后布局代次变了，整场取消。
  *
  * 由旧应用 `useWorkbenchDrag.ts` 与 `useWorkbenchDrop.ts`（已人工验证）改写；手势不再经拖动库（取舍见 t67 计划）。
  */
 
-import {shallowRef} from "vue";
-import type {ShallowRef} from "vue";
+import {computed} from "vue";
+import type {ComputedRef} from "vue";
 
-import type {GridDropPoint} from "@notnotype/nb-ui/layout";
+import {createDragSession} from "@notnotype/nb-layout/vue";
+import type {GridDropPoint} from "@notnotype/nb-layout";
 
-import {isSameDropAction, layoutKeyOf, resolveDrop} from "./drop";
+import {dropActionKey, layoutKeyOf, resolveDrop} from "./drop";
 import type {DropDecision, DropRects, DropSource} from "./drop";
 import {containerHostIn, dragSourceAt, dropHitAt, entryIn, keyboardRegions, keyboardStops, readContentRects, readDropRect, readSwitcherRects, revealAt, sectionIn} from "./drop-dom";
-import type {KeyboardStops, RevealZoneRect} from "./drop-dom";
+import type {RevealZoneRect} from "./drop-dom";
 import {customContainerId} from "./placement";
 import type {ViewCatalog} from "./placement";
 import type {Presentation} from "./presentation";
 
-const DRAG_DISTANCE_PX = 6;
-const TOUCH_DELAY_MS = 200;
-const TOUCH_TOLERANCE_PX = 6;
-
-export interface DragSessionOptions {
+export interface ShellDragOptions {
     /** 外壳根：拖动源与落点只认这里面的。 */
     readonly root: HTMLElement;
     presentation(): Presentation;
@@ -49,7 +36,7 @@ export interface DragSessionOptions {
 }
 
 /** 进行中的拖动：拖影与落点反馈只读它。 */
-export interface DragState {
+export interface ShellDragState {
     readonly source: DropSource;
     /** 拖影所在的视口坐标：指针拖动是指针，键盘拖动是当前位置。 */
     readonly point: GridDropPoint;
@@ -60,51 +47,13 @@ export interface DragState {
     readonly zones: ReadonlyArray<RevealZoneRect>;
 }
 
-export interface DragSession {
-    readonly state: Readonly<ShallowRef<DragState | null>>;
+export interface ShellDrag {
+    readonly state: ComputedRef<ShellDragState | null>;
     dispose(): void;
-}
-
-interface Pending {
-    readonly pointerId: number;
-    readonly pointerType: string;
-    readonly start: GridDropPoint;
-    readonly element: HTMLElement;
-    readonly source: DropSource;
-    timer: ReturnType<typeof setTimeout> | null;
 }
 
 /** 键盘能去的区域：真实落点的元素，或预备区（排在真实落点之后）。 */
 type KeyboardRegion = {readonly kind: "element"; readonly element: HTMLElement} | {readonly kind: "zone"; readonly zone: RevealZoneRect};
-
-/** 区域里键盘能停的位置：预备区只有中心一个。 */
-function stopsOf(region: KeyboardRegion): KeyboardStops {
-    if (region.kind === "element") return keyboardStops(region.element);
-    const {rect} = region.zone;
-    return {axis: null, points: [{x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2}]};
-}
-
-/** 键盘拖动的位置：第几个区域的第几个位置。区域列表在拿起时取一次，布局代次不变它就不变。 */
-interface KeyboardCursor {
-    readonly regions: ReadonlyArray<KeyboardRegion>;
-    region: number;
-    stop: number;
-}
-
-interface Active {
-    /** 指针拖动的指针；键盘拖动为 null。 */
-    readonly pointerId: number | null;
-    readonly keyboard: KeyboardCursor | null;
-    readonly source: DropSource;
-    /** 拿起时的源元素：结束后焦点回到它（或重渲染后同一个源的新元素）。 */
-    readonly origin: HTMLElement;
-    readonly newContainerId: string;
-    /** 拿起时求出的预备区。 */
-    readonly zones: ReadonlyArray<RevealZoneRect>;
-    point: GridDropPoint;
-    /** 最后一次发布过的提交动作；放下只认它。 */
-    shown: DropDecision | null;
-}
 
 /** 拖动源 → 冻结的 `DropSource`；不可移动的视图、过期的标记不起拖（不出现“拿起了却落不下去”）。 */
 function freezeSource(presentation: Presentation, catalog: ViewCatalog, viewId: string | null, containerId: string | null): DropSource | null {
@@ -121,331 +70,94 @@ function freezeSource(presentation: Presentation, catalog: ViewCatalog, viewId: 
     return {kind: "container", containerId: container.id, part: container.part, viewIds: [...container.members], layoutKey};
 }
 
-const distance = (a: GridDropPoint, b: GridDropPoint): number => Math.hypot(a.x - b.x, a.y - b.y);
-
-/** 方向键在轴上的步进：沿轴的前进与后退，其它方向键不动但同样归会话。 */
-function stepOf(key: string, axis: "horizontal" | "vertical" | null): number {
-    if (axis === "horizontal") return key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0;
-    if (axis === "vertical") return key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
-    return 0;
-}
-
-const SESSION_KEYS = new Set([" ", "Enter", "Escape", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"]);
-
-export function createDragSession(options: DragSessionOptions): DragSession {
+export function createShellDrag(options: ShellDragOptions): ShellDrag {
     const {root} = options;
-    const document = root.ownerDocument;
-    const view = document.defaultView!;
-    const state = shallowRef<DragState | null>(null);
-    let pending: Pending | null = null;
-    let active: Active | null = null;
-    let frame = 0;
-    /** 指针拖动刚结束：同一手势末尾的指针 click 要吞掉。被吞掉或下一次按下时清。 */
-    let swallowClick = false;
-    let detachSession: (() => void) | null = null;
+    /** 拿起时冻结的：这场拖动建自建容器用的 id 与预备区。一个会话同一时间只有一场。 */
+    let frozen: {readonly newContainerId: string; readonly zones: ReadonlyArray<RevealZoneRect>} = {newContainerId: "", zones: []};
 
-    function partOf(containerId: string) {
-        return options.presentation().containers.get(containerId)?.part ?? null;
-    }
+    const partOf = (containerId: string) => options.presentation().containers.get(containerId)?.part ?? null;
 
-    /** 求一次判定，不发布：放下时要在同一份状态上再判一次，那次不能改掉“最后显示过的动作”。 */
-    function evaluate(current: Active): DropDecision | null | "cancelled" {
-        const presentation = options.presentation();
-        if (layoutKeyOf(presentation) !== current.source.layoutKey) return "cancelled";
-        const sourceHost = containerHostIn(root, current.source.containerId);
-        const sourceContent = sourceHost === null ? null : readContentRects(sourceHost);
-        // 键盘停在预备区上就是它（预备区可能叠在真实落点上，按中心命中会落到下面去）；指针先认真实落点，落空才找预备区。
-        const cursorRegion = current.keyboard?.regions[current.keyboard.region];
-        const hit = cursorRegion?.kind === "zone" ? null : dropHitAt(root, current.point, partOf);
-        const zone = cursorRegion?.kind === "zone" ? cursorRegion.zone : hit === null ? revealAt(root, current.point, current.zones) : null;
-        const common = {source: current.source, point: current.point, presentation, catalog: options.catalog(), layoutKey: current.source.layoutKey, newContainerId: current.newContainerId};
-        if (zone !== null) return resolveDrop({...common, target: {kind: "reveal", part: zone.part}, rects: {sourceContent, reveal: zone.rect}});
-        if (hit === null) return null;
-        const rects: DropRects = {
-            sourceContent,
-            ...(hit.target.kind === "switcher" ? {switcher: readSwitcherRects(hit.element, hit.target.part)}
-                : hit.target.kind === "empty" ? {empty: readDropRect(hit.element)}
-                    : {content: readContentRects(hit.element)}),
-        };
-        return resolveDrop({
-            source: current.source,
-            target: hit.target,
-            point: current.point,
-            rects,
-            presentation,
-            catalog: options.catalog(),
-            layoutKey: current.source.layoutKey,
-            newContainerId: current.newContainerId,
-        });
-    }
+    const sourceOf = (found: ReturnType<typeof dragSourceAt>): DropSource | null => (found === null || !options.enabled() ? null : freezeSource(options.presentation(), options.catalog(), found.viewId, found.containerId));
 
-    function publish(): void {
-        frame = 0;
-        const current = active;
-        if (current === null) return;
-        const decision = evaluate(current);
-        if (decision === "cancelled") {
-            end();
-            return;
-        }
-        current.shown = decision?.kind === "commit" ? decision : null;
-        state.value = {source: current.source, point: current.point, decision, keyboard: current.keyboard !== null, zones: current.zones};
-    }
-
-    function schedule(): void {
-        if (active !== null && frame === 0) frame = requestAnimationFrame(publish);
-    }
-
-    function clearPending(): void {
-        if (pending?.timer !== null && pending?.timer !== undefined) clearTimeout(pending.timer);
-        pending = null;
-    }
-
-    /**
-     * 键盘拖动结束后把焦点还给源：源元素还在就是它；提交后它可能随重渲染换成了新元素（标签迁到别的标签带、视图进了
-     * 别的容器），就按同一个源的标记找新元素（视图标题找里面的把手）。
-     */
-    function returnFocus(current: Active): void {
-        if (current.origin.isConnected) {
-            current.origin.focus({preventScroll: true});
-            return;
-        }
-        const selector = current.source.kind === "view" ? `[data-drag-view="${CSS.escape(current.source.viewId)}"]` : `[data-drag-container="${CSS.escape(current.source.containerId)}"]`;
-        const next = root.querySelector<HTMLElement>(selector);
-        (next?.querySelector<HTMLElement>("[data-drag-handle]") ?? next)?.focus({preventScroll: true});
-    }
-
-    /** 收场：清帧、拆这场的监听、清状态；键盘拖动按 `focus` 立即把焦点还给源。幂等。 */
-    function end(focus = true): void {
-        clearPending();
-        if (frame !== 0) cancelAnimationFrame(frame);
-        frame = 0;
-        detachSession?.();
-        detachSession = null;
-        const current = active;
-        active = null;
-        state.value = null;
-        delete document.documentElement.dataset.workbenchDragging;
-        if (current === null) return;
-        if (current.pointerId !== null) {
-            // Escape 取消时指针可能还按着：捕获不释放，之后的松手、移动仍归源。
-            if (current.origin.isConnected && current.origin.hasPointerCapture(current.pointerId)) current.origin.releasePointerCapture(current.pointerId);
-            swallowClick = true;
-        } else if (focus) {
-            returnFocus(current);
-        }
-    }
-
-    /**
-     * 放下：用此刻的坐标再判一次，与最后显示过的提交动作相同才提交。键盘拖动的焦点在提交之后的下一帧还：提交引起的
-     * 重渲染在那之前完成，旧的源元素这时已经换掉，按标记找到的才是留下来的那个。
-     */
-    function drop(): void {
-        const current = active;
-        if (current === null) return;
-        const final = evaluate(current);
-        const shown = current.shown;
-        end(false);
-        if (final !== null && final !== "cancelled" && final.kind === "commit" && isSameDropAction(shown, final)) options.commit(final);
-        if (current.keyboard !== null) requestAnimationFrame(() => returnFocus(current));
-    }
-
-    /** 键盘拖动移到第 `region` 个区域的第 `stop` 个位置（夹在范围内），立即发布。 */
-    function moveKeyboard(current: Active, cursor: KeyboardCursor, region: number, stop: number): void {
-        const target = cursor.regions[region];
-        if (target === undefined) return;
-        const stops = stopsOf(target).points;
-        if (stops.length === 0) return;
-        cursor.region = region;
-        cursor.stop = Math.max(0, Math.min(stop, stops.length - 1));
-        current.point = stops[cursor.stop]!;
-        publish();
-    }
-
-    function onSessionKey(event: KeyboardEvent): void {
-        const current = active;
-        if (current === null || !SESSION_KEYS.has(event.key)) return;
-        const cursor = current.keyboard;
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.key === "Escape") {
-            end();
-            return;
-        }
-        if (cursor === null || (event.repeat && event.key === " ")) return;
-        if (event.key === "Enter") {
-            drop();
-        } else if (event.key === "Tab") {
-            const count = cursor.regions.length;
-            moveKeyboard(current, cursor, (cursor.region + (event.shiftKey ? count - 1 : 1)) % count, 0);
-        } else {
-            const target = cursor.regions[cursor.region];
-            const step = target === undefined ? 0 : stepOf(event.key, stopsOf(target).axis);
-            if (step !== 0) moveKeyboard(current, cursor, cursor.region, cursor.stop + step);
-        }
-    }
-
-    /** 开始一场拖动：装上这场的监听并发布第一次判定。 */
-    function begin(next: Active): void {
-        active = next;
-        // 拖动中的光标与禁选在全局样式里按这个标记生效；已经选中的文字清掉，免得拖动看起来在扩选。
-        document.documentElement.dataset.workbenchDragging = "";
-        document.getSelection()?.removeAllRanges();
-        const cancel = (): void => end();
-        const onHidden = (): void => {
-            if (document.visibilityState === "hidden") end();
-        };
-        const onKeyUp = (event: KeyboardEvent): void => {
-            // 拿起用的那一下空格的 keyup 也拦下：按钮在空格抬起时激活，标签会被选中。
-            if (active !== null && active.keyboard !== null && event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-            }
-        };
-        const onPointerDown = (): void => {
-            if (active !== null && active.keyboard !== null) end();
-        };
-        // 焦点进了外壳之外（命令面板、对话框）：用户已经转去操作那里，按键不能再归拖动；焦点留在那边，不还给源。
-        const onFocusIn = (event: FocusEvent): void => {
-            if (event.target instanceof Node && !root.contains(event.target)) end(false);
-        };
-        view.addEventListener("keydown", onSessionKey, true);
-        view.addEventListener("keyup", onKeyUp, true);
-        view.addEventListener("pointerdown", onPointerDown, true);
-        document.addEventListener("focusin", onFocusIn, true);
-        // 不加捕获：子元素失焦也会冒到这里，只要窗口自己失焦那一种。
-        view.addEventListener("blur", cancel);
-        document.addEventListener("visibilitychange", onHidden);
-        view.addEventListener("scroll", schedule, {capture: true, passive: true});
-        view.addEventListener("resize", schedule);
-        detachSession = () => {
-            view.removeEventListener("keydown", onSessionKey, true);
-            view.removeEventListener("keyup", onKeyUp, true);
-            view.removeEventListener("pointerdown", onPointerDown, true);
-            document.removeEventListener("focusin", onFocusIn, true);
-            view.removeEventListener("blur", cancel);
-            document.removeEventListener("visibilitychange", onHidden);
-            view.removeEventListener("scroll", schedule, {capture: true});
-            view.removeEventListener("resize", schedule);
-        };
-        if (next.keyboard === null) {
-            publish();
-            return;
-        }
-        // 从源自己的原位开始，直接 Enter 是无操作：容器源是它在条目带上的条目的前缘，视图源是它自己分节里的位置。
-        // 都找不到（源条目不可见）时停在源的中心，不落到区域的第一个位置（那是一次真实的移动）。
-        const cursor = next.keyboard;
-        const start = cursor.regions[cursor.region]!;
-        const stops = stopsOf(start).points;
-        const home = start.kind === "element" ? start.element : null;
-        const own = (home === null ? null : next.source.kind === "view" ? sectionIn(home, next.source.viewId) : entryIn(home, next.source.containerId)) ?? next.origin;
-        const box = own.getBoundingClientRect();
-        const at = stops.findIndex((point) => point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom);
-        if (at !== -1) {
-            moveKeyboard(next, cursor, cursor.region, at);
-            return;
-        }
-        cursor.stop = -1;
-        next.point = {x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2};
-        publish();
-    }
-
-    function activatePointer(): void {
-        const from = pending;
-        if (from === null) return;
-        clearPending();
-        // 捕获到源上：指针移出窗口后仍收得到移动与松手。门槛期间松手或取消都会清掉 pending，到这里指针仍按着；
-        // 源在门槛期间被卸下时不捕获，松手与取消照样由窗口监听收到。
-        if (from.element.isConnected) from.element.setPointerCapture(from.pointerId);
-        begin({pointerId: from.pointerId, keyboard: null, source: from.source, origin: from.element, newContainerId: customContainerId(crypto.randomUUID()), zones: options.revealZones?.() ?? [], point: from.start, shown: null});
-    }
-
-    function onPointerDown(event: PointerEvent): void {
-        swallowClick = false;
-        if (pending !== null || active !== null || event.button !== 0 || !event.isPrimary || !options.enabled()) return;
-        const found = dragSourceAt(root, event.target);
-        if (found === null) return;
-        const source = freezeSource(options.presentation(), options.catalog(), found.viewId, found.containerId);
-        if (source === null) return;
-        pending = {pointerId: event.pointerId, pointerType: event.pointerType, start: {x: event.clientX, y: event.clientY}, element: found.element, source, timer: null};
-        if (event.pointerType === "touch") pending.timer = setTimeout(activatePointer, TOUCH_DELAY_MS);
-    }
-
-    function onPointerMove(event: PointerEvent): void {
-        const point = {x: event.clientX, y: event.clientY};
-        if (pending !== null && event.pointerId === pending.pointerId) {
-            const moved = distance(point, pending.start);
-            if (pending.pointerType === "touch") {
-                if (moved > TOUCH_TOLERANCE_PX) clearPending();
-            } else if (moved >= DRAG_DISTANCE_PX) {
-                activatePointer();
-            }
-        }
-        if (active !== null && event.pointerId === active.pointerId) {
-            active.point = point;
-            schedule();
-        }
-    }
-
-    function onPointerUp(event: PointerEvent): void {
-        if (pending !== null && event.pointerId === pending.pointerId) clearPending();
-        if (active === null || event.pointerId !== active.pointerId) return;
-        if (frame !== 0) cancelAnimationFrame(frame);
-        frame = 0;
-        active.point = {x: event.clientX, y: event.clientY};
-        drop();
-    }
-
-    function onPointerCancel(event: PointerEvent): void {
-        if (pending !== null && event.pointerId === pending.pointerId) clearPending();
-        if (active !== null && event.pointerId === active.pointerId) end();
-    }
-
-    function onClick(event: MouseEvent): void {
-        if (!swallowClick || event.detail === 0) return;
-        swallowClick = false;
-        event.preventDefault();
-        event.stopPropagation();
-    }
-
-    /** 空格拿起：焦点要在拖动源本身或它的把手上；源里别的控件（收起开关）保留自己的空格。 */
-    function onKeyDown(event: KeyboardEvent): void {
-        if (event.key !== " " || event.repeat || pending !== null || active !== null || !options.enabled()) return;
-        const found = dragSourceAt(root, event.target);
-        if (found === null || !(event.target === found.element || (event.target instanceof HTMLElement && event.target.hasAttribute("data-drag-handle")))) return;
-        const source = freezeSource(options.presentation(), options.catalog(), found.viewId, found.containerId);
-        if (source === null) return;
-        // 预备区排在真实落点之后，按侧栏、右栏、面板的顺序（求出来就是这个顺序）。
-        const zones = options.revealZones?.() ?? [];
-        const regions: KeyboardRegion[] = [...keyboardRegions(root, partOf).map((element) => ({kind: "element" as const, element})), ...zones.map((zone) => ({kind: "zone" as const, zone}))];
-        // 起点区域：容器源是它在 Switcher 上的条目所在的条目带，视图源是它所在的内容区；找不到就从第一个区域开始。
-        const home = source.kind === "container"
-            ? root.querySelector(`[data-switcher-entry="${CSS.escape(source.containerId)}"]`)?.closest("[data-switcher-band]")
-            : containerHostIn(root, source.containerId);
-        if (regions.length === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const region = Math.max(0, regions.findIndex((candidate) => candidate.kind === "element" && candidate.element === home));
-        begin({pointerId: null, keyboard: {regions, region, stop: 0}, source, origin: event.target as HTMLElement, newContainerId: customContainerId(crypto.randomUUID()), zones, point: {x: 0, y: 0}, shown: null});
-    }
-
-    root.addEventListener("pointerdown", onPointerDown, true);
-    root.addEventListener("click", onClick, true);
-    root.addEventListener("keydown", onKeyDown, true);
-    view.addEventListener("pointermove", onPointerMove, true);
-    view.addEventListener("pointerup", onPointerUp, true);
-    view.addEventListener("pointercancel", onPointerCancel, true);
+    const session = createDragSession<DropSource, DropDecision, KeyboardRegion>({
+        root,
+        sourceAt: (target) => sourceOf(dragSourceAt(root, target)),
+        activate: (source) => {
+            if (layoutKeyOf(options.presentation()) !== source.layoutKey) return false;
+            frozen = {newContainerId: customContainerId(crypto.randomUUID()), zones: options.revealZones?.() ?? []};
+            return true;
+        },
+        structure: () => layoutKeyOf(options.presentation()),
+        resolve: ({source, point, top, region}) => {
+            const presentation = options.presentation();
+            const sourceHost = containerHostIn(root, source.containerId);
+            const sourceContent = sourceHost === null ? null : readContentRects(sourceHost);
+            // 键盘停在预备区上就是它（预备区可能叠在真实落点上，按中心命中会落到下面去）；指针先认真实落点，落空才找预备区。
+            const hit = region?.kind === "zone" ? null : dropHitAt(root, top, partOf);
+            const zone = region?.kind === "zone" ? region.zone : hit === null ? revealAt(root, top, point, frozen.zones) : null;
+            const common = {source, point, presentation, catalog: options.catalog(), layoutKey: source.layoutKey, newContainerId: frozen.newContainerId};
+            if (zone !== null) return resolveDrop({...common, target: {kind: "reveal", part: zone.part}, rects: {sourceContent, reveal: zone.rect}});
+            if (hit === null) return null;
+            const rects: DropRects = {
+                sourceContent,
+                ...(hit.target.kind === "switcher" ? {switcher: readSwitcherRects(hit.element, hit.target.part)}
+                    : hit.target.kind === "empty" ? {empty: readDropRect(hit.element)}
+                        : {content: readContentRects(hit.element)}),
+            };
+            return resolveDrop({...common, target: hit.target, rects});
+        },
+        actionKey: dropActionKey,
+        commit: (decision) => {
+            if (decision.kind === "commit") options.commit(decision);
+        },
+        // 拖动中的光标与禁选在全局样式里按这个标记生效。
+        onActiveChange: (active) => root.ownerDocument.documentElement.toggleAttribute("data-workbench-dragging", active),
+        keyboard: {
+            // 焦点要在拖动源本身或它的把手上；源里别的控件（收起开关）保留自己的空格。
+            sourceAt: (target) => {
+                const found = dragSourceAt(root, target);
+                return found !== null && (target === found.element || target.hasAttribute("data-drag-handle")) ? sourceOf(found) : null;
+            },
+            // 预备区排在真实落点之后，按侧栏、右栏、面板的顺序（求出来就是这个顺序）。
+            regions: () => [
+                ...keyboardRegions(root, partOf).map((element) => ({kind: "element" as const, element})),
+                ...frozen.zones.map((zone) => ({kind: "zone" as const, zone})),
+            ],
+            stops: (region) => {
+                if (region.kind === "element") return keyboardStops(region.element);
+                // 预备区只有中心一个位置。
+                const {rect} = region.zone;
+                return {axis: null, points: [{x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2}]};
+            },
+            // 从源自己的原位开始，直接 Enter 是无操作：容器源是它在条目带上的条目的前缘，视图源是它自己分节里的位置。都找不到
+            // （源条目不可见）时停在源的中心，不落到区域的第一个位置（那是一次真实的移动）。
+            start: (source, regions, origin) => {
+                const home = source.kind === "container"
+                    ? root.querySelector(`[data-switcher-entry="${CSS.escape(source.containerId)}"]`)?.closest("[data-switcher-band]")
+                    : containerHostIn(root, source.containerId);
+                const region = Math.max(0, regions.findIndex((candidate) => candidate.kind === "element" && candidate.element === home));
+                const start = regions[region] as KeyboardRegion;
+                const element = start.kind === "element" ? start.element : null;
+                const own = (element === null ? null : source.kind === "view" ? sectionIn(element, source.viewId) : entryIn(element, source.containerId)) ?? origin;
+                const box = own.getBoundingClientRect();
+                const points = start.kind === "element" ? keyboardStops(start.element).points : [];
+                const at = points.findIndex((point) => point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom);
+                return {region, at: at !== -1 ? at : {x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2}};
+            },
+            // 提交后拿起时的元素可能随重渲染换掉了（标签迁到别的标签带、视图进了别的容器）：按同一个源的标记找新元素，视图标题找里面的把手。
+            refocus: (source) => {
+                const selector = source.kind === "view" ? `[data-drag-view="${CSS.escape(source.viewId)}"]` : `[data-drag-container="${CSS.escape(source.containerId)}"]`;
+                const next = root.querySelector<HTMLElement>(selector);
+                return next?.querySelector<HTMLElement>("[data-drag-handle]") ?? next;
+            },
+        },
+    });
 
     return {
-        state,
-        dispose() {
-            end();
-            root.removeEventListener("pointerdown", onPointerDown, true);
-            root.removeEventListener("click", onClick, true);
-            root.removeEventListener("keydown", onKeyDown, true);
-            view.removeEventListener("pointermove", onPointerMove, true);
-            view.removeEventListener("pointerup", onPointerUp, true);
-            view.removeEventListener("pointercancel", onPointerCancel, true);
-        },
+        state: computed(() => {
+            const current = session.state.value;
+            return current === null ? null : {source: current.source, point: current.point, decision: current.drop, keyboard: current.keyboard, zones: frozen.zones};
+        }),
+        dispose: () => session.dispose(),
     };
 }

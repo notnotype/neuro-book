@@ -3,6 +3,7 @@ import {Button} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 import {useRouter} from "vue-router";
 import {daysSince, HERDR_STATUS_LABEL} from "../host/format.js";
+import {groupInbox} from "../host/inbox.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {byAttention} from "../host/nav.js";
 import {attentionCount} from "../host/notify-actions.js";
@@ -47,7 +48,7 @@ const navigate = (href: string) => void router.push(href);
         <template v-if="overview.data.value">
             <section class="nbdev-stack" aria-labelledby="inbox-title">
                 <h2 id="inbox-title" class="nbdev-heading flex items-center gap-2">
-                    收件箱<span class="nbdev-secondary nbdev-num font-normal">{{ overview.data.value.inbox.length }}</span>
+                    收件箱<span class="nbdev-secondary nbdev-num font-normal">{{ groupInbox(overview.data.value.inbox).length }}</span>
                 </h2>
                 <p v-if="attention > 0" class="nbdev-hint nbdev-hint-warn flex flex-wrap items-center gap-2">
                     <span class="i-lucide-bell nbdev-warn size-3.5" aria-hidden="true" />通知要处理 {{ attention }} 条（会话换了、找不到要通知的会话，或投递没成功）

@@ -73,6 +73,8 @@ function typePaths(): Record<string, string[]> {
     paths["@notnotype/nb-harness/prompt/jsx-runtime"] = ["../nb-harness/src/kernel/view/prompt/jsx-runtime.ts"];
     paths["@notnotype/nb-form/vue"] = ["../nb-form/src/vue/index.ts"];
     paths["@notnotype/nb-ui/components"] = ["../nb-ui/src/components/index.ts"];
+    paths["@notnotype/nb-layout"] = ["../nb-layout/src/index.ts"];
+    paths["@notnotype/nb-layout/vue"] = ["../nb-layout/src/vue/index.ts"];
     paths["@notnotype/nb-ui/text"] = ["../nb-ui/src/text/index.ts"];
     paths["@notnotype/nb-ui/text-port"] = ["../nb-ui/src/text-port/index.ts"];
     return paths;
@@ -226,6 +228,11 @@ async function componentsDoc(): Promise<string> {
         for (const file of await readdir(join(nbUiComponents, entry.name))) {
             if (file.endsWith(".vue")) directoryOf.set(basename(file, ".vue"), entry.name);
         }
+    }
+    // 布局组件在 nb-layout，文档里仍归“布局”一组。
+    const nbLayoutVue = dirname(fileURLToPath(import.meta.resolve("@notnotype/nb-layout/vue")));
+    for (const file of await readdir(nbLayoutVue)) {
+        if (file.endsWith(".vue")) directoryOf.set(basename(file, ".vue"), "layout");
     }
     const groups = new Map<string, string[]>();
     for (const name of await sdkComponentNames()) {
@@ -389,6 +396,15 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         // 生成声明本来就慢（vue-tsc），不报插件耗时。
         checks: {pluginTimings: false},
     });
+    // nb-ui 的模板类型补充（aria-attributes.ts：任何组件都接受 ARIA 属性与 role，补 aria-description）是一段 `vue` 的
+    // 模块增强，入口经 `import type {}` 引它；打平声明时这条空的类型导入被丢掉，增强也跟着没了。原样插回组件声明，
+    // 放在末尾那条导出列表之前，去掉源码里让它成为模块的 `export {}`（声明文件本身已经是模块）。
+    const ariaAugmentation = (await readFile(join(repoRoot, "packages/nb-ui/src/components/aria-attributes.ts"), "utf8")).replace(/^export \{\};\n?/mu, "");
+    const componentsDts = join(outDir, "components.d.ts");
+    const declarations = await readFile(componentsDts, "utf8");
+    const exportList = declarations.lastIndexOf("\nexport {");
+    if (exportList === -1) throw new Error("components.d.ts 末尾没有导出列表，插不进 nb-ui 的模板类型补充");
+    await writeFile(componentsDts, `${declarations.slice(0, exportList)}\n${ariaAugmentation}${declarations.slice(exportList)}`);
     // 构建预设：命令行工具，打进内核的清单与应用的版本工具；Vite 与编译器、图标数据留作依赖。声明文件一并生成，作者的
     // 构建脚本用得上 `BuildPluginOptions`、`PluginBuildError` 这些类型。
     const tools = await rolldown({

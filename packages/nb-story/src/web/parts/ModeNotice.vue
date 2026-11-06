@@ -34,8 +34,8 @@ const ROWS = [
 
 <template>
     <Dialog
-        :model-value="open" size="md" title="两种读书方式" closable data-testid="mode-notice"
-        @cancel="emit('cancel')"
+        :open="open" size="md" title="两种读书方式" closable data-testid="mode-notice"
+        @request-close="emit('cancel')"
     >
         <p class="mb-3 text-[length:var(--text-sm)] text-[var(--text-secondary)]">
             你要切换到“{{ target === "full" ? "全读" : "图当目录" }}”。两种方式各有取舍，读完再切换：

@@ -1,0 +1,54 @@
+阶段 F 的真实模型验证（2026-11-06；gpt-6-luna，开发者 10-27 全面授权；plot.llm.test.ts 跑两遍，只验证问得到、答得上、结构对、能落成诊断）
+
+第一遍提示词时的问题（已改）：穿帮那条模型答 unclear（题面要的是候选，改成“看得出倾向就答有”）；没有自陈的章把“储藏室”“沾血的手套”报成新编（作者自己写的章没有写手，不报）。窄问题不带写手上下文（待确认清单），这几个场景判得对。
+
+===== 验收 1（穿帮） =====
+[presence] 这件事是：勇者左手有星形的疤。 卫兵在这段里在场，他没有记录说他知道这件事。 问：卫兵有没有说出或做出把这件事当真的言行（包括试探、质问、回避、施压）？
+  -> {"answer":"yes","quotes":["卫兵盯着旅人的左手看了很久，忽然压低声音：“把手套摘下来。你就是那个勇者吧。”"]}
+  -> {"answer":"no","quotes":[]}
+发现：{"check.possibleSlip":1}
+新事实：[]；不完整：[]；引文对不上：0
+用量：{"narrow":2,"fixed":1,"trial":0,"judge":0,"reused":0,"total":{"input":14204,"output":100,"cacheRead":0,"cacheWrite":0,"cost":null}}
+===== 验收 1（例行盘问） =====
+[presence] 这件事是：勇者左手有星形的疤。 卫兵在这段里在场，他没有记录说他知道这件事。 问：卫兵有没有说出或做出把这件事当真的言行（包括试探、质问、回避、施压）？
+  -> {"answer":"no","quotes":[]}
+  -> {"answer":"no","quotes":[]}
+发现：{}
+新事实：[]；不完整：[]；引文对不上：0
+用量：{"narrow":2,"fixed":1,"trial":0,"judge":0,"reused":0,"total":{"input":14150,"output":66,"cacheRead":0,"cacheWrite":0,"cost":null}}
+===== 验收 2（试读） =====
+  -> {"answer":"no","quotes":[]}
+[reader] 谁杀了男爵
+  -> {"confidence":"strong","guess":"管家","quotes":["深夜，管家独自在储藏室里，仔细擦拭一副沾血的手套，又把它塞进炉子里烧掉。"]}
+发现：{"check.earlyReveal":1,"check.unasked":1}
+新事实：[]；不完整：[]；引文对不上：0
+用量：{"narrow":1,"fixed":1,"trial":1,"judge":1,"reused":0,"total":{"input":9750,"output":128,"cacheRead":8832,"cacheWrite":0,"cost":null}}
+ 1 pass
+ 0 fail
+
+===== 验收 1（穿帮） =====
+[presence] 这件事是：勇者左手有星形的疤。 卫兵在这段里在场，他没有记录说他知道这件事。 问：卫兵有没有说出或做出把这件事当真的言行（包括试探、质问、回避、施压）？
+  -> {"answer":"yes","quotes":["卫兵盯着旅人的左手看了很久，忽然压低声音：“把手套摘下来。你就是那个勇者吧。”"]}
+  -> {"answer":"no","quotes":[]}
+发现：{"check.possibleSlip":1}
+新事实：[]；不完整：[]；引文对不上：0
+用量：{"narrow":2,"fixed":1,"trial":0,"judge":0,"reused":0,"total":{"input":5244,"output":100,"cacheRead":8960,"cacheWrite":0,"cost":null}}
+===== 验收 1（例行盘问） =====
+[presence] 这件事是：勇者左手有星形的疤。 卫兵在这段里在场，他没有记录说他知道这件事。 问：卫兵有没有说出或做出把这件事当真的言行（包括试探、质问、回避、施压）？
+  -> {"answer":"no","quotes":[]}
+  -> {"answer":"no","quotes":[]}
+发现：{}
+新事实：[]；不完整：[]；引文对不上：0
+用量：{"narrow":2,"fixed":1,"trial":0,"judge":0,"reused":0,"total":{"input":582,"output":66,"cacheRead":13568,"cacheWrite":0,"cost":null}}
+===== 验收 2（试读） =====
+  -> {"answer":"no","quotes":[]}
+[reader] 谁杀了男爵
+  -> {"confidence":"strong","guess":"管家","quotes":["深夜，管家独自在储藏室里，仔细擦拭一副沾血的手套，又把它塞进炉子里烧掉。"]}
+发现：{"check.earlyReveal":1,"check.unasked":1}
+新事实：[]；不完整：[]；引文对不上：0
+用量：{"narrow":1,"fixed":1,"trial":1,"judge":1,"reused":0,"total":{"input":5142,"output":128,"cacheRead":13440,"cacheWrite":0,"cost":null}}
+ 1 pass
+ 0 fail
+
+
+费用：用量见每章的“用量”；窄问题与固定调用各约 4 到 5 千 token 输入（网关自带的系统提示占大头，第二遍起缓存命中）。只跑了三个小场景，一章 25 次调用的真实费用要到 t26 用样本书量。

@@ -25,9 +25,13 @@ export type {FilesFailureCode};
 export {basenameOf, formatResource, joinResource, MAX_PATH_BYTES, parentOf, parseResource, RESOURCE_PATH_PATTERN, SCHEMES} from "./resource";
 export type {Address, Resource, Scheme} from "./resource";
 export {parseAddress} from "./resource";
-// 方案注册与服务端文件服务：别的插件只能经本文件导入（跨插件的运行时导入只指向对方的 shared/contracts.ts）。
-export {renderVirtual, SCHEMES_POINT, serverFilesKey} from "./schemes";
-export type {AgentOnBehalf, AuthorizeResult, MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeOperation, SchemeRoot, ServerFiles, ServerFilesOptions, ServerFilesResult, VirtualEntry, VirtualListing} from "./schemes";
+// 方案注册与写入接口：别的插件只能经本文件导入（跨插件的运行时导入只指向对方的 shared/contracts.ts）。
+export {renderVirtual, SCHEMES_POINT} from "./schemes";
+export type {AgentOnBehalf, AuthorizeResult, MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeOperation, SchemeRoot, ServerFilesResult, VirtualEntry, VirtualListing} from "./schemes";
+// 写入接口（docs/specs/workspace/resources.md 的“写入接口”）。
+export {baselineOf, workspaceFilesKey} from "./workspace-files";
+export {decodeText} from "./text";
+export type {CallOptions, CommitOptions, ReadPath, StagedSink, WorkspaceFiles} from "./workspace-files";
 
 /**
  * 正文按 JSON 编码后的字节上限：保存请求要装进一条 RPC 消息（超过时连接被断开、写请求成为结果未知），余下 64 KiB
@@ -88,6 +92,13 @@ const ListingSchema = Type.Object({
     entries: Type.Array(EntrySchema),
 }, {additionalProperties: false});
 export type Listing = Static<typeof ListingSchema>;
+
+/** `find` 的结果：`truncated` 表示目录太大、只看了一部分，或者命中的比 `limit` 多。 */
+const FindResultSchema = Type.Object({
+    items: Type.Array(Type.Object({path: Type.String(), name: Type.String(), title: Type.Optional(Type.String())}, {additionalProperties: false})),
+    truncated: Type.Boolean(),
+}, {additionalProperties: false});
+export type FindResult = Static<typeof FindResultSchema>;
 
 const FileTextSchema = Type.Object({text: Type.String(), baseline: BaselineSchema}, {additionalProperties: false});
 export type FileText = Static<typeof FileTextSchema>;
@@ -182,7 +193,8 @@ const Display = Type.Optional(Type.Union([Type.String(), Type.Null()]));
 const SourceSchema = Type.Union([
     Type.Object({kind: Type.Literal("user"), plugin: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("system"), plugin: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false}),
-    Type.Object({kind: Type.Literal("agent"), session: Type.String()}, {additionalProperties: false}),
+    // `entry`：经写入接口按一次工具调用绑定时，这次调用的条目 id（docs/specs/agent/resources.md 输出 10）。
+    Type.Object({kind: Type.Literal("agent"), session: Type.String(), entry: Type.Optional(Type.String())}, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("external")}, {additionalProperties: false}),
 ]);
 export type ChangeSource = Static<typeof SourceSchema>;
@@ -193,23 +205,40 @@ export type ChangeSource = Static<typeof SourceSchema>;
  */
 const As = Type.Optional(SourceSchema);
 
+/** 操作分组（docs/specs/workspace/resources.md 的“操作分组”）：一次逻辑操作里的写入与文件操作带同一个组，不保证原子。 */
+const GroupSchema = Type.Object({id: Type.String({minLength: 1, maxLength: 64}), title: Type.String({maxLength: 200}), note: Type.Optional(Type.String({maxLength: 2000}))}, {additionalProperties: false});
+export type ChangeGroup = Static<typeof GroupSchema>;
+const Group = Type.Optional(GroupSchema);
+
+/** 提交的期望：基线是条件写，`absent` 只在不存在时新建，`any` 不论现状。 */
+const ExpectSchema = Type.Union([BaselineSchema, Type.Literal("absent"), Type.Literal("any")]);
+export type CommitExpect = Static<typeof ExpectSchema>;
+
+/** 暂存文件在根的暂存目录里的名字（写入方建，见 `backend/staging.ts`）。 */
+export const STAGE_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.stage$/u;
+
 const methods = {
     list: {input: PathInput, output: ListingSchema, effect: "read", errors},
+    /** 按名字或标题找文件（docs/specs/workspace/resources.md 的“找文件”）。 */
+    find: {input: Type.Object({query: Type.String(), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 100}))}, {additionalProperties: false}), output: FindResultSchema, effect: "read", errors},
     read: {input: PathInput, output: FileTextSchema, effect: "read", errors},
-    realPath: {input: PathInput, output: Type.Object({path: Type.String()}, {additionalProperties: false}), effect: "read", errors},
-    write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema, as: As}, {additionalProperties: false}), output: Saved, effect: "write", errors},
+    /** `follow`：跟随链接到最终目标（根外也给），只接受服务端的 `nbook.files`（写入接口的 `readPath`）。 */
+    realPath: {input: Type.Object({path: Type.String(), follow: Type.Optional(Type.Literal(true))}, {additionalProperties: false}), output: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("other")])}, {additionalProperties: false}), effect: "read", errors},
+    /** 提交写入方放在本根暂存目录里的暂存文件（docs/specs/workspace/resources.md 的“暂存与提交”）；只接受服务端的 `nbook.files`。 */
+    commit: {input: Type.Object({stage: Type.String(), hash: Type.String(), path: Type.String(), expect: ExpectSchema, createParents: Type.Optional(Type.Boolean()), as: As, group: Group}, {additionalProperties: false}), output: Type.Object({baseline: BaselineSchema}, {additionalProperties: false}), effect: "write", errors},
+    write: {input: Type.Object({path: Type.String(), text: Type.String(), baseline: BaselineSchema, as: As, group: Group}, {additionalProperties: false}), output: Saved, effect: "write", errors},
     identify: {input: Type.Object({paths: Type.Array(Type.String(), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: IdentifySchema, effect: "read", errors},
-    create: {input: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory")]), before: Type.Optional(Name), as: As}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
-    createContent: {input: PathInput, output: DoneSchema, effect: "write", errors},
-    rename: {input: Type.Object({path: Type.String(), name: Name, expected: Expected}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
-    convert: {input: Type.Object({path: Type.String(), to: Type.Union([Type.Literal("content"), Type.Literal("plain")]), expected: Expected}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
-    reorder: {input: Type.Object({directory: Type.String(), names: Type.Array(Name, {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
-    display: {input: Type.Object({path: Type.String(), title: Display, icon: Display}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
-    include: {input: Type.Object({path: Type.String(), before: Type.Optional(Name)}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
-    drop: {input: PathInput, output: DoneSchema, effect: "write", errors},
-    move: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected, before: Type.Optional(Type.Union([Name, Type.Null()]))}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
-    copy: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
-    delete: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({path: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS})}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    create: {input: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory")]), before: Type.Optional(Name), as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    createContent: {input: Type.Object({path: Type.String(), as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    rename: {input: Type.Object({path: Type.String(), name: Name, expected: Expected, as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    convert: {input: Type.Object({path: Type.String(), to: Type.Union([Type.Literal("content"), Type.Literal("plain")]), expected: Expected, as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    reorder: {input: Type.Object({directory: Type.String(), names: Type.Array(Name, {maxItems: MAX_OPERATION_ITEMS}), as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    display: {input: Type.Object({path: Type.String(), title: Display, icon: Display, as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    include: {input: Type.Object({path: Type.String(), before: Type.Optional(Name), as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    drop: {input: Type.Object({path: Type.String(), as: As, group: Group}, {additionalProperties: false}), output: DoneSchema, effect: "write", errors},
+    move: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected, before: Type.Optional(Type.Union([Name, Type.Null()]))}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS}), as: As, group: Group}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    copy: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({source: Type.String(), target: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS}), as: As, group: Group}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
+    delete: {input: Type.Object({operation: Operation, items: Type.Array(Type.Object({path: Type.String(), expected: Expected}, {additionalProperties: false}), {maxItems: MAX_OPERATION_ITEMS}), as: As, group: Group}, {additionalProperties: false}), output: BatchSchema, effect: "write", errors},
     /** 只命中同一调用方在途的批量；不等批量结束。 */
     cancel: {input: Type.Object({operation: Operation}, {additionalProperties: false}), output: Type.Object({found: Type.Boolean()}, {additionalProperties: false}), effect: "write", errors},
 } as const;
@@ -220,8 +249,8 @@ const methods = {
  * 按段边界的全部后代生效。
  */
 const ChangeSchema = Type.Union([
-    Type.Object({type: Type.Union([Type.Literal("created"), Type.Literal("changed"), Type.Literal("deleted")]), path: Type.String(), source: SourceSchema}, {additionalProperties: false}),
-    Type.Object({type: Type.Literal("renamed"), path: Type.String(), from: Type.String(), source: SourceSchema}, {additionalProperties: false}),
+    Type.Object({type: Type.Union([Type.Literal("created"), Type.Literal("changed"), Type.Literal("deleted")]), path: Type.String(), source: SourceSchema, group: Group}, {additionalProperties: false}),
+    Type.Object({type: Type.Literal("renamed"), path: Type.String(), from: Type.String(), source: SourceSchema, group: Group}, {additionalProperties: false}),
 ]);
 export type FileChange = Static<typeof ChangeSchema>;
 
@@ -244,11 +273,12 @@ const CALLERS = ["browser", "tui", "project", "server"];
 /**
  * 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。版本 4：t86 加了
  * `realPath` 与目录项的 `leaf`。版本 6：w00032 t08 的事件来源加了 `agent`（旧订阅方校验不过会静默丢掉这些事件，所以两份合同
- * 一起升），写方法加了 `as`。
+ * 一起升），写方法加了 `as`。版本 7：w00032 t26 加了 `commit` 与 `realPath` 的 `follow`、全部写方法的 `as` 与 `group`，事件带
+ * `group`、Agent 来源带 `entry`。版本 8：w00032 t28 加了 `find`。
  */
-export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 6, provider: "project", callers: CALLERS, methods, events});
+export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 8, provider: "project", callers: CALLERS, methods, events});
 
-export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 6, provider: "server", callers: CALLERS, methods, events});
+export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 8, provider: "server", callers: CALLERS, methods, events});
 
 /**
  * 预览的受限读取（docs/specs/workspace/files.md 的“预览的受限读取”）：签发只放行这部作品这一代的只读令牌，HTML 预览在沙箱里
@@ -375,6 +405,13 @@ export interface FilesService {
     /** 按地址读取字节的 URL（docs/specs/workspace/files.md 的“按地址读取字节”），本页面同源；没有绑定项目时 `project://` 为 null。 */
     rawUrl(address: string): string | null;
 }
+
+/** 上传主题场景素材：`PUT` 原始字节，成功回 `{address}`，失败回 `{code, detail}`（docs/specs/theme/editor.md 的“写场景素材”）。 */
+export const THEME_ASSET_UPLOAD_URL = "/api/nbook.files/theme-assets";
+/** 设置页发请求前也比一次：太大的文件到不了路由，HTTP 层直接断开，页面拿不到原因。 */
+export const THEME_ASSET_MAX_BYTES = 20 * 1024 * 1024;
+/** 主题场景素材所在的目录，文件名是内容摘要。 */
+export const THEME_ASSET_DIRECTORY_ADDRESS = "user://theme-assets";
 
 /** 字节路由的 URL：`project://` 带窗口绑定的作品与代次；地址不合法或没有绑定项目时为 null。 */
 export function rawUrlOf(address: string, project: {readonly id: string; readonly generation: number} | null): string | null {

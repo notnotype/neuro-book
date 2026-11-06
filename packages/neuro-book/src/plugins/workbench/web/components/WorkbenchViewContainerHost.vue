@@ -2,8 +2,7 @@
 /**
  * 容器的内部排列（同名 .md）：单轴网格，每个可见视图一个分节；视图内容由宿主搬进分节里的落点，落点经 `target` 报出。
  */
-import {NestedGrid} from "@notnotype/nb-ui/layout";
-import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
+import {NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, defineComponent, h, onBeforeUnmount, onMounted, ref} from "vue";
 

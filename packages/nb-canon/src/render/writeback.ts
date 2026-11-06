@@ -282,4 +282,3 @@ function matches(item: Item, site: ExpressionSite): boolean {
     if ((item.kind === "assign") !== (site.reference !== null)) return false;
     return item.left.replace(/\s+/gu, "") === site.source.trim().replace(/\s+/gu, "");
 }
-

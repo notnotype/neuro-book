@@ -236,7 +236,134 @@ async function pressOpenSettings(page: Page): Promise<void> {
     }).toPass();
 }
 
-test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗口；再触发只聚焦；窗口开着时齿轮按下", async ({page}) => {
+/** 设置窗口的面：`data-settings-window` 是面板里的内容。 */
+const settingsSurface = (page: Page) => page.locator("[data-dialog-surface]:has([data-settings-window])");
+
+test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比终点更靠近齿轮；减少动态效果时第一帧就是终点", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await open(page, "/?project=book");
+    // 放慢入场令牌：动画停在起点读矩形，不依赖时序。（Vue 的 scoped 样式会给关键帧名加哈希后缀，所以按前缀找动画。）
+    await page.addStyleTag({content: ":root { --motion-dialog: 4000ms !important; --motion-dialog-leave: 3000ms !important; }"});
+    const gear = await workbenchGear(page).boundingBox();
+    if (gear === null) throw new Error("活动栏的设置齿轮不可见");
+    const gearCenter = {x: gear.x + gear.width / 2, y: gear.y + gear.height / 2};
+
+    await workbenchGear(page).click();
+    await expect(settingsSurface(page)).toHaveCount(1);
+    const run = await settingsSurface(page).evaluate((surface) => {
+        const animation = surface.getAnimations().find((candidate) => (candidate as CSSAnimation).animationName.startsWith("nb-dialog-in"));
+        if (animation === undefined) throw new Error("入场动画不存在");
+        const centerOf = (rect: DOMRect) => ({x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width});
+        // 停在第 0 毫秒读起点，再跳到终点读终点；两次读取之间没有绘制。
+        animation.pause();
+        animation.currentTime = 0;
+        const start = centerOf(surface.getBoundingClientRect());
+        animation.finish();
+        const end = centerOf(surface.getBoundingClientRect());
+        return {start, end, duration: animation.effect?.getTiming().duration};
+    });
+    const distance = (point: {x: number; y: number}): number => Math.hypot(point.x - gearCenter.x, point.y - gearCenter.y);
+    expect(run.duration).toBe(4000);
+    expect(distance(run.start)).toBeLessThan(distance(run.end));
+    expect(run.start.width).toBeLessThan(run.end.width * 0.5);
+
+    // 关闭：朝齿轮收回去，时长看得出来。
+    await page.keyboard.press("Escape");
+    const leaving = await settingsSurface(page).evaluate((surface) => {
+        const animation = surface.getAnimations().find((candidate) => (candidate as CSSAnimation).animationName.startsWith("nb-dialog-out"));
+        if (animation === undefined) throw new Error("退场动画不存在");
+        const duration = animation.effect?.getTiming().duration;
+        animation.pause();
+        // 走到一半还看得清：收回是先慢后快，不是一按就没了。
+        animation.currentTime = Number(duration) / 2;
+        const halfway = Number(getComputedStyle(surface).opacity);
+        animation.currentTime = Number(duration) - 1;
+        const rect = surface.getBoundingClientRect();
+        animation.finish();
+        return {duration, halfway, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width};
+    });
+    expect(leaving.duration).toBe(3000);
+    expect(leaving.halfway).toBeGreaterThan(0.6);
+    expect(distance(leaving)).toBeLessThan(distance(run.end));
+    expect(leaving.width).toBeLessThan(run.end.width * 0.5);
+    await expect(settingsSurface(page)).toHaveCount(0);
+
+    // 减少动态效果：重新载入（放慢令牌的样式随页面丢掉），第一帧就是终点。
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await expect(settingsSurface(page)).toHaveCount(1);
+    const settled = await settingsSurface(page).evaluate((surface) => ({
+        transform: getComputedStyle(surface).transform,
+        width: surface.getBoundingClientRect().width,
+        offsetWidth: (surface as HTMLElement).offsetWidth,
+        running: surface.getAnimations().some((animation) => animation.playState === "running"),
+    }));
+    expect(settled.transform).toBe("none");
+    expect(settled.width).toBe(settled.offsetWidth);
+    expect(settled.running).toBe(false);
+});
+
+test("浏览器窗口变化：没拖过的保持居中；拖过的放得下不动，放不下推回完整可见，放大不回原位，尺寸不改", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await open(page, "/?project=book");
+    await pressOpenSettings(page);
+    const box = async (): Promise<{x: number; y: number; width: number; height: number}> => {
+        // 量面板：`data-settings-window` 是面板里的内容，四周还有边距。
+        const found = await page.locator("[data-dialog-surface]:has([data-settings-window])").boundingBox();
+        if (found === null) throw new Error("设置窗口不可见");
+        return found;
+    };
+    const centerX = async (): Promise<number> => {
+        const {x, width} = await box();
+        return x + width / 2;
+    };
+    await expect.poll(centerX).toBeCloseTo(800, -1);
+    const size = await box();
+
+    await page.setViewportSize({width: 1200, height: 900});
+    await expect.poll(centerX).toBeCloseTo(600, -1);
+
+    await page.setViewportSize({width: 1600, height: 900});
+    await expect.poll(centerX).toBeCloseTo(800, -1);
+    const drag = await settingsWindow(page).locator("[data-dialog-drag]").first().boundingBox();
+    if (drag === null) throw new Error("拖动区域不可见");
+    await page.mouse.move(drag.x + 4, drag.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(drag.x + 204, drag.y + 4, {steps: 5});
+    await page.mouse.up();
+    const dragged = await box();
+    expect(dragged.x).toBeCloseTo(size.x + 200, -1);
+
+    // 放得下：不动。
+    await page.setViewportSize({width: Math.ceil(dragged.x + dragged.width + 20), height: 900});
+    await expect.poll(async () => (await box()).x).toBe(dragged.x);
+    // 放不下：推回完整可见。
+    await page.setViewportSize({width: 1200, height: 900});
+    await expect.poll(async () => {
+        const {x, width} = await box();
+        return x + width;
+    }).toBe(1192);
+    const pushed = await box();
+    // 放大：不回原位。
+    await page.setViewportSize({width: 1600, height: 900});
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect((await box()).x).toBe(pushed.x);
+
+    // 比窗口还小：完整显示，关闭按钮看得见；放大后恢复原尺寸。
+    await page.setViewportSize({width: 390, height: 500});
+    await expect.poll(async () => {
+        const {x, y, width, height} = await box();
+        return x >= 0 && y >= 0 && x + width <= 390 && y + height <= 500;
+    }).toBe(true);
+    await expect(page.locator("[data-dialog-surface]:has([data-settings-window])").getByRole("button", {name: "关闭"})).toBeInViewport({ratio: 1});
+    await page.setViewportSize({width: 1600, height: 900});
+    await expect.poll(async () => (await box()).width).toBe(dragged.width);
+    expect((await box()).height).toBe(dragged.height);
+});
+
+test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗口；再按 Ctrl+, 只聚焦，再点齿轮关闭；窗口开着时齿轮按下", async ({page}) => {
     const problems: string[] = [];
     watchConsole(page, problems);
     await open(page, "/?project=book");
@@ -250,14 +377,19 @@ test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗
     await workbenchGear(page).click();
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "true");
-    // 焦点挪到窗口里别处，再点齿轮：还是这一个窗口，焦点回到左栏的当前项。
-    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
-    await workbenchGear(page).click();
-    await expect(settingsWindow(page)).toHaveCount(1);
-    await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
-    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
+    // 焦点挪到窗口里别处，再按打开设置的键：还是这一个窗口，焦点回到左栏的当前项。
+    await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
     await pressOpenSettings(page);
     await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
+
+    // 再点齿轮是关闭，齿轮回到没按下；再点又打开。
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(0);
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "false");
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(1);
+    await expect(workbenchGear(page)).toHaveAttribute("aria-pressed", "true");
 
     // Esc 关窗口：焦点回到打开窗口之前的位置（第一次是点齿轮打开的），齿轮回到没按下；Ctrl+, 再打开同一个窗口。
     await page.keyboard.press("Escape");
@@ -276,12 +408,16 @@ test("工作台活动栏的齿轮、书架的齿轮与 Ctrl+, 打开同一个窗
     await shelfGear(page).click();
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(shelfGear(page)).toHaveAttribute("aria-pressed", "true");
-    await row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).focus();
-    await shelfGear(page).click();
+    await row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"}).focus();
+    await pressOpenSettings(page);
     await expect(settingsWindow(page)).toHaveCount(1);
     await expect(page.locator("[data-settings-nav-current]")).toBeFocused();
     // 没有绑定作品：没有“用户 | 本作品”。
     await expect(page.locator("[data-settings-tabs]")).toHaveCount(0);
+    // 书架的齿轮再点也是关闭。
+    await shelfGear(page).click();
+    await expect(settingsWindow(page)).toHaveCount(0);
+    await expect(shelfGear(page)).toHaveAttribute("aria-pressed", "false");
     expect(problems).toEqual([]);
 });
 
@@ -294,7 +430,9 @@ test("用户标签改主题，两个页面即时变化；本作品标签单独�
     await workbenchGear(a).click();
     await expect(settingsWindow(a)).toBeVisible();
 
-    await row(a, "nbook.workbench/theme").getByRole("radio", {name: "macOS"}).click();
+    // 主题的选项来自工作台的提供者（docs/specs/theme/skins.md 输出 1），是下拉。
+    await row(a, "nbook.workbench/theme").getByRole("combobox").click();
+    await a.getByRole("option", {name: "macOS"}).click();
     await expect.poll(() => html(a, "data-nb-theme")).toBe("macos");
     await expect.poll(() => html(b, "data-nb-theme")).toBe("macos");
     await expect.poll(() => readSettings(userFile())).toEqual({"nbook.workbench/theme": "macos"});
@@ -342,7 +480,7 @@ test("改过的项有已修改标记；恢复默认后键从 settings.json 删�
 test("用户层文件改坏：标题区出现警告、控件停用；点警告打开设置文件并把光标放在出错处；修好后警告消失、控件恢复", async ({page}) => {
     await open(page, "/?project=book");
     await workbenchGear(page).click();
-    const macos = row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"});
+    const macos = row(page, "nbook.workbench/appearance").getByRole("radio", {name: "深色"});
     await expect(macos).toBeEnabled();
     await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
     const warning = page.locator("[data-settings-heading] [data-settings-layer-notice='invalid']");

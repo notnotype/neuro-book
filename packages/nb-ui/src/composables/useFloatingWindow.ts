@@ -1,5 +1,5 @@
 /**
- * `Dialog` 非模态用法（浮动窗口）的定位、拖动与缩放。打开时按容器居中；拖动时窗口至少留一角在容器里，顶上总能再抓住；
+ * 浮动窗口（`FloatingWindow`）的定位、拖动与缩放。打开时按容器居中；拖动时窗口至少留一角在容器里，顶上总能再抓住；
  * 缩放有六个手柄（右、下两条边加四个角），鼠标在松开时提交尺寸，方向键按 10px（Shift 1px）调整。
  *
  * 拖动区域有几处（面板留白、标题栏、内容里标了 `data-dialog-drag` 的元素），按下处由 `startDrag` 判定，指针捕获在面板上。
@@ -9,7 +9,7 @@
  */
 
 import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
-import type {CSSProperties, Ref} from "vue";
+import type {CSSProperties} from "vue";
 import {useElementSize, useWindowSize} from "@vueuse/core";
 
 import type {NbUiTextKey} from "../locales";
@@ -41,10 +41,10 @@ export const FLOATING_WINDOW_RESIZE_HANDLES: ReadonlyArray<FloatingWindowResizeH
 
 /** 按下后移动超过这么多 CSS 像素才算拖动窗口；不到这一步松开就是一次普通的点击。 */
 const DRAG_THRESHOLD = 3;
+/** 容器变小、窗口被推回时离边的距离。 */
+const PUSH_MARGIN = 8;
 
 export interface FloatingWindowOptions {
-    /** 是否用浮动窗口的定位（非模态时为真）；为假时本组合函数不做任何事。 */
-    readonly enabled: () => boolean;
     readonly open: () => boolean;
     /** 传送目标选择器；false 表示不传送（定位按 offsetParent）。 */
     readonly target: () => string | false;
@@ -55,7 +55,7 @@ export interface FloatingWindowOptions {
     /** 宿主声明的数字尺寸（px）；量不到实际尺寸时（刚挂上还没布局）按它。 */
     readonly declared: () => {readonly width: number | null; readonly height: number | null};
     /** 面板：带 `data-dialog-surface` 的元素，拖动时指针捕获在它上面。 */
-    readonly windowRef: Ref<HTMLElement | null>;
+    readonly windowRef: {readonly value: HTMLElement | null};
     readonly onResize: (dimension: "width" | "height", value: number) => void;
 }
 
@@ -66,6 +66,8 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
     const draftHeight = ref<number | null>(null);
     const x = ref(24);
     const y = ref(24);
+    /** 这次打开后用户拖过或缩放过：没有时窗口跟着容器保持居中，有时位置归用户。 */
+    let placedByUser = false;
     let resizeCleanup: (() => void) | null = null;
     let dragCleanup: (() => void) | null = null;
 
@@ -156,7 +158,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
      * 区域里没认出来的可点元素照常收到 click。移动超过 `DRAG_THRESHOLD` 才算拖动，这时才捕获指针、清掉选区并拦住选字。
      */
     function startDrag(event: PointerEvent): void {
-        if (!options.enabled() || event.button !== 0 || options.busy()) return;
+        if (event.button !== 0 || options.busy()) return;
         const element = options.windowRef.value;
         if (element === null || !(event.target instanceof Element) || !inDragRegion(element, event.target)) return;
         dragCleanup?.();
@@ -175,6 +177,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
             if (!dragging) {
                 if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
                 dragging = true;
+                placedByUser = true;
                 element.setPointerCapture?.(pointerId);
                 window.getSelection()?.removeAllRanges();
                 document.addEventListener("selectstart", preventSelect);
@@ -204,6 +207,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         if (!options.resizable() || options.busy()) return;
         const element = options.windowRef.value;
         if (element === null) return;
+        placedByUser = true;
         resizeCleanup?.();
         const handle = event.currentTarget as HTMLElement;
         const startX = event.clientX;
@@ -262,6 +266,7 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         const wantsHeight = direction.height !== 0 && vertical !== 0;
         if (!wantsWidth && !wantsHeight) return;
         event.preventDefault();
+        placedByUser = true;
         const current = measured();
         if (wantsWidth) {
             const next = Math.max(options.minWidth(), current.width + horizontal * direction.width);
@@ -275,23 +280,46 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
 
     // 打开时居中：量一次实际尺寸，按容器居中；量不到就用 64px 顶距。看的是面板元素而不只是“打开”：传送到 body 时
     // reka 的 Teleport 自己挂载后才渲染内容，第一次就打开的窗口面板比“打开”晚一拍出现。渲染之后才运行，量的是挂好的面板。
-    watch(() => (options.enabled() && options.open() ? options.windowRef.value : null), (element) => {
+    watch(() => (options.open() ? options.windowRef.value : null), (element) => {
         if (element === null) {
             positioned.value = false;
             return;
         }
         resolvePortal();
+        placedByUser = false;
+        center();
+        positioned.value = true;
+    }, {immediate: true, flush: "post"});
+
+    function center(): void {
         const size = measured();
         const container = containerSize.value;
         x.value = Math.max(12, Math.round((container.width - size.width) / 2));
         y.value = size.height > 0 ? Math.max(24, Math.round((container.height - size.height) / 2)) : 64;
-        positioned.value = true;
-    }, {immediate: true, flush: "post"});
+    }
+
+    /** 把一条轴上的位置推到窗口完整可见；放不下时贴着起始边，顶上与左边总能抓住。 */
+    function pushedIn(position: number, size: number, container: number): number {
+        return Math.max(PUSH_MARGIN, Math.min(position, container - size - PUSH_MARGIN));
+    }
+
+    // 容器变了（通常是浏览器窗口）。放大时拖过的窗口不动，也不回到推走之前的位置；窗口的宽高由 CSS 按容器收窄，
+    // 所以渲染之后才量。拖动时的“至少留一角”只管拖动，这里不沿用，否则缩窄后关闭按钮可能在容器外。
+    watch(containerSize, (container, previous) => {
+        if (!options.open() || !positioned.value) return;
+        if (!placedByUser) {
+            center();
+            return;
+        }
+        const size = measured();
+        if (container.width < previous.width) x.value = pushedIn(clampedX.value, size.width, container.width);
+        if (container.height < previous.height) y.value = pushedIn(clampedY.value, size.height, container.height);
+    }, {flush: "post"});
 
     onBeforeUnmount(() => {
         resizeCleanup?.();
         dragCleanup?.();
     });
 
-    return {style, startDrag, startResize, resizeByKey, measured};
+    return {style, startDrag, startResize, resizeByKey, measured, positioned: () => positioned.value};
 }

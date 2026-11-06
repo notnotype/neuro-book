@@ -117,18 +117,31 @@ test.afterAll(async () => {
 const tree = (page: Page) => page.getByRole("tree", {name: "文件"});
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
 
+const WIDE_SIDEBAR = 400;
+
 async function open(page: Page, bound = true): Promise<void> {
     // 没有项目的 `/` 是书架页；外壳（含资源管理器）在 `/workbench`。
     await page.goto(new URL(bound ? "/?project=book" : "/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(tree(page)).toBeVisible();
+    // 标题动作放不下的收进“⋯”（ui/workbench-layout.md 输出 20）。这里测的是动作本身，把侧栏拉到五个都放得下。
+    const sidebar = await page.locator('[data-leaf="sidebar"]').boundingBox();
+    if (sidebar !== null && sidebar.width < WIDE_SIDEBAR) {
+        const edge = {x: sidebar.x + sidebar.width, y: sidebar.y + 100};
+        await page.mouse.move(edge.x, edge.y);
+        await page.mouse.down();
+        await page.mouse.move(edge.x + WIDE_SIDEBAR - sidebar.width, edge.y, {steps: 3});
+        await page.mouse.up();
+        await expect(page.locator('[data-panel-head="sidebar"] [data-title-action]')).toHaveCount(5);
+    }
 }
 
 test("项目根是作品名、标题行五个动作；展开时新行滑下淡入、动画后撤掉标记；鼠标点行不画焦点线、方向键之后画 1.5px 内嵌线；减少动态时不动画（验收 18、19）", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page);
     // 作品没有书名：项目根显示目录原名。
     await expect(item(page, "project://").locator("[data-explorer-label]")).toHaveText("Book");
-    const actions = page.locator('[data-tool-part="sidebar"] [data-title-action]');
+    const actions = page.locator('[data-panel-head="sidebar"] [data-title-action]');
     await expect(actions).toHaveCount(5);
     for (const box of await actions.evaluateAll((buttons) => buttons.map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]))) expect(box).toEqual([24, 24]);
     await expect(page.locator("[data-explorer-view] [role=toolbar]")).toHaveCount(0);
@@ -613,8 +626,8 @@ test("行的样子与设置（验收 21、23、29）：中文数字排序、内�
     expect((await paint()).background).not.toBe(focused.background);
     await tree(page).focus();
     await expect.poll(paint).toEqual(focused);
-    // 视图标题的“移动到”菜单盖在选中的行上：树里给行与落点反馈分的层不越出树，菜单项上最上面的元素属于菜单。
-    await page.locator('[data-tool-part="sidebar"]').getByRole("button", {name: "移动到", exact: true}).click();
+    // 标签的右键菜单（“移动到”）盖在选中的行上：树里给行与落点反馈分的层不越出树，菜单项上最上面的元素属于菜单。
+    await page.locator('[data-panel-tab="view:nbook.explorer"]').click({button: "right"});
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
     const covered = await menu.getByRole("menuitem").evaluateAll((items) => items.filter((entry) => {
@@ -734,6 +747,7 @@ test("拖动（验收 27）：内容文件夹里跨层放到两行之间、子�
 });
 
 test("拖动（验收 28）：放下后滑到新位置、落进收起的目录时目录行亮一下、取消时拖影飞回；减少动态效果时没有这些标记", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page);
     await item(page, "project://r4").click();
     await item(page, "project://r4/anim").click();
@@ -790,6 +804,126 @@ test("拖动（验收 28）：放下后滑到新位置、落进收起的目录�
     expect(await seen()).toEqual([]);
     await page.emulateMedia({reducedMotion: "no-preference"});
     await item(page, "project://r4").click();
+});
+
+test("拖到编辑组经落点登记查到，不读 data-editor-group（docs/specs/ui/layout-drag.md 验收 2）", async ({page}) => {
+    await open(page);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/a.md")).toBeVisible();
+    await barrier(page, "plain");
+    await page.locator("[data-editor-group]").first().evaluate((group: HTMLElement) => {
+        group.dataset.testGroup = "";
+        group.removeAttribute("data-editor-group");
+    });
+    const group = page.locator("[data-test-group]");
+    const box = await group.boundingBox();
+    if (box === null) throw new Error("编辑组不在页面上");
+    const from = await center(page, "project://plain/a.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y + 8, {steps: 2});
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 8});
+    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await page.mouse.up();
+    await expect(group.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("拖动中按键归拖动；失去捕获、焦点移到树外都取消且不写，松手不算点击（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
+    await open(page);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/a.md")).toBeVisible();
+    await barrier(page, "plain");
+    const ghost = page.locator("[data-explorer-drag-ghost]");
+    const row = item(page, "project://plain/a.md");
+    const from = await center(page, "project://plain/a.md");
+    const grab = async (): Promise<void> => {
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x, from.y + 8, {steps: 2});
+        await expect(ghost).toBeVisible();
+    };
+    const settled = (): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+    await grab();
+    const active = await tree(page).getAttribute("aria-activedescendant");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("End");
+    await settled();
+    expect(await tree(page).getAttribute("aria-activedescendant")).toBe(active);
+
+    // 捕获的取得与释放都在下一个指针事件时才生效：先动一下让捕获真的到根上，释放之后再动一下让 `lostpointercapture` 派发出来。
+    await page.mouse.move(from.x, from.y + 9);
+    await tree(page).evaluate((element) => element.releasePointerCapture(1));
+    await page.mouse.move(from.x, from.y + 10);
+    await expect(ghost).toHaveCount(0);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.up();
+    await settled();
+    await expect(row).not.toHaveAttribute("aria-selected", "true");
+
+    await grab();
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").evaluate((button: HTMLElement) => button.focus());
+    await expect(ghost).toHaveCount(0);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.up();
+    await settled();
+    await expect(row).not.toHaveAttribute("aria-selected", "true");
+    expect(await exists(join(projectDir, "plain", "a.md"))).toBe(true);
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("边缘滚动中松手：文件落到松手时指针下的位置（docs/specs/ui/layout-drag.md 验收 6）", async ({page}) => {
+    await open(page);
+    await writeFile(join(projectDir, "plain", "edge-drop.md"), "E");
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/edge-drop.md")).toBeVisible();
+    await barrier(page, "plain");
+    await item(page, "project://big").click();
+    await expect(item(page, "project://big/file-0003.md")).toBeVisible();
+    await tree(page).evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+    });
+    await expect(item(page, "project://plain/edge-drop.md")).toBeVisible();
+    const box = await tree(page).boundingBox();
+    if (box === null) throw new Error("树不在页面上");
+    const from = await center(page, "project://plain/edge-drop.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y - 8, {steps: 2});
+    const edge = {x: from.x, y: box.y + 4};
+    await page.mouse.move(edge.x, edge.y, {steps: 6});
+    // 往上滚，直到指针下是 big 里的文件：落在那里就是移入 big。
+    await expect.poll(() => page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-explorer-row]")?.dataset.explorerRow ?? "", edge)).toMatch(/^project:\/\/big\/file-/u);
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "big", "edge-drop.md"))).toBe(true);
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test.describe("触摸（docs/specs/ui/layout-drag.md 验收 5）", () => {
+    test.use({hasTouch: true});
+
+    test("行上按下带 1 px 抖动，按住后拖到别的目录：不被隐式捕获的换手取消，也不让给树的滚动", async ({page}) => {
+        await open(page);
+        await writeFile(join(projectDir, "plain", "touch-drop.md"), "T");
+        await item(page, "project://plain").click();
+        await expect(item(page, "project://plain/touch-drop.md")).toBeVisible();
+        await barrier(page, "plain");
+        await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-motion");
+        const from = await center(page, "project://plain/touch-drop.md");
+        const to = await center(page, "project://drags");
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [from]});
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + 1, y: from.y}]});
+        await expect(page.locator("[data-explorer-drag-ghost]")).toBeVisible();
+        for (const ratio of [0.25, 0.5, 0.75, 1]) {
+            await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio}]});
+        }
+        await expect(page.locator("[data-explorer-drop-live]")).toHaveText("移入 drags");
+        await cdp.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
+        await expect.poll(() => exists(join(projectDir, "drags", "touch-drop.md"))).toBe(true);
+        await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+    });
 });
 
 test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：都不写", async ({page}) => {

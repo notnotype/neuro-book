@@ -1,4 +1,6 @@
+<!-- 冻结（w00026 t04）：只给 nb-story、dev-panel 用，只修不加；新代码用 `@notnotype/nb-layout/vue`，t14 迁移后连同 sash 一族删除。 -->
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 /**
  * 一维分隔面板。两种用法共用一个组件：
  *
@@ -48,7 +50,7 @@ const props = withDefaults(defineProps<{
      * 那条线此刻也亮着，这一端就连着它，不按 `--sash-line-inset` 缩进。
      */
     sashLineEnds?: {start: string | null; end: string | null};
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     direction: "horizontal",
     disabled: false,
     panels: () => [],

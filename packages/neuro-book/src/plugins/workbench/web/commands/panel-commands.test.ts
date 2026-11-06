@@ -1,7 +1,7 @@
 /**
- * 面板命令与工作台公开状态（docs/specs/ui/workbench-shell.md 外壳一输出 13，docs/specs/workbench/commands.md 第二批）：
- * 真实的布局 store（Storage 场地），命令实现直接调用；选择服务由测试按请求作答（产品里是命令面板，经面板执行的路径
- * 由 `e2e/workbench-shell.e2e.ts` 覆盖）。声明的合规由命令系统登记时用的同一份校验检查。
+ * 面板命令与工作台公开状态（docs/specs/ui/workbench-layout.md 输出 35、36、11、13，docs/specs/workbench/commands.md 第二批）：
+ * 真实的一棵树的布局 store（Storage 场地），命令实现直接调用。声明的合规由命令系统登记时用的同一份校验检查；经命令注册表的可用性
+ * 用真实注册表加工作台公开状态的绑定。面板头的框架按钮点了之后的真实页面行为在 `e2e/workbench-shell.e2e.ts`。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -9,6 +9,7 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {shallowRef} from "@vue/reactivity";
+import type {ShallowRef} from "@vue/reactivity";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -16,20 +17,14 @@ import type {ContextKeySource} from "nbook/plugins/commands/shared/context-keys"
 import {commandDeclarationProblems, createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
-import {textOf} from "nbook/shared/localized-text";
 
-import type {QuickPick, QuickPickRequest, QuickPickResult} from "../../shared/contracts";
-import type {ShellLayoutFacts} from "../shell/sizes";
-import type {LayoutStore} from "../state/layout-store";
+import type {LayoutDocStore} from "../state/layout-doc-store";
 import {workbenchState, workbenchStateBindings} from "../state/public-state";
-import {openLayout} from "../testing/layout";
+import {openLayoutDoc} from "../testing/layout-doc";
 import {
     PANEL_COMMAND_DECLARATIONS,
     panelCommands,
-    SET_PANEL_ALIGNMENT_COMMAND,
     SET_PANEL_COLLAPSED_COMMAND,
-    SET_PANEL_HIDDEN_COMMAND,
-    SET_PANEL_POSITION_COMMAND,
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "./panel-commands";
 import {completedCommand} from "../../testing/declarations";
@@ -53,105 +48,124 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-async function layout(): Promise<LayoutStore> {
+async function layout(): Promise<LayoutDocStore> {
     counter += 1;
     const w = await storageWorld(join(tmp, `case-${String(counter)}`), []);
     worlds.push(w);
-    return (await openLayout(w, "w", "c")).store;
+    return (await openLayoutDoc(w, "w", "c")).store;
 }
-
-function picker(answer: (request: QuickPickRequest) => QuickPickResult): QuickPick & {readonly requests: QuickPickRequest[]} {
-    const requests: QuickPickRequest[] = [];
-    return {requests, pick: async (request) => {
-        requests.push(request);
-        return answer(request);
-    }};
-}
-
-const SPLIT: ShellLayoutFacts = {extent: {width: 1440, height: 900}, mode: "split", effectivePanel: {position: "bottom", alignment: "center", collapsed: false, maximized: false}, issues: []};
-const COMPACT: ShellLayoutFacts = {extent: {width: 390, height: 844}, mode: "compact", effectivePanel: {position: "bottom", alignment: "justify", collapsed: false, maximized: false}, issues: []};
 
 describe("声明", () => {
-    it("五条命令的声明通过命令系统的校验；when 只引用工作台声明的公开键", () => {
+    it("两条面板命令的声明通过命令系统的校验；when 只引用工作台声明的公开键", () => {
         const declared = new Set((Object.keys(workbenchState.declarations) as (keyof typeof workbenchState.declarations)[]).map((name) => workbenchState.key(name)));
+        expect(Object.keys(PANEL_COMMAND_DECLARATIONS).sort()).toEqual([SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND]);
         for (const [id, declaration] of Object.entries(PANEL_COMMAND_DECLARATIONS)) {
             expect(commandDeclarationProblems(id, "nbook.workbench", completedCommand(id, declaration)), id).toEqual([]);
             for (const key of declaration.when.requires) expect(declared.has(key), key).toBe(true);
         }
     });
+
+    it("位置、对齐的公开键与旧的紧凑、可最大化键已删除，不留别名（输出 36）", () => {
+        expect(Object.keys(workbenchState.declarations).sort()).toEqual(["activityBarVisible", "auxiliaryBarVisible", "focusedPart", "hasCurrentPanel", "layoutReady", "maximized", "nonPhone", "panelVisible", "sidebarVisible"]);
+    });
 });
 
-describe("公开状态", () => {
-    it("store 未创建时都是未就绪值；就绪后随呈现事实、面板位置与显隐变化", async () => {
-        const current = shallowRef<LayoutStore | null>(null);
+describe("公开状态（输出 36）", () => {
+    it("store 未创建时都是未就绪值；就绪后 nonPhone 恒为真，当前面板、最大化与可见性随布局变化", async () => {
+        const current = shallowRef<LayoutDocStore | null>(null);
         const keys = workbenchStateBindings(current);
         const snapshot = () => Object.fromEntries(Object.entries(keys).map(([name, binding]) => [name, binding.value]));
-        expect(snapshot()).toEqual({layoutReady: false, nonCompact: false, panelHorizontal: false, panelMaximizable: false, panelVisible: false, sidebarVisible: false, auxiliaryBarVisible: false, activityBarVisible: false, panelMaximized: false, panelPosition: "bottom", panelAlignment: "center", focusedPart: "editor"});
+        expect(snapshot()).toEqual({layoutReady: false, nonPhone: false, hasCurrentPanel: false, maximized: false, panelVisible: false, sidebarVisible: false, auxiliaryBarVisible: false, activityBarVisible: false, focusedPart: "editor"});
 
         const store = await layout();
         current.value = store;
-        // 记录读完、呈现事实还没到：几何相关的仍为 false。
-        expect(snapshot()).toMatchObject({layoutReady: true, nonCompact: false, panelHorizontal: false, panelMaximizable: false, panelVisible: true});
-        store.actions.acceptLayoutFacts(SPLIT);
-        expect(snapshot()).toMatchObject({nonCompact: true, panelHorizontal: true, panelMaximizable: true});
+        expect(snapshot()).toEqual({layoutReady: true, nonPhone: true, hasCurrentPanel: false, maximized: false, panelVisible: true, sidebarVisible: true, auxiliaryBarVisible: true, activityBarVisible: true, focusedPart: "editor"});
 
-        store.actions.setPanelAlignment("justify");
-        expect(snapshot()).toMatchObject({panelMaximizable: false, panelAlignment: "justify"});
-        store.actions.setPanelPosition("left");
-        expect(snapshot()).toMatchObject({panelHorizontal: false, panelMaximizable: true, panelPosition: "left"});
-        store.actions.togglePanelMaximized();
-        expect(keys.panelMaximized.value).toBe(true);
-        store.actions.setPanelHidden(true);
-        expect(snapshot()).toMatchObject({panelVisible: false, panelMaximizable: false, panelMaximized: false});
-        store.actions.setPanelHidden(false);
-        store.actions.acceptLayoutFacts(COMPACT);
-        expect(snapshot()).toMatchObject({nonCompact: false, panelMaximizable: false});
+        // 焦点进了具名面板：focusedPart 是它的名字；进了编辑组是 editor。
+        store.actions.focusPanel("panel");
+        expect(snapshot()).toMatchObject({hasCurrentPanel: true, focusedPart: "panel"});
+        store.actions.focusPanel("g0");
+        expect(keys.focusedPart.value).toBe("editor");
+        // 焦点移到外壳之外时当前面板保持原值。
+        store.actions.focusPanel(null);
+        expect(snapshot()).toMatchObject({hasCurrentPanel: true, focusedPart: "editor"});
+
+        store.actions.toggleMaximized("sidebar");
+        expect(keys.maximized.value).toBe(true);
+        // 最大化的侧栏盖住了其余面板：它们按名字求值都不算可见。
+        expect(snapshot()).toMatchObject({sidebarVisible: true, panelVisible: false, auxiliaryBarVisible: false});
+        store.actions.toggleMaximized("sidebar");
+        expect(snapshot()).toMatchObject({maximized: false, panelVisible: true, auxiliaryBarVisible: true});
+
+        store.actions.setPartHidden("panel", true);
+        expect(keys.panelVisible.value).toBe(false);
+        store.actions.setPartHidden("activitybar", true);
+        expect(keys.activityBarVisible.value).toBe(false);
+    });
+
+    it("收成标题行的面板算可见，拖到零的不算（输出 11、36）", async () => {
+        const store = await layout();
+        const keys = workbenchStateBindings(shallowRef<LayoutDocStore | null>(store));
+        // `panel` 在纵向分支里：收成标题行，仍占着地方。
+        store.actions.setCollapsed("panel", true);
+        expect(keys.panelVisible.value).toBe(true);
+        // `sidebar` 在横向分支里：收起就是拖到零，宽度为 0。
+        store.actions.setCollapsed("sidebar", true);
+        expect(keys.sidebarVisible.value).toBe(false);
     });
 });
 
 describe("命令", () => {
-    it("位置与对齐：带参数直接改；省略时经选择列出并标出当前，选中即改，取消不改；选择服务不可用时 unavailable", async () => {
+    it("收起省略参数时切换，带参数时设成给定值；缺省作用在当前面板，panelId 优先", async () => {
         const store = await layout();
-        store.actions.acceptLayoutFacts(SPLIT);
-        const choose = picker((request) => (request.items.some((item) => item.id === "right") && workbenchTestText("zh-CN").t(request.title) === "面板位置" ? {kind: "item", id: "right"} : {kind: "item", id: "justify"}));
-        const commands = panelCommands(() => store, choose);
+        const commands = panelCommands(() => store);
+        store.actions.focusPanel("panel");
+        const collapsed = (panel: string) => store.state.doc.panels[panel]?.collapsed === true;
 
-        expect(await commands[SET_PANEL_POSITION_COMMAND].run({position: "top"})).toEqual({ok: true, value: null});
-        expect(store.state.panel.position).toBe("top");
-        expect(await commands[SET_PANEL_POSITION_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : workbenchTestText("zh-CN").t(item.detail)])).toEqual([["bottom", null], ["top", "当前"], ["left", null], ["right", null]]);
-        expect(store.state.panel.position).toBe("right");
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({})).toEqual({ok: true, value: null});
+        expect(collapsed("panel")).toBe(true);
+        await commands[SET_PANEL_COLLAPSED_COMMAND].run({collapsed: true});
+        expect(collapsed("panel")).toBe(true);
+        await commands[SET_PANEL_COLLAPSED_COMMAND].run({});
+        expect(collapsed("panel")).toBe(false);
 
-        store.actions.setPanelPosition("bottom");
-        expect(await commands[SET_PANEL_ALIGNMENT_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(store.state.panel.alignment).toBe("justify");
-
-        const cancelled = panelCommands(() => store, picker(() => ({kind: "cancelled"})));
-        expect(await cancelled[SET_PANEL_POSITION_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(store.state.panel.position).toBe("bottom");
-        const missing = panelCommands(() => store, picker(() => ({kind: "unavailable", reason: "没有面板"})));
-        expect(await missing[SET_PANEL_ALIGNMENT_COMMAND].run({})).toEqual({ok: false, code: "unavailable", reason: "没有面板"});
+        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "auxiliarybar", collapsed: true});
+        expect(collapsed("auxiliarybar")).toBe(true);
+        expect(collapsed("panel")).toBe(false);
     });
 
-    it("隐藏、收起省略参数时切换，带参数时设成给定值；最大化切换；外壳没挂载时 unavailable", async () => {
+    it("最大化切换，不落盘；隐藏或收起最大化着的面板时退出（输出 13）", async () => {
         const store = await layout();
-        store.actions.acceptLayoutFacts(SPLIT);
-        const commands = panelCommands(() => store, picker(() => ({kind: "cancelled"})));
-        await commands[SET_PANEL_COLLAPSED_COMMAND].run({});
-        expect(store.state.panel.collapsed).toBe(true);
-        await commands[SET_PANEL_COLLAPSED_COMMAND].run({collapsed: true});
-        expect(store.state.panel.collapsed).toBe(true);
-        await commands[SET_PANEL_HIDDEN_COMMAND].run({});
-        expect(store.state.panel.hidden).toBe(true);
-        await commands[SET_PANEL_HIDDEN_COMMAND].run({});
-        expect(store.state.panel).toMatchObject({hidden: false, collapsed: false});
+        const commands = panelCommands(() => store);
+        store.actions.focusPanel("panel");
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({});
-        expect(store.state.panel.maximized).toBe(true);
+        expect(store.state.maximized).toBe("panel");
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({});
-        expect(store.state.panel.maximized).toBe(false);
+        expect(store.state.maximized).toBeNull();
 
-        const detached = panelCommands(() => null, picker(() => ({kind: "cancelled"})));
-        const notOpen = await detached[SET_PANEL_HIDDEN_COMMAND].run({hidden: true});
+        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: "g0"});
+        expect(store.state.maximized).toBe("g0");
+        // 换成另一块：同一时刻只有一块最大化。
+        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: "sidebar"});
+        expect(store.state.maximized).toBe("sidebar");
+        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "sidebar", collapsed: true});
+        expect(store.state.maximized).toBeNull();
+    });
+
+    it("没有当前面板、panelId 指向不存在的面板、外壳没挂载时都是 unavailable，布局不变", async () => {
+        const store = await layout();
+        const commands = panelCommands(() => store);
+        const before = JSON.stringify(store.state.doc);
+        const noCurrent = await commands[SET_PANEL_COLLAPSED_COMMAND].run({});
+        expect(noCurrent).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(noCurrent, "zh-CN")).toBe("没有可以操作的面板");
+        expect(failureText(noCurrent, "en-US")).toBe("No panel to act on");
+        expect(await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: "nope"})).toMatchObject({ok: false, code: "unavailable"});
+        expect(JSON.stringify(store.state.doc)).toBe(before);
+        expect(store.state.maximized).toBeNull();
+
+        const detached = panelCommands(() => null);
+        const notOpen = await detached[SET_PANEL_COLLAPSED_COMMAND].run({collapsed: true});
         expect(notOpen).toMatchObject({ok: false, code: "unavailable"});
         expect(failureText(notOpen, "zh-CN")).toBe("工作台布局没有打开（这个窗口没有显示外壳）");
         expect(failureText(notOpen, "en-US")).toBe("The workbench layout is not open (this window does not show the shell)");
@@ -160,8 +174,8 @@ describe("命令", () => {
 
 describe("经命令注册表", () => {
     /** 真实的命令注册表：上下文键读工作台公开状态的绑定（产品里由 `nbook.state` 转交，读法相同）。 */
-    function registryFor(store: LayoutStore) {
-        const bindings = workbenchStateBindings(shallowRef<LayoutStore | null>(store)) as unknown as Readonly<Record<string, {readonly value: unknown}>>;
+    function registryFor(current: ShallowRef<LayoutDocStore | null>) {
+        const bindings = workbenchStateBindings(current) as unknown as Readonly<Record<string, {readonly value: unknown}>>;
         const declarations = workbenchState.declarations as unknown as Readonly<Record<string, {readonly reason?: Parameters<ReturnType<typeof workbenchTestText>["t"]>[0]}>>;
         const text = workbenchTestText("zh-CN");
         const nameOf = (key: string): string | null => (key.startsWith("nbook.workbench/") ? key.slice("nbook.workbench/".length) : null);
@@ -172,43 +186,35 @@ describe("经命令注册表", () => {
         const registry = createCommandRegistry({contextKeys, report: (error) => {
             throw error;
         }});
-        const implementations = panelCommands(() => store, picker(() => ({kind: "cancelled"})));
+        const implementations = panelCommands(() => current.value);
         for (const [id, declaration] of Object.entries(PANEL_COMMAND_DECLARATIONS)) {
             const registered = registry.register({id, source: "nbook.workbench", declaration: completedCommand(id, declaration), run: implementations[id as keyof typeof implementations].run});
             expect(registered.ok, id).toBe(true);
         }
-        const enabled = () => Object.fromEntries(Object.keys(PANEL_COMMAND_DECLARATIONS).map((id) => [id.slice("nbook.view.".length), registry.isEnabled(id).ok]));
-        return {registry, enabled};
+        return registry;
     }
 
-    it("可用性随布局变化：未就绪、底部居中、两端对齐、左右位置、隐藏、紧凑", async () => {
-        const store = await layout();
-        const {registry, enabled} = registryFor(store);
-        // 呈现事实未到：只有不依赖几何的“隐藏/显示”可用。
-        expect(enabled()).toEqual({"set-panel-position": false, "set-panel-alignment": false, "set-panel-hidden": true, "set-panel-collapsed": false, "toggle-panel-maximized": false});
-        store.actions.acceptLayoutFacts(SPLIT);
-        expect(enabled()).toEqual({"set-panel-position": true, "set-panel-alignment": true, "set-panel-hidden": true, "set-panel-collapsed": true, "toggle-panel-maximized": true});
-        store.actions.setPanelAlignment("justify");
-        expect(enabled()["toggle-panel-maximized"]).toBe(false);
-        store.actions.setPanelPosition("left");
-        expect(enabled()).toMatchObject({"set-panel-alignment": false, "set-panel-collapsed": false, "toggle-panel-maximized": true});
-        expect(registry.isEnabled(SET_PANEL_COLLAPSED_COMMAND)).toEqual({ok: false, code: "unavailable", reason: "面板不在底部或顶部"});
-        store.actions.setPanelHidden(true);
-        expect(enabled()["toggle-panel-maximized"]).toBe(false);
-        store.actions.setPanelHidden(false);
-        store.actions.acceptLayoutFacts(COMPACT);
-        expect(enabled()).toMatchObject({"set-panel-position": false, "set-panel-alignment": false, "toggle-panel-maximized": false, "set-panel-hidden": true});
+    it("可用性随布局就绪变化：没有布局时不可用并给出原因，就绪后可用", async () => {
+        const current = shallowRef<LayoutDocStore | null>(null);
+        const registry = registryFor(current);
+        for (const id of Object.keys(PANEL_COMMAND_DECLARATIONS)) expect(registry.isEnabled(id)).toEqual({ok: false, code: "unavailable", reason: "布局还在读取"});
+        current.value = await layout();
+        for (const id of Object.keys(PANEL_COMMAND_DECLARATIONS)) expect(registry.isEnabled(id)).toEqual({ok: true, value: true});
     });
 
-    it("参数严格：多余字段与非法取值为 invalid-args 且不改布局；带参数执行改变布局", async () => {
+    it("参数严格：多余字段与非法取值为 invalid-args 且不改布局；位置、对齐、隐藏面板的旧命令不再注册", async () => {
         const store = await layout();
-        store.actions.acceptLayoutFacts(SPLIT);
-        const {registry} = registryFor(store);
-        expect(await registry.execute(SET_PANEL_POSITION_COMMAND, {position: "middle"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
-        expect(await registry.execute(SET_PANEL_HIDDEN_COMMAND, {hidden: true, extra: 1}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        store.actions.focusPanel("panel");
+        const registry = registryFor(shallowRef<LayoutDocStore | null>(store));
+        const before = JSON.stringify(store.state.doc);
+        expect(await registry.execute(SET_PANEL_COLLAPSED_COMMAND, {collapsed: "yes"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
         expect(await registry.execute(TOGGLE_PANEL_MAXIMIZED_COMMAND, {force: true}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
-        expect(store.state.panel).toMatchObject({position: "bottom", hidden: false, maximized: false});
-        expect(await registry.execute(SET_PANEL_POSITION_COMMAND, {position: "top"}, {source: "user"})).toEqual({ok: true, value: null});
-        expect(store.state.panel.position).toBe("top");
+        expect(await registry.execute(TOGGLE_PANEL_MAXIMIZED_COMMAND, {panelId: ""}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
+        expect(JSON.stringify(store.state.doc)).toBe(before);
+        expect(store.state.maximized).toBeNull();
+        for (const id of ["nbook.view.set-panel-position", "nbook.view.set-panel-alignment", "nbook.view.set-panel-hidden"]) expect(registry.isEnabled(id).ok, id).toBe(false);
+
+        expect(await registry.execute(TOGGLE_PANEL_MAXIMIZED_COMMAND, {}, {source: "user"})).toEqual({ok: true, value: null});
+        expect(store.state.maximized).toBe("panel");
     });
 });

@@ -3,7 +3,7 @@
  * 设置窗口（同名 .md）：窗口模型的呈现。外框是非模态的 Dialog，左栏分区、标签与右边的分区内容都读模型，操作交回模型
  * （docs/specs/settings/settings-window.md）。
  */
-import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
+import {AlertDialog, FloatingWindow, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, provide, ref, useId, watch} from "vue";
 
@@ -258,9 +258,8 @@ function onLeaveOpen(open: boolean): void {
 </script>
 
 <template>
-    <Dialog
-        :model-value="open"
-        :modal="false"
+    <FloatingWindow
+        :open="open"
         :title="text('window.title')"
         :show-header="false"
         :close-label="text('window.close')"
@@ -316,7 +315,7 @@ function onLeaveOpen(open: boolean): void {
                                 列表行，不是按钮的外观：没有描边，悬停与当前项各是一层淡底，按下不缩放。停用项用 aria-disabled 而不是
                                 disabled：原生停用的按钮收不到指针事件，悬停出不了原因的 Tooltip；原因另经 aria-describedby 给读屏。
                             -->
-                            <Tooltip v-for="item in group.items" :key="item.id" :text="navTip(item) ?? ''" :disabled="navTip(item) === null" placement="right">
+                            <Tooltip v-for="item in group.items" :key="item.id" :text="navTip(item) ?? ''" :disabled="navTip(item) === null" side="right">
                                 <button
                                     type="button"
                                     class="settings-window__nav-item nb-ui-focus-ring-inset"
@@ -409,16 +408,16 @@ function onLeaveOpen(open: boolean): void {
             :open="model.leaving.value !== null"
             :title="text('window.leave.title')"
             :description="text('window.leave.description', {title: current?.title ?? ''})"
-            :confirm-text="text('window.leave.discard')"
-            :cancel-text="text('window.leave.keepEditing')"
-            tone="warning"
+            :confirm-label="text('window.leave.discard')"
+            :cancel-label="text('window.leave.keepEditing')"
+            tone="neutral"
             data-settings-leave
             @update:open="onLeaveOpen"
             @confirm="confirmLeave"
             @cancel="model.cancelLeave()"
             @closed="onLeaveClosed"
         />
-    </Dialog>
+    </FloatingWindow>
 </template>
 
 <style scoped>
@@ -751,6 +750,32 @@ function onLeaveOpen(open: boolean): void {
     .settings-window__fill {
         max-width: none;
         padding-top: var(--space-5);
+    }
+}
+
+/*
+ * 带场景的主题（docs/specs/theme/skins.md 输出 15）：窗口里铺一层淡淡的场景，不管窗口后面是什么页面，窗口自己都带着主题的味道。
+ * 淡到文字与控件的对比度几乎不受影响。变量名见 src/ui/theme/skin-vars.ts；没有场景的主题不写 data-nb-skin-scene，这一层不存在。
+ * 选择器整个写在 `:global()` 里：`:global(a) .b` 在 scoped 样式里会被编译成只剩 `a`，规则落到 `<html>` 上。
+ */
+:global([data-nb-skin-scene] .settings-window) {
+    position: relative;
+    isolation: isolate;
+}
+
+:global([data-nb-skin-scene] .settings-window::before) {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--skin-scene) var(--skin-empty-position, center) / cover no-repeat;
+    opacity: 0.16;
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .settings-window::before) {
+        display: none;
     }
 }
 </style>

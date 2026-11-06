@@ -14,6 +14,7 @@ import {bodyLimit} from "hono/body-limit";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
 import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
+import {rethrowRouteError} from "nbook/plugins/http/shared/contracts";
 import type {ProjectsService} from "nbook/shared/projects";
 
 import {coverContentType, coverFileName, PROJECT_COVER_MAX_BYTES, sniffCoverType} from "../shared/cover";
@@ -52,7 +53,7 @@ export async function coverVersion(projectPath: string, cover: string): Promise<
 }
 
 export function createCoverRoutes(sources: CoverRouteSources): Hono<{Bindings: HttpRouteEnv}> {
-    const app = new Hono<{Bindings: HttpRouteEnv}>();
+    const app = new Hono<{Bindings: HttpRouteEnv}>().onError(rethrowRouteError);
 
     app.get("/cover/:id", async (c) => {
         const located = await locate(sources, c.req.param("id"));

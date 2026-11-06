@@ -14,6 +14,7 @@ import {Hono} from "hono";
 import type {Context} from "hono";
 
 import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
+import {rethrowRouteError} from "nbook/plugins/http/shared/contracts";
 import type {ProjectsService} from "nbook/shared/projects";
 
 import {previewContentSecurityPolicy} from "../shared/contracts";
@@ -203,7 +204,7 @@ function crossSite(request: Request): boolean {
 const RAW_HEADERS = {"Content-Security-Policy": "sandbox"};
 
 export function createRawRoutes(sources: RawRouteSources): Hono<{Bindings: HttpRouteEnv}> {
-    const app = new Hono<{Bindings: HttpRouteEnv}>();
+    const app = new Hono<{Bindings: HttpRouteEnv}>().onError(rethrowRouteError);
     const projects = sources.projects;
     const roots = projects === null ? null : createProjectRoots({projects, record: sources.record});
     const rest = (c: Context, prefix: number): string | null => decodePath(new URL(c.req.url).pathname.split("/").slice(prefix).join("/"));

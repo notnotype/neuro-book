@@ -12,6 +12,16 @@ export function splitReference(reference: string): {readonly provider: string; r
     return {provider: reference.slice(0, slash), model: reference.slice(slash + 1)};
 }
 
+/** 会话模型设置里“选的是角色”的写法（docs/specs/models/service.md 输出 8）。别的宿主不要自己拼这个前缀。 */
+const ROLE_PREFIX = "role:";
+
+export const roleReference = (role: string): string => `${ROLE_PREFIX}${role}`;
+
+/** `role:<id>` 交回 id，不是这个写法交回 null。`role:` 后面是空的也算这个写法，id 为空串，解析时找不到角色。 */
+export function roleOfReference(reference: string): string | null {
+    return reference.startsWith(ROLE_PREFIX) ? reference.slice(ROLE_PREFIX.length) : null;
+}
+
 export const referenceOf = (provider: string, model: string): string => `${provider}/${model}`;
 
 /**

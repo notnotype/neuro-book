@@ -1,0 +1,176 @@
+# w00026 t06 实现审查（前端）报告
+范围：master..HEAD，worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t06-flat-renderer
+实验目录：/tmp/review-w00026-t06-impl/exp/（exp/pkg 是 nb-layout 的副本，exp1/exp2.dom.test.ts 是实验，ro-order.* 是真 Chrome 小实验）
+已跑：nb-layout 的 bun test（238 过）、vitest（128 过）、typecheck（过）。未跑 e2e 与开发服务。
+
+### 1. 窗口缩放在高度变化时会触发 470ms 外框过渡（违反“容器尺寸变化不过渡”），e2e 只测了宽度所以没抓到
+**严重程度**：阻断
+**类别**：正确性 / 时序（共享状态）
+**位置**：packages/nb-layout/src/vue/NestedGrid.vue:84-88（placementExtent 取实测盒）、:213-244（updateMotion 只用 props.layout.sizes[root.id] 判“根尺寸变了”）；packages/neuro-book/e2e/lab-grid-structure.e2e.ts:134-136
+**现象**：同一次容器缩放里，几何有两个来源：宿主（外壳、编辑器区、视图容器、Lab 夹具）用自己的 useLayoutExtent 量父盒、经 useGridLayout 发布 layout；NestedGrid 用自己的 useLayoutExtent 量根盒做 placementExtent。两个 ResizeObserver 的回调先后触发，中间有微任务检查点，Vue 会在两次回调之间各刷新一次 DOM。
+- 在 Vue 下，宿主的 observer 先创建（父组件的 `watch(element)` 先于子组件的跑），NestedGrid 的后创建。我在 happy-dom 里用假 ResizeObserver 复现了创建顺序：`RO creation order: [ 'host', 'nb-nested-grid' ]`。
+- 真 Chrome 里两个 observer 的回调之间确实跑微任务（exp/ro-order.mjs 的输出：`["cb-parent","micro-after-parent","cb-child"]`）。
+- 于是顺序是：第一步宿主先发布新 layout，NestedGrid 的 placement 用“新 layout + 旧实测盒”重算，`resized` 为真（根尺寸变了）、`stopMoving()`，这一步不过渡；第二步 NestedGrid 的实测盒才更新，placement 再次重算，这一次 `lastRootSize` 已经是新的，`resized` 为假，而叶外框的交叉轴长度（取 extent）变了，`changed` 为真，于是 `startMoving(470)`：`data-moving` 打在外框上，高度（以及这一步里还差的任何量）带着 transition 变到终点。
+- 我在 exp/pkg/src/vue/exp2.dom.test.ts 里复现：1000x600 缩到 900x500，最终 `[data-moving]` 有 3 个（2 个外框加 1 条分隔线），外框高度 500px。只改宽度时（exp1 的“plain resize”）`moving` 为 0，因为主轴尺寸两步里一致，所以现有 e2e 通过。
+**为什么是问题**：Spec“过渡”一条明说“容器尺寸变化不过渡”，计划里也写了按 `layout.sizes[root.id]` 比而不靠 ResizeObserver 回调；但实现里 `placement` 的容器尺寸是另一个独立来源，晚一拍到。拖动窗口边缘时每一帧都会重新 `startMoving`，高度跟着 470ms 缓动滞后；这是每次缩放窗口都会遇到的主路径。默认 `reducedMotion: "reduce"` 的 e2e 里看不到。
+**如何核实**：e2e（我没跑）：`page.emulateMedia({reducedMotion: "no-preference"})`，在 Lab 的 structure 场景里 `setViewportSize({width: 1440, height: 800})` 改成高度不同的值（例如 1440x600），连续几帧读 `[data-grid-scope] [data-moving]` 的个数与外框高度。预期现状是个数大于 0、高度逐帧变化。现有用例的 `page.setViewportSize({width: 1200, height: 800})` 高度没变，`expect.poll(() => widthOf(page, "c")).toBeGreaterThan(0)` 一开始就成立，随后立即读 `movingCount`，既没覆盖高度，也没等到可能晚到的标记。
+**建议改法**：让“容器尺寸变化”的判据与 placement 用同一个来源。最小改动：`updateMotion` 里同时记 `placementExtent` 的上一次值，实测盒变了也算 `resized`（走 stopMoving）；更根本的做法是 placement 的容器尺寸优先取 `props.layout.sizes[root.id]`（宿主算布局用的那个盒），实测盒只在没有布局时兜底，这样两步合并成一步。无论哪种，把 e2e 的缩放用例改成高度也变，并在缩放后等两帧再断言没有 `data-moving`。
+
+### 2. 结构变化时分隔线不跟着滑：新的分隔线直接出现在终点，旧的立即消失，与 Spec“外框与分隔线过渡到新矩形”不符
+**严重程度**：重要（视觉效果，从代码与 DOM 状态推断，未在真实浏览器里看过）
+**类别**：正确性 / 与 Spec 不符
+**位置**：packages/nb-layout/src/grid-rects.ts:157（分隔线 key 是 `sash:前节点|后节点`）；packages/nb-layout/src/vue/NestedGrid.vue:145-147（`sashStyle(item.rect)` 永远是终点矩形）、:207-244（`entering` 只收集叶）
+**现象**：分隔线的 DOM 身份由前后节点 id 决定。关闭中间的叶、拆分、换位置都会让相邻分隔线的 key 变掉：旧元素被卸载（立即消失），新元素在终点位置挂载，没有“之前的矩形”，所以没有过渡。实验 exp/pkg/src/vue/exp3.dom.test.ts：[a,b,c] 关闭 b 之后，`root:0` 是一个新元素（`same:false`），transform 一开始就是 `translate(498px, 0px)`，而叶 c 的外框从 `translate(669px…)` 过渡到 `translate(502px…)`。开关侧栏、拆分与关闭编辑组都是这个路径。
+**为什么是问题**：470ms 里分隔线停在终点，别的外框还在滑，线会压在正在滑动的内容中间（开侧栏时终点处的竖线先画在编辑器内容上）。Spec“过渡”一条写的是外框与分隔线都过渡到新矩形；计划只写了新叶长出来，没处理分隔线的对应行为，也没在测试里涉及。
+**如何核实**：e2e 里开动画，在 structure 场景点 `close-new` 或 `split-before` 之后连续几帧读 `[data-sash]` 的 `getBoundingClientRect().x`，与相邻外框的边对比；现状是分隔线第一帧就在终点。
+**建议改法**：二选一并写进 Spec：（a）分隔线在关闭或拆分时按“新叶/离开叶的边”做同样的长出与收起（新分隔线从叶的那条边起步）；（b）过渡期间分隔线淡入、淡出，不显示在错误位置；至少在 Spec 里写明“结构变化时分隔线不过渡”。
+
+### 3. grid-rects 的单元测试放过了关键行为：新叶长出的方向、缝的占用值、分支主轴长度、零尺寸叶的特判都没有被判别
+**严重程度**：重要
+**类别**：测试
+**位置**：packages/nb-layout/src/grid-rects.test.ts（整份）；packages/neuro-book/e2e/lab-grid-structure.e2e.ts:110-120
+**现象**：我在 exp/pkg 里对 grid-rects.ts 做变异，再跑 `bun test src/grid-rects.test.ts`（32 个用例）：
+- 把 `grow` 的 `edge: index > 0 ? "start" : "end"` 对调：32 过 0 败，存活。
+- 把 `grownRect` 里 `x: grow.edge === "start" ? rect.x : rect.x + rect.width` 对调：存活。
+- `branchLength` 改成 0（它决定 `aria-valuemax`）：存活。
+- sash 的 `size` 改成 `sash`（未取整的占用）：存活。
+- 去掉零尺寸叶的特判（`size <= 0 ? position : …`）：存活。这条的测试“尺寸是 0 的叶矩形就是 0”用的数据（缝 1、dpr 1.5、宽 302、中间叶为 0）恰好不触发。我暴力枚举缝 {1,4,7} × dpr {1,1.25,1.5,2} × 宽 300 到 1200 × 零叶位置 {首,中,尾}，共 32436 个输入，有 450 个会因为这条特判而不同，例如缝 1、dpr 1.25、宽 300、中间叶为 0。
+- 去掉 `end = Math.min(end, boxEnd)`：存活。
+e2e 里“新叶从挨着兄弟的边长出来”也只断言 `widthOf(n) < finalWidth`，边对调照样通过（n 是第 0 个子节点，应从右边起步）。
+**为什么是问题**：Spec“过渡”一条的核心行为是新叶从挨着兄弟的那条边长出来；这个方向目前没有任何测试能发现写反。零尺寸特判的理由（“停放判不出来”）也没有输入验证它。
+**如何核实**：见上面的变异；复现命令在 exp/pkg 下对 src/grid-rects.ts 做单行替换后跑 `bun test src/grid-rects.test.ts`。
+**建议改法**：grid-rects.test.ts 补：`grow` 在首个子节点是 end、其余是 start，`grownRect` 在两个轴上的起点与宽度；`branchLength`；`size` 等于取整后的缝宽；零尺寸叶用 {缝 1、dpr 1.25、宽 300、中间叶 0} 这类会触发特判的输入。e2e 的长出用例读第一帧外框的 x 与相邻叶的边对齐。
+
+### 4. e2e 默认减少动态效果后，依赖动画时序的老用例悄悄变弱；计划承诺要写的 docs/testing 没写；新的缩放用例几乎恒真
+**严重程度**：重要
+**类别**：测试 / 返工项
+**位置**：packages/neuro-book/e2e/playwright.config.ts:21-23；packages/neuro-book/e2e/lab-nb-ui.e2e.ts:250-257、:295-340；packages/neuro-book/e2e/markdown-editing.e2e.ts:103；packages/neuro-book/e2e/lab-grid-structure.e2e.ts:134-136；docs/testing/README.md（主工作区，没有 `reducedMotion` 相关文字）
+**现象**：
+1. 配置改成默认 `reducedMotion: "reduce"` 后，只有 files-explorer 两处和 workbench-dnd 一处补了 `emulateMedia({reducedMotion: "no-preference"})`。lab-nb-ui.e2e.ts:250-257 的“一个菜单关闭后还在退场动画里时立刻点另一组”测的是退场动画窗口里的竞态；markdown-editing.e2e.ts:103 的“菜单的关闭动画结束后焦点也不被抢走”也是。减少动态效果下时长令牌是 0ms，这个窗口基本不存在，两条用例仍然绿，但不再覆盖它们名义上防的竞态。lab-nb-ui.e2e.ts:295 的 Collapsible 用例前半段（`data-animating` 随真实动画开关）也在 reduce 下跑。（从代码推断，我没跑 e2e。）
+2. 计划“Spec 与文档改动”表里有 `docs/testing/README.md`：“e2e 默认减少动态效果，测动画的用例开回来”。主工作区的 docs/testing 里搜不到 `reducedMotion`、`emulateMedia`、“减少动态”，没写。后来写新用例的人不会知道默认动画是关的。
+3. 新增的 lab-grid-structure.e2e.ts:134-136“改窗口尺寸不过渡”：`setViewportSize({width: 1200, height: 800})` 高度没变；`expect.poll(() => widthOf(page, "c")).toBeGreaterThan(0)` 在第一次轮询就成立；随后立刻读 `movingCount`，晚一帧才出现的标记看不到。它没有覆盖第 1 条发现，也没有等任何东西稳定。
+**为什么是问题**：默认关动画是为了让 113 个用例量到终点，这个决定本身合理；但它把“依赖动画”的用例一起降级了，没有人逐个确认，也没有写在规范里。
+**如何核实**：对上面三处，用 `reducedMotion: "no-preference"` 跑一遍并对照；退场竞态那条在减少动态下注入一个 120ms 的人为退场（或直接在用例里 `emulateMedia` 开回来）看是否仍成立。
+**建议改法**：这几条动画时序用例开头加 `emulateMedia({reducedMotion: "no-preference"})`；docs/testing/README.md 写一段“e2e 默认减少动态效果，测动画或动画时序的用例自己开回来”；缩放用例改成高度也变、等两帧再断言（同第 1 条）。
+
+### 5. `fromGesture` 是一个全局布尔，来源靠“下一次 placement 变化”推断，几种合并情形会把程序触发的变化当成手势吞掉
+**严重程度**：建议（概率低，一旦发生是该过渡的变化直接跳变）
+**类别**：正确性 / 隐含耦合
+**位置**：packages/nb-layout/src/vue/NestedGrid.vue:171-172、:214-215、:326-331、:419-422
+**现象**：`releasePreview()` 在预览非空时置 `fromGesture = true`，由下一次 `watch(placement)` 消费。三条能被误吞的路径：
+- 预览进行中 `props.node` 变化：`scope.invalidate()` 取消手势，`onPreview(null)` → `releasePreview()` 置标记；此时 placement 第一次渲染的是新 node（之前因为预览一直用 `preview.tree`，新树还没渲染过），这次结构变化被当作手势，不过渡，新叶直接出现。
+- 同一个 flush 里“预览落账释放”与“宿主另一处程序改动”合并成一次 placement 变化：整次被当作手势。
+- 外壳落账后的第二次发布若与预览差超过 `MOTION_TOLERANCE_PX`（1px）：这一次是程序触发的，会在松手后过渡 470ms；计划里写了容差，但没有说明为什么外壳的第二次发布一定在 1px 以内（我没有核实外壳的第二次发布的实际差值，请跑 e2e 开动画观察松手后 `data-moving`）。
+`fromGesture` 不会残留：我检查了 `onPreview`、`releasePreview` 的各条路径，每次置位后 `preview` 都变成新值，placement 一定重算，所以不会吞掉再下一次变化。
+**为什么是问题**：判定依据是“上一次谁动了 preview”，而不是“这次变化是谁引起的”；新增任何一个会在手势期间改树的调用方，标记就可能错位。
+**如何核实**：happy-dom 里 mount 后用 `scope` 开一场预览，再 `setProps({node: 新树, layout: 新布局})`，观察释放之后新叶是否带 `data-moving`。
+**建议改法**：把标记换成按事实判定：过渡只看“树的结构是否变了（key 集合变化）或矩形是否变了”，手势期间的变化靠 `scope.active`（手势进行中）与“本次 placement 是否来自预览对象”判断，不用一次性标记。
+
+### 6. `renderItems` 在 computed 里改外部变量、`domIds` 在模板里写 Map 且只增不减
+**严重程度**：建议
+**类别**：代码质量 / 不变量
+**位置**：packages/nb-layout/src/vue/NestedGrid.vue:94-111、:118
+**现象**：`renderedKeys` 是闭包变量，由 `computed` 的 getter 改写；`domIdOf` 在模板渲染和 `ariaOwns` 的 computed 里写 `domIds`。我推演了几种情形：computed 惰性求值，如果两次 placement 变化合并成一次渲染，`renderedKeys` 只经过最后一个状态，这正好与实际 DOM 吻合，所以序列不会错；getter 被求值但渲染被丢弃（渲染抛异常）时序列会比 DOM 先走一步，没有构造出失败用例。`domIds` 随叶与分隔线 key 增长、从不清理：编辑器区每开关一个编辑组累积 2 条左右，1000 次约 100KB，可以忽略；但 `domIds.size` 当计数器，将来谁加了清理，id 会重复。分隔线 key 用 `|` 拼接两个节点 id，节点 id 没有字符限制（我在 grid.ts、grid-types.ts、grid-snapshot.ts 里没找到对 id 字符的校验），`a|b` + `c` 与 `a` + `b|c` 会得到同一个 key。
+**为什么是问题**：靠“computed 恰好每次渲染求值一次”保证正确，是隐含耦合；不是缺陷，但下一个改这里的人看不出来。
+**如何核实**：读代码即可；key 冲突用节点 id `a|b`、`c` 与 `a`、`b|c` 同时存在的树。
+**建议改法**：序列的更新放进 `watch(placement, …, {flush: "pre"})`（Vue 会在同一次 flush 里先于渲染运行，满足外壳的 Teleport 时序）或在 `placeGrid` 的输出里直接给稳定序；DOM id 用单调计数器，卸载叶时清掉；sash key 用不可能出现在 id 里的分隔方式（例如 JSON.stringify 的数组）。
+
+### 7. `useDevicePixelRatio` 每次窗口 resize 都重建 `matchMedia` 并换监听
+**严重程度**：建议
+**类别**：性能
+**位置**：packages/nb-layout/src/vue/useDevicePixelRatio.ts:104-112
+**现象**：`sync()` 每次都调 `watchResolution()`，移除旧监听、`matchMedia(...)` 新建、再加监听。拖动窗口边缘时 `resize` 每帧一次，缩放比其实没变。
+**为什么是问题**：每帧多分配一个 MediaQueryList 与监听器，没有收益。
+**如何核实**：在 `watchResolution` 里计数，拖窗口观察次数。
+**建议改法**：`sync()` 里只有 `dpr.value` 变了才重建查询；`resize` 监听与 `change` 监听分开处理。
+
+### 8. 文档与公开面没跟上实现
+**严重程度**：建议
+**类别**：文档 / API 形状
+**位置**：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.md:98；docs/specs/ui/nested-grid.md 的“实现合同”（主工作区）；packages/nb-layout/src/vue/index.ts:20（`export * from "./grid-splitter"`）
+**现象**：
+- WorkbenchShellLayout.md 仍写“Teleport 到同名 Part 的叶落点（`[data-leaf="<part>"]`）”；现在落点是 `[data-leaf-content]`。
+- Spec nested-grid.md 的实现合同仍是“渲染层是 nb-layout 的 `NestedGrid`：每个分支一个 `Splitter`、叶交给插槽……（`gridBranchSizesPx` / `buildGridBranchPanels` …）”。`gridBranchSizesPx` 已删，也不再是每个分支一个 Splitter；计划的“Spec 与文档改动”表里列了这一行。
+- `export * from "./grid-splitter"` 把这次新搬进去的 `panelBounds`、`ariaMax` 也变成 `@notnotype/nb-layout/vue` 的公开导出，它们只是 SashHandle 与 Splitter 内部用的辅助函数。
+**为什么是问题**：读文档的人会去找不存在的 `[data-leaf]` 落点与 Splitter；公开面多出不该承诺的函数。
+**如何核实**：grep。
+**建议改法**：改文档两处（Spec 在主工作区改）；index.ts 改成显式导出需要公开的名字。
+
+### 9. `attachPaneFocus(null)` 无条件清空，重挂顺序反了会把新外壳的实现清掉
+**严重程度**：建议
+**类别**：不变量 / 资源释放
+**位置**：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:299-303；packages/neuro-book/src/plugins/workbench/web/plugin.ts:169-174
+**现象**：外壳 `onMounted` 交出实现、`onBeforeUnmount` 无条件交 `null`，插件里是一个闭包变量 `movePaneFocus`。Vue 替换组件时旧实例的 `beforeUnmount` 先于新实例的 `mounted`，现状没问题；但 `<Transition mode>`、`<KeepAlive>`、`key` 变化或页面把新外壳先挂上再卸旧的，这个次序就反过来，F6 变成空操作。
+**为什么是问题**：寿命靠调用次序碰巧成立，没有身份核对。
+**如何核实**：给外壳加 `key` 切换，观察 F6。
+**建议改法**：`attachPaneFocus` 返回一个只清自己的注销函数，或 `null` 时带上被注销的实现，插件里比对后才清。
+
+### 10. `NestedGrid.vue` 单文件的脚本部分约 440 行，动效、停放、渲染序列三块可以各自成为组合式函数
+**严重程度**：建议
+**类别**：代码质量
+**位置**：packages/nb-layout/src/vue/NestedGrid.vue:171-283（动效与停放）、:94-125（序列与 id）、:305-417（手势宿主）
+**现象**：`fromGesture`、`moving`、`growing`、`motionTimer`、`lastRootSize`、`lastDpr` 加五个函数组成动效，只依赖 `placement`、`renderTree`、`props.layout`、`rootEl`、`dpr` 与 `snapHost.schedule`；停放只依赖 placement 与 preview。它们与手势宿主代码互不相干，现在与手势宿主混在一个 `<script setup>` 里，`watch` 的先后顺序是隐含依赖（动效的 `watch(placement)` 必须在 `watch(props.layout, releasePreview)` 之前注册，第 5 条的标记消费靠这个顺序）。
+**为什么是问题**：读者要把几块逻辑在脑子里交织才能确认标记何时置位、何时消费；顺序依赖没有注释。
+**如何核实**：读代码。
+**建议改法**：拆出 `useLayoutMotion({placement, layout, rootEl, dpr, onSettled})`（返回 `moving`、`growing`、`markFromGesture()`）与 `useLeafParking(placement, preview)`；`watch` 的次序写进注释或让 `markFromGesture` 显式调用而不是依赖注册先后。
+
+### 11. 焦点范围用 `ownerDocument.getElementById` 找元素
+**严重程度**：建议
+**类别**：正确性 / 性能
+**位置**：packages/nb-layout/src/vue/NestedGrid.vue:120-125
+**现象**：`focusScope.items()` 每次按 `domIdOf(key)` 去文档里查元素；每次 `focusin`（`noteFocus`）与每次 Tab 接管都跑一遍，叶数 n 时 n 次查询。grid 放进 Shadow DOM 时查不到，会静默返回空列表（`moveTab` 返回 `"browser"`，`moveGridFocus` 返回 false）。
+**为什么是问题**：已经有模板可以直接登记元素，不必再绕 id。
+**如何核实**：把 NestedGrid 挂进 shadow root 后按 F6。
+**建议改法**：用函数 ref 把叶外框与分隔线元素登记进 Map，`items()` 按 `placement` 的顺序取。
+
+### 12. 卸载时 `stopMoving()` 在 `useSashSnap` 清理之后又排一帧
+**严重程度**：建议
+**类别**：资源释放
+**位置**：packages/nb-layout/src/vue/NestedGrid.vue:184-192、:432-436；packages/nb-layout/src/vue/useSashSnap.ts:57-64
+**现象**：`useSashSnap()` 先于 NestedGrid 自己的 `onBeforeUnmount` 注册，所以它的清理（取消 rAF）先跑；NestedGrid 的 `stopMoving()` 随后在 `moving` 为真时调用 `snapHost.schedule()`，又排了一个 rAF。此时分隔线都已卸载，回调只遍历空集，无害；但“卸载后不留回调”的不变量靠次序碰巧成立。
+**为什么是问题**：同第 10 条，隐含次序。
+**如何核实**：`moving` 为真时卸载组件，看是否还有一个 rAF 在排队。
+**建议改法**：`stopMoving` 加参数跳过 `schedule`（卸载路径），或让 `useSashSnap` 在已卸载后拒绝排帧。
+
+### 13. 结尾标记用 `setTimeout` 而不是等过渡结束，高负载时可能早于实际结束
+**严重程度**：建议
+**类别**：正确性（时序）
+**位置**：packages/nb-layout/src/vue/NestedGrid.vue:194-205
+**现象**：定时器在 `startMoving` 里启动，CSS 过渡要到下一次样式计算才开始，晚 0 到 1 帧（16ms，主线程忙时更多）。定时器先到时撤掉 `data-moving`，外框在最后一帧跳到终点。缓动曲线末端很平，一般看不出；主线程繁忙（计划里说的 100k 字章节）时更可能出现。
+**为什么是问题**：用墙钟时间近似过渡时长，没有用过渡自己的结束事件。
+**如何核实**：e2e 开动画，用 `getAnimations()` 取外框的 `CSSTransition` 的 `finished` 时刻对比 `data-moving` 撤掉的时刻。
+**建议改法**：监听外框的 `transitionend`（任一属性、计数收齐）或用 `getAnimations().map(a => a.finished)`，定时器只作兜底（时长加余量）。
+
+### 14. 一处 e2e 的半像素比较没跟着改
+**严重程度**：建议
+**类别**：测试
+**位置**：packages/neuro-book/e2e/lab-nested-grid.e2e.ts:150（`expect(change.target.right).toBeCloseTo(afterRight.width, 0)`）；packages/neuro-book/e2e/workbench-views.e2e.ts:436、:452
+**现象**：`workbench-views.e2e.ts` 把 `toBeCloseTo(x, 0)`（严格小于 0.5）改成 `<= 0.5`。这个放宽的实际区间只多了“差恰好 0.5”这一点，理由（外框取整、意图没取整）成立，我判断合理，不是掩盖问题。同一类比较在 lab-nested-grid.e2e.ts:150 里：`afterRight` 现在是 `topLeaf` 的外框盒（按设备像素取整），以前是右侧面板的 flex 盒（未取整），`change.target.right` 是未取整的意图，仍用 `toBeCloseTo(…, 0)`；目标恰为 x.5 时会因为取整差 0.5 失败。Lab 容器宽度为整数时不会触发。
+**为什么是问题**：同一原因的容差只修了一处。
+**如何核实**：改 Lab 夹具的容器宽度为奇数且缝宽为奇数，让右栏落在 x.5。
+**建议改法**：两处用同一个比较（或同一个 helper）。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- `fromGesture` 不会残留并吞掉“再下一次”变化：`onPreview` 与 `releasePreview` 每次置位后 `preview` 都变成新值，`placement` 一定重算；`createGridGestureSession` 的 `update`、`jump`、折叠每次都返回新的预览对象。（只有第 5 条列的合并情形会错判来源。）
+- `watch(placement)` 先于 `watch(() => props.layout, releasePreview)` 建立，预览被保持时 `renderLayout` 不依赖 `props.layout`，所以提交落账时是 `releasePreview` 先置标记、`placement` 随后消费，先后与代码注释一致。
+- `growing` 与 `nextTick`：`nextTick` 在 pre 阶段的 watcher 里调用，回调在本轮渲染之后跑，强制布局读到的是已经带第一帧矩形的样式；连续变化时重置计时与 `growing` 的清空不会提前（同一 flush 内只跑一次 watcher）。
+- 卸载：`stopMoving` 清了 `motionTimer`；`nextTick` 回调对 `rootEl` 空值安全。（只有第 12 条的多排一帧。）
+- 根换了（叶变分支）：宿主的 `useGridLayout` 在同一次 `recompute` 里同时更新 layout 与 revision，所以新根的尺寸与新树同时到；根尺寸缺失时 `lastRootSize` 保持旧值，不会误判；这条路径下第一次拆分单叶根，原叶保留 key，新叶长出。
+- 停放状态机：拖到零不停放、落账停放、再拉出时在拖动中解除、取消后重新停放，按代码推演与 e2e 的写法一致；没有发现焦点在预览中丢失的路径。外壳自己的停放（`parkedParts`）与 `parked` 叠加时，外壳的 `memory.capture` 在 `projection` 的 pre watcher 里先于渲染，不会因为 `inert` 先落上而丢焦点记录。
+- `Splitter` 去掉 grid 模式后：独立模式仍是 `data-sash="panels:0"`，嵌套的 `Splitter` 与 `NestedGrid` 各自 `provide` 自己的 scope 与 `useSashSnap`（SashHandle 就近 inject），`SashHandle` 的 attrs（`class`、`style`、`data-moving`）落在根元素上，scoped 样式能命中。nb-layout 的 238 个 bun 用例、128 个 vitest 用例、两套类型检查全过，neuro-book 的类型检查与 workbench 下 73 个 vitest 用例、locales 用例也过。
+- `grid-rects.ts` 取整：对缝 {1,4,7} × dpr {1,1.25,1.5,2} × 宽 600 到 2000 的枚举有效，去掉“最后一块贴边”、改动 `ideal` 累加、去掉缝的夹取都会让现有测试失败。
+- 手势与屏幕矩形差半像素（item 7）：`aria-valuenow`、`sashBandBox`、预备区用未取整的 `layout.sizes`，屏幕矩形取整，差都不超过半个设备像素，不影响命中（命中读 DOM 的分隔线矩形，本身就是取整后的）；`workbench-views.e2e.ts` 的 `<= 0.5` 只比原来的严格小于多出“恰好 0.5”，理由成立，不是掩盖（见第 14 条）。
+- 热路径：`sashProps` 每条分隔线每次渲染构造 `buildGridBranchPanels`，N 个子节点时每次渲染 N×(N-1) 个小对象，外壳 N≤7，编辑器区几个组，没有必要处理；`placement`、`renderItems` 每帧 O(叶数+缝数)。
+- 返工项：新增代码里没有按错误文案做分支、没有静默 `catch`、没有跨包深导入；`boundary.test.ts` 把 `tabbable` 登记进 Vue 层白名单是计划里写的。
+- `moveTab` 的输入法分支、`defaultPrevented` 分支、`atEdge` 的祖先容器处理、哨兵只在不一致时渲染且在 `v-for` 前后：逻辑与 e2e 写法一致；这些我没能在真实浏览器里验证（`tabbable` 的显示判断依赖真实布局，happy-dom 里没有）。
+
+## 需要主 Agent 跑的 e2e 与我没能验证的
+1. 第 1 条：开动画，Lab structure 场景和外壳页里把视口高度也改一下，连续读 `[data-moving]` 个数与外框高度，预期现状为非零。
+2. 第 2 条：开动画，close-new、split-before 之后读分隔线 x 与相邻外框边的距离。
+3. 第 4 条：把 lab-nb-ui 的菜单退场竞态、Collapsible 的 `data-animating` 用例在 `no-preference` 下与 `reduce` 下各跑一遍对比。
+4. 第 5 条第三点：外壳里拖分隔线落账后，开动画观察松手后 `data-moving` 是否出现。
+
+## 数量
+阻断 1（第 1 条）、重要 3（第 2、3、4 条）、建议 10（第 5 到 14 条）。无撤回与收窄条目。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

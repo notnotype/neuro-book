@@ -16,6 +16,7 @@ import Table from "./display/Table.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
 import Banner from "./feedback/Banner.vue";
 import Dialog from "./feedback/Dialog.vue";
+import FloatingWindow from "./feedback/FloatingWindow.vue";
 import Drawer from "./feedback/Drawer.vue";
 import Notification from "./feedback/Notification.vue";
 import NotificationStack from "./feedback/NotificationStack.vue";
@@ -301,7 +302,7 @@ describe("nb-ui components", () => {
 
     it("banner: actions slot holds several buttons, error is announced as alert, icon can be replaced, dismiss only emits", async () => {
         const wrapper = mount(Banner, {
-            props: {tone: "error", message: "磁盘上的文件已被修改。", iconClass: "i-lucide-refresh-cw", dismissible: true, closeLabel: "知道了"},
+            props: {tone: "danger", message: "磁盘上的文件已被修改。", iconClass: "i-lucide-refresh-cw", dismissible: true, closeLabel: "知道了"},
             slots: {actions: "<button data-a>重新载入</button><button data-b>覆盖</button>"},
         });
 
@@ -777,7 +778,7 @@ describe("nb-ui context menu position", () => {
         const wrapper = mount(ContextMenu, {
             attachTo: document.body,
             props: {
-                visible: true,
+                open: true,
                 x: 20,
                 y: 20,
                 items: [{label: "一级", children: [{label: "二级", children: [{label: "三级", action}]}]}],
@@ -796,7 +797,7 @@ describe("nb-ui context menu position", () => {
         expect(leaf).toBeTruthy();
         leaf!.click();
         expect(action).toHaveBeenCalledOnce();
-        expect(wrapper.emitted("close")).toHaveLength(1);
+        expect(wrapper.emitted("request-close")).toHaveLength(1);
         wrapper.unmount();
     });
 });
@@ -837,12 +838,11 @@ describe("nb-ui notification clearAll", () => {
     });
 });
 
-describe("nb-ui dialog window (Dialog modal=false)", () => {
+describe("nb-ui floating window (FloatingWindow)", () => {
     function mountWindow(props: Record<string, unknown> = {}, header?: string) {
-        return mount(Dialog, {
+        return mount(FloatingWindow, {
             props: {
-                modelValue: true,
-                modal: false,
+                open: true,
                 closable: true,
                 showFooter: false,
                 title: "浮动窗口",
@@ -880,9 +880,9 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
         try {
             await flushPromises();
             expect(visibility()).toBe("");
-            await wrapper.setProps({modelValue: false});
+            await wrapper.setProps({open: false});
             await flushPromises();
-            await wrapper.setProps({modelValue: true});
+            await wrapper.setProps({open: true});
             await flushPromises();
             expect(visibility()).toBe("");
         } finally {
@@ -933,7 +933,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             await nextTick();
 
             document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
-            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+            expect(wrapper.emitted("update:open")).toBeUndefined();
         } finally {
             wrapper.unmount();
         }
@@ -1050,8 +1050,8 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
     }
 
     it("drags from the panel's blank space, the whole title bar and marked content regions", async () => {
-        const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
             slots: {
                 "header-extra": "<span data-test-header-blank>头部空白</span>",
                 default: "<div data-dialog-drag><span data-test-region-text>可拖的标题</span></div><p data-test-plain>正文</p>",
@@ -1073,8 +1073,8 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
     });
 
     it("does not drag from buttons, inputs and role=button inside a drag region, nor below the 3px threshold", async () => {
-        const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
             slots: {default: "<div data-dialog-drag><span data-test-blank>空白</span><button data-test-button>操作</button><input data-test-input /><span role=\"button\" data-test-role-button>自画的按钮</span></div>"},
             attachTo: document.body,
         });
@@ -1115,14 +1115,14 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             await wrapper.get("[aria-label='关闭']").trigger("click");
             expect(wrapper.emitted("update:width")).toBeUndefined();
             expect(wrapper.emitted("request-close")).toBeUndefined();
-            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+            expect(wrapper.emitted("update:open")).toBeUndefined();
         } finally {
             wrapper.unmount();
         }
     });
     it("raises Select popovers above the window surface", async () => {
-        const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
                 default: () => h(Select, {
                     modelValue: "one",
@@ -1137,19 +1137,18 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             await nextTick();
             await nextTick();
 
-            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8991");
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8999");
         } finally {
             wrapper.unmount();
         }
     });
 
     it("stacks a window opened from a window above it, popovers included", async () => {
-        const wrapper = mount(Dialog, {
-            props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
+        const wrapper = mount(FloatingWindow, {
+            props: {open: true, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
-                default: () => h(Dialog, {
-                    modelValue: true,
-                    modal: false,
+                default: () => h(FloatingWindow, {
+                    open: true,
                     showFooter: false,
                     title: "编辑模型",
                     teleportTarget: false,
@@ -1168,15 +1167,15 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
 
             const surfaces = wrapper.findAll("[data-dialog-surface]").map((node) => node.attributes("style") ?? "");
             expect(surfaces).toHaveLength(2);
-            expect(surfaces[0]).toContain("z-index: 8990");
-            expect(surfaces[1]).toContain("z-index: 8992");
+            expect(surfaces[0]).toContain("z-index: 8900");
+            expect(surfaces[1]).toContain("z-index: 8902");
 
-            // 内层窗口自己的下拉必须压过内层窗口本体，否则下拉会被同层的下拉遮住
+            // 窗口里的下拉取窗口带的最上一格，压过所有窗口本体（含内层窗口），否则下拉会被窗口遮住
             await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
             await nextTick();
             await nextTick();
 
-            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8993");
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8999");
         } finally {
             wrapper.unmount();
         }
@@ -1197,7 +1196,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
 describe("nb-ui dialog scroll separators", () => {
     function mountDialog() {
         return mount(Dialog, {
-            props: {modelValue: true, title: "标题", showCancel: true, teleportTarget: false},
+            props: {open: true, title: "标题", showCancel: true, teleportTarget: false},
             slots: {default: "<p>正文</p>"},
             attachTo: document.body,
         });
@@ -1245,7 +1244,7 @@ describe("nb-ui dialog anatomy", () => {
      */
     function mountDialog(props: Record<string, unknown> = {}) {
         return mount(Dialog, {
-            props: {modelValue: true, title: "标题", showCancel: true, teleportTarget: false, ...props},
+            props: {open: true, title: "标题", showCancel: true, teleportTarget: false, ...props},
             slots: {default: "<p>正文</p>"},
             attachTo: document.body,
         });
@@ -1879,7 +1878,7 @@ describe("nb-ui dialog anatomy", () => {
             props: {
                 title: "删除章节确认",
                 description: "此操作无法恢复",
-                confirmText: "确认删除",
+                confirmLabel: "确认删除",
             },
             slots: {
                 trigger: "<button>删除章节</button>",
@@ -1916,7 +1915,7 @@ describe("nb-ui dialog anatomy", () => {
                     open: open.value,
                     title: "受控确认",
                     description: "请确认",
-                    confirmText: "确认",
+                    confirmLabel: "确认",
                     "onUpdate:open": (value: boolean) => { open.value = value; },
                 });
             },
@@ -1952,7 +1951,7 @@ describe("nb-ui dialog anatomy", () => {
             props: {
                 title: "删除章节确认",
                 description: "此操作无法恢复",
-                confirmText: "确认删除",
+                confirmLabel: "确认删除",
             },
             slots: {
                 trigger: "<button>删除章节</button>",
@@ -1995,8 +1994,8 @@ describe("nb-ui dialog anatomy", () => {
         const wrapper = mount(Menubar, {
             props: {
                 menus: [
-                    {id: "file", label: "文件", items: [{label: "新建", value: "new"}]},
-                    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo"}]},
+                    {id: "file", label: "文件", items: [{label: "新建", id: "new"}]},
+                    {id: "edit", label: "编辑", items: [{label: "撤销", id: "undo"}]},
                 ],
             },
         });

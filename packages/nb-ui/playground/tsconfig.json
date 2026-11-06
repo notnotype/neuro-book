@@ -1,3 +1,8 @@
 {
-    "extends": "./.nuxt/tsconfig.json"
+    "extends": "./.nuxt/tsconfig.json",
+    "vueCompilerOptions": {
+        "checkUnknownProps": true,
+        "checkUnknownEvents": true,
+        "dataAttributes": ["data-*"]
+    }
 }

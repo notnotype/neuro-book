@@ -3,7 +3,7 @@
  * 交给服务商的名字由适配器换算（t04 决定 1），显式覆盖写 `providerName`。
  */
 
-import type {Attributed, JsonValue} from "./basics.js";
+import type {Actor, Attributed, JsonValue} from "./basics.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 
 /** 工具的副作用等级：审批与只读模式按它判定（t06）。 */
@@ -49,9 +49,19 @@ export interface ToolCall {
  */
 export type ToolStatus = "ok" | "error" | "denied" | "blocked" | "unknown";
 
-/** 工具或工具拦截交回的结果。`status` 缺省 `ok`；`redacted` 时日志里的原文只记哈希。 */
+/** 工具结果里的一张图：`data` 是 base64，超过 16 KB 时和别的长字符串一样外置进 `blobs/`。 */
+export interface ToolImage {
+    readonly data: string;
+    readonly mime: string;
+    readonly width?: number;
+    readonly height?: number;
+}
+
+/** 工具或工具拦截交回的结果。`status` 缺省 `ok`；`redacted` 时日志里的原文只记哈希，图片不写。 */
 export interface ToolResult {
     readonly text: string;
+    /** 随文字一起给模型看的图（docs/specs/harness/runtime.md 输出 58）。 */
+    readonly images?: readonly ToolImage[];
     readonly status?: "ok" | "error" | "denied";
     /** 失败的码；内核造的失败结果都带码（`api/codes.ts` 的 `toolResultCodes`）。 */
     readonly code?: string;
@@ -66,7 +76,7 @@ export interface QuestionRequest {
     readonly options?: readonly string[];
     readonly data?: JsonValue;
 }
-export type QuestionAnswer = {readonly kind: "answer"; readonly text: string; readonly data?: JsonValue} | {readonly kind: "unavailable"; readonly code: string};
+export type QuestionAnswer = {readonly kind: "answer"; readonly text: string; readonly data?: JsonValue; /** 谁答的：用户，或会话头 `questions: "caller"` 时的父会话。工具按它决定要求什么形状。 */ readonly by: Actor} | {readonly kind: "unavailable"; readonly code: string};
 
 export interface ToolContext {
     readonly signal: AbortSignal;

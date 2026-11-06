@@ -52,6 +52,33 @@ function names(listing: {readonly ok: boolean; readonly value?: Listing}): strin
     return (listing.value as Listing).entries.map((entry) => entry.name);
 }
 
+describe("找文件（workspace/resources.md 的“找文件”）", () => {
+    it("按名字找，开头命中排前，路径也算；不进隐藏目录；没有命中时为空；超过 limit 标不完整", async () => {
+        const {window} = await scene({project: {".nbook/第三章内部.md": "x", "大纲.md": "x", "正文/第三章.md": "x", "人物/写第三章的人.md": "x"}});
+        const client = remote(window).use(projectFilesContract);
+        const found = await client.find({query: "第三章"});
+        if (!found.ok) throw new Error(found.code);
+        // 开头命中的排在只是包含的前面；隐藏目录不进。
+        expect(found.value.items.map((item) => item.path)).toEqual(["正文/第三章.md", "人物/写第三章的人.md"]);
+        const byPath = await client.find({query: "人物/"});
+        expect(byPath).toMatchObject({ok: true, value: {items: [{path: "人物/写第三章的人.md"}]}});
+        expect(await client.find({query: "没有这个"})).toMatchObject({ok: true, value: {items: [], truncated: false}});
+        const cut = await client.find({query: "", limit: 2});
+        expect(cut).toMatchObject({ok: true, value: {truncated: true}});
+        expect(cut.ok && cut.value.items).toHaveLength(2);
+    });
+
+    it("内容文件夹里的章节带标题，按标题也找得到", async () => {
+        const {window} = await scene({project: {
+            "正文.content/content.xml": '<content><item name="a.md" title="雨夜"/></content>',
+            "正文.content/a.md": "x",
+        }});
+        const found = await remote(window).use(projectFilesContract).find({query: "雨夜"});
+        if (!found.ok) throw new Error(found.code);
+        expect(found.value.items.map((item) => [item.path, item.title])).toEqual([["正文.content/a.md", "雨夜"]]);
+    });
+});
+
 describe("Spec workspace.resources 读与列出：三种调用方经同一份合同", () => {
     it("窗口经 filesKey 列出、读取并按基线保存两个根；过期基线为冲突、带当前基线，磁盘不被覆盖", async () => {
         const {project, user, window} = await scene({project: {"chapter.md": "第一章", ".nbook/project.json": "{}"}, user: {"notes.md": "笔记"}});

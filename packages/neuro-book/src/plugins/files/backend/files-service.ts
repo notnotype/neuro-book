@@ -10,10 +10,11 @@ import {createHash} from "node:crypto";
 import {lstat, opendir} from "node:fs/promises";
 import {join} from "node:path";
 
-import type {Baseline, DirectoryEntry, FileText, FolderKind, Listing, ManifestState, SavedIdentity} from "../shared/contracts";
+import type {Baseline, DirectoryEntry, FileText, FindResult, FolderKind, Listing, ManifestState, SavedIdentity} from "../shared/contracts";
 import {encodedTextBytes, TEXT_BUDGET_BYTES} from "../shared/contracts";
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
+import {decodeText} from "../shared/text";
 import {BODY_NAME, compareEntries, folderKindOf, itemsAt, MANIFEST_NAME, parseManifest} from "./folder-kinds";
 import type {ManifestItem} from "./folder-kinds";
 import {entryToken} from "./rooted";
@@ -46,28 +47,32 @@ export interface SavedFile {
     readonly identity?: SavedIdentity;
 }
 
+const FIND_LIMIT = 20;
+const FIND_SCAN_LIMIT = 5000;
+
+/** 排序：标题或文件名开头命中在前，其次标题或文件名里有，最后是路径里有；都没有交回 null。查询为空时全算命中，按路径排。 */
+function findRank(entry: DirectoryEntry, path: string, needle: string): number | null {
+    if (needle === "") return 0;
+    const names = [entry.title ?? "", entry.name].map((name) => name.toLowerCase());
+    if (names.some((name) => name.startsWith(needle))) return 0;
+    if (names.some((name) => name.includes(needle))) return 1;
+    return path.toLowerCase().includes(needle) ? 2 : null;
+}
+
 export interface FilesService {
     list(path: string): Promise<Outcome<Listing>>;
+    find(query: string, limit?: number): Promise<Outcome<FindResult>>;
     read(path: string): Promise<Outcome<FileText>>;
-    write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string): Promise<Outcome<SavedFile>>;
+    /** `committed` 在写入锁里、替换之后调用（交记账槽）。 */
+    write(path: string, text: string, baseline: Baseline, temporaryPath?: (file: string) => string, committed?: (placed: {readonly realPath: string; readonly before: {readonly hash: string; readonly bytes: Uint8Array}; readonly bytes: Uint8Array}) => Promise<void>): Promise<Outcome<SavedFile>>;
     /** 资源在服务端机器上的绝对路径；最后一段不跟随符号链接，根本身是根的真实路径。 */
-    realPath(path: string): Promise<Outcome<{readonly path: string}>>;
+    realPath(path: string): Promise<Outcome<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
 }
 
 export function hashOf(bytes: Uint8Array): string {
     return createHash("sha256").update(bytes).digest("hex");
 }
 
-/** 只接受 UTF-8；BOM 留在文本里（保存时原样写回），含 NUL 的视为二进制。 */
-export function decodeText(bytes: Uint8Array): string | null {
-    if (bytes.includes(0)) return null;
-    try {
-        return new TextDecoder("utf-8", {fatal: true, ignoreBOM: true}).decode(bytes);
-    } catch {
-        // 非法 UTF-8：TextDecoder 只给 TypeError，没有更多可记的信息。
-        return null;
-    }
-}
 
 export function createFilesService(options: FilesServiceOptions): FilesService {
     const {root} = options;
@@ -96,57 +101,102 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
         return parsed.ok ? {state: {status: "ok"}, items: parsed.items} : {state: {status: "invalid", detail: `${path}：${parsed.detail}`}, items: []};
     };
 
+    const listAt = async (path: string): Promise<Outcome<Listing>> => {
+        const listed = await root.list(path);
+        if (!listed.ok) return failed(listed, "files.list.failed");
+        const segments = path === "" ? [] : path.split("/");
+        const folder = segments.length === 0 ? "plain" : kindOf(segments[segments.length - 1] as string);
+        const disk: DirectoryEntry[] = listed.entries.map((entry) => entry.kind === "directory" ? {name: entry.name, kind: entry.kind, folder: kindOf(entry.name)} : {name: entry.name, kind: entry.kind});
+        let index = -1;
+        for (let at = segments.length - 1; at >= 0; at -= 1) {
+            if (kindOf(segments[at] as string) === "content") {
+                index = at;
+                break;
+            }
+        }
+        if (folder === "binder" || index < 0) return {ok: true, value: {folder, contentRoot: null, entries: disk.sort(compareEntries)}};
+
+        const contentRoot = segments.slice(0, index + 1).join("/");
+        const atContentRoot = index === segments.length - 1;
+        const marked = await Promise.all(disk.map(async (entry): Promise<DirectoryEntry> => {
+            if (entry.kind === "directory") {
+                const directory = join(listed.resolved.real, entry.name);
+                const [body, leaf] = await Promise.all([hasBody(directory), isLeaf(directory)]);
+                return {...entry, body, ...(leaf ? {leaf} : {})};
+            }
+            if (entry.kind === "file" && atContentRoot && entry.name === MANIFEST_NAME) return {...entry, role: "manifest"};
+            if (entry.kind === "file" && !atContentRoot && entry.name === BODY_NAME) return {...entry, role: "body"};
+            return entry;
+        }));
+        const manifest = await manifestOf(contentRoot);
+        if (manifest.state.status !== "ok") return {ok: true, value: {folder, contentRoot, manifest: manifest.state, entries: marked.sort(compareEntries)}};
+        const level = itemsAt(manifest.items, segments.slice(index + 1)) ?? [];
+        const byName = new Map(marked.map((entry) => [entry.name, entry]));
+        const ordered: DirectoryEntry[] = level.map((item) => {
+            const display = {...(item.title === undefined ? {} : {title: item.title}), ...(item.icon === undefined ? {} : {icon: item.icon})};
+            const entry = byName.get(item.name);
+            byName.delete(item.name);
+            return entry === undefined ? {name: item.name, kind: "missing", ...display, listed: true} : {...entry, ...display, listed: true};
+        });
+        const unlisted = [...byName.values()].sort(compareEntries).map((entry): DirectoryEntry => ({...entry, listed: false}));
+        return {ok: true, value: {folder, contentRoot, manifest: manifest.state, entries: [...ordered, ...unlisted]}};
+    };
+
+    const list: FilesService["list"] = async (path) => {
+        const bad = invalid(path);
+        if (bad !== null) return bad;
+        return listAt(path);
+    };
+
     return {
-        list: async (path) => {
-            const bad = invalid(path);
-            if (bad !== null) return bad;
-            const listed = await root.list(path);
-            if (!listed.ok) return failed(listed, "files.list.failed");
-            const segments = path === "" ? [] : path.split("/");
-            const folder = segments.length === 0 ? "plain" : kindOf(segments[segments.length - 1] as string);
-            const disk: DirectoryEntry[] = listed.entries.map((entry) => entry.kind === "directory" ? {name: entry.name, kind: entry.kind, folder: kindOf(entry.name)} : {name: entry.name, kind: entry.kind});
-            let index = -1;
-            for (let at = segments.length - 1; at >= 0; at -= 1) {
-                if (kindOf(segments[at] as string) === "content") {
-                    index = at;
-                    break;
+        list,
+        /**
+         * 一层层列，不走原生搜索：要内容文件夹的标题（章节的名字往往不在文件名里），这也让它和 `list` 看到的一样多。名字以 `.`
+         * 开头的不进（`.nbook`、`.git`）。看够 `FIND_SCAN_LIMIT` 项就停：写作的项目通常几百个文件，一次输入不值得扫完巨大的目录。
+         */
+        find: async (query, limit = FIND_LIMIT) => {
+            const needle = query.trim().toLowerCase();
+            const hits: {item: FindResult["items"][number]; rank: number}[] = [];
+            const pending = [""];
+            let scanned = 0;
+            let truncated = false;
+            while (pending.length > 0) {
+                const directory = pending.shift() as string;
+                const listed = await listAt(directory);
+                // 读不了的子目录跳过，别的还能找；根都读不了才算失败。
+                if (!listed.ok) {
+                    if (directory === "") return listed;
+                    continue;
+                }
+                for (const entry of listed.value.entries) {
+                    if (entry.name.startsWith(".")) continue;
+                    scanned += 1;
+                    if (scanned > FIND_SCAN_LIMIT) {
+                        truncated = true;
+                        pending.length = 0;
+                        break;
+                    }
+                    const path = directory === "" ? entry.name : `${directory}/${entry.name}`;
+                    if (entry.kind === "directory") {
+                        pending.push(path);
+                        continue;
+                    }
+                    if (entry.kind !== "file") continue;
+                    const rank = findRank(entry, path, needle);
+                    if (rank !== null) hits.push({item: {path, name: entry.name, ...(entry.title === undefined ? {} : {title: entry.title})}, rank});
                 }
             }
-            if (folder === "binder" || index < 0) return {ok: true, value: {folder, contentRoot: null, entries: disk.sort(compareEntries)}};
-
-            const contentRoot = segments.slice(0, index + 1).join("/");
-            const atContentRoot = index === segments.length - 1;
-            const marked = await Promise.all(disk.map(async (entry): Promise<DirectoryEntry> => {
-                if (entry.kind === "directory") {
-                    const directory = join(listed.resolved.real, entry.name);
-                    const [body, leaf] = await Promise.all([hasBody(directory), isLeaf(directory)]);
-                    return {...entry, body, ...(leaf ? {leaf} : {})};
-                }
-                if (entry.kind === "file" && atContentRoot && entry.name === MANIFEST_NAME) return {...entry, role: "manifest"};
-                if (entry.kind === "file" && !atContentRoot && entry.name === BODY_NAME) return {...entry, role: "body"};
-                return entry;
-            }));
-            const manifest = await manifestOf(contentRoot);
-            if (manifest.state.status !== "ok") return {ok: true, value: {folder, contentRoot, manifest: manifest.state, entries: marked.sort(compareEntries)}};
-            const level = itemsAt(manifest.items, segments.slice(index + 1)) ?? [];
-            const byName = new Map(marked.map((entry) => [entry.name, entry]));
-            const ordered: DirectoryEntry[] = level.map((item) => {
-                const display = {...(item.title === undefined ? {} : {title: item.title}), ...(item.icon === undefined ? {} : {icon: item.icon})};
-                const entry = byName.get(item.name);
-                byName.delete(item.name);
-                return entry === undefined ? {name: item.name, kind: "missing", ...display, listed: true} : {...entry, ...display, listed: true};
-            });
-            const unlisted = [...byName.values()].sort(compareEntries).map((entry): DirectoryEntry => ({...entry, listed: false}));
-            return {ok: true, value: {folder, contentRoot, manifest: manifest.state, entries: [...ordered, ...unlisted]}};
+            hits.sort((a, b) => a.rank - b.rank || a.item.path.localeCompare(b.item.path));
+            return {ok: true, value: {items: hits.slice(0, limit).map((hit) => hit.item), truncated: truncated || hits.length > limit}};
         },
 
         realPath: async (path) => {
             const bad = invalid(path);
             if (bad !== null) return bad;
-            if (path === "") return {ok: true, value: {path: root.real}};
+            if (path === "") return {ok: true, value: {path: root.real, kind: "directory"}};
             const entry = await root.resolveEntry(path);
             if ("ok" in entry) return failed(entry, "files.real-path.failed");
-            return {ok: true, value: {path: entry.absolute}};
+            return {ok: true, value: {path: entry.absolute, kind: entry.stats.isFile() ? "file" : entry.stats.isDirectory() ? "directory" : "other"}};
         },
 
         read: async (path) => {
@@ -161,7 +211,7 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
             return {ok: true, value: {text, baseline: {hash: hashOf(read.bytes)}}};
         },
 
-        write: async (path, text, baseline, temporaryPath) => {
+        write: async (path, text, baseline, temporaryPath, committed) => {
             const bad = invalid(path);
             if (bad !== null) return bad;
             if (encodedTextBytes(text) > TEXT_BUDGET_BYTES) return {ok: false, code: "too-large", detail: {detail: `${path} 的正文超过上限`}};
@@ -170,7 +220,10 @@ export function createFilesService(options: FilesServiceOptions): FilesService {
                 if (current === null) return {done: {ok: false, code: "not-found", detail: {detail: `${path} 不存在`}}};
                 const now = hashOf(current.bytes);
                 return now === baseline.hash ? {write: bytes} : {done: {ok: false, code: "conflict", detail: {detail: `${path} 在读取后被修改过`, current: {hash: now}}}};
-            }, temporaryPath);
+            }, temporaryPath, committed === undefined ? undefined : async (placed) => {
+                // 保存只替换已有文件：到这里改前内容一定在。
+                if (placed.before !== null) await committed({realPath: placed.realPath, before: {hash: hashOf(placed.before.bytes), bytes: placed.before.bytes}, bytes});
+            });
             if (!replaced.ok) return failed(replaced, "files.write.failed");
             if ("done" in replaced) return replaced.done;
             // 经祖先目录的链接保存，替换的仍是这个目录项指向的普通文件，身份照样推进；最后一段本身是链接时目录项（链接）

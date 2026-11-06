@@ -1,19 +1,48 @@
-import {NB_UI_COLORWAY_HOST_CLASS, applyColorway} from "@notnotype/nb-ui/colorway";
-import type {NbColorwayVars} from "@notnotype/nb-ui/colorway";
+import {NB_UI_COLORWAY_HOST_CLASS} from "@notnotype/nb-ui/colorway";
+
+import {SKIN_VARS} from "./skin-vars";
 
 /** 写到文档根的一套主题：主题包、明暗与配色变量（docs/specs/theme/system.md）。 */
 export interface DocumentTheme {
     readonly themeId: string;
+    /** 主题目录里的 id；没有时用 `themeId`。换了它就是换了一套主题，整页渐变（同一个 id 下只改配色变量不渐变）。 */
+    readonly skin?: string;
     readonly appearance: "light" | "dark";
-    /** 配色变量；主题包没有对应明暗的配色时为 undefined，只写主题包与明暗。 */
-    readonly vars: NbColorwayVars | undefined;
+    /** 配色变量与主题写的其它变量；都没有时为 undefined，只写主题包与明暗。 */
+    readonly vars: Readonly<Partial<Record<string, string>>> | undefined;
+    /** 这套主题有场景图（docs/specs/theme/skins.md）。 */
+    readonly scene?: boolean;
+    /** 图标集（docs/specs/theme/skins.md 输出 16）：图标名（`i-lucide-<名>` 的 <名>）到 URL。 */
+    readonly icons?: Readonly<Record<string, string>>;
 }
 
 export interface DocumentThemeWriter {
-    /** 覆盖上一次写下的主题。 */
+    /**
+     * 覆盖上一次写下的主题。换了主题包或明暗时，浏览器支持的话整页渐变过去；首次写入、只改配色变量（编辑器里拖色）
+     * 和偏好“减弱动效”时直接写（docs/specs/theme/system.md 运行时流程第 6 条）。
+     */
     apply(theme: DocumentTheme): void;
     /** 去掉自己写下的属性、配色变量与配色宿主 class，文档根回到没有主题的样子。 */
     clear(): void;
+}
+
+/**
+ * 图标集的样式表（docs/specs/theme/skins.md 输出 16）。nb-ui 的图标是 `[class*="i-lucide-"]` 垫片用 `mask-image: var(--svg)` 画的，
+ * 每个图标类只在 `@layer` 里写自己的 `--svg`；这里的规则不进任何层，所以压过它们，不用改图标的使用方。对比度偏好与强制颜色下
+ * 不换，系统默认的图标最好认。图标名由声明校验成 `[a-z0-9-]`，URL 逐字转义后放进引号。
+ */
+function iconRules(entries: ReadonlyArray<readonly [string, string]>): string {
+    const rules = entries.map(([name, url]) => `.i-lucide-${name}{--svg:url("${url.replace(/[\\"\n]/gu, (char) => `\\${char === "\n" ? "a " : char}`)}")}`);
+    return `@media not ((prefers-contrast: more) or (forced-colors: active)){${rules.join("")}}`;
+}
+
+/**
+ * 渐变被后来的渐变（或页面隐藏）跳过时，它的三个 Promise 会以 `AbortError` 拒绝：这是预期的，写入已由后来的那次接手
+ * （见 `latest`），不是失败，不能留成未处理的拒绝。别的错误照常抛出。
+ */
+function ignoreSkipped(error: unknown): void {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    throw error;
 }
 
 /**
@@ -26,6 +55,7 @@ export interface DocumentThemeWriter {
  */
 export function createDocumentThemeWriter(): DocumentThemeWriter {
     let written: string[] = [];
+    let iconSheet: HTMLStyleElement | undefined;
     const clearVars = (): void => {
         for (const name of written) {
             document.documentElement.style.removeProperty(name);
@@ -33,24 +63,74 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
         }
         written = [];
     };
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    /**
+     * 最近一次要求写下的主题。渐变的写入回调由浏览器在下一帧才调，这期间可能又来了新的 `apply`，或页面已经 `clear`；
+     * 回调只在自己仍是最新一次时才写，否则迟到的旧主题会盖掉新的，或在页面卸载后把主题写回文档根。
+     */
+    let latest: DocumentTheme | undefined;
+    const writeIcons = (icons: DocumentTheme["icons"]): void => {
+        const entries = Object.entries(icons ?? {});
+        if (entries.length === 0) {
+            clearIcons();
+            return;
+        }
+        iconSheet ??= document.createElement("style");
+        iconSheet.dataset.nbSkinIcons = "";
+        const rules = iconRules(entries);
+        if (iconSheet.textContent !== rules) iconSheet.textContent = rules;
+        if (!iconSheet.isConnected) document.head.append(iconSheet);
+    };
+    const clearIcons = (): void => {
+        iconSheet?.remove();
+        iconSheet = undefined;
+    };
+    const write = (theme: DocumentTheme): void => {
+        const root = document.documentElement;
+        root.dataset.nbTheme = theme.themeId;
+        root.dataset.nbAppearance = theme.appearance;
+        root.style.colorScheme = theme.appearance;
+        if (theme.scene === true) root.dataset.nbSkinScene = "";
+        else delete root.dataset.nbSkinScene;
+        if (theme.vars?.[SKIN_VARS.frameLine] !== undefined) root.dataset.nbSkinFrame = "";
+        else delete root.dataset.nbSkinFrame;
+        writeIcons(theme.icons);
+        clearVars();
+        if (theme.vars !== undefined) {
+            for (const target of [root, document.body]) {
+                target.classList.add(NB_UI_COLORWAY_HOST_CLASS);
+                for (const [name, value] of Object.entries(theme.vars)) {
+                    if (value !== undefined) target.style.setProperty(name, value);
+                }
+            }
+            written = Object.keys(theme.vars);
+        }
+    };
     return {
         apply(theme) {
-            const root = document.documentElement;
-            root.dataset.nbTheme = theme.themeId;
-            root.dataset.nbAppearance = theme.appearance;
-            root.style.colorScheme = theme.appearance;
-            clearVars();
-            if (theme.vars !== undefined) {
-                applyColorway(root, theme.vars);
-                applyColorway(document.body, theme.vars);
-                written = Object.keys(theme.vars);
+            const previous = latest;
+            latest = theme;
+            const switched = previous !== undefined && ((previous.skin ?? previous.themeId) !== (theme.skin ?? theme.themeId) || previous.appearance !== theme.appearance);
+            if (!switched || reducedMotion.matches || typeof document.startViewTransition !== "function") {
+                write(theme);
+                return;
             }
+            const transition = document.startViewTransition(() => {
+                if (latest === theme) write(theme);
+            });
+            transition.ready.catch(ignoreSkipped);
+            transition.updateCallbackDone.catch(ignoreSkipped);
+            transition.finished.catch(ignoreSkipped);
         },
         clear() {
+            latest = undefined;
             const root = document.documentElement;
             delete root.dataset.nbTheme;
             delete root.dataset.nbAppearance;
+            delete root.dataset.nbSkinScene;
+            delete root.dataset.nbSkinFrame;
             root.style.removeProperty("color-scheme");
+            clearIcons();
             clearVars();
             root.classList.remove(NB_UI_COLORWAY_HOST_CLASS);
             document.body.classList.remove(NB_UI_COLORWAY_HOST_CLASS);

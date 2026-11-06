@@ -1,0 +1,90 @@
+# w00032 t28 批 5 实现审查
+
+### 重要：发送或排队失败后附件不可恢复
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:410-413, 819-832, 856-867
+- 现象：`submit` 在调用 `send`、`enqueue` 之前先执行 `takeAttachments`，该函数立即把 `uploads` 换成空 Map；`settleSend` 的未知结果记录和明确拒绝只保存文字，`message.resend` 也只用 `{text: sent.text}` 重发。
+- 为什么是问题：网络失败、明确拒绝、`steer` 或 `followup` 排队失败时，编辑器里的附件已经消失，用户只能重选文件；结果未知后按合同重发同一 `commandId` 时请求不再带原附件，编辑重发以外的正常发送也丢失附件，违反附件失败可重试以及发送输入应保持可恢复的行为。
+- 如何核实：在现有 `session-host.test.ts` 的附件就绪场景中注入返回 `input-rejected` 或 `unknown-outcome` 的 `remote.send`，发送含 `![...](sessions://...)` 的文字；观察 `ctx().composer.attachments` 变为空，随后 `message.resend` 的 `input.attachments` 缺失。静态路径还显示 `enqueue` 失败没有任何附件恢复分支。
+- 建议改法：把本次发送的附件与文字一起放入失败状态和未知结果状态；明确拒绝、可恢复的排队失败与结果未知的重发都恢复同一组附件，并在成功受理或确认不再重试后再清理。
+
+### 重要：宿主用子串搜索计算附件范围，代码块、转义写法和重复地址会误配
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:397-407, 513-516
+- 现象：`attachmentsFor` 对每个候选都从 0 调 `text.indexOf(](${uri}))`，再用 `lastIndexOf("[")` 猜标签；没有调用计划要求的 `parsePromptText`，也没有为同一 URI 维护搜索游标。
+- 为什么是问题：代码块或转义文本里的 `](${uri})` 也会被当成真实附件标签，发给内核后会把代码中的文字切掉并插入图片；同一内容上传两次或同一图片标签出现两次时两个候选拿到同一个首个范围，内核按重叠范围跳过后一个且原文中的第二个标签仍留在请求里。编辑重发复用同一函数，因此同样受影响。
+- 如何核实：用现有真实宿主测试的 `h.host.act({type: "composer.submit", text: "`![image](sessions://s/home/attachments/a.png)`", ...})` 和同 URI 两个标签场景，检查 `input.data.attachments` 的范围及模型请求；对照 `packages/nb-markdown/src/prompt/prompt-text.test.ts:107-110,151-153`，解析器明确支持会话附件和多个同目标标签，且编辑器代码已用它区分语法。
+- 建议改法：宿主统一调用 `parsePromptText`，只接受解析出的 image/file token，并把 token 的原始范围与候选 URI 一一匹配；对同 URI 按文本出现顺序消费未使用的 token，不能对每个候选都从 0 搜索。
+
+### 重要：从无会话草稿切到已有会话时没有清掉附件
+- 严重程度：重要
+- 类别：不变量
+- 位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:695-708, 374-391
+- 现象：`open` 只有在 `sessionId.value !== null && sessionId.value !== id` 时才把 `uploads` 换成空 Map。第一次加附件时会话仍为 null；在 `createOnce` 等待期间调用 `open(existing)` 不满足 `switching`，上传条目继续留在新会话的附件状态里。随后原来的 `create` 因 generation 已变化返回 null，`startUpload` 把这条迟到结果标成当前界面的 failed。
+- 为什么是问题：合同要求切会话清掉草稿附件，迟到的创建或上传结果不算；这里会把前一个无会话草稿的附件带入用户刚打开的已有会话，并显示一个无意义的失败附件，且没有真正上传到该会话。现有测试只断言会话没有被抢走，没有断言附件已清空，故未覆盖这个状态不变量。
+- 如何核实：沿现有 `session-host.test.ts` 的“建会话时用户去了别的会话”场景，在 `release()` 后增加 `expect(fresh.ctx().composer.attachments).toEqual([])`；按当前代码会看到一个 `failed` 条目。也可在 `open` 调用前后读取 `ctx().composer.attachments`，确认 Map 未被替换。
+- 建议改法：用当前草稿拥有者或 generation 统一判断切换，而不是只看旧的 `sessionId`；从无会话状态打开任何已有会话也必须清空 `uploads`，并让在途创建结果只更新它创建时绑定的草稿代次。
+
+### 重要：关闭会话不会终止共享的在途附件读取
+- 严重程度：重要
+- 类别：不变量
+- 位置：packages/nb-harness/src/kernel/dispatch/attachments.ts:41-84, 120-123；packages/nb-harness/src/kernel/session/session.ts:767-769
+- 现象：同一 URI 的共享读取用一个丢失引用的 `new AbortController().signal` 启动，并保存在 `reading` Map；`clear()` 只清空完成结果缓存和 `cached`，不清 `reading`，也不 abort 共享读取。会话关闭时只调用 `core.attachments.clear()`。
+- 为什么是问题：会话关闭后，尚未完成的文件服务读取仍可长期占住文件服务调用和闭包；如果它最终完成，还会执行 `remember` 把图片重新放回已关闭会话的 resolver。合同要求关闭会话时放掉附件缓存，且中止当前请求不能误伤其他共享读；这需要独立的会话关闭信号，而不是永不取消的共享读。
+- 如何核实：构造一个 `AttachmentPort.read` 捕获传入 signal 后一直不 settle，调用一次 `resolve` 再调用 `clear`；signal 仍未 aborted，`reading` 仍等待。若随后放行 read，结果仍能进入 resolver 的 cache。对照 `session.ts` 的关闭路径可见没有其他释放入口。
+- 建议改法：resolver 持有关闭控制器与在途读取记录；`clear` 先标记关闭并 abort 共享读、清空 `reading`，调用方各自按中止语义结束；新会话重新创建 resolver，不允许关闭前的 late result 回填缓存。
+
+### 重要：GET 与 HEAD 读取路由没有校验会话存在
+- 严重程度：重要
+- 类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/agent/backend/attachments.ts:76-80, 122-140
+- 现象：`createAttachmentRoutes` 接收并在 POST 使用 `hasSession`，但 GET/HEAD 分支只检查跨站请求、文件名格式，然后直接 `files.read(sessions://<id>/...)`；读取分支完全不调用 `hasSession`。
+- 为什么是问题：实现自己的接口注释写的是“不在的不收，也不读”，而合同要求附件属于会话且会话删除后按缺失处理。只要磁盘上有孤儿目录、会话索引与目录短暂不一致，或删除流程保留 home，知道地址的调用者仍可通过读取路由拿到附件；上传路由的会话存在校验不能覆盖读取。
+- 如何核实：为 `createAttachmentRoutes` 注入 `hasSession: async () => false` 和一个对任意地址返回字节的 `files.read`，请求 `GET /sessions/ghost/attachments/<64位哈希>.png` 与 HEAD；按当前分支会得到 200，而 POST 得 404。再用真实文件服务制造索引缺失但目录仍在的会话目录复现。
+- 建议改法：GET/HEAD 与 POST 共用会话存在校验，并在校验失败前不调用文件服务；若确实允许全局地址读取，也应在 Spec 中明确，而不是保留“也不读”的接口合同。
+
+### 建议：每次上传都扫描全部会话索引
+- 严重程度：建议
+- 类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/agent/backend/plugin.ts:77-80；packages/neuro-book/src/plugins/agent/backend/agent.ts:247-251
+- 现象：附件 POST 的 `hasSession` 实现为 `await runtime.listSessions()` 后对完整结果做 `.some`；`runtime.listSessions` 又直接调用 `store.list()`，没有按会话 id 的索引查找。GET/HEAD 当前虽未调用它，但补齐读取鉴权后也会继承同一代价。
+- 为什么是问题：附件上传是每个文件一次的热路径，N 个会话时每次上传至少扫描 N 条索引；用户连续上传 100 个文件就是 100 次全量列表扫描，且扫描期间还会打开/解析不需要的会话元数据。会话数量增长后，鉴权本身成为上传延迟与磁盘负担。
+- 如何核实：在 `store.list` 加计数的临时测试替身，连续调用 100 次 POST，计数会增长到 100；用 N 个会话比较每次调用的扫描条数。实现 worktree 没依赖，本轮未运行该实验。
+- 建议改法：给运行时提供按 id 的存在查询或让附件路由依赖会话表的 O(1) 索引；若读取路由也需要鉴权，上传与读取共用该查询。
+
+### 建议：同一字节内容在不同 MIME 声明下会存成两个地址
+- 严重程度：建议
+- 类别：不变量
+- 位置：packages/neuro-book/src/plugins/agent/backend/attachments.ts:91-101
+- 现象：哈希只按字节计算，但存储地址把 `EXTENSIONS[mime]` 拼进文件名；同一字节流以 `text/plain` 上传到 `<hash>.txt`，再以 `application/json` 上传到 `<hash>.json`，两次 `stage` 都是 absent，第二次不会命中 conflict。
+- 为什么是问题：合同要求同一内容已有算成功，当前实现却重复占用磁盘并交回不同 URI；按内容寻址缓存也因此无法把同一内容视为同一附件。声明 MIME 是浏览器输入，用户可以通过重命名或脚本轻易制造这个情况。
+- 如何核实：对真实附件路由连续 POST 同一 `Uint8Array`，只改变 `Content-Type` 为 `text/plain` 与 `application/json`；检查返回 URI 的扩展名不同，并检查两个目标都能被 `files.read` 读到。
+- 建议改法：让扩展名由内容检测出的规范类型决定，或先按字节哈希查询已有条目并复用其规范扩展名；未知 MIME 不能让同一内容产生第二份对象。
+
+### 建议：后端路由与关闭边界没有行为测试
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/neuro-book/src/plugins/agent/backend/attachments.ts:76-162；packages/nb-harness/src/kernel/dispatch/attachments.ts:41-123
+- 现象：仓库没有 `attachments.ts` 的后端单元测试；现有 e2e 只覆盖成功 POST、图片 GET、SVG 下载、超限 POST 和未知会话 POST。内核测试也没有覆盖 64 MB 缓存淘汰、在途共享读关闭、中止后共享读回填、同一 URI 替换与异常拒绝。
+- 为什么是问题：本批最关键的资源释放、权限、HEAD/304、25 MB 边界、MIME 分支和并发语义没有被永久测试锁住；当前测试不能捕获本报告前述的 GET 鉴权、发送失败附件丢失、无会话切换残留和共享读寿命问题。
+- 如何核实：运行 `find`/`grep` 结果只有 `packages/neuro-book/e2e/agent-conversation.e2e.ts:428-481` 触达附件路由，`packages/nb-harness/src/kernel/dispatch/attachments.test.ts:33-181` 触达内核 resolver；再对照计划验收场景中的 HEAD、304、准确 25 MB、重复地址、发送失败和关闭场景，均没有对应断言。
+- 建议改法：增加真实文件服务加本机 HTTP 的后端合同测试，覆盖 GET/HEAD/304、跨站与未知会话；在内核真会话测试中加入共享读关闭与缓存上限；在宿主真远程测试中加入拒绝、结果未知、steer/followup 和无会话切换后的附件状态。
+
+### 建议：缺少 Content-Type 时上传结果返回空 MIME
+- 严重程度：建议
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/attachments.ts:91-95, 111-118
+- 现象：`declared` 从缺省头得到空字符串；非图片时条件表达式直接把它作为 `mime` 返回。浏览器端虽把空的 `File.type` 改成 `application/octet-stream`，但后端路由本身没有这个缺省。
+- 为什么是问题：直接调用上传路由或代理删掉 `Content-Type` 时，成功响应含 `mime: ""`，与附件合同的 MIME 元数据不一致；后续宿主/重发若依赖该字段会得到空类型，读取路由又只能按 `.bin` 返回 `application/octet-stream`。
+- 如何核实：向真实 POST 路由发送不带 `Content-Type` 的非图片字节，响应状态仍为 200，但 JSON 的 `mime` 是空字符串；带 `Content-Type: application/octet-stream` 才得到非空类型。
+- 建议改法：声明头为空或解析后为空时明确使用 `application/octet-stream`；对未知声明也统一决定是否保留声明 MIME，并让上传响应与读取路由的规范 MIME 保持一致。
+
+## 未发现问题的方面
+- `limitImages` 的终端位置覆盖了用户 `imageRef`、工具结果 `image`、拦截层追加内容和 `modelCaller`；预览也在不读字节的前提下执行同一张数上限，仔细检查后没有发现这条路径的遗漏。
+- `userBlocks` 对合法整数范围、重叠范围回退到末尾、`render` 改写、被省略事件不附图，以及 `imagesBefore` 随 path 回退恢复的核心分支，仔细检查后没有发现独立于宿主范围计算问题之外的问题。
+- 上传边读边计数、25 MB 超限、文件头识别图片、SVG 按普通文件下载、沙箱与 nosniff、ETag 与 HEAD/304 的响应结构，仔细检查后没有发现另一个独立问题；后端边界仍缺行为测试，见测试条目。
+- `createAttachmentPort` 对非图片、缺失、读取失败、图片预处理失败交回 `missing`/`unusable`，并复用现有缩放逻辑；fork 使用全局 `sessions://` 地址、回退后重新按地址读取的路径，仔细检查后没有发现独立问题。
+
+有效发现数量：重要 5，建议 4，阻断 0。

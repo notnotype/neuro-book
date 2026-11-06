@@ -31,8 +31,8 @@ import {mergeShellSizePatch, SHELL_SIZE_DEFAULTS} from "nbook/plugins/workbench/
 import type {ShellDragCollapseMap, ShellHideablePart, ShellSizePatch} from "nbook/plugins/workbench/web/shell/sizes";
 import {TeleportMemory} from "nbook/plugins/workbench/web/shell/teleport-memory";
 import type {Customizations} from "nbook/plugins/workbench/web/state/records";
-import {createDragSession} from "nbook/plugins/workbench/web/views/drag-session";
-import type {DragSession} from "nbook/plugins/workbench/web/views/drag-session";
+import {createShellDrag} from "nbook/plugins/workbench/web/views/drag-session";
+import type {ShellDrag} from "nbook/plugins/workbench/web/views/drag-session";
 import {applyIntent, applyPatch} from "nbook/plugins/workbench/web/views/intents";
 import type {ViewIntent} from "nbook/plugins/workbench/web/views/intents";
 import {computePlacement, customContainerId} from "nbook/plugins/workbench/web/views/placement";
@@ -179,9 +179,9 @@ function move(payload: MovePayload): void {
 
 // ── 拖放：与产品同一个会话，提交走场景的意图合成 ──────────────────────
 
-const drag = shallowRef<DragSession | null>(null);
+const drag = shallowRef<ShellDrag | null>(null);
 onMounted(() => {
-    drag.value = createDragSession({root: hostEl.value!, presentation: () => presentation.value, catalog: () => catalog.value, enabled: () => true, commit: (decision) => apply(decision.intent)});
+    drag.value = createShellDrag({root: hostEl.value!, presentation: () => presentation.value, catalog: () => catalog.value, enabled: () => true, commit: (decision) => apply(decision.intent)});
 });
 onBeforeUnmount(() => drag.value?.dispose());
 const dragState = computed(() => drag.value?.state.value ?? null);

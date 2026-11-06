@@ -1,0 +1,530 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t01-survey",
+    "artifactId": "report",
+    "version": 2,
+    "supersedes": 1,
+    "action": "close",
+    "kind": "report",
+    "title": "NeuroBook 接入 Agent：需求对照与遗漏",
+    "state": "closed",
+    "entry": "index.html",
+    "contentHash": "04e7809c62e7e4b4639fb40f39e2f96857b37ff2f30e19383202e3e5349ab440",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "n01",
+            "type": "text",
+            "label": "第 1 条 Composer：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n02",
+            "type": "text",
+            "label": "第 2 条 Composer 的输入框：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n03",
+            "type": "text",
+            "label": "第 3 条 Agent 插件的贡献点：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n04",
+            "type": "text",
+            "label": "第 4 条 nb-harness 与应用的分工：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n05",
+            "type": "text",
+            "label": "第 5 条 工具池：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n06",
+            "type": "text",
+            "label": "第 6 条 Profile：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n07",
+            "type": "text",
+            "label": "第 7 条 插件给所有 Profile 加工具、工具发现与钩子：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n08",
+            "type": "text",
+            "label": "第 8 条 多 Agent：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n09",
+            "type": "text",
+            "label": "第 9 条 审批、ask、人在回路：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n10",
+            "type": "text",
+            "label": "第 10 条 基础工具：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n11",
+            "type": "text",
+            "label": "第 11 条 agent home 与 URI：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n12",
+            "type": "text",
+            "label": "第 12 条 文档与 docs://：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n13",
+            "type": "text",
+            "label": "第 13 条 Skill：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n14",
+            "type": "text",
+            "label": "第 14 条 MCP 插件：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n15",
+            "type": "text",
+            "label": "第 15 条 外部命令行依赖：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n16",
+            "type": "text",
+            "label": "第 16 条 nb-history：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n17",
+            "type": "text",
+            "label": "第 17 条 rewind、tree、fork、swipe：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n18",
+            "type": "text",
+            "label": "第 18 条 Agent 操控 NeuroBook：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n19",
+            "type": "text",
+            "label": "第 19 条 提示词规范与内置 Profile：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "n20",
+            "type": "text",
+            "label": "第 20 条 nbook project 子命令：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m01",
+            "type": "text",
+            "label": "清单外 1 上下文压缩：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m02",
+            "type": "text",
+            "label": "清单外 2 插话与排队：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m03",
+            "type": "text",
+            "label": "清单外 3 模型服务插件：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m04",
+            "type": "text",
+            "label": "清单外 4 多窗口、多实例写同一会话：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m05",
+            "type": "text",
+            "label": "清单外 5 运行不绑页面：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m06",
+            "type": "text",
+            "label": "清单外 6 会话的周边：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m07",
+            "type": "text",
+            "label": "清单外 7 Workflow 与 Agent：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m08",
+            "type": "text",
+            "label": "清单外 8 只读模式里哪些工具算写：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m09",
+            "type": "text",
+            "label": "清单外 9 长期记忆：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        },
+        {
+            "id": "m10",
+            "type": "text",
+            "label": "清单外 10 真实模型测试的预算与授权：批注",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 2,
+                "reason": "closed"
+            }
+        }
+    ],
+    "publishedAt": "2026-11-06T04:53:11.272Z"
+}

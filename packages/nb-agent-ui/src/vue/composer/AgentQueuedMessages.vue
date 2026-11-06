@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {IconButton} from "@notnotype/nb-ui/components";
 import {firstLine} from "../../format";
 import {useAgentText} from "../host";
 
 const props = defineProps<{
     queued: ReadonlyArray<{id: string; text: string; delivery: "steer" | "followup"}>;
+}>();
+
+const emit = defineEmits<{
+    /** 取出到输入框，改了再发。 */
+    edit: [id: string];
+    remove: [id: string];
 }>();
 
 const {t} = useAgentText();
@@ -23,6 +30,8 @@ const hidden = computed(() => Math.max(0, props.queued.length - VISIBLE));
                 {{ item.delivery === "steer" ? t("composer.queued.steer") : t("composer.queued.followup") }}
             </span>
             <span class="acv-queued__text">{{ firstLine(item.text) }}</span>
+            <IconButton icon-class="i-lucide-pencil" size="xs" :title="t('composer.queued.edit')" :aria-label="t('composer.queued.edit')" data-queued-edit @click="emit('edit', item.id)" />
+            <IconButton icon-class="i-lucide-x" size="xs" :title="t('composer.queued.remove')" :aria-label="t('composer.queued.remove')" data-queued-remove @click="emit('remove', item.id)" />
         </li>
         <li v-if="hidden > 0" class="acv-queued__more">{{ t("composer.queued.more", {count: hidden}) }}</li>
     </ul>
@@ -67,6 +76,7 @@ const hidden = computed(() => Math.max(0, props.queued.length - VISIBLE));
 }
 
 .acv-queued__text {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     color: var(--text-muted);

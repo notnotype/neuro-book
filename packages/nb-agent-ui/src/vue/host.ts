@@ -13,6 +13,7 @@ import {computed, inject, provide} from "vue";
 import type {AgentLocale} from "../types";
 import {firstLine, markdownPreviewLine} from "../format";
 import type {MarkdownPreviewPort} from "../ports";
+import PlainForm from "./fallback/PlainForm.vue";
 import PlainMarkdown from "./fallback/PlainMarkdown.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
 import PlainPromptTextView from "./fallback/PlainPromptTextView.vue";
@@ -28,6 +29,8 @@ export type AgentViewRenderers = {
     promptEditor?: Component;
     promptTextView?: Component;
     markdownPreview?: MarkdownPreviewPort;
+    /** 提问向导的表单：收 `schema`、`modelValue`，发 `update:modelValue`、`update:valid`。 */
+    form?: Component;
 };
 
 type AgentViewHost = {
@@ -52,6 +55,7 @@ export type ResolvedRenderers = {
     promptEditor: Component;
     promptTextView: Component;
     markdownPreview: MarkdownPreviewPort;
+    form: Component;
     /** 用的是缺省的普通文本框：没有标签、附件与粘贴块，输入框据此隐藏“添加附件”、不列 `/` 命令菜单。 */
     plainEditor: boolean;
 };
@@ -88,6 +92,7 @@ export function useAgentRenderers(): ComputedRef<ResolvedRenderers> {
             promptEditor: given.promptEditor ?? PlainPromptEditor,
             promptTextView: given.promptTextView ?? PlainPromptTextView,
             markdownPreview: given.markdownPreview === undefined ? markdownPreviewLine : guardPreview(given.markdownPreview),
+            form: given.form ?? PlainForm,
             plainEditor: given.promptEditor === undefined,
         };
     });

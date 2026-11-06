@@ -5,7 +5,7 @@
 // 改过就报冲突、提示重新载入。
 import {computed, ref, shallowRef} from "vue";
 import {useRouter} from "vue-router";
-import {AlertDialog, Badge, Banner, Button, IconButton, Select} from "@notnotype/nb-ui/components";
+import {AlertDialog, Badge, Banner, Button, IconButton, Select, type BannerTone} from "@notnotype/nb-ui/components";
 import {SchemaForm} from "@notnotype/nb-form/vue";
 import type {FormIssue} from "@notnotype/nb-form";
 import {AgentModelCatalog} from "@notnotype/nb-agent-ui/vue";
@@ -54,7 +54,7 @@ const revision = ref(0);
 const drafts = ref<ReadonlyMap<string, "dirty" | "unparseable">>(new Map());
 const drafting = computed(() => drafts.value.size > 0);
 const saving = ref(false);
-const notice = ref<{tone: "success" | "error" | "warning" | "info"; text: string; conflict?: boolean} | null>(null);
+const notice = ref<{tone: BannerTone; text: string; conflict?: boolean} | null>(null);
 const testing = ref(false);
 const tested = shallowRef<ViewerResult<"config.test"> | null>(null);
 
@@ -251,7 +251,7 @@ async function save(): Promise<void> {
     // 先把正在输入的草稿提交进值；解析不了的留在表单上显示。
     if (form.value !== null && !form.value.commit()) return;
     if (value.value.models.length === 0) {
-        notice.value = {tone: "error", text: "没有保存：先用“添加模型…”添加至少一个候选模型。"};
+        notice.value = {tone: "danger", text: "没有保存：先用“添加模型…”添加至少一个候选模型。"};
         return;
     }
     saving.value = true;
@@ -266,7 +266,7 @@ async function save(): Promise<void> {
         notice.value = {tone: "success", text: "已保存。下一轮问答与下一次抽取开始时用新的配置。"};
     } catch (error) {
         if (error instanceof StoryCallError && error.code === "config_conflict") notice.value = {tone: "warning", text: "配置在别处（命令行或另一个页面）改过了。重新载入会丢掉这里没保存的改动。", conflict: true};
-        else notice.value = {tone: "error", text: `没有保存：${error instanceof Error ? error.message : String(error)}`};
+        else notice.value = {tone: "danger", text: `没有保存：${error instanceof Error ? error.message : String(error)}`};
     } finally {
         saving.value = false;
     }
@@ -288,7 +288,7 @@ async function test(): Promise<void> {
     try {
         tested.value = await client.call("config.test", {});
     } catch (error) {
-        notice.value = {tone: "error", text: `测试连接失败：${error instanceof Error ? error.message : String(error)}`};
+        notice.value = {tone: "danger", text: `测试连接失败：${error instanceof Error ? error.message : String(error)}`};
     } finally {
         testing.value = false;
     }
@@ -323,9 +323,9 @@ function contextText(window: number | null): string {
             </div>
             <p v-if="loaded" class="settings-path">配置文件 <code>{{ loaded.path }}</code>，与命令行 <code>nbstory config</code> 改的是同一份。</p>
 
-            <Banner v-if="loadError" tone="error" :message="`读不到配置：${loadError}`" />
+            <Banner v-if="loadError" tone="danger" :message="`读不到配置：${loadError}`" />
             <Banner v-if="loaded?.state === 'absent'" tone="info" message="还没有配置文件：先添加一个模型，保存后会新建它。" data-testid="settings-absent" />
-            <Banner v-if="loaded?.state === 'invalid'" tone="error" :message="`配置文件有问题：${loaded.problem}。下面从一份空的配置开始，保存会整份覆盖它。`" data-testid="settings-invalid" />
+            <Banner v-if="loaded?.state === 'invalid'" tone="danger" :message="`配置文件有问题：${loaded.problem}。下面从一份空的配置开始，保存会整份覆盖它。`" data-testid="settings-invalid" />
 
             <section v-if="loaded" class="models" data-settings-models>
                 <header>
@@ -410,7 +410,7 @@ function contextText(window: number | null): string {
             v-model:open="removeOpen"
             :title="`删除服务商 ${removing ?? ''}`"
             :description="removingCount > 0 ? `候选里有 ${removingCount} 个模型来自它，会一起去掉。保存后生效。` : '保存后生效。'"
-            confirm-text="删除"
+            confirm-label="删除"
             tone="danger"
             @confirm="removeProvider"
         />

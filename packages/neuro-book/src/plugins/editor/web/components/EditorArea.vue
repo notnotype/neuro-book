@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /** 编辑器区的根（同名 .md）：按 grid 排列编辑组，承载关闭询问与编辑器区内的键位。 */
-import {Button, Dialog, DropFeedbackOverlay} from "@notnotype/nb-ui/components";
+import {Button, Dialog} from "@notnotype/nb-ui/components";
+import {DropFeedbackOverlay, useGridLayout, useLayoutExtent, NestedGrid} from "@notnotype/nb-layout/vue";
+import type {DragSession} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
-import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
-import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
@@ -20,7 +20,7 @@ import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import {tabLabel} from "../tab-label";
 import {pageIdOf} from "../pages";
 import {createTabDrag} from "../tab-drag";
-import type {TabDrag, TabDrop} from "../tab-drag";
+import type {TabDragSource, TabDrop} from "../tab-drag";
 import EditorGroup from "./EditorGroup.vue";
 import type {EditorGroupTabMenu, EditorGroupTitleActions} from "./EditorGroup.vue";
 
@@ -48,7 +48,9 @@ const t = useEditorText();
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
 
 const root = ref<HTMLElement | null>(null);
-const extent = useLayoutExtent(root);
+// 量的是 grid 自己的容器，不是整个编辑器区：提示条占着顶部的高度，量整个根的话 grid 会比可用空间高出提示条那么多，底部被裁掉。
+const gridBox = ref<HTMLElement | null>(null);
+const extent = useLayoutExtent(gridBox);
 const grid = computed(() => props.area.groups.grid);
 const host = useGridLayout({grid, extent, contextKey: () => "editor", onApplied: () => props.area.layoutChanged()});
 // 组模型原地改了树（拆分、关闭组）：重算布局。
@@ -82,37 +84,31 @@ onMounted(() => document.addEventListener("focusin", onDocumentFocusIn));
 onBeforeUnmount(() => document.removeEventListener("focusin", onDocumentFocusIn));
 
 /**
- * 拖动标签（输出 55）：手势与落点在 `tab-drag.ts`，这里给它结构键、画反馈、提交。结构键包括各组的标签 id、固定状态与多行
+ * 拖动标签（输出 55）：来源与落点在 `tab-drag.ts`，手势是 nb-layout 的会话，这里给它结构键、按会话的状态画反馈、提交。结构键包括各组的标签 id、固定状态与多行
  * 设置：起拖后它们变了，那一场拖动取消。
  */
-const drop = shallowRef<TabDrop | null>(null);
-const pointer = shallowRef<{readonly tabId: string; readonly x: number; readonly y: number} | null>(null);
-let tabDrag: TabDrag | null = null;
+const tabDrag = shallowRef<DragSession<TabDragSource, TabDrop> | null>(null);
+const dragState = computed(() => tabDrag.value?.state.value ?? null);
+const drop = computed(() => dragState.value?.drop ?? null);
 onMounted(() => {
     if (root.value === null) return;
-    tabDrag = createTabDrag(root.value, {
+    tabDrag.value = createTabDrag(root.value, {
         structure: () => JSON.stringify([props.wrapTabs ?? true, props.area.groups.groups.value.map((group) => [group.id, group.tabs.map((tab) => [tab.id, tab.kind === "file" && tab.pinned === true])])]),
-        show: (next) => {
-            drop.value = next;
-        },
-        follow: (next) => {
-            pointer.value = next;
-        },
         commit: (action) => {
             if (action.kind === "split") props.area.moveToNewGroup(action.tabId, action.group, action.edge);
             else void props.area.moveTab(action.tabId, action.place);
         },
     });
 });
-onBeforeUnmount(() => tabDrag?.dispose());
+onBeforeUnmount(() => tabDrag.value?.dispose());
 const DROP_LABELS = {"move": "drop.move", "keep": "drop.keep", "split-left": "drop.splitLeft", "split-right": "drop.splitRight", "split-top": "drop.splitTop", "split-bottom": "drop.splitBottom"} as const;
 /** 跟手的拖影：被拖标签的图标与名字（与标签条上写的相同），画在指针右下。标签在拖动中没了时整场已经取消。 */
 const ghost = computed(() => {
-    const at = pointer.value;
+    const at = dragState.value;
     if (at === null) return null;
-    const tab = props.area.groups.groups.value.flatMap((group) => group.tabs).find((candidate) => candidate.id === at.tabId);
+    const tab = props.area.groups.groups.value.flatMap((group) => group.tabs).find((candidate) => candidate.id === at.source.tabId);
     if (tab === undefined) return null;
-    return {label: tabLabel(props.area, tab, port, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.x, y: at.y};
+    return {label: tabLabel(props.area, tab, port, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.point.x, y: at.point.y};
 });
 const dropLabel = computed(() => (drop.value === null ? "" : t(DROP_LABELS[drop.value.label])));
 
@@ -122,7 +118,7 @@ const dialog = computed(() => props.area.dialog.value);
 <template>
     <div
         ref="root"
-        class="h-full min-h-0 w-full min-w-0 overflow-hidden bg-[var(--panel-surface)]"
+        class="editor-area flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[var(--panel-surface)]"
         data-editor-area
         @keydown="onKeydown"
         @focusin="area.focused.value = true"
@@ -132,33 +128,35 @@ const dialog = computed(() => props.area.dialog.value);
             <span class="min-w-0 flex-1">{{ port.t(area.notice.value) }}</span>
             <Button size="sm" variant="ghost" @click="area.dismissNotice()">{{ t("area.dismiss") }}</Button>
         </p>
-        <NestedGrid
-            v-if="host.node.value !== null"
-            :node="host.node.value"
-            :layout="host.layout.value"
-            :disabled="extent === null"
-            context-key="editor"
-            :revision="host.revision.value"
-            :on-gesture-commit="host.onGestureCommit"
-        >
-            <template #leaf="{node}">
-                <EditorGroup
-                    :area="area"
-                    :group-id="node.id"
-                    :control="control"
-                    :pages="pages ?? null"
-                    :empty-tips="emptyTips ?? []"
-                    :title-actions="titleActions != null && titleActions.group === node.id ? titleActions : null"
-                    :tab-menu="tabMenu ?? null"
-                    :wrap-tabs="wrapTabs"
-                    :breadcrumbs="breadcrumbs"
-                    :work-title="workTitle"
-                    @tab-menu="(tabId: string, key: string) => emit('tab-menu', tabId, key)"
-                    @run-tip="(command) => emit('run-tip', command)"
-                    @title-action="(key) => emit('title-action', key)"
-                />
-            </template>
-        </NestedGrid>
+        <div ref="gridBox" class="min-h-0 flex-1">
+            <NestedGrid
+                v-if="host.node.value !== null"
+                :node="host.node.value"
+                :layout="host.layout.value"
+                :disabled="extent === null"
+                context-key="editor"
+                :revision="host.revision.value"
+                :on-gesture-commit="host.onGestureCommit"
+            >
+                <template #leaf="{node}">
+                    <EditorGroup
+                        :area="area"
+                        :group-id="node.id"
+                        :control="control"
+                        :pages="pages ?? null"
+                        :empty-tips="emptyTips ?? []"
+                        :title-actions="titleActions != null && titleActions.group === node.id ? titleActions : null"
+                        :tab-menu="tabMenu ?? null"
+                        :wrap-tabs="wrapTabs"
+                        :breadcrumbs="breadcrumbs"
+                        :work-title="workTitle"
+                        @tab-menu="(tabId: string, key: string) => emit('tab-menu', tabId, key)"
+                        @run-tip="(command) => emit('run-tip', command)"
+                        @title-action="(key) => emit('title-action', key)"
+                    />
+                </template>
+            </NestedGrid>
+        </div>
         <Teleport to="body">
             <div v-if="ghost !== null" class="editor-drag-ghost" :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`, zIndex: NB_Z_INDEX.dragFeedback}" aria-hidden="true" data-editor-drag-ghost>
                 <FileIcon v-if="ghost.icon !== null" :icon="ghost.icon" />
@@ -167,7 +165,7 @@ const dialog = computed(() => props.area.dialog.value);
         </Teleport>
         <DropFeedbackOverlay :preview="drop?.preview ?? null" :label="dropLabel" :data-editor-drop="drop === null ? undefined : drop.label" />
         <Dialog
-            :model-value="dialog !== null"
+            :open="dialog !== null"
             :title="t(dialog?.saveable === false ? 'closeDialog.titleUnrepresentable' : 'closeDialog.title', {name: dialog === null ? '' : nameOf(dialog.address)})"
             size="sm"
             @request-close="area.answer('cancel')"
@@ -185,6 +183,16 @@ const dialog = computed(() => props.area.dialog.value);
 </template>
 
 <style scoped>
+/*
+ * 组之间的线由编辑区自己定（docs/specs/workbench/editor.md 输出 2）：外壳根上的 `--nb-splitter-seam` 是外壳网格的接缝，卡片主题里透明，
+ * 继承下来组之间就看不出分界。线贯通整个高度，悬停线也贴满，亮起来正好盖住它。
+ */
+.editor-area {
+    --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
+    --nb-splitter-seam-inset: 0px;
+    --sash-line-inset: 0px;
+}
+
 /*
  * 拖影：与标签同字号、同底色的一小块（图标加名字），跟着指针、不挡命中（落点用 elementFromPoint 算）。它在 body 下，
  * 不受编辑器区的裁剪；scoped 的类名照样生效。

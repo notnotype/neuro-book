@@ -1,0 +1,122 @@
+w00041/t01 实现审查报告（审查范围 b772bec6..HEAD，worktree w00041-t01-themes）
+类型检查：packages/neuro-book 的 bun run typecheck 通过（tsc + 两份 vue-tsc）。
+
+====== 发现（逐条追加，最后汇总排序）======
+
+[F1] 建议 / 代码质量 / packages/neuro-book/src/web/plugins.ts:87-102
+现象：新增的 builtinPluginAssets 及其注释插在 builtinPluginCatalogs 原有注释块与声明之间。原来描述“内置插件的消息目录”的注释块（87-91 行）现在悬在 builtinPluginAssets 的注释之前（两段 JSDoc 相连），builtinPluginCatalogs 自己没有注释了。
+为什么是问题：IDE 悬停和读代码时 builtinPluginCatalogs 失去说明，而且读者会以为 87-91 行在讲素材。
+核实：sed -n 84,102p packages/neuro-book/src/web/plugins.ts。
+建议：把 builtinPluginAssets 整块（注释加声明）挪到 builtinPluginCatalogs 之后，或之前，但保证原注释紧贴 builtinPluginCatalogs。
+
+[F2] 建议 / 代码质量 / WorkbenchActivityBar.vue:148-155
+现象：`border-block: min(1px, var(--skin-activitybar-ornament-size, 0)) solid ...`。变量没设时是 min(1px, 0)，长度与无单位数混用在数学函数里是无效值；这行无主题时之所以“没有边框”，靠的是“计算时无效 => 整个简写按 unset 处理 => border-style:none”。
+核实：在 /tmp/w41/review/exp2/css1.html 用 Chrome 实测，无主题时 ::before 高度 0px、border-top-style none，行为符合“无主题时布局不变”；有 ornament-size 时 5px/1px solid。即现在结果是对的，但靠的是浏览器对无效声明的处理。
+为什么是问题：后人把 `0` 改成 `0px`（很自然的“修正”）后，无主题时会画出 1px 边框，高度 2px，违反“没有主题时完全不变”。
+建议：改成显式两个变量（`--skin-activitybar-ornament-width` 默认 0px，主题写 1px），或在注释里写明这条靠无效值回退，不要改单位。
+
+[F3] 重要 / 正确性（CSS 层叠顺序） / packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:428-431 与 440-453
+现象：空状态（没开文件）的“内容中心偏到留白上”不生效。`:global([data-nb-skin-scene] .editor-group__empty) { padding-inline-end: var(--skin-empty-shift, 0) }` 编译后是 `[data-nb-skin-scene] .editor-group__empty`（特异性 0,2,0），而后面的 `.editor-group__empty { padding: 24px }` 编译后是 `.editor-group__empty[data-v-xxx]`（也是 0,2,0），源码里更靠后，简写 `padding: 24px` 覆盖了前面的 `padding-inline-end`。欢迎页那一支（`.editor-group__on-scene`）没有别的 padding 规则，所以是对的，只有“没开文件”这一支落空。
+为什么是问题：Spec 输出 4 写“编辑组没开文件，或活动页面声明了 scene，内容区铺场景图……内容中心按 contentX 偏到留白上”。关掉所有标签后，淡色标志与提示仍居中，压在书房图的人物或灯上，与欢迎页不一致。e2e 的“关闭后的空状态也有”只断言了场景层有背景图，没有断言偏移，所以没有测试发现。
+核实：(1) bun 脚本 /tmp/w41/review/exp2/compile.ts 用 @vue/compiler-sfc 编译 EditorGroup.vue 的样式，输出第 57 行 `[data-nb-skin-scene] .editor-group__on-scene,[data-nb-skin-scene] .editor-group__empty {padding-inline-end:…}`，第 67、76 行 `.editor-group__empty[data-v-test] {… padding: 24px}`；(2) /tmp/w41/review/exp2/css2.html 用这两条规则按同一顺序在 Chrome 实测：`.editor-group__empty` 的 padding-right 为 24px，`.editor-group__on-scene` 为 60px（1000px 宽的 6%）。
+建议改法：让偏移规则排在 `.editor-group__empty` 之后，或把偏移挪到不会被简写覆盖的地方（例如给 `.editor-group__empty` 的 `padding` 简写改成 `padding-block` 加 `padding-inline-start`，再让偏移规则管 `padding-inline-end`），并在 e2e 里断言空状态下提示块中心的 x 与 contentX 的关系（欢迎页同理），否则下次还会静默失效。
+
+[F4] 建议 / 约定 / packages/neuro-book/plugin-sdk/examples/plugins/theme-dusk/package.json、plugin-sdk/build-examples.ts:6、46、plugin-sdk/examples/README.md:136、plugin-sdk/README.md:397
+现象：不写代码的主题示例放进了 examples/plugins/（该目录每个子目录是“有 plugin.ts 的、要构建的源码插件”），并且为此把 build-examples.ts 的缺省筛选从“有 package.json”改成“有 plugin.ts”。仓库里已有同类的先例：examples/external/declarative/package.json（“只有声明、没有代码的插件，文件夹本身就能安装，不用构建”），README 两处都把它放在 external/ 下。
+为什么是问题：(1) 目录约定被打破：plugin-sdk/README.md:397 写“`plugins/` 下每个目录是一个插件，`external/declarative` 是只有声明的插件”，现在 plugins/ 下有一个不能 build 的目录；`bun run build:examples theme-dusk` 显式点名会因为没有 plugin.ts 报构建错误（从代码推断：build-plugin.ts 第 604 行要读 plugin.ts；未实跑，因为构建会往示例目录写 dist/）。(2) build-examples.ts 顶部注释（第 6 行）仍写“缺省构建全部有 package.json 的示例”，与改后的筛选不符。(3) 筛选条件从 package.json 改成 plugin.ts 是为一个放错位置的目录改共用脚本。
+核实：ls plugin-sdk/examples/plugins plugin-sdk/examples/external/declarative；git diff 中 build-examples.ts 的改动；README 两处引用。
+补充：plan.md 第 85 行写的是“plugin-sdk/examples/plugins/ 加一个不写代码的主题示例，核实构建预设对零入口插件会带上素材目录”，即原计划是走构建预设；实现里没有 plugin.ts、不走构建，只是放在了 plugins/ 下，所以偏离的是计划里“走构建”的那半，不是目录本身。
+建议改法：把 theme-dusk 移到 examples/external/（与 declarative 并列），build-examples.ts 的改动撤回；e2e 与 README 里的路径跟着改。若坚持留在 plugins/，则同步改 build-examples.ts 注释、两份 README 的描述，并让 buildExample 对没有 plugin.ts 的目录给出明确报错。
+
+[F5] 建议 / Spec 与实现不符 / packages/neuro-book/src/plugins/workbench/web/themes.ts:54-55，shared/themes.ts:36
+现象：Spec 把 `contentX` 定义为“内容中心在内容区宽度的比例，0–1，缺省 0.5”，schema 也收 0–1；实现只处理 ≤0.5 的值（>0.5 时 `Math.max(0, …)` 变成 0，即不偏），而且 ≤0.5 时用 `padding-inline-end = (1-2x)*100%` 实现：x=0.1 时右侧留 80% 宽度、内容被挤到 20% 宽；x=0 时右内边距 100%，内容宽度为 0。
+为什么是问题：声明合法（通过校验）但界面被挤坏或悄悄不生效；第三方作者按 Spec 写 0.6 得不到右偏。代码注释自己承认“只支持往左偏”，但 Spec 与校验没跟上。
+核实：读 themeVars 与 ThemeDeclarationSchema；themes.test.ts 只测了 0.44。
+建议改法：把 schema 的 contentX 收窄到 0–0.5（Spec 同步），或者对 >0.5 的值用 padding-inline-start 实现；两种都应该给下限（例如不小于 0.25）以免把内容挤没，或在 Spec 里写明作者负责。
+
+[F6] 重要 / 安全（信任边界）/ packages/neuro-book/src/plugins/workbench/shared/themes.ts:42-43、63
+现象：“取值不能含 url(”只用正则 /url\(|image-set\(|@import/iu 查字面文本，用 CSS 转义写法 `u\72l(...)` 就能绕过：CSS 语法在识别函数名时先解转义，`u\72l(` 就是 `url(`。
+为什么是问题：Spec 的信任边界写“声明只有数据，素材只取插件自己目录里的文件”，验收 1 要求含 url( 的取值不接受。“不写代码的主题插件”恰恰是用户最容易放心安装的一类；`activityBar.surface` 等字段的值会进入真实的 `background:` 声明（WorkbenchActivityBar.vue:143 `background: var(--skin-activitybar-surface, …)`），页面没有 CSP，于是这类主题可以让每次打开窗口都向任意主机发请求（追踪、泄露 IP 与打开时间）。
+核实：/tmp/w41/review/exp2/srv/page.html 在 Chrome 里写 `--x: u\72l(/hit-escaped.png); background: var(--x)`，本地 http.server 日志出现 `GET /hit-escaped.png`（见 /tmp/w41/review/exp2/srv.log）。themeProblem 对 `u\72l(...)` 返回 null（没有字面的 `url(`），即被接受。（`image-set` 的转义写法我在同一页里试过，Chrome 没发请求，所以只确认了 url 一条。）
+建议改法：不要靠黑名单匹配字面文本。要么对会进入 `background`/`border` 的值（activityBar 的三个颜色串、vars、colors、crop）整体拒绝含反斜杠的值，并同时拒绝 `url`、`src`、`image`、`image-set`、`cross-fade`、`element`、`paint` 后接 `(` 的写法（大小写不敏感）；要么按字段白名单（颜色值、渐变）写更窄的语法。加一条单元用例：`u\72l(https://x)` 不被接受。
+
+[F7] 建议 / 与 Spec 不一致 / packages/neuro-book/src/plugins/workbench/web/themes.ts:84-92 与 web/plugin.ts（effectiveTheme）
+现象：configuration.md 输出 5 写“层 invalid 时保留上一份有效内容”，`inspect` 的 invalid 层带 `value`（上一份有效内容里的）。effectiveTheme 只在 `user.status === "ok"` 时才把用户层的值放进候选，invalid 时用户层整层被忽略。
+为什么是问题：项目层写了不存在的主题 id、同时用户的 settings.json 暂时有语法错误（例如正在编辑）时，`get()` 语义下用户层仍是上一份有效的“书房”，但主题会一下子掉成 NeuroBook，改好文件后又跳回；与设置系统对 invalid 层的统一处理不一致。组合条件比较窄（项目层不认识 + 用户层暂时无效），所以只算建议。
+核实：读 src/plugins/settings/shared/instance.ts:213-222（inspectLayer：invalid 状态也带 value）与 layers.ts:125（effectiveOf 用快照 values，不看 status）；e2e “设置里的主题不存在”只覆盖了用户层 ok 的情形。
+建议改法：用 `inspected.user?.status === "ok" || "invalid"` 时取 `user.value`（即只排除 unavailable/absent），并补一条用例。
+
+[F8] 建议 / 范围偏差 / packages/neuro-book/src/plugins/workbench/web/themes.ts:27-28（SKIN_VARS.fontDisplay）与 src/plugins/projects/web/components/*
+现象：主题的 `fonts.display` 直接写文档根的 `--font-display`。这个变量是产品里“展示字体”的公共变量，书架页的 BookshelfPage、ShelfDesk、ShelfCards、ShelfList、BookCard、BookCover 和 WelcomePage 都在用。Spec 输出 8 只说“欢迎页标题用 fonts.display”，且“书架页只跟配色”。
+为什么是问题：选了书房，书架上的书封标题、卡片标题也变成宋体，与输出 8 和“不承诺书架页场景”的范围不一致；验收 10 的精神是“没写的位置和没有主题时一样”。改了变量名所有消费者都会变，后人很难发现这个耦合。
+核实：grep -rn "font-display" packages/neuro-book/src（排除 lab）列出上面这些文件。
+建议改法：二选一：(a) 另设 `--skin-font-display`，只由 WelcomePage 用 `var(--skin-font-display, var(--font-display, var(--font-ui)))`；(b) 决定书架页也跟，改 Spec 输出 8 的范围，并在书架页截图里确认。
+
+[F9] 建议 / Agent 可见说明 / packages/neuro-book/src/plugins/workbench/web/commands/theme-commands.ts:25-27、36-37
+现象：命令参数从 `Union<Literal>` 变成任意非空字符串，Agent 看到的 schema 不再列出可用主题；描述没说怎么拿到列表，失败的 `reason` 只有“没有这个主题：xxx”（中文、随界面语言），也不列已有的 id。
+为什么是问题：Agent 只能猜 id（比如猜“study”），猜错一次得到不含候选的错误，再猜。用户装了主题插件后让 Agent “换成暮色”，Agent 没有任何入口查到 `example.theme-dusk.dusk` 这种带发布者前缀的 id。
+核实：读 SWITCH_THEME_DECLARATION 与 run 里的错误分支。
+建议改法：invalid-args 的 reason 附上目录里的全部 id（用英文固定格式，给 Agent 读）；描述里写“不带参数时由用户选择；id 形如 nbook、macos 或 <publisher>.<plugin>.<name>”。
+
+[F10] 重要 / 测试（有场景没覆盖、有事先写好的文件没用）/ packages/neuro-book/e2e/themes.e2e.ts:“高对比度、强制颜色下不画场景，配色照旧”
+现象：这个用例先 `writeFile(.../notes/a11y.md, DOCUMENT)`，但之后从未打开它。因此验收 6（高对比度/强制颜色下没有场景）里正文两侧那一条（MarkdownControl.vue 的 `@media (prefers-contrast: more), (forced-colors: active)` 规则）没有任何断言；强制颜色模式下也没断言侧栏下角（只在 contrast: more 下断言了 corner 为 none，forced-colors 下只看 scene 层）。
+为什么是问题：思想变异——删掉 MarkdownControl.vue 里的那条 @media 规则，或 WorkbenchToolPartHost.vue 里 forced-colors 一支，该用例仍然通过。
+核实：读用例全文，`a11y.md` 只出现在 writeFile 一处；`margin(` 没有被调用。
+建议改法：在 contrast: more 与 forced-colors: active 两种模拟下都打开 a11y.md，断言 margin(left/right) 为 hidden，并对 corner 同时断言两种模式。
+
+[F11] 重要 / 测试（对比度量法可能空过）/ packages/neuro-book/e2e/themes.e2e.ts:measure 与“可读性”用例
+现象：(1) measure 返回的 `mean`、`distinct` 注释写“正向对照用”，但没有任何调用方断言它们：如果截图时场景图还没解码、没画出来，被量的区域只有纯色底，worst 轻松通过，用例对“图上读不动字”的情形空过。(2) 用例只等 `scene` 层可见（CSS 层 display:block），没有等背景图解码/加载完成；Spec 状态与转换写明“图片加载好之前只有配色”，所以量的时刻可能还没有图。(3) 侧栏只量了 explorer 的 notes 行，它在侧栏顶部，而下角图只占底部 240px，侧栏行压在图上的情形（Spec 输出 6“列表长时盖在它上面”、验收 4 的侧栏对比度）从未被量到。(4) 量的颜色是文本节点父元素的 computed color，不含祖先 opacity，用 opacity 淡化的次要文字会被高估。
+为什么是问题：验收 4 的核心是“有图的地方字够清楚”，现在这条检查在图没出来或位置没压到字时都会通过。
+核实：读 measure 的返回值与调用处（只用 worst）；`rg "distinct|mean" e2e/themes.e2e.ts` 只在定义处出现。
+建议改法：measure 加 `distinct`（或与纯底色的差异）的下限断言，证明量到了有图的像素（例如欢迎页标题区域 distinct 明显多于纯色）；量之前等图加载完（对 scene 层的背景图 URL 用 Image().decode()）；侧栏用足够多的文件行（或把窗口压矮但仍 ≥300px）让行落在图的位置再量。
+
+[F12] 建议 / 测试覆盖 / packages/neuro-book/src/plugins/workbench/themes.test.ts 与 e2e/themes.e2e.ts
+现象：(1) 用例标题写“Lab 不受影响”（“主题列表里有书房，在设置窗口选中就生效；Lab 不受影响”），但整份 e2e 没有访问 /lab 的断言；验收 7 的 Lab 一半没覆盖。(2) 验收 1 要求“不接受并记诊断”，单元测试只断言不在列表里，application 的 observers 传的是空对象，没断言诊断；清单里的“重复 id”也没有用例；含 url( 的写法只覆盖 colors 与 fonts，没有覆盖 vars、activityBar、crop。(3) 验收 2（nbook/macos 与没有本能力时逐项相同）没有直接用例，靠 WorkbenchDocument.dom.test 的间接断言；e2e 切回 NeuroBook 的残留检查只看 `--skin-*` 与 `--font-prose`，不看 `--font-display` 与 body 上的内联变量（clearVars 会同时清 body）。
+为什么是问题：标题声称的覆盖不存在，读用例的人会以为 Lab 隔离有保护。
+核实：rg "lab" e2e/themes.e2e.ts 无断言；读 themes.test.ts 的 accepted() 与 it.each 列表。
+建议改法：去掉标题里的 Lab，或补一条打开 /lab 在书房下断言文档根没有 data-nb-skin-scene 的用例；诊断用 observers 记录一次；补重复 id；残留检查改为“内联样式里除了 nbook 主题该有的以外没有别的”。
+
+[F13] 阻断 / 回归（既有守卫测试失败）/ packages/neuro-book/src/contribution-prefixes.test.ts（受影响）、src/plugins/workbench/shared/themes.ts:73-79
+现象：新增的贡献点 `workbench.themes` 让仓库既有的 `bun test src/contribution-prefixes.test.ts` 失败：
+  (fail) 内置贡献点的贡献 id 前缀 > browser nbook.workbench 的 workbench.themes：第三方插件用别人的前缀被拒
+  期望 detail 含“插件 id acme.intruder”，实际 detail 是 "/：must have required properties title, base, light, dark"（reason invalid-declaration）。
+原因：该测试遍历产品定义表里每个贡献点，要求“第三方用别人的前缀被拒，原因是前缀”；不按插件 id 取 id 的贡献点必须列进文件顶部的 OWN_ID_RULES 豁免名单。themesPoint 没写 idPrefix（有意，内置 nbook、macos 是裸 id，规则在 validate 里），也没进 OWN_ID_RULES；测试给的探针声明是 `{}`，被 schema 先拒掉，detail 不含前缀。
+为什么是阻断：仓库的守卫测试红了；这个守卫的注释写“新加的贡献点自动进这份测试”，就是要新贡献点要么用 idPrefix，要么登记自己的 id 规则和测试。变更说明里的验证没有覆盖到它（我跑的是 `bun test src/*.test.ts`，6 个文件 66 个用例，只有这 1 个失败；workbench、settings、plugin-platform、plugin-sdk、web、browser-bootstrap 共 623 个用例全过）。
+核实：cd packages/neuro-book && bun test src/contribution-prefixes.test.ts。
+建议改法：在 OWN_ID_RULES 里加 `"workbench.themes": "无点 id 只有 nbook.workbench 能用，其余以插件 id 加点开头（theme/skins.md，workbench/themes.test.ts）"`；themes.test.ts 已有“第三方的 id 要带插件前缀”的行为用例可作为它自己的测试。也可以评估能否用 idPrefix 表达（现状不行，因为有裸 id 例外）。
+
+[F14] 建议 / 代码质量（绕类型）/ packages/neuro-book/src/ui/theme/document-theme.ts:48-49
+现象：为了把 `--skin-*`、`--font-*` 这类非配色变量也写到文档根，`DocumentTheme.vars` 放宽成 `Record<string,string>`，调用 `applyColorway(root, theme.vars as NbColorwayVars)` 两处强转。
+为什么是问题：AGENTS.md 要求“不用 hack 绕过类型系统”。`applyColorway` 的签名说它写的是 nb-ui 配色变量并加配色宿主 class；现在它承担“写任意主题变量”，强转掩盖了这一点，将来 `applyColorway` 若按 NbColorwayVars 的键做校验或过滤，主题变量会静默丢失。
+核实：读 document-theme.ts 与 nb-ui 的 apply-colorway.ts（目前只是遍历 Object.entries 写 setProperty，所以现在没有错）。
+建议改法：用 nb-ui 已导出的 `applyColorwayVars`（只写变量、不加 class）写所有变量，配色宿主 class 另行 `classList.add(NB_UI_COLORWAY_HOST_CLASS)`，或者在 nb-ui 里给 applyColorway 加接受额外变量的重载，去掉强转。
+
+[F15] 阻断 / 回归 + 用户可见缺口 / packages/neuro-book/src/plugins/plugins/web/builtin-names.ts 与 src/plugins/plugins/locales/{zh-CN,en-US}.json
+现象：新增内置插件 nbook.theme-study 没有登记到插件页的内置名称表，既有测试失败：
+  (fail) 内置插件的名称与说明 > id 列表与产品清单一致，Lab 不在其中（src/plugins/plugins/web/builtin-names.test.ts:38，差异：BUILTIN_PLUGIN_IDS 缺 "nbook.theme-study"）。
+为什么是阻断：守卫测试红；并且插件管理页里这个内置插件没有本地化的名称与说明（用户会看到裸 id），而“书房”恰恰是用户能在插件页禁用的那一个。该测试同时要求 LEGACY 表里逐字登记，新插件需要在测试里补一项。
+核实：cd packages/neuro-book && bun test src/plugins/plugins/web/builtin-names.test.ts（整批 `bun test src/plugins/editor src/plugins/markdown src/plugins/projects src/plugins/lab src/plugins/plugins src/ui src/shared src/project src/server` 里只有这一条与本次改动相关）。
+建议改法：在 builtin-names.ts 加 nbook.theme-study，两份 plugins locales 补名称（书房主题 / Study Theme）与说明，测试里 LEGACY 表补一项。同类的登记点（例如 builtin 插件的 l10n、文档里的内置插件清单）一并 grep "nbook.storage" 对照。
+
+====== 验证记录 ======
+- bun run typecheck（tsc + 两份 vue-tsc）通过。
+- bun test：src/plugins/workbench src/plugins/settings src/plugin-platform plugin-sdk src/web src/server/browser-bootstrap.test.ts 共 623 通过 0 失败；src/*.test.ts 66 个里 1 失败（F13）；另一批 src/plugins/{editor,markdown,projects,lab,plugins} src/ui src/shared src/project src/server 549 个里 4 失败：1 个是 F15，另 3 个是 server-host “停止时的项目子进程”各 5 秒超时和一个无详情的 describe 级失败 “Spec projects 输出”，与主题无明显关系，当时同时在跑 vitest，负载高，未单独复跑，不归因于本改动。
+- vitest（src/plugins/workbench editor markdown settings src/ui plugin-sdk）245 通过 2 失败，都是 markdown 的 PromptEditor/MarkdownHosted 用例 5 秒超时（单独复跑仍超时，且复跑时机器负载高）；这些用例不涉及主题，未在基线上对照，标为“未能归因，需要作者在空闲机器上确认”。
+- 没有跑 e2e 与开发服务（按任务说明）。需要作者跑：themes.e2e.ts 的全部用例，并在修 F3 后补空状态偏移断言。
+
+====== 没发现问题的方面 ======
+- applyColorway 写 root 与 body、切换主题时 written 列表逐个清除（clear 与 apply 都做），Lab 的 writer 调用方在 scene 缺省时会删掉 data-nb-skin-scene，没有被改坏。
+- --skin-empty-shift 的公式（内容中心 = (1-p)/2）在欢迎页那一支（.editor-group__on-scene，相对 [data-editor-content] 的宽度）正确；padding 百分比相对包含块宽度，两处包含块是同一个元素。
+- scoped 里 :global(...) 的写法在编译结果里都命中预期选择器（用 compiler-sfc 核对过）；MarkdownControl 的 @container 以 .markdown-control-root 为容器，阈值 959px 对应 (959-720)/2<120 正确；侧栏 ::after 查询的容器是其宿主 Part，Chrome 支持。
+- container-type 加在 .markdown-control-root 与 .workbench-tool-part--sidebar 上：弹层都经 nb-ui 的 AnchoredPopover（Portal）渲染，块手柄 Teleport 到 scroller 内，拖影 Teleport 到 body，侧栏内没有会受“包含块变化”影响的未传送的 fixed 元素，侧栏里其它 @container 的使用方自带容器；没发现副作用。（它们是无条件生效的，与主题无关，若以后有人在这两处加 fixed 的子元素需要知道。）
+- 活动栏 ::before/::after 在无主题时高度 0、无边框，实测 itemTop 不变（但见 F2）。
+- definitionAt / pluginsAt / contributionPoints 在 server、project、browser 三处的装配正确：workbench 只有 browser 入口，其余位置由描述里的 contributionPoints 登记；browser 位置由入口定义自己写，没有重复登记；theme-study 的 locations: [] 经 pluginsAt 进入三处；requiredPlugins、引导集合、web/plugins.ts 不需要为它登记（只有 F15 的名称表和 builtinPluginAssets）；第三方清单 contributes 走的是同一个贡献点的 validate。
+- windowPluginFilesKey 只有 window.ts 一个宿主提供，工作台以 required:false 依赖，Lab 与别的宿主缺它时退回无场景；new URL(字面量, import.meta.url) 的写法是 Vite 能识别的形式（未实跑生产构建）。
+- 重复 id 由内核通用地拒绝（host.ts duplicate-contribution）；第三方 scene 的 URL 经 encodeURIComponent，拼进 url("…") 不会逃出引号。
+- 命令的 invalid-args 分支用错误码，没有按文案分支；没有静默 catch。
+
+====== 汇总（按影响排序）======
+阻断 2：F13（contribution-prefixes 守卫测试失败）、F15（内置插件名称表缺 nbook.theme-study，测试失败）
+重要 4：F3（空状态偏移被 padding 简写覆盖）、F6（url( 过滤可用 CSS 转义绕过，实测发出请求）、F10（a11y 用例没打开 a11y.md，正文两侧与 forced-colors 侧栏未被断言）、F11（对比度量法的正向对照未用、不等图加载、侧栏行不在图上）
+建议 9：F1、F2、F4、F5、F7、F8、F9、F12、F14
+合计 15 条。

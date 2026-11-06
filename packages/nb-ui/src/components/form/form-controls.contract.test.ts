@@ -86,7 +86,7 @@ describe("phase 2 form control contracts", () => {
                 dropdownDirection: "up",
                 options: [
                     {label: "Markdown", value: "md", description: "纯文本标记", iconClass: "i-lucide-file-text"},
-                    {label: "PDF", value: "pdf", description: "暂不可用", disabled: true, indicatorClass: "bg-red-500"},
+                    {label: "PDF", value: "pdf", description: "暂不可用", disabled: true, tone: "danger"},
                 ],
             },
             attachTo: document.body,
@@ -102,6 +102,8 @@ describe("phase 2 form control contracts", () => {
 
         expect(document.body.textContent).toContain("纯文本标记");
         expect(document.body.textContent).toContain("暂不可用");
+        const pdfOption = Array.from(document.querySelectorAll("[role='option']")).find((option) => option.textContent?.includes("暂不可用"));
+        expect(pdfOption?.querySelector(".rounded-full")?.classList.contains("bg-[var(--status-danger)]")).toBe(true);
         expect(document.querySelector("[role='listbox']")?.getAttribute("data-side")).toBe("top");
         wrapper.unmount();
     });
@@ -147,5 +149,21 @@ describe("phase 2 form control contracts", () => {
         expect(visual.classes().some((className) => className.includes("#000000"))).toBe(true);
         expect(visual.classes()).toContain("peer-focus-visible:border-[color:var(--focus-outline)]");
         expect(visual.classes()).toContain("peer-focus-visible:shadow-[var(--focus-ring)]");
+    });
+});
+
+describe("Input 的透传属性", () => {
+    it("带图标、清除按钮时读屏属性落在输入框上，data-* 与 class 留在外层控件上；没有装饰时全落在输入框上", () => {
+        const decorated = mount(Input, {props: {modelValue: "", iconClass: "i-lucide-search", clearable: true}, attrs: {"aria-label": "搜索作品", "data-search": "", "class": "search-box"}});
+        const input = decorated.get("input");
+        expect(input.attributes("aria-label")).toBe("搜索作品");
+        expect(decorated.attributes("aria-label")).toBeUndefined();
+        expect(decorated.attributes("data-search")).toBe("");
+        expect(decorated.classes()).toContain("search-box");
+
+        const bare = mount(Input, {props: {modelValue: ""}, attrs: {"aria-label": "书名", "data-title": ""}});
+        expect(bare.element.tagName).toBe("INPUT");
+        expect(bare.attributes("aria-label")).toBe("书名");
+        expect(bare.attributes("data-title")).toBe("");
     });
 });

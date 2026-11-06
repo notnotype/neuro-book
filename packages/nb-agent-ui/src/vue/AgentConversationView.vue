@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
-import {Button, DropdownMenu, IconButton, Spinner} from "@notnotype/nb-ui/components";
+import {Button, Dialog, DropdownMenu, IconButton, OverlayScrollbar, Popover, Spinner} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
+    ContextInspectionView,
+    SessionTreeView,
     AgentConversationContext,
     AgentConversationServices,
     AgentViewAction,
@@ -16,6 +18,10 @@ import {useStreamScroll} from "@notnotype/nb-ui/composables";
 import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
 import AgentRawView from "./stream/AgentRawView.vue";
 import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
+import AgentStatusBar from "./composer/AgentStatusBar.vue";
+import AgentContextInspector from "./panels/AgentContextInspector.vue";
+import AgentSessionTree from "./panels/AgentSessionTree.vue";
+import AgentWizard from "./wizard/AgentWizard.vue";
 import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
 import {provideAgentView} from "./host";
 import type {AgentViewRenderers} from "./host";
@@ -36,6 +42,10 @@ const props = withDefaults(defineProps<{
     processDisclosure?: "collapsed" | "live";
     /** 输入框版式：缺省两层；`inline` 正文与控件同一行（AgentConversationComposer.md 的“单行版式”）。 */
     composerLayout?: "stacked" | "inline";
+    /** 输入框下面的状态栏；宿主有自己的用量显示时不要（nb-story）。 */
+    statusBar?: boolean;
+    /** 有 `sessions` 插槽时点标题弹出下拉，放切换会话的面板。 */
+    newSession?: boolean;
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
@@ -44,7 +54,14 @@ const props = withDefaults(defineProps<{
     header: true,
     processDisclosure: "collapsed",
     composerLayout: "stacked",
+    statusBar: false,
+    newSession: false,
 });
+
+const slots = defineSlots<{
+    /** 点标题弹出的下拉里放的内容（会话面板）。`close` 关下拉：切了会话之后不该还开着。 */
+    sessions?: (scope: {close: () => void}) => unknown;
+}>();
 
 const emit = defineEmits<{
     (e: "action", action: AgentViewAction): void;
@@ -55,6 +72,7 @@ const {t} = provideAgentView({locale: () => props.locale, renderers: () => props
 
 // ─── 视图模式 ───────────────────────────────────────────────────────────
 
+const sessionsOpen = ref(false);
 const localViewMode = ref<AgentViewMode>("turns");
 const currentViewMode = computed(() => props.viewMode ?? localViewMode.value);
 
@@ -63,17 +81,63 @@ function setViewMode(mode: AgentViewMode) {
     emit("update:viewMode", mode);
 }
 
-const overflowItems = computed<DropdownMenuItemData[]>(() => [{
-    value: "toggle-view-mode",
-    label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
-    iconClass: currentViewMode.value === "raw" ? "i-lucide-list-collapse" : "i-lucide-list",
-}]);
+const overflowItems = computed<DropdownMenuItemData[]>(() => [
+    ...(props.ctx.interaction.canInspectContext === true ? [{id: "context", label: t("panel.context.title"), iconClass: "i-lucide-gauge"}] : []),
+    ...(props.ctx.interaction.canOpenTree === true ? [{id: "tree", label: t("panel.tree.open"), iconClass: "i-lucide-git-fork"}] : []),
+    {
+        id: "toggle-view-mode",
+        label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
+        iconClass: currentViewMode.value === "raw" ? "i-lucide-list-collapse" : "i-lucide-list",
+    },
+]);
 
 function onOverflowSelect(value: string) {
     if (value === "toggle-view-mode") {
         setViewMode(currentViewMode.value === "raw" ? "turns" : "raw");
     }
+    else if (value === "context") {
+        openInspector();
+    }
+    else if (value === "tree") {
+        treeOpen.value = true;
+        emit("action", {type: "tree.refresh"});
+    }
 }
+
+// ─── 面板 ───────────────────────────────────────────────────────────────
+
+/** 开着哪个弹窗是纯界面状态，归视图；数据归宿主，打开时要、关掉时放（Spec 的“面板与弹窗”）。 */
+const inspectorOpen = ref(false);
+const IDLE_INSPECTION: ContextInspectionView = {state: "idle"};
+
+function openInspector(): void {
+    inspectorOpen.value = true;
+    emit("action", {type: "context.refresh"});
+}
+
+function onInspectorOpen(open: boolean): void {
+    inspectorOpen.value = open;
+    if (!open) emit("action", {type: "context.closed"});
+}
+
+const treeOpen = ref(false);
+const LOADING_TREE: SessionTreeView = {state: "loading", loaded: 0};
+
+function onTreeOpen(open: boolean): void {
+    treeOpen.value = open;
+    if (!open) emit("action", {type: "tree.closed"});
+}
+
+function onTreeActivate(id: string): void {
+    emit("action", {type: "tree.activate", entryId: id});
+    onTreeOpen(false);
+}
+
+// 换了会话：弹窗里的数据不再是这个会话的。
+watch(() => props.ctx.session?.id, () => {
+    if (inspectorOpen.value) onInspectorOpen(false);
+    if (treeOpen.value) onTreeOpen(false);
+});
 
 // ─── 轮次 ───────────────────────────────────────────────────────────────
 
@@ -151,6 +215,14 @@ const composerRef = ref<InstanceType<typeof AgentConversationComposer> | null>(n
 function focusComposer() {
     composerRef.value?.focus();
 }
+
+/** 等用户时向导替换输入框的位置。输入框隐藏但不卸载：草稿和撤销栈都在。 */
+const waitingForUser = computed(() => props.ctx.pendingInputs.length > 0);
+
+// 全部答完：焦点回到输入框（docs/specs/agent/conversation.md 输出 11）。
+watch(waitingForUser, (waiting, was) => {
+    if (was && !waiting) void nextTick(focusComposer);
+});
 
 /**
  * 子组件的 action 都到这里。原图预览是纯界面行为，视图自己打开，宿主收不到；发了消息或命令（来自输入框，或宿主组件
@@ -239,10 +311,22 @@ defineExpose({focusComposer, scrollToLatest});
                 :class="[props.ctx.session.profileIcon, 'acv-header__icon']"
                 aria-hidden="true"
             />
-            <div class="acv-header__title" :title="props.ctx.session?.summary || undefined">
+            <Popover v-if="slots.sessions" v-model:open="sessionsOpen" side="bottom" align="start" content-class="acv-header__sessions">
+                <template #trigger>
+                    <button type="button" class="acv-header__title acv-header__title--button" :title="props.ctx.session?.summary || undefined" data-header-sessions :aria-expanded="sessionsOpen">
+                        <span class="acv-header__name">{{ props.ctx.session ? (props.ctx.session.title || t("header.untitled")) : t("header.noSession") }}</span>
+                        <span class="i-lucide-chevron-down acv-header__chevron" aria-hidden="true" />
+                    </button>
+                </template>
+                <slot name="sessions" :close="() => (sessionsOpen = false)" />
+            </Popover>
+            <div v-else class="acv-header__title" :title="props.ctx.session?.summary || undefined">
                 <span class="acv-header__name">{{ props.ctx.session ? (props.ctx.session.title || t("header.untitled")) : t("header.noSession") }}</span>
                 <span v-if="props.ctx.session" class="acv-header__profile">{{ props.ctx.session.profileName }}</span>
             </div>
+            <span v-if="slots.sessions && props.ctx.session" class="acv-header__profile">{{ props.ctx.session.profileName }}</span>
+            <span v-if="slots.sessions" class="acv-header__spacer" />
+            <IconButton v-if="props.newSession" icon-class="i-lucide-plus" size="sm" :title="t('header.newSession')" :aria-label="t('header.newSession')" data-header-new @click="emit('action', {type: 'session.create'})" />
             <DropdownMenu :items="overflowItems" root-class="acv-header__more" align="end" @select="onOverflowSelect">
                 <IconButton icon-class="i-lucide-ellipsis" size="sm" :title="t('header.more')" :aria-label="t('header.more')" />
             </DropdownMenu>
@@ -303,6 +387,7 @@ defineExpose({focusComposer, scrollToLatest});
                             @action="onAction"
                         />
                     </template>
+                    <AgentWizard v-if="waitingForUser" :pending="props.ctx.pendingInputs" :state="props.ctx.wizardState" @action="onAction" />
                 </div>
             </div>
 
@@ -320,16 +405,59 @@ defineExpose({focusComposer, scrollToLatest});
                     </Button>
                 </span>
             </Transition>
+            <!-- 叠加的滚动条不占宽度：气泡、输入框、状态栏的右边才对得齐，内容变长时也不重排（docs/specs/workbench/views.md 输出 12）。 -->
+            <OverlayScrollbar :target="streamRef" />
         </div>
 
         <AgentConversationComposer
+            v-show="!waitingForUser"
             ref="composerRef"
             :ctx="props.ctx"
             :services="props.services"
             :registry="props.registry"
             :layout="props.composerLayout"
+            v-bind="{inert: waitingForUser}"
             @action="onAction"
         />
+        <AgentStatusBar v-if="props.statusBar" :ctx="props.ctx" :registry="props.registry" @inspect="openInspector" />
+        <Dialog
+            :open="inspectorOpen"
+            size="default"
+            :title="t('panel.context.title')"
+            closable
+            :show-footer="false"
+            :teleport-target="props.teleportTarget"
+            data-context-dialog
+            @update:open="onInspectorOpen"
+        >
+            <template #header-extra>
+                <IconButton size="sm" icon-class="i-lucide-refresh-cw" :title="t('panel.context.refresh')" :aria-label="t('panel.context.refresh')" data-context-refresh @click="emit('action', {type: 'context.refresh'})" />
+            </template>
+            <AgentContextInspector
+                :inspection="props.ctx.panels.contextInspection ?? IDLE_INSPECTION"
+                :system-prompt="props.ctx.panels.systemPrompt ?? null"
+                :usage="props.ctx.usage"
+                @load-system-prompt="emit('action', {type: 'systemPrompt.load', refresh: false})"
+            />
+        </Dialog>
+        <Dialog
+            :open="treeOpen"
+            size="default"
+            :title="t('panel.tree.title')"
+            closable
+            :show-footer="false"
+            :teleport-target="props.teleportTarget"
+            initial-focus="[data-tree-body]"
+            data-tree-dialog
+            @update:open="onTreeOpen"
+        >
+            <AgentSessionTree
+                :tree="props.ctx.panels.sessionTree ?? LOADING_TREE"
+                :can-activate="props.ctx.interaction.canMutateHistory && props.ctx.run.status === 'idle'"
+                @activate="onTreeActivate"
+                @copy="emit('action', {type: 'tree.copyId', entryId: $event})"
+            />
+        </Dialog>
         <OriginalImagePreviewDialog
             v-if="preview !== null"
             v-model="previewOpen"
@@ -376,6 +504,47 @@ defineExpose({focusComposer, scrollToLatest});
     white-space: nowrap;
 }
 
+.acv-header__title--button {
+    display: inline-flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 4px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.acv-header__title--button:hover {
+    background: var(--bg-hover);
+}
+
+.acv-header__title--button .acv-header__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.acv-header__chevron {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+}
+
+.acv-header__spacer {
+    flex: 1;
+}
+
+:global(.acv-header__sessions) {
+    width: min(420px, 90vw);
+    height: min(480px, 70vh);
+    padding: 0;
+}
+
 .acv-header__name {
     font-weight: var(--weight-medium);
 }
@@ -391,7 +560,9 @@ defineExpose({focusComposer, scrollToLatest});
     display: inline-block;
 }
 
+/* 向导的 60cqh 相对这里。 */
 .acv-body {
+    container-type: size;
     position: relative;
     display: flex;
     flex: 1;
@@ -418,7 +589,6 @@ defineExpose({focusComposer, scrollToLatest});
     overflow-x: hidden;
     overflow-y: auto;
     padding: 20px 12px 12px;
-    scrollbar-gutter: stable;
     overflow-anchor: none;
 }
 

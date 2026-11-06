@@ -9,6 +9,9 @@ import type {AllowedComponentProps, Component, ComponentCustomProps, VNodeProps}
 import {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {Written} from "nbook/shared/convention-keys";
+import {WORKBENCH_THEME_SCENES_POINT} from "nbook/plugins/workbench/shared/theme-points";
+import type {SceneProviderImplementation} from "nbook/plugins/workbench/shared/theme-points";
+import type {SceneProviderDeclaration} from "nbook/plugins/workbench/shared/themes";
 import {OPEN_VIEW_COMMAND, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 import type {ViewDeclaration, WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -114,3 +117,22 @@ export function statusItem<const Id extends string, const Name extends string>(p
     };
 }
 
+export interface SceneProviderHelper<Id extends string> extends ContributionHelper<typeof WORKBENCH_THEME_SCENES_POINT, Id, SceneProviderDeclaration> {
+    readonly where: "browser";
+    implement(implementation: SceneProviderImplementation): BoundImplementation<typeof WORKBENCH_THEME_SCENES_POINT, Id>;
+}
+
+/**
+ * 场景提供者（docs/specs/theme/skins.md 输出 18）：主题在声明里写 `sceneProvider: "<这里的贡献 id>"`，场景图由 `implement` 给的
+ * `scene()` 画。实现要等入口激活才交出，工作台不替提供者激活入口，所以入口要写 `activationEvents: ["onStartup"]`。
+ */
+export function sceneProvider<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: {readonly name: Name} & ShortNameRule<Name>): SceneProviderHelper<`${Id}.${Name}`> {
+    const id = contributionId(plugin.id, options.name, "场景提供者");
+    return {
+        id,
+        contribution: {capability: WORKBENCH_THEME_SCENES_POINT, id, declaration: {}},
+        where: "browser",
+        activationEvents: [],
+        implement: (implementation) => bound(WORKBENCH_THEME_SCENES_POINT, id, implementation),
+    };
+}

@@ -27,6 +27,8 @@ export interface SchemeRegistryOptions {
     readonly clock: RuntimeClock;
     /** 挂载点的保存锁放在 `<lockRoot>/<方案>/<挂载点>/`。 */
     readonly lockRoot: string;
+    /** 挂载方案写入用的暂存目录（状态根下的 `staging/`）；建不起来时为 null，写入得 `io-failed`。 */
+    readonly staging: string | null;
     readonly record: (level: "info" | "warn", event: string, message: string, data?: unknown, error?: unknown) => void;
 }
 
@@ -71,6 +73,7 @@ export class SchemeRegistry {
                 scope: this.#options.scope,
                 clock: this.#options.clock,
                 lockRoot: join(this.#options.lockRoot, handle.id),
+                staging: this.#options.staging,
                 record: this.#options.record,
             });
             this.#schemes.set(handle.id, {handle, scheme});

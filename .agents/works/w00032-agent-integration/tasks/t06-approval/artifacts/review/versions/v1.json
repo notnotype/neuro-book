@@ -1,0 +1,46 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t06-approval",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t06 权限与 Agent 模式：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "9bd31740a79bdc8dbc1e297377bbe5d827553d123096cc7120b1f502f8818351",
+    "files": [
+        "index.html",
+        "r1/app-today.webp",
+        "r1/lab-mode-chip.webp"
+    ],
+    "questions": [
+        {
+            "id": "mode-control",
+            "type": "single",
+            "label": "模式控件保持两个，还是合成一个菜单",
+            "options": [
+                {
+                    "value": "two-controls",
+                    "label": "A 两个控件并排（推荐）"
+                },
+                {
+                    "value": "one-menu",
+                    "label": "B 合成一个菜单"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "two-controls"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T11:57:56.329Z"
+}

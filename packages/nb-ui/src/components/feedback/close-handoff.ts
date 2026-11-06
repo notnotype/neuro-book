@@ -1,7 +1,7 @@
 import {onBeforeUnmount, watch} from "vue";
 
 /**
- * S4 关闭交接：把「内容真的卸载完了」表达成一个只发一次的 `closed`。
+ * 关闭交接：把「内容真的卸载完了」表达成一个只发一次的 `closed`。
  *
  * 为什么不能直接在 `close-auto-focus` 里发：Reka 的 FocusScope 在自己的卸载清理里
  * 才排 `setTimeout(…, 0)` 去摘焦点栈（`FocusScope.vue` 的 cleanupFn）。同一个同步任务里
@@ -9,7 +9,7 @@ import {onBeforeUnmount, watch} from "vue";
  * 所以这里先 `queueMicrotask` 把定时器登记推迟到本同步任务之后，再排下一宏任务；
  * token 让重开、换文档与组件卸载作废未结算的旧交接。
  *
- * 语义见 docs/design-language.md §七.6 与 docs/ui-development-spec.md §4.2.18：
+ * 语义见设计语言的“浮层入退场的编排是固定的”与开发规范的“浮层的打开与关闭”：
  * `closed` 表示关闭已完成，宿主在此之后才执行命令或激活下一个交互层，不许用固定毫秒数代替。
  */
 export type CloseHandoff = Readonly<{

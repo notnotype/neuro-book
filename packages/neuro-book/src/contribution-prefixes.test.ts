@@ -17,6 +17,7 @@ import {browserPluginDefinitions} from "nbook/web/plugins";
 
 /** 贡献 id 不按插件 id 取的贡献点，与它们的 id 规则所在。 */
 const OWN_ID_RULES: Readonly<Record<string, string>> = {
+    "workbench.themes": "无点 id 只有 nbook.workbench 能用，其余以插件 id 加点开头（theme/skins.md，workbench/themes.test.ts）",
     "state.public": "公开键按插件 id 加 `/`（state/public-state.md）",
     "commands.definitions": "命令 id 按域词表（workbench/commands.md）",
     "workbench.pages": "页面路径（ui/workbench-shell.md）",

@@ -1,0 +1,146 @@
+# w00032 t17 前端实现审查报告（审查对象 5eae766ff..0c2ff91ea）
+
+### 1. 路径重建（`applyPath`）会把还没确认的乐观消息吃掉，包括“结果未知、可重发”的那条
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：`packages/nb-agent-ui/src/kernel-transcript.ts:240-247`（`input`/`steer` 归约里的 `optimistic = optimistic.slice(1)`）、`:526-536`（`applyPath` 的 `resetPath` 不清乐观消息，却逐条归约历史 `input`）；调用方 `packages/neuro-book/src/plugins/agent/web/session-host.ts:185-191`（`refresh`，由 `onResync` 与 `leafChanged` 触发）
+- 现象：`applyPath` 重放历史时，路径上每个 `input`/`steer` 事件都各吃掉一条最早的乐观消息。路径上有 N 个历史输入，就最多吃掉 N 条乐观消息，不管它们是不是这些输入对应的。
+- 为什么是问题：整份重建正好发生在最需要乐观消息的时刻。发送时链路断开，`settleSend` 标记“结果未知”并把文字记进 `unknownSends`；重连后 `onResync` 立刻 `refresh`，`applyPath` 把这条消息从视图里删掉。用户既看不到消息，也没有“重发/移除”入口，文字只留在 `unknownSends` 里，没有出口。发送还在途时遇到重连也一样：消息先被吃掉，之后 `markOptimisticUnknown` 对不存在的 id 无操作。切分支（`leafChanged`）同理。Spec 输出 6 要求结果未知时消息标出来并能重发。
+- 如何核实：真实 `createKernelTranscript` 的最小序列（`/tmp/claude-t17-review-lab/opt.test.ts`）：`applySnapshot`、`applyPath([input#1])`、`addOptimistic`、`markOptimisticUnknown`，再做一次 `applySnapshot`+`applyPath([input#1])`（即 `refresh` 做的事）。结果：`before ["user:undefined","user:unknown"]`，`after ["user:undefined"]`。`session-host.test.ts` 的“结果未知”用例没有在重连重建之后检查，所以没抓到。
+- 建议改法：`applyPath` 重放时不碰乐观消息（给归约一个“回放”标志，或把确认逻辑放到 `applyEvent` 里，只对实时到达的 `input` 生效）；用 `commandAccepted` 里的 `commandId` 对应，不按先后吃。补一个测试：未知结果的乐观消息在 `refresh` 之后仍在。
+
+### 2. 归还 30 秒后借回来，`open()` 里的 `closeCurrent()` 把刚保留的向导状态又清掉
+- 严重程度：重要
+- 类别：正确性 / 测试
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:283-286`（`open` 开头调 `closeCurrent`）、`:270-281`（`closeCurrent` 置 `wizardState = undefined`、`notice`、`editing`、`unknownSends`）、`:665-675`（归还定时器里保存再恢复 `wizardState`）、`:653-659`（`borrow` 在 `current === null` 时调 `open`）
+- 现象：归还回调先 `closeCurrent()` 再把保存的 `wizardState` 放回去，意图是“未提交的答案跟着事项走，回来时还在”。但回来时 `borrow()` 走 `open(sessionId)`，`open` 第一步又是 `closeCurrent()`，`wizardState` 被置 undefined。保留逻辑只对“30 秒内回来”有效，那时本来就没有关订阅。
+- 为什么是问题：编辑区页面切标签就卸载，用户在审批向导里选了一半、切走超过 30 秒再回来，选择、收起状态、步骤全没了，与 Spec 与该处注释的承诺相反。同样被清掉的 `unknownSends` 与 `editing`：结果未知的消息在新 transcript 里本来就没有，对应记录也被丢，没有残留问题；但 `editing`（正在改的排队消息）被清后输入框里还是原文，再发送会当成新消息而不是 `edit`。
+- 如何核实：在实验目录用真实服务端（`session-host.test.ts` 的 `world`、`harness`）加一条用例：发一条会触发审批的消息，等到审批出现，`act({type:"wizard.state", state:{collapsed:true, step:1}})`，`borrow()` 后立即归还，`clock.advance(RELEASE_DELAY_MS + 1)`，再 `borrow()`，等审批重新出现。输出 `WIZARD STATE AFTER REOPEN undefined`（文件 `/tmp/claude-t17-review-lab/wiz.test.ts`）。现有“向导的界面状态交给宿主”用例只在同一个借用期里断言，“寿命”用例只看消息，两条都没跨过 30 秒。
+- 建议改法：把“放开订阅”与“清会话状态”拆成两个函数：归还回调只放订阅、停计时器；`open` 里按“是不是换了一个会话”决定要不要清向导状态（同一个 id 重新打开就保留）。补跨 30 秒的向导状态用例。
+
+### 3. 打开或重建期间缓存的 `delta` 帧在路径之后重放，已经落成 `assistant` 的回复会再多出一条“正在生成”的幽灵消息
+- 严重程度：建议（时序窗口只在打开或重建的几个来回内，没在真实运行时复现；一旦发生，幽灵消息要留到下一个 `runEnded`）
+- 类别：正确性
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:337`（只丢 `status`，`delta` 全部重放）、`:209-222`（`refresh` 期间排队的帧）；`packages/nb-agent-ui/src/kernel-transcript.ts:437-466`（`applyDelta`）、`:254`（只有同 request 的 `assistant` 事件才清 `live`）
+- 现象：订阅之后、快照之前（或 `refresh` 进行中）一条回复流完并写成 `assistant`。该 `assistant` 日志帧 seq 不大于快照 `head`，被 `applyEvent` 丢掉（它已在路径里）；但同一 request 的 `delta` 帧不过滤，在路径重建（`live = null`）之后被重放，`live` 重新建起来，`messages()` 末尾多出一条同文的 `streaming` 消息。清它的只有 `runEnded`、同 request 的 `assistant`/`modelFailed` 或别的 request 的新增量。
+- 为什么是问题：用户看到同一条回复出现两次，工具执行阶段会一直如此。`delta` 的 request 号比路径里最后一条 `assistant` 的 request 小或相等时，一定是过时的，适配器有信息可判断，却没有判断。
+- 如何核实：`/tmp/claude-t17-review-lab/ghost.test.ts`（只用真实 `createKernelTranscript`）：`applySnapshot({head:5})`，`applyPath([input, assistant request 7 seq 5])`，再 `applyFrame` 两个 request 7 的 `delta`，`applyEvent(assistant seq 5)` 返回 null。`messages()` 得到 `[user, assistant done "hello", assistant streaming "hello"]`。宿主层的触发条件从代码推断：`open` 里 `early` 的非 status 帧、`refresh` 之后排队的帧。
+- 建议改法：适配器在路径归约时记下最大的已落成 request（`assistant`、`modelFailed`），`applyDelta` 丢掉不大于它的 request；补一个适配器用例。
+
+### 4. 打开会话时快照返回之后到达的状态帧也被丢掉，与 Spec 不一致
+- 严重程度：建议
+- 类别：正确性
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:293-298,336-337`；Spec `docs/specs/agent/conversation.md` 输出 5
+- 现象：Spec 写“`snapshot` 返回之前的状态帧丢掉”。实现把 `live` 为 false 期间收到的所有 `status` 帧都不处理，包括快照返回之后、`loadPath` 分页与 `eventChunk` 拼接期间到达的。快照的 `status` 是 T 时刻的，这段时间里的状态变化（运行开始、进入等待、结束）就丢了。
+- 为什么是问题：重新打开一个正在跑的会话，路径越长窗口越大。下一个状态帧到来前，视图显示的是旧状态（例如实际已结束，仍显示运行中并继续走计时器；或实际在等批准，仍显示运行中）。等待用户时没有后续状态帧，旧状态会一直留着。`afterSeq` 本可用来判断。
+- 如何核实：读 `open`；复现需要在 `remote.path` 返回之前让运行状态变化，从代码推断。
+- 建议改法：在 `snapshot` 返回时记下 `early.length`，只丢这之前的状态帧；或用 `afterSeq` 与 `head` 比较。补一个用例：快照之后、路径之前插入状态变化。
+
+### 5. 全部答完后向导状态不会清：父组件 `v-if` 直接卸载向导，`watch(batchKey)` 的“清空”分支是死代码，下一批审批会按上一批的“收起”状态出现
+- 严重程度：重要
+- 类别：正确性 / 测试
+- 位置：`packages/nb-agent-ui/src/vue/wizard/AgentWizard.vue:80-92`（`key === ""` 时 `setState(EMPTY_WIZARD)`）；`packages/nb-agent-ui/src/vue/AgentConversationView.vue:340`（`<AgentWizard v-if="waitingForUser" …>`）；宿主 `session-host.ts:486-488`（`wizard.state` 只存不清，只有 `closeCurrent` 清）
+- 现象：事项全部答完时 `pendingInputs` 变成空数组，父组件的 `v-if` 在同一次更新里卸载向导，向导的 `batchKey` 监听器收不到 `""`，`setState(EMPTY_WIZARD)` 不会执行。宿主里留着上一批的 `{collapsed, step, approvals, ...}`。下一批审批出现时新挂载的向导 `readWizardState(props.state)` 读到旧状态。
+- 为什么是问题：用户上一批按 Esc 收起了向导，答完之后，下一个审批一出现就是收起的小条，而不是展开的向导；`step` 也沿用上一批的值（批内按 id 的选择不会串，因为 id 不同）。这条路径恰好是 `AgentWizard.dom.test.ts` “这一批没了状态清空”想保护的，但该用例直接对 `AgentWizard` 做 `setProps({pending: []})`，绕过了真实父组件的 `v-if`，所以通过。
+- 如何核实：`/tmp/claude-t17-review-lab/parent.dom.test.ts`（happy-dom，真实 `AgentWizard.vue`，父组件按 `pending.length > 0` 渲染，并把 `wizard.state` 动作回写成 `state`）：按 Esc 收起；`pending = []`；再 `pending = [approval("b")]`。输出：答完后状态仍是 `{"collapsed":true,...}`，新批次 `data-wizard-collapsed` 存在为 true。运行 `bunx vitest run --config <实验配置>`。
+- 建议改法：清状态不要靠子组件的监听，放到宿主（`afterChange` 里 `pending()` 变空就清 `wizardState`），或让视图在 `waitingForUser` 变 false 时发一个清状态的动作；原用例改成经父组件挂载。
+
+### 6. “本会话都批准”会悄悄把这批里同一工具已选的“拒绝”改成批准
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：`packages/nb-agent-ui/src/wizard.ts:48-55`（`choose`：`for (const item of items) if (item.tool === tool) approvals[item.id] = {decision: "allow-session"}`）
+- 现象：循环对同一工具的所有调用无条件赋值，包括用户已经明确选了拒绝（还可能写了附言）的那几个。例如一批三个 `write`：第 1 个拒绝并写“这个不要”，到第 2 个点“本会话都批准”，第 1 个就变成 `allow-session`，附言丢掉，界面上第 1 步不再有提示，提交时这个被拒绝的写入会被执行。
+- 为什么是问题：用户明确拒绝的调用被执行，且没有任何提示；这是审批向导最不能出错的方向。Spec 输出 12 只说“同时选中这批里同一个工具的其余调用”，没说覆盖已做的决定；“其余”按字面更像是还没选的。`wizard.test.ts` 的用例只覆盖了都没选的情况。
+- 如何核实：纯函数，直接读：`choose(state, items, "b", "allow-session")`，`state.approvals.a = {decision: "deny", note: "x"}`，且 a、b 同为 `write`，结果 `approvals.a` 为 `allow-session`。
+- 建议改法：只对 `state.approvals[item.id] === undefined` 的调用赋值，已选的保持；补用例“已拒绝的不被覆盖”。若开发者想要覆盖，至少在步骤页标出“已随本会话批准改成批准”。
+
+### 7. 提问表单的“填得对不对”只记在子组件的本地变量里，收起再展开或切标签回来后丢失，别的步骤填错的表单会被当成有效
+- 严重程度：建议
+- 类别：正确性 / 代码质量
+- 位置：`packages/nb-agent-ui/src/vue/wizard/AgentQuestionWizard.vue:34-36`（`formValid = ref({})`）；`packages/nb-agent-ui/src/vue/wizard/AgentWizard.vue:107-124`（收起用 `v-if` 卸载整个 `AgentQuestionWizard`）；`packages/nb-agent-ui/src/wizard.ts:76-80`（`formValid !== false` 默认当有效）
+- 现象：答案在 `ctx.wizardState`（宿主持有，切标签回来还在），但这个答案对不对的结论在 `AgentQuestionWizard` 的 `formValid` 里。收起向导时该组件被卸载，展开或切标签重挂后 `formValid` 为空，所有题都按“有效”算；只有当前这一步的表单挂载时会立即重新报一次。
+- 为什么是问题：用户在第 1 题的表单里填了不合法的值，翻到第 2 题后收起、再展开（或切走标签再回来），“提交”按钮对第 1 题放行，不合法的表单值被提交给工具。同一份状态分在两处，只有一处跨卸载存活。
+- 如何核实：从代码推断，未跑 DOM 用例；`AgentWizard.dom.test.ts` “状态交给宿主”“Esc 只收起”的用例只用了没有表单的题。
+- 建议改法：有效性不要存在组件里。`answered` 在提交前对每个带表单的题用同一份 schema 重新校验（宿主已有 `renderers.form` 的注入点，可再注入一个 `validate`），或把 `valid` 随答案一起写进 `QuestionAnswer`。补“有表单、填错、收起再展开、提交仍禁用”的用例。
+
+### 8. 左栏“会话”视图直接把面板动作交给宿主：重命名是空操作，新建不选 Profile，归档与新建后列表不刷新
+- 严重程度：重要
+- 类别：正确性 / 代码质量
+- 位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts:266-281`（`sessionsView` 的 `onAction`）；对照 `packages/neuro-book/src/plugins/agent/web/ConversationHost.vue:33-55`；`session-host.ts:530-531`；`packages/nb-agent-ui/src/vue/AgentSessionPanel.vue:96`
+- 现象：下拉里的面板经 `ConversationHost.onAction` 处理：`session.rename` 弹改名小窗，不带 `profileKey` 的 `session.create` 先 `pickProfile`，归档、恢复、新建之后 `list.refresh()`。左栏视图的 `onAction` 只写了 `host.act(action)` 加打开视图，这三样都没有：
+  1. 面板菜单里的“重命名”发出 `{type: "session.rename", sessionId, title: item.title}`，这里的 `title` 是当前标题；`host.run` 直接 `remote.setTitle({title: action.title})`，等于用旧标题再写一遍，用户点了重命名没有任何反应。
+  2. 点“+”新建，多 Profile 时不问，直接用主创。
+  3. 归档、恢复、新建之后列表要等 `SessionPanelHost` 的 15 秒轮询才变；被归档的会话一直留在列表里。
+- 为什么是问题：同一个面板组件在两个位置的行为不同，其中一个位置的菜单项是坏的。逻辑重复写在两处，是这次分歧的根源。
+- 如何核实：读码对比两处 `onAction`；`session-host.test.ts` 与 `agent-conversation.e2e.ts` 只经下拉位置测面板，左栏视图没有用例。未跑 e2e（按说明由主 Agent 跑）。
+- 建议改法：把“面板动作的处理”（改名小窗、选 Profile、刷新）收成一处（例如放进 `SessionPanelHost`，或抽成 `ConversationHost` 与左栏共用的函数），两个位置都用；补左栏视图的改名、归档用例。
+
+### 9. 模型与 Profile 目录的加载失败没有诊断也不重试，`ensureStarted` 只跑一次
+- 严重程度：建议
+- 类别：正确性 / 代码质量
+- 位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts:136-157`
+- 现象：`loadProfiles` 对 `!result.ok` 什么都不做；模型订阅 `!subscription.ok` 时 `return`，整个异步块末尾 `.catch(() => undefined)` 吞掉所有异常；`started = true` 之后不会再试。
+- 为什么是问题：服务端模型服务在窗口起来时还没就绪或短暂失败，模型下拉就一直是空的（`models` 为 null，`composer.models` 为 `[]`），Profile 名退回到 key，既没有诊断也没有恢复路径，只能重载窗口。同文件的 `activity`、`recent` 都写了诊断，这里不一致；项目的说明也要求不静默吞错。
+- 如何核实：读码；构造一个 `modelsSettingsContract` 订阅失败的窗口即可复现，未在真实运行时复现。
+- 建议改法：失败时 `report(...)`，并把 `started` 复位或在 `onResync` 与下次借用时重试。
+
+### 10. 主题圆角改小后留下的两处：二级对话框的圆角检查失去判别力，文档与注释还写着旧数
+- 严重程度：建议
+- 类别：测试 / 文档
+- 位置：`packages/nb-ui/e2e/dialog-surfaces.spec.ts:46-60`、`packages/nb-ui/playground/app/acceptance/DialogSurfacesFixture.vue:25-27`；`packages/nb-ui/docs/design-language.md:258`；`packages/nb-ui/src/styles.css:583-584`
+- 现象：
+  1. nbook 的 `--radius-dialog` 从 26px 改成 12px，和 `--radius-window` 同值。“二级对话框”用例断言 `radius(inner) === windowRadius`，一级对话框也是 12px，所以即使 `styles.css` 里 `.nb-ui-dialog-surface--nested { border-radius: min(var(--radius-window), var(--radius-dialog)) }` 那行被删掉，这条断言也通过。原来靠 26 与 12 的差别自然区分。`alert-probe` 与 `window-probe` 各自把相关圆角改成了不同的值，`nested-probe` 没有。
+  2. `design-language.md:258` 仍写“nbook 面板圆角的取值有出处（macOS 26 窗口圆角的实测）”，现在 `--radius-panel` 是 10px，不再是那个实测值；`styles.css:583` 仍写“`--radius-panel` 在 nbook 下是 20px”。
+- 为什么是问题：圆角改动本身是开发者定的，没问题；问题是它让一条回归检查悄悄变成永远通过，并让文档与代码对不上。
+- 如何核实：读码；把 `.nb-ui-dialog-surface--nested` 的 `border-radius` 行去掉再跑该用例，第一条断言仍过（未跑 e2e，按说明由主 Agent 跑）。
+- 建议改法：`PROBE_OVERRIDES["nested-probe"]` 加 `"--radius-dialog": "20px"`，用例里断言收到窗口那档；改两处旧数字的文字。
+
+### 11. “取出排队消息来改”：覆盖输入框里正在写的内容；放弃修改后，下一条不相干的消息会被当成对排队消息的编辑
+- 严重程度：重要
+- 类别：正确性
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:492-499`（`queued.edit`）、`:385-401`（`submit` 里的 `editing` 分支）
+- 现象：
+  1. `queued.edit` 无条件 `setDraft(queued.text)`，输入框里已有的草稿被替换，没有确认也没有保留。
+  2. `editing` 记下的是排队消息的 id，排队消息本身仍留在待处理区。用户点了铅笔后改变主意（清空输入框、或写了一句完全不相干的话），`editing` 并不会清除；下一次任何 `composer.submit` 都先走 `remote.edit({inputId: editing, input: {text}})`，成功就 `return`：不相干的新消息没有作为新消息发出，而是悄悄覆盖了那条排队消息的文字。视图里没有任何“正在改某条排队消息”的提示（`ctx` 里没有这一项），用户无从察觉。
+  3. `edit` 失败时（`edited.ok` 为 false）无论原因都当新消息再发一次；结果未知（`unavailable`、`timeout`）时，如果服务端其实已受理，就是同一段文字的编辑加一条新消息。
+- 为什么是问题：Spec 输出 6 写的是“能取出到输入框改了再发”，用户的心智是排队消息被取出，没有“隐藏的编辑模式”；当前实现把一个界面上看不到的状态留在宿主里，后续的发送被悄悄劫持。草稿被覆盖是直接的数据丢失。
+- 如何核实：读码；`session-host.test.ts` 的“排队的能删、能取出来改”只走了“取出、改、发”这一条路径。
+- 建议改法：取出时直接 `remove` 排队消息再放进输入框（与 Spec 字面一致，也没有隐藏状态）；若保留 `edit`，要在 `ctx.composer` 里告诉视图“正在改排队的那条”，草稿非空时先问，输入框清空或会话切换时清 `editing`，`edit` 失败按错误码区分。补“取出后清空，再发新消息”的用例。
+
+### 12. 宿主从不给 `availability: "loading"`：打开、切换、30 秒后借回会话时，先显示“还没有消息”和“未选择会话”再换成内容
+- 严重程度：建议
+- 类别：正确性 / 与 Spec 不一致
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:283-291`（`open` 先建空 transcript 并 `bump()`）、`:587-593`（`availability` 只有 load-error、archived、profile-unavailable、ready 四种）；视图合同 `docs/specs/ui/agent-conversation-view.md` 第 100、266 行
+- 现象：`open` 到 `applyPath` 完成之间（订阅、快照、分页取路径，至少三个来回，长会话还要拼大事件），`target.transcript.meta()` 是空的，`session` 为 null，`messages` 为空，`availability.status` 是 `ready`。视图的合同是“没有消息时：`availability` 为 `loading` 显示加载中，其余显示‘还没有消息’”，所以用户看到标题“未选择会话”和“还没有消息”，然后整屏换成内容。切标签回来超过 30 秒、`session.select`、`retry` 都经过这里。
+- 为什么是问题：对一个有内容的会话说“还没有消息”是错的，每次打开都闪一下；视图已经实现了 `loading`，宿主没用。
+- 如何核实：读码；`session-host.test.ts` 没有断言打开过程中的 `availability`。
+- 建议改法：`Current` 里记“载入完成”，未完成时 `availability.status = "loading"`（标题可保留上一个会话或显示加载中），完成后 `ready`。
+
+### 13. 几处小问题（各自独立，合并列出）
+- 严重程度：建议
+- 类别：正确性 / 代码质量
+- 位置与现象：
+  1. `packages/neuro-book/src/plugins/agent/web/session-list.ts:44-60` 与 `packages/nb-agent-ui/src/vue/AgentSessionPanel.vue:124-126`：`refresh` 失败只写 `error`，不清 `entries`；面板在 `error !== null` 时整块只画错误（`v-if error … v-else-if items.length === 0 …`），已经取到的列表被盖掉。`SessionPanelHost` 每 15 秒轮询一次，断线时的一次失败就让用户看不到也点不了任何会话，直到下次成功。应保留旧列表，错误作为横幅。
+  2. `packages/neuro-book/src/plugins/agent/web/plugin.ts:275` 与 `session-host.ts:252-268`：会话面板的 `now` 取 `host.ctx.value.now`，宿主只在运行中每秒更新它。面板注释写明“宿主要定期更新它，否则过了午夜分组不会变”，空闲时没有人更新；窗口开着过夜，“今天/昨天”分组与时间标签停在昨天，直到下次运行。另外读 `host.ctx.value` 让左栏视图依赖整个大 `ctx` 计算属性，每一帧都重算它。应单独暴露一个 `now`（空闲时按分钟或在跨日时更新）。
+  3. `packages/neuro-book/src/plugins/agent/web/plugin.ts:165,258`：`lastPosition` 只在页面组件 `setup` 时置位，页面标签被关掉或切走（编辑区页面卸载）后不复位；之后“打开 Agent 对话”命令（`reveal`）仍执行 `OPEN_PAGE_COMMAND`，把用户刚关掉的页面再开一个，而不是回到右栏。应在页面卸载时复位，或命令先看哪个位置此刻有借用者（`borrow` 计数）。
+  4. `packages/nb-agent-ui/src/tool-detail-lines.ts:22-24`：原来的一行注释“读取结果按文件行号显示；带 offset 参数时从该行开始编号。”没有删，后面直接接了新的 JSDoc 和两个常量，旧注释现在挂在 `READ_HEADER` 上，描述的是下面的 `fileContentLines`。
+  5. `packages/nb-agent-ui/src/builtin-tools.ts` 的 `streamingPath`：流式中路径为空时返回 `" · 123"`（非空串），`edit` 的 `streamingPath(call) || editInputChanges(...)` 后一半永远走不到。
+- 如何核实：读码。
+- 建议改法：见各条。
+
+## 未发现问题的方面
+
+- `kernel-transcript.ts` 的事件表：对着 `nb-harness/src/kernel/api/kernel-events.ts` 的 33 种事件，每种都有去向（路径事件、会话事件、`IGNORED` 或 `USAGE_EVENTS`），认不出的走 `problems()`；`assistant`、`modelEnded`、`modelFailed` 的用量没有重复计入；`applySnapshot` 只以 `head` 为基线、`applyPath` 重放不碰用量，口径一致。
+- `session-host.ts` 的帧排队：`working` 是宿主级计数，但新旧会话各有自己的 `chain`，同步路径与排队路径的先后没有发现乱序；`generation` 与 `current !== target` 的守卫在订阅、快照、路径三处都有，切走后订阅会被释放（含订阅返回前就切走的情况）。
+- 服务端对增量按窗口合并（`FrameMerger`），所以流式时 `ctx` 的重算频率有上限；`messages()` 在没变时返回同一个数组，`pendingViews` 引用的 `previews`、`request.args` 稳定，`pendingInputs`、`composer` 每次新建对子组件只造成无 DOM 变化的重算，没有发现需要处理的开销。
+- `DiffView` 与 `diff/index.ts`：按字预算、折叠与 `hunkTexts` 的逻辑和 `.md` 一致；实测最坏 5000 行全不同约 300 毫秒（行比较超时后整段替换），20000 行少量改动 26 毫秒；样式只用 token；容器查询的断点与 `.md` 一致。
+- 乐观消息的“先确认后撤销”正常路径（无重建）：发送、确认、被拒、`commandAccepted` 进缓冲的撤销，行为与 `session-host.test.ts` 一致。
+- 激活开销：`onStartup` 只登记声明并开一个活动订阅，Vue 层与宿主按需加载。
+
+## 汇总
+
+- 共 13 条：阻断 0，重要 6，建议 7。
+- 重要：1（路径重建吃掉乐观消息）、2（30 秒后借回清掉向导状态）、5（答完后向导状态不清）、6（“本会话都批准”覆盖已选的拒绝）、8（左栏会话视图的改名、新建、刷新）、11（取出排队消息改：覆盖草稿且隐藏的编辑状态劫持下一条）。
+- 建议：3、4、7、9、10、12、13。
+- 报告里的顺序是核实顺序，不是严格按影响排序；影响最大的是 6（会执行被拒绝的写入）、1、2、5。
+- 实验文件都在 `/tmp/claude-t17-review-lab/`（`opt.test.ts`、`ghost.test.ts`、`wiz.test.ts`、`parent.dom.test.ts`、`diffperf.test.ts`），未改动仓库文件。

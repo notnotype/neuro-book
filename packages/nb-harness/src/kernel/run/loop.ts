@@ -11,7 +11,7 @@
  */
 
 import {replyText} from "../api/index.js";
-import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelCaller, ModelInfo, ModelPort, ReplyEvent, Resources, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
+import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelCaller, ModelInfoLookup, ModelInfo, ModelPort, ReplyEvent, Resources, RetryPolicy, RetryWait, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {LogBrokenError} from "../dispatch/core.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
@@ -20,6 +20,7 @@ import {computeRequest} from "../view/request.js";
 import {failureDrafts} from "./chain.js";
 import {callModel, modelCaller, type ModelCallHost} from "./model-call.js";
 import type {Interactions} from "./interaction.js";
+import {backoffDelay, EMPTY_REPLY_RETRIES, isEmptyReply, NO_RETRY, retryDelay} from "./retry.js";
 import {ABORT_GRACE_MS, runTools, toolInfo, type ToolBox} from "./tools.js";
 import {ctrl, interrupting, RunStoppedError} from "./writes.js";
 
@@ -39,6 +40,9 @@ export interface RunHost {
     markReadOnly(code: "tools-missing"): void;
     /** 运行阶段变了（推状态帧用）。 */
     phase(phase: "requesting" | "streaming" | "tools" | "compacting", request: number | null): void;
+    readonly retry?: () => RetryPolicy;
+    /** 在等重发（推状态帧用）。 */
+    retrying(wait: RetryWait | null): void;
 }
 
 export interface ActiveRun {
@@ -56,7 +60,7 @@ export interface RunCompaction {
     /** 当前上下文的 token 估算与这个模型的触发点。 */
     estimate(): number;
     trigger(model: ModelInfo): number;
-    run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller}): Promise<CompactOutcome>;
+    run(args: {reason: "threshold" | "overflow" | "manual"; require: readonly string[]; environment: ViewEnvironment; tools: readonly ToolDeclaration[]; model: string; signal: AbortSignal; write: (drafts: EventDraft[]) => Promise<unknown>; caller: ModelCaller; modelInfo: ModelInfoLookup; contextWindow: number}): Promise<CompactOutcome>;
 }
 
 /** 取走一条输入开新的一轮：`inputConsumed`、`turnStarted`、`input` 同批（提案第 2 节“写入批”）。 */
@@ -65,7 +69,7 @@ export function takeInputDrafts(inputId: string, input: UserInput, turnId: strin
     return [
         {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: inputId}},
         ctrl("turnStarted", {turnId, inputId}),
-        {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as JsonValue}), queued: inputId} as JsonValue},
+        {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: inputId} as JsonValue},
     ];
 }
 
@@ -75,7 +79,7 @@ export function takeSteerDrafts(core: SessionCore): EventDraft[] {
         const {text, payload, attachments} = item.input;
         return [
             {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id}},
-            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as JsonValue}), queued: item.id} as JsonValue},
+            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id} as JsonValue},
         ];
     });
 }
@@ -102,6 +106,7 @@ function toolsChangedText(before: readonly {id: string; version: string}[], afte
 
 const RESULT_REQUESTED = "<system-reminder>\nWhen the work is done, call the yield tool alone to hand back the result.\n</system-reminder>";
 const RESULT_NUDGE = "You stopped without calling yield. Call yield now to hand back the result.";
+const EMPTY_REPLY_NUDGE = "Your last reply was empty. Continue the task, or give your final answer.";
 
 /** 跑一次运行，直到写下 `runEnded`。只有写日志失败会以 `LogBrokenError` 拒绝。 */
 export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
@@ -148,24 +153,43 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
     let nudged = false;
     /** 这次请求因为溢出压缩过一次：再溢出就收口（每次请求最多重发一次）。 */
     let overflowRetried = false;
+    /** 这次请求连续重发了几次（输出 62），有一条回复写下后清零。 */
+    let retries = 0;
+    /** 这次请求因为空回复重发了几次（输出 69）。 */
+    let emptyRetries = 0;
+    /** 写下失败、等够时间。等完回到循环顶部：中止检查、插话、设置都在下一次请求之前生效（输出 66）。 */
+    const failAndWait = async (drafts: EventDraft[], wait: RetryWait): Promise<void> => {
+        await write(drafts);
+        host.retrying(wait);
+        // 等待只会因中止而失败，循环顶部会收口。
+        await core.clock.wait(wait.resumeAt - core.clock.now(), signal).catch(() => undefined);
+    };
+    const modelInfo: ModelInfoLookup = (options) => {
+        const found = host.models.resolve({settings: core.session.kernel.core, purpose: options.sessionModel === true ? "turn" : "compaction", profile: core.assembly.profile.id, ...(options.role === undefined ? {} : {role: options.role})});
+        return found.ok ? {contextWindow: found.info.contextWindow, ...(found.info.maxOutput === undefined ? {} : {maxOutput: found.info.maxOutput})} : null;
+    };
     const modelHostFor = (environment: ViewEnvironment): ModelCallHost & {resolve: Parameters<typeof modelCaller>[0]["resolve"]} => ({
         core,
         resources: host.resources,
         environment: () => environment,
         write: guardedWrite,
         streaming: (request) => host.phase("streaming", request),
+        ...(host.retry === undefined ? {} : {retry: host.retry}),
+        retrying: (wait) => host.retrying(wait),
         resolve: (purpose, role) => host.models.resolve({settings: core.session.kernel.core, purpose, profile: core.assembly.profile.id, ...(role === undefined ? {} : {role})}),
     });
     try {
         if (run.compact !== undefined) {
             // 只压缩的运行：做一次压缩就收口（runtime.md 输出 52）。
             host.phase("compacting", null);
-            // 只压缩的运行用压缩的模型：对话模型不可用时也能先压缩（受理时已查过压缩的模型）。
-            const resolution = host.models.resolve({settings: core.session.kernel.core, purpose: "compaction", profile: core.assembly.profile.id});
+            // 压缩前的请求按会话的模型算，就地压缩的前缀才和对话请求相同。对话模型不可用时按压缩的模型算（受理时已查过它）：
+            // 就地方法这时解析不到模型而失败，换下一个（runtime.md 输出 52）。
+            const session = host.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
+            const resolution = session.ok ? session : host.models.resolve({settings: core.session.kernel.core, purpose: "compaction", profile: core.assembly.profile.id});
             if (!resolution.ok) return await end("error", {reason: "error", error: {kind: "local", code: resolution.code}});
             const tools = host.box.current();
             const environment = host.environment(resolution.info, tools.map(toolInfo));
-            const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)}), abortedNow]);
+            const outcome = await Promise.race([host.compaction.run({reason: "manual", require: run.compact.require, environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
             if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
             if (outcome.ok) return await end("completed", {reason: "completed"});
             if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
@@ -212,7 +236,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (requested.length > 0 || (trigger !== Number.POSITIVE_INFINITY && host.compaction.estimate() > trigger)) {
                 host.phase("compacting", null);
                 // 和中止赛跑：不理会信号的压缩方法或放回内容的回调挡不住中止（runtime.md 输出 51）；收口之后它们的写入被拒绝。
-                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal)}), abortedNow]);
+                const outcome = await Promise.race([host.compaction.run({reason: requested.length > 0 ? "manual" : "threshold", require: requested.flat(), environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHostFor(environment), signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                 if (outcome === "aborted" || (!outcome.ok && (outcome.code === "aborted" || signal.aborted))) return await end("aborted", {reason: "aborted"});
                 host.phase("requesting", null);
             }
@@ -247,7 +271,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             if (signal.aborted && !core.leafState.kernel.openRequests.includes(request)) return await end("aborted", {reason: "aborted"}, modelFailures);
             if (response.stopReason === "error" || response.stopReason === "aborted") {
                 const aborted = response.stopReason === "aborted" || signal.aborted;
-                const failure = ctrl("modelFailed", {
+                const failureData = {
                     request,
                     kind: aborted ? "aborted" : (response.error?.kind ?? "provider"),
                     ...(response.error?.code === undefined ? {} : {code: response.error.code}),
@@ -255,13 +279,14 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     ...(response.error?.message === undefined ? {} : {message: response.error.message}),
                     ...(response.content.length === 0 ? {} : {partial: response.content}),
                     usage: response.usage,
-                });
+                };
+                const failure = ctrl("modelFailed", failureData);
                 if (aborted) return await end("aborted", {reason: "aborted"}, [...modelFailures, failure]);
                 if (response.error?.kind === "context_overflow" && !overflowRetried && (core.assembly.profile as {compaction?: unknown}).compaction !== false) {
                     // 溢出：记下这次失败的请求，按溢出的顺序压缩，成功就把请求再发一次（runtime.md 输出 50）。
                     await write([...modelFailures, failure]);
                     host.phase("compacting", null);
-                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal)}), abortedNow]);
+                    const outcome = await Promise.race([host.compaction.run({reason: "overflow", require: [], environment, tools, model: resolution.info.id, signal, write: guardedWrite, caller: modelCaller(modelHost, signal), modelInfo, contextWindow: resolution.info.contextWindow}), abortedNow]);
                     if (outcome === "aborted") return await end("aborted", {reason: "aborted"});
                     if (outcome.ok) {
                         overflowRetried = true;
@@ -270,9 +295,29 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
                     if (outcome.code === "aborted" || signal.aborted) return await end("aborted", {reason: "aborted"});
                     return await end("error", {reason: "error", error: {kind: "context_overflow", ...(response.error.code === undefined ? {} : {code: response.error.code})}});
                 }
+                const policy = host.retry?.() ?? NO_RETRY;
+                const delayMs = retryDelay(response, retries, policy);
+                if (delayMs !== null) {
+                    retries += 1;
+                    await failAndWait([...modelFailures, ctrl("modelFailed", {...failureData, retry: {attempt: retries, max: policy.maxRetries, delayMs}})], {attempt: retries, max: policy.maxRetries, resumeAt: core.clock.now() + delayMs});
+                    continue;
+                }
                 return await end("error", {reason: "error", error: {kind: response.error?.kind ?? "provider", ...(response.error?.code === undefined ? {} : {code: response.error.code})}}, [...modelFailures, failure]);
             }
+            const policy = host.retry?.() ?? NO_RETRY;
+            if (policy.maxRetries > 0 && isEmptyReply(response)) {
+                // 空回复不写成回复（输出 69）。原样重发多半还是空的，所以带一句提醒。
+                const emptyData = {request, kind: "provider" as const, code: "empty-reply", ...(response.content.length === 0 ? {} : {partial: response.content}), usage: response.usage};
+                const max = Math.min(EMPTY_REPLY_RETRIES, policy.maxRetries);
+                if (emptyRetries >= max) return await end("error", {reason: "error", error: {kind: "provider", code: "empty-reply"}}, [...modelFailures, ctrl("modelFailed", emptyData)]);
+                const delayMs = backoffDelay(emptyRetries);
+                emptyRetries += 1;
+                await failAndWait([...modelFailures, ctrl("modelFailed", {...emptyData, retry: {attempt: emptyRetries, max, delayMs}}), conv("continued", {text: EMPTY_REPLY_NUDGE, by: "core", count: continuedSoFar(core, "core") + 1})], {attempt: emptyRetries, max, resumeAt: core.clock.now() + delayMs});
+                continue;
+            }
             overflowRetried = false;
+            retries = 0;
+            emptyRetries = 0;
             const replied = await write([...modelFailures, {type: "assistant", kind: "conv", scope: "path", data: {
                 request,
                 content: response.content,
@@ -340,6 +385,8 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         if (error instanceof LogBrokenError) throw error;
         // 内核自己的错：记诊断，按 internal 收口（写日志还能写的话）。
         core.diagnostics.add({code: "handler-threw", entry: "host", subject: "run-loop", message: "the run loop failed", cause: error}, core.head);
+        // 收口批已经写下、是之后的反应出的错（例如插件停止时宿主的服务已经撤回）：一次运行只有一条 runEnded。
+        if (core.leafState.kernel.run?.runId !== run.runId) return;
         stopped = true;
         await end("error", {reason: "error", error: {kind: "local", code: "internal"}});
     }

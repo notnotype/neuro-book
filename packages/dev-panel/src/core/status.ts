@@ -1,5 +1,5 @@
 import type {HerdrClient} from "../herdr/client.js";
-import {adoptionOf, awaitsAnswer, listArtifactIds, listDocuments, questionStates, readArtifact, versionPath, type Adoption, type ArtifactKind, type DocumentEntry} from "./artifacts.js";
+import {adoptionOf, listArtifactIds, listDocuments, questionStates, readArtifact, versionPath, waitingStates, type Adoption, type ArtifactKind, type DocumentEntry} from "./artifacts.js";
 import {verifiedProvenance} from "./provenance.js";
 import {readActivity, type Activity, type SessionView} from "./activity.js";
 import {NbdevError, type Warning} from "./errors.js";
@@ -38,7 +38,7 @@ export type ArtifactSummary = {
     version: number | null;
     state: "open" | "closed" | "unpublished";
     publishedAt: string | null;
-    openRequired: number;
+    waiting: number;
     adoption: Adoption | null;
 };
 
@@ -108,7 +108,7 @@ export function matchRef(ids: readonly string[], ref: string, kind: "work" | "ta
 }
 
 /**
- * 读一个目录下全部产物的摘要，把 open 的必答题放进收件箱。提问者只在主工作区里找（provenance 在主工作区的 .local 下），
+ * 读一个目录下全部产物的摘要，把等开发者答的题放进收件箱。提问者只在主工作区里找（provenance 在主工作区的 .local 下），
  * 来自分支的产物 `askedBy` 为 null。
  */
 async function summarizeArtifacts(root: string, mainRoot: string, workId: string, taskId: string | null, inbox: InboxItem[], warnings: Warning[]): Promise<ArtifactSummary[]> {
@@ -119,17 +119,17 @@ async function summarizeArtifacts(root: string, mainRoot: string, workId: string
         warnings.push(...snapshot.warnings);
         const latest = snapshot.latest;
         if (!latest) {
-            summaries.push({artifactId, kind: null, title: null, version: null, state: "unpublished", publishedAt: null, openRequired: 0, adoption: null});
+            summaries.push({artifactId, kind: null, title: null, version: null, state: "unpublished", publishedAt: null, waiting: 0, adoption: null});
             continue;
         }
-        const open = questionStates(latest, snapshot.answers, snapshot.answeredVersions).filter(awaitsAnswer);
+        const open = waitingStates(questionStates(latest, snapshot.answers, snapshot.answeredVersions), snapshot.answers);
         if (taskId !== null) {
             for (const {question} of open) {
                 const asker = root === mainRoot ? await verifiedProvenance(mainRoot, versionPath(ref, question.since), warnings) : null;
                 inbox.push({kind: "question", workId, taskId, artifactId, artifactTitle: latest.title, questionId: question.id, label: question.label, type: question.type, version: latest.version, since: question.since, askedBy: asker?.session.key ?? null});
             }
         }
-        summaries.push({artifactId, kind: latest.kind, title: latest.title, version: latest.version, state: latest.state, publishedAt: latest.publishedAt, openRequired: open.length, adoption: adoptionOf(snapshot.answers, snapshot.acks)});
+        summaries.push({artifactId, kind: latest.kind, title: latest.title, version: latest.version, state: latest.state, publishedAt: latest.publishedAt, waiting: open.length, adoption: adoptionOf(snapshot.answers, snapshot.acks)});
     }
     return summaries;
 }
@@ -277,14 +277,16 @@ export async function readProjectRecords(context: RepoContext, transition: Trans
 
     const scan = await scanNumbers(mainRoot, transition.checkouts, transition.registry);
     const {conflicts, registryOnly} = await findConflicts(mainRoot, scan);
-    if (conflicts.length > 0) {
-        warnings.push({code: "number_conflicts", message: `有 ${conflicts.length} 处撞号，其中 ${conflicts.filter((conflict) => conflict.live).length} 处 live`, details: {labels: conflicts.map((conflict) => conflict.label)}});
+    // 只在旧副本里的撞号（改号之前开出的分支还带着旧名字）没有什么可动手的：不警告、不进收件箱，`conflicts` 里仍有完整列表。
+    const liveConflicts = conflicts.filter((conflict) => conflict.live);
+    if (liveConflicts.length > 0) {
+        warnings.push({code: "number_conflicts", message: `有 ${liveConflicts.length} 处撞号正在发生`, details: {labels: liveConflicts.map((conflict) => conflict.label)}});
     }
     // 各 Task 并发读取，收件箱的题按 Work、Task、产物、题号排好；编号冲突接在后面。
     const questionKey = (item: InboxItem) => (item.kind === "question" ? `${item.workId}/${item.taskId}/${item.artifactId}/${item.questionId}` : "");
     inbox.sort((left, right) => questionKey(left).localeCompare(questionKey(right)));
     const workPrefixes = filter.workRef === undefined ? null : works.map((work) => work.workId.slice(0, 6));
-    for (const conflict of conflicts) {
+    for (const conflict of liveConflicts) {
         if (workPrefixes && !workPrefixes.some((prefix) => conflict.label.startsWith(prefix))) continue;
         inbox.push({kind: "number_conflict", label: conflict.label, live: conflict.live, ids: conflict.ids});
     }

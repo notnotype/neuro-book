@@ -4,7 +4,7 @@
  *
  * - 一份判定：预览与将要提交的意图同出一次求值，不会出现“高亮了这里、提交去了别处”。
  * - 保守：几何过期、锚点消失、目标量不出来时拒绝或无操作，不猜目标；非法方向、量不出来的目标只给不带预览的无操作。
- * - 内容区用 nb-ui `resolveGridInsertion`：每个可见叶沿目标轴前后各 50%，中点归后半，没有中央禁投区；命中展开的
+ * - 内容区用 nb-layout `resolveGridInsertion`：每个可见叶沿目标轴前后各 50%，中点归后半，没有中央禁投区；命中展开的
  *   叶就是半区并入（`split`）。命中收起的细条、或全部可见视图都收起时，按列表插入位（`resolveListInsertion`）插在
  *   前后，预览是一条插入线，剩余区等于插在最后；拖入的视图在插入位展开（`expand`），插入位挨着展开的叶时与它平分。
  * - Switcher（标签带、ActivityBar 条目带）只有插入位：`resolveListInsertion({edgeGap: 4})`，预览只有那一条插入线。
@@ -16,8 +16,8 @@
  * 三类容器、`intents.ts` 的意图），旧的静态容器抑制标记与工作面代际不搬，换成发起时冻结的布局代次 `layoutKey`。
  */
 
-import {isGridDropRect, resolveGridInsertion, resolveListInsertion} from "@notnotype/nb-ui/layout";
-import type {GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOrientation} from "@notnotype/nb-ui/layout";
+import {isGridDropRect, resolveGridInsertion, resolveListInsertion} from "@notnotype/nb-layout";
+import type {GridDropMember, GridDropPoint, GridDropRect, GridInsertion, GridOrientation} from "@notnotype/nb-layout";
 
 import {VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
@@ -109,9 +109,9 @@ function rejection(reason: string): DropDecision {
     return {kind: "rejected", reason};
 }
 
-/** 松手时提交的是不是已经显示过的那一次：意图逐字段相同。 */
-export function isSameDropAction(previous: DropDecision | null, next: DropDecision): boolean {
-    return previous !== null && previous.kind === "commit" && next.kind === "commit" && JSON.stringify(previous.intent) === JSON.stringify(next.intent) && previous.reveal === next.reveal;
+/** 放下时比较的键：松手时提交的要是已经显示过的那一次，意图与要同次显示的 Part 都相同才算；只显示、不提交的判定为 null。 */
+export function dropActionKey(decision: DropDecision): string | null {
+    return decision.kind === "commit" ? JSON.stringify([decision.intent, decision.reveal ?? null]) : null;
 }
 
 function validRect(rect: GridDropRect | null | undefined): GridDropRect | null {

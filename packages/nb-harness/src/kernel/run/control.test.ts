@@ -10,6 +10,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
 import type {LogEvent} from "../api/index.js";
 import {defineExtension} from "../extension/define.js";
+import {createTestModel} from "../testing/model.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 
 let root = "";
@@ -272,13 +273,92 @@ describe("设置、标题与归档", () => {
         const {events} = await session.raw.log({afterSeq: 0});
         expect(dataOf(events, "titleChanged")).toEqual([{title: "雨夜", by: "user"}]);
     });
+
+    test("输出 72、73：自动的标题与说明进快照；空的被拒；重发只生效一次", async () => {
+        await using session = await createTestSession();
+        expect((await session.raw.snapshot()).description).toBeNull();
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "  ", description: " "})).toEqual({ok: false, code: "empty-meta"});
+        const generated = {commandId: id(), title: " 雨夜 ", description: " 主角回到药铺 "};
+        expect(await session.raw.setGeneratedMeta(generated)).toMatchObject({ok: true, value: {titleApplied: true}, replayed: false});
+        expect(await session.raw.setGeneratedMeta(generated)).toMatchObject({ok: true, value: {titleApplied: true}, replayed: true});
+        const snapshot = await session.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual(["雨夜", "主角回到药铺"]);
+        const {events} = await session.raw.log({afterSeq: 0});
+        expect(dataOf(events, "titleChanged")).toEqual([{title: "雨夜", by: "auto"}]);
+        expect(dataOf(events, "descriptionChanged")).toEqual([{description: "主角回到药铺"}]);
+    });
+
+    test("输出 72：自动标题可以替换自动标题；用户改过之后不改标题，说明照写，重开之后也是", async () => {
+        await using session = await createTestSession();
+        await session.raw.setGeneratedMeta({commandId: id(), title: "兜底"});
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "生成的"})).toMatchObject({value: {titleApplied: true}});
+        expect((await session.raw.snapshot()).title).toBe("生成的");
+        await session.raw.setTitle({commandId: id(), title: "我的书"});
+        await session.reopen();
+        expect(await session.raw.setGeneratedMeta({commandId: id(), title: "又生成的", description: "新的说明"})).toMatchObject({ok: true, value: {titleApplied: false}});
+        const snapshot = await session.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual(["我的书", "新的说明"]);
+        expect(dataOf((await session.raw.log({afterSeq: 0})).events, "titleChanged").at(-1)).toEqual({title: "我的书", by: "user"});
+    });
+});
+
+describe("收口", () => {
+    test("输出 7：收口批写下之后反应才出错（宿主的服务已撤回）：只有一条 runEnded", async () => {
+        let revoked = false;
+        const model = createTestModel();
+        const watcher = defineExtension({id: "lab.watcher", on: {
+            assistant: () => {
+                revoked = true;
+            },
+            turnEnded: () => undefined,
+        }});
+        await using session = await createTestSession({extensions: [watcher], models: {resolve: (query) => {
+            if (revoked) throw new Error("the models service was revoked");
+            return model.port.resolve(query);
+        }}});
+        model.script("答");
+        const sent = await session.raw.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        const result = await session.raw.waitRun(sent.value.runId);
+        expect(result.reason).toBe("completed");
+        revoked = false;
+        expect(dataOf(await session.events(), "runEnded")).toEqual([{runId: sent.value.runId, reason: "completed"}]);
+    });
+
+    test("输出 75：响应收尾事件时宿主的模型端口已撤回：运行照常收口，写诊断，关闭放掉日志与锁", async () => {
+        let revoked = false;
+        const model = createTestModel();
+        const seen: string[] = [];
+        const watcher = defineExtension({id: "lab.closing", on: {
+            assistant: () => {
+                revoked = true;
+            },
+            turnEnded: () => {
+                seen.push("turnEnded");
+            },
+        }});
+        await using session = await createTestSession({store: {root}, extensions: [watcher], models: {resolve: (query) => {
+            if (revoked) throw new Error("the service was revoked");
+            return model.port.resolve(query);
+        }}});
+        model.script("答");
+        const sent = await session.raw.send({commandId: id(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        expect((await session.raw.waitRun(sent.value.runId)).reason).toBe("completed");
+        await session.raw.setTitle({commandId: id(), title: "排在收尾的反应后面"});
+        expect(seen).toEqual(["turnEnded"]);
+        expect((await session.raw.diagnostics()).map((item) => item.code)).toContain("model-resolve-threw");
+        revoked = false;
+        await session.reopen();
+        expect((await session.raw.snapshot()).title).toBe("排在收尾的反应后面");
+    });
 });
 
 describe("崩溃与恢复", () => {
     const fixture = join(import.meta.dir, "../../../tests/kernel/fixtures/crash-session.ts");
 
     /** 每种崩溃一个子目录：子进程里的会话 id 都从 test-1 起。 */
-    async function crash(mode: "in-tool" | "after-accept" | "compacting"): Promise<{store: {root: string}; open: string}> {
+    async function crash(mode: "in-tool" | "after-accept" | "compacting" | "retry-wait"): Promise<{store: {root: string}; open: string}> {
         const dir = join(root, mode);
         const child = Bun.spawn(["bun", fixture, dir, mode], {stdout: "pipe", stderr: "inherit"});
         try {
@@ -290,7 +370,7 @@ describe("崩溃与恢复", () => {
                 text += new TextDecoder().decode(value);
             }
             const [what, sessionId] = text.trim().split(" ");
-            expect(what).toBe(mode === "in-tool" ? "started" : mode === "compacting" ? "compacting" : "accepted");
+            expect(what).toBe(mode === "in-tool" ? "started" : mode === "compacting" ? "compacting" : mode === "retry-wait" ? "retrying" : "accepted");
             return {store: {root: dir}, open: sessionId!};
         } finally {
             child.kill(9);
@@ -322,6 +402,15 @@ describe("崩溃与恢复", () => {
         const accepted = dataOf<{commandId: string; value: {runId: string}}>(await session.raw.log({afterSeq: 0}).then((page) => page.events), "commandAccepted").find((data) => data.commandId === "first")!;
         const again = await session.raw.send({commandId: "first", input: {text: "问"}});
         expect(again).toMatchObject({ok: true, replayed: true, value: accepted.value});
+    });
+
+    test("输出 62：等重发时被 kill -9，重开后运行 interrupted，那次失败只有一条，也不接着重发", async () => {
+        await using session = await createTestSession(await crash("retry-wait"));
+        const events = await session.events();
+        expect(dataOf(events, "modelFailed")).toHaveLength(1);
+        expect(dataOf(events, "modelFailed")[0]).toMatchObject({kind: "network", retry: {attempt: 1}});
+        expect(dataOf(events, "runEnded").at(-1)).toMatchObject({reason: "interrupted"});
+        expect(session.model.requests).toHaveLength(0);
     });
 
     test("输出 34：压缩方法的模型请求发出后被 kill -9，重开后这次请求结算为 interrupted，只压缩的运行收口", async () => {

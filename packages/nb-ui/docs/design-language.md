@@ -7,7 +7,9 @@
 里能查到出处的取值），`editorial` / `aurora` 是主题格式的示范。四套并存，随时可切换对照。
 
 - 怎么写一套新主题：[`authoring-themes.md`](./authoring-themes.md)
-- 对照页：`bun run dev` → <http://localhost:3003>，主题 × 配色两轴都能切
+- 对照：新应用的 Component Lab（行为合同 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)），地址栏参数 `theme`、`cw` 切主题与配色两轴
+- 数值的事实源是 `src/tokens.css`、`src/theme.css` 与 `themes/*/vars.css`。本文写角色、判据与结论，不抄取值；文中偶尔出现的数字是判据本身的一部分，或标明了出处
+- Apple UI Kit 的逐层读数、对话框实测表、平台明文引用、Chromium 提交记录：[`docs/research/apple-macos-ui-kit-readings.md`](../../../docs/research/apple-macos-ui-kit-readings.md)。本文只留结论
 
 ---
 
@@ -26,7 +28,7 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 
 同一个内容角色可以落在不同结构位置。例如，直接压在窗体底纹上的文档侧栏仍属于材质轴；面板里的工具条即使内容角色是 `chrome`，也属于层级轴。反过来，材质轴上的面也不必都使用玻璃，是否玻璃由主题决定。
 
-**「不给面」不是第三种材质。** 展台、画布等区域不承载长文，也不叠任何 chrome 或 paper 的面色，让下层窗体底纹透出；浮在上面的盒子自带面、边与抬起。工程侧合同见 [`ui-development-spec.md`](./ui-development-spec.md) 第 2 节第 1 条。
+**「不给面」不是第三种材质。** 展台、画布等区域不承载长文，也不叠任何 chrome 或 paper 的面色，让下层窗体底纹透出；浮在上面的盒子自带面、边与抬起。工程侧合同见 [`ui-development-spec.md`](./ui-development-spec.md) 的“材料、颜色与层级”一节第 1 条。
 
 器械与稿面靠明度分层，冷暖由主题自己选：macos 通体冷中性；nbook 原先是冷器械、暖稿面（冷暖分家），2026-10-12 工作台改成卡片外壳、窗体底大面积露在卡片之间以后，冷灰的底衬着暖色卡片不协调，改为器械也走暖色。不论冷暖，都落在角色映射层，不能用全局色偏代替。界面用黑体、正文用宋体是中文出版的默认分工，也是 `chrome` / `paper` 两种内容角色的字面证据。
 
@@ -60,16 +62,15 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 | 承载关系 | 分栏的正确形态 |
 | --- | --- |
 | 直接压在窗体底纹上（独立页面、路由页） | 导航与详情各自是材质层的**面板**：可以有边、有底色、有圆角，彼此靠间距分开 |
-| 压在浮层里（`Dialog` 的 body，模态与浮动窗口都算） | 浮层已经占了材质层，里面的分栏属于层级轴 → **不给面**：一条分割线 + 统一内边距成组 |
+| 压在浮层里（`Dialog` 与 `FloatingWindow` 的 body） | 浮层已经占了材质层，里面的分栏属于层级轴 → **不给面**：一条分割线 + 统一内边距成组 |
 
-组件不猜自己压在什么上面，由宿主用显式变体声明（当前实例：`AgentProfileNavList` 的 `surface="panel" | "plain"`）。
+组件不猜自己压在什么上面，由宿主用显式变体声明（现有实例：`Tree` 的 `surface="card" | "plain"`，Lab 的侧栏是它的 `plain` 用法，
+见 `packages/neuro-book/src/plugins/lab/web/LabNavPanel.vue`）。
 把卡片形态写死进组件的，在浮层里必然变成「窗口套两张卡片」的双层边框，
 而内层卡片圆角大于外层窗口圆角时，弧线还会读起来像贴歪了。
 
-反过来，**只有一种承载关系的组件不要预留两种形态**。
-`AgentProfileSettingsView` 曾经同时提供卡片与无面两档，但它的宿主只有设置对话框这类浮层，
-卡片那一档没有任何消费者——留着就是一条永远不走的路径。等真的出现把同一份内容直接铺在
-窗体底纹上的宿主，再按本条规则加回来。
+反过来，**只有一种承载关系的组件不要预留两种形态**：另一档没有任何消费者，留着就是一条永远不走的路径。
+等真的出现把同一份内容铺到另一种宿主上的需求，再按本条规则加回来。
 
 可证伪的判据：窗口内读子分栏的计算样式，`border-*-width` 为 `0px`、
 分栏之间只有一条 1px 分割线，且窗口标题、首行内容、底栏首尾元素的左右内缩是同一个值。
@@ -121,16 +122,13 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 
 #### 为什么材质只能有一层
 
-不是观感取舍，是四个独立来源指向同一个方向：
+不是观感取舍，是四个独立来源指向同一个方向（原文引用见调研文档）：
 
-1. **微软明文禁止。** `"Don't apply backdrop material more than once in an application."`
-   而且给了替代方案——上层不是第二层材质，是一层低透明度纯色（`LayerFillColorDefaultBrush`）
-   叠在底下那层材质上。
-2. **苹果对 Liquid Glass 明文禁止。** `"avoid overcrowding or layering Liquid Glass elements
-   on top of each other."` 以及 `"Don't use Liquid Glass in the content layer."`
-3. **CSS 规范用性能理由劝阻。** `"Each nesting level will double the number of these required
-   re-paint cycles"`，规范原话是「指数级劣化」。
-4. **嵌套的语义在规范里根本没定死。** w3c/fxtf-drafts#500 至今未解，Gecko 与 Chromium/WebKit
+1. **微软文档禁止。** 同一个应用里不要多次使用背景材质，并给了替代方案：上层不是第二层材质，
+   是一层低透明度纯色叠在底下那层材质上。
+2. **苹果对 Liquid Glass 明文禁止**叠放，也禁止把它用在内容层。
+3. **CSS 规范用性能理由劝阻**：每一层嵌套都让重绘次数翻倍。
+4. **嵌套的语义在规范里没定死。** w3c/fxtf-drafts#500 未解，Gecko 与 Chromium/WebKit
    渲染结果不同，有实测称 Chromium 干脆不让子元素生效。
 
 外加一个会真出 bug 的：`backdrop-filter` **为 `position: fixed` 后代创建包含块**——
@@ -140,9 +138,8 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 
 因为它压的是自己家的面，不是不可控的桌面，本来就不存在可读性风险。
 Material Design 3 与 IBM Carbon 的层级都是**纯不透明色阶，两家都没有模糊概念**。
-Carbon 的方向是浅色主题在两档灰之间交替、深色主题每层变亮；微软写得更直白：
-`"In both light and dark color modes, darker colors indicate background surfaces of less
-importance."`——**暗色下上层也是变亮，不是变暗。**
+Carbon 的方向是浅色主题在两档灰之间交替、深色主题每层变亮；微软的说法是
+明暗两种模式下，较暗的颜色都表示不太重要的背景面——**暗色下上层也是变亮，不是变暗。**
 
 取值、迁移清单与尚未落地的部分见 [表面模型提案](../../../docs/proposals/nb-ui-surface-model.md)。
 **当前库里两条轴尚未落地**，8 个表面变量仍按部件命名。
@@ -152,12 +149,12 @@ importance."`——**暗色下上层也是变亮，不是变暗。**
 ```css
 .glass {
     background: var(--overlay-surface);      /* ① 半透明 tint —— 没有它，模糊看不见 */
-    backdrop-filter: var(--overlay-blur);    /* ② 磨砂 + 提饱和 + 提亮 */
+    backdrop-filter: var(--overlay-blur);    /* ② 磨砂 + 提饱和 */
     box-shadow: var(--elevation-popover);    /* ③ 外阴影 —— 层级靠它，不是靠模糊 */
 }
 ```
 
-**Liquid Glass ≠ 磨砂玻璃。** 区别在边缘：真玻璃的边缘会**折射**，把背后的东西挤压变形，
+**Liquid Glass 不是磨砂玻璃。** 区别在边缘：真玻璃的边缘会**折射**，把背后的东西挤压变形，
 而不是均匀散焦。这一层用 SVG 位移滤镜做（`themes/*/assets/lens.ts`），通过
 `backdrop-filter: url("#…") blur(…)` 接上。
 
@@ -171,120 +168,59 @@ importance."`——**暗色下上层也是变亮，不是变暗。**
 3. Apple 没有公开 blur 半径与折射率，所有取值都是视觉近似，不要当规范引用。
 4. **玻璃叠玻璃看它是不是那块玻璃的后代。** 浮层若是另一块玻璃的 DOM 后代（就地渲染在面板里的浮层、
    `teleportTarget: false` 的对话框），那块玻璃圈成了它的 backdrop root，`backdrop-filter` 采不到
-   页面（第八节 A：嵌套语义在规范里根本没定死，有实测称 Chromium 干脆不让子元素生效），结果只是一块
+   页面（见“踩过的坑”A 组：嵌套语义在规范里根本没定死，有实测称 Chromium 干脆不让子元素生效），结果只是一块
    读不出玻璃感的灰板：这种浮层切到层级轴的不透明面色（`--panel-surface`），镜面层（`--overlay-sheen`）
    也不再挂，判据是计算样式里 `backdrop-filter: none` 且 `background-image: none`。
    传送到 `body` 的二级对话框不是后代：它采到的是已经画好的一级对话框与页面，玻璃成立，仍用浮层材质，
-   面取 `--dialog-surface-nested`。nbook 给它与一级同样的 90%：开发者 2026-11-01 在 Lab 里对着彩色背景比过
-   一级、二级各档，二级再调实反而显不出层次；「这是一层新的面」交给遮罩、阴影与收小的圆角（第九节几何清单）。
+   面取 `--dialog-surface-nested`。nbook 给二级与一级同一档：开发者 2026-11-01 在 Lab 里对着彩色背景比过
+   一级、二级各档，二级再调实反而显不出层次；「这是一层新的面」交给遮罩、阴影与收小的圆角（见“几何”一节的“叠在窗口上的浮层”）。
 
 ### 阴影只有三档，用阴影而不是边框表达层级
 
 这三档是**阴影**的档，与上面那条层级轴的色阶**各管各的**，不要互相推导。
 Material Design 3 曾经把面色绑在 elevation 上（dp 越高、叠色越多），后来主动解绑——
-官方理由是 `"The new color roles are not tied to elevation"`，为的是换取布局弹性。
+官方理由是新的颜色角色不再与 elevation 绑定，为的是换取布局弹性。
 
 | 档 | 用在哪 | token |
 | --- | --- | --- |
-| raised | 按钮、输入框、键帽 | `--elevation-raised` |
-| popover | 菜单、下拉、气泡、时间选择器 | `--elevation-popover` |
-| dialog | 对话框 | `--elevation-dialog` |
+| raised | 键帽（`Kbd`）、拖放落点标记 | `--elevation-raised` |
+| popover | 气泡、小提示；弹出列表（菜单、下拉、选择器、命令面板、候选）走 `--elevation-menu`，缺省同 popover，主题可以单独收小 | `--elevation-popover` |
+| dialog | 对话框、浮动窗口、抽屉 | `--elevation-dialog` |
 
 暗色下**外阴影要加重**。理由是暗色里明度差本来就小，只靠面色区分不出层级
 （Apple 侧的暗色规范也是这么说的：tint 换低亮度变体、提亮环境边缘光、加重外阴影）。
 
-#### 一条阴影里该有什么：从官方文件逐图层读出来的结构
+#### 一条阴影里各层的分工
 
-以下取自 Apple 官方 macOS 27 UI Kit 的 **Materials** 页，图层样式
-`This Document/Liquid Glass/Light` 与 `…/Dark`（Sketch Cloud Inspect 模式逐图层导出的 CSS）：
+具体几层、每层多大，是主题的配方，在各主题 `vars.css` 的 `--elevation-*` 里，随主题不同，本文不写。
+可以立住的是各层的角色：
 
-```
-/* Light · Regular - Large，580×400，Radius 20 Smooth Apple 60% */
--1.25px 0    0     -0.75px  #DBDBDB          ← 左右两道竖边缘光
- 1.25px 0    0     -0.75px  #DBDBDB
- 0      0    0.3px  0.3px   #DBDBDB          ← 一圈发丝轮廓
- 0      18px 48px   0       rgb(0 0 0 / .25) ← 唯一一条环境投影
- 0      2px  0.25px -1.5px  inset #FFFFFF    ← 顶高光＝入射光
- 0     ±1px  1.5px  -0.5px  inset #272727    ← 上下对称的内边线＝玻璃的厚度
- 0     ±4px  8px    -4px    inset #272727
+1. **边界由一条不糊的线给**：一圈外环或发丝轮廓（blur ≤ 1px）。读起来是一条切出来的边；
+   把边界交给 `0 2px 6px` 这种中等半径的近景投影，读起来是「浮在绒布上」，边缘发灰（坑 #38）。
+2. **外阴影只表达浮多高**：从 popover 到 dialog 越来越远、越来越散。对话框压住整个窗口，浮层只压住一小片，
+   所以 dialog 档比 popover 档重。
+3. **内线表达玻璃的厚度与入射光**：顶部一条高光、上下对称的内边线，是否使用由主题定。
+   「顶白 + 底黑」是拟物按钮的打光，不是玻璃，上下两个面应同色。nbook 的 dialog 档有这几条内线，
+   popover 与菜单档没有（面上的高光为什么只留在边上，见坑 #40）。
+4. **暗色下轮廓与内线改为提亮**——压暗的边等于没有边；环境投影加重，几何不变：投影的远近说的是
+   「这块面浮多高」，与明暗无关。
 
-/* Dark · Regular - Medium，Popover 240.5×230：同构，只换取值 */
-轮廓 #A6A6A6 ／ 环境投影 rgb(0 0 0 / .45) ／ 内边线 #676767 ／ 顶高光 #FFFFFF 20%
-```
-
-三条判据：
-
-1. **轮廓靠发丝阴影，不靠中等半径的投影。** `0 0 0.3px 0.3px` 几乎不糊、不透明度高，
-   读起来是一条切出来的边；`0 2px 6px` 那种 Material 式近景投影读起来是「浮在绒布上」。
-2. **环境投影只有一条。** 近 + 远两条叠加等于把同一件事说两遍，结果是边缘发灰、整块面下沉。
-3. **内边线上下对称。** 「顶白 + 底黑」是拟物按钮的打光，不是玻璃；玻璃的上下两个面同色，
-   入射光另由一条单独的顶高光表示。暗色下这三条**全部改为提亮**——压暗的边等于没有边。
-
-两档的几何差一倍，这不是装饰而是层级本身：浮层 `0 18px 48px`，
-Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页读到的原值）。
-对话框压住整个窗口，浮层只压住一小片。
-
-翻译到 CSS 时有两处必然的偏离，写在这里以免下一个人以为是抄错了：
-原件那几条外阴影是 **Plus darker** 混合模式，CSS 的 `box-shadow` 只有 normal，
-所以轮廓不照抄「浅灰 100%」而是改从 `--shadow-color` 取低不透明度；
-几何从 `0.3px` 放到 `0.5px`，因为原件按 2× 稿面画，`0.3px` 在 1× 下只剩抗锯齿。
+翻译成 CSS 时有一处必然的偏离，写在这里以免下一个人以为是抄错了：Apple 原件的外阴影是
+**Plus darker** 混合模式，CSS 的 `box-shadow` 只有 normal，所以轮廓不照抄浅灰，而是从 `--shadow-color`
+取低不透明度。读数与几何来源见调研文档。
 
 ### 浮层外观只有一个登记处
 
-菜单、下拉、气泡、对话框、时间选择器的面板**全部**消费 `.nb-ui-popover-surface`
-（`src/styles.css`）。它统一负责描边、外圈几何、面色、阴影与磨砂；菜单再显式叠加
-`.nb-ui-menu-surface`，把外圈从 `--radius-panel` 切到 `--radius-menu`；对话框叠加
-`.nb-ui-dialog-surface`，把面换成更实的 `--dialog-surface`（大面积、字段多，要读得清），叠在对话框上时
-再加 `.nb-ui-dialog-surface--nested`（面取 `--dialog-surface-nested`，圆角收到不大于窗口）。
+菜单、下拉、气泡、对话框的面板**全部**以 `.nb-ui-popover-surface`（`src/styles.css`）为基座，它之上只加修饰类，各自覆盖少数几项。哪种浮层用哪个类，见[开发规范](ui-development-spec.md)的“浮层外框”。
 
-```css
-.nb-ui-popover-surface {
-    border: var(--border-w) solid var(--panel-outline);
-    border-radius: var(--nb-popover-radius, var(--radius-panel));
-    background-color: var(--overlay-surface);   /* tint */
-    background-image: none;                     /* sheen 只由显式 modifier 接入 */
-    box-shadow: var(--elevation-popover);
-    backdrop-filter: var(--overlay-blur);
-    -webkit-backdrop-filter: var(--overlay-blur);
+面色必须是 `background-color` 与 `background-image` 两条长写法，**不要写回 `background` 简写**：
+简写会把没写出来的那条重置掉。基座默认不铺镜面（`background-image: none`）；macOS 把 `--overlay-sheen` 映射到已有的
+`--glass-rim`，nbook 保持 `--overlay-sheen: none`，小浮层继续纯 blur、无面渐变。
+`.nb-ui-surface-rim` 是玻璃轮廓的 opt-in，不是第三种浮层基座：只给整块玻璃的大面，
+不能挂在工具栏、侧栏、菜单项或 nbook 的小浮层上。
 
-    --nb-popover-pad: var(--space-3);            /* 模板上的 p-1.5 */
-    --nb-popover-inner-radius: max(
-        2px,
-        calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad))
-    );
-}
-
-.nb-ui-menu-surface {
-    --nb-popover-radius: var(--radius-menu, var(--radius-panel));
-}
-
-.nb-ui-surface-rim {
-    background-image: var(--overlay-sheen);
-}
-```
-
-面色必须拆成 `background-color` 与 `background-image` 两条长写法，**不要写回 `background` 简写**：
-简写会把没写出来的那条重置掉。基座默认不铺镜面；macOS 把 `--overlay-sheen` 映射到已有的
-`--glass-rim`，但只有整块的 Dialog（模态与浮动窗口两种用法）显式挂 `.nb-ui-surface-rim`。nbook 保持
-`--overlay-sheen: none`，小浮层继续 8px 纯 blur、无面渐变。
-
-菜单、ContextMenu、Select 都必须挂
-`.nb-ui-menu-surface`；Dialog 叠挂 `.nb-ui-dialog-surface`。Tooltip 独立消费
-`.nb-ui-tooltip-surface`，由该 modifier 负责实心面板底（`--bg-panel`）、正文色（`--text-main`）、
-控件圆角、舒适内边距与无尖角平滑微投影卡片，不吃大浮层的半透明玻璃配方，彻底规避三角箭头的几何与阴影瑕疵。
-组件不要复制 surface 属性，也不要往模板里加 `rounded-*`：基座在 components 层，调用方传进来的原子类在 utilities 层，会压过它而改掉实际外圈。
-
-对话框在这个登记处上再叠一条 `.nb-ui-dialog-surface`，只覆盖**两项**：
-
-```css
-.nb-ui-dialog-surface {
-    border-radius: var(--radius-dialog);
-    box-shadow: var(--elevation-dialog);
-}
-```
-
-`.nb-ui-surface-rim` 是玻璃轮廓的 opt-in，不是第三种浮层基座。它只给整块玻璃的大面，
-不能挂在工具栏、侧栏、菜单项或 nbook 小浮层上。
+组件不要复制 surface 属性，也不要往模板里加 `rounded-*`：基座在 components 层，调用方传进来的原子类在 utilities 层，
+会压过它而改掉实际外圈。浮层外观只认这些 CSS 类，不经 composable 或内联样式拼装。
 
 ---
 
@@ -294,39 +230,33 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 
 中文比拉丁文占满 em 框，同样的 px 下汉字更挤，所以 nbook 的字号与控件高度整体比 macOS 加一档
 （2026-09-01 曾收回 macOS 档，开发者 2026-10-22 看实际界面嫌字小，恢复加档）。行高与字距也按汉字定，
-那两条不是密度偏好，是汉字没有升降部造成的硬约束：
-
-| 字号档 | 2xs | xs | sm | md | lg | xl |
-| --- | --- | --- | --- | --- | --- | --- |
-| macOS | 10 | 11 | 13 | 13 | 15 | 19px |
-| nbook | 11 | 12 | 14 | 14 | 16 | 20px |
-
-
-| | macOS | nbook |
-| --- | --- | --- |
-| 控件高（sm / md / lg） | 26 / 32 / 40px | 28 / 34 / 42px |
-| 弹出列表行高（`--menu-item-h`） | 28px | 30px |
-| 界面正文 | 13px | 14px |
-| 行高 | 1.35 | **1.5** |
-| 字距 | −0.006em | **0** |
-| 面板圆角 | 18px | 20px |
-| 菜单外圈圆角 | 12px | 12px |
-
-`Input`、`NumberInput`、`Select` 的默认单行高度分别消费 `.nb-ui-control-h-md`，
-水平内边距消费 `.nb-ui-control-px`，因此高度随主题（macOS 32px、nbook 34px）。`Button` 的 `sm`、`md`、`lg` 同样取 `--control-h-*`，与输入框并排时等高；
-`IconButton` 是定值（26 / 32 / 38px），它多放在定宽的竖条与定高的工具条里。这几个静态类在 `src/styles.css` 登记，
-不依赖 Tailwind 对 arbitrary value 的扫描。
-
-控件圆角两套都是 10px——那一档本来就够小，加不加高度都不影响手感。
-
-`20px` 是有出处的：Chromium 的提交记录写明 macOS 12–15 窗口圆角用 9pt，macOS 26 Tahoe 用 20pt
-（Electron 为对齐 Tahoe 取 24pt）。Apple 自己没公布这个数。
-`macos` 主题保持 18px 不动——那是更早的目测近似，也是用户已经认可的观感。
-
-菜单的 12px 是独立语义档，不再把 18px / 20px 的 panel radius 画在窄小下拉上。
+那两条不是密度偏好，是汉字没有升降部造成的硬约束。
 
 「加一档」这件事**是目测决定，没有可引的规范**。Apple HIG 的中文排版页需要 JS 才能读，
 Ant Design / Arco / TDesign 三家的排版规范页也都取不到正文。别在文档里假装它有出处。
+
+几何相关的角色，取值都不在本文：
+
+| 角色 | 含义 | 在哪登记 |
+| --- | --- | --- |
+| `--text-2xs` 到 `--text-xl` | 字号六档；界面正文取 `--text-sm` | 缺省在 `src/theme.css`，主题覆盖 |
+| `--leading-ui`、`--tracking-ui` | 行高倍数、字距；nbook 行高放松、字距归零，macOS 是拉丁文的取值 | 缺省在 `src/theme.css` 与 `src/tokens.css`，主题覆盖 |
+| `--control-h-sm`、`-md`、`-lg` | 控件高度三档 | 缺省在 `src/tokens.css`，主题覆盖 |
+| `--menu-item-h`、`--menu-item-font`、`--menu-pad` | 弹出列表一行的高度、字号与外框内边距 | 同上 |
+| `--radius-control` | 输入类控件的圆角 | 同上 |
+| `--radius-button-sm`、`--radius-button-md`、`--radius-button-lg` | `Button`、`IconButton` 按尺寸的圆角（缺省 6、8、10，nbook 三档都是 6） | 同上 |
+| `--radius-panel` | 面板与默认浮层的外圈圆角 | 同上 |
+| `--radius-menu` | 弹出列表的外圈圆角，独立语义档，不随 `--radius-panel` | 同上 |
+| `--radius-dialog`、`--radius-dialog-compact`、`--radius-window` | 对话框、小确认框、浮动窗口的外圈圆角 | 同上 |
+| `--radius-pill` | 胶囊 | 同上 |
+
+`Input`、`NumberInput`、`Select` 的默认单行高度消费 `.nb-ui-control-h-md`，
+水平内边距消费 `.nb-ui-control-px`，因此高度随主题。`Button` 的 `sm`、`md`、`lg` 同样取 `--control-h-*`，
+与输入框并排时等高，圆角按尺寸取 `--radius-button-*`，不是胶囊。`IconButton` 的尺寸是定值，
+它多放在定宽的竖条与定高的工具条里。这几个静态类在 `src/styles.css` 登记，不依赖 Tailwind 对 arbitrary value 的扫描。
+
+nbook 的窗口圆角取值有出处（macOS 26 窗口圆角的实测，见调研文档）；Apple 自己没公布这个数。面板、气泡与输入框是 10，开发者 2026-11-05 定。
+`macos` 主题的面板圆角保持更早的目测近似，那是用户已经认可的观感。
 
 ### 同心圆角
 
@@ -337,28 +267,16 @@ Apple 的官方落点是 UIKit 的 `containerConcentricRadius` 与 SwiftUI 的 `
 **但「子半径 = 父半径 − padding」这个具体公式不是 HIG 原文**，只是一个够用的近似。
 可以照着算，不要当官方规范引用。
 
-库里这条有**一个登记处**，在 `.nb-ui-popover-surface` 上：
-
-```css
---nb-popover-pad: var(--space-3);                 /* 浮层的内边距，模板上是 p-1.5 */
---nb-popover-inner-radius: max(
-    2px,
-    calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad))
-);
-```
+库里这条有**一个登记处**，在 `.nb-ui-popover-surface` 上：`--nb-popover-pad` 是浮层的内边距，
+`--nb-popover-inner-radius` 是 `max(2px, 外圈半径 − 描边 − 内边距)`。
 
 默认浮层沿用 `--radius-panel`；菜单 modifier（`.nb-ui-menu-surface`）改取 `--radius-menu`，内边距取 `--menu-pad`，
-同心公式也按 `--menu-pad` 算（nbook：10 − 1 − 4 = 5px；macOS：12 − 1 − 6 = 5px）。浮层里贴着边的盒子一律取这个推出来的
+同心公式也按 `--menu-pad` 算，所以主题改 `--menu-pad` 时半径跟着变。浮层里贴着边的盒子一律取这个推出来的
 变量：弹出列表的项挂 `.nb-ui-menu-item`，滚动区挂 `.nb-ui-popover-scroll`，**不要写 `rounded-*`**。内边距由
 `.nb-ui-menu-surface` 按 `--menu-pad` 真正写出来，不交给模板上的 `p-*`，所以半径和留白总是同一个数。
 走偏了的现象见坑 #42。
 浮层之外也有同心的地方，最典型的是分段控件：段是**贴着**外框四角的（内边距只有 `p-0.5` = 2px），
-所以段的圆角要按同一条式子从外框推出来，而不是取一个「小一点的档」：
-
-```html
-<!-- SegmentedControl.vue -->
-rounded-[max(2px,calc(var(--radius-control)_-_var(--border-w)_-_2px))]   <!-- 段 -->
-```
+所以段的圆角要按同一条式子从外框推出来，而不是取一个「小一点的档」（`SegmentedControl.vue`）。
 
 `max()` 不是装饰：主题若把 `--radius-control` 调到比 `border + padding` 还小，
 `calc()` 会算出负值，而**负的 `border-radius` 是非法值，整条声明被丢弃**——
@@ -367,89 +285,67 @@ rounded-[max(2px,calc(var(--radius-control)_-_var(--border-w)_-_2px))]   <!-- �
 内层形状不贴角就不必同心。`Tree` 的展开箭头离行首至少 8px，`Badge`、
 `Checkbox` 都是这种情况，它们保持自己的圆角是对的，别为了「统一」去套这条式子。
 
-### 控件圆角只有 `--radius-control` 一个来源
+### 叠在窗口上的浮层
 
-按钮、输入框、下拉触发器、分页、开关、标签输入、文件树行——所有控件档的圆角都取
-`rounded-[var(--radius-control)]`。**不要写 `rounded-md`**：那是 Tailwind 的 6px 常量，
-和主题没有任何关系，主题把控件圆角调到 10px 时它一动不动。
+叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角，否则两条弧线不同心。小确认框（`AlertDialog`）取 `--radius-dialog-compact`，
+浮动窗口取 `--radius-window`；`Dialog`、`AlertDialog` 叠在对话框里时由 `.nb-ui-dialog-surface--nested` 收到不大于 `--radius-window`。
 
-这条是补出来的，不是一开始就有的：`--radius-control` 曾经全库只有 Tooltip 和 TimePicker
-两个消费方，其余 12 个组件全写死 `rounded-md`，于是**主题里那一行 `--radius-control: 10px`
-基本上是个死变量**——改它只有两处会跟着动。一个声明了却几乎没人消费的 token，
-比没有这个 token 更糟：它让人以为这一档是可调的。
+### 控件圆角的来源
 
+输入类控件（`Input`、`NumberInput`、`Textarea`、`Select`、`SearchSelect`）、分段控件、工具条、
+`ToggleGroup`、`Skeleton` 的圆角取 `rounded-[var(--radius-control)]`（或它的倍数）。**不要写 `rounded-md`**：
+那是 Tailwind 的 6px 常量，和主题没有任何关系，主题调整控件圆角时它一动不动。
+`Button` 与 `IconButton` 的圆角按尺寸取 `--radius-button-*`，不跟 `--radius-control` 走；判据见坑 #44。
 
 ### 行内的文字块与控件同奇偶，行高取整数
 
 一行里文字块（标题加说明）和控件并排、纵向居中时，两者的高度要同奇偶，文字块的行高用整数 px
 （不要 `1.5` 乘出 `21.0000x` 或奇数）。奇偶不同，居中后控件的上下沿落在半个像素上，
-1px 的描边被抗锯齿糊成两行淡灰，看上去边框发虚。设置窗口的一行是例子：标题 20px、说明 18px、
-中间隔 2px，文字块 40px，与偶数高的控件对齐。行与行之间的小字（组标题、提示）同样要整数行高：
-`--leading-ui` 是倍数，在 NeuroBook 主题下乘出整数，在 macOS 等主题下乘出小数，往下每一行都错开；
+1px 的描边被抗锯齿糊成两行淡灰，看上去边框发虚。设置窗口的一行是例子（`packages/neuro-book/src/ui/settings/SettingsRow.vue`）：
+标题 20px、说明 18px、中间隔 2px，文字块 40px，与偶数高的控件对齐。行与行之间的小字（组标题、提示）同样要整数行高：
+`--leading-ui` 是倍数，在 nbook 主题下乘出整数，在 macOS 等主题下乘出小数，往下每一行都错开；
 要各主题都成立时用 `round(nearest, calc(1em * var(--leading-ui)), 1px)` 取整（放在 `@supports` 里，
 不支持时退回倍数），改完在每个主题下核对一遍。
 
 ### 内容列有上限宽度
 
 窗口一宽，表单列如果跟着长，控件就会变成整行宽——一个 1000px 宽的下拉框不是「更宽敞」，
-是「控件失去了自己的尺度」。所以**内容列封顶**（当前取 ≈720px）：
+是「控件失去了自己的尺度」。所以**内容列封顶**（设置窗口取 720px，
+`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue` 的 `.settings-window__column`）：
 
-- 控件与文字都在上限内，分隔线也只跨内容列，不跨整个窗口；底部动作栏同样在内容列内（横线、徽标、按钮与字段左右对齐）；
+- 控件与文字都在上限内，分隔线也只跨内容列，不跨整个窗口；底部动作栏同样在内容列内（横线、徽标、按钮与字段左右对齐，
+  [`SettingsSaveBar`](../../neuro-book/src/ui/settings/SettingsSaveBar.md)）；
 - 导航轨、窗口标题栏仍贴窗口边缘，它们是窗体 chrome，不跟着封顶；导航轨的竖线连续走到窗口下沿，动作栏的上边线从它右侧开始。
 
 判据：把窗口拖到 1400px 以上，内容列宽度不再随窗口增长，且其中任一控件的宽度 ≤ 内容列宽度。
 反例：窗口 1400px 时下拉框宽 1090px。
 
-### 圆角是超椭圆，不是正圆弧——但玻璃面上做不了
+### 超椭圆：目前未使用
 
-Apple 的角不是一段正圆弧接上直边，而是**曲率连续**地收进去。官方 macOS 27 UI Kit
-把这一层记作 `Radius 26 / Smooth / Apple (60%)`。差别在弧线与直边的接缝：正圆弧在接点上
-曲率有跳变，读起来像「被咬掉一口」；超椭圆是渐渐收，同样的半径看着更饱满。
+Apple 的角是超椭圆，曲率连续地收进直边，不是一段正圆弧接上直边（官方读数见调研文档）。
+CSS 侧从 Chrome 139 起有 `corner-shape`，技术上做得出来。本库试过一轮又撤了：Chromium 把 `backdrop-filter`
+裁到普通 `border-radius`，不认 `corner-shape`，玻璃面的四角会露出没被模糊的背景（坑 #37）。
 
-CSS 侧从 Chrome 139 起有 `corner-shape`，所以这一档**技术上**做得出来。
-本项目试过一轮，**又撤了**：Chromium 把 `backdrop-filter` 裁到普通 `border-radius`，
-不认 `corner-shape`（Chrome 151 实测），于是玻璃面的四个角各露出一牙没被模糊的背景。
-详见坑 #37。
-
-**结论：带 `backdrop-filter` 的面一律用正圆弧。** 不带模糊的面（按钮、卡片、输入框）
-可以开这一档，但目前库内没有这样的消费方，所以 `--corner-shape` 这个变量也一并删了——
-留一个没人消费的 token，比没有它更糟。
+状态：**带 `backdrop-filter` 的面一律用正圆弧；不带模糊的面库内也没有使用，`--corner-shape` 变量已删。**
+组件里的圆角都是普通 `border-radius`。
 
 ### 对话框不是「三段式盒子」
 
-这是本轮从 **Apple 官方 macOS 27 UI Kit**（Sketch Cloud 公开分享件，
-<https://www.sketch.com/s/57153a31-3379-4737-8ac6-dbfd6525f052>，可在 Inspect 里逐层读 CSS）
-实测回来的，不是转述：
-
-| | Alert（Side by Side） | Save Dialog |
-| --- | --- | --- |
-| 尺寸 | 260 × 170 | 390 × 318 |
-| 布局 | `flex column; gap: 14px` | `flex column; gap: 20px` |
-| 留白 | `padding: 20px 16px 16px` | `padding: 20px`（四边等距） |
-| 圆角 | — | `26px` / Smooth / Apple 60% |
-| 面 | Style = **Glass** | `rgba(255,255,255,1)`——**不透明** |
-| 阴影 | — | `0 0 1px rgb(0 0 0 / .8), 0 36px 100px rgb(0 0 0 / .4)` |
-| 标题 | SF Pro **Bold 13px** / 行高 16 | SF Pro Bold 14px / 行高 17 |
-| 正文 | SF Pro **Regular 13px** / 行高 16 | SF Pro Medium 11px / 行高 14 |
-| 标题↔正文 | 段后距 8px | `gap: 6px` |
-| 按钮 | 110 × **28**，`gap: 8px`，**平分整行** | 76 × **24**，**右对齐** |
-| 关闭 × | **没有** | **没有** |
-
-四条结论：
+依据是 Apple 官方 macOS 27 UI Kit 里 Alert 与 Save Dialog 的实测读数（尺寸、留白、字号、按钮，见调研文档），
+不是转述。四条结论：
 
 1. **没有头尾条。** 标题只是这一列的第一个块，按钮只是最后一个块，留白由容器一处给。
    「标题独占一条带分隔线的横条 + 按钮独占底部一条横条」是 Web / Windows 的做法。
    留白一旦发给三个条各自持有，每加一段内容就多一道横向分界，读起来是三个堆叠的条。
-2. **标题与正文同字号，只差字重和颜色。** Alert 两者都是 13px，差在 Bold / Regular。
-   拉开字号（16px 标题 + 14px 正文）拉出来的是**网页 H2 + 段落**的关系。
+2. **标题与正文同字号，只差字重和颜色。**
+   拉开字号（标题一档、正文一档）拉出来的是**网页 H2 + 段落**的关系。
 3. **没有 ×。** 模态对话框的出口是一颗有名字的按钮（取消 / 存储 / 删除）。
    叉把「关掉这个框」和「放弃这次操作」说成两件事，用户得自己猜是不是同一件。
 4. **按钮平分整行还是右对齐，看框窄不窄**，不看它是不是对话框。窄框（决定）平分，
    宽框（表单）右对齐——宽框里平分会得到两根夸张的长条，而且按钮离它要确认的字段太远。
 
-按钮的高度刻度也一并记下（同一份文件的 Buttons 组）：
-**Mini 16 / Small 20 / Regular 24 / Large 28 / XL 36**，且**从 Mini 到 XL 全是整颗胶囊**。
-库里原先那句「Apple 只在 Large / X-Large 才走 capsule」是错的，已经改掉。
+按钮：`Button` 取 `--control-h-*`，圆角取 `--radius-button-*`（缺省 6 / 8 / 10px，nbook 三档都是 6px），不是胶囊。Apple UI Kit 里按钮是整颗胶囊，
+高度刻度的读数见调研文档；这与本库现状不同，现状以 `Button.vue` 为准。
 
 ---
 
@@ -475,10 +371,12 @@ Noto Sans CJK SC 覆盖 Linux 与装了 Noto 的环境。
 2. **行高放松到 1.5。** 汉字没有升降部来制造行间空隙，同样的 1.35 在中文里会贴得多。
 3. **中文没有斜体。** `font-style: italic` 是把字形剪切变形，看起来像渲染故障。
    强调**换字面不换字形**——用楷体（`--font-emphasis`）。
-4. **稿面用宋、界面用黑。** 稿面比界面大一档（界面 14px、正文 17px），两个区的密度本来就不该一样。
+4. **稿面用宋、界面用黑。** 稿面比界面大一档，两个区的密度本来就不该一样。
 
 版心宽度用 `em` 而不是 `ch` 或 `px`：CJK 下 1em 正好是一个汉字宽，
-所以 `--reading-measure: 34em` 直接就是「每行 34 个字」。
+所以 `--reading-measure` 的数直接就是「每行多少个字」。
+
+**界面不靠说明文字解释自己。** 不加标语、副标题和控件下方的说明；一个控件要靠说明才看得懂时，先改布局、分组或名称。确实改不掉的说明走标签旁的说明图标，不常驻占行。例外：错误与状态信息、操作后果不明显时的提示（例如删除确认）、读屏文字、写作内容本身，以及会误导操作的设置项。
 
 ---
 
@@ -564,7 +462,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 
 两点容易漏：
 
-- **库只把三个时长归零**（`src/tokens.css`，带 `!important`），它不知道你新增了
+- **库只把时长类 token 归零**（`src/tokens.css`，带 `!important`），它不知道你新增了
   `--glass-lift` 这种变量。**主题自己新增的动效必须由主题自己关掉**——这是「新增变量」这个能力
   的配套义务。
 - **`mask-image` 也算「看不见的透明度」。** 滚轮的上下渐隐是用 mask 做的，
@@ -581,11 +479,9 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 `prefers-reduced-transparency` 的浏览器覆盖不如 `prefers-reduced-motion`，
 真要交付还得在产品里自带一个开关；CSS 侧先把合同立住。
 
-窄屏另有性能降级（`@media (max-width: 768px)`）：丢掉折射、strong 档再收一档（10px → 6px）。
-依据是模糊的开销随**面积 × 半径**增长，公开实测（HyperFrames 性能指南）给的量级是
-「8 层半径 1/2/4/8/16/32/64/128px 的 blur，在 1920×1080 区域、中端 GPU 上可轻易吃掉每帧 200ms」，
-并建议避开大面积的 `blur(64px)` / `blur(128px)`。同类开源实现（glassfx）也是在 <768px 直接丢弃折射。
-这一块同样踩了上面那条特异性坑，暗色下曾经完全没生效。
+窄屏另有性能降级（`@media (max-width: 768px)`）：丢掉折射，大容器那一档也降到纯 blur。
+依据是模糊的开销随**面积 × 半径**增长，公开实测给的量级是大半径 blur 在全屏区域上可以吃掉每帧上百毫秒
+（来源与读数见调研文档）。这一块同样踩了上面那条特异性坑，暗色下曾经完全没生效。
 
 ---
 
@@ -598,29 +494,31 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 
 | 档 | 语义 | 用在哪 |
 | --- | --- | --- |
-| `--motion-fast` | 状态反馈 | hover / 按压变色、chevron 旋转、选项高亮 |
+| `--motion-fast` | 状态反馈 | hover / 按压变色、chevron 旋转、选项高亮、菜单类浮层的入场与退场 |
 | `--motion-base` | 控件形变 | 开关滑球与轨道、分段控件与标签页指示线移动、对话框进出 |
-| `--motion-enter` | 浮层入场 | 菜单、下拉、气泡、时间选择器的出现 |
+| `--motion-enter` | 大位移入场 | 通知横幅从边缘滑入 |
+| `--motion-dialog`、`--motion-dialog-leave` | 有来处的浮层展开与收回 | 点按钮、菜单项打开的对话框、浮动窗口；收回配 `--ease-dialog-leave`（先慢后快），不用 `--ease-standard`：它前三成就走完，加上淡出看着就是直接消失 |
 
-**`fast < base < enter` 这个顺序是合同，绝对值归主题。** 当前登记值：
-裸基线 120 / 180 / 220ms；nbook 与 macos 90 / 140 / 180ms；aurora 100 / 160 / 240ms；
-editorial 同裸基线。这些数值是**目测决定，没有可引的规范**——Apple 没有公开过
+**`fast < base < enter` 这个顺序是合同，绝对值归主题。** 各主题的登记值在 `themes/*/vars.css`，
+没装主题时的基线在 `src/tokens.css`。这些数值是**目测决定，没有可引的规范**——Apple 没有公开过
 时长刻度。主题可以改值，但不能打破大小顺序；新主题登记时按这条审。
+另有 `--motion-reveal-in`、`--motion-reveal-hold`、`--motion-reveal-out` 三个，只给叠加滚动条、视图标题动作这类
+悬停才出现的东西，不用于别处。
 
-「状态反馈最快、浮层入场最慢」不是拍脑袋：反馈是确认已经发生的事，拖长了像卡顿；
-入场是建立「这层东西从哪来」的空间关系，眼睛需要时间去追踪。把两档对调，
+「状态反馈最快、需要追踪位移的入场最慢」不是拍脑袋：反馈是确认已经发生的事，拖长了像卡顿；
+大位移入场是建立「这层东西从哪来」的空间关系，眼睛需要时间去追踪。把两档对调，
 界面会同时显得迟钝和突兀。
 
 ### 内容切换走 `--motion-base`，不是浮层档
 
 区段体、标签页内容这类**同一块地方换内容**的切换，用 `opacity` 加**短横向位移（约 6px）**，
-缓动 `--ease-standard`，**不用 scale**——没有东西「从这里展开」，缩放的语义属于浮层。
+缓动见下文“缓动”，**不用 scale**——没有东西「从这里展开」，缩放的语义属于浮层。
 
 时长按实现方式定，因为 `out-in` 的两段不叠加：
 
 | 实现 | 配方 | 理由 |
 | --- | --- | --- |
-| `out-in`（同一处只有一个内容位） | 入场 + 退场都取 `--motion-fast` | 两段相加就是用户感知的等待：90 + 90 = 180ms，正好等于浮层入场档 `--motion-enter`，也就是「眼睛追踪一层新内容出现」的上限 |
+| `out-in`（同一处只有一个内容位） | 入场 + 退场都取 `--motion-fast` | 两段相加就是用户感知的等待，合计应落在 `--motion-enter` 的量级以内（nbook 下两段 `--motion-fast` 正好等于它），也就是「眼睛追踪一层新内容出现」的上限 |
 | 交叠（默认模式 / 淡入淡出） | 入场 `--motion-base`、退场 `--motion-fast` | 两段同时可见，逐帧没有全空的时候，各自可以取更长的档 |
 
 - 位移方向按导航推进方向最自然；固定单方向是允许的简化。分段控件驱动的内容换页使用同频交叠滑移而非 `mode="out-in"`，且位移方向与指示块移动方向同向（向右选向左滑，向左选向右滑），消除空白停顿与空间视差冲突。
@@ -629,35 +527,35 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
   内容切换也取同一档，两栏才不会读出先后。
 - **配方只有一个来源**：基座里的 `.nb-ui-switch-*`（`src/styles.css`）就是上面这行 `out-in` 配方，
   用法是 `<Transition name="nb-ui-switch" mode="out-in">` + 给内容换一个稳定 `:key`。
-  需要内容换页的地方（设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换）
-  一律引它；**不要各自在 scoped 里复制一份同配方**——复制出来的迟早会漂移，
-  而「同一动作在四处时长不同」正是这节要避免的事。
+  需要内容换页的地方一律引它；**不要各自在 scoped 里复制一份同配方**——复制出来的迟早会漂移，
+  而「同一动作在多处时长不同」正是这节要避免的事。目前只有旧应用的设置页消费这个类名，新应用和本库的组件还没有用到。
 
-### 缓动只有一个来源
+### 缓动：看得出在动的都用布局曲线
 
-组件只消费 `--ease-standard`，不得在组件里写 `cubic-bezier(...)` 字面量。
-主题可以覆盖这个变量（nbook / macos 取 `cubic-bezier(0.25, 0.1, 0.25, 1)`，
-裸基线取 `cubic-bezier(0.2, 0, 0, 1)`），同样是目测决定。
+主曲线是 `--ease-layout`（`cubic-bezier(0.23, 1, 0.32, 1)`）。它原本只给布局工具的面板移动用，开发者试下来最顺（2026-11-06），定为全应用的主曲线：标签切换、活动栏切换、文件资源管理器的展开与选中、内容换页、浮层展开都向它看齐。新写的组件直接用它；已有的 `--ease-standard` 消费方由 [w00026 t18](../../../.agents/works/w00026-layout-package/tasks/t18-motion-curve/README.md) 迁移，迁完之前照旧。
 
-本库曾经有过一条回弹曲线（`cubic-bezier(0.34, 1.15, 0.64, 1)`，只被当时的浮动窗口组件
-一处消费），本轮归并进 `--ease-standard`：单一消费点不够格登记 token
-（`ui-development-spec` 第 2.6 节），而且回弹的趣味感和这套器械语言不是一回事。
+- 组件不得写 `cubic-bezier(...)` 字面量，曲线都来自令牌。`--ease-layout` 不随主题变：顺滑是全应用的手感，不是主题的个性。
+- **时长要跟着放宽。** 这条曲线四分之一时长走完 78%、一半时长走完 97%，尾巴很长。沿用 180ms 的 `--motion-base`，45ms 就走了八成，看着是跳过去的。有位移的动效按这条核对时长，具体每处取哪一档在迁移里试了再定。
+- **退场不用它。** 同样的原因，退场加淡出时一按就没了，看着像直接关掉（对话框 2026-11-06 实测）。有来处的浮层收回用 `--ease-dialog-leave`（先慢后快）。
+
+本库曾经有过一条回弹曲线，只被当时的浮动窗口组件一处消费，后来归并进 `--ease-standard`：
+单一消费点不够格登记 token（`ui-development-spec.md`“材料、颜色与层级”一节第 6 条），
+而且回弹的趣味感和这套器械语言不是一回事。
 如果哪天要让「弹性」成为正式词汇，先登记 token 并接上至少两个消费方，再写进这一节。
 
 ### 浮层入退场的编排是固定的
 
-1. **入场 = opacity + scale(0.96 → 1)**，时长 `--motion-enter`。不加位移——
+1. **入场 = opacity + scale(0.96 → 1)**，时长 `--motion-fast`。不加位移——
    浮层贴着触发器出现，位移会读成「从别处滑进来」而不是「从这里展开」。
-   两个例外：通知横幅不贴触发器，从边缘滑入（translateY）是合法配方；
+   两个例外：通知横幅不贴触发器，从边缘滑入（translateY）是合法配方，取 `--motion-enter`；
    Tooltip 跟随 macOS 的行为只淡入淡出，不做缩放。
 2. **transform-origin 在贴触发器的那一头。** Reka 把方向算好暴露在
    `--reka-select-content-transform-origin` / `--reka-dropdown-menu-content-transform-origin`
    这类变量上，**消费它，不要自己根据 placement 推**——推一遍就是把原语已经解决的
    碰撞翻转逻辑再抄错一次。
-3. **退场同配方，时长 `--motion-fast`。** 退场是「这件事结束了」，不需要入场那样的
-   追踪时间；拖长的退场读作迟疑。
-   **菜单是例外**：每一级只保留一个面板。子菜单默认不显示，悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后的同级切换不等待。第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，面板做位置和尺寸过渡，内容快速淡入淡出；移到没有子菜单的项时立刻收起。
-   入场也取 `--motion-fast`。这里的等待会被读成操作迟钝，不需要浮层入场那一档的追踪时间。
+3. **退场同配方，时长 `--motion-fast`。** 退场是「这件事结束了」，不需要追踪时间；拖长的退场读作迟疑。
+   入场也取 `--motion-fast`，是因为这里的等待会被读成操作迟钝。
+   **菜单的子菜单是例外**：每一级只保留一个面板。子菜单默认不显示，悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后的同级切换不等待。第一级面板走上面的入场配方，下一级面板没有入场动画；在同级两个有子菜单的项之间切换时，面板做位置和尺寸过渡，内容淡入；移到没有子菜单的项时立刻收起。
 4. **退场动画靠原语的 Presence 续命**：CSS animation 挂在 `[data-state=open]` /
    `[data-state=closed]` 上，Reka 等到 `animationend` 才卸载内容树。
    判据：关闭浮层后目标元素在 DOM 里存活到动画结束才被移除（e2e 可断言）。
@@ -666,7 +564,7 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
    挂在浮层基座（`.nb-ui-popover-surface`）之上。已有自己过渡的浮层
    （ContextMenu / Tooltip / Dialog）不挂它，
    避免两层动画叠加；它们的配方同样服从本节第 1–3 条。
-6. **模态命令浮层（S4）关闭不带走动画。** 退场动画会把「下一层什么时候拿到焦点/按键」
+6. **模态命令浮层关闭不带走动画。** 退场动画会把「下一层什么时候拿到焦点/按键」
    押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickPick` 与
    `AlertDialog` 关闭时立即卸载，把「关闭完成」交给原语的真实卸载事件（`closed`）表达；
    宿主在收到该事件后才执行命令或激活下一个交互层。入场仍走第 1 条配方。
@@ -677,9 +575,9 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
   这类字面量一律违规。`src/components/token-consumption.test.ts` 静态扫描归零。
 - **禁 `transition-all` / `transition: all`**：它把布局属性也卷进过渡（尺寸变化被
   意外动画），并且让审查看不出「到底什么在变」。transition 的属性列表必须显式。
-- 动效不承担必要信息（`ui-development-spec` 第 5 节）：状态必须同时有不依赖动画的表达。
-- `prefers-reduced-motion` 下三个时长归零由库负责（`src/tokens.css`，带 `!important`）；
-  **主题自己新增的动效变量由主题自己关**（见第六节），这是新增变量的配套义务。
+- 动效不承担必要信息（`ui-development-spec.md`“表单与无障碍”一节）：状态必须同时有不依赖动画的表达。
+- `prefers-reduced-motion` 下时长类 token 归零由库负责（`src/tokens.css`，带 `!important`）；
+  **主题自己新增的动效变量由主题自己关**（见“无障碍”一节），这是新增变量的配套义务。
 
 ### 判据
 
@@ -695,8 +593,8 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
 每条写「现象 → 根因 → 判据」。**判据是这一节的重点**——多数坑之所以活很久，
 是因为当时用的判据本身是错的。
 
-> 编号只增不改。正文里有「见坑 #6」这样的互引，重排会把它们指到别处去；
-> 新坑一律接在所属分组的末尾拿下一个号。
+> 编号保留。代码注释、Task 记录和正文里的互引都按「坑 #N」写，重排会把它们指到别处去。
+> 删掉的条目留空号，号不复用（现在空着的是 #27）；新坑一律接在所属分组的末尾，拿下一个号。
 
 ### A. CSS / 渲染
 
@@ -717,9 +615,8 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
 现象：浮层浮在平滑渐变上时，折射效果为零。
 根因：位移滤镜挤压的是背后的像素，背后没有高频内容就无处可挤。
 判据：验收时把浮层压在**有细节的内容**上（表格、正文），不要压在渐变背景上。
-对照页的菜单刻意压在表格上就是为了这个。
 
-**4. 读变量 ≠ 元素吃到**
+**4. 读变量 与 元素吃到 是两回事**
 现象：页面顶部读数写着「边缘折射 有」，实际元素上一点折射都没有。
 根因：那行读的是 `getPropertyValue("--glass-lens")`，只证明变量有值，
 不证明任何元素消费了它。
@@ -735,18 +632,19 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
 采样点跨过 1px 描边读到的是抗锯齿，不是高光断口。
 
 **6. 输入框比窗体底还暗，看起来像没上样式的原生控件**
-现象：暗色下输入框成了挖在面板上的黑洞，用户描述为「浏览器原生的那一条黑线好像没有删掉」。
+现象：暗色下输入框成了挖在面板上的黑洞，像是浏览器原生的那一条黑线没有删掉。
 根因：两处叠加——配色表里 `--bg-input` 比 `--bg-main` 还暗；`--inset-shadow` 在暗底上又压一条
 黑线在上内边。
 判据：`sign(输入框亮度 − 桌面亮度)` 必须与 `sign(面板亮度 − 桌面亮度)` **同号**，亮暗两档都要成立。
 更稳的做法是让输入框从**它所在的面**上抬起，与配色解耦：
 `--control-surface: color-mix(in srgb, var(--text-main) 7%, transparent)`。
 
-**7. 暗色下的玻璃方向是反的**
+**7. 暗色档照抄亮色的配方，面发灰、边缘一圈灰边**
 现象：暗色配方照抄亮色，结果面发灰、边缘一圈灰边。
-根因：暗色 Liquid Glass 是**压暗**（`brightness(0.76)`）不是提亮；
-白色镜面高光在暗底上会过曝成灰边；面的透明度还要收一点，否则暗底透暗底什么都看不见。
-判据：玻璃配方必须挂 `[data-nb-appearance]` 分档，且暗色档的 `brightness` < 1。
+根因：白色镜面高光在暗底上会过曝成灰边；面的透明度在暗底上也要单独调，否则暗底透暗底什么都看不见；
+轮廓与内线的方向亮暗两档相反（暗色下改为提亮，见“材料与层级”一节的“一条阴影里各层的分工”）。
+判据：玻璃配方必须挂 `[data-nb-appearance]` 分档，**暗色档要有自己的配方，不照抄亮色**。
+暗色档是否压暗由主题的配方定（`--overlay-blur` 里的 `brightness`），不作判据。
 
 **8. 主题要响应配色的明暗属性，不是配色身份**
 现象：用户自建的暗色配色下，主题的暗色分支不生效。
@@ -754,7 +652,7 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
 判据：一律挂 `[data-nb-appearance="dark"]`。
 
 **21. `url(#滤镜)` 排在 `blur()` 前面，模糊就没了**
-现象：菜单、下拉、时间选择器**全都没有高斯模糊**，整套界面因此显得廉价。
+现象：菜单、下拉**全都没有高斯模糊**，整套界面因此显得廉价。
 读计算样式一切正常——完整的一条 filter 链原样在那里。
 根因：`backdrop-filter` 的链子里，SVG 引用滤镜排在前面会让后面的模糊几乎不生效。
 声明合法、`CSS.supports` 返 true、计算值也读得到，就是画不出来。
@@ -775,30 +673,29 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
 
 **22. tint 太厚，等于把刚修好的模糊又盖掉**
 现象：模糊修好了，浮层看起来还是一块实心板。
-根因：暗色下 `--overlay-surface` 是 66% 不透明——那个数是在**模糊还没画出来的时候**调的，
-当时只能靠厚 tint 把浮层和背景分开，于是越调越厚。模糊接通后它就纯粹是遮挡。
+根因：`--overlay-surface` 的不透明度是在**模糊还没画出来的时候**调的，当时只能靠厚 tint 把浮层和背景分开，
+于是越调越厚。模糊接通后它就纯粹是遮挡。
 判据：层级由「模糊 + 外阴影」承担，tint 只负责压住对比、保证浮层里的字读得清。
 **修完材料要回头复查为它打的补丁**，补丁往往比它要补的洞活得久。
-（这一条自己又被打了第二次补丁，见坑 #28：52% 是在半径还是 50px 时定的，最终落在 24%。）
+这个补丁自己后来又随模糊半径调过一次（见坑 #28）；现行取值只看主题 `vars.css` 里的 `--overlay-surface`。
 
 **23. 玻璃需要背后有东西，而多数页面是一片纯色**
-现象：对照页上玻璃很漂亮，组件画廊里同一个菜单看着像不透明的。
+现象：手写的示意页上玻璃很漂亮，组件画廊里同一个菜单看着像不透明的。
 根因：画廊整页是纯色 `--bg-main`，把纯色糊成纯色等于零效果。这是坑 #3 的页面级版本。
 判据：任何要看玻璃的页面都得铺 `--window-backdrop`（非玻璃主题下它是 `none`，惰性）。
 底纹挂**页面**不挂全局外壳——外壳要保持不动，主题的变化才归因得到内容区。
 
 **28. 模糊半径越大，越不像玻璃**
-现象：模糊终于画出来了，浮层反而更像一块塑料板。用户的原话是
-「模糊有点过头了，没有那种 liquid 玻璃质感」。
+现象：模糊终于画出来了，浮层反而更像一块塑料板。
 根因：**玻璃的质感来自背后还认得出东西**——色块的位置、明暗的走向、边缘被挤压的那一下形变。
-半径每大一档，这些信息掉一截，48px 之后只剩「有一层东西挡着」。
+半径每大一档，这些信息掉一截，半径大到一定程度之后只剩「有一层东西挡着」。
 Apple 的 Liquid Glass 本来也不是重磨砂：力气花在边缘折射与镜面上，模糊只负责让背后的字读不出来。
 判据：真实浮层的 `--overlay-blur` 取 **8px 纯 blur**；完整折射强档 `--glass-lens-strong` 取 14px，
 只给大容器对照面使用。8px 能让浮层里的字不可读，同时保留色块与明暗走向；14px 折射若直接接入
-小浮层，会把模糊与 SVG 位移叠成用户所说的「过糊 + 背景错位」。
-压暗 / 提亮改由 `brightness` 承担——它是等比缩放，**保留背后的结构**；
-tint 是往一个平色上做 alpha 合成，直接把结构抹掉。同样的可读性，
-走 brightness 看着是玻璃，走 tint 看着是塑料板。
+小浮层，会把模糊与 SVG 位移叠成「过糊 + 背景错位」（坑 #45）。
+要调这块面的明暗而不丢背后的结构，动 `backdrop-filter` 里 `brightness`、`saturate` 这类等比缩放——
+它们**保留背后的结构**；tint 是往一个平色上做 alpha 合成，直接把结构抹掉。同样的可读性，
+走滤镜看着是玻璃，走厚 tint 看着是塑料板。具体取值在主题的 `--overlay-blur`。
 
 **浮层与大容器必须分开验收。** 浮层用真组件检查 `getComputedStyle(surface).backdropFilter`，确认
 是 `blur(8px)` 且没有 `url(#...)`；大容器再单独看完整折射。不要用大容器的折射观感替浮层背书，
@@ -807,9 +704,9 @@ tint 是往一个平色上做 alpha 合成，直接把结构抹掉。同样的�
 **29. 只给模糊不给镜面，浮层是「一层色」不是「一块材料」**
 现象：半径也对了、tint 也薄了，浮层还是不像玻璃。
 根因：浮层基座只给了描边 / 圆角 / 面色 / 阴影 / 磨砂五项，**没有镜面**。
-`--glass-rim` 只活在对照页手写的那块玻璃上，真组件一处都没有——和坑 #15 是同一种病的第二次发作。
-判据：基座要留出镜面通道（`--overlay-sheen` 走 `background-image`，玻璃的厚度走
-`--elevation-popover` 里的 inset 那两条）。写 `background-color` + `background-image` 两条长写法，
+`--glass-rim` 只活在手写示意页的那块玻璃上，真组件一处都没有——和坑 #15 是同一种病的第二次发作。
+判据：基座要留出镜面通道（`--overlay-sheen` 走 `background-image`，由 `.nb-ui-surface-rim` 接入）。
+写 `background-color` + `background-image` 两条长写法，
 **不要写回 `background` 简写**：简写会把没写出来的那条重置掉，主题给的镜面会静默消失。
 
 **这条坑的后半段被坑 #40 推翻了一半：通道该留，但小浮层不该往面上铺渐变。**
@@ -818,8 +715,8 @@ tint 是往一个平色上做 alpha 合成，直接把结构抹掉。同样的�
 **30. 遮罩压得越重，压在它上面的玻璃越没东西可采**
 现象：对话框明明是玻璃，看起来是一块灰板。
 根因：遮罩与面板是平级的两层，面板的 `backdrop-filter` 采的是**遮罩之后**的页面。
-遮罩 55% 的黑先把整页压成近乎均匀的暗色，玻璃再怎么糊、怎么折射都无从下手。
-判据：**重遮罩和玻璃对话框是互斥的两种做法**，二选一。选玻璃就把遮罩收到 28% 一档
+重遮罩先把整页压成近乎均匀的暗色，玻璃再怎么糊、怎么折射都无从下手。
+判据：**重遮罩和玻璃对话框是互斥的两种做法**，二选一。选玻璃就把遮罩收淡
 （macOS 的 sheet 干脆不压暗底下的窗口，靠材质与影子分层）。同理，遮罩自己那层预模糊也要克制：
 把页面先糊烂一遍，面板的折射就没有高频内容可挤了，见坑 #3。
 
@@ -835,8 +732,8 @@ tint 是往一个平色上做 alpha 合成，直接把结构抹掉。同样的�
 实测判据：同结构探针下旧写法读到 `GLASS`、新写法读到 `OFF`。
 
 **37. `corner-shape: squircle` 和 `backdrop-filter` 是互斥的**
-现象：用户的原话是「box 模糊的区域不对，好像错位了」。面板的背景、描边、投影都在，
-玻璃也在，但四个角各有一牙背景**没被模糊**，读起来像滤镜和盒子没对齐。
+现象：面板的背景、描边、投影都在，玻璃也在，但四个角各有一牙背景**没被模糊**，
+读起来像滤镜和盒子没对齐。
 根因：**Chromium 把 `backdrop-filter` 裁到普通 `border-radius`，不认 `corner-shape`**
 （Chrome 151 实测）。而背景与描边是按 squircle 画的，超椭圆在角上比同半径的圆弧更外凸，
 差出来的那一牙就露在滤镜之外。
@@ -850,50 +747,46 @@ squircle 下两者之间有一圈灰月牙，强制 `corner-shape: round` 后月
 什么时候可以加回来：Chromium 让 `backdrop-filter` 的裁切跟随 `corner-shape` 之后，
 复查方法就是上面那条判据。
 
-**38. 把 Material 的「多层递增投影」当成通用做法**
+**38. 浮层的边界交给了模糊的近景投影**
 现象：面板边缘发灰、说不清边在哪，整块面像往下沉；调不同的 alpha 都不解决。
-根因：写的是「近景 `0 2px 6px` + 远景 `0 16px 40px`」两条叠加。Apple 不是这么做的——
-官方文件里**环境投影只有一条**，轮廓另交给一条几乎不糊、不透明度高的发丝阴影
-（`0 0 0.3px 0.3px`）。两条投影叠加等于把同一件事说两遍，第二遍只会把第一遍的边缘洗糊。
-判据：读计算样式，外阴影（非 inset）应当只有**两条**——一条 blur ≤ 1px 的轮廓 +
-一条 blur ≥ 40px 的环境投影。出现第三条 blur 在 4–20px 之间的，基本就是这个坑。
+根因：用一条中等半径的近景投影（例如 `0 2px 6px`）去画边界，投影自己的模糊把边缘洗糊了。
+Apple 的做法里边界另交给一条几乎不糊的轮廓，外阴影只管浮多高。
+判据：读计算样式，popover、菜单、对话框三档的 `box-shadow`，**第一条是 blur ≤ 1px 的外环或轮廓**
+（nbook 满足）；其后的外阴影只表达浮起的高度，层数与取值归主题。
+外阴影的层数不是判据：nbook 的 popover 档是一圈外环加多层外阴影，不是 Apple 式的「一条环境投影」，
+分工见“材料与层级”一节的“一条阴影里各层的分工”。`macos`、`editorial` 的 popover 档没有这圈外环（`themes/*/vars.css`），
+它们是参照与示范，不按这条验。
 
 **40. 面上铺一层镜面渐变，小浮层会被读成「盖了一层渐变」而不是一块玻璃**
-现象：用户的原话是「下拉选择框这个盒子的模糊有点浅，好像你做了个渐变，效果不是很好。
-要做成那种通透玻璃的感觉」。
+现象：下拉选择框的盒子看着「模糊有点浅」，像做了个渐变，没有通透玻璃的感觉。
 根因：镜面层（`--overlay-sheen`）是一条 radial + linear 的白色渐变，
 **几何按百分比算**：同一条渐变铺在 900px 宽的窗口上是角上一点点提亮，
 铺在 240px 宽的下拉上覆盖了将近一半的面。结果是**上半截被洗成均匀的灰、下半截还透着色**——
 一块玻璃不会上半截糊下半截透，所以它读起来是渐变不是玻璃。
-Apple 的做法里**面上没有渐变**：Materials 那页从头到尾没提过面渐变，
-玻璃的光全在边上；官方 UI Kit 里唯一的入射光是一条顶部内发丝线。
+Apple 的做法里**面上没有渐变**：Materials 那页从头到尾没提过面渐变，玻璃的光全在边上
+（读数见调研文档）。
 判据（可复现）：在浮层背后铺 12px 四色斜条纹（高频、有色相差）。
 镜面在时条纹**只在上半截消失**，关掉之后整块面里条纹连续可辨——
 「上下不一致」本身就是判据，不用比绝对清晰度。
-修法：小浮层 `--overlay-sheen: none`，高光改由 `--elevation-popover` 的
-`inset 0 2px 0.25px -1.5px` 顶内线承担。`--glass-rim`（整块玻璃用的那条）可以留着，
-它作用在窗口那种大面上，百分比几何正好落在角上。
-反方向的错解：这条抱怨里的「模糊有点浅」**不能按字面加半径**。
-实测 18 / 24 / 28 / 32 / 44px 一路加上去，四色条纹被平均成一块均匀的橄榄色，
-面反而更像塑料板。半径决定背后的字读不读得出，**通透与否是不透明度的事**。
+修法：小浮层 `--overlay-sheen: none`，高光只在边上；`--glass-rim`（整块玻璃用的那条）可以留着，
+由 `.nb-ui-surface-rim` 只给窗口、对话框这类大面，百分比几何正好落在角上。
+反方向的错解：「模糊有点浅」**不能按字面加半径**。实测把半径一路加到几十 px，
+四色条纹被平均成一块均匀的橄榄色，面反而更像塑料板（坑 #28）。半径决定背后的字读不读得出，
+**通透与否是不透明度的事**。
 什么时候重新考虑：浮层稳定大于 400px 之后，那条渐变的覆盖比例才回到「角上一点点」的量级。
 
-**42. 列表项写死 `rounded-md`，圆角在角上会被挤没**
-现象：用户的原话是「他的宽度和圆角没有对齐」，指着下拉里那一行说的。
-量下来项与项之间宽度完全一致（都是 520px）、圆角完全一致（都是 6px）——**看上去不齐，量出来齐**。
-根因：不齐的不是项与项，是**项与外框**。外框 20px 圆角、内边距 6px、描边 1px，
-所以直边上项与框之间有 6px 留白；绕到角上，6px 的小弧线画在 20px 的大弧线里，
-两条弧线不平行，留白被挤到不足 1px。人眼读到的是「这一行比框宽了一圈」。
+**42. 列表项写死小圆角，圆角在角上会被挤没**
+现象：下拉里的一行看着和外框的宽度、圆角没有对齐。
+量下来项与项之间宽度完全一致、圆角完全一致——**看上去不齐，量出来齐**。
+根因：不齐的不是项与项，是**项与外框**。直边上项与框之间有一圈内边距的留白；绕到角上，
+小半径的弧线画在大半径的弧线里，两条弧线不平行，留白被挤到不足 1px。
+人眼读到的是「这一行比框宽了一圈」。
 判据：**把一角放大到 4 倍再截图**，看两条弧线平不平行、之间的留白等不等宽。
-1 倍的整体图分辨不出来——本轮就是放大之后才敢说根因的。放大的做法：
+1 倍的整体图分辨不出来。放大的做法：
 给 `[data-reka-popper-content-wrapper]` 临时 `zoom: 4` 再截，不要靠截完再放大（那只会放大马赛克）。
-修法：项挂同心圆角的类（现在是 `.nb-ui-menu-item`），半径由 `--nb-popover-inner-radius` 从外框推出来
-（20 − 1 − 6 = 13px），见第三节。**别去调 6px 这个数**——它每次都得跟着外框和内边距变，
-写死一个数就是把同一个约束抄进 N 个模板。
-连带的一处：`.nb-ui-popover-scroll` 挂在浮层自己身上的组件（DropdownMenu / Combobox）
-本来就是坑 #24 那一条，滚动条会画进圆角里；本轮只统一了内边距，那条债还在。
-**这条债已在下一轮还掉**：两个组件都把滚动下沉到内层（DropdownMenu 用 `role="none"` 的包装，
-Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: hidden`。
+修法：项挂同心圆角的类（`.nb-ui-menu-item`），半径由 `--nb-popover-inner-radius` 从外框推出来
+（外框半径 − 描边 − 内边距），见“几何”一节的“同心圆角”。**别去调写死的小半径**——它每次都得跟着外框和内边距变，
+写死一个数就是把同一个约束抄进 N 个模板。滚动区挂在浮层自己身上时的同类问题见坑 #24。
 
 **43. 玻璃上的选中态用了实心 hover 色，成了挖进材料里的补丁**
 现象：浮层整体是通透的，唯独当前项那一条把背后的内容完全挡住，像贴了一张纸条。
@@ -902,17 +795,18 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 判据：读高亮项的 `backgroundColor`，alpha 必须 < 1。
 `color(srgb … / 0.12)` 是对的，`rgb(…)` 无 alpha 就是这条坑。
 修法：新增角色 `--overlay-item-active`（库默认退回 `--bg-hover`，主题给
-`color-mix(in srgb, var(--text-main) 12%, transparent)`），见第五节。
+`color-mix(in srgb, var(--text-main) 12%, transparent)`），见“颜色”一节。
 易漏：两个无障碍 media query 里要写回不透明值——那时玻璃已经退成实心面了。
 
 **44. 声明了却几乎没人消费的 token，比没有更糟**
-现象：主题里 `--radius-control: 10px` 改了，界面上的按钮、输入框、下拉触发器一动不动。
-根因：全库只有 Tooltip 和 TimePicker 两处消费它，其余 12 个组件写死 Tailwind 的
-`rounded-md`（6px 常量，与主题无关）。变量在，通路不在。
-判据：逐个读取上述控件外框的计算样式，必须等于 `--radius-control`；这些外框不许以 `rounded-md` / `rounded-sm` / `rounded-lg` 提供圆角。
-`Skeleton`、`Notification`、`Panel` 和不贴外框角的内部形状保留各自圆角，不纳入控件圆角迁移判据。
+现象：主题里改了 `--radius-control`，界面上的输入框、下拉触发器一动不动。
+根因：控件模板里写死了 Tailwind 的 `rounded-md`（6px 常量，与主题无关）。变量在，通路不在。
+判据：逐个读取输入类控件（`Input`、`NumberInput`、`Textarea`、`Select`、`SearchSelect`）外框的计算样式，
+必须等于 `--radius-control`；这些外框不许以 `rounded-md` / `rounded-sm` / `rounded-lg` 提供圆角
+（在 `src/components` 里搜这三个类名应当没有命中）。`Button`、`IconButton` 的尺寸档用定值，
+不贴外框角的内部形状有各自的圆角，都不纳入这条判据。
 修法：控件档一律 `rounded-[var(--radius-control)]`。
-这和第二节记的 `--elevation-dialog` 一度没有消费方是同一类问题的两个实例：
+这和 `src/styles.css` 里 `.nb-ui-dialog-surface` 上方注释记的 `--elevation-dialog` 一度没有消费方是同一类问题的两个实例：
 **新增角色时必须同时接上消费方，否则设计意图只留在变量表里。**
 
 **45. `backdrop-filter` 的 SVG 位移会让背景纹理看起来错位**
@@ -929,7 +823,7 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 **56. 比浏览器基线新的 CSS 值写法会让整条声明作废**
 现象：编辑区标签的加粗副本写成 `content: attr(data-label) / ""`。审查按兼容数据指出 Firefox 124 不认带替代文本的写法，副本会消失，切换活动标签时其它标签跟着跳（本机没有 Firefox，未复现）。
 根因：浏览器不认一条声明里的值语法时，丢掉的是整条声明，不是只丢不认的那一段。
-判据：用比浏览器基线（`docs/specs/runtime/browser-host.md` 的输入与前置条件）新的写法（例如带替代文本的 `content`）时，先写一条基线浏览器能认的声明兜底，再写新写法覆盖。伪元素副本已经 `visibility: hidden` 时不进可访问名称，不需要替代文本。
+判据：用比浏览器基线（`docs/specs/runtime/browser-host.md` 的输入与前置条件）新的写法（例如带替代文本的 `content`）时，先写一条基线浏览器能认的声明兜底，再写新写法覆盖。伪元素副本已经 `visibility: hidden` 时不进可访问名称，不需要替代文本。新写法里含 `var()` 时，前一条兜底不起作用：不认的浏览器把它当作计算时无效，算成未设置，不会退回上一条；这时改用 `@supports` 包住新写法（例如 `round()`，基线 Chrome 119 不认）。
 
 **58. 图标类的 `width: 1em` 在应用里盖掉组件写的图标尺寸**
 现象：菜单项的图标列（同一级有一项带图标就每项留出这一列）在 nb-ui 演练场里对齐，在新应用的 Lab 里没有图标的项多缩进 3px：图标只有 13px，空占位是 16px。
@@ -957,33 +851,37 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：`getBoundingClientRect()` 与 `window.innerWidth` 不在同一个坐标系里，zoom 不为 1 时要换算；而 `offset*` 是取整的，用它做除数算出的比例带着取整误差。
 判据：换算 CSS `zoom` 用元素的 `currentCSSZoom`；盒子尺寸与 `offset*` 之比只在还要算 `transform` 缩放时用，并接受它的取整误差。验证：在 Lab 里给舞台加 `zoom`，量子菜单与父项的相对位置，与不加 zoom 时一致。
 
+**65. 列表的行高带小数，最后一项滚不进视口**
+现象：建议菜单用方向键移到最后一项时，那一项只露出 99.4%，`toBeInViewport({ratio: 1})` 失败；滚动视口已经滚到底。
+根因：分组标题 12px × 1.3 的行高是 15.6px，整列内容比整数多出零点几像素；滚动容器的 `scrollHeight` 是取整的，最大滚动距离按它算，最后那零点几像素永远滚不出来。
+判据：可滚动列表里会累加的行高与行盒取整到像素（必要时 `round()`，按坑 56 放在 `@supports` 里）；量“滚进视口”时，项的下沿与视口下沿差的是零点几像素、且已经滚到底，先查列表里谁的高度带小数。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
-现象：`Collapsible` / `Accordion` 展开时内容直接出现，写了动画却没有动画；控制台、构建、单测都不报错。
+现象：折叠组件（`Collapsible` 一族）展开时内容直接出现，写了动画却没有动画；控制台、构建、单测都不报错。
 根因：`animate-*` 的可选键来自主题的 `--animate-*`（Tailwind v4 的默认主题里只有 `spin` / `ping` / `pulse` / `bounce`），
 nb-ui 没有声明 `--animate-collapsible-down`。`animate-collapsible-down` 这个键不存在，
-于是 `data-[state=open]:animate-collapsible-down` 一条 CSS 都不生成。`src/styles.css` 里
-手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码（w00029 t07 已删）。
+于是 `data-[state=open]:animate-collapsible-down` 一条 CSS 都不生成。
 判据：展开后读内容元素，`getAnimations()` 必须非空且 `animationName` 是登记的 keyframes 名。
-修法：动画写在样式表里用状态属性驱动（`.nb-collapsible-content[data-state="open"] { animation: … }`），
+修法：动画写在样式表里用状态属性驱动（`src/styles.css` 的 `.nb-collapsible-content[data-state="open"]`），
 不依赖消费方主题里恰好存在同名 key。**凡是"写了却可能不生成"的类，都要用计算样式或 `getAnimations()` 证伪一次。**
 
 **48. 折叠容器的裁切盒把子控件的焦点光环剪掉**
 现象：折叠区段展开后，里面第一个 / 最宽的那个输入控件聚焦时，光环（`box-shadow`）在左右或上边被齐刷刷切断。
 根因：折叠内容为了做高度动画必须 `overflow: hidden`，裁切边界正好等于内容盒；而控件贴满内容盒时，光环是画在盒子**外面**的。
-判据：读聚焦控件与其最近裁切祖先的矩形，控件左右两侧到裁切边缘的余量必须 ≥ 光环扩散半径（当前 3–4px）。
+判据：读聚焦控件与其最近裁切祖先的矩形，控件左右两侧到裁切边缘的余量必须 ≥ 光环扩散半径（按主题 `--focus-ring` 的实色部分算）。
 修法：只在高度动画进行中裁切——内容元素在 `animationstart` 时打 `data-animating`，`animationend`、`animationcancel` 时去掉，样式只给带标记的内容 `overflow: hidden`；展开完成后不裁，光环有完整的空间。动画那一两百毫秒里没人在操作里面的控件。
 不要用「给内容加 padding」把控件推进来：那会让控件与同列的其它元素错位。早先用过「裁切盒 `padding: 6px` + 等量负 `margin: -6px`」把裁切边界往外放，代价是外框比父容器宽 6px，放进可横向滚动的容器就多出一截滚动距离，已弃用。
 
 **9. 原生 `<select>` 的弹出列表由操作系统绘制**
 现象：整套主题只到控件本身为止，一点开就露出一个系统菜单。
 根因：不是样式没调好，是原生控件的硬边界——任何 CSS 都够不着那个列表。
-判据：`document.querySelector("[role='listbox']")` 能查到 ⇒ 不是原生。
+判据：`document.querySelector("[role='listbox']")` 能查到就不是原生的；
 查不到就说明列表根本不在页面里。
 
 **10. 弹出层原地绝对定位，一定会被 `overflow: hidden` 的祖先切掉**
-现象：时间选择器摆进面板里只露出顶上一条边。
+现象：弹出层摆进面板里只露出顶上一条边。
 根因：面板为了圆角本来就得 `overflow: hidden`。同一个原因还会让弹出层被祖先的
 `backdrop-filter` 圈成 backdrop root，自己的磨砂采不到页面背景。
 判据：**只能用命中测试，不能用 `getBoundingClientRect()`**——后者不反映裁剪，
@@ -1018,17 +916,17 @@ nb-ui 没有声明 `--animate-collapsible-down`。`animate-collapsible-down` 这
 判据：所有 defs id 加主题前缀（`nbook-lens` / `nb-lens`）。
 装载器已经会拒绝重名（拒绝理由 `svg-defs-id-collides`）。
 
-**15. 真组件必须和对照页吃同一份材料**
-现象：对照页里玻璃很漂亮，实际用起来菜单是不透明的。
-根因：对照页是手写标记，真组件走的是另一条通路。
-判据：任何「材料级」的改动，验收必须在**真组件**上做一遍，不能只看对照页。
-本轮就是靠这条发现 `macos` 主题的浮层比它自己的对照页少一层折射。
+**15. 真组件必须和示意页吃同一份材料**
+现象：手写示意页里玻璃很漂亮，实际用起来菜单是不透明的。
+根因：示意页是手写标记，真组件走的是另一条通路。
+判据：任何「材料级」的改动，验收必须在**真组件**上做一遍，不能只看示意页。
+曾经靠这条发现 `macos` 主题的浮层比它自己的示意页少一层折射。
 
 **24. `overflow` 不要加在浮层本体上**
-现象：时间选择器一打开，首项被横着削掉半个字，右边缘的滚动条两头也缺一块，
+现象：弹出列表一打开，首项被横着削掉半个字，右边缘的滚动条两头也缺一块，
 看起来像描边裂了。
-根因：滚动与外观挂在同一个元素上。浮层圆角越大越明显——菜单在 macOS / nbook 下现在独立取 12px，
-而 Dialog 仍有自己的大圆角；贴着边缘的滚动条和滚到顶的首项都正好压在那道弧线上。
+根因：滚动与外观挂在同一个元素上。浮层圆角越大越明显——
+贴着边缘的滚动条和滚到顶的首项都正好压在那道弧线上。
 判据：浮层本体只管外观并 `overflow: hidden`，滚动交给内部一层，并让它比外框缩进一圈；
 内层半径统一从 `--nb-popover-inner-radius`（外圈 − 描边 − 内边距）推导。截断本身是滚动列表的正常样子，
 问题只在于**截在哪儿**：截在描边上读作「画坏了」，隔着渐隐收进去才读作「上面还有」。
@@ -1060,14 +958,14 @@ nb-ui 没有声明 `--animate-collapsible-down`。`animate-collapsible-down` 这
 它是就地展开的一段选项，页面在它背后仍然是活的。
 判据：两个都得关，只关一个是半吊子——只关 `body-lock` 页面能滚但仍然点不动，
 只关 `pointer-events` 能点但滚不动。关掉之后位置由 popper（floating-ui）维持，
-页面滚动时浮层跟着触发器走，不会掉队（实测滚 300px 后触发器底边 587 / 浮层顶边 591）。
+页面滚动时浮层跟着触发器走，不会掉队。
 断言面：用例里先断言「列表真的开着」再断言 `document.body.style` 两条为空，
 否则浮层根本没打开也会假绿。
 
 **34. 内联 `:style` 写死的背景，做不出任何 `:hover`**
-现象：时间选择器的选项点得动，但鼠标划过去一点反馈都没有。
+现象：列表选项点得动，但鼠标划过去一点反馈都没有。
 根因：外观整套写在 `:style` 里。**内联样式的优先级压过任何类**，
-于是 `.nb-time-option:hover { background: … }` 写了也白写。
+于是类上写的 `:hover` 底色写了也白写。
 判据：会有交互态的元素，外观走类不走内联；选中态同样走类——它要和 hover 在同一套层叠里比大小。
 排在 hover 之后且同为单类选择器的话，选中态照样赢，hover 只在未选中项上看得出来，
 而这正好是想要的（「当前值」不需要靠 hover 再强调一次）。
@@ -1075,10 +973,10 @@ nb-ui 没有声明 `--animate-collapsible-down`。`animate-collapsible-down` 这
 从 `rgba(0, 0, 0, 0)` 变成 `--bg-hover` 的实色才算数。
 
 **35. 照着 Web 的模态盒子做，怎么调都还是个盒子**
-现象：对话框的留白、圆角、玻璃、分隔线一轮一轮调，用户仍然说「还是不好看」「没有学到精髓」。
+现象：对话框的留白、圆角、玻璃、分隔线一轮一轮调，仍然「不好看」「没有学到精髓」。
 根因：调的是**盒子的参数**，而形态本身是 Web / Bootstrap 的：标题条 + 正文 + 按钮条，
 右上角一个 ×，标题比正文大一号，按钮右对齐。Apple 的 alert 与 sheet 一条都不是这样
-（实测见「对话框不是三段式盒子」那节）。参数调得再准，读出来的仍然是三个堆叠的条。
+（读数见调研文档，结论见“几何”一节的“对话框不是「三段式盒子」”）。参数调得再准，读出来的仍然是三个堆叠的条。
 判据：**先看解剖，再看取值。** 三个可证伪的问题——头尾有没有自己的 padding？
 标题和正文是不是同字号？有没有 ×？三条里中一条，就还是那个盒子。
 `getComputedStyle(panel).padding` 读到一个值、而 header/footer 的 style 里没有 `padding`，
@@ -1086,12 +984,12 @@ nb-ui 没有声明 `--animate-collapsible-down`。`animate-collapsible-down` 这
 
 **36. 拿旧版 HIG 的记忆当规范，会把已经变了的东西写进注释**
 现象：库里注释写着「Apple 只在 Large / X-Large 才走 capsule，全部 pill 化会显得松散」，
-于是对话框按钮一直是 10px 圆角。
-根因：那是更早的目测印象，不是当前规范。Apple 官方 macOS 27 UI Kit 的 Buttons 组里，
-从 Mini（41×16）到 XL（66×36）**全部是整颗胶囊**。
+后来对照 Apple 官方 macOS 27 UI Kit 的 Buttons 组，发现那是错的（读数见调研文档）。
+根因：那是更早的目测印象，不是当前规范。
 判据：凡是写进注释、又会被后来的人当依据的取值，必须能指到**可复查的出处**。
 Sketch Cloud 上那份官方分享件带 Inspect，能逐层读出 CSS——这类文件比 HIG 正文更能给出数值，
 因为 HIG 正文基本不写具体 px。查不到就写「目测决定，没有可引的规范」，别写成有出处的样子。
+这条只说取值要有出处，不要求跟随 Apple：本库按钮不是胶囊，现状见“几何”一节的“对话框不是「三段式盒子」”。
 
 **49. 内容变短时浏览器先把 scrollTop 夹到底，再轮到 ResizeObserver**
 现象：自己实现的滚动锚定在内容收起后没生效。
@@ -1127,17 +1025,17 @@ Sketch Cloud 上那份官方分享件带 Inspect，能逐层读出 CSS——这�
 贡献的方差一模一样，把背景那点差异淹没了。
 判据：量之前先把浮层的子元素 `visibility: hidden`。同一块玻璃、同一个裁剪区，
 一次按现状截图、一次强制 `backdrop-filter: none` 再截图。
-修正判据后的真实读数是**抹掉 77–86%**，而不是 0%。
+这样量出来的抹掉比例是明显大于 0 的数，不是 0%。
 
 **17. 无头浏览器要先自证会画 backdrop-filter**
 现象：怀疑是环境不支持，但没有证据。
 根因：无从判断「页面里有东西切断了模糊」和「浏览器根本不画」。
 判据：拿一张**最小页面**（一段高频文字 + 一块玻璃，别的什么都没有）单独测一次。
-本项目实测：默认 headless、SwiftShader、`--headless=old` 三种都会画，抹掉 95%。
+本项目实测：默认 headless、SwiftShader、`--headless=old` 三种都会画。
 
 **18. 探针等待必须 ≥500ms**
 现象：读到的模糊值介于两个主题之间。
-根因：`--motion-fast` 是 90–120ms，120ms 的等待会读到过渡的中间态。
+根因：`--motion-fast` 是百毫秒量级，等待时间不比它长几倍就会读到过渡的中间态。
 判据：切主题 / 开浮层之后等 ≥500ms 再读。
 
 **19. Chromium 把 `color-mix()` 序列化成 0–1 通道**
@@ -1156,13 +1054,7 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 判据：**每个弹出层组件至少有一条用例把它打开并断言内容**。它被 portal 到 body，
 所以要 `attachTo: document.body` 并从 `document` 查，从 wrapper 查不到。
 补测试时先把修复退回去跑一遍——**在 bug 上不失败的回归测试不算测试**
-（本轮那条退回后读到 `['', '', '']`，正是线上的症状）。
-
-**27. 已不适用：改了 `src/styles.css` 而页面没变，不再是产物过期**
-原来的坑：playground 与新应用吃的是预编译产物 `dist/nb-ui.css`，产物过期时类明明在元素上、规则明明在文件里，计算样式就是不认；判据是改完跑 `build:css` 并重启 dev server。
-2026-10-21（w00030 t02）起 nb-ui 不再有预编译产物，`build:css` 与产物已删除：宿主的 Tailwind 直接编译 `src/tailwind.css` 和它导入的源码，改完即时生效，不必重建。
-现在遇到「类在元素上却不认」，先在浏览器的样式面板里看是哪一层、哪条规则赢（面板会标出 `@layer`），多半是坑 #60 那类不分层的宿主规则。
-仍要确认端口——`bun run dev` 会挑第一个空闲端口，主仓的 dev server 停了它就跑去 3000，而不是你以为的 3003。
+（那条用例在修复退回后读到 `['', '', '']`，正是线上的症状）。
 
 **39. 扫「不许出现字面色」的断言会被自己的注释绊倒**
 现象：`themes/*/vars.css` 的字面色检查突然红了，报的是 `#DBDBDB` / `#A6A6A6` / `#676767`——
@@ -1182,7 +1074,6 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 判据：截图之前先 `await page.bringToFront()`。
 一旦「DOM 说它在、图上没有」，先怀疑这条，再怀疑样式——
 这个组合最容易被误判成「浮层没渲染」，然后一路去改根本没问题的 CSS。
-
 
 **46. 泛型原语使用节点对象，不代表公共组件也该泄漏节点对象**
 现象：调用方按 `Tree.modelValue: string` 传入已选 id，行可以点击但初始没有 `data-selected`，
@@ -1209,121 +1100,3 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 现象：e2e 验加载页第一帧的颜色，在 `DOMContentLoaded` 时读，或者在加载页节点刚插入时读，读到的是透明或 `none`（实测）。
 根因：`DOMContentLoaded` 在模块脚本执行之后才触发，那时页面可能已经换过样子，不代表第一帧；节点刚插入时样式表可能还没生效，更早的帧里 body 也可能还没解析到。
 判据：在 `requestAnimationFrame` 循环里采样，取第一个画出该元素的帧。
----
-
-## 九、给 UI agent 的检查表
-
-动完界面，逐条过：
-- [ ] 模糊半径克制：真实浮层 `--overlay-blur` 为纯 `blur(8px)`；大容器完整折射强档约 14px（坑 #28 / #45）
-- [ ] 分清两件事：**模糊半径决定背后的字读不读得出，tint 与 `brightness` 决定这块面有多不透明**。
-      嫌「不通透」时该动的是后者；加半径只会把背后的颜色平均掉，更像塑料板（坑 #28 / #40）
-- [ ] 带 `backdrop-filter` 的面**没有** `corner-shape`（Chromium 的裁切不跟随，四角会露月牙，坑 #37）
-- [ ] 小浮层不接 `url(#...)` 位移滤镜；固定高频背景对照时，浮层的 `none` / `blur-only` 应保持纹理位置，
-      完整 `lens` 只在大容器单独验收（坑 #45）
-- [ ] 镜面高光只画在整块玻璃的轮廓上，没画在方角子分区上
-- [ ] 折射走 `@supports`，退化后纯 blur 的基线仍成立
-- [ ] 滤镜链里 `url()` 排在 `blur()` **之后**（顺序反了模糊会静默失效，见坑 #21）
-
-**阴影**
-- [ ] 外阴影只有两条：一条 blur ≤ 1px 的发丝轮廓 + 一条 blur ≥ 40px 的环境投影。
-      出现第三条 blur 落在 4–20px 的，就是 Material 那套多层递增投影（坑 #38）
-- [ ] 内边线上下**对称**，不是「顶白底黑」；入射光另由一条单独的顶高光表示
-- [ ] 暗色下轮廓与内边线**改为提亮**（压暗的边在暗面上等于没画），环境投影加重约一倍
-- [ ] 对话框吃的是 `--elevation-dialog` 而不是浮层档——两者的环境投影按 Apple 实测差一倍
-- [ ] 浮层的高光在**边上**，不在面上：`--overlay-sheen` 喂 `none`，靠 `--elevation-popover`
-      里的顶内线（坑 #40）。面上铺渐变会被读成「盖了一层渐变」而不是一块玻璃
-- [ ] 玻璃对话框的遮罩是淡的——重遮罩会把玻璃能采的东西先抹掉（坑 #30）
-- [ ] 要看玻璃的页面铺了 `--window-backdrop`，不是一片纯色
-
-**颜色**
-- [ ] 主题文件里没有字面颜色（纯白 / 纯黑的低透明度叠层除外）
-- [ ] 暗色分支挂 `[data-nb-appearance]`，不是 `[data-nb-colorway]`
-- [ ] 输入框亮度与面板同侧，亮暗两档都成立
-- [ ] 状态色按语义用，没有拿 accent 当 info 使
-- [ ] 浮层里的高亮 / 选中底色取 `--overlay-item-active`，不是 `--bg-hover`——
-      玻璃上的不透明高亮是一块挖进材料里的补丁（坑 #43）。判据：读到的 alpha < 1
-- [ ] 明暗通吃的叠层从 `--text-main` 派生（暗色提亮、亮色压暗，一条声明两边都对），
-      不写死白或黑
-
-**几何**
-- [ ] 控件外框圆角一律 `rounded-[var(--radius-control)]`；不贴外框角的内部形状和 Skeleton / Notification 的独立圆角不纳入此项——
-      写死的 Tailwind 常量不能让 `--radius-control` 负责控件外框（坑 #44）
-- [ ] 贴着外框四角的内层形状（浮层里的项、分段控件的段）按
-      `外框 − 描边 − 内边距` 推半径，且用 `max()` 兜底（负半径会让整条声明作废，变方角）
-- [ ] 不贴角的内层形状（文件树的箭头、芯片、复选框）保持自己的圆角，不必套这条式子
-- [ ] 叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角（小确认框取 `--radius-dialog-compact`，浮动窗口取 `--radius-window`；
-      `Dialog`、`AlertDialog` 叠在对话框里时由 `.nb-ui-dialog-surface--nested` 收到不大于 `--radius-window`）
-- [ ] 行内并排的文字块与控件同奇偶、行高取整数，控件的边框不落在半像素上
-- [ ] 宽窗口（≥1400px）下**内容列封顶**（≈720px），控件不随窗口拉成整行宽；
-      导航轨、标题栏、底部动作栏仍贴窗口边缘（第三节）
-
-**排版**
-- [ ] 字体栈拉丁在前、CJK 在后，三大平台各有一条回退
-- [ ] 字距为 0，没有给汉字上负字距
-- [ ] 强调用楷体，没有用 `font-style: italic`
-- [ ] 说明「这一页 / 这一节是什么、会写到哪里」的**元信息不单独占行**：它走 tooltip
-      （`.nb-ui-tooltip-surface` 或标题旁的 info 图标），只有影响判断的正文才占行。
-      整块区段标题下面挂一句 20 字以上的灰色说明，是这一条最常见的违反（本轮验收发现）
-
-**动效**（合同见第七节）
-- [ ] 时长按语义选档：状态反馈 `--motion-fast`、控件形变 `--motion-base`、浮层入场 `--motion-enter`，
-      没有写死的 `duration-*` / `0.15s` / `cubic-bezier(...)` 字面量（静态扫描归零）
-- [ ] 没有 `transition-all` / `transition: all`；transition 属性列表显式
-- [ ] 缓动只消费 `--ease-standard`
-- [ ] 内容切换（区段体 / 标签页内容换页）用短位移 + 淡入，没有给内容加 scale；
-      `out-in` 时两段合计不超过 `--motion-enter`（取 `--motion-fast` 即可），交叠实现才用 `--motion-base`（第七节「内容切换」）
-- [ ] 导航选中态与内容切换的时长一致（同一档 token），两栏读不出先后来
-
-**弹出层**
-- [ ] 传送到 body（`Teleport` 或原语的 Portal），不是原地绝对定位
-- [ ] 点外面能关，且**不回滚值**（回滚是 Esc 的语义）
-- [ ] 打开时 `window.scrollY` 不变
-- [ ] 关闭后焦点回到触发器（点外面关闭除外——那时不要抢焦点）
-- [ ] `overflow` 在内部滚动层，不在浮层本体上；滚动区比外框缩进一圈
-- [ ] 弹出列表的项挂 `.nb-ui-menu-item`，没有自己写 `rounded-*` 与 `:hover` 底色——
-      圆角要与外框同心，写死的小半径在角上会被挤没（坑 #42）；高亮只认 `data-highlighted`
-- [ ] 有一条用例把它**打开**并断言里面的内容，不是只测关闭态
-- [ ] 非模态的浮层（下拉 / 菜单）关掉了原语的 `body-lock` 与 `disable-outside-pointer-events`——
-      默认值都是 true，开着的时候整页既不能滚也不能点（坑 #33）
-- [ ] 有交互态的选项外观走类不走内联 `:style`，否则 `:hover` 永远做不出来（坑 #34）
-- [ ] 浮层有入场 / 退场过渡（入场 enter 档 = opacity + scale，退场 fast 档），
-      缩放原点消费 Reka 的 `--reka-*-content-transform-origin`，不是自己推方向（第七节）
-- [ ] 对话框的头尾没有常驻细线，分隔由滚动状态驱动（坑 #32）
-- [ ] 浮层 body 里的分栏**不画第二层面**：导航轨用一条分割线 + 统一内边距，不是两张带描边的卡片。
-      面由承载关系决定，组件不自己猜；只有真的存在两种宿主时才留显式变体（第二节）
-- [ ] 浮层是另一块玻璃的 DOM 后代时不做玻璃：切到层级轴的不透明面色，不再叠第二层 `backdrop-filter`——
-      后代采不到页面，只会读成一块灰板；传送到 `body` 的二级对话框不受此限，取 `--dialog-surface-nested`（第二节的边界 4）
-- [ ] 浮层的面按档取：菜单、下拉、气泡取 `--overlay-surface`，对话框与浮动窗口取 `--dialog-surface`，叠在对话框上的
-      对话框取 `--dialog-surface-nested`；组件不自己写透明度
-- [ ] 内边距只有一层：窗口 body 的 `px-4 py-3` 与内容自己的页面边距**不叠加**——
-      承载方与被承载方各给一次就会到 24–32px，看上去像「内容被挤在中间」。
-      谁是那一层由宿主决定：内容自带页面节律时把 body 的 padding 交出去（`body-class="!p-0"`）
-- [ ] 区段标题在**静止态没有描边与填色**：它是「一节」不是「一个单元」，只需要图标、文本、chevron 与 hover（第二节）
-- [ ] 竖分割线**两端留边距**（与横线两端的一致），不顶到标题栏或窗口下沿（第二节）
-- [ ] 竖分割线**不被横线穿过**：横线在竖线处收住，动作栏的上边线从竖线右侧开始，不与竖线交成「工」字（第二节）
-- [ ] 竖线与同类横线同款（`--border-w` / `--divider`），没有单独调淡或渐隐（第二节）
-
-**对话框的解剖**（三条里中一条就还是个 Web 盒子，见坑 #35）
-- [ ] 留白在**面板**上，header / footer 自己没有 padding——不是三段各自持有配额
-- [ ] 标题与正文**同字号**，只差字重和颜色，不是 16px 标题配 14px 正文
-- [ ] 默认**没有 ×**；出口是一颗有名字的按钮
-- [ ] 按钮是胶囊、高度落在 Apple 的刻度上（Mini 16 / Sm 20 / Rg 24 / Lg 28 / XL 36）
-- [ ] 窄框（决定）按钮平分整行，宽框（表单）按钮右对齐
-- [ ] 遮罩只压暗、不预模糊——重遮罩会把玻璃能采的东西先抹掉（坑 #30）
-
-**无障碍**
-- [ ] 三个 media query 都写了，且主题自己新增的动效 / 透明度变量自己关掉了
-- [ ] 三个 media query 的选择器带了 `[data-nb-appearance]` 并排在明暗分档**之后**——
-      否则它们在暗色下一次都不会生效，而且不报任何错（坑 #31）
-- [ ] 焦点环可见，Tab 没有被拦截
-
-**验收**
-- [ ] 判据读的是**元素的计算样式**，不是根上的变量
-- [ ] 涉及模糊的判据做了 A/B，且量之前隐藏了浮层自己的内容
-- [ ] 模糊这一项**看过图**：计算样式合法但画不出来是真实存在的一档（坑 #21）
-- [ ] 截图之前 `page.bringToFront()` 了——后台标签页返回的是上一帧，
-      「DOM 说浮层在、图上没有」多半是这个而不是样式（坑 #41）
-- [ ] 涉及裁剪的判据用命中测试，不是 `getBoundingClientRect()`
-- [ ] 切主题 / 开浮层后等了 ≥500ms
-- [ ] 主题 × 配色两轴都跑过，包括「一个主题都没装」这一档
-- [ ] 无障碍那三档在**暗色**下也实测过，不是只看亮色（坑 #31）

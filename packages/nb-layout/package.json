@@ -1,0 +1,55 @@
+{
+    "name": "@notnotype/nb-layout",
+    "version": "0.1.0",
+    "description": "工作台的布局工具：布局树、尺寸求解器、落点判定（纯 TS），以及分隔条、渲染器与拖放反馈（Vue，依赖 nb-ui）。",
+    "license": "AGPL-3.0-only",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/notnotype/neuro-book.git",
+        "directory": "packages/nb-layout"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./vue": "./src/vue/index.ts",
+        "./locales": "./src/locales/index.ts",
+        "./lab-sources": "./src/vue/lab-sources.ts"
+    },
+    "scripts": {
+        "test": "bun test && vitest run",
+        "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json"
+    },
+    "dependencies": {
+        "@notnotype/nb-ui": "workspace:^",
+        "tabbable": "^6.5.0"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "@vitejs/plugin-vue": "^6.0.7",
+        "@vue/test-utils": "^2.4.11",
+        "happy-dom": "^20.10.6",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.2",
+        "vue": "^3.5.24",
+        "vue-tsc": "^3.3.7"
+    },
+    "peerDependencies": {
+        "typescript": "^5.4.0 || ^6.0.0",
+        "vue": "^3.5.24"
+    },
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "files": [
+        "src",
+        "!src/**/*.test.ts",
+        "!src/**/*.test.tsx",
+        "!src/**/*-fixtures.ts",
+        "README.md",
+        "LICENSE"
+    ]
+}

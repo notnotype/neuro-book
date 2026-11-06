@@ -2,9 +2,10 @@
 import {computed} from "vue";
 
 import {useUiText} from "../../text-port";
+import type {ControlSize} from "../shared-types";
 
 // 行内加载指示器：按钮外的局部加载态（面板、表格、页面区块）。
-export type SpinnerSize = "sm" | "md" | "lg";
+export type SpinnerSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     size?: SpinnerSize;

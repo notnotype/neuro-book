@@ -6,10 +6,7 @@ import {readdirSync, readFileSync, statSync} from "node:fs";
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
-import {NB_DIALOG_WINDOW_Z_STEP, NB_MODAL_MAX_LAYERS, NB_MODAL_POPOVER_Z_INDEX, NB_MODAL_Z_STEP, NB_Z_INDEX} from "./z-index";
-
-/** 浮动窗口最多几层（与 NB_MODAL_MAX_LAYERS 同为 5，见 NB_DIALOG_WINDOW_Z_STEP 的说明）。 */
-const WINDOW_LAYERS = 5;
+import {NB_DIALOG_WINDOW_LANE, NB_DIALOG_WINDOW_MAX_LANES, NB_DIALOG_WINDOW_Z_STEP, NB_MODAL_MAX_LAYERS, NB_MODAL_POPOVER_Z_INDEX, NB_MODAL_Z_STEP, NB_WINDOW_POPOVER_Z_INDEX, NB_Z_INDEX} from "./z-index";
 
 function sourceFiles(dir: string): string[] {
     const files: string[] = [];
@@ -23,13 +20,15 @@ function sourceFiles(dir: string): string[] {
 
 describe("层级登记表", () => {
     it("各档从低到高：页面浮层 < 拖影 < 浮动窗口各层（含自己的浮层） < 模态各层 < 模态里的浮层 < 通知 < 右键菜单 < 命令面板 < 检查框", () => {
-        const highestWindowPopover = NB_Z_INDEX.dialogWindow + (WINDOW_LAYERS - 1) * NB_DIALOG_WINDOW_Z_STEP + 1;
+        /** 最上面一条车道里第 5 层嵌套的窗口。 */
+        const highestWindowLane = NB_Z_INDEX.dialogWindow + (NB_DIALOG_WINDOW_MAX_LANES - 1) * NB_DIALOG_WINDOW_LANE + 4 * NB_DIALOG_WINDOW_Z_STEP;
         const highestModal = NB_Z_INDEX.dialog + (NB_MODAL_MAX_LAYERS - 1) * NB_MODAL_Z_STEP;
         const order = [
             Math.max(NB_Z_INDEX.popover, NB_Z_INDEX.tooltip, NB_Z_INDEX.dropFeedback),
             NB_Z_INDEX.dragFeedback,
             NB_Z_INDEX.dialogWindow,
-            highestWindowPopover,
+            highestWindowLane,
+            NB_WINDOW_POPOVER_Z_INDEX,
             NB_Z_INDEX.dialog,
             highestModal,
             NB_MODAL_POPOVER_Z_INDEX,

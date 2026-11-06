@@ -242,7 +242,7 @@ artifacts/<artifactId>/
 2. 否则取这道题最新的一份答复（按答复 id）：取值**按最新一版的题目定义**校验合法，为 `answered`，并标出这份答复针对哪一版；不合法就回到 `open`，同时把那份旧答复列进 `stale`（不往前找更早的答复），`stale.code` 写明原因：按它针对的那一版合法、按最新一版不合法（选项后来改了）为 `stale_value`；按它针对的那一版也不合法（手改坏的文件，或那一版读不出）为 `invalid_value`。
 3. 否则 `open`。
 
-产物另算：`openRequired`（`open` 的必答题数；之前几版的题答复作废时也是 `open`，但不再收答复，不算）；**未确认的答复**是集合差，答复 id 不在任何一份确认的 `answers[]` 里就算未确认；采纳状态：有未确认的答复为 `waiting`（等会话采纳），有答复且都已确认为 `adopted`，没有答复为 `none`。收件箱只放算进 `openRequired` 的题与撞号。
+产物另算：`waiting`（等开发者答的题数：`open`、不是之前几版的题（它们答复作废时也是 `open`，但不再收答复），必答题没答就算，选答题在它出现之后没交过答复才算：交过一次说明开发者看过这块板，没答的是不想答）；**未确认的答复**是集合差，答复 id 不在任何一份确认的 `answers[]` 里就算未确认；采纳状态：有未确认的答复为 `waiting`（等会话采纳），有答复且都已确认为 `adopted`，没有答复为 `none`。收件箱只放算进 `waiting` 的题与正在发生的撞号（`live`）。一次也没答的板要开发者关掉（产物页的“关闭评审”，或 `nbdev artifact close`）才离开收件箱。
 
 ## 提问标记
 
@@ -255,7 +255,7 @@ artifacts/<artifactId>/
 | `data-nbdev-label` | 题目；没有时取范围内第一个 `h1` 到 `h6` 的文字（不进入选项元素）。最长 200 字 |
 | `data-nbdev-option="<值>"` | 选项元素。选项名依次取它的 `data-nbdev-label`、它里面第一个标题、它自己的文字；最长 80 字 |
 | `data-nbdev-options` | 题上的一行写法：若干个 `值:名称`，用竖线分隔（没有名称时名称就是值）；或 `@review`（改 `fix`、不改 `skip`、要讨论 `discuss`）。不与 `data-nbdev-option` 混用 |
-| `data-nbdev-optional` | 选答；缺省必答 |
+| `data-nbdev-required` | 必答：只给不定下来就做不下去的题；题缺省是选答（开发者 11-05）。已发布的页面上留着的 `data-nbdev-optional` 不再有含义，照常是选答 |
 | `data-nbdev-recommend="<值>[,<值>]"` | 推荐的选项 |
 | `data-nbdev-skip` | 取题目、选项名的文字时跳过这个元素（徽标、按钮） |
 

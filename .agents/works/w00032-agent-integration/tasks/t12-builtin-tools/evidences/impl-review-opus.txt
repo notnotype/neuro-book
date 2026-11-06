@@ -1,0 +1,66 @@
+# w00032/t12 实现审查（接手段）：00d85fdc8..HEAD（e5a4af1e9），审查者 Opus
+
+## 发现 1
+严重程度：重要
+位置：packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts:174（locate 走到方案根）
+现象：地址落在虚拟方案之下且第一段不存在时，失败码由 not-found 变成 unsupported-capability，原因也丢了。例如 cat projects://typo/a.md 现在报“unsupported-capability: projects://typo/a.md：projects:// 是虚拟目录，没有真实路径”。sessions://、temps://、profiles:// 同样。
+为什么是问题：这是修 user://new.txt 时带出来的回归。循环把 segments 走空后去问方案根，虚拟方案的根返回 unsupported-capability，这个码盖掉了前面真实的 not-found（“没有登记项目 typo”）。地址并不是虚拟根，Spec 的失败表把这个码解释为“在虚拟根上搜索或跑 shell”，builtin-tools.md 也写明资源码原样交回。模型会以为 projects:// 在 shell 里不能用，而不是项目名写错了；正确的项目地址其实可用。
+如何核实：真实文件服务与真实 projects:// 方案（lab/opus-shell2.ts）：cat projects://typo/a.md、echo x > projects://typo/new.txt、cat projects://typo 都得 unsupported-capability。真实 Agent（lab/opus-shell3.ts）：cat sessions://nope/a.md、cat temps://nope/a.txt、cat profiles://nope/a.txt 同样。00d85fdc8 的 locate 在 segments.length <= 1 时返回 not-found（读代码推断，没有在 base 上跑）。user://new.txt 的修法本身有效：echo x > user://brand-new.txt 能创建文件（实测）。现有测试只覆盖实体方案根。
+建议改法：记住第一次的 not-found 失败；问方案根时只有 located.ok 才接上余下的段，其它结果一律交回记住的 not-found。cat projects://（地址本身就是虚拟根）仍是 unsupported-capability，因为第一次就不是 not-found。补一条 projects://typo/a.md 得 not-found 的验收。
+
+## 发现 2
+严重程度：建议（开发者实际有“回环地址上的网关转发到云端服务商”这种配置时算重要）
+位置：packages/nb-harness/src/kernel/model/omp.ts:103（回环判断）、omp.ts:111（转 PNG）
+现象：回环地址一律当本地后端，WebP 直接转 PNG，转出来的体积不受约束。不透明的 RGBA PNG 照片不能选 JPEG，会得到 WebP，转回 PNG 后比 500 KiB 目标大十几倍，可以超过 5 MB。
+为什么是问题：127.0.0.1 上的网关（LiteLLM 一类）转发到云端时，这张图可能超过服务商的单图上限（image.ts:83 的注释写“通常 5 MB”）。图已经写进日志，会话之后每次请求都带它，正是 withoutWebp 注释要防的“一张图卡死之后每次请求”。这条路还没有出口：imageInputDecoder 的类型只有 "stb"，用户无法声明回环地址支持 WebP。把回环算作本地后端的依据只有注释里的“多半”，决定 27 没提回环，只有 Spec 输出 61 写了，查不到记录的理由，“多半”是推断。对照 omp 的 utils/image-loading.ts:84：它走 resizeImage(excludeWebP: true)，转出来仍受 500 KiB 约束，结果还有缓存；这里两样都没有。
+如何核实：真实 prepareImage 加 withoutWebp 的同一条转换调用（lab/opus-webp3.ts），1568x1568 的 RGBA PNG，alpha 全 255，内容是合成的渐变加噪声，不是真实照片：
+  噪声幅度 24：WebP 270 KB，PNG 4.20 MB（base64 5.59 MB）
+  噪声幅度 40：WebP 384 KB，PNG 5.03 MB（base64 6.70 MB）
+  噪声幅度 60：WebP 451 KB，PNG 5.63 MB（base64 7.51 MB）
+每张转换 350 到 430 ms，每次请求重做。未核实：按规则不跑真实模型，没有实测服务商或网关的拒绝；5 MB 来自 image.ts 与 omp 的注释。真正的本地后端（Ollama、llama.cpp、LM Studio）有没有请求体上限也没有实测，查 llama.cpp 当前源码未得到结论。
+建议改法：决定 27 定了转 PNG，这里不改格式，只补上限：转出的 PNG 超过约 4 MB 时按 image.ts 的尺寸档逐级缩小再转；缩小也要留在适配器内，不改日志。若开发者愿意重开决定 27，更省的做法是照 omp 走 excludeWebP 的压缩，同时加按内容哈希的缓存。回环是否继续算本地后端，由开发者决定（可选：回环不再默认算，只看 provider、api 与 imageInputDecoder，并给模型配置加一个显式开关）。
+
+## 发现 3
+严重程度：建议
+位置：packages/neuro-book/src/plugins/agent/backend/builtin/read.ts:157-158（fileLines 交出长行开头）、read.ts:102（collect 写总长）
+现象：大文件里超过 1 MiB 的长行，截断提示写的总长是假的。40 MiB 的一行显示“本行共 1114112 字符，已截断”，3 MiB 的一行显示“本行共 1114106 字符”，数字取决于读块的边界。
+为什么是问题：fileLines 只交出缓冲到的开头，collect 把这段的长度当成整行长度写给模型，提示说的是事实却不对。00d85fdc8 用 readline，这个数字是真的，所以是本段引入的。模型可能据此判断能否用 shell 处理这个文件。
+如何核实：真实 Agent 经 read 读（lab/opus-read.ts）：long-huge.txt（第 1 行 40 MiB）与 long-mid.txt（第 2 行 3 MiB）结果如上；行号都正确。
+建议改法：改措辞最省事：长度超过 MAX_BUFFERED_LINE 的行写“本行超过 N 字符，已截断”。不必为了数准字符去追踪丢弃部分的长度。
+
+## 发现 4
+严重程度：建议（00d85fdc8 已有，不是本段引入；在 locate 里顺带发现）
+位置：packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts:165（trailing 分支）
+现象：locate 专门处理地址末尾的斜杠，但这个分支走不到。replaceAddresses 先调 resources.expand，parseAddress 把末尾斜杠当空段拒绝，所以 ls user://sub/、grep -r hello user://sub/、mkdir -p user://new/ 都得 invalid-address，命令不执行。
+为什么是问题：拒绝本身符合 workspace/resources.md 的地址规则，错误文字也说得清楚，模型重试一轮就能过；但目录地址写末尾斜杠是模型的常见写法，每次多花一轮。代码还留着一段看起来支持、实际不可达的逻辑，读者会被误导。
+如何核实：真实文件服务（lab/opus-shell2.ts）：ls user://sub 正常列出 a.txt；ls user://sub/ 与 grep -r hello user://sub/ 得“invalid-address: user://sub/：路径含空段（开头、结尾或连续的 /），命令没有执行”。真实 Agent（lab/opus-shell.ts）：mkdir -p user://opus-dir/ 同样。
+建议改法：二选一。要支持就在 replaceAddresses 里先去掉末尾斜杠再 expand，替换后补回（cp x dir/ 的语义靠这个斜杠），这是 shell 词法层的事，不放宽地址规则。不支持就删掉 trailing 分支。
+
+## 未发现问题的方面（仔细检查后没有发现）
+1. omp.ts 只转工具消息：够。userContent 与 assistantContent 遇到图片都抛 UnsupportedContent，system 只收文字，所以图片目前只可能在工具消息里；以后开放用户上传时要一起改。转换失败的文字块进 toolContent 后走 pushText，与前面的文字合并，不抛错（omp.test.ts 覆盖，12 个用例通过）。
+2. 没有 Bun 全局：ReferenceError 落在 convert 的 try 里，换成“转换失败”文字，不崩。nb-harness 的 engines 要求 bun >=1.3.14，src/model.ts 本来就用 Bun，bun-types 1.3.14 已有 Bun.Image。这条实际走不到。每次请求重转的 350 到 430 ms 单看可接受，只在发现 2 里作为缓存的附带理由。
+3. search.ts 的 stopped、verifying（lab/opus-grep.ts：真实 pi-natives.grep，只替换路由；lab/grep-deadline-queue.ts：真实文件服务）：
+   - 不丢结果：400 个文件快速核对 5 次、慢核对 1 次，都是 400 条。
+   - 不卡死：期限 30 ms 时 31 ms 返回；旧实验重跑 filesChecked 从 8 降到 1。
+   - 取消：核对途中取消得 cancelled，路由返回码或不看信号都一样，31 ms 返回。
+   - 到期：核对途中到期，路由报 cancelled 或 unknown-outcome 都得“不完整”并保留已核对结果，不误报失败。
+   - 路由失败得 project-unavailable；配额得 more，pending 上限没有误触发。
+   - 路由抛异常时 drain 有 unhandled rejection，host.ts 会按致命错误处理；但真实 readPath 的文件错误都映射成了结果码，远程调用被中断也返回 outcome 而不是 reject，这条走不到，不列。
+4. read.ts 的 fileLines、readFailure（lab/opus-read.ts 真实 Agent；lab/opus-read2.ts 产品 read 工具与真实文件流，只替换路由）：
+   - 跨 64 KiB 块的 4 字节字符、\r 与 \n 分在两块、末尾 \r、BOM 保留（与 decodeText 一致）都正确。
+   - skipping 状态机：长行在中间、长行恰好让缓冲清空后下一块以换行开头、长行在文件末尾无换行，行号与下一页都正确。
+   - 提前结束：连读 300 次 limit=1，文件描述符 12 个不变。
+   - 取消：开流前取消 2 ms 得 cancelled；600 MB 文件读到一半取消 122 ms 得 cancelled，描述符不增加。EACCES 得 permission-denied。末尾截断的多字节得 not-text。600 MB 翻到末尾 1.3 秒，RSS 104 MB。
+5. shell-address.ts 的 WORD_START：真实 brush 下 ;# 、)# 、&# 都按注释跳过；$# 、a# 不当注释，后面的坏地址仍报 invalid-address；${x#a}、${#x} 不受影响。
+6. image.ts 的 targetSize 与交回尺寸（lab/opus-image.ts，真实 Bun.Image）：
+   - 1x1、1x1000、3000x1、199x1568、1568x199、100x3000、2000x100、150x150、1569x1569、199x200 的声明尺寸都等于解码出的实际尺寸，比例没变。
+   - EXIF 方向 6 的 JPEG：metadata 与 resize 都按转正后的方向，不变形。
+   - 最难压的带透明噪声（1568x1568、3000x3000、1568x133、1568x267、1568x400、1568x800）都在阶梯内压到 512 KiB 以下，声明尺寸与实际一致，最后一档的兜底分支没有被走到。
+   - 最后一档的 findLast 用未取整的值判断、循环用取整后的值判断，理论上可能差一档；但要求 100 像素短边那一档仍超过 500 KiB，实测达不到，不列。
+7. 定位之后、读图片之前文件被删时，readImage 会报 not-text 而不是 not-found：窗口只有几毫秒，且模型重试即得 not-found，不列。
+
+## 回归测试
+packages/nb-harness 的 omp.test.ts：12 通过。packages/neuro-book 的 builtin-tools.test.ts：27 通过。
+
+## 数量
+阻断 0，重要 1，建议 3。

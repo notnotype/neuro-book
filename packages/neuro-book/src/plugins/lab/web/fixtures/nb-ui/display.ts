@@ -1,6 +1,6 @@
 /** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。 */
 
-import type {Badge, Breadcrumb, CodeBlock, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
+import type {Badge, Breadcrumb, CodeBlock, DiffView, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -36,7 +36,29 @@ const TREE_ITEMS = [
     {id: "characters", title: "人物", iconClass: "i-lucide-users", children: [{id: "shen-yu", title: "沈屿"}, {id: "lin-wan", title: "林晚"}]},
 ];
 
+const DIFF_PROSE = {
+    before: "雨越下越大，巷子里只剩下卖炭人的独轮车还在吱呀作响。\n陈砚推开药铺的后门时，天刚擦黑，他没有回头，只是把那包从城外带回来的干草放在门槛上，先听了听屋里的动静。\n巷口的灯灭了。",
+    after: "雨越下越大，巷子里只剩下卖炭人的独轮车还在吱呀作响。\n陈砚推开药铺的后门时，天刚擦黑，他回头看了一眼，又很快转回去，把那包从城外带回来的干草放在门槛上，先听了听屋里的动静。\n巷口的灯灭了。",
+};
+const DIFF_PADDING = "柜台后面没有人，算盘却摆在正中，珠子停在一个他看不懂的数上，他盯着看了很久。".repeat(8);
+const DIFF_LINES = Array.from({length: 40}, (_, index) => `第 ${index + 1} 段：夜里的雨一直没停。`);
+
 export const displayFixtures: LabFixture[] = [
+    defineSubjectFixture<typeof DiffView>({
+        component: "DiffView",
+        class: "w-full",
+        writeBack: {"update:mode": {layer: "model", key: "mode"}},
+        scenes: [
+            {id: "prose", label: "一句话的改动", input: {model: {}, props: {label: "正文/第三章 雨夜.md", ...DIFF_PROSE}}},
+            {id: "long", label: "没变的行收起", input: {model: {}, props: {label: "正文/第四章.md", before: DIFF_LINES.join("\n"), after: DIFF_LINES.map((line, index) => (index === 8 ? "第 9 段：雨停了。" : index === 30 ? `${line}他推开了门。` : line)).concat("新加的最后一段。").join("\n")}}},
+            {id: "folded-chars", label: "一段之内折叠", input: {model: {}, props: {label: "正文/第五章.md", before: `${DIFF_PADDING}他没有回头。${DIFF_PADDING}`, after: `${DIFF_PADDING}他回头了。${DIFF_PADDING}`}}},
+            {id: "split", label: "两栏（宽度不到 700 时退回行内）", input: {model: {mode: "split"}, props: {label: "正文/第三章 雨夜.md", before: DIFF_LINES.slice(0, 6).join("\n"), after: [DIFF_LINES[0]!, "新加的一段。", DIFF_LINES[1]!, "第 3 段：夜里的雨停了。", DIFF_LINES[3]!, DIFF_LINES[5]!].join("\n")}}},
+            {id: "new-file", label: "新文件", input: {model: {}, props: {label: "设定/人物.md", before: "", after: "陈砚：药铺学徒。\n卖炭人：巷口的老人。"}}},
+            {id: "unchanged", label: "没有改动", input: {model: {}, props: {before: "同一段文字。", after: "同一段文字。"}}},
+            {id: "too-different", label: "太大的改动只标到行", input: {model: {}, props: {before: "甲乙丙丁".repeat(120), after: "子丑寅卯".repeat(120)}}},
+        ],
+        subject: nbUiSubject("DiffView"),
+    }),
     defineSubjectFixture<typeof CodeBlock>({
         component: "CodeBlock",
         class: "w-full",

@@ -10,8 +10,11 @@
  * session 一侧只有当前一份（session 事件线性、不随回退）。
  */
 
+import type {AttachmentPort} from "../api/index.js";
+import {createAttachmentResolver} from "./attachments.js";
+import type {AttachmentResolver} from "./attachments.js";
 import {randomBytes} from "node:crypto";
-import type {Clock, Frame, JsonValue, LogEvent, LogHandle, LogStore, Position, SessionHeader} from "../api/index.js";
+import type {Clock, Frame, JsonValue, LogEvent, LogHandle, LogStore, Position, SessionHeader, Spend, Usage} from "../api/index.js";
 import type {Assembly} from "../extension/assemble.js";
 import type {StateAt} from "../extension/ctx.js";
 import {deepFreeze} from "../state/freeze.js";
@@ -58,6 +61,7 @@ export interface CoreOptions {
     readonly clock: Clock;
     /** 开发模式：冻结状态与事件（改了就抛错），视图做前缀与提交检查（harness/profile.md 输出 19）。 */
     readonly dev: boolean;
+    readonly attachments?: AttachmentPort;
 }
 
 /** 会话关闭之后还有写入（迟到的回调）。只写诊断，不进日志。 */
@@ -67,6 +71,8 @@ export class SessionClosedError extends Error {
         this.name = "SessionClosedError";
     }
 }
+
+export const NO_SPEND: Spend = {cost: 0, unpriced: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0};
 
 export class SessionCore {
     readonly header: SessionHeader;
@@ -78,6 +84,8 @@ export class SessionCore {
     readonly diagnostics = new Diagnostics();
     /** 视图记住的已提交轮的渲染与开发检查的上一次渲染（不进日志）。 */
     readonly view = new ViewCache();
+    /** 把请求里的附件引用换成图片（runtime.md 输出 82）。 */
+    readonly attachments: AttachmentResolver;
     readonly events: LogEvent[] = [];
     readonly byId = new Map<string, LogEvent>();
     /** 受理过的指令：`commandId` → 第一次的结果。由 `commandAccepted` 建，重开时从日志重建。 */
@@ -91,6 +99,11 @@ export class SessionCore {
     leafSetBy: "path" | "leafChanged" = "path";
     /** 会话内单调增加的模型请求序号（跨分支不重复）。 */
     requestCounter = 0;
+    /**
+     * 会话累计的费用（docs/specs/harness/runtime.md 输出 70）：按日志里全部事件算，不分分支，所以放在这里而不是 path 或 session 的状态里，
+     * 回退不减，早于这段代码写下的日志打开时也算得出来。
+     */
+    spend: Spend = NO_SPEND;
     broken = false;
     /** 会话已关闭：之后的写入得 `SessionClosedError`，订阅已清空（runtime.md 输出 53）。 */
     closed = false;
@@ -120,6 +133,7 @@ export class SessionCore {
 
     constructor(options: CoreOptions) {
         this.header = options.header;
+        this.attachments = createAttachmentResolver(options.attachments, (input) => this.diagnostics.add(input, this.head));
         this.store = options.store;
         this.handle = options.handle;
         this.clock = options.clock;
@@ -150,9 +164,18 @@ export class SessionCore {
     }
 
     /** 某个叶子上扩展看到的全部状态。 */
+    /**
+     * 占一个请求序号。要在写 `modelStarted` 之前同步占：并发的审批请求都在等写入，读 `requestCounter + 1` 会拿到同一个号。
+     * 序号只要单调，没写下事件的（被拦下、写失败）留空洞。
+     */
+    reserveRequest(): number {
+        this.requestCounter += 1;
+        return this.requestCounter;
+    }
+
     stateAt(leaf: string | null = this.leaf): StateAt {
         const path = this.pathState(leaf);
-        return {path: path.extensions, session: this.#session.extensions, history: path.kernel.history, settings: this.#session.kernel.settings, continued: path.kernel.continued};
+        return {path: path.extensions, session: this.#session.extensions, history: path.kernel.history, settings: this.#session.kernel.settings, continued: path.kernel.continued, spend: this.spend};
     }
 
     /** 从根到 `leaf` 的路径上的事件。 */
@@ -212,8 +235,22 @@ export class SessionCore {
             this.commands.set(data.commandId, {name: data.name, value: data.value, seq: event.seq, ...(data.argsHash === undefined ? {} : {argsHash: data.argsHash})});
         }
         if (event.key !== undefined) this.#keys.add(`${event.source}\u0000${event.key}`);
-        // 被模型拦截直接给出的回复没有 modelStarted，序号也要算进来（runtime.md 输出 22）。
-        if (event.type === "modelStarted" || event.type === "assistant") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
+        // 被模型拦截直接给出的回复、拦下的请求没有 modelStarted，序号也要算进来（runtime.md 输出 22）。
+        if (event.type === "modelStarted" || event.type === "assistant" || event.type === "modelEnded" || event.type === "modelFailed") this.requestCounter = Math.max(this.requestCounter, (event.data as {request: number}).request);
+        if (event.type === "assistant" || event.type === "modelEnded" || event.type === "modelFailed") {
+            const usage = (event.data as {usage?: Usage}).usage;
+            if (usage !== undefined) {
+                const {spend} = this;
+                this.spend = {
+                    cost: spend.cost + (usage.cost ?? 0),
+                    unpriced: spend.unpriced + (usage.cost === null ? 1 : 0),
+                    input: spend.input + usage.input,
+                    output: spend.output + usage.output,
+                    cacheRead: spend.cacheRead + usage.cacheRead,
+                    cacheWrite: spend.cacheWrite + usage.cacheWrite,
+                };
+            }
+        }
     }
 
     /** 打开会话时照日志归约，不跑反应。 */
@@ -284,7 +321,7 @@ export class SessionCore {
         this.#batchStates = new Map();
         for (const item of staged) {
             this.#commit(this.dev ? deepFreeze(item.event) : item.event, item.path, item.session);
-            this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings, continued: item.path.kernel.continued});
+            this.#batchStates.set(item.event.id, {path: item.path.extensions, session: item.session.extensions, history: item.path.kernel.history, settings: item.session.kernel.settings, continued: item.path.kernel.continued, spend: this.spend});
             this.#emit({type: "log", event: item.event});
         }
         return staged.map((item) => item.event);
@@ -297,7 +334,7 @@ export class SessionCore {
     project(drafts: readonly EventDraft[]): StateAt {
         const last = this.#stage(drafts, () => undefined).at(-1);
         if (last === undefined) return this.stateAt();
-        return {path: last.path.extensions, session: last.session.extensions, history: last.path.kernel.history, settings: last.session.kernel.settings, continued: last.path.kernel.continued};
+        return {path: last.path.extensions, session: last.session.extensions, history: last.path.kernel.history, settings: last.session.kernel.settings, continued: last.path.kernel.continued, spend: this.spend};
     }
 
     /** 给一批草稿编上 id、seq、父节点与位置章，并在当前叶子上依次归约（纯计算）。 */

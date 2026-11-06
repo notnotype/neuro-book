@@ -4,6 +4,7 @@ import {
     ToggleGroupRoot,
 } from "reka-ui";
 import type {AcceptableValue} from "reka-ui";
+import type {ControlSize} from "../shared-types";
 
 export interface ToggleGroupOption {
     value: string;
@@ -13,7 +14,7 @@ export interface ToggleGroupOption {
     disabled?: boolean;
 }
 
-export type ToggleGroupSize = "sm" | "md" | "lg";
+export type ToggleGroupSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 /**
  * 只做多选（可叠加的开关，例如格式按钮）：“几个里选一个”用 SegmentedControl，那边始终有一个选中项，
@@ -68,7 +69,7 @@ function sizeClass(): string {
                 :key="opt.value"
                 :value="opt.value"
                 :disabled="opt.disabled"
-                :title="opt.title || opt.label"
+                v-bind="{title: opt.title || opt.label}"
                 class="nb-ui-focus-ring inline-flex items-center justify-center rounded-[calc(var(--radius-control)-2px)] font-medium text-[var(--text-secondary)] transition-[background-color,color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.96] hover:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] hover:text-[var(--text-main)] data-[state=on]:bg-[var(--bg-panel)] data-[state=on]:text-[var(--accent-main)] data-[state=on]:shadow-sm cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 disabled:active:transform-none"
                 :class="sizeClass()"
             >

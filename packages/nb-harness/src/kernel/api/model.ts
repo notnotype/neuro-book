@@ -15,6 +15,16 @@ export type StopReason = "stop" | "length" | "tool" | "error" | "aborted";
 /** 服务商报错的类别（照 master 的 `classifyProviderError`：按状态码与 OMP 错误标记，不看文字）。 */
 export type ModelErrorKind = "network" | "rate_limit" | "auth" | "quota" | "context_overflow" | "provider" | "local";
 
+/** 一个会话累计的费用（docs/specs/harness/runtime.md 输出 70）。`unpriced`：单价未知、没算进 `cost` 的请求数。 */
+export interface Spend {
+    readonly cost: number;
+    readonly unpriced: number;
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead: number;
+    readonly cacheWrite: number;
+}
+
 /** OMP `Usage` 的全部计数。用量是下界：`complete` 为 false 表示取消过或可能漏计了服务商层的重试。 */
 export interface Usage {
     readonly input: number;
@@ -29,12 +39,17 @@ export interface Usage {
 
 /**
  * 回复的内容块。服务商要求带回的签名与元数据（`provider`，适配器原样保存、原样送回，内核不读）跟着块存；
- * 图片一律是大块内容，`blob` 是会话目录 `blobs/` 下的 SHA-256。
+ * 图片的 `data` 是 base64，目前只出现在工具消息里（docs/specs/harness/models.md 的“不承诺”）。
  */
 export type ContentBlock =
     | {readonly kind: "text"; readonly text: string; readonly provider?: JsonValue}
     | {readonly kind: "thinking"; readonly text: string; readonly signature?: string; readonly redacted?: boolean; readonly provider?: JsonValue}
-    | {readonly kind: "image"; readonly blob: string; readonly mime: string; readonly width?: number; readonly height?: number};
+    | {readonly kind: "image"; readonly data: string; readonly mime: string; readonly width?: number; readonly height?: number}
+    /**
+     * 用户附件的引用（runtime.md 输出 82）：请求里只带地址，发给模型之前才读字节，提交缓存与拦截层都不碰图片的内容。
+     * 适配器收不到它。
+     */
+    | {readonly kind: "imageRef"; readonly uri: string; readonly mime?: string; readonly width?: number; readonly height?: number};
 
 /** 请求里一块内容的来源：预览、修改记录、诊断与测试都按它定位，不解析字符串。 */
 export type Origin =
@@ -81,6 +96,10 @@ export interface ModelFailure {
     readonly code?: string;
     readonly status?: number;
     readonly message: string;
+    /** 同样的请求再发一次有意义（docs/specs/harness/runtime.md 输出 62）。不写算否。 */
+    readonly retryable?: boolean;
+    /** 服务商要求的等待时间。 */
+    readonly retryAfterMs?: number;
 }
 
 /**
@@ -102,6 +121,8 @@ export interface ModelResponse {
 export interface ModelDelta {
     readonly part: "text" | "thinking" | "toolArgs";
     readonly callId?: string;
+    /** `toolArgs` 的第一块带工具 id：参数要几分钟才写完时（写一整章），界面靠它先画出这是什么调用。 */
+    readonly tool?: string;
     readonly text: string;
 }
 
@@ -162,4 +183,14 @@ export type ModelDraft = Omit<ModelRequest, "purpose" | "model"> & {readonly mod
  * 主动调模型（压缩方法、审批钩子）：内核写 `modelStarted`、过模型拦截链、计用量、接中止。
  * 失败不抛错，以 `stopReason: "error"` 的回复交回。
  */
-export type ModelCaller = (request: ModelDraft, options: {readonly purpose: Exclude<RequestPurpose, "turn">; readonly role?: string}) => Promise<ModelResponse>;
+export type ModelCaller = (request: ModelDraft, options: ModelCallOptions) => Promise<ModelResponse>;
+
+export interface ModelCallOptions {
+    readonly purpose: Exclude<RequestPurpose, "turn">;
+    readonly role?: string;
+    /** 按对话请求解析模型（就地压缩吃缓存要用同一个模型），记录的用途仍是 `purpose`（docs/specs/harness/runtime.md 输出 47）。 */
+    readonly sessionModel?: true;
+}
+
+/** 这次调用会用的模型的预算：和 `ModelCaller` 同一次解析的来源，解析不到时是 null。 */
+export type ModelInfoLookup = (options: Pick<ModelCallOptions, "role" | "sessionModel">) => {readonly contextWindow: number; readonly maxOutput?: number} | null;

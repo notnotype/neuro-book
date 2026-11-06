@@ -1,0 +1,15 @@
+实测：指针拖动松手时，页面还有没有用户激活，window.open 会不会被拦。
+日期 2026-11-05；Google Chrome 156.0.8078.79，无头模式，Playwright 真实输入事件，去掉了 Playwright 默认的 --disable-popup-blocking。
+脚本：scripts/popup-activation.cjs。元素上 setPointerCapture，pointerup 里调用 window.open；窗口 1280x800。
+
+heldMs：从按下到松手的毫秒数。activeAtUp：松手时 navigator.userActivation.isActive。opened：window.open 的结果不是 null。outside：松手坐标在窗口外。
+
+内部快松手 [{"heldMs":452,"downActive":true,"activeAtUp":true,"opened":true,"clientX":150,"clientY":150,"outside":false}]
+内部按住 4 秒 [{"heldMs":4198,"downActive":true,"activeAtUp":true,"opened":true,"clientX":150,"clientY":150,"outside":false}]
+内部按住 6 秒 [{"heldMs":6092,"downActive":true,"activeAtUp":false,"opened":false,"clientX":150,"clientY":150,"outside":false}]
+内部按住 20 秒 [{"heldMs":20105,"downActive":true,"activeAtUp":false,"opened":false,"clientX":150,"clientY":150,"outside":false}]
+窗口外快松手 [{"heldMs":437,"downActive":true,"activeAtUp":true,"opened":true,"clientX":1600,"clientY":300,"outside":true}]
+窗口外按住 6 秒 [{"heldMs":6088,"downActive":true,"activeAtUp":false,"opened":false,"clientX":1600,"clientY":300,"outside":true}]
+
+结论：指针捕获下，窗口外松手能收到 pointerup；激活在按下后 4 到 6 秒之间过期，过期后 window.open 返回 null。
+没试：有头窗口与真实鼠标；站点设置里允许弹窗的情况；其它浏览器。

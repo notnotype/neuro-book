@@ -11,19 +11,21 @@
 import {createHash, randomBytes} from "node:crypto";
 import {Value} from "typebox/value";
 import type {TSchema} from "typebox";
-import type {AnyProfile, Frame, LogHandle, ModelInfo, OutboundContext, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
+import type {AnyProfile, Frame, LogHandle, ModelInfo, ModelResolution, OutboundContext, Resources, ToolSessionContext, CreateSessionOptions, Issuer, JsonValue, LogEvent, SessionApi, SessionEnv, SessionHeader, SessionSnapshot, StorageResult} from "../api/index.js";
 import {LOG_FORMAT} from "../api/index.js";
 import {LogBrokenError, SessionCore, type EventDraft} from "../dispatch/core.js";
 import {Mounts} from "../dispatch/mount.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {assemble, type Assembly} from "../extension/assemble.js";
-import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
+import {abortCommand, accept, archiveCommand, type Outcome, changeSettingsCommand, editCommand, enqueueCommand, removeCommand, sendCommand, setGeneratedMetaCommand, setTitleCommand, startCommand, type CommandHost} from "../run/commands.js";
 import {compact, compactionCuts, estimateContext, triggerPoint} from "../compaction/compact.js";
 import {resolveCommand} from "../run/interaction.js";
 import {previewRequest} from "./preview.js";
 import {ProcessInterrupt} from "../run/writes.js";
-import {rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
+import {replyText} from "../api/reply.js";
+import type {ContentBlock} from "../api/model.js";
+import {branchPointsOf, pathEventsAfter, rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
 import {runResultOf} from "../run/results.js";
@@ -38,6 +40,8 @@ interface Internals {
     readonly mounts: Mounts;
     readonly box: ToolBox;
     readonly environment: Omit<ViewEnvironment, "now">;
+    /** 现在发对话请求会用哪个模型。 */
+    turnModel(): ModelResolution;
     /** 会话为什么只读；可写时为 null。运行中发现必需工具缺失时变成 `tools-missing`（直到重开）。 */
     readOnly: string | null;
     closed: boolean;
@@ -73,6 +77,21 @@ const internals = new WeakMap<SessionApi, Internals>();
 
 /** 开发模式（冻结状态与事件、视图的开发检查）：测试与开发时开，生产环境关掉省遍历与比较。 */
 const DEV = process.env.NODE_ENV !== "production";
+/** 树的一页最多几个节点。字节上限归远程层：中文标签让一页比这个估的大。 */
+const TREE_PAGE = 2000;
+const TREE_LABEL_CHARS = 80;
+const TREE_LABEL_TYPES = new Set(["input", "steer", "assistant", "toolStarted"]);
+
+/** 树上一行显示的文字：用户的话、回复的文字、工具的名字。 */
+function treeLabel(event: LogEvent): string | null {
+    const data = event.data as {readonly text?: unknown; readonly content?: unknown; readonly tool?: unknown};
+    const text = event.type === "input" || event.type === "steer" ? data.text
+        : event.type === "assistant" && Array.isArray(data.content) ? replyText(data.content as readonly ContentBlock[])
+        : event.type === "toolStarted" ? data.tool
+        : null;
+    return typeof text === "string" && text !== "" ? text.slice(0, TREE_LABEL_CHARS) : null;
+}
+
 
 function newSessionId(now: number): string {
     return `${now.toString(36)}-${randomBytes(5).toString("hex")}`;
@@ -100,7 +119,7 @@ const UNKNOWN_MODEL: ModelInfo = {id: "unknown/unknown", contextWindow: 0, capab
 function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | null): Internals {
     const control = new RunControl(core);
     // 交给宿主的上下文按当前装配取 Profile：换过 Profile（或重开时按最后一条 profileChanged 装配）后不是会话头里最初的。
-    const context = (): ToolSessionContext => ({sessionId: core.header.id, profile: core.assembly.profile.id, ...(core.header.project === undefined ? {} : {project: core.header.project})});
+    const context = (): ToolSessionContext => ({sessionId: core.header.id, profile: core.assembly.profile.id, ...(core.header.project === undefined ? {} : {project: core.header.project}), ...(core.header.background === true ? {background: true as const} : {})});
     const box = new ToolBox(core, env, context);
     const tools = () => box.current().map(toolInfo);
     // 初始输入在 sessionCreated 里；新建会话时它在这个对象建好之后才写下，所以用到时再找（找到一次就记住）。
@@ -112,8 +131,19 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         initialCache = {value: (created.data as {initial?: unknown}).initial ?? null};
         return initialCache.value;
     };
+    let modelResolveReported = false;
+    const turnModel = (): ModelResolution => {
+        try {
+            return env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
+        } catch (error) {
+            // 视图、反应与快照只拿模型信息来读（runtime.md 输出 75）：宿主这时可能正在停止、服务已撤回，不能让它打断收口。
+            if (!modelResolveReported) core.diagnostics.add({code: "model-resolve-threw", entry: "host", subject: "models", message: "the host's model port threw; the view sees an unknown model", cause: error}, core.head);
+            modelResolveReported = true;
+            return {ok: false, code: "no-model"};
+        }
+    };
     const modelInfo = (): ModelInfo => {
-        const resolution = env.models.resolve({settings: core.session.kernel.core, purpose: "turn", profile: core.assembly.profile.id});
+        const resolution = turnModel();
         return resolution.ok ? resolution.info : UNKNOWN_MODEL;
     };
     const environment = {get tools() {
@@ -128,7 +158,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources, session: context};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, readOnly, closed: false, pendingReassembly: null, profileLost: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
+    const state: Internals = {core, control, react, mounts, box, environment, turnModel, readOnly, closed: false, pendingReassembly: null, profileLost: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
         currentResources = env.resources(context());
         // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
         await box.retire([]);
@@ -137,6 +167,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         core,
         react,
         models: env.models,
+        ...(env.retry === undefined ? {} : {retry: env.retry}),
         box,
         resources,
         approve: env.approve,
@@ -148,9 +179,11 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
                 core,
                 resources,
                 methods: env.compaction?.methods ?? {},
-                ...(env.compaction?.restore === undefined ? {} : {restore: (restoreContext, signal) => env.compaction!.restore!(restoreContext, signal)}),
+                ...(env.compaction?.order === undefined ? {} : {order: env.compaction.order}),
+                ...(env.compaction?.restore === undefined ? {} : {restore: (restoreContext, restoreArgs) => env.compaction!.restore!(restoreContext, restoreArgs)}),
                 context: context(),
                 model: args.caller,
+                modelInfo: args.modelInfo,
                 write: args.write,
             }, args),
         },
@@ -288,6 +321,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         })),
         setTitle: (args) => closedGuard(() => setTitleCommand(host, args)),
         archive: (args) => closedGuard(() => archiveCommand(host, args)),
+        setGeneratedMeta: (args) => closedGuard(() => setGeneratedMetaCommand(host, args)),
         async snapshot(): Promise<SessionSnapshot> {
             const kernel = core.session.kernel;
             const errors = core.diagnostics.all().filter((item) => item.level === "error").length;
@@ -299,9 +333,15 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 profile: {id: core.assembly.profile.id, hash: core.assembly.hash},
                 extensions: core.assembly.order.filter((item) => item.role !== "profile").map((item) => ({id: item.definition.id, plugin: item.plugin, version: item.version, status: core.revoked.has(item.definition.id) ? "revoked" : core.failedExtensions.has(item.definition.id) ? "failed" : "active", tags: item.definition.tags ?? []})),
                 status: control.status,
+                usage: core.spend,
+                model: (() => {
+                    const resolution = state.turnModel();
+                    return resolution.ok ? {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts} : {ok: false as const, code: resolution.code};
+                })(),
                 buffer: [...kernel.buffer],
                 settings: kernel.core,
                 title: kernel.title,
+                description: kernel.description,
                 archived: kernel.archived,
                 readOnly: state.readOnly === null ? null : {code: state.readOnly as "unknown-profile"},
                 pendingReassembly: state.pendingReassembly === null && state.reassembling === null ? null : (() => {
@@ -327,6 +367,22 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             return await visibleAll(core.pathTo(args?.leaf === undefined ? core.leaf : args.leaf));
         },
         siblings: async ({node}) => siblingsOf(core, node),
+        branchPoints: async () => branchPointsOf(core),
+        async treeNodes(args) {
+            const limit = Math.max(1, Math.min(Math.floor(args?.limit ?? TREE_PAGE) || TREE_PAGE, TREE_PAGE));
+            const {events, more} = pathEventsAfter(core, args?.afterSeq ?? 0, limit);
+            // 文字开头经出站过滤：过滤掉的节点还在树上，只是没有文字。只过有文字的类型：工具结果可能很大，结构查询不该为它付过滤的代价。
+            const visible = new Map((await visibleAll(events.filter((event) => TREE_LABEL_TYPES.has(event.type)))).map((event) => [event.id, event]));
+            return {
+                nodes: events.map((event) => {
+                    const shown = visible.get(event.id);
+                    const label = shown === undefined ? null : treeLabel(shown);
+                    return {id: event.id, parent: event.parent, type: event.type, seq: event.seq, ...(label === null ? {} : {label})};
+                }),
+                more,
+                through: events.at(-1)?.seq ?? args?.afterSeq ?? 0,
+            };
+        },
         async runResult({runId}) {
             return runResultOf(core.events, runId, core.byId);
         },
@@ -421,7 +477,7 @@ export async function createSession(env: SessionEnv, options: CreateSessionOptio
     };
     const created = await env.store.create(header);
     if (!created.ok) return created;
-    const core = new SessionCore({header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, dev: DEV});
+    const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header, store: env.store, handle: created.value, assembly: assembled.assembly, clock: env.clock, dev: DEV});
     const {assembly} = assembled;
     reportAssemblyWarnings(core);
     const api = buildApi(env, core, null, {kind: "user"});
@@ -463,7 +519,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     const lastChange = [...handle.events].reverse().find((event) => event.type === "profileChanged");
     const profileId = (lastChange?.data as {profile?: string} | undefined)?.profile ?? handle.header.profile;
     const {assembly, readOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(profileId), profileId);
-    const core = new SessionCore({header: handle.header, store: env.store, handle, assembly, clock: env.clock, dev: DEV});
+    const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header: handle.header, store: env.store, handle, assembly, clock: env.clock, dev: DEV});
     core.load(handle.events);
     core.reportOpenNotices();
     reportAssemblyWarnings(core);
@@ -495,7 +551,7 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
 
 /**
  * fork：把到 `leaf` 为止的路径复制成新会话（session.md 输出 20、runtime.md 输出 37）。事件保留 id 与父节点、重新编号；
- * 另带上最后一条 `profileChanged` 与全部 `settingsChanged`（新会话沿用 Profile 与设置），缓冲区与标题不带。会话头记来源。
+ * 另带上最后一条 `profileChanged` 与全部 `settingsChanged`（新会话沿用 Profile 与设置），缓冲区、标题与说明不带。会话头记来源。
  *
  * 新会话的 id 由来源会话与 `commandId` 定：原会话的受理批没写下就崩溃、或写失败，重发同一个 `commandId` 撞到已有的
  * 会话时直接交回它，不会多出第二个 fork（session.md 输出 17）。
@@ -709,16 +765,24 @@ export function closeSession(session: SessionApi, options: {readonly reason?: "i
 }
 
 async function closeNow(state: Internals, options: {readonly reason?: "interrupted"}): Promise<void> {
+    state.core.attachments.clear();
     state.closed = true;
-    // 进行中的重新装配先做完：它装上的扩展要在下面一起摘下，清理函数才不会漏调。
-    if (state.reassembling !== null) await state.reassembling.promise;
-    if (!state.core.broken) await state.control.shutdown(options.reason === "interrupted" ? new ProcessInterrupt() : undefined);
-    await state.core.queue.drain();
-    await state.mounts.unmountAll();
-    await state.box.dispose();
-    state.core.close();
-    await state.core.store.close(state.core.handle);
-    releaseSettledWaiters(state);
+    try {
+        // 进行中的重新装配先做完：它装上的扩展要在下面一起摘下，清理函数才不会漏调。
+        if (state.reassembling !== null) await state.reassembling.promise;
+        if (!state.core.broken) await state.control.shutdown(options.reason === "interrupted" ? new ProcessInterrupt() : undefined);
+        await state.core.queue.drain();
+        await state.mounts.unmountAll();
+        await state.box.dispose();
+    } finally {
+        // 前面哪一步抛错，日志与锁都要放掉：否则这个会话在进程结束前都打不开（session-busy）。等待者也要放行，撤回扩展在等它们。
+        try {
+            state.core.close();
+            await state.core.store.close(state.core.handle);
+        } finally {
+            releaseSettledWaiters(state);
+        }
+    }
 }
 
 /**

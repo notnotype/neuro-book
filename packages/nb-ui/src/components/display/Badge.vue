@@ -1,19 +1,21 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed} from "vue";
+import type {ControlSize} from "../shared-types";
 
 /**
- * 状态徽章（Badge · 方案 2-B 现代工作区超椭圆实心体系）。
+ * 状态徽章。
  *
  * 视觉特征：
- * 1. 形态：采用饱满现代超椭圆（Squircle，消费 var(--radius-control) / calc），与 Button / Input 等控件形成统一几何律动；
+ * 1. 形态：圆角消费 var(--radius-control) / calc，与 Button、Input 等控件一致；
  * 2. 材质：solid 模式采用纯正状态色实底 + 纯白反色文字 + 16% 微透光反光边 + 轻微柔影；
- * 3. 警示色调（warning）：采用深琥珀暖金配色（消费 var(--status-warning) 组合），告别刺眼柠檬黄；
+ * 3. 警示色调（warning）：消费 var(--status-warning) 往黑混的深一档；
  * 4. 支持 dot（状态圆点）、iconClass（图标）与 count（徽标）。
  */
 
 export type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
 export type BadgeVariant = "solid" | "soft" | "outline";
-export type BadgeSize = "sm" | "md";
+export type BadgeSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     tone?: BadgeTone;
@@ -23,7 +25,7 @@ const props = withDefaults(defineProps<{
     dot?: boolean;
     iconClass?: string;
     count?: number | string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     tone: "neutral",
     variant: "solid",
     size: "md",
@@ -93,7 +95,7 @@ const sizeClass = computed(() => (props.size === "sm"
     --nb-badge-tone-border: color-mix(in srgb, var(--status-danger) 30%, transparent);
 }
 
-/* 核心方案 2-B：纯色实心 + 纯白反色文字 + 微反光边 + 微阴影 */
+/* 实心档：纯色实心 + 纯白反色文字 + 微反光边 + 微阴影 */
 .nb-badge--solid {
     border: var(--border-w) solid color-mix(in srgb, var(--text-inverse) 16%, transparent);
     background-color: var(--nb-badge-tone-solid);

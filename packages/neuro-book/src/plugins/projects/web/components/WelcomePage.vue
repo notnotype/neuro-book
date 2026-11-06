@@ -143,7 +143,7 @@ const keys = computed(() => (props.shortcut === null ? [] : props.shortcut.split
 
 .welcome-page__title {
     margin: 0;
-    font-family: var(--font-display, var(--font-ui));
+    font-family: var(--skin-font-display, var(--font-display, var(--font-ui)));
     font-size: 30px;
     font-weight: 600;
     letter-spacing: 0.02em;

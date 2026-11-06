@@ -1,0 +1,40 @@
+### 重要｜正确性｜packages/nb-harness/src/kernel/dispatch/core.ts:229-230
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`SessionCore.#commit` 对 `requestCounter` 的归约只看 `modelStarted` 和 `assistant`。
+- **现象**：被模型拦截链直接交回复的非对话请求没有 `modelStarted`；`callModel` 虽用 `reserveRequest()` 分配了序号，随后只写 `modelEnded` 或 `modelFailed`。当前进程内序号递增，但重开从日志恢复时不会把这个序号带回 `requestCounter`，下一次被拦截回复再次占用 1。
+- **为什么是问题**：合同要求请求序号在一个会话里单调增加，被拦下的回复也占号。重开后复用序号会让请求事件无法按序号唯一关联，破坏重开后的审计、增量与调用方按 request 追踪。
+- **如何核实**：在 `/tmp/review-t27-impl/lab/request-counter-reopen.ts` 用真实 `createTestSession` 和一个直接返回完整 `ModelResponse` 的模型拦截器运行两轮，中间 `session.reopen()`；实测输出第一轮 `modelFailed.request=1`，重开后第二轮仍为 `request=1`（日志中出现两个 `modelFailed`，request 都是 1）。目标提交的定向合同测试 `bun test src/kernel/run/retry.test.ts src/kernel/run/spend.test.ts src/kernel/model/omp-failures.test.ts tests/models.test.ts` 仍为 74 pass，但未覆盖该重开路径。
+- **建议改法**：恢复序号时把所有带 `request` 的模型结算事件（至少 `modelEnded`、`modelFailed`，以及现有的 `modelStarted`、`assistant`）统一纳入 `Math.max`；或抽一个按事件类型取 request 的归约函数，避免将来新增结算事件再次漏掉。补一个“直接拦截的审批/压缩回复，重开后序号继续递增”的真实会话测试。
+### 重要｜正确性｜packages/nb-harness/src/kernel/session/complete.ts:51-60
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`complete()` 的重试等待分支。
+- **现象**：等待重试的 `clock.wait(delayMs, signal)` 被中止时，循环直接 `break`，但保留了原来的 `response.stopReason === "error"`；后续只按错误回复返回 `reason: "error"`，没有转成 `reason: "aborted"`。
+- **为什么是问题**：运行循环和 `modelCaller` 都把“等待期间中止”作为中止收口；`complete()` 接入同一套重试合同后却把用户中止报告成网络错误。调用方会继续展示失败/错误处理，而不是中止，且错误中还保留可重试的原始服务商错误，行为与 `complete()` 的 `signal` 合同不一致。
+- **如何核实**：在 `/tmp/review-t27-impl/lab/complete-abort.ts` 用真实 `complete()`、注入时钟、可重试的网络失败和 `AbortController`：第一次请求完成后尚未推进 500 ms 退避就中止；实测结果为 `reason:"error", stopReason:"error", error.kind:"network"`，请求数 1，而不是 aborted。目标提交的定向测试命令仍为 74 pass；其中 `complete 重发` 只覆盖成功，不覆盖等待中止。
+- **建议改法**：记录 `wait()` 是否完成；若中止，返回一个 `aborted` 结果（用量保留已发请求的累计值），不要继续按原 error 响应收口。补充 `complete()` 在退避等待中中止的真实时钟测试。
+### 重要｜安全与性能｜packages/nb-harness/src/models/target.ts:65-72
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`discardRequestDump()` 只检查 `basename(dirname(path)) === "http-400-requests"`，随后直接 `unlink(path)`。
+- **现象**：错误文字里的 `raw-http-request=` 行来自 OMP 的本地诊断，但其路径仍经过服务商错误文字边界；当前检查接受任意路径，只要它的直接父目录名字叫 `http-400-requests`，并不限制在 OMP 的实际日志目录，也不防止目录内的符号链接。
+- **为什么是问题**：服务商返回一段带伪造诊断行的 400 错误时，NeuroBook 会删除用户任意目录中名字为 `http-400-requests` 的文件，越过“只删 OMP 自己的落盘文件”的边界。单人应用也会遇到恶意/被篡改的端点或错误代理；这不是多租户假设。
+- **如何核实**：在 `/tmp/review-t27-impl/lab/request-dump-path.ts` 用真实 `buildResolution()`、真实 OMP 适配器和本机 400 端点，在 `/tmp/review-t27-impl/lab/victim/http-400-requests/victim.txt` 放入无关文件，服务端错误正文伪造 `raw-http-request=<该路径>`；实测适配器返回 `provider` 且 `victimExists:false`，无关文件被删除。
+- **建议改法**：把允许目录固定为 OMP 实际 `getLogsDir()/http-400-requests` 的规范化路径，校验候选路径 `resolve/realpath` 后确实是该目录的直接子文件，并拒绝符号链接；校验失败只从错误文字移除诊断行，不执行删除。保留 400/413 真实落盘的子进程测试，再加越界路径和符号链接用例。
+### 重要｜正确性｜packages/nb-harness/src/kernel/run/model-call.ts:105-118
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`callModel()` 用单个 `previous` 变量处理一层多次 `next`。
+- **现象**：拦截器并发调用两次 `next` 时，两次 terminal 都在各自模型请求完成前进入，因此都看见 `previous === null`；两次请求都写了 `modelStarted`，但只有最终交回的回复写成 `assistant`，另一次没有 `modelEnded`/`modelFailed` 结算。
+- **为什么是问题**：拦截链没有禁止并发 `next`，`runChain.next()`明确维护多个 `inside` 调用。漏掉的请求用量、结束事件和失败状态会让 `SessionCore.spend` 与 `runResult.usage` 少算，留下打开请求/请求生命周期不一致；中止或写入被拒时还会把未结算请求交给收口路径，结果依赖竞态。
+- **如何核实**：在 `/tmp/review-t27-impl/lab/concurrent-next.ts` 用真实内核、一个 `Promise.all([next(request), next(request)])` 的拦截器和两条分别收费 1、2 的回复；实测事件只有两个 `modelStarted` 和第二条 `assistant`，没有第一条 `modelEnded`，`resultCost` 与会话 `sessionCost` 都是 2 而不是 3。现有 `run/spend.test.ts` 只测顺序 `await next(); return next()`，所以 74 个定向合同测试仍全通过。
+- **建议改法**：不要用单个 `previous` 推断调用顺序；为每次 terminal 记录 `{request, purpose, response}`，在整条链完成后为除最终交回回复外的每个实际请求逐一写 `modelEnded`/`modelFailed`（按完成/分配顺序确定稳定顺序），并让收口只接管仍未结算的 request。补充并发两次 `next`、一条中止和一条结算写入被拒的真实内核测试。
+## 未发现问题的方面
+- `run/loop.ts` 的普通失败退避、空回复最多 3 次、等待中止、等待后重新取 steer/设置/compact，以及重试成功后清除旧错误，未发现超出计划合同的其他问题；真实内核重试合同定向测试 74 项通过。
+- `omp.ts` 的第一事件计时器清理、`AbortSignal.any`、`start` 事件不结束计时、`acceptEmptyResponse`、超时 0、`retryAfterMs` 取值与错误标记归类，结合真实本机 HTTP 端点测试未发现除请求落盘路径边界外的问题。
+- `SessionCore.spend` 在日志加载、回退、重装配、预览投影与 fork 复制路径上的累计未发现重复或漏加；费用与扩展定向测试通过。
+- `loop-guard` 的工具参数规范化、并发工具结果顺序、结果改变时只提醒、脱敏/改写后的可见结果、`denied` 结果、回退与 `start`/steer 解锁，未发现合同外误判。
+- `cost-guard` 的告警线状态、未知单价提示、软上限、预览放行、压缩/审批收口、默认扩展装配与设置分区接线，未发现除上述序号、并发结算与路径删除问题外的问题。
+- `transport` 在每次请求读取超时设置、`createAgentHost` 的重试闭包、重新打开与 `changeProfile` 复用，以及现有 Complete 调用接线，未发现其他遗漏。
+
+## 最终索引
+- 有效发现：1、2、3、4。
+- 撤回或改级：无。
+- 数量：阻断 0；重要 4；建议 0。

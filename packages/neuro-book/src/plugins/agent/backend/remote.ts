@@ -8,12 +8,12 @@ import {randomUUID} from "node:crypto";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 
-import {commandErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {CommandName, Diagnostic, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {commandErrors, hostOnlyCommands} from "@notnotype/nb-harness/kernel/contracts";
+import type {Diagnostic, SessionApi, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
 
 import type {AgentService} from "../shared/contracts";
-import type {agentSessionsContract} from "../shared/remote";
+import type {agentSessionsContract, ApprovalPreview, RemoteCommandName} from "../shared/remote";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
 import {AgentSessionUnavailable} from "./sessions";
@@ -25,12 +25,15 @@ type Methods = RemoteImplementation<Contract>["methods"];
 /** 大预览的令牌活多久。 */
 export const PREVIEW_TOKEN_MS = 5 * 60_000;
 
-const COMMANDS = Object.keys(commandErrors) as CommandName[];
+const HOST_ONLY: ReadonlySet<string> = new Set(hostOnlyCommands);
+const COMMANDS = (Object.keys(commandErrors) as RemoteCommandName[]).filter((name) => !HOST_ONLY.has(name));
 
 export interface AgentRemoteOptions {
     readonly service: AgentService;
     readonly sessions: SessionTable;
     readonly clock: RuntimeClock;
+    /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
+    readonly previewApproval: (session: ToolSessionContext, tool: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) => Promise<ApprovalPreview>;
 }
 
 /** 预览大到放不进一条消息时先存起来，经令牌分段读；所有调用方共用一张表。 */
@@ -89,6 +92,9 @@ async function whole<T>(run: () => Promise<T>, context: {ok: (value: T) => unkno
     }
 }
 
+/** 树的一页的字节上限：比通道的上限留出外壳的余量。 */
+const TREE_PAGE_BYTES = PAGE_BYTES - 4096;
+
 export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens): RemoteImplementation<Contract> {
     const {service} = options;
     const view = (sessionId: string): SessionApi => service.session(sessionId, {kind: "user"});
@@ -96,7 +102,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
     const commandMethods = Object.fromEntries(COMMANDS.map((name) => [name, async ({sessionId, ...args}: {sessionId: string} & Record<string, unknown>, context: {ok: (value: unknown) => unknown; fail: (code: string, detail?: unknown) => unknown}) => {
         const result = await (view(sessionId)[name] as (args: unknown) => Promise<{ok: boolean; value?: unknown; seq?: number; replayed?: boolean; code?: string; detail?: unknown}>)(args);
         return result.ok ? context.ok({value: result.value, seq: result.seq, replayed: result.replayed}) : context.fail(result.code!, result.detail);
-    }])) as unknown as Pick<Methods, CommandName>;
+    }])) as unknown as Pick<Methods, RemoteCommandName>;
 
     const methods: Methods = {
         ...commandMethods,
@@ -122,6 +128,21 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             const {items, cut} = pageOfItems(events.slice(from));
             return {items, more: cut, next: from + items.length};
         }, (code) => context.fail(code as "open-failed")) as never,
+        treeNodes: ({sessionId, afterSeq}, context) => whole(async () => {
+            const page = await view(sessionId).treeNodes(afterSeq === undefined ? undefined : {afterSeq});
+            // 内核按个数分页，通道按字节：中文标签 2,000 个节点就超了。多出来的放下一页，游标跟着往回收。
+            let bytes = 0;
+            let kept = 0;
+            for (const node of page.nodes) {
+                bytes += Buffer.byteLength(JSON.stringify(node)) + 1;
+                if (bytes > TREE_PAGE_BYTES && kept > 0) break;
+                kept += 1;
+            }
+            if (kept === page.nodes.length) return page;
+            const nodes = page.nodes.slice(0, kept);
+            return {nodes, more: true, through: nodes.at(-1)!.seq};
+        }, context) as never,
+        branchPoints: ({sessionId}, context) => whole(() => view(sessionId).branchPoints(), context) as never,
         siblings: ({sessionId, node}, context) => whole(() => view(sessionId).siblings({node}), context) as never,
         runResult: ({sessionId, runId}, context) => whole(() => view(sessionId).runResult({runId}), context) as never,
         preview: async ({sessionId, leaf}, context) => {
@@ -129,10 +150,26 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 const preview = await view(sessionId).preview(leaf === undefined ? undefined : {leaf});
                 const text = JSON.stringify(preview);
                 const bytes = Buffer.byteLength(text);
-                return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview} : {kind: "oversized", token: previews.put(text), bytes});
+                // 工具声明里按参数算的 `effect` 是函数，通道编不了：直接交对象的话带这种工具的会话一律失败。分段读拿到的本来就是这份文字。
+                return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview: JSON.parse(text) as typeof preview} : {kind: "oversized", token: previews.put(text), bytes});
             } catch (error) {
                 if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
                 if (error instanceof PreviewUnavailable) return context.fail("preview-unavailable", {message: error.message});
+                throw error;
+            }
+        },
+        approvalPreview: async ({sessionId, interactionId}, context) => {
+            try {
+                const session = view(sessionId);
+                const requested = (await session.path()).find((event) => event.type === "interactionRequested" && (event.data as {id: string}).id === interactionId)?.data as {kind: string; request: {tool: string; args: Readonly<Record<string, unknown>>}} | undefined;
+                if (requested?.kind !== "approval") return context.fail("unknown-interaction");
+                const snapshot = await session.snapshot();
+                const preview = await options.previewApproval({sessionId, profile: snapshot.profile.id, ...(snapshot.header.project === undefined ? {} : {project: snapshot.header.project})}, requested.request.tool, requested.request.args, context.signal);
+                const text = JSON.stringify(preview);
+                const bytes = Buffer.byteLength(text);
+                return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview} : {kind: "oversized", token: previews.put(text), bytes});
+            } catch (error) {
+                if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
                 throw error;
             }
         },
@@ -161,6 +198,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             return chunk === null ? context.fail("out-of-range") : context.ok(chunk);
         },
         profiles: (_input, context) => context.ok(service.profiles()),
+        activity: (_input, context) => context.ok(options.sessions.activity()),
         startTask: async ({initial, ...task}, context) => {
             const started = await service.startTask({...task, ...(initial === undefined ? {} : {initial: initial as never})});
             // 码是联合时 `fail` 的类型只收 undefined 的详情；运行时照传，合同里每个码的详情 schema 都收对象。
@@ -171,6 +209,13 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
     return {
         methods,
         events: {
+            activityChanged: {
+                subscribe(_filter, sink, context) {
+                    if (context.signal.aborted) return;
+                    const stop = options.sessions.onActivityChanged(() => sink.next(options.sessions.activity()));
+                    context.signal.addEventListener("abort", stop, {once: true});
+                },
+            },
             frames: {
                 async subscribe({sessionId}, sink, context) {
                     if (context.signal.aborted) return;

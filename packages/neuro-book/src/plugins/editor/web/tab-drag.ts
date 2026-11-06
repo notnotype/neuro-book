@@ -1,24 +1,28 @@
 /**
- * 拖动标签（docs/specs/workbench/editor.md 输出 55）：装在编辑器区的根上，一场指针拖动从按下到放下。
+ * 拖动标签（docs/specs/workbench/editor.md 输出 55）：来源是标签主体（`[data-editor-tab]`；状态位的按钮带
+ * `data-editor-tab-action`，不起拖），落点按这一刻的布局算（`resolveTabDrop`）：标签条里是插入位，正文区里是四边拆分或中央移入。
+ * 手势是 nb-layout 的拖动会话（docs/specs/ui/layout-drag.md），这里只给来源、落点与结构键。
  *
- * - 起拖：按在标签主体上（`[data-editor-tab]`；状态位的按钮带 `data-editor-tab-action`，不起拖），鼠标与笔移动 6px、触摸
- *   按住 200ms 且不超过 6px（同资源管理器的 `tree-drag.ts`）。按下在冒泡阶段接：组与组之间分隔线的手势在捕获阶段拿下
- *   它命中带里的按下并停止传播，所以落在分隔线上的按下是调整大小，不会再起一场标签拖动。
- * - 落点按这一刻的布局算（`resolveTabDrop`）：标签条里是插入位，正文区里是四边拆分或中央移入。
- * - 起拖时记下结构（组、各组标签与固定状态、多行设置）；之后结构变了整场取消。只是几何变了（窗口尺寸、滚动、换行）时
- *   按当下坐标重算落点。放下时先收场，再按放下的坐标算一次，与最后显示的落点相同才交给宿主提交。
- * - Escape、`pointercancel`、失去指针捕获、窗口失焦、页面隐藏、销毁都取消且不写；吞掉同一手势末尾的那次 click。
+ * 结构键由宿主给（组、各组标签与固定状态、多行设置）：之后结构变了整场取消，只是几何变了（窗口尺寸、滚动、换行）时按当下坐标
+ * 重算落点。
  */
 
-import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
-import {resolveGridEdgeDrop, resolveListInsertion} from "@notnotype/nb-ui/layout";
-import type {GridDropRect} from "@notnotype/nb-ui/layout";
+import {createDragSession, dropTargetAt} from "@notnotype/nb-layout/vue";
+import type {DragSession, DropFeedbackPreview} from "@notnotype/nb-layout/vue";
+import {defineDropKind, resolveGridEdgeDrop, resolveListInsertion} from "@notnotype/nb-layout";
+import type {GridDropRect} from "@notnotype/nb-layout";
 
+import {sitsAtEdge} from "./groups/groups";
 import type {GroupEdge, TabPlace} from "./groups/groups";
 
-const DRAG_DISTANCE_PX = 6;
-const TOUCH_DELAY_MS = 200;
-const TOUCH_TOLERANCE_PX = 6;
+/** 标签拖到编辑组：编辑组登记这个落点，给出组 id。 */
+export const EDITOR_GROUP_TAB = defineDropKind<{readonly group: string}>("nbook.editor.group.tab");
+
+/** 被拖的标签与它所在的组。 */
+export interface TabDragSource {
+    readonly tabId: string;
+    readonly group: string;
+}
 
 /** 放下要做的事：移到某组的某个位置，或在某组的一边拆出新组。 */
 export type TabDropAction =
@@ -36,16 +40,8 @@ export interface TabDrop {
 export interface TabDragHost {
     /** 此刻的结构键：组、各组标签 id 与固定状态、多行设置。起拖后它变了，整场取消。 */
     structure(): string;
-    /** 每帧交一次落点（null 是哪儿都不是）；收场时交 null。 */
-    show(drop: TabDrop | null): void;
-    /** 拖影跟着的指针（视口坐标）与被拖的标签：起拖时与每帧交一次，收场时交 null。落点为 null 时拖影照样跟着。 */
-    follow(pointer: {readonly tabId: string; readonly x: number; readonly y: number} | null): void;
     /** 放下且与最后显示的落点相同：提交。 */
     commit(action: TabDropAction): void;
-}
-
-export interface TabDrag {
-    dispose(): void;
 }
 
 const rectOf = (element: Element): GridDropRect => {
@@ -84,23 +80,23 @@ function linesOf(strip: HTMLElement): Line[] {
 }
 
 /**
- * 指针下的落点（纯读 DOM 的几何，不改任何东西）。`dragged` 是被拖的标签与它所在的组。
+ * 指针下的落点（纯读 DOM 的几何，不改任何东西）。`top` 是指针处最上层的业务元素（会话给的），`dragged` 是被拖的标签与它所在的组。
  */
-export function resolveTabDrop(root: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: {readonly tabId: string; readonly group: string}): TabDrop | null {
-    const hit = root.ownerDocument.elementFromPoint(point.x, point.y);
-    const groupElement = hit?.closest<HTMLElement>("[data-editor-group]") ?? null;
-    if (hit === null || groupElement === null || !root.contains(groupElement)) return null;
-    const group = groupElement.dataset.editorGroup as string;
+export function resolveTabDrop(root: HTMLElement, top: Element | null, point: {readonly x: number; readonly y: number}, dragged: TabDragSource): TabDrop | null {
+    const target = dropTargetAt(top, EDITOR_GROUP_TAB);
+    if (top === null || target === null || !root.contains(target.element)) return null;
+    const groupElement = target.element as HTMLElement;
+    const group = target.data.group;
     const strip = groupElement.querySelector<HTMLElement>("[data-editor-tabs]");
     const header = strip?.parentElement ?? null;
     // 标签条（含它右侧的标题动作那一块）：插入位。
-    if (strip !== null && header !== null && header.contains(hit)) return stripDrop(strip, point, dragged, group);
+    if (strip !== null && header !== null && header.contains(top)) return stripDrop(strip, point, dragged, group);
     const content = groupElement.querySelector<HTMLElement>("[data-editor-content]");
-    if (content === null || !content.contains(hit)) return null;
-    return contentDrop(groupElement, content, point, dragged, group);
+    if (content === null || !content.contains(top)) return null;
+    return contentDrop(root, groupElement, content, point, dragged, group);
 }
 
-function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: {readonly tabId: string; readonly group: string}, group: string): TabDrop | null {
+function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: TabDragSource, group: string): TabDrop | null {
     const lines = linesOf(strip);
     if (lines.length === 0) return null;
     // 先按纵向距离选行（在行里的距离为 0），再在行里求插入位。
@@ -144,7 +140,7 @@ function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: n
     };
 }
 
-function contentDrop(groupElement: HTMLElement, content: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: {readonly tabId: string; readonly group: string}, group: string): TabDrop | null {
+function contentDrop(root: HTMLElement, groupElement: HTMLElement, content: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: TabDragSource, group: string): TabDrop | null {
     const rect = rectOf(content);
     const zone = resolveGridEdgeDrop({point, rect});
     if (zone === null) return null;
@@ -167,183 +163,38 @@ function contentDrop(groupElement: HTMLElement, content: HTMLElement, point: {re
         : zone === "right" ? {...groupRect, left: groupRect.left + width / 2}
             : zone === "top" ? {...groupRect, bottom: groupRect.top + height / 2}
                 : {...groupRect, top: groupRect.top + height / 2};
-    // 源组只有这一个标签又拆它自己：拆不出东西。
-    const alone = group === dragged.group && groupElement.querySelectorAll("[data-editor-tab]").length === 1;
+    // 源组只有这一个标签：拆它自己拆不出东西；它已经紧贴这条边时，放下去还是现在的样子。
+    const source = group === dragged.group ? groupElement : root.querySelector<HTMLElement>(`[data-editor-group="${CSS.escape(dragged.group)}"]`);
+    const lone = source !== null && source.querySelectorAll("[data-editor-tab]").length === 1;
+    const stays = lone && group !== dragged.group && sitsAtEdge(groupRect, rectOf(source), zone);
+    const alone = lone && (group === dragged.group || stays);
     return {
         action: alone ? null : {kind: "split", tabId: dragged.tabId, group, edge: zone},
-        preview: {areaRect: half, entryRect: null, indicator: null, orientation: zone === "left" || zone === "right" ? "horizontal" : "vertical", armed: !alone},
+        // 指示画真实结果：紧贴这条边的组放下去还在原处，亮它自己，不亮目标的半边（看着像要拆分）。
+        preview: {areaRect: stays ? rectOf(source) : half, entryRect: null, indicator: null, orientation: zone === "left" || zone === "right" ? "horizontal" : "vertical", armed: !alone},
         label: alone ? "keep" : `split-${zone}`,
     };
 }
 
-/** 两个落点的动作相同（放下时与最后显示的比）。 */
-function sameAction(left: TabDropAction | null, right: TabDropAction | null): boolean {
-    return JSON.stringify(left) === JSON.stringify(right);
-}
-
-export function createTabDrag(root: HTMLElement, host: TabDragHost): TabDrag {
-    const document = root.ownerDocument;
-    const view = document.defaultView as Window;
-    let pending: {readonly pointerId: number; readonly pointerType: string; readonly x: number; readonly y: number; readonly tabId: string; readonly group: string; timer: ReturnType<typeof setTimeout> | null} | null = null;
-    let active: {readonly pointerId: number; readonly tabId: string; readonly group: string; readonly structure: string; x: number; y: number; shown: TabDrop | null} | null = null;
-    let frame = 0;
-    let swallowClick = false;
-    let detach: (() => void) | null = null;
-
-    const clearPending = (): void => {
-        if (pending?.timer != null) clearTimeout(pending.timer);
-        pending = null;
-    };
-
-    /** 收场：清帧、拆这场的监听、释放捕获、撤下反馈。幂等。 */
-    const end = (): void => {
-        clearPending();
-        if (frame !== 0) cancelAnimationFrame(frame);
-        frame = 0;
-        const current = active;
-        active = null;
-        detach?.();
-        detach = null;
-        delete root.dataset.editorTabDragging;
-        if (current === null) return;
-        swallowClick = true;
-        if (root.hasPointerCapture(current.pointerId)) root.releasePointerCapture(current.pointerId);
-        host.show(null);
-        host.follow(null);
-    };
-
-    /** 这一刻的落点；结构变了就取消整场，返回 undefined。 */
-    const evaluate = (x: number, y: number): TabDrop | null | undefined => {
-        const current = active;
-        if (current === null) return undefined;
-        if (host.structure() !== current.structure) {
-            end();
-            return undefined;
-        }
-        return resolveTabDrop(root, {x, y}, {tabId: current.tabId, group: current.group});
-    };
-
-    const publish = (): void => {
-        frame = 0;
-        const current = active;
-        if (current === null) return;
-        const drop = evaluate(current.x, current.y);
-        if (drop === undefined) return;
-        current.shown = drop;
-        host.show(drop);
-        host.follow({tabId: current.tabId, x: current.x, y: current.y});
-    };
-
-    const begin = (from: NonNullable<typeof pending>): void => {
-        clearPending();
-        active = {pointerId: from.pointerId, tabId: from.tabId, group: from.group, structure: host.structure(), x: from.x, y: from.y, shown: null};
-        root.dataset.editorTabDragging = "";
-        document.getSelection()?.removeAllRanges();
-        // 捕获到编辑器区的根上：指针移出编辑器区与窗口后仍收得到移动与松手。
-        root.setPointerCapture(from.pointerId);
-        const onKey = (event: KeyboardEvent): void => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            event.stopPropagation();
-            end();
-        };
-        const onHidden = (): void => {
-            if (document.visibilityState === "hidden") end();
-        };
-        const onLost = (event: PointerEvent): void => {
-            if (event.pointerId === active?.pointerId) end();
-        };
-        // 标签区自己滚了：重算落点（几何变了，结构没变）。
-        const onScroll = (): void => {
-            if (active !== null && frame === 0) frame = requestAnimationFrame(publish);
-        };
-        const onTouchMove = (event: TouchEvent): void => event.preventDefault();
-        view.addEventListener("keydown", onKey, true);
-        view.addEventListener("blur", end);
-        view.addEventListener("resize", onScroll);
-        document.addEventListener("visibilitychange", onHidden);
-        root.addEventListener("lostpointercapture", onLost);
-        root.addEventListener("scroll", onScroll, {capture: true, passive: true});
-        root.addEventListener("touchmove", onTouchMove, {passive: false});
-        detach = () => {
-            view.removeEventListener("keydown", onKey, true);
-            view.removeEventListener("blur", end);
-            view.removeEventListener("resize", onScroll);
-            document.removeEventListener("visibilitychange", onHidden);
-            root.removeEventListener("lostpointercapture", onLost);
-            root.removeEventListener("scroll", onScroll, {capture: true});
-            root.removeEventListener("touchmove", onTouchMove);
-        };
-        publish();
-    };
-
-    const onPointerDown = (event: PointerEvent): void => {
-        swallowClick = false;
-        if (pending !== null || active !== null || event.button !== 0 || !event.isPrimary) return;
-        if (!(event.target instanceof Element) || event.target.closest("[data-editor-tab-action]") !== null) return;
-        const tab = event.target.closest<HTMLElement>("[data-editor-tab]");
-        const group = tab?.closest<HTMLElement>("[data-editor-group]")?.dataset.editorGroup;
-        if (tab === null || group === undefined || !root.contains(tab)) return;
-        const next = {pointerId: event.pointerId, pointerType: event.pointerType, x: event.clientX, y: event.clientY, tabId: tab.dataset.editorTab as string, group, timer: null as ReturnType<typeof setTimeout> | null};
-        pending = next;
-        if (event.pointerType === "touch") next.timer = setTimeout(() => begin(next), TOUCH_DELAY_MS);
-    };
-
-    const onPointerMove = (event: PointerEvent): void => {
-        const from = pending;
-        if (from !== null && event.pointerId === from.pointerId) {
-            const moved = Math.hypot(event.clientX - from.x, event.clientY - from.y);
-            if (from.pointerType === "touch") {
-                if (moved > TOUCH_TOLERANCE_PX) clearPending();
-            } else if (moved >= DRAG_DISTANCE_PX) {
-                begin({...from, x: event.clientX, y: event.clientY});
-            }
-        }
-        if (active !== null && event.pointerId === active.pointerId) {
-            active.x = event.clientX;
-            active.y = event.clientY;
-            if (frame === 0) frame = requestAnimationFrame(publish);
-        }
-    };
-
-    const onPointerUp = (event: PointerEvent): void => {
-        if (pending !== null && event.pointerId === pending.pointerId) clearPending();
-        const current = active;
-        if (current === null || event.pointerId !== current.pointerId) return;
-        const drop = evaluate(event.clientX, event.clientY);
-        const shown = current.shown;
-        end();
-        // 结构变了（已取消）、或这一刻的落点与最后显示的不同：不写。
-        if (drop === undefined || drop === null || drop.action === null || shown === null || !sameAction(drop.action, shown.action)) return;
-        host.commit(drop.action);
-    };
-
-    const onPointerCancel = (event: PointerEvent): void => {
-        if (pending !== null && event.pointerId === pending.pointerId) clearPending();
-        if (active !== null && event.pointerId === active.pointerId) end();
-    };
-
-    const onClick = (event: MouseEvent): void => {
-        if (!swallowClick || event.detail === 0) return;
-        swallowClick = false;
-        event.preventDefault();
-        event.stopPropagation();
-    };
-
-    root.addEventListener("pointerdown", onPointerDown);
-    root.addEventListener("click", onClick, true);
-    view.addEventListener("pointermove", onPointerMove, true);
-    view.addEventListener("pointerup", onPointerUp, true);
-    view.addEventListener("pointercancel", onPointerCancel, true);
-
-    return {
-        dispose: () => {
-            end();
-            root.removeEventListener("pointerdown", onPointerDown);
-            root.removeEventListener("click", onClick, true);
-            view.removeEventListener("pointermove", onPointerMove, true);
-            view.removeEventListener("pointerup", onPointerUp, true);
-            view.removeEventListener("pointercancel", onPointerCancel, true);
+/**
+ * 装在编辑器区的根上。按下在冒泡阶段接：组与组之间分隔线的手势在捕获阶段拿下它命中带里的按下并停止传播，所以落在分隔线上的
+ * 按下是调整大小，不会再起一场标签拖动。
+ */
+export function createTabDrag(root: HTMLElement, host: TabDragHost): DragSession<TabDragSource, TabDrop> {
+    return createDragSession<TabDragSource, TabDrop>({
+        root,
+        sourceAt: (target) => {
+            if (target.closest("[data-editor-tab-action]") !== null) return null;
+            const tab = target.closest<HTMLElement>("[data-editor-tab]");
+            const group = dropTargetAt(tab, EDITOR_GROUP_TAB)?.data.group;
+            return tab === null || group === undefined || !root.contains(tab) ? null : {tabId: tab.dataset.editorTab as string, group};
         },
-    };
+        structure: () => host.structure(),
+        resolve: ({source, point, top}) => resolveTabDrop(root, top, point, source),
+        actionKey: (drop) => (drop.action === null ? null : JSON.stringify(drop.action)),
+        commit: (drop) => {
+            if (drop.action !== null) host.commit(drop.action);
+        },
+        onActiveChange: (active) => root.toggleAttribute("data-editor-tab-dragging", active),
+    });
 }

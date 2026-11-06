@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t12-builtin-tools
-status: in-progress
-updated: 2026-10-28
+status: done
+updated: 2026-11-04
 ---
 
 # 基础工具与外部命令行依赖
@@ -89,12 +89,34 @@ t08 之后重新对齐需求：
 21. Agent 用 `shell` 改的文件归给该会话、标“推断（shell）”。
 22. 提案按 B+ 重写（`b0e2dffa2`），第二轮深入审查改为宏观整体审查（第一轮已做细节）：omp 会话审架构，Sonnet 审接口与插件作者的整体体验。
 
+23. 第二轮审查（宏观，[处理](evidences/proposal-review-r2-disposition.md)）后开发者按推荐定了五件事：
+    - 分阶段交付：第一阶段只做写入接口（读路径、暂存提交、文件操作），不接 History，解锁 t12；第二阶段监视可靠性与根的归属；第三阶段接 History（t13：收件箱、恢复、分组）；第四阶段大文件、同步盘与平台；
+    - 同一本书被两个 NeuroBook 打开：后开的照常写、不记账，先开的把它的写入记为外部，界面提示操作者不会被记下；
+    - `history.sqlite` 是作品数据、随书走，只支持单设备：关闭时并回预写日志，换机器后对不上的记为外部，同步盘的冲突副本不读只写诊断，不做账本合并；
+    - 单个版本 32 MB 以内存全量可恢复，超过只记哈希与大小，时间线标明不能恢复，总体积由保留策略控制；
+    - shell 推断的改动不进“全部还原”，单独成组、用平常话说明，逐个还原。
+
 这次改动牵涉已接受的 [项目文件底座提案](../../../../../docs/proposals/project-file-foundation.md)（“读写都经文件服务”）、`workspace/resources.md` 与 t08 刚做完的服务端文件服务，定稿后要写提案或追加决策记录。t12 的计划在这之后再定。
+
+## 第二轮设计审查后的决定（开发者 2026-11-04）
+
+24. 搜索不进根下面的目录链接，搜索根本身可以是链接：Claude Code、omp、opencode、Gemini CLI 的搜索工具都不跟随，以后要跟随只是新增行为（[处理](evidences/design-review-r2-disposition.md)）。
+25. 不合法的正则不报错，按原生行为按字面搜或得到零条，写进工具说明；不设 `invalid-pattern`。
+26. `edit` 不新建文件，目标不存在报 `not-found` 并提示用 `write`。
+
+## 对照 omp 后的决定（开发者 2026-11-04）
+
+27. 图片压缩照 omp：PNG、JPEG、WebP 取最小（有透明的不用 JPEG），目标 500 KiB，够小不重新编码，质量与尺寸逐级降；小于 200 像素的放大。本地后端解不了 WebP，适配器发送前转 PNG。用户上传“发送原图”暂时不做。
+28. `edit` 的模糊匹配阈值用 omp 的 0.95（原先照旧 harness 写的 0.8）。
+29. `shell` 输出照 omp 保留头尾各 20 KB、各 500 行，单行上限 768 字节；多出的只在全文里。
+30. 重试、卡死超时、循环检测、费用上限开 [t27](../t27-run-reliability/README.md)，排在 t18 之前；提示词缓存、会话清理在它之后。
 
 ## 当前状态
 
-计划第二稿（[plan.md](plan.md)、[处理](evidences/design-review-disposition.md)）已被文件访问的架构讨论取代。提案 [文件访问与改动记账](../../../../../docs/proposals/file-access-and-history.md) 按 B+ 重写，正在做第二轮深入审查（宏观）。
+已于 2026-11-04 合入 master（`8abdc1bd9`）。`agent/builtin-tools.md` 与写入接口各条经开发者批准晋升为 `implemented`。验证与审查见 [收口验证](evidences/closing-verification.txt)、[实现审查的处理](evidences/impl-review-disposition.md)。
+
+未验证：Windows 上的 `shell`；服务商实际怎样计图片 token、怎样拒绝过大的图。透明图缩放的彩边不修（处理记录里写了理由）。
 
 ## 下一步
 
-处理第二轮审查、提案定稿后：写账本的 Spec，改 `workspace/resources.md`、`files.md`、`folder-kinds.md`、`runtime/projects.md`、`agent/resources.md`；再按新的读写分工改 t12 计划并实施（写入接口与账本接入可能要拆成单独的 Task）。
+[t27](../t27-run-reliability/README.md) 写计划。

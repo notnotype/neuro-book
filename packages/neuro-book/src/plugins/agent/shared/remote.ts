@@ -14,7 +14,7 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
+import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
 
 import {TASK_ID} from "./contracts";
 import type {ProfileEntry} from "./contracts";
@@ -59,7 +59,17 @@ function commandErrorsOf<const Codes extends readonly string[]>(codes: Codes) {
 const Json = Type.Unsafe<JsonValue>(Type.Unknown());
 const SessionId = Type.String({minLength: 1});
 const CommandId = Type.String({minLength: 1, maxLength: 200});
-const Attachment = Type.Object({kind: Type.Union([Type.Literal("image"), Type.Literal("file")]), uri: Type.String({minLength: 1})}, {additionalProperties: false});
+const Offset = Type.Integer({minimum: 0});
+const Attachment = Type.Object({
+    kind: Type.Union([Type.Literal("image"), Type.Literal("file")]),
+    uri: Type.String({minLength: 1}),
+    name: Type.Optional(Type.String()),
+    mime: Type.Optional(Type.String()),
+    width: Type.Optional(Type.Integer({minimum: 0})),
+    height: Type.Optional(Type.Integer({minimum: 0})),
+    from: Type.Optional(Offset),
+    to: Type.Optional(Offset),
+}, {additionalProperties: false});
 const Input = Type.Object({text: Type.String(), payload: Type.Optional(Json), attachments: Type.Optional(Type.Array(Attachment))}, {additionalProperties: false});
 const Mode = Type.Unsafe<InputMode>(Type.Union([Type.Literal("steer"), Type.Literal("followup")]));
 
@@ -87,8 +97,11 @@ const commandArgs = {
     archive: {archived: Type.Boolean()},
 } as const;
 
+/** 暴露给远程的指令：只给宿主的不进合同（harness/runtime.md 输出 72）。 */
+export type RemoteCommandName = Exclude<CommandName, HostOnlyCommand>;
+
 type CommandMethods = {
-    readonly [K in CommandName]: {
+    readonly [K in RemoteCommandName]: {
         readonly input: TSchema;
         readonly output: ReturnType<typeof object<{value: CommandMap[K]["value"]; seq: number; replayed: boolean}>>;
         readonly effect: "write";
@@ -96,7 +109,7 @@ type CommandMethods = {
     };
 };
 
-const commandMethods = Object.fromEntries((Object.keys(commandArgs) as CommandName[]).map((name) => [name, {
+const commandMethods = Object.fromEntries((Object.keys(commandArgs) as RemoteCommandName[]).map((name) => [name, {
     input: Type.Object({sessionId: SessionId, commandId: CommandId, ...commandArgs[name]}, {additionalProperties: false}),
     output: object<unknown>(),
     effect: "write",
@@ -111,6 +124,13 @@ const wholeErrors = errorsOf([...OPEN_CODES, "result-too-large"] as const);
 /** 一条日志：放得下就是事件本身，太大就是占位，内容经 `eventChunk` 分段读（sessions.md 输出 9）。 */
 export type LogItem = {readonly kind: "event"; readonly event: LogEvent} | {readonly kind: "oversized"; readonly seq: number; readonly type: string; readonly bytes: number};
 export type PreviewItem = {readonly kind: "inline"; readonly preview: PreviewResult} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
+
+export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting"};
+
+/** 审批预览（builtin-tools.md 输出 26）：按文件分组。 */
+export type ApprovalPreview = {readonly files: ReadonlyArray<{readonly address: string; readonly kind: "diff"; readonly before: string; readonly after: string} | {readonly address: string; readonly kind: "too-large"; readonly bytes: number} | {readonly address: string; readonly kind: "failed"; readonly code: string}>};
+/** 放不进一条消息时和 `preview` 一样经 `previewChunk` 分段读。 */
+export type ApprovalPreviewItem = {readonly kind: "inline"; readonly preview: ApprovalPreview} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
 
 /** `frames` 推的帧：日志帧用 `LogItem` 投影，其余照内核的帧。 */
 export type RemoteFrame = {readonly type: "log"; readonly item: LogItem} | Exclude<Frame, {type: "log"}>;
@@ -139,6 +159,9 @@ const methods = {
     rewindTargets: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<RewindTarget[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
     /** 按页读路径：`from` 是从根数起的下标，下一页从交回的 `next` 读。 */
     path: {input: Type.Object({...BySession, leaf: Type.Optional(Nullable(Type.String())), from: Type.Optional(Type.Integer({minimum: 0}))}, {additionalProperties: false}), output: object<{items: LogItem[]; more: boolean; next: number}>(), effect: "read", errors: queryErrors},
+    /** 整棵树的结构（runtime.md 输出 80、81）。节点小，分页不用按字节算。 */
+    treeNodes: {input: Type.Object({...BySession, afterSeq: Type.Optional(Type.Integer({minimum: 0}))}, {additionalProperties: false}), output: object<{nodes: TreeNode[]; more: boolean; through: number}>(), effect: "read", errors: wholeErrors},
+    branchPoints: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<BranchPoint[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
     siblings: {input: Type.Object({...BySession, node: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<{node: string; latestLeaf: string}[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
     runResult: {input: Type.Object({...BySession, runId: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<RunResult | null>(Type.Unknown()), effect: "read", errors: wholeErrors},
     preview: {
@@ -147,6 +170,14 @@ const methods = {
         effect: "read",
         errors: errorsOf([...OPEN_CODES, "preview-unavailable"] as const),
     },
+    approvalPreview: {
+        input: Type.Object({...BySession, interactionId: Type.String()}, {additionalProperties: false}),
+        output: object<ApprovalPreviewItem>(),
+        effect: "read",
+        errors: errorsOf([...OPEN_CODES, "unknown-interaction"] as const),
+    },
+    /** 运行中与等用户的前台会话（sessions.md 输出 15）：先订阅事件 `activityChanged`，再取这份。 */
+    activity: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ActivityItem[]>(Type.Array(Type.Unknown())), effect: "read"},
     /** 按页读诊断：`after` 是上一页最后一条的 id（诊断按 id 合并、按出现先后排）；长文字截短。 */
     diagnostics: {
         input: Type.Object({...BySession, afterSeq: Type.Optional(Type.Integer({minimum: 0})), extension: Type.Optional(Type.String()), level: Type.Optional(Type.Unsafe<DiagnosticLevel>(Type.String())), after: Type.Optional(Type.String())}, {additionalProperties: false}),
@@ -186,6 +217,7 @@ const methods = {
 const events = {
     /** 先订阅、再用 `log` 补到 `through`；`onResync` 时按最后收到的 seq 再补（sessions.md 输出 7、8）。 */
     frames: {filter: Type.Object(BySession, {additionalProperties: false}), payload: object<RemoteFrame>()},
+    activityChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Unsafe<readonly ActivityItem[]>(Type.Array(Type.Unknown()))},
 } as const;
 
 export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessions", version: 1, provider: "server", callers: ["browser"], methods, events});
@@ -194,9 +226,9 @@ export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessi
  * 远程合同与内核的对照，内核改了这里编译不过：每条指令的参数字段相同、校验过的输入能交给内核（输入方向）；内核交出的
  * 失败详情过得了详情 schema（输出方向）。
  */
-type ArgsOf<K extends CommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
-type Matches<K extends CommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
-const argsMatchKernel: {readonly [K in CommandName]: Matches<K>} = {
+type ArgsOf<K extends RemoteCommandName> = Static<ReturnType<typeof Type.Object<(typeof commandArgs)[K]>>>;
+type Matches<K extends RemoteCommandName> = [keyof ArgsOf<K>] extends [keyof CommandMap[K]["args"]] ? ([keyof CommandMap[K]["args"]] extends [keyof ArgsOf<K>] ? (ArgsOf<K> extends CommandMap[K]["args"] ? true : false) : false) : false;
+const argsMatchKernel: {readonly [K in RemoteCommandName]: Matches<K>} = {
     send: true, enqueue: true, edit: true, remove: true, resolve: true, start: true, abort: true, rewind: true, switchBranch: true, fork: true, compact: true, changeSettings: true, changeProfile: true, setTitle: true, archive: true,
 };
 const detailsMatchKernel: {readonly [C in DetailCode]: CommandErrorDetails[C] extends Static<(typeof COMMAND_DETAILS)[C]> ? true : false} = {

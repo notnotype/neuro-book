@@ -1,0 +1,76 @@
+# w00039 t34 阶段 D 实现审查
+审查范围：8c088c1bf..0c4c79266
+
+### 1. 活页夹切到子线后没有更新当前线，常驻与淘汰按主线计算
+**严重程度**：重要　**类别**：不变量
+**位置**：packages/nb-canon/src/lines/set.ts:248-252（`setCurrent` 从未被调用）；packages/nb-canon/src/service/service.ts:972-989（`setChapters` 更新 `chapterLines` 后没有按最新章末段调用它）
+**现象**：真实 `WorldService` 上建一条 `l1`，把最后一章的章讲线设成 `l1`，再经无显式线的 `entry` 读取使 `l1` 建好；`service.status().lines` 返回 `{"built":[{"line":"l1","resident":false}],"updated":[]}`，但 `world.positionLine({kind:"chapter",chapter:"ch3",edge:"end"})` 已经是 `l1`。当前线仍是 `main`，所以本应常驻的当前线没有标为常驻，也会被当作普通的三条名额参与淘汰。
+**为什么是问题**：worldlines 输出 9 要求“活页夹最新一章的最后一段讲的线与全部祖先线常驻，祖先不占名额”。章讲线切换后，当前线若不更新，下一次建第四条非当前线就可能淘汰正在读的当前线；`status.lines` 也直接给出错误的寿命状态。淘汰后再次读取虽然可重建，但违反常驻不变量并改变性能与状态诊断。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/current-line.ts`；输出中 `readLine` 为 `l1`，而 `lines.built[0].resident` 为 `false`。
+**建议改法**：在 `WorldService.setChapters` 成功换上 `chapterLines` 后，按最新章最后一段解析实际模式下的当前线并调用 `World.lines.setCurrent`；若该线不存在或不可建，按输出 12 的有效实际祖先回退到实际读取线。打开、章序调整与只读模式换选项的路径都要复用同一更新函数。
+### 2. `lookup` 与 `render` 忽略读取位置的世界线，子线状态被主线覆盖
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/service/service.ts:745-760（`#lookupOn` 固定使用 `world.line().engine`）；packages/nb-canon/src/render/entry.ts:23-45（`context`、`renderEntryForAuthor`、`renderEntryForAgent` 都固定使用 `world.line().engine`）
+**现象**：真实 `WorldService` 经 `World.publish` 建 `l1`，在 `l1` 上的一条变更把条目名从“原名”改为“子名”，并把正文块改为“子文”；把第 3 章章讲线设为 `l1` 后，以不写显式线的第 3 章末尾调用 `service.lookup(["子名"], position)`，结果为 `{"子名":[]}`，而 `world.positionLine(position)` 已是 `l1`。同一实验中直接经真实世界调用渲染入口，代码仍从主线引擎取条目和引用名称。
+**为什么是问题**：D6/D8 已把读取位置解析成章讲的线，`entry`、`pending` 等读取也按该线；这两个入口却读主线，导致 Agent 在子线章里按名字找不到子线才存在的设定，渲染正文仍返回父线版本。带视图令牌时 `within` 还会把位置补成令牌的线，但渲染随后再次丢掉这条线，视图内结果因此与 `entry` 不一致。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/line-read-leak.ts`；输出 `line:"l1"`、`lookup:{"子名":[]}`。渲染固定主线的路径可直接由上述文件行 24、28、35、42 看出。
+**建议改法**：先按 `world.lineAt(position, mode)` 解析并校验读取线，再把该线的 `engine` 传入渲染上下文与名称解析；`#lookupOn` 同样按 `positionLine` 取得线引擎，失效线返回 `line-not-found`，不要回退主线。
+### 3. 无令牌的 `time` 服务与远程合同没有线参数，永远查询主线
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/service/service.ts:453-457（`WorldService.time` 调用 `world.time(mode)`）；packages/neuro-book/src/plugins/canon/shared/contracts.ts:105-110（`time` 输入只有 `query/mode/cursor/limit/view`）
+**现象**：真实 `World.publish` 建一条 `l1`，在子线上写带日期说法的事件；`world.time("actual", "l1").built.network.events` 为 `["c1","c3"]`，主线为 `["c1","c2"]`。但服务公开的 `time(query, mode, cursor, limit)` 没有 `line` 或读取位置参数，也没有把缺省位置解析出的线传入 `World.time`，所以无令牌调用无法查询 `l1` 的时间网络；只有内部 `CanonReadView.time` 与带令牌路径显式传线。
+**为什么是问题**：project 方法表的 `time` 参数包含“线、模式、查询”，worldlines 输出 12 要求读取位置不写线时取章讲的线。当前 Agent/浏览器通过正式服务合同只能得到主线的范围、打架与事件，子线时间结果与 `entry`、`pending` 的线不一致，D5 的 `World.time(mode, line)` 没有贯通到服务边界。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/service-time-line.ts`；输出同时显示 `l1` 网络事件 `["c1","c3"]`、主线 `["c1","c2"]`，以及当前服务接口无线参数。
+**建议改法**：在远程与服务方法加入 `line` 或带线的读取位置，按 `World.positionLine(position, mode)` 解析并校验，然后调用 `world.time(mode, resolvedLine)`；游标参数也把解析后的线纳入参数。保持视图路径使用令牌绑定的线。
+### 4. 剧情插件的子线只读视图仍返回父线不可见的计划
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/service/reads.ts:193（`CanonReadView.changes` 直接调用未带 `inView` 的 `listChanges(world, filter)`）；packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:116-149（计划节点与兑现继承遍历 `view.changes`，没有再按 `view.eventKey`/线视图过滤）
+**现象**：真实服务经 `World.publish` 建 `l1` 后，在分叉之后主线上写计划 `p2`；`snapshot.view.onLine(l1).changes({kind:"plan"})` 返回 `["c3"]`（即 `p2`），但同一视图的 `eventKey(p2,"actual")` 为 `null`，说明该计划不在 `l1` 的视图里。
+**为什么是问题**：D8 的伏笔索引把 `view.changes({kind:"plan"})` 的结果直接变成计划节点，又把这些节点用于兑现继承。于是子线会把分叉后父线才写下的计划当作本线计划，产生错误的伏笔节点、计划未写诊断与继承结果；这与 worldlines 输出 4“分叉之后在父线上写的计划不进子线”冲突。`CanonReadView` 已绑定 `line`，却交出跨线对象，调用方还不能安全地假设 `eventKey` 非空。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/readview-line.ts`；输出 `plans:["c3"]`、`p2EventKey:null`。
+**建议改法**：让 `createReadView` 的 `changes` 默认只列该视图线可见的记录（内部调用 `listChanges` 时固定 `inView: line`，并保留显式筛选的一致性），或在剧情索引的每个 `view.changes` 消费点明确过滤 `view.eventKey(change.id, mode) !== null`；同时审查 `tellings` 等同样未按线收窄的只读方法。
+### 5. 不可建线上的已有记录改写没有被拒收
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/world/line-rules.ts:25-43（不检查 `entry.unbuildable`）；packages/nb-canon/src/world/references.ts:238-242、packages/nb-canon/src/world/world.ts:1039-1053（只对新增或改变的引用做线存在性校验）
+**现象**：真实 `World.publish` 先建 `l1` 及其线上记录，再经章序调整删掉切口所在章使 `l1` 变为 `cut-unplaced`；随后只修改这条已有子线记录的 `text`，发布成功，文本变为 `changed`。同一条线读取返回 `line-not-found`，记录被留在不可建线上。
+**为什么是问题**：worldlines 状态表明确规定“存在、不可建”的线写入安放在它上面的记录一律拒收，不能只限制新增引用。现实现有记录的 `at.line` 没变化，`newReferences` 不会重新检查；`lineRuleProblems` 也只做越界、结束、计划线检查，因而把不可能被读取的记录继续写进日志，后续每次修改都可继续污染该线的记录。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/unbuildable-write.ts`；输出 `{"ok":true,"line":"l1","text":"changed","pending":"line-not-found"}`。
+**建议改法**：`lineRuleProblems` 对每个变更或核对点的目标线先检查 `entry?.unbuildable !== null`，无论安放线是否本次改变都报 `ref-invalid`/`line-not-found`；保留已有不可建线记录只在读取时生成 `line-missing`，不要允许继续修改。
+### 6. 同一请求里的两个分叉可以占用同一个临时线 id
+**严重程度**：重要　**类别**：不变量
+**位置**：packages/nb-canon/src/world/world.ts:450-458（同一临时线 id 只生成一次并放入 `issuedLines`）；packages/nb-canon/src/world/forks.ts:72-83（只因 `issuedLines` 命中就跳过 `line-taken`）；packages/nb-canon/src/lines/table.ts:95-107（重复定义只静默保留最早的一条）
+**现象**：真实 `World.publish` 在同一请求里写两个 `nature:"fork"` 的分叉，二者 `fork.line` 都是 `tmp:l`，但切口不同。发布成功，返回一个 `l1`，日志中的两个分叉都存成 `fork.line:"l1"`；线表只选择较早写入的 `c3` 定义它，`c4` 的分叉成为没有归属的重复定义。
+**为什么是问题**：线 id 是全局唯一的持久化身份；worldlines 输出 14 只允许兑现计划分叉复用既有线 id，不能让一次原子请求制造两个定义。静默取最早定义还会让第二个分叉的切口、父线与写入者预期不一致，后续还原、依赖和 `lines()` 都无法忠实表示日志事实，属于破坏线树不变量。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/duplicate-line.ts`；输出 `ok:true`，并列出 `c3`、`c4` 都是 `line:"l1"`。
+**建议改法**：在 `forkProblems` 建一张本次请求内的 `fork.line` 计数表；除“同一既有计划线的单一兑现分叉”外，重复项报 `line-taken`/`invalid-fork`。不要让 `LineTable` 以最早项静默消歧；历史坏日志则给出确定的不可建状态并写诊断。
+### 7. `presence` 的服务入口与带令牌入口也固定读主线
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/service/service.ts:783-790（无令牌 `presence` 调 `listPresence` 时不传线）；packages/nb-canon/src/service/service.ts:645-657（带令牌路径同样不传 `found.line`）
+**现象**：同一真实服务实验中，`l1` 上的 `own` 记录把人物作为 `present`；章末解析出的线是 `l1`，但 `service.presence(person)` 与 `service.viewed(token).presence(person)` 都返回空列表。两条路径都调用默认参数 `line = MAIN_LINE` 的 `listPresence`。
+**为什么是问题**：project 方法表的 `presence` 是按线读取，D2/D8 明确要求在读取位置的线视图上计算；`CanonReadView.presence` 已经传线，正式服务反而丢掉了它。写手或剧情插件经服务会误判角色没有经历，带令牌的子线读取还会与同一令牌的 `entry` 结果矛盾。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/line-read-leak.ts`；输出 `line:"l1"`、`presence:[]`、`viewedPresence:[]`。
+**建议改法**：服务 `presence` 增加/解析线与位置参数，调用 `listPresence(..., line)`；带令牌路径传 `found.line`，并将线写入游标参数，避免跨线续页。
+### 8. 子线上的未排章已写记录绕过切口约束并进入线视图
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/world/line-rules.ts:34-37（`rank === null` 时跳过越界检查）；packages/nb-canon/src/lines/table.ts:162-164（子线自己的未排章记录直接返回可见）
+**现象**：真实 `World.publish` 在同一请求里建 `l1`，再把一条 `kind:"written"` 的记录安放成 `{kind:"unscheduled", line:"l1"}`；发布成功，`world.line(l1).records.changes.has(own)` 为 `true`。
+**为什么是问题**：worldlines 输出 3 要求子线自己的记录按安放全序严格晚于切口；未排章没有全序，不能满足这个条件。现实现把 `rank === null` 当作“不过滤”，所以记录能进入线视图，却没有任何读取位置的先后，既无法判断它是否越过切口，也违反输出 2 的线性视图。计划未排章是允许的特殊情况，不能把它推广到子线已写记录。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/unscheduled-child.ts`；输出 `ok:true` 且 `view:true`。
+**建议改法**：对 `kind:"written"` 的子线记录（及子线核对点）在 `placementRank` 为 `null` 时拒收，使用 `line-out-of-bounds`/`invalid-line` 的结构化详情；线表只允许计划的未排章记录按计划规则继承，不把本线未排章已写记录视为可见。
+### 9. 未排章的分叉自身绕过“必须晚于切口”的校验
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/nb-canon/src/world/forks.ts:100-104（仅当 `self !== null` 时比较分叉与切口）；packages/nb-canon/src/lines/table.ts:183-192（也不把分叉自身未排章作为不可建原因）
+**现象**：真实 `World.publish` 把分叉记录的 `at` 写成 `{kind:"unscheduled"}`，切口是已排章的主线记录；请求成功，并且同一请求里的子线未排章记录还进入了线视图。
+**为什么是问题**：worldlines 输出 14 要求分叉安放在切口之后（回溯不早于触发处）；无排序键的分叉不可能满足“之后”。现在 `self === null` 直接跳过比较，日志中出现没有安放位置却定义世界线的分叉，线树、读取位置和后续依赖都失去确定的全序。
+**如何核实**：`bun /tmp/review-w00039-t34-I4/lab/unscheduled-child.ts`；将分叉 `at` 改为 `unscheduled` 后仍输出 `ok:true`。
+**建议改法**：分叉校验在 `self === null` 时直接报 `invalid-fork`（或统一的未排章安放失败）；不要把无排序的分叉留给线表兜底。单独补回溯与普通分叉两种失败用例。
+
+未发现问题的方面：
+- `LineSet.advance` 对已建线的记录、carry、条目初值与结构变化的增量更新；`bun test tests/worldlines.test.ts`、`bun test tests/lines-differential.test.ts`、`bun test tests/differential.test.ts` 均通过，未在已覆盖路径中发现增量与重放差异。
+- `affectedLines` 的父线依赖范围、孙线闭包与 `brokenOn` 根因记账；线层差分与已有固定场景通过，未另发现漏报。
+- carry 合成事件、`slotAfter`、来历与回溯时间虚点；worldlines/time 针对性测试通过，未发现虚点进入事件列表的证据。
+- `KnowingIndex` 的 carried 有效知情、同键显式优先与回溯经历；剧情知识测试通过，未发现本次范围内的额外问题。
+- 未检查 e2e、开发服务、perf/scale 脚本；按任务规则未运行。性能方面未新增可量化发现。
+
+各级数量：阻断 0；重要 9；建议 0；共 9 条。
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9

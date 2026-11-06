@@ -66,13 +66,13 @@ onBeforeUnmount(() => detach?.());
             <div class="settings-section-heading__line">
                 <h2 class="settings-section-heading__title">{{ replacement === null ? title : replacement.title }}</h2>
                 <!-- 说明放不下时截断、悬停显示全文；标题被替换时没有说明（说明属于分区）。 -->
-                <Tooltip v-if="replacement === null && description !== null" :text="description" placement="bottom">
+                <Tooltip v-if="replacement === null && description !== null" :text="description" side="bottom">
                     <p class="settings-section-heading__description" data-settings-heading-description>{{ description }}</p>
                 </Tooltip>
             </div>
         </div>
         <div class="settings-section-heading__side">
-            <Tooltip v-if="notice?.kind === 'invalid'" placement="bottom">
+            <Tooltip v-if="notice?.kind === 'invalid'" side="bottom">
                 <button type="button" class="settings-section-heading__warning nb-ui-focus-ring" data-settings-layer-notice="invalid" data-settings-open-file @click="emit('open-file')">
                     <span class="i-lucide-triangle-alert settings-section-heading__warning-icon" aria-hidden="true"></span>
                     <span>{{ notice.text }}</span>

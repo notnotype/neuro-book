@@ -20,8 +20,18 @@ export interface HttpRouteEnv {
 
 /**
  * `http.routes` 的实现：收到的请求已去掉挂载前缀（`/api/<插件 id>/tree` 到达时路径为 `/tree`）。
- * Hono 应用的 `fetch(request, env)` 满足此形状，`env` 在 Hono 中即 `c.env`。
+ * Hono 应用的 `fetch(request, env)` 满足此形状，`env` 在 Hono 中即 `c.env`；Hono 应用要设 `onError(rethrowRouteError)`。
  */
 export interface HttpRouteHandler {
     fetch(request: Request, env: HttpRouteEnv): Response | Promise<Response>;
+}
+
+/**
+ * Hono 应用的错误处理器：`new Hono().onError(rethrowRouteError)`。Hono 缺省接住处理器抛的错、打到标准错误并回纯文本 500，
+ * `fetch` 不抛，分发层统一的诊断与 JSON 响应（docs/specs/runtime/server-host.md 的“请求分发”）就走不到。这里重新抛给分发层；
+ * 带 `getResponse` 的是 Hono 的 `HTTPException`，它自己就是要给客户端的响应，不算出错。
+ */
+export function rethrowRouteError(error: Error): Response {
+    if ("getResponse" in error && typeof error.getResponse === "function") return error.getResponse() as Response;
+    throw error;
 }

@@ -1,0 +1,270 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t08-theme-editor",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "主题编辑器：范围与结构",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "c4173eaa3dc002708010041174a44fbba1ab10e25eda131c2f236dc2d34919a6",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "r1-home",
+            "type": "single",
+            "label": "用户做的主题存在哪里、怎么生效",
+            "options": [
+                {
+                    "value": "library",
+                    "label": "A：“我的主题”库，存在用户数据里，改完即时生效"
+                },
+                {
+                    "value": "plugin",
+                    "label": "B：直接生成成第三方插件"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "library"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-entry",
+            "type": "single",
+            "label": "编辑器放在哪里",
+            "options": [
+                {
+                    "value": "tab",
+                    "label": "A：编辑区里的一个页签（和欢迎页一样的页面）"
+                },
+                {
+                    "value": "settings",
+                    "label": "B：设置窗口里的一页"
+                },
+                {
+                    "value": "page",
+                    "label": "C：独立的全屏页面（像书架页）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "tab"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r3-palette",
+            "type": "single",
+            "label": "配色怎么编",
+            "options": [
+                {
+                    "value": "derive",
+                    "label": "A：先选几个主色，一键推导整套，再逐项微调"
+                },
+                {
+                    "value": "manual",
+                    "label": "B：只做逐项手调"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "derive"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r4-crop",
+            "type": "single",
+            "label": "场景图在各位置的取景怎么编",
+            "options": [
+                {
+                    "value": "drag",
+                    "label": "A：在原图上拖出取景框，所见即所得"
+                },
+                {
+                    "value": "numeric",
+                    "label": "B：只填数值（大小、位置）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "drag"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r5-share",
+            "type": "single",
+            "label": "分享与导入",
+            "options": [
+                {
+                    "value": "zip",
+                    "label": "A：导出成可安装的主题插件（zip），也能把插件里的主题导入编辑"
+                },
+                {
+                    "value": "json",
+                    "label": "B：只导出一个 JSON 声明文件"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "zip"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r-notes",
+            "type": "text",
+            "label": "还有什么想说的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 2,
+                "by": null
+            }
+        },
+        {
+            "id": "r2-organise",
+            "type": "single",
+            "label": "分区怎么组织",
+            "options": [
+                {
+                    "value": "nav",
+                    "label": "A：左边竖向分区导航，右边一次只看一个分区（草图 1）"
+                },
+                {
+                    "value": "scroll",
+                    "label": "B：一页长滚动，各分区可折叠"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "nav"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-lightdark",
+            "type": "single",
+            "label": "亮色和暗色怎么编",
+            "options": [
+                {
+                    "value": "switch",
+                    "label": "A：顶部一个亮/暗切换，编辑区与真实工作台都跟着切（草图 1）"
+                },
+                {
+                    "value": "side",
+                    "label": "B：亮暗并排两列，同时编"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "switch"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-contrast",
+            "type": "single",
+            "label": "对比度检查放哪",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "A：每个颜色项旁实时显示比值，低于 4.5 标红；另有一个汇总分区（草图 1）"
+                },
+                {
+                    "value": "summary",
+                    "label": "B：只有汇总分区"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "inline"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-crop",
+            "type": "single",
+            "label": "五个取景框怎么摆（草图 2）",
+            "options": [
+                {
+                    "value": "one",
+                    "label": "A：五个框叠在同一张原图上，选中的实线，其余淡显；右边列表选框、改数值"
+                },
+                {
+                    "value": "tiles",
+                    "label": "B：五张小图各自一个取景，一次编一个"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "one"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-notes",
+            "type": "text",
+            "label": "还有什么想说的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T04:47:24.929Z"
+}

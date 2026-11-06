@@ -25,6 +25,7 @@ import {descriptor as state} from "./plugins/state/plugin";
 import {descriptor as agent} from "./plugins/agent/plugin";
 import {descriptor as models} from "./plugins/models/plugin";
 import {descriptor as storage} from "./plugins/storage/plugin";
+import {descriptor as themeStudy} from "./plugins/theme-study/plugin";
 import {descriptor as workbench} from "./plugins/workbench/plugin";
 
 /**
@@ -33,7 +34,7 @@ import {descriptor as workbench} from "./plugins/workbench/plugin";
  */
 export type {PluginDescriptor};
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, models, agent, plugins, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview, canon, plot];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, models, agent, plugins, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview, canon, plot, themeStudy];
 
 export {definitionAt, pluginsAt, thirdPartyDefinition, thirdPartyDefinitionAt} from "./plugin-platform/shared/definitions";
 export type {EntryLoader} from "./plugin-platform/shared/definitions";

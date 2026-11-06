@@ -1,0 +1,31 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t17-conversation-ui",
+    "artifactId": "review",
+    "answerId": "20261105T061905436Z-e55fbdd6",
+    "artifactVersion": 1,
+    "contentHash": "eb0e384b51861800dcf4c261073245fb8c6bda623e37f2de1a5c3bc67f0cbdc2",
+    "submittedAt": "2026-11-05T06:19:04.716Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "header-sessions": "change",
+        "status-bar": "change",
+        "mode-menu": "change",
+        "approval": "change",
+        "ask": "ok",
+        "banners": "change"
+    },
+    "comments": {
+        "header-sessions": "不想要这种没对齐的。而且圆角的弧度太大了（需要改规范吧圆角弧度改小点）",
+        "status-bar": "感觉信息量少了点，是不是有什么东西遗漏了？还有这个正在读取xxx放在这里没啥用。状态栏这里给我几个方案，我看看。",
+        "mode-menu": "和顶栏与会话切换的问题一样",
+        "approval": "diff 这个可以做成通用组件，不知道现在是否已经很是通用组件了吗？diff 还可以做成两栏的 diff。还有以后的 diff 冲突解决是否可以和 diff 组件一样用一个组件来实现？\n---\n允许命令审批这里有点丑",
+        "ask": "审批和提问这里，是浮动在下层的对话流上面还是在同一层，和对话消息流抢占高度？",
+        "banners": "有点丑，还是直角的，需要优化"
+    },
+    "note": null
+}

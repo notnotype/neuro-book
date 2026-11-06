@@ -56,4 +56,5 @@ status: active
 | [t16](tasks/t16-cli-papercuts/README.md) | nbdev 命令行修补：产物只提交引用到的文件、不合规逐条列出、`answers --wait` 接 SIGHUP、`shot` 找不到组件立即失败、`--no-lease`、只报相关撞号；2026-10-15 合入 `master`（`8634c9d70`），完成 |
 | [t17](tasks/t17-panel-small-fixes/README.md) | 面板小修：nb-ui 勾选框的根上修法、会话页紧凑写法（1440×650 下终端 222 到 345px）、显示租约处带会话标题；2026-10-15 合入 `master`（`8634c9d70`），完成 |
 | [t18](tasks/t18-agent-self-check/README.md) | Agent 自助验收：`dev start --sample` 带样例作品、`nbdev shot --page` 与 `page:shot` 截产品页面；2026-10-15 合入 `master`（`8634c9d70`），完成 |
-| [t19](tasks/t19-answer-notify-fixes/README.md) | 评审板能不选（清空的题回到没答、什么题标选答）、自动通知认带会话名的 Claude 输入框、发布后给出挂等待的命令；2026-11-02 合入 `master`（`bd8116055`），待重启 4400 |
+| [t19](tasks/t19-answer-notify-fixes/README.md) | 评审板能不选（清空的题回到没答、什么题标选答）、自动通知认带会话名的 Claude 输入框、发布后给出挂等待的命令；2026-11-02 合入 `master`（`bd8116055`），4400 已重启，待等到一次真实的自动通知 |
+| [t20](tasks/t20-panel-review-close-and-reading-width/README.md) | 评审题缺省选答、开发者能在面板上关闭评审（在等的会话会醒）；只在旧副本里的撞号不再进收件箱；Task 与文档页的 Markdown 加宽；左栏 Task 多的 Work 缺省收起一部分；2026-11-05 合入 `master`（`2b4f7b4f8`），4400 已重启 |

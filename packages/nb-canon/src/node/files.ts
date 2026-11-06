@@ -85,4 +85,3 @@ async function syncDir(path: string): Promise<void> {
         await handle.close();
     }
 }
-

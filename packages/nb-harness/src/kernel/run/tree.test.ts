@@ -144,6 +144,46 @@ describe("回退", () => {
         expect(types(events).filter((type) => type === "runStarted")).toHaveLength(1);
     });
 
+    test("输出 80、81：结构查询不读全文；分叉一次查到，孩子各带分支的末端", async () => {
+        await using session = await createTestSession({tools: [readTool], store: {root}});
+        await twoTurns(session);
+        expect(await session.raw.branchPoints()).toEqual([]);
+        const lastStep = (await session.raw.rewindTargets()).filter((target) => target.kind === "after-step").at(-1)!;
+        await session.raw.rewind({commandId: id(), to: lastStep.id});
+        session.model.script("重试的答二");
+        const started = await session.raw.start({commandId: id()});
+        if (!started.ok) throw new Error(started.code);
+        await session.raw.waitRun(started.value.runId);
+
+        const points = await session.raw.branchPoints();
+        expect(points).toHaveLength(1);
+        expect(points[0]!.parent).toBe(lastStep.id);
+        expect(points[0]!.children).toHaveLength(2);
+        const all = (await session.raw.log({afterSeq: 0})).events;
+        const pathEvents = all.filter((event) => event.scope === "path");
+        const ends = points[0]!.children.map((child) => child.latestLeaf);
+        // 第一条分支的末端写得早，第二条是最后写的。
+        expect(ends[1]).toBe(pathEvents.at(-1)!.id);
+        expect(pathEvents.findIndex((event) => event.id === ends[0])).toBeLessThan(pathEvents.length - 1);
+
+        const first = await session.raw.treeNodes({limit: 3});
+        expect(first.nodes).toHaveLength(3);
+        expect(first.more).toBe(true);
+        const rest = await session.raw.treeNodes({afterSeq: first.through});
+        expect(rest.more).toBe(false);
+        const nodes = [...first.nodes, ...rest.nodes];
+        expect(nodes.map((node) => node.id)).toEqual(pathEvents.map((event) => event.id));
+        expect(nodes.find((node) => node.type === "input")?.label).toBe(texts(all, "input")[0]);
+        expect(nodes.filter((node) => node.type === "assistant").map((node) => node.label)).toContain("重试的答二");
+        expect(nodes.every((node) => !("data" in node))).toBe(true);
+        // 不合法的 limit 不会卡住游标，也不会取消上限。
+        for (const limit of [0, -1, 1.5, Number.NaN]) {
+            const page = await session.raw.treeNodes({limit});
+            expect(page.nodes.length).toBeGreaterThan(0);
+            expect(page.through).toBeGreaterThan(0);
+        }
+    });
+
     test("输出 35：运行中得 running；不是节点得 unknown-node；不是目标得 invalid-target", async () => {
         await using session = await createTestSession({tools: [readTool]});
         await twoTurns(session);
@@ -205,6 +245,20 @@ describe("分支与 fork", () => {
 });
 
 describe("fork 的幂等", () => {
+    test("输出 74：fork 出的会话不带说明，也不带“用户改过”的记录", async () => {
+        await using session = await createTestSession({store: {root}});
+        session.model.script("好");
+        await session.say("开始");
+        await session.raw.setTitle({commandId: id(), title: "我的书"});
+        await session.raw.setGeneratedMeta({commandId: id(), description: "说明"});
+        const forked = await session.raw.fork({commandId: id()});
+        if (!forked.ok) throw new Error(forked.code);
+        await using copy = await createTestSession({store: {root}, open: forked.value.sessionId});
+        const snapshot = await copy.raw.snapshot();
+        expect([snapshot.title, snapshot.description]).toEqual([null, null]);
+        expect(await copy.raw.setGeneratedMeta({commandId: id(), title: "新标题"})).toMatchObject({value: {titleApplied: true}});
+    });
+
     test("输出 37、session 输出 17：原会话受理批写失败后重开，用同一个 commandId 重发得到同一个 fork，不多建", async () => {
         await using session = await createTestSession({store: {root}, wrapStore: failOnce(accepting("fork"))});
         session.model.script("答一");

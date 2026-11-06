@@ -13,7 +13,11 @@ NeuroBook 单独的图形标志（捧书的猫，品牌成品，来源见同目�
 
 ## 数据
 
-没有 props 与事件；根节点带 `role="img"` 与 `aria-label="NeuroBook"`。用作纯装饰（旁边已有文字说明）时，使用方在根上加 `aria-hidden="true"`。
+| 属性 | 说明 |
+|---|---|
+| `decorative` | 纯装饰（旁边已有文字说明）：根节点 `aria-hidden="true"`，不带 `role` 与名称。缺省 `false`：根节点带 `role="img"` 与 `aria-label="NeuroBook"`。 |
+
+没有事件。
 
 ## 不支持
 

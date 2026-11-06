@@ -5,7 +5,7 @@
  * 一起加载。要注入 Markdown 与编辑器的零件经 `host.ts` 包一层，`host.ts` 引用了 Markdown 插件的组件，只在选中场景时动态加载。
  */
 
-import type {AgentConversationView, AgentModelCatalog, AgentSessionList} from "@notnotype/nb-agent-ui/vue";
+import type {AgentConversationView, AgentModelCatalog, AgentSessionList, AgentSessionPanel} from "@notnotype/nb-agent-ui/vue";
 import type {
     AgentChainSummary,
     AgentCommandDetail,
@@ -16,8 +16,18 @@ import type {
     AgentFileContentDetail,
     AgentMarkdown,
     AgentMessageActions,
+    AgentContextInspector,
+    AgentSessionTree,
+    AgentMessageEditor,
     AgentModelPicker,
+    AgentRoleModelPicker,
+    AgentApprovalWizard,
+    AgentQuestionWizard,
     AgentQueuedMessages,
+    AgentStatusBar,
+    AgentWizard,
+    AgentWizardFrame,
+    PlainForm,
     AgentRawView,
     AgentTaskList,
     AgentTaskListNode,
@@ -33,9 +43,10 @@ import type {Component} from "vue";
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
+import {agentApprovalWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
-import {agentSessionListScenes} from "./session-list.scenes";
-import {agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes} from "./composer.scenes";
+import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
+import {agentContextInspectorScenes, agentConversationComposerScenes, agentMessageEditorScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes, agentSessionTreeScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
     agentCommandDetailScenes,
@@ -71,6 +82,11 @@ export const nbAgentUiFixtures: LabFixture[] = [
         component: "AgentSessionList", scenes: agentSessionListScenes, class: "h-[480px] w-[280px]",
         subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionList)}),
         events: ["action"],
+    }),
+    defineSubjectFixture<typeof AgentSessionPanel>({
+        component: "AgentSessionPanel", scenes: agentSessionPanelScenes, class: "h-[480px] w-[360px]",
+        subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionPanel)}),
+        events: ["action", "update:query", "update:scope", "toggle-profile", "update:show-archived"],
     }),
     // 目录对话框同样从公开入口取、套一层场景的翻译端口；它渲染到 body，根是传送门。
     defineSubjectFixture<typeof AgentModelCatalog>({
@@ -126,6 +142,29 @@ export const nbAgentUiFixtures: LabFixture[] = [
         events: ["select-model", "select-thinking", "manage"],
         writeBack: {"select-model": {layer: "props", key: "modelKey"}, "select-thinking": {layer: "props", key: "thinking"}},
     }),
+    defineSubjectFixture<typeof AgentContextInspector>({
+        component: "AgentContextInspector", scenes: agentContextInspectorScenes, subject: agentSubject("AgentContextInspector"),
+        events: ["load-system-prompt"],
+    }),
+    defineSubjectFixture<typeof AgentMessageEditor>({
+        component: "AgentMessageEditor", scenes: agentMessageEditorScenes, subject: agentSubject("AgentMessageEditor"),
+        events: ["submit", "cancel"],
+    }),
+    defineSubjectFixture<typeof AgentSessionTree>({
+        component: "AgentSessionTree", scenes: agentSessionTreeScenes, subject: agentSubject("AgentSessionTree"),
+        events: ["activate", "copy"],
+    }),
+    defineSubjectFixture<typeof AgentRoleModelPicker>({
+        component: "AgentRoleModelPicker", scenes: agentRoleModelPickerScenes, subject: agentSubject("AgentRoleModelPicker"),
+        events: ["select-model", "select-thinking", "manage"],
+        writeBack: {"select-model": {layer: "props", key: "modelKey"}, "select-thinking": {layer: "props", key: "thinking"}},
+    }),
+    defineLabFixture<typeof AgentStatusBar>({component: "AgentStatusBar", scenes: agentStatusBarScenes, load: async () => (await import("./AgentStatusBarFixture.vue")).default}),
+    defineSubjectFixture<typeof AgentWizard>({component: "AgentWizard", scenes: agentWizardScenes, subject: agentSubject("AgentWizard"), events: ["action"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentWizardFrame>({component: "AgentWizardFrame", scenes: agentWizardFrameScenes, subject: agentSubject("AgentWizardFrame"), slotPresets: {default: () => "内容区", foot: () => "按钮"}, events: ["collapse"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentApprovalWizard>({component: "AgentApprovalWizard", scenes: agentApprovalWizardScenes, subject: agentSubject("AgentApprovalWizard"), events: ["update:state", "submit", "denyAll", "collapse"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentQuestionWizard>({component: "AgentQuestionWizard", scenes: agentQuestionWizardScenes, subject: agentSubject("AgentQuestionWizard"), events: ["update:state", "submit", "stop", "collapse"], class: "w-full"}),
+    defineSubjectFixture<typeof PlainForm>({component: "PlainForm", scenes: [{id: "empty", label: "JSON 文本框", input: {props: {schema: {type: "object"}}, model: {modelValue: {name: "苏晴"}}}}], subject: agentSubject("PlainForm"), events: ["update:modelValue", "update:valid"], class: "w-full"}),
     defineSubjectFixture<typeof AgentQueuedMessages>({component: "AgentQueuedMessages", scenes: agentQueuedMessagesScenes, subject: agentSubject("AgentQueuedMessages"), class: "w-full"}),
     defineSubjectFixture<typeof AgentDeliveryNotice>({
         component: "AgentDeliveryNotice", noInput: "只有“重新发送”“移除”两个事件，没有数据 prop", scenes: agentDeliveryNoticeScenes,

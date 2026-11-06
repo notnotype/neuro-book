@@ -1,5 +1,5 @@
 /*
- * 设计 token 层（编辑室草案 §4）+ 主题层基线。
+ * 设计 token 层 + 主题层基线。
  *
  * 事实源。排版 / 间距 / 圆角 / 层级 / 动效五组，**不随配色变化**，所以不进
  * colorway/colorway-contract.ts 的配色契约，而是在这里一次性声明。名单与用途见 theme/tokens.ts。
@@ -45,6 +45,10 @@
 
     /* ---- 4.3 圆角（控件、面板、菜单、胶囊四档） ------------------------------ */
     --radius-control: 6px;
+    /* 按钮按尺寸取，不跟 --radius-control 走：主题可以只收按钮，也可以三档取一个值。 */
+    --radius-button-sm: 6px;
+    --radius-button-md: 8px;
+    --radius-button-lg: 10px;
     --radius-panel: 10px;
     --radius-menu: var(--radius-panel);
     --radius-pill: 999px;
@@ -80,6 +84,16 @@
     --motion-reveal-hold: 500ms;
     --motion-reveal-out: 800ms;
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    /* 布局的外框移动（开关面板、拆分与关闭）：距离长、要看清东西去了哪，所以比控件的形变慢。 */
+    --motion-layout: 470ms;
+    --ease-layout: cubic-bezier(0.23, 1, 0.32, 1);
+    /*
+     * 对话框、浮动窗口从触发点展开与收回：只是一层浮层，比布局的移动快。收回用加速的曲线：起步慢才看得出它在往回走，
+     * --ease-standard 前三成就走完了，加上淡出，肉眼看就是直接消失（开发者 2026-11-06 实测）。
+     */
+    --motion-dialog: 340ms;
+    --motion-dialog-leave: 260ms;
+    --ease-dialog-leave: cubic-bezier(0.4, 0, 0.8, 0.5);
 
     /*
      * 滚动条：自绘滑块（OverlayScrollbar、ScrollArea、PopupScrollbar）与原生细滚动条（.nb-ui-scrollbar-thin）共用
@@ -124,9 +138,8 @@
     --stack-gap: 16px;
 
     /* 大控件的圆角单列一档。
-       原注释写着「Apple 只在 Large / X-Large 才走 capsule」——这条已被 Apple 官方的
-       macOS 27 UI Kit 推翻：Buttons 组里连 Mini（41×16）都是整颗胶囊。默认值仍取
-       --radius-control（不装主题时观感不变），要不要 pill 由主题自己决定。 */
+       缺省取 --radius-control（不装主题时观感不变），要不要整颗胶囊由主题决定；Apple 的读数见
+       docs/research/apple-macos-ui-kit-readings.md。 */
     --radius-control-lg: var(--radius-control);
 
     /*
@@ -145,7 +158,7 @@
     --radius-dialog-compact: var(--radius-dialog);
 
     /*
-     * 浮动窗口（Dialog 的 modal=false）的圆角，缺省等于对话框。单列一档是因为窗口常开着、占的面积大，和应用窗口
+     * 浮动窗口（`FloatingWindow`）的圆角，缺省等于对话框。单列一档是因为窗口常开着、占的面积大，和应用窗口
      * 是同一类东西：模态对话框那一档的大圆角画在它上面像一张卡片。主题需要时单独收小（nbook 就是）。
      */
     --radius-window: var(--radius-dialog);
@@ -234,5 +247,8 @@
         --motion-reveal-in: 0ms !important;
         --motion-reveal-hold: 0ms !important;
         --motion-reveal-out: 0ms !important;
+        --motion-layout: 0ms !important;
+        --motion-dialog: 0ms !important;
+        --motion-dialog-leave: 0ms !important;
     }
 }

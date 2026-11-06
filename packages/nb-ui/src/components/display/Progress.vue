@@ -4,9 +4,10 @@ import {
     ProgressIndicator,
     ProgressRoot,
 } from "reka-ui";
+import type {ControlSize} from "../shared-types";
 
 export type ProgressTone = "accent" | "success" | "warning" | "danger";
-export type ProgressSize = "sm" | "md" | "lg";
+export type ProgressSize = Extract<ControlSize, "sm" | "md" | "lg">;
 
 const props = withDefaults(defineProps<{
     modelValue?: number;

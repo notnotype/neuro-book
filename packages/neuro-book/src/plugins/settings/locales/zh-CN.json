@@ -32,6 +32,9 @@
         "category": "设置",
         "open": {
             "title": "打开设置"
+        },
+        "toggle": {
+            "title": "打开或关闭设置"
         }
     },
     "state": {

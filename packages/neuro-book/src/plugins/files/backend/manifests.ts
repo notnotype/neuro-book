@@ -5,7 +5,7 @@
 
 import type {ManifestIssue} from "../shared/contracts";
 import type {ChangeHub} from "./changes";
-import {decodeText} from "./files-service";
+import {decodeText} from "../shared/text";
 import {BODY_NAME, folderKindOf, MANIFEST_NAME, parseManifest} from "./folder-kinds";
 import {applyEdit, itemAt} from "./manifest-edit";
 import type {Edit, ItemNode, Level} from "./manifest-edit";

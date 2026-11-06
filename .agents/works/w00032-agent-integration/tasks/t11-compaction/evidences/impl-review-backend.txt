@@ -1,0 +1,57 @@
+### 1. 放回单个文件的读盘异常会吞掉整批恢复内容
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/agent/backend/compaction/restore.ts:129-145
+现象：`#render` 只把 `readPath`、`stat` 的失败转成 `restore-skipped`；`readFile(located.value.path)`、`decodeText` 前后的异步读盘异常以及 `renderSnapshot` 异常直接向上抛出。`CompactionRestore.run` 没有逐文件 catch，内核在 `compact.ts:227-231` 捕获后把整个 restore 当成失败，之前已读出的文件、计划和日志地址全部丢弃。
+为什么是问题：合同要求文件被删除、撤权、非文本或读不到时跳过并写诊断，不让压缩失败。`readPath` 成功后文件仍可能被删除、替换或发生 IO/权限错误；此时一次边界压缩成功但放回内容全丢，行锚也不登记，模型只能重新 read，且其它本来可恢复的文件被无关文件拖累。
+如何核实：用真实 Agent 插件宿主创建两个成功读取的文件；在 `readPath` 成功到 `readFile` 之间删除其中一个，或用真实文件服务返回路径后制造权限/IO 失败；触发摘要压缩，观察诊断只有该文件的 `restore-skipped`、其它文件仍进入 `restored`，而当前实现会写 `compaction-failed` 的 restore 诊断且恢复通知为空。现有 `packages/neuro-book/src/plugins/agent/compaction.test.ts:243-269` 只覆盖调用前不存在后新建，未覆盖这条竞态。
+建议改法：把每个候选文件的 `#render` 调用包在独立的 try/catch，按资源读工具同样把异常映射为结构化失败码并调用 `report("restore-skipped", ...)`；单个文件失败后继续剩余预算与计划，只有中止信号才结束恢复。
+### 2. 摘要方法的保留尾窗不受会话模型窗口约束
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/agent/backend/compaction/cuts.ts:7-16、packages/neuro-book/src/plugins/agent/backend/compaction/summary.ts:79-106
+现象：`pickCut` 对所有会话固定保留最多 20,000 token；`summaryResult` 直接把 `summaryTokens + cut.tokensKept` 写成 `tokensAfter`。它没有按 `job.modelInfo({sessionModel: true})` 或 `CompactArgs.contextWindow` 收紧尾窗。只要会话模型窗口小于 20,000（例如 4,096），而压缩角色窗口较大，溢出或最后一个不可拆分单元就能得到远超会话窗口的 `tokensAfter`。
+为什么是问题：压缩成功后下一次对话请求仍带这段尾窗，尚未加入系统提示、工具声明、放回内容和新输入就已经超过会话模型窗口；随后会再次溢出。溢出路径只允许同一请求重发一次，最终仍以 `context_overflow` 收口，压缩没有恢复对话。Spec 的“摘要模型窗口可小于会话模型”只约束分段，不能反过来允许恢复内容超过会话模型。
+如何核实：真实内核加真实本机端点，给会话模型 `contextWindow: 4096`、压缩角色 `contextWindow: 200000`，构造两个轮次并让最后一个不可切分工具步超过 20,000 token，触发溢出摘要；检查 `compaction.tokensAfter` 大于 4,096，并让端点对后续请求按总输入超窗返回 `context_overflow`。当前 `packages/neuro-book/src/plugins/agent/compaction.test.ts:271-283` 的小窗口场景只走 `inplace`，没有覆盖摘要方法和不同角色窗口。
+建议改法：为摘要方法计算会话模型可容纳的尾窗预算，至少扣除系统、工具、恢复内容和当前输入的保留空间；不可在该窗口内保留的最后单元应显式走失败或切块/占位路径，而不是把固定 20,000 直接写成 `tokensAfter`。
+### 3. 自定义 Profile 没保留事件来源时摘要会重复保留尾部
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/agent/backend/compaction/cuts.ts:23-27、packages/neuro-book/src/plugins/agent/backend/compaction/summary.ts:86-88
+现象：`keptMessageIndex` 找不到 `firstEventId` 和 `firstCallId` 时返回 `messages.length`，摘要方法于是把整个请求消息序列化。内核随后仍按同一个 `firstKeptEntryId` 保留尾部，所以切点之后的消息既进入摘要，又原样出现在压缩后的对话里。自定义 Profile 的 `turn`/`commit` 可以合法地把对话改写成 `origin.kind: "fixed"`、合并消息或不暴露原事件 id，这个回退不是异常输入。
+为什么是问题：注释把“多摘一点不丢内容”当成安全，但实际结果是重复内容；每次压缩都会把本应留在尾窗的最近轮再写进摘要，扩大上下文、污染摘要中的进度与下一步，并可能使本来可容纳的会话再次溢出。切点定位失败也没有诊断，宿主无法知道 Profile 破坏了压缩定位前提。
+如何核实：用真实内核创建自定义 Profile，使 `turn` 返回固定来源的消息或把一个轮合并成一条没有事件来源的消息；让摘要方法选择一个有尾窗的切点，检查摘要请求包含尾窗内容，同时压缩后的下一次 turn 请求仍包含同一内容。现有 `compaction-methods.test.ts:25-35` 只断言定位不到时返回末尾，没有验证摘要与保留尾窗的组合结果。
+建议改法：为 Profile 的请求消息提供稳定的事件/工具调用定位映射；定位失败时不要静默把全部消息交给摘要，改为显式失败并换方法，或让内核把“实际摘要范围”作为切点合同的一部分传给方法，避免重复。
+### 4. 压缩方法激活完成后可能在运行已中止时才开始执行
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/agent/backend/compaction/index.ts:58-75
+现象：`#call` 在 `options.activate(onAgentCompaction(id))` 上等待；中止只会让内核外层 `Promise.race` 收口。激活 Promise 完成后，代码没有再次检查 `job.signal` 或撤回控制器，直接执行 `handle.implementation()({...job, signal: AbortSignal.any(...)})`。因此中止发生在激活等待期间时，方法仍会被启动，只是收到一个已经 aborted 的 signal。
+为什么是问题：输出 51 要求中止后方法回调不再被等待、迟到结果不能写入；更基础的不变量是中止后不应开始新的第三方副作用。第三方方法可能在检查 signal 之前分配资源、发网络请求或修改外部状态；内核已经写下 `runEnded{aborted}`，这次方法随后才开始，结果既被丢掉又无法由内核收口。
+如何核实：真实 Agent 宿主登记一个声明但未激活的第三方压缩方法，让 `onAgentCompaction:<id>` 的激活在门闩上等待；触发压缩后 abort，确认运行已收口，再放开激活门闩，记录方法入口是否被调用。当前 `compaction-methods.test.ts` 没有激活、撤回或中止竞态，`compaction.test.ts:375-403` 只覆盖方法已经进入后的挂起。
+建议改法：激活返回后、调用实现前检查 `job.signal.aborted` 与当前句柄是否仍是已发布代次；任一成立都交回 `{failed: "aborted"}`/`{failed: "method-revoked"}`，不启动实现。撤回与激活并发时也要按句柄代次裁决。
+### 5. 放回的预算循环在长行场景仍会超出合计上限
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/agent/backend/compaction/restore.ts:90-99、packages/neuro-book/src/plugins/agent/backend/compaction/restore.ts:137-144、packages/neuro-book/src/plugins/agent/backend/builtin/read.ts:101-106
+现象：`#render` 通过缩小 `bytes` 重试，但 `collect` 对第一行不执行 `bytes + size > maxBytes` 判断；长行先被固定截到 `MAX_LINE_CHARS`，仍可能远大于当前 `tokens`。当 `bytes <= 1,000` 或重试 4 次后，`#render` 无条件返回这段超预算文本；`take` 再把超出的 `tokens` 从 `left` 扣掉，完全没有拒绝或二次截短。
+为什么是问题：Spec 要求文件与计划合计不超过 `min(20,000, 窗口的 25%)`。例如会话窗口 4,096、放回预算 1,024，一个 2,000 个中文字符的单行在 `MAX_LINE_CHARS` 截断后仍约 2,000 token，第一份文件就超过 25% 预算，后续模型请求可能再次溢出。行锚合同又要求未完整展示的行不算见过，不能用“截断后仍登记”掩盖超限。
+如何核实：真实 Agent 宿主用 `contextWindow: 4096` 的会话模型，创建只有一条约 2,000 个中文字符的文本行，先真实 `read` 成功后触发摘要放回；检查 `compaction.restored[0].tokens` 大于 1,024 且下一次请求仍带超预算恢复文本。现有 `compaction.test.ts:271-283` 使用短中文行，未覆盖单条长行。
+建议改法：把预算判断放在排版结果之后；长行无法在不破坏行锚语义的情况下放进剩余预算时跳过该文件并写 `restore-skipped`，或在渲染层明确只输出不登记的截断占位。返回前必须保证 `used <= tokens`，并把实际系统/工具/当前输入预留纳入总预算。
+### 6. 百分比触发点接受合同之外的值
+严重程度：建议；类别：正确性；位置：packages/neuro-book/src/plugins/models/shared/compaction.ts:13-17、packages/neuro-book/src/plugins/models/shared/compaction.ts:29-33
+现象：服务合同规定 `percent` 的值为 1 到 100，但 `CompactionSettingSchema` 只有 `minimum: 1`，没有 `maximum: 100`；算法反而用 `Math.min(setting.value, 100)` 静默把 150 等值压成 100%。因此全局设置、模型配置和远程请求都能保存超范围值，快照仍回显非法配置。
+为什么是问题：设置校验应拒绝无效输入并返回 `invalid-value`，而不是把用户错误隐藏成另一个生效值；同一份配置在 JSON 设置文件、快照和实际触发点之间语义不一致，也让前后端边界测试无法发现配置错误。
+如何核实：已运行 `bun -e 'import {Value} from "typebox/value"; import {CompactionSettingSchema, compactionTrigger} from "./src/plugins/models/shared/compaction.ts"; console.log(JSON.stringify({accepted: Value.Check(CompactionSettingSchema, {mode: "percent", value: 150}), trigger: compactionTrigger({mode: "percent", value: 150}, 200000)}));'`，输出 `{"accepted":true,"trigger":200000}`。现有 `packages/neuro-book/src/plugins/models/shared/compaction.test.ts:15-20` 反而把 150 被截断作为期望，未覆盖合同拒绝路径。
+建议改法：在 schema 给 `percent` 分支加 `maximum: 100`，并删除算法层的静默截断；保留 1–100 的边界测试以及通过真实远程合同写入超范围值应返回 `invalid-value` 的测试。
+### 7. 撤回只丢掉方法返回值，不能阻止迟到方法继续调用模型
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/agent/backend/compaction/index.ts:65-75、packages/nb-harness/src/kernel/run/loop.ts:239、packages/nb-harness/src/kernel/run/model-call.ts:139-160
+现象：贡献点包装把 `AbortSignal.any([job.signal, controller.signal])` 只写进传给实现的 `job.signal`，但 `job.model` 仍是运行循环按原始 `signal` 创建的 `modelCaller`。撤回时 `Promise.race` 立即交回 `{failed: "method-revoked"}`，随后内核可以进入下一个方法；如果旧实现不理会新 signal，它仍能调用 `job.model`，模型调用会正常写 `modelStarted`/`modelEnded` 或 `modelFailed`。`#running` 还在 finally 里马上清理，无法再裁决这些迟到调用。
+为什么是问题：合同要求提供方停止时在途方法算失败、晚到结果丢弃；方法不会写盘/写日志，模型调用是内核代为记账的副作用。当前实现会在旧代次撤回后继续发压缩模型请求、累计费用并写事件，甚至与新代次/后备方法交错，破坏贡献代次隔离和一次压缩的写入顺序。只中止返回 Promise 不能防住方法通过 `job.model` 产生的副作用。
+如何核实：真实 Agent 宿主注册第三方方法：进入后等待一个门闩；方法收到撤回信号后故意继续调用 `job.model` 再返回。让撤回触发后 Profile 还有后备方法，检查日志中后备方法的 `modelStarted` 之后仍出现旧方法的 `modelStarted`/`modelEnded`，并检查旧调用的费用仍被累计。当前 `compaction-methods.test.ts` 没有贡献点寿命测试，`compaction.test.ts:376-403` 只测内核直接注入的挂起方法。
+建议改法：给每个贡献方法注入受包装的 `model`/写入口，在方法代次信号终止后拒绝并丢弃所有后续调用；或让内核的 `modelCaller` 接受方法信号并在调用及写入结算前复核代次。撤回后的实现 Promise 仍可继续运行，但其任何模型、恢复和结果路径必须成为 no-op/late-result-dropped。
+### 8. 小窗口模型的缺省触发点为负数，导致每个边界都无条件尝试压缩
+严重程度：重要；类别：正确性；位置：packages/nb-harness/src/kernel/compaction/compact.ts:47-55、packages/nb-harness/src/kernel/run/loop.ts:233-241
+现象：`triggerPoint` 在没有 `compactAt` 且窗口小于 16,384 时返回负数，例如窗口 8,000 返回 -8,384；运行循环只判断 `estimate > trigger`，所以即使估算为 0 也进入压缩。宿主只给内置顺序时会在第一轮和每个后续边界调用方法，通常得到 `nothing-to-compact` 或 `compaction-failed`，然后才发送正常请求。
+为什么是问题：小窗口模型没有“负 token 的上下文”这一可触发状态；当前行为把每轮正常对话都变成一次无意义的方法链，写诊断、占用方法激活/模型预算，并可能在方法有副作用或卡住时阻塞每个边界。模型服务层对 `reserve` 计算不足时已经返回 undefined，但内核缺省路径没有同样的无效值处理。
+如何核实：已运行真实内核测试会话命令：`bun -e 'import {createTestSession} from "./src/kernel/testing/test-session.ts"; let calls=0; const session=await createTestSession({modelInfo:{id:"small/model",contextWindow:8000,maxOutput:2000,capabilities:{vision:false,thinking:false},efforts:[]},compaction:{methods:{shake:async (job)=>{calls++; return {failed:"x"};}}}}); session.model.script("a","b","c"); const first=await session.say("一"); const second=await session.say("二"); console.log(JSON.stringify({calls, firstCompaction:first.events.filter((e)=>e.type==="compaction").length, secondCompaction:second.events.filter((e)=>e.type==="compaction").length, secondDiagnostics:(await session.raw.diagnostics()).map((d)=>d.code)})); await session.close();'`；输出 `{"calls":2,"firstCompaction":0,"secondCompaction":0,"secondDiagnostics":["compaction-failed"]}`。
+建议改法：把缺省触发点小于等于 0 视为不可按阈值触发（返回 `Infinity`），或定义小窗口的明确失败码并在受理前处理；同时覆盖窗口 8,000、无显式 `compactAt` 的首轮和后续边界。
+
+## 未发现问题的方面
+- 413 的 OMP 状态码归类与溢出后最多一次重发：本次聚焦测试通过。
+- `resultProblem` 对方法名、切点、省略条目、有限 token 与 JSON details 的内核校验：现有合同测试覆盖，未发现本次改动之外的问题。
+- 正常请求的 `effort`、本次运行撤回扩展过滤、`modelInfo` 同源解析：现有内核测试与类型检查通过。
+- 正常放回路径的 `callId` 配对、成功 read/edit 文件筛选、共享 `SessionEditStores` 行锚：现有 Agent 合同测试通过；问题集中在异常与边界路径，已在上文列出。
+- 阈值全局覆盖、旧 `compactAt` 的正常读取与保存迁移、模型解析缓存失效：现有模型服务测试通过；百分比越界校验缺口见第 6 条。
+
+数量：阻断 0，重要 7，建议 1。

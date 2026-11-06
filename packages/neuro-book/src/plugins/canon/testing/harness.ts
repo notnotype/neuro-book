@@ -86,4 +86,3 @@ export async function version(canon: CanonClient): Promise<number> {
 export async function publish(canon: CanonClient, request: WriteRequest, token?: string) {
     return canon.publish({...request, baseVersion: await version(canon)}, token);
 }
-

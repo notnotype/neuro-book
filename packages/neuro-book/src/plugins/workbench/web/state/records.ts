@@ -13,7 +13,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {defineRecord} from "nbook/shared/storage";
+import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import type {RecordDefinition} from "nbook/shared/storage";
 
 /** 尺寸是正有限 CSS px，上限防住写坏的极端值。 */
@@ -95,3 +95,19 @@ export const LAYOUT_RECORDS: Readonly<Record<"user" | "project", LayoutRecords>>
         customizations,
     },
 };
+
+/**
+ * 一棵树的布局文档（docs/specs/ui/workbench-layout.md“状态与转换”）。形状的权威是 nb-layout 的 `validateLayoutDoc`，这里的 schema 只管外层：同一个形状不写两份。显式取 1MiB 上限，
+ * 16 组、每组 200 标签时约 250KB，缺省的 64KiB 不够。
+ */
+const LayoutDocSchema = Type.Object({doc: Type.Unknown()}, {additionalProperties: false});
+
+export type LayoutDocRecord = Static<typeof LayoutDocSchema>;
+
+export const LAYOUT_DOC_RECORDS: Readonly<Record<"user" | "project", RecordDefinition<LayoutDocRecord>>> = {
+    user: defineRecord({key: "workbench.layout", scope: "user", locality: "local", version: 1, schema: LayoutDocSchema, maxBytes: MAX_RECORD_MAX_BYTES}),
+    project: defineRecord({key: "workbench.layout", scope: "project", locality: "local", version: 1, schema: LayoutDocSchema, maxBytes: MAX_RECORD_MAX_BYTES}),
+};
+
+/** 新项目的初始布局：去掉动态标签的文档。 */
+export const LAYOUT_TEMPLATE_RECORD: RecordDefinition<LayoutDocRecord> = defineRecord({key: "workbench.layout-template", scope: "user", locality: "local", version: 1, schema: LayoutDocSchema, maxBytes: MAX_RECORD_MAX_BYTES});

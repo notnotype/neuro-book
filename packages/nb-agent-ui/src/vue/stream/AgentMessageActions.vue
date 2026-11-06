@@ -6,6 +6,8 @@ const props = withDefaults(defineProps<{
     actions?: Array<{id: string; icon: string; label: string}>;
     branch?: {index: number; total: number} | null;
     disabled?: boolean;
+    /** 分支切换不可点（运行中），别的操作照常。 */
+    branchDisabled?: boolean;
 }>(), {
     actions: () => [],
     branch: null,
@@ -26,7 +28,7 @@ const {t} = useAgentText();
             <IconButton
                 icon-class="i-lucide-chevron-left"
                 size="sm"
-                :disabled="props.disabled || props.branch.index <= 1"
+                :disabled="props.disabled || props.branchDisabled || props.branch.index <= 1"
                 :title="t('messageAction.previousBranch')"
                 :aria-label="t('messageAction.previousBranch')"
                 @click="emit('branch', 'previous')"
@@ -37,7 +39,7 @@ const {t} = useAgentText();
             <IconButton
                 icon-class="i-lucide-chevron-right"
                 size="sm"
-                :disabled="props.disabled || props.branch.index >= props.branch.total"
+                :disabled="props.disabled || props.branchDisabled || props.branch.index >= props.branch.total"
                 :title="t('messageAction.nextBranch')"
                 :aria-label="t('messageAction.nextBranch')"
                 @click="emit('branch', 'next')"

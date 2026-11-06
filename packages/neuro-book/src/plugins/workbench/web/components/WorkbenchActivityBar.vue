@@ -77,13 +77,13 @@ const strip = computed(() => {
     return layoutStrip(props.containers.map((container, index) => ({id: container.id, order: index, priority: container.id === props.selected ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
 });
 const shownContainers = computed(() => props.containers.filter((container) => strip.value.shown.includes(container.id)));
-const moreItems = computed(() => props.containers.filter((container) => strip.value.hidden.includes(container.id)).map((container) => ({label: container.label, value: container.id, iconClass: container.icon})));
+const moreItems = computed(() => props.containers.filter((container) => strip.value.hidden.includes(container.id)).map((container) => ({label: container.label, id: container.id, iconClass: container.icon})));
 </script>
 
 <template>
     <nav class="workbench-activity-bar" :aria-label="label">
         <div ref="bandEl" class="workbench-activity-bar__containers" data-switcher-band="sidebar">
-            <Tooltip v-for="container in shownContainers" :key="container.id" :text="container.label" placement="right">
+            <Tooltip v-for="container in shownContainers" :key="container.id" :text="container.label" side="right">
                 <IconButton
                     size="lg"
                     :icon-class="container.icon"
@@ -105,7 +105,7 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
         <div class="workbench-activity-bar__footer" data-activity-items>
             <template v-for="item in items" :key="item.id">
                 <!-- 停用的按钮不触发悬停提示组件：停用时原因写在原生 title 上。 -->
-                <Tooltip v-if="item.command !== null" :text="item.title" placement="right" :disabled="item.disabledReason !== null">
+                <Tooltip v-if="item.command !== null" :text="item.title" side="right" :disabled="item.disabledReason !== null">
                     <IconButton
                         size="lg"
                         :icon-class="item.icon"
@@ -120,7 +120,7 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
                     />
                 </Tooltip>
                 <!-- 没有命令：不可点的占位（不以可操作的假入口呈现），样子同书架右上角的头像位。 -->
-                <Tooltip v-else :text="item.title" placement="right">
+                <Tooltip v-else :text="item.title" side="right">
                     <span class="workbench-activity-bar__placeholder" role="img" :aria-label="item.title" :data-activity-item="item.id" data-activity-item-placeholder>
                         <span class="workbench-activity-bar__placeholder-circle"><span class="workbench-activity-bar__placeholder-icon" :class="item.icon" aria-hidden="true"></span></span>
                     </span>
@@ -140,7 +140,18 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
     height: 100%;
     min-height: 0;
     padding-block: var(--space-1);
-    background: var(--panel-surface);
+    background: var(--skin-activitybar-surface, var(--panel-surface));
+}
+
+/* 书脊首尾的两条（docs/specs/theme/skins.md 输出 7）。主题没写时高度是 0，和没有一样。 */
+.workbench-activity-bar::before,
+.workbench-activity-bar::after {
+    flex: none;
+    box-sizing: border-box;
+    width: 34px;
+    height: var(--skin-activitybar-ornament-size, 0px);
+    border-block: var(--skin-activitybar-ornament-width, 0px) solid var(--skin-activitybar-ornament, transparent);
+    content: "";
 }
 
 .workbench-activity-bar__containers {
@@ -175,25 +186,25 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
 .workbench-activity-bar .workbench-activity-bar__item {
     flex: 0 0 auto;
     border-radius: var(--radius-control);
-    color: var(--text-muted);
+    color: var(--skin-activitybar-foreground, var(--text-muted));
     /* 活动条目也是整容器的拖动源：触摸按住起拖。 */
     touch-action: none;
 }
 
 .workbench-activity-bar .workbench-activity-bar__item:hover {
-    background: var(--bg-hover);
-    color: var(--text-main);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    color: var(--skin-activitybar-active, var(--text-main));
 }
 
 .workbench-activity-bar .workbench-activity-bar__item--active {
-    background: var(--bg-hover);
-    color: var(--accent-text);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    color: var(--skin-activitybar-active, var(--accent-text));
 }
 
 /* 底段的切换按钮按下（例如设置窗口开着）：灰底、正文色，不用强调色；强调色只给上段的当前容器。 */
 .workbench-activity-bar .workbench-activity-bar__item--pressed {
-    background: var(--bg-hover);
-    color: var(--text-main);
+    background: var(--skin-activitybar-hover, var(--bg-hover));
+    color: var(--skin-activitybar-active, var(--text-main));
 }
 
 /* 占位与按钮同占一格（38px），圆形的样子与书架右上角的头像位一致。 */

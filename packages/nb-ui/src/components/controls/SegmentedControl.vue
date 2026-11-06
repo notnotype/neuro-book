@@ -1,14 +1,16 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed, nextTick, ref} from "vue";
 import {moveRoving, rovingMove} from "../../utils/roving";
 
 import {useFieldContext} from "../form/field-context";
+import type {ControlSize} from "../shared-types";
 
 /**
  * 分段选择器（SegmentedControl · 经典 macOS 系统蓝平滑滑动体系）。
  *
  * 视觉与动效规范：
- * 1. 底座：饱满超椭圆（Squircle，消费 var(--radius-control)），10% 柔灰实底 + 1px 细微反光外框；
+ * 1. 底座：圆角消费 var(--radius-control)，10% 柔灰实底 + 1px 细微反光外框；
  * 2. 指示块：纯正 Apple 蓝（var(--accent-main)）+ 纯白反色文字 + 舒缓物理滑动动画（消费 var(--motion-base) 与 var(--ease-standard)）；
  * 3. 分隔线：未选中项之间配备 1px 细微竖向分隔线，在选中项相邻两侧智能平滑消隐；
  * 4. 无障碍与键盘：支持标准 WAI-ARIA RadioGroup 模式与 ArrowLeft/ArrowRight/Home/End 键盘巡检。
@@ -17,8 +19,7 @@ import {useFieldContext} from "../form/field-context";
  */
 
 export type SegmentedControlValue = string | number | boolean | null;
-export type SegmentedControlSize = "xs" | "sm";
-export type SegmentedControlTone = "default" | "accent" | "warning";
+export type SegmentedControlSize = Extract<ControlSize, "xs" | "sm">;
 
 export type SegmentedControlOption = {
     count?: number | string;
@@ -27,7 +28,6 @@ export type SegmentedControlOption = {
     label?: string;
     testId?: string;
     title?: string;
-    tone?: SegmentedControlTone;
     value: SegmentedControlValue;
 };
 
@@ -36,7 +36,6 @@ const props = withDefaults(defineProps<{
     options: SegmentedControlOption[];
     ariaLabel?: string;
     size?: SegmentedControlSize;
-    tone?: SegmentedControlTone;
     wrap?: boolean;
     fullWidth?: boolean;
     /** 整组停用。 */
@@ -47,10 +46,9 @@ const props = withDefaults(defineProps<{
     invalid?: boolean;
     /** 必填：写 `aria-required`；与 `Field` 上下文的必填取或。 */
     required?: boolean;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     ariaLabel: "",
     size: "sm",
-    tone: "default",
     wrap: false,
     fullWidth: false,
     disabled: false,

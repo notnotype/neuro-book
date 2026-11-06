@@ -1,0 +1,169 @@
+# w00041 t08 主题编辑器前端审查报告
+
+被审：分支 feat/w00041-t08-theme-editor 头（781979146），只读；以下除注明“已运行”者外都是从代码推断。路径前缀 W = packages/neuro-book/src/plugins/workbench/web，T = W/components/theme-editor。
+
+### 1. [重要] 正确性：ColorField 的待交出定时器在外面的值变了之后仍会触发，把旧输入写进新的值（甚至另一套主题）
+- 位置：T/ColorField.vue:37-49
+- 现象：`watch(() => props.value)` 只把 `draft` 改成新值，没有取消 `timer`；`commit` 的定时器闭包里捕的是输入时的 `value`。输入后 250ms 内如果 `props.value` 被别的途径换掉（导入完成后自动选中新主题、另一个窗口保存被 `adoptConfirmed` 采纳、同一行被别处的“还原”、键盘快捷键改了顶部明暗而焦点没离开本行），定时器到点执行 `if (value !== props.value) emit("change", value)`：旧输入的值被当作“用户刚改的”发给 `model.setColor(name, …)`，而 `setColor` 读的是触发时刻的 `selectedId` 与 `appearance`，所以写到的是新的那套主题或另一个明暗的同名变量上。
+- 为什么是问题：静默写错数据，且 `touched` 标记也一并写上（手改标记会让后面“推导整套”跳过这一项）。窗口只有 250ms，但 ColorField 是按变量名 `key` 复用的，换主题时实例不重建，所以确实发得出去。
+- 核实：给 ColorField 一个 DOM 测试：输入 `#123456`，`await setProps({value: "#abcdef"})`，推进 250ms，断言没有 `change` 事件。当前代码会发出 `change("#123456")`。
+- 建议：`watch` 里收到新值时 `clearTimeout(timer); timer = null`（外面的值一变，本地待交出的就作废）；或者定时器里改用 `draft.value` 并在外面值变时清除。`flush` 同理只在 `timer !== null` 时才有意义，已满足。
+
+### 2. [重要] 正确性：编辑区里切到别的页签，编辑器的模型就被释放：预览清掉，选中的主题、明暗和分区全部回到初始
+- 位置：T/ThemeEditorHolder.vue:83-87、T/theme-editor-session.ts:42-48；挂载行为见 packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:342-343（只渲染当前页签的页面组件，没有 KeepAlive）
+- 现象：页签放法下，Holder 随页签激活而挂载、切走即 `onBeforeUnmount → release()`。没有浮动窗口时 `#holders` 归零，`#scope.stop()` 把 `ThemeEditorModel` 连同 `#selectedId`、`appearance`、`section` 一起丢掉，`setPreview(null)`。回到这个页签时 `acquire()` 重建：选中第一套、明暗 `light`、分区“基本信息”。
+- 为什么是问题：(a) Spec 状态与转换写“打开时记编辑中的主题与顶部的明暗；关闭即清掉”，页签只是切走并未关闭；(b) 用户正是想切到一个真实文档页签去看主题效果，结果一切走预览就消失，文档根跳回设置里的主题，来回时还闪一下；(c) 正在编辑暗色时每次回来都变成亮色、第一套主题。e2e 与 Lab 都没有覆盖“切页签再回来”。
+- 核实：打开编辑器页签，选第二套、切暗色、进“配色”，再点另一个文件页签并切回：状态全部重置。
+- 建议：编辑状态（`selectedId`、`appearance`、`section`）放在 `ThemeEditorSession` 里，不随模型的 scope 销毁；或者页签存在期间让会话持有一份引用（页签关闭才 release）。后者需要编辑区暴露“页面关闭”的钩子，前者不需要改别的包，更简单。同时要决定页签切走后预览是否保留：若保留，`release` 就不能因为 Holder 卸载而触发。
+
+### 3. [重要] 合同：我的主题库非空时没有“复制任一主题起步”，只能复制当前这套
+- 位置：T/ThemeEditor.vue:101-114 与 :135-147
+- 现象：顶栏只有“新建”（`model.create()`，永远从 NeuroBook 缺省起步）和“复制”（复制当前）；`copyOptions` 那个 Select 只在 `EmptyState`（库为空）里出现。库里有了一套之后，就再也没法从 eye-green、macos 等插件主题起步。
+- 为什么是问题：Spec 输出 2 写“可以新建（从缺省、或复制任一主题起步）。复制插件主题时，场景图复制成我的素材”，验收 12 “Given 复制插件主题”。当前只有第一套主题能满足；第二套起要先删光再复制。`model.create(entry)` 已经支持，缺的是入口。
+- 核实：库里有一套主题时看顶栏，没有“复制自…”。e2e 的复制插件主题用例（若有）也只能在空库里跑。
+- 建议：顶栏的“新建”改成带选项的 Select/菜单（“空白”与目录里的每个主题），或把空状态里的 `copyFrom` Select 也放进顶栏。
+
+### 4. [重要] 正确性：清空取景的“大小”或“位置”输入会写出 `""`，违反声明 schema；数值输入每个按键写一次，与文档不符
+- 位置：T/CropEditor.vue:127-134；schema 见 packages/neuro-book/src/plugins/workbench/shared/themes.ts:20（`size`、`position` 都是 `minLength: 1`）；文档 T/CropEditor.md:25（“数值：输入停手后发 change”）
+- 现象：`editNumbers("position", "")`（用户退格删到最后一个字符）发 `{size: …, position: ""}`；`editNumbers("size", "")` 同样发 `size: ""`。`setCrop` 照写。空状态的 `position` 没有 minLength，所以只有四个非空状态位置受影响。另外 `@update:model-value` 直接调用，没有任何防抖：输入 `auto 118%` 要写 8 次，中间的 `auto 1`、`auto 11` 都是读不懂的写法，框会闪掉、“读不懂”警告闪一下。
+- 为什么是问题：记录值不符合 `UserThemesSchema`，写入会被拒（store 进入失败暂停，`library.failed` 横幅出现），而 `setUserThemes` 读的是乐观的 `display`：这一套被 `userThemeProblem` 判为不合格、从目录里掉出去，预览退回缺省主题，编辑器自己（读 store 的 display）却还显示着它。这与 Spec 失败表“写失败：工作台保持写入前的主题”相反。以上的 store 行为是从代码推断，未运行。
+- 核实：选“左侧留白”，把位置输入全选后按退格；或在 crop-model 外跑 `Value.Check(ThemeDeclarationSchema, {…crop:{marginLeft:{size:"auto 118%",position:""}}})`，返回 false。
+- 建议：数值输入空串时发 `undefined`（清掉该位置，或保持原值不写），不要写 `""`；加 250ms 防抖和失焦交出，与 ColorField 的做法一致；文档与实现对齐。更根本的是在 `ThemeEditorModel` 的入口处先用 `userThemeProblem`/schema 检查改后的条目，不合格就拒绝并显示原因，而不是写进乐观显示（见下一条）。
+
+### 5. [重要] 合同：编辑器接受会让整套主题失效的取值，且无任何界面反馈
+- 位置：T/ColorField.vue:42-49、T/ThemeEditorColors.vue:94（角色变量）、T/ThemeEditorTypography.vue:184（字体栈）；校验在 packages/neuro-book/src/plugins/workbench/shared/themes.ts:58、:87-92（`LOADS_RESOURCE`：`url(`、`src(`、`image(`、`image-set(`、`element(`、`paint(`、`@import`、任何反斜杠）
+- 现象：这些输入把用户键入的字符串原样交给模型。键入 `url(` 或含 `\` 的字符串后，条目在 `setUserThemes` 里被 `userThemeProblem` 拒绝：目录里没有这一套，预览退回缺省主题（`resolve()` 找不到 id 时用 `DEFAULT_THEME_ID`，不是 `effectiveTheme()`），只在诊断里记一条；编辑器仍显示正在编的主题。重载后这一套不再出现在列表里，用户只看到“主题没了”。
+- 为什么是问题：Spec 输出 8 “取值是颜色或渐变，不能引外部资源”，但界面没有拒绝、没有行内错误，用户键入一半的值就会让整个工作台闪成缺省主题。同类问题不止 `url(`：任何校验不过的写入都走这条路。
+- 核实：在“配色”分区的任一色值输入里键入 `url(x)`，停手 250ms：工作台退回缺省主题。
+- 建议：在模型的写入口先校验（`declarationProblem` 已经是共用函数），不合格不提交，并让输入行显示 `aria-invalid` 与原因（`role="alert"` 或 `aria-describedby`）；也可以在 `ThemeCatalog` 里对“编辑中的那一套”保留上一次合格的值。
+
+### 6. [重要] 可访问性：取色器的键盘焦点完全不可见；取色器与输入的名称用 CSS 变量名朗读
+- 位置：T/ColorField.vue:84-93、:146-155（`.color-field__picker` 是 `opacity: 0` 的原生输入，叠在色块上）；:90、:98（`aria-label` 用 `name`）
+- 现象：Tab 键能进入取色器（原生 `input[type=color]` 可聚焦），但元素本身全透明，色块 `.color-field__swatch` 没有 `:focus-within` 样式，焦点环落在不可见的元素上，键盘用户看不到焦点在哪里。主色三项给了 `label`，但 `aria-label` 仍是 `--bg-main 取色`/`activityBar.surface 取色`，读屏把 `--bg-main` 读成“横杠横杠 bg 横杠 main”，而可见文字是“背景”。
+- 为什么是问题：Spec 输出 18 “键盘可以走完所有项”：能走到，但看不见；名称与可见标签不一致（WCAG 2.5.3 Label in Name）。
+- 核实：Tab 到一行的取色器，截图看不出焦点；用读屏器或检查无障碍树看名称。
+- 建议：`.color-field__swatch:focus-within { outline: …可见焦点环… }`；`aria-label` 改为 `label ?? name`（有 `label` 时用 label，并保留变量名作为 `title`/描述）。
+
+### 7. [重要] 合同：标题不能为空没有任何强制
+- 位置：T/ThemeEditor.vue:168-175、model.setTitle（T/theme-editor-model.ts:157-162）；Spec 输出 6
+- 现象：两个标题输入直接写模型，空串照写（`TextSchema` 是 `Union([String, …])`，空串合格）。清空后顶部的库 Select、设置里的主题列表都出现空白项；导出时包名取标题的拼写，也无从取起（此处只看界面合同，导出另有人审）。仓库里 grep 不到任何“标题必填”的校验或文案。
+- 为什么是问题：Spec 输出 6 明写“标题不能为空”；这是界面层能给的最直接的约束。
+- 核实：把中文标题清空，看顶栏 Select 的当前项与设置窗口的主题列表。
+- 建议：空白标题不写入（保持上一个合格值，输入行 `aria-invalid` 加提示），或在读取标题时对空串回落到另一种语言/“未命名”。需要加 `themeEditor.basic.titleRequired` 中英文案。
+
+### 8. [重要] 窄屏：`@container (max-width: 520px)` 量的是整个编辑器的宽，不是分区内容的宽；520 到约 640px 之间配色行的输入被挤没、取景图区只剩几十像素
+- 位置：T/ThemeEditor.vue:213-223（`container-type: inline-size` 在 `.theme-editor` 根上）、:401-417；T/ColorField.vue:114-120、:183-193；T/CropEditor.vue:208-212、:353-357
+- 现象：三处 `@container` 查询的容器都是 `.theme-editor` 根（含左边 180px 导航）。容器宽 521px 时右栏只有 521-181=340px，减去分区左右内边距 2×`--space-8`(32px) 得 276px 给内容。数字：
+  - ColorField 一行的列最小宽是 150+24+44+12+24=254，加 5 个 6px 间隙=284px，剩给色值输入 276-284<0：输入宽度是 0，整行还横向溢出 8px。要让输入有 100px，容器至少约 640px。
+  - CropEditor 两栏是 `1fr + 220px + 16px 间隙`：容器 521px 时图区 276-236=40px；容器 640px 时 159px；要有 340px 宽的图才勉强能拖，容器要约 820px。
+  默认的浮动窗口 920px 没事；窗口被拖窄到 560px 上下，或编辑区页签在带侧栏的小笔记本屏幕上（常见 700px 以内）就遇上。commit 781979146 只修了“<520px 时变量名单独一行”，中间这一段没有覆盖。
+- 为什么是问题：Spec 验收 14 只写 390px，但“窄屏”的判据本该是“分区内容有多宽”；现在 521px 与 519px 的体验断崖式不同，取景编辑（本任务最复杂的交互）在中等宽度下几乎不可用。
+- 核实：浮动窗口宽度拖到 560px，进“配色”看色值输入、进“场景与取景”看图区。纯算术见上，未运行。
+- 建议：把 `container-type: inline-size` 放在分区内容容器 `.theme-editor__section`（给个名字，例如 `container-name: section`），ColorField、CropEditor 的查询改成 `@container section (max-width: …)`；断点按各自需要的最小宽度定（ColorField 约 420px，CropEditor 约 560px），不共用 520。这样导航占不占位都不影响。
+
+### 9. [重要] 测试质量：e2e 的窄屏断言量不到溢出；验收 11、12、13 与键盘、删除、复制、字体、活动栏都没有用例
+- 位置：packages/neuro-book/e2e/theme-editor.e2e.ts:261-264、:252-253、:104
+- 现象：
+  1. 窄屏用例是 `openEditorTab → setViewportSize(390) → editor.scrollWidth - clientWidth <= 0`。当前分区默认是“基本信息”，不是配色或取景；而且右栏是 `ScrollArea`，分区内部的横向溢出被它吃掉，不会让 `.theme-editor` 的 `scrollWidth` 变大。所以这条断言无论配色行是否溢出都过（见发现 8）。另外 `setViewportSize` 之后马上读，没有等工作台布局响应缩窄，是轮询之外的唯一一处读后即断言。
+  2. 实心面断言：只测了默认主题在浮动窗口里 `backgroundColor` 不是半透明，正则 `rgba\(.*,\s*0(\.\d+)?\)` 也漏了 `rgba(…, 1)` 以外的写法（例如 `color(srgb … / 0.5)`）。验收 13 的前提是“主题是半透明或高对比度”，没有测（见发现 11）。
+  3. 没有用例：删除并回退设置（验收 11）、复制插件主题（验收 12，同时会暴露发现 3）、复制当前、字体、活动栏与画框、从另一套派生、单项还原、预览在切页签后的行为（发现 2）、键盘操作。
+  4. `click({force: true})`（:104）绕过可操作性检查去点标签关闭叉，用例对“叉被遮挡”这类真实问题失明。
+- 为什么是问题：Spec “Smoke：`e2e/theme-editor.e2e.ts`”把它当作 14 条验收的证据，现有 5 个用例对应 1、2、3、4、5、6、7、8、9、10 与部分 18，11、12、13、14 没有判据。
+- 建议：窄屏用例改成对每个分区各量一次：`page.locator("[data-section]")` 的 `scrollWidth <= clientWidth`，以及每个 `[data-color-field]` 行；缩窗口后用 `expect.poll`。加两个用例：删除正在使用的主题回退设置；在有一套主题时从插件主题复制。实心面用例把编辑中主题的 `--bg-panel` 改成 `rgba(0,0,0,0.3)` 再测。
+
+### 10. [重要] 正确性：上传场景图的结果写进“完成那一刻”选中的主题与明暗，不是发起那一刻的
+- 位置：T/ThemeEditorScene.vue:31-55，T/theme-editor-model.ts:148-151、:294-300
+- 现象：`onFile` 先 `await prepareImage`（解码、缩放、编码，最长边 2560 的图在普通机器上数百毫秒到数秒）再 `await uploadScene`，然后才 `model.setScene(uploaded.name)`。`setScene` 经 `#update` 读的是此刻的 `selectedId`，经 `#look` 读的是此刻的 `appearance`。上传期间用户点顶部的“暗色”或在库 Select 里换另一套，图就落在另一个明暗或另一套主题上；界面在 `busy` 时只禁了“移除”按钮，没有锁住明暗与库切换。
+- 为什么是问题：静默写错对象，且素材文件已写入，用户没有任何提示。
+- 核实：上传一张大图的同时切明暗（可用 Chrome 开发者工具限速让上传变慢）；之后看哪一明暗有了场景图。
+- 建议：`onFile` 开始时记下 `themeId` 与 `appearance`，让 `setScene` 接受目标参数（`setScene(name, {id, appearance})`）；或在 `busy` 时禁用明暗分段与库 Select。顺带：`loadFailed`（:27、:46）只在上传成功时复位，换明暗、移除或换主题后上一张图的“图片加载失败”还留在屏幕上，应随 `sceneUrl` 变化复位。
+
+### 11. [重要] 合同：编辑面板的“实心面”取自被编辑的变量 `--bg-panel`，用户自己把它改成半透明时面板就不再实心
+- 位置：T/ThemeEditor.vue:213-222（`background: var(--bg-panel)`）；Spec 输出 18、验收 13
+- 现象：预览把声明里的 `--bg-panel` 原样写到文档根，编辑面板的背景又读这个变量。配色分区里 `--bg-panel` 本来就允许写 `rgba(...)`（ColorField 的 `pickable` 为此专门处理 `a < 1`，`contrast-checks.ts:50` 也有 `panel.a >= 1` 的分支）。写了 alpha 之后面板立刻透出下面的工作台，文字叠在杂乱背景上读不清；`--text-main` 与 `--bg-panel` 写成同色时，面板文字直接消失，只能盲输入撤回。复制来的半透明插件主题同理。
+- 为什么是问题：注释说的是“被预览的主题把浮层面做成半透明”，实际被预览的变量里 `--bg-panel` 不是浮层面而是编辑器的正文底。Spec 写的“始终实心”在这个路径上不成立；e2e 只测了默认主题的初始背景（发现 9）。
+- 核实：编辑一套主题，把 `--bg-panel` 改成 `rgba(0,0,0,0.3)`，在浮动窗口里看面板。
+- 建议：编辑器根上不依赖正在编辑的变量。可行做法：编辑器根用自己的一组局部自定义属性（从设置里选的主题，而不是预览，取 `--bg-panel/--text-main/--border-color` 的快照值，写在 `.theme-editor` 上覆盖），这样不论预览成什么样，面板自己保持可读；或者最低限度在 `.theme-editor` 的背景上叠一层 `linear-gradient(var(--bg-panel), var(--bg-panel)), Canvas`，保证不透明。
+
+### 12. [重要] 组件边界：非宿主组件 `ThemeEditorScene` 自己 `fetch` 上传，绕开了 Holder 的 `transfer`；Lab 因此没法看取景编辑
+- 位置：T/ThemeEditorScene.vue:10、:40-41，T/scene-upload.ts:42-52，T/ThemeEditorScene.md 标签与“为什么自己发请求”，T/ThemeEditorHolder.md“为什么自己发请求”；packages/neuro-book/src/plugins/lab/web/fixtures/ThemeEditorFixture.vue:26-41
+- 现象：Holder 的存在理由是“主体不碰产品数据、能在 Lab 里单独看”，导出导入走 `ThemeTransfer`。但场景分区却标 `io:mutate` 并直接 `import {uploadScene}`，请求入口是模块级函数，Lab 与测试无法替换（docs/standards/code/components.md:137“声明 io: 但请求入口不可由外部替换”、:130 与 :172“非宿主组件不含 io:mutate”）。结果：Lab 的 THEME 没有场景图，`scene` 场景永远只显示“还没有场景图”，`CropEditor`（最复杂的交互）在 Lab 里没有任何场景；点“上传”在 Lab 里会真发 `PUT` 到 Lab 服务。.md 里“放在宿主里再传回结果只会多一层转发”并不成立：`ThemeTransfer` 已经是现成的那一层。
+- 为什么是问题：违反组件规范的完成标准；且同一件事（上传）在导入里经 Holder、在场景分区里不经 Holder，两条路径。
+- 建议：给 `ThemeTransfer` 加 `uploadScene(file: Blob): Promise<UploadResult>`（`prepareImage` 是纯浏览器计算，可留在组件里或一并放进去），ThemeEditorScene 改经 `transfer` 调用，去掉 `io:mutate` 标签；Lab fixture 给一个返回固定图（可用已有的 webp 资源）的实现，并加一套带场景图的主题，场景分区才能验证 `CropEditor`。同时 `ColorField`、`CropEditor` 的 props 全是普通值，不是“只能在宿主链里验证”的零件，`验证入口: ThemeEditor` 的登记用得不对，补上它们自己的场景更合适。
+
+### 13. [建议] 可访问性：取景框 `role="button"` 却没有任何键盘行为；取景列表的 listbox 结构不合法，名称错
+- 位置：T/CropEditor.vue:156-170、:177-184
+- 现象：五个框都是 `role="button" tabindex="0"`，但只有 `@pointerdown` 与 `@focus`，没有 `keydown`；Enter、空格、方向键都不起作用。结果是 5 个什么也不做的 Tab 停靠点。列表 `ul[role=listbox]` 的子元素是 `li`（默认 listitem）里再套 `button[role=option]`，不符合 listbox 对子元素的要求，且没有方向键漫游（listbox 的约定）；它的 `aria-label` 取的是 `themeEditor.scene.image`（“场景图”），与图片的 alt 同名，实际是“取景位置”列表。
+- 为什么是问题：Spec 输出 18“键盘可以走完所有项”：数值输入能走通，但框本身对键盘用户是假按钮。
+- 建议：框改成 `role="group"` 或去掉 `tabindex`，或加 `@keydown`（方向键移动 1%，Shift 加大，`+`/`-` 缩放），走现成的 `commit` 通路；列表改成一组 `aria-pressed` 按钮或 `role="radiogroup"` + `radio`，名称改成“取景位置”（新增文案键）。
+
+### 14. [建议] 可访问性与文案：对比度徽标只靠颜色和 `title`；提示里写死了全角逗号
+- 位置：T/ColorField.vue:67-77、:101-102
+- 现象：徽标 `<span>` 只显示数字，“不合格”靠 `--status-danger` 颜色加粗体区分，含义（比值、低于 4.5、落在哪个底上）全放在 `title` 里；`title` 对键盘用户、触屏、多数读屏都不可达，读屏只读到“3.20”。`touched` 的小圆点 `aria-hidden`，手改过这一状态读屏也得不到（只有还原按钮在出现时间接说明）。:74 用字面量 `，` 拼接三段翻译，英文界面显示成“Contrast 3.20，Below 4.5，Worst on --bg-panel”。
+- 建议：徽标加 `aria-label`（同 `title` 的整句，用文案键拼成，不拼字面逗号：新增 `themeEditor.contrast.summaryLine` 带三个占位符），不合格时再加一个非颜色的标记（例如数字前加“!”或图标）；`touched` 用 `sr-only` 文字。
+
+### 15. [建议] 删除确认“点两次”：快速双击等于直接删除；失焦复位在 Safari 与 macOS Firefox 不触发
+- 位置：T/ThemeEditor.vue:57-66、:112
+- 现象：`confirming` 只靠 `@blur` 复位。(1) 双击“删除”：第二次 click 进来时标签才刚变成“确认删除”，用户来不及读，删除立即执行，且不可撤销（场景素材虽留着，声明没了）；(2) Safari、macOS 的 Firefox 点按钮不会让按钮获得焦点，`blur` 永远不来，“点别处就回去”失效，隔很久再点一次“删除”就直接删了；(3) 换了主题（`select`）后 `confirming` 不复位，Select 在鼠标点击时会拿走焦点所以多数情况侥幸；通过导入自动选中新主题则不会。(4) 文本变化后读屏不会播报“确认删除”。
+- 建议：确认态加 3 秒超时和 `watch(model.selectedId)` 复位；第二次点击要求距第一次至少 400ms 以上；确认态用 `aria-live` 区域播报。或者改成真的确认对话框（nb-ui 有 Dialog），这是不可逆操作。
+
+### 16. [建议] 窄屏导航条的“横向可滚”实际不会触发：导航项被压缩换行
+- 位置：T/ThemeEditor.vue:299-311、:407-412
+- 现象：窄屏时 `.theme-editor__nav` 是 `flex-direction: row; overflow-x: auto`，但 `.theme-editor__nav-item` 没有 `flex: none` 与 `white-space: nowrap`，默认 `flex-shrink: 1`：6 个项按 358px（390px 视口去掉内边距）被压缩，文字换行成 2 到 3 行，导航条变高，而不是出现滚动。算术：中文六项的自然宽约 325px 文字加 6×16px 内边距=421px>358px；英文 “Activity bar and frame” 一项就约 150px。ThemeEditor.md 写的是“导航收成顶部一条（横向可滚）”。
+- 建议：`.theme-editor__nav-item { flex: none; white-space: nowrap; }`。
+
+### 17. [建议] 导出与导入：主体没有捕获异常，结果提示的 live region 是动态插入的，导入没有忙状态
+- 位置：T/ThemeEditor.vue:75-91、:130；T/transfer.ts:24-25、:61；T/scene-upload.ts:56
+- 现象：`exportTheme`、`onImportFile` 里 `transfer.value = await …` 没有 `try/catch`。`readAsset` 里 `response.arrayBuffer()`、`uploadScene` 成功分支里的 `response.json()`、`file.arrayBuffer()` 任一抛错，都是未处理的 Promise 拒绝，界面没有任何提示（Spec 失败表“导入的 zip 不合格 … 显示原因”只覆盖了返回 `ok:false` 的路径）。导入时连点没有忙状态，两次导入会并发写库。`<p role="status" v-if>` 是随内容一起创建的，读屏对刚插入的 live region 往往不播报；提示一旦出现就一直留着（换主题、换分区都在），成功后也不消失。另：Spec 输出 16 写“列出其中的主题，选一个复制”，实现是整包全部导入（ThemeEditor.md 也这样写），文档与 Spec 不一致，需要在 Spec 或实现里改一边。
+- 建议：主体包一层 `try/catch`，失败给 `importFailed` 的通用原因；做 `busy` 状态；live region 常驻（`v-show` 或固定容器，内容变化）；提示随选中主题或分区变化清除；对齐 Spec 16。
+
+### 18. [建议] 写入量：除颜色输入外所有输入都是每个按键写一次记录；拖框的节流每秒最多 8 次保存
+- 位置：T/ThemeEditor.vue:170、:174；T/ThemeEditorTypography.vue:184；T/ThemeEditorColors.vue:94；T/CropEditor.vue:75-77、:189、:193
+- 现象：ColorField 的 .md 把“不会每个按键写一次记录”当作防抖的理由，但标题、字体栈、角色变量、取景数值全是 `@update:model-value` 直写：输入 30 个字符的字体栈就是 30 次 `store.actions.update`，每次是整份 `user-themes` 记录（上限 512 KiB）的一次保存，同一字段同一时刻只有一个在途，排队串行。CropEditor 拖框每 120ms 交一次（`schedule` 只在 `pending === null` 时排，最多约 8.3 次/秒），拖 3 秒约 25 次保存。`persisted.ts` 已经提供只改显示不排队的 `show`（store.test.ts:336 的用例），拖动与逐键输入用它显示，停手或失焦再 `commit` 一次，正是它的用途；`UserThemesStore` 的 actions 里没有暴露。
+- 建议：给 store 加一个 `preview(id, change)`（走 `show`），拖动、逐键输入走它，失焦或停手 `update` 一次；至少所有输入统一走一个防抖封装而不是各写各的。
+
+### 19. [建议] 触屏：缩放手柄 12px，整块图 `touch-action: none` 挡住滚动；手势没有按 pointerId 过滤，`pointercancel` 会提交
+- 位置：T/CropEditor.vue:79-115、:153-154、:219-225（`touch-action: none`）、:271-281（手柄 12×12）
+- 现象：(1) 手柄是 12×12px（含 2px 边框），手指几乎按不中；(2) `.crop-editor__picture` 整块 `touch-action: none`，390px 宽时图占满一屏宽，手指从图上划过去滚动分区会被吃掉；应只对框与手柄设；(3) `moveGesture`/`endGesture` 不看 `event.pointerId`，第二根手指按到另一个框会覆盖 `gesture` 与 `draft`，第一根手指抬起时又把第二个手势结束；(4) `pointercancel`（系统接管手势）也走 `endGesture → commit`，把一次被打断的拖动当作确认。
+- 建议：手柄用伪元素把命中区扩到 32px；`touch-action: none` 放到 `.crop-editor__frame`；`gesture` 记 `pointerId`，不匹配的事件忽略；`pointercancel` 丢弃 `draft` 而不是提交。
+
+### 20. [建议] 文案目录：三个死键、写死的中文示例、不分单复数、LEGACY 表登记不对
+- 位置：packages/neuro-book/src/plugins/workbench/locales/*.json（`themeEditor.scene.pending`、`themeEditor.chrome.frameNone`、`themeEditor.chrome.ornamentNone` 在代码里没有引用）；T/ThemeEditorTypography.vue:189；locales 里 `themeEditor.transfer.imported/exportedWarn`；packages/neuro-book/src/plugins/workbench/locales.test.ts 文件头注释与 :35-
+- 现象：
+  1. 三个键没有任何使用点，却被 `locales.test.ts` 的表登记着（测试要求两边一致），属于死文案。
+  2. 字体示例 `NeuroBook · 欢迎回来`、`雨从傍晚开始下，一直没有停。` 写死在模板里，英文界面也显示中文；它们是给 CJK 字体栈看效果的，但仍应走文案键，让英文界面可以放英文示例。
+  3. `imported`：“Imported {{count}} theme(s)”，`exportedWarn`：“…{{count}} entries are below…”；目录支持 `_one/_other` 后缀（`shell.drop.mergeContainer_one` 就是），这两条在 count 为 1 时写成“1 entries”。
+  4. `locales.test.ts` 的 `LEGACY` 表在文件头里定义为“迁移前代码里的双语字面量”，把本任务的新文案都放进去与定义不符；应放在 `REVISED` 或单独一张“新增”表，否则以后读的人会去旧提交里找它们。
+- 建议：删三个键及其登记；示例文字进目录；`imported`、`exportedWarn` 拆 `_one/_other`；新增文案另开一张表。
+
+### 21. [建议] 小项合集：文档与实现不一致、静默无效的按钮、初始状态与首屏体积
+- ThemeEditor.md:23“场景与取景分区在后续的 Task 里补全”已过时（分区已实现）；ThemeEditor.md:“切分区只换右边的内容，不丢各分区里没提交的输入”不成立：分区用 `v-if/else-if` 切换，卸载时 `ColorField.onBeforeUnmount`（:57-59）直接 `clearTimeout` 不交出，`CropEditor` 的 `pending` 同理（:117-119）；点导航会先触发 `focusout` 所以多数情况没事，但按 Escape 关浮动窗口、或程序切分区时，最近 250ms/120ms 内的输入丢失。卸载前先 `flush()`/`commit()`，或把文档改成实情。
+- ThemeEditorColors.vue:83：`@reset="model.resetColor(name)"` 忽略返回值，主色读不懂时（`derivePalette` 返回 null）按钮点了没有任何反应也没有提示，而“推导整套”有 `deriveFailed`。同样 `failed` 在改了主色后不复位，错误行一直挂着，直到下一次推导。
+- ThemeEditorChrome.vue:252-255：关掉“使用自己的活动栏”会 `removeActivityBar` 整个删掉，包括用户填过的前景、当前项、两端装饰，再打开只给默认值，没有确认也没有提示。
+- 初始状态：模型建出来固定 `appearance = "light"`、选第一套主题（theme-editor-model.ts:50），用户在暗色界面里打开编辑器，整个工作台立刻变成亮色预览；Spec 验收 3 要求的是能选，但初始值取当前生效的明暗更合理。
+- ThemeEditorHolder.vue:84：`acquire()` 在 setup 里，`release()` 在 `onBeforeUnmount`；如果 setup 之后、挂载之前出错（子组件 render 抛错、异步组件被替换），`release` 不会被调用，`#holders` 永远大于 0，预览不会清。用 `onScopeDispose` 配对更稳（组件作用域停止时一定触发）。
+- theme-editor-session.ts:9：`ThemeEditorSession` 值导入 `ThemeEditorModel`，plugin.ts 在首屏就导入 session，于是模型、`derive-palette`、`contrast-checks`、`color` 约 460 行进了首屏包；注释说“只有 product-themes 不能进首屏”，其实这些也不需要。让 session 接受一个模型工厂（Holder 里传 `() => new ThemeEditorModel(...)`）即可整体延后。
+- ThemeEditorWindow：窗口标题栏已有关闭叉（`closable`），主体顶栏还有一个“关闭”按钮，同一窗口两个关闭入口；.md 写明是有意，但读屏与键盘用户会遇到两个同名“关闭”。
+
+## 未发现问题的方面
+
+- 浮动窗口关闭后主体确实卸载（reka 的 `DialogContent` 不 `forceMount`，`open=false` 即卸载，Holder 随之 `release`）；页签与浮动窗口同时挂载、先后卸载时的计数正确（`holders` 2 → 1 → 0，只在 0 时 `scope.stop()` 并 `setPreview(null)`）；入口停止走 `dispose()` 强制清掉预览，不依赖挂载。
+- `aria-current="page"`、`nav` 的 `aria-label`、`Select`/`SegmentedControl` 的 `aria-label`、库读取失败的 `role="alert"`、字段 `label` 包裹输入的关联，都写对了。
+- 能力标签：`ColorField`、`CropEditor` 的 `env:timer` 属实，`ThemeEditor*` 的 `state:inject` 与取翻译端口一致（组件规范的机检规则已满足），Holder 的 `io:*` 与 `transfer.ts` 一致；唯一不如实的是发现 12 的 `ThemeEditorScene`（`io:mutate` 本身如实，但违反非宿主不含 `io:mutate` 的规则）。
+- 中英文目录键集合一致（只多了无关的 `shell.drop.mergeContainer_one`，zh 无单复数是预期的）；占位符名称两边一致。
+- 指针手势里 `setPointerCapture` 之后事件冒泡到 `.crop-editor__picture` 的监听是对的，拖到图外不丢事件；`endGesture` 与 120ms 节流不会双发（`commit` 先清 `pending`）；store 的乐观显示是同步的，`draft` 置空时 props 已更新，没有一帧回弹。
+- `@container` 写在 scoped 样式里会被 Vue 正常加作用域属性；`container-type: inline-size` 在根上不影响 Select/Dialog 的传送层（它们传送到 body）；`width: 100%; height: 100%` 下对外层布局没有可见影响。
+
+## 数量
+
+- 阻断：0
+- 重要：9（发现 1、2、3、4、5、6、7 与 8、9、10、11、12；其中按“修改位置”算 12 条，见下）
+
+（上面“数量”一节的“重要”一行写得含糊，以下面为准。）
+
+## 数量（以此为准）
+
+- 阻断：0
+- 重要：12（发现 1 到 12）
+- 建议：9（发现 13 到 21）
+- 合计 21 条。均为从代码与算术推断，没有运行 e2e 或开发服务；发现 4、5 中 store 的失败行为、发现 8 的像素数、发现 16 的宽度也是推算，建议主会话用截图复核后再定级。

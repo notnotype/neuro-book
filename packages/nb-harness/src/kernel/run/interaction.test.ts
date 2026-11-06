@@ -7,6 +7,7 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {ApproveHook, InteractionSummary, LogEvent, QuestionAnswer} from "../api/index.js";
+import {defineExtension} from "../extension/define.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 
 let root = "";
@@ -46,6 +47,22 @@ function waitingFor(session: TestSession, count: number): Promise<InteractionSum
     });
 }
 
+/** 等一个 id 不是 `other` 的待处理事项。 */
+function waitingForOther(session: TestSession, other: string): Promise<InteractionSummary> {
+    return new Promise((resolve) => {
+        const check = (status: {state: string; pending?: InteractionSummary[]}) => {
+            const found = status.state === "waiting" ? status.pending!.find((item) => item.id !== other) : undefined;
+            if (found === undefined) return;
+            stop();
+            resolve(found);
+        };
+        const stop = session.raw.subscribe((frame) => {
+            if (frame.type === "status") check(frame.status);
+        });
+        void session.raw.snapshot().then((snapshot) => check(snapshot.status));
+    });
+}
+
 async function sendRaw(session: TestSession, text: string): Promise<string> {
     const sent = await session.raw.send({commandId: id(), input: {text}});
     if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
@@ -63,6 +80,102 @@ const requestOf = async (session: TestSession, interaction: string) => (await se
 const writer = (toolId: string, extra: Partial<TestTool> = {}): TestTool => ({id: toolId, effect: "write", execute: () => `${toolId} 写好了`, ...extra});
 
 describe("审批", () => {
+    test("输出 79：一条回复的审批先问完再执行：都问到、一个都没开始；不用审批的也等；执行顺序不变；拒绝一个，别的照常", async () => {
+        const started: string[] = [];
+        const tool = (toolId: string, extra: Partial<TestTool> = {}): TestTool => ({id: toolId, effect: "write", execute: () => {
+            started.push(toolId);
+            return `${toolId} 好了`;
+        }, ...extra});
+        await using session = await createTestSession({approve: askForWrites, tools: [
+            tool("lab.read", {effect: "read"}),
+            tool("lab.first"),
+            tool("lab.second"),
+            tool("lab.third"),
+        ]});
+        session.model.script({tools: [{tool: "lab.read"}, {tool: "lab.first"}, {tool: "lab.second"}, {tool: "lab.third"}]}, "都处理了");
+        const runId = await sendRaw(session, "改三处");
+        const pending = await waitingFor(session, 3);
+        const requested = dataOf<{id: string; request: {tool: string}}>(await session.events(), "interactionRequested");
+        // 事项的先后就是调用的先后，向导的“第几个”靠它。
+        expect(requested.map((item) => item.request.tool)).toEqual(["lab.first", "lab.second", "lab.third"]);
+        expect(pending.map((item) => item.id)).toEqual(requested.map((item) => item.id));
+        expect(started).toEqual([]);
+        expect(dataOf(await session.events(), "toolStarted")).toEqual([]);
+
+        // 答的先后不影响执行的先后；答到最后一个才开始。
+        await session.raw.resolve({commandId: id(), id: requested[2]!.id, decision: "allow"});
+        await session.raw.resolve({commandId: id(), id: requested[1]!.id, decision: "deny", note: "这段不要改"});
+        expect(started).toEqual([]);
+        await session.raw.resolve({commandId: id(), id: requested[0]!.id, decision: "allow"});
+        expect((await session.raw.waitRun(runId)).text).toBe("都处理了");
+        expect(started).toEqual(["lab.read", "lab.first", "lab.third"]);
+        const results = dataOf<{tool: string; status: string; code?: string; text: string}>(await session.events(), "toolResult");
+        expect(results.map((item) => [item.tool, item.status, item.code ?? null])).toEqual([["lab.read", "ok", null], ["lab.first", "ok", null], ["lab.second", "denied", "user-denied"], ["lab.third", "ok", null]]);
+        expect(results[2]!.text).toContain("这段不要改");
+    });
+
+    test("输出 79：审批钩子每个调用只判定一次；被批准的调用执行时不再问", async () => {
+        const judged: string[] = [];
+        const approve: ApproveHook = async (call, info, ctx) => {
+            judged.push(call.tool);
+            return askForWrites(call, info, ctx);
+        };
+        await using session = await createTestSession({approve, tools: [writer("lab.a"), writer("lab.read", {effect: "read"})]});
+        session.model.script({tools: [{tool: "lab.a"}, {tool: "lab.read"}]}, "好了");
+        const runId = await sendRaw(session, "写");
+        const [pending] = await waitingFor(session, 1);
+        await session.raw.resolve({commandId: id(), id: pending!.id, decision: "allow"});
+        await session.raw.waitRun(runId);
+        expect(judged).toEqual(["lab.a", "lab.read"]);
+        expect(dataOf(await session.events(), "interactionRequested")).toHaveLength(1);
+    });
+
+    test("输出 79：拦截改了参数：按改后的参数再问一次，用户不会批了 X 却执行 Y", async () => {
+        const ran: unknown[] = [];
+        const rewrite = defineExtension({id: "lab.rewrite", intercept: {tool: async (call, next) => next({...call, args: {path: "别的.md"}})}});
+        await using session = await createTestSession({approve: askForWrites, extensions: [rewrite], tools: [writer("lab.write", {execute: (args) => {
+            ran.push(args);
+            return "写好了";
+        }})]});
+        session.model.script({tools: [{tool: "lab.write", args: {path: "正文.md"}}]}, "好了");
+        const runId = await sendRaw(session, "写");
+        const [asked] = await waitingFor(session, 1);
+        expect(await requestOf(session, asked!.id)).toMatchObject({request: {args: {path: "正文.md"}}});
+        await session.raw.resolve({commandId: id(), id: asked!.id, decision: "allow"});
+        const again = await waitingForOther(session, asked!.id);
+        expect(await requestOf(session, again.id)).toMatchObject({request: {args: {path: "别的.md"}}});
+        expect(ran).toEqual([]);
+        await session.raw.resolve({commandId: id(), id: again.id, decision: "allow"});
+        expect((await session.raw.waitRun(runId)).text).toBe("好了");
+        expect(ran).toEqual([{path: "别的.md"}]);
+    });
+
+    test("输出 79：拦截只改了键的顺序不算改了参数，不再问", async () => {
+        const reorder = defineExtension({id: "lab.reorder", intercept: {tool: async (call, next) => next({...call, args: {b: 2, a: 1}})}});
+        await using session = await createTestSession({approve: askForWrites, extensions: [reorder], tools: [writer("lab.write")]});
+        session.model.script({tools: [{tool: "lab.write", args: {a: 1, b: 2}}]}, "好了");
+        const runId = await sendRaw(session, "写");
+        const [asked] = await waitingFor(session, 1);
+        await session.raw.resolve({commandId: id(), id: asked!.id, decision: "allow"});
+        expect((await session.raw.waitRun(runId)).text).toBe("好了");
+        expect(dataOf(await session.events(), "interactionRequested")).toHaveLength(1);
+    });
+
+    test("输出 79：等一批审批时中止：都结算成 aborted，一个都没执行，调用记 denied", async () => {
+        const ran: string[] = [];
+        await using session = await createTestSession({approve: askForWrites, tools: [writer("lab.a", {execute: () => void ran.push("a") as never}), writer("lab.b", {execute: () => void ran.push("b") as never})]});
+        session.model.script({tools: [{tool: "lab.a"}, {tool: "lab.b"}]});
+        const runId = await sendRaw(session, "写两处");
+        await waitingFor(session, 2);
+        await session.raw.abort({commandId: id()});
+        await session.raw.waitRun(runId);
+        const events = await session.events();
+        expect(ran).toEqual([]);
+        expect(dataOf<{decision: string}>(events, "interactionResolved").map((item) => item.decision)).toEqual(["aborted", "aborted"]);
+        expect(dataOf<{status: string; code: string}>(events, "toolResult").map((item) => [item.status, item.code])).toEqual([["denied", "aborted"], ["denied", "aborted"]]);
+        expect((await session.raw.snapshot()).status.state).toBe("idle");
+    });
+
     test("输出 39：判定 ask 时停下等；allow 后执行；allow-session 记住，回退与重开之后仍放行", async () => {
         await using session = await createTestSession({store: {root}, approve: askForWrites, tools: [writer("lab.write")]});
         session.model.script({tools: [{tool: "lab.write", args: {path: "正文/一.md"}}]}, "写完了", {tools: [{tool: "lab.write"}]}, "又写完了", {tools: [{tool: "lab.write"}]}, "第三次");
@@ -161,7 +274,7 @@ describe("提问", () => {
         expect(await session.raw.as({kind: "session", id: "stranger"}).resolve({commandId: id(), id: question!.id, decision: "answer", answer: {text: "x"}})).toEqual({ok: false, code: "not-allowed"});
         expect(await session.raw.as({kind: "session", id: "parent"}).resolve({commandId: id(), id: question!.id, decision: "answer", answer: {text: "林舟", data: {index: 0}}})).toMatchObject({ok: true});
         await session.raw.waitRun(runId);
-        expect(answers[0]).toEqual({kind: "answer", text: "林舟", data: {index: 0}});
+        expect(answers[0]).toEqual({kind: "answer", text: "林舟", data: {index: 0}, by: {kind: "session", id: "parent"}});
         expect(dataOf(await session.events(), "interactionResolved")[0]).toMatchObject({by: {kind: "session", id: "parent"}, data: {text: "林舟", data: {index: 0}}});
 
         const second = await sendRaw(session, "再问");
@@ -267,11 +380,10 @@ describe("结算", () => {
             await child.exited;
         }
         await using session = await createTestSession({store: {root: dir}, open: sessionId, tools: [{id: "lab.asker", execute: () => "问过了"}, writer("lab.gated")]});
-        // 一条回复的结果整批写：lab.asker 执行完了，但进程被杀时这批还没写，所以按开始执行过、没有结果结算。
         const events = await session.events();
         const resolved = dataOf<{id: string; decision: string; code: string}>(events, "interactionResolved");
         expect(resolved).toEqual([expect.objectContaining({decision: "interrupted", code: "interrupted-before-approval", by: {kind: "kernel"}})]);
-        expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.asker", "unknown", "interrupted"], ["lab.gated", "denied", "interrupted-before-approval"]]);
+        expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.asker", "ok", null], ["lab.gated", "denied", "interrupted-before-approval"]]);
         const asked = dataOf<{id: string; async: boolean}>(events, "interactionRequested").find((data) => data.async)!;
         session.model.script("知道主角了");
         expect(await session.raw.resolve({commandId: id(), id: asked.id, decision: "answer", answer: {text: "林舟"}})).toMatchObject({ok: true});

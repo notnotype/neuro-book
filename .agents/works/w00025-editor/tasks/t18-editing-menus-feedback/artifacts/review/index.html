@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工具栏放在哪里</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>工具栏放在哪里</h1>
+<div class="lead">
+<p>w00025 t18。图都是真实页面加注入样式，没有改产品代码。亮色、窗口 1440×900。</p>
+<p><b>为什么现在突兀：</b>正文上面已经有菜单栏、标签栏、面包屑三条通栏，工具栏是第四条；它是唯一一条居中、720px 宽的，分隔线两端悬空，也不和上面任何东西对齐；18 个图标权重相同，又正好压在正文正上方，写作时一直在视线里。</p>
+</div>
+
+<section class="q" data-nbdev-question="r1-place" data-nbdev-type="single" data-nbdev-recommend="merged">
+<h2>工具栏放哪里 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt" data-nbdev-option="keep"><h3>现在的样子</h3><figure><img src="r1/now.webp" alt="第四条，居中，分隔线两端悬空"><figcaption>第四条，居中，分隔线两端悬空</figcaption></figure></div>
+<div class="opt rec" data-nbdev-option="merged"><h3>并入面包屑那一行</h3><p>路径在左，工具在右，少一条横线，正文往上提。拆分后宽度不够时按钮照样收进“⋯”。</p><figure><img src="r1/merged.webp" alt="并入面包屑一行"><figcaption>并入面包屑一行</figcaption></figure></div>
+<div class="opt" data-nbdev-option="bottom"><h3>底部浮条</h3><p>顶部回到干净的状态；代价是长期盖住正文最下面一段，要滚动才能写到那里时会挡。</p><figure><img src="r1/bottom.webp" alt="底部居中的浮条"><figcaption>底部居中的浮条</figcaption></figure></div>
+<div class="opt" data-nbdev-option="full"><h3>留在原位，改成通栏</h3><p>只解决悬空的线和对齐，第四条还在。</p><figure><img src="r1/full.webp" alt="通栏，与面包屑左对齐"><figcaption>通栏，与面包屑左对齐</figcaption></figure></div>
+<div class="opt" data-nbdev-option="hidden"><h3>缺省不显示</h3><p>靠选区菜单、斜杠菜单、块菜单；“视图”菜单还能打开。最安静，但颜色、对齐这些要先选中或从块菜单找，新手更难发现。这也改了你之前定的“默认打开”。</p><figure><img src="r1/hidden.webp" alt="没有工具栏"><figcaption>没有工具栏</figcaption></figure></div>
+</div>
+<div class="rec-note"><b>推荐并入面包屑那一行。</b>按钮还常驻，但不再多占一层，也不再压在正文正上方。</div>
+</section>
+</main>
+</body>
+</html>

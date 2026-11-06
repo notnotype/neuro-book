@@ -11,10 +11,11 @@
 
 import {sep} from "node:path";
 
-import type {BatchResult, ChangeSource, ItemResult, ManifestIssue} from "../shared/contracts";
+import type {BatchResult, ItemResult, ManifestIssue} from "../shared/contracts";
 import {encodedBytes, TEXT_BUDGET_BYTES} from "../shared/contracts";
 import {createCommitter} from "./commit";
 import type {ItemOutcome} from "./commit";
+import type {Origin} from "./changes";
 import type {EntryFailure} from "./entry-ops";
 import type {Outcome} from "./files-service";
 import type {ManifestContext} from "./manifests";
@@ -39,8 +40,8 @@ export type TransferItem = {readonly source: string; readonly target: string; re
 export type DeleteItem = {readonly path: string; readonly expected?: string};
 
 export interface Batch {
-    transfer(kind: "move" | "copy", input: {readonly operation: string; readonly items: ReadonlyArray<TransferItem>}, origin: ChangeSource, control: BatchControl): Promise<Outcome<BatchResult>>;
-    remove(input: {readonly operation: string; readonly items: ReadonlyArray<DeleteItem>}, origin: ChangeSource, control: BatchControl): Promise<Outcome<BatchResult>>;
+    transfer(kind: "move" | "copy", input: {readonly operation: string; readonly items: ReadonlyArray<TransferItem>}, origin: Origin, control: BatchControl): Promise<Outcome<BatchResult>>;
+    remove(input: {readonly operation: string; readonly items: ReadonlyArray<DeleteItem>}, origin: Origin, control: BatchControl): Promise<Outcome<BatchResult>>;
 }
 
 type Fixed = Extract<ItemResult, {readonly status: "skipped" | "not-run" | "cancelled"}>;

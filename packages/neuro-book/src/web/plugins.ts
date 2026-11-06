@@ -9,6 +9,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {Catalog} from "@notnotype/nb-ui/text";
 
 import {pluginsAt, productPlugins} from "nbook/manifest";
+import {STUDY_ICON_NAMES} from "nbook/plugins/theme-study/plugin";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
@@ -23,6 +24,7 @@ import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import {modelsBrowserPlugin} from "nbook/plugins/models/web/plugin";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
+import {agentBrowserPlugin} from "nbook/plugins/agent/web/plugin";
 import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
@@ -71,6 +73,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.html-preview": htmlPreviewBrowserPlugin,
     "nbook.canon": canonBrowserPlugin,
     "nbook.models": modelsBrowserPlugin,
+    "nbook.agent": agentBrowserPlugin,
 };
 
 /** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */
@@ -101,6 +104,19 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.projects": projectsCatalogs,
     "nbook.settings": settingsCatalogs,
     "nbook.workbench": workbenchCatalogs,
+};
+
+/**
+ * 内置插件的静态文件，按插件目录内的相对路径（docs/specs/theme/skins.md）。放在浏览器这边，不放进插件描述：描述三个位置都引，import 图片会被
+ * 服务端构建打进产物，URL 也和 Vite 的不一样。
+ */
+export const builtinPluginAssets: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+    "nbook.theme-study": {
+        "assets/study-day.webp": new URL("../plugins/theme-study/assets/study-day.webp", import.meta.url).href,
+        "assets/study-night.webp": new URL("../plugins/theme-study/assets/study-night.webp", import.meta.url).href,
+        // `new URL` 的路径要是字面量模板，Vite 才会把这些文件打进产物；名单与书房声明的图标集是同一份。
+        ...Object.fromEntries(STUDY_ICON_NAMES.map((name) => [`assets/icons/${name}.svg`, new URL(`../plugins/theme-study/assets/icons/${name}.svg`, import.meta.url).href])),
+    },
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */

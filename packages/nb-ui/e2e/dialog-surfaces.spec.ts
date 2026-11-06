@@ -49,7 +49,7 @@ test("二级对话框与叠在对话框上的确认框：圆角不大于窗口�
     await settled(outer);
     const windowRadius = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--radius-window")));
     const dialogRadius = await radius(outer);
-    expect(dialogRadius, "一级对话框比窗口圆，二级才需要收").toBeGreaterThan(windowRadius);
+    expect(dialogRadius, "一级对话框不比窗口方，二级才需要收").toBeGreaterThanOrEqual(windowRadius);
     await expect(outer).not.toHaveClass(/nb-ui-dialog-surface--nested/u);
 
     await gotoScene(page, "nested", "nbook-light");
@@ -79,7 +79,7 @@ test("二级读二级那档：对话框里的对话框、对话框里的确认�
     await settled(alert);
     const windowRadius = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--radius-window")));
     expect(await alphaOf(alert), "叠在对话框上的确认框").toBeCloseTo(0.5, 2);
-    expect(await radius(alert), "确认框圆角（一级时是 20px）收到窗口那档").toBe(windowRadius);
+    expect(await radius(alert), "确认框圆角收到窗口那档").toBe(windowRadius);
 
     await gotoScene(page, "window-probe", "nbook-light");
     const innerWindow = page.locator("[data-fixture-inner]");
@@ -87,6 +87,24 @@ test("二级读二级那档：对话框里的对话框、对话框里的确认�
     expect(await alphaOf(outerDialog(page)), "一级浮动窗口").toBeCloseTo(0.9, 2);
     expect(await alphaOf(innerWindow), "二级浮动窗口").toBeCloseTo(0.5, 2);
     expect(await radius(innerWindow), "二级浮动窗口仍是窗口那档，不取更小的对话框圆角（8px）").toBe(windowRadius);
+});
+
+test("抽屉不画二级的面；窗口里的确认框画二级；模态遮罩用共用的淡入关键帧", async ({page}) => {
+    await gotoScene(page, "drawer-in-dialog", "nbook-light");
+    const drawer = page.locator(".nb-ui-drawer-surface");
+    await settled(drawer);
+    await expect(drawer, "抽屉只参加模态的叠放，不画二级的面").not.toHaveClass(/nb-ui-dialog-surface--nested/u);
+    const overlayAnimations = await page.locator(".nb-ui-overlay").evaluateAll((overlays) => overlays.map((overlay) => getComputedStyle(overlay).animationName));
+    expect(overlayAnimations.length, "对话框与抽屉各有一层遮罩").toBe(2);
+    expect(overlayAnimations, "遮罩的入场来自 .nb-ui-overlay").toEqual(["nb-ui-overlay-in", "nb-ui-overlay-in"]);
+
+    await gotoScene(page, "alert-in-window", "nbook-light");
+    const alert = page.getByRole("alertdialog");
+    await settled(alert);
+    await expect(alert, "窗口里的确认框画二级").toHaveClass(/nb-ui-dialog-surface--nested/u);
+    const windowZ = await outerDialog(page).evaluate((element) => Number(getComputedStyle(element).zIndex));
+    const alertZ = await alert.evaluate((element) => Number(getComputedStyle(element).zIndex));
+    expect(alertZ, "窗口里开的模态压在窗口之上").toBeGreaterThan(windowZ);
 });
 
 test("减少透明度：菜单、对话框与二级对话框都是实心，不模糊", async ({page}) => {

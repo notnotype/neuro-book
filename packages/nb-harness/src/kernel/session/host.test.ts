@@ -248,6 +248,7 @@ describe("出站过滤（按内容换）", () => {
             if (frame.type === "log" && frame.event.type === "runEnded") delivered.open();
         });
         await session.raw.setTitle({commandId: "title", title: "秘密的标题"});
+        await session.raw.setGeneratedMeta({commandId: "meta", description: "秘密的说明"});
         session.model.script({text: "我去查秘密", tools: [{tool: "lab.search", args: {query: "秘密"}}]}, {tools: [{tool: "lab.answer", args: {answer: "秘密在此"}}]});
         await session.say("告诉我秘密");
         await delivered.promise;
@@ -616,6 +617,45 @@ describe("插件宿主", () => {
         await host.close(session.id);
     });
 
+    test("输出 57：运行中撤回的扩展也不进压缩前的请求", async () => {
+        const model = createTestModel();
+        const started = gate();
+        const release = gate();
+        const systems: string[] = [];
+        const host = createAgentHost({
+            ...hostEnv(model, [{id: "lab.hold", execute: async () => {
+                started.open();
+                await release.promise;
+                return "好了";
+            }}]),
+            compaction: {
+                order: {onThreshold: ["record"]},
+                methods: {record: async (job) => {
+                    systems.push(JSON.stringify(job.request.system));
+                    return {failed: "recorded"};
+                }},
+            },
+        });
+        const handle = handleOf(counter);
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        // 这条回复的用量超过触发点：同一次运行的下一个边界压缩，这时扩展已经撤回。
+        model.script({tools: [{tool: "lab.hold"}], usage: {cacheRead: 90_000}}, "完成");
+        const sent = await session.send({commandId: "c1", input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("no run");
+        await started.promise;
+        expect(JSON.stringify(model.requests[0]!.system)).toContain("计数器在");
+        host.extensions.revoke(handle, "deactivated");
+        release.open();
+        await session.waitRun(sent.value.runId);
+        expect(systems).toHaveLength(1);
+        expect(systems[0]).not.toContain("计数器在");
+        await host.close(session.id);
+    });
+
     test("输出 57：撤回后重新装配失败（依赖没了）时会话进只读", async () => {
         const host = createAgentHost(hostEnv());
         const handle = handleOf(counter);
@@ -743,6 +783,40 @@ describe("插件宿主", () => {
         await revoking;
         expect(log).toEqual(["cleanup", "cleanup"]);
         await host.close(session.id);
+    });
+
+    test("输出 75：关闭时放日志抛错：错误交给调用方，等这个会话的撤回照样完成；底层已放掉的锁不留下", async () => {
+        const started = gate();
+        const release = gate();
+        const model = createTestModel();
+        const base = hostEnv(model, [{id: "lab.hold", execute: async () => {
+            started.open();
+            await release.promise;
+            return "好了";
+        }}]);
+        const store: SessionEnv["store"] = {...base.store, close: async (handle) => {
+            await base.store.close(handle);
+            throw new Error("store-close-error");
+        }};
+        const host = createAgentHost({...base, store});
+        const handle = handleOf(defineExtension({id: "lab.watcher", mount: () => () => undefined}));
+        host.extensions.prepare(handle);
+        host.extensions.published(handle);
+        const created = await host.create({profile: defaultProfile.id});
+        if (!created.ok) throw new Error(created.code);
+        await waitIdleWrites(created.value);
+        model.script({tools: [{tool: "lab.hold"}]});
+        const sent = await created.value.send({commandId: "run", input: {text: "问"}});
+        if (!sent.ok) throw new Error(sent.code);
+        await started.promise;
+        const revoking = host.extensions.revoke(handle, "uninstalled");
+        const closing = host.close(created.value.id);
+        release.open();
+        await expect(closing).rejects.toThrow("store-close-error");
+        await revoking;
+        const reopened = await base.store.open(created.value.id);
+        if (!reopened.ok) throw new Error(reopened.code);
+        await base.store.close(reopened.value);
     });
 
     test("输出 57：重新装配中途失败——写日志失败时依赖缺失的只读不解除；宿主建资源失败进只读 reassembly-failed，不抛出、能关闭", async () => {

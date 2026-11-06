@@ -3,22 +3,25 @@
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
-import {inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
 import "@notnotype/nb-markdown/markdown.css";
 
-import {createMarkdownEditorExtensions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
+import {createMarkdownEditorExtensions, markdownEditingActions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
-import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
+import {editorMenusKey, editorToolbarSlotKey} from "nbook/plugins/editor/shared/contracts";
+import type {EditorControlHandle, EditorEditing, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
 import {languageFor} from "../language-registry";
+import MarkdownMenus from "./menus/MarkdownMenus.vue";
+import MarkdownToolbar from "./menus/MarkdownToolbar.vue";
 import {markdownAssetsKey} from "../parts/asset-urls";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
@@ -27,6 +30,11 @@ import {syntaxCatalogKey} from "../syntax-catalog";
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
 
+/** 编辑器区给的菜单；Lab 与组件测试不经插件挂控件时没有，就没有工具栏与菜单。 */
+const menus = inject(editorMenusKey, null);
+/** 工具栏并入面包屑那一行时传送到这里；传送出去后它不在控件里，这个控件不可见时要自己不画。 */
+const toolbarSlot = inject(editorToolbarSlotKey, null);
+const toolbarTarget = computed(() => (menus?.toolbarPlacement.value === "merged" ? (toolbarSlot?.value as HTMLElement | null | undefined) ?? null : null));
 const catalog = inject(syntaxCatalogKey, null);
 if (catalog === null) throw new Error("MarkdownControl 要由 nbook.markdown 交出的组件挂上：缺少方言目录（syntaxCatalogKey）");
 
@@ -65,6 +73,9 @@ const viewHost: MarkdownViewHost = {
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 let editor: Editor | null = null;
+/** 菜单层要的实例：响应式，随挂载与卸载变。这个文件里的逻辑直接用 `editor`。 */
+const currentEditor = shallowRef<Editor | null>(null);
+const menuLayer = useTemplateRef<InstanceType<typeof MarkdownMenus>>("menuLayer");
 /** 这个实例建好时取定的语言（docs/specs/workspace/markdown-syntaxes.md 输出 7）：与 `editor` 同时设上、同时清空。 */
 let language: MarkdownLanguage | null = null;
 let bound: TextEditorBinding | null = null;
@@ -209,6 +220,8 @@ const enter = (binding: TextEditorBinding): void => {
     if (fresh && binding.cursor !== null) editor.commands.scrollIntoView();
     detach = binding.attach(commitNow);
     refreshOutline(true);
+    // 换编辑状态走 `updateState`，不产生事务。
+    editingVersion.value += 1;
 };
 
 /** 把光标记到当前绑定的标签上。 */
@@ -307,7 +320,32 @@ const revealHeading = (binding: string, version: number, id: string): "ok" | "st
     return "ok";
 };
 
+/**
+ * 编辑动作（docs/specs/workbench/markdown-editing.md）：`active`、`enabled` 依赖版本号，选区或文档变化、换文档时加一，放进
+ * computed 里读会跟着变；没人读就不算（`enabled` 要在事务副本上试跑命令）。
+ */
+const editingVersion = ref(0);
+const editing: EditorEditing = {
+    run: (action, args = {}) => {
+        const implementation = markdownEditingActions[action];
+        return editor !== null && !props.readonly && implementation !== undefined && implementation.enabled(editor, args) && implementation.run(editor, args);
+    },
+    active: (action) => {
+        void editingVersion.value;
+        return editor !== null && markdownEditingActions[action]?.active?.(editor) === true;
+    },
+    enabled: (action) => {
+        void editingVersion.value;
+        return editor !== null && !props.readonly && markdownEditingActions[action]?.enabled(editor, {}) === true;
+    },
+    hasSelection: computed(() => {
+        void editingVersion.value;
+        return editor !== null && !editor.state.selection.empty;
+    }),
+};
+
 const handle: EditorControlHandle = {
+    editing,
     outline,
     revealHeading,
     focus: () => editor?.commands.focus(),
@@ -351,6 +389,9 @@ const onSelection = (): void => {
     if (cursorTimer !== null) clearTimeout(cursorTimer);
     cursorTimer = setTimeout(rememberCursor, CURSOR_REMEMBER_MS);
 };
+const onTransaction = ({transaction}: {transaction: Transaction}): void => {
+    if (transaction.docChanged || transaction.selectionSet || transaction.storedMarksSet) editingVersion.value += 1;
+};
 const onFocus = (): void => emit("focus", true);
 const onBlur = (): void => {
     commitNow();
@@ -384,9 +425,12 @@ onMounted(() => {
     // 事件处理器属于这一次挂载的组件，卸载时摘掉；实例本身留在槽里。
     editor.on("update", onUpdate);
     editor.on("selectionUpdate", onSelection);
+    editor.on("transaction", onTransaction);
     editor.on("focus", onFocus);
     editor.on("blur", onBlur);
+    currentEditor.value = editor;
     if (props.binding !== null) enter(props.binding);
+    editingVersion.value += 1;
     emit("ready", handle);
 });
 
@@ -397,12 +441,14 @@ onBeforeUnmount(() => {
     if (editor !== null) {
         editor.off("update", onUpdate);
         editor.off("selectionUpdate", onSelection);
+        editor.off("transaction", onTransaction);
         editor.off("focus", onFocus);
         editor.off("blur", onBlur);
         // 只从 DOM 上拿下：组还在时实例由组的实例槽保留，组关闭时编辑器区释放它。
         editor.unmount();
     }
     editor = null;
+    currentEditor.value = null;
     language = null;
     refreshOutline(true);
     emit("ready", null);
@@ -410,8 +456,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="scroller" class="h-full w-full overflow-auto" data-editor-control="markdown">
-        <div ref="root" class="markdown-control"></div>
+    <div class="markdown-control-root relative flex h-full w-full flex-col">
+        <Teleport :to="toolbarTarget" :disabled="toolbarTarget === null">
+            <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value && (toolbarTarget === null || props.visible)" :editing="editing" :menus="menus" :readonly="props.readonly" @prompt="(action) => menuLayer?.prompt(action)" @refocus="currentEditor?.commands.focus()" />
+        </Teleport>
+        <div class="markdown-control__margin markdown-control__margin--left" aria-hidden="true" data-markdown-margin="left"></div>
+        <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
+        <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
+            <div ref="root" class="markdown-control"></div>
+        </div>
+        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.binding?.token ?? null" />
     </div>
 </template>
 
@@ -420,7 +474,7 @@ onBeforeUnmount(() => {
  * 纸面（docs/specs/workbench/editor.md 输出 32）：界面字体，版心、留白、字号、行距与段距是这个控件自己的变量，以后做成
  * 偏好（例如宋体与更宽的版心）时只换这几个值。版心含左右留白。
  */
-.markdown-control {
+.markdown-control-root {
     --markdown-measure: 720px;
     --markdown-padding-top: 64px;
     --markdown-padding-bottom: 120px;
@@ -428,6 +482,58 @@ onBeforeUnmount(() => {
     --markdown-font-size: 17px;
     --markdown-line-height: 1.95;
     --markdown-block-gap: 1.1em;
+}
+
+/*
+ * 正文两侧的场景图（docs/specs/theme/skins.md 输出 5）：和滚动容器同级，所以不随正文滚；工具栏传送到外面，所以从工具栏以下开始。
+ * 一侧不足 120px 不画，靠容器查询：拆分后每组各自判断。变量名见 src/ui/theme/skin-vars.ts。
+ */
+.markdown-control-root {
+    container-type: inline-size;
+}
+
+.markdown-control__margin {
+    display: none;
+}
+
+:global([data-nb-skin-scene] .markdown-control__margin) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: block;
+    width: calc((100% - var(--markdown-measure)) / 2);
+    background-image: var(--skin-scene);
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
+
+:global([data-nb-skin-scene] .markdown-control__margin--left) {
+    left: 0;
+    background-position: var(--skin-margin-left-position, 0 0);
+    background-size: var(--skin-margin-left-size, 0 0);
+    mask-image: linear-gradient(to right, #000 55%, transparent);
+}
+
+:global([data-nb-skin-scene] .markdown-control__margin--right) {
+    right: 0;
+    background-position: var(--skin-margin-right-position, 0 0);
+    background-size: var(--skin-margin-right-size, 0 0);
+    mask-image: linear-gradient(to left, #000 55%, transparent);
+}
+
+@container (max-width: 959px) {
+    :global([data-nb-skin-scene] .markdown-control__margin) {
+        display: none;
+    }
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .markdown-control__margin) {
+        display: none;
+    }
+}
+
+.markdown-control {
     box-sizing: border-box;
     max-width: var(--markdown-measure);
     margin-inline: auto;
@@ -435,6 +541,7 @@ onBeforeUnmount(() => {
 }
 
 .markdown-control :deep(.markdown-control__prose) {
+    font-family: var(--font-prose, inherit);
     min-height: 60vh;
     outline: none;
     color: var(--text-main);

@@ -1,0 +1,6 @@
+阶段 E 细计划审查 P6 的处理（审第一版；Opus 23 条：阻断 4、重要 11、建议 8；omp 21 条：阻断 6、重要 13、建议 2）。
+第二版（c54abf192）按 Opus 份整篇重写，omp 份的补充追加在“P6 omp 份带来的补充”一节。
+两份的共同点（独立发现）：诊断个数写错；`Finding.params` 放不了布尔值；`KnowingIndex` 带过去的候选丢了变更；`origins` 判不了完整性；读者知情按线过滤；剧情线判章用错筛选；简报要的分段、补叙安放、渲染在读取视图里没有；`setInstructions` 的并发与重启；`previousTail` 不进记录；性能量法量不到新诊断。
+Opus 独有：`chapterEntries` 不算计划、写之前的集合不存在、`reveal` 挂在讲述上、about 六种、数据版本用计数、diagnostics 随计算声明的约定、brief 三诊断的落位、裁剪的总上限、归纳缓存。
+omp 独有：digest 端口与插件版本由后端注入、地址守卫的候选线过滤、测试矩阵。
+接受取舍或记待确认的（Spec 没写清或补充）：未写章的“涉及本章”、读者知情按“读者读过”、`stalled/overdue` 按读取位置所在章、`premiseChanged` 只报最后一次、地址守卫的“无法检查”不入待处理、补叙章近似读章首、brief 三诊断只在拼简报时产出、裁剪只按段、上一章末尾进记录、`constraintViolated/decidedInText` 留到阶段 F。

@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-01
+updated: 2026-11-06
 ---
 
 # NeuroBook 接入 Agent
@@ -51,6 +51,12 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-30 | t13 讨论完成：收件箱三种接受方式（立即、下一条消息时、手动），不做按天数自动接受；每轮改动文件条由 nb-history 提供；保留、合并保存、大文件不存快照。同时改判 t06：默认不放行写入，写入要审批；先做 yolo，再做交审批模型，按工具的规则先于模式判定（[t13](tasks/t13-history/README.md)、[t06](tasks/t06-approval/README.md)） |
 | 2026-11-01 | t20 之后先实施 t09（其余顺序是建议，见 [t09](tasks/t09-models/README.md)）；t09 的设置界面先出静态稿、定稿后前后端一起做；第一版不做 OAuth 登录 |
 | 2026-11-02 | t10 之后先做 t08，再做 t12；nb-story 迁新内核放最后。t08 把方案注册做进 `nbook.files`，Agent 的方案都注册进文件服务（[t08](tasks/t08-resources-home/README.md)） |
+| 2026-11-05 | t18 开工前核对现状后定：adhoc 挪到 t14，t18 只做主创和会话标题；tiny 没绑时用第一句话作兜底标题、不调模型；做一次一次性实验定 `edit` 缺省模式；主创读 `user://AGENTS.md` 与 `project://AGENTS.md`；主创提示词这一版是第一轮，开发者按实际创作继续优化（[t18](tasks/t18-builtin-profiles/README.md)） |
+| 2026-11-05 | 开发者：t13、t14 优先级不高，接下来做 t17；t17 第一版以能真的用它写书为标准，其余拆到 [t28](tasks/t28-conversation-ui-followups/README.md)；t17 做完紧接着做 t11（[t17](tasks/t17-conversation-ui/README.md)） |
+| 2026-11-05 | t17 完成并合入；`agent/conversation.md` 晋升 `implemented`（[t17](tasks/t17-conversation-ui/README.md)） |
+| 2026-11-05 | t11 实现完成并合入：压缩方法三种经贡献点交出、放回、触发点设置、`/compact` 与压缩详情界面；前后端实现审查各一次，成立的都已修；`agent/compaction.md` 待开发者批准晋升（[t11](tasks/t11-compaction/README.md)） |
+| 2026-11-06 | `agent/compaction.md` 晋升 `implemented`（[t11](tasks/t11-compaction/README.md)）。开发者体验后定：下一步做 [t28](tasks/t28-conversation-ui-followups/README.md)，之后 t14、t15；与 t28 无关的反馈记到 [t29](tasks/t29-ui-polish-after-t15/README.md)，这三个做完再优化 |
+| 2026-11-06 | t06 重定：Agent 模式与审批是两个维度，`discuss`、`plan` 写入直接拒绝；黑白名单做成规则系统，第一条命中生效，作品目录的规则只能收紧；工作记在 t06，排在 t28 前五批之后（[t06 计划](tasks/t06-approval/plan.md)） |
 
 ## 待确认
 
@@ -84,12 +90,15 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t09](tasks/t09-models/README.md) | 模型服务与模型角色 | t02 |
 | [t10](tasks/t10-agent-plugin/README.md) | Agent 插件骨架与贡献点 | t02 到 t09 |
 | [t11](tasks/t11-compaction/README.md) | 上下文压缩 | t03、t09 |
-| [t12](tasks/t12-builtin-tools/README.md) | 基础工具与外部命令行依赖 | t04、t06、t08 |
+| [t12](tasks/t12-builtin-tools/README.md) | 基础工具与外部命令行依赖 | t04、t06、t08、t26 |
+| [t26](tasks/t26-write-interface/README.md) | 写入接口：读、暂存与提交、文件操作、操作分组与记账槽（文件访问第 1 阶段，从 t12 拆出） | t08 |
 | [t14](tasks/t14-multi-agent/README.md) | 多 Agent 与 Workflow | t05、t06、t07 |
 | [t15](tasks/t15-skills/README.md) | Skill 规范与目录 | t05、t08、t10 |
 | [t25](tasks/t25-plugin-marketplace/README.md) | 插件市场：索引、来源、版本与更新、信任；Skill 经插件分发 | t10、t15 |
 | [t16](tasks/t16-command-bridge/README.md) | Agent 操控 NeuroBook 与 `nbook project` 子命令 | t06、t10 |
 | [t17](tasks/t17-conversation-ui/README.md) | 对话界面：Composer、状态栏、待处理区（并入 w00019 t11） | t06、t07、t09、t10；w00028 t03 合入 |
+| [t28](tasks/t28-conversation-ui-followups/README.md) | 对话界面第二批：分支树、上下文检查器、附件、草稿、触发符、Agent 模式 | t17、t06、t15 |
+| [t27](tasks/t27-run-reliability/README.md) | 运行可靠性：模型请求重试、卡死超时、循环检测与费用上限（对照 omp 的设置项，排在 t18 之前） | t12 |
 | [t18](tasks/t18-builtin-profiles/README.md) | 内置 Profile、提示词规范与评测 | t05、t12、t15 |
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），搁置 | t04、t12 |
@@ -113,6 +122,8 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 
 ## 后续（本 Work 不做）
 
+- 提示词缓存的保留时长与预热（omp 的 `providers.cacheRetention`、`cacheWarming`）、旧会话与大块内容的清理（`gc.*`）：t27 之后再定（t12，2026-11-04）。
+- nb-story 的 400 请求全文落盘：它经 `createHarness` 自己调 `streamSimple`，不经过内核的适配器，所以 t27 的删除管不到它，进程照写 `~/.omp/logs/http-400-requests/`（t27，2026-11-04）。
 - 网页工具插件（`web_fetch`、`web_search`）与网页搜索：另开 Work（t12，2026-10-28）。
 - MCP 插件：另开 [w00036](../w00036-mcp/README.md)（t19，2026-10-30）。
 - 插件分发与官方网站：另开 [w00038](../w00038-plugin-distribution/README.md)、[w00037](../w00037-official-site/README.md)（t25，2026-10-30）。

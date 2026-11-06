@@ -90,7 +90,7 @@ const dirty = computed(() => title.value !== opened.value.title
     || coverChange.value.kind !== "keep");
 
 function onRequestClose(reason: DialogCloseReason): void {
-    if (reason === "overlay" && dirty.value) return;
+    if (reason === "outside" && dirty.value) return;
     emit("cancel");
 }
 
@@ -180,7 +180,7 @@ function onConfirm(): void {
 
 <template>
     <Dialog
-        :model-value="open"
+        :open="open"
         :title="windowTitle"
         size="lg"
         :width="700"
@@ -197,7 +197,7 @@ function onConfirm(): void {
                     <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden data-project-cover-input @change="onCoverFile">
                     <div class="project-info__cover-actions">
                         <Button variant="ghost" size="sm" :disabled="busy" data-project-cover-pick @click="chooseCover">{{ text(hasCover ? 'projectInfo.replaceCover' : 'projectInfo.uploadCover') }}</Button>
-                        <InfoTip :text="text('projectInfo.coverHint')" :label="text('projectInfo.coverInfo')" placement="bottom" />
+                        <InfoTip :text="text('projectInfo.coverHint')" :label="text('projectInfo.coverInfo')" side="bottom" />
                     </div>
                     <Button v-if="hasCover" variant="ghost" size="sm" :disabled="busy" data-project-cover-remove @click="removeCover">{{ text('projectInfo.removeCover') }}</Button>
                 </div>

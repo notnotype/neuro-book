@@ -33,6 +33,8 @@ export const settingsKey: ServiceKey<SettingsService> = defineServiceKey<Setting
 
 /** 打开本页的设置窗口（docs/specs/settings/settings-window.md 输出 15）；工作台与书架的齿轮执行它。 */
 export const OPEN_SETTINGS_COMMAND = "nbook.settings.open";
+/** 齿轮执行的：开着就关，关着就开（docs/specs/settings/settings-window.md 输出 15）。 */
+export const TOGGLE_SETTINGS_COMMAND = "nbook.settings.toggle";
 
 /** 公开状态：本页的设置窗口开着时为真；齿轮据此画成按下。 */
 export const SETTINGS_WINDOW_OPEN_KEY = "nbook.settings/windowOpen";

@@ -1,31 +1,108 @@
 ---
 schema: nbook.task/v2
 taskId: t01-requirements
-status: planned
-updated: 2026-10-15
+status: done
+updated: 2026-11-05
 ---
 
 # 需求与调研：现有用法、trellis 与要开放的定制点
 
 ## 目标与范围
 
-开发者 2026-10-15 提出：用到布局工具的地方越来越多，要定制的也越来越多，把 Grid、Splitter 这类布局工具拆成单独的包；这个 Work 同时负责用新包优化现有布局。本 Task 先把需求定下来，再拆后续 Task。
+开发者 2026-10-15 提出：用到布局工具的地方越来越多，要定制的也越来越多，把 Grid、Splitter 这类布局工具拆成单独的包，并用新包优化现有布局。本 Task 把需求定下来，再拆后续 Task。2026-11-05 讨论后，范围从拆包扩大为重做布局系统，见下面的决定。
 
-- **现状清单**：现在的布局工具都在 nb-ui 的 `packages/nb-ui/src/components/layout/`：Grid（`grid.ts`、`GridRenderer.vue`、`grid-geometry.ts`、`grid-snapshot.ts`）、分隔线手势（`sash-*.ts`、`useSashGesture`）、Splitter（`Splitter.vue`、`splitter-*.ts`）、拖放落点（`grid-drop.ts`，`resolveListInsertion`、`resolveGridEdgeDrop`）与反馈（`DropFeedbackOverlay`、`DropIndicator`、`DropIndicatorLabel`）。列出每个用处：工作台外壳（`plugins/workbench/web/shell/layout.ts`、`views/container-grid.ts`、`views/drop.ts`、`WorkbenchDragFeedback`）、编辑器区（`plugins/editor/web/groups/groups.ts`、`tab-drag.ts`）、资源管理器的拖动（`plugins/explorer/web/tree-drag.ts`），各自自己写了哪些手势与反馈。
-- **参照**：[trellis](https://github.com/DanFessler/trellis)：拖动时直接拖着卡片（View）本身，而工作台现在是跟手的小拖影加落点指示。调研它的分层与定制方式；再看 VS Code 的 grid 与拖放。
-- **要开放的定制点**（待与开发者定）：拖动反馈（落点指示、拖着源本身、跟手拖影，以及动画）、分隔线外观与命中带、最小尺寸与吸附、序列化。
-- **包的边界**：新包与 nb-ui 的关系（反馈组件留在 nb-ui 还是一起搬）、对 Vue 的依赖、包名，按 [`monorepo-boundaries.md`](../../../../../docs/modules/monorepo-boundaries.md) 登记。
+## 决定（开发者 2026-11-05）
 
-合同：[`ui/workbench-shell.md`](../../../../../docs/specs/ui/workbench-shell.md)、[`workbench/views.md`](../../../../../docs/specs/workbench/views.md)、[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)（拖动与拆分）、[`workbench/files-explorer.md`](../../../../../docs/specs/workbench/files-explorer.md) 的“拖动”；拆包本身不改行为，换反馈样式时改对应 Spec。
+1. **两种拖动手感都要**：能做到 Trellis 那样丝滑的手感，也保留现有的 VS Code 做法。2026-11-05 开发者要求换名字，按行为叫“实时布局”和“落点指示”，后面的 Task 都用这两个名字。
 
-## 与其它 Work 的关系
+   | | 落点指示（现有，同 VS Code） | 实时布局（新增，同 Trellis） |
+   | --- | --- | --- |
+   | 拖动中 | 小拖影跟手，布局不动，画半区或插入线 | 卡片跟手，邻居实时让位，来源收起 |
+   | 松手 | 提交最后显示的落点 | 提交指针下的候选，不等预览稳定 |
+   | 取消 | 反馈消失 | 卡片飞回原位 |
 
-- 可以与 w00025（编辑器）并行。w00025 的 t02 到 t05 还在分支上、没有合入 master（`feat/w00025-t03-tabs-and-split` 起的一条线），其中 t03 改了 nb-ui grid 的用法（编辑组分隔线 1px）并新写了标签拖动 `plugins/editor/web/tab-drag.ts`。本 Work 从 master 开分支；把编辑器区改用新包的那一步排在 w00025 合入之后，或者到时与 w00025 商定先后。
+2. **改渲染方式**：不再用递归 DOM（每个分支一个 Splitter，叶子嵌在里面）。模型算出每块内容的矩形，所有叶子和分隔线都是同一父元素下的绝对定位元素，移动只是改矩形。
+3. **一棵树**：外壳、视图容器和编辑组合成一棵布局树，推翻“七个固定 Part、外壳与编辑器各一棵”的做法。开发者的理由：这样编辑器内的节点移到外层就很自然。这条推翻了已接受的 [外壳设计稿](../../../../../docs/proposals/workbench-shell-abstractions.md) 与 [`ui/workbench-shell.md`](../../../../../docs/specs/ui/workbench-shell.md) 的相应部分，要写新提案与 ADR（t03）。
+4. **编辑器走同一套**：手势、渲染层、反馈和浮动都共用，编辑器标签可以浮动。[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) 不承诺项里的“把标签拖出窗口”“资源管理器拖到编辑区边缘拆分”要改。
+5. **资源树**：优先级低。树内（调顺序、移入目录）是文件操作，保持 VS Code 模式；拖出树后走同一套。
+
+   | 指针在哪 | 松手后 |
+   | --- | --- |
+   | 树内 | 调顺序、移入目录，同现在 |
+   | 编辑组 | 中央打开，标签条插入，四边拆分（现在只有整组打开） |
+   | 没有落点 | 在松手处浮动打开，拖影提前写“浮动打开” |
+   | 窗口外 | 操作系统级窗口，受下面实测的限制 |
+
+   目录不能打开，拖到无落点仍是取消。多个文件开成一个浮动窗里的多个标签，沿用最多 10 项的限制。
+6. **无落点就浮动**（开发者 2026-11-05 试过原型后认可）：统一规则，也用于编辑器标签和工具视图：松手时没有落点、且这个东西允许浮动，就浮动；否则取消。每种视图可以声明不许浮动。Esc 等取消条件照旧。[`workbench/files-explorer.md`](../../../../../docs/specs/workbench/files-explorer.md) 的“放在没有落点处取消”要改。
+7. **浮动分两种**：应用内浮动这次做完。操作系统级这次只做验证：新包从第一天起不读全局 `window`、`document`，并用一个编辑器和一个工具视图各试一遍两种实现，再决定选哪种（t12）。[`ui/workbench-shell.md`](../../../../../docs/specs/ui/workbench-shell.md) 把“跨窗口浮动”列为不承诺项，到时一起改。
+8. **浮动的单位是带标签的组**，单个视图是它的特例。回到停靠要拖到标签条、接缝或边缘窄带，经过其它位置不吸附。
+9. **竖屏做到验证级**：手机呈现能切部件、能写字，有自动测试和截图；软键盘问题只记录，不解决。方向是宽度小于 600 时一次只显示一个部件并占满屏幕，默认编辑区，活动栏换成底部导航，侧栏、面板和浮动视图都整屏打开；只改呈现，不写偏好。600 到 800 的紧凑呈现是否保留，到 t03 随一棵树一起定。
+10. **新包边界**：包名 `@notnotype/nb-layout`；`.` 是纯 TS，取代 `nb-ui/grid`；`./vue` 依赖 nb-ui，结构同 nb-form。nb-ui 不重导出（`./vue` 依赖 nb-ui，重导出会循环依赖），使用方一次改完。
+    - **搬走**：Grid、分隔线手势、Splitter、NestedGrid、落点几何、`DropFeedbackOverlay` 及相关件、`useGridLayout`、`useLayoutExtent`。新加手势会话、新的渲染层、拖动时的布局预览、落点登记。
+    - **留下**：Collapsible 一族、ScrollArea、OverlayScrollbar、Separator。
+    - **连带**：把 `branchId`、`sashLineEnds` 从 Splitter 的公开 props 拿掉（审查 L20）；nb-story 的发布依赖从 8 个包变成 9 个，[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md) 要更新。
+11. **必须保留的现有手势**（开发者 2026-11-05 在 t02 指出）：十字交汇处同时调宽高、拖动收起与展开。新渲染层接现有的 `collectSashHits` 与 `solveSashDrag`，t02 已验证可行。
+12. **最外层落点不开**（开发者 2026-11-05）：贴着外圈放到整个工作台旁边，模型支持，工作台不用。
+13. **标签条由 nb-layout 提供**（开发者 2026-11-05 认可）：库负责标签的顺序、拖动、插入位与撕下，内容经插槽由宿主画，编辑器的固定、未保存标记、多行都走这里；多行的插入判定要在库里支持。标签条内拖动不变成卡片，离开标签条才撕下。
+14. **落点分区**（开发者 2026-11-05，开关）：拖到面板正文上画出上下左右中五块，形状与判定一致。实时布局下退到卡片后面、只留淡线不写字，看点是卡片；落点指示下压暗视图内容（不透明度加调暗，不用模糊）、线和文字都显眼。
+15. **让位动画照 Trellis 实测**：缓出 5 次幂约 470ms，见 [t02](../t02-prototype/evidences/trellis-easing.txt)。
+16. **同一条线只有一个结果**（开发者 2026-11-05 指出 `(A | B) | C` 里放到 B、C 之间有几种走法）：
+    - 缝不是单独的落点，指针在缝里归最近的那块。把缝当落点（整段插入外层）模型支持，工作台不开。
+    - 同一层相邻两块的共享边是同一个落点，新块只从相邻两块按比例取空间，不动其它块。
+    - 编辑区边界两侧共用同一条线（紧贴且等长）时也只算一个落点，归属看被拖的东西：编辑器进编辑区，工具留在外面。
+    - 紧贴但不等长的两块（例如编辑区和只占右栏上半的面板）按指针在哪一块算，放下去高度确实不同。是否取消编辑区这个边界到 t03 讨论。
+17. **落点指示画提交后的矩形**：用提交时的同一个函数算，不另外估算，指示和结果不会对不上。
+18. **反馈样式全部参数化**（开发者 2026-11-05）：空位、分区、压暗、动画时长与曲线都是可调参数，落到 CSS 变量，调样式不用改库。实时布局缺省不铺遮罩，空位最多一圈边框，因为它的反馈就是布局本身。
+19. **其它定制点不开新接口**：分隔线外观已有 `sashSizes` 和 5 个 `--sash-line-*` 变量，最小尺寸与收起、序列化都已有；吸附和命中带没有实际需求。
+
+## 调研结果
+
+### 现状
+
+- **拆包干净**：Grid、分隔线、Splitter 和落点对 nb-ui 的依赖只有 `useUiText`、`NB_Z_INDEX` 和主题变量；nb-ui 的其它组件不用它们。使用方 24 个文件，在 neuro-book、nb-story、dev-panel 三个包。2026-11-05 查 w00025、27、28、32、39 的本地分支，都没动这些文件。本 Task 原先写的“等 w00025 合入”已过时，`tab-drag.ts` 已在 master。
+- **手势重复三份**：`workbench/web/views/drag-session.ts`（451 行）、`editor/web/tab-drag.ts`（349 行）、`explorer/web/tree-drag.ts`（310 行）用同样的门槛（鼠标 6px、触摸 200ms）。取消规则和吞 click 也基本相同，但已开始走样：工作台那份不监听 `lostpointercapture`，另两份监听，是否造成实际问题没有验证。拖影也是三套。这里的“手势”指从按下到松手、与拖的是什么无关的控制逻辑（起拖判定、锁定指针与逐帧更新、取消、吞 click）；落点、反馈、提交由各场景给。
+- **递归 DOM 的代价**：结构一变节点就要换父元素，浏览器会清掉滚动和焦点，外壳靠三层 Teleport 和 `shell/teleport-memory.ts` 补救。
+- **第三方库**：仓库里没查到布局库的评估记录，自写 Grid 没有留下选型理由。没有换库的计划：两轴尺寸意图和拖到零收起已写进 Spec 并有测试。dockview 有 Vue 绑定，GitHub 识别不出它的许可证，没有深入。w00017 t67 放弃 `@dnd-kit/vue` 的理由见那边的 [计划](../../../w00017-application-runtime-architecture/tasks/t67-workbench-shell-dnd/plan.md)。
+- **竖屏现状**：见产物 `portrait-baseline`。活动栏仍占左边一列，资源管理器和编辑区上下各占一半，编辑区只有约 46% 高度，也没有分隔线可拖。代码里只有 `100dvh`，没有专门处理软键盘的逻辑。Spec 的验收只管不溢出、按钮够得着。
+
+### Trellis
+
+- **许可证**：source-available，非商业免费，商业使用要赞助，判断与 NeuroBook 的 AGPL 不兼容（不是法律意见）。不当依赖、不抄代码，只借交互想法。这次只读了文档和 IDE 示例的配置（`examples/ide/src/App.tsx`、`ide.ts`），没读核心拖动实现。
+- **一棵树**：编辑器标签只是一种 `View`，规则是 `placement="stage"`、`allow={{ side: false }}`；资源管理器是 `allow={{ stage: false, floating: false }}`；标题栏和状态栏在 `Workspace` 之外。每个标签有自己的内容容器，内容只挂载一次，移动时只改位置。
+- **交互文档**：起拖 6px；落点稳定 150ms 后才换预览，松手不等稳定；取消时卡片飞回；无落点松手是取消；已停靠的视图在 overlay 模式下只能走菜单或代码浮动。我们的“无落点就浮动”是自己的规则。
+- **实测 IDE 示例**：[`evidences/trellis-ide-probe.txt`](evidences/trellis-ide-probe.txt)。拖编辑器标签能实时拆分并带着真正文，拖到侧边面板没有落点，面板菜单有 Float。拖资源树的文件没有反应，文档也没查到外部拖入的接口，决定 5 的两个操作要自己设计。
+
+### JetBrains
+
+[官方文档](https://www.jetbrains.com/help/idea/viewing-modes.html) 列五种模式：Dock Pinned、Dock Unpinned、Undock、Float、Window。Float 是脱离工具栏、浮在主窗口之上、随主窗口显示，可以移到别的显示器，所以它其实是操作系统级的；页面内做不到移到别的显示器。Undock 是激活时盖住编辑器一部分，和手机呈现打开侧栏的方式相近。文档只写了经菜单切换模式，没写拖动。
+
+### 操作系统级窗口
+
+[`evidences/popup-activation.txt`](evidences/popup-activation.txt)（脚本 [`scripts/popup-activation.cjs`](scripts/popup-activation.cjs)）：拖到窗口外也能收到松手事件，但从按下算起超过约 5 秒，`window.open` 被拦。所以拖得慢时要回退：落成应用内浮动，浮动窗上放“移到独立窗口”按钮。
+
+两种实现（t12 验证）：
+
+| | 独立页面窗口 | 同运行时窗口 |
+| --- | --- | --- |
+| 做法 | 新窗口加载应用，只显示这个视图 | 主页面的 Vue 直接渲染到新窗口（凭记忆 VS Code 是这样，未核实） |
+| 未保存正文 | 现在只在原页面，要先保存或另做同步 | 同一份，撤销历史也在 |
+| 改造量 | 小，已有同项目多窗口的规则 | 大：直接用全局 `window`、`document` 的代码约 380 行（上限，很多不用改），还要验证 reka-ui 等第三方库 |
+| 关主窗口 | 新窗口还活着 | 一起关 |
+
+## 未验证
+
+- 扁平渲染的手感、Tab 与读屏顺序、重内容的帧率，都是从文档和代码推断，t02 验证。
+- 起拖时新建编辑组显示真正文，起拖瞬间可能卡一下，t02 测。
+- 窗口外松手是无头 Chrome 实测，真窗口要再试。用户在站点设置里允许弹窗后是否不受 5 秒限制，没试。
+- 软键盘盖住编辑区是从代码推断，没上真机。
+- VS Code 的拖放和辅助窗口做法是凭记忆，没翻源码。
+- `portrait-baseline` 里打开第一章后正文是空白的，可能只是截图时还没加载完，没核实。
 
 ## 当前状态
 
-2026-10-15 经 nbdev 新建，尚未开工。
+讨论结束，决定已定，后续 Task 已拆（t02 到 t12）。
 
 ## 下一步
 
-按上面的清单调研，把要开放的定制点与包的边界整理成问题交开发者定，再拆后续 Task（拆包、各处改用）。
+从 t02 的一次性原型开始，开发者试过手感后写 t03 的提案。

@@ -102,7 +102,7 @@ function configOf(model: SnapshotModel, enabled: boolean): ModelConfig {
         vision: model.vision,
         reasoning: model.reasoning,
         efforts: [...model.efforts],
-        ...(model.compactAt === null ? {} : {compactAt: model.compactAt}),
+        ...(model.compaction === null ? {} : {compaction: model.compaction}),
         price: model.price,
         headers: {...model.headers},
     };
@@ -420,7 +420,7 @@ function focusVisible(selectors: readonly string[]): void {
             @refetch="loadCandidates(current!)"
             @done="(change) => applyManage(current!, change)"
         />
-        <AlertDialog v-if="removeTarget !== null" v-model:open="removing" :title="text('remove.title', {name: removeTarget.name})" :description="removeDescription" :confirm-text="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />
+        <AlertDialog v-if="removeTarget !== null" v-model:open="removing" :title="text('remove.title', {name: removeTarget.name})" :description="removeDescription" :confirm-label="text('remove.confirm')" @confirm="removeProvider" @closed="onRemoveClosed" />
     </div>
 </template>
 

@@ -4,9 +4,7 @@ import {computed} from "vue";
 
 import {useUiText} from "../../text-port";
 import Tooltip from "./Tooltip.vue";
-import type {TooltipPlacement} from "./Tooltip.vue";
-
-export type InfoTipPlacement = TooltipPlacement;
+import type {Align, Side} from "../shared-types";
 
 // 根是 Tooltip（没有自己的元素），attrs 要显式交给按钮。
 defineOptions({inheritAttrs: false});
@@ -14,9 +12,11 @@ defineOptions({inheritAttrs: false});
 const props = withDefaults(defineProps<{
     text: string;
     label?: string;
-    placement?: InfoTipPlacement;
+    side?: Side;
+    align?: Align;
 }>(), {
-    placement: "top",
+    side: "top",
+    align: "center",
 });
 
 const text = useUiText();
@@ -24,7 +24,7 @@ const labelText = computed(() => props.label ?? text("infoTip.label"));
 </script>
 
 <template>
-    <Tooltip :text="props.text" :placement="props.placement">
+    <Tooltip :text="props.text" :side="props.side" :align="props.align">
         <button
             v-bind="$attrs"
             type="button"

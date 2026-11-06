@@ -5,6 +5,8 @@
  * 这样 Lab 的数据 tab 可以直接编辑它，时间线也能确定性回放；函数只允许出现在 services 与注册表里。
  */
 
+import type {SessionTreeNodeView} from "./session-tree";
+
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {MarkdownAssetResolver, PromptAttachment, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy} from "./ports";
@@ -40,7 +42,8 @@ export type ToolResultView = {
     details?: JsonValue;
 };
 
-export type ToolCallStatus = "streaming" | "running" | "success" | "error" | "invalid";
+/** `denied`：没有执行（用户拒绝、规则拒绝、还没开始就停了）。`unknown`：开始了但不知道有没有执行完，要用户核对。 */
+export type ToolCallStatus = "streaming" | "running" | "success" | "error" | "invalid" | "denied" | "unknown";
 
 export type ToolCallView = {
     id: string;
@@ -53,6 +56,8 @@ export type ToolCallView = {
     args: JsonValue;
     result?: ToolResultView;
     error?: string;
+    /** 状态的说明，例如“你拒绝了”；适配器给的是本包目录的引用。 */
+    note?: Text;
 };
 
 export type UserMessageView = {
@@ -105,6 +110,25 @@ export type AssistantMessageView = {
 
 export type SystemMessageSource = "prompt" | "reminder" | "compaction" | "branch_summary" | "custom";
 
+/** 一次压缩的详情（`compaction` 分隔线展开后看到的）：数字与字符串，宿主和适配器各自填，视图自己配文案。 */
+export type CompactionView = {
+    /** 方法名，例如 `nbook.agent.shake`；显示末一段。 */
+    method: string;
+    /** 压缩前后的上下文，都是估算（不含系统提示与工具）。`tokensAfter` 不含放回的内容，视图自己加上。 */
+    tokensBefore: number;
+    tokensAfter: number;
+    /** 调了模型的方法才有：模型全名、各次调用的输入输出与缓存读写 token、花费（null 是单价未知）。没调模型（shake）是 null。`input` 只含没命中缓存的部分。 */
+    model: {name: string; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null} | null;
+    /** 用到的压缩要求。 */
+    require: readonly string[];
+    /** 放回了什么；没有放回（shake）是空数组。 */
+    restored: readonly {kind: "file" | "plan" | "log"; target: string; tokens: number; truncated: boolean}[];
+    /** 换成占位的工具结果条数。 */
+    omitted: number;
+    /** 原样保留了最近几轮；切在一轮中间或算不出时是 null。 */
+    keptTurns: number | null;
+};
+
 export type SystemMessageView = {
     kind: "system";
     id: string;
@@ -113,6 +137,8 @@ export type SystemMessageView = {
     /** 条目的名称（例如“上下文已压缩”）；适配器给的是本包目录的引用。 */
     label: Text;
     text: string;
+    /** `source` 是 `compaction` 时的详情；没有时分隔线只有摘要。 */
+    compaction?: CompactionView;
 };
 
 export type ErrorMessageView = {
@@ -163,8 +189,16 @@ export type InteractionView = {
     canChangeRuntime: boolean;
     canArchive: boolean;
     canRestore: boolean;
+    /** 宿主能给上下文详情：为真时圆环与缓存命中能点，顶栏菜单有入口。 */
+    canInspectContext?: boolean;
+    /** 宿主能给分支树：为真时顶栏菜单有入口。切换还要看 `canMutateHistory` 与运行状态。 */
+    canOpenTree?: boolean;
     /** 宿主有管理模型的地方（例如设置页）：为真时模型下拉的末尾有“管理模型…”，发出 `model.manage`。 */
     canManageModels: boolean;
+    /** 宿主支持的触发字符；不给时登记的都算。宿主没做的（例如还没有 Skill 时的 `$`）不打开空菜单。 */
+    triggers?: readonly string[];
+    /** 宿主支持的输入框命令名（不含 `/`）；不给时登记的命令都显示。宿主没做的命令不进菜单，免得发出去没有反应。 */
+    commands?: readonly string[];
 };
 
 export type RunStatus = "idle" | "running" | "waiting" | "stopping";
@@ -173,6 +207,12 @@ export type RunView = {
     status: RunStatus;
     /** 当前运行阶段的用户可读文案，例如“正在思考”；空闲时为空串。 */
     phase: string;
+    /** 这次运行的开始时刻（毫秒）；状态栏据此算用时。 */
+    startedAt?: number | null;
+    /** 只压缩的运行：它不属于任何一轮，分轮视图不把上一轮算成运行中。 */
+    kind?: "compact";
+    /** 模型请求失败、在等重发：第几次、最多几次、什么时候再发。 */
+    retry?: {attempt: number; max: number; resumeAt: number} | null;
 };
 
 export type HistoryView = {
@@ -198,15 +238,39 @@ export type PendingQuestionView = {
     header?: string;
     question: string;
     options: Array<{label: string; description?: string}>;
-    /** 表单型提问的规格，由提问向导解释。 */
+    multiSelect?: boolean;
+    /** 表单型提问的规格（JSON Schema），由 `renderers.form` 画。 */
     form?: JsonValue;
 };
 
-export type PendingInputView = {
-    batchKey: string;
+/** 审批预览：宿主取来之前是 `loading`。文件级的 `failed` 是这个文件算不出来，整个查询失败是 `failed`。 */
+export type ApprovalPreviewView =
+    | {state: "loading"}
+    | {state: "failed"}
+    | {state: "ready"; files: Array<{address: string; kind: "diff"; before: string; after: string} | {address: string; kind: "too-large"; bytes: number} | {address: string; kind: "failed"; code: string}>};
+
+/** 一个等批准的工具调用。`tool` 是显示给用户的工具名，也按它选怎么画（`edit`、`write` 看预览，`shell` 看命令，别的看参数）。 */
+export type PendingApprovalView = {
+    kind: "approval";
+    /** 事项 id；提交时放在 `input.submit` 的 `batchKey` 里。 */
+    id: string;
+    toolCallId: string;
+    tool: string;
+    args: JsonValue;
+    reason?: string;
+    preview: ApprovalPreviewView;
+};
+
+/** 一次提问：一个工具调用里 1 到 4 题。 */
+export type PendingQuestionsView = {
+    kind: "question";
+    id: string;
     toolCallId: string;
     questions: PendingQuestionView[];
 };
+
+/** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
+export type PendingInputView = PendingApprovalView | PendingQuestionsView;
 
 export type WorkflowView = {
     runId: string;
@@ -251,17 +315,53 @@ export type ComposerModelView = {
     group?: string;
     /** 用不了的原因（例如密钥没有设置）；有它时这一项灰掉、不能选，悬停看原因。 */
     unavailable?: string;
+    /** 下面三项只在给了 `roles` 的选择器里显示。 */
+    contextWindow?: number | null;
+    reasoning?: boolean;
+    /** 每百万 token 的输入、输出单价。 */
+    price?: {input: number; output: number} | null;
+};
+
+/** 模型角色（`roles` 非空时输入框用带角色的选择器）。 */
+export type ComposerRoleView = {
+    /** 选中时作为 `modelKey` 交回，例如 `role:deep`。 */
+    key: string;
+    name: string;
+    axis: "gradient" | "specialist";
+    /** 绑定的模型的显示名；没绑定时为 null。 */
+    modelLabel: string | null;
+    /** 用不了的原因。仍然能选：选了之后输入框说明原因，绑定好了就能用。 */
+    unavailable?: string;
+};
+
+/** 审批模式的一项；`danger` 的（全部放行）选中时状态栏有警告。 */
+export type ComposerApprovalOption = {
+    key: string;
+    label: Text;
+    description: Text;
+    icon: string;
+    danger?: boolean;
 };
 
 export type ComposerView = {
     models: ComposerModelView[];
     modelKey: string | null;
+    /** 模型角色；缺省或为空时选择器只列模型。 */
+    roles?: ComposerRoleView[];
+    /** 现在实际用的模型的显示名；解析不到时为 null。选了角色或跟随默认时，靠它知道用的是谁。 */
+    effectiveModel?: string | null;
     /** 思考档位的取值，例如 `off`、`low`、`high`；常见取值由视图翻译，其余原样显示。 */
     thinkingLevels: string[];
     thinking: string | null;
     /** 第一项是普通模式；不是第一项时模式按钮用强调色。 */
     modes: ComposerModeView[];
     mode: string;
+    /** 审批模式的菜单，和 `modes` 平行；缺省没有。 */
+    approval?: {options: ComposerApprovalOption[]; value: string};
+    /** 上次运行被中断：占位文字换掉，发送按钮换成继续，空着也能发。 */
+    resume?: boolean;
+    /** 宿主要说的一句，例如发送被拒的原因；显示在输入框上方。 */
+    notice?: Text;
     queued: Array<{id: string; text: string; delivery: "steer" | "followup"}>;
     attachments: ComposerAttachmentView[];
     /** 已发送的内容，最新的在前，供输入历史使用。 */
@@ -279,10 +379,17 @@ export type UsageSummaryView = {
     contextTokens: number;
     contextLimit: number | null;
     totalTokens: number;
+    input?: number;
+    output?: number;
+    /** `warned`：累计费用到了告警线；`unpriced`：有没有单价的请求，费用上限对它不起作用。 */
+    costState?: "ok" | "warned" | "unpriced";
     cacheRead: number;
     cacheWrite: number;
     /** 0 到 1；没有数据时为 null。 */
+    /** 累计命中率；服务商不报缓存时为 null。 */
     cacheHitRate: number | null;
+    /** 最近一次模型回复的命中率；没有时为 null 或缺省。 */
+    lastCacheHitRate?: number | null;
     /** 单价未知时为 null。 */
     cost: number | null;
     currency: "USD" | "CNY";
@@ -297,7 +404,36 @@ export type ConnectionView = {
  * 面板数据按面板 id 分区。各面板在 S7 实现时各自收窄自己的那一份；
  * 分区而不是逐个写死字段，是为了让插件登记的面板和内置面板走同一条路。
  */
-export type PanelsView = {[panelId: string]: JsonValue};
+/** 上下文详情的数据（`context.refresh` 时宿主取；关了就放掉）。 */
+export type ContextInspectionView =
+    | {state: "idle" | "loading"}
+    | {state: "unavailable"; reason: string}
+    | {
+        state: "ready";
+        /** 下一次请求的估算，内核算的，不调模型。 */
+        estimated: number;
+        window: number;
+        /** 到这里开始压缩。 */
+        threshold: number;
+        areas: {key: "system" | "tools" | "opening" | "history" | "turn"; tokens: number}[];
+        slots: {name: string; extension: string; tokens: number; placed: boolean}[];
+        diagnostics: {id: string; level: string; message: string}[];
+    };
+
+/** 系统提示词全文（`systemPrompt.load` 时才给）。 */
+export type SystemPromptView = {text: string};
+
+/** 分支树的数据（`tree.refresh` 时宿主分页读；关了就放掉）。 */
+export type SessionTreeView =
+    | {state: "loading"; loaded: number}
+    | {state: "unavailable"; reason: string}
+    | {state: "ready"; nodes: SessionTreeNodeView[]; activePath: string[]};
+
+export type PanelsView = {
+    contextInspection?: ContextInspectionView;
+    systemPrompt?: SystemPromptView;
+    sessionTree?: SessionTreeView;
+};
 
 export type AgentConversationContext = {
     /** 未选择会话时为 null。 */
@@ -312,6 +448,10 @@ export type AgentConversationContext = {
     branches: {[messageId: string]: BranchView};
     editing: EditingView | null;
     pendingInputs: PendingInputView[];
+    /** 用户按下停止的时刻（毫秒）；状态栏据此在超过 10 秒时提示工具没有响应。 */
+    stopRequestedAt?: number;
+    /** 向导的界面状态，向导经 `wizard.state` 交出来，宿主原样放回：编辑区页面切标签会卸载，切回来答案还在。 */
+    wizardState?: JsonValue;
     /** 按工具调用 id 索引。 */
     workflows: {[toolCallId: string]: WorkflowView};
     workspaceChanges: WorkspaceChangesView;
@@ -346,6 +486,11 @@ export type AgentConversationServices = {
 // ─── action ─────────────────────────────────────────────────────────────
 
 export type SubmitDelivery = "prompt" | "steer" | "followup";
+
+/** 一个等用户事项的答复：审批的决定（`note` 是拒绝时给模型的话），或提问的回答（`text` 是拼好的人话，`data` 是逐题的回答）。 */
+export type InputResolution =
+    | {kind: "approval"; decision: "allow" | "allow-session" | "deny"; note?: string}
+    | {kind: "question"; answer: {text: string; data: {answers: JsonValue}}};
 
 export type BuiltinAgentViewAction =
     // 会话
@@ -385,6 +530,8 @@ export type BuiltinAgentViewAction =
     | {type: "composer.attachmentRetry"; localId: string}
     | {type: "composer.attachmentRemoved"; localId: string}
     | {type: "command.run"; name: string; argsText: string}
+    /** 输入框自己处理了一条命令（`/model`）：宿主清掉草稿。 */
+    | {type: "composer.commandHandled"}
     | {type: "menu.opened"; trigger: string}
     // 运行设置
     | {type: "mode.set"; mode: string}
@@ -393,8 +540,13 @@ export type BuiltinAgentViewAction =
     | {type: "model.manage"}
     | {type: "runtime.reset"}
     // 提问
-    | {type: "input.submit"; batchKey: string; resolutions: JsonValue}
+    | {type: "input.submit"; batchKey: string; resolutions: InputResolution}
     | {type: "input.cancelRun"}
+    | {type: "wizard.state"; state: JsonValue}
+    | {type: "run.continue"}
+    | {type: "queued.edit"; id: string}
+    | {type: "queued.remove"; id: string}
+    | {type: "approval.set"; mode: string}
     | {type: "input.resync"}
     // 恢复
     | {type: "availability.act"; action: string}
@@ -403,10 +555,15 @@ export type BuiltinAgentViewAction =
     | {type: "attachments.query"; search: string; offset: number}
     | {type: "linkedAgents.refresh"}
     | {type: "systemPrompt.load"; refresh: boolean}
+    | {type: "tree.refresh"}
+    /** 分支树关了：宿主放掉数据。 */
+    | {type: "tree.closed"}
     | {type: "tree.activate"; entryId: string}
     | {type: "tree.copyId"; entryId: string}
     | {type: "context.selectTrace"; traceId: string}
     | {type: "context.refresh"}
+    /** 上下文详情关了：宿主放掉数据。 */
+    | {type: "context.closed"}
     // 工作区变更
     | {type: "changes.select"; path: string}
     | {type: "changes.accept"; path: string}
@@ -435,10 +592,18 @@ export type AgentSessionListItem = {
     description?: string;
     /** 最近活动的时刻（毫秒）。 */
     updatedAt: number;
-    /** 宿主按自己的状态映射，例如问答记录的中断与出错。 */
-    status: "idle" | "running" | "interrupted" | "error";
+    /** 宿主按自己的状态映射，例如问答记录的中断与出错。`waiting` 是等用户批准或回答。 */
+    status: "idle" | "running" | "waiting" | "interrupted" | "error";
+    /** 图标 class（Profile 的图标）；缺省用通用图标。 */
+    icon?: string;
+    /** 图标的悬停提示（Profile 的名字）。 */
+    iconTitle?: string;
+    archived?: boolean;
     /** 需要注意的一句，提醒色另起一行，例如“读到 38.12，早于你现在的位置”；图标缺省 i-lucide-circle-alert。 */
     note?: {text: string; icon?: string};
 };
 
 export type AgentSessionListState = "ready" | "loading" | "error";
+
+/** 会话面板过滤菜单的一项（Profile）。 */
+export type SessionPanelFilter = {id: string; label: string; icon?: string; active: boolean};

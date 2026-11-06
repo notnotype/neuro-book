@@ -1,0 +1,93 @@
+# w00032/t27 只读设计审查
+
+审查对象：`/tmp/review-t27-design/wt/.agents/works/w00032-agent-integration/tasks/t27-run-reliability/plan.md`，提交 `de65e1141`。以本次指定快照为准；不重新讨论 README 决定 1–9。仓库文件未修改。实验在 `/tmp/review-t27-design/lab/`；未调用真实模型。
+
+### 重要｜正确性｜plan.md：重试绕过费用门
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 78–93、142–145 行；`packages/nb-harness/src/kernel/run/model-call.ts:76`；参照 `cost-gate.ts:106`。
+- **现象**：费用只在 `intercept.model` 进入时检查，而重试放在它下面的 `terminal`。第一条失败的 `modelFailed` 已经计费，即使累计已达 `maxCost`，后面的最多 10 次重发仍继续。同一拦截层再次调用 `next` 也读取第一次进链的 `ctx.state`。
+- **为什么是问题**：这超出“最后一次请求可能超支”的软上限约定：已经知道超支后还主动发出后续请求。断流已确认也要重试，这类失败确实可能有用量，不能用“失败请求不计费”排除。omp 明确把费用门放在重试循环内、每次真正发送前检查。
+- **如何核实**：`bun /tmp/review-t27-design/lab/runtime-probes.ts plan-budget`。脚本只在 Bun loader 内存中把真实内核的 terminal 改成计划中的循环，不改仓库；会话、单写者、归约、反应、拦截链均为真实实现。费用上限 1，每次回复费用 1，前两次 network、第三次成功：`calls=3`、`checks=1`，每次发送前 session 费用为 `[0,1,2]`，最终费用 3，运行仍 completed。计划尚未实现，因此这是计划原型的运行证据。
+- **建议改法**：保留重试在内核的决定，但在每次实际尝试前提供重新读取当前状态的准入点，让默认费用扩展每次都能检查；或将重试编排提到可重新进入费用检查的位置。不要只复用第一次进链的快照。补“首次断流计费已达上限，不发送第二次”和“一层两次 next”的真实内核验收。
+
+### 重要｜正确性｜plan.md：旧会话费用永久漏计
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 136、140–145、204 行；`packages/nb-harness/src/kernel/dispatch/reactions.ts:44`；`docs/specs/harness/extensions.md` 输出 11。
+- **现象**：`spent` 只归约新扩展自己的 `costRecorded`，而这些事件只在新回复的 on 反应里产生。旧会话首次打开装上该扩展时，历史 assistant/modelEnded/modelFailed 不重跑 on，因此历史费用全部变成 0；不是只多一条不影响行为的 profileChanged。
+- **为什么是问题**：计划承诺“按会话累计、重开后还在”，且明确处理已有会话的装配变更，却没有费用迁移。默认装上的保护对已有的长会话从零开始，历史费用即使已超过用户上限仍允许发送。只靠重放自己的事件永远补不回来。
+- **如何核实**：`bun /tmp/review-t27-design/lab/runtime-probes.ts base-historical-cost`。真实内存日志先创建未安装费用扩展的会话并写费用 4 的回复，关闭后使用计划形状的扩展重新打开：`paidHistory=[4]`，`state.spent=0`，profileChanged 原因为 `[created,code-updated]`。没有伪造历史或直接调用归约函数。
+- **建议改法**：明确首次安装的迁移合同：从全部已发生的用量事件（含非当前分支）生成一次幂等的 session 基线，再接增量。若改成由内核维护 session 级累计，则扩展只负责告警与准入，能同时避免反应被丢弃导致的漏计。增加“老会话超过上限，升级后第一次请求即被挡住”的验收。
+
+### 重要｜不变量｜plan.md：沿用队列外分配请求序号会碰撞
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划第 82、90、92 行；`packages/nb-harness/src/kernel/run/model-call.ts:94`；`packages/nb-harness/src/kernel/run/tools.ts:345`；`packages/nb-harness/src/kernel/state/kernel-state.ts:61`。
+- **现象**：`core.requestCounter + 1` 在 `host.write` 之前读。两个 shared 工具的审批模型同时调用时都能读到同一个值；计划在 terminal 中重复使用这段代码，却未将分配纳入单写者。重试与“openRequests 不含就不写失败”的新判断继续依赖它唯一。
+- **为什么是问题**：请求序号用于 delta、结果与 openRequests 的关联，合同要求会话内单调增加。任一同号请求结束会将另一请求一起从 openRequests 删除，另一个审批请求中止时可能漏结算，新的去重判断也会吞掉应记的失败与用量。这是已有机制的真实缺陷，属于本计划直接依赖且修改的前置，不是重试才首次引入。
+- **如何核实**：`bun /tmp/review-t27-design/lab/runtime-probes.ts base-parallel`。真实会话一条 assistant 发两个 shared 工具，审批钩子经公开 ctx.model 各发一次 approval：模型事件为 `modelStarted(1,turn), modelStarted(2,approval), modelStarted(2,approval), modelEnded(2), modelEnded(2), modelStarted(3,turn)`。没有手动调用 terminal 或伪造并发。
+- **建议改法**：分配序号与排入 modelStarted 必须原子化：在单写者队列项里分配并写，或使用同步预留、独立于归约推进的分配器；也将拦截不调 next 的结果纳入统一预留。验收加并发审批首次发送、同时重试、一个结束另一个中止，断言每次发送序号不同且各自恰好一次收口。
+
+### 重要｜正确性｜plan.md：只认末尾落盘标记漏掉 OpenRouter
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 120、203、224 行；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:1865`；`utils/http-inspector.ts:71`。
+- **现象**：计划只在错误文字末尾找 `raw-http-request=<路径>`，并依赖 `stripRawHttpRequestDiagnostics` 去掉该行。OpenAI completions 的实际错误路径在 finalize 写完 dump 后，还把 `error.metadata.raw` 追加到错误末尾；此时路径行在中间。strip helper 也只剥末尾连续的诊断行，根本不会删除这条路径。
+- **为什么是问题**：400/413 经 OpenRouter 或同形网关返回 metadata.raw 是现有正常错误结构，不是库升级后的未知风险。照计划实现会同时留下请求全文和错误里的路径，违反决定 6、9。先于 8 KB sanitize 是对的，但无法弥补定位标记的位置错误。
+- **如何核实**：`env HOME=/tmp/review-t27-design/lab/home-openrouter bun /tmp/review-t27-design/lab/provider-probes.ts dump-openrouter`，真实 Bun 子进程、本机 HTTP 400、真实 pi-ai 18.14.0，HTTP 1 次。结果是三行 `400 bad input`、`raw-http-request=/tmp/review-t27-design/lab/home-openrouter/.omp/logs/http-400-requests/1793792347038-2l1m1ktguaokn.json`、`provider diagnostic follows dump marker`；调用计划指定的 strip 后三行不变，目录仍有该 JSON。
+- **建议改法**：在未经截断的原文中按完整诊断行收集所有 dump 路径并做目录限制，逐个删除后按行剥离诊断，保留其后的上游说明；两条适配器失败出口都使用同一处理函数。补 OpenRouter metadata.raw、长错误正文、400 与 413 子进程用例。删除遇到 ENOENT 视为目标已达到（库后台 prune 也会删文件），其它错误才报告。
+
+### 重要｜正确性｜plan.md：丢弃错误标记使可恢复的终态错误完全不重试
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 65–74、97、119、193 行；`packages/nb-harness/src/kernel/model/classify.ts:23`；`packages/nb-harness/src/kernel/model/omp.ts:305`；参照 `turn-recovery.ts:1560`。
+- **现象**：真实 `finish_reason: "error"` 带 `ProviderFinishError | Transient`，适配器因优先级先归为 provider，交回时丢掉 errorId，且没有 HTTP status。判断表只重试 provider 且 status >= 500，于是这类服务商生成中错误一次就停。服务商主动报告 repetition_detected 也只剩 provider；计划说 pi-ai 已做思考循环检测“不用再做”，但检测后的恢复行为没有接上。
+- **为什么是问题**：OpenRouter 等网关会用 HTTP 200 SSE 的 error finish 传上游瞬态错误，不会给 5xx；这正是无人值守会遇到的故障。omp 对 ProviderFinishError 可重试，对 ThinkingLoop 带纠偏信息恢复。不能简单把所有 provider 都重试，否则内容拦截会被重复发送；当前 ModelResponse 已丢失区分所需信息，后续只实现 retryDelay 无法补救。
+- **如何核实**：`env HOME=/tmp/review-t27-design/lab/home-matrix bun /tmp/review-t27-design/lab/provider-probes.ts matrix`，本机真实 HTTP，loader 只在内存给适配器补计划中的 maxHttpAttempts:1。finish-error：原始 `errorId=4329472`（0x421000），适配器 `{kind:"provider",message:"Provider returned error finish_reason"}`，无 status；repetition：`errorId=69632`（0x11000），适配器同为 provider、无 status。对照 cut/network_error 都是 network，length 保持 length，content_filter 是 provider 且原始 id=36864；说明不能靠现有 kind 统一修正。
+- **建议改法**：在适配器保留稳定的恢复原因/标记，再由内核的唯一策略按结构化原因区分终态瞬态失败、思考循环与不可重发的内容拦截；思考循环选择有界纠偏再请求或明确终止，但不要把“已能检测”当成“已能恢复”。扩充真实端点的验收表，不能只靠 createTestModel 手写 kind。
+
+### 重要｜正确性｜plan.md：start 会解除循环停止且没有用户新话
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 149–154、205 行；`packages/nb-harness/src/kernel/run/commands.ts` 的 startCommand；`docs/specs/harness/runtime.md` 输出 4。
+- **现象**：计划在每个 turnStarted 上清空 stopped/redirected/count，并解释为“用户说了新的话”。实际 `start` 在 error 后继续时也会写 turnStarted，`inputId:null`，没有用户新话。因此被循环保护停下后，直接 start 就全部解锁；运行中用户 steer 反而不产生 turnStarted，不会按“新话”重置。
+- **为什么是问题**：决定 8 明确是提醒后再犯即停、用户发新话后解除。start 是对未完成轮的恢复，不能当成用户给了新指令；否则无人值守的继续流程能无限重复同一循环，丢掉已提醒和已停的事实。
+- **如何核实**：`bun /tmp/review-t27-design/lab/runtime-probes.ts base-start-reset`。真实 SessionApi、真实工具执行；试验扩展保留计划的 stopped 片、turnStarted 清零和模型拦截，触发停止后只调用 start：模型端口调用数从 1 增为 2，两次都最终 tool-call-loop；日志 turnStarted 的 inputId 依次为非空 id、null。该探针只压缩触发停止所需次数，验证的是错误后 start 的真实事件语义。
+- **建议改法**：只在实际用户新输入被消费时重置（含 steer）；`turnStarted.inputId === null` 不重置。补“start 仍被挡住、send 新话解除、运行中 steer”的验收，不把所有 turnStarted 视为用户新话。
+
+### 重要｜正确性｜plan.md：模型拦截失败无法把压缩运行收口为保护码
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 90、144、154、204 行；`packages/nb-harness/src/kernel/run/model-call.ts:123`；`kernel/compaction/compact.ts:207`；`kernel/run/loop.ts:172`。
+- **现象**：计划把费用门和循环门统一做成 `intercept.model` 返回失败，并承诺运行以 cost-limit/tool-call-loop 收口。但非对话 `ctx.model` 只是把 ModelResponse 交给压缩方法或审批钩子。压缩方法可以将错误转成普通 `{failed}` 后换下一种方法；只压缩运行最终报 compaction-failed，自动阈值压缩失败则仍继续，审批钩子也能将其变为询问用户。该失败不是运行停止通道。
+- **为什么是问题**：到上限时用户在压缩阶段收到的是“压缩失败”，而不是配置保护导致的停止；外部调用方按错误码无法区分。计划又拟对 modelCaller 加“openRequests 不含就不写 modelFailed”，若照字面无条件加，保护扩展没有调用 next、没有 modelStarted，这条失败连日志也不留。需要区分“已结算的真实请求”和“未发送的拦截回复”，不能都用缺失 openRequests 表达。
+- **如何核实**：`bun /tmp/review-t27-design/lab/guard-probes.ts cap-compaction`。真实 SessionApi 先完成一轮，再使计划形状的模型费用拦截生效、调用 compact；真实压缩方法经 job.model 接到 cost-limit 并返回 `{failed}`，结果 `runResult.error.code="compaction-failed"`，日志 modelFailed 的 code 却是 cost-limit；模型端口总调用数 1（压缩确实没发送）。`unstarted-failure` 场景还复现不调 next 的两次拒绝都用了 request=2，因为当前 requestCounter 仅由 modelStarted/assistant 推进。
+- **建议改法**：给这种“全运行停止”的保护拒绝定义独立、可传播到 RunControl 的通道（含压缩与审批），并确保压缩换方法、审批降级不能吞掉它。为 ModelCallOutcome 区分发送/已结算/拦下，而不是只靠 openRequests 做全部去重；序号预留见第 3 条。补手动压缩、自动压缩、并发审批三条达到费用上限的真实运行验收。
+
+### 重要｜正确性｜plan.md：内部恢复成功也会留请求全文，外层拿不到删除路径
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 120、162、203、224 行；`node_modules/@oh-my-pi/pi-ai/src/providers/anthropic.ts:3164`。
+- **现象**：删除只在适配器拿到失败文字时进行，但 pi-ai 的 Anthropic strict-tool 400 修复分支先调用 finalizeErrorMessage 写请求全文用于 logger.warn，再去掉 strict 重发。第二次成功后对外只有成功 AssistantMessage，没有 errorMessage 和 dump 路径，计划的删除器完全没有机会处理第一次写下的文件。
+- **为什么是问题**：不是“路径约定以后改了才漏”，当前版本就存在成功路径上的落盘。这个恢复不是可以用 maxHttpAttempts:1 关掉的 HTTP 重试。决定 7 接受内层叠加，并不等于允许恢复成功时留下全文；决定 6、9 仍要求写完删除。
+- **如何核实**：`env HOME=/tmp/review-t27-design/lab/home-recovered bun /tmp/review-t27-design/lab/recovered-dump.ts`。真实 pi-ai、Bun 非 test 子进程、本机 Anthropic 兼容端点，带实际会启用 strict 的 yield 工具；第一次 400 invalid_request_error/compiled grammar too large，第二次返回合法 Anthropic SSE。实测 HTTP 2 次，最终 `stopReason:"stop"`、内容 recovered、没有 errorMessage，仍留下 `1793792878289-3b96idiwkr8ku.json`。没有直接调用 finalize 或伪造库内时序。
+- **建议改法**：补上“库内部写盘而最终没有失败”的清理入口，不能只解析对外交回的错误。优先向上游提供请求 dump 的关闭/完成清理钩子，或在宿主使用能归属本应用请求的落盘通知；明确该约束需要的最小上游改动。不要扫描删除整个共享 ~/.omp 目录里别的进程的文件。增加内部 400 恢复成功的子进程验收。
+
+### 重要｜正确性｜plan.md：退避后的新请求不消费插话和已受理设置
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 78–93、102、126 行；`packages/nb-harness/src/kernel/run/model-call.ts:76`；`kernel/run/loop.ts:200`；`docs/specs/harness/runtime.md` 输出 28、31。
+- **现象**：terminal 循环一直重发冻结的 final，并复用进入链前解析的 resolution。退避期间用户发 steer、要求 compact、修改会话模型/推理档或工具绑定，下一条有新 modelStarted 的实际请求仍是旧内容，最多连续 10 次。只有该 callModel 成功退出以后才回到循环边界消费这些改变。
+- **为什么是问题**：计划把每次重发定义为新请求，既有合同要求每次请求前消费 steer、按当前设置解析并重新算视图；计划只额外现读 retry/transport，形成互相矛盾的两种“下一次请求”。在最长 5 分钟退避期间用户已经纠正任务，重发仍在为旧请求花钱。omp 退避后经 continue 重新走运行边界，而不是复用已捕获的 final。
+- **如何核实**：`bun /tmp/review-t27-design/lab/runtime-probes.ts plan-steer`。同第 1 条的内存 terminal 原型、其余真实内核；收到第一次 modelFailed 后经 SessionApi enqueue 写入 steer，再 changeSettings 把 core.effort 改为 high。500 ms 后第二次端口调用的请求与第一次逐块相同，不含插话，也没有 effort；snapshot.buffer 仍含已受理的 steer。未伪造内部状态。
+- **建议改法**：对 turn 重试回到可重新处理边界和重新计算请求的位置，明确保留同一轮、独立重试预算与失败审计；无需改“重试属于内核”的决定。若确实要把整串尝试视为不可变的一个请求，必须同步改“新请求”、设置与插话合同并明确用户可见延迟，但当前计划没有该取舍。增加退避中 steer、compact、改模型/推理档的真实运行验收。
+
+### 重要｜正确性｜plan.md：一次拦截两次 next 时漏记成功尝试的用量
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 78–93、142、189、199 行；`packages/nb-harness/src/kernel/run/model-call.ts:93`；`kernel/run/loop.ts:276`；`kernel/run/results.ts:48`。
+- **现象**：计划只给“需要重试”的失败写 modelFailed，最终的回复仍只由最外层写一次 assistant。现有合同允许一层自己调用两次 next：第一次 next 里重试成功后得到的回复如果被外层继续调用第二次 next 覆盖，其成功用量不会写任何事件，第一个 next 对应的成功 modelStarted 也不会结算。modifiedBy 又是整条链共享数组，第二次 next 的日志还累入了第一次 next 的修改。
+- **为什么是问题**：费用扩展只看 assistant/modelEnded/modelFailed，漏掉的成功请求无法计费，RunResult 也不是所有实际请求的和。运行 completed 的路径还留下 openRequests，直到另一次 runEnded 或恢复才被清掉；计划要求的新事件审计和费用上限都依赖这里完整。这是已有两次 next 语义的缺陷，计划明确承诺“拦截层只看到一次调用”并不足以处理它；重试与费用扩展增加了对该前置的依赖。
+- **如何核实**：`bun /tmp/review-t27-design/lab/runtime-probes.ts plan-two-next`，真实内核、同第 1 条的内存重试原型。拦截层顺序调用两次 next，第一次请求 network（费用 1）后重试成功（费用 2），第二次 next 成功（费用 3）。实测端口 3 次，总费用应为 6，RunResult 却是 4；事件只有 `modelFailed(request=1,cost=1)` 与 `assistant(request=3,cost=3)`，request=2 的成功无结算事件。第三次 modelStarted.modifiedBy 有同一扩展的两个 params 修改条目。
+- **建议改法**：明确每次端口尝试的结算所有权，让实际调用的成功/失败用量都只记一次，最外层只决定哪些内容进对话；非最终成功调用可用明确的模型结算事件记录而不进对话。每次 next 独立记录其修改轨迹。补“拦截层两次 next，第一次内部又重试”的费用与 openRequests 验收。

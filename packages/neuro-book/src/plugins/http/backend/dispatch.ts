@@ -50,6 +50,13 @@ export class RouteTable {
     }
 }
 
+export interface RequestFailureContext {
+    readonly plugin: string | null;
+    readonly path: string;
+    /** 客户端已断开：读请求体失败多半是它造成的（每次取消上传都会发生），不算服务端出错。 */
+    readonly clientGone: boolean;
+}
+
 export interface DispatchOptions {
     readonly admission: HttpAdmission;
     readonly routes: RouteTable;
@@ -58,7 +65,7 @@ export interface DispatchOptions {
     /** `/api/` 之外的路径；null 时一律 404（开发模式由 Vite 提供页面）。 */
     readonly staticFiles: StaticFiles | null;
     /** 处理器抛错时的诊断；不改变响应。 */
-    readonly reportError: (error: unknown, context: {readonly plugin: string | null; readonly path: string}) => void;
+    readonly reportError: (error: unknown, context: RequestFailureContext) => void;
     /** 写请求的 `Origin` 是否允许：与 RPC 端口同一份判定（`server/start.ts`）。 */
     readonly allowOrigin: (origin: string) => boolean;
 }
@@ -106,7 +113,7 @@ export function createDispatcher(options: DispatchOptions): (request: Request) =
                 response = await options.staticFiles.serve(request);
             } catch (error) {
                 ticket.release();
-                options.reportError(error, {plugin: null, path: url.pathname});
+                options.reportError(error, {plugin: null, path: url.pathname, clientGone: request.signal.aborted});
                 return errorResponse(500, "internal-error", "处理请求时出错。");
             }
             return releaseWhenSent(response, ticket, request.signal);
@@ -140,7 +147,7 @@ export function createDispatcher(options: DispatchOptions): (request: Request) =
             response = await handler.fetch(forwardedRequest(request, url, match[2] ?? "/"), env);
         } catch (error) {
             ticket.release();
-            options.reportError(error, {plugin, path: url.pathname});
+            options.reportError(error, {plugin, path: url.pathname, clientGone: request.signal.aborted});
             return errorResponse(500, "internal-error", "处理请求时出错。");
         }
         return releaseWhenSent(response, ticket, request.signal);

@@ -7,6 +7,7 @@ import {
 import {computed, ref} from "vue";
 
 import {useFieldContext} from "./field-context";
+import type {ControlSize} from "../shared-types";
 
 export interface RadioOption {
     value: string;
@@ -15,7 +16,7 @@ export interface RadioOption {
     disabled?: boolean;
 }
 
-export type RadioGroupSize = "sm" | "md";
+export type RadioGroupSize = Extract<ControlSize, "sm" | "md">;
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
@@ -73,7 +74,7 @@ function handleUpdate(value: unknown): void {
         :disabled="props.disabled"
         :required="props.required || field?.required.value === true"
         :orientation="props.orientation"
-        :id="field?.inputId.value"
+        v-bind="{id: field?.inputId.value}"
         :aria-labelledby="field?.labelId.value"
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="isInvalid ? 'true' : undefined"

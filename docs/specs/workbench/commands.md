@@ -11,6 +11,8 @@ owners:
 
 ## 目标与非目标
 
+随 [ui.workbench-layout](../ui/workbench-layout.md)（planned）：第二批的面板与视图命令按它的输出 35 改，`set-panel-position`、`set-panel-alignment` 删除。切换之前下文仍是现行合同。
+
 **目标**：NeuroBook 的**具名可发现动作**——命令面板、快捷键、按钮、未来的菜单与外部调用——拥有单一身份与单一执行入口。每条命令携带：全局唯一 id、人类标题（界面文字值）与语义描述、参数形状（`args`）、可用性条件（`when`）、默认快捷键、作用类型（`effect`）与对外暴露策略。执行产生结构化结果与审计事件；触发面只引用命令身份。
 
 命令系统是内置插件 `nbook.commands` 提供的能力，与运行位置无关（2026-10-06 开发者确认，见 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 决策 2）：服务端、每个浏览器窗口（以后的终端界面）各有一份命令表，登记本位置入口贡献的命令；用户与 Agent 可以不经界面执行命令。界面只是命令的触发面：浏览器里的命令面板与键位分发归 `nbook.workbench`，界面没有加载时（例如终端界面打开、或页面不挂命令宿主）命令照样能执行。
@@ -124,6 +126,8 @@ owners:
 
 ### 命令目录（第一批 · 本批全部交付）
 
+Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-editing`](markdown-editing.md)。
+
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
 | `nbook.editor.focus` | 聚焦编辑器 / Focus Editor | `{}` | 活动编辑器 | read | auto | `nbook.editor`（[workbench.editor](editor.md)，planned；此前由 Lab 命令场景在样板编辑器上登记） |
@@ -168,6 +172,8 @@ owners:
 | `nbook.view.open` | 打开视图 / Open View | `{viewId?}`；省略时经选择列出已落位的视图 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
 | `nbook.view.set-part-hidden` | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`activitybar`；`hidden` 布尔）；`part` 省略时经选择列出三个区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.focus-next-pane` | 聚焦下一个面板 / Focus Next Pane | `{}`；缺省键位 F6 | 无 | read | never |
+| `nbook.view.focus-previous-pane` | 聚焦上一个面板 / Focus Previous Pane | `{}`；缺省键位 Shift+F6 | 无 | read | never |
 
 - 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；四条面板命令的参数可以省略（命令面板对普通候选执行 `{}`，与设置命令同一写法），选择被取消为成功且不写。
 - `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按记忆尺寸回来（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 32）。

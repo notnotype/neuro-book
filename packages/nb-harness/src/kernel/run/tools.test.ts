@@ -4,12 +4,14 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
+import {createHash} from "node:crypto";
 import {readdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {AnyProfile, ApproveHook, LogEvent, ToolCall} from "../api/index.js";
 import {conv, defineContract, defineExtension, shape, slice} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
+import {mapEventContent} from "../helpers/content.js";
 import {createTestClock} from "../testing/clock.js";
 import {createTestSession, type TestSession, type TestTool} from "../testing/test-session.js";
 import {ABORT_GRACE_MS} from "./tools.js";
@@ -226,6 +228,34 @@ describe("读扩展的导出", () => {
     });
 });
 
+describe("输出 76：一个调用执行完就推帧", () => {
+    test("先推帧，这批的 toolResult 整批写：下一个调用还在跑时界面已经知道前一个完了", async () => {
+        const seen: string[] = [];
+        let release = () => undefined as void;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await using session = await createTestSession({tools: [
+            {id: "lab.quick", execute: () => "快"},
+            {id: "lab.slow", execute: async () => {
+                seen.push("slow started");
+                await held;
+                return {text: "错了", status: "error", code: "lab-failed"};
+            }},
+        ]});
+        session.raw.subscribe((frame) => {
+            if (frame.type === "tool") {
+                seen.push(`frame ${frame.status}`);
+                if (frame.status === "ok") release();
+            }
+            if (frame.type === "log" && frame.event.type === "toolResult") seen.push("toolResult");
+        });
+        session.model.script({tools: [{tool: "lab.quick"}, {tool: "lab.slow"}]}, "完成");
+        await session.say("问");
+        expect(seen).toEqual(["frame ok", "slow started", "frame error", "toolResult", "toolResult"]);
+    });
+});
+
 describe("拦截链", () => {
     const tracer = (id: string, trace: string[]) => defineExtension({id, intercept: {
         model: async (request, next) => {
@@ -238,7 +268,7 @@ describe("拦截链", () => {
         },
     }});
 
-    test("输出 20：从外到里是插件的扩展、Profile 的 extensions、Profile 自己，审批在最里层", async () => {
+    test("输出 20、79：从外到里是插件的扩展、Profile 的 extensions、Profile 自己；审批在拦截链之前", async () => {
         const trace: string[] = [];
         const profile = defineProfile({
             id: "lab.chain", version: "1", name: "c", description: "c",
@@ -255,7 +285,7 @@ describe("拦截链", () => {
         await using session = await createTestSession({profile, approve, extensions: [tracer("lab.z", trace), tracer("lab.a", trace)], tools: [echo("lab.read")]});
         session.model.script({tools: [{tool: "lab.read"}]}, "完成");
         await session.say("问");
-        expect(trace.filter((line) => line.startsWith("tool") || line === "approve")).toEqual(["tool lab.a", "tool lab.z", "tool lab.chain.own", "tool profile", "approve"]);
+        expect(trace.filter((line) => line.startsWith("tool") || line === "approve")).toEqual(["approve", "tool lab.a", "tool lab.z", "tool lab.chain.own", "tool profile"]);
         expect(trace.filter((line) => line.startsWith("model")).slice(0, 3)).toEqual(["model lab.a", "model lab.z", "model lab.chain.own"]);
     });
 
@@ -484,6 +514,83 @@ describe("拦截链", () => {
     });
 });
 
+describe("审批阶段的结论什么时候还算数", () => {
+    test("输出 79：拦截把读调用改派到写工具：按写工具重新判定，被拒绝就不执行", async () => {
+        const ran: string[] = [];
+        const reroute = defineExtension({id: "lab.reroute", intercept: {tool: async (call, next) => next({...call, tool: "lab.write"})}});
+        const approve: ApproveHook = async (call) => (call.tool === "lab.write" ? {verdict: "deny", rejection: {code: "write-forbidden", by: "rule:lab"}} : {verdict: "allow", by: "rule:read"});
+        await using session = await createTestSession({approve, extensions: [reroute], tools: [
+            {id: "lab.read", execute: () => "读"},
+            {id: "lab.write", effect: "write", execute: () => {
+                ran.push("write");
+                return "写";
+            }},
+        ]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "完成");
+        const {events} = await session.say("问");
+        expect(ran).toEqual([]);
+        expect(dataOf(events, "toolResult").map((data) => [data.status, data.code])).toEqual([["denied", "write-forbidden"]]);
+    });
+
+    test("输出 79：改派到这次运行没有的工具得 unknown-tool，不是运行出错", async () => {
+        const reroute = defineExtension({id: "lab.reroute", intercept: {tool: async (call, next) => next({...call, tool: "lab.gone"})}});
+        await using session = await createTestSession({extensions: [reroute], tools: [echo("lab.read")]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "完成");
+        const {events} = await session.say("问");
+        expect(dataOf(events, "toolResult").map((data) => data.code)).toEqual(["unknown-tool"]);
+    });
+
+    const twoWrites = () => {
+        const began = gate();
+        const held = gate();
+        const ran: string[] = [];
+        const tools: TestTool[] = [
+            {id: "lab.first", effect: "write", execute: async () => {
+                began.open();
+                await held.promise;
+                ran.push("first");
+                return "一";
+            }},
+            {id: "lab.second", effect: "write", execute: () => {
+                ran.push("second");
+                return "二";
+            }},
+        ];
+        return {began, held, ran, tools};
+    };
+
+    test("输出 79：排在慢调用后面还没开始的写调用，看现在的只读设置", async () => {
+        const {began, held, ran, tools} = twoWrites();
+        await using session = await createTestSession({approve: async (_call, info) => ({verdict: "allow", by: info.mode}), tools});
+        session.model.script({tools: [{tool: "lab.first"}, {tool: "lab.second"}]}, "完成");
+        const runId = await sendRaw(session, "写两个");
+        await began.promise;
+        await session.raw.changeSettings({commandId: "readonly", patch: {core: {readOnly: true}}});
+        held.open();
+        await session.raw.waitRun(runId);
+        expect(ran).toEqual(["first"]);
+        expect(dataOf(await session.events(), "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.first", "ok", null], ["lab.second", "denied", "read-only"]]);
+    });
+
+    test("输出 79：用户拒绝过的，设置放宽了也不执行", async () => {
+        const {began, held, ran, tools} = twoWrites();
+        await using session = await createTestSession({approve: async (call, info) => (info.mode === "yolo" ? {verdict: "allow", by: "mode"} : call.tool === "lab.second" ? {verdict: "ask"} : {verdict: "allow", by: "rule"}), tools});
+        session.model.script({tools: [{tool: "lab.first"}, {tool: "lab.second"}]}, "完成");
+        const runId = await sendRaw(session, "写两个");
+        const asked = gate<string>();
+        const stopWatching = session.raw.subscribe((frame) => {
+            if (frame.type === "status" && frame.status.state === "waiting") asked.open(frame.status.pending[0]!.id);
+        });
+        await session.raw.resolve({commandId: "no", id: await asked.promise, decision: "deny"});
+        stopWatching();
+        await began.promise;
+        await session.raw.changeSettings({commandId: "loose", patch: {core: {approvalMode: "yolo"}}});
+        held.open();
+        await session.raw.waitRun(runId);
+        expect(ran).toEqual(["first"]);
+    });
+});
+
 describe("输入拦截", () => {
     const filter = defineExtension({id: "lab.filter", intercept: {input: async (input, next) => {
         if (input.text.includes("禁词")) return {reject: {code: "banned-word", params: {word: "禁词"}}};
@@ -581,8 +688,15 @@ describe("中止", () => {
         const events = await session.events();
         expect(dataOf(events, "toolResult").map((data) => [data.tool, data.status, data.code ?? null])).toEqual([["lab.slow", "unknown", "aborted"], ["lab.quick", "ok", null], ["lab.later", "denied", "aborted"]]);
         expect(types(events).slice(-2)).toEqual(["turnEnded", "runEnded"]);
+        const lateFrames: unknown[] = [];
+        const stopWatching = session.raw.subscribe((frame) => {
+            if (frame.type === "tool") lateFrames.push(frame);
+        });
         slowGate.open();
         await clock.advance(0);
+        stopWatching();
+        // 日志记的是 unknown：迟到的成功不能再把显示改回去。
+        expect(lateFrames).toEqual([]);
         expect(await codes(session)).toContain("late-result-dropped");
         expect(types(await session.events())).toEqual(types(events));
     });
@@ -696,5 +810,64 @@ describe("收尾", () => {
         expect(dataOf(report.events, "continued")).toEqual([{text: expect.stringContaining("yield"), by: "core", count: 1}]);
         expect(report.requests).toHaveLength(2);
         expect(report.result).toMatchObject({reason: "error", error: {kind: "local", code: "result-missing"}, result: {via: "text", value: "还是雨夜", valid: false}});
+    });
+});
+
+describe("图片", () => {
+    const small = {data: "QUJD", mime: "image/png", width: 800, height: 600};
+    const large = {data: "A".repeat(32_769), mime: "image/jpeg"};
+    const imagesOf = (message: {content: readonly {kind: string}[]}) => message.content.filter((block) => block.kind === "image");
+
+    test("输出 58：结果带图片进请求，文字在前；大图进 blobs/；重开与 fork 后一致", async () => {
+        await using session = await createTestSession({store: {root}, tools: [{id: "lab.pic", execute: () => ({text: "两张图", images: [small, large]})}]});
+        session.model.script({tools: [{tool: "lab.pic"}]}, "看到了", "再看");
+        const {requests, events} = await session.say("看图");
+        const tool = requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!;
+        expect(tool.content).toMatchObject([{kind: "text", text: "两张图"}, {kind: "image", ...small}, {kind: "image", mime: "image/jpeg", data: large.data}]);
+        expect(dataOf(events, "toolResult")[0]!.images).toEqual([small, large]);
+
+        const line = (await readFile(join(root, session.id, "session.jsonl"), "utf8")).split("\n").find((item) => item.includes('"toolResult"'))!;
+        expect(line).toContain(small.data);
+        expect(line).not.toContain(large.data);
+        expect(line).toContain("$blob");
+
+        await session.reopen();
+        const again = await session.say("接着");
+        const reopened = again.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!;
+        expect(imagesOf(reopened)).toMatchObject([small, {data: large.data}]);
+
+        const forked = await session.raw.fork({commandId: "fork-images"});
+        if (!forked.ok) throw new Error(forked.code);
+        await using copy = await createTestSession({store: {root}, open: forked.value.sessionId});
+        copy.model.script("分支");
+        const branch = await copy.say("分支上");
+        expect(imagesOf(branch.requests.at(-1)!.raw.messages.find((message) => message.role === "tool")!)).toMatchObject([small, {data: large.data}]);
+    });
+
+    test("输出 59：脱敏丢掉图片，rawHash 算进图片；只改图片也算改写；没有图片的 rawHash 还是文字的哈希", async () => {
+        const guard = defineExtension({id: "lab.guard", intercept: {tool: async (call: ToolCall, next) => {
+            const result = await next(call);
+            if (call.tool === "lab.mask" || call.tool === "lab.plain") return {...result, text: "[已脱敏]", redacted: true};
+            if (call.tool === "lab.swap") return {...result, images: [{...small, data: "WFla"}]};
+            return result;
+        }}});
+        const picture = (id: string) => ({id, execute: () => ({text: "原文", images: [small]})});
+        await using session = await createTestSession({store: {root}, extensions: [guard], tools: [picture("lab.mask"), picture("lab.swap"), picture("lab.same"), {id: "lab.plain", execute: () => "原文"}]});
+        session.model.script({tools: [{tool: "lab.mask"}, {tool: "lab.swap"}, {tool: "lab.same"}, {tool: "lab.plain"}]}, "完成");
+        const {events} = await session.say("问");
+        const [mask, swap, same, plain] = dataOf(events, "toolResult");
+        expect(mask!.images).toBeUndefined();
+        expect(mask!.rawHash).toMatch(/^[0-9a-f]{64}$/u);
+        expect(mask!.rawHash).not.toBe(plain!.rawHash);
+        expect(plain!.rawHash).toBe(createHash("sha256").update("原文").digest("hex"));
+        expect(swap).toMatchObject({text: "原文", raw: "原文", rawImages: [small], images: [{data: "WFla"}]});
+        expect(same!.raw).toBeUndefined();
+        expect(same!.images).toEqual([small]);
+        expect(await readFile(join(root, session.id, "session.jsonl"), "utf8")).toContain("WFla");
+    });
+
+    test("输出 59：出站过滤换文字时不碰图片的字节", async () => {
+        const mapped = await mapEventContent({id: "e", seq: 1, type: "toolResult", kind: "conv", scope: "path", data: {callId: "c", tool: "lab.pic", text: "原文", status: "ok", images: [small]}} as unknown as LogEvent, {text: (value) => `过滤后 ${value}`});
+        expect(mapped.data).toMatchObject({text: "过滤后 原文", images: [small]});
     });
 });

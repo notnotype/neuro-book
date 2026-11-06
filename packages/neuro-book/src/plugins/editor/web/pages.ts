@@ -67,6 +67,8 @@ export interface EditorPageSource {
     title(id: string, text: TextResolver): string | null;
     /** 页面组件；还没交付实现时为 null。 */
     component(id: string): Component | null;
+    /** 这个页面铺主题的场景图。 */
+    scene(id: string): boolean;
     readonly context: EditorPageContext;
 }
 
@@ -116,6 +118,7 @@ export class EditorPageRegistry {
                 const declaration = this.declaration(id);
                 return declaration === null ? null : text.t(declaration.title);
             },
+            scene: (id) => this.declaration(id)?.scene === true,
             component: (id) => {
                 const handle = this.#published.value.get(id);
                 if (handle === undefined) return null;

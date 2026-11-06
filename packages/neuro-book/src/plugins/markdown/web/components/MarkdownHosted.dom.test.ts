@@ -39,10 +39,13 @@ async function hosted(component: HostedComponent, attrs: Record<string, unknown>
 
 const LINKS = "[林雪](/设定/林雪.md) [头像](user://头像.png) [截图](session://attachments/截图.png) [旧章](chapter://c1) [官网](https://example.com)";
 
+/** 第一次挂载要等 Vitest 转换组件的模块，缺省的 5 秒在机器忙时不够。 */
+const FIRST_MOUNT = {timeoutMs: 20_000};
+
 describe("nbook 的宿主到达 nb-markdown 的组件", () => {
     it("展示器：作品里的文件与用户资产是文件小块（细分 work、user，带文件图标），session://attachments/ 是附件，别的方案是其它，外部链接是普通链接", async () => {
         const wrapper = await hosted("MarkdownDisplay", {text: `${LINKS}\n`});
-        await waitUntil("展示器画完", () => (wrapper.findAll("[data-reference-link]").length === 4 ? true : null));
+        await waitUntil("展示器画完", () => (wrapper.findAll("[data-reference-link]").length === 4 ? true : null), FIRST_MOUNT);
         expect(wrapper.findAll("[data-reference-link]").map((chip) => chip.attributes("data-reference-link"))).toEqual(["work", "user", "attachment", "other"]);
         expect(wrapper.findAll(".nb-chip-link__icon svg[data-file-icon]").map((icon) => icon.attributes("data-icon"))).toEqual(["markdown", "image"]);
         expect(wrapper.find("a[href='https://example.com'] [data-reference-link]").exists()).toBe(false);
@@ -50,14 +53,14 @@ describe("nbook 的宿主到达 nb-markdown 的组件", () => {
 
     it("已发送文字与单独的小块：同样按作品文件分类、取文件图标", async () => {
         const view = await hosted("PromptTextView", {text: "看 [林雪](/设定/林雪.md) 与 [官网](https://example.com)"});
-        await waitUntil("小块", () => (view.find("[data-inline-chip='reference']").exists() ? true : null));
+        await waitUntil("小块", () => (view.find("[data-inline-chip='reference']").exists() ? true : null), FIRST_MOUNT);
         const chips = view.findAll("[data-inline-chip='reference']");
         expect(chips[0]?.classes()).toContain("nb-chip--work");
         expect(chips[0]?.find("svg[data-file-icon]").attributes("data-icon")).toBe("markdown");
         expect(chips[1]?.find(".i-lucide-globe").exists()).toBe(true);
 
         const chip = await hosted("InlineChip", {kind: "reference", label: "头像", target: "user://头像.png"});
-        await waitUntil("小块", () => (chip.find("[data-inline-chip]").exists() ? true : null));
+        await waitUntil("小块", () => (chip.find("[data-inline-chip]").exists() ? true : null), FIRST_MOUNT);
         expect(chip.find("[data-inline-chip]").classes()).toContain("nb-chip--user");
         expect(chip.find("svg[data-file-icon]").attributes("data-icon")).toBe("image");
     });

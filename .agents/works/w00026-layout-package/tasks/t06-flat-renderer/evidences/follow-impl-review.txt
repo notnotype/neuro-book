@@ -1,0 +1,86 @@
+审查报告：w00026 t06 手感修正（HEAD~1..HEAD，提交 ec5ae6b7a）
+范围：packages/nb-layout 的 grid-motion.ts、useGridMotion.ts、NestedGrid.vue/.md，以及两个 e2e 与 Lab 夹具。
+已跑：packages/nb-layout 的 bun run test，247 个 bun 用例加 149 个 vitest 用例全部通过。未跑 e2e 与开发服务（按规则）。
+标注“从代码推断”的发现没有运行证据。
+
+================ 发现（按影响排序） ================
+
+[1] 重要 / 正确性 / 与合同相悖：过渡中再来一次变化，上一次的新叶或从零出来的叶会被改成“跟随”，内容从最终尺寸被挤到半途宽度
+位置：packages/nb-layout/src/vue/useGridMotion.ts:93-97（start 整体替换 following）；packages/nb-layout/src/grid-motion.ts:38-46（followingLeaves 只看 previous 的逻辑矩形）
+现象：followingLeaves 比的是“上一次发布的矩形”和“这一次的矩形”，不是 DOM 里外框此刻的宽度。第一次 move 里的新叶 n 在 previous 里没有，所以不跟，内容保持最终宽度 W，外框从 0 长到 W。过渡进行中又来一次 move（例如）：
+  - 连按两次 Ctrl+\ 拆分；
+  - 快速开关再动面板；
+  - 外壳落账后的第二次发布差超过 1px 容差。
+  这时 n 在 previous 里已经是有尺寸的叶，进入 following。它的内容从 W 变成 100% 外框，外框此刻只长了一部分（缓出曲线下，约 30ms 时已到 20% 左右，约 50ms 时 40% 以上），内容被挤窄后又随外框长回去。
+为什么是问题：
+  - 合同写的是“新叶与从零尺寸出来的叶，内容一开始就是最终尺寸，过渡中不重新排版”（Spec“过渡”、验收 9），“连续的变化以最后一次为准重新计时”。实现只在单次变化里成立。
+  - 编辑器内容在这半途宽度上会整篇重排一次再重排回去，这是这次改动要避免的“第一次摆放在零宽里排版”。
+  - 从零出来的叶也一样：外壳侧栏刚展开、又来一次布局发布，侧栏内容会被压到当前外框宽度。
+  - 反方向的小问题：move 1 里跟随的叶在 move 2 降到零时，内容尺寸从“100% 外框”跳到 lastSizes（move 1 的目标宽度），但它同时被停放成 hidden，看不出来，可不管。
+如何核实（从代码推断，未跑 e2e）：
+  - 单元：用 placeOf 造 A=[a,b]、B=[a,b,n]、C=[a,b,n] 但各宽度不同，调 followingLeaves(C, B)，结果含 leaf:n。
+  - e2e：lab-grid-structure 里 slowMotion 后连点 split-before 再点一次别的结构动作，过渡中读 n 的内容宽度，会从 finalWidth 掉到外框宽度。
+建议改法：useGridMotion 在 moving 为 true 时记下“本次过渡里内容固定为最终尺寸的叶”，并入新一轮判定。例如 start 里用 nextFollowing 去掉“上一轮在 DOM 里、但不在上一轮 following 里的叶”，直到 stop 才清空。另一种做法是让 followingLeaves 多收一个“上一轮的 following 与 entering”，把它们排除。取舍：固定的叶若第二次变化后目标宽度又变了，内容与外框到 stop 才对齐，需要在注释里写明。两种都比现在的“整体替换”可预测。
+
+[2] 重要 / 测试：following 的生命周期只有 e2e 覆盖，jsdom 层完全没测
+位置：packages/nb-layout/src/vue/useGridMotion.dom.test.ts:49-56；NestedGrid.dom.test.ts 没有任何过渡用例（grep following/data-moving 只命中 useGridMotion.dom.test.ts:55 与 grid-motion.test.ts）
+现象：新增的断言只验证两个纯函数（decideMotion 返回的集合、followingLeaves 的集合）。没有用例覆盖下面这些，而 brief 点名要查的恰是这些：
+  - start 之后 following 里有哪些键，stop（计时到、手势开始、容器尺寸变）之后是否清空；
+  - 过渡中再来一次 move 时集合是整体替换（问题 1）；
+  - 时长为 0（减少动态效果）时不进入 following；
+  - NestedGrid 的 contentStyle：跟随时内容是 100%，结束后回到 px；新叶与零→有尺寸的叶保持 px。
+为什么是问题：把 contentStyle 里 following 分支删掉，或把 stop 里清空 following 删掉，bun/vitest 全部仍然通过。我只能靠阅读判断，没有做变异实验（只读规则，没有改文件）。依赖 e2e 才能发现，而 e2e 又只测单次变化。
+建议改法：在 NestedGrid.dom.test.ts 里用假定时器或已有的 stubLayout 写 3 条：
+  (a) 过渡中跟随叶 style 是 100%，新叶是 px；
+  (b) 手势开始或计时到之后全部回到 px；
+  (c) 问题 1 的连续变化。
+useGridMotion 本身的 start/stop 是 composable，也可单测，jsdom 不需要真过渡。
+
+[3] 建议 / 不变量：内层 grid 的 revision 每帧加一，会在外层过渡期间作废内层的手势
+位置：packages/nb-layout/src/vue/useGridLayout.ts:62-77（recompute 每次 revision += 1）；packages/nb-layout/src/vue/NestedGrid.vue:278-280（revision 变化即 scope.invalidate()）；宿主 EditorArea.vue:53-55、WorkbenchViewContainerHost.vue:36-47
+现象：base 上叶内容的尺寸在过渡前后只变一次。现在外壳侧栏或面板开合时，主叶（含 EditorArea）与侧栏里的视图容器的承载盒每帧变化，useLayoutExtent 每帧发布新尺寸，useGridLayout 每帧 recompute 并让 revision +1。后果：
+  - 用户在过渡的 470ms（或更长）里开始拖编辑器区或视图容器内的分隔线，下一帧手势被 invalidate 取消；
+  - 即使没被取消，onGestureCommit 里 commit.revision 或 commit.extent 与当前不等也会被拒绝（useGridLayout.ts:98-103），只给诊断。
+外层 NestedGrid 自己的手势会先 motion.stop()，内层没有这个联动。
+我核实过的“没问题”部分：Grid.layout 是纯函数，注释写明“永远不写回意图”（grid.ts:12）；onApplied 只在手势提交里调用（EditorArea.vue:55 的 layoutChanged、WorkbenchViewContainerHost.vue:44 的 emit resize），所以没有把中间尺寸写盘；EditorArea 与视图容器没有传 onIssues，所以不会因为中间尺寸触发降级诊断；WorkbenchShellLayout 的 layout 事实只用外壳自己的根盒。
+为什么仍记一条：属于新的、短时间的可观察变化（过渡里拖内层分隔线“拖不动”，且不报诊断，因为内层没接 @issues），Spec 的“叶里嵌的 grid……按容器尺寸变化处理”只讲了不过渡，没讲手势。
+建议改法：接受并在 NestedGrid.md 写明（见 4），或让外层在 moving 期间通过 provide 告诉内层“承载盒正在被动画驱动”，内层宿主的 revision 不因此加一。前者成本小，建议先写文档。不要为这条改代码，除非有人在真实使用里撞上。
+
+[4] 建议 / 文档：NestedGrid.md 的“过渡”段没跟上，也没有给宿主的须知
+位置：packages/nb-layout/src/vue/NestedGrid.md:17；还有 .agents/works/w00026-layout-package/tasks/t06-flat-renderer/plan.md:73、docs/proposals/workbench-single-tree-layout.md:258
+现象：
+  - NestedGrid.md:17 仍只写“新叶从挨着兄弟的边长出来，离开的叶立即消失”，没写前后都有尺寸的叶的内容逐帧跟外框，也没写减少动态效果时没有过渡之外的限制；11 行和 67 行写了，17 行没写，同一文档里两处讲过渡。
+  - 公开合同的实际变化没有告诉宿主：叶里的 ResizeObserver、useLayoutExtent 与内嵌 grid 在过渡期间每帧收到新尺寸，不能把它当成最终尺寸记下（问题 3），要最终尺寸读宿主自己的布局结果（67 行只给了半句）。
+  - 残留旧说法：plan.md:73 的目录图里还写“.nb-grid-leaf（最终尺寸）”；proposal 的 258 行“内容一开始就是最终尺寸，只排一次版”只靠 430 行的决策记录取代，258 行本身没有标注，读者从第 2 节读到就会信旧的。
+  - 已核对不残留：grid-motion.ts:7、grid-motion.ts:34 讲的是新叶，说法正确；GridStructureLeaf.vue 已改成“新叶的内容只排一次版”；lab-grid-structure 的测试名同步了。
+建议改法：在 NestedGrid.md:17 加一句跟随规则与宿主须知；plan.md:73 与 proposal:258 各加“已被 2026-11-06 决策取代”的括注（Task 与提案记录只在主工作区改）。
+
+[5] 建议 / 测试：editor-area 新用例的“最终宽度”是循环定义，且对负载有时间依赖
+位置：packages/neuro-book/e2e/editor-area.e2e.ts:552-575（尤其 final = fresh.group.width、两条 ±20 断言）
+现象：
+  - final 取的是新组内容在过渡中的宽度，再用它去判新外框“小于 final-20”。如果新组的内容被误设成别的固定宽度（既不是最终宽度，也不是外框宽度），这条仍通过。应在 settled 之后再读一次新组宽度与它比。
+  - 变异检查（只在脑内对照，未运行）：旧组不跟随时 |old.group-old.frame| ≥ 20，会失败；新组误跟随时 final 等于外框宽度，fresh.frame < final-20 会失败。所以这两个方向有力度。
+  - 时间依赖：断言要求读取时进度还没到约 96%（550 宽的新组要求外框 < final-20）。4000ms 慢放加缓出曲线（cubic-bezier(0.23,1,0.32,1)）下，进度到 96% 约在 35% 时间，即 1.4 秒左右；本机内存紧、有多余服务时（见记忆里的 e2e 超时现象）读取延迟到 1.4 秒以上才会假失败。低风险。
+  - slowMotion 与 layoutMotionMs 的一致性：我核对了。layoutMotionMs 读的是网格根的计算样式里的 --motion-layout（layout-motion.ts:6-9），而 --motion-layout 在 tokens.css:88 只定义在 :root，减少动态效果时被 :root 的 0ms !important 覆盖（tokens.css:243）。测试里 emulateMedia no-preference 后注入 :root 的 4000ms !important，计时与 CSS 过渡读到同一个值，计时 4050ms。没有“CSS 变慢而计时按 470ms 提前 stop”的假通过。lab-grid-structure 的 settled 要等 4.05 秒，expect 超时是 15 秒（playwright.config.ts:18），够。
+  - 没覆盖：关闭编辑组（邻居变宽，应无空白）、外壳侧栏开合时编辑区跟随。
+建议改法：在用例末尾 settled 之后读新组最终宽度，与过渡中读到的比，要求相等。
+
+[6] 建议 / 设计一致性（从代码推断，未验证，base 上就有）：降到零的叶内容立刻 hidden，与同一次动作里邻居逐帧跟随不一致；第二次发布让浏览器重启过渡而计时不延长
+位置：packages/nb-layout/src/vue/useLeafParking.ts:25-32、packages/nb-layout/src/vue/useGridMotion.ts:99-109
+现象 A：降到零的叶内容在发布那一刻就 parked，visibility hidden，外框要空着滑 470ms；前后有尺寸的叶这次改成跟随，降到零的叶却是“一跳就空”。开发者试的三种做法里没有明说这一点，只说了新叶与从零出来的叶。是否接受交开发者看，属于设计问题不是缺陷。
+现象 B：外壳落账后的第二次发布若矩形差在 1px 内，decideMotion 判 none，所以 timer 不延长（start 只在 move 里调用）；但外框的目标值确实变了，浏览器按 CSS 过渡规则会从当前值到新目标值重启一次完整时长的过渡，结束时刻晚于 timer 的 duration+50ms。timer 到点时 moving 变 false，外框与内容一起直接跳到终点。base 上也有，只是当时跳的只有外框，现在内容也会跟着重排一次，所以可见度比 base 高。需要用 e2e 在外壳落账场景下逐帧量才能确认；这里只记录。
+建议改法：A 交开发者确认。B 先量；若属实，让 none 路径在 moving 为 true 时也刷新 timer。
+
+================ 未发现问题的方面 ================
+- followingLeaves 的判定与 enteringRects 的键空间一致（都是 `leaf:<id>`），且同一次 move 里互不重叠；新叶、零→有尺寸、有尺寸→零都被排除，grid-motion.test.ts 的 3 条用例有力度。
+- 与停放的静态配合：跟随要求前后宽高都大于零，停放要求当前矩形为零，二者互斥；预览中的 parked 保留逻辑不会出现在 following 里（手势开始时 NestedGrid.vue:289-291 先 stop，清空 following）。
+- 手势开始、容器尺寸或缩放变化的 stop 都会清空 following 并回到 px 内容尺寸，结束时内容等于新矩形；持续时间为 0 时 start 不被调用，following 不会被设置。卸载时 timer 清理。
+- 内层 grid 的 decideMotion 每帧走 stop 分支，不会自己启动过渡；Grid.layout 纯函数，没有把中间尺寸写回意图；没有因中间尺寸写盘或触发降级诊断的路径。
+- 外壳 startSettle 的按时间跟踪（SETTLE_TRACK_SLACK_MS，WorkbenchShell.vue:316、337）没有假设内容是最终尺寸：量的是分节或容器的实际矩形，连续两帧不变或到期才收尾。跟随的叶现在每帧都在变，反而与注释“外框还要过渡到新矩形，所以每帧跟着量”一致；新叶与从零出来的叶的矩形一开始就稳定，等同 base，没有变坏。reveal 预备区矩形来自投影计算，不读叶内容。
+- 其它 ResizeObserver 使用方（ImageViewer 的适应缩放、MarkdownToolbar、MarkdownBlockGutter、WorkbenchItemStrip、Tabs、useStreamScroll）都是从尺寸推导呈现，没有把过渡中间值存成事实；useStreamScroll 的校正逻辑本来就按任意尺寸变化设计。
+
+================ 数量 ================
+阻断 0；重要 2（1、2）；建议 4（3、4、5、6）。
+需要主 Agent 跑的 e2e（我没跑）：
+  - bun run --cwd packages/neuro-book 下的 e2e：editor-area、lab-grid-structure、workbench-shell（外框过渡）、workbench-dnd（放下后的收尾）；
+  - 若处理问题 1，补一个连续两次变化的 lab 用例。

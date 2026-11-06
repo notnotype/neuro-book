@@ -1,0 +1,16 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t06-approval",
+    "artifactId": "review",
+    "ackId": "20261106T120533460Z-05dffd44",
+    "answers": [
+        "20261106T120528249Z-52a690fa"
+    ],
+    "through": "20261106T120528249Z-52a690fa",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t06-approval/README.md",
+        ".agents/works/w00032-agent-integration/tasks/t06-approval/plan.md"
+    ],
+    "ackedAt": "2026-11-06T12:05:33.460Z"
+}

@@ -147,7 +147,7 @@ function onSelect(id: string): void {
                     <SelectionBar v-if="selectedNode" :label="selectedNode.label" :open-label="isPerson(selectedNode.kind) ? '打开人物卡' : '看连线说明'" @open="open(selectedNode.id)" @clear="selected = null" />
                 </template>
             </StoryNetwork>
-            <ContextMenu :visible="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="menu = null" />
+            <ContextMenu :open="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @request-close="menu = null" />
         </div>
     </div>
 </template>

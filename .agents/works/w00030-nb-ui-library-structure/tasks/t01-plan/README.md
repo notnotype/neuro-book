@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-plan
-status: active
-updated: 2026-10-20
+status: done
+updated: 2026-11-04
 ---
 
 # 整理计划
@@ -29,4 +29,4 @@ updated: 2026-10-20
 
 ## 下一步
 
-按改定后的计划建 t02 到 t04；t02、t03 等 w00027 t07 的 S2a、S2b 进 master 后开工，t04 等 w00027 t07 做完。
+无。计划已执行完：t02、t03 按计划完成；计划里的“t04：公开 API 对齐”由 [t05](../t05-public-api-alignment/README.md) 接过（t04 这个编号给了后来插入的主题字号 Task）。

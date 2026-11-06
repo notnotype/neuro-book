@@ -28,7 +28,7 @@ function send(): void {
 </script>
 
 <template>
-    <Dialog :model-value="open" :title="replaced ? '提问的会话已经换了' : '通知持有租约的会话'" size="md" :busy="pending" :close-on-overlay="!replaced" :close-on-esc="!replaced" @request-close="!replaced && emit('cancel')">
+    <Dialog :open="open" :title="replaced ? '提问的会话已经换了' : '通知持有租约的会话'" size="md" :busy="pending" :close-on-overlay="!replaced" :close-on-esc="!replaced" @request-close="!replaced && emit('cancel')">
         <div v-if="compose" class="flex flex-col gap-3">
             <p v-if="replaced">{{ workLabel(compose.job.workId) }}/{{ taskLabel(compose.job.taskId) }} 有新的答复，提问的会话已经不在了，它原来的 pane 上换成了另一个会话。</p>
             <p v-else>{{ workLabel(compose.job.workId) }}/{{ taskLabel(compose.job.taskId) }} 有新的答复，提问的会话不在 herdr 里。下面这个会话持有这个 Task 的租约。</p>

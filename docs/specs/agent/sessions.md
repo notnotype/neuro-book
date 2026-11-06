@@ -19,7 +19,7 @@ owners:
 - 不做“积压过多就断开”：远程通道没有发送背压（[`runtime/plugin-channel.md`](../runtime/plugin-channel.md)），只把流式增量合并压低帧数。
 - 资源方案只有 `session://`；其余由资源能力定义。
 - 审批只有按模式的最小规则（输出 4），没有按工具的规则表。
-- 没有压缩方法与出站过滤。
+- 没有出站过滤；压缩方法见 [`compaction.md`](compaction.md)。
 - 旧格式的会话不在读取时转换。
 
 ## 术语与参与者
@@ -41,13 +41,13 @@ owners:
 | `list({project?, archived?, background?})` | 读 | 会话列表（缺省不列后台会话） |
 | `create({profile, initial?, project?})` | 写 | 建会话 |
 | `send`、`enqueue`、`edit`、`remove`、`resolve`、`start`、`abort`、`rewind`、`switchBranch`、`fork`、`compact`、`changeSettings`、`changeProfile`、`setTitle`、`archive` | 写 | 内核的指令，各带 `sessionId` 与 `commandId` |
-| `snapshot`、`log`、`rewindTargets`、`path`、`siblings`、`runResult`、`preview`、`diagnostics` | 读 | 内核的查询，各带 `sessionId` |
+| `snapshot`、`log`、`rewindTargets`、`path`、`treeNodes`、`branchPoints`、`siblings`、`runResult`、`preview`、`diagnostics` | 读 | 内核的查询，各带 `sessionId` |
 | `eventChunk({sessionId, seq, index})`、`previewChunk({token, index})` | 读 | 分段读回大的事件与预览 |
 | `profiles()` | 读 | Profile 目录（[`agent/contributions.md`](contributions.md) 输出 7） |
 | `startTask({taskId, profile, initial?, input, project?, background?})` | 写 | 发起任务 |
 
 - 事件 `frames`，过滤 `{sessionId}`：内核的帧（`log`、`delta`、`status`、`diagnostic`、`progress`）。
-- 服务键 `agentKey`（服务端同进程）：`create(options)` → 视图或失败码；`session(id, issuer?)` → 视图；`list(filter?)`；`profiles()`；`running()` → 正在运行的会话 id；`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`。服务停止后调用抛出码为 `unavailable` 的错误。
+- 服务键 `agentKey`（服务端同进程）：`create(options)` → 视图或失败码；`session(id, issuer?)` → 视图；`list(filter?)`；`profiles()`；`running()` → 正在运行的会话 id（不含后台会话）；`startTask(...)` → `{sessionId, runId, result: Promise<RunResult>}`。服务停止后调用抛出码为 `unavailable` 的错误。
 - 依赖：设置与状态根是必需的；模型服务可选。
 
 ## 输出与可观察行为
@@ -63,7 +63,7 @@ owners:
 9. **大小。** 远程结果与帧都不超过通道的单条消息上限：
    - `log` 的条目是 `{kind: "event", event}` 或 `{kind: "oversized", seq, type, bytes}`；一条事件编码后超过 256 KiB 时是后者，`frames` 里的日志帧同样；每页按条数与编码后不超过 512 KiB 两者取小，`more` 照实给；
    - `eventChunk` 把整条事件按 JSON 编码后按 256 KiB 切段，`{text, last}`，调用方按序拼起来再解析；
-   - `preview` 的结果是 `{kind: "inline", preview}` 或 `{kind: "oversized", token, bytes}`，大的经 `previewChunk` 同样分段读，令牌 5 分钟有效；
+   - `preview` 的结果是 `{kind: "inline", preview}` 或 `{kind: "oversized", token, bytes}`，大的经 `previewChunk` 同样分段读，令牌 5 分钟有效；两种都是 JSON 编码后的样子，工具声明里按参数算的 `effect`（函数）不在里面；
    - `path` 按页读（`from` 是从根数起的下标，交回 `next`），`diagnostics` 按页读（`after` 是上一页最后一条诊断的 id，交回 `next`），按 `afterSeq`、`extension`、`level` 筛；诊断里的长文字截到 4 KiB；
    - 快照、运行结果、回退目标、兄弟节点不分页，编码后超过 512 KiB 时得 `result-too-large`。
 10. **发起任务。** `startTask` 用 `task-<taskId>` 作会话 id 建会话，再以 `taskId` 作 `commandId` 发一次 `send`（空闲时同时开始运行），返回 `{sessionId, runId}`，不等运行结束；结果从 `runResult` 取，运行结束时 `frames` 里有 `runEnded`。`taskId` 是调用方生成的 UUID。
@@ -71,6 +71,10 @@ owners:
 12. **后台。** `background: true` 写进会话头，`list` 缺省不列；从它 fork 的会话是前台。
 13. **模型服务不在。** 会话照常打开、能读；发出模型请求时以 `no-model` 失败。
 14. **停止。** `nbook.agent` 停止时：先拒绝新的调用（远程与 `agentKey` 都得 `unavailable`，新订阅以同样的原因结束）；停 Profile 的监听，等进行中的打包结束、丢掉结果；等已接纳的打开、建会话与指令登记完，把所有打开着的会话按 `interrupted` 关闭（运行写 `interrupted`，重新打开后显示“上次运行被中断”，不自动续跑）。某个会话关闭失败写诊断，其余照常关闭。
+
+15. 远程 `activity` 与事件 `activityChanged`：快照与事件，列出运行中与等用户的前台会话（`{id, state: "running" | "waiting"}`），只看打开着的句柄；先订阅后取快照，`onResync` 重取。异步提问不在内。
+16. 远程 `approvalPreview`，见 [`builtin-tools.md`](builtin-tools.md)。
+15. **附件。** 存在 `sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址：`fork` 只复制日志，不用复制文件；原会话被删后按缺失处理。扩展名按 MIME 白名单定，图片按文件头认，声明是图片、文件头不是的（包括 SVG）按普通文件存。上传 `POST /api/nbook.agent/sessions/<id>/attachments`，体是文件字节，原名按百分号编码放 `X-Attachment-Name`；别的网页发起的拒绝；会话不存在 404；单个 25 MB，边读边数，超了 413，不信 `Content-Length`；同一内容已有算成功；交回 `{uri, kind, name, mime, bytes, width?, height?}`。读取 `GET`、`HEAD` 同前缀加文件名，文件名只接受哈希加扩展名；别的网页发起的拒绝；会话不存在 404（归档的还读得到）；所有响应带 `Content-Security-Policy: sandbox` 与 `nosniff`，位图内联，别的下载，`ETag` 用哈希。不做缩略图。发给模型前由内核的读取端口缩放（最长边 1,568，目标 500 KB，同 `read` 工具），原图不动；解不了的（损坏、格式不支持、像素超限）换一行字，不发原图。
 
 ## 状态与转换
 

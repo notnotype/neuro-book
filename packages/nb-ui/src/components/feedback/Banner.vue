@@ -3,8 +3,9 @@
 import {computed} from "vue";
 
 import {useUiText} from "../../text-port";
+import type {Tone} from "../shared-types";
 
-export type BannerTone = "info" | "success" | "warning" | "error";
+export type BannerTone = Extract<Tone, "info" | "success" | "warning" | "danger">;
 
 const props = withDefaults(defineProps<{
     tone?: BannerTone;
@@ -29,12 +30,12 @@ const text = useUiText();
 const closeText = computed(() => props.closeLabel ?? text("banner.close"));
 const toneClass = computed(() => `nb-banner--${props.tone}`);
 // 错误用 alert：出现时读屏立刻播报；其余是 status，等当前朗读完再播。
-const role = computed(() => (props.tone === "error" ? "alert" : "status"));
+const role = computed(() => (props.tone === "danger" ? "alert" : "status"));
 const toneIcon = computed(() => {
     if (props.iconClass !== "") return props.iconClass;
     if (props.tone === "success") return "i-lucide-check-circle-2";
     if (props.tone === "warning") return "i-lucide-alert-triangle";
-    if (props.tone === "error") return "i-lucide-circle-x";
+    if (props.tone === "danger") return "i-lucide-circle-x";
     return "i-lucide-info";
 });
 </script>
@@ -83,7 +84,7 @@ const toneIcon = computed(() => {
     --nb-banner-tone: var(--status-warning);
 }
 
-.nb-banner--error {
+.nb-banner--danger {
     --nb-banner-tone: var(--status-danger);
 }
 </style>

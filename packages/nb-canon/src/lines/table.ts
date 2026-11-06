@@ -224,4 +224,3 @@ export function effectiveLine(table: LineTable, line: string, mode: "actual" | "
     }
     return MAIN_LINE;
 }
-

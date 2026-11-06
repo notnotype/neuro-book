@@ -1,0 +1,110 @@
+# w00026 t06 可维护性与耦合审查（nb-layout 扁平渲染）
+
+范围：worktree .worktree/w00026-t06-flat-renderer，master..HEAD 中 packages/nb-layout/src 的新增与改动。读过 NestedGrid.vue(407 行，script 约 290 行，改前 240 行)、SashHandle.vue(430)、Splitter.vue(397，改前 844)、useGridMotion/useLeafParking/useSashSnap/useDevicePixelRatio、grid-rects.ts(271)、grid-focus.ts(101)、grid-splitter.ts、三份组件文档、Spec，以及宿主 WorkbenchShell*.vue 与 Lab 的 GridStructureScene.vue。接入草稿见 /tmp/review-w00026-t06-shape/maint/host-draft.vue.txt。
+验证：packages/nb-layout 里 bun run test 通过（bun 247 条，vitest 128 条）；没有跑 e2e。标“从代码推断”的没有运行验证。
+
+### 1. 过渡、停放、焦点、提交保持的行为在 nb-layout 里没有任何单元测试，只有另一个包的 e2e 兜底
+**严重程度**：重要
+**类别**：测试能否支撑重构
+**位置**：src/vue/useGridMotion.ts、useLeafParking.ts、grid-focus.ts（moveTab、noteFocus、moveGridFocus）、NestedGrid.vue 的 publishedMatches 与提交后保持预览；对照 NestedGrid.dom.test.ts、grid-rects.test.ts
+**现象**：本轮新增的行为面里，只有 grid-rects.ts 的纯函数有测试（grid-rects.test.ts 325 行）。NestedGrid.dom.test.ts 改完后只有“按矩形摆放”“分界线手势”“命中映射”“预览布局”四类，没有一条覆盖 data-moving、growing、parked/inert、aria-owns、Tab 接管、moveGridFocus、“宿主接纳了这次调整但没有发布匹配布局”的诊断分支。这些只在 packages/neuro-book/e2e/lab-grid-structure.e2e.ts（12 条，要真实浏览器与 Lab 构建）里有。useGridMotion 的 update 是一个五个输入的判定（first、resized、rescaled、gesture、previous 为空、placementMoved），最近一次提交就是“按实现审查修过渡判定”，它没有用手动时钟的直接用例，计时 MOTION_SLACK_MS 与 nextTick 强制布局也没有。grep packages/nb-layout 与 packages/neuro-book 的 *.test.ts，没有一个测试引用 useGridMotion、useLeafParking、moveGridFocus。
+**为什么是问题**：改过渡判定、停放条件或焦点走法的人，改完 bun run test 与 vitest 全绿，要到 e2e 才知道坏没坏；而 e2e 在 neuro-book 包里，是“被依赖方的行为只由使用方的场景验收”，改 nb-layout 内部结构（例如把 useGridMotion 拆开）时没有就近的回归网。验收场景 9 里“程序开关一块、过渡中内容尺寸不变、ResizeObserver 只报一次”这类要真实布局，确实只能 e2e；但判定逻辑本身（该不该过渡）不需要布局。
+**建议改法**：不增加新部件，把判定从 DOM 里拿出来再测：useGridMotion.update 的“要不要过渡”部分是 (frame, 上次的 rootSize/extent/dpr, fromGesture) 的纯函数，放进 grid-rects.ts 旁边或 useGridMotion.ts 里导出一个 decideMotion，用 bun/vitest 直接表驱动测（首次、resize 两个来源晚一拍、dpr 变、手势、无变化、有变化）。useLeafParking.update 本来就是不碰 DOM 的，直接用 vitest 测（曾有尺寸现在是零、第一帧未量到、预览中不停放、预览中从零拉出来解除）。moveTab 的“要不要接管”分支（defaultPrevented、isComposing、keyCode 229、修饰键）用 happy-dom 的 KeyboardEvent 可以测，tabbable 在 happy-dom 里要传 displayCheck:"none"，如果做不到就在 grid-focus.ts 里把 focusablesIn 设成可注入的依赖，不然这块永远只能 e2e。publishedMatches 是纯函数，移到 grid-gesture.ts 与 GridGestureCommit 放一起并测。grid-rects.test.ts 第 39 行把 key 的字符串格式 'sash:["a","b"]' 写进了断言，这是内部身份的编码；要保留的行为是“结构变了线的身份跟着前后节点走”，断言改成“同一对前后节点在两次摆放里 key 相等、不同的对不相等”，改编码不会误报。
+
+### 2. 宿主要靠两个没写进公开面的 DOM 属性才能接 NestedGrid
+**严重程度**：重要
+**类别**：API 形状 / 隐含合同
+**位置**：src/vue/NestedGrid.vue:353（data-grid-scope）、:364（data-leaf-content）；宿主 packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:303、WorkbenchShellLayout.vue:242、:317、:351-358；文档 src/vue/NestedGrid.md、docs/specs/ui/nested-grid.md
+**现象**：grep "data-grid-scope" 在 NestedGrid.md、Spec、grid.md 里都没有，只在 grid-focus.ts、NestedGrid.vue 和宿主代码、e2e 里出现。宿主实际在用：(a) WorkbenchShell 里 moveGridFocus(document.activeElement) 返回 false 时，自己 querySelector("[data-grid-scope]") 再调一次，才能“焦点在页面根时从第一块开始”；(b) WorkbenchShellLayout 用 [data-leaf-content="<part>"] 找 Teleport 目标，用 [data-grid-scope] 取 grid 根的矩形算预备区；(c) 紧凑模式下 WorkbenchShellLayout.vue:351-358 手写了六处 data-leaf + data-leaf-content 的 div，是在模仿 NestedGrid 的 DOM 形状，让同一套 Teleport 与 e2e 选择器继续成立。data-leaf-content 在 NestedGrid.md 第 11 行与第 91 行有写，data-grid-scope 没有。
+**为什么是问题**：这两个属性是“组件不 expose API”之外的实际公开面：重命名它们会同时坏外壳、紧凑模式的手写副本、Lab、e2e，而文档上看不出它们是合同。紧凑模式的手写副本更危险：NestedGrid 改外框结构（比如给内容容器加一层）时，这份副本不会跟着改，两边悄悄分叉。
+**建议改法**：二选一，都不加新部件。(1) 在 NestedGrid.md 的“布局”里把 data-grid-scope（grid 根，值是实例 id）、data-leaf、data-leaf-content 写成公开合同并说明改它要同步宿主；(2) moveGridFocus 直接接受容器：from 不在任何 grid 里时在 from 内找第一个 [data-grid-scope] 开始，宿主那行兜底的 querySelector 就删掉，F6 命令一次调用完成。紧凑模式的手写副本在 WorkbenchShellLayout.md 里注明“与 NestedGrid 的 data-leaf 形状同步”，或让紧凑模式也走 NestedGrid（单列树），这是另一个任务，不在本轮改。
+
+### 3. “这次几何变化来自手势”是跨文件的一次性旗标，靠 watcher 创建顺序成立
+**严重程度**：重要
+**类别**：隐含的先后与共享状态
+**位置**：NestedGrid.vue:187-195（watch(placement)）、:233-238（releasePreview）、:244（onPreview）、:340 附近的 watch(props.layout, releasePreview)；useGridMotion.ts:46-47、:65、:100-103（fromGesture、markGesture）
+**现象**：判断“这次变化不过渡”靠 releasePreview/onPreview 调 motion.markGesture() 把 useGridMotion 里的 let fromGesture 置 true，由 watch(placement) 里的 motion.update 读一次并清零。成立的前提有三条，都只存在于注释或创建顺序里：(a) watch(placement) 必须在 watch(props.layout, releasePreview) 之前建（NestedGrid.vue:186 的注释专门写了这一条）；(b) 置位之后必须恰好有一次 placement 重算来消费，否则旗标留到下一次程序触发的变化，把该有的过渡吞掉；(c) 置位发生在 preview 改变之前，消费发生在 flush 里。改这段的人要同时读 NestedGrid.vue 三处、useGridMotion.ts 两处，才知道旗标不会漏。
+**为什么是问题**：这是本轮最难读的一块，也是 AGENTS.md 说“先试着改结构消除它”的那种。而且信息本来就在手里：watch(placement) 回调里已经读了 preview.value !== null，缺的只是“上一次是不是在预览中”。
+**建议改法**（从代码推断，未实现验证）：删掉 markGesture 与 fromGesture，让 useGridMotion.update 的入参多一个 previewing: boolean，useGridMotion 自己记 wasPreviewing；手势引起的变化就是 previewing || wasPreviewing。覆盖的情形：拖动开始与进行中（previewing 为真）、松手或取消或被拒后撤预览（wasPreviewing 为真，预览撤掉的那一次重算）、预览保持期间宿主发布布局（placement 不依赖 props.layout，不重算）。这样“来源”变成输入数据，watcher 的创建顺序不再是合同，NestedGrid 里的两个 markGesture 调用和那段顺序注释都可以删，useGridMotion 也少一个对外方法。parking.update(items, previewing) 已经是这个形状，两者统一。
+
+### 4. renderItems 是带副作用的 computed，三个闭包变量是隐藏状态
+**严重程度**：建议
+**类别**：隐含共享状态
+**位置**：NestedGrid.vue:96-110（renderedKeys、domIds、nextDomId、renderItems、domIdOf）
+**现象**：renderItems 是 computed，却在里面改外部变量：renderedKeys = stableOrder(renderedKeys, ...) 把结果存回闭包，并且 domIds.delete(...) 清理。domIdOf 在模板与 sashProps 里被调用，每次可能往 Map 里写入。outOfOrder、ariaOwns、focusScope.items 又读它们。注释里说明了为什么不能放进 watch（外壳的 Teleport 要同一轮渲染里拿到新叶外框），这一点是对的，但“computed 必须幂等”这条 Vue 约定被打破，没有写明它为什么在这里是安全的（computed 只在依赖变化时执行一次，并且 renderedKeys 的更新是单调的）。
+**为什么是问题**：以后有人在 computed 之外再读一次 renderedKeys，或让 computed 因额外依赖多执行，就会让 stableOrder 的“上一轮”漂移。这块逻辑 40 行、有三个状态、和手势无关，却占着 NestedGrid 的 script。
+**建议改法**：抽成 useRenderOrder(items) 返回 {items, outOfOrder, domIdOf}（和 useLeafParking 同一种形状：一个小闭包加一个 update），内部注释一次说明“必须同步算、必须每轮只算一次”。NestedGrid 里减少约 40 行，三个闭包变量不再暴露给读者。
+
+### 5. 三块“附加行为”抽取方式不一致，焦点这一块还摊在 NestedGrid 里
+**严重程度**：建议
+**类别**：职责划分 / 文件长度
+**位置**：NestedGrid.vue:112-147（focusScope、sentinels、onKeydown、registerGridFocus）对照 useGridMotion.ts、useLeafParking.ts
+**现象**：过渡与停放是组合式函数（带自己的状态与 onBeforeUnmount），焦点是 grid-focus.ts 里的普通函数加 NestedGrid 里的约 35 行接线：focusScope 构造、两个哨兵的 useTemplateRef、onKeydown、onMounted 登记与 onBeforeUnmount 注销、模板里的 @keydown、@focusin、aria-owns。改“Tab 顺序”要读 NestedGrid（接线）、grid-focus（走法）、grid-rects（stableOrder 决定 outOfOrder、nextFocusStop）、Spec 的“Tab 顺序”“移动焦点”，四处。NestedGrid.vue 的 script 现在承担：手势宿主（begin/commit/hold，约 110 行）、预览、DOM id 与渲染序、焦点接线、aria 属性装配、动效与停放接线、六个 watch。
+**为什么是问题**：不是某一块太大，而是 NestedGrid 是唯一把它们串起来的地方，每块接线都要懂另外几块的时序（例如 releaseFocusScope 与 scope.dispose 的卸载顺序、parking.update 先于 motion.update）。
+**建议改法**：把焦点接线收进 useGridFocus({root, items: () => placement.items, outOfOrder})，返回 {ariaOwns, onKeydown, onFocusin, enterSentinel, exitSentinel} 或让它自己渲染哨兵所需的 ref；与建议 4 的 useRenderOrder 合起来 NestedGrid 的 script 能回到 200 行左右，每块行为一个文件、一份测试（见发现 1）。
+
+### 6. grid-rects.ts 一个文件放了四件事，nextFocusStop 与 placeGrid 无关
+**严重程度**：建议
+**类别**：职责划分
+**位置**：src/grid-rects.ts（placeGrid 约 130 行，grownRect/placementMoved/enteringRects 约 60 行，stableOrder 约 25 行，nextFocusStop 约 15 行）；grid-rects.test.ts 同样四节
+**现象**：文件名与头注释写的是“布局结果到矩形”，里面还有过渡的起点（grownRect、enteringRects、placementMoved，以及 GridLeafPlacement.grow 这个只给过渡用的字段）、渲染序（stableOrder）、焦点走法（nextFocusStop）。nextFocusStop 的注释里在讲 moveGridFocus 与 Tab。placeGrid 里 place/placeBranch/edgeOf/childEdges 是一个 100 行的闭包套闭包。
+**为什么是问题**：想找“焦点停靠怎么跳过没有可聚焦元素的”要打开 grid-rects.ts；想改 grow 的语义要同时改 placeGrid（生产者）与 enteringRects（消费者），而消费者在同一个文件里反而是对的，只是文件名看不出来。
+**建议改法**：不增加包级的新概念，把文件按“谁消费”重排：nextFocusStop 搬进 vue/grid-focus.ts（它只有那里用；它是纯函数，不依赖 DOM，仍然可以在 vitest 里测，核心 boundary.test 不受影响）；grownRect/placementMoved/enteringRects 与 stableOrder 留在核心（要 bun 可测），但移到 grid-motion.ts 一个文件里，头注释写“渲染序与过渡起点，消费者是 useGridMotion 和 NestedGrid”。grid-rects.ts 剩下 placeGrid 一件事。文件数从 1 变 2（再加搬走一个函数），换来每个文件一句话说得清。
+
+### 7. Splitter 与 NestedGrid 共用 SashHandle 之后，各自还重复三块
+**严重程度**：建议
+**类别**：重复
+**位置**：(a) NestedGrid.vue:155-181 sashProps 与 Splitter.vue:343-362 模板里的 :ariaLabel/:ariaMin/:ariaMax/:ariaNow/:ariaValueText；(b) NestedGrid.vue:78-82、:329-331 与 Splitter.vue:178-179、:211 的 useSashGesture + provide(SASH_GESTURE_SCOPE_KEY) + useSashSnap 三行；(c) 两边各一个 sessionCounter 与 `${instanceId}-${n}` 的会话 id；(d) DEFAULT_SASH_SIZE 在 src/grid-rects.ts:62 与 Splitter.vue:61 各一份，注释写“与 Splitter 的缺省相同”。
+**现象与问题**：(a) SashHandle 接 6 个 aria 前缀的 prop 与 4 个几何 prop，调用方各自用同一套公式算：text("splitter.resizeWidth"|"resizeHeight", ...)、Math.round(now)、收起时显示 splitter.collapsed、ariaMin = panelBounds(panel).low、ariaMax = ariaMax(panel, available)。公式一边在 script、一边在模板里，改“收起时的读屏文案”要改两处。NestedGrid 还为了拿一个 panel 对每条分隔线重建整个分支的 SplitterPanelConfig 数组（buildGridBranchPanels(...)[sash.index]，一个 k 条边的分支每次渲染建 k 个数组）。(b) SashHandle 要求两个 provide 同时在场，缺一个 throw，调用方必须记得成对做。(d) 是核心与 Vue 层各存一份必须相等的常量。
+**建议改法**：(a) 在 grid-splitter.ts 里写一个 sashAria(text, {axis, beforeId, afterId, panel, nowPx, available}) 返回那 6 个字段，两边 v-bind 它，grid-splitter.ts 同时不再需要依赖 SplitterPanelConfig（见发现 8）；(b) 把 useSashGesture 的结果与 useSashSnap 合成一个 useSashHost({host, root, disabled}) 一次 provide 两个 key，SashHandle 只 inject 一个；(d) Splitter 从 grid-rects.ts 导出的常量取缺省值（Vue 层依赖核心，方向没问题）。(c) 不用改，两处各一行。
+
+### 8. grid-splitter.ts 与 Splitter.vue 互相引用类型，且把内部函数公开了
+**严重程度**：建议
+**类别**：耦合 / 公开面
+**位置**：src/vue/grid-splitter.ts:11（import type {SplitterPanelConfig} from "./Splitter.vue"）、Splitter.vue:11（import ... from "./grid-splitter"）；src/vue/index.ts:10
+**现象**：NestedGrid 不再用 Splitter，却仍要经 SplitterPanelConfig 这个“Splitter 的 props 类型”来给分隔线算 aria（grid-splitter.ts 的头注释“分隔线的 aria 用它”）。Splitter.vue 和 grid-splitter.ts 之间是类型循环。index.ts 把 buildGridBranchPanels、sashPanelsOfConfig 作为公开导出保留（原来是 export *，现在收窄成这两个），grep 全仓库，除 nb-layout 自己和 nb-ui 里那份冻结的拷贝外没有任何外部调用方。
+**为什么是问题**：公开面里留着没人用的两个函数，以后要改它们得考虑外部兼容；类型循环让 NestedGrid（扁平、不依赖 Splitter）在类型上仍然依赖 Splitter。
+**建议改法**：把 SplitterPanelConfig 移到 grid-splitter.ts（或新的 sash-types），Splitter.vue 从那里 import 并 re-export；index.ts 去掉这两个函数的导出，测试直接按相对路径导入。
+
+### 9. SashHandle 的设备像素对齐是脚本里的算术，测试却挂在 Splitter 名下
+**严重程度**：建议
+**类别**：纯函数与 DOM 的边界 / 测试
+**位置**：src/vue/SashHandle.vue:128-206（snap、writeDecorationGeometry、writeLineCore）；src/vue/splitter.dom.test.ts（1282 行，.sash-seam 与 dpr 的断言在 666-1114 行）
+**现象**：snap(dpr) 里读 getBoundingClientRect 之后的那串算术（center、scale、snappedCenter、seamStartPx、夹进装饰带的线芯起点）都是数字进数字出，没有理由放在 .vue 里；sashBandBox 已经在 sash-feedback.ts 里是纯函数，它的邻居却没有。验证它的用例全在 splitter.dom.test.ts，用 Splitter 搭场景；NestedGrid 里的分隔线是同一个 SashHandle，却没有一条“扁平 grid 里的接缝对齐设备像素”的 vitest（只有 e2e 的 1.25 dpr 那条）。
+**为什么是问题**：Splitter 已定位成“独立使用”（产品里没有调用方，只有 Lab 与 SDK 导出），它哪天被缩减或删除，SashHandle 的几何测试会跟着一起走。
+**建议改法**：把 seam/线芯的数值计算移到 sash-feedback.ts（输入 rect 的一维、sashPx、dpr、before/after，输出 {band, seamStartPx, core}），用 bun 直接测；splitter.dom.test.ts 中关于 .sash-seam/.sash-line 的几何用例改名并移到 sash-handle.dom.test.ts，用一个最小的 provide 外壳挂 SashHandle，Splitter 和 NestedGrid 各留一条“确实把它接上了”的用例。
+
+### 10. 设备像素比有两个来源，窗口监听各装一份
+**严重程度**：建议
+**类别**：重复 / 共享状态
+**位置**：useDevicePixelRatio.ts（ref + window resize + matchMedia）、useSashSnap.ts:41（rAF 里直接读 window.devicePixelRatio）与 :57-58（又一份 resize、scroll 监听）
+**现象**：NestedGrid 的摆放用响应式的 dpr，SashHandle 的对齐用 useSashSnap 在帧里读的 window.devicePixelRatio，两者平时相等；dpr 变化时靠 watch(placement) 里的 snapHost.schedule() 让后者跟上，这条依赖没有写在任何一边的注释里。一个 NestedGrid 会装两个 window resize 监听加一个 scroll 捕获监听，加一个 matchMedia 监听；Splitter 一份。
+**为什么是问题**：以后有人把 placement 的触发条件改了（比如摆放不再随 dpr 重算），分隔线的对齐会在“拖到另一块显示器”时静默不更新。
+**建议改法**：useSashSnap 内部直接用 useDevicePixelRatio()，在 dpr 变化时 schedule()，帧里用它的值，不读 window。useGridMotion 里的“rescaled”也从这里取，不再各自读。这样 dpr 是一个来源，监听少一份。
+
+### 11. 组件文档没跟上扁平化，隐藏通道一节不完整
+**严重程度**：建议
+**类别**：注释与文档
+**位置**：src/vue/NestedGrid.md:71（“不透传到递归 Splitter 或叶容器”）、:91（“公开面相对递归版的变化”）、“隐藏通道理由”一节；src/grid.md:16（“Splitter 的结束事件提供完整百分比尺寸”）、:28 与同文件“几何只有 px 一种口径”矛盾
+**现象**：(a) NestedGrid 已无递归 Splitter，文档还提到；“相对递归版的变化”是变更日志式的句子，过一阵就没有读者知道“递归版”是什么。(b) grid.md 说 Splitter 提供百分比尺寸，Splitter.vue 现在发 sizesPx 与 px 状态，同文件另一段说只有 px 一种口径。(c) “隐藏通道理由”里 env:global 只写了 useSashGesture 的指针与窗口监听，“该通道为手势生命周期服务”；本轮新增的 useSashSnap 在 window 上装 resize 与捕获阶段 scroll，useDevicePixelRatio 装 resize 与 matchMedia，页面上任何滚动（包括叶内容里的编辑器滚动）都会触发一帧对所有分隔线的 getBoundingClientRect；grid-focus.ts 有两个模块级 WeakMap（scopes、lastFocused），是同一页面上所有 grid 共享的状态，没有任何一处声明。AGENTS.md 的“同一页面只有一份 nb-layout”约束对 drop-targets 有说明，对这个注册表没有。
+**为什么是问题**：components.md 把“耦合度 = 隐藏通道数量”当判据，写文档的目的就是让人少读源码；这里的文档说少了。
+**建议改法**：NestedGrid.md 删“递归”两处，把第 91 行改成直接写现状（data-leaf 在外框、data-leaf-content 在内容容器）；grid.md 第 16 行改成 px；“隐藏通道理由”的 env:global 补上 resize/scroll/matchMedia 监听与“滚动会触发对齐”，并加一句模块级的焦点注册表与“同页只有一份 nb-layout”。
+
+### 12. 小问题：重复导入、命名与过时注释
+**严重程度**：建议
+**类别**：可读性
+**位置**：NestedGrid.vue:14 与 :28（GridBranchChange 一次是值导入，一次别名成 GridBranchChangeType，同一个类型导入两次）；NestedGrid.vue:80 附近 placementExtent 调 sessionExtent()（“会话”的盒用来给摆放，名字对不上，注释里说“摆放的容器”）；Splitter.vue:242-250 相邻两段 JSDoc（“取消必须先于重排”与“约束语义……”）叠在同一个 watch 上，第一段属于上一个 watch。
+**建议改法**：删别名导入；sessionExtent 改名 rootExtent；叠着的 JSDoc 合并或拆给各自的 watcher。
+
+## 未发现问题的方面
+
+- drag-gesture.ts / vue/drag-session.ts / vue/drop-targets.ts 本轮没有改（master..HEAD 无提交）。抽样读了三个文件的头部：状态机与 DOM 适配的边界清楚（drag-gesture 注入时钟、不碰 DOM；drag-session 头注释写明“这里不做判断”），登记按元素存、无 provide，头注释指向 layout-drag Spec 的输出编号。没有要改的。
+- useGridMotion.ts、useLeafParking.ts、useSashSnap.ts、useDevicePixelRatio.ts、layout-motion.ts 的文件长度（35 到 106 行）与注释质量都好：写了“为什么”（计时比过渡长一点、第一帧未量到不停放否则 focus() 静默失败、为什么不让每条线自己监听），并指向 Spec 小节。
+- placeGrid 本身的算法注释清楚，“设备像素上累加”的理由写在头注释里；纯函数没有碰 DOM，核心边界由 boundary.test.ts 守着，grid-focus.ts 在 vue/ 里用 DOM 与 tabbable 的划分正确。
+- 手势宿主的 begin/onCommit/onCancel 与 useSashGesture 的 SashGestureBinding 合同分得清楚，NestedGrid 和 Splitter 各自实现 host 而不共享一份“半个 host”，是合适的。
+- 接入草稿里要记的概念：useLayoutExtent、useGridLayout、NestedGrid 的 5 个 prop（node、layout、context-key、revision、on-gesture-commit，其中 context-key 要在 useGridLayout 与 NestedGrid 各写一次）、手动 host.invalidate()、moveGridFocus、两个 DOM 属性。前五个是既有设计，不是本轮引入；本轮引入的负担是最后两个（见发现 2）。
+
+## 数量
+
+重要 3（发现 1、2、3），建议 9（发现 4 到 12），合计 12。
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12

@@ -33,7 +33,7 @@ const where = (workId: string, taskId: string | null) => `${workLabel(workId)}${
                         <span class="min-w-0 flex-1 truncate font-medium">{{ item.title ?? item.artifactId }}</span>
                         <span class="nbdev-note">{{ where(item.workId, item.taskId) }} · {{ item.artifactId }}<template v-if="item.version"> · v{{ item.version }}</template></span>
                         <Badge v-if="item.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
-                        <Badge v-if="item.openRequired > 0" tone="warning" variant="soft" size="sm">待答 {{ item.openRequired }}</Badge>
+                        <Badge v-if="item.waiting > 0" tone="warning" variant="soft" size="sm">待答 {{ item.waiting }}</Badge>
                         <Badge v-if="item.adoption && ADOPTION[item.adoption]" :tone="item.adoption === 'waiting' ? 'accent' : 'success'" variant="soft" size="sm">{{ ADOPTION[item.adoption] }}</Badge>
                     </a>
                 </li>

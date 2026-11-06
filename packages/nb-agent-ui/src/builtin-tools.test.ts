@@ -2,6 +2,7 @@ import {describe, expect, it} from "bun:test";
 import type {ToolCallView} from "./types";
 import {builtinToolRenderers} from "./builtin-tools";
 import {createAgentViewRegistry} from "./registry";
+import {fileContentLines} from "./tool-detail-lines";
 import {editInputChanges} from "./tool-formats";
 
 const registry = createAgentViewRegistry([{source: "builtin:tools", tools: builtinToolRenderers}]);
@@ -61,5 +62,38 @@ describe("nb-harness 的 edit（参数是 input）", () => {
             {path: "设定/人物.md", added: null, removed: null},
             {path: "正文/第一章.md", added: null, removed: null},
         ]);
+    });
+});
+
+describe("NeuroBook 的内置工具", () => {
+    const entry = (name: string) => builtinToolRenderers.find((item) => item.toolNames?.includes(name))!;
+    const callWith = (name: string, args: ToolCallView["args"], extra: Partial<ToolCallView> = {}): ToolCallView => ({id: "c", name, status: "success", args, ...extra});
+
+    it("edit 的 old_string、new_string：diff 与增删行数", () => {
+        const edit = entry("edit");
+        const replace = callWith("edit", {path: "project://a.md", old_string: "旧\n行", new_string: "新"});
+        expect(edit.diff!(replace)).toEqual([{text: "旧", tone: "removed"}, {text: "行", tone: "removed"}, {text: "新", tone: "added"}]);
+        expect(edit.effects!(replace).changed).toEqual([{path: "project://a.md", added: 1, removed: 2}]);
+    });
+
+    it("grep、glob 算探索，shell 用命令的画法，ask 是节点", () => {
+        expect(entry("grep").category).toBe("explore");
+        expect(entry("glob").category).toBe("explore");
+        expect(entry("shell").id).toBe("bash");
+        expect(entry("ask").presentation).toBe("node");
+        expect(entry("ask").summary(callWith("ask", {questions: [{question: "视角？", options: []}]}))).toBe("视角？");
+    });
+
+    it("正在写的文件：摘要带路径与字数，写完了只有路径", () => {
+        const write = entry("write");
+        expect(write.summary(callWith("write", {path: "project://一.md", partialChars: 1200}, {status: "streaming"}))).toBe("project://一.md · 1200");
+        expect(write.summary(callWith("write", {path: "project://一.md", content: "全文"}))).toBe("project://一.md");
+    });
+
+    it("read 的结果：去掉头一行与行号前缀，行号取自前缀，说明单独一行；目录原样", () => {
+        const read = callWith("read", {path: "project://a.md"}, {result: {text: "[project://a.md#ab12]\n7:一\n8:二\n（第 7 到 8 行，共 20 行；用 offset 接着读）", truncated: false}});
+        expect(fileContentLines(read)).toEqual({startLine: 7, lines: [{text: "一"}, {text: "二"}, {text: "（第 7 到 8 行，共 20 行；用 offset 接着读）", tone: "muted"}]});
+        const directory = callWith("read", {path: "project://"}, {result: {text: "[project://] 目录，2 项\n正文/\n设定/", truncated: false}});
+        expect(fileContentLines(directory).lines.map((line) => line.text)).toEqual(["[project://] 目录，2 项", "正文/", "设定/"]);
     });
 });

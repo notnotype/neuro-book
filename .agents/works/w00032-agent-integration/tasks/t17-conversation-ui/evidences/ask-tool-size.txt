@@ -1,0 +1,14 @@
+ask 两条声明的大小（2026-11-05，第 4 片）。发给模型的 JSON 字节数，token 按内核估算口径（每 3 字节一个，harness/runtime.md 输出 46），不是服务商实测。
+
+read      621 字节  约 207 token
+write     475 字节  约 158 token
+edit     2319 字节  约 773 token
+grep      891 字节  约 297 token
+glob      592 字节  约 197 token
+shell     785 字节  约 262 token
+合计     5683 字节  约 1894 token（计划写的 1370 是早先的估算）
+
+ask       956 字节  约 319 token
+ask-form 1184 字节  约 395 token
+
+两条相差约 76 token，是主创现有 6 个工具的 4%（计划估的是约 220 token、16%）。主创绑 ask-form。

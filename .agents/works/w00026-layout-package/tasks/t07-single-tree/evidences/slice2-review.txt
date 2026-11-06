@@ -1,0 +1,148 @@
+# 审查报告：w00026 t07 片 2（布局文档、呈现树、落点规则）
+注意：审查时 worktree 里有未提交的改动（别的切片在改）：layout-doc.ts 比 HEAD 多一个 openPanelAtEdge（约 11 行，在 moveTabToEdge 之后），不在审查范围，也没有评价。报告里 layout-doc.ts 第 474 行之后的行号相对 HEAD 要减 11。其余文件（layout-project/drop/fixtures）与 HEAD 一致（git diff 无差别）。
+范围：HEAD~1..HEAD，packages/nb-layout/src/layout-*.ts。逐条核实后追加，编号按发现顺序；末尾有按影响排序的索引。
+实验脚本在 /tmp/review-w00026-t07-s2/（e*.ts），均用真实 createGrid 与 projectLayoutDoc。
+
+[1] 重要 | 正确性/尺寸守恒 | layout-doc.ts:147-149（normalizeTree 展平的缩放）
+现象：展平的子分支里夹着呈现为零的节点（隐藏的具名面板、横向拖到零的收起面板）时，可见节点的 px 意图被缩小。呈现为零的节点按 rebaseIntents 的约定保留原意图（展开尺寸），它被算进 total，而 child.size[main] 是不含它的呈现尺寸，scale 因此小于 1。
+为什么是问题：Spec 输出 2 要求“展开前后每个叶的尺寸不变（差不到 1px）”，plan 也写“fixed 的像素目标不变”。这里可见的 fixed 工具面板被悄悄缩小，再次渲染时尺寸变了，用户没有动过它。注释自己写的“意图是 px 时比例接近 1”在有零节点时不成立。
+如何核实：/tmp/review-w00026-t07-s2/e3.ts。树 V[H[activitybar, V[x, H[sidebar(hidden), t1(400px), ea]], auxiliarybar], statusbar]，宽度 2000，先 rebaseIntents，再把 x 移到 auxiliarybar 下缘：V 塌陷成 H[sidebar,t1,ea]，与外层 H 展平。真实 createGrid 求解：t1 宽 400 -> 374.5，ea 1216.7 -> 1242.2。
+建议改法：缩放用“呈现非零节点”的 total（normalizeTree 需要知道哪些节点占地，例如传入 isShown 谓词或由 detach 之前的 doc 算）；或者既然意图已是 px 并经过 rebase，展平时干脆不缩放，只在子分支 size 与孙节点之和不符且无零节点时才缩放。补一条含隐藏面板的守恒测试（现有“展平前后主轴总量守恒”只测了全可见）。
+
+[2] 重要 | 正确性/意图单位 | layout-doc.ts:214-221（rebaseIntents）与 layout-project.ts:72-78（collapse.restoreSize）
+现象：纵向分支里“收成标题行”的工具面板呈现高度是面板头高度（32），不是 0，所以 rebaseIntents 把它的高度意图改写成 32。之后展开（setPanelCollapsed(false)、点标签）只能回到 restoreSize = max(32, 最小值 80) = 80，用户原来的高度丢了。横向“拖到零”没有这个问题（呈现 0 保留原意图）。
+为什么是问题：Spec 输出 11 的表“收成标题行”一行，“怎么回来”隐含回到原尺寸；输出 8 的“呈现为零保留原意图”只覆盖了横向。plan 去掉了 restoreSize、让意图承担它，但收成标题行的呈现不是 0，约定没有覆盖，所以任何一次结构操作（包括拖别的标签）之前的 rebase 都会损坏收起面板的展开尺寸。
+如何核实：/tmp/review-w00026-t07-s2/e4.ts。H[ea, V[a(collapsed,300), b(300)]]，真实 createGrid 求解 a.height=32；rebaseIntents 后 a.size.height=32；setPanelCollapsed(a,false) 后真实布局 a.height=80（不 rebase 时是 300）。
+建议改法：rebaseIntents 对收起的面板（panel.collapsed）不写主轴意图——需要把 doc 里的 collapsed 状态传进去，或让调用方传 sizes 时排除。writeBackIntents 取 grid.serialize() 的意图，实测收起的叶保留 300，不受影响（e5.ts）。补一条“收起后做结构操作再展开，尺寸回到原值”的测试。
+
+[3] 重要 | 正确性/呈现 | layout-project.ts:59-80（assignByParent）、layout-doc.ts:485-493（setPanelCollapsed）
+现象：一个横向分支里的工具面板全部 collapsed（横向就是宽度 0）时没人吸收余量：行宽缩到 1px，grid 给诊断“没有按比例分配的节点，剩余 N 未被吸收”，所在列的宽度变成 1px（或整块留白）。setPanelCollapsed 对任何工具面板都允许 collapsed=true，不看兄弟；随机操作序列里三步以内就能走到。
+为什么是问题：Spec 输出 7 与 plan 都说“分支里总有人吸收余量，不留白”，这里在“全是工具面板、全部收起”时不成立；assignByParent 的注释也声称“分支里总有人吸收余量”，只在没有收起时为真。
+如何核实：/tmp/review-w00026-t07-s2/e9.ts。H[ea, V[H[a,b], c]] 且 a、b 都 collapsed：真实 createGrid 的 row.width=1，col 约束“下限 160 高于上限 1”，行里留 159px 空白；H[a,b] 全 collapsed 根上同样出现“剩余 999 未被吸收”。fuzz.ts 种子 1112 的随机序列也稳定复现（collapsed panel、collapsed auxiliarybar 之后得到 V[ea,n2,auxiliarybar,H[panel,sidebar]]，panel 与 sidebar 都 collapsed）。
+建议改法：二选一并写进 Spec：(a) 呈现里同一横向分支的最后一个未收起者不能收起——projectLayoutDoc 发现该分支所有可收起者都 collapsed 时，对其中一个（比如树序最后一个）不写 collapse.collapsed；(b) setPanelCollapsed 在这种情况拒绝或自动展开另一个。补一条测试覆盖“全部收起”。
+
+[4] 重要 | 正确性/Spec 31 | layout-drop.ts:151-172（enumerateDropCandidates）与 layout-drop.test.ts:128
+现象：函数注释写“结果和现状一样的除了来源自己的原位都不列；原位排在最前面，拿起时就停在那，直接 Enter 不移动”（Spec 输出 31：拿起时停在原位）。代码在 add 里一律丢掉 result.doc === doc 的候选，没有任何分支为来源的原位产出候选，所以列表里根本没有原位，第一个候选是别处的落点。测试名甚至写成“结果和现状一样的不列”，与注释相反，且没有断言原位。
+为什么是问题：键盘拖动的“拿起时停在原位”无从实现；后面的切片照字面接这个列表，拿起即落在 candidates[0]，Enter 会把标签移走。
+如何核实：/tmp/review-w00026-t07-s2/e10.ts：panel b 作为来源，candidates[0] 是 {strip, panel:a, index:0}，列表里没有 b 的原位；tab 作为来源同样没有。
+建议改法：由函数显式产出原位候选（来源所在的 strip 插入位或外缘，用 region 标明）放在最前，并在测试里断言；或者改注释与 Spec 说明原位由宿主表示。同一个修改里让测试名和断言一致。
+
+[5] 重要 | 性能 | layout-drop.ts:166-173（enumerateDropCandidates 每个候选跑一次完整提交）
+现象：每个候选走 applyLayoutDrop，含 structuredClone 整个文档、normalizeTree、sameLayoutShape（全文档 JSON.stringify）。strip 的插入位每个都算一个候选，数量与标签数成正比。Spec 副作用一节给出的规模是 16 组、每组 200 标签：实测 3281 个候选耗时 16.0 秒（面板作为来源 13.3 秒）；8 组×50 标签 140ms，4×30 为 17ms。单次操作在这个规模约 2.3-2.6ms（activateTab 2.6ms，每次切标签都付这个成本）。
+为什么是问题：键盘拿起拖动是同步调用，上限规模下界面冻结十几秒。strip 候选只要“接受矩阵与 canInsert 通过、该插入位不等于原位”，根本不需要提交整份文档。
+如何核实：/tmp/review-w00026-t07-s2/e10.ts、e11.ts（计时输出）。
+建议改法：strip 候选只验接受矩阵与 canInsert，并只保留“排除等价插入位”（at 相同的合并，如 [a,x] 拖 x 到 index 1 与 2 是同一个落点，现在两个都列）；edge、reveal 候选仍可走提交。或者候选做成惰性（列出动作，提交时才验）。另外 finish/sameLayoutShape 里的 JSON.stringify 可换成直接比较。
+
+[6] 重要 | 正确性/Spec 25 规则 1、2 | layout-drop.ts:21、85-88（SEAM_PX = 8 的“缝”）
+现象：指针不在任何面板里时，只要离某块的正文或标签条不超过 8px 就算这一块（“缝归最近的那块”）。但真实的缝只有 1px（条两侧 0）。结果是工作台外圈、条、标题栏的 8px 也变成落点：活动栏里紧挨侧栏的 5px、状态栏上沿的 8px、标题栏下沿的 8px、窗口外缘 8px 都会判成这块面板的外缘或标签条。
+为什么是问题：Spec 输出 25 规则 1“工作台外、标题栏、条：没有落点”在先；条两侧缝宽为 0，活动栏不是落点。输入里没有条与标题栏的矩形，函数没法区分，只能靠距离，所以 8px 阈值直接吞掉了规则 1 的这一段。这是确定性的，不是阈值调优：活动栏是 48px 宽，近侧栏的 8px 约六分之一。
+如何核实：/tmp/review-w00026-t07-s2/e12.ts。活动栏 0..48，侧栏 48..300：指针在 x=43（活动栏内）得到 {edge, split, a, left}；状态栏 578..600，指针 y=583 得到 {edge, split, a, bottom}；x=8、y=595 则为 null。
+建议改法：缝的容差取实际缝宽（最大 1 到 2px，或由宿主传 seamPx），且只对“两块之间”的缝适用——判定时要求最近的两块都在这一侧（例如指针落在两块的 body/strip 的外接矩形之间），不要对窗口外缘和条应用；或者让宿主把条与标题栏矩形也传进来作为“遮挡”。补测试：条内 5px 与窗口外缘 5px 为 null。
+
+[7] 建议 | 正确性/边界 | layout-drop.ts:65（resolveInPanel 的 `<=`）
+现象：指针恰在正文第一行（y 等于 strip.bottom，也就是 body.top）时，到 strip 与到 body 的距离都是 0，用 `<=` 判成标签条，而 contains(body) 为真、contains(strip) 为假。实测 body.top=30、y=30、x=150 得到 {strip, a, index:1}，y=30.5 得到外缘 top。
+为什么是问题：整数坐标的指针事件会稳定踩到这一行，标签条的插入位与外缘窄带相互错判，Spec 输出 25 规则 3 以“指针在标签条里”为准。
+如何核实：e12.ts 末三行。
+建议改法：先用 contains 判是否真在条里；只在指针在缝里（两者都不含）时才比较距离。
+
+[8] 重要 | 正确性/校验 | layout-doc.ts:561-608（validateLayoutDoc）、layout-doc.ts:73（barOfRef）、layout-project.ts:115
+现象：validateLayoutDoc 通过但违反文档自己约定或会让后面崩的输入（均实测 ok: true，见 e7.ts、e8.ts、e14.ts）：
+  a) 多出任意名字的条：叶 ref 为 "bar:foo" 被当作条跳过面板检查（barOfRef 只看前缀，并且 `as LayoutBar` 强转）；projectLayoutDoc 会用 barThickness("foo") 画它。
+  b) hiddenBars 里可以是任意值、重复值；
+  c) currentEditor 可以指向不存在的面板、工具面板；有编辑组时也可以是 null；
+  d) hidden 可以加在没有名字的面板、编辑组上；collapsed 可以加在编辑组上；name 可以加在编辑组上（Spec 术语：具名面板是工具面板）；
+  e) 空分支（children: []）；
+  f) 编辑组被 hidden 且两条条都在 hiddenBars 里时，projectLayoutDoc 抛 Error“树里没有可呈现的节点：校验应该已经拒绝”——校验并没有拒绝。
+为什么是问题：Spec 称 validateLayoutDoc 是形状的唯一权威，读到损坏记录应回落默认树而不是进入渲染后抛错；c) 里 currentEditor 指向工具面板后，“活动编辑组”概念失效；d) 违反 Spec 输出 3/11 的“只有具名面板会隐藏、编辑组不可收起”，也让本模块的操作（setPanelHidden 对无名返回 rejected）与读入的数据不自洽。
+如何核实：e7.ts、e8.ts、e14.ts 逐条打印 valid 结果；f) 见 e7.ts 的 d2：validate ok 之后 solve() 抛错。
+建议改法：补校验：条 ref 只能是两个已知名字；hiddenBars 元素属于集合且不重复；currentEditor 为 null 或编辑组 id（有编辑组时不能为 null 或由读入时修正）；hidden 只许具名工具面板，collapsed 只许工具面板，name 只许工具面板；分支至少一个子节点（规范形要求至少两个也可）；至少一个编辑组可见（或让 projectLayoutDoc 不抛）。每条补一个“坏记录返回 invalid”的测试。
+
+[9] 重要 | 意图单位 | layout-project.ts:120-138（writeBackIntents）与 layout-project.ts:72-78（restoreSize）；layout-doc.ts:8 头注释“尺寸意图统一是 CSS px”
+现象：writeBackIntents 写回的是 grid.serialize() 的意图，对 weight 节点这是 resizeBranch 反解出来的“权重”（与原来的权重总和同量纲），不是呈现 px；fixed 节点才是 px。头注释和 plan 都说意图统一是 px，“所以展平不用换算”，但手势落账之后文档里同一分支可能混着权重和像素，直到下一次 rebaseIntents。projectLayoutDoc 又把 child.size[main] 直接当 restoreSize（grid 约定是 CSS px）。
+为什么是问题：实测纯工具面板的一列 V[a,b]（吸收余量的都是 weight）：手势把 a 拉到 549.5px 后落账，a 的意图是 366.7（权重），把 a 收起后 restoreSize = 366.7，展开只回到 366.7px，不是用户拉出来的 549.5px。收起/展开经 setPanelCollapsed 走文档，中间没有 rebase，所以必然踩到。与发现 [2] 叠加：先 rebase 会让纵向收起面板变 32，不 rebase 就是权重，两条路都错。
+如何核实：/tmp/review-w00026-t07-s2/e15.ts。H[ea, V[a,b]]，a、b 各 300，高度 900：呈现 449.5/449.5，resizeBranch +100 后写回 a=366.7、b=233.3；a 收起后 restoreSize=366.7，而呈现里 a 原来是 549.5。
+建议改法：让手势落账也走 px：writeBackIntents 接 layout.sizes（或在宿主里“落账后立即 rebaseIntents(sizes)”并写进合同），收起面板的 restoreSize 取展开时的 px（保存收起前的呈现尺寸，或在收起操作前对该面板做 rebase 再置 collapsed，同时解决 [2]）。头注释改成实际口径。补一条“拖动落账后收起再展开回到原尺寸”的测试，用真实 createGrid。
+
+[10] 重要 | 不变量/Spec 33 | layout-doc.ts:330-344（movePanelToStrip）、layout-drop.ts:107-114（center 落点）
+现象：moveTabToStrip 会问 policy.canInsert（固定分区限制），movePanelToStrip 一次并入整个面板的全部标签，完全不问。applyLayoutDrop 的 strip/center 对面板来源都走 movePanelToStrip，showPanelAndInsert 的面板来源也一样。insertTab 与 moveTabToEdge 也没有问（后者的新面板只有一个标签，可以不问）。
+为什么是问题：Spec 输出 33“固定分区的插入限制由 canInsert 问编辑器”。把一个编辑组整块并入另一组，固定标签会插到未固定的标签后面。注释说“保持顺序”，也没有任何方式让编辑器否决。
+如何核实：/tmp/review-w00026-t07-s2/e13.ts：策略 canInsert 恒返回 false 时，moveTabToStrip 返回 rejected，movePanelToStrip 返回 ok。
+建议改法：movePanelToStrip 对每个标签按它们将落的位置问 canInsert（任一为 false 就整批 rejected）；insertTab 同理或在合同里写明由宿主自己先问。补测试。
+
+[11] 重要 | 正确性/意图写回 | layout-doc.ts:214-221（rebaseIntents）与 layout-project.ts:86-95（单子分支塌陷）
+现象：呈现里塌陷掉的分支（例如默认树里 panel 隐藏时的 V[ea, panel]）不在 layout.sizes 里，rebaseIntents 找不到它的尺寸，保留旧意图；它的幸存者（ea）却拿到了自己的呈现尺寸。分支的主轴意图因此不是当前呈现，违反 Spec 输出 8“树上每个呈现尺寸非零的节点改写成当前呈现尺寸”。rebaseIntents 没有 aliases 参数，写回方向（writeBackIntents）有，读入方向没有。
+为什么是问题：之后的外缘操作用的就是这个分支的意图：between 取 (before + after) / 3，split 取一半。实测默认树 panel 隐藏、窗口 1400：col（V[ea,panel]）呈现宽 850，rebase 后意图仍是 250；把 auxiliarybar 放到 sidebar 与 col 之间，新块只得到 (sidebar+250)/3 = 166px，而按呈现应当是 (250+850)/3 左右。规则 4“新块只从这两块按比例取”的比例是错的。默认树里 panel 隐藏是最常见的状态。
+如何核实：/tmp/review-w00026-t07-s2/e16.ts（真实 createGrid 求解、rebase 后看 col 的意图与 between 结果）。
+建议改法：rebaseIntents 接收 LayoutProjection.aliases（survivor -> 被塌陷的分支）：幸存者的呈现尺寸同时写给它代表的分支（主轴）。补一条“隐藏面板使分支塌陷后做 between，比例按呈现”的测试。
+
+
+[12] 重要 | 不变量 | layout-doc.ts:281-290（replaceTab）
+现象：replaceTab 不查新标签的 key 是否已存在。把 tab:p1 替换成同组的 tab:p2、或别的组已有的 tab:q，返回 ok: true，文档里出现重复标签，validateLayoutDoc 对它返回 invalid（“标签重复”）。也不查接受矩阵：工具面板里的视图可以被替换成编辑器标签（ok: true）。
+为什么是问题：操作的结果应当总能通过 validateLayoutDoc；这条路径会把一个读回时会被当成损坏、回落到默认树的文档存盘。preview 替换是打开文件的主路径，“新标签已在别处打开”是常见情形。insertTab 有重复检查，replaceTab 漏了。
+如何核实：/tmp/review-w00026-t07-s2/e17.ts 前三行。
+建议改法：和 insertTab 一样先 findTab(next)，已存在（且不是被替换的那一个）时返回 rejected；是否过 policy.accepts 也要在合同里写明。补一条测试。
+
+[13] 建议 | 边界 | layout-doc.ts:274、316-322、339（插入位）
+现象：insertTab 的 index 只做了上限夹取（Math.min），没有下限：index = -1 时 splice(-1, ...) 插到倒数第二，NaN 插到最前；moveTabToStrip 的负 index 同理（-3 恰好变成最前，只是巧合）。movePanelToStrip 的 index 同样。
+为什么是问题：插入位来自宿主量出来的数字（标签条几何），出现 -1 或 NaN 时结果不可预期，而不是夹到合法范围。
+如何核实：e17.ts 后半。
+建议改法：统一一个 clampIndex(index, length)，NaN 与负数夹到合法范围。
+
+[14] 建议 | 测试 | layout-doc.test.ts:69-89、:92-98；layout-project.test.ts
+现象：变异检查（在 /tmp/review-w00026-t07-s2/mut 里改拷贝，跑 layout-doc/project/drop 三个测试文件，共 86 条）：
+  - normalizeTree 里把 scale 改成恒为 1：全部通过。“展平前后主轴总量守恒，比例不变”的夹具里子分支外部分配恰好等于孙节点之和，缩放没有被测到。
+  - 展平时交叉轴改成保留孙节点原值：全部通过，交叉轴没有断言。
+  - resolveInPanel 的 `<=` 改成 `<`（标签条平局）：全部通过，对应发现 [7]。
+  其余 15 个变异（隐藏兄弟、条拦截、detach 别名、1/3 取比、最后编辑组、currentEditor 转移、条缝为 0 等）都被抓到。
+  展平性质测试（“展平前后每个叶的呈现尺寸不变”）三个夹具都是全部可见、没有收起，没有覆盖发现 [1]、[2]、[11] 的情形。
+为什么是问题：性质测试名为“尺寸不变”，却避开了隐藏与收起，正是缩放产生偏差的地方。
+建议改法：性质测试加“隐藏的具名面板在被展平的子分支里”“纵向收起的工具面板做一次结构操作再展开”“默认树里 panel 隐藏后做 between”三个夹具；用随机操作序列做性质测试（见 fuzz.ts），断言每步 validateLayoutDoc 通过。
+
+[15] 建议 | API 形状 | layout-drop.ts:127-143（previewEdgeDrop）、layout-drop.ts:166-173（enumerateDropCandidates）、layout-doc.ts:62-65（newId）
+现象：
+  a) previewEdgeDrop 与 enumerateDropCandidates 都真的调用 policy.newId（moveTabToEdge 拆新面板、placeLeaf 拆分叶新建分支）；实测 4 组×5 标签枚举 40 个候选调用 newId 21 次，指针每动一下预览也调一次。注释只在 previewEdgeDrop 里说“可以用占位 id”，LayoutPolicy.newId 的合同没有写“可能被调用但结果丢弃，必须无副作用”。
+  b) previewEdgeDrop 收的是 doc，不收尺寸；提交路径要先 rebaseIntents 才正确（between 取 1/3、split 取一半都用意图），预览若传未 rebase 的文档，画出的矩形与提交不同，而注释写着“用提交时的同一个函数算”。函数手里有 projection 和 extent，本可以自己 rebase。
+  c) projectLayoutDoc 的 aliases 与 rebaseIntents 不对称（见 [11]）；writeBackIntents 的 projected 参数要求 grid.serialize()，类型是 GridSnapshot，文档没说明。
+为什么是问题：后面的 store、拖动切片照字面接时，预览与提交会不一致，或者宿主用有状态的 newId（计数器写进文档）时每次预览都烧一个 id。
+如何核实：e18.ts（调用次数）；b) 从代码推断，未单独实验。
+建议改法：LayoutPolicy.newId 的注释写明可能被预览/枚举调用且结果可能丢弃；previewEdgeDrop 内部 rebase（传入当前 sizes 或自己求解一次）；或在 applyLayoutDrop 的合同里写明“doc 必须已 rebase”。
+
+[16] 建议 | 打包 | packages/nb-layout/package.json files、layout-doc-fixtures.ts
+现象：package.json 的 files 是 "src" 加 "!src/**/*.test.ts"、"!src/**/*.test.tsx"，layout-doc-fixtures.ts 没有 .test 后缀，会进发布包（npm 包带着测试夹具：H、V、docOf、testPolicy）。它没从 index.ts 导出，但文件在包里，并且被 boundary.test 当核心文件扫描。
+如何核实：读 package.json 的 files（已读）；未实际 npm pack。
+建议改法：改名为 layout-doc.fixtures.test-support.ts 之类并在 files 里排除，或移到 src 外的 tests/（package 的其它夹具放哪里就跟哪里）；或者把测试用的 policy 与小语言放到 neuro-book-test-support。
+
+[17] 建议 | API 形状/合同 | layout-doc.ts:88（editable）、layout-doc.ts:354-367（edgeTargetOf）、layout-doc.ts:265-266 与 newId 使用处
+现象与风险：
+  a) editable 用 structuredClone(doc)。传入 Proxy（Vue reactive 的文档或其任一层）时每个操作都抛 DataCloneError（e22.ts 实测，Proxy 根与 Proxy 子对象都抛）。后面的 workbench store 若用 reactive/ref 存文档，要么每次 toRaw，要么在这里炸。合同没写“必须是普通对象”。
+  b) edgeTargetOf 只看文档的 hidden，不知道呈现层把谁挤走了（放不下被收走、最大化）或横向拖到零：这些兄弟在 isNodeShown 里仍算可见。收起为零宽的兄弟照样是 between 的对象：实测 H[x, ea, c(collapsed, 意图 400), aux2]，把 x 放到 ea 右缘得到 between(ea, c)，新块宽 366 = (ea 697 + 看不见的 c 的意图 400)/3，ea 只让出 116，其余是从看不见的意图里“取”的（e21.ts）。最大化时所有别的面板都被挤走，任何边都会变成 between 一个看不见的面板。规则 4 要求“相邻兄弟”，用户看到的是没有兄弟。
+  c) newId 返回已存在的 id 时（宿主 bug 或预览的占位 id 与真实 id 撞），moveTabToEdge 会 `next.panels[id] = ...` 静默覆盖已有面板，placeLeaf 会造出重复的分支 id；操作后没有校验。
+  d) stripDynamicTabs 即使什么都没去掉也返回新对象（其它操作都返回原对象表示“没变”），调用方要“同值不保存”时得自己比。
+建议改法：a) 合同里写明或在入口 toRaw/复制；b) edgeTargetOf 接可选的 skip 谓词（或第三个参数 presentation），把收走、最大化挤走、折叠为零的兄弟当作隐藏跳过；c) finish 里用 inTree 集合检查 id 冲突，返回 rejected；d) 与其它操作一致，结果与现状相同时返回原对象。
+
+========== 按影响排序的索引 ==========
+阻断：无。
+重要（11）：
+ 1. [9]  意图单位：手势写回的是权重，restoreSize 当 px 用；收起再展开回不到原尺寸（与 [2] 叠加两头都错）
+ 2. [2]  纵向收起的面板在 rebase 后意图变成 32，展开只剩最小值
+ 3. [11] rebaseIntents 不认塌陷的分支（默认树 panel 隐藏即触发），between/split 比例用的是旧意图
+ 4. [1]  展平时隐藏/收起的兄弟被算进 total，可见 fixed 面板被缩小（实测 400 -> 374.5）
+ 5. [8]  validateLayoutDoc 漏检（未知条、hiddenBars、currentEditor、hidden/collapsed/name 的角色约束），且有校验通过后 projectLayoutDoc 抛错的输入
+ 6. [6]  SEAM_PX = 8 把条、标题栏、窗口外圈 8px 判成落点，违反规则 1
+ 7. [3]  同一横向分支里工具面板全部收起：1px 行宽、留白、诊断，违反“不留白”
+ 8. [12] replaceTab 可造出重复标签的文档
+ 9. [10] movePanelToStrip 不问 canInsert
+10. [4]  enumerateDropCandidates 没有产出原位候选（注释、Spec 31 与代码相反，测试名也反）
+11. [5]  enumerateDropCandidates 每个候选一次完整提交，16 组×200 标签 16 秒
+建议（6）：[7] 标签条平局、[13] 插入位下限、[14] 测试缺口（3 个变异存活）、[15] newId/预览合同、[16] 夹具文件进发布包、[17] Proxy/skip 谓词/id 冲突/strip 返回新对象
+
+========== 未发现问题的方面 ==========
+- 随机操作序列（fuzz.ts，5 个种子，约 4.5 万次操作，含 insertTab、removeTab、activateTab、moveTabToStrip、movePanelToStrip、moveTabToEdge、movePanelToEdge、hidden/collapsed/bar、枚举出的落点、reveal、stripDynamicTabs）：结果全部通过 validateLayoutDoc；具名面板名不丢；currentEditor 总指向存在的编辑组；无名工具面板拖空即移除；标签只搬不丢；“同形状返回原对象/不同形状不返回原对象”的判断没有出错；projectLayoutDoc 不抛；呈现几何非负且在容器内。唯一的“空具名面板可见”是 setPanelHidden(false) 的显式结果，符合 Spec。
+- 多层塌陷与根被塌陷时 writeBackIntents 的 aliases：按“最外层塌陷分支”写回，内层分支的主轴意图不更新，但那个轴在内层分支里是交叉轴，没有影响（e23.ts）；根被塌陷成叶时 createGrid 正常求解、写回不改文档。
+- presentationCollapse：600 组随机（树形、尺寸、收起状态）对照真实 createGrid，“fits 为真时除‘固定尺寸压到最小’的诊断外无不可满足诊断”“没有多收走”都成立（e19.ts）。
+- 放回原处的判断：隐藏兄弟、条、目标是来源所在分支、来源与目标相邻、塌陷后 alias（单层）都按预期；真正换了位置的没有被判成相同。
+- 类型检查（tsc、vue-tsc）与 bun test（348 条）在 worktree 当前状态下全部通过；boundary.test 通过。
+- 变异检查：18 个变异里 15 个被现有测试抓到（见 [14]）。
+
+========== 数量 ==========
+阻断 0，重要 11，建议 6，共 17 条。

@@ -36,7 +36,7 @@ describe("WorkbenchDocument", () => {
         const locale = ref<DisplayLocale>("zh-CN");
         const theme = ref("nbook");
         const appearance = ref<"light" | "dark" | "system">("light");
-        const wrapper = mount(WorkbenchDocument, {props: {locale, theme, appearance}});
+        const wrapper = mount(WorkbenchDocument, {props: {locale, appearance, resolveTheme: () => ({base: theme.value, vars: {}, scene: false})}});
         expect(root().lang).toBe("zh-CN");
         expect(root().dataset.nbTheme).toBe("nbook");
         expect(root().dataset.nbAppearance).toBe("light");
@@ -61,7 +61,7 @@ describe("WorkbenchDocument", () => {
     it("跟随系统：按挂载时系统的明暗取配色，不改写配置；改成显式明暗后不再看系统", async () => {
         device().prefersColorScheme = "dark";
         const appearance = ref<"light" | "dark" | "system">("system");
-        const wrapper = mount(WorkbenchDocument, {props: {locale: ref<DisplayLocale>("zh-CN"), theme: ref("nbook"), appearance}});
+        const wrapper = mount(WorkbenchDocument, {props: {locale: ref<DisplayLocale>("zh-CN"), appearance, resolveTheme: () => ({base: "nbook", vars: {}, scene: false})}});
         expect(root().dataset.nbAppearance).toBe("dark");
         expect(bgMain()).toBe(expectedBg("nbook", "nbook-dark"));
         expect(appearance.value).toBe("system");
@@ -69,5 +69,29 @@ describe("WorkbenchDocument", () => {
         await nextTick();
         expect(root().dataset.nbAppearance).toBe("light");
         wrapper.unmount();
+    });
+    it("图标集写成一张无层级的样式表：随主题换，换成没有的或卸载时去掉；高对比度与强制颜色下整张包在媒体查询里不生效", async () => {
+        const icons = ref<Record<string, string> | undefined>({files: "/a/files.svg", "book-open-text": '/a/"odd".svg'});
+        const wrapper = mount(WorkbenchDocument, {props: {locale: ref<DisplayLocale>("zh-CN"), appearance: ref<"light" | "dark" | "system">("light"), resolveTheme: () => ({base: "nbook", vars: {}, scene: false, icons: icons.value})}});
+        const sheet = (): string | null => document.head.querySelector("style[data-nb-skin-icons]")?.textContent ?? null;
+        expect(sheet()).toContain('.i-lucide-files{--svg:url("/a/files.svg")}');
+        expect(sheet()).toContain('.i-lucide-book-open-text{--svg:url("/a/\\"odd\\".svg")}');
+        expect(sheet()).toMatch(/^@media not \(\(prefers-contrast: more\) or \(forced-colors: active\)\)\{/u);
+
+        icons.value = {search: "/b/search.svg"};
+        await nextTick();
+        expect(document.head.querySelectorAll("style[data-nb-skin-icons]")).toHaveLength(1);
+        expect(sheet()).toContain(".i-lucide-search{");
+        expect(sheet()).not.toContain(".i-lucide-files{");
+
+        icons.value = undefined;
+        await nextTick();
+        expect(sheet()).toBeNull();
+
+        icons.value = {files: "/a/files.svg"};
+        await nextTick();
+        expect(sheet()).not.toBeNull();
+        wrapper.unmount();
+        expect(sheet()).toBeNull();
     });
 });

@@ -17,6 +17,7 @@
             "@notnotype/nb-plugin-sdk/text/browser": ["./src/sdk/text-browser.ts"],
             "@notnotype/nb-plugin-sdk/state": ["./src/sdk/state.ts"],
             "@notnotype/nb-plugin-sdk/storage": ["./src/sdk/storage.ts"],
+            "@notnotype/nb-plugin-sdk/files": ["./src/sdk/files.ts"],
             "@notnotype/nb-plugin-sdk/settings": ["./src/sdk/settings.ts"],
             "@notnotype/nb-plugin-sdk/settings/browser": ["./src/sdk/settings-browser.ts"],
             "@notnotype/nb-plugin-sdk/commands": ["./src/sdk/commands.ts"],

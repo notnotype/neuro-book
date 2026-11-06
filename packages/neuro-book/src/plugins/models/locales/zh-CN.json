@@ -7,6 +7,18 @@
         "roles": {
             "title": "模型角色",
             "description": "每个角色用哪个模型"
+        },
+        "streamFirstEventTimeoutSeconds": {
+            "title": "等第一个事件的时限（秒）",
+            "description": "发出请求后这么久没有任何内容就算卡死；0 表示不设。本地大模型处理长上下文很慢时可以调大"
+        },
+        "streamIdleTimeoutSeconds": {
+            "title": "流中途的时限（秒）",
+            "description": "回复到一半，这么久没有新内容就算卡死；0 表示不设"
+        },
+        "compaction": {
+            "title": "自动压缩的触发点",
+            "description": "上下文用到这个量就自动压缩。可以留预留量、按窗口的百分比，或者写固定的 token 数；每个模型也可以单独设置。"
         }
     },
     "settingsPages": {
@@ -166,9 +178,8 @@
         "priceCacheRead": "缓存读",
         "priceCacheWrite": "缓存写",
         "compaction": "压缩",
-        "compactAt": "触发点（token）",
-        "compactHint": "上下文到这个量就压缩；留空时按窗口减去预留量。",
-        "compactPlaceholder": "按窗口自动",
+        "compactHint": "上下文到触发点就压缩。留预留量：触发点是窗口减去窗口的 15% 与 16,384 中较大的一个；填了窗口大小时按这个数算，留空按模型的窗口。",
+        "compactPlaceholder": "按模型的窗口",
         "advanced": "高级",
         "headersHint": "同名时盖过服务商的请求头",
         "catalogFixed": "来自 OMP 的模型目录，不能改。",
@@ -178,7 +189,20 @@
         "idTaken": "这个 id 已经在列表里",
         "save": "保存",
         "cancel": "取消",
-        "headersPending": "请求头有没填完的行：填好或删掉再保存"
+        "headersPending": "请求头有没填完的行：填好或删掉再保存",
+        "compactTrigger": "自动压缩的触发点",
+        "compactMode": {
+            "follow": "跟随全局设置",
+            "reserve": "留预留量",
+            "percent": "窗口的百分比",
+            "tokens": "固定的 token 数"
+        },
+        "compactValue": {
+            "reserve": "窗口大小（token）",
+            "percent": "百分比",
+            "tokens": "触发点（token）"
+        },
+        "percent": "要是 1 到 100 的整数"
     },
     "manage": {
         "title": "管理模型：{{name}}",

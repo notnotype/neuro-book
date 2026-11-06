@@ -18,6 +18,14 @@ export default {
         empty: "No content",
         truncated: "Only part of the content is shown",
     },
+    diffView: {
+        mode: "Display",
+        inline: "Inline",
+        split: "Split",
+        unchanged: "No changes",
+        foldedLines: "Show {{count}} unchanged lines",
+        foldedChars: "… ({{count}} chars) …",
+    },
     colorPicker: {
         value: "Color value",
         presets: "Preset colors",
@@ -29,6 +37,10 @@ export default {
         untitled: "Dialog",
         cancel: "Cancel",
         confirm: "Confirm",
+        close: "Close",
+    },
+    drawer: {
+        untitled: "Panel",
         close: "Close",
     },
     emptyState: {

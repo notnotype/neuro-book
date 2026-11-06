@@ -1,28 +1,24 @@
 /**
- * 视图命令。打开视图（docs/specs/workbench/views.md 输出 14）：选中视图所在的容器、显示它所在的区域、多视图容器里展开它；
- * 不给 `viewId` 时经选择挑一个。移动视图（docs/specs/workbench/commands.md 第二批，docs/specs/ui/workbench-shell.md 外壳二输出 24）：“移动到”菜单
- * 带三项参数直接执行（目标是已有容器 `targetContainerId`，或在某个 Part 新建自建容器 `newContainerIn`）；命令面板执行
- * `{}`，经选择先选视图、再选目标。实现调布局 store 的 `applyView`，合成与校验都在那里，这里只把合成结果翻成命令结果。
+ * 视图命令（docs/specs/ui/workbench-layout.md 输出 23、35，docs/specs/workbench/views.md 输出 14）。打开视图：显示它所在的面板、激活；不给 `viewId` 时经选择挑一个。
+ * 移动视图：标签的“移动到”带 `{viewId, target}` 直接执行，`target` 是面板 id 或 `{newPanelNextTo: 面板 id}`；命令面板执行 `{}`，经选择先选视图、再选目标。
  *
- * 新建容器的 `custom:<UUID>` 在这次执行接纳时生成一次，保存冲突重放复用同一个（补丁里带着它）。
- *
- * 来源容器是发起时界面看到的位置：菜单打开后、或两步选择之间视图被别处移走，按 `stale-target` 拒绝且不写。
+ * 选择之间视图被别处移走时，按 `stale-target` 拒绝且不写。
  */
 
+import {findTab, tabKey} from "@notnotype/nb-layout";
+import type {LayoutResult} from "@notnotype/nb-layout";
 import {Type} from "typebox";
 
 import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
-import type {DisplayText} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
 import {workbenchText} from "../../shared/text";
-import {OPEN_VIEW_COMMAND, VIEW_LOCATIONS} from "../../shared/views";
-import type {ViewLocation} from "../../shared/views";
-import type {LayoutStore} from "../state/layout-store";
+import {OPEN_VIEW_COMMAND} from "../../shared/views";
+import type {LayoutDocStore} from "../state/layout-doc-store";
+import {canResetView, moveTargetsOf, panelTitle} from "../state/layout-present";
+import type {MoveTarget} from "../state/layout-present";
 import {workbenchState} from "../state/public-state";
-import {customContainerId} from "../views/placement";
-import {moveTargetsOf} from "../views/presentation";
-import type {IntentResult, ViewIntent} from "../views/intents";
 
 export const MOVE_VIEW_COMMAND = "nbook.view.move-view";
 export {OPEN_VIEW_COMMAND};
@@ -32,40 +28,25 @@ const Id = Type.String({minLength: 1, maxLength: 160});
 export const VIEW_COMMAND_DECLARATIONS = {
     [OPEN_VIEW_COMMAND]: {
         category: workbenchText("categories.view"),
-        description: "Show a view: select the container it is in, show that part of the window and expand the view. Give viewId, or nothing to pick one.",
+        description: "Show a view: show the panel it is in and activate it. Give viewId, or nothing to pick one.",
+        // 会改写布局记录（活动标签、面板显隐），所以是写入；与别的布局命令一样不给 Agent。
         args: Type.Object({viewId: Type.Optional(Id)}, {additionalProperties: false}),
-        // 会改写布局记录（选中的容器、区域显隐、视图展开），所以是写入；与别的布局命令一样不给 Agent。
         effect: "write",
         expose: {agent: "never"},
         when: {requires: [workbenchState.key("layoutReady")]},
     },
     [MOVE_VIEW_COMMAND]: {
         category: workbenchText("categories.view"),
-        description: "Move a view into another existing view container (targetContainerId), or into a new container at the end of a part (newContainerIn). Give viewId, sourceContainerId and one target, or nothing to pick the view and the target.",
+        description: "Move a view to the end of another panel's tabs (target is a panel id), or into a new panel next to one (target is {newPanelNextTo}). Give both viewId and target, or nothing to pick them.",
         args: Type.Object({
             viewId: Type.Optional(Id),
-            sourceContainerId: Type.Optional(Id),
-            targetContainerId: Type.Optional(Id),
-            newContainerIn: Type.Optional(Type.Union(VIEW_LOCATIONS.map((part) => Type.Literal(part)))),
+            target: Type.Optional(Type.Union([Id, Type.Object({newPanelNextTo: Id}, {additionalProperties: false})])),
         }, {additionalProperties: false}),
         effect: "write",
         expose: {agent: "never"},
         when: {requires: [workbenchState.key("layoutReady")]},
     },
 } as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
-
-export const PART_LABELS: Readonly<Record<ViewLocation, DisplayText>> = {
-    sidebar: workbenchText("viewCommands.parts.sidebar"),
-    auxiliarybar: workbenchText("viewCommands.parts.auxiliarybar"),
-    panel: workbenchText("viewCommands.parts.panel"),
-};
-
-/** “新建容器（在 X）”的标题，按区域各一条（区域名是目录里完整的一句，不在代码里拼接）。 */
-const NEW_CONTAINER_LABELS: Readonly<Record<ViewLocation, DisplayText>> = {
-    sidebar: workbenchText("viewCommands.newContainer.sidebar"),
-    auxiliarybar: workbenchText("viewCommands.newContainer.auxiliarybar"),
-    panel: workbenchText("viewCommands.newContainer.panel"),
-};
 
 const TEXT = {
     pickView: workbenchText("viewCommands.pickView"),
@@ -77,104 +58,74 @@ const TEXT = {
     noLayout: workbenchText("layout.notOpen"),
     partial: workbenchText("viewCommands.partial"),
     stale: workbenchText("viewCommands.stale"),
+    rejected: workbenchText("viewCommands.rejected"),
+    limit: workbenchText("viewCommands.limit"),
 } as const;
 
-/** 选择项里“重置位置”与“新建容器（在 X）”的 id；容器 id 不会以它们开头。 */
+/** 选择项里“重置位置”的 id；面板 id 不会是它。 */
 const RESET_ITEM = "reset:";
-const NEW_ITEM = "new:";
+const NEW_PANEL_ITEM = "new:";
 
 const DONE: CommandResult<null> = {ok: true, value: null};
 
-/** “新建容器（在 X）”的标题，菜单与选择共用。 */
-export function newContainerLabel(part: ViewLocation): DisplayText {
-    return NEW_CONTAINER_LABELS[part];
+function resultOf(result: LayoutResult): CommandResult<null> {
+    if (result.ok) return DONE;
+    if (result.code === "not-found") return {ok: false, code: "stale-target", reason: TEXT.stale};
+    if (result.code === "limit-exceeded") return {ok: false, code: "unavailable", reason: TEXT.limit};
+    return {ok: false, code: "invalid-args", reason: TEXT.rejected};
 }
 
-type MoveTarget = {readonly targetContainerId: string} | {readonly newContainerIn: ViewLocation};
+const isPlaced = (store: LayoutDocStore, viewId: string): boolean => findTab(store.actions.document(), tabKey({kind: "view", viewId})) !== null;
 
-/** 移动意图：新建容器时在这里生成身份。 */
-function moveIntent(viewId: string, sourceContainerId: string, target: MoveTarget): ViewIntent {
-    if ("targetContainerId" in target) return {kind: "move-view", viewId, sourceContainerId, targetContainerId: target.targetContainerId};
-    return {kind: "detach-view", viewId, sourceContainerId, containerId: customContainerId(crypto.randomUUID()), targetPart: target.newContainerIn};
+function targetsFor(store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null {
+    const movable = store.state.catalog.get(viewId)?.movable !== false;
+    return movable ? moveTargetsOf(store.actions.document(), viewId) : null;
 }
 
-/** 合成结果 → 命令结果。来源变了是过期的发起，其余拒绝是参数不对。 */
-function resultOf(result: IntentResult): CommandResult<null> {
-    if (result.kind !== "rejected") return DONE;
-    if (result.code === "stale-source") return {ok: false, code: "stale-target", reason: TEXT.stale};
-    return {ok: false, code: "invalid-args", reason: result.reason};
-}
-
-async function pickAndMove(store: LayoutStore, quickPick: QuickPick): Promise<CommandResult<null>> {
-    const {catalog, placement, presentation} = store.state;
-    const movable = [...catalog.keys()].filter((viewId) => {
-        const targets = moveTargetsOf(presentation, placement, catalog, viewId);
-        return targets !== null && (targets.groups.length > 0 || targets.canReset);
-    });
-    const containerTitle = (containerId: string): DisplayText | undefined => presentation.containers.get(containerId)?.title;
+async function pickAndMove(store: LayoutDocStore, quickPick: QuickPick, text: TextResolver): Promise<CommandResult<null>> {
+    const {catalog} = store.state;
+    const movable = [...catalog.keys()].filter((viewId) => isPlaced(store, viewId) && targetsFor(store, viewId) !== null);
     const pickedView = await quickPick.pick({
         title: TEXT.pickView,
         placeholder: TEXT.pickView,
         empty: TEXT.noViews,
-        items: movable.map((viewId) => {
-            const source = placement.views.get(viewId)!.container;
-            const title = containerTitle(source);
-            return {id: viewId, label: catalog.get(viewId)!.title, ...(title === undefined ? {} : {detail: title})};
-        }),
+        items: movable.map((viewId) => ({id: viewId, label: catalog.get(viewId)!.title})),
     });
     if (pickedView.kind === "unavailable") return {ok: false, code: "unavailable", reason: pickedView.reason};
     if (pickedView.kind !== "item") return DONE;
-    // 第二步的目标表按第一步选完时的呈现求；来源随它一起记下，执行时再核对。
-    const targets = moveTargetsOf(store.state.presentation, store.state.placement, store.state.catalog, pickedView.id);
+    // 第二步的目标表按第一步选完时的文档求。
+    const targets = targetsFor(store, pickedView.id);
     if (targets === null) return {ok: false, code: "stale-target", reason: TEXT.stale};
     const pickedTarget = await quickPick.pick({
         title: TEXT.pickTarget,
         placeholder: TEXT.pickTarget,
         items: [
-            ...targets.groups.flatMap((group) => [
-                ...group.targets.map((target) => ({id: target.containerId, label: target.title, detail: PART_LABELS[group.part]})),
-                {id: `${NEW_ITEM}${group.part}`, label: newContainerLabel(group.part)},
-            ]),
-            ...(targets.canReset ? [{id: RESET_ITEM, label: TEXT.reset}] : []),
+            ...targets.map((target) => (target.kind === "panel"
+                ? {id: target.panel, label: panelTitle(store.actions.document(), catalog, target.panel)}
+                : {id: `${NEW_PANEL_ITEM}${target.nextTo}`, label: workbenchText("viewCommands.newPanelNextTo", {panel: text.t(panelTitle(store.actions.document(), catalog, target.nextTo))})})),
+            ...(canResetView(store.actions.document(), catalog, pickedView.id) ? [{id: RESET_ITEM, label: TEXT.reset}] : []),
         ],
     });
     if (pickedTarget.kind === "unavailable") return {ok: false, code: "unavailable", reason: pickedTarget.reason};
     if (pickedTarget.kind !== "item") return DONE;
-    if (store.state.placement.views.get(targets.viewId)?.container !== targets.sourceContainerId) return {ok: false, code: "stale-target", reason: TEXT.stale};
-    if (pickedTarget.id === RESET_ITEM) return resultOf(store.actions.applyView({kind: "reset-view", viewId: targets.viewId}));
-    const part = VIEW_LOCATIONS.find((location) => pickedTarget.id === `${NEW_ITEM}${location}`);
-    return resultOf(store.actions.applyView(moveIntent(targets.viewId, targets.sourceContainerId, part === undefined ? {targetContainerId: pickedTarget.id} : {newContainerIn: part})));
+    if (pickedTarget.id === RESET_ITEM) return resultOf(store.actions.resetView(pickedView.id));
+    const target = pickedTarget.id.startsWith(NEW_PANEL_ITEM) ? {newPanelNextTo: pickedTarget.id.slice(NEW_PANEL_ITEM.length)} : pickedTarget.id;
+    return resultOf(store.actions.moveView(pickedView.id, target));
 }
 
-/**
- * 打开一个视图：多视图容器里收起的先展开，再一次选中容器并显示所在区域（`reveal` 清掉隐藏、拖到零与面板收起）。
- * 不移动焦点：成功表示布局已改，视图在下一次渲染时出现。
- */
-function openView(store: LayoutStore, viewId: string): CommandResult<null> {
-    const {catalog, placement, presentation} = store.state;
-    if (!catalog.has(viewId)) return {ok: false, code: "invalid-args", reason: workbenchText("viewCommands.unknownView", {viewId})};
-    const containerId = placement.views.get(viewId)?.container;
-    const part = containerId === undefined ? undefined : VIEW_LOCATIONS.find((location) => placement.parts[location].includes(containerId));
-    if (containerId === undefined || part === undefined) return {ok: false, code: "invalid-args", reason: workbenchText("viewCommands.unplaced", {viewId})};
-    const container = presentation.containers.get(containerId);
-    if (container?.mode === "multiple" && container.views.some((view) => view.id === viewId && view.collapsed)) {
-        const expanded = store.actions.applyView({kind: "set-view-collapsed", viewId, collapsed: false});
-        if (expanded.kind === "rejected") return resultOf(expanded);
-    }
-    return resultOf(store.actions.applyView({kind: "select-container", part, containerId}, {reveal: part}));
+/** 不移动焦点：成功表示布局已改，视图在下一次渲染时出现。 */
+function openView(store: LayoutDocStore, viewId: string): CommandResult<null> {
+    if (!store.state.catalog.has(viewId)) return {ok: false, code: "invalid-args", reason: workbenchText("viewCommands.unknownView", {viewId})};
+    return resultOf(store.actions.revealView(viewId));
 }
 
-async function pickAndOpen(store: LayoutStore, quickPick: QuickPick): Promise<CommandResult<null>> {
-    const {catalog, placement, presentation} = store.state;
-    const openable = [...catalog.keys()].filter((viewId) => placement.views.has(viewId));
+async function pickAndOpen(store: LayoutDocStore, quickPick: QuickPick): Promise<CommandResult<null>> {
+    const {catalog} = store.state;
     const picked = await quickPick.pick({
         title: TEXT.pickOpen,
         placeholder: TEXT.pickOpen,
         empty: TEXT.noOpenable,
-        items: openable.map((viewId) => {
-            const title = presentation.containers.get(placement.views.get(viewId)!.container)?.title;
-            return {id: viewId, label: catalog.get(viewId)!.title, ...(title === undefined ? {} : {detail: title})};
-        }),
+        items: [...catalog.keys()].filter((viewId) => isPlaced(store, viewId)).map((viewId) => ({id: viewId, label: catalog.get(viewId)!.title})),
     });
     if (picked.kind === "unavailable") return {ok: false, code: "unavailable", reason: picked.reason};
     if (picked.kind !== "item") return DONE;
@@ -183,7 +134,7 @@ async function pickAndOpen(store: LayoutStore, quickPick: QuickPick): Promise<Co
 
 type ViewCommands = {readonly [K in keyof typeof VIEW_COMMAND_DECLARATIONS]: CommandImplementation};
 
-export function viewCommands(layout: () => LayoutStore | null, quickPick: QuickPick): ViewCommands {
+export function viewCommands(layout: () => LayoutDocStore | null, quickPick: QuickPick, text: TextResolver): ViewCommands {
     return {
         [OPEN_VIEW_COMMAND]: {
             run: (raw) => {
@@ -197,12 +148,10 @@ export function viewCommands(layout: () => LayoutStore | null, quickPick: QuickP
             run: (raw) => {
                 const store = layout();
                 if (store === null) return {ok: false, code: "unavailable", reason: TEXT.noLayout};
-                const args = raw as {readonly viewId?: string; readonly sourceContainerId?: string; readonly targetContainerId?: string; readonly newContainerIn?: ViewLocation};
-                const given = [args.viewId, args.sourceContainerId, args.targetContainerId, args.newContainerIn].filter((value) => value !== undefined).length;
-                if (given === 0) return pickAndMove(store, quickPick);
-                if (given !== 3 || args.viewId === undefined || args.sourceContainerId === undefined) return {ok: false, code: "invalid-args", reason: TEXT.partial};
-                const target: MoveTarget = args.targetContainerId === undefined ? {newContainerIn: args.newContainerIn!} : {targetContainerId: args.targetContainerId};
-                return resultOf(store.actions.applyView(moveIntent(args.viewId, args.sourceContainerId, target)));
+                const {viewId, target} = raw as {readonly viewId?: string; readonly target?: string | {readonly newPanelNextTo: string}};
+                if (viewId === undefined && target === undefined) return pickAndMove(store, quickPick, text);
+                if (viewId === undefined || target === undefined) return {ok: false, code: "invalid-args", reason: TEXT.partial};
+                return resultOf(store.actions.moveView(viewId, target));
             },
         },
     };

@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t19-background-image",
+    "artifactId": "review",
+    "answerId": "20261105T084259665Z-104a4abf",
+    "artifactVersion": 1,
+    "contentHash": "b01f09f3ee6be481b8d70dc8519b042de3dd4e2515a7ef39ff81c3d1eb2f39b4",
+    "submittedAt": "2026-11-05T08:42:59.665Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "r1-eye": "both"
+    },
+    "comments": {},
+    "note": "开发者在会话里定"
+}

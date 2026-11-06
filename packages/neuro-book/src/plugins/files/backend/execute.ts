@@ -5,10 +5,12 @@
 
 import type {Scope} from "@notnotype/nb-runtime/lifecycle";
 
-import type {Baseline, ChangeSource, OperationDone, SavedText} from "../shared/contracts";
+import type {Baseline, OperationDone, SavedText} from "../shared/contracts";
 import type {ServerFilesResult} from "../shared/schemes";
-import type {ChangeHub} from "./changes";
+import type {ChangeHub, Origin} from "./changes";
+import type {LedgerSlot} from "./ledger-slot";
 import {createDirectory, createFile} from "./entry-ops";
+import {hashOf} from "./files-service";
 import type {FilesService, Outcome} from "./files-service";
 import type {RootedFailure, RootedRoot} from "./rooted";
 
@@ -31,15 +33,25 @@ export interface WriteTarget {
     readonly service: FilesService;
     readonly changes: ChangeHub;
     readonly scope: Scope;
+    /** 记账槽；挂载方案没有（不记账）。 */
+    readonly ledger?: LedgerSlot;
 }
 
 /** 按基线保存；成功后以真实来源发出变更（经链接保存时真实路径也发一条，由 ChangeHub 处理）。 */
-export function saveText(target: WriteTarget, path: string, text: string, baseline: Baseline, source: ChangeSource): Promise<Outcome<SavedText>> {
+export function saveText(target: WriteTarget, path: string, text: string, baseline: Baseline, origin: Origin): Promise<Outcome<SavedText>> {
     const {service, changes} = target;
     return tracked(target.scope, "files.write", async () => {
-        const saved = await service.write(path, text, baseline, changes.temporaryPath);
+        const {ledger} = target;
+        const saved = await service.write(path, text, baseline, changes.temporaryPath, ledger === undefined ? undefined : (placed) => ledger.record({
+            path: placed.realPath,
+            op: "write",
+            before: placed.before,
+            after: {hash: hashOf(placed.bytes), bytes: placed.bytes},
+            source: origin.source,
+            ...(origin.group === undefined ? {} : {group: origin.group}),
+        }));
         if (!saved.ok) return saved;
-        changes.saved({path, realPath: saved.value.realPath, bytes: saved.value.bytes}, source);
+        changes.saved({path, realPath: saved.value.realPath, bytes: saved.value.bytes}, origin);
         return {ok: true as const, value: {baseline: saved.value.baseline, ...(saved.value.identity === undefined ? {} : {identity: saved.value.identity})}};
     });
 }
@@ -48,7 +60,7 @@ export function saveText(target: WriteTarget, path: string, text: string, baseli
  * 普通目录里排他新建一个空文件或目录，不维护清单（挂载方案不做文件夹类型投影）。项目与 `user://` 的新建要维护内容文件夹的
  * 清单，走 `operations.ts`。
  */
-export function createPlain(target: WriteTarget, path: string, kind: "file" | "directory", source: ChangeSource): Promise<Outcome<OperationDone>> {
+export function createPlain(target: WriteTarget, path: string, kind: "file" | "directory", origin: Origin): Promise<Outcome<OperationDone>> {
     const {root, changes} = target;
     return tracked(target.scope, "files.create", async () => {
         const slot = await root.resolveSlot(path);
@@ -56,7 +68,7 @@ export function createPlain(target: WriteTarget, path: string, kind: "file" | "d
         const made = kind === "file" ? await createFile(slot) : await createDirectory(slot);
         if (!made.ok) return failure(made);
         await changes.expect({present: [slot.path]});
-        changes.emit([{type: "created", path: slot.path}], source);
+        changes.emit([{type: "created", path: slot.path}], origin);
         return {ok: true as const, value: {}};
     });
 }

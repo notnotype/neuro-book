@@ -49,12 +49,17 @@ import type SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
+import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-editor/ThemeEditor.vue";
+import type ThemeSettingsPage from "nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import type WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
 import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
 import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
+import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
+import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
+import type WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type WorkbenchItemStrip from "nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue";
 import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
@@ -64,7 +69,7 @@ import type TitleActions from "nbook/ui/menus/TitleActions.vue";
 import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
 import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 import {localeSetting} from "nbook/plugins/settings/shared/contracts";
-import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
+import {appearanceSetting} from "nbook/plugins/workbench/shared/contracts";
 
 import type CollapsibleSidePanel from "../components/CollapsibleSidePanel.vue";
 import type EventLogPanel from "../components/EventLogPanel.vue";
@@ -86,10 +91,11 @@ import {withNbookMarkdownHost} from "./markdown-host";
 import {withMarkdownSceneText} from "./markdown-text";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
+import {nbLayoutFixtures} from "./nb-layout";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
-import {rowDemoSettings, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
+import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
@@ -351,6 +357,68 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => withWorkbenchText((await import("./WorkbenchShellLayoutFixture.vue")).default),
     }),
+    defineLabFixture<typeof WorkbenchSurface>({
+        component: "WorkbenchSurface",
+        // 文档与呈现树由夹具自己算（它扮演工作台），不是 JSON 输入；输入只是占位（类型要求登记必填的 doc、projection），夹具不读它。断言见 e2e/lab-workbench-surface.e2e.ts。
+        scenes: (() => {
+            const leaf = {kind: "leaf" as const, id: "g0", ref: "panel:g0"};
+            const base = {
+                contextKey: "lab:surface",
+                doc: {version: 1 as const, tree: {version: 2 as const, root: {...leaf, size: {width: 0, height: 0}}}, panels: {g0: {role: "editor" as const, tabs: [], active: null}}, floats: [], hiddenBars: [], currentEditor: "g0"},
+                projection: {input: leaf},
+            };
+            return [
+                {id: "default", label: "侧栏、两个编辑组、右栏、面板（平铺）", input: {props: base}},
+                {id: "cards", label: "卡片：缝、圆角、相连按邻接算", input: {props: base}},
+            ];
+        })(),
+        load: async () => (await import("./WorkbenchSurfaceFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof WorkbenchPanelHead>({
+        component: "WorkbenchPanelHead",
+        events: ["activate", "action", "context-menu"],
+        writeBack: {activate: {layer: "props", key: "active"}},
+        class: "w-full",
+        scenes: (() => {
+            const tab = (id: string, label: string, icon: string) => ({id: `view:${id}`, label, icon});
+            const tabs = [tab("files", "资源管理器", "i-lucide-files"), tab("search", "搜索", "i-lucide-search"), tab("outline", "大纲", "i-lucide-list-tree"), tab("chat", "对话", "i-lucide-message-square"), tab("output", "输出", "i-lucide-terminal")];
+            const named = [
+                {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: false},
+                {id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: false},
+                {id: "hide", label: "隐藏", icon: "i-lucide-x", disabled: false},
+            ];
+            const base = {panelId: "sidebar", label: "侧栏", moreLabel: "更多", active: "view:files"};
+            return [
+                {id: "default", label: "几个标签、框架按钮", input: {props: {...base, tabs: tabs.slice(0, 3), frameActions: named}}},
+                {id: "many", label: "标签多：放不下时逐级让位（拖窄画布看）", input: {props: {...base, tabs, frameActions: named}}},
+                {id: "anonymous", label: "无名面板：没有隐藏按钮", input: {props: {...base, panelId: "p-1", label: "面板", tabs: tabs.slice(0, 2), frameActions: named.slice(0, 2)}}},
+                {id: "disabled", label: "框架按钮不可用", input: {props: {...base, tabs: tabs.slice(0, 2), frameActions: [{...named[0]!, disabled: true, reason: "编辑组不能收起"}, named[1]!, named[2]!]}}},
+                {id: "empty", label: "没有标签：显示名称", input: {props: {...base, tabs: [], active: null, frameActions: named}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue"),
+    }),
+    defineSubjectFixture<typeof WorkbenchToolStrip>({
+        component: "WorkbenchToolStrip",
+        events: ["select", "run-item"],
+        class: "h-full",
+        scenes: (() => {
+            const entry = (id: string, label: string, icon: string, pressed: boolean) => ({id, label, icon, pressed});
+            const entries = [entry("files", "资源管理器", "i-lucide-files", true), entry("search", "搜索", "i-lucide-search", false), entry("outline", "大纲", "i-lucide-list-tree", false), entry("chat", "对话", "i-lucide-message-square", true)];
+            const items = [
+                {id: "profile", title: "个人资料尚未开放", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
+                {id: "settings", title: "设置", icon: "i-lucide-settings", interactive: true, pressed: true, disabledReason: null},
+                {id: "sync", title: "同步", icon: "i-lucide-refresh-cw", interactive: true, pressed: null, disabledReason: "没有打开项目"},
+            ];
+            const base = {label: "活动栏", moreLabel: "更多"};
+            return [
+                {id: "default", label: "两个视图同时按下，底段全局项", input: {props: {...base, entries, items}}},
+                {id: "many", label: "视图多：放不下时后面的收进“更多”，按下的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的可见视图", "i-lucide-star", true)], items}}},
+                {id: "empty", label: "没有视图", input: {props: {...base, entries: [], items}}},
+            ];
+        })(),
+        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
+    }),
     defineSubjectFixture<typeof WorkbenchPanelSurface>({
         component: "WorkbenchPanelSurface",
         events: ["action"],
@@ -372,6 +440,37 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue"),
+    }),
+    defineLabFixture<typeof ThemeEditor>({
+        component: "ThemeEditor",
+        scenes: [
+            {id: "empty", label: "还没有我的主题", input: {props: {themes: [], closable: true}}},
+            {id: "loading", label: "正在读取我的主题", input: {props: {themes: [], closable: true}}},
+            {id: "basic", label: "基本信息", input: {props: {themes: [], closable: true}}},
+            {id: "colors", label: "配色（主色、分组、行内对比度）", input: {props: {themes: [], closable: true}}},
+            {id: "dark", label: "配色，编辑暗色", input: {props: {themes: [], closable: true}}},
+            {id: "fonts", label: "字体", input: {props: {themes: [], closable: true}}},
+            {id: "chrome", label: "活动栏与画框", input: {props: {themes: [], closable: true}}},
+            {id: "scene", label: "场景与取景（还没有场景图）", input: {props: {themes: [], closable: true}}},
+            {id: "contrast", label: "对比度检查：没有不合格项", input: {props: {themes: [], closable: true}}},
+            {id: "failing", label: "对比度检查：弱化文字太淡", input: {props: {themes: [], closable: true}}},
+            {id: "colors-english", label: "配色，英文界面", input: {props: {themes: [], closable: true}}},
+        ],
+        load: async () => withWorkbenchText((await import("./ThemeEditorFixture.vue")).default, ["colors-english"]),
+    }),
+    defineLabFixture<typeof ThemeSettingsPage>({
+        component: "ThemeSettingsPage",
+        scenes: (() => {
+            const entry = (id: string, plugin: string, title: string, titleEn: string, colors?: Record<string, string>) => ({id, plugin, declaration: {title: {"zh-CN": title, "en-US": titleEn}, base: "nbook" as const, light: colors === undefined ? {} : {colors}, dark: {}}});
+            const builtin = [entry("nbook", "nbook.workbench", "NeuroBook", "NeuroBook"), entry("macos", "nbook.workbench", "macOS", "macOS")];
+            const mine = [entry("user:00000000-0000-4000-8000-000000000001", "user", "夜读", "Night reading", {"--bg-main": "#f3ead8", "--text-main": "#2e261c", "--accent-main": "#8a5a24"}), entry("user:00000000-0000-4000-8000-000000000002", "user", "雨窗", "Rainy window", {"--bg-main": "#dfe8ee", "--text-main": "#1c2a36", "--accent-main": "#3b6f8f"})];
+            return [
+                {id: "empty", label: "还没有我的主题", input: {props: {themes: builtin, currentId: "nbook", appearance: "light"}}},
+                {id: "mine", label: "两套我的主题，其中一套在用", input: {props: {themes: [...builtin, ...mine], currentId: "user:00000000-0000-4000-8000-000000000001", appearance: "light"}}},
+                {id: "mine-english", label: "英文界面", input: {props: {themes: [...builtin, ...mine], currentId: "nbook", appearance: "light"}}},
+            ];
+        })(),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof ThemeSettingsPage>((await import("nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue")).default, {events: ["open"], class: "w-full max-w-[720px] p-6"}), ["mine-english"]),
     }),
     defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",
@@ -848,9 +947,9 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof NeuroBookMark>({
         component: "NeuroBookMark",
-        noInput: "图形标志没有 prop：大小由使用方的 class 给，颜色跟随文字色。",
         scenes: [
-            {id: "titlebar", label: "窄标题栏大小（18px）"},
+            {id: "titlebar", label: "窄标题栏大小（18px）", input: {props: {decorative: false}}},
+            {id: "decorative", label: "纯装饰（对读屏隐藏）", input: {props: {decorative: true}}},
         ],
         subject: () => import("nbook/ui/brand/NeuroBookMark.vue"),
         class: "h-[18px] text-[var(--text-main)]",
@@ -875,6 +974,7 @@ export const labFixtures: LabFixture[] = [
     ...settingsFixtures(),
     ...nbUiFixtures,
     ...nbFormFixtures,
+    ...nbLayoutFixtures,
     ...nbAgentUiFixtures,
 ];
 
@@ -1168,7 +1268,7 @@ function shelfFixtures(): LabFixture[] {
  * （`settings-scene/`）：产品里同一个窗口模型与配置实例，配置层换成内存里的拥有者。
  */
 function settingsFixtures(): LabFixture[] {
-    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, projectTitle: "雾港", wide});
+    const row = (setting: typeof appearanceSetting | typeof sceneThemeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, projectTitle: "雾港", wide});
     /** 状态原因：出错、警告、淡色各一条，看图标取最重的色调、提示逐条列出。 */
     const reasons = [
         {tone: "error" as const, text: "未保存：取值范围为 1–8"},
@@ -1187,7 +1287,7 @@ function settingsFixtures(): LabFixture[] {
             scenes: [
                 {id: "modified", label: "用户层已修改", input: {props: row(appearanceSetting, "user")}},
                 {id: "overridden", label: "被本作品覆盖", input: {props: row(appearanceSetting, "user")}},
-                {id: "inherit", label: "本作品标签：沿用（来自用户设置）", input: {props: row(themeSetting, "project")}},
+                {id: "inherit", label: "本作品标签：沿用（来自用户设置）", input: {props: row(sceneThemeSetting, "project")}},
                 {id: "project-set", label: "本作品标签：单独设置了", input: {props: row(appearanceSetting, "project")}},
                 {id: "invalid", label: "层文件有错误（停用）", input: {props: row(appearanceSetting, "user")}},
                 {id: "unreachable", label: "层连不上（停用）", input: {props: row(appearanceSetting, "user")}},

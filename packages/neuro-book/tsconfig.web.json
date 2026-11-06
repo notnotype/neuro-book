@@ -17,6 +17,7 @@
             "@notnotype/nb-plugin-sdk/text/browser": ["./src/sdk/text-browser.ts"],
             "@notnotype/nb-plugin-sdk/state": ["./src/sdk/state.ts"],
             "@notnotype/nb-plugin-sdk/storage": ["./src/sdk/storage.ts"],
+            "@notnotype/nb-plugin-sdk/files": ["./src/sdk/files.ts"],
             "@notnotype/nb-plugin-sdk/settings": ["./src/sdk/settings.ts"],
             "@notnotype/nb-plugin-sdk/settings/browser": ["./src/sdk/settings-browser.ts"],
             "@notnotype/nb-plugin-sdk/commands": ["./src/sdk/commands.ts"],
@@ -27,5 +28,10 @@
         }
     },
     "include": ["src/web", "src/ui", "src/plugins/*/web", "src/plugins/*/plugin.ts", "src/plugins/*/shared", "src/shared", "src/plugin-platform/web", "src/plugin-platform/shared", "src/plugin-platform-profile.ts", "src/sdk", "src/manifest.ts", "src/development-manifest.ts", "plugin-sdk/examples/plugins/*/web", "plugin-sdk/examples/plugins/*/plugin.ts", "plugin-sdk/examples/plugins/*/shared"],
-    "exclude": ["**/*.test.ts", "src/plugins/*/web/testing", "src/sdk/agent.ts", "src/sdk/agent-jsx-runtime.ts"]
+    "exclude": ["**/*.test.ts", "src/plugins/*/web/testing", "src/sdk/agent.ts", "src/sdk/agent-jsx-runtime.ts"],
+    "vueCompilerOptions": {
+        "checkUnknownProps": true,
+        "checkUnknownEvents": true,
+        "dataAttributes": ["data-*"]
+    }
 }

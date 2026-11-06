@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Select} from "@notnotype/nb-ui/components";
+import {Badge, Button, Dialog, Select} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "../host/format.js";
@@ -61,6 +61,28 @@ const answerDisabled = computed(() => {
     if (current.version !== current.latestVersion) return `只能对最新一版（v${current.latestVersion}）答复；切回最新一版再答`;
     return null;
 });
+/** Task 的提问集不能关闭（关了这个 Task 就再也不能提问），开发者不想答时把没答的题一次撤回。 */
+const isQuestionSet = computed(() => data.value?.ref.artifactId === "questions");
+const closeLabel = computed(() => (isQuestionSet.value ? "撤回没答的题" : "关闭评审"));
+const pendingCount = computed(() => (data.value ? groupQuestions(data.value.questions).pending.length : 0));
+/** 和答复一样只对能写的最新一版给（不能答的原因就是不能关的原因）；提问集没有可撤回的题时不给。 */
+const canClose = computed(() => showForm.value && answerDisabled.value === null && (!isQuestionSet.value || pendingCount.value > 0));
+const closeAsking = ref(false);
+const closeMessage = computed(() => {
+    const pending = pendingCount.value === 0 ? "没有没答的题" : `没答的 ${pendingCount.value} 道题会撤回，不再进收件箱`;
+    return `${pending}；已答的留着，表单里填了没交的不会保存。${isQuestionSet.value ? "" : "会话要继续问时重新发布就会打开。"}在等答复的会话会醒来，看到这块评审关了。`;
+});
+async function closeReview(): Promise<void> {
+    const current = data.value;
+    if (!current?.ref.taskId) return;
+    notice.value = null;
+    const outcome = await write.run(() => sendJson<WriteData>("POST", "/api/artifact-close", {workId: current.ref.workId, taskId: current.ref.taskId, artifactId: current.ref.artifactId}));
+    closeAsking.value = false;
+    notice.value = outcome.ok ? successNotice(isQuestionSet.value ? "撤回了没答的题" : "评审关了", outcome.body) : failureNotice(`没有${closeLabel.value}`, outcome.failure);
+    resetKey.value += 1;
+    artifact.reload();
+}
+
 const notify = useResource<NotifyData>(() => (data.value?.ref.taskId ? `/api/notify?workId=${encodeURIComponent(data.value.ref.workId)}&taskId=${encodeURIComponent(data.value.ref.taskId)}` : null), ["notify", "sessions"]);
 const notifyActions = useNotifyActions(() => notify.reload());
 /** 最近一次提交成功的答复：只显示它的通知。 */
@@ -128,6 +150,7 @@ const navigate = (href: string) => void router.push(href);
                     <Select :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
                 </div>
                 <ActionLink v-if="data.pageUrl" :href="data.pageUrl" icon="i-lucide-external-link" external>单独打开</ActionLink>
+                <Button v-if="canClose" size="sm" variant="ghost" icon-class="i-lucide-circle-x" :disabled="write.pending.value" @click="closeAsking = true">{{ closeLabel }}</Button>
             </template>
             <template v-if="data?.publishedAt" #meta>
                 <span class="nbdev-num">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
@@ -159,6 +182,15 @@ const navigate = (href: string) => void router.push(href);
                     </div>
                 </aside>
             </div>
+            <Dialog :open="closeAsking" :title="`${closeLabel}？`" size="sm" :busy="write.pending.value" @request-close="closeAsking = false">
+                <p>{{ closeMessage }}</p>
+                <template #footer>
+                    <div class="flex justify-end gap-2">
+                        <Button variant="ghost" :disabled="write.pending.value" @click="closeAsking = false">取消</Button>
+                        <Button variant="danger" :loading="write.pending.value" @click="closeReview">{{ closeLabel }}</Button>
+                    </div>
+                </template>
+            </Dialog>
             <DeveloperMessageDialog :open="notifyActions.compose.value !== null" :compose="notifyActions.compose.value" :pending="notifyActions.pending.value" @send="(job, target, text) => notifyActions.deliver(job, target, text)" @skip="(job) => notifyActions.skip(job)" @cancel="notifyActions.compose.value = null" />
             <ScreenConfirmDialog :open="notifyActions.confirm.value !== null" :title="notifyActions.confirm.value?.title ?? ''" :message="notifyActions.confirm.value?.message ?? ''" :screen="notifyActions.confirm.value?.screen ?? null" :confirm-label="notifyActions.confirm.value?.confirmLabel ?? '确认'" :pending="notifyActions.pending.value" @confirm="notifyActions.confirmRun()" @cancel="notifyActions.confirm.value = null" />
         </PageShell>

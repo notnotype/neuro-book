@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
 import DropdownMenu from "../popup/DropdownMenu.vue";
 import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
@@ -6,6 +7,7 @@ import {useUiText} from "../../text-port";
 import {moveRoving, rovingMove} from "../../utils/roving";
 import {adaptTabs} from "./tabs-adapt";
 import type {TabsAdaptState} from "./tabs-adapt";
+import type {ControlSize} from "../shared-types";
 
 // 线性标签页（仅标签栏，内容面板由消费方渲染）。
 // 与 SegmentedControl 的分工：Tabs 用于页面/区块级导航（底部指示线），SegmentedControl 用于紧凑的互斥模式切换。
@@ -22,7 +24,7 @@ export type TabsItem = {
     /** 写到这个标签元素上的额外属性（如 `data-*`、`aria-roledescription`）；与组件自己管的属性同名时以组件为准。 */
     attrs?: Readonly<Record<string, string>>;
 };
-export type TabsSize = "sm" | "md";
+export type TabsSize = Extract<ControlSize, "sm" | "md">;
 
 defineOptions({inheritAttrs: false});
 
@@ -39,7 +41,7 @@ const props = withDefaults(defineProps<{
     maxItemWidth?: number;
     /** `adapt` 的“更多”按钮文字，后面跟收起来的个数。 */
     moreLabel?: string;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     ariaLabel: "",
     size: "md",
     baseline: true,
@@ -112,7 +114,7 @@ function iconOnly(item: TabsItem): boolean {
     return adaptive.value && adapt.value.level >= 2 && !isSelected(item) && item.iconClass !== undefined;
 }
 const visibleItems = computed(() => (adaptive.value ? props.items.filter((item) => !adapt.value.hidden.has(item.value)) : props.items));
-const moreItems = computed<DropdownMenuItemData[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, value: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
+const moreItems = computed<DropdownMenuItemData[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, id: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
 
 /** 按测量层的实测宽度与标签带的可用宽度求这一档；量不到（还没挂上、不可见）时保持原状。 */
 function measure(): void {

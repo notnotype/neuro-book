@@ -1,15 +1,18 @@
 /**
- * 测试用的本机 OpenAI 兼容端点：按脚本一次请求回一条（文字或工具调用），记下每次请求的工具名与消息。`hold()` 让下一次
+ * 测试用的本机 OpenAI 兼容端点：按脚本一次请求回一条（文字、工具调用或错误状态码），记下每次请求的工具名与消息。`hold()` 让下一次
  * 请求挂着、直到测试放行，看运行中的行为。只由测试使用。
  */
 
-/** 一条回复：一段文字、分几块流出的文字，或一次工具调用。 */
-export type Scripted = string | {readonly chunks: readonly string[]} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
+/** 一条回复：一段文字、分几块流出的文字、一次或几次工具调用（`chunked`：参数分块流出），或一个错误状态码。 */
+export type Scripted = string | {readonly status: number} | {readonly chunks: readonly string[]} | {readonly tools: ReadonlyArray<{readonly tool: string; readonly args?: Readonly<Record<string, unknown>>}>; readonly chunked?: boolean} | {readonly tool: string; readonly args?: Readonly<Record<string, unknown>>};
 
 export interface SeenRequest {
+    readonly model: string;
     readonly tools: readonly string[];
     readonly messages: readonly {readonly role: string; readonly content?: unknown}[];
     readonly system: string;
+    /** 请求体里压缩要看的字段：`tool_choice`、输出上限、推理档。 */
+    readonly options: {readonly toolChoice?: unknown; readonly maxTokens?: number; readonly reasoningEffort?: string};
 }
 
 export interface FakeEndpoint {
@@ -34,11 +37,13 @@ export function fakeEndpoint(): FakeEndpoint {
         port: 0,
         hostname: "127.0.0.1",
         async fetch(request) {
-            const body = await request.json() as {tools?: {function: {name: string}}[]; messages?: {role: string; content?: unknown}[]};
+            const body = await request.json() as {tool_choice?: unknown; max_completion_tokens?: number; max_tokens?: number; reasoning_effort?: string; model: string; tools?: {function: {name: string}}[]; messages?: {role: string; content?: unknown}[]};
             const messages = body.messages ?? [];
             requests.push({
+                model: body.model,
                 tools: (body.tools ?? []).map((tool) => tool.function.name),
                 messages,
+                options: {toolChoice: body.tool_choice, maxTokens: body.max_completion_tokens ?? body.max_tokens, reasoningEffort: body.reasoning_effort},
                 system: messages.filter((message) => message.role === "system").map((message) => typeof message.content === "string" ? message.content : JSON.stringify(message.content)).join("\n"),
             });
             const hold = holds.shift();
@@ -48,13 +53,24 @@ export function fakeEndpoint(): FakeEndpoint {
             }
             const reply = queue.shift() ?? "好";
             calls += 1;
+            if (typeof reply === "object" && "status" in reply) return Response.json({error: {message: "Service overloaded"}}, {status: reply.status});
             const texts = typeof reply === "string" ? [reply] : "chunks" in reply ? reply.chunks : null;
+            const toolCalls = (scripted: {readonly tool: string; readonly args?: unknown}, index: number, chunked: boolean): string[] => {
+                const id = `call-${String(calls)}-${String(index)}`;
+                const args = JSON.stringify(scripted.args ?? {});
+                // 分块时第一块只带名字，参数切成几段：服务商给长参数就是这样流式的。
+                const pieces = chunked ? ["", args.slice(0, Math.ceil(args.length / 2)), args.slice(Math.ceil(args.length / 2))] : [args];
+                return pieces.map((piece, position) => chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [{index, ...(position === 0 ? {id, type: "function"} : {}), function: {...(position === 0 ? {name: scripted.tool} : {}), arguments: piece}}]}, finish_reason: null}]}));
+            };
+            const scriptedCalls = typeof reply === "object" && "tools" in reply ? reply.tools : typeof reply === "object" && "tool" in reply ? [reply] : [];
+            const chunked = typeof reply === "object" && "chunked" in reply && reply.chunked === true;
             const parts = texts !== null
                 ? [...texts.map((text) => chunk({choices: [{index: 0, delta: {role: "assistant", content: text}, finish_reason: null}]})), chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]})]
                 : [
-                    chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [{index: 0, id: `call-${String(calls)}`, type: "function", function: {name: (reply as {tool: string}).tool, arguments: JSON.stringify((reply as {args?: unknown}).args ?? {})}}]}, finish_reason: null}]}),
+                    ...scriptedCalls.flatMap((call, index) => toolCalls(call, index, chunked)),
                     chunk({choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}]}),
                 ];
+            parts.push(chunk({choices: [], usage: {prompt_tokens: 12, completion_tokens: 3, total_tokens: 15}}));
             return new Response(`${parts.join("")}data: [DONE]\n\n`, {headers: {"content-type": "text/event-stream"}});
         },
     });
@@ -87,9 +103,9 @@ export function fakeEndpoint(): FakeEndpoint {
 }
 
 /** 把一个不要密钥的本机服务商与它的模型写进用户层设置，并把 `main` 角色绑到它（`nbook.models` 的设置项形状）。 */
-export function localModelSettings(baseUrl: string): Record<string, unknown> {
+export function localModelSettings(baseUrl: string, options: {readonly compactionRole?: boolean} = {}): Record<string, unknown> {
     return {
         "nbook.models/providers": [{id: "local", kind: "custom", name: "本机", baseUrl, api: "openai-completions", auth: "none", models: [{id: "m", enabled: true, contextWindow: 32_000}]}],
-        "nbook.models/roles": {items: ["tiny", "fast", "main", "deep"].map((id) => ({id, axis: "gradient", name: "", description: "", model: id === "main" ? "local/m" : null})).concat([{id: "compaction", axis: "specialist", name: "", description: "", model: null}])},
+        "nbook.models/roles": {items: ["tiny", "fast", "main", "deep"].map((id) => ({id, axis: "gradient", name: "", description: "", model: id === "main" ? "local/m" : null})).concat([{id: "compaction", axis: "specialist", name: "", description: "", model: options.compactionRole === true ? "local/m" : null}])},
     };
 }

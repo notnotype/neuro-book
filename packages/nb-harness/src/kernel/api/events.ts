@@ -5,7 +5,7 @@
 
 import type {Actor, JsonValue, Scope, UserInput} from "./basics.js";
 import type {ContentBlock, ModelErrorKind, RequestPurpose, StopReason, Usage} from "./model.js";
-import type {ToolCall, ToolStatus} from "./tool.js";
+import type {ToolCall, ToolImage, ToolStatus} from "./tool.js";
 
 // ====================================================================
 // 事件的声明
@@ -95,6 +95,8 @@ export interface KernelEvents {
     /** “本会话都批准”：批准记忆只从它归约，回退不撤销。 */
     approvalRemembered: K<"session", "ctrl", {tool: string; scope: "tool"; by: Actor}>;
     titleChanged: K<"session", "ctrl", {title: string; by: "user" | "auto"}>;
+    /** 会话的一句话说明（宿主自动生成，`setGeneratedMeta`）。 */
+    descriptionChanged: K<"session", "ctrl", {description: string}>;
     archived: K<"session", "ctrl", {archived: boolean}>;
 
     // ---- 运行与轮（path）----
@@ -159,6 +161,8 @@ export interface KernelEvents {
         message?: string;
         partial?: readonly ContentBlock[];
         usage?: Usage;
+        /** 这次运行还要接着发（docs/specs/harness/runtime.md 输出 64）：界面丢掉这次的半截文字，运行结果的错误不取它。 */
+        retry?: {attempt: number; max: number; delayMs: number};
     }>;
 
     // ---- 工具（path）----
@@ -171,12 +175,14 @@ export interface KernelEvents {
         callId: string;
         tool: string;
         text: string;
+        images?: readonly ToolImage[];
         status: ToolStatus;
         code?: string;
         /** `denied`、`blocked` 的署名。 */
         by?: string;
         details?: JsonValue;
         raw?: string;
+        rawImages?: readonly ToolImage[];
         rawHash?: string;
     }>;
 
@@ -197,6 +203,7 @@ export interface KernelEvents {
         tokensBefore: number;
         tokensAfter: number;
         details?: JsonValue;
+        restored?: JsonValue;
     }>;
     /** 改变了结果的扩展失败（输出被丢弃、拦截被跳过、工具被缺省拒绝）：重放不跑处理函数，所以要记在日志里。 */
     extensionFailed: K<"path", "ctrl", {extension: string; entry: EntryPoint; code: FailureCode; dropped?: {events: number; sets: number}}>;

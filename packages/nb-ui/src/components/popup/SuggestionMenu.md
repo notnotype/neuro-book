@@ -15,7 +15,7 @@
 定位经 reka 的 Popover 原语（底下是 floating-ui），浮层传送到 `body`（`teleportTarget` 写明了就传送到那里）。外框不是对话框：Popover 写死的 `role="dialog"`、`aria-labelledby` 与 `tabindex` 在挂上后去掉，可访问的结构只有里面的 `listbox`。
 
 - `anchor` 是元素（例如输入框外框）或虚拟锚点（例如光标的矩形）。打开期间每帧重新读一次锚点矩形，光标在同一个输入框里移动、输入框内滚动、窗口缩放时都跟得上；关闭或卸载后不再读。
-- `placement: "auto"`（缺省）时优先放在锚点下方；下方放不下 96px、上方更宽时翻到上方。`"top"`、`"bottom"` 固定方向、不翻转。
+- `side: "auto"`（缺省）时优先放在锚点下方；下方放不下 96px、上方更宽时翻到上方。`"top"`、`"bottom"` 固定方向、不翻转。
 - 外框最高为这一侧的可用高度，最宽为可用宽度，左右夹进窗口（留 12px）；可用高度不足 96px 时照可用高度收矮，不越出窗口。
 - `matchAnchorWidth` 时宽度取锚点宽度与可用宽度的较小者，名称与次要文字截断；否则宽度随内容，介于 220px 与 420px 之间。
 
@@ -32,7 +32,7 @@
 ## 数据
 
 ```ts
-import type {SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionMenuPlacement} from "./suggestion-menu";
+import type {SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionSide} from "./suggestion-menu";
 
 type SuggestionMenuProps = {
     /** 分组与项；组按顺序渲染，不合并不重排；项的 id 在整个菜单里唯一 */
@@ -53,7 +53,7 @@ type SuggestionMenuProps = {
     /** 没有任何项、也不在加载时显示 */
     emptyText?: string;
     /** 默认 "auto" */
-    placement?: SuggestionMenuPlacement;
+    side?: SuggestionSide;
     /** 宽度跟锚点；默认 false */
     matchAnchorWidth?: boolean;
     /** 与锚点的间距（px）；默认 6 */
@@ -112,7 +112,7 @@ function suggestionMenuOptions(groups: readonly SuggestionMenuGroup[]): Suggesti
 
 ## 状态与环境
 
-- `state:local`：滚动视口的截断高度、滑块几何与拖动状态，以及 `placement: "auto"` 时这一刻放在哪一侧。
+- `state:local`：滚动视口的截断高度、滑块几何与拖动状态，以及 `side: "auto"` 时这一刻放在哪一侧。
 - `state:inject`：读取 `Dialog` 注入的浮层层级。
 - `env:portal`：浮层经 reka 的 `PopoverPortal` 传送到 `body` 或 `teleportTarget`，并登记为浮层层（模态 `Dialog` 里也能接收指针；Escape 与外部点击不由它关闭）。
 - `env:timer`：打开期间每帧读一次锚点矩形（floating-ui 的逐帧更新，以及 `"auto"` 时选择上下哪一侧）；关闭或卸载时停止。

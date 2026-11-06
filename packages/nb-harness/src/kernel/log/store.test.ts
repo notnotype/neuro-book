@@ -377,6 +377,16 @@ describe("JSONL 存储的文件", () => {
         expect(listed.ok && listed.value.filter((entry) => entry.id === id).map((entry) => entry.background)).toEqual([false]);
     });
 
+    test("输出 19：加 description 之前写下的索引没有这个字段，不打开也列得出来、读作 null", async () => {
+        const id = nextId();
+        await writeSession(store(), id, []);
+        const path = join(root, id, "index.json");
+        const {description: _dropped, ...old} = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        await writeFile(path, JSON.stringify(old));
+        const listed = await store().list();
+        expect(listed.ok && listed.value.filter((entry) => entry.id === id).map((entry) => entry.description)).toEqual([null]);
+    });
+
     test("输出 19：索引与会话头对不上时（旧索引、后台会话）打开时按日志重建、从会话头读回", async () => {
         const id = nextId();
         const created = await store().create({...header(id), background: true});

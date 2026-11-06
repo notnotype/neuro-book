@@ -17,6 +17,8 @@ export default mergeConfig(viteConfig, defineConfig({
     root: packageRoot,
     test: {
         environment: "happy-dom",
+        // 用例第一次挂载异步组件时 Vitest 才转换 nb-ui、编辑器这些模块，别的进程占着 CPU 时能到十几秒。这个上限只在失败时才等满，不让通过的用例变慢。
+        testTimeout: 30_000,
         // Node 26 自带的全局 localStorage 在没有 --localstorage-file 时只打印实验警告；关掉它，页面里的 localStorage
         // 由 happy-dom 提供。
         execArgv: ["--no-experimental-webstorage"],

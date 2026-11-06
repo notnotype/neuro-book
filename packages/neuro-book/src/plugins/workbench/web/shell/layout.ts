@@ -31,8 +31,8 @@
  *   进入紧凑呈现（宽度轴）或把面板退到 32px 标题头（高度轴），并给诊断。
  */
 
-import {createGrid} from "@notnotype/nb-ui/layout";
-import type {Grid, GridAxis, GridBranch, GridBranchInput, GridExtent, GridGestureCommit, GridLayoutResult, GridLeafInput, GridNode, GridNodeInput} from "@notnotype/nb-ui/layout";
+import {createGrid} from "@notnotype/nb-layout";
+import type {Grid, GridAxis, GridBranch, GridBranchInput, GridExtent, GridGestureCommit, GridLayoutResult, GridLeafInput, GridNode, GridNodeInput} from "@notnotype/nb-layout";
 
 import {isHorizontalPanelPosition, panelMaximizable} from "./panel-state";
 import type {PanelAlignment, PanelPosition, PanelState} from "./panel-state";

@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00025-editor",
+    "taskId": "t08-editing-menus",
+    "artifactId": "review",
+    "ackId": "20261105T035835353Z-1904c1dd",
+    "answers": [
+        "20261105T035805458Z-c7f41e1c"
+    ],
+    "through": "20261105T035805458Z-c7f41e1c",
+    "included": [
+        ".agents/works/w00025-editor/tasks/t08-editing-menus/README.md"
+    ],
+    "ackedAt": "2026-11-05T03:58:35.353Z"
+}

@@ -5,7 +5,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {GridExtent} from "@notnotype/nb-ui/layout";
+import type {GridExtent} from "@notnotype/nb-layout";
 
 import {createShellGrid, projectShell, shellNodeRects} from "./layout";
 import type {ShellNodeRect, ShellProjectionInput} from "./layout";

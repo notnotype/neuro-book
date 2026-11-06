@@ -20,7 +20,8 @@ import type {SettingDefinition, SettingsService, SettingWriteResult} from "nbook
 
 import type {CheckResult, KeyStatus, ModelsService, ModelsSnapshot, ProfileModelDefaults, RoleStatus, SnapshotModel, SnapshotProvider} from "../shared/contracts";
 import type {modelsSettingsContract} from "../shared/contracts";
-import {missingContextWindow, providerIdFor, referenceOf, rolesUsing, seriesOf, splitReference} from "../shared/rules";
+import {compactionTrigger, effectiveCompaction} from "../shared/compaction";
+import {missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "../shared/rules";
 import {BUILTIN_ROLES, DEFAULT_ROLES, modelsSettings} from "../shared/settings";
 import type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "../shared/settings";
 
@@ -68,6 +69,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const providers = (): readonly ProviderConfig[] => settings.get(providersSetting) as readonly ProviderConfig[];
     const roles = (): readonly RoleConfig[] => (settings.get(rolesSetting) as RolesConfig).items;
     const access: KeyAccess = {stored: (provider) => credentials.get(provider), env};
+    /** 重发归内核（docs/specs/models/service.md 输出 16），所以 HTTP 只发一次。每次请求现读。 */
+    const transport = () => ({
+        firstEventTimeoutMs: settings.get(modelsSettings.settings.streamFirstEventTimeoutSeconds) * 1000,
+        idleTimeoutMs: settings.get(modelsSettings.settings.streamIdleTimeoutSeconds) * 1000,
+        maxHttpAttempts: 1,
+    });
 
     // ---- 目录（OMP 内置，进程内不变） ----
     const catalog = new Map(listCatalog().map((provider) => [provider.id, provider]));
@@ -87,7 +94,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         changed.emit(next);
     };
     const offSettings = settings.onDidChange((keys) => {
-        if (keys.has(providersSetting.key) || keys.has(rolesSetting.key)) invalidate();
+        if (keys.has(providersSetting.key) || keys.has(rolesSetting.key) || keys.has(modelsSettings.settings.compaction.key)) invalidate();
     });
     const offCredentials = credentials.onChange(invalidate);
 
@@ -107,7 +114,8 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         ...(model.maxOutput === undefined ? {} : {maxOutput: model.maxOutput}),
         ...(model.vision === undefined ? {} : {vision: model.vision}),
         ...(model.reasoning === undefined ? {} : {reasoning: model.reasoning}),
-        ...(model.compactAt === undefined ? {} : {compactAt: model.compactAt}),
+        // 触发点要等窗口知道了才算得出；全局设置每次现读，设置改了从下一次解析起生效。
+        compactAtFor: (contextWindow) => compactionTrigger(effectiveCompaction(model, settings.get(modelsSettings.settings.compaction)), contextWindow),
         ...(model.price === undefined ? {} : {price: model.price}),
         ...(model.headers === undefined ? {} : {headers: model.headers}),
     });
@@ -131,7 +139,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             // 目录漂移：设置里还有、目录里没了（输出 9）。先于凭据判断，界面才能指出是模型的问题。
             if (provider.kind === "catalog" && catalogModel(provider.id, model.id) === undefined) return {ok: false, code: "unknown-model"};
             if (!keyReady(keyStatusOf(provider))) return {ok: false, code: "no-credentials"};
-            const built = buildResolution(targetOf(provider), modelTargetOf(model), access);
+            const built = buildResolution(targetOf(provider), modelTargetOf(model), access, transport);
             return built.ok ? built.resolution : {ok: false, code: "unknown-model"};
         })();
         resolutions.set(reference, result);
@@ -141,6 +149,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         const role = roles().find((item) => item.id === id);
         if (role === undefined || role.model === null) return {ok: false, code: "role-unbound"};
         return resolveReference(role.model);
+    };
+    /** 会话里选的：模型引用或 `role:<id>`。选过的角色后来被删了是选择失效（`unknown-model`），和没绑定不同：去改的地方不一样。 */
+    const resolveSelection = (selection: string): ModelResolution => {
+        const roleId = roleOfReference(selection);
+        if (roleId === null) return resolveReference(selection);
+        return roles().some((item) => item.id === roleId) ? resolveRole(roleId) : {ok: false, code: "unknown-model"};
     };
 
     const roleStatus = (role: RoleConfig): RoleStatus => {
@@ -164,7 +178,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             vision: model.vision ?? fromCatalog?.images ?? false,
             reasoning: model.reasoning ?? fromCatalog?.reasoning ?? false,
             efforts: [...(model.efforts ?? fromCatalog?.efforts ?? [])],
-            compactAt: model.compactAt ?? null,
+            compaction: model.compaction ?? (model.compactAt === undefined ? null : {mode: "tokens", value: model.compactAt}),
             price,
             headers: {...model.headers},
             status,
@@ -276,6 +290,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
             ...(model.name === undefined || model.name === fromCatalog.name ? {} : {name: model.name}),
             ...(model.group === undefined || model.group === seriesOf(model.id) ? {} : {group: model.group}),
             ...(model.compactAt === undefined ? {} : {compactAt: model.compactAt}),
+            ...(model.compaction === undefined ? {} : {compaction: model.compaction}),
             ...(model.headers === undefined || Object.keys(model.headers).length === 0 ? {} : {headers: model.headers}),
         };
     };
@@ -309,7 +324,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const probe: ModelRequest = {purpose: "background", model: "", params: {}, headers: {}, system: [], messages: [{role: "user", content: [{kind: "text", text: "ping", origin: {kind: "fixed", by: "kernel"}}]}], tools: []};
     async function check(provider: ProviderConfig, model: ModelConfig, signal: AbortSignal): Promise<CheckResult> {
         if (missingContextWindow(provider, model)) return {ok: false, kind: "local", code: "model-incomplete", raw: ""};
-        const built = buildResolution(targetOf(provider), modelTargetOf(model), access);
+        const built = buildResolution(targetOf(provider), modelTargetOf(model), access, transport);
         if (!built.ok) return {ok: false, kind: "local", code: "unknown-model", raw: ""};
         const timeout = AbortSignal.timeout(CHECK_TIMEOUT_MS);
         const combined = AbortSignal.any([signal, timeout]);
@@ -326,7 +341,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (query.role !== undefined) return resolveRole(query.role);
                 if (query.purpose === "compaction") return resolveRole("compaction");
                 if (query.purpose === "approval") return resolveRole("fast");
-                if (query.settings.model !== null) return resolveReference(query.settings.model);
+                if (query.settings.model !== null) return resolveSelection(query.settings.model);
                 const defaults = profileDefaults?.(query.profile) ?? {};
                 if (defaults.model !== undefined) return resolveReference(defaults.model);
                 return resolveRole(defaults.role ?? "main");

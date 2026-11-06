@@ -17,10 +17,25 @@ export type DeepReadonly<T> = T extends (...args: any[]) => any
         ? {readonly [k in keyof T]: DeepReadonly<T[k]>}
         : T;
 
+/**
+ * 用户的一个附件。`from`、`to` 是它的标签在 `text` 里的范围，由宿主算（只有宿主懂提示词的写法，内核不解析 Markdown）；图片放在这个位置，
+ * 没有范围或对不上的放这句话的末尾。尺寸在上传时量好，估算不用读文件。
+ */
+export interface UserAttachment {
+    readonly kind: "image" | "file";
+    readonly uri: string;
+    readonly name?: string;
+    readonly mime?: string;
+    readonly width?: number;
+    readonly height?: number;
+    readonly from?: number;
+    readonly to?: number;
+}
+
 export interface UserInput<P = unknown> {
     readonly text: string;
     readonly payload?: P;
-    readonly attachments?: readonly {readonly kind: "image" | "file"; readonly uri: string}[];
+    readonly attachments?: readonly UserAttachment[];
 }
 
 /** 拒绝或失败的说明：只有码与参数，没有句子；界面按“拥有者 + 码”取本地化文案（ADR 0034）。 */

@@ -21,7 +21,7 @@ owners:
 - 分支：沿横向或纵向分配空间的一组子节点；分支在父布局中的分配尺寸与内部子布局尺寸分别表达。
 - 叶：一个内容槽位，具有当前宿主声明的尺寸约束和稳定引用。
 - sash：可通过鼠标或键盘操作的分隔条。
-- 原语：拥有几何与快照解析的 nb-ui 能力；宿主负责节点引用、持久化地址、版本兼容和恢复投影。
+- 原语：拥有几何与快照解析的 nb-layout 能力；宿主负责节点引用、持久化地址、版本兼容和恢复投影。
 
 ## 输入与前置条件
 
@@ -41,6 +41,15 @@ owners:
 - pointerdown成功和键盘focus-visible立即全亮，active离开线盒仍保持。reduced-motion取消渐变但保留hover延迟。非active仅buttons=0可占hover/cursor，拖View/Editor Tab/选择文本经过热区不得抢光标；退出/失焦/禁用/卸载清临时document cursor与timer。
 - pointer按原始baselineBoundary+累计delta求绝对边界；收起/展开只改约束，不以记忆尺寸重锚。低于min−24收起，回到max(min,collapsedSize+24)且容量允许时展开；可行展开区线与指针减grabOffset误差≤1 CSS px。按钮/Enter显式恢复才用restoreSize。
 - 每个公共NestedGrid独占scope；hover/capture按composedPath由内向外共用有效命中赢家。最内无命中或禁用才让外层；同scope最多双轴一场，不跨独立scope拼事务。
+- **按矩形摆放**：叶与分隔线是同一父元素的子元素，矩形由布局结果算出，用 `transform` 加宽高摆放；交叉轴拉满父分支，与主轴放不满时留空。树的结构变化（拆分、关闭、换位置）不移动、不重建还在的叶：内容的滚动、输入与焦点保留。新叶在 DOM 里紧接在树序的前一块之后，已有的叶不换相对次序。
+- **取整**：沿主轴按设备像素累加：叶的终点取整，缝宽按设备像素取整（至少 1 个设备像素），下一块从上一块的终点加缝宽开始。任意容器宽度、任意设备像素比下，同一占用的缝宽度相同，不随位置跳动。
+- **过渡**：不是手势、也不是容器尺寸变化引起的布局变化（程序开关面板、拆分与关闭叶）时，外框与分隔线用 `--motion-layout`、`--ease-layout` 过渡到新矩形。前后都有尺寸的叶，内容跟着外框逐帧变化，叶里不露空白，结束时等于新矩形；新叶与从零尺寸出来的叶，内容一开始就是最终尺寸，外框长出来时露出它，过渡中不跟外框变化（这期间又有变化时取新的最终尺寸，仍不跟）。叶里嵌的 grid，容器跟着外层逐帧变化，按容器尺寸变化处理：自己不另外过渡，进行中的手势取消。新叶的主轴宽度从零长到终点，一条边不动，另一条边跟着让位的兄弟走，中间不露空白；新出现的分隔线跟着外框的边走；离开的叶立即消失。拖动分隔线、松手落账和容器尺寸变化不过渡；过渡中开始手势或容器尺寸变化时，进行中的过渡直接到终点；连续的变化以最后一次为准重新计时。系统减少动态效果时没有过渡。
+- **内容层**（planned）：宿主可以传内容项（`contents`），每项属于一块叶，和叶外框、分隔线是同一父元素的子元素，矩形是叶减去面板头（面板头高度先按设备像素取整）。内容项从建到销毁不换父元素，所以换叶不重建。结构是两层：外层按矩形摆放、裁切、带过渡，它不是叶外框，飞过别的叶时不被它们裁；内层的尺寸规则同“过渡”。三层叠放固定：外框、内容、分隔线；飞过别的面板的外框与内容抬到分隔线之下、别的内容之上。内容项换叶时从旧矩形滑到新矩形，即使两块叶都没动。不活动、叶为零、叶暂时找不到的内容项都按停放处理，不卸载。一块叶的一站是外框加它活动的内容，Tab、`moveGridFocus`、上次焦点都按这个并集；分隔线的 `aria-controls` 列外框与活动内容。内容项要被停放而焦点在里面时发 `content-parked`，宿主决定焦点去哪。不传内容项的宿主行为不变。
+- **最大化**（planned）：宿主可以指定一块叶盖住除条以外的全部区域。别的叶与分隔线的矩形不变、树不变，所以最大化和还原时它们什么都不变；被盖住的叶与内容马上不可交互，内容在过渡结束后隐藏，分隔线不画也不能拖。这块叶和它的内容压在上面，直到还原的过渡结束。
+- **停放**：已发布的布局里叶曾有过非零尺寸、现在在任一轴上为零时，内容保持最后一个非零尺寸、`visibility: hidden` 且 `inert`，不进 Tab 顺序与读屏；重新有尺寸时不重新排版。手势预览不会把内容停放，拖过阈值又拖回来内容不闪；从零往外拉时内容在拖动中就解除停放。第一帧还没有尺寸时不算停放。
+- **Tab 顺序**：焦点在 grid 里时，叶里按 DOM 顺序走；走出一块时按树的先后跳到下一项（叶、分隔线交替，跳过没有可聚焦元素的），与 DOM 顺序无关。内容自己处理了 Tab（`preventDefault`）或输入法正在组字时不接管。走出最后一项时离开这个 grid。DOM 序等于树序时全是浏览器的原生行为。DOM 序与树序不一致时（planned）：从 grid 外面按 Tab 进来落在树序的首或尾，点击不可聚焦的地方之后按 Tab 从点的那一块按树序走；程序聚焦与点击不改落点。外框和内容都不接焦点，点空白不打断内部滚动区的键盘滚动。
+- **移动焦点**：`moveGridFocus(from, direction)` 在叶之间按树的先后移动，回到这块上次的焦点，没有就是第一个可聚焦的元素；没有可聚焦元素的叶跳过；嵌套时内层先走，走到头交给外层，最外层绕回。工作台把它登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
+- **读屏顺序**：DOM 序与树序不一致时，根元素的 `aria-owns` 按树的先后列出叶与分隔线，无障碍树的顺序与视觉一致。
 
 ## 状态与转换
 
@@ -77,9 +86,10 @@ owners:
 ## 边界与兼容
 
 本能力补充 [Workbench 外壳](workbench-shell.md) 的布局消费合同。
-nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥有约束、快照解释与 Storage 地址。
+nb-layout 拥有领域无关的类型、算法和交互边界；主应用/插件拥有约束、快照解释与 Storage 地址。
 原语不引用主工作台 Part 名，不依赖 Pinia，不开启 Splitter `autoSaveId` 旁路。
 嵌套 sash 的旧限制由本能力覆盖的场景逐项解除；其它未覆盖结构操作继续保留已有限制，不能据一个样例宣称任意布局均已支持。
+叶的外框用了 `transform`，是其内容里 `position: fixed` 的包含块：要盖住整个窗口的东西（对话框、拖影、菜单）Teleport 到 `body`。
 
 ## 验收与 Smoke
 
@@ -90,6 +100,9 @@ nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥�
 5. Given 畸形/高版本快照、未知引用、重复身份，When 恢复再保存合法修改，Then 无未捕获异常，当前布局不半更新，原件与未涉及未知部分保留。
 6. Given 同项目双标签订阅，When 一个窗口拖动而另一个保存，Then 当前手势不断开，冲突由宿主处理。
 7. Given 任一侧的叶，When 按方向拆分并调整新 sash，Then 新分支继承原外部分配、两个子叶按比例分掉原意图，外层另一侧尺寸不变；重复身份、非法比例与节点/深度上限被拒绝且树不变。
+8. Given 叶里有输入框、滚动内容和实例编号，When 在它左边拆分、关闭兄弟、把它换到树的另一处，Then 实例编号不变，输入、滚动与焦点保留；拆分与关闭后 DOM 序仍等于树序；换位之后焦点在 grid 里时 Tab 与 `moveGridFocus` 按新的树序走，浏览器的无障碍树也按新的树序。
+9. Given 缝 1、4、7 px 与设备像素比 1、1.25、1.5，When 枚举容器宽度量三块等分的缝，Then 同一占用的缝宽度相同；Given 程序调整一块，When 过渡中量它的内容，Then 内容与外框同宽，结束时等于新矩形；Given 拆出新叶，When 过渡中量新叶的内容，Then 一开始就是最终尺寸，`ResizeObserver` 只报一次；拖分隔线与改窗口尺寸没有过渡。
+10. Given 三块叶、每块带内容项（planned），When 内容项换到另一块叶，两块叶都不动，Then 内容从旧矩形滑到新矩形，实例不变，输入与滚动保留；结束后点它命中内容；Tab 与 `moveGridFocus` 按树序。Given 拆出新叶，When 过渡中量新叶的内容，Then 一开始就是最终尺寸，`ResizeObserver` 只报一次。Given 设备像素比 1、1.1、1.25、1.5、1.75、2，When 读内容顶与面板头底，Then 没有缝也不重叠。
 
 本轮 Workbench 容器层另以 `Component Lab --suite workbench-shell` 验证跨 Part Teleport、空 Part 落点与内容/切换器拖放；该验证不把业务主页或 Project 数据当作原语证据。
 
@@ -97,11 +110,11 @@ nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥�
 
 当前原语增量采用快照 v2：结构、稳定 id/ref 与叶/分支的两轴意图；运行约束由当前树或宿主引用解析器提供。v1 缺少可靠的两轴信息，整体拒绝且由宿主保留原件。非字符串引用要求显式稳定编码器；未知引用过滤与非法格式分别报告。
 
-分支手势使用完整当前呈现基线与目标的原子入口，Renderer 消费原语给出的有效交互约束及实际 sash。公开消费细节见 [grid API](../../../packages/nb-ui/src/components/layout/grid.md)。原语与 Shell/Spike 的聚焦验证不代表 Storage 插件宿主、未知引用合成保存及真实浏览器验收已闭合；本 capability 保持 planned。
+分支手势使用完整当前呈现基线与目标的原子入口，Renderer 消费原语给出的有效交互约束及实际 sash。公开消费细节见 [grid API](../../../packages/nb-layout/src/grid.md)。原语与 Shell/Spike 的聚焦验证不代表 Storage 插件宿主、未知引用合成保存及真实浏览器验收已闭合；本 capability 保持 planned。
 
 结构操作补齐**拆分叶**：`splitLeaf(targetId, {branchId, orientation, side, leaf, ratio})` 把一个叶原位换成新分支——新分支继承目标的外部分配意图，两个子叶按 `ratio` 分掉目标在新轴上的意图（新轴意图为 0 时两端取统一正权重，均分不塌成 0）。只开放比例、不开放 `size`：否则初始意图会出现两个 authority。`left/top → before`、`right/bottom → after` 的宿主词汇映射留在交互层。节点数与嵌套深度上限由结构操作与快照恢复共用同一判定，拆分失败不改树。
 
-渲染层是 nb-ui 的 `NestedGrid`：每个分支一个 `Splitter`、叶交给插槽，几何只有 CSS px 一种口径（`gridBranchSizesPx` / `buildGridBranchPanels` 只是把布局投影成面板配置）。`NestedGrid` 独占一份 `useSashGesture` 会话：一次按下命中的最多两根轴属于同一场手势，拖动中发布预览布局（子树随父盒实时变化），松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `grid.resizeBranches(changes)` 一次原子落账；不再有百分比换算、`resizeBranch` 逐分支提交或 Reka 拖动通道。主工作台宿主与编辑器工作区宿主共用同一份实现。编辑器工作区当前只消费单组（一个叶）路径；真实产品的多编辑组及其会话、存储合同是后续独立能力，不因共用渲染层而成立。
+渲染层是 nb-layout 的 `NestedGrid`：叶与分隔线是同一父元素的子元素，矩形由 `placeGrid` 算出（`grid-rects.ts`）。几何只有 CSS px 一种口径，`NestedGrid` 独占一份 `useSashGesture` 会话：一次按下命中的最多两根轴属于同一场手势，拖动中发布预览布局，松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `grid.resizeBranches(changes)` 一次原子落账；不再有百分比换算、`resizeBranch` 逐分支提交或 Reka 拖动通道。主工作台宿主与编辑器工作区宿主共用同一份实现。真实产品的多编辑组及其会话、存储合同是后续独立能力，不因共用渲染层而成立。
 
 ## 证据
 
@@ -109,3 +122,4 @@ nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥�
 - [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/002-plan-completion.md) 包含旧实现的内存探针结果，不是本目标已实现证据。
 - 2026-09-20开发者批准共享测量/宿主/落点几何、3px线/250ms显现、scope仲裁与无重锚pointer路径；产品容器固定单轴不削弱通用二维能力。新行为证据尚待实施，不复用历史通过数宣布完成。
+- w00026 t06 扁平渲染（输出“按矩形摆放”“取整”“过渡”“停放”“Tab 顺序”“移动焦点”“读屏顺序”，验收 8、9）：矩形求解 [grid-rects.ts](../../../packages/nb-layout/src/grid-rects.ts)、过渡几何 [grid-motion.ts](../../../packages/nb-layout/src/grid-motion.ts)、渲染 [NestedGrid.vue](../../../packages/nb-layout/src/vue/NestedGrid.vue)；浏览器行为见 [lab-grid-structure.e2e.ts](../../../packages/neuro-book/e2e/lab-grid-structure.e2e.ts) 与 [editor-area.e2e.ts](../../../packages/neuro-book/e2e/editor-area.e2e.ts)。从 Tab 进入 grid 与点空白后按 Tab 仍按 DOM 顺序，留给 w00026 t07。

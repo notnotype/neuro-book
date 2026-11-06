@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
+import {useDropTarget} from "@notnotype/nb-layout/vue";
 import {Banner, Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
 import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
@@ -23,8 +24,10 @@ import {useEditorText} from "../text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
 import {formatResource} from "nbook/plugins/files/shared/contracts";
+import {EDITOR_GROUP_FILE, editorToolbarSlotKey} from "../../shared/contracts";
 
 import {nameOf, resourceOf} from "../documents/address";
+import {EDITOR_GROUP_TAB} from "../tab-drag";
 import {tabHints} from "../tab-hints";
 import {tabLabel} from "../tab-label";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
@@ -147,6 +150,7 @@ const listCrumb = async (address: string, signal: AbortSignal): Promise<Breadcru
 };
 /** 面包屑交还焦点：给本组的编辑器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
 const section = ref<HTMLElement | null>(null);
+useDropTarget(section, [EDITOR_GROUP_FILE, EDITOR_GROUP_TAB], () => ({group: props.groupId}));
 const returnFocus = (): void => {
     const handle = props.area.handleOf(props.groupId);
     if (handle !== null) handle.focus();
@@ -168,22 +172,22 @@ const banner = computed((): GroupBanner | null => {
     const blocked = binding.value?.kind === "text" ? current.blocked.value.get(binding.value.token) : undefined;
     if (blocked !== undefined) {
         const excerpt = blocked.excerpt === "" ? "" : t("banner.unrepresentableExcerpt", {excerpt: blocked.excerpt});
-        return {tone: "error", text: t("banner.unrepresentable", {index: blocked.index, excerpt}), actions: [
+        return {tone: "danger", text: t("banner.unrepresentable", {index: blocked.index, excerpt}), actions: [
             {id: "locate", label: t("banner.locate"), run: () => props.area.locate(props.groupId)},
             {id: "adopt", label: t("banner.adopt"), run: () => props.area.unblock(props.groupId)},
         ]};
     }
     if (current.conflict.value !== null) {
-        return {tone: "error", text: t("banner.conflict"), actions: [
+        return {tone: "danger", text: t("banner.conflict"), actions: [
             {id: "reload", label: t("banner.reload"), run: () => void props.area.revert()},
             {id: "overwrite", label: t("banner.overwrite"), run: () => void props.area.overwrite()},
         ]};
     }
-    if (current.ended.value !== null) return {tone: "error", text: t("banner.ended", {reason: current.ended.value}), actions: []};
+    if (current.ended.value !== null) return {tone: "danger", text: t("banner.ended", {reason: current.ended.value}), actions: []};
     if (current.status.value === "deleted") return {tone: "warning", text: current.dirty.value ? t("banner.deleted") : t("banner.deletedClean"), actions: []};
     if (current.diskChanged.value) return {tone: "warning", text: t("banner.diskChanged"), actions: [{id: "reload", label: t("banner.reload"), run: () => void props.area.revert()}]};
     const problem = current.saveProblem.value;
-    if (problem !== null) return {tone: "error", text: problem.code === "unknown-outcome" ? t("banner.saveUnknown") : t("banner.saveFailed", {reason: problem.detail || problem.code}), actions: []};
+    if (problem !== null) return {tone: "danger", text: problem.code === "unknown-outcome" ? t("banner.saveUnknown") : t("banner.saveFailed", {reason: problem.detail || problem.code}), actions: []};
     return null;
 });
 
@@ -212,6 +216,8 @@ const unavailable = computed((): "binary" | "gone" | "pending" | null => {
 
 /** 活动标签是页面时的页面 id；文件标签为 null。 */
 const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(activeTab.value.address)));
+/** 铺场景图的状态（docs/specs/theme/skins.md 输出 4）：没开文件，或活动页声明了要。主题没有场景时这一层不显示。 */
+const showsScene = computed(() => activeTab.value === null || (pageId.value !== null && props.pages?.scene(pageId.value) === true));
 const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
 
 // 控件按编辑器各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。只挂已交付的编辑器。
@@ -239,6 +245,9 @@ export interface EditorGroupTitleActions {
     /** “⋯”的菜单身份：活动组、活动标签与地址。 */
     readonly identity: string;
 }
+
+const toolbarSlot = useTemplateRef<HTMLElement>("toolbarSlot");
+provide(editorToolbarSlotKey, toolbarSlot);
 </script>
 
 <template>
@@ -271,7 +280,7 @@ export interface EditorGroupTitleActions {
                 @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
                 @menu="openTabMenu"
             />
-            <ContextMenu :visible="tabMenuState !== null" :x="tabMenuState?.x ?? 0" :y="tabMenuState?.y ?? 0" :items="tabMenuItems" @close="tabMenuState = null" />
+            <ContextMenu :open="tabMenuState !== null" :x="tabMenuState?.x ?? 0" :y="tabMenuState?.y ?? 0" :items="tabMenuItems" @request-close="tabMenuState = null" />
             <TitleActions
                 v-if="hasTitleActions"
                 class="editor-group__title-actions"
@@ -282,18 +291,21 @@ export interface EditorGroupTitleActions {
                 @run="(key: string) => emit('title-action', key)"
             />
         </div>
-        <EditorBreadcrumbs
-            v-if="crumbs.segments.length > 0"
-            class="shrink-0"
-            :segments="crumbs.segments"
-            :parent="crumbs.parent"
-            :outline="outline"
-            :list="listCrumb"
-            :focus-seq="crumbFocus"
-            @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
-            @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
-            @escape="returnFocus"
-        />
+        <div class="flex min-w-0 shrink-0 items-center bg-[var(--panel-surface)]">
+            <EditorBreadcrumbs
+                v-if="crumbs.segments.length > 0"
+                class="min-w-0 flex-[1_1_160px]"
+                :segments="crumbs.segments"
+                :parent="crumbs.parent"
+                :outline="outline"
+                :list="listCrumb"
+                :focus-seq="crumbFocus"
+                @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
+                @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
+                @escape="returnFocus"
+            />
+            <div ref="toolbarSlot" class="flex min-w-0 shrink" data-editor-toolbar-slot></div>
+        </div>
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
             <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>
@@ -305,8 +317,9 @@ export interface EditorGroupTitleActions {
             </template>
         </Banner>
         <div class="relative min-h-7 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
+            <div v-if="showsScene" class="editor-group__scene" aria-hidden="true" data-editor-scene></div>
             <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
-                <NeuroBookMark class="editor-group__mark" aria-hidden="true" />
+                <NeuroBookMark class="editor-group__mark" decorative />
                 <div v-if="emptyTips.length > 0" class="editor-group__tips">
                     <button v-for="tip in emptyTips" :key="tip.command" type="button" class="editor-group__tip nb-ui-focus-ring" :data-editor-empty-tip="tip.command" @click="emit('run-tip', tip.command)">
                         <span class="editor-group__tip-label">{{ tip.label }}</span>
@@ -326,7 +339,7 @@ export interface EditorGroupTitleActions {
                 <Button v-if="failure.retry" size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ t("document.retry") }}</Button>
             </div>
             <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
-            <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :data-editor-page="pageId">
+            <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :class="showsScene ? 'editor-group__on-scene' : ''" :data-editor-page="pageId">
                 <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
                 <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
             </div>
@@ -396,8 +409,32 @@ export interface EditorGroupTitleActions {
     }
 }
 
+/* 变量名见 src/ui/theme/skin-vars.ts。没有场景的主题不写 data-nb-skin-scene，这一层不占地方。 */
+.editor-group__scene {
+    display: none;
+}
+
+:global([data-nb-skin-scene] .editor-group__scene) {
+    position: absolute;
+    inset: 0;
+    display: block;
+    background-image: var(--skin-scene);
+    background-position: var(--skin-empty-position, center);
+    background-repeat: no-repeat;
+    background-size: cover;
+    pointer-events: none;
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .editor-group__scene) {
+        display: none;
+    }
+}
+
 /* 空态（docs/specs/workbench/editor.md 输出 32）：正中一个淡色的图形标志，下面几行提示，说明靠右、按键或位置靠左。 */
 .editor-group__empty {
+    /* 场景层是定位元素，不定位的内容会被它盖住。 */
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -406,6 +443,12 @@ export interface EditorGroupTitleActions {
     height: 100%;
     padding: 24px;
     overflow: hidden;
+}
+
+/* 内容往场景的留白上偏（输出 4）。要写在 `.editor-group__empty` 之后：两条特异性相同，它的 padding 简写会盖掉这里。 */
+:global([data-nb-skin-scene] .editor-group__on-scene),
+:global([data-nb-skin-scene] .editor-group__empty) {
+    padding-inline-end: var(--skin-empty-shift, 0);
 }
 
 /* 组被拆得很矮时标志先缩（宽随高），提示不被挤掉。 */

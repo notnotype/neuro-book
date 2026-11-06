@@ -17,7 +17,6 @@ owners:
 
 - 子菜单、按住修饰键换成另一条命令、菜单项上报运行状态（忙碌）。
 - 按语言过滤：只按文件后缀；有语言登记之后再加。
-- 编辑器正文右键：随第一个往里加东西的插件再定义位置（编辑器标签右键见位置表）。
 - 插件运行期启用与禁用时菜单项的增减：随 [`runtime.plugin-hot-plug`](../runtime/plugin-hot-plug.md)。
 
 ## 术语与参与者
@@ -55,6 +54,11 @@ interface MenuItemDeclaration {
 | 资源管理器右键 | `explorer.context` | `nbook.explorer` | `extensions` | `"selection"` → `{addresses}` | 被右键的选择 | [`workbench.files-explorer`](files-explorer.md) 的“右键菜单” |
 | 编辑区标题 | `editor.title` | `nbook.editor` | `icon`、`placement`、`extensions` | `"resource"` → `{address}` | 编辑组的活动标签 | [`workbench.editor`](editor.md) 输出 34 |
 | 编辑器标签右键 | `editor.tab-context` | `nbook.editor` | `extensions` | `"resource"` → `{address}` | 被右击的文件标签（页面标签没有当前文件） | [`workbench.editor`](editor.md) 输出 57 |
+| Markdown 固定工具栏 | `editor.toolbar` | `nbook.editor` | `icon`、`placement` | `"resource"` → `{address}` | 无 | [`workbench.markdown-editing`](markdown-editing.md) 输出 1、3 |
+| Markdown 选区菜单 | `editor.selection` | `nbook.editor` | `icon` | 同上 | 无 | 同上，输出 6 |
+| Markdown 斜杠菜单 | `editor.slash` | `nbook.editor` | `icon` | 同上 | 无 | 同上，输出 11 |
+| Markdown 块菜单 | `editor.block` | `nbook.editor` | `icon` | 同上 | 无 | 同上，输出 17 |
+| Markdown 正文右键 | `editor.body-context` | `nbook.editor` | `icon` | 同上 | 无 | 同上，输出 20 |
 
 | 规则 | 不满足时 |
 |---|---|

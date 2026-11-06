@@ -6,12 +6,12 @@
  */
 
 import type {AssistantMessage} from "@oh-my-pi/pi-ai";
-import {Flag} from "@oh-my-pi/pi-ai/error/flags";
+import {Flag, retriable} from "@oh-my-pi/pi-ai/error/flags";
 import type {ModelErrorKind} from "../api/index.js";
 
 const NETWORK_STATUSES = new Set([408, 502, 503, 504, 520, 521, 522, 523, 524]);
 
-export function classifyProviderError(message: Pick<AssistantMessage, "errorStatus" | "errorId">): {kind: ModelErrorKind; status: number | null} {
+export function classifyProviderError(message: Pick<AssistantMessage, "errorStatus" | "errorId">): {kind: ModelErrorKind; status: number | null; retryable: boolean; code: "thinking-loop" | null} {
     const status = typeof message.errorStatus === "number" ? message.errorStatus : null;
     const flags = typeof message.errorId === "number" ? message.errorId : 0;
     const has = (flag: number): boolean => (flags & flag) !== 0;
@@ -19,9 +19,12 @@ export function classifyProviderError(message: Pick<AssistantMessage, "errorStat
     if (has(Flag.UsageLimit) || status === 402) kind = "quota";
     else if (has(Flag.AuthFailed) || status === 401 || status === 403) kind = "auth";
     else if (status === 429) kind = "rate_limit";
-    else if (has(Flag.ContextOverflow)) kind = "context_overflow";
+    // 413 是请求太大：按溢出的路压缩后重发一次（t11 决定 4）。
+    else if (has(Flag.ContextOverflow) || status === 413) kind = "context_overflow";
     else if (has(Flag.ContentBlocked) || has(Flag.ProviderFinishError)) kind = "provider";
     else if ((status !== null && NETWORK_STATUSES.has(status)) || has(Flag.Timeout) || (status === null && has(Flag.Transient))) kind = "network";
     else kind = "provider";
-    return {kind, status};
+    // 可重发的判断交给 OMP（它和错误标记同一处维护）。重复循环例外：每次都是整段上下文加推理的费用，同样的输入大概率再循环。
+    const looping = has(Flag.ThinkingLoop);
+    return {kind, status, retryable: retriable(flags) && !looping, code: looping ? "thinking-loop" : null};
 }

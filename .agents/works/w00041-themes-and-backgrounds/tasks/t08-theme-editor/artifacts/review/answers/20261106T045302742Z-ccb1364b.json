@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t08-theme-editor",
+    "artifactId": "review",
+    "answerId": "20261106T045302742Z-ccb1364b",
+    "artifactVersion": 2,
+    "contentHash": "c4173eaa3dc002708010041174a44fbba1ab10e25eda131c2f236dc2d34919a6",
+    "submittedAt": "2026-11-06T04:53:02.001Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r2-organise": "nav",
+        "r2-lightdark": "switch",
+        "r2-contrast": "inline",
+        "r2-crop": "one"
+    },
+    "comments": {},
+    "note": null
+}

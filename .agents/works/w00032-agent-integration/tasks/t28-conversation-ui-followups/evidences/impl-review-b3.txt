@@ -1,0 +1,237 @@
+# w00032 t28 批 3 只读实现审查
+
+审查提交：`a5a27b5be`、`70c156f43`。依据读取主工作区的现行 Spec、计划和设计审查处理记录。只审指定后端、内核及纯 TS 投影；不审 Vue 外观。不修改仓库、不安装依赖、不跑 e2e 或开发服务。
+
+环境：被审 worktree 没有 `node_modules`；真实内核、本机端点及宿主合同测试未运行。以下源码推导与独立算法实测分别标注，独立算法实验不冒充完整运行时验证。
+
+### 1. 后续步骤被模型拦截直接返回时，重试会退到前一次请求并重新执行前一步
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-agent-ui/src/kernel-transcript.ts:308-316`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:346-354`。
+- **现象**：一轮先产生正常回复 A（可以带写工具），下一步由模型拦截器直接返回回复 B、不调用 `next` 时，B 沿用 A 的 `modelParent`。用户重试 B 会退到 A 之前；从 B 分支也按 A 的位置选目标。
+- **为什么是问题**：`harness/runtime.md` 输出 22 明确允许拦截器不调用 `next`，此时为回复分配新 request，但不写 `modelStarted`。`callModel` 的实现也是这样（`run/model-call.ts:105-128`）；转录器却只保存最后一个 `modelStarted` 的 parent，不按 `assistant.request` 关联请求，也不识别没有对应请求节点的回复。目标精确匹配只匹配到了另一条回复的目标，属于选错历史位置；写工具有再次执行的风险。
+- **如何核实**：源码推导，完整运行时未运行。顺着 `callModel` 的 `lastRequest ?? core.reserveRequest()`、循环写 `assistant`、`notePath` 与 `rewindTargetFor` 可核对。现有宿主双步测试两次都真正请求模型，没有覆盖合法的短路回复。`model-call.ts` 与内核目标枚举在 base 已允许此行为，本批新增的是把它误当作前一次请求锚点。
+- **建议改法**：按 request 记录请求与回复的关联；没有对应请求节点时先明确失败，不能继承上一请求的锚点。若要完整支持这些合法回复，内核应提供按回复身份解析的可重试边界，不要求调用方从缺失的 `modelStarted` 推断。
+
+### 2. 从用户消息处分支后，“重新生成”已找不到目标，无法直接续跑暂停的分支
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:346-354`；`packages/nb-harness/src/kernel/run/tree.ts:41-43`。
+- **现象**：用户消息点“从此处分支”后退到本轮第一个 `modelStarted.parent`。再点这条用户消息的“重新生成”，得到 `no-target`，不会 `start`；对同一消息再次执行“从此处分支”也失败。
+- **为什么是问题**：`rewindTargets` 只在扫描到 `modelStarted` 时才加入 `after-step`。已经退到它的 parent 后，新的路径没有该 `modelStarted`，因此 `rewindTargetFor` 的 `firstStep` 为 null。计划明确约定没有独立继续按钮、想直接接着跑用“重新生成”，本实现让这个恢复入口失效。这不是要求新增继续按钮，而是已有重试入口必须能处理自己制造的暂停态。
+- **如何核实**：源码推导；完整运行时未运行。现有“从此处分支”测试只退到已完成的助手回复后再发送新文字，没有覆盖用户消息处分支后的再次操作。可以在真实宿主执行 `message.branchFrom(user.id)`，路径重建后执行 `message.retry(user.id)`，核对 `no-target` 与模型请求数不增加。
+- **建议改法**：让内核明确提供暂停叶子上的可续跑边界，或保存并校验已成功回退的操作身份，使这条用户消息的重新生成可对该暂停运行直接 `start`；不要选择别的已有 `after-step` 猜位置。
+
+### 3. 半截失败回复没有锚点，界面提供的重试与分支操作必然失败
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-agent-ui/src/kernel-transcript.ts:311-317,372-381`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:364-366`。
+- **现象**：模型失败且含 partial 时，转录器用 `modelFailed.id` 生成一条 `assistant` 消息，但 `notePath` 不给它记录锚点。点击这条错误、停止或中断的半截回复的“重新生成”或“从此处分支”，只得到 `unknown-message`。
+- **为什么是问题**：这些是已落盘且真实展示的助手消息，内置历史操作没有排除它们。合同要求按消息位置重试，不应让最需要重试的失败回复成为死入口。同理，完全没开口就被停止时生成的 `runEnded.id` 空助手消息也没有锚点。base 只负责展示失败消息，本批新增操作漏掉了现有的消息来源。
+- **如何核实**：源码推导；完整运行时未运行。`kernel-transcript.test.ts:267-278` 已用真内核验证 `modelFailed.partial` 会生成助手消息，但一致性检查和本批宿主测试都没有检查这些消息的锚点和历史操作。按该用例生成带 partial 的失败，再执行 `message.retry` 即可覆盖。
+- **建议改法**：所有可操作的消息来源都建立对应的锚点，按 `modelFailed.request` 关联原请求；对没有合法边界的合成消息，明确关闭不支持的操作，不应显示可点入口后报 unknown-message。
+
+### 4. 改写历史不保留指令身份，结果未知后再次提交会另写一条分支
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:357-376,841-844`。
+- **现象**：`rewind{resend}` 已受理但回应丢失时，宿主只显示失败码，既没有记录原 `commandId`，也没有保留待确认的编辑提交。重连后用户再次编辑同一条话重发，会生成新 `commandId`，再次回退、写输入并运行。`rewind` 和紧接的 `start` 分别回应未知时也没有可恢复的操作阶段。
+- **为什么是问题**：内核只对同一 `commandId` 保证幂等；这里每次重试动作都新建 id，不能区分“没有写入”与“写入成功但失联”。已有普通发送专门用 `UNKNOWN_OUTCOME`、`unknownSends` 与同 id 重发处理这个边界（同文件 641-659、809-814），新历史操作没有沿用。历史编辑可能引发工具副作用，不只是多一个提示。
+- **如何核实**：源码推导；真实远程故障注入未运行。可沿用 `session-host.test.ts:262-278` 的故障代理，把首次已成功的 `rewind` 回应替换成 `unknown-outcome`，重连后重发原编辑，核对两条 `inputQueued`、两个新分支及两次运行。现有未知结果测试只覆盖 `send`。
+- **建议改法**：保存一次改写操作的 session、目标、参数、rewind id、start id 与阶段；未知结果只允许用同一身份补查或重发，不把它作为明确被拒清掉。确认受理后再推进下一阶段。
+
+### 5. 回退与 start 之间切换会话，旧操作仍会启动已离开的会话并污染新会话提示
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:360-376,379-390,430-436`。
+- **现象**：对会话 A 点重试，在 `rewind` 回应到达前切到会话 B。旧操作拿到成功回应后仍对 A 调 `start`；A 的失败结果还能写进 B 的 `notice`。分支切换与树切换晚到的失败同样会给新会话显示旧错误。
+- **为什么是问题**：本函数只在 `rewindTargets` 之后检查一次 `current === target`，跨越下一次 await 后不再检查；`fail` 直接改宿主级 notice。切会话应隔离旧的在途操作，不能在用户离开后继续发第二条变更指令。并且同一会话两个改写动作也没有串行或互斥，`rewind` 成功与 `start` 之间可夹入另一次 rewind/switch/send，导致重试启动的不是它选择的路径。
+- **如何核实**：源码推导；真实宿主竞态未运行。远程代理在 A 的 rewind 已执行后挂住返回，打开 B，再放回成功或失败，即可分别观察 A 被 start 与 B notice 被覆盖。该用例不需假造内核时序，只延迟真实远程响应。
+- **建议改法**：用会话代次与操作身份贯穿每次 await；发后续指令及写 notice 前重查。单会话改写动作在宿主持有进行中状态、互斥处理；要保证跨窗口原子性时，应由内核提供受理时验证叶子的复合操作，不能靠两条独立指令的时机碰巧成立。
+
+### 6. 2,000 条中文标签的合法树页超过远程上限，整棵树无法加载
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-harness/src/kernel/session/session.ts:80-91,370-383`；`packages/neuro-book/src/plugins/agent/backend/remote.ts:84-88,128`；`packages/neuro-book/src/plugins/agent/shared/remote.ts:152-154`。
+- **现象**：分页只按节点个数限制为 2,000，未按 UTF-8 编码大小分页。实际构造 2,000 个常规 12 字节 id、80 个中文字符标签的节点，查询结果是 **652,922 字节**，超过 **524,288 字节**的 `PAGE_BYTES`。远程 `whole` 必然返回 `result-too-large`，宿主显示树不可用，拿不到 through 也不能继续。
+- **为什么是问题**：“节点约 200 字节，所以一定放得下”的假设不成立；80 个中文字符仅标签就有 240 字节。远程输入又不提供 limit，宿主连缩小页的补救入口都没有。该查询本来就是为大消息不破坏整棵树而新增，合法的标签密度反而使它断树。
+- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/algorithm-smoke.ts`。实验抽取原查询与标签函数，`chinese-tree-page-size` 输出 `nodes:2000, bytes:652922, maximum:524288`；未运行真实远程端点。现有结构查询测试只用几条短文字，没有覆盖页大小。结果见同目录 `algorithm-results.jsonl`。
+- **建议改法**：远程层沿用已有 `pageOf` 的按字节裁切，修正 `more` 和 `through` 到实际交付的最后一个节点，保留协议余量；或让内核直接维护字节预算。不能仅把中文标签截得更短来掩盖合法结构页超限。
+
+### 7. 第一条用户消息被编辑后产生的根分叉，在默认树里没有分叉数、缩进或收起入口
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-agent-ui/src/session-tree.ts:91-112,154-155,167-180,203-219`。
+- **现象**：编辑首条用户消息会在 `sessionCreated` 下生成两个 `runStarted` 孩子。默认过滤穿过 `sessionCreated` 与 run 后，两条用户消息成为两个 roots；列表给两条根的 `guides:[]`、`collapsible:false`、`forks:0`，图的 `fork` 数也是 0。实际有两个分支，界面算法却报告没有分叉，也不能在这里折叠或浏览另一个孩子。
+- **为什么是问题**：这是最常见的首问编辑，不是损坏数据。Spec 要求分叉处可见、分支开头能收起、图可在分叉处选孩子并显示分叉数。算法仅处理显示节点的 children，把被过滤根上的分叉丢了。消息上的切换器可以正确识别 `sessionCreated` 下的分叉，不代表分支树投影也正确。
+- **如何核实**：上述纯算法实验的 `root-fork-projection` 实测：四条显示行全部 `forks:0`、`collapsible:false`、`guides:[]`，`forkNodes:0`。输入是 `created -> r1 -> u1 -> a1` 与 `created -> r2 -> u2 -> a2`，正是首问编辑后的树形；`all` 过滤保留 7 个节点时能看见 created 的分叉。现有测试的分叉都在已有显示节点之后，未覆盖根分叉。
+- **建议改法**：用一个不冒充日志节点的虚拟显示根保留根分叉语义，或在 roots 层显式记录兄弟分组、计数与折叠信息；两种视图复用这一层分叉数据，不能只给 roots 分配不同道却丢失分支关系。
+
+### 8. 补充说明的“从此处分支”会退回本轮开头，把选中的补充说明也从路径删除
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-agent-ui/src/kernel-transcript.ts:311-314`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:347-350`；`packages/nb-agent-ui/src/vue/builtin-message-actions.ts:35-40`。
+- **现象**：一轮多步中间的 steer 是一条用户消息，允许点“从此处分支”。宿主把所有 user 都映射到本轮第一个 `after-step`，而不是选中这条 steer 之后；先前的回复、工具结果和 steer 自己全部退出当前路径。
+- **为什么是问题**：普通用户输入与运行中补充说明的位置不同。转录器明明保存了 `intent:steer`，锚点却对两者只给 turnId，选择器再只检查 `kind === user`，因此丢掉消息内的位置。Spec 输出 25 的“用户的话退到它之后”无法满足。禁用 steer 编辑不代表可以把它的分支操作解释成删除整轮后半段。
+- **如何核实**：源码推导；完整运行时未运行。合法路径可为 `input -> modelStarted -> assistant(工具) -> toolResult -> steer -> modelStarted -> assistant`；选 steer 后 `rewindTargetFor` 固定返回第一条 `modelStarted.parent`。现有改写历史测试没有 steer 场景；不用构造异常事件就能在工具等待期间提交 steer 复现。
+- **建议改法**：为 steer 保存真实路径位置，并选择它之后的合法边界；如果现有内核目标不足，先在界面关闭该不支持操作，不能保留会回到错误位置的入口。是否支持 steer 重试应单独定义，不与普通输入混用。
+
+### 9. branchPoints 在 10 万事件的嵌套分支上重扫约 5,000 万节点，单次查询成为二次复杂度
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-harness/src/kernel/run/tree.ts:101-106`；`packages/nb-harness/src/kernel/dispatch/core.ts:278-292`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:314-317`。
+- **现象**：每个 path 事件都调用 `childrenOf(event.parent)`，而 `childrenOf` 每次把全部孩子重新 map 成数组；每个分叉的每个孩子又调用 `latestIn` 扫完整子树。10 万事件、每 100 个主干节点留一条侧枝的样本，有 1,000 个分叉，一次查询做 **50,155,000 次 byId 读取**；带计数代理的算法实验耗时 **24,407.067 ms**。10,000 个同父节点的样本，已做 **100,010,000 个孩子映射**，带计数耗时 **17,221.589 ms**；同一形状放到 100,000 节点，光扫描阶段就有 **10,000,000,000 个孩子映射**，不计后续 latestIn。后一个是从循环精确推导的计数，不是运行时间实测。
+- **为什么是问题**：查询在后端同步计算；打开会话、叶子变化和每次运行结束都会调用。它不只是树面板慢，而会长时间占住服务进程。`latestIn` 本来仅查单个兄弟或切一次分支，本批把它放到整棵树的所有嵌套分叉中反复调用，放大成二次成本。即使无分叉，10 万事件也要创建 100,000 份临时孩子数组。
+- **如何核实**：已运行 `algorithm-smoke.ts`，抽取原 `branchPointsOf`、`childrenOf`、`latestIn`，只在 byId/children 调用处加计数；无完整内核或远程运行时。线性 100,000 事件是 100,000 次 byId 读取，54.790 ms；与嵌套样本形成同量级输入的形状对照。时间包含计数代理开销，不能当成生产延迟预算。结果已追加到 `algorithm-results.jsonl`。
+- **建议改法**：从父子索引直接枚举真正的分叉，不为每个孩子重建全部兄弟。一次逆 seq 或后序扫描计算每个节点的 latestLeaf，再组合全部分叉；或在追加事件时维护最新后代索引，使整个查询接近 O(事件数加输出大小)。
+
+### 10. treeNodes 为无标签的工具结果过滤全部正文，一页 2,000 项可处理 614 MB 内容
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-harness/src/kernel/session/session.ts:85-91,236-251,370-379`。
+- **现象**：结构查询先对整页每条完整事件执行 `visibleAll`，再判断该 type 有没有 label。实验用 2,000 个 300 KiB 的 toolResult，即使它们根本不产生 label，也调用出站过滤 **2,000 次**，序列化型过滤累计处理 **614,591,783 字节**，耗时 **1,421.297 ms**。异步过滤按顺序 await，若每项需一次外部查询，一页即 2,000 次串行查询。assistant 的 label 也先用 `replyText` 聚合完整正文后才 slice 80。
+- **为什么是问题**：输出 80 和计划将“不读全文”“大事件不影响结构查询”作为这个新 API 的设计目的；当前实现只是返回值没有正文，计算仍与所有正文大小和过滤成本成正比。此前 log/path 为读取内容支付这个成本合理，新的结构查询不能假定这些内容很小。没有 outbound 时不发生出站过滤，报告不声称当前应用一定走这项开销。
+- **如何核实**：已运行 `algorithm-smoke.ts` 的 `tree-outbound-full-events`，查询体与 treeLabel 从被审源码抽取，过滤器是明确标注的序列化型实验过滤器，不冒充产品现有过滤器。该实验确认完整正文会被交给过滤器，并量化一个合法过滤实现的成本；真实内核与产品出站过滤未运行。
+- **建议改法**：至少只对会产生 label 的类型做内容投影；建立保持出站安全语义的专用标签过滤/投影入口，结构读取不经过无关正文、图片与工具结果。取回复前 80 字时按块提前停止，不拼全部正文再截断。
+
+### 11. 结构树按 seq 分 50 页时重复从头扫全部事件，10 万事件扫描 2,550,049 次
+
+- **严重程度**：建议；**类别**：安全与性能。
+- **位置**：`packages/nb-harness/src/kernel/run/tree.ts:110-119`；`packages/nb-harness/src/kernel/session/session.ts:370-383`。
+- **现象**：`pathEventsAfter` 每次从 `core.events` 的开头迭代，跳过所有 `seq <= afterSeq` 的事件。100,000 个纯 path 事件按当前 2,000 节点上限读取，需要 **50 次远程调用**，实验共迭代 **2,550,049 个事件**，是单次全量扫描约 25.5 倍，耗时 **106.983 ms**（计时使用抽取算法及普通内存数组）。若 session 事件交错，迭代数按总事件数继续增加。
+- **为什么是问题**：分页避免单次返回超大，但每页仍从头线性扫描；事件越长、页数越多，总代价为 O(事件数 × 页数)。用户打开树时所有页串行请求，内核每页都复制前缀扫描，读对话越久等待越明显。
+- **如何核实**：已运行 `algorithm-smoke.ts` 的 `path-pages-linear-100k`，通过迭代计数器逐次调用原 `pathEventsAfter`，观测到 `pages:50, scanned:2550049`。不是网络时延或生产完整服务测量。结果见 `algorithm-results.jsonl`。
+- **建议改法**：给按 seq 有序的 `core.events` 用二分查找定位 afterSeq，再从该位置扫描到下一页；也可维护 path-event 索引，使总扫描接近事件数而不是重复前缀。
+
+### 12. 分叉结果不分页，4,000 个分叉点就超出 512 KiB，整组分支切换数据被拒
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-harness/src/kernel/session/session.ts:101-107,368-369`；`packages/neuro-book/src/plugins/agent/backend/remote.ts:84-88,129`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:314-318`。
+- **现象**：`branchPoints()` 返回全量 `{parent, children:[{node, latestLeaf}]}`，通过 `whole` 按 512 KiB 硬失败，没有分页。按实际 DTO 字段构造 **4,000 个分叉点**、每点两个孩子，JSON **572,001 字节**；12,000 个节点规模已超过通道上限。`loadBranchPoints` 对 `result-too-large` 静默 return，消息分支切换器因此没有数据，且没有错误状态。
+- **为什么是问题**：长会话可以有很多次重试和编辑分支。树节点读取能分页，分支切换查询却在这一级变成全有或全无；打开会话和运行结束仍发起它，超限后不能用分支切换功能。它是新增后端功能的数据大小边界，没有压力保护或失败呈现。
+- **如何核实**：已用 Bun 直接序列化合同形状：`4000` 点、`12000` 源节点估算、`572001` 字节，对照被审 `PAGE_BYTES=524288`；`whole` 的超限行为已核对为返回 `result-too-large`。不是实际服务端载荷抓取。结果见 `algorithm-results.jsonl`。
+- **建议改法**：增加有游标的分支点分页或按当前路径的可见分叉查询；宿主明确处理分页与加载失败。不要把整会话的全部分叉压进单条消息。
+
+### 13. treeNodes 未归一化 limit，零值游标永远不前进，负数或小数取消分页上限
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-harness/src/kernel/session/session.ts:370-372`；`packages/nb-harness/src/kernel/run/tree.ts:111-116`。
+- **现象**：内核查询只做 `Math.min(requested, 2000)`，不取整、不限制最小值。实测 `limit: 0` 返回空页、`more:true`、`through:0`，调用方继续使用游标会无限重复同一页；`limit:-1`、`1.5`、`NaN` 均会读出全部 2,000 个样本事件，而不是最多 2,000。负数与非整数因 `events.length === limit` 永不成立，取消了循环里的硬上限。
+- **为什么是问题**：`SessionQueries.treeNodes` 是包公开查询，类型约束无法限制 JavaScript 调用方；远程当前入口不透传 limit，所以远程路径暂不受该参数影响，但包内/其它宿主消费者直接使用时可卡死或要求无界结果。相邻 `log` 查询已经把 limit 取整并夹在 1–2,000，treeNodes 没沿用同一既有保护。
+- **如何核实**：已运行 `algorithm-smoke.ts` 调用抽取的实际 `treeNodes` 查询逻辑，记录 0、-1、1.5、NaN 四种值的 nodes/more/through；结果见 `algorithm-results.jsonl`。真实内核测试未运行。
+- **建议改法**：按 `log` 的方式将缺省值设为 2,000，并将输入取整、夹在 1 到 2,000；需要拒绝非法值时也必须保证 `more:true` 的响应能推进 cursor。补边界行为测试。
+
+## 未发现问题的方面
+- 转录器 `applyPath` 与 `applyEvent` 对普通 path 节点、扩展 path 节点，以及 `leafChanged` 后整路径重建：抽取算法实验中确认普通回放与实时事件双投递后，path id 和下一条 turn 回复锚点一致；这不覆盖上文列出的短路回复与合成失败消息。
+- 后台 `purpose !== "turn"` 的 modelStarted 不覆盖最近对话请求锚点；压缩/后台用途及 seq 去重：抽取实验中路径与实时双投递结果一致。压缩后目标关联仍需和特定失败回复问题分开看。
+- 两处分叉落在同一条消息时选择后一个分叉：代码按路径位置排序并覆盖旧值，符合 Spec“取最近的那处”。
+- 分支树找不到父节点的防御行为：算法将它提升为 root；`all` 过滤实验保留全部输入节点。
+- 远程 `sessions.ts` 的 `QUERIES` 已登记 `treeNodes` 与 `branchPoints`；`treeNodes`、`branchPoints` schema 已共用 `wholeErrors`，能表达 `result-too-large`。未发现漏登记或漏错误码；超限后的产品处理问题见第 6、12 条。
+- **已核实问题数：阻断 0，重要 11，建议 1。**
+### 14. 读到内核已经保证不超过 512 KiB 的树页，却漏掉其余字段与通道外壳后按另一预算限流
+
+- **严重程度**：建议；**类别**：代码质量。
+- **位置**：`packages/nb-harness/src/kernel/run/tree.ts:110-118`；`packages/nb-harness/src/kernel/session/session.ts:370-383`；`packages/neuro-book/src/plugins/agent/backend/remote.ts:128`。
+- **现象**：内核在树查询里固定每页至多 2,000 节点，远程层再对完整的 `{nodes, more, through}` 以 512 KiB 检查；该上限既没有作为公开 limit 传给远程调用方，也没有按实际 DTO 编码大小在页内收敛。普通 80 字符中文标签的单页已实测 652,922 字节（见第 6 条）。
+- **为什么是问题**：节点数与字节数是两套预算，内核上限的“约 200 字节”估值没有被结果编码测试验证。出现超限时 `whole` 只返回失败，不能从小页续读；同时远程外壳与返回 envelope 也占字节。固定 count 上限并未兑现“不用按字节算”的合同。
+- **如何核实**：已用实际树查询 DTO 序列化计数 2,000 个 12 字节 id、80 个中文字符标签，结果比 `PAGE_BYTES` 多 128,634 字节；远程 `whole` 对该值返回 `result-too-large`。纯算法实验未运行实际 remote transport。
+- **建议改法**：把页容量合同统一到远程可编码的实际 JSON 字节数，留出 envelope 和协议余量；用公共分页帮助函数实现裁切与游标，而不是让内核与远程各自持有不一致的固定上限。
+
+### 15. 并发 branchPoints 查询没有代次保护，旧结果可覆盖新分叉数据
+
+- **严重程度**：重要；**类别**：竞态。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:226-234,284-290,314-318,542-605`。
+- **现象**：打开、重连/leafChanged 的 `refresh`、运行结束都会并发启动 `loadBranchPoints`。结果只检查 `current === target`，未检查请求序号或查询时的事件头。较早在新分支生成前读取的结果若较晚返回，会覆盖后来已写入的 branchPoints；消息分支按钮继续使用过期索引，刚生成的分叉暂时消失。
+- **为什么是问题**：对同一个 Current 对象，身份检查不能区分多次查询。运行结束触发的查询与重连或切分支路径加载查询是明确存在的并发源。查询数据驱动用户能否看到与切换分支，不能允许结果按网络响应到达顺序倒退。
+- **如何核实**：源码推导；远程乱序实验未运行。用真实 session 返回快照后挂起第一次 `branchPoints`；生成新回复分叉并等待第二次查询返回，再放回第一次结果；检查 `ctx.branches` 是否退回旧值。真实运行时通过远程端点延迟响应，无需伪造内核写入时序。
+- **建议改法**：每个 Current 持有单调查询代次或 head/leaf 标记，只提交发起时仍最新且对应当前 head 的结果；新增节点之后必要时重取。
+
+### 16. 编辑提交在服务端确认前就清空，明确被拒会丢掉用户改写的全文
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:841-844,360-373`。
+- **现象**：`message.editSubmit` 同步将 `editing=null`，组件随即卸载；之后 `rewindTargets` 不可用、目标已被另一个窗口切走、rewind 被 running/read-only/input-rejected 等明确拒绝时，只写 notice，不恢复编辑态，也不把改过的文字放回 composer。用户刚改写的内容已经无处可取。
+- **为什么是问题**：这是正常服务端拒绝路径，不是未知结果（与第 4 条不同）。界面允许编辑与真正受理之间，另一个窗口可以开运行或切分支；输入拦截也可合法拒绝。合同输出 25 要求被拒时说明原因、对话不动，不能把未受理的用户内容先清空。普通发送的 settleSend 已在明确被拒时恢复文字，新编辑动作没有对应恢复。
+- **如何核实**：源码推导；真实宿主拒绝实验未运行。编辑开始后让另一窗口启动运行，再提交编辑；或用真实输入拦截拒绝 resend，检查 editing 和 composer.draft：两者都不保留提交文本。现有编辑测试只有成功与手动取消。
+- **建议改法**：提交时保存编辑文本和消息身份，确认成功再退出编辑态；明确失败恢复原编辑态，未知结果保留独立待确认态。切会话时不得恢复到新会话。
+
+## 复核后的收窄与撤回（本节修正前面即时追加条目）
+
+### 第 5 条收窄：已发起的 A 会话操作可继续，确定的问题是旧失败污染新会话与复合动作竞态
+
+- **严重程度**：重要；**类别**：不变量、竞态。
+- **位置**：`packages/neuro-book/src/plugins/agent/web/session-host.ts:360-376,379-390,430-436`。
+- **现象与影响**：A 的晚到失败无 `current===target` 检查，写进 B 的宿主级 notice，确定违反会话隔离。单会话两次改写并发时，合法时序是 `rewind(A目标)`、`rewind(B目标)`、`start(A操作)`；最后一个 start 实际从 B 目标启动，A 操作声称重试的回复与真正重试的回复不一致。旧操作在切走后继续完成本身可能是合法产品选择，不单独作为缺陷计数。
+- **如何核实**：上述异步边界和单写者受理源码已核对；真实远程乱序复现未运行。
+- **建议改法**：所有结果回写都按 Current 身份检查；给复合改写操作加会话内串行/互斥，跨窗口用预期叶子或原子重试合同解决，不靠两个独立指令之间的时机。
+
+### 第 14 条撤回：与第 6 条重复，且标题错误声称内核已经按字节保证上限
+
+第 14 条没有独立问题，不计数。内核只保证节点数，不保证字节数；树页超限统一看第 6 条。
+
+## 补充验证与更正
+
+- 第 6 条新增可达形状验证：工具等待期间排队 1,992 条 steer，下一个边界依次消费；页包含少量正常前缀和这些 steer，共 2,000 节点、**643,485 字节**，仍超过 524,288。与早先 2,000 条全 assistant 的容量压力形状区分：这个样本的节点类型密度可由真实内核产生。命令 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/edge-smoke.ts`，已成功退出。
+- 第 8 条抽取算法实测：steer 在第 8 个路径节点，选中的分支目标为 `input`，位于 steer 之前；`steer-branch-selected` 的 `selectedBeforeSteer:true`。
+- 第 12 条位置更正：`branchPointsOf` 是 `packages/nb-harness/src/kernel/run/tree.ts:101-107`，不是先前误写的 `session/session.ts:101-107`；后者只负责在 369 行提供查询。4,000 个点的 **572,001 字节**结果已实际追加到 `algorithm-results.jsonl`，不再仅是命令输出。12,000 是紧凑二叉分叉形状的节点量级示例，不是实际会话事件计数；有轮次/模型/工具事件时实际源事件更多。
+- 第 13 条补到 **2,001 个** path 事件验证：limit 为 -1、1.5、NaN 时都返回 nodes=2001、more=false，实际突破 2,000 上限。早先 2,000 项样本只证明 limit 被忽略，不能单凭该样本声称已经突破 2,000。
+- “未发现问题”第 1 项表述更正：算法实验覆盖的是普通 path 回放、实时 seq 双投递与后台用途/压缩插入，不包含真实重连与 leafChanged 链路执行；后两者只做源码检查，未运行。不能把该算法结果当作完整重连证据。
+- 仅有 session 事件时 `treeNodes` 返回空 nodes、more=false、through 不前进；存在 2,000 个 session 事件尾巴的样本只返回唯一 path 节点，more=false。因为实现按 path 节点凑满页而不是按全部事件凑页，正常 limit 下没有“more=true 的纯非 path 空页”，未发现漏节点或因此循环；limit=0 的问题另见第 13 条。
+- `lastRunStatus` 是宿主级且 closeCurrent 不重置，但 open 后无论旧值如何，都会主动 loadBranchPoints，并在 afterChange 写回新会话状态。只读检查未找到它本身导致漏刷分叉的确定路径；可能多发一次查询，属于第 15 条并发源，未另计问题。
+- closeCurrent 已清 editing、inspection、sessionTree，并递增两类面板 token；面板加载返回还检查 current 身份。切会话后旧面板数据重挂未发现；完整宿主运行未验证。
+- fork 复制当前路径时保留节点 id/parent，再顺序重编号 seq（`session.ts:551-591`）；分支查询只枚举 fork 内实际 path 孩子，不引用源会话其它分支。从代码未发现 fork 自带结构或根父节点异常。
+- 已运行一个额外 100,000 以上极宽分支实验，计算在 300 秒截止前没有输出并超时终止。**不把超时当作 10 万事件的有效基准数字**；第 9 条只使用先前已完成的 10 万嵌套样本与 1,000/5,000/10,000 宽度样本。此后只对单次 latestIn 及 UI countRows 分别检查 130,000/140,000 扇出，均未抛错；未报“改递归仍会爆栈”的问题。
+
+## 无计数对照与既有测试
+
+- **无计数性能对照已运行**：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/impl-review-b3/performance-plain.ts`。同一 100,000 事件、1,000 个嵌套分叉样本，直接调用抽取的原算法与索引方法，不挂计数代理，`branchPointsOf` **17,600.486 ms**；线性 100,000 事件读完 50 页，`pathEventsAfter` **50.604 ms**。第 9 条 24,407.067 ms 包含计数开销，性能结论以本次无计数对照为主；两者复杂度计数一致。仍不是完整服务基准。
+- **既有纯 TS 测试已运行**：`bun test ./packages/nb-agent-ui/src/session-tree.test.ts`，**7 pass、0 fail、27 expect() calls**，Bun **1367.00 ms**。该文件无外部运行依赖，可以在无 node_modules 的 worktree 直接执行；没有因此安装依赖或转用主工作区依赖。
+- **未运行**：真实内核 `tree.test.ts`、`kernel-transcript.test.ts`、宿主 `session-host.test.ts`、远程 `sessions.test.ts`，原因是无 worktree 依赖，且按审查规则不安装；typecheck、变异检查、e2e、开发服务也未运行。
+
+## 最终口径更正
+
+- 第 1 条确定失效的是“重试 B”会选到 A 之前；“从 B 分支”并非每次都错：B 恰好是最后一条回复时，错误锚点可能仍选到正确的 after-turn。最终不把后者计作独立失败。
+- 第 7 条收窄到**节点级分叉关系、缩进线、折叠与图分叉导航**丢失；树面板的总分叉数另行按未过滤的节点统计（`AgentSessionTree.vue:55-60`），不会显示成 0。原文“界面算法报告没有分叉”只指 `sessionTreeRows[].forks` 和图的 `node.fork`，不指面板顶栏总数。
+- 第 15 条是从宿主代码推断的响应乱序风险，未在真实远程传输运行时复现；最终降为**建议**，不列已实测失败。
+- 第 10 条提到的出站过滤成本是内核可选合同下的问题；当前 `nbook.agent` 后端代码没有配置 outbound 的命中。不能写成当前普通用户对话打开树必然花 614 MB 正文过滤。输出 80 的“不读全文”仍与该合法内核配置不符，最终保留为**建议**，由内核维护者决定专用投影接口。
+- 本报告中的源码相对路径全部以被审 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/t28-impl-review/` 为根；规范与 Task 依据以主工作区 `/home/notnotype/CodeRepository/neuro-book/` 为根。
+
+## 最终问题索引（按影响排序，以本节级别和上文更正为准）
+
+| 顺序 | 原编号 | 严重程度 | 问题 |
+|---|---|---|---|
+| 1 | 1 | 重要 | 短路模型回复沿用前一步锚点，重试错步并可能重新执行工具 |
+| 2 | 8 | 重要 | steer 的从此处分支退到本轮开头，删除选中的补充说明 |
+| 3 | 4 | 重要 | 改写历史未知结果丢失幂等身份，无安全恢复阶段 |
+| 4 | 5 | 重要 | 复合改写竞态选错路径，旧失败提示污染新会话；已收窄 |
+| 5 | 16 | 重要 | 编辑被明确拒绝后改写文本丢失 |
+| 6 | 2 | 重要 | 用户消息处分支后，现有重新生成不能续跑暂停运行 |
+| 7 | 3 | 重要 | 失败半截与合成停止回复没有锚点，历史操作是死入口 |
+| 8 | 6 | 重要 | 中文/steer 密集合法树页超过 512 KiB，远程不可加载 |
+| 9 | 12 | 重要 | 全量 branchPoints 超限后整组分支切换数据缺失，失败不呈现 |
+| 10 | 9 | 重要 | 全量分叉查询二次扫描，10 万嵌套事件无计数对照 17,600.486 ms |
+| 11 | 7 | 重要 | 被过滤根下的首问分叉丢失节点级关系与导航；总数正确 |
+| 12 | 13 | 重要 | 非法 limit 导致零进度无限分页或突破 2,000 节点上限 |
+| 13 | 15 | 建议 | 分叉查询同会话并发返回无代次保护；从代码推断 |
+| 14 | 10 | 建议 | 结构查询在可选出站过滤配置下仍处理完整无关正文 |
+| 15 | 11 | 建议 | 50 页重复从头扫描，10 万事件迭代 2,550,049 次 |
+
+## 未发现问题的方面（最终）
+
+- 已运行的纯算法检查：普通 path 和扩展 path 的回放、实时重复 seq 去重结果一致；后台用途 modelStarted 不覆盖对话锚点，压缩后的新 turn 请求锚点指向压缩节点；两处分叉映射同一条消息时最近的分叉胜出；找不到父节点时保留为 root；`all` 过滤保留输入的全部节点；非 path 尾页不会让正常分页循环或漏 path。
+- 只读检查：`closeCurrent` 清 editing/inspection/sessionTree，面板 token 和 Current 身份能丢弃旧加载结果；QUERIES 与 wholeErrors 没漏结构查询；fork 保留 id/parent 并顺序重编号，未发现引用源会话其它分支的实现；lastRunStatus 跨会话未重置，没有找到独立漏刷路径。以上不声称完整运行时已经验证。
+- 已有纯 TS 分支树测试 **7 pass、0 fail**；没有用它证明上述缺口已覆盖。
+- base 单独观察：`rewindTargets` 只从当前路径 modelStarted 枚举 after-step、模型拦截允许不调 next、失败消息已有多种合成来源；这些都是 base 行为，本批新增宿主把它们当作统一可操作消息而引入第 1、2、3 条。`latestIn` 的单次子树扫描也是 base 行为，本批全量枚举放大其成本。未另报与本批无关的 base 缺陷。
+
+## 任务反思回写建议
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 工作流损耗 | 宽度 100,000 的压力实验在前序宽度计数已显示二次增长后仍执行，300 秒超时且没有有效时间输出；本次有效结论来自后续 17.98 秒完成的无计数嵌套实验 | 新增：“性能审查先用小规模样本数操作次数，确认复杂度后再选择可完成的代表形状；预计超过截止的形状给出精确计数或外推边界，不用一次无输出的超时冒充有效基准。” | `.agents/skills/reviewing/SKILL.md` 的安全与性能审查说明；仅建议，未经批准未回写 |
+
+## 各级数量（最终）
+
+有效 **15 条：阻断 0，重要 12，建议 3**；第 14 条撤回，不计数。先前即时统计已失效，以本节为准。报告只追加保留核实历程，没有整文件重写。
+
+有效编号（影响排序）：**1、8、4、5、16、2、3、6、12、9、7、13、15、10、11**。
+

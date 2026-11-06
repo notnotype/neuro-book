@@ -1,0 +1,160 @@
+# 实现审查 I8（Opus 份）：w00039/t34 阶段 G，范围 7c61f6125..a2c08aa8b
+实验都在实现 worktree 上跑（实验前核对 HEAD = a2c08aa8bd1071aef60bf16db6c14867f0a906f4），脚本在 /tmp/review-w00039-t34-I8/scratch/。通用夹具 common.ts：probe 比“signature（调用集合与输入摘要）”和“按跑检查时存下的 R 算的摘要”；e2e 走真实的 runOk 与 createCheckSource，再比全量 isValid。
+第 1 到 3 条共用一个世界：K 是老周名下的秘密（实际模式 secret），联动计划 P 把 K 改成 common 并改路人的一行（touch），第 8 章卫兵在场、老周只在本章计划的 cast 里。P 在覆盖层上套得上时 K 不进本章，套不上时 K 进本章、多一个 presence 候选。路人不在 R 里。
+
+### 1. 联动戳漏：同一章里没被选进 linked 的变更不进戳（“同一章不细分”只对 linked 成立）
+严重程度：阻断
+类别：正确性（输出 7，走摘要的结论与重拼不同）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:522-539（worldFold 的联动戳；stamp 用的 running 只含更早的章，这一章的值在算完戳之后才加）
+现象：第 4 章同时有只改路人的变更 A（单目标）和联动计划 P。A 排在 P 之前时决定 P 能不能套上，但 A 不满足 linked 的条件（目标少于 2 个），它的值既不在 linked 的摘要列表里，也还没进 running。改 A、撤销 A、往这一章加 A，P 的戳都不变，K 的历史不变，摘要不变，重拼的结论已经变了。
+为什么是问题：注释写“同一章的先后不细分，几条一起算一个戳”，实际只有 linked 的几条算在一起。第 4 章既写已写变更又留计划是作者最常见的状态（S2c 就是“写这一章时加一条变更”）。同一章内还可以传递：W1{X,Y} 排在 W2{Y,Z} 之后、P{Z} 在同一章时，W2 因 P 进 linked，W1 的筛选先于 W2 把 Y 记进 touched，可能漏掉（推理，没单独跑）。
+如何核实：scratch/s1.test.ts、s1e2e.test.ts（bun test 跑，世界如上）
+    MISS S2a 撤销同章单目标计划: signature变=true 摘要变=false
+       调用差: [ "presence:main#1:e3:e2" ] -> []
+    MISS S2b 撤销同章单目标已写: signature变=true 摘要变=false
+    MISS S2c 同章加单目标已写: signature变=true 摘要变=false
+       调用差: [] -> [ "presence:main#1:e3:e2" ]
+    E2E-MISMATCH S2c 同章加单目标已写: 改前=true 全量重拼=false createCheckSource=true
+    E2E-MISMATCH S2a 撤销同章单目标计划: 改前=true 全量重拼=false createCheckSource=true
+建议改法：一章里有 linked 时，把这一章全部带补丁的变更的值（不论目标几个、kind 是什么）都算进戳；因为值本身可能依赖戳，先用“对象摘要 + 套没套上 + 粗定位”这一段不带戳的键进戳。touched 的更新放在同一章筛选之前跑到不动点。
+
+### 2. 联动戳漏：P 的另一个目标的初值不进 running
+严重程度：阻断
+类别：正确性（输出 7）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:515-547（running 只累加带补丁的变更的值，从 0 开始）
+现象：路人的知情行写在初值里（不是变更加的）。改路人的初值删掉这一行，P 在覆盖层上套不上，K 进本章；路人不在 R，P 的戳不变，摘要不变。
+为什么是问题：模块头写的不变量是“放决定这个结论的东西：它改的条目到这里为止的全部项”，而条目历史的定义里初值就在“全局那一桶”。两者不一致。已写变更不受影响（引擎的结论进键），只有按计划模式的路径漏。出场、是否删除、namespace 启用这些写在条目本体上的东西同理。
+如何核实：scratch/s1.test.ts
+    MISS S1 删路人初值里的行: signature变=true 摘要变=false
+       调用差: [] -> [ "presence:main#1:e3:e2" ]
+    E2E-MISMATCH S1 改路人初值: 改前=true 全量重拼=false createCheckSource=true
+建议改法：running 的初值是条目本身的值（entryDigest 算的那个，`folder`、`order` 仍不算）。注意这会让计划的目标里的条目本体一变，这条计划提到的条目都要重拼，量一下普通条目改简介的场景。
+
+### 3. 联动戳漏：计入与否由链接决定的计划，翻转不进戳（兑现、替代、拆分的 by）
+严重程度：阻断
+类别：正确性（输出 7、canon.model 输出 5、13）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:515-547（只收 `patches.length > 0` 的变更；P1 的键里只有它自己的对象摘要）
+现象：P1 只改路人（去掉那一行），P 在 P1 之后。新写一条 W 兑现 P1（无补丁，或补丁改别的条目），或新写一条计划替代 P1，或撤销 P1 拆分所依赖的 `by`：P1 这时不再计入，P 才套得上，K 的计划值翻转。P1 的对象没变，它在 running[路人] 的值没变；W 没有补丁，或者目标不是路人，不进 running[路人]。P 的戳不变，K 的历史不变。链接成组只把 W 与 P1 的提到合起来（路人），组里没有 K。
+为什么是问题：计划“算不算数”和“它的对象内容”是两件事，戳只看后者。兑现计划是写作的主流程。第一轮修的是“计划覆盖层上的联动”，这条路是修法本身没覆盖的第二个入口：P1 的计入状态。
+如何核实：scratch/s1.test.ts
+    MISS S3a 兑现 P1: signature变=true 摘要变=false
+       调用差: [ "presence:main#1:e3:e2" ] -> []
+    MISS S3b 替代 P1: signature变=true 摘要变=false
+    MISS S3c 撤销 by: signature变=true 摘要变=false
+    E2E-MISMATCH S3a 兑现 P1: 改前=true 全量重拼=false createCheckSource=true
+    E2E-MISMATCH S3b 替代 P1: 改前=true 全量重拼=false createCheckSource=true
+    E2E-MISMATCH S3c 撤销 by: 改前=true 全量重拼=false createCheckSource=true
+（S3d：W 的补丁改的条目恰好在 R 里时摘要会变，是碰巧。）
+建议改法：running 按“提到”而不是按“补丁的目标”累加（链接成组以后 W 提到路人，running[路人] 就变了），再按安放排的时候链接要算到被链的计划那一章之前。第 1、2、3 条是同一个根因，见下一段。
+上游问题（交开发者）：戳这一套是在“内核不给覆盖层的结论”的约束下推理“决定结论的全部东西”，第一轮和这一轮已经漏了 4 个入口（同章、初值、计入状态、桶），下一个入口还会有。P8 第 3 条选它的理由是“不改内核接口”和“读值每张新视图多读几万次”。候选：内核加一个只读的“这个位置上覆盖层里哪些计划与已写变更没套上”（覆盖层本来就算了，`planned` 模式的快照里有 outcomes），依赖摘要按 bucket 取这个结论的摘要进 `own` 或 `entries`。代价是每个读到按计划模式的位置都要建覆盖层（OVERLAY_LIMIT 8 份循环），要量；好处是漏法从“推理全不全”变成“内核的结论变没变”，和已写变更一个口径。
+
+（第 2 条补充）删除也是同一条路：scratch/s2.test.ts，计划的另一个目标 `路人甲` 被作者删除（条目本体的 `deleted`），计划报 entry-missing 整条不套。
+    MISS S1b 删除计划的另一个目标: signature变=true 摘要变=false
+       调用差: [] -> [ "presence:main#1:e3:e2" ]
+
+### 4. 备忘把整份 CheckPlan 留在内存里：一次全书重拼后常驻多 100 MB 以上
+严重程度：重要
+类别：性能、资源
+位置：packages/neuro-book/src/plugins/plot/core/checks/source.ts:78-80（`const concerned = plan ?? NOTHING;` 然后 `verdicts.set(chapter, {of, concerned, ...})`）
+现象：`Concerned` 只要 `points`、`concerns`，但存进去的是整个 plan，每个 call 的 `request.user` 都是“这段正文 + 题面”的完整文字。verdicts 按章一份，活到重启。
+为什么是问题：阶段 G 量的是耗时与记录的堆，这块没量。(h)、(i) 这种全书重拼以后每章留一份。
+如何核实：scratch/mem.ts（300 章，每章约 3000 字，4 人在场，8 个秘密），scratch/mem-plugin.ts 只在加载时把这一行换成只留两个数组，别的不变。
+    一章计划：调用 18 个，request.user 共 53049 字符
+    SLIM=0 重拼 300 章后 heapUsed 19.1 MB -> 54.3 MB
+    SLIM=1 重拼 300 章后 heapUsed 19.1 MB -> 19.9 MB
+按 0.115 MB 一章线性外推，1000 章约 115 MB；正文更长或调用更多时更大（推算，没有跑 1000 章）。
+建议改法：`const concerned = plan === null ? NOTHING : {points: plan.points, concerns: plan.concerns};`。
+
+### 5. 依赖摘要把切口、触发处、分叉的整个对象放进全局的 `order`：改线名、改切口那条变更的文字，全书重拼
+严重程度：建议
+类别：性能、注释与行为不符
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:584-589（`summaryOf` 去掉了线名，`lineDigests` 又用 `factsOf(stored).digest` 把 fork 对象整个放回来，`fork.name` 在里面；cut、trigger 同理）
+现象：注释写“线名计划不读”，但改线名时 `order[0]` 变，每一章的摘要都变。切口是一条普通的已写变更，给它加一处讲述、改 cast、改文字，同样全书重拼（1000 章量级是 scale-g4 的 17 秒那一档）。
+为什么是问题：I7 的修法只需要“切口与触发处现在的位置”。随机序列的 noEffect 注释写“这几种本来就不该让结论变，守的是‘摘要也不变’”（dependencies.test.ts:935-936，包括 renameLine），实际没有任何断言守摘要不变：它只把这些操作从 idle 检查里排除。
+如何核实：scratch/s3.test.ts
+    ok   改线名（计划不读）: signature变=false 摘要变=true
+    ok   改切口变更的 text: signature变=false 摘要变=true
+建议改法：`lineDigests` 只放 `{at, status, kind}`；fork 再加去掉 `name` 的 `fork` 字段。补一条“不该变”的用例。
+
+（第 1 条补充）第 1 条里标“推理，没单独跑”的同一章传递已跑出反例，全是已写变更，不需要计划在同一章：第 3 章一条计划去掉路人的行；第 4 章 W2{路人, 中间人加一行} 在前，W1{中间人那一行, K} 在后。W2 因路人 touched 进 linked，W1 筛选时中间人还没进 touched，没有戳。scratch/s4.test.ts：
+    MISS S2d 同章隔一层: signature变=true 摘要变=false
+       调用差: [ "presence:main#1:e5:e4" ] -> []
+    E2E-MISMATCH S2d 同章隔一层: 改前=true 全量重拼=false createCheckSource=true
+    ok   对照：隔一层在不同章: signature变=true 摘要变=true
+
+### 6. 套没套上没有按线分组取：活页夹讲到 4 条以上子线时，每次发布的摘要慢 20 倍
+严重程度：重要
+类别：性能（计划没做到）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:416-421（`appliedOf` 按 thing 的先后逐条 `on.outcome(change.id)`），`anchorState` 同样；nb-canon/src/lines/set.ts:39（`DEFAULT_RESIDENT_LINES = 3`）
+现象：计划第二版写明“按线分组一次取完”，理由正是“免得超过常驻名额反复淘汰”。实现按变更的写入顺序逐条问，子线上的变更交错时，每问一条就可能把另一条线淘汰、下一条再重建引擎。worldFold 每张新视图跑一遍，每次普通发布后的第一次读都付。
+为什么是问题：scale-g4 的世界只讲一条子线（第 3 到 5 条线的 3 条回溯没进活页夹），量不到；规模脚本没有这个形状。一部有四五条支线的书会把“普通发布后第一次读”从几百毫秒推到几秒。
+如何核实：scratch/lines-perf.ts（300 章，主线 900 条带补丁的变更，每条子线 40 条交错写入，每条子线活页夹讲一章），scratch/group-plugin.ts 只在加载时把 `appliedOf` 换成先按线取完。一次发布后 dependenciesOf 的耗时：
+    LINES=2 GROUP=0 一次发布后建折叠（毫秒）: 88 31 45 31 24
+    LINES=6 GROUP=0 一次发布后建折叠（毫秒）: 1836 1845 1430 1596 1466
+    LINES=6 GROUP=1 一次发布后建折叠（毫秒）: 148 71 78 75 76
+（这里走 createWorldReadView，线集与世界服务同一份代码；没有在世界服务上量。）负载 3 到 15，绝对数偏慢，比值差 20 倍。
+建议改法：在算项之前按线分组，一次把这条线要的 `outcome` 取进一张 Map，`appliedOf`、`anchorState` 只查表。`plot-scale.ts` 的世界加一个讲 5 条子线的形状。
+
+（第 1 到 3 条补充：根因定位）把联动戳换成最保守的写法（这一章含以前全部对象的摘要、全部条目本体、全部链接状态，只要目标数 >= 2 就进戳）后，第 1 到 3 条的所有场景都变成“签名变、摘要变”，没有留下别的漏法。实验在 scratch/stamp-plugin.ts，加载时替换文本，不改仓库。输出：
+ok S1 删路人初值里的行 / S1b 删除计划的另一个目标 / S2a 撤销同章单目标计划 / S2b 撤销同章单目标已写 / S2c 同章加单目标已写 / S3a 兑现 P1 / S3b 替代 P1 / S3c 撤销 by：signature变=true 摘要变=true
+所以这三条的根因都在 dependencies.ts 的联动戳这一处（对象本身、桶前缀和读集没有另外的洞）。这个保守写法本身不是建议改法：它让任何同书修改都使带戳的计划失效，失效面要另外量。
+
+（位置更正）第 1 到 3 条的联动戳代码块从 dependencies.ts:506 的 const stamps 开始，running 在 508，byChapter 在 511。第 4 条在 source.ts:76-78。第 5 条在 dependencies.ts:588-594（summaryOf 588、lineDigests 590、order 594），测试 noEffect 在 dependencies.test.ts:936-937。
+
+### 7. 随机序列几乎只靠确定用例兜底：27 个变异只杀 9 个，第 1 到 3 条的洞它一个也碰不到，提交 a2c08aa8b 又放宽了空转门槛
+（报告只追加，这条按影响应排在第 4 条前后，排在这里只因为最后才拿到完整数据。）
+
+- 严重程度：重要
+- 类别：测试强度
+- 位置：packages/neuro-book/src/plugins/plot/testing/random-edits.ts（操作表）；packages/neuro-book/src/plugins/plot/core/checks/dependencies.test.ts:814-860（readsOfPlan）、869-890（expectReadsCovered）、929-931（核对频率）、935-938（空转门槛）；dependencies.ts:193（没有测试守的一行）
+- 现象：
+  1. 不变量“摘要没变，结论就没变”由随机序列守，但默认 240 步、66 种操作，每种只试 3 到 4 次。真实代码上第 1 到 3 条的 9 个场景都能漏，随机序列仍然通过。
+  2. 操作表里没有这些洞需要的动作：改计划另一个目标的初值、删除它、在同章放单目标的已写或计划再撤销、兑现或替代更早的单目标计划。
+  3. 提交 a2c08aa8b 把离线 800 步以上的 expect(idle).toEqual([]) 放宽成不足 10%，默认仍是不足 40%。现在默认种子有 9 种操作从未让结论变过（上限 26.4），包括 toggleSecrecy、mask、rebind、newForeshadow 这些按设计就该影响结论的操作。
+  4. expectReadsCovered 只包了 entry、onLine、origins、changes。entries()、object()、allChanges()、outcome()、progress() 不记录，而第 3 条走的正是 outcome 与 progress 这条路。注释承认只守“读了哪个条目的哪个字段”，所以它不能作为“读集完整”的证据。它还只在每 40 步核对一次，240 步里共 7 次。
+  5. dependencies.ts:193 的 if (lower(link.plan, own)) moved = true 删掉后 70 个用例全部通过。我试了“兑现在 ch3、计划在 ch9、读者 ch5，改计划补丁或撤销计划”两个场景，变异后也都是签名不变，所以没有证据说它漏，但也没有测试说明这一行要防什么。
+- 为什么是问题：计划和提交把随机序列当成“摘要不漏”的兜底。实际杀伤力主要来自确定用例，而确定用例只覆盖作者想到的场景，第二轮找到的 3 类洞正好都在这之外。门槛放宽后，操作在这个种子上是否真的走到了会影响结论的路径，测试也不再要求，后面操作退化成空转时不会报错。
+- 如何核实：加载时替换文本做 27 个变异（scratch/mut-plugin.ts、run-mut.sh，不改仓库），只跑 dependencies.test.ts 与 source.test.ts，结果在 scratch/mut-results.txt：
+  总数 27；随机序列杀 9（no-children no-identity no-own-digests no-own-mentions no-later no-entries no-entry-body no-pov no-decisions）；都没杀 1（no-link-lower）；只有随机杀 1（no-pov）。
+  no-stamp 确定用例失败=4 随机序列失败=0；stamp-plan-only 2/0；no-coarse 2/0；no-applied 5/0；no-anchorState 2/0；no-lineDigests 2/0；no-foreshadow 5/0；no-material 1/0；no-link-lower 0/0。
+  空转（scratch/idle.ts，默认种子）：steps=240 ops=66 上限(0.4)=26.4 idle=9；idle: nodePlan planBreaker rebind moveLineEdge reparentGoal mask goalStatus newForeshadow toggleSecrecy；每种试几次: 3 到 4。
+  变异的两点限制：这里只跑了默认种子 240 步，步数加大后杀伤力可能上升；no-link-lower 可能是等价变异（行为上不产生漏读）。
+- 建议改法：
+  1. 按第 1 到 3 条加定向操作：编辑或删除计划的另一个目标、同章兄弟变更的增加与撤销、兑现或替代更早的单目标计划，并提高撤销的比例。
+  2. 把每种操作的尝试次数改成按操作保底，例如轮转选择操作，不靠均匀随机；固定种子时门槛就可以回到确定的集合（把已知空转的操作逐个写明理由），不用比例。
+  3. 把这张变异矩阵留成一个离线脚本或至少把结果写进证据：把“杀了几个”作为改随机序列时的回归基准。
+  4. dependencies.ts:193 要么补一条能说明它防什么的用例，要么写明它是只多不少的保守处理。
+
+（第 1 到 3 条补充的更正）上面说保守写法“让任何同书修改都使带戳的计划失效”说过头了：准确的是“这一章含以前的任何修改”。同一补充的 stamp 输出里 S3d、改线名、改切口三项在真实代码上已是 ok，没有列入。
+
+## 未发现问题的方面
+以下方面查了，没有发现问题；其中自写模糊测试的证据弱，见最后一条。
+- 摘要合成：isMaskPath 判断正确（parsePath 不接受单独的 point）；线视图与主线视图算出同一摘要；前缀和按桶升序；两路 52 位相加不超 2^53，且对象摘要进入键，没有构造出碰撞。
+- 桶与安放不一致的各种情况（未排章、前史、子线、桶早于安放）都只会多失效，唯一的漏法是第 1 到 3 条所说的同章情况；桶的链接不动点能收敛。
+- G1 内核：foldAtPoint 的 lastRead 放在 Timeline 上，重算和覆盖层都由 makeDirty 重建，不跨重算泄漏；有条目守卫。fieldValue 不克隆时，调用方没有改写（valueAt 与 carrySlotOf 自己克隆，读取视图冻结）。includedPlans 按引擎缓存；chapterEntryIndex 与旧实现等价；planRank 的键在两个引擎里一致。
+- G2 存储：缓存表加载失败、形状升级都按没有缓存处理；两次写入的先后、writeBackDependencies 的 of 核对先进先出，(D, R) 配对始终自洽；canonicalJson 往返一致。
+- readAppeared 缓存：只读名字、别名、摘要和确切字段，键是模式加位置；引擎按视图一份，position.line 不影响结果。
+- 摘要的其余组成没有查到遗漏：决策折叠、revealTable、试读材料、身份项、伏笔、线摘要里的不可建线。
+- 变异矩阵里 26 个变异至少被一类用例杀死（只有 no-link-lower 存活），所以这些项不是空的断言。
+- src/plugins/plot/core/checks 的合同测试在 a2c08aa8b 上 132 pass、0 fail。类型检查、e2e 与 plot 其余目录的测试本轮没有跑。
+- 自写模糊（scratch/fuzz.ts：嵌套线、重述、检查，种子 1 到 5，150 到 250 步）在真实代码上没有发现漏读。这条证据弱：它同样没撞上已知的第 1 到 3 条，不能证明没有别的洞。
+
+## 各级数量
+阻断 3（1、2、3）；重要 3（4、6、7）；建议 1（5）。无撤回。
+
+有效发现：1、2、3、4、5、6、7
+
+（第 7 条更正与补充，以此为准；有效发现编号与各级数量不变）
+- 更正现象第 2 点：我写“操作表里没有这些动作”不准确。操作表有 fulfill、replace、split、undo、deleteEntry、sameChapterPlans、breaker、planBreaker 这些基本动作，缺的是洞需要的组合：
+  带两个目标的计划，第二个目标固定是 touch 那一行（bystander 的 know.知情）；editInit 与 toggleInitEnabled 只改 person() 或 point()，没有操作改 bystander 的初值；deleteEntry 只删 people[3] 以后的人，碰不到这个目标；sameChapterPlans 放的是同一目标的两条单目标计划，不和带 touch 的计划同章。fulfill、replace、undo 都从全部计划或变更里均匀抽，碰上“同章、位置在前、影响 touch 的兑现或替代”要靠运气。
+  因此建议改法第 1 点改为：让已有的操作定向选中这些组合，并加上改、删第二个目标的操作。
+- 补充：步数加大也碰不到。离线 800 步跑两个种子（PLOT_RANDOM_STEPS=800），种子 20261106 通过（396.76s）；种子 7 走完了循环，没有报“摘要没变，结论变了”，也就是都没有撞上第 1 到 3 条。这回应了前面“步数加大后杀伤力可能上升”的限制：对这三类洞，这两个种子的 800 步没有上升。变异矩阵本身仍只跑了 240 步。
+- 补充：种子 7 在 800 步时用例失败（361.24s），失败的是 expect(book.ops.filter((op) => !applied.has(op))).toEqual([])，这不是真实漏读。scratch/applied.ts 只跑操作、不算计划，输出：
+  seed=7 steps=800 从没成功: linkedWrittenSecrecy(试12次)
+  seed=7 steps=240 从没成功: linkedWrittenSecrecy(试3次) moveLineEdge(试3次)
+  seed=20261106 steps=800 从没成功: 无；seed=20261106、1、2、3 steps=240 从没成功: 无
+  所以测试提供的 PLOT_RANDOM_SEED 入口换种子就可能假失败，“离线多跑”这条路比注释说的脆。原因是 linkedWrittenSecrecy 依赖世界状态，整次运行都写不进去时才会这样；我没有继续查为什么这个种子上 12 次都被拒。建议改法第 2 点的“按操作保底”也要覆盖这种情况。
+
+（第 4 条标题更正）标题里的“多 100 MB 以上”是推算，不是实测。实测是 300 章多 35.2 MB（瘦身后多 0.8 MB），1000 章约 115 MB 是线性外推。严重程度不变。
+
+有效发现：1、2、3、4、5、6、7

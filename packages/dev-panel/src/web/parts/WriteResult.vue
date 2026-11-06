@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import {Notification} from "@notnotype/nb-ui/components";
+import {Notification, type NotificationTone} from "@notnotype/nb-ui/components";
 import {ref, watch} from "vue";
 import type {Notice, NoticeOutcome} from "../host/writes.js";
 
 /** 一次写入的结果：结果的颜色只由结果决定，附注（警告）缩进折叠在下面。契约见同名 .md。 */
 const props = defineProps<{notice: Notice}>();
 const emit = defineEmits<{dismiss: []; retry: []}>();
-const TONE: Record<NoticeOutcome, "success" | "error" | "warning" | "info"> = {success: "success", failure: "error", conflict: "warning", unknown: "warning", info: "info"};
+const TONE: Record<NoticeOutcome, NotificationTone> = {success: "success", failure: "danger", conflict: "warning", unknown: "warning", info: "info"};
 const notesOpen = ref(false);
 watch(() => props.notice, () => {
     notesOpen.value = false;

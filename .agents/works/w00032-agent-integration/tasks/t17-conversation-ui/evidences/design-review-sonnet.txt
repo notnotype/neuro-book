@@ -1,0 +1,365 @@
+# t17 设计审查（前端部分）报告
+
+审查对象：计划 plan.md、Spec（agent/conversation、ui/agent-conversation-view）、静态稿定稿。按发现顺序追加；最后有按影响排序的目录。
+实验文件在 /tmp/review-t17-design/（diffperf.ts、diffperf2.ts）。没有跑 e2e 与开发服务，e2e 相关结论标“从代码推断”。
+
+### 1. nbook 圆角取值一改，nb-ui 现有 e2e 的两处断言必红，计划的验证清单没覆盖到
+
+**严重程度**：重要
+**类别**：验收映射 / 与现状冲突
+**位置**：packages/nb-ui/e2e/popup-lists.spec.ts:5、20、40-44；packages/nb-ui/e2e/dialog-surfaces.spec.ts:51-52、82；plan.md 第 7 节
+**现象**：
+- popup-lists.spec.ts 在 nbook 主题下断言弹出菜单外框 `border-radius: 10px`、列表项 `5px`。计划把 `--radius-menu` 改成 8，菜单内边距 `--menu-pad` 仍是 4、描边 1，同心推导 `--nb-popover-inner-radius = 8-1-4 = 3px`，两条断言（10px、5px）都不成立。
+- dialog-surfaces.spec.ts:51-52 断言 `dialogRadius > windowRadius`（“一级对话框比窗口圆，二级才需要收”）。`--radius-window` 取 `--shell-card-radius`，nbook 下是 12px（vars.css:111、313）；计划把 `--radius-dialog` 定成 12，12 > 12 为假。第 58 行与第 64 行的“收到窗口那档”也因两档相等而无法区分。82 行的断言文案还写着“一级时是 20px”。
+**为什么是问题**：计划第 7 节验证写的是“受影响的 e2e”，第 1 片自跑验证只有“nb-ui、nb-agent-ui 测试；Lab 截图”，没有 nb-ui 的 e2e。这些断言钉的就是被改的取值，改完才在后面的合入门禁里红。更深一层：`--radius-dialog`（12）与 `--radius-window`（12）、`--radius-dialog-compact`（取 window，12）三档在 nbook 下合成一个数，`.nb-ui-dialog-surface--nested` 的 `min(window, dialog)` 在 nbook 下不再有可观察效果，只剩 probe 场景能验，原来为“26px 画在小框上像胶囊”单列 `--radius-dialog` 的理由（vars.css:96-101）也随之失效，注释与 design-language.md:249 的三档说明变成历史。
+**如何核实**：`grep -n "10px\|5px\|windowRadius" packages/nb-ui/e2e/popup-lists.spec.ts packages/nb-ui/e2e/dialog-surfaces.spec.ts`；`sed -n 100,113p packages/nb-ui/themes/nbook/vars.css`；`sed -n 311,314p` 同文件。未跑 e2e（任务规则），结论从代码推断。
+**建议改法**：第 1 片的自跑验证加 `bun run test:e2e` 里的 popup-lists、dialog-surfaces 两个文件；两处断言改成读 token（`--radius-menu`、`--menu-pad` 现算内圈半径）而不是写死数；对话框那条“比窗口圆”的前提改成 `>=`，或者直接承认 nbook 下对话框与窗口同档，删掉 nbook 场景里的这条，嵌套机制只留 probe 场景验。vars.css 里 `--radius-dialog` 的注释（26px 的出处）与 design-language.md 同步改。
+
+### 2. “控件与按钮 6”只改了 `--radius-control`，Button 与 IconButton 的圆角是写死的，按钮不会变 6
+
+**严重程度**：重要
+**类别**：与已定设计一致 / 遗漏
+**位置**：packages/nb-ui/src/components/controls/Button.vue:38、41、43；IconButton.vue:36-48；plan.md 第 3 节“全局圆角”；design-language.md:295-298
+**现象**：开发者定稿“控件与按钮 6”（README 第 3 轮、定稿第 1 条）。计划只改主题变量 `--radius-control: 6px`。但 design-language.md 自己写明 Button 与 IconButton 的圆角是按尺寸写死的定值：Button sm 6、md 8、lg 10；IconButton 2xs 4、xs/sm 6、md 8、lg 10。`--radius-control` 只管输入类控件、分段控件、ToggleGroup、Skeleton、Tooltip、Kbd（0.7 倍）。
+**为什么是问题**：改完以后输入框 6、默认大小（md）的按钮 8、lg 的按钮 10。nbook 的输入框与按钮并排（工具栏、搜索框加按钮、设置页）本来是 10 对 8，改后是 6 对 8，反过来比输入框更圆，和开发者“按钮 6”的意思相反。静态稿上的圆角调节器是直接改 `--radius-control` 的，看起来按钮跟着动，是因为稿里的按钮没用 nb-ui 的 Button；换成真组件就看不出来了。
+**如何核实**：`grep -n "rounded-\[" packages/nb-ui/src/components/controls/Button.vue packages/nb-ui/src/components/controls/IconButton.vue`。
+**建议改法**：决定 md 与 lg 的 Button、IconButton 在 nbook 下取多少（按开发者原话是都 6，那 sm/md/lg 三档圆角差就没了，高度差仍在）。把这三档写定值改成走 `--radius-control` 的倍数或新增 `--radius-button`（先判断归属，AGENTS.md 要求新增变量先过归属判断），同时改 design-language.md:295-298 的“这是现状”和 Button.md、IconButton.md 里“圆角随尺寸取 6、8、10px”。这一条要在第 1 片的截图里单独看：书架、设置、编辑器的按钮与输入框并排处。
+
+### 3. 菜单与气泡内圈半径从 5/13 掉到 3，列表项比控件还方，同心规则的文字和测试都按旧数写
+
+**严重程度**：建议
+**类别**：别扭与反常
+**位置**：packages/nb-ui/src/styles.css:225、257-262；design-language.md:270-290；themes/nbook/vars.css:92-94
+**现象**：`--nb-popover-inner-radius = max(2px, 外圈 − 描边 − 内边距)`。新值下：菜单 8 − 1 − 4 = 3px（原 5px）；默认气泡（Popover）与向导这类用基座的浮层 10 − 1 − 6（`--nb-popover-pad` = space-3）= 3px（原 13px）。
+**为什么是问题**：同心是对的，但列表项与浮层内的滚动区会变成近乎直角的 3px，比 6px 的输入框和按钮方得多；视觉上变成“外框圆、内容方”。`.nb-ui-menu-item` 的 6px 兜底（styles.css:297、600）不会触发，但文档里“5px”“13px”的例子（styles.css:583-605 的注释、popup-lists.spec.ts 的 5px）要全部重写。
+**如何核实**：把上面三个值代进公式；`grep -rn "inner-radius" packages/nb-ui/src`。
+**建议改法**：第 1 片的截图把菜单、选择下拉、气泡各放大 4 倍看一次（design-language.md:783 的判据就是 4 倍截图）；若 3px 太方，调 `--menu-pad` 到 3 或接受外框 10。这里不用改计划结构，只把“看图”写进第 1 片的验证。
+
+### 4. 写死半径的地方不会跟着变，且有几处会反过来比新的气泡、面板还圆
+
+**严重程度**：建议
+**类别**：遗漏
+**位置**：
+- packages/nb-agent-ui/src/vue/stream/AgentTurnBlock.vue:199（运行中间 content 小气泡 `border-radius: 12px`，比新气泡 10 还圆，而它是“比最终回复轻一级”的）、:300（`0 10px 10px 0`）；AgentChainBlock.vue:226（`.acv-narration` 10px）；AgentConversationView.vue:513（6px）
+- packages/neuro-book/src/plugins/projects/web/components/ShelfCards.vue:181、BookCard.vue:105（16px）、ShelfDesk.vue:187/246/264（10、34、22px）、ShelfList.vue:117（10px）
+- packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolPartHost.vue:219（10px）、WorkbenchViewSection.vue:118（6px）
+- packages/nb-markdown/src/prompt/PromptEditor.vue:1063（0.625rem = 10px，composer 框走 `--radius-panel` 后同为 10，内外相等，没有同心）
+- packages/nb-story/src/web/qa/QaInspector.vue:65、ModeNotice.vue:61（8px）
+**现象**：这些全是字面值，计划只处理 nb-agent-ui 的 16、12、10 三处（气泡与输入框）。书架卡片 16/34/22 与新面板 10 并排，会比设置页等面板明显更圆；中间 content 的 12 比主气泡 10 大。
+**为什么是问题**：计划第 8 节风险已经承认“可能有写死半径的地方不协调，第 1 片看图时查”，但没给范围，也没有机检：`token-consumption` 的 literal-radius 规则只拦 Tailwind 的 `rounded-md` 等常量档，对 scoped CSS 里的 `border-radius: 16px` 不报。
+**如何核实**：`grep -rnE "border-radius: *[0-9]+px" --include='*.vue' packages/neuro-book/src packages/nb-agent-ui/src`。
+**建议改法**：第 1 片的截图清单写死：书架（卡片）、设置、编辑器、对话、nb-story 问答、nbdev 面板各一张；nb-agent-ui 里把 12、10 的小气泡与 narration 收成 `--nb-agent-bubble-radius` 的倍数或 `--radius-control`；书架的 16、34、22 按开发者“只提默认主题、其它不动”的口径，要么明确不动并写进 Task 记录，要么列入这一片。
+
+### 5. nb-story 与 nbdev 面板都加载 nbook 主题，会一起变，计划没提到它们
+
+**严重程度**：建议
+**类别**：遗漏
+**位置**：packages/nb-story/src/web/host/theme.ts:2、packages/dev-panel/src/web/host/theme.ts:2（都 `import nbookTheme`）；dev-panel/src/web/app.css:165（`.nbdev-surface` 取 `--radius-panel`，20→10）；nb-story/src/web/parts/CandidateBlock.vue:60/69、qa/AnswerCard.vue:183、pages/RevisionsPage.vue:91、parts/RevisionCard.vue:48（`--radius-panel`）；nb-form 的 ListControl.vue:174、MasterDetailControl.vue:191
+**现象**：这两个应用没有自己的主题，用的就是 nbook 变量，所以全局改圆角对它们同样生效；nb-story 的问答页还直接嵌着 AgentConversationView，会连同气泡一起变。
+**为什么是问题**：计划第 1 片的截图清单是“书架、设置、编辑器、对话”，没有 nb-story、nbdev。nb-story 作为 npm 包发布（ADR 0029），视觉变化会随包出去；它的内核验收门（计划第 7 节）只验行为不验外观。nbdev 面板的 WorkCard、FileEditor、ArtifactFrame 取 `--radius-panel`（20→10）与旁边的 `--radius-control` 元素的差缩小，通常无害，但 `dev-panel/tests/fixtures/t03-review/index.html` 里有写死半径的评审夹具，不跟着变。
+**如何核实**：`grep -n "nbookTheme" packages/nb-story/src/web/host/theme.ts packages/dev-panel/src/web/host/theme.ts`。
+**建议改法**：第 1 片截图加 nb-story 问答页、nbdev 的会话页与工作页各一张；未发现需要改代码的不协调，所以只是补验证范围。
+
+### 6. 向导要用 nb-form，但 nb-agent-ui 的 Vue 层按包规则只许依赖 vue、nb-ui 与核心，边界测试会红
+
+**严重程度**：重要
+**类别**：与已定设计一致 / 包边界
+**位置**：plan.md 第 2 节（表单选用 `nb-form`）、第 3 节（`AgentApprovalWizard`、`AgentQuestionWizard`）；packages/nb-agent-ui/src/boundary.test.ts:17（`VUE` 规则只放行 `vue` 与 `@notnotype/nb-ui`）；packages/nb-agent-ui/AGENTS.md“边界”；packages/nb-agent-ui/package.json（dependencies 只有 nb-ui）
+**现象**：Spec 要求提问向导里“带表单的题用 nb-form 的编辑态”、审批里“别的工具的参数用 nb-form 的展示态”。这两个组件在 `packages/nb-agent-ui/src/vue/`，一旦 `import {SchemaForm} from "@notnotype/nb-form/vue"`，`boundary.test.ts` 的“Vue 渲染层只导入 vue、nb-ui 与本包的文件”会报越界；package.json 也没有 nb-form 依赖。计划第 2 节把 nb-form 写成“选用”，没有提这个边界。
+**为什么是问题**：这是包的既有设计（Markdown 与提示词编辑器就是为了守这条边界才做成宿主注入的 `renderers`），不能在实现时悄悄改测试放行；而一旦把 nb-form 放进依赖，nb-agent-ui 的发布依赖面（npm 包，ADR 0029）与 nb-story 的 8 个工作区包清单都要跟着改。
+**如何核实**：`sed -n 14,20p packages/nb-agent-ui/src/boundary.test.ts`；`grep -n nb-form packages/nb-agent-ui/package.json` 无输出。
+**建议改法**：二选一并写进计划与 AGENTS.md。（a）沿用注入：`renderers` 增加 `form`（编辑态与展示态各一个组件或一个带 `mode` 的组件），宿主（`nbook.agent` 的 web 入口）注入 nb-form 的实现，缺省实现把 JSON 画成只读的键值与一个 JSON 文本框，符合“视图不依赖宿主选择”的原则，nb-form 的消息目录已在应用的 text-engine.ts:20 里登记，不用再接。（b）把 nb-form 升为 nb-agent-ui 的依赖，改 `VUE` 规则、package.json、AGENTS.md、monorepo-boundaries.md 的这一行，并说明为什么这里与 Markdown 不同。我倾向（a），因为 nb-story 迁移前它还是 nb-agent-ui 的另一个宿主。同一处还要补：`./vue` 入口目前只导出三个受管组件（AGENTS.md），`AgentSessionPanel` 计划“独立导出”，要同步改这一条和 README；计划第 4 节的文档改动表没有列 nb-agent-ui 的 AGENTS.md、README.md。
+
+### 7. 三处文字对向导与继续的 action 说法不一致：计划写 `pending.resolve/abort`，Spec 动作表仍是 `input.*`，`run.continue` 只在正文里出现
+
+**严重程度**：重要
+**类别**：接口与合同
+**位置**：plan.md 第 3 节“视图零件”（`pending.resolve`、`pending.abort`）；docs/specs/ui/agent-conversation-view.md:344（动作表“提问”一行：`input.submit {batchKey, resolutions}`、`input.cancelRun`、`input.resync`）与 :285（正文写 `run.continue`）；packages/nb-agent-ui/src/types.ts:396-398
+**现象**：现状已有一组提问 action（`input.submit`、`input.cancelRun`、`input.resync`）和 `PendingInputView {batchKey, toolCallId, questions}`，当时就是给提问向导设计的。计划再加一组 `pending.resolve`、`pending.abort`，同一个动作两套名字；Spec 动作表没有改；Spec 正文 285 行写“空着发送发出 `run.continue`”，但这个 action 既不在 `BuiltinAgentViewAction`，也不在计划的新增清单里。全仓搜 `run.continue`、`pending.resolve` 只在 Spec 正文与 plan.md 各出现一次。
+**为什么是问题**：宿主与测试按哪一套写，实现阶段才会撞；`input.submit` 的 `resolutions: JsonValue` 本来就能装审批的 `{decision, note}`，不需要第二套。更要紧的是审批的 `allow`、`allow-session`、`deny` 加附言这一组决定，没有任何一处给出 action 负载的形状，宿主的映射（`pending.resolve` → `resolve{id, decision, note?}`）无从核对。
+**如何核实**：`grep -rn "run.continue\|pending.resolve\|input.submit" docs packages --include=*.ts --include=*.md --include=*.vue | grep -v node_modules`。
+**建议改法**：只留一组。若沿用 `input.*`：`PendingInputView` 加 `kind: "approval" | "question"` 并把 `batchKey` 改叫 `id`（对应内核的 interaction id），负载写成联合类型 `{kind: "approval", decision: "allow"|"allow-session"|"deny", note?: string} | {kind: "question", answer: JsonValue}`；`input.cancelRun` 就是计划里的 `pending.abort`。若换名，Spec 动作表、types.ts、计划三处同一次改。`run.continue` 补进 `BuiltinAgentViewAction` 与动作表，并在“验收”里写它的用例。`ctx.pendingInputs` 与 `composer.resume` 对现有宿主的冲击很小（见“未发现问题的方面”）。
+
+### 8. 排队消息“能改能删”在 Spec 里是合同，视图现在只显示、没有任何 action，计划与验收映射都没覆盖
+
+**严重程度**：重要
+**类别**：遗漏 / 验收映射
+**位置**：docs/specs/agent/conversation.md 输出 6（“排队中的消息显示在待处理区，能改能删”）；packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.md（“只显示，没有操作”）；packages/nb-agent-ui/src/types.ts（动作联合里没有排队消息的编辑与删除）；packages/nb-harness/src/kernel/api/host.ts（`edit`、`remove` 已在内核）；plan.md 第 5、6 节
+**现象**：Spec 输出 6 要求排队消息能改能删，内核指令已有，但视图组件明确“只显示”，动作联合没有 `queued.edit/remove`，计划切片 5 的零件清单也没有这一项，第 6 节验收映射里“输出 5–8”只写 `session-host` 的测试。
+**为什么是问题**：运行中按回车插话或 Ctrl+回车排队是写作时最常用的一条路径之一（长任务期间补一句），发错一条又撤不回去，用户只能停掉整轮。按计划实现，这条合同必然漏掉，实现后才发现要改 types.ts 与 Spec。
+**如何核实**：`grep -n "queued" packages/nb-agent-ui/src/types.ts packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.vue`；`sed -n 12,20p packages/nb-agent-ui/src/vue/composer/AgentQueuedMessages.md`。
+**建议改法**：二选一，写进计划：（a）第一版做：加 `queued.edit {id, text}`、`queued.remove {id}`，`AgentQueuedMessages` 每行加“删”和“改”（改可以是“取出到输入框、再发送”，与内核 `edit` 的语义对一下），验收写进 `AgentQueuedMessages` 的 dom 测试与 `session-host` 测试；（b）降级为“只显示”，把 Spec 输出 6 的“能改能删”改成“第二批”。
+
+### 9. 编辑区页面切标签就卸载组件，`EditorPageContext` 里也没有“可见”与页面 id，Spec 的“订阅跟着对话位置、未提交答案保留”对页面位置无法成立
+
+**严重程度**：重要
+**类别**：依赖的机制与计划描述不符
+**位置**：packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:329-330（`v-if="pageId !== null"`，只渲染活动标签）；packages/neuro-book/src/plugins/editor/web/pages.ts:61-64（`EditorPageContext` 只有 `recent`）；docs/specs/workbench/editor.md:48、215；docs/specs/workbench/views.md“ViewContext”；docs/specs/agent/conversation.md“状态与转换”；plan.md 第 3 节“宿主”（“视图与编辑区页面共用 `ConversationHost.vue`”）
+**现象**：
+- 视图的实例在隐藏、换容器时只停放不销毁（views.md 输出 3），`ViewContext` 给 `visible`、`generation`、`location`。编辑区页面不同：只有活动标签的页面组件在 DOM 里（`v-if`），切到别的文件标签，对话页面组件卸载，切回来重新创建；它收到的 `context` 只有 `{recent}`，没有 `visible`、`generation`，也没有自己的页面 id。
+- 计划与 Spec 说“宿主的订阅跟着对话位置：视图隐藏时保留，位置被关闭时取消”。对页面位置，插件拿不到“标签被关闭”和“只是切走”的区别，只能看到组件卸载。
+- 页面标签外层是 `absolute inset-0 overflow-auto`（EditorGroup.vue:329），对话页面根元素要铺满它，否则出现外层滚动条加消息流自己的滚动条两层。
+**为什么是问题**：写作时最典型的用法是边读文件边和 Agent 对话，来回切标签是常态。卸载就丢：向导里已填未提交的答案（Spec 输出 13 明说“未提交的只在这一批里保留”）、向导的收起状态、消息流各轮的展开状态与滚动位置；若 session-host 的生命周期绑在组件上，每次切回还要重新订阅、重取路径（计划第 7 节自己承认首屏耗时没量过）。若绑在插件级，则没有可用的“位置关闭”信号，订阅泄漏到窗口结束。`ConversationHost.vue` 也不能直接接 `ViewContext` 与 `EditorPageContext` 两种 context。
+**如何核实**：`sed -n 325,332p packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue`；`sed -n 58,64p packages/neuro-book/src/plugins/editor/web/pages.ts`。
+**建议改法**：计划里写死三件事。（1）`session-host` 按位置键（`view:nbook.agent.conversation`、`page:nbook.agent.conversation`）放在插件级，组件只“借用”并计数，计数归零后延迟一段时间再取消订阅（页面位置没有关闭信号时用这个代替“位置被关闭”）；Spec 的“时序与寿命”按这个改写。（2）向导的“未提交答案”“收起状态”进 session-host 的状态而不是组件局部状态，卸载重建后恢复；否则 Spec 输出 13 要改成“切走标签后丢失”。（3）`ConversationHost.vue` 的 props 写成它自己的 `{position: "view" | "page", visible?: Ref<boolean>}`，由两个很薄的包装（视图实现、页面实现）从各自的 context 转换，根元素 `h-full` 铺满；视图声明里写明 `layout: "fill"`（views.md 声明表）。同时在 Spec 输出里补一条“切标签后回来：滚到最新、向导仍在”的验收。
+
+### 10. “当前会话按窗口存浏览器本地”与 Storage 规范冲突：没有窗口作用域，两个窗口共用同一份 local 记录
+
+**严重程度**：重要
+**类别**：与已定设计一致 / 依赖的机制不存在
+**位置**：docs/specs/agent/conversation.md:28、:94（“每个窗口各选各的”“按窗口与对话位置存在浏览器本地”）；docs/specs/storage/boundaries.md:41、persistence.md:21、:112、:175；docs/standards/code/frontend.md:64（禁止裸 localStorage）；plan.md 第 3 节“宿主”（`createSessionHost({client, models, project, store})`）
+**现象**：Storage 规范只有 user 与 project 两个分区，明说“不提供 session/window 作用域”，“同一客户端身份的两个窗口共用一份 `local` 记录”。计划里 `store` 是 `nbook.storage` 的记录接口，按它存“当前会话 id”，两个窗口会读写同一条记录：窗口 A 切到会话 X，窗口 B 刷新后也回到 X；A、B 各选各的就做不到，Spec 28 行“每个窗口各选各的”只在不刷新时成立。frontend.md 又禁止绕过 Storage 直接写 sessionStorage。
+**为什么是问题**：Spec 写的行为与可用的存储层互相否定，实现时要么偷用 sessionStorage（违规），要么悄悄改成“最近用过的会话”（行为变了没人批准）。
+**如何核实**：`sed -n 39,42p docs/specs/storage/boundaries.md`；`sed -n 112p docs/specs/storage/persistence.md`。
+**建议改法**：先决定要哪种语义，再改 Spec，不在实现里悄悄变：（a）“最近用过的会话”：user/local 记录加按位置分键（`keyed` 记录，键是位置），两个窗口共享，刷新后回到最近切到的那个；Spec 28、94 行改成这个说法，“每个窗口各选各的”只保证运行期间。（b）真要按窗口：Storage 规范自己写“刷新后要保留的状态放进 URL”，用 URL 参数（要查应用有没有窗口级 URL 状态的约定）。我倾向（a），成本最低，也不挡以后做草稿（t28）。顺带：作品范围的记录要按 project 分区（没有项目时是 user），计划没说。
+
+### 11. 向导底部留白用第二个 `ResizeObserver` 量高度，会晚一帧且可能触发 loop 报错；输入框的“替换”方式没定，会丢焦点
+
+**严重程度**：重要
+**类别**：别扭与反常 / 遗漏
+**位置**：plan.md 第 3 节“视图零件”（“消息流底部留白用 `ResizeObserver` 量向导高度，向导变高时贴底的继续贴底”）；packages/nb-ui/src/composables/useStreamScroll.ts:63-181（已有的 ResizeObserver 观察 scroller 与 content）；packages/nb-agent-ui/src/vue/AgentConversationView.vue:252-253；静态稿 ConversationShellDraft.vue:875-877（`.acv-composer {display:none}`）
+**现象**：
+- 现状：`useStreamScroll` 自己的 `ResizeObserver` 观察 `.acv-stream` 与 `.acv-stream__content`，跟随底部时在回调里 `scrollTop = scrollHeight`。计划再加一个观察向导的 RO，在回调里改消息流的底部留白。向导（`.acv-body` 的子元素）与消息流（同一层，`.acv-stream`）在 DOM 里同深度，按 ResizeObserver 规范，同一轮里一个回调改出来的、深度不大于它的观察目标的变化会推迟到下一帧并触发 `ResizeObserver loop completed with undelivered notifications` 错误事件；即使不触发，向导高度变化到消息流贴底校正之间至少隔一帧，期间最后一条被向导盖住一帧。这一条从规范推断，没有在真实浏览器里量。
+- 计划没有说向导出现时输入框怎么处理。静态稿是 `display:none`（保留组件实例）；若实现成 `v-if`，PromptEditor 卸载，当前草稿虽然在宿主的 `composer.draft` 里，但光标位置、撤销栈、没有就绪的附件状态都丢；两种做法的焦点结果也不同（见第 12 条）。
+**为什么是问题**：贴底校正是这个视图最脆弱的一块（useStreamScroll 的头注释写了好几页），新增一条独立的观察链很容易引入抖动；而且完全可以不要它。
+**如何核实**：读 useStreamScroll.ts 的 `settle()` 与 `onMounted`；ResizeObserver 规范的“深度”规则。
+**建议改法**：不用第二个 RO。让向导成为消息流内容的一部分：把它放进 `.acv-stream__content` 末尾，`position: sticky; bottom: 0`，最高 `60cqh`（`.acv-body` 设 `container-type: size`），这样它自己占的高度就是留白，贴底的逻辑不用改，向导变高时 `content` 的尺寸变化走已有的 settle；注意 `useStreamScroll` 的点击锚点（`onClickCapture`）会把向导里的点击当成“点开某一项”，向导消失（内容变矮）时按锚点还原而不是贴底，要在 useStreamScroll 里排除向导（`data-` 标记）或把向导放在 scroller 之外；这两种做法都要在 Lab 里用“向导出现、变高、消失”三步验证。输入框用 `v-show` 加 `inert`（不用 `v-if`），并把“向导出现时输入框隐藏但保持挂载”写进 Spec 输出 10。
+
+### 12. 向导的键盘、焦点与读屏没有定义，附言框“写了字就是拒绝”时批准按钮怎么办也没定
+
+**严重程度**：重要
+**类别**：遗漏（无障碍与安全）
+**位置**：docs/specs/agent/conversation.md 输出 10-12；docs/specs/ui/agent-conversation-view.md:284；plan.md 第 3 节；packages/nb-agent-ui/src/vue/ 下现无任何 `role`/`aria-live` 用于待处理区
+**现象**：
+- 向导出现时，原来有焦点的输入框被隐藏，焦点掉到 `body`，键盘用户要从页首 Tab 过整个视图才能到向导；Spec 没说向导出现后焦点去哪、收起后去哪（收起按钮消失，小条上的“展开”要接得住）、全部答完后回到哪（应回输入框）。
+- 向导不是模态：消息流还要能读能滚，所以不要焦点陷阱（陷阱会挡住对上文的核对）；但要有 `role="group"`（或 `region`）加 `aria-label`，出现时用 `aria-live="polite"` 播一句“等你批准：修改文件 第三章.md，第 1 / 3 个”。计划只在 S8 里说“只做 aria-live”，没说放在哪、播什么。
+- 焦点不应自动落到“批准”或“拒绝”按钮：审批在用户打字时弹出，焦点落在能一键放行写入的按钮上，用户接着敲的回车或空格会直接批准。落点应是向导容器（`tabindex="-1"`）或标题。
+- Esc 的语义没定。应该是“收起”，不能是“拒绝”或“停止这一轮”，因为它是最顺手的键。
+- “附言框写了字就是拒绝”：用户写了“可以，但把第二段删掉”再点“批准”，会怎样？Spec 没写。内核的 `resolve` 本来允许 `allow` 带 `note`（host.ts:35）。至少应该：批准按钮在附言非空时禁用或改名为“拒绝并发送”，否则两种误操作（想批准的被当成拒绝、想拒绝的被当成批准）都会发生。
+- 同一个向导实例在“第 1 / 3 个”之间切换时，附言框与提问向导的未提交答案要按 interaction id 做 key，否则上一项的附言留到下一项。
+**为什么是问题**：审批是这个界面里唯一会改作者正文的入口，键盘、读屏与误操作的后果比普通表单重。
+**如何核实**：`grep -rn "aria-live\|role=" packages/nb-agent-ui/src/vue --include=*.vue | head`；`sed -n 62,68p docs/specs/agent/conversation.md`。
+**建议改法**：在 Spec 输出 10-12 补一小节“焦点与读屏”：出现时焦点到向导容器、播报一句；收起焦点到小条的展开按钮，展开回到向导容器，全部答完回输入框；Esc 收起；附言非空时批准禁用并提示“写了附言会作为拒绝发送”；按 interaction id 设 key。验收各写一条 dom 测试（焦点落点、Esc、附言非空的按钮状态）。
+
+### 13. 向导最高 60% 在矮窗口里挤掉 diff 区，固定部分没有最小高度
+
+**严重程度**：建议
+**类别**：遗漏（窄屏与低高度）
+**位置**：plan.md 第 3 节（“60%”“内部滚动”）；静态稿 ConversationShellDraft.vue:879-899（`.cs-wizard {max-height: 60%}`，只有 `cs-wizard__scroll` 滚动）
+**现象**：静态稿里向导的固定部分：上下内边距各 10、标题行约 24、附言框一行约 34（`--control-h-md`）、按钮行约 34、三处 gap 各 8，合计约 136px，之外才是 diff 的滚动区。视图高度 300px（浏览器窗口 700px 高、底下开了面板）时 60% 是 180px，diff 只剩约 44px；横屏手机视图 310px 时 186px，剩 50px；提问向导 4 题加“其它”输入时固定部分更高。数字是按稿里的尺寸估的，没有在真实布局里量。
+**为什么是问题**：diff 是向导存在的理由，剩两三行等于没有；移动端软键盘弹出（附言框获得焦点）时可视高度还要再缩。
+**如何核实**：在 Lab 把视图高度设成 300 与 360，开审批场景。
+**建议改法**：计划里写 `max-height: min(60%, …)` 之外再给滚动区一个最小高度（例如 8 行），固定部分超过上限时整个向导改为整体滚动；Lab 场景加“视图高 300”一档，e2e 的 390 宽巡检加一个 390×500 视口。
+
+### 14. 磨砂用 `.nb-ui-popover-surface`：基座里的内边距与内圈半径对向导不成立，浮层规范表里也没有这一行
+
+**严重程度**：建议
+**类别**：与规范一致性
+**位置**：packages/nb-ui/src/styles.css:202、225（`--nb-popover-pad` 缺省 6px、`--nb-popover-inner-radius`）；packages/nb-ui/docs/ui-development-spec.md:46-61（“浮层外框”表）；plan.md 第 3 节；packages/nb-ui/src/components/token-consumption.test.ts（只扫 nb-ui 自己的组件）
+**现象**：规范第 5 条“浮层外框只用 CSS 类”，表里列的是 Popover、弹出列表、Dialog、FloatingWindow、AlertDialog、Drawer。向导是对话里的非弹出浮动面板，不在表里。直接加 `.nb-ui-popover-surface` 能得到磨砂、描边、10px 外圈和投影，但同时带上 `--nb-popover-pad: 6px` 的假设：内部贴边盒子（diff 区、滚动区）的同心半径按 6px 内边距推（10 − 1 − 6 = 3px），向导实际内边距是 10 到 12px，规范原话是“浮层要改内边距必须同时改这个变量”。收起的小条同样要走这个类：静态稿 `.cs-collapsed__bar` 直接写了 `backdrop-filter: var(--overlay-blur)`（ConversationShellDraft.vue:676-677）；`token-consumption` 的“浮层材质只走外框类”规则只扫 nb-ui 组件且只认 JS 写法 `backdropFilter:`，对 nb-agent-ui 的 scoped CSS 不报，没有机检拦住这种照抄。
+**为什么是问题**：不是外观问题（开发者逐轮确认过），是规范与机检的空档：以后别的包的“浮动面板”会各抄一份。
+**如何核实**：`sed -n 46,62p packages/nb-ui/docs/ui-development-spec.md`；`grep -n "backdrop-filter" packages/nb-agent-ui/src/vue -r` 在实现后应无输出。
+**建议改法**：在 ui-development-spec.md 的浮层表加一行“对话内浮动面板（向导、收起小条）｜基座，另设 `--nb-popover-pad` 为面板内边距”，计划第 4 节的文档改动表补上这一项；向导与小条两处都用类，不写 `backdrop-filter`；实现后给 nb-agent-ui 的 `style-tokens.dom.test.ts` 加一条“scoped CSS 不写 `backdrop-filter`”。
+
+### 15. 去掉 `.acv-stream` 的 `scrollbar-gutter` 后，计划自己的后备做法（给输入框也留位置）反而会破坏对齐；规范里现成的做法是 `OverlayScrollbar`
+
+**严重程度**：重要
+**类别**：与规范一致性 / 别扭
+**位置**：packages/nb-agent-ui/src/vue/AgentConversationView.vue:415-422（`overflow-y: auto` 加 `scrollbar-gutter: stable`）；plan.md 第 3 节“对齐”与第 8 节（“抖就改成给输入框也留同样的位置”）；packages/nb-ui/docs/ui-development-spec.md:155-172（4.6 滚动条）；docs/specs/workbench/views.md 输出 12；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue:6、74（已用）
+**现象**：
+- 这条声明是 w00019 迁入时带来的（git log -S 只指到 45fcc8014，旧应用 AgentChatFlow.vue:361 也有），注释说原因是“流式追加内容时滚动条出现与否不应挤动内容”，规范 4.6 也要求“消息流”这类会在溢出与不溢出之间切换的容器用 `stable`。
+- 直接去掉：内容从不溢出变溢出的那一刻，可用宽度少一条滚动条（thin 约 8 到 15px），气泡文字重新换行，高度变化；展开或收起一轮时越过阈值又来一次。不会无限振荡（宽度变窄只会更高），但是每次越过阈值都有一次可见的重排。这一条是从布局规则推断，没有量。
+- 计划的后备（输入框也留同样位置）会把输入框、向导、状态栏都缩进 14px，而开发者要的正是“左右同一组 12px”，等于把今天的错位搬到别处。`both-edges` 也不行：两侧各 14px，同样对不齐。
+- 规范 4.6 的表里“工作台视图”一行的答案就是 `OverlayScrollbar`：叠加不占宽度，不跳，不空出槽位；views.md 输出 12 要求 `fill` 视图自己的滚动元素也用它；对话视图正是 `fill` 视图。计划只说“nb-ui 的滚动条规范里有做法，实施时按规范”，没点出是它。
+**为什么是问题**：计划把后备方案写错了方向，并且会让实施者在“去掉 gutter”上先踩一遍抖动。
+**如何核实**：`sed -n 155,170p packages/nb-ui/docs/ui-development-spec.md`；`sed -n 105p docs/specs/workbench/views.md`。
+**建议改法**：改成 `OverlayScrollbar`：`.acv-body` 已经是 `position: relative` 且是 `.acv-stream` 的直接父元素（满足它“父元素定位、是 offsetParent”的要求）；去掉 `scrollbar-gutter`，在 `.acv-body` 里 `.acv-stream` 后面放 `<OverlayScrollbar :target="streamRef" />`；滑块占右 2 到 8px，落在 12px 的右内边距里，不压气泡。要留意的两点：它给滚动元素加 `nb-ui-scrollbar-none`（自成层叠上下文），所以消息流里 `z-index` 的东西盖不过向导（这对向导浮在上面反而是对的）；Lab 与 nb-story 嵌入处同样走这条。计划第 8 节“风险”里那条删掉，改成“用 OverlayScrollbar，e2e 验内容宽度在有无滚动条时相同”（views.md 验收 9 的同款断言）。
+
+### 16. “改了的行按字比”在中文长段上会卡死主线程：两段各 3000 字完全不同的 `diffChars` 实测约 2 到 7.5 秒，计划没有任何上限
+
+**严重程度**：阻断（对“审批整段重写的章节”这个主用例）
+**类别**：性能 / 失败路径
+**位置**：plan.md 第 3 节“`DiffView`”（“按行比，改了的行按字比”）、“预览”（单文件至多 256 KiB 带全文）；packages/nb-ui 将新增的 `src/diff/`
+**现象**：`diff` 9.0.0 的 `diffChars` 是 O(N·D)。中文稿一段就是一行（常见 300 到 3000 字），Agent 改写一段时“改了的行”是整段对整段。实测（bun 1.3，JavaScriptCore；浏览器 V8 量级相同，库代码一样，未在浏览器里跑）：
+
+| 输入 | 耗时 |
+|---|---|
+| 两段各 1000 字，互不相关（取自仓库中文文档） | 586 ms |
+| 两段各 3000 字，互不相关 | 7499 ms |
+| 两段各 5000 字，互不相关 | 17761 ms |
+| 随机汉字池、3000 字、20% 的字被改 | 100 ms |
+| 同上、5000 字、20% | 253 ms |
+| 100 对各 300 字、互不相关（相当于整章 3 万字重写）逐对按字比 | 2352 ms |
+| 3000 字里只改 2 个字 | 1.9 ms |
+
+只改几个字时很快，一旦整段重写（Agent 最常见的“把这一段重写一遍”）就是数秒到十几秒，全部在渲染向导的主线程里，期间整个应用无响应，而且这正是最需要用户读 diff 再批准的场景。`diffLines` 本身没问题（100 段 10 ms）。dev-panel 已经为同一类问题写过保护：`packages/dev-panel/src/web/host/line-diff.ts:8`“超过 `MAX_CELLS` 时不逐行比，整段标成删除加新增，避免在浏览器里算平方级的大表”。
+**为什么是问题**：计划只给了“再合并太碎的片段”这一个后处理，没有任何时间或规模上限；预览放宽到 256 KiB 更放大了这个风险。是第一版“能真的用它写书”的主路径。
+**如何核实**：`/tmp/review-t17-design/diffperf2.ts`、`diffperf3.ts`（`bun run` 即可，输入取仓库内 Markdown）。`diffChars(a, b, {timeout: 200})` 在 203 ms 返回 `undefined`，`{maxEditLength: 200}` 约 10 ms 返回 `undefined`，库已经给了出口。
+**建议改法**：`diffRows` 对每一对改动行先看规模与相似度：两侧长度之和超过阈值（例如 2000 字）、或行首尾公共部分以外的剩余部分太大时，不做字级比较，整行标成整体删除加整体新增；字级比较一律带 `maxEditLength`（按两侧长度的比例取，例如 `max(50, 0.2 × 较短一侧)`），返回 `undefined` 就退回整行；`diffRows` 要有一个总预算（例如累计 150 ms，超出后剩余全部按行）。把这个行为写进 Spec 与 `DiffView.md`（“很大的改动只标到行”），测试用上表的“3000 字对 3000 字”断言耗时低于一个固定上限，并断言退回后的结构仍是合法的 `DiffRow[]`。若以后冲突解决要字级精度，再放到 Worker 里算。
+
+### 17. 一个字的改动在长段里显示整段两遍，计划只折叠“没变的行”，对写作稿最常见的情形没有帮助
+
+**严重程度**：重要
+**类别**：与使用场景不符
+**位置**：plan.md 第 3 节“`DiffView`”（“没变的长段折叠，上下留 2 行”）；docs/specs/agent/conversation.md 输出 12
+**现象**：折叠以行为单位。中文稿的行就是整段（几百到几千字）。把一段里的两处错字改掉，这一行就是“改了的行”，内联模式会先显示改前整段（含标记）再显示改后整段，两栏模式左右各显示一遍，一个 3000 字的段落在 400 到 700 像素宽的右栏里是几十行，两遍就是上百行。向导最高 60%、diff 内部滚动，用户要在上百行里找两个标记。
+**为什么是问题**：开发者要的是“审批显示 diff”；对作者最有用的是“这个词改成了那个词，前后各一句”。
+**如何核实**：看计划里的折叠描述；用一段 3000 字的修订稿算 `diffRows`，`change` 行的 `left`/`right` 各是一整段。
+**建议改法**：对 `change` 行也做行内折叠：字级片段里，距任何标记超过 N 字（例如 40）的未改文字折叠成“…（已折叠 812 字）…”，点开展开；内联与两栏一致。`DiffRow` 的 `DiffPiece` 因此要有第三种片段（`{text, mark: false, folded?: number}`）或在渲染端按 `mark` 的间距折叠。这一条要先于 Lab 场景定，场景里就要有“长段里改两个字”。
+
+### 18. `DiffRow` 与 `actions` 插槽的形状撑不起“按块采纳、保留、还原”：缺行号与偏移，插槽没有声明参数
+
+**严重程度**：重要
+**类别**：接口与合同
+**位置**：plan.md 第 3 节“`DiffView`”（`DiffRow`、`DiffPiece`、`hunk: number`、“每块一个 `actions` 插槽”）；docs/specs/agent/conversation.md（“按块采纳改动、收件箱：随历史接入”）
+**现象**：`DiffRow = {kind, left, right, hunk}`，`hunk` 只是序号。要在某一块上“采纳”（把 after 的这块写回）或“还原”（把 before 的这块写回），宿主需要这一块在 before 与 after 里的行范围或字符偏移，现在的形状里没有：既没有行号（也不能显示行号），片段合并后也没有原始偏移。`actions` 插槽没有给插槽参数的类型（块序号、该块的行、前后范围）。组件属性 `before`、`after`、`mode`、`label?` 也没有 `collapsed`（受控折叠状态）、`foldContext`（上下留几行）、`select`（选中块）、`readonly`，也没有给“轮末改动”用的多文件容器所需的标题行与统计（`+12 −3`）。
+**为什么是问题**：计划自己把“以后的冲突解决能用同一个组件”当作放在 nb-ui 的理由（开发者第 2 轮答复）。这个形状在以后一定要改，而 `DiffView` 进了 nb-ui 就是公开合同（nb-story 与 nbdev 也会依赖），改它要走 nb-ui 的迁移流程。
+**如何核实**：看计划里的类型声明。
+**建议改法**：现在就把形状定到够用：`DiffRow` 加 `leftLine`/`rightLine`（1 起的行号，没有的一侧为 null）；`hunk` 改成对象数组随结果一起返回 `{index, beforeRange: [startLine, endLine), afterRange, rows}`；`actions` 插槽参数写明 `{hunk, index, beforeText, afterText}`；组件属性补 `foldContext?`、`stat?`（显示增删统计，缺省自己算）。t17 仍然不用插槽，但类型与 `.md` 要写定，测试里用一个假动作验证插槽被调用且参数正确。
+
+### 19. DiffView 的新增与删除只靠颜色区分，nb-ui 现有的 `CodeBlock` 有 `+`/`-` 前缀，计划没写；另外 nb-ui 目录与 `exports` 也要补
+
+**严重程度**：建议
+**类别**：无障碍 / 包边界
+**位置**：plan.md 第 3 节“`DiffView`”；packages/nb-ui/src/components/display/CodeBlock.md:12（`tone` 行带 `+`、`-`）；packages/nb-ui/package.json（`exports` 与 `dependencies`）；packages/nb-ui/src/locales/；packages/dev-panel/src/web/parts/DiffView.vue（同名组件）
+**现象**：
+- 计划没写非颜色提示；字级标记（`mark`）若只是底色深浅，色觉异常的用户和高对比度模式下分不出新增与删除。`CodeBlock` 已经有前缀与状态色的组合。读屏要读到“新增/删除”：用 `<ins>`、`<del>` 或视觉隐藏的文字。
+- DiffView 有文字：“切换内联/两栏”“展开 N 行没变的内容”“第 N 处改动”，要进 nb-ui 的消息目录（`src/locales/zh-CN.ts`、`en-US.ts`），计划第 4 节的文档表没有列。
+- `src/diff/` 是核心（纯函数）：若要让宿主或别的包（nb-history 做收件箱）复用 `diffRows`，`package.json` 的 `exports` 要加一条（例如 `./diff`），计划没提；不加就只能从 `components` 入口里拿，核心与 Vue 混在一起。
+- 依赖：`diff` 9.0.0 已在根 package.json 与 nb-history 里（`^9.0.0`，根 overrides 钉 9.0.0），nb-ui 加 `dependencies.diff` 版本写法要一致；体积不是问题（`diffChars` 与 `diffLines` 两个文件源码约 3 KB，加共用的 base.js 约 12 KB，未压缩；dist/diff.min.js 整库 37 KB）。nb-ui 现有依赖都是 UI 库，这是它第一个算法依赖，没有边界测试禁止，但要在 `monorepo-boundaries.md` 的行里不用改、在 nb-ui README 提一句即可。
+- 仓库里 dev-panel 已有一个同名的 `DiffView.vue`（解析统一差异文本）与手写的 `line-diff.ts`；两者以后会与 nb-ui 的 `DiffView` 重名。dev-panel 不依赖新组件，但应在计划里写一句“dev-panel 的保持不动，以后收敛”。
+**如何核实**：`sed -n 10,16p packages/nb-ui/src/components/display/CodeBlock.md`；`grep -n diff packages/nb-ui/package.json` 无输出；`ls packages/dev-panel/src/web/parts/DiffView.vue`。
+**建议改法**：DiffView 的 `.md` 写“新增与删除除颜色外有前缀（+、−）与语义元素”；消息目录的键加进第 4 节；决定 `./diff` 是否导出；dev-panel 的重名写进风险。
+
+### 20. 内部滚动加折叠加两栏：折叠区展开会把用户读到的位置顶走，两栏的滚动要左右同步，计划没有写
+
+**严重程度**：建议
+**类别**：遗漏
+**位置**：plan.md 第 3 节“`DiffView`”（“不横向滚动”“没变的长段折叠，点开”）、“审批的预览”（“diff 在内部滚动”）
+**现象**：向导里 diff 是一个有 `max-height` 的内部滚动区（Spec 输出 10、12）。三件事计划没说：（1）点开一段折叠时内容变长，若用户正在读折叠点下面，视口下半部分被顶走；`useStreamScroll` 为消息流做的就是这件事（点击锚点），内部滚动区没有同样的处理；（2）两栏模式左右两栏若各自滚动，要么同一个滚动容器里一行两格（用 grid 一行一对，天然同步），要么手写同步；计划只给了 `left`/`right` 成对的 `DiffRow`，这个方向对，但要写明“一行一个 grid 行、不是左右两个滚动容器”，不然实现者容易分成两列；（3）窄屏（390）下强制内联，切换按钮只在宽度够 700 时出现，是按容器宽还是视口宽没写，右栏宽度在布局里能拖到小于 700，要按组件自己的宽度（`ResizeObserver`或容器查询）判断。
+**为什么是问题**：都是实现时必然遇到、但选错了要返工的细节。
+**如何核实**：看计划里的描述。
+**建议改法**：在 `DiffView.md` 写：两栏是一个 grid、一行一对；宽度判断用容器查询（`container-type: inline-size`，`@container (min-width: 700px)`）而不是 JS；折叠展开时对点击的那一行做滚动锚定（`overflow-anchor: auto` 在这个内部滚动区里开着，WebKit 没有的话用点击行的 `scrollIntoView({block: "nearest"})`）。Lab 场景加“折叠点开”“两栏下拖窄到 600”。
+
+### 21. 状态栏要的数据在 `ctx` 里没有位置：用时起点、等重发、费用告警、审批模式、“等你处理”的会话状态都没有字段，计划也没说加
+
+**严重程度**：重要
+**类别**：接口与合同
+**位置**：packages/nb-agent-ui/src/types.ts:170-180（`RunView {status, phase: string}`）、:276-289（`UsageSummaryView`）、:262-264（`ComposerView.modes/mode`）、:429-442（`AgentSessionListItem.status`）；docs/specs/agent/conversation.md 输出 2、15、17；plan.md 第 3 节“视图零件”“新内核的适配器”；packages/nb-harness/src/kernel/api/host.ts:109-111（内核 `RunStatus` 有 `retry`）、:140-157（快照有 `buffer`、`settings`、`readOnly`、`description`）
+**现象**：
+- 运行用时：`RunView` 只有 `status` 与一个文案字符串 `phase`，没有开始时刻；计划说适配器的 `run()` 是“`RunStatus` 加用时起点”，那是适配器的输出类型，进到 `ctx.run` 还要新字段（`startedAt`）。
+- 等重发（第几次、还等多久）：`RunView` 没有 `retry`；内核 `RunStatus.running` 里有 `retry?: RetryWait`，没有任何一处说它怎么进 `ctx`。
+- 费用告警（`costWarned`）与“这个模型没有单价”（`costUnpriced`）：`UsageSummaryView` 只有 `cost: number | null`，无告警标志；计划说“费用那一项变色”“悬停写原因”，数据从哪来没写。
+- 审批模式：状态栏要标“全部放行”（警告色）、模式菜单三项；`ComposerView` 只有一组 `modes`/`mode`（Agent 模式那一组，`mode` 是字符串），没有审批模式的当前值与选项；Spec（ui/agent-conversation-view.md:273）写的是“分 Agent 模式与审批模式两组”，类型里只有一组。
+- “等你处理”会话状态：`AgentSessionListItem.status` 是 `idle | running | interrupted | error`，Spec 输出 2 要的“运行中、等你处理、已中断”里“等你处理”只能塞进 `note`；归档态也没有，而面板有“显示已归档”。
+- 从内核快照到 `ctx` 的整张映射表计划里没有：`buffer`→`composer.queued`、`settings`→模型与推理档与审批模式、`readOnly.code`→`availability`（`profile-unavailable` 横幅）、`description`→顶栏悬停、`archived`→`availability: archived`。适配器的输出清单（`messages()`、`pending()`、`run()`、`usage()`、`interrupted()`）也没有排队列表。
+**为什么是问题**：Spec 的状态栏、模式菜单、面板状态都依赖这些字段；不先定，`AgentStatusBar` 与 Lab 夹具会先按想象写，宿主再补时要改 types.ts（nb-story 也消费它）。
+**如何核实**：`sed -n 170,180p packages/nb-agent-ui/src/types.ts`；`grep -n "retry\|startedAt\|costWarned\|approval" packages/nb-agent-ui/src/types.ts` 只命中 `message.retry`。
+**建议改法**：计划第 3 节加一张“ctx 新增字段”的表，至少：`run.startedAt`、`run.retry?: {attempt, resumeAt}`、`usage.costState: "ok" | "warned" | "unpriced"`、`composer.approval: {options, value}`（与 `modes` 平行，不要把审批塞进 Agent 模式列表）、`AgentSessionListItem.status` 加 `"waiting"` 与 `archived?: boolean`。再加一张“内核快照与事件 → ctx”的映射表，供宿主与测试对照。`createAgentContext` 给出缺省值，现有宿主（nb-story、Lab）不改。
+
+### 22. 旧应用有、计划没有、第一版该有的几项
+
+**严重程度**：重要（前两项）/ 建议（其余）
+**类别**：遗漏
+**位置**：旧应用 packages/neuro-book-legacy/app/components/novel-ide/agent/useAgentSession.ts:282-286、:668-675；flow/AgentChatEmptyState.vue:96-132；session-list-request-guard.ts；docs/specs/agent/conversation.md“失败与恢复”表；packages/nb-harness/src/kernel/run/commands.ts:154-169；packages/nb-harness/src/kernel/api/host.ts:38
+**现象与建议**（逐项，对照旧应用；新视图已经有的“回到最新”按钮、投递未知时的“重新发送/移除”、可用性横幅不再列）：
+1. **发送失败的恢复**（重要）。旧应用：乐观显示用户消息，传输失败时保留占位并标 `unknown`，可重发或移除；明确被拒的移除占位。计划只写“乐观显示用户消息”，Spec 的失败表里没有“发送被拒”。内核 `send`/`enqueue` 的明确拒绝码有 `empty-input`、`input-too-large`、`input-rejected`、`read-only`、`session-closed`、`log-broken`（codes.ts:13）。要写明：明确拒绝时撤掉乐观消息、把原文放回输入框（草稿版本不清空）并在输入框上方给出人话原因；只有连接断开、结果未知时才标 `unknown`。验收加一条真实远程链路的测试（用拦截链拒绝一条输入）。
+2. **停止的后果**（重要）。内核 `abort` 缺省清空排队缓冲区，每条写 `inputRemoved{reason: "aborted"}`（host.ts:38、commands.ts:154-169）。用户按停止，刚才排队的几条补充说明静默消失。视图的停止 action 是 `composer.stop`，没有 `keepQueue`。要在计划里定：默认带 `keepQueue: true`，或者停止后把被清掉的排队文字放回输入框并提示。
+3. **停止中的反馈与兜底**（重要）。ctx 有 `stopping` 状态，Spec 输出 15 的阶段表“请求中、生成中、执行工具、正在压缩”里没有“正在停止”；旧应用 useAgentSession.ts:668-675 的注释专门记过：结束事件丢了会让界面永远停在“正在停止”，它的兜底是“服务端报没有活动运行就是权威终态”。计划 S8 里写了“停止的反馈”，但 Spec 没有，也没有超时与恢复。要加：状态栏显示“正在停止”（带用时），超过一个上限（例如 10 秒）还在时提示“工具没有响应”，并保证以内核快照的 `status` 为准收口，不靠结束事件。
+4. **空状态与未选择会话**（建议）。旧应用有空状态：最近对话列表与几条起手指令。新视图未选择会话时输入框只读加一行提示，用户要先找顶栏的“新建”。右栏是第一版的唯一入口，首次打开就是这个画面。至少让“未选择会话时第一次发送自动用 `nbook.agent.main` 新建会话”（nb-story 的 QaPage 就是这样做的，`NEW` 键），Spec 输出 1 补一句。
+5. **复制的反馈**（建议）。`message.copy`、`tool.copy` 是内置消息操作，对所有消息都显示（builtin-message-actions.ts），宿主要写剪贴板；w00019 t11 的 S8 明确要“复制成功或失败要有可见反馈”，计划只拣了停止与 aria-live。
+6. **会话列表请求的陈旧响应**（建议）：旧应用有 `session-list-request-guard.ts`（按签名与代际丢弃过期结果）。新计划的 `sessions.query` 搜索与范围切换也会产生并发请求，没写丢弃规则。
+**如何核实**：见各位置。
+**建议改法**：1 到 3 写进 Spec“失败与恢复”表与计划第 3 节宿主；4、5 各一句；6 在 `session-host` 里按查询序号丢弃。
+
+### 23. 注册表欠账（w00019 t11）：计划只接 `statusItems`，其余仍是“登记了不显示也没有提示”
+
+**严重程度**：建议
+**类别**：遗漏
+**位置**：packages/nb-agent-ui/src/registry.ts:219-226；.agents/works/w00019-agent-conversation-view/tasks/t11-complete-view/README.md:22（“t11 做顶栏、面板、待处理区、状态栏时逐个接上，不隐藏、不删”）；plan.md 第 3 节、第 5 节
+**现象**：我读了 `packages/nb-agent-ui/src/vue/` 下全部 `.vue`，`headerActions`、`panels`、`trayItems`、`statusItems` 现在都没有消费者（`grep` 只命中 registry 自己）。计划的顶栏是写死的（标题按钮、Profile 名、新建、溢出），会话面板是内置组件，不经 `headerActions` 与 `panels`；状态栏计划写了“`statusItems` 接进来”；`trayItems` 没提，而 Spec 说待处理区的内置条目是排队消息（见第 8 条）。
+**为什么是问题**：不是第一版阻断。这次必须接的只有两个：`statusItems`（计划已写）与待处理区（排队消息要有操作，第 8 条）；`headerActions`、`panels`、`trayItems` 可以不接，但按 t11 记录的约定“不静默”，需要一条开发期警告：登记了没有消费者的扩展点时在 `createAgentViewRegistry` 里给一条 `console.warn`，否则插件作者登记了不显示、不报错。
+**如何核实**：`grep -rn "headerActions\|statusItems\|trayItems" packages/nb-agent-ui/src/vue` 无输出。
+**建议改法**：计划写明“接 `statusItems`、`trayItems`（承载排队消息）；`headerActions`、`panels` 留给 t11，登记时给开发期警告”，并把 t11 记录里对应条目更新。
+
+### 24. 宿主清单缺项：`AgentViewAction` 到远程指令的映射、窗口里怎么注入 Markdown 与输入框、哪些 `interaction.can*` 为真
+
+**严重程度**：建议
+**类别**：遗漏
+**位置**：plan.md 第 3 节“宿主”；packages/nb-agent-ui/src/types.ts:313-420（动作联合共约 50 个）；packages/neuro-book/src/plugins/markdown/shared/contracts.ts:40-44（`markdownKey`）、markdown/web/components/MarkdownHosted.vue；packages/neuro-book/src/web/host/text-engine.ts:19-22（四个目录已在窗口端口登记）
+**现象**：
+- 计划只说 `session-host` “把 `AgentViewAction` 换成远程指令”。第一版哪些 action 接、哪些忽略，没有表：`reference.open`（Agent 回复里的章节引用，写作用得最多）、`link.open`、`file.openDiff`、`message.copy`/`tool.copy`、`view.close`、`session.rename/archive/restore`、`command.run`（第一版 `/` 命令推到 t28，输入以 `/` 开头的文字就按普通文字发出）等；`interaction` 的十个布尔里哪些为真（`canMutateHistory` 为假则编辑、重试、分支都不出现）。
+- 窗口里怎么给视图注入 Markdown 显示与提示词编辑器：现有机制是 `nbook.markdown` 的服务 `markdownKey.components`，它交出的组件已经套了 nbook 的宿主（链接目标分类、文件图标、诊断），而且为对话视图的输入框转发了 PromptEditor 的外露方法（forward-expose 的注释）。`nbook.agent` 要依赖这个服务，计划没写，也没写 `renderers` 的三个字段分别接哪个组件。
+- 文字：四个包的目录（nb-ui、nb-form、nb-agent-ui、nb-markdown）已经在 text-engine.ts 全窗口登记，视图会取窗口端口；这一点没有问题。要补的只有插件自己的文字（错误码人话、向导按钮名、状态栏条目标题）进 `agent/locales/*.json`，命名按“约定键”。
+**为什么是问题**：不是设计缺陷，是第 6 片动手前要有的清单；没有它，“能真的用它写书”里最关键的“点开 Agent 回复里的章节引用”会在实现阶段才发现没接。
+**如何核实**：`grep -n "markdownKey" packages/neuro-book/src/plugins/editor/web/plugin.ts`（编辑器就是这么依赖它的）。
+**建议改法**：第 3 节“宿主”加一张 action 表（接、忽略并说明、第二批）与 `renderers` 注入说明；`plugin.ts` 的 `dependencies` 写 `markdownKey`、`commandServiceKey`、`windowProjectKey`、`storageKey`。
+
+### 25. 验收映射有缺口：对齐没有机检、向导的键盘与深色没有用例、切标签保持没有用例
+
+**严重程度**：建议
+**类别**：验收映射
+**位置**：plan.md 第 6、7 节；docs/specs/agent/conversation.md 验收 1-7；docs/specs/ui/agent-conversation-view.md 验收段
+**现象**：对照第 6 节的映射表：
+- “对齐”是开发者连续两轮追着改的需求（“左右大小和宽度没有对齐”），计划只靠 Lab 截图给开发者看（第 5 片），没有任何断言。views.md 验收 9 已经有“内容宽度与没有滚动条时相同”这类 e2e 的写法可抄：量顶栏、气泡、输入框、向导、状态栏的 `getBoundingClientRect().left/right` 相等（宽屏取 800 居中列），并量有无滚动条时气泡宽度不变（覆盖第 15 条的改法）。
+- 向导：dom 测试只写“向导 dom 测试”。要有：焦点落点、Esc 收起、附言非空时批准禁用（第 12 条）、按 interaction id 换 key、收起时输入框保持挂载且草稿不丢（第 11 条）。
+- 深色加磨砂：Spec 验收 18 要求明暗两种对比度；向导的磨砂底在深色下盖在消息文字上，是新增的对比度风险点，计划只在 DiffView 一片写了“深色”。`prefers-reduced-transparency` 下面回退实心（规范 2.2）也要有一个场景。
+- 切标签后回来（第 9 条）、排队消息的编辑与删除（第 8 条）、发送被拒（第 22 条 1）、停止清空排队（第 22 条 2）：验收映射里没有。
+- 变异检查清单（第 7 节）里的 `same width`、`preview` 超时很具体；没有包含 DiffView 的“规模上限退回整行”（第 16 条），应加。
+**如何核实**：对照第 6 节表格。
+**建议改法**：第 6 节按上面逐项补行；其中对齐的 e2e 放在 `lab-agent-ui.e2e.ts`，390 与 1200 各量一遍。
+
+### 26. 气泡与输入框改走 `--radius-panel` 之后，“其它主题不动”不成立：三个主题下它们的圆角也变了
+
+**严重程度**：建议
+**类别**：与已定设计一致
+**位置**：plan.md 第 3 节“全局圆角”（“其它主题开发者只提到默认主题，不动”）；packages/nb-ui/themes/macos/vars.css:51（`--radius-panel: 18px`）、aurora/vars.css:32（12px）、editorial/vars.css:34（8px）
+**现象**：计划把气泡与输入框从写死的 16、10 改成 `--nb-agent-bubble-radius`（缺省 `var(--radius-panel)`）与 `--radius-panel`。nbook 改后是 10，macos 下气泡变成 18（原 16）、输入框 18（原 10）、aurora 12 与 12、editorial 8 与 8。nb-ui 的验收规范要求共享基础组件按四种主题验收；这是 nb-agent-ui 的组件，行为变了却没有任何一个主题场景在计划里被看过。
+**为什么是问题**：outcome 与计划的字面承诺不同：开发者要的是“只改默认主题”，但 nb-agent-ui 的气泡与输入框对其它主题就是被动改了。
+**如何核实**：`grep -n "radius-panel" packages/nb-ui/themes/*/vars.css`。
+**建议改法**：两条路选一并写进计划：（a）接受并在第 5 片截图里各主题看一眼；（b）缺省值写成 `var(--radius-panel)` 的同时给 macos、aurora、editorial 三个主题各写一个 `--nb-agent-bubble-radius`，保持原来的 16。我倾向（a），因为 macos 的输入框 10 到 18 对应它的面板本来就是 18，反而更一致。
+
+## 补充：第 1 条的第三处断言
+
+packages/nb-ui/e2e/popup-lists.spec.ts:207 对 QuickPick 面板断言 `border-radius: 10px`（nbook，取 `--radius-menu`），`--radius-menu` 改成 8 后也会红；第 1 条里的“两条断言”实际是三处（:20、:45、:207），加上 dialog-surfaces 的 :51-52 共四处。
+
+## 关于第 16 条严重程度的限定
+
+整段重写由 `write`（整文件覆盖）触发最明显；`edit` 只替换一小段时，改动行对数少、每对几百字，按表中数据是百毫秒量级，可接受。判“阻断”是因为第一版的目标是写作，`write` 整章与 `edit` 大段重写必然出现，而当前设计没有上限；如果开发者想把它降为“重要”，最低限度的修法就是 `maxEditLength` 加总预算两行代码，成本很小。
+
+## 未发现问题的方面
+
+- `tokens.test.ts`、`token-consumption.test.ts`：前者只核对 `tokens.css` 的基线字符串（基线本来就是 control 6、panel 10，不受 nbook 主题改动影响），后者只拦 `rounded-md` 这类常量档与未声明变量，两者都不会因这次改动变红。
+- `ctx.pendingInputs` 改联合类型与 `composer.resume`：仓库里没有任何代码读写 `pendingInputs`（只有 `context.ts` 的 `[]` 缺省与一个 dom 测试的空数组），nb-story 的 QaPage 经 `createAgentContext` 与 `...composer` 展开构造 ctx，加字段只要在 `createAgentContext` 给缺省值，nb-story 与 Lab 夹具不用改。冲击比预想的小；真正的问题是动作名与字段缺口（第 7、21 条）。
+- 文字目录接窗口翻译端口：nb-ui、nb-form、nb-agent-ui、nb-markdown 四个目录已在 `src/web/host/text-engine.ts:19-22` 登记，`provideAgentView` 取窗口端口；只缺插件自己的键（第 24 条）。
+- 状态栏条目的合同（`workbench.statusbar-items`）：`state()` 能给警告色，`command` 点击，`when` 读公开状态，Spec 输出 19 的行为都有对应机制；“优先切到等用户的”由命令自己在执行时选，不需要静态参数。
+- `modelsSettingsContract.snapshot` 与应用里 `models-store.ts` 的订阅用法存在；`agentSessionsContract` 对 browser 开放（callers: ["browser"]）。
+- `diff` 依赖：版本与根 package.json、nb-history 一致（9.0.0），体积小，没有现成的边界测试禁止 nb-ui 加算法依赖。
+- 圆角之外的 `--radius-*` 消费方：`dev-panel`、`nb-story`、`nb-form` 里取 `--radius-panel`/`--radius-control` 的元素只是跟着变小，没有发现推导出负值或错位的地方。
+- 向导走 `.nb-ui-popover-surface` 的材质本身（磨砂、`prefers-reduced-transparency` 回退）由基座类全局处理，没有发现需要额外代码；规范表与内边距变量的问题见第 14 条。
+
+## 按影响排序的目录
+
+阻断（1）
+- 16 整段中文改写的 `diffChars` 数秒卡死主线程，无规模上限
+
+重要（14）
+- 15 去 `scrollbar-gutter` 的后备方案错向，应用 `OverlayScrollbar`
+- 9 编辑区页面切标签即卸载、context 无 visible，订阅与未提交答案的寿命无法成立
+- 10 “按窗口存当前会话”与 Storage 规范（无窗口作用域）冲突
+- 6 向导用 nb-form 越过 nb-agent-ui 的包边界
+- 7 `pending.*` / `input.*` / `run.continue` 三处 action 说法不一致
+- 21 状态栏所需的 ctx 字段缺失，快照到 ctx 映射缺失
+- 22 旧应用有而计划没有：发送失败恢复、停止清空排队、停止中兜底（重要）
+- 12 向导的焦点、键盘、读屏与“附言非空时批准”未定义
+- 11 底部留白第二个 ResizeObserver 与输入框替换方式
+- 8 排队消息“能改能删”无 UI 与 action
+- 1 nbook 圆角改后 nb-ui 的两个 e2e 文件四处断言必红，三档对话框圆角合并
+- 2 Button、IconButton 圆角写死，“按钮 6”落不了地
+- 17 长段一字改动显示整段两遍
+- 18 `DiffRow` 与 `actions` 插槽撑不起按块动作
+
+建议（10）
+- 3、4、5、13、14、19、20、23、24、25、26
+
+各级数量：阻断 1，重要 14，建议 11，合计 26 条。（上面“建议（10）”的目录行笔误：应为 11，列出的编号共 11 个。）

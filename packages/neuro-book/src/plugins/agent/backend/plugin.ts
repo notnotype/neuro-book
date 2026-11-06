@@ -14,7 +14,7 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {PluginDefinition, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
-import {SCHEMES_POINT, serverFilesKey} from "nbook/plugins/files/shared/contracts";
+import {SCHEMES_POINT, workspaceFilesKey} from "nbook/plugins/files/shared/contracts";
 import {modelsKey} from "nbook/plugins/models/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {clockKey, stateRootKey} from "nbook/shared/host";
@@ -22,44 +22,61 @@ import {clockKey, stateRootKey} from "nbook/shared/host";
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
+import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
+
+import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 
 import {createAgentRuntime} from "./agent";
+import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";
+import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./builtin";
+import {SessionEditStores} from "./builtin/common";
+import {BUILTIN_COMPACTION_CONTRIBUTIONS, builtinCompactionMethods} from "./compaction";
+import {approvalPreview} from "./builtin/preview";
+import {BUILTIN_PROFILE_CONTRIBUTIONS, builtinProfiles} from "./builtin/profiles";
+import {GUARD_CONTRIBUTIONS, runGuards} from "./guards";
 import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
 import {agentRemote, PreviewTokens} from "./remote";
+import {sessionResources} from "./resources";
 import {AGENT_SCHEMES, agentSchemes} from "./schemes";
+import {SESSION_META_CONTRIBUTION, SESSION_META_EXTENSION, sessionMetaExtension} from "./session-meta";
 import {prepareTempContainer, sweepTemps} from "./temps";
 
 const allActivated = (result: TriggerActivationResult): boolean => result.status === "triggered" && result.results.every((item) => item.status === "activated");
 
 export const agentBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX],
-    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint],
+    activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX, AGENT_COMPACTION_PREFIX],
+    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint],
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: serverFilesKey}, {key: modelsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}],
         provides: [agentKey],
         remoteProvides: [agentSessionsContract],
-        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT],
-        contributions: AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})),
+        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT],
+        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
                 diagnostics.record({level: "warn", event: `agent.${code}`, message, ...(data === undefined ? {} : {data}), source: {plugin: descriptor.id}});
             };
             const models = await context.services.resolve(modelsKey);
+            const editStores = new SessionEditStores();
             const runtime = await createAgentRuntime({
                 stateRoot: context.services.require(stateRootKey).path,
                 settings: context.services.require(settingsKey),
                 models: models.status === "resolved" ? models.instance : null,
-                files: context.services.require(serverFilesKey),
+                files: context.services.require(workspaceFilesKey),
                 clock: context.services.require(clockKey),
                 declarations: context.declarations,
+                editStores,
                 trigger: async (event) => allActivated(await context.activation.trigger(event, {signal: context.signal})),
                 report,
+            });
+            const attachmentRoutes = createAttachmentRoutes({
+                files: context.services.require(workspaceFilesKey),
+                hasSession: sessionDirectoryExists(runtime.sessionsRoot),
             });
             const clock = context.services.require(clockKey);
             const previews = new PreviewTokens(clock);
@@ -78,7 +95,8 @@ export const agentBackendPlugin: PluginDefinition = {
                 profilesRoot,
                 tempContainer,
                 docsRoot: locateDocsRoot(),
-                listSessions: async () => (await runtime.listSessions()).filter((session) => !session.archived),
+                // 不列后台会话（resources.md 的方案表）：每个前台会话有一个标题会话，列出来会占满上限；按 id 仍然读得到。
+                listSessions: async () => (await runtime.listSessions()).filter((session) => !session.archived && !session.background),
                 profiles: () => runtime.service.profiles(),
             });
             let stopped: Promise<void> | null = null;
@@ -87,11 +105,12 @@ export const agentBackendPlugin: PluginDefinition = {
             context.onStop(stop);
             return {
                 services: [provideService(agentKey, runtime.service)],
-                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock}, previews))],
-                contributions: {[SCHEMES_POINT]: schemes},
+                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, sessionResources(context.services.require(workspaceFilesKey), session, tool), editStores, session.sessionId, signal)}, previews))],
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,
+                    [COMPACTION_METHODS_POINT]: runtime.compaction.receiver,
                     [PROFILES_POINT]: runtime.profiles.receiver,
                 },
             };

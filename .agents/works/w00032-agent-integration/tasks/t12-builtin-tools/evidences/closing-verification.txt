@@ -1,0 +1,47 @@
+t12 收口验证（2026-11-04，分支 feat/w00032-t12-builtin-tools，提交 00d85fdc8）
+
+neuro-book bun test：1775 条，首轮 1 条失败（architecture：read.ts 跨插件引用 files/shared/text，已修）；修后 architecture、plugins/agent、plugins/files、sdk 共 234 条 0 失败
+neuro-book vitest：72 文件 412 条通过
+nb-harness：348 条，0 失败
+类型检查：neuro-book、nb-harness、nb-agent-ui 无输出
+docs:check：无失败；governance:check：只有基线的 Drawer.md（t26 已在干净基线上确认，与本次无关）
+test:affected：bun.lock 变化时选中全部，含 dev-panel 等无关包，400 秒时限内没跑完，没有结论；改按包运行
+
+真实模型 smoke：deepseek/deepseek-flash，1 条通过，15 秒。模型第一次 edit 写了裸文件名得 invalid-address，下一步自己改对。
+
+变异检查（23 个，首轮 21 个漏 1 个，补测试后都抓到）：
+CAUGHT 图片省略仍附图 | (fail) 阈值触发 > 输出 58：被省略的工具结果只发占位、不附图，重开后仍如此 [21.35ms] ;  1 fail
+CAUGHT 脱敏不丢图 | (fail) 图片 > 输出 59：脱敏丢掉图片，rawHash 算进图片；只改图片也算改写；没有图片的 rawHash 还是文字的哈希 [ ;  1 fail
+CAUGHT 只改图片不算改写 | (fail) 图片 > 输出 59：脱敏丢掉图片，rawHash 算进图片；只改图片也算改写；没有图片的 rawHash 还是文字的哈希 [ ;  1 fail
+CAUGHT 图片按长度估算 | (fail) 阈值触发 > 输出 60：500 KiB 的图按固定口径估算，不触发压缩；预览也按这个口径 [11.96ms] ;  1 fail
+CAUGHT 不能看图也发图 | (fail) OMP 适配器 > 工具消息的图片：能看图的模型收到图片块，不能看图的换成一行文字 [1.95ms] ;  1 fail
+CAUGHT edit 不规范地址 | (fail) edit > hashline 改一行：结果是全局地址，单数写法也一样；写完可以接着改 [79.68ms] ; (fail) edit > 输出 12：没看过的行、写完 write 后直
+CAUGHT edit 写回不核对基线 | (fail) edit > 验收 4、输出 11、13：第二个文件被别人改过：第一个已写入、第二个 conflict 不覆盖，下一次请求里看 ;  1 fail
+CAUGHT 部分失败不列摘要 | (fail) edit > 验收 4、输出 11、13：第二个文件被别人改过：第一个已写入、第二个 conflict 不覆盖，下一次请求里看 ;  1 fail
+CAUGHT edit 不拒绝删除移动 | (fail) edit > 输出 10：裸路径、相对路径整次拒绝且不露内容；删除、移动整次拒绝；目标不存在提示用 write [142.00 ;  1 fail
+CAUGHT read 空集放行 | (fail) edit > 输出 5、12：截断的长行不算看过，只读到它时行锚也不放行编辑 [70.20ms] ;  1 fail
+CAUGHT 截断行也算看过 | (fail) edit > 输出 5、12：截断的长行不算看过，只读到它时行锚也不放行编辑 [74.80ms] ;  1 fail
+CAUGHT 搜索不过滤 | (fail) grep 与 glob > 输出 14、15：结果是全局地址，不露出的文件不出现；虚拟根报错，它下面的真实目录可以搜；搜索根可 ; (fail) grep 与 glob > 输出 14、17：够了
+CAUGHT 够配额不停 | (fail) grep 与 glob > 输出 14、17：够了配额就停下，不露出的文件占不掉配额；limit + 1 判截断；长行与总字节 ;  1 fail
+CAUGHT grep 不等核对 | (fail) grep 与 glob > 输出 14、15：结果是全局地址，不露出的文件不出现；虚拟根报错，它下面的真实目录可以搜；搜索根可 ; (fail) grep 与 glob > 输出 14、1
+CAUGHT project 不过滤控制目录 | (fail) 内置工具在 project:// 上 > 读写改搜都用全局地址；.nbook 不露出；shell 的工作目录与 $NBOOK_ ;  1 fail
+CAUGHT 地址吞操作符 | (fail) shell > 输出 19：地址替换的引号与分隔符；路径含空格、$、反引号、单引号；新文件目标；不认识的方案不动 [98.51 ;  1 fail
+MISSED 单引号不编码 |  0 fail
+CAUGHT 全文固定文件名 | (fail) shell > 输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘，能分页读回 [1086.68ms] ; (fail) shell > 验收 2、输出 22：超时与中止时已输出的
+CAUGHT 全文带会话身份 | (fail) shell > 输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘，能分页读回 [1061.57ms] ; (fail) shell > 验收 2、输出 22：超时与中止时已输出的
+CAUGHT 64 MiB 不截 | (fail) shell > 输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘，能分页读回 [1457.22ms] ;  1 fail
+CAUGHT customFormat 不转发 | (fail) 声明 > 工具以模型熟悉的名字进请求；hashline 的语法声明经贡献点到达内核 [64.47ms] ;  1 fail
+CAUGHT 单引号不编码 | (fail) shell > 输出 19：地址替换的引号与分隔符；路径含空格、$、反引号、单引号；新文件目标；不认识的方案不动 [110.9 ;  1 fail
+CAUGHT 双引号不编码 | (fail) shell > 输出 19：地址替换的引号与分隔符；路径含空格、$、反引号、单引号；新文件目标；不认识的方案不动 [145.9 ;  1 fail
+CAUGHT 引号外不编码 | (fail) shell > 输出 19：地址替换的引号与分隔符；路径含空格、$、反引号、单引号；新文件目标；不认识的方案不动 [49.89 ;  1 fail
+
+收口之后的改动（照 omp 的调整与两段审查的修正）后重跑，提交见分支最新：
+ 1777 pass
+ 0 fail
+      Tests  412 passed (412)
+CAUGHT 透明也用 JPEG | (fail) read > 输出 7：压不动的图逐级压到 500 KiB 内；可能
+CAUGHT 不放大小图 | (fail) read > 输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的
+CAUGHT 不逐级压缩 | (fail) read > 输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的
+CAUGHT 只留结尾 | (fail) shell > 输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘
+CAUGHT 单行不限 | (fail) shell > 输出 21：短输出不留全文；超出窗口时只交回尾部，全文完整落盘
+CAUGHT WebP 不转 | (fail) OMP 适配器 > 本地后端解不了 WebP：发送前转成 PNG，转不了

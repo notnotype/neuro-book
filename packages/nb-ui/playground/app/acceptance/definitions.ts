@@ -41,22 +41,6 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         ],
         events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel"],
     },
-    "nested-grid": {
-        id: "nested-grid",
-        label: "NestedGrid",
-        scenes: [
-            {id: "default", label: "默认两轴嵌套"},
-            {id: "unknown-ref", label: "未知引用恢复"},
-            {id: "malformed", label: "畸形重复身份拒绝"},
-            {id: "high-version", label: "高版本快照拒绝"},
-        ],
-        controls: [
-            {id: "disabled", label: "禁用", type: "boolean"},
-            {id: "forceOverConstrained", label: "模拟过约束降级", type: "boolean"},
-            {id: "zeroInnerSash", label: "内层分隔条零高", type: "boolean"},
-        ],
-        events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel", "restore"],
-    },
     "popup-lists": {
         id: "popup-lists",
         label: "弹出列表",
@@ -74,6 +58,8 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
             {id: "nested-probe", label: "对话框里的对话框（二级那档改成可区分的值）"},
             {id: "alert-probe", label: "对话框里的确认框（二级那档与确认框圆角改成可区分的值）"},
             {id: "window-probe", label: "浮动窗口里的浮动窗口（二级那档与对话框圆角改成可区分的值）"},
+            {id: "drawer-in-dialog", label: "对话框里的抽屉（抽屉不画二级的面）"},
+            {id: "alert-in-window", label: "浮动窗口里的确认框"},
         ],
         controls: [],
         events: [],

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed, nextTick, ref, watch} from "vue";
-import {IconButton} from "@notnotype/nb-ui/components";
+import {Button, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     PromptAttachmentKind,
     PromptEditorPortExpose,
@@ -13,6 +14,7 @@ import {visibleEntries, type AgentViewRegistry, type ToolbarButtonEntry} from ".
 import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "../../composer-actions";
 import AgentContextMeter from "./AgentContextMeter.vue";
 import AgentModelPicker from "./AgentModelPicker.vue";
+import AgentRoleModelPicker from "./AgentRoleModelPicker.vue";
 import AgentQueuedMessages from "./AgentQueuedMessages.vue";
 import {useAgentRenderers, useAgentText} from "../host";
 import {useEditorHandle} from "./use-editor-handle";
@@ -41,7 +43,10 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const composer = computed(() => props.ctx.composer);
 const running = computed(() => props.ctx.run.status !== "idle");
 const readonly = computed(() => props.ctx.availability.status !== "ready" || !props.ctx.interaction.canSend);
-const runtimeDisabled = computed(() => readonly.value || !props.ctx.interaction.canChangeRuntime);
+const frameRef = ref<HTMLElement | null>(null);
+const rolePickerRef = ref<InstanceType<typeof AgentRoleModelPicker> | null>(null);
+/** 模型解析不了（`profile-unavailable`）时还得能在这里改模型，否则走不出来；别的不可用都不能改。 */
+const runtimeDisabled = computed(() => !props.ctx.interaction.canChangeRuntime || !props.ctx.interaction.canSend || !["ready", "profile-unavailable"].includes(props.ctx.availability.status));
 
 // ─── 登记项 ─────────────────────────────────────────────────────────────
 
@@ -50,7 +55,8 @@ const commandNames = computed(() => commands.value.map((entry) => entry.name));
 // 没有 resolveTriggerMenu 时只剩 `/` 命令：别的触发字符没有菜单可开，不交给编辑器，免得打开空菜单。
 const triggers = computed(() => visibleEntries(props.registry.list("triggers"), props.ctx)
     .map((entry) => entry.char)
-    .filter((char) => char === "/" || props.services.resolveTriggerMenu !== undefined));
+    .filter((char) => char === "/" || props.services.resolveTriggerMenu !== undefined)
+    .filter((char) => props.ctx.interaction.triggers === undefined || props.ctx.interaction.triggers.includes(char)));
 const toolbarButtons = computed(() => visibleEntries(props.registry.list("toolbarButtons"), props.ctx));
 const leadingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement === "leading"));
 const trailingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement !== "leading"));
@@ -138,20 +144,26 @@ function resolve(mod: boolean) {
 
 const showStop = computed(() => running.value && currentText.value.trim() === "" && props.ctx.interaction.canStop);
 // 运行中两种投递都不允许时能写不能发；登记的命令不受限制，所以按算出的结果判断，不只看开关。
-const sendDisabled = computed(() => readonly.value || blockedReason.value !== null || resolve(false) === null);
+const sendDisabled = computed(() => readonly.value || blockedReason.value !== null || (resolve(false) === null && !resuming.value));
+const showResume = computed(() => resuming.value && currentText.value.trim() === "");
 
 const sendTitle = computed(() => {
     if (showStop.value) {
         return t("composer.stop");
     }
     if (blockedReason.value !== null) return blockedReason.value;
+    if (showResume.value) return t("composer.resume");
     // 运行中也照常执行的命令：标题写“发送”，不写“运行结束后发送”。
     if (!running.value || resolve(false)?.kind === "command") return t("composer.send");
     if (deliveries.value.steer) return t("composer.sendRunning");
     return deliveries.value.followup ? t("composer.sendQueued") : t("composer.sendAfterRun");
 });
 
+/** 上次运行被中断：空着也能发，发出去就是继续（docs/specs/agent/conversation.md 输出 9）。 */
+const resuming = computed(() => composer.value.resume === true && !running.value);
+
 const placeholder = computed(() => {
+    if (resuming.value) return t("composer.placeholderResume");
     if (!running.value) return t("composer.placeholder");
     const {steer, followup} = deliveries.value;
     if (steer && followup) return t("composer.placeholderRunning");
@@ -170,11 +182,21 @@ function submit(mod: boolean): void {
         return;
     }
     // 展开时回车是换行，Ctrl/⌘+回车是唯一的键盘发送；不允许排队时它按回车的规则发（补充说明），否则只许补充说明的宿主没法用键盘发送。
+    if (showResume.value) {
+        emit("action", {type: "run.continue"});
+        return;
+    }
     const result = resolve(mod && !(expanded.value && !deliveries.value.followup));
     if (result !== null) {
         rejectNotice.value = null;
     }
     if (result?.kind === "command") {
+        // 选择器的开关本来就在输入框手里：`/model` 不绕宿主，也不用加一份受控的打开状态。参数填进它的搜索。
+        if (result.name === "model" && rolePickerRef.value !== null) {
+            rolePickerRef.value.openPicker(result.argsText);
+            emit("action", {type: "composer.commandHandled"});
+            return;
+        }
         emit("action", {type: "command.run", name: result.name, argsText: result.argsText});
     }
     else if (result?.kind === "message") {
@@ -205,12 +227,29 @@ function cycleMode(): void {
     }
 }
 
+const approvalMenu = computed<DropdownMenuItemData[]>(() => (composer.value.approval?.options ?? []).map((option) => ({
+    id: option.key,
+    label: text(option.label),
+    title: text(option.description),
+    iconClass: option.icon,
+    type: "radio",
+    group: "approval",
+    checked: option.key === composer.value.approval?.value,
+    ...(option.danger === true ? {tone: "danger" as const} : {}),
+})));
+const currentApproval = computed(() => composer.value.approval?.options.find((option) => option.key === composer.value.approval?.value) ?? null);
+
+function descriptionOf(id: string): string {
+    const option = composer.value.approval?.options.find((item) => item.key === id);
+    return option === undefined ? "" : text(option.description);
+}
+
 // ─── 附件 ───────────────────────────────────────────────────────────────
 
-const currentModel = computed(() => composer.value.models.find((model) => model.key === composer.value.modelKey) ?? null);
 // 缺省的普通文本框收不了附件（host.ts 的 plainEditor）。
 const acceptFiles = computed(() => props.ctx.interaction.canRegisterAttachments && !renderers.value.plainEditor);
-const acceptImages = computed(() => acceptFiles.value && (currentModel.value?.supportsImages ?? false));
+/** 不按模型能力拒绝：模型不能看图时发送的时候换成一行字（docs/specs/harness/runtime.md 输出 61），要是在这里拦，角色与跟随默认都会被误拒。 */
+const acceptImages = acceptFiles;
 
 // ─── 单行版式 ───────────────────────────────────────────────────────────
 
@@ -239,9 +278,7 @@ function onAttachmentReject(payload: {kind: PromptAttachmentKind; count: number}
         rejectNotice.value = t("composer.reject.file", {count: payload.count});
     }
     else {
-        rejectNotice.value = acceptFiles.value
-            ? t("composer.reject.imageModel", {count: payload.count})
-            : t("composer.reject.imageSession", {count: payload.count});
+        rejectNotice.value = t("composer.reject.imageSession", {count: payload.count});
     }
 }
 
@@ -290,7 +327,16 @@ defineExpose({
 
 <template>
     <footer class="acv-composer" :class="{'is-expanded': expanded}" data-agent-composer>
-        <AgentQueuedMessages :queued="composer.queued" />
+        <AgentQueuedMessages :queued="composer.queued" @edit="emit('action', {type: 'queued.edit', id: $event})" @remove="emit('action', {type: 'queued.remove', id: $event})" />
+        <p v-if="props.ctx.availability.message !== ''" class="acv-composer__notice" role="status" data-composer-availability>
+            <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
+            <span class="acv-composer__notice-text">{{ props.ctx.availability.message }}</span>
+            <Button v-for="item in props.ctx.availability.actions" :key="item.id" size="sm" variant="subtle" :data-availability-action="item.id" @click="emit('action', {type: 'availability.act', action: item.id})">{{ item.label }}</Button>
+        </p>
+        <p v-if="composer.notice !== undefined" class="acv-composer__notice" role="status" data-composer-notice>
+            <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
+            <span class="acv-composer__notice-text">{{ text(composer.notice) }}</span>
+        </p>
         <p v-if="rejectNotice !== null" class="acv-composer__notice" role="status">
             <span class="i-lucide-info acv-composer__notice-icon" aria-hidden="true" />
             <span class="acv-composer__notice-text">{{ rejectNotice }}</span>
@@ -302,7 +348,7 @@ defineExpose({
                 @click="rejectNotice = null"
             />
         </p>
-        <div class="acv-composer__frame" :class="{'is-readonly': readonly, 'is-inline': inline}" :data-composer-layout="inline ? 'inline' : 'stacked'">
+        <div ref="frameRef" class="acv-composer__frame" :class="{'is-readonly': readonly, 'is-inline': inline}" :data-composer-layout="inline ? 'inline' : 'stacked'">
             <div v-if="inline && leadingButtons.length > 0" class="acv-composer__leading">
                 <IconButton
                     v-for="button in leadingButtons"
@@ -388,8 +434,53 @@ defineExpose({
                         <span :class="currentMode.icon ?? 'i-lucide-circle-dot'" class="acv-composer__chip-icon" aria-hidden="true" />
                         <span class="acv-composer__mode-label">{{ currentMode.label }}</span>
                     </button>
+                    <DropdownMenu
+                        v-if="composer.approval !== undefined && currentApproval !== null"
+                        :items="approvalMenu"
+                        :disabled="runtimeDisabled"
+                        wrap
+                        align="start"
+                        side="top"
+                        @select="emit('action', {type: 'approval.set', mode: $event})"
+                    >
+                        <button
+                            type="button"
+                            class="acv-composer__chip acv-composer__mode"
+                            :class="{'is-accent': currentApproval.danger === true}"
+                            :disabled="runtimeDisabled"
+                            :title="t('composer.approvalMode', {mode: text(currentApproval.label)})"
+                            :aria-label="t('composer.approvalMode', {mode: text(currentApproval.label)})"
+                            data-composer-action="approval"
+                        >
+                            <span :class="currentApproval.icon" class="acv-composer__chip-icon" aria-hidden="true" />
+                            <span class="acv-composer__mode-label">{{ text(currentApproval.label) }}</span>
+                        </button>
+                        <template #item="{item}">
+                            <span class="acv-composer__approval-item">
+                                <span>{{ item.label }}</span>
+                                <small>{{ descriptionOf(item.id) }}</small>
+                            </span>
+                        </template>
+                    </DropdownMenu>
+                    <AgentRoleModelPicker
+                        v-if="(composer.roles?.length ?? 0) > 0"
+                        ref="rolePickerRef"
+                        :roles="composer.roles ?? []"
+                        :models="composer.models"
+                        :model-key="composer.modelKey"
+                        :effective-model="composer.effectiveModel ?? null"
+                        :thinking-levels="composer.thinkingLevels"
+                        :thinking="composer.thinking"
+                        :anchor="frameRef"
+                        :disabled="runtimeDisabled"
+                        :show-image-support="acceptFiles"
+                        :can-manage="props.ctx.interaction.canManageModels"
+                        @select-model="emit('action', {type: 'model.set', modelKey: $event})"
+                        @select-thinking="emit('action', {type: 'thinking.set', level: $event})"
+                        @manage="emit('action', {type: 'model.manage'})"
+                    />
                     <AgentModelPicker
-                        v-if="composer.models.length > 0 || composer.thinkingLevels.length > 0"
+                        v-else-if="composer.models.length > 0 || composer.thinkingLevels.length > 0"
                         :models="composer.models"
                         :model-key="composer.modelKey"
                         :thinking-levels="composer.thinkingLevels"
@@ -427,12 +518,12 @@ defineExpose({
                     <IconButton
                         class="acv-composer__primary"
                         :class="{'is-stop': showStop}"
-                        :icon-class="showStop ? 'i-lucide-square' : 'i-lucide-arrow-up'"
+                        :icon-class="showStop ? 'i-lucide-square' : showResume ? 'acv-composer__resume-icon' : 'i-lucide-arrow-up'"
                         size="sm"
                         :disabled="showStop ? false : sendDisabled"
                         :title="sendTitle"
                         :aria-label="sendTitle"
-                        :data-composer-action="showStop ? 'stop' : 'send'"
+                        :data-composer-action="showStop ? 'stop' : showResume ? 'resume' : 'send'"
                         @click="onPrimaryButton"
                     />
                 </div>
@@ -447,7 +538,7 @@ defineExpose({
     flex-direction: column;
     flex-shrink: 0;
     gap: 6px;
-    padding: 8px;
+    padding: 8px 12px;
     border-top: var(--border-w) solid var(--border-color);
     container-type: inline-size;
 }
@@ -455,6 +546,28 @@ defineExpose({
 /* 展开后占视图高度的大部分，消息流让出高度；百分比相对对话视图这一列。 */
 .acv-composer.is-expanded {
     height: min(55%, 560px);
+}
+
+.acv-composer__approval-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.acv-composer__approval-item small {
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+}
+
+/*
+ * 继续按钮的 >>>：lucide 没有三个的箭头，用同样的线宽画一个遮罩，宽高和别的图标相同（IconButton 把图标放在按钮正中），所以和发送的箭头
+ * 同一个中心。开发者看过盖上去的版本没居中，这里是按钮自己的图标。
+ */
+:global(.acv-composer__resume-icon) {
+    display: inline-block;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7l5 5-5 5M10 7l5 5-5 5M17 7l5 5-5 5'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7l5 5-5 5M10 7l5 5-5 5M17 7l5 5-5 5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .acv-composer__notice {
@@ -484,7 +597,7 @@ defineExpose({
     min-height: 0;
     flex-direction: column;
     border: var(--border-w) solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-panel);
     background: var(--bg-input);
     transition: border-color var(--motion-fast) var(--ease-standard);
 }

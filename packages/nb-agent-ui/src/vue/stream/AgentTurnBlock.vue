@@ -13,6 +13,7 @@ import AgentMarkdown from "../parts/AgentMarkdown.vue";
 import RenderGuard from "../parts/RenderGuard.vue";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentChainBlock from "./AgentChainBlock.vue";
+import AgentCompactionDetail from "./AgentCompactionDetail.vue";
 import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
 import AgentMessageAnnotations from "./AgentMessageAnnotations.vue";
 import AgentUserContent from "./AgentUserContent.vue";
@@ -41,7 +42,9 @@ const renderers = useAgentRenderers();
 const openSet = useOpenSet();
 
 /** 分隔线的正文只是把标签重说一遍时不值得点开。 */
-function dividerHasBody(message: {label: Text; text: string}): boolean {
+function dividerHasBody(message: {label: Text; text: string; compaction?: unknown}): boolean {
+    // 有压缩详情就能点开：整理工具结果的压缩没有摘要，详情是它唯一的内容。
+    if (message.compaction !== undefined) return true;
     const body = message.text.trim();
     return body !== "" && body !== text(message.label).trim();
 }
@@ -148,7 +151,8 @@ function nodeSubtitle(step: ToolStep): string {
             </button>
             <template v-else>{{ text(props.block.message.label) }}</template>
         </p>
-        <AgentMarkdown v-if="openSet.isOpen(props.block.id)" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
+        <AgentCompactionDetail v-if="openSet.isOpen(props.block.id) && props.block.message.compaction !== undefined" :detail="props.block.message.compaction" :currency="props.ctx.usage.currency" />
+        <AgentMarkdown v-if="openSet.isOpen(props.block.id) && props.block.message.text.trim() !== ''" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
     </div>
 
     <div v-else-if="props.block.kind === 'steer'" class="acv-block acv-steer">
@@ -184,7 +188,7 @@ function nodeSubtitle(step: ToolStep): string {
 .acv-bubble {
     padding: 12px 16px;
     border: var(--border-w, 1px) solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--nb-agent-bubble-radius, var(--radius-panel));
     background: var(--bg-subtle);
     box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 10%, transparent);
     color: var(--text-main);
@@ -196,7 +200,7 @@ function nodeSubtitle(step: ToolStep): string {
 .acv-bubble[data-intermediate] {
     padding: 8px 12px;
     border-color: var(--divider);
-    border-radius: 12px;
+    border-radius: var(--nb-agent-bubble-radius, var(--radius-panel));
     background: color-mix(in srgb, var(--text-main) 3%, transparent);
     box-shadow: none;
 }
@@ -279,10 +283,16 @@ function nodeSubtitle(step: ToolStep): string {
 }
 
 .acv-notice__label {
-    flex-shrink: 0;
+    /* 标签通常是短词；压缩失败这类整句说明放在标签里，窄宽度下换行而不是把箭头挤出视区。 */
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: left;
 }
 
 .acv-notice__text {
+    /* 正文预览先于标签收缩。 */
+    flex: 0 100 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -297,7 +307,7 @@ function nodeSubtitle(step: ToolStep): string {
     gap: 4px 6px;
     padding: 6px 10px;
     border-left: 2px solid var(--accent-main);
-    border-radius: 0 10px 10px 0;
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
     background: color-mix(in srgb, var(--accent-main) 5%, transparent);
     font-size: var(--text-sm);
 }

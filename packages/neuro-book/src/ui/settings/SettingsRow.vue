@@ -145,7 +145,7 @@ async function run(action: RowAction): Promise<void> {
                     <Tooltip v-if="marked" :text="text('row.modified')">
                         <span class="settings-row__dot" role="img" :aria-label="text('row.modified')" data-settings-row-dot></span>
                     </Tooltip>
-                    <Tooltip v-if="reasonTone !== null" placement="right" :force-open="controlFocused">
+                    <Tooltip v-if="reasonTone !== null" side="right" :force-open="controlFocused">
                         <span class="settings-row__reason" :class="`settings-row__reason--${reasonTone}`" :data-tone="reasonTone" aria-hidden="true" data-settings-row-reason>
                             <span :class="REASON_ICON[reasonTone]"></span>
                         </span>

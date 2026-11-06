@@ -1,0 +1,184 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t17-conversation-ui",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t17 对话界面第一版：静态稿",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "eb0e384b51861800dcf4c261073245fb8c6bda623e37f2de1a5c3bc67f0cbdc2",
+    "files": [
+        "index.html",
+        "r1/approval-edit.webp",
+        "r1/approval-long.webp",
+        "r1/approval-shell.webp",
+        "r1/ask-choice.webp",
+        "r1/ask-form.webp",
+        "r1/ask-multi.webp",
+        "r1/context-high.webp",
+        "r1/cost-warned.webp",
+        "r1/dark-approval.webp",
+        "r1/idle.webp",
+        "r1/interrupted.webp",
+        "r1/mode-menu.webp",
+        "r1/retry.webp",
+        "r1/running.webp",
+        "r1/session-list.webp",
+        "r1/wide-approval-edit.webp",
+        "r1/wide-ask-choice.webp",
+        "r1/wide-ask-form.webp",
+        "r1/wide-idle.webp",
+        "r1/yolo.webp"
+    ],
+    "questions": [
+        {
+            "id": "header-sessions",
+            "type": "single",
+            "label": "1. 顶栏与会话切换",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "status-bar",
+            "type": "single",
+            "label": "2. 状态栏",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "mode-menu",
+            "type": "single",
+            "label": "3. 模式菜单",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "approval",
+            "type": "single",
+            "label": "4. 审批向导",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "ask",
+            "type": "single",
+            "label": "5. 提问向导",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "banners",
+            "type": "single",
+            "label": "6. 横幅与工作台状态栏条目",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "change",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-05T06:04:43.284Z"
+}

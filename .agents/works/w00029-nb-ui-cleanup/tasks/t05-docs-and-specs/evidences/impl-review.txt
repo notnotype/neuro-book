@@ -1,0 +1,219 @@
+w00029 t05 文档审查报告（只读；追加式，最后附汇总）
+worktree: /home/notnotype/CodeRepository/neuro-book/.worktree/w00029-t05-docs
+行号均指该分支当前文件。
+
+====================================================================
+[1] 重要 / 正确性
+位置：packages/nb-ui/docs/ui-development-spec.md:50 到 56（2.2 浮层外框表）、:53
+现象：表里对话框一行只写 `.nb-ui-dialog-surface`，浮动窗口只写 `.nb-ui-dialog-surface` 加 `--window`。Drawer 整个不在表里，
+  Popover 行写“大块玻璃面才另加 `.nb-ui-surface-rim`”，实际 Popover 并不用 rim。
+为什么是问题：规范开头说“浮层的底色、模糊、描边、圆角与投影只来自 styles.css 的类”。照表给新对话框只挂 `.nb-ui-dialog-surface`，
+  会没有描边和模糊：styles.css 里 `.nb-ui-dialog-surface` 只写圆角、面色、投影，描边与 backdrop-filter 在 `.nb-ui-popover-surface`。
+  真实组件都是 `nb-ui-popover-surface nb-ui-dialog-surface [--compact|--window|--nested]`，DialogSurface 还加 `nb-ui-surface-rim`，
+  AlertDialog、Drawer 不加。rim 的实际使用者只有 DialogSurface（对话框与浮动窗口），表里却把它挂在 Popover 行。
+如何核实：grep -rnE "nb-ui-(popover|dialog|drawer)-surface|nb-ui-surface-rim" packages/nb-ui/src/components --include=*.vue
+  （feedback/DialogSurface.vue:93、AlertDialog.vue:100、Drawer.vue:100、Popover.vue:62）；styles.css:200-217（popover-surface）与 :523-528（dialog-surface）。
+建议改法：表头加一句“所有浮层都以 `.nb-ui-popover-surface` 为底，下列是在它上面再加的类”；对话框行写 `.nb-ui-popover-surface .nb-ui-dialog-surface`，
+  rim 移到对话框/浮动窗口行并注明 AlertDialog 不加；补 Drawer 行（`.nb-ui-dialog-surface .nb-ui-drawer-surface`，面沿用小浮层档，见 styles.css:559 附近）；
+  Popover 行去掉 rim。
+
+====================================================================
+[2] 重要 / 正确性
+位置：packages/nb-ui/docs/ui-development-spec.md:140（4.5 外框条）、:138（“六个弹出列表共用”）
+现象：4.5 对六个列表一律写“层级用 `usePopoverLayer`，在对话框里跟随它注入的层级”。ContextMenu 与 QuickPick 都不用它：
+  ContextMenu.vue:105、ContextMenuPanel.vue:43 用 `NB_Z_INDEX.contextMenu`（加深度），QuickPick.vue:95、292 用 `NB_Z_INDEX.commandPalette`。
+  usePopoverLayer 的使用者是 DropdownMenu、Select、Menubar、SuggestionMenu（外加 Popover、Tooltip、ColorSwatches）。
+为什么是问题：“六个共用”的合同被读成六个都这样，照做会给右键菜单类的新组件套一个对话框内层级而不是固定档；而且 2.1 第 3 条动态规则里
+  “新写的浮层组件必须读它”与 ContextMenu、QuickPick 的现状并存，规范没说这两个为什么是例外。
+如何核实：grep -rln usePopoverLayer packages/nb-ui/src/components；grep -n "NB_Z_INDEX" components/popup/ContextMenu*.vue components/popup/QuickPick.vue。
+建议改法：4.5 的外框条改成“层级：锚定在触发器上的列表（DropdownMenu、Select、Menubar、SuggestionMenu）用 usePopoverLayer；ContextMenu 与 QuickPick 是整页浮层，
+  各用登记表里自己的一档”。
+
+====================================================================
+[3] 建议 / 正确性
+位置：packages/nb-ui/docs/ui-development-spec.md:167（滚动条“其它约定”最后一条）
+现象：写“三个自绘滑块的几何共用 `src/utils/scrollbar-geometry.ts`”。实际只有 `OverlayScrollbar` 与 `usePopupScroll`（PopupScrollbar）两个引用它；
+  `ScrollArea` 是 reka 的 ScrollAreaThumb，不用这个文件。这句是从旧 4.2 第 15 项原样搬来的（spec-original.md:230），旧文就是错的。
+为什么是问题：读者以为改 scrollbar-geometry 会同步改 ScrollArea，或者以为新写自绘滑块的人必须用它。
+如何核实：grep -rln scrollbar-geometry packages/nb-ui/src（只有 OverlayScrollbar.vue、usePopupScroll.ts 与两份 .md）；ScrollArea.vue 无引用。
+建议改法：改成“`OverlayScrollbar` 与 `PopupScrollbar` 两个自绘滑块共用……；`ScrollArea` 用 reka 的滑块，只共用颜色比例”。
+
+====================================================================
+[4] 建议 / 遗漏
+位置：packages/nb-ui/docs/ui-development-spec.md:138 到 147（4.5）
+现象：迁移记录（spec-migration.txt 第 7 项）写“分隔线 `.nb-ui-menu-separator`，分组标题 `.nb-ui-menu-label` —— 留 SPEC 4.5（类名，跨六个列表）”，
+  但 4.5 里没有这两个类，spec 全文 grep 不到；同时“核对依据”栏写的是“未核对”。
+为什么是问题：新写弹出列表的人会自己写分隔线和标题，4.5 的目标就是“新写的列表用共同零件”。这两个类在 styles.css:382、402 是登记过的公共类。
+如何核实：grep -n "menu-separator\|menu-label" docs/ui-development-spec.md（无输出）；styles.css:382-410。
+建议改法：在“行”条后加一句：分隔线 `.nb-ui-menu-separator`、分组标题 `.nb-ui-menu-label` 同样是共用类，不手写。
+
+====================================================================
+[5] 重要 / 正确性（规范与新应用不符）
+位置：docs/standards/code/frontend.md “受控视图”开头段、“数据与写回”第 2 到 6 条、“组合与布局归属”第一条
+现象：开头写“工作台的通用 View 与设置分区按这里走”。新应用的设置不是这个模型：
+  - 没有防抖自动写回、没有草稿宿主、没有源回声守卫：packages/neuro-book/src/plugins/settings 与 src/ui/settings 里 grep
+    防抖/captureContext/loadError/notifyError 全无命中；行为是“两个页面即时变化”（settings.e2e）、文件视图用 `SettingsSaveBar` 的“保存/放弃更改”，
+    离开时靠“未保存保护”的 AlertDialog（SettingsWindow.md:22），与第 4、5、6 条（约 500ms 防抖、脏草稿保护、“视图不内联保存中/保存失败”）不是一回事。
+  - 设置分区的布局声明是 `layout: "column" | "fill"`（docs/specs/settings/settings-window.md:65），不是 `"scroll" | "fill"`；
+    后者只在工作台 View（WorkbenchViewFrame、presentation.ts）。frontend.md 把两者写成一条规则，设置分区读者会按错的取值去找。
+为什么是问题：把旧应用设置界面的写回策略当成“设置分区按这里走”的约定，新写的设置页或工作台 View 会去实现防抖草稿，而设置窗口的合同是另一套；
+  frontend.md 用的是命令式措辞（“按这里走”“逐条过”），第 4 到 6 条在新应用里没有任何实现可对照。
+如何核实：grep -rnE "防抖|captureContext|loadError|notifyError" packages/neuro-book/src/plugins/settings packages/neuro-book/src/ui/settings；
+  docs/specs/settings/settings-window.md:65、163、208；WorkbenchViewFrame.vue:18。
+建议改法：开头去掉“设置分区”，只说“工作台的通用 View”（proposal workbench-view-host 继承的就是这一块）；第 4 到 6 条标明“自动写回型视图适用，设置窗口的显式保存/即时生效模型见 settings-window”，
+  或把“旧应用设置界面的经验”一句改成“尚无新应用实例”；`layout` 一条写明两种取值各属哪一层。
+
+====================================================================
+[6] 建议 / 歧义
+位置：docs/standards/code/frontend.md “数据与写回”第 3 条、“新增视图时逐条过”
+现象：第 3 条“写回上下文随草稿捕获”去掉了 `useSectionDraft` 的名字后变成“这份草稿属于哪个目标，在构建草稿时就记下”，没有说记在哪、谁来带；
+  “新增视图时逐条过”原文 5 项里的第 4 项（i18n 键归位）被删，但没有说明是旧应用 settings.section.*/panels.* 独有。
+  第 5 条“要强制换草稿时由宿主显式重置”也没有 API 名。
+为什么是问题：删实例名后规则变成无落点的抽象句；读者无法判断“在构建草稿时就记下”是指 composable 参数还是闭包。
+如何核实：对照 /tmp/w29t05/spec-original.md 的 4.3 第 3、5 条。
+建议改法：保留一个可对照的写法（例如“写回函数闭包里带上目标”），或标“新应用暂无共享实现”。
+
+（补充 [1]）同一张“谁挂哪个类”的表在两处各写了一份且不一致：docs/design-language.md:212 到 234（“浮层外观只有一个登记处”的 modifier 表）说 rim 给 `Dialog`、`FloatingWindow`，
+  基座 `.nb-ui-popover-surface` 之上才加 modifier，Drawer 属于 `.nb-ui-dialog-surface` 的“基座”；ui-development-spec.md:50 到 56 的表则把 rim 写在 Popover 行、没有基座一句、没有 Drawer。
+  2.1 第 3 条（spec:43）说 NB_POPOVER_Z_INDEX 由“对话框与浮动窗口”提供，实际 Drawer 也提供（Drawer.vue:63）。
+  规范第 5 行自己写“一条规则只在一处写”。建议只留一张表（放在 spec 2.2），DL 那段改成指向它。
+
+====================================================================
+[7] 重要 / 正确性
+位置：packages/nb-ui/docs/design-language.md:562（七、动效“浮层入退场的编排是固定的”的子菜单例外）
+现象：写“第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，面板做位置和尺寸过渡，内容快速淡入淡出”。
+  代码：级联的下一级面板（MenuLevelPanel）没有挂 `.nb-ui-popover-motion`，没有入场缩放；同级切换时 `.nb-menu-level` 过渡 top/left/width/height，
+  内容只有淡入 `nb-menu-content-in`（opacity 0 到 1），没有淡出（styles.css:468-486）。只有第一级面板（DropdownMenu.vue:135、Menubar.vue:138）有缩放淡入，ContextMenuPanel 没有。
+  S1 的迁移记录（spec-migration.txt“疑似代码问题 2”）自己已经查到这一点，并写明“请主会话按代码写”，但 DL 这句仍照旧，只改了时长。
+为什么是问题：规范说“第一次展开用缩放淡入、淡入淡出”，照做的人会去给下一级面板加缩放入场，或者发现代码里没有就判为回归；这是整份 DL 里还留着的“规范与代码相反”的一条。
+如何核实：grep -n "popover-motion" packages/nb-ui/src/components/popup/MenuLevelPanel.vue packages/nb-ui/src/components/popup/ContextMenuPanel.vue（无命中）；styles.css:468-486。
+建议改法：改成“第一级面板走上面的入场配方；下一级面板没有入场动画，同级切换时面板做位置和尺寸过渡、内容淡入（没有淡出）”，
+  或者把这当成代码缺口记下来，不要写成已有行为。
+
+====================================================================
+[8] 重要 / 歧义（读者视角）
+位置：packages/nb-ui/docs/ui-development-spec.md:136 到 147（4.5 弹出列表的共同合同）
+现象：一个第一次写弹出列表的人只读规范和同名 .md，仍然答不出“要用什么、写在哪、怎么接线”：
+  - 没有给出任何文件位置：`MenuRow`、`PopupScrollbar`、`PopupViewport` 在 src/components/popup/，`usePopupScroll`、`usePopoverLayer` 在 src/composables/，
+    `popup-geometry.ts`、`roving.ts` 在 src/utils/。MenuRow.md 写明“内部零件，不从包入口导出”，`composables/index.ts` 也不导出 usePopupScroll 与 usePopoverLayer，
+    所以宿主应用里的新列表根本拿不到它们；规范没说“这套只给 nb-ui 内部的新列表用，新列表写在 src/components/popup/”。
+  - 截断条只写“用 `usePopupScroll`”“滑块是 `PopupScrollbar`”，没有说视口要绑 `setViewport/viewportStyle/fadeClass/onScroll`、要加类 `.nb-ui-popover-scroll`，
+    也没有提 Menubar 与级联菜单实际用的包装零件 `PopupViewport`（它把这四样与滑块包好了，见 PopupViewport.md）。
+  - “六个共用”（见 [2]）与“方向键漫游：用 roving.ts”不分必须与可选：Select 用 reka 自带的键盘，SuggestionMenu 的键盘由宿主处理，都不用 roving。
+为什么是问题：计划把“跨六个组件的规则留在规范”作为迁移 4.2 的去向，读者拿到的是一串内部名字而不是可以照着做的步骤；漏接线的表现是静默的（没有滑块、没有渐隐、圆角对不上）。
+如何核实：cat src/composables/index.ts；grep -rn "usePopupScroll" src/components；PopupViewport.md、MenuRow.md 开头一句。
+建议改法：4.5 开头加两句：这些是 nb-ui 内部零件，新列表写在 `src/components/popup/`；最省事的做法是外框里放 `PopupViewport`（自带 usePopupScroll 与滑块），行用 `MenuRow`。
+  各条后面标注哪几个列表不适用（Select、SuggestionMenu、ContextMenu、QuickPick 的例外）。
+
+====================================================================
+[9] 重要 / 遗漏
+位置：S1 迁移记录 /tmp/w29t05/spec-migration.txt 第 12 项“拖放”的“留应用侧”几条；对应规则在 docs/ 里没有新家
+现象：旧 4.2 第 12 项里这几条被记为“留应用侧，不并入 nb-ui .md”，并建议“主会话决定是否进 docs/specs/ui/workbench-shell.md”，但分支上没有写到任何地方：
+  - Editor 标签带与 Workbench 容器切换器条目带传 `edgeGap` 4px；内容区边缘插入带不消费 edgeGap；
+  - Workbench 展开内容区传 `edgeRatio: 0.5`，中点归后半；Editor 原位落点与正文中央整区反馈用 `action: null` 表示释放不提交；容器原位换序可 noop 显示一条插入线，View 投 Switcher 创建新容器；
+  - 外部文件/文本走原生数据交换，内部标签移动不能写 `text/plain` 把路径漏进正文。
+  已核实：grep -rn "edgeGap\|text/plain" docs packages/neuro-book/src --include='*.md' 无命中；只有 packages/neuro-book/src/plugins/workbench/web/views/drop.ts 的代码里有 edgeGap。
+  迁移记录里这几条的核对栏写的是“未核对”，其中 text/plain 一条在 editor/web 与 workbench/web 里 grep 不到。
+为什么是问题：计划验收是“原 4.2 没有悄悄丢规则”；这几条是应用行为规则，现在没有任何文档，也没有被明确判为过时。
+如何核实：见上；spec-migration.txt 第 12 项倒数几行。
+建议改法：要么进 docs/specs/ui/workbench-shell.md（或 editor 的 Spec），要么在迁移记录里改成“判为过时/代码已不是这样”并写依据；不要停在“未核对”。
+
+====================================================================
+[10] 建议 / 文档（悬空指向）
+位置：.agents/skills/ui-development/SKILL.md:32
+现象：写“并在宽窗口（≥1400px）下确认内容列封顶……（见 `ui-development-spec.md` 的开发后自检）”。新 spec 第 8 节的清单里没有这一项（grep 1400、封顶 在 spec 里无命中）；
+  这一条原来在 DL 第九节检查表，S3 删了整节，判据只剩在 DL“内容列有上限宽度”（design-language.md:320-331）。
+如何核实：grep -n "1400\|封顶" packages/nb-ui/docs/ui-development-spec.md。
+建议改法：指向 design-language.md 的“内容列有上限宽度”，或把这一条补进 spec 第 8 节。
+
+====================================================================
+[11] 建议 / 文档
+位置：packages/nb-ui/docs/ui-development-spec.md:218（自检清单“同类交互状态一致与外扩阴影防裁切”）、:5、:217、:216、:221
+现象：
+  (a) 第 5 行规定“具体数值只在 token、CSS、主题 vars.css 与同名 .md 里，本文写角色”，而 218 行写“nbook、macos 是 3.5px”（`--focus-ring` 的扩散量，见 themes/nbook/vars.css:343-346），主题改了这行就错。
+  (b) 计划写“每条一行并指向规则出处”，这份清单里 216、218、221 是整段的长条目，216（Tab 滚动权按页隔离）、221（可点击卡片内嵌操作）没有指向任何规则出处。
+  (c) 217“工具卡片按真实形状画”（对照工具真实 schema、开放式与选项式提问）是 Agent 对话视图的规则，不是 nb-ui 的；计划写“删除或改到 Agent 对话视图的 Spec，开工时核对”，实际原样留下。
+建议改法：(a) 去掉数值，写“按主题 --focus-ring 的实色部分算”；(b) 标出处或拆条；(c) 移到 nb-agent-ui 的文档，或确认后删。
+
+====================================================================
+[12] 建议 / 正确性
+位置：packages/nb-ui/docs/authoring-themes.md:239
+现象：写“减少动效只覆盖库的三个时长变量”。src/tokens.css:229-236 的 `prefers-reduced-motion` 实际归零六个（含 `--motion-reveal-in/-hold/-out`）。
+  S3 已经把 DL 的同类句子改成“时长类 token”（dl-changes.txt 六、无障碍一行），这一份漏改，两份现在互相矛盾。
+如何核实：sed -n 226,236p packages/nb-ui/src/tokens.css。
+建议改法：改成“库只把时长类 token 归零”。
+
+====================================================================
+[13] 建议 / 文档（代码注释与新文档相反）
+位置：packages/nb-ui/src/components/display/Badge.vue:10、form/Checkbox.vue:7、:10、controls/SegmentedControl.vue:13
+现象：注释仍写“饱满超椭圆（Squircle）”。DL“超椭圆：目前未使用”（design-language.md:333 起）与改过的 Checkbox.md（“方框”，圆角 5px）都说这些组件是普通圆角；S1 迁移记录也把“Squircle”判为与代码不符。
+  S5 只清了评审代号，没有清这几条。
+建议改法：注释里去掉 Squircle 一词，Checkbox.vue:10 改成“18px 方框，圆角 5px”。（只改注释。）
+
+====================================================================
+[14] 建议 / 正确性
+位置：packages/nb-ui/docs/ui-development-spec.md:29（2.1 第 1 条最后一项“当前库里两条轴尚未落地”）
+现象：写“现有 8 个表面变量仍按部件命名”，并列出 5 个。src/theme/tokens.ts:99-120 里的表面变量是 9 个（control、button、panel、sidebar、toolbar、overlay、dialog、dialog-nested、strip），
+  `--dialog-surface`、`--dialog-surface-nested` 是后来加的，既没计入也没归到哪条轴；同一节 2.2 又靠它们区分对话框。
+建议改法：改成“按部件命名的表面变量”不写数，并补一句对话框两档属材质轴；提案 nb-ui-surface-model 的迁移清单（正文冻结，不动）已有同样问题，不在本任务内。
+
+====================================================================
+[15] 建议 / 文档（一条规则写两处）
+位置：ui-development-spec.md:25、:32 与 design-language.md 的“为什么材质只能有一层”“阴影只有三档”
+现象：spec 2.1 第 1 条的“嵌套 backdrop-filter 语义未定（w3c/fxtf-drafts#500）……重绘开销每层翻倍……为 position: fixed 后代创建包含块”与第 4 条的“Material Design 3 曾把面色绑在 elevation 上……”
+  在 DL 的同名小节里又各有一份（design-language.md:123-146、:178-182）。两份目前一致，但违反 spec 第 5 行“一条规则只在一处写”，之后只改一处就会分歧。
+建议改法：spec 只留判据一句，理由链接 DL。
+
+====================================================================
+[16] 建议 / 歧义
+位置：ui-development-spec.md:145（4.5 截断与滚动）
+现象：“未到底时顶底渐隐”。实际按位置分三种（usePopupScroll.ts:196-201）：不在顶才有顶部渐隐，不在底才有底部渐隐，两边都不在两边都有；刚打开时只有底部渐隐。
+  “未到底时顶底渐隐”读成“只要没到底两头都淡”。
+建议改法：“离开顶端后顶部渐隐，没到底时底部渐隐”。
+
+====================================================================
+未发现问题的方面（已核实，仔细检查后没有发现）
+- README：组件清单与 src/components/index.ts 的默认导出逐个对上（无遗漏、无多余），所有 .md 链接文件存在；示例里 `@notnotype/nb-ui/theme`、`/colorway`、`/notifications`、
+  `/text-port`、`/locales`、`/themes/*` 都在 package.json exports 里；`applyColorway`、`nbColorways`、`nbColorwayIds`、`nbColorwayMeta`、`NB_DEFAULT_COLORWAY_ID`、`defaultDarkColorway`、
+  `createColorwayStore`、`retiredColorwayAliases`、`installTheme`、`createThemeStore`、`nbDesignTokens`、`nbTypographyTokens`、`nbRadiusTokens` 都真实导出；33 个配色变量与 `nbColorwayVarKeys` 一致；
+  一句话说明与抽查的 25 份 .md 开头相符。原英文版里的 `provideThemeComponents` 随组件替换一起删，theme 入口确实已不导出。
+- spec 4.5 的行结构（勾与图标共用列、`data-highlighted`、`aria-expanded` 保持高亮、危险项只换色、8 项第 9 项中点截断、PopupScrollbar 只在可滚动时出现）与 styles.css、
+  MenuNodes/QuickPick/SuggestionMenu、popup-geometry.ts 一致；级联共用 `useMenuCascade` 与 `popup-geometry` 的三个使用者（ContextMenu、DropdownMenu、Menubar）核实无误。
+- spec 滚动条表里 `ScrollArea`、`OverlayScrollbar`、`PopupScrollbar`、`.nb-ui-scrollbar-thin/stable/center` 的取舍、`--scrollbar-w` 只有 OverlayScrollbar 取，与 tokens.css、各 .md 一致（唯一问题见 [3]）。
+- 2.2 表里 Tooltip、弹出列表、AlertDialog 的 `--compact`/`--nested`、浮动窗口 `--window` 的类名与 styles.css:523-556 一致（表整体的问题见 [1]）。
+- 悬空引用：spec/README/Skill/ADR 0028/组件 .md/migration-0.4/close-handoff.ts 里“第九节”“4.2 节”“§”一类指向已删小节的文字没有找到；组件 .md 的 `#42-同类零件的分工`、
+  Skill 的 `#8-开发后自检与易错清单`、migration 的 `#43-…`、README 的 `#宿主里的样式` 锚点都存在；docs:check 在本分支通过（failures 为空）。
+- DL #38（第一条是 blur ≤ 1px 的外环/轮廓）对 nbook 的 popover、菜单、对话框三档成立；macos/editorial 不按这条验的说法与 vars.css 一致。#44（输入类控件圆角等于 --radius-control、components 里没有 rounded-md/sm/lg）
+  grep 无命中，成立；#36/#40/#42 的判据未发现与代码相反。暗色玻璃保持 brightness(1.0) 的写法与开发者决定一致。
+- 抽查 DropFeedbackOverlay.md、Splitter.md、QuickPick.md 并入的数值与行为：`SASH_COLLAPSE_THRESHOLD=24`、装饰带最厚 3px、内缩 `min(6, 尺寸/4)`、`edgeRatio`/`edgeGap` 语义、
+  QuickPick 的 `.nb-ui-popover-motion` 只在 open 时挂、命令面板层级高于右键菜单，均与代码一致；Checkbox 18px/5px、IconButton/Button 圆角 6/8/10、Drawer 遮罩 `--overlay-bg` 加 4px 模糊一致。
+- 调研文档只含读数与出处，没有推荐（第 140 行自述也成立）。
+
+====================================================================
+汇总
+阻断 0；重要 6（[1] [2] [5] [7] [8] [9]）；建议 10（[3] [4] [6] [10] [11] [12] [13] [14] [15] [16]）。共 16 条。
+最严重的几条：[7]（DL 说子菜单有缩放入场和内容淡出，代码没有）、[5]（frontend.md 的“设置分区按这里走”与新应用设置的显式保存/layout 取值不符）、
+[1]（spec 与 DL 两张浮层外框表不一致，对话框行缺基座类）、[9]（应用侧拖放规则被记为“留应用侧”后没有任何归宿）、[8]（读者无法从 4.5 知道新弹出列表怎么写、写哪里）、[2]（“六个共用 usePopoverLayer”对 ContextMenu、QuickPick 不成立）。
+
+====================================================================
+主 Agent 的处理（2026-11-04）：审查者 Sonnet，16 条（重要 6、建议 10），逐条对照代码核实，全部成立。
+
+[1][15 的一部分] 改：浮层外框只留规范一张表，写明基座；设计语言那张删掉，改指向它。
+[2][4][8][16] 改：弹出列表一节写明内部零件、落在哪、最省事的搭法、层级的两种情况、渐隐的准确说法，补分隔线与标题类。
+[3] 改：只有两个自绘滑块共用几何。
+[5][6] 改：受控视图限定到工作台 View；第 3 到 6 条只适用于自动写回的视图；写明新应用还没有共享实现，设置窗口是另一个模型。
+[7] 改：级联面板的动效按代码写。
+[9] 不进 Spec，判定如下：
+    Workbench 的 4px 留白与半区落点已在 workbench-shell 输出 22；Editor 的落点、“放在原位不移动”在 workbench/editor 输出 55；
+    edgeGap、edgeRatio 的具体取值是 drop.ts、tab-drag.ts 的实现细节，行为已有合同。
+    “内部标签移动不能写 text/plain”是旧应用的规则：新应用的 editor、workbench 插件没有写 text/plain 的代码，规则没有落点，判为过时。
+[10] 改：Skill 指向设计语言的“内容列有上限宽度”。
+[11] 改 (a)：去掉 3.5px。改 (c)：工具卡片一条移到 nb-agent-ui 的 AGENTS.md，旧应用的 mode 写法丢弃。
+     (b) 接受：清单里几条长条目不拆，它们是一件事的几个判据，拆开后更难查；出处按小节名写在需要处。
+[12][13][14] 改。
+[15] 部分改：规范里两处理由改指向设计语言；2.1 第 1 条的判据留在规范。
+
+本轮发现的、不属于文档的问题（从代码看，未改代码）：
+- Button 加载时图标从 1.15em 变 1em，宽度差 0.15em，违反规范的零布局位移。
+- 级联的下一级面板没有入场动画，同级切换内容只淡入，文档已按代码写，要不要补动画未定。
+- `.nb-ui-switch-*`（styles.css）全仓没有消费方。

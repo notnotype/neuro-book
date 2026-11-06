@@ -10,7 +10,7 @@ import type {BoundText} from "nbook/shared/use-plugin-text";
 
 import enUS from "../locales/en-US.json";
 import zhCN from "../locales/zh-CN.json";
-import {MODELS_TEXT_NAMESPACE} from "../shared/text";
+import {builtinRoleNameKey, MODELS_TEXT_NAMESPACE} from "../shared/text";
 import type {SnapshotModel, SnapshotRole} from "../shared/contracts";
 import type {ModelsFailure} from "./models-store";
 import {detailText} from "./models-store";
@@ -37,8 +37,9 @@ const BUILTIN = new Set(Object.keys(zhCN.roles.builtin));
 
 /** 内置角色的名字与说明按界面语言给；用户改过名字（设置里写了）时用设置里的。 */
 export function roleName(text: ModelsText, role: Role): string {
-    if (role.name !== "" || !role.builtin || !BUILTIN.has(role.id)) return role.name === "" ? role.id : role.name;
-    return text(`roles.builtin.${role.id}.name` as "roles.builtin.main.name");
+    const key = builtinRoleNameKey(role);
+    if (key === null || !BUILTIN.has(role.id)) return role.name === "" ? role.id : role.name;
+    return text(key as "roles.builtin.main.name");
 }
 
 export function roleDescription(text: ModelsText, role: Role): string {

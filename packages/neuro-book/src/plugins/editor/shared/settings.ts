@@ -59,6 +59,35 @@ export const breadcrumbsSetting = defineSetting({
     order: 30,
 });
 
+/** Markdown 编辑器的固定工具栏（docs/specs/workbench/markdown-editing.md 输出 4）。 */
+export const markdownToolbarSetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "markdownToolbar",
+    schema: Type.Boolean(),
+    default: true,
+    description: editorText("settings.markdownToolbar.description"),
+    section: EDITOR_SECTION,
+    group: "tabs",
+    order: 40,
+});
+
+/** 固定工具栏的位置（docs/specs/workbench/markdown-editing.md 输出 2）。 */
+export const markdownToolbarPlacementSetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "markdownToolbarPlacement",
+    schema: Type.Union([Type.Literal("full"), Type.Literal("merged"), Type.Literal("bottom")]),
+    default: "full",
+    description: editorText("settings.markdownToolbarPlacement.description"),
+    section: EDITOR_SECTION,
+    group: "tabs",
+    order: 45,
+    choices: [
+        {value: "full"},
+        {value: "merged"},
+        {value: "bottom"},
+    ],
+});
+
 /**
  * 源码编辑器（Monaco）的排版（settings-window 的“代码编辑器”小组）。Markdown 正文的排版不在这里。改动立即生效：编辑器
  * 不重建，缩进两项同时用到已打开的文件。

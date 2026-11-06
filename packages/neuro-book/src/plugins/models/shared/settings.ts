@@ -9,6 +9,7 @@ import type {Static} from "typebox";
 
 import {defineSettings} from "nbook/shared/settings";
 
+import {CompactionSettingSchema, DEFAULT_COMPACTION} from "./compaction";
 import {modelsText} from "./text";
 
 /** 两个 page 分区的 id（界面在浏览器入口交付）。 */
@@ -33,7 +34,9 @@ export const ModelConfigSchema = Type.Object({
     vision: Type.Optional(Type.Boolean()),
     reasoning: Type.Optional(Type.Boolean()),
     efforts: Type.Optional(Type.Array(Type.String())),
+    /** 旧的固定触发点：读作 `compaction: {mode: "tokens"}`，保存时换成新的。 */
     compactAt: Type.Optional(Type.Integer({minimum: 1})),
+    compaction: Type.Optional(CompactionSettingSchema),
     price: Type.Optional(Price),
     headers: Type.Optional(Headers),
 }, {additionalProperties: false});
@@ -79,7 +82,20 @@ export const BUILTIN_ROLES: ReadonlyArray<Pick<RoleConfig, "id" | "axis">> = [
 
 export const DEFAULT_ROLES: RolesConfig = {items: BUILTIN_ROLES.map((role) => ({...role, name: "", description: "", model: null}))};
 
+/** `nbook.agent` 的分区（docs/specs/agent/run-guards.md）。Agent 依赖模型服务，反过来引用会成环，所以按 id 写。 */
+const RUN_GUARDS_SECTION = "nbook.agent.reliability";
+
 export const modelsSettings = defineSettings("nbook.models", {
+    compaction: {
+        schema: CompactionSettingSchema,
+        default: DEFAULT_COMPACTION,
+        title: modelsText("settings.compaction.title"),
+        description: modelsText("settings.compaction.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "compaction",
+        order: 10,
+    },
     providers: {
         schema: ProvidersSchema,
         default: [],
@@ -95,5 +111,25 @@ export const modelsSettings = defineSettings("nbook.models", {
         description: modelsText("settings.roles.description"),
         layers: ["user"],
         section: ROLES_SECTION,
+    },
+    streamFirstEventTimeoutSeconds: {
+        schema: Type.Integer({minimum: 0, maximum: 3600}),
+        default: 300,
+        title: modelsText("settings.streamFirstEventTimeoutSeconds.title"),
+        description: modelsText("settings.streamFirstEventTimeoutSeconds.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "requests",
+        order: 20,
+    },
+    streamIdleTimeoutSeconds: {
+        schema: Type.Integer({minimum: 0, maximum: 3600}),
+        default: 300,
+        title: modelsText("settings.streamIdleTimeoutSeconds.title"),
+        description: modelsText("settings.streamIdleTimeoutSeconds.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "requests",
+        order: 30,
     },
 });

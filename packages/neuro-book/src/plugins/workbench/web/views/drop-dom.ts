@@ -9,19 +9,18 @@
  *   “移动到”）。
  * - 落点：`data-switcher-band="<part>"`（标签带、ActivityBar 条目带）与其中的 `data-switcher-entry="<containerId>"`；
  *   `data-container-host="<containerId>"`（容器内容）与其中的 `data-view-section="<viewId>"`；`data-empty-part="<part>"`。
- * - 拖动反馈（拖影、落点覆盖层）带 `data-drag-feedback`，不算业务元素，也不挡命中。
+ * - 拖动反馈（拖影、落点覆盖层）带 `data-drag-feedback`，不算业务元素，也不挡命中（由会话的遮挡判定跳过）。
  *
- * 由旧应用 `workbench-drop-dom.ts`（已人工验证）改写：可见矩形的读法照搬；命中不再经拖动库的碰撞检测，直接按
- * `elementsFromPoint` 的最上层业务元素认落点，被菜单、对话框挡住的位置因此不接收。
+ * 由旧应用 `workbench-drop-dom.ts`（已人工验证）改写：可见矩形的读法照搬；命中不再经拖动库的碰撞检测，直接按会话给的最上层
+ * 业务元素认落点，被菜单、对话框挡住的位置因此不接收。
  */
 
-import type {GridDropMember, GridDropPoint, GridDropRect} from "@notnotype/nb-ui/layout";
+import type {GridDropMember, GridDropPoint, GridDropRect} from "@notnotype/nb-layout";
 
 import {VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
 import type {ContentRects, DropTarget, SwitcherRects} from "./drop";
 
-const FEEDBACK_SELECTOR = "[data-drag-feedback]";
 const TARGET_SELECTOR = "[data-switcher-band], [data-container-host], [data-empty-part]";
 const SOURCE_SELECTOR = "[data-drag-view], [data-drag-container]";
 const TOOLS_SELECTOR = "[data-no-drag]";
@@ -105,25 +104,22 @@ export interface DropHit {
 }
 
 /**
- * 指针处的落点：`elementsFromPoint` 从最上层往下，跳过拖动反馈，第一个业务元素所在的最近落点就是命中；第一个业务
- * 元素不在任何落点里（框架按钮、Part 之间的缝、浮层），或在落点里的工具区上，就没有命中。落点必须在 `root` 里。
+ * 指针处的落点：`top` 是指针处最上层的业务元素（会话给的，已跳过拖动反馈），它所在的最近落点就是命中；它不在任何落点里（框架
+ * 按钮、Part 之间的缝、浮层），或在落点里的工具区上，就没有命中。落点必须在 `root` 里。
  */
-export function dropHitAt(root: Element, point: GridDropPoint, partOf: (containerId: string) => ViewLocation | null): DropHit | null {
-    for (const element of root.ownerDocument.elementsFromPoint(point.x, point.y)) {
-        if (element.closest(FEEDBACK_SELECTOR) !== null) continue;
-        const hit = element.closest<HTMLElement>(TARGET_SELECTOR);
-        if (hit === null || !root.contains(hit)) return null;
-        const tools = element.closest(TOOLS_SELECTOR);
-        if (tools !== null && hit.contains(tools)) return null;
-        const band = locationOf(hit.dataset.switcherBand);
-        if (band !== null) return {element: hit, target: {kind: "switcher", part: band}};
-        const empty = locationOf(hit.dataset.emptyPart);
-        if (empty !== null) return {element: hit, target: {kind: "empty", part: empty}};
-        const containerId = hit.dataset.containerHost;
-        const part = containerId === undefined ? null : partOf(containerId);
-        return containerId === undefined || part === null ? null : {element: hit, target: {kind: "content", containerId, part}};
-    }
-    return null;
+export function dropHitAt(root: Element, top: Element | null, partOf: (containerId: string) => ViewLocation | null): DropHit | null {
+    if (top === null) return null;
+    const hit = top.closest<HTMLElement>(TARGET_SELECTOR);
+    if (hit === null || !root.contains(hit)) return null;
+    const tools = top.closest(TOOLS_SELECTOR);
+    if (tools !== null && hit.contains(tools)) return null;
+    const band = locationOf(hit.dataset.switcherBand);
+    if (band !== null) return {element: hit, target: {kind: "switcher", part: band}};
+    const empty = locationOf(hit.dataset.emptyPart);
+    if (empty !== null) return {element: hit, target: {kind: "empty", part: empty}};
+    const containerId = hit.dataset.containerHost;
+    const part = containerId === undefined ? null : partOf(containerId);
+    return containerId === undefined || part === null ? null : {element: hit, target: {kind: "content", containerId, part}};
 }
 
 /** 预备区：没显示的 Part，以及它显示出来会在的矩形（视口坐标）。 */
@@ -133,17 +129,13 @@ export interface RevealZoneRect {
 }
 
 /**
- * 指针处的预备区。预备区叠在当前布局上、自己不接指针，所以按几何找；真实落点优先：指针下第一个业务元素在任何落点
- * 里（包括落点里的工具区）时不算预备区，只有落在编辑器这类不接收视图的地方才轮到它。
+ * 指针处的预备区。预备区叠在当前布局上、自己不接指针，所以按几何找；真实落点优先：`top` 在任何落点里（包括落点里的工具区）时不算
+ * 预备区，只有落在编辑器这类不接收视图的地方才轮到它。
  */
-export function revealAt(root: Element, point: GridDropPoint, zones: ReadonlyArray<RevealZoneRect>): RevealZoneRect | null {
+export function revealAt(root: Element, top: Element | null, point: GridDropPoint, zones: ReadonlyArray<RevealZoneRect>): RevealZoneRect | null {
     if (zones.length === 0) return null;
-    for (const element of root.ownerDocument.elementsFromPoint(point.x, point.y)) {
-        if (element.closest(FEEDBACK_SELECTOR) !== null) continue;
-        const target = element.closest(TARGET_SELECTOR);
-        if (target !== null && root.contains(target)) return null;
-        break;
-    }
+    const target = top?.closest(TARGET_SELECTOR);
+    if (target != null && root.contains(target)) return null;
     return zones.find((zone) => inside(zone.rect, point)) ?? null;
 }
 

@@ -7,6 +7,158 @@
         "profileSettings": {
             "title": "Profile 设置",
             "description": "按 Profile 设的模型或模型角色，以及新会话的审批模式"
+        },
+        "modelRetries": {
+            "title": "模型请求重试次数",
+            "description": "模型请求失败后最多再发几次；0 表示不重试"
+        },
+        "warnCost": {
+            "title": "费用告警线（美元）",
+            "description": "这个会话的费用到这条线时提醒一次；0 表示不告警。没填单价的模型不计入"
+        },
+        "maxCost": {
+            "title": "费用上限（美元）",
+            "description": "这个会话的费用到上限后不再发模型请求，最后一次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
+        },
+        "toolLoopThreshold": {
+            "title": "重复调用阈值",
+            "description": "连续这么多次相同的工具调用时提醒模型；提醒后结果还是一样就停止运行；0 表示不检测"
+        }
+    },
+    "settingsSections": {
+        "reliability": {
+            "title": "运行可靠性",
+            "description": "模型请求失败时的重试、卡死超时、上下文压缩的触发点、费用与重复调用的保护",
+            "groups": {
+                "requests": {
+                    "title": "模型请求"
+                },
+                "compaction": {
+                    "title": "上下文压缩"
+                },
+                "guards": {
+                    "title": "保护"
+                }
+            }
+        }
+    },
+    "conversation": {
+        "phase": {
+            "requesting": "请求中",
+            "streaming": "生成中",
+            "tools": "执行工具",
+            "compacting": "正在压缩"
+        },
+        "reject": {
+            "emptyInput": "消息为空。",
+            "inputTooLarge": "消息过长。",
+            "inputRejected": "消息被规则拦截。",
+            "readOnly": "当前会话为只读。",
+            "other": "发送失败（{{code}}）。"
+        },
+        "model": {
+            "none": "暂无可用模型。",
+            "noCredentials": "未设置模型密钥。",
+            "unknown": "当前会话选择的模型不存在或不可用。",
+            "roleUnbound": "此 Profile 需要的模型角色未绑定模型。",
+            "unavailable": "不可用"
+        },
+        "approval": {
+            "ask": {
+                "label": "每次询问",
+                "description": "除读取外，每次调用都需要批准（默认）"
+            },
+            "allowWrites": {
+                "label": "放行写入",
+                "description": "修改文件无需批准，运行命令仍需批准"
+            },
+            "yolo": {
+                "label": "全部放行",
+                "description": "所有调用都无需批准，仅拒绝规则可拦截"
+            }
+        },
+        "createFailed": "新建会话失败（{{code}}）。",
+        "openFailed": "无法打开此会话（{{code}}）。",
+        "retry": "重试",
+        "archived": "此会话已归档。",
+        "restore": "恢复",
+        "openSettings": "打开设置",
+        "followDefault": "跟随默认",
+        "activity": {
+            "title": "Agent 活动",
+            "both": "Agent：{{running}} 运行中 · {{waiting}} 等你处理",
+            "waiting": "Agent：{{waiting}} 等你处理",
+            "running": "Agent：{{running}} 运行中"
+        },
+        "listFailed": "无法获取会话列表（{{code}}）。",
+        "pickProfile": "选择 Profile",
+        "renameTitle": "改名",
+        "rename": "改名",
+        "cancel": "取消",
+        "loading": "正在加载…",
+        "fork": {
+            "unknown": "不确定分支建好了没有。再执行一次 /fork，不会多建。"
+        },
+        "renameCommand": {
+            "needTitle": "写上新标题，例如 /rename 第三章的结尾。"
+        },
+        "mentions": {
+            "title": "项目文件",
+            "empty": "没有匹配的文件",
+            "noProject": "打开作品之后才能引用文件",
+            "failed": "查找文件没有成功，再试一次"
+        },
+        "attachment": {
+            "tooLarge": "单个文件不能超过 25 MB。",
+            "failed": "上传没有成功（{{code}}）。",
+            "noSession": "没能新建会话，附件放不进去。"
+        },
+        "history": {
+            "unknown": "不确定这步做成了没有。再点一次，不会重复。",
+            "failed": "这步没做成（{{code}}）。对话没动。"
+        },
+        "context": {
+            "unavailable": "现在算不出下一次请求：这个会话的模型用不了，或者还没有可用的 Profile。"
+        },
+        "compact": {
+            "nothingToCompact": "没有可压缩的内容。",
+            "noModel": "压缩用的模型没有设置。到设置里给“压缩”角色绑定一个模型。",
+            "noSession": "还没有对话，没有可压缩的内容。",
+            "queued": "将在这一步结束后压缩。",
+            "unknown": "压缩命令的结果未知。看一下对话里有没有出现压缩的分隔线，没有的话再发一次。"
+        }
+    },
+    "views": {
+        "conversation": {
+            "title": "对话"
+        },
+        "sessions": {
+            "title": "会话"
+        }
+    },
+    "editorPages": {
+        "conversation": {
+            "title": "Agent 对话"
+        }
+    },
+    "commands": {
+        "open": {
+            "title": "打开对话"
+        },
+        "new-session": {
+            "title": "新建 Agent 会话"
+        },
+        "focus-session": {
+            "title": "切到 Agent 会话"
+        },
+        "category": "Agent",
+        "open-in-editor": {
+            "title": "在编辑区打开对话"
+        }
+    },
+    "state": {
+        "active": {
+            "reason": "没有运行中或等用户的会话"
         }
     }
 }

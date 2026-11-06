@@ -2,15 +2,7 @@
     "settings": {
         "theme": {
             "title": "主题",
-            "description": "界面的形状、字体与配色",
-            "choices": {
-                "nbook": {
-                    "title": "NeuroBook"
-                },
-                "macos": {
-                    "title": "macOS"
-                }
-            }
+            "description": "界面的形状、字体与配色"
         },
         "appearance": {
             "title": "明暗",
@@ -91,6 +83,12 @@
                 "toggle-panel-maximized": {
                     "title": "最大化/还原面板"
                 },
+                "focus-next-pane": {
+                    "title": "聚焦下一个面板"
+                },
+                "focus-previous-pane": {
+                    "title": "聚焦上一个面板"
+                },
                 "set-part-hidden": {
                     "title": "切换区域显隐"
                 },
@@ -107,6 +105,12 @@
                 },
                 "switch-appearance": {
                     "title": "切换明暗"
+                },
+                "open-theme-editor": {
+                    "title": "打开主题编辑器"
+                },
+                "open-theme-editor-floating": {
+                    "title": "在浮动窗口中打开主题编辑器"
                 }
             }
         }
@@ -147,13 +151,17 @@
             "justify": "两端（含左右侧栏）"
         },
         "current": "当前",
-        "placeholder": "选中后立即生效"
+        "placeholder": "选中后立即生效",
+        "noPanel": "没有可以操作的面板",
+        "editorCollapse": "编辑组不能收起"
     },
     "partCommands": {
         "parts": {
             "sidebar": "侧栏",
             "auxiliarybar": "右栏",
-            "activitybar": "活动栏"
+            "activitybar": "活动栏",
+            "panel": "面板",
+            "statusbar": "状态栏"
         },
         "visible": "显示中",
         "hidden": "已隐藏",
@@ -164,13 +172,15 @@
             "light": "浅色",
             "dark": "深色",
             "system": "跟随系统"
-        }
+        },
+        "unknownTheme": "没有这个主题：{{id}}。已有：{{ids}}"
     },
     "viewCommands": {
         "parts": {
             "sidebar": "侧栏",
             "auxiliarybar": "右栏",
-            "panel": "面板"
+            "panel": "面板",
+            "editor": "编辑区"
         },
         "pickView": "选择要移动的视图",
         "pickOpen": "选择要打开的视图",
@@ -179,13 +189,16 @@
         "unplaced": "视图不在布局里：{{viewId}}",
         "pickTarget": "移动到",
         "noViews": "没有可以移动的视图",
-        "partial": "要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个",
-        "stale": "视图已经不在发起时的容器里，没有移动",
+        "partial": "要么都不给，要么同时给 viewId 和 target",
+        "stale": "视图或目标面板已经不在了，没有移动",
         "newContainer": {
             "sidebar": "新建容器（在侧栏）",
             "auxiliarybar": "新建容器（在右栏）",
             "panel": "新建容器（在面板）"
-        }
+        },
+        "newPanelNextTo": "新面板（挨着{{panel}}）",
+        "rejected": "这个视图不能放到那里",
+        "limit": "布局已经太复杂，放不下新面板"
     },
     "views": {
         "resetLocation": "重置位置",
@@ -219,9 +232,22 @@
             "mergeContainer_other": "并入 {{count}} 个视图",
             "reveal": "放到{{part}}",
             "before": "放在“{{title}}”前",
-            "after": "放在“{{title}}”后"
+            "after": "放在“{{title}}”后",
+            "addTab": "添加为标签",
+            "insert": "放在这里",
+            "between": "放到两块之间",
+            "split": "拆到这一边",
+            "inPlace": "原位"
         },
-        "moreActions": "更多操作"
+        "moreActions": "更多操作",
+        "frame": {
+            "hide": "隐藏"
+        },
+        "tools": "工具",
+        "missing": {
+            "view": "提供这个视图的插件现在不在：{{viewId}}",
+            "close": "关闭这个标签"
+        }
     },
     "viewFrame": {
         "declared": "正在等待视图所属的插件启动",
@@ -294,6 +320,199 @@
         },
         "panelMaximized": {
             "reason": "面板没有最大化"
+        },
+        "nonPhone": {
+            "reason": "手机呈现下不可用"
+        },
+        "hasCurrentPanel": {
+            "reason": "还没有面板获得过焦点"
+        },
+        "maximized": {
+            "reason": "没有最大化的面板"
+        }
+    },
+    "themes": {
+        "nbook": {
+            "title": "NeuroBook"
+        },
+        "macos": {
+            "title": "macOS"
+        },
+        "eyeGreen": {
+            "title": "护眼绿"
+        },
+        "mine": "我的",
+        "eyeSepia": {
+            "title": "护眼米黄"
+        }
+    },
+    "settingsPages": {
+        "themes": {
+            "title": "主题",
+            "description": "做自己的主题，或查看正在用的主题"
+        }
+    },
+    "themeEditor": {
+        "title": "主题编辑器",
+        "close": "关闭",
+        "empty": {
+            "title": "还没有我的主题",
+            "hint": "新建一套，或从现有主题复制起步。"
+        },
+        "library": {
+            "label": "我的主题",
+            "new": "新建",
+            "duplicate": "复制",
+            "delete": "删除",
+            "copyFrom": "复制自…",
+            "loading": "正在读取我的主题",
+            "failed": "我的主题读不出来：{{reason}}",
+            "deleteConfirm": "确认删除",
+            "export": "导出…",
+            "import": "导入…"
+        },
+        "appearance": {
+            "label": "正在编辑的明暗",
+            "light": "亮色",
+            "dark": "暗色"
+        },
+        "sections": {
+            "label": "分区",
+            "basic": "基本信息",
+            "colors": "配色",
+            "fonts": "字体",
+            "chrome": "活动栏与画框",
+            "scene": "场景与取景",
+            "contrast": "对比度检查"
+        },
+        "basic": {
+            "titleZh": "标题（中文）",
+            "titleEn": "标题（英文）",
+            "base": "主题包",
+            "baseNbook": "NeuroBook",
+            "baseMacos": "macOS",
+            "baseHint": "决定形状、密度与动效；颜色在“配色”里改。"
+        },
+        "colors": {
+            "seeds": "主色",
+            "seedBackground": "背景",
+            "seedText": "文字",
+            "seedAccent": "强调",
+            "derive": "推导整套",
+            "deriveHint": "只填没手改过的项，主色不变。",
+            "fromOther": "从{{other}}派生",
+            "deriveFailed": "主色里有读不懂的颜色，没有推导",
+            "groupBackground": "背景",
+            "groupText": "文字",
+            "groupBorder": "边框",
+            "groupAccent": "强调",
+            "groupStatus": "状态",
+            "groupOther": "其它",
+            "touched": "手改过",
+            "reset": "还原为推导值",
+            "pick": "取色",
+            "value": "颜色值",
+            "advanced": "高级：角色变量",
+            "advancedHint": "控件、按钮、面板等的面与分隔线；写颜色或渐变，不能引图片。",
+            "clear": "清除"
+        },
+        "entry": {
+            "heroTitle": "主题编辑器",
+            "openTab": "在页签中打开",
+            "openFloating": "在浮动窗口中打开",
+            "intro": "做自己的主题：配色、字体、活动栏、场景图都能改，改动立刻出现在真实的工作台上。",
+            "current": "正在使用",
+            "switchHint": "要换用别的主题，在“外观”里选。",
+            "mine": "我的主题",
+            "mineEmpty": "还没有自己的主题。打开编辑器新建一套，或从任一主题复制起步。",
+            "inUse": "使用中"
+        },
+        "contrast": {
+            "unknown": "没有算出对比度：写法编辑器不解析",
+            "against": "落在 {{surface}} 上最差",
+            "failingCount": "{{count}} 项不合格",
+            "allPass": "全部合格",
+            "sampleText": "Aa 示例文字",
+            "sampleLabel": "这个文字色落在底色上的样子",
+            "locate": "去修改",
+            "grade": {
+                "low": "不合格",
+                "aa": "AA",
+                "aaa": "AAA"
+            },
+            "none": "没有不合格的项",
+            "legend": "文字、次要文字、弱化文字、链接与状态色，对各自的底色不低于 4.5。导出时有不合格项只提示。",
+            "summary1": "对比度 {{ratio}}，落在 {{surface}} 上最差",
+            "summaryLow": "对比度 {{ratio}}，低于 4.5，落在 {{surface}} 上最差"
+        },
+        "fonts": {
+            "display": "欢迎页标题",
+            "prose": "正文",
+            "placeholder": "字体栈，例如 \"Noto Serif CJK SC\", serif",
+            "serif": "衬线",
+            "sans": "无衬线",
+            "mono": "等宽",
+            "clear": "用现有字体",
+            "hint": "浏览器列不出本机字体，所以字体栈要自己写；不填就用现有字体。",
+            "sampleDisplay": "NeuroBook · 欢迎回来",
+            "sampleProse": "雨从傍晚开始下，一直没有停。"
+        },
+        "chrome": {
+            "activityBar": "活动栏",
+            "activityBarOn": "使用自己的活动栏",
+            "surface": "面（颜色或渐变）",
+            "foreground": "前景",
+            "active": "当前项",
+            "ornament": "两端装饰",
+            "frame": "浮层画框",
+            "frameLine": "线色",
+            "frameHint": "菜单、对话框与设置窗口的描边里面再画一道细线。"
+        },
+        "scene": {
+            "upload": "上传场景图",
+            "replace": "更换场景图",
+            "remove": "移除",
+            "none": "这一套明暗还没有场景图",
+            "uploading": "正在处理图片",
+            "failed": "上传失败：{{reason}}",
+            "large": "图片 {{kb}} KB，超过建议的 300 KB",
+            "stored": "{{kb}} KB",
+            "loadFailed": "图片加载失败",
+            "region": {
+                "empty": "空状态",
+                "marginLeft": "正文左",
+                "marginRight": "正文右",
+                "sidebarCorner": "侧栏下角",
+                "auxiliaryCorner": "右栏下角"
+            },
+            "size": "大小",
+            "position": "位置",
+            "contentX": "内容中心",
+            "clear": "清除这个位置的取景",
+            "unparsable": "这个位置的写法编辑器读不懂：框不可拖，数值照常能改。",
+            "hint": "在图上拖框、拉右下角缩放；工作台里对应位置同时变化。框是示意，真实位置随窗口尺寸变。",
+            "frame": "{{region}}取景框",
+            "image": "场景图",
+            "regions": "取景位置"
+        },
+        "transfer": {
+            "exported": "已导出 {{name}}",
+            "exportedWarn": "已导出 {{name}}，但有 {{count}} 项对比度不合格",
+            "exportFailed": "导出失败：读不到场景图 {{reason}}",
+            "imported": "已导入 {{count}} 套主题",
+            "importFailed": "导入失败：{{reason}}",
+            "unexpected": "出了点意外：{{reason}}",
+            "copyFailed": "复制失败：读不到或传不上场景图 {{reason}}"
+        },
+        "rejected": {
+            "titleEmpty": "标题不能为空，没有写入",
+            "invalid": "这个取值写不进去：{{reason}}",
+            "saveFailed": "没有保存：{{code}}，这次改动已撤回"
+        }
+    },
+    "editorPages": {
+        "theme-editor": {
+            "title": "主题编辑器"
         }
     }
 }

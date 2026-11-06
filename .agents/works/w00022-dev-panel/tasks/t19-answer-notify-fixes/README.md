@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t19-answer-notify-fixes
-status: in_progress
+status: active
 updated: 2026-11-02
 ---
 
@@ -32,15 +32,16 @@ updated: 2026-11-02
 - 修好的判定对 6 格空闲的真实 Claude 会话（只读调用默认 herdr 的 `agent.explain` 与 `agent.read`）都判可投；修之前取样的 3 格都是 `unknown_screen`。
 - 类型检查、`build:web`、`governance:check` 通过；dev-panel 全量 464 个用例 463 过，失败的一个是 `tests/leases-cli.test.ts` 的“只靠 HERDR_PANE_ID 认人”到 5 秒超时（与本次改动无关），单独重跑这个文件 14 个全过。
 
+“清除选择”2026-11-05 在隔离的面板上看过：选了之后出现，点了回到没答、提交数减一；真实面板上这会儿没有待答的单选题。
+
 未验证：
 
-- 答复表单的“清除选择”没有在浏览器里看过外观（面板的组件没有挂载测试，判定逻辑在 `host/answers.ts` 的 `isBlankAnswer` 测了）；合入、重启 4400 之后在真实面板上看。
 - 自动投递修好之后还没有在真实面板上等到一次自动通知；合入、重启 4400 之后，下次有会话等答复时看审计里 `manual: false` 的投递。
 
 ## 当前状态
 
-2026-11-02 合入 `master`（`bd8116055`）。4400 还没重启，面板仍跑旧代码：自动通知与“清除选择”要重启后才生效。
+2026-11-02 合入 `master`（`bd8116055`），2026-11-05 重启 4400 后生效。只差一次真实的自动通知（下面）。
 
 ## 下一步
 
-开发者授权后重启 4400（`bun run --cwd packages/dev-panel service:restart`），在真实面板上核对上面两条未验证，再把 Task 改成完成。
+下次有会话等答复、开发者在面板上答完时，看审计里有没有 `manual: false` 的投递；有了就把 Task 改成完成，没有就查投递判定。

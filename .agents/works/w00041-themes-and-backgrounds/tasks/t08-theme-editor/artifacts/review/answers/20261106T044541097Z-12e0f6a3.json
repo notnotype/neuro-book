@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t08-theme-editor",
+    "artifactId": "review",
+    "answerId": "20261106T044541097Z-12e0f6a3",
+    "artifactVersion": 1,
+    "contentHash": "a33bddeb245c3c1c3c4f9ac2f3afe713e860657c8bed6898894979d5037ac6be",
+    "submittedAt": "2026-11-06T04:45:40.270Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-home": "library",
+        "r2-entry": "tab",
+        "r3-palette": "derive",
+        "r4-crop": "drag",
+        "r5-share": "zip"
+    },
+    "comments": {
+        "r2-entry": "A C（独立的一个浮动对话框） 我感觉都可以。等一下好像都可以支持，新的布局包支持"
+    },
+    "note": null
+}

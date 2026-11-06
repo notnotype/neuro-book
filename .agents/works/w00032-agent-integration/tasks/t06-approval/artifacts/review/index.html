@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00032 t06 权限与 Agent 模式：评审板</title>
+<style>
+body { max-width: 1100px; margin: 24px auto; padding: 0 16px; font: 15px/1.7 system-ui, sans-serif; }
+.row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+figure { margin: 0; }
+figcaption { margin-bottom: 6px; font-weight: 600; }
+img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px; }
+.badge { padding: 1px 6px; border-radius: 4px; background: #e8a33d33; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>t06 权限与 Agent 模式</h1>
+
+<section data-nbdev-question="model-trigger" data-nbdev-type="single" data-nbdev-recommend="c">
+  <h2><span class="badge" data-nbdev-skip>待定</span>模型控件选哪一种</h2>
+  <p>都放在真实工具栏里看：每张图上面是选了角色（主力，实际用 Claude Sonnet，思考中），下面是直接选模型（Claude Sonnet，思考高）。其余部分不变。</p>
+  <div data-nbdev-option="a" data-nbdev-label="A 纯文字">
+    <figure><figcaption>A 纯文字</figcaption><img src="r5/a.webp" alt="A 纯文字的样子"></figure>
+    <p>一行灰字，名字、模型、档位连着写，只有 hover 才有底色。最安静，但三样东西连成一串，分不出主次。</p>
+  </div>
+  <div data-nbdev-option="b" data-nbdev-label="B 描边胶囊分两段">
+    <figure><figcaption>B 描边胶囊分两段</figcaption><img src="r5/b.webp" alt="B 描边胶囊分两段的样子"></figure>
+    <p>左边模型，右边档位，一条竖线隔开。结构最清楚，也最像一个控件；在这一行里比两个模式抢眼。</p>
+  </div>
+  <div data-nbdev-option="c" data-nbdev-label="C 文字加信号条（推荐）">
+    <figure><figcaption>C 文字加信号条（推荐）</figcaption><img src="r5/c.webp" alt="C 文字加信号条（推荐）的样子"></figure>
+    <p>角色名深色、实际模型淡色，档位换成三格信号条。三样都在，没有边框和箭头，和左边的模式控件一样轻。信号条看不出确切档位，悬停写明。</p>
+  </div>
+  <div data-nbdev-option="d" data-nbdev-label="D 上下两行">
+    <figure><figcaption>D 上下两行</figcaption><img src="r5/d.webp" alt="D 上下两行的样子"></figure>
+    <p>上行角色或模型，下行实际模型与档位。信息最全，但这一行变成两行字，和别的控件不齐。</p>
+  </div>
+  <div data-nbdev-option="e" data-nbdev-label="E 只留名字加圆点">
+    <figure><figcaption>E 只留名字加圆点</figcaption><img src="r5/e.webp" alt="E 只留名字加圆点的样子"></figure>
+    <p>选了角色时只写“主力”，档位三个圆点，实际模型放到悬停和面板里。最干净，但看不到现在用的是哪个模型。</p>
+  </div>
+  <div data-nbdev-option="f" data-nbdev-label="F 实底小块">
+    <figure><figcaption>F 实底小块</figcaption><img src="r5/f.webp" alt="F 实底小块的样子"></figure>
+    <p>和“计划”那种高亮控件同一类，带一个小图标，写角色名与档位。一眼能看出是可点的，但右边多了一块色。</p>
+  </div>
+</section>
+
+<section data-nbdev-question="toolbar-v2" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>已答</span>加上 + 菜单、调过模型控件之后，这样可以吗</h2>
+  <ul>
+    <li><b>+ 菜单</b>：放在最左，收了原来的回形针：添加附件、引用文件（@）、运行命令（/）。技能（$）等 t15 做了才出现，真实应用现在没有这一项（图里是 Lab 的数据）。粘贴和拖入照旧。</li>
+    <li><b>模型控件</b>：去掉芯片图标和上下双箭头；名字用主文字色加粗，实际用的模型淡一些，思考档位单独一个小标签，后面一个小下箭头。下拉版（nb-story 用的）同样改了。</li>
+    <li>顺手：普通模式原来和“放行写入”都是铅笔图标，并排分不清，普通模式换成羽毛。</li>
+  </ul>
+  <div class="row">
+    <figure><figcaption>+ 菜单展开</figcaption><img src="r4/plus-menu.webp" alt="加号菜单列出添加附件、引用文件、使用技能、运行命令"></figure>
+    <figure><figcaption>选了模型角色：主力、实际模型、思考档位</figcaption><img src="r4/role-wide.webp" alt="工具栏右边显示主力、Claude Sonnet、中"></figure>
+    <figure><figcaption>手机宽度</figcaption><img src="r4/role-phone.webp" alt="窄屏下工具栏"></figure>
+  </div>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>就这样。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
+<section data-nbdev-question="toolbar-layout" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>已答</span>输入框工具栏这样排可以吗</h2>
+  <p>按你说的重排了，已经是真实组件：</p>
+  <ul>
+    <li><b>左边是“这一轮能做什么”</b>：附件、Agent 模式、审批模式。两个模式挨着，一眼能对照着看（“计划”亮、“放行写入”淡，就是现在不改、批准后放行写入）。</li>
+    <li><b>右边是“谁来答、发出去”</b>：模型与思考档位、发送。模型挨着发送，发之前最后看一眼。</li>
+    <li><b>展开按钮到右上角</b>，在发送上方：它改的是编辑区，不是这一轮的设置。正文右边留了位置，不会被盖住。</li>
+    <li><b>窄屏</b>：两个模式只留图标，把宽度让给模型名。</li>
+  </ul>
+  <div class="row">
+    <figure><figcaption>宽：计划模式加放行写入</figcaption><img src="r3/toolbar-wide.webp" alt="工具栏左边是附件、计划、放行写入，右边是模型与发送，右上角是展开按钮"></figure>
+    <figure><figcaption>手机宽度</figcaption><img src="r3/toolbar-phone.webp" alt="窄屏时模式只留图标，右边是模型名与发送"></figure>
+  </div>
+  <p>退出计划的向导（上一轮的图）这版没动，你上一轮的备注只提了这一行，我按向导没问题算。要改也写在备注里。</p>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>就这样。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
+<section data-nbdev-question="plan-wizard" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>已答</span>模式控件与退出计划的向导，这样可以吗</h2>
+  <p>都是真实组件的 Lab 场景。你选的两个控件并排已经接上；下面看实际的样子。</p>
+  <div class="row">
+    <figure><figcaption>计划模式加放行写入：审批控件变淡，状态栏标“计划模式”</figcaption><img src="r2/plan-allow-writes.webp" alt="输入框工具栏上，计划按钮高亮，放行写入变淡，状态栏显示计划模式"></figure>
+    <figure><figcaption>计划模式加全部放行：红色警告保留</figcaption><img src="r2/plan-yolo.webp" alt="工具栏上全部放行显示红色"></figure>
+  </div>
+  <div class="row">
+    <figure><figcaption>退出计划：看计划、选之后的审批、批准并开始或继续改</figcaption><img src="r2/exit-plan.webp" alt="向导里是计划全文，下面是审批模式的分段控件、附言框与两个按钮"></figure>
+    <figure><figcaption>长计划：内容区滚动，下面的控件固定</figcaption><img src="r2/exit-plan-long.webp" alt="长计划占满向导，按钮固定在底部"></figure>
+    <figure><figcaption>别的切换：一句话，同意或不同意</figcaption><img src="r2/switch-simple.webp" alt="向导只有一句话和两个按钮"></figure>
+  </div>
+  <p>要点：向导放宽到视图高度的 85%；“之后的审批”默认保持当前；附言写了字时批准不可点，和审批向导一样。</p>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>照这样接到真实会话。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
+<section data-nbdev-question="mode-control" data-nbdev-type="single" data-nbdev-recommend="two-controls">
+  <h2><span class="badge" data-nbdev-skip>已定</span>模式控件保持两个，还是合成一个菜单</h2>
+  <p>现状见下面两张图。真实应用里现在只有审批模式的下拉（第一张，点开的样子）：宿主还没接 Agent 模式。Agent 模式的按钮组件已有，点一下切到下一种，只在 Lab 里能看到（第二张，“普通”）。Spec 写的是一个菜单分两组，和实现不符，<code>DropdownMenu</code> 也没有组标题。</p>
+  <div class="row">
+    <figure><figcaption>真实应用接法：只有审批模式下拉</figcaption><img src="r1/app-today.webp" alt="输入框工具栏上的审批模式下拉，点开后列出每次询问、放行写入、全部放行"></figure>
+    <figure><figcaption>Lab：Agent 模式按钮，显示“普通”</figcaption><img src="r1/lab-mode-chip.webp" alt="输入框工具栏上显示普通的 Agent 模式按钮"></figure>
+  </div>
+  <div data-nbdev-option="two-controls" data-nbdev-label="A 两个控件并排（推荐）">
+    <p>工具栏依次是 Agent 模式按钮、审批模式下拉。两个状态一直看得见，Agent 模式一键切换、Shift+Tab 同样。窄屏两个都只剩图标。</p>
+  </div>
+  <div data-nbdev-option="one-menu" data-nbdev-label="B 合成一个菜单">
+    <p>工具栏一个按钮，点开分“Agent 模式”“审批模式”两组。占地少，但按钮只能显示一个状态，另一个要点开才看到；要给 <code>DropdownMenu</code> 加组标题。</p>
+  </div>
+</section>
+</body>
+</html>

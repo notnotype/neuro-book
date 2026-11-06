@@ -31,7 +31,7 @@ import type {CliIo, CommandOutcome} from "./output.js";
 
 export const ARTIFACT_USAGE = `  artifact publish <workRef> <taskRef> <artifactId> [--kind <design|report|review>] [--title <标题>] [--entry <入口>] [--include <路径>]… [--keep <题号>]… [--force-version] [--as <标签>]
   artifact close <workRef> <taskRef> <artifactId> [--as <标签>]
-  ask <workRef> <taskRef> --id <题号> --type <single|multi|text|confirm> --label <题目> [--option <值>[=<名称>]|@review]… [--optional] [--recommend <值>]… [--artifact <artifactId>] [--about <路径>] [--as <标签>]
+  ask <workRef> <taskRef> --id <题号> --type <single|multi|text|confirm> --label <题目> [--option <值>[=<名称>]|@review]… [--required] [--recommend <值>]… [--artifact <artifactId>] [--about <路径>] [--as <标签>]
   ask <workRef> <taskRef> --from <JSON 文件> [--artifact <artifactId>] [--as <标签>]
   ask withdraw <workRef> <taskRef> <[artifactId#]题号> [--as <标签>]
   ask supersede <workRef> <taskRef> <[artifactId#]题号> --by <[workRef/taskRef/][artifactId#]题号> [--as <标签>]
@@ -51,7 +51,7 @@ const RECORD_FAILURE_HINT = "不要重跑（会再写一份），下一次写这
 function questionLine(question: VersionQuestion): string {
     const options = question.options.length > 0 ? `（${question.options.map((option) => option.value).join("/")}）` : "";
     const outcome = question.outcome ? `  [${question.outcome.kind === "withdrawn" ? "已撤回" : "已取代"}]` : "";
-    return `  ${question.id}  ${question.type}${options}  ${question.label}${question.required ? "" : "（选答）"}${outcome}`;
+    return `  ${question.id}  ${question.type}${options}  ${question.label}${question.required ? "（必答）" : ""}${outcome}`;
 }
 
 /** `题号=值` 的列表（`--set`、`--comment`）。键是用户输入：没有原型的对象存，`__proto__` 这类键不会被吞掉或改到原型上。 */
@@ -101,7 +101,7 @@ async function questionsFromFile(io: CliIo, path: string): Promise<QuestionSpec[
             type: entry.type,
             label: entry.label,
             options,
-            required: typeof entry.required === "boolean" ? entry.required : true,
+            required: entry.required === true,
             recommend,
             about: typeof entry.about === "string" ? entry.about : null,
         };
@@ -119,7 +119,7 @@ function answersLines(result: AnswersResult): string[] {
 const ADOPTION_LABEL = {none: "还没有答复", waiting: "等会话采纳", adopted: "已采纳"} as const;
 
 function artifactLines(view: ArtifactAnswersView): string[] {
-    const lines = [`${view.workId.slice(0, 6)}/${view.taskId.slice(0, view.taskId.indexOf("-"))} ${view.artifactId} v${view.version}（${view.state === "closed" ? "已关闭，" : ""}${ADOPTION_LABEL[view.adoption]}，${view.openRequired} 道必答题待答）  ${view.title}`];
+    const lines = [`${view.workId.slice(0, 6)}/${view.taskId.slice(0, view.taskId.indexOf("-"))} ${view.artifactId} v${view.version}（${view.state === "closed" ? "已关闭，" : ""}${ADOPTION_LABEL[view.adoption]}，${view.waiting} 道题待答）  ${view.title}`];
     for (const state of view.questions) {
         const value = state.answer ? `：${JSON.stringify(state.answer.value)}（针对 v${state.answer.artifactVersion}）` : "";
         const stale = state.stale ? `；旧答复${state.stale.code === "stale_value" ? "按最新一版" : "本身就"}不合法（${state.stale.reason}）` : "";
@@ -135,7 +135,7 @@ function artifactLines(view: ArtifactAnswersView): string[] {
  */
 function waitHint(data: {workId: string; taskId: string; artifactId: string}): {command: string; line: string} {
     const command = `nbdev answers ${data.workId.slice(0, 6)} ${data.taskId.slice(0, data.taskId.indexOf("-"))} ${data.artifactId} --wait`;
-    return {command, line: `等答复：用会话的后台机制挂着 ${command}（Claude Code 用 run_in_background），退出码 0 是有了答复，4（超时或被打断）时按原参数重挂；会话空闲时面板也会把 [nbdev] 通知发进输入框`};
+    return {command, line: `等答复：用会话的后台机制挂着 ${command}（Claude Code 用 run_in_background），退出码 0 是有了答复或开发者关掉了它（看 state），4（超时或被打断）时按原参数重挂；会话空闲时面板也会把 [nbdev] 通知发进输入框`};
 }
 
 /** 没写新记录的结果（内容没变、已经关闭、都已确认）：顺带补交了上次的残留时，照写命令报提交结果，提交失败同样是退出码 1。 */
@@ -204,14 +204,14 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
         schema: "nbdev.ask/v1",
         positionals: ["workRef", "taskRef"],
         options: {
-            id: {type: "string"}, type: {type: "string"}, label: {type: "string"}, option: {type: "string", multiple: true}, optional: {type: "boolean"},
+            id: {type: "string"}, type: {type: "string"}, label: {type: "string"}, option: {type: "string", multiple: true}, required: {type: "boolean"}, optional: {type: "boolean"},
             recommend: {type: "string", multiple: true}, artifact: {type: "string"}, about: {type: "string"}, from: {type: "string"}, ...AS_OPTION,
         },
         async run({io, positionals, values}) {
             const from = stringValue(values, "from");
             let questions: QuestionSpec[];
             if (from !== undefined) {
-                if (["id", "type", "label", "option", "optional", "recommend", "about"].some((name) => values[name] !== undefined)) throw new NbdevError("usage", "--from 不与单题参数（--id、--type、--label、--option、--optional、--recommend、--about）混用");
+                if (["id", "type", "label", "option", "required", "optional", "recommend", "about"].some((name) => values[name] !== undefined)) throw new NbdevError("usage", "--from 不与单题参数（--id、--type、--label、--option、--required、--optional、--recommend、--about）混用");
                 questions = await questionsFromFile(io, from);
             } else {
                 questions = [{
@@ -219,7 +219,7 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                     type: requireValue(values, "type"),
                     label: requireValue(values, "label"),
                     options: optionsFromFlags(listValue(values, "option")),
-                    required: values.optional !== true,
+                    required: values.required === true,
                     recommend: listValue(values, "recommend"),
                     about: stringValue(values, "about") ?? null,
                 }];

@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -57,33 +57,41 @@ export const feedbackFixtures: LabFixture[] = [
         component: "Dialog",
         slots: ["default", "header-extra", "footer"],
         scenes: [
-            {id: "default", label: "确认与取消", input: {props: {title: "从书架移除", size: "default", showFooter: true, showCancel: true, confirmLabel: "移除", cancelLabel: "取消", closable: true, closeOnEsc: true, closeOnOverlay: true}, model: {modelValue: true}, slots: {default: true, "header-extra": true}}},
-            {id: "busy", label: "提交中", input: {props: {title: "正在移除", size: "default", showFooter: true, busy: true, confirmLabel: "移除"}, model: {modelValue: true}, slots: {default: true}}},
-            {id: "large", label: "大号、不带页脚", input: {props: {title: "导入素材", size: "lg", showFooter: false, overlayType: "blur"}, model: {modelValue: true}, slots: {default: true}}},
-            {id: "with-select", label: "里面放下拉（下拉要在对话框之上）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
-            {id: "stacked", label: "叠一层（后开的在上面）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
-            {id: "window", label: "浮动窗口：可拖动，点外面不关", input: {props: {title: "新建作品", modal: false, closable: true}, model: {modelValue: true, width: 560}, slots: {default: true, footer: true}}},
-            {id: "window-headerless", label: "浮动窗口：没有标题栏，关闭按钮在右上角，留白可拖", input: {props: {title: "素材", modal: false, closable: true, showHeader: false, showFooter: false}, model: {modelValue: true, width: 480}, slots: {default: true}}},
-            {id: "window-resizable", label: "浮动窗口：可缩放", input: {props: {title: "素材预览", modal: false, closable: true, showFooter: false, resizable: true, minWidth: 360, minHeight: 240}, model: {modelValue: true, width: 640, height: 420}, slots: {default: true}}},
-            {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {modelValue: false}, slots: {default: true}}},
+            {id: "default", label: "确认与取消", input: {props: {title: "从书架移除", size: "default", showFooter: true, showCancel: true, confirmLabel: "移除", cancelLabel: "取消", closable: true, closeOnEsc: true, closeOnOverlay: true}, model: {open: true}, slots: {default: true, "header-extra": true}}},
+            {id: "busy", label: "提交中", input: {props: {title: "正在移除", size: "default", showFooter: true, busy: true, confirmLabel: "移除"}, model: {open: true}, slots: {default: true}}},
+            {id: "large", label: "大号、不带页脚", input: {props: {title: "导入素材", size: "lg", showFooter: false, overlayType: "blur"}, model: {open: true}, slots: {default: true}}},
+            {id: "with-select", label: "里面放下拉（下拉要在对话框之上）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {open: true}, slots: {default: true}}},
+            {id: "stacked", label: "叠一层（后开的在上面）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {open: true}, slots: {default: true}}},
+            {id: "custom-footer", label: "自定义页脚", input: {props: {title: "新建作品", size: "md"}, model: {open: true}, slots: {default: true, footer: true}}},
+            {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {open: false}, slots: {default: true}}},
         ],
         load: async () => (await import("./DialogFixture.vue")).default,
+    }),
+    defineLabFixture<typeof FloatingWindow>({
+        component: "FloatingWindow",
+        slots: ["default", "footer"],
+        scenes: [
+            {id: "default", label: "可拖动，点外面不关", input: {props: {title: "新建作品", closable: true}, model: {open: true, width: 560}, slots: {default: true, footer: true}}},
+            {id: "headerless", label: "没有标题栏，关闭按钮在右上角，留白可拖", input: {props: {title: "素材", closable: true, showHeader: false, showFooter: false}, model: {open: true, width: 480}, slots: {default: true}}},
+            {id: "resizable", label: "可缩放", input: {props: {title: "素材预览", closable: true, showFooter: false, resizable: true, minWidth: 360, minHeight: 240}, model: {open: true, width: 640, height: 420}, slots: {default: true}}},
+        ],
+        load: async () => (await import("./FloatingWindowFixture.vue")).default,
     }),
     defineSubjectFixture<typeof AlertDialog>({
         component: "AlertDialog",
         events: ["confirm", "cancel", "closed"],
         slotPresets: {trigger: trigger("删除章节…")},
         scenes: [
-            {id: "danger", label: "危险操作", input: {props: {title: "删除「第十七章 雪线」？", description: "文件会移到系统回收站，编辑器里未保存的修改一并丢弃。", confirmText: "删除", cancelText: "取消", tone: "danger"}, model: {open: false}, slots: {trigger: true}}},
-            {id: "warning", label: "警告", input: {props: {title: "外部修改", description: "磁盘上的文件已被其它程序改动，覆盖会丢掉那些改动。", confirmText: "覆盖", cancelText: "重新载入", tone: "warning"}, model: {open: true}, slots: {trigger: true}}},
+            {id: "danger", label: "危险操作", input: {props: {title: "删除「第十七章 雪线」？", description: "文件会移到系统回收站，编辑器里未保存的修改一并丢弃。", confirmLabel: "删除", cancelLabel: "取消", tone: "danger"}, model: {open: false}, slots: {trigger: true}}},
+            {id: "neutral", label: "普通确认", input: {props: {title: "外部修改", description: "磁盘上的文件已被其它程序改动，覆盖会丢掉那些改动。", confirmLabel: "覆盖", cancelLabel: "重新载入", tone: "neutral"}, model: {open: true}, slots: {trigger: true}}},
         ],
         subject: nbUiSubject("AlertDialog"),
     }),
     defineLabFixture<typeof ContextMenu>({
         component: "ContextMenu",
         scenes: [
-            {id: "default", label: "图标、快捷键、子菜单与危险项", input: {props: {visible: false, x: 0, y: 0, items: CONTEXT_ITEMS}}},
-            {id: "open", label: "一打开就显示", input: {props: {visible: true, x: 240, y: 180, items: CONTEXT_ITEMS}}},
+            {id: "default", label: "图标、快捷键、子菜单与危险项", input: {props: {x: 0, y: 0, items: CONTEXT_ITEMS}, model: {open: false}}},
+            {id: "open", label: "一打开就显示", input: {props: {x: 240, y: 180, items: CONTEXT_ITEMS}, model: {open: true}}},
         ],
         load: async () => (await import("./ContextMenuFixture.vue")).default,
     }),
@@ -111,17 +119,17 @@ export const feedbackFixtures: LabFixture[] = [
         component: "Tooltip",
         slotPresets: {default: trigger("悬停看提示")},
         scenes: [
-            {id: "top", label: "上方", input: {props: {text: "保存（Ctrl+S）", placement: "top", delay: 300}, slots: {default: true}}},
-            {id: "right", label: "右侧、长文字", input: {props: {text: "这一条提示故意写得比较长，用来看提示框的最大宽度与换行。", placement: "right", delay: 0}, slots: {default: true}}},
-            {id: "disabled", label: "禁用", input: {props: {text: "不会出现", placement: "top", disabled: true}, slots: {default: true}}},
+            {id: "top", label: "上方", input: {props: {text: "保存（Ctrl+S）", side: "top", delay: 300}, slots: {default: true}}},
+            {id: "right", label: "右侧、长文字", input: {props: {text: "这一条提示故意写得比较长，用来看提示框的最大宽度与换行。", side: "right", delay: 0}, slots: {default: true}}},
+            {id: "disabled", label: "禁用", input: {props: {text: "不会出现", side: "top", disabled: true}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Tooltip"),
     }),
     defineSubjectFixture<typeof InfoTip>({
         component: "InfoTip",
         scenes: [
-            {id: "default", label: "字段说明", input: {props: {text: "目录不存在会在新建时一并创建。", placement: "top"}}},
-            {id: "long", label: "长说明、右侧", input: {props: {text: "作品色只落在封面上：作者指定了就用它，没有时按作品在八档色相里取一档，卡片本身不带色条。", label: "主题色说明", placement: "right"}}},
+            {id: "default", label: "字段说明", input: {props: {text: "目录不存在会在新建时一并创建。", side: "top"}}},
+            {id: "long", label: "长说明、右侧", input: {props: {text: "作品色只落在封面上：作者指定了就用它，没有时按作品在八档色相里取一档，卡片本身不带色条。", label: "主题色说明", side: "right"}}},
         ],
         subject: nbUiSubject("InfoTip"),
     }),
@@ -133,7 +141,7 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "info", label: "信息", input: {props: {tone: "info", title: "已切换到项目「长夜行」", message: "上次的标签与展开的目录已恢复。", dismissible: true, closeLabel: "关闭"}}},
             {id: "success", label: "成功", input: {props: {tone: "success", title: "已保存", message: "第十七章 雪线", dismissible: true}}},
             {id: "warning", label: "警告与操作", input: {props: {tone: "warning", title: "布局没保存上", message: "存储暂时不可用，修改只在这个窗口里。", actionLabel: "重试", dismissible: true}}},
-            {id: "error", label: "错误", input: {props: {tone: "error", title: "保存失败", message: "磁盘已满（ENOSPC）。", actionLabel: "重试", dismissible: false}}},
+            {id: "error", label: "错误", input: {props: {tone: "danger", title: "保存失败", message: "磁盘已满（ENOSPC）。", actionLabel: "重试", dismissible: false}}},
             {id: "progress", label: "确定进度", input: {props: {tone: "info", title: "正在统计字数", message: "已统计 2 部，共 6 部", progress: 33, dismissible: true}}},
             {id: "indeterminate", label: "不确定进度", input: {props: {tone: "info", title: "正在连接", message: "等待服务端回应…", progress: null, dismissible: true}}},
         ],
@@ -155,12 +163,19 @@ export const feedbackFixtures: LabFixture[] = [
         slotPresets: {actions: () => [h(NbButton, {variant: "secondary", size: "sm"}, () => "重新载入"), h(NbButton, {variant: "secondary", size: "sm"}, () => "用我的覆盖")]},
         scenes: [
             {id: "warning", label: "已断开", input: {props: {tone: "warning", title: "已与服务端断开", message: "正在重新连接，未保存的修改留在这个窗口里。"}}},
-            {id: "actions", label: "带两个动作", input: {props: {tone: "error", message: "磁盘上的文件已被修改，和你没保存的修改冲突。"}, slots: {actions: true}}},
+            {id: "actions", label: "带两个动作", input: {props: {tone: "danger", message: "磁盘上的文件已被修改，和你没保存的修改冲突。"}, slots: {actions: true}}},
             {id: "info", label: "可关闭", input: {props: {tone: "info", title: "NeuroBook 已更新", message: "刷新页面后使用新版本。", dismissible: true}}},
             {id: "icon", label: "自定图标", input: {props: {tone: "info", iconClass: "i-lucide-refresh-cw", message: "后端代码已改动，重启服务后生效。"}}},
             {id: "success", label: "成功", input: {props: {tone: "success", message: "已重新连接。", dismissible: true}}},
         ],
         subject: nbUiSubject("Banner"),
+    }),
+    defineLabFixture<typeof AnchoredPopover>({
+        component: "AnchoredPopover",
+        scenes: [
+            {id: "top", label: "在锚点上方", input: {props: {open: true, side: "top", anchor: null}}},
+        ],
+        load: async () => (await import("./AnchoredPopoverFixture.vue")).default,
     }),
     defineLabFixture<typeof SuggestionMenu>({
         component: "SuggestionMenu",

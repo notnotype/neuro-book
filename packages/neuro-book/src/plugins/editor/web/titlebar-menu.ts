@@ -7,6 +7,9 @@ import type {TitlebarMenuItemDeclaration} from "nbook/plugins/workbench/shared/c
 
 import {CLOSE_COMMAND, CLOSE_OTHERS_COMMAND, REDO_COMMAND, REOPEN_WITH_COMMAND, REVERT_COMMAND, SAVE_ALL_COMMAND, SAVE_COMMAND, SPLIT_DOWN_COMMAND, SPLIT_RIGHT_COMMAND, UNDO_COMMAND} from "./commands";
 
+import {TOGGLE_TOOLBAR_COMMAND} from "./editing-commands";
+import {editorState} from "./state";
+
 const item = (name: string, declaration: TitlebarMenuItemDeclaration): {readonly id: string; readonly declaration: TitlebarMenuItemDeclaration} => ({id: `nbook.editor.menu.${name}`, declaration});
 
 export const EDITOR_TITLEBAR_MENU_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: TitlebarMenuItemDeclaration}> = [
@@ -18,6 +21,7 @@ export const EDITOR_TITLEBAR_MENU_ITEMS: ReadonlyArray<{readonly id: string; rea
     item("undo", {group: "edit", section: "1_undo", order: 1, command: UNDO_COMMAND}),
     item("redo", {group: "edit", section: "1_undo", order: 2, command: REDO_COMMAND}),
     item("split-right", {group: "view", section: "3_editor", order: 1, command: SPLIT_RIGHT_COMMAND}),
+    item("toggle-toolbar", {group: "view", section: "3_editor", order: 10, command: TOGGLE_TOOLBAR_COMMAND, toggled: editorState.key("toolbarVisible")}),
     item("split-down", {group: "view", section: "3_editor", order: 2, command: SPLIT_DOWN_COMMAND}),
     item("reopen-with", {group: "view", section: "3_editor", order: 3, command: REOPEN_WITH_COMMAND}),
 ];

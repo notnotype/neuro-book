@@ -86,27 +86,30 @@
      * SwiftUI 的 ConcentricRectangle（半径随嵌套层次自动递减），但**「子半径 = 父半径 − padding」
      * 这个具体公式不是 HIG 原文**，只是一个够用的近似，别当官方规范引用。
      */
-    --radius-control: 10px;
+    --radius-control: 6px;
     --radius-control-lg: var(--radius-pill);
-    --radius-panel: 20px;
-    /* 外框 10px、内边距 4px，推出列表项 10 − 1 − 4 = 5px（w00029 t04 决定 3）。 */
-    --radius-menu: 10px;
+    /* 按钮三档一个值（开发者 2026-11-05，w00032 t17）：高度差还在，圆角不随尺寸变。 */
+    --radius-button-sm: 6px;
+    --radius-button-md: 6px;
+    --radius-button-lg: 6px;
+    --radius-panel: 10px;
+    /* 外框 8px、内边距 4px，推出列表项 8 − 1 − 4 = 3px。 */
+    --radius-menu: 8px;
     --menu-pad: 4px;
     --radius-pill: 999px;
     /*
-     * 对话框比菜单大一个数量级，圆角单列一档。26px 是 Apple 官方 macOS 27 UI Kit 里
-     * Save Dialog 的实测值（该文件把这一层记作 Radius 26 / Smooth / Apple 60%）。
-     * 不并进 --radius-panel：26px 画在 170px 宽的下拉上会把首尾两项吃掉。
+     * 对话框的圆角单列一档，现在和窗口一样是 12px（开发者 2026-11-05 调小，w00032 t17；原来是 macOS 27 UI Kit
+     * 的 26px，和面板、控件放一起太圆）。保留这一档，主题可以让对话框比窗口圆。
      */
-    --radius-dialog: 26px;
+    --radius-dialog: 12px;
     /*
      * 小确认框（AlertDialog）与浮动窗口同一档：它叠在窗口上（例如设置窗口里的“放弃改动”），圆角不该大于底下的窗口；
-     * 26px 画在 360–420px 宽的小框上也像胶囊，不像对话框。
+     * 对话框调大时画在 360–420px 宽的小框上会像胶囊，不像对话框。
      */
     --radius-dialog-compact: var(--radius-window);
     /*
      * 浮动窗口（例如设置窗口）取工作台卡片的圆角（12px）：它常开、占大半个屏幕，和外壳的部件卡片是同一类面，圆角
-     * 统一成一档。26px、14px 画在上面都太圆（开发者 2026-10-23 定，w00027 t10）。
+     * 统一成一档（开发者 2026-10-23 定，w00027 t10）。
      */
     --radius-window: var(--shell-card-radius);
     /*

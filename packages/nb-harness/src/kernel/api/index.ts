@@ -1,8 +1,8 @@
 /** 内核的全部公开类型与码表；运行时的部分只有常量数据与工具名的换算（请求校验与适配器共用）。 */
 
-export type {Actor, Attributed, Clock, DeepReadonly, Issuer, JsonValue, Rejection, Scope, UserInput} from "./basics.js";
-export {commandErrors, diagnosticCodes, runErrorCodes, storageErrors, toolResultCodes} from "./codes.js";
-export type {CommandErrorTable, DiagnosticCode, DiagnosticLevel, RunErrorCode, StorageError, ToolResultCode} from "./codes.js";
+export type {Actor, Attributed, Clock, DeepReadonly, Issuer, JsonValue, Rejection, Scope, UserAttachment, UserInput} from "./basics.js";
+export {commandErrors, diagnosticCodes, hostOnlyCommands, runErrorCodes, storageErrors, toolResultCodes} from "./codes.js";
+export type {CommandErrorTable, DiagnosticCode, DiagnosticLevel, HostOnlyCommand, RunErrorCode, StorageError, ToolResultCode} from "./codes.js";
 export type {
     Contract, ConvFactory, ConvNames, ConvNamesOfDependency, Dependency, DepList, EventName, EventOf, ExportsOfContract, ExportsShape, ExtFactory, Optional, ReadResult,
 } from "./contract.js";
@@ -17,14 +17,15 @@ export type {
     AnyExtension, CompactionCut, CompactionJob, CompactionMethod, CompactionMethodImpl, CompactionResult, ContributedExtension, DefineExtension, Extension, ExtensionFields, Implement, Interceptors, SettingsSchema, StateOfExtension,
 } from "./extension.js";
 export type {FinalOnlyHelper, OpeningHelper, ReminderHelper, ReminderOptions, StandardLayoutHelper, StandardLayoutOptions, WithoutEventsHelper} from "./helpers.js";
+export type {CompactionRestored, CompactionRestoreArgs} from "./host.js";
 export type {
     AgentHost, ApprovalCtx, ApprovalInfo, ApproveHook, BufferedInput, CommandErrorCode, CommandErrorDetails, CommandFailure, CommandMap, CommandName, CommandOk, CommandResult, Complete,
     CreateSession, CreateSessionOptions, DeltaFrame, Diagnostic, ExtensionDeclaration, ExtensionHandle, ExtensionInfo, ExtensionReceiver, Frame, InputMode, InteractionSummary, OpenSession,
-    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, RunResult, RunStatus, SessionApi, SessionCommands, SessionEnv, SessionQueries,
+    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, AttachmentPort, AttachmentRead, BranchPoint, TreeNode, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
     SessionSnapshot, SlotReport, ToolSessionContext,
 } from "./host.js";
 export type {
-    ApprovalMode, ContentBlock, CoreSettings, Message, ModelCaller, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolution, ModelResolutionCode, ModelResponse,
+    ApprovalMode, Spend, ContentBlock, CoreSettings, Message, ModelCaller, ModelCallOptions, ModelDelta, ModelDraft, ModelErrorKind, ModelFailure, ModelInfo, ModelInfoLookup, ModelPort, ModelQuery, ModelRequest, ModelResolution, ModelResolutionCode, ModelResponse,
     Origin, RequestBlock, RequestPurpose, StopReason, Usage,
 } from "./model.js";
 export type {AnyProfile, CommitFn, DefineProfile, DeriveProfile, Profile, ProfileFields, ProfileRender, TurnFn} from "./profile.js";
@@ -32,7 +33,7 @@ export type {PromptChild, PromptComponent, PromptComponents, PromptNode} from ".
 export type {Slice, SliceFactory, SliceValue, StateDecl, StateValues} from "./state.js";
 export type {LogHandle, LogStore, SessionIndexEntry, StorageNotice, StorageResult} from "./storage.js";
 export {kernelEventSpecs} from "./kernel-events.js";
-export type {ApprovalVerdict, QuestionAnswer, QuestionRequest, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolInfo, ToolResult, ToolStatus} from "./tool.js";
+export type {ApprovalVerdict, QuestionAnswer, QuestionRequest, ToolCall, ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolImage, ToolInfo, ToolResult, ToolStatus} from "./tool.js";
 export {replyText} from "./reply.js";
 export {BLOB_KEY, jsonProblem} from "./json-value.js";
 export {providerNameProblem, providerToolName, TOOL_NAME_LIMIT, toolIdProblem} from "./tool-name.js";

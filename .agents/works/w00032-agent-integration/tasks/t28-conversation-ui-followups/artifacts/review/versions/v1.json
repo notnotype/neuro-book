@@ -1,0 +1,59 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t28-conversation-ui-followups",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t28 对话界面第二批：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "16143b1b102d758e855f97d94288612da2bb7721a5e9c162399d2e7cb50eba2d",
+    "files": [
+        "index.html",
+        "r1/stacked.webp",
+        "r1/status.webp",
+        "r1/tabs-models.webp",
+        "r1/tabs-roles.webp"
+    ],
+    "questions": [
+        {
+            "id": "s1-picker",
+            "type": "single",
+            "label": "模型选择器的版式",
+            "options": [
+                {
+                    "value": "tabs",
+                    "label": "A 分页（同旧应用）"
+                },
+                {
+                    "value": "stacked",
+                    "label": "B 一页到底"
+                }
+            ],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "s2-status",
+            "type": "confirm",
+            "label": "状态栏窄宽时留什么",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T03:21:47.870Z"
+}

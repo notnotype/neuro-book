@@ -10,7 +10,7 @@
 
 触发器默认全宽，左侧显示当前选项的状态点/图标和 label，右侧显示旋转的下拉箭头。调用方传入 `class` 时，组件在类名层合并并让调用方的宽度覆盖默认 `w-full`；其他 attrs 也显式落到触发器。选项是弹出列表共用的一行（`.nb-ui-menu-item`，行高 `--menu-item-h`、字号 `--menu-item-font`，与触发器尺寸无关）；`description` 放在同一行右侧的次要文字，放不下时先截它，所有项一样高。勾与图标共用左侧一列：选中项画勾（替代它的图标或状态点），其它项画自己的图标或状态点，名称左边对齐；底色与字重不变；高亮（悬停与键盘当前项）是中性叠色。
 
-`size="default"` 使用标准 md 控件高度与字号，`size="sm"` 使用紧凑高度。浮层与触发器相距 7px，默认按触发器宽度设置最小/固定宽度；长列表在内部视口滚动：项超过 8 个时视口截在第 9 项的中间、露出半项提示还能滚（按真实盒子量，分隔线与换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧，空间不够时视口跟着收矮；打开时停在选中项上。可滚动时显示可拖动的悬浮胶囊滑块。
+`size="md"`（缺省）使用标准控件高度与字号，`size="sm"` 使用紧凑高度。浮层与触发器相距 7px，留出触发器聚焦光圈的位置，默认按触发器宽度设置最小/固定宽度；长列表在内部视口滚动：项超过 8 个时视口截在第 9 项的中间、露出半项提示还能滚（按真实盒子量，分隔线与换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧，空间不够时视口跟着收矮；打开时停在选中项上。可滚动时显示可拖动的悬浮胶囊滑块。
 
 `390×844` 下触发器仍是一行，label/description 在选项内截断；浮层通过 Popper 碰撞避让收进视口，不锁定页面背景指针事件，也不锁定 body 滚动。
 
@@ -27,7 +27,7 @@
 ## 数据
 
 ```ts
-export type SelectSize = "default" | "sm";
+export type SelectSize = "sm" | "md";
 export type SelectDirection = "auto" | "up" | "down";
 
 export type SelectOption = {
@@ -37,10 +37,10 @@ export type SelectOption = {
     value: string;
     /** 选项说明，显示在同一行右侧；默认 undefined。 */
     description?: string;
-    /** i-lucide-* 图标 class；与 indicatorClass 互斥，indicatorClass 优先；默认 undefined。 */
+    /** i-lucide-* 图标 class；与 tone 同时给时画色点；默认 undefined。 */
     iconClass?: string;
-    /** 状态色圆点 class；与 iconClass 互斥，indicatorClass 优先；默认 undefined。 */
-    indicatorClass?: string;
+    /** 前导列画一个这个语调的色点，颜色取主题状态色（neutral 用 --text-muted，accent 用 --accent-main，其余用 --status-*）；与 iconClass 同时给时色点优先；默认 undefined。 */
+    tone?: "neutral" | "accent" | "info" | "success" | "warning" | "danger";
     /** 禁止选择该项；默认 undefined/false。 */
     disabled?: boolean;
 };
@@ -56,7 +56,7 @@ type SelectProps = {
     name?: string;
     /** 没有匹配选项时的占位文字；默认 ""。 */
     placeholder?: string;
-    /** 控件尺寸；默认 "default"。 */
+    /** 控件尺寸；默认 "md"。 */
     size?: SelectSize;
     /** 浮层方向；默认 "auto"。 */
     dropdownDirection?: SelectDirection;
@@ -92,7 +92,7 @@ type SelectSlots = {
 ## 状态
 
 - **默认/空值**：触发器显示 placeholder；无匹配 `modelValue` 时也按空选择处理，选项列表仍可打开；`options=[]` 时没有选项行，也不显示自定义空状态。
-- **已选值**：显示匹配选项的 label，并按 `indicatorClass` 优先、否则 `iconClass` 显示前导标识；浮层中该项显示勾选标记（除非 hideCheckmark）。
+- **已选值**：显示匹配选项的 label，并按 `tone` 色点优先、否则 `iconClass` 显示前导标识；浮层中该项显示勾选标记（除非 hideCheckmark）。
 - **禁用**：触发器不可操作；单个 disabled 选项保留在列表中但不可选。
 - **错误**：Field 的 invalid 上下文使触发器使用错误样式并设置 `aria-invalid`、`aria-describedby`；required 与字段上下文取逻辑或。
 - **长列表**：浮层内部可滚动；内容超出视口时显示拖动滑块和渐隐提示。

@@ -2,8 +2,8 @@ import type {Locator, Page} from "@playwright/test";
 import {test, expect} from "./fixtures";
 
 /**
- * 弹出列表的一行（w00029 t04）：行高、字号、同心圆角与高亮在真实布局与真实指针下量。nbook 主题下外框 10px、内边距 4px，
- * 项的圆角推出 5px（Task README 决定 3、4）。高亮只认 `data-highlighted`：普通按钮项（右键菜单、手工级联）由 MenuNodes
+ * 弹出列表的一行（w00029 t04）：行高、字号、同心圆角与高亮在真实布局与真实指针下量。nbook 主题下外框 8px、内边距 4px，
+ * 项的圆角推出 3px（Task README 决定 3、4）。高亮只认 `data-highlighted`：普通按钮项（右键菜单、手工级联）由 MenuNodes
  * 跟着焦点挂，指针移动会把焦点带过去，所以任何时候最多一项亮着（决定 1）。
  */
 
@@ -15,9 +15,9 @@ async function gotoMenus(page: Page): Promise<void> {
 async function expectRowGeometry(item: Locator): Promise<void> {
     const box = (await item.boundingBox())!;
     const label = (await item.textContent())?.trim();
-    expect(box.height, `${label} 的行高`).toBeCloseTo(28, 0);
-    await expect(item, `${label} 的字号`).toHaveCSS("font-size", "13px");
-    await expect(item, `${label} 的圆角`).toHaveCSS("border-radius", "5px");
+    expect(box.height, `${label} 的行高`).toBeCloseTo(30, 0);
+    await expect(item, `${label} 的字号`).toHaveCSS("font-size", "14px");
+    await expect(item, `${label} 的圆角`).toHaveCSS("border-radius", "3px");
 }
 
 /** 名称的左边缘：同一级的名称应当对齐（勾与图标共用的左侧一列，有一项用到就每项都留）。 */
@@ -37,12 +37,12 @@ async function settled(surface: Locator): Promise<void> {
     await surface.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
 }
 
-test("下拉菜单：外框 10px、内边距 4px，项高 28px、字 13px、圆角 5px；勾选项的勾与快捷键同时显示", async ({page}) => {
+test("下拉菜单：外框 8px、内边距 4px，项高 30px、字 14px、圆角 3px；勾选项的勾与快捷键同时显示", async ({page}) => {
     await gotoMenus(page);
     await page.locator("[data-fixture-dropdown-trigger]").click();
     const menu = page.locator("[data-fixture-dropdown]");
     await settled(menu);
-    await expect(menu).toHaveCSS("border-radius", "10px");
+    await expect(menu).toHaveCSS("border-radius", "8px");
     await expect(menu).toHaveCSS("padding-top", "4px");
 
     const items = menu.locator("[role^='menuitem']");
@@ -149,7 +149,7 @@ test("菜单栏：一级里父项上按右方向键只展开子菜单、焦点�
     await expect(menubar.getByRole("menuitem", {name: "编辑"})).toHaveAttribute("data-state", "closed");
 });
 
-test("Select：所有项 28px，说明在同一行右侧；选中项在左侧一列画勾、替代它的图标，底色不变", async ({page}) => {
+test("Select：所有项 30px，说明在同一行右侧；选中项在左侧一列画勾、替代它的图标，底色不变", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=select&theme=nbook&colorway=nbook-light");
     await page.locator("[data-fixture-select]").click();
     const listbox = page.getByRole("listbox");
@@ -200,11 +200,11 @@ test("Select 与 ColorSwatches 的浮层材质与 DropdownMenu 相同：底色�
     expect(await material(swatches), "ColorSwatches").toEqual(expected);
 });
 
-test("QuickPick：所有项 28px，分类与说明在同一行右侧；高亮跟着指针移动，只亮一项", async ({page}) => {
+test("QuickPick：所有项 30px，分类与说明在同一行右侧；高亮跟着指针移动，只亮一项", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=quick-pick&theme=nbook&colorway=nbook-light");
     const panel = page.locator("[data-fixture-quick-pick]");
     await settled(panel);
-    await expect(panel).toHaveCSS("border-radius", "10px");
+    await expect(panel).toHaveCSS("border-radius", "8px");
 
     const open = page.getByRole("option", {name: /打开项目/});
     const chapter = page.getByRole("option", {name: /新建章节/});

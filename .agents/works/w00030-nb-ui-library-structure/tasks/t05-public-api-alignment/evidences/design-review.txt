@@ -1,0 +1,289 @@
+# w00030 t05 设计审查（2026-11-02）
+
+审查对象：plan.md 初稿（提交 f9fcb4a4f）。普通审查，按对象分派：Claude Sonnet 审组件与交互（17 条：阻断 2、重要 9、建议 6）；omp 默认模型审 API 形状、对外兼容与迁移（8 条：阻断 1、重要 7）。两份报告原文附在后面。主会话逐条对照代码核实。
+
+## 处理
+
+Sonnet
+- S1 阻断 最上层判定改序号会回归：成立。不做这一项，保留 onTop（不做与风险）。
+- S2 阻断 迁移风险在 request-close 与 cancel：成立。受控 open 不用 defineModel；守卫调用方清单进 S3；风险段改写。
+- S3 重要 关闭原因合并丢信息、ModeNotice 依赖 cancel：成立。保留 close-button 与 cancel 两个原因；Dialog 的 cancel 事件删掉，ModeNotice 改 update:open。
+- S4 重要 事件词汇未定义：成立。第 5 节加事件表与各组件原因子集；QuickPick、ContextMenu 的 close 改名 request-close；QuickPick 保持受控。
+- S5 重要 ModalShell 装不下四个浮层：成立。改为 useOverlayLayer 加 .nb-ui-overlay 样式，遮罩仍用各原语族的 Overlay。
+- S6 重要 嵌套分档 inject 位置：成立。useOverlayLayer 只在持有面的组件调用一次，nested 作为属性传给 DialogSurface；Drawer、QuickPick 不参与；补两个 e2e 场景。
+- S7 重要 QuickPick 进模态序列会掉层级：成立。QuickPick 不用 useOverlayLayer，保持 9200，加层级断言。
+- S8 重要 ContextMenu、Menubar 改传送目标会错位：成立（Lab 传送目标 contain: layout）。只做 SuggestionMenu。
+- S9 重要 Tooltip max 在对话框内仍平局：成立。L07 第 2 点不做，理由写进计划（要改层级步长，收益不抵）。
+- S10 重要 “原样通过”其实要改入口：成立。验收改为“改入口、断言不动”，列出文件；data 属性与类名列为不变合同。
+- S11 重要 列表形状事实错与字段并名：成立。删掉 "default" 改 "item" 的错误说法；不设 ListItemBase，按组件表逐个定；Select 保留 value；QuickPick 保留 shortcut 键帽；契约测试 bg-red-500 改 danger。
+- S12 建议 placement：成立。SuggestionSide 保留 auto；align 缺省各自不变；nb-agent-ui 的 placement 不碰。
+- S13 建议 DialogSurface 所有权：成立。单根透传、defineExpose、teleportTarget 收窄写进第 5 节。
+- S14 建议 AlertDialog 专有行为：成立。写进 AlertDialog.md；tone=warning 3 处改 neutral 进 S1；closed 交接以内部打开态为准（实现时处理）。
+- S15 建议 可测性：成立。验收映射加“层”一列，不适用格子显式写。
+- S16 建议 Drawer 读屏名与 AlertDialog 遮罩类：成立前两点（Drawer 无标题兜底、AlertDialog 遮罩同样有无效类）；内容区入退场列为不做。
+- S17 建议 两套叠放规则的限制：成立。写进 FloatingWindow.md，深度钳制加诊断。
+
+omp
+- O1 阻断 内置主题 hostVersion：成立（theme-loader 用 satisfiesRange 校验，^0.3.0 不接受 0.4.0）。版本号不在本 Task，列进发版清单。严重程度在本 Task 内降为“发版时必做”。
+- O2 重要 共享包依赖会装两份 nb-ui：成立。发版清单写明一起升版本发布。
+- O3 重要 cancel 与 close-button 合并：与 S3 重复，同样处理。
+- O4 重要 调用方数量口径不一：成立（两位审查者与初稿的数字各不相同）。完成判据改为旧名零命中加动态绑定核对，迁移表附 rg 命令。
+- O5 重要 Tone 词表不闭合：成立。第 2 节加逐组件映射（菜单项、SegmentedControl 的 default → neutral，EditorGroup 边界）。
+- O6 重要 ListItemBase 必填 id 不兼容：与 S11 重复，同样处理。
+- O7 重要 SDK components.ts 是手写白名单：成立。第 7 节列出增删项与 sdk.test 新断言。
+- O8 重要 静态检查管不到动态绑定：成立。S0 列动态绑定清单，每片人工核对。
+
+不成立：无。接受取舍：无。
+
+---
+
+## 附：Sonnet 报告原文
+
+# w00030 t05 计划设计审查（前端：组件与交互）
+审查对象：.agents/works/w00030-nb-ui-library-structure/tasks/t05-public-api-alignment/plan.md
+代码基线：worktree w00030-t05-api-alignment（与 master 相同）。下面的实验文件在 /tmp/review-w00030-t05-design/exp/（overlay.test.ts、model.test.ts，happy-dom，不进仓库）。
+
+---
+
+## 1. [阻断][回归] “遮罩在不在最上层”改读 useModalLayer 序号，会让“下拉开着时点遮罩”把对话框一起关掉；现有用例已锁定这条行为
+- 位置：计划关键设计第 5 节末条；`packages/nb-ui/src/components/feedback/Dialog.vue:311-317`（`onTop`）、`Dialog.test.ts` 第二个用例“对话框里开着下拉时，点遮罩只关下拉，不关对话框”。
+- 现象：`onTop()` 现在查的是“有没有层级更高的 reka 可关闭层”，其中包括 Select、DropdownMenu、Popover（它们都不在 `useModalLayer` 里，`useModalLayer` 只登记 Dialog/AlertDialog/Drawer 三个模态）。`useModalLayer` 的序号只能回答“我是不是最后打开的模态”，回答不了“我上面有没有一个非模态浮层”。
+- 为什么是问题：读 reka 源码 `DismissableLayer/DismissableLayer.js:59`，pointer-down-outside 对所有非模态层都发（只有 Escape 才限最上层，`:74-75`）。所以遮罩上一次按下，下拉和对话框都会收到“外部按下”。现在靠 `onTop` 在遮罩 `pointerdown` 那一刻（早于 reka 在 document 上的处理，下拉还没关）判定“上面还有层”，把这次点击记为不算。改读模态序号后这一刻判定为“我是最上层模态”，松开时发 `request-close('overlay')`，点一下遮罩同时关下拉和对话框。表单对话框里最常见的就是 Select；`ProjectInfoDialog` 这类有脏表单守卫的最容易吃亏。
+- 如何核实：在主工作区 `packages/nb-ui` 跑 `bunx vitest run src/components/feedback/Dialog.test.ts`，7 个全过，第二个用例断言 `request-close` 为 undefined；把 `onTop` 换成只比模态序号，该用例会失败。reka 行为见上面两处源码行。
+- 建议改法：不要删这条判定，换一种不读 `[data-dismissable-layer]` 属性与 `getComputedStyle().zIndex` 的实现。可选：让 `usePopoverLayer` 的使用者（Select、DropdownMenu、Popover、SuggestionMenu、ColorSwatches）在打开时向最近的模态登记“我开着”，`onTop` = 模态序号最高且登记数为 0。如果坚持只用序号，计划要明确写“放弃这条行为”，同时改验收映射和 Dialog.test.ts，并给开发者决策。
+
+## 2. [阻断][迁移风险] 计划只盘点了 `@confirm`，真正会坏的是 `@request-close`（12 处）和 `@cancel`；`closeOnRequest` 缺省 true 加 `defineModel` 会让带守卫的调用方静默失守
+- 位置：计划第 5 节“去掉看监听器的分支”与“风险”第二条；`Dialog.vue:255-275`。
+- 现象（数字，核实于 worktree）：`<Dialog` 用法共 26 处（nb-ui 之外 `llmlint/web` 用的是自己的 `common/Dialog.vue`，不算）。
+  - 挂了 `@request-close` 且没有 `@update:model-value` 的：dev-panel 4（DeveloperMessageDialog.vue:31、ScreenConfirmDialog.vue:10、TakeoverDialog.vue:17、UncommittedDialog.vue:15）、neuro-book 的 EditorArea.vue:169、FilesExplorerView.vue:230/250/273、PathPickerDialog.vue:168、ProjectInfoDialog.vue:182、SettingsWindow.vue:261、AddProviderDialog.vue:84（另挂了 update），共 12 处。它们现在都靠“挂了监听就不自动关”，由宿主自己改 `open`。
+  - 其中三处是“守卫式”：DeveloperMessageDialog 在 `replaced` 时 `@request-close="!replaced && emit('cancel')"` 故意不关；ProjectInfoDialog.vue:92-93 `if (reason === "overlay" && dirty.value) return`（脏表单点遮罩不关）；AddProviderDialog.vue 的 `reason === 'cancel' ? (custom = false) : emit('update:open', false)`。
+  - `confirm` 的“没挂 @confirm 靠自动关”只剩 Lab 夹具：DialogFixture.vue:45（默认页脚，只有 v-model），DialogFixture.vue:24 走 `v-bind`；生产代码 0 处。计划的风险描述（“漏补关闭的调用方点确认没反应”“S3 开工时统计没挂 @confirm 的用法”）把力气花在了几乎为 0 的一类上。
+- 为什么是问题：迁移后 `request-close` 照旧存在、类型检查和未知事件检查都不会报错，但行为变了：缺省 `closeOnRequest=true` 会随后发 `update:open(false)`。（1）守卫式调用方如果忘了加 `:close-on-request="false"`，守卫静默失效，脏表单一点遮罩就丢。（2）`defineModel` 的实际语义（我用 `useModel` 做了等价实验 model.test.ts）：宿主只传 `:open`、没挂 `@update:open` 时，子组件会本地更新。实验结果：请求关闭后子组件显示 false、宿主状态仍是 true；宿主再置 true 是空操作，必须先 false 再 true 才会重新打开。也就是说漏改的调用方得到的是“看着关了、宿主以为开着、再也打不开”的状态，不是报错。
+- 如何核实：`python3 -I /tmp/review-w00030-t05-design/exp/tags.py <worktree> Dialog` 可重列 26 处属性；model.test.ts 的 EXP 输出。
+- 建议改法：（a）计划把 S3 的盘点对象改成“所有 `@request-close`、`@cancel`、`@update:model-value` 的 Dialog 用法”并在计划里列出这 12 处各自怎么改（多数是加 `:close-on-request="false"`）；（b）重新权衡缺省值：`Dialog` 是由宿主 `open` 持有的受控浮层，缺省 `closeOnRequest=false` 同时保留 `defineModel` 的“宿主不挂就本地更新”会更安全；缺省 true 的好处只在“没写任何处理”的调用方，而这类调用方（26 处里）几乎没有。若仍取 true，建议 `closeOnRequest` 缺省 true 时在开发模式下，宿主既传了 `open` 又挂了 `request-close` 却没挂 `update:open` 就给一条诊断；（c）风险段改写成上面的真实数字。
+
+## 3. [重要][回归] “关闭原因合并”和“`cancel` 只在取消按钮路径发”会破坏两个现有调用方
+- 位置：计划第 5 节“关闭原因”对照（`cancel`、`close-button` 都→`button`）与“`cancel` 只在取消按钮路径发”；`AddProviderDialog.vue:~96`、`nb-story/src/web/parts/ModeNotice.vue:36-38`。
+- 现象：
+  - `AddProviderDialog` 用 `reason === 'cancel'`（页脚“返回”按钮，退回列表）与其它原因（× 、Esc、遮罩，关闭整个窗口）区分。计划把 `cancel` 和 `close-button` 都映射成 `button`，这个区分没了：“返回”和 × 同为 `button`，调用方没法判断是退一步还是关窗。
+  - `ModeNotice`（nb-story）是整个仓库里唯一一个挂 `@cancel` 在 `Dialog` 上的生产调用方（其余 `@cancel` 都在 AlertDialog 或包装组件上），QaPage 靠它把 `pendingMode` 置回 null。现在自动关闭路径对 Esc、遮罩、×、取消按钮一律发 `cancel`（lib-review L12 第 2 点说的就是这个）。计划让 `cancel` 只在取消按钮路径发后，Esc、遮罩、× 关闭对话框但 QaPage 不知道，`pendingMode` 卡在非空。
+- 为什么是问题：映射表是“对照”而不是迁移清单，没列这两处；`DialogCloseReason` 是公开类型（SDK `components.ts:27` 导出），改词表对外也算不兼容。
+- 如何核实：`rg -n "reason ===|reason ==|@cancel" packages --glob '!node_modules'`；读 ModeNotice.vue 与 QaPage.vue:599。
+- 建议改法：词表里把“用户点的是页脚取消/返回按钮”单独留一个原因（计划里的 `action` 被 ContextMenu 的 `select` 占了；可用 `cancel` 或把 Dialog 的取消按钮定为 `button`、× 定为 `close-button` 都保留），或者在计划里写明 AddProviderDialog 改成给“返回”按钮自己挂 `@click`（走 footer 插槽）。ModeNotice 需改成 `@update:open`。两处都写进 S3 迁移清单。
+
+## 4. [重要][接口] 事件词汇没定义：`request-close`、`close(reason)`、`update:open`、`cancel`、`closed` 五个事件谁在什么时候发、哪个能被拦
+- 位置：计划第 5 节“关闭原因”与“去掉看监听器的分支”两条。
+- 现象：计划一处说“各浮层关闭前发 `close(reason)`，退场完成发 `closed`”，另一处说“`request-close` 总是发，`closeOnRequest` 缺省 true 时随即关闭”，验收行也在测“挂一个空的 `request-close` 监听”。读起来 Dialog 同时有 `request-close(reason)`、`close(reason)`、`update:open`、`cancel`。
+  - 现有的 `close(reason)` 语义是“请求”而不是“通知”：QuickPick 的 `close` 紧跟在 `update:open(false)` 后发，QuickPick.md 写明“组件不自行改变受控 open”（`QuickPick.vue:138-143`）；ContextMenu 的 `close` 也是请求（宿主把 `visible` 置假，并且焦点去向由 reason 决定）。计划的“关闭前发”是通知语义。
+  - `defineModel("open")` 加到 QuickPick 会改变它的受控合同：QuickPick.md 写的是“open 必填且受控”，宿主不接 `update:open` 就保持打开；`defineModel` 在宿主传了 `:open` 却没挂 `@update:open` 时会本地翻转（见发现 2 的实验）。
+  - Drawer 的 reka 根（DrawerRoot）自己发 `update:open(value, {reason})`，reason 取值 `escape-key`、`outside-press`、`close-press`、`swipe`（`reka-ui/dist/Drawer/DrawerRoot.js:111-115`、`DrawerContentImpl.js:113,159-171`）。`swipe`（滑动关闭，`swipe-direction` 已在用）不在计划的 5 个原因里，Drawer 的表格行没有这一格。
+  - AlertDialog 没有 `outside`（reka AlertDialogContent 把 pointer-down-outside 拦了，实验 overlay.test.ts：点外面 `update:open` 无事件，Escape 才发），`confirm` 路径 reka 的 AlertDialogAction 自己关；而 `Dialog.confirm` 计划里改成不自动关。同一个“确认”，两个浮层一个自动关一个不关，合同表里没说。
+- 为什么是问题：S3 的人照字面实现，会为 Dialog 同时放 `request-close` 和 `close`，QuickPick 的 `close` 语义被悄悄改成通知；表驱动测试的“每个浮层×每种关闭方式”表有一半格子是“不适用”，而计划没列哪些格子适用。
+- 如何核实：实验 overlay.test.ts：`bunx vitest run --config /tmp/review-w00030-t05-design/exp/vitest.config.mjs overlay`（在 packages/nb-ui 下），输出：AlertDialog 外部按下无 `update:open`、Esc 有；Drawer Esc 与外部按下各发一次；QuickPick 外部按下发 `close('outside')` 和 `update:open(false)`。
+- 建议改法：在计划里写一张事件表：每个浮层的“请求关闭”事件（统一叫 `request-close(reason)` 还是沿用 `close`）、“已关闭”事件（`closed`）、`update:open`；明确哪些浮层的请求可以被宿主拒绝（Dialog、QuickPick、ContextMenu 可以；AlertDialog、Drawer 由 reka 直接关）。原因词表加 `swipe`（或归入 `button` 并写明），验收表列出适用格子。QuickPick 的 `open` 保持必填受控，不套 `defineModel`；`defineModel` 的“本地更新”只给确实支持非受控的浮层（带 trigger 的 AlertDialog、Drawer、Popover）。
+
+## 5. [重要][设计] `ModalShell` 作为“拥有传送与遮罩的组件”装不下四个浮层：遮罩、Portal 必须和 reka 原语同族；四个浮层的差异计划没有列
+- 位置：计划第 5 节“`ModalShell`”条；`Dialog.vue:339-361`、`AlertDialog.vue:95-106`、`Drawer.vue:78-87`、`QuickPick.vue:287-292`。
+- 现象（读实现）：
+  - 原语族不同：Dialog 与 QuickPick 用 `DialogRoot/Portal/Overlay/Content`；AlertDialog 用 `AlertDialog*`（内部转到 Dialog 的上下文，但 `AlertDialogContent` 加了 `role="alertdialog"`、拦外部按下、打开时把焦点放到取消按钮，`reka-ui/dist/AlertDialog/AlertDialogContent.js`）；Drawer 用另一族 `DrawerRoot/DrawerOverlay`，`DrawerOverlayImpl` 自带 body 滚动锁、`data-state`、`data-swiping` 与 swipe 变量（`dist/Drawer/DrawerOverlayImpl.js`）。遮罩必须是对应族的 `*Overlay`，否则 Presence 的退场、滚动锁与 swipe 联动丢失。所以 `ModalShell` 自己画遮罩，要么得 Dialog/AlertDialog/Drawer 各传一个“遮罩组件”，要么只能画个普通 div。
+  - Dialog 的遮罩有三种分支：`pageModal` 用 reka 的 `DialogOverlay`（锁整页），`contained`（Lab 画布）用普通 div（不锁），`modal=false`（现在是窗口）没有遮罩；还有 `overlayType`（transparent/blur/opaque，缺省 opaque 且注释说明“遮罩先糊一遍会让玻璃面板没东西可采”）、`closeOnOverlay`、按下与松开同一个键才算一次点击。AlertDialog 与 Drawer 用 `backdrop-blur-[4px]`，QuickPick 是透明遮罩且 z-index 固定 `NB_Z_INDEX.commandPalette`（9200）。计划只写了“`.nb-ui-overlay`，`--overlay-bg`”一个外观，没说这些差异怎么表达。
+  - 只有 Dialog 处理 `contained`（`useTeleportContained`）；AlertDialog、Drawer、QuickPick 在 Lab 里照旧锁整页。外壳统一后是顺手修好还是保持差异，计划没有说，e2e `lab-nb-ui.e2e.ts` 里“模态对话框在 Lab 画布里只遮住画布”只覆盖 Dialog。
+  - `Drawer` 有 `modal=false`（Lab 场景“左侧、非模态”，feedback.ts:97），但仍画遮罩、仍进 `useModalLayer`。“ModalShell”里放一个非模态的 Drawer，名字和合同对不上。
+  - lib-review L16 的建议里 `ModalShell` 有 `layer: "modal" | "palette" | "drawer"` 与 `overlay: "dim" | "none"` 两个参数；计划抄了摘要却把这两个参数丢了。
+- 为什么是问题：S3 的人拿这一节开工，会先发现“套它”的前提不成立，再自行决定遮罩、Portal 谁画，结果是各浮层的外观与行为被无意改变（尤其 QuickPick 的层级和 AlertDialog 的取消焦点）。
+- 如何核实：读上面的行号；`sed -n 1,60p node_modules/reka-ui/dist/AlertDialog/AlertDialogContent.js`；`DrawerOverlayImpl.js`。
+- 建议改法：把可共享的部分拆成两层，并让计划写清边界。（1）一个 composable（暂名 `useModalSurface()`）：返回 `zIndex`（按 `layer` 取模态序列或固定档）、`teleportTo()`、`contained`、并做 `provide(NB_POPOVER_Z_INDEX)`、`useCloseHandoff` 与 `closed`。（2）真正的外壳组件只做 `.nb-ui-overlay` 的样式（`variant: "dim" | "blur" | "none"`）与关键帧，遮罩元素由各浮层用自己那一族的 `*Overlay` 以 `as-child` 或插槽套进来。计划里写一张“四个浮层各自保留什么”的表（根原语、遮罩元素、Escape 与外部点击由谁处理、初始焦点、contained 行为、层级来源）。
+
+## 6. [重要][设计] 嵌套分档搬进 `ModalShell`/`FloatingWindow` 后，“在哪里 inject、在哪里 provide”是最容易错的一步，计划没写；Drawer、QuickPick 不该获得 nested 类
+- 位置：计划第 5 节“`ModalShell`”条（“嵌套分档随层级提供一起搬进来”）、风险第三条；`Dialog.vue:142-149`、`AlertDialog.vue:34-35`、`theme/z-index.ts:41-49`。
+- 现象：
+  1. 当前 `nested = parentLayer >= 1` 是在组件自己的 setup 里先 `inject`、再 `provide(layer+1)` 算出来的，类名加在组件自己的 `<section>` 上。若 `ModalShell` 负责 inject+provide，而 `nested` 类要加在 `DialogSurface`（它在 shell 的子树里）上：`DialogSurface` 自己再 `inject(NB_DIALOG_LAYER)` 读到的是 shell 刚 provide 的 `parent+1`，每个对话框（包括最外层）都会判成 nested。`e2e/dialog-surfaces.spec.ts` 的“一级对话框不带 nested 类”会失败，但那是 S3 做完才看得到。
+  2. 浮动窗口拆出去后，`FloatingWindow` 不在 `ModalShell` 里，却也要读写同一个 `NB_DIALOG_LAYER`（e2e 的 `window-probe`：浮动窗口里的浮动窗口、窗口里开的对话框都要“二级”）。窗口的层级是另一套（`NB_DIALOG_WINDOW_DEPTH`、`windowZIndex = dialogWindow + (depth-1)*STEP`、popover 层级取 `windowZIndex + 1`）。计划没说这套逻辑放哪；复制到 `FloatingWindow` 里就是两份。
+  3. 今天 `Dialog` 在 `modal=true` 时原样把 `NB_DIALOG_WINDOW_DEPTH` 透传（`windowDepth = props.modal ? parentDepth : parentDepth + 1`）。拆开后模态 `Dialog` 如果不再 inject/provide 它，窗口里开的模态里再开的窗口深度会被重置回 0。
+  4. 今天只有 Dialog 与 AlertDialog 提供 `NB_DIALOG_LAYER`，Drawer 与 QuickPick 不提供也不读。四个都套同一个 shell 且 shell 统一 provide，会让：Dialog 里开的 Drawer 获得 `nb-ui-dialog-surface--nested` 的二级面（Drawer 的类里有 `nb-ui-dialog-surface`）、Drawer 里开的 Dialog 变成 nested、QuickPick（`nb-ui-menu-surface`，不是对话框的面）也进计数。这些都是外观变化，计划的视觉对照清单里没有。
+  5. `AlertDialog` 现在不提供 `NB_POPOVER_Z_INDEX`（只有 Dialog、Drawer 提供），shell 统一提供后行为变化虽无害，但要在 `AlertDialog.md` 里写明。
+- 为什么是问题：风险第三条只说“靠 dialog-surfaces.spec.ts 兜住”，但 spec 只覆盖 Dialog、AlertDialog、窗口三种组合，没有 Drawer/QuickPick/窗口里的模态。
+- 如何核实：读 Dialog.vue:142-149 与 e2e `window-probe` 场景（DialogSurfacesFixture.vue:48-52）。
+- 建议改法：在计划里定下规则：（a）`useDialogLayer()` 一个 composable，同时负责 layer 与 window depth 的 inject/provide，返回 `{nested, depth}`，在“持有面的组件”（Dialog、AlertDialog、FloatingWindow）的 setup 里调用一次，`nested` 作为 prop 传给 `DialogSurface`，`DialogSurface` 不自己 inject；（b）shell 不 provide 层数，Drawer 与 QuickPick 是否进计数在计划里明说（建议不进，或进计数但不加 nested 类）；（c）模态 Dialog 透传 window depth；（d）验收里补一个 e2e 场景：Dialog 里开 Drawer、Drawer 里开 Dialog、窗口里开 AlertDialog，量面的 alpha 与圆角。
+
+## 7. [重要][行为变化] `QuickPick` 并入 `useModalLayer` 序列，层级从 9200 掉进 9000 到 9009 段，透明遮罩与受控语义也要保住
+- 位置：计划第 5 节“`ModalShell` … `useModalLayer` 叠放 … `QuickPick` 都套它”；`QuickPick.vue:93,290`、`theme/z-index.ts:22-32,57-65`。
+- 现象：QuickPick 现在固定 `NB_Z_INDEX.commandPalette = 9200`，登记簿的理由是“高于右键菜单 9100、通知 9050”；`useModalLayer` 给的是 `dialog + index*2`（9000 到 9008，上限 5 层）。迁入后：（1）面板落到通知（9050）和右键菜单（9100）之下，也低于 `NB_MODAL_POPOVER_Z_INDEX`（9010）：在命令面板打开的同时，一个对话框里开着的下拉（9010）会盖住它；（2）命令面板占掉一个模态层位，和对话框共用 5 层上限；（3）“按打开顺序”意味着先开了命令面板再开对话框（命令面板执行命令的常见路径）会盖住它，而现状是命令面板永远在最上。S4 命令面板“角色”（`z-index.ts:22` 注释）被删掉的话，登记簿和 `docs/ui-development-spec.md` 的叠放层级一节要同步改。
+- 为什么是问题：计划没有把 QuickPick 的层级列在“按设计变化”的断言里，也没有 e2e（`popup-lists.spec.ts` 的 quick-pick 场景只验键盘与外观）。
+- 如何核实：读 z-index.ts 与 QuickPick.vue:93。
+- 建议改法：不要让 QuickPick 进模态序列。保留 shell 的 `layer: "palette"` 参数（见发现 5），palette 层固定 9200；对话框里开 QuickPick 的情况（Lab 的 QuickPickFixture 在 Dialog 里）验一遍。
+
+## 8. [重要][回归] `ContextMenu`、`Menubar` 的传送目标缺省改读 `useTeleportTarget`，在 Lab 画布里会让菜单错位
+- 位置：计划第 6 节第 2 条；`useTeleportTarget.ts:1-12`（注释明说只服务“居中类浮层”）、`ContextMenuPanel.vue:42`（`fixed`）、`MenuLevelPanel.vue:27`（`fixed`）、`Menubar.vue:147-150`（有意 `<Teleport to="body">`）、`lab/web/components/ViewportCanvas.vue:296-307`。
+- 现象：ContextMenu 的位置是宿主传来的视口坐标（`event.clientX/Y`，Lab 的 ContextMenuFixture 就是这样写的），面板用 `position: fixed` 加 `clampMenuPosition(…window.innerWidth/innerHeight)`；Menubar 的级联面板同样是自己量几何的 fixed 面板，源码注释写明传送到 body 是为了避开 backdrop-filter 变成 fixed 后代的包含块。Lab 的传送目标 `.nb-lab-overlay-root` 设了 `container-type: size; contain: layout;`，layout containment 使它成为 fixed 后代的包含块（CSS 注释里同一段写着“包含块要靠 layout containment”）。缺省改成读宿主提供的目标后，Lab 里这两类菜单的 `top/left` 相对画布而不是视口，偏移一个画布原点，clamp 也按错的边界算。
+- 为什么是问题：SuggestionMenu 用的是 reka Popper，floating-ui 自己处理非 body 的偏移父元素，改缺省问题小；ContextMenu 与 Menubar 是手算几何，不行。这是 L07 第 4 点“建议改法 (c)”被原样搬进计划时丢掉的前提。
+- 如何核实：读 ViewportCanvas.vue 的 `.nb-lab-overlay-root` 样式与 ContextMenuFixture.vue；e2e 里没有任何一条在 Lab 里右键菜单验位置，所以 `lab-nb-ui.e2e.ts` 原样通过也不能证明没错位。
+- 建议改法：只让 SuggestionMenu 缺省读宿主目标，ContextMenu 和 Menubar 保持 `body`，并在 `useTeleportTarget` 的文档里写明“只给居中类与由 Popper 定位的浮层”；计划里的“L07 第 4 点”改成“不做 ContextMenu/Menubar”，并写理由。若仍要做，需要先让 ContextMenu 把视口坐标换算成目标坐标，再加 Lab 里右键菜单的位置 e2e。
+
+## 9. [重要][设计] `Tooltip` 用 `max(注入层级, 70)` 在对话框与窗口里仍是平局，不能证明“提示压过菜单”
+- 位置：计划第 6 节第 1 条、验收映射“提示压过菜单”；`usePopoverLayer.ts`、`Tooltip.vue:12,75`、`theme/z-index.ts:57-65`、`Dialog.vue:149`。
+- 现象：对话框里注入值是 `NB_MODAL_POPOVER_Z_INDEX = 9010`，DropdownMenu/Select/Popover 取的就是 9010；Tooltip 取 `max(9010, 70) = 9010`，与菜单相同，谁在上取决于 DOM 顺序（各自 Portal 到 body 的先后）。窗口里同理（注入 `windowZIndex + 1`）。只有对话框之外（60 对 70）才真的分出先后。而“提示压过菜单”的场景（菜单项上的提示）主要出现在菜单已开着的时候，Tooltip 后挂载所以碰巧在上，这是 L07 第 2 点原本就指出的“靠 DOM 顺序”。另外，窗口的层级步长是 2（本体一格、popover 一格，`NB_DIALOG_WINDOW_Z_STEP = 2`），给提示再加 1 会与下一层窗口的本体撞档。
+  - 右键菜单（9100）和命令面板（9200）是固定档，任何 Tooltip 都在它们下面；计划没说“菜单”指哪些。
+- 为什么是问题：验收行“Lab 里菜单开着时悬停触发提示，读两者层级”在 Lab 里菜单不在对话框内，70 对 60 一定通过，测不到对话框内的平局。
+- 如何核实：读 z-index.ts 与上面行号；happy-dom 里读行内 z-index 做断言只能断“>”；平局时断“>=”会假通过。
+- 建议改法：注入值改成一对 `{popover, tooltip}`（或把窗口步长改成 3），Tooltip 取 `tooltip` 档；验收必须在 Dialog 内、窗口内、页面上各一条，单元层断言严格大于，e2e 用 `elementFromPoint` 取重叠点验真实画序。并写明 ContextMenu 与命令面板不在这条保证里。
+
+## 10. [重要][验收] “原样通过”的几条验收，对应的 Lab 场景、夹具与测试选择器都会因 `Dialog` → `FloatingWindow` 拆分而变
+- 位置：计划验收映射“浮动窗口拖动与缩放不变”“嵌套对话框的面与圆角不变”两行；`packages/neuro-book/e2e/lab-nb-ui.e2e.ts:161,187`（`c=Dialog&s=window-resizable`）、`lab/web/fixtures/nb-ui/feedback.ts:65-67`（三个 `modal: false` 场景挂在 Dialog 的定义下）、`nb-ui/playground/app/acceptance/DialogSurfacesFixture.vue:46,48`（`:modal="!floating"`）、`nb-ui/src/components/components.test.ts`（6 处 `modal: false`，约 840-1160 行）、`SettingsWindow.dom.test.ts:318` 与 `e2e/settings.e2e.ts:414`（`header.nb-dialog__header`）。
+- 现象：这些文件都要改，所以不是“原样”。尤其 `dialog-surfaces.spec.ts` 本身不动，但它依赖的夹具要把一个 `<Dialog :modal>` 拆成两个组件的条件渲染，嵌套场景（window-probe）里层级注入链也跟着变——改了夹具又拿它当回归基线，能抓到的回归变少。另外新组件 `FloatingWindow` 要在 Lab 里登记（场景从 Dialog 的定义迁走，组件名以 Window 结尾，`component-index-model.ts` 会推成 dialog 类、撑满，不必额外登记撑满列表）。
+  - 计划“Spec 与文档改动”表没有列 `lab/web/fixtures/nb-ui/feedback.ts`、`DialogFixture.vue`、`lab-nb-ui.e2e.ts`、`DialogSurfacesFixture.vue`、`components.test.ts`。
+  - 外壳的 data 属性与类名是测试与 CSS 的合同（`data-dialog-surface`、`data-dialog-window`、`data-dialog-overlay`、`data-dialog-drag`、`data-dialog-resize`、`data-dialog-body`、`data-dialog-status`、`.nb-dialog__header`、`--nb-dialog-close-room` 被 SettingsWindow 的样式读取），计划没说拆分后保持不变。
+- 为什么是问题：验收“原样通过”若落空，评审者分不清是回归还是该改的断言。
+- 如何核实：`rg -n "data-dialog-|nb-dialog__|nb-dialog--|--nb-dialog-close-room" packages --glob '!node_modules'`（9 个文件）。
+- 建议改法：计划里把“原样”改成“只改入口（组件名、场景 id），断言内容不动”，列出需改的文件；保持上面那组 data 属性、类名与 CSS 变量名不变并写进 `DialogSurface.md`；`window-probe` 这类夹具改动在同一提交里单独标注。
+
+## 11. [重要][事实有误+接口] 列表数据形状：计划里一处事实不对，`ListItemBase` 把三种含义不同的字段并成同名
+- 位置：计划第 4 节；`popup/dropdown-menu.types.ts:2,24-26`、`popup/context-menu.types.ts`、`popup/MenuNodes.vue:1`、`popup/Select.vue:30-42,188,229-230`、`popup/QuickPick.vue:31-40,356`、`form/SearchSelect.vue:18-25`、`popup/suggestion-menu.ts:5-14`。
+- 现象：
+  1. “`DropdownMenuItemType` 的 `"default"` 改 `"item"`”不成立：`DropdownMenuItemType` 现在已经是 `"item" | "radio" | "checkbox"`，全仓没有 `type: "default"`。真正带 `"default"` 的是菜单项的 `tone: "default" | "danger"`（`DropdownMenuItemData.tone`、`ContextMenuItem.tone`、`MenuNodes.vue` 的泛型约束）。计划第 2 节 `Tone` 词表是 `neutral | accent | info | success | warning | danger`，菜单项的 `"default"` 与 `neutral` 的关系计划没说；如果 `ListItemBase.tone` 取 `Tone`，菜单项的 `tone: "default"` 调用方要改，列表里没有。ContextMenuItem 的 `type` 只有 `"item" | "checkbox"`（没有 radio），“统一为三值”意味着 ContextMenu 要新增 radio，计划没提。
+  2. `ListItemBase.tone` 取 `Tone` 六档，但各列表只会渲染其中一两档：菜单现在只认 `danger`（`nb-ui-menu-item-danger`，文字与图标色），`Select` 的色点要映射 `--status-info/success/warning/danger`，没有 `--status-neutral`（`colorway-contract.ts` 只有 info/success/warning/danger 四组），`accent`、`neutral` 映射到 `--accent-main`、`--text-muted` 是计划自己加的约定。同一个字段名在菜单上改文字色、在 Select 上改圆点色。这正是计划同一份文件里 `AlertDialog.tone` 要去掉的“三档里只有一档有效果”（L16 第 3 点）的问题，换了个地方重新引入。
+  3. `shortcut` → `hint`：`QuickPickItem` 同时有 `description`/`category`（合成 `hint` 文字，`QuickPick.vue:metaText`）和 `shortcut`（渲染成 `Kbd` 键帽，`:356`）。菜单的 `shortcut` 改叫 `hint` 后，QuickPick 的 `shortcut` 是改 `hint`（那原来的说明文字叫什么）还是保留（那“共同字段”就没统一）？`ListItemBase` 同时有 `hint` 与 `description`，而 `Select`、`SearchSelect` 的 `description` 现在渲染的就是 MenuRow 的 `hint`（`Select.vue:229` `:hint="option.description"`，注释却写“次行说明文字”）。两个字段的区分在计划里没有定义。
+  4. `Select`/`SearchSelect` 选项的 `value` 是表单值，计划写“共同字段 `{id, label, …}`”，没说 `SelectOption` 的 `value` 是否也改 `id`；只说菜单 `value` → `id`。不明确时，S2 机械迁移（派给 Haiku）会把 `value` 全改掉，而 `Select` 的 `modelValue` 与选项的值是同一个概念，改名会波及 `RadioOption`、`CheckboxGroup`。
+  5. `indicatorClass` 改 `tone`：生产调用方 0 处，只有 Lab 夹具 `lab/web/fixtures/nb-ui/form.ts:70-72`（三项，`bg-[var(--status-warning|info|success)]`，都对得上 warning/info/success）和一条契约测试 `form/form-controls.contract.test.ts:89` 用的是 `bg-red-500`（不是 token，对应不上任何一档）。“不放宽断言”要求这条测试按设计改成某个 tone，计划里没点名。
+- 为什么是问题：S2 是整个计划里“机械迁移”占比最高的一片、计划指定派 Haiku；这些语义分叉在“规则写死”的前提下不成立，会变成 Haiku 自己去做设计判断。
+- 如何核实：`rg -n "DropdownMenuItemType" packages`；读 QuickPick.vue:31-40,356 与 MenuRow 用法。
+- 建议改法：（a）删掉“`"default"` 改 `"item"`”的说法，改成“菜单项 `tone: "default"` 改 `"neutral"`”或保留 `"default"` 并在词表里写明；（b）`ListItemBase` 不放 `tone`，各列表自己声明能渲染的档（菜单：`"neutral" | "danger"`；Select 色点：`Extract<Tone, "neutral"|"accent"|"info"|"success"|"warning"|"danger">`），或者给 `--status-neutral` 之类缺口补 token 再谈；（c）明确 `hint`（右侧次要文字，含快捷键）与 `description`（次行）各是什么，QuickPick 的 `shortcut` 是否保留为键帽；（d）`SelectOption.value` 保持。把这些写进迁移表，S2 才能“规则写死”。
+
+## 12. [建议][接口] `placement` → `side`/`align`：`SuggestionMenu` 的取值不在 `Side` 里，缺省 `align` 各组件不同
+- 位置：计划第 2 节“弹出位置 `Side`、`Align`”；`popup/suggestion-menu.ts:27`、`SuggestionMenu.vue:33-45,113-176`、`feedback/Tooltip.vue:16-29,76`、`InfoTip.vue:9-27`、`Popover.vue:20-30`、`DropdownMenu.vue:33-47`。
+- 现象：
+  - `Tooltip`/`InfoTip` 的 `placement` 是 `top|bottom|left|right`，缺省 `top`，不传 `align`（reka 缺省 `center`）；`SuggestionMenu` 的是 `"auto" | "top" | "bottom"`，缺省 `"auto"`，`align` 在模板里写死 `"start"`，`auto` 是自己的算法（每帧按锚点上下剩余空间选一侧，不交给 floating-ui 的 flip，`SuggestionMenu.vue:113` 起的注释），且只处理上下两侧，没有左右。改成共用的 `side`，类型要么放宽到包含 `"auto"`（`Side` 就不再是纯方位），要么 SuggestionMenu 单独收窄成 `Extract<Side, "top"|"bottom"> | "auto"`；`align` 在 SuggestionMenu 上是否开放，要同时检查 `trackSide` 的几何，计划没说。
+  - 现有的 `align` 缺省不一致：Popover `center`、DropdownMenu `start`、Tooltip 隐式 `center`、SuggestionMenu 固定 `start`。“缺省与现在的视觉一致”成立的前提是每个组件各自保留自己的缺省值，`Align` 作为共享类型没有共享缺省，计划应写明，否则实现者会为了“统一”改缺省。
+  - 误伤风险：`packages/nb-agent-ui/src/registry.ts:210` 的 `placement?: "leading" | "trailing"`（工具栏按钮位置）与 `Tooltip` 无关，按名字的批量替换会命中。PromptEditor.vue:1007,1025 的 `:placement="menuSide"` 是 SuggestionMenu 的真调用方。
+- 如何核实：读上述行号；`rg -n "placement" packages/nb-agent-ui/src packages/nb-markdown/src`。
+- 建议改法：把“18 处”列成逐文件清单进迁移表；SuggestionMenu 的 `side` 保留 `auto`，类型写成 `SuggestionSide`，不并入共享 `Side`；计划里补一句各组件 `align` 缺省不变。
+
+## 13. [建议][设计] `Dialog` 拆成 `Dialog`/`FloatingWindow`/`DialogSurface` 后，`panelRef`、`bodyRef` 与 `as-child` 的所有权没定
+- 位置：计划第 5 节“`Dialog` 只做模态”条；`Dialog.vue:134-135,165-179,291-295,311-317,244`（`panelRef` 同时用于：`useFloatingWindow` 的 `windowRef`、`onOpenAutoFocus` 的 `initialFocus`、`onTop`、`watch(panelRef)` 里的 ResizeObserver；`bodyRef` 用于分隔线的滚动判定）、`DialogContent as-child`。
+- 现象：外框 `<section>` 拆进 `DialogSurface` 之后，它是 `DialogContent as-child` 的子组件（不是元素）：`inheritAttrs: false` 加 `v-bind="$attrs"` 现在是直接绑在 section 上，两层组件之间属性与 reka 的 `ref`/`id`/`aria-labelledby` 传递要靠 DialogSurface 单根且透传；`panelRef` 现在被三个关注点（窗口几何、初始焦点、最上层判定）共用，拆开后窗口几何归 FloatingWindow、初始焦点两边都要、分隔线滚动判定归 DialogSurface，面板元素得由 DialogSurface 暴露（`defineExpose` 或 `ref` 转发）。`teleportTarget` 现在是 `string | boolean`，`false` 只对窗口有意义（不传送；nb-ui 的 components.test.ts 里 8 处、default-text.test.ts 1 处在用），拆分后 `Dialog.teleportTarget` 应收窄成 `string`，FloatingWindow 保留 `false`，计划没提；`DialogSurface` 是否导出、是否有 `.md`（计划既说“内部外框”又说新增 `DialogSurface.md`）也没定。
+- 为什么是问题：这些不决定，S3 的人会在 as-child + 组件根上花时间试错；`aria-modal`、`data-dialog-window` 等属性挂在谁身上也会错位（前者只在 `pageModal` 时给，后者只在窗口给）。
+- 建议改法：计划里写“`DialogSurface` 单根、`inheritAttrs` 透传、`defineExpose({panel, body})`，props 为 `size/width/height/maxHeight/title/showHeader/…` 的外观子集，不含任何关闭逻辑；窗口专属属性（拖动、缩放手柄、`data-dialog-drag`）由 `FloatingWindow` 通过插槽或 `variant` 传入”。
+
+## 14. [建议][遗漏] AlertDialog 的专有行为：计划没有说外壳统一之后哪些保留
+- 位置：`AlertDialog.vue:59-60,76-79,103-105,111-114`；计划“`AlertDialog.tone` 收成 `danger | neutral`”。
+- 现象：（1）`role="alertdialog"`、打开时焦点落在取消按钮、点外面不关，这三条来自 reka 的 AlertDialogContent（我在 happy-dom 里验证了：打开后 `document.activeElement` 是“取消”按钮，外部 `pointerdown` 不触发 `update:open`），套上通用 shell 并不自动保留，属于无障碍行为，应写进 `AlertDialog.md` 的保留清单；（2）调用方里 `tone="warning"` 有 3 处（`dev-panel/EditPage.vue:208`、`SettingsWindow.vue:408`、`LabCommandSceneLayer.vue:26` 的三元式），改 `neutral` 要进迁移表，词表收窄后不改会被“未知取值”类型错误挡住，这是好事，但要写进 S1 范围；（3）`useCloseHandoff(() => props.open === true)`（`AlertDialog.vue:~70`）对非受控用法（`defaultOpen` 加 trigger）永远是假，重开时旧周期的 `closed` 不会作废；统一进 shell 时应改成用内部 `opened`。
+- 建议改法：把这三点写进计划的 AlertDialog 一行；shell 的 `closed` 以内部打开态为准。
+
+## 15. [建议][可测性] 表驱动的关闭测试在 happy-dom 里大部分可以做，计划应写出哪些格子必须 e2e
+- 位置：计划验收映射“每个浮层 × 每种关闭方式…”“提示压过菜单”。
+- 现象与实验：仓库已有 `Dialog.test.ts` 在 happy-dom 里发真实的 `PointerEvent`（遮罩按下与松开）与 `KeyboardEvent('Escape')`，QuickPick.test.ts 用假时钟走完 `closed` 交接。我另外做了实验（overlay.test.ts，happy-dom，不改仓库）：AlertDialog、Drawer、QuickPick 的 Escape 与外部 `pointerdown` 也都能触发并拿到事件（AlertDialog 外部不关；Drawer 外部与 Esc 各发一次 `update:open(false)`；QuickPick 外部发 `close('outside')`）。所以 `feedback/overlay-close.test.ts` 可行，不需要 e2e。
+  - 不适用格子：AlertDialog 无 `outside`；ContextMenu 无遮罩；Drawer 的 `swipe` 在 happy-dom 里没有手势；`Tab` 只有 ContextMenu 有。表要显式列“不适用”，否则会为了填满格子把 AlertDialog 的外部点击改成可关闭。
+  - happy-dom 做不了的：真实画序（z-index 只能读行内样式，Dialog.test.ts 注释已声明）、`closed` 的真实时机（happy-dom 没有 CSS 动画，reka Presence 立即卸载，`closed` 的“等动画结束”只在浏览器里成立）、焦点归还的真实顺序、Drawer 滑动关闭、`contained` 下的锁页。这几项只能 e2e：Dialog 内的“提示压过菜单”（见发现 9）、`closed` 在真实动画后的触发、Drawer 与 AlertDialog 退场动画。
+  - `confirm` 不再自动关闭这条没有出现在表里（表只测关闭原因）。
+- 建议改法：验收映射里加一列“层级：单元 / e2e”，并把上面几格归到 e2e。
+
+## 16. [建议][a11y 与动效] `Drawer` 的可访问名称问题不止关闭按钮；AlertDialog 内容的入退场过渡同样是空操作
+- 位置：`Drawer.vue:98-110`、`AlertDialog.vue:100-106`、计划第 3 节“`Drawer` 关闭按钮补 `closeLabel`”与第 5 节“Drawer 遮罩上的 animate-in … 换成一对关键帧”。
+- 现象：（1）`DrawerTitle` 只在 `props.title` 非空时渲染，且整个头部在 `title || $slots.header` 时才渲染；传了 `#header` 插槽但没传 `title` 时，抽屉没有标题节点，`role=dialog` 没有可访问名称（Dialog 用 sr-only 标题兜底，QuickPick 也有 sr-only 标题，Drawer 没有；`DrawerTitle` 也没从 nb-ui 导出，调用方补不了）。现在 3 个调用方（dev-panel 两处、nb-story QaInspector）都传了 `title`，所以没触发。放进 shell 时顺手统一“无标题也要有名字”。（2）计划只处理 Drawer 遮罩上不存在的 `animate-in/fade-in-0` 类，但 `AlertDialog.vue` 的遮罩有同一串类（`:100`），AlertDialogContent 与 DrawerContent 上的 `transition-[transform,opacity]` / `transition-transform` 也没有任何 `data-state` 变体，退场仍然没有动画（reka 靠 CSS 动画判断卸载时机）。Dialog 自己有 `nb-dialog-in/out` 关键帧。shell 统一遮罩而内容不统一，入退场仍是三种。（3）`Drawer` 的 `modal=false` 仍画遮罩（见发现 5）。
+- 如何核实：`rg -n "animate-in|fade-in-0" packages/nb-ui/src`（仅 AlertDialog、Drawer 两个文件，加 nb-agent-ui、neuro-book ImageViewer 各一处）。
+- 建议改法：计划把 AlertDialog 的遮罩一并写进“换成关键帧”，内容的入退场定为“Dialog 的关键帧共用”或明确“本 Task 不动”；Drawer 的标题兜底放进 shell 的合同。
+
+## 17. [建议][设计] 回答“两套叠放规则怎么共存”：靠两个不重叠的层级带，计划应把由此而来的限制写成合同
+- 位置：计划第 5 节“`Dialog` 只做模态”“`ModalShell` … `useModalLayer` 叠放”；`theme/z-index.ts:14-16,36,57-65`、`Dialog.vue:146-150`、`useFloatingWindow.ts` 文件头。
+- 现象：窗口按组件树深度占 8990 到 8999（步长 2，共 5 层），模态按打开顺序占 9000 到 9008，两带互不重叠，窗口永远在所有模态之下。能共存是因为这个固定的先后。限制有三条，现在都隐含在代码里：（1）窗口里开模态（设置窗口里开确认框）可以，反过来模态里开窗口，窗口落在模态遮罩之下，用不了；（2）两个互不嵌套的窗口深度相同、z-index 相同，没有“点哪个哪个在上”，靠 DOM 顺序；（3）窗口深度没有上限钳制，第 6 层的 `windowZIndex` 正好等于第一个模态层 9000（`8990 + 5*2`），平局。
+- 为什么是问题：拆成 `FloatingWindow` 之后用户会把它当“可以放在任何地方的小窗口”用，而限制（1）是组件的使用约束，应该写进 `FloatingWindow.md`，而不是留在 `z-index.ts` 注释里。
+- 建议改法：`FloatingWindow.md` 写明“不要在模态内部打开；兄弟窗口不互相置顶”；`useDialogLayer`（发现 6）里对窗口深度做钳制并给一条开发诊断。不需要为了统一而把窗口并进 `useModalLayer`。
+
+---
+
+## 未发现问题的方面
+- `useFloatingWindow.ts` 的几何、拖动门槛和缩放手柄已经是独立 composable，入参是函数式的（`enabled`、`open`、`windowRef`、`busy`…），`FloatingWindow` 直接复用没有结构障碍；唯一要改的是文件头注释里“`Dialog` 非模态用法”的措辞。
+- `useCloseHandoff` 本身与浮层无关，可以原样在 shell 或 composable 里复用；Drawer 的 reka 内容也发 `closeAutoFocus`（`DrawerContentImpl.js:47-48,248`），所以“四个浮层都能发 `closed`”在原语层面成立。
+- 文案属性命名（`confirmLabel` 等）对 `AlertDialog` 的影响面小：`confirm-text`/`cancel-text` 在生产代码里共 15 处左右，都是同一种写法，机械迁移可行；`Dialog` 本身已经是 `confirmLabel`。
+- 嵌套分档的 e2e（`dialog-surfaces.spec.ts`）确实能抓到“每个对话框都变 nested”和“窗口里的窗口”两类错误（见发现 6 第 1、2 条），作为兜底是有效的，只是覆盖面不够（缺 Drawer、QuickPick、窗口里的模态）。
+
+## 条数
+- 阻断：2（发现 1、2）
+- 重要：9（发现 3、4、5、6、7、8、9、10、11）
+- 建议：6（发现 12、13、14、15、16、17）
+- 合计 17 条。
+- 实验文件：/tmp/review-w00030-t05-design/exp/（tags.py 重列 Dialog/AlertDialog/Drawer/QuickPick 用法；overlay.test.ts、model.test.ts 加 vitest.config.mjs，可用 `cd packages/nb-ui && bunx vitest run --config /tmp/review-w00030-t05-design/exp/vitest.config.mjs` 复现；仓库未改动）。
+
+---
+
+## 附：omp 报告原文
+
+# 设计审查：API 形状、对外兼容与迁移可行性
+
+## 问题
+
+### 1. 阻断｜对外兼容｜内置主题的 `hostVersion` 没有纳入 0.4.0 迁移
+
+- **位置**：`packages/nb-ui/themes/aurora/manifest.ts:18`、`packages/nb-ui/themes/editorial/manifest.ts:18`、`packages/nb-ui/themes/macos/manifest.ts:20`、`packages/nb-ui/themes/nbook/manifest.ts:32`；计划 `plan.md:76-80`。
+- **现象**：四套随库提供的主题仍声明 `hostVersion: "^0.3.0"`。主题装载器在 `packages/nb-ui/src/theme/theme-loader.ts:75-88` 用 `NB_UI_VERSION` 和 `satisfiesRange` 严格校验；`packages/nb-ui/src/version.ts:10` 当前为 `0.3.0`，而 `^0.3.0` 对 `0.4.0` 返回 false。计划只写下一版 nb-ui 为 0.4.0、只在文档里处理迁移，没有列出四个内置 manifest、版本常量和主题装载验收。
+- **为什么是问题**：按计划完成版本升级后，内置主题会在应用启动/主题登记时被现有代码拒绝。它不是仓库外主题的预期不兼容，而是每个内置默认主题都无法装载，直接破坏宿主启动后的主题能力。
+- **如何核实**：现有 `packages/nb-ui/src/theme/theme-loader.ts:78` 传入 `NB_UI_VERSION`；`packages/nb-ui/src/theme/semver-range.test.ts:16-21` 已证明 0.x 的 `^0.3.0` 不接受 0.4.0。将 `NB_UI_VERSION` 改为 0.4.0 的等价实验值并逐个调用 `installTheme` 即会得到 `host-version` 拒绝。
+- **建议改法**：把四个内置主题的 `hostVersion`、`src/version.ts`、`docs/authoring-themes.md` 示例和相关版本同步检查加入迁移表；验收至少逐个安装四个内置主题，确认 0.4.0 通过，并保留一个外部 `^0.3.0` 主题被拒绝的负例。
+
+### 2. 重要｜对外兼容｜共享包的 `nb-ui` 依赖会把 0.3.0 与 0.4.0 安装成两份，计划没有发布迁移
+
+- **位置**：`packages/nb-form/package.json:25-27`、`packages/nb-agent-ui/package.json:27-29`、`packages/nb-markdown/package.json:33-35`、`packages/nb-story/package.json:42-49`；`packages/nb-ui/package.json:1-35`；计划 `plan.md:76-80、91-99`。
+- **现象**：当前可发布共享包仍用 `"@notnotype/nb-ui": "workspace:^"`；当前 nb-ui 版本是 0.3.0。发布后该范围会成为以 0.3.0 为基准的 npm `^0.3.0` 范围，而 0.4.0 不满足 0.x 的 caret 范围。计划只迁移源码调用方、应用和 SDK，没有要求同步发布 nb-form、nb-agent-ui、nb-markdown（及构建 nb-story 所需的开发依赖）或更新它们的已发布依赖元数据。
+- **为什么是问题**：消费者安装新应用/新 nb-ui 与现有 npm 共享包组合时，包管理器会为旧共享包保留或嵌套安装 `@notnotype/nb-ui@0.3.x`。同一页面可能同时存在 0.3 与 0.4 的组件、类型、Vue 组件实例和 token 合同，迁移表声称“一次对齐”却没有覆盖这个公开组合；若旧共享包源码继续被构建，还会继续编译旧属性名。
+- **如何核实**：读取上述 package.json 可见发布包的依赖协议与版本；以 `bun pm pack`/npm 安装一个未升级的共享包和 `@notnotype/nb-ui@0.4.0`，检查依赖树即可复现范围不满足与嵌套副本。当前工作区 `bun pm ls @notnotype/nb-ui --all` 只显示 workspace 副本，不能证明 npm 发布组合已被迁移。
+- **建议改法**：在迁移表中列出所有已发布共享包的版本发布顺序、`@notnotype/nb-ui` 目标范围和安装树验收；至少发布依赖 0.4.0 的新版本后再发布 nb-ui 0.4.0，或明确这些包不随本次兼容承诺并阻止它们与 0.4.0 混装。对 `nb-story` 还要核对 `prepack` 生成的 web 产物是否已经用新 API，而不能只看它的 `devDependencies`。
+
+### 3. 重要｜关闭原因兼容｜`cancel` 与 `close-button` 合并会改变现有调用方的业务分支
+
+- **位置**：计划 `plan.md:61-68`；`packages/neuro-book/src/plugins/models/web/components/AddProviderDialog.vue:98`；`packages/neuro-book/src/plugins/projects/web/components/ProjectInfoDialog.vue:92-94`；`packages/nb-ui/src/components/feedback/Dialog.vue:27`、`packages/nb-ui/src/components/feedback/Dialog.md:23、70、134-135`。
+- **现象**：计划把 `Dialog` 的 `cancel`、`close-button` 都映射为 `OverlayCloseReason` 的 `button`。`AddProviderDialog` 当前明确判断 `reason === "cancel"`：取消按钮时只退出自定义步骤，关闭按钮/遮罩/ESC 时才向外关闭；`ProjectInfoDialog` 也按 `overlay` 单独阻止脏表单的外点关闭。计划给出的映射会让关闭按钮落入 `button`，与取消按钮不可区分，前者会错误地走“只退出自定义步骤”的分支。
+- **为什么是问题**：这不是类型名的机械替换，而是丢失调用方当前消费的可观察信息。统一原因词表不能把两个有不同产品语义的路径直接压成一个值，除非同时改写所有调用方并在合同中明确新的业务判别方式；计划没有给出替代事件/字段。
+- **如何核实**：`AddProviderDialog.vue:98` 的条件只依赖关闭原因，且没有其它来源能区分“取消按钮”和“关闭按钮”；当前 `Dialog.md:23、134-135` 明确两者是不同原因。用同一个回调分别触发取消按钮与关闭按钮即可看到现有分支结果不同。
+- **建议改法**：先决定合同是否真的允许丢失区分。若允许，迁移 `AddProviderDialog` 为显式业务动作或另一个事件并加入行为验收；若不允许，保留 `cancel`/`button` 的可区分编码，或把“取消按钮”继续作为独立的 `cancel` 事件而不是并入 `close(reason)`，同时更新 `OverlayCloseReason` 的定义和所有调用方。
+
+### 4. 重要｜迁移统计｜计划中的公开调用方数量与当前源码不符，验收范围不可复现
+
+- **位置**：计划 `plan.md:17-29、93-100`；调用方目录 `packages/neuro-book/src`、`packages/nb-story/src`、`packages/dev-panel/src`、`packages/nb-form/src`、`packages/nb-agent-ui/src`、`packages/nb-markdown/src`、`packages/nb-ui/playground`。
+- **现象**：按上述目录对 Vue/TS 源码做字面统计，`<Dialog ... v-model/model-value>` 为 10 处，`<ContextMenu ... :visible>` 为 6 处，`@request-close` 为 12 处；计划写的是 Dialog 28、ContextMenu 9，且风险段按 13 处 `request-close` 讨论。`@request-close` 的 12 处中，至少 `AddProviderDialog` 和 `ProjectInfoDialog` 消费原因，不能按纯文本改名计数；`ContextMenuFixture.vue` 还通过 `v-bind="subject.bindings.value"` 动态传参，不能由静态属性计数覆盖。
+- **为什么是问题**：迁移表的数字决定切片是否完成，也决定“全调用方已迁移”的验收是否可信。当前数字既没有定义是否包含测试、组件自身、同一文件内的 value/type 两次 import，也没有覆盖动态绑定，因此后续按数字收口会漏项或把重复项当成独立调用方。
+- **如何核实**：已运行以下事实统计：`grep -R -Pzo --include='*.vue' '<Dialog(?:(?!>).)*(?:v-model|model-value)' ... | tr '\0' '\n' | wc -l` 得 10；同形的 `ContextMenu`/`:visible` 得 6；`grep -R -h -o '@request-close' ... | wc -l` 得 12。逐项文件见上一条与 `grep` 输出。
+- **建议改法**：在计划迁移表附上可重跑的统计命令、明确统计口径，并按“组件模板、静态调用、动态 `v-bind`/`<component :is>`、类型导入、测试/fixture”分组列清单。切片验收改为零旧 API 命中加动态绑定人工核对，不再用当前这些总数作为完成证明。
+### 5. 重要｜词表合同｜`Tone` 与现有 `default`/`error` 取值不闭合，计划没有给出逐组件映射
+
+- **位置**：计划 `plan.md:40-46、53-59`；`packages/nb-ui/src/components/controls/SegmentedControl.vue:21、39、53`；`packages/nb-ui/src/components/popup/context-menu.types.ts:18`；`packages/nb-ui/src/components/popup/dropdown-menu.types.ts:18`；`packages/nb-ui/src/components/popup/Menubar.vue:22、25`；`packages/nb-ui/src/components/feedback/Banner.vue:7`；`packages/nb-ui/src/components/feedback/Notification.vue:6`。
+- **现象**：计划定义 `Tone = "neutral" | "accent" | "info" | "success" | "warning" | "danger"`，但现有 SegmentedControl 的 `SegmentedControlTone` 仍含 `"default"`，三个菜单项类型的 `tone` 仍含 `"default"`，菜单栏的 `type` 还含 `"default"`；Banner/Notification 的公开类型仍含 `"error"`。计划只明确了 Notification/Banner 的 `error → danger`，只明确了 AlertDialog 的另一档叫 `neutral`，没有说明菜单的 `default → neutral`、SegmentedControl 的 `default → neutral`，也没有说明菜单 `type: "default" → "item"` 的所有类型、文档和调用方边界。
+- **为什么是问题**：这些值不是 `ControlSize` 那种组件特有子集，而是直接落在计划声称的共享词表之外。照计划把类型改成 `Tone` 会先让现有组件定义和 `MenuNodes` 的泛型约束不再成立；保留 `default` 又会留下第二套公开词表。应用内 `EditorGroup` 还把 `BannerTone` 和 `"error"` 业务值直接传给 `<Banner>`，仅改 nb-ui 类型名不能完成迁移。
+- **如何核实**：上述文件中的类型声明与默认值可直接读到；`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:157、171-186、302` 明确把 `"error"` 存进 `BannerTone` 并传入 Banner。`packages/neuro-book/src/plugins/explorer/web/components/FilesExplorerView.vue:107` 也明确生成菜单 `tone: "default" | "danger"`。
+- **建议改法**：为每个共享词表列出“公共值、组件子集、旧值映射、业务域值是否另保留”的表；至少明确菜单与 SegmentedControl 的 `default` 是否统一为 `neutral`、菜单 `type` 是否统一为 `item`，并把 `EditorGroup` 等边界适配列入迁移表和 typecheck 验收。不要用全仓无差别替换 `error`，因为 `Collapsible*` 状态和 nb-form 问题严重度是不同域。
+
+### 6. 重要｜列表数据形状｜`ListItemBase` 的必填 `id` 与现有 ContextMenu/Select/Menubar 形状不兼容
+
+- **位置**：计划 `plan.md:53-59`；`packages/nb-ui/src/components/popup/context-menu.types.ts:5-13`；`packages/nb-ui/src/components/popup/dropdown-menu.types.ts:7-25`；`packages/nb-ui/src/components/popup/Menubar.vue:14-34`；`packages/nb-ui/src/components/popup/Select.vue:32-42`；`packages/nb-ui/src/components/form/SearchSelect.vue:18-25`。
+- **现象**：计划把共同字段写成 `{id, label, hint?, description?, icon?, tone?, disabled?}`，并说菜单 `value → id`、`shortcut → hint`。但 ContextMenu 项没有 `value/id`，依赖 `action` 回调；DropdownMenu、Menubar、Select、SearchSelect 仍用 `value`；QuickPick/SuggestionMenu 才已有 `id`。计划没有说明 ContextMenu 是新增稳定 id、把 id 设为可选、还是根本不纳入 `ListItemBase`，也没有说明 Select/SearchSelect 的 `value` 是否只是业务值而不应改名。
+- **为什么是问题**：若 `ListItemBase.id` 真是必填，共享类型不能直接承载现有 ContextMenu 项；若为可选，`MenuRow`/键盘高亮/分隔项 key 的稳定身份合同就没有统一。若把 Select 的 `value` 机械改成 `id`，会把“提交给 `update:modelValue` 的值”与“列表渲染身份”混为一谈，影响 nb-form 当前用 `optionKey` 做序号/原值映射的边界。
+- **如何核实**：现有类型声明分别显示上述字段；`SearchSelect.vue:100-103` 把业务 `option.value` 映射成 SuggestionMenu 的 `id`，说明这两个概念当前已经有意区分。`ContextMenu.vue:30-32` 选择时只发 `close("select")`，动作执行在 `ContextMenuPanel`，没有可供统一 id 迁移的现有字段。
+- **建议改法**：先把“渲染身份”和“提交值”拆成两个命名明确的字段合同：例如基础项只要求 `label` 等视觉字段，只有需要键盘/回溯的列表声明 `id`；Select/SearchSelect 保留 `value` 并在内部生成/承载 id；ContextMenu 明确 action 项的身份与 key 策略。迁移表逐组件写出是否继承 `ListItemBase`，不要用一个强制接口覆盖六种语义。
+
+### 7. 重要｜SDK 公开面｜新增共享类型不会自动进入插件 SDK，`components.ts` 是手写白名单
+
+- **位置**：`packages/neuro-book/src/sdk/components.ts:6-8、23-37`；`packages/neuro-book/src/sdk/sdk.test.ts:46-53、69-74`；`packages/neuro-book/plugin-sdk/pack.ts:65-78、171-180、314-319`；计划 `plan.md:40-46、76-80`。
+- **现象**：nb-ui 的 `components/index.ts` 是显式导出，插件 SDK 另有一份显式的 `src/sdk/components.ts` 值/类型白名单。`pack.ts` 的类型路径只把 `@notnotype/nb-ui/components` 映射到源码，并不会把新文件的类型自动加到 SDK 入口。计划要新增并从 `./components` 导出的 `ControlSize`、`Tone`、`OverlayCloseReason`、`ListItemBase`（以及计划中的 Orientation/Side/Align）不在 SDK 类型白名单中；`sdk.test.ts` 的组件对照只检查值导出，`pack.test.ts` 只核对生成声明与这份手写名单一致，因此两者都可能在“SDK 少导出一个公共类型”时通过。
+- **为什么是问题**：应用内 `@notnotype/nb-ui/components` 类型通过，不等于第三方插件的 `@notnotype/nb-plugin-sdk/components` 类型可用。插件作者拿不到新关闭原因和列表项类型，或者生成的 `components.d.ts` 只把类型作为内部展开内容而不能按名导入，公开 API 会在两个入口分叉；这违反 `src/sdk/components.ts` 文件头写的“每一项都是兼容承诺”。
+- **如何核实**：当前 `components.ts:23-37` 没有任何共享词表名；`sdk.test.ts:46-53` 的 `exportedValues` 明确过滤 `type`，所以它不会检查类型白名单；`pack.ts:171-180` 的组件清单也只读非 type 的具名导出。
+- **建议改法**：把所有计划公开的共享类型逐一加入 `src/sdk/components.ts`，并给 `sdk.test.ts` 增加“nb-ui components 的公共类型清单与 SDK 类型清单”的断言；`pack.test.ts` 增加从生成 `components.d.ts` 按名导入/使用 `OverlayCloseReason`、`ListItemBase` 的外部插件 typecheck。若 `FloatingWindow` 是给插件用的公开组件，也必须同时加入值白名单；若不是，计划应明确它是内部组件并从 SDK 对照中排除。
+
+### 8. 重要｜未知属性/事件检查｜S0 不能兜住动态 `v-bind` 与动态组件，计划把局部静态检查当成全迁移证明
+
+- **位置**：计划 `plan.md:36-38、104-110`；`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/ContextMenuFixture.vue:22`；`packages/nb-form/src/vue/NodeField.vue:265-275`；`packages/nb-ui/src/components/feedback/Dialog.vue:23-24、369-371`；`packages/nb-ui/src/components/form/SearchSelect.vue:68-73`。
+- **现象**：当前各 Vue 配置没有 `checkUnknownProps`/`checkUnknownEvents`；工作区同时解析到 `vue-tsc@3.3.7` 与 nb-ui 自己的 `vue-tsc@2.2.12`，两者都支持这些开关，但开关只对模板中能静态识别的组件属性/事件有意义。`ContextMenuFixture` 用 `v-bind="subject.bindings.value"`；`NodeField` 用 `<component :is="control">` 加 `v-bind="controlProps"`，这些对象键不会被静态组件 prop/event 签名逐项检查。Dialog、SearchSelect 等又关闭自动 attrs 继承并手动把 `$attrs` 转到内部节点，旧名字落入 attrs 的运行时路径仍然存在。
+- **为什么是问题**：S0 的“故意写错一个属性报错”只能证明一个静态模板点。旧 `visible`/`placement`/事件名若藏在 Lab binding、动态组件 props、包装组件的 attrs 对象里，typecheck 可以通过而运行时继续静默丢失。反过来，计划没有列出哪些 `data-*`、ARIA、class/style 和包装事件是有意透传，无法据此区分开关带来的真实错误与预期 attrs。
+- **如何核实**：已核对工作区依赖：`bun pm ls vue-tsc --all` 输出 `vue-tsc@3.3.7` 与 `vue-tsc@2.2.12`；静态检查开关的可用版本不构成动态绑定检查。读取上述三个模板可见动态 `v-bind` 与手动 `$attrs` 透传入口。对 fixture binding 或 `controlProps` 的旧键做故意改名，静态 prop 检查没有一个具体组件声明可供它比较。
+- **建议改法**：S0 把开关可用性、现有误报清单、动态绑定清单分开验收；为 `v-bind` 对象建立显式类型/映射并迁移键名，必要时在动态组件边界按 widget 分支渲染已知组件；对 attrs 透传组件列明允许的原生/ARIA/data 属性和事件转发合同。把“全仓旧属性/旧事件零命中 + 动态对象键审查”作为迁移门禁，不能只依赖 `checkUnknownProps`/`checkUnknownEvents`。
+
+## 未发现问题的方面
+
+- **插件引擎检查机制本身**：`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:649` 会在作者没有覆盖引擎范围时生成 `^<产品版本>`；`packages/neuro-book/src/plugin-platform/backend/inventory.ts:194-195` 与 `startup.ts:289-291` 都经 `engineAccepts` 使用 npm semver 检查。问题在计划没有把生成产物、已发布共享包和内置主题的完整兼容面列全，不在这条检查调用链本身失效。
+- **SDK 组件值导出与文档分组**：`pack.ts:175-181、221-252` 按 `src/sdk/components.ts` 的值导出生成组件清单，并按实际组件目录分组；现有 `popup` 分组已登记。没有发现“组件搬到 popup 后 `docs/components.md` 必然漏组”的问题，真正的遗漏是共享类型与新增公开组件的手写白名单。
+- **公开入口的深导入现状**：本次核对的调用方没有发现 `@notnotype/nb-ui/src/*` 深导入；`./grid` 的仓库内包名调用集中在编辑器分组文件，计划的入口迁移有明确落点。未把内部相对路径导入误报为 npm 公开 API。
+
+## 数量
+
+- 阻断：1
+- 重要：7
+- 建议：0
+- 合计：8

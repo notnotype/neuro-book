@@ -1,8 +1,8 @@
 /**
  * nb-ui 组件在 Lab 场景里的真实浏览器行为：浮层的展开方向、禁用项、页面不锁、Escape 关闭，以及非模态窗口的外部交互与
  * 键盘调整尺寸。原来在 nb-ui playground 的 Lab 用例里（`packages/nb-ui/e2e/lab.spec.ts`），playground 的 Lab 退役时
- * 迁到这里，改为对新应用 Lab 里的真实组件场景断言（w00017 t73）。拖动与嵌套分栏的手势验收仍在 nb-ui 的
- * `e2e/nested-grid.spec.ts`、`e2e/splitter.spec.ts`。
+ * 迁到这里，改为对新应用 Lab 里的真实组件场景断言（w00017 t73）。嵌套分栏的手势验收在 `e2e/lab-nested-grid.e2e.ts`，
+ * 多栏分割的在 nb-ui 的 `e2e/splitter.spec.ts`。
  */
 
 import {rm} from "node:fs/promises";
@@ -158,7 +158,7 @@ test("下拉选择的长列表：收起成截半高度，键盘走到最后一�
 
 test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可点，方向键调整宽度一次 10px", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 1000});
-    await openScene(page, "c=Dialog&s=window-resizable");
+    await openScene(page, "c=FloatingWindow&s=resizable");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute("aria-labelledby", /.+/u);
@@ -184,7 +184,7 @@ test("非模态窗口：不画遮罩、六个调整手柄、窗口外照常可�
 
 test("非模态窗口在手机画布里：按画布宽度收窄，落在画布以内", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 1000});
-    await openScene(page, "c=Dialog&s=window-resizable&vp=phone");
+    await openScene(page, "c=FloatingWindow&s=resizable&vp=phone");
     const dialog = page.locator("[data-lab-overlay-root] [role='dialog']");
     await expect(dialog).toBeVisible();
     const [canvas, window] = await Promise.all([page.locator(".lab-main .nb-lab-stage-box").first().boundingBox(), dialog.boundingBox()]);
@@ -211,6 +211,8 @@ async function recordedEvents(page: Page): Promise<string> {
 }
 
 test("菜单栏：方向键在项之间移动并跳过禁用项，禁用项带原因，Enter 选中后关闭并把焦点还给组标题；左右键换组后 Escape 回到最初的组标题", async ({page}) => {
+    // 下面有一段测退场动画窗口里的竞态：配置默认减少动态效果，要开回来。
+    await page.emulateMedia({reducedMotion: "no-preference"});
     await page.setViewportSize({width: 1440, height: 1000});
     await openScene(page, "c=Menubar&s=flat&tab=events");
     const edit = stage(page).getByRole("menuitem", {name: "编辑"});
@@ -293,6 +295,7 @@ test("内嵌焦点线：键盘聚焦 Tabs 的标签时只画一圈 1.5px 的内�
 });
 
 test("折叠内容只在高度动画进行中裁切：展开与收起时打上 data-animating、结束后去掉，展开后不裁；快速开合与减少动态时不残留（t78）", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
     // 记下舞台里 data-animating 的每一次变化：内容的开合状态与有没有这个属性。
     const record = () => page.evaluate(() => {
         const log: string[] = [];

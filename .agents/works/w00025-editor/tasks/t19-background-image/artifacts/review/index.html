@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>背景图片与护眼底色</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>背景图片与护眼底色</h1>
+<div class="lead">
+<p>w00025 t19。图都是真实页面加注入样式，没有改产品代码。测试图是故意做的最不利情况：亮云、深树、彩色块混在一起。</p>
+<p>对比度是把文字隐藏后，量正文区域每个位置的背景与文字的 WCAG 对比度。正文要求至少 4.5。</p>
+</div>
+
+<div class="round">第 2 轮</div>
+<p>第 1 轮的遮罩下限 75% 要重新定：当时说“任何图片都读得清”说过头了。75% 只保证正文主色逐像素的对比度够，图的细节还是和字混在一起；次要文字、链接在 75% 也不到 4.5。下面是一张细节很多的图上的长文，比值之外用眼睛看。</p>
+
+<section class="q" data-nbdev-question="r2-legibility" data-nbdev-type="single" data-nbdev-recommend="both">
+<h2>图片怎样才读得动 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt" data-nbdev-option="sharp"><h3>图保持清晰，遮罩下限 92%</h3>
+<p>看得出是什么图，但很淡。75% 的样子放在后面作对照：字和图混在一起，暗色尤其明显。</p>
+<figure><img src="r2/sharp-92-light.webp" alt="清晰 92%，亮色"><figcaption>清晰 92%，亮色</figcaption></figure>
+<figure><img src="r2/sharp-92-dark.webp" alt="清晰 92%，暗色"><figcaption>清晰 92%，暗色</figcaption></figure>
+<figure><img src="r2/sharp-75-light.webp" alt="对照：清晰 75%，亮色（不采用）"><figcaption>对照：清晰 75%，亮色（不采用）</figcaption></figure>
+<figure><img src="r2/sharp-75-dark.webp" alt="对照：清晰 75%，暗色（不采用）"><figcaption>对照：清晰 75%，暗色（不采用）</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="blur"><h3>图固定模糊，遮罩下限 75%</h3>
+<p>色彩更浓，读起来也舒服，但看不出图的内容，只剩氛围。</p>
+<figure><img src="r2/blur-75-light.webp" alt="模糊 75%，亮色"><figcaption>模糊 75%，亮色</figcaption></figure>
+<figure><img src="r2/blur-75-dark.webp" alt="模糊 75%，暗色"><figcaption>模糊 75%，暗色</figcaption></figure>
+<figure><img src="r2/blur-85-light.webp" alt="模糊 85%，亮色"><figcaption>模糊 85%，亮色</figcaption></figure>
+<figure><img src="r2/blur-85-dark.webp" alt="模糊 85%，暗色"><figcaption>模糊 85%，暗色</figcaption></figure>
+</div>
+<div class="opt rec" data-nbdev-option="both"><h3>都给：一个“模糊”开关，下限跟着变</h3>
+<p>开模糊时下限 75%，关模糊时下限 92%。缺省开模糊、遮罩 85%。滑块到下限就停。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐都给。</b>想要氛围的人和想看清自己照片的人都有路，读不动的组合选不出来。多一个开关，代价很小。正文之外的文字（次要文字、链接）的下限实施时按主题实测，可能比这两个数再高一点。</div>
+</section>
+
+<div class="round">第 1 轮</div>
+<section class="q" data-nbdev-question="r1-scope" data-nbdev-type="single" data-nbdev-recommend="paper">
+<h2>背景放在哪里 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="paper"><h3>只在正文区域</h3>
+<p>只改编辑区，侧栏、标签这些不动。</p>
+<figure><img src="r1/paper-light.webp" alt="亮色，遮罩 78%"><figcaption>亮色，遮罩 78%</figcaption></figure>
+<figure><img src="r1/paper-dark.webp" alt="暗色，遮罩 78%"><figcaption>暗色，遮罩 78%</figcaption></figure>
+<table>
+<tr><th>遮罩不透明度</th><th>亮色：最差 / 中位</th><th>暗色：最差 / 中位</th></tr>
+<tr><td>60%</td><td>7.4 / 10.7</td><td><b>3.4</b> / 4.8（不合格）</td></tr>
+<tr><td>78%</td><td>10.9 / 13.2</td><td>5.9 / 7.2</td></tr>
+<tr><td>90%</td><td>13.8 / 15.0</td><td>8.8 / 9.6</td></tr>
+</table>
+</div>
+<div class="opt" data-nbdev-option="window"><h3>整个窗口</h3>
+<p>图铺在窗口最底下，所有面板半透明。看得出是壁纸，但所有面板都受影响。</p>
+<figure><img src="r1/window-light.webp" alt="亮色，面板 75% 不透明"><figcaption>亮色，面板 75% 不透明</figcaption></figure>
+<table>
+<tr><th>面板不透明度</th><th>亮色正文：最差 / 中位</th></tr>
+<tr><td>55%</td><td>11.3 / 13.4</td></tr>
+<tr><td>75%</td><td>14.9 / 15.6</td></tr>
+<tr><td>90%</td><td>16.3 / 16.4</td></tr>
+</table>
+<p>只量了亮色的正文。暗色、侧栏与标签的小字都没量，它们字更小，要求更严。</p>
+</div>
+</div>
+<div class="rec-note"><b>开发者定了两种都做。</b>当时的推荐是只在正文区域：写作时看的就是这一块，影响范围小，也能先把可读性的下限做对。整个窗口以后还能加，要动所有面板的面色，主题也要一起验。</div>
+</section>
+
+<section class="q" data-nbdev-question="r1-eye" data-nbdev-type="single" data-nbdev-recommend="both">
+<h2>护眼模式怎么做 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="both"><h3>图片之外，再给几个纯色底</h3>
+<p>豆沙绿、羊皮纸这类预设，也能自己选颜色。纯色不需要遮罩。</p>
+<figure><img src="r1/tint-green.webp" alt="豆沙绿 #cce8cf，对比度 12.9"><figcaption>豆沙绿 #cce8cf，对比度 12.9</figcaption></figure>
+<figure><img src="r1/tint-parchment.webp" alt="羊皮纸 #f4ecd8，对比度 14.4"><figcaption>羊皮纸 #f4ecd8，对比度 14.4</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="image"><h3>只做图片</h3><p>想要纯色就自己传一张纯色图。</p></div>
+</div>
+<div class="rec-note"><b>开发者选了都做。</b>护眼要的多半就是一个颜色，让人为此找图不合理；两者是同一个设置项的两种取值，多不了多少工作。</div>
+</section>
+</main>
+</body>
+</html>

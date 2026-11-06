@@ -1,0 +1,143 @@
+# w00041/t06 实现审查（e070bfcb8..HEAD）
+
+范围：scene-providers、document-theme 的图标样式表、themes/theme-points/user-themes、编辑器复制与导入、web/plugin.ts 的工作态、SDK 面与 scene-clock 示例、各测试。
+已运行：`bun test`（scene-providers、themes、user-themes、theme-editor、08-scene-provider）76 个全过；`bun run typecheck` 见末尾。
+没有跑 e2e（本机没有 Playwright 浏览器，`chromium.launch` 报缺可执行文件），涉及真实 Chromium 行为的条目标注“从代码推断”。
+
+## 发现 1：expiresAt 为过去、0、NaN 时形成请求死循环（重要 / 正确性 / 安全与性能）
+
+- 位置：`packages/neuro-book/src/plugins/workbench/web/scene-providers.ts:178-184`（`#schedule`），`:167` 调用处。
+- 现象：`delay = Math.max(0, expiresAt - now)`。`expiresAt` 已过期（例如作者把秒级时间戳 `Date.now()/1000+3600` 当毫秒交上来）、为 0、或为 NaN（`Math.max(0, NaN)` 与 `Math.min(NaN, …)` 都是 NaN，`setTimeout(NaN)` 按 0 处理，且 `delay > MAX_TIMER_MS` 对 NaN 为假）时，每次完成后立刻 `setTimeout(…, 0)` 重新 `#run`：请求提供者、建对象 URL、解码、替换 `#results`，而 `#results` 一变 `WorkbenchDocument` 的 `watchEffect` 就整套重算并 `apply`（重写全部皮肤变量和图标样式表）。没有最小间隔，也没有对 `expiresAt` 类型和有限性的校验。
+- 为什么是问题：提供者是第三方插件代码，单位写错（秒/毫秒）是最常见的失误；后果是主线程被占满、界面卡死，而不是“用后备图 + 一条诊断”。计划“不防写死循环的提供者”针对的是提供者自己的死循环，这条是宿主把一个返回值当作可信定时输入。
+- 如何核实：在 `/tmp/review-w00041-t06-impl/exp.test.ts` 里用 `SceneProviders` 发布一个返回 `{image, expiresAt}` 的提供者，`expiresAt` 分别取 `NaN`、`0`、`Date.now()-1000`，各等 300 毫秒：请求次数 245、258、261。（Chromium 对嵌套定时器有 4 毫秒下限，仍是每秒约 250 次。）
+- 建议改法：`expiresAt` 不是有限数就当“没有”并记一条诊断；对有限值设下限（例如不早于“现在 + 1 分钟”，Spec 里写明）；加单元测试覆盖过期值、NaN、很远的值。
+
+## 发现 2：提供者没发布时没有诊断，与 Spec 输出 18 不一致，也是最容易踩的作者错误（重要 / 不变量 / 文档）
+
+- 位置：`scene-providers.ts:77-80`（`sceneFor` 在提供者没发布时直接返回 undefined），`scene-providers.test.ts` “提供者没发布、主题没写 sceneProvider 时没有动态图，也不发请求”。
+- 现象：Spec `theme/skins.md` 输出 18 把“提供者没发布”列在会“按提供者记一条诊断”的情形里（括号内与 reject、非图片、超限、解码失败并列）。代码只在 `#run` 的 catch 里调 `report`；主题写了 `sceneProvider` 而提供者始终没发布（入口没写 `onStartup`、提供者 id 拼错、插件被禁用）时，没有任何诊断，作者只看到“场景图没有”。示例和助手注释都反复强调这是作者责任，却没有任何可观察的提示。
+- 为什么是问题：Spec 与实现不一致；最常见的失误（忘写 `onStartup`）恰好静默。
+- 如何核实：读 `sceneFor`；测试里该用例没有断言 `reports`。
+- 建议改法：二选一，并改 Spec 或测试使其一致：(a) 主题条目在目录里存在、提供者在窗口启动稳定后（例如首次 `apply` 之后若干秒，或入口激活完成的事件）仍没有，按提供者 id 记一次诊断；(b) 把 Spec 括号里的“提供者没发布”去掉，明确只在失败时记诊断。
+
+## 发现 3：用户层主题替换/删除不让场景缓存失效；缓存键不含提供者（建议 / 正确性 / 不变量）
+
+- 位置：`packages/neuro-book/src/plugins/workbench/web/themes.ts:136-147`（`setUserThemes`）；`scene-providers.ts:81`（键 = 主题 id + 明暗 + working）。
+- 现象：插件主题在 `receiver().published/revoke` 里调 `generationChanged`，用户主题（我的主题，计划里“`sceneProvider` 用户层保留”）整体替换 `#mine` 时不调。后果两条：
+  1. 同一个 id 的主题改了 `sceneProvider`（从提供者一换到二）后，`sceneFor` 仍命中旧键，返回提供者一画的图。
+  2. 我的主题被删除后，它名下的任务、对象 URL、定时器留到页面结束，`expiresAt` 还会每小时重新请求并解码一次。
+- 为什么是问题：违反 `scene-providers.ts` 头部“主题条目有代次，主题重新发布或撤回时加一”的约束；用户层条目是 `sceneProvider` 的合法持有者（复制 scene-clock 的“天空”得到的我的主题就带着它）。
+- 如何核实：`/tmp/review-w00041-t06-impl/exp.test.ts` 第二个用例：目录发布两个提供者，`setUserThemes` 放一个 `sceneProvider: one` 的我的主题，等画好；再 `setUserThemes` 同 id 改成 `two`：`resolve` 的 `--skin-scene` 仍是同一个 blob（输出 `url("blob:725a4def-…")` 两次相同）。删除一条的泄漏从代码推断。
+- 建议改法：`setUserThemes` 里对比前后条目，id 被删或 `sceneProvider` 变了的调 `generationChanged`；或把提供者 id 放进缓存键，并在目录里没有对应主题时清掉键。
+
+## 发现 4：对象 URL、定时器的生命周期只在“撤回/重发/dispose”收口，未用的键永不停止刷新；离开工作台页面不 dispose（建议 / 安全与性能 / 不变量）
+
+- 位置：`scene-providers.ts:167,178`；`web/plugin.ts:185-186`（`context.signal` 才 dispose）；`WorkbenchDocument.vue:51-56`（卸载只 `writer.clear()`）。
+- 现象：
+  1. 每个（主题, 明暗, working）键各有一个任务；切走主题、换回另一个明暗、Agent 工作态切回后，旧键的任务、blob（每张最多 4 MB）和 `expiresAt` 定时器都留着，每小时对每个键重画解码一次，没有人在读。
+  2. Spec 输出 18 写“页面卸载时撤销全部”，实现是在插件作用域结束时 dispose。`WorkbenchDocument` 注释写明“去 Lab”这种页面卸载发生在作用域仍活着时，此时没有消费者，定时器仍在重画。
+- 如何核实：从代码推断（第 2 条见 `WorkbenchDocument.vue` 头注释“页面卸载（例如去 Lab）时停止监听”）。
+- 建议改法：`WorkbenchDocument` 卸载时让目录暂停（取消定时器、保留或撤销结果，二选一，写进 Spec）；`sceneFor` 记录“最近被读到”的时间，不再被读的键在到期时不续约。
+
+## 发现 5：验收 18 的失败回退与 expiresAt 刷新没有在真实浏览器里测，单元测试里关键的 URL 撤销没有断言（重要 / 测试）
+
+- 位置：`e2e/plugin-code.e2e.ts` 新用例；`scene-providers.test.ts:122-134`。
+- 现象：
+  - 计划“验收映射”对输出 18 写了 e2e “成功、损坏图片回退、`expiresAt` 刷新”。实际 e2e 只有成功和换明暗（并核对 PNG 的 1600×900）。真实 `Image.decode()` 对损坏字节的拒绝路径、`decodeInBrowser` 的写法（`globalThis.Image`）、跨 `expiresAt` 的换图（旧 URL 撤销后新图是否照常显示）都只有注入 `decode` 的单元测试。
+  - 单元测试 `it.each` 里有注释“失败的图没有留下对象 URL”，下面没有任何断言。变异验证：把 `#run` catch 里的 `if (url !== undefined) URL.revokeObjectURL(url);` 删掉，11 个用例全部通过（解码失败的 blob 永远泄漏而测试不报）。
+  - 变异验证里另外两条也存活：`#drop` 里的 `clearTimeout`（删掉后 11 个全过）、`setTimeout` 上限分段 `Math.min(delay, MAX_TIMER_MS)`（改成 `delay` 全过，超过 24.8 天会立刻触发）。
+- 如何核实：复制 `scene-providers.ts` 与测试到 `/tmp/review-w00041-t06-impl/mut/`，逐条变异：A（catch 不撤销）、D（不 clearTimeout）、I（不分段）均 `11 pass 0 fail`。
+- 建议改法：在 `it.each` 里对“解码失败”用例断言 `revoked` 恰好含刚创建的那个 URL，其余用例断言没有创建；加一条“撤回后定时器不再触发”用例（用注入的 `now`/短 `expiresAt`，撤回后等过期时间，断言请求数不增）；e2e 补一个返回损坏 PNG 的提供者（可在 `scene-clock` 之外另写一个最小的坏插件，沿用 `BROKEN` 机制）和一个很短 `expiresAt` 的提供者。
+
+## 发现 6：生成代次（generation）在 stale 判断里是死代码（建议 / 代码质量）
+
+- 位置：`scene-providers.ts:60,84,146`。
+- 现象：`generationChanged` 同时做两件事：`#generations` 加一、`#drop` 掉该条目名下所有任务（abort 并从 `#jobs` 删除）。`#run` 的 `stale()` 里 `signal.aborted || this.#jobs.get(key) !== job` 已经覆盖所有“代次变了”的情形，`(this.#generations.get(...)) !== spec.generation` 永远不会是唯一为真的一项。变异验证：删掉这个比较，11 个用例全过。
+- 为什么是问题：读者会以为迟到结果靠代次拒绝（头注释、计划都这么写），实际靠 abort 与 `#jobs` 身份比较；多一张 Map 与 Spec 字段，没有独立作用。
+- 建议改法：要么删掉 `#generations` 与 `Spec.generation`（改头注释为“任务被撤销即作废”），要么让 `generationChanged` 不再主动 `#drop`（只靠代次丢弃迟到结果、懒清理），二者不要重复。
+
+## 发现 7：刷新失败后刷新循环就此结束，旧图永远停在过期状态；诊断只记一次且重发布后不再记（建议 / 正确性）
+
+- 位置：`scene-providers.ts:168-175`（catch 不重新排定时器）、`:61,171`（`#reported` 只增不清）。
+- 现象：`scene-clock` 这类带 `expiresAt` 的提供者，某次到点重画失败（提供者暂时不可用、解码失败）时，旧图保留，但没有重新 `#schedule`，这个键从此不会再刷新，天空停在失败那一小时直到整页刷新或提供者撤回重发布。`#reported` 也不随撤回清空，提供者重新发布后再失败，一条诊断都不会有。
+- 对任务提问的回答：提供者撤回会 `#drop` 掉失败的任务，所以“撤回后重新发布”会重新请求（正确）；但“提供者没撤回、只是暂时失败”的情形永不恢复，这与“失败不重试”的 Spec 文字一致，却对带过期时间的图（已经有过一张好图）不合理。
+- 如何核实：读代码；单元测试没有“刷新失败”用例。
+- 建议改法：已有成功结果时失败，按原 `expiresAt` 之后的退避（例如 1 分钟起翻倍）重试并只记第一次诊断；`revoke` 时清掉该提供者的 `#reported`。第一次就失败的键保持 Spec 现在的“不重试”。
+
+## 发现 8：第一次换键（工作态、明暗）时先掉到后备/无场景再弹回动态图（建议 / 正确性）
+
+- 位置：`scene-providers.ts:77-89`、`web/themes.ts:52`。
+- 现象：`sceneFor` 对每个新键返回 undefined 直到画好并解码。Agent 第一次转入工作态，或第一次切到另一个明暗时，`themeVars` 取后备静态图（提供者主题常常没有后备，如 `scene-clock`），所以 `--skin-scene` 与 `data-nb-skin-scene` 先被去掉再在几十毫秒后加回来；换明暗走 View Transition 时，新快照里还没有场景图，渐变到“没图”的页面，图随后跳出来。
+- 为什么是问题：Spec 17 要求“换图不触发整页渐变”，这里在换图的几十毫秒里整个场景消失一次，是可见的闪烁；每个键第一次出现时都发生。
+- 如何核实：从代码推断（`e2e/plugin-code.e2e.ts` 只轮询最终值，不会发现中间态）。
+- 建议改法：同一条目同一提供者下，新键没画好之前沿用最近一次已显示的结果（旧键的 URL），画好后再换；或明暗切换的写入在新键画好或短超时后再进 View Transition 回调。
+
+## 发现 9：复制插件主题、导入主题包时静默丢弃图标集与工作态场景，计划里的提示文案没做；导入侧丢弃没有任何测试（重要 / 测试 / 文档）
+
+- 位置：`web/components/theme-editor/theme-editor-model.ts:162-168`、`transfer.ts:61-70`；测试 `theme-editor.test.ts:135-148` 只覆盖复制。
+- 现象：
+  1. 计划“三点五”写“这是有说明的降级……不是静默丢弃……编辑器的复制提示里说明（一句文案）”。实际 diff 里没有任何文案、locale 或 UI 改动；复制书房得到的“我的主题”悄悄没有图标集，导入成功消息仍是“已导入 N 套”，不提丢了什么。
+  2. `importArchive` 里新增的两行 `delete declaration[appearance].icons/workingScene` 没有任何测试：`package-io.test.ts` 只测 `readPackage/exportPackage`，`e2e/theme-editor.e2e.ts` 导入的是编辑器自己导出的包（本来就没有这两项）。计划写的“导入含 icons 的包，icons 被丢弃”没落地。
+- 为什么是问题：Spec `theme.editor` 输出 12 与边界写明“不带”，所以行为本身与 Spec 一致，但计划承诺的用户可见说明缺失；删除这两行，所有现有测试仍通过（`importArchive` 不在任何测试路径上）。
+- 如何核实：`grep -rn "importArchive" src e2e` 只出现在定义处；`git diff e070bfcb8..HEAD --stat` 无 locales 文件。
+- 建议改法：复制与导入成功后，当确实丢弃了东西时在结果消息里加一句（需要 zh-CN/en-US 两份文案与 `locales.test.ts`）；给 `importArchive` 加单元测试（注入 `uploadScene`），或把丢弃逻辑抽成纯函数 `stripUserUnsupported(declaration)` 由复制与导入共用并测它。
+
+## 发现 10：第三方主题的图标路径指到不存在的文件时，图标会整个消失而不是保持原图标（建议 / 正确性，从规范推断，未在浏览器验证）
+
+- 位置：`web/themes.ts:68-73`（`themeVars` 注释“图标文件解析不出……的那一个不换”）；`window.ts:264-267`（第三方插件 `fileUrl` 不查文件是否存在，永远返回 URL）；`document-theme.ts:iconRules`。
+- 现象：只有内置插件的素材表能让 `assetUrl` 返回 null；第三方插件里 `icons: {files: "assets/typo.svg"}` 只要后缀是 `.svg` 就得到一个 404 的 URL，样式表写成 `.i-lucide-files{--svg:url("…/typo.svg")}`。按 CSS Masking，加载失败的 `mask-image` 是全透明的遮罩层，该图标（例如活动栏的“文件”）变成不可见，而不是回退到 lucide。场景图加载失败只是少一张背景，图标没了是功能入口不可见。
+- 为什么是问题：Spec 输出 16 “没写的保持原图标”以及失败表“场景图不见或解码失败：那一位置没有图”，没有给图标写失败行；`themeVars` 里的注释对第三方插件不成立。
+- 如何核实：无法在本机跑 Chromium（缺浏览器）。可以在 e2e 里装一个图标路径拼错的主题，看对应图标元素的 `getBoundingClientRect` 仍在但 `mask` 为全透明；或写一个 `page.setContent` 的小探针：`--svg:url(http://127.0.0.1:1/missing.svg)` 的 div 截图为空。
+- 建议改法：写入样式表前对每个图标 URL 做和场景一样的 `Image.decode()` 预检，失败的不写并记一条诊断（异步，写入在全部预检后进行）；至少把 `themeVars` 的注释改成与现实一致，并在 Spec 失败表里补一行。
+
+## 发现 11：scene-clock 示例注释说“切了主题时 signal 会中止”，实现并不会（建议 / 文档）
+
+- 位置：`plugin-sdk/examples/plugins/scene-clock/web/plugin.ts:11-12`（头注释第 3 点）。
+- 现象：注释写“请求被取消时（切了主题、入口停止）`signal` 会中止，别再往下画”。查 `scene-providers.ts`：只有 `generationChanged`（主题条目重新发布/撤回）、提供者撤回和 `dispose` 会 abort；用户在设置里换到别的主题，旧主题的任务不取消、也继续按 `expiresAt` 刷新（见发现 4）。
+- 为什么是问题：示例按教学材料写，作者会据此以为切主题会省掉后台工作。
+- 建议改法：把括号改为“主题被卸载/重新发布、入口停止或页面结束”；或者先落实发现 4 的改法再写“不再被用的键会被取消”。
+
+## 发现 12：e2e 里两处断言偏弱（建议 / 测试）
+
+- `e2e/themes.e2e.ts` 图标集用例：`await writeSettings({…STUDY, dark}); await expect.poll(mask).toBe(study);`。此刻 `mask()` 本来就等于 `study`（还没切到暗色），`expect.poll` 第一次采样就通过，没有等暗色写入完成，所以“暗色用同一批文件”的判据可能在更新落下之前就判过；若暗色 Look 漏写了 `icons`，之后才变化，这一步不会失败。先 `await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark")` 再断言。其余步骤（高对比度来回、换回 NeuroBook）的起点与目标值不同，是有效的。该用例只模拟 `contrast: more`，没有模拟 `forced-colors: active`，Spec 输出 16 两者都写了（同一条媒体查询，风险低）。
+- `e2e/themes.e2e.ts` “图标 SVG 当蒙版用时不加载外部资源”：哨兵 `/control.png` 证明探针服务器能收到请求，但没证明这份 SVG 的内部引用在“允许加载”的上下文里确实会被请求（例如 `<img>` 之外、直接作为文档导航就会）。如果 SVG 因为任何原因没渲染出来（解析失败、`about:blank` 页的跨源蒙版被拒），`/inner-*` 同样不出现，断言仍成立。建议加一个正对照：同一份 SVG 用 `<object data=…>` 或 `<iframe>` 加载，断言 `/inner-image.png` 被请求，再断言蒙版路径不请求。Spec 输出 16 里“不执行里面的脚本”也没有断言（探针只看外部资源）。
+
+## 发现 13：书房图标名在两处各抄一份，漏一处时图标静默不换（建议 / 代码质量）
+
+- 位置：`src/web/plugins.ts:111`（`STUDY_ICONS`）与 `src/plugins/theme-study/plugin.ts:7`（`ICON_NAMES`）。
+- 现象：两份 10 个名字的数组，没有任何测试把它们连起来。只在声明里加图标、不在 `builtinPluginAssets` 里加，`fileUrl` 返回 null，`themeVars` 悄悄跳过那个图标，没有诊断；`web/plugins.ts` 的注释写了“Vite 才会把这些文件打进产物”，但没有机检。
+- 建议改法：把图标名放在 `theme-study` 一个叶子模块（如 `theme-study/icons.ts`）导出，声明和素材表共用；或加一条测试：书房声明里每个 `icons` 路径都在 `builtinPluginAssets["nbook.theme-study"]` 里。
+
+## 发现 14：每次 apply 都重写图标样式表（建议 / 安全与性能）
+
+- 位置：`document-theme.ts:74-82`（`writeIcons`）。
+- 现象：`iconSheet.textContent = iconRules(entries)` 每次 `write` 都赋值，即使内容相同；赋值会让浏览器重新解析这张样式表并使样式失效。Spec system.md 运行时流程第 6 条写“只改配色变量（编辑器里改色、拖动）直接写”，拖动取色时每帧一次 `apply`，书房主题下每帧重解析 10 条规则的样式表（以及发现 1 的死循环放大它）。
+- 建议改法：保存上次写入的文本，相同则不赋值。
+
+## 更正（发现 9）
+
+“`importArchive` 不在任何测试路径上”不准确：`e2e/theme-editor.e2e.ts:211-245` 经界面调用了 `importArchive`，但它导入的是编辑器自己导出的包（不含 `icons`/`workingScene`），所以新增的两行 `delete` 没有被任何用例的输入触及；删掉它们所有现有测试仍通过这一点不变。
+
+## 未发现问题的方面
+
+- 对象 URL 回收：成功替换（先放进表再撤销旧的）、解码失败（catch 撤销）、解码后已过期（单独撤销）、撤回/重发布/dispose（`#drop` 撤销表里的）四条路径都有撤销；没有找到漏撤销的路径（发现 5 是测试没覆盖其中一条，不是代码漏了）。
+- `sceneFor` 在 `watchEffect` 里调用：只写非响应式的 `#jobs`，提供者代码在 `await Promise.resolve()` 之后才跑，不在依赖收集里；失败后 `#results` 不变，不会触发重算循环；同一个键在 effect 重复运行时只发一次请求（单元测试与代码一致）。
+- `handle.implementation()` 撤回后抛错：在 `#run` 的 `try` 里，随后 `signal.aborted` 已为真（`revoke` 先 `#drop`），被安静吞掉，不产生诊断。
+- 图标样式表转义：图标名被 `/^[a-z0-9]+(-[a-z0-9]+)*$/` 限制，不能闭合选择器；URL 里 `"`、`\`、`\n` 被转义；第三方 URL 来自逐段 `encodeURIComponent`，内置 URL 来自 Vite（编码过），`\r`、`\f` 实际不可达。`@media not ((prefers-contrast: more) or (forced-colors: active))` 是合法的 Media Queries 4 写法。
+- `clear()`、换主题、`latest` 保护：`clear()` 把 `latest` 置空且移除并重置 `iconSheet`，渐变回调里 `latest === theme` 才写，图标与变量在同一个 `write` 里一致。
+- 用户层一致性：`userThemeProblem` 拒绝 `icons`/`workingScene`；复制（`#copied`）与导入（`importArchive`）都丢弃；导出走用户记录，本来就没有；预览用同一条用户记录；`sceneProvider` 各路径保留。没有发现漏掉的路径。
+- `sceneProvider` id 规则与 SDK `contributionId` 的 `SEGMENT` 一致；`declarationProblem` 对 `icons`/`workingScene` 路径用的是同一份 `pathProblem`。
+- `agentWorking()`：`publicStateKey.read` 在 effect 里是响应式的；Agent 插件没启用（未声明）时 `status` 不是 `ready`，按空闲；编辑器预览也走同一个 `resolve(…, working)`。
+- SDK 面：`sceneProvider` 助手与 `statusItem`、`view` 的 `activationEvents: []` 约定一致；运行时闭包只多了 `theme-points.ts`（`surface.test` 已钉）；测试替身与真实工作台共用同一份贡献点定义。
+- 已运行：`bun test`（scene-providers、themes、user-themes、theme-editor、08-scene-provider）76 个通过；`bun run typecheck` exit 0。
+
+## 计划与实现的出入（供参考，非缺陷）
+
+- 计划切片 3 写“外置示例构建测试（`external-examples.test.ts` 加 `scene-clock`）”，未做；`e2e/plugin-code.e2e.ts` 里构建了它，覆盖构建与运行，构建单测缺。
+
+## 数量
+
+- 阻断：0
+- 重要：4（发现 1、2、5、9）
+- 建议：10（发现 3、4、6、7、8、10、11、12、13、14）
+- 合计：14

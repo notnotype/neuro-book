@@ -1,7 +1,8 @@
 /**
- * 区域显隐与应用命令（docs/specs/ui/workbench-shell.md 外壳四输出 32，docs/specs/workbench/commands.md 第二批与
- * “命令目录（应用）”）：真实的布局 store（Storage 场地）；选择服务由测试按请求作答，宿主的整页导航由测试记下请求
- * （产品里是 `location.reload` 与 `window.open`，真实浏览器的路径由 `e2e/workbench-shell.e2e.ts` 覆盖）。
+ * 区域显隐与应用命令（docs/specs/ui/workbench-layout.md 输出 11、35，docs/specs/ui/workbench-shell.md 外壳四输出 32，
+ * docs/specs/workbench/commands.md 第二批与“命令目录（应用）”）：真实的一棵树的布局 store（Storage 场地）；选择服务由测试按请求
+ * 作答，宿主的整页导航由测试记下请求（产品里是 `location.reload` 与 `window.open`，真实浏览器的路径由
+ * `e2e/workbench-shell.e2e.ts` 覆盖）。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -10,21 +11,22 @@ import {join} from "node:path";
 
 import {shallowRef} from "@vue/reactivity";
 
+import {validateLayoutDoc} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {commandDeclarationProblems} from "nbook/plugins/commands/shared/registry";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
-import {textOf} from "nbook/shared/localized-text";
 import type {WindowNavigation} from "nbook/shared/host";
 import type {StorageService} from "nbook/shared/storage";
 
 import type {QuickPick, QuickPickRequest, QuickPickResult} from "../../shared/contracts";
-import {LAYOUT_RECORDS} from "../state/records";
-import type {LayoutStore} from "../state/layout-store";
+import type {LayoutDocStore} from "../state/layout-doc-store";
+import {LAYOUT_DOC_RECORDS} from "../state/records";
 import {workbenchState, workbenchStateBindings} from "../state/public-state";
-import {openLayout} from "../testing/layout";
+import {openLayoutDoc} from "../testing/layout-doc";
 import {APP_COMMAND_DECLARATIONS, appCommands, DOCUMENTATION_COMMAND, DOCUMENTATION_URL, RELOAD_COMMAND} from "./app-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands, SET_PART_HIDDEN_COMMAND} from "./part-commands";
 import {completedCommand} from "../../testing/declarations";
@@ -48,11 +50,11 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-async function layout(): Promise<{store: LayoutStore; storage: StorageService}> {
+async function layout(): Promise<{store: LayoutDocStore; storage: StorageService}> {
     counter += 1;
     const world = await storageWorld(join(tmp, `case-${String(counter)}`), []);
     worlds.push(world);
-    const {store, storage} = await openLayout(world, "w", "c");
+    const {store, storage} = await openLayoutDoc(world, "w", "c");
     return {store, storage};
 }
 
@@ -64,13 +66,17 @@ function picker(answer: (request: QuickPickRequest) => QuickPickResult): QuickPi
     }};
 }
 
-/** 等用户定制记录保存完，读回已确认的值。 */
-async function customizations(store: LayoutStore, storage: StorageService): Promise<unknown> {
-    await waitUntil("定制记录保存完成", () => store.state.customizations.queue === 0);
-    const opened = await storage.open(LAYOUT_RECORDS.user.customizations);
+/** 立刻存，等保存完成，读回已确认的布局文档。 */
+async function savedLayout(store: LayoutDocStore, storage: StorageService): Promise<LayoutDoc> {
+    await store.actions.save();
+    await waitUntil("布局保存完成", () => store.state.field.queue === 0);
+    const opened = await storage.open(LAYOUT_DOC_RECORDS.user);
     if (!opened.ok) throw new Error(opened.detail);
     const snapshot = await opened.handle.read();
-    return snapshot.status === "ok" ? snapshot.value : snapshot.status;
+    if (snapshot.status !== "ok") throw new Error(`记录是 ${snapshot.status}`);
+    const checked = validateLayoutDoc(snapshot.value.doc);
+    if (!checked.ok) throw new Error(checked.detail);
+    return checked.doc;
 }
 
 describe("声明", () => {
@@ -84,28 +90,53 @@ describe("声明", () => {
 });
 
 describe("区域显隐", () => {
-    it("带 part 时按可见切换；“显示”同时清掉隐藏与拖到零，一次提交；可见性公开键随之变化", async () => {
+    it("带 part 时按可见切换；“显示”同时清掉隐藏与拖到零；可见性公开键随之变化；同值操作不写入", async () => {
         const {store, storage} = await layout();
-        const current = shallowRef<LayoutStore | null>(store);
-        const keys = workbenchStateBindings(current);
+        const keys = workbenchStateBindings(shallowRef<LayoutDocStore | null>(store));
         const commands = partCommands(() => store, picker(() => ({kind: "cancelled"})));
-        expect([keys.sidebarVisible.value, keys.auxiliaryBarVisible.value, keys.activityBarVisible.value]).toEqual([true, true, true]);
+        expect([keys.sidebarVisible.value, keys.auxiliaryBarVisible.value, keys.activityBarVisible.value, keys.panelVisible.value]).toEqual([true, true, true, true]);
 
         await commands[SET_PART_HIDDEN_COMMAND].run({part: "sidebar"});
         expect(keys.sidebarVisible.value).toBe(false);
         await commands[SET_PART_HIDDEN_COMMAND].run({part: "sidebar"});
         expect(keys.sidebarVisible.value).toBe(true);
 
-        // 拖到零：没隐藏但看不见；切换按“可见”判断，所以这一次是显示，并清掉拖到零。
-        store.actions.commitSizes({dragCollapsed: {auxiliarybar: true}});
+        // 横向分支里拖到零：没隐藏但看不见；切换按“可见”判断，所以这一次是显示，并清掉拖到零。
+        store.actions.setCollapsed("auxiliarybar", true);
         expect(keys.auxiliaryBarVisible.value).toBe(false);
         await commands[SET_PART_HIDDEN_COMMAND].run({part: "auxiliarybar"});
         expect(keys.auxiliaryBarVisible.value).toBe(true);
+        expect(store.state.doc.panels.auxiliarybar?.collapsed).toBeFalsy();
+
+        // 隐藏与收起同时为真时，“显示”把两个都清掉（输出 11）。
+        store.actions.setCollapsed("panel", true);
+        await commands[SET_PART_HIDDEN_COMMAND].run({part: "panel", hidden: true});
+        expect(store.state.doc.panels.panel).toMatchObject({hidden: true, collapsed: true});
+        await commands[SET_PART_HIDDEN_COMMAND].run({part: "panel", hidden: false});
+        expect(store.state.doc.panels.panel?.hidden).toBeFalsy();
+        expect(store.state.doc.panels.panel?.collapsed).toBeFalsy();
+        expect(keys.panelVisible.value).toBe(true);
+
         await commands[SET_PART_HIDDEN_COMMAND].run({part: "activitybar", hidden: true});
         expect(keys.activityBarVisible.value).toBe(false);
+        await commands[SET_PART_HIDDEN_COMMAND].run({part: "statusbar", hidden: true});
+        const hiddenOnce = await savedLayout(store, storage);
+        expect(hiddenOnce.hiddenBars).toEqual(["activitybar", "statusbar"]);
+        // 同值再来一次：命令成功，已确认的记录没有新的写入。
+        const revision = store.state.field.base?.status === "ok" ? store.state.field.base.revision : null;
         expect(await commands[SET_PART_HIDDEN_COMMAND].run({part: "activitybar", hidden: true})).toEqual({ok: true, value: null});
+        await store.actions.save();
+        await waitUntil("布局保存完成", () => store.state.field.queue === 0);
+        expect(store.state.field.base?.status === "ok" ? store.state.field.base.revision : null).toBe(revision);
+    });
 
-        expect(await customizations(store, storage)).toMatchObject({hiddenParts: ["activitybar"], dragCollapsed: {auxiliarybar: false}});
+    it("隐藏最大化着的面板时退出最大化（输出 13）", async () => {
+        const {store} = await layout();
+        const commands = partCommands(() => store, picker(() => ({kind: "cancelled"})));
+        store.actions.toggleMaximized("panel");
+        expect(store.state.maximized).toBe("panel");
+        await commands[SET_PART_HIDDEN_COMMAND].run({part: "panel", hidden: true});
+        expect(store.state.maximized).toBeNull();
     });
 
     it("省略 part 时先选区域并标出可见与否，选中即切换；取消不写；选择服务不可用为 unavailable；外壳没挂载为 unavailable", async () => {
@@ -114,7 +145,7 @@ describe("区域显隐", () => {
         const choose = picker(() => ({kind: "item", id: "activitybar"}));
         const commands = partCommands(() => store, choose);
         expect(await commands[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : workbenchTestText("zh-CN").t(item.detail)])).toEqual([["sidebar", "显示中"], ["auxiliarybar", "显示中"], ["activitybar", "已隐藏"]]);
+        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : workbenchTestText("zh-CN").t(item.detail)])).toEqual([["sidebar", "显示中"], ["auxiliarybar", "显示中"], ["panel", "显示中"], ["activitybar", "已隐藏"], ["statusbar", "显示中"]]);
         expect(store.actions.partVisible("activitybar")).toBe(true);
 
         expect(await partCommands(() => store, picker(() => ({kind: "cancelled"})))[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: true, value: null});

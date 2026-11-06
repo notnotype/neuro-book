@@ -5,7 +5,7 @@
  */
 
 import {computed} from "@vue/reactivity";
-import type {ShallowRef} from "@vue/reactivity";
+import type {Ref, ShallowRef} from "@vue/reactivity";
 
 import {definePublicState} from "nbook/shared/store/public";
 import type {PublicBindings} from "nbook/shared/store/public";
@@ -36,6 +36,26 @@ export const editorState = definePublicState("nbook.editor", {
     hasEditorStatus: {type: "boolean", unready: false, reason: editorText("state.hasEditorStatus.reason")},
     // 活动控件分语言（源码编辑器，输出 45）：状态栏的语言条目与“更改语言模式”据此可用。
     hasLanguage: {type: "boolean", unready: false, reason: editorText("state.hasLanguage.reason")},
+    // Markdown 的编辑动作（docs/specs/workbench/markdown-editing.md）。粗粒度的可用性供命令的 `when`，勾选状态供菜单项的 `toggled`。
+    canFormat: {type: "boolean", unready: false, reason: editorText("state.canFormat.reason")},
+    canConvertBlock: {type: "boolean", unready: false, reason: editorText("state.canConvertBlock.reason")},
+    hasSelection: {type: "boolean", unready: false, reason: editorText("state.hasSelection.reason")},
+    toolbarVisible: {type: "boolean", unready: false, reason: editorText("state.toolbarVisible.reason")},
+    formatBold: {type: "boolean", unready: false},
+    formatItalic: {type: "boolean", unready: false},
+    formatStrike: {type: "boolean", unready: false},
+    formatCode: {type: "boolean", unready: false},
+    formatSuperscript: {type: "boolean", unready: false},
+    formatSubscript: {type: "boolean", unready: false},
+    formatHeading1: {type: "boolean", unready: false},
+    formatHeading2: {type: "boolean", unready: false},
+    formatHeading3: {type: "boolean", unready: false},
+    formatBulletList: {type: "boolean", unready: false},
+    formatOrderedList: {type: "boolean", unready: false},
+    formatTaskList: {type: "boolean", unready: false},
+    formatQuote: {type: "boolean", unready: false},
+    formatCallout: {type: "boolean", unready: false},
+    formatCodeBlock: {type: "boolean", unready: false},
 });
 
 /** 文档需要保存：dirty、有未裁决输入或有视图写不出（与关闭时询问的判据相同，输出 4、26、61）。 */
@@ -44,13 +64,14 @@ export function needsSaving(document: TextDocument): boolean {
 }
 
 /** 各公开键此刻的值；编辑器区还没建立时都为假。 */
-export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>): PublicBindings<typeof editorState.declarations> {
+export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>, toolbarVisible: Readonly<Ref<boolean>> = computed(() => true)): PublicBindings<typeof editorState.declarations> {
     const document = computed(() => area.value?.activeDocument.value ?? null);
     const handle = computed(() => area.value?.activeHandle.value ?? null);
     const fileTab = computed(() => {
         const tab = area.value?.groups.activeTab() ?? null;
         return tab === null || tab.kind === "page" ? null : tab;
     });
+    const active = (action: string) => computed(() => handle.value?.editing?.active(action) === true);
     return {
         focused: computed(() => area.value?.focused.value === true),
         // 有活动的文件标签、控件交出了句柄；不要求文本文档，字节标签上关闭、拆分照常可用（输出 41）。
@@ -69,5 +90,24 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>)
         hasPreview: computed(() => area.value?.previewEditor() != null),
         hasEditorStatus: computed(() => fileTab.value !== null && handle.value?.status?.value != null),
         hasLanguage: computed(() => fileTab.value !== null && handle.value?.language?.value != null),
+        canFormat: computed(() => handle.value?.editing?.enabled("bold") === true),
+        canConvertBlock: computed(() => handle.value?.editing?.enabled("paragraph") === true),
+        hasSelection: computed(() => handle.value?.editing?.hasSelection.value === true),
+        toolbarVisible: computed(() => toolbarVisible.value),
+        formatBold: active("bold"),
+        formatItalic: active("italic"),
+        formatStrike: active("strike"),
+        formatCode: active("code"),
+        formatSuperscript: active("superscript"),
+        formatSubscript: active("subscript"),
+        formatHeading1: active("heading-1"),
+        formatHeading2: active("heading-2"),
+        formatHeading3: active("heading-3"),
+        formatBulletList: active("bullet-list"),
+        formatOrderedList: active("ordered-list"),
+        formatTaskList: active("task-list"),
+        formatQuote: active("quote"),
+        formatCallout: active("callout"),
+        formatCodeBlock: active("code-block"),
     };
 }

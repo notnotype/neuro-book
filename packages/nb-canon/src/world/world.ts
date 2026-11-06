@@ -1582,4 +1582,3 @@ function computeImpact(before: World, data: WorldData, lines: LineSet, where: Re
         ...(brokenOn.length === 0 ? {} : {brokenOn}),
     };
 }
-

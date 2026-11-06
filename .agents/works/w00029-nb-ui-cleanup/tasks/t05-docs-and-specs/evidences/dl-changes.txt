@@ -1,0 +1,78 @@
+DL（packages/nb-ui/docs/design-language.md）改动记录。只追加。
+格式：坑号 | 处理（删除/改写） | 原因与核对依据（文件:行）；一到七节每条改动一行。
+核对时的代码基线：worktree w00029-t05-docs，分支 docs/w00029-t05-nb-ui-docs，2026-11-04。
+
+== 一到三节（part1）==
+头部 | 改写 | “对照页 bun run dev → localhost:3003”已不存在：playground/app/pages 只剩 acceptance（ls playground/app/pages），主题×配色对照在 Lab（docs/specs/ui/component-lab.md:76 地址栏 theme/cw）。加“数值事实源”与调研文档链接。
+一、论点 | 改写 | “ui-development-spec 第 2 节第 1 条”改小节标题文字“材料、颜色与层级”（不写序号）。
+二、承载关系 当前实例 | 改写 F37 | AgentProfileNavList/AgentProfileSettingsView 只在 packages/neuro-book-legacy。换成 nb-ui 的 Tree surface="card|plain"（Tree.vue:31,38）与新应用实例 packages/neuro-book/src/plugins/lab/web/LabNavPanel.vue:219。“只有一种承载关系不要预留两种形态”保留判据，去掉 AgentProfileSettingsView 的实例叙述。
+二、为什么材质只能有一层 | 改写 F41 | 四家逐字引文移到调研文档；DL 留一句一条的结论。
+二、为什么层级色阶不带模糊 | 改写 F41 | M3、微软的英文引文移到调研文档，留结论。
+二、玻璃三层 | 改写 F36 F28 | “Liquid Glass ≠ 磨砂玻璃”改“不是”；“提亮”从 ② 注释去掉（nbook 暗色 brightness 为 1.0，themes/nbook/vars.css:223,406）。边界 4 去掉“90%”（取值在 vars.css:217-218），“第九节几何清单”改指第三节“叠在窗口上的浮层”（新增小节承接原第九节几何清单里唯一不重复的一条）。
+二、阴影三档 | 改写 F04 | 档表加 --elevation-menu（tokens.css:73，styles.css:260）；raised 的消费方是 Kbd.vue:24 与 styles.css:844,869，不是按钮/输入框；去掉“时间选择器”（组件已删）；M3 引文改述。
+二、一条阴影里该有什么 | 改写 F04 F41 | 原文把 Apple 的“环境投影只有一条、外阴影只有两条、靠 inset 顶内线”写成判据，与代码相反：popover 是一圈外环加三层外阴影，无 inset（tokens.css:72、themes/nbook/vars.css:292-296、438-442）；菜单是细环加两层（vars.css:301-304）；macos 是两层无环（themes/macos/vars.css:135-137）；对话框档才有发丝轮廓+inset+单条远投影（vars.css:336-342）。按决定改成“各层的角色”，不写具体取值；Apple 的逐图层读数整段移到调研文档。
+二、浮层外观只有一个登记处 | 改写 | 删两段 CSS 复制（与 styles.css:196-215 重复）；对话框 modifier 覆盖的是圆角、面、投影三项（styles.css:523-528），原文只写“两项”；菜单 modifier 现在还覆盖内边距与投影（styles.css:257-262）；去掉“时间选择器”；Tooltip 描述按 styles.css:236-250 精简。改成一张 modifier 表。
+三、控件高度与圆角 比较表 | 改写 F28 F06 | 原表抄 macOS/nbook 数值，且菜单圆角写 12px/12px，实为 nbook 10px（themes/nbook/vars.css:93）、macOS 12px（themes/macos/vars.css:52）。改成“角色、含义、在哪登记”表，不抄数。
+三、控件高度 按钮 | 改写 | Button 取 --control-h-*，圆角 6/8/10px（Button.vue:35-45），IconButton 定值（IconButton.vue:34-47），按开发者决定写现状。
+三、20px 出处 | 改写 F41 | Chromium 提交记录移到调研文档，DL 留“有出处”一句。
+三、同心圆角 | 改写 F06 | 去掉“菜单的 12px”“nbook:10-1-4=5px / macOS:12-1-6=5px”这类数值（nbook --menu-pad 是 4px，macOS 的 menu-pad 未登记，写 5px 的算式已过时）；CSS 代码块与 styles.css:216-222 重复，改文字；分段控件的代码片段删，指向 SegmentedControl.vue。
+三、叠在窗口上的浮层 | 新增小节 | 原“第九节几何清单”里这一条在 DL 其他位置没有，styles.css:540 的注释又指向它，所以放回第三节。
+三、控件圆角只有一个来源 | 改写 坑44 同步 | 原标题与“按钮、分页、开关、标签输入”的列表已不成立：Button 不取 --radius-control；Pagination/TagInput 已删。改名“控件圆角的来源”，列出实际消费方（grep radius-control src/components）。删“--radius-control 曾经全库只有 Tooltip 和 TimePicker”这段历史，信息在坑 44。
+三、行内同奇偶 | 改写 | “设置窗口”示例补上真实文件 SettingsRow.vue:204-216；“NeuroBook 主题”统一称 nbook。
+三、内容列有上限宽度 | 改写 F37 | 到新应用核对：.settings-window__column max-width 720px（SettingsWindow.vue:646-649），保存栏在内容列底部（SettingsSaveBar.md）。加实例路径。
+三、超椭圆 | 改写 F29 | 只留“目前未使用”的状态；Apple 的 Radius 26 / Smooth 读数移到调研文档。
+三、对话框不是三段式盒子 | 改写 F41 F27 | 实测表整张移到调研文档；四条结论保留并核对：无 ×（Dialog.vue:62-72 closable 缺省 false）、标题与正文同字号（styles.css 的 .nb-ui-dialog-title、DialogSurface.vue:56）、窄框平分（DialogSurface.vue:145,166）。删“按钮是整颗胶囊，库里原先那句是错的，已经改掉”（代码没改，tokens.css:117-121 还有同样的注释）。
+更正（对上面“三、同心圆角”一行）：原文“nbook：10 − 1 − 4 = 5px；macOS：12 − 1 − 6 = 5px”算式本身与代码一致（themes/nbook/vars.css:93-94，themes/macos/vars.css:52 加缺省 --menu-pad 6px），不是过时；去掉它只是按“数值不进规范正文”（F28）。
+== 四到七节（part2）==
+四、排版 | 改写 | “稿面 17px、界面 14px”数值去掉（17px 在 nb-ui 内没有登记处，--font-reading 由编辑器 preferences 承载，src/tokens.css:41-43）；--reading-measure 去掉“34em”（themes/nbook/manifest.ts:148 是它的缺省，写在 manifest 里）。
+五、颜色 | 未改 | overlay-item-active 的两个代码片段与 tokens.css:196、themes/nbook/vars.css:234 一致；三个不变量与 theme-packages.test.ts:152-186 一致。
+六、无障碍 | 改写 F28 F41 | “库只把三个时长归零”改“时长类 token”（tokens.css:226-236 实际归零六个，含 reveal 三个）；窄屏降级的“strong 档 10px→6px”与代码不符（themes/nbook/vars.css:489 现为 blur(8px)），改成“大容器那一档也降到纯 blur”；HyperFrames 的 200ms 读数与 glassfx 引用移到调研文档。
+七、动效 时长表 | 改写 F04类 | 原写“--motion-enter = 浮层入场（菜单、下拉、气泡、时间选择器）”，代码相反：.nb-ui-popover-motion 入场与退场都是 --motion-fast（styles.css:461-467），--motion-enter 只剩 NotificationStack 用（NotificationStack.vue:78-79）。按代码改；该分歧同时记入“疑似代码问题”。
+七、动效 登记值 | 改写 F28 F40 | 删“裸基线 120/180/220；nbook 与 macos 90/140/180；aurora 100/160/240；editorial 同基线”和缓动 cubic-bezier 取值，指向 vars.css；加 --motion-reveal-* 一句（tokens.css:73-75）。
+七、内容切换 | 改写 F37 | “设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换”是旧应用实例；全仓 grep 无任何消费 nb-ui-switch 的地方（只有 styles.css:808-823），改成“目前仓库内还没有消费这个类名”，并记入疑似代码问题。out-in 那行“90+90=180ms 正好等于”是 nbook 特有，改成不带数字的量级说法。
+七、缓动 | 改写 | cubic-bezier 取值与回弹曲线的具体值去掉；“ui-development-spec 第 2.6 节”改指“材料、颜色与层级”一节第 6 条（新公共 token 至少两个消费点，ui-development-spec.md:35 的当前版本）。
+七、浮层入退场第 1、3 条 | 改写 | 入场时长改 --motion-fast，菜单例外收窄成“子菜单的编排”（useMenuCascade.ts:6 的 300ms 保留）；去掉“Reka 的 Popover/Select 也走 enter”这类与代码不符的暗示。
+七、第 6 条 | 改写 F42 | 去掉评审代号“（S4）”。
+七、禁条 | 改写 | “ui-development-spec 第 5 节”改小节标题“表单与无障碍”；“三个时长归零”改“时长类 token 归零”。
+== 八节坑（part3）==
+27 | 删除（空号保留） | 原文只剩“已不适用：改了 styles.css 而页面没变，不再是产物过期”，说明了 dist/nb-ui.css、build:css 已于 2026-10-21 删除；没有可用判据。全仓无 nb-ui 预编译产物（packages/nb-ui/package.json 无 build:css）。
+3 | 改写 | 压缩到一句判据（浮层压在有细节的内容上），去掉与 #23 重复的叙述。
+4 | 改写 | “读变量 ≠ 元素吃到”标题换中文（F36）。
+6 | 改写 | 去掉 ≠ 与具体亮度数；保留“输入框与面板亮度同号”的判据。
+7 | 改写 | 标题“暗色下的玻璃方向是反的”改“暗色档照抄亮色的配方”；判据改“暗色档要有自己的配方，不照抄亮色”，暗色是否压暗由主题的 --overlay-blur 里的 brightness 定（nbook 暗色为 brightness(1.0)，themes/nbook/vars.css:223,406）。
+15 | 改写 | “对照页”改“示意页”（playground/app/pages 只剩 acceptance）。
+16 | 改写 | 去掉叙述性用语，保留“先隐藏浮层子元素再量”的判据。
+18 | 改写 | 缩句。
+22 | 改写 | 去掉“66/52/24”等已过时的 tint 不透明度数值（现行取值在 themes/nbook/vars.css 的 --overlay-surface），指向 #28。
+24 | 改写 | 缩句，去掉叙述。
+28 | 改写 | 改成“浮层 8px 纯 blur、大容器强档 14px”（themes/nbook/vars.css:489 附近），去掉“上一轮”叙述；加浮层与大容器分开验收的判据。
+29 | 改写 | 去掉“本主题最终”之外的叙述，保留“写 background-color + background-image，不写简写”；后半段指向 #40。
+30 | 改写 | 缩句。
+33,34 | 改写 | 去掉“用户”叙述，保留现象/根因/判据。
+36 | 改写 F41 | “于是对话框按钮一直是 10px 圆角”“Apple 官方 macOS 27 UI Kit 的 Buttons 组全部是整颗胶囊”的读数移到调研文档 §1.4；DL 留“取值要有出处”的判据，并写明本库按钮不是胶囊（Button.vue:35-45）。
+37 | 改写 | 缩句，保留 Chrome 151 实测与可复现判据。
+38 | 改写 F04 | 原判据“外阴影只有两条：一条 blur≤1px + 一条 blur≥40px”与代码不符（popover 是一圈外环加三层外阴影，themes/nbook/vars.css:292-296,438-442）。改为“第一条是 blur≤1px 的外环/轮廓，其后外阴影只表达高度，层数与取值归主题”；明说 macos、editorial 没有这圈外环。标题“把 Material 的多层递增投影当成通用做法”改“浮层的边界交给了模糊的近景投影”。
+40 | 改写 | 去掉“用户的原话是…”；保留四色条纹判据；“官方 UI Kit 里唯一的入射光是一条顶部内发丝线”移到调研文档。
+42 | 改写 | 标题“列表项写死 rounded-md”改“写死小圆角”；缩句，加放大 4 倍的核对法。
+44 | 改写 | 去掉“全库只有 Tooltip 和 TimePicker 两处消费”（TimePicker 已删）；Button/IconButton 不取 --radius-control（Button.vue:35-45），判据改为输入类控件外框计算样式等于 --radius-control；去掉 Panel（组件已删）。
+47 | 改写 | “Collapsible / Accordion”改 Collapsible 一族（Accordion 已删）；UnoCSS 时代的“主题 key 不存在”表述改为 Tailwind v4 的 --animate-* 主题键。
+48 | 改写 | 保留 data-animating 做法，补上弃用旧做法的原因。
+35 | 改写 | 去掉“用户仍然说…”叙述，指向调研文档。
+32 | 未改 | 判据仍成立（DialogSurface 的滚动分隔线）。
+56,65 | 未改 | 按要求原样保留。
+58,60,61 | 未改 | src/tailwind.css:87-88 的 base 层垫片与 packages/neuro-book/src/web/tailwind.product.css、vite.config.ts:41 仍在。
+52 | 未改 | ColorSwatchPicker / Listbox 仍是 reka 组件，nb-ui 里有消费方（grep ColorSwatch）。
+26 | 改写 | 去掉叙述，保留“每个弹出层至少一条用例打开它”。
+未发现需要删除的 TimePicker / Combobox / Accordion / Panel 独立坑：这些词只出现在 #42、#44、#47 的正文里，已改写。
+第九节 | 删除 | 整节删除；唯一项见 /tmp/w29t05/dl-section9-unique.txt；DL 内部“见第 N 节”全部改成小节标题文字。
+
+== 疑似代码问题 ==
+1. src/styles.css:~540 的注释仍指向已删除的 DL “第九节几何清单”，应改指第三节“叠在窗口上的浮层”（本任务不改代码）。
+2. src/components/feedback/close-handoff.ts 的注释指向错误的 SPEC 位置/DL 第九节，需要主会话核对。
+3. src/tokens.css:117-121 的注释仍写“Apple 只在 Large/X-Large 才走 capsule”之类的按钮胶囊说法，与 Button.vue:35-45 的 6/8/10px 圆角不一致；调研文档 §1.4 记了读数，代码注释未更新。
+4. --motion-enter 在 tokens.css 的注释写成“浮层入场”，实际 .nb-ui-popover-motion 入场/退场都用 --motion-fast（styles.css:461-467），--motion-enter 只剩 NotificationStack 使用（NotificationStack.vue:78-79）。
+5. .nb-ui-switch-*（styles.css:808-823）全仓没有消费方，可能是死代码或等待接入。
+6. docs/specs/ui/workbench-shell.md 链接了 ui-development-spec.md 的锚点 “拖放反馈dropfeedbackoverlay--dropindicatorlabel”，该锚点已不存在（docs:check 唯一失败，不在本任务范围，主会话改 SPEC 时一并处理）。
+更正（对上面“疑似代码问题”1、2、3）：复查时 styles.css:542 已指向“几何”，close-handoff.ts 里没有指向 DL 或 SPEC 章节号的文字，1、2 两条作废；3 的位置是 tokens.css:127-129（--radius-control-lg 上方的注释说 Apple 按钮是整颗胶囊、“要不要 pill 由主题决定”），与 DL 现行写法“本库按钮不是胶囊”不矛盾，仅提示读者。
+说明：上面“八节坑”各行的改写/未改归类，来自对原文与新稿逐条做文本相似度比较（相似度 1.0 的为原样保留），不是逐字逐句人工复核；原样保留的有 1、2、5、8-14、17、19-21、25、31、39、41、43、45、46、49-65 中除上面列出的以外各条。
+更正（疑似代码问题 4）：tokens.css 里没有把 --motion-enter 写成“浮层入场”的注释（tokens.css:77 只有值）；矛盾只在旧 DL 与代码之间，已按代码改 DL，不属于代码问题，作废。

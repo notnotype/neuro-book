@@ -15,7 +15,7 @@
 
 承载盒是组件根本身：父级要给它确定的宽高，根上不加 padding、border（测量按布局盒，混进去会少算）。
 
-卡片还是平铺由主题变量决定（Spec 输出 38），缺省是平铺。活动栏、侧栏、编辑器、右栏与面板的内容各包在一层卡片包装（`data-shell-card`）里，包装承担圆角（`--shell-card-radius`）、裁切与投影（`--shell-card-shadow`）；包装外的插槽按 `shell/cards.ts` 算出的四边留内边距：贴着窗体、标题栏或状态栏的一边 `--shell-gap`，挨着别的部件的一边半缝减去两者之间边界占用的一半，与活动栏相连的侧栏那一边 0。活动栏与通高的侧栏相连时两张卡片相接的角为 0（`data-shell-join="start"`、`"end"`），中间画一条两端离顶底 10px 的短线（`--shell-join-divider`）。网格接缝的颜色经 nb-ui `Splitter` 的 `--nb-splitter-seam` 取 `--shell-seam`。标题栏与状态栏没有卡片包装。
+卡片还是平铺由主题变量决定（Spec 输出 38），缺省是平铺。活动栏、侧栏、编辑器、右栏与面板的内容各包在一层卡片包装（`data-shell-card`）里，包装承担圆角（`--shell-card-radius`）、裁切与投影（`--shell-card-shadow`）；包装外的插槽按 `shell/cards.ts` 算出的四边留内边距：贴着窗体、标题栏或状态栏的一边 `--shell-gap`，挨着别的部件的一边半缝减去两者之间边界占用的一半，与活动栏相连的侧栏那一边 0。活动栏与通高的侧栏相连时两张卡片相接的角为 0（`data-shell-join="start"`、`"end"`），中间画一条两端离顶底 10px 的短线（`--shell-join-divider`）。网格接缝的颜色经 nb-layout `Splitter` 的 `--nb-splitter-seam` 取 `--shell-seam`。标题栏与状态栏没有卡片包装。
 
 ## 交互
 
@@ -79,7 +79,7 @@ type PartSlotProps = {
 ```
 
 - expose `revealZoneRects(): Array<{part: "sidebar" | "auxiliarybar" | "panel"; rect: {left, top, right, bottom}}>`：此刻没显示的侧栏、右栏、面板显示出来会在的矩形（视口坐标），拖动会话拿起时取一次当预备区（外壳三输出 20）；紧凑呈现时为空。attrs 落在组件根上；根带 `data-workbench-shell`、`data-shell-layout="split|compact"` 与 `data-layout-diagnostics`（最近几条降级与手势诊断）。
-- 手势结算：落账前整批核对（含不产生保存的分支则整场拒绝），经 nb-ui `useGridLayout` 一次 `resizeBranches`；落账后从这批提交算出补丁。交汇处的两根轴属于同一场手势，补丁里可能同时有侧栏宽度与面板高度。
+- 手势结算：落账前整批核对（含不产生保存的分支则整场拒绝），经 nb-layout `useGridLayout` 一次 `resizeBranches`；落账后从这批提交算出补丁。交汇处的两根轴属于同一场手势，补丁里可能同时有侧栏宽度与面板高度。
 
 ## 状态
 
@@ -95,5 +95,5 @@ type PartSlotProps = {
 
 ## 隐藏通道理由
 
-- `env:portal`：七个 Part 的内容由组件根下的稳定宿主各渲染一次，再用 Teleport 搬到当前网格里同名 Part 的叶落点（`[data-leaf="<part>"]`）；落点不存在（Part 被隐藏、最大化挤走、刚换了树还没渲染）时内容留在组件内的停放区。这样换位置、对齐、隐藏、紧凑往返都不卸载编辑器与工具内容，这是外壳的核心承诺，所以由本组件拥有，不交给父级。落点都在本组件自己的子树里，不碰外部节点。
+- `env:portal`：七个 Part 的内容由组件根下的稳定宿主各渲染一次，再用 Teleport 搬到当前网格里同名 Part 的叶的内容容器（`[data-leaf-content="<part>"]`）；落点不存在（Part 被隐藏、最大化挤走、刚换了树还没渲染）时内容留在组件内的停放区。这样换位置、对齐、隐藏、紧凑往返都不卸载编辑器与工具内容，这是外壳的核心承诺，所以由本组件拥有，不交给父级。落点都在本组件自己的子树里，不碰外部节点。
 - `state:local`：测得的容器尺寸、当前网格与落点表、手势诊断与焦点记忆，只活在本实例里。

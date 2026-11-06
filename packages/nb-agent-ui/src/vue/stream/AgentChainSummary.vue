@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type {HTMLAttributes} from "vue";
 import {Spinner} from "@notnotype/nb-ui/components";
 import {useAgentText} from "../host";
 
@@ -8,7 +9,7 @@ const props = withDefaults(defineProps<{
     icon?: string;
     alert?: string;
     running?: boolean;
-}>(), {
+} & /* @vue-ignore */ HTMLAttributes>(), {
     icon: "i-lucide-list-tree",
     alert: "",
     running: false,

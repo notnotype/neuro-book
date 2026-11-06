@@ -4,13 +4,15 @@
 
 # Checkbox
 
-`Checkbox` 是带 nb-ui 视觉样式和表单语义连接的单个复选框。它用原生 checkbox 承担浏览器键盘与表单行为，再以 18px 的主题化 Squircle 视觉层呈现选中、未选中和半选状态；组件既可由 `label` 提供文字，也可用默认 slot 完全替换标签内容。
+`Checkbox` 是带 nb-ui 视觉样式和表单语义连接的单个复选框。它用原生 checkbox 承担浏览器键盘与表单行为，再以 18px 的主题化方框视觉层呈现选中、未选中和半选状态；组件既可由 `label` 提供文字，也可用默认 slot 完全替换标签内容。
 
 ## 布局
 
-根节点是可点击的 `label`，内部横向排列视觉 checkbox 和文字列。视觉 checkbox 固定为 18×18px，文字列包含标签和可选的 description；标签很长时文字列可以随父级宽度换行，复选框本身不会被压扁。`390×844` 下不改变结构，描述继续位于标签下方。
+根节点是可点击的 `label`，内部横向排列视觉 checkbox 和文字列。视觉 checkbox 固定为 18×18px，圆角 5px，文字列包含标签和可选的 description；标签很长时文字列可以随父级宽度换行，复选框本身不会被压扁。`390×844` 下不改变结构，描述继续位于标签下方。
 
 真实 `<input type="checkbox">` 是屏幕阅读器可见但视觉隐藏的 peer 元素（`sr-only`，绝对定位）。根节点是定位上下文，隐藏的原生 input 跟着 label 走，聚焦它不会让外层的滚动容器跟着滚动（例如放在 Splitter 一格里的滚动列表）；真实浏览器验收见 `packages/nb-ui/e2e/checkbox.spec.ts`。视觉层依据 `modelValue` 与 `indeterminate` 显示勾号或短横，并依据 `Field` 上下文接收 id、required、invalid 和描述关联。
+
+外观：未选中是面板色底加细边框，悬停时边框加深。选中与半选是 `--accent-main` 实底，勾号和短横是白色粗线。焦点画 `--focus-ring`，出错时改画 `--status-danger`。按下时方框缩小到 0.92，禁用时不缩。
 
 ## 交互
 

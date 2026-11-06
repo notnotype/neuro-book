@@ -62,6 +62,8 @@ owners:
 
 **请求分发：** `nbook.http` 定义贡献点 `http.routes`。插件的服务端入口提交一个处理器（通常是 Hono 应用），贡献 id 写插件自己的 id（贡献点内的 id 唯一，见 [`runtime.plugins`](plugins.md)），挂到 `/api/<插件 id>/`，处理器收到的路径已去掉这个前缀；入口停止时摘下，之后的请求得到 404，摘下前的过渡期得到 503。`/api/runtime/` 留给宿主自有接口：`/health`，以及浏览器引导接口 `/browser-bootstrap`（[`runtime.browser-host`](browser-host.md)）。
 
+**处理器抛错：** 处理器（含宿主自有接口）抛错时，请求得到 500 与 JSON 的 `{error: {code: "internal-error", message}}`，诊断记一条 `error` 级的 `http.request.failed`，带插件与路径。Hono 应用缺省会接住错误、回纯文本 500，所以 Hono 写的路由要设 `onError(rethrowRouteError)`（`nbook.http` 的合同导出）；`HTTPException` 是给客户端的响应，状态码照旧，不进诊断。抛错时客户端已经断开（例如上传到一半取消）不算服务端出错：诊断是 `debug` 级的 `http.request.aborted`。
+
 **内核 RPC 端口：** 协议、握手与 `Origin` 规则见 [远程服务与 RPC 协议](plugin-channel.md) 的“WebSocket 传输与握手”。允许的来源是本进程 HTTP 端口在三个回环别名上的来源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`，端口取实际监听的端口），加上 `NBOOK_ALLOWED_ORIGINS`；比较前按 URL 规范化。服务端用 WebSocket ping 发现失联客户端：空闲 120 秒且不回应即断开。
 
 **HTTP 端口的来源核对：** 未加载鉴权时，分发请求之前先核对两件事，对所有路由（含宿主接口与页面资源）都适用：
@@ -175,6 +177,7 @@ owners:
 18. **一个状态根一个实例。** Given 一个运行中的服务端；When 同一状态根再起一个（产品入口或测试入口）；Then 后者以 1 退出、致命诊断带前者的地址，前者照常服务；前者停止后同一状态根可以再起。前者被 `SIGSTOP` 暂停时后来者报没有应答、不接管；前者被 `SIGKILL` 后立即可以重新认领；几个进程同时认领恰好一个成功。
 19. **关终端。** 对运行中的服务端发 `SIGHUP`：与场景 3 相同的有序停止，以 0 退出。
 20. **项目宿主入口被更换。** 服务端运行期间换掉项目宿主入口：之后打开作品得到 `project-unavailable`，提示重启服务。
+21. **路由抛错。** Hono 写的路由同步或异步抛错：响应是 JSON 的 `internal-error`，诊断有 `http.request.failed`；`HTTPException` 保持自己的状态码；客户端上传到一半断开：诊断是 `http.request.aborted`，不是错误。
 
 Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、11、18，以及一次 RPC 握手（场景 12 的来源核对）和一次打开项目（登记临时目录、经 RPC 绑定、项目子进程报告身份）；开发模式运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
 

@@ -1,0 +1,94 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t04-shelf-settings-scenes",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "书架页与设置窗口的场景",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f8cd9c87e2f48d31b7d60e6f65025a794632640699539357eeebd2be571a7388",
+    "files": [
+        "index.html",
+        "r1/settings-B-dark.webp",
+        "r1/settings-B-light.webp",
+        "r1/settings-C-dark.webp",
+        "r1/settings-C-light.webp",
+        "r1/settings-current-dark.webp",
+        "r1/settings-current-light.webp",
+        "r1/shelf-A-dark.webp",
+        "r1/shelf-A-light.webp",
+        "r1/shelf-B-dark.webp",
+        "r1/shelf-B-light.webp",
+        "r1/shelf-C-dark.webp",
+        "r1/shelf-C-light.webp",
+        "r1/shelf-current-dark.webp",
+        "r1/shelf-current-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-shelf",
+            "type": "single",
+            "label": "书架页放不放场景，怎么放",
+            "options": [
+                {
+                    "value": "none",
+                    "label": "现状：不放，只跟配色"
+                },
+                {
+                    "value": "full",
+                    "label": "A：整页铺场景，上面罩一层页面底色（约 62%）"
+                },
+                {
+                    "value": "band",
+                    "label": "B：顶部通栏，往下淡出（约 380px）"
+                },
+                {
+                    "value": "corner",
+                    "label": "C：右下角一块，往左上淡出"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "full"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-settings",
+            "type": "single",
+            "label": "设置窗口放不放场景，怎么放",
+            "options": [
+                {
+                    "value": "none",
+                    "label": "现状：不放"
+                },
+                {
+                    "value": "veil",
+                    "label": "A：整窗一层淡底（约 16% 不透明度）"
+                },
+                {
+                    "value": "corner",
+                    "label": "B：左栏左下角，往右上淡出"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "veil"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T10:00:56.165Z"
+}

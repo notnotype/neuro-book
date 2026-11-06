@@ -8,7 +8,8 @@ import type {Editor} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
-import {nextTick} from "vue";
+import type {VueWrapper} from "@vue/test-utils";
+import {computed, nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
@@ -18,7 +19,9 @@ import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
-import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
+import {markdownEditingActions} from "@notnotype/nb-markdown/editor";
+
+import {EDITING_ACTIONS, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
@@ -51,6 +54,7 @@ interface Opened {
     readonly groupId: string;
     /** 窗口的翻译引擎：登记了内置插件 `nbook.markdown` 的目录，控件经它注入的端口取文字。 */
     readonly text: WindowText;
+    readonly wrapper: VueWrapper;
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
@@ -80,7 +84,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
-    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText};
+    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper};
 }
 
 /** 第 n 个顶层块里第一个文本块的末尾。 */
@@ -207,6 +211,43 @@ describe("在格式的边界打字（workbench.editor 输出 62）", () => {
 
     it("打网址与邮箱再打空格：是文字，写回时转义", async () => {
         expect(await typed("见\n", "end", [], " https://example.com 与 me@example.com 了")).toBe("见 https\\://example.com 与 me\\@example.com 了\n");
+    });
+});
+
+describe("编辑动作（workbench.markdown-editing）", () => {
+    it("句柄的动作作用于编辑器；勾选状态跟着选区变", async () => {
+        const {editor, handle} = await opened("字\n\n别的\n");
+        const editing = handle.editing!;
+        const bold = computed(() => editing.active("bold"));
+        editor.commands.setTextSelection({from: 1, to: 2});
+        expect(editing.hasSelection.value).toBe(true);
+        expect(bold.value).toBe(false);
+        expect(editing.run("bold")).toBe(true);
+        expect(bold.value).toBe(true);
+        editor.commands.setTextSelection(5);
+        expect(bold.value).toBe(false);
+        expect(editing.hasSelection.value).toBe(false);
+    });
+
+    it("只读时动作不生效，可用性为假", async () => {
+        const {wrapper, editor, handle} = await opened("字\n");
+        await wrapper.setProps({readonly: true});
+        editor.commands.selectAll();
+        const before = editor.getJSON();
+        expect(handle.editing!.enabled("bold")).toBe(false);
+        expect(handle.editing!.run("bold")).toBe(false);
+        expect(editor.getJSON()).toEqual(before);
+    });
+
+    it("目录里的每个动作都有实现", () => {
+        const missing = Object.keys(EDITING_ACTIONS).filter((id) => markdownEditingActions[id] === undefined);
+        expect(missing).toEqual([]);
+    });
+
+    it("不认识的动作不可用", async () => {
+        const {handle} = await opened("字\n");
+        expect(handle.editing!.enabled("没有这个")).toBe(false);
+        expect(handle.editing!.run("没有这个")).toBe(false);
     });
 });
 

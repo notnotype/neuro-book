@@ -32,6 +32,9 @@
         "category": "Settings",
         "open": {
             "title": "Open Settings"
+        },
+        "toggle": {
+            "title": "Toggle Settings"
         }
     },
     "state": {

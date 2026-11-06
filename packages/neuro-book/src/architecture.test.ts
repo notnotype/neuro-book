@@ -200,6 +200,14 @@ describe("包内依赖方向", () => {
         expect(KERNEL_CREATE.test('import {createInstanceTable, createApplication} from "@notnotype/nb-runtime/application";')).toBe(true);
     });
 
+    it("产品里的 Hono 应用都把错误交回分发层（Hono 缺省吞掉错误、回纯文本 500）", () => {
+        const swallowing = sourceFiles(SRC).filter((file) => !file.includes("/testing/")).filter((file) => {
+            const text = readFileSync(file, "utf8");
+            return text.split("new Hono").length !== text.split(/\.onError\(rethrowRouteError\)/u).length;
+        }).map((file) => relative(SRC, file));
+        expect(swallowing).toEqual([]);
+    });
+
     it("import.meta.glob 只出现在 Lab", () => {
         expect(globUsers(sourceFiles(SRC)).filter((file) => !globAllowed(file))).toEqual([]);
         expect(globUsers(sourceFiles(SRC))).toContain("plugins/lab/web/component-index.ts");
