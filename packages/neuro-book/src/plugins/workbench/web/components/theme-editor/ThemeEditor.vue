@@ -12,6 +12,7 @@ import {useWorkbenchText} from "../../text";
 import type {ThemeEntry} from "../../themes";
 import DraftInput from "./DraftInput.vue";
 import ThemeEditorChrome from "./ThemeEditorChrome.vue";
+import ThemeEditorIcons from "./ThemeEditorIcons.vue";
 import ThemeEditorScene from "./ThemeEditorScene.vue";
 import type {ThemeTransfer, TransferResult} from "./transfer";
 import ThemeEditorColors from "./ThemeEditorColors.vue";
@@ -39,7 +40,7 @@ const text = useWorkbenchText();
 const resolver = useText();
 const model = props.model;
 
-const SECTIONS: ReadonlyArray<EditorSection> = ["basic", "colors", "fonts", "chrome", "scene", "contrast"];
+const SECTIONS: ReadonlyArray<EditorSection> = ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"];
 
 const titleOf = (title: ThemeEntry["declaration"]["title"]): string => resolver.t(title);
 const options = computed(() => model.mine.value.map((theme) => ({label: titleOf(theme.declaration.title), value: theme.id})));
@@ -263,6 +264,7 @@ const rejectedText = computed(() => {
                     <ThemeEditorTypography v-else-if="model.section.value === 'fonts'" :model="model" />
                     <ThemeEditorChrome v-else-if="model.section.value === 'chrome'" :model="model" />
                     <ThemeEditorScene v-else-if="model.section.value === 'scene'" :model="model" :transfer="transfer" />
+                    <ThemeEditorIcons v-else-if="model.section.value === 'icons'" :model="model" :transfer="transfer" />
                     <ThemeEditorContrast v-else :model="model" />
                 </div>
             </ScrollArea>

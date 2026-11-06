@@ -353,7 +353,8 @@
             "fonts": "字体",
             "chrome": "活动栏与画框",
             "scene": "场景与取景",
-            "contrast": "对比度检查"
+            "contrast": "对比度检查",
+            "icons": "图标"
         },
         "basic": {
             "titleZh": "标题（中文）",
@@ -463,7 +464,27 @@
             "hint": "在图上拖框、拉右下角缩放；工作台里对应位置同时变化。框是示意，真实位置随窗口尺寸变。",
             "frame": "{{region}}取景框",
             "image": "场景图",
-            "regions": "取景位置"
+            "regions": "取景位置",
+            "working": {
+                "title": "工作态场景",
+                "hint": "Agent 工作中显示这一张；没有时仍用上面的场景图。使用同一份取景。",
+                "upload": "上传工作态场景",
+                "replace": "更换工作态场景",
+                "none": "这一套明暗还没有工作态场景"
+            },
+            "provider": {
+                "title": "场景提供者",
+                "hint": "由插件代码画场景图；提供者没发布或画失败时用上面的静态图。",
+                "none": "无",
+                "unpublished": "未发布"
+            },
+            "preview": {
+                "title": "预览状态",
+                "hint": "只改编辑器里的预览，不写进主题；关掉编辑器后回到真实状态。",
+                "follow": "跟随",
+                "idle": "空闲",
+                "working": "工作中"
+            }
         },
         "transfer": {
             "exported": "已导出 {{name}}",
@@ -478,6 +499,22 @@
             "titleEmpty": "标题不能为空，没有写入",
             "invalid": "这个取值写不进去：{{reason}}",
             "saveFailed": "没有保存：{{code}}，这次改动已撤回"
+        },
+        "icons": {
+            "hint": "覆盖工作台里的图标：填 lucide 的图标名（如 folder-open），再选一个 SVG。保存不等于产品里有这个图标：没用到的名字不会报错，也看不到效果。",
+            "name": "图标名",
+            "placeholder": "folder-open",
+            "add": "添加",
+            "replace": "更换",
+            "remove": "移除",
+            "choose": "选择 SVG…",
+            "copyToOther": "复制到另一套明暗",
+            "none": "这一套明暗还没有图标覆盖",
+            "list": "图标覆盖",
+            "preview": "{{name}} 的预览",
+            "failed": "上传失败：{{reason}}",
+            "nameInvalid": "图标名只收小写字母、数字与连字符",
+            "nameEmpty": "先填图标名"
         }
     },
     "editorPages": {

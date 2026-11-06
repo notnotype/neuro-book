@@ -77,6 +77,8 @@ export class ThemeEditorModel {
         return this.mine.value[0]?.id ?? null;
     });
     readonly current = computed(() => this.mine.value.find((theme) => theme.id === this.selectedId.value) ?? null);
+    /** 当前已发布的场景提供者的贡献 id（响应式：发布与撤回会更新）。 */
+    readonly sceneProviders = computed(() => this.#env.catalog.sceneProviders);
     /** 库读完了没有；没读完时不显示“还没有主题”。 */
     readonly ready = computed(() => this.#env.store.state.themes.ready);
     readonly failure = computed(() => this.#env.store.state.themes.failure);
