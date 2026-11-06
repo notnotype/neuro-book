@@ -15,7 +15,7 @@ updated: 2026-11-06
 
 ## 当前状态
 
-已合入 master。Dialog 与 FloatingWindow（设置窗口就是它）从触发点方向展开、朝同一方向收回：取最近 600ms 内的按下坐标，没有就取焦点所在的按钮、菜单项的中心，都没有就原地缩放淡入。位移是面中心到触发点距离的 18%，每轴不超过 64px，起始缩放 0.9。一次按下只算一次打开。`AlertDialog` 不接入，仍原地弹出。
+已合入 master。Dialog 与 FloatingWindow（设置窗口就是它）从触发点方向展开、朝同一方向收回：取最近 600ms 内的按下坐标，没有就取焦点所在的按钮、菜单项的中心，都没有就原地缩放淡入。开发者试过第一版（18%、最多 64px、缩放 0.9、关闭 93ms）说太小、关闭像瞬间没了，改成：起点中心离触发点只差 15%，起始缩放 0.3，入场 `--motion-layout`，退场 `--motion-enter`。一次按下只算一次打开。`AlertDialog` 不接入，仍原地弹出。
 
 代码在 `packages/nb-ui/src/components/feedback/dialog-origin.ts`，编码由 Sonnet 按主会话的设计完成，diff 主会话审过（去掉了测试专用导出，改成按下用一次就清）。
 
