@@ -1,0 +1,65 @@
+# 任务：只读核对 w00039 的 Spec 与实现（晋升 implemented 之前）
+
+仓库（只读）：/home/notnotype/CodeRepository/neuro-book，分支 master。
+代码在 packages/nb-canon、packages/nb-time、packages/neuro-book/src/plugins/canon、packages/neuro-book/src/plugins/plot。
+这几份 Spec 现在是 planned，开发者已同意晋升为 implemented。晋升后 Spec 就是“当前产品行为”的合同，所以先要查清它和代码有没有对不上。
+规则：docs/specs/README.md 的“两种成熟度，一个文件”“实现合同与证据”“完成条件”三节，先读。
+写好的例子：docs/specs/models/service.md 末尾的“实现合同”与“证据”。
+
+## 一、核对
+
+对分到的每份 Spec，逐条过：“输入与前置条件”的规则、“输出与可观察行为”的每个编号、“状态与转换”里的时序与寿命、“失败与恢复”的每个码、“验收与 Smoke”的每个场景。
+为每一条找到实现它的代码和碰到它的测试。只报告对不上的，三类：
+
+- 没实现：代码里没有这个行为或失败码。
+- 不一致：代码的行为和 Spec 的字面不同。给出两边的原文。
+- 没有测试：实现了，但没有测试碰到。
+
+要求：
+- 码和名字可能换了写法。说“没实现”之前，换几种说法搜全相关目录（包括中文注释、相近的英文词、错误对象的 code 字段），搜不到就写“在 <范围> 用 <这些词> 没搜到”。
+- 每条都给 file:line，不凭印象。给不出就不写。
+- 不评价 Spec 写得好不好，不提改进建议，不重复没问题的条目。
+- 路由层、别的 Spec 负责的码（表里写明链接到别的 Spec 的）只看本 Spec 的调用是否成立，不追到别的能力里。
+
+## 二、起草实现合同
+
+为每份 Spec 起草下面几样，只写真实存在的东西：
+
+- 公开入口：包入口与公开符号（读 package.json 的 exports 和入口文件），不列内部文件。
+- owner 与依赖方向：谁持有行为与数据，依赖谁，不依赖谁。
+- 关键不变量：不超过五条，维护者必须知道、且已有测试锁定。每条写明对应的输出编号、测试文件和用例标题（原样抄标题）。没有测试锁定的不写。
+- 证据三行：实现入口（源码路径）、合同测试（测试文件路径，写一句它用什么真实对象）、Smoke（可执行的脚本或测试路径；确实没有写“不适用——<理由>”。Spec 现在的“验收与 Smoke”最后一行已有写法，先核对它还对不对）。
+
+路径用仓库根相对路径，后面由主会话换成链接。
+
+## 规则
+
+- 只读：不修改仓库文件，不 commit、push、stash、切分支，不删文件。实验文件只放 /tmp/review-w00039-promote/ 下。
+- 可以在 packages/nb-canon、packages/nb-time、packages/neuro-book 目录里跑单个测试文件（bun test <文件>）确认行为；不跑 e2e、不起开发服务、不跑全量。
+- 不开子代理。
+- 报告是纯文本，每核实一份 Spec 就追加写入，用 cat >> 追加，不要整文件覆盖。
+- 用中文。文档不用罕见符号代替中文词（不写小节符号）。
+
+## 报告格式
+
+# <spec 路径>
+## 对不上的
+- [没实现|不一致|没有测试] 条目编号：现象。Spec 原文：“…”。代码：file:line。
+（没有就写“仔细核对后没有发现”）
+## 实现合同草稿
+- 公开入口：…
+- owner 与依赖方向：…
+- 关键不变量：…
+- 实现入口：…
+- 合同测试：…
+- Smoke：…
+
+## 已知的机检结果（只说明 grep 不到这些字符串，不等于没实现，要你判断）
+
+canon/components.md：component-exists、ambiguous-field 源码里没有；field-redeclare-mismatch 测试里没有
+canon/model.md：check-skipped、not-reduced 源码里没有；diagnostic-unavailable、diagnostic-truncated 测试里没有
+canon/project.md：unknown-outcome、target-gone 是路由层的码
+canon/rendering.md：needs-handling 源码里没有；mdx-invalid 测试里没有
+canon/revisions.md：reads-required 源码里没有；incomplete-field、field-unavailable、result-mismatch 测试里没有
+canon/time.md：time-age-disagree 测试里没有
+plot/checks.md：chapter-empty、storage-unavailable 测试里没有

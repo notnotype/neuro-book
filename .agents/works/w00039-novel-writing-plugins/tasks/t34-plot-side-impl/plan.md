@@ -1114,3 +1114,20 @@ omp 的 21 条里 17 条与 Opus 份重合、第二版已覆盖（诊断个数�
 - 实现审查连续三次在“计划在覆盖层上的结论”上找到漏项，联动戳删掉，改上游：写完以后的集合按实际模式读（`plot/knowledge.md` 输出 10）。上面“计划的联动戳”“按计划模式”的段落作废，以 `dependencies.ts` 模块头为准。
 - 摘要自身也简化了：本章的对象只放对象本身；核对点的项带挂靠变更的状态；线只放切口、触发处的位置；条目历史用数值累加。
 
+
+## 阶段 H：晋升前的核对与修正（2026-11-06）
+
+开发者说“可以晋升”后，四个 Sonnet 子代理逐条对照 13 份 Spec 与代码（报告 `evidences/promote-audit-*.txt`）：没实现约 20 条、不一致约 64 条、没有测试约 67 条。我此前说“都齐了”不成立。分支 `fix/w00039-t34-spec-promote`，worktree `.worktree/w00039-t34-promote`。做完再把 13 份改成 `implemented`。
+
+处理规则：真 bug 修代码；Spec 写错的改 Spec，取舍记进待确认清单；现在没有调用方的能力在条目末尾标“（planned）”；失败码、验收场景与有分支的行为补测试，纯转交的不补。
+
+代码要修：
+- 内核写入：回写拿旧版本的文字时把新值改回去（`value-conflict`）；`add` 超精度不拒；`set` 整段替换块不过白名单；补丁写坏图片路径的码；同一请求两个 put 用同一个临时 id；没有正文讲述的记录的排序键、补第一条讲述时改键；前史安放与出场的先后。
+- 内核渲染：类型不在时的占位；实例字段的显示名；`ref` 的显示文字；`->` 扫描跳过注释；`~~~` 围栏。
+- 内核服务：只读期间查结局答 `write-unknown`；读进别的进程的行整批换上；`status` 的重算量与耗时；参照引擎的列表元素语义档核对点（差分测试补这种输入）；待处理排序位置按比较时点。
+- 时间：带令牌的查询丢回溯点；`of` 不在线视图里不报；写在子线上的时间待处理进“带来的变化”；一年长度上限的边界；核实改分叉的 `back` 会不会让时间重算。
+- 剧情：整段 `set` 知情进本章知识点；伏笔读者阶段跨线；可能穿帮、违反写作指示附决策；隐秘目标写冲突；回收给伏笔主文字；状态变化的写法。
+
+Spec 要改（写错或写得比实现多，改后记待确认）：`check-skipped`、提示组的时间提示、活页夹提示的排序、读取输入摘要的 null、`cannot-apply` 的原因、`reads-required` 与 `read` 的形状、`id-taken`、`validation-failed` 详情表、计划不在写入时拦、`intent-not-allowed` 与 `planned-not-writable`、`component-exists` 与加回、`field-redeclare-mismatch`、切块入口、`不完整：` 的写法、归纳缓存键含显示名、发布后补算的范围、`tree` 与 `suggestions` 的参数、`not-found`、年龄算直接写了先后、年龄的不可确定、`fork-time-mismatch` 的条件、nb-story 不用 nb-time、`plan-not-visible` 全部连接、未排章的 `line-out-of-bounds`、`segment from=1`、“重建”的字面、视角过滤按读不到挡、第一次到 suspects、伏笔阶段与 `objectTouched`、前提变了、`dangling`、`povAbsent`、`flashbackMismatch`、写作指示已变、简报的 hints、部分回收、在场含被提到、裁的先后、检查的不完整。
+
+标“（planned）”：按显示名写入与 `ambiguous-field`、实例字段 id 由内核生成、三项说明的转交与 `agentView` 的渲染、预览里受影响条目的样子、文字出现处的列表、“把 A 换成 B”、`needs-handling`、回写的预览、语义档核对点起点与增元素的路由、预览标“替换只在主线”、写清单的一方保留线。

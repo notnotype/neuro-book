@@ -1,0 +1,82 @@
+# docs/specs/canon/model.md
+
+核对范围：代码在 packages/nb-canon/src、packages/nb-time/src、packages/neuro-book/src/plugins/canon、packages/neuro-book/src/plugins/plot；测试在 packages/nb-canon/tests 与应用包 canon、plot 的 *.test.ts。
+我跑过：在 packages/nb-canon 下 bun test tests/model.test.ts tests/revisions.test.ts tests/edits.test.ts tests/decisions.test.ts tests/tellings.test.ts tests/cast.test.ts tests/diagnostics.test.ts tests/differential.test.ts tests/sample.test.ts，140 个全过。另在 /tmp/review-w00039-promote/ 下写了三个实验文件（exp-a、exp-b、exp-c，bun test 运行），下面标“实验”的结论来自它们。
+
+名字换了写法、行为在且有测试的（不计入下面的条数）：
+- not-reduced：字段读取结果上是 notReduced、unreduced（packages/nb-canon/src/engine/views.ts:123，tests/model.test.ts:124、tests/service.test.ts:276）。
+- diagnostic-unavailable：待处理页的 unavailable 列表加 complete: false（packages/nb-canon/src/service/service.ts:400-416、:360；tests/diagnostics.test.ts:111、:175）。
+- diagnostic-truncated：待处理页的 truncated 列表加 complete: false（service.ts:417、diagnostics.ts:69；tests/diagnostics.test.ts:93）。
+- 这三个码的字面在 packages/nb-canon/src/service 之外没有出现，只在 service/diagnostics.ts 的内部 note 类型里。
+
+## 对不上的
+- [没实现] 失败表 check-skipped / 输出 11 “只在诊断里记‘无法核对’”：行为在（地址不完整时不比较、不成待处理），但没有名为 check-skipped 的诊断；“无法核对”只作为来历的一步 result: "skipped" 出现。Spec 原文：“地址在比较时点不完整时不比较，只在诊断里记‘无法核对’，不成待处理”。代码：packages/nb-canon/src/engine/reference.ts:125、engine/types.ts:110、engine/incremental.ts:116。在 packages/nb-canon/src、neuro-book/src/plugins/{canon,plot} 用 check-skipped、skipped、无法核对 搜，除来历步骤外没搜到别的出口（待处理、提示、读取结果的 FieldState 里都没有）。
+- [没实现] 输出 16 提示组里“时间的提示”：Spec 原文：“提示：讲述失联、原句重复、标注与 Component 的版本与类型不在……、世界线的提示、时间的提示、插件的诊断”。代码里提示组只有 telling-lost、duplicate-quote、mark-*、component-*、binder-line-*、telling-line-mismatch、diagnostic-duplicate-key（packages/nb-canon/src/service/pending-groups.ts:25-35、:110）。在 packages/nb-canon/src/time、src/service 用 hint、提示、time-age 搜，只有 time/queries.ts:76 的查询结果里的 time-age-disagree，不进提示组。
+- [不一致] 输出 16“没有安放的提示以那一段所在章的开头为排序位置”：代码按那一段的起讲段号排，不是章开头。Spec 原文：“没有安放的提示（活页夹一段的提示）以那一段所在章的开头为排序位置”。代码：packages/nb-canon/src/service/pending-groups.ts:187 `[1, index, 1, segment.from, 0]`（落在“带讲述发生点的项”那一层，第 segment.from 段）。
+- [不一致] 输出 16“核对点取比较时点”作排序位置：核对点挂的变更待定、已撤销或套不上时，比较时点回到 place（输出 11），但排序位置仍用挂靠变更的安放。Spec 原文：“项的排序位置：只涉及一件事的项取它的安放（核对点取比较时点）”。代码：packages/nb-canon/src/service/pending-groups.ts:120-121 `anchored ?? check?.place`，不看挂靠变更有没有套上。从代码推断，未单独实验。
+- [不一致] 输出 36“calendar: 生效的历法……的 SHA-256 或 null、fuzzy: 模糊词表……或 null”：代码永远算摘要，没有 null 分支（没给设置时用内置的 DEFAULT_TIME 算）。代码：packages/nb-canon/src/service/reads.ts:325-326。
+- [不一致] 失败表 cannot-apply“带原因（entry-missing、element-missing、type-mismatch、unknown-value、constraint-violated、number-out-of-range）与根因”：待处理项里只有 root 与 changes，没有原因；原因要另按每条变更查 outcome。代码：packages/nb-canon/src/engine/types.ts:117、packages/nb-canon/src/world/world.ts:286。
+- [不一致] 输出 9、11“语义档的起点：……最近一个比较位置不晚于它的核对点”在列表元素的语义档子字段上：增量引擎（产品用）把核对点写成起点，整本重算的参照实现不写，两边回答不同。实验 exp-c：同一份输入，参照实现读到 “冷淡”，增量引擎读到 “3”。Spec 字面与增量引擎一致，参照实现不符。代码：packages/nb-canon/src/engine/reference.ts:415（`parsed.element !== undefined` 直接返回）对比 packages/nb-canon/src/model/apply.ts:420-430（replayAnchor 处理 element、sub）。差分测试没有生成这种核对点，所以没有发现。
+
+- [没有测试] 输出 14“按名字找条目不返回尚未出场的条目”：实现在 packages/nb-canon/src/service/service.ts:765（`!view.appeared`）；tests/service.test.ts:137-152 的 lookup 断言只验版本与删除前后，没有带 appears 的条目。
+- [没有测试] 输出 8“跨字段约束（max 引用另一个字段）不满足时，标的是被约束的字段”：实现 packages/nb-canon/src/model/apply.ts:379-392 与 :120-125；测试里 max 只出现在声明（tests/components.test.ts:15），没有断言违反 max 的结果。
+- [没有测试] 输出 7、失败表 cannot-apply 的原因 type-mismatch 与 number-out-of-range（补丁套用层，packages/nb-canon/src/model/apply.ts:104、:306、:314）：engine.outcome 的断言只覆盖 entry-missing、element-missing、unknown-value、constraint-violated（tests/model.test.ts:40、:165、:166、:253）；这两个原因只被差分测试随机碰到，没有断言。
+- [没有测试] 输出 11“地址不完整时不比较、不成待处理”与“核对点所在条目已删除时不比较、不成待处理”：实现 packages/nb-canon/src/engine/reference.ts:111、:125；tests 里没有 skipped、已删除条目带核对点的断言。
+- [没有测试] 边界与兼容“对象里未知的字段原样保留，不丢弃，不报错”：实现靠 TypeBox 对象不禁额外键（packages/nb-canon/src/core/schema.ts）；在 packages/nb-canon/tests 与应用包 canon 测试里用 未知的字段、原样保留 搜没有对应用例。
+- [没有测试] 验收场景 6 删章：只有 tests/model.test.ts:278 断言 chapter-deleted 的排序与读取不在章序里的章得 chapter-not-found；“第 3 章以后的值相应变化”“把它们挪到第 3 章后待处理消失”没有断言（差分测试随机改章序，只比两个引擎一致）。
+- [没有测试] 输出 23 的几条约束：马甲不嵌套（被指向的条目自己有 sameAs）、sameAs 指向自己、父条目已删除、非自指的成环。实现 packages/nb-canon/src/world/world.ts:1217-1235；测试只有 tests/revisions.test.ts 的 parent 指向自己与 sameAs 指向已删除条目（:176、invalid-tree 的 parent: e1 一项）。
+- [没有测试] 输出 17、状态与转换“正文建议”：写入、读取（service.suggestions）、状态值都没有用例，只有 tests/diagnostics.test.ts:157 断言 suggestionsOpen 为 0。实现 packages/nb-canon/src/service/service.ts:815（suggestions 方法）。
+
+## 实现合同草稿
+- 公开入口：`@notnotype/nb-canon`（packages/nb-canon/package.json 的 exports "."）：对象与写入请求的 schema 与类型、`World`（发布、预览、还原、章序调整、就地改）、两个引擎 `createReferenceEngine` 与 `createIncrementalEngine`、`ChapterOrder` 与位置函数、`buildRegistry`、`buildMarkRegistry`、`buildDiagnosticRegistry`、`canonicalJson`、`authorizationBinds`、`editInPlace`、`recordDelta`；`@notnotype/nb-canon/schema`（只有 schema 与类型，另有 `PendingPage`、`CanonReadView`、`Finding`、`DiagnosticCompute` 等读取侧类型）；`@notnotype/nb-canon/node`（`WorldService`、`createReadView`、`pageOf`、`readStampOf`、日志存储）。应用侧：`nbook/plugins/canon/shared/contracts`（`canonWorldContract`、`canonClientKey`、`canonProjectKey`、`CANON_DIAGNOSTICS_POINT`、`CANON_MARKS_POINT`）。
+- owner 与依赖方向：packages/nb-canon 持有对象形状、计算与诊断的处理；packages/neuro-book/src/plugins/canon 是宿主，注入文件、锁、时钟、摘要、作者来源校验，并把世界服务经远程合同交给浏览器与别的插件；packages/neuro-book/src/plugins/plot 经 `canonProjectKey` 登记诊断。nb-canon 依赖 `@notnotype/nb-time`、TypeBox 与 MDX 解析链，不依赖 neuro-book；主入口不引用 node:* 与 bun:*（packages/nb-canon/tests/architecture.test.ts）。
+- 关键不变量（不超过五条）：
+  - 增量引擎与整本重算对同一份输入的每个回答逐字相同，一次读取总等于在这份读取输入上从头计算（输出 5 到 13、36）。测试 packages/nb-canon/tests/differential.test.ts 的“差分：增量更新与整本重算逐字相同”下 `种子 %d，60 步`（模板 `种子 ${steps} 步`）与“序列里套不上的变更足够多（至少 10%），翻转与传染的路径走到了”；packages/nb-canon/tests/service.test.ts“同一份读取输入两次读取，戳逐字相同；重开后同样的日志与正文得到同样的戳”。注：差分生成器没有列表元素语义档的核对点（见上面的不一致）。
+  - 一条剧情变更整条套上或整条不套，套不上的地址从它的位置起不完整，赋值后恢复（输出 7、8）。测试 packages/nb-canon/tests/model.test.ts“一边破了下限，整条不算数，两人的存款都不变，从这里起不完整，赋值后恢复”。
+  - 全序与读取位置：初值、前史、第 N 章开头各不相同；同键时按版本再按 id 数值部分（输出 2）。测试 tests/model.test.ts“读初值是原来的值，读第 1 章开头已套上前史”；tests/core.test.ts“按数值部分比较，c9 在 c10 之前”。
+  - 讲述的发生点不存，读取时按当前正文算；失联进提示不进待处理，原句回来后重新生效（输出 24、26）。测试 packages/nb-canon/tests/tellings.test.ts“作者删掉原句：讲述失联并提示 telling-lost，不在读过的里；改回这句，按新正文重新生效”。
+  - 决策状态只由修订改变，转成已定与已定里的修改要宿主签发的作者来源（输出 31、32）。测试 packages/nb-canon/tests/decisions.test.ts“建议标作者未确认；不带来源转成已定被拒；带来源转成已定；之后 Agent 改约束被拒；作者带来源重新打开”。
+- 实现入口：packages/nb-canon/src/index.ts（模型与计算的出口）；计算在 packages/nb-canon/src/model/apply.ts、packages/nb-canon/src/engine/incremental.ts；读取在 packages/nb-canon/src/service/service.ts。
+- 合同测试：packages/nb-canon/tests/model.test.ts（用 WorldBuilder 拼出的真实世界数据，同一组用例对参照与增量两个真实引擎各跑一遍）；另有 tests/tellings.test.ts、tests/cast.test.ts、tests/decisions.test.ts、tests/diagnostics.test.ts（用真实 World 与 WorldService，诊断经真实登记与计算）。
+- Smoke：不适用——本能力没有独立的运行入口，由 canon.project 的 Smoke 一并覆盖。现有写法仍对：project.md 的 Smoke 行列的 packages/nb-canon/tests/sample.test.ts、tests/node-log.test.ts、packages/neuro-book/src/plugins/canon/two-process.test.ts、packages/neuro-book/scripts/perf/canon-scale.ts 都存在，前三个里 sample.test.ts 已跑过全过。
+
+
+# docs/specs/canon/revisions.md
+
+实验说明：下面标“实验 E1、E2、E4、E5、E6、E8”的在 /tmp/review-w00039-promote/exp-a.test.ts、exp-b.test.ts，用 packages/nb-canon 的真实 World 与 editInPlace 跑。
+
+## 对不上的
+- [没实现] 输出 19“就地改、记一笔与回写必须带 reads；缺了拒收（reads-required）”：没有 reads-required；就地改的输入是 `read: {value, version}`，不是 Spec 写的 `{地址, 读取位置, 值, 来历}`；WriteRequest 上的 `reads` 字段可选且发布流程不读它（只在换临时 id 时遍历）。Spec 原文：“就地改、记一笔与回写必须给（输出 19）：读到的 `{地址, 读取位置, 值, 来历}`”。代码：packages/nb-canon/src/world/edits.ts:24、packages/neuro-book/src/plugins/canon/shared/contracts.ts:36（`Read`）、packages/nb-canon/src/core/schema.ts:368、packages/nb-canon/src/world/references.ts:291。在 packages/nb-canon/src 与 plugins/canon 用 reads-required、reads 搜，只有这几处；缺 read 时是远程合同的输入校验失败（具体失败码未验证）。
+- [没实现] 失败表 ambiguous-field（validation-failed 详情里列了）：写入请求里按显示名解析字段、重名时拒收，整个没有。Spec 原文：“ambiguous-field”（在 validation-failed 的详情码里）；对应 components.md 输出 8“写入请求里的字段可以写 id 或显示名，按当前声明解析成 id 后存下”。代码：在 packages/nb-canon/src、packages/neuro-book/src/plugins/canon、plugins/plot 用 ambiguous、显示名、按 label 找字段 搜没搜到（label 只用于渲染与生成实例字段 id，components/registry.ts:158）。
+- [没实现] 输出 8“结果另外列出：被改的那段文字在初值或别的变更里也原样出现的地方”：只列了“后面改过同一地址的记录”。代码：packages/nb-canon/src/world/edits.ts:40、:137、:200（结果只有 laterRecords）。在 packages/nb-canon/src、plugins/canon 用 laterRecords、elsewhere、alsoAppears、原样出现 搜，没有第一项。
+- [没实现] 输出 10“写入时可以把长文本或一块写成‘把 A 换成 B’”：只有一个导出的纯函数 replaceOnce，写入请求、世界服务、远程合同里都没有“把 A 换成 B”的写入形式，也没有调用方。代码：packages/nb-canon/src/world/edits.ts:157、packages/nb-canon/src/index.ts:41；在 packages/nb-canon/src、packages/neuro-book/src 用 replaceOnce、replace-not 搜，只有这个函数与它的测试（packages/neuro-book/src/backend/locked-replace.ts 里的同名函数是另一回事）。
+- [没实现] 输出 18“给已有记录补上第一条正文讲述时，排序键改为这处讲述的位置，并写进带来的变化”：排序键只在新记录没带 key 时补（fillDefaults），已有记录的 key 不动。实验 E4：已有变更 key 为 100，补上第一条正文讲述（原句在章里位置 5）后 key 仍是 100。代码：packages/nb-canon/src/world/world.ts:1090-1094。在 packages/nb-canon/src/world 用 第一条正文讲述、at.key 搜，没有改写已有 key 的代码。
+
+- [不一致] 输出 3“新写、改过、或从待定转为生效的生效剧情变更，在它的安放上能套上”：计划（kind 为 plan、生效）不查。实验 E1：同一条 add −5000（会让存款低于下限 0）的变更，写成 written 得到 constraint-violated，写成 plan 发布成功。代码：packages/nb-canon/src/world/world.ts:1339（`change.kind !== "written" || ... continue`）、:1352（detail 只有实际模式的事件才有，engine/incremental.ts:538）。
+- [不一致] 输出 3“引用的条目存在、没删除，在剧情变更的安放上已出场”：计划不查出场（同 world.ts:1339 之后才查）；前史安放之间也不比先后（条目出场在前史 5、变更在前史 2 时不拒）。实验 E2：条目出场在第 3 章，写在第 1 章的 written 得到 not-appeared，同样内容的 plan 发布成功；前史 2 上的变更引用出场在前史 5 的条目发布成功。代码：packages/nb-canon/src/world/world.ts:1339、:1346-1348（前史的 appearsRank 与 changeRank 都是 −1）。
+- [不一致] 输出 3“新 id 不与已有的重复”（id-taken）：代码的 id-taken 只在对象自带的 id 与 ref 的 id 不一致时报；临时 id 一律换成新号，重复的情形不会出现；同一请求里两个 put 用同一个 tmp id 被接受（实验 E8，没拒收）；非 tmp 的不存在的 id 报 not-found，这个码 Spec 表里没有（实验 E8 得到 not-found）。Spec 原文：“新 id 不与已有的重复”。代码：packages/nb-canon/src/world/world.ts:516、:478。
+- [不一致] 失败表 validation-failed 的详情码：代码还会给表里没有的 not-found（world.ts:478）、unknown-value（world.ts:1355，取 detail.reason，补丁对未知值做加减）、carried-value（edits.ts:109）；以及 components 的 component-unknown、component-version-unsupported、field-redeclare-mismatch（world.ts:1241-1255，Spec 的这张表没列，components.md 里有）。Spec 原文：“validation-failed ｜ 校验不过，详情逐条列出（entry-missing、not-appeared、……、invalid-transition，以及 canon.rendering 的 MDX 问题与 canon.worldlines 的线的问题）”。
+- [不一致] 输出 5“预览……返回校验结果、带来的变化，以及受影响的条目在这次写入所在章末尾（没有章时在缺省读取位置）的样子”：预览只返回修订（含 impact.values 的地址级改前改后）、ids、线结构的 blast，没有受影响条目在那个位置的样子。代码：packages/nb-canon/src/service/service.ts:859-864、packages/neuro-book/src/plugins/canon/backend/remote.ts:107-120、shared/contracts.ts:292-296。
+- [不一致] 输出 8 路由表“某条变更的赋值、整段替换、增元素、增块 → 创作修改改那条变更里的那个补丁（增元素、增块改的是它带的值）”：增元素没有处理，被拒成 accumulated-value。实验 E6：listAdd 加进来的元素，改它的子字段 label，得到 accumulated-value（来历最后一步是 listAdd）。代码：packages/nb-canon/src/world/edits.ts:119-125（只处理 set、replaceBlock、addBlock）。
+- [不一致] 输出 8 路由表“语义档（起点加事件）→ 创作修改改起点（初值、那次赋值或那个核对点给的起点）；有事件时拒收”：起点由核对点给出、没有事件时也被拒成 accumulated-value，不改核对点。实验 E5：核对点给出起点 5，创作修改成 6 得到 accumulated-value。代码：packages/nb-canon/src/world/edits.ts:110（`last.kind === "check"` 一律拒）。
+- [不一致] 输出 8“读取位置是初值或按计划模式时不接受剧情变化（intent-not-allowed）”：只有初值报 intent-not-allowed；就地改与记一笔的输入没有模式参数，按计划模式的概念只在回写里，报的是另一个码 planned-not-writable。代码：packages/nb-canon/src/world/edits.ts:80、packages/neuro-book/src/plugins/canon/shared/contracts.ts:155-176（editInPlace、recordDelta 无 mode）、packages/nb-canon/src/render/writeback.ts:177。
+- [不一致] 输出 18“没有正文讲述的，排在本章最前（……最小的键减一）或最后（……最大的键加一），写入时算好存下”：发布路径上没有正文讲述的新记录，键取 0，不是本章最前或最后；最小键减一、最大键加一只在就地改里（keyAt）实现。实验 E4：本章已有键 100，新记录无讲述得到 key 0。代码：packages/nb-canon/src/world/world.ts:1094、:1131；对比 packages/nb-canon/src/world/edits.ts:54-61。
+
+- [没有测试] 失败表 incomplete-field、field-unavailable、result-mismatch，以及输出 8 路由表的语义档、值不完整、命名空间不可用三行：实现 packages/nb-canon/src/world/edits.ts:71、:102、:110-111、:115、:135、:150；tests/edits.test.ts 只覆盖表里的“只有初值”“变更里的赋值”“几笔累出来的数”三行与 intent-not-allowed、value-conflict、记一笔。
+- [没有测试] 输出 8“后面改过同一地址的记录”（laterRecords）：实现 packages/nb-canon/src/world/edits.ts:200-216；packages/nb-canon/tests、plugins/canon 的测试里没有断言它。
+- [没有测试] 输出 14 的“能按章、按写入者筛”与“能不能还原（不能的给原因：有依赖、章序调整）”的摘要：实现 packages/nb-canon/src/service/service.ts:825-845；tests/service.test.ts:463 只测按条目筛。
+- [没有测试] 边界与兼容“修订里未知的字段原样保留；新增的 what 种类对旧读者显示为‘其它’”：实现靠 packages/nb-canon/src/core/schema.ts 里 `what: Text` 与对象不禁额外键；没有用例。
+- [没有测试] 失败详情 id-taken（输出 3）：实现 packages/nb-canon/src/world/world.ts:516；没有用例（见上面的不一致）。
+
+## 实现合同草稿
+- 公开入口：`@notnotype/nb-canon`：`World`（`publish`、`preview`、`revert`、`previewRevert`、`reorder`、`dependents`、`requested`）、`WriteRequest` 与 `Revision` 的 schema 与类型（`WriteRequestSchema`、`RevisionSchema`）、`WriteFailure`、`WriteResult`、`editInPlace`、`recordDelta`、`replaceOnce`、`authorizationBinds`、`requestDigest`、`fieldsDigest`、`signedContent`；`@notnotype/nb-canon/node`：`WorldService`（`publish`、`preview`、`revert`、`editInPlace`、`recordDelta`、`outcome`、`revisions`）。应用侧：`nbook/plugins/canon/shared/contracts` 的 `canonWorldContract`（方法 publish、preview、revert、editInPlace、recordDelta、outcome、revisions）。
+- owner 与依赖方向：packages/nb-canon 的 `World` 持有写入校验、冲突、带来的变化、还原与依赖、作者授权的核对；`WorldService` 持有排队、落盘与独占（canon.project）；宿主（packages/neuro-book/src/plugins/canon）注入时钟、摘要、作者来源的签名校验与项目标识，并签发来源。nb-canon 只校验授权、不签发；不依赖 neuro-book。
+- 关键不变量（不超过五条）：
+  - 一个写入请求要么整个发布、版本加一，要么整个拒收、世界不变、不占版本号；跨条目的修改在同一次修订里（输出 1）。测试 packages/nb-canon/tests/revisions.test.ts“失败的请求不改世界、不占版本号”“临时 id 换成正式 id，新建存整份；转账两边在一次修订里”。
+  - 版本冲突按对象判，没被改过的对象即使世界版本前进了也不冲突（输出 7）。测试 tests/revisions.test.ts“两人同时改：改过的对象报冲突并给出当前值，没改过的对象不冲突”。
+  - 同一个请求 id 最多发布一次，内容不同拒收，重放日志后同样成立，重放得到的世界与发布出来的相同（输出 16）。测试 tests/revisions.test.ts“同一个请求 id 再提交返回第一次的结果，不多出修订；内容不同得到 request-id-reused；重放后照样”“重放日志得到与发布出来相同的世界”。
+  - 还原是发布一次补偿修订；有依赖时不单独还原，连同依赖一起还原时从后往前补偿，补偿本身可以再还原（输出 11、12）。测试 tests/revisions.test.ts“还原新建条目的修订：后面引用了它的修订是依赖，不单独还原；连同依赖一起还原后都消失，再还原补偿又回来”。
+  - 作者来源由内核比对 binds，不信宿主的校验结果；出处 `source` 只由内核在接受授权时写，请求里改它拒收（输出 21）。测试 packages/nb-canon/tests/decisions.test.ts“签名校验对什么都答通过时，挪到另一条决策照样被拒：binds 是内核比的；没有校验时一律不通过；用不上的、重复的授权都拒收”“请求里改了出处：source-not-writable；取出重新打开后的整份对象只改候选写回：不要来源，出处不变”。
+- 实现入口：packages/nb-canon/src/world/world.ts（发布、预览、还原、依赖、章序调整）；就地改在 packages/nb-canon/src/world/edits.ts；作者授权在 packages/nb-canon/src/world/authorization.ts。
+- 合同测试：packages/nb-canon/tests/revisions.test.ts（用真实 World 与真实 Component 登记，读取与发布走同一条路径，日志靠真实重放）；packages/nb-canon/tests/edits.test.ts、tests/decisions.test.ts（真实 World，授权用真实的 authorizationBinds 与注入的签名校验函数）。
+- Smoke：不适用——本能力没有独立的运行入口，由 canon.project 的 Smoke 一并覆盖。现有写法仍对：project.md 的 Smoke 行列的文件都存在（packages/nb-canon/tests/sample.test.ts 我跑过，通过；两个实例写同一份日志的 packages/neuro-book/src/plugins/canon/two-process.test.ts 未跑）。

@@ -47,7 +47,7 @@ owners:
 | `chapter` | 可选，这次写入关于哪一章 |
 | `baseVersion` | 写入者读到的版本 |
 | `puts` | 一组 `{ref: {kind, id}, after}`：对象的新值，`after` 为空表示删除（哪些对象能删见输出 20）；新建对象的 id 由程序生成，请求里用临时 id，发布后给出对照 |
-| `reads` | 就地改、记一笔与回写必须给（输出 19）：读到的 `{地址, 读取位置, 值, 来历}` |
+| `reads` | 可选，读到的值，随修订存下，不参与校验（就地改、记一笔与回写的要求见输出 19） |
 | `notes` | 可选，附注（例如记账时“没建条目”的名字） |
 | `authorizations` | 可选，这次请求里需要作者来源的决策转换与修改各一项：`{decision, transition, source}`（输出 21） |
 
@@ -65,11 +65,11 @@ owners:
 1. **原子发布。** 一个写入请求要么整个发布、版本加一，要么整个拒收、世界不变。跨条目的修改（转账两边）在同一次修订里。
 2. **存改前与改后。** 新建存整份新值，删除存整份旧值，修改只存变了的叶子的改前与改后；命名空间里的值带类型版本。
 3. **写入时校验。** 发布前在当前世界上检查，任何一项不过就整次拒收（`validation-failed`），详情逐条列出（码、对象、路径、说明）：
-   - 引用的条目存在、没删除，在剧情变更的安放上已出场；剧情变更对命名空间的数据字段打补丁时，它在安放上已启用、没去掉（`启用` 字段本身、初值与创作修改不受限）；
-   - 字段在声明里、值的类型与范围对得上（[`canon.components`](components.md) 输出 14、15）；新 id 不与已有的重复；
+   - 引用的条目存在、没删除，已写的剧情变更在它的安放上已出场（前史的安放之间也比先后）；剧情变更对命名空间的数据字段打补丁时，它在安放上已启用、没去掉（`启用` 字段本身、初值与创作修改不受限）；
+   - 字段在声明里、值的类型与范围对得上（[`canon.components`](components.md) 输出 14、15）；同一个对象（含同一个临时 id）在一次请求里只写一次（`id-taken`）；写的对象不存在又没用临时 id 时拒收（`not-found`）；
    - 条目树与身份同一的约束（[`canon.model`](model.md) 输出 23）；`lines` 指向剧情线条目；
    - 连接与种类对得上：`fulfills` 只能从已写变更指向计划；`replaces`、`splitFrom` 只能从计划指向计划，`splitFrom` 的 `by` 是一条指向同一计划的 `fulfills` 变更；不能指向自己；`replaces` 不成环，一个计划同时最多被一个生效的计划替代；
-   - 新写、改过、或从待定转为生效的生效剧情变更，在它的安放上能套上（含约束，在一条变更的补丁全部套完之后检查）；
+   - 新写、改过、或从待定转为生效的已写剧情变更，在它的安放上能套上（含约束，在一条变更的补丁全部套完之后检查）。计划不查这一项与上面的出场：套不上的按计划模式进待处理（[`canon.model`](model.md) 输出 16）；
    - 来源为正文的讲述（含条目的 `retold`），原句确实在那一章的正文里（正文由宿主提供，[`canon.project`](project.md) 的输入）；
    - 每个数有依据：讲述里的原文（原句存在，且按中文与阿拉伯数字的常规读法能从原文里读出这个数，加减取绝对值）、由某个核对点推出的差额（程序复算相等）、作者给的，或补丁上标“估计”；都没有就拒收；
    - 主 MDX 的每一块过白名单，块的规则成立（[`canon.rendering`](rendering.md) 输出 1 到 3）；
@@ -77,7 +77,7 @@ owners:
    - 新写或改过的引用（[`canon.components`](components.md) 输出 18，`ref-invalid`）、标注（[`canon.model`](model.md) 输出 28，`mark-kind-unknown`、`mark-version-unsupported`、`mark-invalid`）、参与者（同一 Spec 输出 29，`invalid-cast`）、叙述（输出 30，`narration-with-patches`、`narration-without-telling`）、决策挂的对象（输出 33，`invalid-about`）与决策的转换（“状态与转换”，`invalid-transition`）都合乎规则；
    - 需要作者来源的决策转换与修改带了来源、来源校验通过（输出 21；缺来源与来源不对不归入 `validation-failed`，见失败表）。
 4. **对后面的影响。** 这次写入让后面已有的剧情变更套不上的，不拒收，列进预览与带来的变化（“这次修改会让第 7 章的 2 条套不上”），这些问题记在这次修订名下（它们的根因，[`canon.model`](model.md) 输出 22），可以直接还原它。
-5. **预览。** 对写入请求做输出 3、4、6 的全部计算，不发布：返回校验结果、带来的变化，以及受影响的条目在这次写入所在章末尾（没有章时在缺省读取位置）的样子。预览只对它基于的版本有效。在同一份读取输入（[`canon.model`](model.md) 输出 36）上，预览算出的带来的变化与随后发布存下的逐字相同（语义档的归纳文字除外）；中间有别的修订发布或读取输入变了，以发布时算出并存下的为准。
+5. **预览。** 对写入请求做输出 3、4、6 的全部计算，不发布：返回校验结果与带来的变化。受影响的条目在这次写入所在章末尾（没有章时在缺省读取位置）的样子（planned）。预览只对它基于的版本有效。在同一份读取输入（[`canon.model`](model.md) 输出 36）上，预览算出的带来的变化与随后发布存下的逐字相同（语义档的归纳文字除外）；中间有别的修订发布或读取输入变了，以发布时算出并存下的为准。
 6. **带来的变化。** 发布时计算并存进修订：在哪（结构化的位置：章 id、开头或末尾）；这次让哪些待处理消失、新出现了哪些；相关地址（条目 id 加路径）在这次写入所在位置的改前与改后的值（语义档已归纳时写归纳的文字；还没归纳时写起点与之后事件的条数 `{notReduced: true, anchor, events}`，不写拼起来的全文：全文随事件变长，每次修订存一份会让日志随章数按平方变大）；让后面哪些记录套不上。只存结构化的位置与地址，章名、条目名、字段显示名在显示时按当时的章序与声明格式化。回执、保存后的提示、改动记录都读存下来的这一份，不重算这些值。待处理的增减只算本能力自己的待处理（[`canon.model`](model.md) 输出 16 里插件的诊断与提示不算），按实际模式。
 7. **版本冲突。** `puts` 里的对象在 `baseVersion` 之后被别的修订改过（新建、修改或删除），整次拒收（`version-conflict`），详情列出这次请求涉及的全部对象，标出哪些被改过、它们现在的值。没被改过的对象不算冲突，即使世界版本已经前进了。
 8. **就地改。** 调用方给出读取位置、地址、新值、读到的值与来历，以及意图（缺省为创作修改）。发布前重算这个位置的值，与读到的不同就拒收（`value-conflict`）。按来历的形状路由：
@@ -85,17 +85,18 @@ owners:
    | 这个值来自 | 创作修改写回 | 剧情变化 |
    |---|---|---|
    | 只有初值 | 改初值 | 在这个位置新记一条变更 |
-   | 某条变更的赋值、整段替换、增元素、增块（之后没有加减、事件） | 改那条变更里的那个补丁（增元素、增块改的是它带的值） | 同上 |
+   | 某条变更的赋值、整段替换、增块（之后没有加减、事件） | 改那条变更里的那个补丁（增块改的是它带的值） | 同上 |
+   | 某条变更的增元素带的值 | 拒收（`accumulated-value`）；改那个补丁带的值（planned） | 同上 |
    | 初值或赋值之后又有加减（几笔累出来的数） | 拒收（`accumulated-value`），详情给出来历；改其中某一笔，或记一笔 | 记一条加减（新值减读到的值） |
-   | 语义档（起点加事件） | 改起点（初值、那次赋值或那个核对点给的起点）；有事件时拒收（`accumulated-value`） | 记一条赋值，成为新的起点 |
+   | 语义档（起点加事件） | 改起点（初值或那次赋值给的起点）；有事件时拒收（`accumulated-value`）；起点由核对点给出时拒收（同一码），改那个核对点（planned） | 记一条赋值，成为新的起点 |
    | 值不完整 | 拒收（`incomplete-field`） | 只接受赋值 |
    | 命名空间没启用、已去掉、只读或类型不在 | 拒收（`field-unavailable`） | 同左 |
 
-   - 剧情变化落在读取位置：开头位置落在本章最前，末尾位置落在本章最后；读取位置是初值或按计划模式时不接受剧情变化（`intent-not-allowed`）。
+   - 剧情变化落在读取位置：开头位置落在本章最前，末尾位置落在本章最后；读取位置是初值时不接受剧情变化（`intent-not-allowed`）。就地改与记一笔读的是实际模式；按计划模式读到的块不能回写（[`canon.rendering`](rendering.md) 输出 12）。
    - 发布后的值不等于调用方给的新值时整次拒收并说明原因（`result-mismatch`，例如“你改的那一笔是 +10，差额是 −800”）。
-   - 结果另外列出：被改的那段文字在初值或别的变更里也原样出现的地方（由调用方决定要不要一起改），以及后面改过同一地址的记录（加减的会跟着变，赋值与整段替换的不会，要看一眼）。
+   - 结果另外列出后面改过同一地址的记录（加减的会跟着变，赋值与整段替换的不会，要看一眼）；被改的那段文字在初值或别的变更里也原样出现的地方（由调用方决定要不要一起改）（planned）。
 9. **记一笔。** 给出读取位置、数值字段、增减、原因与读到的值：等于意图为剧情变化的一次加减，落在这个位置。
-10. **文字替换。** 写入时可以把长文本或一块写成“把 A 换成 B”：A 在当时的值里必须恰好出现一次，程序替换后存全文；没找到得 `replace-not-found`，出现多次得 `replace-not-unique`。
+10. **文字替换。** 公开函数 `replaceOnce` 把长文本或一块里的 A 换成 B：A 在当时的值里必须恰好出现一次；没找到得 `replace-not-found`，出现多次得 `replace-not-unique`。写入请求里直接写成“把 A 换成 B”（planned）。
 11. **还原。** 还原一次修订，是发布一次补偿修订：把它改过的对象与字段恢复成改前的值；它新建的对象真正删除；没有 id 的数组里它新加的元素，只移除这些元素（改之后的数组以改之前的为开头，多出来的就是它加的），别的元素保持现状。补偿修订本身也能还原（等于重做）。还原后重算，后面因此套不上的进待处理，根因是这次补偿修订。整章撤销就是还原那一章的记账修订；作者在本章自己记的一笔是别的修订，不在内。
 12. **依赖。** 后面的修订满足任一条，就依赖被还原的修订：改过同一个地址，或其中一个地址是另一个的前缀（状态到字段、列表元素与子键，记录到字段）；在引用位置上（[`canon.components`](components.md) 输出 18）引用了它新建的对象（条目、剧情变更、决策、世界线），或改过它新建的列表元素、讲述；与它的记录属于同一组兑现（[`canon.model`](model.md) 输出 13）。只往没有 id 的数组里加元素的修改互不依赖。跨世界线的依赖见 [`canon.worldlines`](worldlines.md)。依赖取传递闭包。有依赖时不单独还原，拒收（`has-dependents`），详情从新到旧列出依赖的修订；调用方可以请求把它们连同这次一起还原，程序从后往前算补偿，作为一次修订发布。不会覆盖后面的修改。
 13. **章序调整。** 宿主给出的章序与世界里最近一次记下的不同时，世界发布一次 `reorder` 修订，操作是 `{kind: "chapters", before, after}`。打开时重放到它，记下这份章序；计算按宿主当前给的章序。它不能单独还原（`not-revertable`）：章序的真相在活页夹，改章序在活页夹里改。
@@ -104,7 +105,7 @@ owners:
 16. **请求 id。** 同一个世界里，带同一个 `requestId` 的写入请求最多发布一次：再次提交时不重复发布，返回第一次的结果（修订 id、版本、id 对照）；内容与第一次不同（按 `requestDigest` 判，重开项目后同样）时拒收（`request-id-reused`）。调用方可以按 `requestId` 查这次写入有没有发布、发布成了哪次修订（[`canon.project`](project.md) 的 `outcome`）。
 17. **待定转生效。** 处理待处理时把一条待定的剧情变更改成生效，按新写的生效变更完整校验（输出 3）；不过就整次拒收。同一次修订可以同时改它的补丁与 `held` 说明。
 18. **排序键。** 前史的变更没给 `order` 时，按它的时间范围的最早时间排进已有前史（[`canon.time`](time.md) 输出 7）：插在按 `order` 排的前史里、最后一件有绝对的最早时间且不晚于它的那件之后；比可比的都早，插在最早的那件可比的之前；它自己没有绝对的最早时间，或已有前史里没有可比的，放在前史最后；`order` 取相邻两处前史安放（变更、核对点与出场）的中数，中数不严格落在两者之间（数用尽了）时拒收（`invalid-time`），要写入者显式给 `order`。写入请求没给排序键时，程序按第一条正文讲述的原句在本章第一次出现的位置算；没有正文讲述的，排在本章最前（剧情变化落在开头位置时，键是本章现有最小的键减一）或最后（本章现有最大的键加一），写入时算好存下。给已有记录补上第一条正文讲述时，排序键改为这处讲述的位置，并写进带来的变化。
-19. **必须带读到的值。** 就地改、记一笔与回写必须带 `reads`；缺了拒收（`reads-required`）。直接给对象新值的写入（`puts`）只按输出 7 判冲突。
+19. **必须带读到的值。** 就地改与记一笔的入参必须带 `read: {value, version}`，`value` 与现在算出的值不同就拒收（输出 8）；回写带读取时的版本（[`canon.rendering`](rendering.md) 输出 12）。直接给对象新值的写入（`puts`）只按输出 7 判冲突。
 20. **删除。** 条目不真正删除：删除是给它加墓碑标记的一次修改，其余字段原样保留，还原就去掉标记。剧情变更不删除，只撤销。决策不删除，不再要的转成放弃。核对点、正文建议可以删除。还原新建对象的修订时，那些对象真正删除（因为有依赖时不能单独还原，删的时候没有别的记录引用它们）。对条目、剧情变更或决策给 `after` 为空时拒收（`not-deletable`）。
 21. **作者来源。** 决策里需要作者来源的转换与修改（[`canon.model`](model.md)“状态与转换”），写入请求在 `authorizations` 里各带一项授权 `{decision, transition, source}`：`decision` 是决策 id（同一请求里新建的写临时 id），`transition` 是转换（如 `pending→decided`；只改字段时为 `edit`），`source` 是 `{author, via: "message"|"confirm", id, session?, quote, range?, time, binds, signature}`：作者身份、作者的一条消息或界面上的一次确认、它的 id、会话、原文摘要、引用的范围、时间、它授权的修改与宿主的签名。`binds` 是 `{project, requestId, request, decision, transition, fields}`：项目、写入请求的 `requestId`、整份请求的摘要、与这一项相同的决策与转换、授权的字段的摘要。签名覆盖除 `signature` 以外的全部字段。
     - **转换的写法**：`new→pending` 不要授权；要授权的是 `new→decided`、`pending→decided`、`pending→dropped`、`decided→pending`、`dropped→pending`、`decided→superseded`，以及已定决策里只改字段的 `edit`（与 [`canon.model`](model.md)“状态与转换”逐行对应）；还原产生的一律是 `revert`（见下）。
@@ -130,7 +131,7 @@ owners:
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
-| `validation-failed` | 校验不过，详情逐条列出（`entry-missing`、`not-appeared`、`component-disabled`、`unknown-field`、`type-mismatch`、`constraint-violated`、`number-out-of-range`、`invalid-asset-path`、`element-missing`、`quote-not-found`、`number-without-basis`、`basis-mismatch`、`invalid-line`、`invalid-link`、`invalid-tree`、`id-taken`、`ambiguous-field`、`invalid-telling`、`ref-invalid`、`mark-kind-unknown`、`mark-version-unsupported`、`mark-invalid`、`invalid-cast`、`narration-with-patches`、`narration-without-telling`、`invalid-about`、`invalid-transition`，以及 [`canon.rendering`](rendering.md) 的 MDX 问题与 [`canon.worldlines`](worldlines.md) 的线的问题） | 按详情改请求 |
+| `validation-failed` | 校验不过，详情逐条列出（`entry-missing`、`not-appeared`、`component-disabled`、`unknown-field`、`type-mismatch`、`constraint-violated`、`number-out-of-range`、`invalid-asset-path`、`element-missing`、`quote-not-found`、`number-without-basis`、`basis-mismatch`、`invalid-line`、`invalid-link`、`invalid-tree`、`id-taken`、`not-found`、`unknown-value`、`carried-value`、`component-unknown`、`component-version-unsupported`、`field-redeclare-mismatch`、`invalid-telling`、`ref-invalid`、`mark-kind-unknown`、`mark-version-unsupported`、`mark-invalid`、`invalid-cast`、`narration-with-patches`、`narration-without-telling`、`invalid-about`、`invalid-transition`，以及 [`canon.rendering`](rendering.md) 的 MDX 问题与 [`canon.worldlines`](worldlines.md) 的线的问题） | 按详情改请求 |
 | `author-source-required` | 决策的转换或修改需要作者来源，请求里没有；详情列出需要的每一项 `{decision, transition, fields}` | 请作者在对话里说或在界面上确认，再带宿主签发的来源写 |
 | `author-source-invalid` | 带的作者来源校验不通过（签名不对、`binds` 与实际不一致、宿主没提供校验） | 不要自己造来源；按上一行重新取 |
 | `source-not-writable` | 写入请求改了决策上存的出处 `source` | 出处不能直接写；要授权就放进 `authorizations` |
@@ -139,13 +140,12 @@ owners:
 | `accumulated-value` | 就地改了一个几笔累出来的数，或有事件的语义档 | 改其中一笔，或记一笔 |
 | `incomplete-field` | 以创作修改改不完整的字段 | 先处理根因，或以剧情变化赋值 |
 | `field-unavailable` | 改的字段在这个位置没启用、已去掉、只读或类型不在 | 先启用、加回或换回插件 |
-| `intent-not-allowed` | 在初值或按计划的位置上记剧情变化 | 改成创作修改，或换位置 |
+| `intent-not-allowed` | 在初值上记剧情变化 | 改成创作修改，或换位置 |
 | `result-mismatch` | 发布后的值不等于调用方要的值 | 看说明，换一条记录改 |
-| `replace-not-found`、`replace-not-unique` | 文字替换的 A 没找到或不唯一 | 给更长、唯一的 A |
+| `replace-not-found`、`replace-not-unique` | `replaceOnce` 的 A 没找到或不唯一 | 给更长、唯一的 A |
 | `has-dependents` | 还原的修订有依赖 | 连同依赖一起还原，或不还原 |
 | `not-revertable` | 章序调整不能还原 | 在活页夹里改章序 |
 | `request-id-reused` | 同一个请求 id 带了不同的内容 | 换一个请求 id |
-| `reads-required` | 就地改、记一笔或回写没带读到的值 | 补上 |
 | `not-deletable` | 删除条目或剧情变更 | 条目加墓碑，剧情变更撤销 |
 
 ## 边界与兼容

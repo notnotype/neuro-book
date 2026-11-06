@@ -1,0 +1,144 @@
+# 总说明（d-plot：plot 六份 Spec）
+
+范围：docs/specs/plot/knowledge.md、foreshadowing.md、goals.md、decisions.md、brief.md、checks.md。代码在 packages/neuro-book/src/plugins/plot/（下文路径省略前缀 packages/neuro-book/src/plugins/plot/，简写为 plot/）。
+已跑：bun test src/plugins/plot/core（215 通过，0 失败）。实验文件只在 /tmp/review-w00039-promote/d-plot-exp/。
+诊断 id：Spec 写全名 nbook.plot.xxx，代码在 plot/shared/declarations.ts 里按“前缀 + 末段”拼接，PLOT_DIAGNOSTICS 逐项核对过 id、级别、稳定键的组成，与六份 Spec 的诊断表一致（唯一例外见 brief.md 第一条）。
+Component、标注种类的声明（字段、枚举、targets、carry、precision、attachTo、refs）与六份 Spec 的“输入与前置条件”表逐项核对，一致。
+包入口说明：packages/neuro-book/package.json 没有 plot 的 exports 项；这个插件走应用包内部别名 nbook/plugins/plot/...，在 src/project/plugins.ts:53（项目入口）与 src/server/plugins.ts:69（服务端入口）登记。下面“公开入口”按这个事实写。
+
+# docs/specs/plot/knowledge.md
+## 对不上的
+- [不一致] 输出 9（读一个条目的过滤）：Spec 原文：“别的条目照常返回，但去掉 `know` 命名空间（V 自己的除外）、挂在它下面的保密以上的知识点不列；Component 里指向保密以上知识点的引用、讲述上指向它们的标注，换成占位。”代码按“V 读不到内容的知识点”挡：V 自己知道或怀疑的保密知识点在别处出现时照常显示、挂在下面时照常列出。代码：plot/core/viewpoint.ts:86-87（注释自己写明与 Spec 的差别）、:170-172（#hidden 用 readability）、:198（子条目按 #hidden 过滤）、:229-234（#maskRef 只换读不到的）。另外视图不返回讲述，所以“讲述上的标注换占位”没有对应的返回内容（EntryView 无讲述，见 packages/nb-canon/src/engine/types.ts:79-90）。
+- [不一致] 输出 10（写完以后的集合）：Spec 原文：“第 N 章安放的变更改了某人知情行的知识点”。代码用 patchPoints 从补丁地址的 `[id]` 与补丁值里的 `id`/`ref` 取知识点，整段替换 `know.知情`（`set` 值是数组）的补丁取不到。实验：/tmp/review-w00039-promote/d-plot-exp/k10-replace.test.ts，同样的行用 `listAdd` 写进集合（["e3"]），用整段 `set` 写则集合为 []（知识点与主体都不在正文里时）。代码：plot/core/brief/context.ts:112-124（patchPoints）、plot/core/checks/points.ts:44-50。
+- [不一致] 输出 7（读者从哪一段起）：Spec 原文：“对每个知识点给出读者第一次到 `suspects`、第一次到 `knows` 的讲述”。只有明说、没有暗示的知识点，读者按输出 6 从 `unaware` 直接到 `knows`，从未到过 `suspects`，而 firstReveal 仍把第一处明说同时给成 suspects。代码：plot/core/knowledge.ts:494-506（499-505 行，`suspects ??= occurrence` 对两种 mode 都执行）。（低：Spec 字面可读成“有暗示才有 suspects”，也可读成“首次出现”；列出供判断。）
+- [没有测试] 输出 1 后半句：Spec 原文：“知识点的条目被删除时，指向它的知情行照常存在、显示‘已删除的条目’。”plot 里没有任何用例删除知识点后读知情行（plot 的测试里只有 decisions.test.ts:73、foreshadowing.test.ts:140、viewpoint.test.ts:115 删的是目标、物件）。代码行为（KnowingIndex 不按知识点是否存在筛）：plot/core/knowledge.ts:189-238。
+- [没有测试] 输出 9 的“别的读取一律 `view-denied`”与验收场景 1 的“读剧情变更的列表得到 `view-denied`，审计里各有一条”：剧情的视角句柄只开放四个读取方法（plot/shared/contracts.ts:166-172），没有“列剧情变更”这类方法可调；plot 里只测了未知句柄得 view-denied（plot/plot.test.ts:176-177）。内核令牌上的拒绝属 canon.project 输出 24，不在本 Spec 范围，这里只是指出验收场景 1 的这一句在 plot 里没有对应用例。
+- 其余输出（2、3、4、5、6、8、9 的占位/误信/找名字/经历/别人的知情、两条诊断、审计、回溯带过去）：均找到实现与用例，仔细核对后没有发现。
+
+## 实现合同草稿
+- 公开入口：声明 plot/shared/declarations.ts（PLOT_COMPONENTS 里的 `nbook.plot.point`、`nbook.plot.knowing`；PLOT_MARKS 里的 `nbook.plot.reveal`、`nbook.plot.presentLearns`；DIAGNOSTIC_IDS 的 relayBroken、knowingIncomplete）；远程合同 plot/shared/contracts.ts 的 `plotWorldContract`（id `nbook.plot/world`，方法 knowing、experience、reader、openViewpoint、closeViewpoint、viewpointEntry、viewpointLookup、viewpointExperience、viewpointKnowing）；插件描述 plot/plugin.ts 的 `descriptor`；项目入口 plot/backend/plugin.ts 的 `plotProjectPlugin`。
+- owner 与依赖方向：plot 插件持有知识点、知情、读者知情与按视角视图的语义；core/ 下是只读 `CanonReadView` 上的纯函数，不存东西；项目入口（backend/plugin.ts）持有视角句柄（每个调用方一份，调用方实例失效时关内核令牌）并登记诊断计算。依赖 `@notnotype/nb-canon/schema`（只读视图、`ViewedReads`）、`nbook/plugins/canon/shared/contracts`（`canonProjectKey`）、`@notnotype/nb-runtime`；不依赖界面；内核不依赖本插件（声明经贡献点交给内核）。
+- 关键不变量：
+  - 有效知情取显式行与在场推出的行里安放最晚的一个，同一条变更里显式优先，推出的行不存（输出 3；plot/core/knowledge.test.ts“同一条变更里推出 knows、显式写 unaware：显式优先；之后在场再揭示变回 knows；显式写 forgot 以后是 forgot”）。
+  - 传话链按“这一行所在的变更”之前判，同一条变更里先听后传仍报，传话人写成马甲按本体算（输出 5；knowledge.test.ts“听哥哥说、哥哥之前没有行：报一条；在更早的章给哥哥加行后消失；同一条变更里先在场得知再转告仍报”“传话人写成马甲：按本体算”）。
+  - 读者的知情只按揭示标注算，按活页夹正文跨线取，不从任何角色推（输出 6、7；knowledge.test.ts“第 4 章暗示、第 12 章第 3 段明说：第 4 章末尾怀疑，第 12 章第 3 段起知道；删掉第 12 章那句回到怀疑”“第 9 章讲回溯线 r1、r1 上有明说的揭示：读者在第 9 章末尾知道，主线视图看不到它；章没讲 r1 时读者不知道”）。
+  - 回溯子线上带过去的知情取父线在触发处的有效知情，不只是显式列表（输出 4；knowledge.test.ts“子线上第 9 章星瑕对 K 是知道：取父线在触发处推出的有效知情，不只是带过去的显式列表；主线同样知道；切口之后触发处之前得知的，子线上不靠记录也有”）。
+  - 视角视图只经句柄读，读不到内容的知识点给占位或他以为的那句，每次返回占位都记审计；句柄关闭或调用方失效后再用得 view-denied 并记审计（输出 9；viewpoint.test.ts“卫兵读 K 得到占位、按名字找不到 K；他的经历里有在场的那条变更，但没有补丁与国王的知情行；戴兜帽的勇者只给马甲；审计里有占位”；plot.test.ts“knowledge 输出 3、8、9：有效知情与经历的读取（不是目标的读冲突得到 not-found）；按视角开视图、读到占位，关掉以后句柄失效”）。
+- 实现入口：plot/core/knowledge.ts、plot/core/knowledge-checks.ts、plot/core/viewpoint.ts、plot/backend/plugin.ts、plot/shared/declarations.ts、plot/shared/contracts.ts
+- 合同测试：plot/core/knowledge.test.ts（真实 nb-canon `World` 加 `createWorldReadView`）、plot/core/viewpoint.test.ts（真实 `WorldService`、真实视图令牌与审计）、plot/plot.test.ts（真实项目子进程、真实远程合同）
+- Smoke：不适用——Spec 现写“由剧情插件的包测试与 canon.project 的 Smoke 覆盖”仍成立：plot/plot.test.ts 的“剧情插件的远程合同”起真实项目子进程，没有 e2e 用例；可保持“不适用”。
+
+# docs/specs/plot/foreshadowing.md
+## 对不上的
+- [不一致] 输出 5：Spec 原文：“读者那一边的阶段按活页夹正文算，不分线（同一 Spec 输出 13）。”伏笔的节点只取这一张线视图上的讲述，回溯段里写在子线上的节点在主线视图上看不到，阶段按线算而不是按活页夹正文算。实验：/tmp/review-w00039-promote/d-plot-exp/fs-binder.test.ts，第 9 章整章讲回溯线 r1、r1 上的讲述带伏笔“埋下”节点：主线视图的阶段是 unplanted，r1 视图是 planted（读者实际读到的是 r1 的正文）。对照：知识点的读者知情同一件事做对了（plot/core/knowledge.ts:441-462 的 readerBase 跨线取）。代码：plot/core/foreshadowing.ts:97（`effectiveTellings(view)`）、:3-4 注释写“阶段 B 只有主线”；plot/core/change-index.ts:348-350；packages/nb-canon/src/service/reads.ts:222（tellings 按线筛）。
+- [不一致] 输出 2：Spec 原文：“有埋下是已埋；埋下之后有呼应或误导是呼应中；……按这个顺序取最高的一级”。代码只取节点里最高的一级，不要求呼应在埋下之后：没有埋下、只有呼应的伏笔阶段是 echoing（不是“未埋”）。代码：plot/core/foreshadowing.ts:193-198。（低：Spec 对“没埋却有呼应”未明写。）
+- [不一致] 输出 7（objectTouched）：Spec 原文：“伏笔已埋、没回收期间，有一条生效、套上的剧情变更的补丁改了 `物件` 里某个条目的状态”。代码把区间收窄成“最早埋下节点所在章之后（同一章不算）、最后回收所在章之前（回收那一章不算）”，同一章里埋下之后、或回收同章里回收之前的改动都不报。代码：plot/core/foreshadowing.ts:358-360 注释、:373-378（`chapter <= from || chapter >= to`）。（低。）
+- [没有测试] 输出 8（账本的筛选）：Spec 原文：“可以按阶段、重要程度、意图、章的范围筛。”plot/core/foreshadowing.test.ts:103-119 只测了按 `stage` 筛；`importance`、`intent`、`from`/`to` 的筛选（plot/core/foreshadowing.ts:465-468）没有用例。
+- [没有测试] 输出 2 的“意图为放弃时显示‘放弃（已埋）’/‘放弃’”：代码给 `dropped` 与 `stage` 两个字段（foreshadowing.ts:197、:480-481），账本用例里 dropped 只出现 false（foreshadowing.test.ts:109）；没有放弃的伏笔读账本的用例。
+- 其余输出（1、3、4、6 的三项、7 的各提示、八项诊断的稳定键与级别、五个验收场景）：均找到实现与用例（foreshadowing.test.ts:21、47、60、76、121-172），仔细核对后没有发现。输出 7 的 `objectTouchedInText` 在 checks 一侧实现（plot/core/checks/diagnostics.ts:101-109），用例 plot/core/checks/run.test.ts:273、:534。
+
+## 实现合同草稿
+- 公开入口：声明 plot/shared/declarations.ts（Component `nbook.plot.foreshadow`、标注 `nbook.plot.node`、FS_DIAGNOSTIC_IDS 十二项）；账本经 `plotWorldContract` 的 `ledger` 方法（plot/shared/contracts.ts:140-157）；核心函数 plot/core/foreshadowing.ts 的 `ledger`、`ForeshadowIndex`、`foreshadowDiagnostics`（包内部，供简报与检查共用）。
+- owner 与依赖方向：plot 插件持有阶段、继承、账本的计算（读时算，不存）；依赖只读 `CanonReadView`（讲述、变更、进度 `progress`）、plot/core/knowledge.ts 的 `countedChanges`；被 brief、checks 依赖；不依赖界面与存储。
+- 关键不变量：
+  - 只有生效的正文讲述上的节点算数，重写删掉回收的那句，阶段退回，计划的节点缺失的待处理回来（输出 1、2、6；foreshadowing.test.ts“埋下、呼应、计划回收；物件被动过提示；第 15 章写完没回收报待处理；补上以后已回收；删掉那句退回呼应中、待处理回来”）。
+  - 悬念答案上的揭示也是这个悬念的节点（暗示算呼应、明说算回收），几个悬念共答案都算并提示（输出 3；foreshadowing.test.ts“答案上的暗示让阶段到呼应中，明说让它已回收；同一知识点被两个悬念指向：两个都算，并提示”）。
+  - 兑现计划的已写变更自己没标同一伏笔的节点时继承计划的节点；自己标过（含失联）或只标了答案揭示时不继承；兑现变更套不上时计划回到未兑现、不继承（输出 4；foreshadowing.test.ts“计划带呼应节点，兑现它的已写变更自己没标：节点继承到它第一处正文讲述上；它没有正文讲述时提示没有位置”“兑现计划的已写变更自己只标了答案的暗示：不继承计划的回收，阶段停在呼应中”“兑现变更套不上（改的物件删了）：计划回到未兑现，不继承它的节点”）。
+  - 检查只看读取位置为止的节点与改动，读较早的位置不会报还没写到的（输出 6、7；foreshadowing.test.ts“读第 1 章末尾时，第 3 章才埋的、第 6 章才有的暗示都还没发生：放弃了还留着、没有悬念认领的暗示不报”）。
+- 实现入口：plot/core/foreshadowing.ts、plot/core/change-index.ts、plot/shared/declarations.ts、plot/backend/plugin.ts（`ledger` 方法与诊断登记）
+- 合同测试：plot/core/foreshadowing.test.ts（真实 nb-canon `World` 与只读视图，经 PlotWorld 发布）、plot/core/checks/run.test.ts（objectTouchedInText，脚本化的模型替身）、plot/plot.test.ts（真实项目子进程里 `ledger` 的远程读取）
+- Smoke：不适用——Spec 现写“由剧情插件的包测试覆盖”仍成立。
+
+# docs/specs/plot/goals.md
+## 对不上的
+- [不一致] 输出 3：Spec 原文：“目标 G 的持有者 H 在某条变更里，对 G 的 `基于` 里某个知识点的有效知情变了……；而这条变更之后没有任何剧情变更改过 G 的 `goal` 命名空间。”代码：（a）对每对（G, 知识点）只报最后一次变化，更早的变化即使 G 之后没改也不报（plot/core/goal-checks.ts:197 `.at(-1)`，用例 goal-checks.test.ts:42“持有者的知情后来又变了：只报最后一次”锁定）；（b）与知情变化同一条变更也改了 G 算“已跟着改”（goal-checks.ts:199 `>= 0`；Spec 只写“之后”，未写同一条变更）；（c）“改过 goal 命名空间”只算补丁路径以 `goal.` 开头的（plot/core/change-index.ts:388），路径恰为 `goal` 的整段补丁不算。（低：a、b 有用例锁定，列出供判断。）
+- [没有测试] 验收场景 2（态度）：Spec 原文：“第 5 章一句事件：第 5 章末尾的态度是归纳后的那句（或‘未归纳’的写法），起因是知识点‘哥哥瞒着她’。”plot/core/goals.test.ts:51-68 只测了 `listAdd` 的态度行（对象、态度、起因）；没有“第 5 章事件之后读到归纳后的态度”的用例（语义档的折叠在 canon 一侧，本插件的 `goalTable` 只透传，plot/core/goals.ts:122-128）。
+- [没有测试] 输出 5 经远程合同读目标表：plot/plot.test.ts 只断言 `goals` 返回 `items: []`（空世界），有目标与态度时只在 goals.test.ts 里直接调 `goalTable` 测。
+- 其余输出（1、2、4 两项、诊断三项的稳定键与级别、验收 1、3）：均找到实现与用例（goals.test.ts:11、30、51；goal-checks.test.ts:12、30、42、65、81、98），仔细核对后没有发现。
+
+## 实现合同草稿
+- 公开入口：声明 plot/shared/declarations.ts（Component `nbook.plot.goal`、`nbook.plot.attitude`；GOAL_DIAGNOSTIC_IDS 三项）；经 `plotWorldContract` 的 `goals`（目标表）与 `conflicts`（冲突）方法；核心函数 plot/core/goals.ts 的 `goalsOf`、`conflictsOf`、`goalTable`、plot/core/goal-checks.ts 的 `goalDiagnostics`。
+- owner 与依赖方向：plot 插件持有目标与态度的读取、冲突对称读取与三项检查（读时算）；依赖只读 `CanonReadView`、plot/core/knowledge.ts 的 `knowingIndex`（前提变了读持有者的有效知情）；被 brief（在场的人、隐秘目标）依赖；不依赖界面与存储。
+- 关键不变量：
+  - 某人在一个位置上的目标 = 挂在他下面、已出场、状态为进行或受挫的（输出 1；goals.test.ts“挂在他下面、已出场、状态为进行或受挫的；出场之前不算，改成达成以后不算，别人的不算”）。
+  - 冲突是对称的读取，两边都只列在这个位置上已出场的目标，存下来的只有写下的那一边（输出 2；goals.test.ts“哥哥的目标写了星瑾的：读星瑾的目标，冲突里也有哥哥的；两边都写了的只列一次；还没出场的目标两边都不列”）。
+  - 前提变了只看读取位置为止的改动，隐秘目标推出的知情变化没有变更、不报（输出 3；goal-checks.test.ts“读第 35 章末尾时，第 40 章才写的改动不能让该报的停滞和前提变了消失”“持有者的知情后来又变了：只报最后一次；隐秘目标推出的知情变化没有变更，不报”）。
+  - 缺一步只在“进行直接变达成”且两步之间没有涉及它的别的变更时报，同一条变更里先后改两次不报（输出 4；goal-checks.test.ts“目标从进行直接变成达成、中间没有别的涉及它的变更：报；中间有一条涉及它的变更不报；同一条变更先后改两次不报”）。
+- 实现入口：plot/core/goals.ts、plot/core/goal-checks.ts、plot/shared/declarations.ts、plot/backend/plugin.ts
+- 合同测试：plot/core/goals.test.ts、plot/core/goal-checks.test.ts（都用真实 nb-canon `World` 与只读视图，经 PlotWorld 发布）、plot/plot.test.ts（远程合同的 `goals`、`conflicts` 调用）
+- Smoke：不适用——Spec 现写“由剧情插件的包测试覆盖”仍成立。
+
+# docs/specs/plot/decisions.md
+## 对不上的
+- [不一致] 输出 7 后半句：Spec 原文：“泄底、穿帮、违反写作指示的诊断，都附上挂在同一个知识点、条目或本章上的决策。”代码只有“提前泄底”附决策（且只认挂在知识点或它的地址上、或读者守卫指向它的，不含挂在本章上的）；“可能穿帮”的发现对象只有知识点与那个人，“违反写作指示”的发现对象为空。代码：plot/core/checks/diagnostics.ts:88-92（possibleSlip 的 objects）、:127（instructionViolated 的 `objects: []`）、:115（earlyReveal 附 `decisionsOn`）、:64-69（decisionsOn 只用 decisionHangsOn，plot/core/decisions.ts:100-102）。在 plot 里没搜到别处给这两个诊断附决策（用 `decisionsOn`、`relatedDecisions`、`decisionHangsOn` 搜过）。povAbsent、flashbackMismatch 附了决策（plot/core/instruction-checks.ts:62-67、:81、:108）。
+- [不一致] 输出 10：Spec 原文：“简报与窄问题记下它们用的写作指示快照的版本；快照变了以后，用旧版本做的检查结果标‘写作指示已变’。”简报记了（plot/core/brief/index.ts:151 `instructionVersion`）；检查记录没有记写作指示快照的版本（plot/shared/checks.ts:110-130 的 CheckRecordSchema 没有该字段），快照内容变了只经输入摘要变而让记录过期，给的是通用提示 `nbook.plot.check.stale`（“检查要重跑”，plot/core/checks/diagnostics.ts:161），没有“写作指示已变”这个标记。在 packages/neuro-book/src、packages/neuro-book/e2e、packages/nb-canon/src 用“写作指示已变”“instruction-changed”“instructionChanged”搜过，没有。
+- [不一致] 输出 5（dangling）：Spec 原文：“已定的决策挂的对象全部是已删除的条目、已撤销的剧情变更或被取代、放弃的决策。”代码另把“章不在章序里”与“对象不存在”也算死对象。代码：plot/core/decisions.ts:128-148（:143-144 chapter；:133、:137、:141 的 `stored === undefined`）。用例 decisions.test.ts:67 的标题把“章不在章序里”写成了行为。（低。）
+- [不一致] 输出 8（povAbsent）：Spec 原文：“指示的视角人物在本章没有任何一条剧情变更里在场”。代码在“本章没有变更”或“有没记参与者（cast 缺省）的变更”时不报。代码：plot/core/instruction-checks.ts:73、:78（用例 instruction-checks.test.ts:16 的标题锁定“有没记参与者的变更、或本章没有变更：不报”）。（低。）
+- [不一致] 输出 8（flashbackMismatch）：Spec 原文：“本章安放的剧情变更不在那处安放附近”。代码把“安放在别处、在本章讲述”的变更也当本章的变更来比（chapterChanges 的 `tellings=true`）。代码：plot/core/instruction-checks.ts:52-60、:94。（低；用例 instruction-checks.test.ts:44 标题写明“安放在本章或在本章讲述”。）
+- [没有测试] 输出 2 的“值不完整时不判，记‘无法检查’”中的“值不完整”一支：决策视图的 `unchecked: "incomplete"`（plot/core/decisions.ts:34、plot/core/guards.ts:282-283）没有用例；decisions.test.ts:98-113 只测了 `line-unavailable`。
+- 其余输出（1、2 的违反判定与每线各报、3、5 的 overdue、6、7 的排序与理由缺省、9、诊断九项的稳定键与级别、验收 1 到 4）：均找到实现与用例，仔细核对后没有发现。输出 4 的两项诊断在 checks 一侧实现（plot/core/checks/diagnostics.ts:118-128），用例 plot/core/checks/run.test.ts:259。输出 10 的“快照服务”失败码（`too-large`、`chapter-mismatch`、`instructions-conflict`、`storage-unavailable`）Spec 未列，不在本核对内。
+
+## 实现合同草稿
+- 公开入口：声明 plot/shared/declarations.ts（标注 `nbook.plot.guard.address`、`nbook.plot.guard.reader`；DECISION_DIAGNOSTIC_IDS 六项、INSTRUCTION_DIAGNOSTIC_IDS 三项）；写作指示快照的输入合同 plot/shared/instructions.ts 的 `plotInstructionsContract`（id `nbook.plot/instructions`，`put`、`current`）与 `InstructionSnapshotSchema`；经 `plotWorldContract` 的 `decisionsFor`、`beforeWriting` 方法；核心函数 plot/core/decisions.ts 的 `involvedDecisions`、plot/core/guards.ts 的 `guardDiagnostics`、plot/core/before-writing.ts 的 `beforeWriting`、plot/core/instruction-checks.ts 的 `instructionDiagnostics`。
+- owner 与依赖方向：决策本身（状态、作者来源、挂的对象）由 canon 内核存；plot 插件持有守卫标注的检查、涉及本章的决策、开写前的视图与写作指示的三项检查；写作指示快照表由 plot 的项目入口落盘（plot/backend/store.ts，插件的项目记录），不进世界。依赖只读 `CanonReadView`（`decisions()`、`origins`、`positionKey`）、plot/core/knowledge.ts 的 `readerTellings`、plot/core/goal-checks.ts；被 brief 与 checks 依赖。
+- 关键不变量：
+  - 地址守卫在守卫 `lines` 的每条线上各按那条线的视图判，实际模式与按计划模式各算一份（输出 2；plot/core/guards.test.ts“第 18 章一条计划把它设成违反的值：按计划模式有一条、实际模式没有；记成已写变更以后实际模式也有；键里是决策与那条变更”“回溯线上才违反：子线的视图里有、主线的视图里没有；守卫没写 lines 时每条线各按自己的视图”）。
+  - 守卫只看读取位置为止，读较早的位置不报还没写到的违反（输出 2、3；guards.test.ts“读较早的位置不报还没写到的违反：地址守卫（第 18 章的违反，读第 10 章末尾不报）、读者守卫（第 12 章的揭示，读第 5 章末尾不报）”）。
+  - 读者守卫不分线，违反的键指向第一处超过的讲述，`until` 当章不算（输出 3；guards.test.ts“`until` 之前读者对知识点超过 atMost 就违反，键指向第一处超过的讲述；改成暗示（atMost 是 suspects）后消失；until 当章不算”）。
+  - 到期没定按读取位置所在章判、悬空只在挂的对象全死时报（输出 5；plot/core/decisions.test.ts“待定的决策到期章不晚于读取位置所在章：报；读到到期章之前不报；定下来以后不报”“已定决策挂的对象全死了才悬空：已删条目、已撤销变更、被放弃的决策、章不在章序里；空 about 与还有活对象的不算；diagnostic 挂点不算死”）。
+  - 涉及本章的决策：已定在前、待定在后，被取代与放弃的不列；挂在剧情线条目上的看这条线上本章有没有变更（输出 7、9；decisions.test.ts“挂的对象与本章涉及的条目相交（entry、address）、挂在本章（chapter、change）、范围包含本章：涉及；已定在前、待定在后；被放弃的不列；没给理由写‘作者没说理由’”“未写的章只有计划：实际模式没有涉及的条目，按计划模式有；挂在剧情线条目上的决策看这条线上本章有没有剧情变更（不是 involves）”）。
+- 实现入口：plot/core/decisions.ts、plot/core/guards.ts、plot/core/before-writing.ts、plot/core/instruction-checks.ts、plot/shared/instructions.ts、plot/backend/store.ts、plot/backend/plugin.ts
+- 合同测试：plot/core/decisions.test.ts、plot/core/guards.test.ts、plot/core/instruction-checks.test.ts（真实 nb-canon `World` 与只读视图，经 PlotWorld 发布）、plot/backend/store.test.ts（真实存储服务）、plot/plot.test.ts（写作指示快照的服务经真实远程合同与项目子进程）
+- Smoke：不适用——Spec 现写“由剧情插件的包测试覆盖”仍成立。
+
+# docs/specs/plot/brief.md
+## 对不上的
+- [不一致] 输入（诊断）：Spec 原文：“本能力登记的诊断（都是版本 1）：`nbook.plot.brief.noPresentation`……`nbook.plot.brief.noSceneConditions`……`nbook.plot.brief.payoffWithheld`……”（并在输出与失败表里把它们当诊断码，键为 `objects`、`range`）。代码没有把它们登记成内核诊断：PLOT_DIAGNOSTICS 里没有这三项，它们是拼简报时随结果返回的 `hints`（带 `code`、`objects`、`range`，没有版本、级别、稳定键），不进待处理与提示。代码：plot/core/brief/types.ts:1-5（注释“不登记成内核诊断：它们依赖‘要写哪一章’”）、plot/core/brief/index.ts:100、:142、:158、plot/backend/plugin.ts:184-187、plot/shared/declarations.ts:234-272（无 brief 项）。
+- [不一致] 输出 4（隐秘目标并进它指向的知识点那一项）：Spec 原文：“目标的名字、为什么、冲突也写在这一项里”。代码写了名字与为什么，没写冲突。在 plot/core/brief 用“冲突”“conflict”搜过，没有。代码：plot/core/brief/secrets.ts:86。
+- [不一致] 输出 8（伏笔回收的主文字）：Spec 原文：“节点是回收的，给伏笔的主文字（打算怎么回收）”；术语：“名字写‘许了读者什么’，主文字写打算怎么回收”。代码给的是伏笔的一句话描述（`summary`），没有给主文字（`text`），一句话描述为空时退回名字。代码：plot/core/brief/parts.ts:359-361。
+- [不一致] 输出 8（部分回收）：Spec 原文：“节点是回收的，给伏笔的主文字……；其余只给名字、节点的种类与给写手的指示，加‘不要点破’”。代码把 `partial`（部分回收）与 `payoff` 同样对待（给主文字或“回收方式按细纲写”），部分回收那一行没有“不要点破”。代码：plot/core/brief/parts.ts:353-358、:363。（低。）
+- [不一致] 输出 4（在场的人）：Spec 原文：“这个知识点是某个在场的人的目标的 `隐秘` 时”。代码按本章计划的全部参与者（含只被提到、不在场的）找隐秘目标的持有者，注释写明是有意的（防止一边遮一边写）。代码：plot/core/brief/secrets.ts:55-56、:66。（低。）
+- [不一致] 输出 2（状态变化的写法）：Spec 原文：“状态的变化写成字段的形式（‘星瑾对哥哥的态度：冷淡 → 冷淡（略松动）’）”。代码写成“<条目名>的<命名空间.字段>：<旧值的 JSON> → <新值的 JSON>”，例如用例断言的“怀表的character.状态：原样 → 停了”；态度列表这类以列表为值的字段会把整张列表写成 JSON，不是“某人对某人的态度”的写法（从代码推断，未实测态度列表的输出）。代码：plot/core/brief/parts.ts:228-233；用例 plot/core/brief/brief.test.ts:360。
+- [没实现] 输出 12（裁的先后按段）：Spec 原文：“裁的先后按段：涉及条目的样子、读者已知、决策、伏笔、场景条件先裁，……本章计划的节点、在场的人最后裁”。代码只按各段各自的上限裁，没有总上限，段与段之间没有先后；本章计划的项也不受保护。代码注释写明“暂不起作用（待确认清单）”。代码：plot/core/brief/budget.ts:1-6、plot/core/brief/index.ts:102-106（每段单独 trim）。这一段的上限数字本身与 Spec 缺省值逐项一致（budget.ts:287-300）。
+- [没有测试] 验收场景 5（回溯章）的“回溯后的那份里，存款是带过去之后的 20000”：用例的分叉是 `type: "branch"`、没有 carry 字段，只验了条目的样子各读各的线（brief.test.ts:174、:376）；带过去的值没有用例。
+- [没有测试] 输出 2、14 的“写作指示的时间方式是补叙某处安放时，读那处安放”：简报测试里没有 `timeMode.flashback`（在 brief.test.ts 用“flashback”“补叙”搜过）。代码：plot/core/brief/context.ts:23-42。
+- [没有测试] 输出 5：普通目标行（“目标：…（为什么）…，受挫”）与“对某某的态度”对子（只列两人都在本章计划或涉及条目里的）没有断言；brief.test.ts 里“态度”只出现在称谓用例（:229-246）。代码：plot/core/brief/parts.ts:254-274。
+- [没有测试] 输出 7 的第四顺位：“V 之前只和用着马甲的 P 同时在场过，用最近（安放最晚）那一次他用的马甲的名字”没有用例（brief.test.ts:229-246 覆盖称呼、没用马甲的名字、泛称；第二顺位马甲覆盖在验收 1，:20-40）。代码：plot/core/brief/parts.ts:326-329。
+- [没有测试] 输出 8：“依赖的物件出现在本章计划里的伏笔”这一支（parts.ts:350）没有用例；输出 8“有揭示就给”的一支只断言了不含“回收方式按细纲写”，没有断言给出的是什么文字（brief.test.ts:264-266，与上面主文字的不一致相关）。
+- [没有测试] 输出 9：非保密的待定到期决策写“待定（到期）：…”（parts.ts:378）没有断言，用例 brief.test.ts:306-333 只验了保密一支“有一条涉及保密设定的待定决定到期了”不泄。
+- [没有测试] 输出 13：“去掉 `know` 命名空间”没有断言（plot/core/brief/appearance.ts:342）。
+- 其余输出（1、3、4 的保密/绝密/表现/视角人物/决策路由/隐秘目标、5 的段首句与视角人物排第一、6、7 的前三顺位、8 的提示、10、11、12 的上限数字、15、验收 1 到 4、6、7）：均找到实现与用例，仔细核对后没有发现。
+
+## 实现合同草稿
+- 公开入口：远程合同 plot/shared/contracts.ts 的 `plotWorldContract.brief`（输入：章、细纲、目标字数、可选各段上限；插件版本由项目入口注入，不由调用方给）；标注 `nbook.plot.scene`（plot/shared/declarations.ts 的 PLOT_MARKS）；核心函数 plot/core/brief/index.ts 的 `composeBrief`（纯函数，摘要端口由宿主注入）与结果形状 `BriefResult`、`BriefRecord`；各固定句集中在 plot/core/brief/fixed.ts。
+- owner 与依赖方向：plot 插件持有简报的拼法（程序拼，不调模型）；写作指示快照由项目入口从快照表取了传进来；依赖只读 `CanonReadView`、plot/core 下的 knowledge、foreshadowing、goals、decisions；被写作任务经 `brief` 方法调用；检查（checks）不重拼简报，用随自陈存下的文字。
+- 关键不变量：
+  - 保密档真相只在“这一场的秘密”里写一次，绝密而本章不暗示也不揭示的知识点，名字与内容在任何段、省略项、记录里都不出现（输出 4；plot/core/brief/brief.test.ts“管家在场、本章不暗示：这一场的秘密里只有‘有一件涉及管家的绝密设定’与他在人前的表现；决策只写‘有一条涉及保密设定的决定’；第 18 章计划暗示它：给真相，加‘只能写到：暗示’”“前文暗示过、本章不暗示的绝密：读者已知段、省略项、记录里都不出现名字；到期待定决策、没有主体的知识点、补丁改知识点本身、只被提到的持有者的隐秘目标也不泄”）。
+  - 决策按它挂的保密以上知识点分流：挂了不在这一场的秘密里的或绝密不暗示的，只写一句；否则原话只写一次在排第一的那一项（输出 4、9；brief.test.ts“决策挂在保密 K1 与绝密 K2（本章不暗示）上：只在决策段写‘有一条涉及保密设定的决定’，K1 那一项里没有原话；只挂 K1：原话写在 K1 那一项里一次”）。
+  - 体积预算按段裁，这一场的秘密与视角人物那一项不被裁（输出 12；brief.test.ts“秘密段与视角人物那一项不被裁（上限调到 1 也留着）；固定句整份只出现一次”“涉及条目的样子的上限调到 100：裁掉的条目列在‘已省略’里，这一场的秘密与视角人物那一项不受影响”）。
+  - 同样的读取输入、快照版本、细纲、目标字数与插件版本，拼出的上下文逐字相同，记录只在这些输入变时才变（输出 15；brief.test.ts“计划上的场景条件照抄；写作指示有结尾时加一句；同样的输入再拼一次逐字相同；只改细纲、目标字数或上一章末尾，记录就不同”“确定性：两份独立建出的世界（发布先后不同、内容相同）各拼一次逐字相同”）。
+  - 分段讲两条线的章每段一份，写作指示、细纲、通则、上一章末尾只写一次（输出 14；brief.test.ts“第 8 章前 29 段讲主线、第 30 段起讲回溯线：两份简报各标‘回溯前’‘回溯后’，涉及条目的样子各读各的线；写作指示、细纲、通则、上一章末尾只写一次”）。
+- 实现入口：plot/core/brief/index.ts、plot/core/brief/secrets.ts、plot/core/brief/parts.ts、plot/core/brief/context.ts、plot/core/brief/fixed.ts、plot/core/brief/budget.ts、plot/backend/plugin.ts（`brief` 方法）
+- 合同测试：plot/core/brief/brief.test.ts、plot/core/brief/budget.test.ts（真实 nb-canon `World` 与只读视图，经 PlotWorld 发布）、plot/plot.test.ts（经真实项目子进程与远程合同调 `brief`）
+- Smoke：不适用——Spec 现写“由剧情插件的包测试覆盖；实写效果由真实模型的评测量”仍成立；plot/plot.llm.test.ts 只覆盖 checks 的验收 1、2，不覆盖简报，简报的“实写效果”评测不在本仓库的测试里（我没搜到对应脚本）。
+
+# docs/specs/plot/checks.md
+## 对不上的
+- [不一致] 输出 3（超出与不完整）：Spec 原文：“新事实的列表……整章最多 30 条，超出的记‘未列：N 条’。规则项缺了的算‘未答’，和超出的一样让这次检查标‘不完整’，并列出是哪几项。”代码里只有规则项缺了会进记录的 `incomplete`（回执的 `incomplete` 条数也只数它）；超出 30 条的只进 `unlisted`，不计入 `incomplete`，只是在 `nbook.plot.check.unasked` 提示的参数里带出条数。用例 plot/core/checks/run.test.ts:204 把两件事分开断言。代码：plot/core/checks/run.ts:300-308（incomplete）、:348-351（unlisted）；plot/backend/plugin.ts:311（回执 `incomplete: record.incomplete.length`）；plot/core/checks/diagnostics.ts:143。（Spec 的“和超出的一样”也可能指输出 5 的“未问”，字面有歧义；列出供判断。）
+- [没有测试] 失败表 `chapter-empty`：Spec 原文：“这一章没有正文”。代码实现了：plot/backend/checks.ts:243。没有用例：plot/plot.test.ts:417 的标题写了“章不在、没有正文的回各自的码”，但用例体只测了 `chapter-not-found`（:422），没有空正文章。在 plot/ 用“chapter-empty”搜，只有 backend/checks.ts 一处。
+- [没有测试] 失败表 `storage-unavailable`：Spec 原文：“插件的项目记录读不出来（检查、写作指示、自陈都用不了）；不当作‘没跑过’”。代码实现了四处：plot/backend/plugin.ts:275（写作指示 put）、:296（putSelfReport）、:308（run）、:320（record）。没有用例让存储读取失败再调这四个方法（backend/store.test.ts:152 只测了存储层“读取失败交回失败”，没有走到插件入口的 `usable` 分支）。
+- 其余输出（1、2 的各层候选与问法、3 的规则项与新事实、4、5、6、7 的有效判定与摘要先比后拼与抽样复核、8 的十一项诊断稳定键与级别、9、10、11、状态表、失败表其余各码、验收 1 到 5）：均找到实现与用例，仔细核对后没有发现。已核对的对应：试读前提与材料与题面（plot/core/checks/trial.ts，用例 trial.test.ts:44、67、91、105、118、130、142）；候选与预算（plot/core/checks/candidates.ts，用例 candidates.test.ts:27-211）；答案校验（plot/core/checks/segments.ts:94-110、run.ts:96-97，用例 run.test.ts:219、235、491）；有效判定（plot/core/checks/validity.ts、source.ts:82-113 的先比摘要、抽样复核与诊断，用例 source.test.ts:147-205）；结果成为待处理（plot/core/checks/diagnostics.ts，用例 run.test.ts:38、73、107、259、273）；账本（plot/core/checks/ledgers.ts，用例 ledgers.test.ts:26、35、43，plot.test.ts 的三个账本远程读取）；`plot-check-unavailable`、`plot-check-failed`、`plot-check-busy`、`plot-check-cancelled`、`chapter-not-found`、`line-not-found`（后者在 plot/core/checks/plan.test.ts:31 的 planCheck 层）都有用例。
+- decisions.md 的 constraintViolated、decidedInText 由本能力的记录算出，已在 decisions.md 一节核对；输出 8 的 `earlyReveal` 附决策的一支在 run.test.ts:107 有用例，`possibleSlip` 与 `instructionViolated` 没有附决策的问题见 decisions.md 一节第一条。
+
+## 实现合同草稿
+- 公开入口：远程合同 plot/shared/checks.ts 的 `plotChecksContract`（id `nbook.plot/checks`，方法 putSelfReport、run、cancel、status、record、secretLedger、readerKnown、revealDependencies）；检查记录形状 `CheckRecordSchema`（项目记录键 `plot-check`，形状版本 2）、自陈 `SelfReportSchema`、依赖摘要 `CheckDependenciesSchema`；诊断 id 在 plot/shared/declarations.ts 的 CHECK_DIAGNOSTIC_IDS；模型网关合同 plot/shared/model.ts 的 `plotModelContract`（`nbook.plot/model`，只认本插件项目入口为调用方）；服务端入口 plot/backend/server.ts 的 `plotServerPlugin`。
+- owner 与依赖方向：plot 插件持有检查的候选、预算、题面、校验、记录、有效判定与账本；项目入口（plot/backend/plugin.ts、checks.ts）持有三张落盘的表（plot/backend/store.ts，经存储服务的项目记录）与运行状态（每章一个控制器、并发上限 4）；服务端入口替项目入口调模型（经 `nbook.models` 解析角色 main 与 fast，模型只在服务端进程）。依赖只读 `CanonReadView`、plot 的 knowledge、foreshadowing、decisions、brief 的上下文函数、`nbook/plugins/storage`、`nbook/plugins/models`；内核不依赖本插件。
+- 关键不变量：
+  - 记录有效当且仅当按现在的世界与正文重算，调用集合与每次输入的摘要都与记录相同；本章之后的世界变了不让它过期，条件变了才过期；先比依赖摘要、结论必须与重拼相同，并抽样复核（输出 7；plot/core/checks/run.test.ts“本章之后的世界变了，记录仍有效；条件变了才过期；检查进行中世界变了，记录照存、判过期”；plot/core/checks/plan.test.ts“本章之后的世界变了：调用集合与摘要不变（后面的变更、出场更晚的条目）；条件变了才变（前面给了他知情）”；plot/core/checks/source.test.ts“任何序列上，走摘要的结论等于全量重拼的结论，记录跨步留存”）。
+  - 每个答案的引文由程序核对：对不上的按“看不出”处理并给 badQuote，含换行逐行核对、至少一行不少于 4 个码点（输出 6；run.test.ts“引的原句不在正文里：按看不出，提示；空引文、太短的引文同样；含换行的逐行核对”“引文拆成单字逐行：不算有效；真的跨两行的算；夹一行短的不算错”）。
+  - 窄问题每章最多 20 个、按价值排，超出的记“未问”不合并；补问清单里仍是候选的不占预算（输出 5；plot/core/checks/candidates.test.ts“25 个候选问 20 个，按价值排，其余记没问；补问清单里仍是候选的不占预算，不是候选的忽略”）。
+  - 试读只给与问题有关的原文、不给真相，判一致的输入只有试读的答案与命题（输出 4；plot/core/checks/trial.test.ts“材料是悬念的全部节点所在的段（含误导）加上一章与本章全文，按章序；题面是读者问题；请求里没有命题、id、伏笔名”“判一致只拿试读的答案与命题，不带材料”）。
+  - 取消与确定失败收口：取消或入口停止时这次不存记录并回 plot-check-cancelled，确定失败的同批不再问，用量等在途调用结束才取（失败表；run.test.ts“取消：plot-check-cancelled，不存记录，带到此为止的用量”“立即放弃的不重试，同批的不再问”；plot/backend/checks.test.ts 的“排队等存储时”各用例）。
+- 实现入口：plot/core/checks/plan.ts、plot/core/checks/candidates.ts、plot/core/checks/run.ts、plot/core/checks/trial.ts、plot/core/checks/validity.ts、plot/core/checks/source.ts、plot/core/checks/dependencies.ts、plot/core/checks/diagnostics.ts、plot/core/checks/ledgers.ts、plot/backend/checks.ts、plot/backend/store.ts、plot/backend/plugin.ts、plot/backend/server.ts
+- 合同测试：plot/core/checks/ 下的 run.test.ts、plan.test.ts、candidates.test.ts、trial.test.ts、source.test.ts、dependencies.test.ts、ledgers.test.ts（真实 nb-canon `World` 与只读视图；记账 Agent 与试读模型用脚本化的替身 `scripted`）；plot/backend/checks.test.ts、store.test.ts、server.test.ts（真实存储服务；模型端口替身）；plot/plot.test.ts 的“写完以后的检查：真实的项目子进程、服务端入口与模型服务”（真实项目子进程、真实 `nbook.models` 与本机假的 OpenAI 兼容端点）
+- Smoke：不适用——Spec 现写“由剧情插件的包测试（记账 Agent 与试读模型用按合同对过的替身）与真实模型的评测覆盖”仍成立：plot/plot.llm.test.ts 的“验收 1：卫兵认出勇者，改成例行盘问；验收 2：试读与泄底”接真实模型（`NBOOK_LLM_TESTS=1` 才运行，未运行）；没有 e2e。
