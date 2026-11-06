@@ -60,11 +60,76 @@ export interface CheckRequest {
     readonly maxTokens: number;
 }
 
+const UsageSchema = Type.Object({input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(), cost: Type.Union([Type.Number(), Type.Null()])});
+export type CheckUsage = Static<typeof UsageSchema>;
+export const ZERO_USAGE: CheckUsage = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null};
+
+const Segment = Type.Object({id: Type.String(), line: Type.String(), from: Type.Integer(), to: Type.Integer()});
+const Rule = Type.Object({item: Type.String(), text: Type.String(), segment: Type.Optional(Type.String()), decision: Type.Optional(Type.String())});
+const NewFact = Type.Object({kind: Type.Union([Type.Literal("knowing"), Type.Literal("invention")]), text: Type.String(), name: Type.Optional(Type.String()), quotes: Quotes, segment: Type.String(), line: Type.String()});
+const CallRecord = Type.Object({
+    id: Type.String(),
+    layer: Type.String(),
+    role: Type.Union([Type.Literal("ledger"), Type.Literal("reader")]),
+    question: Type.String(),
+    digest: Type.String(),
+    /** 校验过的答案（引文对不上的已改成“看不出”）。 */
+    answer: Type.Unknown(),
+    usage: UsageSchema,
+    /** 沿用上一条记录的答案，这次没调模型。 */
+    reused: Type.Optional(Type.Boolean()),
+    segment: Type.Optional(Type.String()),
+    point: Type.Optional(Type.String()),
+    person: Type.Optional(Type.String()),
+    personName: Type.Optional(Type.String()),
+    object: Type.Optional(Type.String()),
+    contradicts: Type.Optional(Type.Boolean()),
+});
+export type CallRecord = Static<typeof CallRecord>;
+
+/** 一条检查记录（checks.md 输出 7）。模型调用的输入不存，只存摘要。 */
+export const CheckRecordSchema = Type.Object({
+    chapter: Type.String(),
+    /** 开始时的世界版本与正文摘要（有效与否不读它们，只给作者看）。 */
+    worldVersion: Type.Integer(),
+    textDigest: Type.Union([Type.String(), Type.Null()]),
+    pluginVersion: Type.String(),
+    /** 依赖的摘要（`core/checks/dependencies.ts`）：不算内容，回写不改数据版本。 */
+    dependencies: Type.String(),
+    segments: Type.Array(Segment),
+    followUps: Type.Array(Type.String()),
+    calls: Type.Array(CallRecord),
+    rules: Type.Array(Rule),
+    trials: Type.Array(Type.Object({point: Type.String(), truth: Type.String(), materialKind: Type.Union([Type.Literal("suspense"), Type.Literal("twoChapters")]), material: Type.Array(Type.Object({chapter: Type.String(), paragraph: Type.Optional(Type.Integer())}))})),
+    newFacts: Type.Array(NewFact),
+    unasked: Type.Array(Type.Object({id: Type.String(), layer: Type.String()})),
+    unlisted: Type.Integer(),
+    uncast: Type.Integer(),
+    incomplete: Type.Array(Type.String()),
+    badQuotes: Type.Integer(),
+    noSuspense: Type.Array(Type.String()),
+    noReaderQuestion: Type.Array(Type.String()),
+    /** 费用的记录（输出 10）：这次实际调模型的次数与用量。 */
+    usage: Type.Object({narrow: Type.Integer(), fixed: Type.Integer(), trial: Type.Integer(), judge: Type.Integer(), reused: Type.Integer(), total: UsageSchema}),
+});
+export type CheckRecord = Static<typeof CheckRecordSchema>;
+
 const errors = {plot: Type.Object({code: Type.String()})};
 
 const methods = {
     /** 按章替换写手的自陈（`value` 为 null 是删除）。 */
     putSelfReport: {input: Type.Object({chapter: Type.String(), value: Type.Union([SelfReportSchema, Type.Null()])}), output: Type.Object({dataVersion: Type.String()}), effect: "write", errors},
+    /**
+     * 对第 N 章跑一次检查（输出 7）。等到完成才返回；调用方断开或中止不影响检查，结果照存（检查要几分钟、花钱），断开以后查 `status` 与
+     * `record`。`followUps` 给了就替换补问清单，不给沿用记录里的，空数组清空（输出 5）。
+     */
+    run: {input: Type.Object({chapter: Type.String(), followUps: Type.Optional(Type.Array(Type.String(), {maxItems: 500}))}), output: Type.Object({chapter: Type.String(), calls: Type.Integer(), unasked: Type.Integer(), incomplete: Type.Integer(), usage: Type.Unknown()}), effect: "write", errors},
+    /** 取消正在跑的检查；没有在跑时什么也不做。 */
+    cancel: {input: Type.Object({chapter: Type.String()}), output: Type.Null(), effect: "write", errors},
+    /** 是否在跑、最近一次失败（只在内存：失败的检查不存记录，用量只有这里记）。 */
+    status: {input: Type.Object({chapter: Type.String()}), output: Type.Object({running: Type.Boolean(), lastFailure: Type.Union([Type.Null(), Type.Object({code: Type.String(), kind: Type.Optional(Type.String()), usage: UsageSchema})])}), effect: "read", errors},
+    /** 这一章的检查记录与它现在有效不有效。 */
+    record: {input: Type.Object({chapter: Type.String()}), output: Type.Object({status: Type.Union([Type.Literal("none"), Type.Literal("valid"), Type.Literal("stale")]), record: Type.Union([CheckRecordSchema, Type.Null()])}), effect: "read", errors},
 } as const;
 
 export const plotChecksContract = defineRemoteService({id: "nbook.plot/checks", version: 1, provider: "project", callers: ["browser", "tui", "server"], methods, events: {}});

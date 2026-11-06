@@ -199,7 +199,8 @@ export function planCheck(input: PlanInput): CheckPlan | {readonly code: "chapte
     });
     const fixedCall: PlannedCall = {id: "fixed", layer: "fixed", role: "ledger", question: rules.map((rule) => `${rule.item}：${rule.text}`).join("\n"), request: fixed, digest: inputDigest(fixed, digest), paragraphs: segments.flatMap((segment) => segment.paragraphs)};
 
-    const trial = trialsOf(view, chapter, [...pointsBySegment.values()].flat());
+    // 试读按整章做；知识点的字段按第一段的线读：结果与调用时拿的是哪条线的视图无关（诊断的计算可能拿着别的线）。
+    const trial = trialsOf(segments[0]!.view, chapter, [...pointsBySegment.values()].flat());
     const trialCalls: PlannedCall[] = trial.trials.map((item) => ({id: `reader:${item.point}`, layer: "reader", role: "reader", question: item.question, request: item.request, digest: inputDigest(item.request, digest), point: item.point, paragraphs: item.paragraphs}));
 
     const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};

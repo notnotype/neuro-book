@@ -33,8 +33,14 @@ import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
 import {plotWorldContract} from "../shared/contracts";
-import {plotChecksContract, SelfReportSchema, type SelfReport} from "../shared/checks";
+import {checkDiagnostics, type CheckSource} from "../core/checks/diagnostics";
+import {isValid} from "../core/checks/validity";
+import {perViewCache} from "../core/view-cache";
+import {CheckRecordSchema, plotChecksContract, SelfReportSchema, type CheckRecord, type SelfReport} from "../shared/checks";
+import {plotModelContract} from "../shared/model";
 import {InstructionSnapshotSchema, plotInstructionsContract, type InstructionSnapshot} from "../shared/instructions";
+import {remoteCheckModels} from "./check-models";
+import {createChecks} from "./checks";
 import {PlotStore, type ChapterTable} from "./store";
 
 
@@ -228,10 +234,24 @@ export const plotProjectPlugin: PluginDefinition = {
             const store = new PlotStore(context.services.require(storageKey), warn);
             const instructions = store.table<InstructionSnapshot>({key: "plot-instruction", shape: 1, schema: InstructionSnapshotSchema});
             const selfReports = store.table<SelfReport>({key: "plot-self-report", shape: 1, schema: SelfReportSchema});
-            const failed = await store.load();
+            // 依赖的摘要不算内容：回写它不改数据版本。
+            const records = store.table<CheckRecord>({key: "plot-check", shape: 1, schema: CheckRecordSchema, contentOf: ({dependencies: _dependencies, ...content}) => content});
+            const failed = await store.load(context.signal);
             const usable = failed === null;
             if (!usable) warn("plot.store.unavailable", `${failed.code}: ${failed.detail}`);
-            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? instructionDiagnostics(instructions) : {})}, dataVersion: store.dataVersion});
+            const report = () => canon.reportDataVersion(store.dataVersion);
+            const validity = perViewCache<boolean>();
+            const source: CheckSource = {
+                all: () => records.all(),
+                valid: (view, record) => validity(view, record.chapter, () => {
+                    const instruction = instructions.get(record.chapter);
+                    const selfReport = selfReports.get(record.chapter);
+                    return isValid({view, record, digest, ...(instruction === undefined ? {} : {instruction}), ...(selfReport === undefined ? {} : {selfReport})});
+                }),
+            };
+            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? {...instructionDiagnostics(instructions), ...checkDiagnostics(source, digest)} : {})}, dataVersion: store.dataVersion});
+            const checks = createChecks({canon, store, instructions, selfReports, checks: records, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: () => "", changed: report, stop: context.signal});
+            context.scope.register({kind: "plot-checks", label: `${descriptor.id} checks`, value: checks, release: (value) => value.release()});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();
             const remote = provideRemote(plotWorldContract, () => {
@@ -261,7 +281,7 @@ export const plotProjectPlugin: PluginDefinition = {
                             const before = store.dataVersion;
                             const written = await store.write(instructions, input.chapter, input.snapshot);
                             if (!written.ok) return fail(written.code);
-                            if (store.dataVersion !== before) canon.reportDataVersion(store.dataVersion);
+                            if (store.dataVersion !== before) report();
                             return {ok: true as const, value: {dataVersion: instructions.version}};
                         });
                     },
@@ -278,9 +298,28 @@ export const plotProjectPlugin: PluginDefinition = {
                             const before = store.dataVersion;
                             const written = await store.write(selfReports, input.chapter, input.value);
                             if (!written.ok) return fail(written.code);
-                            if (store.dataVersion !== before) canon.reportDataVersion(store.dataVersion);
+                            if (store.dataVersion !== before) report();
                             return {ok: true as const, value: {dataVersion: store.dataVersion}};
                         });
+                    },
+                    run: async (input) => {
+                        if (!usable) return fail("storage-unavailable");
+                        const result = await checks.run(input.chapter, input.followUps);
+                        if (!result.ok) return fail(result.code);
+                        const {record} = result;
+                        return {ok: true as const, value: {chapter: record.chapter, calls: record.calls.length, unasked: record.unasked.length, incomplete: record.incomplete.length, usage: record.usage}};
+                    },
+                    cancel: (input) => {
+                        checks.cancel(input.chapter);
+                        return {ok: true as const, value: null};
+                    },
+                    status: (input) => ({ok: true as const, value: checks.status(input.chapter)}),
+                    record: async (input) => {
+                        const record = records.get(input.chapter);
+                        if (record === undefined) return {ok: true as const, value: {status: "none" as const, record: null}};
+                        const snapshot = await canon.snapshot();
+                        if ("code" in snapshot) return fail(snapshot.code);
+                        return fitted({status: source.valid(snapshot.view, record) ? ("valid" as const) : ("stale" as const), record});
                     },
                 },
                 events: {},

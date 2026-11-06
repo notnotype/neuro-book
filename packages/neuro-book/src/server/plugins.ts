@@ -23,6 +23,7 @@ import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
+import {plotServerPlugin} from "nbook/plugins/plot/backend/server";
 import {agentBackendPlugin} from "nbook/plugins/agent/backend/plugin";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
@@ -65,6 +66,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.plugins": pluginsBackendPlugin,
     "nbook.storage": storageBackendPlugin,
     "nbook.models": modelsBackendPlugin,
+    "nbook.plot": plotServerPlugin,
     "nbook.agent": agentBackendPlugin,
     "nbook.files": filesBackendPlugin,
 };

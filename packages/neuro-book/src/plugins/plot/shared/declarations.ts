@@ -186,6 +186,7 @@ export const FS_DIAGNOSTIC_IDS = {
     sharedAnswer: `${PLOT_PLUGIN_ID}.fs.sharedAnswer`,
     nodeWithoutTelling: `${PLOT_PLUGIN_ID}.fs.nodeWithoutTelling`,
     payoffWithoutReveal: `${PLOT_PLUGIN_ID}.fs.payoffWithoutReveal`,
+    objectTouchedInText: `${PLOT_PLUGIN_ID}.fs.objectTouchedInText`,
 } as const;
 
 /** 目标的诊断（goals.md 的诊断表）。 */
@@ -201,6 +202,23 @@ export const DECISION_DIAGNOSTIC_IDS = {
     readerGuardViolated: `${PLOT_PLUGIN_ID}.decision.readerGuardViolated`,
     overdue: `${PLOT_PLUGIN_ID}.decision.overdue`,
     dangling: `${PLOT_PLUGIN_ID}.decision.dangling`,
+    constraintViolated: `${PLOT_PLUGIN_ID}.decision.constraintViolated`,
+    decidedInText: `${PLOT_PLUGIN_ID}.decision.decidedInText`,
+} as const;
+
+/** 写完以后的检查的诊断（checks.md 的诊断表）。 */
+export const CHECK_DIAGNOSTIC_IDS = {
+    possibleSlip: `${PLOT_PLUGIN_ID}.check.possibleSlip`,
+    earlyReveal: `${PLOT_PLUGIN_ID}.check.earlyReveal`,
+    unrecordedKnowing: `${PLOT_PLUGIN_ID}.check.unrecordedKnowing`,
+    unreportedInvention: `${PLOT_PLUGIN_ID}.check.unreportedInvention`,
+    instructionViolated: `${PLOT_PLUGIN_ID}.check.instructionViolated`,
+    forkSuspected: `${PLOT_PLUGIN_ID}.check.forkSuspected`,
+    unasked: `${PLOT_PLUGIN_ID}.check.unasked`,
+    noSuspense: `${PLOT_PLUGIN_ID}.check.noSuspense`,
+    noReaderQuestion: `${PLOT_PLUGIN_ID}.check.noReaderQuestion`,
+    badQuote: `${PLOT_PLUGIN_ID}.check.badQuote`,
+    stale: `${PLOT_PLUGIN_ID}.check.stale`,
 } as const;
 
 /** 章的写作指示的检查（decisions.md 输出 8，提示）。 */
@@ -211,6 +229,8 @@ export const INSTRUCTION_DIAGNOSTIC_IDS = {
 } as const;
 
 /** 已经给出计算的诊断（knowledge.md 的诊断表）；伏笔、目标、决策、写作指示与检查的随各自的那一片加。 */
+const CHECK_INPUTS = "检查记录、世界与正文（记录过期时只报要重跑）";
+
 export const PLOT_DIAGNOSTICS: readonly DiagnosticDeclaration[] = [
     {id: DIAGNOSTIC_IDS.relayBroken, version: 1, level: "pending", label: "传话链断了", key: ["objects", "line"], inputs: "有效的知情（显式的行、在场推出的、隐秘目标推出的）"},
     {id: DIAGNOSTIC_IDS.knowingIncomplete, version: 1, level: "pending", label: "知情行不完整", key: ["objects", "line"], inputs: "知情行与知识点的揭穿"},
@@ -235,4 +255,18 @@ export const PLOT_DIAGNOSTICS: readonly DiagnosticDeclaration[] = [
     {id: FS_DIAGNOSTIC_IDS.sharedAnswer, version: 1, level: "hint", label: "几个悬念同一个答案", key: ["objects"]},
     {id: FS_DIAGNOSTIC_IDS.nodeWithoutTelling, version: 1, level: "hint", label: "继承的节点没有位置", key: ["objects", "line"]},
     {id: FS_DIAGNOSTIC_IDS.payoffWithoutReveal, version: 1, level: "hint", label: "悬念回收了却没揭示答案", key: ["objects", "telling"]},
+    {id: FS_DIAGNOSTIC_IDS.objectTouchedInText, version: 1, level: "hint", label: "正文里动了物件、世界里没记", key: ["objects", "line", "range", "detail"], inputs: CHECK_INPUTS},
+    {id: DECISION_DIAGNOSTIC_IDS.constraintViolated, version: 1, level: "pending", label: "违反了已定的约束", key: ["objects", "range"], inputs: CHECK_INPUTS},
+    {id: DECISION_DIAGNOSTIC_IDS.decidedInText, version: 1, level: "pending", label: "写死了未定的事", key: ["objects", "range"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.possibleSlip, version: 1, level: "pending", label: "可能穿帮", key: ["objects", "line", "range", "detail"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.earlyReveal, version: 1, level: "pending", label: "提前泄底", key: ["objects", "range"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.unrecordedKnowing, version: 1, level: "pending", label: "正文里有人知道却没有记录", key: ["line", "range", "detail"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.unreportedInvention, version: 1, level: "pending", label: "写手新编了没说", key: ["line", "range", "detail"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.instructionViolated, version: 1, level: "pending", label: "违反写作指示", key: ["range", "detail"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.forkSuspected, version: 1, level: "pending", label: "疑似回溯没记", key: ["line", "range", "detail"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.unasked, version: 1, level: "hint", label: "有没问的", key: ["range"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.noSuspense, version: 1, level: "hint", label: "试读缺材料", key: ["objects"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.noReaderQuestion, version: 1, level: "hint", label: "试读缺问题", key: ["objects"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.badQuote, version: 1, level: "hint", label: "引文对不上", key: ["range"], inputs: CHECK_INPUTS},
+    {id: CHECK_DIAGNOSTIC_IDS.stale, version: 1, level: "hint", label: "检查要重跑", key: ["range"], inputs: CHECK_INPUTS},
 ];

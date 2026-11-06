@@ -193,7 +193,7 @@ export class PlotStore {
     }
 
     /** 读回清单里每一章的每张表。读取失败时交回失败，表里已读的留着，调用方不用这份 store。 */
-    async load(): Promise<StoreFailure | null> {
+    async load(signal?: AbortSignal): Promise<StoreFailure | null> {
         const opened = await this.storage.open(CHAPTERS_RECORD);
         if (!opened.ok) return opened;
         this.#listHandle = opened.handle;
@@ -207,6 +207,7 @@ export class PlotStore {
         if (list.status === "ok") for (const chapter of list.value.chapters) this.#listed.add(chapter);
         for (const table of this.#tables) {
             for (const chapter of this.#listed) {
+                if (signal?.aborted === true) return {ok: false, code: "unavailable", detail: "stopping"};
                 const failed = await table.load(chapter);
                 if (failed !== null) return failed;
             }
