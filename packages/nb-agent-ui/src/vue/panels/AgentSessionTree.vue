@@ -50,12 +50,16 @@ const bodyRef = ref<HTMLElement | null>(null);
 const ready = computed(() => (props.tree.state === "ready" ? props.tree : null));
 const modes = computed(() => [{label: t("panel.tree.list"), value: "list"}, {label: t("panel.tree.graph"), value: "graph"}]);
 
-/** 每条分支一种颜色，当前路径（0）是强调色；分支多于颜色时循环。 */
+/** 每条分支一种颜色，当前路径（0）独占强调色；别的分支多于颜色时循环。 */
 const LANE_COLORS = ["var(--accent-main)", "var(--status-success)", "var(--status-warning)", "var(--status-danger)"];
-const laneColor = (lane: number): string => LANE_COLORS[lane % LANE_COLORS.length]!;
+const laneColor = (lane: number): string => (lane === 0 ? LANE_COLORS[0]! : LANE_COLORS[1 + (lane - 1) % (LANE_COLORS.length - 1)]!);
+/** 缩进线最多画几层：分叉多的长会话能到几十层，标签会被挤没。更深的只留最里面几层，前面写“还有几层”。 */
+const MAX_GUIDES = 6;
 const filters = computed(() => (["default", "no-tools", "user", "all"] as const).map((value) => ({label: t(`panel.tree.filter.${value}`), value})));
 
 const rows = computed(() => (ready.value === null ? [] : sessionTreeRows({nodes: ready.value.nodes, activePath: ready.value.activePath, filter: filter.value, query: query.value, collapsed: collapsed.value})));
+/** 节点数不随收起变化，两种视图一样。 */
+const shownCount = computed(() => (ready.value === null ? 0 : sessionTreeRows({nodes: ready.value.nodes, activePath: ready.value.activePath, filter: filter.value}).length));
 const forkCount = computed(() => {
     if (ready.value === null) return 0;
     const seen = new Map<string, number>();
@@ -92,6 +96,13 @@ function switchFork(node: SessionTreeGraphNode, step: number): void {
     const next = children[forkIndex(node) + step];
     if (next !== undefined) selected.value = next;
 }
+
+/** 选中的节点被过滤、搜索或收起之后不再算选中：底部不能切到一个看不见的节点。 */
+watch([rows, () => graph.value?.nodes, mode], () => {
+    if (selected.value === null) return;
+    const visible = mode.value === "graph" ? graphNodes.value.has(selected.value) : rows.value.some((row) => row.id === selected.value);
+    if (!visible) selected.value = null;
+});
 
 const selectedLabel = computed(() => {
     if (selected.value === null || ready.value === null) return null;
@@ -140,11 +151,19 @@ function moveInGraph(along: number, across: number): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+    // 树里的按钮（折叠、分叉切换）自己处理回车与方向键，容器不抢。
+    if (event.target !== event.currentTarget) return;
     const down = direction.value === "down";
     const keys: Record<string, () => void> = mode.value === "list"
         ? {
             ArrowDown: () => moveInList(1),
             ArrowUp: () => moveInList(-1),
+            Home: () => {
+                selected.value = rows.value[0]?.id ?? null;
+            },
+            End: () => {
+                selected.value = rows.value.at(-1)?.id ?? null;
+            },
             ArrowLeft: () => selected.value !== null && rows.value.find((row) => row.id === selected.value)?.collapsible && !collapsed.value.has(selected.value) && toggle(selected.value),
             ArrowRight: () => selected.value !== null && collapsed.value.has(selected.value) && toggle(selected.value),
             Enter: activate,
@@ -185,7 +204,7 @@ watch(selected, () => {
         </p>
         <template v-else>
             <div class="acv-tree__bar">
-                <span class="acv-tree__count" data-tree-count>{{ t("panel.tree.count", {nodes: rows.length, forks: forkCount}) }}</span>
+                <span class="acv-tree__count" data-tree-count>{{ t("panel.tree.count", {nodes: shownCount, forks: forkCount}) }}</span>
                 <span class="acv-tree__spacer" />
                 <div v-if="mode === 'graph'" class="acv-tree__directions">
                     <IconButton size="sm" icon-class="i-lucide-arrow-down" :title="t('panel.tree.down')" :aria-label="t('panel.tree.down')" :aria-pressed="direction === 'down'" :class="{'is-on': direction === 'down'}" data-tree-direction="down" @click="direction = 'down'" />
@@ -197,23 +216,27 @@ watch(selected, () => {
                 <Input v-model="query" size="sm" icon-class="i-lucide-search" class="acv-tree__search" :placeholder="t('panel.tree.search')" :aria-label="t('panel.tree.search')" data-tree-search />
                 <SegmentedControl v-model="filter" :options="filters" size="xs" class="acv-tree__filter" data-tree-filter />
             </div>
-            <div ref="bodyRef" class="acv-tree__body" tabindex="0" role="tree" :aria-label="t('panel.tree.title')" data-tree-body @keydown="onKeydown">
+            <div ref="bodyRef" class="acv-tree__body" tabindex="0" role="tree" :aria-label="t('panel.tree.title')" :aria-activedescendant="selected === null ? undefined : `tree-item-${selected}`" data-tree-body @keydown="onKeydown">
                 <template v-if="mode === 'list'">
                     <p v-if="rows.length === 0" class="acv-tree__state">{{ t("panel.tree.empty") }}</p>
                     <div
                         v-for="row in rows"
                         :key="row.id"
+                        :id="`tree-item-${row.id}`"
                         class="acv-tree__row"
                         :class="{'is-on': row.onPath, 'is-current': row.current, 'is-selected': row.id === selected}"
                         role="treeitem"
                         :aria-selected="row.id === selected"
+                        :aria-level="row.guides.length + 1"
+                        :aria-expanded="row.collapsible ? !row.collapsed : undefined"
                         :data-tree-row="row.id"
                         :data-tree-current="row.current ? '' : undefined"
                         :data-tree-selected="row.id === selected ? '' : undefined"
                         @click="selected = row.id"
                         @dblclick="activate"
                     >
-                        <span v-for="(guide, index) in row.guides" :key="index" class="acv-tree__guide" :data-kind="guide" :style="{'--acv-lane': laneColor(row.guideLanes[index] ?? 0)}" />
+                        <span v-if="row.guides.length > MAX_GUIDES" class="acv-tree__deeper" :title="t('panel.tree.deeper', {count: row.guides.length})">+{{ row.guides.length - MAX_GUIDES }}</span>
+                        <span v-for="(guide, index) in row.guides.slice(-MAX_GUIDES)" :key="index" class="acv-tree__guide" :data-kind="guide" :style="{'--acv-lane': laneColor(row.guideLanes.slice(-MAX_GUIDES)[index] ?? 0)}" />
                         <button v-if="row.collapsible" type="button" class="acv-tree__fold" :aria-label="t(row.collapsed ? 'panel.tree.expand' : 'panel.tree.collapse')" data-tree-fold @click.stop="toggle(row.id)">
                             <span :class="row.collapsed ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" aria-hidden="true" />
                         </button>
@@ -237,6 +260,7 @@ watch(selected, () => {
                         class="acv-tree__node"
                         :class="{'is-on': node.onPath, 'is-current': node.current, 'is-selected': node.id === selected}"
                         :style="{left: `${graphPosition(node, direction).x}px`, top: `${graphPosition(node, direction).y}px`, width: `${SESSION_TREE_NODE_SIZE.width}px`, height: `${SESSION_TREE_NODE_SIZE.height}px`, '--acv-lane': laneColor(node.lane)}"
+                        :id="`tree-item-${node.id}`"
                         role="treeitem"
                         :aria-selected="node.id === selected"
                         :title="node.label"
@@ -273,7 +297,7 @@ watch(selected, () => {
 .acv-tree {
     display: flex;
     /* 外框的正文区有上限；树自己撑满并在内部滚动，工具条和底部不跟着滚。 */
-    height: min(560px, 70vh);
+    height: min(560px, 70vh, 70cqh);
     flex-direction: column;
     gap: 8px;
     color: var(--text-main);
@@ -409,6 +433,12 @@ watch(selected, () => {
     height: 2px;
     background: var(--acv-lane);
     content: "";
+}
+
+.acv-tree__deeper {
+    flex: none;
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
 }
 
 .acv-tree__fold {

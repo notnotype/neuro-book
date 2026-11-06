@@ -86,6 +86,7 @@ export const agentContextInspectorScenes: InspectorScene[] = [
         diagnostics: [{id: "d", level: "warning", message: "the slot of lab.memory failed"}],
     }}}},
     {id: "loading", label: "正在计算", input: {props: {usage: INSPECTOR_USAGE, systemPrompt: null, inspection: {state: "loading"}}}},
+    {id: "no-cache", label: "服务商不报缓存", input: {props: {usage: {...INSPECTOR_USAGE, cacheRead: 0, cacheWrite: 0, cacheHitRate: null, lastCacheHitRate: null}, systemPrompt: null, inspection: {state: "ready", estimated: 3_000, window: 32_000, threshold: 16_000, areas: [{key: "system", tokens: 500}, {key: "tools", tokens: 2_300}, {key: "opening", tokens: 0}, {key: "history", tokens: 200}, {key: "turn", tokens: 0}], slots: [], diagnostics: []}}}},
     {id: "unavailable", label: "算不出", input: {props: {usage: INSPECTOR_USAGE, systemPrompt: null, inspection: {state: "unavailable", reason: "现在算不出下一次请求：这个会话的模型用不了。"}}}},
 ];
 
@@ -111,10 +112,16 @@ const TREE_NODES = [
     {id: "01KQ10ASSIST", parent: "01KQ09USER", type: "assistant", label: "巷子深处有人在咳嗽。"},
     {id: "01KQ11ASSIST", parent: "01KQ04ASSIST", type: "assistant", label: "雨越下越大。他走进巷子。"},
 ];
+/** 每一层都分叉：主干一路往下，每层多一条支线。 */
+const DEEP_TREE = Array.from({length: 12}, (_, depth) => [
+    {id: `t${String(depth)}`, parent: depth === 0 ? null : `t${String(depth - 1)}`, type: "input", label: `第 ${String(depth + 1)} 层的主干`},
+    ...(depth === 0 ? [] : [{id: `b${String(depth)}`, parent: `t${String(depth - 1)}`, type: "assistant", label: `第 ${String(depth + 1)} 层的支线`}]),
+]).flat();
 const TREE_PATH = ["01KQ00CREATED", "01KQ00RUN", "01KQ01USER", "01KQ01MODEL", "01KQ02ASSIST", "01KQ03TOOL", "01KQ03RESULT", "01KQ04ASSIST", "01KQ05USER", "01KQ06ASSIST"];
 
 export const agentSessionTreeScenes: LabFixtureDefinition<typeof AgentSessionTree>["scenes"] = [
     {id: "ready", label: "有分叉", input: {props: {canActivate: true, tree: {state: "ready", nodes: TREE_NODES, activePath: TREE_PATH}}}},
+    {id: "deep", label: "分叉很多层", input: {props: {canActivate: true, tree: {state: "ready", nodes: DEEP_TREE, activePath: DEEP_TREE.filter((node) => node.id.startsWith("t")).map((node) => node.id)}}}},
     {id: "loading", label: "读取中", input: {props: {canActivate: true, tree: {state: "loading", loaded: 2000}}}},
     {id: "unavailable", label: "读不到", input: {props: {canActivate: true, tree: {state: "unavailable", reason: "这步没做成（session-closed）。对话没动。"}}}},
     {id: "running", label: "运行中不能切换", input: {props: {canActivate: false, tree: {state: "ready", nodes: TREE_NODES, activePath: TREE_PATH}}}},

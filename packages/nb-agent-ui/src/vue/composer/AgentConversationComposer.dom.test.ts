@@ -5,7 +5,7 @@
 
 import {describe, expect, it, vi} from "vitest";
 import {flushPromises, mount} from "@vue/test-utils";
-import {DropdownMenu} from "@notnotype/nb-ui/components";
+import {DropdownMenu, Slider} from "@notnotype/nb-ui/components";
 
 import {createAgentContext, type AgentContextPatch} from "../../context";
 import {createAgentViewRegistry, type AgentViewContribution} from "../../registry";
@@ -172,6 +172,18 @@ describe("AgentRoleModelPicker", () => {
         inside("[data-model-picker-manage]").click();
         await nextTick();
         expect(picker.emitted("manage")).toHaveLength(1);
+        picker.unmount();
+    });
+
+    it("拖滑块时停下才发一次", async () => {
+        const picker = await open({thinkingLevels: ["low", "medium", "high"], thinking: "low"});
+        const slider = picker.getComponent(Slider);
+        slider.vm.$emit("update:modelValue", 1);
+        slider.vm.$emit("update:modelValue", 2);
+        await nextTick();
+        expect(inside("[data-model-picker-thinking]").textContent).toBe("高");
+        expect(picker.emitted("select-thinking")).toBeUndefined();
+        await vi.waitFor(() => expect(picker.emitted("select-thinking")).toEqual([["high"]]));
         picker.unmount();
     });
 

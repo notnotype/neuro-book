@@ -3,7 +3,7 @@
  * 上下文详情的内容（docs/specs/ui/agent-conversation-view.md 的“上下文检查器”）：下一次请求的组成、缓存、系统提示词、扩展的槽、诊断。
  * 组成是内核按估算算的，不调模型。外框、开关与刷新在视图里。
  */
-import {computed, ref} from "vue";
+import {computed, shallowRef, watch} from "vue";
 import {Spinner} from "@notnotype/nb-ui/components";
 
 import {formatTokens} from "../../process-summary";
@@ -30,22 +30,26 @@ const AREA_COLORS: Record<string, string> = {
     turn: "var(--status-danger)",
 };
 
-const ready = computed(() => (props.inspection.state === "ready" ? props.inspection : null));
+/** 刷新时留着上一次的结果：收起的、展开的都不跳，读到新的再换。 */
+const lastReady = shallowRef<Extract<ContextInspectionView, {state: "ready"}> | null>(null);
+watch(() => props.inspection, (inspection) => {
+    if (inspection.state === "ready") lastReady.value = inspection;
+    else if (inspection.state === "unavailable") lastReady.value = null;
+}, {immediate: true});
+const ready = lastReady;
 const total = computed(() => ready.value?.estimated ?? 0);
 const limit = computed(() => Math.max(ready.value?.window ?? 0, total.value, 1));
 const percent = (value: number): string => `${String(Math.round(value * 100))}%`;
 const share = (tokens: number): string => percent(total.value === 0 ? 0 : tokens / total.value);
 
-const systemOpen = ref(false);
 function onSystemToggle(event: Event): void {
-    systemOpen.value = (event.target as HTMLDetailsElement).open;
-    if (systemOpen.value) emit("load-system-prompt");
+    if ((event.target as HTMLDetailsElement).open) emit("load-system-prompt");
 }
 </script>
 
 <template>
     <div class="acv-inspector" data-context-inspector>
-        <p v-if="props.inspection.state === 'loading' || props.inspection.state === 'idle'" class="acv-inspector__state" role="status">
+        <p v-if="(props.inspection.state === 'loading' || props.inspection.state === 'idle') && ready === null" class="acv-inspector__state" role="status">
             <Spinner size="sm" :label="t('panel.context.loading')" />{{ t("panel.context.loading") }}
         </p>
         <p v-else-if="props.inspection.state === 'unavailable'" class="acv-inspector__state" data-context-unavailable>
@@ -89,6 +93,7 @@ function onSystemToggle(event: Event): void {
             <details class="acv-inspector__fold" data-context-system @toggle="onSystemToggle">
                 <summary>{{ t("panel.context.systemPrompt") }}</summary>
                 <pre v-if="props.systemPrompt !== null" class="acv-inspector__pre">{{ props.systemPrompt.text }}</pre>
+                <p v-else class="acv-inspector__note">{{ t("panel.context.loading") }}</p>
             </details>
             <details class="acv-inspector__fold" data-context-slots>
                 <summary>{{ t("panel.context.slots") }} <span class="acv-inspector__muted">{{ ready.slots.length }}</span></summary>

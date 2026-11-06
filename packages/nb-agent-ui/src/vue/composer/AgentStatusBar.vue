@@ -136,6 +136,9 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     flex: 1;
     align-items: center;
     gap: 6px;
+    /* 裁剪的边往外让一点：圆环能点，焦点环要看得见。 */
+    margin: -3px 0 -3px -3px;
+    padding: 3px 0 3px 3px;
     overflow: hidden;
 }
 

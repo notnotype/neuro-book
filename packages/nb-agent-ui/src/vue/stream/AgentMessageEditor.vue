@@ -38,7 +38,7 @@ onMounted(() => withEditor((editor) => editor.focus("end")));
 </script>
 
 <template>
-    <div class="acv-message-editor" data-message-editor @keydown.esc.prevent="emit('cancel')">
+    <div class="acv-message-editor" data-message-editor>
         <div class="acv-message-editor__input">
             <component
                 :is="renderers.promptEditor"
@@ -59,6 +59,7 @@ onMounted(() => withEditor((editor) => editor.focus("end")));
                 bare
                 @change="value = $event"
                 @submit="submit"
+                @escape="emit('cancel')"
             />
         </div>
         <div class="acv-message-editor__tools">

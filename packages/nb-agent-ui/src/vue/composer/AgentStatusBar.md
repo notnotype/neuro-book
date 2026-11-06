@@ -13,7 +13,7 @@
 
 ## 数据
 
-属性 `ctx`、`registry`。视图不自己计时，用时按 `ctx.now` 算。
+属性 `ctx`、`registry`。`interaction.canInspectContext` 为真时圆环与缓存命中能点，发出 `inspect`，视图打开上下文详情。视图不自己计时，用时按 `ctx.now` 算。
 
 ## 隐藏通道理由
 

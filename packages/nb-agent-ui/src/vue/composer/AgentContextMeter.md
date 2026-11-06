@@ -16,10 +16,12 @@ interface AgentContextMeterProps {
     used: number;
     /** 必填：上下文窗口；大于 0。 */
     limit: number;
+    /** 能点（宿主能给上下文详情时）：渲染成按钮，点了发出 `inspect`。缺省只是显示。 */
+    interactive?: boolean;
 }
 ```
 
-没有事件、slot 与 expose；attrs 落在圆环外层。
+事件：`inspect`（`interactive` 时点击）。
 
 ## 状态
 

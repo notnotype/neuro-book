@@ -359,6 +359,7 @@ export default {
             previous: "上一条分支",
             next: "下一条分支",
             tooLarge: "节点太多（超过 {{limit}} 个），图画不下，请用列表。",
+            deeper: "第 {{count}} 层分叉",
             hint: "选中一个节点",
             copyId: "复制节点 id",
             activate: "切换到这条分支",

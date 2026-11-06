@@ -62,6 +62,30 @@ describe("AgentSessionTree", () => {
         expect(view.emitted("activate")).toEqual([["a3"]]);
     });
 
+    it("树里按钮上的回车不算切换；选中的节点被收起后不再算选中；缩进线有上限", async () => {
+        const view = show();
+        await view.get("[data-tree-row='a3']").trigger("click");
+        await view.get("[data-tree-row='u3'] [data-tree-fold]").trigger("keydown", {key: "Enter"});
+        expect(view.emitted("activate")).toBeUndefined();
+        await view.get("[data-tree-row='u3'] [data-tree-fold]").trigger("click");
+        expect(view.get("[data-tree-selected-label]").text()).toBe("选中一个节点");
+        expect(view.get("[data-tree-activate]").attributes("disabled")).toBeDefined();
+        const body = view.get("[data-tree-body]");
+        await body.trigger("keydown", {key: "End"});
+        expect(view.findAll("[data-tree-row]").at(-1)!.attributes("aria-selected")).toBe("true");
+        expect(body.attributes("aria-activedescendant")).toBe(`tree-item-${String(view.findAll("[data-tree-row]").at(-1)!.attributes("data-tree-row"))}`);
+
+        const nodes: {id: string; parent: string | null; type: string; label: string}[] = [{id: "t0", parent: null, type: "input", label: "根"}];
+        const path = ["t0"];
+        for (let depth = 1; depth < 12; depth += 1) {
+            nodes.push({id: `t${String(depth)}`, parent: `t${String(depth - 1)}`, type: "input", label: "主干"}, {id: `b${String(depth)}`, parent: `t${String(depth - 1)}`, type: "assistant", label: "支线"});
+            path.push(`t${String(depth)}`);
+        }
+        const deep = show({tree: {state: "ready", nodes, activePath: path}});
+        expect(deep.get("[data-tree-row='t11']").findAll(".acv-tree__guide")).toHaveLength(6);
+        expect(deep.get("[data-tree-row='t11'] .acv-tree__deeper").text()).toBe("+5");
+    });
+
     it("搜索与过滤", async () => {
         const view = show();
         await view.get("[data-tree-search] input, input[data-tree-search]").setValue("乙的");

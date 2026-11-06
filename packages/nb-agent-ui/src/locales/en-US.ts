@@ -365,6 +365,7 @@ export default {
             previous: "Previous branch",
             next: "Next branch",
             tooLarge: "Too many nodes (over {{limit}}) to draw. Use the list.",
+            deeper: "Fork depth {{count}}",
             hint: "Select a node",
             copyId: "Copy node id",
             activate: "Switch to this branch",

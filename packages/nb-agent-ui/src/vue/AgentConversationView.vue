@@ -447,6 +447,7 @@ defineExpose({focusComposer, scrollToLatest});
             closable
             :show-footer="false"
             :teleport-target="props.teleportTarget"
+            initial-focus="[data-tree-body]"
             data-tree-dialog
             @update:open="onTreeOpen"
         >

@@ -63,14 +63,30 @@ function thinkingLabel(level: string): string {
 const selectedName = computed(() => currentRole.value?.name ?? currentModel.value?.label ?? props.modelKey ?? t("composer.model.none"));
 /** 选的是角色或跟随默认时，实际用的模型另写一段；选的就是模型时不重复。 */
 const usedModel = computed(() => (currentRole.value !== null || props.modelKey === FOLLOW_KEY ? props.effectiveModel : null));
-const thinkingText = computed(() => (props.thinking === null ? null : thinkingLabel(props.thinking)));
 const triggerText = computed(() => [selectedName.value, usedModel.value, thinkingText.value].filter((part) => part !== null).join(" · "));
 
-const thinkingIndex = computed(() => Math.max(0, props.thinking === null ? 0 : props.thinkingLevels.indexOf(props.thinking)));
+/**
+ * 拖动时滑块跟手，停下才发一次：一格一次写设置，多次写入的先后没有保证，停下时可能落在中间那一档。
+ */
+const THINKING_SETTLE_MS = 200;
+const draggingIndex = ref<number | null>(null);
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+const thinkingIndex = computed(() => draggingIndex.value ?? Math.max(0, props.thinking === null ? 0 : props.thinkingLevels.indexOf(props.thinking)));
+const thinkingText = computed(() => {
+    const level = draggingIndex.value === null ? props.thinking : props.thinkingLevels[draggingIndex.value] ?? props.thinking;
+    return level === null ? null : thinkingLabel(level);
+});
 function onThinking(value: number | number[]): void {
     // 单值滑块只交数字；类型是给范围滑块留的。
-    const level = typeof value === "number" ? props.thinkingLevels[value] : undefined;
-    if (level !== undefined && level !== props.thinking) emit("select-thinking", level);
+    if (typeof value !== "number") return;
+    draggingIndex.value = value;
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+        settleTimer = null;
+        const level = props.thinkingLevels[value];
+        draggingIndex.value = null;
+        if (level !== undefined && level !== props.thinking) emit("select-thinking", level);
+    }, THINKING_SETTLE_MS);
 }
 
 /** 同组的排在一起，搜索按显示名、组名与 key。“跟随默认”在角色页，这里不列。 */
@@ -121,6 +137,12 @@ function toggle(): void {
     void nextTick(() => panelRef.value?.focus());
 }
 
+/** Tab 走出面板就关：面板传送在 body 上，焦点走出去之后再也回不来。 */
+function onFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget as Node | null;
+    if (next !== null && !panelRef.value?.contains(next) && !triggerRef.value?.contains(next)) open.value = false;
+}
+
 /** `/model 参数`：打开模型库，参数填进搜索；没有参数时打开角色页。 */
 function openPicker(search = ""): void {
     if (props.disabled) return;
@@ -144,7 +166,10 @@ watch(open, (value) => {
 watch(() => props.disabled, (disabled) => {
     if (disabled) open.value = false;
 });
-onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocumentPointerDown, true));
+onBeforeUnmount(() => {
+    document.removeEventListener("pointerdown", onDocumentPointerDown, true);
+    if (settleTimer !== null) clearTimeout(settleTimer);
+});
 </script>
 
 <template>
@@ -174,8 +199,9 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocumentPoin
             tabindex="-1"
             data-model-picker-panel
             @keydown.esc.stop.prevent="close"
+            @focusout="onFocusOut"
         >
-            <header class="acv-role-picker__head">
+            <div class="acv-role-picker__head">
                 <div class="acv-role-picker__current">
                     <div class="acv-role-picker__current-text">
                         <div class="acv-role-picker__name">
@@ -200,8 +226,8 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocumentPoin
                         @update:model-value="onThinking"
                     />
                 </div>
-            </header>
-            <main class="acv-role-picker__body">
+            </div>
+            <div class="acv-role-picker__body">
                 <template v-if="page === 'roles'">
                     <button
                         v-if="follow !== null"
@@ -278,12 +304,12 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocumentPoin
                         </button>
                     </section>
                 </template>
-            </main>
-            <footer v-if="props.canManage" class="acv-role-picker__foot">
+            </div>
+            <div v-if="props.canManage" class="acv-role-picker__foot">
                 <button type="button" class="acv-role-picker__manage" data-model-picker-manage @click="emit('manage'); close()">
                     <span class="i-lucide-settings-2 acv-role-picker__icon" aria-hidden="true" />{{ t("composer.model.manage") }}
                 </button>
-            </footer>
+            </div>
         </div>
     </AnchoredPopover>
 </template>
@@ -399,7 +425,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onDocumentPoin
 
 /* 固定宽度：档位文字长短不同时滑块不动。 */
 .acv-role-picker__thinking-value {
-    width: 2.5em;
+    width: 5.5em;
     flex: none;
     color: var(--accent-text);
     font-weight: var(--weight-strong);

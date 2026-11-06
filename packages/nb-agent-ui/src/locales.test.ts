@@ -347,6 +347,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "panel.tree.previous": {"zh-CN": "上一条分支", "en-US": "Previous branch"},
     "panel.tree.next": {"zh-CN": "下一条分支", "en-US": "Next branch"},
     "panel.tree.tooLarge": {"zh-CN": "节点太多（超过 {limit} 个），图画不下，请用列表。", "en-US": "Too many nodes (over {limit}) to draw. Use the list."},
+    "panel.tree.deeper": {"zh-CN": "第 {count} 层分叉", "en-US": "Fork depth {count}"},
     "panel.tree.hint": {"zh-CN": "选中一个节点", "en-US": "Select a node"},
     "panel.tree.copyId": {"zh-CN": "复制节点 id", "en-US": "Copy node id"},
     "panel.tree.activate": {"zh-CN": "切换到这条分支", "en-US": "Switch to this branch"},
