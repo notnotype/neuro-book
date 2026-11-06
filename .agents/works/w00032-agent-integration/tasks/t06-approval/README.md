@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t06-approval
-status: active
+status: done
 updated: 2026-11-06
 ---
 
@@ -80,12 +80,15 @@ t03、t04。
 
 ## 下一步
 
-切片 1 到 6 都写完，实现审查进行中（omp 审后端，Sonnet 审前端；被审提交 `5f5ed11db`，审查 worktree `.worktree/t06-review`）。处理完审查后合入 master，清理两个 worktree，Task 设为 done。
+完成，2026-11-06 合入 master（`7c5ca4575`）。
 
-验证（2026-11-06）：
-- 单元与合同：`test:affected` 除下面两项外通过；`auto` 13 条（`auto-review.test.ts`），真实内核加本机端点。
-- 真实模型（deepseek-flash）：`permissions.llm.test.ts` 3 条通过：`auto` 放行一次、转人工一次；`plan` 写计划、批准、按计划做。冒烟查出 DeepSeek 默认开思考时拒收强制的 `toolChoice`（400），审批请求改为显式关思考。
-- e2e：`agent-conversation`、`settings`、`lab-agent-ui` 全过；`lab-scenes` 剩 `WorkbenchSurface` 两个场景的焦点光晕被裁。
-- 不是这个分支引入的（从代码推断，分支没碰这些文件）：`architecture.test.ts` 报 `agent/web/mentions.ts`、`agent/web/plugin.ts` 跨插件运行时导入；`lab-scenes` 的 `WorkbenchSurface`。
+验证：
+- 单元与合同：`test:affected` 通过；`auto` 13 条（真实内核加本机端点）；规则写入用真实配置实例。
+- 真实模型（deepseek-flash）：`permissions.llm.test.ts` 3 条通过：`auto` 放行一次、转人工一次（这两条主对话是脚本，审批请求走真实模型）；`plan` 写计划、批准、按计划做。冒烟查出 DeepSeek 默认开思考时拒收强制的 `toolChoice`，审批请求改为显式关思考。
+- e2e：`agent-conversation`、`lab-agent-ui`、`settings` 全过。`lab-scenes` 没过，都不是 t06 的：`ThemeEditor/icons`、`scene-full` 的 404（w00041），`WorkbenchSurface`、`EditorGroup` 的焦点光晕被裁；分支没碰这些组件。Agent 的场景没有新问题（临时滤掉 ThemeEditor 后量的）。
+- 最后一次变基只带来主题的改动，没有重跑。
+- 没验证：规则页接入后的截图验收、`nb-story` 单行版式里的模型控件、窄屏英文的工具栏。
 
-待开发者答复：`docs/specs/ui/agent-conversation-view.md` 要不要晋升 implemented；`agent/permissions.md`、`agent/modes.md` 同样等合入后晋升。
+审查：omp 后端 6 条（改 4、不改 2），Sonnet 前端 17 条，处理见 `evidences/impl-review-{backend,frontend}-disposition.md`。
+
+待开发者答复：`agent/permissions.md`、`agent/modes.md`、`ui/agent-conversation-view.md` 要不要晋升 implemented。之后按 Work 的顺序做 t14。
