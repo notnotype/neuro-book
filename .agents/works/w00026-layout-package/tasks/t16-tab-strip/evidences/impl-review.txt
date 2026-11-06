@@ -1,0 +1,70 @@
+w00026 t16 统一标签条：实现审查报告
+被审提交：aa153c3da~2..aa153c3da。只读审查，未运行任何测试（worktree 不装依赖）；"从代码推断"的条目在"如何核实"里写了要跑的命令。
+
+================================================================
+F01 [重要] 正确性/时序  新建编辑组时内容的 inset 从 0 过渡到头高，内容先盖住头再滑下去（从代码推断，未运行）
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:105-130（editorHeadHeights、layoutContents 的 `?? 0`）；packages/nb-layout/src/grid-motion.ts:28-45（placementMoved 对 inset-only 变化返回 false）；packages/nb-layout/src/vue/NestedGrid.vue:441（`[data-moving]` 才有 transform/height 过渡）
+现象：新编辑组（向右拆分、把标签拖到边缘）第一次发布时 `editorHeadHeights[panel]` 还没有值，内容项带 insetTop=0；头挂载后 ResizeObserver 才把 34/68/102 写进去。这一次是新叶进场，`moving` 为真，内容外框带着 `data-moving`，有 transform/height 过渡。inset 变化被 placementMoved 判为"不是布局变化"，不会 stop 进行中的过渡，也不会让内容绕过过渡，结果内容的上边从叶顶用 ~470ms 滑到头下面。
+为什么是问题：计划（"头高变了不做 470ms 的过渡"）与 Spec 输出 21（"头高了内容立刻让开，不做过渡"）只论证了"已有组、非过渡期"；plan.md 只接受"外框过渡中又折行"这一种例外。新建组是拆分的主路径，每次都会走到。"RO 回调在绘制之前所以第一帧就对"只对没有过渡的帧成立：过渡里内容元素在 RO 之前已算过一次样式，之后的改动是 retarget 而不是首帧。e2e 新增的"头在外框里"用例只测了单组、非过渡的折行，没覆盖这条。
+如何核实：editor-area e2e 里"向右拆分"之后，立刻在 requestAnimationFrame 里逐帧采样新组 `[data-editor-group]` 的 top 与 `[data-editor-group-head]` 的 bottom，看前 470ms 内 top < bottom 的帧数（应为 0）。
+建议改法：二选一。(a) 内容项的 inset 不走带过渡的 transform/height：把 insetTop 作为内容 body 的 padding-top/或另设不过渡的偏移层，rect 只管叶；(b) 给新组一个起始头高（上一个编辑组的头高，或指令 `mounted` 里同步读 offsetHeight 再发布），并把"新建组"写进计划的已知例外。若选 (a)，F01 与计划里"接受"的折行例外一起消失。
+
+================================================================
+F02 [重要] 正确性  键盘停靠点只按水平判"看得见"，纵向滚出/被头的 max-height 裁掉的行仍算停靠点；整块比组还宽的标签没有停靠点
+位置：packages/nb-layout/src/vue/tab-strip-geometry.ts:102-112（tabStripStops），对照 :95（指针路径的 `seen` 同时判了纵向）
+现象：`seen` 只比 `member.rect.left/right` 与 `line.rect.left/right`。`line.rect` 的 top/bottom 取自成员自己的位置，所以纵向永远"在里面"。多行（wrap）时标签区最多 3 行高（`.editor-tabs max-height: 3*34px`），超出纵向滚动；组矮时头被 `max-height: calc(100% - 56px)` 收成一行，第 2、3 行也被裁掉。这些行的标签照样产出停靠点，y 落在标签条外面。这正是 t07 审查 G5 要解决的"停靠点落在标签条外面就看不见"，只修了横向。另一端：frame 最宽 240px，组宽（含 4px 余量）小于 240 时（例如四等分的窄组）整块标签 `right > line.rect.right+1`，`seen` 为空，这一行没有任何停靠点（`line.members.length === 0` 的兜底只管空行），键盘拖不进这条标签条。
+为什么是问题：指针路径（resolveTabStripInsertion 的 successor 判定）已经按整个 strip 矩形做了纵横判定，键盘路径不一致。落到条外的停靠点经 `resolveLayoutDrop` 会被判成 body/center，键盘用户看到的是"中央"而不是插入线，Enter 之后的结果也不同。
+如何核实：editor-area e2e 在 wrapTabs 开、标签够多（>3 行）或组高 ≈ 120px 时 Space 拿起，ArrowLeft 逐步，断言 strip 类落点的线的 y 落在 strip 的 boundingBox 内（现有新用例只测了 wrap 关、x 方向）。
+建议改法：停靠点的可见判定与 successor 的 `seen` 共用一个函数，按 `rectOf(strip)` 与行矩形求交后同时判横纵；比行还宽的标签用"与可见区有交集"并把停靠点夹到可见区内，而不是整块排除。
+
+================================================================
+F03 [建议] 不一致  头高用 getBoundingClientRect 量，违反同包写明的"布局尺寸用 client/offset"约定
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:114；对照 packages/nb-layout/src/vue/useLayoutExtent.ts:3-8（注释专门写了 gBCR 是变换后的盒子，ResizeObserver 只看布局盒、变换结束后不再回调）
+现象：`next[panel] = entry.target.getBoundingClientRect().height`。祖先有 transform 或 CSS zoom 时，量到的是缩放后的值，布局 inset 却要布局像素。Lab 的 ViewportCanvas 用 `zoom` 缩放（ViewportCanvas.vue:52），EditorAreaFixture 里的 WorkbenchSurface 就在它里面；zoom≠1 时 inset 偏小，内容盖住头一截，而且 RO 不会因缩放结束再回调，错误会一直留着。产品页目前没有已知的祖先变换，所以影响主要在 Lab。
+如何核实：Lab 的 EditorGroup 场景把缩放调到 50%，看内容上边与头下边是否贴合。
+建议改法：用 `entry.borderBoxSize[0].blockSize`（缺省回退 `offsetHeight`），不读 gBCR；与 `useLayoutExtent` 同一条理由，注释里链过去即可。
+
+================================================================
+F04 [建议] 回归/违反 Spec  工具面板标签条"放回原位"的预览不再画来源面板，改画了插入线
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:217-233（stripDrop）；base：同文件 previewOf 的 `if (inPlace) return {areaRect: home body}`（base 上 previewOf 先判 inPlace，工具面板的 strip 落点走它）
+现象：base 上工具面板的 strip 落点经缓存路径进 previewOf，原位时返回 home 面板的 body 矩形（Spec 工作台布局输出 28："预览画来源自己所在的位置，提示'原位'"）。新 stripDrop 对工具面板也直接返回 `{areaRect: null, indicator: measured.indicator}`，原位时画的是一条插入线加"原位"文字。编辑组的 base 行为本来就是这样（editorStripDrop 也画线），所以这次是把工具面板"统一"成了编辑组的偏离 Spec 的做法。workbench-dnd 的"原位"用例只断言 `data-drop-kind="noop"` 与文字，抓不到。
+如何核实：workbench-dnd 里把工具面板的一个标签拖回自己原来的位置，断言反馈层有 area 矩形（来源面板 body）而没有 strip 线。
+建议改法：stripDrop 在 inPlace 时返回 `{areaRect: home body, indicator: null}`（编辑组和工具面板都一样，同时把编辑组的偏差修掉）。
+
+================================================================
+F05 [建议] 测试  计划承诺的单元/DOM 测试没有；e2e 有空过的路径与没覆盖的角
+位置与现象：
+ a) packages/nb-layout 下没有 TabStrip 或 tab-strip-geometry 的任何测试文件（`git ls-files | grep -i tab-strip` 只有 .md/.vue/.ts 与 e2e）；plan.md 片 1 写的是"Lab 场景、DOM 与 e2e 用例"。插入判定的行为（行尾归下一行行首、空行、固定分区、successor）只靠 lab-tab-strip 一个 wrap 场景的 4 个断点，没有"滚出视口"的插入位、没有单行里固定与普通混排（EditorTabBar wrap=false 的实际形态：partition 只写在标签上、行上没有）、没有空分区。tabStripStops 没有任何直接断言。
+ b) packages/neuro-book/e2e/editor-area.e2e.ts:806-815 新用例"键盘拖标签…停靠点都在标签条里"：循环里 `if (await line.count() === 0) continue;` 之后才断言，14 步里一次也没出现 strip 线时用例照样通过；且只断言 x，不断言 y。F02 正是纵向漏的，这条用例抓不到。应在循环后断言至少测过 N 次，并加纵向范围。
+ c) files-explorer 的"拖到编辑组经落点登记查到"只测放在正文中心。计划写"头也登记同一个落点，指针在标签条上也能放"，没有对应用例，EDITOR_GROUP_FILE 的 rect 合并（头加正文）也没有断言。
+ d) editor-area 把 `groups.nth(i)` 全改成 `heads(page).nth(i)`。头在外框层，DOM 顺序由 useRenderOrder 定（飞行中的叶被抬到最后），正文在内容层，两者顺序不保证一致；新增的 `heads` 注释已承认，但仍有十几处按 nth 取。拖动、拆分之后的用例若恰好有飞行中的叶会错位。
+ e) packages/nb-layout/src/grid-motion.test.ts:161 为传 insetTop 用 `as {key: string; leaf: string}` 强转绕类型；应把 `layers` 的参数类型加上 `insetTop?`。
+建议改法：补 nb-layout 的 tab-strip-geometry/TabStrip DOM 测试（happy-dom 里 gBCR 全零，可以给 stub rect 的 fixture，或把"行/成员→插入位"拆成纯函数测）；b、c 补断言；d 对多组用例改按组 id 取头（已有 headOf）。
+
+================================================================
+F06 [建议] 代码质量  不可达分支与小杂项
+ a) packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:190-192 previewOf 的 `case "strip"` 注释自己写着"不到这里"。dropAt 里 strip 要么走 stripDrop，要么在 titleOnly 时改成 center，永远不会把 strip 传给 previewOf。留着不可达分支违反"重构时不留多余的第二条路径"；改成对 strip 的穷尽断言（`const _never: never`）或把参数类型收窄。
+ b) packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:14-15 `import "./hover-actions.css";` 重复两行（本次提交新加的第二行）。
+ c) packages/neuro-book/src/plugins/editor/shared/contracts.ts:18-19 EDITOR_GROUP_FILE 上叠了两个 `/** */`，第一个（落点用途与 Spec 链接）会被 TS 工具丢掉，只有说 rect 的第二个生效。合并成一个块。
+ d) packages/nb-layout/src/vue/TabStrip.vue:96,233 文档与代码不一致：`partition` 缺省"第一个分区"，rows 按此归行，但 `data-tab-partition` 写的是原值（缺省时不写），tab-strip-geometry 的 samePartition(null) 就把这类标签排除在第一个分区之外。目前宿主（EditorTabBar）总是写 partition，不触发；要么在 TabStrip 里写解析后的分区，要么在 .md 里写"给了 partitions 就必须每项都给 partition"。
+ e) tab-strip-geometry.ts 的 `TabStripInsertion.after` 注释写"分区里看得见的最后一个标签"，但 `before !== null` 时返回的是 before 在分区里的前驱（可能滚出视口）。调用方只在 before 为 null 时用它，但合同写成了两种含义；e2e 里 `{before:"t1", after:"t0"}` 也在断言后一种。
+ f) TabStrip 在 Delete 上无条件 preventDefault 并 emit close，工具面板头不接 close，Delete 在工具面板标签上被吞但什么都不发生（中键同理）。计划已写"宿主不要这些事件时不接就是"，仅提示：吞键盘事件的位置应是"宿主声明接 close 才吞"，否则没有处理者的快捷键白白失效。
+
+================================================================
+F07 [base 上就有，供参考] 键盘拖到固定区末尾/空固定区不可达
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:286（findLast 取同下标的后一个）、packages/nb-layout/src/layout-drop.ts:229（add 按 JSON(action) 去重且 isInPlace 只看下标）
+现象：固定区末尾的位置与普通区第一个标签的位置是同一个文档下标，action 里没有 part；findLast 取普通区，去重又丢掉另一个；来源是第一个普通标签时 isInPlace 还会把"固定区末尾"整个当原位剔掉。键盘因此无法把第一个普通标签固定到固定区末尾。base 的 stripCount 版同样如此（用下标定位到该标签的左缘），这次换成 stripIndexes 之后没有改善也没有更差。写在这里是因为 t16 的注释已经承认"同一个下标可能有两个位置"，但只是取舍，没有测试。
+
+================================================================
+未发现问题的方面
+- resolveTabStripInsertion 对照旧 resolveStripInsertion：行分组、纵向选行、行尾后继（含折行归下一行行首）、固定与普通同在一行时的分区推断、空行整行为插入位，逐项一致。before !== null 时旧版 `line.partition==='pinned' || before.pinned` 与新版 `before.partition ?? line.partition` 在合法输入下等价。
+- 工作台下标换算 stripIndex 与 editor 的 dropTab（"这个位置上的标签不在目标分区"）约定：我手推了固定区末尾、固定到普通区、单行混排、来源自己前后、来源在别组几种，index/part/inPlace 与旧实现一致；group 里 pinned 在前的不变量由 groups.moveTab 保证，文档顺序与呈现顺序一致。
+- placementMoved 的 withoutTop：内容矩形的下边就是叶的下边，只在 insetTop 变化时用；"内容换叶、叶高变、上下移动"会同时让叶项自己的矩形变，叶项走原来的比较，不会误判成不动。唯一的副作用是 F01。
+- useTabsAdapt 抽出后 Tabs 的行为：watch 的来源、flush 时机、onMounted 里的观察器与旧代码一一对应；remeasureOn 返回新数组只在依赖触发时才重算，没有多余触发。
+- TabStrip 键位与旧 EditorTabBar 一致（循环、Home/End、Delete、Alt、菜单键、多行上下）；与 Tabs 的差别（以聚焦的标签为起点而不是选中项）是有意的。
+- useEditorGroupRoot 两个根的 keydown/focusin/focusout/pointerdown：头与正文是兄弟元素，事件不会在两个根上各触发一次；onFocusOut 与 EditorHost 的 EDITOR_GROUP_ROOTS 判定两边都认。
+- 头被移除的清理（directive beforeUnmount 删 editorHeadHeights）、观察器的 disconnect、无 ResizeObserver 环境退回 0：没有发现泄漏。
+- reorderTab（moveTabToStrip 的 index 语义：向后挪要 +2）手推 3 个标签的前后移动正确，到头不动，活动标签不变。
+- e2e 选择器迁移没有放宽断言：除选择器改成头/卡片外，数值判据（121、组高、行数）保持。
+
+各级数量：阻断 0，重要 2（F01、F02），建议 4（F03、F04、F05、F06），base 上就有 1（F07）。

@@ -1,0 +1,343 @@
+w00026 t17 计划设计审查报告
+审查对象：.agents/works/w00026-layout-package/tasks/t17-per-tab-instance/plan.md
+方式：只读，按代码核对计划里的事实；下面每条都已对着代码确认。凡"从代码推断"的处会写明。
+编号按影响排序，不是发现顺序。
+
+======================================================================
+
+[1] 阻断 / 依赖的机制并不存在
+Markdown 控件被回收后"撤销、滚动还在"做不到：槽里的编辑状态在 TipTap 实例销毁后不可用
+
+位置
+- plan.md「回收」一段：卸载并 dropControlSlot（TipTap 实例随之销毁），"binding.slot 不动"；「控件」一段说"都已经支持换绑定与卸载后从槽恢复"。
+- packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:203-206（enter 里的 fresh 判断）、:406-421（kept 编辑器）。
+
+现象
+MarkdownControl.enter 只在"同一个编辑器实例"的编辑状态上直接换回：
+    const fresh = view === null || view.state.schema !== editor.schema;
+    if (fresh) view = load(binding);   // 按正文新建：新的撤销历史、scroll 为 0、held 清零
+注释写得明白："同一个编辑器实例（存在组的实例槽里）的编辑状态才能直接换回；其余情况按正文新建"。
+每个 new Editor 都会重新生成 schema。计划的回收要 dropControlSlot，也就是 created.destroy()（MarkdownControl.vue:421），之后切回来 onMounted 建的是新 Editor，旧的 MarkdownViewState.state 的 schema 与它不相等，走 load：
+- 撤销历史丢了；
+- scroll 丢了（新 view 的 scroll 为 0）；
+- held 丢了（未裁决输入、写不出的内容是视图自己的，不在文档里，见下面第 [5] 条）；
+- 只剩 binding.cursor 记的光标（节流 1 秒记一次）。
+Monaco 不受影响（模型在槽里，撤销栈在模型里，编辑器实例只是壳），所以计划只在 Monaco 上成立。
+
+为什么是问题
+- 验收映射"超过 20 个：最久没用的卸载；切回时光标、滚动、撤销都在"对 Markdown 过不了。Markdown 是这个产品的主编辑器，也是 t02 测出"新建 TipTap 最长帧 33 到 50ms"的那个，回收的主要对象就是它。
+- 回收之后槽里的 MarkdownViewState 是死重：它引用旧 schema 的整棵文档树加 history，不可能再用，却要活到标签关闭（计划删了每组 3 份的淘汰）。这与第 [10] 条说的内存问题叠加。
+- 提案第 2 节写的是"回收不丢光标、滚动、撤销（沿用现有的视图状态槽）"。这句话对"控件里自带实例"的编辑器不成立，计划把它当作前提照搬了。
+
+如何核实
+读 MarkdownControl.vue 的 enter、onMounted、onBeforeUnmount；在 MarkdownControl.dom.test.ts 里加一例：A 中输入，卸载控件并 area.controlSlot(...).dispose?.()（该测试 :304 已有同类调用），再用同一 binding 挂新控件，读撤销栈。预期不能撤销。
+
+建议改法（三选一，请开发者定）
+(a) Markdown 编辑器不回收撤销，只回收实例：回收时明说"富文本回收后撤销历史清空，光标按记下的位置恢复"，改 Spec 术语/输出 10 的写法，并把 20 对富文本放宽（比如富文本 20、代码 20 的数字分开定）。
+(b) 让编辑状态能脱离实例：回收前把 history 之外的东西序列化，或让 createMarkdownEditorExtensions 用共享的 schema（TipTap 的 Editor 不接受外来 schema，要绕开它的扩展装配，成本大，不推荐在本 Task 做）。
+(c) 回收前不卸 TipTap，只 editor.unmount() 拿下 DOM（现有 onBeforeUnmount 已经这样做），实例留在 host 槽里。省的是 DOM，不是实例；上限数字对内存的意义要重新测。
+无论选哪个，计划里"回收不丢东西"那句和验收行都要分编辑器写。
+
+
+======================================================================
+[2] 重要 / 遗漏（失败路径）与被破坏的既有约定
+删掉 refocusOnRemount 后，"控件已挂但内容还停放"时的 focus() 静默失败；onContentParked "不抢"让编辑组丢焦点
+
+位置
+- plan.md「焦点」一段：refocusOnRemount 删掉；"切标签时把焦点给新的活动控件的路径不变"；onContentParked "视图以外的不抢，编辑器自己的 focusActive 处理"。
+- area.ts:447-456（focusActive）、:946-955（registerHandle）；调用点 area.ts:628（closeOne）、:698/:707（moveTab）、:850（moveToNewGroup）、:875（split）。
+- nb-layout/src/vue/NestedGrid.vue:366（:inert="contentLayer.isParked(item)"）、useContentLayer.ts:75-80（停放时 visibility:hidden）。
+- WorkbenchShell.vue:323-337（onContentParked）。
+
+现象
+1. 现在共用一个控件：关闭标签/移动之后 focusActive() 立刻 handle.focus()，控件早已可见，焦点能落上去，之后绑定再换。
+   每标签一实例之后，关闭活动标签、或把一个不活动的标签拖到别的组之后，新的活动标签的控件此刻处在停放的内容项里：inert 加 visibility:hidden，二者都使元素不可聚焦。focusActive 在布局变化之后、渲染之前同步执行：activeHandle 已经是这个控件的句柄（它早就挂着、早就登记过），所以走 handle.focus()，不进 focusWhenReady；这次 focus() 无效，渲染后内容才取消停放，没有人再聚焦。结果是焦点落到 body。
+   计划删的 refocusOnRemount 正是现在处理"聚焦的时刻 DOM 还要变"的那一支；它的前提"布局变化会重挂控件"确实不再成立，但"聚焦的时刻目标还没取消停放"是新出现的同类问题，计划只给"控件还没挂上（第一次活动）"留了等待。
+   现有 e2e editor-area 的"关闭标签与空组之后焦点留在编辑器区"（e2e/editor-area.e2e.ts:1382 起）按 document.activeElement 判断，会抓到，但那是实现后才发现；设计里应当写明解法。
+2. onContentParked（WorkbenchShell.vue:323）现在对编辑组内容项 `editor:<id>` 走到"没有 viewId"分支，把焦点给外壳根。计划写成"视图以外的不抢"，是撤掉了这一分支。
+   但编辑组内容被停放的原因不只是编辑器自己切标签：面板收起/隐藏、被别的面板最大化盖住、标签被拖走（t08）。这几种没有人调 focusActive，焦点在 inert 元素上，浏览器把它移到 body，键盘用户掉到页面根，违反 workbench-layout 输出 16（"编辑组移到活动编辑组"）。
+   顺带：输出 16 写的是"编辑组移到活动编辑组"，现有代码实际给的是外壳根，也就是现有实现已经和 Spec 有偏差；计划没有借这次改动修正。
+
+如何核实
+读 NestedGrid.vue:366 与 useContentLayer.ts:75-80（inert/hidden 在渲染时才写到 DOM）；读 area.ts 里 focusActive/registerHandle 的分支条件（handle !== null 就直接聚焦）。可以用 Lab 或组件测试复现：两个标签，关闭活动标签后立即读 document.activeElement。
+
+建议改法
+- focusActive 在目标内容项取消停放之后再聚焦：等一次渲染（nextTick）并检查 handle 所在内容项未 inert；或者让 NestedGrid 在内容项取消停放时发一个事件（与 content-parked 对称的 content-unparked），编辑器区据此消化"待聚焦"。refocusOnRemount 换成这个，而不是删掉。
+- onContentParked 对编辑组内容项：焦点所在的内容项被停放、而编辑器区没有接手时，按输出 16 把焦点给活动编辑组的活动视图（没有句柄时给它的标签条）；编辑器区自己接手的情形（切标签、关闭、移动）用一个"由编辑器区处理"的标志跳过。
+
+======================================================================
+[3] 重要 / 隐含的耦合与共享状态
+preview 替换留在同一个 tabId：计划列的"要核对"清单漏了会真出错的两处，并且与提案、Spec 33 的写法冲突没有交代
+
+位置
+- plan.md「preview 替换留在同一个 tabId」。
+- area.ts:325-352（binding 的 remember、language、address）；groups.ts:287-294（现在的 open 为替换生成新 tabId）、:408-412（setCursor 的守卫）。
+- docs/proposals/workbench-single-tree-layout.md 第 2 节"preview 替换：编辑器结算输入后调 replaceTab(oldId, newId)"；docs/specs/ui/workbench-layout.md 输出 33"preview 替换一次写完"（PanelTabs 的替换）。
+
+现象
+A. 旧文档的光标会写到新文档的标签上（会写进 editor.tabs 记录，已读码确认）
+   绑定里 `remember: (cursor) => groups.setCursor(tab.id, cursor)` 没有 current() 守卫（commit/attach/block 都有）。
+   现在替换换了 tabId，旧控件在 leave(previous) 里调 rememberCursor() → bound.remember(...) → setCursor(旧 tabId)：标签已不在，locate 返回 null，直接 return。
+   留在同一个 tabId 之后，这条调用找得到标签，而且 setCursor 只检查"光标写法与编辑器是否对得上"（cursorFits(cursorKind(editor), cursor)）。Markdown 替换成 Markdown、源码替换成源码时写法一致，于是旧文件 a.md 的 {offset: 812} 被写成新文件 b.md 那个标签的光标，随 editor.tabs 保存；下次恢复会话，b.md 在 812 处（正文短就夹到末尾）。
+   时序：open() 同步替换标签属性；控件的 leave(previous) 在下一次渲染时才由 watch(props.binding, flush: sync) 触发，此刻 groups 里同一个 tabId 已经是新文档。
+B. 过时绑定会说谎
+   `address` 和 `language` 都是按 tabId 现查的 computed：旧绑定过时之后它们读到的是新标签的地址与语言。我没有找到现在读旧绑定这两个值的调用点（Monaco 的 createModel 用的是 enter 时的新绑定），所以这条目前只是隐患，不是已出现的错：任何以后在 leave 阶段读旧绑定 address 的控件（第三方编辑器也算，合同没禁止）会看到别的文件。现在换 tabId 之后旧绑定的 computed 回退到闭包里的 tab.address，是自洽的。
+C. 计划列的"要核对"（known、pendingReveal、标签菜单身份、token）我核对了：
+   - known（tabs-record.ts）只用来决定布局存盘前删哪些键，同一个 id 只会少一次删除，没有问题；
+   - pendingReveal：open() 每次都重写它，旧的被覆盖，没有问题；
+   - token：binding() 里换文档生成新 token，没有问题。
+   真正出问题的是上面 A、B，清单里没有。
+D. 标签菜单、拖动里的"目标带身份，执行时重验"（提案第 2 节）依靠 tabId 变了来识别过期。同一个 tabId 换了内容之后，打开着的标签菜单、进行中的拖动（Spec 编辑器输出 55 规定"标签增减整场取消"，替换不算增减）、keepUnsettledPreview 之后才到的命令，都会静默作用到新文件上。键盘拖动期间 Agent 经 OPEN_COMMAND 打开文件（commands.ts:90 写明 preview 会被下一次 preview 替换）可以触发。可能性不高，但这是提案的"实例身份"这一节明确要防的事，计划把它当没有。
+E. 与已定文档的冲突没有写进计划：提案写的是 replaceTab(oldId, newId)，Spec 33 把"替换"列为 PanelTabs 的一项。计划只说"提案不改（这是它定的）"，而这一条正是改了提案写的流程；PanelTabs.replace 之后没有调用方（workbench 契约 contracts.ts:182 与 layout-doc.ts:341 的 replaceTab 变成死接口），计划没说删还是留。
+
+为什么是问题
+A 是静默写坏用户数据（会话记录里的光标），B、D 是同一个根：tabId 现在既表示"这个标签"又表示"这个标签里的文档"，原来靠 id 变化隐含完成的过期判断全部失效，需要逐处补。
+
+建议改法
+任选其一：
+1. 保持计划做法并补洞：remember、address、language 都按绑定创建时的快照或加 current() 守卫；Spec/提案同步写明"preview 替换保持 tabId，PanelTabs.replace 退役"；动作的身份重验加上"地址"一项（命令带 tabId 与地址）。
+2. 保持新 tabId（提案原样），换另一种省控件的办法：releaseTab 时把被替换标签的 controlSlot（TipTap 实例）改键给新标签，Markdown 重挂只是 editor.mount，不新建实例；Monaco 的编辑器实例本来就不留在槽里（MonacoControl.vue 注释），新建一个 Monaco 编辑器要不要省，用 t02 的数据量一下再定。这样不动 tabId 语义，代价是 Monaco 逐步新建。
+我倾向 2 先量，量出来 Monaco 逐步新建太慢再回到 1。
+
+======================================================================
+[4] 重要 / 遗漏（资源释放）
+去掉 retire 与按组的 controlSlots 监听之后，视图状态槽和控件槽缺一条按标签的释放路径
+
+位置
+- plan.md「area.ts」第二、三条（slots 键去掉组、recent/retire 删掉、controlSlot 改键 tabId、dropControlSlot 只在回收时提到）。
+- area.ts:209-221（releaseTab）、:270-283（controlSlots 与那个按组 id 的 watch）、:303（retire 调用）、:371-399（changeEditor）、:488-496（rebound/documents 事件的 dropSlot）。
+
+现象
+1. 控件槽（TipTap 实例）现在只有一个释放点：area.ts:281-283 的 watch，用 `key.slice(0, key.indexOf("|"))` 与"现存组 id 列表"比，不在列表里就 dropControlSlot。计划把键改成 `tabId|editor`，但没有提这个 watch。
+   - 不改它：组 id 列表一变化（拆分、关组，都会触发），所有 tabId 开头的键都"不在 live 里"，每个活着的 TipTap 实例都会被 destroy（控件还挂着）。
+   - 改成按 tabId 比：则关闭标签时控件槽能释放，但 changeEditor/回收之外没有别的路径。计划只在回收里写了 dropControlSlot，没有写关闭标签时释放控件槽；releaseTab（area.ts:209）只调 dropSlot，不碰 controlSlots。
+2. 视图状态槽在"换编辑器"后泄漏。reopenWith 走 changeEditor → groups.setEditor，tabId 不变，编辑器变了（groups.ts:399 保留 id）。旧编辑器那份槽 `tabId|旧编辑器|documentId` 现在靠 binding() 里的 retire 进最近列表、每组每种最多 3 份、超出由 dropSlot 淘汰。计划删掉 retire 之后，没有人再 drop 它；关闭标签时 releaseTab 只算当前编辑器的键（area.ts:215 `slotKey(groupId, tab.editor, ...)`），旧编辑器的槽（Monaco 模型、TipTap 的 EditorState）一直活到整个编辑器区 dispose。
+   用户在源码与富文本之间来回"重新打开"是常规操作（输出 39），每个标签最多多留一份 Monaco 模型或一份死掉的 EditorState，标签关了也不释放。
+3. 计划的不变量"视图状态……只在标签关闭、编辑器换了、地址换了时释放"和"关掉标签就释放"，上面两条不满足。
+4. releaseTab 里的 `stillShown`（同组另一个同编辑器同文档的标签还在用这份槽）在新键下没有意义（槽按标签），计划没有说删；同组不会有两个同地址同编辑器的标签（open 会复用），它在新键下恒为假，是死代码，顺手删。
+
+如何核实
+读 area.ts 的 releaseTab、changeEditor 和 controlSlots 的 watch。可以加 area.test.ts 一例：同一标签 reopenWith 两次再关闭，断言 slot.dispose 都被调（现在的实现会过，因为有 retire；删掉 retire 之后不会过）。
+
+建议改法
+- 槽的寿命只绑标签：关闭、换编辑器（立即释放旧编辑器的槽和控件槽）、换地址（preview 替换）三处各调一个 releaseTabViews(tabId, 旧editor)；slots/controlSlots 的键里有 tabId，按前缀清。
+- 删掉按组 id 的 watch，或改成"tabId 不在任何组里就释放"的兜底。
+- 计划的"不变量"一段改成上面三条释放点，而不是"关闭、编辑器换了、地址换了"的笼统说法。
+
+======================================================================
+[5] 重要 / 遗漏
+回收策略写得不够实施：谁算"活动"、什么不能回收、t08 的卡片怎么确保有控件，三处都没定
+
+位置
+- plan.md「回收」一段与验收映射中的回收两行。
+- area.ts:247-266（现有淘汰条件）；docs/specs/workbench/editor.md 输出 61 末段"……与视图状态的淘汰，把写不出与未裁决输入同样对待：不换、不提交、不移动、不淘汰"；.agents/works/w00026-layout-package/tasks/t08-live-drag/README.md（卡片带真内容）。
+
+现象
+1. 淘汰条件倒退了。现有 retire 只淘汰"文档不 dirty、没有 saving、没有 unresolved/blocked/conflict"的槽（area.ts:257-265），Spec 61 把"不淘汰"写成合同。计划的回收条件只有"最久没用、此刻不是任何组的活动标签"。
+   现实中持有未裁决/写不出输入的视图一定是它那组的活动视图（area.leave 在任何换下之前拦着，holding() 见 area.ts:508-515），所以不会被选中——但这个不变量计划没有写，实现者看不出来，换一条切换路径（t08 的实时拖动）就可能破。Markdown 的 held 内容不在文档里（见第 [1] 条），一旦被回收就是数据丢失。至少写一句断言：回收只选没有 unresolved()/blocked()/saving 的，且把条件做成与 Spec 61 同一个函数。
+2. touchTab 的触发点。"标签成为活动标签时记入最近使用"：成为活动标签的路径有 area.activate、open、openPage、close（邻居接任）、moveTab、setEditor 的 twin、恢复会话、documents 事件关闭标签后的接任……计划没说在哪里调。最稳的是对"各组活动标签 id 的集合"建一个 watch（immediate），而不是在各调用点补。要在渲染之前触发（watch 默认 pre），否则新的活动标签的控件要晚一帧才挂。
+3. LRU 只按 tabId 记，而计划写"每种编辑器超过 20"。标签的编辑器会变（reopenWith），所以要按（tabId，当前编辑器）分类，换编辑器时从旧类里摘掉。
+4. t08 的卡片。README 写明"卡片带真内容走依赖 t17"。被拖的标签通常是不活动的标签（拖标签条上别的标签），它的控件可能被回收，或者是恢复会话后从没活动过而没有建。拖动期间要给它挂控件（Monaco 异步加载，TipTap 最长帧 33 到 50ms），落点动画正好卡在这一帧。计划没有给 t08 一个"拖动期间固定住/先挂上这个标签的控件"的接口（比如 area.pin(tabId) 返回释放函数，并把它排除在回收之外）。这个接口属于 t17 的范围，因为 mountedControls 是它引进的。
+5. 最大化、折叠：计划说排除"任何组的活动标签"，被盖住的组的活动标签也在其中，这条对。但没有说 visible=false 时的活动控件要不要计入 20；不计入则实际挂着的会是 20 加组数。验收"超过 20 个"的数要写成活动的算不算。
+
+如何核实
+读 area.ts retire 的判断（:257-265）与 Spec 61 末段对比；读 t08 README。第 2 点：在 area.test.ts 里调 PanelTabs 的 activate 直接激活（绕开 area.activate），看 mountedControls 有没有记到。
+
+建议改法
+- 回收选择器写成一个纯函数 recyclable(tabId)：不是任何组的活动标签、不是 pin 的、文档没有 unresolved/blocked/saving；Spec 61 的"不淘汰"同时指向它。
+- 活动标签集合 watch 驱动 touchTab；LRU 按（编辑器，tabId）。
+- 给 t08 加 pinTab(tabId): () => void，写进 t17 的接口。
+
+======================================================================
+[6] 重要 / 被破坏的既有约定
+页面标签"同样按标签画"：隐藏的页面不再卸载，页面合同里没有可见信号，主题编辑器的未保存预览会一直套在整个应用上
+
+位置
+- plan.md「editor/web/components」最后一条："页面标签（page://）、丢了记录的标签同样按标签画，组件第一次活动才建"；验证一节"页面标签不限"。
+- EditorGroup.vue:226（现在的页面分支，`v-if="pageId !== null"` 随活动标签切换而卸载）；pages.ts 的 EditorPageImplementation（页面组件只收 `{context: EditorPageContext}`）；workbench/web/components/theme-editor/ThemeEditorHolder.vue（挂载时 acquire、卸载时 release，注释"持有计数就永远不归零，预览不清"）；projects/web/welcome.ts:97（onMounted 里读作品信息与项目根）。
+
+现象
+现在页面组件在用户切走时卸载，切回来重新挂载；页面作者（贡献点 editor.pages，Spec 编辑器输出 33）可以依赖这一点：onMounted 取新数据、onBeforeUnmount 清理。计划让它们切走不卸载，且不受 20 的上限约束，同时页面合同没有 visible。后果：
+- 主题编辑器页面（内置，theme-editor-page.ts）：隐藏后仍然 acquire 着，编辑中的未保存主题预览继续套在应用上，用户在别的章节标签里写作时界面还是草稿主题；原来切走就 release、预览清掉。
+- 欢迎页（welcome.ts）：onMounted 读一次最近作品与项目根，切回来不再读，列表是旧的。
+- 页面组件里的定时器、订阅、动画（场景图页面）在后台一直跑。
+- 没有上限：打开 N 个页面标签就有 N 个常驻页面。
+
+为什么是问题
+这是对贡献点合同的悄悄改变，Spec 输出 33 与插件作者（页面是贡献点，不是内置专用）都没有被告知；计划的"合同不变"只对文件编辑器的控件说了。
+
+建议改法
+页面标签保持"活动才挂、切走卸载"，即只在 EditorGroup 里对 kind=file 的标签做"隐藏不卸载"；页面和丢了记录的标签仍是 v-if 活动。这样 Spec 输出 33 不变，也不需要给页面合同加信号。需要页面保活的以后另开 Task 给合同加 visible。
+
+======================================================================
+[7] 重要 / 接口与合同、切片
+"片 1 就把 area 的接口换掉，类型检查抓得到"不成立；片 1 也不是行为不变、可独立合入的中间态
+
+位置
+- plan.md「不做与风险」第三条；「切片」表第 1 片。
+- area.ts:97（controlSlot(groupId: string, editor: string)）、:106（handleOf(groupId: string)）、:159（registerHandle(groupId: string, editor: string, ...)）。
+- 调用这些的文件（grep 得到）：editor/area.test.ts（registerHandle 十几处，如 :319、:528、:564-583、:787-850）、editor/status-items.test.ts（:208-229）、editor/web/editing-commands.test.ts、markdown/web/components/MarkdownControl.dom.test.ts（:78-84、:304）、late-dialect.dom.test.ts（:60-63）、lab/web/fixtures/editor-scene/EditorAreaFixture.vue 与 lab-editor-menus.ts、EditorGroup.vue、plugin.ts。
+
+现象
+1. 参数 groupId 和 tabId 都是 string。把 registerHandle/controlSlot/handleOf 的第一个参数从组 id 改成标签 id，类型检查一个都不会报：没改的调用点照样编译，却把句柄登记在 `组id|编辑器` 这个再也查不到的键下，测试里的 activeHandle 变成 null，现象是"焦点/状态栏/撤销不起作用"，不是编译错误。
+2. 片 1 的描述是"行为不变，只是控件不再共用"，但：
+   a. "按标签 v-for 挂控件"没有写"第一次活动才挂"。这一条（以及 mountedControls）在计划里属于回收，放在片 3。片 1 合入后，一个组渲染就给组内每个标签建一个 Monaco/TipTap，恢复一个 200 标签的会话会建 200 个编辑器，直到片 3 才有上限。片 1 与片 3 之间的 master 是不能用的。把"第一次活动才挂"和 mountedControls 的骨架（上限先给无穷大也行）放进片 1。
+   b. 片 1 用同一个内容项里的 v-show 隐藏：display:none 会让 Monaco 的 automaticLayout 观察到 0×0 并做一次重排，计划自己列的"要核对"（"不可见时 ResizeObserver 不做重活"）说的 t06 停放保持尺寸在片 1 不成立，因为片 1 还没有 t06 的停放。这一条验证要放进片 1 的自跑验证。
+   c. 片 1 的自跑验证只有 area.test.ts、groups.test.ts 和 e2e 的"撤销与切换相关"。上面列的 dom 测试和 Lab 夹具在片 1 就会因为接口变化而失败。
+3. "片 1 就把 area 的接口换掉"本身也值得拆开：area.ts 同时改键（groupId→tabId）、释放（retire 删掉）、回收、preview 的 tabId 语义，是四件独立的事，用同一片合入，出问题难以二分。
+
+如何核实
+grep -rn "registerHandle\|controlSlot\|handleOf" packages/neuro-book/src 列出调用点；把 registerHandle 第一个参数在某个测试里故意传组 id，跑类型检查，应无报错。
+
+建议改法
+- 让类型能拦住：给标签 id 和组 id 分别定义品牌类型（type TabId = string & {readonly __tab: unique symbol}），或把句柄/控件槽的 API 收成对象参数 {tabId, editor}。
+- 切片重排：片 1 = 键从 groupId 换成 tabId + 释放路径（见 [4]）+ 第一次活动才挂，行为仍是"一组一个内容项"，同步改全部调用点与测试；片 2 = preview 留 tabId（它独立、可单独回滚，对应 [3]）；片 3 = 内容项按标签拆开；片 4 = 回收。
+
+======================================================================
+[8] 重要 / 验收映射写不出来
+有两行验收在真实运行时做不出，e2e 文件清单也漏了一半
+
+位置
+- plan.md「验收映射」第 2、5 行；「切片」第 2 片的自跑验证；「风险：把上限注入」。
+- editor/web/session.ts:68-83（生产路径创建 area，选项里没有上限）；e2e/editor-area.e2e.ts 头注释（"生产构建的后端与前端……都是真的"）。
+
+现象
+1. "超过 20 个……（把上限注入成 2）| editor-area 新增"：editor-area.e2e 跑的是生产构建，area 由 session.ts 创建，EditorAreaOptions 没有上限项，e2e 无处注入；要做就得给产品加一个测试用入口（URL 参数、全局变量、隐藏设置），这是"产品代码里加测试专用分支"。能注入的只有 Lab 夹具（lab/web/fixtures/editor-scene/EditorAreaFixture.vue 直接 createEditorArea），而 Lab 的 lab-editor.e2e 目前只有一个用例。
+   可选：生产里真开 21 个 Markdown 小文件标签，数 [data-editor-prose] 的个数（t02 量到新建 TipTap 最长帧 33 到 50ms，21 个可接受）；Monaco 版放 Lab 夹具、注入 2 个；或者把上限做成真的设置项，进 Spec（那是产品决定，要问开发者）。
+2. "实例不重建（窗口上的计数）"：窗口上的计数需要控件挂载时写 window 计数，也是产品里的测试钩子。不需要：测试自己在 page.evaluate 里给活动内容里的 .monaco-editor / .ProseMirror 元素打一个私有标记，移动之后再读，节点还在且标记还在就是没重建（DOM 节点同一性）。计划应改成这种写法。
+3. "内容从旧矩形滑到新矩形：读计算样式的中间帧"：滑动是 t06 的跟随动画；e2e 里 prefers-reduced-motion 的设置、帧采样的稳定性计划没有说，lab-grid-panels.e2e.ts 里已有读 getBoundingClientRect 中间帧的写法（:96-101），照那里写，不要另造。
+4. 清单不全。引用 data-editor-* 的 e2e 共 11 个：welcome、workbench-titlebar、markdown-input、lab-editor、files-explorer、bookshelf-stats、editor-types、editor-code-settings、themes、markdown-editing、editor-area。计划片 2 只列了 editor-area、editor-types、markdown-editing、lab-editor、workbench-dnd——workbench-dnd 里没有 data-editor 引用，其余七个没列。多数用 activeGroup 过滤，只匹配活动内容，不受影响；裸选择器会在多个控件同时存在时触发 Playwright 严格模式冲突，例如 files-explorer.e2e.ts:622 的 [data-workbench-editor-area]（这个属性随 WorkbenchShell 落到每个标签的内容根上）和 lab-editor.e2e.ts:97/103 的 [data-editor-monaco]。
+5. 没有验收行覆盖：第 [3] 条的旧光标写到新标签；第 [1] 条的 Markdown 回收后撤销；第 [4] 条的 reopenWith 后释放；第 [2] 条的"移动一个不活动标签后焦点"（现有行只说"移动后焦点在活动视图"，用的是活动标签）。
+
+如何核实
+读 session.ts:68-83 与 e2e/editor-area.e2e.ts 头注释；grep -rlE "data-editor-(group|kind|prose|monaco|content|banner|empty|control)" packages/neuro-book/e2e。
+
+建议改法
+按上面 1、2、4 修正验收映射，补 5 里的四行；上限的 e2e 写 Lab 夹具注入一例加生产里 21 个 Markdown 标签一例。
+
+======================================================================
+[9] 建议 / 与现有约定不一致
+控件的 visible 定义为"活动标签且内容没被盖住"：HtmlPreview 会在别的面板最大化时销毁 iframe，而且这条信号现在没有接线
+
+位置
+- plan.md「editor/web/components」控件一段："visible 是'这是活动标签'且内容没被盖住"。
+- WorkbenchShell.vue:90-99（editorContextOf：visible 只在"别的面板被最大化"时为假）；editor/web/plugin.ts:292-301（EditorGroupPart 声明了 context 却没传给 EditorGroup）；EditorGroup.vue 的 props 里没有 context；html-preview/web/components/HtmlPreview.vue:sync()（visible 为假就移除 iframe、作废令牌）。
+
+现象
+- 现在控件的 visible 就是"这个绑定属于这种编辑器"（EditorGroup.vue 模板里的 binding.editor === mounted.editor），不含最大化。计划要加上"没被盖住"，需要把 context.visible 一路传到 EditorGroup，现在没有这条线。
+- HtmlPreview 在 visible 为假时移除 iframe，注释写的是"被换下的页面不在后台运行脚本，输出 6"。把"被别的面板最大化盖住"也算作不可见，用户最大化 Agent 面板再还原，HTML 预览整页重载、页面脚本状态丢失、闪一下。Spec 输出 6 说的是被换下，不是被盖住。
+- Markdown 工具栏同理（工具栏随 visible 消失再重建）。
+
+建议改法
+visible 只表示"是活动标签"；被盖住时 NestedGrid 本身已经 inert 加 visibility:hidden，控件不用知道。Monaco 重新排版靠自己的 ResizeObserver/automaticLayout（尺寸由 t06 保持），不依赖 visible。
+
+======================================================================
+[10] 建议 / 遗漏
+内存上限只管"挂着的控件"：槽（Monaco 模型、富文本编辑状态）随打开的标签数无界增长，计划只量 30 个标签
+
+位置
+- plan.md「不变量」第二条、「回收」、切片 3 的"量 30 个标签的内存与切换耗时"、验证一节的"未验证边界：几百个标签的 DOM 占用"。
+- area.ts:36（RETAINED_VIEWS = 3）、MonacoControl.vue:29-37（CodeViewState 里有 model、source、base）。
+
+现象
+旧规则：每组每种编辑器最多留 3 份非活动槽，其余淘汰。新规则：槽跟标签，只要标签开着就留。回收只卸控件，不动槽（计划特意说"binding.slot 不动"）。所以 N 个打开的标签就有 N 份槽。
+从代码推断（没有实测）：一份 Monaco 槽至少有文档的正文（TextDocument.text）、Monaco 模型的缓冲、CodeViewState.source、CodeViewState.base 四份文本；长章节按 100KB 算，200 个标签约 80MB 的字符串加模型开销，而且全部在回收之外。富文本的槽按第 [1] 条在回收后更是不可用的死重。
+计划把"未验证边界"写成 DOM 占用，实际要紧的是槽。
+
+建议改法
+- 切片 3 的测量改成 200 标签、每个 100KB 的正文，读 JS 堆（performance.measureUserAgentSpecificMemory 或 DevTools 协议的 Runtime.getHeapUsage），不止 30 个。
+- 数字出来后再决定要不要给槽一个更大的上限（比如 100 个）加"dirty/未裁决不淘汰"的旧条件。这是产品取舍（撤销历史对内存），要交开发者定，不应在计划里默认"槽无限"。
+
+======================================================================
+[11] 建议 / 文档与合同的同步
+Spec 与注释的改动清单不全，"合同不变"对第三方编辑器作者不成立
+
+位置
+- plan.md「Spec 与文档改动」与「控件」一段（"合同不变"）。
+- docs/specs/workbench/editor.md:296、:377（"按文档 × 组 × 编辑器保留……每组每种最多 3 份"，实现合同与证据，计划没列）、输出 61 末段（提到"视图状态的淘汰"）、输出 12（"同一文档在几个组里的视图"，现在同一组里也可以有多个）。
+- editor/web/control.ts:2、:18（"每组每种编辑器一个控件"、"组 × 编辑器种类的实例槽"）；editor/shared/contracts.ts:409；area.ts 头注释:5、:35、:94、:183、:673；EditorGroup.md；MarkdownControl.md；MonacoControl.vue:25、MarkdownControl.vue:48 里"每文档 × 组一份"的注释。
+
+现象
+- 第三方编辑器经 EDITOR_EDITORS_POINT 贡献控件，合同写的是 host = 组×编辑器的实例槽、一组一个控件。现在 host 是标签×编辑器，同一组会同时挂着多个同种控件，其中不可见的仍然在运行（watch、订阅）。这是合同变化，计划写"合同不变（binding、host、visible）"，签名没变，语义变了。编辑器作者要知道：visible 为假时不应做重活、不抢焦点、不重排；这些要写进 shared/contracts.ts 的 EditorControlProps 注释和 Spec。
+- plan.md 的 Spec 清单漏了上面的 editor.md:296、:377、输出 61、输出 12，和 6 处代码注释，搜"每组每种"一类词即可全部定位。
+
+建议改法
+把上面这些列进 Spec 与文档改动；在 EditorControlProps 加一段"不可见时的责任"。
+
+======================================================================
+[12] 建议 / 隐含的耦合
+EditorGroup 里的组级读法（readonly、label、controlSlot、registerHandle 的 groupId）给隐藏的控件传的是"别的标签的值"，计划只列了面包屑等几项
+
+位置
+- EditorGroup.vue:231-247 的控件模板：`:readonly="!area.viewWritable(groupId)"`、`:label="activeTab === null ? '' : nameOf(activeTab.address)"`、`:host="area.controlSlot(groupId, mounted.editor)"`、`onReady → registerHandle(props.groupId, ...)`。
+- plan.md「活动标签才算的东西」只列了面包屑、横幅、进度条、失败原因、不能渲染的原因。
+
+现象
+viewWritable(groupId) 读的是该组活动标签（area.ts:779 viewWritable → :360 activeFileTab）。一个隐藏标签的控件拿到的是活动标签的可写性：活动标签是预览视图或图片时，隐藏的 Markdown 控件拿到 readonly=true；label 是活动标签的文件名，每次切标签，所有隐藏控件的 aria-label 都被改（TipTap 的 setOptions、Monaco 的 updateOptions 各 N 次）。隐藏时这些无害，但标签取消停放的那一帧里控件先拿到别人的值再被改回。
+应改成按 tabId 的版本（viewWritable(tabId)、标签自己的文件名），计划只改了 binding 与 controlSlot。
+
+建议改法
+在计划里把"控件属性全部按标签取"写成一条规则，列出 readonly、label、host、onReady 的键；组级读法（documentOf(groupId) 等）只给组头和活动标签才画的东西用。
+
+======================================================================
+[13] 建议 / 隐含的假设
+"隐藏着也要更新"是对的，但理由和实现约束要写进计划：隐藏控件的更新 watcher 不能用 visible 关掉
+
+位置
+- plan.md「风险：不活动的 Monaco 收到文档更新」。
+- MonacoControl.vue:enter 里 `binding.attach(...)` 的 flush（`textOf(current) !== binding.text.value` 时 commit）；area.ts:343 的 attach 与 :334-342 的 commit；documents.settle。
+
+现象
+计划写"片 1 核对"，没有说不更新会怎样。读码得到：documents.settle 会调用该文档所有已 attach 的视图的 flush，隐藏的也算。一个没有跟上最新正文的隐藏 Monaco 控件，flush 会拿过期的 confirmed 修订和过期文本去 commit，得到 conflict，这个隐藏视图随即 held、文档记它一个未裁决输入（unresolved），之后切到它被拒、保存被拦。也就是"懒更新"（等 visible 为真再追）会制造假冲突。
+所以隐藏控件的 revision watcher（Monaco 的 adopt、Markdown 的 reload）必须一直运行；将来想按 visible 优化的人容易踩。代价：同一文档在几个标签里时，每次输入每个隐藏的富文本视图都要 reload（codec.reload 对长章节的耗时未量）和 settle 时序列化一次。
+
+建议改法
+- 在计划和控件合同里写明：binding 非空就必须跟上文档，与 visible 无关。
+- 切片 3 的测量加一项：同一长章节在富文本与源码两个标签里，输入时隐藏的那个的 reload 耗时。
+
+======================================================================
+[14] 建议 / 资源
+每个控件各挂一份全局监听：N 个 Monaco 就是 N 个主题观察者
+
+位置
+- MonacoControl.vue:304 的 `themeObserver = new MutationObserver(applyTheme)`（观察 documentElement 的 style/class/data-nb-*）；applyTheme 里 defineTheme + setTheme 是全局的。
+- markdown/web/components/menus/MarkdownSelectionMenu.vue:75 的 window 级 pointerup（捕获阶段）；MarkdownControl.vue:272 的 locale watch。
+
+现象
+最多 20 个 Monaco 同时挂着时，一次换主题要做 20 次 getComputedStyle 加 defineTheme + setTheme（后者让所有编辑器重新着色）；window pointerup 每次点击跑 20 个处理器。单次不重（量级毫秒），但是从"每组一个"变成"每标签一个"之后线性放大，计划的测量没有涉及换主题。
+
+建议改法
+Monaco 的主题观察者改成模块级单例（第一个控件挂载时建、最后一个卸载时撤）。pointerup 处理器在不可见时直接返回。
+
+======================================================================
+[15] 建议 / 性能（从代码推断，未量）
+任一标签换过组之后，grid 永久进入"DOM 序与树序不一致"，aria-owns 列出全部标签内容项
+
+位置
+- nb-layout/src/vue/useRenderOrder.ts:36-52（stableOrder 保持上一轮的相对次序；outOfOrder 为真时 ariaOwns = 全部 layers 的 id）；NestedGrid.vue:347。
+- plan.md「内容项按标签分开」。
+
+现象
+内容项 `tab:<id>` 换父叶不换 DOM 位置（这正是要的），所以它在 DOM 里的位置留在旧叶之后，树序里在新叶之后：outOfOrder 变真，之后一直为真（DOM 位置不会再改）。结果：Tab 由布局层接管（useGridFocus.ts），aria-owns 列出全部 layers 的 id，包括所有停放着的标签内容项——200 个标签就是 200 多个 id。以前只有工具视图换面板才会这样，现在每次拖标签换组都会。读屏会把停放的（inert）节点忽略，但 aria-owns 列表本身要被解析一遍。
+GridFocusItems 只收活动的内容项（useGridFocus.ts:28-33：`item.active && item.rect !== null`），所以 F6/Tab 的站点数不随标签数涨，这一项没有问题。
+
+建议改法
+先不改，列入片 3 的测量：200 标签、拖动过标签之后读 aria-owns 的长度与 getElementById 次数。若有问题，ariaOwns 只列活动的内容项。
+
+======================================================================
+未发现问题的方面
+
+- 计划列的"要核对"里的 known（editor/web/tabs-record.ts）、pendingReveal、token：preview 留在同一个 tabId 时都没有问题（known 只决定布局存盘前删哪些键；open() 每次重写 pendingReveal；binding() 在文档变化时生成新 token）。有问题的是 remember 和过时绑定的 computed，见 [3]。
+- Chrome 对 display:none 的滚动容器保留 scrollTop（我在 /tmp/review-w00026-t17/exp/scroll.mjs 用真实 Chrome 试过：display:none 与 visibility:hidden 各设 300 再恢复，读回 300、300），所以片 1 的 v-show 不会丢富文本的滚动位置，不用为此担心。
+- 文档 id 在改名下稳定（documents/store.ts:373 的 documentId 是序号，不随地址变），slots 键里放 documentId 不会因 rebound 改名而泄漏。
+- GridFocusItems 与 F6/Tab 顺序：只收活动的内容项，不受标签数影响（见 [15]）。
+- 停放内容保持最后的非零尺寸（useContentLayer.ts memory，没活动过的标签也记一次），计划引用的 t06 机制存在。
+- 过时绑定的 commit/attach/block 的 current() 守卫在改成按 tabId 存 bindings 之后原样可用。
+- 内容项 `tab:<tabId>` 的键格式（layout-doc.ts:82 tabKey）与 WorkbenchShell #content 里 viewIdOf(contentKey) === null 的分支能直接接住编辑器标签。
+- 我没有跑合同测试与类型检查（这是设计审查，被审对象是计划，不是代码改动）；也没有跑 e2e。
+
+======================================================================
+数量
+阻断 1（[1]）
+重要 7（[2] [3] [4] [5] [6] [7] [8]）
+建议 7（[9] [10] [11] [12] [13] [14] [15]）

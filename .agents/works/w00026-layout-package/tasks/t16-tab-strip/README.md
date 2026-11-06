@@ -46,7 +46,17 @@ nb-layout 提供一个标签条，工具面板和编辑组共用：语义、方�
 
 验证：类型检查只剩别的 Work 的（`plugins/agent` 的 `permission-page.dom.test.ts`、`nb-agent-ui`、`nb-story` 的 `qa-service`）；`test:affected --since master` 在 dev-panel、nb-agent-ui、nb-form、nb-layout、nb-markdown、nb-story、nb-ui、neuro-book 上只有已知的 `plugins/agent` 跨插件导入；e2e `lab-tab-strip`、`editor-area`、`workbench-views`、`workbench-dnd`、`editor-types`、`editor-code-settings`、`lab-editor`、`files-explorer`、`markdown-editing`、`markdown-input`、`themes`、`workbench-titlebar`、`bookshelf-stats`、`welcome`、`theme-editor` 全过；`scripts/perf` 改了选择器，只过了类型检查，没跑。
 
-实现审查后台进行中，报告回来后处理。
+实现审查（一个 Sonnet，[`evidences/impl-review.txt`](evidences/impl-review.txt)，重要 2、建议 4，base 上已有 1）已处理，修正单独提交：
+
+| 条 | 处理 |
+|---|---|
+| F01 新编辑组的内容先盖住头再滑下去 | 成立。头还没测到时按一行算 |
+| F02 键盘停靠点只看横向 | 成立。纵向收起来的行不算，比行还宽的标签只看它的边 |
+| F03 头高用 `getBoundingClientRect` | 成立。改 `borderBoxSize`（Lab 的画布有 `zoom`） |
+| F04 工具面板放回原处画插入线 | 成立，回到画来源（输出 28）。编辑组以前就是画线，不动 |
+| F05 测试 | 键盘用例不再能空过；补“文件拖到头”。`TabStrip` 的 DOM 测试不补：Lab e2e 走真实布局，已覆盖；`heads.nth` 依赖 DOM 顺序不改，用例里组的位置是自己摆的 |
+| F06 杂项 | 都改了，“工具面板上 Delete 被吞掉”不改：`TabStrip` 不知道宿主要不要，吞掉一个没有含义的键没有影响 |
+| F07 键盘把第一个普通标签拖到固定区末尾（base 就有） | 不改：同一个下标有两个位置，指针能到；很少见 |
 
 ## 下一步
 
