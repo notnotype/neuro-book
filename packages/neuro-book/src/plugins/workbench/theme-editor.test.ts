@@ -600,7 +600,7 @@ describe("素材传输：复制插件主题、导入主题包与清理未使用�
             if (!fresh.ok) throw new Error(fresh.reason);
 
             const plan = await model.unusedAssets(sweeper);
-            expect(plan).toEqual({ok: true, names: [orphan], bytes: WEBP_B.length});
+            expect(plan).toEqual({ok: true, names: [orphan], bytes: WEBP_B.length, more: false});
             const done = await model.removeUnused(sweeper, [orphan]);
             expect(done).toEqual({ok: true, removed: 1, skipped: 0, failed: 0});
             expect((await readdir(join(root, "theme-assets"))).sort()).toEqual([referenced, inBadEntry, fresh.name].sort());

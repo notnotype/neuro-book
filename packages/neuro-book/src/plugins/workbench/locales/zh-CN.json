@@ -375,6 +375,7 @@
             "sweep": "清理素材",
             "sweepNone": "没有可清理的素材。",
             "sweepAsk": "有 {{count}} 个没人用的素材，共 {{kb}} KB。清理后无法恢复，要清理吗？",
+            "sweepAskMore": "先清理其中 {{count}} 个没人用的素材，共 {{kb}} KB（还有更多，清理后可以再统计）。清理后无法恢复，要清理吗？",
             "sweepConfirm": "清理",
             "sweepCancel": "取消",
             "sweepDone": "已清理 {{removed}} 个素材。",

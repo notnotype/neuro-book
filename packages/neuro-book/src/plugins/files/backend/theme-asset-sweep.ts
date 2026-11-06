@@ -28,7 +28,20 @@ function nameList(value: unknown): string[] | null {
     return value.every((name) => typeof name === "string" && THEME_ASSET_FILE_NAME.test(name)) ? (value as string[]) : null;
 }
 
-type Candidate = {readonly ok: true; readonly stats: Stats} | {readonly ok: false; readonly reason: ThemeAssetSweepSkipReason};
+type Candidate = {readonly ok: true; readonly stats: Stats} | {readonly ok: false; readonly reason: ThemeAssetSweepSkipReason; readonly code?: string};
+
+/** `lstat`：只有“不存在”（ENOENT、ENOTDIR）是 null；权限、I/O 等别的失败照实抛出，不能伪装成“没有这个文件”。 */
+async function statOrNull(path: string): Promise<Stats | null> {
+    try {
+        return await lstat(path);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") return null;
+        throw error;
+    }
+}
+
+const errnoOf = (error: unknown): string => (error as NodeJS.ErrnoException | undefined)?.code ?? "unknown";
 
 export function addThemeAssetSweepRoute(app: Hono<{Bindings: HttpRouteEnv}>, sources: ThemeAssetRouteSources, guard: ThemeAssetGuard): void {
     const limit = bodyLimit({
@@ -43,41 +56,62 @@ export function addThemeAssetSweepRoute(app: Hono<{Bindings: HttpRouteEnv}>, sou
         if (keep === null) return failure(400, "bad-request", `keep 要是素材文件名的数组，至多 ${String(THEME_ASSET_SWEEP_MAX_NAMES)} 项`);
         const names = body.names === undefined ? undefined : nameList(body.names);
         if (names === null) return failure(400, "bad-request", `names 要是素材文件名的数组，至多 ${String(THEME_ASSET_SWEEP_MAX_NAMES)} 项`);
-        return guard.run(() => sweep(sources, guard, new Set(keep), names));
+        // 读目录或查文件失败（权限、I/O）：给带码的失败，不让它变成通用的内部错误，更不能当成“目录是空的”。
+        return guard.run(() => sweep(sources, guard, new Set(keep), names).catch((error: unknown) => failure(500, "io-error", `读取素材目录失败：${errnoOf(error)}`)));
     });
 }
 
 async function sweep(sources: ThemeAssetRouteSources, guard: ThemeAssetGuard, keep: ReadonlySet<string>, names: ReadonlyArray<string> | undefined): Promise<Response> {
     const directory = join(sources.userRoot, THEME_ASSET_DIRECTORY);
-    const info = await lstat(directory).catch(() => null);
+    const info = await statOrNull(directory);
     if (info === null) return Response.json(names === undefined ? {removable: []} satisfies ThemeAssetSweepStats : {removed: [], skipped: []} satisfies ThemeAssetSweepResult);
     if (!info.isDirectory()) return failure(409, "invalid-target", `${THEME_ASSET_DIRECTORY} 不是目录`);
 
     const line = guard.now() - SWEEP_PROTECTION_MS;
-    /** 现在这一刻，这个名字还是不是可以清理的：普通文件、没被引用、过了保护期。每次都重新读磁盘。 */
-    const examine = async (name: string): Promise<Candidate> => {
-        const stats = await lstat(join(directory, name)).catch(() => null);
-        if (stats === null || !stats.isFile()) return {ok: false, reason: "not-file"};
-        if (keep.has(name)) return {ok: false, reason: "kept"};
-        if (Math.max(stats.mtimeMs, guard.returnedAt(name)) > line) return {ok: false, reason: "recent"};
-        return {ok: true, stats};
+    /**
+     * 现在这一刻，这个名字还是不是可以清理的：普通文件、没被引用、过了保护期。每次都重新读磁盘；真删前（`strict`）连素材目录本身也再核对
+     * 一次仍是真实目录：通用入口可以在两步之间把它换成指向根内别处的链接，而删除会跟随根内的祖先链接。窗口缩到两次读盘之间，不能为零
+     * （`entryToken` 只认最终文件，不认父目录），换成链接的是用户自己的另一种明确操作，且删掉的只会是摘要命名的素材文件。
+     */
+    const examine = async (name: string, strict: boolean): Promise<Candidate> => {
+        try {
+            if (strict) {
+                const current = await statOrNull(directory);
+                if (current === null || !current.isDirectory()) return {ok: false, reason: "not-file"};
+            }
+            const stats = await statOrNull(join(directory, name));
+            if (stats === null || !stats.isFile()) return {ok: false, reason: "not-file"};
+            if (keep.has(name)) return {ok: false, reason: "kept"};
+            if (Math.max(stats.mtimeMs, guard.returnedAt(name)) > line) return {ok: false, reason: "recent"};
+            return {ok: true, stats};
+        } catch (error) {
+            return {ok: false, reason: "failed", code: errnoOf(error)};
+        }
     };
 
     if (names === undefined) {
+        // 统计也有上限：目录里的匹配文件数不受请求体限制（别的入口可以往里放任意多个），不能让一次统计无界地扫描、占着互斥、拼出巨大的响应。
+        // 超出的下次再统计（清理掉这一批之后）；`truncated` 告诉调用方还有更多。
         const removable: Array<{name: string; bytes: number}> = [];
+        let truncated = false;
         for (const name of (await readdir(directory)).filter((entry) => THEME_ASSET_FILE_NAME.test(entry)).sort()) {
-            const candidate = await examine(name);
-            if (candidate.ok) removable.push({name, bytes: candidate.stats.size});
+            const candidate = await examine(name, false);
+            if (!candidate.ok) continue;
+            if (removable.length >= THEME_ASSET_SWEEP_MAX_NAMES) {
+                truncated = true;
+                break;
+            }
+            removable.push({name, bytes: candidate.stats.size});
         }
-        return Response.json({removable} satisfies ThemeAssetSweepStats);
+        return Response.json((truncated ? {removable, truncated: true} : {removable}) satisfies ThemeAssetSweepStats);
     }
 
     const removed: string[] = [];
     const skipped: Array<{name: string; reason: ThemeAssetSweepSkipReason; code?: string}> = [];
     for (const name of new Set(names)) {
-        const candidate = await examine(name);
+        const candidate = await examine(name, true);
         if (!candidate.ok) {
-            skipped.push({name, reason: candidate.reason});
+            skipped.push(candidate.code === undefined ? {name, reason: candidate.reason} : {name, reason: candidate.reason, code: candidate.code});
             continue;
         }
         const deleted = await sources.delete([{address: `${THEME_ASSET_DIRECTORY_ADDRESS}/${name}`, expected: entryToken(candidate.stats)}]);

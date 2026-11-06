@@ -376,6 +376,7 @@
             "sweep": "Clean up assets",
             "sweepNone": "There are no assets to clean up.",
             "sweepAsk": "Unused assets: {{count}} ({{kb}} KB in total). This cannot be undone. Clean up?",
+            "sweepAskMore": "Cleaning up {{count}} unused assets first, {{kb}} KB in total (there are more; count again afterwards). This cannot be undone. Continue?",
             "sweepConfirm": "Clean up",
             "sweepCancel": "Cancel",
             "sweepDone": "Cleaned up assets: {{removed}}.",

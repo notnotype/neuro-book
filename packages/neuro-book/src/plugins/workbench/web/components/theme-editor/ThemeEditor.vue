@@ -174,7 +174,7 @@ type Sweep =
     | {readonly kind: "idle"}
     | {readonly kind: "working"}
     | {readonly kind: "none"}
-    | {readonly kind: "ask"; readonly names: ReadonlyArray<string>; readonly bytes: number}
+    | {readonly kind: "ask"; readonly names: ReadonlyArray<string>; readonly bytes: number; readonly more: boolean}
     | {readonly kind: "done"; readonly removed: number; readonly skipped: number; readonly failed: number; readonly code?: string}
     | {readonly kind: "failed"; readonly failure: SweepFailure};
 const sweep = ref<Sweep>({kind: "idle"});
@@ -186,7 +186,7 @@ const startSweep = async (): Promise<void> => {
     sweep.value = {kind: "working"};
     try {
         const plan = await model.unusedAssets(props.transfer);
-        sweep.value = !plan.ok ? {kind: "failed", failure: plan} : plan.names.length === 0 ? {kind: "none"} : {kind: "ask", names: plan.names, bytes: plan.bytes};
+        sweep.value = !plan.ok ? {kind: "failed", failure: plan} : plan.names.length === 0 ? {kind: "none"} : {kind: "ask", names: plan.names, bytes: plan.bytes, more: plan.more};
     } catch (error) {
         sweep.value = unexpectedFailure(error);
     }
@@ -214,7 +214,7 @@ const sweepText = computed(() => {
     const state = sweep.value;
     switch (state.kind) {
         case "none": return text("themeEditor.library.sweepNone");
-        case "ask": return text("themeEditor.library.sweepAsk", {count: state.names.length, kb: Math.max(1, Math.round(state.bytes / 1024))});
+        case "ask": return text(state.more ? "themeEditor.library.sweepAskMore" : "themeEditor.library.sweepAsk", {count: state.names.length, kb: Math.max(1, Math.round(state.bytes / 1024))});
         case "done":
             if (state.failed > 0) return text("themeEditor.library.sweepDoneFailed", {removed: state.removed, failed: state.failed, code: state.code ?? "?"});
             return state.skipped === 0 ? text("themeEditor.library.sweepDone", {removed: state.removed}) : text("themeEditor.library.sweepDoneSkipped", {removed: state.removed, skipped: state.skipped});

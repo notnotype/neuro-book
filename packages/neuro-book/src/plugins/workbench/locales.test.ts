@@ -52,6 +52,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "themeEditor.library.sweep": {"zh-CN": "清理素材", "en-US": "Clean up assets"},
     "themeEditor.library.sweepNone": {"zh-CN": "没有可清理的素材。", "en-US": "There are no assets to clean up."},
     "themeEditor.library.sweepAsk": {"zh-CN": "有 {count} 个没人用的素材，共 {kb} KB。清理后无法恢复，要清理吗？", "en-US": "Unused assets: {count} ({kb} KB in total). This cannot be undone. Clean up?"},
+    "themeEditor.library.sweepAskMore": {"zh-CN": "先清理其中 {count} 个没人用的素材，共 {kb} KB（还有更多，清理后可以再统计）。清理后无法恢复，要清理吗？", "en-US": "Cleaning up {count} unused assets first, {kb} KB in total (there are more; count again afterwards). This cannot be undone. Continue?"},
     "themeEditor.library.sweepConfirm": {"zh-CN": "清理", "en-US": "Clean up"},
     "themeEditor.library.sweepCancel": {"zh-CN": "取消", "en-US": "Cancel"},
     "themeEditor.library.sweepDone": {"zh-CN": "已清理 {removed} 个素材。", "en-US": "Cleaned up assets: {removed}."},

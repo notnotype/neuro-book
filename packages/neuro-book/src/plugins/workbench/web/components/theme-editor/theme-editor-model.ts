@@ -71,7 +71,7 @@ export type AssetSweeper = Pick<ThemeTransfer, "statUnusedAssets" | "removeUnuse
  */
 export type SweepFailure = {readonly ok: false; readonly kind: "not-ready" | "unreadable" | "too-many" | "route"; readonly reason: string};
 /** 清理统计的结果：可清理的素材名与总字节数。 */
-export type SweepPlan = {readonly ok: true; readonly names: ReadonlyArray<string>; readonly bytes: number} | SweepFailure;
+export type SweepPlan = {readonly ok: true; readonly names: ReadonlyArray<string>; readonly bytes: number; readonly more: boolean} | SweepFailure;
 /** `skipped` 是统计之后被保护的（刚被引用或刚写入、已经不在）；`failed` 是删除本身失败的个数，`code` 是第一个失败的码。 */
 export type SweepDone = {readonly ok: true; readonly removed: number; readonly skipped: number; readonly failed: number; readonly code?: string} | SweepFailure;
 
@@ -457,7 +457,7 @@ export class ThemeEditorModel {
         if (!kept.ok) return kept;
         const stats = await sweep.statUnusedAssets(kept.keep);
         if (!stats.ok) return {ok: false, kind: "route", reason: stats.reason};
-        return {ok: true, names: stats.value.removable.map(({name}) => name), bytes: stats.value.removable.reduce((total, {bytes}) => total + bytes, 0)};
+        return {ok: true, names: stats.value.removable.map(({name}) => name), bytes: stats.value.removable.reduce((total, {bytes}) => total + bytes, 0), more: stats.value.truncated === true};
     }
 
     /** 删掉用户确认过的那份统计里的素材；清单现读：确认期间别处新引用的素材，路由会因为它在 `keep` 里而跳过。 */
