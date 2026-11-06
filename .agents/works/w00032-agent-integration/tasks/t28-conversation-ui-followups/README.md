@@ -99,6 +99,8 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 批 3 完成并合入：分支树的列表与图（`AgentSessionTree`、`session-tree.ts`）。验证：`nb-agent-ui` 全部、`tree.test.ts`、`session-host.test.ts`、类型检查；e2e `agent-conversation`。实现审查（omp）在跑，报告回来再处理。
 
+分支树按 review v6 的三点改完合入：图标按说话的人着色，线条加粗并按分支着色，新增第三种视图“单线”（`sessionTreeTrail`）。
+
 ## 下一步
 
-批 4：斜杠命令、`@`、草稿、输入历史。分支树的真实截图在 review v6 等开发者看。
+批 4：斜杠命令、`@`、草稿、输入历史。“单线”用了再定留不留（review v7）；批 3 的 omp 实现审查报告回来后处理。
