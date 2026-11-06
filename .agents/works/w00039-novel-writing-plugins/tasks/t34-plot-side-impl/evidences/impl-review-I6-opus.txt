@@ -1,0 +1,240 @@
+# w00039 t34 阶段 F 实现审查（Opus 份）。审查对象 b78df0971..a2b4059a6。条目按核实先后追加；影响排序见文末索引。
+# 实验都在 /tmp/review-w00039-t34-I6/scratch-opus/（deps.test.ts、real.test.ts 等），在实现 worktree 的 packages/neuro-book 下用 bun test 跑。
+
+### 1. 记录里的 points、concerns 不随回写更新：摘要相同而重拼结论不同（反例，真实运行时已复现）
+严重程度：阻断
+类别：正确性（checks.md 输出 7“结果必须与重拼相同”）
+位置：packages/neuro-book/src/plugins/plot/core/checks/source.ts:47、56；dependencies.ts:182、194；shared/checks.ts:99 的注释
+现象：`record.points`、`record.concerns` 只在跑检查时算。世界前缀变了但重拼仍有效时，`source.valid` 回写 `{...record, dependencies: current}`：摘要换成新的，points、concerns 还是旧的。之后 `later`（只看 record.points）、`byEntry`（只看 record.concerns）就看不到后来才进入本章的知识点与条目。
+为什么是问题：shared/checks.ts:99 的论证“它们由世界的前缀决定，前缀没变它们就没变”只在记录刚跑完时成立。回写以后，摘要对应新前缀，集合却还对应旧前缀，两者脱钩。作者看到的是过期的结论，没有任何提示；这是计划里写明的最大风险。
+如何核实（真实的项目子进程、服务端入口、假端点，real.test.ts 第二条）：三章的书。跑第 2 章：调用 [time:main#1, fixed]。发布知识点 K（主体“勇者”在正文里，保密，带读者问题）：调用集合没变，record 判 valid 并回写，points 仍是 []。再发布第 3 章对 K 的明说揭示计划：`record` 仍回 valid，points 仍是 []，不报 stale。此时重跑得到 [time:main#1, fixed, reader:e2]，多一次试读。
+concerns 的同型反例（deps.test.ts，createCheckSource 与 isValid 对照）：跑完后在本章加一条只 `mentioned` 某人的变更（调用集合不变，回写），再写挂在这个人上的待定决策：走摘要 valid，重拼 false，计划多出规则项 pending:d1。
+建议改法：回写时用重拼算出的 points、concerns（`isValid` 已经算过 plan，让它把 plan 交回来），连同新摘要一起回写。这两项不算内容，不改数据版本。补一条“先回写、后改后面的世界”的用例；随机序列用例现在每步都用重新算的 stored（dependencies.test.ts:250），测不到这条路径。
+
+### 2. 依赖摘要没有覆盖核对点（check）：改了结论，摘要不变（真实运行时已复现）
+严重程度：阻断
+类别：正确性（checks.md 输出 7）
+位置：dependencies.ts:135-155（worldFold 只读 allChanges、entries、decisions）；读取方 change-index.ts 的 effectiveTellings、knowledge.ts 的 readerBase、foreshadowing.ts 的 rawTellings；canon model.md 输出 20
+现象：`view.tellings({effective: true})` 的来源里有 `world.data.checks`（service/reads.ts listTellings 的 collect），核对点的讲述带标注时算读者读过，也算伏笔节点；`chapterEntries` 含“比较时点在这一章的核对点的条目”（model.md 输出 20），又决定本章涉及的知识点与决策。摘要里完全没有核对点。
+如何核实：real.test.ts 第一条：第 2 章跑完有 reader:e3；发布第 1 章的核对点，讲述带对 K 的明说揭示：`record` 仍回 valid，待处理里 stale 0 条；重跑只剩 [time:main#1, fixed]。deps.test.ts：核对点比较时点放在本章（条目名下有秘密、本章有在场的人），摘要相同、计划多一个 presence 候选。
+为什么是问题：作者记核对点是常规操作，结论错了不提示。按类别的用例（dependencies.test.ts）与随机序列都没有这一类。
+建议改法：读取视图加 `allChecks()`（或把核对点放进 `allChanges` 的同一套分桶），按 place 与 told 的章取最早分桶。同时在 dependencies.test.ts 加一类。CanonReadView 上要穷举“能改变 planCheck 结论的世界对象”，现在是靠人记。
+
+### 3. “plan 路径上读条目一律经 readAppeared”不成立：按出场分桶会漏（三个反例）
+严重程度：重要
+类别：正确性（checks.md 输出 7；plan F8）
+位置：brief/context.ts:133（pointsReferencedBy 读伏笔答案不看 appeared）；candidates.ts:134、plan.ts:142（knowing.effective(pov, …) 不看视角人物是否已出场）；dependencies.ts:139-144（条目按出场分桶）
+现象与核实（deps.test.ts）：
+- 伏笔写了 appears=ch15，第 8 章讲述带它的节点（canon 不拦，这一步写入成功）；改它的 `答案`：摘要相同，计划的知识点变了。
+- 写作指示的视角人物写了 appears=ch15（快照里的 pov 不受 canon 校验）；改他 init 的 `know.知情`：摘要相同，叙述层候选变了。
+- 出场 ch15 的条目带 `retold`，讲述在第 5 章、标注明说揭示（条目的 retold 也是讲述来源）：摘要相同，试读没了。
+在场的人写更晚的出场这条路被 canon 的 `not-appeared` 拦住，不成立。
+为什么是问题：dependencies.ts:11 写明“靠 readAppeared 成立”，这是分桶的前提，实际有路径不走它。
+建议改法：pointsReferencedBy 对检查路径读伏笔时看 appeared（简报侧不动，可加参数或在 pointsAfterWriting 里过滤）；pov 未出场时候选按“没有记录”处理或不提供；条目分桶取 appears 与 retold 讲述所在章里最早的。
+
+### 4. splitFrom 的 by 不在摘要里：后面一条已写变更决定前面的计划是否计入（反例）
+严重程度：重要
+类别：正确性（checks.md 输出 7）
+位置：dependencies.ts:63-71（只处理 link.plan）；nb-canon engine/incremental.ts:226-228（`includedPlans` 读 `split.by` 的生效与套上）
+现象：`splitFrom` 计划 P（第 3 章）是否进计划模式，取决于 `by` 那条已写变更的状态，与读取位置无关。`by` 在第 18 章时桶是 17，不进第 8 章的前缀。
+如何核实：deps.test.ts：P 把隐秘目标的状态改成 achieved；撤销第 18 章的 `by`：第 8 章 points 从 [] 变成 [e3]，多一个 presence 候选，摘要不变。
+建议改法：分桶循环里对 splitFrom 把 link.by 也并进来（by 的桶取 min）。
+
+### 5. 有效性的备忘只按章存，不认记录：新记录沿用旧记录的结论
+严重程度：重要
+类别：正确性、竞态（checks.md 状态表“检查进行中世界变了，记录照存，按输出 7 判过期”）
+位置：core/checks/source.ts:36、50-51
+现象：`verdicts` 的键是章，值是 `{dependencies, valid}`，判断时只比摘要，不比是哪条记录，记录被替换时也不清。
+如何核实（run.test.ts “source 的备忘只按章”，真实的 planCheck 与 createCheckSource）：R1 跑完；世界变（卫兵知情）；R2 在这张世界上开始跑；作者撤销那条变更，这时读待处理，R1 重拼仍有效，备忘 {D3, true}；R2 存下（摘要 D2，调用只有 time、fixed）。再读：摘要不等，备忘的摘要等于当前，直接判有效。结果：走备忘 true，重拼 false。R2 少了撤销后回来的 presence 候选，却按有效报。反方向同理：R1 过期留下 {D, false} 时，运行中发生一次不影响计划的世界改动，会把本该有效的 R2 判成 stale。
+为什么是问题：输出 7 要求结果与重拼相同，这条路径恰好是状态表点名的“进行中世界变了”。
+建议改法：备忘带上记录的身份（对象引用或 `record.dependencies`，键取 `${record.dependencies}|${current}`），或存到一张以记录对象为键的 WeakMap。
+
+### 6. 判一致阶段取消不生效：relay 已摘除，在途与排队的判一致照常跑
+严重程度：重要
+类别：资源与收口（plan F4：run 的信号接 cancel 与入口停止）
+位置：core/checks/run.ts:164（removeEventListener）、236-243
+现象：第一批 `Promise.all` 结束就摘掉 relay，判一致用的 `batch.signal` 之后再也不会被 `cancel` 或入口停止触发。
+如何核实（run.test.ts）：判一致挂起时 abort：200 ms 后 run 没结束，判一致拿到的信号 aborted=false；手工放行之后才回 plot-check-cancelled。
+为什么是问题：模型挂住时这一章要等到 ASK_TIMEOUT_MS（5 分钟，可重试再来一次，每条判一致最多 10 分钟）才从 `running` 里移除，期间 `cancel` 无效、重跑一直 plot-check-busy；钱也照花。入口停止时同样。现有的取消用例（run.test.ts:346）只在第一批取消。
+建议改法：把 removeEventListener 挪到 runCheck 的 finally，判一致阶段继续走 relay。
+
+### 7. 新事实的“查到名字就不算”过宽：真穿帮与新设定被静默丢掉
+严重程度：重要
+类别：正确性（checks.md 输出 3、验收 4）
+位置：core/checks/run.ts:315；questions.ts:22 的提示词
+现象：
+- 判断没看 `fact.kind`：`knowing` 带了世界里有的名字也丢。计划 F4 写的是“带 name 的 invention”。验收 4 的小梅就是世界里有的人。
+- `invention` 的 name 查到世界就丢，但提示词说 invention 包括“新名字、数值、设定（带上 name）”。模型给数值、设定写 name 时，自然写涉及的那个人。
+- 自陈按 `reported.includes(name)` 比子串，短名字误中。
+如何核实（run.test.ts）：三个场景的 newFacts 都是 []，也不计 badQuote、不进 unlisted，作者看不到任何痕迹：(a) knowing，name=小梅，正文“小梅说十一点在桥头见”；(b) invention，name=勇者，“勇者今年一百二十岁了”；(c) invention，name=桥，自陈 names 有“断桥残雪的故事”。
+为什么是问题：新事实层是输出 1 说的兜底。现有用例（run.test.ts:174）只测 name 恰好是新名字本身。F9 的三个真实模型场景都没有带 name 的新事实，这条没被真实模型碰到过。
+建议改法：只对 `invention` 查名字；提示词把 name 定义成“这个新名字本身，数值与设定不写 name”；自陈比较改成整词相等，或至少要求 name 是自陈某项按分隔符切开后的一项。
+
+### 8. 引文核对可以用逐行单字绕过
+严重程度：重要
+类别：安全与校验（checks.md 输出 6）
+位置：core/checks/segments.ts:73-77
+现象：最短 4 码点量的是各行拼起来的总长，每行单独只要 `includes`。
+如何核实（run.test.ts）：正文“勇者走进客栈，腰间挂着王室的玉佩。”，引文 `栈\n客\n进\n走\n的`（乱序散字，正文里没有这句话）判有效，答案保持 yes，badQuotes 0。
+为什么是问题：输出 6 的目的是挡住模型编造原句。实际模型把一句话换行拆开不算罕见，分行后每行很短时核对就形同虚设，结果还进待处理与 `params.quotes`。
+建议改法：最短长度按每一行量（每行至少 4 码点，或短行不算有效）。输出 6 的“含换行的逐行核对”应该读成每行都是一条合格的引文。
+
+### 9. 沿用答案以后 badQuotes 归零，提示消失
+严重程度：建议
+类别：正确性（checks.md 输出 6、5）
+位置：core/checks/run.ts:159、199-202、216
+现象：上一条记录里因引文对不上改成 unclear 的答案，带 followUps 重跑时被沿用（引文已清空），不再计数；固定调用沿用时新事实被丢掉的条数也不计。
+如何核实（run.test.ts）：first.badQuotes=1，second.badQuotes=0，reused=3，这个答案仍是 unclear。作者补问一条，`nbook.plot.check.badQuote` 就没了。
+建议改法：CallRecord 记 `badQuotes`（这次调用丢了几条），沿用时累加。
+
+### 10. 失败的用量是放弃那一刻的快照；调用次数不含重试
+严重程度：建议
+类别：正确性（checks.md 失败表“到此为止的用量”、输出 10）
+位置：core/checks/run.ts:99-103（failed 存快照）；run.ts:155（counts 每个调用只加一次）
+现象：`fail` 立刻取 `total`，之后 Promise.all 等到的在途调用的用量都不进 `failed.usage`。上限是 4 个并发的用量。输出 10 要求记“模型调用的次数”，重试的那次只进用量不进次数。
+如何核实（run.test.ts）：fatal 之后放行别的在途调用，usage.input 仍是 10；可重试一次的跑法，narrow=1，total.input=40（实际 4 次调用，次数合计 3）。
+建议改法：失败在 Promise.all 结束后才取 `total`；`counts` 在每次实际调用时加。
+
+### 11. 取消时排队者要等别的章的调用结束才返回
+严重程度：建议
+类别：资源与收口
+位置：core/checks/run.ts:35-50（createLimiter）
+现象：limiter 的排队不接信号。A 章的调用全排在 B 章的在途调用后面时，cancel A 什么也叫不醒，直到 B 腾出一个名额（真实通道上最长 5 分钟一次调用）。这期间 A 一直 running，重跑 plot-check-busy。
+如何核实（run.test.ts）：limit=1，别的调用占着，abort 后 200 ms run 没结束，别的调用结束后才回 plot-check-cancelled。
+建议改法：`limiter.run(work, signal)`，排队时信号触发就从 waiting 摘掉并返回。
+
+### 12. models.ask 抛错时同批不取消，失败也不进 status
+严重程度：建议
+类别：错误路径
+位置：core/checks/run.ts:160-163；backend/checks.ts:61-90（try 无 catch）
+现象：`ask` 或 `available` reject 时，Promise.all 立刻 reject，`batch` 不 abort，在途调用继续；`checks.run` 只有 finally，`failures` 不写，调用方拿到内部错误，status 的 lastFailure 是 null。真实通道 `use.*` 约定不抛错，所以目前只有实现出 bug 或存储抛错时才碰到（`store.queued` 里的 write 同样没有 catch）。
+如何核实（run.test.ts）：替身 ask reject：run reject，另一条在途的信号 aborted=false。
+建议改法：runCheck 里把 `models.ask` 包一层，抛错算 fatal；checks.run 加 catch，记 `plot-check-failed` 与诊断。
+
+### 13. run 的失败把类别、用量与解析失败的码都丢了
+严重程度：建议
+类别：合同（checks.md 失败表、边界“失败码按它的解析结果”）
+位置：backend/plugin.ts:306；backend/checks.ts:39、80（RunResult 只有 code；result.detail 没有传）
+现象：失败表写 `plot-check-failed` 的详情带错误类别与用量，远程 `run` 的详情只有 `{code}`，要再调 `status`。`plot-check-unavailable` 的解析失败码（`RunFailure.detail`）在 checks.ts:80 被丢弃，`status` 也没有：调用方分不清没有模型服务、角色没绑、别的解析失败，也就没法提示“配哪个角色”。
+如何核实：读代码；plot.test.ts:365-366 只断言 code。
+建议改法：errors 的 schema 加 `kind?`、`usage?`、`resolution?`，RunResult 带上；CheckFailure 加解析码。
+
+### 14. forkSuspected 误报：分叉放在主线、回溯段在子线时，子线视图看不到分叉
+严重程度：重要
+类别：正确性（诊断）
+位置：packages/neuro-book/src/plugins/plot/core/checks/diagnostics.ts:65（hasFork）；测试 run.test.ts:266 只测主线
+现象：hasFork 用 view.changes({chapter}) 查这一章有没有 fork。分叉变更放在主线第 5 章、回溯段在子线时，子线视图的 changes 里没有这条分叉，诊断照报“疑似分叉没登记”。
+为什么是问题：pending 读章末，章末所在的线是最后一段的线（positionLine），所以回溯章走的正好是这条路径：作者已经登记了分叉，诊断还叫他去登记，对话框消不掉。
+如何核实：scratch-opus/diag.test.ts：输出“子线视图看得到分叉 []”，同时报了 key line l1、detail l1#1。
+建议改法：用 allChanges 查这一章生效的 fork，不用当前线的视图；补一条子线用例。
+
+### 15. 三个账本没有进远程合同
+严重程度：重要
+类别：合同（缺实现）
+位置：packages/neuro-book/src/plugins/plot/shared/checks.ts:122-136（methods）；backend/plugin.ts；core/checks/ledgers.ts
+现象：secretLedger、readerKnown、revealDependencies 只在 ledgers.ts 与它自己的测试里出现。合同 methods 只有 putSelfReport、run、cancel、status、record，plugin.ts 也没有接。
+为什么是问题：checks.md 边界写明远程合同是“run、cancel、status、record、putSelfReport、三个账本”，输出 9 与计划 F7 也要求账本可读。现在作者与界面都拿不到账本，这段代码等于死代码，却算进了阶段 F 的完成。计划与 Task 记录里没有看到这条偏离的说明（两条已声明的偏离不含它）。
+如何核实：grep -rn "secretLedger\|readerKnown\|revealDependencies" packages/neuro-book/src 只命中 ledgers.ts 与测试。
+建议改法：合同加三个只读方法并在 plugin.ts 接上，用真实项目分区的合同测试覆盖；确要延后，就写成对 Spec 的明确偏离交开发者。
+
+### 16. objectTouchedInText 报给已回收的伏笔
+严重程度：重要
+类别：正确性（诊断，违反 Spec）
+位置：packages/neuro-book/src/plugins/plot/core/checks/diagnostics.ts:98-105
+现象：诊断没有按阶段筛伏笔（也不看出场）。题面只问了“钟被拨慢”，却报了 e2、e3 两条，其中 e3 已回收。
+为什么是问题：foreshadowing.md 输出 7 限定“已埋、没回收期间”。已回收的伏笔被报“这一段又碰了它”是假发现，而这批诊断靠“少而可信”才有人看。候选（candidates）是按阶段筛过才发问的，诊断重新按对象反查，两处口径不一致。
+如何核实：scratch-opus/diag.test.ts 的用例，报出的 key 含 e3。
+建议改法：用与 candidates 相同的 stage 筛；更干净的做法是把候选的伏笔列表存进 CallRecord，诊断只读记录，不重新推导。
+
+### 17. 回写无条件覆盖：可能把新记录换回旧记录（收窄：真实运行时窗口窄）
+严重程度：建议
+类别：竞态、失败路径
+位置：packages/neuro-book/src/plugins/plot/backend/plugin.ts:248（回写）、:316-320（record）；core/checks/source.ts
+现象：回写不比较当前记录。store.test.ts 复现：排在新记录保存之后的回写把新记录换回旧记录并落盘，重开后仍是旧记录；数据版本变了却不 report。store.write 返回 {ok:false} 时也不记诊断（.catch 只接抛错）。
+为什么是问题：被换掉的是花了钱的记录，而且静默。
+如何核实：scratch-opus/store.test.ts 直接调用存储复现了覆盖。真实运行时没有复现：项目分区写入是同步 SQLite，只走微任务（owner.ts:58）；实际路径只有 plugin.ts:316-320 的 record 在 await canon.snapshot() 之前拿到记录，且只有世界改动后首次重拼才回写，窗口窄。所以定为建议，不定为重要。
+建议改法：改法便宜：写入队列里比较 records.get(chapter) === record 再写；{ok:false} 记一条诊断。
+
+### 18. 冲突后的 slot 永远写不进去；清单损坏时 run 花完钱也存不下
+严重程度：建议
+类别：失败路径（落盘）
+位置：packages/neuro-book/src/plugins/plot/backend/store.ts:163；backend/plugin.ts:315
+现象：conflict 后删除 slot，注释说“下一次写之前重读 revision”，实际新建的 slot 的 revision 是 null，expect:null 永远 conflict（store.test.ts：连写 4 次都是 conflict）。清单 corrupt 时（真实分区库改坏 value）：已有的章全读不回（只有一条 warn），这些章再写 3 次都 conflict，新章可写。
+为什么是问题：run 要几分钟、花钱，最后存不下；注释描述的恢复路径并不存在。record 没有 usable 判断，读取失败时回 none，与“读取失败不能当没有”不符：作者看到的是“没检查过”，不是“读不出来”。
+如何核实：scratch-opus/store.test.ts，用真实分区库改坏清单 value。
+建议改法：#slot 新建后先 read 取 revision；record 在 usable 为假时返回错误码。
+
+### 19. 讲非主线的章每次发布都重拼：子线多的书上同步阻塞项目进程（从代码推断，未量）
+严重程度：重要
+类别：性能（依赖摘要的前提）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:192；dependencies.test.ts:183-195
+现象：讲非主线的章，摘要包含全书（测试也断言后面任何变更都变摘要）。于是每次发布以后，这些章全部摘要不同，全部重拼并回写。
+为什么是问题：证据里 planCheck 一章 20 到 49 毫秒。按此推算，300 章子线约 6 到 15 秒同步阻塞项目进程，每次发布后第一次读都有。scale-f8 只量了主线，计划 (a) 的“看不出开销”不覆盖这种书。回溯多的长篇并不罕见。
+如何核实：读 dependencies.ts:192 与证据 scale-f8.txt。这条是推算，没有实际量 300 章子线，主会话复核时应先量。
+建议改法：先量；属实就把子线的依赖收窄到该章各段所在线的前缀，或把重拼挪到不阻塞读取的时机，读取时先按旧结论回。
+
+### 20. revealTable 把被替代的计划算作后面的揭示
+严重程度：建议
+类别：正确性（试读）
+位置：packages/neuro-book/src/plugins/plot/core/checks/trial.ts:54
+现象：scratch-opus/diag.test.ts：旧计划 progress=replaced，第 8 章仍有 reader:e2。
+为什么是问题：canon 输出 5 说被替代的不进任何模式。结果是试读用错“后面才揭示”的判断，可能漏问或多问。
+如何核实：上述实验。
+建议改法：用 on.progress 筛掉被替代的。
+
+### 21. source.ts 的备忘与回写没有任何测试
+严重程度：重要
+类别：测试
+位置：packages/neuro-book/src/plugins/plot/core/checks/source.ts；testing/checks.ts:101；dependencies.test.ts
+现象：createCheckSource、writeBack 只出现在 plugin.ts 与 source.ts。测试里的 reported() 直接用 isValid，dependencies.test.ts 的随机序列每步重算 stored，没有一条路径走“先比摘要、相同就沿用”。
+为什么是问题：这正是阶段 F 里最容易错的一段，而第 1、5、17 条都是因此漏过的。随机序列测的是“摘要变化的条件”，不是“摘要相同时沿用的结论是对的”：真正要守的合同是“任何序列上，经 source 得到的结论等于全量重拼”。
+如何核实：grep -rn "createCheckSource\|writeBack" packages/neuro-book/src 没有命中测试文件；既有测试 core/checks 与 store.test.ts 77 pass，第 1、2 条的反例都没被它们发现。
+建议改法：把随机序列改成对照测试：每步经 createCheckSource 取结论，与不带备忘、不看摘要的全量 isValid 比较，并让记录跨步留存。修第 1、2、3、4 条时这条测试会直接报出它们。
+
+### 22. 杂项（一组小问题）
+严重程度：建议
+类别：杂项
+位置与现象：
+(a) available 不带 timeout 与 signal（check-models.ts:22，run.ts:89）：服务端挂住时 cancel 无效且一直 busy；断线码被报成 plot-check-unavailable。
+(b) 输出上限已经夹到 maxOutput 时，length 重试是同一个请求，白付一次（server.ts:62，run.ts:131）。
+(c) 空段（to 小于 from）照问时间层（candidates.ts:141），白花一次调用。
+(d) Collector 按顿号切（diagnostics.ts:43）：joined 成的多句值合并时重复，实测得到“甲、乙都盯着他、勇者坐下、甲、乙都盯着他、勇者坐下”；句子本身含顿号时也可能丢句。
+(e) decisions.ts 把 involves 的文档注释放到了 decisionLists 上。
+(f) run 合同 output 的 usage 是 Type.Unknown()（shared/checks.ts:129），而 UsageSchema 就在同一个文件。
+(g) 入口停止之后才开始的 run 不会被 abort（backend/checks.ts:48-56，从代码推断，未在运行时验证）。
+(h) changedBy 不再按读取位置截断：对照实验里问位置之后的变更，新实现回出结果、旧实现回空，916 次差异（全部在“位置之后”）。现有三个调用方（brief/parts.ts:51、viewpoint.ts:212、knowledge.ts:421）只传位置之内的变更，所以今天没有行为变化，但 viewpoint 这种按权限截断的地方靠调用方自律，下一个调用方传错就泄露后文。
+为什么是问题：各自影响小，放在一起记，免得漏。(h) 是这次为性能改既有模块留下的隐患，值得优先于其余各项。
+如何核实：(d)、(h) 有实验（diag.test.ts、differential.test.ts），其余读代码。
+建议改法：(a) 给 available 加超时与 signal；(b) 已到上限时不重试；(c) 跳过空段；(d) 用数组合并，不做字符串切分；(e) 挪注释；(f) 改用 UsageSchema；(g) 在入口停止后拒绝新的 run；(h) 在 changedBy 里加位置判断，或在注释写明调用方的约束。
+
+## 影响排序索引（报告按核实先后追加，这里给影响顺序）
+阻断：1、2
+重要：3、4、5、15、6、14、16、7、8、19、21
+建议：22、17、18、20、9、10、11、12、13
+
+## 未发现问题的方面
+- 为性能改的既有模块，语义对照：scratch-opus/differential.test.ts 取 base 上的 knowledge.ts、foreshadowing.ts 与新实现对照，25 个随机世界，全部带子线（主线与子线两张视图，实际与计划两种模式，全部位置），共 282360 次比较。effective、transitions、rowChange、all、nodesRead、stage、homeless 没有差异。只有两类差异：changedBy 问位置之后的变更（见第 22 条 (h)）；readerTellings 不带 effective 也不带 until 的 {} 过滤，48 次（新 12 条、旧 19 条的这种），生产调用方（guards.ts:145、trial.ts:60、knowledge.ts:480、:493）都带其中之一，走不到。
+- 带 effective 或 until 的 readerTellings：对照的 5 种过滤没有差异；plansOf 等价；pointsBeforeWriting 循环合并等价；rawTellings 与旧逻辑等价（读代码）。
+- #explicitOf 共用历史：在 effective、transitions、rowChange 上按键筛，未见读取位置之后的数据漏进来（对照实验）。
+- learningChanges、goalsWithSecret 未见行为变化（读代码，这两项不在对照实验里）。
+- 试读不泄真相：没有程序加的真相文字，question 字段不进试读请求，判一致的结果不回流到试读（读代码与测试）。
+- 规则项 id 伪造会被丢弃；多跳链接的 2 遍循环语义上无影响（只读直接链接）；按线报发现与 perChapter 的先例一致。
+- 同一章重复 run 的 busy 判定；写入队列的前一个失败不挡后一个（实验）。
+- 候选排除后的反例：在场的人写更晚出场的会被 canon 的 not-appeared 拦住，这条路径不成立（第 3 条因此改用写作指示的 pov 作反例）。
+- 既有测试：实现 worktree 上 core/checks 与 store.test.ts 77 pass、0 fail。
+
+## 各级数量
+阻断 2，重要 11，建议 9，合计 22。撤回 0；第 17 条的严重程度已按真实运行时收窄为建议，条目本身有效。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18、19、20、21、22
+
+## 更正（写完后复核上面的文字，以这里为准）
+- “未发现问题的方面”第 1 项写的“全部带子线”不准：25 个世界里 23 个有主线与子线两张视图，2 个只有主线。比较总数不变。
+- “未发现问题的方面”写的“question 字段不进试读请求”是错的：读者问题会进试读请求（trial.ts:181），这是设计。程序在 trial.ts:137 只按字面比对摘要、名字与别名，换一种说法的问题拦不住；问题是作者写的内容，这里不列为发现。试读没有程序加的真相文字、判一致的结果不回流，这两点不变。
+- 第 14 条“对话框消不掉”没有核实，撤回这半句。已核实的是误报本身：hasFork 只看当前线的视图（diagnostics.ts:65），诊断是 pending 级、标签“疑似回溯没记”（declarations.ts:266）。
+- 第 15 条加强：计划 F7 写明账本“经 nbook.plot/checks 分页给出（pagedList 复用）”，Task 记录（t34 README 第 53 行）把账本与 nbook.plot/checks 一起记在提交 e6418197b 的 F4 到 F7 下，读起来是已完成；实现没有这三个方法。这是没做到计划而记录写成做了，不是声明过的偏离。
+- 第 21 条建议改法里“这条测试会直接报出第 1、2、3、4 条”是预期，没有实际验证；能不能报出取决于随机序列生成了对应的改动（例如核对点、splitFrom）。
+
+各级数量不变：阻断 2，重要 11，建议 9，合计 22。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18、19、20、21、22
