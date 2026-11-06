@@ -9,7 +9,7 @@ const SERIF = "\"Noto Serif CJK SC\", \"Source Han Serif SC\", \"Songti SC\", se
 /** “书房”（docs/specs/theme/skins.md 输出 11）：白天窗边、夜里台灯。只有声明与素材，没有入口；一张图裁给各位置。 */
 const STUDY: ThemeDeclaration = {
     title: {"zh-CN": "书房", "en-US": "Study"},
-    base: "macos",
+    base: "nbook",
     fonts: {display: SERIF, prose: SERIF},
     crop: {
         empty: {position: "center 70%", contentX: 0.47},

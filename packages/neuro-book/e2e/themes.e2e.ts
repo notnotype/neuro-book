@@ -315,7 +315,6 @@ test("设置里的主题不存在：项目层退到用户层，再退到缺省�
     try {
         await openProject(page);
         await expect(page.locator("html")).toHaveAttribute("data-nb-skin-scene", "");
-        await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "macos");
         await writeSettings({[THEME]: "also.gone"});
         await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
         await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-scene");
