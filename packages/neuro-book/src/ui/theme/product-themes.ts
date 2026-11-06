@@ -26,3 +26,9 @@ export function productTheme(theme: ProductTheme, appearance: "light" | "dark"):
     const vars = {...colorway, ...theme.vars};
     return {themeId: theme.base, appearance, vars: Object.keys(vars).length === 0 ? undefined : vars, scene: theme.scene};
 }
+
+/** 一个主题包在某个明暗下的缺省配色：主题写的配色盖在它上面（`productTheme`），编辑器也用它补出没写的变量。没有则是空表。 */
+export function baseColors(base: string, appearance: "light" | "dark"): Readonly<Record<string, string>> {
+    const colorwayId = getInstalledTheme(base)?.manifest.defaultColorway?.[appearance];
+    return ((colorwayId === undefined ? undefined : colorways[colorwayId]) as Readonly<Record<string, string>> | undefined) ?? {};
+}

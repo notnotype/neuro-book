@@ -3,7 +3,7 @@ import {describe, expect, it} from "bun:test";
 
 import {composite, contrast, formatColor, parseColor} from "./color";
 import type {Rgba} from "./color";
-import {derivePalette, MINIMUM_TEXT_CONTRAST} from "./derive-palette";
+import {derivePalette, MINIMUM_TEXT_CONTRAST, mirrorSeed} from "./derive-palette";
 import type {PaletteSeed} from "./derive-palette";
 
 const color = (value: string | undefined): Rgba => parseColor(value ?? "") as Rgba;
@@ -66,5 +66,26 @@ describe("推导整套配色", () => {
         expect(derivePalette(seed)).toEqual(derivePalette(seed));
         expect(derivePalette({...seed, accent: "teal"})).toBeNull();
         expect(derivePalette({...seed, background: "rgba(0, 0, 0, 0.5)"})).toBeNull();
+    });
+});
+
+describe("从另一套明暗换算主色", () => {
+    it("亮换暗：背景变暗、文字变亮，色相保持，再推导得到合格的整套", () => {
+        const light: PaletteSeed = {background: "#f3ead8", text: "#2e261c", accent: "#8a5a24", appearance: "light"};
+        const dark = mirrorSeed(light, "dark");
+        expect(dark?.appearance).toBe("dark");
+        const [bg, text, accent] = [color(dark?.background), color(dark?.text), color(dark?.accent)];
+        expect(bg.r + bg.g + bg.b).toBeLessThan(200);
+        expect(text.r + text.g + text.b).toBeGreaterThan(550);
+        expect(contrast(accent, bg)).toBeGreaterThan(4.5);
+        const palette = dark === null ? null : derivePalette(dark);
+        expect(palette).not.toBeNull();
+        expect(contrast(color(palette?.["--text-main"]), color(palette?.["--bg-panel"]))).toBeGreaterThanOrEqual(MINIMUM_TEXT_CONTRAST);
+    });
+
+    it("同一明暗原样返回；读不懂的颜色没有结果", () => {
+        const seed = SEEDS[0]?.[1] as PaletteSeed;
+        expect(mirrorSeed(seed, "light")).toEqual(seed);
+        expect(mirrorSeed({...seed, text: "teal"}, "dark")).toBeNull();
     });
 });

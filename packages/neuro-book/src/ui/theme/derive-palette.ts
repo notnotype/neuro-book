@@ -7,7 +7,7 @@
 
 import type {NbColorwayVarKey} from "@notnotype/nb-ui/colorway-contract";
 
-import {composite, contrast, ensureContrast, formatColor, mix, parseColor, toOklch, withLightness} from "./color";
+import {composite, contrast, ensureContrast, formatColor, fromOklch, mix, parseColor, toOklch, withLightness} from "./color";
 import type {Rgba} from "./color";
 
 export interface PaletteSeed {
@@ -102,3 +102,25 @@ export function derivePalette(seed: PaletteSeed): DerivedPalette | null {
     };
 }
 
+
+/**
+ * 由一套的三个主色换算另一套明暗的主色（docs/specs/theme/editor.md 输出 7 的“从另一套派生”）：保持各自的色相与色度，只把明度挪到
+ * 目标明暗的合理区间——背景在暗色里很暗、亮色里很亮，文字相反，强调色保证在目标背景上醒目。读不懂的颜色返回 null。
+ */
+export function mirrorSeed(seed: PaletteSeed, appearance: "light" | "dark"): PaletteSeed | null {
+    const [background, text, accent] = [parseColor(seed.background), parseColor(seed.text), parseColor(seed.accent)];
+    if (background === null || text === null || accent === null) return null;
+    if (seed.appearance === appearance) return seed;
+    const dark = appearance === "dark";
+    const recolor = (color: Rgba, lightness: number): string => {
+        const lch = toOklch(color);
+        return formatColor(fromOklch({...lch, l: lightness}));
+    };
+    const accentLightness = toOklch(accent).l;
+    return {
+        background: recolor(background, dark ? 0.22 : 0.95),
+        text: recolor(text, dark ? 0.93 : 0.25),
+        accent: recolor(accent, dark ? Math.max(accentLightness, 0.74) : Math.min(accentLightness, 0.52)),
+        appearance,
+    };
+}
