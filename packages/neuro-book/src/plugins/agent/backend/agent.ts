@@ -33,6 +33,7 @@ import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
 import {CompactionRestore} from "./compaction/restore";
 import type {SessionEditStores} from "./builtin/common";
 import {createPermissionHook} from "./permissions/hook";
+import {modesContract} from "./permissions/modes";
 import type {Dialects} from "./permissions/dialects";
 import {AgentTools} from "./tools";
 
@@ -137,7 +138,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             dialects: options.dialects,
             modeWriteAction: () => options.settings.get(agentSettings.settings.modeWriteAction),
             subjectsOf: (tool, args, activate) => tools.subjectsOf(tool, args, activate),
-            modeOf: () => "normal",
+            modeOf: (read) => read(modesContract)?.mode ?? "normal",
             report: options.report,
         }),
         attachments: createAttachmentPort(options.files),

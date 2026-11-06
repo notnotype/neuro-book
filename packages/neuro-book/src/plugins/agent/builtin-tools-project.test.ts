@@ -68,7 +68,7 @@ async function scene(): Promise<{readonly files: WorkspaceFiles; readonly book: 
     const files = held.files as WorkspaceFiles | null;
     if (files === null) throw new Error("测试插件没有激活");
     const context = {sessionId: "s1", profile: "p", project: "book"} as ToolSessionContext;
-    const tools = builtinTools(new SessionEditStores(), createDialects(() => []));
+    const tools = builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}));
     const built = new Map<string, ToolImplementation>();
     return {
         files,

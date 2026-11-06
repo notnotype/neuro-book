@@ -149,6 +149,8 @@ export interface SessionSnapshot {
     model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | {ok: false; code: ModelResolutionCode};
     buffer: BufferedInput[];
     settings: CoreSettings;
+    /** 扩展的设置，按扩展 id（Agent 模式这类）。 */
+    extensionSettings: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
     title: string | null;
     /** 会话的一句话说明；没写过时为 null。 */
     description: string | null;
@@ -383,7 +385,7 @@ export interface ApprovalCtx {
     /** 与工具拿到的同一份：钩子要展开地址时按它算。 */
     readonly context: ToolSessionContext;
     readonly model: ModelCaller;
-    /** 读某个扩展的导出（例如会话处在计划模式），与 `ToolContext.read` 同一刻；没装时 undefined。 */
+    /** 读某个扩展的导出（例如会话处在计划模式），判定这一刻的值：重判时要看到中途改的设置，所以不是 `ToolContext.read` 那份批开始时的快照；没装时 undefined。 */
     read<C extends Contract<string, any, any>>(contract: C): ExportsOfContract<C> | undefined;
 }
 /** 工具拦截链的最里层：判定对象是全部拦截之后的调用。必填，没有缺省；“全部放行”只给测试用。 */

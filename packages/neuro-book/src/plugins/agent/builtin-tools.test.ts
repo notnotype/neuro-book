@@ -234,7 +234,7 @@ describe("read", () => {
             await rm(join(home, "a.md"));
             return located;
         }};
-        const tool = await builtinTools(new SessionEditStores(), createDialects(() => []))["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
+        const tool = await builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}))["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
         const live = new AbortController();
         expect(await tool.execute({path: "session://a.md"}, {signal: live.signal, callId: "c", sessionId: session.id, initial: undefined, read: () => undefined} as unknown as ToolContext)).toMatchObject({status: "error", code: "not-found"});
     });

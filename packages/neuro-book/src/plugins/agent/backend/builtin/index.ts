@@ -7,6 +7,8 @@ import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 
 import {TOOLS_POINT} from "../../shared/points";
 import type {Dialects} from "../permissions/dialects";
+import {switchModeDeclaration, switchModeTool} from "../permissions/modes";
+import type {ChangeModeSettings} from "../permissions/modes";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 
 import {askDeclaration, askFormDeclaration, askTool} from "./ask";
@@ -26,6 +28,7 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     "nbook.agent.grep": {...grepDeclaration, providerName: "grep"},
     "nbook.agent.glob": {...globDeclaration, providerName: "glob"},
     "nbook.agent.shell": {...shellDeclaration, providerName: "shell"},
+    "nbook.agent.switch-mode": {...switchModeDeclaration, providerName: "switch_mode"},
     "nbook.agent.ask": {...askDeclaration, providerName: "ask"},
     "nbook.agent.ask-form": {...askFormDeclaration, providerName: "ask"},
 };
@@ -33,7 +36,7 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
 export const BUILTIN_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = Object.entries(DECLARATIONS).map(([id, declaration]) => ({capability: TOOLS_POINT, id, declaration}));
 
 /** 每次激活一套：行锚快照跟着入口这一代。审批预览要读同一份快照，由入口建好传进来。 */
-export function builtinTools(stores: SessionEditStores, dialects: Dialects): Readonly<Record<string, AgentToolImplementation>> {
+export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings): Readonly<Record<string, AgentToolImplementation>> {
     return {
         "nbook.agent.read": readTool(stores),
         "nbook.agent.write": writeTool(stores),
@@ -42,6 +45,7 @@ export function builtinTools(stores: SessionEditStores, dialects: Dialects): Rea
         "nbook.agent.grep": grepTool,
         "nbook.agent.glob": globTool,
         "nbook.agent.shell": shellTool(dialects),
+        "nbook.agent.switch-mode": switchModeTool(changeModeSettings),
         "nbook.agent.ask": askTool,
         "nbook.agent.ask-form": askTool,
     };

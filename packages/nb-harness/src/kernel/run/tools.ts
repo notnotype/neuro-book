@@ -247,7 +247,7 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         if (settings.readOnly && effect !== "read") return {kind: "settled", value: {text: `${call.tool} is not allowed in read-only mode.`, status: "denied", code: "read-only"}, by: "core"};
         let verdict;
         try {
-            verdict = await host.approve(call, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered, rememberedRules: core.session.kernel.rememberedRules}, {signal, sessionId: core.header.id, context: host.box.sessionContext(), model: host.model, read: reader as ApprovalCtx["read"]});
+            verdict = await host.approve(call, {tool: toolInfo(declaration), effect, mode: settings.approvalMode, readOnly: settings.readOnly, remembered: core.session.kernel.remembered, rememberedRules: core.session.kernel.rememberedRules}, {signal, sessionId: core.header.id, context: host.box.sessionContext(), model: host.model, read: hostReader(core.assembly, core.stateAt()) as ApprovalCtx["read"]});
         } catch (error) {
             core.diagnostics.add({code: "intercept-threw", entry: "intercept.tool", subject: "approve", params: {tool: call.tool}, message: `the approval hook threw for ${call.tool}; the call is denied`, cause: error}, core.head);
             return {kind: "settled", value: {text: `The call to ${call.tool} was denied because approval failed.`, status: "denied", code: "intercept-failed"}, by: "core"};
@@ -269,7 +269,8 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
     /** 判定依据里会被用户中途改掉的设置。 */
     const judgingSettings = (): string => {
         const settings = core.session.kernel.core;
-        return `${String(settings.readOnly)}/${settings.approvalMode}`;
+        // 扩展设置也算：Agent 模式这类判定依据在扩展里，内核不认识它们，变了一样重判（harness/runtime.md 输出 79）。
+        return `${String(settings.readOnly)}/${settings.approvalMode}/${JSON.stringify(core.session.kernel.settings)}`;
     };
     /** 审批阶段的结果：判定时的工具、参数、设置与结论，按 callId。 */
     const judged = new Map<string, {readonly tool: string; readonly args: string; readonly settings: string; judgment: Judgment}>();
