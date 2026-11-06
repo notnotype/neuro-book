@@ -63,6 +63,7 @@ describe("workbench.themes", () => {
         ["scene 往上走", plain({dark: {scene: "assets/../../x.webp"}})],
         ["workingScene 是远程地址", plain({light: {workingScene: "https://example.com/x.webp"}})],
         ["workingScene 往上走", plain({light: {workingScene: "../x.webp"}})],
+        ["sceneProvider 不是点分的贡献 id", plain({sceneProvider: "Clock Provider"})],
         ["图标名带大写或斜杠", plain({light: {icons: {"Files/x": "assets/a.svg"}}})],
         ["图标名想闭合选择器", plain({light: {icons: {"files{}x": "assets/a.svg"}}})],
         ["图标不是 svg", plain({light: {icons: {files: "assets/a.png"}}})],

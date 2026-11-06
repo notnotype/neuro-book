@@ -61,6 +61,9 @@ export async function importArchive(model: ThemeEditorModel, archive: Uint8Array
     for (const theme of read.themes) {
         const declaration = structuredClone(theme.declaration) as ThemeDeclaration;
         for (const appearance of ["light", "dark"] as const) {
+            // 图标集与工作态场景的素材，用户层放不下：包里带了也丢掉（docs/specs/theme/editor.md 边界与兼容）。
+            delete declaration[appearance].icons;
+            delete declaration[appearance].workingScene;
             const path = declaration[appearance].scene;
             if (path === undefined) continue;
             const bytes = theme.assets.get(path);

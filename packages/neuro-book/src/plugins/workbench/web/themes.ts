@@ -12,8 +12,10 @@ import {SKIN_VARS} from "nbook/ui/theme/skin-vars";
 import {rawUrlOf, THEME_ASSET_DIRECTORY_ADDRESS} from "nbook/plugins/files/shared/contracts";
 
 import {DEFAULT_THEME_ID} from "../shared/themes";
-import type {ThemeDeclaration} from "../shared/themes";
+import type {SceneProviderDeclaration, SceneProviderImplementation, ThemeDeclaration} from "../shared/themes";
 import {USER_THEME_PLUGIN, userThemeProblem} from "../shared/user-themes";
+import {SceneProviders} from "./scene-providers";
+import type {SceneProviderOptions} from "./scene-providers";
 import type {UserTheme} from "../shared/user-themes";
 
 export interface ThemeEntry {
@@ -25,7 +27,7 @@ export interface ThemeEntry {
 export type ThemeAssetUrl = (plugin: string, path: string) => string | null;
 
 /** 算出一个明暗下的变量。写字符串是因为这些只进 CSS；没写的不出现，各位置看到变量没有就和没有主题一样。 */
-export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", assetUrl: ThemeAssetUrl, working = false): {readonly vars: Readonly<Record<string, string>>; readonly scene: boolean; readonly icons: Readonly<Record<string, string>>} {
+export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", assetUrl: ThemeAssetUrl, working = false, sceneOverride?: string): {readonly vars: Readonly<Record<string, string>>; readonly scene: boolean; readonly icons: Readonly<Record<string, string>>} {
     const {declaration, plugin} = entry;
     const look = declaration[appearance];
     const vars: Record<string, string> = {...look.colors, ...look.vars};
@@ -46,7 +48,8 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
     }
     // 工作中且写了工作态场景、并且它解析得出时用它；其余情形都是平常的场景图。
     const workingUrl = working && look.workingScene !== undefined ? assetUrl(plugin, look.workingScene) : null;
-    const url = workingUrl ?? (look.scene === undefined ? null : assetUrl(plugin, look.scene));
+    // 提供者画好的图（已解码的对象 URL）优先；没有时是后备的静态图。
+    const url = sceneOverride ?? workingUrl ?? (look.scene === undefined ? null : assetUrl(plugin, look.scene));
     if (url !== null) {
         const {crop} = declaration;
         vars[SKIN_VARS.scene] = `url("${url}")`;
@@ -89,10 +92,12 @@ export class ThemeCatalog {
     readonly #assetUrl: ThemeAssetUrl;
     readonly #report: (id: string) => void;
     readonly #reported = new Set<string>();
+    readonly #scenes: SceneProviders;
 
-    constructor(initial: ReadonlyArray<ContributionDescriptor<ThemeDeclaration>>, assetUrl: ThemeAssetUrl, report: (id: string) => void) {
+    constructor(initial: ReadonlyArray<ContributionDescriptor<ThemeDeclaration>>, assetUrl: ThemeAssetUrl, report: (id: string) => void, scenes: SceneProviderOptions = {}) {
         this.#assetUrl = assetUrl;
         this.#report = report;
+        this.#scenes = new SceneProviders(scenes);
         this.#entries.value = new Map(initial.map((item) => [item.id, {id: item.id, plugin: item.plugin, declaration: item.declaration}]));
     }
 
@@ -100,16 +105,28 @@ export class ThemeCatalog {
     receiver(): ContributionReceiver<ThemeDeclaration> {
         return {
             published: (handle) => {
+                this.#scenes.generationChanged(handle.id);
                 const next = new Map(this.#entries.value);
                 next.set(handle.id, {id: handle.id, plugin: handle.plugin, declaration: handle.declaration});
                 this.#entries.value = next;
             },
             revoke: (handle) => {
+                this.#scenes.generationChanged(handle.id);
                 const next = new Map(this.#entries.value);
                 next.delete(handle.id);
                 this.#entries.value = next;
             },
         };
+    }
+
+    /** `workbench.theme-scenes` 的接收者：提供者发布后可用，撤回时取消它名下在飞的请求、撤销它画过的图。 */
+    sceneReceiver(): ContributionReceiver<SceneProviderDeclaration, SceneProviderImplementation> {
+        return this.#scenes.receiver();
+    }
+
+    /** 页面卸载时：取消在飞的请求、清定时器、撤销全部对象 URL。 */
+    dispose(): void {
+        this.#scenes.dispose();
     }
 
     /**
@@ -174,6 +191,7 @@ export class ThemeCatalog {
     resolve(id: string, appearance: "light" | "dark", working = false): ProductTheme {
         const entry = this.#entry(id) ?? this.#entry(DEFAULT_THEME_ID);
         if (entry === undefined) return {base: DEFAULT_THEME_ID, skin: DEFAULT_THEME_ID, vars: {}, scene: false, icons: {}};
-        return {base: entry.declaration.base, skin: entry.id, ...themeVars(entry, appearance, this.#assetUrl, working)};
+        const dynamic = this.#scenes.sceneFor(entry, appearance, working);
+        return {base: entry.declaration.base, skin: entry.id, ...themeVars(entry, appearance, this.#assetUrl, working, dynamic)};
     }
 }

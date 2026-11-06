@@ -72,7 +72,7 @@ describe("WorkbenchDocument", () => {
     });
     it("图标集写成一张无层级的样式表：随主题换，换成没有的或卸载时去掉；高对比度与强制颜色下整张包在媒体查询里不生效", async () => {
         const icons = ref<Record<string, string> | undefined>({files: "/a/files.svg", "book-open-text": '/a/"odd".svg'});
-        const wrapper = mount(WorkbenchDocument, {props: {locale: ref<DisplayLocale>("zh-CN"), appearance: ref("light"), resolveTheme: () => ({base: "nbook", vars: {}, scene: false, icons: icons.value})}});
+        const wrapper = mount(WorkbenchDocument, {props: {locale: ref<DisplayLocale>("zh-CN"), appearance: ref<"light" | "dark" | "system">("light"), resolveTheme: () => ({base: "nbook", vars: {}, scene: false, icons: icons.value})}});
         const sheet = (): string | null => document.head.querySelector("style[data-nb-skin-icons]")?.textContent ?? null;
         expect(sheet()).toContain('.i-lucide-files{--svg:url("/a/files.svg")}');
         expect(sheet()).toContain('.i-lucide-book-open-text{--svg:url("/a/\\"odd\\".svg")}');

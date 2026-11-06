@@ -94,6 +94,6 @@ const CLOSURES: Readonly<Record<string, ReadonlyArray<string>>> = {
     "./agent": ["plugins/agent/shared/points.ts"],
     "./agent/jsx-runtime": [],
     "./commands": ["plugin-platform/shared/descriptor-check.ts", "plugins/commands/shared/contracts.ts", "plugins/commands/shared/keybinding.ts", "plugins/commands/shared/menus.ts", "shared/convention-keys.ts", "shared/text.ts"],
-    "./workbench": ["plugin-platform/shared/descriptor-check.ts", "plugins/workbench/shared/items.ts", "plugins/workbench/shared/views.ts", "plugins/workbench/web/view-contribution.ts", "shared/convention-keys.ts", "shared/text.ts", "ui/bound-component.ts"],
+    "./workbench": ["plugin-platform/shared/descriptor-check.ts", "plugins/workbench/shared/items.ts", "plugins/workbench/shared/theme-points.ts", "plugins/workbench/shared/views.ts", "plugins/workbench/web/view-contribution.ts", "shared/convention-keys.ts", "shared/text.ts", "ui/bound-component.ts"],
     "./components": [],
 };

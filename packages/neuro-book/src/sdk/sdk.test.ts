@@ -34,7 +34,7 @@ describe("SDK 的导出面", () => {
         "commands": ["COMMANDS_POINT", "command", "commandServiceKey"],
         "agent": ["Assistant", "COMPACTION_METHODS_POINT", "EXTENSIONS_POINT", "Fragment", "History", "If", "P", "PROFILES_POINT", "Slot", "System", "TOOLS_POINT", "Tag", "ToolName", "Turn", "User", "agentCompactionMethod", "agentExtension", "agentProfile", "agentTool", "conv", "coreHistory", "defineContract", "defineExtension", "defineProfile", "ext", "finalOnly", "implement", "mapEventContent", "opening", "optional", "reminder", "shape", "slice", "standardLayout", "withoutEvents"],
         "agent-jsx-runtime": ["Fragment", "jsx", "jsxs"],
-        "workbench": ["OPEN_VIEW_COMMAND", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT", "statusItem", "view"],
+        "workbench": ["OPEN_VIEW_COMMAND", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_THEMES_POINT", "WORKBENCH_THEME_SCENES_POINT", "WORKBENCH_VIEWS_POINT", "sceneProvider", "statusItem", "view"],
     };
 
     it("每个子路径的运行时导出；子路径表里除组件以外的子路径都在这张清单上", async () => {

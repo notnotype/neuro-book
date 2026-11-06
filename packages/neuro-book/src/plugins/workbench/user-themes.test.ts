@@ -35,6 +35,8 @@ describe("我的主题的校验", () => {
     it("合格的条目通过", () => {
         expect(userThemeProblem(theme("1"))).toBeNull();
         expect(userThemeProblem({...theme("2"), editor: {touched: ["--bg-main"]}})).toBeNull();
+        // 场景提供者只是个贡献 id，不涉及文件，用户层保留。
+        expect(userThemeProblem(theme("3", {sceneProvider: "acme.sky.clock"}))).toBeNull();
     });
 
     it.each<[string, unknown]>([

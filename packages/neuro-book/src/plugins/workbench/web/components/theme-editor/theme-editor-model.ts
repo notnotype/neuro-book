@@ -154,7 +154,7 @@ export class ThemeEditorModel {
 
     /**
      * 复制出的声明：标题加“副本”。场景图：给了 `scenes` 就用它；没给时保留原声明里的（用户主题的素材文件名可以直接共用——文件名是
-     * 内容摘要），插件主题的是包内相对路径，不能直接用，所以去掉。
+     * 内容摘要），插件主题的是包内相对路径，不能直接用，所以去掉；图标集与工作态场景同理，一律不带。
      */
     #copied(declaration: ThemeDeclaration, shown?: string, scenes?: {readonly light?: string; readonly dark?: string}): ThemeDeclaration {
         const copy = structuredClone(declaration);
@@ -163,6 +163,9 @@ export class ThemeEditorModel {
             // 只有“我的素材”的文件名（内容摘要加扩展名）能直接共用；插件主题里的包内相对路径不行。
             if (scene !== undefined && THEME_ASSET_NAME.test(scene)) copy[appearance].scene = scene;
             else delete copy[appearance].scene;
+            // 图标集与工作态场景也是包内的素材，用户层没有放它们的地方（docs/specs/theme/editor.md 边界与兼容），复制时不带。
+            delete copy[appearance].icons;
+            delete copy[appearance].workingScene;
         }
         const title = copy.title as unknown;
         const both = typeof title === "object" && title !== null && "zh-CN" in title && "en-US" in title ? title as Record<string, string> : null;

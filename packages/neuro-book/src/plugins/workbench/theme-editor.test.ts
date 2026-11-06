@@ -134,12 +134,16 @@ describe("新建与库", () => {
 
     it("复制插件主题：声明复制成我的主题，场景图不带（素材复制在场景分区）", async () => {
         const {model, mine, dispose} = await session();
-        const plugin: ThemeEntry = {id: "acme.skin.x", plugin: "acme.skin", declaration: {title: {"zh-CN": "暮色", "en-US": "Dusk"}, base: "macos", light: {colors: {"--bg-main": "#fff"}, scene: "assets/day.webp"}, dark: {scene: "assets/night.webp"}}};
+        const plugin: ThemeEntry = {id: "acme.skin.x", plugin: "acme.skin", declaration: {title: {"zh-CN": "暮色", "en-US": "Dusk"}, base: "macos", light: {colors: {"--bg-main": "#fff"}, scene: "assets/day.webp", workingScene: "assets/day-working.webp", icons: {files: "assets/icons/files.svg"}}, dark: {scene: "assets/night.webp"}, sceneProvider: "acme.sky.clock"}};
         await model.create(plugin);
         const theme = mine()[0];
         expect(theme?.declaration.base).toBe("macos");
         expect(theme?.declaration.light.scene).toBeUndefined();
         expect(theme?.declaration.dark.scene).toBeUndefined();
+        // 图标集与工作态场景是包内素材，用户层放不下，不带；场景提供者只是个 id，保留。
+        expect(theme?.declaration.light.workingScene).toBeUndefined();
+        expect(theme?.declaration.light.icons).toBeUndefined();
+        expect(theme?.declaration.sceneProvider).toBe("acme.sky.clock");
         expect(theme?.declaration.title).toEqual({"zh-CN": "暮色 副本", "en-US": "Dusk copy"});
         dispose();
     });
