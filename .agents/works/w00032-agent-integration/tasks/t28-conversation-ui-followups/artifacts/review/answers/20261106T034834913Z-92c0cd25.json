@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t28-conversation-ui-followups",
+    "artifactId": "review",
+    "answerId": "20261106T034834913Z-92c0cd25",
+    "artifactVersion": 1,
+    "contentHash": "16143b1b102d758e855f97d94288612da2bb7721a5e9c162399d2e7cb50eba2d",
+    "submittedAt": "2026-11-06T03:48:34.304Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "s1-picker": "tabs",
+        "s2-status": true
+    },
+    "comments": {},
+    "note": null
+}
