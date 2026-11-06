@@ -174,7 +174,7 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     },
     {
         id: "switch_mode", toolNames: ["switch_mode"], category: "interact", icon: "i-lucide-toggle-right",
-        label: agentRef("tool.switchMode"), summary: (call) => argString(call, "targetMode"), presentation: "node",
+        label: agentRef("tool.switchMode"), summary: (call) => argString(call, "mode"), presentation: "node",
     },
     // other
     {

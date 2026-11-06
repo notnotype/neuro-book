@@ -66,6 +66,7 @@
             "roleUnbound": "The model role this Profile wants has no model.",
             "unavailable": "Unavailable"
         },
+        "mode": {"normal": "Normal", "discuss": "Discuss", "plan": "Plan", "unknown": "No such mode. Options: {{options}}"},
         "approval": {
             "ask": {
                 "label": "Always ask",

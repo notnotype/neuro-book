@@ -47,6 +47,7 @@ const frameRef = ref<HTMLElement | null>(null);
 const rolePickerRef = ref<InstanceType<typeof AgentRoleModelPicker> | null>(null);
 /** 模型解析不了（`profile-unavailable`）时还得能在这里改模型，否则走不出来；别的不可用都不能改。 */
 const runtimeDisabled = computed(() => !props.ctx.interaction.canChangeRuntime || !props.ctx.interaction.canSend || !["ready", "profile-unavailable"].includes(props.ctx.availability.status));
+const modeDisabled = computed(() => !(props.ctx.interaction.canChangeMode ?? props.ctx.interaction.canChangeRuntime) || !props.ctx.interaction.canSend || !["ready", "profile-unavailable"].includes(props.ctx.availability.status));
 
 // ─── 登记项 ─────────────────────────────────────────────────────────────
 
@@ -216,9 +217,14 @@ function onPrimaryButton(): void {
 
 const currentMode = computed(() => composer.value.modes.find((mode) => mode.key === composer.value.mode) ?? composer.value.modes[0] ?? null);
 const modeIsDefault = computed(() => currentMode.value === null || currentMode.value.key === composer.value.modes[0]?.key);
+/** 切换后读屏播报；刚挂载时不说。 */
+const modeAnnouncement = ref("");
+watch(() => composer.value.mode, () => {
+    if (currentMode.value !== null) modeAnnouncement.value = t("composer.modeChanged", {mode: currentMode.value.label});
+});
 
 function cycleMode(): void {
-    if (runtimeDisabled.value) {
+    if (modeDisabled.value) {
         return;
     }
     const next = nextMode(composer.value.modes, composer.value.mode);
@@ -238,6 +244,11 @@ const approvalMenu = computed<DropdownMenuItemData[]>(() => (composer.value.appr
     ...(option.danger === true ? {tone: "danger" as const} : {}),
 })));
 const currentApproval = computed(() => composer.value.approval?.options.find((option) => option.key === composer.value.approval?.value) ?? null);
+/** 模式不是默认时审批模式还没起作用：淡一些，写明批准计划后才按它走。 */
+const approvalTitle = computed(() => {
+    const mode = currentApproval.value === null ? "" : text(currentApproval.value.label);
+    return modeIsDefault.value ? t("composer.approvalMode", {mode}) : t("composer.approvalModeWhileGated", {mode, current: currentMode.value?.label ?? ""});
+});
 
 function descriptionOf(id: string): string {
     const option = composer.value.approval?.options.find((item) => item.key === id);
@@ -420,12 +431,13 @@ defineExpose({
                         @click="chooseFiles"
                     />
                     <input ref="fileInputRef" type="file" multiple class="acv-composer__file-input" tabindex="-1" aria-hidden="true" @change="onFilesChosen">
+                    <span class="sr-only" aria-live="polite">{{ modeAnnouncement }}</span>
                     <button
                         v-if="currentMode !== null"
                         type="button"
                         class="acv-composer__chip acv-composer__mode"
                         :class="{'is-accent': !modeIsDefault}"
-                        :disabled="runtimeDisabled || composer.modes.length < 2"
+                        :disabled="modeDisabled || composer.modes.length < 2"
                         :title="t('composer.mode', {mode: currentMode.label})"
                         :aria-label="t('composer.mode', {mode: currentMode.label})"
                         data-composer-action="mode"
@@ -446,9 +458,9 @@ defineExpose({
                         <button
                             type="button"
                             class="acv-composer__chip acv-composer__mode"
-                            :class="{'is-accent': currentApproval.danger === true}"
+                            :class="{'is-accent': currentApproval.danger === true, 'is-muted': !modeIsDefault && currentApproval.danger !== true, 'is-danger': currentApproval.danger === true && !modeIsDefault}"
                             :disabled="runtimeDisabled"
-                            :title="t('composer.approvalMode', {mode: text(currentApproval.label)})"
+                            :title="approvalTitle"
                             :aria-label="t('composer.approvalMode', {mode: text(currentApproval.label)})"
                             data-composer-action="approval"
                         >
@@ -701,6 +713,14 @@ defineExpose({
 .acv-composer__chip.is-accent {
     background: var(--accent-bg);
     color: var(--accent-text);
+}
+
+.acv-composer__chip.is-muted {
+    color: var(--text-muted);
+}
+
+.acv-composer__chip.is-danger {
+    color: var(--status-danger);
 }
 
 .acv-composer__chip-icon {

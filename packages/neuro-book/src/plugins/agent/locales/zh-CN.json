@@ -66,6 +66,7 @@
             "roleUnbound": "此 Profile 需要的模型角色未绑定模型。",
             "unavailable": "不可用"
         },
+        "mode": {"normal": "普通", "discuss": "讨论", "plan": "计划", "unknown": "没有这个模式，可选：{{options}}"},
         "approval": {
             "ask": {
                 "label": "每次询问",

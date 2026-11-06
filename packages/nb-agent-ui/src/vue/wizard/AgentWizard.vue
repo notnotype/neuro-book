@@ -12,11 +12,12 @@ import {computed, nextTick, onMounted, ref, watch} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 
 import type {InputResolution, JsonValue, PendingInputView} from "../../types";
-import {approvalResolution, isApproval, isQuestions, questionResolution, readWizardState} from "../../wizard";
+import {approvalResolution, isApproval, isModeSwitch, isQuestions, questionResolution, readWizardState} from "../../wizard";
 import type {WizardState} from "../../wizard";
 import {useAgentText} from "../host";
 import type {ViewAction} from "../view-action";
 import AgentApprovalWizard from "./AgentApprovalWizard.vue";
+import AgentModeSwitchWizard from "./AgentModeSwitchWizard.vue";
 import AgentQuestionWizard from "./AgentQuestionWizard.vue";
 
 const props = defineProps<{
@@ -32,6 +33,7 @@ const rootRef = ref<HTMLElement | null>(null);
 
 const approvals = computed(() => props.pending.filter(isApproval));
 const questions = computed(() => props.pending.find(isQuestions) ?? null);
+const modeSwitch = computed(() => props.pending.find(isModeSwitch) ?? null);
 const showApprovals = computed(() => approvals.value.length > 0);
 const announcement = computed(() => (showApprovals.value ? t("wizard.announce.approval", {count: approvals.value.length}) : t("wizard.announce.question")));
 
@@ -94,6 +96,7 @@ function onKeydown(event: KeyboardEvent): void {
 const collapsedWhat = computed(() => {
     const item = showApprovals.value ? approvals.value[Math.min(state.value.step, approvals.value.length - 1)] : null;
     if (item !== undefined && item !== null) return item.tool;
+    if (modeSwitch.value !== null) return modeSwitch.value.toLabel;
     return questions.value?.questions[0]?.question ?? "";
 });
 </script>
@@ -116,6 +119,15 @@ const collapsedWhat = computed(() => {
             @update:state="setState"
             @submit="submitApprovals"
             @deny-all="denyAll"
+            @collapse="setCollapsed(true)"
+        />
+        <AgentModeSwitchWizard
+            v-else-if="modeSwitch !== null"
+            :key="modeSwitch.id"
+            :item="modeSwitch"
+            :state="state"
+            @update:state="setState"
+            @answer="submit(modeSwitch!.id, {kind: 'mode-switch', answer: $event})"
             @collapse="setCollapsed(true)"
         />
         <AgentQuestionWizard

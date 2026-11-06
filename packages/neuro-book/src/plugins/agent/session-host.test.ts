@@ -14,10 +14,11 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {shallowRef} from "vue";
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
-import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingInputView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 
 import {EVENT_INLINE_BYTES} from "./backend/frames";
 import {MAIN_PROFILE} from "./shared/contracts";
+import {AGENT_MODES_EXTENSION} from "./shared/permissions";
 import {agentProfile} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -717,6 +718,113 @@ describe("附件（输出 31）", () => {
     });
 });
 
+describe("Agent 模式（agent/modes.md）", () => {
+    const modeSwitch = (ctx: AgentConversationContext) => ctx.pendingInputs.find((item) => item.kind === "mode-switch") as Extract<PendingInputView, {kind: "mode-switch"}> | undefined;
+
+    test("主创有三种模式；点切换走设置，别的窗口切了跟着变；状态栏与审批不变", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        expect(h.ctx().composer.mode).toBe("normal");
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("切到计划", () => h.ctx().composer.mode === "plan");
+        await w.service.session(h.host.sessionId.value!).changeSettings({commandId: crypto.randomUUID(), patch: {[AGENT_MODES_EXTENSION]: {mode: "discuss"}}});
+        await until("别处切了", () => h.ctx().composer.mode === "discuss");
+    });
+
+    test("没有模式扩展的 Profile：不显示", async () => {
+        const w = await world();
+        const h = await started(w);
+        await until("打开", () => h.ctx().session !== null);
+        expect(h.ctx().composer.modes).toEqual([]);
+    });
+
+    test("还没有会话时选了模式：第一次发送前提交", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(h.ctx().interaction.canChangeMode).toBe(true);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("记下", () => h.ctx().composer.mode === "plan");
+        expect(h.host.sessionId.value).toBeNull();
+        const before = endpoint.requests.length;
+        endpoint.script({tool: "shell", args: {command: "touch a"}}, "好");
+        h.host.act({type: "composer.submit", text: "第一条", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "好");
+        expect(h.ctx().composer.mode).toBe("plan");
+        // 第一条就在计划模式下跑：提示写了，写被闸门拦了。
+        expect(JSON.stringify(endpoint.requests.slice(before).map((request) => request.messages))).toContain("现在是计划模式");
+        const results = (await w.service.session(h.host.sessionId.value!).path()).filter((event) => event.type === "toolResult");
+        expect((results[0]!.data as {code?: string}).code).toBe("mode-blocked");
+    });
+
+    test("/plan 与 /mode：已在不动，接显示名，名字不对提示且字留着", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "command.run", name: "plan", argsText: ""});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        // 显示名也认：这里的翻译端口把键原样交回，显示名就是键。
+        h.host.act({type: "command.run", name: "mode", argsText: h.ctx().composer.modes[1]!.label});
+        await until("讨论", () => h.ctx().composer.mode === "discuss");
+        h.host.act({type: "command.run", name: "mode", argsText: "normal"});
+        await until("按 key", () => h.ctx().composer.mode === "normal");
+        h.host.act({type: "command.run", name: "mode", argsText: ""});
+        await until("下一种", () => h.ctx().composer.mode === "discuss");
+        h.host.act({type: "command.run", name: "mode", argsText: "没有这种"});
+        await until("提示", () => h.ctx().composer.draft.text === "/mode 没有这种");
+        expect(h.ctx().composer.mode).toBe("discuss");
+    });
+
+    test("退出计划：向导带计划与当前审批模式；批准同时改审批模式，模式跟着变", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        endpoint.script({tool: "write", args: {path: "session://plan.md", content: "第一步"}}, {tool: "switch_mode", args: {mode: "normal"}}, "开始");
+        h.host.act({type: "composer.submit", text: "规划", delivery: "prompt"});
+        await until("向导", () => modeSwitch(h.ctx()) !== undefined);
+        const item = modeSwitch(h.ctx())!;
+        expect(item).toMatchObject({fromLabel: expect.any(String), plan: "第一步", approval: {value: "ask"}});
+        h.host.act({type: "input.submit", batchKey: item.id, resolutions: {kind: "mode-switch", answer: {approved: true, approvalMode: "allow-writes"}}});
+        await until("切回", () => h.ctx().composer.mode === "normal");
+        await until("审批模式", () => h.ctx().composer.approval?.value === "allow-writes");
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "开始");
+    });
+
+    test("继续改：附言交给模型，模式不变", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        endpoint.script({tool: "write", args: {path: "session://plan.md", content: "第一步"}}, {tool: "switch_mode", args: {mode: "normal"}}, "再改");
+        h.host.act({type: "composer.submit", text: "规划", delivery: "prompt"});
+        await until("向导", () => modeSwitch(h.ctx()) !== undefined);
+        h.host.act({type: "input.submit", batchKey: modeSwitch(h.ctx())!.id, resolutions: {kind: "mode-switch", answer: {approved: false, note: "第二步也要写"}}});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "再改");
+        expect(h.ctx().composer.mode).toBe("plan");
+        expect(JSON.stringify(endpoint.requests.at(-1)?.messages)).toContain("第二步也要写");
+    });
+
+    test("闸门拒绝单独说明，不算规则拒绝", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        endpoint.script({tool: "shell", args: {command: "touch a"}}, "好");
+        h.host.act({type: "composer.submit", text: "改", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "好");
+        expect(JSON.stringify(h.ctx().messages)).toContain("kernel.tool.modeBlocked");
+    });
+});
+
 describe("改写历史（输出 25、26）", () => {
     /** 一轮：回复带工具调用，工具结果之后再回复。 */
     async function twoStepTurn(h: Harness): Promise<void> {
@@ -1151,7 +1259,7 @@ describe("手动压缩（输出 20）", () => {
     test("视图只列宿主做了的命令", async () => {
         const w = await world();
         const h = await harness(w);
-        expect(h.ctx().interaction.commands).toEqual(["compact", "new", "fork", "rename", "model"]);
+        expect(h.ctx().interaction.commands).toEqual(["compact", "new", "fork", "rename", "model", "plan", "mode"]);
     });
 
     test("没有会话时不新建，说明还没有对话；有对话时压缩：要求进提示词，分隔线带详情，运行结束后输入框干净", async () => {

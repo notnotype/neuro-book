@@ -535,6 +535,38 @@ test("附件：选图片上传，消息里显示；模型不能看图时请求�
     expect((await page.request.get(`${base}/..%2F..%2Fsession.jsonl`)).status()).toBeGreaterThanOrEqual(400);
 });
 
+test("Agent 模式：还没有会话时选计划；写作品被拦；写计划、批准并开始后切回；Shift+Tab 切换", async ({page}) => {
+    await openConversation(page);
+    await newSession(page);
+    const mode = page.locator('[data-composer-action="mode"]');
+    await expect(mode).toContainText("普通");
+    await mode.click();
+    await mode.click();
+    await expect(mode).toContainText("计划");
+    await expect(page.locator("[data-status-mode]")).toContainText("计划模式");
+    await expect(page.locator('[data-composer-action="approval"]')).toHaveClass(/is-muted/u);
+
+    await script(
+        {tool: "write", args: {path: "project://正文/第三章.md", content: "不该写进去"}},
+        {tool: "write", args: {path: "session://plan.md", content: "# 改第三章\n\n第一步：压缩回忆"}},
+        {tool: "switch_mode", args: {mode: "normal"}},
+        "开始实现",
+    );
+    await send(page, "规划一下第三章");
+    await expect(page.locator("[data-mode-switch-plan]")).toContainText("第一步：压缩回忆");
+    await page.locator("[data-mode-switch-approve]").click();
+    await expect(page.getByText("开始实现")).toBeVisible();
+    await expect(mode).toContainText("普通");
+    await expect(page.locator("[data-status-mode]")).toHaveCount(0);
+    const seen = JSON.stringify((await requests()).map((request) => request.messages));
+    expect(seen).toContain("现在是计划模式");
+    expect(seen).toContain("mode-blocked");
+
+    await page.getByRole("textbox", {name: "消息输入框"}).click();
+    await page.keyboard.press("Shift+Tab");
+    await expect(mode).toContainText("讨论");
+});
+
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
     await script("答一", "摘要正文");
     await openConversation(page);

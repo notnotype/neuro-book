@@ -58,6 +58,11 @@ const yolo = computed(() => {
     const approval = props.ctx.composer.approval;
     return approval?.options.find((option) => option.key === approval.value)?.danger === true;
 });
+/** 不是默认模式才标出来：默认模式没什么要提醒的。 */
+const modeFlag = computed(() => {
+    const {modes, mode} = props.ctx.composer;
+    return mode !== modes[0]?.key ? modes.find((item) => item.key === mode) ?? null : null;
+});
 const disconnected = computed(() => props.ctx.connection.status !== "connected");
 
 const costText = computed(() => {
@@ -87,6 +92,7 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
             <span class="acv-status__text">{{ phase.text }}</span>
         </span>
         <span v-if="usage.costState === 'warned'" class="acv-status__flag is-warn" data-status-cost-warned>{{ t("status.costWarned") }}</span>
+        <span v-if="modeFlag" class="acv-status__flag is-accent" data-status-mode><span :class="modeFlag.icon ?? 'i-lucide-circle-dot'" aria-hidden="true" />{{ t("status.modeFlag", {mode: modeFlag.label}) }}</span>
         <span v-if="yolo" class="acv-status__flag is-danger" data-status-yolo><span class="i-lucide-triangle-alert" aria-hidden="true" />{{ t("status.yolo") }}</span>
         <span v-if="disconnected" class="acv-status__flag is-warn" data-status-connection>{{ props.ctx.connection.status === "connecting" ? t("status.connecting") : t("status.disconnected") }}</span>
         <component :is="item.component" v-for="item in items" :key="item.id" :ctx="props.ctx" />
@@ -172,6 +178,10 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     gap: 3px;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.acv-status__flag.is-accent {
+    color: var(--accent-text);
 }
 
 .acv-status__flag.is-danger {
