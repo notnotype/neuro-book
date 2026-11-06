@@ -200,7 +200,7 @@ async function openPage(context: BrowserContext, url: string): Promise<Session> 
 }
 
 const row = (address: string): string => `[data-explorer-row="${address}"]`;
-const tab = (address: string): string => `[data-editor-group-active] [data-editor-tab][title="${address}"]`;
+const tab = (address: string): string => `[data-editor-group-head-active] [data-editor-tab][title="${address}"]`;
 /** 资源地址的各级父目录，从根往下。 */
 const ancestors = (address: string): string[] => {
     const parts = address.slice("project://".length).split("/");
@@ -350,7 +350,7 @@ async function verifyInput(session: Session, editor: "markdown" | "code"): Promi
     const host = `[data-editor-group-active] [data-editor-kind="${editor}"]`;
     const textSelector = editor === "markdown" ? `${host} [data-editor-prose]` : `${host} .view-lines`;
     const text = (): Promise<string> => page.locator(textSelector).textContent().then((value) => value ?? "");
-    const dirtySelector = "[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]";
+    const dirtySelector = "[data-editor-group-head-active] [data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]";
     if (await page.locator(dirtySelector).count() > 0) throw new Error(`核验输入前文档已经是未保存状态（${editor}）`);
     await page.locator(editor === "markdown" ? `${host} [data-editor-prose]` : `${host} .monaco-editor`).click();
     await page.keyboard.press("Control+End");

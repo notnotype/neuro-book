@@ -94,9 +94,11 @@ test.afterAll(async () => {
 });
 
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
-const labels = (page: Page) => page.locator("[data-editor-group-active] [data-editor-tab-label]");
+const labels = (page: Page) => page.locator("[data-editor-group-head-active] [data-editor-tab-label]");
 const status = (page: Page, id: string) => page.locator(`[data-workbench-status-bar] [data-workbench-item="${id}"]`);
 const activeGroup = (page: Page) => page.locator("[data-editor-group-active]");
+/** 活动组的头（标签条与标题动作）：在工作台的外框里，不在 `[data-editor-group]` 里面。 */
+const activeHead = (page: Page) => page.locator("[data-editor-group-head-active]");
 
 async function open(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
@@ -198,7 +200,7 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字
     await item(page, "project://site/index.html").dblclick();
     await expect(activeGroup(page).locator("[data-editor-kind=\"nbook.editor.code\"] .view-lines")).toContainText("预览标题");
 
-    await activeGroup(page).getByRole("button", {name: "打开预览"}).click();
+    await activeHead(page).getByRole("button", {name: "打开预览"}).click();
     // 新窗口第一次打开作品时还有欢迎页：只看这个文件的两个标签。
     await expect(labels(page).filter({hasText: "index.html"})).toHaveText(["index.html", "预览 index.html"]);
     let frame = await previewFrame(page);
@@ -222,7 +224,7 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字
 
     // 关掉联网：重载后外网请求与写请求都被 CSP 拦下。
     const posts = blockedPosts.length;
-    await activeGroup(page).getByRole("button", {name: "允许联网"}).click();
+    await activeHead(page).getByRole("button", {name: "允许联网"}).click();
     frame = await previewFrame(page);
     await expect(frame.locator("body")).toHaveAttribute("data-net", "blocked");
     await expect(frame.locator("body")).toHaveAttribute("data-post", "blocked");
@@ -249,10 +251,10 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字
     await expect.poll(async () => (await fetch(new URL("data.json", base))).status).toBe(404);
 
     // 在侧边打开预览：在源码里输入、不保存，停手后右侧的预览更新。
-    await activeGroup(page).getByRole("button", {name: "更多操作"}).click();
+    await activeHead(page).getByRole("button", {name: "更多操作"}).click();
     await page.getByRole("menuitem", {name: "在侧边打开预览"}).click();
     await expect(page.locator("[data-editor-group]")).toHaveCount(2);
-    await page.locator("[data-editor-group]").first().locator("[data-editor-tab-label]").filter({hasText: /^index\.html$/u}).click();
+    await page.locator("[data-editor-group-head]").first().locator("[data-editor-tab-label]").filter({hasText: /^index\.html$/u}).click();
     const code = page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.code\"] .monaco-editor");
     await code.click();
     await page.keyboard.press("Control+End");

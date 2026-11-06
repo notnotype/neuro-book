@@ -259,6 +259,20 @@ describe("损坏与失败", () => {
         expect(store.actions.moveView("test.side", {newPanelNextTo: "nowhere"})).toMatchObject({ok: false, code: "not-found"});
     });
 
+    it("标签换一位：活动标签不变，到头了不动（输出 20）", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        expect(store.actions.moveView("test.panel", "sidebar").ok).toBe(true);
+        const tabs = (): ReadonlyArray<unknown> => store.actions.document().panels.sidebar?.tabs ?? [];
+        const before = tabs();
+        const active = store.actions.document().panels.sidebar?.active;
+        expect(store.actions.reorderTab("view:test.panel", 1).ok).toBe(true);
+        expect(tabs()).toEqual(before);
+        expect(store.actions.reorderTab("view:test.panel", -1).ok).toBe(true);
+        expect(tabs()).toEqual([before[1], before[0]]);
+        expect(store.actions.document().panels.sidebar?.active).toBe(active);
+    });
+
     it("点标签：面板收成标题行时一起展开（输出 11）", async () => {
         const w = await world();
         const {store} = await openLayoutDoc(w, "a", "c");

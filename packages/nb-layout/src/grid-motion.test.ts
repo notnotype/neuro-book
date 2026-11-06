@@ -157,6 +157,12 @@ describe("内容项的过渡（输出“内容层”）", () => {
         expect(followingLeaves(after, before).has("content:x")).toBe(true);
     });
 
+    it("只有 inset 变了（头高了一行）：不是布局变化，内容立刻让开；同时叶也变了照常算", () => {
+        const at = (widths: Record<string, number>, insetTop: number) => layers(widths, [{key: "x", leaf: "a", insetTop} as {key: string; leaf: string}]);
+        expect(placementMoved(at({a: 500, b: 500}, 68), at({a: 500, b: 500}, 34))).toBe(false);
+        expect(placementMoved(at({a: 400, b: 600}, 68), at({a: 500, b: 500}, 34))).toBe(true);
+    });
+
     it("切标签：不是布局变化", () => {
         const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "a", active: false}]);
         const after = layers({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}, {key: "y", leaf: "a"}]);

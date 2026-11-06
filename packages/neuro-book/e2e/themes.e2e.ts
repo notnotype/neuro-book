@@ -57,6 +57,8 @@ const settingsFile = (): string => join(stateRoot, "settings.json");
 const writeSettings = (values: Readonly<Record<string, unknown>>): Promise<void> => writeFile(settingsFile(), JSON.stringify(values));
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
 const activeGroup = (page: Page) => page.locator("[data-editor-group-active]");
+/** 活动组的头（标签条与标题动作）：在工作台的外框里，不在 `[data-editor-group]` 里面。 */
+const activeHead = (page: Page) => page.locator("[data-editor-group-head-active]");
 const prose = (page: Page) => activeGroup(page).locator("[data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
 const scene = (page: Page) => activeGroup(page).locator("[data-editor-scene]");
 const margin = (page: Page, side: "left" | "right") => activeGroup(page).locator(`[data-markdown-margin="${side}"]`);
@@ -76,7 +78,7 @@ async function openFile(page: Page, name: string): Promise<void> {
             await page.mouse.wheel(0, 3000);
         }
         await item(page, `project://notes/${name}`).dblclick({timeout: 3000});
-        await expect(activeGroup(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
+        await expect(activeHead(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
     }).toPass();
 }
 
@@ -176,7 +178,7 @@ test("欢迎页与没开文件有场景；关闭后的空状态也有；切回 N
     await writeSettings({[THEME]: STUDY, [APPEARANCE]: "dark"});
     await expect(scene(page)).toHaveCSS("background-image", /study-night/u);
 
-    await activeGroup(page).locator("[data-editor-tab-close]").first().click({force: true});
+    await activeHead(page).locator("[data-editor-tab-close]").first().click({force: true});
     await expect(activeGroup(page).locator("[data-editor-empty]")).toBeVisible();
     await expect(scene(page)).toHaveCSS("background-image", /study-night/u);
     // 内容偏到留白上：书房的 contentX 是 0.47，标志的中心在内容区 47% 处。
@@ -246,9 +248,9 @@ test("高对比度、强制颜色下不画场景，配色照旧", async ({page})
         const [welcome, left, right] = [scene(page), margin(page, "left"), margin(page, "right")];
         await expect.poll(corner("sidebar")).toBe(shown ? "block" : "none");
         await expect.poll(corner("auxiliarybar")).toBe(shown ? "block" : "none");
-        await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "欢迎"}).click();
+        await activeHead(page).locator("[data-editor-tab]").filter({hasText: "欢迎"}).click();
         await (shown ? expect(welcome).toBeVisible() : expect(welcome).toBeHidden());
-        await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "a11y.md"}).click();
+        await activeHead(page).locator("[data-editor-tab]").filter({hasText: "a11y.md"}).click();
         await (shown ? expect(left).toBeVisible() : expect(left).toBeHidden());
         await (shown ? expect(right).toBeVisible() : expect(right).toBeHidden());
     };

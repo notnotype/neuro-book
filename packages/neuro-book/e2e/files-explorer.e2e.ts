@@ -9,7 +9,7 @@ import {lstat, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Page} from "@playwright/test";
+import type {Locator, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {startProbeServer, startProductServer} from "./fixtures";
@@ -115,6 +115,8 @@ test.afterAll(async () => {
 });
 
 const tree = (page: Page) => page.getByRole("tree", {name: "文件"});
+/** 编辑组的头（标签条与标题动作）在工作台的外框里，与正文（`[data-editor-group]`）是两个根，按组 id 对上。 */
+const headOf = async (group: Locator): Promise<Locator> => group.page().locator(`[data-editor-group-head="${(await group.getAttribute("data-editor-group")) ?? ""}"]`);
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
 
 const WIDE_SIDEBAR = 400;
@@ -673,7 +675,7 @@ test("右键菜单（验收 24、26）：在侧边打开拆出右边的组；复
     await item(page, "project://plain/index.md").click({button: "right"});
     await page.getByRole("menuitem", {name: /在侧边打开/u}).click();
     await expect(groups).toHaveCount(before + 1);
-    await expect(page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("index.md");
+    await expect(page.locator("[data-editor-group-head-active] [data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("index.md");
 
     // 把另一个文件拖到右边的组（不是活动组的那一个也行）：在那一组打开、它成为活动组。
     const right = groups.last();
@@ -687,7 +689,7 @@ test("右键菜单（验收 24、26）：在侧边打开拆出右边的组；复
     await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
     await page.mouse.up();
     await expect(right).toHaveAttribute("data-editor-group-active", "");
-    await expect(right.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
+    await expect((await headOf(right)).locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 
@@ -811,6 +813,7 @@ test("拖到编辑组经落点登记查到，不读 data-editor-group（docs/spe
     await item(page, "project://plain").click();
     await expect(item(page, "project://plain/a.md")).toBeVisible();
     await barrier(page, "plain");
+    const head = await headOf(page.locator("[data-editor-group]").first());
     await page.locator("[data-editor-group]").first().evaluate((group: HTMLElement) => {
         group.dataset.testGroup = "";
         group.removeAttribute("data-editor-group");
@@ -825,7 +828,7 @@ test("拖到编辑组经落点登记查到，不读 data-editor-group（docs/spe
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 8});
     await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
     await page.mouse.up();
-    await expect(group.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
+    await expect(head.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 

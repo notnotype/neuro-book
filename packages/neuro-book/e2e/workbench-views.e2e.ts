@@ -886,9 +886,9 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // 最窄时键盘移到收起来的标签：它被选中、换到标签带里，焦点落在它身上
         await selectedTab.focus();
         for (const key of ["Home", "End"]) {
-            const before = await selectedTab.getAttribute("data-tab-value");
+            const before = await selectedTab.getAttribute("data-panel-tab");
             await page.keyboard.press(key);
-            await expect(selectedTab).not.toHaveAttribute("data-tab-value", before!);
+            await expect(selectedTab).not.toHaveAttribute("data-panel-tab", before!);
             await expect(selectedTab).toBeFocused();
         }
         // 最窄时从“更多”选一个收起来的：它被选中，回到标签带（收起来的换成别的）
@@ -943,6 +943,23 @@ test.describe("产品页：测试插件贡献的视图", () => {
         }).toPass();
         expect(await focused(E)).toBe("ready:panel");
         await page.keyboard.press("Escape");
+    });
+
+    test("标签带：Alt 加方向键换一位，活动标签不变，焦点还在它上面；到头了不动（输出 20）", async ({page}) => {
+        await open(page);
+        const order = (): Promise<string[]> => head(page, "panel").locator("[data-panel-tab]").evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.panelTab ?? ""));
+        const before = await order();
+        expect(before.length).toBeGreaterThan(1);
+        const first = before[0]!;
+        const firstTab = page.locator(`[data-panel-head="panel"] [data-panel-tab="${first}"]`);
+        await firstTab.click();
+        await firstTab.focus();
+        await page.keyboard.press("Alt+ArrowLeft");
+        expect(await order()).toEqual(before);
+        await page.keyboard.press("Alt+ArrowRight");
+        await expect.poll(order).toEqual([before[1]!, first, ...before.slice(2)]);
+        await expect(firstTab).toBeFocused();
+        await expect(firstTab).toHaveAttribute("aria-selected", "true");
     });
 
     test("标签带：标签与内容互相关联；长标题标签与三个框架按钮在 840 宽下都完整可点；方向键切换面板的标签（输出 20）", async ({page}) => {

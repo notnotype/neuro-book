@@ -42,7 +42,7 @@ function watchConsole(page: Page): string[] {
 const labState = (page: Page) => page.evaluate(() => (window as unknown as {__nbLab?: {state(): LabDebugState}}).__nbLab?.state() ?? null);
 const stage = (page: Page) => page.locator("[data-lab-stage]");
 const prose = (page: Page) => stage(page).locator("[data-editor-group-active] [data-editor-prose]");
-const tab = (page: Page, label: string) => stage(page).locator("[data-editor-group-active] [data-editor-tab]").filter({hasText: label});
+const tab = (page: Page, label: string) => stage(page).locator("[data-editor-group-head-active] [data-editor-tab]").filter({hasText: label});
 
 /** 场景多于四个，Lab 用下拉框切场景。 */
 async function chooseScene(page: Page, label: string): Promise<void> {

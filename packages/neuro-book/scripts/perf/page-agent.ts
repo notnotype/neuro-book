@@ -181,7 +181,7 @@ export function pageAgent(options: AgentOptions): void {
         return lines !== null && input !== null && input.getAttribute("aria-readonly") !== "true" && (lines.textContent ?? "").includes(spec.marker);
     };
     const switched = (spec: Extract<ArmSpec, {kind: "open"}>): boolean => {
-        const tab = [...document.querySelectorAll("[data-editor-group-active] [data-editor-tab]")].find((candidate) => candidate.getAttribute("title") === spec.address);
+        const tab = [...document.querySelectorAll("[data-editor-group-head-active] [data-editor-tab]")].find((candidate) => candidate.getAttribute("title") === spec.address);
         if (tab?.getAttribute("aria-selected") !== "true") return false;
         return !spec.fromRow || document.querySelector(`[data-explorer-row="${spec.address}"]`)?.getAttribute("aria-selected") === "true";
     };
@@ -225,7 +225,7 @@ export function pageAgent(options: AgentOptions): void {
                 if (now - start > 15_000) {
                     // 带上超时那一刻的状态，便于判断是哪一个条件没有成立。
                     const state = spec.kind === "open"
-                        ? {switched: switched(spec), editable: editable(spec), activeTab: document.querySelector("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"]")?.getAttribute("title"), groups: document.querySelectorAll("[data-editor-group]").length, text: (document.querySelector(`[data-editor-group-active] [data-editor-kind="${spec.editor}"]`)?.textContent ?? "").slice(0, 60)}
+                        ? {switched: switched(spec), editable: editable(spec), activeTab: document.querySelector("[data-editor-group-head-active] [data-editor-tab][aria-selected=\"true\"]")?.getAttribute("title"), groups: document.querySelectorAll("[data-editor-group]").length, text: (document.querySelector(`[data-editor-group-active] [data-editor-kind="${spec.editor}"]`)?.textContent ?? "").slice(0, 60)}
                         : {children: childRows(spec.address), expanded: document.querySelector(`[data-explorer-row="${spec.address}"]`)?.getAttribute("aria-expanded")};
                     finish(`15 秒内没有完成：${JSON.stringify(spec)}；此刻 ${JSON.stringify(state)}`);
                     return;

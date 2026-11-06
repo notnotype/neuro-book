@@ -11,7 +11,7 @@
 
 根填满父级。呈现树的每块叶一个外框：状态栏不是卡片，活动栏和面板是。卡片四边留多少由邻接决定：贴着窗体、标题栏或状态栏的一边整缝，挨着别的面板半缝，活动栏与相邻且等长的工具面板相连时不留缝；相连与否按拖动中的几何算。
 
-内容项放在内容层：工具面板从面板头下面开始（32px），编辑组从顶上开始。它按卡片的内边距缩进、按卡片的圆角裁切，和外框拼成一张卡片。最大化的面板盖住除条以外的区域，它的四边按贴窗体算。
+内容项放在内容层，从面板头下面开始：工具面板的头固定 32px；编辑组的头一到三行，表面观察它的高度（`ResizeObserver`），高了内容立刻让开，不过渡。它按卡片的内边距缩进、按卡片的圆角裁切，和外框拼成一张卡片。最大化的面板盖住除条以外的区域，它的四边按贴窗体算。
 
 分隔线的颜色按两侧是什么分三种：工具面板之间取 `--shell-pane-divider`，编辑组之间也取它且贯通整个高度，其余取 `--shell-seam`。
 
@@ -62,7 +62,7 @@ type Slots = {
     /** 活动栏；条隐藏时不渲染。 */
     activitybar?(): unknown;
     statusbar?(): unknown;
-    /** 工具面板的头，放 `WorkbenchPanelHead`。 */
+    /** 面板的头：工具面板放 `WorkbenchPanelHead`，编辑组放编辑器给的头（可以什么都不放，内容占满）。 */
     head?(props: {panelId: string; idPrefix: string}): unknown;
     /** 内容项。工具视图的 `contentKey` 是 `view:<id>`，编辑组是 `editor:<面板 id>`；挪到别的面板时实例不重建。 */
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
