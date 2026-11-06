@@ -116,6 +116,10 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 验证：`nb-agent-ui` 全部、`plugins/files`、`session-host.test.ts`、`sessions.test.ts`、`tree.test.ts`、类型检查、`governance:check`；e2e `agent-conversation` 全部、`lab-agent-ui` 过滤到输入框与消息的 29 条。没验证：`find` 在很大的目录下的耗时（上限 5,000 项，没实测）；nb-story 的 e2e 没跑（它不给角色，走原来的下拉；视图的 `interaction.triggers` 不给时行为不变）。
 
+批 5 完成并合入：附件。内核的请求里只放引用，发给模型前才读字节并缩放；压缩后旧图换占位；超过 100 张换占位；上传与读取路由（`sandbox`、25 MB）；第一次加附件就建会话。设计审查 13 条的改法见 [处理](evidences/design-review-b5-disposition.md)。
+
+验证：内核全部、`nb-agent-ui` 全部、`session-host.test.ts`、`sessions.test.ts`、类型检查；e2e `agent-conversation`（真实文件选择、上传、读取、SVG 沙箱、超限）。真实模型：一次性脚本用 gpt-6-luna 经 `ompCall` 发一张绿图，模型答“绿色”；没写成常驻冒烟。就地编辑时加新图没做（范围缩小，记在 Spec）。
+
 ## 下一步
 
-批 5：附件。设计审查（omp 13 条）处理完，设计已修订（[处理](evidences/design-review-b5-disposition.md)），实现中。
+收口：批 5 的 omp 实现审查与整个 t28 的前端审查（Sonnet）。之后 t06，再 t14、t15。

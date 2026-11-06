@@ -74,6 +74,7 @@ owners:
 
 15. 远程 `activity` 与事件 `activityChanged`：快照与事件，列出运行中与等用户的前台会话（`{id, state: "running" | "waiting"}`），只看打开着的句柄；先订阅后取快照，`onResync` 重取。异步提问不在内。
 16. 远程 `approvalPreview`，见 [`builtin-tools.md`](builtin-tools.md)。
+15. **附件。** 存在 `sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址：`fork` 只复制日志，不用复制文件；原会话被删后按缺失处理。扩展名按 MIME 白名单定，图片按文件头认，声明是图片、文件头不是的（包括 SVG）按普通文件存。上传 `POST /api/nbook.agent/sessions/<id>/attachments`，体是文件字节，原名按百分号编码放 `X-Attachment-Name`；别的网页发起的拒绝；会话不存在 404；单个 25 MB，边读边数，超了 413，不信 `Content-Length`；同一内容已有算成功；交回 `{uri, kind, name, mime, bytes, width?, height?}`。读取 `GET`、`HEAD` 同前缀加文件名，文件名只接受哈希加扩展名；所有响应带 `Content-Security-Policy: sandbox` 与 `nosniff`，位图内联，别的下载，`ETag` 用哈希。不做缩略图。发给模型前由内核的读取端口缩放（最长边 1,568，目标 500 KB，同 `read` 工具），原图不动；解不了的（损坏、格式不支持、像素超限）换一行字，不发原图。
 
 ## 状态与转换
 

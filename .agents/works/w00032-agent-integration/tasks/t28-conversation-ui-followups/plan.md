@@ -122,6 +122,8 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 
 批 4：`agent/conversation.md` 输出 28 → `drafts-mentions.test.ts`“@ 菜单”、`agent-conversation.e2e.ts`“输入框”；输出 29 → `drafts-mentions.test.ts`“草稿”、`session-host.test.ts`“草稿按会话”“输入历史”、同一条 e2e；输出 30 → `session-host.test.ts`“/new”“/fork 结果未知”、同一条 e2e；`workspace/resources.md`“找文件” → `files.test.ts`“找文件”。
 
+批 5：`harness/runtime.md` 输出 61 → `omp.test.ts`“用户消息的图片”、`agent-conversation.e2e.ts`“附件”；输出 82–84 → `dispatch/attachments.test.ts`；`agent/sessions.md`“附件” → `agent-conversation.e2e.ts`“附件”；`agent/conversation.md` 输出 31 → `session-host.test.ts`“附件”、同一条 e2e。
+
 每批开工先把行为写进 Spec，再在这里写编号映射。下面的场景必须有测试，都用真实内核加本机端点，断言码、事件或请求块；真实模型冒烟只作额外证据：
 
 - 批 1：`role:<id>` 的绑定、未绑定、不存在、改绑；生成中模型库变化，正在生成的那条还在；快照晚到不倒退；`model.set` 后思考档跟着变。
