@@ -15,8 +15,26 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 <body>
 <h1>t06 权限与 Agent 模式</h1>
 
+<section data-nbdev-question="toolbar-layout" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>输入框工具栏这样排可以吗</h2>
+  <p>按你说的重排了，已经是真实组件：</p>
+  <ul>
+    <li><b>左边是“这一轮能做什么”</b>：附件、Agent 模式、审批模式。两个模式挨着，一眼能对照着看（“计划”亮、“放行写入”淡，就是现在不改、批准后放行写入）。</li>
+    <li><b>右边是“谁来答、发出去”</b>：模型与思考档位、发送。模型挨着发送，发之前最后看一眼。</li>
+    <li><b>展开按钮到右上角</b>，在发送上方：它改的是编辑区，不是这一轮的设置。正文右边留了位置，不会被盖住。</li>
+    <li><b>窄屏</b>：两个模式只留图标，把宽度让给模型名。</li>
+  </ul>
+  <div class="row">
+    <figure><figcaption>宽：计划模式加放行写入</figcaption><img src="r3/toolbar-wide.webp" alt="工具栏左边是附件、计划、放行写入，右边是模型与发送，右上角是展开按钮"></figure>
+    <figure><figcaption>手机宽度</figcaption><img src="r3/toolbar-phone.webp" alt="窄屏时模式只留图标，右边是模型名与发送"></figure>
+  </div>
+  <p>退出计划的向导（上一轮的图）这版没动，你上一轮的备注只提了这一行，我按向导没问题算。要改也写在备注里。</p>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>就这样。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
 <section data-nbdev-question="plan-wizard" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>模式控件与退出计划的向导，这样可以吗</h2>
+  <h2><span class="badge" data-nbdev-skip>已答</span>模式控件与退出计划的向导，这样可以吗</h2>
   <p>都是真实组件的 Lab 场景。你选的两个控件并排已经接上；下面看实际的样子。</p>
   <div class="row">
     <figure><figcaption>计划模式加放行写入：审批控件变淡，状态栏标“计划模式”</figcaption><img src="r2/plan-allow-writes.webp" alt="输入框工具栏上，计划按钮高亮，放行写入变淡，状态栏显示计划模式"></figure>
