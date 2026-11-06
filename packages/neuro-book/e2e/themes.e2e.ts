@@ -89,11 +89,11 @@ interface Measured {
 }
 
 /** 量一个元素：先记下它里面文字的颜色，藏起文字截图，在页面里解码（不用图片库）逐像素算。 */
-async function measure(page: Page, selector: string): Promise<Measured> {
+async function measure(page: Page, selector: string, region?: {readonly colors: ReadonlyArray<string>; readonly bottom: number; readonly above: string}): Promise<Measured> {
     const target = page.locator(selector).first();
     await expect(target).toBeVisible();
-    // 图标按钮里没有文字，量它自己的颜色（图标按 currentColor 画）。
-    const colors = await target.evaluate((element) => {
+    // 图标按钮里没有文字，量它自己的颜色（图标按 currentColor 画）。给了 region 时量元素最下面 bottom 像素里 above 那个元素之上的部分（对话输入框是实心的，带着发送按钮，不是文字所在），颜色由调用方给。
+    const colors = region !== undefined ? [...region.colors] : await target.evaluate((element) => {
         const found = new Set<string>();
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
@@ -101,8 +101,15 @@ async function measure(page: Page, selector: string): Promise<Measured> {
         }
         return found.size > 0 ? [...found] : [getComputedStyle(element).color];
     });
-    const box = await target.boundingBox();
-    if (box === null) throw new Error(`${selector} 不可见`);
+    const full = await target.boundingBox();
+    if (full === null) throw new Error(`${selector} 不可见`);
+    let box = full;
+    if (region !== undefined) {
+        const stop = await page.locator(region.above).first().boundingBox();
+        if (stop === null) throw new Error(`${region.above} 不可见`);
+        const top = full.y + full.height - region.bottom;
+        box = {...full, y: top, height: stop.y - top};
+    }
     await page.evaluate(() => document.documentElement.setAttribute("data-e2e-hide-text", ""));
     await nextFrame(page);
     const shot = await page.screenshot({clip: box, animations: "disabled"});
@@ -227,10 +234,11 @@ test("高对比度、强制颜色下不画场景，配色照旧", async ({page})
     await writeSettings({[THEME]: STUDY, [APPEARANCE]: "light"});
     await openProject(page);
     await expect(scene(page)).toBeVisible();
-    const corner = () => page.locator("[data-tool-part=\"sidebar\"]").evaluate((element) => getComputedStyle(element, "::after").display);
+    const corner = (part: string) => () => page.locator(`[data-tool-part="${part}"]`).evaluate((element) => getComputedStyle(element, "::after").display);
     const expectScenes = async (shown: boolean): Promise<void> => {
         const [welcome, left, right] = [scene(page), margin(page, "left"), margin(page, "right")];
-        await expect.poll(corner).toBe(shown ? "block" : "none");
+        await expect.poll(corner("sidebar")).toBe(shown ? "block" : "none");
+        await expect.poll(corner("auxiliarybar")).toBe(shown ? "block" : "none");
         await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "欢迎"}).click();
         await (shown ? expect(welcome).toBeVisible() : expect(welcome).toBeHidden());
         await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "a11y.md"}).click();
@@ -411,6 +419,12 @@ test.describe("可读性", () => {
                 report.push(`${appearance} 侧栏第 ${String(index)} 行：${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
                 expect(result.worst, `侧栏第 ${String(index)} 行`).toBeGreaterThanOrEqual(4.5);
             }
+            // 右栏下角：对话列表长了会压在图上，所以最下面 240px 里、输入框以上的部分，放正文与次要文字都读得动。
+            const palette = await page.evaluate(() => ["--text-main", "--text-secondary"].map((name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()));
+            const strip = await measure(page, "[data-tool-part=\"auxiliarybar\"]", {colors: palette, bottom: 240, above: "[data-agent-composer]"});
+            report.push(`${appearance} 右栏下角：${strip.worst.toFixed(2)}（${String(strip.distinct)} 种像素）`);
+            expect(strip.distinct, "右栏下角要有图").toBeGreaterThan(20);
+            expect(strip.worst, "右栏下角").toBeGreaterThanOrEqual(4.5);
             console.log(report.join("\n"));
         });
     }

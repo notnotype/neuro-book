@@ -16,6 +16,7 @@ const STUDY: ThemeDeclaration = {
         marginLeft: {size: "auto 118%", position: "0% 100%"},
         marginRight: {size: "auto 118%", position: "100% 100%"},
         sidebarCorner: {size: "1000px auto", position: "100% 2%"},
+        auxiliaryCorner: {size: "1000px auto", position: "0% 100%"},
     },
     light: {
         colors: {

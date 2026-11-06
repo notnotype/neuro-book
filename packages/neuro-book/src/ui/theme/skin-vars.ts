@@ -13,6 +13,8 @@ export const SKIN_VARS = {
     marginRightPosition: "--skin-margin-right-position",
     sidebarCornerSize: "--skin-sidebar-corner-size",
     sidebarCornerPosition: "--skin-sidebar-corner-position",
+    auxiliaryCornerSize: "--skin-auxiliary-corner-size",
+    auxiliaryCornerPosition: "--skin-auxiliary-corner-position",
     activityBarSurface: "--skin-activitybar-surface",
     activityBarForeground: "--skin-activitybar-foreground",
     activityBarActive: "--skin-activitybar-active",

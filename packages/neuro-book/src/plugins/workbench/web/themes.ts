@@ -52,6 +52,8 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
         set(SKIN_VARS.marginRightPosition, crop?.marginRight?.position);
         set(SKIN_VARS.sidebarCornerSize, crop?.sidebarCorner?.size);
         set(SKIN_VARS.sidebarCornerPosition, crop?.sidebarCorner?.position);
+        set(SKIN_VARS.auxiliaryCornerSize, crop?.auxiliaryCorner?.size);
+        set(SKIN_VARS.auxiliaryCornerPosition, crop?.auxiliaryCorner?.position);
     }
     return {vars, scene: url !== null};
 }

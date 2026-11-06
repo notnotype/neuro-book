@@ -54,6 +54,7 @@ describe("workbench.themes", () => {
         ["CSS 转义的 url()", plain({light: {activityBar: {surface: "u\\72l(https://x)", foreground: "#111", active: "#222"}}})],
         ["vars 里的 url()", plain({light: {vars: {"--divider": "URL (https://x)"}}})],
         ["裁切里的 image-set()", plain({crop: {marginLeft: {size: "auto", position: "image-set(x)"}}})],
+        ["右栏下角裁切里的 url()", plain({crop: {auxiliaryCorner: {size: "auto", position: "url(x)"}}})],
         ["contentX 太小，内容会被挤没", plain({crop: {empty: {contentX: 0.1}}})],
         ["contentX 往右偏，还不支持", plain({crop: {empty: {contentX: 0.6}}})],
         ["scene 是远程地址", plain({dark: {scene: "https://example.com/x.webp"}})],
@@ -71,7 +72,7 @@ describe("workbench.themes", () => {
 describe("主题的取值", () => {
     const study: ThemeDeclaration = plain({
         fonts: {display: "serif", prose: "serif"},
-        crop: {empty: {position: "center 70%", contentX: 0.44}, marginLeft: {size: "auto 118%", position: "0% 100%"}},
+        crop: {empty: {position: "center 70%", contentX: 0.44}, marginLeft: {size: "auto 118%", position: "0% 100%"}, auxiliaryCorner: {size: "1000px auto", position: "0% 100%"}},
         light: {colors: {"--bg-main": "#fff"}, vars: {"--divider": "#eee"}, activityBar: {surface: "#111", foreground: "#222", active: "#333", ornament: "#444"}, scene: "assets/day.webp"},
         dark: {colors: {"--bg-main": "#000"}},
     });
@@ -80,7 +81,7 @@ describe("主题的取值", () => {
     it("按明暗取，场景经素材解析成 URL，裁切只在有图时写", () => {
         const light = themeVars(entry, "light", (plugin, path) => `/files/${plugin}/${path}`);
         expect(light.scene).toBe(true);
-        expect(light.vars).toMatchObject({"--bg-main": "#fff", "--divider": "#eee", "--font-prose": "serif", "--skin-scene": 'url("/files/acme.skin/assets/day.webp")', "--skin-activitybar-ornament": "#444", "--skin-empty-position": "center 70%", "--skin-margin-left-size": "auto 118%"});
+        expect(light.vars).toMatchObject({"--bg-main": "#fff", "--divider": "#eee", "--font-prose": "serif", "--skin-scene": 'url("/files/acme.skin/assets/day.webp")', "--skin-activitybar-ornament": "#444", "--skin-empty-position": "center 70%", "--skin-margin-left-size": "auto 118%", "--skin-auxiliary-corner-size": "1000px auto", "--skin-auxiliary-corner-position": "0% 100%"});
         expect(light.vars["--skin-empty-shift"]).toBe(`${String((1 - 2 * 0.44) * 100)}%`);
         const dark = themeVars(entry, "dark", () => "/x");
         expect(dark.scene).toBe(false);

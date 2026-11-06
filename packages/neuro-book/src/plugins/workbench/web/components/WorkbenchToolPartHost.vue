@@ -123,39 +123,54 @@ onBeforeUnmount(() => {
 }
 
 /*
- * 侧栏下角的场景图（docs/specs/theme/skins.md 输出 6）：只有 sidebar 这个 Part，挂在 Part 上不挂视图。高度不足 300px 不画，靠容器查询。
+ * 侧栏与右栏下角的场景图（docs/specs/theme/skins.md 输出 6）：只有 sidebar 与 auxiliarybar 这两个 Part，挂在 Part 上不挂视图。
+ * 高度不足 300px 不画，靠容器查询。右栏在编辑区放不下两侧时（输出 5）补上场景；对话列表盖在图上。
  */
-.workbench-tool-part--sidebar {
+.workbench-tool-part--sidebar,
+.workbench-tool-part--auxiliarybar {
     position: relative;
     /* 自成一层：下面的 z-index 只在这一层里，图盖在面上、列表盖在图上。 */
     isolation: isolate;
     container-type: size;
 }
 
-:global([data-nb-skin-scene] .workbench-tool-part--sidebar::after) {
+:global([data-nb-skin-scene] .workbench-tool-part--sidebar::after),
+:global([data-nb-skin-scene] .workbench-tool-part--auxiliarybar::after) {
     position: absolute;
     right: 0;
     bottom: 0;
     left: 0;
     height: 240px;
     background-image: var(--skin-scene);
-    background-position: var(--skin-sidebar-corner-position, 0 0);
     background-repeat: no-repeat;
-    background-size: var(--skin-sidebar-corner-size, 0 0);
     content: "";
     mask-image: linear-gradient(to top, #000 10%, transparent 92%);
     pointer-events: none;
     z-index: -1;
 }
 
+:global([data-nb-skin-scene] .workbench-tool-part--sidebar::after) {
+    background-position: var(--skin-sidebar-corner-position, 0 0);
+    background-size: var(--skin-sidebar-corner-size, 0 0);
+}
+
+:global([data-nb-skin-scene] .workbench-tool-part--auxiliarybar::after) {
+    background-position: var(--skin-auxiliary-corner-position, 0 0);
+    background-size: var(--skin-auxiliary-corner-size, 0 0);
+    /* 对话列表的文字比资源管理器的行更常压在图上；淡一些，亮暗两套都给次要文字留足对比度（验收 12）。 */
+    opacity: 0.7;
+}
+
 @container (max-height: 299px) {
-    :global([data-nb-skin-scene] .workbench-tool-part--sidebar::after) {
+    :global([data-nb-skin-scene] .workbench-tool-part--sidebar::after),
+    :global([data-nb-skin-scene] .workbench-tool-part--auxiliarybar::after) {
         display: none;
     }
 }
 
 @media (prefers-contrast: more), (forced-colors: active) {
-    :global([data-nb-skin-scene] .workbench-tool-part--sidebar::after) {
+    :global([data-nb-skin-scene] .workbench-tool-part--sidebar::after),
+    :global([data-nb-skin-scene] .workbench-tool-part--auxiliarybar::after) {
         display: none;
     }
 }

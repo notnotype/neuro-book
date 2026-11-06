@@ -38,6 +38,7 @@ export const ThemeDeclarationSchema = Type.Object({
         marginLeft: Type.Optional(CropSchema),
         marginRight: Type.Optional(CropSchema),
         sidebarCorner: Type.Optional(CropSchema),
+        auxiliaryCorner: Type.Optional(CropSchema),
     }, {additionalProperties: false})),
     light: LookSchema,
     dark: LookSchema,
