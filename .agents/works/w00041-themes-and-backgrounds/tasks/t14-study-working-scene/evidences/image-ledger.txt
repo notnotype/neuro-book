@@ -1,0 +1,12 @@
+# 书房工作态场景的生图请求账本（本地原图与处理脚本不入库）
+上限 4 次（开发者 2026-11-06 定）；bafang gpt-image-2.5-1k edit 1536x1024，直连不用 prox
+request 1/4 day sent 2026-11-06T15:14:44+00:00
+request 2/4 night sent 2026-11-06T15:14:44+00:00
+
+## 亮色提示词
+Edit this illustration. Keep the exact same camera, composition, window, curtains, plant, bookshelf, wall, floor, rug, lighting and painterly style. Change only the writing desk so that it looks busy, as if the writer is in the middle of working: more manuscript pages are spread across the desk, a couple of loose pages slightly crumpled, the fountain pen uncapped and lying on a page, an open notebook beside the books, and a cup of tea with a thin wisp of steam. Everything else must stay unchanged. No people, no text, no logos.
+## 暗色提示词
+Edit this illustration. Keep the exact same camera, composition, window, curtains, plant, bookshelf, wall, floor, rug, moonlight and painterly style. Change only the writing desk so that it looks busy, as if the writer is in the middle of working late: more manuscript pages are spread across the desk in the lamp light, a couple of loose pages slightly crumpled, the fountain pen uncapped and lying on a page, an open notebook beside the books, and a cup of tea with a thin wisp of steam. The desk lamp stays lit as it is. Everything else must stay unchanged. No people, no text, no logos.
+
+结果：两次请求都成功（gpt-image-2.5-1k edit，1535x1024 PNG，直连、未重试）；上限 4 次，用了 2 次。
+本地处理：桌面区域（x>=905, y>=585）高斯羽化 14 像素后贴回现有 study-day.webp / study-night.webp；区域外与现有图的最大像素差为 1（WebP 重编码）；WebP quality 82，亮 98 KB、暗 76 KB。
