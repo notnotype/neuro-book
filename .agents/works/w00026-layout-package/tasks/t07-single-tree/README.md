@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-single-tree
-status: planned
-updated: 2026-11-05
+status: active
+updated: 2026-11-06
 ---
 
 # 合成一棵树：外壳、视图容器、编辑组
