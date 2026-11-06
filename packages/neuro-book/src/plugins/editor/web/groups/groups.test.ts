@@ -4,7 +4,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {createEditorGroups} from "./groups";
+import {createEditorGroups, sitsAtEdge} from "./groups";
 import type {EditorGroups} from "./groups";
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "../../shared/contracts";
 
@@ -396,5 +396,34 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
             const restored = createEditorGroups(broken as never);
             expect(restored.groups.value).toEqual([{id: "g0", tabs: [], active: null}]);
         }
+    });
+});
+
+describe("组已经紧贴目标的这条边：放下去还是现在的样子", () => {
+    const left = {left: 0, top: 0, right: 400, bottom: 800};
+    const right = {left: 401, top: 0, right: 800, bottom: 800};
+    const upper = {left: 0, top: 0, right: 400, bottom: 400};
+    const lower = {left: 0, top: 401, right: 400, bottom: 800};
+
+    it("紧贴且交叉轴一样长：四条边都算", () => {
+        expect(sitsAtEdge(left, right, "right")).toBe(true);
+        expect(sitsAtEdge(right, left, "left")).toBe(true);
+        expect(sitsAtEdge(upper, lower, "bottom")).toBe(true);
+        expect(sitsAtEdge(lower, upper, "top")).toBe(true);
+    });
+
+    it("紧贴着，但放的是另一条边：不算，那是真的换位置", () => {
+        expect(sitsAtEdge(right, left, "right")).toBe(false);
+        expect(sitsAtEdge(left, right, "left")).toBe(false);
+        expect(sitsAtEdge(left, right, "bottom")).toBe(false);
+    });
+
+    it("交叉轴不一样长：新组只占目标那一段，结果不同，不算", () => {
+        expect(sitsAtEdge(upper, right, "right")).toBe(false);
+        expect(sitsAtEdge(right, upper, "left")).toBe(false);
+    });
+
+    it("中间隔着别的组：不算", () => {
+        expect(sitsAtEdge(left, {left: 802, top: 0, right: 1200, bottom: 800}, "right")).toBe(false);
     });
 });

@@ -12,6 +12,7 @@ import type {DragSession, DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {defineDropKind, resolveGridEdgeDrop, resolveListInsertion} from "@notnotype/nb-layout";
 import type {GridDropRect} from "@notnotype/nb-layout";
 
+import {sitsAtEdge} from "./groups/groups";
 import type {GroupEdge, TabPlace} from "./groups/groups";
 
 /** 标签拖到编辑组：编辑组登记这个落点，给出组 id。 */
@@ -92,7 +93,7 @@ export function resolveTabDrop(root: HTMLElement, top: Element | null, point: {r
     if (strip !== null && header !== null && header.contains(top)) return stripDrop(strip, point, dragged, group);
     const content = groupElement.querySelector<HTMLElement>("[data-editor-content]");
     if (content === null || !content.contains(top)) return null;
-    return contentDrop(groupElement, content, point, dragged, group);
+    return contentDrop(root, groupElement, content, point, dragged, group);
 }
 
 function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: TabDragSource, group: string): TabDrop | null {
@@ -139,7 +140,7 @@ function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: n
     };
 }
 
-function contentDrop(groupElement: HTMLElement, content: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: TabDragSource, group: string): TabDrop | null {
+function contentDrop(root: HTMLElement, groupElement: HTMLElement, content: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: TabDragSource, group: string): TabDrop | null {
     const rect = rectOf(content);
     const zone = resolveGridEdgeDrop({point, rect});
     if (zone === null) return null;
@@ -162,8 +163,10 @@ function contentDrop(groupElement: HTMLElement, content: HTMLElement, point: {re
         : zone === "right" ? {...groupRect, left: groupRect.left + width / 2}
             : zone === "top" ? {...groupRect, bottom: groupRect.top + height / 2}
                 : {...groupRect, top: groupRect.top + height / 2};
-    // 源组只有这一个标签又拆它自己：拆不出东西。
-    const alone = group === dragged.group && groupElement.querySelectorAll("[data-editor-tab]").length === 1;
+    // 源组只有这一个标签：拆它自己拆不出东西；它已经紧贴这条边时，放下去还是现在的样子。
+    const source = group === dragged.group ? groupElement : root.querySelector<HTMLElement>(`[data-editor-group="${CSS.escape(dragged.group)}"]`);
+    const lone = source !== null && source.querySelectorAll("[data-editor-tab]").length === 1;
+    const alone = lone && (group === dragged.group || sitsAtEdge(groupRect, rectOf(source), zone));
     return {
         action: alone ? null : {kind: "split", tabId: dragged.tabId, group, edge: zone},
         preview: {areaRect: half, entryRect: null, indicator: null, orientation: zone === "left" || zone === "right" ? "horizontal" : "vertical", armed: !alone},

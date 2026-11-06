@@ -474,6 +474,51 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
     await closeAll(page);
 });
 
+test("只有一个标签的组拖到紧贴它的那条边：放下去还是现在的样子，不重建组、没有过渡；拖到另一边才换位置（输出 55、验收 30）", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/a.md").dblclick();
+    await expect(tabs(page)).toHaveCount(1);
+    await tabs(page).first().focus();
+    await page.keyboard.press("Control+\\");
+    const groups = page.locator("[data-editor-group]");
+    await expect(groups).toHaveCount(2);
+    const moving = page.locator("[data-editor-area] [data-moving]");
+    await expect(moving).toHaveCount(0);
+    const idsOf = () => groups.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.editorGroup));
+    const before = await idsOf();
+    const edgeOf = async (index: number, edge: "left" | "right") => {
+        const box = await groups.nth(index).locator("[data-editor-content]").boundingBox();
+        if (box === null) throw new Error("没有正文区");
+        return {x: edge === "left" ? box.x + 10 : box.x + box.width - 10, y: box.y + box.height / 2};
+    };
+    const dragRightTabTo = async (to: {x: number; y: number}) => {
+        const from = await groups.nth(1).locator("[data-editor-tab]").first().boundingBox();
+        if (from === null) throw new Error("没有标签");
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 - 12, from.y + from.height / 2 + 8, {steps: 3});
+        await page.mouse.move(to.x, to.y, {steps: 8});
+    };
+
+    // 右组唯一的标签拖到左组的右边：落点写“原位”，松手什么都不变。
+    await dragRightTabTo(await edgeOf(0, "right"));
+    await expect(page.locator("[data-drop-feedback-label]")).toHaveText("原位");
+    await page.mouse.up();
+    expect(await moving.count()).toBe(0);
+    expect(await idsOf()).toEqual(before);
+
+    // 拖到左组的左边：真的换到左边，左组让出位置。
+    await dragRightTabTo(await edgeOf(0, "left"));
+    await expect(page.locator("[data-drop-feedback-label]")).toHaveText("拆分到左侧");
+    await page.mouse.up();
+    await expect(moving.first()).toHaveAttribute("data-moving", "");
+    await expect.poll(async () => (await idsOf())[1]).toBe(before[0]);
+    await closeAll(page);
+});
+
 test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区外都取消且不写，松手不选中标签（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);

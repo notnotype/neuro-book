@@ -9,7 +9,7 @@ import type {ShallowRef} from "@vue/reactivity";
 
 // 只要 grid 的结构与快照，不要渲染器：`./grid` 不依赖 Vue 与 DOM，插件激活时就能用、Bun 里也能测。
 import {createGrid} from "@notnotype/nb-layout";
-import type {Grid, GridLeafInput, GridNode, GridSnapshot} from "@notnotype/nb-layout";
+import type {Grid, GridDropRect, GridLeafInput, GridNode, GridSnapshot} from "@notnotype/nb-layout";
 
 import {isWithin, rebase} from "../documents/address";
 
@@ -73,6 +73,23 @@ export interface TabPlace {
 }
 
 export type GroupEdge = "left" | "right" | "top" | "bottom";
+
+/** 差不到这么多算贴着：组之间的分隔线 1px 加取整。 */
+const EDGE_TOLERANCE_PX = 2;
+
+/**
+ * 只有一个标签的 `source` 组移到 `target` 组的 `edge` 边上，结果还是现在的样子吗（docs/specs/workbench/editor.md 输出 55 的原位）：它已经紧贴
+ * 这条边，交叉轴也一样长。交叉轴不一样长时，新组只占目标那一段，结果不同，不算。矩形是这一刻量出来的。
+ */
+export function sitsAtEdge(target: GridDropRect, source: GridDropRect, edge: GroupEdge): boolean {
+    const near = (left: number, right: number): boolean => Math.abs(left - right) <= EDGE_TOLERANCE_PX;
+    if (edge === "left" || edge === "right") {
+        const touching = edge === "right" ? near(source.left, target.right) : near(source.right, target.left);
+        return touching && near(source.top, target.top) && near(source.bottom, target.bottom);
+    }
+    const touching = edge === "bottom" ? near(source.top, target.bottom) : near(source.bottom, target.top);
+    return touching && near(source.left, target.left) && near(source.right, target.right);
+}
 
 /** 编辑器记光标的写法（编辑器声明的 `cursor`）；没有就不记。 */
 export type CursorKind = (editor: string) => "offset" | "line" | null;
