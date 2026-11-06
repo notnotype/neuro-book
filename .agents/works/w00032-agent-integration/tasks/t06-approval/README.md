@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t06-approval
-status: planned
-updated: 2026-10-30
+status: active
+updated: 2026-11-06
 ---
 
 # 审批、提问与 Agent 模式
