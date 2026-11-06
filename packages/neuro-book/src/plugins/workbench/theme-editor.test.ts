@@ -22,7 +22,7 @@ import type {Rgba} from "nbook/ui/theme/color";
 import type {UserTheme} from "./shared/user-themes";
 import {ThemeCatalog} from "./web/themes";
 import type {ThemeEntry} from "./web/themes";
-import {ThemeEditorModel} from "./web/theme-editor/theme-editor-model";
+import {ThemeEditorModel} from "./web/components/theme-editor/theme-editor-model";
 import {userThemesStore} from "./web/user-themes-store";
 
 /** 两个明暗的缺省配色：故意写成一套不合格的（弱化文字对背景太淡），和主题包缺省的取值无关，测试不依赖 nb-ui。 */

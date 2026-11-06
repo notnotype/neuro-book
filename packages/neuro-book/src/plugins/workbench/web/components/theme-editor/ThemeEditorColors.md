@@ -6,7 +6,7 @@
 
 # ThemeEditorColors
 
-主题编辑器的“配色”分区（[`theme/editor.md`](../../../../../../../docs/specs/theme/editor.md) 输出 7、8、14）：主色与推导、33 个配色变量按用途分组、折叠的角色变量。所有修改都交给模型（`ThemeEditorModel`），它自己不存值。
+主题编辑器的“配色”分区（[`theme/editor.md`](../../../../../../../../docs/specs/theme/editor.md) 输出 7、8、14）：主色与推导、33 个配色变量按用途分组、折叠的角色变量。所有修改都交给模型（`ThemeEditorModel`），它自己不存值。
 
 ## 布局
 

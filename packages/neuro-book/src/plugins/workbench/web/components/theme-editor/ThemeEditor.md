@@ -1,11 +1,11 @@
 ---
-标签: [state:local, state:inject, io:read, io:mutate]
+标签: [state:local, state:inject]
 别名: ["主题编辑器", "Theme Editor"]
 ---
 
 # ThemeEditor
 
-主题编辑器的主体（[`theme/editor.md`](../../../../../../../docs/specs/theme/editor.md)）：我的主题库的选择与增删，左边分区导航，右边一次一个分区。编辑区的页签与浮动窗口放的是同一个主体（经 `ThemeEditorHolder`），同一时刻只有一份模型。组件自己不存声明：所有读写都经 `ThemeEditorModel`，模型里的声明在 Storage 的“我的主题”记录里，改动立刻回显到真实工作台的预览。
+主题编辑器的主体（[`theme/editor.md`](../../../../../../../../docs/specs/theme/editor.md)）：我的主题库的选择与增删，左边分区导航，右边一次一个分区。编辑区的页签与浮动窗口放的是同一个主体（经 `ThemeEditorHolder`），同一时刻只有一份模型。组件自己不存声明：所有读写都经 `ThemeEditorModel`，模型里的声明在 Storage 的“我的主题”记录里，改动立刻回显到真实工作台的预览。
 
 ## 布局
 
@@ -21,12 +21,8 @@
 - 切分区只换右边的内容，不丢各分区里没提交的输入。
 - 亮/暗分段控件只决定正在编辑的是哪一套，同时决定真实工作台预览的明暗；它不改设置里的明暗。
 - 基本信息：中英文标题、主题包两项（NeuroBook、macOS）。其它分区由各自的组件承担（`ThemeEditorColors`、`ThemeEditorTypography`、`ThemeEditorChrome`）；“场景与取景”分区在后续的 Task 里补全。
-- 导出：把当前选中的主题打成 zip（`package.json` 加 `assets/`，同不写代码的主题插件）下载；有对比度不合格项时照样导出，提示里写有几项。导入：选一个 zip，包里每个主题都复制成一套新的“我的主题”（素材先传完再写主题，任何一步失败都不留半个）；包不合格（路径、大小、声明、图片）时整个拒绝并写出原因。结果在操作条下面一行提示。
+- 导出与导入的请求不在这里发：主体只调 `transfer`（持有者给的实现）并显示结果。导出：把当前选中的主题打成 zip（`package.json` 加 `assets/`，同不写代码的主题插件）下载；有对比度不合格项时照样导出，提示里写有几项。导入：选一个 zip，包里每个主题都复制成一套新的“我的主题”（素材先传完再写主题，任何一步失败都不留半个）；包不合格（路径、大小、声明、图片）时整个拒绝并写出原因。结果在操作条下面一行提示。
 - 对比度检查分区：一句说明，下面列出两套明暗里全部不合格的项（明暗、变量、比值、落在哪个底上最差）；没有时写“没有不合格的项”。
-
-## 为什么自己发请求
-
-导出要读场景图的字节（`io:read`，取回 `/api/nbook.files/raw/user/theme-assets/…`），导入要把包里的素材传上去（`io:mutate`，`PUT /api/nbook.files/theme-assets`）。两件事都由用户点“导出”“导入”触发，文件选择与下载都在这个组件的按钮上，结果（提示、选中新主题）立刻回到界面；放到宿主里再传回只多一层转发。格式与校验在 `package-io.ts`，请求在 `transfer.ts`，组件只触发与呈现。
 
 ## 数据
 
@@ -35,6 +31,7 @@ type Props = {
     model: ThemeEditorModel;
     themes: ReadonlyArray<ThemeEntry>;   // “复制自…”的候选，来自主题目录
     closable?: boolean;                  // 画“关闭”按钮；缺省画
+    transfer: ThemeTransfer;             // 导出与导入的实现，请求由持有者发
 };
 type Emits = {close: []};
 ```

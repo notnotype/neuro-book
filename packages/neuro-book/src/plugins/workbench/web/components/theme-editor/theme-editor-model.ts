@@ -12,11 +12,11 @@ import type {PaletteSeed} from "nbook/ui/theme/derive-palette";
 import {checkContrast} from "nbook/ui/theme/contrast-checks";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
-import type {ThemeDeclaration} from "../../shared/themes";
+import type {ThemeDeclaration} from "../../../shared/themes";
 import type {CropCss, CropRegion} from "./crop-model";
-import type {UserTheme} from "../../shared/user-themes";
-import type {ThemeCatalog, ThemeEntry} from "../themes";
-import type {UserThemesStore} from "../user-themes-store";
+import type {UserTheme} from "../../../shared/user-themes";
+import type {ThemeCatalog, ThemeEntry} from "../../themes";
+import type {UserThemesStore} from "../../user-themes-store";
 
 export type EditorSection = "basic" | "colors" | "fonts" | "chrome" | "scene" | "contrast";
 export type Appearance = "light" | "dark";

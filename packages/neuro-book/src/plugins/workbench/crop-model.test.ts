@@ -4,8 +4,8 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {clampFrame, CROP_REGIONS, frameAspect, parsePosition, readFrame, REGION_BOX, writeFrame} from "./web/theme-editor/crop-model";
-import type {CropRegion} from "./web/theme-editor/crop-model";
+import {clampFrame, CROP_REGIONS, frameAspect, parsePosition, readFrame, REGION_BOX, writeFrame} from "./web/components/theme-editor/crop-model";
+import type {CropRegion} from "./web/components/theme-editor/crop-model";
 
 const IMAGE = {width: 1536, height: 1024};
 

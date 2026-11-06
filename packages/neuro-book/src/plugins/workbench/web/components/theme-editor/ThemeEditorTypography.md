@@ -6,7 +6,7 @@
 
 # ThemeEditorTypography
 
-主题编辑器的“字体”分区（[`theme/editor.md`](../../../../../../../docs/specs/theme/editor.md) 输出 9）：欢迎页标题与正文各一个字体栈，写进声明的 `fonts`。
+主题编辑器的“字体”分区（[`theme/editor.md`](../../../../../../../../docs/specs/theme/editor.md) 输出 9）：欢迎页标题与正文各一个字体栈，写进声明的 `fonts`。
 
 ## 布局
 

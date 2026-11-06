@@ -7,7 +7,7 @@ import {IconButton, Input} from "@notnotype/nb-ui/components";
 import {formatColor, parseColor} from "nbook/ui/theme/color";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
-import {useWorkbenchText} from "../text";
+import {useWorkbenchText} from "../../text";
 
 defineOptions({name: "ColorField"});
 
@@ -177,5 +177,18 @@ const checkText = computed(() => {
     color: var(--accent-main);
     font-size: 8px;
     text-align: center;
+}
+
+/* 窄屏：变量名单独占一行，色值输入才有地方放下完整的色值。 */
+@container (max-width: 520px) {
+    .color-field {
+        grid-template-columns: 24px minmax(0, 1fr) 44px 12px 24px;
+        row-gap: var(--space-1);
+        padding-block: var(--space-1);
+    }
+
+    .color-field__name {
+        grid-column: 1 / -1;
+    }
 }
 </style>

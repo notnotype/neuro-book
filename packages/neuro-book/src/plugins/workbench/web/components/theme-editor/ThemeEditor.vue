@@ -8,12 +8,11 @@ import {computed, ref} from "vue";
 import {Button, EmptyState, Input, ScrollArea, SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 
-import {useWorkbenchText} from "../text";
-import type {ThemeEntry} from "../themes";
+import {useWorkbenchText} from "../../text";
+import type {ThemeEntry} from "../../themes";
 import ThemeEditorChrome from "./ThemeEditorChrome.vue";
 import ThemeEditorScene from "./ThemeEditorScene.vue";
-import {exportCurrent, importArchive} from "./transfer";
-import type {TransferResult} from "./transfer";
+import type {ThemeTransfer, TransferResult} from "./transfer";
 import ThemeEditorColors from "./ThemeEditorColors.vue";
 import ThemeEditorTypography from "./ThemeEditorTypography.vue";
 import {ThemeEditorModel} from "./theme-editor-model";
@@ -28,6 +27,8 @@ const props = withDefaults(defineProps<{
     themes: ReadonlyArray<ThemeEntry>;
     /** 画“关闭”按钮（浮动窗口里）；页签里不画。缺省画。 */
     closable?: boolean;
+    /** 导出与导入的实现；请求由持有者发。 */
+    transfer: ThemeTransfer;
 }>(), {closable: true});
 
 const emit = defineEmits<{(event: "close"): void}>();
@@ -74,14 +75,14 @@ const createFrom = async (id: string): Promise<void> => {
 const transfer = ref<TransferResult | null>(null);
 const importInput = ref<HTMLInputElement | null>(null);
 const exportTheme = async (): Promise<void> => {
-    transfer.value = await exportCurrent(model);
+    transfer.value = await props.transfer.exportTheme();
 };
 const onImportFile = async (event: Event): Promise<void> => {
     const element = event.target as HTMLInputElement;
     const file = element.files?.[0];
     element.value = "";
     if (file === undefined) return;
-    transfer.value = await importArchive(model, new Uint8Array(await file.arrayBuffer()));
+    transfer.value = await props.transfer.importArchive(new Uint8Array(await file.arrayBuffer()));
 };
 const transferText = computed(() => {
     const result = transfer.value;

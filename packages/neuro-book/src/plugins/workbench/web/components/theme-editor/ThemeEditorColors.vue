@@ -6,8 +6,8 @@ import {Button, Collapsible, Input} from "@notnotype/nb-ui/components";
 
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
-import {THEME_ROLE_VARS} from "../../shared/themes";
-import {useWorkbenchText} from "../text";
+import {THEME_ROLE_VARS} from "../../../shared/themes";
+import {useWorkbenchText} from "../../text";
 import ColorField from "./ColorField.vue";
 import {SEED_KEYS} from "./theme-editor-model";
 import type {SeedName, ThemeEditorModel} from "./theme-editor-model";

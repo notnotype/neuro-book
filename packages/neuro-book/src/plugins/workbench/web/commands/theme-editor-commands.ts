@@ -10,7 +10,7 @@ import type {CommandImplementation, CommandService} from "nbook/plugins/commands
 import {OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
 
 import {workbenchText} from "../../shared/text";
-import type {ThemeEditorSession} from "../theme-editor/theme-editor-session";
+import type {ThemeEditorSession} from "../components/theme-editor/theme-editor-session";
 
 export const OPEN_THEME_EDITOR_COMMAND = "nbook.settings.open-theme-editor";
 export const OPEN_THEME_EDITOR_FLOATING_COMMAND = "nbook.settings.open-theme-editor-floating";

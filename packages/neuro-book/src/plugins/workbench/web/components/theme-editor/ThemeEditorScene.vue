@@ -4,8 +4,8 @@ import {computed, ref} from "vue";
 
 import {Button} from "@notnotype/nb-ui/components";
 
-import {useWorkbenchText} from "../text";
-import {userThemeSceneUrl} from "../themes";
+import {useWorkbenchText} from "../../text";
+import {userThemeSceneUrl} from "../../themes";
 import CropEditor from "./CropEditor.vue";
 import {prepareImage, SCENE_SUGGESTED_BYTES, uploadScene} from "./scene-upload";
 import type {ThemeEditorModel} from "./theme-editor-model";

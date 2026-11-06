@@ -10,9 +10,9 @@ import {Value} from "typebox/value";
 
 import {sniffImageType} from "nbook/shared/image-type";
 
-import {declarationProblem, ThemeDeclarationSchema, WORKBENCH_THEMES_POINT} from "../../shared/themes";
-import type {ThemeDeclaration} from "../../shared/themes";
-import type {UserTheme} from "../../shared/user-themes";
+import {declarationProblem, ThemeDeclarationSchema, WORKBENCH_THEMES_POINT} from "../../../shared/themes";
+import type {ThemeDeclaration} from "../../../shared/themes";
+import type {UserTheme} from "../../../shared/user-themes";
 
 /** 一个包的上限（字节）、文件数与单个文件的上限（字节）。 */
 export const PACKAGE_LIMITS = {archiveBytes: 20 * 1024 * 1024, files: 64, fileBytes: 20 * 1024 * 1024} as const;

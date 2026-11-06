@@ -7,8 +7,8 @@ import {computed, onBeforeUnmount, ref} from "vue";
 
 import {Button, Input} from "@notnotype/nb-ui/components";
 
-import type {ThemeDeclaration} from "../../shared/themes";
-import {useWorkbenchText} from "../text";
+import type {ThemeDeclaration} from "../../../shared/themes";
+import {useWorkbenchText} from "../../text";
 import {clampFrame, CROP_REGIONS, readFrame, writeFrame} from "./crop-model";
 import type {CropCss, CropFrame, CropRegion, ImageSize} from "./crop-model";
 

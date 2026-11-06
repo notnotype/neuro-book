@@ -4,7 +4,7 @@ import {computed} from "vue";
 
 import {Switch} from "@notnotype/nb-ui/components";
 
-import {useWorkbenchText} from "../text";
+import {useWorkbenchText} from "../../text";
 import ColorField from "./ColorField.vue";
 import type {ThemeEditorModel} from "./theme-editor-model";
 

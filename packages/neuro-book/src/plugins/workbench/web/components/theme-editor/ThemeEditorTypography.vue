@@ -2,7 +2,7 @@
 /** 主题编辑器的“字体”分区（同名 .md）：欢迎页标题与正文各一个字体栈。 */
 import {Button, Input} from "@notnotype/nb-ui/components";
 
-import {useWorkbenchText} from "../text";
+import {useWorkbenchText} from "../../text";
 import type {ThemeEditorModel} from "./theme-editor-model";
 
 defineOptions({name: "ThemeEditorTypography"});

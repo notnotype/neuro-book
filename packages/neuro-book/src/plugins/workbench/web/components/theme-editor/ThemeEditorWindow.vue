@@ -4,8 +4,8 @@ import {computed} from "vue";
 
 import {FloatingWindow} from "@notnotype/nb-ui/components";
 
-import {useWorkbenchText} from "../text";
-import type {ThemeEntry} from "../themes";
+import {useWorkbenchText} from "../../text";
+import type {ThemeEntry} from "../../themes";
 import ThemeEditorHolder from "./ThemeEditorHolder.vue";
 import type {ThemeEditorSession} from "./theme-editor-session";
 

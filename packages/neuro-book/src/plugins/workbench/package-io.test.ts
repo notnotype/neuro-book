@@ -5,7 +5,7 @@
 import {describe, expect, it} from "bun:test";
 import {unzipSync, zipSync} from "fflate";
 
-import {exportPackage, PACKAGE_LIMITS, readPackage} from "./web/theme-editor/package-io";
+import {exportPackage, PACKAGE_LIMITS, readPackage} from "./web/components/theme-editor/package-io";
 import type {UserTheme} from "./shared/user-themes";
 
 const HASH_DAY = `${"a".repeat(64)}.webp`;

@@ -49,6 +49,7 @@ import type SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
+import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-editor/ThemeEditor.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
@@ -438,6 +439,23 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue"),
+    }),
+    defineLabFixture<typeof ThemeEditor>({
+        component: "ThemeEditor",
+        scenes: [
+            {id: "empty", label: "还没有我的主题", input: {props: {themes: [], closable: true}}},
+            {id: "loading", label: "正在读取我的主题", input: {props: {themes: [], closable: true}}},
+            {id: "basic", label: "基本信息", input: {props: {themes: [], closable: true}}},
+            {id: "colors", label: "配色（主色、分组、行内对比度）", input: {props: {themes: [], closable: true}}},
+            {id: "dark", label: "配色，编辑暗色", input: {props: {themes: [], closable: true}}},
+            {id: "fonts", label: "字体", input: {props: {themes: [], closable: true}}},
+            {id: "chrome", label: "活动栏与画框", input: {props: {themes: [], closable: true}}},
+            {id: "scene", label: "场景与取景（还没有场景图）", input: {props: {themes: [], closable: true}}},
+            {id: "contrast", label: "对比度检查：没有不合格项", input: {props: {themes: [], closable: true}}},
+            {id: "failing", label: "对比度检查：弱化文字太淡", input: {props: {themes: [], closable: true}}},
+            {id: "colors-english", label: "配色，英文界面", input: {props: {themes: [], closable: true}}},
+        ],
+        load: async () => withWorkbenchText((await import("./ThemeEditorFixture.vue")).default, ["colors-english"]),
     }),
     defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",

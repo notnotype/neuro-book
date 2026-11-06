@@ -6,7 +6,7 @@
 import {defineComponent, h} from "vue";
 import type {Component} from "vue";
 
-import type {ThemeEntry} from "../themes";
+import type {ThemeEntry} from "../../themes";
 import type {ThemeEditorSession} from "./theme-editor-session";
 
 export function themeEditorPage(session: ThemeEditorSession, themes: () => ReadonlyArray<ThemeEntry>): {readonly load: () => Promise<Component>} {

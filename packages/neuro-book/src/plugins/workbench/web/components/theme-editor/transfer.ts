@@ -3,11 +3,18 @@
  * `package-io.ts`（纯函数）。导入分两步：先把所有素材传完，再写主题；中途任何一步失败都不留下半个主题。
  */
 
-import {userThemeSceneUrl} from "../themes";
-import type {ThemeDeclaration} from "../../shared/themes";
+import {userThemeSceneUrl} from "../../themes";
+import type {ThemeDeclaration} from "../../../shared/themes";
 import {exportPackage, readPackage} from "./package-io";
 import {uploadScene} from "./scene-upload";
 import type {ThemeEditorModel} from "./theme-editor-model";
+
+/** 编辑器主体要的两个动作：由持有者（`ThemeEditorHolder`）用真实的请求实现，Lab 里换成空的。 */
+export interface ThemeTransfer {
+    /** 导出当前选中的主题；没有选中的主题时返回 null。 */
+    exportTheme(): Promise<TransferResult | null>;
+    importArchive(archive: Uint8Array): Promise<TransferResult>;
+}
 
 export type TransferResult = {readonly ok: true; readonly message: {readonly key: "exported" | "exportedWarn" | "imported"; readonly params: Readonly<Record<string, string | number>>}} | {readonly ok: false; readonly message: {readonly key: "exportFailed" | "importFailed"; readonly params: Readonly<Record<string, string>>}};
 
