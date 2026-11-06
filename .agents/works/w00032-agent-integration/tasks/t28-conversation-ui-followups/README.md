@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t28-conversation-ui-followups
-status: planned
+status: active
 updated: 2026-11-06
 ---
 
@@ -23,10 +23,26 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 其余记到 [t29](../t29-ui-polish-after-t15/README.md)。
 
+## 计划的决定（开发者 2026-11-06）
+
+1. Agent 模式留在 t28，作为最后一批。
+2. 模型选择器选角色时存成 `role:<id>`，放在会话的模型设置里。
+3. 上下文检查器不做缓存时间线与请求选择，只显示累计和最近一次的命中率。
+
+## Agent 模式（开发者 2026-11-06，待调研后定稿）
+
+开发者重新对了一遍，和 [t06](../t06-approval/README.md) 决定 2 不同（那条写的是 discuss、plan 为只读模式，写与执行弹审批，优先于审批模式）：
+
+- `normal`：默认模式，提示词不注入特殊限定，允许读写和执行。权限和安全靠白名单、黑名单、auto 模式或完全访问。
+- `discuss`：只讨论，可以用只读 shell 和临时目录。这些通过提示词口头约定，权限同样靠黑白名单、auto 模式或完全访问。
+- `plan`：在 `discuss` 的基础上加一个写计划的任务，和 Claude Code、Codex 一样。
+
+开发者提醒：现在有计划（模式）和权限两个维度，架构可能要稍微改一下；要简单调研 omp、Codex、Claude Code 的做法。调研写到 [`research/2026-11-06-agent-modes-survey.md`](../../research/2026-11-06-agent-modes-survey.md)。
+
 ## 当前状态
 
-开发者 2026-11-06 定下一步做 t28。计划：[plan.md](plan.md)（待开发者确认）。
+开发者 2026-11-06 确认了计划的三点。批 6 的设计等调研回来修订 [plan.md](plan.md)。
 
 ## 下一步
 
-开发者确认计划后交设计审查，按批实施。
+调研回来后修订批 6，一起交设计审查，按批实施。
