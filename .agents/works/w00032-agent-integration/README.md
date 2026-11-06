@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-05
+updated: 2026-11-06
 ---
 
 # NeuroBook 接入 Agent
@@ -55,6 +55,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-05 | 开发者：t13、t14 优先级不高，接下来做 t17；t17 第一版以能真的用它写书为标准，其余拆到 [t28](tasks/t28-conversation-ui-followups/README.md)；t17 做完紧接着做 t11（[t17](tasks/t17-conversation-ui/README.md)） |
 | 2026-11-05 | t17 完成并合入；`agent/conversation.md` 晋升 `implemented`（[t17](tasks/t17-conversation-ui/README.md)） |
 | 2026-11-05 | t11 实现完成并合入：压缩方法三种经贡献点交出、放回、触发点设置、`/compact` 与压缩详情界面；前后端实现审查各一次，成立的都已修；`agent/compaction.md` 待开发者批准晋升（[t11](tasks/t11-compaction/README.md)） |
+| 2026-11-06 | `agent/compaction.md` 晋升 `implemented`（[t11](tasks/t11-compaction/README.md)）。开发者体验后定：下一步做 [t28](tasks/t28-conversation-ui-followups/README.md)，之后 t14、t15；与 t28 无关的反馈记到 [t29](tasks/t29-ui-polish-after-t15/README.md)，这三个做完再优化 |
 
 ## 待确认
 
