@@ -317,6 +317,12 @@
             "title": "Eye Care Sepia"
         }
     },
+    "settingsPages": {
+        "themes": {
+            "title": "Themes",
+            "description": "Make a theme of your own, or see the one in use"
+        }
+    },
     "themeEditor": {
         "title": "Theme editor",
         "close": "Close",
@@ -380,6 +386,16 @@
             "advanced": "Advanced: role variables",
             "advancedHint": "Surfaces and dividers for controls, buttons and panels; write a color or gradient, no images.",
             "clear": "Clear"
+        },
+        "entry": {
+            "openTab": "Open in a tab",
+            "openFloating": "Open in a floating window",
+            "intro": "Make a theme of your own: colors, fonts, the activity bar and scene images are all editable, and the real workbench changes as you edit.",
+            "current": "In use",
+            "switchHint": "To use another theme, pick it under Appearance.",
+            "mine": "My themes",
+            "mineEmpty": "You have no themes of your own yet. Open the editor to make one, or start from any theme.",
+            "inUse": "In use"
         },
         "contrast": {
             "unknown": "No contrast computed: the editor does not parse this form",

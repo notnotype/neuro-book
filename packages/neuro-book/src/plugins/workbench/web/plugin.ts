@@ -19,7 +19,9 @@ import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/con
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
 import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
-import {displayLocale, SETTINGS_CHOICES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
+import {settingsPage} from "nbook/ui/settings/settings-page";
 import {windowNavigationKey, windowPluginFilesKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 
@@ -78,6 +80,10 @@ const Notifications = defineAsyncComponent(() => import("./components/WorkbenchN
  * 贡献真正的头像，这一条随之删去。排在设置齿轮（1000）之上。
  */
 const PROFILE_ITEM = "nbook.workbench.profile";
+/** 设置窗口左栏的“主题”页；标题取约定键 `settingsPages.themes.title`（本地 id 是去掉插件 id 的 `themes`）。 */
+const THEME_SETTINGS_PAGE = "nbook.workbench.themes";
+/** 只在用户层：我的主题存在用户记录里，本作品标签下没有可编辑的东西。 */
+const THEME_SETTINGS_PAGE_DECLARATION: WrittenSettingsPageDeclaration = {icon: "i-lucide-palette", category: "app", order: 20, layers: ["user"], description: workbenchText("settingsPages.themes.description")};
 const PROFILE_DECLARATION: Omit<ActivityBarItemDeclaration, "title"> = {
     icon: "i-lucide-user-round",
     order: 900,
@@ -115,6 +121,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             {capability: COMMANDS_POINT, id: OPEN_THEME_EDITOR_FLOATING_COMMAND, declaration: OPEN_THEME_EDITOR_FLOATING_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: THEME_EDITOR_PAGE_ID, declaration: {icon: "i-lucide-palette"}},
             {capability: WORKBENCH_OVERLAYS_POINT, id: THEME_EDITOR_OVERLAY, declaration: {}},
+            {capability: SETTINGS_PAGES_POINT, id: THEME_SETTINGS_PAGE, declaration: THEME_SETTINGS_PAGE_DECLARATION},
             ...Object.entries(PANEL_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(PART_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(PANE_FOCUS_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
@@ -246,6 +253,11 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
                     [EDITOR_PAGES_POINT]: {[THEME_EDITOR_PAGE_ID]: themeEditorPage(editorSession, () => themes.list)},
                     [WORKBENCH_OVERLAYS_POINT]: {[THEME_EDITOR_OVERLAY]: themeEditorOverlay(editorSession, () => themes.list)},
+                    [SETTINGS_PAGES_POINT]: {[THEME_SETTINGS_PAGE]: settingsPage(async () => (await import("./components/theme-editor/ThemeSettingsPage.vue")).default, () => ({
+                        themes: themes.list,
+                        currentId: effectiveTheme(),
+                        onOpen: (where: "tab" | "floating") => void commands.execute(where === "tab" ? OPEN_THEME_EDITOR_COMMAND : OPEN_THEME_EDITOR_FLOATING_COMMAND, {}, {source: "user"}),
+                    }))},
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
