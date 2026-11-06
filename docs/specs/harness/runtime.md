@@ -127,7 +127,7 @@ owners:
 64. 每次重发前写 `modelFailed{..., retry: {attempt, max, delayMs}}`。带 `retry` 的失败表示这次运行还要接着发，它的半截内容不进请求；`runResult` 累加它的用量，但错误文字不取它。
 65. 等待期间运行状态是 `running`，带 `retry: {attempt, max, resumeAt}`（`resumeAt` 是注入时钟上的毫秒），下一次请求开始后去掉。压缩与审批请求重发时 `phase` 不变。
 66. 对话请求的重发回到运行循环的边界：等待结束后取走等待期间到达的 steer、处理受理的 `compact`、按当前设置解析模型、重新算请求、走完整的模型拦截链。等待不提前结束。
-67. 压缩与审批的请求（`ctx.model`）同样重发，每次重新进模型拦截链；重发用完后才把失败回复交给调用方。`complete()` 同样重发，不写事件。
+67. 压缩与审批的请求（`ctx.model`）同样重发，每次重新进模型拦截链；重发用完后才把失败回复交给调用方。调用方可以传自己的 `signal`：它只中止这一次请求（含重发的等待），运行继续。`complete()` 同样重发，不写事件。
 68. 等待时中止：不再发，按输出 9 收口；那次失败只有一条 `modelFailed`。
 69. 空回复：对话请求的回复没有工具调用、没有非空白文字，且停止原因是 `stop`、`tool`，或是 `length` 而内容完全为空时算空回复（只有思考块也算）。不写 `assistant`，写 `modelFailed{kind: "provider", code: "empty-reply", usage, partial, retry}` 与一条 `continued{by: "core"}` 的提醒，按输出 63 的退避再发，至多 3 次、也不超过 `maxRetries`；用完后运行以 `error`、码 `empty-reply` 收口。不重发时（没给 `retry` 或 `maxRetries` 是 0）按普通回复写下。
 
