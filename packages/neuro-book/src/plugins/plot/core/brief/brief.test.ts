@@ -601,3 +601,32 @@ describe("plot.brief 晋升前补的用例：读哪个位置、在场的人、�
         expect(appearance).not.toContain("哥哥能回溯");
     });
 });
+
+describe("plot.brief 输出 2、4：本章计划里引到的条目不漏", () => {
+    test("公开目标的冲突列表加上一个绝密的隐秘目标：只写“某某的一个隐秘目标”，不写它的名字", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const hero = w.person("勇者");
+        const k = w.point("管家想继承爵位", butler, {保密: "topSecret"});
+        w.change(chapter("ch3"), {patches: [addRow(butler, k, {程度: "knows"})]});
+        const hidden = w.goal("毒死男爵继承爵位", butler, {隐秘: {ref: k}});
+        const open = w.goal("保护男爵", hero);
+        w.change(chapter("ch4"), {kind: "plan", text: "勇者起疑", cast: [{who: butler, role: "present"}, {who: hero, role: "present"}], patches: [{op: "listAdd", at: {entry: open, path: "goal.冲突"}, value: {id: hidden}}]});
+        const result = brief(w, "ch4");
+        expect(result.text).not.toContain("毒死男爵");
+        expect(section(result, "plan")).toContain(fixed.hiddenGoalOf("管家"));
+    });
+
+    test("整段写一个引用列表：写名字，不写条目 id；绝密知识点只写“一件不便写出的事”这类占位", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const secret = w.point("勇者是王子", hero, {保密: "topSecret"});
+        const open = w.point("城门今晚关", null);
+        const goal = w.goal("公开目标", hero);
+        w.change(chapter("ch2"), {kind: "plan", text: "计划", cast: [{who: hero, role: "present"}], patches: [{op: "set", at: {entry: goal, path: "goal.基于"}, value: [{id: secret}, {id: open}]}]});
+        const plan = section(brief(w, "ch2"), "plan");
+        expect(plan).toContain("城门今晚关");
+        expect(plan).not.toContain(secret);
+        expect(plan).not.toContain("勇者是王子");
+    });
+});

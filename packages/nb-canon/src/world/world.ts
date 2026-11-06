@@ -519,9 +519,9 @@ export class World {
         const entryOf = (id: string) => written.get(id) ?? this.data.entries.get(id);
         let prehistoryEnd = Math.max(-1, ...[...this.data.changes.values()].flatMap((change) => (change.at.kind === "prehistory" ? [change.at.order] : [])));
         const prehistory: PrehistoryPending = {ids: new Set(), next: () => ++prehistoryEnd};
-        const tailKey = tailKeys(this, request);
+        const tailKey = tailKeys(this, request, this.options);
         for (const put of request.puts) {
-            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator, entryOf, prehistory, tailKey, this.object(put.ref));
+            const after = put.after === null ? undefined : fillDefaults(put.ref.kind, structuredClone(put.after), request, this.options, allocator, entryOf, prehistory, tailKey, compensation ? undefined : this.object(put.ref));
             if (after !== undefined) {
                 const shapeProblems = schemaProblems(OBJECT_SCHEMAS[put.ref.kind], after);
                 if (shapeProblems !== null) {
@@ -1088,10 +1088,25 @@ interface PrehistoryPending {
 }
 
 /**
+ * 一条安放在章上的变更存下时的排序键（revisions.md 输出 18）；要排到本章最后时返回 null。`previous` 是它写之前的样子（新建、补偿修订没有）：
+ * 补偿修订按原样恢复，不重新算键。
+ */
+function changeKey(change: StoryChange & {at: {key?: number}}, previous: StoryChange | undefined, options: WorldOptions): number | null {
+    const at = change.at as {kind: "chapter"; chapter: string; key?: number};
+    const bodyQuote = (tellings: unknown) => (objectItems(tellings).map(([, telling]) => telling) as Telling[]).find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
+    const quote = bodyQuote(change.told);
+    const index = quote === undefined ? -1 : (options.chapterText(at.chapter) ?? "").indexOf(quote);
+    if (typeof at.key !== "number") return index >= 0 ? index : null;
+    // 给已有记录补上第一条正文讲述：它现在按正文排。写的人同时改了键的，按写的。
+    if (index >= 0 && previous?.at.kind === "chapter" && previous.at.chapter === at.chapter && previous.at.key === at.key && bodyQuote(previous.told) === undefined) return index;
+    return at.key;
+}
+
+/**
  * 没给排序键、也没有正文讲述的记录排在这条线这一章的最后（revisions.md 输出 18）；同一请求里几条按写的先后。看线视图里的记录（worldlines 输出 19）：
  * 切口在这一章时它在视图里，所以键必然晚于切口。这条线是这次新开的（还没有视图）时看全部记录。
  */
-function tailKeys(world: World, request: WriteRequest): (chapter: string, line: string) => number {
+function tailKeys(world: World, request: WriteRequest, options: WorldOptions): (chapter: string, line: string) => number {
     const last = new Map<string, number>();
     return (chapter, line) => {
         const key = `${line}\u0000${chapter}`;
@@ -1101,10 +1116,18 @@ function tailKeys(world: World, request: WriteRequest): (chapter: string, line: 
             top = -1;
             for (const change of records.changes.values()) if (change.at.kind === "chapter" && change.at.chapter === chapter) top = Math.max(top, change.at.key);
             for (const check of records.checks.values()) if (check.place.kind === "chapter" && check.place.chapter === chapter) top = Math.max(top, check.place.key);
-            // 同一请求里显式给了键的记录也算：写在它们后面的没给键的记录不能排到它们前面。
+            // 同一请求里键已定的记录也算（显式给的、按正文讲述算出来的）：没给键的记录要排在它们后面。
             for (const put of request.puts) {
-                const placed = put.after === null || typeof put.after !== "object" ? undefined : (put.after as {at?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}; place?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}}).at ?? (put.after as {place?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}}).place;
-                if (placed?.kind === "chapter" && placed.chapter === chapter && (placed.line ?? MAIN_LINE) === line && typeof placed.key === "number") top = Math.max(top, placed.key);
+                if (put.after === null || typeof put.after !== "object") continue;
+                if (put.ref.kind === "change") {
+                    const written = put.after as StoryChange & {at: {key?: number}};
+                    if (written.at?.kind !== "chapter" || written.at.chapter !== chapter || (written.at.line ?? MAIN_LINE) !== line) continue;
+                    const key = changeKey(written, world.object(put.ref) as StoryChange | undefined, options);
+                    if (key !== null) top = Math.max(top, key);
+                } else if (put.ref.kind === "check") {
+                    const place = (put.after as {place?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}}).place;
+                    if (place?.kind === "chapter" && place.chapter === chapter && (place.line ?? MAIN_LINE) === line && typeof place.key === "number") top = Math.max(top, place.key);
+                }
             }
         }
         last.set(key, top + 1);
@@ -1128,13 +1151,8 @@ function fillDefaults(kind: ObjectKind, after: unknown, request: WriteRequest, o
         // 主线的 `line` 不存（canon/worldlines.md“边界与兼容”）：只有主线的作品日志逐字节不变。
         if (at !== null && typeof at === "object" && at.line === MAIN_LINE) delete (at as {line?: string}).line;
         if (at?.kind === "chapter") {
-            const bodyQuote = (tellings: unknown) => (objectItems(tellings).map(([, telling]) => telling) as Telling[]).find((telling) => telling.source === "chapter" && telling.chapter === at.chapter && telling.quote !== undefined)?.quote;
-            const old = previous as StoryChange | undefined;
-            const quote = bodyQuote(change.told);
-            const index = quote === undefined ? -1 : (options.chapterText(at.chapter) ?? "").indexOf(quote);
-            if (typeof at.key !== "number") (change.at as {key: number}).key = index >= 0 ? index : tailKey(at.chapter, at.line ?? MAIN_LINE);
-            // 给已有记录补上第一条正文讲述：它现在按正文排（输出 18）。写的人同时改了键的，按写的。
-            else if (index >= 0 && old?.at.kind === "chapter" && old.at.chapter === at.chapter && old.at.key === at.key && bodyQuote(old.told) === undefined) (change.at as {key: number}).key = index;
+            const key = changeKey(change, previous as StoryChange | undefined, options);
+            (change.at as {key: number}).key = key ?? tailKey(at.chapter, at.line ?? MAIN_LINE);
         }
         if (authored) for (const [, patch] of objectItems(change.patches)) if (patch.basis === undefined && typeof patch.value === "number") patch.basis = {kind: "author"};
         if (at?.kind === "prehistory" && typeof (at as {order?: unknown}).order !== "number") {

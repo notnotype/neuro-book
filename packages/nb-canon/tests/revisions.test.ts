@@ -616,3 +616,43 @@ describe("canon.project 失败码 not-found（补）：对象、修订不存在"
         expect(missing.ok === false && missing.failure.code === "validation-failed" && missing.failure.problems.map((problem) => [problem.code, problem.ref])).toEqual([["not-found", {kind: "entry", id: "e404"}]]);
     });
 });
+
+describe("canon.revisions 输出 18：排序键与同一请求、补偿修订", () => {
+    const keyOf = (world: World, id: string) => (world.data.changes.get(id)!.at as {key: number}).key;
+    const told = (chapter: string, quote: string) => [{source: "chapter" as const, chapter, quote}];
+    const keyless = (id: string, chapter: string, extra: Partial<StoryChangeDraft> = {}) => {
+        const {at: _at, ...rest} = change(id, chapter, []);
+        return {...rest, at: {kind: "chapter", chapter}, ...extra} as unknown as StoryChangeDraft;
+    };
+
+    test("同一请求里给已有记录补第一条讲述、又新建没给键的记录：新记录排在重新算键的那条后面", () => {
+        const written = ok(start().publish(request([{ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", "ch2", [], {at: {kind: "chapter", chapter: "ch2", key: 1}})}], {baseVersion: 1}), "t"));
+        const id = written.ids["tmp:a"]!;
+        const position = TEXT.ch2!.indexOf("又花了三千五");
+        const next = ok(written.world.publish(request([
+            {ref: {kind: "change", id: "tmp:n"}, after: keyless("tmp:n", "ch2")},
+            {ref: {kind: "change", id}, after: {...structuredClone(written.world.data.changes.get(id)!), told: told("ch2", "又花了三千五")}},
+        ], {baseVersion: 2}), "t"));
+        expect(keyOf(next.world, id)).toBe(position);
+        expect(keyOf(next.world, next.ids["tmp:n"]!)).toBe(position + 1);
+    });
+
+    test("同一请求里另一条按讲述算出键：没给键也没有讲述的记录排在它后面", () => {
+        const next = ok(start().publish(request([
+            {ref: {kind: "change", id: "tmp:n"}, after: keyless("tmp:n", "ch2")},
+            {ref: {kind: "change", id: "tmp:q"}, after: keyless("tmp:q", "ch2", {told: told("ch2", "又花了三千五")})},
+        ], {baseVersion: 1}), "t"));
+        expect(keyOf(next.world, next.ids["tmp:n"]!)).toBeGreaterThan(keyOf(next.world, next.ids["tmp:q"]!));
+    });
+
+    test("还原去掉讲述的修订：讲述回来，键按原样，不当成补第一条讲述", () => {
+        const written = ok(start().publish(request([{ref: {kind: "change", id: "tmp:a"}, after: change("tmp:a", "ch2", [], {at: {kind: "chapter", chapter: "ch2", key: 100}, told: told("ch2", "又花了三千五")})}], {baseVersion: 1}), "t"));
+        const id = written.ids["tmp:a"]!;
+        const removed = ok(written.world.publish(request([{ref: {kind: "change", id}, after: {...structuredClone(written.world.data.changes.get(id)!), told: []}}], {baseVersion: 2}), "t"));
+        const undone = removed.world.revert(removed.revision.id, false, {requestId: "undo-told", by: {kind: "author"}}, "t");
+        if (!undone.ok) throw new Error(JSON.stringify(undone.failure));
+        expect(keyOf(undone.world, id)).toBe(100);
+        expect(undone.world.data.changes.get(id)!.told).toHaveLength(1);
+        expect(undone.revision.impact.rekeyed).toBeUndefined();
+    });
+});

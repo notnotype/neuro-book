@@ -247,6 +247,38 @@ describe("canon.rendering 输出 12、13：读取之后世界前进过", () => {
         expect(send(now, base, fresh.replace("魔力 {", "魔法力 {"))).toMatchObject({ok: false, failure: {code: "version-conflict"}});
     });
 
+    test("同一个请求 id 重试：回第一次的修订，不是后来的别的修订", () => {
+        const base = world();
+        const requestId = id();
+        const input = {requestId, by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual" as const, text: blockOf(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}"), intent: "story" as const};
+        const first = ok(writeBack(base, input, "t"));
+        const unrelated = later(first.world);
+        const retried = ok(writeBack(unrelated, input, "t"));
+        expect(retried.repeated).toBe(true);
+        expect(retried.revision.id).toBe(first.revision.id);
+        expect(retried.world.version).toBe(unrelated.version);
+    });
+
+    test("章讲的线换了、世界版本没变：照带渲染给的位置，读的还是原来那条线，不把旧线的值写到新线", () => {
+        const base = world();
+        const forked = ok(base.publish({requestId: id(), by: author, what: "edit", title: "分叉", baseVersion: base.version, puts: [
+            {ref: {kind: "change", id: "tmp:cut"}, after: {id: "tmp:cut", kind: "written", text: "切口", at: {kind: "chapter", chapter: "ch4", key: 1}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: author}},
+        ]}, "t"));
+        const cut = forked.ids["tmp:cut"]!;
+        const branched = ok(forked.world.publish({requestId: id(), by: author, what: "edit", title: "分叉", baseVersion: forked.world.version, puts: [
+            {ref: {kind: "change", id: "tmp:f"}, after: {id: "tmp:f", kind: "written", nature: "fork", fork: {line: "tmp:r", name: "支线", parent: "main", cut, type: "branch"}, text: "分叉", at: {kind: "chapter", chapter: "ch4", key: 2}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: author}},
+            {ref: {kind: "change", id: "tmp:own"}, after: {id: "tmp:own", kind: "written", text: "支线上改", at: {kind: "chapter", chapter: "ch5", key: 1, line: "tmp:r"}, told: [], involves: [], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: 500, basis: {kind: "author"}}], status: "active", by: author}},
+        ]}, "t"));
+        const line = branched.ids["tmp:r"]!;
+        const rendered = renderEntryForAgent(branched.world, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        const switched = branched.world.withOptions({...branched.world.options, chapterLines: new Map([["ch5", [{line, from: 1}]]])});
+        expect(switched.version).toBe(branched.world.version);
+        const result = writeBack(switched, {requestId: id(), by: author, entry: "e1", block: "b1", position: rendered.position, version: rendered.version, mode: rendered.mode, text: rendered.blocks[0]!.text, intent: "story"}, "t");
+        expect(result.ok && result.repeated).toBe(true);
+        expect(switched.line(line)?.engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3610}}}}});
+    });
+
     test("重新读到新版本后再交回：照常发布", () => {
         const now = later(world());
         const result = send(now, now, blockOf(now).replace("{panel.魔力 = 3160}", "{panel.魔力 = 3000}"), "story");

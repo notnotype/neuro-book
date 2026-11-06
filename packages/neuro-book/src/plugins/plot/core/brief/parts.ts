@@ -44,15 +44,40 @@ const fieldLabel = (frame: Frame, entry: string, namespace: string, field: strin
 
 const isEntry = (frame: Frame, id: string) => frame.view.object({kind: "entry", id}) !== undefined;
 
+/** 本章计划里提到一个条目：隐秘目标与保密以上的知识点不写名字（输出 4）；不是条目的（列表元素自己的 id）原样写。 */
+function shownName(frame: Frame, secrets: SecretsResult, id: string): string {
+    const hidden = secrets.hiddenGoals.get(id);
+    if (hidden !== undefined) return fixed.hiddenGoalOf(nameOf(frame, hidden.holder));
+    return isEntry(frame, id) ? pointName(frame, secrets, id) : id;
+}
+
+/** 表里的一行：“名字（字段：值；…）”。 */
+function rowText(frame: Frame, secrets: SecretsResult, row: Record<string, unknown>): string {
+    const cells = Object.entries(row).flatMap(([key, value]) => (key === "id" || key === "label" || value === null || value === undefined ? [] : [`${key}：${valueText(frame, secrets, value)}`]));
+    return `${typeof row.label === "string" ? row.label : shownName(frame, secrets, String(row.id))}${cells.length === 0 ? "" : `（${cells.join("；")}）`}`;
+}
+
+/** 值的写法：引用写名字，列表写每一行，不把条目 id 写给写手。 */
+function valueText(frame: Frame, secrets: SecretsResult, value: unknown): string {
+    if (value === null || value === undefined) return fixed.NONE;
+    if (Array.isArray(value)) return value.length === 0 ? fixed.NONE : value.map((item) => (item !== null && typeof item === "object" ? rowText(frame, secrets, item as Record<string, unknown>) : json(item))).join("、");
+    if (typeof value === "object") {
+        const ref = (value as {ref?: unknown}).ref;
+        if (typeof ref === "string") return shownName(frame, secrets, ref);
+        if (typeof (value as {id?: unknown}).id === "string") return rowText(frame, secrets, value as Record<string, unknown>);
+    }
+    return json(value);
+}
+
 /** 一个地址在简报里的写法（输出 2）：“星瑾的状态”“星瑾对哥哥的态度”。字段写显示名，不写命名空间；以条目为键的列表的一行写成“对某某”。 */
-function fieldPhrase(frame: Frame, at: Patch["at"]): string {
+function fieldPhrase(frame: Frame, secrets: SecretsResult, at: Patch["at"]): string {
     const owner = nameOf(frame, at.entry);
     const parsed = /^([^.[\]]+)\.([^.[\]]+)(?:\[([^\]]+)\](?:\.(.+))?)?$/u.exec(at.path);
     if (parsed === null) return `${owner}的${at.path}`;
     const [, namespace, field, element, sub] = parsed as unknown as [string, string, string, string | undefined, string | undefined];
     const label = fieldLabel(frame, at.entry, namespace, field);
     if (element === undefined) return `${owner}的${label}`;
-    return isEntry(frame, element) ? `${owner}对${nameOf(frame, element)}的${sub ?? label}` : `${owner}的${label}（${element}）${sub === undefined ? "" : `的${sub}`}`;
+    return isEntry(frame, element) ? `${owner}对${shownName(frame, secrets, element)}的${sub ?? label}` : `${owner}的${label}（${element}）${sub === undefined ? "" : `的${sub}`}`;
 }
 
 /** 增减列表一行的写法。引到的知识点按 `pointName` 写：保密以上的不写名字。 */
@@ -60,15 +85,8 @@ function listLine(frame: Frame, secrets: SecretsResult, patch: Patch): string {
     const parsed = /^([^.[\]]+)\.([^.[\]]+)$/u.exec(patch.at.path);
     const label = parsed === null ? patch.at.path : fieldLabel(frame, patch.at.entry, parsed[1]!, parsed[2]!);
     const owner = nameOf(frame, patch.at.entry);
-    const shown = (id: string) => (isEntry(frame, id) ? pointName(frame, secrets, id) : id);
-    if (patch.op === "listRemove") return `${owner}的${label}：去掉${shown(String(patch.value))}`;
-    const row = (patch.value ?? {}) as Record<string, unknown>;
-    const cells = Object.entries(row).flatMap(([key, value]) => {
-        if (key === "id" || key === "label" || value === null || value === undefined) return [];
-        const ref = typeof value === "object" ? (value as {ref?: unknown}).ref : undefined;
-        return [`${key}：${typeof ref === "string" ? shown(ref) : json(value)}`];
-    });
-    return `${owner}的${label}：加上${typeof row.label === "string" ? row.label : shown(String(row.id))}${cells.length === 0 ? "" : `（${cells.join("；")}）`}`;
+    if (patch.op === "listRemove") return `${owner}的${label}：去掉${shownName(frame, secrets, String(patch.value))}`;
+    return `${owner}的${label}：加上${rowText(frame, secrets, (patch.value ?? {}) as Record<string, unknown>)}`;
 }
 
 /**
@@ -109,7 +127,7 @@ export function planItems(frame: Frame, plans: readonly StoryChange[], secrets: 
             const values = steps.flatMap((step) => (step.kind === "init" || step.kind === "carried" ? [{value: step.value, change: undefined as string | undefined}] : step.kind === "patch" ? [{value: step.result, change: step.change}] : []));
             const at = values.findIndex((item) => item.change === plan.id);
             if (at === -1) continue;
-            lines.push(`${fieldPhrase(frame, patch.at)}：${json(at === 0 ? null : values[at - 1]!.value)} → ${json(values[at]!.value)}`);
+            lines.push(`${fieldPhrase(frame, secrets, patch.at)}：${valueText(frame, secrets, at === 0 ? null : values[at - 1]!.value)} → ${valueText(frame, secrets, values[at]!.value)}`);
         }
         return {label: `计划 ${plan.id}`, text: lines.join("\n")};
     });

@@ -47,7 +47,8 @@ export function renderEntryForAgent(world: World, entry: string, position: ReadP
     const view = engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
     const shared = context(engine, world, entry, position, mode, options);
-    return {version: world.version, position, mode, blocks: view.text.map((block) => renderBlockForAgent(block.id, block.source, shared))};
+    // 位置里写明读的是哪条线：回写照带。章讲的线换了不加世界版本（宿主改活页夹），不写明的话，交回时会按新的线读，把旧线的值当成对新线的改动（输出 12）。
+    return {version: world.version, position: {...position, line: world.positionLine(position, mode)}, mode, blocks: view.text.map((block) => renderBlockForAgent(block.id, block.source, shared))};
 }
 
 /**

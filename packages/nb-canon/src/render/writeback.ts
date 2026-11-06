@@ -206,6 +206,9 @@ const REF_TAG = /<Ref\s+id=("(?:[^"\\]|\\.)*")\s+name="(?:[^"\\]|\\.)*"\s*\/>/gu
 export function writeBack(world: World, input: WriteBackInput, time: string): WriteBackResult {
     // 计划里的值不是现在的值：按计划模式读到的块原样交回也会被当成改动，悄悄改写设定。
     if (input.mode !== "actual") return {ok: false, failure: {code: "planned-not-writable"}};
+    // 同一个请求 id 已经发布过：断线重试拿到的是第一次的修订（revisions.md 输出 16），不再按现在的世界比一遍。
+    const published = world.requested(input.requestId);
+    if (published !== undefined) return {ok: true, world, revision: published, ids: {}, repeated: true};
     const engine = world.lineAt(input.position, "actual")?.engine;
     if (engine === undefined) return {ok: false, failure: {code: "line-not-found"}};
     const view = engine.entry(input.entry, input.position, "actual");
