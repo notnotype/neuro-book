@@ -91,6 +91,10 @@ updated: 2026-11-06
 
 第 1、2、3 片已合入 master。
 
+开发者 2026-11-06 试了第 3 片的 Lab：指出最大化时 ea、eb、e3 也跟着变（从布局里摘掉，还原时重新长一遍）；其它没发现问题。改成最大化盖在上面，别的面板不动，Spec 与计划已改。
+
+第 4 片已合入（不接产品）：`layout-doc-store`、`default-tree`、`layout-constraints`、`shell/adjacency`，17 + 10 条单元测试（真实 storage）。写的时候抓到：别的窗口保存后本窗口显示被带着变，改成打开时只读一次记录。
+
 ## 下一步
 
-开发者在 Lab 试跨面板的手感（`/lab?c=NestedGrid&s=panels`），确认后做第 4 片。
+第 5 片：`WorkbenchSurface`、面板头、工具条，Lab 场景。
