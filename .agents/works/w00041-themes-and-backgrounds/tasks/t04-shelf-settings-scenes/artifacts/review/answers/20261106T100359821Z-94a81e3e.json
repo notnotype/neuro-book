@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t04-shelf-settings-scenes",
+    "artifactId": "review",
+    "answerId": "20261106T100359821Z-94a81e3e",
+    "artifactVersion": 1,
+    "contentHash": "f8cd9c87e2f48d31b7d60e6f65025a794632640699539357eeebd2be571a7388",
+    "submittedAt": "2026-11-06T10:03:59.015Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-shelf": "full",
+        "r1-settings": "veil"
+    },
+    "comments": {},
+    "note": null
+}
