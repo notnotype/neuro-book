@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00032 t06 权限与 Agent 模式：评审板</title>
+<style>
+body { max-width: 1100px; margin: 24px auto; padding: 0 16px; font: 15px/1.7 system-ui, sans-serif; }
+.row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+figure { margin: 0; }
+figcaption { margin-bottom: 6px; font-weight: 600; }
+img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px; }
+.badge { padding: 1px 6px; border-radius: 4px; background: #e8a33d33; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>t06 权限与 Agent 模式</h1>
+
+<section data-nbdev-question="mode-control" data-nbdev-type="single" data-nbdev-recommend="two-controls">
+  <h2><span class="badge" data-nbdev-skip>待定</span>模式控件保持两个，还是合成一个菜单</h2>
+  <p>现状见下面两张图。真实应用里现在只有审批模式的下拉（第一张，点开的样子）：宿主还没接 Agent 模式。Agent 模式的按钮组件已有，点一下切到下一种，只在 Lab 里能看到（第二张，“普通”）。Spec 写的是一个菜单分两组，和实现不符，<code>DropdownMenu</code> 也没有组标题。</p>
+  <div class="row">
+    <figure><figcaption>真实应用接法：只有审批模式下拉</figcaption><img src="r1/app-today.webp" alt="输入框工具栏上的审批模式下拉，点开后列出每次询问、放行写入、全部放行"></figure>
+    <figure><figcaption>Lab：Agent 模式按钮，显示“普通”</figcaption><img src="r1/lab-mode-chip.webp" alt="输入框工具栏上显示普通的 Agent 模式按钮"></figure>
+  </div>
+  <div data-nbdev-option="two-controls" data-nbdev-label="A 两个控件并排（推荐）">
+    <p>工具栏依次是 Agent 模式按钮、审批模式下拉。两个状态一直看得见，Agent 模式一键切换、Shift+Tab 同样。窄屏两个都只剩图标。</p>
+  </div>
+  <div data-nbdev-option="one-menu" data-nbdev-label="B 合成一个菜单">
+    <p>工具栏一个按钮，点开分“Agent 模式”“审批模式”两组。占地少，但按钮只能显示一个状态，另一个要点开才看到；要给 <code>DropdownMenu</code> 加组标题。</p>
+  </div>
+</section>
+</body>
+</html>
