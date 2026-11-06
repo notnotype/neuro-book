@@ -5,13 +5,13 @@
 
 # WorkbenchDragFeedback
 
-工作台拖放的三样反馈（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳三输出 22）：跟着指针的拖影（拖动源的图标加标题，容器与视图同一种），拖动时浮出的预备区（此刻没显示的 Part 显示出来会在的地方），以及落点预览（Switcher 的一条插入线，或内容区接收的那一半、剩余区、空 Part 的整个内容区）。它是受控的：拖动会话（`views/drag-session.ts`）算好预览，外壳把它和文字传进来，这里只画。
+工作台拖放的三样反馈（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 29、30）：跟着指针的拖影（拖动源的图标加标题），拖动时浮出的预备区（此刻没显示的具名面板显示出来会在的地方），以及落点预览（标签条或活动栏的一条插入线，或提交后的矩形）。它是受控的：拖动（`layout-drag.ts`）算好预览，外壳把它和文字传进来，这里只画。
 
 ## 布局
 
 拖影放到 `body` 下，`position: fixed`，在指针右下 12px，`pointer-events: none`。落点预览交给 nb-layout `DropFeedbackOverlay`（内缩、提示药丸、淡入与 aria-live 播报都在那里）。两者都带 `data-drag-feedback`：命中检测跳过它们，所以它们不会挡住落点。拖动源本身原地不动，不降透明度、不插占位。
 
-预备区也放到 `body` 下，`position: fixed`、`pointer-events: none`、带 `data-drag-feedback`：会话先按 DOM 命中真实落点，落空才按矩形找预备区，所以它不挡真实落点。每块是半透明的面板底（`--panel-surface` 72%）加强调色 45% 的虚线框，内缩 4px，中央一枚图标加 Part 名称；`active` 的那块（指针正停在上面）提示淡出，让给落点高亮的“放到 X”。拖动开始时淡入、结束或取消时淡出（`--motion-base`，减少动效时没有过渡）。根带 `data-reveal-zone`（Part），正停在上面时带 `data-reveal-active`。
+预备区也放到 `body` 下，`position: fixed`、`pointer-events: none`、带 `data-drag-feedback`：会话先按 DOM 命中真实落点，落空才按矩形找预备区，所以它不挡真实落点。每块是半透明的面板底（`--panel-surface` 72%）加强调色 45% 的虚线框，内缩 4px，中央一枚图标加面板名称；`active` 的那块（指针正停在上面）提示淡出，让给落点高亮的“放到 X”。拖动开始时淡入、结束或取消时淡出（`--motion-base`，减少动效时没有过渡）。根带 `data-reveal-zone`（面板名），正停在上面时带 `data-reveal-active`。
 
 拖动进行中，会话在根元素上写 `data-workbench-dragging`；本组件的全局样式据此把整页光标换成抓手、禁止扩选文字，并撤掉拖动源上按钮按下的缩放（按住期间 `:active` 会一直生效），源保持原尺寸。
 

@@ -382,10 +382,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             stops: stopsOf,
             // 从来源自己的位置开始，直接 Enter 不移动（输出 31）。
             start: (source, regions, origin) => {
-                const home = findTab(options.doc(), source.tab)?.panel;
+                // 从标签拿起：原位是它自己。从活动栏拿起：区域就是活动栏，起点是条目，放回去也是原位（它在面板里的标签可能看不见：面板隐藏、头只写别的视图的标题）。
+                const fromBar = origin.closest("[data-tool-entry]") !== null;
+                const home = fromBar ? BAR_REGION : findTab(options.doc(), source.tab)?.panel;
                 const region = Math.max(0, regions.findIndex((candidate) => candidate.id === home));
-                // 从标签拿起：原位是它自己。从活动栏拿起：它在面板里的标签可能看不见（面板隐藏、头只写别的视图的标题），起点就是条目，放回去也是原位。
-                const own = origin.closest("[data-tool-entry]") === null ? root.querySelector(`[data-panel-tab="${escape(source.tab)}"]`) : null;
+                const own = fromBar ? null : root.querySelector(`[data-panel-tab="${escape(source.tab)}"]`);
                 return {region, at: centerOf(rectOf(own) ?? rectOf(origin) ?? {left: 0, top: 0, right: 0, bottom: 0})};
             },
             refocus: (source) => root.querySelector<HTMLElement>(`[data-panel-tab="${escape(source.tab)}"]`)

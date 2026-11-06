@@ -519,8 +519,8 @@ export const labFixtures: LabFixture[] = [
         component: "WorkbenchDragFeedback",
         events: [],
         scenes: [
-            {id: "line", label: "Switcher 插入线与拖影", input: {props: {ghost: {label: "资源管理器", icon: "i-lucide-files", x: 220, y: 140}, preview: {areaRect: null, entryRect: null, indicator: {left: 180, top: 96, right: 182, bottom: 128}, orientation: "horizontal"}, label: "新建容器", kind: "detach-view"}}},
-            {id: "area", label: "边缘并入的半区", input: {props: {ghost: {label: "终端", icon: "i-lucide-terminal", x: 320, y: 260}, preview: {areaRect: {left: 120, top: 200, right: 520, bottom: 320}, entryRect: null, indicator: null, orientation: "vertical"}, label: "移到这里", kind: "move-view"}}},
+            {id: "line", label: "标签条的插入线与拖影", input: {props: {ghost: {label: "资源管理器", icon: "i-lucide-files", x: 220, y: 140}, preview: {areaRect: null, entryRect: null, indicator: {left: 180, top: 96, right: 182, bottom: 128}, orientation: "horizontal"}, label: "放在这里", kind: "strip"}}},
+            {id: "area", label: "拆到一边的矩形", input: {props: {ghost: {label: "终端", icon: "i-lucide-terminal", x: 320, y: 260}, preview: {areaRect: {left: 120, top: 200, right: 520, bottom: 320}, entryRect: null, indicator: null, orientation: "vertical"}, label: "拆到这一边", kind: "edge"}}},
             {id: "idle", label: "没有拖动", input: {props: {ghost: null, preview: null, label: "", kind: ""}}},
         ],
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue"),

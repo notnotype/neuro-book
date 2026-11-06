@@ -645,6 +645,28 @@ test.describe("产品页：拖放", () => {
         await expect(frame(page, "panel", "set-panel-collapsed")).toHaveCount(1);
         await dropAt(page, tab(page, F), await inLeaf(page, "sidebar", {x: 0.5, y: 0.92}));
         await expect(frame(page, "sidebar", "set-panel-collapsed")).toHaveCount(1);
+        // 收成标题行之后点标题展开（输出 20）：头只写标题，没有别的标签可点。
+        await frame(page, "sidebar", "set-panel-collapsed").click();
+        await expect.poll(async () => (await leaf(page, "sidebar").boundingBox())!.height).toBe(32);
+        await tab(page, A).click();
+        await expect.poll(async () => (await leaf(page, "sidebar").boundingBox())!.height).toBeGreaterThan(32);
+    });
+
+    test("键盘：从活动栏条目拿起，起点就在活动栏，方向键在条目之间移动，Enter 只换序；活动标签与显隐不变（输出 22、31）", async ({page}) => {
+        await open(page);
+        const order = (): Promise<string[]> => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry ?? ""));
+        const before = await order();
+        expect(before.slice(0, 2)).toEqual([A, B]);
+        await entry(page, B).focus();
+        await page.keyboard.press("Space");
+        await expect(ghost(page)).toBeVisible();
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "noop");
+        await page.keyboard.press("ArrowUp");
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
+        await page.keyboard.press("Enter");
+        await expect(ghost(page)).toHaveCount(0);
+        await expect.poll(order).toEqual([B, A, ...before.slice(2)]);
+        expect((await savedDoc(page))?.panels.sidebar?.active).toBe(`view:${A}`);
     });
 
     test("面板头空白处按住拖动不起拖：整块面板不能拖，面板头的空白也不是 Tab 停靠点（输出 20、24；验收 10）", async ({page}) => {

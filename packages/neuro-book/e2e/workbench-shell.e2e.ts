@@ -61,6 +61,12 @@ const editorContent = (page: Page) => page.locator('[data-content="editor:g0"]')
 const sidebarSash = (page: Page) => page.getByRole("separator", {name: "调整 sidebar 与 center 的宽度"});
 const panelSash = (page: Page) => page.getByRole("separator", {name: "调整 g0 与 panel 的高度"});
 const panelToggle = (page: Page) => page.locator('[data-shell-focus-target="panel-toggle"]');
+/** “显示面板”总在状态栏最右，右侧没有条目时也是（ui/workbench-shell.md 输出 35）。 */
+const expectToggleAtRight = async (page: Page): Promise<void> => {
+    const bar = (await page.locator("[data-workbench-status-bar]").boundingBox())!;
+    const toggle = (await panelToggle(page).boundingBox())!;
+    expect(bar.x + bar.width - (toggle.x + toggle.width)).toBeLessThan(16);
+};
 
 /** 内容被停放：不可交互（`inert`），保持最后的非零尺寸，不卸载（输出 16）。 */
 const parked = (page: Page, selector: string) => expect(page.locator(selector)).toHaveAttribute("inert", "");
@@ -158,6 +164,7 @@ test.describe("产品页", () => {
 
     test("隐藏、收起、最大化：形态互不等价；收起或隐藏退出最大化；最大化不落盘；隐藏时焦点到活动栏条目；显示同时清除收起（输出 11、13、16；验收 5）", async ({page}) => {
         await open(page);
+        await expectToggleAtRight(page);
         await frame(page, "panel", "set-panel-collapsed").click();
         await expect.poll(async () => (await box(page, "panel")).height).toBe(32);
         // 先等收起写进记录，再展开，最后等展开也写进去：下面读到的修订号才是这两次写入之后的，不会被迟到的写入抬高。

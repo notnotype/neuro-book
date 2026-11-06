@@ -219,9 +219,25 @@ export function sameLayoutShape(left: LayoutDoc, right: LayoutDoc): boolean {
         && left.currentEditor === right.currentEditor;
 }
 
+/**
+ * 收起是按所在分支的方向呈现的：纵向是标题行，横向是零宽。一块面板的方向因为结构变了（挨着它开新面板、同一列的兄弟没了），就不再是用户收起时看到的样子，
+ * 而且标题行变零宽之后连头都没了：方向变了就展开。
+ */
+function expandWhereAxisChanged(original: LayoutDoc, next: MutableDoc): void {
+    for (const [id, panel] of Object.entries(next.panels)) {
+        if (panel.collapsed !== true) continue;
+        const before = findTreeNode(original.tree.root, id);
+        if (before !== null && before.parent?.orientation !== findTreeNode(next.tree.root, id)?.parent?.orientation) {
+            const {collapsed: _collapsed, ...expanded} = panel;
+            next.panels[id] = expanded;
+        }
+    }
+}
+
 /** 出口：过规范形、查规模；结果和现状一样时返回原对象。 */
 function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
     next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(next as unknown as LayoutDoc, node));
+    expandWhereAxisChanged(original, next);
     const scale = countScale(next.tree.root);
     if (scale.nodes > GRID_MAX_NODES || scale.depth > GRID_MAX_DEPTH) return failure("limit-exceeded", `节点 ${String(scale.nodes)} 个、深度 ${String(scale.depth)} 层`);
     const doc = next as unknown as LayoutDoc;
@@ -505,7 +521,7 @@ export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; 
     if (anchor === null) return failure("not-found", "目标已不存在");
     if (!policy.accepts(source.tabs, anchor, "edge")) return failure("rejected", "接受矩阵拒绝");
     const next = editable(doc);
-    // 收成标题行是按所在分支的方向呈现的：移到横向分支就成了零宽，放下去的东西要看得见。
+    // 放下去的东西要看得见：同一方向移动也展开。
     const {collapsed: _collapsed, ...expanded} = source;
     next.panels[input.panel] = expanded;
     const aliases = new Map<string, string>();

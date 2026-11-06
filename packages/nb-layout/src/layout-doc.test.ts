@@ -195,6 +195,19 @@ describe("外缘（规则 4、5）", () => {
         expect(okDoc(moveTabToEdge(doc, {tab: "view:b", target: edge(doc, "sidebar", "bottom")}, testPolicy()))).toBe(doc);
     });
 
+    it("收起的面板方向变了就展开：挨着它开新面板、同一列的兄弟没了（标题行变零宽之后连头都没了）", () => {
+        const row = docOf(V(["ea", "panel"]), {panel: {collapsed: true}});
+        const opened = okDoc(openPanelAtEdge(row, {id: "n", panel: {role: "tool", tabs: [], active: null}, target: {kind: "split", panel: "panel", edge: "right"}}, testPolicy()));
+        expect(opened.panels.panel?.collapsed).toBeUndefined();
+        const column = docOf(H([V(["sidebar", "x"], "column"), "ea"]), {sidebar: {collapsed: true}});
+        const removed = okDoc(removeTab(column, "view:x"));
+        expect(shape(removed)).toBe("H[sidebar,ea]");
+        expect(removed.panels.sidebar?.collapsed).toBeUndefined();
+        // 方向没变的不动。
+        const same = docOf(H([V(["sidebar", "x", "y"], "column"), "ea"]), {sidebar: {collapsed: true}});
+        expect(okDoc(removeTab(same, "view:x")).panels.sidebar?.collapsed).toBe(true);
+    });
+
     it("收成标题行的面板移到外缘时展开：换到横向分支就成了零宽", () => {
         const doc = docOf(V(["ea", H(["panel", "x"]), "c"]), {c: {collapsed: true}});
         const result = okDoc(moveTabToEdge(doc, {tab: "view:c", target: edge(doc, "x", "right")}, testPolicy()));

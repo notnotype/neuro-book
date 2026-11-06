@@ -13,7 +13,7 @@ withDefaults(defineProps<{
     /** 跟着指针的拖影：拖动源的图标（视图的图标类，或文件图标）与标题，`x`、`y` 是指针的视口坐标；没有拖动为 null。 */
     ghost: {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null; readonly x: number; readonly y: number} | null;
     /**
-     * 拖动时浮出的预备区：没显示的 Part 显示出来会在的矩形（视口坐标）、名称与图标；`active` 是指针正停在上面的那块，
+     * 拖动时浮出的预备区：没显示的具名面板显示出来会在的矩形（视口坐标）、名称与图标；`active` 是指针正停在上面的那块，
      * 它由落点高亮接管，不再画自己的提示。
      */
     zones?: ReadonlyArray<{readonly part: string; readonly rect: {readonly left: number; readonly top: number; readonly right: number; readonly bottom: number}; readonly label: string; readonly icon: string; readonly active: boolean}>;
@@ -136,8 +136,8 @@ withDefaults(defineProps<{
  * 拖动源保持原尺寸：按钮按下的缩放在拖动开始后撤掉（按住期间 `:active` 会一直生效）。只写 `scale`：与
  * `transform` 写在同一条规则里时，构建的 CSS 压缩会把两者并成一条 `transform`，`scale` 就丢了。
  */
-:root[data-workbench-dragging] :is([data-drag-container], [data-drag-view], [data-tool-entry], [data-panel-tab], [data-panel-head]),
-:root[data-workbench-dragging] :is([data-drag-container], [data-drag-view], [data-tool-entry], [data-panel-tab], [data-panel-head]) * {
+:root[data-workbench-dragging] :is([data-tool-entry], [data-panel-tab]),
+:root[data-workbench-dragging] :is([data-tool-entry], [data-panel-tab]) * {
     scale: 1 !important;
 }
 </style>

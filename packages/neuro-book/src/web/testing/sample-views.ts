@@ -53,7 +53,7 @@ const STOP_DECLARATION: CommandDeclaration = {
     expose: {agent: "never"},
 };
 
-/** 工作台公开的焦点 Part（docs/specs/ui/workbench-shell.md 输出 27）。 */
+/** 工作台公开的当前面板（docs/specs/ui/workbench-layout.md 输出 36）。 */
 const FOCUSED_PART_KEY = "nbook.workbench/focusedPart";
 
 function focusedPartOf(read: PublicStateRead): string {

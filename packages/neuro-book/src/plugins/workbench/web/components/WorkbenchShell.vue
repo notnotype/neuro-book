@@ -147,9 +147,11 @@ const TAB_TRUNCATED_PX = 96;
 const TAB_ICON_PX = 28;
 const FRAME_BUTTON_PX = 26;
 const HEAD_PADDING_PX = 20;
+/** 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。 */
+const collapsibleHere = (panelId: string): boolean => findTreeNode(doc.value.tree.root, panelId)?.parent?.orientation === "vertical";
 function headReserved(panelId: string): number {
     const panel = doc.value.panels[panelId];
-    const frames = panel?.name === undefined ? 2 : 3;
+    const frames = 1 + (collapsibleHere(panelId) ? 1 : 0) + (panel?.name === undefined ? 0 : 1);
     const others = titleOnlyPanels.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
     return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
 }
@@ -188,10 +190,8 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
         const enabled = props.commands.isEnabled(id);
         return {id, icon, label: message(title), disabled: !(enabled.ok && enabled.value), ...(enabled.ok ? {} : {reason: resolver.t(enabled.reason)}), ...(pressed === undefined ? {} : {pressed})};
     };
-    // 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有这个按钮（输出 20）。
-    const collapsible = findTreeNode(doc.value.tree.root, panelId)?.parent?.orientation === "vertical";
     return [
-        ...(collapsible ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true)] : []),
+        ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true)] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
         // 无名面板没有隐藏按钮。
         ...(panel?.name === undefined ? [] : [describe(SET_PART_HIDDEN_COMMAND, "i-lucide-x", "shell.frame.hide")]),

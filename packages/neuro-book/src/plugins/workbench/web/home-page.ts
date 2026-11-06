@@ -4,7 +4,7 @@ import type {Component, ShallowRef, VNode} from "vue";
 import type {HomeProvider, HomeSource} from "./home-slot";
 
 /**
- * 工作台的两个内置页面（docs/specs/ui/workbench-shell.md 外壳一与输出 36–37）：`/` 与 `/workbench`。页面单根：窗口的状态、
+ * 工作台的两个内置页面（docs/specs/ui/workbench-shell.md 输出 36–37）：`/` 与 `/workbench`。页面单根：窗口的状态、
  * 实例与链路标记由页面出口透传到这个根上；窗口绑定了项目时根上带项目短名（`data-workbench-project`，全页只此一处）。
  * 文档根的设置、页面浮层（输出 41）、命令宿主与通知视口两页都挂着；中间是外壳，或者（`/` 页、没有项目、有首页贡献时）首页
  * 贡献的组件。
