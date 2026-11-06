@@ -194,7 +194,7 @@
 ## 验证
 
 - 单元：`nb-layout`、`neuro-book` 按 `bun run test:affected`。
-- 真实浏览器（片 7a、7b、8）：`workbench-shell`、`workbench-views`、`workbench-dnd`、`workbench-titlebar`、`editor-area`、`files-explorer`、`lab-nested-grid`、`lab-grid-structure`、`lab-drag-session`、`lab-scenes`、`lab-explorer`、`lab-editor`、`settings`、`markdown-editing`；依赖会变动的标记的 `plugin-code`、`plugin-authoring`、`editor-types`、`themes`、`markdown-input`、`bookshelf-stats`、`editor-code-settings`；`scripts/perf` 跑一次。
+- 真实浏览器，合入前跑一次，之后只重跑覆盖改动的文件和失败项（开发者 2026-11-06 纠正：片 7a 把这份清单跑了三轮）。片 7b：`editor-area`、`workbench-dnd`、`workbench-shell`、`markdown-editing`、`lab-editor`。片 8：`workbench-shell`、`workbench-views`、`workbench-dnd`、`lab-grid-panels`，加上删掉的旧组件所在的 Lab 场景；`lab-scenes` 等 w00032 的基线修好再看。
 - 真实窗口手感由开发者确认：片 3 一次（Lab），片 7a 一次（产品），片 7b 一次（编辑器）。
 - **未验证边界**：无头软件渲染的帧率只看相对差别；多窗口实际并发只测 store 层。
 
