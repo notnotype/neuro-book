@@ -14,19 +14,31 @@ section { margin-bottom: 32px; }
 </style>
 </head>
 <body>
-<h1>对话界面第二批 · 第 1 轮</h1>
+<h1>对话界面第二批</h1>
+
+<section data-nbdev-question="s3-inspector" data-nbdev-type="confirm">
+<h2>批 2：上下文检查器 <span class="badge" data-nbdev-skip>待定</span></h2>
+<p>点状态栏的上下文圆环或缓存命中打开，顶栏菜单也有入口。数据是假的。上面是下一次请求的组成和压缩线，中间是缓存（本会话与最近一次的命中率，累计用量），下面三块默认收起的只有系统提示词和诊断。不做缓存时间线与请求选择（已定）。</p>
+<div class="row">
+<figure><figcaption>有数据</figcaption><img src="r2/inspector.webp" alt="检查器" width="520"></figure>
+<figure><figcaption>算不出（模型用不了）</figcaption><img src="r2/inspector-unavailable.webp" alt="检查器算不出" width="520"></figure>
+</div>
+<p><strong>这样可以吗？</strong>组成用估算值（内核的 <code>preview</code>，不调模型），所以写了“下一次回复后状态栏显示真实用量”。不可以的话写上要改的地方。</p>
+</section>
+
+<h2>第 1 轮（已定）</h2>
 <p>批 1：模型选择器与状态栏。放在 400px 宽的右栏里看。数据是假的，消息流只占位。</p>
 
-<section data-nbdev-question="s1-picker" data-nbdev-type="single">
-<h2>模型选择器的版式 <span class="badge" data-nbdev-skip>待定</span></h2>
+<section>
+<h3>模型选择器的版式：定了 A</h3>
 <p>旧应用是 620×440 的两栏弹层，右栏放不下，所以改成与输入框同宽。上面是当前生效的模型和思考档，这部分两种候选相同。旧应用的“角色”“模型库”两个分页留不留，就是这一题。</p>
 <div class="row">
-<figure data-nbdev-option="tabs" data-nbdev-recommend>
+<figure>
 <figcaption>A 分页（同旧应用）</figcaption>
 <img src="r1/tabs-roles.webp" alt="分页：角色" width="420">
 <img src="r1/tabs-models.webp" alt="分页：模型库" width="420">
 </figure>
-<figure data-nbdev-option="stacked">
+<figure>
 <figcaption>B 一页到底</figcaption>
 <img src="r1/stacked.webp" alt="一页到底" width="420">
 </figure>
@@ -34,8 +46,8 @@ section { margin-bottom: 32px; }
 <p><strong>推荐 A。</strong>平时只选角色，一页就够，面板也矮；要挑具体模型才切到模型库。B 少点一下，但面板高，要滚动才看得到模型。A 实现时两页用同一高度，切换时面板不跳。</p>
 </section>
 
-<section data-nbdev-question="s2-status" data-nbdev-type="confirm">
-<h2>状态栏窄宽时留什么 <span class="badge" data-nbdev-skip>待定</span></h2>
+<section>
+<h3>状态栏窄宽时留什么：可以</h3>
 <p>现在右栏窄时缓存命中被让掉了，所以你看不到。改成窄的时候右边只留缓存命中和费用，累计、输入、输出放进悬停。放不下时左边的告警先省略。缓存命中和上下文圆环都能点，打开上下文详情。</p>
 <div class="row">
 <figure>
