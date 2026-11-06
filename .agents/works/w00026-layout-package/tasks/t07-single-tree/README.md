@@ -11,7 +11,7 @@ updated: 2026-11-06
 
 按 t03 的设计把 shell/layout、views/placement、container-grid 与 editor/groups 迁到一棵树，三层 Teleport 与 TeleportMemory 能去掉的去掉；布局记录按 t03 的方案迁移；改 Spec 并跑通现有验收。这是这个 Work 影响面最大的一段。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：新建 `docs/specs/ui/workbench-layout.md`（计划第 1 片），切换时取代 `ui/workbench-shell.md` 的外壳一到三。计划见 [`plan.md`](plan.md)。
 
 **开工前的确认点**（开发者 2026-11-05）：t04、t05、t06 交付后，开发者用真实产品的手感再确认一次，确认后才开工。
 
@@ -26,8 +26,8 @@ updated: 2026-11-06
 
 ## 当前状态
 
-2026-11-05 经 nbdev 新建，尚未开工。
+开发者 2026-11-06 回复“可以”开始。计划写好，设计审查进行中；计划里“统一标签条、每标签一实例单列 Task”开发者还没回复，按计划的建议先走。
 
 ## 下一步
 
-待补充。
+处理设计审查，写第 1 片的 Spec，交开发者看。
