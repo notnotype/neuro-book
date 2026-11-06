@@ -1,0 +1,265 @@
+w00026 t16 统一标签条：设计审查报告
+审查对象：.agents/works/w00026-layout-package/tasks/t16-tab-strip/plan.md（第一稿）
+审查方式：只读；对照 master 上的代码与 Spec 逐条核实，可跑的命令已跑（见各条“如何核实”）。按影响排序，编号 F01 起。
+
+==================================================================
+F01  重要 | 事实错误 / 违反包边界 | tab-strip-geometry.ts 放在 nb-layout 核心里读 DOM
+==================================================================
+位置：plan.md:51（packages/nb-layout/src/tab-strip-geometry.ts）、plan.md:53；packages/nb-layout/tsconfig.json（lib 只有 ESNext）、packages/nb-layout/AGENTS.md“边界”第一条
+
+现象：计划把 resolveStripInsertion 搬成“纯读 DOM”的 resolveTabStripInsertion(strip: Element, ...)，路径是 nb-layout 的 src/ 根，也就是核心（. 入口）。
+
+为什么是问题：核心的合同是“不依赖任何包，不依赖 Vue 与 DOM”，tsconfig 的 lib 只有 ESNext，没有 DOM 类型。核心里写 Element、getBoundingClientRect 过不了 tsc。src/boundary.test.ts 只查 import，抓不到，但 typecheck 会红。
+
+如何核实：在 /tmp/review-w00026-t16/probe 里放一个 export function f(strip: Element){return strip.getBoundingClientRect().left}，用与 nb-layout 相同的 tsconfig（lib: ESNext，types: bun）跑 tsc，报 TS2304: Cannot find name 'Element'。
+
+另外，现有 tab-drag.ts 本来就是两层：DOM 读取（linesOf、resolveStripInsertion）和纯算法 resolveListInsertion（已经在核心里，只吃矩形）。
+
+建议改法：拆成两件。读 DOM 的部分（linesOf、visibleTabStops）放 src/vue/（或 TabStrip 的 expose），产出矩形和标签 id 的数据；核心里留一个纯函数，吃“行、成员矩形、点”，返回结果。核心的单元测试用矩形造数据，不需要 happy-dom。计划里“纯读 DOM”的说法要改，切片 1 的“nb-layout 单元”验证也要跟着改成两层。
+
+==================================================================
+F02  重要 | 接口 / 遗漏 | resolveTabStripInsertion 的返回值丢信息：index、partition 在单行固定标签、“收进更多”时都不对
+==================================================================
+位置：plan.md:45、53、55；packages/neuro-book/src/plugins/editor/web/tab-drag.ts:55-93；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:94-107、237-241；packages/nb-layout/src/layout-drop.ts:36
+
+现象：计划让函数“只认 [data-tab-row]、[data-panel-tab]”，返回 {index, partition, indicator, inPlace}，partition 来自分区；单行（wrapTabs 关）时“一个分区”。
+
+问题一，partition 在单行里没法从 DOM 得到。现在的实现（tab-drag.ts:71、77）在单行里用每个标签的 data-editor-tab-pinned 判断落点属于固定区还是普通区（Spec editor 50、55：落点跨过固定与普通的分界时随之固定或取消固定）。计划里单行只有一个分区、行上没有区别，函数无从知道插在固定标签前面还是后面，editor 拿到的 part 恒为同一个值，单行模式下拖动不再能固定或取消固定。
+
+问题二，index 的参照系。现在编辑器的 index 是“这组全部标签在呈现顺序里、摘掉来源之前的位置”（tab-drag.ts:91），靠的是 DOM 里有全部标签（滚出视口的也在）。工具面板用 adapt 时，收进“更多”的标签不在 DOM 里，现在的 insertionIn（layout-drag.ts:94-107）要拿文档的 tabs 做映射，并且约定“收进更多的排在最后一个看得见的后面”。只吃 Element 的通用函数做不到，调用方只能拿到“看得见的标签里的第几个”。
+
+问题三，LayoutDropPanelGeometry.insertionAt(point) => number（layout-drop.ts:36）只返回数字，没有 part、indicator、inPlace。计划只说“工作台直接量 [data-panel-strip=<面板>] [data-tab-strip]”，没有说编辑器路径现在由 editorStripDrop 带回的 part、indicator、inPlace（layout-drag.ts:237-241）在统一后从哪来，LayoutDragDrop.part 怎么给工具面板用。
+
+如何核实：读上面三处；在 wrapTabs 关、有固定标签的组里，现有 e2e 的拖动固定用例就是这条路径。
+
+建议改法：函数返回“前一个、后一个看得见的标签 id”（或 beforeId，null 表示最后一个看得见的之后）、所在行、插入线矩形，不返回 index 和 partition。宿主自己有完整的 items（含 partition、含收进更多的），由宿主把 beforeId 换成文档下标、把邻居的 partition 换成 part、判 inPlace。TabStripItem.partition 就是为此留的字段，单行时分区取每个 item 的 partition，不取行。LayoutDropPanelGeometry 的 insertionAt 返回值改成对象（index、part、indicator、inPlace），或者把 strip 的度量整体交给宿主回调。
+
+==================================================================
+F03  重要 | 遗漏 / 破坏既有约定 | 标题动作的“悬停时显示”在头与正文分开后失效
+==================================================================
+位置：packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:432-436；docs/specs/workbench/editor.md 输出 58；plan.md:64、67
+
+现象：规则是 [data-editor-group]:hover .editor-group__title-actions、[data-editor-group]:focus-within .editor-group__title-actions，依赖标题动作和正文在同一个根里。计划把标题动作搬进 EditorGroupHead，又在头和内容两个根上各写一个 data-editor-group：指针在正文上时，头的根不是 :hover；焦点在正文的编辑器里时，头的根不是 :focus-within。标题动作只有指针在头上、或焦点在头里时才显示，Spec 58 写的是“鼠标位于这个编辑组上、焦点在组里”。
+
+为什么是问题：用户在正文里打字时看不到标题动作，且不会被计划列出的任何一项测试覆盖到（这条规则只有 CSS，没有行为断言的话 e2e 也只在悬停头时才命中）。
+
+如何核实：读 EditorGroup.vue:432-436；Spec 58；对比工具面板：WorkbenchSurface.vue:222-223 已经用 data-hover-actions-scope / data-hover-actions-active 解决“头和内容层不在同一个元素里”，hover-actions.css 开头的注释写的就是这个问题。
+
+建议改法：不用两个根上的 :hover 凑，复用已有机制：Surface 的 data-hover-actions-scope 现在只给 role 为 tool 的卡片（WorkbenchSurface.vue:222），改成所有面板都给，编辑器头里的标题动作容器用 data-hover-actions。EditorGroup 里自己的那段 CSS 删掉。计划的“键位、focusin、focusout、……头的根与内容根都接”清单里应补上这一项。
+
+==================================================================
+F04  重要 | 时序 / 事实偏差 | 头高变化“立刻跟”的方案没有挡住过渡：真正的过渡来自 data-moving 的 CSS，不是 decideMotion
+==================================================================
+位置：plan.md:66；packages/nb-layout/src/grid-motion.ts:28-40（placementMoved）；packages/nb-layout/src/vue/useGridMotion.ts:59-73（decideMotion）；packages/nb-layout/src/vue/NestedGrid.vue:366-372、438-443；packages/nb-layout/src/vue/useContentLayer.ts:75-80
+
+现象与证据：
+
+(a) 计划写“decideMotion 把‘只有 inset 变了、叶矩形都没变’判成瞬时”，像是现成行为。实际 decideMotion 判“动不动”靠 placementMoved，而它对活动内容项比的是内容矩形（item.rect，= 叶矩形减 inset）。inset 变化使内容矩形高度差几十像素，超过 1px 容差，placementMoved 返回 true，decideMotion 返回 move。要做到计划说的行为，需要改 placementMoved（比较叶矩形与 inset 分开），这是库的合同变化，不是“表驱动补测试”。
+
+(b) 更要紧的是，就算 decideMotion 返回 none，内容外框的过渡也不由它控制：NestedGrid 只要 moving 为真，所有 .nb-grid-content[data-moving] 都带 transform/width/height 的 470ms 过渡（NestedGrid.vue:438-443）。头高会变的典型时刻正是外框在过渡中：显示或隐藏侧栏、拆分、关闭编辑组，同一时间本组的宽度逐帧在变（内容 following，头在叶里是 100% 宽，跟着重排），多行标签的行数在过渡中途变一两次。头（在外框里）当帧就多出一行，内容层的上边却要用 470ms 滑过去：内容层的 z-index 比外框高（NestedGrid.vue:407-413），多出来的那一行标签会被内容盖住，直到过渡结束。
+
+如何核实：读上面几处；在 happy-dom 之外要用真实浏览器：一个 3 行标签的编辑组，切换侧栏，观察头底与内容顶。（没有跑 e2e，从代码推断。）
+
+(c) 同一处还有：首帧用 34、测到再改。编辑器未交付（editorArea 为 null）时头是空的，没有可观察的元素，inset 永远停在 34，欢迎文字上面留一条空带；计划没说这种状态的 inset 应是 0。
+
+建议改法：不要把头高当 insetTop 经 transform/height 过渡。把头高作为一个不过渡的量：例如 Surface 把实测头高写成外框上的 CSS 变量，内容内层 body 用 margin-top/padding-top 吃掉它（NestedGrid 的外层矩形仍是整叶），或者保留 insetTop 但让它的变化在 style 上带 transition: none（按“只有 inset 变”的那一次更新）。还要给 placementMoved 写明：叶矩形、内容的 insetTop 分开比。Spec 要同步改（见 F13）。editorArea 为 null 时 insetTop 取 0。
+
+==================================================================
+F05  重要 | 事实错误 | “组矮时正文至少留一行字”：calc(100% - 44px) 的 44 对不上，头无法知道正文区自己需要多高
+==================================================================
+位置：plan.md:66；packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:331-348、356；packages/neuro-book/src/plugins/editor/web/components/EditorBreadcrumbs.vue:248；docs/specs/workbench/editor.md 输出 54
+
+现象：现在靠 flex 分配：头 flex: 0 1 auto（可收缩、min-height 34），面包屑行、进度条（2px）、横幅不收缩，正文 min-h-7（28px）。Spec 54 的要求是先给正文留一行字、再给提示条与面包屑它们本来的高度，余下才给标签区。头搬到外框以后，头不知道内容层里面包屑和横幅有多高，计划用常数 44 顶替。
+
+为什么是问题：面包屑行 26px + 进度条 2px + 正文最小 28px = 56px，有文件标签且面包屑设置开着时 44 不够，少 12px，正文被内容层的 overflow: hidden 裁掉一截（e2e 现有用例量的是 [data-editor-content] 的盒高 >= 28，盒高由 min-h-7 保证，被裁掉了量不出来，所以它不会红）。页面标签、关面包屑时又多留了。横幅（冲突、已删除等）出现时更不够。这个数是由内容层的状态（设置、活动标签种类、横幅）决定的，常数不对。
+
+如何核实：EditorBreadcrumbs.vue:248 高 26px；EditorGroup.vue:346 进度条 h-0.5；:356 min-h-7。把组拆到最小高度 120px，开面包屑、打开 4 个以上标签使标签区多行，量正文区可见高度。
+
+建议改法：insetTop 不由头独占。Surface 取 min(头的自然高度, 叶高 - 内容区的最小需要)，内容区的最小需要由内容自己报（例如内容层根上 min-content 高度，或编辑器区把“面包屑行 + 进度条 + 横幅 + 28”作为 CSS 变量/回调交给 Surface）。至少在计划里写明 44 是怎么来的，并改成上面的和；e2e 用例要真的量正文可见高度。
+
+==================================================================
+F06  重要 | 遗漏 / 验收映射 | “data-editor-group 两个根都写，大多数 e2e 不用改”的估计不对，计数、nth、严格模式都会红
+==================================================================
+位置：plan.md:67、114；packages/neuro-book/e2e/*.e2e.ts
+
+现象：计划说“[data-editor-group="g0"] [data-editor-tab] 与 [data-editor-group="g0"] textarea 都还成立；只有取根元素本身（量矩形）的 e2e 要改成 [data-shell-card]”。后代选择器确实还成立，但“裸”用 [data-editor-group]、[data-editor-group-active] 的不止量矩形：
+
+- e2e 里裸 locator("[data-editor-group]") 约 54 处，其中带 toHaveCount、count()、nth() 的约 25 处；带 count/nth/boundingBox/getBoundingClientRect/first/last 的行共 43 行。头和内容各一个根以后，每个组数两次：例如 editor-area.e2e.ts:396-398 的 toHaveCount(count + 1) 会变成 count + 2；groups.nth(index) 会交替落在头和内容上。
+- 裸 locator("[data-editor-group-active]") 的 activeGroup 帮助函数在 markdown-editing、editor-types、themes 三个文件里，editor-area.e2e.ts:330、405、1519、1720 也有；它们后面接 evaluate、boundingBox、click 这类要单个元素的调用，两个根时 Playwright 严格模式直接报错。
+- 公开标记的含义也变了：data-editor-group 现在是“一个组”，改后一组出现两次（t17 以后是 1 + N 次）。WorkbenchTitleBar.vue:190、EditorHost.vue:32、EditorGroup.vue:87 的 closest 判断不受影响，但任何“数组”语义都受影响。
+
+如何核实：grep -rn 'data-editor-group' e2e | grep -E 'toHaveCount|count\(\)|nth\(|boundingBox|getBoundingClientRect'（43 行）；grep 'data-editor-group-active\]"' e2e 看裸用。
+
+建议改法：两个根都写 data-editor-group 有它的道理（WorkbenchTitleBar.vue:190、EditorHost.vue:32、EditorGroup.vue:87 都靠 closest("[data-editor-group]") 判断“焦点或元素在编辑器区里”，正文里的 textarea、头里的标签都要命中），所以不能只留一个。要补的是一个“每组恰好一个”的标记，例如头的根上加 data-editor-group-head（值是组 id），让计数、nth、取矩形、activeGroup 帮助函数改用它；取“组内正文”的选择器另写 [data-editor-group-body=...]。计划应当列出这套新标记、每个测试文件要改的选择器类别和行数（上面的 43 行、7 处裸 -active 是起点），把风险一节的“大多数不用改”改成实际数字，并说明 closest 类消费者为什么两处都要。（“16 个文件写死了 data-editor-group”这个数字是对的，但“大多数不用改”不成立。）
+
+==================================================================
+F07  重要 | 接口 / 遗漏 | TabStrip 的 item 没有 attrs，按钮上的既有标记和 e2e 钩子无处安放
+==================================================================
+位置：plan.md:24-30、45；packages/neuro-book/src/plugins/editor/web/components/EditorTabBar.vue:172-190；packages/nb-ui/src/components/controls/Tabs.vue:17-26（attrs）；packages/neuro-book/e2e/workbench-views.e2e.ts:865-895
+
+现象：role=tab 的按钮由 TabStrip 渲染，插槽只能进按钮里面。EditorTabBar 现在直接在这个按钮上写 data-editor-tab、data-editor-tab-preview、data-editor-tab-dirty、data-editor-tab-pinned、title、aria-description；tab-drag.ts:36、65 靠 data-editor-tab-pinned 做分区，e2e 里 data-editor-tab 系列出现约 130 次、分布在 10 个文件。工具面板这边 workbench-views.e2e.ts 读 [data-tabs-level]、[data-tab-value]、[data-tabs-more]，也是 nb-ui Tabs 的 DOM。nb-ui 的 TabsItem 有 attrs 字段正是为此，计划的 TabStripItem 没有。DOM 一节也把标记改成 data-tab-strip / data-tab-row / data-panel-tab，没有说 data-editor-tabs（9 处）、data-row（5 处）、data-tabs-level 去哪。
+
+为什么是问题：不是“模板里加个属性”能解决：库拥有按钮，宿主不能给它加属性，要么库提供 attrs，要么这些标记作废、几百处测试改写。
+
+建议改法：TabStripItem 加 attrs?: Record<string,string>，写到按钮上（与 nb-ui Tabs 同名同义）；列一张“旧标记 -> 新标记”的表放进计划：data-editor-tabs、data-row、data-tabs-level 等，决定哪些保留（建议库保留 data-tabs-level、data-tabs-more 的写法，避免不必要的 e2e 改动）。
+
+==================================================================
+F08  重要 | 破坏既有行为 | 资源树拖文件到编辑组：高亮的矩形变成头或正文其一，不再是整个组
+==================================================================
+位置：packages/neuro-book/src/plugins/explorer/web/tree-drag.ts:50-51；packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:180；plan.md:67
+
+现象：tree-drag 用 dropTargetAt(top, EDITOR_GROUP_FILE) 找到登记的元素，高亮矩形取 group.element.getBoundingClientRect()（ExplorerTree.md 写“在编辑组打开画整个编辑组”）。现在登记在整个 section 上。计划让头的根与内容根“都接”落点，两个元素各自登记同一个组 id，命中哪个就只高亮哪个的矩形：指针在标签条上只亮标签条，在正文上只亮正文，不再是整个编辑组。
+
+如何核实：读 tree-drag.ts:50-51；registerDropTarget 按元素存（packages/nb-layout/src/vue/drop-targets.ts）。
+
+建议改法：落点数据里带“整个组的矩形”：data() 返回 {group, rect: () => 头顶到内容底}，tree-drag 优先用它；或者 EDITOR_GROUP_FILE 登记只放内容根，头只做事件转发。需要在计划里写明二选一，并在 files-explorer 验收里加“指针在标签条上也亮整个组”。
+
+==================================================================
+F09  重要 | 接口 | 两种外观靠 --tab-strip-* 变量和插槽表达不了，实际要穿透 TabStrip 内部类名
+==================================================================
+位置：plan.md:21、59；packages/nb-layout/AGENTS.md“边界”（只用作用域 CSS 与 nb-ui token，不用原子类，宿主 Tailwind 不扫描本包）；EditorTabBar.vue:232-404；Tabs.vue:85-96、210
+
+现象：计划写“只管结构与语义，外观由宿主给（--tab-strip-* 与插槽）”。但要表达的两种外观差别很大：
+
+- 编辑器：块状活动标签（顶部两角圆）、行内 1px 竖线分隔（.editor-tab-frame + .editor-tab-frame::before）、悬停底色混合、frame 的 max-width 240、按钮与 action 在同一个 frame 里的内边距。
+- 工具面板：下划线（after 伪元素）、sm 字号与 --control-px 的 0.8 倍内边距、标签间 --space-2 的间距、过渡。nb-ui Tabs 的这些来自 Tailwind 原子类（Tabs.vue:85-96、210），nb-layout 的 Vue 层不能用原子类，宿主 scoped CSS 又够不到子组件内部。
+
+伪元素、悬停、相邻选择器、间距都不是几个变量能表达的。实际只能由宿主用 :deep(.nb-tab-frame) 之类选择器去改 TabStrip 内部结构，.nb-tab-frame、role=tab 按钮、[data-tab-row] 就成了没有声明的公开 API。而“工具面板外观和现在一样”要把一串原子类改写成 scoped CSS，e2e（workbench-views.e2e.ts:699-728 读 [role=tab][aria-selected=true] 的计算颜色、tablist 的边框宽度）会量出任何偏差。
+
+建议改法：在计划里列出 TabStrip 的“样式合同”：哪些类名是公开的（写进 TabStrip.md），哪些 CSS 变量，或者提供 frame 层插槽、itemClass(item, state) 回调，让宿主能给 frame/按钮加类。并把“和 nb-ui Tabs 逐属性一致”写成验收：同一个页面里并排放 Tabs 和新工具面板标签条，比计算样式。
+
+==================================================================
+F10  重要 | 接口 | 键盘停靠点：stripCount 只给个数，“只算看得见的”之后下标对不上；滚出视口的从“算错”变成“够不到”
+==================================================================
+位置：plan.md:53、101；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:283-291、367；packages/nb-layout/src/layout-drop.ts:211-236（enumerateDropCandidates）
+
+现象：计划让 visibleTabStops(strip) 给键盘用，滚出视口的不再算。但 enumerateDropCandidates 的 stripCount 是个数，候选是 index 从 0 到 count-1 的 strip 动作（layout-drop.ts:236），pointOfCandidate 再把 index 当文档下标去 tabs[index] 找元素（layout-drag.ts:285-290）。这默认“看得见的是前 N 个”：
+
+- 横向滚动时滚出视口的可能在左边：看得见的是第 3 到第 8 个，个数 6，候选的 index 是 0 到 5，pointOfCandidate 找 tabs[0..5] 的元素，仍然落在视口外或错位。G5 的症状不变。
+- 工具面板 adapt 时，选中的标签总是看得见而收进“更多”的是尾部若干个：看得见的集合是 [0,1,2,选中的 5]，不是前缀，现在用的就是这个“个数”的近似（layout-drag.ts:367）。
+
+另外滚出视口的位置键盘上就够不到了：50 个标签、只能在可视的十来个位置里放。
+
+如何核实：读上面几处；G5 在 t07 的审查里已经列过（README 末尾）。
+
+建议改法：把 stripCount 换成 stripStops(panel): number[]（文档下标的列表，由 visibleTabStops 给），enumerateDropCandidates 和 pointOfCandidate 按它走；够不到的位置用“拿起后键盘移动时把标签条滚进视野”解决（stop 激活时 scrollIntoView），而不是丢掉。要写进切片 1 的 nb-layout 单元测试。
+
+==================================================================
+F11  建议 | 遗漏 | EditorGroup 里还有一处“标签条在本根里”的假设：returnFocus 的回退
+==================================================================
+位置：packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:181-185
+
+现象：面包屑交还焦点时，句柄还没交出就退回 section.value?.querySelector("[data-editor-tab][aria-selected=\"true\"]")?.focus()。标签搬走以后 section 里没有标签，querySelector 为 null，焦点落到页面根。计划列了六七项依赖“标签条和正文在同一个根里”的东西，没有这一项。
+
+如何核实：grep 'querySelector' EditorGroup.vue：只有这一处。
+
+建议改法：改成按组 id 到头里找（[data-editor-group-head="g0"] [aria-selected=true]），或头的根提供 focusActiveTab 暴露给内容。写进计划的“搬家清单”。
+
+==================================================================
+F12  建议 | 设计取舍 | 不做 requestClose：理由里的一个事实不成立，且与提案的所有权方向相反
+==================================================================
+位置：plan.md:71、81；README.md:12；t07-single-tree/plan.md:32；packages/neuro-book/src/plugins/editor/web/area.ts:569-573；提案第 2 节“关闭”
+
+核实结果：
+
+1. “关闭进行中再次关闭被忽略，编辑器区已经做到”不成立。closeOne（area.ts:578 起）没有按标签的在途保护；ask()（area.ts:569-573）开头 answerDialog?.("cancel")，第二次关闭会取消第一次的询问并重开。批量关闭有 batchRunning，单个标签没有。能不能到达另说（对话框是模态的），但这是计划拿来做理由的话，要么改成“推迟”，要么补上保护。
+
+2. 取舍本身可以接受：当下调用方只有 t09 的整窗关闭，推迟不会堵路，将来加一个 workbench->editor 的 requestClose 是增量。但理由写成“标签条画在编辑器自己的头里”，说明计划的头由编辑器渲染、关闭按钮的事件到编辑器而不是到工作台，这和提案第 5 节的所有权方向相反（提案是库里一个标签条、编辑器只出插槽、事件回到工作台，所以才有两阶段关闭）。计划偏离的不止 requestClose，还有“头由谁渲染”，应在偏离清单里明说，别藏在 requestClose 的理由里。
+
+3. 文档不一致：t16 README 的目标与范围仍写“关闭改成工作台发起的两阶段（requestClose）”，t07 计划把它推迟到“随统一标签条做”，计划却不做。README 与 t07 的表要同步，待确认清单要有一行（计划里说“记入”，现在清单里还没有）。
+
+3 的结论：合理的推迟，但事实错误要改，偏离要写全。
+
+==================================================================
+F13  建议 | 别扭 / 遗漏 | adapt 的测量层渲染 tab 插槽：盒子样式、只留图标的宽度、可访问名称、重复实例都没有交代
+==================================================================
+位置：plan.md:24-30、40、49；Tabs.vue:92-96、113-118、226-234
+
+现象与问题：
+
+1. Tabs 的测量层是和真实按钮共用 tabBoxClass 的“同款盒子”，所以量出来的宽度才对得上。TabStrip 的按钮和测量盒在库里，样式在宿主（F09），测量盒怎么拿到宿主给按钮的内边距、字号、间距，计划没说；对不上就是 adapt 的临界点错位，e2e 会在“依次经过四档”（workbench-views 的 15 号验收）时红。
+2. Tabs 用一个只含图标的占位量“只留图标”的宽度（data-measure-icon）。TabStrip 的内容在宿主插槽里，库不知道只留图标长什么样，要把 level 2 的插槽渲染一遍才量得到。计划只说“测量层也渲染 tab 插槽”，没有说渲染几遍。
+3. 可访问名称：Tabs 在只留图标时给按钮写 aria-label（Tabs.vue:204）。TabStrip 的按钮在库里，插槽进按钮里面，计划说“可访问名称另由 tab 插槽的内容决定”，也就是宿主必须自己在插槽里放 sr-only 文本，漏一次就是没有名字的按钮。库已经有 item.title，直接用它在 iconOnly 时写 aria-label 更稳。
+4. 每个标签渲染两遍（真实 + 测量），插槽里有会注册副作用的组件（Tooltip、会订阅的组件）时会实例化两次，测量层如果带了 id 或 data-panel-tab，layout-drag 的 root.querySelector(`[data-panel-tab=...]`)（layout-drag.ts:119）可能先命中测量层的副本。当前只有工具面板用 adapt，插槽里只有图标和文字，风险小，但库的合同应写明“测量层的内容不带 id、data-* 与交互”。
+5. 与 F09 同源：TabStripItem 同时有 iconClass（给 adaptTabs 的 hasIcon）和宿主插槽里的图标，是两个来源，可能不一致（宿主渲染了图标而 item 没写 iconClass，永远不会进只留图标这一档）。
+
+建议改法：把“测量层怎么得到盒子样式”写进 TabStrip 的合同：测量盒和真实按钮用同一组类（库给 frame/button 类，宿主 :deep 或 itemClass 同时作用在两处）；插槽收到 level 与 measuring 两个参数，测量层以 level 2 再渲一个样本；iconOnly 时库写 aria-label=item.title。
+
+==================================================================
+F14  建议 | 上游选择 / 依赖 | adapt 逻辑从 Tabs 复制一份，nb-ui 的公开入口也没有计划要用的函数
+==================================================================
+位置：plan.md:15、49、64；packages/nb-ui/src/index.ts、packages/nb-ui/src/utils/index.ts（只导出 cn）、packages/nb-ui/src/components/index.ts；packages/nb-ui/src/utils/roving.ts
+
+核实：
+
+1. nb-ui 的 utils/index.ts 只有 export * from "./cn"。rovingMove、moveRoving 不在任何公开入口里；adaptTabs 也不在。计划只写“nb-ui 的 index.ts 补导出 adaptTabs”，没说哪个 index（src/index.ts 导出的是 colorway、composables、theme、utils，不含组件）；roving 两个函数没有提；而且计划又说键盘“沿用 EditorTabBar 的 onKeydown”，那个函数根本不用 roving，两句话互相矛盾。nb-layout 不能深导入 nb-ui 的源码（AGENTS 的禁止清单）。
+2. 目标是“同一件事不写两份”，但 TabStrip 的 adapt 是把 Tabs.vue:98-163 的测量、ResizeObserver、watch 搬一份，nb-ui 的 Tabs 保留（nb-story、Lab 在用）。结果变成 Tabs 与 TabStrip 各有一份 adapt 的测量胶水和键盘，只是少了一份在工作台里。按“质疑上游选择”的做法，应当把候选摆出来：(a) 在 nb-ui 抽 useAdaptiveTabs 组合式，Tabs 与 TabStrip 共用；(b) 让 nb-ui 的 Tabs 支持 tab 插槽 / action 插槽，TabStrip 只加分区与多行；(c) 现在的复制。计划只做了 (c)，没写为什么不选前两个。
+
+建议改法：计划写明 nb-ui 要导出什么、从哪个入口；在“技术选型”里列 (a)(b)(c) 和不选的理由。
+
+==================================================================
+F15  建议 | 兼容 | panelGeometry 的 strip 矩形由哪个元素给，计划没说；三处行为会变
+==================================================================
+位置：plan.md:67；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:121-139；WorkbenchShell.vue:331
+
+现象：现在工具面板的 strip 矩形是整个 [data-panel-head]（含动作与框架按钮），编辑组是 [data-panel-strip]（标签条加标题动作，不含提示条）。计划把 data-panel-strip 写在“头里标签条的外层”，data-panel-head 只留给头。如果统一成量 [data-panel-strip]：
+
+- 侧栏这一列（titleOnly）没有 TabStrip，就没有 data-panel-strip，strip 变 null，body 变成整张卡片：标题上的落点现在是“strip 然后改成 center”（layout-drag.ts:261），之后外缘窄带的比例按含头的整张卡片算，上缘窄带落进头里。
+- 工具面板头里标签条之外（动作、框架按钮）的区域从 strip 变成“既不在 strip 也不在 body”的死区（layout-drop.ts:70 与 109 的判断），只有按钮上有 data-no-drag 挡着，按钮之间的缝会漏。
+- 编辑组的标题动作区同理。
+
+建议改法：strip 矩形取头的根（整个头，含动作），data-panel-strip 只用来找 TabStrip 去量插入位；titleOnly 仍以头为 strip。
+
+==================================================================
+F16  建议 | 对 t17 的影响 | “头搬走后 t17 只剩内容项按标签分开”不成立；标记方案到 t17 会再碎一次
+==================================================================
+位置：plan.md:5、67；t17-per-tab-instance/README.md；packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts:20-23（编辑组一个内容项 editor:<id>）；EditorGroup.vue:130-156、231、252-260、356-398
+
+分析：t16 解决了“标签条不能住在某个标签的内容里”这一个阻塞，这是真的。但 t17 还要面对 EditorGroup 里留下的所有“按组算”的东西，计划没有为它们留路：
+
+1. 面包屑、横幅、进度条、页面标签、不可用提示、读取失败、控件挂载，全按“组的活动标签”算（props.area.documentOf(groupId)、binding(groupId)、progress(groupId)、controlSlot(groupId, editor)、registerHandle(groupId, editor, …) 都以组 id 为键）。内容项按标签分开后，每个内容项各画一份，还是留在组级？计划把它们统称“EditorGroup 只留面包屑、进度条、横幅与控件”，没有分“按标签的部分”和“按组的部分”，t17 仍要改 t16 刚改完的同一批文件。
+2. 空组没有任何标签就没有内容项：空态（Logo 与提示）现在在 EditorGroup 里，t17 以后它没有可挂的内容项。layoutContents 现在每个编辑组固定一个 editor:<id>（layout-present.ts:22）；t17 的内容项键变成 tabId，空组需要一个组级占位内容项。这个决定应在 t16 就做（t16 本来就在改 layoutContents 的签名），否则 t17 会再改一遍。
+3. 标记：data-editor-group 写在内容根上，t17 以后一个组有 N 个内容根（每种编辑器最近 20 个都停放着），[data-editor-group="g0"] textarea 会命中停放的多个，Playwright 严格模式报错；标签在组间移动时内容根不重建，data-editor-group 的值要响应式。F06 建议的“再加一个每组唯一的标记”在 t17 之后仍成立，只靠 data-editor-group 做计数则不成立。
+4. insetTop 以组为单位量头高，t17 的内容项是每标签一个，要给同一叶的所有内容项同一个 inset，layoutContents(doc, editorHeads) 的签名在 t16 就应按“叶的头高”设计，而不是内容项的。
+
+建议改法：t16 的 EditorGroup 内部先分出“按标签”（面包屑、横幅、进度、控件）与“按组”（空态、提示）两块，不必拆文件但在 .md 里写明；layoutContents 按叶给 inset；空组的占位内容项在 t16 定下来。
+
+==================================================================
+F17  建议 | 文档 / 样式遗漏 | Spec 与样式清单少了几处必须一起改的
+==================================================================
+位置：plan.md:77-82；docs/specs/ui/nested-grid.md:47、105（内容层、验收 10）；WorkbenchSurface.vue:387-408；src/web/testing/sample-views.ts、e2e/workbench-views.e2e.ts（自带 workbench.editor-area 实现）
+
+1. insetTop 从常数变成实测、变化不过渡，是 nb-layout 的合同变化：nested-grid.md 的“内容层”（“矩形是叶减去面板头（面板头高度先按设备像素取整）”）、“过渡”和验收 10（“读内容顶与面板头底没有缝也不重叠”，各种 dpr）都要改；计划的 Spec 清单只有 workbench-layout.md 与 editor.md。NestedGrid.md、grid-motion.test.ts 同理。
+2. WorkbenchSurface.vue:387-408 的内容裁切框对编辑组写了四个圆角（“编辑组没有头，四个角都是”）和飞行中的底色。头在外框以后上两个角不再是卡片的角：卡片主题下内容框的上圆角会在头底下露出楔形的卡片底色，飞行中尤其明显。计划没有这一条。
+3. workbench.editor-area 的贡献还有两处测试用的提供者（sample-views.ts、e2e 里的探针插件），EditorAreaParts 加 head 必须是可选字段，并且 Shell 对“没有 head”的提供者要有行为（头不画、inset 为 0）。
+4. 输出 19 的“当前标签加粗”改成“下划线加变色”：t07 README 已经把它记为“留给 t16 定”，计划选了“改 Spec 跟实际”，理由写“开发者一直看的是这个，也说过没有问题”。我在 w00026 的 Task 记录、提案、Spec 里没搜到这句话的出处，应当标成没有记录的理由，在待确认清单里说明；另外编辑器的块状活动标签（Spec editor 53）和工具面板的下划线是两种样式，输出 19 的新文字要写成分开的。
+
+==================================================================
+F18  建议 | 与提案偏离 | TabStrip 的形状与提案第 5 节不同，没有逐项说明
+==================================================================
+位置：plan.md:22-43；提案第 5 节的 TabStripProps
+
+差别：提案有 canInsert?(tabId, partition, index)（固定标签的分区限制由编辑器给）、trailing 插槽（标题动作与框架按钮）、tabs 的元素只有 {id, partition}；计划去掉了 canInsert 和 trailing，改成 items 带 title、iconClass、tooltip，加 action 插槽、tabIdOf、panelIdOf、dragHint、maxRows 等。
+
+影响：
+
+- canInsert 没了，F02 里的 part 就必须由宿主在 drop 时验证；这可以，但提案里“库负责插入判定”里的“固定标签的分区限制”不再由库参与，应写明。
+- trailing 没了，标题动作要和标签条并排（多行时在最后一行右侧，Spec 54）由 EditorGroupHead 自己排版，这是对的（库做不了“右侧最后一行”），但应写明是有意的，并在提案决策记录里追加，不只追加 requestClose 一条（plan.md:81）。
+
+==================================================================
+未发现问题的方面（仔细检查后）
+==================================================================
+- 总方向：编辑组的头放进叶外框、正文留在内容层，和工具面板现在的结构同构，可行。NestedGrid 的“一站 = 外框 + 活动内容”（grid-focus.ts）已经把外框和内容当作同一站，Tab 顺序、F6、aria-owns 的次序（外框先于内容）与工具面板一致，不需要新机制。
+- inert 与停放：头在叶里，叶的 inert 随停放、被最大化盖住而加上，编辑组的头随之 inert；编辑组不能收起、不能隐藏，没有“焦点在被移走的头里”的新路径（关闭最后一个标签时的焦点由 area 的 focusActive 接手，和以前相同）。
+- WorkbenchSurface 的 focusin/panelOf：头在 [data-leaf] 里，当前面板的记录不受影响。
+- EditorHost.onDocumentFocusIn、WorkbenchTitleBar.isNativeEditable、EditorGroup.onFocusOut 的 closest("[data-editor-group]")：两个根都写 data-editor-group 后继续成立（F06 说的是计数问题，不是这条）。
+- placeContents 的设备像素取整：实测头高再取整与现有工具面板同一做法，未见新问题。
+- Alt+←/→：现有 nb-ui Tabs 的 rovingMove 不看 altKey，Alt+方向键现在会改选中项而不是换序；计划让它换序是计划写明的唯一对用户可见的行为变化，没有发现和别的键位冲突。
+- 计划里的事实：EditorTabBar 的 reveal、verticalNeighbor、onKeydown 都在；resolveStripInsertion 在 editor/web/tab-drag.ts；含 data-editor-group 的 e2e 与源码文件正好 16 个；Spec 输出 19、20、21、53 到 59 的引用编号与现行 Spec 一致（输出 20 现在没有 Alt+方向键换序，要靠这次改 Spec 加上）。
+
+==================================================================
+数量与限制
+==================================================================
+阻断 0；重要 10（F01 到 F10）；建议 8（F11 到 F18）。共 18 条。
+
+核实方式：读代码与 Spec、grep 计数、在 /tmp/review-w00026-t16/probe 用 nb-layout 同款 tsconfig 跑 tsc（F01 的 TS2304）。没有跑 e2e 和开发服务：F03、F04（过渡部分）、F05、F08 是从代码推断，未在真实浏览器里验证，计划实施时第一片就该用 Lab 场景或 e2e 把这几条各量一次。

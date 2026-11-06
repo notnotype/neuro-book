@@ -201,7 +201,17 @@ updated: 2026-11-06
 
 t06 接入遗留：1（`useGridLayout` 的 `v-bind` 对象）不做：宿主只有 `WorkbenchSurface` 一处，收益小；2（测量盒合同）随 `EditorArea` 拆掉不再有“提示条算进测量根”的问题；5（`onIssues` 重复）已做。其余（6、7、10、11）留在 t06 记录里，包发布之前再看。
 
-实现审查（片 7c、片 8）后台进行中，报告回来后处理。
+实现审查（片 7c、片 8，一个 Sonnet，[`evidences/slice7c-8-impl-review.txt`](evidences/slice7c-8-impl-review.txt)，重要 1、建议 4）已处理，修正单独提交：
+
+| 条 | 处理 |
+|---|---|
+| F1 收起的面板落进横向分支变零宽 | 成立。比报告建议的 store 出口更低一层：`layout-doc` 的结构操作出口统一看，方向变了就展开 |
+| F2 旧外壳的残留 | 成立，都改了（`WorkbenchDragFeedback` 的文档与死标记、Lab 场景的 `kind`、几处注释） |
+| F3 点标题展开没有 e2e | 成立，补在 `workbench-dnd` |
+| F4 `headReserved` 多留 26px | 成立 |
+| F5 从条目拿起的起点 | 成立，起点改成活动栏，`workbench-dnd` 补一例 |
+
+顺带修了状态栏的“显示面板”在右侧没有条目时跑到左边（`margin-inline-start: auto`，Spec 输出 35 本来就写最右），`workbench-shell` 补断言。
 
 ## 下一步
 
