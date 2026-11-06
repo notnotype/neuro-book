@@ -11,7 +11,7 @@
 
 import {applyLayoutDrop, enumerateDropCandidates, findTab, previewEdgeDrop, previewRevealRects, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropPanelGeometry, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
-import {createDragSession} from "@notnotype/nb-layout/vue";
+import {createDragSession, resolveTabStripInsertion, tabStripStops} from "@notnotype/nb-layout/vue";
 import type {DragSession} from "@notnotype/nb-layout/vue";
 
 import {editorTabIdOf} from "../shared/editor-panels";
@@ -90,22 +90,6 @@ const contains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x 
 const BAR_REGION = "activitybar";
 const SIDEBAR = "sidebar";
 
-/** 这块标签条的插入位：按看得见的标签的中线分，收进“更多”的排在最后一个看得见的后面。 */
-function insertionIn(strip: Element, doc: LayoutDoc, panel: string, point: GridDropPoint): number {
-    const tabs = doc.panels[panel]?.tabs.map(tabKey) ?? [];
-    const shown = [...strip.querySelectorAll<HTMLElement>("[data-panel-tab]")];
-    for (const element of shown) {
-        const {left, right} = element.getBoundingClientRect();
-        if (point.x < (left + right) / 2) {
-            const at = tabs.indexOf(element.dataset.panelTab ?? "");
-            if (at >= 0) return at;
-        }
-    }
-    const last = shown.at(-1)?.dataset.panelTab;
-    const at = last === undefined ? -1 : tabs.indexOf(last);
-    return at < 0 ? tabs.length : at + 1;
-}
-
 export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const {root} = options;
     const surface = (): HTMLElement | null => root.querySelector("[data-workbench-surface]");
@@ -116,7 +100,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     let previewsOf: LayoutDoc | null = null;
 
     const dpr = (): number => root.ownerDocument.defaultView?.devicePixelRatio ?? 1;
-    const tabElement = (tab: TabRef | undefined): Element | null => (tab === undefined ? null : root.querySelector(`[data-panel-tab="${escape(tabKey(tab))}"]`));
+    const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 
     function panelGeometry(doc: LayoutDoc): LayoutDropPanelGeometry[] {
         const maximized = options.maximized();
@@ -126,16 +110,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             if (rectOf(root.querySelector(`[data-leaf="${escape(leaf.id)}"]`)) === null) return [];
             const card = rectOf(root.querySelector(`[data-shell-card="${escape(leaf.id)}"]`));
             if (card === null) return [];
-            // 编辑组的标签条在它自己的内容里，插入位由编辑器量（`editorStripDrop`）。
+            // 工具面板整个头都算标签条（动作区经 `data-no-drag` 不接收）；编辑组的头里还有提示条，只有标签条那一行算，头以下是正文。
             const editor = doc.panels[leaf.id]?.role === "editor";
-            const head = root.querySelector(editor ? `[data-panel-strip="${escape(leaf.id)}"]` : `[data-panel-head="${escape(leaf.id)}"]`);
-            const strip = rectOf(head);
-            return [{
-                id: leaf.id,
-                body: strip === null ? card : {...card, top: strip.bottom},
-                strip,
-                ...(head === null || editor ? {} : {insertionAt: (point: GridDropPoint) => insertionIn(head, doc, leaf.id, point)}),
-            }];
+            const strip = rectOf(root.querySelector(editor ? `[data-panel-strip="${escape(leaf.id)}"]` : `[data-panel-head="${escape(leaf.id)}"]`));
+            return [{id: leaf.id, body: strip === null ? card : {...card, top: strip.bottom}, strip}];
         });
     }
 
@@ -202,22 +180,16 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return [...entries.map((box) => ({x, y: box.top + 1})), {x, y: Math.min(band.bottom - 1, (last?.bottom ?? band.top) + 1)}];
     }
 
-    function previewOf(doc: LayoutDoc, source: LayoutTabSource, action: LayoutDropAction, inPlace: boolean, panels: ReadonlyArray<LayoutDropPanelGeometry>, point: GridDropPoint): LayoutDropPreview {
+    function previewOf(doc: LayoutDoc, source: LayoutTabSource, action: LayoutDropAction, inPlace: boolean, panels: ReadonlyArray<LayoutDropPanelGeometry>): LayoutDropPreview {
         const none: LayoutDropPreview = {areaRect: null, indicator: null, orientation: "horizontal"};
         if (inPlace) {
             const home = findTab(doc, source.tab)?.panel;
             return {...none, areaRect: panels.find((geometry) => geometry.id === home)?.body ?? null};
         }
         switch (action.kind) {
-            case "strip": {
-                const strip = panels.find((geometry) => geometry.id === action.panel)?.strip ?? null;
-                if (strip === null) return none;
-                const tabs = doc.panels[action.panel]?.tabs ?? [];
-                const element = tabElement(tabs[action.index]);
-                const before = tabElement(tabs[action.index - 1]);
-                const x = element?.getBoundingClientRect().left ?? before?.getBoundingClientRect().right ?? strip.left + 8;
-                return {...none, indicator: {left: x - 1, right: x + 1, top: strip.top + 4, bottom: strip.bottom - 4}, orientation: "horizontal"};
-            }
+            case "strip":
+                // 标签条的落点走 `stripDrop`，不到这里。
+                return none;
             case "center":
                 return {...none, areaRect: panels.find((geometry) => geometry.id === action.panel)?.body ?? null};
             case "reveal":
@@ -232,12 +204,42 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         }
     }
 
-    /** 编辑器标签进编辑组的标签条：多行、固定分区只有编辑器知道，位置、原位和插入线都由它量。 */
-    function editorStripDrop(source: LayoutTabSource, panel: string, point: GridDropPoint): LayoutDragDrop | null {
-        const tabId = editorTabIdOf(source.tab);
-        const measured = tabId === null ? null : (options.editorTabs()?.insertion(panel, point, tabId) ?? null);
-        if (measured === null) return null;
-        return {action: {kind: "strip", panel, index: measured.index}, part: measured.part, inPlace: measured.inPlace, preview: {areaRect: null, indicator: measured.indicator, orientation: "horizontal"}};
+    /**
+     * 这个位置在文档里是第几个：量出来的是邻居，收进“更多”的标签不在 DOM 里，下标要按文档算。分区末尾插在它最后一个看得见的标签之后。
+     */
+    function stripIndex(doc: LayoutDoc, panel: string, measured: {readonly before: string | null; readonly after: string | null}): number {
+        const tabs = doc.panels[panel]?.tabs.map(tabKey) ?? [];
+        if (measured.before !== null) return tabs.indexOf(measured.before);
+        return measured.after !== null ? tabs.indexOf(measured.after) + 1 : tabs.length;
+    }
+
+    /** 落在标签条上（工具面板与编辑组同一条路径）：不进预览缓存，每次按标签量。原位按文档判。 */
+    function stripDrop(doc: LayoutDoc, source: LayoutTabSource, panel: string, point: GridDropPoint): LayoutDragDrop | null {
+        const strip = stripOf(panel);
+        const measured = strip === null ? null : resolveTabStripInsertion(strip, point);
+        if (strip === null || measured === null) return null;
+        const index = stripIndex(doc, panel, measured);
+        const action: LayoutDropAction = {kind: "strip", panel, index};
+        const preview: LayoutDropPreview = {areaRect: null, indicator: measured.indicator, orientation: "horizontal"};
+        const part = measured.partition ?? undefined;
+        if (doc.panels[panel]?.role === "editor") {
+            // 放下走编辑器的动作（要先结算输入），这里只判是不是紧挨着它自己：同一个分区，插在它前面或后面。
+            const own = doc.panels[panel]?.tabs.findIndex((tab) => tabKey(tab) === source.tab) ?? -1;
+            const ownPartition = strip.querySelector(`[data-panel-tab="${escape(source.tab)}"]`)?.getAttribute("data-tab-partition") ?? null;
+            return {action, ...(part === undefined ? {} : {part}), inPlace: own >= 0 && ownPartition === measured.partition && (index === own || index === own + 1), preview};
+        }
+        const result = applyLayoutDrop(doc, source, action, options.policy());
+        return result.ok ? {action, inPlace: result.doc === doc, preview} : null;
+    }
+
+    /** 键盘在这块标签条上能停的位置：看得见的标签之间。 */
+    function stripStopsOf(doc: LayoutDoc, panel: string): ReadonlyArray<{readonly point: GridDropPoint; readonly index: number}> {
+        const strip = stripOf(panel);
+        if (strip === null || options.titleOnly(panel)) return [];
+        return tabStripStops(strip).flatMap((point) => {
+            const measured = resolveTabStripInsertion(strip, point);
+            return measured === null ? [] : [{point, index: stripIndex(doc, panel, measured)}];
+        });
     }
 
     function dropAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
@@ -256,16 +258,16 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             ? ({kind: "reveal", panel: region.id.slice("reveal:".length)} as const)
             : resolveLayoutDrop({doc, source, point, panels, excluded: excludedRects(), zones, policy: options.policy()});
         if (resolved === null) return null;
-        if (resolved.kind === "strip" && doc.panels[resolved.panel]?.role === "editor") return editorStripDrop(source, resolved.panel, point);
+        if (resolved.kind === "strip" && !options.titleOnly(resolved.panel)) return stripDrop(doc, source, resolved.panel, point);
         // 头只写标题的面板没有插入位：落在标题上就是添加为标签。
-        const action: LayoutDropAction = resolved.kind === "strip" && options.titleOnly(resolved.panel) ? {kind: "center", panel: resolved.panel} : resolved;
+        const action: LayoutDropAction = resolved.kind === "strip" ? {kind: "center", panel: resolved.panel} : resolved;
         const key = JSON.stringify([source, action, options.extent()]);
         const cached = previews.get(key);
         if (cached !== undefined) return cached;
         const result = applyLayoutDrop(doc, source, action, options.policy());
         if (!result.ok) return null;
         const inPlace = result.doc === doc;
-        const drop = {action, inPlace, preview: previewOf(doc, source, action, inPlace, panels, point)};
+        const drop = {action, inPlace, preview: previewOf(doc, source, action, inPlace, panels)};
         previews.set(key, drop);
         return drop;
     }
@@ -280,15 +282,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const panelId = action.kind === "edge" ? (action.target.kind === "split" ? action.target.panel : candidate.region) : action.panel;
         const geometry = panels.find((item) => item.id === panelId);
         if (geometry === undefined) return null;
-        if (action.kind === "strip") {
-            if (geometry.strip === null) return null;
-            const tabs = doc.panels[panelId]?.tabs ?? [];
-            // 纵向取标签自己的中线：编辑组的标签条可能有几行。
-            const box = tabElement(tabs[action.index])?.getBoundingClientRect();
-            if (box !== undefined) return {x: box.left + 1, y: (box.top + box.bottom) / 2};
-            const before = tabElement(tabs[action.index - 1])?.getBoundingClientRect();
-            return {x: (before?.right ?? geometry.strip.left) + 1, y: before === undefined ? (geometry.strip.top + geometry.strip.bottom) / 2 : (before.top + before.bottom) / 2};
-        }
+        // 同一个下标可能有两个位置（固定行的行尾、普通行的行首）：取后一个，放下去是普通标签。
+        if (action.kind === "strip") return stripStopsOf(doc, panelId).findLast((stop) => stop.index === action.index)?.point ?? null;
         const {body} = geometry;
         const center = centerOf(body);
         if (action.kind === "center") return center;
@@ -363,8 +358,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                     doc,
                     source,
                     policy: options.policy(),
-                    // 工具面板的标签可能收进“更多”，只算看得见的；编辑组的标签条多行时都看得见。
-                    stripCount: (panel) => (options.titleOnly(panel) ? 0 : (doc.panels[panel]?.role === "editor" ? doc.panels[panel].tabs.length : root.querySelectorAll(`[data-panel-head="${escape(panel)}"] [data-panel-tab]`).length) + 1),
+                    stripIndexes: (panel) => stripStopsOf(doc, panel).map((stop) => stop.index),
                     reveal: frozenZones.map((zone) => zone.panel),
                 });
                 const byRegion = new Map<string, LayoutDropCandidate[]>();

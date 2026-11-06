@@ -163,7 +163,7 @@ describe("策略按边回答（edgeTarget）", () => {
 
     it("键盘的落点同样只列策略给的边", () => {
         const doc = THREE();
-        const candidates = enumerateDropCandidates({doc, source: VIEW, policy: testPolicy(vertical), stripCount: () => 1});
+        const candidates = enumerateDropCandidates({doc, source: VIEW, policy: testPolicy(vertical), stripIndexes: () => [0]});
         const edges = candidates.flatMap((candidate) => (candidate.action.kind === "edge" && candidate.action.target.kind === "split" ? [candidate.action.target.edge] : []));
         expect(edges.length).toBeGreaterThan(0);
         expect(edges.every((edge) => edge === "top" || edge === "bottom")).toBe(true);
@@ -213,7 +213,7 @@ describe("预览画真实结果", () => {
 describe("键盘的落点（输出 31）", () => {
     it("和指针同一套规则：拒绝的、放回原处的不列；按树序", () => {
         const doc = docOf(H(["a", V(["b", "ec"])]));
-        const candidates = enumerateDropCandidates({doc, source: {kind: "panel", panel: "a"}, policy: testPolicy(), stripCount: (panel) => (doc.panels[panel]?.tabs.length ?? 0) + 1});
+        const candidates = enumerateDropCandidates({doc, source: {kind: "panel", panel: "a"}, policy: testPolicy(), stripIndexes: (panel) => (doc.panels[panel]?.tabs ?? []).map((_tab, index) => index).concat(doc.panels[panel]?.tabs.length ?? 0)});
         expect(candidates.every((candidate) => candidate.region === "b" || candidate.region === "ec")).toBe(true);
         expect(candidates.some((candidate) => candidate.action.kind === "strip" && candidate.action.panel === "ec")).toBe(false);
         expect(candidates.some((candidate) => candidate.action.kind === "edge" && candidate.region === "ec")).toBe(true);
@@ -223,13 +223,13 @@ describe("键盘的落点（输出 31）", () => {
 
     it("预备区排在可见落点之后", () => {
         const doc = docOf(H(["a", "ec", "auxiliarybar"]), {a: {tabs: [view("a"), view("x")], active: "view:a"}, auxiliarybar: {tabs: [], active: null, hidden: true}});
-        const candidates = enumerateDropCandidates({doc, source: VIEW, policy: testPolicy(), stripCount: () => 1, reveal: ["auxiliarybar"]});
+        const candidates = enumerateDropCandidates({doc, source: VIEW, policy: testPolicy(), stripIndexes: () => [0], reveal: ["auxiliarybar"]});
         expect(candidates.at(-1)).toEqual({region: "reveal:auxiliarybar", action: {kind: "reveal", panel: "auxiliarybar"}});
     });
 
     it("编辑器标签没有工具面板的插入位", () => {
         const doc = docOf(H(["a", "ec"]), {ec: {tabs: [tab("p"), tab("q")], active: "tab:p"}});
-        const candidates = enumerateDropCandidates({doc, source: {kind: "tab", tab: "tab:q"}, policy: testPolicy(), stripCount: () => 2});
+        const candidates = enumerateDropCandidates({doc, source: {kind: "tab", tab: "tab:q"}, policy: testPolicy(), stripIndexes: () => [0, 1]});
         expect(candidates.some((candidate) => candidate.action.kind === "strip" && candidate.action.panel === "a")).toBe(false);
         expect(candidates.some((candidate) => candidate.action.kind === "edge")).toBe(true);
     });

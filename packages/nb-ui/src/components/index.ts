@@ -8,6 +8,8 @@ export {default as Menubar} from "./popup/Menubar.vue";
 export {default as SegmentedControl} from "./controls/SegmentedControl.vue";
 export {default as Switch} from "./controls/Switch.vue";
 export {default as Tabs} from "./controls/Tabs.vue";
+export {useTabsAdapt} from "./controls/useTabsAdapt";
+export type {TabsAdaptOptions} from "./controls/useTabsAdapt";
 export {default as ToggleGroup} from "./controls/ToggleGroup.vue";
 export {default as Toolbar} from "./controls/Toolbar.vue";
 export {default as Badge} from "./display/Badge.vue";

@@ -64,7 +64,7 @@ describe("EditorTabBar", () => {
     it("固定标签：状态位是图钉，点它取消固定；多行时固定标签单独一行，单行时排在最前；同名提示跟在名字后面", async () => {
         const tabs = [item("p1", "大纲.md", {pinned: true}), item("t1", "README.md", {hint: "notes", active: true}), item("t2", "README.md", {hint: "drafts"})];
         const wrapper = bar(tabs);
-        expect(wrapper.findAll("[data-row]").map((row) => row.attributes("data-row"))).toEqual(["pinned", "normal"]);
+        expect(wrapper.findAll("[data-tab-row]").map((row) => row.attributes("data-tab-row"))).toEqual(["pinned", "normal"]);
         expect(wrapper.find("[data-editor-tab-close=\"p1\"]").exists()).toBe(false);
         await wrapper.get("[data-editor-tab-unpin=\"p1\"]").trigger("click");
         expect(wrapper.emitted("unpin")).toEqual([["p1"]]);
@@ -73,7 +73,7 @@ describe("EditorTabBar", () => {
         // 固定状态读屏器也听得到。
         expect(tab(wrapper, "p1").text()).toBe("大纲.md（已固定）");
         const single = bar(tabs, false);
-        expect(single.findAll("[data-row]").map((row) => row.attributes("data-row"))).toEqual(["all"]);
+        expect(single.findAll("[data-tab-row]").map((row) => row.attributes("data-tab-row"))).toEqual(["all"]);
     });
 
     it("右键与 Shift+F10、菜单键打开这个标签的菜单，不激活它", async () => {

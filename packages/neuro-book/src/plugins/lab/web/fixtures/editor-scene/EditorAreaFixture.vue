@@ -14,6 +14,7 @@ import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import EditorGroup from "nbook/plugins/editor/web/components/EditorGroup.vue";
+import EditorGroupHead from "nbook/plugins/editor/web/components/EditorGroupHead.vue";
 import EditorHost from "nbook/plugins/editor/web/components/EditorHost.vue";
 import {createMemoryEditorPanels, editorTabIdOf} from "nbook/plugins/workbench/shared/editor-panels";
 import WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
@@ -244,8 +245,11 @@ onBeforeUnmount(() => {
             @extent="(next) => (extent = next)"
             @gesture-commit="(sizes) => commitSizes(sizes)"
         >
+            <template #head="{panelId}">
+                <EditorGroupHead :area="area" :group-id="panelId" :wrap-tabs="props.input?.props?.wrapTabs !== false" @intent="onIntent" />
+            </template>
             <template #content="{panelId}">
-                <EditorGroup :area="area" :group-id="panelId" :control="control" :empty-tips="emptyTips" :wrap-tabs="props.input?.props?.wrapTabs !== false" @intent="onIntent" @run-tip="(command: string) => record('run-tip', command)" />
+                <EditorGroup :area="area" :group-id="panelId" :control="control" :empty-tips="emptyTips" @intent="onIntent" @run-tip="(command: string) => record('run-tip', command)" />
             </template>
         </WorkbenchSurface>
         <EditorHost :area="area" :wrap-tabs="props.input?.props?.wrapTabs !== false" :attach-tab-drag="(next: EditorTabDrag | null) => (tabDrag = next)" />

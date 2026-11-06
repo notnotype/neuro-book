@@ -11,6 +11,7 @@ import {nameOf} from "../documents/address";
 import type {EditorPageSource} from "../pages";
 import {createEditorTabDrag} from "../tab-drag";
 import {useEditorText} from "../text";
+import {EDITOR_GROUP_ROOTS} from "./useEditorGroupRoot";
 
 const props = withDefaults(defineProps<{
     area: EditorArea;
@@ -29,7 +30,7 @@ onBeforeUnmount(() => props.attachTabDrag?.(null));
 // 新焦点落在编辑器区之外才算用户离开：控件重挂时焦点暂时落到页面根，页面根不触发 focusin，不撤销等待中的焦点交接。
 // 焦点也可能从页面根直接去资源管理器（关闭标签拿下了原来的焦点），编辑组收不到 focusout，所以在 document 上看。
 const onDocumentFocusIn = (event: FocusEvent): void => {
-    if (event.target instanceof Element && event.target.closest("[data-editor-group]") === null) props.area.focusLeft();
+    if (event.target instanceof Element && event.target.closest(EDITOR_GROUP_ROOTS) === null) props.area.focusLeft();
 };
 onMounted(() => document.addEventListener("focusin", onDocumentFocusIn));
 onBeforeUnmount(() => document.removeEventListener("focusin", onDocumentFocusIn));

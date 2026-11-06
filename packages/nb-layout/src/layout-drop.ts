@@ -211,13 +211,13 @@ function isInPlace(doc: LayoutDoc, source: LayoutSource, action: LayoutDropActio
 
 /**
  * 键盘拖动能去的落点：和指针同一套规则，按树序列出；接受矩阵拒绝的和放回原处的不列。原位不在这里：拿起时停在原位由会话管，直接 Enter 不移动。
- * `stripCount` 是这块标签条有几个插入位（看得见的标签数加一）。
+ * `stripIndexes` 是这块标签条里看得见的插入位，写成文档里的下标：滚出视口、收进“更多”的标签之间没有位置。
  */
 export function enumerateDropCandidates(input: {
     readonly doc: LayoutDoc;
     readonly source: LayoutSource;
     readonly policy: LayoutPolicy;
-    readonly stripCount: (panel: string) => number;
+    readonly stripIndexes: (panel: string) => ReadonlyArray<number>;
     readonly reveal?: ReadonlyArray<string>;
 }): ReadonlyArray<LayoutDropCandidate> {
     const {doc, source, policy} = input;
@@ -233,7 +233,7 @@ export function enumerateDropCandidates(input: {
     for (const leaf of treeLeaves(doc.tree.root)) {
         const panel = doc.panels[leaf.id];
         if (panel === undefined || !isNodeShown(doc, leaf)) continue;
-        if (policy.accepts(tabs, panel, "strip")) for (let index = 0; index < input.stripCount(leaf.id); index += 1) add(leaf.id, {kind: "strip", panel: leaf.id, index});
+        if (policy.accepts(tabs, panel, "strip")) for (const index of input.stripIndexes(leaf.id)) add(leaf.id, {kind: "strip", panel: leaf.id, index});
         if (policy.accepts(tabs, panel, "center")) add(leaf.id, {kind: "center", panel: leaf.id});
         if (policy.accepts(tabs, panel, "edge")) {
             for (const edge of ["left", "right", "top", "bottom"] as const) {

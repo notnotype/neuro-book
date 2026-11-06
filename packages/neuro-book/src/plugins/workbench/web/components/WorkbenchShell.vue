@@ -489,7 +489,11 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     />
                 </template>
                 <template #head="{panelId, idPrefix}">
+                    <template v-if="doc.panels[panelId]?.role === 'editor'">
+                        <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" />
+                    </template>
                     <WorkbenchPanelHead
+                        v-else
                         :panel-id="panelId"
                         :label="text(panelTitle(doc, catalog, panelId))"
                         :tabs="headTabs(panelId)"
@@ -500,6 +504,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :title-only="titleOnlyPanels.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
                         @activate="(key) => layout.actions.activate(key)"
+                        @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"
                         @action="(action) => runFrameAction(panelId, action)"
                         @context-menu="openMoveMenu"
                     >

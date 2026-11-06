@@ -276,7 +276,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const pageSource = pages.source(pageContext);
             const area: EditorAreaImplementation = {
                 load: async () => {
-                    const [{default: EditorGroup}, {default: EditorHost}] = await Promise.all([import("./components/EditorGroup.vue"), import("./components/EditorHost.vue")]);
+                    const [{default: EditorGroup}, {default: EditorGroupHead}, {default: EditorHost}] = await Promise.all([import("./components/EditorGroup.vue"), import("./components/EditorGroupHead.vue"), import("./components/EditorHost.vue")]);
                     const control = (editor: string) => editors.state(editor);
                     const onIntent = (intent: "save" | "close" | "split-right"): void => {
                         // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
@@ -298,15 +298,23 @@ export const editorBrowserPlugin: PluginDefinition = {
                                 provideToChildren(editorMenusKey, menus);
                                 return () => {
                                     if (session.area.value === null) return null;
-                                    const title = titleActions();
-                                    return h(EditorGroup, {area: session.area.value, groupId: props.panelId, control, pages: pageSource, emptyTips: tips(), titleActions: title !== null && title.group === props.panelId ? title : null, tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
-                                        session.area.value?.activeHandle.value?.flushPendingChange();
-                                        tabMenuModel.run(tabId, key);
-                                    }, onRunTip: execute, onTitleAction: (key: string) => {
-                                        session.area.value?.activeHandle.value?.flushPendingChange();
-                                        titles.run(key);
-                                    }, onIntent});
+                                    return h(EditorGroup, {area: session.area.value, groupId: props.panelId, control, pages: pageSource, emptyTips: tips(), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onRunTip: execute, onIntent});
                                 };
+                            },
+                        }),
+                        head: defineComponent({
+                            name: "EditorGroupHeadPart",
+                            props: {panelId: {type: String, required: true}},
+                            setup: (props) => () => {
+                                if (session.area.value === null) return null;
+                                const title = titleActions();
+                                return h(EditorGroupHead, {area: session.area.value, groupId: props.panelId, pages: pageSource, titleActions: title !== null && title.group === props.panelId ? title : null, tabMenu, wrapTabs: settings.get(wrapTabsSetting), onTabMenu: (tabId: string, key: string) => {
+                                    session.area.value?.activeHandle.value?.flushPendingChange();
+                                    tabMenuModel.run(tabId, key);
+                                }, onTitleAction: (key: string) => {
+                                    session.area.value?.activeHandle.value?.flushPendingChange();
+                                    titles.run(key);
+                                }, onIntent});
                             },
                         }),
                     };

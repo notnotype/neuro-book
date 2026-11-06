@@ -7,6 +7,10 @@ export {default as NestedGrid} from "./NestedGrid.vue";
 export {default as DropFeedbackOverlay} from "./DropFeedbackOverlay.vue";
 export type {DropFeedbackPreview} from "./DropFeedbackOverlay.vue";
 export {default as DropIndicatorLabel} from "./DropIndicatorLabel.vue";
+export {default as TabStrip} from "./TabStrip.vue";
+export type {TabStripItem, TabStripPartition} from "./TabStrip.vue";
+export {resolveTabStripInsertion, tabStripStops} from "./tab-strip-geometry";
+export type {TabStripInsertion} from "./tab-strip-geometry";
 export {
     SASH_HOVER_DELAY_MS,
     acquireSashCursor,

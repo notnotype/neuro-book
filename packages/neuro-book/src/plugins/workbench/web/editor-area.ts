@@ -29,6 +29,7 @@ export interface EditorAreaSource {
 export interface MountedEditorArea {
     readonly host: Component;
     readonly group: Component;
+    readonly head: Component;
 }
 
 /**
@@ -58,6 +59,8 @@ export function mountEditorArea(provider: EditorAreaProvider, text: TextResolver
     return {
         host: markRaw(defineAsyncComponent({loader: async () => (await load()).host, errorComponent: Nothing, delay: 0})),
         group: markRaw(defineAsyncComponent({loader: async () => (await load()).group, loadingComponent: Loading, errorComponent: Failed, delay: 0})),
+        // 头也没有地方显示加载与失败：内容那边已经写了。
+        head: markRaw(defineAsyncComponent({loader: async () => (await load()).head ?? Nothing, errorComponent: Nothing, delay: 0})),
     };
 }
 

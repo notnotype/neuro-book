@@ -1,7 +1,7 @@
 import type {Component} from "vue";
 
 import type ExplorerFeedback from "nbook/plugins/explorer/web/components/ExplorerFeedback.vue";
-import type EditorGroup from "nbook/plugins/editor/web/components/EditorGroup.vue";
+import type EditorGroupHead from "nbook/plugins/editor/web/components/EditorGroupHead.vue";
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
@@ -706,9 +706,9 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => (await import("./FilesExplorerViewFixture.vue")).default,
     }),
-    defineLabFixture<typeof EditorGroup>({
+    defineLabFixture<typeof EditorGroupHead>({
         component: "EditorGroup",
-        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；界面语言由场景 id 决定（`english` 用英文），输入只给多行标签。
+        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；界面语言由场景 id 决定（`english` 用英文），输入只给多行标签（它是头的属性，所以类型按头）。
         scenes: [
             {id: "live", label: "内存数据：两个标签", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "split", label: "向右拆分的两组", input: {props: {groupId: "g0", wrapTabs: true}}},

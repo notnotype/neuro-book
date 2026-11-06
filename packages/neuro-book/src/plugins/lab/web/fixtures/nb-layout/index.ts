@@ -5,7 +5,7 @@
 import type {Component} from "vue";
 import {h} from "vue";
 
-import type {DropFeedbackOverlay, DropIndicatorLabel, NestedGrid, Splitter} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackOverlay, DropIndicatorLabel, NestedGrid, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
 
 import {defineLabFixture, type LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
@@ -46,6 +46,16 @@ export const nbLayoutFixtures: LabFixture[] = [
             {id: "session", label: "拖动会话", input: {props: {preview: null, label: ""}}},
         ],
         load: async () => (await import("./DropFeedbackOverlayFixture.vue")).default,
+    }),
+    defineLabFixture<typeof TabStrip>({
+        component: "TabStrip",
+        // 输入只是占位（类型要求登记必填的项），夹具自己持有标签与选中项：键盘换序要真的改得动。断言在 e2e/lab-tab-strip.e2e.ts。
+        scenes: [
+            {id: "scroll", label: "一行，放不下时滚动", input: {props: {items: [], active: null, label: "标签"}}},
+            {id: "wrap", label: "固定一行、普通折行", input: {props: {items: [], active: null, label: "标签"}}},
+            {id: "adapt", label: "放不下时逐级让位", input: {props: {items: [], active: null, label: "标签"}}},
+        ],
+        load: async () => (await import("./TabStripFixture.vue")).default,
     }),
     defineSubjectFixture<typeof DropIndicatorLabel>({
         component: "DropIndicatorLabel",

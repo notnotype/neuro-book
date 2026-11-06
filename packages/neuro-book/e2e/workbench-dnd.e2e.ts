@@ -153,7 +153,7 @@ test.describe("产品页：拖放", () => {
     }
 
     /** 本页客户端存下的布局文档里的面板表；还没写过为 null。 */
-    async function savedDoc(page: Page): Promise<{panels: Record<string, {hidden?: boolean; collapsed?: boolean; tabs: unknown[]}>} | null> {
+    async function savedDoc(page: Page): Promise<{panels: Record<string, {hidden?: boolean; collapsed?: boolean; active?: string | null; tabs: unknown[]}>} | null> {
         const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
         const db = new DatabaseSync(join(tmp, "state", "storage", "user.sqlite"));
         try {

@@ -1,5 +1,5 @@
 /**
- * EditorGroup（同名 .md）的组顶部提示（docs/specs/workbench/editor.md 输出 61）：编辑器区交出的提示是文字值，组件经窗口的翻译
+ * EditorGroupHead（同名 .md）的组顶部提示（docs/specs/workbench/editor.md 输出 61）：编辑器区交出的提示是文字值，组件经窗口的翻译
  * 端口显示，切换显示语言后已显示的提示原地换成新语言。编辑器区是真实的，文件客户端是与真实 Files 对过契约的内存适配器
  * （Lab 的 `memory-files.ts`）；这里不打开文件，只看提示一行。
  */
@@ -18,7 +18,7 @@ import {createHostTextEngine} from "nbook/web/host/text-engine";
 import {editorText} from "../../shared/text";
 import {createEditorArea} from "../area";
 import {editorCatalogs} from "../text";
-import EditorGroup from "./EditorGroup.vue";
+import EditorGroupHead from "./EditorGroupHead.vue";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -32,12 +32,12 @@ function mounted() {
     }});
     const text = createHostTextEngine({locale: "zh-CN", strict: true});
     text.register("nbook.editor", editorCatalogs.catalogs, editorCatalogs.source);
-    const wrapper = mount(EditorGroup, {props: {area, groupId: area.groups.activeGroup.value, control: () => ({kind: "gone"})}, attachTo: document.body, global: {provide: {[TEXT_PORT_KEY as symbol]: text.port}}});
+    const wrapper = mount(EditorGroupHead, {props: {area, groupId: area.groups.activeGroup.value}, attachTo: document.body, global: {provide: {[TEXT_PORT_KEY as symbol]: text.port}}});
     cleanups.push(() => memory.dispose(), () => area.dispose(), () => wrapper.unmount());
     return {area, text, wrapper};
 }
 
-describe("EditorGroup 的组顶部提示", () => {
+describe("EditorGroupHead 的组顶部提示", () => {
     it("提示是文字值：按当前语言显示整句，切换语言后原地换成英文", async () => {
         const {area, text, wrapper} = mounted();
         expect(wrapper.find("[data-editor-notice]").exists()).toBe(false);

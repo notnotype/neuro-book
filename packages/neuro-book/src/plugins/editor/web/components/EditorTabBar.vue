@@ -1,6 +1,7 @@
 <script setup lang="ts">
-/** 编辑组的标签条（同名 .md）。 */
-import {computed, nextTick, ref, watch} from "vue";
+/** 编辑组的标签条（同名 .md）：标签里的内容与外观，语义、键盘、多行与分区在 `TabStrip`。 */
+import {TabStrip} from "@notnotype/nb-layout/vue";
+import {computed} from "vue";
 
 import {editorTabKey} from "nbook/plugins/workbench/shared/contracts";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
@@ -48,185 +49,92 @@ const emit = defineEmits<{
     (event: "menu", id: string, x: number, y: number): void;
 }>();
 
-const list = ref<HTMLElement | null>(null);
-
-/** 多行时固定标签单独一行（输出 54）；单行时固定标签只是排在最前，与普通标签同一行。 */
-const rows = computed(() => {
-    const pinned = props.tabs.filter((tab) => tab.pinned);
-    if (!props.wrap) return [{key: "all", tabs: [...props.tabs]}];
-    const normal = {key: "normal", tabs: props.tabs.filter((tab) => !tab.pinned)};
-    return pinned.length > 0 ? [{key: "pinned", tabs: pinned}, normal] : [normal];
+/** 多行时固定标签单独一行（输出 54）；单行时固定标签只是排在最前，与普通标签同一行，分区只写在标签上。 */
+const partitions = computed(() => {
+    if (!props.wrap) return undefined;
+    const normal = {id: "normal", layout: "wrap" as const};
+    return props.tabs.some((tab) => tab.pinned) ? [{id: "pinned", layout: "scroll" as const}, normal] : [normal];
 });
 
-const tabElement = (id: string): HTMLElement | null => list.value?.querySelector<HTMLElement>(`[data-editor-tab="${id}"]`) ?? null;
-
-/** 把活动标签滚到完整可见：横向滚它所在的那一行，纵向滚整个标签区（多行超过 3 行时）。只动标签条自己的滚动。 */
-const reveal = (id: string): void => {
-    // 等下一帧再量：新标签刚插入、或刚换了单行与多行时宽度还没落定，太早量会差几像素。
-    void nextTick(() => requestAnimationFrame(() => {
-        const tab = tabElement(id)?.parentElement;
-        const strip = list.value;
-        if (tab === null || tab === undefined || strip === null) return;
-        const row = tab.parentElement;
-        const box = tab.getBoundingClientRect();
-        if (row !== null && row.scrollWidth > row.clientWidth) {
-            const view = row.getBoundingClientRect();
-            // 滚动量向外取整：`scrollLeft` 会被截到整像素，差的零点几像素会让标签边缘仍被裁掉。
-            if (box.left < view.left) row.scrollLeft -= Math.ceil(view.left - box.left);
-            else if (box.right > view.right) row.scrollLeft += Math.ceil(box.right - view.right);
-        }
-        const view = strip.getBoundingClientRect();
-        if (box.top < view.top) strip.scrollTop -= Math.ceil(view.top - box.top);
-        else if (box.bottom > view.bottom) strip.scrollTop += Math.ceil(box.bottom - view.bottom);
-    }));
-};
-watch(() => [props.tabs.find((tab) => tab.active)?.id, props.wrap] as const, ([id]) => {
-    if (id !== undefined) reveal(id);
-}, {immediate: true});
-
-const focusTab = (tab: TabItem | undefined): void => {
-    if (tab === undefined) return;
-    emit("activate", tab.id);
-    void nextTick(() => tabElement(tab.id)?.focus());
-};
-
-/** 多行时 ↑/↓：上一行或下一行里水平位置离它最近的标签（按此刻的几何算，换行位置随宽度变）。 */
-const verticalNeighbor = (id: string, direction: -1 | 1): TabItem | undefined => {
-    const current = tabElement(id)?.getBoundingClientRect();
-    if (current === undefined) return undefined;
-    const center = current.left + current.width / 2;
-    let best: {tab: TabItem; rowDistance: number; distance: number} | undefined;
-    for (const tab of props.tabs) {
-        const box = tabElement(tab.id)?.getBoundingClientRect();
-        if (box === undefined) continue;
-        const rowDistance = (box.top - current.top) * direction;
-        // 只看那个方向上的行，取最近的一行里水平最近的。
-        if (rowDistance < current.height / 2) continue;
-        const distance = Math.abs(box.left + box.width / 2 - center);
-        if (best === undefined || rowDistance < best.rowDistance - 1 || (Math.abs(rowDistance - best.rowDistance) <= 1 && distance < best.distance)) best = {tab, rowDistance, distance};
-    }
-    return best?.tab;
-};
-
-const onKeydown = (event: KeyboardEvent, id: string): void => {
-    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-        event.preventDefault();
-        const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
-        emit("menu", id, box.left, box.bottom);
-        return;
-    }
-    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-        event.preventDefault();
-        emit("move", id, event.key === "ArrowLeft" ? -1 : 1);
-        return;
-    }
-    const index = props.tabs.findIndex((tab) => tab.id === id);
-    const at = (offset: number): TabItem | undefined => props.tabs[(offset + props.tabs.length) % props.tabs.length];
-    switch (event.key) {
-        case "ArrowLeft":
-            event.preventDefault();
-            focusTab(at(index - 1));
-            return;
-        case "ArrowRight":
-            event.preventDefault();
-            focusTab(at(index + 1));
-            return;
-        case "ArrowUp":
-        case "ArrowDown":
-            if (!props.wrap) return;
-            event.preventDefault();
-            focusTab(verticalNeighbor(id, event.key === "ArrowUp" ? -1 : 1));
-            return;
-        case "Home":
-            event.preventDefault();
-            focusTab(props.tabs[0]);
-            return;
-        case "End":
-            event.preventDefault();
-            focusTab(props.tabs[props.tabs.length - 1]);
-            return;
-        case "Delete":
-            event.preventDefault();
-            emit("close", id);
-    }
-};
-
-/** 中键关闭：按下时阻止浏览器的自动滚动。 */
-const onAuxClick = (event: MouseEvent, id: string): void => {
-    if (event.button === 1) {
-        event.preventDefault();
-        emit("close", id);
-    }
-};
+const byKey = computed(() => new Map(props.tabs.map((tab) => [editorTabKey(tab.id), tab])));
+const items = computed(() => props.tabs.map((tab) => ({
+    id: editorTabKey(tab.id),
+    title: tab.label,
+    tooltip: tab.title,
+    partition: tab.pinned ? "pinned" : "normal",
+    attrs: {
+        "data-editor-tab": tab.id,
+        ...(tab.preview ? {"data-editor-tab-preview": ""} : {}),
+        ...(tab.dirty ? {"data-editor-tab-dirty": ""} : {}),
+        ...(tab.pinned ? {"data-editor-tab-pinned": ""} : {}),
+    },
+})));
+const active = computed(() => {
+    const id = props.tabs.find((tab) => tab.active)?.id;
+    return id === undefined ? null : editorTabKey(id);
+});
+const tabOf = (key: string): TabItem => byKey.value.get(key) as TabItem;
+/** 把标签键换回标签 id 再发：编辑器的事件都按 id。 */
+const idOf = (key: string): string => tabOf(key).id;
 </script>
 
 <template>
-    <div ref="list" role="tablist" :aria-label="label" class="editor-tabs text-[length:var(--text-sm)]" :data-wrap="wrap ? '' : undefined" :data-group-active="groupActive ? '' : undefined" data-editor-tabs>
-        <div v-for="row in rows" :key="row.key" class="editor-tabs__row" :data-row="row.key">
-            <div
-                v-for="tab in row.tabs"
-                :key="tab.id"
-                class="editor-tab-frame"
-                :class="{'is-active': tab.active, 'is-pinned': tab.pinned}"
+    <TabStrip
+        class="editor-tabs text-[length:var(--text-sm)]"
+        :items="items"
+        :active="active"
+        :label="label"
+        :partitions="partitions"
+        overflow="scroll"
+        :drag-hint="dragHint"
+        :data-wrap="wrap ? '' : undefined"
+        :data-group-active="groupActive ? '' : undefined"
+        data-editor-tabs
+        @activate="(key: string) => emit('activate', idOf(key))"
+        @keep="(key: string) => emit('keep', idOf(key))"
+        @close="(key: string) => emit('close', idOf(key))"
+        @reorder="(key: string, delta: -1 | 1) => emit('move', idOf(key), delta)"
+        @context-menu="(key: string, at: {x: number; y: number}) => emit('menu', idOf(key), at.x, at.y)"
+    >
+        <template #tab="{item}">
+            <FileIcon v-if="tabOf(item.id).icon !== null" :icon="tabOf(item.id).icon!" class="editor-tab__icon" />
+            <span class="editor-tab__label" :class="tabOf(item.id).preview ? 'italic' : ''" data-editor-tab-label>{{ item.title }}</span>
+            <span v-if="tabOf(item.id).hint !== null" class="editor-tab__hint" data-editor-tab-hint>{{ tabOf(item.id).hint }}</span>
+            <span v-if="tabOf(item.id).pinned" class="sr-only">（{{ pinnedLabel }}）</span>
+            <span v-if="tabOf(item.id).dirty" class="sr-only">（{{ unsavedLabel }}）</span>
+        </template>
+        <template #action="{item}">
+            <!-- 状态位：固定的是图钉（点它取消固定）；否则未保存是圆点，活动、悬停或聚焦时换成关闭。不进 Tab 顺序（键盘用 Delete）。 -->
+            <button
+                v-if="tabOf(item.id).pinned"
+                type="button"
+                class="editor-tab__action nb-ui-focus-ring-inset"
+                :aria-label="unpinLabel(item.title)"
+                tabindex="-1"
+                :data-editor-tab-unpin="idOf(item.id)"
+                data-editor-tab-action
+                data-no-drag-start
+                @click="emit('unpin', idOf(item.id))"
             >
-                <button
-                    type="button"
-                    role="tab"
-                    class="editor-tab nb-ui-focus-ring-inset"
-                    :aria-selected="tab.active ? 'true' : 'false'"
-                    :tabindex="tab.active ? 0 : -1"
-                    :title="tab.title"
-                    :aria-description="dragHint === '' ? undefined : dragHint"
-                    :data-editor-tab="tab.id"
-                    :data-panel-tab="editorTabKey(tab.id)"
-                    :data-editor-tab-preview="tab.preview ? '' : undefined"
-                    :data-editor-tab-dirty="tab.dirty ? '' : undefined"
-                    :data-editor-tab-pinned="tab.pinned ? '' : undefined"
-                    @click="emit('activate', tab.id)"
-                    @dblclick="emit('keep', tab.id)"
-                    @auxclick="onAuxClick($event, tab.id)"
-                    @mousedown="(event: MouseEvent) => event.button === 2 && event.preventDefault()"
-                    @contextmenu.prevent="(event: MouseEvent) => emit('menu', tab.id, event.clientX, event.clientY)"
-                    @keydown="onKeydown($event, tab.id)"
-                >
-                    <FileIcon v-if="tab.icon !== null" :icon="tab.icon" class="editor-tab__icon" />
-                    <span class="editor-tab__label" :class="tab.preview ? 'italic' : ''" data-editor-tab-label>{{ tab.label }}</span>
-                    <span v-if="tab.hint !== null" class="editor-tab__hint" data-editor-tab-hint>{{ tab.hint }}</span>
-                    <span v-if="tab.pinned" class="sr-only">（{{ pinnedLabel }}）</span>
-                    <span v-if="tab.dirty" class="sr-only">（{{ unsavedLabel }}）</span>
-                </button>
-                <!-- 状态位：固定的是图钉（点它取消固定）；否则未保存是圆点，活动、悬停或聚焦时换成关闭。不进 Tab 顺序（键盘用 Delete）。 -->
-                <button
-                    v-if="tab.pinned"
-                    type="button"
-                    class="editor-tab__action nb-ui-focus-ring-inset"
-                    :aria-label="unpinLabel(tab.label)"
-                    tabindex="-1"
-                    :data-editor-tab-unpin="tab.id"
-                    data-editor-tab-action
-                    data-no-drag-start
-                    @click="emit('unpin', tab.id)"
-                >
-                    <span v-if="tab.dirty" class="editor-tab__dot" aria-hidden="true"></span>
-                    <span class="i-lucide-pin size-3.5" :class="tab.dirty ? 'editor-tab__reveal' : ''" aria-hidden="true"></span>
-                </button>
-                <button
-                    v-else
-                    type="button"
-                    class="editor-tab__action editor-tab__close nb-ui-focus-ring-inset"
-                    :aria-label="closeLabel(tab.label)"
-                    tabindex="-1"
-                    :data-editor-tab-close="tab.id"
-                    data-editor-tab-action
-                    data-no-drag-start
-                    @click="emit('close', tab.id)"
-                >
-                    <span v-if="tab.dirty" class="editor-tab__dot" aria-hidden="true"></span>
-                    <span class="i-lucide-x size-3.5 editor-tab__reveal" aria-hidden="true"></span>
-                </button>
-            </div>
-        </div>
-    </div>
+                <span v-if="tabOf(item.id).dirty" class="editor-tab__dot" aria-hidden="true"></span>
+                <span class="i-lucide-pin size-3.5" :class="tabOf(item.id).dirty ? 'editor-tab__reveal' : ''" aria-hidden="true"></span>
+            </button>
+            <button
+                v-else
+                type="button"
+                class="editor-tab__action editor-tab__close nb-ui-focus-ring-inset"
+                :aria-label="closeLabel(item.title)"
+                tabindex="-1"
+                :data-editor-tab-close="idOf(item.id)"
+                data-editor-tab-action
+                data-no-drag-start
+                @click="emit('close', idOf(item.id))"
+            >
+                <span v-if="tabOf(item.id).dirty" class="editor-tab__dot" aria-hidden="true"></span>
+                <span class="i-lucide-x size-3.5 editor-tab__reveal" aria-hidden="true"></span>
+            </button>
+        </template>
+    </TabStrip>
 </template>
 
 <style scoped>
@@ -237,41 +145,31 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
  */
 .editor-tabs {
     --editor-tab-h: 34px;
-    display: flex;
-    flex-direction: column;
     min-width: 0;
     min-height: var(--editor-tab-h);
     max-height: calc(var(--editor-tab-h) * 3);
+    background: var(--editor-tabs-surface);
+}
+
+.editor-tabs :deep(.nb-tab-strip__list) {
+    align-self: stretch;
+    max-height: inherit;
+    min-height: inherit;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
-    background: var(--editor-tabs-surface);
 }
 
-.editor-tabs__row {
-    display: flex;
-    flex: none;
-    min-width: 0;
+.editor-tabs :deep(.nb-tab-strip__row) {
     /*
      * 末尾留 4px：编辑组的左缘可能落在半像素上，浏览器把可滚动宽度向下取整，没有这点余量时滚到底，最后一个标签仍被裁掉
      * 一像素左右。
      */
     padding-inline-end: 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
 }
 
-.editor-tabs[data-wrap] .editor-tabs__row[data-row="normal"] {
-    flex-wrap: wrap;
-    overflow-x: hidden;
-}
-
-.editor-tab-frame {
-    position: relative;
-    display: flex;
-    flex: none;
-    align-items: center;
+.editor-tabs :deep(.nb-tab-frame) {
     max-width: 240px;
     height: var(--editor-tab-h);
     padding-inline: 10px 4px;
@@ -279,22 +177,22 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
     color: var(--text-secondary);
 }
 
-.editor-tab-frame:hover {
+.editor-tabs :deep(.nb-tab-frame:hover) {
     background: color-mix(in srgb, var(--panel-surface) 50%, var(--editor-tabs-surface));
 }
 
-.editor-tab-frame.is-active {
+.editor-tabs :deep(.nb-tab-frame.is-active) {
     background: var(--panel-surface);
     color: var(--text-main);
 }
 
 /* 不是活动组：活动标签仍是正文色的一块，文字降为次级色。 */
-.editor-tabs:not([data-group-active]) .editor-tab-frame.is-active {
+.editor-tabs:not([data-group-active]) :deep(.nb-tab-frame.is-active) {
     color: var(--text-secondary);
 }
 
 /* 开放式分隔线：同一行相邻标签之间 1px，上下各留四分之一；活动或悬停标签的两侧不画（输出 53）。 */
-.editor-tab-frame + .editor-tab-frame::before {
+.editor-tabs :deep(.nb-tab-frame + .nb-tab-frame)::before {
     content: "";
     position: absolute;
     left: 0;
@@ -305,14 +203,14 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
     pointer-events: none;
 }
 
-.editor-tab-frame.is-active::before,
-.editor-tab-frame.is-active + .editor-tab-frame::before,
-.editor-tab-frame:hover::before,
-.editor-tab-frame:hover + .editor-tab-frame::before {
+.editor-tabs :deep(.nb-tab-frame.is-active)::before,
+.editor-tabs :deep(.nb-tab-frame.is-active + .nb-tab-frame)::before,
+.editor-tabs :deep(.nb-tab-frame:hover)::before,
+.editor-tabs :deep(.nb-tab-frame:hover + .nb-tab-frame)::before {
     opacity: 0;
 }
 
-.editor-tab {
+.editor-tabs :deep(.nb-tab) {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -380,15 +278,15 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
     visibility: hidden;
 }
 
-.editor-tab-frame.is-active .editor-tab__reveal,
-.editor-tab-frame:hover .editor-tab__reveal,
-.editor-tab-frame:focus-within .editor-tab__reveal {
+.editor-tabs :deep(.nb-tab-frame.is-active) .editor-tab__reveal,
+.editor-tabs :deep(.nb-tab-frame:hover) .editor-tab__reveal,
+.editor-tabs :deep(.nb-tab-frame:focus-within) .editor-tab__reveal {
     visibility: visible;
 }
 
-.editor-tab-frame.is-active .editor-tab__dot,
-.editor-tab-frame:hover .editor-tab__dot,
-.editor-tab-frame:focus-within .editor-tab__dot {
+.editor-tabs :deep(.nb-tab-frame.is-active) .editor-tab__dot,
+.editor-tabs :deep(.nb-tab-frame:hover) .editor-tab__dot,
+.editor-tabs :deep(.nb-tab-frame:focus-within) .editor-tab__dot {
     display: none;
 }
 

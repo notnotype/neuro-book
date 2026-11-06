@@ -15,11 +15,11 @@ const VIEW_KEY_PREFIX = "view:";
 
 /**
  * 内容项：工具视图一个标签一项，`key` 就是标签键，所以视图换面板时内容跟着走。编辑组一块面板一项：一个组现在还是一个控件（每标签一实例见 w00026 t17）。
- * 工具面板的头在外框里，内容从头下面开始；编辑组的标签条还在自己的内容里。
+ * 头都在外框里，内容从头下面开始。工具面板的头是固定高度；编辑组的头一到三行（标签折行、提示条），是实测的，没有头时是 0。
  */
-export function layoutContents(doc: LayoutDoc): GridContentInput[] {
+export function layoutContents(doc: LayoutDoc, editorHeadHeight: (panel: string) => number = () => 0): GridContentInput[] {
     return Object.entries(doc.panels).flatMap(([id, panel]): GridContentInput[] => {
-        if (panel.role === "editor") return [{key: `editor:${id}`, leaf: id, insetTop: 0, active: true}];
+        if (panel.role === "editor") return [{key: `editor:${id}`, leaf: id, insetTop: editorHeadHeight(id), active: true}];
         return panel.tabs.map((tab) => ({key: tabKey(tab), leaf: id, insetTop: PANEL_HEAD_HEIGHT, active: panel.active === tabKey(tab)}));
     });
 }

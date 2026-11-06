@@ -247,6 +247,16 @@ function defineLayoutDocStore(bound: boolean) {
                     const panel = findTab(current, key)?.panel;
                     return activated.ok && panel !== undefined && current.panels[panel]?.collapsed === true ? setPanelCollapsed(activated.doc, panel, false) : activated;
                 }),
+                /** 在标签条里换一位（Alt 加方向键，输出 20）：活动标签不变，到头了不动。 */
+                reorderTab: (key: string, delta: -1 | 1): LayoutResult => apply((current) => {
+                    const found = findTab(current, key);
+                    if (found === null) return notFound(key);
+                    const length = current.panels[found.panel]?.tabs.length ?? 0;
+                    const next = found.index + delta;
+                    if (next < 0 || next >= length) return {ok: true, doc: current};
+                    // `index` 是摘掉来源之前的插入位：往后挪要跨过下一个标签。
+                    return moveTabToStrip(current, {tab: key, panel: found.panel, index: delta === 1 ? found.index + 2 : next, activate: false}, policy);
+                }, {flush: true}),
                 /** 关掉标签：声明消失的视图的占位用（输出 4）。 */
                 closeTab: (key: string): LayoutResult => apply((current) => removeTab(current, key)),
                 /**
