@@ -16,19 +16,31 @@ section { margin-bottom: 32px; }
 <body>
 <h1>对话界面第二批</h1>
 
-<section data-nbdev-question="s4-edit" data-nbdev-type="confirm">
-<h2>批 3：就地编辑与分支切换 <span class="badge" data-nbdev-skip>待定</span></h2>
+<section data-nbdev-question="s6-tree-group" data-nbdev-type="confirm">
+<h2>分支树：分组与高亮 <span class="badge" data-nbdev-skip>待定</span></h2>
+<p>上一稿只靠线条，看不出有没有分支。这一稿：标题旁写“2 处分叉”；当前路径左边一条强调色的竖线；分叉处写“从这里分成 3 条”，每条分支一个框，当前的框高亮并标“当前路径”，别的框有“切换”；你所在的那行写“你在这里”。</p>
+<figure><img src="r4/tree.webp" alt="分组的分支树" width="620"></figure>
+<p><strong>这样可以吗？</strong></p>
+</section>
+
+<section data-nbdev-question="s7-tree-path" data-nbdev-type="confirm">
+<h2>分支树：横向模式 <span class="badge" data-nbdev-skip>待定</span></h2>
+<p>你提的“横向展示、分支点左右调整”，好做，数据和树一样。右上角“树 / 横向”切换。当前路径从左到右一张张卡片，工具调用并进前面那张；分叉的卡片上有“‹ 1 / 3 ›”，点一下这张和后面的都换成那条分支。这时只是预览，点“切换到这条路径”才真的切过去，关掉就放弃：切换会改变接下来发送时的对话历史，不能一点就生效。键盘：左右在卡片之间走，在分叉上按 ‹ › 换分支。放不下时横向滚动，打开时滚到当前位置。</p>
+<figure><img src="r4/path.webp" alt="横向模式" width="620"></figure>
+<p><strong>这样可以吗？</strong>不可以的话写上你想象的样子。</p>
+</section>
+
+<section>
+<h3>批 3：就地编辑与分支切换：可以</h3>
 <p>点用户消息的“编辑”，气泡就地变成编辑器，发送后从这里开一条新分支，原来的还在。回复有多个分支时，气泡右下出现“‹ 2/3 ›”。旁边是复制、重试、从此处分支。</p>
 <p>“从此处分支”只把对话退回到这条消息之后，不发送，等你写下一句；“重试”退回之后马上再要一次回复。这一批编辑只改文字，<code>@</code> 引用随批 4，插图随批 5 接上。</p>
 <figure><img src="r3/edit.webp" alt="就地编辑" width="520"></figure>
-<p><strong>这样可以吗？</strong>不可以的话写上要改的地方。</p>
 </section>
 
-<section data-nbdev-question="s5-tree" data-nbdev-type="confirm">
-<h2>批 3：分支树 <span class="badge" data-nbdev-skip>待定</span></h2>
+<section>
+<h3>批 3：分支树的第一稿（已被上面取代）</h3>
 <p>从顶栏菜单打开。当前路径亮、别的分支暗，分叉处缩进一级；长的分支可以收起。可搜索，过滤留“默认”“不含工具”“只看用户”“全部”，旧应用的“带标签”不做（没有标签这个功能）。选中一行后底部写节点 id（可复制）和“切换到这条分支”，也支持键盘上下选、回车切换。</p>
 <figure><img src="r3/tree.webp" alt="分支树" width="520"></figure>
-<p><strong>这样可以吗？</strong>不可以的话写上要改的地方。</p>
 </section>
 
 <section>
