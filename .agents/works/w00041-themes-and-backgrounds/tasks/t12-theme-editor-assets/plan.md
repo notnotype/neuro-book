@@ -62,7 +62,7 @@ t06 给声明加了三个字段（[`theme.skins`](../../../../../docs/specs/them
 
 - `ThemeEditorScene.vue`（同名 .md 先改）：现有“场景图”块下面加三块：“工作态场景”（上传、更换、移除，缩略图；提示“使用同一份取景”）、“场景提供者”（`Select`）、“预览状态”（`SegmentedControl`：跟随 / 空闲 / 工作中）。上传逻辑复用，抽出的是“选文件、处理、上传、写声明”的一小段（现在写死在 `onFile`）：参数是写声明的动作，避免三份近似代码。
 - “场景提供者”下拉的选项：已发布的 id 正常可选，另有“无”；当前值不在已发布列表里时临时追加一项 `{value: id, label: id, description: "未发布", disabled: true}`（`Select` 的受控值要在 options 里；禁用项保留显示但不可再选，设计审查第 5 条）；提供者发布后这一项变回普通项，撤回后又变回禁用项。
-- 新增 `ThemeEditorIcons.vue`（与 .md）：当前明暗的图标列表，每行：用该图标的 `mask` 画的预览（沿用 `userThemeSceneUrl` 的地址换成通用的 `userThemeAssetUrl`）、图标名、更换、移除；底部“添加”：图标名输入（`DraftInput`，提示“lucide 图标名，例如 folder-open”）加“选择 SVG…”；顶部“复制到另一套明暗”。没有图标时一句引导。
+- 新增 `ThemeEditorIcons.vue`（与 .md）：当前明暗的图标列表，每行：用该图标的 `mask` 画的预览（沿用 `userThemeSceneUrl` 的地址换成通用的 `userThemeAssetUrl`）、图标名、更换、移除；“添加”行放在列表上方（列表至多 64 个，放底部要滚下去才找得到）：图标名输入（提示“lucide 图标名，例如 folder-open”）加“添加”按钮（已有名字时写“更换”，点它选 SVG 文件），另有“复制到另一套明暗”。（实现审查 F4：实现与原写法不一致，统一成这个。）没有图标时一句引导。
 - `ThemeEditor.vue`：`SECTIONS` 加 `icons`（放在 `scene` 后），导航与 `EditorSection` 类型同步；`createFrom` 的“复制素材”判断扩到 `workingScene` 与 `icons`。
 - `ThemeEditorHolder.vue`：`copyAssets` 的实现。
 - 文案：`workbench/web/text` 两种语言各加一组 `themeEditor.icons.*`、`themeEditor.scene.working*`、`themeEditor.scene.provider*`；窄屏（390px）下图标行不横向溢出。
