@@ -442,3 +442,92 @@ test("设置窗口里有“主题”页：我的主题列在页上，两个按�
         await page.locator("[data-section-tab=colors]").click({timeout: 3000});
     });
 });
+
+test("删掉最后一套我的主题：回到空状态，渐变被新的渐变跳过时页面没有未处理的错误", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        // 动效开着才走渐变路径（e2e 默认减弱动效，见 playwright.config.ts）。
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(`${error.name}: ${error.message}`));
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+
+        // 设置里正在用着它，再删。
+        await expect(async () => {
+            await page.keyboard.press("Control+,");
+            await expect(page.locator("[data-settings-nav-current]")).toBeFocused({timeout: 500});
+        }).toPass();
+        await page.locator("[data-settings-row=\"nbook.workbench/theme\"]").getByRole("combobox").click();
+        await page.getByRole("option", {name: "新主题 · 我的"}).click();
+        await expect.poll(async () => (JSON.parse(await readFile(join(session.stateRoot, "settings.json"), "utf8")) as Record<string, string>)[THEME]).toMatch(/^user:/u);
+        await page.keyboard.press("Escape");
+
+        await expect(async () => {
+            await page.locator("[data-delete]").click({timeout: 1000});
+            await expect(page.locator("[data-empty]")).toBeVisible({timeout: 500});
+        }).toPass();
+        await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
+        expect(errors).toEqual([]);
+    });
+});
+
+test("渐变还没开始又切一次（明暗连点）：前一次被跳过，页面没有未处理的错误，最后停在最后一次选的", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(`${error.name}: ${error.message}`));
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "light");
+
+        // 同一个任务里连点会被 Vue 合成一次更新；每次点完让出一轮，下一次点时前一次的渐变还没到下一帧，只能被跳过。
+        await page.evaluate(async () => {
+            const buttons = [...document.querySelectorAll<HTMLElement>("[data-appearance] [role=radio]")];
+            for (const index of [1, 0, 1]) {
+                buttons[index]?.click();
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+        });
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+        await page.waitForFunction(() => !document.getAnimations().some((animation) => String((animation.effect as KeyframeEffect | null)?.pseudoElement).startsWith("::view-transition")));
+        expect(errors).toEqual([]);
+    });
+});
+
+test("浮动的主题编辑器与设置窗口按最近聚焦叠放：后打开的在上，点哪个哪个提到最上", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await expect(async () => {
+            await page.keyboard.press("Control+,");
+            await expect(page.locator("[data-settings-nav-current]")).toBeFocused({timeout: 500});
+        }).toPass();
+        await page.locator("[data-settings-nav='nbook.workbench.themes']").click();
+        await page.locator("[data-open-floating]").click();
+        await expect(editor(page)).toBeVisible();
+
+        const settingsWindow = page.locator("[role=dialog]").filter({has: page.locator("[data-theme-settings-page]")});
+        const editorWindow = page.locator("[role=dialog]").filter({has: page.locator("[data-theme-editor]")});
+        /** 两个窗口重叠区的中心点上，最上面的是哪个窗口。 */
+        const topWindow = async (): Promise<"设置" | "编辑器" | "别的"> => {
+            const [a, b] = await Promise.all([settingsWindow.boundingBox(), editorWindow.boundingBox()]);
+            if (a === null || b === null) throw new Error("两个窗口都要开着");
+            const x = (Math.max(a.x, b.x) + Math.min(a.x + a.width, b.x + b.width)) / 2;
+            const y = (Math.max(a.y, b.y) + Math.min(a.y + a.height, b.y + b.height)) / 2;
+            return page.evaluate(([px, py]) => {
+                const hit = document.elementFromPoint(px as number, py as number)?.closest("[role=dialog]");
+                if (hit?.querySelector("[data-theme-editor]") != null) return "编辑器";
+                if (hit?.querySelector("[data-theme-settings-page]") != null) return "设置";
+                return "别的";
+            }, [x, y]);
+        };
+
+        // 后打开的编辑器在设置之上；点一下设置（标题区的空白处）它就提到最上；再点编辑器又回去。
+        expect(await topWindow()).toBe("编辑器");
+        await settingsWindow.dispatchEvent("pointerdown");
+        await expect.poll(topWindow).toBe("设置");
+        await editorWindow.dispatchEvent("pointerdown");
+        await expect.poll(topWindow).toBe("编辑器");
+    });
+});

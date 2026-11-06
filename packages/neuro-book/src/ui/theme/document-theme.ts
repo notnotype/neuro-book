@@ -25,6 +25,15 @@ export interface DocumentThemeWriter {
 }
 
 /**
+ * 渐变被后来的渐变（或页面隐藏）跳过时，它的三个 Promise 会以 `AbortError` 拒绝：这是预期的，写入已由后来的那次接手
+ * （见 `latest`），不是失败，不能留成未处理的拒绝。别的错误照常抛出。
+ */
+function ignoreSkipped(error: unknown): void {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    throw error;
+}
+
+/**
  * 一个页面对文档根的主题写入。主题只能写在 `<html>` 上，不能作用域到页面自己的根节点：主题包的变量声明在
  * `:root[data-nb-theme="…"]` 选择器下，且大量派生自配色变量（`color-mix(… var(--accent-main) …)`），自定义属性在
  * 声明处完成替换，配色不写在文档根的话派生值会算错。
@@ -76,9 +85,12 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
                 write(theme);
                 return;
             }
-            document.startViewTransition(() => {
+            const transition = document.startViewTransition(() => {
                 if (latest === theme) write(theme);
             });
+            transition.ready.catch(ignoreSkipped);
+            transition.updateCallbackDone.catch(ignoreSkipped);
+            transition.finished.catch(ignoreSkipped);
         },
         clear() {
             latest = undefined;

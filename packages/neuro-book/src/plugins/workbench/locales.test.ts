@@ -85,6 +85,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "themeEditor.colors.clear": {"zh-CN": "清除", "en-US": "Clear"},
     "settingsPages.themes.title": {"zh-CN": "主题", "en-US": "Themes"},
     "settingsPages.themes.description": {"zh-CN": "做自己的主题，或查看正在用的主题", "en-US": "Make a theme of your own, or see the one in use"},
+    "themeEditor.entry.heroTitle": {"zh-CN": "主题编辑器", "en-US": "Theme editor"},
     "themeEditor.entry.openTab": {"zh-CN": "在页签中打开", "en-US": "Open in a tab"},
     "themeEditor.entry.openFloating": {"zh-CN": "在浮动窗口中打开", "en-US": "Open in a floating window"},
     "themeEditor.entry.intro": {"zh-CN": "做自己的主题：配色、字体、活动栏、场景图都能改，改动立刻出现在真实的工作台上。", "en-US": "Make a theme of your own: colors, fonts, the activity bar and scene images are all editable, and the real workbench changes as you edit."},

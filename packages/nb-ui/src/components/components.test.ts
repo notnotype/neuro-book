@@ -1137,7 +1137,7 @@ describe("nb-ui floating window (FloatingWindow)", () => {
             await nextTick();
             await nextTick();
 
-            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8991");
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8999");
         } finally {
             wrapper.unmount();
         }
@@ -1167,15 +1167,15 @@ describe("nb-ui floating window (FloatingWindow)", () => {
 
             const surfaces = wrapper.findAll("[data-dialog-surface]").map((node) => node.attributes("style") ?? "");
             expect(surfaces).toHaveLength(2);
-            expect(surfaces[0]).toContain("z-index: 8990");
-            expect(surfaces[1]).toContain("z-index: 8992");
+            expect(surfaces[0]).toContain("z-index: 8900");
+            expect(surfaces[1]).toContain("z-index: 8902");
 
-            // 内层窗口自己的下拉必须压过内层窗口本体，否则下拉会被同层的下拉遮住
+            // 窗口里的下拉取窗口带的最上一格，压过所有窗口本体（含内层窗口），否则下拉会被窗口遮住
             await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
             await nextTick();
             await nextTick();
 
-            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8993");
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8999");
         } finally {
             wrapper.unmount();
         }
