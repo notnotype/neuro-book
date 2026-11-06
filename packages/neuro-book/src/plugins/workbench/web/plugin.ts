@@ -36,7 +36,7 @@ import type {PaneFocusMover} from "./commands/pane-focus-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, editorPanelsKey, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
-import type {EditorPanelsService, NotificationInput} from "../shared/contracts";
+import type {EditorPanelsService, EditorSaveGate, NotificationInput} from "../shared/contracts";
 import {createEditorPanels} from "../shared/editor-panels";
 import {themeScenesPoint, themesPoint, WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "../shared/themes";
 import type {ThemeDeclaration} from "../shared/themes";
@@ -164,11 +164,14 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const overlays = new OverlaySlot(context.signal);
             const OverlayHost = createOverlayHost(overlays, (message) => diagnostics.record({level: "warn", event: "workbench.overlays", message, source: {plugin: descriptor.id}}));
             const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
-            let editorSaveGate: (() => Promise<boolean>) | null = null;
+            let editorSaveGate: EditorSaveGate | null = null;
             const layout = createLayoutHost(() => {
                 const store = layoutDocStoreFor(project !== null).create(context, {storage, diagnostics});
                 store.actions.acceptViewCatalog(views.catalog);
-                store.actions.acceptSaveGate(() => editorSaveGate?.() ?? Promise.resolve(true));
+                store.actions.acceptSaveGate({
+                    pass: () => editorSaveGate?.pass() ?? Promise.resolve(true),
+                    recover: () => editorSaveGate?.recover() ?? Promise.resolve(true),
+                });
                 // 记录读不了时回落默认树，原件不覆盖（输出见“失败与恢复”）：同一条只记一次。
                 const recorded = new Set<string>();
                 const stop = watch(() => store.state.problems.map((problem) => `${problem.kind}:${problem.code}`), (lines) => {

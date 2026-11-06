@@ -4,6 +4,7 @@ import {createGrid} from "./grid";
 import {docOf, H, shapeOf, sizeOf, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {
     activateTab,
+    carryDynamicTabs,
     countsInShare,
     edgeTargetOf,
     insertTab,
@@ -340,6 +341,20 @@ describe("不变量", () => {
         const result = okDoc(moveTabToEdge(doc, {tab: "tab:ea", target: edge(doc, "sidebar", "bottom")}, testPolicy()));
         expect(shape(result)).toBe("V[sidebar,ea]");
         expect(result.panels.ea?.role).toBe("editor");
+    });
+
+    it("放弃布局的改动：结构回到旧的，动态标签以现在为准：关掉的拿掉，开着的放回原来那块，那块不在了进活动编辑组；活动标签与活动编辑组不变", () => {
+        const saved = {...docOf(H(["sidebar", "ea", "eb"]), {ea: {tabs: [tab("closed"), tab("kept")], active: "tab:closed"}, eb: {tabs: [tab("other")], active: "tab:other"}}), currentEditor: "ea"};
+        const moved = okDoc(openPanelAtEdge(saved, {id: "n", panel: {role: "editor", tabs: [tab("fresh")], active: "tab:fresh"}, target: edge(saved, "eb", "bottom")}, testPolicy()));
+        const now = okDoc(removeTab(okDoc(insertTab(moved, {panel: "ea", tab: tab("added")})), "tab:closed"));
+        const back = carryDynamicTabs(saved, now);
+        expect(shape(back)).toBe("H[sidebar,ea,eb]");
+        // 新开的那块（n）在旧文档里没有：它的标签进活动编辑组。
+        expect(back.panels.ea?.tabs.map(tabKey)).toEqual(["tab:kept", "tab:added", "tab:fresh"]);
+        expect(back.panels.ea?.active).toBe("tab:added");
+        expect(back.panels.eb?.tabs.map(tabKey)).toEqual(["tab:other"]);
+        expect(back.panels.sidebar?.tabs).toEqual([view("sidebar")]);
+        expect(back.currentEditor).toBe("ea");
     });
 
     it("存盘前去掉动态标签：只留工具面板与一个空编辑组", () => {

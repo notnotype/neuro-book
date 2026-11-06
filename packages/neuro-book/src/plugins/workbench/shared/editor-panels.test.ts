@@ -3,10 +3,11 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {barRef, findTreeNode, GRID_SNAPSHOT_VERSION, LAYOUT_DOC_VERSION, panelRef, treeLeaves} from "@notnotype/nb-layout";
+import {barRef, findTreeNode, GRID_SNAPSHOT_VERSION, LAYOUT_DOC_VERSION, panelRef, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {LayoutDoc} from "@notnotype/nb-layout";
 
-import {createMemoryEditorPanels} from "./editor-panels";
+import {editorTabKey} from "./contracts";
+import {createMemoryEditorPanels, EDITOR_TAB_TYPE} from "./editor-panels";
 
 function panels(seed?: LayoutDoc) {
     const local = createMemoryEditorPanels(seed);
@@ -17,6 +18,10 @@ function panels(seed?: LayoutDoc) {
 }
 
 describe("PanelTabs", () => {
+    it("标签键和 nb-layout 的写法一致：标签的 DOM 上写它，拖动靠它认标签", () => {
+        expect(editorTabKey("t-1")).toBe(tabKey({kind: "tab", type: EDITOR_TAB_TYPE, tabId: "t-1"}));
+    });
+
     it("插入：放到给定位置，成为活动标签，面板成为活动面板；已有的 id 不插；位置超出放末尾", () => {
         const p = panels();
         const right = p.tree.openAtEdge("g0", "right") as string;

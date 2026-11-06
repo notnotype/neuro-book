@@ -209,12 +209,23 @@ export interface EditorPanels {
     readonly tree: PanelTree;
 }
 
+/**
+ * 布局存盘前的关卡。`pass` 每次保存都走，写不下去就返回假，不自己重试：失败要等用户在状态栏点“重试”（`recover`），否则一次断线就是无间隔的重试循环。
+ */
+export interface EditorSaveGate {
+    pass(): Promise<boolean>;
+    recover(): Promise<boolean>;
+}
+
+/** 布局文档里编辑器标签的键：和 nb-layout 的 `tabKey` 同一写法（`editor-panels.test.ts` 核对）。标签的 DOM 上写它（`data-panel-tab`），工作台的拖动才认得。 */
+export const editorTabKey = (tabId: string): string => `tab:${tabId}`;
+
 /** 编辑器要的工作台服务：结构操作，加上“文档读到了没有”与存盘前的关卡。 */
 export interface EditorPanelsService extends EditorPanels {
     /** 布局文档读完了；在此之前结构操作没有文档可改。 */
     readonly ready: Readonly<Ref<boolean>>;
     /** 存盘前的关卡（“副作用与数据”）：先写 `editor.tabs`，它失败时布局不写。 */
-    acceptSaveGate(gate: (() => Promise<boolean>) | null): void;
+    acceptSaveGate(gate: EditorSaveGate | null): void;
     /** 让布局现在走一次保存（连同关卡）。 */
     flush(): void;
 }

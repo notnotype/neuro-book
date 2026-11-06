@@ -102,7 +102,11 @@ export function panelTitle(doc: LayoutDoc, catalog: ViewCatalog, panelId: string
     const panel = doc.panels[panelId];
     const named = panel?.name === undefined ? undefined : PANEL_NAMES[panel.name];
     if (named !== undefined) return named;
-    if (panel?.role === "editor") return workbenchText("viewCommands.parts.editor");
+    if (panel?.role === "editor") {
+        // 几块编辑组都叫“编辑区”就分不出来了：按树序写序号。
+        const editors = treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "editor");
+        return editors.length > 1 ? workbenchText("viewCommands.parts.editorAt", {index: editors.indexOf(panelId) + 1}) : workbenchText("viewCommands.parts.editor");
+    }
     const active = panel?.active ?? null;
     const viewId = active !== null && active.startsWith(VIEW_KEY_PREFIX) ? active.slice(VIEW_KEY_PREFIX.length) : null;
     return (viewId === null ? undefined : catalog.get(viewId)?.title) ?? panelId;

@@ -2,6 +2,7 @@
 /** 编辑组的标签条（同名 .md）。 */
 import {computed, nextTick, ref, watch} from "vue";
 
+import {editorTabKey} from "nbook/plugins/workbench/shared/contracts";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
 
@@ -177,7 +178,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
                     :title="tab.title"
                     :aria-description="dragHint === '' ? undefined : dragHint"
                     :data-editor-tab="tab.id"
-                    :data-panel-tab="`tab:${tab.id}`"
+                    :data-panel-tab="editorTabKey(tab.id)"
                     :data-editor-tab-preview="tab.preview ? '' : undefined"
                     :data-editor-tab-dirty="tab.dirty ? '' : undefined"
                     :data-editor-tab-pinned="tab.pinned ? '' : undefined"

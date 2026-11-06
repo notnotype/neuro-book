@@ -43,7 +43,7 @@ type Emits = {
 };
 ```
 
-无 slots、expose；attrs 落在根 `section`（`data-editor-group`，活动组另有 `data-editor-group-active`；这两个标记是样式与测试钩子）。根元素经 `useDropTarget` 登记两种落点（[`ui/layout-drag.md`](../../../../../../../docs/specs/ui/layout-drag.md) 输出 16）：`EDITOR_GROUP_FILE` 给资源管理器拖文件，`EDITOR_GROUP_TAB` 给标签拖动，数据都是组 id。
+无 slots、expose；attrs 落在根 `section`（`data-editor-group`，活动组另有 `data-editor-group-active`；这两个标记是样式与测试钩子）。根元素经 `useDropTarget` 登记落点 `EDITOR_GROUP_FILE`（[`ui/layout-drag.md`](../../../../../../../docs/specs/ui/layout-drag.md) 输出 16），给资源管理器拖文件，数据是组 id；标签的拖动是工作台的手势（`EditorHost`），标签写 `data-panel-tab`，标签条写 `data-panel-strip`。
 
 标签区下面是面包屑（[`EditorBreadcrumbs`](EditorBreadcrumbs.md)，输出 60）：活动标签是文件时才有，段由活动标签的地址算出，目录读取经控制器的 `list`，Markdown 的标题段读本组控件句柄的大纲（`handleOf`），选中文件在本组 preview 打开、选中标题交给句柄的 `revealHeading`，Escape 把焦点还给本组的编辑器；命令 `focus-breadcrumbs` 经控制器的 `breadcrumbFocus` 聚焦本组的面包屑。
 

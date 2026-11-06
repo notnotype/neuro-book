@@ -95,10 +95,17 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
         const base = store.state.record.base;
         firstVisit.value = base?.status === "missing";
         start(base?.status === "ok" ? base.value : null, (snapshot) => store.actions.save(snapshot));
-        options.panels.acceptSaveGate(() => (area.value === null ? Promise.resolve(true) : store.actions.saveBeforeLayout(area.value.groups.snapshot())));
-        // 只改了属性（光标、固定）时布局不存，关卡不走：失败要亮出来，让布局走一次关卡，状态栏才显示“布局未保存”和重试。
-        stopSaveWatch = watch(() => store.state.record.save.state, (state) => {
-            if (state === "failed" || state === "unknown") options.panels.flush();
+        options.panels.acceptSaveGate({
+            pass: () => (area.value === null ? Promise.resolve(true) : store.actions.saveBeforeLayout(area.value.groups.snapshot())),
+            recover: () => (area.value === null ? Promise.resolve(true) : store.actions.recover(area.value.groups.snapshot())),
+        });
+        // 只改了属性（光标、固定）时布局不存，关卡不走：失败要亮出来，让布局走一次关卡，状态栏才显示“布局未保存”和重试。只看“进入失败”这一下：
+        // 重试时状态会 saving → failed 再来一遍，按状态值看的话每次都再走关卡。
+        stopSaveWatch = watch(() => {
+            const {state} = store.state.record.save;
+            return state === "failed" || state === "unknown";
+        }, (failed) => {
+            if (failed) options.panels.flush();
         });
     }, {immediate: true});
 

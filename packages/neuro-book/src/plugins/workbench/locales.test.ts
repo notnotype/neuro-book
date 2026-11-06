@@ -364,6 +364,7 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "partCommands.parts.panel": {"zh-CN": "面板", "en-US": "Panel"},
     "partCommands.parts.statusbar": {"zh-CN": "状态栏", "en-US": "Status bar"},
     "viewCommands.parts.editor": {"zh-CN": "编辑区", "en-US": "Editor area"},
+    "viewCommands.parts.editorAt": {"zh-CN": "编辑区 {index}", "en-US": "Editor area {index}"},
     "viewCommands.newPanelNextTo": {"zh-CN": "新面板（挨着{panel}）", "en-US": "New panel (next to {panel})"},
     "shell.drop.addTab": {"zh-CN": "添加为标签", "en-US": "Add as a tab"},
     "shell.drop.insert": {"zh-CN": "放在这里", "en-US": "Place here"},

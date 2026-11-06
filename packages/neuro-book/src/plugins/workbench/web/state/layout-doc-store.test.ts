@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import type {DeepReadonly} from "@vue/reactivity";
 
-import {insertTab, moveTabToEdge, validateLayoutDoc} from "@notnotype/nb-layout";
+import {insertTab, moveTabToEdge, removeTab, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutResult, TabRef} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -201,17 +201,53 @@ describe("损坏与失败", () => {
         const w = await world();
         const {store, storage} = await openLayoutDoc(w, "a", "c");
         let allow = false;
-        store.actions.acceptSaveGate(async () => allow);
+        let recovers = 0;
+        store.actions.acceptSaveGate({pass: async () => allow, recover: async () => {
+            recovers += 1;
+            return allow;
+        }});
         hideAux(store);
         await store.actions.save();
         expect(await read(storage, USER)).toBe("missing");
         expect(store.state.problems).toEqual([{kind: "unsaved", code: "save-gate"}]);
+        // 重试还是过不去：照旧显示。保存本身不重试关卡，只有这个按钮才重试。
+        expect(recovers).toBe(0);
+        await store.actions.retry();
+        expect(recovers).toBe(1);
+        expect(store.state.problems).toEqual([{kind: "unsaved", code: "save-gate"}]);
+        expect(await read(storage, USER)).toBe("missing");
         allow = true;
         // 状态栏的“重试”：布局自己没有待重试的，要再走一次关卡。
         await store.actions.retry();
         await settled(store);
         expect(store.state.problems).toEqual([]);
         expect((await savedDoc(storage, USER)).panels.auxiliarybar?.hidden).toBe(true);
+    });
+
+    it("放弃：开着的编辑器标签不跟着回滚，关掉的也不回来", async () => {
+        const w = await world();
+        await w.project(1, []);
+        const {store, storage} = await openLayoutDoc(w, "a", "c", true);
+        const panels = () => store.actions.document().panels;
+        const editor = INITIAL_EDITOR_PANEL;
+        store.actions.apply((current) => insertTab(current, {panel: editor, tab: editorTab("closed")}), {flush: true});
+        await store.actions.save();
+        await settled(store);
+        expect((await savedDoc(storage, PROJECT)).panels[editor]?.tabs).toEqual([editorTab("closed")]);
+
+        store.actions.apply((current) => removeTab(current, "tab:closed"));
+        store.actions.apply((current) => insertTab(current, {panel: editor, tab: editorTab("open")}));
+        hideAux(store);
+        store.actions.discard();
+        expect(panels()[editor]?.tabs).toEqual([editorTab("open")]);
+        expect(panels()[editor]?.active).toBe("tab:open");
+        expect(panels().auxiliarybar?.hidden).toBeUndefined();
+
+        // 未绑定项目的窗口：已确认的文档里没有动态标签，开着的同样不丢。
+        const unbound = (await openLayoutDoc(w, "b", "d")).store;
+        unbound.actions.apply((current) => insertTab(current, {panel: INITIAL_EDITOR_PANEL, tab: editorTab("open")}));
+        unbound.actions.discard();
+        expect(unbound.actions.document().panels[INITIAL_EDITOR_PANEL]?.tabs).toEqual([editorTab("open")]);
     });
 
     it("放弃：显示回到已确认值", async () => {

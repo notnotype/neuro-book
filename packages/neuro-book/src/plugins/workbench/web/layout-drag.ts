@@ -289,7 +289,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             previews.clear();
             return true;
         },
-        structure: () => `${layoutStructureKey(options.doc())}${options.editorTabs()?.structure() ?? ""}`,
+        structure: () => JSON.stringify([layoutStructureKey(options.doc()), options.editorTabs()?.structure() ?? null]),
         resolve: ({source, point, top, region}) => {
             // 被菜单、对话框挡住的、按钮区都不接收；键盘没有指针下的元素。
             if (region === null && (top === null || !root.contains(top) || top.closest("[data-no-drag]") !== null)) return null;

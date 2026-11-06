@@ -597,6 +597,37 @@ export function stripDynamicTabs(doc: LayoutDoc): LayoutDoc {
     return next as unknown as LayoutDoc;
 }
 
+/**
+ * 放弃布局的改动时用：结构回到 `target`，动态标签以 `from` 为准。动态标签背后是开着的文档，它们的属性和引用不归布局管，只回滚布局这一边就对不上了：`target` 里有、已经关掉的标签拿掉；
+ * 开着、`target` 里没有的放回原来那块，那块不在了放进活动编辑组。活动标签与活动编辑组也按 `from`。
+ */
+export function carryDynamicTabs(target: LayoutDoc, from: LayoutDoc): LayoutDoc {
+    const open = Object.entries(from.panels).flatMap(([panel, record]) => record.tabs.flatMap((tab) => (tab.kind === "tab" ? [{panel, tab}] : [])));
+    const openKeys = new Set(open.map(({tab}) => tabKey(tab)));
+    let next = target;
+    const step = (result: LayoutResult): void => {
+        if (result.ok) next = result.doc;
+    };
+    for (const record of Object.values(target.panels)) {
+        for (const tab of record.tabs) if (tab.kind === "tab" && !openKeys.has(tabKey(tab))) step(removeTab(next, tabKey(tab)));
+    }
+    for (const {panel, tab} of open) {
+        if (findTab(next, tabKey(tab)) !== null) continue;
+        const home = next.panels[panel]?.role === "editor" ? panel : (next.currentEditor ?? editorIds(next)[0]);
+        if (home !== undefined) step(insertTab(next, {panel: home, tab, activate: false}));
+    }
+    for (const [panel, record] of Object.entries(from.panels)) {
+        if (record.active !== null && editorTabInPanel(next, panel, record.active)) step(activateTab(next, record.active));
+    }
+    if (from.currentEditor !== null) step(setCurrentEditor(next, from.currentEditor));
+    return next;
+}
+
+function editorTabInPanel(doc: LayoutDoc, panel: string, key: string): boolean {
+    const record = doc.panels[panel];
+    return record?.role === "editor" && record.tabs.some((tab) => tabKey(tab) === key);
+}
+
 // ── 校验 ──
 
 export type LayoutDocValidation = {readonly ok: true; readonly doc: LayoutDoc} | {readonly ok: false; readonly code: "unsupported-version" | "invalid"; readonly detail: string};

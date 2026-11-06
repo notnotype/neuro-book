@@ -180,7 +180,8 @@
             "sidebar": "Sidebar",
             "auxiliarybar": "Secondary Side Bar",
             "panel": "Panel",
-            "editor": "Editor area"
+            "editor": "Editor area",
+            "editorAt": "Editor area {{index}}"
         },
         "pickView": "Pick a view to move",
         "pickOpen": "Pick a view to open",

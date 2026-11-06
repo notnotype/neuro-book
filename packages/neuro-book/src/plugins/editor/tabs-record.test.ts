@@ -14,7 +14,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
-import type {StorageWorld} from "nbook/plugins/storage/testing/world";
+import type {StorageWorld, WorldWindow} from "nbook/plugins/storage/testing/world";
 import type {StorageService} from "nbook/shared/storage";
 
 import {MARKDOWN_EDITOR} from "./shared/contracts";
@@ -49,7 +49,7 @@ async function world(): Promise<StorageWorld> {
 }
 
 /** 绑定项目 `book` 的窗口里建标签的 store（插件 id 与产品的编辑器一致），等记录读完。两个窗口用同一个客户端 `c`：记录按客户端分行，它们才共用一条。 */
-async function openTabs(w: StorageWorld, id: string): Promise<{store: EditorTabsStore; storage: StorageService}> {
+async function openTabs(w: StorageWorld, id: string): Promise<{store: EditorTabsStore; storage: StorageService; window: WorldWindow}> {
     const hosted: {current: {store: EditorTabsStore; storage: StorageService} | null} = {current: null};
     const plugin: PluginDefinition = {
         id: "nbook.editor",
@@ -65,11 +65,11 @@ async function openTabs(w: StorageWorld, id: string): Promise<{store: EditorTabs
             },
         }],
     };
-    await w.window(id, "c", [plugin], {bound: true});
+    const window = await w.window(id, "c", [plugin], {bound: true});
     if (hosted.current === null) throw new Error("store 没有创建");
     const {store} = hosted.current;
     await waitUntil(`${id} 的标签记录读完`, () => store.state.record.ready);
-    return hosted.current;
+    return {...hosted.current, window};
 }
 
 async function stored(storage: StorageService): Promise<unknown> {
@@ -104,5 +104,34 @@ describe("Spec ui.workbench-layout 的 editor.tabs", () => {
         expect(await third.store.actions.saveBeforeLayout(tabs("late", "kept"))).toBe(true);
         expect(await second.store.actions.saveBeforeLayout(tabs("kept"))).toBe(true);
         expect(await stored(second.storage)).toEqual(["kept", "late"]);
+    });
+
+    it("属性变了只写新增和修改；删除等布局存盘前才写：标签关掉到布局落盘之间刷新，不会出现“记录丢了”的占位", async () => {
+        const w = await world();
+        const {store, storage} = await openTabs(w, "a");
+        expect(await store.actions.saveBeforeLayout(tabs("a", "b"))).toBe(true);
+        store.actions.save(tabs("a"));
+        await waitUntil("写完", () => store.state.record.queue === 0);
+        expect(await stored(storage)).toEqual(["a", "b"]);
+        expect(await store.actions.saveBeforeLayout(tabs("a"))).toBe(true);
+        expect(await stored(storage)).toEqual(["a"]);
+    });
+
+    it("写失败之后：属性保存不排队，关卡不重试、直接返回假，只有 recover 才重试；通了写的是那一刻的全部", async () => {
+        const w = await world();
+        const {store, storage, window} = await openTabs(w, "a");
+        window.disconnect();
+        expect(await store.actions.saveBeforeLayout(tabs("a"))).toBe(false);
+        const record = store.state.record;
+        expect(["failed", "unknown"]).toContain(record.save.state);
+        const queue = record.queue;
+        store.actions.save(tabs("a", "b"));
+        expect(record.queue).toBe(queue);
+        expect(await store.actions.saveBeforeLayout(tabs("a", "b"))).toBe(false);
+
+        expect(await store.actions.recover(tabs("a", "b"))).toBe(false);
+        await window.reconnect();
+        await waitUntil("恢复", async () => await store.actions.recover(tabs("a", "b", "c")));
+        expect(await stored(storage)).toEqual(["a", "b", "c"]);
     });
 });

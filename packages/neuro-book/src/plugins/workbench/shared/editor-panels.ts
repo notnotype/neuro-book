@@ -7,9 +7,10 @@
 
 import {computed, shallowRef} from "@vue/reactivity";
 
-import {activateTab, findTab, findTreeNode, GRID_SNAPSHOT_VERSION, insertTab, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {activateTab, findTab, findTreeNode, GRID_SNAPSHOT_VERSION, insertTab, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, treeLeaves} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdgeTarget, LayoutPolicy, LayoutResult, TabRef} from "@notnotype/nb-layout";
 
+import {editorTabKey} from "./contracts";
 import type {EditorPanels, EditorPanelsService, PanelEntry, PanelTabs, PanelTree} from "./contracts";
 
 /** 布局文档里编辑器标签的类型：动态标签类型只给内置插件（“边界与兼容”）。 */
@@ -17,7 +18,6 @@ export const EDITOR_TAB_TYPE = "editor";
 const TAB_KEY_PREFIX = "tab:";
 
 const refOf = (tabId: string): TabRef => ({kind: "tab", type: EDITOR_TAB_TYPE, tabId});
-export const editorTabKey = (tabId: string): string => tabKey(refOf(tabId));
 /** 标签键对应的编辑器标签 id；工具视图的键是 null。 */
 export const editorTabIdOf = (key: string): string | null => (key.startsWith(TAB_KEY_PREFIX) ? key.slice(TAB_KEY_PREFIX.length) : null);
 

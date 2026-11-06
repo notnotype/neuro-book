@@ -7,11 +7,12 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, edgeTargetOf, findTab, findTreeNode, fixedNodesOf, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, rebaseIntents, removeTab, sameTreeShape, setBarHidden, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, validateLayoutDoc} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, edgeTargetOf, findTab, findTreeNode, fixedNodesOf, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, rebaseIntents, removeTab, sameTreeShape, setBarHidden, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutBar, LayoutDoc, LayoutDropAction, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
 
+import type {EditorSaveGate} from "../../shared/contracts";
 import type {ViewCatalog} from "../views/placement";
 import {defaultLayoutDoc, reconcileViews} from "./default-tree";
 import {COLLAPSE_ORDER, createLayoutPolicy, layoutProjectionOptions} from "./layout-constraints";
@@ -31,8 +32,8 @@ export type LayoutDocProblem =
 
 export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
 
-/** 存盘之前的关卡：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
-export type LayoutSaveGate = () => Promise<boolean>;
+/** 存盘之前的关卡（`EditorSaveGate`）：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
+export type LayoutSaveGate = EditorSaveGate;
 
 const notFound = (detail: string): LayoutResult => ({ok: false, code: "not-found", detail});
 
@@ -123,8 +124,9 @@ function defineLayoutDocStore(bound: boolean) {
             if (timer !== null) clearTimeout(timer);
             timer = null;
             if (guarded.value) return;
-            if (saveGate !== null) {
-                saveBlocked.value = !(await saveGate());
+            // 记录读不了时不走关卡：文档是回落的默认树，关卡会把读到的标签当成没主的删掉。这次提交本身会暂停，等重新打开。
+            if (saveGate !== null && field.failure === null) {
+                saveBlocked.value = !(await saveGate.pass());
                 if (saveBlocked.value) return;
             }
             // 关卡之后才取：等关卡期间可能又改了，两次保存交错时不能让旧的文档后写。
@@ -295,14 +297,19 @@ function defineLayoutDocStore(bound: boolean) {
                 save,
                 retry: async (): Promise<string> => {
                     if (field.failure !== null) await field.reopen();
+                    // 卡在关卡上（`editor.tabs` 写不下去）时布局自己没有待重试的：先让关卡恢复，通了再存。
+                    const gate = saveBlocked.value ? saveGate : null;
+                    if (gate !== null) saveBlocked.value = !(await gate.recover());
                     const result = await field.retry();
-                    // 卡在关卡上（`editor.tabs` 写不下去）时布局自己没有待重试的：再走一次保存，关卡里重试它。
-                    if (saveBlocked.value) await save();
+                    if (gate !== null && !saveBlocked.value) await save();
                     return result;
                 },
-                /** 放弃未保存的修改：显示回到已确认值。 */
+                /** 放弃未保存的修改：显示回到已确认值。开着的编辑器标签不算在内（`carryDynamicTabs`）：它们背后是文档，回滚布局不能把它们弄丢。 */
                 discard: (): string => {
-                    local.value = readStored();
+                    const stored = readStored();
+                    const current = doc.value;
+                    const hasOpenTabs = Object.values(current.panels).some((panel) => panel.tabs.some((tab) => tab.kind === "tab"));
+                    local.value = stored === null && !hasOpenTabs ? null : carryDynamicTabs(stored ?? defaultLayoutDoc(catalog.value), current);
                     saveBlocked.value = false;
                     return field.discardAll();
                 },

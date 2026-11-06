@@ -194,15 +194,13 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
     /**
      * 结构和属性合成的组。没变的组和标签保持同一个对象：光标一动属性就变，别的组不该跟着重新渲染。
      */
-    let joined: ReadonlyArray<EditorGroup> = [];
-    const groups = computed<ReadonlyArray<EditorGroup>>(() => {
+    const groups = computed<ReadonlyArray<EditorGroup>>((previous = []) => {
         const next = panelTabs.panels.value.map((panel): EditorGroup => {
             const tabs = panel.tabs.flatMap((id) => attributes.value.get(id) ?? []);
-            const previous = joined.find((group) => group.id === panel.id);
-            return previous !== undefined && previous.active === panel.active && sameItems(previous.tabs, tabs) ? previous : {id: panel.id, tabs, active: panel.active};
+            const same = previous.find((group) => group.id === panel.id);
+            return same !== undefined && same.active === panel.active && sameItems(same.tabs, tabs) ? same : {id: panel.id, tabs, active: panel.active};
         });
-        if (!sameItems(joined, next)) joined = next;
-        return joined;
+        return sameItems(previous, next) ? previous : next;
     });
 
     const groupOf = (id: string): EditorGroup | undefined => groups.value.find((group) => group.id === id);

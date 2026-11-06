@@ -1,9 +1,11 @@
 import {describe, expect, test} from "bun:test";
+import {openPanelAtEdge} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
 
+import {workbenchText} from "../../shared/text";
 import {defaultLayoutDoc} from "./default-tree";
-import {effectiveVisibleTabs, layoutContents, toolEntryIntent} from "./layout-present";
-import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
+import {effectiveVisibleTabs, layoutContents, panelTitle, toolEntryIntent} from "./layout-present";
+import {createLayoutPolicy, PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/placement";
 
 const CATALOG: ViewCatalog = new Map([
@@ -30,6 +32,16 @@ describe("内容项", () => {
             ["view:outline", false, PANEL_HEAD_HEIGHT],
         ]);
         expect(contents.filter((item) => item.leaf === "g0")).toEqual([{key: "editor:g0", leaf: "g0", insetTop: 0, active: true}]);
+    });
+});
+
+describe("面板写给人看的名字", () => {
+    test("一块编辑组写“编辑区”；几块时按树序写序号，不然“移动到”的目标分不出来", () => {
+        expect(panelTitle(doc(), CATALOG, "g0")).toEqual(workbenchText("viewCommands.parts.editor"));
+        const split = openPanelAtEdge(doc(), {id: "g1", panel: {role: "editor", tabs: [], active: null}, target: {kind: "split", panel: "g0", edge: "left"}}, createLayoutPolicy());
+        if (!split.ok) throw new Error(split.detail);
+        expect(panelTitle(split.doc, CATALOG, "g1")).toEqual(workbenchText("viewCommands.parts.editorAt", {index: 1}));
+        expect(panelTitle(split.doc, CATALOG, "g0")).toEqual(workbenchText("viewCommands.parts.editorAt", {index: 2}));
     });
 });
 

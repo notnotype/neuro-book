@@ -180,7 +180,8 @@
             "sidebar": "侧栏",
             "auxiliarybar": "右栏",
             "panel": "面板",
-            "editor": "编辑区"
+            "editor": "编辑区",
+            "editorAt": "编辑区 {{index}}"
         },
         "pickView": "选择要移动的视图",
         "pickOpen": "选择要打开的视图",

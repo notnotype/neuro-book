@@ -306,8 +306,15 @@ describe("Spec workbench.editor 输出 49：移动标签", () => {
         if (moved === null) throw new Error("没有拆出新组");
         expect(groupIds(groups)).toEqual([left, right, moved.group]);
         expect(tabsOf(groups, 2)).toEqual(["a.md"]);
+        expect(moved.tab).toMatchObject({preview: false});
+        expect(moved.tab).not.toHaveProperty("pinned");
         expect(groups.activeGroup.value).toBe(moved.group);
         expect(groups.moveToNewGroup(idOf(groups, "a.md"), {kind: "split", panel: moved.group, edge: "top"})).toBeNull();
+        // 放不下去的不改属性：b 是 preview，拖到它自己只有一个标签的组的边上，转正不算数。
+        const lone = groups.open("project://z.md", {mode: "preview", ...md, group: moved.group}).tab;
+        groups.close(idOf(groups, "a.md"));
+        expect(groups.moveToNewGroup(lone.id, {kind: "split", panel: moved.group, edge: "top"})).toBeNull();
+        expect(groups.find(lone.id)?.tab.preview).toBe(true);
     });
 
     it("只有一个标签的组移到边缘是同一块面板移动：组 id 不变，组没有被关掉再新建（docs/specs/ui/workbench-layout.md 输出 27）", () => {

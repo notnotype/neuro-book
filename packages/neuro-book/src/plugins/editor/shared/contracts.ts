@@ -242,7 +242,7 @@ export interface EditorImplementation {
  */
 export const EDITOR_LANGUAGES_POINT = "editor.languages";
 
-/** 语言 id 的写法；长度与会话记录的 `language` 字段一致（`web/session-record.ts` 引用它）。 */
+/** 语言 id 的写法；长度与标签记录的 `language` 字段一致（`web/tabs-record.ts` 引用它）。 */
 export const LANGUAGE_ID_PATTERN = "^[a-z][a-z0-9_.-]{0,63}$";
 const LANGUAGE_ID = new RegExp(LANGUAGE_ID_PATTERN, "u");
 

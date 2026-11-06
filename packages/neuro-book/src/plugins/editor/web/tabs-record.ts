@@ -44,7 +44,7 @@ const EMPTY: TabsSnapshot = {tabs: {}};
 export const editorTabsStore = defineStore("editor", ({persist}) => {
     const record = persist(EDITOR_TABS_RECORD, {initial: EMPTY});
     /**
-     * 本窗口知道的键：打开时读到的（没恢复的就是没主的，第一次保存时删掉）加上写过的。不在这里的键是别的窗口的，不动。记录读完那一刻定下：之后 `base` 跟着别的窗口的写入变，
+     * 本窗口知道的键：打开时读到的（没恢复的就是没主的，布局第一次存盘时删掉）加上写过的。不在这里的键是别的窗口的，不动。记录读完那一刻定下：之后 `base` 跟着别的窗口的写入变，
      * 那些键不算本窗口读到的。
      */
     let known: ReadonlySet<string> | null = null;
@@ -54,9 +54,13 @@ export const editorTabsStore = defineStore("editor", ({persist}) => {
     });
 
     const paused = (): boolean => record.save.state === "failed" || record.save.state === "unknown";
-    const write = async (snapshot: TabsSnapshot): Promise<boolean> => {
-        const removed = [...(known ?? [])].filter((id) => !(id in snapshot.tabs));
-        known = new Set(Object.keys(snapshot.tabs));
+    /**
+     * `removals`：连删除一起写。删除只在布局存盘前写（关卡）：标签关掉时布局要等合并计时，这时就把它从记录里删了的话，其间刷新，布局还列着它、记录已经没有，已经关掉的标签就成了“记录丢了”的占位。
+     * 布局被保护（损坏、读不了）时关卡不走，也就不会把读到的标签当成没主的删掉。
+     */
+    const write = async (snapshot: TabsSnapshot, removals: boolean): Promise<boolean> => {
+        const removed = removals ? [...(known ?? [])].filter((id) => !(id in snapshot.tabs)) : [];
+        known = new Set([...(removals ? [] : (known ?? [])), ...Object.keys(snapshot.tabs)]);
         const mine = JSON.parse(JSON.stringify(snapshot.tabs)) as TabsSnapshot["tabs"];
         const result = await record.commit((current) => ({tabs: {...Object.fromEntries(Object.entries(current.tabs).filter(([id]) => !removed.includes(id))), ...mine}}));
         // 记录损坏时 Storage 保护原件，不写：标签恢复时显示占位，布局照常存，不让一条坏记录把布局也卡住。
@@ -66,14 +70,17 @@ export const editorTabsStore = defineStore("editor", ({persist}) => {
     return {
         state: {record},
         actions: {
-            /** 属性变了。暂停期间不排队：恢复时（下面的关卡）写的是那一刻的全部。 */
+            /** 属性变了。暂停期间不排队：恢复时（`recover`）写的是那一刻的全部。 */
             save: (snapshot: TabsSnapshot): void => {
-                if (!paused()) void write(snapshot);
+                if (!paused()) void write(snapshot, false);
             },
-            /** 布局存盘前的关卡（`acceptSaveGate`）：这一份写下去了才返回真。暂停着就先重试，还不行返回假，布局不写。 */
-            saveBeforeLayout: async (snapshot: TabsSnapshot): Promise<boolean> => {
-                if (paused()) await record.retry();
-                return paused() ? false : write(snapshot);
+            /** 布局存盘前的关卡（`EditorSaveGate.pass`）：这一份写下去了才返回真。暂停着直接返回假，不在这里重试。 */
+            saveBeforeLayout: async (snapshot: TabsSnapshot): Promise<boolean> => (paused() ? false : write(snapshot, true)),
+            /** 用户点了重试（`EditorSaveGate.recover`）：记录读不了的先重新打开，排着的重发，通了再写这一刻的全部。 */
+            recover: async (snapshot: TabsSnapshot): Promise<boolean> => {
+                if (record.failure !== null) await record.reopen();
+                await record.retry();
+                return paused() ? false : write(snapshot, true);
             },
         },
     };
