@@ -20,7 +20,12 @@ export interface ProviderOption {
  * `resolve` 把声明里的文字（字符串或语言映射）按当前语言解出来。
  */
 export function providerOptions(published: ReadonlyArray<PublishedProvider>, current: string | undefined, labels: {readonly none: string; readonly unpublished: string}, resolve: (title: NonNullable<PublishedProvider["title"]>) => string): ProviderOption[] {
-    const options: ProviderOption[] = [{value: NO_PROVIDER, label: labels.none}, ...published.map(({id, title}): ProviderOption => (title === undefined ? {value: id, label: id} : {value: id, label: resolve(title), description: id}))];
+    // 显示名解出来是空的（写了空串或空语言映射）按没写处理：空白的选项名和空白的触发器比只显示 id 更糟。
+    const named = (id: string, title: PublishedProvider["title"]): ProviderOption => {
+        const label = title === undefined ? "" : resolve(title).trim();
+        return label === "" ? {value: id, label: id} : {value: id, label, description: id};
+    };
+    const options: ProviderOption[] = [{value: NO_PROVIDER, label: labels.none}, ...published.map(({id, title}) => named(id, title))];
     if (current !== undefined && !published.some(({id}) => id === current)) options.push({value: current, label: current, description: labels.unpublished, disabled: true});
     return options;
 }

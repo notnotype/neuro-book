@@ -415,13 +415,20 @@ test("浮动窗口里是同一个编辑器：实心面、可关闭，关掉后�
         await chooseIcon(page, "long.svg", ICON_SVG);
         await expect(page.locator("[data-icon-row]")).toHaveCount(1);
         await page.setViewportSize({width: 390, height: 844});
-        // 当前分区（图标，最靠右的两个之一）在竖排变横排后要在导航条的可视范围里。不点击就量：Playwright 的 click 会自己把目标滚进视口，
-        // 那样量到的不是编辑器自己的行为（theme.editor 的响应式条目）。
-        await expect.poll(() => page.locator("[data-section-tab=icons]").evaluate((tab) => {
+        // 窄屏导航条里，当前分区的导航项要在导航条的可视范围里。三个入口各一条判据，都不用 Playwright 的 click（它会自己把目标滚进视口，
+        // 量到的就不是编辑器自己的行为）：竖排变横排（分区没变）；分区变了，目标在右、在左各一次（`dispatchEvent` 只发事件，不滚动）。
+        const tabInView = (section: string) => expect.poll(() => page.locator(`[data-section-tab=${section}]`).evaluate((tab) => {
             const bar = tab.closest("nav")?.getBoundingClientRect();
             const box = tab.getBoundingClientRect();
             return bar !== undefined && box.left >= bar.left - 1 && box.right <= bar.right + 1;
-        }), {message: "窄屏下当前分区的导航项要在导航条的可视范围里"}).toBe(true);
+        }), {message: `窄屏下 ${section} 的导航项要在导航条的可视范围里`}).toBe(true);
+        await tabInView("icons");
+        const bar = page.locator("nav.theme-editor__nav");
+        await bar.evaluate((element) => { element.scrollLeft = 0; });
+        await page.locator("[data-section-tab=contrast]").dispatchEvent("click");
+        await tabInView("contrast");
+        await page.locator("[data-section-tab=basic]").dispatchEvent("click");
+        await tabInView("basic");
         // 每个分区都量一次：分区里是 ScrollArea，横向溢出不会让编辑器根的 scrollWidth 变大，所以量分区内容自己和每个配色行。
         for (const section of ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"]) {
             await page.locator(`[data-section-tab=${section}]`).click();
