@@ -304,9 +304,11 @@ test("复制插件主题（库里已有主题时也能）；删除正在使用�
         await expect(page.locator("[data-delete]")).toContainText("确认删除");
         const before = await page.locator("[data-theme-editor] [data-section-tab]").count();
         expect(before).toBeGreaterThan(0);
-        // 隔开一会儿再点第二下：真的删。
-        await page.waitForTimeout(600);
-        await page.locator("[data-delete]").click();
+        // 过了防误触的间隔再点第二下才真的删：点到删掉为止（间隔内的点不算，是行为的一部分，不按固定时长等）。
+        await expect(async () => {
+            await page.locator("[data-delete]").click({timeout: 1000});
+            await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook", {timeout: 500});
+        }).toPass();
         await expect.poll(async () => (JSON.parse(await readFile(join(session.stateRoot, "settings.json"), "utf8")) as Record<string, string>)[THEME]).toBe(chosen);
         await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
     });
