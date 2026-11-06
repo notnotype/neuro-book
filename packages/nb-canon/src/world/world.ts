@@ -1257,12 +1257,13 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
         const entry = data.entries.get(id);
         if (entry === undefined) continue;
         const ref: ObjectRef = {kind: "entry", id};
-        if (entry.parent !== null) {
+        // 只查新写或改过的 `parent`：父条目之后被删了，子条目照常存在、照常能改（model.md 输出 23）。往上走时只要求直接的父条目没删。
+        if (entry.parent !== null && entry.parent !== (world.object(ref) as Entry | undefined)?.parent) {
             const seen = new Set<string>([id]);
             let parent: string | null = entry.parent;
             while (parent !== null) {
                 const node = data.entries.get(parent);
-                if (node === undefined || node.deleted === true || seen.has(parent)) {
+                if (node === undefined || (node.deleted === true && parent === entry.parent) || seen.has(parent)) {
                     problems.push({code: "invalid-tree", ref, path: "parent", message: "parent must be an existing, live entry without cycles"});
                     break;
                 }
