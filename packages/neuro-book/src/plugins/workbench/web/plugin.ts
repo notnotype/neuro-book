@@ -37,7 +37,10 @@ import {appearanceSetting, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDE
 import type {NotificationInput} from "../shared/contracts";
 import {themesPoint, WORKBENCH_THEMES_POINT} from "../shared/themes";
 import type {ThemeDeclaration} from "../shared/themes";
-import {ThemeCatalog} from "./themes";
+import {ThemeCatalog, userThemeSceneUrl} from "./themes";
+import {userThemesStore} from "./user-themes-store";
+import {workbenchText} from "../shared/text";
+import {USER_THEME_PLUGIN} from "../shared/user-themes";
 import {completeHomeDeclaration, validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
@@ -156,12 +159,25 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
             const text = await windowTextPort(context.services, () => displayLocale(settings));
-            const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), (plugin, path) => (pluginFiles.status === "resolved" ? pluginFiles.instance.fileUrl(plugin, path) : null), (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}));
+            const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), (plugin, path) => (plugin === USER_THEME_PLUGIN ? userThemeSceneUrl(path) : pluginFiles.status === "resolved" ? pluginFiles.instance.fileUrl(plugin, path) : null), (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}));
+            // “我的主题”：Storage 用户记录的投影，进同一个主题目录；别的窗口保存的新值在没有本窗口排队的修改时采纳。
+            const userThemes = userThemesStore.create(context, {storage, diagnostics});
+            const reportedUserThemes = new Set<string>();
+            const stopUserThemes = [
+                watch(() => userThemes.state.themes.display.themes, (items) => themes.setUserThemes(items, (id, problem) => {
+                    if (reportedUserThemes.has(`${id}:${problem}`)) return;
+                    reportedUserThemes.add(`${id}:${problem}`);
+                    diagnostics.record({level: "warn", event: "workbench.theme.user-invalid", message: `我的主题 ${id} 不合格，不进主题列表：${problem}`, data: {id}});
+                }), {immediate: true}),
+                watch(() => userThemes.state.themes.base, () => userThemes.actions.adoptConfirmed()),
+            ];
+            context.signal.addEventListener("abort", () => { for (const stop of stopUserThemes) stop(); }, {once: true});
             const effectiveTheme = (): string => {
                 const inspected = settings.inspect(themeSetting);
                 return themes.effectiveId([inspected.value as string, inspected.user?.status === "ok" || inspected.user?.status === "invalid" ? inspected.user.value as string | undefined : undefined]);
             };
-            const appearance = computed(() => settings.get(appearanceSetting));
+            // 编辑器开着时预览取它顶部选的明暗与主题（docs/specs/theme/editor.md 输出 4）；关掉后回到设置里选的。
+            const appearance = computed(() => themes.preview?.appearance ?? settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
             // 通知队列与入口同寿：入口停止时清空，计时器不留到下一代。
             const notifications = createNotifications((message) => diagnostics.record({level: "warn", event: "workbench.notifications", message, source: {plugin: descriptor.id}}), text);
@@ -172,7 +188,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             let movePaneFocus: PaneFocusMover | null = null;
             const workbenchPages = createWorkbenchPages({
                 // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
-                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(effectiveTheme(), resolved)})},
+                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(themes.preview?.id ?? effectiveTheme(), resolved)})},
                 // 布局 store 在要显示外壳时才创建：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。开始加载外壳时就
                 // 创建、开始读布局记录，与下载外壳代码并行：等外壳挂上才读的话，每次打开都先按缺省布局画出来（Spec 失败表的“记录
                 // 未读完”），记录到了再变过去，侧栏、面板从缺省尺寸动画收起，缺省可见的视图也被加载。
@@ -203,7 +219,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 services: [provideService(workbenchRootKey, {pages: () => pages.list()}), provideService(quickPickKey, palettes.quickPick), provideService(notificationsKey, {notify: (input) => notifications.notify(input)})],
                 receivers: {[WORKBENCH_THEMES_POINT]: themes.receiver(), [WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
                 contributions: {
-                    [SETTINGS_CHOICES_POINT]: {[THEME_CHOICES_PROVIDER]: {source: () => computed(() => ({status: "ready" as const, items: themes.list.map((entry) => ({value: entry.id, label: text.t(entry.declaration.title)}))}))}},
+                    [SETTINGS_CHOICES_POINT]: {[THEME_CHOICES_PROVIDER]: {source: () => computed(() => ({status: "ready" as const, items: themes.list.map((entry) => ({value: entry.id, label: entry.plugin === USER_THEME_PLUGIN ? `${text.t(entry.declaration.title)} · ${text.t(workbenchText("themes.mine"))}` : text.t(entry.declaration.title)}))}))}},
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},

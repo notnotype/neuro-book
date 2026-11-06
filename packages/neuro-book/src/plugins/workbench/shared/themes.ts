@@ -80,6 +80,11 @@ export function themeProblem(descriptor: ContributionDescriptor<ThemeDeclaration
     } else if (!id.startsWith(`${plugin}.`)) {
         return `主题 id 要以插件 id 开头：${id}`;
     }
+    return declarationProblem(id, declaration);
+}
+
+/** 声明内容的规则，插件主题与“我的主题”（`user-themes.ts`）共用：取值不能引外部资源，`vars`、`colors` 在白名单里，`scene` 是相对路径。 */
+export function declarationProblem(id: string, declaration: ThemeDeclaration): string | null {
     const {title: _title, ...rest} = declaration;
     const {scene: _light, ...light} = declaration.light;
     const {scene: _dark, ...dark} = declaration.dark;
