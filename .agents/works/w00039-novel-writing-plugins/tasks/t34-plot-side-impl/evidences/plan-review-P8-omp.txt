@@ -1,0 +1,104 @@
+阶段 G 设计审查（固定计划 /tmp/review-w00039-t34-P8/plan-stage-g.md；实现源码 HEAD 7c61f6125b55e208f60c484f2a0d43d7f2c50591）。
+
+### 1. 依赖表漏掉 `namesOfSegments`，会沿用已经失效的新事实结论
+严重程度：重要；类别：正确性。
+位置：`/tmp/review-w00039-t34-P8/plan-stage-g.md:80-98`、`packages/neuro-book/src/plugins/plot/core/checks/plan.ts:98-116`、`packages/neuro-book/src/plugins/plot/backend/checks.ts:89-94`、`packages/neuro-book/src/plugins/plot/core/checks/run.ts:243,334-355`。
+现象：计划的“计划读了什么”表覆盖了 `planCheck`，但没有覆盖同一条检查入口在第一次 `await` 前另外计算的 `namesOfSegments`。`createChecks` 把它传给 `runCheck`；固定调用的 `newFacts` 会用它判断 invention 的 `name` 是否已经是本段世界里的名字。计划摘要只由 `planCheck` 的结果及表中列出的摘要组成，因此这次读集合没有进入依赖摘要。
+为什么是问题：改一个不在 `R`、不参与候选、也不改变任何模型题面的普通条目名字，仍会改变已存记录的 `newFacts` 以及 `unreportedInvention` 诊断。比如正文固定为“正文里的人走来”，自陈存在，模型固定回答 invention/name=`正文里的人`：条目原名为“后来者”时该事实被保留；把这个普通条目改名为“正文里的人”后应被过滤。按表中摘要不变，来源会沿用旧记录，违反输出 7 的“摘要相同则结论相同”。
+如何核实：在实现 worktree `HEAD=7c61f6125b55e208f60c484f2a0d43d7f2c50591` 执行 `bun run /tmp/review-w00039-t34-P8/scratch/name-dependency.ts`，实际输出为：
+```json
+{
+  "planCallsEqual": true,
+  "namesBefore": ["后来者"],
+  "namesAfter": ["正文里的人"],
+  "later": "e1",
+  "concernsBefore": [],
+  "concernsAfter": []
+}
+```
+这是真实 `PlotWorld`、`planOf` 和 `namesOfSegments` 的路径；不是直接伪造 `runCheck` 时序。剧情检查目录合同测试也在同一版本通过：`bun test src/plugins/plot/core/checks`，`95 pass, 0 fail`。
+建议改法：把 `namesOfSegments` 的输入依赖纳入摘要，至少按实际段的线、已出场条目的当前 `name/aliases` 形成规范投影；更简单的是让它成为 `CheckPlan` 的显式字段并由 `dependenciesOf` 摘要。若坚持只保留名字集合，必须定义集合按哪个位置、哪条线和哪些条目组成，并在记录有效性中使用同一投影；不能只把普通条目名字笼统塞进 `identity`，否则仍无法证明不漏。
+
+### 2. `history(X)` 对间接引用只保名字，漏了引用目标的出场状态
+严重程度：重要；类别：正确性。
+位置：`/tmp/review-w00039-t34-P8/plan-stage-g.md:63,66,70,78-99`、`packages/neuro-book/src/plugins/plot/core/checks/questions.ts:34-38`、`packages/neuro-book/src/plugins/plot/core/checks/plan.ts:167-181`。
+现象：计划把 `R` 中条目的 `history(X)` 定义为“对象本身、套没套上、粗定位”，`identity` 对非知识点的被引条目只明确列了名字；但窄问题的 `stateOf` 会对知情行的 `谁告诉的` 再调用 `readAppeared(...).name`。该引用目标不在当前章 `R` 时，它的 `appears`、删除状态和所在线仍能改变题面，且既不改变 `history(当事人)` 的对象，也不改变 `history(秘密)`。
+为什么是问题：当前章只涉及当事人和秘密；当事人的误信知情行引用传话人。传话人从本章前已出场改为本章后才出场，题面从“告诉他的人是传话人”变成“告诉他的人是 e2”，调用摘要与检查结论都变了。计划表若按字面只摘要“被引条目的名字”，该改动摘要不变，违反输出 7；即便把名字加进表，也仍漏出场/删除/线视图下的可读性。
+如何核实：在固定实现版本执行 `bun run /tmp/review-w00039-t34-P8/scratch/indirect-sender.ts`，输出为：
+```json
+{
+  "equal": false,
+  "beforePresence": ["这件事的真相是：秘密。\\n当事人误以为“错误说法”（听人说的，告诉他的人是传话人）。\\n问：当事人在这段里有没有与他的这个误信矛盾的言行？", "这件事是：秘密。\\n当事人在这段里在场，他误以为“错误说法”（听人说的，告诉他的人是传话人）。\\n问：当事人有没有说出或做出把这件事当真的言行（包括试探、质问、回避、施压）？"],
+  "afterPresence": ["这件事的真相是：秘密。\\n当事人误以为“错误说法”（听人说的，告诉他的人是e2）。\\n问：当事人在这段里有没有与他的这个误信矛盾的言行？", "这件事是：秘密。\\n当事人在这段里在场，他误以为“错误说法”（听人说的，告诉他的人是e2）。\\n问：当事人在这段里有没有说出或做出把这件事当真的言行（包括试探、质问、回避、施压）？"],
+  "concerns": ["e1", "e3"],
+  "sender": "e2"
+}
+```
+其中 `equal:false` 是同一 `planCheck` 调用链的题面签名变化；`e2` 只出现在引用值里，不在 `concerns`，是所需的间接依赖。
+建议改法：不要用“被引条目的名字”这一不完整投影。让摘要记录每个实际渲染引用标签的目标在对应线、位置、模式上的 `{id, deleted, appeared, name}`，并把 `stateOf`、`labelKeyedElements`、所有 `readAppeared` 的引用目标统一走同一依赖收集器；或者在 `planCheck` 返回依赖读取集合后按真实 `EntryView` 的字段投影摘要。`history(X)` 仍可保留作为变更历史，但不能替代引用闭包。
+
+更正第 2 条实验摘录：`afterPresence` 的第二项实际为“这件事是：秘密。\n当事人在这段里，他误以为……（听人说的，告诉他的人是e2）……”之后的原实现完整问句是“问：当事人有没有说出或做出把这件事当真的言行（包括试探、质问、回避、施压）？”。上条中该项末尾的文字摘录有误，不影响 `equal:false` 与发送者状态导致题面变化的结论。
+
+更正补充：上述 `afterPresence` 第二项中间实际是“当事人在这段里在场，他误以为……”，仅题面提问部分为上一句所列；两处摘录差异仍不影响结论。
+
+### 3. 链接成组不能用固定两遍传播
+严重程度：重要；类别：正确性。
+位置：`/tmp/review-w00039-t34-P8/plan-stage-g.md:70-75`，特别是“连同 `by` 连起来”与“两遍”；现有同形实现 `packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:61-77`。
+现象：计划要求 `fulfills`、`replaces`、`splitFrom` 与 `splitFrom.by` 的成员整组进入 `history(X)`，但把依赖桶的链接传播写成固定两遍。链接关系是一个图，不保证按拓扑顺序写入，也没有长度上限；世界校验只禁止部分非法环，不把合法的多级拆分压成最多两跳。
+为什么是问题：存在合法链 `p1 <- c1 -> p2 <- c2 -> p3 <- c3 -> p4`（其中 `cᵢ` 兑现 `pᵢ`，`pᵢ₊₁` 从 `pᵢ` 拆出、`by=cᵢ`）。若最早桶在 `p1`，所有成员都必须共享最早桶；按计划的反向写入顺序，两遍只能把 `p4/c3` 推到中间桶，导致 `history(X)` 只收到了部分组。改最早的计划或其中一条节点时，后续组成员的摘要可能不变，重拼结果会漏变。
+如何核实：执行 `bun run /tmp/review-w00039-t34-P8/scratch/link-propagation.ts`，按计划中同样的两遍 `min` 传播，实际输出为：
+```text
+pass 1: {"p4":10,"c3":10,"p3":8,"c2":8,"p2":5,"c1":5,"p1":5}
+pass 2: {"p4":8,"c3":8,"p3":5,"c2":5,"p2":5,"c1":5,"p1":5}
+```
+两遍后 `p4/c3` 仍是 8，不是整组最早桶 5。该实验只验证计划明确写出的传播算法，不绕过真实世界运行时；其失败是图传播的数学反例。
+建议改法：先把所有链接与 `by` 做无向并查集，按连通分量一次确定组桶；或迭代到不动点并在实现中断言收敛。摘要组同样用连通分量，不要另写一份“最多两跳”的规则。为 `fulfills` 与多级 `splitFrom` 各加长度超过 2、反向插入的合同用例。
+
+### 4. 摘要没有定义多线读取集合，支线历史容易被按主线漏掉
+严重程度：重要；类别：正确性 / 接口合同。
+位置：`/tmp/review-w00039-t34-P8/plan-stage-g.md:62-75,80-99`、`packages/neuro-book/src/plugins/plot/backend/plugin.ts:250`、`packages/neuro-book/src/plugins/plot/core/checks/source.ts:31-43`、`packages/nb-canon/src/service/service.ts:509-536`。
+现象：`planCheck` 对每个 `chapterLines` 段都建立自己的 `frame.view`，候选、知情、伏笔和规则都可能在不同世界线读取；但摘要接口只收到一个 `view`，项目入口传的是 `canon.snapshot()` 的主线视图。计划写“套没套上按它自己那条线”却没有定义 `history(X)` 对多个段线的键、哪些 `onLine` 视图必须纳入、父线/带过去的合成事件怎样纳入，也没有把第一段视图之外 `trialsOf` 实际使用的 `binderLines` 列进表。
+为什么是问题：同一章正文放在支线时，支线早先的改动能改变本章候选，主线却完全看不到它。若后续实现按摘要入口的主线 `view` 取 `history(X)`，该改动不进摘要，记录会被沿用；若为了规避而把所有线所有变更塞进一个全局前缀，又失去“按本章涉及条目和线分桶”的目标，并且会让无关支线改动重拼本章。
+如何核实：执行 `bun run /tmp/review-w00039-t34-P8/scratch/line-dependency.ts`，真实 `PlotWorld` 输出：
+```json
+{"line":"l1","changed":true,"beforeCandidates":["presence:l1#1:e3:e2"],"afterCandidates":[],"mainHasBranch":[]}
+```
+`l1` 上第 5 章的知情改动让第 8 章支线候选消失，但主线 `view.changes({entry: guard})` 为空；所以只按主线对象历史无法证明摘要闭包。实现版本的剧情检查合同测试前置检查仍为 `bun test src/plugins/plot/core/checks`：`95 pass, 0 fail`。
+建议改法：把摘要输入从单 `view` 扩为实际读取集合，至少显式列出 `(line, mode, position)`：每个 `segmentsOf` 段的视图、`trialsOf(segments[0].view)` 扫到的所有 binder 线、以及 `onLine` 为带过去值建立的父线视图；摘要键必须含线 id，`history` 必须按线分开。最好让 `planCheck` 返回“实际读取依赖”或由同一依赖收集器包住这些读取，避免计划表与实现再各写一份线集合。
+
+### 5. 跨视图 `history` 复用没有可实现的缓存合同
+严重程度：重要；类别：安全与性能 / 接口合同。
+位置：`/tmp/review-w00039-t34-P8/plan-stage-g.md:101`；现有缓存基线 `packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:32-45`、`packages/neuro-book/src/plugins/plot/core/view-cache.ts:1-28`。
+现象：计划只写“新视图逐项比旧列表，公共前缀不重算”，没有定义旧列表的持有者、缓存键、淘汰上限、世界线、读取位置、算法摘要函数和视图生命周期。现有 `perViewCache` 是按 `CanonReadView` 的 `WeakMap`，新视图本来就不会复用旧视图；现有 `perDigest` 只缓存单个不可变对象的摘要，也没有历史列表。
+为什么是问题：照现有生命周期实现，跨发布仍会为每个涉及条目重扫历史并做几万次摘要，阶段 F 已实测 1000 章记录下改第 500 章读待处理 17 秒、改常出场条目 41 秒（`scale-f8.txt:29-35`），无法兑现“每次发布开销不变差”和该行提出的复用目标。若另建强引用的全局缓存，又会把旧世界/旧线/旧列表留在内存，且必须区分测试与产品传入的不同 `Digest`；若只按摘要字符串或条目 id 复用，会在同版本的两份世界、不同线、不同模式/位置之间串用结果。现有缓存文档还明确指出只按世界版本会串用不同世界（`view-cache.ts:3-5`）。计划没有给出能证明正确的键和释放规则。
+如何核实：读取上述现有实现可见：`perViewCache` 的键是 `CanonReadView` 弱引用、每视图最多 16 份；`perDigest` 的键是 `Digest` 函数弱引用下的对象，不能在新视图间找到“上一个列表”。性能数字来自固定证据：`scale-f8.txt` 第 33、34 行实际为 `17 秒`、`41 秒`。剧情检查测试目录在固定实现版本仍通过 `95 pass, 0 fail`，所以这不是把现有失败误判成新问题，而是计划尚未定义的新缓存机制。
+建议改法：先定一个不持有旧世界的缓存模型：键至少包含 `Digest` 函数身份、世界/读取输入戳、线、模式、边界与条目 id；值只保留可独立释放的对象摘要前缀或不可变 id 列表；设置总条目/字节上限与 LRU，并说明世界服务淘汰线时怎样失效。若无法在这些键上复用，删掉“跨视图复用”承诺，改量逐项重算成本，不要让后续切片自行选择一个全局 Map。
+
+### 6. `R` 的“当前子条目”论证漏掉目标的父关系变化
+严重程度：重要；类别：正确性。
+位置：`/tmp/review-w00039-t34-P8/plan-stage-g.md:63,78-99`，尤其是“R 并上当前子条目（只取知识点与目标）”与“不动点”段；实际读取 `packages/neuro-book/src/plugins/plot/core/brief/context.ts:147-171`。
+现象：`pointsBeforeWriting` 会遍历全部条目：只要目标的 `parent` 当前属于本章 `chapterEntries`，并且目标在该位置进行、带 `隐秘`，就把它指向的知识点加入本章集合。计划的摘要却只明确摘要“全部知识点的父条目”，而目标本身只有在已经进入旧记录的 `R` 后才会通过 `entries/history(X)` 被覆盖；一个原先不属于 `R` 的目标改父条目后，旧 `R`、`own`、`identity`（知识点父关系）、`foreshadow`、`material` 都可以不变。
+为什么是问题：这不是仅多算一个条目。目标父关系改变会新增知识点，进而改变视角层的固定问题、在场/叙述候选或试读集合；摘要不变时会沿用旧调用集合。它也打破计划声称的“不动点”：`R` 的扩张依赖了不在摘要闭包里的目标关系，不能推出 `R` 不变。
+如何核实：执行 `bun run /tmp/review-w00039-t34-P8/scratch/goal-parent-dependency.ts`，真实输出为：
+```json
+{"equal":false,"beforePoints":[],"afterPoints":["e3"],"beforeCalls":["time:main#1","fixed"],"afterCalls":["time:main#1","fixed"],"goal":"e4"}
+```
+虽然调用 id 相同，`equal:false` 表示固定题面摘要已经变了；`e4` 这个目标在变更前不在 `R`，把它的 `parent` 改成当前章涉及的人物后才把 `e3` 加入 `points`。这条实验不直接调用内部依赖摘要，只复现真实 `PlotWorld` 的 `planCheck` 调用链。
+建议改法：摘要所有会参与“从 `chapterEntries` 找子条目”的关系边，至少是截至 `B` 的 `{goalId,parent,deleted,appears,status,隐秘}`；或者把“当前子条目”改成计划输出的依赖集合，先计算依赖闭包再对闭包外的父/子关系做全量索引。仅把目标放进 `R` 不够，因为正是“目标刚进入 `R`”这个转折需要被发现。
+
+## 未发现问题的方面
+- `foldAtPoint` 的共享结果：读过 `incremental.ts`、`views.ts`、`service/reads.ts` 与 `service/service.ts` 后，没有发现 `buildEntryView`、`carrySlotOf`、`replay*` 或 `Item.applied` 会修改折叠结果；当前结构下基线与覆盖层的干净时间线可共享，前提是 G1 继续保持“脏条目换新时间线、折叠结果只读”的不变量。
+- 崩溃顺序的基本安全性：计划写记录后写摘要；摘要缺失或 `of` 不匹配时重拼，符合输出 7 的安全方向。`PlotStore.load` 对存储读取失败也不会把失败伪装成“没有记录”。本审查没有另列一个由该写入顺序单独造成的错误。
+- 粗定位的现有消费者：`writtenIn` 用段落号判段，试读材料保存节点段落，其他已追到的读者/伏笔判断只需要章或段线；在这些路径上没有再发现必须依赖段内 offset、但计划只存粗定位的独立路径。
+- `\\be\\d+\\b` 的 ID 提取：`ID_PREFIX.entry` 确认为 `e`，规范 ID 为字母前缀加数字；误中正文文字只会多算，未发现由该正则本身造成的漏算。
+
+## 待确认项判断
+- G1：方向与“结果不变”合同一致；在处理第 5 条的缓存键、生命周期和第 4 条的多线读取集合前，不能按现有文字直接实施。
+- G2：记录后摘要的崩溃恢复方向可接受；切片必须补清单关联、摘要表读取接口、回写竞态和失败后的可观测行为，否则不能按“只改 `of`”实现。
+- G3：不接受当前“依赖表”作为完整闭包；第 1、2、3、4、6 条的反例先进入确定用例，再决定摘要结构。
+- G4：规模脚本与目标数字有对应关系；但随机序列没有覆盖普通条目名字、目标父关系、多级链接和支线历史，不能单独证明摘要没有漏项。
+
+验证环境：开始实验前实现 worktree HEAD 为 `7c61f6125b55e208f60c484f2a0d43d7f2c50591`，上述 `PlotWorld` 实验与 `bun test src/plugins/plot/core/checks`（`95 pass, 0 fail`）均加载该固定版本。后续观察到实现 worktree 已前进到 `d42227c1c8398b7e1a99823d12d4cdfd0eb9743c`；未把后续源码当作本轮证据，也未在新版本上重跑实验。固定计划副本 SHA-256 为 `b0f436a03e61d1092082160ead7a3fa59ba1c5320bd743ddcf2bd0dc76b0f0cb`。
+
+严重程度统计：阻断 0；重要 6；建议 0。
+有效发现编号：1、2、3、4、5、6
