@@ -5,7 +5,7 @@
 import {randomUUID} from "node:crypto";
 import {createServer} from "node:http";
 import type {AddressInfo} from "node:net";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -584,8 +584,19 @@ test.describe("可读性", () => {
             });
         }
     }
-    for (const appearance of ["light", "dark"] as const) {
-        test(`书房 ${appearance}：欢迎页、活动栏、侧栏、正文的文字不低于 4.5`, async ({page}) => {
+    /**
+     * 工作中：真实的状态要有 Agent 会话在运行（`agent-conversation.e2e` 里有那条路径），这里只量图：把场景变量换成构建产物里的
+     * 工作态图，其余全是真实的页面。工作态图的桌面更忙（稿纸、茶杯），压在欢迎页与右栏下角的文字最可能被它拉低对比度。
+     */
+    const useWorkingScene = async (page: Page, appearance: "light" | "dark"): Promise<void> => {
+        const files = await readdir(join(PACKAGE_ROOT, "dist/web/assets"));
+        const file = files.find((name) => name.startsWith(`study-${appearance === "light" ? "day" : "night"}-working-`));
+        if (file === undefined) throw new Error("构建产物里没有书房的工作态图，先跑 bun run build");
+        await page.evaluate((url) => document.documentElement.style.setProperty("--skin-scene", `url("${url}")`), new URL(`/assets/${file}`, server.url).href);
+        await sceneReady(page);
+    };
+    for (const appearance of ["light", "dark"] as const) for (const state of ["空闲", "工作中"] as const) {
+        test(`书房 ${appearance} ${state}：欢迎页、活动栏、侧栏、正文的文字不低于 4.5`, async ({page}) => {
             await writeFile(join(projectDir, "notes/contrast.md"), DOCUMENT);
             for (const index of Array.from({length: 40}, (_, i) => i)) await writeFile(join(projectDir, `notes/章节 ${String(index).padStart(2, "0")}.md`), "x\n");
             await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
@@ -594,10 +605,17 @@ test.describe("可读性", () => {
             await page.mouse.move(1100, 900);
             await expect(scene(page)).toBeVisible();
             await sceneReady(page);
+            if (state === "工作中") await useWorkingScene(page, appearance);
+            // 换图可能被工作台随后重写回来，那样量到的是空闲图而测试照样通过；每次测量前都核对场景变量。
+            const sceneIs = async (): Promise<void> => {
+                const value = await page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+                expect(/working/u.test(value), `场景变量 ${value}`).toBe(state === "工作中");
+            };
             const report: string[] = [];
             const check = async (selector: string): Promise<Measured> => {
+                await sceneIs();
                 const result = await measure(page, selector);
-                report.push(`${appearance} ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+                report.push(`${appearance} ${state} ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
                 expect(result.worst, selector).toBeGreaterThanOrEqual(4.5);
                 return result;
             };
@@ -611,14 +629,16 @@ test.describe("可读性", () => {
             const rows = await page.locator("[data-content-leaf=\"sidebar\"] [data-explorer-label]").evaluateAll((labels, height) => labels.flatMap((label, index) => (label.getBoundingClientRect().bottom > height - 230 && label.getBoundingClientRect().bottom < height - 30 ? [index] : [])), page.viewportSize()?.height ?? 0);
             expect(rows.length, "要有压在下角图上的行").toBeGreaterThan(0);
             for (const index of rows) {
+                await sceneIs();
                 const result = await measure(page, `[data-content-leaf="sidebar"] [data-explorer-row]:nth-child(n) [data-explorer-label] >> nth=${String(index)}`);
-                report.push(`${appearance} 侧栏第 ${String(index)} 行：${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+                report.push(`${appearance} ${state} 侧栏第 ${String(index)} 行：${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
                 expect(result.worst, `侧栏第 ${String(index)} 行`).toBeGreaterThanOrEqual(4.5);
             }
             // 右栏下角：对话列表长了会压在图上，所以最下面 240px 里、输入框以上的部分，放正文与次要文字都读得动。
             const palette = await page.evaluate(() => ["--text-main", "--text-secondary"].map((name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()));
+            await sceneIs();
             const strip = await measure(page, "[data-shell-card=\"auxiliarybar\"]", {colors: palette, bottom: 240, above: "[data-agent-composer]"});
-            report.push(`${appearance} 右栏下角：${strip.worst.toFixed(2)}（${String(strip.distinct)} 种像素）`);
+            report.push(`${appearance} ${state} 右栏下角：${strip.worst.toFixed(2)}（${String(strip.distinct)} 种像素）`);
             expect(strip.distinct, "右栏下角要有图").toBeGreaterThan(20);
             expect(strip.worst, "右栏下角").toBeGreaterThanOrEqual(4.5);
             console.log(report.join("\n"));
