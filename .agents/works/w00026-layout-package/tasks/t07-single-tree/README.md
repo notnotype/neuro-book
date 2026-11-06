@@ -189,6 +189,12 @@ updated: 2026-11-06
 | 12 错误码、验收缺口 | 成立，补 |
 | 13 `editor.tabs` 被清掉 | 接受取舍，写进 Spec 状态表。抢救要把默认树定死，视图目录后到时侧栏会一直隐藏 |
 
+片 7c 已合入（提交见 `git log --grep "片 7c"`）。规则按计划；骨架由落点钩子、具名面板不移动和 store 出口的闸三处守住，性质测试 20 个种子各 60 步，三处变异都被抓到。e2e 由一个 Sonnet 改写，主会话审了 diff。
+
+和计划不一样的地方：面板头的收起按钮只给上下排的面板（子代理指出：横向分支里收起是零宽，和隐藏重复，无名面板找不回来）。Spec 输出 20 已写，记入待确认清单。
+
+验证：类型检查通过；`test:affected --since master` 失败两条都是别的 Work 的（`plugins/agent` 跨插件导入、`AgentCompactionDetail` 没有场景）；e2e 子代理跑过 `workbench-shell`、`lab-workbench-surface`、`files-explorer`、`plugin-authoring`、`plugin-code`（改了注释），主会话改完收起按钮后跑 `workbench-dnd`、`workbench-views`、`editor-area`、`lab-editor`、`editor-types`、`lab-grid-panels` 123 条全过。
+
 ## 下一步
 
-片 7c → 片 8（删旧代码、晋升 Spec）。之后按 [Work 的顺序](../../README.md#推进顺序)。
+片 8（删旧代码、晋升 Spec）。之后按 [Work 的顺序](../../README.md#推进顺序)。
