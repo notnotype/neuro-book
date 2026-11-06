@@ -437,6 +437,8 @@ export interface ThemeAssetSweepRequest {
 }
 export interface ThemeAssetSweepStats {
     readonly removable: ReadonlyArray<{readonly name: string; readonly bytes: number}>;
+    /** 候选超过一次统计的上限（`THEME_ASSET_SWEEP_MAX_NAMES`）：只列了前面一批，清理掉之后再统计看后面的。 */
+    readonly truncated?: true;
 }
 export type ThemeAssetSweepSkipReason = "recent" | "kept" | "not-file" | "failed";
 export interface ThemeAssetSweepResult {

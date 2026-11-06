@@ -32,6 +32,9 @@ export function assetRefs(declaration: ThemeDeclaration): ReadonlyArray<AssetRef
     return [...found.values()];
 }
 
+/** 素材文件名的模式与服务端清理认的是同一个（`THEME_ASSET_FILE_NAME`），去掉首尾锚点后在整段 JSON 里找；只改一处，不会出现两边不一致而漏保留。 */
+const ASSET_NAME_ANYWHERE = new RegExp(THEME_ASSET_FILE_NAME.source.slice(1, -1), "gu");
+
 /**
  * 清理未使用素材要保留的名字（docs/specs/theme/editor.md 的“清理未使用素材”）：在值的原始 JSON 里找出全部像素材文件名的字符串，不看
  * schema。记录里按设计留着不合格的条目（别的版本写的、手改坏的），`assetRefs` 只收合格的声明，用它算会把这些条目引用的素材当成没人用、
@@ -40,9 +43,7 @@ export function assetRefs(declaration: ThemeDeclaration): ReadonlyArray<AssetRef
 export function referencedAssetNames(...values: ReadonlyArray<unknown>): string[] {
     const found = new Set<string>();
     for (const value of values) {
-        for (const match of JSON.stringify(value ?? null).matchAll(/[0-9a-f]{64}\.(?:png|jpg|webp|svg)/gu)) {
-            if (THEME_ASSET_FILE_NAME.test(match[0])) found.add(match[0]);
-        }
+        for (const match of JSON.stringify(value ?? null).matchAll(ASSET_NAME_ANYWHERE)) found.add(match[0]);
     }
     return [...found].sort();
 }

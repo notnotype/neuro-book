@@ -4,6 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {Database} from "bun:sqlite";
 import {mkdir, readdir, rm, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {zipSync} from "fflate";
@@ -599,10 +600,9 @@ describe("素材传输：复制插件主题、导入主题包与清理未使用�
             if (!fresh.ok) throw new Error(fresh.reason);
 
             const plan = await model.unusedAssets(sweeper);
-            expect(plan).toEqual({ok: true, names: [orphan], bytes: WEBP_B.length});
-            // 确认期间另一处新引用了它：真删时清单现读，它在 keep 里，路由跳过。
+            expect(plan).toEqual({ok: true, names: [orphan], bytes: WEBP_B.length, more: false});
             const done = await model.removeUnused(sweeper, [orphan]);
-            expect(done).toEqual({ok: true, removed: 1, skipped: 0});
+            expect(done).toEqual({ok: true, removed: 1, skipped: 0, failed: 0});
             expect((await readdir(join(root, "theme-assets"))).sort()).toEqual([referenced, inBadEntry, fresh.name].sort());
             dispose();
         });
@@ -614,7 +614,7 @@ describe("素材传输：复制插件主题、导入主题包与清理未使用�
             const plan = await model.unusedAssets(sweeper);
             expect(plan).toMatchObject({ok: true, names: [orphan]});
             expect(await store.actions.create(theme("later", orphan))).toBe("saved");
-            expect(await model.removeUnused(sweeper, [orphan])).toEqual({ok: true, removed: 0, skipped: 1});
+            expect(await model.removeUnused(sweeper, [orphan])).toEqual({ok: true, removed: 0, skipped: 1, failed: 0});
             expect(await readdir(join(root, "theme-assets"))).toEqual([orphan]);
             dispose();
         });
@@ -625,8 +625,119 @@ describe("素材传输：复制插件主题、导入主题包与清理未使用�
             // 素材目录是个普通文件：路由 409 invalid-target，原因里有说明。
             await writeFile(join(root, "theme-assets"), "不是目录");
             const plan = await model.unusedAssets(sweeper);
-            expect(plan.ok).toBe(false);
+            expect(plan).toMatchObject({ok: false, kind: "route"});
             if (!plan.ok) expect(plan.reason).toContain("theme-assets");
+            dispose();
+        });
+
+        /** 开一个新的 Storage 场地与第一个窗口（`first`）；`second` 另开窗口再读。 */
+        const twoWindows = async () => {
+            counter += 1;
+            const w = await storageWorld(join(tmp, `case-${String(counter)}`), []);
+            worlds.push(w);
+            const open = async (windowId: string, clientId: string) => {
+                const hosted: {store: ReturnType<typeof userThemesStore.create> | null} = {store: null};
+                const plugin: PluginDefinition = {
+                    id: "nbook.workbench",
+                    entries: [{
+                        id: "browser",
+                        location: "browser",
+                        activationEvents: ["onStartup"],
+                        dependencies: [{key: diagnosticsKey}, {key: storageKey}],
+                        activate: (context) => {
+                            hosted.store = userThemesStore.create(context, {storage: context.services.require(storageKey), diagnostics: context.services.require(diagnosticsKey)});
+                            return {};
+                        },
+                    }],
+                };
+                await w.window(windowId, clientId, [plugin], {bound: false});
+                const store = hosted.store;
+                if (store === null) throw new Error("store 没有创建");
+                await waitUntil("我的主题读完", () => store.state.themes.ready);
+                const scope = effectScope();
+                const model = scope.run(() => new ThemeEditorModel({store, catalog: new ThemeCatalog([], () => null, () => undefined), baseColors: () => ({}), newId: () => "00000000-0000-4000-8000-000000000001", currentAppearance: () => "light"})) as ThemeEditorModel;
+                return {store, model};
+            };
+            return {w, open};
+        };
+        /** 记下清理请求里交的 `keep` 的清理器；统计总是返回一个可清理的素材。 */
+        const recording = (): {sweeper: AssetSweeper; seen: string[][]} => {
+            const seen: string[][] = [];
+            return {
+                seen,
+                sweeper: {
+                    statUnusedAssets: async (keep) => {
+                        seen.push([...keep]);
+                        return {ok: true, value: {removable: [{name: `${"f".repeat(64)}.webp`, bytes: 1}]}};
+                    },
+                    removeUnusedAssets: async (keep) => {
+                        seen.push([...keep]);
+                        return {ok: true, value: {removed: [], skipped: []}};
+                    },
+                },
+            };
+        };
+
+        it.each([["损坏", "{坏的", 1], ["版本不兼容", JSON.stringify({themes: [], later: 1}), 2]] as const)("记录%s：不能清理，不发任何请求（这时看到的是空的初始值，据此算出来的清单会让全部旧素材被当成没人用）", async (_label, value, version) => {
+            const {w, open} = await twoWindows();
+            const first = await open("a", "c1");
+            expect(await first.store.actions.create(theme("mine", `${"a".repeat(64)}.webp`))).toBe("saved");
+            const db = new Database(w.userPath);
+            db.query("UPDATE records SET value = ?1, version = ?2 WHERE key = 'user-themes'").run(value, version);
+            db.close();
+            const second = await open("b", "c2");
+            // 读完了（`ready`），但记录不可读：`canClean` 为假，统计与真删都拒绝，一个请求也不发。
+            expect(second.store.state.themes.ready).toBe(true);
+            expect(second.model.canClean.value).toBe(false);
+            const {sweeper, seen} = recording();
+            expect(await second.model.unusedAssets(sweeper)).toMatchObject({ok: false, kind: "unreadable"});
+            expect(await second.model.removeUnused(sweeper, [`${"f".repeat(64)}.webp`])).toMatchObject({ok: false, kind: "unreadable"});
+            expect(seen).toEqual([]);
+        });
+
+        it("清单取已确认的记录与本窗口显示的并集：别的窗口刚写入、本窗口还没采纳的，和本窗口排队还没保存的，引用的素材都保留", async () => {
+            const {open} = await twoWindows();
+            const a = await open("a", "c1");
+            const b = await open("b", "c2");
+            const fromOther = `${"1".repeat(64)}.webp`;
+            const queued = `${"2".repeat(64)}.webp`;
+            expect(await b.store.actions.create(theme("from-b", fromOther))).toBe("saved");
+            // A 还没采纳 B 的写入（显示里没有），但已确认的快照里已经有。
+            await waitUntil("A 的已确认快照里有 B 写的主题", () => JSON.stringify(a.store.state.themes.base).includes(fromOther));
+            expect(JSON.stringify(a.store.state.themes.display)).not.toContain(fromOther);
+            // A 自己排队、还没保存完的修改只在显示里。
+            const saving = a.store.actions.create(theme("queued", queued));
+            const {sweeper, seen} = recording();
+            await a.model.unusedAssets(sweeper);
+            await saving;
+            expect(seen).toHaveLength(1);
+            expect(seen[0]).toContain(fromOther);
+            expect(seen[0]).toContain(queued);
+        });
+
+        it("请求的响应读不出来或形状不对：当作失败交回，不抛；删除失败的素材单独计数，带第一个失败码", async () => {
+            const outcomes: Array<[string, Response]> = [["HTML", new Response("<html>回退页</html>", {status: 200})], ["空对象", Response.json({})]];
+            for (const [, response] of outcomes) {
+                globalThis.fetch = (async () => response.clone()) as unknown as typeof fetch;
+                expect(await sweepAssets({keep: []})).toMatchObject({ok: false});
+                expect(await sweepAssets({keep: [], names: [`${"a".repeat(64)}.webp`]})).toMatchObject({ok: false});
+            }
+            const {model, dispose} = await session();
+            const name = `${"a".repeat(64)}.webp`;
+            const failing: AssetSweeper = {
+                statUnusedAssets: async () => ({ok: true, value: {removable: []}}),
+                removeUnusedAssets: async () => ({ok: true, value: {removed: [], skipped: [{name, reason: "failed", code: "permission-denied"}, {name: `${"b".repeat(64)}.webp`, reason: "recent"}]}}),
+            };
+            expect(await model.removeUnused(failing, [name])).toEqual({ok: true, removed: 0, skipped: 1, failed: 1, code: "permission-denied"});
+            dispose();
+        });
+
+        it("写素材的操作同步抛出也不留计数", async () => {
+            const {model, dispose} = await session();
+            await expect(model.trackAssetWork(() => {
+                throw new Error("同步抛出");
+            })).rejects.toThrow("同步抛出");
+            expect(model.assetWork.value).toBe(0);
             dispose();
         });
 
