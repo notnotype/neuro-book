@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t06-approval",
+    "artifactId": "review",
+    "answerId": "20261106T133516443Z-f1c01870",
+    "artifactVersion": 2,
+    "contentHash": "4d2879b64a4dd3c3424122f3bcc741c03cf1a65d549cbf34dee1058cd223a579",
+    "submittedAt": "2026-11-06T13:35:15.563Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "plan-wizard": "adjust"
+    },
+    "comments": {
+        "plan-wizard": "你觉得模式控件和权限控件怎么排列比较好？或者说这一行怎么排列，例如模型选择可以放在右边。展开按钮甚至可以放在发送按钮上方。"
+    },
+    "note": null
+}
