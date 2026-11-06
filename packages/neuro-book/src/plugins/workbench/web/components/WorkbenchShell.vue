@@ -5,7 +5,7 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
@@ -169,8 +169,10 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
         const enabled = props.commands.isEnabled(id);
         return {id, icon, label: message(title), disabled: !(enabled.ok && enabled.value), ...(enabled.ok ? {} : {reason: resolver.t(enabled.reason)}), ...(pressed === undefined ? {} : {pressed})};
     };
+    // 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有这个按钮（输出 20）。
+    const collapsible = findTreeNode(doc.value.tree.root, panelId)?.parent?.orientation === "vertical";
     return [
-        describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true),
+        ...(collapsible ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true)] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
         // 无名面板没有隐藏按钮。
         ...(panel?.name === undefined ? [] : [describe(SET_PART_HIDDEN_COMMAND, "i-lucide-x", "shell.frame.hide")]),

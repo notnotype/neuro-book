@@ -92,7 +92,8 @@ const moveTo = (tab: string, panel: string, edge: "left" | "right" | "top" | "bo
 const ACTIONS: Readonly<Record<string, () => void>> = {
     "a-to-right": () => commit((current) => moveTabToStrip(current, {tab: "view:a", panel: "auxiliarybar", index: 1}, POLICY)),
     "a-back": () => commit((current) => moveTabToStrip(current, {tab: "view:a", panel: "sidebar", index: 0}, POLICY)),
-    "c-to-new-panel": () => commit(moveTo("view:c", "g1", "right")),
+    // 无名面板只能挨着工具面板（骨架，输出 1）：挨着 `panel` 的右边，进面板这一排。
+    "c-to-new-panel": () => commit(moveTo("view:c", "panel", "right")),
     "d-below-b": () => commit(moveTo("view:d", "sidebar", "bottom")),
 };
 
