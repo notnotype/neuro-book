@@ -68,3 +68,38 @@ describe("plot.goals 输出 5：目标表", () => {
         expect(table({holder: sage})).toEqual([]);
     });
 });
+
+describe("plot.goals 验收场景 2：态度随事件变", () => {
+    const START = "不接话、不看他，但会夹他做的菜";
+    const EVENT = "她第一次主动叫了他一声";
+    const REDUCED = "冷淡，但愿意开口";
+
+    function attitudeWorld() {
+        const w = new PlotWorld(CHAPTERS);
+        const withAttitude = {init: {name: "星瑾", aliases: [], summary: "", text: [], data: {
+            know: {type: COMPONENT_IDS.knowing, version: 1, enabled: true, fields: {知情: [], 听过的说法: null}},
+            att: {type: COMPONENT_IDS.attitude, version: 1, enabled: true, fields: {态度: []}},
+        }}};
+        const [jin, brother] = [w.person("星瑾", withAttitude), w.person("哥哥")];
+        const cause = w.point("哥哥瞒着她", brother);
+        w.goal("查出哥哥在瞒什么", jin);
+        w.change(chapter("ch1"), {patches: [{op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: brother, 态度: START, 起因: {ref: cause}}}]});
+        w.change(chapter("ch5"), {patches: [{op: "note", at: {entry: jin, path: `att.态度[${brother}].态度`}, value: EVENT}]});
+        const attitude = (at: ReturnType<typeof end>) => goalTable(w.view(), at, "actual").find((row) => row.holder === jin)!.attitudes;
+        return {w, brother, cause, attitude};
+    }
+
+    test("第 1 章是写下的那句；第 5 章末尾归纳还没补上时是“起点；之后：事件”的未归纳写法，起因是知识点“哥哥瞒着她”", () => {
+        const {brother, cause, attitude} = attitudeWorld();
+        expect(attitude(end("ch4"))).toEqual([{object: brother, 态度: START, 起因: cause, 称呼: null}]);
+        expect(attitude(end("ch5"))).toEqual([{object: brother, 态度: `${START}；之后：${EVENT}`, 起因: cause, 称呼: null}]);
+    });
+
+    test("归纳补进缓存以后，第 5 章末尾的态度是归纳后的那句，第 4 章末尾不受影响", () => {
+        const {w, brother, cause, attitude} = attitudeWorld();
+        // 归纳缓存按“起点加事件”查：只有这一组输入有归纳。
+        w.world = w.world.withOptions({...w.world.options, reductions: (input) => (input.anchor === START && input.events.length === 1 && input.events[0] === EVENT ? REDUCED : undefined)});
+        expect(attitude(end("ch5"))).toEqual([{object: brother, 态度: REDUCED, 起因: cause, 称呼: null}]);
+        expect(attitude(end("ch4"))[0]!.态度).toBe(START);
+    });
+});

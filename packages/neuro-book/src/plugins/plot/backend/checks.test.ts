@@ -179,3 +179,23 @@ describe("摘要写不进去", () => {
         expect(warnings).toContain("plot.store.write-back");
     });
 });
+
+describe("失败表 chapter-empty", () => {
+    test("这一章没有正文（没有文本，或只有空白）：回 chapter-empty，不问模型、不存记录，用量是零；写上正文以后能跑", async () => {
+        const s = await scene();
+        // ch1 没有文本；ch2 只有空白。
+        s.world.texts.set("ch2", "  \n\t\n");
+        s.world.service.textChanged("ch2");
+        for (const chapterId of ["ch1", "ch2"]) {
+            const result = await s.checks.run(chapterId, undefined);
+            expect(result).toMatchObject({ok: false, code: "chapter-empty"});
+            expect((result as {usage: {input: number}}).usage.input).toBe(0);
+            expect(s.records.get(chapterId)).toBeUndefined();
+            expect(s.checks.status(chapterId)).toMatchObject({running: false, lastFailure: {code: "chapter-empty"}});
+        }
+        s.world.texts.set("ch2", "勇者走进客栈。\n");
+        s.world.service.textChanged("ch2");
+        expect((await s.checks.run("ch2", undefined)).ok).toBe(true);
+        expect(s.checks.status("ch2")).toMatchObject({running: false});
+    });
+});

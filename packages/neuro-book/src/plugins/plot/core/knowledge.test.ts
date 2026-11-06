@@ -251,3 +251,17 @@ describe("KnowingIndex.transitions：有效知情的每一次变化", () => {
         }
     });
 });
+
+describe("plot.knowledge 输出 1：知识点的条目被删除", () => {
+    test("指向它的知情行照常存在、显示“已删除的条目”，有效知情仍是原来的程度", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const jin = w.person("星瑾");
+        const k = w.point("哥哥能回溯", w.person("哥哥"));
+        w.change(chapter("ch2"), {patches: [addRow(jin, k, {程度: "suspects"})]});
+        w.publish([{ref: {kind: "entry", id: k}, after: {...structuredClone(w.world.data.entries.get(k)!), deleted: true}}]);
+
+        const rows = (w.view().entry(jin, end("ch3"), "actual") as {namespaces: Record<string, {fields: Record<string, {value: unknown}>}>}).namespaces.know!.fields.知情!.value as Array<Record<string, unknown>>;
+        expect(rows).toMatchObject([{id: k, label: "已删除的条目", 程度: "suspects"}]);
+        expect(degree(new KnowingIndex(w.view(), "actual", end("ch3")), jin, k)).toBe("suspects");
+    });
+});

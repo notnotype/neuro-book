@@ -3,7 +3,7 @@ import {describe, expect, test} from "bun:test";
 import {ChapterOrder} from "@notnotype/nb-canon";
 
 import {DECISION_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
-import {chapter, drafts, end, PlotWorld} from "../testing/world";
+import {addRow, chapter, drafts, end, PlotWorld} from "../testing/world";
 import {dangling, involvedDecisions, NO_REASON, overdue} from "./decisions";
 
 const CHAPTERS = Array.from({length: 20}, (_, index) => `ch${String(index + 1)}`);
@@ -110,5 +110,23 @@ describe("plot.decisions 输出 2：地址守卫没法检查时在决策视图�
         // 按计划模式这条线存在：能检查。
         const planned = involvedDecisions(w.view(), "ch5", "planned");
         expect(planned.find((decision) => decision.id === gone)?.guards.map((guard) => guard.unchecked)).toEqual([undefined]);
+    });
+});
+
+describe("plot.decisions 输出 2：地址的值不完整时不判，标 unchecked", () => {
+    test("地址被一条后来套不上的变更标成不完整：决策视图里标 incomplete", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const jin = w.person("星瑾");
+        const k = w.point("哥哥能回溯", w.person("哥哥"));
+        const mark = {kind: MARK_IDS.guardAddress, version: 1, at: {entry: jin, path: "know.知情"}, notIn: ["x"]};
+        const guarded = w.decision("知情不能是 x", {about: [{kind: "chapter", id: "ch5"}], conclusion: "x", marks: [mark]});
+        const unchecked = () => involvedDecisions(w.view(), "ch5", "actual").find((decision) => decision.id === guarded)?.guards.map((guard) => guard.unchecked);
+        w.change(chapter("ch2"), {patches: [addRow(jin, k, {程度: "knows"})]});
+        w.change(chapter("ch4"), {patches: [{op: "listRemove", at: {entry: jin, path: "know.知情"}, value: k}]});
+        expect(unchecked()).toEqual([undefined]);
+
+        // 第 4 章的变更在写入时套得上；后来写进第 3 章的另一条已经去掉了这一行，第 4 章那条就套不上，地址从这里起不完整。
+        w.change(chapter("ch3"), {patches: [{op: "listRemove", at: {entry: jin, path: "know.知情"}, value: k}]});
+        expect(unchecked()).toEqual(["incomplete"]);
     });
 });

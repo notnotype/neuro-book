@@ -485,3 +485,119 @@ describe("plot.brief 输出 2、4：本章计划与隐秘目标的写法", () =>
         expect(secrets).toContain("管家的隐秘目标：继承爵位；为什么：他等了二十年；冲突：保住男爵");
     });
 });
+
+describe("plot.brief 晋升前补的用例：读哪个位置、在场的人、称谓、伏笔、决策、涉及条目", () => {
+    const attitudePerson = (w: PlotWorld, name: string) => {
+        const draft = drafts.person(`tmp:att-${name}`, name);
+        return w.publish([{ref: {kind: "entry", id: draft.id}, after: {...draft, init: {...draft.init, data: {...draft.init.data, att: {type: COMPONENT_IDS.attitude, version: 1, enabled: true, fields: {态度: []}}}}}}])[draft.id]!;
+    };
+
+    test("输出 2、14：写作指示的时间方式是补叙某处安放时，涉及条目的样子读那一章章首，不读本章", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const jin = w.person("星瑾");
+        const thing = w.thing("怀表");
+        w.change(chapter("ch3"), {patches: [setState(thing, "走得很慢")]});
+        w.change(chapter("ch6"), {patches: [setState(thing, "停了")]});
+        w.change(chapter("ch10"), {kind: "plan", text: "星瑾看表", cast: [{who: jin, role: "present"}], patches: [setState(thing, "又被拨动了")]});
+        const now = brief(w, "ch10");
+        expect(section(now, "appearance")).toContain("停了");
+        const back = brief(w, "ch10", {instruction: instruction("ch10", {timeMode: {flashback: {kind: "chapter", chapter: "ch5", key: 0}}})});
+        expect(section(back, "appearance")).toContain("走得很慢");
+        expect(section(back, "appearance")).not.toContain("停了");
+    });
+
+    test("验收 5：回溯后那份里，没有带过去的值是切口处的，带过去的值是父线在触发处的；回溯前那份读父线", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, xia] = [w.person("星瑾"), w.person("星瑕")];
+        const savings = w.thing("存款");
+        const counter = w.thing("回溯次数");
+        w.change(chapter("ch6"), {patches: [setState(savings, "20000"), setState(counter, "剩 1 次")]});
+        const cut = w.change(chapter("ch7", 10));
+        w.change(chapter("ch7", 20), {patches: [setState(savings, "15000"), setState(counter, "剩 0 次")]});
+        const trigger = w.change(chapter("ch7", 50));
+        w.change(chapter("ch8"), {kind: "plan", text: "星瑾看账", cast: [{who: jin, role: "present"}], patches: [setState(savings, "13000"), setState(counter, "剩 0 次，又被用掉")]});
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch7", 90)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: xia, carry: [{entry: counter, path: "character.状态"}]}}}]);
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 30}]]])});
+        const result = brief(w, "ch8");
+        const [before, after] = [section(result, "appearance", 0), section(result, "appearance", 1)];
+        expect(before).toContain("character.状态：15000");
+        expect(before).toContain("character.状态：剩 0 次");
+        expect(after).toContain("character.状态：20000");
+        expect(after).not.toContain("15000");
+        // 回溯次数带过去：子线上是父线在触发处的值，不是切口处的“剩 1 次”。
+        expect(after).toContain("character.状态：剩 0 次");
+        expect(after).not.toContain("剩 1 次");
+    });
+
+    test("输出 5：在场的人每人一项，写进行或受挫的普通目标（带为什么）；态度只列两人都在本章计划的参与者或涉及条目里的对子，别的不列", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const jin = attitudePerson(w, "星瑾");
+        const [brother, passerby] = [w.person("哥哥"), w.person("路人")];
+        const watch = w.thing("怀表");
+        w.goal("查出哥哥在瞒什么", jin, {为什么: "怕他出事"});
+        w.goal("躲开哥哥", jin, {状态: "blocked"});
+        w.goal("已经办成的事", jin, {状态: "achieved"});
+        w.change(chapter("ch1"), {patches: [
+            {op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: brother, 态度: "冷淡"}},
+            {op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: watch, 态度: "舍不得"}},
+            {op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: passerby, 态度: "戒备"}},
+        ]});
+        w.change(chapter("ch5"), {kind: "plan", text: "兄妹看表", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}], patches: [setState(watch, "停了")]});
+        const people = section(brief(w, "ch5"), "people");
+        expect(people).toContain("目标：查出哥哥在瞒什么（怕他出事）");
+        expect(people).toContain("目标：躲开哥哥，受挫");
+        expect(people).not.toContain("已经办成的事");
+        expect(people).toContain("对哥哥的态度：冷淡");
+        expect(people).toContain("对怀表的态度：舍不得");
+        expect(people).not.toContain("路人");
+        expect(people).not.toContain("戒备");
+    });
+
+    test("输出 7：之前只和用着马甲的人同时在场过，用最近一次他用的马甲的名字", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, hero] = [w.person("星瑾"), w.person("勇者")];
+        const [first, second] = [w.person("旅人", {sameAs: hero}), w.person("黑衣人", {sameAs: hero})];
+        w.change(chapter("ch2"), {cast: [{who: jin, role: "present"}, {who: hero, role: "present", as: first}]});
+        w.change(chapter("ch3"), {cast: [{who: jin, role: "present"}, {who: hero, role: "present", as: second}]});
+        w.change(chapter("ch5"), {kind: "plan", text: "再见", cast: [{who: jin, role: "present"}, {who: hero, role: "present"}]});
+        const rows = section(brief(w, "ch5", {instruction: instruction("ch5", {pov: {kind: "entry", id: jin}, povMode: "first"})}), "address");
+        expect(rows).toContain("黑衣人 = 勇者");
+        expect(rows).not.toContain("旅人 = ");
+        expect(rows).not.toContain("一个陌生人");
+    });
+
+    test("输出 8：依赖的物件出现在本章计划里的伏笔也列出（没有节点时只给名字）；物件不在本章计划里的不列", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [clock, lamp] = [w.thing("那座钟"), w.thing("那盏灯")];
+        w.foreshadow("钟慢了一刻", {物件: [{id: clock}]});
+        w.foreshadow("灯会灭", {物件: [{id: lamp}]});
+        w.change(chapter("ch5"), {kind: "plan", text: "有人拨钟", patches: [setState(clock, "拨回正点")]});
+        const items = brief(w, "ch5").parts[0]!.sections.find((s) => s.key === "foreshadow")!.items;
+        expect(items.map((item) => item.text)).toEqual(["钟慢了一刻"]);
+    });
+
+    test("输出 9：不挂保密知识点、到期的待定决策写“待定（到期）：原话”；没到期的、已定的不在这一条里", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const jin = w.person("星瑾");
+        w.change(chapter("ch5"), {kind: "plan", text: "星瑾出场", cast: [{who: jin, role: "present"}]});
+        w.decision("星瑾要不要原谅哥哥", {about: [{kind: "entry", id: jin}], due: "ch5"});
+        w.decision("哥哥何时回来", {about: [{kind: "entry", id: jin}], due: "ch9"});
+        const decisions = section(brief(w, "ch5"), "decisions");
+        expect(decisions).toContain("待定（到期）：星瑾要不要原谅哥哥");
+        expect(decisions).not.toContain("哥哥何时回来");
+    });
+
+    test("输出 13：涉及条目的样子去掉 know 命名空间，挂在它们下面的知识点也不在这里；别的命名空间照常渲染", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
+        const thing = w.thing("怀表");
+        const k = w.point("哥哥能回溯", brother, {保密: "common"});
+        w.change(chapter("ch5"), {kind: "plan", text: "兄妹说话", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}], patches: [addRow(jin, k, {程度: "knows"}), setState(thing, "停了")]});
+        const appearance = section(brief(w, "ch5"), "appearance");
+        // 简报读本章开头，计划还没发生：物件是原样。人物的条目在，但没有知情的那一段。
+        expect(appearance.split("\n").sort()).toEqual(["星瑾", "哥哥", "怀表", "character.状态：原样"].sort());
+        expect(appearance).not.toContain("know.");
+        expect(appearance).not.toContain("知情");
+        expect(appearance).not.toContain("哥哥能回溯");
+    });
+});

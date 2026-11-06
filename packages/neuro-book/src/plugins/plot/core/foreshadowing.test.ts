@@ -191,3 +191,42 @@ describe("输出 5：读者那一边的阶段按活页夹正文算，不分线",
         expect(stageAt(w, fs, end("ch10"))).toBe("planted");
     });
 });
+
+describe("plot.foreshadowing 输出 2、8：账本的筛选与放弃的显示", () => {
+    /** 四个伏笔：主要的、次要的放弃了的（第 5 章埋下）、旁支的（第 8 章埋下）、只在第 15 章有计划的节点。 */
+    function ledgerWorld() {
+        const w = new PlotWorld(CHAPTERS);
+        const main = w.foreshadow("主线伏笔", {重要程度: "main"});
+        const dropped = w.foreshadow("放弃的伏笔", {重要程度: "minor", 意图: "dropped"});
+        const side = w.foreshadow("旁支伏笔", {重要程度: "side"});
+        const planned = w.foreshadow("只有计划的伏笔", {重要程度: "side"});
+        w.change(chapter("ch3"), {told: [inText(w, "ch3", "主线埋下", [node(main, "plant")])]});
+        w.change(chapter("ch5"), {told: [inText(w, "ch5", "放弃的埋下", [node(dropped, "plant")])]});
+        w.change(chapter("ch8"), {told: [inText(w, "ch8", "旁支埋下", [node(side, "plant")])]});
+        w.change(chapter("ch15"), {kind: "plan", told: [{source: "outline", chapter: "ch15", anchor: "计划", marks: [node(planned, "plant")]}]});
+        const names = (filter: Parameters<typeof ledger>[3]) => ledger(w.view(), end("ch20"), "actual", filter).map((item) => item.name).sort();
+        return {w, names};
+    }
+
+    test("按重要程度、意图、章的范围筛；章的范围算节点或计划的节点落在范围里的伏笔，边界章包含在内", () => {
+        const {names} = ledgerWorld();
+        expect(names({})).toEqual(["只有计划的伏笔", "主线伏笔", "旁支伏笔", "放弃的伏笔"].sort());
+        expect(names({importance: "side"})).toEqual(["只有计划的伏笔", "旁支伏笔"].sort());
+        expect(names({importance: "minor"})).toEqual(["放弃的伏笔"]);
+        expect(names({intent: "dropped"})).toEqual(["放弃的伏笔"]);
+        expect(names({intent: "active"})).toEqual(["只有计划的伏笔", "主线伏笔", "旁支伏笔"].sort());
+        expect(names({from: "ch5", to: "ch8"})).toEqual(["旁支伏笔", "放弃的伏笔"].sort());
+        expect(names({to: "ch3"})).toEqual(["主线伏笔"]);
+        expect(names({from: "ch9"})).toEqual(["只有计划的伏笔"]);
+        // 几个条件同时给：都要满足。
+        expect(names({importance: "side", from: "ch5", to: "ch8"})).toEqual(["旁支伏笔"]);
+    });
+
+    test("意图为放弃：已埋的阶段仍是已埋、标放弃（“放弃（已埋）”），没埋的阶段是未埋、标放弃（“放弃”）；没放弃的不标", () => {
+        const {w} = ledgerWorld();
+        w.foreshadow("放弃但没埋", {意图: "dropped"});
+        const items = ledger(w.view(), end("ch20"), "actual");
+        const shown = Object.fromEntries(items.map((item) => [item.name, [item.stage, item.dropped]]));
+        expect(shown).toMatchObject({"放弃的伏笔": ["planted", true], "放弃但没埋": ["unplanted", true], "主线伏笔": ["planted", false]});
+    });
+});

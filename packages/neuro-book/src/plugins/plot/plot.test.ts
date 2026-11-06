@@ -462,3 +462,92 @@ describe("写完以后的检查：真实的项目子进程、服务端入口与�
         }
     }, 60_000);
 });
+
+describe("剧情插件的存储读不出来", () => {
+    it("checks 失败表 storage-unavailable：项目的存储库文件坏了，写作指示、自陈、检查、读记录都回 storage-unavailable，不当作“没跑过”；不依赖存储的读取照常", async () => {
+        let instructions: RemoteUse<typeof plotInstructionsContract> | null = null;
+        let checks: RemoteUse<typeof plotChecksContract> | null = null;
+        const caller: PluginDefinition = {id: "test.broken-store-caller", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+            instructions = context.remote.use(plotInstructionsContract);
+            checks = context.remote.use(plotChecksContract);
+            return {};
+        }})]};
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
+            const dir = join(paths.project.path, "manuscripts.binder");
+            await mkdir(dir, {recursive: true});
+            await writeFile(join(dir, "binder.xml"), '<binder nextId="2"><chapter id="1" title="一"/></binder>');
+            await writeFile(join(dir, "00001-一.md"), "国王与贤者说话。\n");
+            // 存储库文件不是 SQLite：插件入口读清单时得到存储的读取失败。
+            await mkdir(join(paths.project.path, ".nbook"), {recursive: true});
+            await writeFile(join(paths.project.path, ".nbook", "storage.sqlite"), "not a database ".repeat(40));
+        }});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const plotUse = plotCaller();
+        const window = await windowOf(h, "browser-broken", "profile-broken", [plotUse.plugin, caller]);
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.version >= 1;
+        });
+        const unavailable = {ok: false, code: "plot", detail: {code: "storage-unavailable"}};
+        expect(await instructions!.put({chapter: "1", snapshot: {chapter: "1", version: "v1"}})).toMatchObject(unavailable);
+        expect(await checks!.putSelfReport({chapter: "1", value: null})).toMatchObject(unavailable);
+        expect(await checks!.run({chapter: "1"})).toMatchObject(unavailable);
+        expect(await checks!.record({chapter: "1"})).toMatchObject(unavailable);
+        // 不依赖这几张表的读取照常；依赖存储的诊断没有登记，待处理标“不完整”，不冒充“查过，没有发现”。
+        expect(await plotUse.plot().goals({})).toMatchObject({ok: true, value: {items: []}});
+        const pending = await window.canon.call("pending", {});
+        if (!pending.ok) throw new Error(JSON.stringify(pending));
+        expect(pending.value.complete).toBe(false);
+        expect(pending.value.unavailable).toContainEqual({diagnostic: CHECK_DIAGNOSTIC_IDS.possibleSlip, reason: "not-registered"});
+        await window.close();
+        keep.release();
+    }, 30_000);
+});
+
+describe("剧情插件的目标表与冲突经远程合同", () => {
+    it("goals 输出 5、输出 2：有目标与态度时目标表按持有者给目标和态度表，可按持有者筛；冲突按两边读", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
+            const dir = join(paths.project.path, "manuscripts.binder");
+            await mkdir(dir, {recursive: true});
+            await writeFile(join(dir, "binder.xml"), '<binder nextId="2"><chapter id="1" title="一"/></binder>');
+            await writeFile(join(dir, "00001-一.md"), "兄妹说话。\n");
+        }});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const caller = plotCaller();
+        const window = await windowOf(h, "browser-goals", "profile-goals", [caller.plugin]);
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.version >= 1;
+        });
+        const jinDraft = drafts.person("tmp:jin", "星瑾");
+        const jin: Entry = {...jinDraft, init: {...jinDraft.init, data: {...jinDraft.init.data, att: {type: COMPONENT_IDS.attitude, version: 1, enabled: true, fields: {态度: []}}}}};
+        const entries = await publish(window.canon, {requestId: "goals-1", by: {kind: "author"}, what: "edit", title: "人与目标", baseVersion: 1, puts: [
+            {ref: {kind: "entry", id: "tmp:jin"}, after: jin},
+            {ref: {kind: "entry", id: "tmp:brother"}, after: drafts.person("tmp:brother", "哥哥")},
+            {ref: {kind: "entry", id: "tmp:cause"}, after: drafts.point("tmp:cause", "哥哥瞒着她", null)},
+        ]});
+        if (!entries.ok) throw new Error(JSON.stringify(entries.failure));
+        const [jinId, brother, cause] = [entries.value.ids["tmp:jin"]!, entries.value.ids["tmp:brother"]!, entries.value.ids["tmp:cause"]!];
+        const goals = await publish(window.canon, {requestId: "goals-2", by: {kind: "author"}, what: "edit", title: "目标", baseVersion: 2, puts: [
+            {ref: {kind: "entry", id: "tmp:find"}, after: drafts.goal("tmp:find", "查出哥哥在瞒什么", jinId)},
+            {ref: {kind: "entry", id: "tmp:keep"}, after: drafts.goal("tmp:keep", "不让妹妹卷进来", brother, {冲突: [{id: "tmp:find"}]})},
+            {ref: {kind: "change", id: "tmp:c"}, after: drafts.change("tmp:c", {kind: "chapter", chapter: "1", key: 0}, {patches: [{op: "listAdd", at: {entry: jinId, path: "att.态度"}, value: {id: brother, 态度: "不接话、不看他", 起因: {ref: cause}}}]})},
+        ]});
+        if (!goals.ok) throw new Error(JSON.stringify(goals.failure));
+        const [find, keepGoal] = [goals.value.ids["tmp:find"]!, goals.value.ids["tmp:keep"]!];
+
+        const plot = caller.plot();
+        const table = await plot.goals({});
+        if (!table.ok) throw new Error(JSON.stringify(table));
+        expect((table.value as {items: unknown[]}).items).toMatchObject([
+            {holder: jinId, goals: [{id: find, name: "查出哥哥在瞒什么", 状态: "active", conflicts: [{id: keepGoal, writtenOn: "other"}]}], attitudes: [{object: brother, 态度: "不接话、不看他", 起因: cause}]},
+            {holder: brother, goals: [{id: keepGoal, conflicts: [{id: find, writtenOn: "this"}]}], attitudes: []},
+        ]);
+        expect(await plot.goals({filter: {holder: brother}})).toMatchObject({ok: true, value: {items: [{holder: brother}]}});
+        expect(await plot.conflicts({goal: find})).toMatchObject({ok: true, value: {conflicts: [{id: keepGoal, writtenOn: "other"}]}});
+        await window.close();
+        keep.release();
+    }, 30_000);
+});
