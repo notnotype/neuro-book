@@ -266,7 +266,7 @@ interface OwnFold {
 }
 
 interface WorldFold {
-    /** 下标 `i + 1` 是第 i 章（含）以前的章序；下标 0 是线与全部分叉。 */
+    /** 下标 `i + 1` 是第 i 章（含）以前的章序，从线与全部分叉（下标 0）滚动下来。 */
     readonly order: readonly string[];
     readonly identity: Prefix;
     readonly foreshadow: Prefix;
@@ -611,7 +611,6 @@ export function dependenciesOf(input: DependencyInput): string | null {
         input.instruction?.digest ?? null,
         input.selfReport ?? null,
         input.followUps,
-        fold.order[0]!,
         fold.order[bound + 1]!,
         fold.identity.at(bound),
         fold.foreshadow.at(bound),

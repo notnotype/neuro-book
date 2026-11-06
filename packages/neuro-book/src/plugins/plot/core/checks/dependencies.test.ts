@@ -503,6 +503,36 @@ describe("跨条目的间接影响、身份与讲述", () => {
         mustChange(w, () => w.change(chapter("ch3"), {patches: [{op: "set", at: {entry: k, path: "point.揭穿"}, value: {ref: mask}}]}));
     });
 
+    test("改分叉的切口：分叉不提到任何条目，子线上看得到的前面的事变了", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const guard = w.person("卫兵");
+        const k = w.point("勇者的秘密", hero, {保密: "secret"});
+        const early = w.change(chapter("ch2"), {told: [inText(w, "ch2", "天刚亮")]});
+        w.change(chapter("ch4"), {patches: [addRow(guard, k, {程度: "knows", 怎么知道: "witnessed"})]});
+        const late = w.change(chapter("ch5"), {told: [inText(w, "ch5", "到了晌午")]});
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch6")), nature: "fork", fork: {line: "tmp:r", name: "支线", parent: "main", cut: late, type: "branch"}}}]);
+        const line = ids["tmp:r"]!;
+        const fork = ids["tmp:f"]!;
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line, from: 1}]]])});
+        addText(w, "ch8", "勇者走进客栈，卫兵盘问");
+        w.change({kind: "chapter", chapter: "ch8", key: 0, line}, {cast: [present(guard)]});
+        const stored = w.world.data.changes.get(fork)!;
+        mustChange(w, () => w.publish([{ref: {kind: "change", id: fork}, after: {...stored, fork: {...stored.fork!, cut: early}}}]));
+    });
+
+    test("改伏笔的初值：物件还被别的伏笔提到（身份那一项没变），这个伏笔不再依赖它，物件层候选消失", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const key = w.thing("铜钥匙");
+        const fs = w.foreshadow("钥匙伏笔", {物件: [{id: key}]});
+        w.foreshadow("没埋的伏笔", {物件: [{id: key}]});
+        w.change(chapter("ch2"), {told: [inText(w, "ch2", "他拾起一把钥匙", [node(fs, "plant")])]});
+        addText(w, "ch8", "铜钥匙在桌上");
+        const stored = w.world.data.entries.get(fs)!;
+        const data = stored.init.data;
+        mustChange(w, () => w.publish([{ref: {kind: "entry", id: fs}, after: {...stored, init: {...stored.init, data: {...data, fs: {...data.fs!, fields: {...data.fs!.fields, 物件: []}}}}}}]));
+    });
+
     test("改试读材料用到的那一段的别的字：引文还找得到、段落号没变，题面变了", () => {
         const {w} = book();
         mustChange(w, () => w.texts.set("ch3", "旅人总戴着左手的手套，谁也没见他摘下来。\n"));
