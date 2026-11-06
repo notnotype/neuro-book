@@ -406,6 +406,13 @@ export interface FilesService {
     rawUrl(address: string): string | null;
 }
 
+/** 上传主题场景素材：`PUT` 原始字节，成功回 `{address}`，失败回 `{code, detail}`（docs/specs/theme/editor.md 的“写场景素材”）。 */
+export const THEME_ASSET_UPLOAD_URL = "/api/nbook.files/theme-assets";
+/** 设置页发请求前也比一次：太大的文件到不了路由，HTTP 层直接断开，页面拿不到原因。 */
+export const THEME_ASSET_MAX_BYTES = 20 * 1024 * 1024;
+/** 主题场景素材所在的目录，文件名是内容摘要。 */
+export const THEME_ASSET_DIRECTORY_ADDRESS = "user://theme-assets";
+
 /** 字节路由的 URL：`project://` 带窗口绑定的作品与代次；地址不合法或没有绑定项目时为 null。 */
 export function rawUrlOf(address: string, project: {readonly id: string; readonly generation: number} | null): string | null {
     const parsed = parseResource(address);

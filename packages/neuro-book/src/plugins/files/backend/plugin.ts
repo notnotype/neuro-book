@@ -31,7 +31,7 @@ import {createBatch} from "./batch";
 import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
-import {addBackgroundRoutes} from "./background-route";
+import {addThemeAssetRoutes} from "./theme-asset-route";
 import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {SCHEMES_POINT, schemesPoint} from "../shared/schemes";
 import {workspaceFilesKey} from "../shared/workspace-files";
@@ -244,7 +244,7 @@ const serverEntry = defineEntry({
         }});
         const workspaceDeps = {own: {scheme: "user", root: backend}, registry: schemes, projects: registry === null ? null : createProjectsAccess(registry, context.remote), signal: context.signal, sourceOf, report: reportStage} as const;
         const ownFiles = ownWorkspaceFiles(workspaceDeps, {instanceId: "nbook.files/http", location: "server", client: null, plugin: descriptor.id, entry: "server", generation: null, via: null});
-        addBackgroundRoutes(routes, {userRoot: root.real, write: (address, bytes) => ownFiles.write(address, bytes, {expect: "absent", createParents: true})});
+        addThemeAssetRoutes(routes, {userRoot: root.real, write: (address, bytes) => ownFiles.write(address, bytes, {expect: "absent", createParents: true})});
         return {
             services: [
                 provideWorkspaceFiles(workspaceDeps),
