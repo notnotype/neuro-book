@@ -592,3 +592,18 @@ describe("canon.model 输出 23：条目树与身份同一的约束", () => {
         expect(both.ok).toBe(false);
     });
 });
+
+describe("canon.model 输出 23：父条目删除后", () => {
+    test("子条目照常存在、照常能改；新写的 parent 指向已删除的条目才拒收", () => {
+        const base = start();
+        const moved = ok(base.publish(request([{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(base.data.entries.get("e2")!), parent: "e1"}}], {baseVersion: 1}), "t"));
+        const parent = moved.world.data.entries.get("e1")!;
+        const gone = ok(moved.world.publish(request([{ref: {kind: "entry", id: "e1"}, after: {...structuredClone(parent), deleted: true}}], {baseVersion: 2}), "t"));
+        const child = gone.world.data.entries.get("e2")!;
+        expect(gone.world.publish(request([{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(child), folder: "别处"}}], {baseVersion: 3}), "t").ok).toBe(true);
+        const orphan = ok(gone.world.publish(request([{ref: {kind: "entry", id: "tmp:x"}, after: entry("tmp:x", "新人")}], {baseVersion: 3}), "t"));
+        const newId = orphan.ids["tmp:x"]!;
+        const moveUnder = orphan.world.publish(request([{ref: {kind: "entry", id: newId}, after: {...structuredClone(orphan.world.data.entries.get(newId)!), parent: "e1"}}], {baseVersion: 4}), "t");
+        expect(moveUnder.ok === false && moveUnder.failure.code === "validation-failed" && moveUnder.failure.problems.map((problem) => problem.code)).toEqual(["invalid-tree"]);
+    });
+});
