@@ -1,7 +1,7 @@
 /**
  * 呈现树（docs/specs/ui/workbench-layout.md 的“尺寸”）：由文档和呈现事实算出这一刻交给 `createGrid` 的树。
  *
- * 隐藏的、被最大化挤走的、放不下被收走的面板不进呈现树：它们的零宽缝如果夹在两个可见面板之间，拖那条缝改的是隐藏面板，不是两边。文档树不动，
+ * 隐藏的、放不下被收走的面板不进呈现树：它们的零宽缝如果夹在两个可见面板之间，拖那条缝改的是隐藏面板，不是两边。文档树不动，
  * 单子分支在呈现里塌陷时用 `collapsedTo` 记下它由谁代表，`rebaseIntents` 据此把尺寸写回文档树。
  */
 
@@ -27,8 +27,6 @@ export interface LayoutProjectionOptions {
     readonly sashSize: number;
     /** 呈现里去掉的面板：放不下被收走的。 */
     readonly removed?: ReadonlySet<string>;
-    /** 最大化的面板：其余面板都不进呈现树，条保留。 */
-    readonly maximized?: string | null;
 }
 
 export interface LayoutProjection {
@@ -105,7 +103,6 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
         }
         const panel = doc.panels[node.id];
         if (panel === undefined || panel.hidden === true || options.removed?.has(node.id) === true) return null;
-        if (options.maximized != null && options.maximized !== node.id) return null;
         const {minimumSize, maximumSize} = options.constraints(node.id, panel);
         return {kind: "leaf", id: node.id, ref: node.ref, size: {...node.size}, minimumSize, maximumSize};
     };

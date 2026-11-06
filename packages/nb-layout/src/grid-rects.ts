@@ -111,6 +111,20 @@ export function placeContents<R>(items: ReadonlyArray<GridPlacementItem<R>>, con
     });
 }
 
+/**
+ * 最大化（docs/specs/ui/nested-grid.md 的“最大化”）：这块叶的矩形换成除 `exclude`（条）以外全部叶的外接矩形，其余的项不动。它盖在上面，别的面板不摘出布局，
+ * 所以最大化和还原时它们什么都不变。
+ */
+export function maximizePlacement<R>(items: ReadonlyArray<GridPlacementItem<R>>, leaf: string, exclude: ReadonlyArray<string>): GridPlacementItem<R>[] {
+    const rects = items.flatMap((item) => (item.kind === "leaf" && !exclude.includes(item.node.id) ? [item.rect] : []));
+    if (rects.length === 0) return [...items];
+    const left = Math.min(...rects.map((rect) => rect.x));
+    const top = Math.min(...rects.map((rect) => rect.y));
+    const right = Math.max(...rects.map((rect) => rect.x + rect.width));
+    const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
+    return items.map((item) => (item.kind === "leaf" && item.node.id === leaf ? {...item, rect: {x: left, y: top, width: right - left, height: bottom - top}} : item));
+}
+
 /** 树序：每块叶后面紧跟属于它的内容项；找不到叶的排在最后。 */
 export function layerItems<R>(items: ReadonlyArray<GridPlacementItem<R>>, contents: ReadonlyArray<GridContentPlacement>): GridLayerItem<R>[] {
     if (contents.length === 0) return [...items];

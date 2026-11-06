@@ -28,6 +28,7 @@ import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnot
 import GridStructureLeaf from "./GridStructureLeaf.vue";
 
 const HEAD = 32;
+const BARS = ["activitybar", "statusbar"];
 const UNBOUNDED = {width: Number.POSITIVE_INFINITY, height: Number.POSITIVE_INFINITY};
 
 const view = (viewId: string): TabRef => ({kind: "view", viewId});
@@ -76,7 +77,6 @@ const projectionOptions = computed<LayoutProjectionOptions>(() => ({
     headHeight: HEAD,
     collapseThreshold: 24,
     sashSize: 4,
-    maximized: maximized.value,
 }));
 const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
 const grid = computed<Grid<string>>(() => createGrid<string>(projection.value.input, {sashSize: projection.value.sashSize}));
@@ -155,7 +155,7 @@ function onKeydown(event: KeyboardEvent): void {
             <button v-for="(_, name) in ACTIONS" :key="name" type="button" :data-panels-action="name" @click="run(name)">{{ name }}</button>
         </div>
         <div ref="containerEl" class="grid-panels-scene__grid" data-panels-host>
-            <NestedGrid data-lab-subject :node="host.node.value" :layout="host.layout.value" context-key="panels" :revision="host.revision.value" :on-gesture-commit="host.onGestureCommit" :contents="contents">
+            <NestedGrid data-lab-subject :node="host.node.value" :layout="host.layout.value" context-key="panels" :revision="host.revision.value" :on-gesture-commit="host.onGestureCommit" :contents="contents" :maximized="maximized === null ? null : {leaf: maximized, exclude: BARS}">
                 <template #leaf="{node}">
                     <div v-if="doc.panels[node.id] !== undefined" class="grid-panels-scene__head" :data-panel-head="node.id">
                         <button

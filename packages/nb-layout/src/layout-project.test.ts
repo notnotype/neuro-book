@@ -113,15 +113,6 @@ describe("收起", () => {
     });
 });
 
-describe("最大化", () => {
-    it("占满树除条以外的区域，其余面板不在呈现树里", () => {
-        const doc = docOf(DEFAULT_TREE());
-        const {projection, layout} = solve(doc, {width: 1000, height: 600}, {maximized: "panel"});
-        expect(shapeOfInput(projection.input)).toBe("V[H[activitybar,panel],statusbar]");
-        expect(layout.sizes.panel).toEqual({width: 952, height: 578});
-    });
-});
-
 describe("意图只从呈现尺寸写回", () => {
     it("手势落账后：权重分配的一列也写成 px；收起再展开回到拖好的尺寸", () => {
         const start = docOf(H([V(["a", "b"], "column"), "ea"]));

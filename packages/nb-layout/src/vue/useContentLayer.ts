@@ -28,6 +28,10 @@ export function useContentLayer(options: {
     readonly previewing: () => boolean;
     /** 量到容器了吗。第一帧还没量到时矩形都是零，这不算停放：那时加 `inert` 会让 `onMounted` 里的 `focus()` 静默失败。 */
     readonly measured: () => boolean;
+    /** 被最大化的面板盖住的叶。 */
+    readonly obscuredLeaves: () => ReadonlySet<string>;
+    /** 过渡进行中。 */
+    readonly moving: () => boolean;
     /** 这个内容项此刻含焦点吗。 */
     readonly holdsFocus: (key: string) => boolean;
     readonly onParked: (contentKey: string) => void;
@@ -39,7 +43,7 @@ export function useContentLayer(options: {
     const parkedBefore = new Set<string>();
 
     function isParked(item: GridContentPlacement): boolean {
-        return !item.active || item.rect === null || options.parkedLeaves.value.has(item.leaf) || zero.value.has(item.key);
+        return !item.active || item.rect === null || options.parkedLeaves.value.has(item.leaf) || zero.value.has(item.key) || options.obscuredLeaves().has(item.leaf);
     }
 
     /** 布局变了（渲染之前调，DOM 还没变，焦点还在里面）。 */
@@ -70,7 +74,9 @@ export function useContentLayer(options: {
 
     function frameStyle(item: GridContentPlacement): Record<string, string> {
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
-        return {...gridRectStyle(rect), ...(isParked(item) ? {visibility: "hidden"} : {})};
+        // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。
+        const showing = item.active && options.moving() && options.obscuredLeaves().has(item.leaf);
+        return {...gridRectStyle(rect), ...(isParked(item) && !showing ? {visibility: "hidden"} : {})};
     }
 
     /** 跟外框的是 100%；否则是最终尺寸，停放时是最后的非零尺寸。 */

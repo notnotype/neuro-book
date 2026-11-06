@@ -12,7 +12,7 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
-import {layerItems, placeGrid, type GridContentInput, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -48,6 +48,8 @@ const props = withDefaults(defineProps<{
     onIssues?: (issues: readonly string[]) => void;
     /** 内容层（docs/specs/ui/nested-grid.md 的“内容层”）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
+    /** 最大化（docs/specs/ui/nested-grid.md 的“最大化”）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
+    maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
 }>(), {
     disabled: false,
     contextKey: "",
@@ -55,6 +57,7 @@ const props = withDefaults(defineProps<{
     onGestureCommit: undefined,
     onIssues: undefined,
     contents: () => [],
+    maximized: null,
 });
 
 const emit = defineEmits<{
@@ -92,8 +95,20 @@ const snapHost = useSashSnap();
 const placementExtent = computed<GridExtent>(() => rootExtent() ?? {width: 0, height: 0});
 const placement = computed(() => {
     const root = renderTree.value;
-    return root === null ? null : placeGrid(root, renderLayout.value, placementExtent.value, dpr.value);
+    if (root === null) return null;
+    const placed = placeGrid(root, renderLayout.value, placementExtent.value, dpr.value);
+    return props.maximized == null ? placed : {items: maximizePlacement(placed.items, props.maximized.leaf, props.maximized.exclude)};
 });
+/** 被盖住的叶：除了最大化的那块和 `exclude`（条）。 */
+const obscuredLeaves = computed<ReadonlySet<string>>(() => {
+    const maximized = props.maximized;
+    if (maximized == null) return new Set();
+    return new Set((placement.value?.items ?? []).flatMap((item) => (item.kind === "leaf" && item.node.id !== maximized.leaf && !maximized.exclude.includes(item.node.id) ? [item.node.id] : [])));
+});
+/** 最大化期间没有分隔线可拖。 */
+const gesturesDisabled = computed(() => props.disabled || props.maximized != null);
+/** 压在别的面板上面的那块叶：还原的过渡结束之前它还要在上面。 */
+const raisedLeaf = shallowRef<string | null>(null);
 
 const parking = useLeafParking();
 const {parked} = parking;
@@ -109,6 +124,8 @@ const contentLayer = useContentLayer({
     following,
     previewing: () => preview.value !== null,
     measured: () => placementExtent.value.width > 0 && placementExtent.value.height > 0,
+    obscuredLeaves: () => obscuredLeaves.value,
+    moving: () => moving.value,
     holdsFocus: (key) => {
         // 经 `getRootNode` 取：grid 可能在 Shadow DOM 里。
         const host = rootEl.value?.getRootNode() as Document | ShadowRoot | undefined;
@@ -146,7 +163,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
         size: sash.size,
         beforePx: nowPx,
         afterPx: Math.max(0, sizes[sash.after]?.[sash.axis] ?? 0),
-        disabled: props.disabled,
+        disabled: gesturesDisabled.value,
         ends: sash.ends,
         ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
         ariaControls: controlledIds(sash.controls),
@@ -169,6 +186,7 @@ watch(layers, (next, previous) => {
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
+    if (props.maximized != null) raisedLeaf.value = props.maximized.leaf;
     const root = renderTree.value;
     motion.update({items: next, previous: previous ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value, previewing: preview.value !== null});
 }, {immediate: true});
@@ -293,7 +311,7 @@ const host: SashGestureHost<GridGesturePreview<unknown>, GridBranchChange> = {
 const scope = useSashGesture<GridGesturePreview<unknown>, GridBranchChange>({
     host: () => host,
     root: rootEl,
-    disabled: () => props.disabled,
+    disabled: () => gesturesDisabled.value,
 });
 provide(SASH_GESTURE_SCOPE_KEY, scope);
 
@@ -305,12 +323,16 @@ watch(() => scope.issues, (issues) => {
 });
 
 /** 外部事实变化（上下文、版本、结构、禁用）取消进行中的手势：不沿旧基线写新上下文。 */
-watch([() => props.contextKey, () => props.revision, () => props.disabled, () => props.node], () => {
+watch([() => props.contextKey, () => props.revision, () => gesturesDisabled.value, () => props.node], () => {
     scope.invalidate();
 });
 
 /** 宿主发布新布局即视为几何事实已更新，释放最后一帧预览（避免重复渲染到下一 tick 之后）。 */
 watch(() => props.layout, releasePreview);
+
+watch(moving, (value) => {
+    if (!value && props.maximized == null) raisedLeaf.value = null;
+});
 
 /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */
 watch(() => scope.active.size > 0, (active) => {
@@ -332,14 +354,15 @@ onBeforeUnmount(() => {
                 class="nb-grid-frame"
                 :data-leaf="item.node.id"
                 :data-moving="moving ? '' : undefined"
-                :data-flying="flying.has(item.key) ? '' : undefined"
+                :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
+                :inert="obscuredLeaves.has(item.node.id)"
                 :style="gridRectStyle(growing.get(item.key) ?? item.rect)"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :data-obscured="maximized != null ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
             <div
                 v-else
                 :id="domIdOf(item.key)"
@@ -347,7 +370,7 @@ onBeforeUnmount(() => {
                 :data-content="item.contentKey"
                 :data-content-leaf="item.leaf"
                 :data-moving="moving && item.active ? '' : undefined"
-                :data-flying="flying.has(item.key) ? '' : undefined"
+                :data-flying="flying.has(item.key) || raisedLeaf === item.leaf ? '' : undefined"
                 :inert="contentLayer.isParked(item)"
                 :style="contentLayer.frameStyle(item)"
             >
@@ -405,6 +428,11 @@ onBeforeUnmount(() => {
 
 .nb-nested-grid > .nb-grid-sash {
     z-index: 3;
+}
+
+/* 最大化的面板盖住的分隔线不画：它在面板上面一层，会露出来。 */
+.nb-nested-grid > .nb-grid-sash[data-obscured] {
+    visibility: hidden;
 }
 
 /* 标记写在外框上，不写在根上：实时布局拖动中要一部分动、一部分跟手。 */

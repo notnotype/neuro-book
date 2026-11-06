@@ -226,25 +226,49 @@ test.describe("停放", () => {
         await expect(content(page, "view:d")).toHaveCSS("visibility", "hidden");
     });
 
-    test("最大化：占满除条以外的区域，别的内容停放不重建；退出回到原样", async ({page}) => {
-        await open(page);
-        const instance = await instanceOf(page, "view:a");
-        await leafOf(page, "view:a").locator("[data-structure-input]").fill("还在");
-        const before = await frameBox(page, "a");
+    test("最大化：盖住除条以外的区域，别的面板一点不动，内容不重建；还原时缩回去露出它们", async ({page}) => {
+        await open(page, true);
+        await act(page, "open-e3-right-of-eb");
+        await settled(page);
+        const instance = await instanceOf(page, "tab:ea");
+        await leafOf(page, "tab:ea").locator("[data-structure-input]").fill("还在");
+        const stillIds = ["ea", "eb", "e3", "a", "c", "d"];
+        const before = Object.fromEntries(await Promise.all(stillIds.map(async (id) => [id, await frameBox(page, id)] as const)));
+        const smallB = await frameBox(page, "b");
+
         await act(page, "maximize-b");
-        await expect(frame(page, "a")).toHaveCount(0);
-        await expect(content(page, "view:a")).toHaveCSS("visibility", "hidden");
+        await expect(frame(page, "b")).toHaveAttribute("data-moving", "");
+        // 过渡中：b 在长，别的面板原地不动、还看得见、已经不可交互；b 压在它们上面。
+        await expect.poll(async () => (await frameBox(page, "b")).width).toBeGreaterThan(smallB.width + 1);
+        for (const id of stillIds) expect(await frameBox(page, id)).toEqual(before[id]);
+        await expect(content(page, "tab:ea")).toHaveCSS("visibility", "visible");
+        await expect(content(page, "tab:ea")).toHaveAttribute("inert", "");
+        await expect(frame(page, "ea")).toHaveAttribute("inert", "");
+        await expect(page.locator("[data-grid-scope] > [data-sash]").first()).toHaveCSS("visibility", "hidden");
+        await settled(page);
+
         const host = await box(page, "[data-panels-host]");
         const activity = await frameBox(page, "activitybar");
-        const maximized = await frameBox(page, "b");
-        expect(maximized.x).toBe(activity.x + activity.width);
-        expect(Math.abs(maximized.x + maximized.width - (host.x + host.width))).toBeLessThan(1);
+        const statusbar = await frameBox(page, "statusbar");
+        const big = await frameBox(page, "b");
+        expect(big.x).toBe(activity.x + activity.width);
+        expect(Math.abs(big.x + big.width - (host.x + host.width))).toBeLessThan(1);
+        expect(Math.abs(big.y + big.height - statusbar.y)).toBeLessThan(6);
+        const middle = before.eb as Box;
+        expect(await contentAt(page, {x: middle.x + middle.width / 2, y: middle.y + 100})).toBe("view:b");
+        await expect(content(page, "tab:ea")).toHaveCSS("visibility", "hidden");
+
         await act(page, "maximize-b");
-        await expect(frame(page, "a")).toHaveCount(1);
-        await expect(content(page, "view:a")).toHaveCSS("visibility", "visible");
-        expect(await instanceOf(page, "view:a")).toBe(instance);
-        await expect(leafOf(page, "view:a").locator("[data-structure-input]")).toHaveValue("还在");
-        expect(Math.abs((await frameBox(page, "a")).height - before.height)).toBeLessThan(2);
+        await expect(frame(page, "b")).toHaveAttribute("data-moving", "");
+        // 还原中：b 还压在上面往回缩，别的面板已经看得见，矩形还是原来的，不从边上重新长出来。
+        await expect(frame(page, "b")).toHaveAttribute("data-flying", "");
+        for (const id of stillIds) expect(await frameBox(page, id)).toEqual(before[id]);
+        await expect(content(page, "tab:ea")).toHaveCSS("visibility", "visible");
+        await settled(page);
+        await expect(frame(page, "b")).not.toHaveAttribute("data-flying", "");
+        expect(await frameBox(page, "b")).toEqual(smallB);
+        expect(await instanceOf(page, "tab:ea")).toBe(instance);
+        await expect(leafOf(page, "tab:ea").locator("[data-structure-input]")).toHaveValue("还在");
     });
 });
 

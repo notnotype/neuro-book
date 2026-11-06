@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {placeGrid, layerItems, placeContents} from "./grid-rects";
+import {placeGrid, layerItems, maximizePlacement, placeContents} from "./grid-rects";
 import type {GridLeafPlacement, GridPlacement, GridSashPlacement} from "./grid-rects";
 import type {GridLayoutResult, GridNode, GridNodeInput} from "./grid-types";
 
@@ -244,5 +244,27 @@ describe("内容项的矩形（输出“内容层”）", () => {
         const items = place(1);
         const contents = placeContents(items, [{key: "gone", leaf: "gone", insetTop: 0, active: true}, {key: "x", leaf: "a", insetTop: 0, active: true}, {key: "y", leaf: "a", insetTop: 0, active: false}], 1);
         expect(layerItems(items, contents).map((item) => item.key)).toEqual(["leaf:a", "content:x", "content:y", items[1]?.key, "leaf:b", "content:gone"]);
+    });
+});
+
+describe("最大化（输出“最大化”）", () => {
+    const items = () => {
+        const instance = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "bar", ref: "bar", size: {width: 48, height: 0}, sizing: "fixed", minimumSize: {width: 48, height: 0}},
+            {kind: "leaf", id: "a", ref: "a", size: {width: 100, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 100, height: 0}},
+        ]}, {sashSize: (_branch, index) => (index === 0 ? 0 : 1)});
+        const extent = {width: 449, height: 300};
+        return placeGrid(instance.root()!, instance.layout(extent), extent, 1).items;
+    };
+    const rectOf = (list: ReturnType<typeof items>, id: string) => list.find((item) => item.kind === "leaf" && item.node.id === id)?.rect;
+
+    it("这块叶占满除条以外的区域，别的项一点不动", () => {
+        const before = items();
+        const after = maximizePlacement(before, "a", ["bar"]);
+        expect(rectOf(after, "a")).toEqual({x: 48, y: 0, width: 401, height: 300});
+        expect(rectOf(after, "b")).toEqual(rectOf(before, "b"));
+        expect(rectOf(after, "bar")).toEqual(rectOf(before, "bar"));
+        expect(after.filter((item) => item.kind === "sash").map((item) => item.rect)).toEqual(before.filter((item) => item.kind === "sash").map((item) => item.rect));
     });
 });
