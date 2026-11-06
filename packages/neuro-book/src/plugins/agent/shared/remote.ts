@@ -17,6 +17,7 @@ import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contrac
 import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
 
 import {TASK_ID} from "./contracts";
+import {RulesSchema} from "./permissions";
 import type {ProfileEntry} from "./contracts";
 
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
@@ -198,6 +199,12 @@ const methods = {
         errors: errorsOf(["unknown-token", "out-of-range"] as const),
     },
     profiles: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ProfileEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
+    /** 设置页列出的这本书的规则（permissions.md 输出 22）：文件不给浏览器直接读（`.nbook/` 是控制目录）。 */
+    projectPermissionRules: {
+        input: Type.Object({project: Type.String({minLength: 1})}, {additionalProperties: false}),
+        output: Type.Union([RulesSchema, Type.Literal("invalid")]),
+        effect: "read",
+    },
     /** 发起任务、立即返回（sessions.md 输出 10、11）；结果经 `runResult` 与 `frames` 取。同一个 `taskId` 重发得到同一个结果。 */
     startTask: {
         input: Type.Object({

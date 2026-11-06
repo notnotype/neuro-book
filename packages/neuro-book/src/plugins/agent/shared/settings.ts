@@ -41,6 +41,9 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}],
 };
 
+/** “权限规则”页（permissions.md 输出 22）：这几项由页面画，不进“其它”。 */
+export const PERMISSIONS_SECTION = "nbook.agent.permissions";
+
 export const agentSettings = defineSettings("nbook.agent", {
     permissionRules: {
         schema: RulesSchema,
@@ -48,6 +51,7 @@ export const agentSettings = defineSettings("nbook.agent", {
         title: agentText("settings.permissionRules.title"),
         description: agentText("settings.permissionRules.description"),
         layers: ["user"],
+        section: PERMISSIONS_SECTION,
     },
     readOnlyCommands: {
         schema: Type.Array(Type.String({minLength: 1})),
@@ -55,6 +59,7 @@ export const agentSettings = defineSettings("nbook.agent", {
         title: agentText("settings.readOnlyCommands.title"),
         description: agentText("settings.readOnlyCommands.description"),
         layers: ["user"],
+        section: PERMISSIONS_SECTION,
     },
     modeWriteAction: {
         schema: Type.Union([Type.Literal("deny"), Type.Literal("ask")]),
@@ -62,6 +67,7 @@ export const agentSettings = defineSettings("nbook.agent", {
         title: agentText("settings.modeWriteAction.title"),
         description: agentText("settings.modeWriteAction.description"),
         layers: ["user"],
+        section: PERMISSIONS_SECTION,
     },
     toolBindings: {
         schema: ToolBindingsSchema,

@@ -21,7 +21,8 @@ import {modelsSettingsContract} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
 import {roleReference} from "nbook/plugins/models/shared/rules";
 import {builtinRoleNameKey, modelsText} from "nbook/plugins/models/shared/text";
-import {displayLocale, OPEN_SETTINGS_COMMAND, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -40,11 +41,15 @@ import type {AgentConversationServices, ComposerModelView} from "@notnotype/nb-a
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
+import type {Rule} from "../shared/permissions";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {agentSettings} from "../shared/settings";
+import {agentSettings, PERMISSIONS_SECTION} from "../shared/settings";
 import {agentText} from "../shared/text";
+import {settingsPage} from "nbook/ui/settings/settings-page";
 import {createAgentActivity} from "./activity";
+import {appendRules} from "./permission-rules";
+import {permissionsPage} from "./permission-page";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
@@ -135,6 +140,8 @@ function roleOptions(snapshot: ModelsSnapshot): RoleOption[] {
 /** 这个文件也由不带 DOM 类型的 tsc 检查，所以按需要的那几个取。 */
 const browser = globalThis as {readonly location?: {readonly pathname: string}; readonly navigator?: {readonly clipboard?: {writeText(text: string): Promise<void>}}; readonly open?: (url: string, target: string, features: string) => unknown};
 
+const PERMISSIONS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-shield-check", category: "ai", order: 40, layers: ["user"], description: agentText("settingsPages.permissions.description")};
+
 export const agentBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     entries: [defineEntry({
@@ -148,6 +155,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: CONVERSATION_PAGE, declaration: PAGE_DECLARATION},
             {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: ACTIVITY_ITEM, declaration: ACTIVITY_DECLARATION},
             ...Object.entries(COMMANDS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            {capability: SETTINGS_PAGES_POINT, id: PERMISSIONS_SECTION, declaration: PERMISSIONS_PAGE},
             ...agentState.contributions,
         ],
         activate: async (context) => {
@@ -264,6 +272,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         },
                     },
                     warnCost: () => settings.get(agentSettings.settings.warnCost),
+                    rememberRules: (rules) => settings.update(agentSettings.settings.permissionRules, appendRules(settings.get(agentSettings.settings.permissionRules), rules) as Rule[]),
                     models: () => models.value,
                     roles: () => roles.value,
                     profiles: () => profiles.value,
@@ -433,6 +442,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[ACTIVITY_ITEM]: item},
                     [COMMANDS_POINT]: commandImplementations,
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
+                    [SETTINGS_PAGES_POINT]: {[PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, report}))},
                 },
             };
         },

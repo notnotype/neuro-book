@@ -567,6 +567,40 @@ test("Agent 模式：还没有会话时选计划；写作品被拦；写计划�
     await expect(mode).toContainText("讨论");
 });
 
+test("权限规则：以后都允许写进用户规则；设置页列出我的规则与这本书的规则，能删", async ({page}) => {
+    const rulesFile = join(projectDir, ".nbook/permissions.json");
+    await writeFile(rulesFile, JSON.stringify([{tool: "nbook.agent.shell", when: {type: "command", pattern: "git push *"}, action: "deny", reason: "先问我"}, {tool: "nbook.agent.write", action: "allow"}]));
+    try {
+        await openConversation(page);
+        await newSession(page);
+        await script({tool: "shell", args: {command: "mkdir 新目录"}}, "建好了");
+        await send(page, "建个目录");
+        await page.locator('[data-approval-decision="allow-always"]').click();
+        await page.locator("[data-approval-submit]").click();
+        await expect(page.getByText("建好了")).toBeVisible();
+        const file = join(stateRoot, "settings.json");
+        const remembered = {tool: "nbook.agent.shell", when: {type: "command", pattern: "mkdir *"}, action: "allow"};
+        await expect.poll(async () => (JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>)["nbook.agent/permissionRules"]).toEqual([remembered]);
+
+        await page.locator("[data-activity-item='nbook.settings']").click();
+        await page.locator("[data-settings-nav='nbook.agent.permissions']").click();
+        const rules = page.locator("[data-permission-rule]");
+        await expect(rules).toHaveCount(1);
+        await expect(rules).toContainText("mkdir *");
+        const project = page.locator("[data-permission-project]");
+        await expect(project).toContainText("git push *");
+        await expect(project).toContainText("先问我");
+        // 项目层的放行不生效，页面要写明。
+        await expect(project.locator(".is-ignored")).toHaveCount(1);
+
+        await rules.getByRole("button", {name: "删除"}).click();
+        await expect(rules).toHaveCount(0);
+        await expect.poll(async () => (JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>)["nbook.agent/permissionRules"] ?? []).toEqual([]);
+    } finally {
+        await rm(rulesFile, {force: true});
+    }
+});
+
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
     await script("答一", "摘要正文");
     await openConversation(page);

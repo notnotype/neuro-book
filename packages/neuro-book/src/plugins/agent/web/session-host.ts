@@ -25,7 +25,9 @@ import type {BranchPoint, PreviewResult, RewindTarget} from "@notnotype/nb-harne
 
 import {MAIN_PROFILE} from "../shared/contracts";
 import {AGENT_MODES_EXTENSION, MODE_SWITCH_KIND} from "../shared/permissions";
-import type {AgentMode, ModeSwitchRequest} from "../shared/permissions";
+import type {AgentMode, ModeSwitchRequest, Rule} from "../shared/permissions";
+import {rulesToRemember} from "./permission-rules";
+import type {SettingWriteResult} from "nbook/shared/settings";
 import type {ProfileEntry} from "../shared/contracts";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
 import {agentText} from "../shared/text";
@@ -136,6 +138,8 @@ export interface SessionHostDeps {
     /** 按会话的草稿；写是尽力而为，丢了只是少一份没发的字。 */
     readonly drafts: {read(session: string): Promise<string | null>; write(session: string, text: string): void};
     readonly warnCost: () => number;
+    /** “以后都允许”：加到用户规则末尾（permissions.md 输出 23）。 */
+    readonly rememberRules: (rules: readonly Rule[]) => Promise<SettingWriteResult>;
     /** 模型下拉；模型服务不在时为 null。 */
     readonly models: () => readonly ComposerModelView[] | null;
     /** 模型角色；模型服务不在时为 null。`status` 是模型服务按解析规则算的有效性。 */
@@ -981,9 +985,16 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "allow-always" | "deny"; note?: string} | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}): Promise<void> {
         const target = current;
         if (target === null) return;
-        // 写进用户规则在这一片的后半接上；先按本会话批准，这一次与本会话都生效。
         if (resolutions.kind === "approval" && resolutions.decision === "allow-always") {
+            const pending = target.transcript.pending().find((item) => item.id === id);
+            const rules = rulesToRemember((pending?.request ?? {}) as {tool?: string; remember?: unknown});
+            // 存不下也批准：用户已经点了同意，这次与本会话不受影响，只是下次还会问（输出 23）。
+            const saved = rules.length === 0 ? null : await deps.rememberRules(rules);
             await resolveInput(id, {kind: "approval", decision: "allow-session"});
+            if (saved?.ok === false && current === target) {
+                notice = agentText("conversation.reject.ruleNotSaved", {code: saved.code});
+                bump();
+            }
             return;
         }
         const answer = resolutions.kind === "mode-switch"

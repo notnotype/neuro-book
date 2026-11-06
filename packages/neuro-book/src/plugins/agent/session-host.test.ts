@@ -19,6 +19,7 @@ import type {AgentConversationContext, AssistantMessageView, ComposerModelView, 
 import {EVENT_INLINE_BYTES} from "./backend/frames";
 import {MAIN_PROFILE} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
+import type {Rule} from "./shared/permissions";
 import {agentProfile} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -96,6 +97,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
             recent.value = id;
         }},
         warnCost: () => 0,
+        rememberRules: async () => ({ok: true}),
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
         roles: () => null,
         drafts: {read: async () => null, write: () => undefined},
@@ -419,6 +421,40 @@ describe("审批与提问（输出 10–14）", () => {
         expect(h.ctx().wizardState).toBeUndefined();
         h.host.act({type: "input.submit", batchKey: approvals(h.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
         await idle(h);
+    });
+});
+
+describe("以后都允许（permissions.md 输出 23）", () => {
+    const shellCall = (command: string) => ({tools: [{tool: "shell", args: {command}}]});
+
+    test("把请求里的规则写进用户规则，这次与本会话都批准", async () => {
+        const w = await world();
+        const remembered: Rule[] = [];
+        const h = await harness(w, {rememberRules: async (rules) => {
+            remembered.push(...rules);
+            return {ok: true};
+        }});
+        await h.host.create(PROFILE);
+        endpoint.script(shellCall("touch 一"), shellCall("touch 二"), "写好了");
+        h.host.act({type: "composer.submit", text: "建两个文件", delivery: "prompt"});
+        const pending = await until("审批", () => approvals(h.ctx())[0]);
+        h.host.act({type: "input.submit", batchKey: pending.id, resolutions: {kind: "approval", decision: "allow-always"}});
+        await idle(h);
+        // 第二次 `touch` 没有再问：本会话的规则当场生效。
+        expect(assistants(h.ctx().messages).at(-1)?.text).toBe("写好了");
+        expect(remembered).toEqual([{tool: "nbook.agent.shell", when: {type: "command", pattern: "touch *"}, action: "allow"}]);
+    });
+
+    test("存不下也批准，界面提示下次还会问", async () => {
+        const w = await world();
+        const h = await harness(w, {rememberRules: async () => ({ok: false, code: "write-failed", detail: "磁盘满了"})});
+        await h.host.create(PROFILE);
+        endpoint.script(shellCall("touch 三"), "写好了");
+        h.host.act({type: "composer.submit", text: "建文件", delivery: "prompt"});
+        const pending = await until("审批", () => approvals(h.ctx())[0]);
+        h.host.act({type: "input.submit", batchKey: pending.id, resolutions: {kind: "approval", decision: "allow-always"}});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "写好了");
+        expect(JSON.stringify(h.ctx())).toContain("conversation.reject.ruleNotSaved");
     });
 });
 

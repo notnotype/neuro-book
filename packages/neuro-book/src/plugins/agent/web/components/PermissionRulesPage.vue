@@ -2,7 +2,7 @@
 /**
  * 权限规则设置页（见同名 `.md`）。只吃普通的属性，写入由包装交给配置服务，所以能在 Lab 里直接摆。
  */
-import {computed, ref} from "vue";
+import {computed, ref, watch} from "vue";
 import {Badge, Button, Dialog, EmptyState, IconButton, Input, Select, SegmentedControl, Textarea} from "@notnotype/nb-ui/components";
 
 import type {Rule, RuleAction} from "../../shared/permissions";
@@ -16,11 +16,14 @@ const props = withDefaults(defineProps<{
     projectRules?: readonly Rule[] | "invalid" | null;
     projectTitle?: string | null;
     writable?: boolean;
+    /** 讨论与计划模式下的写入：拒绝或询问。 */
+    modeWriteAction?: "deny" | "ask";
+    readOnlyCommands?: readonly string[];
     /** Lab 用：打开时就在编辑第几条。 */
     initialEdit?: number | "new" | null;
-}>(), {projectRules: null, projectTitle: null, writable: true, initialEdit: null});
+}>(), {projectRules: null, projectTitle: null, writable: true, modeWriteAction: "deny", readOnlyCommands: () => [], initialEdit: null});
 
-const emit = defineEmits<{change: [rules: Rule[]]}>();
+const emit = defineEmits<{change: [rules: Rule[]]; modeWriteAction: [value: "deny" | "ask"]; readOnlyCommands: [value: string[]]}>();
 
 const t = useAgentPageText();
 
@@ -66,6 +69,17 @@ function save(): void {
 }
 const remove = (index: number): void => emit("change", props.rules.filter((_, at) => at !== index));
 const move = (index: number, delta: -1 | 1): void => emit("change", moveRule(props.rules, index, delta));
+
+const MODE_ACTION_OPTIONS = computed(() => (["deny", "ask"] as const).map((value) => ({value, label: t(`permissions.modeWrite.${value}`)})));
+// 一行一条。失去焦点才写：边打边写，打到一半的前缀（`npm`）也算只读命令。
+const commandsText = ref(props.readOnlyCommands.join("\n"));
+watch(() => props.readOnlyCommands, (value) => {
+    commandsText.value = value.join("\n");
+});
+function commitCommands(): void {
+    const next = commandsText.value.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+    if (JSON.stringify(next) !== JSON.stringify(props.readOnlyCommands)) emit("readOnlyCommands", next);
+}
 
 const KIND_OPTIONS = computed(() => (["none", "command", "path", "keywords", "subject", "json"] as const).map((value) => ({value, label: t(`permissions.kind.${value}`)})));
 const ACTION_OPTIONS = computed(() => (["allow", "ask", "deny"] as const).map((value) => ({value, label: actionLabel(value)})));
@@ -120,6 +134,24 @@ const projectList = computed(() => (props.projectRules === null || props.project
                     </div>
                 </li>
             </ul>
+        </section>
+
+        <section class="permission-rules__group" data-permission-others>
+            <header class="permission-rules__head">
+                <div><h3>{{ t("permissions.others.title") }}</h3></div>
+            </header>
+            <div class="permission-rules__others">
+                <div class="permission-rules__field">
+                    <span>{{ t("permissions.modeWrite.label") }}</span>
+                    <SegmentedControl :model-value="modeWriteAction" :options="MODE_ACTION_OPTIONS" size="sm" :disabled="!writable" :aria-label="t('permissions.modeWrite.label')" @update:model-value="emit('modeWriteAction', $event as 'deny' | 'ask')" />
+                    <p class="permission-rules__muted">{{ t("permissions.modeWrite.hint") }}</p>
+                </div>
+                <label class="permission-rules__field">
+                    <span>{{ t("permissions.readOnly.label") }}</span>
+                    <Textarea v-model="commandsText" :rows="3" :disabled="!writable" :placeholder="t('permissions.readOnly.placeholder')" data-permission-readonly @blur="commitCommands" />
+                    <p class="permission-rules__muted">{{ t("permissions.readOnly.hint") }}</p>
+                </label>
+            </div>
         </section>
 
         <Dialog
@@ -200,6 +232,12 @@ const projectList = computed(() => (props.projectRules === null || props.project
     margin: 2px 0 0;
     font-size: var(--text-xs);
     color: var(--text-muted);
+}
+
+.permission-rules__others {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
 .permission-rules__list {

@@ -75,7 +75,22 @@
             "keywords": "血腥、暴力",
             "subject": "prod*",
             "reason": "先让用户看"
-        }
+        },
+        "others": {
+            "title": "其它"
+        },
+        "modeWrite": {
+            "label": "讨论与计划模式下的写入",
+            "hint": "拒绝时模型会收到提示，可以申请切换模式；询问时弹审批。",
+            "deny": "直接拒绝",
+            "ask": "弹审批"
+        },
+        "readOnly": {
+            "label": "追加的只读命令",
+            "hint": "一行一条，按词前缀比对。只能追加，不能删掉内置清单。",
+            "placeholder": "npm ls"
+        },
+        "notSaved": "权限规则"
     },
     "settings": {
         "toolBindings": {
@@ -98,9 +113,18 @@
             "title": "费用上限（美元）",
             "description": "这个会话的费用到上限后不再发模型请求，最后一次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
         },
-        "permissionRules": {"title": "权限规则", "description": "放行、询问或拒绝工具调用的规则，每条写工具、条件与动作，从上到下第一条命中生效"},
-        "readOnlyCommands": {"title": "追加的只读命令", "description": "按词前缀比对，例如 npm ls；只能追加，不能删掉内置清单"},
-        "modeWriteAction": {"title": "讨论与计划模式下的写入", "description": "直接拒绝并提示模型切换模式，或者弹审批"},
+        "permissionRules": {
+            "title": "权限规则",
+            "description": "放行、询问或拒绝工具调用的规则，每条写工具、条件与动作，从上到下第一条命中生效"
+        },
+        "readOnlyCommands": {
+            "title": "追加的只读命令",
+            "description": "按词前缀比对，例如 npm ls；只能追加，不能删掉内置清单"
+        },
+        "modeWriteAction": {
+            "title": "讨论与计划模式下的写入",
+            "description": "直接拒绝并提示模型切换模式，或者弹审批"
+        },
         "toolLoopThreshold": {
             "title": "重复调用阈值",
             "description": "连续这么多次相同的工具调用时提醒模型；提醒后结果还是一样就停止运行；0 表示不检测"
@@ -135,7 +159,8 @@
             "inputTooLarge": "消息过长。",
             "inputRejected": "消息被规则拦截。",
             "readOnly": "当前会话为只读。",
-            "other": "发送失败（{{code}}）。"
+            "other": "发送失败（{{code}}）。",
+            "ruleNotSaved": "已批准，但规则没有存下，下次还会问（{{code}}）。"
         },
         "model": {
             "none": "暂无可用模型。",
@@ -144,7 +169,12 @@
             "roleUnbound": "此 Profile 需要的模型角色未绑定模型。",
             "unavailable": "不可用"
         },
-        "mode": {"normal": "普通", "discuss": "讨论", "plan": "计划", "unknown": "没有这个模式，可选：{{options}}"},
+        "mode": {
+            "normal": "普通",
+            "discuss": "讨论",
+            "plan": "计划",
+            "unknown": "没有这个模式，可选：{{options}}"
+        },
         "approval": {
             "ask": {
                 "label": "每次询问",
@@ -241,6 +271,12 @@
     "state": {
         "active": {
             "reason": "没有运行中或等用户的会话"
+        }
+    },
+    "settingsPages": {
+        "permissions": {
+            "title": "权限规则",
+            "description": "哪些工具调用放行、询问或拒绝"
         }
     }
 }

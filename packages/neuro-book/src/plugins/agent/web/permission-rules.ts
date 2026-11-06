@@ -89,3 +89,20 @@ export function moveRule<T>(list: readonly T[], index: number, delta: -1 | 1): T
     [next[index], next[target]] = [next[target]!, next[index]!];
     return next;
 }
+
+/**
+ * “以后都允许”要写进用户规则的（permissions.md 输出 23）：内核请求里 `remember` 的规则；没有时（不看命令的工具）记整个工具。
+ * `false` 是这次不能记，界面本来就没有这个按钮。
+ */
+export function rulesToRemember(request: {readonly tool?: string; readonly remember?: unknown}): readonly Rule[] {
+    const remember = request.remember;
+    if (remember === false) return [];
+    if (typeof remember === "object" && remember !== null && "rules" in remember && Array.isArray(remember.rules)) return remember.rules as Rule[];
+    return request.tool === undefined ? [] : [{tool: request.tool, action: "allow"}];
+}
+
+/** 加在末尾：第一条命中算数，放在末尾才不会盖过已有的拒绝。一样的不重复写。 */
+export function appendRules(rules: readonly Rule[], added: readonly Rule[]): readonly Rule[] {
+    const same = (left: Rule, right: Rule): boolean => JSON.stringify([left.tool, left.when, left.action]) === JSON.stringify([right.tool, right.when, right.action]);
+    return added.reduce((list, rule) => (list.some((item) => same(item, rule)) ? list : [...list, rule]), rules);
+}

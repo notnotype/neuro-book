@@ -75,7 +75,22 @@
             "keywords": "gore, violence",
             "subject": "prod*",
             "reason": "Let the user review first"
-        }
+        },
+        "others": {
+            "title": "Other"
+        },
+        "modeWrite": {
+            "label": "Writes in Discuss and Plan modes",
+            "hint": "When denied, the model is told and can ask to switch modes. When asked, an approval prompt appears.",
+            "deny": "Deny",
+            "ask": "Ask"
+        },
+        "readOnly": {
+            "label": "Additional read-only commands",
+            "hint": "One per line, matched by word prefix. You can add to the built-in list but not remove from it.",
+            "placeholder": "npm ls"
+        },
+        "notSaved": "Permission rules"
     },
     "settings": {
         "toolBindings": {
@@ -98,9 +113,18 @@
             "title": "Cost limit (USD)",
             "description": "Stops sending model requests when this session's cost reaches this amount; the last request may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
         },
-        "permissionRules": {"title": "Permission rules", "description": "Rules that allow, ask for or deny tool calls. Each names a tool, a condition and an action; the first match from the top wins"},
-        "readOnlyCommands": {"title": "Extra read-only commands", "description": "Compared word by word as prefixes, such as npm ls. You can add to the built-in list but not remove from it"},
-        "modeWriteAction": {"title": "Writes in discuss and plan modes", "description": "Deny and tell the model to switch modes, or ask for approval"},
+        "permissionRules": {
+            "title": "Permission rules",
+            "description": "Rules that allow, ask for or deny tool calls. Each names a tool, a condition and an action; the first match from the top wins"
+        },
+        "readOnlyCommands": {
+            "title": "Extra read-only commands",
+            "description": "Compared word by word as prefixes, such as npm ls. You can add to the built-in list but not remove from it"
+        },
+        "modeWriteAction": {
+            "title": "Writes in discuss and plan modes",
+            "description": "Deny and tell the model to switch modes, or ask for approval"
+        },
         "toolLoopThreshold": {
             "title": "Repeated call threshold",
             "description": "Reminds the model after this many identical tool calls in a row, and stops the run if the results stay the same after the reminder; 0 turns it off"
@@ -135,7 +159,8 @@
             "inputTooLarge": "The message is too long.",
             "inputRejected": "A rule stopped this message.",
             "readOnly": "This session is read-only right now.",
-            "other": "Not sent ({{code}})."
+            "other": "Not sent ({{code}}).",
+            "ruleNotSaved": "Approved, but the rule was not saved, so you will be asked again ({{code}})."
         },
         "model": {
             "none": "No model is available yet.",
@@ -144,7 +169,12 @@
             "roleUnbound": "The model role this Profile wants has no model.",
             "unavailable": "Unavailable"
         },
-        "mode": {"normal": "Normal", "discuss": "Discuss", "plan": "Plan", "unknown": "No such mode. Options: {{options}}"},
+        "mode": {
+            "normal": "Normal",
+            "discuss": "Discuss",
+            "plan": "Plan",
+            "unknown": "No such mode. Options: {{options}}"
+        },
         "approval": {
             "ask": {
                 "label": "Always ask",
@@ -241,6 +271,12 @@
     "state": {
         "active": {
             "reason": "No session is running or waiting for you"
+        }
+    },
+    "settingsPages": {
+        "permissions": {
+            "title": "Permission rules",
+            "description": "Which tool calls are allowed, asked about, or denied"
         }
     }
 }

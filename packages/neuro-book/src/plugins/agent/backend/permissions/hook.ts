@@ -3,9 +3,6 @@
  * 内核只知道“问钩子”，规则、判定对象与方言都在这里。
  */
 
-import {readFile} from "node:fs/promises";
-import {join} from "node:path";
-
 import {Value} from "typebox/value";
 
 import type {ApproveHook, JsonValue, ToolEffect, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
@@ -21,6 +18,7 @@ import type {CommandDialect, SimpleCommand} from "./bash-dialect";
 import type {Dialects} from "./dialects";
 import {decide} from "./judge";
 import type {GateClass, ModeWriteAction} from "./judge";
+import {readProjectRules} from "./project-rules";
 import {layerResult, matchesTool, mergeLayers, needsSubjects} from "./rules";
 import type {CallView, PathSubject, RuleHit} from "./rules";
 
@@ -34,25 +32,6 @@ export interface PermissionHookOptions {
     /** 当前 Agent 模式；`normal` 或没装扩展时没有闸门。 */
     readonly modeOf: (read: Parameters<ApproveHook>[2]["read"]) => string;
     readonly report: (code: string, message: string, params?: Record<string, unknown>) => void;
-}
-
-/** `.nbook/` 是控制目录，文件服务不给 Agent 看（`protected-path`）：规则是宿主自己读，从项目根的真实路径读。 */
-async function readProjectRules(resources: ReturnType<typeof sessionResources>, project: string | undefined, signal: AbortSignal): Promise<readonly Rule[] | "invalid"> {
-    if (project === undefined) return [];
-    const root = await resources.readPath("project://", {signal});
-    if (!root.ok) return "invalid";
-    let text: string;
-    try {
-        text = await readFile(join(root.value.path, ".nbook", "permissions.json"), "utf8");
-    } catch (error) {
-        return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : "invalid";
-    }
-    try {
-        const parsed: unknown = JSON.parse(text);
-        return Value.Check(RulesSchema, parsed) ? parsed : "invalid";
-    } catch {
-        return "invalid";
-    }
 }
 
 interface Scratch {
@@ -75,7 +54,7 @@ export function createPermissionHook(options: PermissionHookOptions): ApproveHoo
         const mode = options.modeOf(ctx.read);
         const gated = mode !== "normal";
         const user = options.userRules();
-        const project = await readProjectRules(resources, context.project, ctx.signal);
+        const project = await readProjectRules(options.files, context.project, ctx.signal);
         if (project === "invalid") options.report("permission-rules-invalid", "the project's .nbook/permissions.json could not be read or is not a valid list of rules", {session: ctx.sessionId});
         const projectRules = project === "invalid" ? [] : project.filter((rule) => {
             if (rule.action !== "allow") return true;
