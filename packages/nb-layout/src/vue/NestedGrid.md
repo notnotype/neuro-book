@@ -14,6 +14,8 @@
 
 外框用了 `transform`，是内容里 `position: fixed` 的包含块：要盖住整个窗口的东西 Teleport 到 `body`。
 
+内容可以放进内容层（`contents` 与 `content` 插槽）：每项和叶外框是同一父元素的子元素，矩形是叶减去 `insetTop`，从建到销毁不换父元素，所以换叶不重建，还能从旧矩形滑到新矩形。此时 `leaf` 插槽只放面板头，外框接得住点击（`tabindex="-1"`）。叠放固定三层：外框、内容、分隔线；正飞过别的面板的项带 `data-flying`，压在上面。不活动的、叶为零的、叶暂时找不到的内容项停放，不卸载；要被停放而焦点在里面时发 `content-parked`，宿主决定焦点去哪。
+
 不是手势、也不是容器尺寸变化引起的布局变化时，外框与分隔线带 `data-moving`，用 `--motion-layout`、`--ease-layout` 过渡。前后都有尺寸的叶，内容逐帧跟外框，叶里的 `ResizeObserver` 每帧都会收到尺寸，不要把过渡中的尺寸当事实记下来；叶里嵌的 grid 按容器尺寸变化处理，进行中的手势会被取消。新叶与从零出来的叶内容一开始就是最终尺寸，从挨着兄弟的边长出来时露出它，这期间又有变化也不跟外框。离开的叶立即消失。
 
 ## 交互
@@ -64,6 +66,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 |---|---|---|
 | `data-grid-scope` | grid 根 | 值是实例 id；`moveGridFocus` 靠它找 grid，宿主取根用它 |
 | `data-leaf` | 叶外框 | 值是节点 id；外框带 `transform`，过渡中会动 |
+| `data-content`、`data-content-leaf` | 内容项的外层 | 值是它的 key、所属叶 id；过渡中会动，飞行中带 `data-flying` |
 | `data-leaf-content` | 叶的内容容器 | 值是节点 id；宿主 Teleport 内容用它。过渡中的尺寸见上；要最终尺寸读宿主自己的布局结果。`node` 变化后的同一次渲染里新叶的它已经存在 |
 | `data-moving` | 外框与分隔线 | 过渡进行中 |
 | `data-sash` | 分隔线 | 值是 `分支 id:序号`；`data-sash-hover`、`-active`、`-revealed`、`-cross` 是它的状态 |

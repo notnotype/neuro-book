@@ -53,6 +53,32 @@ export interface GridSashPlacement<R> {
 
 export type GridPlacementItem<R> = ({readonly kind: "leaf"} & GridLeafPlacement<R>) | ({readonly kind: "sash"} & GridSashPlacement<R>);
 
+/** 宿主给的内容项（docs/specs/ui/nested-grid.md 的“内容层”）。 */
+export interface GridContentInput {
+    /** 身份：不变就不重建、不换父元素。换 `leaf` 是在叶之间移动。 */
+    readonly key: string;
+    readonly leaf: string;
+    /** 叶顶部留给面板头的高度（CSS px）。 */
+    readonly insetTop: number;
+    /** 不活动的（切走的标签）停放，不卸载。 */
+    readonly active: boolean;
+}
+
+export interface GridContentPlacement {
+    readonly kind: "content";
+    /** 渲染序列里的身份。 */
+    readonly key: string;
+    readonly contentKey: string;
+    readonly leaf: string;
+    readonly insetTop: number;
+    readonly active: boolean;
+    /** 所属的叶不在这次的呈现里时为 null（叶被隐藏、文档与树的发布不同步的瞬间）：按停放处理。 */
+    readonly rect: GridRect | null;
+}
+
+/** 渲染层的一项：叶、分隔线或内容。 */
+export type GridLayerItem<R> = GridPlacementItem<R> | GridContentPlacement;
+
 export interface GridPlacement<R> {
     /** 树序：叶与分隔线交替。 */
     readonly items: ReadonlyArray<GridPlacementItem<R>>;
@@ -60,6 +86,50 @@ export interface GridPlacement<R> {
 
 /** 与 `Splitter` 的缺省相同：空布局（还没量到容器）时树已经在，`sashSizes` 没有这个分支。 */
 export const DEFAULT_SASH_SIZE = 1;
+
+/**
+ * 内容项的矩形：叶减去面板头。面板头高度先按设备像素取整，否则 32 CSS px 在 dpr 1.1 这类缩放下落在半个设备像素上，内容和面板头之间出现发丝缝。
+ */
+export function placeContents<R>(items: ReadonlyArray<GridPlacementItem<R>>, contents: ReadonlyArray<GridContentInput>, dpr: number): GridContentPlacement[] {
+    const leaves = new Map<string, GridRect>();
+    for (const item of items) {
+        if (item.kind === "leaf") leaves.set(item.node.id, item.rect);
+    }
+    const scale = dpr > 0 && Number.isFinite(dpr) ? dpr : 1;
+    return contents.map((content) => {
+        const leaf = leaves.get(content.leaf);
+        const inset = Math.round(Math.max(0, content.insetTop) * scale) / scale;
+        return {
+            kind: "content",
+            key: `content:${content.key}`,
+            contentKey: content.key,
+            leaf: content.leaf,
+            insetTop: inset,
+            active: content.active,
+            rect: leaf === undefined ? null : {x: leaf.x, y: leaf.y + Math.min(inset, leaf.height), width: leaf.width, height: Math.max(0, leaf.height - inset)},
+        };
+    });
+}
+
+/** 树序：每块叶后面紧跟属于它的内容项；找不到叶的排在最后。 */
+export function layerItems<R>(items: ReadonlyArray<GridPlacementItem<R>>, contents: ReadonlyArray<GridContentPlacement>): GridLayerItem<R>[] {
+    if (contents.length === 0) return [...items];
+    const byLeaf = new Map<string, GridContentPlacement[]>();
+    for (const content of contents) {
+        const list = byLeaf.get(content.leaf);
+        if (list === undefined) byLeaf.set(content.leaf, [content]);
+        else list.push(content);
+    }
+    const result: GridLayerItem<R>[] = [];
+    for (const item of items) {
+        result.push(item);
+        if (item.kind !== "leaf") continue;
+        result.push(...(byLeaf.get(item.node.id) ?? []));
+        byLeaf.delete(item.node.id);
+    }
+    for (const rest of byLeaf.values()) result.push(...rest);
+    return result;
+}
 
 /** 分支四边挨着的外层分隔线键；挨着 grid 外缘时为 null。 */
 interface BranchEdges {

@@ -9,8 +9,8 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, followingLeaves, placementMoved} from "../grid-motion";
-import type {GridPlacementItem, GridRect} from "../grid-rects";
+import {enteringRects, flyingContents, followingLeaves, placementMoved} from "../grid-motion";
+import type {GridLayerItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
 
@@ -18,9 +18,9 @@ import {layoutMotionMs} from "./layout-motion";
 const MOTION_SLACK_MS = 50;
 
 export interface GridMotionFrame {
-    readonly items: ReadonlyArray<GridPlacementItem<unknown>>;
+    readonly items: ReadonlyArray<GridLayerItem<unknown>>;
     /** 上一次的项；第一次没有。 */
-    readonly previous: ReadonlyArray<GridPlacementItem<unknown>> | null;
+    readonly previous: ReadonlyArray<GridLayerItem<unknown>> | null;
     /** 宿主算布局用的根尺寸；空布局（还没量到）为 null。 */
     readonly rootSize: GridExtent | null;
     /** 这个 grid 自己量到的容器。 */
@@ -45,7 +45,7 @@ export type GridMotionDecision =
     | {readonly kind: "none"}
     /** 容器尺寸或缩放变了：进行中的过渡直接到终点。 */
     | {readonly kind: "stop"}
-    | {readonly kind: "move"; readonly entering: ReadonlyMap<string, GridRect>; readonly following: ReadonlySet<string>};
+    | {readonly kind: "move"; readonly entering: ReadonlyMap<string, GridRect>; readonly following: ReadonlySet<string>; readonly flying: ReadonlySet<string>};
 
 /** 根尺寸是子项加出来的（621.9999999999999 与 622），差一点舍入不算容器变了：算成变了，程序调整的过渡会直接跳到终点。 */
 const EXTENT_TOLERANCE_PX = 0.5;
@@ -70,7 +70,7 @@ export function decideMotion(frame: GridMotionFrame, memory: GridMotionMemory): 
     if (resized || rescaled) return {kind: "stop"};
     if (first || gesture || frame.previous === null || frame.previous.length === 0) return {kind: "none"};
     if (!placementMoved(frame.items, frame.previous)) return {kind: "none"};
-    return {kind: "move", entering: enteringRects(frame.items, frame.previous), following: followingLeaves(frame.items, frame.previous)};
+    return {kind: "move", entering: enteringRects(frame.items, frame.previous), following: followingLeaves(frame.items, frame.previous), flying: flyingContents(frame.items, frame.previous)};
 }
 
 export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly onSettled: () => void}) {
@@ -79,6 +79,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const growing = shallowRef<ReadonlyMap<string, GridRect>>(new Map());
     /** 内容跟着外框逐帧变化的叶；只在过渡中有。 */
     const following = shallowRef<ReadonlySet<string>>(new Set());
+    /** 正飞过别的面板的叶与内容项；只在过渡中有。 */
+    const flying = shallowRef<ReadonlySet<string>>(new Set());
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
 
@@ -89,15 +91,17 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         moving.value = false;
         growing.value = new Map();
         following.value = new Set();
+        flying.value = new Set();
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
     }
 
-    function start(durationMs: number, entering: ReadonlyMap<string, GridRect>, nextFollowing: ReadonlySet<string>): void {
+    function start(durationMs: number, entering: ReadonlyMap<string, GridRect>, nextFollowing: ReadonlySet<string>, nextFlying: ReadonlySet<string>): void {
         if (timer !== null) clearTimeout(timer);
         // 过渡中又来一次变化：上一轮保持最终尺寸的叶（新叶、从零出来的）继续保持，否则内容会被压到外框此刻的宽度，再跟着长回去。
         following.value = moving.value ? new Set([...nextFollowing].filter((key) => following.value.has(key))) : nextFollowing;
         moving.value = true;
+        flying.value = new Set([...(flying.value), ...nextFlying]);
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
         if (entering.size === 0) return;
         growing.value = entering;
@@ -118,7 +122,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (decision.kind === "none") return;
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
-        if (duration > 0) start(duration, decision.entering, decision.following);
+        if (duration > 0) start(duration, decision.entering, decision.following, decision.flying);
     }
 
     onBeforeUnmount(() => {
@@ -130,6 +134,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         moving,
         growing,
         following,
+        flying,
         update,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */
         stop,

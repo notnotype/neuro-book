@@ -10,18 +10,18 @@ import {computed} from "vue";
 import type {ComputedRef, Ref} from "vue";
 
 import {stableOrder} from "../grid-motion";
-import type {GridPlacement, GridPlacementItem} from "../grid-rects";
+import type {GridLayerItem} from "../grid-rects";
 
 export interface RenderOrder {
-    readonly items: ComputedRef<ReadonlyArray<GridPlacementItem<unknown>>>;
+    readonly items: ComputedRef<ReadonlyArray<GridLayerItem<unknown>>>;
     /** DOM 序与树序不一致（叶换了位置）：Tab 由布局层接管，读屏顺序靠 `aria-owns`。一致时全是浏览器的原生行为。 */
     readonly outOfOrder: ComputedRef<boolean>;
     readonly ariaOwns: ComputedRef<string | undefined>;
-    /** 叶外框与分隔线的 DOM id：节点 id 可以含空格，`aria-owns`、`aria-controls` 按空白切分，所以用不透明的串。 */
+    /** 叶外框、分隔线与内容项的 DOM id：节点 id 可以含空格，`aria-owns`、`aria-controls` 按空白切分，所以用不透明的串。 */
     domIdOf(key: string): string;
 }
 
-export function useRenderOrder(placement: Readonly<Ref<GridPlacement<unknown> | null>>, instanceId: string): RenderOrder {
+export function useRenderOrder(layers: Readonly<Ref<ReadonlyArray<GridLayerItem<unknown>>>>, instanceId: string): RenderOrder {
     let renderedKeys: string[] = [];
     const domIds = new Map<string, string>();
     let nextDomId = 0;
@@ -36,22 +36,19 @@ export function useRenderOrder(placement: Readonly<Ref<GridPlacement<unknown> | 
         return id;
     }
 
-    const items = computed<ReadonlyArray<GridPlacementItem<unknown>>>(() => {
-        const tree = placement.value?.items ?? [];
+    const items = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => {
+        const tree = layers.value;
         const byKey = new Map(tree.map((item) => [item.key, item]));
         renderedKeys = stableOrder(renderedKeys, tree.map((item) => item.key));
         // 不再用的 id 清掉：编辑组反复开关时不让表只增不减。
         for (const key of domIds.keys()) {
             if (!byKey.has(key)) domIds.delete(key);
         }
-        return renderedKeys.map((key) => byKey.get(key) as GridPlacementItem<unknown>);
+        return renderedKeys.map((key) => byKey.get(key) as GridLayerItem<unknown>);
     });
 
-    const outOfOrder = computed(() => {
-        const tree = placement.value?.items ?? [];
-        return items.value.some((item, index) => item.key !== tree[index]?.key);
-    });
-    const ariaOwns = computed(() => (outOfOrder.value ? (placement.value?.items ?? []).map((item) => domIdOf(item.key)).join(" ") : undefined));
+    const outOfOrder = computed(() => items.value.some((item, index) => item.key !== layers.value[index]?.key));
+    const ariaOwns = computed(() => (outOfOrder.value ? layers.value.map((item) => domIdOf(item.key)).join(" ") : undefined));
 
     return {items, outOfOrder, ariaOwns, domIdOf};
 }

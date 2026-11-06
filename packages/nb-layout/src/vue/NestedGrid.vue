@@ -12,7 +12,7 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
-import {placeGrid, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {layerItems, placeContents, placeGrid, type GridContentInput, type GridContentPlacement, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -45,12 +45,15 @@ const props = withDefaults(defineProps<{
     onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
     /** 会话诊断出口（容量不足、提交被拒绝等）。 */
     onIssues?: (issues: readonly string[]) => void;
+    /** 内容层（docs/specs/ui/nested-grid.md 的“内容层”）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
+    contents?: ReadonlyArray<GridContentInput>;
 }>(), {
     disabled: false,
     contextKey: "",
     revision: 0,
     onGestureCommit: undefined,
     onIssues: undefined,
+    contents: () => [],
 });
 
 const emit = defineEmits<{
@@ -59,10 +62,13 @@ const emit = defineEmits<{
     (e: "gesture-end", commit: GridGestureCommit): void;
     (e: "gesture-cancel", info: {reason: SplitterGestureCancelReason; sashes: readonly GridSashRef[]}): void;
     (e: "issues", issues: readonly string[]): void;
+    /** 内容项要被停放，这一刻焦点还在里面：宿主决定焦点去哪。 */
+    (e: "content-parked", key: string): void;
 }>();
 
 defineSlots<{
     leaf(props: {node: GridLeaf<unknown>}): unknown;
+    content(props: {contentKey: string; active: boolean}): unknown;
     empty(): unknown;
 }>();
 
@@ -88,9 +94,14 @@ const placement = computed(() => {
     return root === null ? null : placeGrid(root, renderLayout.value, placementExtent.value, dpr.value);
 });
 
-const order = useRenderOrder(placement, instanceId);
+const contentPlacements = computed(() => placeContents(placement.value?.items ?? [], props.contents, dpr.value));
+/** 渲染层的全部项，树序：每块叶后面紧跟属于它的内容。 */
+const layers = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => layerItems(placement.value?.items ?? [], contentPlacements.value));
+const hasContents = computed(() => props.contents.length > 0);
+
+const order = useRenderOrder(layers, instanceId);
 const {domIdOf} = order;
-const focus = useGridFocus({root: rootEl, placement, order});
+const focus = useGridFocus({root: rootEl, layers, order});
 
 function rectStyle(rect: GridRect): Record<string, string> {
     return {transform: `translate(${rect.x}px, ${rect.y}px)`, width: `${rect.width}px`, height: `${rect.height}px`};
@@ -98,6 +109,13 @@ function rectStyle(rect: GridRect): Record<string, string> {
 
 function sashStyle(rect: GridRect): Record<string, string> {
     return {position: "absolute", left: "0", top: "0", ...rectStyle(rect)};
+}
+
+/** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
+function controlledIds(leaf: string): string {
+    const frame = domIdOf(`leaf:${leaf}`);
+    const content = contentPlacements.value.find((item) => item.leaf === leaf && item.active);
+    return content === undefined ? frame : `${frame} ${domIdOf(content.key)}`;
 }
 
 function sashProps(sash: GridSashPlacement<unknown>) {
@@ -114,7 +132,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
         disabled: props.disabled,
         ends: sash.ends,
         ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
-        ariaControls: domIdOf(`leaf:${sash.controls}`),
+        ariaControls: controlledIds(sash.controls),
         ariaMin: Math.round(panelBounds(panel).low),
         ariaMax: ariaMax(panel, sash.branchLength),
         ariaNow: Math.round(nowPx),
@@ -123,7 +141,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
 }
 
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()});
-const {moving, growing, following} = motion;
+const {moving, growing, following, flying} = motion;
 const parking = useLeafParking();
 const {parked} = parking;
 
@@ -133,13 +151,63 @@ function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> 
     return {width: `${size.width}px`, height: `${size.height}px`, ...(parked.value.has(item.node.id) ? {visibility: "hidden"} : {})};
 }
 
-watch(placement, (next, previous) => {
+/** 内容项最后的矩形与非零尺寸：停放时保持，重新有尺寸时不用重排；叶暂时找不到时外层也留在原处。 */
+const contentMemory = new Map<string, {rect: GridRect; size: GridExtent}>();
+const parkedContents = new Set<string>();
+/** 矩形降到零的内容项（面板收成标题行时叶还有高度，内容是零）。曾有过尺寸才算，规则同 `useLeafParking`。 */
+const zeroContents = shallowRef<ReadonlySet<string>>(new Set());
+
+function isContentParked(item: GridContentPlacement): boolean {
+    return !item.active || item.rect === null || parked.value.has(item.leaf) || zeroContents.value.has(item.key);
+}
+
+function rememberContents(): void {
+    const isZero = (item: GridContentPlacement): boolean => item.rect !== null && (item.rect.width <= 0 || item.rect.height <= 0) && contentMemory.has(item.key);
+    // 预览不会把内容停放：往零拖时要等落账。从零往外拉时内容在拖动中就要出现。
+    zeroContents.value = new Set(contentPlacements.value.filter((item) => isZero(item) && (preview.value === null || zeroContents.value.has(item.key))).map((item) => item.key));
+    const alive = new Set<string>();
+    for (const item of contentPlacements.value) {
+        alive.add(item.key);
+        const parkedNow = isContentParked(item);
+        if (parkedNow && !parkedContents.has(item.key)) {
+            parkedContents.add(item.key);
+            // 在 `pre` 刷新里：DOM 还没变，焦点还在里面。
+            const element = rootEl.value?.ownerDocument.getElementById(domIdOf(item.key));
+            if (element != null && element.contains(element.ownerDocument.activeElement)) emit("content-parked", item.contentKey);
+        } else if (!parkedNow) {
+            parkedContents.delete(item.key);
+        }
+        if (!parkedNow && item.rect !== null && item.rect.width > 0 && item.rect.height > 0) contentMemory.set(item.key, {rect: item.rect, size: {width: item.rect.width, height: item.rect.height}});
+    }
+    for (const key of contentMemory.keys()) {
+        if (!alive.has(key)) contentMemory.delete(key);
+    }
+    for (const key of parkedContents) {
+        if (!alive.has(key)) parkedContents.delete(key);
+    }
+}
+
+function contentFrameStyle(item: GridContentPlacement): Record<string, string> {
+    const rect = growing.value.get(item.key) ?? item.rect ?? contentMemory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
+    return {...rectStyle(rect), ...(isContentParked(item) ? {visibility: "hidden"} : {})};
+}
+
+/** 内层的尺寸规则和叶的内容相同：跟外框的是 100%；否则是最终尺寸，停放时是最后的非零尺寸。 */
+function contentBodyStyle(item: GridContentPlacement): Record<string, string> {
+    if (following.value.has(item.key)) return {width: "100%", height: "100%"};
+    const rect = item.rect;
+    const size = !isContentParked(item) && rect !== null && rect.width > 0 && rect.height > 0 ? rect : (contentMemory.get(item.key)?.size ?? rect ?? {width: 0, height: 0});
+    return {width: `${size.width}px`, height: `${size.height}px`};
+}
+
+watch(layers, (next, previous) => {
     // 分隔线的矩形变了要重新对齐设备像素。
     snapHost.schedule();
-    const items = next?.items ?? [];
+    const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
+    rememberContents();
     const root = renderTree.value;
-    motion.update({items, previous: previous?.items ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value, previewing: preview.value !== null});
+    motion.update({items: next, previous: previous ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value, previewing: preview.value !== null});
 }, {immediate: true});
 
 /**
@@ -301,13 +369,31 @@ onBeforeUnmount(() => {
                 class="nb-grid-frame"
                 :data-leaf="item.node.id"
                 :data-moving="moving ? '' : undefined"
+                :data-flying="flying.has(item.key) ? '' : undefined"
+                :tabindex="hasContents ? -1 : undefined"
                 :style="rectStyle(growing.get(item.key) ?? item.rect)"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
                     <slot name="leaf" :node="item.node"></slot>
                 </div>
             </div>
-            <SashHandle v-else :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
+            <SashHandle v-else-if="item.kind === 'sash'" :dom-id="domIdOf(item.key)" class="nb-grid-sash" v-bind="sashProps(item)" :data-moving="moving ? '' : undefined" :style="sashStyle(growing.get(item.key) ?? item.rect)" />
+            <div
+                v-else
+                :id="domIdOf(item.key)"
+                class="nb-grid-content"
+                :data-content="item.contentKey"
+                :data-content-leaf="item.leaf"
+                :data-moving="moving && item.active ? '' : undefined"
+                :data-flying="flying.has(item.key) ? '' : undefined"
+                :inert="isContentParked(item)"
+                tabindex="-1"
+                :style="contentFrameStyle(item)"
+            >
+                <div class="nb-grid-content__body" :style="contentBodyStyle(item)">
+                    <slot name="content" :content-key="item.contentKey" :active="item.active"></slot>
+                </div>
+            </div>
         </template>
         <span v-if="order.outOfOrder.value" :ref="(el) => (focus.exitSentinel.value = el as HTMLElement | null)" tabindex="-1" aria-hidden="true"></span>
         <slot v-if="node === null" name="empty"></slot>
@@ -323,6 +409,8 @@ onBeforeUnmount(() => {
     min-width: 0;
     min-height: 0;
     overflow: clip;
+    /* 三层叠放固定在这个根里：外框、内容、分隔线。内容换叶后 DOM 位置不变，不靠 DOM 序。 */
+    isolation: isolate;
 }
 
 .nb-grid-frame {
@@ -330,10 +418,39 @@ onBeforeUnmount(() => {
     top: 0;
     left: 0;
     overflow: clip;
+    outline: none;
+}
+
+/* 内容自己的裁切框，不是叶外框：飞过别的叶时不被它们裁。 */
+.nb-grid-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    overflow: clip;
+    outline: none;
+}
+
+.nb-grid-frame[data-flying],
+.nb-grid-content[data-flying] {
+    z-index: 2;
+}
+
+.nb-grid-content__body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.nb-nested-grid > .nb-grid-sash {
+    z-index: 3;
 }
 
 /* 标记写在外框上，不写在根上：实时布局拖动中要一部分动、一部分跟手。 */
 .nb-grid-frame[data-moving],
+.nb-grid-content[data-moving],
 .nb-grid-sash[data-moving] {
     transition: transform var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);
     will-change: transform, width, height;

@@ -1,10 +1,11 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {docOf, H, sizeOf, V} from "./layout-doc-fixtures";
-import {projectLayoutDoc, presentationCollapse, writeBackIntents} from "./layout-project";
+import {docOf, H, sizeOf, testPolicy, V} from "./layout-doc-fixtures";
+import {projectLayoutDoc, presentationCollapse} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridAxis, GridExtent, GridNodeInput} from "./grid-types";
+import {moveTabToEdge, rebaseIntents, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc} from "./layout-doc";
 
 /** 呈现树（docs/specs/ui/workbench-layout.md 输出 5 到 7、10、11、13）。 */
@@ -80,7 +81,7 @@ describe("隐藏的面板不进呈现树", () => {
         const doc = docOf(DEFAULT_TREE(), named(["panel"]));
         const {projection} = solve(doc);
         expect(shapeOfInput(projection.input)).toBe("V[H[activitybar,sidebar,ea,auxiliarybar],statusbar]");
-        expect(projection.aliases.size).toBe(1);
+        expect(projection.collapsedTo.size).toBe(1);
     });
 
     it("隐藏的条：不进呈现树", () => {
@@ -121,24 +122,39 @@ describe("最大化", () => {
     });
 });
 
-describe("写回", () => {
-    it("手势落账后主轴意图写回文档；塌陷的幸存者写回它代表的分支", () => {
+describe("意图只从呈现尺寸写回", () => {
+    it("手势落账后：权重分配的一列也写成 px；收起再展开回到拖好的尺寸", () => {
+        const start = docOf(H([V(["a", "b"], "column"), "ea"]));
+        const {projection, grid, layout} = solve(start, {width: 1000, height: 900});
+        const base = {a: layout.sizes.a?.height ?? 0, b: layout.sizes.b?.height ?? 0};
+        expect(grid.resizeBranch("column", "height", base, {a: base.a + 100, b: base.b - 100}).ok).toBe(true);
+        const presented = grid.layout({width: 1000, height: 900}).sizes;
+        const written = rebaseIntents(start, presented, projection.collapsedTo);
+        expect(sizeOf(written.tree.root, "a").height).toBeCloseTo(base.a + 100);
+
+        const collapsed = setPanelCollapsed(written, "a", true);
+        if (!collapsed.ok) throw new Error(collapsed.detail);
+        const whileCollapsed = rebaseIntents(collapsed.doc, solve(collapsed.doc, {width: 1000, height: 900}).layout.sizes);
+        expect(sizeOf(whileCollapsed.tree.root, "a").height).toBeCloseTo(base.a + 100);
+        const expanded = setPanelCollapsed(whileCollapsed, "a", false);
+        if (!expanded.ok) throw new Error(expanded.detail);
+        expect(solve(expanded.doc, {width: 1000, height: 900}).layout.sizes.a?.height).toBeCloseTo(base.a + 100);
+    });
+
+    it("呈现里塌陷掉的分支：尺寸取代表它的节点，之后放到它旁边按真实尺寸分", () => {
         const doc = docOf(H(["sidebar", V(["ea", "panel"], "column"), "c"]), {panel: {hidden: true}});
-        const {projection, grid, layout} = solve(doc);
-        const root = projection.input as {id: string};
-        const base = {sidebar: layout.sizes.sidebar?.width ?? 0, ea: layout.sizes.ea?.width ?? 0, c: layout.sizes.c?.width ?? 0};
-        expect(grid.resizeBranch(root.id, "width", base, {...base, sidebar: base.sidebar + 40, ea: base.ea - 40}).ok).toBe(true);
-        const written = writeBackIntents(doc, grid.serialize(), projection.aliases);
-        expect(sizeOf(written.tree.root, "sidebar").width).not.toBe(sizeOf(doc.tree.root, "sidebar").width);
-        expect(sizeOf(written.tree.root, "column").width).not.toBe(sizeOf(doc.tree.root, "column").width);
-        expect(sizeOf(written.tree.root, "ea")).toEqual(sizeOf(doc.tree.root, "ea"));
-        expect(written.panels).toEqual(doc.panels);
+        const {projection, layout} = solve(doc, {width: 1000, height: 600});
+        const written = rebaseIntents(doc, layout.sizes, projection.collapsedTo);
+        expect(sizeOf(written.tree.root, "column").width).toBeCloseTo(layout.sizes.ea?.width ?? 0);
+        const result = moveTabToEdge(written, {tab: "view:sidebar", target: {kind: "between", branch: "root", before: "column", after: "c"}}, testPolicy());
+        if (!result.ok) throw new Error(result.detail);
+        expect(sizeOf(result.doc.tree.root, "sidebar").width).toBeCloseTo(((layout.sizes.ea?.width ?? 0) + (layout.sizes.c?.width ?? 0)) / 3);
     });
 
     it("条的厚度不写回", () => {
         const doc = docOf(H(["activitybar", "ea"]));
-        const {projection, grid} = solve(doc);
-        expect(sizeOf(writeBackIntents(doc, grid.serialize(), projection.aliases).tree.root, "activitybar")).toEqual(sizeOf(doc.tree.root, "activitybar"));
+        const {layout} = solve(doc);
+        expect(sizeOf(rebaseIntents(doc, layout.sizes).tree.root, "activitybar")).toEqual(sizeOf(doc.tree.root, "activitybar"));
     });
 });
 

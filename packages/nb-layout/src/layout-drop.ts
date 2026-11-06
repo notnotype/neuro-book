@@ -17,8 +17,8 @@ import type {GridExtent} from "./grid-types";
 
 /** 外缘窄带占这一块的比例。 */
 export const LAYOUT_EDGE_RATIO = 0.28;
-/** 指针离一块这么近（在缝上）时算这一块。 */
-const SEAM_PX = 8;
+/** 指针离一块这么近时算这一块：卡片之间的缝与分隔线都不超过这么宽。条与标题栏经 `excluded` 排除，不靠这个数。 */
+const SEAM_PX = 4;
 
 export type LayoutDropAction =
     | {readonly kind: "strip"; readonly panel: string; readonly index: number}
@@ -40,6 +40,8 @@ export interface LayoutDropInput {
     readonly source: LayoutSource;
     readonly point: GridDropPoint;
     readonly panels: ReadonlyArray<LayoutDropPanelGeometry>;
+    /** 不是落点的区域：条、标题栏（规则 1）。先判。 */
+    readonly excluded?: ReadonlyArray<GridDropRect>;
     /** 预备区：此刻没显示的具名面板浮出的矩形。指针在真实落点上时不算。 */
     readonly zones?: ReadonlyArray<{readonly panel: string; readonly rect: GridDropRect}>;
     readonly policy: LayoutPolicy;
@@ -62,7 +64,9 @@ export function sourceTabs(doc: LayoutDoc, source: LayoutSource): ReadonlyArray<
 }
 
 function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, panel: PanelRecord, tabs: ReadonlyArray<TabRef>): LayoutDropAction | null {
-    if (geometry.strip !== null && distanceTo(geometry.strip, input.point) <= distanceTo(geometry.body, input.point)) {
+    // 交界那一行算正文：标签条要真的在里面，或者指针在缝上且离标签条更近。
+    const strip = geometry.strip;
+    if (strip !== null && (contains(strip, input.point) || (!contains(geometry.body, input.point) && distanceTo(strip, input.point) < distanceTo(geometry.body, input.point)))) {
         if (!input.policy.accepts(tabs, panel, "strip")) return null;
         return {kind: "strip", panel: geometry.id, index: geometry.insertionAt?.(input.point) ?? panel.tabs.length};
     }
@@ -80,6 +84,7 @@ function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometr
 export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | null {
     const tabs = sourceTabs(input.doc, input.source);
     if (tabs.length === 0 && input.source.kind === "tab") return null;
+    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
     const inside = input.panels.find((geometry) => contains(geometry.body, input.point) || (geometry.strip !== null && contains(geometry.strip, input.point)));
     // 缝不是落点：归最近的那块，按它继续判。
     const hit = inside ?? [...input.panels]
@@ -148,9 +153,26 @@ export interface LayoutDropCandidate {
     readonly action: LayoutDropAction;
 }
 
+/** 放下去还在原处吗（便宜的判定，键盘列落点时每个候选都问）。规范形相等这类不容易看出来的情况留给提交时判。 */
+function isInPlace(doc: LayoutDoc, source: LayoutSource, action: LayoutDropAction): boolean {
+    const found = source.kind === "tab" ? findTab(doc, source.tab) : null;
+    const whole = source.kind === "panel" ? source.panel : (found !== null && doc.panels[found.panel]?.tabs.length === 1 ? found.panel : null);
+    switch (action.kind) {
+        case "strip":
+            if (source.kind === "panel") return source.panel === action.panel;
+            return found !== null && found.panel === action.panel && (action.index === found.index || action.index === found.index + 1);
+        case "center":
+            return found !== null ? found.panel === action.panel : source.kind === "panel" && source.panel === action.panel;
+        case "edge":
+            return whole !== null && (action.target.kind === "split" ? action.target.panel === whole : action.target.before === whole || action.target.after === whole);
+        case "reveal":
+            return false;
+    }
+}
+
 /**
- * 键盘拖动的全部落点：和指针同一套规则，按树序列出。`stripCount` 是这块标签条有几个插入位（看得见的标签数加一）。放不下去的（接受矩阵拒绝）、结果和现状一样的除了来源
- * 自己的原位都不列；原位排在最前面，拿起时就停在那，直接 Enter 不移动。
+ * 键盘拖动能去的落点：和指针同一套规则，按树序列出；接受矩阵拒绝的和放回原处的不列。原位不在这里：拿起时停在原位由会话管，直接 Enter 不移动。
+ * `stripCount` 是这块标签条有几个插入位（看得见的标签数加一）。
  */
 export function enumerateDropCandidates(input: {
     readonly doc: LayoutDoc;
@@ -165,9 +187,7 @@ export function enumerateDropCandidates(input: {
     const seen = new Set<string>();
     const add = (region: string, action: LayoutDropAction): void => {
         const key = JSON.stringify(action);
-        if (seen.has(key)) return;
-        const result = applyLayoutDrop(doc, source, action, policy);
-        if (!result.ok || result.doc === doc) return;
+        if (seen.has(key) || isInPlace(doc, source, action)) return;
         seen.add(key);
         candidates.push({region, action});
     };

@@ -4,6 +4,7 @@ import {createGrid} from "./grid";
 import {docOf, H, shapeOf, sizeOf, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {
     activateTab,
+    countsInShare,
     edgeTargetOf,
     insertTab,
     movePanelToEdge,
@@ -11,6 +12,7 @@ import {
     moveTabToEdge,
     moveTabToStrip,
     normalizeTree,
+    openPanelAtEdge,
     rebaseIntents,
     removeTab,
     replaceTab,
@@ -54,6 +56,7 @@ function presentedSizes(doc: LayoutDoc, extent = {width: 1000, height: 600}): Re
     const {input, sashSize} = projectLayoutDoc(doc, PROJECTION);
     return createGrid<string>(input, {sashSize}).layout(extent).sizes;
 }
+const solveSizes = (doc: LayoutDoc) => presentedSizes(doc);
 
 describe("规范形", () => {
     it("同轴嵌套展平，单子分支塌陷：`(A | B) | C` 只会存成 `H[A, B, C]`", () => {
@@ -66,12 +69,20 @@ describe("规范形", () => {
         expect(shapeOf(normalizeTree(docOf(H([V(["a", "b"]), "c"])).tree.root))).toBe("H[V[a,b],c]");
     });
 
-    it("展平前后主轴总量守恒，比例不变", () => {
+    it("展平前后主轴总量守恒，比例不变；交叉轴取分支的", () => {
         const doc = docOf(H([H(["a", "b"]), "c"]));
         const root = normalizeTree(doc.tree.root);
-        expect(sizeOf(root, "a").width).toBeCloseTo(250);
+        expect(sizeOf(root, "a")).toEqual({width: 250, height: 600});
         expect(sizeOf(root, "b").width).toBeCloseTo(250);
         expect(sizeOf(root, "c").width).toBeCloseTo(500);
+    });
+
+    it("隐藏的兄弟不算进总量：可见的固定面板展平后不变", () => {
+        const doc = docOf(V(["ea", H([H(["a", "panel"], "inner"), "c"], "row")]), {panel: {hidden: true}});
+        const presented = solveSizes(doc);
+        const rebased = rebaseIntents(doc, presented, projectLayoutDoc(doc, PROJECTION).collapsedTo);
+        const normal: LayoutDoc = {...rebased, tree: {...rebased.tree, root: normalizeTree(rebased.tree.root, (node) => countsInShare(rebased, node))}};
+        expect(Math.abs((solveSizes(normal).a?.width ?? 0) - (presented.a?.width ?? 0))).toBeLessThanOrEqual(1);
     });
 
     it.each([
@@ -176,6 +187,15 @@ describe("外缘（规则 4、5）", () => {
         expect(result.currentEditor).toBe("n1");
     });
 
+    it("开一块新面板：编辑组成为活动编辑组；id 重复不提交", () => {
+        const doc = docOf(H(["ea", "b"]));
+        const panel = {role: "editor" as const, tabs: [tab("z")], active: "tab:z"};
+        const result = okDoc(openPanelAtEdge(doc, {id: "ef", panel, target: edge(doc, "ea", "right")}, testPolicy()));
+        expect(shape(result)).toBe("H[ea,ef,b]");
+        expect(result.currentEditor).toBe("ef");
+        expect(openPanelAtEdge(doc, {id: "ea", panel, target: edge(doc, "ea", "right")}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+    });
+
     it("接受矩阵提交时再验一次，失败文档不变", () => {
         const doc = docOf(H(["a", "b", "c"]));
         const refuse = testPolicy({accepts: () => false});
@@ -204,6 +224,7 @@ describe("标签", () => {
         const result = okDoc(replaceTab(doc, {tab: "tab:p", next: tab("r")}));
         expect(result.panels.ea?.tabs.map(tabKey)).toEqual(["tab:r", "tab:q"]);
         expect(result.panels.ea?.active).toBe("tab:r");
+        expect(replaceTab(doc, {tab: "tab:p", next: tab("q")})).toMatchObject({ok: false, code: "rejected"});
     });
 
     it("活动标签被关：优先后一个，没有就前一个", () => {
@@ -220,9 +241,16 @@ describe("标签", () => {
         expect(okDoc(moveTabToStrip(doc, {tab: "tab:p", panel: "ea", index: 1}, testPolicy()))).toBe(doc);
     });
 
-    it("固定分区的限制问策略", () => {
-        const doc = docOf(H(["ea"]), {ea: {tabs: [tab("p"), tab("q")], active: "tab:p"}});
-        expect(moveTabToStrip(doc, {tab: "tab:q", panel: "ea", index: 0}, testPolicy({canInsert: () => false}))).toMatchObject({ok: false, code: "rejected"});
+    it("固定分区的限制问策略：移标签和整个面板并入都问", () => {
+        const doc = docOf(H(["ea", "eb"]), {ea: {tabs: [tab("p"), tab("q")], active: "tab:p"}});
+        const refuse = testPolicy({canInsert: () => false});
+        expect(moveTabToStrip(doc, {tab: "tab:q", panel: "ea", index: 0}, refuse)).toMatchObject({ok: false, code: "rejected"});
+        expect(movePanelToStrip(doc, {panel: "eb", target: "ea"}, refuse)).toMatchObject({ok: false, code: "rejected"});
+    });
+
+    it("插入位越界时夹回来", () => {
+        const doc = docOf(H(["ea", "eb"]), {ea: {tabs: [tab("p"), tab("q")], active: "tab:p"}});
+        expect(okDoc(moveTabToStrip(doc, {tab: "tab:eb", panel: "ea", index: -3}, testPolicy())).panels.ea?.tabs.map(tabKey)).toEqual(["tab:eb", "tab:p", "tab:q"]);
     });
 
     it("并入已有面板的标签条：树不动，只改标签；收起的目标同一次展开", () => {
@@ -335,6 +363,13 @@ describe("校验", () => {
         ["活动标签不在标签里", (doc) => ({...doc, panels: {...doc.panels, sidebar: {...doc.panels.sidebar, active: "view:nope"}}})],
         ["没有编辑组", (doc) => ({...doc, panels: {...doc.panels, ea: {...doc.panels.ea, role: "tool"}}})],
         ["具名面板重名", (doc) => ({...doc, panels: {...doc.panels, ea: {...doc.panels.ea, name: "sidebar"}}})],
+        ["不认识的条", (doc) => ({...doc, tree: {...doc.tree, root: {...doc.tree.root, children: [...(doc.tree.root as {children: unknown[]}).children, {kind: "leaf", id: "x", ref: "bar:x", size: {width: 0, height: 0}}]}}})],
+        ["hiddenBars 里的任意值", (doc) => ({...doc, hiddenBars: ["sidebar"]})],
+        ["currentEditor 指向工具面板", (doc) => ({...doc, currentEditor: "sidebar"})],
+        ["编辑组具名且隐藏", (doc) => ({...doc, panels: {...doc.panels, ea: {...doc.panels.ea, name: "panel", hidden: true}}})],
+        ["无名面板隐藏", (doc) => ({...doc, panels: {...doc.panels, sidebar: {role: "tool", tabs: [], active: null, hidden: true}}})],
+        ["编辑组收起", (doc) => ({...doc, panels: {...doc.panels, ea: {...doc.panels.ea, collapsed: true}}})],
+        ["浮动不为空", (doc) => ({...doc, floats: [{}]})],
         ["条缺一个", (doc) => ({...doc, tree: {...doc.tree, root: {...doc.tree.root, children: [(doc.tree.root as {children: unknown[]}).children[0]]}}})],
         ["id 是原型键", (doc) => ({...doc, tree: {...doc.tree, root: {...doc.tree.root, id: "__proto__"}}})],
     ])("%s：拒绝", (_name, corrupt) => {

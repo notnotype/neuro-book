@@ -30,6 +30,8 @@ export const nbLayoutFixtures: LabFixture[] = [
                 {id: "high-version", label: "高版本快照拒绝", input: {props: base}},
                 // 结构变化、过渡、停放与焦点的验收（e2e/lab-grid-structure.e2e.ts）。
                 {id: "structure", label: "结构变化与过渡", input: {props: base}},
+                // 内容层：一棵树上的面板，跨面板有位移（e2e/lab-grid-panels.e2e.ts）。
+                {id: "panels", label: "内容层与跨面板位移", input: {props: base}},
             ];
         })(),
         load: async () => (await import("./NestedGridAcceptanceFixture.vue")).default,

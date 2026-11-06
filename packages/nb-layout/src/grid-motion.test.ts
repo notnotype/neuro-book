@@ -1,8 +1,8 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, followingLeaves, grownRect, placementMoved, stableOrder} from "./grid-motion";
-import {placeGrid} from "./grid-rects";
+import {enteringRects, flyingContents, followingLeaves, grownRect, placementMoved, stableOrder} from "./grid-motion";
+import {layerItems, placeContents, placeGrid} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
 
 /** 渲染序与过渡的起点（docs/specs/ui/nested-grid.md 的“按矩形摆放”“过渡”）。 */
@@ -137,5 +137,71 @@ describe("stableOrder", () => {
 
     it("换位置：已有的保持原来的相对次序，不搬 DOM", () => {
         expect(stableOrder(["a", "a|b", "b"], ["b", "b|a", "a"])).toEqual(["a", "b", "b|a"]);
+    });
+});
+
+describe("内容项的过渡（输出“内容层”）", () => {
+    const layers = (widths: Record<string, number>, contents: ReadonlyArray<{key: string; leaf: string; active?: boolean}>) => {
+        const children = Object.entries(widths).map(([id, width]) => leaf(id, width));
+        const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children}, 4, {width: 1000, height: 300});
+        const items = placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+        return layerItems(items, placeContents(items, contents.map((content) => ({insetTop: 32, active: true, ...content})), 1));
+    };
+
+    it("标签并入已有面板，两块叶都不动：内容换了矩形也算动，这个内容在飞、也跟外框", () => {
+        const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "b"}]);
+        const after = layers({a: 500, b: 500}, [{key: "x", leaf: "b"}, {key: "y", leaf: "b", active: false}]);
+        expect(placementMoved(after, before)).toBe(true);
+        expect(flyingContents(after, before).has("content:x")).toBe(true);
+        expect(flyingContents(after, before).has("leaf:a")).toBe(false);
+        expect(followingLeaves(after, before).has("content:x")).toBe(true);
+    });
+
+    it("切标签：不是布局变化", () => {
+        const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "a", active: false}]);
+        const after = layers({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}, {key: "y", leaf: "a"}]);
+        expect(placementMoved(after, before)).toBe(false);
+        expect([...flyingContents(after, before)]).toEqual([]);
+    });
+
+    it("开新标签：不是布局变化，也不从边上长出来", () => {
+        const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}]);
+        const after = layers({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}, {key: "y", leaf: "a"}]);
+        expect(placementMoved(after, before)).toBe(false);
+        expect(enteringRects(after, before).has("content:y")).toBe(false);
+    });
+
+    it("新内容跟新叶从边上长出来，面板头的高度留给外框；不跟外框，内容是最终尺寸", () => {
+        const before = layers({a: 1000}, [{key: "x", leaf: "a"}]);
+        const after = layers({a: 500, n: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "n"}]);
+        const entering = enteringRects(after, before).get("content:y");
+        expect(entering?.width).toBe(0);
+        expect(entering?.y).toBe(32);
+        expect(followingLeaves(after, before).has("content:y")).toBe(false);
+        expect(followingLeaves(after, before).has("content:x")).toBe(true);
+    });
+
+    it("换了叶的内容不算新项：它有上一帧，从旧矩形飞过来", () => {
+        const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}]);
+        const after = layers({a: 250, b: 250, n: 500}, [{key: "x", leaf: "n"}]);
+        expect(enteringRects(after, before).has("content:x")).toBe(false);
+        expect(flyingContents(after, before).has("content:x")).toBe(true);
+    });
+
+    it("整块面板移到别处：叶没换，但叶和内容都飞过别的面板；原地变宽的不算", () => {
+        const before = layers({a: 300, b: 300, c: 400}, [{key: "x", leaf: "a"}, {key: "y", leaf: "c"}]);
+        const after = layers({b: 300, c: 400, a: 300}, [{key: "x", leaf: "a"}, {key: "y", leaf: "c"}]);
+        const flying = flyingContents(after, before);
+        expect(flying.has("leaf:a")).toBe(true);
+        expect(flying.has("content:x")).toBe(true);
+        const wider = layers({a: 500, b: 100, c: 400}, [{key: "x", leaf: "a"}]);
+        expect(flyingContents(wider, layers({a: 300, b: 300, c: 400}, [{key: "x", leaf: "a"}])).size).toBe(0);
+    });
+
+    it("不活动的内容跟着叶变矩形，不算动，不跟外框逐帧排版", () => {
+        const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}]);
+        const after = layers({a: 500, b: 500}, [{key: "x", leaf: "b", active: false}]);
+        expect(placementMoved(after, before)).toBe(false);
+        expect(followingLeaves(after, before).has("content:x")).toBe(false);
     });
 });

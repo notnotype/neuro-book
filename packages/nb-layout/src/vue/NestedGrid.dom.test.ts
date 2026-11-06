@@ -743,3 +743,65 @@ describe("键盘会话：Enter 与方向键互不混用", () => {
         expect(commits[0]!.changes[0]!.collapsed).toEqual({});
     });
 });
+
+describe("NestedGrid 内容层", () => {
+    const CONTENT_GRID = () => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+        {kind: "leaf", id: "a", ref: "a", size: {width: 500, height: 0}},
+        {kind: "leaf", id: "b", ref: "b", size: {width: 500, height: 0}},
+    ]}, {sashSize: SASH});
+
+    function mountContents(contents: ReadonlyArray<{key: string; leaf: string; insetTop: number; active: boolean}>) {
+        const grid = CONTENT_GRID();
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: grid.root(), layout: grid.layout(CONTAINER), contents},
+            slots: {content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey)},
+        });
+        wrappers.push(wrapper);
+        return wrapper;
+    }
+
+    it("内容和外框是同一父元素的子元素；换叶不重建内容，不换父元素", async () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}]);
+        const element = wrapper.get("[data-content='x']").element;
+        expect(element.parentElement).toBe(wrapper.get("[data-leaf='a']").element.parentElement);
+        expect(element.getAttribute("data-content-leaf")).toBe("a");
+        const button = wrapper.get("[data-inside='x']").element;
+        await wrapper.setProps({contents: [{key: "x", leaf: "b", insetTop: 32, active: true}]});
+        expect(wrapper.get("[data-content='x']").element).toBe(element);
+        expect(wrapper.get("[data-inside='x']").element).toBe(button);
+        expect(element.getAttribute("data-content-leaf")).toBe("b");
+    });
+
+    it("不活动的、叶找不到的按停放处理：不卸载，隐藏且 inert", async () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: false}, {key: "y", leaf: "gone", insetTop: 32, active: true}]);
+        for (const key of ["x", "y"]) {
+            const element = wrapper.get(`[data-content='${key}']`).element as HTMLElement;
+            expect(element.style.visibility).toBe("hidden");
+            expect(element.hasAttribute("inert")).toBe(true);
+            expect(wrapper.find(`[data-inside='${key}']`).exists()).toBe(true);
+        }
+    });
+
+    it("内容要被停放而焦点在里面时发 content-parked，这时焦点还在；焦点在别处不发", async () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}]);
+        (wrapper.get("[data-inside='x']").element as HTMLElement).focus();
+        await wrapper.setProps({contents: [{key: "x", leaf: "a", insetTop: 32, active: false}, {key: "y", leaf: "b", insetTop: 32, active: false}]});
+        expect(wrapper.emitted("content-parked")).toEqual([["x"]]);
+    });
+
+    it("分隔线的 aria-controls 列外框与活动内容", () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}]);
+        const controls = wrapper.get("[data-sash]").attributes("aria-controls")?.split(" ") ?? [];
+        expect(controls).toContain(wrapper.get("[data-leaf='a']").attributes("id"));
+        expect(controls).toContain(wrapper.get("[data-content='x']").attributes("id"));
+    });
+
+    it("不传内容时外框不接焦点，行为和以前一样", () => {
+        const grid = CONTENT_GRID();
+        const wrapper = mount(NestedGrid, {attachTo: attachContainer(), props: {node: grid.root(), layout: grid.layout(CONTAINER)}});
+        wrappers.push(wrapper);
+        expect(wrapper.get("[data-leaf='a']").attributes("tabindex")).toBeUndefined();
+        expect(wrapper.find("[data-content]").exists()).toBe(false);
+    });
+});

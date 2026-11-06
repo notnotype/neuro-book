@@ -2,13 +2,13 @@
  * 呈现树（docs/specs/ui/workbench-layout.md 的“尺寸”）：由文档和呈现事实算出这一刻交给 `createGrid` 的树。
  *
  * 隐藏的、被最大化挤走的、放不下被收走的面板不进呈现树：它们的零宽缝如果夹在两个可见面板之间，拖那条缝改的是隐藏面板，不是两边。文档树不动，
- * 单子分支在呈现里塌陷时用 `aliases` 记下幸存者的主轴意图写回哪个文档节点。
+ * 单子分支在呈现里塌陷时用 `collapsedTo` 记下它由谁代表，`rebaseIntents` 据此把尺寸写回文档树。
  */
 
 import {UNBOUNDED_EXTENT} from "./grid-geometry";
 import {barOfRef, panelOfRef, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelRecord} from "./layout-doc";
-import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshot, GridSnapshotNode} from "./grid-types";
+import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode} from "./grid-types";
 
 export interface PanelConstraints {
     readonly minimumSize: GridExtent;
@@ -34,8 +34,8 @@ export interface LayoutProjectionOptions {
 export interface LayoutProjection {
     readonly input: GridNodeInput<string>;
     readonly sashSize: (branchId: string, index: number) => number;
-    /** 呈现里的节点 id → 它的主轴意图写回的文档节点（单子分支塌陷时）。 */
-    readonly aliases: ReadonlyMap<string, string>;
+    /** 呈现里塌陷掉的文档分支 → 代表它的节点。 */
+    readonly collapsedTo: ReadonlyMap<string, string>;
 }
 
 const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
@@ -80,7 +80,7 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
 }
 
 export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOptions): LayoutProjection {
-    const aliases = new Map<string, string>();
+    const collapsedTo = new Map<string, string>();
     const sashes = new Map<string, number[]>();
 
     const project = (node: GridSnapshotNode, parentOrientation: GridOrientation | null): GridNodeInput<string> | null => {
@@ -89,8 +89,7 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
             if (children.length === 0) return null;
             if (children.length === 1) {
                 const survivor = children[0] as GridNodeInput<string>;
-                // 幸存者替这个分支站在外层：主轴意图写回最外面那个塌陷的分支。
-                aliases.set(survivor.id, node.id);
+                collapsedTo.set(node.id, survivor.id);
                 return {...survivor, size: {...node.size}};
             }
             sashes.set(node.id, children.slice(0, -1).map((child, index) => (isBarInput(child) || isBarInput(children[index + 1] as GridNodeInput<string>) ? 0 : options.sashSize)));
@@ -114,27 +113,7 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
     const input = project(doc.tree.root, null);
     if (input === null) throw new Error("布局文档的树里没有可呈现的节点：校验应该已经拒绝");
     assignByParent(doc, input, options);
-    return {input, aliases, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
-}
-
-/** 手势落账后，把呈现树的意图写回文档树。只写主轴：交叉轴在呈现里没有意义。 */
-export function writeBackIntents(doc: LayoutDoc, projected: GridSnapshot, aliases: ReadonlyMap<string, string>): LayoutDoc {
-    const updates = new Map<string, Partial<GridExtent>>();
-    const collect = (node: GridSnapshotNode, parent: GridOrientation | null): void => {
-        if (parent !== null) {
-            const main = axisOf(parent);
-            // 条的厚度不是意图。
-            if (node.kind === "branch" || barOfRef(node.ref) === null) updates.set(aliases.get(node.id) ?? node.id, {[main]: node.size[main]});
-        }
-        if (node.kind === "branch") for (const child of node.children) collect(child, node.orientation);
-    };
-    collect(projected.root, null);
-    const write = (node: GridSnapshotNode): GridSnapshotNode => {
-        const update = updates.get(node.id);
-        const size = update === undefined ? node.size : {...node.size, ...update};
-        return node.kind === "leaf" ? {...node, size} : {...node, size, children: node.children.map(write)};
-    };
-    return {...doc, tree: {...doc.tree, root: write(doc.tree.root)}};
+    return {input, collapsedTo, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
 }
 
 function minimumOf(node: GridNodeInput<string>, axis: keyof GridExtent, parentAxis: keyof GridExtent | null, sashSize: (branchId: string, index: number) => number): number {

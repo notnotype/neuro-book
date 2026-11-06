@@ -12,7 +12,7 @@ function setup(): {scope: GridFocusItems; button: HTMLElement} {
     document.body.innerHTML = `<div id="a"><button id="button">甲</button></div><div id="b"><button>乙</button></div>`;
     const a = document.getElementById("a") as HTMLElement;
     const b = document.getElementById("b") as HTMLElement;
-    return {scope: {items: () => [{element: a, leaf: true}, {element: b, leaf: true}]}, button: document.getElementById("button") as HTMLElement};
+    return {scope: {items: () => [{elements: [a], leaf: true}, {elements: [b], leaf: true}]}, button: document.getElementById("button") as HTMLElement};
 }
 
 function tab(target: HTMLElement, init: KeyboardEventInit & {keyCode?: number} = {}): KeyboardEvent {

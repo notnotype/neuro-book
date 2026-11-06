@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {placeGrid} from "./grid-rects";
+import {placeGrid, layerItems, placeContents} from "./grid-rects";
 import type {GridLeafPlacement, GridPlacement, GridSashPlacement} from "./grid-rects";
 import type {GridLayoutResult, GridNode, GridNodeInput} from "./grid-types";
 
@@ -208,5 +208,38 @@ describe("分隔线的身份与两端", () => {
         const endsOf = (result: GridLayoutResult) => sashes(placeGrid(instance.root() as GridNode<string>, result, {width: 1000, height: 401}, 1)).find((item) => item.sashKey === "stack:0")?.ends;
         expect(endsOf(zeroGap)).toEqual({start: "root:0", end: null});
         expect(endsOf(free)).toEqual({start: null, end: null});
+    });
+});
+
+describe("内容项的矩形（输出“内容层”）", () => {
+    const place = (dpr: number) => {
+        const instance = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [{kind: "leaf", id: "a", ref: "a", size: {width: 100, height: 0}}, {kind: "leaf", id: "b", ref: "b", size: {width: 100, height: 0}}]}, {sashSize: 1});
+        const extent = {width: 601, height: 400};
+        return placeGrid(instance.root()!, instance.layout(extent), extent, dpr).items;
+    };
+
+    it.each([1, 1.1, 1.25, 1.5, 1.75, 2])("设备像素比 %d：内容顶在设备像素格上，和面板头之间没有缝也不重叠", (dpr) => {
+        const items = place(dpr);
+        const [content] = placeContents(items, [{key: "x", leaf: "a", insetTop: 32, active: true}], dpr);
+        const leaf = items.find((item) => item.kind === "leaf" && item.node.id === "a");
+        expect(content?.rect?.y).toBeCloseTo(Math.round(32 * dpr) / dpr);
+        expect(Number.isInteger(Math.round((content?.rect?.y ?? 0) * dpr * 1e6) / 1e6)).toBe(true);
+        expect((content?.rect?.y ?? 0) + (content?.rect?.height ?? 0)).toBeCloseTo((leaf?.rect.y ?? 0) + (leaf?.rect.height ?? 0));
+        expect(content?.rect?.width).toBe(leaf?.rect.width);
+    });
+
+    it("找不到叶：矩形是 null，由渲染层按停放处理，不卸载", () => {
+        expect(placeContents(place(1), [{key: "x", leaf: "gone", insetTop: 32, active: true}], 1)[0]?.rect).toBeNull();
+    });
+
+    it("叶比面板头还矮：高度不为负", () => {
+        const items = place(1).map((item) => (item.kind === "leaf" ? {...item, rect: {...item.rect, height: 10}} : item));
+        expect(placeContents(items, [{key: "x", leaf: "a", insetTop: 32, active: true}], 1)[0]?.rect?.height).toBe(0);
+    });
+
+    it("树序：每块叶后面紧跟属于它的内容，找不到叶的排最后", () => {
+        const items = place(1);
+        const contents = placeContents(items, [{key: "gone", leaf: "gone", insetTop: 0, active: true}, {key: "x", leaf: "a", insetTop: 0, active: true}, {key: "y", leaf: "a", insetTop: 0, active: false}], 1);
+        expect(layerItems(items, contents).map((item) => item.key)).toEqual(["leaf:a", "content:x", "content:y", items[1]?.key, "leaf:b", "content:gone"]);
     });
 });

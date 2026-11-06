@@ -6,29 +6,61 @@
 import {onBeforeUnmount, onMounted, ref} from "vue";
 import type {Ref} from "vue";
 
-import type {GridPlacement} from "../grid-rects";
-import {moveTab, noteFocus, registerGridFocus} from "./grid-focus";
-import type {GridFocusItems} from "./grid-focus";
+import type {GridLayerItem} from "../grid-rects";
+import {entryFocusTarget, moveTab, noteFocus, registerGridFocus} from "./grid-focus";
+import type {GridFocusItems, GridFocusStop} from "./grid-focus";
 import type {RenderOrder} from "./useRenderOrder";
 
-export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly placement: Readonly<Ref<GridPlacement<unknown> | null>>; readonly order: RenderOrder}) {
-    const {root, placement, order} = options;
+export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly layers: Readonly<Ref<ReadonlyArray<GridLayerItem<unknown>>>>; readonly order: RenderOrder}) {
+    const {root, layers, order} = options;
     const enterSentinel = ref<HTMLElement | null>(null);
     const exitSentinel = ref<HTMLElement | null>(null);
 
+    function elementOf(key: string): HTMLElement | null {
+        // 经 `getRootNode` 取：grid 可能在 Shadow DOM 里。
+        return (root.value?.getRootNode() as Document | ShadowRoot | undefined)?.getElementById(order.domIdOf(key)) ?? null;
+    }
+
     const scope: GridFocusItems = {
-        items: () => (placement.value?.items ?? []).flatMap((item) => {
-            // 经 `getRootNode` 取：grid 可能在 Shadow DOM 里。
-            const element = (root.value?.getRootNode() as Document | ShadowRoot | undefined)?.getElementById(order.domIdOf(item.key));
-            return element == null ? [] : [{element, leaf: item.kind === "leaf"}];
-        }),
+        items: () => {
+            const stops: GridFocusStop[] = [];
+            for (const item of layers.value) {
+                if (item.kind === "content") {
+                    // 活动的内容和它的叶是一站。不活动的停放着，不进来；找不到叶的也是。
+                    const stop = stops.at(-1);
+                    const element = item.active && item.rect !== null ? elementOf(item.key) : null;
+                    if (element !== null && stop !== undefined && stop.leaf) stops[stops.length - 1] = {...stop, elements: [...stop.elements, element]};
+                    continue;
+                }
+                const element = elementOf(item.key);
+                if (element !== null) stops.push({elements: [element], leaf: item.kind === "leaf"});
+            }
+            return stops;
+        },
     };
 
     let release: (() => void) | null = null;
+    /** 这一下焦点变化是 Tab 引起的吗：程序 `focus()` 与点击也会从外面进来，那些不能改落点。 */
+    let tabPending: 1 | -1 | null = null;
+    const onDocumentKeydown = (event: KeyboardEvent): void => {
+        tabPending = event.key === "Tab" ? (event.shiftKey ? -1 : 1) : null;
+    };
+    const onDocumentKeyup = (): void => {
+        tabPending = null;
+    };
     onMounted(() => {
-        if (root.value !== null) release = registerGridFocus(root.value, scope);
+        if (root.value === null) return;
+        release = registerGridFocus(root.value, scope);
+        const owner = root.value.ownerDocument;
+        owner.addEventListener("keydown", onDocumentKeydown, true);
+        owner.addEventListener("keyup", onDocumentKeyup, true);
     });
-    onBeforeUnmount(() => release?.());
+    onBeforeUnmount(() => {
+        release?.();
+        const owner = root.value?.ownerDocument;
+        owner?.removeEventListener("keydown", onDocumentKeydown, true);
+        owner?.removeEventListener("keyup", onDocumentKeyup, true);
+    });
 
     return {
         enterSentinel,
@@ -39,6 +71,18 @@ export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement |
             (event.shiftKey ? enterSentinel.value : exitSentinel.value)?.focus();
         },
         onFocusin(event: FocusEvent): void {
+            const direction = tabPending;
+            tabPending = null;
+            const from = event.relatedTarget;
+            const entering = !(from instanceof Node) || root.value?.contains(from) !== true;
+            // DOM 序与树序不一致时，浏览器按 DOM 序选了进来的第一个元素，这里改成树序的首或尾。
+            if (direction !== null && entering && order.outOfOrder.value) {
+                const target = entryFocusTarget(scope, direction);
+                if (target !== null && target !== event.target) {
+                    target.focus();
+                    return;
+                }
+            }
             noteFocus(scope, event.target);
         },
     };

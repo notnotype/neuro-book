@@ -8,9 +8,19 @@
 import {tabbable} from "tabbable";
 
 
+/**
+ * 一站：一块叶的外框加它活动的内容（两个不相交的元素，内容不在外框里），或一条分隔线。
+ */
+export interface GridFocusStop {
+    /** 树序的元素。第一个是这一站的身份。 */
+    readonly elements: ReadonlyArray<HTMLElement>;
+    /** 为假的不是 `moveGridFocus` 的落点。 */
+    readonly leaf: boolean;
+}
+
 export interface GridFocusItems {
-    /** 树序的叶外框与分隔线元素；`leaf` 为假的不是 `moveGridFocus` 的落点。 */
-    items(): ReadonlyArray<{readonly element: HTMLElement; readonly leaf: boolean}>;
+    /** 树序的站。 */
+    items(): ReadonlyArray<GridFocusStop>;
 }
 
 /** 每个 grid 根的焦点入口：`moveGridFocus` 从里往外走时用。 */
@@ -23,12 +33,18 @@ export function registerGridFocus(root: Element, scope: GridFocusItems): () => v
     return () => scopes.delete(root);
 }
 
-function focusablesIn(element: HTMLElement): HTMLElement[] {
-    return tabbable(element, {includeContainer: true}) as HTMLElement[];
+function focusablesIn(stop: GridFocusStop): HTMLElement[] {
+    return stop.elements.flatMap((element) => tabbable(element, {includeContainer: true}) as HTMLElement[]);
 }
 
-/** 焦点元素走到这一项的头或尾了。它不在列表里时（`tabindex="-1"` 的容器、可滚动区）按文档位置判断。 */
+const stopHolds = (stop: GridFocusStop, target: Node): boolean => stop.elements.some((element) => element.contains(target));
+
+/**
+ * 焦点元素走到这一站的头或尾了。列表是站内的顺序，外框和内容在 DOM 里不一定相邻，所以先按列表判。它不在列表里时（`tabindex="-1"` 的外框、可滚动区）按文档位置判断。
+ */
 function atEdge(focusables: ReadonlyArray<HTMLElement>, target: Element, direction: 1 | -1): boolean {
+    const at = focusables.indexOf(target as HTMLElement);
+    if (at !== -1) return direction > 0 ? at === focusables.length - 1 : at === 0;
     const beyond = direction > 0 ? Node.DOCUMENT_POSITION_FOLLOWING : Node.DOCUMENT_POSITION_PRECEDING;
     return !focusables.some((element) => element !== target && (target.compareDocumentPosition(element) & beyond) !== 0);
 }
@@ -44,15 +60,22 @@ export function moveTab(event: KeyboardEvent, scope: GridFocusItems): "moved" | 
     if (!(event.target instanceof Element)) return "browser";
     const target = event.target;
     const items = scope.items();
-    const from = items.findIndex(({element}) => element.contains(target));
+    const from = items.findIndex((stop) => stopHolds(stop, target));
     const current = items[from];
     if (current === undefined) return "browser";
     const direction = event.shiftKey ? -1 : 1;
-    if (!atEdge(focusablesIn(current.element), target, direction)) return "browser";
-    const next = nextFocusStop({count: items.length, from, direction, wrap: false, focusable: (index) => focusablesIn((items[index] as {element: HTMLElement}).element).length > 0});
+    const inside = focusablesIn(current);
+    if (!atEdge(inside, target, direction)) {
+        // 外框和内容不相邻时，站内这一步浏览器也走不对：外框走完该进内容。
+        if (current.elements.length < 2 || !inside.includes(target as HTMLElement)) return "browser";
+        event.preventDefault();
+        inside[inside.indexOf(target as HTMLElement) + direction]?.focus();
+        return "moved";
+    }
+    const next = nextFocusStop({count: items.length, from, direction, wrap: false, focusable: (index) => focusablesIn(items[index] as GridFocusStop).length > 0});
     if (next === null) return "leave";
     event.preventDefault();
-    const candidates = focusablesIn((items[next] as {element: HTMLElement}).element);
+    const candidates = focusablesIn(items[next] as GridFocusStop);
     (direction > 0 ? candidates[0] : candidates.at(-1))?.focus();
     return "moved";
 }
@@ -60,8 +83,8 @@ export function moveTab(event: KeyboardEvent, scope: GridFocusItems): "moved" | 
 /** 记下这一块的焦点。外层 grid 也会收到，同一个元素分别记在内外两层的块上。 */
 export function noteFocus(scope: GridFocusItems, target: EventTarget | null): void {
     if (!(target instanceof HTMLElement)) return;
-    const owner = scope.items().find(({element, leaf}) => leaf && element.contains(target));
-    if (owner !== undefined) lastFocused.set(owner.element, target);
+    const owner = scope.items().find((stop) => stop.leaf && stopHolds(stop, target));
+    if (owner !== undefined) lastFocused.set(owner.elements[0] as HTMLElement, target);
 }
 
 /**
@@ -79,7 +102,7 @@ export function moveGridFocus(container: Element | null, direction: "next" | "pr
         const scope = scopes.get(root);
         if (scope !== undefined) {
             const items = scope.items();
-            const index = from === null ? -1 : items.findIndex(({element}) => element.contains(from));
+            const index = from === null ? -1 : items.findIndex((stop) => stopHolds(stop, from as Element));
             const next = nextFocusStop({
                 count: items.length,
                 from: index === -1 ? (step > 0 ? -1 : items.length) : index,
@@ -87,13 +110,13 @@ export function moveGridFocus(container: Element | null, direction: "next" | "pr
                 wrap: outer === null,
                 focusable: (candidate) => {
                     const item = items[candidate];
-                    return item !== undefined && item.leaf && focusablesIn(item.element).length > 0;
+                    return item !== undefined && item.leaf && focusablesIn(item).length > 0;
                 },
             });
             const target = next === null ? undefined : items[next];
             if (target !== undefined) {
-                const last = lastFocused.get(target.element);
-                const focusables = focusablesIn(target.element);
+                const last = lastFocused.get(target.elements[0] as HTMLElement);
+                const focusables = focusablesIn(target);
                 (last !== undefined && focusables.includes(last) ? last : focusables[0])?.focus();
                 return true;
             }
@@ -114,6 +137,18 @@ export function nextFocusStop(input: {readonly count: number; readonly from: num
         if (!wrap && (raw < 0 || raw >= count)) return null;
         const index = ((raw % count) + count) % count;
         if (focusable(index)) return index;
+    }
+    return null;
+}
+
+/** 焦点从 grid 外面按 Tab 进来时，该落在树序的哪一端：往后走进来落在第一项，往前走进来落在最后一项。 */
+export function entryFocusTarget(scope: GridFocusItems, direction: 1 | -1): HTMLElement | null {
+    const stops = scope.items();
+    const ordered = direction > 0 ? stops : [...stops].reverse();
+    for (const stop of ordered) {
+        const focusables = focusablesIn(stop);
+        const target = direction > 0 ? focusables[0] : focusables.at(-1);
+        if (target !== undefined) return target;
     }
     return null;
 }

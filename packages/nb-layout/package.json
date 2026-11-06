@@ -48,6 +48,7 @@
         "src",
         "!src/**/*.test.ts",
         "!src/**/*.test.tsx",
+        "!src/**/*-fixtures.ts",
         "README.md",
         "LICENSE"
     ]

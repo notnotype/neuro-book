@@ -50,6 +50,17 @@ describe("有序规则", () => {
         expect(drop(THREE(), VIEW, 2000, 300)).toBeNull();
     });
 
+    it("条与标题栏不是落点，紧贴面板也不算", () => {
+        expect(drop(THREE(), VIEW, 899, 300, {excluded: [rect(899, 0, 950, 600)]})).toBeNull();
+        expect(drop(THREE(), VIEW, 903, 300)).toMatchObject({kind: "edge"});
+        expect(drop(THREE(), VIEW, 906, 300)).toBeNull();
+    });
+
+    it("标签条与正文交界那一行算正文；指针在缝上离标签条更近才算标签条", () => {
+        expect(drop(THREE(), VIEW, 450, 30)).toMatchObject({kind: "edge"});
+        expect(drop(THREE(), VIEW, 600.5, 10)).toEqual({kind: "strip", panel: "b", index: 0});
+    });
+
     it("空面板整块都是中央", () => {
         const doc = docOf(H(["a", "b", "ec"]), {b: {tabs: [], active: null}, a: {tabs: [view("a"), view("x")], active: "view:a"}});
         expect(drop(doc, VIEW, 305, 40)).toEqual({kind: "center", panel: "b"});
@@ -132,7 +143,7 @@ describe("预览画真实结果", () => {
 });
 
 describe("键盘的落点（输出 31）", () => {
-    it("和指针同一套规则：拒绝的、结果和现状一样的不列；按树序", () => {
+    it("和指针同一套规则：拒绝的、放回原处的不列；按树序", () => {
         const doc = docOf(H(["a", V(["b", "ec"])]));
         const candidates = enumerateDropCandidates({doc, source: {kind: "panel", panel: "a"}, policy: testPolicy(), stripCount: (panel) => (doc.panels[panel]?.tabs.length ?? 0) + 1});
         expect(candidates.every((candidate) => candidate.region === "b" || candidate.region === "ec")).toBe(true);

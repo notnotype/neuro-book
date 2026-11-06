@@ -5,8 +5,10 @@
  * 操作都是纯函数：失败返回问题码，文档不变；结果和现状一样（结构、顺序、标签、活动标签都相同）时返回原对象，调用方据此不提交。
  * 结构操作的出口统一过一次规范形（`normalizeTree`）。`createGrid` 的结构操作语义不动：现有宿主和测试依赖它只塌陷单子分支。
  *
- * 尺寸意图统一是 CSS px：结构操作之前宿主用 `rebaseIntents` 把呈现尺寸写回意图，所以展平不用换算单位，`fixed` 与 `weight` 之间切换也不用。
- * 呈现为零的节点保留原意图，那就是它展开时的尺寸。
+ * 尺寸意图统一是 CSS px，只有一条写入路径：`rebaseIntents` 把呈现尺寸写回。手势落账后和结构操作之前都走它，不读 `grid.serialize()`：那里的 `weight` 是反解出来的比例，
+ * 不是 px。所以展平不用换算单位，`fixed` 与 `weight` 之间切换也不用。收起的面板和呈现为零的轴不写，那就是它展开时的尺寸。
+ *
+ * 文档放在 `shallowRef` 里：操作用 `structuredClone` 复制，Vue 的响应式代理会让它抛错。
  */
 
 import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "./grid-types";
@@ -123,6 +125,12 @@ export function isNodeShown(doc: LayoutDoc, node: GridSnapshotNode): boolean {
     return panel !== undefined && panel.hidden !== true;
 }
 
+/** 这个节点占不占主轴的份额：隐藏的不占，收起的只占面板头。 */
+export function countsInShare(doc: LayoutDoc, node: GridSnapshotNode): boolean {
+    if (node.kind === "branch") return node.children.some((child) => countsInShare(doc, child));
+    return isNodeShown(doc, node) && doc.panels[node.id]?.collapsed !== true;
+}
+
 const isBarLeaf = (node: GridSnapshotNode): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
 
 function collapseInto(branch: GridSnapshotBranch, survivor: GridSnapshotNode): GridSnapshotNode {
@@ -130,21 +138,21 @@ function collapseInto(branch: GridSnapshotBranch, survivor: GridSnapshotNode): G
 }
 
 /**
- * 规范形：同轴嵌套展平，单子分支塌陷。子分支展平时按它的外部分配缩放孙节点的主轴意图：意图是 px 时比例接近 1，所以 `fixed` 的像素目标不变；
- * 意图还是手势反解出来的比例时也守恒。
+ * 规范形：同轴嵌套展平，单子分支塌陷。子分支展平时，把占着地方的孙节点的主轴意图放大到等于子分支的外部分配，展平前后每块的尺寸不变；隐藏、收起的孙节点按同一比例，
+ * 回来时份额不变。`counts` 是“这个节点占不占主轴的份额”。
  */
-export function normalizeTree(node: GridSnapshotNode): GridSnapshotNode {
+export function normalizeTree(node: GridSnapshotNode, counts: (node: GridSnapshotNode) => boolean = () => true): GridSnapshotNode {
     if (node.kind === "leaf") return node;
     const main = axisOf(node.orientation);
     const cross = crossOf(node.orientation);
     const children: GridSnapshotNode[] = [];
     for (const raw of node.children) {
-        const child = normalizeTree(raw);
+        const child = normalizeTree(raw, counts);
         if (child.kind === "leaf" || child.orientation !== node.orientation) {
             children.push(child);
             continue;
         }
-        const total = child.children.reduce((sum, grand) => sum + grand.size[main], 0);
+        const total = child.children.filter(counts).reduce((sum, grand) => sum + grand.size[main], 0);
         const scale = total > 0 ? child.size[main] / total : 1;
         for (const grand of child.children) children.push({...grand, size: {...grand.size, [main]: grand.size[main] * scale, [cross]: child.size[cross]}});
     }
@@ -203,19 +211,38 @@ export function sameLayoutShape(left: LayoutDoc, right: LayoutDoc): boolean {
 
 /** 出口：过规范形、查规模；结果和现状一样时返回原对象。 */
 function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
-    next.tree.root = normalizeTree(next.tree.root);
+    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(next as unknown as LayoutDoc, node));
     const scale = countScale(next.tree.root);
     if (scale.nodes > GRID_MAX_NODES || scale.depth > GRID_MAX_DEPTH) return failure("limit-exceeded", `节点 ${String(scale.nodes)} 个、深度 ${String(scale.depth)} 层`);
     const doc = next as unknown as LayoutDoc;
     return {ok: true, doc: sameLayoutShape(original, doc) ? original : doc};
 }
 
-/** 把呈现尺寸写回意图（结构操作之前调）。呈现为零的轴保留原意图。 */
-export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, GridExtent>>): LayoutDoc {
+/**
+ * 把呈现尺寸写回意图：手势落账后、结构操作之前调。`collapsedTo` 是呈现里塌陷掉的分支由谁代表（`projectLayoutDoc` 给），它们的尺寸就是幸存者的。
+ * 不写的：呈现为零的轴；收起的面板（纵向收成标题行时呈现高度是面板头，不是展开尺寸）；条（厚度不是意图）。
+ *
+ * 全是工具面板的分支按比例分（`projectLayoutDoc`）：里面有收起或隐藏的兄弟时，其余的呈现尺寸是占了它们的空间之后的，直接写进去，兄弟回来时比例就错了，展开只回到一部分。
+ * 所以这些子节点只更新彼此的比例，总量保持原来的份额。含编辑组的分支不用：工具面板保留像素，余量归编辑组。
+ */
+export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, GridExtent>>, collapsedTo: ReadonlyMap<string, string> = new Map()): LayoutDoc {
+    const sizeOfNode = (node: GridSnapshotNode): GridExtent | undefined => sizes[node.id] ?? sizes[collapsedTo.get(node.id) ?? ""];
+    const isSkipped = (node: GridSnapshotNode): boolean => node.kind === "leaf" && (barOfRef(node.ref) !== null || doc.panels[node.id]?.collapsed === true);
+    const holdsEditor = (node: GridSnapshotNode): boolean => treeLeaves(node).some((leaf) => doc.panels[leaf.id]?.role === "editor");
+
     const write = (node: GridSnapshotNode): GridSnapshotNode => {
-        const size = sizes[node.id];
+        const size = isSkipped(node) ? undefined : sizeOfNode(node);
         const nextSize = size === undefined ? node.size : {width: size.width > 0 ? size.width : node.size.width, height: size.height > 0 ? size.height : node.size.height};
-        return node.kind === "leaf" ? {...node, size: nextSize} : {...node, size: nextSize, children: node.children.map(write)};
+        if (node.kind === "leaf") return {...node, size: nextSize};
+        const children = node.children.map(write);
+        const main = axisOf(node.orientation);
+        const away = (child: GridSnapshotNode): boolean => isSkipped(child) || sizeOfNode(child) === undefined;
+        if (!node.children.some(away) || holdsEditor(node)) return {...node, size: nextSize, children};
+        const present = node.children.filter((child) => !away(child));
+        const before = present.reduce((sum, child) => sum + child.size[main], 0);
+        const after = children.filter((_, index) => !away(node.children[index] as GridSnapshotNode)).reduce((sum, child) => sum + child.size[main], 0);
+        const scale = before > 0 && after > 0 ? before / after : 1;
+        return {...node, size: nextSize, children: children.map((child, index) => (away(node.children[index] as GridSnapshotNode) ? child : {...child, size: {...child.size, [main]: child.size[main] * scale}}))};
     };
     return {...doc, tree: {...doc.tree, root: write(doc.tree.root)}};
 }
@@ -281,6 +308,8 @@ export function insertTab(doc: LayoutDoc, input: {readonly panel: string; readon
 export function replaceTab(doc: LayoutDoc, input: {readonly tab: string; readonly next: TabRef}): LayoutResult {
     const found = findTab(doc, input.tab);
     if (found === null) return failure("not-found", `标签 ${input.tab}`);
+    const nextKey = tabKey(input.next);
+    if (nextKey !== input.tab && findTab(doc, nextKey) !== null) return failure("rejected", `标签已存在 ${nextKey}`);
     const next = editable(doc);
     const panel = next.panels[found.panel] as PanelRecord;
     const tabs = [...panel.tabs];
@@ -313,7 +342,7 @@ export function moveTabToStrip(doc: LayoutDoc, input: {readonly tab: string; rea
     const target = doc.panels[input.panel];
     if (found === null || target === undefined) return failure("not-found", `标签 ${input.tab} 或面板 ${input.panel}`);
     if (found.panel !== input.panel && !policy.accepts([found.tab], target, "strip")) return failure("rejected", "接受矩阵拒绝");
-    const at = found.panel === input.panel && found.index < input.index ? input.index - 1 : input.index;
+    const at = Math.max(0, found.panel === input.panel && found.index < input.index ? input.index - 1 : input.index);
     if (policy.canInsert?.(found.tab, target, at) === false) return failure("rejected", "分区不允许");
     const next = editable(doc);
     takeTab(next, found.panel, found.index);
@@ -333,10 +362,12 @@ export function movePanelToStrip(doc: LayoutDoc, input: {readonly panel: string;
     if (source === undefined || target === undefined) return failure("not-found", `面板 ${input.panel} 或 ${input.target}`);
     if (input.panel === input.target) return {ok: true, doc};
     if (!policy.accepts(source.tabs, target, "strip")) return failure("rejected", "接受矩阵拒绝");
+    const at = Math.min(Math.max(0, input.index ?? target.tabs.length), target.tabs.length);
+    if (source.tabs.some((tab, offset) => policy.canInsert?.(tab, target, at + offset) === false)) return failure("rejected", "分区不允许");
     const next = editable(doc);
     next.panels[input.panel] = {...source, tabs: [], active: null};
     const tabs = [...target.tabs];
-    tabs.splice(Math.min(input.index ?? tabs.length, tabs.length), 0, ...source.tabs);
+    tabs.splice(at, 0, ...source.tabs);
     next.panels[input.target] = {...target, tabs, active: source.active ?? target.active, ...(target.collapsed === true ? {collapsed: false} : {})};
     if (target.role === "editor") next.currentEditor = input.target;
     settleEmptyPanel(next, input.panel);
@@ -470,6 +501,17 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
     return finish(doc, next);
 }
 
+/** 在外缘开一块新面板（`"side"` 打开、移动到“新面板”）。 */
+export function openPanelAtEdge(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly target: LayoutEdgeTarget}, policy: LayoutPolicy): LayoutResult {
+    if (doc.panels[input.id] !== undefined || findTreeNode(doc.tree.root, input.id) !== null) return failure("rejected", `面板已存在 ${input.id}`);
+    const next = editable(doc);
+    next.panels[input.id] = input.panel;
+    const leaf: GridSnapshotLeaf = {kind: "leaf", id: input.id, ref: panelRef(input.id), size: {width: 0, height: 0}};
+    if (!placeLeaf(next, input.target, leaf, new Map(), () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
+    if (input.panel.role === "editor") next.currentEditor = input.id;
+    return finish(doc, next);
+}
+
 // ── 显隐与收起 ──
 
 export function setPanelHidden(doc: LayoutDoc, panelId: string, hidden: boolean): LayoutResult {
@@ -525,7 +567,7 @@ export function stripDynamicTabs(doc: LayoutDoc): LayoutDoc {
         next.panels[id] = {...panel, tabs, active};
         settleEmptyPanel(next, id);
     }
-    next.tree.root = normalizeTree(next.tree.root);
+    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(next as unknown as LayoutDoc, node));
     return next as unknown as LayoutDoc;
 }
 
@@ -534,6 +576,7 @@ export function stripDynamicTabs(doc: LayoutDoc): LayoutDoc {
 export type LayoutDocValidation = {readonly ok: true; readonly doc: LayoutDoc} | {readonly ok: false; readonly code: "unsupported-version" | "invalid"; readonly detail: string};
 
 const FORBIDDEN_IDS = new Set(["__proto__", "constructor", "prototype"]);
+const BAR_NAMES: ReadonlySet<string> = new Set<LayoutBar>(["activitybar", "statusbar"]);
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isFiniteSize = (value: unknown): boolean => isObject(value) && typeof value.width === "number" && Number.isFinite(value.width) && value.width >= 0 && typeof value.height === "number" && Number.isFinite(value.height) && value.height >= 0;
 
@@ -566,15 +609,23 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     const seen = new Set<string>();
     const nodeProblem = validateNode(value.tree.root, seen, 1);
     if (nodeProblem !== null) return invalid(nodeProblem);
-    if (!isObject(value.panels) || !Array.isArray(value.floats) || !Array.isArray(value.hiddenBars)) return invalid("缺字段");
-    if (value.currentEditor !== null && typeof value.currentEditor !== "string") return invalid("currentEditor 不合法");
+    if (!isObject(value.panels) || !Array.isArray(value.floats) || value.floats.length !== 0 || !Array.isArray(value.hiddenBars)) return invalid("缺字段");
+    if (!value.hiddenBars.every((bar) => BAR_NAMES.has(bar as string))) return invalid("hiddenBars 不合法");
+    if (value.currentEditor !== null) {
+        const current = typeof value.currentEditor === "string" ? value.panels[value.currentEditor] : undefined;
+        if (!isObject(current) || current.role !== "editor") return invalid("currentEditor 不是编辑组");
+    }
 
     const leaves = treeLeaves(value.tree.root as GridSnapshotNode);
     const refs = leaves.map((leaf) => leaf.ref);
     if (refs.filter((ref) => ref === barRef("activitybar")).length !== 1 || refs.filter((ref) => ref === barRef("statusbar")).length !== 1) return invalid("条要恰各一个");
     const inTree = new Set<string>();
     for (const leaf of leaves) {
-        if (barOfRef(leaf.ref) !== null) continue;
+        const bar = barOfRef(leaf.ref);
+        if (bar !== null) {
+            if (!BAR_NAMES.has(bar)) return invalid(`不认识的条：${bar}`);
+            continue;
+        }
         const panelId = panelOfRef(leaf.ref);
         if (panelId === null || panelId !== leaf.id) return invalid(`叶 ${leaf.id} 的引用不对`);
         if (inTree.has(panelId)) return invalid(`面板 ${panelId} 被引用两次`);
@@ -591,6 +642,10 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
         const panel = value.panels[id];
         if (!isObject(panel) || (panel.role !== "tool" && panel.role !== "editor") || !Array.isArray(panel.tabs) || !panel.tabs.every(isTabRef)) return invalid(`面板 ${id} 不合法`);
         if (panel.role === "editor") editors += 1;
+        if (panel.role === "editor" && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`编辑组 ${id} 不能具名、隐藏或收起`);
+        if (panel.hidden !== undefined && (panel.hidden !== true || panel.name === undefined)) return invalid(`面板 ${id} 的隐藏不合法：只有具名面板会隐藏`);
+        if (panel.collapsed !== undefined && typeof panel.collapsed !== "boolean") return invalid(`面板 ${id} 的收起不合法`);
+        if (panel.active !== null && typeof panel.active !== "string") return invalid(`面板 ${id} 的活动标签不合法`);
         if (panel.name !== undefined) {
             if ((panel.name !== "sidebar" && panel.name !== "auxiliarybar" && panel.name !== "panel") || names.has(panel.name)) return invalid(`面板名不合法：${String(panel.name)}`);
             names.add(panel.name);

@@ -31,6 +31,10 @@
 
 `NestedGrid` 把叶与分隔线放在同一父元素下，矩形来自 `placeGrid`（`grid-rects.ts`，相对 grid 根的 CSS px，沿主轴按设备像素累加）。几何只有 px 一种口径，`buildGridBranchPanels` 只是把布局投影成分隔线 aria 要的面板配置，数值算法在 `grid-geometry` / `sash-drag`。`NestedGrid` 独占一份 `useSashGesture` 会话：拖动中发布 `preview`，松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `resizeBranches` 原子落账。
 
+## 布局文档
+
+工作台的一棵树在 `layout-doc.ts`：文档树（用户的布局）、领域操作与校验；`layout-project.ts` 由文档算交给 `createGrid` 的呈现树；`layout-drop.ts` 是落点规则。行为见 [ui.workbench-layout](../../../docs/specs/ui/workbench-layout.md)。文档的尺寸意图都是 CSS px，只经 `rebaseIntents` 从呈现尺寸写回，不读 `serialize()`（那里的 `weight` 是反解的比例）。
+
 ## 快照与引用
 
 v2 快照只保存结构、方向、稳定 id/ref 和两轴尺寸意图，不保存运行约束。恢复先完整校验，再一次发布；当前树或 `resolveRef` 提供当前约束。未知引用过滤结果单独报告，宿主保留原记录；过滤后的 `serialize()` 不是无损替代。
