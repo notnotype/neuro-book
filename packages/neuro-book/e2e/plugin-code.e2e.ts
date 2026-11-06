@@ -218,7 +218,7 @@ test("场景提供者外置（theme.skins 输出 18）：主题的场景图由�
     }
 });
 
-test("编辑器里选场景提供者（theme.editor 输出 20）：下拉列出已发布的提供者，选中后预览用它画的图，“无”去掉；声明里未发布的提供者保留并标“未发布”", async ({page}) => {
+test("编辑器里选场景提供者（theme.editor 输出 20）：下拉列出已发布的提供者，选中后预览用它画的图，“无”去掉", async ({page}) => {
     const stateRoot = await stateRootWith("scene-clock-editor", [sceneClock]);
     await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "light"}));
     const server: ProductServer = await startProductServer(stateRoot);

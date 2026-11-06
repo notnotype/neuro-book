@@ -332,13 +332,12 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "themeEditor.scene.preview.follow": {"zh-CN": "跟随", "en-US": "Follow"},
     "themeEditor.scene.preview.idle": {"zh-CN": "空闲", "en-US": "Idle"},
     "themeEditor.scene.preview.working": {"zh-CN": "工作中", "en-US": "Working"},
-    "themeEditor.icons.hint": {"zh-CN": "覆盖工作台里的图标：填 lucide 的图标名（如 folder-open），再选一个 SVG。保存不等于产品里有这个图标：没用到的名字不会报错，也看不到效果。", "en-US": "Override icons in the workbench: enter a lucide icon name (for example folder-open) and pick an SVG. Saving does not mean the product uses that icon: an unused name is not an error and has no visible effect."},
+    "themeEditor.icons.hint": {"zh-CN": "按名字覆盖工作台里的 lucide 图标：填图标名（如 folder-open），再选一个 SVG。保存不等于产品里有这个图标：没用到的名字不会报错，也看不到效果。", "en-US": "Override lucide icons in the workbench by name: enter an icon name (for example folder-open) and pick an SVG. Saving does not mean the product uses that icon: an unused name is not an error and has no visible effect."},
     "themeEditor.icons.name": {"zh-CN": "图标名", "en-US": "Icon name"},
     "themeEditor.icons.placeholder": {"zh-CN": "folder-open", "en-US": "folder-open"},
     "themeEditor.icons.add": {"zh-CN": "添加", "en-US": "Add"},
     "themeEditor.icons.replace": {"zh-CN": "更换", "en-US": "Replace"},
     "themeEditor.icons.remove": {"zh-CN": "移除", "en-US": "Remove"},
-    "themeEditor.icons.choose": {"zh-CN": "选择 SVG…", "en-US": "Choose SVG…"},
     "themeEditor.icons.copyToOther": {"zh-CN": "复制到另一套明暗", "en-US": "Copy to the other appearance"},
     "themeEditor.icons.none": {"zh-CN": "这一套明暗还没有图标覆盖", "en-US": "This appearance has no icon overrides yet"},
     "themeEditor.icons.list": {"zh-CN": "图标覆盖", "en-US": "Icon overrides"},
@@ -346,6 +345,11 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "themeEditor.icons.failed": {"zh-CN": "上传失败：{reason}", "en-US": "Upload failed: {reason}"},
     "themeEditor.icons.nameInvalid": {"zh-CN": "图标名只收小写字母、数字与连字符", "en-US": "Icon names take lowercase letters, digits and hyphens only"},
     "themeEditor.icons.nameEmpty": {"zh-CN": "先填图标名", "en-US": "Enter an icon name first"},
+    "themeEditor.icons.removeNamed": {"zh-CN": "移除图标 {name}", "en-US": "Remove icon {name}"},
+    "themeEditor.icons.replaceNamed": {"zh-CN": "更换图标 {name}", "en-US": "Replace icon {name}"},
+    "themeEditor.scene.provider.unpublishedNote": {"zh-CN": "提供者 {id} 没有发布：插件没装、没启用，或它的入口没有在启动时激活。", "en-US": "Provider {id} is not published: the plugin is not installed or enabled, or its entry is not activated at startup."},
+    "themeEditor.scene.working.remove": {"zh-CN": "移除工作态场景", "en-US": "Remove working scene"},
+    "themeEditor.scene.removeScene": {"zh-CN": "移除场景图", "en-US": "Remove scene image"},
 };
 
 /** 有意改过的英文：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数。 */

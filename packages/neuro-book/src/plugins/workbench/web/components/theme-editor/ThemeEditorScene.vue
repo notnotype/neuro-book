@@ -10,6 +10,7 @@ import {SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import {useWorkbenchText} from "../../text";
 import {userThemeAssetUrl} from "../../themes";
 import CropEditor from "./CropEditor.vue";
+import {NO_PROVIDER, providerOptions} from "./provider-options";
 import SceneImageSlot from "./SceneImageSlot.vue";
 import type {ThemeEditorModel} from "./theme-editor-model";
 import type {ThemeTransfer} from "./transfer";
@@ -36,19 +37,12 @@ watch(workingUrl, () => {
     workingLoadFailed.value = false;
 });
 
-/** “无”用一个不会是贡献 id 的值（贡献 id 都带点）。 */
-const NO_PROVIDER = "none";
-/** 已发布的提供者；声明里已有的提供者没发布时保留为不可选的“未发布”项，免得下拉丢了当前值。 */
-const providerOptions = computed(() => {
-    const published = model.sceneProviders.value;
+/** 声明里的提供者没发布：下拉收起时只显示它的 id，所以另在下面写一行说明。 */
+const unpublished = computed(() => {
     const current = theme.value?.declaration.sceneProvider;
-    const options: Array<{value: string; label: string; description?: string; disabled?: boolean}> = [
-        {value: NO_PROVIDER, label: text("themeEditor.scene.provider.none")},
-        ...published.map((id) => ({value: id, label: id})),
-    ];
-    if (current !== undefined && !published.includes(current)) options.push({value: current, label: current, description: text("themeEditor.scene.provider.unpublished"), disabled: true});
-    return options;
+    return current !== undefined && !model.sceneProviders.value.includes(current) ? current : null;
 });
+const options = computed(() => providerOptions(model.sceneProviders.value, theme.value?.declaration.sceneProvider, {none: text("themeEditor.scene.provider.none"), unpublished: text("themeEditor.scene.provider.unpublished")}));
 
 const previewOptions = computed(() => [
     {value: "follow", label: text("themeEditor.scene.preview.follow")},
@@ -56,8 +50,8 @@ const previewOptions = computed(() => [
     {value: "working", label: text("themeEditor.scene.preview.working")},
 ]);
 const previewValue = computed(() => (model.previewWorking.value === null ? "follow" : model.previewWorking.value ? "working" : "idle"));
-const setPreview = (value: string): void => {
-    model.previewWorking.value = value === "follow" ? null : value === "working";
+const setPreview = (value: unknown): void => {
+    model.previewWorking.value = value === "working" ? true : value === "idle" ? false : null;
 };
 </script>
 
@@ -82,8 +76,8 @@ const setPreview = (value: string): void => {
             <p class="theme-editor-scene__hint">{{ text("themeEditor.scene.working.hint") }}</p>
             <SceneImageSlot :model="model" :transfer="transfer" kind="working" :name="workingName" @stored="workingLoadFailed = false" />
             <p v-if="workingLoadFailed" class="theme-editor-scene__error" role="alert">{{ text("themeEditor.scene.loadFailed") }}</p>
-            <img v-if="workingUrl !== null" :key="workingUrl" class="theme-editor-scene__thumb" :src="workingUrl" :alt="text('themeEditor.scene.working.title')" data-working-thumb @error="workingLoadFailed = true" />
-            <p v-else class="theme-editor-scene__empty" data-working-none>{{ text("themeEditor.scene.working.none") }}</p>
+            <img v-if="workingUrl !== null && !workingLoadFailed" :key="workingUrl" class="theme-editor-scene__thumb" :src="workingUrl" :alt="text('themeEditor.scene.working.title')" data-working-thumb @error="workingLoadFailed = true" />
+            <p v-else-if="workingUrl === null" class="theme-editor-scene__empty" data-working-none>{{ text("themeEditor.scene.working.none") }}</p>
         </section>
 
         <section class="theme-editor-scene__block" data-scene-provider>
@@ -93,16 +87,17 @@ const setPreview = (value: string): void => {
                 <Select
                     size="sm"
                     :model-value="theme?.declaration.sceneProvider ?? NO_PROVIDER"
-                    :options="providerOptions"
+                    :options="options"
                     :aria-label="text('themeEditor.scene.provider.title')"
                     @update:model-value="model.setSceneProvider($event === NO_PROVIDER ? undefined : $event)"
                 />
             </div>
+            <p v-if="unpublished !== null" class="theme-editor-scene__hint" role="status" data-provider-unpublished>{{ text("themeEditor.scene.provider.unpublishedNote", {id: unpublished}) }}</p>
         </section>
 
         <section class="theme-editor-scene__block" data-scene-preview>
             <h3 class="theme-editor-scene__title">{{ text("themeEditor.scene.preview.title") }}</h3>
-            <SegmentedControl size="sm" :model-value="previewValue" :options="previewOptions" :aria-label="text('themeEditor.scene.preview.title')" data-preview-state @update:model-value="setPreview($event as string)" />
+            <SegmentedControl size="sm" :model-value="previewValue" :options="previewOptions" :aria-label="text('themeEditor.scene.preview.title')" data-preview-state @update:model-value="setPreview" />
             <p class="theme-editor-scene__hint">{{ text("themeEditor.scene.preview.hint") }}</p>
         </section>
     </div>

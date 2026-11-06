@@ -471,13 +471,15 @@
                 "hint": "Shown while an Agent is working; falls back to the scene image above. Uses the same framing.",
                 "upload": "Upload working scene",
                 "replace": "Replace working scene",
-                "none": "This appearance has no working scene yet"
+                "none": "This appearance has no working scene yet",
+                "remove": "Remove working scene"
             },
             "provider": {
                 "title": "Scene provider",
                 "hint": "A plugin draws the scene; the static images above are the fallback when the provider is missing or fails.",
                 "none": "None",
-                "unpublished": "Not published"
+                "unpublished": "Not published",
+                "unpublishedNote": "Provider {{id}} is not published: the plugin is not installed or enabled, or its entry is not activated at startup."
             },
             "preview": {
                 "title": "Preview state",
@@ -485,7 +487,8 @@
                 "follow": "Follow",
                 "idle": "Idle",
                 "working": "Working"
-            }
+            },
+            "removeScene": "Remove scene image"
         },
         "transfer": {
             "exported": "Exported {{name}}",
@@ -502,20 +505,21 @@
             "saveFailed": "Not saved: {{code}}; the change was undone"
         },
         "icons": {
-            "hint": "Override icons in the workbench: enter a lucide icon name (for example folder-open) and pick an SVG. Saving does not mean the product uses that icon: an unused name is not an error and has no visible effect.",
+            "hint": "Override lucide icons in the workbench by name: enter an icon name (for example folder-open) and pick an SVG. Saving does not mean the product uses that icon: an unused name is not an error and has no visible effect.",
             "name": "Icon name",
             "placeholder": "folder-open",
             "add": "Add",
             "replace": "Replace",
             "remove": "Remove",
-            "choose": "Choose SVG…",
             "copyToOther": "Copy to the other appearance",
             "none": "This appearance has no icon overrides yet",
             "list": "Icon overrides",
             "preview": "Preview of {{name}}",
             "failed": "Upload failed: {{reason}}",
             "nameInvalid": "Icon names take lowercase letters, digits and hyphens only",
-            "nameEmpty": "Enter an icon name first"
+            "nameEmpty": "Enter an icon name first",
+            "replaceNamed": "Replace icon {{name}}",
+            "removeNamed": "Remove icon {{name}}"
         }
     },
     "editorPages": {

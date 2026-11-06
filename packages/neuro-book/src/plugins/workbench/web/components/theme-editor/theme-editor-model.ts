@@ -199,17 +199,17 @@ export class ThemeEditorModel {
      * 所有修改的入口：先在副本上改、过一遍“我的主题”的校验，不合格不写（原因记在 `rejected`）；写了再看提交结果，确定失败就撤回。
      * 目标主题与明暗都在动作发起时定下（`target`、`appearance` 参数，缺省取此刻的），提交排队、重放、跨 await 时都不再读界面上
      * 可变的“当前”：否则亮色下的修改在排队时切到暗色，会写进暗色并留下相反的手改标记。
+     * 返回这次改动有没有真的写进去（被拒绝、目标已不在、提交失败都是 false，原因在 `rejected`）：上传素材后写声明的调用方据此决定显示成功还是保持原样。
      */
-    async #update(change: (draft: UserTheme, appearance: Appearance) => void, target: string | null = this.selectedId.value, appearance: Appearance = this.appearance.value): Promise<unknown> {
-        if (target === null) return undefined;
+    async #update(change: (draft: UserTheme, appearance: Appearance) => void, target: string | null = this.selectedId.value, appearance: Appearance = this.appearance.value): Promise<boolean> {
+        if (target === null) return false;
         const current = this.mine.value.find((theme) => theme.id === target);
-        if (current === undefined) return undefined;
+        if (current === undefined) return false;
         const problem = this.#problemOf(edited(current, (draft) => change(draft, appearance)));
         this.rejected.value = problem;
-        if (problem !== null) return undefined;
+        if (problem !== null) return false;
         const result = await this.#env.store.actions.update(target, (theme) => edited(theme, (draft) => change(draft, appearance)));
-        this.#settle(result);
-        return result;
+        return this.#settle(result);
     }
 
     #problemOf(theme: UserTheme): string | null {
@@ -357,7 +357,7 @@ export class ThemeEditorModel {
     // ---- 场景 ----
 
     /** 一个明暗的场景图：写素材文件名；`undefined` 去掉。`target` 是发起时定下的主题与明暗（上传要几秒，期间用户可能切走）。 */
-    setScene(name: string | undefined, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<unknown> {
+    setScene(name: string | undefined, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<boolean> {
         return this.#update((draft, appearance) => {
             const look = draft.declaration[appearance];
             if (name === undefined) delete look.scene;
@@ -366,7 +366,7 @@ export class ThemeEditorModel {
     }
 
     /** 一个明暗的工作态场景（位图素材文件名）；`undefined` 去掉。目标在发起时定下，同 `setScene`。 */
-    setWorkingScene(name: string | undefined, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<unknown> {
+    setWorkingScene(name: string | undefined, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<boolean> {
         return this.#update((draft, appearance) => {
             const look = draft.declaration[appearance];
             if (name === undefined) delete look.workingScene;
@@ -388,7 +388,7 @@ export class ThemeEditorModel {
      * 一个图标的覆盖：写图标素材文件名；对已有的名字就是替换。`target` 是发起时定下的主题与明暗（上传要几秒，期间用户可能切走），
      * 图标名由调用方在同一时刻规范化后传入（首尾空白去掉）。图标名不合规则由 `userThemeProblem` 拒绝。
      */
-    setIcon(iconName: string, assetName: string, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<unknown> {
+    setIcon(iconName: string, assetName: string, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<boolean> {
         return this.#update((draft, appearance) => {
             const look = draft.declaration[appearance];
             look.icons = {...look.icons, [iconName]: assetName};

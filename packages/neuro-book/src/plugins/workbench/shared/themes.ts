@@ -72,7 +72,7 @@ function stringsIn(value: unknown): string[] {
 }
 
 /** 图标名只收小写字母、数字与连字符（lucide 的写法）：它会拼进样式表的选择器。 */
-const ICON_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+export const ICON_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 export const MAX_ICONS = 64;
 const SCENE_PROVIDER_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
