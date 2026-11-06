@@ -22,7 +22,7 @@ export interface CheckSegment {
     readonly paragraphs: readonly string[];
     /** 候选读有效知情的位置。 */
     readonly position: ReadPosition;
-    /** 拼“写之前的集合”用的框架（章首或补叙的安放，按计划模式）。 */
+    /** 拼“写之前的集合”用的框架（章首或补叙的安放；写完以后条目的值按实际模式读）。 */
     readonly frame: Frame;
 }
 

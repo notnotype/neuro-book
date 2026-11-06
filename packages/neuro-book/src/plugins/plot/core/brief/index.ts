@@ -116,7 +116,7 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         const plans = plansOf(frame, chapter);
         const participants = participantsOf(plans);
         const reveals = planReveals(plans);
-        const points = pointsBeforeWriting(frame, chapter, plans);
+        const points = pointsBeforeWriting(frame, chapter, plans, "planned");
         const secrets = buildSecrets(frame, points, participants, reveals, povId, instruction?.povMode);
         const decided = involvedDecisions(frame.view, chapter, "planned", points);
         const decidedFull = decided.filter((decision) => decision.status === "decided").map((decision) => frame.view.object({kind: "decision", id: decision.id}) as Decision);

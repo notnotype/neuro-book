@@ -1,5 +1,5 @@
 /**
- * 本章涉及的知识点，写完以后的集合（docs/specs/plot/knowledge.md 输出 10）：写之前的集合，加第 N 章已写变更引用到的、正文里出现了主体或
+ * 本章涉及的知识点，写完以后的集合（docs/specs/plot/knowledge.md 输出 10）：同样算写之前的集合（本章的计划照算，条目的值按实际模式读），加第 N 章已写变更引用到的、正文里出现了主体或
  * `揭穿` 马甲的名字与别名的；只取第 N 章章末已出场的。
  */
 
@@ -44,7 +44,7 @@ function maskingPoints(view: CanonReadView): ReadonlySet<string> {
 export function pointsAfterWriting(segment: CheckSegment, chapter: string, written: readonly StoryChange[], text: string): string[] {
     const {frame, view} = segment;
     const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
-    // 按实际模式读：写完了，计划没发生就是没发生。也只有这样依赖摘要才不用推理按计划模式的覆盖层（dependencies.ts）。
+    // 条目的值按实际模式读：写完了，更早没兑现的计划没发生就是没发生。也只有这样依赖摘要才不用推理按计划模式的覆盖层（dependencies.ts）。
     const points = new Set(pointsBeforeWriting(frame, chapter, plansOf(frame, chapter), "actual"));
     for (const change of written) for (const id of pointsReferencedBy(frame, change, "actual")) points.add(id);
     const names = everyName(view);

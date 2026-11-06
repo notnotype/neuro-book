@@ -80,7 +80,7 @@ export function nameOf(frame: Frame, id: string): string {
     return read === null || read === "chapter-not-found" ? id : read.name;
 }
 
-const secrecyOf = (frame: Frame, id: string, mode: Mode = "planned"): Secrecy | null => {
+const secrecyOf = (frame: Frame, id: string, mode: Mode): Secrecy | null => {
     const stored = frame.view.object({kind: "entry", id}) as {type?: string; deleted?: boolean} | undefined;
     if (stored === undefined || stored.deleted === true || stored.type !== ENTRY_TYPES.point) return null;
     const read = frame.view.entry(id, frame.position, mode);
@@ -90,7 +90,8 @@ const secrecyOf = (frame: Frame, id: string, mode: Mode = "planned"): Secrecy | 
 };
 
 export const isSecretPlus = (secrecy: Secrecy | null): secrecy is "secret" | "topSecret" => secrecy === "secret" || secrecy === "topSecret";
-export const secrecyAt = secrecyOf;
+/** 给写手的简报用：按计划模式。写完以后的检查不能走这里（`pointsAfterWriting` 传 `actual`）。 */
+export const secrecyAt = (frame: Frame, id: string): Secrecy | null => secrecyOf(frame, id, "planned");
 
 /** 计划上的指示：讲述上的 `reveal`（挂在讲述上，不在 `change.marks` 里）。每个知识点取最强的一种（明说强于暗示）。 */
 export function planReveals(plans: readonly StoryChange[]): Map<string, "hint" | "explicit"> {
@@ -125,7 +126,7 @@ function patchPoints(frame: Frame, plan: StoryChange, mode: Mode): string[] {
 const marksOf = (marks: readonly Mark[] | undefined, kind: string) => (marks ?? []).filter((mark) => mark.kind === kind && mark.version === 1);
 
 /** 一条变更引用到的知识点：补丁、标注（揭示、在场揭示、伏笔节点所指伏笔的答案）、讲述上的标注（knowledge 输出 10 的“这几样”）。 */
-export function pointsReferencedBy(frame: Frame, change: StoryChange, mode: Mode = "planned"): string[] {
+export function pointsReferencedBy(frame: Frame, change: StoryChange, mode: Mode): string[] {
     const points = patchPoints(frame, change, mode);
     for (const mark of marksOf(change.marks, MARK_IDS.presentLearns)) if (typeof mark.point === "string") points.push(mark.point);
     for (const telling of change.told) {
@@ -142,9 +143,9 @@ export function pointsReferencedBy(frame: Frame, change: StoryChange, mode: Mode
 /**
  * 本章涉及的知识点，写之前的集合（knowledge 输出 10）：计划的补丁与标注（揭示、在场揭示、伏笔节点所指伏笔的答案）、细纲讲述上的
  * 标注引用到的知识点；加上主体是计划的参与者或涉及的条目、保密档为 `secret` 或 `topSecret` 的知识点；加上这些参与者进行或受挫的
- * 目标的 `隐秘` 指向的知识点。给写手的简报按计划模式读（`mode` 的缺省）；写完以后的集合在它上面加，按实际模式读（knowledge 输出 10）。
+ * 目标的 `隐秘` 指向的知识点。给写手的简报按计划模式读；写完以后的集合在它上面加，条目的值按实际模式读，本章自己的计划照算（knowledge 输出 10）。
  */
-export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readonly StoryChange[], mode: Mode = "planned"): string[] {
+export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readonly StoryChange[], mode: Mode): string[] {
     const points = new Set<string>();
     const view = frame.view;
     const entries = new Set(view.chapterEntries(chapter, "planned"));

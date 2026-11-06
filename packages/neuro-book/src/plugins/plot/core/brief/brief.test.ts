@@ -2,7 +2,7 @@ import {describe, expect, test} from "bun:test";
 
 import {COMPONENT_IDS, MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
-import {addRow, chapter, drafts, PlotWorld} from "../../testing/world";
+import {addRow, chapter, drafts, PlotWorld, present} from "../../testing/world";
 import {composeBrief, type BriefInput, type BriefResult} from "./index";
 import * as fixed from "./fixed";
 
@@ -83,6 +83,17 @@ describe("plot.brief 验收 2、3：绝密的持有者", () => {
 });
 
 describe("plot.brief 输出 1、6、11、12、15：组成、场景条件、固定句、裁剪与记录", () => {
+    test("给写手的集合按计划模式读：更早没兑现的计划把知识点升成保密，主体不在正文里，简报仍列它与挂在它上面的约束", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [hero, guard] = [w.person("勇者"), w.person("卫兵")];
+        const k = w.point("勇者左手有星形的疤", hero, {保密: "common"});
+        w.decision("疤的事", {about: [{kind: "entry", id: k}], conclusion: "这章不写明", constraints: ["不得写明疤在左手"]});
+        w.change(chapter("ch3"), {kind: "plan", patches: [{op: "set", at: {entry: k, path: "point.保密"}, value: "secret"}]});
+        w.change(chapter("ch8"), {kind: "plan", cast: [present(hero), present(guard)]});
+        const result = brief(w, "ch8");
+        expect(JSON.stringify(result.parts)).toContain("不得写明疤在左手");
+    });
+
     test("没有内容的段写“无”；上一章不存在时那一段写“无”；场景条件都没有时给固定句和提示；通则、允许新增、自陈是固定句", () => {
         const w = new PlotWorld(CHAPTERS);
         w.person("星瑾");

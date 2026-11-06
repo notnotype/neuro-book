@@ -501,27 +501,6 @@ describe("跨条目的间接影响、身份与讲述", () => {
         mustChange(w, () => w.texts.set("ch3", "旅人总戴着左手的手套，谁也没见他摘下来。\n"));
     });
 
-    test("链接很长、写入的先后反着：整组跟最早的一条（拆分的 `by` 也跟）", () => {
-        const w = new PlotWorld(CHAPTERS);
-        const hero = w.person("勇者");
-        const k = w.point("勇者的秘密", hero, {保密: "secret"});
-        addText(w, "ch8", "勇者走进客栈");
-        const planAt = (at: string) => w.change(chapter(at), {kind: "plan", patches: [{op: "set", at: {entry: k, path: "point.保密"}, value: "secret"}]});
-        const fulfill = (plan: string, at: string) => w.change(chapter(at, 1), {links: [{kind: "fulfills", plan}], told: [inText(w, at, `第 ${at} 章兑现`)]});
-        // 后面的计划先建：全部变更按写入的先后排，第 20 章的那条排在最前，传得过去要跑不止两遍。
-        const [p4, p3, p2, p1] = [planAt("ch20"), planAt("ch16"), planAt("ch12"), planAt("ch5")];
-        const [c3, c2, c1] = [fulfill(p3, "ch18"), fulfill(p2, "ch14"), fulfill(p1, "ch10")];
-        const split = (plan: string, from: string, by: string) => w.publish([{ref: {kind: "change", id: plan}, after: {...w.world.data.changes.get(plan)!, links: [{kind: "splitFrom", plan: from, by}]}}]);
-        split(p4, p3, c3);
-        split(p3, p2, c2);
-        split(p2, p1, c1);
-        const stored = planOf(w, "ch8");
-        const before = deps(w, "ch8", {}, stored);
-        const last = w.world.data.changes.get(p4)!;
-        w.publish([{ref: {kind: "change", id: p4}, after: {...last, text: "改过"}}]);
-        expect(deps(w, "ch8", {}, stored)).not.toBe(before);
-    });
-
     test("把 `揭穿` 改指向另一个马甲：两个马甲都已在身份那一项里，只有这条补丁变了", () => {
         const w = new PlotWorld(CHAPTERS);
         const [first, second] = [w.person("黑衣人"), w.person("灰袍客")];
@@ -544,7 +523,7 @@ describe("跨条目的间接影响、身份与讲述", () => {
     });
 });
 
-describe("线、挂靠与覆盖层（都是真实的反例）", () => {
+describe("线与挂靠（都是真实的反例）", () => {
     const undo = (w: PlotWorld, id: string) => w.publish([{ref: {kind: "change", id}, after: {...w.world.data.changes.get(id)!, status: "undone", undoneReason: "不要了"}}]);
     const moveTo = (w: PlotWorld, id: string, at: string) => w.publish([{ref: {kind: "change", id}, after: {...w.world.data.changes.get(id)!, at: chapter(at)}}]);
     function bystander(w: PlotWorld) {
@@ -612,6 +591,43 @@ describe("线、挂靠与覆盖层（都是真实的反例）", () => {
         mustChange(w, () => undo(w, anchor), {}, "ch10");
     });
 
+    test("更早的章讲一条分叉安放在后面的回溯线、又带过去伏笔的答案：第 8 章之后的改动改变第 8 章的试读材料", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const k = w.point("勇者左手有星形的疤", hero, {保密: "secret", 读者问题: "勇者有什么特征"});
+        const other = w.point("另一件事", null, {保密: "common"});
+        const fs = w.foreshadow("星形的疤", {种类: "mystery", 答案: {ref: other}});
+        for (const id of CHAPTERS) w.texts.set(id, `${id} 开头。\n`);
+        w.texts.set("ch1", "切口这一句。\n");
+        w.texts.set("ch8", "勇者走进客栈。\n");
+        w.texts.set("ch10", "触发这一句。\n");
+        w.texts.set("ch6", "子线上一处暗示星形的疤。\n");
+        const cut = w.change(chapter("ch1"), {told: [{source: "chapter", chapter: "ch1", quote: "切口这一句"}]});
+        const trigger = w.change(chapter("ch10"), {told: [{source: "chapter", chapter: "ch10", quote: "触发这一句"}]});
+        const line = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch10", 5)), nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut, trigger, type: "rollback", carry: [{entry: fs, path: "fs.答案"}]}}}])["tmp:r"]!;
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch6", [{line, from: 1}]]])});
+        w.change({kind: "chapter", chapter: "ch6", key: 1, line}, {told: [{source: "chapter", chapter: "ch6", quote: "子线上一处暗示星形的疤", marks: [reveal(k, "hint")]}]});
+        w.change(chapter("ch20"), {kind: "plan", told: [{source: "outline", chapter: "ch20", anchor: "细纲", marks: [reveal(k, "explicit")]}]});
+        // 回溯以后本来就要把答案改成 K：K 已经在“可能的答案”里，第 9 章的改动不再让那张表变。
+        w.change(chapter("ch15"), {patches: [{op: "set", at: {entry: fs, path: "fs.答案"}, value: {ref: k}}]});
+        mustChange(w, () => w.change(chapter("ch9"), {patches: [{op: "set", at: {entry: fs, path: "fs.答案"}, value: {ref: k}}]}));
+    });
+
+    test("分叉所在章删了，线仍可建：带过去的知情读到触发处，触发处之前的改动要算", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const guard = w.person("卫兵");
+        const k = w.point("卫兵的秘密", guard, {保密: "secret"});
+        for (const id of CHAPTERS) w.texts.set(id, `${id} 卫兵走进客栈。\n`);
+        const cut = w.change(chapter("ch1"), {told: [{source: "chapter", chapter: "ch1", quote: "卫兵走进客栈"}]});
+        const trigger = w.change(chapter("ch9", 5), {told: [{source: "chapter", chapter: "ch9", quote: "卫兵走进客栈"}]});
+        const line = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch10", 5)), nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: guard}}}])["tmp:r"]!;
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line, from: 1}]]])});
+        w.change({kind: "chapter", chapter: "ch8", key: 1, line}, {cast: [present(guard)]});
+        const order = w.world.options.order.ids.filter((id) => id !== "ch10");
+        w.world = w.world.withOptions({...w.world.options, order: new (w.world.options.order.constructor as new (ids: readonly string[]) => typeof w.world.options.order)(order)});
+        mustChange(w, () => w.change(chapter("ch9", 1), {patches: [addRow(guard, k, {程度: "knows"})]}));
+    });
+
     test("写完以后的集合不按计划模式读：早先没兑现的计划改了保密档，结论不跟着变", () => {
         const w = new PlotWorld(CHAPTERS);
         const {touch, removeRow} = bystander(w);
@@ -639,6 +655,23 @@ describe("线、挂靠与覆盖层（都是真实的反例）", () => {
             w.publish([{ref: {kind: "change", id: fork}, after: {...stored, fork: {...stored.fork!, name: "改过名的支线"}}}]);
         });
         mustStay(w, () => w.publish([{ref: {kind: "change", id: cut}, after: {...w.world.data.changes.get(cut)!, text: "改过的文字"}}]));
+    });
+
+    test("变更的说明文字、回溯分叉的线名计划不读：提到同一个人的章不用重拼", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [hero, guard] = [w.person("勇者"), w.person("卫兵")];
+        w.point("勇者的秘密", hero, {保密: "secret"});
+        const cut = w.change(chapter("ch1"));
+        const trigger = w.change(chapter("ch2"));
+        const fork = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch3")), nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: hero}}}])["tmp:f"]!;
+        const scene = w.change(chapter("ch5"), {text: "原来的说明", cast: [present(hero)]});
+        w.texts.set("ch8", "勇者走进客栈。\n");
+        w.change(chapter("ch8"), {cast: [present(hero), present(guard)]});
+        mustStay(w, () => w.publish([{ref: {kind: "change", id: scene}, after: {...w.world.data.changes.get(scene)!, text: "改过的说明"}}]));
+        mustStay(w, () => {
+            const stored = w.world.data.changes.get(fork)!;
+            w.publish([{ref: {kind: "change", id: fork}, after: {...stored, text: "改过", fork: {...stored.fork!, name: "改过名的回溯"}}}]);
+        });
     });
 
     test("只改知识点的启用（`揭穿` 写在初值）：知识点因马甲的名字进本章", () => {

@@ -210,7 +210,7 @@ service.closeView(opened.token);
 // ---------- 阶段 F：写完以后的检查（1000 章都有检查记录） ----------
 // 模型是立刻回答的替身：这里量的是圈候选、拼输入、校验有效性，不是模型。Spec 没给校验定预算（只要求按这个规模量），下面的参考数是作者定的。
 const sha = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
-// 让检查的路径都走到：带答案与物件的悬念、未兑现的与改两个条目的计划、活页夹里讲到的子线。没有这些，试读的材料、按计划模式的覆盖层、按线取结论都量不到。
+// 让检查的路径都走到：带答案与物件的悬念、未兑现的与改两个条目的计划、活页夹里讲到的子线。没有这些，试读的材料、按线取结论都量不到。
 const THINGS = 10;
 const reveal = (id: string): Mark => ({kind: MARK_IDS.reveal, version: 1, point: id, mode: "explicit"});
 const thingIds = await plot.publish(Array.from({length: THINGS}, (_, index) => ({ref: {kind: "entry" as const, id: `tmp:thing${String(index)}`}, after: drafts.thing(`tmp:thing${String(index)}`, `物件${String(index)}`)})));
@@ -245,9 +245,9 @@ for (let n = Math.floor(chapters * 0.3) + 2; n <= Math.floor(chapters * 0.3) + 1
 }
 // 再讲四条子线，每条两章：超过常驻名额（3 条）时，逐条问结论会让线反复淘汰重建，依赖摘要要按线一次取完。
 for (let extra = 0; extra < 4; extra += 1) {
-    const at = Math.floor(chapters * 0.4) + extra * 10;
+    const at = Math.floor(chapters * 0.76) + extra * 10;
     const forkId = `tmp:toldFork${String(extra)}`;
-    const line = (await plot.publish([{ref: {kind: "change", id: forkId}, after: {...drafts.change(forkId, {kind: "chapter", chapter: chapterIds[at]!, key: 700}), nature: "fork" as const, fork: {line: `tmp:toldLine${String(extra)}`, name: `讲到的子线${String(extra)}`, parent: "main", cut: forkCuts[0]!, type: "branch" as const}}}]))[`tmp:toldLine${String(extra)}`]!;
+    const line = (await plot.publish([{ref: {kind: "change", id: forkId}, after: {...drafts.change(forkId, {kind: "chapter", chapter: chapterIds[at]!, key: 700}), nature: "fork" as const, fork: {line: `tmp:toldLine${String(extra)}`, name: `讲到的子线${String(extra)}`, parent: "main", cut: forkCuts[2]!, type: "branch" as const}}}]))[`tmp:toldLine${String(extra)}`]!;
     for (const offset of [2, 3]) {
         const chapter = chapterIds[at + offset]!;
         binderLines.set(chapter, [{line, from: 1}]);

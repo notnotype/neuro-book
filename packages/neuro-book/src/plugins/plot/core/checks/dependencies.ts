@@ -2,7 +2,8 @@
  * 依赖的摘要（docs/specs/plot/checks.md 输出 7：实现可以先比各项依赖的摘要、不同时才重拼，结果必须与重拼相同）。全书都跑过检查时，每次读待处理都重拼要几分钟，所以比这个摘要：
  * 相同就直接用记录的结论，不同才 `planCheck`。
  *
- * **只能多算不能漏**：`planCheck` 读到的一切都要算进来。`B` 是这一章、补叙安放、定义它讲的线的分叉所在章里最晚的一章，桶晚于 `B` 的东西计划读不到。
+ * **只能多算不能漏**：`planCheck` 读到的一切都要算进来。`B` 是这一章、补叙安放，以及这一章和它以前讲过的线（试读的材料读活页夹讲过的每条线）的分叉、切口、触发处所在章里最晚的一章，
+ * 桶晚于 `B` 的东西计划读不到。
  *
  * | 计划读的 | 在哪 | 摘要里 |
  * |---|---|---|
@@ -76,10 +77,17 @@ function cachesOf(digest: Digest): Caches {
     }
     return found;
 }
-function factsOf(value: object, digest: Digest, caches: Caches): ObjectFacts {
+/** 变更的说明文字与线名计划不读：改它们不用重拼。提到谁也不从这里取，说明文字里写的 id 不算读。 */
+function readableChange(change: StoryChange): object {
+    const {text: _text, fork, ...rest} = change;
+    if (fork === undefined) return rest;
+    const {name: _name, ...forkFields} = fork;
+    return {...rest, fork: forkFields};
+}
+function factsOf(value: object, digest: Digest, caches: Caches, project: (value: never) => object = (same) => same): ObjectFacts {
     let found = caches.facts.get(value);
     if (found === undefined) {
-        const text = canonicalJson(value);
+        const text = canonicalJson(project(value as never));
         found = {digest: digest(text), mentions: [...new Set(text.match(ENTRY_ID) ?? [])]};
         caches.facts.set(value, found);
     }
@@ -166,8 +174,8 @@ const lineOfChange = (change: StoryChange) => change.at.line ?? MAIN_LINE;
 const marksOf = (telling: Telling): readonly Mark[] => telling.marks ?? [];
 
 /**
- * 全部线上的变更分桶：讲述先于安放的按讲述算（读者读到的），被兑现的计划跟着兑现它的变更（兑现继承计划的节点），替代与拆分（连同 `by`）几头取早的；未排章的与分叉算全局（-1）。
- * 实际模式下真正要跟的只有兑现（继承）；替代与拆分只决定按计划模式计入哪些计划，计划的路径现在不读，留着是只多不少：改它们很少见。
+ * 全部线上的变更分桶：讲述先于安放的按讲述算（读者读到的），被兑现的计划跟着兑现它的变更（已写变更继承计划的节点，foreshadowing.ts）；未排章的与分叉算全局（-1）。
+ * 替代与拆分不用跟：它们只决定按计划模式计入哪些计划，计划的路径不读（`later` 用的 `revealTable` 是全局一张表）。
  */
 function bucketsOfChanges(view: CanonReadView, changes: readonly StoryChange[]): Map<string, number> {
     const chapterIndex = new Map(view.chapters.map((chapter, index) => [chapter, index] as const));
@@ -180,26 +188,11 @@ function bucketsOfChanges(view: CanonReadView, changes: readonly StoryChange[]):
         }
         buckets.set(change.id, bucket);
     }
-    const linked = changes.filter((change) => change.links.length > 0);
-    const lower = (id: string, bucket: number) => {
-        const known = buckets.get(id);
-        if (known === undefined || known <= bucket) return false;
-        buckets.set(id, bucket);
-        return true;
-    };
-    // 跑到不动点：链接是一张图，写入的先后不保证拓扑顺序，也没有长度上限。桶只降不升，所以一定收敛。
-    for (let moved = true; moved; ) {
-        moved = false;
-        for (const change of linked) {
-            for (const link of change.links) {
-                const [own, other] = [buckets.get(change.id)!, buckets.get(link.plan)];
-                if (other === undefined) continue;
-                if (lower(link.plan, own)) moved = true;
-                if (link.kind === "fulfills") continue;
-                const early = Math.min(other, own);
-                if (lower(change.id, early)) moved = true;
-                if (link.kind === "splitFrom" && lower(link.by, early)) moved = true;
-            }
+    for (const change of changes) {
+        for (const link of change.links) {
+            if (link.kind !== "fulfills") continue;
+            const plan = buckets.get(link.plan);
+            if (plan !== undefined && buckets.get(change.id)! < plan) buckets.set(link.plan, buckets.get(change.id)!);
         }
     }
     return buckets;
@@ -281,16 +274,14 @@ interface WorldFold {
     /** 条目的桶：出场与重述取早的，没写出场的算全局。 */
     readonly entryBuckets: ReadonlyMap<string, number>;
     readonly identitySet: ReadonlySet<string>;
-    /** 每一章的分段：视图的方法每次都要冻结，一千章各读几次。 */
-    readonly chapterSegments: ReadonlyMap<string, readonly {readonly line: string}[]>;
     readonly own: ReadonlyMap<string, OwnFold>;
     readonly material: ReadonlyMap<string, Prefix>;
     readonly decisions: DecisionFold;
     /** 每个知识点最晚的明说揭示所在章。 */
     readonly reveals: ReadonlyMap<string, number>;
     readonly declarations: string;
-    /** 每条线到定义它与它的祖先线的分叉所在章里最晚的下标。 */
-    readonly lineBound: ReadonlyMap<string, number>;
+    /** 第 i 章的边界：这一章和它以前讲过的线的分叉、切口、触发处（连同祖先线）所在章里最晚的下标。 */
+    readonly readBound: readonly number[];
 }
 
 /** 条目本身：`folder`、`order` 只管在树里怎么摆，计划不读。 */
@@ -327,7 +318,7 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             tellings: change.told,
             placedIn: change.at.kind === "chapter" ? [change.at.chapter] : [],
             bucket: changeBuckets.get(change.id)!,
-            mentions: factsOf(change, digest, caches).mentions,
+            mentions: factsOf(change, digest, caches, readableChange).mentions,
         }));
         for (const check of view.allChecks()) {
             const anchor = check.anchor === undefined ? undefined : (view.object({kind: "change", id: check.anchor.change}) as StoryChange | undefined);
@@ -346,7 +337,7 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             if (retold.length > 0) things.push({value: entry.retold!, tellings: retold, placedIn: [], bucket: told.length === 0 ? -1 : Math.min(...told), mentions: factsOf(entry.retold!, digest, caches).mentions});
         }
 
-        // 链接成组：组里任何一条提到 X，整组都算提到 X（计划的节点、进展与拆分都跨链接读）。
+        // 兑现成组：组里任何一条提到 X，整组都算提到 X（已写变更继承计划的节点）。
         const groups = new Map<string, string>();
         const rootOf = (id: string): string => {
             let root = id;
@@ -360,10 +351,7 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             groups.set(rootA, rootB);
         };
         for (const change of changes) {
-            for (const link of change.links) {
-                union(change.id, link.plan);
-                if (link.kind === "splitFrom") union(change.id, link.by);
-            }
+            for (const link of change.links) if (link.kind === "fulfills") union(change.id, link.plan);
         }
         if (groups.size > 0) {
             const byRoot = new Map<string, Set<string>>();
@@ -497,7 +485,7 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
                 const exactValue = valueOf(caches.exact, thing.value, `${objectDigest}|${where}`, digest);
                 for (const point of answers) materialOf(point).add(thing.bucket, exactValue);
             }
-            // 本章的对象：只放对象本身，提到的条目进 `R`。发生点由本章正文与引文决定（都在摘要里）；套没套上、联动戳在提到的条目的历史里。
+            // 本章的对象：只放对象本身，提到的条目进 `R`。发生点由本章正文与引文决定（都在摘要里）；套没套上在提到的条目的历史里。
             const chapters = new Set(thing.placedIn);
             for (const telling of thing.tellings) if (telling.chapter !== undefined) chapters.add(telling.chapter);
             for (const chapter of chapters) {
@@ -568,12 +556,22 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
         const lineBound = new Map<string, number>();
         for (const summary of summaries.values()) {
             let bound = -1;
+            // 带过去的值读到切口或触发处：分叉所在章删了以后，分叉没有位置，线仍可建（canon.worldlines 输出 18）。
             for (let line: typeof summary | undefined = summary; line !== undefined; line = summaries.get(line.parent)) {
-                bound = Math.max(bound, placementIndex(view, (view.object({kind: "change", id: line.fork}) as StoryChange | undefined)?.at));
+                for (const id of [line.fork, line.cut, line.trigger]) {
+                    if (id !== undefined) bound = Math.max(bound, placementIndex(view, (view.object({kind: "change", id}) as StoryChange | undefined)?.at));
+                }
             }
             lineBound.set(summary.id, bound);
         }
-        return {order, identity, foreshadow, histories, children, entryBuckets, identitySet, chapterSegments, own, material, decisions: decisionFold(view, digest), reveals: revealTable(view), declarations: view.declarationsDigest(), lineBound};
+        // 试读读活页夹讲过的每条线：第 N 章的边界要算上第 N 章和它以前讲过的线。
+        const readBound: number[] = [];
+        for (const chapter of view.chapters) {
+            let bound = readBound.at(-1) ?? -1;
+            for (const segment of chapterSegments.get(chapter) ?? []) bound = Math.max(bound, lineBound.get(segment.line) ?? -1);
+            readBound.push(bound);
+        }
+        return {order, identity, foreshadow, histories, children, entryBuckets, identitySet, readBound, own, material, decisions: decisionFold(view, digest), reveals: revealTable(view), declarations: view.declarationsDigest()};
     });
 }
 
@@ -593,7 +591,8 @@ export interface DependencyInput {
 function boundOf(input: DependencyInput, fold: WorldFold): number {
     const {view, chapter} = input;
     const flashback = placementIndex(view, flashbackOf(input.instruction?.snapshot));
-    return Math.max(view.chapters.indexOf(chapter), flashback, ...(fold.chapterSegments.get(chapter) ?? []).map((segment) => fold.lineBound.get(segment.line) ?? -1));
+    const here = view.chapters.indexOf(chapter);
+    return Math.max(here, flashback, fold.readBound[here] ?? -1);
 }
 
 /** 身份集合：摘要只覆盖它们的名字、别名、出场、是否删除、`揭穿`。 */
