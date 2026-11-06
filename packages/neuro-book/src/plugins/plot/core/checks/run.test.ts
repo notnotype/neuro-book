@@ -35,6 +35,17 @@ function guardScene() {
 const presenceYes = (request: {user: string; answer: string}) => (request.answer === "yesNo" && request.user.includes("把这件事当真") ? {answer: "yes", quotes: [SLIP]} : undefined);
 
 describe("验收 1：卫兵认出勇者", () => {
+    test("决策 输出 7：穿帮附上挂在这个知识点、这个人或本章上的决策；挂在别处的不附", async () => {
+        const {w, guard, k} = guardScene();
+        const onPoint = w.decision("卫兵认不认识", {about: [{kind: "entry", id: k}]});
+        const onPerson = w.decision("卫兵的立场", {about: [{kind: "entry", id: guard}]});
+        const onChapter = w.decision("这一章怎么收", {about: [{kind: "chapter", id: "ch4"}]});
+        w.decision("别的章", {about: [{kind: "chapter", id: "ch5"}]});
+        const record = await runOk(w, "ch4", scripted((_, request) => presenceYes(request)).models);
+        const attached = reported(w, [record])[CHECK.possibleSlip]![0]!.objects.filter((object) => object.kind === "decision").map((object) => object.id);
+        expect(attached.sort()).toEqual([onPoint, onPerson, onChapter].sort());
+    });
+
     test("在场层答“有”并引原句，进一条可能穿帮；改正文没重跑只报要重跑；重跑以后消失", async () => {
         const {w, guard, k} = guardScene();
         const first = await runOk(w, "ch4", scripted((_, request) => presenceYes(request)).models);
@@ -264,6 +275,8 @@ describe("决策、写作指示、时间与物件", () => {
         const record = await runOk(w, "ch4", scripted((_, request) => (request.answer === "fixed" ? {items: ruleIds(request).map((item) => ({item, answer: "yes", quotes: [SLIP]})), newFacts: []} : undefined)).models, scene);
         const found = reported(w, [record], scene);
         expect(found[CHECK.instructionViolated]!.map((item) => String(item.key.detail).split(":")[0]).sort()).toEqual(["avoid", "ending", "pov"]);
+        // 决策 输出 7：违反写作指示附上挂在本章上的决策。
+        expect(found[CHECK.instructionViolated]![0]!.objects).toEqual(expect.arrayContaining([{kind: "decision", id: decided}, {kind: "decision", id: pending}]));
         expect(found[DECISION.constraintViolated]).toMatchObject([{key: {objects: [{kind: "decision", id: decided}], range: {from: "ch4", to: "ch4"}}}]);
         expect(String(found[DECISION.constraintViolated]![0]!.params.rule)).toContain("别提星形");
         expect(String(found[DECISION.constraintViolated]![0]!.params.rule)).toContain("卫兵不认识勇者");

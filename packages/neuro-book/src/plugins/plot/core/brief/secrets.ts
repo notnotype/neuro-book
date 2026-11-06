@@ -11,7 +11,7 @@ import type {CanonReadView, Decision} from "@notnotype/nb-canon/schema";
 import {type Secrecy} from "../../shared/declarations";
 import {NO_REASON} from "../decisions";
 import {bodyOf, knowingIndex} from "../knowledge";
-import {goalsOf} from "../goals";
+import {conflictsOf, goalsOf} from "../goals";
 import {nameOf, isSecretPlus, secrecyAt, type Frame, type Participant} from "./context";
 import * as fixed from "./fixed";
 import type {BriefHint} from "./types";
@@ -83,7 +83,10 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
                 lines.push(`写手知道；知道的：${knows.join("、") || fixed.NONE}；不知道的：${unaware.join("、") || fixed.NONE}；误信的：${misbelieves.join("、") || fixed.NONE}`);
                 if (povBody !== null && index.effective(povBody, point)?.程度 === "knows") lines.push(fixed.POV_OWN_SECRET);
             }
-            for (const {holder, goal} of hiding) lines.push(`${nameOf(frame, holder)}的隐秘目标：${goal.name}${goal.为什么 === null ? "" : `；为什么：${goal.为什么}`}`);
+            for (const {holder, goal} of hiding) {
+                const conflicts = (conflictsOf(frame.view, goal.id, frame.position, "planned") ?? []).map((conflict) => nameOf(frame, conflict.id));
+                lines.push(`${nameOf(frame, holder)}的隐秘目标：${goal.name}${goal.为什么 === null ? "" : `；为什么：${goal.为什么}`}${conflicts.length === 0 ? "" : `；冲突：${conflicts.join("、")}`}`);
+            }
             items.push({point, name, secrecy, hidden: false, lines});
             continue;
         }

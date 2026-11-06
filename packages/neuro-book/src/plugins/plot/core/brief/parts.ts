@@ -3,7 +3,7 @@
  * 允许新增什么、涉及条目的样子。每一段返回若干项（裁剪按项从后往前）。
  */
 
-import type {Decision, StoryChange} from "@notnotype/nb-canon/schema";
+import type {Decision, Patch, StoryChange} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
@@ -37,6 +37,40 @@ function displayName(frame: Frame, secrets: SecretsResult, participants: readonl
     return point !== undefined && secrets.items.some((item) => item.point === point && item.hidden) ? nameOf(frame, mask) : nameOf(frame, id);
 }
 
+const fieldLabel = (frame: Frame, entry: string, namespace: string, field: string): string => {
+    const read = frame.view.entry(entry, frame.position, "planned");
+    return (read === null || read === "chapter-not-found" ? undefined : read.namespaces[namespace]?.fields[field]?.label) ?? field;
+};
+
+const isEntry = (frame: Frame, id: string) => frame.view.object({kind: "entry", id}) !== undefined;
+
+/** 一个地址在简报里的写法（输出 2）：“星瑾的状态”“星瑾对哥哥的态度”。字段写显示名，不写命名空间；以条目为键的列表的一行写成“对某某”。 */
+function fieldPhrase(frame: Frame, at: Patch["at"]): string {
+    const owner = nameOf(frame, at.entry);
+    const parsed = /^([^.[\]]+)\.([^.[\]]+)(?:\[([^\]]+)\](?:\.(.+))?)?$/u.exec(at.path);
+    if (parsed === null) return `${owner}的${at.path}`;
+    const [, namespace, field, element, sub] = parsed as unknown as [string, string, string, string | undefined, string | undefined];
+    const label = fieldLabel(frame, at.entry, namespace, field);
+    if (element === undefined) return `${owner}的${label}`;
+    return isEntry(frame, element) ? `${owner}对${nameOf(frame, element)}的${sub ?? label}` : `${owner}的${label}（${element}）${sub === undefined ? "" : `的${sub}`}`;
+}
+
+/** 增减列表一行的写法。引到的知识点按 `pointName` 写：保密以上的不写名字。 */
+function listLine(frame: Frame, secrets: SecretsResult, patch: Patch): string {
+    const parsed = /^([^.[\]]+)\.([^.[\]]+)$/u.exec(patch.at.path);
+    const label = parsed === null ? patch.at.path : fieldLabel(frame, patch.at.entry, parsed[1]!, parsed[2]!);
+    const owner = nameOf(frame, patch.at.entry);
+    const shown = (id: string) => (isEntry(frame, id) ? pointName(frame, secrets, id) : id);
+    if (patch.op === "listRemove") return `${owner}的${label}：去掉${shown(String(patch.value))}`;
+    const row = (patch.value ?? {}) as Record<string, unknown>;
+    const cells = Object.entries(row).flatMap(([key, value]) => {
+        if (key === "id" || key === "label" || value === null || value === undefined) return [];
+        const ref = typeof value === "object" ? (value as {ref?: unknown}).ref : undefined;
+        return [`${key}：${typeof ref === "string" ? shown(ref) : json(value)}`];
+    });
+    return `${owner}的${label}：加上${typeof row.label === "string" ? row.label : shown(String(row.id))}${cells.length === 0 ? "" : `（${cells.join("；")}）`}`;
+}
+
 /**
  * 本章计划（输出 2）：每条计划一项，状态的变化写成字段的形式“对象的字段：旧 → 新”，不写自然语言的摘要句。知情行的变化（谁在这一章
  * 得知什么）写成“某某对某事：不知道 → 知道”；知识点自己的字段不写（真相只在这一场的秘密里）；藏着的目标只写“某某的一个隐秘目标”；
@@ -62,6 +96,11 @@ export function planItems(frame: Frame, plans: readonly StoryChange[], secrets: 
                 lines.push(shown === undefined ? fixed.hiddenGoalOf(nameOf(frame, hidden.holder)) : `${fixed.hiddenGoalOf(nameOf(frame, hidden.holder))}，见这一场的秘密`);
                 continue;
             }
+            // 增减一张列表的一行写成一件事，不把整张列表写成 JSON。
+            if (patch.op === "listAdd" || patch.op === "listRemove") {
+                lines.push(listLine(frame, secrets, patch));
+                continue;
+            }
             const key = `${patch.at.entry}|${patch.at.path}`;
             if (seen.has(key)) continue;
             seen.add(key);
@@ -70,7 +109,7 @@ export function planItems(frame: Frame, plans: readonly StoryChange[], secrets: 
             const values = steps.flatMap((step) => (step.kind === "init" || step.kind === "carried" ? [{value: step.value, change: undefined as string | undefined}] : step.kind === "patch" ? [{value: step.result, change: step.change}] : []));
             const at = values.findIndex((item) => item.change === plan.id);
             if (at === -1) continue;
-            lines.push(`${nameOf(frame, patch.at.entry)}的${patch.at.path}：${json(at === 0 ? null : values[at - 1]!.value)} → ${json(values[at]!.value)}`);
+            lines.push(`${fieldPhrase(frame, patch.at)}：${json(at === 0 ? null : values[at - 1]!.value)} → ${json(values[at]!.value)}`);
         }
         return {label: `计划 ${plan.id}`, text: lines.join("\n")};
     });
@@ -196,8 +235,11 @@ export function foreshadowItems(frame: Frame, chapter: string, plans: readonly S
                     lines.push(`${node.role === "payoff" ? "回收" : "部分回收"}：${fixed.PAYOFF_BY_OUTLINE}`);
                     hints.push({code: "nbook.plot.brief.payoffWithheld", objects: [{kind: "entry", id: foreshadow.id}], range: {from: chapter, to: chapter}});
                 } else {
+                    // 主文字写打算怎么回收（术语）；还没写时退回一句话描述与名字。
+                    const rendered = frame.view.render(foreshadow.id, frame.position, "planned");
+                    const text = rendered === null || typeof rendered === "string" ? "" : rendered.blocks.map((block) => block.text).join("\n");
                     const read = frame.view.entry(foreshadow.id, frame.position, "planned");
-                    const main = read === null || read === "chapter-not-found" || read.summary === "" ? foreshadow.name : read.summary;
+                    const main = text !== "" ? text : read === null || read === "chapter-not-found" || read.summary === "" ? foreshadow.name : read.summary;
                     lines.push(`${node.role === "payoff" ? "回收" : "部分回收"}：${main}${node.note === undefined ? "" : `（指示：${node.note}）`}`);
                 }
             } else lines.push(`${node.role === "plant" ? "埋下" : node.role === "mislead" ? "误导" : "呼应"}${node.note === undefined ? "" : `（指示：${node.note}）`}；${fixed.DONT_BREAK}`);

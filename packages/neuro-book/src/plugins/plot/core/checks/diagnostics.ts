@@ -60,11 +60,11 @@ class Collector {
     }
 }
 
-/** 挂在这个知识点上的决策（含读者守卫）：泄底时一并给作者看（decisions.md 输出 3、7）。 */
-function decisionsOn(view: CanonReadView, point: string): ObjectRef[] {
+/** 挂在这些知识点、条目或本章上的决策（含读者守卫）：泄底、穿帮、违反写作指示时一并给作者看（decisions.md 输出 3、7）。 */
+function decisionsOn(view: CanonReadView, chapter: string, ids: readonly string[]): ObjectRef[] {
     return view.decisions()
         .filter((decision) => decision.status === "decided" || decision.status === "pending")
-        .filter((decision) => decisionHangsOn(decision, point))
+        .filter((decision) => ids.some((id) => decisionHangsOn(decision, id)) || decision.about.some((about) => about.kind === "chapter" && about.id === chapter))
         .map((decision) => ({kind: "decision" as const, id: decision.id}));
 }
 
@@ -87,7 +87,7 @@ function validFindings(view: CanonReadView, record: CheckRecord, digest: Digest,
                 if (answer.answer !== "yes" || !onHere(call.segment)) break;
                 out.add(CHECK_DIAGNOSTIC_IDS.possibleSlip, {
                     key: {objects: [entry(call.point!)], line: view.line, range: range(chapter), detail: call.segment!},
-                    objects: [entry(call.point!), ...(call.person === undefined ? [] : [entry(call.person)])],
+                    objects: [entry(call.point!), ...(call.person === undefined ? [] : [entry(call.person)]), ...decisionsOn(view, chapter, [call.point!, ...(call.person === undefined ? [] : [call.person])])],
                     params: {chapter, layers: call.layer === "presence" ? "在场层" : "叙述层", people: call.personName ?? "", quotes: joined(answer.quotes), fromParagraph: segments.get(call.segment!)!.from},
                 });
                 break;
@@ -112,7 +112,7 @@ function validFindings(view: CanonReadView, record: CheckRecord, digest: Digest,
                 const judged = record.calls.find((other) => other.id === `judge:${call.point!}`)?.answer as JudgeAnswer | undefined;
                 if (judged === undefined || judged.verdict === "inconsistent") break;
                 if (trial.confidence !== "certain" && trial.confidence !== "strong") break;
-                out.add(CHECK_DIAGNOSTIC_IDS.earlyReveal, {key: {objects: [entry(call.point!)], range: range(chapter)}, objects: [entry(call.point!), ...decisionsOn(view, call.point!)], params: {chapter, guess: trial.guess, confidence: trial.confidence, verdict: judged.verdict, quotes: joined(trial.quotes)}});
+                out.add(CHECK_DIAGNOSTIC_IDS.earlyReveal, {key: {objects: [entry(call.point!)], range: range(chapter)}, objects: [entry(call.point!), ...decisionsOn(view, chapter, [call.point!])], params: {chapter, guess: trial.guess, confidence: trial.confidence, verdict: judged.verdict, quotes: joined(trial.quotes)}});
                 break;
             }
             case "fixed": {
@@ -124,7 +124,7 @@ function validFindings(view: CanonReadView, record: CheckRecord, digest: Digest,
                     if (rule.decision !== undefined) {
                         const id = rule.item.startsWith("pending:") ? DECISION_DIAGNOSTIC_IDS.decidedInText : DECISION_DIAGNOSTIC_IDS.constraintViolated;
                         out.add(id, {key: {objects: [{kind: "decision", id: rule.decision}], range: range(chapter)}, objects: [{kind: "decision", id: rule.decision}], params});
-                    } else out.add(CHECK_DIAGNOSTIC_IDS.instructionViolated, {key: {range: range(chapter), detail: rule.item}, objects: [], params});
+                    } else out.add(CHECK_DIAGNOSTIC_IDS.instructionViolated, {key: {range: range(chapter), detail: rule.item}, objects: decisionsOn(view, chapter, []), params});
                 }
                 break;
             }

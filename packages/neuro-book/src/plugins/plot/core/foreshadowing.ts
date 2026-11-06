@@ -1,6 +1,6 @@
 /**
  * 伏笔（docs/specs/plot/foreshadowing.md 输出 1 到 8）：节点、计划的节点与继承、阶段、检查与账本。只读世界引擎的只读视图，
- * 不存东西。读者那一边按活页夹正文算（讲述的发生点），阶段 B 只有主线。
+ * 不存东西。读者那一边按活页夹正文算（讲述的发生点），不分线；计划与兑现按世界线视图取。
  *
  * - 节点：生效的正文讲述上的 `node` 标注；悬念的答案知识点上的 `reveal` 也算这个悬念的节点（暗示算呼应，明说算回收）。
  * - 计划的节点：讲述所在的对象是计划、讲述不是正文（细纲等）上的 `node`，按计划安放的章计。别的非正文讲述上的节点忽略。
@@ -11,8 +11,7 @@
 import type {CanonReadView, DiagnosticCompute, Finding, Mark, Mode, Occurrence, ReadPosition, StoryChange, TellingItem, TellingPosition} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, FS_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
-import {countedChanges} from "./knowledge";
-import {effectiveTellings} from "./change-index";
+import {countedChanges, readerTellings} from "./knowledge";
 import {perViewCache} from "./view-cache";
 
 export type Role = "plant" | "echo" | "mislead" | "partial" | "payoff";
@@ -94,7 +93,8 @@ function rawTellings(view: CanonReadView): RawTellings {
     return rawCache(view, "", () => {
         const marked: {item: TellingItem; occurrence: Occurrence; nodeMarks: ReturnType<typeof nodeMarks>; revealMarks: {point: string; mode: "hint" | "explicit"}[]}[] = [];
         const firstByChange = new Map<string, {telling: string; occurrence: Occurrence}>();
-        for (const item of effectiveTellings(view)) {
+        // 节点按读者读到的正文取（输出 5）：回溯段里写在子线上的节点，在主线视图上也算埋下了。
+        for (const item of readerTellings(view)) {
             if (item.located.kind !== "found") continue;
             const {occurrence} = item.located;
             if (item.owner.kind === "change" && !firstByChange.has(item.owner.id)) firstByChange.set(item.owner.id, {telling: item.telling.id, occurrence});

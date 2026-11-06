@@ -258,10 +258,13 @@ describe("plot.brief 输出 7、8、10：称谓、伏笔、读者已知", () => 
         const w2 = new PlotWorld(CHAPTERS);
         const butler2 = w2.person("管家");
         const answer2 = w2.point("管家是凶手", butler2, {保密: "secret"});
-        const fs2 = w2.foreshadow("谁杀了男爵", {种类: "mystery", 答案: {ref: answer2}});
+        const fsDraft = drafts.foreshadow("tmp:fs2", "谁杀了男爵", {种类: "mystery", 答案: {ref: answer2}});
+        const fs2 = w2.publish([{ref: {kind: "entry", id: "tmp:fs2"}, after: {...fsDraft, init: {...fsDraft.init, summary: "一句话描述", text: [{id: "b1", source: "怀表停在案发那一刻"}]}}}])["tmp:fs2"]!;
         w2.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [{who: butler2, role: "present"}], told: [{source: "outline", chapter: "ch15", anchor: "揭晓凶手", marks: [{kind: MARK_IDS.node, version: 1, foreshadow: fs2, role: "payoff"}, reveal(answer2, "explicit")]}]});
         const given = brief(w2, "ch15");
         expect(section(given, "foreshadow")).not.toContain(fixed.PAYOFF_BY_OUTLINE);
+        // 给的是主文字（打算怎么回收），不是名字或一句话描述。
+        expect(section(given, "foreshadow")).toContain("回收：怀表停在案发那一刻");
         expect(given.hints.map((hint) => hint.code)).not.toContain("nbook.plot.brief.payoffWithheld");
     });
 
@@ -357,7 +360,7 @@ describe("plot.brief I5 审查之后：绝密不泄、知情变化、渲染同�
         const lines = section(brief(w, "ch4"), "plan").split("\n");
         expect(lines).toContain(fixed.changeKnowing("卫兵", "勇者有胎记", "没有记录", "知道"));
         expect(lines).toContain(fixed.changeKnowing("勇者", "城门今晚关", "没有记录", "知道"));
-        expect(lines.filter((line) => line.includes("怀表的character.状态"))).toEqual(['怀表的character.状态：原样 → 停了']);
+        expect(lines.filter((line) => line.includes("怀表的"))).toEqual(["怀表的状态：原样 → 停了"]);
     });
 
     test("回溯后那份：条目的主文字与字段值出自同一条线", () => {
@@ -450,5 +453,35 @@ describe("plot.brief I5 omp 份：地址挂在绝密知识点上的决策走保�
             return section(brief(w, "ch5"), "people");
         };
         expect(build(true)).toBe(build(false));
+    });
+});
+
+describe("plot.brief 输出 2、4：本章计划与隐秘目标的写法", () => {
+    test("态度表：改一行写成“某某对某某的态度”，增一行写成一件事，不把整张表写成 JSON", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const brother = w.person("哥哥");
+        const stranger = w.person("路人");
+        const draft = drafts.person("tmp:j", "星瑾");
+        const jin = w.publish([{ref: {kind: "entry", id: "tmp:j"}, after: {...draft, init: {...draft.init, data: {...draft.init.data, att: {type: COMPONENT_IDS.attitude, version: 1, enabled: true, fields: {态度: []}}}}}}])["tmp:j"]!;
+        w.change(chapter("ch3"), {patches: [{op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: brother, 态度: "冷淡"}}]});
+        w.change(chapter("ch4"), {kind: "plan", text: "松动", cast: [{who: jin, role: "present"}], patches: [{op: "note", at: {entry: jin, path: `att.态度[${brother}].态度`}, value: "略松动"}]});
+        w.change(chapter("ch4", 20), {kind: "plan", text: "认识路人", cast: [{who: jin, role: "present"}], patches: [{op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: stranger, 态度: "戒备"}}]});
+        const plan = section(brief(w, "ch4"), "plan");
+        expect(plan).toContain("星瑾对哥哥的态度：冷淡 → ");
+        expect(plan).toContain("星瑾的态度：加上路人（态度：戒备）");
+        expect(plan).not.toContain('"id"');
+    });
+
+    test("表现形式之外的隐秘目标：名字、为什么与冲突都写在它指向的知识点那一项里", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const hero = w.person("勇者");
+        const k = w.point("管家想继承爵位", butler, {保密: "secret"});
+        w.change(chapter("ch3"), {patches: [addRow(butler, k, {程度: "knows"})]});
+        const goal = w.goal("继承爵位", butler, {隐秘: {ref: k}, 为什么: "他等了二十年"});
+        w.goal("保住男爵", hero, {冲突: [{id: goal}]});
+        w.change(chapter("ch4"), {kind: "plan", text: "管家端茶", cast: [{who: butler, role: "present"}]});
+        const secrets = section(brief(w, "ch4"), "secrets");
+        expect(secrets).toContain("管家的隐秘目标：继承爵位；为什么：他等了二十年；冲突：保住男爵");
     });
 });

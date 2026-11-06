@@ -1,5 +1,7 @@
 import {describe, expect, test} from "bun:test";
 
+import type {Patch} from "@notnotype/nb-canon/schema";
+
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {addRow, chapter, drafts, learns, PlotWorld, present} from "../../testing/world";
 import {MARK_IDS} from "../../shared/declarations";
@@ -216,5 +218,25 @@ describe("预算（验收 3）", () => {
         w.change(chapter("ch7"), {cast: people.map(present)});
         const found = candidates(w, "ch7");
         expect(budgeted([...found].reverse(), []).asked.map((candidate) => candidate.id)).toEqual(budgeted(found, []).asked.map((candidate) => candidate.id));
+    });
+});
+
+describe("plot.knowledge 输出 10：写完以后的集合", () => {
+    test("知情行写成整段 set 与写成 listAdd 是同一件事：改到的知识点都进集合", () => {
+        const collected = (patch: (person: string, point: string) => Patch) => {
+            const w = new PlotWorld(["ch1", "ch2", "ch3"]);
+            const person = w.person("星瑾");
+            const point = w.point("某事", w.person("路人"), {保密: "secret"});
+            w.texts.set("ch3", "一段不相干的正文。\n");
+            w.change(chapter("ch3"), {patches: [patch(person, point)]});
+            const segments = segmentsOf(w.view(), "ch3", undefined);
+            if (typeof segments === "string") throw new Error(segments);
+            const segment = segments[0]!;
+            return {point, found: pointsAfterWriting(segment, "ch3", writtenIn(segment, "ch3"), "一段不相干的正文。\n")};
+        };
+        const added = collected((person, point) => ({op: "listAdd", at: {entry: person, path: "know.知情"}, value: {id: point, 程度: "knows"}}));
+        expect(added.found).toContain(added.point);
+        const replaced = collected((person, point) => ({op: "set", at: {entry: person, path: "know.知情"}, value: [{id: point, 程度: "knows", 怎么知道: "witnessed"}]}));
+        expect(replaced.found).toContain(replaced.point);
     });
 });

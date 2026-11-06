@@ -114,8 +114,10 @@ function patchPoints(frame: Frame, plan: StoryChange, mode: Mode): string[] {
     for (const patch of plan.patches) {
         found.push(patch.at.entry);
         for (const match of patch.at.path.matchAll(/\[([^\]]+)\]/gu)) found.push(match[1]!);
-        const value = patch.value as {id?: unknown; ref?: unknown} | null;
-        if (value !== null && typeof value === "object") {
+        // 整段替换一张列表时值是数组：每一行都算（知情行写成 `set` 和写成 `listAdd` 是同一件事）。
+        const values = (Array.isArray(patch.value) ? patch.value : [patch.value]) as ({id?: unknown; ref?: unknown} | null)[];
+        for (const value of values) {
+            if (value === null || typeof value !== "object") continue;
             if (typeof value.id === "string") found.push(value.id);
             if (typeof value.ref === "string") found.push(value.ref);
         }

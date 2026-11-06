@@ -3,7 +3,7 @@ import {describe, expect, test} from "bun:test";
 import type {DiagnosticCompute, Mark, TellingDraft} from "@notnotype/nb-canon/schema";
 
 import {FS_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
-import {chapter, end, PlotWorld} from "../testing/world";
+import {chapter, drafts, end, PlotWorld} from "../testing/world";
 import {foreshadowDiagnostics, ForeshadowIndex, ledger, tellingPositionOf} from "./foreshadowing";
 
 const CHAPTERS = Array.from({length: 20}, (_, index) => `ch${String(index + 1)}`);
@@ -168,5 +168,26 @@ describe("plot.foreshadowing 输出 3、4、6 到 8：继承、截取与模式",
         w.change(chapter("ch2"), {kind: "plan", patches: [{op: "set", at: {entry: fs, path: "fs.意图"}, value: "dropped"}]});
         expect([ledger(w.view(), end("ch20"), "actual")[0]!.dropped, ledger(w.view(), end("ch20"), "planned")[0]!.dropped]).toEqual([false, true]);
         expect((compute[FS_DIAGNOSTIC_IDS.droppedButPlanted] as DiagnosticCompute)(w.view(), end("ch20"), "planned")).toHaveLength(1);
+    });
+});
+
+describe("输出 5：读者那一边的阶段按活页夹正文算，不分线", () => {
+    test("活页夹第 9 章讲回溯线，节点写在子线的讲述上：主线视图上也算埋下，没讲到的子线不算", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const fs = w.foreshadow("钟");
+        w.texts.set("ch9", "第一段。\n原来如此。");
+        const cut = w.change(chapter("ch7"));
+        const trigger = w.change(chapter("ch8", 50));
+        const fork = (tmp: string, lineTmp: string, key: number) => ({ref: {kind: "change" as const, id: tmp}, after: {...drafts.change(tmp, chapter("ch8", key)), nature: "fork" as const, fork: {line: lineTmp, name: "回溯", parent: "main", cut, trigger, type: "rollback" as const}}});
+        const telling = {source: "chapter" as const, chapter: "ch9", quote: "原来如此", marks: [node(fs, "plant")]};
+        const ids = w.publish([
+            fork("tmp:f", "tmp:r1", 60),
+            fork("tmp:g", "tmp:r2", 70),
+            {ref: {kind: "change", id: "tmp:own"}, after: drafts.change("tmp:own", {...chapter("ch9", 1), line: "tmp:r1"}, {told: [telling]})},
+            {ref: {kind: "change", id: "tmp:other"}, after: drafts.change("tmp:other", {...chapter("ch9", 1), line: "tmp:r2"}, {told: [{...telling, marks: [node(fs, "payoff")]}]})},
+        ]);
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: ids["tmp:r1"]!, from: 1}]]])});
+        // 活页夹讲的是 r1：r1 上的埋下算数，同一句写在没讲到的 r2 上的回收不算。
+        expect(stageAt(w, fs, end("ch10"))).toBe("planted");
     });
 });
