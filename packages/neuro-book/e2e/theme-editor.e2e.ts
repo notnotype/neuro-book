@@ -415,6 +415,13 @@ test("浮动窗口里是同一个编辑器：实心面、可关闭，关掉后�
         await chooseIcon(page, "long.svg", ICON_SVG);
         await expect(page.locator("[data-icon-row]")).toHaveCount(1);
         await page.setViewportSize({width: 390, height: 844});
+        // 当前分区（图标，最靠右的两个之一）在竖排变横排后要在导航条的可视范围里。不点击就量：Playwright 的 click 会自己把目标滚进视口，
+        // 那样量到的不是编辑器自己的行为（theme.editor 的响应式条目）。
+        await expect.poll(() => page.locator("[data-section-tab=icons]").evaluate((tab) => {
+            const bar = tab.closest("nav")?.getBoundingClientRect();
+            const box = tab.getBoundingClientRect();
+            return bar !== undefined && box.left >= bar.left - 1 && box.right <= bar.right + 1;
+        }), {message: "窄屏下当前分区的导航项要在导航条的可视范围里"}).toBe(true);
         // 每个分区都量一次：分区里是 ScrollArea，横向溢出不会让编辑器根的 scrollWidth 变大，所以量分区内容自己和每个配色行。
         for (const section of ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"]) {
             await page.locator(`[data-section-tab=${section}]`).click();

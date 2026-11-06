@@ -66,6 +66,12 @@ async function decodeInBrowser(url: string): Promise<void> {
     await image.decode();
 }
 
+/** 编辑器下拉列出的提供者：贡献 id 与可选的显示名。 */
+export interface PublishedProvider {
+    readonly id: string;
+    readonly title?: SceneProviderDeclaration["title"];
+}
+
 export class SceneProviders {
     readonly #handles = shallowRef<ReadonlyMap<string, ProviderHandle>>(new Map());
     /** 键 → 已解码的对象 URL。 */
@@ -112,9 +118,12 @@ export class SceneProviders {
         return url;
     }
 
-    /** 当前可用的提供者 id（已发布）。响应式：发布与撤回会让读过它的 effect 重算。 */
-    get published(): ReadonlyArray<string> {
-        return [...this.#handles.value].filter(([, handle]) => handle.published).map(([id]) => id).sort();
+    /** 当前可用的提供者（已发布），按 id 排序；`title` 是声明里的显示名。响应式：发布与撤回会让读过它的 effect 重算。 */
+    get published(): ReadonlyArray<PublishedProvider> {
+        return [...this.#handles.value]
+            .filter(([, handle]) => handle.published)
+            .map(([id, handle]) => (handle.declaration.title === undefined ? {id} : {id, title: handle.declaration.title}))
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     }
 
     /**

@@ -17,8 +17,11 @@ import type {SceneRequest, SceneResult} from "@notnotype/nb-plugin-sdk/workbench
 import {plugin, SKY_PROVIDER_NAME} from "../shared/contracts";
 import {nextHour, skyAt} from "./sky";
 
-/** 提供者：贡献 id 是 `example.scene-clock.sky-painter`（`SKY_PROVIDER`），主题的 `sceneProvider` 写它。 */
-const painter = sceneProvider(plugin, {name: SKY_PROVIDER_NAME});
+/**
+ * 提供者：贡献 id 是 `example.scene-clock.sky-painter`（`SKY_PROVIDER`），主题的 `sceneProvider` 写它。`title` 是主题编辑器的
+ * “场景提供者”下拉里显示的名字（字符串或语言映射，不收文本引用）；不写就显示上面那个贡献 id，作者以外的人看不出它画什么。
+ */
+const painter = sceneProvider(plugin, {name: SKY_PROVIDER_NAME, title: {"zh-CN": "天空时钟", "en-US": "Sky clock"}});
 
 const WIDTH = 1600;
 const HEIGHT = 900;

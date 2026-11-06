@@ -22,7 +22,7 @@ interface Fixture {
     readonly scenes: SceneProviders;
     readonly requests: Array<{request: SceneRequest; signal: AbortSignal}>;
     readonly reports: Array<readonly [string, string]>;
-    readonly publish: (reply: (request: SceneRequest, signal: AbortSignal) => Promise<SceneResult>, id?: string) => ProviderHandle;
+    readonly publish: (reply: (request: SceneRequest, signal: AbortSignal) => Promise<SceneResult>, id?: string, declaration?: SceneProviderDeclaration) => ProviderHandle;
     /** 撤回提供者：和内核一样，撤回后 `implementation()` 抛错。 */
     readonly revoke: (handle: ProviderHandle) => void;
 }
@@ -38,7 +38,7 @@ function fixture(options: SceneProviderOptions = {}): Fixture {
         scenes,
         requests,
         reports,
-        publish: (reply, id = "acme.sky.clock") => {
+        publish: (reply, id = "acme.sky.clock", declaration = {}) => {
             const handle: ProviderHandle = {
                 capability: "workbench.theme-scenes",
                 id,
@@ -46,7 +46,7 @@ function fixture(options: SceneProviderOptions = {}): Fixture {
                 entry: "browser",
                 generation: 1,
                 kind: "entry",
-                declaration: {},
+                declaration,
                 published: true,
                 implementation: () => {
                     if (!handle.published) throw new Error("贡献已撤回");
@@ -106,16 +106,17 @@ describe("workbench.theme-scenes", () => {
         const {scenes, requests, publish, revoke} = fixture();
         expect(scenes.published).toEqual([]);
         const clock = publish(async () => ({image: png()}));
-        publish(async () => ({image: png()}), "acme.sky.aurora");
-        expect(scenes.published).toEqual(["acme.sky.aurora", "acme.sky.clock"]);
+        publish(async () => ({image: png()}), "acme.sky.aurora", {title: {"zh-CN": "极光", "en-US": "Aurora"}});
+        // 有显示名的带着显示名，没有的只有 id；按 id 排序。
+        expect(scenes.published).toEqual([{id: "acme.sky.aurora", title: {"zh-CN": "极光", "en-US": "Aurora"}}, {id: "acme.sky.clock"}]);
         // 停止窗口：句柄已不再 published，撤回通知还没到。
         clock.published = false;
-        expect(scenes.published).toEqual(["acme.sky.aurora"]);
+        expect(scenes.published.map(({id}) => id)).toEqual(["acme.sky.aurora"]);
         expect(scenes.sceneFor(entry("acme.sky.study"), "light", false)).toBeUndefined();
         await settle();
         expect(requests).toEqual([]);
         revoke(clock);
-        expect(scenes.published).toEqual(["acme.sky.aurora"]);
+        expect(scenes.published.map(({id}) => id)).toEqual(["acme.sky.aurora"]);
         scenes.dispose();
     });
 

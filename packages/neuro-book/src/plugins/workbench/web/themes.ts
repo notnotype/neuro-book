@@ -15,6 +15,7 @@ import {DEFAULT_THEME_ID} from "../shared/themes";
 import type {SceneProviderDeclaration, SceneProviderImplementation, ThemeDeclaration} from "../shared/themes";
 import {USER_THEME_PLUGIN, userThemeProblem} from "../shared/user-themes";
 import {SceneProviders} from "./scene-providers";
+import type {PublishedProvider} from "./scene-providers";
 import type {SceneProviderOptions} from "./scene-providers";
 import type {UserTheme} from "../shared/user-themes";
 
@@ -173,8 +174,8 @@ export class ThemeCatalog {
         return this.#assetUrl(entry.plugin, path);
     }
 
-    /** 当前已发布的场景提供者的贡献 id，供编辑器的下拉用。 */
-    get sceneProviders(): ReadonlyArray<string> {
+    /** 当前已发布的场景提供者（贡献 id 与可选的显示名），供编辑器的下拉用。 */
+    get sceneProviders(): ReadonlyArray<PublishedProvider> {
         return this.#scenes.published;
     }
 

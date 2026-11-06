@@ -125,12 +125,13 @@ export interface SceneProviderHelper<Id extends string> extends ContributionHelp
 /**
  * 场景提供者（docs/specs/theme/skins.md 输出 18）：主题在声明里写 `sceneProvider: "<这里的贡献 id>"`，场景图由 `implement` 给的
  * `scene()` 画。实现要等入口激活才交出，工作台不替提供者激活入口，所以入口要写 `activationEvents: ["onStartup"]`。
+ * `title` 是主题编辑器的“场景提供者”下拉里显示的名字（字符串或语言映射）；不写就显示贡献 id。
  */
-export function sceneProvider<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: {readonly name: Name} & ShortNameRule<Name>): SceneProviderHelper<`${Id}.${Name}`> {
+export function sceneProvider<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: {readonly name: Name; readonly title?: SceneProviderDeclaration["title"]} & ShortNameRule<Name>): SceneProviderHelper<`${Id}.${Name}`> {
     const id = contributionId(plugin.id, options.name, "场景提供者");
     return {
         id,
-        contribution: {capability: WORKBENCH_THEME_SCENES_POINT, id, declaration: {}},
+        contribution: {capability: WORKBENCH_THEME_SCENES_POINT, id, declaration: options.title === undefined ? {} : {title: options.title}},
         where: "browser",
         activationEvents: [],
         implement: (implementation) => bound(WORKBENCH_THEME_SCENES_POINT, id, implementation),

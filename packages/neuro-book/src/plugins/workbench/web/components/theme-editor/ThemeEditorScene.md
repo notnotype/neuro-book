@@ -15,7 +15,7 @@
 ## 交互
 
 - 上传、更换、移除场景图与工作态场景：见 `SceneImageSlot`。换了场景图：取景编辑整个重建（按图的地址作 key），框按新图的比例重新算；上一张图的“图片加载失败”随图换掉。工作态场景使用同一份取景，所以这里没有它自己的取景编辑，只有缩略图（加载失败时不画缩略图，错误行写“图片加载失败”）。
-- 场景提供者：下拉里是“无”和当前已发布的 `workbench.theme-scenes` 贡献（显示贡献 id）；选中写进声明顶层的 `sceneProvider`，“无”去掉它。声明里已有的提供者不在已发布列表里时，下拉里仍保留它，标“未发布”且不可再选（选项的算法在 `provider-options.ts`），下拉收起时另在下面写一行说明；它发布后变回普通项，撤回后又变回不可选项。
+- 场景提供者：下拉里是“无”和当前已发布的 `workbench.theme-scenes` 贡献（声明里写了 `title` 的显示标题，同一行右侧的次要文字是贡献 id，放不下时先截断；没写就只显示贡献 id）；选中写进声明顶层的 `sceneProvider`，“无”去掉它。声明里已有的提供者不在已发布列表里时，下拉里仍保留它，标“未发布”且不可再选（选项的算法在 `provider-options.ts`），下拉收起时另在下面写一行说明；它发布后变回普通项，撤回后又变回不可选项。
 - 预览状态：只改编辑器里的预览（`model.previewWorking`），不写声明；缺省“跟随”，关掉编辑器再打开又是“跟随”。
 
 ## 数据
@@ -24,4 +24,4 @@
 type Props = {model: ThemeEditorModel; transfer: ThemeTransfer};
 ```
 
-文字取自 `nbook.workbench` 的 `themeEditor.scene.*`，经注入的翻译端口。已发布的提供者来自 `model.sceneProviders`。
+文字取自 `nbook.workbench` 的 `themeEditor.scene.*`，经注入的翻译端口。已发布的提供者（贡献 id 与可选的显示名）来自 `model.sceneProviders`，显示名经注入的翻译端口按当前语言解出。
