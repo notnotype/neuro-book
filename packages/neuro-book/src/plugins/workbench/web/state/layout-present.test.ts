@@ -4,7 +4,7 @@ import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
 
 import {workbenchText} from "../../shared/text";
 import {defaultLayoutDoc} from "./default-tree";
-import {effectiveVisibleTabs, layoutContents, panelTitle, toolEntryIntent} from "./layout-present";
+import {effectiveVisibleTabs, layoutContents, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent} from "./layout-present";
 import {createLayoutPolicy, PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/placement";
 
@@ -83,22 +83,38 @@ describe("有效可见", () => {
 });
 
 describe("活动栏条目", () => {
-    const facts = (visible: ReadonlyArray<string>, focusedPanel: string | null) => ({visible: new Set(visible), focusedPanel});
+    const facts = (visible: ReadonlyArray<string>) => ({visible: new Set(visible)});
 
-    test("不可见显示，可见没焦点聚焦，已聚焦的具名面板隐藏", () => {
-        expect(toolEntryIntent(doc(), "outline", facts(["view:files"], "sidebar"))).toEqual({kind: "reveal", panel: "sidebar"});
-        expect(toolEntryIntent(doc(), "files", facts(["view:files"], "g0"))).toEqual({kind: "focus", panel: "sidebar"});
-        expect(toolEntryIntent(doc(), "files", facts(["view:files"], "sidebar"))).toEqual({kind: "hide", panel: "sidebar"});
+    test("不可见显示，可见的具名面板隐藏", () => {
+        expect(toolEntryIntent(doc(), "outline", facts(["view:files"]))).toEqual({kind: "reveal", panel: "sidebar"});
+        expect(toolEntryIntent(doc(), "files", facts(["view:files"]))).toEqual({kind: "hide", panel: "sidebar"});
     });
 
-    test("无名面板没有隐藏，已聚焦时是收起", () => {
+    test("无名面板没有隐藏，是收起", () => {
         const base = doc();
         const {name: _name, ...anonymous} = base.panels.sidebar as NonNullable<LayoutDoc["panels"][string]>;
         const moved: LayoutDoc = {...base, panels: {...base.panels, sidebar: anonymous}};
-        expect(toolEntryIntent(moved, "files", facts(["view:files"], "sidebar"))).toEqual({kind: "collapse", panel: "sidebar"});
+        expect(toolEntryIntent(moved, "files", facts(["view:files"]))).toEqual({kind: "collapse", panel: "sidebar"});
     });
 
     test("目录里有、树上没有的视图什么都不做", () => {
-        expect(toolEntryIntent(doc(), "missing", facts([], null))).toEqual({kind: "none"});
+        expect(toolEntryIntent(doc(), "missing", facts([]))).toEqual({kind: "none"});
+    });
+
+    test("侧栏这一列：没分时是它自己，分了是这一列的全部，按树序", () => {
+        expect(sidebarColumnPanels(doc())).toEqual(["sidebar"]);
+        const split = openPanelAtEdge(doc(), {id: "x", panel: {role: "tool", tabs: [], active: null}, target: {kind: "split", panel: "sidebar", edge: "top"}}, createLayoutPolicy());
+        if (!split.ok) throw new Error(split.detail);
+        expect(sidebarColumnPanels(split.doc)).toEqual(["x", "sidebar"]);
+    });
+});
+
+describe("移动到的目标", () => {
+    test("新面板只挨着工具面板：编辑组旁边不是目标", () => {
+        const targets = moveTargetsOf(doc(), "outline") ?? [];
+        expect(targets.some((target) => target.kind === "new-panel" && target.nextTo === "g0")).toBe(false);
+        expect(targets).toContainEqual({kind: "new-panel", nextTo: "sidebar"});
+        expect(targets).toContainEqual({kind: "panel", panel: "auxiliarybar"});
+        expect(targets.some((target) => target.kind === "panel" && target.panel === "g0")).toBe(false);
     });
 });

@@ -61,6 +61,11 @@ export type LayoutDropRegion = "strip" | "center" | "edge";
 export interface LayoutPolicy {
     /** 接受矩阵。`tabs` 是被拖的全部标签（整个面板时不止一个）。 */
     accepts(tabs: ReadonlyArray<TabRef>, target: PanelRecord, region: LayoutDropRegion): boolean;
+    /**
+     * 这条边是不是落点、落到哪。缺省 `edgeTargetOf`。`null` 表示这块面板在这条边上没有窄带，指针在那里算中央：
+     * 宿主用它限定方向（工具面板只能上下拆）和“两块之间”的范围。提交时不再问它，宿主要在写入的出口兜底。
+     */
+    edgeTarget?(doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string, edge: LayoutEdge): LayoutEdgeTarget | null;
     /** 分区限制（固定标签）；缺省都可以。 */
     canInsert?(tab: TabRef, target: PanelRecord, index: number): boolean;
     /** 新节点的 id：由宿主给，保证唯一。 */
@@ -487,16 +492,22 @@ function edgeAnchorOf(doc: LayoutDoc, target: LayoutEdgeTarget): PanelRecord | n
     return first === undefined ? null : (doc.panels[first.id] as PanelRecord);
 }
 
+/** 这个目标紧贴着这块面板：放下去还在原处。 */
+const touches = (target: LayoutEdgeTarget, panel: string): boolean => (target.kind === "split" ? target.panel === panel : target.before === panel || target.after === panel);
+
 /** 整块面板移到外缘：同一块叶，id 不变，内容不重建。这也让“放回原处”自然是原对象。 */
 export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; readonly target: LayoutEdgeTarget}, policy: LayoutPolicy): LayoutResult {
     const source = doc.panels[input.panel];
     const leaf = findTreeNode(doc.tree.root, input.panel)?.node;
     if (source === undefined || leaf === undefined || leaf.kind !== "leaf") return failure("not-found", `面板 ${input.panel}`);
-    if (input.target.kind === "split" ? input.target.panel === input.panel : input.target.before === input.panel || input.target.after === input.panel) return {ok: true, doc};
+    if (touches(input.target, input.panel)) return {ok: true, doc};
     const anchor = edgeAnchorOf(doc, input.target);
     if (anchor === null) return failure("not-found", "目标已不存在");
     if (!policy.accepts(source.tabs, anchor, "edge")) return failure("rejected", "接受矩阵拒绝");
     const next = editable(doc);
+    // 收成标题行是按所在分支的方向呈现的：移到横向分支就成了零宽，放下去的东西要看得见。
+    const {collapsed: _collapsed, ...expanded} = source;
+    next.panels[input.panel] = expanded;
     const aliases = new Map<string, string>();
     const root = detachNode(next.tree.root, input.panel, aliases);
     if (root === null) return failure("rejected", "不能摘掉整棵树");
@@ -506,14 +517,17 @@ export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; 
 }
 
 /**
- * 标签移到外缘。来源只有这一个标签时是同一块面板移动；否则拆出新面板，继承来源的角色。
+ * 标签移到外缘。来源只有这一个标签时是同一块面板移动；否则拆出新面板，继承来源的角色。具名面板不移动：它的位置就是默认位置，标签拆出去，它拖空隐藏（布局提案 2026-11-06 的决策记录）。
  * 工具视图的内容项跟着 `key` 走、不重建；编辑器标签的视图由编辑器决定。
  */
 export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; readonly target: LayoutEdgeTarget}, policy: LayoutPolicy): LayoutResult {
     const found = findTab(doc, input.tab);
     if (found === null) return failure("not-found", `标签 ${input.tab}`);
     const source = doc.panels[found.panel] as PanelRecord;
-    if (source.tabs.length === 1) return movePanelToEdge(doc, {panel: found.panel, target: input.target}, policy);
+    if (source.tabs.length === 1) {
+        if (touches(input.target, found.panel)) return {ok: true, doc};
+        if (source.name === undefined) return movePanelToEdge(doc, {panel: found.panel, target: input.target}, policy);
+    }
     const anchor = edgeAnchorOf(doc, input.target);
     if (anchor === null) return failure("not-found", "目标已不存在");
     if (!policy.accepts([found.tab], anchor, "edge")) return failure("rejected", "接受矩阵拒绝");
@@ -524,6 +538,7 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
     const leaf: GridSnapshotLeaf = {kind: "leaf", id, ref: panelRef(id), size: {width: 0, height: 0}};
     if (!placeLeaf(next, input.target, leaf, new Map(), () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
     if (source.role === "editor") next.currentEditor = id;
+    settleEmptyPanel(next, found.panel);
     return finish(doc, next);
 }
 
@@ -567,14 +582,19 @@ export function setBarHidden(doc: LayoutDoc, bar: LayoutBar, hidden: boolean): L
     return finish(doc, next);
 }
 
-/** 预备区：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。 */
-export function showPanelAndInsert(doc: LayoutDoc, input: {readonly panel: string; readonly source: LayoutSource}, policy: LayoutPolicy): LayoutResult {
+/**
+ * 预备区：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（侧栏拖到零时，活动栏条目拖到它的预备区）。
+ */
+export function showPanelAndInsert(doc: LayoutDoc, input: {readonly panel: string; readonly source: LayoutSource; readonly index?: number}, policy: LayoutPolicy): LayoutResult {
     const shown = setPanelHidden(doc, input.panel, false);
     if (!shown.ok) return shown;
     const expanded = setPanelCollapsed(shown.doc, input.panel, false);
     if (!expanded.ok) return expanded;
     const target = expanded.doc.panels[input.panel] as PanelRecord;
-    if (input.source.kind === "tab") return rebaseOriginal(doc, moveTabToStrip(expanded.doc, {tab: input.source.tab, panel: input.panel, index: target.tabs.length}, policy));
+    if (input.source.kind === "tab") {
+        if (findTab(expanded.doc, input.source.tab)?.panel === input.panel) return rebaseOriginal(doc, activateTab(expanded.doc, input.source.tab));
+        return rebaseOriginal(doc, moveTabToStrip(expanded.doc, {tab: input.source.tab, panel: input.panel, index: input.index ?? target.tabs.length}, policy));
+    }
     return rebaseOriginal(doc, movePanelToStrip(expanded.doc, {panel: input.source.panel, target: input.panel}, policy));
 }
 

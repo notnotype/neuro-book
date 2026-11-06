@@ -7,15 +7,15 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, carryDynamicTabs, edgeTargetOf, findTab, findTreeNode, fixedNodesOf, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, rebaseIntents, removeTab, sameTreeShape, setBarHidden, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, validateLayoutDoc} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, findTab, findTreeNode, fixedNodesOf, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, rebaseIntents, removeTab, sameTreeShape, setBarHidden, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutBar, LayoutDoc, LayoutDropAction, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
 
 import type {EditorSaveGate} from "../../shared/contracts";
 import type {ViewCatalog} from "../views/placement";
-import {defaultLayoutDoc, reconcileViews} from "./default-tree";
-import {COLLAPSE_ORDER, createLayoutPolicy, layoutProjectionOptions} from "./layout-constraints";
+import {defaultLayoutDoc, fitsSkeleton, reconcileViews} from "./default-tree";
+import {COLLAPSE_ORDER, createLayoutPolicy, layoutEdgeTarget, layoutProjectionOptions, toolPanelAxis} from "./layout-constraints";
 import {effectiveVisibleTabs} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
@@ -36,6 +36,12 @@ export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
 export type LayoutSaveGate = EditorSaveGate;
 
 const notFound = (detail: string): LayoutResult => ({ok: false, code: "not-found", detail});
+
+/** 记录与模板里的文档能不能用：过校验，还要合骨架（输出 1）。 */
+function usableDoc(value: unknown): LayoutDoc | null {
+    const checked = validateLayoutDoc(value);
+    return checked.ok && fitsSkeleton(checked.doc) ? checked.doc : null;
+}
 
 function defineLayoutDocStore(bound: boolean) {
     return defineStore("workbench-layout-doc", ({persist}) => {
@@ -72,17 +78,18 @@ function defineLayoutDocStore(bound: boolean) {
 
         function readStored(): LayoutDoc | null {
             const base = field.base;
-            if (base?.status === "ok") {
-                const checked = validateLayoutDoc(base.value.doc);
-                return checked.ok ? checked.doc : null;
-            }
+            if (base?.status === "ok") return usableDoc(base.value.doc);
             // 没有记录时取模板（新项目的初始布局）。
-            if (base?.status === "missing") {
-                const checked = validateLayoutDoc(template.display.doc);
-                return checked.ok ? checked.doc : null;
-            }
+            if (base?.status === "missing") return usableDoc(template.display.doc);
             return null;
         }
+        /** 记录合法但不合骨架（片 7c 之前存的）：用默认树、下次保存覆盖它，不算损坏，用户没有什么可做的。只在外壳根写一条诊断。 */
+        const outsideSkeleton = computed(() => {
+            const base = field.base;
+            if (base?.status !== "ok") return false;
+            const checked = validateLayoutDoc(base.value.doc);
+            return checked.ok && !fitsSkeleton(checked.doc) && local.value === null;
+        });
         const doc = computed<LayoutDoc>(() => reconcileViews(local.value ?? defaultLayoutDoc(catalog.value), catalog.value));
 
         // 只读一次：之后别的窗口保存不改本窗口的显示。
@@ -165,6 +172,8 @@ function defineLayoutDocStore(bound: boolean) {
                 return result;
             }
             if (result.doc === base) return {ok: true, doc: doc.value};
+            // 落点只给合骨架的目标，但服务（`EditorPanels.tabs.moveToEdge`）能传任意目标：写入的出口再守一次。
+            if (!fitsSkeleton(result.doc)) return {ok: false, code: "rejected", detail: "不合骨架"};
             if (!sameTreeShape(base, result.doc)) maximized.value = null;
             local.value = result.doc;
             schedule(options.flush ?? false);
@@ -172,7 +181,7 @@ function defineLayoutDocStore(bound: boolean) {
         }
 
         return {
-            state: {doc, ready, problems, field, catalog, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure},
+            state: {doc, ready, problems, field, catalog, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -232,8 +241,12 @@ function defineLayoutDocStore(bound: boolean) {
                 },
                 /** 提交一个落点（输出 25 到 29）。 */
                 drop: (source: LayoutSource, action: LayoutDropAction): LayoutResult => apply((current) => applyLayoutDrop(current, source, action, policy), {flush: true}),
-                /** 激活标签（切标签合并着存）。 */
-                activate: (key: string): LayoutResult => apply((current) => activateTab(current, key)),
+                /** 激活标签（切标签合并着存）；面板收成标题行时一起展开（输出 11）。 */
+                activate: (key: string): LayoutResult => apply((current) => {
+                    const activated = activateTab(current, key);
+                    const panel = findTab(current, key)?.panel;
+                    return activated.ok && panel !== undefined && current.panels[panel]?.collapsed === true ? setPanelCollapsed(activated.doc, panel, false) : activated;
+                }),
                 /** 关掉标签：声明消失的视图的占位用（输出 4）。 */
                 closeTab: (key: string): LayoutResult => apply((current) => removeTab(current, key)),
                 /**
@@ -252,7 +265,7 @@ function defineLayoutDocStore(bound: boolean) {
                     }, {flush: true});
                 },
                 /**
-                 * “移动到”（输出 23）：放到一块面板的标签末尾，或挨着一块面板开新面板。新面板挨着侧栏、右栏时放在下面（竖长的一列再横着拆就太窄），挨着别的放右边。
+                 * “移动到”（输出 23）：放到一块面板的标签末尾，或挨着一块工具面板开新面板：这一列放下面，这一排放右边。
                  */
                 moveView: (viewId: string, target: string | {readonly newPanelNextTo: string}): LayoutResult => apply((current) => {
                     if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
@@ -265,8 +278,9 @@ function defineLayoutDocStore(bound: boolean) {
                         return moved.ok && panel.hidden === true ? setPanelHidden(moved.doc, target, false) : moved;
                     }
                     const beside = target.newPanelNextTo;
-                    const name = current.panels[beside]?.name;
-                    const edge = edgeTargetOf(current, beside, name === "sidebar" || name === "auxiliarybar" ? "bottom" : "right");
+                    if (current.panels[beside] === undefined) return notFound(beside);
+                    if (current.panels[beside]?.role !== "tool") return {ok: false, code: "rejected", detail: beside};
+                    const edge = layoutEdgeTarget(current, [], beside, toolPanelAxis(current, beside) === "vertical" ? "bottom" : "right");
                     return edge === null ? notFound(beside) : moveTabToEdge(current, {tab: key, target: edge}, policy);
                 }, {flush: true}),
                 /** “重置位置”（输出 23）：回到声明的具名面板的标签末尾。 */

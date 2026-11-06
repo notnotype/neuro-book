@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 活动栏（同名 .md）：上段列全部工具视图，不管它停在哪；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
+ * 活动栏（同名 .md）：上段列侧栏这一列的视图；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
  */
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
@@ -11,7 +11,7 @@ export interface ToolStripEntry {
     readonly id: string;
     readonly label: string;
     readonly icon: string;
-    /** 视图有效可见（docs/specs/ui/workbench-layout.md 输出 17），所以可以有几个同时按下。 */
+    /** 视图有效可见（docs/specs/ui/workbench-layout.md 输出 17）。 */
     readonly pressed: boolean;
 }
 
@@ -41,7 +41,20 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (event: "select", id: string): void;
     (event: "run-item", id: string): void;
+    /** 条目的右键菜单（键盘是菜单键）；坐标是视口坐标。 */
+    (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
 }>();
+
+/** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在条目右边。 */
+function onEntryContextMenu(id: string, event: MouseEvent): void {
+    event.preventDefault();
+    if (event.button === 0 && event.clientX === 0 && event.clientY === 0 && event.currentTarget instanceof Element) {
+        const rect = event.currentTarget.getBoundingClientRect();
+        emit("context-menu", id, {x: rect.right, y: rect.top});
+        return;
+    }
+    emit("context-menu", id, {x: event.clientX, y: event.clientY});
+}
 
 /** 放不下时排在后面的收进“更多”，有效可见的总在外面（输出 22）。量不到条目区（还没挂上）时全部摆出来，条目区自己纵向滚动兜底。 */
 const bandEl = ref<HTMLElement | null>(null);
@@ -77,7 +90,7 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 
 <template>
     <nav class="workbench-tool-strip" :aria-label="label">
-        <div ref="bandEl" class="workbench-tool-strip__entries">
+        <div ref="bandEl" class="workbench-tool-strip__entries" data-tool-band>
             <Tooltip v-for="entry in shownEntries" :key="entry.id" :text="entry.label" side="right">
                 <IconButton
                     size="lg"
@@ -90,6 +103,7 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
                     :class="{'workbench-tool-strip__item--active': entry.pressed}"
                     @mousedown.prevent
                     @click="emit('select', entry.id)"
+                    @contextmenu="onEntryContextMenu(entry.id, $event)"
                 />
             </Tooltip>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">

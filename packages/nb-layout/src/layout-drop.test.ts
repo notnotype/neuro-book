@@ -1,9 +1,10 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
-import {applyLayoutDrop, enumerateDropCandidates, previewEdgeDrop, resolveLayoutDrop} from "./layout-drop";
+import {applyLayoutDrop, enumerateDropCandidates, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
 import type {LayoutDropInput, LayoutDropPanelGeometry} from "./layout-drop";
-import type {LayoutDoc, LayoutSource} from "./layout-doc";
+import {edgeTargetOf} from "./layout-doc";
+import type {LayoutDoc, LayoutPolicy, LayoutSource} from "./layout-doc";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridDropRect} from "./grid-drop";
 
@@ -117,13 +118,63 @@ describe("预备区（输出 29）", () => {
         expect(drop(doc(), EDITOR_TAB, 1000, 300, {zones})).toBeNull();
     });
 
-    it("工具面板上的真实落点优先；编辑组让位：它的外缘窄带差不多正好盖住预备区", () => {
+    it("有真实落点就是它，预备区盖着也一样；这块接收不了时才算预备区", () => {
         const wide = [{panel: "auxiliarybar", rect: rect(0, 0, 1200, 600)}];
-        expect(drop(doc(), VIEW, 450, 300, {zones: wide})).toEqual({kind: "center", panel: "b"});
-        const inEditor = GEOMETRY.find((geometry) => geometry.id === "ec")?.body;
-        if (inEditor === undefined) throw new Error("夹具没有编辑组");
-        expect(drop(doc(), VIEW, (inEditor.left + inEditor.right) / 2, 300, {zones: wide})).toEqual({kind: "reveal", panel: "auxiliarybar"});
-        expect(drop(doc(), VIEW, inEditor.right - 5, 300, {zones: wide})).toEqual({kind: "reveal", panel: "auxiliarybar"});
+        const strict = testPolicy({accepts: (tabs, target) => tabs.every((candidate) => (candidate.kind === "view" ? target.role === "tool" : target.role === "editor"))});
+        expect(drop(doc(), VIEW, 450, 300, {zones: wide, policy: strict})).toEqual({kind: "center", panel: "b"});
+        expect(drop(doc(), VIEW, 750, 300, {zones: wide, policy: strict})).toEqual({kind: "reveal", panel: "auxiliarybar"});
+    });
+
+    it("几块一起显示后算矩形：彼此不重叠，面板只占中间（三块都隐藏时）", () => {
+        const hidden = {tabs: [], active: null, hidden: true};
+        const all = docOf(H(["sidebar", V(["ea", "panel"]), "auxiliarybar"]), {sidebar: hidden, panel: hidden, auxiliarybar: hidden});
+        const projection: LayoutProjectionOptions = {
+            constraints: () => ({minimumSize: {width: 10, height: 10}, maximumSize: {width: Number.POSITIVE_INFINITY, height: Number.POSITIVE_INFINITY}}),
+            barThickness: () => 0,
+            headHeight: 32,
+            collapseThreshold: 24,
+            sashSize: 1,
+        };
+        const rects = previewRevealRects(all, ["sidebar", "panel", "auxiliarybar"], projection, {width: 1000, height: 600}, 1);
+        const {sidebar, panel, auxiliarybar} = rects;
+        if (sidebar === undefined || panel === undefined || auxiliarybar === undefined) throw new Error("少了预备区");
+        expect(sidebar.right).toBeLessThanOrEqual(panel.left);
+        expect(panel.right).toBeLessThanOrEqual(auxiliarybar.left);
+        expect(panel.top).toBeGreaterThan(0);
+    });
+});
+
+describe("策略按边回答（edgeTarget）", () => {
+    /** 工具面板只能上下拆。 */
+    const vertical: Pick<LayoutPolicy, "edgeTarget"> = {edgeTarget: (doc, _tabs, panel, edge) => (edge === "left" || edge === "right" ? null : edgeTargetOf(doc, panel, edge))};
+
+    it("策略不给的边没有窄带，指针在那里算中央；给的边照常是外缘", () => {
+        const policy = testPolicy(vertical);
+        expect(drop(THREE(), VIEW, 310, 300, {policy})).toEqual({kind: "center", panel: "b"});
+        expect(drop(THREE(), VIEW, 450, 40, {policy})).toMatchObject({kind: "edge", target: {kind: "split", panel: "b", edge: "top"}});
+    });
+
+    it("四角归最近的边；最近的边不给时看另一条", () => {
+        // b 的正文 (301,30)-(600,600)，左上角附近：离上边比离左边近。
+        expect(drop(THREE(), VIEW, 340, 35)).toMatchObject({kind: "edge", target: {kind: "split", panel: "b", edge: "top"}});
+        expect(drop(THREE(), VIEW, 305, 100)).toMatchObject({kind: "edge", target: {kind: "between", after: "b"}});
+        expect(drop(THREE(), VIEW, 305, 40, {policy: testPolicy(vertical)})).toMatchObject({kind: "edge", target: {kind: "split", panel: "b", edge: "top"}});
+    });
+
+    it("键盘的落点同样只列策略给的边", () => {
+        const doc = THREE();
+        const candidates = enumerateDropCandidates({doc, source: VIEW, policy: testPolicy(vertical), stripCount: () => 1});
+        const edges = candidates.flatMap((candidate) => (candidate.action.kind === "edge" && candidate.action.target.kind === "split" ? [candidate.action.target.edge] : []));
+        expect(edges.length).toBeGreaterThan(0);
+        expect(edges.every((edge) => edge === "top" || edge === "bottom")).toBe(true);
+        expect(candidates.some((candidate) => candidate.action.kind === "edge" && candidate.action.target.kind === "between")).toBe(false);
+    });
+
+    it("缝归最近的能接收的那块：接收不了的那块不抢", () => {
+        const strict = testPolicy({accepts: (tabs, target) => tabs.every((candidate) => (candidate.kind === "view" ? target.role === "tool" : target.role === "editor"))});
+        // 缝在 600 到 601 之间，离 ec 更近的点上，工具视图归 b。
+        expect(drop(THREE(), VIEW, 600.9, 300, {policy: strict})).toMatchObject({kind: "edge"});
+        expect(drop(THREE(), EDITOR_TAB, 600.1, 300, {policy: strict})).toMatchObject({kind: "edge"});
     });
 });
 

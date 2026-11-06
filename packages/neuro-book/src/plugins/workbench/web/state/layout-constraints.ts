@@ -2,8 +2,8 @@
  * 面板的约束（docs/specs/ui/workbench-layout.md 输出 5、6）：工作台给 nb-layout 的策略。库不知道角色与名字的含义。
  */
 
-import {GRID_UNBOUNDED} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutPolicy, LayoutProjectionOptions, PanelRecord, TabRef} from "@notnotype/nb-layout";
+import {edgeTargetOf, findTreeNode, GRID_UNBOUNDED, treeLeaves} from "@notnotype/nb-layout";
+import type {GridExtent, GridOrientation, LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutPolicy, LayoutProjectionOptions, PanelRecord, TabRef} from "@notnotype/nb-layout";
 
 import {
     SASH_PX,
@@ -52,15 +52,43 @@ export function layoutProjectionOptions(input: {readonly catalog: ViewCatalog; r
     };
 }
 
-/** 接受矩阵（输出 26）：工具视图与编辑器标签不进同一组标签，外缘都接受。 */
-export function layoutAccepts(tabs: ReadonlyArray<TabRef>, target: PanelRecord, region: "strip" | "center" | "edge"): boolean {
-    if (region === "edge") return true;
+/** 接受矩阵（输出 26）：工具视图只进工具面板，编辑器标签只进编辑组，哪个区域都一样。哪条边算落点归 `layoutEdgeTarget`。 */
+export function layoutAccepts(tabs: ReadonlyArray<TabRef>, target: PanelRecord): boolean {
     return tabs.every((tab) => (tab.kind === "view" ? target.role === "tool" : target.role === "editor"));
+}
+
+/** 工具面板往哪个方向分（输出 1）：侧栏、右栏这一列上下分，面板这一排左右分。无名面板是从它们分出来的，看父分支的方向。 */
+export function toolPanelAxis(doc: LayoutDoc, panelId: string): GridOrientation {
+    const name = doc.panels[panelId]?.name;
+    if (name === "panel") return "horizontal";
+    if (name !== undefined) return "vertical";
+    return findTreeNode(doc.tree.root, panelId)?.parent?.orientation ?? "vertical";
+}
+
+const onlyEditors = (doc: LayoutDoc, nodeId: string): boolean => {
+    const hit = findTreeNode(doc.tree.root, nodeId);
+    return hit !== null && treeLeaves(hit.node).every((leaf) => doc.panels[leaf.id]?.role === "editor");
+};
+
+/**
+ * 这条边是不是落点、落到哪（输出 25、26）。规则都是为了守住骨架（输出 1）：工具面板只有所在方向上的两条边；编辑组的对面不是编辑组时（下面挨着面板）是拆这一组，不从工具面板取空间。
+ */
+export function layoutEdgeTarget(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, panelId: string, edge: LayoutEdge): LayoutEdgeTarget | null {
+    const panel = doc.panels[panelId];
+    if (panel === undefined) return null;
+    if (panel.role === "tool") {
+        const axis: GridOrientation = edge === "left" || edge === "right" ? "horizontal" : "vertical";
+        return axis === toolPanelAxis(doc, panelId) ? edgeTargetOf(doc, panelId, edge) : null;
+    }
+    const target = edgeTargetOf(doc, panelId, edge);
+    if (target?.kind !== "between") return target;
+    return onlyEditors(doc, target.before === panelId ? target.after : target.before) ? target : {kind: "split", panel: panelId, edge};
 }
 
 export function createLayoutPolicy(overrides: {readonly canInsert?: LayoutPolicy["canInsert"]} = {}): LayoutPolicy {
     return {
         accepts: layoutAccepts,
+        edgeTarget: layoutEdgeTarget,
         newId: (kind) => `${kind === "panel" ? "p" : "b"}-${crypto.randomUUID()}`,
         ...overrides,
     };

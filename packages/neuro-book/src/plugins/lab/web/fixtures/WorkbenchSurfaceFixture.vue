@@ -27,7 +27,7 @@ import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/Workbench
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {COLLAPSE_ORDER, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
-import {effectiveVisibleTabs, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
+import {effectiveVisibleTabs, sidebarColumnPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
 import type {ViewCatalog} from "nbook/plugins/workbench/web/views/placement";
 
 import type {LabFixtureProps} from "../lab-subject";
@@ -122,7 +122,10 @@ function runFrame(panelId: string, action: string): void {
     if (action === "collapse") commit((current) => setPanelCollapsed(current, panelId, current.panels[panelId]?.collapsed !== true));
 }
 
-const entries = computed<ToolStripEntry[]>(() => VIEWS.map(({id, label, icon}) => ({id, label, icon, pressed: visible.value.has(`view:${id}`)})));
+const entries = computed<ToolStripEntry[]>(() => {
+    const inColumn = new Set(sidebarColumnPanels(doc.value).flatMap((panel) => doc.value.panels[panel]?.tabs.map((tab) => tabKey(tab)) ?? []));
+    return VIEWS.filter(({id}) => inColumn.has(`view:${id}`)).map(({id, label, icon}) => ({id, label, icon, pressed: visible.value.has(`view:${id}`)}));
+});
 
 const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
     {id: "profile", title: "个人资料尚未开放", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
@@ -134,7 +137,7 @@ function focusView(viewId: string): void {
 }
 
 function selectEntry(viewId: string): void {
-    const intent = toolEntryIntent(doc.value, viewId, {visible: visible.value, focusedPanel: focusedPanel.value});
+    const intent = toolEntryIntent(doc.value, viewId, {visible: visible.value});
     if (intent.kind === "none") return;
     const {panel} = intent;
     if (intent.kind === "reveal") {
@@ -144,8 +147,7 @@ function selectEntry(viewId: string): void {
             return shown.ok ? activateTab(shown.doc, `view:${viewId}`) : shown;
         });
         focusView(viewId);
-    } else if (intent.kind === "focus") focusView(viewId);
-    else if (intent.kind === "hide") commit((current) => setPanelHidden(current, panel, true));
+    } else if (intent.kind === "hide") commit((current) => setPanelHidden(current, panel, true));
     else commit((current) => setPanelCollapsed(current, panel, true));
 }
 

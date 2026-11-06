@@ -6,7 +6,7 @@ import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {findTab, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutSource} from "@notnotype/nb-layout";
+import type {GridExtent} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
@@ -24,11 +24,11 @@ import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {ViewLocation} from "../../shared/views";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {canResetView, moveTargetsOf, panelTitle, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
 import {createLayoutPolicy} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {createLayoutDrag} from "../layout-drag";
-import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
+import type {LayoutDrag, LayoutDragDrop, LayoutTabSource} from "../layout-drag";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
 import type {EditorAreaContext, EditorTabDrag} from "../contracts";
@@ -131,7 +131,8 @@ const HEAD_PADDING_PX = 20;
 function headReserved(panelId: string): number {
     const panel = doc.value.panels[panelId];
     const frames = panel?.name === undefined ? 2 : 3;
-    return TAB_TRUNCATED_PX + TAB_ICON_PX * Math.max(0, (panel?.tabs.length ?? 1) - 1) + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
+    const others = titleOnlyPanels.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
+    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
 }
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
@@ -156,6 +157,9 @@ function headTabs(panelId: string): PanelHeadTab[] {
         return {id: tabKey(tab), label: declaration === undefined ? (viewIdOf(tabKey(tab)) ?? tabKey(tab)) : text(declaration.title), icon: declaration?.icon ?? "i-lucide-circle-help"};
     });
 }
+
+/** 头只写标题的面板（输出 20）：切视图靠活动栏，所以活动栏隐藏时它们也画标签带。 */
+const titleOnlyPanels = computed<ReadonlySet<string>>(() => new Set(doc.value.hiddenBars.includes("activitybar") ? [] : sidebarColumnPanels(doc.value)));
 
 /** 框架按钮（输出 20）：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。 */
 function frameActionsOf(panelId: string): PanelFrameAction[] {
@@ -211,7 +215,10 @@ function closeMoveMenu(reason: ContextMenuCloseReason): void {
     const opened = moveMenu.value;
     moveMenu.value = null;
     if (opened === null || reason === "outside") return;
-    void nextTick(() => hostEl.value?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`)?.focus({preventScroll: true}));
+    void nextTick(() => {
+        const root = hostEl.value;
+        (root?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`) ?? root?.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(opened.viewId)}"]`))?.focus({preventScroll: true});
+    });
 }
 
 const moveMenuItems = computed((): ContextMenuItem[] => {
@@ -227,9 +234,11 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
 
 // ── 活动栏 ────────────────────────────────────────────────────────────────
 
-const toolEntries = computed(() => [...catalog.value.entries()]
-    .sort(([leftId, left], [rightId, right]) => (left.order ?? 0) - (right.order ?? 0) || (leftId < rightId ? -1 : 1))
-    .map(([id, declaration]) => ({id, label: text(declaration.title), icon: declaration.icon, pressed: visibleViews.value.has(id)})));
+/** 侧栏这一列的视图，按文档的顺序（输出 22）。标题与图标同面板头的标签：声明消失的视图也有条目，点了能看到占位。 */
+const toolEntries = computed(() => sidebarColumnPanels(doc.value).flatMap(headTabs).flatMap((tab) => {
+    const id = viewIdOf(tab.id);
+    return id === null ? [] : [{id, label: tab.label, icon: tab.icon, pressed: visibleViews.value.has(id)}];
+}));
 
 const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntries(resolver) ?? []).map((item) => ({id: item.id, title: item.title, icon: item.icon, interactive: item.command !== null, pressed: item.pressed, disabledReason: item.disabledReason})));
 
@@ -248,13 +257,10 @@ function focusView(viewId: string): void {
 }
 
 function selectEntry(viewId: string): void {
-    const intent = toolEntryIntent(doc.value, viewId, {visible: state.value.visibleTabs as ReadonlySet<string>, focusedPanel: state.value.focusedPanel});
+    const intent = toolEntryIntent(doc.value, viewId, {visible: state.value.visibleTabs as ReadonlySet<string>});
     switch (intent.kind) {
         case "reveal":
             props.layout.actions.revealView(viewId);
-            focusView(viewId);
-            return;
-        case "focus":
             focusView(viewId);
             return;
         case "hide":
@@ -301,7 +307,7 @@ function onContentParked(key: string): void {
         if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null) return;
         const viewId = viewIdOf(key);
         const panel = viewId === null ? null : panelOfView(viewId);
-        const tab = panel === null ? null : root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(panel)}"] [role="tab"][tabindex="0"]`);
+        const tab = panel === null ? null : root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(panel)}"] [data-panel-tab][tabindex="0"]`);
         const entry = viewId === null ? null : root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(viewId)}"]`);
         (tab !== null && tab.offsetParent !== null ? tab : (entry ?? root)).focus({preventScroll: true});
     });
@@ -337,9 +343,10 @@ onMounted(() => {
         maximized: () => state.value.maximized,
         enabled: () => state.value.ready,
         editorTabs: () => editorTabs.value,
+        titleOnly: (panel) => titleOnlyPanels.value.has(panel),
         commit: (source, action, part) => {
             // 编辑器标签走编辑器区的动作：要先结算视图的输入、合并同一标签（`EditorTabDrag`）。
-            const editorTab = source.kind === "tab" ? editorTabIdOf(source.tab) : null;
+            const editorTab = editorTabIdOf(source.tab);
             if (editorTab !== null) editorTabs.value?.drop(editorTab, action, part);
             else props.layout.actions.drop(source, action);
         },
@@ -349,11 +356,10 @@ onBeforeUnmount(() => drag.value?.dispose());
 
 const dragState = computed(() => drag.value?.session.state.value ?? null);
 
-function ghostOf(source: LayoutSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
-    const key = source.kind === "tab" ? source.tab : (doc.value.panels[source.panel]?.active ?? null);
-    const editorTab = key === null ? null : editorTabIdOf(key);
+function ghostOf(source: LayoutTabSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
+    const editorTab = editorTabIdOf(source.tab);
     if (editorTab !== null) return editorTabs.value?.ghost(editorTab) ?? null;
-    const viewId = key === null ? null : viewIdOf(key);
+    const viewId = viewIdOf(source.tab);
     const declaration = viewId === null ? undefined : catalog.value.get(viewId);
     return declaration === undefined ? null : {label: text(declaration.title), icon: declaration.icon};
 }
@@ -383,16 +389,14 @@ function dropLabel(drop: LayoutDragDrop): string {
 
 const dropFeedback = computed(() => {
     const drop = dragState.value?.drop ?? null;
-    if (drop === null) return {preview: null, label: "", kind: "", count: 0};
-    const source = dragState.value?.source;
-    const count = source?.kind === "panel" ? (doc.value.panels[source.panel]?.tabs.length ?? 0) : 1;
-    return {preview: {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation}, label: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind, count};
+    if (drop === null) return {preview: null, label: "", kind: ""};
+    return {preview: {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation}, label: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind};
 });
 
-/** 呈现降级写在外壳根上（“失败与恢复”）：被收走的面板，压到编辑组时再加一条。 */
+/** 呈现降级写在外壳根上（“失败与恢复”）：被收走的面板，压到编辑组时再加一条；记录不合骨架回落了也写一条。 */
 const diagnostics = computed(() => {
     const {removed, squeezed} = state.value.collapse;
-    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : []).join(" | ");
+    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : [], state.value.outsideSkeleton ? ["布局记录不合骨架，已用默认布局"] : []).join(" | ");
 });
 
 /** 布局里的面板，给外壳根写个数：e2e 和排障用。 */
@@ -428,6 +432,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :projection="layout.actions.presentation()"
                 :maximized="state.maximized"
                 :disabled="!state.ready"
+                :title-only-panels="titleOnlyPanels"
                 context-key="workbench"
                 @extent="onExtent"
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"
@@ -446,6 +451,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :drag-hint="message('shell.drag.hint')"
                         @select="selectEntry"
                         @run-item="(id) => chrome?.runItem(id)"
+                        @context-menu="(id, at) => openMoveMenu(viewKey(id), at)"
                     />
                 </template>
                 <template #statusbar>
@@ -470,6 +476,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :more-label="message('common.more')"
                         :id-prefix="idPrefix"
                         :drag-hint="message('shell.drag.hint')"
+                        :title-only="titleOnlyPanels.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
                         @activate="(key) => layout.actions.activate(key)"
                         @action="(action) => runFrameAction(panelId, action)"
@@ -514,7 +521,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         </div>
         <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="(next: EditorTabDrag | null) => (editorTabs = next)" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" />
     </div>
 </template>
 

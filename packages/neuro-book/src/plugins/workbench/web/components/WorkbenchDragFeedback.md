@@ -30,9 +30,8 @@ type Props = {
     preview: DropFeedbackPreview | null;
     /** 落点提示与播报的文字；空字符串不显示提示。 */
     label: string;
-    /** 动作种类与拖动的视图数，写到覆盖层根的 data-drop-kind、data-drop-count，供探针读。 */
+    /** 动作种类，写到覆盖层根的 data-drop-kind，供探针读。 */
     kind: string;
-    count: number;
 };
 ```
 

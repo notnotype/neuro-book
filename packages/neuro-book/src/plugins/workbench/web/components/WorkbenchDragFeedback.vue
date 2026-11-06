@@ -21,9 +21,8 @@ withDefaults(defineProps<{
     preview: DropFeedbackPreview | null;
     /** 落点提示与播报的文字；空字符串不显示提示。 */
     label: string;
-    /** 动作种类与拖动的视图数，写到覆盖层根的 `data-drop-kind`、`data-drop-count`，供探针读。 */
+    /** 动作种类，写到覆盖层根的 `data-drop-kind`，供探针读。 */
     kind: string;
-    count: number;
 }>(), {zones: () => []});
 
 defineEmits<{
@@ -57,7 +56,7 @@ defineEmits<{
                 </DropIndicatorLabel>
             </div>
         </Teleport>
-        <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" :data-drop-count="count" @settled="$emit('settled')" />
+        <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" @settled="$emit('settled')" />
     </div>
 </template>
 

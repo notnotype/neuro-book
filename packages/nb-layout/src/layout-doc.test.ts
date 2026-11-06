@@ -173,11 +173,33 @@ describe("外缘（规则 4、5）", () => {
         expect(okDoc(movePanelToEdge(doc, {panel: "b", target: edge(doc, "b", "left")}, testPolicy()))).toBe(doc);
     });
 
-    it("单标签的面板拖到外缘是整块移动，面板 id 与名字都跟着走", () => {
+    it("单标签的无名面板拖到外缘是整块移动，面板 id 跟着走", () => {
+        const doc = docOf(H(["s", "ea", "b"]));
+        const result = okDoc(moveTabToEdge(doc, {tab: "view:s", target: edge(doc, "b", "bottom")}, testPolicy()));
+        expect(shape(result)).toBe("H[ea,V[b,s]]");
+        expect(result.panels.s?.tabs).toEqual([view("s")]);
+    });
+
+    it("具名面板不移动：它的单标签拆出新面板，它拖空隐藏，留在原位", () => {
         const doc = docOf(H(["sidebar", "ea", "b"]));
         const result = okDoc(moveTabToEdge(doc, {tab: "view:sidebar", target: edge(doc, "b", "bottom")}, testPolicy()));
-        expect(shape(result)).toBe("H[ea,V[b,sidebar]]");
-        expect(result.panels.sidebar?.name).toBe("sidebar");
+        expect(shape(result)).toBe("H[sidebar,ea,V[b,n1]]");
+        expect(result.panels.sidebar).toMatchObject({tabs: [], active: null, hidden: true, name: "sidebar"});
+        expect(result.panels.n1?.tabs).toEqual([view("sidebar")]);
+    });
+
+    it("单标签的面板放回挨着自己的边是原位，具名的也是", () => {
+        const doc = docOf(V(["sidebar", "b"]));
+        expect(okDoc(moveTabToEdge(doc, {tab: "view:sidebar", target: edge(doc, "sidebar", "top")}, testPolicy()))).toBe(doc);
+        expect(okDoc(moveTabToEdge(doc, {tab: "view:sidebar", target: edge(doc, "sidebar", "bottom")}, testPolicy()))).toBe(doc);
+        expect(okDoc(moveTabToEdge(doc, {tab: "view:b", target: edge(doc, "sidebar", "bottom")}, testPolicy()))).toBe(doc);
+    });
+
+    it("收成标题行的面板移到外缘时展开：换到横向分支就成了零宽", () => {
+        const doc = docOf(V(["ea", H(["panel", "x"]), "c"]), {c: {collapsed: true}});
+        const result = okDoc(moveTabToEdge(doc, {tab: "view:c", target: edge(doc, "x", "right")}, testPolicy()));
+        expect(shape(result)).toBe("V[ea,H[panel,x,c]]");
+        expect(result.panels.c?.collapsed).toBeUndefined();
     });
 
     it("多标签面板的一个标签拖到外缘：拆出新面板，继承角色；编辑组拆出的成为活动编辑组", () => {
@@ -390,6 +412,20 @@ describe("显隐与收起", () => {
         expect(result.panels.auxiliarybar?.active).toBe("view:x");
         expect(result.panels.a?.tabs).toEqual([view("y")]);
     });
+
+    it("预备区按位置插；标签本来就在这块面板里时只显示并激活，不重排（活动栏条目放到拖到零的侧栏）", () => {
+        const doc = docOf(H(["a", "sidebar", "ec"]), {a: {tabs: [view("x"), view("y")], active: "view:x"}, sidebar: {tabs: [view("p"), view("q")], active: "view:p", collapsed: true}});
+        const inserted = okDoc(showPanelAndInsert(doc, {panel: "sidebar", source: {kind: "tab", tab: "view:y"}, index: 1}, testPolicy()));
+        expect(inserted.panels.sidebar?.tabs).toEqual([view("p"), view("y"), view("q")]);
+        expect(inserted.panels.sidebar?.collapsed).toBeUndefined();
+        const own = okDoc(showPanelAndInsert(doc, {panel: "sidebar", source: {kind: "tab", tab: "view:p"}}, testPolicy()));
+        expect(own.panels.sidebar?.tabs).toEqual([view("p"), view("q")]);
+        expect(own.panels.sidebar?.active).toBe("view:p");
+        expect(own.panels.sidebar?.collapsed).toBeUndefined();
+        const other = okDoc(showPanelAndInsert(doc, {panel: "sidebar", source: {kind: "tab", tab: "view:q"}}, testPolicy()));
+        expect(other.panels.sidebar?.tabs).toEqual([view("p"), view("q")]);
+        expect(other.panels.sidebar?.active).toBe("view:q");
+    });
 });
 
 describe("校验", () => {
@@ -430,8 +466,7 @@ describe("校验", () => {
     it("默认树的形状校验通过，且条在最外层不随结构操作移动", () => {
         const doc = docOf(V([H(["activitybar", "sidebar", V(["ea", "panel"]), "auxiliarybar"]), "statusbar"]));
         expect(validateLayoutDoc(doc).ok).toBe(true);
-        const moved = okDoc(moveTabToEdge(doc, {tab: "view:panel", target: edge(doc, "sidebar", "bottom")}, testPolicy()));
-        expect(shape(moved)).toBe("V[H[activitybar,V[sidebar,panel],ea,auxiliarybar],statusbar]");
-        expect(validateLayoutDoc(moved).ok).toBe(true);
+        const moved = okDoc(moveTabToEdge(doc, {tab: "view:sidebar", target: edge(doc, "ea", "top")}, testPolicy()));
+        expect(shape(moved)).toBe("V[H[activitybar,sidebar,V[n1,ea,panel],auxiliarybar],statusbar]");
     });
 });

@@ -24,6 +24,7 @@ import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 import type {QuickPick, QuickPickRequest, QuickPickResult} from "../../shared/contracts";
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {LayoutDocStore} from "../state/layout-doc-store";
+import {sidebarColumnPanels} from "../state/layout-present";
 import {workbenchStateBindings} from "../state/public-state";
 import {openLayoutDoc} from "../testing/layout-doc";
 import type {ViewCatalog} from "../views/placement";
@@ -155,7 +156,7 @@ describe("移动视图", () => {
         expect(JSON.stringify(store.state.doc)).toBe(before);
     });
 
-    it("无参：先选视图（不可移动的不在候选里）、再选目标（别的工具面板、挨着每块面板的新面板、重置位置）；取消任一步成功且不写", async () => {
+    it("无参：先选视图（不可移动的不在候选里）、再选目标（别的工具面板、挨着工具面板的新面板、重置位置）；取消任一步成功且不写", async () => {
         const store = await layout();
         const cancelFirst = picker(() => ({kind: "cancelled"}));
         expect(await run(store, cancelFirst, {})).toEqual({ok: true, value: null});
@@ -164,8 +165,8 @@ describe("移动视图", () => {
         const before = JSON.stringify(store.state.doc);
         const cancelSecond = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.a"} : {kind: "cancelled"}));
         expect(await run(store, cancelSecond, {})).toEqual({ok: true, value: null});
-        // A 在侧栏：别的工具面板是面板和（隐藏着的）右栏，具名面板写名字；新面板可以挨着每块显示着的面板，隐藏的不列；A 在第一次放的侧栏，没有“重置位置”。
-        expect(labels(cancelSecond.requests[1])).toEqual(["panel:面板", "auxiliarybar:右栏", "new:sidebar:新面板（挨着侧栏）", "new:g0:新面板（挨着编辑区）", "new:panel:新面板（挨着面板）"]);
+        // A 在侧栏：别的工具面板是面板和（隐藏着的）右栏，具名面板写名字；新面板可以挨着每块显示着的工具面板，隐藏的不列；A 在第一次放的侧栏，没有“重置位置”。
+        expect(labels(cancelSecond.requests[1])).toEqual(["panel:面板", "auxiliarybar:右栏", "new:sidebar:新面板（挨着侧栏）", "new:panel:新面板（挨着面板）"]);
         expect(JSON.stringify(store.state.doc)).toBe(before);
 
         const move = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.a"} : {kind: "item", id: "panel"}));
@@ -185,11 +186,18 @@ describe("移动视图", () => {
         expect(unnamedToolPanels(store)).toEqual([created]);
         expect(tabsOf(store, created)).toEqual(["test.b"]);
 
-        // 只有一个标签的面板挨着别的面板，是同一块面板移动（输出 27）：面板 id 不变，不多出新面板。
-        const alone = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.c"} : {kind: "item", id: "new:sidebar"}));
+        // 只有一个标签的无名面板挨着别的面板，是同一块面板移动（输出 27）：面板 id 不变，不多出新面板。
+        const alone = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.b"} : {kind: "item", id: "new:sidebar"}));
         expect(await run(store, alone, {})).toEqual({ok: true, value: null});
-        expect(panelOf(store, "test.c")).toBe("panel");
+        expect(panelOf(store, "test.b")).toBe(created);
+        expect(sidebarColumnPanels(store.actions.document())).toContain(created);
         expect(unnamedToolPanels(store)).toEqual([created]);
+        // 具名面板不移动：它的单标签拆出新面板，它拖空隐藏，留在骨架上。
+        const named = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.c"} : {kind: "item", id: "new:sidebar"}));
+        expect(await run(store, named, {})).toEqual({ok: true, value: null});
+        expect(panelOf(store, "test.c")).not.toBe("panel");
+        expect(store.state.doc.panels.panel?.hidden).toBe(true);
+        expect(unnamedToolPanels(store)).toHaveLength(2);
     });
 
     it("两步选择之间目标面板没了（被搬空的无名面板随之移除）：按 stale-target 拒绝且不写", async () => {
