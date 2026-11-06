@@ -114,6 +114,8 @@ export const builtinPluginAssets: Readonly<Record<string, Readonly<Record<string
     "nbook.theme-study": {
         "assets/study-day.webp": new URL("../plugins/theme-study/assets/study-day.webp", import.meta.url).href,
         "assets/study-night.webp": new URL("../plugins/theme-study/assets/study-night.webp", import.meta.url).href,
+        "assets/study-day-working.webp": new URL("../plugins/theme-study/assets/study-day-working.webp", import.meta.url).href,
+        "assets/study-night-working.webp": new URL("../plugins/theme-study/assets/study-night-working.webp", import.meta.url).href,
         // `new URL` 的路径要是字面量模板，Vite 才会把这些文件打进产物；名单与书房声明的图标集是同一份。
         ...Object.fromEntries(STUDY_ICON_NAMES.map((name) => [`assets/icons/${name}.svg`, new URL(`../plugins/theme-study/assets/icons/${name}.svg`, import.meta.url).href])),
     },

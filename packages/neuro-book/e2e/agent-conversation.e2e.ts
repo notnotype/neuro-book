@@ -213,22 +213,27 @@ test("验收 5：服务端在运行中重启：重新加载后回到这个会话
     await expect(resume).toHaveCount(0);
 });
 
-test("按状态换场景（theme.skins 输出 17）：会话在运行时换成主题的工作态场景，结束后换回", async ({page}) => {
-    // 主题来自装进来的插件（暮色写了工作态场景），所以另起一个带它的服务；模型端点与项目照旧。
-    const root = join(tmp, "with-theme");
-    const plugins = createPluginInventory({root: join(root, "plugins"), profile: NEUROBOOK_PROFILE, builtin: productPlugins, startup: NO_INSTALLED_PLUGINS, record: () => undefined});
+/**
+ * 按状态换场景的一遍：用 `theme` 起一个服务，会话运行时场景变量换成 `working`，结束后换回 `idle`。`install` 是要装进来的
+ * 主题插件（内置主题不用装）；模型端点与项目照旧。
+ */
+async function checkWorkingScene(page: Page, options: {readonly theme: string; readonly install?: string; readonly idle: RegExp; readonly working: RegExp}): Promise<void> {
+    const root = join(tmp, `with-theme-${options.theme}`);
     await mkdir(join(root, "user"), {recursive: true});
     await writeFile(join(root, "projects.json"), await readFile(join(stateRoot, "projects.json")));
-    const installed = await plugins.install(join(PACKAGE_ROOT, "plugin-sdk/examples/external/theme-dusk"));
-    if (!installed.ok) throw new Error(`安装失败：${JSON.stringify(installed)}`);
+    if (options.install !== undefined) {
+        const plugins = createPluginInventory({root: join(root, "plugins"), profile: NEUROBOOK_PROFILE, builtin: productPlugins, startup: NO_INSTALLED_PLUGINS, record: () => undefined});
+        const installed = await plugins.install(join(PACKAGE_ROOT, options.install));
+        if (!installed.ok) throw new Error(`安装失败：${JSON.stringify(installed)}`);
+    }
     const base = JSON.parse(await readFile(join(stateRoot, "settings.json"), "utf8")) as Record<string, unknown>;
-    await writeFile(join(root, "settings.json"), JSON.stringify({...base, "nbook.workbench/theme": "example.theme-dusk.dusk", "nbook.workbench/appearance": "light"}));
+    await writeFile(join(root, "settings.json"), JSON.stringify({...base, "nbook.workbench/theme": options.theme, "nbook.workbench/appearance": "light"}));
     const themed = await startProductServer(root);
     const sceneVar = (): Promise<string> => page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
     try {
         await page.goto(new URL("/?project=book", themed.url).href);
         await expect(page.locator("[data-explorer-row]").first()).toBeVisible();
-        await expect.poll(sceneVar).toMatch(/dusk-day\.webp/u);
+        await expect.poll(sceneVar).toMatch(options.idle);
         await page.keyboard.press("Control+Shift+P");
         await page.keyboard.type("打开对话");
         await page.keyboard.press("Enter");
@@ -238,15 +243,25 @@ test("按状态换场景（theme.skins 输出 17）：会话在运行时换成�
         await script("好了");
         await send(page, "写一章");
         await control("/hold/arrived");
-        await expect.poll(sceneVar).toMatch(/dusk-day-working\.webp/u);
+        await expect.poll(sceneVar).toMatch(options.working);
         await control("/hold/release");
         await expect(page.getByText("好了")).toBeVisible();
-        await expect.poll(sceneVar).toMatch(/dusk-day\.webp/u);
+        await expect.poll(sceneVar).toMatch(options.idle);
         expect(await sceneVar()).not.toMatch(/working/u);
     } finally {
         await page.goto("about:blank");
         expect(await themed.stop()).toBe(0);
     }
+}
+
+test("按状态换场景（theme.skins 输出 17）：会话在运行时换成主题的工作态场景，结束后换回", async ({page}) => {
+    // 暮色是装进来的示例主题插件，写了工作态场景。
+    await checkWorkingScene(page, {theme: "example.theme-dusk.dusk", install: "plugin-sdk/examples/external/theme-dusk", idle: /dusk-day\.webp/u, working: /dusk-day-working\.webp/u});
+});
+
+test("按状态换场景（theme.skins 输出 11、17）：内置的书房也有工作态场景", async ({page}) => {
+    // 内置素材经构建加了哈希（`study-day-<哈希>.webp`），空闲图的匹配要把 `-working` 排除。
+    await checkWorkingScene(page, {theme: "nbook.theme-study.study", idle: /study-day-(?!working)[\w-]+\.webp/u, working: /study-day-working-[\w-]+\.webp/u});
 });
 
 test("验收 6：把对话打开到编辑区页面：能发消息", async ({page}) => {

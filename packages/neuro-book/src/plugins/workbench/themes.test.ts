@@ -3,8 +3,8 @@
  */
 
 import {describe, expect, it} from "bun:test";
-import {statSync} from "node:fs";
-import {join} from "node:path";
+import {readFileSync, statSync} from "node:fs";
+import {basename, join} from "node:path";
 
 import {createApplication} from "nbook/application";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -14,6 +14,8 @@ import {BUILTIN_THEME_CONTRIBUTIONS, themesPoint, WORKBENCH_THEMES_POINT} from "
 import type {ThemeDeclaration} from "./shared/themes";
 import {SWITCH_THEME_COMMAND, themeCommands} from "./web/commands/theme-commands";
 import {ThemeCatalog, themeVars} from "./web/themes";
+import {descriptor} from "../theme-study/plugin";
+import {builtinPluginAssets} from "nbook/web/plugins";
 
 const plain = (extra: Partial<ThemeDeclaration> = {}): ThemeDeclaration => ({title: "x", base: "nbook", light: {}, dark: {}, ...extra});
 
@@ -159,8 +161,34 @@ describe("切换主题的命令", () => {
 });
 
 describe("书房的素材", () => {
-    it.each(["study-day.webp", "study-night.webp"])("%s 不超过 300 KB", (name) => {
-        expect(statSync(join(import.meta.dir, "../theme-study/assets", name)).size).toBeLessThanOrEqual(300 * 1024);
+    const assets = join(import.meta.dir, "../theme-study/assets");
+    /** 有损 WebP（`VP8 ` 块）的宽高：位图头在第 26 字节起，各 14 位。 */
+    const size = (name: string): readonly [number, number] => {
+        const header = readFileSync(join(assets, name));
+        return [header.readUInt16LE(26) & 0x3fff, header.readUInt16LE(28) & 0x3fff];
+    };
+
+    it.each(["study-day.webp", "study-night.webp", "study-day-working.webp", "study-night-working.webp"])("%s 不超过 300 KB", (name) => {
+        expect(statSync(join(assets, name)).size).toBeLessThanOrEqual(300 * 1024);
+    });
+
+    it("声明里写的每个素材路径，浏览器侧的内置素材登记表里都有（构建只打进登记过的文件）", () => {
+        const declaration = descriptor.contributions?.find((c) => c.id === "nbook.theme-study.study")?.declaration as ThemeDeclaration;
+        const registered = Object.keys(builtinPluginAssets["nbook.theme-study"] ?? {});
+        for (const look of [declaration.light, declaration.dark]) {
+            const referenced = [look.scene, look.workingScene, ...Object.values(look.icons ?? {})].filter((path): path is string => path !== undefined);
+            expect(referenced.length).toBeGreaterThan(0);
+            for (const path of referenced) expect(registered).toContain(path);
+        }
+    });
+
+    it("亮暗两套都写了工作态场景，文件存在，尺寸与同一明暗的场景图一致（切换时各位置的裁切才对得上）", () => {
+        const declaration = descriptor.contributions?.find((c) => c.id === "nbook.theme-study.study")?.declaration as ThemeDeclaration;
+        for (const look of [declaration.light, declaration.dark]) {
+            expect(look.scene).toBeDefined();
+            expect(look.workingScene).toBeDefined();
+            expect(size(basename(look.workingScene!))).toEqual(size(basename(look.scene!)));
+        }
     });
 });
 
