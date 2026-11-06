@@ -87,9 +87,9 @@ type Look = {
 14. **书架页**：带场景的主题，书架页整页铺场景图，裁切取 `crop.empty`（与欢迎页同一个），上面罩一层页面底色（`--bg-main` 的 62%）；场景钉在视口上，书多了页面变长也不被拉伸。卡片与文字仍在原来的面上，文字对比度不低于 4.5。`prefers-contrast: more`、`forced-colors: active` 下不画。没有场景的主题没有这一层。书架的展示字体不变（输出 8）。
 15. **设置窗口**：带场景的主题，设置窗口内容区铺一层淡场景（图的 16% 不透明度），裁切取 `crop.empty`；不管窗口后面是什么页面，窗口自己都带着主题的味道。淡到文字与控件的对比度仍不低于 4.5。`prefers-contrast: more`、`forced-colors: active` 下不画。没有场景的主题没有这一层。
 
-16. **图标集**：`Look.icons` 有值时，工作台自己用的 lucide 图标里，名字在表里的换成对应的 SVG（经 CSS 蒙版画，随前景色变），没写的保持原图标；亮暗各写各的。`prefers-contrast: more`、`forced-colors: active` 下不换。SVG 当图片用，浏览器不执行里面的脚本、不加载它引用的外部资源。没写 `icons` 时和没有主题一样；换回别的主题后恢复。
+16. **图标集**：`Look.icons` 有值时，工作台自己用的 lucide 图标里，名字在表里的换成对应的 SVG（经 CSS 蒙版画，随前景色变），没写的保持原图标；亮暗各写各的。`prefers-contrast: more`、`forced-colors: active` 下不换。SVG 当图片用，浏览器不执行里面的脚本、不加载它引用的外部资源。素材读不到的那个图标显示为空（作者负责，工作台不检查文件在不在）。没写 `icons` 时和没有主题一样；换回别的主题后恢复。
 17. **按状态换场景**：Agent 工作中（有会话在运行或等用户处理，即公开状态 `nbook.agent/active`，状态栏“Agent：1 运行中”的同一个信号）且这一明暗写了 `workingScene` 时，所有位置的场景图换成它，裁切不变；会话结束后换回 `scene`。`workingScene` 没写或读不到时仍用 `scene`。Agent 插件没启用时按空闲。换图不触发整页渐变，也不做交叉淡化。
-18. **由代码提供的场景**：主题写了 `sceneProvider` 时，场景图由那个提供者画：提供者是浏览器入口向 `workbench.theme-scenes` 的贡献，实现是 `scene({appearance, working}, signal) => Promise<{image: Blob, expiresAt?: number}>`。图要是 `image/*`、不超过 4 MB，并且浏览器解码成功才采用；否则（提供者没发布、reject、不是图片、超限、解码失败）那一位置用后备的静态图（`scene` / `workingScene`），没有后备就没有场景，并按提供者记一条诊断，同一个提供者只记一次，失败后不重试。每个（主题、明暗、是否工作中）画一张；`expiresAt` 到点重新请求，新图解码成功后才替换旧图。提供者撤回（入口停止）时取消在飞的请求、撤销已画的图；页面卸载时撤销全部。工作台不替提供者激活入口，所以提供者所在的入口要写 `onStartup`。
+18. **由代码提供的场景**：主题写了 `sceneProvider` 时，场景图由那个提供者画：提供者是浏览器入口向 `workbench.theme-scenes` 的贡献，实现是 `scene({appearance, working}, signal) => Promise<{image: Blob, expiresAt?: number}>`。图要是 `image/*`、不超过 4 MB，并且浏览器解码成功才采用；否则（提供者一直没发布、reject、不是图片、超限、解码失败）那一位置用后备的静态图（`scene` / `workingScene`），没有后备就没有场景，并按提供者记一条诊断，同一个提供者只记一次（提供者撤回后清掉记录），第一次画就失败的不重试。每个（主题、明暗、是否工作中）画一张；`expiresAt` 到点重新请求，至少隔 5 秒（过去的时刻、0 不会变成请求死循环，不是数的当作没有），新图解码成功后才替换旧图；刷新失败时旧图继续显示，60 秒后再试。提供者撤回（入口停止）、主题重新发布、换了提供者或删掉时，取消在飞的请求、撤销已画的图；工作台（插件）停止时撤销全部。工作台不替提供者激活入口，所以提供者所在的入口要写 `onStartup`；主题引用的提供者启动 5 秒后还没发布，按提供者记一条诊断（说明要写 `onStartup`）。
 
 ## 状态与转换
 
@@ -136,7 +136,7 @@ type Look = {
 
 16. Given 书房；When 看活动栏等处的 lucide 图标；Then 画的是书房的 SVG，亮暗同一批；When 模拟高对比度；Then 恢复原图标；When 换成 NeuroBook；Then 恢复原图标，文档里没有图标样式表；Given 图标 SVG 里引用了外部地址；Then 浏览器不发出那条请求。
 17. Given 写了 `workingScene` 的主题；When 一个 Agent 会话开始运行；Then 场景图换成工作态的；When 会话结束；Then 换回 `scene`。
-18. Given 主题写了 `sceneProvider`，提供者所在入口启动即激活；Then 场景变量是画好并解码过的 `blob:` 地址；When 换明暗；Then 另画一张；When 提供者 reject、返回非图片或超限的图、或解码失败；Then 用后备图并记一条诊断；When 提供者撤回；Then 取消在飞的请求、撤销已画的图；When 主题重新发布；Then 旧代次迟到的结果不被采用；When `expiresAt` 到点；Then 重新请求，新图解码成功后才替换。
+18. Given 主题写了 `sceneProvider`，提供者所在入口启动即激活；Then 场景变量是画好并解码过的 `blob:` 地址；When 换明暗；Then 另画一张；When 提供者 reject、返回非图片或超限的图、或解码失败；Then 用后备图并记一条诊断；When 提供者启动后一直没发布；Then 记一条说明要写 `onStartup` 的诊断；When 提供者撤回；Then 取消在飞的请求、撤销已画的图；When 主题重新发布或换了提供者；Then 旧图作废、迟到的结果不被采用；When `expiresAt` 到点（或是过去的时刻）；Then 至少隔 5 秒重新请求，新图解码成功后才替换，刷新失败时旧图继续显示。
 
 Smoke：`e2e/themes.e2e.ts`（图标集）、`e2e/agent-conversation.e2e.ts`（按状态换场景）、`e2e/plugin-code.e2e.ts`（外置的场景提供者）。
 
@@ -146,7 +146,7 @@ Smoke：`e2e/themes.e2e.ts`（图标集）、`e2e/agent-conversation.e2e.ts`（�
 - owner 与依赖方向：贡献点、选择、文档根的写入、活动栏、侧栏与右栏下角归 `nbook.workbench`；空状态归 `nbook.editor`（`editor.pages` 的声明加了可选的 `scene`）；正文两侧与正文字体归 `nbook.markdown`。各位置只读 `src/ui/theme/skin-vars.ts` 里的变量，没有变量时和没有主题一样。
 - 不变量：声明里的素材只有相对路径，描述文件不 import 图片：服务端构建会把图片打进产物，URL 也和前端的不一样。内置素材的 URL 表在 `web/plugins.ts`。
 - 不变量：贡献点定义写在 shared，三个运行位置都带；没有入口的位置经描述里的 `contributionPoints` 登记，否则服务端的插件页把第三方主题标成“未知贡献点”。
-- 不变量：主题目录经 receiver 收，不取激活时的快照，以后热插拔不用改。场景提供者的结果放在响应式表里，结果落下时读过它的主题计算自动重算；每个主题条目有代次，作废的请求与迟到的结果不回写，对象 URL 由目录负责撤销。
+- 不变量：主题目录经 receiver 收，不取激活时的快照，以后热插拔不用改。场景提供者的结果放在响应式表里，结果落下时读过它的主题计算自动重算；主题条目重新发布、撤回或换了提供者时，名下的请求与结果作废，迟到的结果不回写，对象 URL 由目录负责撤销。
 - 不变量：图标覆盖规则写成一张不进任何 `@layer` 的样式表，整张包在 `@media not ((prefers-contrast: more) or (forced-colors: active))` 里：不进层才压得过 nb-ui 预生成的 `@layer` 里的 `--svg`，媒体条件不满足时原规则自然生效。
 - 不变量：写偏移的规则要排在元素自己的 `padding` 之后，否则会被简写盖掉（`themes.e2e.ts` 断言空状态下标志的位置）。
 
