@@ -21,7 +21,8 @@ export interface RenderOrder {
     domIdOf(key: string): string;
 }
 
-export function useRenderOrder(layers: Readonly<Ref<ReadonlyArray<GridLayerItem<unknown>>>>, instanceId: string): RenderOrder {
+/** `parked`：停放的内容项 `inert`，读屏本来就读不到；编辑组每个标签一项，列表不随标签数变长。 */
+export function useRenderOrder(layers: Readonly<Ref<ReadonlyArray<GridLayerItem<unknown>>>>, instanceId: string, parked: (item: GridLayerItem<unknown>) => boolean = () => false): RenderOrder {
     let renderedKeys: string[] = [];
     const domIds = new Map<string, string>();
     let nextDomId = 0;
@@ -48,7 +49,7 @@ export function useRenderOrder(layers: Readonly<Ref<ReadonlyArray<GridLayerItem<
     });
 
     const outOfOrder = computed(() => items.value.some((item, index) => item.key !== layers.value[index]?.key));
-    const ariaOwns = computed(() => (outOfOrder.value ? layers.value.map((item) => domIdOf(item.key)).join(" ") : undefined));
+    const ariaOwns = computed(() => (outOfOrder.value ? layers.value.filter((item) => !parked(item)).map((item) => domIdOf(item.key)).join(" ") : undefined));
 
     return {items, outOfOrder, ariaOwns, domIdOf};
 }

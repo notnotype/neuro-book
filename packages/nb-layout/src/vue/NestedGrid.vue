@@ -137,7 +137,7 @@ const contentLayer = useContentLayer({
 /** 渲染层的全部项，树序：每块叶后面紧跟属于它的内容。 */
 const layers = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => layerItems(placement.value?.items ?? [], contentLayer.placements.value));
 
-const order = useRenderOrder(layers, instanceId);
+const order = useRenderOrder(layers, instanceId, (item) => item.kind === "content" && contentLayer.isParked(item));
 const {domIdOf} = order;
 const focus = useGridFocus({root: rootEl, layers, order});
 

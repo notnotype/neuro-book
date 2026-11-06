@@ -716,6 +716,7 @@ export const labFixtures: LabFixture[] = [
             {id: "empty", label: "没有标签：标志与提示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "recycle", label: "回收：每种编辑器只留 2 个控件", input: {props: {groupId: "g0", wrapTabs: true}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),

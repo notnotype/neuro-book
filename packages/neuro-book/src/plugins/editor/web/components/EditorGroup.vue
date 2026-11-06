@@ -1,9 +1,11 @@
 <script setup lang="ts">
-/** 一个编辑组的内容（同名 .md）：内容层里一块面板的内容，面包屑、进度条、状态条与控件。提示条与标签条在 `EditorGroupHead`。 */
+/**
+ * 一个标签的内容（同名 .md）：内容层里每个标签一块，空的编辑组一块。标签移到别的组时这块内容不重建，`groupId` 跟着变。面包屑、进度条与状态条只有组此刻显示的那块才画；
+ * 其余的只留控件，由内容层停放。提示条与标签条在 `EditorGroupHead`。
+ */
 import {Banner, Button, Kbd} from "@notnotype/nb-ui/components";
 import type {BannerTone} from "@notnotype/nb-ui/components";
 import {computed, provide, useTemplateRef} from "vue";
-import type {Component} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
@@ -29,7 +31,10 @@ import type {EditorIntent} from "./useEditorGroupRoot";
 
 const props = withDefaults(defineProps<{
     area: EditorArea;
+    /** 这个标签现在所在的编辑组。 */
     groupId: string;
+    /** 这块内容属于哪个标签；null 是空的编辑组。 */
+    tabId: string | null;
     /** 编辑器此刻的组件：不在、未交付或已交付（docs/specs/workbench/editor.md 输出 40）。 */
     control: (editor: string) => EditorState;
     pages?: EditorPageSource | null;
@@ -48,12 +53,17 @@ const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event:
 
 const root = useEditorGroupRoot({area: () => props.area, groupId: () => props.groupId, intent: (intent) => emit("intent", intent), root: "section"});
 
-const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
-const activeTab = computed(() => group.value?.tabs.find((tab) => tab.id === group.value?.active) ?? null);
-const document = computed(() => props.area.documentOf(props.groupId));
+const found = computed(() => (props.tabId === null ? null : props.area.groups.find(props.tabId)));
+/** 这块内容是组此刻显示的那块：它是组的活动标签，或者组是空的。 */
+const current = computed(() => props.tabId === null || found.value?.group.active === props.tabId);
+/** 下面的面包屑、横幅、失败原因都只为组此刻显示的那块算：不活动的标签不读文档状态，也不画。 */
+const activeTab = computed(() => (current.value ? found.value?.tab ?? null : null));
+const document = computed(() => (current.value ? props.area.documentOf(props.groupId) : null));
 /** 活动文件标签的文件条目：字节标签也有（删除、订阅结束的提示用它）。 */
-const file = computed(() => props.area.fileOf(props.groupId));
-const binding = computed(() => props.area.binding(props.groupId));
+const file = computed(() => (current.value ? props.area.fileOf(props.groupId) : null));
+/** 只为留着控件的标签取绑定：取绑定会打开文档，恢复出来、没活动过的标签不读。 */
+const mounted = computed(() => props.tabId !== null && props.area.mountedControls.value.has(props.tabId));
+const binding = computed(() => (props.tabId !== null && mounted.value ? props.area.tabBinding(props.tabId) : null));
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
 /** 面包屑的段（输出 60）：活动标签是文件时，根 › 目录 › 文件；页面标签与空组没有。 */
@@ -68,7 +78,7 @@ const crumbs = computed((): {segments: BreadcrumbSegment[]; parent: string | nul
     segments.push({kind: "file", label: parts.at(-1) ?? "", address: tab.address, icon: fileIconForName(parts.at(-1) ?? "")});
     return {segments, parent: segments.at(-2)?.address ?? null};
 });
-const outline = computed(() => (props.breadcrumbs ? props.area.handleOf(props.groupId)?.outline?.value ?? null : null));
+const outline = computed(() => (props.breadcrumbs && current.value ? props.area.handleOf(props.groupId)?.outline?.value ?? null : null));
 const listCrumb = async (address: string, signal: AbortSignal): Promise<BreadcrumbListing> => {
     const result = await props.area.list(address, signal);
     if (!result.ok) return {ok: false, reason: result.detail === "" ? result.code : result.detail};
@@ -127,8 +137,6 @@ const failure = computed((): {readonly text: string; readonly retry: boolean} | 
     return {text: t("document.openFailed", {name: nameOf(current.target.value.path), reason: problem?.detail || problem?.code || ""}), retry: true};
 });
 
-const onReady = (editor: string, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, editor, handle);
-
 /**
  * 活动文件标签的编辑器不能渲染的原因：已知二进制（输出 37 第 1 步）、编辑器不在了、还没交付（输出 40）。能渲染为 null。
  */
@@ -143,19 +151,20 @@ const unavailable = computed((): "binary" | "gone" | "pending" | null => {
 /** 活动标签是页面时的页面 id；文件标签为 null。 */
 const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(activeTab.value.address)));
 /** 铺场景图的状态（docs/specs/theme/skins.md 输出 4）：没开文件，或活动页声明了要。主题没有场景时这一层不显示。 */
-const showsScene = computed(() => activeTab.value === null || (pageId.value !== null && props.pages?.scene(pageId.value) === true));
+const showsScene = computed(() => props.tabId === null || (pageId.value !== null && props.pages?.scene(pageId.value) === true));
 const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
 /** 这个标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：说明原因，关掉就好。 */
 const lost = computed(() => activeTab.value?.address === LOST_TAB_ADDRESS);
 
-// 控件按编辑器各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。只挂已交付的编辑器。
-const controls = computed((): Array<{readonly editor: string; readonly component: Component}> => {
-    const present = new Set<string>();
-    for (const tab of group.value?.tabs ?? []) if (tab.kind === "file" && tab.editor !== BINARY_TAB_EDITOR) present.add(tab.editor);
-    return [...present].flatMap((editor) => {
-        const state = props.control(editor);
-        return state.kind === "ready" ? [{editor, component: state.component}] : [];
-    });
+/**
+ * 这个标签的控件：编辑器已交付、标签在留着控件的范围里才挂。换编辑器时换一个控件。写成至多一项的列表，模板里 `v-for` 的变量是这一项：
+ * 控件卸载时才发的 `ready(null)` 要记到它挂上时的标签与编辑器，这时这个计算值可能已经是空的或已经换了。
+ */
+const controls = computed(() => {
+    const tab = found.value?.tab;
+    if (props.tabId === null || !mounted.value || tab === undefined || tab.kind === "page" || tab.editor === BINARY_TAB_EDITOR) return [];
+    const state = props.control(tab.editor);
+    return state.kind === "ready" ? [{tabId: props.tabId, editor: tab.editor, component: state.component, label: nameOf(tab.address)}] : [];
 });
 
 const toolbarSlot = useTemplateRef<HTMLElement>("toolbarSlot");
@@ -168,8 +177,8 @@ provide(editorToolbarSlotKey, toolbarSlot);
         class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
         :aria-label="t('area.label')"
-        :data-editor-group="groupId"
-        :data-editor-group-active="active ? '' : undefined"
+        :data-editor-group="current ? groupId : undefined"
+        :data-editor-group-active="current && active ? '' : undefined"
         @keydown="root.onKeydown"
         @focusin="root.onFocusIn"
         @focusout="root.onFocusOut"
@@ -184,25 +193,25 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 :outline="outline"
                 :list="listCrumb"
                 :focus-seq="crumbFocus"
-                @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
+                @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId, reveal: 'cursor'})"
                 @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
                 @escape="returnFocus"
             />
             <div ref="toolbarSlot" class="flex min-w-0 shrink" data-editor-toolbar-slot></div>
         </div>
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
-            <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
+            <div v-if="current && area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>
         <!-- 进度条本身只是装饰：同一时刻给读屏一句可播报的“正在读取”。 -->
-        <p v-if="area.progress(groupId)" class="sr-only" role="status">{{ t("area.loading") }}</p>
+        <p v-if="current && area.progress(groupId)" class="sr-only" role="status">{{ t("area.loading") }}</p>
         <Banner v-if="banner !== null" class="shrink-0" :tone="banner.tone" :message="banner.text" data-editor-banner>
             <template v-if="banner.actions.length > 0" #actions>
                 <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
             </template>
         </Banner>
-        <div class="relative min-h-7 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
+        <div class="relative min-h-7 flex-1" :aria-busy="current && area.progress(groupId) ? 'true' : undefined" data-editor-content>
             <div v-if="showsScene" class="editor-group__scene" aria-hidden="true" data-editor-scene></div>
-            <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
+            <div v-if="tabId === null" class="editor-group__empty" data-editor-empty>
                 <NeuroBookMark class="editor-group__mark" decorative />
                 <div v-if="emptyTips.length > 0" class="editor-group__tips">
                     <button v-for="tip in emptyTips" :key="tip.command" type="button" class="editor-group__tip nb-ui-focus-ring" :data-editor-empty-tip="tip.command" @click="emit('run-tip', tip.command)">
@@ -228,21 +237,19 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 <p v-else-if="lost" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-tab-lost>{{ t("tab.lostBody") }}</p>
                 <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
             </div>
-            <template v-for="mounted in controls" :key="mounted.editor">
-                <div v-show="binding !== null && binding.editor === mounted.editor" class="absolute inset-0" :data-editor-kind="mounted.editor">
-                    <component
-                        :is="mounted.component"
-                        :binding="binding !== null && binding.editor === mounted.editor ? binding : null"
-                        :host="area.controlSlot(groupId, mounted.editor)"
-                        :readonly="!area.viewWritable(groupId)"
-                        :visible="binding !== null && binding.editor === mounted.editor"
-                        :label="activeTab === null ? '' : nameOf(activeTab.address)"
-                        :locale="port.locale.value"
-                        @ready="(handle: EditorControlHandle | null) => onReady(mounted.editor, handle)"
-                        @focus="(focused: boolean) => (area.focused.value = focused)"
-                    />
-                </div>
-            </template>
+            <div v-for="item in controls" v-show="binding !== null" :key="item.editor" class="absolute inset-0" :data-editor-kind="item.editor">
+                <component
+                    :is="item.component"
+                    :binding="binding"
+                    :host="area.tabControlSlot(item.tabId, item.editor)"
+                    :readonly="!area.tabWritable(item.tabId)"
+                    :visible="current && binding !== null"
+                    :label="item.label"
+                    :locale="port.locale.value"
+                    @ready="(handle: EditorControlHandle | null) => area.registerTabHandle(item.tabId, item.editor, handle)"
+                    @focus="(focused: boolean) => (area.focused.value = focused)"
+                />
+            </div>
         </div>
     </section>
 </template>

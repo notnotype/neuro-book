@@ -57,10 +57,10 @@ async function opened(text: string, catalog: SyntaxCatalog): Promise<{readonly e
         return found?.kind === "text" && area.documentOf(groupId)?.status.value === "ready" ? found : null;
     });
     let handle: EditorControlHandle | null = null;
-    const host = area.controlSlot(groupId, MARKDOWN_EDITOR);
+    const host = area.tabControlSlot(binding.tabId, MARKDOWN_EDITOR);
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
-        area.registerHandle(groupId, MARKDOWN_EDITOR, ready);
+        area.registerTabHandle(binding.tabId, MARKDOWN_EDITOR, ready);
     }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog}}});
     cleanups.push(() => wrapper.unmount());
     return {editor: (host.state as {editor: Editor}).editor, handle: handle as unknown as EditorControlHandle, binding};

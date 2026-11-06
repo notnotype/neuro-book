@@ -75,13 +75,14 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
         return found?.kind === "text" && editorArea.documentOf(groupId)?.status.value === "ready" ? found : null;
     });
     let handle: EditorControlHandle | null = null;
-    const host = editorArea.controlSlot(groupId, MARKDOWN_EDITOR);
+    const tabId = binding.tabId;
+    const host = editorArea.tabControlSlot(tabId, MARKDOWN_EDITOR);
     const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
     windowText.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
     // 句柄交给编辑器区（与 `EditorGroup` 一样），区域的定位、结算经它找到控件。
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
-        editorArea.registerHandle(groupId, MARKDOWN_EDITOR, ready);
+        editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
     }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
@@ -301,7 +302,7 @@ describe("卸载", () => {
         const errors: unknown[] = [];
         const {editor, binding, area, groupId} = await opened("甲\n", undefined, (error) => errors.push(error));
         editor.commands.insertContentAt(endOfBlock(editor, 0), "乙");
-        area.controlSlot(groupId, MARKDOWN_EDITOR).dispose?.();
+        area.tabControlSlot(binding.tabId, MARKDOWN_EDITOR).dispose?.();
         // 最后登记的清理是卸载控件（见 `opened`）：文档还在，只卸载控件。
         cleanups.pop()?.();
         expect(errors).toEqual([]);

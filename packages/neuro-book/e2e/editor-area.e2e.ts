@@ -1110,13 +1110,15 @@ test("真实控件的缓冲：Markdown 刚输入就把标签拖到另一组，�
     await page.mouse.move(to.x + to.width - 40, to.y + 17, {steps: 6});
     await page.mouse.up();
     await expect(heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-a.md"})).toHaveCount(1);
-    await groups.nth(1).locator("[data-editor-prose]").click();
+    // 内容项在 DOM 里的次序不随标签移动变：按头找这一组。
+    const right = page.locator(`[data-editor-group="${await heads(page).nth(1).getAttribute("data-editor-group-head") ?? ""}"]`);
+    await right.locator("[data-editor-prose]").click();
     await page.keyboard.press("Control+s");
     await expect.poll(() => disk("notes/buffer-a.md")).toBe("甲改\n");
 
     // 右组的 buffer-b.md：输入后立刻右键“关闭已保存”，它有修改，留下。
     await heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-b.md"}).click();
-    await atEnd(page, groups.nth(1).locator("[data-editor-prose]"));
+    await atEnd(page, right.locator("[data-editor-prose]"));
     await page.keyboard.type("改");
     await heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-b.md"}).click({button: "right"});
     await page.getByRole("menu").getByRole("menuitem", {name: "关闭已保存"}).click();
@@ -1148,6 +1150,8 @@ test("面包屑：作品名 › 目录 › 文件 › 标题；点目录列出�
     // 目录段：列出 notes 的子项，选 a.md 在本组打开。
     await segments.nth(1).click();
     await menu.getByRole("menuitemradio", {name: "a.md", exact: true}).click();
+    // 这块内容的面包屑随之没了：焦点交给打开的视图，不掉到页面根。
+    await expect.poll(() => focusInEditor(page)).toBe(true);
     await expect(page.locator("[data-editor-group-head-active] [data-editor-tab][aria-selected=\"true\"]")).toContainText("a.md");
     await expect(segments.nth(2)).toHaveText("a.md");
 
@@ -1836,5 +1840,131 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
         expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
         await menu.getByRole("menuitem", {name: "测试编辑区按钮"}).click();
         await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
+    });
+});
+
+test.describe("每个标签一个控件（docs/specs/workbench/editor.md 术语“视图”、输出 49）", () => {
+    const CASES = [
+        {name: "Markdown", a: "notes/move-a.md", b: "notes/move-b.md", control: "[data-editor-prose]"},
+        {name: "源码编辑器", a: "notes/move-a.json", b: "notes/move-b.json", control: ".monaco-editor"},
+    ] as const;
+    const groupOf = (page: Page, head: Locator) => head.getAttribute("data-editor-group-head").then((id) => page.locator(`[data-editor-group="${id ?? ""}"]`));
+    const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
+
+    for (const sample of CASES) {
+        test(`${sample.name}：多标签组里的标签拖到别的组，控件不重建，撤销还能撤移动前的输入，内容从旧位置滑过去`, async ({page}) => {
+            await page.emulateMedia({reducedMotion: "no-preference"});
+            await page.setViewportSize({width: 1440, height: 900});
+            await writeFile(join(projectDir, sample.a), "甲\n");
+            await writeFile(join(projectDir, sample.b), "乙\n");
+            await open(page);
+            await closeAll(page);
+            await item(page, `project://${sample.a}`).dblclick();
+            await item(page, `project://${sample.b}`).dblclick();
+            await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
+            await expect(heads(page)).toHaveCount(2);
+            const left = await groupOf(page, heads(page).nth(0));
+            const right = await groupOf(page, heads(page).nth(1));
+            const tabOfA = heads(page).nth(0).locator("[data-editor-tab]").filter({hasText: nameOf(sample.a)});
+            await tabOfA.click();
+            await left.locator(sample.control).click();
+            await page.keyboard.press("Control+End");
+            await page.keyboard.type("改");
+            await expect(left).toContainText("改");
+
+            const control = await left.locator(sample.control).elementHandle();
+            if (control === null) throw new Error("没有控件");
+            const key = await control.evaluate((element) => element.closest("[data-content]")?.getAttribute("data-content") ?? "");
+            const startLeft = await control.evaluate((element) => Math.round(element.closest("[data-content]")?.getBoundingClientRect().left ?? 0));
+            const strip = await heads(page).nth(1).locator("[data-editor-tabs]").boundingBox();
+            if (strip === null) throw new Error("没有标签条");
+            await dragFrom(page, tabOfA, {x: strip.x + strip.width - 40, y: strip.y + 17}, async () => {
+                // 松手前开始逐帧记内容项的位置：一秒盖得住 470ms 的过渡。
+                await page.evaluate((contentKey) => {
+                    const element = document.querySelector(`[data-content="${contentKey}"]`);
+                    const lefts: number[] = [];
+                    (window as unknown as {__testLefts: number[]}).__testLefts = lefts;
+                    const sampleFrame = (): void => {
+                        lefts.push(Math.round(element?.getBoundingClientRect().left ?? 0));
+                        if (lefts.length < 60) requestAnimationFrame(sampleFrame);
+                    };
+                    requestAnimationFrame(sampleFrame);
+                }, key);
+            });
+            await expect(heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: nameOf(sample.a)})).toHaveCount(1);
+            await expect(right).toContainText("改");
+
+            // 同一个 DOM 节点：控件没有重建。
+            const moved = await right.locator(sample.control).elementHandle();
+            expect(await control.evaluate((element, other) => element === other, moved)).toBe(true);
+
+            // 内容从旧位置滑到新位置，中间有过渡的位置。
+            await expect.poll(() => page.evaluate(() => (window as unknown as {__testLefts: number[]}).__testLefts.length)).toBe(60);
+            const lefts = await page.evaluate(() => (window as unknown as {__testLefts: number[]}).__testLefts);
+            const endLeft = lefts.at(-1) ?? 0;
+            expect(endLeft).toBeGreaterThan(startLeft);
+            expect(lefts.some((value) => value > startLeft && value < endLeft)).toBe(true);
+
+            // 焦点交给了移过去的视图，撤销撤的是移动前的输入。
+            await page.keyboard.press("Control+z");
+            await expect(right).not.toContainText("改");
+            await closeAll(page);
+        });
+    }
+
+    test("不活动的控件跟着正文：别的组输入、外部改写之后切回来是新的，不出现冲突", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 900});
+        await writeFile(join(projectDir, "notes/follow-a.md"), "甲\n");
+        await writeFile(join(projectDir, "notes/follow-b.md"), "乙\n");
+        await open(page);
+        await closeAll(page);
+        await item(page, "project://notes/follow-a.md").dblclick();
+        await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
+        await expect(heads(page)).toHaveCount(2);
+        const left = await groupOf(page, heads(page).nth(0));
+        const right = await groupOf(page, heads(page).nth(1));
+        // 左组切到别的文件：follow-a 在左组不活动，它的控件还留着。
+        await heads(page).nth(0).locator("[data-editor-tab]").click();
+        await item(page, "project://notes/follow-b.md").dblclick();
+        await expect(left).toContainText("乙");
+
+        await writeFile(join(projectDir, "notes/follow-a.md"), "外部\n");
+        await expect(right).toContainText("外部");
+        await right.locator("[data-editor-prose]").click();
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("右");
+        await expect(right).toContainText("外部右");
+
+        await heads(page).nth(0).locator("[data-editor-tab]").filter({hasText: "follow-a.md"}).click();
+        await expect(left).toContainText("外部右");
+        await expect(left.locator("[data-editor-banner]")).toHaveCount(0);
+        await left.locator("[data-editor-prose]").click();
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("左");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/follow-a.md")).toBe("外部右左\n");
+        await expect(right).toContainText("外部右左");
+        await expect(page.locator("[data-editor-banner]")).toHaveCount(0);
+        await closeAll(page);
+    });
+
+    test("恢复会话只建活动标签的控件；切过去才建；切走不卸，关闭才没", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 900});
+        await open(page);
+        await closeAll(page);
+        for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
+        await expect(page.locator("[data-editor-kind]")).toHaveCount(3);
+        await page.reload();
+        await expect(tabs(page)).toHaveCount(3);
+        await expect(prose(page)).toBeVisible();
+        await expect(page.locator("[data-editor-kind]")).toHaveCount(1);
+        await tabs(page).filter({hasText: "a.md"}).click();
+        await expect(page.locator("[data-editor-kind]")).toHaveCount(2);
+        await tabs(page).filter({hasText: "c.md"}).click();
+        await expect(page.locator("[data-editor-kind]")).toHaveCount(2);
+        await tabs(page).filter({hasText: "a.md"}).hover();
+        await page.locator(`[data-editor-tab-close="${await tabs(page).filter({hasText: "a.md"}).getAttribute("data-editor-tab") ?? ""}"]`).click();
+        await expect(page.locator("[data-editor-kind]")).toHaveCount(1);
+        await closeAll(page);
     });
 });

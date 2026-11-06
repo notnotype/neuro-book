@@ -312,8 +312,8 @@ export interface ViewStateSlot {
 export type TabCursor = {readonly offset: number} | {readonly line: number; readonly column: number};
 
 /**
- * 文本编辑器（`input: "text"`）收到的绑定：文档的只读视图加输入回执。换文档、换编辑器、换标签都是新的绑定（新的
- * `token`）；换下的绑定之后的调用一律当作过时（`commit` 为 `stale`）。
+ * 文本编辑器（`input: "text"`）收到的绑定：文档的只读视图加输入回执。每个标签一份，切走、换组都不换；换编辑器是新的绑定
+ * （新的 `token`）；换下的或标签已关闭的绑定之后的调用一律当作过时（`commit` 为 `stale`）。
  */
 export interface TextEditorBinding {
     readonly kind: "text";
@@ -408,7 +408,7 @@ export interface EditorOutline {
 /** 控件的属性与事件（`binding` 的类型按编辑器的 `input`）。 */
 export interface EditorControlProps<B> {
     readonly binding: B | null;
-    /** 组 × 编辑器的实例槽：重挂时接着用存在这里的编辑器实例。 */
+    /** 标签 × 编辑器的实例槽：控件被卸载再挂上时接着用存在这里的编辑器实例。 */
     readonly host: ViewStateSlot;
     readonly readonly: boolean;
     readonly visible: boolean;

@@ -581,7 +581,7 @@ test.describe("可读性", () => {
                 for (const selector of ["[data-welcome-title]", "[data-welcome-stats]", ".welcome-page__description", "[data-welcome-shelf]", "[data-activity-item=\"nbook.settings\"]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]", "[data-status-project]", "[data-titlebar-menu-entry]"]) await check(selector);
                 await openFile(page, "contrast.md");
                 await expect(prose(page)).toBeVisible();
-                for (const selector of ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
+                for (const selector of ["[data-editor-group-active] [data-editor-prose] p", "[data-editor-group-active] [data-editor-prose] blockquote p", "[data-editor-group-active] [data-editor-prose] a", "[data-editor-group-active] [data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
                 console.log(report.join("\n"));
             });
         }
@@ -626,7 +626,7 @@ test.describe("可读性", () => {
             for (const selector of ["[data-welcome-stats]", ".welcome-page__description", "[data-welcome-shelf]", "[data-activity-item=\"nbook.settings\"]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]", "[data-status-project]", "[data-titlebar-menu-entry]"]) await check(selector);
             await openFile(page, "contrast.md");
             await expect(prose(page)).toBeVisible();
-            for (const selector of ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
+            for (const selector of ["[data-editor-group-active] [data-editor-prose] p", "[data-editor-group-active] [data-editor-prose] blockquote p", "[data-editor-group-active] [data-editor-prose] a", "[data-editor-group-active] [data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
             // 侧栏下角：文件多到列表压在图上时，压在图上的那几行也读得动。
             const rows = await page.locator("[data-content-leaf=\"sidebar\"] [data-explorer-label]").evaluateAll((labels, height) => labels.flatMap((label, index) => (label.getBoundingClientRect().bottom > height - 230 && label.getBoundingClientRect().bottom < height - 30 ? [index] : [])), page.viewportSize()?.height ?? 0);
             expect(rows.length, "要有压在下角图上的行").toBeGreaterThan(0);

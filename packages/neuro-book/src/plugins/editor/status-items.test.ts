@@ -205,12 +205,12 @@ describe("状态栏条目", () => {
         await opened(scene, area, "project://c.json");
         const position = shallowRef<{line: number; column: number} | null>({line: 18, column: 4});
         const withPosition: EditorControlHandle = {focus: () => undefined, flushPendingChange: () => undefined, position};
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, withPosition);
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, withPosition);
         expect(keys.hasCursorPosition.value).toBe(true);
         expect(items[CURSOR_ITEM]!.text()).toBe("第 18 行，第 4 列");
         position.value = {line: 2, column: 1};
         expect(items[CURSOR_ITEM]!.text()).toBe("第 2 行，第 1 列");
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
         expect(keys.hasCursorPosition.value).toBe(false);
     });
 
@@ -221,12 +221,12 @@ describe("状态栏条目", () => {
         const items = editorStatusItems(ref, new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         await opened(scene, area, "project://c.json");
         const language = shallowRef<string | null>("python");
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined, language});
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined, language});
         expect(keys.hasLanguage.value).toBe(true);
         expect(items[LANGUAGE_ITEM]!.text()).toBe("Python");
         language.value = "json";
         expect(items[LANGUAGE_ITEM]!.text()).toBe("json");
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
         expect(keys.hasLanguage.value).toBe(false);
     });
 });

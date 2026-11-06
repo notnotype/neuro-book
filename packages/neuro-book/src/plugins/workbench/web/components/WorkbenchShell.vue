@@ -317,7 +317,7 @@ const statusProblems = computed(() => state.value.problems.map((problem) => ({re
 const surface = useTemplateRef<InstanceType<typeof WorkbenchSurface>>("surface");
 
 /**
- * 焦点所在的内容或面板头不可见了（输出 16）：同一面板看得见的标签，面板看不见时活动栏里这个视图的条目，都没有时外壳根。焦点已经去了别处（菜单、对话框、别的面板）时不抢。
+ * 焦点所在的内容或面板头不可见了（输出 16）：同一面板看得见的标签，面板看不见时活动栏里这个视图的条目，都没有时外壳根；编辑器的内容没有所属的活动栏条目，去活动编辑组的活动标签。焦点已经去了别处（菜单、对话框、别的面板）时不抢。
  * 判断焦点丢了要等渲染之后：面板头被移走时焦点回到 body，内容停放时焦点还在 `inert` 的元素上。
  */
 function onContentParked(key: string): void {
@@ -328,9 +328,10 @@ function onContentParked(key: string): void {
         if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null) return;
         const viewId = viewIdOf(key);
         const panel = viewId === null ? null : panelOfView(viewId);
-        const tab = panel === null ? null : root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(panel)}"] [data-panel-tab][tabindex="0"]`);
+        const head = viewId === null ? "[data-editor-group-head-active]" : panel === null ? null : `[data-panel-head="${CSS.escape(panel)}"]`;
+        const tab = head === null ? null : root.querySelector<HTMLElement>(`${head} [data-panel-tab][tabindex="0"]`);
         const entry = viewId === null ? null : root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(viewId)}"]`);
-        (tab !== null && tab.offsetParent !== null ? tab : (entry ?? root)).focus({preventScroll: true});
+        (tab !== null && tab.offsetParent !== null && tab.closest("[inert]") === null ? tab : (entry ?? root)).focus({preventScroll: true});
     });
 }
 
@@ -365,10 +366,10 @@ onMounted(() => {
         enabled: () => state.value.ready,
         editorTabs: () => editorTabs.value,
         titleOnly: (panel) => titleOnlyPanels.value.has(panel),
-        commit: (source, action, part) => {
+        commit: (source, action, part, keyboard) => {
             // 编辑器标签走编辑器区的动作：要先结算视图的输入、合并同一标签（`EditorTabDrag`）。
             const editorTab = editorTabIdOf(source.tab);
-            if (editorTab !== null) editorTabs.value?.drop(editorTab, action, part);
+            if (editorTab !== null) editorTabs.value?.drop(editorTab, action, part, keyboard);
             else props.layout.actions.drop(source, action);
         },
     });
@@ -515,7 +516,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 </template>
                 <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">
-                        <component :is="editorArea.group" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :context="editorContextOf(panelId)" data-workbench-editor-area />
+                        <component :is="editorArea.group" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :tab-id="editorTabIdOf(contentKey)" :context="editorContextOf(panelId)" data-workbench-editor-area />
                         <div v-else class="workbench-shell__welcome">
                             <h1>NeuroBook</h1>
                             <!-- 这块编辑组有标签时写的是原因（输出 34）：编辑器撤回了，标签还在，再次交付后恢复。 -->

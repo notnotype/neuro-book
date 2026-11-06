@@ -115,12 +115,18 @@ const area = createEditorArea({
     generation: 1,
     initial: null,
     report: (error) => record("error", error instanceof Error ? error.message : String(error)),
+    // 场景 `recycle`：每种编辑器只留 2 个控件，不用真开 21 个标签就能看回收（docs/specs/workbench/editor.md 术语“视图”）。
+    ...(props.scene === "recycle" ? {mountedControlsPerEditor: 2} : {}),
 });
 if (props.scene === "dialect") {
     area.open("project://chapters/方言.md", {mode: "permanent"});
 } else if (props.scene !== "empty") {
     area.open("project://chapters/第一章.md", {mode: "permanent"});
     area.open("project://chapters/第二章.md", {mode: "preview"});
+}
+if (props.scene === "recycle") {
+    area.open("project://chapters/方言.md", {mode: "permanent"});
+    for (const path of ["chapters/第一章.md", "chapters/第二章.md", "notes/设定.json"]) area.open(`project://${path}`, {mode: "permanent", editor: CODE_EDITOR});
 }
 if (props.scene === "split") {
     area.split("right");
@@ -208,9 +214,9 @@ onMounted(() => {
         enabled: () => true,
         editorTabs: () => tabDrag.value,
         titleOnly: () => false,
-        commit: (source, action, part) => {
+        commit: (source, action, part, keyboard) => {
             const tabId = editorTabIdOf(source.tab);
-            if (tabId !== null) tabDrag.value?.drop(tabId, action, part);
+            if (tabId !== null) tabDrag.value?.drop(tabId, action, part, keyboard);
         },
     });
 });
@@ -248,8 +254,8 @@ onBeforeUnmount(() => {
             <template #head="{panelId}">
                 <EditorGroupHead :area="area" :group-id="panelId" :wrap-tabs="props.input?.props?.wrapTabs !== false" @intent="onIntent" />
             </template>
-            <template #content="{panelId}">
-                <EditorGroup :area="area" :group-id="panelId" :control="control" :empty-tips="emptyTips" @intent="onIntent" @run-tip="(command: string) => record('run-tip', command)" />
+            <template #content="{contentKey, panelId}">
+                <EditorGroup :area="area" :group-id="panelId" :tab-id="editorTabIdOf(contentKey)" :control="control" :empty-tips="emptyTips" @intent="onIntent" @run-tip="(command: string) => record('run-tip', command)" />
             </template>
         </WorkbenchSurface>
         <EditorHost :area="area" :wrap-tabs="props.input?.props?.wrapTabs !== false" :attach-tab-drag="(next: EditorTabDrag | null) => (tabDrag = next)" />

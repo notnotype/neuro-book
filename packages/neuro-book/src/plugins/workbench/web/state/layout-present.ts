@@ -19,8 +19,10 @@ const VIEW_KEY_PREFIX = "view:";
  */
 export function layoutContents(doc: LayoutDoc, editorHeadHeight: (panel: string) => number = () => 0): GridContentInput[] {
     return Object.entries(doc.panels).flatMap(([id, panel]): GridContentInput[] => {
-        if (panel.role === "editor") return [{key: `editor:${id}`, leaf: id, insetTop: editorHeadHeight(id), active: true}];
-        return panel.tabs.map((tab) => ({key: tabKey(tab), leaf: id, insetTop: PANEL_HEAD_HEIGHT, active: panel.active === tabKey(tab)}));
+        const insetTop = panel.role === "editor" ? editorHeadHeight(id) : PANEL_HEAD_HEIGHT;
+        // 空的编辑组也要一块内容：空态的提示在里面。
+        if (panel.role === "editor" && panel.tabs.length === 0) return [{key: `editor:${id}`, leaf: id, insetTop, active: true}];
+        return panel.tabs.map((tab) => ({key: tabKey(tab), leaf: id, insetTop, active: panel.active === tabKey(tab)}));
     });
 }
 

@@ -33,6 +33,17 @@ describe("内容项", () => {
         ]);
         expect(contents.filter((item) => item.leaf === "g0")).toEqual([{key: "editor:g0", leaf: "g0", insetTop: 0, active: true}]);
     });
+
+    test("有标签的编辑组每个标签一项，活动标签的那项活动，上边让出这组的头", () => {
+        const base = doc();
+        const group = base.panels.g0;
+        if (group === undefined) throw new Error("默认树没有 g0");
+        const withTabs: LayoutDoc = {...base, panels: {...base.panels, g0: {...group, tabs: [{kind: "tab", type: "editor", tabId: "a"}, {kind: "tab", type: "editor", tabId: "b"}], active: "tab:b"}}};
+        expect(layoutContents(withTabs, () => 34).filter((item) => item.leaf === "g0")).toEqual([
+            {key: "tab:a", leaf: "g0", insetTop: 34, active: false},
+            {key: "tab:b", leaf: "g0", insetTop: 34, active: true},
+        ]);
+    });
 });
 
 describe("面板写给人看的名字", () => {

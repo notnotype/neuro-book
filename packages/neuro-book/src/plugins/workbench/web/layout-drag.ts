@@ -60,7 +60,7 @@ export interface LayoutDragOptions {
     editorTabs(): EditorTabDrag | null;
     /** 这块面板的头只写标题，没有插入位（输出 20）。 */
     titleOnly(panel: string): boolean;
-    commit(source: LayoutTabSource, action: LayoutDropAction, part: string | undefined): void;
+    commit(source: LayoutTabSource, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
 }
 
 export interface LayoutDrag {
@@ -346,7 +346,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             return dropAt(source, point, region);
         },
         actionKey: (drop) => (drop.inPlace ? null : JSON.stringify([drop.action, drop.part ?? null])),
-        commit: (drop, source) => options.commit(source, drop.action, drop.part),
+        commit: (drop, source, keyboard) => options.commit(source, drop.action, drop.part, keyboard),
         // 拖动中的光标与禁选在全局样式里按这个标记生效。
         onActiveChange: (active) => root.ownerDocument.documentElement.toggleAttribute("data-workbench-dragging", active),
         keyboard: {

@@ -291,14 +291,14 @@ export const editorBrowserPlugin: PluginDefinition = {
                         }),
                         group: defineComponent({
                             name: "EditorGroupPart",
-                            props: {panelId: {type: String, required: true}, context: {type: Object as PropType<EditorAreaContext>, required: true}},
+                            props: {panelId: {type: String, required: true}, tabId: {type: String as PropType<string | null>, default: null}, context: {type: Object as PropType<EditorAreaContext>, required: true}},
                             setup: (props) => {
                                 provideToChildren(editorLanguagesKey, languages);
                                 provideToChildren(codeEditorOptionsKey, codeOptions);
                                 provideToChildren(editorMenusKey, menus);
                                 return () => {
                                     if (session.area.value === null) return null;
-                                    return h(EditorGroup, {area: session.area.value, groupId: props.panelId, control, pages: pageSource, emptyTips: tips(), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onRunTip: execute, onIntent});
+                                    return h(EditorGroup, {area: session.area.value, groupId: props.panelId, tabId: props.tabId, control, pages: pageSource, emptyTips: tips(), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onRunTip: execute, onIntent});
                                 };
                             },
                         }),

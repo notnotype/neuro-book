@@ -48,7 +48,8 @@ export interface DragSessionOptions<S, D, R> {
     /** 落点要做的动作的比较键；只显示、不提交的落点为 null。 */
     actionKey(drop: D): string | null;
     /** 放下且与最后显示过的动作相同。 */
-    commit(drop: D, source: S): void;
+    /** `keyboard`：这场是键盘拖动，放下后焦点回到来源。 */
+    commit(drop: D, source: S, keyboard: boolean): void;
     /** 一场结束，`last` 是最后发布的状态。 */
     onEnd?(end: DragEnd, last: DragState<S, D>): void;
     /** 一场开始与结束（宿主写光标与禁选的标记）。 */
@@ -235,7 +236,7 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
         structure: options.structure,
         resolve: ({source, point, region}) => options.resolve({source, point, region, top: topElementAt(document, point)}),
         actionKey: (drop) => options.actionKey(drop),
-        commit: (drop, source) => options.commit(drop, source),
+        commit: (drop, source, viaKeyboard) => options.commit(drop, source, viaKeyboard),
         publish: (next) => {
             state.value = next;
         },

@@ -72,14 +72,15 @@ export interface EditorTabDrag {
     /** 拖影。 */
     ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
     /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。 */
-    drop(tabId: string, action: LayoutDropAction, part: string | undefined): void;
+    /** `keyboard`：键盘放下，手势会把焦点还给标签。 */
+    drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
 }
 
 /** 编辑器槽的内容（docs/specs/ui/workbench-layout.md“边界与兼容”）。 */
 export interface EditorAreaParts {
     /** 区级的东西（关闭询问、标签的拖动）：无布局，外壳挂一次，属性见 `EditorAreaHostProps`。 */
     readonly host: Component;
-    /** 一个编辑组的内容：每块 `role: "editor"` 的面板一个，属性 `panelId` 与 `context`。 */
+    /** 一个标签的内容：编辑组每个标签一个，空的编辑组一个，属性 `panelId`、`tabId`（空的编辑组是 null）与 `context`。标签移到别的组时不重建，`panelId` 跟着变。 */
     readonly group: Component;
     /** 一个编辑组的头（标签条、标题动作、提示条）：画在外框里，属性 `panelId`。不给时没有头，内容占满这块面板。 */
     readonly head?: Component;

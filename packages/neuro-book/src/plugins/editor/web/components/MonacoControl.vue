@@ -16,7 +16,7 @@ import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
 import {mergeSource} from "../code/source-merge";
 
-// `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在组的实例槽。
+// `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在标签的实例槽。
 // `locale`：控件合同的一员；源码编辑器自己不显示要翻译的文字。
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
