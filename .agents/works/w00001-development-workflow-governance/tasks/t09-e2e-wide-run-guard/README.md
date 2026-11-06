@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t09-e2e-wide-run-guard
-status: planned
+status: done
 updated: 2026-11-06
 ---
 
