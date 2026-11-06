@@ -289,16 +289,39 @@ test("图标名补全与原图标：候选取自页面里产品能画的图标�
         await field.fill("loader");
         await expect(page.getByRole("option", {name: "loader-2", exact: true})).toBeVisible();
         await expect(page.getByRole("option", {name: "loader-circle", exact: true})).toBeVisible();
-        // 键盘：回车选中当前项（不添加），Escape 收起。
-        await field.fill("loader-c");
-        await expect(page.getByRole("option", {name: "loader-circle", exact: true})).toBeVisible();
+        // 键盘：回车只在用方向键选过候选时填入它，否则就是添加——不能让回车改掉用户输入的完整名字（`folder` 的候选里还有 `folder-plus`）。
+        await field.fill("fol");
+        await expect(page.getByRole("option", {name: "folder", exact: true})).toBeVisible();
+        const candidates = await page.getByRole("option").allTextContents();
+        expect(candidates.length).toBeGreaterThan(1);
+        await expect(field).not.toHaveAttribute("aria-activedescendant", /.+/u);
+        await field.press("ArrowDown");
+        await field.press("ArrowDown");
+        await expect(field).toHaveAttribute("aria-activedescendant", /.+/u);
         await field.press("Enter");
-        await expect(field).toHaveValue("loader-circle");
+        await expect(field).toHaveValue(candidates[1]!);
         await expect(page.locator("[data-icon-row]")).toHaveCount(0);
+        // 填入之后再按回车就是添加（弹出选文件）；名字没被改。
+        const chosen = candidates[1]!;
+        const firstChooser = page.waitForEvent("filechooser");
+        await field.press("Enter");
+        await firstChooser;
+        await expect(field).toHaveValue(chosen);
+        // 输入完整的名字直接回车：添加，名字不变（候选里有更长的同前缀名也一样）。
+        await field.fill("folder");
+        const secondChooser = page.waitForEvent("filechooser");
+        await field.press("Enter");
+        await secondChooser;
+        await expect(field).toHaveValue("folder");
+        // Escape 收起，菜单收起后输入框不再指向它；方向键把它重新打开。
         await field.fill("fold");
         await expect(page.getByRole("option").first()).toBeVisible();
+        await expect(field).toHaveAttribute("aria-controls", /.+/u);
         await field.press("Escape");
         await expect(page.getByRole("option")).toHaveCount(0);
+        await expect(field).not.toHaveAttribute("aria-controls", /.+/u);
+        await field.press("ArrowDown");
+        await expect(page.getByRole("option").first()).toBeVisible();
 
         // 不在目录里的名字：非阻断提示，仍然合规（没有“名字不合规则”的报错）。先确认这个名字真的不在页面样式里（lucide 里有，仓库源码里没用）。
         const unknown = "ice-cream-cone";

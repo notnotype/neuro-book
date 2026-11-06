@@ -551,6 +551,7 @@
             "nameInvalid": "Icon names take lowercase letters, digits and hyphens only",
             "nameEmpty": "Enter an icon name first",
             "suggestions": "Icon name suggestions",
+            "original": "Original icon (how this name looks in the product)",
             "unknownName": "The current page has no style for this icon, so it may not show after saving.",
             "replaceNamed": "Replace icon {{name}}",
             "removeNamed": "Remove icon {{name}}"
