@@ -122,6 +122,8 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 前端实现审查（Sonnet 18 条）处理完（[处理](evidences/impl-review-frontend-disposition.md)）。
 
+批 5 的 omp 实现审查（重要 5、建议 4）处理完并合入，建议 7 不改（[处理](evidences/impl-review-b5-disposition.md)）。验证：内核全部、`nb-markdown` 全部（含 vitest）、`plugins/agent`、`plugins/markdown`、类型检查、`governance:check`；e2e `agent-conversation` 全部 15 条，移动围栏判断后重跑附件与输入框的 3 条。没验证：`findPromptLinks` 与编辑器认小块的规则只共用词法与围栏，命令、选区那几种写法它不管（附件标签用不到）。
+
 ## 下一步
 
-批 5 的 omp 实现审查：第一个会话额度用完退出，没写出报告，新开了一个在跑。处理完 t28 收口。之后 t06，再 t14、t15。
+本 Task 完成。之后 t06（计划先过 omp 设计审查），再 t14、t15、t29；t30 没排顺序，默认放最后。
