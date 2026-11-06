@@ -26,3 +26,11 @@ updated: 2026-11-06
 ## 下一步
 
 开发者试观感，有意见再调常量。
+
+## 再次反馈（2026-11-06）
+
+开发者实测：设置窗口关闭还是像直接关掉，动画时长也想快一点；再点左下角齿轮应该关闭。
+
+逐帧量：关闭动画其实在跑，但只有 180ms，用的 `--ease-standard` 前三成就走完，开始后 40ms 不透明度掉到一半。改成专用令牌：展开 `--motion-dialog` 340ms（原来 470ms），收回 `--motion-dialog-leave` 260ms 配加速曲线 `--ease-dialog-leave`，走到一半不透明度还在 0.6 以上（`settings.e2e.ts` 断言）。
+
+齿轮改执行新命令 `nbook.settings.toggle`，活动栏与书架的齿轮都是；有未保存的改动时同关闭按钮一样先确认。`nbook.settings.open` 与 `Ctrl+,` 不变，已开着时只聚焦。Spec：`settings/settings-window.md` 输出 15、验收 1，`ui/workbench-shell.md` 输出 40，`workbench/bookshelf.md` 输出 1。
