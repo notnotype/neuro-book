@@ -27,8 +27,10 @@ import {BINARY_TAB_EDITOR, completedBuiltinEditors, catalogOf} from "./web/edito
 import type {EditorCatalog} from "./web/editors";
 import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/area";
 import {createEditorGroups} from "./web/groups/groups";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
+import type {MemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {editorStateValues} from "./web/state";
-import type {GroupsSnapshot} from "./web/groups/groups";
+import type {SavedTab, TabsSnapshot} from "./web/groups/groups";
 
 /** 组的文本绑定（这些用例里的标签都是文本编辑器）；字节绑定或没有绑定为 null。 */
 const textBinding = (area: Pick<EditorArea, "binding">, groupId: string): TextEditorBinding | null => {
@@ -63,19 +65,20 @@ interface World {
     readonly tap: LinkTap;
     readonly clock: ManualClock;
     readonly area: EditorArea;
-    readonly saved: GroupsSnapshot[];
+    readonly saved: TabsSnapshot[];
+    readonly panels: MemoryEditorPanels;
     /** `opened` 交出的地址（最近打开）。 */
     readonly opened: string[];
 }
 
-async function world(initial: GroupsSnapshot | null = null, editors?: EditorCatalog): Promise<World> {
+async function world(initial: TabsSnapshot | null = null, editors?: EditorCatalog, panels: MemoryEditorPanels = createMemoryEditorPanels()): Promise<World> {
     counter += 1;
     const tap = createLinkTap();
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "A", "b.md": "B", "c.json": "{}", "a.html": "<p>A</p>", "a.pdf": "%PDF-1.7", "img/a.png": "PNG"}}, {wrapLink: tap.wrap});
     const clock = new ManualClock();
-    const saved: GroupsSnapshot[] = [];
+    const saved: TabsSnapshot[] = [];
     const opened: string[] = [];
-    const area = createEditorArea({files: files(scene.window), clock, workspaceKey: "p1", generation: 1, initial, persist: (snapshot) => saved.push(snapshot), opened: (address) => opened.push(address), report: (error) => {
+    const area = createEditorArea({files: files(scene.window), clock, workspaceKey: "p1", generation: 1, panels, initial, persist: (snapshot) => saved.push(snapshot), opened: (address) => opened.push(address), report: (error) => {
         throw error;
     }, ...(editors === undefined ? {} : {editors})});
     closers.push(async () => {
@@ -83,8 +86,12 @@ async function world(initial: GroupsSnapshot | null = null, editors?: EditorCata
         await scene.world.close();
         await rm(scene.root, {recursive: true, force: true});
     });
-    return {scene, tap, clock, area, saved, opened};
+    return {scene, tap, clock, area, saved, panels, opened};
 }
+
+/** 窗口重开：布局文档与标签记录都从存下的读回来。缺省记录是最后存下的那份。 */
+const reopen = (at: World, editors?: EditorCatalog, snapshot: TabsSnapshot | null = at.saved.at(-1) ?? null): Promise<World> => world(snapshot, editors, createMemoryEditorPanels(at.panels.document()));
+const fileTabs = (snapshot: TabsSnapshot | undefined | null): Array<Exclude<SavedTab, {page: true}>> => Object.values(snapshot?.tabs ?? {}).flatMap((tab) => ("page" in tab ? [] : [tab]));
 
 async function until(at: World, description: string, check: () => boolean): Promise<void> {
     await waitUntil(description, () => {
@@ -288,9 +295,10 @@ describe("Spec workbench.editor 输出 1、4、37–40：编辑器的选择与�
     });
 
     it("编辑器不在了的标签：用默认编辑器打开按选择顺序重选", async () => {
-        const recorded = createEditorGroups();
+        const panels = createMemoryEditorPanels();
+        const recorded = createEditorGroups(panels);
         recorded.open("project://a.md", {mode: "permanent", editor: "test.gone.editor"});
-        const at = await world(recorded.snapshot(), WITH_PREVIEW);
+        const at = await world(recorded.snapshot(), WITH_PREVIEW, panels);
         expect(at.area.groups.activeTab()).toMatchObject({editor: "test.gone.editor"});
         expect(at.area.reopenWith("test.gone.editor")).toMatchObject({ok: false});
         expect(at.area.reopenWithDefault()).toEqual({ok: true});
@@ -340,7 +348,7 @@ describe("Spec workbench.editor 输出 41、48：字节标签与视图能否输�
         at.area.open("project://b.md", {mode: "permanent"});
         at.area.groups.focusGroup(first);
         // 恢复后右侧组的 a.png 不是活动标签：它还没有文档引用。
-        const restored = await world(at.saved.at(-1) ?? null, WITH_PREVIEW);
+        const restored = await reopen(at, WITH_PREVIEW);
         await ready(restored);
         const binding = textBinding(restored.area, groupId(restored))!;
         expect(binding.address.value).toBe("project://img/a.png");
@@ -472,9 +480,9 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         at.area.open("project://b.md", {mode: "permanent"});
         await ready(at);
         const snapshot = at.saved.at(-1);
-        expect(snapshot?.groups[0]?.tabs.map((tab) => tab.address)).toEqual(["project://a.md", "project://b.md"]);
+        expect(fileTabs(snapshot).map((tab) => tab.address)).toEqual(["project://a.md", "project://b.md"]);
 
-        const restored = await world(snapshot ?? null);
+        const restored = await reopen(at);
         expect(restored.area.groups.groups.value[0]?.tabs.map((tab) => tab.address)).toEqual(["project://a.md", "project://b.md"]);
         expect(restored.area.documents.get("project://a.md")).toBeNull();
         await until(restored, "活动的 b 就绪", () => textBinding(restored.area, groupId(restored)) !== null);
@@ -485,7 +493,7 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
 });
 
 describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开", () => {
-    const tabsOf = (snapshot: GroupsSnapshot | undefined) => snapshot?.groups.flatMap((group) => group.tabs) ?? [];
+    const tabsOf = fileTabs;
 
     it("控件交出的光标记到标签上、随快照保存；写法与编辑器对不上、与记下的相同都不写；换下之后迟到的照记", async () => {
         const at = await world();
@@ -512,7 +520,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         await ready(at);
         textBinding(at.area, groupId(at))!.remember({offset: 1});
 
-        const restored = await world(at.saved.at(-1) ?? null);
+        const restored = await reopen(at);
         await ready(restored);
         const binding = textBinding(restored.area, groupId(restored))!;
         expect(binding.cursor).toEqual({offset: 1});
@@ -535,7 +543,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         expect(binding.language.value).toBe("plaintext");
         expect(tabsOf(at.saved.at(-1)).map((tab) => tab.language)).toEqual(["plaintext"]);
 
-        const restored = await world(at.saved.at(-1) ?? null);
+        const restored = await reopen(at);
         await ready(restored);
         expect(textBinding(restored.area, groupId(restored))!.language.value).toBe("plaintext");
         expect(restored.area.split("right")).toMatchObject({ok: true});
@@ -551,7 +559,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         const snapshot = seed.saved.at(-1) ?? null;
         const handle = (calls: string[]): EditorControlHandle => ({focus: () => void calls.push("focus"), flushPendingChange: () => undefined, revealEnd: () => void calls.push("revealEnd")});
 
-        const restored = await world(snapshot);
+        const restored = await reopen(seed);
         const calls: string[] = [];
         restored.area.registerHandle(groupId(restored), MARKDOWN_EDITOR, handle(calls));
         await ready(restored);
@@ -561,7 +569,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         restored.clock.advance(0);
         expect(calls).toEqual(["focus"]);
 
-        const left = await world(snapshot);
+        const left = await reopen(seed);
         const leftCalls: string[] = [];
         left.area.focusLeft();
         left.area.registerHandle(groupId(left), MARKDOWN_EDITOR, handle(leftCalls));
@@ -570,7 +578,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         expect(leftCalls).toEqual([]);
 
         // 就绪、定位已排进时钟，执行前焦点离开：不再聚焦。
-        const late = await world(snapshot);
+        const late = await reopen(seed);
         const lateCalls: string[] = [];
         late.area.registerHandle(groupId(late), MARKDOWN_EDITOR, handle(lateCalls));
         await ready(late);
@@ -578,7 +586,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         late.clock.advance(0);
         expect(lateCalls).toEqual([]);
 
-        const gone = await world({...snapshot!, groups: snapshot!.groups.map((group) => ({...group, tabs: group.tabs.map((tab) => ({...tab, address: "project://missing.md"}))}))});
+        const gone = await reopen(seed, undefined, {tabs: Object.fromEntries(Object.entries(snapshot!.tabs).map(([id, tab]) => [id, {...tab, address: "project://missing.md"}])) as TabsSnapshot["tabs"]});
         await until(gone, "读取失败", () => gone.area.documentOf(groupId(gone))?.status.value === "failed");
         gone.clock.advance(0);
         expect(gone.area.notice.value).toBeNull();
@@ -592,7 +600,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
         expect(at.opened).toEqual(["project://a.md", "project://b.md"]);
 
-        const restored = await world(at.saved.at(-1) ?? null);
+        const restored = await reopen(at);
         await ready(restored);
         expect(restored.opened).toEqual([]);
     });
@@ -622,7 +630,7 @@ describe("Spec workbench.editor 输出 33：页面标签", () => {
         expect(reasonText(reopened, "en-US")).toBe("A page is not a file, so its editor cannot be changed");
         expect(at.area.open("page://nbook.test.welcome", {mode: "permanent"})).toMatchObject({ok: false});
         expect(at.opened).toEqual(["project://a.md"]);
-        expect(at.saved.at(-1)?.groups[0]?.tabs.map((saved) => saved.address)).toEqual(["project://a.md"]);
+        expect(fileTabs(at.saved.at(-1)).map((saved) => saved.address)).toEqual(["project://a.md"]);
 
         // 切到 a，拆分出新组，再从新组打开同一页面：回到原来的组里的那一个。
         at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
@@ -722,14 +730,15 @@ describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
 
     it("恢复出来、还没读到的标签也算同一文件的标签：关另一组的标签不问，正文留给它", async () => {
         // 用真实的组模型造一份合法记录：左组 a，右组 a、b（活动 b），活动组在左。
-        const model = createEditorGroups();
+        const panels = createMemoryEditorPanels();
+        const model = createEditorGroups(panels);
         model.open("project://a.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
         const leftId = model.activeGroup.value;
         model.split(model.activeTab()?.id ?? "", "right");
         const rightId = model.activeGroup.value;
         model.open("project://b.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
         model.focusGroup(leftId);
-        const at = await world(model.snapshot());
+        const at = await world(model.snapshot(), undefined, panels);
         await ready(at);
         const left = textBinding(at.area, leftId);
         if (left === null) throw new Error("没有绑定");
@@ -960,7 +969,7 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         at.area.answer("discard");
         expect(await right).toEqual({ok: true, closed: 1});
         expect(names(at, 0)).toEqual(["a.md", "a.html"]);
-        expect(at.saved.at(-1)?.groups[0]?.tabs.map((tab) => [tab.address, tab.pinned ?? false])).toEqual([["project://a.md", true], ["project://a.html", true]]);
+        expect(fileTabs(at.saved.at(-1)).map((tab) => [tab.address, tab.pinned ?? false])).toEqual([["project://a.md", true], ["project://a.html", true]]);
     });
 
     it("移走源组里非活动的标签：活动视图的绑定与它的未裁决输入不动，仍可裁决后保存", async () => {
@@ -1036,9 +1045,7 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         first.area.open("project://a.md", {mode: "permanent"});
         first.area.open("project://a.md", {mode: "permanent", group: "side"});
         first.area.open("project://b.md", {mode: "permanent", group: groupAt(first, 1)});
-        const snapshot = first.saved.at(-1);
-        if (snapshot === undefined) throw new Error("没有会话快照");
-        const at = await world(snapshot);
+        const at = await reopen(first);
         const view = await boundIn(at, groupAt(at, 0));
         view.commit(view.revision.value, "A（改）");
         expect(await at.area.closeSaved(tabId(at, 1, "b.md"))).toEqual({ok: true, closed: 1});
@@ -1049,7 +1056,7 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         const enabled = shallowRef(true);
         counter += 1;
         const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "A", "b.md": "B", "c.md": "C"}});
-        const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), workspaceKey: "p1", generation: 1, initial: null, enablePreview: () => enabled.value, report: (error) => {
+        const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), panels: createMemoryEditorPanels(), workspaceKey: "p1", generation: 1, initial: null, enablePreview: () => enabled.value, report: (error) => {
             throw error;
         }});
         closers.push(async () => {

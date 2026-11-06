@@ -9,9 +9,11 @@
 import {computed, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
+import type {LayoutEdgeTarget} from "@notnotype/nb-layout";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
+import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {CODE_EDITOR} from "../shared/contracts";
@@ -23,7 +25,7 @@ import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, previewEditorFor, res
 import type {EditorCatalog} from "./editors";
 import {createEditorGroups} from "./groups/groups";
 import {pageAddress, pageIdOf} from "./pages";
-import type {EditorGroups, EditorTab, FileTab, GroupEdge, GroupsSnapshot, SplitDirection, TabPlace} from "./groups/groups";
+import type {EditorGroups, EditorTab, FileTab, SplitDirection, TabPlace, TabsSnapshot} from "./groups/groups";
 
 export type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 
@@ -46,10 +48,12 @@ export interface EditorAreaOptions {
     readonly clock: RuntimeClock;
     readonly workspaceKey: string;
     readonly generation: number;
-    /** 恢复的会话；没有为 null。 */
-    readonly initial: GroupsSnapshot | null;
-    /** 会话变化时调用（组、标签、活动项、布局）；未绑定项目的窗口不给。 */
-    readonly persist?: (snapshot: GroupsSnapshot) => void;
+    /** 编辑组的结构：工作台的布局文档持有（docs/specs/ui/workbench-layout.md 输出 33）。 */
+    readonly panels: EditorPanels;
+    /** 读到的标签属性；没有为 null。 */
+    readonly initial: TabsSnapshot | null;
+    /** 标签的属性变化时调用；未绑定项目的窗口不给。结构由工作台存。 */
+    readonly persist?: (snapshot: TabsSnapshot) => void;
     /** 打开了一个地址（输出 31 的最近打开）；未绑定项目的窗口不给。 */
     readonly opened?: (address: string) => void;
     readonly report: (error: unknown) => void;
@@ -121,8 +125,8 @@ export interface EditorArea {
     setPinned(tabId: string, pinned: boolean): ActionResult;
     /** 把标签移到组内另一位置或别的组（输出 49）；目标组已有同一标签时并掉，可能要问，问完之前 Promise 不结束。 */
     moveTab(tabId: string, place: TabPlace): Promise<ActionResult>;
-    /** 在 `group` 的一边拆出新组并把标签移过去（输出 49）。 */
-    moveToNewGroup(tabId: string, group: string, edge: GroupEdge): ActionResult;
+    /** 把标签移到外缘（输出 49；docs/specs/ui/workbench-layout.md 输出 25、27）：单个标签的组整块移动，视图不重建。 */
+    moveToNewGroup(tabId: string, target: LayoutEdgeTarget): ActionResult;
     focusGroup(groupId: string): void;
     /** 关闭标签；文档最后一个标签且需要结算时先问，问的结果出来之前 Promise 不结束。 */
     close(tabId: string): Promise<"closed" | "cancelled">;
@@ -158,15 +162,13 @@ export interface EditorArea {
     notify(text: DisplayText): void;
     /** 离开页面前：结算全部视图输入，有需要结算的文档时为真。 */
     needsLeaveConfirm(): boolean;
-    /** 布局尺寸变了（拖动分隔条）：记下会话。 */
-    layoutChanged(): void;
     dispose(): void;
 }
 
 export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const catalog = options.editors ?? BUILTIN_CATALOG;
     const documents = createDocumentStore({files: options.files, workspaceKey: options.workspaceKey, generation: options.generation, report: options.report});
-    const groups = createEditorGroups(options.initial, (editor) => catalog.declaration(editor)?.cursor ?? null);
+    const groups = createEditorGroups(options.panels, options.initial, (editor) => catalog.declaration(editor)?.cursor ?? null);
     /** 预览编辑器（`role: "preview"`）的标签不算这个文件“已经打开”的那一个（输出 1）。声明已不在的编辑器不算预览编辑器。 */
     const isPreview = (editor: string): boolean => catalog.declaration(editor)?.role === "preview";
     /**
@@ -419,7 +421,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     if (options.persist !== undefined) {
         const persist = options.persist;
-        stops.push(watch(() => [groups.groups.value, groups.activeGroup.value, groups.layoutVersion.value], () => persist(groups.snapshot())));
+        stops.push(watch(() => groups.attributes.value, () => persist(groups.snapshot())));
     }
 
     const activeDocument = computed(() => documentOf(groups.activeGroup.value));
@@ -835,14 +837,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return {ok: true};
         },
         moveTab,
-        moveToNewGroup: (tabId, groupId, edge) => {
+        moveToNewGroup: (tabId, target) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
             const found = groups.find(tabId);
             if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
-            if (!groups.groups.value.some((group) => group.id === groupId)) return {ok: false, reason: editorText("refusal.groupClosed")};
-            if (found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
+            // 单个标签的组是同一块面板移动，视图不换下，没有要结算的；只有拆出新组时活动视图才换。
+            if (found.group.tabs.length > 1 && found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
             const reference = references.get(tabId);
-            const moved = groups.moveToNewGroup(tabId, groupId, edge);
+            const moved = groups.moveToNewGroup(tabId, target);
             if (moved === null) return {ok: false, reason: editorText("refusal.cannotSplit")};
             afterMove(found.group.id, moved.group, found.tab, reference);
             focusActive();
@@ -964,9 +966,6 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 if (needsSettle(reference.document) || reference.document.conflict.value !== null) needed = true;
             }
             return needed;
-        },
-        layoutChanged: () => {
-            if (options.persist !== undefined) options.persist(groups.snapshot());
         },
         dispose: () => {
             if (disposed) return;

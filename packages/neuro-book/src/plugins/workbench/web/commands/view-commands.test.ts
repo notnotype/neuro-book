@@ -3,7 +3,7 @@
  * 一棵树的布局 store（Storage 场地），命令实现直接调用；选择服务由测试按请求作答（产品里是命令面板，经面板执行的路径由
  * `e2e/workbench-views.e2e.ts` 覆盖）。
  *
- * 移动的目标是面板 id 或 `{newPanelNextTo}`；新的合同没有“来源面板”可核对，两步选择之间只会因为视图或目标面板不在了而过期。
+ * 移动的目标是 `target`（面板 id）或 `newPanelNextTo`（面板 id）；新的合同没有“来源面板”可核对，两步选择之间只会因为视图或目标面板不在了而过期。
  * 目录里声明着的视图总在布局里（`reconcileViews` 会补回），所以“视图不在布局里”只在声明消失之后才可能出现，那时先被“没有这个
  * 视图”拦下。
  */
@@ -104,7 +104,7 @@ describe("移动视图", () => {
         expect(store.state.doc.panels.sidebar?.active).toBe("view:test.b");
     });
 
-    it("目标是面板 id：放到那块面板的标签末尾；目标是 {newPanelNextTo}：挨着那块面板开一块只装这个视图的新面板；放进隐藏的具名面板时把它显示出来", async () => {
+    it("target：放到那块面板的标签末尾；newPanelNextTo：挨着那块面板开一块只装这个视图的新面板；放进隐藏的具名面板时把它显示出来", async () => {
         const store = await layout();
         const silent = picker(() => ({kind: "cancelled"}));
         expect(tabsOf(store, "sidebar")).toEqual(["test.a", "test.b", "test.d"]);
@@ -118,7 +118,7 @@ describe("移动视图", () => {
         expect(store.state.doc.panels.auxiliarybar?.hidden).toBeFalsy();
 
         expect(unnamedToolPanels(store)).toEqual([]);
-        expect(await run(store, silent, {viewId: "test.c", target: {newPanelNextTo: "panel"}})).toEqual({ok: true, value: null});
+        expect(await run(store, silent, {viewId: "test.c", newPanelNextTo: "panel"})).toEqual({ok: true, value: null});
         const created = panelOf(store, "test.c")!;
         expect(unnamedToolPanels(store)).toEqual([created]);
         expect(tabsOf(store, created)).toEqual(["test.c"]);
@@ -142,7 +142,7 @@ describe("移动视图", () => {
         expect(failureText(missingTarget, "zh-CN")).toBe("视图或目标面板已经不在了，没有移动");
         expect(failureText(missingTarget, "en-US")).toBe("The view or the target panel is gone; nothing moved");
         expect(await run(store, silent, {viewId: "test.nowhere", target: "panel"})).toMatchObject({ok: false, code: "stale-target"});
-        expect(await run(store, silent, {viewId: "test.a", target: {newPanelNextTo: "nope"}})).toMatchObject({ok: false, code: "stale-target"});
+        expect(await run(store, silent, {viewId: "test.a", newPanelNextTo: "nope"})).toMatchObject({ok: false, code: "stale-target"});
         expect(JSON.stringify(store.state.doc)).toBe(before);
         expect(silent.requests).toEqual([]);
     });
@@ -195,7 +195,7 @@ describe("移动视图", () => {
     it("两步选择之间目标面板没了（被搬空的无名面板随之移除）：按 stale-target 拒绝且不写", async () => {
         const store = await layout();
         const silent = picker(() => ({kind: "cancelled"}));
-        expect(await run(store, silent, {viewId: "test.b", target: {newPanelNextTo: "panel"}})).toEqual({ok: true, value: null});
+        expect(await run(store, silent, {viewId: "test.b", newPanelNextTo: "panel"})).toEqual({ok: true, value: null});
         const created = panelOf(store, "test.b")!;
         const racing = picker((_request, index) => {
             if (index === 0) return {kind: "item", id: "test.a"};
@@ -240,7 +240,7 @@ describe("打开视图（docs/specs/ui/workbench-layout.md 输出 35，docs/spec
 
     it("无名面板里收起的视图：展开它；盖着它的最大化退出，它就在最大化的面板里时保持", async () => {
         const store = await layout();
-        expect(await run(store, silent, {viewId: "test.b", target: {newPanelNextTo: "panel"}})).toEqual({ok: true, value: null});
+        expect(await run(store, silent, {viewId: "test.b", newPanelNextTo: "panel"})).toEqual({ok: true, value: null});
         const created = panelOf(store, "test.b")!;
         expect(unnamedToolPanels(store)).toEqual([created]);
         store.actions.setCollapsed(created, true);

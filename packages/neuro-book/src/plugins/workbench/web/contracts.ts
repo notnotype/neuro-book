@@ -1,8 +1,11 @@
 import type {Component, Ref} from "vue";
 
+import type {GridDropPoint, GridDropRect, LayoutDropAction} from "@notnotype/nb-layout";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import type {Text} from "@notnotype/nb-ui/text";
+
+import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
 
 import type {WorkbenchPageDeclaration} from "../shared/contracts";
 
@@ -59,9 +62,48 @@ export interface WorkbenchOverlayImplementation {
     load(): Promise<Component>;
 }
 
+/** 指针在编辑组的标签条里时，编辑器量出来的插入位。 */
+export interface EditorTabInsertion {
+    /** 这组全部标签的呈现顺序里、摘掉来源之前的位置。 */
+    readonly index: number;
+    /** 标签条的分区（固定、普通）：同一个位置可能分属两边，放下时原样交回 `drop`。 */
+    readonly part: string;
+    /** 插入线，视口坐标。 */
+    readonly indicator: GridDropRect;
+    /** 放下去和现在一样（docs/specs/ui/workbench-layout.md 输出 28）。 */
+    readonly inPlace: boolean;
+}
+
+/**
+ * 编辑器标签的拖动（docs/specs/ui/workbench-layout.md 输出 24 到 32）：手势和落点规则是工作台的，编辑器标签和工具视图一样靠 DOM 标记起拖（`data-panel-tab` 写标签键）、标签条写 `data-panel-strip`。
+ * 编辑器只答它自己的标签条的问题。放下不直接改布局：要先结算视图的输入、合并同一标签，再经 `editorPanelsKey` 改结构。
+ */
+export interface EditorTabDrag {
+    /** 指针在这个编辑组的标签条里时的插入位。 */
+    insertion(panel: string, point: GridDropPoint, tabId: string): EditorTabInsertion | null;
+    /** 结构键里编辑器的部分（固定状态、多行设置）：起拖后它变了，整场取消。 */
+    structure(): string;
+    /** 拖影。 */
+    ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
+    drop(tabId: string, action: LayoutDropAction, part: string | undefined): void;
+}
+
+/** 编辑器槽的内容（docs/specs/ui/workbench-layout.md“边界与兼容”）。 */
+export interface EditorAreaParts {
+    /** 区级的东西（关闭询问、标签的拖动）：无布局，外壳挂一次，属性见 `EditorAreaHostProps`。 */
+    readonly host: Component;
+    /** 一个编辑组：每块 `role: "editor"` 的面板一个，属性 `panelId` 与 `context`。 */
+    readonly group: Component;
+}
+
+export interface EditorAreaHostProps {
+    /** 挂上时交出标签的拖动，卸载时交 null。不交的话编辑器标签不起拖。 */
+    readonly attachTabDrag: (drag: EditorTabDrag | null) => void;
+}
+
 /** 编辑器槽贡献的实现：外壳挂编辑器槽时才加载组件。 */
 export interface EditorAreaImplementation {
-    load(): Promise<Component>;
+    load(): Promise<EditorAreaParts>;
 }
 
 /** 无项目首页贡献的实现（`shared/home.ts`）：没有绑定项目的窗口渲染 `/` 时才加载组件；每次渲染经当前句柄取。 */
@@ -69,9 +111,9 @@ export interface WorkbenchHomeImplementation {
     load(): Promise<Component>;
 }
 
-/** 编辑器槽的组件经只读的 `context` 属性收到它。 */
+/** 编辑组的组件经只读的 `context` 属性收到它。 */
 export interface EditorAreaContext {
-    /** 编辑器槽有效可见；面板最大化时为假（内容停放、不卸载）。 */
+    /** 这个编辑组有效可见；别的面板最大化时为假（内容停放、不卸载）。 */
     readonly visible: Readonly<Ref<boolean>>;
 }
 

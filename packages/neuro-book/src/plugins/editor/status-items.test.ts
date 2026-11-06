@@ -21,6 +21,7 @@ import {dialectTable} from "nbook/plugins/markdown/shared/word-count";
 import type {Scene} from "nbook/plugins/files/testing/scene";
 
 import {createEditorArea} from "./web/area";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/area";
 import {editorStateValues} from "./web/state";
 import {CURSOR_ITEM, editorStatusItems, LANGUAGE_ITEM, UNSAVED_ITEM, WORD_COUNT_DELAY_MS, WORD_COUNT_ITEM} from "./web/status-items";
@@ -65,7 +66,7 @@ afterAll(async () => {
 async function world(): Promise<{scene: Scene; area: EditorArea}> {
     counter += 1;
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "---\ntitle: 甲\n---\n第一章", "b.md": "B", "c.json": "{}"}});
-    const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), workspaceKey: "p1", generation: 1, initial: null, report: (error) => {
+    const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), panels: createMemoryEditorPanels(), workspaceKey: "p1", generation: 1, initial: null, report: (error) => {
         throw error;
     }});
     closers.push(async () => {

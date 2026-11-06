@@ -144,8 +144,11 @@ async function atEnd(page: Page, editable = prose(page)): Promise<void> {
 }
 const disk = (path: string): Promise<string> => readFile(join(projectDir, path), "utf8");
 
+/** 这一刻有落点：反馈层写着动作种类（`data-drop-kind`，没有落点时是空的）。 */
+const DROP_SHOWN = "[data-drop-kind]:not([data-drop-kind=\"\"])";
+
 /** 本页客户端在项目分区里的一条记录（`local`，按客户端分行）；还没写过为 null。 */
-async function projectRecord(page: Page, key: "editor.session" | "editor.recent" | "explorer.expanded", owner = key.startsWith("explorer.") ? "nbook.explorer" : "nbook.editor"): Promise<Record<string, unknown> | null> {
+async function projectRecord(page: Page, key: "editor.tabs" | "editor.recent" | "explorer.expanded" | "workbench.layout", owner = key.startsWith("explorer.") ? "nbook.explorer" : "nbook.editor"): Promise<Record<string, unknown> | null> {
     const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
     const db = new DatabaseSync(join(projectDir, ".nbook", "storage.sqlite"));
     try {
@@ -156,16 +159,16 @@ async function projectRecord(page: Page, key: "editor.session" | "editor.recent"
     }
 }
 
-/** 会话记录里这个地址的标签记下的光标。 */
+/** 标签记录里这个地址的标签记下的光标。 */
 async function savedCursor(page: Page, address: string): Promise<unknown> {
-    const session = await projectRecord(page, "editor.session") as {groups?: Array<{tabs: Array<{address: string; cursor?: unknown}>}>} | null;
-    return session?.groups?.flatMap((group) => group.tabs).find((tab) => tab.address === address)?.cursor ?? null;
+    const record = await projectRecord(page, "editor.tabs") as {tabs?: Record<string, {address?: string; cursor?: unknown}>} | null;
+    return Object.values(record?.tabs ?? {}).find((tab) => tab.address === address)?.cursor ?? null;
 }
 
 async function open(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
-    await expect(page.locator("[data-editor-area]")).toBeVisible();
+    await expect(page.locator("[data-editor-group]").first()).toBeVisible();
     if (await item(page, "project://notes").getAttribute("aria-expanded") !== "true") await item(page, "project://notes").click();
     await expect(item(page, "project://notes/a.md")).toBeVisible();
 }
@@ -272,7 +275,7 @@ test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆�
     // 两组之间的分隔线：拖动它，左组变窄、右组变宽；刷新后宽度照旧。
     const widths = () => page.locator("[data-editor-group]").evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
     const [left = 0, right = 0] = await widths();
-    const sash = page.locator("[data-editor-area] [role=separator]");
+    const sash = page.locator("[data-sash-kind=\"editors\"]");
     await expect(sash).toHaveCount(1);
     const box = await sash.boundingBox();
     if (box === null) throw new Error("分隔线没有盒");
@@ -402,7 +405,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
         await page.mouse.down();
         await page.mouse.move(from.x + 10, from.y, {steps: 2});
         await page.mouse.move(to.x, to.y, {steps: 8});
-        await expect(page.locator("[data-editor-drop]")).toHaveCount(1);
+        await expect(page.locator(DROP_SHOWN)).toHaveCount(1);
         await before?.();
         await page.mouse.up();
     };
@@ -414,7 +417,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
 
     // 组内：把 c 拖到 a 的左半边，排到最前。拖动中指针右下跟着写着 c.md 的拖影，松手后撤下。
     const a = await center(tab(0, "a.md"));
-    const ghost = page.locator("[data-editor-drag-ghost]");
+    const ghost = page.locator("[data-workbench-drag-ghost]");
     await drag(await center(tab(0, "c.md")), {x: a.box.x + 4, y: a.y}, async () => {
         await expect(ghost).toHaveText("c.md");
         const box = await ghost.boundingBox();
@@ -428,7 +431,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
     // Escape：拖到别处后按 Escape，什么都不变。
     await drag(await center(tab(0, "c.md")), {x: (await center(tab(0, "b.md"))).box.x + (await center(tab(0, "b.md"))).box.width - 4, y: a.y}, async () => {
         await page.keyboard.press("Escape");
-        await expect(page.locator("[data-editor-drop]")).toHaveCount(0);
+        await expect(page.locator(DROP_SHOWN)).toHaveCount(0);
         await expect(ghost).toHaveCount(0);
     });
     await expect.poll(() => names(0)).toEqual(["c.md", "a.md", "b.md"]);
@@ -439,7 +442,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
         await page.keyboard.press("Control+w");
         await expect(tab(0, "c.md")).toHaveCount(0);
         await page.mouse.move(a.box.x + a.box.width - 4, a.y, {steps: 2});
-        await expect(page.locator("[data-editor-drop]")).toHaveCount(0);
+        await expect(page.locator(DROP_SHOWN)).toHaveCount(0);
     });
     await expect.poll(() => names(0)).toEqual(["a.md", "b.md"]);
     await item(page, "project://notes/c.md").dblclick();
@@ -454,7 +457,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
     await page.mouse.move(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2);
     await page.mouse.down();
     await page.mouse.move(closeBox.x - 120, closeBox.y + 4, {steps: 6});
-    await expect(page.locator("[data-editor-drop]")).toHaveCount(0);
+    await expect(page.locator(DROP_SHOWN)).toHaveCount(0);
     await page.mouse.up();
 
     // 拖到正文的右边：拆出新组，c 移过去。
@@ -485,9 +488,10 @@ test("只有一个标签的组拖到紧贴它的那条边：放下去还是现�
     await page.keyboard.press("Control+\\");
     const groups = page.locator("[data-editor-group]");
     await expect(groups).toHaveCount(2);
-    const moving = page.locator("[data-editor-area] [data-moving]");
+    const moving = page.locator("[data-grid-scope] [data-moving]");
     await expect(moving).toHaveCount(0);
-    const idsOf = () => groups.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.editorGroup));
+    // 按摆放的先后：组在内容层里，DOM 顺序不跟着树走（移动时不搬节点，内容不重建）。
+    const idsOf = () => groups.evaluateAll((elements) => [...elements].sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left).map((element) => (element as HTMLElement).dataset.editorGroup));
     const before = await idsOf();
     const edgeOf = async (index: number, edge: "left" | "right") => {
         const box = await groups.nth(index).locator("[data-editor-content]").boundingBox();
@@ -518,20 +522,20 @@ test("只有一个标签的组拖到紧贴它的那条边：放下去还是现�
 
     // 拖到左组的左边：真的换到左边，左组让出位置。
     await dragRightTabTo(await edgeOf(0, "left"));
-    await expect(page.locator("[data-drop-feedback-label]")).toHaveText("拆分到左侧");
+    await expect(page.locator("[data-drop-feedback-label]")).toHaveText("拆到这一边");
     await page.mouse.up();
     await expect(moving.first()).toHaveAttribute("data-moving", "");
     await expect.poll(async () => (await idsOf())[1]).toBe(before[0]);
     await closeAll(page);
 });
 
-test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区外都取消且不写，松手不选中标签（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
+test("拖动标签时按键归拖动；失去捕获、焦点移到工作台外都取消且不写，松手不选中标签（docs/specs/ui/layout-drag.md 验收 1、4）", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
     for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
     const selected = () => page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]").textContent();
-    const ghost = page.locator("[data-editor-drag-ghost]");
+    const ghost = page.locator("[data-workbench-drag-ghost]");
     const order = () => labels(page).allTextContents();
     const before = await order();
     const box = await tabs(page).filter({hasText: "a.md"}).boundingBox();
@@ -562,40 +566,45 @@ test("拖动标签时按键归拖动；失去捕获、焦点移到编辑器区�
 
     // 捕获的取得与释放都在下一个指针事件时才生效：先动一下让捕获真的到根上，释放之后再动一下让 `lostpointercapture` 派发出来。
     await page.mouse.move(from.x + 11, from.y);
-    await page.locator("[data-editor-area]").evaluate((area) => area.releasePointerCapture(1));
+    await page.locator(".workbench-shell-host").evaluate((host) => host.releasePointerCapture(1));
     await page.mouse.move(from.x + 12, from.y);
     await releaseOnSource(active);
 
     await tabs(page).filter({hasText: "b.md"}).click();
     await grab();
     const next = await selected();
-    await page.getByRole("tree", {name: "文件"}).evaluate((tree: HTMLElement) => tree.focus());
+    // 拖动的根是整个工作台：焦点在工作台里面换地方不算（放到别的面板本来就要经过它们）。
+    await page.evaluate(() => {
+        const outside = document.createElement("button");
+        outside.dataset.outsideShell = "";
+        document.body.append(outside);
+        outside.focus();
+    });
     await releaseOnSource(next);
+    await page.evaluate(() => document.querySelector("[data-outside-shell]")?.remove());
     await closeAll(page);
 });
 
-test("提示条占着编辑区顶部时，grid 不超出编辑区：底部不被裁掉", async ({page}) => {
+test("提示条占着组的顶部时，正文让出位置：底部不被裁掉", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
     await item(page, "project://notes/a.md").dblclick();
     await expect(page.locator("[data-editor-group]")).toHaveCount(1);
     const bottoms = () => page.evaluate(() => ({
-        area: Math.round(document.querySelector("[data-editor-area]")!.getBoundingClientRect().bottom),
         group: Math.round(document.querySelector("[data-editor-group]")!.getBoundingClientRect().bottom),
+        content: Math.round(document.querySelector("[data-editor-content]")!.getBoundingClientRect().bottom),
     }));
-    // 真实的提示条要靠特定的失败才出现，这里在根的顶部放一条同样的块级元素，量的是布局关系。
+    const before = await bottoms();
+    // 真实的提示条要靠特定的失败才出现，这里在组的顶部放一条同样的块级元素，量的是布局关系。
     await page.evaluate(() => {
         const notice = document.createElement("p");
         notice.dataset.fakeNotice = "";
-        notice.className = "flex items-center gap-2 border-b px-3 py-1.5 text-xs";
+        notice.className = "flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs";
         notice.textContent = "提示条";
-        document.querySelector("[data-editor-area]")!.prepend(notice);
+        document.querySelector("[data-editor-group]")!.prepend(notice);
     });
-    await expect.poll(async () => {
-        const {area, group} = await bottoms();
-        return group <= area + 1;
-    }).toBe(true);
+    await expect.poll(bottoms).toEqual(before);
     await page.evaluate(() => document.querySelector("[data-fake-notice]")?.remove());
     await closeAll(page);
 });
@@ -609,12 +618,12 @@ test("组与组之间画得出分隔线：卡片主题的外壳接缝是透明�
     await tabs(page).first().focus();
     await page.keyboard.press("Control+\\");
     await expect(page.locator("[data-editor-group]")).toHaveCount(2);
-    const seam = page.locator("[data-editor-area] .sash-seam");
+    const seam = page.locator("[data-sash-kind=\"editors\"] .sash-seam");
     await expect(seam).toHaveCount(1);
     const line = await seam.evaluate((element) => {
         const box = element.getBoundingClientRect();
-        const area = element.closest("[data-editor-area]")!.getBoundingClientRect();
-        return {color: getComputedStyle(element).backgroundColor, width: box.width, height: box.height, areaHeight: area.height, shell: getComputedStyle(element.closest("[data-editor-area]")!.parentElement!).getPropertyValue("--nb-splitter-seam")};
+        const frame = document.querySelector(`[data-leaf="${document.querySelector<HTMLElement>("[data-editor-group]")!.dataset.editorGroup ?? ""}"]`)!.getBoundingClientRect();
+        return {color: getComputedStyle(element).backgroundColor, width: box.width, height: box.height, areaHeight: frame.height, shell: getComputedStyle(document.querySelector("[data-workbench-surface]")!).getPropertyValue("--nb-splitter-seam")};
     });
     expect(line.shell).toBe("transparent");
     expect(line.color).not.toBe("rgba(0, 0, 0, 0)");
@@ -635,14 +644,16 @@ test("拆分的过渡：旧组的标签条与正文跟着外框变窄，不露�
     await tabs(page).first().focus();
     await page.keyboard.press("Control+\\");
     await expect(page.locator("[data-editor-group]")).toHaveCount(2);
-    const during = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-editor-area] [data-leaf]")].map((frame) => ({
-        frame: frame.getBoundingClientRect(),
-        group: frame.querySelector("[data-editor-group]")!.getBoundingClientRect(),
+    // 组在内容层里，和叶外框是兄弟元素（docs/specs/ui/nested-grid.md 的内容层）。
+    const during = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-editor-group]")].map((group) => ({
+        frame: document.querySelector(`[data-leaf="${group.dataset.editorGroup ?? ""}"]`)!.getBoundingClientRect(),
+        group: group.getBoundingClientRect(),
     })));
     expect(during).toHaveLength(2);
     const [old, fresh] = during as [typeof during[0], typeof during[0]];
-    expect(Math.abs(old.group.width - old.frame.width)).toBeLessThan(1);
-    await expect(page.locator("[data-editor-area] [data-moving]")).toHaveCount(0);
+    // 组和外框一起变窄：只差卡片内缩的那点缝，不露出一大块空白。
+    expect(Math.abs(old.group.width - old.frame.width)).toBeLessThan(10);
+    await expect(page.locator("[data-grid-scope] [data-moving]")).toHaveCount(0);
     const final = await page.locator("[data-editor-group]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().width));
     expect(old.frame.width).toBeGreaterThan((final[0] as number) + 20);
     expect(Math.abs(fresh.group.width - (final[1] as number))).toBeLessThan(1);
@@ -700,18 +711,18 @@ test.describe("触摸（docs/specs/ui/layout-drag.md 验收 5）", () => {
         const cdp = await page.context().newCDPSession(page);
         await cdp.send("Input.dispatchTouchEvent", {type: "touchStart", touchPoints: [from]});
         await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + 1, y: from.y}]});
-        await expect(page.locator("[data-editor-drag-ghost]")).toBeVisible();
+        await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
         for (const ratio of [0.25, 0.5, 0.75, 1]) {
             await cdp.send("Input.dispatchTouchEvent", {type: "touchMove", touchPoints: [{x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio}]});
         }
-        await expect(page.locator("[data-editor-drop]")).toHaveCount(1);
+        await expect(page.locator(DROP_SHOWN)).toHaveCount(1);
         await cdp.send("Input.dispatchTouchEvent", {type: "touchEnd", touchPoints: []});
         await expect.poll(() => labels(page).allTextContents()).toEqual(["c.md", "a.md", "b.md"]);
         await closeAll(page);
     });
 });
 
-test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看得见的最后一个后面落在它的后继之前；只有一个固定标签的组，拖到正文中央取消固定", async ({page}) => {
+test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看得见的最后一个后面落在它的后继之前；只有一个固定标签的组，拖到正文中央是原位", async ({page}) => {
     // 要放得下几个标签、又放不下十个：被拖的第二个标签不能正好是看得见的最后一个。
     await page.setViewportSize({width: 1400, height: 800});
     await open(page);
@@ -755,7 +766,7 @@ test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看�
     await expect(page.locator("[data-editor-group-active] [data-editor-tabs]")).toHaveAttribute("data-wrap", "");
     await closeAll(page);
 
-    // 只有一个固定标签：拖到本组正文中央，取消固定。
+    // 只有一个固定标签：拖到本组正文中央是原位（docs/specs/ui/workbench-layout.md 输出 28），固定不变。
     await item(page, "project://notes/a.md").dblclick();
     await page.locator("[data-editor-tab]").filter({hasText: "a.md"}).click({button: "right"});
     await page.getByRole("menu").getByRole("menuitem", {name: "固定", exact: true}).click();
@@ -767,8 +778,149 @@ test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看�
     await page.mouse.down();
     await page.mouse.move(tab.x + tab.width / 2 + 10, tab.y + tab.height / 2, {steps: 2});
     await page.mouse.move(content.x + content.width / 2, content.y + content.height / 2, {steps: 8});
+    await expect(page.locator("[data-drop-kind=\"noop\"]")).toHaveCount(1);
     await page.mouse.up();
+    await expect(page.locator("[data-editor-tab-pinned]")).toHaveCount(1);
+    await page.locator("[data-editor-tab-unpin]").click();
     await expect(page.locator("[data-editor-tab-pinned]")).toHaveCount(0);
+    await closeAll(page);
+});
+
+test("编辑器标签和工具面板（docs/specs/ui/workbench-layout.md 输出 26、27）：进不了工具面板的标签条，能拆到旁边；单个标签的组整块移动，组与控件不重建；工具视图能夹在编辑组之间", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const groups = page.locator("[data-editor-group]");
+    const leftOf = (locator: ReturnType<Page["locator"]>) => locator.evaluate((element) => Math.round(element.getBoundingClientRect().left));
+    const dragTab = async (name: string, to: {x: number; y: number}, before?: () => Promise<void>) => {
+        const from = await tabs(page).filter({hasText: name}).boundingBox();
+        if (from === null) throw new Error("没有标签");
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+        await page.mouse.move(to.x, to.y, {steps: 8});
+        await before?.();
+        await page.mouse.up();
+    };
+
+    // 工具面板的标签条：没有落点，松手什么都不变。
+    const head = await page.locator("[data-panel-head=\"sidebar\"]").boundingBox();
+    if (head === null) throw new Error("没有面板头");
+    await dragTab("b.md", {x: head.x + head.width / 2, y: head.y + head.height / 2}, async () => {
+        await expect(page.locator(DROP_SHOWN)).toHaveCount(0);
+    });
+    await expect(groups).toHaveCount(1);
+
+    // 工具面板的下缘：拆出新的编辑组，在侧栏下面。
+    const sidebar = await page.locator("[data-leaf=\"sidebar\"]").boundingBox();
+    if (sidebar === null) throw new Error("没有侧栏");
+    await dragTab("b.md", {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height - 12}, async () => {
+        await expect(page.locator("[data-drop-kind=\"edge\"]")).toHaveCount(1);
+    });
+    await expect(groups).toHaveCount(2);
+    const lone = groups.filter({hasText: "b.md"});
+    await expect(lone).toHaveAttribute("data-editor-group-active", "");
+    const box = await lone.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.abs(box!.x - sidebar.x)).toBeLessThan(10);
+    expect(box!.y).toBeGreaterThan(sidebar.y + 40);
+    const id = await lone.getAttribute("data-editor-group");
+
+    // 单个标签的组移到另一组右边：同一块面板，组和控件都是原来的 DOM，输入还在。
+    await lone.locator("[data-editor-prose]").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("改");
+    await lone.evaluate((element) => {
+        (element as HTMLElement & {__testSame?: boolean}).__testSame = true;
+        (element.querySelector("[data-editor-prose]") as HTMLElement & {__testSame?: boolean}).__testSame = true;
+    });
+    const other = groups.filter({hasText: "a.md"});
+    const content = await other.locator("[data-editor-content]").boundingBox();
+    if (content === null) throw new Error("没有正文区");
+    await dragTab("b.md", {x: content.x + content.width - 10, y: content.y + content.height / 2});
+    await expect.poll(async () => await leftOf(lone) > await leftOf(other)).toBe(true);
+    expect(await lone.getAttribute("data-editor-group")).toBe(id);
+    expect(await lone.evaluate((element) => [(element as HTMLElement & {__testSame?: boolean}).__testSame, (element.querySelector("[data-editor-prose]") as HTMLElement & {__testSame?: boolean}).__testSame])).toEqual([true, true]);
+    await expect(lone.locator("[data-editor-prose]")).toContainText("改");
+
+    // 工具视图夹在两个编辑组之间。
+    const explorer = page.locator("[data-panel-tab=\"view:nbook.explorer\"]");
+    const seam = await page.locator("[data-sash-kind=\"editors\"]").boundingBox();
+    const from = await explorer.boundingBox();
+    if (seam === null || from === null) throw new Error("没有分隔线或标签");
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+    await page.mouse.move(seam.x - 6, seam.y + seam.height / 2, {steps: 8});
+    await expect(page.locator("[data-drop-kind=\"edge\"]")).toHaveCount(1);
+    await page.mouse.up();
+    await expect.poll(async () => {
+        const viewLeft = await leftOf(page.locator("[data-panel-tab=\"view:nbook.explorer\"]"));
+        return await leftOf(other) < viewLeft && viewLeft < await leftOf(lone);
+    }).toBe(true);
+    await expect(groups).toHaveCount(2);
+    await lone.locator("[data-editor-tab-close]").click();
+    const discard = page.locator("[data-editor-close-discard]");
+    if (await discard.isVisible()) await discard.click();
+    await closeAll(page);
+});
+
+test("键盘拖编辑器标签（docs/specs/ui/workbench-layout.md 输出 31）：空格拿起停在原位，方向键换位置，Enter 放下，焦点回到标签；Escape 不动", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const order = () => labels(page).allTextContents();
+    const before = await order();
+    const active = page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"]");
+    await active.focus();
+    const moved = (await active.textContent())?.trim() ?? "";
+    await page.keyboard.press("Space");
+    await expect(page.locator("[data-drop-kind=\"noop\"]")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(DROP_SHOWN)).toHaveCount(0);
+    expect(await order()).toEqual(before);
+
+    await active.focus();
+    await page.keyboard.press("Space");
+    for (let step = 0; step < 4 && await page.locator("[data-drop-kind=\"strip\"]").count() === 0; step += 1) await page.keyboard.press("ArrowLeft");
+    await expect(page.locator("[data-drop-kind=\"strip\"]")).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    await expect.poll(order).not.toEqual(before);
+    await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim() ?? "")).toContain(moved);
+    await closeAll(page);
+});
+
+test("标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：布局里的标签显示原因，能关掉，别的标签照常恢复", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const tabIdOf = async (name: string): Promise<string> => (await tabs(page).filter({hasText: name}).getAttribute("data-editor-tab")) ?? "";
+    const lostId = await tabIdOf("a.md");
+    const keptId = await tabIdOf("b.md");
+    await expect.poll(async () => Object.keys(((await projectRecord(page, "editor.tabs"))?.tabs ?? {}) as Record<string, unknown>)).toContain(lostId);
+    const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
+    // 布局文档合并着存：两个标签都落盘之后再离开页面。
+    await expect.poll(async () => {
+        const layout = JSON.stringify(await projectRecord(page, "workbench.layout", "nbook.workbench"));
+        return layout.includes(lostId) && layout.includes(keptId);
+    }).toBe(true);
+    await page.goto("about:blank");
+    const db = new DatabaseSync(join(projectDir, ".nbook", "storage.sqlite"));
+    try {
+        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = 'editor.tabs' AND client = ?").get(client) as {value: string};
+        const value = JSON.parse(row.value) as {tabs: Record<string, unknown>};
+        delete value.tabs[lostId];
+        db.prepare("UPDATE records SET value = ? WHERE owner = 'nbook.editor' AND key = 'editor.tabs' AND client = ?").run(JSON.stringify(value), client);
+    } finally {
+        db.close();
+    }
+    await open(page);
+    await expect(labels(page)).toHaveText(["打不开的标签", "b.md"]);
+    await tabs(page).filter({hasText: "打不开的标签"}).click();
+    await expect(page.locator("[data-editor-tab-lost]")).toBeVisible();
     await closeAll(page);
 });
 
@@ -1073,7 +1225,7 @@ test("源码文件用 Monaco：第一次打开源码文件之前不加载它；�
 });
 
 /** 焦点在编辑器区里（不是落到页面根）。 */
-const focusInEditor = (page: Page) => page.evaluate(() => document.activeElement?.closest("[data-editor-area]") !== null && document.activeElement !== document.body);
+const focusInEditor = (page: Page) => page.evaluate(() => document.activeElement?.closest("[data-editor-group]") !== null && document.activeElement !== document.body);
 
 test("关闭标签与空组之后焦点留在编辑器区：交给关闭后的活动视图", async ({page}) => {
     await open(page);

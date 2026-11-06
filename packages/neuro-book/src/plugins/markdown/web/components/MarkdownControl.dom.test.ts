@@ -24,6 +24,7 @@ import {markdownEditingActions} from "@notnotype/nb-markdown/editor";
 import {EDITING_ACTIONS, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
 import type {WindowText} from "nbook/shared/window-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
@@ -60,7 +61,7 @@ interface Opened {
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
 async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
-    const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+    const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
     }});
     if (area === undefined) {

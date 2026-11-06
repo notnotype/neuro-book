@@ -13,11 +13,11 @@ import type {TextResolver} from "nbook/shared/localized-text";
 import {WORKBENCH_EDITOR_AREA_POINT} from "../shared/contracts";
 import type {EditorAreaDeclaration} from "../shared/contracts";
 import {workbenchText} from "../shared/text";
-import type {EditorAreaImplementation} from "./contracts";
+import type {EditorAreaImplementation, EditorAreaParts} from "./contracts";
 
 export interface EditorAreaProvider {
     readonly id: string;
-    load(): Promise<Component>;
+    load(): Promise<EditorAreaParts>;
 }
 
 export interface EditorAreaSource {
@@ -25,13 +25,19 @@ export interface EditorAreaSource {
     readonly current: Readonly<ShallowRef<EditorAreaProvider | null>>;
 }
 
+/** 外壳挂的编辑器内容：提供者只加载一次，两个组件共用这一次的结果。 */
+export interface MountedEditorArea {
+    readonly host: Component;
+    readonly group: Component;
+}
+
 /**
  * 编辑器槽里挂的组件：提供者的组件，加载期间与失败时由这里给内容（WorkbenchShell.md 的“编辑器”）。加载期间是一句给读屏的
  * “正在加载编辑器”（`role="status"`），容器标 `aria-busy`，截图工具（page:shot）据此等编辑器内容出来；失败时写出原因，
- * aria-busy 随占位一起撤掉。外壳给槽的属性（`context` 与标记）只给提供者的组件，`inheritAttrs: false` 不让它们落到这两个
- * 组件的 DOM 上。占位立即显示，不等缺省的 200 毫秒。
+ * aria-busy 随占位一起撤掉。外壳给组的属性（`context`、`panelId` 与标记）只给提供者的组件，`inheritAttrs: false` 不让它们落到这两个
+ * 组件的 DOM 上。占位立即显示，不等缺省的 200 毫秒。区级的 `host` 没有地方显示这些，什么都不画。
  */
-export function editorAreaComponent(provider: EditorAreaProvider, text: TextResolver): Component {
+export function mountEditorArea(provider: EditorAreaProvider, text: TextResolver): MountedEditorArea {
     const Loading = defineComponent({
         name: "EditorAreaLoading",
         inheritAttrs: false,
@@ -43,7 +49,16 @@ export function editorAreaComponent(provider: EditorAreaProvider, text: TextReso
         props: {error: {type: Error, required: true}},
         setup: (props) => () => h("p", {"class": "p-[var(--space-4)] text-[var(--status-danger)]", "role": "alert", "data-workbench-editor-failed": ""}, text.t(workbenchText("editorArea.failed", {reason: props.error.message}))),
     });
-    return markRaw(defineAsyncComponent({loader: () => provider.load(), loadingComponent: Loading, errorComponent: Failed, delay: 0}));
+    const Nothing = defineComponent({name: "EditorAreaHostAbsent", inheritAttrs: false, setup: () => () => null});
+    let loading: Promise<EditorAreaParts> | null = null;
+    const load = (): Promise<EditorAreaParts> => {
+        loading ??= provider.load();
+        return loading;
+    };
+    return {
+        host: markRaw(defineAsyncComponent({loader: async () => (await load()).host, errorComponent: Nothing, delay: 0})),
+        group: markRaw(defineAsyncComponent({loader: async () => (await load()).group, loadingComponent: Loading, errorComponent: Failed, delay: 0})),
+    };
 }
 
 export function validateEditorAreaContribution(descriptor: ContributionDescriptor): string | null {

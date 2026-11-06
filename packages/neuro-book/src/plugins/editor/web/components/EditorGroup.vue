@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
+/** 一个编辑组（同名 .md）：内容层里一块面板的内容，标签条、提示条、状态条、进度条与控件，以及组里的键位。 */
 import {useDropTarget} from "@notnotype/nb-layout/vue";
 import {Banner, Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
 import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
@@ -27,7 +27,7 @@ import {formatResource} from "nbook/plugins/files/shared/contracts";
 import {EDITOR_GROUP_FILE, editorToolbarSlotKey} from "../../shared/contracts";
 
 import {nameOf, resourceOf} from "../documents/address";
-import {EDITOR_GROUP_TAB} from "../tab-drag";
+import {LOST_TAB_ADDRESS} from "../groups/groups";
 import {tabHints} from "../tab-hints";
 import {tabLabel} from "../tab-label";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
@@ -57,8 +57,35 @@ const props = withDefaults(defineProps<{
 const port = useText();
 const t = useEditorText();
 
+/** 编辑器区内的键位对应的意图：宿主把它换成命令执行（组件不认识命令）。 */
+export type EditorIntent = "save" | "close" | "split-right";
+
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作、标签菜单的一项：交出它的 key。 */
-const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
+const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
+
+/** 编辑器区内的键位：只在编辑器区有焦点时处理，交给宿主执行同一条命令（命令声明里不写全局键位）。 */
+const plain = (event: KeyboardEvent): boolean => (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
+const KEYS: ReadonlyArray<{readonly test: (event: KeyboardEvent) => boolean; readonly intent: EditorIntent}> = [
+    {test: (event) => plain(event) && event.key.toLowerCase() === "s", intent: "save"},
+    {test: (event) => plain(event) && event.key.toLowerCase() === "w", intent: "close"},
+    {test: (event) => plain(event) && event.key === "\\", intent: "split-right"},
+];
+const onKeydown = (event: KeyboardEvent): void => {
+    const match = KEYS.find((key) => key.test(event));
+    if (match === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    emit("intent", match.intent);
+};
+
+const onFocusIn = (): void => {
+    props.area.focused.value = true;
+    props.area.focusGroup(props.groupId);
+};
+// 焦点去了别的组不算离开编辑器区。
+const onFocusOut = (event: FocusEvent): void => {
+    if (!(event.relatedTarget instanceof Element) || event.relatedTarget.closest("[data-editor-group]") === null) props.area.focused.value = false;
+};
 
 /** 打开着的标签菜单：被右击的标签、位置与打开时的身份；身份变了（标签关闭、换组、换编辑器）就关上（输出 57）。 */
 const tabMenuState = shallowRef<{readonly tabId: string; readonly x: number; readonly y: number; readonly identity: string} | null>(null);
@@ -150,7 +177,7 @@ const listCrumb = async (address: string, signal: AbortSignal): Promise<Breadcru
 };
 /** 面包屑交还焦点：给本组的编辑器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
 const section = ref<HTMLElement | null>(null);
-useDropTarget(section, [EDITOR_GROUP_FILE, EDITOR_GROUP_TAB], () => ({group: props.groupId}));
+useDropTarget(section, [EDITOR_GROUP_FILE], () => ({group: props.groupId}));
 const returnFocus = (): void => {
     const handle = props.area.handleOf(props.groupId);
     if (handle !== null) handle.focus();
@@ -219,6 +246,8 @@ const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(active
 /** 铺场景图的状态（docs/specs/theme/skins.md 输出 4）：没开文件，或活动页声明了要。主题没有场景时这一层不显示。 */
 const showsScene = computed(() => activeTab.value === null || (pageId.value !== null && props.pages?.scene(pageId.value) === true));
 const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
+/** 这个标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：说明原因，关掉就好。 */
+const lost = computed(() => activeTab.value?.address === LOST_TAB_ADDRESS);
 
 // 控件按编辑器各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。只挂已交付的编辑器。
 const controls = computed((): Array<{readonly editor: string; readonly component: Component}> => {
@@ -258,11 +287,18 @@ provide(editorToolbarSlotKey, toolbarSlot);
         :aria-label="t('area.label')"
         :data-editor-group="groupId"
         :data-editor-group-active="active ? '' : undefined"
-        @focusin="area.focusGroup(groupId)"
+        @keydown="onKeydown"
+        @focusin="onFocusIn"
+        @focusout="onFocusOut"
         @pointerdown="(event: PointerEvent) => event.button === 0 && area.focusGroup(groupId)"
     >
+        <!-- 提示是整个编辑器区一条（例如换文档前有未裁决输入）：显示在动作发生的活动组顶部。 -->
+        <p v-if="active && area.notice.value !== null" class="flex shrink-0 items-center gap-2 border-b border-[color:var(--divider)] px-3 py-1.5 text-xs text-[var(--status-warning)]" role="status" data-editor-notice>
+            <span class="min-w-0 flex-1">{{ port.t(area.notice.value) }}</span>
+            <Button size="sm" variant="ghost" @click="area.dismissNotice()">{{ t("area.dismiss") }}</Button>
+        </p>
         <!-- 标签多时标签条自己横向滚动，标题动作固定在右侧、不随之滚动。 -->
-        <div ref="header" class="editor-group__header">
+        <div ref="header" class="editor-group__header" :data-panel-strip="groupId">
             <EditorTabBar
                 class="editor-group__tabs"
                 :tabs="tabs"
@@ -273,6 +309,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 :pinned-label="t('tab.pinned')"
                 :wrap="wrapTabs"
                 :group-active="active"
+                :drag-hint="t('tab.dragHint')"
                 @activate="(id: string) => area.activate(id)"
                 @keep="(id: string) => area.keep(id)"
                 @unpin="(id: string) => area.setPinned(id, false)"
@@ -341,6 +378,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
             <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
             <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :class="showsScene ? 'editor-group__on-scene' : ''" :data-editor-page="pageId">
                 <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
+                <p v-else-if="lost" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-tab-lost>{{ t("tab.lostBody") }}</p>
                 <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
             </div>
             <template v-for="mounted in controls" :key="mounted.editor">

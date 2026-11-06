@@ -207,7 +207,8 @@ describe("损坏与失败", () => {
         expect(await read(storage, USER)).toBe("missing");
         expect(store.state.problems).toEqual([{kind: "unsaved", code: "save-gate"}]);
         allow = true;
-        await store.actions.save();
+        // 状态栏的“重试”：布局自己没有待重试的，要再走一次关卡。
+        await store.actions.retry();
         await settled(store);
         expect(store.state.problems).toEqual([]);
         expect((await savedDoc(storage, USER)).panels.auxiliarybar?.hidden).toBe(true);

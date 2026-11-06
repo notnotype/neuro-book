@@ -101,7 +101,7 @@ const activeGroup = (page: Page) => page.locator("[data-editor-group-active]");
 async function open(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
-    await expect(page.locator("[data-editor-area]")).toBeVisible();
+    await expect(page.locator("[data-editor-group]").first()).toBeVisible();
 }
 
 /** 在资源管理器里展开一个顶层目录。 */
@@ -122,13 +122,13 @@ async function runCommand(page: Page, title: string): Promise<void> {
 /** 源码编辑器里文字正好匹配 `text`（正则源码）的第一个 token：Monaco 按 token 种类给类名 `mtkN`，没有着色的文字是 `mtk1`。 */
 const token = (page: Page, text: string) => activeGroup(page).locator(".view-lines span > span").filter({hasText: new RegExp(`^${text}$`, "u")}).first();
 
-/** 本窗口的编辑器会话记录（Storage 的 project 场地）。 */
-async function editorSession(page: Page): Promise<{groups: Array<{tabs: Array<{address: string; language?: string}>}>} | null> {
+/** 本窗口的编辑器标签记录（Storage 的 project 场地）。 */
+async function editorTabs(page: Page): Promise<{tabs: Record<string, {address?: string; language?: string}>} | null> {
     const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
     const db = new DatabaseSync(join(projectDir, ".nbook", "storage.sqlite"));
     try {
-        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = 'editor.session' AND client = ?").get(client) as {value: string} | undefined;
-        return row === undefined ? null : JSON.parse(row.value) as {groups: Array<{tabs: Array<{address: string; language?: string}>}>};
+        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = 'editor.tabs' AND client = ?").get(client) as {value: string} | undefined;
+        return row === undefined ? null : JSON.parse(row.value) as {tabs: Record<string, {address?: string; language?: string}>};
     } finally {
         db.close();
     }
@@ -271,13 +271,12 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字
     expect(restoredBase).not.toBe(sideBase);
     expect((await fetch(new URL("data.json", restoredBase))).status).toBe(200);
 
-    // 关掉预览标签：令牌作废。
-    for (const group of await page.locator("[data-editor-group]").all()) {
-        const preview = group.locator("[data-editor-tab]").filter({hasText: "预览 index.html"});
-        if (await preview.count() === 0) continue;
+    // 关掉预览标签：令牌作废。组空了随之关闭，所以每次重新找。
+    const previews = page.locator("[data-editor-tab]").filter({hasText: "预览 index.html"});
+    for (let guard = 0; guard < 4 && await previews.count() > 0; guard += 1) {
         // 关闭按钮与标签是兄弟元素，按标签 id 找。
-        const id = await preview.getAttribute("data-editor-tab");
-        await group.locator(`[data-editor-tab-close="${id ?? ""}"]`).click();
+        const id = await previews.first().getAttribute("data-editor-tab");
+        await page.locator(`[data-editor-tab-close="${id ?? ""}"]`).click();
     }
     await expect(page.locator("[data-html-preview-frame]")).toHaveCount(0);
     await expect.poll(async () => (await fetch(new URL("data.json", restoredBase))).status).toBe(404);
@@ -309,7 +308,7 @@ test("语言：py、html 里的 script、Markdown 的 ts 代码块都有着色�
     await expect(status(page, "nbook.editor.language")).toHaveText("纯文本");
     // 纯文本不分 token：整行是一个没有着色的 token。
     await expect(token(page, "def\\shello\\(\\):")).toHaveClass(/\bmtk1\b/u);
-    await expect.poll(async () => (await editorSession(page))?.groups.flatMap((group) => group.tabs).find((tab) => tab.address === "project://code/a.py")?.language).toBe("plaintext");
+    await expect.poll(async () => Object.values((await editorTabs(page))?.tabs ?? {}).find((tab) => tab.address === "project://code/a.py")?.language).toBe("plaintext");
 
     await page.reload();
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");

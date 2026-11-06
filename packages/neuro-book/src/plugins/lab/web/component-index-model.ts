@@ -75,7 +75,7 @@ export function deriveDisplayMode(name: string, kind?: LabComponentKind): LabDis
     if (
         name === "WorkbenchShellLayout" ||
         name === "EditorWorkbench" ||
-        name === "EditorArea" ||
+        name === "EditorGroup" ||
         name === "AgentSidebarView" ||
         name === "AgentConversationView" ||
         name === "AgentConversationComposer" ||

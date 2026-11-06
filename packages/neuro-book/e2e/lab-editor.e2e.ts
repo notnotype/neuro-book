@@ -53,7 +53,7 @@ async function chooseScene(page: Page, label: string): Promise<void> {
 test("Lab 集成场景：输入后保存清掉未保存标记；外部改写进入正文；外部删除给出提示；拆分场景两种控件都渲染；不发产品接口请求；切出再回是新数据", async ({page}) => {
     const problems = watchConsole(page);
     await page.setViewportSize({width: 1400, height: 900});
-    await page.goto(`${dev.pageUrl}lab?c=EditorArea&s=live`);
+    await page.goto(`${dev.pageUrl}lab?c=EditorGroup&s=live`);
     await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "live"});
     const requests: string[] = [];
     page.on("request", (request) => {

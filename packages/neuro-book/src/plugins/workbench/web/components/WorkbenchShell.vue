@@ -9,14 +9,15 @@ import {findTab, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutSource} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
-import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
+import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
 import {buttonBudget, NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
+import {editorTabIdOf} from "../../shared/editor-panels";
 import {SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
@@ -30,8 +31,8 @@ import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
-import type {EditorAreaContext} from "../contracts";
-import {editorAreaComponent} from "../editor-area";
+import type {EditorAreaContext, EditorTabDrag} from "../contracts";
+import {mountEditorArea} from "../editor-area";
 import type {EditorAreaSource} from "../editor-area";
 import {SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
@@ -78,15 +79,24 @@ function run(id: string, args: Record<string, unknown> = {}): void {
 
 // ── 编辑器 ────────────────────────────────────────────────────────────────
 
-/** 编辑组现在还是一块面板里的整个编辑区（w00026 t07 片 7b 归面板）：最大化别的面板时盖住它，对提供者就是不可见。 */
-const editorContext: EditorAreaContext = {visible: computed(() => {
-    const maximized = state.value.maximized;
-    return maximized === null || doc.value.panels[maximized]?.role === "editor";
-})};
-const editorComponent = computed((): Component | null => {
+const editorArea = computed(() => {
     const provider = props.editorArea?.current.value ?? null;
-    return provider === null ? null : editorAreaComponent(provider, resolver);
+    return provider === null ? null : {id: provider.id, ...mountEditorArea(provider, resolver)};
 });
+
+/** 区级组件挂上时交出来（`EditorAreaHostProps`）；还没交时编辑器标签不起拖。 */
+const editorTabs = shallowRef<EditorTabDrag | null>(null);
+
+/** 每块编辑组一份：别的面板最大化时盖住它，对提供者就是不可见。 */
+const editorContexts = new Map<string, EditorAreaContext>();
+function editorContextOf(panelId: string): EditorAreaContext {
+    let context = editorContexts.get(panelId);
+    if (context === undefined) {
+        context = {visible: computed(() => state.value.maximized === null || state.value.maximized === panelId)};
+        editorContexts.set(panelId, context);
+    }
+    return context;
+}
 
 // ── 视图 ──────────────────────────────────────────────────────────────────
 
@@ -209,7 +219,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     if (opened === null) return [];
     const targets = moveTargetsOf(doc.value, opened.viewId) ?? [];
     const into = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "panel" ? [] : [{label: text(panelTitle(doc.value, catalog.value, target.panel)), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, target: target.panel})}]));
-    const beside = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "new-panel" ? [] : [{label: message("viewCommands.newPanelNextTo", {panel: text(panelTitle(doc.value, catalog.value, target.nextTo))}), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, target: {newPanelNextTo: target.nextTo}})}]));
+    const beside = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "new-panel" ? [] : [{label: message("viewCommands.newPanelNextTo", {panel: text(panelTitle(doc.value, catalog.value, target.nextTo))}), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, newPanelNextTo: target.nextTo})}]));
     const reset: ContextMenuItem[] = canResetView(doc.value, catalog.value, opened.viewId) ? [{label: message("views.resetLocation"), action: () => props.layout.actions.resetView(opened.viewId)}] : [];
     const sections = [into, beside, reset].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{separator: true}, ...section]));
@@ -326,15 +336,23 @@ onMounted(() => {
         extent: () => state.value.extent,
         maximized: () => state.value.maximized,
         enabled: () => state.value.ready,
-        commit: (source, action) => props.layout.actions.drop(source, action),
+        editorTabs: () => editorTabs.value,
+        commit: (source, action, part) => {
+            // 编辑器标签走编辑器区的动作：要先结算视图的输入、合并同一标签（`EditorTabDrag`）。
+            const editorTab = source.kind === "tab" ? editorTabIdOf(source.tab) : null;
+            if (editorTab !== null) editorTabs.value?.drop(editorTab, action, part);
+            else props.layout.actions.drop(source, action);
+        },
     });
 });
 onBeforeUnmount(() => drag.value?.dispose());
 
 const dragState = computed(() => drag.value?.session.state.value ?? null);
 
-function ghostOf(source: LayoutSource): {readonly label: string; readonly icon: string} | null {
+function ghostOf(source: LayoutSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
     const key = source.kind === "tab" ? source.tab : (doc.value.panels[source.panel]?.active ?? null);
+    const editorTab = key === null ? null : editorTabIdOf(key);
+    if (editorTab !== null) return editorTabs.value?.ghost(editorTab) ?? null;
     const viewId = key === null ? null : viewIdOf(key);
     const declaration = viewId === null ? undefined : catalog.value.get(viewId);
     return declaration === undefined ? null : {label: text(declaration.title), icon: declaration.icon};
@@ -462,12 +480,13 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         </template>
                     </WorkbenchPanelHead>
                 </template>
-                <template #content="{contentKey}">
+                <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">
-                        <component :is="editorComponent" v-if="editorComponent !== null" :key="props.editorArea?.current.value?.id" :context="editorContext" data-workbench-editor-area />
+                        <component :is="editorArea.group" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :context="editorContextOf(panelId)" data-workbench-editor-area />
                         <div v-else class="workbench-shell__welcome">
                             <h1>NeuroBook</h1>
-                            <p>{{ welcome }}</p>
+                            <!-- 这块编辑组有标签时写的是原因（输出 34）：编辑器撤回了，标签还在，再次交付后恢复。 -->
+                            <p>{{ (doc.panels[panelId]?.tabs.length ?? 0) > 0 ? message("shell.editorUnavailable") : welcome }}</p>
                         </div>
                     </template>
                     <div v-else-if="!catalog.has(viewIdOf(contentKey)!)" class="workbench-shell__missing" role="status" data-view-missing>
@@ -493,6 +512,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 </template>
             </WorkbenchSurface>
         </div>
+        <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="(next: EditorTabDrag | null) => (editorTabs = next)" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
         <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
     </div>

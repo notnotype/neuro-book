@@ -1,12 +1,11 @@
 ---
-验证入口: EditorArea
 标签: [state:inject]
 别名: ["编辑组", "Editor Group"]
 ---
 
 # EditorGroup
 
-一个编辑组（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 1–20）：标签条、加载进度条、状态条与控件。它是宿主：按组 id 读编辑器区控制器的组、文档与绑定，把用户动作交回控制器。
+一个编辑组（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 1–20）：工作台内容层里一块 `role: "editor"` 面板的内容（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 33）。标签条、提示条、加载进度条、状态条与控件，以及组里的键位。它是宿主：按组 id 读编辑器区控制器的组、文档与绑定，把用户动作交回控制器。
 
 ## 数据
 
@@ -33,6 +32,8 @@ type Props = {
 };
 
 type Emits = {
+    /** 组里有焦点时按下 Ctrl+S、Ctrl+W、Ctrl+\：宿主执行保存、关闭、向右拆分的命令。 */
+    (event: "intent", intent: "save" | "close" | "split-right"): void;
     /** 点了空态里的一条提示：交出它的命令 id，由宿主执行。 */
     (event: "run-tip", command: string): void;
     /** 点了标题动作：交出它的 key，由宿主执行。 */

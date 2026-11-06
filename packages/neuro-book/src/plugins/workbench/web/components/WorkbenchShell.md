@@ -14,7 +14,7 @@
 - 标题栏：固定 36px，在树之外（[`WorkbenchTitleBar`](WorkbenchTitleBar.md)）。
 - 活动栏：[`WorkbenchToolStrip`](WorkbenchToolStrip.md)，上段是全部工具视图，底段是 `chrome` 给的全局项。
 - 工具面板：[`WorkbenchPanelHead`](WorkbenchPanelHead.md) 加视图内容（[`WorkbenchViewFrame`](WorkbenchViewFrame.md)）。视图动作由共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md) 画在面板头，按面板宽度算放几个按钮，其余收进“⋯”：一个截断的标签、其余只留图标的宽度总要留给标签带。
-- 编辑区：树里一块 `role: "editor"` 的面板，里面是 `editorArea` 的提供者（属性 `context: {visible}`，别的面板最大化盖住它时 `visible` 为假），提供者换了才重挂；没有提供者时是欢迎文字。
+- 编辑区：树里每块 `role: "editor"` 的面板是 `editorArea` 提供者的一个组组件（属性 `panelId`、`context: {visible}`，别的面板最大化盖住它时 `visible` 为假），提供者的区级组件在外壳根上挂一次，交出标签的拖动；提供者换了才重挂。没有提供者时编辑组里是欢迎文字，那块面板有标签时写不可用的原因。
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
 
 ## 交互

@@ -1,48 +1,20 @@
 /**
- * 拖动标签（docs/specs/workbench/editor.md 输出 55）：来源是标签主体（`[data-editor-tab]`；状态位的按钮带
- * `data-editor-tab-action`，不起拖），落点按这一刻的布局算（`resolveTabDrop`）：标签条里是插入位，正文区里是四边拆分或中央移入。
- * 手势是 nb-layout 的拖动会话（docs/specs/ui/layout-drag.md），这里只给来源、落点与结构键。
- *
- * 结构键由宿主给（组、各组标签与固定状态、多行设置）：之后结构变了整场取消，只是几何变了（窗口尺寸、滚动、换行）时按当下坐标
- * 重算落点。
+ * 拖动编辑器标签（docs/specs/workbench/editor.md 输出 55）：手势与落点规则是工作台的（`workbench/web/layout-drag.ts`，docs/specs/ui/workbench-layout.md 输出 25 到 32），编辑器只回答它自己的
+ * 标签条的问题：指针在标签条里算插入到哪（多行、固定分区）、放下要做什么。放下走编辑器区的动作，不直接改布局：要先结算活动视图的输入，同一标签要合并，固定与 preview 跟着落点变。
  */
 
-import {createDragSession, dropTargetAt} from "@notnotype/nb-layout/vue";
-import type {DragSession, DropFeedbackPreview} from "@notnotype/nb-layout/vue";
-import {defineDropKind, resolveGridEdgeDrop, resolveListInsertion} from "@notnotype/nb-layout";
-import type {GridDropRect} from "@notnotype/nb-layout";
+import {resolveListInsertion} from "@notnotype/nb-layout";
+import type {GridDropPoint, GridDropRect, LayoutDropAction} from "@notnotype/nb-layout";
 
-import {sitsAtEdge} from "./groups/groups";
-import type {GroupEdge, TabPlace} from "./groups/groups";
+import type {TextResolver} from "nbook/shared/localized-text";
+import {fileIconForName} from "nbook/ui/file-icons/file-icons";
+import type {EditorTabDrag, EditorTabInsertion} from "nbook/plugins/workbench/web/contracts";
 
-/** 标签拖到编辑组：编辑组登记这个落点，给出组 id。 */
-export const EDITOR_GROUP_TAB = defineDropKind<{readonly group: string}>("nbook.editor.group.tab");
-
-/** 被拖的标签与它所在的组。 */
-export interface TabDragSource {
-    readonly tabId: string;
-    readonly group: string;
-}
-
-/** 放下要做的事：移到某组的某个位置，或在某组的一边拆出新组。 */
-export type TabDropAction =
-    | {readonly kind: "move"; readonly tabId: string; readonly place: TabPlace}
-    | {readonly kind: "split"; readonly tabId: string; readonly group: string; readonly edge: GroupEdge};
-
-/** 一个落点：`action` 为 null 时只显示、不提交（放回原位、拆不出东西）。 */
-export interface TabDrop {
-    readonly action: TabDropAction | null;
-    readonly preview: DropFeedbackPreview;
-    /** 提示文字的种类，宿主按界面语言翻译。 */
-    readonly label: "move" | "split-left" | "split-right" | "split-top" | "split-bottom" | "keep";
-}
-
-export interface TabDragHost {
-    /** 此刻的结构键：组、各组标签 id 与固定状态、多行设置。起拖后它变了，整场取消。 */
-    structure(): string;
-    /** 放下且与最后显示的落点相同：提交。 */
-    commit(action: TabDropAction): void;
-}
+import type {EditorArea} from "./area";
+import {nameOf} from "./documents/address";
+import type {EditorPageSource} from "./pages";
+import {pageIdOf} from "./pages";
+import {tabLabel} from "./tab-label";
 
 const rectOf = (element: Element): GridDropRect => {
     const box = element.getBoundingClientRect();
@@ -79,24 +51,8 @@ function linesOf(strip: HTMLElement): Line[] {
     return lines;
 }
 
-/**
- * 指针下的落点（纯读 DOM 的几何，不改任何东西）。`top` 是指针处最上层的业务元素（会话给的），`dragged` 是被拖的标签与它所在的组。
- */
-export function resolveTabDrop(root: HTMLElement, top: Element | null, point: {readonly x: number; readonly y: number}, dragged: TabDragSource): TabDrop | null {
-    const target = dropTargetAt(top, EDITOR_GROUP_TAB);
-    if (top === null || target === null || !root.contains(target.element)) return null;
-    const groupElement = target.element as HTMLElement;
-    const group = target.data.group;
-    const strip = groupElement.querySelector<HTMLElement>("[data-editor-tabs]");
-    const header = strip?.parentElement ?? null;
-    // 标签条（含它右侧的标题动作那一块）：插入位。
-    if (strip !== null && header !== null && header.contains(top)) return stripDrop(strip, point, dragged, group);
-    const content = groupElement.querySelector<HTMLElement>("[data-editor-content]");
-    if (content === null || !content.contains(top)) return null;
-    return contentDrop(root, groupElement, content, point, dragged, group);
-}
-
-function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: TabDragSource, group: string): TabDrop | null {
+/** 指针在标签条里的插入位（纯读 DOM 的几何）。`index` 是这组全部标签的呈现顺序里、摘掉来源之前的位置。 */
+export function resolveStripInsertion(strip: HTMLElement, point: GridDropPoint, tabId: string, sameGroup: boolean): EditorTabInsertion | null {
     const lines = linesOf(strip);
     if (lines.length === 0) return null;
     // 先按纵向距离选行（在行里的距离为 0），再在行里求插入位。
@@ -127,74 +83,58 @@ function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: n
             if (successor.rect.left >= view.left && successor.rect.right <= view.right && successor.rect.top >= view.top && successor.rect.bottom <= view.bottom) indicator = {left: successor.rect.left - 1, right: successor.rect.left + 1, top: successor.rect.top, bottom: successor.rect.bottom};
         }
     }
-    const place: TabPlace = {group, partition, before};
     // 放回原位：同组、同区，插入位就在它自己的前面或后面。
     const order = all.filter((tab) => tab.pinned === (partition === "pinned")).map((tab) => tab.id);
-    const index = order.indexOf(dragged.tabId);
+    const own = order.indexOf(tabId);
     const insertAt = before === null ? order.length : order.indexOf(before);
-    const inPlace = group === dragged.group && index >= 0 && (insertAt === index || insertAt === index + 1);
+    const inPlace = sameGroup && own >= 0 && (insertAt === own || insertAt === own + 1);
+    const index = before === null ? all.filter((tab) => tab.pinned || partition === "normal").length : all.findIndex((tab) => tab.id === before);
+    return {index, part: partition, indicator, inPlace};
+}
+
+export interface EditorTabDragDeps {
+    area(): EditorArea;
+    pages(): EditorPageSource | null;
+    wrapTabs(): boolean;
+    readonly text: TextResolver;
+}
+
+export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
+    const tabOf = (tabId: string) => deps.area().groups.find(tabId);
     return {
-        action: inPlace ? null : {kind: "move", tabId: dragged.tabId, place},
-        preview: {areaRect: null, entryRect: null, indicator, orientation: "horizontal", armed: !inPlace},
-        label: inPlace ? "keep" : "move",
+        insertion: (panel, point, tabId) => {
+            const strip = document.querySelector<HTMLElement>(`[data-panel-strip="${CSS.escape(panel)}"] [data-editor-tabs]`);
+            return strip === null ? null : resolveStripInsertion(strip, point, tabId, tabOf(tabId)?.group.id === panel);
+        },
+        // 固定状态与多行设置变了，标签条的分区就变了：那一场拖动取消。
+        structure: () => JSON.stringify([deps.wrapTabs(), deps.area().groups.groups.value.map((group) => group.tabs.flatMap((tab) => (tab.kind === "file" && tab.pinned === true ? [tab.id] : [])))]),
+        ghost: (tabId) => {
+            const tab = tabOf(tabId)?.tab;
+            if (tab === undefined) return null;
+            return {label: tabLabel(deps.area(), tab, deps.text, deps.pages()), fileIcon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null};
+        },
+        drop: (tabId, action, part) => dropTab(deps.area(), tabId, action, part),
     };
 }
 
-function contentDrop(root: HTMLElement, groupElement: HTMLElement, content: HTMLElement, point: {readonly x: number; readonly y: number}, dragged: TabDragSource, group: string): TabDrop | null {
-    const rect = rectOf(content);
-    const zone = resolveGridEdgeDrop({point, rect});
-    if (zone === null) return null;
-    const groupRect = rectOf(groupElement);
-    if (zone === "center") {
-        // 普通区的最后一个（固定标签拖到中央是取消固定，不是原位）。
-        const tabs = [...groupElement.querySelectorAll<HTMLElement>("[data-editor-tab]:not([data-editor-tab-pinned])")];
-        const last = tabs.at(-1)?.dataset.editorTab;
-        // 移到这一组普通标签的末尾；已经在那里（同组且是最后一个）就是原位。
-        const inPlace = group === dragged.group && last === dragged.tabId;
-        return {
-            action: inPlace ? null : {kind: "move", tabId: dragged.tabId, place: {group, partition: "normal", before: null}},
-            preview: {areaRect: groupRect, entryRect: null, indicator: null, orientation: "horizontal", armed: !inPlace},
-            label: inPlace ? "keep" : "move",
-        };
+function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction, part: string | undefined): void {
+    switch (action.kind) {
+        case "strip": {
+            const partition = part === "pinned" ? "pinned" : "normal";
+            const next = area.groups.groups.value.find((group) => group.id === action.panel)?.tabs[action.index];
+            // 这个位置上的标签不在目标分区：插入位是分区末尾（固定行的行尾）。
+            const inPartition = next !== undefined && (next.kind === "file" && next.pinned === true) === (partition === "pinned");
+            void area.moveTab(tabId, {group: action.panel, partition, before: inPartition ? next.id : null});
+            return;
+        }
+        case "center":
+            void area.moveTab(tabId, {group: action.panel, partition: "normal", before: null});
+            return;
+        case "edge":
+            area.moveToNewGroup(tabId, action.target);
+            return;
+        case "reveal":
+            // 接受矩阵：编辑器标签进不了工具面板，预备区不接收它（docs/specs/ui/workbench-layout.md 输出 26）。
+            return;
     }
-    const width = groupRect.right - groupRect.left;
-    const height = groupRect.bottom - groupRect.top;
-    const half: GridDropRect = zone === "left" ? {...groupRect, right: groupRect.left + width / 2}
-        : zone === "right" ? {...groupRect, left: groupRect.left + width / 2}
-            : zone === "top" ? {...groupRect, bottom: groupRect.top + height / 2}
-                : {...groupRect, top: groupRect.top + height / 2};
-    // 源组只有这一个标签：拆它自己拆不出东西；它已经紧贴这条边时，放下去还是现在的样子。
-    const source = group === dragged.group ? groupElement : root.querySelector<HTMLElement>(`[data-editor-group="${CSS.escape(dragged.group)}"]`);
-    const lone = source !== null && source.querySelectorAll("[data-editor-tab]").length === 1;
-    const stays = lone && group !== dragged.group && sitsAtEdge(groupRect, rectOf(source), zone);
-    const alone = lone && (group === dragged.group || stays);
-    return {
-        action: alone ? null : {kind: "split", tabId: dragged.tabId, group, edge: zone},
-        // 指示画真实结果：紧贴这条边的组放下去还在原处，亮它自己，不亮目标的半边（看着像要拆分）。
-        preview: {areaRect: stays ? rectOf(source) : half, entryRect: null, indicator: null, orientation: zone === "left" || zone === "right" ? "horizontal" : "vertical", armed: !alone},
-        label: alone ? "keep" : `split-${zone}`,
-    };
-}
-
-/**
- * 装在编辑器区的根上。按下在冒泡阶段接：组与组之间分隔线的手势在捕获阶段拿下它命中带里的按下并停止传播，所以落在分隔线上的
- * 按下是调整大小，不会再起一场标签拖动。
- */
-export function createTabDrag(root: HTMLElement, host: TabDragHost): DragSession<TabDragSource, TabDrop> {
-    return createDragSession<TabDragSource, TabDrop>({
-        root,
-        sourceAt: (target) => {
-            if (target.closest("[data-editor-tab-action]") !== null) return null;
-            const tab = target.closest<HTMLElement>("[data-editor-tab]");
-            const group = dropTargetAt(tab, EDITOR_GROUP_TAB)?.data.group;
-            return tab === null || group === undefined || !root.contains(tab) ? null : {tabId: tab.dataset.editorTab as string, group};
-        },
-        structure: () => host.structure(),
-        resolve: ({source, point, top}) => resolveTabDrop(root, top, point, source),
-        actionKey: (drop) => (drop.action === null ? null : JSON.stringify(drop.action)),
-        commit: (drop) => {
-            if (drop.action !== null) host.commit(drop.action);
-        },
-        onActiveChange: (active) => root.toggleAttribute("data-editor-tab-dragging", active),
-    });
 }

@@ -32,7 +32,9 @@ const props = withDefaults(defineProps<{
     wrap?: boolean;
     /** 这一组是活动组：别的组的活动标签文字降为次级色。 */
     groupActive?: boolean;
-}>(), {wrap: true, groupActive: true});
+    /** 标签的可访问描述：怎么用键盘拿起（docs/specs/ui/workbench-layout.md 输出 31）。 */
+    dragHint?: string;
+}>(), {wrap: true, groupActive: true, dragHint: ""});
 const emit = defineEmits<{
     (event: "activate", id: string): void;
     /** 双击：preview 转正。 */
@@ -173,7 +175,9 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
                     :aria-selected="tab.active ? 'true' : 'false'"
                     :tabindex="tab.active ? 0 : -1"
                     :title="tab.title"
+                    :aria-description="dragHint === '' ? undefined : dragHint"
                     :data-editor-tab="tab.id"
+                    :data-panel-tab="`tab:${tab.id}`"
                     :data-editor-tab-preview="tab.preview ? '' : undefined"
                     :data-editor-tab-dirty="tab.dirty ? '' : undefined"
                     :data-editor-tab-pinned="tab.pinned ? '' : undefined"
@@ -199,6 +203,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
                     tabindex="-1"
                     :data-editor-tab-unpin="tab.id"
                     data-editor-tab-action
+                    data-no-drag-start
                     @click="emit('unpin', tab.id)"
                 >
                     <span v-if="tab.dirty" class="editor-tab__dot" aria-hidden="true"></span>
@@ -212,6 +217,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
                     tabindex="-1"
                     :data-editor-tab-close="tab.id"
                     data-editor-tab-action
+                    data-no-drag-start
                     @click="emit('close', tab.id)"
                 >
                     <span v-if="tab.dirty" class="editor-tab__dot" aria-hidden="true"></span>

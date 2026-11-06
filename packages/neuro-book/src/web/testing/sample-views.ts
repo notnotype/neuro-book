@@ -72,6 +72,8 @@ const SampleEditorArea = defineComponent({
     },
 });
 
+const SampleEditorHost = defineComponent({name: "SampleEditorHost", setup: () => () => null});
+
 function switchOn(key: string): ReadonlyArray<string> {
     return (globalThis.localStorage?.getItem(key) ?? "").split(",").filter(Boolean);
 }
@@ -110,7 +112,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                     void context.scope.parent?.close();
                     return {ok: true, value: null};
                 }};
-                const editorArea: EditorAreaImplementation = {load: async () => SampleEditorArea};
+                const editorArea: EditorAreaImplementation = {load: async () => ({host: SampleEditorHost, group: SampleEditorArea})};
                 return {contributions: {
                     [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(VIEWS).map((id) => [id, implementation(id)])),
                     [WORKBENCH_EDITOR_AREA_POINT]: {[SAMPLE_EDITOR_AREA_ID]: editorArea},

@@ -22,7 +22,8 @@ import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
 
 type Props = {
     /** 跟着指针的拖影：拖动源的图标与标题，x、y 是指针的视口坐标；没有拖动为 null。 */
-    ghost: {label: string; icon: string; x: number; y: number} | null;
+    /** `icon` 是视图的图标类，`fileIcon` 是编辑器标签的文件图标。 */
+    ghost: {label: string; icon?: string; fileIcon?: CatppuccinIcon | null; x: number; y: number} | null;
     /** 拖动时浮出的预备区（视口坐标）、名称与图标；`active` 是指针正停在上面的那块。缺省没有。 */
     zones?: ReadonlyArray<{part: string; rect: {left: number; top: number; right: number; bottom: number}; label: string; icon: string; active: boolean}>;
     /** 落点预览：插入线或接收区域；没有可显示的落点为 null。 */

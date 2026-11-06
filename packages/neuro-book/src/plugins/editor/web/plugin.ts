@@ -22,8 +22,8 @@ import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contract
 import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
+import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {EditorAreaContext, EditorAreaHostProps, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
@@ -43,8 +43,8 @@ import {emptyTips} from "./empty-tips";
 import {EditorRegistry} from "./editor-registry";
 import {BUILTIN_EDITORS} from "./editors";
 import {editorRecentStore} from "./recent-record";
-import {editorSessionStore} from "./session-record";
 import {createEditorSession} from "./session";
+import {editorTabsStore} from "./tabs-record";
 import {editorState, editorStateValues} from "./state";
 import {EDITOR_STATUS_ITEMS, editorStatusItems} from "./status-items";
 import {createEditorTabMenu} from "./tab-menu";
@@ -95,7 +95,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TOOLBAR_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -138,8 +138,9 @@ export const editorBrowserPlugin: PluginDefinition = {
                 conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} matches ${String(ids.length)} default editors at the same level; using ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
                 files: context.services.require(filesKey),
                 clock: context.services.require(clockKey),
+                panels: context.services.require(editorPanelsKey),
                 project,
-                createStore: project === null ? null : () => editorSessionStore.create(context, {storage, diagnostics}),
+                createStore: project === null ? null : () => editorTabsStore.create(context, {storage, diagnostics}),
                 createRecentStore: project === null ? null : () => editorRecentStore.create(context, {storage, diagnostics}),
                 enablePreview: () => settings.get(enablePreviewSetting),
                 report,
@@ -272,30 +273,43 @@ export const editorBrowserPlugin: PluginDefinition = {
                 notify: (message) => session.area.value?.notify(message),
                 report,
             });
+            const pageSource = pages.source(pageContext);
             const area: EditorAreaImplementation = {
-                load: async (): Promise<Component> => {
-                    const {default: EditorArea} = await import("./components/EditorArea.vue");
+                load: async () => {
+                    const [{default: EditorGroup}, {default: EditorHost}] = await Promise.all([import("./components/EditorGroup.vue"), import("./components/EditorHost.vue")]);
                     const control = (editor: string) => editors.state(editor);
-                    return defineComponent({
-                        name: "EditorAreaHost",
-                        props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
-                        setup: () => {
-                            provideToChildren(editorLanguagesKey, languages);
-                            provideToChildren(codeEditorOptionsKey, codeOptions);
-                            provideToChildren(editorMenusKey, menus);
-                            return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
-                            session.area.value?.activeHandle.value?.flushPendingChange();
-                            tabMenuModel.run(tabId, key);
-                        }, onRunTip: execute, onTitleAction: (key: string) => {
-                            session.area.value?.activeHandle.value?.flushPendingChange();
-                            titles.run(key);
-                        }, onIntent: (intent: "save" | "close" | "split-right") => {
-                            // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
-                            session.area.value?.activeHandle.value?.flushPendingChange();
-                            execute(INTENTS[intent]);
-                        }}));
-                        },
-                    });
+                    const onIntent = (intent: "save" | "close" | "split-right"): void => {
+                        // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
+                        session.area.value?.activeHandle.value?.flushPendingChange();
+                        execute(INTENTS[intent]);
+                    };
+                    return {
+                        host: defineComponent({
+                            name: "EditorHostPart",
+                            props: {attachTabDrag: {type: Function as PropType<EditorAreaHostProps["attachTabDrag"]>, required: true}},
+                            setup: (props) => () => (session.area.value === null ? null : h(EditorHost, {area: session.area.value, pages: pageSource, wrapTabs: settings.get(wrapTabsSetting), attachTabDrag: props.attachTabDrag})),
+                        }),
+                        group: defineComponent({
+                            name: "EditorGroupPart",
+                            props: {panelId: {type: String, required: true}, context: {type: Object as PropType<EditorAreaContext>, required: true}},
+                            setup: (props) => {
+                                provideToChildren(editorLanguagesKey, languages);
+                                provideToChildren(codeEditorOptionsKey, codeOptions);
+                                provideToChildren(editorMenusKey, menus);
+                                return () => {
+                                    if (session.area.value === null) return null;
+                                    const title = titleActions();
+                                    return h(EditorGroup, {area: session.area.value, groupId: props.panelId, control, pages: pageSource, emptyTips: tips(), titleActions: title !== null && title.group === props.panelId ? title : null, tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
+                                        session.area.value?.activeHandle.value?.flushPendingChange();
+                                        tabMenuModel.run(tabId, key);
+                                    }, onRunTip: execute, onTitleAction: (key: string) => {
+                                        session.area.value?.activeHandle.value?.flushPendingChange();
+                                        titles.run(key);
+                                    }, onIntent});
+                                };
+                            },
+                        }),
+                    };
                 },
             };
             const published = bindingsOf(editorState, editorStateValues(session.area, toolbarVisible));

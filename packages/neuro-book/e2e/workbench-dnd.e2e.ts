@@ -7,7 +7,7 @@
  * - 落点判定的逐行规则（`nb-layout` 的 `layout-drop.test.ts`）、会话的取消路径（Escape、失去指针捕获、窗口失焦、拖动中的按键归会话、
  *   触摸起拖）：`lab-drag-session.e2e.ts`；
  * - 内容在面板之间滑动的组件级判据：`lab-grid-panels.e2e.ts`，这里只留产品页上的一条（验收 1）；
- * - 编辑器标签的拖动（工作台的编辑区还是原来的 `EditorArea`，标签拖动不变），片 7b 并进来之后另写。
+ * - 编辑器标签在编辑组之间的拖动（固定分区、多行、合并同一标签）：`editor-area.e2e.ts`，这个外壳的编辑器是样例，没有标签。
  */
 
 import {mkdir, rm} from "node:fs/promises";
@@ -36,10 +36,7 @@ const line = (page: Page) => page.locator("[data-drop-feedback-line]");
 const area = (page: Page) => page.locator("[data-drop-feedback-area]");
 const label = (page: Page) => page.locator("[data-drop-feedback-label]");
 
-/**
- * 树里的叶外框。编辑组的内容里还有一层编辑区自己的栅格，它的 `data-leaf` 与外壳的叶同名，所以限定到外壳栅格的直接子级。
- * 视图内容在内容层里，和叶外框是兄弟元素，不在 `[data-leaf]` 里面（输出 14）。
- */
+/** 树里的叶外框。视图内容在内容层里，和叶外框是兄弟元素，不在 `[data-leaf]` 里面（输出 14）。 */
 const LEAF = "[data-workbench-surface] > [data-grid-scope] > [data-leaf]";
 const leaf = (page: Page, id: string) => page.locator(`${LEAF}[data-leaf="${id}"]`);
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);

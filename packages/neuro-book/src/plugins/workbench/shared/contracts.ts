@@ -1,6 +1,9 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+import type {Ref} from "@vue/reactivity";
+import type {LayoutEdge, LayoutEdgeTarget} from "@notnotype/nb-layout";
+
 import {Type} from "typebox";
 
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -160,3 +163,60 @@ export const appearanceSetting = defineSetting({
         {value: "system"},
     ],
 });
+
+// ── 编辑组的结构（docs/specs/ui/workbench-layout.md 输出 33），实现在 `editor-panels.ts` ──
+
+export interface PanelEntry {
+    readonly id: string;
+    readonly tabs: ReadonlyArray<string>;
+    /** 活动标签的 id；空面板为 null。 */
+    readonly active: string | null;
+}
+
+export interface PanelTabs {
+    /** 编辑组，按树序。 */
+    readonly panels: Readonly<Ref<ReadonlyArray<PanelEntry>>>;
+    /** 插到 `index`，成为活动标签，面板成为活动面板。 */
+    insert(panel: string, tabId: string, index: number): boolean;
+    /** 就地换成另一个标签；原来的是活动标签时新的也是。 */
+    replace(tabId: string, next: string): boolean;
+    /** 拿掉：活动标签被拿掉时换到右边的（没有时左边）；面板空了且还有别的编辑组时面板随之移除，活动面板换到相邻的。 */
+    remove(tabId: string): boolean;
+    /** 成为活动标签，面板成为活动面板。 */
+    activate(tabId: string): boolean;
+    /**
+     * 移到 `panel` 的 `index`（摘掉来源之前的插入位，和拖动时看到的位置一致）。缺省成为活动标签、面板成为活动面板；`activate: false` 只换位置。来源面板空了同 `remove`。
+     */
+    move(tabId: string, panel: string, index: number, options?: {readonly activate?: boolean}): boolean;
+    /**
+     * 移到外缘（输出 27）：只有这一个标签的面板是同一块面板移动，返回它自己的 id，内容不重建；否则拆出新面板。放下去和现在一样时返回 null。不改活动面板，调用方决定。
+     */
+    moveToEdge(tabId: string, target: LayoutEdgeTarget): string | null;
+}
+
+export interface PanelTree {
+    /** 活动面板：最近获得焦点或执行过打开的那块。 */
+    readonly current: Readonly<Ref<string>>;
+    setCurrent(panel: string): boolean;
+    /** 拆这一块，在它的一边开一块空面板（新块取它的一半），返回新面板的 id。不改活动面板：打开时才切过去。 */
+    openAtEdge(panel: string, edge: LayoutEdge): string | null;
+    /** 右侧相邻的编辑组：只在编辑组里找，工具面板跳过；右边是一列时取最上面的。没有为 null；只查不建。 */
+    rightOf(panel: string): string | null;
+}
+
+export interface EditorPanels {
+    readonly tabs: PanelTabs;
+    readonly tree: PanelTree;
+}
+
+/** 编辑器要的工作台服务：结构操作，加上“文档读到了没有”与存盘前的关卡。 */
+export interface EditorPanelsService extends EditorPanels {
+    /** 布局文档读完了；在此之前结构操作没有文档可改。 */
+    readonly ready: Readonly<Ref<boolean>>;
+    /** 存盘前的关卡（“副作用与数据”）：先写 `editor.tabs`，它失败时布局不写。 */
+    acceptSaveGate(gate: (() => Promise<boolean>) | null): void;
+    /** 让布局现在走一次保存（连同关卡）。 */
+    flush(): void;
+}
+
+export const editorPanelsKey: ServiceKey<EditorPanelsService> = defineServiceKey<EditorPanelsService>("nbook.workbench/editor-panels");

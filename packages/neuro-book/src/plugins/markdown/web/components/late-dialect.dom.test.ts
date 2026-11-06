@@ -14,6 +14,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
@@ -44,7 +45,7 @@ async function start(): Promise<{readonly catalog: SyntaxCatalog; readonly deliv
 /** 打开 `a.md` 并挂一个 Markdown 控件（与 `EditorGroup` 一样把句柄交给编辑器区）。 */
 async function opened(text: string, catalog: SyntaxCatalog): Promise<{readonly editor: Editor; readonly handle: EditorControlHandle; readonly binding: TextEditorBinding}> {
     const memory = createMemoryFiles({project: [["a.md", text]], user: []});
-    const area = createEditorArea({files: memory.files, clock: systemClock, workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+    const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
     }});
     cleanups.push(() => memory.dispose());

@@ -210,6 +210,7 @@
         "retry": "重试"
     },
     "shell": {
+        "editorUnavailable": "编辑器现在不可用：提供它的插件不在，标签都还在，它回来后恢复。",
         "welcome": {
             "noProject": "工作台已就绪。没有打开项目。",
             "withProject": "工作台已就绪。当前项目：{{name}}"

@@ -4,11 +4,14 @@ import {DropFeedbackOverlay, DropIndicatorLabel} from "@notnotype/nb-layout/vue"
 import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 
+import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
+import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
+
 defineOptions({name: "WorkbenchDragFeedback"});
 
 withDefaults(defineProps<{
-    /** 跟着指针的拖影：拖动源的图标与标题，`x`、`y` 是指针的视口坐标；没有拖动为 null。 */
-    ghost: {readonly label: string; readonly icon: string; readonly x: number; readonly y: number} | null;
+    /** 跟着指针的拖影：拖动源的图标（视图的图标类，或文件图标）与标题，`x`、`y` 是指针的视口坐标；没有拖动为 null。 */
+    ghost: {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null; readonly x: number; readonly y: number} | null;
     /**
      * 拖动时浮出的预备区：没显示的 Part 显示出来会在的矩形（视口坐标）、名称与图标；`active` 是指针正停在上面的那块，
      * 它由落点高亮接管，不再画自己的提示。
@@ -49,7 +52,9 @@ defineEmits<{
                 </div>
             </TransitionGroup>
             <div v-if="ghost !== null" class="workbench-drag-ghost" data-drag-feedback data-workbench-drag-ghost :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`, zIndex: NB_Z_INDEX.dragFeedback}">
-                <DropIndicatorLabel :label="ghost.label" :icon-class="ghost.icon" />
+                <DropIndicatorLabel :label="ghost.label" :icon-class="ghost.icon">
+                    <template v-if="ghost.fileIcon != null" #icon><FileIcon :icon="ghost.fileIcon" /></template>
+                </DropIndicatorLabel>
             </div>
         </Teleport>
         <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" :data-drop-count="count" @settled="$emit('settled')" />

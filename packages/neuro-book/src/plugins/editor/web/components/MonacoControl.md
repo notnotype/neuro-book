@@ -1,5 +1,5 @@
 ---
-验证入口: EditorArea
+验证入口: EditorGroup
 标签: [state:local, env:global]
 别名: ["源码编辑器", "Source Editor", "Monaco"]
 ---

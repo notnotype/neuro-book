@@ -187,7 +187,7 @@ const TEXT_INPUT_TYPES = new Set(["text", "search", "url", "tel", "email", "pass
 
 /** 原生输入框：`input`、`textarea`，编辑器区里的除外（源码编辑器用隐藏的 textarea 收输入，它的撤销归编辑器命令）。 */
 function isNativeEditable(element: HTMLElement | null): boolean {
-    if (element === null || element.closest("[data-editor-area]") !== null) return false;
+    if (element === null || element.closest("[data-editor-group]") !== null) return false;
     if (element instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(element.type);
     return element instanceof HTMLTextAreaElement;
 }

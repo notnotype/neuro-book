@@ -372,6 +372,7 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "shell.drop.inPlace": {"zh-CN": "原位", "en-US": "In place"},
     "shell.frame.hide": {"zh-CN": "隐藏", "en-US": "Hide"},
     "shell.tools": {"zh-CN": "工具", "en-US": "Tools"},
+    "shell.editorUnavailable": {"zh-CN": "编辑器现在不可用：提供它的插件不在，标签都还在，它回来后恢复。", "en-US": "The editor is unavailable: the plugin providing it is not here. Your tabs are kept and come back when it returns."},
     "shell.missing.view": {"zh-CN": "提供这个视图的插件现在不在：{viewId}", "en-US": "The plugin providing this view is not here: {viewId}"},
     "shell.missing.close": {"zh-CN": "关闭这个标签", "en-US": "Close this tab"},
     "state.nonPhone.reason": {"zh-CN": "手机呈现下不可用", "en-US": "Not available in the phone layout"},

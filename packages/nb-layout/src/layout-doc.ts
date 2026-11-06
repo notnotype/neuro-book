@@ -295,8 +295,13 @@ function settleEmptyPanel(next: MutableDoc, id: string): void {
         return;
     }
     if (panel.role === "editor" && editorIds(next).length <= 1) return;
+    // 活动编辑组没了换到相邻的（树序里它后面的，没有时前面的），不是第一个：焦点不该跳过半个窗口。
+    const order = treeLeaves(next.tree.root).map((leaf) => leaf.id).filter((candidate) => next.panels[candidate]?.role === "editor");
+    const at = order.indexOf(id);
     removePanelNode(next, id);
-    if (next.currentEditor === id) next.currentEditor = editorIds(next)[0] ?? null;
+    if (next.currentEditor !== id) return;
+    const rest = order.filter((candidate) => candidate !== id);
+    next.currentEditor = rest[Math.min(at, rest.length - 1)] ?? editorIds(next)[0] ?? null;
 }
 
 export function insertTab(doc: LayoutDoc, input: {readonly panel: string; readonly tab: TabRef; readonly index?: number; readonly activate?: boolean}): LayoutResult {
@@ -343,8 +348,20 @@ export function activateTab(doc: LayoutDoc, key: string): LayoutResult {
     return finish(doc, next);
 }
 
-/** 移到一个面板的标签条。同一面板就是换顺序；`index` 是摘掉来源之前的插入位。 */
-export function moveTabToStrip(doc: LayoutDoc, input: {readonly tab: string; readonly panel: string; readonly index: number}, policy: LayoutPolicy): LayoutResult {
+/** 活动编辑组换到这一块：最近获得焦点或执行过打开的那块。 */
+export function setCurrentEditor(doc: LayoutDoc, panel: string): LayoutResult {
+    if (doc.panels[panel]?.role !== "editor") return failure("not-found", `编辑组 ${panel}`);
+    if (doc.currentEditor === panel) return {ok: true, doc};
+    const next = editable(doc);
+    next.currentEditor = panel;
+    return finish(doc, next);
+}
+
+/**
+ * 移到一个面板的标签条。同一面板就是换顺序；`index` 是摘掉来源之前的插入位。缺省成为活动标签、编辑组成为活动编辑组；`activate: false` 只换位置（固定、键盘排序）：
+ * 活动标签不变，进了空面板时它是那块唯一的标签，所以还是它。
+ */
+export function moveTabToStrip(doc: LayoutDoc, input: {readonly tab: string; readonly panel: string; readonly index: number; readonly activate?: boolean}, policy: LayoutPolicy): LayoutResult {
     const found = findTab(doc, input.tab);
     const target = doc.panels[input.panel];
     if (found === null || target === undefined) return failure("not-found", `标签 ${input.tab} 或面板 ${input.panel}`);
@@ -356,8 +373,10 @@ export function moveTabToStrip(doc: LayoutDoc, input: {readonly tab: string; rea
     const panel = next.panels[input.panel] as PanelRecord;
     const tabs = [...panel.tabs];
     tabs.splice(Math.min(at, tabs.length), 0, found.tab);
-    next.panels[input.panel] = {...panel, tabs, active: tabKey(found.tab), ...(panel.collapsed === true && found.panel !== input.panel ? {collapsed: false} : {})};
-    if (target.role === "editor") next.currentEditor = input.panel;
+    const activate = input.activate !== false;
+    // 同一面板时 `takeTab` 可能已经把活动标签换走了（被移动的就是活动标签），要看摘之前的。
+    next.panels[input.panel] = {...panel, tabs, active: activate ? tabKey(found.tab) : (target.active ?? tabKey(found.tab)), ...(panel.collapsed === true && found.panel !== input.panel ? {collapsed: false} : {})};
+    if (target.role === "editor" && activate) next.currentEditor = input.panel;
     settleEmptyPanel(next, found.panel);
     return finish(doc, next);
 }
@@ -508,14 +527,14 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
     return finish(doc, next);
 }
 
-/** 在外缘开一块新面板（`"side"` 打开、移动到“新面板”）。 */
-export function openPanelAtEdge(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly target: LayoutEdgeTarget}, policy: LayoutPolicy): LayoutResult {
+/** 在外缘开一块新面板（`"side"` 打开、移动到“新面板”）。`activate: false` 只建组、不改活动编辑组：“在侧边打开”到打开时才切过去。 */
+export function openPanelAtEdge(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly target: LayoutEdgeTarget; readonly activate?: boolean}, policy: LayoutPolicy): LayoutResult {
     if (doc.panels[input.id] !== undefined || findTreeNode(doc.tree.root, input.id) !== null) return failure("rejected", `面板已存在 ${input.id}`);
     const next = editable(doc);
     next.panels[input.id] = input.panel;
     const leaf: GridSnapshotLeaf = {kind: "leaf", id: input.id, ref: panelRef(input.id), size: {width: 0, height: 0}};
     if (!placeLeaf(next, input.target, leaf, new Map(), () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
-    if (input.panel.role === "editor") next.currentEditor = input.id;
+    if (input.panel.role === "editor" && input.activate !== false) next.currentEditor = input.id;
     return finish(doc, next);
 }
 

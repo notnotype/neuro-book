@@ -210,6 +210,7 @@
         "retry": "Retry"
     },
     "shell": {
+        "editorUnavailable": "The editor is unavailable: the plugin providing it is not here. Your tabs are kept and come back when it returns.",
         "welcome": {
             "noProject": "The workbench is ready. No project is open.",
             "withProject": "The workbench is ready. Current project: {{name}}"

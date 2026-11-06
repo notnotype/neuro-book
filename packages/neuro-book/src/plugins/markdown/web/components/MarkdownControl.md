@@ -1,5 +1,5 @@
 ---
-验证入口: EditorArea
+验证入口: EditorGroup
 标签: [state:local, state:inject, env:timer]
 别名: ["Markdown 编辑器", "Markdown Editor", "富文本编辑器"]
 ---

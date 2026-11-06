@@ -1,17 +1,27 @@
 <script setup lang="ts">
 /**
- * EditorArea 的 Lab 集成场景（docs/specs/workbench/editor.md，同名 .md）：产品里同一个编辑器区控制器、组与标签模型、
- * 文档模型与控件，文件客户端换成内存适配器（`explorer-scene/memory-files.ts`，与真实 Files 对过契约）。保存、外部改写、
- * 外部删除都真的改变场景数据；切场景时控制器与订阅一起释放。场景 `split` 先拆成两组；场景 `empty` 不打开文件，空态带上
+ * 编辑组的 Lab 集成场景（docs/specs/workbench/editor.md，同名 .md）：产品里同一个编辑器区控制器、组与标签模型、
+ * 文档模型与控件，文件客户端换成内存适配器（`explorer-scene/memory-files.ts`，与真实 Files 对过契约）；编辑组摆在工作台同一张表面上，拖动也是工作台的手势，
+ * 布局文档放在内存里。保存、外部改写、外部删除都真的改变场景数据；切场景时控制器与订阅一起释放。场景 `split` 先拆成两组；场景 `empty` 不打开文件，空态带上
  * 与产品同样的三行提示（产品里由插件按命令可用性筛出，这里是固定样例），点了只记事件。
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {computed, defineAsyncComponent, onBeforeUnmount, provide, watch} from "vue";
+import {fixedNodesOf, projectLayoutDoc, rebaseIntents} from "@notnotype/nb-layout";
+import type {GridExtent} from "@notnotype/nb-layout";
+import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
-import EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
+import EditorGroup from "nbook/plugins/editor/web/components/EditorGroup.vue";
+import EditorHost from "nbook/plugins/editor/web/components/EditorHost.vue";
+import {createMemoryEditorPanels, editorTabIdOf} from "nbook/plugins/workbench/shared/editor-panels";
+import WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
+import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
+import type {EditorTabDrag} from "nbook/plugins/workbench/web/contracts";
+import {createLayoutDrag} from "nbook/plugins/workbench/web/layout-drag";
+import type {LayoutDrag} from "nbook/plugins/workbench/web/layout-drag";
+import {createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
 import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
 import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
@@ -95,9 +105,11 @@ const memory = createMemoryFiles({
     user: [],
 });
 
+const panels = createMemoryEditorPanels();
 const area = createEditorArea({
     files: memory.files,
     clock: systemClock,
+    panels,
     workspaceKey: "lab",
     generation: 1,
     initial: null,
@@ -168,14 +180,76 @@ const onIntent = (intent: string): void => {
     if (intent === "split-right") area.split("right");
 };
 
+// ── 表面：产品的纯函数算呈现树，文档在内存里 ──
+
+const NO_VIEWS = new Map();
+const POLICY = createLayoutPolicy();
+const doc = computed(() => panels.document());
+const extent = shallowRef<GridExtent | null>(null);
+const projectionOptions = computed(() => layoutProjectionOptions({catalog: NO_VIEWS, viewportWidth: extent.value?.width ?? 0}));
+const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
+const commitSizes = (sizes: Readonly<Record<string, GridExtent>>): void => {
+    panels.apply((current) => ({ok: true, doc: rebaseIntents(current, sizes, projection.value.collapsedTo, fixedNodesOf(projection.value.input))}));
+};
+
+const host = ref<HTMLElement | null>(null);
+const tabDrag = shallowRef<EditorTabDrag | null>(null);
+const drag = shallowRef<LayoutDrag | null>(null);
+onMounted(() => {
+    drag.value = createLayoutDrag({
+        root: host.value!,
+        doc: () => doc.value,
+        catalog: () => NO_VIEWS,
+        policy: () => POLICY,
+        projection: () => projectionOptions.value,
+        extent: () => extent.value,
+        maximized: () => null,
+        enabled: () => true,
+        editorTabs: () => tabDrag.value,
+        commit: (source, action, part) => {
+            const tabId = source.kind === "tab" ? editorTabIdOf(source.tab) : null;
+            if (tabId !== null) tabDrag.value?.drop(tabId, action, part);
+        },
+    });
+});
+const dragState = computed(() => drag.value?.session.state.value ?? null);
+const dragGhost = computed(() => {
+    const current = dragState.value;
+    const tabId = current?.source.kind === "tab" ? editorTabIdOf(current.source.tab) : null;
+    const ghost = tabId === null ? null : (tabDrag.value?.ghost(tabId) ?? null);
+    return ghost === null || current === null ? null : {...ghost, x: current.point.x, y: current.point.y};
+});
+const dropPreview = computed(() => {
+    const drop = dragState.value?.drop ?? null;
+    return drop === null ? null : {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation};
+});
+
 onBeforeUnmount(() => {
+    drag.value?.dispose();
     area.dispose();
     memory.dispose();
 });
 </script>
 
 <template>
-    <EditorArea :area="area" :control="control" :empty-tips="emptyTips" :wrap-tabs="props.input?.props?.wrapTabs !== false" class="h-full w-full" data-lab-subject @intent="onIntent" @run-tip="(command) => record('run-tip', command)" />
+    <div ref="host" class="h-full w-full" data-lab-subject>
+        <WorkbenchSurface
+            class="h-full w-full"
+            :doc="doc"
+            :projection="projection"
+            :maximized="null"
+            :disabled="false"
+            context-key="lab-editor"
+            @extent="(next) => (extent = next)"
+            @gesture-commit="(sizes) => commitSizes(sizes)"
+        >
+            <template #content="{panelId}">
+                <EditorGroup :area="area" :group-id="panelId" :control="control" :empty-tips="emptyTips" :wrap-tabs="props.input?.props?.wrapTabs !== false" @intent="onIntent" @run-tip="(command: string) => record('run-tip', command)" />
+            </template>
+        </WorkbenchSurface>
+        <EditorHost :area="area" :wrap-tabs="props.input?.props?.wrapTabs !== false" :attach-tab-drag="(next: EditorTabDrag | null) => (tabDrag = next)" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropPreview" label="" :kind="dragState?.drop?.action.kind ?? ''" :count="1" />
+    </div>
     <LabFixtureControls>
         <div class="flex flex-wrap items-center gap-3 text-xs" data-lab-editor-controls>
             <span class="text-[var(--text-secondary)]">正文读取</span>

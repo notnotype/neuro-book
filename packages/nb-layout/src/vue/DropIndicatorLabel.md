@@ -18,10 +18,13 @@ type DropIndicatorLabelProps = {
 
 type DropIndicatorLabelEmits = Record<never, never>;
 
-type DropIndicatorLabelSlots = Record<never, never>;
+type DropIndicatorLabelSlots = {
+    /** 图标不是一个 CSS class 时（例如文件图标）换掉它；缺省按 `iconClass` 画。 */
+    icon?: () => unknown;
+};
 ```
 
-标签与图标节点均为 `aria-hidden="true"`。没有插槽或 expose API。未声明 attrs 按 Vue 默认行为落到根节点；标签为空白时根节点不存在，因此 attrs 也无挂载目标。
+标签与图标节点均为 `aria-hidden="true"`。没有 expose API。未声明 attrs 按 Vue 默认行为落到根节点；标签为空白时根节点不存在，因此 attrs 也无挂载目标。
 
 ## 状态与边界
 

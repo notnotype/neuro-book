@@ -1,16 +1,19 @@
 /**
  * 一棵树的拖放（docs/specs/ui/workbench-layout.md 输出 24 到 32）：手势是 nb-layout 的拖动会话，落点规则是 `resolveLayoutDrop`，这里读 DOM 给它矩形，把结果换成反馈要画的东西。
  *
- * 拖动源：视图标签（`data-panel-tab`）、活动栏条目（`data-tool-entry`）、面板头的空白处（`data-panel-head`）。`data-no-drag` 里的按钮既不起拖也不接收，被菜单、对话框挡住的不接收。
+ * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是）、活动栏条目（`data-tool-entry`）、面板头的空白处（`data-panel-head`）。`data-no-drag` 里的按钮既不起拖也不接收，
+ * `data-no-drag-start` 只是不起拖（标签上的关闭按钮：拖动经过时它还在标签条里），被菜单、对话框挡住的不接收。编辑组的标签条写 `data-panel-strip`，它的多行、固定分区由编辑器量（`editorTabs`）。
  *
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
  */
 
-import {applyLayoutDrop, enumerateDropCandidates, findTab, previewEdgeDrop, previewRevealRect, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridDropPoint, GridDropRect, GridExtent, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropPanelGeometry, LayoutPolicy, LayoutProjectionOptions, LayoutSource} from "@notnotype/nb-layout";
+import {applyLayoutDrop, enumerateDropCandidates, findTab, previewEdgeDrop, previewRevealRect, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridDropPoint, GridDropRect, GridExtent, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropPanelGeometry, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession} from "@notnotype/nb-layout/vue";
 import type {DragSession} from "@notnotype/nb-layout/vue";
 
+import {editorTabIdOf} from "../shared/editor-panels";
+import type {EditorTabDrag} from "./contracts";
 import {layoutStructureKey, viewIdOf} from "./state/layout-present";
 import type {ViewCatalog} from "./views/placement";
 
@@ -25,6 +28,8 @@ export interface LayoutDropPreview {
 
 export interface LayoutDragDrop {
     readonly action: LayoutDropAction;
+    /** 编辑组标签条的分区（`EditorTabInsertion.part`）。 */
+    readonly part?: string;
     /** 放下去和现在一样（输出 28）：只显示“原位”，不提交。 */
     readonly inPlace: boolean;
     readonly preview: LayoutDropPreview;
@@ -46,7 +51,9 @@ export interface LayoutDragOptions {
     maximized(): string | null;
     /** 布局可写时为真；否则不起拖。 */
     enabled(): boolean;
-    commit(source: LayoutSource, action: LayoutDropAction): void;
+    /** 编辑器标签的拖动；编辑器还没交付时是 null。 */
+    editorTabs(): EditorTabDrag | null;
+    commit(source: LayoutSource, action: LayoutDropAction, part: string | undefined): void;
 }
 
 export interface LayoutDrag {
@@ -97,6 +104,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     let previewsOf: LayoutDoc | null = null;
 
     const dpr = (): number => root.ownerDocument.defaultView?.devicePixelRatio ?? 1;
+    const tabElement = (tab: TabRef | undefined): Element | null => (tab === undefined ? null : root.querySelector(`[data-panel-tab="${escape(tabKey(tab))}"]`));
 
     function panelGeometry(doc: LayoutDoc): LayoutDropPanelGeometry[] {
         const maximized = options.maximized();
@@ -106,13 +114,15 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             if (rectOf(root.querySelector(`[data-leaf="${escape(leaf.id)}"]`)) === null) return [];
             const card = rectOf(root.querySelector(`[data-shell-card="${escape(leaf.id)}"]`));
             if (card === null) return [];
-            const head = root.querySelector(`[data-panel-head="${escape(leaf.id)}"]`);
+            // 编辑组的标签条在它自己的内容里，插入位由编辑器量（`editorStripDrop`）。
+            const editor = doc.panels[leaf.id]?.role === "editor";
+            const head = root.querySelector(editor ? `[data-panel-strip="${escape(leaf.id)}"]` : `[data-panel-head="${escape(leaf.id)}"]`);
             const strip = rectOf(head);
             return [{
                 id: leaf.id,
                 body: strip === null ? card : {...card, top: strip.bottom},
                 strip,
-                ...(head === null ? {} : {insertionAt: (point: GridDropPoint) => insertionIn(head, doc, leaf.id, point)}),
+                ...(head === null || editor ? {} : {insertionAt: (point: GridDropPoint) => insertionIn(head, doc, leaf.id, point)}),
             }];
         });
     }
@@ -123,16 +133,17 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return rects.flatMap((element) => rectOf(element) ?? []);
     }
 
-    /** 此刻没显示的具名面板显示出来会在的矩形（输出 29）。 */
-    function revealZones(): ReadonlyArray<LayoutRevealZone> {
+    /** 此刻没显示的具名面板显示出来会在的矩形（输出 29）。接受矩阵不让进的不浮：编辑器标签进不了工具面板，隐藏的面板也没有外缘可放。 */
+    function revealZones(source: LayoutSource): ReadonlyArray<LayoutRevealZone> {
         const doc = options.doc();
+        const tabs = sourceTabs(doc, source);
         const extent = options.extent();
         const origin = surface()?.getBoundingClientRect();
         if (extent === null || origin === undefined || options.maximized() !== null) return [];
         return treeLeaves(doc.tree.root).flatMap((leaf): LayoutRevealZone[] => {
             const panel = doc.panels[leaf.id];
             // 隐藏的不在树里没有外框；拖到零的外框宽 0。收成标题行的还看得见，不算。
-            if (panel?.name === undefined || rectOf(root.querySelector(`[data-leaf="${escape(leaf.id)}"]`)) !== null) return [];
+            if (panel?.name === undefined || rectOf(root.querySelector(`[data-leaf="${escape(leaf.id)}"]`)) !== null || !options.policy().accepts(tabs, panel, "center")) return [];
             const rect = previewRevealRect(doc, leaf.id, options.projection(), extent, dpr());
             return rect === null ? [] : [{panel: leaf.id, rect: offset(rect, origin)}];
         });
@@ -149,10 +160,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 const strip = panels.find((geometry) => geometry.id === action.panel)?.strip ?? null;
                 if (strip === null) return none;
                 const tabs = doc.panels[action.panel]?.tabs ?? [];
-                const next = tabs[action.index];
-                const element = next === undefined ? null : root.querySelector(`[data-panel-head="${escape(action.panel)}"] [data-panel-tab="${escape(tabKey(next))}"]`);
-                const previous = tabs[action.index - 1];
-                const before = previous === undefined ? null : root.querySelector(`[data-panel-head="${escape(action.panel)}"] [data-panel-tab="${escape(tabKey(previous))}"]`);
+                const element = tabElement(tabs[action.index]);
+                const before = tabElement(tabs[action.index - 1]);
                 const x = element?.getBoundingClientRect().left ?? before?.getBoundingClientRect().right ?? strip.left + 8;
                 return {...none, indicator: {left: x - 1, right: x + 1, top: strip.top + 4, bottom: strip.bottom - 4}, orientation: "horizontal"};
             }
@@ -170,6 +179,14 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         }
     }
 
+    /** 编辑器标签进编辑组的标签条：多行、固定分区只有编辑器知道，位置、原位和插入线都由它量。 */
+    function editorStripDrop(source: LayoutSource, panel: string, point: GridDropPoint): LayoutDragDrop | null {
+        const tabId = source.kind === "tab" ? editorTabIdOf(source.tab) : null;
+        const measured = tabId === null ? null : (options.editorTabs()?.insertion(panel, point, tabId) ?? null);
+        if (measured === null) return null;
+        return {action: {kind: "strip", panel, index: measured.index}, part: measured.part, inPlace: measured.inPlace, preview: {areaRect: null, indicator: measured.indicator, orientation: "horizontal"}};
+    }
+
     function dropAt(source: LayoutSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
         const doc = options.doc();
         if (doc !== previewsOf) {
@@ -184,6 +201,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             ? ({kind: "reveal", panel: region.id.slice("reveal:".length)} as const)
             : resolveLayoutDrop({doc, source, point, panels, excluded: excludedRects(), zones, policy: options.policy()});
         if (action === null) return null;
+        if (action.kind === "strip" && doc.panels[action.panel]?.role === "editor") return editorStripDrop(source, action.panel, point);
         const key = JSON.stringify([source, action, options.extent()]);
         const cached = previews.get(key);
         if (cached !== undefined) return cached;
@@ -208,14 +226,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (action.kind === "strip") {
             if (geometry.strip === null) return null;
             const tabs = doc.panels[panelId]?.tabs ?? [];
-            const next = tabs[action.index];
-            const element = next === undefined ? null : root.querySelector(`[data-panel-head="${escape(panelId)}"] [data-panel-tab="${escape(tabKey(next))}"]`);
-            const box = element?.getBoundingClientRect();
-            const y = (geometry.strip.top + geometry.strip.bottom) / 2;
-            if (box !== undefined) return {x: box.left + 1, y};
-            const previous = tabs[action.index - 1];
-            const before = previous === undefined ? null : root.querySelector(`[data-panel-head="${escape(panelId)}"] [data-panel-tab="${escape(tabKey(previous))}"]`);
-            return {x: (before?.getBoundingClientRect().right ?? geometry.strip.left) + 1, y};
+            // 纵向取标签自己的中线：编辑组的标签条可能有几行。
+            const box = tabElement(tabs[action.index])?.getBoundingClientRect();
+            if (box !== undefined) return {x: box.left + 1, y: (box.top + box.bottom) / 2};
+            const before = tabElement(tabs[action.index - 1])?.getBoundingClientRect();
+            return {x: (before?.right ?? geometry.strip.left) + 1, y: before === undefined ? (geometry.strip.top + geometry.strip.bottom) / 2 : (before.top + before.bottom) / 2};
         }
         const {body} = geometry;
         const center = centerOf(body);
@@ -261,7 +276,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     }
 
     const sourceAt = (target: Element): LayoutSource | null => {
-        if (!options.enabled() || target.closest("[data-no-drag]") !== null) return null;
+        if (!options.enabled() || target.closest("[data-no-drag], [data-no-drag-start]") !== null) return null;
         const source = fromElement(target);
         return source !== null && movable(source) ? source : null;
     };
@@ -269,19 +284,19 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const session = createDragSession<LayoutSource, LayoutDragDrop, KeyboardRegion>({
         root,
         sourceAt,
-        activate: () => {
-            frozenZones = revealZones();
+        activate: (source) => {
+            frozenZones = revealZones(source);
             previews.clear();
             return true;
         },
-        structure: () => layoutStructureKey(options.doc()),
+        structure: () => `${layoutStructureKey(options.doc())}${options.editorTabs()?.structure() ?? ""}`,
         resolve: ({source, point, top, region}) => {
             // 被菜单、对话框挡住的、按钮区都不接收；键盘没有指针下的元素。
             if (region === null && (top === null || !root.contains(top) || top.closest("[data-no-drag]") !== null)) return null;
             return dropAt(source, point, region);
         },
-        actionKey: (drop) => (drop.inPlace ? null : JSON.stringify(drop.action)),
-        commit: (drop, source) => options.commit(source, drop.action),
+        actionKey: (drop) => (drop.inPlace ? null : JSON.stringify([drop.action, drop.part ?? null])),
+        commit: (drop, source) => options.commit(source, drop.action, drop.part),
         // 拖动中的光标与禁选在全局样式里按这个标记生效。
         onActiveChange: (active) => root.ownerDocument.documentElement.toggleAttribute("data-workbench-dragging", active),
         keyboard: {
@@ -293,7 +308,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                     doc,
                     source,
                     policy: options.policy(),
-                    stripCount: (panel) => root.querySelectorAll(`[data-panel-head="${escape(panel)}"] [data-panel-tab]`).length + 1,
+                    // 工具面板的标签可能收进“更多”，只算看得见的；编辑组的标签条多行时都看得见。
+                    stripCount: (panel) => (doc.panels[panel]?.role === "editor" ? doc.panels[panel].tabs.length : root.querySelectorAll(`[data-panel-head="${escape(panel)}"] [data-panel-tab]`).length) + 1,
                     reveal: frozenZones.map((zone) => zone.panel),
                 });
                 const byRegion = new Map<string, LayoutDropCandidate[]>();

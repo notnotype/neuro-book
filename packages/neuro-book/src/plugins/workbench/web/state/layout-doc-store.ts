@@ -19,8 +19,11 @@ import {effectiveVisibleTabs} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
 
-/** 打开、关闭、切标签合并着存，至多这么久一次。手势结束立刻存。 */
-export const LAYOUT_SAVE_COALESCE_MS = 1000;
+/**
+ * 打开、关闭、切标签合并着存，至多这么久一次，手势结束立刻存。只合并一连串的动作（方向键在资源管理器里走一路，每步都换 preview 标签）：等得再久，
+ * 刚打开标签就刷新的话这个标签就丢了，页面离开时也来不及补写。
+ */
+export const LAYOUT_SAVE_COALESCE_MS = 150;
 
 export type LayoutDocProblem =
     | {readonly kind: "unread"; readonly code: string}
@@ -292,7 +295,10 @@ function defineLayoutDocStore(bound: boolean) {
                 save,
                 retry: async (): Promise<string> => {
                     if (field.failure !== null) await field.reopen();
-                    return field.retry();
+                    const result = await field.retry();
+                    // 卡在关卡上（`editor.tabs` 写不下去）时布局自己没有待重试的：再走一次保存，关卡里重试它。
+                    if (saveBlocked.value) await save();
+                    return result;
                 },
                 /** 放弃未保存的修改：显示回到已确认值。 */
                 discard: (): string => {

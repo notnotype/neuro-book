@@ -17,6 +17,7 @@ import {
     removeTab,
     replaceTab,
     setBarHidden,
+    setCurrentEditor,
     setPanelCollapsed,
     setPanelHidden,
     showPanelAndInsert,
@@ -219,6 +220,25 @@ describe("标签", () => {
         expect(insertTab(doc, {panel: "nope", tab: tab("z")})).toMatchObject({ok: false, code: "not-found"});
     });
 
+    it("活动编辑组：只能是编辑组；已经是它时返回原文档", () => {
+        const doc = docOf(H(["sidebar", "ea", "eb"]));
+        const moved = okDoc(setCurrentEditor(doc, "eb"));
+        expect(moved.currentEditor).toBe("eb");
+        expect(okDoc(setCurrentEditor(moved, "eb"))).toBe(moved);
+        expect(setCurrentEditor(doc, "sidebar")).toMatchObject({ok: false, code: "not-found"});
+    });
+
+    it("只换位置（activate: false）：活动标签与活动编辑组都不变，被移动的就是活动标签时也一样", () => {
+        const doc = {...docOf(H(["ea", "eb"]), {ea: {tabs: [tab("a"), tab("b"), tab("c")], active: "tab:a"}}), currentEditor: "ea"};
+        const moved = okDoc(moveTabToStrip(doc, {tab: "tab:a", panel: "ea", index: 3, activate: false}, testPolicy()));
+        expect(moved.panels.ea?.tabs.map(tabKey)).toEqual(["tab:b", "tab:c", "tab:a"]);
+        expect(moved.panels.ea?.active).toBe("tab:a");
+        const across = okDoc(moveTabToStrip(doc, {tab: "tab:b", panel: "eb", index: 0, activate: false}, testPolicy()));
+        expect(across.panels.eb?.active).toBe("tab:eb");
+        expect(across.panels.ea?.active).toBe("tab:a");
+        expect(across.currentEditor).toBe("ea");
+    });
+
     it("preview 替换：一次写完，位置与活动都接上", () => {
         const doc = docOf(H(["ea"]), {ea: {tabs: [tab("p"), tab("q")], active: "tab:p"}});
         const result = okDoc(replaceTab(doc, {tab: "tab:p", next: tab("r")}));
@@ -297,6 +317,22 @@ describe("不变量", () => {
         const twice = okDoc(removeTab(once, "tab:ea"));
         expect(twice.panels.ea?.tabs).toEqual([]);
         expect(shape(twice)).toBe("H[ea,c]");
+    });
+
+    it("活动编辑组没了换到树序里相邻的：后面的优先，不是第一个", () => {
+        const doc = {...docOf(H(["ea", "eb", "ec", "ed"])), currentEditor: "eb"};
+        expect(okDoc(removeTab(doc, "tab:eb")).currentEditor).toBe("ec");
+        const last = {...doc, currentEditor: "ed"};
+        expect(okDoc(removeTab(last, "tab:ed")).currentEditor).toBe("ec");
+        const other = {...doc, currentEditor: "ea"};
+        expect(okDoc(removeTab(other, "tab:eb")).currentEditor).toBe("ea");
+    });
+
+    it("开新面板（activate: false）：只建组，活动编辑组不变", () => {
+        const doc = {...docOf(H(["ea", "c"])), currentEditor: "ea"};
+        const opened = okDoc(openPanelAtEdge(doc, {id: "n", panel: {role: "editor", tabs: [], active: null}, target: edge(doc, "ea", "bottom"), activate: false}, testPolicy()));
+        expect(shape(opened)).toBe("H[V[ea,n],c]");
+        expect(opened.currentEditor).toBe("ea");
     });
 
     it("最后一个编辑组里单个标签拖到工具面板外缘：整块移动，树里仍有编辑组", () => {
