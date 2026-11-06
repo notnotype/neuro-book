@@ -516,7 +516,7 @@ describe("清理对 Files 删除结果的处理", () => {
     const hash = (seed: string): string => `${createHash("sha256").update(seed).digest("hex")}.png`;
 
     /** 路由接在 tmp 目录上，删除换成按脚本返回的替身（形状是 Files 的 `BatchResult`）；判据是路由交回的结果。 */
-    async function withDelete(outcomes: Array<ServerFilesResult<BatchResult>>): Promise<{post: (body: unknown) => Promise<Response>; names: string[]; user: string; deleted: string[]}> {
+    async function withDelete(outcomes: Array<ServerFilesResult<BatchResult>>, afterDelete: (user: string, names: string[]) => Promise<void> = async () => undefined): Promise<{post: (body: unknown) => Promise<Response>; names: string[]; user: string; deleted: string[]}> {
         const user = join(tmp, `delete-shape-${String(Math.random()).slice(2)}`);
         await mkdir(join(user, "theme-assets"), {recursive: true});
         const planted = [hash("a"), hash("b"), hash("c")];
@@ -532,7 +532,9 @@ describe("清理对 Files 删除结果的处理", () => {
             write: async () => ({ok: false, code: "invalid-input", detail: "不写"}),
             delete: async (items) => {
                 deleted.push(...items.map(({address}) => address.split("/").pop()!));
-                return outcomes.shift() ?? {ok: true, value: {items: [{status: "done"}], manifests: []}};
+                const outcome = outcomes.shift() ?? {ok: true, value: {items: [{status: "done" as const}], manifests: []}};
+                await afterDelete(user, planted);
+                return outcome;
             },
         });
         return {post: (body) => Promise.resolve(app.request("/theme-assets/sweep", {method: "POST", body: JSON.stringify(body), headers: {"content-type": "application/json"}})), names: planted, user, deleted};
@@ -543,6 +545,23 @@ describe("清理对 Files 删除结果的处理", () => {
         const response = await post({keep: [], names});
         expect(await response.json()).toEqual({removed: [names[1], names[2]], skipped: [{name: names[0], reason: "failed", code: "permission-denied"}]});
         expect(deleted).toEqual(names);
+    });
+
+    it("删除途中素材目录被换成指向根内别处的链接：后面的项逐项前复核到了，不再删，别处同名的文件不动", async () => {
+        let elsewhere = "";
+        const {post, names, deleted} = await withDelete([], async (user, planted) => {
+            // 第一项删完之后，通用入口把目录挪走、原位置放一个链接，指向放着其余同名旧文件的地方。
+            if (elsewhere !== "") return;
+            elsewhere = join(user, "other");
+            await mkdir(elsewhere, {recursive: true});
+            for (const name of planted.slice(1)) await writeFile(join(elsewhere, name), "别处的");
+            await rm(join(user, "theme-assets"), {recursive: true});
+            await symlink(elsewhere, join(user, "theme-assets"));
+        });
+        const response = await post({keep: [], names});
+        expect(await response.json()).toEqual({removed: [names[0]], skipped: [{name: names[1], reason: "not-file"}, {name: names[2], reason: "not-file"}]});
+        expect(deleted).toEqual([names[0]]);
+        expect((await readdir(elsewhere)).sort()).toEqual(names.slice(1).sort());
     });
 
     it("整次调用失败：停下，500 带码，已经删掉的照实交回，后面的不再发", async () => {
