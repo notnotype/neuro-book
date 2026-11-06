@@ -752,4 +752,30 @@ function onLeaveOpen(open: boolean): void {
         padding-top: var(--space-5);
     }
 }
+
+/*
+ * 带场景的主题（docs/specs/theme/skins.md 输出 15）：窗口里铺一层淡淡的场景，不管窗口后面是什么页面，窗口自己都带着主题的味道。
+ * 淡到文字与控件的对比度几乎不受影响。变量名见 src/ui/theme/skin-vars.ts；没有场景的主题不写 data-nb-skin-scene，这一层不存在。
+ * 选择器整个写在 `:global()` 里：`:global(a) .b` 在 scoped 样式里会被编译成只剩 `a`，规则落到 `<html>` 上。
+ */
+:global([data-nb-skin-scene] .settings-window) {
+    position: relative;
+    isolation: isolate;
+}
+
+:global([data-nb-skin-scene] .settings-window::before) {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--skin-scene) var(--skin-empty-position, center) / cover no-repeat;
+    opacity: 0.16;
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .settings-window::before) {
+        display: none;
+    }
+}
 </style>

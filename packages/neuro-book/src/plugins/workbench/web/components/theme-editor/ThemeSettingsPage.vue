@@ -5,10 +5,12 @@ import {computed} from "vue";
 import {Button} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 
+import {baseColors} from "nbook/ui/theme/product-themes";
+
 import {USER_THEME_PLUGIN} from "../../../shared/user-themes";
 import {useWorkbenchText} from "../../text";
 import type {ThemeEntry} from "../../themes";
-import type {ThemeSwatch} from "./theme-swatch";
+import {themeSwatch} from "./theme-swatch";
 
 defineOptions({name: "ThemeSettingsPage"});
 
@@ -18,8 +20,8 @@ const props = defineProps<{
     themes: ReadonlyArray<ThemeEntry>;
     /** 现在生效的主题 id（设置里的值，找不到时已退回缺省）。 */
     currentId: string;
-    /** 一套主题在当前明暗下的预览色；卡片用它画一小块“这套主题长什么样”。 */
-    swatch: (entry: ThemeEntry) => ThemeSwatch;
+    /** 卡片用这个明暗下的配色画一小块“这套主题长什么样”（主题包的缺省配色来自 `ui/theme/product-themes`，那份代码较重，所以只在这一页里引）。 */
+    appearance: "light" | "dark";
 }>();
 const emit = defineEmits<{(event: "open", where: "tab" | "floating"): void}>();
 
@@ -27,6 +29,7 @@ const text = useWorkbenchText();
 const resolver = useText();
 const titleOf = (entry: ThemeEntry): string => resolver.t(entry.declaration.title);
 
+const swatch = (entry: ThemeEntry) => themeSwatch(entry, props.appearance, baseColors);
 const current = computed(() => props.themes.find((entry) => entry.id === props.currentId) ?? null);
 const mine = computed(() => props.themes.filter((entry) => entry.plugin === USER_THEME_PLUGIN));
 </script>

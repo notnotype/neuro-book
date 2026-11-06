@@ -98,14 +98,6 @@ import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./sh
 import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
 
-/** 设置里“主题”页的预览色：Lab 里不读主题包，直接给每套主题的背景、文字与强调色。 */
-const THEME_SWATCHES: Readonly<Record<string, {readonly background: string; readonly text: string; readonly accent: string}>> = {
-    "nbook": {background: "#ffffff", text: "#1f2328", accent: "#2563eb"},
-    "macos": {background: "#f5f5f7", text: "#1d1d1f", accent: "#0a84ff"},
-    "user:00000000-0000-4000-8000-000000000001": {background: "#f3ead8", text: "#2e261c", accent: "#8a5a24"},
-    "user:00000000-0000-4000-8000-000000000002": {background: "#dfe8ee", text: "#1c2a36", accent: "#3b6f8f"},
-};
-
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
 const DISPLAY_REPLY = [
     "我读了[<comment body=\"她第一次出场\">林</comment>雪](/设定/林雪.md)的设定和[第三章](/正文/第三章.md)，有三处可以改：",
@@ -469,16 +461,16 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof ThemeSettingsPage>({
         component: "ThemeSettingsPage",
         scenes: (() => {
-            const entry = (id: string, plugin: string, title: string, titleEn: string) => ({id, plugin, declaration: {title: {"zh-CN": title, "en-US": titleEn}, base: "nbook" as const, light: {}, dark: {}}});
+            const entry = (id: string, plugin: string, title: string, titleEn: string, colors?: Record<string, string>) => ({id, plugin, declaration: {title: {"zh-CN": title, "en-US": titleEn}, base: "nbook" as const, light: colors === undefined ? {} : {colors}, dark: {}}});
             const builtin = [entry("nbook", "nbook.workbench", "NeuroBook", "NeuroBook"), entry("macos", "nbook.workbench", "macOS", "macOS")];
-            const mine = [entry("user:00000000-0000-4000-8000-000000000001", "user", "夜读", "Night reading"), entry("user:00000000-0000-4000-8000-000000000002", "user", "雨窗", "Rainy window")];
+            const mine = [entry("user:00000000-0000-4000-8000-000000000001", "user", "夜读", "Night reading", {"--bg-main": "#f3ead8", "--text-main": "#2e261c", "--accent-main": "#8a5a24"}), entry("user:00000000-0000-4000-8000-000000000002", "user", "雨窗", "Rainy window", {"--bg-main": "#dfe8ee", "--text-main": "#1c2a36", "--accent-main": "#3b6f8f"})];
             return [
-                {id: "empty", label: "还没有我的主题", input: {props: {themes: builtin, currentId: "nbook"}}},
-                {id: "mine", label: "两套我的主题，其中一套在用", input: {props: {themes: [...builtin, ...mine], currentId: "user:00000000-0000-4000-8000-000000000001"}}},
-                {id: "mine-english", label: "英文界面", input: {props: {themes: [...builtin, ...mine], currentId: "nbook"}}},
+                {id: "empty", label: "还没有我的主题", input: {props: {themes: builtin, currentId: "nbook", appearance: "light"}}},
+                {id: "mine", label: "两套我的主题，其中一套在用", input: {props: {themes: [...builtin, ...mine], currentId: "user:00000000-0000-4000-8000-000000000001", appearance: "light"}}},
+                {id: "mine-english", label: "英文界面", input: {props: {themes: [...builtin, ...mine], currentId: "nbook", appearance: "light"}}},
             ];
         })(),
-        load: async () => withWorkbenchText(createSubjectFixture<typeof ThemeSettingsPage>((await import("nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue")).default, {events: ["open"], class: "w-full max-w-[720px] p-6", runtimeProps: {swatch: (entry: {readonly id: string}) => THEME_SWATCHES[entry.id] ?? {background: "#ffffff", text: "#1f2328", accent: "#2563eb"}}}), ["mine-english"]),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof ThemeSettingsPage>((await import("nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue")).default, {events: ["open"], class: "w-full max-w-[720px] p-6"}), ["mine-english"]),
     }),
     defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",

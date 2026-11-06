@@ -22,7 +22,7 @@ type Props = {
     context?: unknown;                  // 设置窗口给的页面上下文，不用
     themes: ReadonlyArray<ThemeEntry>;  // 主题目录；我的主题是 plugin 为 USER_THEME_PLUGIN 的项
     currentId: string;                  // 现在生效的主题 id
-    swatch: (entry: ThemeEntry) => ThemeSwatch;   // 一套主题在当前明暗下的背景、文字、强调色（`theme-swatch.ts`）
+    appearance: "light" | "dark";       // 预览色取这个明暗下的配色（`theme-swatch.ts` 算：主题包缺省盖上声明里写的）
 };
 type Emits = {open: [where: "tab" | "floating"]};
 ```
