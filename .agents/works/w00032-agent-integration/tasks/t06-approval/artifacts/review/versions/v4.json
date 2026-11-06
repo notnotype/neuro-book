@@ -1,0 +1,128 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t06-approval",
+    "artifactId": "review",
+    "version": 4,
+    "supersedes": 3,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t06 权限与 Agent 模式：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "ee78ff8767ef33d6851a52219349b5f468205c4456e5f7e581128f81bd0b5683",
+    "files": [
+        "index.html",
+        "r1/app-today.webp",
+        "r1/lab-mode-chip.webp",
+        "r2/exit-plan-long.webp",
+        "r2/exit-plan.webp",
+        "r2/plan-allow-writes.webp",
+        "r2/plan-yolo.webp",
+        "r2/switch-simple.webp",
+        "r3/toolbar-phone.webp",
+        "r3/toolbar-wide.webp",
+        "r4/plus-menu.webp",
+        "r4/role-phone.webp",
+        "r4/role-wide.webp"
+    ],
+    "questions": [
+        {
+            "id": "mode-control",
+            "type": "single",
+            "label": "模式控件保持两个，还是合成一个菜单",
+            "options": [
+                {
+                    "value": "two-controls",
+                    "label": "A 两个控件并排（推荐）"
+                },
+                {
+                    "value": "one-menu",
+                    "label": "B 合成一个菜单"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "two-controls"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "plan-wizard",
+            "type": "single",
+            "label": "模式控件与退出计划的向导，这样可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "toolbar-layout",
+            "type": "single",
+            "label": "输入框工具栏这样排可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "toolbar-v2",
+            "type": "single",
+            "label": "加上 + 菜单、调过模型控件之后，这样可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T13:45:37.670Z"
+}

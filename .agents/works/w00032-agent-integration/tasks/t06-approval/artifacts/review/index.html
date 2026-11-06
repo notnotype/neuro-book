@@ -15,8 +15,24 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 <body>
 <h1>t06 权限与 Agent 模式</h1>
 
+<section data-nbdev-question="toolbar-v2" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>加上 + 菜单、调过模型控件之后，这样可以吗</h2>
+  <ul>
+    <li><b>+ 菜单</b>：放在最左，收了原来的回形针：添加附件、引用文件（@）、运行命令（/）。技能（$）等 t15 做了才出现，真实应用现在没有这一项（图里是 Lab 的数据）。粘贴和拖入照旧。</li>
+    <li><b>模型控件</b>：去掉芯片图标和上下双箭头；名字用主文字色加粗，实际用的模型淡一些，思考档位单独一个小标签，后面一个小下箭头。下拉版（nb-story 用的）同样改了。</li>
+    <li>顺手：普通模式原来和“放行写入”都是铅笔图标，并排分不清，普通模式换成羽毛。</li>
+  </ul>
+  <div class="row">
+    <figure><figcaption>+ 菜单展开</figcaption><img src="r4/plus-menu.webp" alt="加号菜单列出添加附件、引用文件、使用技能、运行命令"></figure>
+    <figure><figcaption>选了模型角色：主力、实际模型、思考档位</figcaption><img src="r4/role-wide.webp" alt="工具栏右边显示主力、Claude Sonnet、中"></figure>
+    <figure><figcaption>手机宽度</figcaption><img src="r4/role-phone.webp" alt="窄屏下工具栏"></figure>
+  </div>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>就这样。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
 <section data-nbdev-question="toolbar-layout" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>输入框工具栏这样排可以吗</h2>
+  <h2><span class="badge" data-nbdev-skip>已答</span>输入框工具栏这样排可以吗</h2>
   <p>按你说的重排了，已经是真实组件：</p>
   <ul>
     <li><b>左边是“这一轮能做什么”</b>：附件、Agent 模式、审批模式。两个模式挨着，一眼能对照着看（“计划”亮、“放行写入”淡，就是现在不改、批准后放行写入）。</li>
