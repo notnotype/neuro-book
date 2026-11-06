@@ -23,7 +23,7 @@ function nextAttachmentId(): string {
 
 <script setup lang="ts">
 /** 写给 Agent 的编辑组件（同名 .md；docs/specs/ui/prompt-editor.md）：文字是唯一真相，特殊内容按文字写法显示为小块与粘贴块。 */
-import {computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch, watchEffect} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch, watchEffect} from "vue";
 import type {Editor} from "@tiptap/core";
 import {EditorContent} from "@tiptap/vue-3";
 import {SuggestionMenu, suggestionMenuOptions, suggestionOptionId, type SuggestionMenuGroup, type SuggestionMenuItem} from "@notnotype/nb-ui/components";
@@ -90,6 +90,8 @@ import {
 
 const props = withDefaults(defineProps<{
     draft: PromptEditorDraft;
+    /** 占用 Shift+Tab、发出 `shift-tab`。不占用时它还是反向移动焦点。 */
+    captureShiftTab?: boolean;
     /** 只在上面没有注入翻译端口时起作用（`../host/text.ts`）。 */
     locale?: MarkdownLocale;
     placeholder?: string;
@@ -420,9 +422,6 @@ function confirmItem(id: string): void {
     current.view.focus();
 }
 
-/** 编辑器的回调在 setup 之外，那时取不到实例，这里先记下有没有人听。 */
-const shiftTabListened = getCurrentInstance()?.vnode.props?.onShiftTab !== undefined;
-
 function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
     if (event.isComposing || event.keyCode === 229) {
         return false;
@@ -450,8 +449,8 @@ function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
         return true;
     }
     if (event.key === "Tab" && event.shiftKey) {
-        // 没有监听者时不吞：就地编辑里它还是反向移动焦点。补全菜单开着时别的事都不做，免得悄悄切了模式。
-        if (!shiftTabListened) return false;
+        // 不占用时不吞：它还是反向移动焦点。补全菜单开着时别的事都不做，免得悄悄切了模式。
+        if (!props.captureShiftTab) return false;
         if (!menuOpen.value) emit("shift-tab");
         return true;
     }

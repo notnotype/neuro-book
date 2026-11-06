@@ -313,14 +313,14 @@ describe("PromptEditor 按键", () => {
     });
 
     it("Escape 与 Shift+Tab 发出事件", async () => {
-        const wrapper = await mountEditor({draft: {text: "", version: 1}, onShiftTab: () => undefined} as never);
+        const wrapper = await mountEditor({draft: {text: "", version: 1}, captureShiftTab: true});
         keydown(wrapper, {key: "Escape"});
         keydown(wrapper, {key: "Tab", shiftKey: true});
         expect(wrapper.emitted("escape")).toHaveLength(1);
         expect(wrapper.emitted("shift-tab")).toHaveLength(1);
     });
 
-    it("没人听 Shift+Tab 时不吞：它还是反向移动焦点", async () => {
+    it("不占用 Shift+Tab 时不吞：它还是反向移动焦点", async () => {
         const wrapper = await mountEditor({draft: {text: "", version: 1}});
         const event = new KeyboardEvent("keydown", {bubbles: true, cancelable: true, key: "Tab", shiftKey: true});
         prosemirror(wrapper).dispatchEvent(event);

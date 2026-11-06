@@ -165,7 +165,7 @@ export default {
         plusReference: "Reference a file",
         plusSkill: "Use a skill",
         plusCommand: "Run a command",
-        approvalModeWhileGated: "Approval mode: {{mode}} (nothing changes in {{current}} mode; this applies once the plan is approved)",
+        approvalModeWhileGated: "Approval mode: {{mode}} (nothing changes in {{current}} mode; this applies after switching back to Normal)",
         modeChanged: "Switched to {{mode}} mode",
         send: "Send",
         sendRunning: "Add note",
@@ -306,6 +306,7 @@ export default {
         announce: {
             approval: "{{count}} calls are waiting for your approval",
             question: "The agent has a question for you",
+            modeSwitch: "The agent is asking to switch modes",
         },
         modeSwitch: {
             planTitle: "The plan is ready. Start implementing?",

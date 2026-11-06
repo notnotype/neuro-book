@@ -19,6 +19,8 @@ describe("规则与表单", () => {
         {tool: "write", when: {type: "path", glob: "project://正文/**"}, action: "ask"},
         {tool: "write", when: {type: "path", glob: "**/.env", access: "write"}, action: "deny"},
         {tool: "search", when: {type: "subject", kind: "url", glob: "https://example.com/*"}, action: "allow"},
+        {tool: "ask_model", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny"},
+        {tool: "ask_model", when: {type: "arg", path: "prompt", op: "keywords", value: ["blood splatter", "a,b"]}, action: "deny"},
         {tool: "*", when: {type: "any", of: [{type: "command", pattern: "rm *"}, {type: "path", glob: "**/.env"}]}, action: "deny"},
     ];
     test.each(rules.map((rule, index) => [index, rule] as const))("第 %d 条来回不变", (_index, rule) => {
@@ -26,16 +28,23 @@ describe("规则与表单", () => {
     });
 
     test("表单认不出的条件显示成自定义，编辑时是 JSON", () => {
-        const form = ruleToForm(rules[5]!);
+        const nested = rules.find((rule) => rule.tool === "*")!;
+        const form = ruleToForm(nested);
         expect(form.kind).toBe("json");
-        expect(JSON.parse(form.json)).toEqual(rules[5]!.when);
-        expect(ruleSummary(rules[5]!)).toEqual({key: "json"});
+        expect(JSON.parse(form.json)).toEqual(nested.when);
+        expect(ruleSummary(nested)).toEqual({key: "json"});
+    });
+
+    test("关键词里有分隔符时走 JSON：拆开就变了意思", () => {
+        expect(ruleToForm(rules.find((rule) => JSON.stringify(rule).includes("血腥"))!).kind).toBe("keywords");
+        expect(ruleToForm(rules.find((rule) => JSON.stringify(rule).includes("blood"))!).kind).toBe("json");
     });
 
     test("写得不对时指出字段", () => {
         expect(formToRule(emptyRuleForm())).toEqual({ok: false, field: "tool"});
         expect(formToRule({...emptyRuleForm(), tool: "shell", kind: "command", value: " "})).toEqual({ok: false, field: "value"});
         expect(formToRule({...emptyRuleForm(), tool: "shell", kind: "json", json: "{"})).toEqual({ok: false, field: "json"});
+        for (const json of ["123", "null", "[]"]) expect(formToRule({...emptyRuleForm(), tool: "shell", kind: "json", json})).toEqual({ok: false, field: "json"});
     });
 
     test("上下移动：顶到头不动", () => {

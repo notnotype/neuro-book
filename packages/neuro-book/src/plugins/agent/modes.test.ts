@@ -11,7 +11,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {MAIN_PROFILE} from "./shared/contracts";
-import {AGENT_MODES_EXTENSION} from "./shared/permissions";
+import {AGENT_MODES_EXTENSION, MODE_ASK_REASON} from "./shared/permissions";
 import type {AgentMode, ModeSwitchAnswer, ModeSwitchRequest, Rule} from "./shared/permissions";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -117,7 +117,7 @@ describe("闸门", () => {
         const runId = await reply(session, [{tool: "shell", args: {command: "touch a"}}]);
         const asked = await nextAsked(session);
         expect(asked.kind).toBe("approval");
-        expect(asked.request.reason).toBe("mode");
+        expect(asked.request.reason).toBe(MODE_ASK_REASON);
         await session.resolve({commandId: cid(), id: asked.id, decision: "deny"});
         await session.waitRun(runId);
     });

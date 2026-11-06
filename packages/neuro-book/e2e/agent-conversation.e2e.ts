@@ -573,27 +573,32 @@ test("权限规则：以后都允许写进用户规则；设置页列出我的�
     try {
         await openConversation(page);
         await newSession(page);
-        await script({tool: "shell", args: {command: "mkdir 新目录"}}, "建好了");
+        // 同一批里两条：同一拍追加，两条都要存下。
+        await script({tools: [{tool: "shell", args: {command: "mkdir 新目录"}}, {tool: "shell", args: {command: "touch 新目录/一"}}]}, "建好了");
         await send(page, "建个目录");
-        // 只有一个事项：点决定就提交。
         await page.locator('[data-approval-decision="allow-always"]').click();
+        await page.locator('[data-approval-decision="allow-always"]').click();
+        await page.locator("[data-approval-submit]").click();
         await expect(page.getByText("建好了")).toBeVisible();
         const file = join(stateRoot, "settings.json");
-        const remembered = {tool: "nbook.agent.shell", when: {type: "command", pattern: "mkdir *"}, action: "allow"};
-        await expect.poll(async () => (JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>)["nbook.agent/permissionRules"]).toEqual([remembered]);
+        const remembered = ["mkdir *", "touch *"].map((pattern) => ({tool: "nbook.agent.shell", when: {type: "command", pattern}, action: "allow"}));
+        await expect.poll(async () => (JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>)["nbook.agent/permissionRules"]).toEqual(remembered);
 
         await page.locator("[data-activity-item='nbook.settings']").click();
         await page.locator("[data-settings-nav='nbook.agent.permissions']").click();
         const rules = page.locator("[data-permission-rule]");
-        await expect(rules).toHaveCount(1);
-        await expect(rules).toContainText("mkdir *");
+        await expect(rules).toHaveCount(2);
+        await expect(rules.first()).toContainText("mkdir *");
         const project = page.locator("[data-permission-project]");
         await expect(project).toContainText("git push *");
         await expect(project).toContainText("先问我");
         // 项目层的放行不生效，页面要写明。
         await expect(project.locator(".is-ignored")).toHaveCount(1);
 
-        await rules.getByRole("button", {name: "删除"}).click();
+        // 连点两下：第二下在第一下的结果上算。
+        const removeFirst = rules.first().getByRole("button", {name: "删除"});
+        await removeFirst.click();
+        await rules.first().getByRole("button", {name: "删除"}).click();
         await expect(rules).toHaveCount(0);
         await expect.poll(async () => (JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>)["nbook.agent/permissionRules"] ?? []).toEqual([]);
     } finally {

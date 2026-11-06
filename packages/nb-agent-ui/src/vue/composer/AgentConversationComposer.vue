@@ -238,6 +238,9 @@ watch(() => composer.value.mode, () => {
     if (currentMode.value !== null) modeAnnouncement.value = t("composer.modeChanged", {mode: currentMode.value.label});
 });
 
+/** 切不了时不占 Shift+Tab：键盘用户还要靠它从输入框往回走。 */
+const canCycleMode = computed(() => !modeDisabled.value && composer.value.modes.length >= 2);
+
 function cycleMode(): void {
     if (modeDisabled.value) {
         return;
@@ -411,6 +414,7 @@ defineExpose({
                     bare
                     @change="onChange"
                     @submit="submit($event.mod)"
+                    :capture-shift-tab="canCycleMode"
                     @shift-tab="cycleMode"
                     @menu-open="emit('action', {type: 'menu.opened', trigger: $event.trigger})"
                     @token-activate="onTokenActivate"
@@ -421,8 +425,8 @@ defineExpose({
                 />
             </div>
             <IconButton
-        v-if="!inline"
-        class="acv-composer__expand"
+                v-if="!inline"
+                class="acv-composer__expand"
                 size="sm"
                 :icon-class="expanded ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
                 :title="expanded ? t('composer.collapse') : t('composer.expand')"
@@ -491,10 +495,10 @@ defineExpose({
                         <button
                             type="button"
                             class="acv-composer__chip acv-composer__mode"
-                            :class="{'is-accent': currentApproval.danger === true, 'is-muted': !modeIsDefault && currentApproval.danger !== true, 'is-danger': currentApproval.danger === true && !modeIsDefault}"
+                            :class="{'is-muted': !modeIsDefault && currentApproval.danger !== true, 'is-danger': currentApproval.danger === true}"
                             :disabled="runtimeDisabled"
                             :title="approvalTitle"
-                            :aria-label="t('composer.approvalMode', {mode: text(currentApproval.label)})"
+                            :aria-label="approvalTitle"
                             data-composer-action="approval"
                         >
                             <span :class="currentApproval.icon" class="acv-composer__chip-icon" aria-hidden="true" />

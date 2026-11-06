@@ -159,7 +159,7 @@ export default {
         plusReference: "引用文件",
         plusSkill: "使用技能",
         plusCommand: "运行命令",
-        approvalModeWhileGated: "审批模式：{{mode}}（{{current}}模式下不改作品，批准计划后按它走）",
+        approvalModeWhileGated: "审批模式：{{mode}}（{{current}}模式下不改作品，切回普通模式后按它走）",
         modeChanged: "已切到{{mode}}模式",
         send: "发送",
         sendRunning: "补充说明",
@@ -300,6 +300,7 @@ export default {
         announce: {
             approval: "有 {{count}} 个调用等你批准",
             question: "Agent 有问题需要你回答",
+            modeSwitch: "Agent 申请切换模式",
         },
         modeSwitch: {
             planTitle: "计划写好了，开始实现？",

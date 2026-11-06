@@ -21,6 +21,8 @@ export interface RuleForm {
     json: string;
 }
 
+const KEYWORD_SEPARATOR = /[,，、\s]+/u;
+
 export const emptyRuleForm = (): RuleForm => ({tool: "", action: "deny", reason: "", kind: "none", value: "", access: "any", field: "", json: ""});
 
 export function ruleToForm(rule: Rule): RuleForm {
@@ -30,7 +32,8 @@ export function ruleToForm(rule: Rule): RuleForm {
     if (when.type === "command" && typeof when.pattern === "string") return {...form, kind: "command", value: when.pattern};
     if (when.type === "path" && typeof when.glob === "string") return {...form, kind: "path", value: when.glob, access: when.access === "read" || when.access === "write" ? when.access : "any"};
     if (when.type === "subject" && typeof when.kind === "string" && typeof when.glob === "string") return {...form, kind: "subject", field: when.kind, value: when.glob};
-    if (when.type === "arg" && when.op === "keywords" && typeof when.path === "string" && Array.isArray(when.value)) return {...form, kind: "keywords", field: when.path, value: when.value.join("、")};
+    // 关键词是整段比对的：词里有分隔符时拆开就变了意思，这种走 JSON。
+    if (when.type === "arg" && when.op === "keywords" && typeof when.path === "string" && Array.isArray(when.value) && when.value.every((word) => typeof word === "string" && word !== "" && !KEYWORD_SEPARATOR.test(word))) return {...form, kind: "keywords", field: when.path, value: when.value.join("、")};
     return {...form, kind: "json", json: JSON.stringify(when, null, 2)};
 }
 
@@ -52,12 +55,13 @@ export function formToRule(form: RuleForm): {readonly ok: true; readonly rule: R
             return value === "" ? {ok: false, field: "value"} : {ok: true, rule: {...base, when: {type: "subject", kind: form.field.trim(), glob: value}}};
         case "keywords": {
             if (form.field.trim() === "") return {ok: false, field: "field"};
-            const words = value.split(/[,，、\s]+/u).filter((word) => word !== "");
+            const words = value.split(KEYWORD_SEPARATOR).filter((word) => word !== "");
             return words.length === 0 ? {ok: false, field: "value"} : {ok: true, rule: {...base, when: {type: "arg", path: form.field.trim(), op: "keywords", value: words}}};
         }
         case "json":
             try {
-                return {ok: true, rule: {...base, when: JSON.parse(form.json) as unknown}};
+                const when: unknown = JSON.parse(form.json);
+                return typeof when === "object" && when !== null && !Array.isArray(when) ? {ok: true, rule: {...base, when}} : {ok: false, field: "json"};
             } catch {
                 return {ok: false, field: "json"};
             }

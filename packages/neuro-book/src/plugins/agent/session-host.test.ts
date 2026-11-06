@@ -440,6 +440,22 @@ describe("自动判断（permissions.md 输出 19、21）", () => {
     });
 });
 
+describe("还没有会话时选的模式", () => {
+    test("打开别的会话就作废，不带到之后新建的会话", async () => {
+        const w = await world();
+        const first = await started(w);
+        const existing = first.host.sessionId.value!;
+        const h = await harness(w);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("草稿模式", () => h.ctx().composer.mode === "plan");
+        h.host.act({type: "session.select", sessionId: existing});
+        await until("打开", () => h.host.sessionId.value === existing);
+        const created = await h.host.create(MAIN_PROFILE);
+        const snapshot = await w.service.session(created!).snapshot();
+        expect(snapshot.extensionSettings[AGENT_MODES_EXTENSION]?.mode ?? "normal").toBe("normal");
+    });
+});
+
 describe("以后都允许（permissions.md 输出 23）", () => {
     const shellCall = (command: string) => ({tools: [{tool: "shell", args: {command}}]});
 

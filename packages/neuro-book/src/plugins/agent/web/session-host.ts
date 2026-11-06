@@ -720,6 +720,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         // 同一个会话重新打开（归还 30 秒后借回）：未提交的答案还要；换了会话才清。事项答完了的话，`afterChange` 会清。
         const keptWizard = sessionId.value === id ? wizardState : undefined;
         const switching = sessionId.value !== id;
+        // 还没有会话时选的模式只属于接下来新建的那一个；打开别的会话就作废，否则会悄悄带到以后新建的会话。
+        draftMode = "normal";
         flushDraft();
         closeCurrent();
         wizardState = keptWizard;
@@ -807,11 +809,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             return null;
         }
         if (generation !== started) return null;
+        const mode = draftMode;
         await open(created.value.sessionId, {keepDraft: sessionId.value === null});
-        if (draftMode !== "normal") {
-            await setMode(draftMode);
-            draftMode = "normal";
-        }
+        // 只有主 Profile 装了模式。`open` 已经把草稿的模式清了，所以先取出来。
+        if (mode !== "normal" && profile === MAIN_PROFILE) await setMode(mode);
         return created.value.sessionId;
     }
 
@@ -1000,7 +1001,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         const answer = resolutions.kind === "mode-switch"
             // 内核要求回答有文字，写进日志；工具看的是 `data`。
-            ? {text: resolutions.answer.note ?? (resolutions.answer.approved ? "批准" : "不同意"), data: resolutions.answer}
+            ? {text: resolutions.answer.note ?? deps.text.t(agentText(resolutions.answer.approved ? "conversation.modeSwitch.approved" : "conversation.modeSwitch.declined")), data: resolutions.answer}
             : resolutions.kind === "question" ? resolutions.answer : null;
         const result = answer === null && resolutions.kind === "approval"
             ? await remote.resolve({sessionId: target.id, commandId: commandId(), id, decision: resolutions.decision, ...(resolutions.note === undefined ? {} : {note: resolutions.note})})

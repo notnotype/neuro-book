@@ -2,7 +2,7 @@
 /**
  * 权限规则设置页（见同名 `.md`）。只吃普通的属性，写入由包装交给配置服务，所以能在 Lab 里直接摆。
  */
-import {computed, ref, watch} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {Badge, Button, Dialog, EmptyState, IconButton, Input, Select, SegmentedControl, Textarea} from "@notnotype/nb-ui/components";
 
 import type {Rule, RuleAction} from "../../shared/permissions";
@@ -12,8 +12,8 @@ import {useAgentPageText} from "../text";
 
 const props = withDefaults(defineProps<{
     rules: readonly Rule[];
-    /** 这本书的规则。`null`：没有绑定作品。`"invalid"`：文件坏了。 */
-    projectRules?: readonly Rule[] | "invalid" | null;
+    /** 这本书的规则。`null`：没有绑定作品。`"invalid"`：文件坏了。`"unavailable"`：请求没有成功。 */
+    projectRules?: readonly Rule[] | "invalid" | "unavailable" | null;
     projectTitle?: string | null;
     writable?: boolean;
     /** 讨论与计划模式下的写入：拒绝或询问。 */
@@ -44,6 +44,7 @@ function summaryText(rule: Rule): string {
 const editing = ref<number | "new" | null>(props.initialEdit);
 const form = ref<RuleForm>(props.initialEdit === null ? emptyRuleForm() : props.initialEdit === "new" ? emptyRuleForm() : ruleToForm(props.rules[props.initialEdit]!));
 const problem = ref<string | null>(null);
+let openedRule = typeof props.initialEdit === "number" ? JSON.stringify(props.rules[props.initialEdit]) : "";
 
 function startAdd(): void {
     form.value = emptyRuleForm();
@@ -51,6 +52,7 @@ function startAdd(): void {
     editing.value = "new";
 }
 function startEdit(index: number): void {
+    openedRule = JSON.stringify(props.rules[index]);
     form.value = ruleToForm(props.rules[index]!);
     problem.value = null;
     editing.value = index;
@@ -62,8 +64,10 @@ function save(): void {
         return;
     }
     const next = [...props.rules];
-    if (editing.value === "new") next.push(result.rule);
-    else if (editing.value !== null) next[editing.value] = result.rule;
+    // 对话框开着时列表可能被别处改了（别的窗口、设置文件）：按打开时那一条的内容找，找不到就当新的，不改到别的规则上。
+    const at = editing.value === "new" || editing.value === null ? -1 : props.rules.findIndex((rule) => JSON.stringify(rule) === openedRule);
+    if (at === -1) next.push(result.rule);
+    else next[at] = result.rule;
     emit("change", next);
     editing.value = null;
 }
@@ -80,11 +84,13 @@ function commitCommands(): void {
     const next = commandsText.value.split("\n").map((line) => line.trim()).filter((line) => line !== "");
     if (JSON.stringify(next) !== JSON.stringify(props.readOnlyCommands)) emit("readOnlyCommands", next);
 }
+// 输入框聚焦时直接关掉窗口，不一定有 blur。
+onBeforeUnmount(commitCommands);
 
 const KIND_OPTIONS = computed(() => (["none", "command", "path", "keywords", "subject", "json"] as const).map((value) => ({value, label: t(`permissions.kind.${value}`)})));
 const ACTION_OPTIONS = computed(() => (["allow", "ask", "deny"] as const).map((value) => ({value, label: actionLabel(value)})));
 const ACCESS_OPTIONS = computed(() => (["any", "read", "write"] as const).map((value) => ({value, label: t(`permissions.access.${value}`)})));
-const projectList = computed(() => (props.projectRules === null || props.projectRules === "invalid" ? [] : props.projectRules));
+const projectList = computed(() => (props.projectRules === null || typeof props.projectRules === "string" ? [] : props.projectRules));
 </script>
 
 <template>
@@ -123,6 +129,7 @@ const projectList = computed(() => (props.projectRules === null || props.project
                 </div>
             </header>
             <p v-if="projectRules === 'invalid'" class="permission-rules__invalid" role="status">{{ t("permissions.project.invalid") }}</p>
+            <p v-else-if="projectRules === 'unavailable'" class="permission-rules__invalid" role="status">{{ t("permissions.project.unavailable") }}</p>
             <p v-else-if="projectList.length === 0" class="permission-rules__muted">{{ t("permissions.project.empty") }}</p>
             <ul v-else class="permission-rules__list">
                 <li v-for="(rule, index) in projectList" :key="index" class="permission-rules__row" :class="{'is-ignored': rule.action === 'allow'}">

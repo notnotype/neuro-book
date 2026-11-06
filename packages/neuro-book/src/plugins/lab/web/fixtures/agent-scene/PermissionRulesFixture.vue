@@ -8,8 +8,10 @@ import type {Rule} from "nbook/plugins/agent/shared/permissions";
 import type {LabSceneInput} from "../../lab-subject";
 
 const props = defineProps<{scene: string; input?: LabSceneInput}>();
-const page = (props.input?.props ?? {}) as {rules?: Rule[]; projectRules?: Rule[] | "invalid"; projectTitle?: string; writable?: boolean; initialEdit?: number | "new"};
+const page = (props.input?.props ?? {}) as {rules?: Rule[]; projectRules?: Rule[] | "invalid" | "unavailable"; projectTitle?: string; writable?: boolean; initialEdit?: number | "new"; modeWriteAction?: "deny" | "ask"; readOnlyCommands?: string[]};
 const rules = ref<Rule[]>(page.rules ?? []);
+const modeWriteAction = ref(page.modeWriteAction ?? "deny");
+const readOnlyCommands = ref(page.readOnlyCommands ?? []);
 </script>
 
 <template>
@@ -20,7 +22,11 @@ const rules = ref<Rule[]>(page.rules ?? []);
             :project-title="page.projectTitle ?? null"
             :writable="page.writable ?? true"
             :initial-edit="page.initialEdit ?? null"
+            :mode-write-action="modeWriteAction"
+            :read-only-commands="readOnlyCommands"
             @change="rules = $event"
+            @mode-write-action="modeWriteAction = $event"
+            @read-only-commands="readOnlyCommands = $event"
         />
     </div>
 </template>

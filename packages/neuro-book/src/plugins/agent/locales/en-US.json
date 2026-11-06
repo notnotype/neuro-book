@@ -33,7 +33,8 @@
             "hint": "In .nbook/permissions.json in the book's folder; apply to this book only. They can only ask or deny.",
             "invalid": "This file can't be read or isn't valid, so writes and commands in this book will ask.",
             "empty": "This book has no rules of its own.",
-            "allowIgnored": "Allow has no effect here: a book someone gave you can't allow things on your behalf."
+            "allowIgnored": "Allow has no effect here: a book someone gave you can't allow things on your behalf.",
+            "unavailable": "This book's rules could not be loaded. They still apply when calls are judged."
         },
         "dialog": {
             "add": "Add rule",
@@ -247,6 +248,10 @@
             "noSession": "There is no conversation yet, so there is nothing to compact.",
             "queued": "Will compact when this step finishes.",
             "unknown": "The result of the compact command is unknown. Check whether a compaction divider appeared; if not, send it again."
+        },
+        "modeSwitch": {
+            "approved": "Approved",
+            "declined": "Declined"
         }
     },
     "views": {

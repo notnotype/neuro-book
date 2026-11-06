@@ -188,8 +188,8 @@ onBeforeUnmount(() => {
         <span class="acv-role-picker__text">
             <span class="acv-role-picker__name">{{ selectedName }}</span>
             <template v-if="usedModel !== null"> · {{ usedModel }}</template>
-            <template v-if="thinkingText !== null"> · <span class="acv-role-picker__level">{{ thinkingText }}</span></template>
         </span>
+        <span v-if="thinkingText !== null" class="acv-role-picker__level">· {{ thinkingText }}</span>
         <span class="i-lucide-chevron-down acv-role-picker__chevron" aria-hidden="true" />
     </button>
     <AnchoredPopover ref="popoverRef" :open="open" :anchor="props.anchor ?? triggerRef" side="top" :side-offset="6">
@@ -361,6 +361,7 @@ onBeforeUnmount(() => {
 }
 
 .acv-role-picker__trigger .acv-role-picker__level {
+    flex: none;
     color: var(--accent-text);
 }
 
@@ -381,6 +382,7 @@ onBeforeUnmount(() => {
     color: var(--text-muted);
 }
 
+/* 省略只吃前两段：档位放不下就没有意义了。 */
 .acv-role-picker__text {
     min-width: 0;
     max-width: 18em;

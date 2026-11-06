@@ -5,7 +5,7 @@
 
 # AgentWizard
 
-等用户时替换输入框的位置：审批一批走 `AgentApprovalWizard`，提问走 `AgentQuestionWizard`。可以收起成一条小条，写等什么、第几个，没有批准按钮。行为合同见 [`conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 10–14。
+等用户时替换输入框的位置：审批一批走 `AgentApprovalWizard`，提问走 `AgentQuestionWizard`，申请切换模式走 `AgentModeSwitchWizard`。可以收起成一条小条，写等什么、第几个，没有批准按钮。行为合同见 [`conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 10–14。
 
 ## 布局与交互
 

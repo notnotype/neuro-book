@@ -35,7 +35,10 @@ const approvals = computed(() => props.pending.filter(isApproval));
 const questions = computed(() => props.pending.find(isQuestions) ?? null);
 const modeSwitch = computed(() => props.pending.find(isModeSwitch) ?? null);
 const showApprovals = computed(() => approvals.value.length > 0);
-const announcement = computed(() => (showApprovals.value ? t("wizard.announce.approval", {count: approvals.value.length}) : t("wizard.announce.question")));
+const announcement = computed(() => {
+    if (showApprovals.value) return t("wizard.announce.approval", {count: approvals.value.length});
+    return modeSwitch.value === null ? t("wizard.announce.question") : t("wizard.announce.modeSwitch");
+});
 
 function setState(next: WizardState): void {
     state.value = next;

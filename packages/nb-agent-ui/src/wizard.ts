@@ -39,13 +39,13 @@ export const isModeSwitch = (item: PendingInputView): item is PendingModeSwitchV
 
 const rememberKey = (item: PendingApprovalView): string | null => (item.remember === false ? null : `${item.tool}\n${item.remember?.label ?? ""}`);
 
-/** 选了一个决定。“本会话都批准”同时选中这批里记的东西相同、还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
+/** 选了一个决定。“本会话都批准”“以后都允许”同时选中这批里记的东西相同、还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
 export function choose(state: WizardState, items: readonly PendingApprovalView[], id: string, decision: ApprovalDecision, note?: string): WizardState {
     const approvals = {...state.approvals, [id]: {decision, ...(note === undefined || note === "" ? {} : {note})}};
-    if (decision === "allow-session") {
+    if (decision === "allow-session" || decision === "allow-always") {
         const chosen = items.find((item) => item.id === id);
         const key = chosen === undefined ? null : rememberKey(chosen);
-        for (const item of items) if (key !== null && rememberKey(item) === key && approvals[item.id] === undefined) approvals[item.id] = {decision: "allow-session"};
+        for (const item of items) if (key !== null && rememberKey(item) === key && approvals[item.id] === undefined) approvals[item.id] = {decision};
     }
     return {...state, approvals};
 }

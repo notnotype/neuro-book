@@ -95,6 +95,8 @@ type PromptEditorToken =
 interface PromptEditorProps {
     /** 必填，受控：只在版本号变化时读入。 */
     draft: PromptEditorDraft;
+    /** 占用 Shift+Tab、发出 `shift-tab`。不占用时它还是反向移动焦点。 */
+    captureShiftTab?: boolean;
     /** 界面语言：只在上面没有注入翻译端口时起作用，决定按钮、提示与说明的文字；换了随即换文字，正文不变。缺省 zh-CN。 */
     locale?: MarkdownLocale;
     /** 空正文时的提示，也是可访问名称的兜底；默认空字符串。 */
@@ -139,6 +141,7 @@ interface PromptEditorEmits {
     (e: "change", text: string): void;
     (e: "submit", payload: {mod: boolean}): void;
     (e: "escape"): void;
+    /** `captureShiftTab` 为真时才发出；补全菜单开着时不发，也不移动焦点。 */
     (e: "shift-tab"): void;
     /** 焦点进出正文区；在正文与粘贴块的编辑框之间移动不算。 */
     (e: "focus"): void;

@@ -41,14 +41,13 @@ import type {AgentConversationServices, ComposerModelView} from "@notnotype/nb-a
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
-import type {Rule} from "../shared/permissions";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
 import {createAgentActivity} from "./activity";
-import {appendRules} from "./permission-rules";
+import {createRulesWriter} from "./permission-writes";
 import {permissionsPage} from "./permission-page";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
@@ -168,6 +167,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const quickPick = context.services.require(quickPickKey);
             const text = await windowTextPort(context.services, () => displayLocale(settings));
             const remote = context.remote.use(agentSessionsContract);
+            const rulesWriter = createRulesWriter(settings);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
                 diagnostics.record({level: "warn", event: `agent.${code}`, message, data, source: {plugin: descriptor.id}});
             };
@@ -272,7 +272,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         },
                     },
                     warnCost: () => settings.get(agentSettings.settings.warnCost),
-                    rememberRules: (rules) => settings.update(agentSettings.settings.permissionRules, appendRules(settings.get(agentSettings.settings.permissionRules), rules) as Rule[]),
+                    rememberRules: (rules) => rulesWriter.append(rules),
                     models: () => models.value,
                     roles: () => roles.value,
                     profiles: () => profiles.value,
@@ -442,7 +442,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[ACTIVITY_ITEM]: item},
                     [COMMANDS_POINT]: commandImplementations,
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [SETTINGS_PAGES_POINT]: {[PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, report}))},
+                    [SETTINGS_PAGES_POINT]: {[PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report}))},
                 },
             };
         },
