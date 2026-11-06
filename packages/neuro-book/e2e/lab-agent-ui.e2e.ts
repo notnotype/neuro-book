@@ -482,11 +482,11 @@ test.describe("输入框", () => {
         await expect.poll(async () => (await lastAction(page))?.type).toBe("composer.stop");
     });
 
-    test("附件：模型不支持图片时拒收并说明；上传中与失败时不能发送；重试后就绪，发送的文字里有图片标签", async ({page}) => {
+    test("附件：模型不支持图片时也能加（发送时换一行字，conversation.md 输出 31）；上传中与失败时不能发送；重试后就绪，发送的文字里有图片标签", async ({page}) => {
         await openScene(page, "AgentConversationComposer", "no-images");
         await attach(page, [{name: "草图.png", mimeType: "image/png"}, {name: "设定.txt", mimeType: "text/plain"}]);
-        await expect(stage(page).locator("[role='status']").filter({hasText: "不支持图片"})).toBeVisible();
-        await expect.poll(() => cardStates(page)).toEqual(["ready"]);
+        await expect(stage(page).locator("[role='status']").filter({hasText: "不支持图片"})).toHaveCount(0);
+        await expect.poll(async () => (await cardStates(page)).length).toBe(2);
 
         await openScene(page, "AgentConversationComposer", "idle");
         await labAction(page, "fail-upload");
@@ -530,7 +530,7 @@ test.describe("输入框", () => {
     test("只读：编辑器只读，添加附件、发送、模式与模型都不可用", async ({page}) => {
         await openScene(page, "AgentConversationComposer", "readonly");
         await expect(editor(page)).toHaveAttribute("aria-readonly", "true");
-        for (const action of ["attach", "send", "mode"]) await expect(page.locator(`[data-composer-action='${action}']`)).toBeDisabled();
+        for (const action of ["plus", "send", "mode"]) await expect(page.locator(`[data-composer-action='${action}']`)).toBeDisabled();
         await expect(page.locator("[data-model-picker]")).toBeDisabled();
     });
 
