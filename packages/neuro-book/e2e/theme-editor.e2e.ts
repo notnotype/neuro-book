@@ -385,7 +385,7 @@ test("复制书房：它的场景图与全部图标都传成我的素材（真�
 
         // 传成我的素材：每个图标行预览的地址都是素材目录里 `<sha256>.svg` 的读取地址，取得到 SVG；素材目录里的文件都是摘要命名。
         const assetPath = /^\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.svg$/u;
-        const urls = await page.locator("[data-icon-row] [aria-hidden=true]").evaluateAll((previews) => previews.map((element) => /url\("(.+)"\)/u.exec((element as HTMLElement).style.getPropertyValue("--icon-url"))?.[1] ?? ""));
+        const urls = await page.locator("[data-icon-row] [aria-hidden=true]:not([data-icon-original])").evaluateAll((previews) => previews.map((element) => /url\("(.+)"\)/u.exec((element as HTMLElement).style.getPropertyValue("--icon-url"))?.[1] ?? ""));
         expect(urls).toHaveLength(STUDY_ICON_NAMES.length);
         for (const url of urls) {
             expect(url).toMatch(assetPath);
@@ -400,6 +400,8 @@ test("复制书房：它的场景图与全部图标都传成我的素材（真�
         // 场景图一并复制：取景编辑里画的就是我的素材。
         await page.locator("[data-section-tab=scene]").click();
         await expect(page.locator("[data-crop-editor] img")).toHaveAttribute("src", /\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.(?:webp|png|jpg)$/u);
+        // 书房的工作态场景也一并复制（t14 起书房带了亮暗各一张）。
+        await expect(page.locator("[data-working-thumb]")).toHaveAttribute("src", /\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.(?:webp|png|jpg)$/u);
     });
 });
 
