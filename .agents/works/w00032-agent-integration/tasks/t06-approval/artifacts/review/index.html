@@ -15,8 +15,25 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 <body>
 <h1>t06 权限与 Agent 模式</h1>
 
+<section data-nbdev-question="plan-wizard" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>模式控件与退出计划的向导，这样可以吗</h2>
+  <p>都是真实组件的 Lab 场景。你选的两个控件并排已经接上；下面看实际的样子。</p>
+  <div class="row">
+    <figure><figcaption>计划模式加放行写入：审批控件变淡，状态栏标“计划模式”</figcaption><img src="r2/plan-allow-writes.webp" alt="输入框工具栏上，计划按钮高亮，放行写入变淡，状态栏显示计划模式"></figure>
+    <figure><figcaption>计划模式加全部放行：红色警告保留</figcaption><img src="r2/plan-yolo.webp" alt="工具栏上全部放行显示红色"></figure>
+  </div>
+  <div class="row">
+    <figure><figcaption>退出计划：看计划、选之后的审批、批准并开始或继续改</figcaption><img src="r2/exit-plan.webp" alt="向导里是计划全文，下面是审批模式的分段控件、附言框与两个按钮"></figure>
+    <figure><figcaption>长计划：内容区滚动，下面的控件固定</figcaption><img src="r2/exit-plan-long.webp" alt="长计划占满向导，按钮固定在底部"></figure>
+    <figure><figcaption>别的切换：一句话，同意或不同意</figcaption><img src="r2/switch-simple.webp" alt="向导只有一句话和两个按钮"></figure>
+  </div>
+  <p>要点：向导放宽到视图高度的 85%；“之后的审批”默认保持当前；附言写了字时批准不可点，和审批向导一样。</p>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>照这样接到真实会话。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
 <section data-nbdev-question="mode-control" data-nbdev-type="single" data-nbdev-recommend="two-controls">
-  <h2><span class="badge" data-nbdev-skip>待定</span>模式控件保持两个，还是合成一个菜单</h2>
+  <h2><span class="badge" data-nbdev-skip>已定</span>模式控件保持两个，还是合成一个菜单</h2>
   <p>现状见下面两张图。真实应用里现在只有审批模式的下拉（第一张，点开的样子）：宿主还没接 Agent 模式。Agent 模式的按钮组件已有，点一下切到下一种，只在 Lab 里能看到（第二张，“普通”）。Spec 写的是一个菜单分两组，和实现不符，<code>DropdownMenu</code> 也没有组标题。</p>
   <div class="row">
     <figure><figcaption>真实应用接法：只有审批模式下拉</figcaption><img src="r1/app-today.webp" alt="输入框工具栏上的审批模式下拉，点开后列出每次询问、放行写入、全部放行"></figure>
