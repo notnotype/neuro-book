@@ -388,6 +388,7 @@
             "clear": "Clear"
         },
         "entry": {
+            "heroTitle": "Theme editor",
             "openTab": "Open in a tab",
             "openFloating": "Open in a floating window",
             "intro": "Make a theme of your own: colors, fonts, the activity bar and scene images are all editable, and the real workbench changes as you edit.",

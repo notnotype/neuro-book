@@ -40,6 +40,8 @@ import type {NotificationInput} from "../shared/contracts";
 import {themesPoint, WORKBENCH_THEMES_POINT} from "../shared/themes";
 import type {ThemeDeclaration} from "../shared/themes";
 import {ThemeCatalog, userThemeSceneUrl} from "./themes";
+import type {ThemeEntry} from "./themes";
+import {themeSwatch} from "./components/theme-editor/theme-swatch";
 import {userThemesStore} from "./user-themes-store";
 import {OPEN_THEME_EDITOR_COMMAND, OPEN_THEME_EDITOR_DECLARATION, OPEN_THEME_EDITOR_FLOATING_COMMAND, OPEN_THEME_EDITOR_FLOATING_DECLARATION, THEME_EDITOR_OVERLAY, THEME_EDITOR_PAGE_ID, themeEditorCommands} from "./commands/theme-editor-commands";
 import {themeEditorOverlay, themeEditorPage} from "./components/theme-editor/theme-editor-page";
@@ -188,23 +190,26 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 watch(() => [userThemes.state.themes.base, userThemes.state.themes.queue], () => userThemes.actions.adoptConfirmed()),
             ];
             context.signal.addEventListener("abort", () => { for (const stop of stopUserThemes) stop(); }, {once: true});
+            // 当前生效的明暗：`system` 按系统偏好换成亮或暗。
+            const resolvedAppearance = (): "light" | "dark" => {
+                const setting = settings.get(appearanceSetting);
+                const media = (globalThis as {matchMedia?: (query: string) => {readonly matches: boolean}}).matchMedia;
+                return setting === "system" ? (media?.("(prefers-color-scheme: dark)").matches === true ? "dark" : "light") : setting;
+            };
             // 主题编辑器：页签与浮动窗口共用一份模型（docs/specs/theme/editor.md 输出 1）；入口停止时预览一并清掉。
             const editorSession = new ThemeEditorSession({
                 store: userThemes,
                 catalog: themes,
                 newId: () => crypto.randomUUID(),
-                // 打开时取当前生效的明暗（`system` 按系统偏好换成亮或暗），初始预览不改变眼前的明暗。
-                currentAppearance: () => {
-                    const setting = settings.get(appearanceSetting);
-                    const media = (globalThis as {matchMedia?: (query: string) => {readonly matches: boolean}}).matchMedia;
-                    return setting === "system" ? (media?.("(prefers-color-scheme: dark)").matches === true ? "dark" : "light") : setting;
-                },
+                // 打开时取当前生效的明暗，初始预览不改变眼前的明暗。
+                currentAppearance: resolvedAppearance,
             });
             context.signal.addEventListener("abort", () => editorSession.dispose(), {once: true});
             const effectiveTheme = (): string => {
                 const inspected = settings.inspect(themeSetting);
                 return themes.effectiveId([inspected.value as string, inspected.user?.status === "ok" || inspected.user?.status === "invalid" ? inspected.user.value as string | undefined : undefined]);
             };
+            let pageBaseColors: (base: string, appearance: "light" | "dark") => Readonly<Record<string, string>> = () => ({});
             // 编辑器开着时预览取它顶部选的明暗与主题（docs/specs/theme/editor.md 输出 4）；关掉后回到设置里选的。
             const appearance = computed(() => themes.preview?.appearance ?? settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
@@ -253,9 +258,15 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
                     [EDITOR_PAGES_POINT]: {[THEME_EDITOR_PAGE_ID]: themeEditorPage(editorSession, () => themes.list)},
                     [WORKBENCH_OVERLAYS_POINT]: {[THEME_EDITOR_OVERLAY]: themeEditorOverlay(editorSession, () => themes.list)},
-                    [SETTINGS_PAGES_POINT]: {[THEME_SETTINGS_PAGE]: settingsPage(async () => (await import("./components/theme-editor/ThemeSettingsPage.vue")).default, () => ({
+                    [SETTINGS_PAGES_POINT]: {[THEME_SETTINGS_PAGE]: settingsPage(async () => {
+                        // 预览色要读主题包的缺省配色，那份代码较重，只在设置里打开这一页时才加载。
+                        const [page, productThemes] = await Promise.all([import("./components/theme-editor/ThemeSettingsPage.vue"), import("nbook/ui/theme/product-themes")]);
+                        pageBaseColors = productThemes.baseColors;
+                        return page.default;
+                    }, () => ({
                         themes: themes.list,
                         currentId: effectiveTheme(),
+                        swatch: (entry: ThemeEntry) => themeSwatch(entry, resolvedAppearance(), pageBaseColors),
                         onOpen: (where: "tab" | "floating") => void commands.execute(where === "tab" ? OPEN_THEME_EDITOR_COMMAND : OPEN_THEME_EDITOR_FLOATING_COMMAND, {}, {source: "user"}),
                     }))},
                     [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},

@@ -10,7 +10,7 @@ import type {VNode} from "vue";
 import Dialog from "../components/feedback/Dialog.vue";
 import FloatingWindow from "../components/feedback/FloatingWindow.vue";
 import QuickPick from "../components/popup/QuickPick.vue";
-import {NB_Z_INDEX} from "../theme/z-index";
+import {NB_DIALOG_WINDOW_LANE, NB_Z_INDEX} from "../theme/z-index";
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -26,6 +26,38 @@ function nestedWindows(depth: number, level = 1): VNode {
 const zIndexOf = (selector: string): number => Number(document.body.querySelector<HTMLElement>(selector)?.style.zIndex);
 
 describe("对话框一族的层级", () => {
+    it("最外层的窗口按最近聚焦叠放：后打开的在上，点一下（或聚焦）下面那个就提到最上", async () => {
+        const windowOf = (name: string) => h(FloatingWindow, {"open": true, "title": name, "teleportTarget": false, "showFooter": false, "data-window": name});
+        mounted.push(mount({render: () => [windowOf("first"), windowOf("second")]}, {attachTo: document.body}));
+        await flushPromises();
+        expect(zIndexOf('[data-window="second"]')).toBeGreaterThan(zIndexOf('[data-window="first"]'));
+
+        document.body.querySelector('[data-window="first"]')?.dispatchEvent(new Event("pointerdown", {bubbles: true}));
+        await flushPromises();
+        expect(zIndexOf('[data-window="first"]')).toBeGreaterThan(zIndexOf('[data-window="second"]'));
+
+        document.body.querySelector('[data-window="second"]')?.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        await flushPromises();
+        expect(zIndexOf('[data-window="second"]')).toBeGreaterThan(zIndexOf('[data-window="first"]'));
+    });
+
+    it("窗口里开出的窗口跟着外层窗口的车道：外层被提到最上时它也跟着，仍压住外层，且不越出一条车道", async () => {
+        const outer = h(FloatingWindow, {"open": true, "title": "外", "teleportTarget": false, "showFooter": false, "data-window": "outer"}, () => h(FloatingWindow, {"open": true, "title": "内", "teleportTarget": false, "showFooter": false, "data-window": "inner"}));
+        const other = h(FloatingWindow, {"open": true, "title": "别的", "teleportTarget": false, "showFooter": false, "data-window": "other"});
+        mounted.push(mount({render: () => [outer, other]}, {attachTo: document.body}));
+        await flushPromises();
+
+        document.body.querySelector('[data-window="other"]')?.dispatchEvent(new Event("pointerdown", {bubbles: true}));
+        await flushPromises();
+        expect(zIndexOf('[data-window="other"]')).toBeGreaterThan(zIndexOf('[data-window="inner"]'));
+
+        document.body.querySelector('[data-window="outer"]')?.dispatchEvent(new Event("pointerdown", {bubbles: true}));
+        await flushPromises();
+        expect(zIndexOf('[data-window="inner"]')).toBeGreaterThan(zIndexOf('[data-window="outer"]'));
+        expect(zIndexOf('[data-window="inner"]')).toBeGreaterThan(zIndexOf('[data-window="other"]'));
+        expect(zIndexOf('[data-window="inner"]') - zIndexOf('[data-window="outer"]')).toBeLessThan(NB_DIALOG_WINDOW_LANE);
+    });
+
     it("窗口按嵌套深度往上叠；超过 5 层的与第 5 层同档，仍在模态之下", async () => {
         mounted.push(mount({render: () => nestedWindows(6)}, {attachTo: document.body}));
         await flushPromises();

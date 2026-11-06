@@ -96,7 +96,7 @@ const confirmText = computed(() => props.confirmLabel ?? text("dialog.confirm"))
 const closeText = computed(() => props.closeLabel ?? text("dialog.close"));
 const titleText = computed(() => props.title || text("dialog.untitled"));
 
-const {zIndex, nested} = useOverlayLayer({kind: "window", open: () => props.open});
+const {zIndex, nested, raise} = useOverlayLayer({kind: "window", open: () => props.open});
 const teleportTo = useTeleportTarget(() => (typeof props.teleportTarget === "string" ? props.teleportTarget : undefined));
 
 const surface = ref<InstanceType<typeof DialogSurface> | null>(null);
@@ -177,7 +177,9 @@ const close = useDialogClose<FloatingWindowCloseReason>({
                     :nested="nested"
                     :window="true"
                     :style="panelStyle"
+                    @pointerdown.capture="raise"
                     @pointerdown="floating.startDrag"
+                    @focusin="raise"
                     @request-close="close.requestClose"
                     @confirm="close.confirm"
                 >
