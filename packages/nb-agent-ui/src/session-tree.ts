@@ -201,51 +201,6 @@ export function sessionTreeRows(input: {
     return rows.filter((row) => row.label.toLowerCase().includes(query)).map((row) => ({...row, guides: [], guideLanes: [], collapsible: false}));
 }
 
-export type SessionTreeTrailRow = {
-    id: string;
-    kind: SessionTreeNodeKind;
-    label: string;
-    onPath: boolean;
-    current: boolean;
-    /** 分叉：孩子的 id，现在显示第几条（从 0 起）。 */
-    fork: {children: string[]; index: number} | null;
-};
-
-/**
- * 单线视图：不缩进，一条路径从头走到尾；到分叉只走选的那条，别的分支不占行，左右切换。`choices` 是用户在分叉上选的孩子，
- * 没选的走当前路径，当前路径也不经过的走第一条。
- */
-export function sessionTreeTrail(input: {
-    nodes: readonly SessionTreeNodeView[];
-    activePath: readonly string[];
-    filter: SessionTreeFilter;
-    choices?: ReadonlyMap<string, string>;
-    query?: string;
-}): SessionTreeTrailRow[] {
-    const onPath = new Set(input.activePath);
-    const roots = buildShown(input.nodes, input.filter, onPath);
-    const current = currentOf(roots, onPath);
-    const rows: SessionTreeTrailRow[] = [];
-    let item: Shown | undefined = roots[0];
-    while (item !== undefined) {
-        const from: Shown = item;
-        const chosen = input.choices?.get(from.node.id);
-        // 孩子已经把当前路径排在最前，所以没选时第一个就是该走的。
-        const index = Math.max(from.children.findIndex((child) => child.node.id === chosen), 0);
-        rows.push({
-            id: from.node.id,
-            kind: from.kind,
-            label: from.node.label ?? from.node.type,
-            onPath: onPath.has(from.node.id),
-            current: from.node.id === current,
-            fork: from.children.length > 1 ? {children: from.children.map((child) => child.node.id), index} : null,
-        });
-        item = from.children[index];
-    }
-    const query = input.query?.trim().toLowerCase() ?? "";
-    return query === "" ? rows : rows.filter((row) => row.label.toLowerCase().includes(query));
-}
-
 export function sessionTreeGraph(input: {
     nodes: readonly SessionTreeNodeView[];
     activePath: readonly string[];

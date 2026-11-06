@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test";
 
-import {graphEdgePath, graphPosition, sessionTreeGraph, sessionTreeRows, sessionTreeTrail} from "./session-tree";
+import {graphEdgePath, graphPosition, sessionTreeGraph, sessionTreeRows} from "./session-tree";
 import type {SessionTreeNodeView} from "./session-tree";
 
 /** 一轮之后分成三条，内部节点穿插在中间，与内核写的一样细。 */
@@ -79,26 +79,6 @@ describe("列表", () => {
             ["a", "branch"], ["a1", "line,branch"], ["a2", "line,end"],
             ["b", "end"], ["b1", "space,branch"], ["b2", "space,end"],
         ]);
-    });
-});
-
-describe("单线", () => {
-    test("不缩进，只走一条路径；缺省走当前路径；分叉上选别的就换后面的", () => {
-        const trail = sessionTreeTrail({nodes: NODES, activePath: PATH, filter: "default"});
-        expect(trail.map((row) => row.id)).toEqual(["u1", "a1", "t1", "u2", "a2"]);
-        expect(trail.find((row) => row.id === "t1")!.fork).toEqual({children: ["u2", "u3", "a4"], index: 0});
-        expect(trail.filter((row) => row.current).map((row) => row.id)).toEqual(["a2"]);
-
-        const other = sessionTreeTrail({nodes: NODES, activePath: PATH, filter: "default", choices: new Map([["t1", "u3"]])});
-        expect(other.map((row) => row.id)).toEqual(["u1", "a1", "t1", "u3", "a3"]);
-        expect(other.find((row) => row.id === "t1")!.fork!.index).toBe(1);
-        expect(other.find((row) => row.id === "a3")!.onPath).toBe(false);
-    });
-
-    test("选的孩子不在了就走缺省的；搜索只留命中的", () => {
-        const trail = sessionTreeTrail({nodes: NODES, activePath: PATH, filter: "default", choices: new Map([["t1", "没有"]])});
-        expect(trail.at(-1)!.id).toBe("a2");
-        expect(sessionTreeTrail({nodes: NODES, activePath: PATH, filter: "default", query: "甲的"}).map((row) => row.id)).toEqual(["a2"]);
     });
 });
 

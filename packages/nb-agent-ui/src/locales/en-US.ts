@@ -350,7 +350,6 @@ export default {
             title: "Branch tree",
             open: "Branch tree",
             list: "List",
-            trail: "Single line",
             graph: "Graph",
             down: "Top to bottom",
             right: "Left to right",

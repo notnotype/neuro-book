@@ -14,7 +14,6 @@ import {
     SESSION_TREE_NODE_SIZE,
     sessionTreeGraph,
     sessionTreeRows,
-    sessionTreeTrail,
 } from "../../session-tree";
 import type {SessionTreeDirection, SessionTreeFilter, SessionTreeGraphNode, SessionTreeNodeKind} from "../../session-tree";
 import type {SessionTreeView} from "../../types";
@@ -40,7 +39,7 @@ const KIND_ICONS: Record<SessionTreeNodeKind, string> = {
     other: "i-lucide-dot",
 };
 
-const mode = ref<"list" | "trail" | "graph">("list");
+const mode = ref<"list" | "graph">("list");
 const direction = ref<SessionTreeDirection>("down");
 const filter = ref<SessionTreeFilter>("default");
 const query = ref("");
@@ -49,7 +48,7 @@ const selected = ref<string | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
 
 const ready = computed(() => (props.tree.state === "ready" ? props.tree : null));
-const modes = computed(() => [{label: t("panel.tree.list"), value: "list"}, {label: t("panel.tree.trail"), value: "trail"}, {label: t("panel.tree.graph"), value: "graph"}]);
+const modes = computed(() => [{label: t("panel.tree.list"), value: "list"}, {label: t("panel.tree.graph"), value: "graph"}]);
 
 /** 每条分支一种颜色，当前路径（0）是强调色；分支多于颜色时循环。 */
 const LANE_COLORS = ["var(--accent-main)", "var(--status-success)", "var(--status-warning)", "var(--status-danger)"];
@@ -63,17 +62,6 @@ const forkCount = computed(() => {
     for (const node of ready.value.nodes) if (node.parent !== null) seen.set(node.parent, (seen.get(node.parent) ?? 0) + 1);
     return [...seen.values()].filter((count) => count > 1).length;
 });
-
-/** 单线视图里各分叉选的孩子。选了之后选中跟过去，底部的按钮就是切到这条。 */
-const choices = ref(new Map<string, string>());
-const trail = computed(() => (ready.value === null || mode.value !== "trail" ? [] : sessionTreeTrail({nodes: ready.value.nodes, activePath: ready.value.activePath, filter: filter.value, choices: choices.value, query: query.value})));
-
-function chooseFork(id: string, children: readonly string[], index: number): void {
-    const child = children[index];
-    if (child === undefined) return;
-    choices.value = new Map(choices.value).set(id, child);
-    selected.value = child;
-}
 
 const graph = computed(() => (ready.value === null || mode.value !== "graph" ? null : sessionTreeGraph({nodes: ready.value.nodes, activePath: ready.value.activePath, filter: filter.value, query: query.value})));
 const tooLarge = computed(() => graph.value !== null && graph.value.nodes.length > SESSION_TREE_GRAPH_LIMIT);
@@ -153,28 +141,7 @@ function moveInGraph(along: number, across: number): void {
 
 function onKeydown(event: KeyboardEvent): void {
     const down = direction.value === "down";
-    const selectedFork = trail.value.find((row) => row.id === selected.value)?.fork ?? null;
-    const moveInTrail = (step: number): void => {
-        const at = trail.value.findIndex((row) => row.id === selected.value);
-        const next = trail.value[at < 0 ? 0 : at + step];
-        if (next !== undefined) selected.value = next.id;
-    };
-    /** 单线的左右换分支，选中留在分叉这一行，接着按还能再换。 */
-    const switchTrail = (step: number): void => {
-        const id = selected.value;
-        if (id === null || selectedFork === null) return;
-        chooseFork(id, selectedFork.children, selectedFork.index + step);
-        selected.value = id;
-    };
-    const keys: Record<string, () => void> = mode.value === "trail"
-        ? {
-            ArrowDown: () => moveInTrail(1),
-            ArrowUp: () => moveInTrail(-1),
-            ArrowLeft: () => switchTrail(-1),
-            ArrowRight: () => switchTrail(1),
-            Enter: activate,
-        }
-        : mode.value === "list"
+    const keys: Record<string, () => void> = mode.value === "list"
         ? {
             ArrowDown: () => moveInList(1),
             ArrowUp: () => moveInList(-1),
@@ -256,32 +223,6 @@ watch(selected, () => {
                         <span class="acv-tree__label">{{ row.label }}</span>
                         <span v-if="row.forks > 0" class="acv-tree__tag" data-tree-fork>{{ t("panel.tree.fork", {count: row.forks}) }}</span>
                         <span v-if="row.collapsed" class="acv-tree__tag">{{ t("panel.tree.hidden", {count: row.hidden}) }}</span>
-                        <span v-if="row.current" class="acv-tree__tag is-accent">{{ t("panel.tree.current") }}</span>
-                    </div>
-                </template>
-                <template v-else-if="mode === 'trail'">
-                    <p v-if="trail.length === 0" class="acv-tree__state">{{ t("panel.tree.empty") }}</p>
-                    <div
-                        v-for="row in trail"
-                        :key="row.id"
-                        class="acv-tree__row"
-                        :class="{'is-on': row.onPath, 'is-off': !row.onPath, 'is-current': row.current, 'is-selected': row.id === selected}"
-                        role="treeitem"
-                        :aria-selected="row.id === selected"
-                        :data-tree-trail="row.id"
-                        :data-tree-current="row.current ? '' : undefined"
-                        :data-tree-selected="row.id === selected ? '' : undefined"
-                        @click="selected = row.id"
-                        @dblclick="activate"
-                    >
-                        <span class="acv-tree__rail" />
-                        <span :class="KIND_ICONS[row.kind]" class="acv-tree__icon" :data-kind="row.kind" aria-hidden="true" />
-                        <span class="acv-tree__label">{{ row.label }}</span>
-                        <span v-if="row.fork !== null" class="acv-tree__trail-switch" data-tree-trail-switch>
-                            <button type="button" :aria-label="t('panel.tree.previous')" :disabled="row.fork.index === 0" @click.stop="chooseFork(row.id, row.fork.children, row.fork.index - 1)"><span class="i-lucide-chevron-left" aria-hidden="true" /></button>
-                            <span class="i-lucide-git-branch" aria-hidden="true" />{{ row.fork.index + 1 }}/{{ row.fork.children.length }}
-                            <button type="button" :aria-label="t('panel.tree.next')" :disabled="row.fork.index === row.fork.children.length - 1" @click.stop="chooseFork(row.id, row.fork.children, row.fork.index + 1)"><span class="i-lucide-chevron-right" aria-hidden="true" /></button>
-                        </span>
                         <span v-if="row.current" class="acv-tree__tag is-accent">{{ t("panel.tree.current") }}</span>
                     </div>
                 </template>
@@ -377,7 +318,7 @@ watch(selected, () => {
 }
 
 .acv-tree__modes {
-    width: 156px;
+    width: 112px;
     flex: none;
 }
 
@@ -501,40 +442,6 @@ watch(selected, () => {
     opacity: 0.65;
 }
 
-.acv-tree__rail {
-    width: 2px;
-    height: 28px;
-    flex: none;
-    background: var(--accent-main);
-}
-
-.acv-tree__row.is-off .acv-tree__rail {
-    background: var(--status-warning);
-}
-
-.acv-tree__trail-switch {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    gap: 2px;
-    padding: 0 3px;
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--accent-main) 14%, transparent);
-    color: var(--accent-text);
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-strong);
-}
-
-.acv-tree__trail-switch button {
-    display: inline-flex;
-    color: inherit;
-}
-
-.acv-tree__trail-switch button:disabled {
-    cursor: not-allowed;
-    opacity: 0.4;
-}
-
 .acv-tree__label {
     min-width: 0;
     flex: 1;
@@ -597,10 +504,6 @@ watch(selected, () => {
 .acv-tree__node.is-on {
     border-color: var(--accent-main);
     color: var(--text-main);
-}
-
-.acv-tree__row.is-off {
-    color: var(--text-secondary);
 }
 
 .acv-tree__node.is-current {
