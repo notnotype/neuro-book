@@ -9,6 +9,10 @@ import {join} from "node:path";
 
 import {defineConfig} from "@playwright/test";
 
+import {guardWideRun} from "./wide-run-guard";
+
+guardWideRun(import.meta.dirname);
+
 export default defineConfig({
     testDir: ".",
     testMatch: "*.e2e.ts",
