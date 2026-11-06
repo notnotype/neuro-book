@@ -355,6 +355,31 @@ test.describe("可读性", () => {
         image.src = /url\("(.+)"\)/u.exec(getComputedStyle(element).backgroundImage)?.[1] ?? "";
         await image.decode();
     });
+    for (const [theme, title] of [["eye-green", "护眼绿"], ["eye-sepia", "护眼米黄"]] as const) {
+        for (const appearance of ["light", "dark"] as const) {
+            test(`${title} ${appearance}：欢迎页、活动栏、侧栏、正文的文字不低于 4.5，没有场景`, async ({page}) => {
+                await writeFile(join(projectDir, "notes/contrast.md"), DOCUMENT);
+                await writeSettings({[THEME]: theme, [APPEARANCE]: appearance});
+                await openProject(page);
+                await page.addStyleTag({content: HIDE_TEXT});
+                await page.mouse.move(1100, 900);
+                await expect(page.locator("html")).toHaveAttribute("data-nb-theme", "nbook");
+                await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-scene");
+                await expect(scene(page)).toBeHidden();
+                const report: string[] = [];
+                const check = async (selector: string): Promise<void> => {
+                    const result = await measure(page, selector);
+                    report.push(`${title} ${appearance} ${selector}: ${result.worst.toFixed(2)}`);
+                    expect(result.worst, selector).toBeGreaterThanOrEqual(4.5);
+                };
+                for (const selector of ["[data-welcome-title]", "[data-welcome-stats]", ".welcome-page__description", "[data-welcome-shelf]", "[data-activity-item=\"nbook.settings\"]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]", "[data-status-project]", "[data-titlebar-menu-entry]"]) await check(selector);
+                await openFile(page, "contrast.md");
+                await expect(prose(page)).toBeVisible();
+                for (const selector of ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
+                console.log(report.join("\n"));
+            });
+        }
+    }
     for (const appearance of ["light", "dark"] as const) {
         test(`书房 ${appearance}：欢迎页、活动栏、侧栏、正文的文字不低于 4.5`, async ({page}) => {
             await writeFile(join(projectDir, "notes/contrast.md"), DOCUMENT);

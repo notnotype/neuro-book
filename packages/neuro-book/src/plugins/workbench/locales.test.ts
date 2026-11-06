@@ -28,6 +28,8 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "settings.theme.description": {"zh-CN": "界面的形状、字体与配色", "en-US": "Shape, typography and colors of the interface"},
     "themes.nbook.title": {"zh-CN": "NeuroBook", "en-US": "NeuroBook"},
     "themes.macos.title": {"zh-CN": "macOS", "en-US": "macOS"},
+    "themes.eyeGreen.title": {"zh-CN": "护眼绿", "en-US": "Eye Care Green"},
+    "themes.eyeSepia.title": {"zh-CN": "护眼米黄", "en-US": "Eye Care Sepia"},
     "settings.appearance.title": {"zh-CN": "明暗", "en-US": "Appearance"},
     "settings.appearance.choices.light.title": {"zh-CN": "浅色", "en-US": "Light"},
     "settings.appearance.choices.dark.title": {"zh-CN": "深色", "en-US": "Dark"},

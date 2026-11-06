@@ -41,9 +41,9 @@ async function accepted(plugins: ReadonlyArray<PluginDefinition>) {
 const provider = (id: string, themes: Readonly<Record<string, unknown>>): PluginDefinition => ({id, entries: [], contributions: Object.entries(themes).map(([theme, declaration]) => ({capability: WORKBENCH_THEMES_POINT, id: theme, declaration}))});
 
 describe("workbench.themes", () => {
-    it("内置两套是裸 id；第三方的 id 要带插件前缀", async () => {
+    it("内置的是裸 id；第三方的 id 要带插件前缀", async () => {
         const {ids} = await accepted([provider("acme.skin", {"acme.skin.study": plain(), "macos2": plain(), "other.study": plain()})]);
-        expect(ids.sort()).toEqual(["acme.skin.study", "macos", "nbook"]);
+        expect(ids.sort()).toEqual(["acme.skin.study", "eye-green", "eye-sepia", "macos", "nbook"]);
     });
 
     it.each([

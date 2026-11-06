@@ -301,6 +301,12 @@
         },
         "macos": {
             "title": "macOS"
+        },
+        "eyeGreen": {
+            "title": "护眼绿"
+        },
+        "eyeSepia": {
+            "title": "护眼米黄"
         }
     }
 }

@@ -302,6 +302,12 @@
         },
         "macos": {
             "title": "macOS"
+        },
+        "eyeGreen": {
+            "title": "Eye Care Green"
+        },
+        "eyeSepia": {
+            "title": "Eye Care Sepia"
         }
     }
 }

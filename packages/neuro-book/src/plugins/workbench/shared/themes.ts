@@ -12,6 +12,8 @@ import {TextSchema} from "nbook/shared/text";
 
 import {workbenchText} from "./text";
 
+import {EYE_GREEN_LOOKS, EYE_SEPIA_LOOKS} from "./eye-care-themes";
+
 export const WORKBENCH_THEMES_POINT = "workbench.themes";
 export const DEFAULT_THEME_ID = "nbook";
 
@@ -89,8 +91,10 @@ export const themesPoint: ContributionPointDefinition<ThemeDeclaration> = {
     validate: themeProblem,
 };
 
-/** 工作台自己的两套：只选主题包，别的都取主题包的。 */
+/** 工作台自己的主题：前两套只选主题包，别的都取主题包的；护眼的两套只多了配色。 */
 export const BUILTIN_THEME_CONTRIBUTIONS = [
     {capability: WORKBENCH_THEMES_POINT, id: "nbook", declaration: {title: workbenchText("themes.nbook.title"), base: "nbook", light: {}, dark: {}} satisfies ThemeDeclaration},
     {capability: WORKBENCH_THEMES_POINT, id: "macos", declaration: {title: workbenchText("themes.macos.title"), base: "macos", light: {}, dark: {}} satisfies ThemeDeclaration},
+    {capability: WORKBENCH_THEMES_POINT, id: "eye-green", declaration: {title: workbenchText("themes.eyeGreen.title"), base: "nbook", ...EYE_GREEN_LOOKS} satisfies ThemeDeclaration},
+    {capability: WORKBENCH_THEMES_POINT, id: "eye-sepia", declaration: {title: workbenchText("themes.eyeSepia.title"), base: "nbook", ...EYE_SEPIA_LOOKS} satisfies ThemeDeclaration},
 ];
