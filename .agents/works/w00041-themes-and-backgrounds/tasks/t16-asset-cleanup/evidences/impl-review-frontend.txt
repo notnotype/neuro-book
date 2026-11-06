@@ -1,0 +1,70 @@
+# w00041 t16 前端实现审查报告
+
+## 1. [阻断] 数据丢失：记录是 corrupt / unsupported-version 时 keep 为空，统计会把全部旧素材列为可清理
+- 位置：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts` `#keepNames()`（约 435–439 行）；`ThemeEditor.vue` 清理按钮的 `:disabled` 只看 `model.ready.value`。
+- 现象：`#keepNames()` 只在 `!themes.ready || themes.failure !== null` 时返回 null。但 `persisted.ts` 里 `ready = applied || failure !== null`，而 `base.status` 为 `corrupt` / `unsupported-version`（`RecordSnapshot` 没有 `value`，见 `shared/storage.ts:160`）时 `ready` 为 true、`failure` 为 null，`display` 仍是 `initial`（`{themes: []}`）。于是 `referencedAssetNames(base, display)` 得到空集，keep 为 `[]`。
+- 为什么是问题：这正是计划里要防的“较新版本写的记录”。用旧版本打开、或记录被手改坏（`corrupt` 时原件在数据库里仍可恢复）时，编辑器能打开、按钮可点（`ready` 为 true），统计显示“有 N 个没人用的素材”，用户确认后超过 30 分钟的全部素材（所有主题的图和图标）被永久删除，无回收站；新版本回来后主题还在、素材全没了。这与计划“keep 取全部素材文件名，只会多留不会多删”“读失败或记录损坏时拒绝清理”正相悖：计划第 1 条防线明写“记录损坏时拒绝清理”，实现只对 `failure` 和未就绪拒绝，没有对 `corrupt`/`unsupported-version` 拒绝。
+- 如何核实（已实测）：实验文件 `/tmp/review-w00041-t16-impl/lab-frontend/corrupt.test.ts`（真实 storageWorld，建好含素材的主题后直接 UPDATE 数据库把 version 改为 2 或把 value 改成坏 JSON，再开新窗口）。输出：`corrupt base corrupt ready true failure null` 后 `keep sent: [] plan: {"ok":true,"names":["aaaa…webp"],...}`，`unsupported-version` 同样。`bun test /tmp/review-w00041-t16-impl/lab-frontend/corrupt.test.ts`（在该目录下运行）。
+- 建议改法：`#keepNames()` 要求 `base !== null && base.status` 为 `ok` 或 `missing`，其余（`corrupt`、`unsupported-version`）返回 null 并在界面上给专门提示（可复用 `sweepNotReady` 或加一条“记录不可读，不能清理”）；`canSave` 就是现成的判据（`failure === null && base.status` 为 missing/ok）。补一条测试：对这两种状态断言 `unusedAssets` 返回 `ok:false` 且不发请求。同时把按钮的停用条件改成同一个判据，别让按钮可点而点了才报错。
+
+## 2. [重要] 状态机/异常：`startSweep`/`confirmSweep` 没有 try/catch，响应体读不出来时状态永远停在 working，且是未处理的拒绝
+- 位置：`ThemeEditor.vue` `startSweep`、`confirmSweep`（约 181–195 行）；`asset-upload.ts` `sweepAssets` 只接住 `fetch` 抛错，成功响应的 `await response.json()` 不接，也不校验形状。
+- 现象：实测（`/tmp/review-w00041-t16-impl/lab-frontend/sweep-shape.test.ts`）：fetch 返回 `200` + HTML 时 `sweepAssets` 以 `SyntaxError: JSON Parse error` reject；返回 `200` + `{}` 时 resolve 为 `{ok:true,value:{}}`，随后 `model.unusedAssets` 里 `stats.value.removable.map` 抛 TypeError。两种情况 `startSweep` 都带着拒绝退出，而 `sweep.value` 已在 await 之前设成 `{kind:"working"}`，没人改回去。
+- 为什么是问题：按钮 `:loading` 且 `:disabled`（`working`）永远转圈，只能关掉重开编辑器；未处理的 Promise 拒绝进浏览器控制台。同文件的 `transferWith`（导出/导入）和 `ThemeEditor.md` 都写了“意外也给一行原因，不留未处理的拒绝”，清理没有遵守同一条。可触发的现实情形：前端比后端新（开发中后端没重启，Vite 的回退页对未知 `/api` 路径可能回 200 HTML）、网络在响应体读到一半断开。更糟的是真删这一步：服务端可能已删了一部分，响应体读断后用户看不到结果，状态卡在 working，确认行消失。
+- 如何核实：见上；也可在 `ThemeEditor` 的 dom 测试里让 `transfer.statUnusedAssets` 返回 rejected Promise，点按钮后断言按钮仍 `loading`。
+- 建议改法：`sweepAssets` 里把 `response.json()` 放进 try 并校验 `removable`/`removed`/`skipped` 是数组，失败返回 `{ok:false, reason}`；`startSweep`/`confirmSweep` 外面再包 `try/catch/finally`（照 `transferWith`），保证 working 一定退出。
+
+## 3. [重要] 测试：keep 的“已确认值 ∪ 本窗口显示值”这一半没有任何用例能区分，corrupt/unsupported-version 也没有用例
+- 位置：`packages/neuro-book/src/plugins/workbench/theme-editor.test.ts` 新 describe“清理未使用素材”的四个用例。
+- 现象：用例里主题都是 `await store.actions.create(...)` 返回 `saved` 之后再统计，此时 `base` 与 `display` 的内容相同；把 `referencedAssetNames(themes.base, themes.display)` 改成只取 `display`，或只取 `base`，四个用例都照样通过（从代码推断：保存完成后两者相等；我另写实验验证了 `base` 单独能带出别的窗口写入的素材，见下）。设计里最需要防的两种差异，本窗口排队未保存的修改（只在 `display`）与别的窗口已写入、本窗口没 `adopt` 的值（只在 `base`），没有用例。作者的变异“只取合格条目”被抓住，这是这组用例唯一覆盖的退化。
+- 我的核实：实验 `/tmp/review-w00041-t16-impl/lab-frontend/base-union.test.ts`（两个窗口，B 写入后 A 的 `display.themes.length` 仍为 0，而 `keep` 含 B 写的两个素材名）说明当前实现是对的，所以这条是“测试没锁住”，不是实现错误。
+- 同一组用例也没有覆盖 finding 1（记录 corrupt/unsupported-version）与 `not-ready` 路径（`unusedAssets` 返回 `ok:false` 且不发请求）。
+- 建议改法：加一条用例：两个窗口，B 写入引用旧素材的主题、A 不 adopt，A 统计时该素材不在清单；再加一条 A 本窗口排队未保存的修改（`store.actions.update` 不 await）引用旧素材时同样保留；加 corrupt/unsupported-version 的拒绝用例（修复 finding 1 的同时补）。
+- 顺带：第一个用例里“确认期间另一处新引用了它：真删时清单现读，它在 keep 里，路由跳过”的注释写在没有发生这件事的位置（该用例没有新引用，那是第二个用例的内容），读者会被误导，建议删掉或移到第二个用例。
+
+## 4. [重要] 界面：确认行的“跳过”一律说成“刚被引用或刚写入，没有动”，但 skipped 里还有 `not-file` 与 `failed`（删除本身失败）
+- 位置：`ThemeEditor.vue` `sweepText` 的 `done` 分支；`theme-editor-model.ts` `removeUnused` 把 `skipped` 压成一个个数；语言包 `themeEditor.library.sweepDoneSkipped`。
+- 现象：路由的 `ThemeAssetSweepSkipReason` 是 `recent | kept | not-file | failed`（`files/shared/contracts.ts:441`），`failed` 带 `code`（Files 删除失败：权限、被占用等）。客户端只留 `skipped.length`，文案固定为“另有 N 个刚被引用或刚写入，没有动”。全部删除失败时用户看到“已清理 0 个素材，另有 N 个刚被引用或刚写入，没有动”。
+- 为什么是问题：用户据此以为一切正常、素材只是受保护，其实是删除失败，下次统计还会再出现，且没有任何失败线索；Spec 输出 22 也把 `failed` 列为跳过的原因之一，界面却不区分。
+- 如何核实：读 `SweepDone` 类型（只有 `removed`、`skipped` 两个数）与 `sweepDoneSkipped` 文案。
+- 建议改法：`SweepDone` 带 `failed` 个数（或保留 reasons 的计数），失败的另给一句“有 N 个没删掉：<code>”，且用 `data-tone="bad"`；`recent`/`kept` 保持现文案。
+
+## 5. [重要] 界面：按钮停用与确认行替换后键盘焦点丢失；确认按钮放在 `role="status"` 里
+- 位置：`ThemeEditor.vue` 约 252 行（`data-sweep` 在 `ask`/`working` 时 `disabled`）、约 270–277 行（`<div role="status" data-sweep-status>` 内放“清理”“取消”两个按钮）。
+- 现象（从代码推断，未在浏览器里验证）：键盘或读屏用户点“清理素材”时焦点在这个按钮上，统计一返回按钮立刻停用（`ask`），焦点留在已停用的按钮上（或掉回 body），确认行里的“清理”“取消”没有被聚焦；点“取消”或“清理”后这两个按钮被摘掉，焦点又丢。确认行是在常驻的 `role="status"`（礼貌型 live region）里插入含交互控件的内容，读屏会把按钮当作状态播报的一部分，且“清理后无法恢复”这样的高危提示放在礼貌型区域里可能被延后。
+- 为什么是问题：不可恢复的删除确认，键盘用户需要先找到确认按钮；输出 22 要求“统计出来、确认之前‘清理素材’停用”，实现的副作用是焦点陷阱。
+- 建议改法：进入 `ask` 时把焦点移到“取消”（更安全的默认）或确认行容器；`status` 区只放文字，按钮放在它外面的同一个 flex 行；失败用 `role="alert"`（同文件的其它错误行都是 `alert`，导出导入的提示是 `status`，清理失败更像前者）。
+
+## 6. [建议] 状态机：清理提示不随换主题/分区清掉，与同文件 `transferResult` 的做法不一致
+- 位置：`ThemeEditor.vue` 约 205–208 行 `watch(() => [selectedId, section], …)` 只清 `transferResult`。
+- 现象：`done`/`failed`/`none` 的一行会一直留着，直到下一次点击；`ask` 的名单也一直留着，用户切到别的主题、改了一堆东西再回来点“清理”，确认的仍是很早前统计的名单。名单本身是安全的（真删前 keep 现算，服务端逐项核对），所以不会误删，但“有 N 个没人用”的数字可能已过时，用户据此决定。
+- 建议改法：切主题/分区时把非 `working` 的 `sweep` 回到 `idle`（`ask` 也回去，要求重新统计），与 `transferResult` 一致；组件卸载时无需处理（refs 随组件销毁）。
+
+## 7. [建议] `trackAssetWork` 在 `task` 同步抛出时计数永不归零
+- 位置：`theme-editor-model.ts` 约 424–429 行：`this.assetWork.value += 1; return task().finally(...)`。
+- 现象：`task()` 若同步抛错（不是返回 rejected Promise），`+= 1` 之后没有 `finally` 来 `-= 1`，`assetWork` 永远大于 0，“清理素材”永久停用。现在的四个调用方都是 async 函数，同步抛不出来，所以今天不会触发；这是个对未来调用方不安全的约定（注释写“所有写素材的入口都包一次”，意味着会有新入口）。
+- 建议改法：`async trackAssetWork<T>(task) { this.assetWork.value += 1; try { return await task(); } finally { this.assetWork.value -= 1; } }`。
+
+## 8. [建议] 界面：库读取失败时提示“我的主题还没读完”，且按钮可点
+- 位置：`ThemeEditor.vue` 清理按钮 `:disabled="… || !model.ready.value"`；`theme-editor-model.ts` `#keepNames`；`sweepNotReady` 文案。
+- 现象：`ready = applied || failure !== null`，读取失败（例如 `open` 失败）时 `ready` 为 true、按钮可点，点下去走到 `failure !== null` 返回 `not-ready`，文案是“我的主题还没读完，现在不能清理”，但此时主编辑区另有一行“库读取失败”。文案和事实不符。与 finding 1 同一处修：把按钮停用条件和拒绝原因统一到“库可读且可保存”（`canSave`），失败/受保护时写“我的主题读取失败或格式不兼容，现在不能清理”。
+
+## 9. [建议] 代码质量与治理
+- `theme-editor-model.ts` 的 `SweepPlan.reason` 一个字符串字段里混了客户端哨兵值（`"not-ready"`、`"too-many"`）和路由给的 `detail/code` 文本，`ThemeEditor.vue` 靠 `state.reason === "not-ready"` 判断显示哪句。路由的 `code` 若恰好叫 `too-many`（413 的 `too-large` 不同，但没有机制保证）就会被当成客户端哨兵。项目规则是“不按错误文案做程序分支，用错误类型或错误码”。建议 `{ok:false, kind:"not-ready"|"too-many"|"route", reason}`。
+- `assets.ts` `referencedAssetNames` 里的正则字面量 `/[0-9a-f]{64}\.(?:png|jpg|webp|svg)/gu` 与 `THEME_ASSET_FILE_NAME` 是同一个模式写两遍，再用后者 `.test` 复核一遍，等于死代码；将来素材多一种扩展名，只改一处就会静默漏 keep（保留不全就是误删）。建议由 `THEME_ASSET_FILE_NAME.source` 去掉 `^$` 构造，或只保留一个来源。
+- 语言包 `themeEditor.library.sweepWorking`（“处理中…”/“Working…”）定义了、进了 `locales.test.ts`，但全仓没有引用（`ThemeEditor.vue` 用 `:loading` 且按钮文字不变），是死键。
+- 英文文案 `sweepAsk`/`sweepDone`/`sweepDoneSkipped` 在 count 为 1 时是“1 unused assets”“Cleaned up 1 assets”，目录已支持 `_one/_other` 复数（`mergeContainer_one` 先例）；e2e 与最常见的实际情形正是 1 个。
+- `ThemeEditorHolder.md` 没有同步：“为什么自己发请求”一节列了持有者发的请求（导出读取、上传、`PUT theme-assets/theme-icons`），清理的 `POST theme-assets/sweep` 与 `trackAssetWork` 的包装没有写；该组件的标签 `io:mutate` 没错，但文档说的“这些由用户点‘导出’‘导入’‘上传’触发”不再完整。
+- Lab 夹具 `ThemeEditorFixture.vue` 的两个新桩是空结果，字段形状与接口一致（类型对得上，`vue-tsc -p tsconfig.web.json` 对 theme-editor 与 lab 没有报错），但永远只能走到“没有可清理的素材”，确认行、失败行、跳过行在 Lab 里看不到；计划写了要取证“统计提示与确认”，新增的界面状态没有 Lab 入口可审。建议让夹具按场景返回非空清单。
+
+## 未发现问题的方面（均已核实）
+- `base` 是订阅更新的已确认快照（`persisted.ts` 的 `#receive`），不会漏别的窗口已写入、本窗口没 `adopt` 的值；`JSON.stringify` 对 `readonly(reactive(...))` 代理与冻结对象正确（实验 `base-union.test.ts`：别的窗口写入后 A 的 `display` 为空而 `keep` 含全部素材名）。
+- 正则对嵌在更长字符串里（URL 片段、65 位十六进制）只会多留不会少留；大写十六进制不被保留，但服务端候选只认小写，不会被当候选，所以无影响。
+- `trackAssetWork` 的四个入口覆盖了全部写素材的路径：`SceneImageSlot`、`ThemeEditorIcons` 都经 `props.transfer`；全仓除 `transfer.ts` 的 `uploadAssets`（导入与复制，已整体被包住）外没有别处直接调 `uploadScene/uploadIcon` 或写 `theme-assets`；上传返回到写入声明之间只有微任务，没有宏任务间隙；失败时（返回 rejected 的 Promise）计数回 0（用例已覆盖）。
+- 确认期间再点“清理素材”：`ask`、`working` 时按钮停用；快速双击“清理”：第一次点击后 `working` 把确认行摘掉。组件卸载后 await 返回只改已销毁组件的 ref，无害；真删请求一旦发出，关闭编辑器不影响服务端完成。
+- 运行 `bun test src/plugins/workbench/theme-editor.test.ts src/plugins/workbench/locales.test.ts`：33 通过 0 失败；`vue-tsc -p tsconfig.web.json` 在 theme-editor 与 lab 范围内无错误（整体 `typecheck` 因 `unbash` 缺失在第一阶段失败，与本次无关）。
+- 语言包 zh-CN/en-US 与 `locales.test.ts` 表一致（占位符 `{{ }}` 与表里 `{ }` 的转换由测试负责）；样式变量（`--space-*`、`--text-xs`、`--status-danger`、`:empty` 去内边距）与相邻的 `.theme-editor__transfer` 一致；窄屏上按钮落在 `flex-wrap` 的库操作组里，不影响右上固定的明暗控件（从代码推断，未运行 e2e）。
+- e2e 用例测行为（目录里的文件集合），时间假设是 `utimes` 到两小时前与 30 分钟保护期，稳；它没测“上传进行中按钮停用”，注释已说明。
+
+## 数量
+阻断 1，重要 4，建议 4（合计 9 条，编号 1 至 9）。

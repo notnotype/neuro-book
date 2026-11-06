@@ -1,0 +1,71 @@
+# 后端实现审查：a3b086492
+
+### 1. 重要｜安全与正确性｜`packages/neuro-book/src/plugins/files/backend/theme-asset-sweep.ts:51-83`（相关：`backend/rooted.ts:241-268`）
+
+**现象**：清理只在开始时 `lstat(theme-assets)` 一次，随后直接用路径 `readdir`/`lstat`；目录被通用文件操作换成同一用户根内的符号链接后，扫描会跟随链接。`ownFiles.delete("user://theme-assets/<name>")` 的 `root.resolve` 也会跟随根内祖先链接，`expected` 只核对最终文件的 inode 等令牌，不核对 `theme-assets` 这个父目录项。
+
+**为什么是问题**：清理开始时是真实目录并不代表删除时仍是真实目录。若通用入口在两步之间把 `theme-assets` 改成指向 `user://other/` 的链接，`examine` 会把 `other/<name>` 当候选，随后删除会真实删掉 `other/<name>`；这不是“只碰 `theme-assets` 真实目录”。即使文件令牌匹配，父目录身份已变，令牌无法保护路径语义。
+
+**如何核实**：按代码顺序执行：真实 `theme-assets/old` 目录通过第 52–54 行；把它重命名、在原位置建指向同一 `user` 根下 `other` 的符号链接；第 68–70 行对链接目标 `lstat` 得到普通旧文件；第 83 行交给 `ownFiles.delete`，`rooted.ts` 第 185–193、257–268 行接受根内链接并对目标执行删除。
+
+**建议改法**：把目录项身份也纳入删除条件：在 Files 后端提供“父目录身份/不跟随祖先链接”的删除入口，或在同一受保护的目录句柄/锁内完成候选核对与 unlink；不能只给最终文件传 `entryToken`。
+
+### 2. 重要｜正确性｜`packages/neuro-book/src/plugins/files/backend/theme-asset-sweep.ts:52-70`
+
+**现象**：目录 `lstat` 的所有异常都被 `.catch(() => null)` 当成“目录不存在”，单项 `lstat` 的所有异常也都被当成 `not-file`；但 `readdir(directory)` 没有任何错误映射，失败会抛出到 Hono/dispatcher，变成通用 500。
+
+**为什么是问题**：合同只允许“确实不存在的目录”返回空清单；权限、I/O、根被替换或扫描期间目录消失都不能静默伪装成成功空操作。当前行为既会在权限/磁盘错误时向用户报告 200 空结果，也会把单项 I/O 错误报告成 `not-file`，而真正的 `readdir` 失败又没有 `{code, detail}` 的业务错误体，违反 Files 合同对资源消失、权限不足、服务不可用可区分的要求。虽然它偏保守不直接误删，但会吞掉诊断并让确认界面误判。
+
+**如何核实**：静态沿第 52–54、59–60、68 行检查异常路径；让 `theme-assets` 在初次 `lstat` 后被移走，或让目录不可读，`readdir` 的拒绝会经 `rethrowRouteError` 到 `createDispatcher` 的 147–151 行，响应是通用 `internal-error`；让单项 `lstat` 返回 EACCES/EIO，则响应只含 `skipped: {reason: "not-file"}`。
+
+**建议改法**：只把 `ENOENT` 映射为约定的空/`not-file`；其它 errno 映射到 Files 失败码并返回一致的 `code/detail`。扫描与每个候选查询都应保留具体失败原因，至少不要把权限和 I/O 折叠成不存在。
+
+### 3. 重要｜安全与性能｜`packages/neuro-book/src/plugins/files/backend/theme-asset-sweep.ts:46-72`
+
+**现象**：统计请求没有候选数或响应大小上限；`readdir` 得到目录内全部匹配名，排序后逐个串行 `lstat`，再把全部结果放进 `removable`。整个统计在 `ThemeAssetGuard` 的队列内执行，因此上传必须等完整扫描和响应构造结束。`keep`/`names` 的 8192 上限不能限制统计结果。
+
+**为什么是问题**：用户可经已有通用文件入口把任意数量的摘要名文件放进目录；一次统计即可造成无界磁盘扫描、内存和 HTTP 响应，且长时间饿死上传。实际实验（同机、真实 `addThemeAssetSweepRoute`，20,000 个匹配普通文件）耗时约 250 ms、响应约 1,800,015 字节；另一个同机 50,000 次串行 `lstat` 约 598 ms。数量继续增长时响应和锁占用线性增长，不能靠请求体 1 MiB 限制保护服务。
+
+**如何核实**：运行 `/tmp/review-w00041-t16-impl/lab-backend/measure-sweep-route.ts`（实验文件在指定目录），结果为 `{status:200, removable:20000, elapsedMs:250, responseBytes:1800015}`；代码第 68–72 行同时证明结果数组没有截断。
+
+**建议改法**：为统计结果定义明确上限并拒绝/分页，且让客户端按页确认；或在服务端限制目录候选总数并返回显式 `too-large`，不要构造无界结果。若仍保留一次统计，至少设置扫描预算并让超预算成为可区分失败，避免长扫描独占上传互斥。
+
+### 4. 重要｜安全与正确性｜`packages/neuro-book/src/plugins/files/backend/theme-asset-common.ts:38-43`、`theme-asset-sweep.ts:56-63`
+
+**现象**：保护期用墙上时钟直接计算：`line = now() - 30 分钟`，文件 `mtimeMs` 与上传返回时间都和它比较；默认时钟是 `Date.now`，没有检测时钟向前跳变。时钟回拨只会延长保护，时钟向前跳过 30 分钟会把刚写的文件判成旧文件。
+
+**为什么是问题**：保护期合同是覆盖“上传后到写入主题记录”的实际时间窗口，不是允许 NTP/人工校时把新文件立刻变成可删。若服务启动后系统时间向前调整 2 小时，刚写入且尚未进入 `keep` 的素材会满足 `mtimeMs <= line`，下一次统计就进入 `removable`，确认后可被删除。注入 `sources.now` 只让问题可测，生产默认 `Date.now` 同样受系统校时影响。
+
+**如何核实**：运行 `/tmp/review-w00041-t16-impl/lab-backend/measure-sweep-route.ts`；该实验创建刚写的文件，却把 `now` 注入为当前时间加 2 小时，统计立即返回全部 20,000 个文件为 removable。把注入时钟改成回拨则相反，会延长保护而不会误删。
+
+**建议改法**：上传返回保护使用单调时钟记录“剩余保护截止”，不要只保存可被回拨/跳前的绝对 `Date.now`；对 mtime 也应在检测到墙钟异常或 `mtimeMs > now`/大幅跳变时保守跳过，而不是继续按未来时间线删除。
+
+### 5. 建议｜测试｜`packages/neuro-book/src/plugins/files/theme-asset-route.test.ts:370-384`
+
+**现象**：并发互斥用例在同一个 `scene()` 中循环两个顺序。第一次 `upload-first` 会把该名字写入同一个 `ThemeAssetGuard` 的 `returned` 表；循环只用 `utimes` 把 mtime 调旧，没有清掉内存保护记录。因此第二次所谓 `sweep-first` 从一开始就因 `recent` 跳过，不能检验“清理先拿到候选、上传随后返回”的竞态。两次请求也没有可观察的时序栅栏，去掉 `guard.run` 后不保证必然失败。
+
+**为什么是问题**：计划明确把“与上传同时来、上传交出的地址始终指向存在文件”列为不变量；当前测试最多验证了顺序偶然成立或旧的 `returned` 记录保护了文件，不能证明互斥本身。删除互斥、或把检查/删除与上传交错的实现变异，可能存活。
+
+**如何核实**：逐行看第 377–383 行：第一轮 `put(PNG)` 触发 `returned(name)`，第二轮没有新建 `scene`；第 383 行只改磁盘 mtime，`ThemeAssetGuard.#returned` 不受影响。测试文件中没有直接构造失败队列、删除逐项 `failed/not-run/cancelled/skipped` 或并发栅栏的用例。
+
+**建议改法**：每个顺序用独立 `scene`/独立 guard；用真实文件服务可观察的操作完成点安排交错，再断言上传响应后的文件仍存在。补覆盖删除整次失败、逐项失败/未运行和 guard 前任务抛错后队尾继续运行的行为，避免只测成功路径。
+
+## 未发现问题的方面
+
+- 候选文件名的大小写、Unicode 普通字符、路径穿越、NUL、目录、符号链接与特殊文件：ASCII 小写精确匹配，`join` 不接受 `/`，最终项用 `lstat` 且只接受 `isFile()`；在不发生父目录替换竞态时，这些路径不会被纳入删除。
+- `keep` 与 `names` 的类型、单项名字校验、交集优先保留、重复 `names` 去重：重复不会导致多删，`keep` 命中会先返回 `kept`。
+- 请求体限额：Hono `bodyLimit` 在无 `Content-Length` 时先读流并超过 1 MiB 立即拒绝，有合法长度时先按长度拒绝后才进入 `c.req.json()`；JSON 形状与非法名字返回 400，超体积 413，符合 Spec。两个数组都装满 8192 项时可能先碰到 1 MiB，是合同中的两个独立上限，不是截断误删。
+- `ThemeAssetGuard.run` 的队列尾：任务成功、拒绝或抛错后都通过 `catch` 收口，后续任务仍会排队；上传新写入、命中同字节、写入冲突后同字节三个成功分支都调用 `returned()`，失败分支不调用。
+- HTTP 准入与接线：路由由 `nbook.files` 贡献并经统一 dispatcher；Host 与所有非 GET/HEAD 请求的 Origin 检查覆盖该 POST，包括 `text/plain` simple request，未发现这条路由新增跨站写入旁路。服务端本地/Agent 通过 HTTP 调用属于既有本机端口信任边界，未发现本提交扩大了调用者身份。
+- 删除结果的主要成功/失败路径：整次 `ServerFilesResult` 失败、逐项 `not-run`/`cancelled` 会返回 500 并保留已删项，逐项 `failed` 会进入 `skipped` 并携带底层 code；单项删除不会产生目录递归部分完成。
+- `theme-asset-common.ts` 的拆分没有形成运行时循环依赖；`entryToken` 是同一 files backend 内的受控入口，没有跨包深导入问题。注释主要解释互斥与保护期原因，未发现仅复述代码的关键新增注释。
+
+## 验证
+
+- `git diff 9e75c1dac a3b086492 -- <指定后端文件>` 已保存并通读，完整差异 516 行。
+- `bun test src/plugins/files/theme-asset-route.test.ts`：27 pass，0 fail，195 expect() calls。
+- `bun run typecheck`：未通过，7 diagnostics 全部位于 `src/plugins/agent/backend/permissions/bash-dialect.ts`，包括 2 个 `TS2307: Cannot find module 'unbash'` 和 5 个 `TS7006`；未落在本次审查的后端文件，不能据此判定本提交类型错误。
+
+## 数量
+
+阻断：0；重要：4；建议：1。
