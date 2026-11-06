@@ -13,6 +13,9 @@ import {CHECK_DIAGNOSTIC_IDS, DECISION_DIAGNOSTIC_IDS, FS_DIAGNOSTIC_IDS, MARK_I
 import type {Digest} from "../guards";
 import {perViewCache} from "../view-cache";
 
+/** 这条记录丢掉了几条引文对不上的答案（沿用的答案也算：补问一条不该让提示消失）。 */
+export const badQuotesOf = (record: CheckRecord) => record.calls.reduce((sum, call) => sum + (call.badQuotes ?? 0), 0);
+
 export interface CheckSource {
     all(): readonly CheckRecord[];
     /** 这条记录在这张视图上有效吗。 */
@@ -25,30 +28,33 @@ const joined = (items: readonly string[]) => [...new Set(items)].join("、");
 
 type Findings = Map<string, Finding[]>;
 
-/** 按键合并：同键的几条交给 `merge` 合成一条。 */
+/** 按键合并：文字的参数各自成列表，去重后用顿号连起来；数只留第一个（合并的几条是同一章同一段）。 */
 class Collector {
-    readonly #byKey = new Map<string, {id: string; finding: Finding}>();
+    readonly #byKey = new Map<string, {id: string; finding: Finding; texts: Map<string, string[]>}>();
     add(id: string, finding: Finding): void {
         const key = `${id}\u0000${JSON.stringify(finding.key)}`;
-        const existing = this.#byKey.get(key);
-        if (existing === undefined) {
-            this.#byKey.set(key, {id, finding});
-            return;
+        let held = this.#byKey.get(key);
+        if (held === undefined) {
+            held = {id, finding: {...finding, objects: [...finding.objects]}, texts: new Map()};
+            this.#byKey.set(key, held);
+        } else {
+            const objects = held.finding.objects as ObjectRef[];
+            for (const object of finding.objects) if (!objects.some((other) => other.kind === object.kind && other.id === object.id)) objects.push(object);
         }
-        const params: Record<string, string | number> = {...existing.finding.params};
         for (const [name, value] of Object.entries(finding.params)) {
-            const earlier = params[name];
-            if (earlier === undefined) params[name] = value;
-            else if (typeof value === "number" && typeof earlier === "number") params[name] = earlier === value ? earlier : earlier + value;
-            else if (!String(earlier).split("、").includes(String(value))) params[name] = `${String(earlier)}、${String(value)}`;
+            if (typeof value !== "string") continue;
+            const list = held.texts.get(name) ?? [];
+            if (!list.includes(value)) list.push(value);
+            held.texts.set(name, list);
         }
-        const objects = [...existing.finding.objects];
-        for (const object of finding.objects) if (!objects.some((other) => other.kind === object.kind && other.id === object.id)) objects.push(object);
-        existing.finding = {...existing.finding, objects, params};
     }
     done(): Findings {
         const out: Findings = new Map();
-        for (const {id, finding} of this.#byKey.values()) out.set(id, [...(out.get(id) ?? []), finding]);
+        for (const {id, finding, texts} of this.#byKey.values()) {
+            const params = {...finding.params};
+            for (const [name, list] of texts) params[name] = list.join("、");
+            out.set(id, [...(out.get(id) ?? []), {...finding, params}]);
+        }
         return out;
     }
 }
@@ -61,8 +67,8 @@ function decisionsOn(view: CanonReadView, point: string): ObjectRef[] {
         .map((decision) => ({kind: "decision" as const, id: decision.id}));
 }
 
-/** 本章有没有分叉（时间层答“有”，而本章没有分叉，才算疑似回溯没记）。 */
-const hasFork = (view: CanonReadView, chapter: string) => view.changes({chapter}).some((change: StoryChange) => change.nature === "fork" && change.status === "active");
+/** 本章有没有分叉（时间层答“有”，而本章没有分叉，才算疑似回溯没记）。分叉安放在父线上，回溯段的子线视图看不到它，所以不按线读。 */
+const hasFork = (view: CanonReadView, chapter: string) => view.allChanges().some((change: StoryChange) => change.nature === "fork" && change.status === "active" && change.at.kind === "chapter" && change.at.chapter === chapter);
 
 /** 本章有没有改了这个物件的已写变更（有就是 `objectTouched` 的事，不算“世界里没记”）。 */
 const touchedInWorld = (view: CanonReadView, chapter: string, object: string) => view.changes({chapter, kind: "written", status: "active"}).some((change: StoryChange) => change.patches.some((patch) => patch.at.entry === object));
@@ -94,14 +100,9 @@ function validFindings(view: CanonReadView, record: CheckRecord, digest: Digest,
             case "object": {
                 const answer = call.answer as ObjectAnswer;
                 if (answer.moved !== "yes" || !onHere(call.segment) || touchedInWorld(view, chapter, call.object!)) break;
-                // 依赖这个物件的每个伏笔各一条；键里的伏笔从视图读（题面写明了它们，所以它们变了记录就过期）。
-                const foreshadows = view.entries().filter((candidate) => candidate.deleted !== true && candidate.type === "伏笔").filter((candidate) => {
-                    const read = view.entry(candidate.id, {kind: "chapter", chapter, edge: "start"}, "actual");
-                    const objects = read === null || read === "chapter-not-found" ? undefined : read.namespaces.fs?.fields.物件?.value;
-                    return Array.isArray(objects) && objects.some((item: {id?: unknown}) => item.id === call.object);
-                });
-                for (const foreshadow of foreshadows) {
-                    out.add(FS_DIAGNOSTIC_IDS.objectTouchedInText, {key: {objects: [entry(foreshadow.id), entry(call.object!)], line: view.line, range: range(chapter), detail: digest(answer.quotes[0] ?? "")}, objects: [entry(foreshadow.id), entry(call.object!)], params: {chapter, before: answer.before, after: answer.after, who: answer.who, quotes: joined(answer.quotes)}});
+                // 依赖这个物件、已埋未回收的伏笔各一条：圈候选时定的，记在记录里，不在这里重新推导。
+                for (const foreshadow of call.foreshadows ?? []) {
+                    out.add(FS_DIAGNOSTIC_IDS.objectTouchedInText, {key: {objects: [entry(foreshadow), entry(call.object!)], line: view.line, range: range(chapter), detail: digest(answer.quotes[0] ?? "")}, objects: [entry(foreshadow), entry(call.object!)], params: {chapter, before: answer.before, after: answer.after, who: answer.who, quotes: joined(answer.quotes)}});
                 }
                 break;
             }
@@ -139,7 +140,7 @@ function validFindings(view: CanonReadView, record: CheckRecord, digest: Digest,
 
     const unasked = record.unasked.length;
     if (unasked + record.unlisted + record.uncast + record.incomplete.length > 0) out.add(CHECK_DIAGNOSTIC_IDS.unasked, {key: {range: range(chapter)}, objects: [], params: {chapter, unasked, unlisted: record.unlisted, uncast: record.uncast, incomplete: record.incomplete.join("、")}});
-    if (record.badQuotes > 0) out.add(CHECK_DIAGNOSTIC_IDS.badQuote, {key: {range: range(chapter)}, objects: [], params: {chapter, count: record.badQuotes}});
+    if (record.calls.some((call) => (call.badQuotes ?? 0) > 0)) out.add(CHECK_DIAGNOSTIC_IDS.badQuote, {key: {range: range(chapter)}, objects: [], params: {chapter, count: badQuotesOf(record)}});
     for (const point of record.noSuspense) out.add(CHECK_DIAGNOSTIC_IDS.noSuspense, {key: {objects: [entry(point)]}, objects: [entry(point)], params: {chapters: chapter}});
     for (const point of record.noReaderQuestion) out.add(CHECK_DIAGNOSTIC_IDS.noReaderQuestion, {key: {objects: [entry(point)]}, objects: [entry(point)], params: {chapters: chapter}});
 }

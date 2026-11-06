@@ -7,6 +7,8 @@ import {CHECK_DIAGNOSTIC_IDS as CHECK, DECISION_DIAGNOSTIC_IDS as DECISION, FS_D
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {addRow, chapter, drafts, PlotWorld, present} from "../../testing/world";
 import {failure, planOf, reported, ruleIds, run, runOk, scripted, USAGE} from "../../testing/checks";
+import {badQuotesOf, checkDiagnostics} from "./diagnostics";
+import {createLimiter} from "./run";
 import {isValid} from "./validity";
 import {digest} from "../../testing/checks";
 
@@ -130,7 +132,7 @@ describe("验收 2：试读与泄底", () => {
         expect(none.usage.judge).toBe(0);
         const d = baron();
         const invented = await runOk(d.w, "ch12", scripted((role) => (role === "reader" ? {guess: "管家", confidence: "certain", quotes: ["没有这句话的引文"]} : undefined)).models);
-        expect(invented.badQuotes).toBe(1);
+        expect(badQuotesOf(invented)).toBe(1);
         expect(invented.usage.judge).toBe(0);
         expect(reported(d.w, [invented])[CHECK.badQuote]).toBeDefined();
     });
@@ -201,7 +203,7 @@ describe("验收 4：新事实", () => {
         const record = await runOk(w, "ch5", scripted((_, request) => (request.answer === "fixed" ? {items: [{item: "ending", answer: "no", quotes: []}, {item: "不是规则项", answer: "yes", quotes: [quote]}], newFacts: [...many, {kind: "knowing", text: "假的", quotes: ["没有这句话的引文"]}]} : undefined)).models, scene);
         expect(record.newFacts.length).toBe(30);
         expect(record.unlisted).toBe(5);
-        expect(record.badQuotes).toBe(1);
+        expect(badQuotesOf(record)).toBe(1);
         expect(record.incomplete).toEqual([planOf(w, "ch5", scene).rules.find((rule) => rule.item.startsWith("avoid:"))!.item]);
         expect(reported(w, [record], scene)[CHECK.unasked]![0]!.params).toMatchObject({unlisted: 5});
         expect(reported(w, [record], scene)[CHECK.instructionViolated]).toBeUndefined();
@@ -213,7 +215,7 @@ describe("验收 5：引文对不上", () => {
         for (const quotes of [["没有这句话的引文"], [], ["他"]]) {
             const {w} = guardScene();
             const record = await runOk(w, "ch4", scripted((_, request) => (request.answer === "yesNo" && request.user.includes("把这件事当真") ? {answer: "yes", quotes} : undefined)).models);
-            expect(record.badQuotes).toBe(1);
+            expect(badQuotesOf(record)).toBe(1);
             expect(record.calls.find((call) => call.layer === "presence")!.answer).toEqual({answer: "unclear", quotes: []});
             expect(reported(w, [record])[CHECK.possibleSlip]).toBeUndefined();
             expect(reported(w, [record])[CHECK.badQuote]).toBeDefined();
@@ -221,7 +223,7 @@ describe("验收 5：引文对不上", () => {
         const {w} = guardScene();
         w.texts.set("ch4", `${SLIP}。\n旅人没有回答。\n`);
         const record = await runOk(w, "ch4", scripted((_, request) => (request.answer === "yesNo" && request.user.includes("把这件事当真") ? {answer: "yes", quotes: [`${SLIP}。\n旅人没有回答。`]} : undefined)).models);
-        expect(record.badQuotes).toBe(0);
+        expect(badQuotesOf(record)).toBe(0);
         expect(reported(w, [record])[CHECK.possibleSlip]).toBeDefined();
     });
 
@@ -239,7 +241,7 @@ describe("验收 5：引文对不上", () => {
         w.change(chapter("ch3"), {cast: [present(guard)], told: [{source: "chapter", chapter: "ch3", quote: "卫兵盘问"}]});
         w.change({kind: "chapter", chapter: "ch3", key: 0, line: r1}, {cast: [present(maid)], told: [{source: "chapter", chapter: "ch3", quote: "侍女端来茶"}]});
         const record = await runOk(w, "ch3", scripted((_, request) => (request.answer === "yesNo" && request.user.includes("把这件事当真") ? {answer: "yes", quotes: ["侍女端来茶，勇者接过"]} : undefined)).models);
-        expect(record.badQuotes).toBe(1);
+        expect(badQuotesOf(record)).toBe(1);
         const onR1 = record.calls.find((call) => call.segment === `${r1}#1` && call.layer === "presence")!;
         expect((onR1.answer as {answer: string}).answer).toBe("yes");
         const view = w.view();
@@ -304,7 +306,7 @@ describe("失败与重试", () => {
     test("角色用不了：不花钱，plot-check-unavailable", async () => {
         const {w} = guardScene();
         const {models, asked} = scripted(() => undefined, "role-unbound");
-        expect(await run(w, "ch4", models)).toMatchObject({ok: false, code: "plot-check-unavailable", detail: "role-unbound"});
+        expect(await run(w, "ch4", models)).toMatchObject({ok: false, code: "plot-check-unavailable", resolution: "role-unbound"});
         expect(asked).toEqual([]);
     });
 
@@ -354,6 +356,188 @@ describe("失败与重试", () => {
         const stopped = new AbortController();
         stopped.abort();
         expect(await run(w, "ch4", scripted().models, {signal: stopped.signal})).toMatchObject({ok: false, code: "plot-check-cancelled"});
+    });
+});
+
+describe("审查找到的（各是一个真实的反例）", () => {
+    test("判一致挂起时取消：信号传到判一致，马上收口，不等模型", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const k = w.point("管家是凶手", butler, {保密: "secret", 读者问题: "谁杀了男爵"});
+        w.change(chapter("ch12"), {told: [inText(w, "ch12", "管家擦拭沾血的手套")]});
+        w.change(chapter("ch20"), {kind: "plan", told: [{source: "outline", chapter: "ch20", anchor: "细纲", marks: [reveal(k, "explicit")]}]});
+        const controller = new AbortController();
+        const {models} = scripted((role) => (role === "reader" ? {guess: "管家", confidence: "strong", quotes: ["管家擦拭沾血的手套"]} : undefined));
+        const hanging: typeof models = {
+            available: models.available,
+            ask: (role, request, signal) => {
+                if (request.answer !== "judge") return models.ask(role, request, signal);
+                return new Promise((resolve) => {
+                    signal.addEventListener("abort", () => resolve(failure("cancelled", "cancelled")), {once: true});
+                    controller.abort();
+                });
+            },
+        };
+        expect(await run(w, "ch12", hanging, {signal: controller.signal})).toMatchObject({ok: false, code: "plot-check-cancelled"});
+    });
+
+    test("排队时取消：不等别的章腾出名额", async () => {
+        const limiter = createLimiter(1);
+        const release = Promise.withResolvers<void>();
+        const held = limiter.run(() => release.promise, new AbortController().signal);
+        const controller = new AbortController();
+        let ran = false;
+        const queued = limiter.run(() => {
+            ran = true;
+            return Promise.resolve();
+        }, controller.signal);
+        controller.abort();
+        expect(await queued).toBeNull();
+        expect(ran).toBe(false);
+        release.resolve();
+        await held;
+    });
+
+    test("名额腾出来时轮到排在前面的；取消的不占名额", async () => {
+        const limiter = createLimiter(1);
+        const first = Promise.withResolvers<void>();
+        const held = limiter.run(() => first.promise, new AbortController().signal);
+        const order: string[] = [];
+        const a = limiter.run(() => Promise.resolve(void order.push("a")), new AbortController().signal);
+        const b = limiter.run(() => Promise.resolve(void order.push("b")), new AbortController().signal);
+        first.resolve();
+        await Promise.all([held, a, b]);
+        expect(order).toEqual(["a", "b"]);
+    });
+
+    test("模型调用抛错：同批取消，算确定失败，不让别的调用继续花钱", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const people = Array.from({length: 18}, (_, index) => w.person(`人${String(index)}`));
+        w.point("保密的事", hero, {保密: "secret"});
+        w.texts.set("ch7", "勇者走进客栈。\n");
+        w.change(chapter("ch7"), {cast: people.map(present)});
+        let calls = 0;
+        const signals: AbortSignal[] = [];
+        const result = await run(w, "ch7", {available: () => Promise.resolve(null), ask: (_role, _request, signal) => {
+            calls += 1;
+            signals.push(signal);
+            return Promise.reject(new Error("坏了"));
+        }});
+        expect(result).toMatchObject({ok: false, code: "plot-check-failed"});
+        expect(calls).toBeLessThan(6);
+        expect(signals[0]!.aborted).toBe(true);
+    });
+
+    test("失败的用量等在途的调用都结束才取；调用次数含重试", async () => {
+        const {w} = guardScene();
+        const gate = Promise.withResolvers<void>();
+        const failed = await run(w, "ch4", {available: () => Promise.resolve(null), ask: async (_role, request) => {
+            if (request.answer === "fixed") {
+                await gate.promise;
+                return {ok: true, answer: {items: [], newFacts: []}, usage: USAGE};
+            }
+            if (request.user.includes("时间有没有")) {
+                gate.resolve();
+                return failure("fatal", "auth");
+            }
+            return {ok: true, answer: {answer: "no", quotes: []}, usage: USAGE};
+        }});
+        expect(failed).toMatchObject({ok: false, code: "plot-check-failed", kind: "auth"});
+        expect((failed as {usage: {input: number}}).usage.input).toBe(USAGE.input * 3);
+        const once = await runOk(w, "ch4", scripted((_, request, attempt) => (request.answer === "yesNo" && attempt === 1 ? failure("retryable") : undefined)).models);
+        expect(once.usage.narrow).toBe(4);
+    });
+
+    test("新事实：knowing 带世界里有的名字不丢（那个人当然在世界里）；invention 的 name 写涉及的人时不算查到新名字：报不报只看 name 是不是这个新名字；自陈按整项比，短名字不靠子串误中", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        w.person("小梅");
+        w.texts.set("ch5", "小梅说十一点在桥头见。\n");
+        const fact = (kind: "knowing" | "invention", name: string) => (_role: string, request: {answer: string; user: string}) => (request.answer === "fixed" ? {items: [], newFacts: [{kind, text: "约定", name, quotes: ["小梅说十一点在桥头见"]}]} : undefined);
+        const knowing = await runOk(w, "ch5", scripted(fact("knowing", "小梅")).models);
+        expect(knowing.newFacts.length).toBe(1);
+        const scene = {selfReport: selfReport("ch5", ["断桥残雪的故事"])};
+        const short = await runOk(w, "ch5", scripted(fact("invention", "桥")).models, scene);
+        expect(short.newFacts.length).toBe(1);
+        const exact = await runOk(w, "ch5", scripted(fact("invention", "断桥残雪的故事")).models, scene);
+        expect(exact.newFacts).toEqual([]);
+    });
+
+    test("引文拆成单字逐行：不算有效；真的跨两行的算；夹一行短的不算错", async () => {
+        const answerWith = (quote: string) => (_: string, request: {answer: string; user: string}) => (request.answer === "yesNo" && request.user.includes("把这件事当真") ? {answer: "yes", quotes: [quote]} : undefined);
+        const scene = () => {
+            const made = guardScene();
+            made.w.texts.set("ch4", `${SLIP}。\n嗯。\n旅人没有回答。\n`);
+            return made.w;
+        };
+        const a = scene();
+        const scattered = await runOk(a, "ch4", scripted(answerWith("卫\n兵\n勇\n者\n吧")).models);
+        expect(badQuotesOf(scattered)).toBe(1);
+        const b = scene();
+        const real = await runOk(b, "ch4", scripted(answerWith(`${SLIP}。\n嗯。\n旅人没有回答。`)).models);
+        expect(badQuotesOf(real)).toBe(0);
+    });
+
+    test("沿用答案时引文对不上的提示不消失", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const people = Array.from({length: 22}, (_, index) => w.person(`人${String(index)}`));
+        w.point("保密的事", hero, {保密: "secret"});
+        w.texts.set("ch7", "勇者走进客栈。\n");
+        w.change(chapter("ch7"), {cast: people.map(present)});
+        const first = await runOk(w, "ch7", scripted((_, request) => (request.answer === "yesNo" && request.user.includes("把这件事当真") ? {answer: "yes", quotes: ["没有这句话的引文"]} : undefined)).models);
+        expect(badQuotesOf(first)).toBeGreaterThan(0);
+        const second = await runOk(w, "ch7", scripted().models, {followUps: [first.unasked[0]!.id], reuse: first});
+        expect(badQuotesOf(second)).toBe(badQuotesOf(first));
+        expect(reported(w, [second], {followUps: [first.unasked[0]!.id]})[CHECK.badQuote]).toBeDefined();
+    });
+
+    test("回溯段在子线、分叉安放在主线：登记过分叉，时间层答有也不报疑似回溯", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        w.texts.set("ch1", "开头。\n");
+        const cut = w.change(chapter("ch1"));
+        w.texts.set("ch5", "前一段。\n时光倒回到了清晨。\n");
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch5")), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}}]);
+        const r1 = ids["tmp:r1"]!;
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch5", [{line: "main", from: 1}, {line: r1, from: 2}]]])});
+        const record = await runOk(w, "ch5", scripted((_, request) => (request.answer === "yesNo" && request.user.includes("时间有没有") && request.user.includes("时光倒回") ? {answer: "yes", quotes: ["时光倒回到了清晨"]} : undefined)).models);
+        const view = w.view().onLine(r1) as ReturnType<PlotWorld["view"]>;
+        const compute = checkDiagnostics({all: () => [record], valid: () => true}, digest)[CHECK.forkSuspected]!;
+        expect(compute(view, {kind: "chapter", chapter: "ch5", edge: "end"}, "actual")).toEqual([]);
+    });
+
+    test("物件层：已回收的伏笔不报（圈候选时定的，诊断只读记录）", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        const clock = w.thing("那座钟");
+        const open = w.foreshadow("钟慢了", {物件: [{id: clock}]});
+        const paid = w.foreshadow("钟的来历", {物件: [{id: clock}]});
+        w.change(chapter("ch2"), {told: [inText(w, "ch2", "钟慢了一刻", [node(open, "plant"), node(paid, "plant")])]});
+        w.change(chapter("ch3"), {told: [inText(w, "ch3", "钟的来历说破了", [node(paid, "payoff")])]});
+        const text = "她把那座钟拨回了正点";
+        w.texts.set("ch5", `${text}。\n`);
+        const record = await runOk(w, "ch5", scripted((_, request) => (request.answer === "object" ? {moved: "yes", quotes: [text], before: "慢", after: "准", who: "她"} : undefined)).models);
+        expect(reported(w, [record])[FS.objectTouchedInText]!.map((item) => (item.key.objects as {id: string}[])[0]!.id)).toEqual([open]);
+    });
+
+    test("被替代的揭示计划不算后面的揭示", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const k = w.point("管家是凶手", butler, {保密: "secret", 读者问题: "谁杀了男爵"});
+        w.texts.set("ch8", "管家端着茶。\n");
+        const old = w.change(chapter("ch20"), {kind: "plan", told: [{source: "outline", chapter: "ch20", anchor: "细纲", marks: [reveal(k, "explicit")]}]});
+        expect(planOf(w, "ch8").trials.length).toBe(1);
+        w.change(chapter("ch21"), {kind: "plan", links: [{kind: "replaces", plan: old}]});
+        expect(planOf(w, "ch8").trials).toEqual([]);
+    });
+
+    test("没有正文的段不问：不白花一次时间层", () => {
+        const w = new PlotWorld(CHAPTERS);
+        w.texts.set("ch1", "开头。\n");
+        const cut = w.change(chapter("ch1"));
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch2")), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}}]);
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch5", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 9}]]])});
+        w.texts.set("ch5", "只有一段。\n");
+        expect(planOf(w, "ch5").calls.filter((call) => call.layer === "time").map((call) => call.segment)).toEqual(["main#1"]);
     });
 });
 

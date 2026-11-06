@@ -10,6 +10,7 @@ import {ZERO_USAGE} from "../shared/checks";
 import type {plotModelContract} from "../shared/model";
 
 export const ASK_TIMEOUT_MS = 5 * 60 * 1000;
+const AVAILABLE_TIMEOUT_MS = 30 * 1000;
 
 /** 重试有用的错误类别；别的（`auth`、`quota`、`context_overflow`、`local`、解析失败的码）重试没有意义。 */
 const RETRYABLE = new Set(["network", "rate_limit", "provider"]);
@@ -18,8 +19,8 @@ const NOT_THERE = new Set(["not-provided", "denied", "version-changed", "wrong-c
 
 export function remoteCheckModels(use: RemoteUse<typeof plotModelContract>): CheckModels {
     return {
-        available: async () => {
-            const result = await use.available({});
+        available: async (signal) => {
+            const result = await use.available({}, {signal, timeout: AVAILABLE_TIMEOUT_MS});
             if (!result.ok) return result.code;
             return result.value.problem;
         },
@@ -34,7 +35,8 @@ export function remoteCheckModels(use: RemoteUse<typeof plotModelContract>): Che
                 case "answer":
                     return {ok: true, answer: outcome.answer, usage: outcome.usage};
                 case "length":
-                    return {ok: false, failure: "length", kind: "length", usage: outcome.usage};
+                    // 已经是模型的上限：再问一次还是同一个请求，白付一次。
+                    return {ok: false, failure: outcome.capped ? "fatal" : "length", kind: "length", usage: outcome.usage};
                 case "aborted":
                     return {ok: false, failure: "cancelled", kind: "aborted", usage: outcome.usage};
                 case "failed":

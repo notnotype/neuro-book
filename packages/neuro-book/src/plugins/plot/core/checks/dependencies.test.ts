@@ -180,18 +180,83 @@ describe("改了这一样，结论变了，摘要也变", () => {
         mustChange(w, () => w.publish([{ref: {kind: "entry", id: k}, after: {...stored, init: {...stored.init, name: "勇者右手有星形的疤"}}}]));
     });
 
-    test("讲支线的章：父线上切口之后的变化也算（带过去的值读父线）", () => {
+    test("讲支线的章：分叉定义在这一章之后时，边界到分叉所在章（线能不能建读切口）", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
         w.point("勇者左手有星形的疤", hero, {保密: "secret"});
-        w.texts.set("ch1", "开头。\n");
-        const cut = w.change(chapter("ch1"));
-        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch2")), nature: "fork", fork: {line: "tmp:r1", name: "支线", parent: "main", cut, type: "branch"}}}]);
-        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: ids["tmp:r1"]!, from: 1}]]])});
         w.texts.set("ch8", "勇者走进客栈。\n");
-        const before = deps(w, "ch8");
+        const cut = w.change(chapter("ch12"));
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch13")), nature: "fork", fork: {line: "tmp:r1", name: "支线", parent: "main", cut, type: "branch"}}}]);
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: ids["tmp:r1"]!, from: 1}]]])});
+        const stored = planOf(w, "ch8");
+        const before = deps(w, "ch8", {}, stored);
+        // 切口之前的事在分叉所在章之前：算。分叉之后的不算。
+        w.change(chapter("ch11"), {});
+        expect(deps(w, "ch8", {}, stored)).not.toBe(before);
+        const after = deps(w, "ch8", {}, stored);
         w.change(chapter("ch15"), {});
-        expect(deps(w, "ch8")).not.toBe(before);
+        expect(deps(w, "ch8", {}, stored)).toBe(after);
+    });
+});
+
+describe("审查找到的漏算（各是一个真实的反例）", () => {
+    test("核对点带明说揭示：读者知道了，试读没了", () => {
+        const {w, k} = book();
+        const thing = w.foreshadow("钟的伏笔");
+        w.texts.set("ch5", "勇者的手套滑落。\n");
+        mustChange(w, () => w.publish([{ref: {kind: "check", id: "tmp:check"}, after: {id: "tmp:check", at: {entry: thing, path: "fs.参考间隔"}, value: 3, told: {source: "chapter", chapter: "ch5", quote: "勇者的手套滑落", marks: [reveal(k, "explicit")]}, place: {kind: "chapter", chapter: "ch5", key: 20}}}]));
+    });
+
+    test("核对点的比较时点在本章：涉及本章的条目多了一个，它名下的秘密成了候选", () => {
+        const {w} = book();
+        const thing = w.foreshadow("钟的伏笔");
+        w.point("钟里藏着信", thing, {保密: "secret"});
+        mustChange(w, () => w.publish([{ref: {kind: "check", id: "tmp:check"}, after: {id: "tmp:check", at: {entry: thing, path: "fs.参考间隔"}, value: 3, told: {source: "note"}, place: {kind: "chapter", chapter: "ch8", key: 20}}}]));
+    });
+
+    test("出场更晚的伏笔：本章讲述上的节点读它的答案", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const guard = w.person("卫兵");
+        const k1 = w.point("疤", null, {保密: "secret"});
+        const k2 = w.point("信", null, {保密: "secret"});
+        const fs = w.publish([{ref: {kind: "entry", id: "tmp:lf"}, after: {...drafts.foreshadow("tmp:lf", "晚出场的悬念", {种类: "mystery", 答案: {ref: k1}}), appears: chapter("ch15")}}])["tmp:lf"]!;
+        w.texts.set("ch8", "勇者走进客栈，卫兵盘问。\n");
+        w.change(chapter("ch8"), {cast: [present(guard)], told: [{source: "chapter", chapter: "ch8", quote: "勇者走进客栈", marks: [node(fs, "plant")]}]});
+        mustChange(w, () => {
+            const stored = w.world.data.entries.get(fs)!;
+            w.publish([{ref: {kind: "entry", id: fs}, after: {...stored, init: {...stored.init, data: {fs: {...stored.init.data.fs!, fields: {...stored.init.data.fs!.fields, 答案: {ref: k2}}}}}}}]);
+        });
+    });
+
+    test("写作指示的视角人物写了更晚的出场：没出场不读他，改他的初值不影响计划", () => {
+        const {w, k} = book();
+        const late = w.publish([{ref: {kind: "entry", id: "tmp:lp"}, after: {...drafts.person("tmp:lp", "后来者"), appears: chapter("ch15")}}])["tmp:lp"]!;
+        const instruction: InstructionSnapshot = {chapter: "ch8", version: "v1", pov: {kind: "entry", id: late}, povMode: "first"};
+        mustStay(w, () => {
+            const stored = w.world.data.entries.get(late)!;
+            w.publish([{ref: {kind: "entry", id: late}, after: {...stored, init: {...stored.init, data: {...stored.init.data, know: {...stored.init.data.know!, fields: {...stored.init.data.know!.fields, 知情: [{id: k, 程度: "knows"}]}}}}}}]);
+        }, {instruction});
+    });
+
+    test("splitFrom 的 by 在后面的章：撤销 by，前面的计划不再计入", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const guard = w.person("卫兵");
+        const k = w.point("暗号", null, {保密: "secret"});
+        const goal = w.goal("查暗号", guard, {隐秘: {ref: k}});
+        w.texts.set("ch8", "勇者走进客栈，卫兵盘问。\n");
+        w.change(chapter("ch8"), {cast: [present(guard), present(hero)]});
+        const origin = w.change(chapter("ch3"), {kind: "plan"});
+        const by = w.change(chapter("ch18"), {links: [{kind: "fulfills", plan: origin}]});
+        w.change(chapter("ch3", 1), {kind: "plan", links: [{kind: "splitFrom", plan: origin, by}], patches: [{at: {entry: goal, path: "goal.状态"}, op: "set", value: "achieved"}]});
+        mustChange(w, () => w.publish([{ref: {kind: "change", id: by}, after: {...w.world.data.changes.get(by)!, status: "undone", undoneReason: "不要了"}}]));
+    });
+
+    test("出场更晚的条目的 retold 带明说揭示", () => {
+        const {w, k} = book();
+        const late = w.publish([{ref: {kind: "entry", id: "tmp:lr"}, after: {...drafts.thing("tmp:lr", "后来的钟"), appears: chapter("ch15")}}])["tmp:lr"]!;
+        w.texts.set("ch5", "勇者的手套滑落。\n");
+        mustChange(w, () => w.publish([{ref: {kind: "entry", id: late}, after: {...w.world.data.entries.get(late)!, retold: {"character.状态": [{source: "chapter", chapter: "ch5", quote: "勇者的手套滑落", marks: [reveal(k, "explicit")]}]}}}]));
     });
 });
 

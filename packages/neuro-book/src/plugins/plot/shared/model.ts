@@ -12,7 +12,8 @@ const Usage = Type.Object({input: Type.Number(), output: Type.Number(), cacheRea
 /** 一次调用的结果：只传错误的类别与码，不传错误文字（遮盖过，但没有必要过这条通道）。 */
 const AskOutcome = Type.Union([
     Type.Object({outcome: Type.Literal("answer"), answer: Type.Unknown(), usage: Usage}),
-    Type.Object({outcome: Type.Literal("length"), usage: Usage}),
+    /** 撞上输出上限。`capped`：这次已经是模型的上限，加大也没用。 */
+    Type.Object({outcome: Type.Literal("length"), capped: Type.Boolean(), usage: Usage}),
     Type.Object({outcome: Type.Literal("aborted"), usage: Usage}),
     Type.Object({outcome: Type.Literal("failed"), kind: Type.String(), usage: Usage}),
 ]);

@@ -221,9 +221,9 @@ const recordsByChapter = new Map<string, CheckRecord>();
 const emptySelf = {get: () => undefined, digestOf: () => undefined};
 const checkInstructions = {get: (chapter: string) => instructions.get(chapter), digestOf: (chapter: string) => (instructions.has(chapter) ? sha(JSON.stringify(instructions.get(chapter))) : undefined)};
 let writeBacks = 0;
-const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, writeBack: (record) => {
+const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, writeBack: (_original, updated) => {
     writeBacks += 1;
-    recordsByChapter.set(record.chapter, record);
+    recordsByChapter.set(updated.chapter, updated);
 }});
 const planned: number[] = [];
 const beforeRecords = process.memoryUsage().heapUsed;

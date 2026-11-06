@@ -161,6 +161,20 @@ describe("落盘的表", () => {
         expect(await store.load()).toMatchObject({ok: false});
     });
 
+    test("别处写过同一条记录：这次 conflict，下一次重读 revision 就写得进去，不永远卡住", async () => {
+        const a = await open("conflict");
+        await put(a.store, a.notes, "ch1", {chapter: "ch1", tone: "冷"});
+        a.close();
+        const path = join(root, "conflict", "project.sqlite");
+        const reader = await open("conflict");
+        const database = new Database(path);
+        database.run("UPDATE records SET revision = revision + 100 WHERE key = 'plot-note'");
+        database.close();
+        expect(await put(reader.store, reader.notes, "ch1", {chapter: "ch1", tone: "暖"})).toMatchObject({ok: false, code: "conflict"});
+        expect(await put(reader.store, reader.notes, "ch1", {chapter: "ch1", tone: "暖"})).toEqual({ok: true});
+        expect(reader.notes.get("ch1")?.tone).toBe("暖");
+    });
+
     test("写不进去的（超过上限）交回存储的失败码，内存不变", async () => {
         const {store, notes} = await open("large");
         const big = {chapter: "ch1", tone: "字".repeat(400_000)};

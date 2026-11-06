@@ -13,7 +13,7 @@ import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {compareIds} from "../core/ids";
 import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, rankBefore, type ChapterOrder} from "../core/position";
-import type {Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
+import type {Check, Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
 import {renderEntryForAgent} from "../render/entry";
@@ -120,6 +120,8 @@ export interface CanonReadView {
     changes(filter?: ChangeFilter): readonly StoryChange[];
     /** 存下来的全部剧情变更，不分线、不排序（判断依赖时要看全书；`changes` 带筛选与排序，一次要扫一遍再排一遍）。 */
     allChanges(): readonly StoryChange[];
+    /** 存下来的全部核对点（它们的讲述也算读者读过，比较时点也决定本章涉及的条目）。 */
+    allChecks(): readonly Check[];
     tellings(filter?: TellingFilter): readonly TellingItem[];
     presence(person: string, filter?: PresenceFilter): {readonly changes: readonly StoryChange[]; readonly uncast: number} | "chapter-not-found" | "line-not-found";
     decisions(filter?: DecisionFilter): readonly Decision[];
@@ -216,6 +218,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         // 这张视图是一条线的视图：默认只列这条线看得到的变更与讲述，套没套上与计划进展也按这条线算；要看别的线显式写筛选。
         changes: (filter = {}) => listChanges(world, {inView: line, worldline: line, ...filter}),
         allChanges: () => [...world.data.changes.values()],
+        allChecks: () => [...world.data.checks.values()],
         tellings: (filter = {}) => deepFreeze(listTellings(world, locator, filter).filter((item) => tellingInLine(world, line, item))),
         presence: (person, filter = {}) => listPresence(world, person, filter, undefined, line),
         decisions: (filter = {}) => listDecisions(world, filter),

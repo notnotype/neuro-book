@@ -59,13 +59,13 @@ function chapterIndex(view: CanonReadView, position: ReadPosition): number {
 /** 剧情线条目：变更的 `lines` 里挂着它（不是 `involves`），所以判章要用 `changes({line})`。 */
 export const PLOT_LINE_TYPE = "剧情线";
 
+const decisionLists = perViewCache<readonly Decision[]>();
+
 /**
  * 这条决策涉及这一章吗：挂的对象与本章涉及的条目相交（`entry` 与 `address` 的条目）、挂在本章上（`chapter`，或 `change` 安放在
  * 本章）、范围（`scope`，只给一端时按章序比）包含本章；挂的是剧情线条目时，这条线上本章有剧情变更也算（输出 9）。
  * `decision`、`diagnostic` 两种挂点不参与。
  */
-const decisionLists = perViewCache<readonly Decision[]>();
-
 function involves(view: CanonReadView, decision: Decision, chapter: string, index: number, entries: ReadonlySet<string>, mode: Mode): boolean {
     const {from, to} = decision.scope ?? {};
     if (from !== undefined || to !== undefined) {

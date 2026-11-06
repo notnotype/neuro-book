@@ -17,6 +17,7 @@ import type {ModelsWorld} from "nbook/plugins/models/testing/world";
 
 import {remoteCheckModels} from "./backend/check-models";
 import {plotModelImplementation} from "./backend/server";
+import {badQuotesOf} from "./core/checks/diagnostics";
 import {reported, runOk} from "./testing/checks";
 import {descriptor} from "./plugin";
 import type {CheckRecord} from "./shared/checks";
@@ -56,7 +57,7 @@ function report(name: string, record: CheckRecord, found: object): void {
     console.log(`\n===== ${name} =====`);
     for (const call of record.calls) console.log(`[${call.layer}] ${call.question.replace(/\n/gu, " ").slice(0, 160)}\n  -> ${JSON.stringify(call.answer)}`);
     console.log(`发现：${JSON.stringify(Object.fromEntries(Object.entries(found).map(([id, items]) => [id.replace("nbook.plot.", ""), (items as unknown[]).length])))}`);
-    console.log(`新事实：${JSON.stringify(record.newFacts)}；不完整：${JSON.stringify(record.incomplete)}；引文对不上：${String(record.badQuotes)}`);
+    console.log(`新事实：${JSON.stringify(record.newFacts)}；不完整：${JSON.stringify(record.incomplete)}；引文对不上：${String(badQuotesOf(record))}`);
     console.log(`用量：${JSON.stringify(record.usage)}`);
 }
 

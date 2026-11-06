@@ -6,12 +6,13 @@
  * - 写作指示、自陈的内容，补问清单，插件版本，算法版本，登记与历法；
  * - 章序：不晚于 N 的章 id 与各章讲的线，滚动；
  * - 正文：不晚于 N 的全部章，滚动（讲述的定位读全书，试读的材料也在其中）；
- * - 世界的前缀：**全部线**的变更按“最早的章”分桶。讲述先于安放的按讲述算（读者读到的），被某条已写变更 `fulfills` 的计划跟着那条变更（继承节点），
- *   `replaces`、`splitFrom` 两头取早的，未排章的与全部分叉算全局；每条的摘要按对象缓存（世界不可变），按章滚动；
- * - 条目：按出场分桶（没写出场的算全局），靠 `readAppeared` 成立：计划的路径上读不到出场晚于 N 的条目；
+ * - 世界的前缀：**全部线**的变更与核对点按“最早的章”分桶。讲述先于安放的按讲述算（读者读到的），被某条已写变更 `fulfills` 的计划跟着那条变更（继承节点），
+ *   `replaces`、`splitFrom`（连同它的 `by`）几头取早的，未排章的与全部分叉算全局；每条的摘要按对象缓存（世界不可变），按章滚动；
+ * - 条目：按出场与 `retold` 讲述取最早的章分桶（没写出场的算全局），靠 `readAppeared` 成立：计划的路径上读不到出场晚于 N 的条目。伏笔算全局：节点可以标在它的出场之前，
+ *   计划读它的答案不看出场；
  * - 决策：能涉及这一章的（挂在这一章、这一章的变更、这一章涉及的条目上，或范围覆盖这一章），只取计划读的字段；
  * - 后面的揭示：这一章涉及的知识点里，最晚的明说揭示在这一章之后的。
- * - 这一章讲的不是主线时，再加全书的摘要：带过去的值读父线，那边的索引按最新一章读，判断不了前缀。
+ * - 这一章讲支线时，N 再取到定义这条线（与它的祖先线）的分叉所在章：线能不能建读切口与触发处，它们不晚于分叉。
  *
  * 改了算法要加 `ALGORITHM`：旧记录的摘要对不上，重拼一次，仍有效就回写。
  */
@@ -19,6 +20,7 @@
 import {canonicalJson} from "@notnotype/nb-canon/schema";
 import type {CanonReadView, Placement, StoryChange} from "@notnotype/nb-canon/schema";
 
+import {ENTRY_TYPES} from "../../shared/declarations";
 import {PLOT_LINE_TYPE} from "../decisions";
 import type {Digest} from "../guards";
 import {perViewCache} from "../view-cache";
@@ -65,8 +67,11 @@ function bucketsOfChanges(view: CanonReadView, changes: readonly StoryChange[]):
                 const [own, other] = [buckets.get(change.id)!, buckets.get(link.plan)!];
                 if (link.kind === "fulfills") buckets.set(link.plan, Math.min(other, own));
                 else {
-                    buckets.set(link.plan, Math.min(other, own));
-                    buckets.set(change.id, Math.min(other, own));
+                    const early = Math.min(other, own);
+                    buckets.set(link.plan, early);
+                    buckets.set(change.id, early);
+                    // 拆出的计划计入与否看 `by` 那条兑现变更的状态（canon.model 输出 13），与位置无关：`by` 要跟着计划。
+                    if (link.kind === "splitFrom" && buckets.has(link.by)) buckets.set(link.by, Math.min(buckets.get(link.by)!, early));
                 }
             }
         }
@@ -97,6 +102,8 @@ interface WorldFold {
     /** 每个知识点最晚的明说揭示所在章。 */
     readonly reveals: ReadonlyMap<string, number>;
     readonly declarations: string;
+    /** 每条线到定义它与它的祖先线的分叉所在章里最晚的下标。 */
+    readonly lineBound: ReadonlyMap<string, number>;
 }
 
 const placementIndex = (view: CanonReadView, placement: Placement | undefined) => (placement === undefined || placement.kind !== "chapter" ? -1 : view.chapters.indexOf(placement.chapter));
@@ -135,23 +142,50 @@ const folds = perViewCache<WorldFold>();
 function worldFold(view: CanonReadView, digest: Digest): WorldFold {
     return folds(view, "", () => {
         const changeBuckets = bucketsOfChanges(view, view.allChanges());
-        const entryBuckets = new Map<number, string[]>();
+        const otherBuckets = new Map<number, string[]>();
+        const addOther = (bucket: number, value: object) => {
+            const list = otherBuckets.get(bucket);
+            if (list === undefined) otherBuckets.set(bucket, [objectDigest(value, digest)]);
+            else list.push(objectDigest(value, digest));
+        };
+        const toldIndex = (chapter: string | undefined) => (chapter === undefined ? undefined : view.chapters.indexOf(chapter));
         for (const entry of view.entries()) {
-            const bucket = placementIndex(view, entry.appears);
-            const list = entryBuckets.get(bucket);
-            if (list === undefined) entryBuckets.set(bucket, [objectDigest(entry, digest)]);
-            else list.push(objectDigest(entry, digest));
+            // 伏笔算全局：节点可以标在它的出场之前。
+            let bucket = entry.type === ENTRY_TYPES.foreshadow ? -1 : placementIndex(view, entry.appears);
+            // 条目上重述的讲述也是读者读到的。
+            for (const tellings of Object.values(entry.retold ?? {})) {
+                for (const telling of tellings) {
+                    const told = toldIndex(telling.chapter);
+                    if (told !== undefined && told !== -1 && told < bucket) bucket = told;
+                }
+            }
+            addOther(bucket, entry);
+        }
+        for (const check of view.allChecks()) {
+            // 核对点的讲述算读者读过，比较时点决定本章涉及的条目（canon.model 输出 20）：两头取早的。
+            const told = toldIndex(check.told.chapter);
+            const placed = placementIndex(view, check.place);
+            addOther(told === undefined || told === -1 ? placed : Math.min(placed === -1 ? told : placed, told), check);
         }
         const bucketDigest = (index: number) => {
             const ofChanges = (changeBuckets.get(index) ?? []).map((change) => objectDigest(change, digest)).sort();
-            const ofEntries = (entryBuckets.get(index) ?? []).sort();
-            return `${ofChanges.join("")}|${ofEntries.join("")}`;
+            const ofOthers = (otherBuckets.get(index) ?? []).sort();
+            return `${ofChanges.join("")}|${ofOthers.join("")}`;
         };
         const prefix: string[] = [digest(bucketDigest(-1))];
         for (const [index, chapter] of view.chapters.entries()) {
             prefix.push(digest(`${prefix[index]!}|${chapter}|${JSON.stringify(view.chapterLines(chapter))}|${view.chapterTextDigest(chapter) ?? ""}|${bucketDigest(index)}`));
         }
-        return {prefix, decisions: decisionFold(view, digest), reveals: revealTable(view), declarations: view.declarationsDigest()};
+        const summaries = new Map(view.lines().map((summary) => [summary.id, summary]));
+        const lineBound = new Map<string, number>();
+        for (const summary of summaries.values()) {
+            let bound = -1;
+            for (let line: typeof summary | undefined = summary; line !== undefined; line = summaries.get(line.parent)) {
+                bound = Math.max(bound, placementIndex(view, (view.object({kind: "change", id: line.fork}) as StoryChange | undefined)?.at));
+            }
+            lineBound.set(summary.id, bound);
+        }
+        return {prefix, decisions: decisionFold(view, digest), reveals: revealTable(view), declarations: view.declarationsDigest(), lineBound};
     });
 }
 
@@ -175,8 +209,7 @@ export function dependenciesOf(input: DependencyInput): string | null {
     if (here === -1) return null;
     const fold = worldFold(view, digest);
     const flashback = placementIndex(view, flashbackOf(input.instruction?.snapshot));
-    const bound = Math.max(here, flashback);
-    const onMain = view.chapterLines(chapter).every((segment) => segment.line === "main");
+    const bound = Math.max(here, flashback, ...view.chapterLines(chapter).map((segment) => fold.lineBound.get(segment.line) ?? -1));
     const {everywhere, byChapter, byEntry, scoped} = fold.decisions;
     const decisions = new Set([...everywhere, ...(byChapter.get(chapter) ?? [])]);
     for (const entry of input.concerns) for (const content of byEntry.get(entry) ?? []) decisions.add(content);
@@ -189,7 +222,6 @@ export function dependenciesOf(input: DependencyInput): string | null {
         selfReport: input.selfReport ?? null,
         followUps: input.followUps,
         prefix: fold.prefix[bound + 1]!,
-        whole: onMain ? null : fold.prefix[fold.prefix.length - 1]!,
         decisions: [...decisions].sort(),
         later: input.points.filter((point) => (fold.reveals.get(point) ?? -1) > here),
     }));

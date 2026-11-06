@@ -9,7 +9,7 @@
 import {Value} from "typebox/value";
 
 import {ANSWER_SCHEMAS, ZERO_USAGE} from "../../shared/checks";
-import type {AnswerKind, CallRecord, CheckRecord, CheckRequest, CheckRole, CheckUsage, FixedAnswer, ObjectAnswer, SelfReport, TrialAnswer, YesNoAnswer} from "../../shared/checks";
+import type {CallRecord, CheckRecord, CheckRequest, CheckRole, CheckUsage, FixedAnswer, ObjectAnswer, SelfReport, TrialAnswer, YesNoAnswer} from "../../shared/checks";
 import type {Digest} from "../guards";
 import {inputDigest, type CheckPlan, type PlannedCall} from "./plan";
 import {quoteIn} from "./segments";
@@ -23,33 +23,45 @@ export type AskResult =
 /** 宿主提供的模型调用（输出：记账 Agent 与试读模型）。 */
 export interface CheckModels {
     /** 两个角色都能用时为 null；否则是解析失败的码。不花钱。 */
-    available(): Promise<string | null>;
+    available(signal: AbortSignal): Promise<string | null>;
     ask(role: CheckRole, request: CheckRequest, signal: AbortSignal): Promise<AskResult>;
 }
 
-/** 项目实例一份的并发上限：批量重跑时总并发也受限。 */
+/** 项目实例一份的并发上限：批量重跑时总并发也受限。排队时信号触发就不等了（回 null），否则取消一章要等别的章腾出名额。 */
 export interface Limiter {
-    run<T>(work: () => Promise<T>): Promise<T>;
+    run<T>(work: () => Promise<T>, signal: AbortSignal): Promise<T | null>;
 }
 
 export function createLimiter(limit: number): Limiter {
     let active = 0;
-    const waiting: (() => void)[] = [];
+    const waiting = new Set<() => void>();
     return {
-        run: async (work) => {
-            if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+        run: async (work, signal) => {
+            if (active >= limit) {
+                await new Promise<void>((resolve) => {
+                    const done = () => {
+                        signal.removeEventListener("abort", done);
+                        waiting.delete(done);
+                        resolve();
+                    };
+                    waiting.add(done);
+                    signal.addEventListener("abort", done, {once: true});
+                });
+            }
+            if (signal.aborted) return null;
             active += 1;
             try {
                 return await work();
             } finally {
                 active -= 1;
-                waiting.shift()?.();
+                const next = waiting.values().next().value;
+                next?.();
             }
         },
     };
 }
 
-export type RunFailure = {readonly ok: false; readonly code: "plot-check-unavailable" | "plot-check-failed" | "plot-check-cancelled"; readonly detail?: string; readonly kind?: string; readonly usage: CheckUsage};
+export type RunFailure = {readonly ok: false; readonly code: "plot-check-unavailable" | "plot-check-failed" | "plot-check-cancelled"; readonly resolution?: string; readonly kind?: string; readonly usage: CheckUsage};
 
 export interface RunInput {
     readonly plan: CheckPlan;
@@ -85,46 +97,67 @@ function addUsage(total: CheckUsage, usage: CheckUsage): CheckUsage {
 const quotesHold = (quotes: readonly string[], paragraphs: readonly string[]) => quotes.length > 0 && quotes.every((quote) => quoteIn(paragraphs, quote));
 
 export async function runCheck(input: RunInput): Promise<{readonly ok: true; readonly record: CheckRecord} | RunFailure> {
-    const {plan, models, limiter, signal, digest} = input;
-    const unavailable = await models.available();
-    if (unavailable !== null) return {ok: false, code: "plot-check-unavailable", detail: unavailable, usage: ZERO_USAGE};
-
-    let total: CheckUsage = ZERO_USAGE;
-    // 立即放弃时取消同批在途的调用；取消（外面的信号）与放弃走同一个控制器，都不再往下跑。
+    const {models, signal} = input;
+    // 取消（外面的信号）与放弃（同批有一次确定失败）走同一个控制器，一直接到判一致结束。
     const batch = new AbortController();
     const relay = () => batch.abort();
     signal.addEventListener("abort", relay, {once: true});
     if (signal.aborted) batch.abort();
-    let failed: RunFailure | null = null;
-    const fail = (failure: RunFailure) => {
-        failed ??= failure;
+    try {
+        const unavailable = await models.available(batch.signal);
+        if (unavailable !== null) return {ok: false, code: signal.aborted ? "plot-check-cancelled" : "plot-check-unavailable", resolution: unavailable, usage: ZERO_USAGE};
+        return await runCalls(input, batch);
+    } finally {
+        signal.removeEventListener("abort", relay);
+    }
+}
+
+async function runCalls(input: RunInput, batch: AbortController): Promise<{readonly ok: true; readonly record: CheckRecord} | RunFailure> {
+    const {plan, models, limiter, signal, digest} = input;
+    let total: CheckUsage = ZERO_USAGE;
+    const counts = {narrow: 0, fixed: 0, trial: 0, judge: 0, reused: 0};
+    const countOf = (layer: string): keyof typeof counts => (layer === "fixed" ? "fixed" : layer === "reader" ? "trial" : layer === "judge" ? "judge" : "narrow");
+    let failed: {readonly code: RunFailure["code"]; readonly kind: string} | null = null;
+    const fail = (code: RunFailure["code"], kind: string) => {
+        failed ??= {code, kind};
         batch.abort();
     };
-    const failure = (code: RunFailure["code"], kind: string): RunFailure => ({ok: false, code, kind, usage: total});
+    /** 到此为止的结局。用量在所有在途的调用都结束以后才取，否则放弃那一刻还在途的调用不计。 */
+    const finished = (): RunFailure | null => {
+        if (failed !== null) return {ok: false, code: failed.code, kind: failed.kind, usage: total};
+        return signal.aborted ? {ok: false, code: "plot-check-cancelled", kind: "cancelled", usage: total} : null;
+    };
 
-    /** 调一次模型，按结果重试；失败时记下并返回 null。 */
-    const ask = async (role: CheckRole, request: CheckRequest): Promise<{readonly answer: unknown; readonly usage: CheckUsage} | null> => {
+    /** 调一次模型，按结果重试；失败时记下并返回 null。每次实际的调用都计数（输出 10）。 */
+    const ask = async (layer: string, role: CheckRole, request: CheckRequest): Promise<{readonly answer: unknown; readonly usage: CheckUsage} | null> => {
         let current = request;
         let retried = false;
         let lengthened = false;
         let spent: CheckUsage = ZERO_USAGE;
         for (;;) {
             if (batch.signal.aborted) return null;
-            const result = await limiter.run(async () => (batch.signal.aborted ? null : models.ask(role, current, batch.signal)));
+            let result: AskResult | null;
+            try {
+                result = await limiter.run(() => models.ask(role, current, batch.signal), batch.signal);
+            } catch (error) {
+                // 约定不抛错；真抛了按确定失败算，同批取消，不让别的调用继续花钱。
+                fail("plot-check-failed", `exception: ${error instanceof Error ? error.message : String(error)}`);
+                return null;
+            }
             if (result === null) return null;
+            counts[countOf(layer)] += 1;
             spent = addUsage(spent, result.usage);
             total = addUsage(total, result.usage);
             if (result.ok) {
-                if (Value.Check(ANSWER_SCHEMAS[request.answer as AnswerKind], result.answer)) return {answer: result.answer, usage: spent};
+                if (Value.Check(ANSWER_SCHEMAS[request.answer], result.answer)) return {answer: result.answer, usage: spent};
             } else if (result.failure === "cancelled" && signal.aborted) {
-                fail(failure("plot-check-cancelled", "cancelled"));
                 return null;
             } else if (result.failure === "fatal") {
-                fail(failure("plot-check-failed", result.kind));
+                fail("plot-check-failed", result.kind);
                 return null;
             } else if (result.failure === "length") {
                 if (lengthened) {
-                    fail(failure("plot-check-failed", "length"));
+                    fail("plot-check-failed", "length");
                     return null;
                 }
                 lengthened = true;
@@ -132,7 +165,7 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
                 continue;
             }
             if (retried) {
-                fail(failure("plot-check-failed", result.ok ? "invalid-answer" : result.kind));
+                fail("plot-check-failed", result.ok ? "invalid-answer" : result.kind);
                 return null;
             }
             retried = true;
@@ -140,37 +173,32 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
     };
 
     const reused = new Map((input.reuse?.calls ?? []).map((call) => [call.id, call]));
-    const counts = {narrow: 0, fixed: 0, trial: 0, judge: 0, reused: 0};
-    const countOf = (layer: string): keyof typeof counts => (layer === "fixed" ? "fixed" : layer === "reader" ? "trial" : layer === "judge" ? "judge" : "narrow");
-
     /** 一次调用：摘要相同的沿用上一条记录校验过的答案，不再调模型。 */
-    const resolve = async (call: {readonly id: string; readonly layer: string; readonly role: CheckRole; readonly request: CheckRequest; readonly digest: string}): Promise<{readonly answer: unknown; readonly usage: CheckUsage; readonly reused: boolean} | null> => {
+    const resolve = async (call: {readonly id: string; readonly layer: string; readonly role: CheckRole; readonly request: CheckRequest; readonly digest: string}): Promise<{readonly answer: unknown; readonly usage: CheckUsage; readonly earlier: CallRecord | null} | null> => {
         const previous = reused.get(call.id);
         if (previous !== undefined && previous.digest === call.digest) {
             counts.reused += 1;
-            return {answer: previous.answer, usage: ZERO_USAGE, reused: true};
+            return {answer: previous.answer, usage: ZERO_USAGE, earlier: previous};
         }
-        const answered = await ask(call.role, call.request);
-        if (answered === null) return null;
-        counts[countOf(call.layer)] += 1;
-        return {...answered, reused: false};
+        const answered = await ask(call.layer, call.role, call.request);
+        return answered === null ? null : {...answered, earlier: null};
     };
 
-    let badQuotes = 0;
     const answers = await Promise.all(plan.calls.map(async (call) => {
         const answered = await resolve(call);
         return answered === null ? null : {call, answered};
     }));
-    signal.removeEventListener("abort", relay);
-    if (signal.aborted && failed === null) return failure("plot-check-cancelled", "cancelled");
-    if (failed !== null) return failed;
+    const early = finished();
+    if (early !== null) return early;
 
     const calls: CallRecord[] = [];
     const incomplete: string[] = [];
     let newFacts: CheckRecord["newFacts"] = [];
     let unlisted = 0;
     const judges: {readonly point: string; readonly truth: string; readonly answer: TrialAnswer}[] = [];
-    const record = (call: PlannedCall, answer: unknown, usage: CheckUsage, wasReused: boolean) => {
+    const record = (call: PlannedCall, answer: unknown, answered: {readonly usage: CheckUsage; readonly earlier: CallRecord | null}, bad: number) => {
+        // 沿用的答案已经校验过（对不上的改成了看不出），这次查不出对不上的：丢了几条跟着上一条记录走，补问一条不该让提示消失。
+        const badQuotes = answered.earlier === null ? bad : (answered.earlier.badQuotes ?? 0);
         calls.push({
             id: call.id,
             layer: call.layer,
@@ -178,13 +206,15 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
             question: call.question,
             digest: call.digest,
             answer,
-            usage,
-            ...(wasReused ? {reused: true} : {}),
+            usage: answered.usage,
+            ...(answered.earlier === null ? {} : {reused: true}),
+            ...(badQuotes === 0 ? {} : {badQuotes}),
             ...(call.segment === undefined ? {} : {segment: call.segment}),
             ...(call.point === undefined ? {} : {point: call.point}),
             ...(call.person === undefined ? {} : {person: call.person}),
             ...(call.personName === undefined ? {} : {personName: call.personName}),
             ...(call.object === undefined ? {} : {object: call.object}),
+            ...(call.foreshadows === undefined ? {} : {foreshadows: [...call.foreshadows]}),
             ...(call.contradicts === undefined ? {} : {contradicts: call.contradicts}),
         });
     };
@@ -196,35 +226,31 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
             case "narration":
             case "time": {
                 const answer = answered.answer as YesNoAnswer;
-                if (answer.answer === "yes" && !quotesHold(answer.quotes, call.paragraphs)) {
-                    badQuotes += 1;
-                    record(call, {answer: "unclear", quotes: []} satisfies YesNoAnswer, answered.usage, answered.reused);
-                } else record(call, {answer: answer.answer, quotes: answer.answer === "yes" ? answer.quotes.map(clip) : []} satisfies YesNoAnswer, answered.usage, answered.reused);
+                if (answer.answer === "yes" && !quotesHold(answer.quotes, call.paragraphs)) record(call, {answer: "unclear", quotes: []} satisfies YesNoAnswer, answered, 1);
+                else record(call, {answer: answer.answer, quotes: answer.answer === "yes" ? answer.quotes.map(clip) : []} satisfies YesNoAnswer, answered, 0);
                 break;
             }
             case "object": {
                 const answer = answered.answer as ObjectAnswer;
-                if (answer.moved === "yes" && !quotesHold(answer.quotes, call.paragraphs)) {
-                    badQuotes += 1;
-                    record(call, {moved: "unclear", quotes: [], before: "", after: "", who: ""} satisfies ObjectAnswer, answered.usage, answered.reused);
-                } else record(call, {...answer, quotes: answer.moved === "yes" ? answer.quotes.map(clip) : []}, answered.usage, answered.reused);
+                if (answer.moved === "yes" && !quotesHold(answer.quotes, call.paragraphs)) record(call, {moved: "unclear", quotes: [], before: "", after: "", who: ""} satisfies ObjectAnswer, answered, 1);
+                else record(call, {...answer, quotes: answer.moved === "yes" ? answer.quotes.map(clip) : []}, answered, 0);
                 break;
             }
             case "fixed": {
                 const answer = answered.answer as FixedAnswer | {readonly items: FixedAnswer["items"]};
-                const items = checkRuleItems(plan, answer.items, incomplete, () => (badQuotes += 1));
-                const facts = "newFacts" in answer ? checkNewFacts(plan, answer.newFacts, input.names, input.selfReport, () => (badQuotes += 1)) : {kept: input.reuse?.newFacts ?? [], unlisted: input.reuse?.unlisted ?? 0};
+                let bad = 0;
+                const items = checkRuleItems(plan, answer.items, incomplete, () => (bad += 1));
+                const facts = "newFacts" in answer ? checkNewFacts(plan, answer.newFacts, input.names, input.selfReport, () => (bad += 1)) : {kept: input.reuse?.newFacts ?? [], unlisted: input.reuse?.unlisted ?? 0};
                 newFacts = facts.kept;
                 unlisted = facts.unlisted;
-                record(call, {items}, answered.usage, answered.reused);
+                record(call, {items}, answered, bad);
                 break;
             }
             case "reader": {
                 const answer = answered.answer as TrialAnswer;
                 const valid = answer.confidence !== "none" && quotesHold(answer.quotes, call.paragraphs);
-                if (answer.confidence !== "none" && !valid) badQuotes += 1;
                 const checked: TrialAnswer = valid ? {...answer, quotes: answer.quotes.map(clip)} : {guess: "", confidence: "none", quotes: []};
-                record(call, checked, answered.usage, answered.reused);
+                record(call, checked, answered, answer.confidence !== "none" && !valid ? 1 : 0);
                 // 看不出的不判一致（没有东西可判）。
                 if (valid) judges.push({point: call.point!, truth: plan.trials.find((trial) => trial.point === call.point)!.truth, answer: checked});
                 break;
@@ -239,11 +265,11 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
         const answered = await resolve(call);
         return answered === null ? null : {...call, point: judge.point, answered};
     }));
-    if (signal.aborted && failed === null) return failure("plot-check-cancelled", "cancelled");
-    if (failed !== null) return failed;
+    const late = finished();
+    if (late !== null) return late;
     for (const item of judged) {
         if (item === null) continue;
-        calls.push({id: item.id, layer: "judge", role: "ledger", question: "判一致", digest: item.digest, answer: item.answered.answer, usage: item.answered.usage, point: item.point, ...(item.answered.reused ? {reused: true} : {})});
+        calls.push({id: item.id, layer: "judge", role: "ledger", question: "判一致", digest: item.digest, answer: item.answered.answer, usage: item.answered.usage, point: item.point, ...(item.answered.earlier === null ? {} : {reused: true})});
     }
 
     return {
@@ -266,7 +292,6 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
             unlisted,
             uncast: plan.uncast,
             incomplete,
-            badQuotes,
             noSuspense: [...plan.noSuspense],
             noReaderQuestion: [...plan.noReaderQuestion],
             usage: {...counts, total},
@@ -299,20 +324,28 @@ function checkRuleItems(plan: CheckPlan, items: FixedAnswer["items"], incomplete
     return checked;
 }
 
-/** 新事实（输出 3）：按第一处引文归段；对不上的丢掉并计数；带 `name` 的查世界与自陈，查到就不算；超过上限的记未列。 */
+/** 自陈里一项（“陈老板：茶馆的老板”）按分隔符切开的几段：整段相等才算写了这个名字，短名字不靠子串误中。 */
+const reportedNames = (items: readonly string[]) => new Set(items.flatMap((item) => item.split(/[：:，,、；;。\s]+/u)).filter((part) => part !== ""));
+
+/**
+ * 新事实（输出 3）：按第一处引文归段；对不上的丢掉并计数；超过上限的记未列。只有 `invention` 查名字（世界里有、自陈写了就不算）：`knowing` 说的是有人按没记录的事行动，那个人当然在世界里。
+ * 作者自己写的章（没有自陈）没有写手，不报新编。
+ */
 function checkNewFacts(plan: CheckPlan, facts: FixedAnswer["newFacts"], names: ReadonlyMap<string, ReadonlySet<string>>, selfReport: SelfReport | undefined, bad: () => void): {readonly kept: CheckRecord["newFacts"]; readonly unlisted: number} {
     const kept: CheckRecord["newFacts"] = [];
     let unlisted = 0;
+    const reported = reportedNames(selfReport?.report.names ?? []);
     for (const fact of facts) {
         const home = fact.quotes.length === 0 ? undefined : plan.segments.find((segment) => quoteIn(segment.paragraphs, fact.quotes[0]!));
         if (home === undefined || !fact.quotes.every((quote) => plan.segments.some((segment) => quoteIn(segment.paragraphs, quote)))) {
             bad();
             continue;
         }
-        // 没有自陈的章是作者自己写的：没有写手，谈不上“写手新编了没说”（checks.md 输入）。
-        if (fact.kind === "invention" && selfReport === undefined) continue;
         const name = fact.name?.trim();
-        if (name !== undefined && name !== "" && (names.get(home.id)?.has(name) === true || selfReport?.report.names.some((reported) => reported.includes(name)) === true)) continue;
+        if (fact.kind === "invention") {
+            if (selfReport === undefined) continue;
+            if (name !== undefined && name !== "" && (names.get(home.id)?.has(name) === true || reported.has(name))) continue;
+        }
         if (kept.length >= MAX_NEW_FACTS) {
             unlisted += 1;
             continue;

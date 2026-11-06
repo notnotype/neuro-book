@@ -17,6 +17,8 @@ import type {ChapterTable, PlotStore} from "./store";
 export interface CheckFailure {
     readonly code: string;
     readonly kind?: string;
+    /** 模型解析失败的码（配哪个角色）。 */
+    readonly resolution?: string;
     readonly usage: CheckUsage;
 }
 
@@ -34,9 +36,10 @@ export interface ChecksInput {
     /** 写成功以后报新的数据版本（一处，否则 `pending` 命中旧缓存）。 */
     readonly changed: () => void;
     readonly stop: AbortSignal;
+    readonly warn: (event: string, detail: string) => void;
 }
 
-export type RunResult = {readonly ok: true; readonly record: CheckRecord} | {readonly ok: false; readonly code: string};
+export type RunResult = {readonly ok: true; readonly record: CheckRecord} | ({readonly ok: false} & CheckFailure);
 
 export function createChecks(input: ChecksInput) {
     const {canon, store, instructions, selfReports, checks, models, digest} = input;
@@ -51,12 +54,13 @@ export function createChecks(input: ChecksInput) {
     input.stop.addEventListener("abort", onStop, {once: true});
 
     const run = async (chapter: string, given: readonly string[] | undefined): Promise<RunResult> => {
-        if (running.has(chapter)) return {ok: false, code: "plot-check-busy"};
+        if (running.has(chapter)) return {ok: false, code: "plot-check-busy", usage: ZERO_USAGE};
+        if (input.stop.aborted) return {ok: false, code: "plot-check-cancelled", usage: ZERO_USAGE};
         const controller = new AbortController();
         running.set(chapter, controller);
         const fail = (failure: CheckFailure): RunResult => {
             failures.set(chapter, failure);
-            return {ok: false, code: failure.code};
+            return {ok: false, ...failure};
         };
         try {
             failures.delete(chapter);
@@ -77,7 +81,7 @@ export function createChecks(input: ChecksInput) {
             const names = namesOfSegments(view, chapter, instruction);
             const start = {worldVersion: view.version, textDigest: view.chapterTextDigest(chapter), pluginVersion: input.pluginVersion, dependencies};
             const result = await runCheck({plan, models, limiter, signal: controller.signal, digest, followUps, names, start, ...(selfReport === undefined ? {} : {selfReport}), ...(given !== undefined && previous !== undefined ? {reuse: previous} : {})});
-            if (!result.ok) return fail({code: result.code, ...(result.kind === undefined ? {} : {kind: result.kind}), usage: result.usage});
+            if (!result.ok) return fail({code: result.code, ...(result.kind === undefined ? {} : {kind: result.kind}), ...(result.resolution === undefined ? {} : {resolution: result.resolution}), usage: result.usage});
             const saved = await store.queued(async () => {
                 const written = await store.write(checks, chapter, result.record);
                 if (written.ok) input.changed();
@@ -85,6 +89,10 @@ export function createChecks(input: ChecksInput) {
             });
             if (!saved.ok) return fail({code: "plot-check-failed", kind: saved.code, usage: result.record.usage.total});
             return {ok: true, record: result.record};
+        } catch (error) {
+            // 约定不抛错；真抛了也要收口：调用方拿到失败，`status` 能查到，不留一个内部错误。
+            input.warn("plot.check.exception", String(error));
+            return fail({code: "plot-check-failed", kind: "exception", usage: ZERO_USAGE});
         } finally {
             running.delete(chapter);
         }

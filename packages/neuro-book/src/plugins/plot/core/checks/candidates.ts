@@ -111,6 +111,8 @@ export interface CandidateInput {
 export function candidatesOf(input: CandidateInput): Candidate[] {
     const {segment, chapter, points, written, instruction} = input;
     const {view, position, id: seg} = segment;
+    // 这一段没有正文：问模型没有意义。
+    if (segment.paragraphs.length === 0) return [];
     const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
     const knowing = knowingIndex(view, "actual", position);
     const secrets = secretPoints(view, points, position, end);
@@ -127,13 +129,15 @@ export function candidatesOf(input: CandidateInput): Candidate[] {
         }
     }
 
-    if (instruction?.pov !== undefined && (instruction.povMode === "first" || instruction.povMode === "limited")) {
+    // 视角人物还没出场时不读他：写作指示不经内核校验，读了就依赖出场晚于这一章的条目。
+    const povRead = instruction?.pov === undefined ? null : readAppeared(view, instruction.pov.id, end);
+    if (instruction?.pov !== undefined && povRead !== null && (instruction.povMode === "first" || instruction.povMode === "limited")) {
         const pov = instruction.pov.id;
-        const read = readAppeared(view, pov, end);
+        const read = povRead;
         for (const {point, truth, secrecy} of secrets) {
             const row = knowing.effective(pov, point);
             if (row !== null && row.程度 !== "unaware" && row.程度 !== "misbelieves" && row.程度 !== "forgot") continue;
-            found.push({id: `narration:${seg}:${point}`, layer: "narration", segment: seg, point, truth, secrecy, person: pov, personName: read?.name ?? pov, row});
+            found.push({id: `narration:${seg}:${point}`, layer: "narration", segment: seg, point, truth, secrecy, person: pov, personName: read.name, row});
         }
     }
 

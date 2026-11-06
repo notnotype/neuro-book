@@ -34,6 +34,7 @@ import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
 import {plotWorldContract} from "../shared/contracts";
 import {checkDiagnostics} from "../core/checks/diagnostics";
+import {readerKnown, revealDependencies, secretLedger} from "../core/checks/ledgers";
 import {createCheckSource} from "../core/checks/source";
 import {CheckRecordSchema, plotChecksContract, SelfReportSchema, type CheckRecord, type SelfReport} from "../shared/checks";
 import {plotModelContract} from "../shared/model";
@@ -82,6 +83,14 @@ type Viewpoints = Map<string, {readonly token: string; readonly grant: Viewpoint
 const CLOSED_KEPT = 100;
 let viewpointSequence = 0;
 
+/** 读取位置那条线的视图（worldlines 输出 12）：位置写了线用写的，不写按活页夹那一章讲的线。线读不到（不存在、实际模式下的计划线、不可建）是 `line-not-found`。 */
+function lineViewOf(view: CanonReadView, position: ReadPosition, mode: Mode): CanonReadView | Failure {
+    const line = view.positionLine(position, mode);
+    if (line === view.line) return view;
+    const found = view.onLine(line, mode);
+    return "code" in found ? fail(found.code) : found;
+}
+
 function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: ChapterTable<InstructionSnapshot> | null): RemoteImplementation<typeof plotWorldContract> {
     const closed = new Map<string, {readonly viewer: string | null; readonly purpose: string}>();
     /** 取一份快照，在同一个同步段里算完。 */
@@ -89,16 +98,6 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: C
         const snapshot = await canon.snapshot();
         if ("code" in snapshot) return fail(snapshot.code);
         return run(snapshot.view);
-    };
-    /**
-     * 读取位置那条线的视图（worldlines 输出 12）：位置写了线用写的，不写按活页夹那一章讲的线。线读不到（不存在、实际模式下的
-     * 计划线、不可建）是 `line-not-found`。
-     */
-    const lineViewOf = (view: CanonReadView, position: ReadPosition, mode: Mode): CanonReadView | Failure => {
-        const line = view.positionLine(position, mode);
-        if (line === view.line) return view;
-        const found = view.onLine(line, mode);
-        return "code" in found ? fail(found.code) : found;
     };
     /**
      * 带视角句柄的读取：取一份快照，在它上面建这张视图，同步算完。句柄不在（关了、别人的、从没有过）就是 `view-denied`，并记进
@@ -234,7 +233,7 @@ export const plotProjectPlugin: PluginDefinition = {
             const instructions = store.table<InstructionSnapshot>({key: "plot-instruction", shape: 1, schema: InstructionSnapshotSchema});
             const selfReports = store.table<SelfReport>({key: "plot-self-report", shape: 1, schema: SelfReportSchema});
             // 依赖的摘要不算内容：回写它不改数据版本。
-            const records = store.table<CheckRecord>({key: "plot-check", shape: 1, schema: CheckRecordSchema, contentOf: ({dependencies: _dependencies, ...content}) => content});
+            const records = store.table<CheckRecord>({key: "plot-check", shape: 1, schema: CheckRecordSchema, contentOf: ({dependencies: _dependencies, points: _points, concerns: _concerns, ...content}) => content});
             const failed = await store.load(context.signal);
             const usable = failed === null;
             if (!usable) warn("plot.store.unavailable", `${failed.code}: ${failed.detail}`);
@@ -245,10 +244,15 @@ export const plotProjectPlugin: PluginDefinition = {
                 selfReports,
                 pluginVersion: descriptor.version,
                 digest,
-                writeBack: (record) => void store.queued(() => store.write(records, record.chapter, record)).catch((error: unknown) => warn("plot.store.write-back", String(error))),
+                writeBack: (original, updated) => void store.queued(async () => {
+                    // 排队期间跑了新的检查：不把它换回旧记录。
+                    if (records.get(original.chapter) !== original) return;
+                    const written = await store.write(records, original.chapter, updated);
+                    if (!written.ok) warn("plot.store.write-back", `${written.code}: ${written.detail}`);
+                }).catch((error: unknown) => warn("plot.store.write-back", String(error))),
             });
             canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? {...instructionDiagnostics(instructions), ...checkDiagnostics(source, digest)} : {})}, dataVersion: store.dataVersion});
-            const checks = createChecks({canon, store, instructions, selfReports, checks: records, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps, concerned) => source.dependencies(view, chapter, followUps, concerned) ?? "", changed: report, stop: context.signal});
+            const checks = createChecks({canon, store, instructions, selfReports, checks: records, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps, concerned) => source.dependencies(view, chapter, followUps, concerned) ?? "", changed: report, stop: context.signal, warn});
             context.scope.register({kind: "plot-checks", label: `${descriptor.id} checks`, value: checks, release: (value) => value.release()});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();
@@ -303,7 +307,7 @@ export const plotProjectPlugin: PluginDefinition = {
                     run: async (input) => {
                         if (!usable) return fail("storage-unavailable");
                         const result = await checks.run(input.chapter, input.followUps);
-                        if (!result.ok) return fail(result.code);
+                        if (!result.ok) return {ok: false as const, code: "plot" as const, detail: {code: result.code, usage: result.usage, ...(result.kind === undefined ? {} : {kind: result.kind}), ...(result.resolution === undefined ? {} : {resolution: result.resolution})}};
                         const {record} = result;
                         return {ok: true as const, value: {chapter: record.chapter, calls: record.calls.length, unasked: record.unasked.length, incomplete: record.incomplete.length, usage: record.usage}};
                     },
@@ -313,11 +317,33 @@ export const plotProjectPlugin: PluginDefinition = {
                     },
                     status: (input) => ({ok: true as const, value: checks.status(input.chapter)}),
                     record: async (input) => {
+                        // 读不出来时不能回“没跑过”：不知道有没有。
+                        if (!usable) return fail("storage-unavailable");
                         const record = records.get(input.chapter);
                         if (record === undefined) return {ok: true as const, value: {status: "none" as const, record: null}};
                         const snapshot = await canon.snapshot();
                         if ("code" in snapshot) return fail(snapshot.code);
                         return fitted({status: source.valid(snapshot.view, record) ? ("valid" as const) : ("stale" as const), record});
+                    },
+                    secretLedger: async (input) => {
+                        const snapshot = await canon.snapshot();
+                        if ("code" in snapshot) return fail(snapshot.code);
+                        const position = (input.position ?? latest(snapshot.view)) as ReadPosition;
+                        const mode = input.mode ?? "actual";
+                        const view = lineViewOf(snapshot.view, position, mode);
+                        if ("ok" in view) return view;
+                        if (view.positionKey(position) === null) return fail("chapter-not-found");
+                        return pagedList(view, secretLedger(view, position, mode), input, {method: "secretLedger", position, mode});
+                    },
+                    readerKnown: async (input) => {
+                        const snapshot = await canon.snapshot();
+                        if ("code" in snapshot) return fail(snapshot.code);
+                        return pagedList(snapshot.view, readerKnown(snapshot.view), input, {method: "readerKnown"});
+                    },
+                    revealDependencies: async (input) => {
+                        const snapshot = await canon.snapshot();
+                        if ("code" in snapshot) return fail(snapshot.code);
+                        return fitted({version: snapshot.view.version, inputDigest: snapshot.view.stamp.inputDigest, ...revealDependencies(snapshot.view, input.point, usable ? instructions.all() : [])});
                     },
                 },
                 events: {},

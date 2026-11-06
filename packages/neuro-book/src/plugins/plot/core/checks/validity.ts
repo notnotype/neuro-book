@@ -8,7 +8,7 @@ import type {CanonReadView} from "@notnotype/nb-canon/schema";
 import type {CheckRecord, SelfReport, TrialAnswer} from "../../shared/checks";
 import type {InstructionSnapshot} from "../../shared/instructions";
 import type {Digest} from "../guards";
-import {inputDigest, planCheck} from "./plan";
+import {inputDigest, planCheck, type CheckPlan} from "./plan";
 import {judgeRequest} from "./trial";
 
 export interface ValidityInput {
@@ -19,18 +19,23 @@ export interface ValidityInput {
     readonly digest: Digest;
 }
 
-export function isValid(input: ValidityInput): boolean {
+/** 结论连同重拼出的计划（仍有效时，回写要用它现在涉及的知识点与条目）；章或线读不到时没有计划。 */
+export function validityOf(input: ValidityInput): {readonly valid: boolean; readonly plan: CheckPlan | null} {
     const {view, record, digest} = input;
     const plan = planCheck({view, chapter: record.chapter, followUps: record.followUps, digest, ...(input.instruction === undefined ? {} : {instruction: input.instruction}), ...(input.selfReport === undefined ? {} : {selfReport: input.selfReport})});
-    if ("code" in plan) return false;
+    if ("code" in plan) return {valid: false, plan: null};
     const expected = new Map(plan.calls.map((call) => [call.id, call.digest]));
     for (const call of record.calls) {
         if (call.layer !== "reader") continue;
         const answer = call.answer as TrialAnswer;
         if (answer.confidence === "none") continue;
         const truth = plan.trials.find((trial) => trial.point === call.point)?.truth;
-        if (truth === undefined) return false;
+        if (truth === undefined) return {valid: false, plan};
         expected.set(`judge:${call.point!}`, inputDigest(judgeRequest(truth, answer), digest));
     }
-    return expected.size === record.calls.length && record.calls.every((call) => expected.get(call.id) === call.digest);
+    return {valid: expected.size === record.calls.length && record.calls.every((call) => expected.get(call.id) === call.digest), plan};
+}
+
+export function isValid(input: ValidityInput): boolean {
+    return validityOf(input).valid;
 }

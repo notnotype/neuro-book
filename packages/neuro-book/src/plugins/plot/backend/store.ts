@@ -22,7 +22,7 @@ import {Value} from "typebox/value";
 
 import {CANON_BUDGET_BYTES} from "nbook/plugins/canon/shared/contracts";
 import {defineRecord} from "nbook/shared/storage";
-import type {RecordDefinition, RecordHandle, Revision, StorageFailure, StorageService} from "nbook/shared/storage";
+import type {RecordDefinition, RecordHandle, RecordSnapshot, Revision, StorageFailure, StorageService} from "nbook/shared/storage";
 
 /** 插件自己的数据版本前缀；后面接表内容的摘要，空表是 `1`。 */
 export const PLOT_DATA_VERSION = "1";
@@ -108,29 +108,24 @@ export class ChapterTable<T> {
         this.#version = digests.length === 0 ? PLOT_DATA_VERSION : `${PLOT_DATA_VERSION}+${sha(canonicalJson(digests))}`;
     }
 
-    async #slot(chapter: string): Promise<Slot | StoreFailure> {
-        const existing = this.#slots.get(chapter);
-        if (existing !== undefined) return existing;
+    /** 打开并读这一章（`revision` 要读了才知道：没读就保存，已有记录时永远 `conflict`）。 */
+    async #open(chapter: string): Promise<{readonly slot: Slot; readonly snapshot: RecordSnapshot<Envelope> & {readonly status: "missing" | "ok" | "corrupt" | "unsupported-version"}} | StoreFailure> {
         const opened = await this.storage.open(this.#record, resourceOf(chapter));
         if (!opened.ok) return opened;
-        const slot: Slot = {handle: opened.handle, revision: null, broken: false};
+        const snapshot = await opened.handle.read();
+        if (snapshot.status === "error") return {ok: false, code: snapshot.code, detail: snapshot.detail};
+        const slot: Slot = {handle: opened.handle, revision: snapshot.revision, broken: snapshot.status === "corrupt" || snapshot.status === "unsupported-version"};
         this.#slots.set(chapter, slot);
-        return slot;
+        return {slot, snapshot};
     }
 
     /** 读回一章。读取失败（不是缺失）交回失败：那时不知道这一章有没有记录，不能当没有。 */
     async load(chapter: string): Promise<StoreFailure | null> {
-        const slot = await this.#slot(chapter);
-        if ("ok" in slot) return slot;
-        const snapshot = await slot.handle.read();
-        if (snapshot.status === "error") return {ok: false, code: snapshot.code, detail: snapshot.detail};
-        if (snapshot.status === "missing") {
-            slot.revision = snapshot.revision;
-            return null;
-        }
-        slot.revision = snapshot.revision;
+        const opened = await this.#open(chapter);
+        if ("ok" in opened) return opened;
+        const {snapshot} = opened;
+        if (snapshot.status === "missing") return null;
         if (snapshot.status !== "ok") {
-            slot.broken = true;
             this.warn("plot.store.broken", `${this.options.key} ${chapter}: ${snapshot.detail}`);
             return null;
         }
@@ -148,8 +143,9 @@ export class ChapterTable<T> {
 
     /** 由 `PlotStore` 的队列调用：写盘，成功后改内存。 */
     async write(chapter: string, value: T | null): Promise<{readonly ok: true} | StoreFailure> {
-        const slot = await this.#slot(chapter);
-        if ("ok" in slot) return slot;
+        const opened = this.#slots.get(chapter) ?? await this.#open(chapter);
+        if ("ok" in opened) return opened;
+        const slot = "slot" in opened ? opened.slot : opened;
         if (value === null && slot.revision === null) {
             this.#rows.delete(chapter);
             this.#refreshVersion();
@@ -159,7 +155,7 @@ export class ChapterTable<T> {
         const expect = {expect: slot.revision};
         const written = value === null ? await slot.handle.remove(expect) : slot.broken ? await slot.handle.reset(envelope, expect) : await slot.handle.save(envelope, expect);
         if (!written.ok) {
-            // 别处写过（`conflict`）：下一次写之前重读 revision，不让这一条永远写不进去。
+            // 别处写过（`conflict`）：丢掉记下的 revision，下一次写之前重读，不让这一条永远写不进去。
             if (written.code === "conflict") this.#slots.delete(chapter);
             return written;
         }
@@ -243,7 +239,15 @@ export class PlotStore {
         const next = {chapters: [...this.#listed, chapter].sort()};
         const expect = {expect: this.#listRevision};
         const written = this.#listBroken ? await this.#listHandle.reset(next, expect) : await this.#listHandle.save(next, expect);
-        if (!written.ok) return written;
+        if (!written.ok) {
+            // 别处写过：重读，下一次写接着它的内容，不把别人的章盖掉。
+            if (written.code === "conflict") {
+                const current = await this.#listHandle.read();
+                if (current.status !== "error") this.#listRevision = current.revision;
+                if (current.status === "ok") for (const known of current.value.chapters) this.#listed.add(known);
+            }
+            return written;
+        }
         this.#listRevision = written.revision;
         this.#listBroken = false;
         this.#listed.add(chapter);

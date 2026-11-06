@@ -62,7 +62,8 @@ describe("nbook.plot/model 的提供方", () => {
         const failed = await outcome({stopReason: "error", toolCalls: [], error: {kind: "auth", message: "bad key sk-secret"}}) as Record<string, unknown>;
         expect(failed).toMatchObject({outcome: "failed", kind: "auth"});
         expect(JSON.stringify(failed)).not.toContain("sk-secret");
-        expect(await outcome({stopReason: "length"})).toMatchObject({outcome: "length"});
+        expect(await outcome({stopReason: "length"})).toMatchObject({outcome: "length", capped: true});
+        expect(await plotModelImplementation(port({stopReason: "length"}).value, self).methods.ask({...ASK, maxTokens: 100}, context)).toMatchObject({value: {outcome: "length", capped: false}});
         expect(await outcome({stopReason: "aborted", toolCalls: []})).toMatchObject({outcome: "aborted"});
         expect(await outcome({stopReason: "stop", toolCalls: []})).toMatchObject({outcome: "answer", answer: null});
         expect(await plotModelImplementation(port({}, "no-credentials").value, self).methods.ask(ASK, context)).toMatchObject({ok: true, value: {outcome: "failed", kind: "no-credentials"}});

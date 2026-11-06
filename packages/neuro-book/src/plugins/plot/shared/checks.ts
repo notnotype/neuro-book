@@ -2,6 +2,7 @@
  * 写完以后的检查（docs/specs/plot/checks.md）的共用形状与远程合同 `nbook.plot/checks`。
  */
 
+import {ReadPositionSchema} from "@notnotype/nb-canon/schema";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
 import type {Static} from "typebox";
@@ -83,9 +84,14 @@ const CallRecord = Type.Object({
     person: Type.Optional(Type.String()),
     personName: Type.Optional(Type.String()),
     object: Type.Optional(Type.String()),
+    foreshadows: Type.Optional(Type.Array(Type.String())),
     contradicts: Type.Optional(Type.Boolean()),
+    /** 这次调用丢掉了几条引文对不上的答案；沿用时跟着沿用。 */
+    badQuotes: Type.Optional(Type.Integer()),
 });
 export type CallRecord = Static<typeof CallRecord>;
+
+const CheckUsageCounts = Type.Object({narrow: Type.Integer(), fixed: Type.Integer(), trial: Type.Integer(), judge: Type.Integer(), reused: Type.Integer(), total: UsageSchema});
 
 /** 一条检查记录（checks.md 输出 7）。模型调用的输入不存，只存摘要。 */
 export const CheckRecordSchema = Type.Object({
@@ -109,15 +115,16 @@ export const CheckRecordSchema = Type.Object({
     unlisted: Type.Integer(),
     uncast: Type.Integer(),
     incomplete: Type.Array(Type.String()),
-    badQuotes: Type.Integer(),
     noSuspense: Type.Array(Type.String()),
     noReaderQuestion: Type.Array(Type.String()),
     /** 费用的记录（输出 10）：这次实际调模型的次数与用量。 */
-    usage: Type.Object({narrow: Type.Integer(), fixed: Type.Integer(), trial: Type.Integer(), judge: Type.Integer(), reused: Type.Integer(), total: UsageSchema}),
+    usage: CheckUsageCounts,
 });
 export type CheckRecord = Static<typeof CheckRecordSchema>;
 
-const errors = {plot: Type.Object({code: Type.String()})};
+/** `kind` 是错误类别，`resolution` 是模型解析失败的码（配哪个角色），`usage` 是到此为止的用量（失败的检查不存记录，用量只有这里）。 */
+const errors = {plot: Type.Object({code: Type.String(), kind: Type.Optional(Type.String()), resolution: Type.Optional(Type.String()), usage: Type.Optional(UsageSchema)})};
+const Page = {cursor: Type.Optional(Type.String()), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 200}))};
 
 const methods = {
     /** 按章替换写手的自陈（`value` 为 null 是删除）。 */
@@ -126,13 +133,19 @@ const methods = {
      * 对第 N 章跑一次检查（输出 7）。等到完成才返回；调用方断开或中止不影响检查，结果照存（检查要几分钟、花钱），断开以后查 `status` 与
      * `record`。`followUps` 给了就替换补问清单，不给沿用记录里的，空数组清空（输出 5）。
      */
-    run: {input: Type.Object({chapter: Type.String(), followUps: Type.Optional(Type.Array(Type.String(), {maxItems: 500}))}), output: Type.Object({chapter: Type.String(), calls: Type.Integer(), unasked: Type.Integer(), incomplete: Type.Integer(), usage: Type.Unknown()}), effect: "write", errors},
+    run: {input: Type.Object({chapter: Type.String(), followUps: Type.Optional(Type.Array(Type.String(), {maxItems: 500}))}), output: Type.Object({chapter: Type.String(), calls: Type.Integer(), unasked: Type.Integer(), incomplete: Type.Integer(), usage: CheckUsageCounts}), effect: "write", errors},
     /** 取消正在跑的检查；没有在跑时什么也不做。 */
     cancel: {input: Type.Object({chapter: Type.String()}), output: Type.Null(), effect: "write", errors},
     /** 是否在跑、最近一次失败（只在内存：失败的检查不存记录，用量只有这里记）。 */
-    status: {input: Type.Object({chapter: Type.String()}), output: Type.Object({running: Type.Boolean(), lastFailure: Type.Union([Type.Null(), Type.Object({code: Type.String(), kind: Type.Optional(Type.String()), usage: UsageSchema})])}), effect: "read", errors},
+    status: {input: Type.Object({chapter: Type.String()}), output: Type.Object({running: Type.Boolean(), lastFailure: Type.Union([Type.Null(), Type.Object({code: Type.String(), kind: Type.Optional(Type.String()), resolution: Type.Optional(Type.String()), usage: UsageSchema})])}), effect: "read", errors},
     /** 这一章的检查记录与它现在有效不有效。 */
     record: {input: Type.Object({chapter: Type.String()}), output: Type.Object({status: Type.Union([Type.Literal("none"), Type.Literal("valid"), Type.Literal("stale")]), record: Type.Union([CheckRecordSchema, Type.Null()])}), effect: "read", errors},
+    /** 保密账本（输出 9）：每个保密以上的知识点，在给定的线与位置上谁知道、谁误信、谁怀疑，读者从哪一段起怀疑、知道。 */
+    secretLedger: {input: Type.Object({position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Type.Union([Type.Literal("actual"), Type.Literal("planned")])), ...Page}), output: Type.Unknown(), effect: "read", errors},
+    /** 读者现在知道什么（输出 9）：最新一章末尾读者的程度不是 `unaware` 的知识点。 */
+    readerKnown: {input: Type.Object({...Page}), output: Type.Unknown(), effect: "read", errors},
+    /** 改揭晓章的依赖（输出 9）：对知识点 K，哪些计划、悬念、决策、写作指示依赖它。 */
+    revealDependencies: {input: Type.Object({point: Type.String()}), output: Type.Unknown(), effect: "read", errors},
 } as const;
 
 export const plotChecksContract = defineRemoteService({id: "nbook.plot/checks", version: 1, provider: "project", callers: ["browser", "tui", "server"], methods, events: {}});

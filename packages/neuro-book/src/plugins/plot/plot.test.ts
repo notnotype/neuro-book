@@ -362,8 +362,8 @@ describe("写完以后的检查：真实的项目子进程、服务端入口与�
             ]});
             if (!placed.ok) throw new Error(JSON.stringify(placed));
 
-            expect(await w.checks.run({chapter: "2"})).toMatchObject({ok: false, code: "plot", detail: {code: "plot-check-unavailable"}});
-            expect(await w.checks.status({chapter: "2"})).toMatchObject({ok: true, value: {running: false, lastFailure: {code: "plot-check-unavailable"}}});
+            expect(await w.checks.run({chapter: "2"})).toMatchObject({ok: false, code: "plot", detail: {code: "plot-check-unavailable", resolution: "role-unbound"}});
+            expect(await w.checks.status({chapter: "2"})).toMatchObject({ok: true, value: {running: false, lastFailure: {code: "plot-check-unavailable", resolution: "role-unbound"}}});
             expect(w.endpoint.requests).toEqual([]);
 
             await bindModels(w.models, w.endpoint.base);
@@ -378,6 +378,12 @@ describe("写完以后的检查：真实的项目子进程、服务端入口与�
 
             const record = await w.checks.record({chapter: "2"});
             expect(record).toMatchObject({ok: true, value: {status: "valid", record: {chapter: "2", usage: {narrow: 2, fixed: 1, total: {input: 300}}}}});
+            // 三个账本经真实的远程合同读得到。
+            const secrets = await w.checks.secretLedger({});
+            expect(secrets).toMatchObject({ok: true, value: {items: [{name: "勇者左手有星形的疤", secrecy: "secret"}]}});
+            expect(await w.checks.readerKnown({})).toMatchObject({ok: true, value: {items: []}});
+            const point = placed.value.ids["tmp:k"]!;
+            expect(await w.checks.revealDependencies({point})).toMatchObject({ok: true, value: {plans: [], foreshadows: [], decisions: [], instructions: []}});
             const pendingAfter = await w.window.canon.call("pending", {});
             if (!pendingAfter.ok) throw new Error(JSON.stringify(pendingAfter));
             const slips = pendingAfter.value.items.filter((item) => item.kind === "finding" && item.diagnostic === CHECK_DIAGNOSTIC_IDS.possibleSlip);

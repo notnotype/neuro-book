@@ -129,6 +129,8 @@ export class KnowingIndex {
         const chosen = new Map<string, Candidate>();
         const consider = (point: string, candidate: Candidate) => {
             if (candidate.change !== change) return;
+            // 共用的历史取到最新一章（`#explicitOf`）：读取位置之后的不算，免得按权限截断的调用方靠自律才不泄后文。
+            if (this.#positionKey === null || this.view.compareKeys(candidate.key, this.#positionKey) >= 0) return;
             const existing = chosen.get(point);
             if (existing === undefined || (candidate.explicit && !existing.explicit)) chosen.set(point, candidate);
         };
@@ -240,8 +242,9 @@ export class KnowingIndex {
         // 带过去的值只按实际模式取（worldlines 输出 6）：父线上切口与触发处之间的计划不带过去，计划模式读子线也一样。
         const parent = this.view.onLine(step.line, "actual");
         if ("code" in parent) return new Map();
-        const last = parent.chapters.at(-1);
-        const index = knowingIndex(parent, "actual", last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last, edge: "end"});
+        // 按触发处（没有时切口）所在章读，不按最新一章：之后父线上的改动不该改变这一刻带过去的东西，写完以后的检查也靠这一条才能按前缀判断依赖。
+        const at = (parent.object({kind: "change", id: step.change}) as StoryChange | undefined)?.at;
+        const index = knowingIndex(parent, "actual", at?.kind === "chapter" ? {kind: "chapter", chapter: at.chapter, edge: "end"} : {kind: "initial"});
         return new Map(index.all(person, {after: step.change}).map((row) => [row.point, row]));
     }
 

@@ -56,10 +56,11 @@ export function plotModelImplementation(port: ModelPort | null, consumer: Pick<C
                 const resolution = resolve(input.role);
                 if (!resolution.ok) return {ok: true as const, value: {outcome: "failed", kind: resolution.code, usage: ZERO_USAGE} satisfies AskOutcome};
                 const tool = toolOf(input.answer);
+                const limit = resolution.info.maxOutput ?? Number.POSITIVE_INFINITY;
                 const request: ModelRequest = {
                     purpose: "background",
                     model: resolution.info.id,
-                    params: {maxTokens: Math.min(input.maxTokens, resolution.info.maxOutput ?? input.maxTokens)},
+                    params: {maxTokens: Math.min(input.maxTokens, limit)},
                     headers: {},
                     system: [{kind: "text", text: input.system, origin: ORIGIN}],
                     messages: [{role: "user", content: [{kind: "text", text: input.user, origin: ORIGIN}]}],
@@ -71,7 +72,7 @@ export function plotModelImplementation(port: ModelPort | null, consumer: Pick<C
                 const outcome: AskOutcome =
                     response.stopReason === "aborted" ? {outcome: "aborted", usage}
                     : response.stopReason === "error" ? {outcome: "failed", kind: response.error?.kind ?? "provider", usage}
-                    : response.stopReason === "length" ? {outcome: "length", usage}
+                    : response.stopReason === "length" ? {outcome: "length", capped: input.maxTokens >= limit, usage}
                     // 模型没调工具时答案是 null：项目入口按结构不对处理（重试一次）。
                     : {outcome: "answer", answer: response.toolCalls.find((call) => call.tool === TOOL_ID)?.args ?? null, usage};
                 return {ok: true as const, value: outcome};

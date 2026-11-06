@@ -68,11 +68,14 @@ export function readAppeared(view: CanonReadView, id: string, position: ReadPosi
     return read === null || read === "chapter-not-found" || read.deleted || !read.appeared ? null : read;
 }
 
-/** 一条引文落在这一段里吗（输出 6）：含换行的逐行核对，每行都要在同一段里。短于 `MIN_QUOTE` 个码点的不算有效。 */
+/**
+ * 一条引文落在这一段里吗（输出 6）：含换行的逐行核对，每行都要在同一段里；至少要有一行不短于 `MIN_QUOTE` 个码点，否则把一句话拆成单字就能混过去。短的一行（一声“嗯”）
+ * 夹在里面不算错。
+ */
 export const MIN_QUOTE = 4;
 export function quoteIn(paragraphs: readonly string[], quote: string): boolean {
     const lines = quote.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line !== "");
-    if (lines.length === 0 || [...lines.join("")].length < MIN_QUOTE) return false;
+    if (!lines.some((line) => [...line].length >= MIN_QUOTE)) return false;
     return lines.every((line) => paragraphs.some((paragraph) => paragraph.includes(line)));
 }
 

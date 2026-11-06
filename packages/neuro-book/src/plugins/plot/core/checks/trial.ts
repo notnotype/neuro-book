@@ -8,7 +8,7 @@
  */
 
 import {paragraphsOf} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, ReadPosition, StoryChange, TellingPosition} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, ReadPosition, TellingPosition} from "@notnotype/nb-canon/schema";
 
 import type {CheckRequest, TrialAnswer} from "../../shared/checks";
 import {MARK_IDS} from "../../shared/declarations";
@@ -51,8 +51,11 @@ export function revealTable(view: CanonReadView): ReadonlyMap<string, number> {
             if (typeof point === "string" && index >= (table.get(point) ?? -1)) table.set(point, index);
         };
         for (const on of binderLines(view)) {
-            for (const plan of on.changes({kind: "plan", status: "active"})) {
-                if (plan.at.kind !== "chapter") continue;
+            const plans = on.changes({kind: "plan", status: "active"});
+            // 被替代的计划不进任何模式（canon.model 输出 5）。
+            const replaced = new Set(plans.flatMap((plan) => plan.links.flatMap((link) => (link.kind === "replaces" ? [link.plan] : []))));
+            for (const plan of plans) {
+                if (plan.at.kind !== "chapter" || replaced.has(plan.id)) continue;
                 const index = view.chapters.indexOf(plan.at.chapter);
                 if (index !== -1) for (const telling of plan.told) for (const mark of telling.marks ?? []) if (mark.kind === MARK_IDS.reveal && mark.version === 1 && mark.mode === "explicit") note(mark.point, index);
             }

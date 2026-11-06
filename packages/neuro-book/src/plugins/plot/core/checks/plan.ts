@@ -37,6 +37,8 @@ export interface PlannedCall {
     readonly person?: string;
     readonly personName?: string;
     readonly object?: string;
+    /** 物件层：依赖这个物件、已埋未回收的伏笔（题面写明了它们，诊断只读记录，不重新推导）。 */
+    readonly foreshadows?: readonly string[];
     readonly contradicts?: boolean;
     /** 引文在这里核对：窄问题是这一段，试读是给它的材料；固定调用按段核对，见 `CheckPlan.segments`。 */
     readonly paragraphs: readonly string[];
@@ -135,15 +137,17 @@ function ruleItems(input: PlanInput, segments: readonly CheckSegment[], pointsBy
     const rules: RuleItem[] = [];
     if (instruction?.pov !== undefined && (instruction.povMode === "first" || instruction.povMode === "limited")) {
         const pov = instruction.pov.id;
+        const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
         for (const segment of segments) {
+            // 视角人物还没出场时不读他（写作指示不经内核校验）。
+            const read = readAppeared(segment.view, pov, end);
             const knowing = knowingIndex(segment.view, "actual", segment.position);
-            const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
-            const rows = (pointsBySegment.get(segment.id) ?? []).flatMap((point) => {
+            const rows = read === null ? [] : (pointsBySegment.get(segment.id) ?? []).flatMap((point) => {
                 const row = knowing.effective(pov, point);
-                const read = readAppeared(segment.view, point, end);
-                return read === null ? [] : [`${read.name}：${row?.程度 ?? "没有记录"}`];
+                const known = readAppeared(segment.view, point, end);
+                return known === null ? [] : [`${known.name}：${row?.程度 ?? "没有记录"}`];
             });
-            rules.push({item: `pov:${segment.id}`, segment: segment.id, text: `段 ${segment.id} 里，叙述有没有越出视角人物${readAppeared(segment.view, pov, {kind: "chapter", chapter, edge: "end"})?.name ?? pov}能知道、能看到的范围？他的知情：${rows.join("；") || "没有记录"}`});
+            rules.push({item: `pov:${segment.id}`, segment: segment.id, text: `段 ${segment.id} 里，叙述有没有越出视角人物${read?.name ?? pov}能知道、能看到的范围？他的知情：${rows.join("；") || "没有记录"}`});
         }
     }
     if (instruction?.ending !== undefined) rules.push({item: "ending", text: `写作指示要结尾停在“${instruction.ending}”。整章末尾有没有没停住（写过了头，或没写到）？`});
@@ -173,7 +177,7 @@ function narrowCall(candidate: Candidate, segment: CheckSegment, view: CanonRead
         segment: candidate.segment,
         ...(candidate.layer === "presence" || candidate.layer === "narration" ? {point: candidate.point, personName: candidate.personName, ...(candidate.person === undefined ? {} : {person: candidate.person})} : {}),
         ...(candidate.layer === "presence" ? {contradicts: candidate.contradicts} : {}),
-        ...(candidate.layer === "object" ? {object: candidate.object} : {}),
+        ...(candidate.layer === "object" ? {object: candidate.object, foreshadows: candidate.stages.map((stage) => stage.foreshadow)} : {}),
         paragraphs: segment.paragraphs,
     };
 }
