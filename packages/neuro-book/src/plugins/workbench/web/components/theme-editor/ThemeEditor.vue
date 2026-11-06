@@ -3,7 +3,7 @@
  * 主题编辑器（同名 .md，docs/specs/theme/editor.md）：我的主题库的选择与增删，左边分区导航，右边一次一个分区。页签与浮动窗口放的
  * 是同一个主体；所有修改交给模型，这里只呈现与转发。
  */
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {Button, EmptyState, ScrollArea, SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
@@ -41,6 +41,33 @@ const resolver = useText();
 const model = props.model;
 
 const SECTIONS: ReadonlyArray<EditorSection> = ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"];
+
+const nav = ref<HTMLElement | null>(null);
+/**
+ * 窄屏时导航是横向可滚的一条：把当前项带进可视范围。只改导航条自己的 `scrollLeft`，不用 `scrollIntoView`（它会连带滚动所有可滚动的
+ * 祖先，在浮动窗口或编辑区里会把外层也推走）。桌面竖排时导航不能横向滚，什么也不发生。
+ * 三个入口：分区变了；组件重新挂载（分区存在组件外的编辑状态里，切走再切回时 `section` 没变，监听不触发）；导航条宽度变了
+ * （窗口由宽变窄，竖排换成横排，分区没变）。
+ */
+const revealCurrentSection = (): void => {
+    const bar = nav.value;
+    const current = bar?.querySelector<HTMLElement>("[aria-current=\"page\"]");
+    if (bar === null || bar === undefined || current === null || current === undefined || bar.scrollWidth <= bar.clientWidth) return;
+    const barBox = bar.getBoundingClientRect();
+    const box = current.getBoundingClientRect();
+    if (box.left < barBox.left) bar.scrollLeft -= barBox.left - box.left;
+    else if (box.right > barBox.right) bar.scrollLeft += box.right - barBox.right;
+};
+watch(() => model.section.value, () => void nextTick(revealCurrentSection));
+let navObserver: ResizeObserver | undefined;
+onMounted(() => {
+    revealCurrentSection();
+    if (nav.value !== null) {
+        navObserver = new ResizeObserver(revealCurrentSection);
+        navObserver.observe(nav.value);
+    }
+});
+onBeforeUnmount(() => navObserver?.disconnect());
 
 const titleOf = (title: ThemeEntry["declaration"]["title"]): string => resolver.t(title);
 const options = computed(() => model.mine.value.map((theme) => ({label: titleOf(theme.declaration.title), value: theme.id})));
@@ -221,7 +248,7 @@ const rejectedText = computed(() => {
         </EmptyState>
 
         <div v-else class="theme-editor__body">
-            <nav class="theme-editor__nav" :aria-label="text('themeEditor.sections.label')">
+            <nav ref="nav" class="theme-editor__nav" :aria-label="text('themeEditor.sections.label')">
                 <button
                     v-for="section in SECTIONS"
                     :key="section"

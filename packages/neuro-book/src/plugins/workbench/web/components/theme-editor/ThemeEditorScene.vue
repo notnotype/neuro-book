@@ -6,6 +6,7 @@
 import {computed, ref, watch} from "vue";
 
 import {SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 
 import {useWorkbenchText} from "../../text";
 import {userThemeAssetUrl} from "../../themes";
@@ -19,6 +20,7 @@ defineOptions({name: "ThemeEditorScene"});
 
 const props = defineProps<{model: ThemeEditorModel; transfer: ThemeTransfer}>();
 const text = useWorkbenchText();
+const resolver = useText();
 const model = props.model;
 
 const theme = computed(() => model.current.value);
@@ -40,9 +42,9 @@ watch(workingUrl, () => {
 /** 声明里的提供者没发布：下拉收起时只显示它的 id，所以另在下面写一行说明。 */
 const unpublished = computed(() => {
     const current = theme.value?.declaration.sceneProvider;
-    return current !== undefined && !model.sceneProviders.value.includes(current) ? current : null;
+    return current !== undefined && !model.sceneProviders.value.some(({id}) => id === current) ? current : null;
 });
-const options = computed(() => providerOptions(model.sceneProviders.value, theme.value?.declaration.sceneProvider, {none: text("themeEditor.scene.provider.none"), unpublished: text("themeEditor.scene.provider.unpublished")}));
+const options = computed(() => providerOptions(model.sceneProviders.value, theme.value?.declaration.sceneProvider, {none: text("themeEditor.scene.provider.none"), unpublished: text("themeEditor.scene.provider.unpublished")}, (title) => resolver.t(title)));
 
 const previewOptions = computed(() => [
     {value: "follow", label: text("themeEditor.scene.preview.follow")},

@@ -6,11 +6,13 @@ import {describe, expect, it} from "bun:test";
 import {readFileSync, statSync} from "node:fs";
 import {basename, join} from "node:path";
 
+import {Value} from "typebox/value";
+
 import {createApplication} from "nbook/application";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {BUILTIN_THEME_CONTRIBUTIONS, themesPoint, WORKBENCH_THEMES_POINT} from "./shared/themes";
+import {BUILTIN_THEME_CONTRIBUTIONS, SceneProviderDeclarationSchema, themesPoint, WORKBENCH_THEMES_POINT} from "./shared/themes";
 import type {ThemeDeclaration} from "./shared/themes";
 import {SWITCH_THEME_COMMAND, themeCommands} from "./web/commands/theme-commands";
 import {ThemeCatalog, themeVars} from "./web/themes";
@@ -157,6 +159,18 @@ describe("切换主题的命令", () => {
         expect(writes).toEqual([]);
         expect(await run("acme.skin.study")).toEqual({ok: true, value: null});
         expect(writes).toEqual(["acme.skin.study"]);
+    });
+});
+
+describe("场景提供者的声明（theme.skins 输出 18）", () => {
+    it("可以不写 title，也可以写字符串或语言映射；文本引用、别的字段都被拒绝", () => {
+        expect(Value.Check(SceneProviderDeclarationSchema, {})).toBe(true);
+        expect(Value.Check(SceneProviderDeclarationSchema, {title: "天空"})).toBe(true);
+        expect(Value.Check(SceneProviderDeclarationSchema, {title: {"zh-CN": "天空", "en-US": "Sky"}})).toBe(true);
+        // 这个贡献点没有 complete，不写 ns 的文本引用宿主不会补命名空间，所以不收。
+        expect(Value.Check(SceneProviderDeclarationSchema, {title: {kind: "text", key: "sky.title"}})).toBe(false);
+        expect(Value.Check(SceneProviderDeclarationSchema, {title: 3})).toBe(false);
+        expect(Value.Check(SceneProviderDeclarationSchema, {name: "x"})).toBe(false);
     });
 });
 

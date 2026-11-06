@@ -67,6 +67,8 @@ describe("场景 8：主题与场景提供者", () => {
 
         const provider = window.plugins.contribution(WORKBENCH_THEME_SCENES_POINT, SKY_PROVIDER)[0];
         expect(provider?.validation).toEqual({status: "accepted"});
+        // 声明里的显示名：主题编辑器的下拉用它显示提供者。
+        expect(provider?.declaration).toEqual({title: {"zh-CN": "天空时钟", "en-US": "Sky clock"}});
         expect(provider).toMatchObject({status: "available", delivery: {status: "delivered", receiver: {plugin: "nbook.workbench"}}});
         expect(typeof workbench.sceneProvider(SKY_PROVIDER)?.scene).toBe("function");
     });
