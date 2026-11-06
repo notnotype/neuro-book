@@ -206,8 +206,9 @@ onMounted(() => {
         maximized: () => null,
         enabled: () => true,
         editorTabs: () => tabDrag.value,
+        titleOnly: () => false,
         commit: (source, action, part) => {
-            const tabId = source.kind === "tab" ? editorTabIdOf(source.tab) : null;
+            const tabId = editorTabIdOf(source.tab);
             if (tabId !== null) tabDrag.value?.drop(tabId, action, part);
         },
     });
@@ -215,7 +216,7 @@ onMounted(() => {
 const dragState = computed(() => drag.value?.session.state.value ?? null);
 const dragGhost = computed(() => {
     const current = dragState.value;
-    const tabId = current?.source.kind === "tab" ? editorTabIdOf(current.source.tab) : null;
+    const tabId = current === null ? null : editorTabIdOf(current.source.tab);
     const ghost = tabId === null ? null : (tabDrag.value?.ghost(tabId) ?? null);
     return ghost === null || current === null ? null : {...ghost, x: current.point.x, y: current.point.y};
 });
@@ -248,7 +249,7 @@ onBeforeUnmount(() => {
             </template>
         </WorkbenchSurface>
         <EditorHost :area="area" :wrap-tabs="props.input?.props?.wrapTabs !== false" :attach-tab-drag="(next: EditorTabDrag | null) => (tabDrag = next)" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropPreview" label="" :kind="dragState?.drop?.action.kind ?? ''" :count="1" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropPreview" label="" :kind="dragState?.drop?.action.kind ?? ''" />
     </div>
     <LabFixtureControls>
         <div class="flex flex-wrap items-center gap-3 text-xs" data-lab-editor-controls>

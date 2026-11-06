@@ -66,9 +66,13 @@ const panelToggle = (page: Page) => page.locator('[data-shell-focus-target="pane
 const parked = (page: Page, selector: string) => expect(page.locator(selector)).toHaveAttribute("inert", "");
 const unparked = (page: Page, selector: string) => expect(page.locator(selector)).not.toHaveAttribute("inert", "");
 
-/** 右键标签，在菜单里选目标面板：移动视图的入口（输出 23），目标名是面板名或“新面板（挨着 X）”。 */
+/**
+ * 右键视图，在菜单里选目标面板：移动视图的入口（输出 23），目标名是面板名或“新面板（挨着 X）”。侧栏这一列的视图右键活动栏条目
+ * （不是当前视图的标签没有 DOM，输出 22），别处的视图右键标签。
+ */
 async function moveViaMenu(page: Page, view: string, target: string): Promise<void> {
-    await page.locator(`[data-panel-tab="view:${view}"]`).click({button: "right"});
+    const entry = page.locator(`[data-tool-entry="${view}"]`);
+    await (await entry.count() > 0 ? entry : page.locator(`[data-panel-tab="view:${view}"]`)).click({button: "right"});
     await page.getByRole("menuitem", {name: target, exact: true}).click();
 }
 
@@ -156,8 +160,11 @@ test.describe("产品页", () => {
         await open(page);
         await frame(page, "panel", "set-panel-collapsed").click();
         await expect.poll(async () => (await box(page, "panel")).height).toBe(32);
+        // 先等收起写进记录，再展开，最后等展开也写进去：下面读到的修订号才是这两次写入之后的，不会被迟到的写入抬高。
+        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed).toBe(true);
         await frame(page, "panel", "set-panel-collapsed").click();
         await expect.poll(async () => (await box(page, "panel")).height).toBe(200);
+        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed ?? false).toBe(false);
 
         // 最大化盖住条以外的区域；别的面板还在原来的矩形里，内容停放。
         const before = await leafRects(page);
@@ -197,14 +204,20 @@ test.describe("产品页", () => {
         await panelToggle(page).click();
         await expect.poll(async () => (await box(page, "panel")).height).toBe(200);
 
-        // 焦点在面板内容里时隐藏面板：焦点移到活动栏里这个视图的条目，不落在 body 上。
+        // 焦点在面板内容里时隐藏面板：视图在面板里，活动栏没有它的条目（只列侧栏这一列），焦点移到外壳根，不落在 body 上（输出 16）。
         await moveViaMenu(page, "nbook.agent.sessions", "面板");
         await expect(page.locator('[data-panel-head="panel"] [data-panel-tab="view:nbook.agent.sessions"]')).toBeVisible();
         await content(page, "nbook.agent.sessions").locator("input").first().focus();
         // 键盘用户在内容里没有走到隐藏按钮的路径可选（按钮在头里，焦点会先离开内容），所以用脚本点它，让焦点留在内容里被停放。
         await frame(page, "panel", "set-part-hidden").evaluate((button) => (button as HTMLElement).click());
         await expect(leaf(page, "panel")).toHaveCount(0);
-        await expect(page.locator('[data-tool-entry="nbook.agent.sessions"]')).toBeFocused();
+        await expect(page.locator(".workbench-shell-host")).toBeFocused();
+
+        // 侧栏的头随侧栏隐藏：侧栏里的视图有活动栏条目，焦点移到它的条目。
+        await frame(page, "sidebar", "set-part-hidden").focus();
+        await page.keyboard.press("Enter");
+        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        await expect(page.locator('[data-tool-entry="nbook.explorer"]')).toBeFocused();
     });
 
     test("拖动边界：一次手势只提交一次；越界停住、刷新恢复；键盘步长、Home/End；Escape 与拖动中改窗口零写入；拖到零留 1px，指针拉回与 Enter 恢复（输出 8、9、11、12；验收 5）", async ({page}) => {
@@ -484,7 +497,8 @@ test.describe("产品页", () => {
         const wide = (await box(page, "sidebar")).width;
         await page.setViewportSize({width: 840, height: 900});
         await expect.poll(async () => (await box(page, "sidebar")).width).toBeLessThan(wide);
-        await page.locator('[data-panel-head="sidebar"] [data-panel-tab="view:nbook.agent.sessions"]').click();
+        // 侧栏这一列的头只写当前视图，切到会话要点活动栏条目。
+        await page.locator('[data-tool-entry="nbook.agent.sessions"]').click();
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.active).toBe("view:nbook.agent.sessions");
         expect(sizeOf((await saved(page))!.doc.tree.root, "sidebar")?.width).toBe(wide);
         await page.setViewportSize({width: 1440, height: 900});

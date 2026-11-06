@@ -186,39 +186,44 @@ test.describe("有效可见", () => {
 });
 
 test.describe("活动栏", () => {
-    test("列全部工具视图，不管停在哪；几个同时按下，切走的不按下", async ({page}) => {
+    test("只列侧栏这一列的视图，顺序是文档里的标签顺序；几个同时按下，切走的不按下（输出 22；验收 14）", async ({page}) => {
         await open(page);
-        await expect(page.locator("[data-tool-entry]")).toHaveCount(5);
+        const ids = () => page.locator("[data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
+        // 右栏的 C、D 与面板的 E 不在活动栏里。
+        expect(await ids()).toEqual(["a", "b"]);
         await expect(entry(page, "a")).toHaveAttribute("aria-pressed", "true");
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "false");
-        await expect(entry(page, "c")).toHaveAttribute("aria-pressed", "true");
+        // 视图移到右栏后不在，移回来又在，位置按标签顺序（放回第一个）。
         await act(page, "a-to-right");
-        await expect(page.locator("[data-tool-entry]")).toHaveCount(5);
+        await expect.poll(ids).toEqual(["b"]);
+        await act(page, "a-back");
+        await expect.poll(ids).toEqual(["a", "b"]);
+        // 同一列里再分出的面板，它的视图也列在这里，按树序排在侧栏之后。
+        await act(page, "d-below-b");
+        await expect.poll(ids).toEqual(["a", "b", "d"]);
+        await expect(entry(page, "d")).toHaveAttribute("aria-pressed", "true");
     });
 
-    test("不可见：显示并激活，焦点给它；可见没焦点：聚焦；已聚焦：隐藏具名面板", async ({page}) => {
+    test("不可见：显示并激活，焦点给它；可见：隐藏具名面板，不看焦点在哪（输出 22；验收 14）", async ({page}) => {
         await open(page);
         await entry(page, "b").click();
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "true");
         await expect(page.locator("[data-content='view:b'] [data-structure-first]")).toBeFocused();
 
+        // 焦点在别的面板里，点可见的条目也是隐藏，没有“先聚焦”这一步。
         await page.locator("[data-content='view:c'] [data-structure-first]").focus();
-        await entry(page, "b").click();
-        await expect(page.locator("[data-content='view:b'] [data-structure-first]")).toBeFocused();
-        await expect(page.locator("[data-leaf='sidebar']")).toHaveCount(1);
-
         await entry(page, "b").click();
         await expect(page.locator("[data-leaf='sidebar']")).toHaveCount(0);
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "false");
 
         await entry(page, "b").click();
         await expect(page.locator("[data-leaf='sidebar']")).toHaveCount(1);
+        await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "true");
     });
 
-    test("无名面板已聚焦时是收起", async ({page}) => {
+    test("无名面板可见时点它是收起（输出 22）", async ({page}) => {
         await open(page);
         await act(page, "d-below-b");
-        await page.locator("[data-content='view:d'] [data-structure-first]").focus();
         await entry(page, "d").click();
         await expect(entry(page, "d")).toHaveAttribute("aria-pressed", "false");
         const head = page.locator("[data-panel-head]:has([data-panel-tab='view:d'])");

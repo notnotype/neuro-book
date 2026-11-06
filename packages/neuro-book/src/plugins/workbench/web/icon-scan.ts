@@ -20,7 +20,9 @@ export interface IconScan {
     readonly unreadable: number;
 }
 
-/** 规则里带 `cssRules` 的都往里走：`@layer`、`@media`、`@supports` 的块，以及（不会出现的）嵌套样式规则。 */
+/**
+ * 规则里带 `cssRules` 的都往里走：`@layer`、`@media`、`@supports` 的块，以及（不会出现的）嵌套样式规则。`@import` 引入的样式表不在 `document.styleSheets` 里，这里也没有进 `CSSImportRule.styleSheet`：产品产物里没有 `@import`，
+ * 以后要有，需要在这里补上。 */
 function visit(rules: CSSRuleList, found: Map<string, string>): void {
     for (const rule of Array.from(rules)) {
         if (rule instanceof CSSStyleRule) {

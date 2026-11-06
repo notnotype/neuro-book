@@ -23,7 +23,8 @@ import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/placement";
 import {createLayoutPolicy} from "./layout-constraints";
 import type {LayoutDocStore} from "./layout-doc-store";
-import {INITIAL_EDITOR_PANEL} from "./default-tree";
+import {fitsSkeleton, INITIAL_EDITOR_PANEL} from "./default-tree";
+import {sidebarColumnPanels} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 
 const PLUGIN = "nbook.workbench";
@@ -197,6 +198,72 @@ describe("损坏与失败", () => {
         expect(await read(second.storage, USER)).toEqual({doc: {version: 1, tree: "坏的"}});
     });
 
+    /** 合法但不合骨架的文档：面板跑到了编辑组旁边（片 7c 之前能拖出来）。 */
+    function outsideSkeleton(doc: LayoutDoc): LayoutDoc {
+        const moved = moveTabToEdge(doc, {tab: "view:test.panel", target: {kind: "split", panel: "g0", edge: "right"}}, {...POLICY, accepts: () => true});
+        if (!moved.ok) throw new Error(moved.detail);
+        return moved.doc;
+    }
+
+    it("记录合法但不合骨架：默认树，不算读不了，下次保存覆盖它，外壳根有诊断（验收 20）", async () => {
+        const w = await world();
+        const first = await openLayoutDoc(w, "a", "c");
+        const shape = outsideSkeleton(JSON.parse(JSON.stringify(first.store.actions.document())) as LayoutDoc);
+        const opened = await first.storage.open(USER);
+        if (!opened.ok) throw new Error(opened.detail);
+        await opened.handle.save({doc: shape}, {expect: null});
+        const second = await openLayoutDoc(w, "b", "c");
+        expect(second.store.state.problems).toEqual([]);
+        expect(second.store.state.outsideSkeleton).toBe(true);
+        expect(fitsSkeleton(second.store.actions.document())).toBe(true);
+        second.store.actions.setPartHidden("panel", true);
+        await second.store.actions.save();
+        const saved = await savedDoc(second.storage, USER);
+        expect(fitsSkeleton(saved)).toBe(true);
+        expect(second.store.state.outsideSkeleton).toBe(false);
+    });
+
+    it("没有记录、模板不合骨架：默认树，当作没有模板（验收 20）", async () => {
+        const w = await world();
+        const first = await openLayoutDoc(w, "a", "c");
+        const shape = outsideSkeleton(JSON.parse(JSON.stringify(first.store.actions.document())) as LayoutDoc);
+        const opened = await first.storage.open(LAYOUT_TEMPLATE_RECORD);
+        if (!opened.ok) throw new Error(opened.detail);
+        await opened.handle.save({doc: shape}, {expect: null});
+        const second = await openLayoutDoc(w, "b", "c");
+        expect(fitsSkeleton(second.store.actions.document())).toBe(true);
+        expect(second.store.state.problems).toEqual([]);
+    });
+
+    it("写入的出口守骨架：哪个入口传来不合骨架的结果都被拒绝，文档不变", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        const before = store.actions.document();
+        const result = store.actions.apply((doc) => ({ok: true, doc: outsideSkeleton(doc)}));
+        expect(result).toMatchObject({ok: false, code: "rejected"});
+        expect(store.actions.document()).toBe(before);
+    });
+
+    it("“移动到”的新面板：这一列放下面，这一排放右边；编辑组是 rejected，不存在的是 not-found（输出 23、35）", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        const inSide = store.actions.moveView("test.panel", {newPanelNextTo: "sidebar"});
+        if (!inSide.ok) throw new Error(inSide.detail);
+        expect(sidebarColumnPanels(store.actions.document())).toHaveLength(2);
+        expect(fitsSkeleton(store.actions.document())).toBe(true);
+        expect(store.actions.moveView("test.side", {newPanelNextTo: INITIAL_EDITOR_PANEL})).toMatchObject({ok: false, code: "rejected"});
+        expect(store.actions.moveView("test.side", {newPanelNextTo: "nowhere"})).toMatchObject({ok: false, code: "not-found"});
+    });
+
+    it("点标签：面板收成标题行时一起展开（输出 11）", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        store.actions.setCollapsed("sidebar", true);
+        expect(store.actions.document().panels.sidebar?.collapsed).toBe(true);
+        store.actions.activate("view:test.side");
+        expect(store.actions.document().panels.sidebar?.collapsed).toBeUndefined();
+    });
+
     it("`editor.tabs` 保存失败：布局不写，状态栏有问题；再存成功就好了", async () => {
         const w = await world();
         const {store, storage} = await openLayoutDoc(w, "a", "c");
@@ -297,7 +364,7 @@ describe("呈现事实", () => {
         store.actions.setPartHidden("auxiliarybar", true);
         expect(store.state.maximized).toBe("sidebar");
         store.actions.apply((doc) => {
-            const target = {kind: "split", panel: INITIAL_EDITOR_PANEL, edge: "right"} as const;
+            const target = {kind: "split", panel: "auxiliarybar", edge: "bottom"} as const;
             return moveFirstTabToEdge(doc, target);
         });
         expect(store.state.maximized).toBeNull();
@@ -424,6 +491,6 @@ function sizeIn(doc: DeepReadonly<LayoutDoc>, id: string): {width: number; heigh
 }
 
 /** 把侧栏的唯一标签拆到目标外缘：一次改变树结构的操作。 */
-function moveFirstTabToEdge(doc: LayoutDoc, target: {readonly kind: "split"; readonly panel: string; readonly edge: "right"}): LayoutResult {
+function moveFirstTabToEdge(doc: LayoutDoc, target: {readonly kind: "split"; readonly panel: string; readonly edge: "bottom"}): LayoutResult {
     return moveTabToEdge(doc, {tab: "view:test.side", target}, POLICY);
 }

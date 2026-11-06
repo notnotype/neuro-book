@@ -37,43 +37,58 @@ let pendingName = "";
  * 的样式：开发服务与 Lab 里比产品多出只在 Lab 夹具里用到的图标，所以“没有”只说当前页面没有，不说产品没有。
  */
 const catalog = shallowRef<ReadonlyMap<string, string>>(new Map());
+/** 有样式表读不了（跨域）时目录可能不全，这时“当前页面没有这个图标”下不了结论，不给提示。 */
+const catalogComplete = ref(true);
 const refreshCatalog = (): void => {
-    catalog.value = new Map(scanIconCatalog().icons.map(({name, svg}) => [name, svg]));
+    const scan = scanIconCatalog();
+    catalog.value = new Map(scan.icons.map(({name, svg}) => [name, svg]));
+    catalogComplete.value = scan.unreadable === 0;
 };
 onMounted(refreshCatalog);
 
 const trimmed = computed(() => draft.value.trim());
-/** 目录读不到（空）时退回只有说明的做法：不补全，也不提示。 */
-const unknownName = computed(() => trimmed.value !== "" && ICON_NAME.test(trimmed.value) && catalog.value.size > 0 && !catalog.value.has(trimmed.value));
 
-// 补全：焦点留在输入框里（候选菜单按下时不夺焦点），上下键移动、回车选中，Escape 收起；高亮经 `aria-activedescendant` 交给读屏。
+// 补全：焦点留在输入框里（候选菜单按下时不夺焦点）。上下键移动高亮、Escape 收起；回车只在用方向键或指针选过候选时填入它，否则就是添加
+// （与补全出现之前一样）。不能“有候选就选第一个”：输入完整的 `folder` 时候选里还有 `folder-plus`，回车会静默改掉用户输入的名字。
+// 高亮经 `aria-activedescendant` 交给读屏。
 const menuId = useId();
 const field = ref<HTMLElement | null>(null);
 const focused = ref(false);
 const dismissed = ref(false);
-const activeIndex = ref(0);
+/** 高亮的候选下标；-1 是没选过（输入、选中、重新聚焦都回到它）。 */
+const activeIndex = ref(-1);
 const candidates = computed(() => (focused.value && !dismissed.value ? matchIcons([...catalog.value.keys()], draft.value).filter((name) => name !== trimmed.value) : []));
 const menuGroups = computed<SuggestionMenuGroup[]>(() => [{id: "icons", items: candidates.value.map((name) => ({id: name, label: name}))}]);
-const activeId = computed(() => candidates.value[Math.min(activeIndex.value, candidates.value.length - 1)] ?? null);
+const activeId = computed(() => candidates.value[activeIndex.value] ?? null);
+/** 目录读不到（空）或不全时不提示；补全菜单开着时也不提示（用户还在输入，菜单正在给出名字）。 */
+const unknownName = computed(() => catalogComplete.value && candidates.value.length === 0 && trimmed.value !== "" && ICON_NAME.test(trimmed.value) && catalog.value.size > 0 && !catalog.value.has(trimmed.value));
 const activeDescendant = computed(() => (activeId.value === null ? undefined : suggestionOptionId(menuId, candidates.value.indexOf(activeId.value))));
 const choose = (name: string): void => {
     draft.value = name;
     nameFailure.value = null;
-    activeIndex.value = 0;
+    activeIndex.value = -1;
 };
 const onFocus = (): void => {
     focused.value = true;
     dismissed.value = false;
+    activeIndex.value = -1;
     refreshCatalog();
 };
 const onKeydown = (event: KeyboardEvent): void => {
+    // 输入法组字中的回车是上屏、方向键是翻候选词，不归补全（Safari 上屏的回车是 `isComposing` 为假加 `keyCode` 229）。
+    if (event.isComposing || event.keyCode === 229) return;
     const count = candidates.value.length;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        // 按 Escape 收起后，方向键把菜单重新打开。
+        if (dismissed.value) {
+            dismissed.value = false;
+            event.preventDefault();
+            return;
+        }
         if (count === 0) return;
         event.preventDefault();
-        activeIndex.value = (activeIndex.value + (event.key === "ArrowDown" ? 1 : count - 1)) % count;
+        activeIndex.value = event.key === "ArrowDown" ? (activeIndex.value + 1) % count : activeIndex.value <= 0 ? count - 1 : activeIndex.value - 1;
     } else if (event.key === "Enter") {
-        // 菜单开着且有当前项：回车只是选中它，再按一次回车才添加。
         if (activeId.value !== null) {
             event.preventDefault();
             choose(activeId.value);
@@ -140,7 +155,7 @@ const previewStyle = (asset: string): Record<string, string> => ({"--icon-url": 
 
         <div class="theme-editor-icons__add" data-icon-add>
             <div ref="field" class="theme-editor-icons__name">
-                <Input v-model="draft" size="sm" :placeholder="text('themeEditor.icons.placeholder')" :aria-label="text('themeEditor.icons.name')" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="menuId" :aria-activedescendant="activeDescendant" data-icon-name @focus="onFocus" @blur="focused = false" @input="dismissed = false; activeIndex = 0" @keydown="onKeydown" />
+                <Input v-model="draft" size="sm" :placeholder="text('themeEditor.icons.placeholder')" :aria-label="text('themeEditor.icons.name')" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length > 0 ? menuId : undefined" :aria-activedescendant="activeDescendant" data-icon-name @focus="onFocus" @blur="focused = false" @input="dismissed = false; activeIndex = -1" @keydown="onKeydown" />
                 <SuggestionMenu :id="menuId" :groups="menuGroups" :active-id="activeId" :anchor="candidates.length > 0 ? field : null" :label="text('themeEditor.icons.suggestions')" match-anchor-width @select="choose" @highlight="(name: string) => (activeIndex = candidates.indexOf(name))" />
             </div>
             <Button size="sm" :loading="status.shownBusy.value" :disabled="status.busy.value" icon-class="i-lucide-image-plus" data-icon-choose @click="add">{{ replacing ? text("themeEditor.icons.replace") : text("themeEditor.icons.add") }}</Button>
@@ -158,7 +173,7 @@ const previewStyle = (asset: string): Record<string, string> => ({"--icon-url": 
                 <span class="theme-editor-icons__preview" :style="previewStyle(asset)" aria-hidden="true" />
                 <!-- 原图标：蒙版直接用目录里取到的默认 `--svg`，不挂 `i-lucide-<名>` 类。实时预览会注入不分层的同名规则去覆盖产品里的图标，
                      挂了类，这里画出来的就是正在编辑的那个 SVG，对照就没有意义了。目录里没有这个名字时不画。 -->
-                <span v-if="catalog.has(name)" class="theme-editor-icons__preview theme-editor-icons__original" :style="{'--icon-url': catalog.get(name)}" aria-hidden="true" data-icon-original />
+                <span v-if="catalog.has(name)" class="theme-editor-icons__preview theme-editor-icons__original" :style="{'--icon-url': catalog.get(name)}" :title="text('themeEditor.icons.original')" aria-hidden="true" data-icon-original />
                 <code class="theme-editor-icons__row-name">{{ name }}</code>
                 <Button size="sm" variant="secondary" :disabled="status.busy.value" :aria-label="text('themeEditor.icons.replaceNamed', {name})" @click="pick(name)">{{ text("themeEditor.icons.replace") }}</Button>
                 <Button size="sm" variant="ghost" :disabled="status.busy.value" :aria-label="text('themeEditor.icons.removeNamed', {name})" data-icon-remove @click="remove(name)">{{ text("themeEditor.icons.remove") }}</Button>

@@ -1,0 +1,145 @@
+### 1. 涉及条目的样子：maskRefNames 只改 <Ref> 的文字，表达式注记里的名字照写；删除的条目反而被换回真名
+- 严重程度：阻断；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/appearance.ts:10（`maskRefNames`）、:23。
+- 现象（真实 World 与 composeBrief，position 在章首）：
+  - A1：怀表的主文字 `它和 {ref("e2").entry.name} 有关。`，e2 是绝密且本章不揭示。简报：`它和 {ref("e2").entry.name = "勇者是王子"} 有关。`
+  - A1b：同样读隐秘目标的名字：`{ref("e3").entry.name = "毒死男爵"}`。
+  - A2：知识点名字带英文双引号（`男爵说"是我"`），渲染写成 `name="男爵说\"是我\""`，正则 `name="[^"]*" \/>` 对不上，不替换：`<Ref id="e2" name="男爵说\"是我\"" />`。
+  - A3（这批引入）：知识点被删后渲染本来写 `name="已删除的条目"`，`maskRefNames` 用 `shownName` 重写：删除的条目 `secrecyOf` 为 null、不是隐秘目标，落到 `nameOf`，读到 `entry.init.name`，结果 `<Ref id="e2" name="勇者是王子" />`。e73905f5d 上这里是“已删除的条目”。
+- 为什么是问题：Spec plot/brief.md 输出 13“带值写法里引到本章不能写名字的条目，名字换成占位”，这条没有限定写法。同一批修的伏笔段（`renderBlockPlain` 的 `references`）已经按表达式引用判，涉及条目这一段用的是文本替换，表达式、任何字段值（`{ref("k").point.某字段 = ...}`）都漏，与上一轮第 5 条是同一类。
+- 如何核实：`cd /tmp/review-w00039-t34-H/opus2 && bun brief2.ts /home/notnotype/CodeRepository/neuro-book/.worktree/w00039-t34-promote`，看 A1、A1b、A2、A3 行。brief.test.ts 新增用例只有 `<Ref>`、名字不带引号、知识点没删。
+- 建议改法：不在文字上做替换。给内核的渲染传一个按条目决定能否读的回调，或让 `AgentBlock` 带 `references`（与 `PlainBlock` 同样从 `site.references`、`refs` 收），引到本章不能写名字的条目时整块不给或该处写占位。`shownName` 对删除的条目不要回到 `init.name`。
+### 2. 本章才出场的隐秘目标：concealedGoal 靠 readGoal，章首读不到，名字与状态变化照写（上一轮第 7 条只修了一半）
+- 严重程度：阻断；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:50-54（`concealedGoal`），packages/neuro-book/src/plugins/plot/core/goals.ts:43（`!read.appeared` 返回 null），packages/neuro-book/src/plugins/plot/core/brief/parts.ts:51-55、:113-124。
+- 现象：管家的隐秘目标“毒死男爵继承爵位”，`隐秘` 指向绝密且本章不揭示的知识点，`appears` 是本章 ch3（目标在这一章的计划里才出场）。管家在场。ch3 计划改它的状态、把它加进勇者目标的冲突。简报的本章计划：`保护男爵的冲突：加上毒死男爵继承爵位 / 毒死男爵继承爵位的状态：active → blocked`。`appears` 在之后的章（C1b）一样漏。
+- 为什么是问题：简报读章首，`appears` 在本章的目标 `rankBefore` 不成立，`readGoal` 返回 null，于是 `hiddenGoals`（`goalsOf`）与 `concealedGoal` 都认不出它。Spec plot/brief.md 验收 7 写的正是“本章一条计划把这个目标改成受挫……没有目标的名字与状态变化”，只差目标是本章出场；目标在哪一章定下、就在那一章的计划里出现，这是写作的正常路径。plot/goals.md 的注释也写目标“按安放折叠”。这条是上一轮第 7 条（持有者不在场）的同一路径。
+- 如何核实：`brief2.ts` 的 C1、C1 status、C1b 行（真实 World 与 composeBrief）。新增用例的目标都没有 `appears`。
+- 建议改法：`concealedGoal` 判断“这条目是不是要遮的隐秘目标”时不按出场筛，也不按位置筛掉：直接取 `view.object` 确认类型是目标，再读它的 `隐秘`（`appeared` 为假时 `view.entry` 仍给得出命名空间）。补用例：目标 `appears` 在本章、在之后的章。
+### 3. 隐秘目标的边界：目标被删、隐秘指向已删的知识点，名字照写，且同一份简报一边遮一边写
+- 严重程度：重要；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:50-54，packages/neuro-book/src/plugins/plot/core/brief/context.ts:97-98（删除的条目 `secrecyOf` 为 null），packages/neuro-book/src/plugins/plot/core/brief/parts.ts:163-166（在场的人只看 `goal.隐秘 !== null`）。
+- 现象：
+  - C3：知识点被删，目标还在，`隐秘` 仍指向它。计划段：`毒死男爵继承爵位的状态：active → blocked`；同一份简报在场的人一段：`管家的一个隐秘目标`。
+  - C2：隐秘目标自己被删，勇者目标的冲突里去掉它：`保护男爵的冲突：去掉毒死男爵继承爵位`（`readGoal` 对删除的条目为 null，`nameOf` 读到 `init.name`）。
+- 为什么是问题：secrets.ts 的注释写“同一份简报不能一边遮、一边写”。C3 的目标还活着，它的名字没有因为知识点被删就变得可写：删知识点通常是作者在改设定，不是公开这件事。C2 目标已删，影响小些，但写出来的仍是绝密时期的名字。
+- 如何核实：`brief2.ts` 的 C2、C3 行。
+- 建议改法：`concealedGoal` 改成：目标（含已删）的 `隐秘` 非空，且那个知识点不在 `shown` 里，且不是确定的低保密档时，一律遮；指向已删或读不到的知识点按要遮算。删除的条目里读不到 `隐秘` 时（`buildEntryView` 的 `namespaces` 是空的）从 `init.data.goal` 取，或者统一写“已删除的条目”，与 `renderBlockPlain` 的写法一致。
+### 4. “有一件涉及某某的绝密设定”的主体是隐秘目标或别的绝密知识点时，把它的名字写出来
+- 严重程度：重要；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:130-133（`nameOfSubject`）、:110。
+- 现象：知识点“砒霜藏在酒窖”挂在隐秘目标下：`有一件涉及毒死男爵继承爵位的绝密设定`。知识点“酒窖钥匙在他身上”挂在绝密知识点“管家想继承爵位”下：`有一件涉及管家想继承爵位的绝密设定`。两个父条目本章都不能写名字。
+- 为什么是问题：Spec plot/brief.md 输出 4 只写“主体的名字”，没想到主体本身就是秘密；可是输出 4 同一条与 `fixed.HIDDEN_NAME` 的注释都说这个名字就是真相、任何段都不写。条目树允许这样挂（World 接受），知识点拆细时这是自然的结构。base 已有，这批的范围“还有没有路径”覆盖到。
+- 如何核实：`brief2.ts` 的 D1、D1b 行。
+- 建议改法：`nameOfSubject` 沿父条目往上找第一个能写名字的（不是要遮的目标、不是不给内容的保密以上知识点），找不到写 `fixed.NO_SUBJECT`。`shown` 已经先算出来了，可以用 `concealedGoal`，知识点按 `shown` 判。
+### 5. 到期的待定决策地址挂在绝密知识点上时，原话写给写手
+- 严重程度：重要；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/parts.ts:288（只看 `about.kind === "entry"`）。
+- 现象：待定决策“管家是凶手这件事何时揭露”，`due` 是本章，`about` 是 `{kind:"address", at:{entry:绝密知识点, path:"point.表现"}}`。决策段：`待定（到期）：管家是凶手这件事何时揭露`。同样的决策挂成 `kind:"entry"` 时写“有一条涉及保密设定的待定决定到期了”。
+- 为什么是问题：同文件上面 secrets.ts:161 的已定决策已经写明“条目挂点与地址挂点的条目都算（地址挂在知识点的字段上时同样是在说这个知识点）”，待定决策这一路没有跟上。`label` 也是原话前 12 个字，裁剪时会进“已省略”。base 已有。
+- 如何核实：`brief2.ts` 的 D2、D2b 行。
+- 建议改法：`decisionItems` 用 `routeDecisions` 那段同样的取法（entry 与 address 都算），提成一个函数共用。
+### 6. 伏笔的回收主文字被扣下以后，涉及条目的样子又把整块主文字与答案引用给了写手
+- 严重程度：重要；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/appearance.ts:17（只排除知识点与目标），packages/neuro-book/src/plugins/plot/core/brief/parts.ts:263。
+- 现象：悬念的答案是绝密知识点，本章不揭示。计划带回收节点，同一条计划改了伏笔的字段（`fs.重要程度`），所以伏笔进了 `chapterEntries`。伏笔段：`回收：回收方式按细纲写`，并给 `payoffWithheld`；涉及条目的样子：`回收时写明脚印是园丁的鞋。`，还有 `fs.答案：{"ref":"e2"}`。
+- 为什么是问题：Spec plot/brief.md 输出 8 的扣下对这条路径没有作用；扣下的理由就是这段文字在说答案。只标节点不改字段时不进 `chapterEntries`（A4b），所以平时看不出来；改伏笔字段的计划（升重要程度、改物件、放弃）会触发。base 已有。
+- 如何核实：`brief2.ts` 的 A4 行，对比 A4b。
+- 建议改法：appearance.ts 把伏笔类型也排除（输出 13 的“涉及条目”按人与物读更合理），Spec 输出 13 补一句。或者按同一个判断跳过被扣下的那一块，但只排除类型更简单。
+### 7. renderBlockPlain 没有处理引用字段的值：写给写手的是 JSON 与条目 id，references 也漏了它
+- 严重程度：重要；类别：保密、正确性；位置：packages/nb-canon/src/render/render.ts:261-268（`displayText(result.value)`，`references` 只收 `site.references` 与 `refs`）；对照同文件 `authorNode` 的“引用字段的值是 `{ref: 条目 id}`：显示当时的名字，id 不出现在显示文字里”。
+- 现象：
+  - B1：主文字 `回收时写明 {ref("e3").fs.答案} 留下脚印。`，e3 的 `答案` 指向绝密知识点 e2。简报：`回收：回收时写明 {"ref":"e2"} 留下脚印。`，没有扣下，没有 `payoffWithheld`。
+  - B1b：主文字写 `{fs.答案}`，答案是普通档知识点：`回收时写明 {"ref":"e2"}。`
+- 为什么是问题：Spec plot/brief.md 输出 8 写“值写显示文字，条目引用写名字”，上一轮第 5 条要去掉的正是条目 id 与 JSON。B1 同时绕过了“引到本章不能写名字的条目”：`references` 里只有 e3，判断不出它的值指向 e2。这条路径现在写的是 id 不是名字，所以不算阻断；但如果照 Spec 把它改成写名字而不把目标算进 `references`，就成了第 5 条的原样泄漏，修的时候两件事要一起做。
+- 如何核实：`brief2.ts` 的 B1、B1b 行。`rendering.test.ts` 没有这条用例，brief.test.ts 的主文字只读字符串枚举。
+- 建议改法：`renderBlockPlain` 走 `authorNode` 同样的分支：值是 `{ref}` 时把目标加进 `references`，文字写 `context.entryName` 或“已删除的条目”。值是带 `id` 的列表时，每一行的 `id` 也加进 `references`（B4：`{fs.物件}` 现在写 label，显示是对的，但行里的条目不进 `references`，label 是绝密名字时判不出）。
+### 8. renderBlockPlain 对图片标签的处理：原样留标签，属性表达式拼成坏的标签
+- 严重程度：建议；类别：正确性；位置：packages/nb-canon/src/render/render.ts:255-270。
+- 现象：主文字 `<Image src="a.png" alt="脚印图" /> 后面 <Image src={fs.重要程度} alt="x" />。`，简报：`回收：<Image src="a.png" alt="脚印图" /> 后面 <Image src=main alt="x" />。` 写手看到标签与路径，第二个标签已经不合语法。值是 `{图片, 说明}` 的字段写的是 `说明`，这条是对的。
+- 为什么是问题：`renderBlockPlain` 的注释写“值写显示文字”，写手不回写。图片没有文字时路径写进正文素材没有用处。走到这里的 `references` 没有漏：属性表达式也在 `parsed.block.expressions` 里（`src={ref("k")...}` 会判成敏感），所以不算保密问题。
+- 如何核实：`brief2.ts` 的 B2 行。
+- 建议改法：`ParsedBlock` 记下图片标签的起止，纯文字里换成 `alt`（没有时不写）。属性表达式的引用照收。块解析失败的分支（`text: source, references: []`）现在走不到：写入时就拒收（B5：`cross-block`），不用另改。
+### 9. 用了马甲的人：只改了本章计划的两处，别的段照写本名；回溯章的称谓表直接写“灰袍客 = 王爷”
+- 严重程度：重要；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/index.ts:138（称谓只拿第 0 段的 `secrets`，参与者却是各段合并的）；packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:91、:110、:115、:121，packages/neuro-book/src/plugins/plot/core/brief/parts.ts:108、:166、:178，packages/neuro-book/src/plugins/plot/core/brief/appearance.ts:21（都是 `nameOf`）。
+- 现象：王爷这一场用马甲灰袍客，`揭穿` 它的知识点“灰袍客就是王爷”绝密且本章不揭示。
+  - E1：在场的人一项写成 `灰袍客 / 王爷的一个隐秘目标`，这一项本身就说出了灰袍客是王爷；这一场的秘密：`有一件涉及王爷的绝密设定`、`王爷在人前的表现：镇定`、`王爷另有一个不能写出的目标`、`知道的：王爷`；涉及条目的样子第一行：`王爷`。
+  - E2：回溯章，前段没有这个人，后段他用马甲。称谓表：`灰袍客 = 王爷`。`displayName` 用第 0 段的 `secrets` 判，第 0 段的集合里没有这个知识点（主体不是第 0 段涉及的条目），于是认为不用遮。这个绝密命题被原样写出来。
+- 为什么是问题：`displayName` 的注释写“本名就是那个秘密”，提交说明写“用马甲的人写马甲”。这批只改了 `fieldPhrase`、`listLine`。新用例“改用了马甲的人的字段”只断言 `plan` 一段，而且把知识点挂在马甲下面，绕开了主体写本名那一句。Spec plot/brief.md 输出 4 明写“主体的名字”，这一句要不要遮需要 Spec 定，但 E1 的第一处与 E2 不依赖那一句。base 已有，上一轮第 17 条只看到了计划段。
+- 如何核实：`brief2.ts` 的 E1、E2 行。
+- 建议改法：写人的地方统一走 `displayName`（参与者与 `secrets` 传进去）。称谓表用各段合起来的判断：任何一段里这个人的 `揭穿` 知识点是绝密且不给内容，就写马甲。主体是用马甲的人时，Spec 输出 4 补一句写什么（建议写马甲或 `fixed.NO_SUBJECT`），由开发者定。
+### 10. 活页夹讲不存在的线：只修了读者与简报，写之前的检查、检查结果、试读、写作指示检查仍按原样的线（上一轮第 4 条修了一半）
+- 严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/before-writing.ts:32-36；packages/neuro-book/src/plugins/plot/core/checks/diagnostics.ts:159；packages/neuro-book/src/plugins/plot/core/instruction-checks.ts:45-47；packages/neuro-book/src/plugins/plot/core/checks/trial.ts:35-37、:85。
+- 现象：ch3 的活页夹讲 `l404`（线被还原掉，活页夹没跟着改）。
+  - `composeBrief` 现在能拼；`beforeWriting(view, "ch3", digest)` 返回 `line-not-found`。同一章简报正常，写之前的检查报线不存在。
+  - `checkDiagnostics`：主线视图上这一章的检查记录过期（`stale`）。讲主线时报 `["stale"]`，讲 `l404` 时报 `[]`：`segment.line === view.line` 没有归一，这一章的检查结果在哪条线的视图上都不出现。
+  - 从代码推断（未单独跑）：`instruction-checks` 的 `segmentViews` 与 `trial` 的 `binderLines` 把这条线跳过，段里的事不进结果；`trial.ts:85` 的 `told === on.line` 用未归一的线比，这一段的悬念材料丢掉。
+- 为什么是问题：Spec canon/worldlines.md 输出 13“这一段按主线算”，输出 12 的计划线在实际模式同理。修复加了 `readingLine`，但只接了 `toldSegments` 与 `framesOf` 两处，plot 里读活页夹的还有六处。提交说明“活页夹讲计划线或不存在的线时这一段按实际读到的线”读起来是全部。
+- 如何核实：`brief2.ts` 的 G1 行；`bun /tmp/review-w00039-t34-H/opus2/binder.ts <worktree>`。
+- 建议改法：问题在上游：`view.chapterLines` 给原样的线，每个调用方自己归一，已经漏了。把归一放进内核：`chapterLines(chapter, mode)` 直接给实际读到的线，只有写诊断 `binder-line-unknown` 的地方另取原样。这样 `readingLine` 与 `toldSegments` 都可以去掉。代价是 `chapterLines` 的调用方都要传模式，依赖摘要里 `chapterSegments` 要用同一种读法。
+### 11. 读者一侧的揭示接进“悬念回收了却没揭示答案”：子线视图上的计划回收配不上子线的揭示，误报
+- 严重程度：建议；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:497 附近的 `payoffWithoutReveal`（`explicitIn` 读 `index.reveals()`，是读者的；`index.planned` 是这张线视图的）。
+- 现象：子线 r 的计划在 ch9 回收悬念，r 上的已写变更在 ch9 明说揭示答案，活页夹 ch9 还讲主线。r 视图读 ch9 末尾：报 `payoffWithoutReveal`。活页夹改讲 r 后不报。base 上两种都不报。
+- 为什么是问题：这个诊断在诊断表里不带 `line`，算“读者那一边”，可是计划节点来自线视图：一半读者一半线视图，结果随视图变，键又不带线。作者在子线上写好的回收与揭示都在，却得到提示。别的诊断这次都接对了（见末尾“没有发现”）。是 `hint` 级，不进待处理。
+- 如何核实：`bun /tmp/review-w00039-t34-H/opus2/fs-wire.ts <worktree>`，W1 两行，再用 `/tmp/review-w00039-t34-H/base` 跑。
+- 建议改法：计划的回收配这张线视图上的揭示（`collectNodes(own).reveals`），已写的回收配读者的揭示。Spec plot/foreshadowing.md 的诊断表里写明。
+### 12. 读者节点每建一次索引都重算全书各章的段：每章一个索引时慢了约 15 倍，单线的书也一样
+- 严重程度：建议；类别：性能；位置：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:163-165（`readerNodes` 开头）。
+- 现象：1000 章、5000 处讲述，在每一章各建一个 `ForeshadowIndex`（负载约 7，取中位）：e73905f5d 上 169 ms（1 条子线）、231 ms（6 条子线）；HEAD 上 3033 ms、3284 ms；没有子线的书 2459 ms。一个索引从约 0.2 ms 变成约 3 ms。
+- 为什么是问题：`rawTellings` 的注释写“写完以后的检查要在每一章各建一个索引，不能每次把全书的讲述再扫一遍”。`rawCache` 还在，但 `toldSegments` 放在 `ForeshadowIndex` 的构造里，`lines.size === 1` 的捷径也要先算完才走得到。上一轮接受的第 16 条是读一次的成本（约 100 ms），这条是按位置建索引的路径，数字不同。全书检查本来就要几分钟，所以只算建议。
+- 如何核实：`cd /tmp/review-w00039-t34-H/opus2 && bun perf-all.ts <worktree 或 opus2/prev> <线数> 3`。
+- 建议改法：`segmentsOf`、`lines` 与 `readerNodes` 里与位置无关的部分放进 `perViewCache`（一张视图算一次）。伏笔的 `answeredBy` 随位置变，所以 `collectNodes` 那一步留在外面。改动不到十行。
+### 13. recomputedOn：第一次写子线时量不到建线的开销；量的时候把线记成“用过”
+- 严重程度：建议；类别：正确性；位置：packages/nb-canon/src/service/service.ts:168-171，packages/nb-canon/src/lines/set.ts:218-225（`get` 记 `use.used`）。
+- 现象：
+  - 线已建：写子线 `publish.recomputed` 是 1，主线靠前的写入是 44（主线加三条子线），都对，上一轮第 13 条在线已建时修好了。
+  - 线没建：第一次写这条线 `publish.recomputed` 是 0，`updated` 是空的，写完 `built` 里多了这条线（`rec.ts` 的“write on unbuilt line”）。这次发布为它从头算了一遍，数字是 0。
+  - 从代码推断（未单独跑）：`recomputedOn` 经 `world.line(line)` 取线，`LineSet.get` 每次写 `use.used`，一次发布把更新过的线都记成最近用过，还按 `updates` 的先后。Spec canon/worldlines 输出 9 的淘汰按“读到一次就算用过一次”，写入不是读。只影响淘汰谁，不影响读取结果。
+- 为什么是问题：`work` 是量性能用的，子线第一次写入正是最贵的一次，显示 0 会把人带偏。上一轮第 13 条的现象（子线写入显示 0）在这条路径上原样存在。
+- 如何核实：`cd /tmp/review-w00039-t34-H/opus2 && bun rec.ts <worktree>`。
+- 建议改法：`LineSet` 自己给一个只读的 `recomputedTotal`（直接读 `#children`，不碰 `use`），当场建的线也算进去；Spec canon/project.md 写明含不含建线。
+### 14. 这批修正的接线与边界，一批变异去掉也没有用例失败（上一轮第 15 条的后续）
+- 严重程度：重要；类别：测试；位置：packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts、packages/neuro-book/src/plugins/plot/core/brief/brief.test.ts、packages/nb-canon/tests/rendering.test.ts。
+- 现象：plot 一侧 16 个变异，跑 foreshadowing、brief、checks、knowledge 四处的用例，8 个存活：
+  - P3 `objectTouched` 改用读者节点；P4 试读材料（`trial.ts`）改用读者节点；P5 物件候选（`candidates.ts`）改用读者阶段：这三处是这次新接到线视图的，全部没有用例；
+  - P6 读者节点不按段筛、P7 读者揭示不按段筛：`readerNodes` 的核心判断，去掉后回溯章同一条线上不在这一段的节点也算读过，没有用例；
+  - P9 简报的线不归一（`framesOf`）：用例只测了 `stageAt`，没有测活页夹讲不存在的线时拼简报；
+  - P14 `listLine` 不写马甲；P16 `shown` 不预算（全当没给内容）：冲突对象是给内容的隐秘目标时应写名字，没有用例。
+  nb-canon 一侧上一轮存活的 9 个里：M2、M5、M8、M20、M22、M24 现在被杀；M7 的代码已删；M15（过期时注记对不上不改报 `version-conflict`）与 M19（`//` 注释分支）仍然存活。M19 只有注释里带 `}` 时才分得出来：`魔力 {panel.魔力 // 注}还有\n}` 我跑过是对的，但没有用例。
+- 为什么是问题：第 2 轮要的“带 line 的诊断与读者各算各的”，只有 `plannedNodeMissing`、`noPayoffPlanned` 两处有用例守着。P6、P7 被改坏时阶段会悄悄变错，第 1 轮的回归就是这样进来的。
+- 如何核实：`cd /tmp/review-w00039-t34-H/opus2 && python3 mutate-plot.py`（操作 `opus2/mut2` 副本），结果在 `mutate-plot.log`；`python3 mutate-full.py M15 M19`（操作 `opus2/mut`），结果在 `mutate-full.log`。
+- 建议改法：各补一条行为用例。P6、P7：`from` 分两段讲同一条子线与主线，子线的节点写在前段的段落里，断言不算读过。P3：埋下只在子线、活页夹讲主线，子线视图报 `objectTouched`。P4：回溯段的试读材料含子线节点所在段。P5：子线已埋的物件进候选。P9：活页夹讲不存在的线时简报读主线计划。P16：冲突对象的隐秘知识点是保密档时写它的名字。M15：过期且删掉一处注记，得 `version-conflict`。
+
+## 三件事的结论
+### 一、上一轮的阻断与重要修好了没有（复跑结果，脚本在 /tmp/review-w00039-t34-H/opus 与 opus2）
+- 第 5 条（阻断）：原来的现象修好了，`brief-leaks.ts` L3 三行干净，主文字是纯文字、引到绝密时扣下。只修了一半：引用字段的值仍写 JSON 与 id（本报告第 7 条）；同样的主文字经涉及条目的样子还能出去（第 1、6 条）。
+- 第 6 条（阻断）：修好了。L1 干净；冲突对象是给内容的目标时写名字（`shown` 预算），代码上对，但没有用例（第 14 条 P16）。
+- 第 1 条（重要）：修好了。`fs-lines.ts` S1、S1b 不再报 `plannedNodeMissing`、`nodeWithoutTelling`。账本 S1 的 stage 是 unplanted、nodes 为空，新用例把它定成读者口径，符合 Spec 输出 5；Spec 输出 8 没写账本取哪份，这是作者的取舍，不算问题。
+- 第 2 条（重要）：修好了。S2 inherit 与 S2b 主线视图都是 planted。
+- 第 4 条（重要）：读者与简报两处修好了（S4、S5 都是 planted，节点在），其余读活页夹的地方没修（第 10 条）。
+- 第 7 条（重要）：只修了一半。L2、L2b 干净；目标在本章或之后才出场时照写（第 2 条），目标被删、隐秘指向已删时照写（第 3 条）。
+- 第 8 条（重要）：修好了，见下面第二件事。
+- 第 15 条（重要）：大半修好，M15、M19 仍存活，这批新代码又有 8 个存活（第 14 条）。
+- 其余已处理的条目：第 9、10 条复跑修好（`wb-idempotent.ts` 第 14 行 noop，`tail-check.ts` 第一行 14、15）；第 12 条按代码修好（第一行已删；只读期间能查到的答已发布）；第 13 条只在线已建时修好（第 13 条）；第 14 条修好（`stale-line-view.ts`：`line-required`，子线值不变）；第 17 条只修了计划段（第 9 条）。
+### 二、这批修正有没有引入新问题
+- 新问题：第 1 条的 A3（删除的条目名字被写回来）、第 12 条（按章建索引慢约 15 倍）是这批引入的。第 8 条的坏标签是 `renderBlockPlain` 新写的。第 13 条是 `recomputedOn` 新写的。
+- ForeshadowIndex 的两份节点：逐条看了所有诊断，只有 `payoffWithoutReveal` 口径混了（第 11 条，这个混用不是这批引入，这批也没修）。`payoffBeforePlant`、`replantAfterPayoff`、`longSilence`、`droppedButPlanted`、`orphanHint` 用读者节点、不带 line；`plannedNodeMissing`、`noPayoffPlanned`、`objectTouched` 用线视图节点、带 line；`nodeWithoutTelling` 用线视图的 `homeless`。与 Spec 诊断表一致，没有发现接错。W2、W3（`fs-wire.ts`）结果符合输出 5。`trial.ts` 用 `lineNodesRead` 再按段筛，与改前同义；`candidates.ts` 用 `lineStage`，键带 line，合理。
+- readingLine 的模式：没有发现问题。`framesOf` 用 planned，`toldSegments` 用 actual，与 Spec 12、13 一致。不可建的线 `effectiveLine` 原样返回，`onLine` 失败后读者一侧跳过，简报回 `line-not-found`，符合输出 18。覆盖不全见第 10 条。
+- renderBlockPlain 的 references：表达式引别的条目、属性表达式、`<Ref>`、隐秘目标、保密档不在本章集合的知识点都能判出来（`brief3.ts` B6 到 B9），保密档且本章给内容的写名字（B10）；已删除的写“已删除的条目”、值写“（已删除）”（B3）。漏的是引用字段的值（第 7 条）。块解析失败走不到（第 8 条）。用马甲的人不算敏感（B11，归第 9 条）。
+- shownName 与 concealedGoal 的边界：见第 2、3 条。
+- writeBack 的 requestDigest：没有发现误拒。真实 `WorldService` 上（`opus2/wb.ts`）：重读后同位置同文字、旧版本号、键的顺序不同、中间别的写入改了世界、重开项目之后，都答第一次的修订（r3，`repeated:true`）；内容不同、id 被普通发布用过、普通发布用回写的 id、重开后内容不同，都是 `request-id-reused`；`outcome` 正确。发布后重试把线去掉得 `line-required`，符合 Spec。摘要含 `by`，与普通请求一致。没有改动的回写仍返回最后一条修订、`repeated:true`（`wb.ts` 的 noop 行拿到 r3），上一轮第 8 条“相关”已记，不单独计。
+- recomputedOn：线已建时对；线没建与淘汰记录见第 13 条。章序调整走 `withOptions` 先丢线，`updates` 为空，没有触发重建；分叉定义变了的那条线本来就当场建（`ensure`），`recomputedOn` 没有多建。
+- 其余：`#boundedTime` 去掉 `known` 没有发现影响（从代码推断）：`known` 只影响 `exists`，它只决定进不进 `assembled.invalid`，带令牌的 `answerTime` 不读 `invalid`，所以上一轮 M7 才存活。`lineCommentBreak` 的正则不按词法，字符串里的 `//`（`"http://x"`）与块注释里的 `//` 也多一个换行，八种写法原样交回都是 noop（`opus2/wb2.ts`），只有表格单元里读起来难看，不单独计。`ALGORITHM` 已加；`random-edits.ts` 的新操作跑通，种子 11、12、13（150 步）无失败。
+- 依据：nb-canon 类型检查通过；plot 的 brief、foreshadowing、source 用例 67 个通过；变异副本上 checks 等 209 个用例通过。plot 一侧的 `vue-tsc` 与全量测试没有跑。
+### 三、还有没有路径把保密以上的名字写给写手
+有。名字进简报的路径：第 1 条（涉及条目：表达式、带引号的名字、已删除）、第 2 条（本章计划：本章才出场的隐秘目标）、第 3 条（本章计划：删除的边界）、第 4 条（这一场的秘密：主体的名字）、第 9 条（称谓与各段：用马甲的本名）。内容而不是名字：第 5 条（待定决策原话）、第 6 条（被扣下的主文字）。
+逐段看过、没有发现路径的：通则、场景条件（作者写的行）、读者已知、本章允许新增什么、自陈、已省略（标签只用不遮的名字或固定称呼；用马甲的本名见第 9 条）。本章计划的第一行是 `plan.text`、决策的原话、细纲都是作者的话，Spec 输出 9 已说明“原话里写了秘密、却没挂在那个知识点上的，照原话给出”，这里不算路径。
+
+## 位置更正
+第 2、3 条的 `concealedGoal` 在 secrets.ts:48-55（前面写 :50-54）。第 9 条称谓那一行在 index.ts:135（前面写 :138）。第 11 条的 `payoffWithoutReveal` 在 foreshadowing.ts:468（前面写 :497 附近）。
+
+## 操作记录
+实验与变异都在 /tmp/review-w00039-t34-H/opus2 下（mut、mut2、prev 是 git archive 出来的副本），实现 worktree 没有改动（`git status` 为空，HEAD d17e644d6）。没有开子代理，没有跑 e2e。
+
+## 各级数量
+阻断 2（1、2），重要 8（3、4、5、6、7、9、10、14），建议 4（8、11、12、13）。
+
+## 位置更正（补）
+第 3 条的 `secrecyOf` 在 context.ts:85-87（前面写 :97-98）。第 7 条的 `displayText(result.value)` 在 render.ts:269，第 8 条的 `renderBlockPlain` 从 render.ts:256 起（前面写的行号偏小）。第 13 条的 `LineSet.get` 在 set.ts:230（前面写 :218-225）。
+
+## 各级数量（不变）
+阻断 2，重要 8，建议 4。

@@ -5,7 +5,7 @@
 
 # WorkbenchToolStrip
 
-一棵树的布局里的活动栏（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 22）：上段列全部工具视图，不管它停在哪块面板，所以它不再是“侧栏的切换器”，而是一条工具条，几个条目可以同时按下；底段是贡献的全局项。视图在哪、点了做什么都由宿主定。
+一棵树的布局里的活动栏（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 22）：上段列侧栏这一列的视图，是侧栏的切换器，也是工具视图的落点；底段是贡献的全局项。列哪些视图、点了做什么都由宿主定。
 
 ## 布局
 
@@ -13,7 +13,8 @@
 
 ## 交互
 
-- 点视图条目发 `select(id)`，收在“更多”里的也一样。鼠标点不抢焦点：“已经聚焦时隐藏”要看点之前焦点在哪；键盘 Tab 到条目时焦点在条目上，回车算“焦点不在视图里”。条目的 `aria-pressed` 是视图有效可见。条目是拖动源，组件只写 `data-tool-entry` 标记。
+- 点视图条目发 `select(id)`，收在“更多”里的也一样。鼠标点不抢焦点：隐藏面板时焦点留在原处。条目的 `aria-pressed` 是视图有效可见。条目是拖动源，组件只写 `data-tool-entry` 标记；条目区写 `data-tool-band`，它是工具视图的落点，判定与插入线由宿主的拖动做。
+- 条目的右键或菜单键发 `context-menu`（“移动到”由宿主开）。菜单键时坐标是条目右上角。
 - 底段有命令的条目点了发 `run-item(id)`；不可用时停用，原因写在原生 `title`（停用的按钮不触发悬停提示组件）。声明了切换状态的带 `aria-pressed`。
 - 底段的占位不可聚焦、不可点，读屏读作一张带标题的图。
 - 整条是一个 `nav` 地标。
@@ -48,7 +49,7 @@ type Props = {
     label: string;
     /** “更多”按钮的名称。必填。 */
     moreLabel: string;
-    /** 按视图声明的 `order` 排好；受控，必填。 */
+    /** 按显示顺序排好；受控，必填。 */
     entries: ReadonlyArray<ToolStripEntry>;
     /** 底段；默认无。 */
     items?: ReadonlyArray<ToolStripItem>;
@@ -59,6 +60,8 @@ type Props = {
 type Emits = {
     (event: "select", id: string): void;
     (event: "run-item", id: string): void;
+    /** 坐标是视口坐标。 */
+    (event: "context-menu", id: string, at: {x: number; y: number}): void;
 };
 ```
 
@@ -70,4 +73,4 @@ type Emits = {
 
 ## 不支持
 
-不是落点（输出 22）。条目不能重排。不判断点了做什么（见 `state/layout-present.ts` 的 `toolEntryIntent`），不执行命令。
+不自己处理拖动。不判断点了做什么（见 `state/layout-present.ts` 的 `toolEntryIntent`），不执行命令。

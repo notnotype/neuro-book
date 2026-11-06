@@ -262,7 +262,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 <div class="p-3 text-xs text-[var(--text-muted)]">容器里的视图都已隐藏</div>
             </template>
         </WorkbenchViewInstances>
-        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" />
     </div>
 
     <LabFixtureControls>

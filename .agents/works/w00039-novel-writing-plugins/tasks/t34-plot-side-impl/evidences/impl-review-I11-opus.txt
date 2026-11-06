@@ -1,0 +1,135 @@
+### 1. 伏笔节点改成按活页夹取之后，按线算的诊断在子线视图上误报，账本丢节点（本次回归）
+- 严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:97（`readerTellings`），影响 :215 `plannedNodeMissing`、:257 `noPayoffPlanned`、`nodeWithoutTelling`、`ledger`。
+- 现象：子线 r 上有计划（带节点）和兑现它的已写变更，讲述就在 ch9 正文里，但活页夹 ch9 还讲主线（IF 线、还没进活页夹的子线）。在 r 视图读 ch9 末尾：head 报 `plannedNodeMissing{reason:"no-node-in-chapter"}`；已写变更没自己标节点时另报 `nodeWithoutTelling`；账本 stage 是 unplanted、nodes 为空。base 上同一世界 stage 是 planted、nodes 有 `ch9:inherited:plant` 或 `ch9:node:plant`，这两条诊断都不报。已写变更自己标了节点时（S1b）也一样误报“计划的节点没写”。
+- 为什么是问题：Spec plot/foreshadowing.md 诊断表写“按读者那一边算的不带 line，按线视图算的带”，`plannedNodeMissing`、`noPayoffPlanned`、`nodeWithoutTelling`、`objectTouched` 都带 `line`；输出 5 写“伏笔的计划、兑现与节点按世界线视图取；读者那一边的阶段按活页夹正文算”；输出 4 的“没有位置”指它没有生效的正文讲述，而这条讲述是生效的。现在所有诊断共用一份读者节点，线视图那半句没人实现了。`plannedNodeMissing` 是 `pending` 级：作者写完子线一章、节点标得好好的，待处理里多一条假的“计划的节点没写”，而且修不掉（除非改活页夹）。反方向也错，见 S2b：节点来自 r 的正文、回收计划在 r 上，主线视图报 `noPayoffPlanned`，因为 `index.planned` 只看主线。
+- 如何核实：`cd .worktree/w00039-t34-promote && bun /tmp/review-w00039-t34-H/opus/fs-lines.ts $PWD`，再用 `/tmp/review-w00039-t34-H/base` 作参数跑 base。真实 `World` 与 `createWorldReadView`，看 S1、S1b、S2b 三行。
+- 建议改法：`ForeshadowIndex` 分两份节点：`readerNodes`（`readerTellings`，给阶段、`payoffBeforePlant`、`replantAfterPayoff`、`longSilence`、`droppedButPlanted`、`orphanHint`）与 `lineNodes`（`effectiveTellings(view)`，给 `plannedNodeMissing`、`noPayoffPlanned`、`nodeWithoutTelling`、`objectTouched` 的区间，以及 `firstByChange`）。`firstByChange` 一定要按线视图取，否则“有生效正文讲述”会被活页夹改写。账本的 `nodes` 用哪份要一并定，Spec 输出 8 没说。新增用例只测了主线视图的 stage（foreshadowing.test.ts “活页夹第 9 章讲回溯线”），子线视图没有用例，所以没抓到。
+### 2. 跨线只修了自己标的节点：继承的节点在主线视图上仍不算，同一句正文的阶段取决于节点是标的还是继承的
+- 严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:106-122（`planned` 与 `fulfilling` 仍只读 `view.changes`）。
+- 现象：活页夹 ch9 讲 r。r 上的已写变更自己标“埋下”：主线视图 stage=planted（S2b）。把节点标在计划上、已写变更兑现它继承（S2）：同一句正文、同一个活页夹，主线视图 stage=unplanted、nodes 为空。
+- 为什么是问题：这次修的就是 Spec plot/foreshadowing.md 输出 5“读者那一边的阶段按活页夹正文算，不分线”。输出 4 的继承是写作主流程（细纲标节点，正文兑现），所以大多数节点走的是没修的这条路。另外 `firstByChange` 现在收了别的线的讲述，却只被 `view.changes` 里的已写变更查，主线视图上多收的部分是白算。
+- 如何核实：同第 1 条的脚本，比较 S2 inherit main-view 与 S2b own-node main-view 两行。base 上这两行都是 unplanted，所以不是回归，是这次修复没修全；修之前两种写法至少一致。
+- 建议改法：读者节点的继承也按活页夹讲到的每条线算（`binderLines` 上各取 `planned`、`fulfilling`），只取发生点落在那条线所讲段里的。检查路径上连同 `dependencies.ts` 过一遍：兑现成组已经全线归集（`groups`、`bucketsOfChanges`），摘要不需要改，但要加用例。
+### 3. 读者讲述的取法与 Spec worldlines 输出 13 字面相反，新用例把相反的那种写成了合同
+- 严重程度：重要；类别：正确性（Spec 与实现不一致）；位置：packages/neuro-book/src/plugins/plot/core/knowledge.ts:445-458（`readerBase` 按“这段讲的线 === 这条线”筛，base 已有），packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:97（这次接进伏笔），packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts “没讲到的子线不算”。
+- 现象：主线的记录带节点，讲述在 ch9，活页夹 ch9 讲 r（看不到这条记录）。head 主线视图 stage=unplanted、nodes 空；base 主线视图 stage=planted（S3）。
+- 为什么是问题：docs/specs/canon/worldlines.md 输出 13：“读者读过的讲述不分线：活页夹正文里能定位到的讲述都算，回溯章里被抹掉的那段只要正文还在也算。一处生效的正文讲述，它所在的那段讲的线既不是这条记录所在的线、也看不到这条记录时，给提示 `telling-line-mismatch`。”按字面，这条讲述算读过，同时给提示。实现不算读过；`telling-line-mismatch` 提示说“改章讲的线或改记录所在的线”，读者知情和伏笔阶段却已经悄悄按没读算了。新用例“同一句写在没讲到的 r2 上的回收不算”把这一点写成了期望。两种读法都讲得通（两条线写同一句时只算讲到的那条更合理），但要定一个：现在 Spec、知情、伏笔三处口径不一致，而且 Spec 刚修正过。知情一侧是 base 已有（knowledge.test.ts“章没讲 r1 时读者不知道”），伏笔一侧是这次新引入的。
+- 如何核实：`fs-lines.ts` 的 S3 两行，对比 head 与 base；读 Spec 这一条与验收场景 6。
+- 建议改法：交开发者定。如果实现是对的，把 worldlines 输出 13 改成“这段讲的线上看得到的讲述算读过；看不到的不算，给提示 `telling-line-mismatch`”。如果 Spec 是对的，`readerBase` 去掉按段筛（改取全部线上定位到的讲述，同一句多条线都算），上面的新用例要翻过来。
+### 4. 活页夹讲计划线或不存在的线时，这一段里的伏笔节点全部消失（本次回归，知情一侧是 base 已有）
+- 严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/knowledge.ts:446-456（`view.onLine(line, "actual")` 失败就 `continue`，筛选又比较 `segment.line === line`），经 packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:97 进入伏笔。
+- 现象：`view.chapterLines` 给的是活页夹原样的线（reads.ts:226-229，不按模式换成祖先线）。ch9 讲一条只有计划分叉的线，或讲一条不存在的线，主线记录上的“埋下”节点：head 账本 stage=unplanted、nodes 空；base 是 planted、`ch9:node`。
+- 为什么是问题：Spec canon/worldlines.md 输出 12：“实际模式里这一段按计划线最近的、在实际模式下存在的祖先线算”；输出 13：“章讲的线指向两种模式下都不存在的线时，这一段按主线算”。`readerBase` 两条都没做：这条线取不到视图就跳过，别的线又因为 `segment.line !== line` 不收这一段。线被还原掉（活页夹没跟着改）时，这些章里的节点、揭示一起从读者那边消失，阶段倒退，`payoffBeforePlant` 可能冒出来。
+- 如何核实：`bun /tmp/review-w00039-t34-H/opus/fs-lines2.ts <worktree>`，再用 `/tmp/review-w00039-t34-H/base` 跑。S4 是计划线，S5 是不存在的线。真实 `World` 与读视图。
+- 建议改法：`readerBase` 先把每段的线归一成实际读到的线（与 `World.positionLine` 同一套：`effectiveLine`）。内核最好给 `view` 一个已经归一的 `readingLine(chapter, segment)`，插件不要各写一份；`checks/segments.ts` 与 `trial.ts` 的 `binderLines` 也查一遍。同一处修好，读者知情（base 上就错）一起好。
+### 5. 简报伏笔段的主文字用了给 Agent 回写的渲染：把保密知识点的名字、条目 id 和注记语法写给写手（本次引入）
+- 严重程度：阻断；类别：保密、正确性；位置：packages/neuro-book/src/plugins/plot/core/brief/parts.ts:257-258。
+- 现象：伏笔主文字一块写 `回收时写明<Ref id="k" />留下脚印，重要程度 {fs.重要程度}。`，答案没指向保密知识点（所以不走“回收方式按细纲写”），本章计划带回收节点。简报这一行实际是：`回收：回收时写明<Ref id="e2" name="园丁是真凶" />留下脚印，重要程度 {fs.重要程度 = "main"}。`。“园丁是真凶”是绝密且本章不揭示的知识点。base 这里只写一句话描述（`回收：脚印`），干净。
+- 为什么是问题：三件事叠在一起。一，绝密知识点的名字进了简报，这是 Spec plot/brief.md 输出 4 不允许的，`payoffWithheld` 的判断只看 `答案`，挡不住主文字引用的别的条目。二，条目 id 写给写手，这正是 `valueText`、`rowText` 这一批修复要去掉的东西。三，`view.render` 是回写用的 Agent 形式（rendering.md 输出 8、12），`{字段 = 值}` 与 `<Ref>` 是给 Agent 改完交回的注记，写手不回写，会把它当正文素材照抄。只要伏笔主文字用了 canon 的引用或字段（这是主文字的正常写法）就会触发。
+- 如何核实：`cd .worktree/w00039-t34-promote && bun /tmp/review-w00039-t34-H/opus/brief-leaks.ts $PWD`，看 L3 三行；用 `/tmp/review-w00039-t34-H/base` 对比。真实 `World` 与 `composeBrief`。brief.test.ts 的新用例主文字是纯文字，没有引用，抓不到。
+- 建议改法：内核给一种纯文字渲染（值写显示文字，`<Ref>` 写当时的名字），或用作者渲染的树转文字；简报这一边再对引用到的条目过一遍保密判断：主文字引用了本章不该出现的保密以上知识点时，按 `payoffWithheld` 处理，不给主文字。补用例：主文字带 `<Ref>` 与 `{字段}`，断言简报不含 id、`<Ref`、`{`、绝密名字。
+### 6. 隐秘目标的“冲突”把另一个绝密隐秘目标的名字写进秘密段（本次引入）
+- 严重程度：阻断；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:87-88。
+- 现象：甲的隐秘目标“暗中查账”挂在保密知识点（给内容），冲突里有乙的隐秘目标“毒死男爵继承爵位”，后者挂在绝密且本章不揭示的知识点。简报：`甲的隐秘目标：暗中查账；冲突：毒死男爵继承爵位`。同一份简报里乙那一项写的是“乙另有一个不能写出的目标”。base 没有“冲突”这一段，干净。
+- 为什么是问题：Spec plot/brief.md 输出 4 最后一项：绝密而本章不暗示也不揭示时只写“某某另有一个不能写出的目标”，别的段只写“某某的一个隐秘目标”。新代码对冲突对象直接 `nameOf`，没有经过 `shownName`。隐秘目标的名字就是秘密本身，上一位审查者第 4 条修的是同一类问题的另一条路径。
+- 如何核实：`brief-leaks.ts` 的 L1 行，head 与 base 对比。
+- 建议改法：冲突对象要先判是不是隐秘目标：`hiddenGoals` 在这个循环里还没收全（知识点按档排，绝密在前、保密在后，但同档之间仍有先后），所以先扫一遍收全 `hiddenGoals` 与各项是否给内容，再写文字；对不给内容的写 `fixed.hiddenGoalOf(持有者)`。补用例，断言最终简报不含那个名字。
+### 7. `shownName` 只认本章 `hiddenGoals` 里的目标：持有者不是参与者时，隐秘目标的名字照写（修复第 4 条没修全）
+- 严重程度：重要；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/parts.ts:48-52，packages/neuro-book/src/plugins/plot/core/brief/secrets.ts:50-52（`everyone` 只收参与者）。
+- 现象：管家不在本章参与者里。勇者的公开目标 `listAdd goal.冲突 {id: 隐秘目标}`，简报：`保护男爵的冲突：加上毒死男爵继承爵位`。base 这条写的是 JSON 里的 id，不写名字，所以名字泄漏是这次改法带来的。直接改那个目标的状态（L2b）：`毒死男爵继承爵位的状态：active → blocked`，这一条 base 就有（`毒死男爵继承爵位的goal.状态`）。
+- 为什么是问题：e73905f5d 的修复依赖 `secrets.hiddenGoals`，而它只由参与者（含只被提到的）的目标构成。`patchPoints` 把值里的目标 id 收进来，又按“是知识点”滤掉，所以目标藏着的知识点进不了本章秘密。计划提到一个不在场的人的隐秘目标是正常写法（“勇者决定阻止管家”）。Spec 输出 4 虽然只说参与者的目标，但“别的段不写秘密名字”的本意在这里被绕过，而且 `shownName` 的注释写的是“隐秘目标与保密以上的知识点不写名字”，没有参与者这个前提。
+- 如何核实：`brief-leaks.ts` 的 L2、L2b 行，head 与 base 对比。
+- 建议改法：`shownName` 与 `planItems` 的目标分支直接读目标的 `goal.隐秘`：指向保密以上知识点的，不在 `hiddenGoals` 里也写 `fixed.hiddenGoalOf(持有者)`；或让 `patchPoints` 把被引目标的 `隐秘` 收进本章涉及的知识点（改的是 knowledge 输出 10 的集合，影响检查，要连同 `dependencies.ts` 一起算）。前一种只动简报，更小。
+### 8. 回写提前按请求 id 返回：内容不同的重发、被别的请求用过的 id 都答“成功”，改动被悄悄丢掉（本次回归）
+- 严重程度：重要；类别：正确性；位置：packages/nb-canon/src/render/writeback.ts:209-211。
+- 现象：真实 `WorldService` 上：(A) 请求 id `create` 已被一次普通发布用过，回写用同一个 id 把魔力改成 3000，返回 `{ok:true, revision.requestId:"create", repeated:true}`，值没变。(B) 同一个 id 第一次写 3000 成功，第二次写 2000，返回 `{ok:true, repeated:true, rev:"r3"}`，值还是 3000。base 上 A、B 都是 `request-id-reused`。
+- 为什么是问题：Spec canon/revisions.md 输出 16：“内容与第一次不同……时拒收（`request-id-reused`）”。上一位审查者第 1 条明确写了不同内容要拒，e73905f5d 只修了同内容的那一半，把不同内容从“拒收”改坏成了“成功”。对调用方这是最坏的结果：Agent 拿到成功，认为 2000 已写入，世界里是 3000，没有任何信号。Agent 复用 id（工具重试时改了文字）是现实情形。
+- 如何核实：`cd .worktree/w00039-t34-promote && bun /tmp/review-w00039-t34-H/opus/writeback-reuse.ts $PWD`，再用 `/tmp/review-w00039-t34-H/base` 跑。rendering.test.ts 新增的“同一个请求 id 重试”只测内容相同，没有内容不同的用例。
+- 建议改法：回写自己的请求摘要（entry、block、position、mode、text、intent、by，不含 version 的话要想清楚重读后的重试算不算同一个）存进修订，做法与 `revert` 的 `digestOverride` 相同（world.ts `#publish` 已支持）；提前返回前比摘要，对不上给 `request-id-reused`。旧日志里的回写修订摘要对不上时按拒收算，这批还没有发布过的数据，可以接受。
+- 相关：无改动的回写返回 `revision: world.revisions.at(-1)`、`repeated:true`（writeback.ts:275，base 已有）。实验 C 里 `nop` 请求拿到的是 `wb` 的修订，调用方看到的是别人的修订，又标着“重复”。Spec 说“没有差别算没有改动，不发布”，没说返回什么，建议给单独的 `unchanged` 结果，另记，不算这次回归。
+### 9. 回写跳过 `//` 注释后，带行注释的表达式再也回写不了（本次回归）
+- 严重程度：建议；类别：正确性；位置：packages/nb-canon/src/render/writeback.ts:131-136（`scanOne` 的 `//` 分支），渲染一侧 packages/nb-canon/src/render/render.ts 的 `renderBlockForAgent`。
+- 现象：源文 `魔力 {panel.魔力 // 注\n}`，渲染给 Agent 的是 `魔力 {panel.魔力 // 注 = 3110}`：换行被去掉，`= 3110` 落进了行注释。原样交回：head 得 `annotation-mismatch`；base 是没有改动（noop）。扫描器跳到行尾找不到换行，返回 null。
+- 为什么是问题：Agent 原样交回一块都失败，Spec canon/rendering.md 输出 10 的“按 JS 词法”只修了一半：扫描按词法了，渲染没按。错误码还说“注记被删、重排、复制或新增”，Agent 查不出原因。这种写法不常见，所以只算建议。变异 M19（去掉 `//` 分支）测试不失败，没有用例走到这里。
+- 如何核实：`bun /tmp/review-w00039-t34-H/opus/wb-idempotent.ts <worktree>`，对比 `/tmp/review-w00039-t34-H/base`，看第 14 行。
+- 建议改法：渲染时表达式源文含 `//` 就在注记前保留换行（`{panel.魔力 // 注\n = 3110}`），扫描与 `matches` 已经按去空白比。同一脚本第 7 行另记：MDX 关了缩进代码块，四个空格缩进的 `~~~` 在解析器里仍是围栏，而 `FENCE_OPEN` 只认三个空格，这种块原样交回也是 `annotation-mismatch`；base 同样失败，不是回归。
+### 10. 同一请求里带引文、没给键的核对点不进 `tailKeys`：没讲述的记录排到它前面
+- 严重程度：建议；类别：正确性；位置：packages/nb-canon/src/world/world.ts:1125-1128（`tailKeys` 的 check 分支只认 `typeof place.key === "number"`）。
+- 现象：同一请求写一个核对点（`told.quote` 在第 14 字，没给键）和一条没讲述、没给键的变更：核对点 key=14，变更 key=0。Spec canon/revisions.md 输出 18 要求后者排在本章最后。把核对点换成带引文的变更（上一位审查者第 2 条修的情形）结果是 14、15，是对的。
+- 为什么是问题：`tailKeys` 自己的注释写“同一请求里键已定的记录也算（显式给的、按正文讲述算出来的）”，变更分支做到了，核对点分支没做。第 2 条的修复漏了对称的一半。同一请求同一章既有带引文的核对点又有无讲述记录，情形不多，所以是建议。
+- 如何核实：`bun /tmp/review-w00039-t34-H/opus/tail-check.ts <worktree>` 第一行（经 `PlotWorld` 调真实 `World.publish`）。
+- 建议改法：把核对点的键也提成一个函数（与 `changeKey` 对称，fillDefaults 与 tailKeys 共用），check 分支调它。
+### 11. 计划的读取变了，`ALGORITHM` 没加，依赖摘要的表与随机序列都没跟着改
+- 严重程度：建议；类别：不变量；位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:44（`ALGORITHM = 2`），同文件开头的表，packages/neuro-book/src/plugins/plot/testing/random-edits.ts（范围内没改）。
+- 现象：`rawTellings` 换成跨线（物件层候选的阶段变了），`patchPoints` 改成数组值也收（本章涉及的知识点变了）。这两处都改 `planCheck` 的结果，但同一世界的摘要算出来和改之前相同。
+- 为什么是问题：文件头写“改了算法要加 ALGORITHM：旧记录的摘要对不上，重拼一次，仍有效就回写”，硬不变量是“摘要没变时结论一定没变”。旧版本写下的检查记录，摘要照旧对得上，结论却是旧算法的，有一批世界会一直用旧结论。作者说还没有发布过的数据，所以不是发布事故，但开发机上的样本书就是这种情况。random-edits.ts 头注释要求“新加一种读取，这里要加一种操作”，这里没有子线上的节点、子线上的兑现这些操作。
+- 如何核实：`git diff b52253ee..e73905f5d -- packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts packages/neuro-book/src/plugins/plot/testing/random-edits.ts` 无输出。我补了四种操作（线上节点、回溯线上节点、线上兑现、换活页夹，含讲到本章之后的章）跑了 8 个种子（200 或 400 步，每步比全部章）：`cd /tmp/review-w00039-t34-H/opus && PLOT_RANDOM_SEED=7 PLOT_RANDOM_STEPS=200 bun test ./deps-lines.test.ts`。没有发现漏算，四种操作都让结论变过。所以摘要本身这次没漏，缺的是版本号与守门。
+- 建议改法：`ALGORITHM` 加一；把 `/tmp/review-w00039-t34-H/opus/random-edits-lines.ts` 里的四种操作搬进 random-edits.ts；表里“全部伏笔的名字、物件、阶段”一行写明节点跨活页夹讲到的线。
+### 12. `outcome` 在 `write-unknown` 只读时连已经确定发布的请求也答不确定
+- 严重程度：建议；类别：代码质量、正确性；位置：packages/nb-canon/src/service/service.ts:873-878。
+- 现象：第一行 `#readOnlyReason === "write-unknown"` 直接返回 `{code:"write-unknown"}`，然后才查内存。R1 早已发布、R2 写盘不确定转只读之后，`outcome(R1)` 得到“不确定”，别的只读原因下同一个查询得到“已发布”。这次新增的第三行把“查不到才不确定”的逻辑写对了，第一行留着与它矛盾。第一行是 base 已有。
+- 为什么是问题：Spec canon/project.md 输出 16 是“世界只读期间无法确定”。内存里的世界只含确定落盘的修订，R1 是能确定的；调用方会白等一次重开项目。
+- 如何核实：读代码（从代码推断，未单独跑）。
+- 建议改法：去掉第一行，只留：查到就答已发布；否则 `#state === "read-only" ? {code:"write-unknown"} : {published:false}`。
+### 13. `status.work` 的重算量只数主线，用例断言 `expect.any(Number)` 抓不住
+- 严重程度：建议；类别：测试、正确性；位置：packages/nb-canon/src/service/service.ts:254、:919-923；packages/nb-canon/tests/service.test.ts “打开后有打开的一份；发布后有发布的一份”。
+- 现象：写一条子线上的记录后 `work.publish.recomputed` 是 0（`opus/work.ts` 第二行），重算全部发生在子线引擎。`ms` 也只含算的时间，不含写盘。用例只断言两个字段是数字，把 `recomputed` 写死成 0 也能过。
+- 为什么是问题：Spec canon/project.md 方法表写“最近一次打开与发布的重算量与耗时”，这是性能诊断的入口，子线写入显示 0 会把人带偏。同名字段 `status.recomputed` 一直只数主线，所以这次是延续而不是新错，但新字段是为量性能加的，应该说得清。
+- 如何核实：`bun /tmp/review-w00039-t34-H/opus/work.ts <worktree>`。
+- 建议改法：`recomputed` 加上这次发布更新的各线之和（`lines.updates` 已有更新了哪些线），或改名 `mainRecomputed`；`ms` 写明不含写盘，或把写盘算进去。用例改成：往第 N 章发布一条，断言重算量等于受影响的事件数，打开时等于全部事件数。
+### 14. 上一位审查者第 3 条只修了“照带渲染位置”的调用方：位置不写线时，父线的值照样写到子线上
+- 严重程度：建议；类别：不变量；位置：packages/nb-canon/src/render/writeback.ts:212（`world.lineAt(input.position)`），packages/nb-canon/src/render/entry.ts:51，packages/neuro-book/src/plugins/canon/shared/contracts.ts:184（`position` 的 `line` 可选）。
+- 现象：e73905f5d 让渲染结果的位置写明线，回写照带就对。上一位审查者原来的实验（位置不写线）在 head 上结果没变：`{"version":5,...,"main":15000,"branchBefore":21000,"write":{"revision":"r6"},"branchAfter":15000}`，子线的值被改回主线的值，发布成功。
+- 为什么是问题：修复是调用方的约定，不是内核的保证。Spec rendering 输出 12 写了“交回时照带”，树内现在也没有不照带的调用方（Agent 工具 t19 还没做），所以不算阻断。但回写入口的 `position` 允许不写线，下一个调用方自己拼 `{kind, chapter, edge}` 时会静默写错，这正是这条要防的结果。
+- 如何核实：`cd .worktree/w00039-t34-promote && bun /tmp/review-w00039-t34-H/stale-line-view.ts`。
+- 建议改法：`WriteBackInput.position` 与合同要求写明 `line`（`initial` 除外也行），没写就拒收（类型层和 schema 都拦）。这比“不写线按活页夹取”少一条静默的路。测试里 `at("ch5")` 那批改成带线。editInPlace 保留现状（它带 `read.value`，会报冲突）。
+### 15. 这次的修复有 9 处去掉也没有用例失败
+- 严重程度：重要；类别：测试；位置：packages/nb-canon/tests/（对应的产品代码见下）。
+- 现象：对 nb-canon 做了 31 个变异（在 /tmp 的副本上），22 个被杀，9 个跑完 nb-canon 全部 549 个用例仍然全过：
+  - M5 `#boundedTime` 的父线不按上限截（service.ts:501，改成 `world.time(mode, parent)`）；
+  - M7 带令牌时不传 `known`（service.ts:502）；
+  - M8 impact 的“改前”时间待处理读主线而不是写入所在的线（world.ts:1642）；
+  - M2 `tailKeys` 看全部记录不看线视图（world.ts:1115）；
+  - M15 过期时注记对不上不改报 `version-conflict`（writeback.ts:239）；
+  - M19 `//` 注释分支（writeback.ts:131，见第 9 条）；
+  - M20 元素子字段的差额精度检查（apply.ts:374；字段那一处 M21 被杀）；
+  - M22 `check-mismatch` 按挂靠的变更是否套上决定排序位置（pending-groups.ts:121）；
+  - M24 只要求直接父条目没删，祖先删了照样能写（world.ts:1284）。
+- 为什么是问题：M5、M7、M8 都是阶段 H 明确要修的行为，注释里写了理由（“上限之后的说法不能收窄切口与触发处的差”）。M8 尤其要紧：把“改前”读错了线，子线上已有的打架每次写入都会算成新增，现有用例只看新产生的打架。将来有人重构这几处，回归不会被发现。另外“带令牌的查询……与不带令牌答得一样”这条用例只有一条线且上限之后没有说法，所以测不到“截”。`service.test.ts` 的 `expect.any(Number)` 见第 13 条。
+- 如何核实：`python3 /tmp/review-w00039-t34-H/opus/mutate-full.py M5 M8`（操作 /tmp 副本 `opus/mut`，不动仓库）；全部结果在 `opus/mutate.log`（只跑相关文件）与 `opus/mutate-full.log`（存活者跑全量）。
+- 建议改法：各补一条行为用例。M5：父线在上限之后有一条收窄切口到触发处的说法，带令牌读到的范围比不带令牌的宽。M8：子线上先有一处打架，再写一条无关的带时间说法的记录，`pendingAdded` 里没有那处。M7：令牌上限之前的变更 `of` 指向上限之后的变更，不报 `target-missing`。其余按同样的方式补。
+### 16. 伏笔索引按线扫讲述，每条讲到的线多一份全书扫描
+- 严重程度：建议；类别：性能；位置：packages/neuro-book/src/plugins/plot/core/knowledge.ts:445-456（`readerBase`），经 packages/neuro-book/src/plugins/plot/core/foreshadowing.ts:97。
+- 现象：1000 章、5000 处讲述，第一次建 `ForeshadowIndex`（7 次取中位，负载约 4）：讲到 1 条子线时 base 23.4 ms、head 40.6 ms；讲到 6 条子线时 base 23.3 ms、head 106.6 ms。每次发布之后第一次读待处理或账本就付一次，同一版本内有缓存。
+- 为什么是问题：`foreshadow.ts` 的注释说明“写完以后的检查要在每一章各建一个索引，不能每次把全书的讲述再扫一遍”，读待处理本来是热路径。100 ms 现在还不违反预算（没核对预算的具体数字），只是随线数线性涨。`view.tellings` 每条线都要做一遍 `listTellings`（定位全部讲述），再按线筛。
+- 如何核实：`bun /tmp/review-w00039-t34-H/opus/perf-reader.ts <worktree 或 /tmp/review-w00039-t34-H/base> <线数>`。base 目录的 plot 代码是 base，nb-canon 经 node_modules 是 head，所以这里比的正是 plot 这一处。
+- 建议改法：内核给一次性的读取：全部线合起来只定位一遍，再逐段判 `lineTable.visible`。第 4 条要动 `readerBase`，可以一起改。不急，确认线数多的样本书上有感时再做。
+### 17. 另记（base 已有）：本章计划段按本名写用了马甲的人
+- 严重程度：建议；类别：保密；位置：packages/neuro-book/src/plugins/plot/core/brief/parts.ts:74、:87（`nameOf(frame, at.entry)`）。
+- 现象：王爷这一场用马甲“灰袍客”，揭穿它的知识点是绝密且本章不揭示。在场的人一段按 `displayName` 写马甲，计划段写 `王爷的summary： → 换了说法`。base 写 `王爷的entry.summary`，同样是本名。`entry.summary` 的字段名也没换成显示名（`fieldLabel` 对 `entry.*` 取不到）。
+- 为什么是问题：`displayName` 的注释写“本名就是那个秘密”，同一份简报一边遮一边写。这次重写 `fieldPhrase`、`listLine` 时可以顺手改，但没改。“有一件涉及王爷的绝密设定”这一句是 Spec 写明的“主体的名字”，那一处要不要遮需要 Spec 定。
+- 如何核实：`brief-leaks.ts` 的 L5 行，head 与 base 都是 LEAK。
+- 建议改法：`fieldPhrase`、`listLine` 的 owner 与 `shownName` 都走 `displayName`（要把参与者传进来）。不计本次回归。
+
+## 按影响排序的索引
+阻断：5（伏笔主文字泄漏绝密名字与 id）、6（隐秘目标的冲突泄漏另一个绝密目标）。
+重要：8（回写内容不同答成功）、1（子线视图上按线的诊断误报）、4（讲计划线、不存在的线时节点消失）、7（持有者不在场时隐秘目标名字照写）、3（读者讲述与 Spec 输出 13 相反，要开发者定）、2（继承节点没跨线）、15（9 个变异存活）。
+建议：14、9、10、11、12、13、16、17。
+
+## 未发现问题的方面
+- 重点 1 依赖摘要：仔细检查后没有发现漏算。节点所在章在 `B` 之内时，活页夹在 `order`、讲述与段的归属在 `coarse`、对象在 `foreshadow` 前缀；在 `B` 之外的读不到。补了子线节点与换活页夹操作的随机序列跑 8 个种子，摘要没变时结论都没变（第 11 条）。没跑到的路径未验证：计划线、不可建线上的节点（随机序列没有这种操作）。
+- 重点 1 简报伏笔段：只用 `index.planned` 与 `foreshadows`，这次改动没有影响节点来源；问题在主文字（第 5 条）。试读的 `suspenseParagraphs` 按 `told === on.line` 筛，结果与改前相同，只有已写变更的第一处讲述改成读者读到的第一处，这样更合理。
+- 重点 2：预览与发布的 `impact`、`ops` 逐字相同（tail-check 第四行）；重放用存下的 ops，不重算键；还原按原样恢复键；挪章不给键落到新章末尾，`rekeyed` 不含挪章，Spec 没有要求。前史比较在 `placePrehistory` 之后，`order` 已定。
+- 重点 3：`#absorb` 整批换上再发事件，事件里 `version` 可能小于 `status().version`，树内监听者（remote.ts 转发、web/client.ts）都不比较它，没有影响。`outcome` 的新分支符合 Spec（第 12 条是第一行的问题）。`#boundedTime` 的缓存键含线，递归把 `line` 换成父线，`until` 共用；时间缓存的身份是每版本新建的 records，`known` 不进键不会读到旧值（lines/set.ts:139、:169）。
+- 重点 4：新开的线改前按空；线不可建时 `where` 退回主线；改父线不算子线是 Spec 写明的取舍。新开的线会把父线已有的时间待处理算成新增，与普通待处理同一口径，不另记。
+- 重点 5：位置写明线经合同来回没问题（schema 的 `line` 可选、`initial` 也接受）；`editInPlace` 把 `line: main` 去掉再用，安放不会多写 `line`；令牌比较：不带令牌渲染出的位置写的是 main，交给子线令牌会得 `view-denied`（work.ts），符合 Spec“位置写了别的线拒”，树内没有这样混用的路径。
+- 上一位审查者第 1 到 4 条：实验在 head 上复跑，第 2、4 条修对；第 1 条只修了内容相同的一半（第 8 条）；第 3 条依赖调用方照带（第 14 条）。
+- `legacy-precision-replay.ts`：已存的超精度差额在 head 上 `number-out-of-range` 进待处理，值不变；作者已接受，没有发布过的数据，不另记。
+- nb-canon 类型检查通过；nb-canon 全部用例通过（549 个，在 /tmp 副本上）。
+- 新增测试抽查：brief、foreshadowing、run、candidates、checks 的新用例断言的都是可观察结果，没有发现同义反复（`expect.any` 一处除外，见第 13 条）；plot 一侧没有做变异检查，只读了代码。
+
+## 操作记录
+一条实验命令里误带了 `rm -f /dev/null`，权限不足没有生效，没有删除任何文件。实验文件都在 /tmp/review-w00039-t34-H/opus 下；实现 worktree 没有改动（`git status` 为空）。
+
+## 各级数量
+阻断 2，重要 7，建议 8。

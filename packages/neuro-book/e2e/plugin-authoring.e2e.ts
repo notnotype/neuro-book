@@ -87,7 +87,7 @@ async function openSettings(page: Page, section: string): Promise<void> {
 }
 
 /**
- * 显示模板的视图。活动栏条目点一下已经聚焦的视图会隐藏它，所以只在它没按下时点。
+ * 显示模板的视图。活动栏条目点一下已经可见的视图会隐藏它（输出 22），所以只在它没按下时点。
  */
 async function showView(page: Page): Promise<void> {
     const container = page.locator(`[data-tool-entry='${VIEW.slice("view:".length)}']`);

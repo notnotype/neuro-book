@@ -358,6 +358,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "themeEditor.icons.preview": {"zh-CN": "{name} 的预览", "en-US": "Preview of {name}"},
     "themeEditor.icons.failed": {"zh-CN": "上传失败：{reason}", "en-US": "Upload failed: {reason}"},
     "themeEditor.icons.nameInvalid": {"zh-CN": "图标名只收小写字母、数字与连字符", "en-US": "Icon names take lowercase letters, digits and hyphens only"},
+    "themeEditor.icons.original": {"zh-CN": "原图标（产品里这个名字原来的样子）", "en-US": "Original icon (how this name looks in the product)"},
     "themeEditor.icons.suggestions": {"zh-CN": "图标名候选", "en-US": "Icon name suggestions"},
     "themeEditor.icons.unknownName": {"zh-CN": "当前页面没有这个图标的样式，保存后可能看不到效果。", "en-US": "The current page has no style for this icon, so it may not show after saving."},
     "themeEditor.icons.nameEmpty": {"zh-CN": "先填图标名", "en-US": "Enter an icon name first"},

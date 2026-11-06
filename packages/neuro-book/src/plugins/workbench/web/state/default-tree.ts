@@ -2,8 +2,8 @@
  * 默认树与视图的第一次落位（docs/specs/ui/workbench-layout.md 输出 1、4）。纯函数。
  */
 
-import {barRef, GRID_SNAPSHOT_VERSION, insertTab, panelRef, tabKey} from "@notnotype/nb-layout";
-import type {LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-layout";
+import {barOfRef, barRef, GRID_SNAPSHOT_VERSION, insertTab, panelRef, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridOrientation, LayoutBar, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
 import type {ViewCatalog} from "../views/placement";
 import {SHELL_ACTIVITYBAR_WIDTH, SHELL_SIZE_DEFAULTS, SHELL_STATUSBAR_HEIGHT} from "../shell/sizes";
@@ -60,6 +60,35 @@ export function reconcileViews(doc: LayoutDoc, catalog: ViewCatalog): LayoutDoc 
         if (result.ok) next = result.doc;
     }
     return next;
+}
+
+type TreeNode = LayoutDoc["tree"]["root"];
+
+const isBar = (node: TreeNode | undefined, bar: LayoutBar): boolean => node?.kind === "leaf" && barOfRef(node.ref) === bar;
+
+/** 这一列（这一排）：这个具名面板自己，或按这个方向分开的几块工具面板，其中恰有它。 */
+function isToolRun(doc: LayoutDoc, node: TreeNode | undefined, orientation: GridOrientation, name: PanelName): boolean {
+    if (node === undefined) return false;
+    if (node.kind === "leaf") return doc.panels[node.id]?.name === name;
+    return node.orientation === orientation
+        && node.children.every((child) => child.kind === "leaf" && doc.panels[child.id]?.role === "tool")
+        && node.children.filter((child) => doc.panels[child.id]?.name === name).length === 1;
+}
+
+/**
+ * 树合不合骨架（输出 1）：`V[H[活动栏, 侧栏这一列, V[编辑项…, 面板这一排], 右栏这一列], 状态栏]`，编辑项是编辑组或只含编辑组的分支。文档的校验（`validateLayoutDoc`）不管这个：
+ * 骨架是工作台的规则，库不知道。store 读记录时用它决定回落，写入的出口也过它。
+ */
+export function fitsSkeleton(doc: LayoutDoc): boolean {
+    const {root} = doc.tree;
+    if (root.kind !== "branch" || root.orientation !== "vertical" || root.children.length !== 2 || !isBar(root.children[1], "statusbar")) return false;
+    const body = root.children[0];
+    if (body?.kind !== "branch" || body.orientation !== "horizontal" || body.children.length !== 4 || !isBar(body.children[0], "activitybar")) return false;
+    if (!isToolRun(doc, body.children[1], "vertical", "sidebar") || !isToolRun(doc, body.children[3], "vertical", "auxiliarybar")) return false;
+    const middle = body.children[2];
+    if (middle?.kind !== "branch" || middle.orientation !== "vertical" || middle.children.length < 2) return false;
+    if (!isToolRun(doc, middle.children.at(-1), "horizontal", "panel")) return false;
+    return middle.children.slice(0, -1).every((child) => treeLeaves(child).every((leaf) => doc.panels[leaf.id]?.role === "editor"));
 }
 
 /** 第一次生成文档：有视图的具名面板显示，空的隐藏。 */

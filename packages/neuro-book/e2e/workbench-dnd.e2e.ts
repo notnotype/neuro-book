@@ -177,7 +177,6 @@ test.describe("产品页：拖放", () => {
         const writes = await writesOf(page);
         await dragTo(page, source, await endOfStrip(page, "auxiliarybar"));
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
-        await expect(feedback(page)).toHaveAttribute("data-drop-count", "1");
         await expect(line(page)).toBeVisible();
         // 拖动源原地不动、尺寸不变（WorkbenchDragFeedback 的样式意图：按钮按下的缩放在拖动开始后撤掉）；用软断言，失败也让后面的判据照常跑。
         expect.soft(await source.boundingBox()).toEqual(before);
@@ -225,17 +224,28 @@ test.describe("产品页：拖放", () => {
         expect(await tabsOf(page, "panel")).toEqual([`view:${E}`, `view:${F}`]);
     });
 
-    test("只有一个标签的面板拖到别的面板的外缘：是同一块面板在移动，面板 id 与内容实例都不变（输出 27）", async ({page}) => {
+    test("单标签的面板拖到别的面板的外缘：具名面板拆出无名新面板、自己隐藏留在树里；无名面板是同一块面板在整块移动，面板 id 与内容实例都不变（输出 27；验收 10）", async ({page}) => {
         await open(page);
         const instance = await instanceOf(page, D);
         await dropAt(page, tab(page, D), await inLeaf(page, "panel", {x: 0.08, y: 0.6}));
-        await expect(shell(page)).toHaveAttribute("data-panel-count", "4");
-        expect(await panelOfTab(page, D)).toBe("auxiliarybar");
-        // 右栏现在在面板的左边，两者并排。
-        const aux = (await leaf(page, "auxiliarybar").boundingBox())!;
+        // 右栏是具名面板，不移动：它拖空隐藏，留在树里（记住位置）；新块是无名面板，挨着面板的左边。
+        await expect(shell(page)).toHaveAttribute("data-panel-count", "5");
+        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
+        await expect.poll(async () => (await savedDoc(page))?.panels.auxiliarybar?.hidden).toBe(true);
+        const created = await panelOfTab(page, D);
+        expect(created).not.toBe("auxiliarybar");
+        const moved = (await leaf(page, created).boundingBox())!;
         const panel = (await leaf(page, "panel").boundingBox())!;
-        expect(aux.x + aux.width).toBeLessThanOrEqual(panel.x + 2);
-        expect(Math.abs(aux.y - panel.y)).toBeLessThan(2);
+        expect(moved.x + moved.width).toBeLessThanOrEqual(panel.x + 2);
+        expect(Math.abs(moved.y - panel.y)).toBeLessThan(2);
+        await expect(sample(page, D)).toBeVisible();
+        expect(await instanceOf(page, D)).toBe(instance);
+
+        // 无名面板的单标签仍是整块移动：拖到面板的右缘，id 不变，面板数不变。
+        await dropAt(page, tab(page, D), await inLeaf(page, "panel", {x: 0.92, y: 0.6}));
+        await expect(shell(page)).toHaveAttribute("data-panel-count", "5");
+        expect(await panelOfTab(page, D)).toBe(created);
+        await expect.poll(async () => (await leaf(page, created).boundingBox())!.x).toBeGreaterThan((await leaf(page, "panel").boundingBox())!.x);
         await expect(sample(page, D)).toBeVisible();
         expect(await instanceOf(page, D)).toBe(instance);
     });
@@ -258,16 +268,21 @@ test.describe("产品页：拖放", () => {
         await expect(tab(page, F)).toHaveAttribute("aria-selected", "true");
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
 
-        // 验收 3：只有一个标签的右栏紧贴着中间一列，拖到它自己贴着的那条边上，结果和现在一样，什么都不提交。
+        // 验收 3：无名的单标签面板紧贴着面板，拖到它自己贴着的那条边上，结果和现在一样，什么都不提交。
+        await dropAt(page, tab(page, F), await inLeaf(page, "panel", {x: 0.08, y: 0.6}));
+        const lone = await panelOfTab(page, F);
+        expect(lone).not.toBe("panel");
+        await expect.poll(() => writesOf(page)).toBe(writes + 2);
         const next = await writesOf(page);
-        const instance = await instanceOf(page, D);
-        await dragTo(page, tab(page, D), await inLeaf(page, "auxiliarybar", {x: 0.04, y: 0.6}));
+        const instance = await instanceOf(page, F);
+        await dragTo(page, tab(page, F), await inLeaf(page, lone, {x: 0.96, y: 0.6}));
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "noop");
         await expect(label(page)).toContainText("原位");
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         expect(await writesOf(page)).toBe(next);
-        expect(await instanceOf(page, D)).toBe(instance);
+        expect(await instanceOf(page, F)).toBe(instance);
+        expect(await panelOfTab(page, F)).toBe(lone);
     });
 
     test("键盘：面板标签上空格拿起，方向键逐个位置移动插入位（激活标签不变），Enter 只提交一次，焦点回到标签（输出 31；验收 9）", async ({page}) => {
@@ -295,15 +310,15 @@ test.describe("产品页：拖放", () => {
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("键盘：标签、活动栏条目、面板头各拿起一次；Tab 在区域之间循环，仍在拖动、没有写入；Escape 只取消，焦点回到来源（输出 31；验收 9）", async ({page}) => {
+    test("键盘：面板标签、活动栏条目、侧栏的标题各拿起一次；Tab 在区域之间循环，仍在拖动、没有写入；Escape 只取消，焦点回到来源（输出 31；验收 9）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        const sources = [entry(page, A), tab(page, D), tab(page, E), head(page, "panel")];
+        const sources = [entry(page, A), tab(page, D), tab(page, E), tab(page, A)];
         for (const source of sources) {
             await source.focus();
             await page.keyboard.press("Space");
             await expect(ghost(page)).toBeVisible();
-            // 区域：三块工具面板、编辑组，再是预备区（此刻没有）；循环一圈回到起点。
+            // 区域：活动栏、三块工具面板，再是预备区（此刻没有）；工具视图没有编辑组这一站。循环一圈回到起点。
             for (let step = 0; step < 4; step += 1) {
                 await page.keyboard.press("Tab");
                 await expect(ghost(page)).toBeVisible();
@@ -348,14 +363,14 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
     });
 
-    test("键盘：编辑组的外缘压在预备区底下时，两个落点各是各的：外缘是拆分，预备区是显示（输出 29、31）", async ({page}) => {
+    test("键盘：工具面板的外缘和预备区各是各的落点：外缘是拆分，预备区是显示（输出 29、31）", async ({page}) => {
         await open(page);
         await frame(page, "auxiliarybar", "set-part-hidden").click();
         await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
         await tab(page, E).focus();
         await page.keyboard.press("Space");
         await expect(page.locator('[data-reveal-zone="auxiliarybar"]')).toBeVisible();
-        // 走遍区域与位置：编辑组的位置里要有外缘（`edge`），预备区是 `reveal`，二者都到得了。
+        // 走遍区域与位置：工具面板的位置里要有外缘（`edge`），预备区是 `reveal`，二者都到得了。
         const kinds = new Set<string>();
         for (let region = 0; region < 6; region += 1) {
             await page.keyboard.press("Tab");
@@ -370,41 +385,18 @@ test.describe("产品页：拖放", () => {
         await expect(ghost(page)).toHaveCount(0);
     });
 
-    test("键盘：面板头空白处拿起整块面板，Tab 到另一块面板，方向键换位置，Enter 放下；右栏搬空后隐藏，留在树里（输出 3、24、31）", async ({page}) => {
-        await open(page);
-        const writes = await writesOf(page);
-        await head(page, "auxiliarybar").focus();
-        await page.keyboard.press("Space");
-        await expect(ghost(page)).toBeVisible();
-        await expect(feedback(page)).toHaveAttribute("data-drop-count", "1");
-        // 拿起时在右栏自己的位置；Tab 到别的区域后，方向键逐个位置往下，直到“添加为标签”（整块面板放到别的面板中央，等于它的标签）。
-        await page.keyboard.press("Tab");
-        for (let step = 0; step < 12 && !(await labelText(page)).includes("添加为标签"); step += 1) await page.keyboard.press("ArrowDown");
-        await expect(label(page)).toContainText("添加为标签");
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
-        expect(await writesOf(page)).toBe(writes);
-        await page.keyboard.press("Enter");
-        await expect(ghost(page)).toHaveCount(0);
-        // 右栏的标签进了别的面板；右栏拖空即隐藏，但留在树里（记住它的位置）。
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
-        expect(await panelOfTab(page, D)).not.toBe("auxiliarybar");
-        await expect.poll(async () => (await savedDoc(page))?.panels.auxiliarybar?.hidden).toBe(true);
-        await expect.poll(() => writesOf(page)).toBe(writes + 1);
-    });
-
     test("拖影有图标与文字；经过另一块面板的标签条只有一条插入线，没有接收区域与条目高亮（输出 30）", async ({page}, testInfo) => {
         await open(page);
-        const strip = (await band(page, "sidebar").boundingBox())!;
-        await dragTo(page, tab(page, F), {x: strip.x + strip.width - 10, y: strip.y + strip.height / 2});
-        await expect(ghost(page)).toContainText("样例己");
+        await dragTo(page, tab(page, D), await endOfStrip(page, "panel"));
+        await expect(ghost(page)).toContainText("样例丁");
         await expect(ghost(page).locator("[class*='i-lucide-']")).toHaveCount(1);
         await expect(line(page)).toHaveCount(1);
         await expect(area(page)).toHaveCount(0);
         await expect(page.locator("[data-drop-feedback-entry]")).toHaveCount(0);
         await page.screenshot({path: testInfo.outputPath("strip-line.png")});
         await page.mouse.up();
-        await expect(head(page, "sidebar").locator(`[data-panel-tab="view:${F}"]`)).toHaveAttribute("aria-selected", "true");
-        await expect(sample(page, F)).toBeVisible();
+        await expect(head(page, "panel").locator(`[data-panel-tab="view:${D}"]`)).toHaveAttribute("aria-selected", "true");
+        await expect(sample(page, D)).toBeVisible();
     });
 
     test("面板收成标题行：从别的面板拖进它的标签条，同一次写入把它展开；面板里自己换序不展开（输出 11、27）", async ({page}) => {
@@ -478,7 +470,7 @@ test.describe("产品页：拖放", () => {
         await expect.poll(async () => (await leaf(page, "sidebar").boundingBox())!.width).toBe(0);
         const writes = await writesOf(page);
 
-        await dragTo(page, entry(page, E), {x: 300, y: 400});
+        await dragTo(page, tab(page, E), {x: 300, y: 400});
         const zone = page.locator('[data-reveal-zone="sidebar"]');
         await expect(zone).toBeVisible();
         expect(Math.round((await zone.boundingBox())!.width)).toBe(wide);
@@ -504,6 +496,8 @@ test.describe("产品页：拖放", () => {
         const wide = await widenSidebar(page);
         await frame(page, "sidebar", "set-part-hidden").click();
         await expect(leaf(page, "sidebar")).toHaveCount(0);
+        // 隐藏是合并着存的：等它落盘再数写入。
+        await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
         const writes = await writesOf(page);
         await tab(page, E).focus();
         await page.keyboard.press("Space");
@@ -526,7 +520,8 @@ test.describe("产品页：拖放", () => {
         await open(page);
         // 放慢过渡令牌，才读得到中间帧。
         await page.addStyleTag({content: ":root { --motion-layout: 4000ms !important; }"});
-        await tab(page, B).click();
+        // 侧栏的标题行只写当前视图：切到乙要点活动栏条目，乙的标签没有 DOM（输出 22）。
+        await entry(page, B).click();
         await expect(sample(page, B)).toBeVisible();
         await sample(page, B).locator("input").fill("乙的草稿");
         const instance = await instanceOf(page, B);
@@ -550,7 +545,9 @@ test.describe("产品页：拖放", () => {
         expect(during.x).toBeLessThan(after.x);
         expect(await instanceOf(page, B)).toBe(instance);
         await expect(sample(page, B).locator("input")).toHaveValue("乙的草稿");
-        await expect(head(page, "sidebar").locator(`[data-panel-tab="view:${B}"]`)).toHaveCount(0);
+        await expect(tab(page, B)).toHaveCount(1);
+        expect(await panelOfTab(page, B)).toBe("auxiliarybar");
+        await expect(entry(page, B)).toHaveCount(0);
     });
 
     test("放下时高亮立刻消失，不留在原处，也不跟着内容走；内容自己滑过去（输出 15、30）", async ({page}) => {
@@ -565,30 +562,163 @@ test.describe("产品页：拖放", () => {
         await expect(page.locator("[data-grid-scope] [data-moving]").first()).toBeAttached();
     });
 
-    test("工具视图拖到编辑组的外缘：拆到编辑组旁边，内容实例不变；活动栏条目拖过去一样（输出 24、26；验收 10、14）", async ({page}) => {
-        await open(page);
-        const instance = await instanceOf(page, D);
-        await dropAt(page, entry(page, D), await inLeaf(page, "g0", {x: 0.97, y: 0.3}));
-        const moved = (await leaf(page, await panelOfTab(page, D)).boundingBox())!;
-        const editor = (await leaf(page, "g0").boundingBox())!;
-        expect(editor.x + editor.width).toBeLessThanOrEqual(moved.x + 2);
-        await expect(sample(page, D)).toBeVisible();
-        expect(await instanceOf(page, D)).toBe(instance);
-    });
+    /** 落点是下一帧才画出来的：等两帧再断言没有，免得断言在落点出现之前通过。 */
+    const settled = (page: Page): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
-    test("没有落点的地方：拖到活动栏、编辑组的中央，工具视图被拒绝，松手不提交（输出 25 第 1 行、26；验收 10、14）", async ({page}) => {
+    test("工具视图在编辑组上没有落点：中央、四条边、状态栏与标题栏都不接收，松手不移动、不写（输出 25、26；验收 10）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
         const source = entry(page, C);
-        await dragTo(page, source, await centerOf(entry(page, B)));
-        await expect(ghost(page)).toBeVisible();
-        await expect(feedback(page)).toHaveCount(0);
-        await page.mouse.move(...Object.values(await inLeaf(page, "g0", {x: 0.5, y: 0.5})) as [number, number], {steps: 6});
-        await expect(feedback(page)).toHaveCount(0);
+        const points = [
+            await inLeaf(page, "g0", {x: 0.5, y: 0.5}),
+            await inLeaf(page, "g0", {x: 0.97, y: 0.3}),
+            await inLeaf(page, "g0", {x: 0.03, y: 0.3}),
+            await inLeaf(page, "g0", {x: 0.5, y: 0.03}),
+            await inLeaf(page, "g0", {x: 0.5, y: 0.97}),
+            await centerOf(page.locator("[data-leaf=\"statusbar\"]")),
+            await centerOf(page.locator("[data-shell-titlebar]")),
+        ];
+        await dragTo(page, source, points[0]!);
+        for (const point of points) {
+            await page.mouse.move(point.x, point.y, {steps: 6});
+            await settled(page);
+            await expect(ghost(page)).toBeVisible();
+            await expect(feedback(page)).toHaveCount(0);
+        }
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
-        expect(await panelOfTab(page, C)).toBe("sidebar");
+        // 丙不是侧栏的当前视图，没有标签；它还在侧栏这一列，活动栏上的条目就是证明。
+        await expect(entry(page, C)).toHaveCount(1);
         expect(await writesOf(page)).toBe(writes);
+    });
+
+    test("工具面板的窄带：侧栏左右是添加为标签、上下是拆；面板的上缘是添加为标签、左右是拆；不允许的边没有窄带（输出 25、26；验收 10）", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        // 侧栏这一列只在上下分：左右两条窄带不是落点，指针在那里算中央。
+        await dragTo(page, tab(page, F), await inLeaf(page, "sidebar", {x: 0.04, y: 0.5}));
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
+        await expect(label(page)).toContainText("添加为标签");
+        const right = await inLeaf(page, "sidebar", {x: 0.96, y: 0.5});
+        await page.mouse.move(right.x, right.y, {steps: 6});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
+        await expect(label(page)).toContainText("添加为标签");
+        for (const y of [0.2, 0.92]) {
+            await page.mouse.move(...Object.values(await inLeaf(page, "sidebar", {x: 0.5, y})) as [number, number], {steps: 6});
+            await expect(feedback(page)).toHaveAttribute("data-drop-kind", "edge");
+            await expect(label(page)).toContainText("拆到这一边");
+        }
+        await page.keyboard.press("Escape");
+        await expect(ghost(page)).toHaveCount(0);
+
+        // 面板这一排只在左右分：上缘算中央，左右两条窄带是拆。
+        await dragTo(page, entry(page, C), await inLeaf(page, "panel", {x: 0.5, y: 0.3}));
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
+        await expect(label(page)).toContainText("添加为标签");
+        for (const x of [0.08, 0.92]) {
+            await page.mouse.move(...Object.values(await inLeaf(page, "panel", {x, y: 0.6})) as [number, number], {steps: 6});
+            await expect(feedback(page)).toHaveAttribute("data-drop-kind", "edge");
+            await expect(label(page)).toContainText("拆到这一边");
+        }
+        await page.keyboard.press("Escape");
+        await expect(ghost(page)).toHaveCount(0);
+        expect(await writesOf(page)).toBe(writes);
+    });
+
+    test("缝上：工具视图归最近的能接收的工具面板，不会落到编辑组（输出 25；验收 10）", async ({page}) => {
+        await open(page);
+        const sash = (await sidebarSash(page).boundingBox())!;
+        const seam = {x: sash.x + sash.width / 2, y: sash.y + sash.height / 2};
+        // 来源是面板的己：缝两侧只有侧栏接收工具视图，所以缝上是侧栏的“添加为标签”。
+        await dragTo(page, tab(page, F), {x: seam.x - 2, y: seam.y});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
+        await expect(label(page)).toContainText("添加为标签");
+        await page.mouse.move(seam.x, seam.y, {steps: 4});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
+        await page.keyboard.press("Escape");
+        await expect(ghost(page)).toHaveCount(0);
+    });
+
+    test("收起按钮只给上下排的面板：侧栏只有一块时没有，上下分开之后有；面板有（输出 20）", async ({page}) => {
+        await open(page);
+        await expect(frame(page, "sidebar", "set-panel-collapsed")).toHaveCount(0);
+        await expect(frame(page, "panel", "set-panel-collapsed")).toHaveCount(1);
+        await dropAt(page, tab(page, F), await inLeaf(page, "sidebar", {x: 0.5, y: 0.92}));
+        await expect(frame(page, "sidebar", "set-panel-collapsed")).toHaveCount(1);
+    });
+
+    test("面板头空白处按住拖动不起拖：整块面板不能拖，面板头的空白也不是 Tab 停靠点（输出 20、24；验收 10）", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        // 面板：标签带右端空着的一点。
+        const stripEnd = await endOfStrip(page, "panel");
+        // 侧栏：标题按钮右边、动作按钮左边之间空着的一点。
+        const title = (await tab(page, A).boundingBox())!;
+        const actions = (await head(page, "sidebar").locator("[data-panel-action]").first().boundingBox())!;
+        expect(actions.x - (title.x + title.width)).toBeGreaterThan(16);
+        const blanks = [stripEnd, {x: (title.x + title.width + actions.x) / 2, y: title.y + title.height / 2}];
+        for (const blank of blanks) {
+            await page.mouse.move(blank.x, blank.y);
+            await page.mouse.down();
+            await page.mouse.move(blank.x + 40, blank.y + 40, {steps: 6});
+            await settled(page);
+            await expect(ghost(page)).toHaveCount(0);
+            await page.mouse.up();
+        }
+        for (const panel of ["sidebar", "auxiliarybar", "panel"]) expect(await head(page, panel).evaluate((element) => element.tabIndex)).toBe(-1);
+        await expect(shell(page)).toHaveAttribute("data-panel-count", "4");
+        expect(await writesOf(page)).toBe(writes);
+    });
+
+    test("收成标题行的无名面板：把标题拖到面板这一排的外缘，面板展开、不是零宽，面板 id 不变（输出 11、27；验收 10）", async ({page}) => {
+        await open(page);
+        // 侧栏这一列里的无名面板才有标题行：把己拆到侧栏的下缘，再把它收成标题行。
+        await dropAt(page, tab(page, F), await inLeaf(page, "sidebar", {x: 0.5, y: 0.92}));
+        const lone = await panelOfTab(page, F);
+        expect(lone).not.toBe("panel");
+        await frame(page, lone, "set-panel-collapsed").click();
+        await expect.poll(async () => (await leaf(page, lone).boundingBox())!.height).toBe(32);
+        // 放到面板这一排的外缘：整块移动，收起清掉，不会变成零宽。
+        await dropAt(page, tab(page, F), await inLeaf(page, "panel", {x: 0.08, y: 0.6}));
+        expect(await panelOfTab(page, F)).toBe(lone);
+        await expect.poll(async () => (await leaf(page, lone).boundingBox())!.height).toBeGreaterThan(32);
+        await expect.poll(async () => (await leaf(page, lone).boundingBox())!.width).toBeGreaterThan(100);
+        await expect(sample(page, F)).toBeVisible();
+    });
+
+    test("预备区：三块都隐藏时同时浮出、彼此不重叠；放到哪块，哪块显示并接收，只写一次（输出 29；验收 8）", async ({page}) => {
+        await open(page);
+        for (const panel of ["sidebar", "auxiliarybar", "panel"]) await frame(page, panel, "set-part-hidden").click();
+        for (const panel of ["sidebar", "auxiliarybar", "panel"]) await expect.poll(() => hiddenInRecord(page, panel)).toBe(true);
+        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        const writes = await writesOf(page);
+        const zone = (part: string) => page.locator(`[data-reveal-zone="${part}"]`);
+        // 此刻没有可见的工具面板，拖动源只有活动栏条目（活动栏列的是侧栏这一列的视图，侧栏隐藏了条目还在）。
+        await dragTo(page, entry(page, A), {x: 720, y: 450});
+        for (const part of ["sidebar", "auxiliarybar", "panel"]) await expect(zone(part)).toBeVisible();
+        const rects = await Promise.all(["sidebar", "auxiliarybar", "panel"].map(async (part) => (await zone(part).boundingBox())!));
+        for (let left = 0; left < rects.length; left += 1) {
+            for (let right = left + 1; right < rects.length; right += 1) {
+                const a = rects[left]!;
+                const b = rects[right]!;
+                const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+                const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+                expect(overlapX > 1 && overlapY > 1, `预备区 ${String(left)} 与 ${String(right)} 重叠`).toBe(false);
+            }
+        }
+        // 面板的预备区只占中间一段，在侧栏与右栏的预备区之间。
+        expect(rects[2]!.x).toBeGreaterThanOrEqual(rects[0]!.x + rects[0]!.width - 1);
+        expect(rects[2]!.x + rects[2]!.width).toBeLessThanOrEqual(rects[1]!.x + 1);
+        const to = await centerOf(zone("panel"));
+        await page.mouse.move(to.x, to.y, {steps: 6});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "reveal");
+        await expect(label(page)).toContainText("放到面板");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect(leaf(page, "panel")).toBeVisible();
+        expect(await panelOfTab(page, A)).toBe("panel");
+        await expect(page.locator("[data-reveal-zone]")).toHaveCount(0);
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
     test("工具区不接收：拖到面板头的框架按钮上没有落点反馈，松手不移动、不写（输出 25 末）", async ({page}) => {
@@ -601,17 +731,16 @@ test.describe("产品页：拖放", () => {
         await expect(feedback(page)).toHaveCount(0);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
-        await expect(tab(page, C)).toHaveCount(1);
-        expect(await panelOfTab(page, C)).toBe("sidebar");
+        await expect(entry(page, C)).toHaveCount(1);
         expect(await writesOf(page)).toBe(writes);
     });
 
-    test("键盘拿起后直接 Enter 是原位：标签、活动栏条目、面板头都不移动、不写，焦点回到来源（输出 28、31；验收 9）", async ({page}) => {
+    test("键盘拿起后直接 Enter 是原位：面板标签、活动栏条目、侧栏标题都不移动、不写，焦点回到来源（输出 28、31；验收 9）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
         const before = await tabsOf(page, "panel");
         // 来源都是各自面板的激活标签：放回原处连激活标签也不变。
-        for (const source of [tab(page, E), entry(page, A), head(page, "panel")]) {
+        for (const source of [tab(page, E), entry(page, A), tab(page, A)]) {
             await source.focus();
             await page.keyboard.press("Space");
             await expect(ghost(page)).toBeVisible();
@@ -642,7 +771,7 @@ test.describe("产品页：拖放", () => {
         await flick({x: panelStrip.x + panelStrip.width / 3, y: panelStrip.y + panelStrip.height / 2});
         await expect(ghost(page)).toHaveCount(0);
         await page.mouse.up();
-        expect(await panelOfTab(page, C)).toBe("sidebar");
+        await expect(entry(page, C)).toHaveCount(1);
         expect(await writesOf(page)).toBe(writes);
 
         await dragTo(page, source, shown);
@@ -657,24 +786,140 @@ test.describe("产品页：拖放", () => {
 
     test("“移动到”的“新面板”：视图搬进新建的无名面板并激活，刷新后仍在同一块面板里（输出 23、35；验收 1）", async ({page}) => {
         await open(page);
-        await tab(page, A).click({button: "right"});
+        const writes = await writesOf(page);
+        await entry(page, A).click({button: "right"});
         await page.getByRole("menuitem", {name: "新面板（挨着面板）", exact: true}).click();
         await expect(page.getByRole("menu")).toHaveCount(0);
         await expect(shell(page)).toHaveAttribute("data-panel-count", "5");
         const created = await panelOfTab(page, A);
         expect(["sidebar", "auxiliarybar", "panel", "g0"]).not.toContain(created);
+        // “新面板”挨着面板放在它的右边（这一排放右边，输出 23）。
+        expect((await leaf(page, created).boundingBox())!.x).toBeGreaterThanOrEqual((await leaf(page, "panel").boundingBox())!.x + (await leaf(page, "panel").boundingBox())!.width - 2);
         await expect(tab(page, A)).toHaveAttribute("aria-selected", "true");
         await expect(sample(page, A)).toBeVisible();
-        await expect.poll(() => writesOf(page)).toBeGreaterThan(0);
+        await expect.poll(() => writesOf(page)).toBeGreaterThan(writes);
         await page.reload();
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
         expect(await panelOfTab(page, A)).toBe(created);
         await expect(sample(page, A)).toBeVisible();
-        // 活动栏列全部工具视图，不管它停在哪：甲的条目还在。
-        await expect(entry(page, A)).toHaveCount(1);
+        // 活动栏只列侧栏这一列的视图：甲在面板这一排的新面板里，条目不在了。
+        await expect(entry(page, A)).toHaveCount(0);
     });
 
-    test("拖动源压在分隔线的命中带里：按下并拖动是调整大小，不出现拖影；同一个面板头中部按下拖动才是拿起整块面板（输出 24；ui/layout-drag 验收 3）", async ({page}) => {
+    /** 活动栏上侧栏这一列的条目，从上到下。 */
+    const entriesOf = (page: Page): Promise<string[]> => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")!));
+    /** 条目上沿往下 3px：落在这一格里的指针，插入位在这个条目之前。 */
+    async function aboveEntry(page: Page, viewId: string): Promise<{x: number; y: number}> {
+        const box = (await entry(page, viewId).boundingBox())!;
+        return {x: box.x + box.width / 2, y: box.y + 3};
+    }
+
+    test("右栏的视图放到活动栏：进侧栏的那个位置并成为当前视图，右栏搬空隐藏，插入线是横线，只写一次（输出 22、26；验收 14）", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        const instance = await instanceOf(page, D);
+        await dragTo(page, tab(page, D), await aboveEntry(page, B));
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
+        await expect(label(page)).toContainText("放在这里");
+        const bar = (await line(page).boundingBox())!;
+        expect(bar.width).toBeGreaterThan(bar.height);
+        expect(await writesOf(page)).toBe(writes);
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect.poll(() => entriesOf(page)).toEqual([A, D, B, C]);
+        await expect(entry(page, D)).toHaveAttribute("aria-pressed", "true");
+        expect(await panelOfTab(page, D)).toBe("sidebar");
+        await expect(sample(page, D)).toBeVisible();
+        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
+        expect(await instanceOf(page, D)).toBe(instance);
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+    });
+
+    test("侧栏隐藏时把视图放到活动栏：同一次写入把侧栏显示出来并装着它；这个位置是预备区的落点（输出 22、29；验收 14）", async ({page}) => {
+        await open(page);
+        await frame(page, "sidebar", "set-part-hidden").click();
+        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
+        const writes = await writesOf(page);
+        await dragTo(page, tab(page, D), await aboveEntry(page, A));
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "reveal");
+        await expect(label(page)).toContainText("放到侧栏");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect(leaf(page, "sidebar")).toBeVisible();
+        await expect(entry(page, D)).toHaveAttribute("aria-pressed", "true");
+        await expect(sample(page, D)).toBeVisible();
+        await expect.poll(() => entriesOf(page)).toEqual([D, A, B, C]);
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        expect((await savedDoc(page))?.panels.sidebar?.hidden).not.toBe(true);
+    });
+
+    test("在活动栏里拖一个没激活的条目换序：顺序变了，活动标签与显隐都不变；放回原处是“原位”、不写（输出 22；验收 14）", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        await dragTo(page, entry(page, C), await aboveEntry(page, A));
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect.poll(() => entriesOf(page)).toEqual([C, A, B]);
+        // 活动标签还是甲，没有因为换序去激活丙。
+        await expect(entry(page, A)).toHaveAttribute("aria-pressed", "true");
+        await expect(entry(page, C)).toHaveAttribute("aria-pressed", "false");
+        await expect(sample(page, A)).toBeVisible();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+
+        // 放回原处：丙拖到自己上沿，什么都不变。
+        const next = await writesOf(page);
+        await dragTo(page, entry(page, C), await aboveEntry(page, C));
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "noop");
+        await expect(label(page)).toContainText("原位");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        expect(await entriesOf(page)).toEqual([C, A, B]);
+        expect(await writesOf(page)).toBe(next);
+
+        // 侧栏隐藏着换序：不显示它，落点是换序（strip）、不是预备区。
+        await frame(page, "sidebar", "set-part-hidden").click();
+        await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
+        const hiddenWrites = await writesOf(page);
+        await dragTo(page, entry(page, B), await aboveEntry(page, C));
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect.poll(() => entriesOf(page)).toEqual([B, C, A]);
+        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        await expect.poll(() => writesOf(page)).toBe(hiddenWrites + 1);
+        expect((await savedDoc(page))?.panels.sidebar?.hidden).toBe(true);
+    });
+
+    test("键盘：工具视图拿起后，区域的循环从活动栏开始：Tab 绕到活动栏，方向键在条目之间移动，Enter 放下并成为当前视图（输出 22、31；验收 14）", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        // 区域按树序排：活动栏、侧栏、面板、右栏。丁在最后一个区域里，拿起后的第一下 Tab 绕回循环的起点，也就是活动栏。
+        await tab(page, D).focus();
+        await page.keyboard.press("Space");
+        await expect(ghost(page)).toBeVisible();
+        await page.keyboard.press("Tab");
+        await labelText(page);
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
+        const bandBox = (await page.locator("[data-tool-band]").boundingBox())!;
+        const first = (await line(page).boundingBox())!;
+        expect(first.x).toBeGreaterThanOrEqual(bandBox.x);
+        expect(first.x + first.width).toBeLessThanOrEqual(bandBox.x + bandBox.width);
+        // 方向键往后一个条目：插入线往下走。
+        await page.keyboard.press("ArrowDown");
+        await labelText(page);
+        await expect.poll(async () => (await line(page).boundingBox())!.y).toBeGreaterThan(first.y);
+        expect(await writesOf(page)).toBe(writes);
+        await page.keyboard.press("Enter");
+        await expect(ghost(page)).toHaveCount(0);
+        expect(await panelOfTab(page, D)).toBe("sidebar");
+        await expect(entry(page, D)).toHaveAttribute("aria-pressed", "true");
+        await expect(sample(page, D)).toBeVisible();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+    });
+
+    test("拖动源压在分隔线的命中带里：按下并拖动是调整大小，不出现拖影；同一个面板头上标题按下拖动才是拿起这个视图（输出 24；ui/layout-drag 验收 3）", async ({page}) => {
         await open(page);
         // 把己拖到侧栏的下缘，拆出一块无名面板：它的面板头顶边挨着它与侧栏之间的分隔线。
         await dropAt(page, tab(page, F), await inLeaf(page, "sidebar", {x: 0.5, y: 0.92}));
@@ -693,11 +938,11 @@ test.describe("产品页：拖放", () => {
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
 
-        // 对照：面板头中部同样的拖动是拿起整块面板，面板头不被分隔线抢走。
-        const moved = (await panelHead.boundingBox())!;
-        await page.mouse.move(x, moved.y + moved.height / 2);
+        // 对照：标题上同样的拖动是拿起这个视图，面板头不被分隔线抢走。
+        const title = await centerOf(tab(page, F));
+        await page.mouse.move(title.x, title.y);
         await page.mouse.down();
-        await page.mouse.move(x + 10, moved.y + moved.height / 2 + 10, {steps: 2});
+        await page.mouse.move(title.x + 10, title.y + 10, {steps: 2});
         await expect(ghost(page)).toBeVisible();
         await page.keyboard.press("Escape");
         await page.mouse.up();

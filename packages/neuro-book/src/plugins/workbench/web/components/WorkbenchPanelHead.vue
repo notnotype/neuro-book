@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 工具面板的面板头（同名 .md）：标签带、当前视图的动作、框架按钮。点了只发事件，切换与命令由宿主做。 */
+/** 工具面板的面板头（同名 .md）：标签带或当前视图的标题、当前视图的动作、框架按钮。点了只发事件，切换与命令由宿主做。 */
 import {IconButton, Tabs} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
@@ -35,8 +35,10 @@ const props = withDefaults(defineProps<{
     idPrefix?: string;
     /** 标签的可访问描述：怎么拿起拖动。 */
     dragHint?: string;
+    /** 不画标签带，只写活动标签的标题（侧栏这一列，切视图靠活动栏）。 */
+    titleOnly?: boolean;
     frameActions?: ReadonlyArray<PanelFrameAction>;
-}>(), {idPrefix: "workbench-panel", dragHint: "", frameActions: () => []});
+}>(), {idPrefix: "workbench-panel", dragHint: "", titleOnly: false, frameActions: () => []});
 
 const emit = defineEmits<{
     (event: "activate", id: string): void;
@@ -61,10 +63,12 @@ const items = computed(() => props.tabs.map((tab) => ({
     attrs: {"data-panel-tab": tab.id, ...(props.dragHint === "" ? {} : {"aria-description": props.dragHint})},
 })));
 
+const activeTab = computed(() => (props.titleOnly ? (props.tabs.find((tab) => tab.id === props.active) ?? null) : null));
+
 /** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在标签下面。 */
 function onContextMenu(event: MouseEvent): void {
-    const tab = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tab-value]") : null;
-    const id = tab?.dataset.tabValue;
+    const tab = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-panel-tab]") : null;
+    const id = tab?.dataset.panelTab;
     if (tab === null || tab === undefined || id === undefined) return;
     event.preventDefault();
     if (event.button === 0 && event.clientX === 0 && event.clientY === 0) {
@@ -77,11 +81,22 @@ function onContextMenu(event: MouseEvent): void {
 </script>
 
 <template>
-    <!-- 面板头也是可聚焦的拖动源（docs/specs/ui/workbench-layout.md 输出 31）：焦点在它自己身上时空格拿起整块面板。 -->
-    <header class="workbench-panel-head nb-ui-focus-ring-inset" :data-panel-head="panelId" tabindex="0" role="group" :aria-label="label" :aria-description="dragHint === '' ? undefined : dragHint">
+    <header class="workbench-panel-head" :data-panel-head="panelId">
         <div class="workbench-panel-head__band" :data-panel-band="panelId" @contextmenu="onContextMenu">
+            <!-- 头只写标题时它就是拖动源（docs/specs/ui/workbench-layout.md 输出 20）。内容的 `aria-labelledby` 指向它，所以名称就是标题，怎么拖写在描述里。 -->
+            <h2 v-if="activeTab !== null" class="workbench-panel-head__title">
+                <button
+                    :id="panelTabDomId(idPrefix, activeTab.id)"
+                    type="button"
+                    class="workbench-panel-head__handle nb-ui-focus-ring"
+                    tabindex="0"
+                    :data-panel-tab="activeTab.id"
+                    :aria-description="dragHint === '' ? undefined : dragHint"
+                    @click="emit('activate', activeTab!.id)"
+                >{{ activeTab.label }}</button>
+            </h2>
             <Tabs
-                v-if="items.length > 0"
+                v-else-if="items.length > 0"
                 class="workbench-panel-head__tabs"
                 size="sm"
                 overflow="adapt"
@@ -125,8 +140,6 @@ function onContextMenu(event: MouseEvent): void {
     min-width: 0;
     /* 右端是 24px 的图标按钮：右边留 4px，外扩焦点光环（实色 3.5px）不被面板的裁切切掉。 */
     padding-inline: var(--space-1) var(--space-2);
-    /* 面板头的空白处是整块面板的拖动源：不扩选文字，触摸按住起拖而不是滚动。 */
-    touch-action: none;
     user-select: none;
 }
 
@@ -154,6 +167,22 @@ function onContextMenu(event: MouseEvent): void {
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 标签与标题是拖动源：触摸按住起拖，不滚动。 */
+.workbench-panel-head__tabs :deep([data-panel-tab]) {
+    touch-action: none;
+}
+
+.workbench-panel-head__handle {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    color: inherit;
+    font: inherit;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    touch-action: none;
 }
 
 .workbench-panel-head__actions {

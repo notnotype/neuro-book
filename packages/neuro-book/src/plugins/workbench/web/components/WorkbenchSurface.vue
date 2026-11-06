@@ -26,7 +26,9 @@ const props = withDefaults(defineProps<{
     contextKey: string;
     maximized?: string | null;
     disabled?: boolean;
-}>(), {maximized: null, disabled: false});
+    /** 头只写标题的面板：没有标签带，内容就不是 `tabpanel`。 */
+    titleOnlyPanels?: ReadonlySet<string>;
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>()});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -41,7 +43,7 @@ const emit = defineEmits<{
     (event: "issues", issues: readonly string[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定（输出 16）。 */
     (event: "content-parked", key: string): void;
-    /** 焦点现在在哪块面板；离开所有面板时是 null。活动栏条目据此决定点了做什么（输出 22）。 */
+    /** 焦点现在在哪块面板；离开所有面板时是 null。宿主据此记当前面板（输出 36）。 */
     (event: "focus-panel", panel: string | null): void;
 }>();
 
@@ -230,7 +232,7 @@ defineExpose({
                     <div
                         :id="roleOf(leaf) === 'tool' ? panelTabpanelDomId(idPrefix, contentKey) : undefined"
                         class="workbench-surface__content-clip"
-                        :role="roleOf(leaf) === 'tool' ? 'tabpanel' : undefined"
+                        :role="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? 'region' : 'tabpanel') : undefined"
                         :aria-labelledby="roleOf(leaf) === 'tool' ? panelTabDomId(idPrefix, contentKey) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
                         :data-shell-join="joinOf(leaf)"
