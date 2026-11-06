@@ -1,0 +1,48 @@
+# omp 设计审查（t13、t15、t16 合并审，附 t14）：第一段，因额度不足（403 insufficient_user_quota）在第 4 条之后中断
+
+# w00041 t13、t15、t16（附 t14）只读设计审查
+
+审查对象：主工作区 master 上的四份 plan.md。
+本报告按核实顺序逐条追加；未修改仓库文件，未运行 e2e 或开发服务。
+
+### 1. 图标目录缓存会在插件样式加载后永久保留空结果
+
+- **严重程度**：重要；**类别**：正确性；**计划**：t15。
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t15-icon-catalog/plan.md:23,25`。
+- **现象**：缓存键只含 `document.styleSheets` 的长度和 `ownerNode` 身份；产品插件 CSS 是随插件登记插入的 `<link rel="stylesheet">`，插入时样式表对象已进入集合，CSS 资源加载完成前 `cssRules` 可为空。Vite 开发客户端还会直接更新既有 `<style data-vite-dev-id>` 的 `textContent`，不换 ownerNode。
+- **为什么是问题**：用户若在 `<link>` 加载完成前第一次打开图标分区，空目录会被缓存；加载完成后长度和 ownerNode 身份均不变，候选、未知名判断和原图预览长期使用空/旧目录。开发热更新同样无法刷新新增图标规则。计划因此不能兑现“样式表数量变化时失效”。
+- **如何核实**：`packages/neuro-book/src/plugin-platform/web/styles.ts:21-34` 创建并追加插件 `<link>`，不等待加载；`node_modules/vite/dist/client/client.mjs:1188-1205` 在同一 style 元素上更新 `textContent`；t15 第 25 行缓存键只看数量与 ownerNode。
+- **建议改法**：按实际样式表规则版本失效：至少监听每个 link 的 `load`/`error` 并对样式变更重新扫描，开发 `<style>` 用 MutationObserver；或只扫描一次不缓存并量实际成本。缓存空表不能等价于最终目录。
+
+### 2. “原图标”仍使用同名类，会立即被正在编辑的主题覆盖
+
+- **严重程度**：重要；**类别**：正确性；**计划**：t15。
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t15-icon-catalog/plan.md:29,32,46`；`packages/neuro-book/src/ui/theme/document-theme.ts:29-36,72-82`；`docs/specs/theme/skins.md:150`。
+- **现象**：计划给原图标和候选预览直接挂 `i-lucide-<名>`。实时预览同时注入不分层的 `.i-lucide-<名>{--svg:url(用户素材)}`，它按设计压过 Tailwind 层里的原始 `--svg`。
+- **为什么是问题**：编辑一个已经覆盖的名字时，“原图标”与自定义预览显示的是同一个用户 SVG，失去并排对照功能；候选中相同名字也受污染。扫描时跳过覆盖表只防止目录污染，不能隔离元素的 CSS 层叠。验收只断言“预览可见”抓不到这个错误。
+- **如何核实**：上述 `iconRules()` 生成全局同名规则；`skins.md:150` 明确要求不进 layer 以覆盖原图标。现有 `e2e/theme-editor.e2e.ts:237-248` 正是用编辑器里的 `image-plus` 证明这条覆盖会作用到编辑器自身。
+- **建议改法**：目录保留默认 `--svg` 值及名字，在原图预览上明确指定默认蒙版；或另建不会匹配覆盖规则的预览类。补测试：上传形状明显不同的 SVG 后，覆盖图变、默认图不变；候选预览也要测这条不变量。
+
+### 核实更正：第 1 条收窄为原节点内容变化，不包含首次 link 加载
+
+Chromium 隔离实验：延迟 CSS 请求时 `document.styleSheets.length=0`、`link.sheet=null`；完成后长度变成 1。因此，第 1 条关于“首次 link 插入即进入 styleSheets，加载后不改变长度”的推断错误，撤回该部分及“永久保留空结果”的标题措辞。成立的问题是：Vite 原地改 style.textContent，集合长度与 ownerNode 不变而规则变化。实测原节点保留、样式表实例替换、集合仍为 2，新 book 规则已出现。建议标题改为“图标目录缓存漏掉原节点样式更新”。没有启动开发服务或产品 e2e。
+
+第 2 条补充 Chromium 证据：相同 `i-lucide-folder` 的默认规则在 `@layer utilities`，主题覆盖不分层时，所谓原图标的 computed `--svg` 与 `mask-image` 均为 `/custom.svg`，确实显示覆盖素材。
+
+### 3. delete.expected 被误当作内容/mtime 基线，不能兑现“改过就不删”
+
+- **严重程度**：重要；**类别**：删除安全、合同误用；**计划**：t16。
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t16-asset-cleanup/plan.md:18,45,62`。
+- **现象**：计划把 `ownFiles.delete` 的 `expected` 称为基线，并用它保证列出后被改过的文件不删。实际 `rooted.ts:65-72` 的令牌只含设备号、inode、birthtime、类型；`commit.ts:66-72` 只复核该身份。
+- **原因**：目录项身份不是内容版本或“仍过期”的判断。原地写入、刷新 mtime 均保持令牌；通用 Files 删除也不使用上传的逐文件写锁，主题素材不在内容树时 `commit.ts:171-179` 不取内容树操作锁。不能把 10 分钟保护期当作提交前重新检查的替代。
+- **核实方式**：`bun --tsconfig-override .../packages/neuro-book/tsconfig.json /tmp/review-w00041-t13-16-design/lab/contracts.ts` 调用真实 `entryToken()`：原地写后大小 6→32，令牌不变；`utimes` 改到 2030-01-01，令牌仍不变。`docs/specs/workspace/files.md:110` 也明确是源身份令牌。没有声称实际 sweep 已实现或已跑竞态用例。
+- **改法**：保留 identity expected 防止换项，同时在实际删除的受协调临界区重新核对普通文件、mtime 和保护状态；明确哪些写入路径参与锁。不要把上传 mutex 说成通用文件写入锁。验收分开覆盖换 inode、同 inode 改写、同 inode touch，而不是只测替换源。
+
+### 4. keep 的 4096 项上限会拒绝合法且未接近 Storage 上限的主题库
+
+- **严重程度**：重要；**类别**：容量、可用性；**计划**：t16。
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t16-asset-cleanup/plan.md:21,27`。
+- **现象**：路由最多接收 4096 个保留名，但主题记录可以合法含更多唯一素材。
+- **原因**：每套亮暗各 64 个图标；上限只约束单 Look，不约束全库素材数。清单完整性要求不能靠截断满足，否则从拒绝变成误删。
+- **核实方式**：同一隔离脚本生成 33 套主题，亮暗各 64 个且素材唯一；逐条真实 `userThemeProblem()` 均返回 null；真实 `assetRefs()` 并集 4224 个。记录 JSON 345885 字节，小于 `USER_THEMES_RECORD.maxBytes=524288`；完整请求 299928 字节，小于 512 KiB。此前未过真实校验的估算不作证据。
+- **改法**：按记录最大可表达的唯一引用数设计条数与请求预算，或定义完整、原子的分段保留集合协议；超限显式拒绝且绝不截断。补超过 4096 个有效唯一引用仍安全可清理的合同用例。
