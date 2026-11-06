@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>书架页与设置窗口的场景</title>
+<style>
+:root { --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef; --warn: #b45309; --warn-soft: #fdf1df; --radius: 10px; }
+@media (prefers-color-scheme: dark) { :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123330; --warn: #fbbf24; --warn-soft: #3a2e12; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1240px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+.lead p { color: var(--muted); margin: 6px 0; max-width: 900px; }
+section.q, section.plain { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+.opts { display: grid; gap: 16px; margin: 12px 0; }
+.opt { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); }
+.opt.rec { border-color: var(--accent); background: var(--accent-soft); }
+.rec-note { margin: 10px 0 0; }
+.note { color: var(--muted); font-size: 12px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 0; }
+.pair img { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 8px; }
+.pair figcaption { text-align: center; font-size: 12px; color: var(--muted); }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<div class="lead">
+<h1>书架页与设置窗口的场景</h1>
+<p>书房主题现在只有欢迎页、正文两侧、侧栏与右栏的下角有场景图；书架页和设置窗口只跟配色。这一轮看两处要不要、怎么放场景。</p>
+<p>下面每张都是<b>真实的书房主题页面</b>（真实书架页、真实设置窗口，亮暗各一张），候选的场景层是我在运行中的页面上临时叠出来的，没有改产品代码，所以看到的就是落地后的效果（渐隐的边、遮罩的深浅都是参数，定了方向可以微调）。每道题的“现状”就是现在的样子。</p>
+<p>我的做法（不另问）：不新增取景声明字段，书架页与设置窗口都沿用空状态的取景（<code>crop.empty</code>），所有书房之外的主题照常没有这两处场景；高对比度偏好下不画。</p>
+</div>
+
+<section class="q" data-nbdev-question="r1-shelf" data-nbdev-type="single" data-nbdev-recommend="full" data-nbdev-required>
+<h2>书架页放不放场景，怎么放 <span class="badge" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt" data-nbdev-option="none"><h3>现状：不放，只跟配色</h3><p>书架页是一张纯色加一层淡渐变。</p><figure class="pair"><div><img src="r1/shelf-current-light.webp" alt="书架现状 亮色" loading="lazy"><figcaption>亮色</figcaption></div><div><img src="r1/shelf-current-dark.webp" alt="书架现状 暗色" loading="lazy"><figcaption>暗色</figcaption></div></figure></div>
+<div class="opt rec" data-nbdev-option="full"><h3>A：整页铺场景，上面罩一层页面底色（约 62%）</h3><p>和欢迎页一个观感，场景在卡片之间、页面四周都看得见；书多时卡片盖住一部分，但文字始终在实底的卡片上，对比度不受影响。标志与齿轮压在图上，偏轻。</p><figure class="pair"><div><img src="r1/shelf-A-light.webp" alt="书架 A 亮色" loading="lazy"><figcaption>亮色</figcaption></div><div><img src="r1/shelf-A-dark.webp" alt="书架 A 暗色" loading="lazy"><figcaption>暗色</figcaption></div></figure></div>
+<div class="opt" data-nbdev-option="band"><h3>B：顶部通栏，往下淡出（约 380px）</h3><p>像杂志的刊头插图，下面书架区干净。书房这张图的灯与书堆在中下部，通栏里只裁到窗与书架上半，台灯被切一半，效果弱。</p><figure class="pair"><div><img src="r1/shelf-B-light.webp" alt="书架 B 亮色" loading="lazy"><figcaption>亮色</figcaption></div><div><img src="r1/shelf-B-dark.webp" alt="书架 B 暗色" loading="lazy"><figcaption>暗色</figcaption></div></figure></div>
+<div class="opt" data-nbdev-option="corner"><h3>C：右下角一块，往左上淡出</h3><p>最克制，几乎不影响读；但书架上作品一多，卡片就把右下角盖住，大多数时候看不见。</p><figure class="pair"><div><img src="r1/shelf-C-light.webp" alt="书架 C 亮色" loading="lazy"><figcaption>亮色</figcaption></div><div><img src="r1/shelf-C-dark.webp" alt="书架 C 暗色" loading="lazy"><figcaption>暗色</figcaption></div></figure></div>
+</div>
+<p class="rec-note"><b>推荐：A。</b>书架是进来第一眼看到的页面，和欢迎页同一个整页观感最完整；文字在实底卡片上，不影响读。如果你更看重“干净”，选 C。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-settings" data-nbdev-type="single" data-nbdev-recommend="veil" data-nbdev-required>
+<h2>设置窗口放不放场景，怎么放 <span class="badge" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt" data-nbdev-option="none"><h3>现状：不放</h3><p>设置窗口是半透明的薄糊面（72%），后面工作台的场景会透出一点；但后面开着普通文件时没有场景，窗口就是一块素面。</p><figure class="pair"><div><img src="r1/settings-current-light.webp" alt="设置窗口现状 亮色" loading="lazy"><figcaption>亮色</figcaption></div><div><img src="r1/settings-current-dark.webp" alt="设置窗口现状 暗色" loading="lazy"><figcaption>暗色</figcaption></div></figure></div>
+<div class="opt rec" data-nbdev-option="veil"><h3>A：整窗一层淡底（约 16% 不透明度）</h3><p>窗口自己带场景，不管后面是什么都有书房的味道；淡到文字、控件、对比度几乎不受影响。</p><figure class="pair"><div><img src="r1/settings-C-light.webp" alt="设置窗口整窗淡底 亮色" loading="lazy"><figcaption>亮色</figcaption></div><div><img src="r1/settings-C-dark.webp" alt="设置窗口整窗淡底 暗色" loading="lazy"><figcaption>暗色</figcaption></div></figure></div>
+<div class="opt" data-nbdev-option="corner"><h3>B：左栏左下角，往右上淡出</h3><p>场景只在导航栏下角，更有“摆件”感；但图正好压在最下面几项（插件、设置文件）的文字下面，读起来吃力。</p><figure class="pair"><div><img src="r1/settings-B-light.webp" alt="设置窗口左栏下角 亮色" loading="lazy"><figcaption>亮色</figcaption></div><div><img src="r1/settings-B-dark.webp" alt="设置窗口左栏下角 暗色" loading="lazy"><figcaption>暗色</figcaption></div></figure></div>
+</div>
+<p class="rec-note"><b>推荐：A（整窗淡底）。</b>它是三种里唯一不挑后面页面的；B 会让导航项的文字压在图上。如果你觉得设置是干活的地方不需要，选“现状”也完全合理。</p>
+</section>
+
+</main>
+</body>
+</html>
