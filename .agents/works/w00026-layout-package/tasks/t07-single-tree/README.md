@@ -133,6 +133,23 @@ updated: 2026-11-06
 
 要请开发者看的：窗口约 1000 宽时编辑区比以前窄（272 变 220，Spec 定的“编辑组吸收余量、最小 220”）；默认宽度的侧栏里资源管理器的五个动作只露三个，其余在“⋯”（Spec 输出 20）。
 
+开发者 2026-11-06 试了第 7a 片：“拖拽动画没有问题，就是拖拽逻辑和行为需要更新”，要求继续做第 7b 片。理解为编辑器标签还是旧的拖动逻辑，第 7b 片并进新规则；如果指的还有视图拖动的具体行为，试完再说。
+
+第 7b 片（分支 `feat/w00026-t07-single-tree`，`c074772d8`）：编辑组是树上 `role: "editor"` 的面板，每块一个 `EditorGroup`，结构由布局文档持有。
+
+- **接缝**：接口与服务键 `editorPanelsKey` 在 `workbench/shared/contracts.ts`（跨插件的运行时导入只能指向那里），实现 `createEditorPanels` 在 `shared/editor-panels.ts`，单元测试与 Lab 用同一份操作的内存版 `createMemoryEditorPanels`。`groups/panels.ts` 的本地 grid 删掉。计划里的 `canInsert` 不放进接缝：写结构的只有编辑器，放下前自己查。
+- **记录**：`editor.tabs` 按键合并，只写本窗口有的、只删本窗口知道且关掉的（`known` 在记录读完那一刻定下）。页面标签留一个记号，恢复时从文档里拿掉，才分得清“页面不恢复”和“记录丢了”。丢了记录的标签是一个打不开的页面，显示原因、能关。属性变了自己写，布局存盘前走关卡再写一次；只改属性时写失败没人走关卡，所以 `session.ts` 看到失败就让布局走一次（`flush`），状态栏才亮。
+- **组件**：`EditorArea.vue` 拆掉，组级的（提示条、键位、焦点进出）进 `EditorGroup`，区级的（关闭询问、标签拖动）进无布局的 `EditorHost`。贡献点给 `{host, group}`。
+- **拖动**：编辑器标签也写 `data-panel-tab`，标签条写 `data-panel-strip`，工作台的会话直接认；多行与固定分区还是编辑器量（`EditorTabDrag.insertion`）。这个合同不带 DOM 类型：`web/plugin.ts` 会被测试导入，进不带 DOM 的类型检查，`tab-drag.ts` 只从 `EditorHost.vue` 进来。放下走编辑器区的动作（结算输入、合并同一标签）。单个标签的组是同一块面板移动，不结算、不重建。
+
+和计划不一样的地方：布局的合并保存从 1 秒改成 150 毫秒。e2e 里切语言后马上刷新，活动标签回到了上一个，试过 `pagehide` 补写，页面等不到关卡的往返，所以缩短，只合并一连串的动作。
+
+行为变了要告诉开发者的：拖到本组正文中央现在是原位（以前排到普通标签末尾，固定标签会取消固定），和工具视图一致；焦点移到别的面板不再取消拖动，移出工作台才取消；合入时开着的标签丢一次（提案已接受）。
+
+片 7a 漏的一处在这片修了：`nbook.view.move-view` 的 `target` 是联合类型，`src/command-args.test.ts` 不通过。片 7a 收口时单元测试是按目录跑的，没覆盖这个文件；这次用 `test:affected` 才发现。
+
+验证：类型检查通过；`test:affected` 除两条别的 Work 的（`plugins/agent` 的跨插件导入、`AgentCompactionDetail` 没有场景）全过；e2e `editor-area` 40 条、`workbench-dnd`、`workbench-shell`、`markdown-editing`、`lab-editor`、`editor-types` 全过。
+
 ## 下一步
 
-开发者在产品里试第 7a 片的手感（验收场景）。之后第 7b 片：编辑组归面板。
+第 7b 片的实现审查（一个 Sonnet）处理完就合入，然后请开发者在产品里试编辑器标签的拖动。之后第 8 片：删旧代码，晋升 Spec。

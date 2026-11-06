@@ -97,7 +97,7 @@
 - 默认树：`V[H[bar:activitybar, panel:sidebar, V[panel:<编辑组>, panel:panel], panel:auxiliarybar], bar:statusbar]`。具名面板的叶 id 就是名字（`sidebar`），`[data-leaf="sidebar"]` 这类约定不变。
 - 第一次生成文档时：有视图的具名面板显示，空的隐藏（等于现行输出 39、42 的缺省）。之后新出现的视图按 `location` 加到面板标签末尾，面板隐藏着就保持隐藏（提案第 1 节）。
 - 最大化是 store 的内存状态，不落盘，也不进 `projectDoc`：传给 `NestedGrid`，这块叶盖在上面，别的面板不动（开发者 2026-11-06 试 Lab 时指出：从布局里摘掉会让它们消失又重新长出来）。
-- 写入：手势结束；打开、关闭、切标签合并，至多 1 秒一次。后写胜出。损坏或版本不支持时回落默认并记诊断，原件不覆盖。沿用现有“布局未保存”。
+- 写入：手势结束；打开、关闭、切标签合并，至多 150 毫秒一次（片 7b 从 1 秒改的，见 README）。后写胜出。损坏或版本不支持时回落默认并记诊断，原件不覆盖。沿用现有“布局未保存”。
 - **未绑定项目（第 10 条）**：`editor.tabs` 不落盘，所以存盘前 `stripDynamicTabs`，刷新后没有坏标签。
 - **两条记录（第 11 条）**：`tabId` 用随机不透明串，不用计数器。`editor.tabs` 按键合并（`change` 在最新值上重放，和现行定制一样）。保存顺序先 `editor.tabs` 后 `workbench.layout`，前者失败后者不写；崩在两次之间只多一条无主的项，恢复时丢弃。“布局未保存”算上这条。
 - 视图目录：`location` 只决定第一次放到哪个具名面板；未知条目留在树上显示占位（提案第 2 节）。
@@ -128,7 +128,7 @@
 
 片 7a 留给后面的：t06 接入遗留 1（`useGridLayout` 给 `v-bind` 用的对象）、2（测量盒的合同，`EditorArea` 提示条）、5（`onIssues` 与 `@issues` 重复）没有做，遗留 10 随旧外壳的收尾一起没了；`DropFeedbackOverlay` 的 `settling`、`WorkbenchDragFeedback` 的 `settled`、目录里的 `viewCommands.unplaced` 与 `viewCommands.newContainer` 等旧键在片 8 删；`WorkbenchShell.vue` 内容插槽里重复的 `viewIdOf(contentKey)!` 在片 8 收拾。
 
-片 6 定下的接缝在 `groups/panels.ts`，片 7b 由工作台的布局文档实现它，`panels.test.ts` 的场景要对工作台实现再跑一遍。为此 nb-layout 的领域操作要补三处，片 7b 一起做：`moveTabToStrip` 能只换位置不激活（`activate: false`，固定与键盘排序用）；`openPanelAtEdge` 能不改 `currentEditor`（“在侧边打开”只建组）；`settleEmptyPanel` 移除编辑组后 `currentEditor` 换到相邻的，现在取第一个，和 workbench/editor.md 输出 3 不符。
+（片 7b 实施后：接缝搬到 `workbench/shared/`，`canInsert` 不进接缝，见 README。）片 6 定下的接缝在 `groups/panels.ts`，片 7b 由工作台的布局文档实现它，`panels.test.ts` 的场景要对工作台实现再跑一遍。为此 nb-layout 的领域操作要补三处，片 7b 一起做：`moveTabToStrip` 能只换位置不激活（`activate: false`，固定与键盘排序用）；`openPanelAtEdge` 能不改 `currentEditor`（“在侧边打开”只建组）；`settleEmptyPanel` 移除编辑组后 `currentEditor` 换到相邻的，现在取第一个，和 workbench/editor.md 输出 3 不符。
 
 一个组仍是一个控件（每标签一实例见 t17），所以多标签组里的标签跨组移动时视图按现行输出 49 重建；**单标签的组移动是面板移动，不重建**。
 
