@@ -1,0 +1,299 @@
+w00026 t07 计划设计审查报告
+审查对象：.agents/works/w00026-layout-package/tasks/t07-single-tree/plan.md
+审查人：Claude（sonnet）  日期：2026-11-06  只读
+说明：条目按核实先后追加；末尾有按严重程度排序的索引与汇总。
+
+========================================================================
+[1] 阻断 | 内容层/裁切 | plan.md「NestedGrid.vue：内容层」第 47-49 行
+------------------------------------------------------------------------
+现象：计划让内容元素成为叶外框的兄弟（不在外框里），又写“新项跟新叶从边上长出来”“扩展 following、entering 到内容项”，但没有任何一句讲裁切。
+现行实现里，“新叶与从零出来的叶内容保持最终尺寸，外框长出来时露出它”完全靠外框 `.nb-grid-frame { overflow: clip }`；“前后都有尺寸的叶内容跟外框”靠内容 `width:100%; height:100%`（NestedGrid.vue:130-134 的 contentStyle，following 命中就写 100%）。内容挪出外框后这两件事都不再成立：
+  1) 新叶的内容若按最终尺寸摆，没有外框裁它，会整块一次性出现，不是“被长出来的外框露出”；
+  2) 若让内容矩形自己从零宽长出来（grownRect 的做法），内容每帧重排、ResizeObserver 每帧报，违反开发者 2026-11-06 的决定（“新叶与从零出来的叶保持最终尺寸”）和 nested-grid.md 验收 9（“新叶内容一开始就是最终尺寸，ResizeObserver 只报一次”）；
+  3) following 项的“跟随”要靠内容自己的 transform/width/height 过渡，不再是 100% 继承，所以 following 集合的含义要重写，不是“扩展”。
+为什么是问题：这是本次改造的核心视觉（开发者验收场景），而计划把关键机制留成了一句含糊的“长出来”，片 3 开工时必须当场设计，且各选项各有代价：
+  a) 每个内容外面再包一层与叶同矩形、同令牌过渡的裁切壳（等于把外框又放回来）；
+  b) 用 clip-path: inset() 在内容上做过渡（浏览器基线 Chrome 119/Safari 17.4 支持，但 clip-path 动画不影响命中，且飞过别的面板时又不该被叶裁，要区分“新叶揭示”与“跨叶飞行”两种裁切）；
+如何核实：读 packages/nb-layout/src/vue/NestedGrid.vue:128-134、305-309（overflow: clip 在 .nb-grid-frame，行 328-333；contentStyle 的 following 分支）；对照 docs/specs/ui/nested-grid.md 输出“过渡”与验收 9。
+建议改法：计划里先定裁切方案并写进“要守的不变量”。注意不能用“飞行时把内容从壳里摘出来”的做法，那会违反计划自己写的“内容元素从建到销毁不换父元素”。可行的是内容元素本身不换父元素，用它自己的 clip-path: inset() 表达“与目标外框的交集”，随同一组令牌过渡：新叶揭示时 inset 从“只露出长出来的那一条”过渡到 0，跨叶飞行和前后都有尺寸的跟随时 inset 恒为 0。或者每个内容项固定带一个同矩形的裁切壳、壳与内容都不换父元素，飞行时壳不裁（overflow 切成 visible）。两种都要在片 3 的 Lab e2e 里各有一条：“新叶揭示：RO 只报一次”和“飞行中不被邻叶裁”。
+
+
+========================================================================
+[2] 阻断 | 尺寸/约束 | plan.md「布局文档 store」第 61 行 + 提案第 4 节约束表
+------------------------------------------------------------------------
+现象：约束表把所有工具面板（侧栏、右栏、面板、其它工具面板）都定为 `fixed`，只有编辑组是 `weight`。计划的 `resolveRef`“按提案第 4 节的约束表由 PanelRecord 给 sizing”原样照搬。
+为什么是问题：`allocateSashPanels`（packages/nb-layout/src/grid-geometry.ts，注释写明“没有 weight 节点时多余空间留白，不越权填满”）在一个分支里全是 fixed 时，剩余空间不分给任何人。开发者验收场景里的 `侧栏(视图 A | 视图 B)` 就是一个纵向分支 V[A, B]，两块都是工具面板、都是 fixed：高度合计小于侧栏高度时底部露出一块空白，A 拖到 B 之上、或把视图拆到侧栏下沿（规则 7）时都会出现。同理 H[工具面板, 工具面板] 里没有编辑组的分支。
+如何核实：已实验（/tmp/review-w00026-t07-plan/exp/blank.ts）：createGrid 建 V[A fixed 200, B fixed 300]，layout(400×900) 得到 A=200、B=300、根分支高度 501，issues 为“没有按比例分配的节点，剩余 399 未被吸收”“有 399 未被任何子节点吸收”。
+建议改法：sizing 不能只由面板角色决定，要由所在分支决定：每个分支至少要有一个吸收余量的子节点。在 `resolveRef`（或规范化出口）按树上下文补一条规则，例如“分支内没有 weight 子节点时，取最后一个（或拖入方向上的相邻）工具面板按 weight 对待”，并写明这种面板的 `fixed` 目标在被 weight 化时怎么写回（`resizeBranches` 对 fixed 直接把目标 px 写成意图，对 weight 反解权重，两者的写回单位不同，面板在两种状态间切换时 `size` 的单位要换算）。把“全是工具面板的分支不留白”写进领域操作的不变量和片 2/4 的单元测试。
+
+========================================================================
+[3] 重要 | 隐藏面板/缝宽 | plan.md「布局文档 store」第 62 行
+------------------------------------------------------------------------
+现象：“隐藏的面板是 collapse.collapsed 且尺寸 0，sashSize 函数在它相邻处给 0”。“相邻处”没有定义。
+为什么是问题：`sashSize(branchId, index)` 的 index 是第 index 与 index+1 个子节点之间的缝。隐藏面板在分支中间时（具名面板“可以被整块拖走”，所以会出现：H[bar, 编辑组 A, 侧栏(隐藏), 编辑组 B]），若“它两侧的缝都给 0”，A 与 B 之间就没有缝了：看不见分界线，也没有可拖的分隔线，A|B 的比例从此调不了，直到面板重新显示。正确规则是“一段连续的隐藏面板两侧总共留一条缝（若两侧都有可见邻居），挨着条的缝仍为 0”，这是一个依赖整个分支内容的函数，不是局部判断；而且 `placeGrid` 的 `edgeOf`（grid-rects.ts）已经把“0 尺寸的缝”和“邻居也是 0”的情形做成端点判断，隐藏面板的相邻缝由 `sashSize` 闭包决定后，`ends`/`controls`（aria-controls 指向 lastLeafOf）也要按“可见的前一块”重算。
+另外：隐藏面板仍在树里、尺寸为 0，`NestedGrid` 的 `useLeafParking` 按“曾经非零、现在为零”判停放，而隐藏面板如果从未显示过（新项目里空的右栏），lastSizes 里没有它，“第一帧还没有尺寸不算停放”的分支让它不被 inert，里面的内容（占位面板头）仍可 Tab 进入。
+如何核实：读 grid-rects.ts 的 `placeBranch`（缝宽取 `layout.sashSizes[branch.id][index]`）、grid-geometry.ts 的 `layoutOf`（sashSizes 由 sashSize 函数逐 index 取）、useLeafParking.ts 的 update（`else if (lastSizes.has(...)) zero.add`）。
+建议改法：计划里写出 sashSize 的规则（建议：缝 i 为 0 当且仅当 “i 的前面没有可见子节点” 或 “i 的后面没有可见子节点” 或 “前后任一侧是条”；隐藏面板两侧的缝由“可见的前一块与可见的后一块”之间是否都存在来决定，且整段只保留一条），并给表驱动单元测试（隐藏在首、中、尾、相邻两个隐藏、挨着条）。对从未有过尺寸的隐藏面板，停放判定改成“面板隐藏标记”直接 inert，不依赖 lastSizes。
+
+========================================================================
+[4] 重要 | 规范形/尺寸守恒 | plan.md「模型与领域操作」第 38 行
+------------------------------------------------------------------------
+现象：“展平时把子分支的意图按比例还给子节点”只对 weight 成立。
+为什么是问题：意图的单位随 sizing 变：fixed 的 size 是像素目标，weight 的 size 是相对权重（grid-types.ts 的 GridSizing 注释）。子分支 B 的 size[axis] 是 B 在父分支里的外部分配（权重或 px），B 的子节点 size[axis] 是 B 内部的单位。展平后子节点直接加入父分支：
+  - 子节点是 fixed 时，按“B 的外部分配 / B 内部合计”缩放会改写它的像素目标（300px 的面板变成别的值），不缩放则 B 的合计与原来的外部分配不守恒；
+  - 子节点是 weight 且 B 里夹着 fixed 时，B 的总宽原来由父级按 B 的权重分，展平后 fixed 项先取 px、余量才按权重分，B 那一块的总宽会变，兄弟跟着跳。
+举例：父 H 宽 1000，X(weight 1) 与 B(weight 1) [F(fixed 300), E(weight 1, min 220)]。展平前 X≈500，B≈500；展平后按比例还权重（E 取 1），F 先取 300，余 700 在 X 与 E 之间平分各 350，B 那一块变成 650，X 从 500 缩到 350。拖放落下的瞬间兄弟的宽度会跳，而“放回原处 no-op”“结果与现状相同（规范形相等）”的判据依赖这个展平是稳定的（同一结构两次展平要得到同一结果）。
+同类：createGrid 的 `collapse(parent, survivor)`（grid.ts:157）塌陷单子分支时 `survivor.size = {...parent.size}`，直接把外部分配覆盖给幸存者，不做单位换算；计划把规范化放在领域操作出口，会在 createGrid 已经这样塌陷之后再展平，两次变换叠加。
+如何核实：读 grid.ts:157-170 与 planBranchResize 对 fixed/weight 的区别（grid.ts:260-353）；grid-geometry.ts 的 allocateSashPanels。
+建议改法：规范化前先给“意图守恒”下定义并写成可测的判据（例如：展平前后 `layout(container)` 得到的每个叶的尺寸相同，容差 1px），再据此设计换算：展平时按“当前呈现尺寸”重新写子节点的意图（fixed 取呈现 px，weight 取呈现 px 作权重），而不是按意图比例；片 2 的单元测试用“布局前后叶尺寸不变”做性质测试，覆盖 fixed、weight、混合三类。
+
+========================================================================
+[5] 重要 | 内容层/动画判定 | plan.md 第 49 行，useGridMotion.ts / grid-motion.ts
+------------------------------------------------------------------------
+现象：计划写“useGridMotion 的 following、entering 扩展到内容项”。现行判定 `decideMotion → placementMoved(items, previous)` 只比较叶与分隔线的摆放（`placement.items`），触发也只有 `watch(placement)`。
+为什么是问题：内容项换叶（`leaf` 变了）而这两块叶的矩形都没变时，placement 不变，`placementMoved` 返回 false，`watch(placement)` 不触发，内容瞬间跳过去，没有位移。典型：把多标签面板 X 的活动标签 A 并入已有面板 Y（moveTabToStrip），X 与 Y 的矩形都不变，只有内容 A 的 `leaf` 从 X 变成 Y。这正是开发者原话要解决的“跨容器先消失再瞬移”的另一半（合并进已有容器，而不是拆出新容器）。此外 `contents` 是独立 prop，只改 `contents` 时 placement 的 watcher 不会跑。
+如何核实：读 useGridMotion.ts:59-74 的 decideMotion（first/gesture/placementMoved 三个出口都不看内容），NestedGrid.vue:136-143 的 watch(placement)。
+建议改法：把内容项的矩形纳入 `GridMotionFrame`（items 与 previous 都带内容矩形），`placementMoved` 比较内容矩形；触发改成同时 watch placement 与 contents；片 3 的 Lab 场景和单元测试必须有“标签并入已有面板，两块叶都不动，内容滑过去”一条（`decideMotion` 表驱动加 Lab e2e）。
+
+========================================================================
+[6] 重要 | 内容层/叠放顺序 | plan.md 第 49 行（只写“移动中的项 z-index 抬高”）
+------------------------------------------------------------------------
+现象：计划只在移动中抬高内容的 z-index，没有写静止时内容、外框、分隔线的叠放规则。
+为什么是问题：内容元素的 DOM 位置是“叶头之后紧跟这块叶的可见内容”（plan 第 51 行），已有元素在 Vue 带 key 的 v-for 里不搬位置。内容 A 换到后面的叶 Y 之后，A 的 DOM 位置仍在 Y 外框之前。同一父元素里全是 position:absolute 且 z-index:auto 的元素按 DOM 序绘制。计划没有写卡片的底色和边框画在哪一层；若画在叶槽里（现行外壳如此，卡片按叶矩形画，plan 第 70 行说“卡片画在内缩之后的矩形里”），后面的 Y 外框会盖住 A（从代码推断，未在浏览器复现），A 在静止后消失，只在 z-index 抬高的移动中可见。分隔线的 SashHandle 有 `z-index: 1`（SashHandle.vue:284、412），内容若给了比 1 大的值又会盖住覆盖层的悬停线。
+如何核实：读 NestedGrid.vue 的模板（叶外框与 SashHandle 同级）、SashHandle.vue 的 z-index，以及 .nb-grid-frame 没有 isolation/z-index。
+建议改法：在“要守的不变量”里写固定的三层：外框 z 0、内容 z 1、分隔线与反馈 z 2（在 NestedGrid 内部用独立层级，不新增全局 z-index 令牌）；移动中只在内容层内部再抬一级。用 Lab 场景断言“内容移到 DOM 序靠前的叶之后仍可见（elementFromPoint 命中内容）”。
+
+========================================================================
+[7] 重要 | 内容层/焦点与 Tab | plan.md 第 51 行，grid-focus.ts / useGridFocus.ts
+------------------------------------------------------------------------
+现象：计划把 useRenderOrder、useGridFocus “纳入内容项”写成一句话。现行 `GridFocusItems.items()` 是“树序的叶外框与分隔线元素”，`noteFocus`/`moveTab`/`moveGridFocus` 都用 `element.contains(target)` 判断焦点属于哪一项。
+为什么是问题：内容不在外框里，焦点在视图内容里时（几乎总是），`items.findIndex(({element}) => element.contains(target))` 得到 -1：`moveTab` 直接返回 "browser"（Tab 不接管）、`noteFocus` 把焦点记不到任何一块上（`moveGridFocus` 回到这块时找不到上次的焦点）。DOM 序与树序不一致（内容换叶之后几乎必然）这条路径在 t07 之后是常态而不是例外，nested-grid.md 的“已知限制”会在每次视图移动之后命中，不只是 t06 记录的那个特例。每个叶的一“站”要变成外框加（零个或一个）活动内容的并集：`focusablesIn(element)`、`atEdge`、`lastFocused` 的键、sentinel（enter/exit）都要按并集改。非活动标签的内容是 visibility:hidden + inert，要排除。
+还有一个具体坑：嵌套 grid 的 F6 逻辑用 `from.closest("[data-grid-scope]")` 判层级，与内容层无关，可保持；但内容里有 Monaco 之类自己处理 Tab 的内容，`atEdge` 用 `compareDocumentPosition` 在外框与内容两个不相交的元素之间比较，要改为在站的并集里比较。
+如何核实：读 grid-focus.ts 的 moveTab/noteFocus/moveGridFocus，useGridFocus.ts 的 scope.items。
+建议改法：计划里把“站”定义为 `{frame, content}` 的并集并写进 GridFocusItems 的新接口；nested-grid.md 的 Tab 顺序/移动焦点/读屏顺序三条输出和验收 8 随之扩展（内容里的焦点：Tab 走出一块、F6、点空白后按 Tab、内容换叶后的树序）。t06 的遗留（从 grid 外 Tab 进来、点空白后 Tab）给出方案（计划只引用了遗留，没有给设计）：落在树序首/尾的 sentinel 加 focusin 进入时的重定向，并写明点内容空白时 tabindex=-1 的接住元素是哪个。
+
+========================================================================
+[8] 重要 | 内容层/取整 | plan.md 第 46 行「矩形是所属叶减去 insetTop」
+------------------------------------------------------------------------
+现象：内容矩形 = 叶矩形（已按设备像素取整）减 `insetTop`（32 CSS px），在 CSS px 上做减法。
+为什么是问题：32 CSS px 乘设备像素比不一定是整数（dpr 1.1、1.15、1.33 等浏览器缩放档），内容上沿落在半个设备像素上，与上面的面板头之间出现发丝缝或抗锯齿模糊；nested-grid.md 的“取整”输出和验收 9 的整套取整（沿主轴累加、缝宽取整）就是为这个写的，内容层绕过了它。过渡中外框与内容各自对 transform/width/height 做线性插值，起终点若有取整差，两者之间每帧会差零点几像素，“同步”只在起终点取整一致时成立。
+如何核实：读 grid-rects.ts 的取整（end = Math.round(idealEnd * scale)）；内容矩形没有对应实现。
+建议改法：由 `placeGrid`（或它的并列纯函数）一次算出内容矩形：insetTop 先乘 dpr 取整后再减，保证“外框顶 + insetTop 取整 = 内容顶”，并把它加进 grid-rects.test.ts 的 dpr 枚举（1、1.1、1.25、1.5、1.75、2）。
+
+
+========================================================================
+[9] 重要 | 切片/兼容 | plan.md 第 52 行与第 107 行（片 3）
+------------------------------------------------------------------------
+现象：片 3 写“不影响现有宿主，合入”，同一小节（第 52 行）又把 t06 遗留的接入形状 1、2、5、10 “在这里一起收”：`useGridLayout` 返回可 v-bind 的对象、宿主与 grid 量同一个盒、`issues` 不再两个出口、过渡结束与叶停放通知宿主并去掉 `SETTLE_TRACK_SLACK_MS`。
+为什么是问题：t06 记录（tasks/t06-flat-renderer/README.md 第 83 行）明确把这四项推迟，理由正是“它们都要同时改外壳、编辑器区、视图容器等宿主的接线”。useGridLayout 现有 5 个使用方：EditorArea.vue、WorkbenchViewContainerHost.vue、WorkbenchShellLayout.vue、shell/layout.ts（还有两个 Lab fixture）；`SETTLE_TRACK_SLACK_MS` 在 WorkbenchShell.vue:316。把它们放进片 3，要么片 3 实际改了产品里的外壳与编辑器接线（不再是“不接产品”，片 7 也没有“行为不变”的回退点），要么保留旧形状再加新形状（两条路径并存，且 7 之前没人删）。这是计划自己的合并边界矛盾。
+如何核实：grep -rn useGridLayout packages；对照 t06 README 第 83-93 行。
+建议改法：把接入形状 1、2、5、10 从片 3 移到片 7（跟着宿主一起改），或者片 3 只做内容层，接入形状的 API 变化另出一片并明确它改哪些宿主。片 3 的自跑验证应包含 EditorArea、WorkbenchShellLayout 相关的现有测试，证明“不影响现有宿主”。
+
+========================================================================
+[10] 重要 | 持久化/未绑定项目 | plan.md 第 56-66 行；提案第 8 节表格
+------------------------------------------------------------------------
+现象：提案第 8 节规定 `workbench.layout` 在“绑定项目 project/local，否则 user/local”，`editor.tabs` 在“project/local，未绑定只在内存”。计划原样接收，没有处理两者不对称。LayoutDoc 里编辑器标签是 `{kind:"tab", type:"nbook.editor", tabId}`。
+为什么是问题：未绑定项目的窗口（现行代码里 `createStore: null`，编辑会话完全不持久，见 editor/web/session.ts）里，编辑器标签会随布局写进 user/local 的 `workbench.layout`，而它们的内容（地址、编辑器、光标）不会存。结果：
+  1) 未绑定窗口每次刷新，布局里留着一排 `editor.tabs` 里找不到的 tabId，按提案“显示原因并可以关闭”，用户每次打开都看到一批坏标签；
+  2) 所有未绑定窗口共用同一条 user/local 记录，彼此整树后写胜出，A 窗口刚打开的标签被 B 窗口的保存覆盖或残留。
+同时 `workbench.layout-template` 的“去掉动态标签”只用于新项目初始布局，并没有处理主记录。
+如何核实：读提案第 8 节表格两行；editor/web/session.ts 的 `options.createStore === null → start(null)`。
+建议改法：在 plan 的“写入”里写明：存盘前对未绑定窗口的 LayoutDoc 去掉所有动态标签（只留工具面板与空编辑组），或者让 `editor.tabs` 与 `workbench.layout` 用同一分区规则。并给 store 单元测试一条“未绑定窗口保存后的文档里没有动态标签”。
+
+========================================================================
+[11] 重要 | 持久化/两份记录一致性 | plan.md 第 64、83 行
+------------------------------------------------------------------------
+现象：`editor.tabs`（编辑器写，光标约 1 秒一次）与 `workbench.layout`（工作台写，打开/关闭/切换合并至多 1 秒一次）是两条独立的记录，计划只写了恢复时“editor.tabs 里没有的 tabId 显示原因、文档里没有的 tabId 由编辑器丢弃”，没有写写入顺序、一条失败的处理和 tabId 的产生。
+为什么是问题：
+  A) 写入顺序：打开新文件时先写 layout 再写 tabs，两次保存之间崩溃就得到一个占位坏标签；反过来只会留下一条无主的 tabs 项（无害）。所以顺序必须是 tabs 先、layout 后，并让 layout 的保存等 tabs 的保存结果（失败则不写 layout，否则用户得到的是引用不存在的文档）。
+  B) tabId 来源：现行代码里标签 id 是内存里的临时值（groups.ts:284 的 `newId("t")`，恢复时 `r${n}`，groups.ts:540），记录里根本没有 tabId。新的 `editor.tabs` 以 tabId 为键，id 必须持久、全局唯一。两个窗口各从 `t1` 数起，会在同一条 project/local 的 `editor.tabs` 里互相覆盖（整表覆盖）或串号（按键合并）。计划没有说谁分配 tabId、怎么保证跨窗口不撞。
+  C) 另一窗口覆盖：整树后写胜出只针对 layout；`editor.tabs` 写法未定义（整表覆盖还是按键合并）。窗口 A、B 各打开不同标签，最后写的 layout 引用的 tabId 里有一部分的内容在对方写的 tabs 里被覆盖掉，刷新后出现占位标签。
+  D) 失败呈现：现行“布局未保存”按 `side|panelSize|customizations` 三条记录的保存状态显示（layout-store.ts 的 LayoutProblem.record），`editor.tabs` 失败时没有出口。
+如何核实：读 groups.ts 的 newId/restore；layout-store.ts 的 problems；提案第 2 节“恢复”条目。
+建议改法：计划里补一小节“写入顺序与 id”：tabId 用随机不透明串（不是计数器），editor.tabs 按键合并（change 在最新值上重放，和现行 customizations 一致），layout 保存前 await tabs 提交；恢复时对“layout 引用而 tabs 缺失”提供“关闭”与“保留等待”两个动作；“布局未保存”扩到第四条记录。store 单元测试覆盖“tabs 保存失败时 layout 不写”和“两个窗口各开一个标签后刷新两边都不出现占位”。
+
+========================================================================
+[12] 重要 | 编辑组接缝 | plan.md 第 80-83 行（GroupStructure）
+------------------------------------------------------------------------
+现象：计划把“结构部分（grid、splitLeaf、removeLeaf、顺序、活动标签）”抽成 `GroupStructure`，称 `area.ts` 只认 groups.ts 的 API 不用改。
+为什么是问题：
+  1) “顺序”与“标签属性”在 groups.ts 里不可分：插入位置要看固定区边界（`pinnedCount(tabs)`，groups.ts:63、229），preview 替换要在顺序里找 preview 标签（:285），`setPinned` 要把标签移到分界处，`setEditor` 的孪生合并要读 address 与 editor（:427）。顺序一旦搬进 LayoutDoc 的 TabRef（只有 tabId），这些操作每一步都要同时读写两个记录（提案第 2 节的 `replaceTab`、`canInsert` 就是为此），接口不是“结构”那一层能表达的；第一步用本地实现“行为不变”会得到一个第二步必须推倒重写的接口。
+  2) 几何泄漏：`rightOf`/`sideGroup` 在 grid 树上找“右侧相邻的叶”（groups.ts:504-523，取兄弟分支的第一个叶）。统一成一棵树后，右邻可能是工具面板，或兄弟分支的第一个叶是工具面板，而 `"side"` 要的是“右侧相邻的编辑组”；`sitsAtEdge` 用 DOM 矩形判原位（:84），计划里的“规范形相等”判原位取代它，但没有说 tab-drag 删除之前它由谁用。
+  3) area.ts 其实依赖 `groups.layoutVersion`（area.ts:422 的 persist watch）和 `groups.snapshot()`（含 `layout: grid.serialize()`），EditorArea.vue 直接用 `area.groups.grid`、`layoutVersion`（:54-57）。接口去掉 `grid` 之后这三处都要改，“area.ts 不用改”不成立。
+  4) 活动组：groups.ts 的 `activeGroup`（编辑器内存）与提案里 LayoutDoc 的 `currentEditor`（工作台）是两份“活动编辑组”，计划没有说以谁为准。
+如何核实：读 groups.ts:60-66、226-259、285、341-357、474-482、504-523；area.ts:422；EditorArea.vue:54-57。
+建议改法：接缝改在“标签级操作”：接口是 `PanelTabs`（每面板的有序 TabRef、活动、插入/移动/替换，带 `canInsert` 回调去问编辑器）加 `PanelTree`（拆分/移除/邻接，邻接只在 role: "editor" 的面板里找）。第一步先把 groups.ts 拆成“顺序+分区规则”与“标签属性”两个模块，各有单元测试，再第二步换存储。活动编辑组写明唯一所有者（建议工作台，编辑器经 service 读写）。
+
+
+========================================================================
+[13] 重要 | 遗漏/现行行为去向 | plan.md 全文（对照提案“外壳现行行为的去向”表、workbench-shell.md 输出 7、20、22、23）
+------------------------------------------------------------------------
+现象：以下现行行为在提案去向表里写了“保留/改写”，但计划的范围、领域操作、组件、切片、验收映射里都没有出现（用 grep 核对，plan.md 中“预备”“最大化”“移动到”“右键”“四档”“更多”“F6”“浮出”“aria-live”全部 0 次命中）：
+  1) 预备区（输出 20、39）：隐藏的具名面板在拖动时按“显示出来会在的矩形”浮出，放上去同一次写入显示面板并接收。计划里隐藏面板尺寸为 0、缝为 0，`resolveLayoutDrop` 只吃“摘掉来源后的树与矩形”，没有预备区的输入，也没有“显示加接收”这个合并操作（领域操作清单里只有 setPanelHidden 与 insertTab 各自独立，缺少一次写入的组合）。没有它，隐藏的侧栏/右栏/面板就再也不是落点，现行验收 20 的后半段无法通过。
+  2) 最大化（输出 7、提案第 4 节）：对任意面板，占满树除条以外的区域，其余面板停放，瞬时、不落盘；命令 `toggle-panel-maximized` 与状态键 `maximized` 属于第 9 节、在 t07 范围内。计划的领域操作、store、组件里没有最大化：它不能是文档操作（不落盘），也不能靠 collapsed（会和用户的收起混在一起），需要一个“呈现覆盖层”：谁持有、怎么把其余面板压成零而不改文档、怎样触发其余面板的内容停放与焦点交接、什么情况清除（提案没有写，现行输出 7 是“换位置、对齐、隐藏、收起、进入紧凑”）。
+  3) “移动到”改写为标签右键、视图动作放在面板头：计划写了面板头，但没有写右键菜单，也没有移动到的目标列表（面板、新面板、浮动）和命令 `nbook.view.move-view` 的参数迁移（`target` 改成面板 id）。
+  4) 标签带四档让位与活动栏“更多”（输出 15、25，验收 31）：提案去向“保留”。计划要新建 `WorkbenchPanelHead`（含标签）与 `WorkbenchToolStrip`，却没有说把现有四档让位逻辑（tabs-adapt、item-strip）迁过来还是重写。
+  5) F6/Shift+F6 命令、拖动播报（aria-live）、落点稳定 150ms 才换预览的行为（提案第 3 节，那是 t08 的）；其中 F6 的 `moveGridFocus` 命令注册在现外壳里，计划没有提到迁移。
+  6) 右栏与面板“空着缺省不显示、主动显示过就记住”（输出 39/42，`shownParts`）：提案第 1 节只说“具名面板拖空时隐藏”，默认树里 auxiliarybar 与 panel 的初始 hidden、有视图声明 `location: "panel"` 时是否显示，计划都没写（提案第 2 节写的是“面板隐藏着就保持隐藏，直到用户打开”，等于改变现行验收 42 的“有视图声明在右栏与面板，两处仍显示”）。
+  7) 键盘拖动：计划写“沿用外壳三输出 23”，但 `resolveLayoutDrop` 是指针到落点的函数，键盘需要的是“按树序列出所有可去的落点，方向键逐个、Tab 在区域间循环”，需要一个候选枚举函数，计划没有。
+  8) 规则 5（标签条的插入位）：提案第 3 节写“标签条的插入位按当前 DOM 量”，`resolveLayoutDrop` 的输入里没有标签条的插入位几何；而“统一标签条”被移出 t07，所以工具面板头和 `EditorTabBar` 是两份 DOM，插入位要由各自量出来再交给规则。计划没写这个输入。
+如何核实：grep 计划与提案的去向表；读 workbench-shell.md 输出 7、20；`web/views/drag-session.ts` 里的 keyboardRegions/revealAt。
+建议改法：把 1) 到 8) 逐条补进“范围”表（在 t07 里、或明确归给哪个 Task），其中 1)、2)、7) 直接影响片 2 的 API 形状，必须在片 2 之前定：`resolveLayoutDrop` 要有 `extraZones`（预备区）、`stripSlots`（标签条插入位）输入，并导出 `enumerateDropCandidates`；领域操作加 `showPanelAndInsert`；最大化作为 store 内存状态加 `resolveRef` 的覆盖。
+
+========================================================================
+[14] 重要 | 切片 | plan.md 第 111 行（片 7）与第 143 行
+------------------------------------------------------------------------
+现象：片 7 一次包含：外壳换表面、编辑组归面板（GroupStructure 的工作台实现、EditorHost 拆分、editor.tabs 记录）、拖动合一（createShellDrag 与 createTabDrag 合并）、命令与状态键、记录、Spec 晋升、重写 73 条 e2e（workbench-shell 16、workbench-views 27、workbench-dnd 30，数过）。
+为什么是问题：
+  1) 这五件事互相独立，却放在同一个不可回退的分支里；片 7 失败时没有中间可验证状态。“风险交给片 3、5 先在 Lab 跑通”只覆盖了渲染，没有覆盖编辑组归面板（片 6 只抽接口，不换存储）、拖动合一、命令迁移。
+  2) 73 条 e2e 里 workbench-dnd 与 workbench-views 大量依赖会被取消的 DOM 约定：外壳相关的 `data-*` 标记（data-workbench-*、data-activity-*、data-sash 等，grep 计数 workbench-dnd 153 处、workbench-views 120 处），`data-activity-container`（“容器”概念本身要取消），所以是重写，不是改选择器。
+  3) e2e 在 DOM 全部变化的同一片里重写，没有“先绿后切”的基线。
+建议改法：拆成三片，各自可合入、可验证：
+  7a 外壳换表面 + 工具视图 + 记录与命令（编辑区暂时是树里的一个 `role: "editor"` 面板，里面仍是现有 EditorArea 的内部 grid，也就是中间态保留一层子树）；e2e 重写 workbench-shell、workbench-views、workbench-titlebar；
+  7b 编辑组归面板（GroupStructure 工作台实现、EditorHost、editor.tabs、tab-drag 并入）；e2e 重写 editor-area 受影响的用例；
+  7c 拖动合一（指针与键盘）、预备区、workbench-dnd e2e、Spec 晋升。
+同时在片 1 里把 73 条 e2e 做一张去向表（保留/改写/删除/由 Lab 取代），随 Spec 一起交开发者。
+
+========================================================================
+[15] 重要 | 验证覆盖/遗漏依赖 | plan.md 第 136 行（真实浏览器验证清单）
+------------------------------------------------------------------------
+现象：验证清单里的 e2e 没有包含依赖会变动的 DOM 约定的这些文件（用 grep 核对）：
+  - 依赖 `data-activity-container`（容器概念取消、活动栏改为工具条）的 e2e：plugin-code.e2e.ts:268-269、plugin-authoring.e2e.ts:94-95（“aria-pressed 为真的恰好一个”的语义也会变）；
+  - 依赖 `data-editor-group` / `data-editor-group-active`（编辑组被拆成面板+内容后这两个标记放在哪个元素上要定）的：editor-types、themes、markdown-input、bookshelf-stats、editor-code-settings（与已列的 editor-area、workbench-titlebar:41 同一类选择器），以及 `scripts/perf/browser-runner.ts`、`scripts/perf/page-agent.ts`（性能脚本用 `[data-editor-group-active]` 与 `document.querySelectorAll("[data-editor-group]").length === 2`）；
+  - workbench-titlebar.e2e.ts:181 用 `[data-leaf="sidebar"]` 量侧栏宽度：叶 id 现在是 Part 名 `sidebar`，新树里叶 id 是面板 id，具名面板的叶 id 是否仍叫 sidebar 没有写；
+  - Lab 里的外壳场景：src/plugins/lab/web/fixtures/WorkbenchShellLayoutFixture.vue、shell-scene/ShellViewsScene.vue（282 行）与 fixtures/index.ts:329-353 的 WorkbenchShellLayout 场景依赖片 8 要删的组件，计划只提“Lab 场景（用夹具文档）”，没有写旧场景是迁移还是删除；现行 Spec 外壳一验收 12、13 就是基于这些 Lab 外壳场景写的（四主题截图，/lab 不订阅产品布局记录），迁移后验收怎么留没有写。
+  - 命令/状态键：panelPosition、nonCompact、set-panel-position 等出现在 workbench 的 layout-store.ts、public-state.ts、panel-commands.ts、sizes.ts、panel-state.ts、locales.test.ts 以及 e2e workbench-shell、workbench-views，片 8 的“旧代码”清单只列了 layout.ts、cards.ts、panel-state.ts、teleport-memory.ts 等，没有 sizes.ts、public-state.ts、panel-commands.ts、locales。
+如何核实：grep -rlE "data-activity-container|data-editor-group" packages/neuro-book/e2e packages/neuro-book/scripts；grep -rlE "panelPosition|nonCompact|set-panel-position" packages/neuro-book/src。
+建议改法：片 7/8 的验证清单与“删旧代码”清单按上面逐条补；把 `data-editor-group*` 标记迁移写成明确约定（放在内容项根元素上，保持“活动组唯一”），在 Spec 里作为编辑器插件对外的标记登记，避免 e2e 与性能脚本各自适配。
+
+========================================================================
+[16] 重要 | 尺寸/放不下时的降级 | plan.md 第 63 行
+------------------------------------------------------------------------
+现象：“放不下只改呈现：在 resolveRef 这一步按实测容器算‘呈现时收起’的工具面板，不写文档，给诊断。”
+为什么是问题：
+  1) `resolveRef` 只在 `grid.restore(snapshot, resolveRef)` 时被调用（grid.ts 的 restore；Grid 没有单独改 collapse 的方法，只有 restore 与 resizeBranches），所以每次容器尺寸变化都要重建（restore）一次 Grid，NestedGrid 的 `node` 引用随之变化，`watch(props.node)` 会取消进行中的手势（NestedGrid.vue 第 277-279 行）。计划没有写这条路径，也没有提重建频率和手势交互。
+  2) 提案要求的降级顺序是“先压工具面板到最小，再收起工具面板，最后压编辑组”。createGrid 的实际行为（grid-geometry.ts `allocateSashPanels`）：fixed 可缩到各自的最小；之后最小值合计仍超出时，不分工具面板与编辑组，所有节点按最小值比例一起缩（lowTotal > space 的分支）。“收起工具面板”这一步必须由宿主在调用 layout 前先把某些面板标成 collapsed，这需要宿主自己逐步试算：先放进去、检查 issues、再收起下一个，直到装下。计划只有一句话，没有算法、没有收起顺序（哪个面板先收：编辑器旁边的？右栏优先？），也没有“呈现收起”在手势里的语义：用户拖开一个呈现收起的面板时，`resizeBranches` 会提交 `collapsed:false`，但文档里它本来就没收起。
+  3) t07 到 t11 之间开发者接受窄屏只有树，这条降级路径就是 <600px 时唯一的路径，影响面比计划写的大。
+如何核实：grid.ts 的 Grid 类型与 restore；grid-geometry.ts allocateSashPanels（lowTotal > space + EPSILON 分支）；NestedGrid.vue:277。
+建议改法：计划里写成一个纯函数 `presentationCollapse(doc, extent, policy) => {collapsedIds, issues}`（按“右栏→面板→侧栏”之类的明确顺序，装不下才继续收，最后才允许压编辑组），单元测试表驱动；store 在容器尺寸变化时以它的结果重建 Grid，并规定“呈现收起的面板被用户拖开时，写入的是文档里的 restoreSize，不改 collapsed”。
+
+========================================================================
+[17] 建议 | 领域操作/放回原处 no-op | plan.md 第 41 行
+------------------------------------------------------------------------
+现象：“结果与现状相同（规范形相等）时返回 {ok: true, doc} 且 doc 是原对象，宿主据此不提交。”
+为什么是问题：规范形含尺寸意图（浮点权重）。把 A 摘出再按原位放回，经 `removeLeaf`+`shiftSiblings` 与 `splitLeaf`（比例 0.5）之后，兄弟的权重不会回到原值（比例换算有舍入误差），逐字段比较永远不等；而原位判据本来只该是“拓扑、顺序、标签集合、活动标签相同”，尺寸意图应在原位时保持原样。若按结构比较，则应直接返回原对象并丢弃新算出的意图。
+如何核实：读 grid.ts 的 removeLeaf/moveLeaf 的 shiftSiblings。
+建议改法：计划里把“相同”定义为拓扑加顺序加标签集合加活动标签，不含意图；判相同后返回原 doc 对象；单元测试覆盖带非整数权重的树。
+
+
+========================================================================
+[18] 重要 | 领域操作/编辑器协议 | plan.md 第 39、83 行；提案第 2 节
+------------------------------------------------------------------------
+现象：提案第 2 节规定了工作台与编辑器之间的几条原子协议：`openTab({type, tabId, panel?, position?})`（`group` 参数解析成面板 id，"side" 是右侧相邻编辑组）、关闭先 `requestClose(tabId)`（再次关闭被忽略）、`replaceTab(oldId, newId)`（preview 替换一次写完）、固定的分区限制由编辑器给（`canInsert`）。计划的领域操作清单是 insertTab、removeTab、activateTab、movePanelToEdge、moveTabToEdge、moveTabToStrip、setPanelHidden、setPanelCollapsed、resizeFromCommit：没有 replaceTab，没有 requestClose 的两阶段（结算期间标签留在文档里，同意才 remove），没有 canInsert 的接线。
+为什么是问题：现行 groups.ts 里 preview 替换是单次 `replace`（groups.ts:286-289），拆成 removeTab+insertTab 会在两次写之间出现“旧标签没了、新标签还没来”的中间态（订阅了文档的状态栏、命令 `when` 会闪）；而现行关闭是编辑器自己结算 dirty 再改结构，提案改成工作台主导，方向相反，`area.ts` 里 `dialog`/`answer` 的异步流程（关闭询问）整个要翻转调用关系，计划把它归到“EditorHost”一行带过。
+如何核实：读 groups.ts 的 open（preview 分支）；提案第 2 节“结构变更的先后”。
+建议改法：领域操作清单补 `replaceTab`、`reorderTab`（带 canInsert 的回调）、`claimTab`（登记 tabId 并占位）；关闭协议写成状态机（closing 集合，期间 `removeTab` 前置条件为同意）并列入片 2 的单元测试；EditorHost 的职责在片 6 的接口里明确（谁调谁）。
+
+========================================================================
+[19] 建议 | 记录/容量与校验 | plan.md 第 37、58、64 行
+------------------------------------------------------------------------
+现象：
+  1) 容量：提案写“16 组、每组 200 标签约 250KB，低于 1MiB 上限”。`defineRecord` 的缺省 `maxBytes` 是 64 KiB（packages/neuro-book/src/shared/storage.ts:14 `DEFAULT_RECORD_MAX_BYTES = 64 * 1024`），1 MiB 是 `MAX_RECORD_MAX_BYTES`，需要显式传。计划的 records.ts 一行没提；现有 editor.session 与 explorer 记录都显式传了 `MAX_RECORD_MAX_BYTES`。按提案自己的容量算（3200 个 TabRef 约 224KB），超过 64KB 的布局会保存失败，状态栏显示“布局未保存”。`workbench.layout-template` 同。
+  2) 双份形状：`LayoutDoc` 形状与 `parseLayoutDoc` 在 nb-layout（package.json 没有 typebox 依赖），记录的 TypeBox schema 在 workbench 的 records.ts，同一个形状写两遍，会漂移；计划“继续用 TypeBox（记录校验）”没有说哪一份是权威。
+  3) `parseLayoutDoc` 的“引用完整性”没有展开。至少要覆盖：每个面板恰被树引用一次（叶重复引用同一面板会渲染两份内容）、TabRef 全局唯一、active 属于 tabs、条恰各一个、具名面板名唯一、至少一个编辑组、id 不能是 `__proto__`/`constructor` 之类（面板表是普通对象的键，layout 结果为此特意用 `Object.create(null)`）、节点数与深度不超过 256/16（领域操作若不经 createGrid 的结构操作，要自己重做这个上限检查）。
+如何核实：读 shared/storage.ts:14-15、64；editor/web/session-record.ts:47；nb-layout/package.json 依赖。
+建议改法：records.ts 的两条记录显式 `maxBytes: MAX_RECORD_MAX_BYTES`；由一处定义形状（建议 nb-layout 导出纯 TS 类型与 `validateLayoutDoc`，workbench 的 TypeBox schema 只做外层字节与版本，并用类型断言保证与导出类型一致）；上面的完整性清单写进片 2 的单元测试。
+
+========================================================================
+[20] 建议 | 内容层/接口 | plan.md 第 46 行（contents prop）
+------------------------------------------------------------------------
+现象：`contents` 项的 `leaf` 指向叶 id，`key` 不变就不重建，但计划没写 `leaf` 指向树里不存在的叶（文档、store、树的发布不在同一个 tick 时的瞬间不一致，或未知条目被过滤）时内容怎么办。
+为什么是问题：若在这一瞬间卸载内容，滚动、输入、编辑器实例全丢，等于破坏计划自己写的“唯一保证”；若不渲染但保留实例，要有停放。
+建议改法：规定“找不到叶的内容项按停放处理（visibility:hidden、inert、保持最后尺寸），不卸载；超过若干 tick 仍找不到才发诊断”；单元测试一条。
+
+
+========================================================================
+[21] 重要 | 遗漏/焦点交接 | plan.md 第 50 行；现 WorkbenchShellLayout.vue:159-166、253-263
+------------------------------------------------------------------------
+现象：现行“焦点在被停放的内容里时的交接”（隐藏→状态栏“显示面板”，被最大化挤走→面板标题；输出 10、验收 6；提案第 6 节“停放”保留：焦点移到同一面板的标签条或最近的框架控件）实现在 WorkbenchShellLayout.vue 的 focusTarget 与 TeleportMemory 的焦点记忆里，二者都在片 8 被删除。计划的内容层只写“visibility:hidden 加 inert，沿用 useLeafParking 的判定”，而 useLeafParking 只算 parked 集合，不处理焦点。
+为什么是问题：浏览器在元素变成 inert / visibility:hidden 时，焦点会掉到 body，键盘用户失去位置；新旧交替之后没有人接手这件事，会在片 8 删除旧代码的时候悄悄消失，且现有 e2e 里“hidden 使焦点内容停放时焦点到‘显示面板’”只在 workbench-shell 重写时才可能发现。
+如何核实：读 WorkbenchShellLayout.vue:159-166、221-263；useLeafParking.ts 没有焦点相关代码。
+建议改法：计划写明交接由谁做：建议在 `NestedGrid` 对内容项提供 `onParked(contentKey)` 通知（计划第 52 行本来就要“叶停放通知宿主”），由 WorkbenchSurface 在通知里把焦点移到同面板的面板头标签或最近的框架控件，焦点在外壳之外（菜单、对话框）时不抢。验收映射表里补一行，并让 `workbench-shell` 重写后的用例保留“隐藏使焦点内容停放时焦点到可见控件”。
+
+========================================================================
+[22] 重要 | 验收映射缺口 | plan.md 第 116-131 行
+------------------------------------------------------------------------
+现象：验收映射表没有对应以下判据（有的提案或现行 Spec 明确要求）：
+  1) 内容层的取整与过渡同步：nested-grid.md 验收 9（缝宽枚举、“新叶内容一开始就是最终尺寸、ResizeObserver 只报一次”、过渡中内容与外框同宽）要扩到内容层，表里只有“lab-grid-structure 验收 8 扩到内容层”（实例/滚动/焦点），没有 9。
+  2) Tab 顺序、F6、读屏顺序：内容换叶之后的树序与 aria-owns（[7]）。
+  3) 焦点交接（[21]）、预备区、最大化、键盘拖动。
+  4) 性能：提案第 6 节要求“100k 字章节相邻让位时的单帧耗时要量，写进验收”；计划只在“不做与风险”里说“用同一脚本重量一次”，没有判据值，也不在验收表里。
+  5) 恢复：editor.tabs 缺失的 tabId 显示原因并可关闭、编辑器入口未交付/撤回时标签仍在、文档没有的 tabId 由编辑器丢弃（提案第 2 节“恢复”）；未知视图条目留在树上显示占位（第 2 节“未知条目留在树上”，现行验收 18 是“呈现中忽略、原件不删”，行为反转，应有一条改写后的验收）。
+  6) 升级路径：旧记录 `layout-sizes-side`、`layout-sizes-panel`、`views-customizations`、`editor.session` “不读、不写、不删”——需要一条 store 测试断言旧键原样保留，也要一条“首次启动用默认树”。
+  7) 验收“视图 A 移到右栏看得到位移”的 e2e 写成“放慢令牌读中间帧”：要明确两条判据——中间帧内容矩形严格位于旧矩形与新矩形之间，且与外框的差值恒为 insetTop（同步），否则只证明会动。
+如何核实：对照提案第 2、6 节、nested-grid.md 验收 8、9、workbench-shell.md 验收 6、18。
+建议改法：映射表补以上行，并在 Spec 编号写完后（plan 第 118 行）按编号一一对应，缺的判据回到 Spec 补。
+
+========================================================================
+[23] 建议 | Spec 管理 | plan.md 第 93-96 行
+------------------------------------------------------------------------
+现象：新建 `ui/workbench-layout.md`（planned），现行 `workbench-shell.md` 在切换前“不动”，views.md、commands.md、editor.md、files-explorer.md、theme/system.md 在切换片一起改。
+为什么是问题：docs/specs/README.md 规定“每项功能只有一个当前真相源”“不创建 *-draft.md 与 *-current.md 两份正文”，已实现 Spec 加新行为时在条目末尾标“（planned）”，整块新能力才另起一份。这里是同一能力（外壳一到三）的替换，不是新能力。并行存在期间（片 1 到片 7，按计划是几天到几周，别的 Work 仍在改外壳），两份 Spec 对同一件事（拓扑、尺寸、拖放）给出矛盾的合同，读者无法从 workbench-shell.md 知道它即将被取代；且片 2-6 合入的新代码（领域操作、store、组件）没有一份 implemented 的 Spec 作依据（planned Spec 只“规定下一次实现必须达到的行为”，机检要求受管组件文档与证据链接，见 README 第 28、52、298 行）。
+如何核实：docs/specs/README.md 第 22-36、298 行。
+建议改法：二选一并写进计划：(a) 在 workbench-shell.md 的外壳一到三的每一条输出末尾标“（planned：由 ui.workbench-layout 取代）”并在文首加一段取代说明；(b) 把新 Spec 作为同一 capability 的 planned 增量，注册表写“替换外壳一到三，待切换”，并让 views/commands/editor 各自在条目末尾标 planned，而不是等到切换片一次性改。无论哪种，都要在计划里写“谁在别的 Work 改外壳时更新哪一份”。
+
+
+========================================================================
+[24] 建议 | 内容层/无障碍 | plan.md 第 51 行；NestedGrid.vue:117
+------------------------------------------------------------------------
+现象：分隔线的 `aria-controls` 指向前一块最后一个叶的外框（`domIdOf("leaf:" + sash.controls)`）；内容挪出外框后，外框里只剩面板头，真正被分隔线调整的“窗格”是内容元素。读屏用户按 aria-controls 跳转会落到面板头。
+建议改法：有内容项的叶，`aria-controls` 同时列外框与活动内容的 id（空格分隔，id 已经是不透明串），写进内容层的合同与 dom 测试。
+
+========================================================================
+[25] 建议 | 与已定设计一致 | plan.md 第 89 行
+------------------------------------------------------------------------
+现象：“收尾的高亮动画去掉：内容自己滑过去。”提案“外壳现行行为的去向”表对输出 22 的写法是“实时布局由卡片飞向结果；落点指示沿用覆盖层收尾”，t07 只有落点指示手感，所以按提案应保留覆盖层收尾。
+判断：去掉符合 t07 README 记录的开发者 2026-11-06 手感反馈（高亮从 2px 插入线长成整个侧栏再淡出，“看着不对”），所以结论大概率对，但计划没有引用这条依据，也没有说明这是对提案去向表的修改；输出 22 里“新显示出来的 Part 从预备区滑到它最终的位置”的那半句也没有去向（与 [13] 的预备区一并处理）。
+建议改法：计划里写明“改动提案去向表一行，依据 t07 README 2026-11-06 反馈”，并在新 Spec 里写成条目，避免日后审查把它当作遗漏。
+
+========================================================================
+[26] 建议 | 模型/一致性 | plan.md 第 61、62 行；提案第 1 节 PanelRecord
+------------------------------------------------------------------------
+现象：隐藏、收起、拖到零、`restoreSize` 在文档里至少有三处来源：`PanelRecord.hidden/collapsed/restoreSize`、`tree` 里节点的 `size` 意图（fixed 是像素目标）、grid 运行期的 `collapse.collapsed/restoreSize`（由 resolveRef 每次重建时从 PanelRecord 给）。
+为什么是问题：现行 Spec（nested-grid.md 输出“收起结束不把 0/32 写成展开意图”“按钮/Enter 显式恢复才用 restoreSize，拖动展开用 max(min, collapsedSize+24)”）已经规定了两种展开路径用不同数。文档里同时存 `size` 和 `restoreSize`，两者在“拖到零后用户又拉开一点、再收起”之后可能不同；计划没有说哪个是权威，也没有说隐藏(hidden)与收起(collapsed)同时为真时“显示”操作清哪个（现行外壳一输出 7：“显示面板”同时清除隐藏、收起与拖到零）。
+建议改法：写一张“面板可见状态表”（hidden × collapsed × 方向 → 呈现尺寸、sash 缝、显示操作的结果、写回字段），`restoreSize` 要么删掉（用 tree 的 size 当展开意图），要么写明它只在显式恢复时覆盖 size。
+
+
+========================================================================
+汇总
+========================================================================
+
+按影响排序的索引（编号对应上文）
+  阻断（2）：[1] 内容层裁切方案缺失；[2] 全部工具面板 fixed，没有 weight 的分支留白（已实验）
+  重要（17）：
+    设计会返工：[12] GroupStructure 接缝切错；[4] 展平对 fixed/weight 混合不守恒；[3] 隐藏面板的缝宽规则；[16] 放不下时降级算法；[18] 编辑器协议操作缺失
+    内容层：[5] 动画判定不看内容；[6] 叠放顺序；[7] 焦点与 Tab；[8] 内容矩形取整；[21] 停放时焦点交接
+    持久化：[10] 未绑定窗口的编辑器标签；[11] 两份记录的写入顺序、tabId 来源、覆盖
+    范围与切片：[13] 现行行为遗漏（预备区、最大化、移动到、四档、键盘候选、标签条插入位）；[14] 片 7 太大；[9] 片 3 与“不影响宿主”矛盾；[15] 验证清单与删旧代码清单遗漏；[22] 验收映射缺口
+  建议（7）：[17] 原位 no-op 判据；[19] 记录容量与校验；[20] 找不到叶的内容项；[23] 两份 Spec 并存；[24] aria-controls；[25] 收尾动画的依据；[26] 面板可见状态表
+  撤回（0）
+
+对“待确认 1”（统一标签条、每标签一实例移出 t07）的判断
+  同意移出，但要加三个条件，否则切换后会留下返工：
+  1) 先在 t07 里为这两个 Task 留好接口：内容项的 key 不绑定“面板 id”（编辑组内容现在用 `editor:<面板 id>`，每标签一实例以后要改成 `editor:<tabId>`，这会变更 DOM 身份与 e2e 选择器）；`WorkbenchPanelHead` 的标签部分按提案第 5 节的 `TabStripProps`（tabs/partitions/overflow/active/canInsert）写，之后换成 nb-layout 的标签条时不改调用方；
+  2) 代价要如实写给开发者：开发者验收场景里的编辑器那一半（`编辑器 A.md | 编辑器 B.md`）只覆盖“单标签的组”；多标签组里的标签拖到别的组仍重建视图，而 t08 的“卡片带真内容走”对编辑器标签依赖这两个 Task，对工具视图不依赖，所以排序可以放宽：t08 先做工具视图，编辑器卡片等每标签一实例；
+  3) [12] 的接缝要按“标签级操作”切，否则统一标签条那一步要再改一次 GroupStructure。
+  另外该条是对提案范围的收缩（提案写了这两件事但没有 Task），应让开发者对“没有分给任何 Task”确认归属，而不是只在 t07 里列待确认。
+
+未发现问题的方面（仔细检查后）
+  - 提案决策记录与开发者 2026-11-06 的两条决定（内容跟随、窄屏接受只有树）在计划里均有体现，没有悄悄改写；唯一需要说明的差异是 [25]（收尾动画）与规范形放在领域操作出口（计划已明说，理由成立：createGrid 的塌陷只处理单子分支，现有测试依赖其语义），但 [4] 指出了该换算的缺口。
+  - `placeGrid` 的取整与端点判断、`resizeBranches` 提交的 id：手势开始时冻结节点，`NestedGrid` 监听 `node`/`revision` 变化即取消手势（NestedGrid.vue:277-279），所以领域操作展平后重发布的树不会被旧手势用旧 id 写回；这一点没有发现问题（前提是 Grid 实例随文档重建，计划没有写这条，建议在片 4 的 store 小节补一句）。
+  - `moveLeaf`/`splitLeaf`/`removeLeaf` 的“同一块叶换位置、叶 id 不变”做法成立（单标签面板移动的前提）；但规则 6（新块只从相邻两块取）不是 `addLeaf` 的语义（它从全部兄弟按比例取，grid.ts addLeaf 的 shiftSiblings），领域操作需要自己写尺寸，计划已把操作放在领域操作层，未单独成条。
+  - 内容里 `position: fixed` 与菜单：叶外框原来就有 transform，内容层元素同样有 transform，包含块问题与现状相同，nested-grid.md“边界与兼容”已规定 Teleport 到 body，没有新增风险。
+  - 未验证：以上内容层的叠放、裁切、焦点判断都是从代码推断，没有跑浏览器（按任务规则不跑 e2e 与开发服务）；唯一的实验是 [2]（/tmp/review-w00026-t07-plan/exp/blank.ts）。
+
+对计划三处较强的上游假设的看法（供决定）
+  - 提案约束表“工具面板一律 fixed”是 [2] 的根因，在其它地方（grid 允许“没有 weight 就留白”）与 fixed 的像素目标语义下是自洽的；若不想让规范化出口去补“谁来吸收”，另一条路是让工具面板在纵向分支中缺省按 weight 对待（只有侧栏、右栏这类横向具名面板用 fixed）。该选择需要开发者定，因为它改变“沿用现行宽度限制”的约束表。
+  - 记录分两份（layout 与 editor.tabs）的理由是光标 1 秒一写不能与拖动抢保存，这个理由成立；代价是 [10]、[11] 的一致性问题，若不想引入跨记录顺序保证，可以让 `editor.tabs` 里只放光标之类易变字段，地址、编辑器、固定等不易变字段随 TabRef 进布局记录（光标丢了不要紧，标签丢了是事故）。这是把提案的“按所有者分记录”改成“按写入频率分记录”，需要开发者定。
+
+条数：阻断 2，重要 17，建议 7，撤回 0，共 26。
