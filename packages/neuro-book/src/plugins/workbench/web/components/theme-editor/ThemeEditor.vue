@@ -165,6 +165,43 @@ const transferText = computed(() => {
     if (result === null) return "";
     return text(`themeEditor.transfer.${result.message.key}` as "themeEditor.transfer.exported", result.message.params as never);
 });
+/**
+ * 清理未使用素材（docs/specs/theme/editor.md 输出 22）：先统计，用户确认后只删统计里的那些，删除没有回收站。统计、确认、结果在顶栏下的
+ * 一行里依次呈现；写素材的操作（上传、导入、复制）进行时不能开始，也不能确认。
+ */
+type Sweep =
+    | {readonly kind: "idle"}
+    | {readonly kind: "working"}
+    | {readonly kind: "none"}
+    | {readonly kind: "ask"; readonly names: ReadonlyArray<string>; readonly bytes: number}
+    | {readonly kind: "done"; readonly removed: number; readonly skipped: number}
+    | {readonly kind: "failed"; readonly reason: string};
+const sweep = ref<Sweep>({kind: "idle"});
+const sweepFailure = (reason: string): Sweep => ({kind: "failed", reason});
+const startSweep = async (): Promise<void> => {
+    if (sweep.value.kind === "working") return;
+    sweep.value = {kind: "working"};
+    const plan = await model.unusedAssets(props.transfer);
+    sweep.value = !plan.ok ? sweepFailure(plan.reason) : plan.names.length === 0 ? {kind: "none"} : {kind: "ask", names: plan.names, bytes: plan.bytes};
+};
+const confirmSweep = async (): Promise<void> => {
+    const asked = sweep.value;
+    if (asked.kind !== "ask") return;
+    sweep.value = {kind: "working"};
+    const done = await model.removeUnused(props.transfer, asked.names);
+    sweep.value = done.ok ? {kind: "done", removed: done.removed, skipped: done.skipped} : sweepFailure(done.reason);
+};
+const sweepText = computed(() => {
+    const state = sweep.value;
+    switch (state.kind) {
+        case "none": return text("themeEditor.library.sweepNone");
+        case "ask": return text("themeEditor.library.sweepAsk", {count: state.names.length, kb: Math.max(1, Math.round(state.bytes / 1024))});
+        case "done": return state.skipped === 0 ? text("themeEditor.library.sweepDone", {removed: state.removed}) : text("themeEditor.library.sweepDoneSkipped", {removed: state.removed, skipped: state.skipped});
+        case "failed": return state.reason === "not-ready" ? text("themeEditor.library.sweepNotReady") : state.reason === "too-many" ? text("themeEditor.library.sweepTooMany") : text("themeEditor.library.sweepFailed", {reason: state.reason});
+        default: return "";
+    }
+});
+
 /** 提示只属于那一次操作：换了主题或分区就清掉。 */
 watch(() => [model.selectedId.value, model.section.value], () => {
     transferResult.value = null;
@@ -213,6 +250,7 @@ const rejectedText = computed(() => {
                 <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null || transferring" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
                 <Button size="sm" variant="ghost" icon-class="i-lucide-upload" :disabled="transferring" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
                 <input ref="importInput" type="file" accept=".zip,application/zip" class="theme-editor__file" data-import-file @change="onImportFile" />
+                <Button size="sm" variant="ghost" icon-class="i-lucide-eraser" :loading="sweep.kind === 'working'" :disabled="sweep.kind === 'working' || sweep.kind === 'ask' || model.assetWork.value > 0 || !model.ready.value" data-sweep @click="startSweep">{{ text("themeEditor.library.sweep") }}</Button>
             </div>
             <div class="theme-editor__view">
                 <SegmentedControl
@@ -229,6 +267,13 @@ const rejectedText = computed(() => {
 
         <!-- 常驻的提示区：读屏对“刚插入”的提示区往往不播报，所以元素一直在，只换内容。 -->
         <p class="theme-editor__transfer" :data-tone="unexpected !== null || transferResult?.ok === false ? 'bad' : transferResult === null ? '' : 'ok'" role="status" data-transfer>{{ transferText }}</p>
+        <div class="theme-editor__sweep" :data-tone="sweep.kind === 'failed' ? 'bad' : ''" role="status" data-sweep-status>
+            <span v-if="sweepText !== ''" data-sweep-text>{{ sweepText }}</span>
+            <template v-if="sweep.kind === 'ask'">
+                <Button size="sm" variant="danger" :disabled="model.assetWork.value > 0" data-sweep-confirm @click="confirmSweep">{{ text("themeEditor.library.sweepConfirm") }}</Button>
+                <Button size="sm" variant="ghost" data-sweep-cancel @click="sweep = {kind: 'idle'}">{{ text("themeEditor.library.sweepCancel") }}</Button>
+            </template>
+        </div>
         <p v-if="rejectedText !== null" class="theme-editor__error" role="alert" data-rejected>{{ rejectedText }}</p>
         <p v-if="model.failure.value !== null" class="theme-editor__error" role="alert" data-library-failed>{{ text("themeEditor.library.failed", {reason: model.failure.value}) }}</p>
 
@@ -375,6 +420,24 @@ const rejectedText = computed(() => {
 }
 
 .theme-editor__transfer[data-tone="bad"] {
+    color: var(--status-danger);
+}
+
+.theme-editor__sweep {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-6);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+}
+
+.theme-editor__sweep:empty {
+    padding: 0;
+}
+
+.theme-editor__sweep[data-tone="bad"] {
     color: var(--status-danger);
 }
 

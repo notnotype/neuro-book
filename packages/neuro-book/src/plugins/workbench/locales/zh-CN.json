@@ -371,7 +371,18 @@
             "failed": "我的主题读不出来：{{reason}}",
             "deleteConfirm": "确认删除",
             "export": "导出…",
-            "import": "导入…"
+            "import": "导入…",
+            "sweep": "清理素材",
+            "sweepWorking": "处理中…",
+            "sweepNone": "没有可清理的素材。",
+            "sweepAsk": "有 {{count}} 个没人用的素材，共 {{kb}} KB。清理后无法恢复，要清理吗？",
+            "sweepConfirm": "清理",
+            "sweepCancel": "取消",
+            "sweepDone": "已清理 {{removed}} 个素材。",
+            "sweepDoneSkipped": "已清理 {{removed}} 个素材，另有 {{skipped}} 个刚被引用或刚写入，没有动。",
+            "sweepFailed": "清理失败：{{reason}}",
+            "sweepNotReady": "我的主题还没读完，现在不能清理。",
+            "sweepTooMany": "引用的素材太多，超过一次清理能处理的数量。"
         },
         "appearance": {
             "label": "正在编辑的明暗",

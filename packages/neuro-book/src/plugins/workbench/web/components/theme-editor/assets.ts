@@ -3,6 +3,8 @@
  * 复制插件主题、导出、导入都是“找出全部引用、各换成另一种写法”：包内路径与素材文件名互换，这里把这件事写一次。纯函数，不碰网络。
  */
 
+import {THEME_ASSET_FILE_NAME} from "nbook/plugins/files/shared/contracts";
+
 import type {ThemeDeclaration} from "../../../shared/themes";
 import {THEME_ASSET_NAME, THEME_ICON_NAME} from "../../../shared/user-themes";
 
@@ -28,6 +30,21 @@ export function assetRefs(declaration: ThemeDeclaration): ReadonlyArray<AssetRef
         for (const path of Object.values(look.icons ?? {})) add("icon", path);
     }
     return [...found.values()];
+}
+
+/**
+ * 清理未使用素材要保留的名字（docs/specs/theme/editor.md 的“清理未使用素材”）：在值的原始 JSON 里找出全部像素材文件名的字符串，不看
+ * schema。记录里按设计留着不合格的条目（别的版本写的、手改坏的），`assetRefs` 只收合格的声明，用它算会把这些条目引用的素材当成没人用、
+ * 永久删掉；这里宁可多留，不会多删。多个值（已确认的与本窗口显示的）一起传，取并集。
+ */
+export function referencedAssetNames(...values: ReadonlyArray<unknown>): string[] {
+    const found = new Set<string>();
+    for (const value of values) {
+        for (const match of JSON.stringify(value ?? null).matchAll(/[0-9a-f]{64}\.(?:png|jpg|webp|svg)/gu)) {
+            if (THEME_ASSET_FILE_NAME.test(match[0])) found.add(match[0]);
+        }
+    }
+    return [...found].sort();
 }
 
 /** 把每个素材引用换成 `rename` 给的写法；返回新对象，不改入参。 */
