@@ -62,7 +62,7 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 | `/model` | 第一版不解析参数 | 打开选择器，参数填进搜索 | 可以 |
 
 - `/model` 由输入框自己处理（选择器的打开状态本来在它手里），不发 `command.run`，不加新的受控状态。
-- `@`：编辑区没有文件查找可复用（快速打开的 Spec 不做文件检索）。`nbook.files` 加只读查询 `find({root, query, limit})`，服务端用 `pi-natives` 的 glob，宿主按 nb-story `createMentionSearch` 的写法接异步菜单。第一版列项目文件，内容文件夹里的条目（章节）显示标题；插入 `reference`。没有打开作品时菜单写原因。
+- `@`：编辑区没有文件查找可复用（快速打开的 Spec 不做文件检索）。`nbook.files` 加只读查询 `find({root, query, limit})`，服务端用 `pi-natives` 的 glob，宿主按 nb-story `createMentionSearch` 的写法接异步菜单。第一版列项目文件，内容文件夹里的条目（章节）显示标题；插入 `[名字](project://路径)`。没有打开作品时菜单写原因。
 - `$` 不做：等 t15。
 - **草稿**：按规范不能裸用 `localStorage`，用 `nbook.storage` 记录（同 `agent.recent-session`）：每会话一条，10 条、30 天过期，写入防抖。宿主的 `draft` 改成按会话，切会话时先存后读；晚到的读取若用户已经打字就丢弃。发送后清。
 - **输入历史**：上方向键取当前路径上 `intent` 为 `normal` 的用户消息文字，最新在前，去重，至多 50 条；命令不进历史。回退后旧分支的话不在里面，这个取舍写进 Spec。
@@ -111,6 +111,8 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 批 3（不含分支树界面）：`harness/runtime.md` 输出 80、81 → `tree.test.ts`；`agent/conversation.md` 输出 25、26 → `session-host.test.ts`“改写历史”、`agent-conversation.e2e.ts`“改写历史”；就地编辑 → `AgentMessageEditor.dom.test.ts`。
 
 批 3（分支树）：`agent/conversation.md` 输出 27、`ui/agent-conversation-view.md`“分支树” → `session-tree.test.ts`、`AgentSessionTree.dom.test.ts`、`session-host.test.ts`“分支树”、`agent-conversation.e2e.ts`“分支树”。
+
+批 4：`agent/conversation.md` 输出 28 → `drafts-mentions.test.ts`“@ 菜单”、`agent-conversation.e2e.ts`“输入框”；输出 29 → `drafts-mentions.test.ts`“草稿”、`session-host.test.ts`“草稿按会话”“输入历史”、同一条 e2e；输出 30 → `session-host.test.ts`“/new”“/fork 结果未知”、同一条 e2e；`workspace/resources.md`“找文件” → `files.test.ts`“找文件”。
 
 每批开工先把行为写进 Spec，再在这里写编号映射。下面的场景必须有测试，都用真实内核加本机端点，断言码、事件或请求块；真实模型冒烟只作额外证据：
 

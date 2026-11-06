@@ -103,6 +103,10 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 分支树按 review v6 的三点改完合入：图标按说话的人着色，线条加粗并按分支着色，试过第三种视图“单线”，开发者不要，已删。
 
+批 4 完成并合入：`/new`、`/fork`、`/rename`、`/model`；`@` 引用项目文件（`nbook.files` 新方法 `find`，合同版本 8）；草稿按会话存 `nbook.storage`；上方向键调历史；就地编辑换成注入的编辑器。批 3 的 omp 实现审查 16 条处理完，修正一起合入（[处理](evidences/impl-review-b3-disposition.md)）。
+
+验证：`nb-agent-ui` 全部、`plugins/files`、`session-host.test.ts`、`sessions.test.ts`、`tree.test.ts`、类型检查、`governance:check`；e2e `agent-conversation` 全部、`lab-agent-ui` 过滤到输入框与消息的 29 条。没验证：`find` 在很大的目录下的耗时（上限 5,000 项，没实测）；nb-story 的 e2e 没跑（它不给角色，走原来的下拉；视图的 `interaction.triggers` 不给时行为不变）。
+
 ## 下一步
 
-批 4：斜杠命令、`@`、草稿、输入历史。批 3 的 omp 实现审查报告回来后处理。
+批 5：附件。动内核，开工前单独写一页设计给开发者看要点，再开 omp 审一次。
