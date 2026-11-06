@@ -123,6 +123,21 @@ function patchPoints(frame: Frame, plan: StoryChange): string[] {
 
 const marksOf = (marks: readonly Mark[] | undefined, kind: string) => (marks ?? []).filter((mark) => mark.kind === kind && mark.version === 1);
 
+/** 一条变更引用到的知识点：补丁、标注（揭示、在场揭示、伏笔节点所指伏笔的答案）、讲述上的标注（knowledge 输出 10 的“这几样”）。 */
+export function pointsReferencedBy(frame: Frame, change: StoryChange): string[] {
+    const points = patchPoints(frame, change);
+    for (const mark of marksOf(change.marks, MARK_IDS.presentLearns)) if (typeof mark.point === "string") points.push(mark.point);
+    for (const telling of change.told) {
+        for (const mark of marksOf(telling.marks, MARK_IDS.reveal)) if (typeof mark.point === "string") points.push(mark.point);
+        for (const mark of marksOf(telling.marks, MARK_IDS.node)) {
+            const foreshadow = frame.view.entry(String(mark.foreshadow), frame.position, "planned");
+            const answer = foreshadow === null || foreshadow === "chapter-not-found" ? undefined : (foreshadow.namespaces.fs?.fields.答案?.value as {ref?: unknown} | null | undefined)?.ref;
+            if (typeof answer === "string") points.push(answer);
+        }
+    }
+    return points;
+}
+
 /**
  * 本章涉及的知识点，写之前的集合（knowledge 输出 10）：计划的补丁与标注（揭示、在场揭示、伏笔节点所指伏笔的答案）、细纲讲述上的
  * 标注引用到的知识点；加上主体是计划的参与者或涉及的条目、保密档为 `secret` 或 `topSecret` 的知识点；加上这些参与者进行或受挫的
@@ -132,18 +147,7 @@ export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readon
     const points = new Set<string>();
     const view = frame.view;
     const entries = new Set(view.chapterEntries(chapter, "planned"));
-    for (const plan of plans) {
-        for (const id of patchPoints(frame, plan)) points.add(id);
-        for (const mark of marksOf(plan.marks, MARK_IDS.presentLearns)) if (typeof mark.point === "string") points.add(mark.point);
-        for (const telling of plan.told) {
-            for (const mark of marksOf(telling.marks, MARK_IDS.reveal)) if (typeof mark.point === "string") points.add(mark.point);
-            for (const mark of marksOf(telling.marks, MARK_IDS.node)) {
-                const foreshadow = view.entry(String(mark.foreshadow), frame.position, "planned");
-                const answer = foreshadow === null || foreshadow === "chapter-not-found" ? undefined : (foreshadow.namespaces.fs?.fields.答案?.value as {ref?: unknown} | null | undefined)?.ref;
-                if (typeof answer === "string") points.add(answer);
-            }
-        }
-    }
+    for (const plan of plans) for (const id of pointsReferencedBy(frame, plan)) points.add(id);
     // 主体（条目树里的父条目）是参与者或涉及的条目、保密以上的知识点。
     for (const entry of view.entries()) {
         if (entry.deleted === true || entry.type !== ENTRY_TYPES.point || entry.parent === null || !entries.has(entry.parent)) continue;
