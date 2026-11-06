@@ -11,6 +11,8 @@ owners:
 
 ## 目标与非目标
 
+外壳一到三与输出 38、39 将被 [ui.workbench-layout](workbench-layout.md)（planned）取代；切换之前它们仍是现行合同，改外壳时改这里，切换时把仍成立的搬过去。
+
 **目标**：每个窗口一个工作台外壳：七个固定 Part 的几何与可见性、面板的位置与形态、紧凑呈现、布局记录的保存与恢复；工具区域按 Switcher、ViewContainer、View 分层，容器单轴编排，移动、合并与模式切换不销毁视图实例；拖放与保存走同一个模型。外壳由 `nbook.workbench` 拥有，是布局的唯一写者。
 
 按切片实现（[外壳设计稿](../../proposals/workbench-shell-abstractions.md) 第 11 节）：**外壳一**（外壳与布局）、**外壳二**（容器与视图）、**外壳三**（拖放），之后的**外壳四**（标题栏、状态栏与条目贡献点）。下文各节按切片标出所属。书架页（[workbench.bookshelf](../workbench/bookshelf.md)）为工作台增加无项目首页的贡献点与 `/workbench` 页（输出 36–37）；设置窗口（[settings.window](../settings/settings-window.md)）为工作台增加活动栏底部条目与页面浮层两个贡献点（输出 40–41）。
