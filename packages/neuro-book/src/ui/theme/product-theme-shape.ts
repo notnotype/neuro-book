@@ -10,4 +10,6 @@ export interface ProductTheme {
     /** 盖在主题包缺省配色上的变量。 */
     readonly vars: Readonly<Record<string, string>>;
     readonly scene: boolean;
+    /** 图标集（输出 16）：图标名到已解析的 URL。 */
+    readonly icons?: Readonly<Record<string, string>>;
 }

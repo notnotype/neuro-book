@@ -12,6 +12,8 @@ export interface DocumentTheme {
     readonly vars: Readonly<Partial<Record<string, string>>> | undefined;
     /** 这套主题有场景图（docs/specs/theme/skins.md）。 */
     readonly scene?: boolean;
+    /** 图标集（docs/specs/theme/skins.md 输出 16）：图标名（`i-lucide-<名>` 的 <名>）到 URL。 */
+    readonly icons?: Readonly<Record<string, string>>;
 }
 
 export interface DocumentThemeWriter {
@@ -22,6 +24,16 @@ export interface DocumentThemeWriter {
     apply(theme: DocumentTheme): void;
     /** 去掉自己写下的属性、配色变量与配色宿主 class，文档根回到没有主题的样子。 */
     clear(): void;
+}
+
+/**
+ * 图标集的样式表（docs/specs/theme/skins.md 输出 16）。nb-ui 的图标是 `[class*="i-lucide-"]` 垫片用 `mask-image: var(--svg)` 画的，
+ * 每个图标类只在 `@layer` 里写自己的 `--svg`；这里的规则不进任何层，所以压过它们，不用改图标的使用方。对比度偏好与强制颜色下
+ * 不换，系统默认的图标最好认。图标名由声明校验成 `[a-z0-9-]`，URL 逐字转义后放进引号。
+ */
+function iconRules(entries: ReadonlyArray<readonly [string, string]>): string {
+    const rules = entries.map(([name, url]) => `.i-lucide-${name}{--svg:url("${url.replace(/[\\"\n]/gu, (char) => `\\${char === "\n" ? "a " : char}`)}")}`);
+    return `@media not ((prefers-contrast: more) or (forced-colors: active)){${rules.join("")}}`;
 }
 
 /**
@@ -43,6 +55,7 @@ function ignoreSkipped(error: unknown): void {
  */
 export function createDocumentThemeWriter(): DocumentThemeWriter {
     let written: string[] = [];
+    let iconSheet: HTMLStyleElement | undefined;
     const clearVars = (): void => {
         for (const name of written) {
             document.documentElement.style.removeProperty(name);
@@ -56,6 +69,21 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
      * 回调只在自己仍是最新一次时才写，否则迟到的旧主题会盖掉新的，或在页面卸载后把主题写回文档根。
      */
     let latest: DocumentTheme | undefined;
+    const writeIcons = (icons: DocumentTheme["icons"]): void => {
+        const entries = Object.entries(icons ?? {});
+        if (entries.length === 0) {
+            clearIcons();
+            return;
+        }
+        iconSheet ??= document.createElement("style");
+        iconSheet.dataset.nbSkinIcons = "";
+        iconSheet.textContent = iconRules(entries);
+        if (!iconSheet.isConnected) document.head.append(iconSheet);
+    };
+    const clearIcons = (): void => {
+        iconSheet?.remove();
+        iconSheet = undefined;
+    };
     const write = (theme: DocumentTheme): void => {
         const root = document.documentElement;
         root.dataset.nbTheme = theme.themeId;
@@ -65,6 +93,7 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
         else delete root.dataset.nbSkinScene;
         if (theme.vars?.[SKIN_VARS.frameLine] !== undefined) root.dataset.nbSkinFrame = "";
         else delete root.dataset.nbSkinFrame;
+        writeIcons(theme.icons);
         clearVars();
         if (theme.vars !== undefined) {
             for (const target of [root, document.body]) {
@@ -100,6 +129,7 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
             delete root.dataset.nbSkinScene;
             delete root.dataset.nbSkinFrame;
             root.style.removeProperty("color-scheme");
+            clearIcons();
             clearVars();
             root.classList.remove(NB_UI_COLORWAY_HOST_CLASS);
             document.body.classList.remove(NB_UI_COLORWAY_HOST_CLASS);

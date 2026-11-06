@@ -4,6 +4,10 @@ import {PRODUCT_VERSION} from "nbook/shared/product";
 import {WORKBENCH_THEMES_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ThemeDeclaration} from "nbook/plugins/workbench/shared/contracts";
 
+const ICON_NAMES = ["files", "search", "settings", "message-square", "messages-square", "palette", "feather", "book-open-text", "pencil-line", "file-text"];
+/** 手写的一套书页笔墨风图标，按 lucide 图标名覆盖（docs/specs/theme/skins.md 输出 16）；是 `currentColor` 的蒙版，亮暗共用同一批文件。 */
+const ICONS = Object.fromEntries(ICON_NAMES.map((name) => [name, `assets/icons/${name}.svg`]));
+
 const SERIF = "\"Noto Serif CJK SC\", \"Source Han Serif SC\", \"Songti SC\", serif";
 
 /** “书房”（docs/specs/theme/skins.md 输出 11）：白天窗边、夜里台灯。只有声明与素材，没有入口；一张图裁给各位置。 */
@@ -30,6 +34,7 @@ const STUDY: ThemeDeclaration = {
         activityBar: {surface: "linear-gradient(90deg, #553a22, #6b4a2c 45%, #553a22)", foreground: "#f3e7d0", active: "#d9b878", ornament: "#d9b878"},
         frame: {line: "#8a5a24"},
         scene: "assets/study-day.webp",
+        icons: ICONS,
     },
     dark: {
         colors: {
@@ -43,6 +48,7 @@ const STUDY: ThemeDeclaration = {
         activityBar: {surface: "linear-gradient(90deg, #2c1c10, #3a2616 45%, #2c1c10)", foreground: "#e9d9bc", active: "#c9a35f", ornament: "#c9a35f"},
         frame: {line: "#e0ac62"},
         scene: "assets/study-night.webp",
+        icons: ICONS,
     },
 };
 

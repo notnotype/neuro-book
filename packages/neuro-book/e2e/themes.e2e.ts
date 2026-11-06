@@ -3,6 +3,8 @@
  */
 
 import {randomUUID} from "node:crypto";
+import {createServer} from "node:http";
+import type {AddressInfo} from "node:net";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -383,6 +385,60 @@ test("浮层画框：书房的菜单与设置窗口有，亮暗各取各的色�
     await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-frame", "");
     await openMenu();
     expect(await outline(".nb-ui-menu-surface")).toMatch(/^none /u);
+});
+
+test("图标集：书房把活动栏等处的 lucide 图标换成自己的；高对比度下不换；切回 NeuroBook 恢复", async ({page}) => {
+    // 图标文件小，构建会内联成 data: 地址，不能按文件名认；比的是同一个图标类在不同主题下画的蒙版是否不同。
+    const mask = (): Promise<string | null> => page.evaluate(() => {
+        const element = document.querySelector(".i-lucide-files");
+        return element === null ? null : getComputedStyle(element).maskImage;
+    });
+    await writeSettings({[THEME]: "nbook", [APPEARANCE]: "light"});
+    await openProject(page);
+    const original = await mask();
+    expect(original).toContain("url(");
+    await expect(page.locator("style[data-nb-skin-icons]")).toHaveCount(0);
+
+    await writeSettings({[THEME]: STUDY, [APPEARANCE]: "light"});
+    await expect(page.locator("style[data-nb-skin-icons]")).toHaveCount(1);
+    await expect.poll(mask).not.toBe(original);
+    const study = await mask();
+
+    // 暗色用同一批文件。
+    await writeSettings({[THEME]: STUDY, [APPEARANCE]: "dark"});
+    await expect.poll(mask).toBe(study);
+
+    await page.emulateMedia({contrast: "more"});
+    await expect.poll(mask).toBe(original);
+    await page.emulateMedia({contrast: "no-preference"});
+    await expect.poll(mask).toBe(study);
+
+    await writeSettings({[THEME]: "nbook", [APPEARANCE]: "dark"});
+    await expect(page.locator("style[data-nb-skin-icons]")).toHaveCount(0);
+    await expect.poll(mask).toBe(original);
+});
+
+test("图标 SVG 当蒙版用时浏览器不加载它引用的外部资源（图标集只收 .svg 的依据）", async ({page}) => {
+    let hits = 0;
+    const probe = createServer((_request, response) => {
+        hits += 1;
+        response.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    try {
+        const {port} = probe.address() as AddressInfo;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24"><image href="http://127.0.0.1:${String(port)}/img.png" width="24" height="24"/><rect width="24" height="24" style="fill:url(http://127.0.0.1:${String(port)}/paint.svg#x)"/></svg>`;
+        // 对照：同一个探针对普通 <img> 一定收得到请求，没收到就说明探针本身不灵。
+        await page.setContent(`<img src="http://127.0.0.1:${String(port)}/control.png">`);
+        await expect.poll(() => hits).toBeGreaterThan(0);
+        hits = 0;
+        await page.setContent(`<div id="icon" style="width:24px;height:24px;background:#000;mask-image:url('data:image/svg+xml,${encodeURIComponent(svg)}')"></div>`);
+        // 蒙版图加载是异步的：等一帧再多等一会儿，请求若会发出此时早已发出。
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 500))));
+        expect(hits).toBe(0);
+    } finally {
+        await new Promise((resolve) => probe.close(resolve));
+    }
 });
 
 test("设置里的主题不存在：项目层退到用户层，再退到缺省，设置不改写", async ({page}) => {

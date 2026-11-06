@@ -51,5 +51,7 @@ export function userThemeProblem(value: unknown): string | null {
     const names = [declaration.light.scene, declaration.dark.scene].filter((scene): scene is string => scene !== undefined);
     const wrong = names.find((name) => !THEME_ASSET_NAME.test(name));
     if (wrong !== undefined) return `主题 ${id} 的场景图要写素材文件名：${wrong}`;
+    // 编辑器不产出图标集；用户层的素材只有场景图，图标的相对路径在这里没有可解析的位置。
+    if (declaration.light.icons !== undefined || declaration.dark.icons !== undefined) return `主题 ${id} 不收图标集：“我的主题”只有场景图素材`;
     return declarationProblem(id, declaration);
 }

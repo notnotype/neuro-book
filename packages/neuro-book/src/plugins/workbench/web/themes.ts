@@ -25,7 +25,7 @@ export interface ThemeEntry {
 export type ThemeAssetUrl = (plugin: string, path: string) => string | null;
 
 /** 算出一个明暗下的变量。写字符串是因为这些只进 CSS；没写的不出现，各位置看到变量没有就和没有主题一样。 */
-export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", assetUrl: ThemeAssetUrl): {readonly vars: Readonly<Record<string, string>>; readonly scene: boolean} {
+export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", assetUrl: ThemeAssetUrl): {readonly vars: Readonly<Record<string, string>>; readonly scene: boolean; readonly icons: Readonly<Record<string, string>>} {
     const {declaration, plugin} = entry;
     const look = declaration[appearance];
     const vars: Record<string, string> = {...look.colors, ...look.vars};
@@ -60,7 +60,13 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
         set(SKIN_VARS.auxiliaryCornerSize, crop?.auxiliaryCorner?.size);
         set(SKIN_VARS.auxiliaryCornerPosition, crop?.auxiliaryCorner?.position);
     }
-    return {vars, scene: url !== null};
+    // 图标文件解析不出（不在插件的素材表里）的那一个不换，别的照常。
+    const icons: Record<string, string> = {};
+    for (const [name, path] of Object.entries(look.icons ?? {})) {
+        const iconUrl = assetUrl(plugin, path);
+        if (iconUrl !== null) icons[name] = iconUrl;
+    }
+    return {vars, scene: url !== null, icons};
 }
 
 /** “我的主题”的场景图在 `user://theme-assets/` 下，经已有的字节读取路由显示。 */
@@ -165,7 +171,7 @@ export class ThemeCatalog {
     /** 一个明暗下要写的东西；id 不在目录里时用缺省主题（退回的顺序由调用方决定，这里只保证总有得画）。 */
     resolve(id: string, appearance: "light" | "dark"): ProductTheme {
         const entry = this.#entry(id) ?? this.#entry(DEFAULT_THEME_ID);
-        if (entry === undefined) return {base: DEFAULT_THEME_ID, skin: DEFAULT_THEME_ID, vars: {}, scene: false};
+        if (entry === undefined) return {base: DEFAULT_THEME_ID, skin: DEFAULT_THEME_ID, vars: {}, scene: false, icons: {}};
         return {base: entry.declaration.base, skin: entry.id, ...themeVars(entry, appearance, this.#assetUrl)};
     }
 }
