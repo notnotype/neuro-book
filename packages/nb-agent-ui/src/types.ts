@@ -195,6 +195,8 @@ export type InteractionView = {
     canOpenTree?: boolean;
     /** 宿主有管理模型的地方（例如设置页）：为真时模型下拉的末尾有“管理模型…”，发出 `model.manage`。 */
     canManageModels: boolean;
+    /** 宿主支持的触发字符；不给时登记的都算。宿主没做的（例如还没有 Skill 时的 `$`）不打开空菜单。 */
+    triggers?: readonly string[];
     /** 宿主支持的输入框命令名（不含 `/`）；不给时登记的命令都显示。宿主没做的命令不进菜单，免得发出去没有反应。 */
     commands?: readonly string[];
 };
@@ -528,6 +530,8 @@ export type BuiltinAgentViewAction =
     | {type: "composer.attachmentRetry"; localId: string}
     | {type: "composer.attachmentRemoved"; localId: string}
     | {type: "command.run"; name: string; argsText: string}
+    /** 输入框自己处理了一条命令（`/model`）：宿主清掉草稿。 */
+    | {type: "composer.commandHandled"}
     | {type: "menu.opened"; trigger: string}
     // 运行设置
     | {type: "mode.set"; mode: string}

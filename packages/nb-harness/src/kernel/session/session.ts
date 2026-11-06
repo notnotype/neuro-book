@@ -77,9 +77,10 @@ const internals = new WeakMap<SessionApi, Internals>();
 
 /** 开发模式（冻结状态与事件、视图的开发检查）：测试与开发时开，生产环境关掉省遍历与比较。 */
 const DEV = process.env.NODE_ENV !== "production";
-/** 树的一页最多几个节点：节点只有结构，一个约 200 字节，放得进一条消息。 */
+/** 树的一页最多几个节点。字节上限归远程层：中文标签让一页比这个估的大。 */
 const TREE_PAGE = 2000;
 const TREE_LABEL_CHARS = 80;
+const TREE_LABEL_TYPES = new Set(["input", "steer", "assistant", "toolStarted"]);
 
 /** 树上一行显示的文字：用户的话、回复的文字、工具的名字。 */
 function treeLabel(event: LogEvent): string | null {
@@ -368,10 +369,10 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         siblings: async ({node}) => siblingsOf(core, node),
         branchPoints: async () => branchPointsOf(core),
         async treeNodes(args) {
-            const limit = Math.min(args?.limit ?? TREE_PAGE, TREE_PAGE);
+            const limit = Math.max(1, Math.min(Math.floor(args?.limit ?? TREE_PAGE) || TREE_PAGE, TREE_PAGE));
             const {events, more} = pathEventsAfter(core, args?.afterSeq ?? 0, limit);
-            // 文字开头经出站过滤：过滤掉的节点还在树上，只是没有文字。
-            const visible = new Map((await visibleAll(events)).map((event) => [event.id, event]));
+            // 文字开头经出站过滤：过滤掉的节点还在树上，只是没有文字。只过有文字的类型：工具结果可能很大，结构查询不该为它付过滤的代价。
+            const visible = new Map((await visibleAll(events.filter((event) => TREE_LABEL_TYPES.has(event.type)))).map((event) => [event.id, event]));
             return {
                 nodes: events.map((event) => {
                     const shown = visible.get(event.id);

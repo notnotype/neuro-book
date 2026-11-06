@@ -44,6 +44,7 @@ const composer = computed(() => props.ctx.composer);
 const running = computed(() => props.ctx.run.status !== "idle");
 const readonly = computed(() => props.ctx.availability.status !== "ready" || !props.ctx.interaction.canSend);
 const frameRef = ref<HTMLElement | null>(null);
+const rolePickerRef = ref<InstanceType<typeof AgentRoleModelPicker> | null>(null);
 /** 模型解析不了（`profile-unavailable`）时还得能在这里改模型，否则走不出来；别的不可用都不能改。 */
 const runtimeDisabled = computed(() => !props.ctx.interaction.canChangeRuntime || !props.ctx.interaction.canSend || !["ready", "profile-unavailable"].includes(props.ctx.availability.status));
 
@@ -54,7 +55,8 @@ const commandNames = computed(() => commands.value.map((entry) => entry.name));
 // 没有 resolveTriggerMenu 时只剩 `/` 命令：别的触发字符没有菜单可开，不交给编辑器，免得打开空菜单。
 const triggers = computed(() => visibleEntries(props.registry.list("triggers"), props.ctx)
     .map((entry) => entry.char)
-    .filter((char) => char === "/" || props.services.resolveTriggerMenu !== undefined));
+    .filter((char) => char === "/" || props.services.resolveTriggerMenu !== undefined)
+    .filter((char) => props.ctx.interaction.triggers === undefined || props.ctx.interaction.triggers.includes(char)));
 const toolbarButtons = computed(() => visibleEntries(props.registry.list("toolbarButtons"), props.ctx));
 const leadingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement === "leading"));
 const trailingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement !== "leading"));
@@ -189,6 +191,12 @@ function submit(mod: boolean): void {
         rejectNotice.value = null;
     }
     if (result?.kind === "command") {
+        // 选择器的开关本来就在输入框手里：`/model` 不绕宿主，也不用加一份受控的打开状态。参数填进它的搜索。
+        if (result.name === "model" && rolePickerRef.value !== null) {
+            rolePickerRef.value.openPicker(result.argsText);
+            emit("action", {type: "composer.commandHandled"});
+            return;
+        }
         emit("action", {type: "command.run", name: result.name, argsText: result.argsText});
     }
     else if (result?.kind === "message") {
@@ -458,6 +466,7 @@ defineExpose({
                     </DropdownMenu>
                     <AgentRoleModelPicker
                         v-if="(composer.roles?.length ?? 0) > 0"
+                        ref="rolePickerRef"
                         :roles="composer.roles ?? []"
                         :models="composer.models"
                         :model-key="composer.modelKey"

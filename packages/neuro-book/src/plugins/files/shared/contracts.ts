@@ -93,6 +93,13 @@ const ListingSchema = Type.Object({
 }, {additionalProperties: false});
 export type Listing = Static<typeof ListingSchema>;
 
+/** `find` 的结果：`truncated` 表示目录太大、只看了一部分，或者命中的比 `limit` 多。 */
+const FindResultSchema = Type.Object({
+    items: Type.Array(Type.Object({path: Type.String(), name: Type.String(), title: Type.Optional(Type.String())}, {additionalProperties: false})),
+    truncated: Type.Boolean(),
+}, {additionalProperties: false});
+export type FindResult = Static<typeof FindResultSchema>;
+
 const FileTextSchema = Type.Object({text: Type.String(), baseline: BaselineSchema}, {additionalProperties: false});
 export type FileText = Static<typeof FileTextSchema>;
 
@@ -212,6 +219,8 @@ export const STAGE_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 const methods = {
     list: {input: PathInput, output: ListingSchema, effect: "read", errors},
+    /** 按名字或标题找文件（docs/specs/workspace/resources.md 的“找文件”）。 */
+    find: {input: Type.Object({query: Type.String(), limit: Type.Optional(Type.Integer({minimum: 1, maximum: 100}))}, {additionalProperties: false}), output: FindResultSchema, effect: "read", errors},
     read: {input: PathInput, output: FileTextSchema, effect: "read", errors},
     /** `follow`：跟随链接到最终目标（根外也给），只接受服务端的 `nbook.files`（写入接口的 `readPath`）。 */
     realPath: {input: Type.Object({path: Type.String(), follow: Type.Optional(Type.Literal(true))}, {additionalProperties: false}), output: Type.Object({path: Type.String(), kind: Type.Union([Type.Literal("file"), Type.Literal("directory"), Type.Literal("other")])}, {additionalProperties: false}), effect: "read", errors},
@@ -265,11 +274,11 @@ const CALLERS = ["browser", "tui", "project", "server"];
  * 版本 2：t69 加了文件操作与 `renamed` 事件（版本 1 的订阅方会丢掉改名事件）。版本 3：t71 的保存回执带目录项身份。版本 4：t86 加了
  * `realPath` 与目录项的 `leaf`。版本 6：w00032 t08 的事件来源加了 `agent`（旧订阅方校验不过会静默丢掉这些事件，所以两份合同
  * 一起升），写方法加了 `as`。版本 7：w00032 t26 加了 `commit` 与 `realPath` 的 `follow`、全部写方法的 `as` 与 `group`，事件带
- * `group`、Agent 来源带 `entry`。
+ * `group`、Agent 来源带 `entry`。版本 8：w00032 t28 加了 `find`。
  */
-export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 7, provider: "project", callers: CALLERS, methods, events});
+export const projectFilesContract = defineRemoteService({id: "nbook.files/project", version: 8, provider: "project", callers: CALLERS, methods, events});
 
-export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 7, provider: "server", callers: CALLERS, methods, events});
+export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 8, provider: "server", callers: CALLERS, methods, events});
 
 /**
  * 预览的受限读取（docs/specs/workspace/files.md 的“预览的受限读取”）：签发只放行这部作品这一代的只读令牌，HTML 预览在沙箱里

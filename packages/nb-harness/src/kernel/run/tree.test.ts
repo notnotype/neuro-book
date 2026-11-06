@@ -176,6 +176,12 @@ describe("回退", () => {
         expect(nodes.find((node) => node.type === "input")?.label).toBe(texts(all, "input")[0]);
         expect(nodes.filter((node) => node.type === "assistant").map((node) => node.label)).toContain("重试的答二");
         expect(nodes.every((node) => !("data" in node))).toBe(true);
+        // 不合法的 limit 不会卡住游标，也不会取消上限。
+        for (const limit of [0, -1, 1.5, Number.NaN]) {
+            const page = await session.raw.treeNodes({limit});
+            expect(page.nodes.length).toBeGreaterThan(0);
+            expect(page.through).toBeGreaterThan(0);
+        }
     });
 
     test("输出 35：运行中得 running；不是节点得 unknown-node；不是目标得 invalid-target", async () => {

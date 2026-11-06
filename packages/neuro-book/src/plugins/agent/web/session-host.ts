@@ -14,7 +14,7 @@ import {computed, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
 
@@ -47,8 +47,14 @@ const COMPACT_REJECT_KEYS = {
     "no-compaction-model": "conversation.compact.noModel",
     "read-only": "conversation.reject.readOnly",
 } as const;
-/** 宿主做了的输入框命令；别的（`/new`、`/plan` 等）第二批再做，现在不进菜单。 */
-const HOST_COMMANDS = ["compact"] as const;
+/** 宿主做了的输入框命令；别的（`/plan`、`/mode` 等）随 t06，现在不进菜单。 */
+const HOST_COMMANDS = ["compact", "new", "fork", "rename", "model"] as const;
+/** `$` 要等 Skill（t15）；还没有时不打开空菜单。 */
+const HOST_TRIGGERS = ["@", "/"] as const;
+/** 打字时攒一下再写草稿。 */
+const DRAFT_SAVE_DELAY_MS = 500;
+/** 上方向键最多翻多少条。 */
+const RECALL_LIMIT = 50;
 const MODEL_KEYS = {
     "no-model": "conversation.model.none",
     "no-credentials": "conversation.model.noCredentials",
@@ -75,6 +81,18 @@ const APPROVAL_OPTIONS: readonly ComposerApprovalOption[] = [
     {key: "yolo", label: agentText("conversation.approval.yolo.label"), description: agentText("conversation.approval.yolo.description"), icon: "i-lucide-triangle-alert", danger: true},
 ];
 
+/** 上方向键翻的内容：当前路径上用户说的话，最新在前，去重。补充说明与命令不算；回退掉的分支不在路径上，也不算（输出 29）。 */
+function recallOf(messages: readonly MessageView[]): string[] {
+    const seen = new Set<string>();
+    for (let index = messages.length - 1; index >= 0 && seen.size < RECALL_LIMIT; index -= 1) {
+        const message = messages[index]!;
+        if (message.kind !== "user" || message.intent !== "normal" || message.delivery !== undefined) continue;
+        const text = message.blocks.flatMap((block) => (block.kind === "text" ? [block.text] : [])).join("");
+        if (text !== "") seen.add(text);
+    }
+    return [...seen];
+}
+
 /** 这条日志事件会不会让解析到的模型变：只有核心设置里的模型与推理档。 */
 function changesResolvedModel(event: unknown): boolean {
     const {type, data} = event as {readonly type?: unknown; readonly data?: {readonly extension?: unknown; readonly patch?: Readonly<Record<string, unknown>>}};
@@ -99,6 +117,8 @@ export interface SessionHostDeps {
     readonly newId: () => string;
     /** 这个位置最近用过的会话（`nbook.storage` 的本地记录）。 */
     readonly recent: {read(): Promise<string | null>; write(id: string | null): void};
+    /** 按会话的草稿；写是尽力而为，丢了只是少一份没发的字。 */
+    readonly drafts: {read(session: string): Promise<string | null>; write(session: string, text: string): void};
     readonly warnCost: () => number;
     /** 模型下拉；模型服务不在时为 null。 */
     readonly models: () => readonly ComposerModelView[] | null;
@@ -181,9 +201,31 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let previews = new Map<string, ApprovalPreviewView>();
     let stopRequestedAt: number | null = null;
 
-    const setDraft = (text: string): void => {
+    /** 还没写下去的草稿：`at` 是哪个会话的。切会话、发送时先写，定时写的是最新的字。 */
+    let cancelDraftSave: (() => void) | null = null;
+    let unsavedDraft: {readonly session: string; readonly text: string} | null = null;
+    const flushDraft = (): void => {
+        cancelDraftSave?.();
+        cancelDraftSave = null;
+        if (unsavedDraft !== null) deps.drafts.write(unsavedDraft.session, unsavedDraft.text);
+        unsavedDraft = null;
+    };
+    const noteDraft = (text: string): void => {
+        if (sessionId.value === null) return;
+        unsavedDraft = {session: sessionId.value, text};
+        cancelDraftSave?.();
+        cancelDraftSave = deps.schedule(flushDraft, DRAFT_SAVE_DELAY_MS);
+    };
+
+    /** 换视图里的草稿，不算用户改的：切会话、读回存着的。 */
+    const setDraftSilently = (text: string): void => {
         draft = {text, version: draft.version + 1};
         draftText = text;
+    };
+
+    const setDraft = (text: string): void => {
+        setDraftSilently(text);
+        noteDraft(text);
     };
 
     async function readChunks(fetch: (index: number) => Promise<{ok: true; value: {text: string; last: boolean}} | {ok: false; code: string}>): Promise<string | null> {
@@ -311,9 +353,16 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let editing: EditingView | null = null;
     let lastRunStatus: string = "idle";
 
+    /** 打开、重连、运行结束都会取，并发时只有最新发起的算数：先发的可能读到分叉出现之前，结果却后到。 */
+    let branchPointsToken = 0;
     async function loadBranchPoints(target: Current): Promise<void> {
+        const token = ++branchPointsToken;
         const points = await remote.branchPoints({sessionId: target.id});
-        if (!points.ok || current !== target) return;
+        if (current !== target || token !== branchPointsToken) return;
+        if (!points.ok) {
+            deps.report("conversation-branches-failed", points.code);
+            return;
+        }
         target.branchPoints = points.value;
         bump();
     }
@@ -354,26 +403,64 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         return action === "retry" ? turn[step]! : turn[step + 1] ?? null;
     }
 
-    async function rewriteHistory(messageId: string, action: "retry" | "edit" | "branch", resend?: string): Promise<void> {
+    /**
+     * 同一个操作结果未知时再来一次，用同一个指令 id（内核按它幂等）：不然服务端其实受理了的话，会多写一条分支、多跑一轮。键是操作的
+     * 全部身份：换了目标或文字就是新的操作。明确成功或被拒就忘掉。
+     */
+    const pendingCommands = new Map<string, string>();
+    const commandIdOf = (key: string): string => {
+        const known = pendingCommands.get(key);
+        if (known !== undefined) return known;
+        const id = commandId();
+        pendingCommands.set(key, id);
+        return id;
+    };
+    const settleCommand = (key: string, code?: string): void => {
+        if (code === undefined || !UNKNOWN_OUTCOME.has(code)) pendingCommands.delete(key);
+    };
+
+    /** 复合操作（回退再开始）进行中：双击或连点两条消息时，第二次不算，免得后一次回退夹在前一次的回退和开始之间。 */
+    let rewriting = false;
+
+    /** 交回是否成功。失败时说明只写给还在看这个会话的人。 */
+    async function rewriteHistory(messageId: string, action: "retry" | "edit" | "branch", resend?: string): Promise<boolean> {
         const target = current;
-        if (target === null) return;
-        const fail = (code: string): void => {
-            notice = agentText("conversation.history.failed", {code});
-            bump();
+        if (target === null || rewriting) return false;
+        rewriting = true;
+        const fail = (code: string): false => {
+            if (current === target) {
+                notice = UNKNOWN_OUTCOME.has(code) ? agentText("conversation.history.unknown") : agentText("conversation.history.failed", {code});
+                bump();
+            }
+            return false;
         };
-        const anchor = target.transcript.anchorOf(messageId);
-        const message = target.transcript.messages().find((item) => item.id === messageId);
-        if (anchor === null || message === undefined) return fail("unknown-message");
-        const targets = await remote.rewindTargets({sessionId: target.id});
-        if (current !== target) return;
-        if (!targets.ok) return fail(targets.code);
-        const to = rewindTargetFor(targets.value, anchor, action, message.kind === "user");
-        if (to === null) return fail("no-target");
-        const rewound = await remote.rewind({sessionId: target.id, commandId: commandId(), to: to.id, ...(resend === undefined ? {} : {resend: {text: resend}})});
-        if (!rewound.ok) return fail(rewound.code);
-        if (action !== "retry") return;
-        const started = await remote.start({sessionId: target.id, commandId: commandId()});
-        if (!started.ok) fail(started.code);
+        try {
+            const anchor = target.transcript.anchorOf(messageId);
+            const message = target.transcript.messages().find((item) => item.id === messageId);
+            if (anchor === null || message === undefined) return fail("unknown-message");
+            const targets = await remote.rewindTargets({sessionId: target.id});
+            if (current !== target) return false;
+            if (!targets.ok) return fail(targets.code);
+            const to = rewindTargetFor(targets.value, anchor, action, message.kind === "user");
+            // 已经退到这句话之后（从此处分支留下的暂停）：这句话的第一次请求还不存在，没有目标，直接接着跑。
+            const pausedHere = to === null && action === "retry" && message.kind === "user" && target.transcript.messages().at(-1)?.id === messageId;
+            if (to === null && !pausedHere) return fail("no-target");
+            if (to !== null) {
+                const key = `rewind:${target.id}:${to.id}:${resend ?? ""}`;
+                const rewound = await remote.rewind({sessionId: target.id, commandId: commandIdOf(key), to: to.id, ...(resend === undefined ? {} : {resend: {text: resend}})});
+                settleCommand(key, rewound.ok ? undefined : rewound.code);
+                if (!rewound.ok) return fail(rewound.code);
+            }
+            if (action !== "retry") return true;
+            // 用户已经离开这个会话：回退算做了，不再替他开跑。
+            if (current !== target) return true;
+            const key = `start:${target.id}:${to?.id ?? messageId}`;
+            const started = await remote.start({sessionId: target.id, commandId: commandIdOf(key)});
+            settleCommand(key, started.ok ? undefined : started.code);
+            return started.ok ? true : fail(started.code);
+        } finally {
+            rewriting = false;
+        }
     }
 
     async function switchBranch(messageId: string, direction: "previous" | "next"): Promise<void> {
@@ -384,7 +471,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const node = nodes.get(messageId)?.[(view?.index ?? 0) - 1 + (direction === "next" ? 1 : -1)];
         if (view === undefined || node === undefined) return;
         const result = await remote.switchBranch({sessionId: target.id, commandId: commandId(), node});
-        if (!result.ok) {
+        if (!result.ok && current === target) {
             notice = agentText("conversation.history.failed", {code: result.code});
             bump();
         }
@@ -431,7 +518,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const target = current;
         if (target === null) return;
         const result = await remote.switchBranch({sessionId: target.id, commandId: commandId(), node});
-        if (!result.ok) {
+        if (!result.ok && current === target) {
             notice = agentText("conversation.history.failed", {code: result.code});
             bump();
         }
@@ -544,13 +631,22 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const token = generation;
         // 同一个会话重新打开（归还 30 秒后借回）：未提交的答案还要；换了会话才清。事项答完了的话，`afterChange` 会清。
         const keptWizard = sessionId.value === id ? wizardState : undefined;
+        const switching = sessionId.value !== null && sessionId.value !== id;
+        flushDraft();
         closeCurrent();
         wizardState = keptWizard;
+        // A 会话没发的字不带到 B；还没有会话时写的字留着（第一次发送才建会话）。
+        if (switching) setDraftSilently("");
         const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: []};
         current = target;
         sessionId.value = id;
         deps.recent.write(id);
         bump();
+        void deps.drafts.read(id).then((saved) => {
+            // 读回来之前用户已经打了字：不盖掉。
+            if (saved !== null && current === target && draftText === "") setDraftSilently(saved);
+            bump();
+        }).catch((error: unknown) => deps.report("conversation-draft-failed", String(error)));
 
         const early: RemoteFrame[] = [];
         /** 快照返回时 `early` 有多长：这之前的状态帧过时了，这之后的是快照之后的变化，不能丢（输出 5）。 */
@@ -688,6 +784,61 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     const countCompactions = (target: Current): number => target.transcript.messages().filter((message) => message.kind === "system" && message.source === "compaction").length;
 
     /** 手动压缩（docs/specs/agent/conversation.md 输出 20）：不新建会话，不发送文字，被拒时文字放回输入框。 */
+    async function newCommand(): Promise<void> {
+        setDraft("");
+        bump();
+        await create();
+    }
+
+    /** 结果未知时再来一次用同一个指令 id：服务端其实建好了的话交回同一个新会话，不多建（runtime.md 输出 37）。 */
+    let pendingFork: {readonly session: string; readonly commandId: string} | null = null;
+    async function forkCommand(): Promise<void> {
+        const target = current;
+        const typed = draftText;
+        setDraft("");
+        bump();
+        if (target === null) {
+            notice = agentText("conversation.compact.noSession");
+            bump();
+            return;
+        }
+        const id = pendingFork?.session === target.id ? pendingFork.commandId : commandId();
+        pendingFork = {session: target.id, commandId: id};
+        const result = await remote.fork({sessionId: target.id, commandId: id});
+        if (result.ok) {
+            pendingFork = null;
+            if (current === target) await open(result.value.value.sessionId);
+            return;
+        }
+        if (current !== target) return;
+        if (UNKNOWN_OUTCOME.has(result.code)) {
+            notice = agentText("conversation.fork.unknown");
+        } else {
+            pendingFork = null;
+            setDraft(typed);
+            notice = agentText("conversation.history.failed", {code: result.code});
+        }
+        bump();
+    }
+
+    async function renameCommand(title: string): Promise<void> {
+        const target = current;
+        if (target === null || title.trim() === "") {
+            notice = agentText("conversation.renameCommand.needTitle");
+            bump();
+            return;
+        }
+        const typed = draftText;
+        setDraft("");
+        bump();
+        const result = await remote.setTitle({sessionId: target.id, commandId: commandId(), title: title.trim()});
+        if (!result.ok && current === target) {
+            setDraft(typed);
+            notice = agentText("conversation.history.failed", {code: result.code});
+            bump();
+        }
+    }
+
     async function compactCommand(argsText: string): Promise<void> {
         const typed = argsText === "" ? "/compact" : `/compact ${argsText}`;
         const target = current;
@@ -769,12 +920,20 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         switch (action.type) {
             case "composer.draftChanged":
                 draftText = action.text;
+                noteDraft(action.text);
+                return;
+            case "composer.commandHandled":
+                setDraft("");
+                bump();
                 return;
             case "composer.submit":
                 await submit(action.text, action.delivery);
                 return;
             case "command.run":
                 if (action.name === "compact") await compactCommand(action.argsText);
+                else if (action.name === "new") await newCommand();
+                else if (action.name === "fork") await forkCommand();
+                else if (action.name === "rename") await renameCommand(action.argsText);
                 return;
             case "composer.stop":
             case "input.cancelRun":
@@ -838,11 +997,14 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 editing = null;
                 bump();
                 return;
-            case "message.editSubmit":
-                editing = null;
-                bump();
-                await rewriteHistory(action.messageId, "edit", action.text);
+            case "message.editSubmit": {
+                // 受理了才退出编辑态：被拒时用户改的字还在编辑器里，说明也写清楚了。
+                if (await rewriteHistory(action.messageId, "edit", action.text)) {
+                    editing = null;
+                    bump();
+                }
                 return;
+            }
             case "message.retry":
                 await rewriteHistory(action.messageId, "retry");
                 return;
@@ -969,7 +1131,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 summaryState: "idle",
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
@@ -999,6 +1161,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 resume: target?.transcript.interrupted() === true,
                 queued: (target?.transcript.queue() ?? []).map((item) => ({id: item.id, text: item.text, delivery: item.mode})),
                 draft,
+                recall: target === null || target === undefined ? [] : recallOf(target.transcript.messages()),
                 ...(notice === null ? {} : {notice}),
             },
             usage: usage === undefined ? {} : {
@@ -1061,6 +1224,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             };
         },
         dispose() {
+            flushDraft();
             disposed = true;
             stopWatchingModels();
             generation += 1;

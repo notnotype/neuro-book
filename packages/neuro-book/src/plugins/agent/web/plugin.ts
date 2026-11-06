@@ -16,6 +16,7 @@ import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
+import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
 import {modelsSettingsContract} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
 import {roleReference} from "nbook/plugins/models/shared/rules";
@@ -35,7 +36,7 @@ import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
 import {Type} from "typebox";
 
-import type {ComposerModelView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, ComposerModelView} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
@@ -44,6 +45,8 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentSettings} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {createAgentActivity} from "./activity";
+import {createFileMentions} from "./mentions";
+import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost} from "./session-host";
 import {createSessionList} from "./session-list";
@@ -84,6 +87,7 @@ const agentState = definePublicState(descriptor.id, {
 
 const RecentSchema = Type.Object({id: Type.Union([Type.String(), Type.Null()])}, {additionalProperties: false});
 /** 按位置（视图、页面）分键；作品范围按作品分区，没有打开作品时放用户层（输出：当前会话）。 */
+const DRAFTS_RECORD = defineRecord({key: "agent.drafts", scope: "user", locality: "local", version: 1, keyed: true, schema: DraftsSchema});
 const recentRecord = (project: boolean) => defineRecord({key: "agent.recent-session", scope: project ? "project" : "user", locality: "local", version: 1, keyed: true, schema: RecentSchema});
 
 /** 有凭据：不要密钥的服务商，或者密钥已经设了。 */
@@ -220,6 +224,19 @@ export const agentBrowserPlugin: PluginDefinition = {
                             void openRecent(position).then((handle) => handle?.update(() => ({id}))).catch((error: unknown) => report("recent-save-failed", String(error)));
                         },
                     },
+                    drafts: {
+                        read: async (session) => {
+                            const opened = await storage.open(DRAFTS_RECORD, "drafts");
+                            if (!opened.ok) return null;
+                            const snapshot = await opened.handle.read();
+                            return snapshot.status === "ok" ? draftOf(snapshot.value, session, clock.now()) : null;
+                        },
+                        write: (session, value) => {
+                            void storage.open(DRAFTS_RECORD, "drafts").then(async (opened) => {
+                                if (opened.ok) await opened.handle.update((current) => withDraft(current ?? NO_DRAFTS, session, value, clock.now()));
+                            }).catch((error: unknown) => report("draft-save-failed", String(error)));
+                        },
+                    },
                     warnCost: () => settings.get(agentSettings.settings.warnCost),
                     models: () => models.value,
                     roles: () => roles.value,
@@ -292,6 +309,22 @@ export const agentBrowserPlugin: PluginDefinition = {
                     ...(components === null ? {} : {markdown: markRaw(components.MarkdownDisplay), promptEditor: markRaw(components.PromptEditor), promptTextView: markRaw(components.PromptTextView)}),
                 };
                 const labels = panelLabels();
+                // 编辑器按函数身份重取菜单：查到新结果时换一个新函数（nb-agent-ui 的 `resolveTriggerMenu` 约定）。
+                const services = shallowRef<AgentConversationServices>({});
+                const projectFiles = project === null ? null : context.remote.use(projectFilesContract);
+                const mentions = createFileMentions({
+                    find: projectFiles === null ? null : (query, limit) => projectFiles.find({query, limit}) as never,
+                    texts: () => ({
+                        title: text.t(agentText("conversation.mentions.title")),
+                        empty: text.t(agentText("conversation.mentions.empty")),
+                        noProject: text.t(agentText("conversation.mentions.noProject")),
+                        failed: text.t(agentText("conversation.mentions.failed")),
+                    }),
+                    onChange: () => {
+                        services.value = {resolveTriggerMenu: (context) => mentions.resolve(context)};
+                    },
+                });
+                services.value = {resolveTriggerMenu: (context) => mentions.resolve(context)};
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,
@@ -301,7 +334,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         onBeforeUnmount(() => {
                             if (lastPosition === position) lastPosition = "view";
                         });
-                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: {}, pickProfile, labels});
+                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels});
                     },
                 });
             };

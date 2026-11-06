@@ -311,10 +311,12 @@ test("改写历史：编辑重发开新分支，切换器切回原来的；重�
     const user = page.locator(".acv-message[data-role='user']");
     await user.hover();
     await user.getByRole("button", {name: "编辑"}).click();
-    const editor = page.locator("[data-message-editor] textarea");
-    await expect(editor).toHaveValue("原来的话");
+    const editor = page.locator("[data-message-editor]").getByRole("textbox");
+    await expect(editor).toContainText("原来的话");
     await script("第二版回复");
-    await editor.fill("改过的话");
+    await editor.click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.type("改过的话");
     await page.keyboard.press("Enter");
     await expect(page.getByText("第二版回复")).toBeVisible();
     await expect(page.getByText("第一版回复")).toHaveCount(0);
@@ -365,6 +367,59 @@ test("分支树：列表与图，图默认从上往下、能换方向；选别�
     await expect(tree).toHaveCount(0);
     await expect(page.getByText("第一版回复")).toBeVisible();
     await expect(page.getByText("第二版回复")).toHaveCount(0);
+});
+
+test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会话、刷新后还在；上方向键调历史", async ({page}) => {
+    await script("回复");
+    await openConversation(page);
+    await newSession(page);
+    await input(page).click();
+    await page.keyboard.type("看看 @第三");
+    const item = page.getByRole("option", {name: /第三章/u}).or(page.getByRole("menuitem", {name: /第三章/u})).first();
+    await expect(item).toBeVisible();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("回复", {exact: true})).toBeVisible();
+    const sent = await requests();
+    expect(JSON.stringify(sent.at(-1)!.messages)).toContain("project://正文/第三章.md");
+
+    await input(page).click();
+    await page.keyboard.type("/rename 雨夜");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".acv-header__name")).toHaveText("雨夜");
+
+    await input(page).click();
+    await page.keyboard.type("/model 本机");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-model-picker-panel]")).toBeVisible();
+    await expect(page.locator("[data-model-picker-search] input, input[data-model-picker-search]")).toHaveValue("本机");
+    await page.keyboard.press("Escape");
+
+    await input(page).click();
+    await page.keyboard.press("ArrowUp");
+    await expect(input(page)).toContainText("看看");
+    await page.keyboard.press("Control+A");
+    await page.keyboard.press("Delete");
+
+    await page.keyboard.type("没写完的字");
+    await page.locator("[data-header-new]").click();
+    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(input(page)).not.toContainText("没写完的字");
+    await page.locator(".acv-header__title--button").click();
+    await page.getByRole("button", {name: /雨夜/u}).or(page.getByText("雨夜")).first().click();
+    await expect(input(page)).toContainText("没写完的字");
+    await page.reload();
+    await expect(input(page)).toContainText("没写完的字");
+
+    await input(page).click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.press("Delete");
+    await page.keyboard.type("/new");
+    // 第一次回车选中菜单里的命令，第二次发出去。
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(input(page)).not.toContainText("/new");
 });
 
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {

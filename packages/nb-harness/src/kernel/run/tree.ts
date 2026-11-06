@@ -97,21 +97,47 @@ export function siblingsOf(core: SessionCore, node: string): {node: string; late
     return core.childrenOf(event.parent).map((sibling) => ({node: sibling.id, latestLeaf: core.latestIn(sibling.id).id}));
 }
 
-/** 有多于一个孩子的节点，孩子各带所在分支的末端（runtime.md 输出 81）：一次查询就能填满界面上的分支切换。 */
+/**
+ * 有多于一个孩子的节点，孩子各带所在分支的末端（runtime.md 输出 81）：一次查询就能填满界面上的分支切换。打开、切分支、每次运行
+ * 结束都调，所以一趟算完：按 seq 倒着走，后代总比祖先后写，每个节点的最新后代从孩子往上传一次，不逐个分叉扫子树。
+ */
 export function branchPointsOf(core: SessionCore): {parent: string | null; children: {node: string; latestLeaf: string}[]}[] {
-    const parents = new Set<string | null>();
-    for (const event of core.events) if (event.scope === "path" && core.childrenOf(event.parent).length > 1) parents.add(event.parent);
-    return [...parents].map((parent) => ({
+    const children = new Map<string | null, string[]>();
+    const latest = new Map<string, LogEvent>();
+    const events = core.events.filter((event) => event.scope === "path");
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index]!;
+        const own = latest.get(event.id) ?? event;
+        latest.set(event.id, own);
+        if (event.parent === null) continue;
+        const above = latest.get(event.parent);
+        if (above === undefined || own.seq > above.seq) latest.set(event.parent, own);
+    }
+    for (const event of events) {
+        const siblings = children.get(event.parent);
+        if (siblings === undefined) children.set(event.parent, [event.id]);
+        else siblings.push(event.id);
+    }
+    return [...children].filter(([, ids]) => ids.length > 1).map(([parent, ids]) => ({
         parent,
-        children: core.childrenOf(parent).map((child) => ({node: child.id, latestLeaf: core.latestIn(child.id).id})),
+        children: ids.map((node) => ({node, latestLeaf: latest.get(node)!.id})),
     }));
 }
 
-/** 按 seq 取一页 path 事件。全文由调用方决定要不要给（结构查询不给）。 */
+/** 按 seq 取一页 path 事件。`core.events` 按 seq 排好，二分定位起点：分页读整棵树时每页不用从头扫。 */
 export function pathEventsAfter(core: SessionCore, afterSeq: number, limit: number): {events: LogEvent[]; more: boolean} {
+    const all = core.events;
+    let low = 0;
+    let high = all.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (all[middle]!.seq <= afterSeq) low = middle + 1;
+        else high = middle;
+    }
     const events: LogEvent[] = [];
-    for (const event of core.events) {
-        if (event.seq <= afterSeq || event.scope !== "path") continue;
+    for (let index = low; index < all.length; index += 1) {
+        const event = all[index]!;
+        if (event.scope !== "path") continue;
         if (events.length === limit) return {events, more: true};
         events.push(event);
     }

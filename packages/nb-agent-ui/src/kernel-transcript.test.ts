@@ -273,6 +273,8 @@ describe("运行结束", () => {
         const messages = transcript.messages();
         expect(messages.map((message) => message.kind)).toEqual(["user", "assistant", "error"]);
         expect(messages[1]).toMatchObject({status: "error", text: "半截"});
+        // 失败的半截也能重新生成：对上那次请求，不是死入口。
+        expect(transcript.anchorOf(messages[1]!.id)?.modelParent).not.toBeNull();
         expect(messages[2]).toMatchObject({retryable: true, message: {key: "harness.error.provider"}});
         expect(transcript.usage()).toMatchObject({cost: 1, input: 7});
         await expectConsistent(session, transcript);

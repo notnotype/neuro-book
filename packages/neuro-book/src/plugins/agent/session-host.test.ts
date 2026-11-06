@@ -97,6 +97,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         warnCost: () => 0,
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
         roles: () => null,
+        drafts: {read: async () => null, write: () => undefined},
         profiles: () => [{key: PROFILE, name: "测试", description: "", source: "test", status: "ok", icon: "i-lucide-feather"}],
         copy: (value) => void copied.push(value),
         openSettings: () => {
@@ -419,6 +420,128 @@ describe("审批与提问（输出 10–14）", () => {
     });
 });
 
+describe("命令、草稿与输入历史（输出 28–30）", () => {
+    test("/new 开新会话；/rename 改标题，空的说明；/fork 复制路径打开新会话", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("回复");
+        h.host.act({type: "composer.submit", text: "问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "回复");
+        await idle(h);
+        const first = h.host.sessionId.value!;
+        expect(h.ctx().interaction.commands).toEqual(expect.arrayContaining(["new", "fork", "rename", "model", "compact"]));
+        expect(h.ctx().interaction.triggers).toEqual(["@", "/"]);
+
+        h.host.act({type: "command.run", name: "rename", argsText: ""});
+        await until("说明要写标题", () => h.ctx().composer.notice !== undefined);
+        h.host.act({type: "command.run", name: "rename", argsText: "第三章"});
+        await until("标题", () => h.ctx().session?.title === "第三章");
+
+        h.host.act({type: "command.run", name: "fork", argsText: ""});
+        await until("打开了新会话", () => h.host.sessionId.value !== first && h.ctx().messages.length > 0);
+        expect(assistants(h.ctx().messages).at(-1)?.text).toBe("回复");
+
+        const forked = h.host.sessionId.value!;
+        h.host.act({type: "command.run", name: "new", argsText: ""});
+        await until("又一个新会话", () => h.host.sessionId.value !== forked);
+        expect(h.ctx().messages).toEqual([]);
+    });
+
+    test("/fork 结果未知：说明，再来一次用同一个指令 id，只有一个新会话", async () => {
+        const w = await world();
+        const first = await w.window("sh-fork-gate");
+        let lose = true;
+        const seen: string[] = [];
+        const gated = new Proxy(first.client, {get(target, key, receiver) {
+            if (key !== "fork") return Reflect.get(target, key, receiver);
+            return async (input: {commandId: string}) => {
+                seen.push(input.commandId);
+                const result = await target.fork(input as never);
+                if (lose) {
+                    lose = false;
+                    return {ok: false, code: "unknown-outcome"};
+                }
+                return result;
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: gated});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        endpoint.script("回复");
+        h.host.act({type: "composer.submit", text: "问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "回复");
+        await idle(h);
+        const origin = h.host.sessionId.value!;
+        const count = async (): Promise<number> => {
+            const listed = await w.service.list({});
+            if (!listed.ok) throw new Error(listed.code);
+            return listed.value.length;
+        };
+        const before = await count();
+        h.host.act({type: "command.run", name: "fork", argsText: ""});
+        await until("说明", () => h.ctx().composer.notice !== undefined);
+        expect(h.host.sessionId.value).toBe(origin);
+        h.host.act({type: "command.run", name: "fork", argsText: ""});
+        await until("打开了", () => h.host.sessionId.value !== origin);
+        expect(new Set(seen).size).toBe(1);
+        expect(await count()).toBe(before + 1);
+    });
+
+    test("草稿按会话：切走再切回还在；不带到别的会话；发送后清；晚到的读取不盖新打的字", async () => {
+        const w = await world();
+        const stored = new Map<string, string>();
+        let gate: (() => void) | null = null;
+        const h = await harness(w, {drafts: {
+            read: async (session) => {
+                if (gate !== null) await new Promise<void>((resolve) => { const release = gate!; gate = () => { release(); resolve(); }; });
+                return stored.get(session) ?? null;
+            },
+            write: (session, text) => void (text === "" ? stored.delete(session) : stored.set(session, text)),
+        }});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        const a = h.host.sessionId.value!;
+        h.host.act({type: "composer.draftChanged", text: "没写完的"});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        const b = h.host.sessionId.value!;
+        expect(stored.get(a)).toBe("没写完的");
+        expect(h.ctx().composer.draft.text).toBe("");
+
+        await h.host.open(a);
+        await until("读回来", () => h.ctx().composer.draft.text === "没写完的");
+
+        // 读得慢：用户先打了字。
+        gate = () => undefined;
+        await h.host.open(b);
+        h.host.act({type: "composer.draftChanged", text: "新打的"});
+        stored.set(b, "旧的");
+        const release = gate;
+        gate = null;
+        release();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(h.ctx().composer.draft.text).not.toBe("旧的");
+
+        endpoint.script("回复");
+        await h.host.open(a);
+        await until("读回来", () => h.ctx().composer.draft.text === "没写完的");
+        h.host.act({type: "composer.submit", text: "没写完的", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "回复");
+        await idle(h);
+        await h.host.open(b);
+        expect(stored.has(a)).toBe(false);
+    });
+
+    test("输入历史：当前路径上用户的话，最新在前，去重，不含补充说明", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("一", "二", "三");
+        for (const [text, reply] of [["同一句", "一"], ["另一句", "二"], ["同一句", "三"]] as const) {
+            h.host.act({type: "composer.submit", text, delivery: "prompt"});
+            await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === reply);
+            await idle(h);
+        }
+        expect(h.ctx().composer.recall).toEqual(["同一句", "另一句"]);
+    });
+});
+
 describe("改写历史（输出 25、26）", () => {
     /** 一轮：回复带工具调用，工具结果之后再回复。 */
     async function twoStepTurn(h: Harness): Promise<void> {
@@ -517,6 +640,69 @@ describe("改写历史（输出 25、26）", () => {
         await until("新分支的回复", () => assistants(h.ctx().messages).at(-1)?.text === "接在第一轮后面");
         await idle(h);
         expect(h.ctx().messages.filter((item) => item.kind === "user")).toHaveLength(2);
+    });
+
+    test("从此处分支退到用户消息后：重新生成直接接着跑", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("第一次");
+        h.host.act({type: "composer.submit", text: "问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "第一次");
+        await idle(h);
+        const user = h.ctx().messages.find((item) => item.kind === "user")!;
+        h.host.act({type: "message.branchFrom", messageId: user.id});
+        await until("退到用户消息后", () => assistants(h.ctx().messages).length === 0);
+        endpoint.script("接着跑的");
+        h.host.act({type: "message.retry", messageId: user.id});
+        await until("接着跑了", () => assistants(h.ctx().messages).at(-1)?.text === "接着跑的");
+        await idle(h);
+        expect(h.ctx().composer.notice).toBeUndefined();
+
+    });
+
+    test("结果未知再点一次用同一个指令 id；明确被拒时编辑器不关", async () => {
+        const w = await world();
+        const first = await w.window("sh-rewrite-gate");
+        let lose = false;
+        let refuse = false;
+        const seen: string[] = [];
+        const gated = new Proxy(first.client, {get(target, key, receiver) {
+            if (key !== "rewind") return Reflect.get(target, key, receiver);
+            return async (input: {commandId: string}) => {
+                seen.push(input.commandId);
+                if (refuse) return {ok: false, code: "input-rejected"};
+                const result = await target.rewind(input as never);
+                if (lose) {
+                    lose = false;
+                    return {ok: false, code: "unknown-outcome"};
+                }
+                return result;
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: gated});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        endpoint.script("一");
+        h.host.act({type: "composer.submit", text: "问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "一");
+        await idle(h);
+        const user = h.ctx().messages.find((item) => item.kind === "user")!;
+
+        refuse = true;
+        h.host.act({type: "message.editStart", messageId: user.id});
+        h.host.act({type: "message.editSubmit", messageId: user.id, text: "改过的"});
+        await until("说明", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().editing?.messageId).toBe(user.id);
+        refuse = false;
+        h.host.act({type: "message.editCancel"});
+
+        lose = true;
+        const before = seen.length;
+        const reply = assistants(h.ctx().messages)[0]!;
+        h.host.act({type: "message.branchFrom", messageId: reply.id});
+        await until("说明不确定", () => seen.length === before + 1 && h.ctx().composer.notice !== undefined);
+        h.host.act({type: "message.branchFrom", messageId: reply.id});
+        await until("再来一次", () => seen.length === before + 2);
+        expect(seen[before + 1]).toBe(seen[before]);
     });
 
     test("分支树：读到全部节点与当前路径；切换到别的分支；关了放掉", async () => {
@@ -790,7 +976,7 @@ describe("手动压缩（输出 20）", () => {
     test("视图只列宿主做了的命令", async () => {
         const w = await world();
         const h = await harness(w);
-        expect(h.ctx().interaction.commands).toEqual(["compact"]);
+        expect(h.ctx().interaction.commands).toEqual(["compact", "new", "fork", "rename", "model"]);
     });
 
     test("没有会话时不新建，说明还没有对话；有对话时压缩：要求进提示词，分隔线带详情，运行结束后输入框干净", async () => {

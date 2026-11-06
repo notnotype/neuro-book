@@ -232,6 +232,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let pathIds: string[] = [];
     let anchorTurn: string | null = null;
     let anchorModelParent: string | null = null;
+    let anchorRequest: number | null = null;
     /** 这次运行是不是只压缩的：它没有 `input`，运行收口时不能把上一轮的回复当成这次的。 */
     let runKind: "compact" | null = null;
     /** 路径上每一轮的 `turnStarted` 事件 id，按顺序：压缩的切点按它数“保留了几轮”。 */
@@ -296,23 +297,39 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         if (live?.request === request) live = null;
     };
 
-    /** 记路径与锚点：扩展写的事件也是树上的节点，所以在分发之前。 */
+    /**
+     * 记路径与锚点：扩展写的事件也是树上的节点，所以在分发之前。回复按 `request` 对上产生它的那次模型请求：拦截层可以不调 `next`
+     * 直接交回回复，这时没有 `modelStarted`，不能算到上一次请求头上，否则重试会退到前一步、把前一步的工具再执行一遍。
+     */
     function notePath(parsed: {record: JsonRecord; type: string; data: JsonRecord; id: string}): void {
         if (parsed.record.scope !== "path") return;
         pathIds.push(parsed.id);
+        const modelParentOf = (data: JsonRecord): string | null => {
+            const request = numberField(data, "request");
+            return request !== null && request === anchorRequest ? anchorModelParent : null;
+        };
         switch (parsed.type) {
             case "turnStarted":
                 anchorTurn = stringField(parsed.data, "turnId");
                 anchorModelParent = null;
+                anchorRequest = null;
                 return;
             case "modelStarted":
-                if (parsed.data.purpose === "turn") anchorModelParent = stringField(parsed.record, "parent");
+                if (parsed.data.purpose === "turn") {
+                    anchorModelParent = stringField(parsed.record, "parent");
+                    anchorRequest = numberField(parsed.data, "request");
+                }
                 return;
             case "input":
             case "steer":
                 anchors.set(parsed.id, {turnId: anchorTurn, modelParent: null});
                 return;
             case "assistant":
+            case "modelFailed":
+                anchors.set(parsed.id, {turnId: anchorTurn, modelParent: modelParentOf(parsed.data)});
+                return;
+            case "runEnded":
+                // 没开口就停了时界面用它画一条空回复：重试要回到最后那次请求之前。
                 anchors.set(parsed.id, {turnId: anchorTurn, modelParent: anchorModelParent});
                 return;
         }
@@ -584,6 +601,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         pathIds = [];
         anchorTurn = null;
         anchorModelParent = null;
+        anchorRequest = null;
         runKind = null;
         turnStarts = [];
         purposes = new Map();

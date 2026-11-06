@@ -96,7 +96,20 @@
         "rename": "改名",
         "cancel": "取消",
         "loading": "正在加载…",
+        "fork": {
+            "unknown": "不确定分支建好了没有。再执行一次 /fork，不会多建。"
+        },
+        "renameCommand": {
+            "needTitle": "写上新标题，例如 /rename 第三章的结尾。"
+        },
+        "mentions": {
+            "title": "项目文件",
+            "empty": "没有匹配的文件",
+            "noProject": "打开作品之后才能引用文件",
+            "failed": "查找文件没有成功，再试一次"
+        },
         "history": {
+            "unknown": "不确定这步做成了没有。再点一次，不会重复。",
             "failed": "这步没做成（{{code}}）。对话没动。"
         },
         "context": {

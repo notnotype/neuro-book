@@ -121,6 +121,16 @@ function toggle(): void {
     void nextTick(() => panelRef.value?.focus());
 }
 
+/** `/model 参数`：打开模型库，参数填进搜索；没有参数时打开角色页。 */
+function openPicker(search = ""): void {
+    if (props.disabled) return;
+    if (!open.value) toggle();
+    query.value = search;
+    page.value = search === "" ? "roles" : "models";
+}
+
+defineExpose({openPicker});
+
 function onDocumentPointerDown(event: PointerEvent): void {
     const target = event.target as Node | null;
     if (target === null || popoverRef.value?.contains(target) === true || triggerRef.value?.contains(target) === true) return;

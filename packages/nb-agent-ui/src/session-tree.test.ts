@@ -63,6 +63,25 @@ describe("列表", () => {
         expect(row("a3").guideLanes).toEqual([row("u3").lane]);
     });
 
+    test("根上的分叉（编辑第一句话）：几个根当分支画，能收起；单根不缩进", () => {
+        const nodes: SessionTreeNodeView[] = [
+            {id: "created", parent: null, type: "sessionCreated"},
+            {id: "r1", parent: "created", type: "runStarted"},
+            {id: "u1", parent: "r1", type: "input", label: "原来的话"},
+            {id: "a1", parent: "u1", type: "assistant", label: "旧回复"},
+            {id: "r2", parent: "created", type: "runStarted"},
+            {id: "u2", parent: "r2", type: "input", label: "改过的话"},
+            {id: "a2", parent: "u2", type: "assistant", label: "新回复"},
+        ];
+        const rows = sessionTreeRows({nodes, activePath: ["created", "r2", "u2", "a2"], filter: "default"});
+        expect(rows.map((row) => [row.id, row.guides.join(",")])).toEqual([["u2", "branch"], ["a2", "line"], ["u1", "end"], ["a1", "space"]]);
+        expect(rows.find((row) => row.id === "u1")!.collapsible).toBe(true);
+        expect(rows.find((row) => row.id === "u2")!.lane).toBe(0);
+        expect(rows.find((row) => row.id === "u1")!.lane).toBe(1);
+        const graph = sessionTreeGraph({nodes, activePath: ["created", "r2", "u2", "a2"], filter: "default"});
+        expect(graph.lanes).toBe(2);
+    });
+
     test("多层分叉：外层没走完时缩进线接着画，走完了留空", () => {
         const nodes: SessionTreeNodeView[] = [
             {id: "root", parent: null, type: "input", label: "根"},

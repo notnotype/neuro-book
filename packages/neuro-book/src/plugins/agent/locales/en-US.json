@@ -96,7 +96,20 @@
         "rename": "Rename",
         "cancel": "Cancel",
         "loading": "Loading…",
+        "fork": {
+            "unknown": "Not sure whether the fork was created. Run /fork again; it will not create a second one."
+        },
+        "renameCommand": {
+            "needTitle": "Add the new title, for example /rename Ending of chapter three."
+        },
+        "mentions": {
+            "title": "Project files",
+            "empty": "No matching files",
+            "noProject": "Open a work to reference its files",
+            "failed": "Could not search files. Try again"
+        },
         "history": {
+            "unknown": "Not sure whether that worked. Try again; it will not run twice.",
             "failed": "That did not work ({{code}}). The conversation is unchanged."
         },
         "context": {

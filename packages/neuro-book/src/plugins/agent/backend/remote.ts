@@ -92,6 +92,9 @@ async function whole<T>(run: () => Promise<T>, context: {ok: (value: T) => unkno
     }
 }
 
+/** 树的一页的字节上限：比通道的上限留出外壳的余量。 */
+const TREE_PAGE_BYTES = PAGE_BYTES - 4096;
+
 export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens): RemoteImplementation<Contract> {
     const {service} = options;
     const view = (sessionId: string): SessionApi => service.session(sessionId, {kind: "user"});
@@ -125,7 +128,20 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             const {items, cut} = pageOfItems(events.slice(from));
             return {items, more: cut, next: from + items.length};
         }, (code) => context.fail(code as "open-failed")) as never,
-        treeNodes: ({sessionId, afterSeq}, context) => whole(() => view(sessionId).treeNodes(afterSeq === undefined ? undefined : {afterSeq}), context) as never,
+        treeNodes: ({sessionId, afterSeq}, context) => whole(async () => {
+            const page = await view(sessionId).treeNodes(afterSeq === undefined ? undefined : {afterSeq});
+            // 内核按个数分页，通道按字节：中文标签 2,000 个节点就超了。多出来的放下一页，游标跟着往回收。
+            let bytes = 0;
+            let kept = 0;
+            for (const node of page.nodes) {
+                bytes += Buffer.byteLength(JSON.stringify(node)) + 1;
+                if (bytes > TREE_PAGE_BYTES && kept > 0) break;
+                kept += 1;
+            }
+            if (kept === page.nodes.length) return page;
+            const nodes = page.nodes.slice(0, kept);
+            return {nodes, more: true, through: nodes.at(-1)!.seq};
+        }, context) as never,
         branchPoints: ({sessionId}, context) => whole(() => view(sessionId).branchPoints(), context) as never,
         siblings: ({sessionId, node}, context) => whole(() => view(sessionId).siblings({node}), context) as never,
         runResult: ({sessionId, runId}, context) => whole(() => view(sessionId).runResult({runId}), context) as never,

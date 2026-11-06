@@ -163,6 +163,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                 class="acv-user-editor"
                 :text="props.ctx.editing.text"
                 :loading="props.ctx.editing.loading"
+                :services="props.services"
                 @submit="emit('action', {type: 'message.editSubmit', messageId: turn.user!.id, text: $event})"
                 @cancel="emit('action', {type: 'message.editCancel'})"
             />

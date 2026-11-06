@@ -8,6 +8,9 @@ import {agentRef} from "../text";
 /** 改写历史的操作要求消息已落盘；尚未确认送达的用户消息在服务端可能不存在。 */
 const confirmed = (message: MessageView) => message.kind !== "user" || message.delivery === undefined;
 
+/** 补充说明插在一轮中间，内核没有“它之前”“它之后”的回退目标，不提供改写。 */
+const rewritable = (message: MessageView) => confirmed(message) && (message.kind !== "user" || message.intent === "normal");
+
 const messageActions: MessageActionEntry[] = [
     {
         id: "copy", order: 10, messageKinds: ["user", "assistant"], icon: "i-lucide-copy",
@@ -20,22 +23,21 @@ const messageActions: MessageActionEntry[] = [
     {
         id: "edit", order: 20, messageKinds: ["user"], icon: "i-lucide-pencil",
         label: agentRef("messageAction.edit"),
-        // 补充说明不开新的一轮，退不到“它之前”。
-        appliesTo: (message) => confirmed(message) && message.kind === "user" && message.intent === "normal",
+        appliesTo: rewritable,
         when: (ctx) => ctx.interaction.canMutateHistory && ctx.run.status === "idle",
         toAction: (message) => ({type: "message.editStart", messageId: message.id}),
     },
     {
         id: "retry", order: 30, messageKinds: ["user", "assistant"], icon: "i-lucide-rotate-cw",
         label: agentRef("messageAction.retry"),
-        appliesTo: confirmed,
+        appliesTo: rewritable,
         when: (ctx) => ctx.interaction.canMutateHistory && ctx.run.status === "idle",
         toAction: (message) => ({type: "message.retry", messageId: message.id}),
     },
     {
         id: "branch-from", order: 40, messageKinds: ["user", "assistant"], icon: "i-lucide-git-branch-plus",
         label: agentRef("messageAction.branchFrom"),
-        appliesTo: confirmed,
+        appliesTo: rewritable,
         when: (ctx) => ctx.interaction.canMutateHistory && ctx.run.status === "idle",
         toAction: (message) => ({type: "message.branchFrom", messageId: message.id}),
     },

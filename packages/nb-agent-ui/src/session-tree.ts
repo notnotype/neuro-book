@@ -157,10 +157,18 @@ export function sessionTreeRows(input: {
     /** `lead` 是这一行的缩进线，`rest` 是它后面的行（同一条线）接着用的。线性的孩子不缩进，只有分叉才进一层。 */
     let lanes = 0;
     const stack: {item: Shown; lead: TreeGuide[]; rest: TreeGuide[]; leadLanes: number[]; restLanes: number[]; branchHead: boolean; lane: number}[] = [];
-    for (let index = roots.length - 1; index >= 0; index -= 1) stack.push({item: roots[index]!, lead: [], rest: [], leadLanes: [], restLanes: [], branchHead: false, lane: -1});
+    // 编辑第一句话会在会话根上分叉：根本身不显示，几条分支就成了几个根，要当分支画，不然看不出有分叉。
+    const rootFork = roots.length > 1;
+    for (let index = roots.length - 1; index >= 0; index -= 1) {
+        const last = index === roots.length - 1;
+        const lane = index === 0 ? 0 : index;
+        stack.push(rootFork
+            ? {item: roots[index]!, lead: [last ? "end" : "branch"], rest: [last ? "space" : "line"], leadLanes: [lane], restLanes: [lane], branchHead: true, lane}
+            : {item: roots[index]!, lead: [], rest: [], leadLanes: [], restLanes: [], branchHead: false, lane});
+    }
+    lanes = Math.max(roots.length, 1);
     while (stack.length > 0) {
-        const {item, lead, rest, leadLanes, restLanes, branchHead, lane: given} = stack.pop()!;
-        const lane = given < 0 ? lanes++ : given;
+        const {item, lead, rest, leadLanes, restLanes, branchHead, lane} = stack.pop()!;
         const hide = collapsed.has(item.node.id);
         rows.push({
             id: item.node.id,
