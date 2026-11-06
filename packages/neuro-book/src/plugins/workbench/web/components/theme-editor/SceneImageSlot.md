@@ -1,5 +1,5 @@
 ---
-标签: [state:local, io:mutate]
+标签: [state:local, state:inject, io:mutate]
 别名: ["场景图上传条", "Scene Image Slot"]
 验证入口: ThemeEditor
 ---

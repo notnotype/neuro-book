@@ -54,6 +54,7 @@ const onFile = async (event: Event): Promise<void> => {
     if (current === null) return;
     const target = {id: current.id, appearance: model.appearance.value};
     const name = pendingName;
+    if (name === "") return;
     busy.value = true;
     failure.value = null;
     try {

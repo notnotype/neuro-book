@@ -121,8 +121,10 @@ function scan(text: string): void {
             if (seen.has(attribute)) reject(`属性 ${attribute} 重复`);
             seen.add(attribute);
             at += attribute.length;
-            if (!text.startsWith('="', at)) reject(`属性 ${attribute} 的值要写成 =\"…\"`);
-            const close = text.indexOf('"', at + 2);
+            // 单引号也收：打包器（vite）内联 SVG 时会把双引号改成单引号，内置主题的图标就是这样到浏览器的。
+            const quote = text[at + 1];
+            if (text[at] !== "=" || (quote !== '"' && quote !== "'")) reject(`属性 ${attribute} 的值要写成 ="…" 或 ='…'`);
+            const close = text.indexOf(quote, at + 2);
             if (close === -1) reject(`属性 ${attribute} 的值没有闭合`);
             const value = text.slice(at + 2, close);
             if (FORBIDDEN_VALUE.test(value)) reject(`属性 ${attribute} 的值不收 & < 反斜杠 url( javascript:`);

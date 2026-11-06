@@ -218,6 +218,36 @@ test("场景提供者外置（theme.skins 输出 18）：主题的场景图由�
     }
 });
 
+test("编辑器里选场景提供者（theme.editor 输出 20）：下拉列出已发布的提供者，选中后预览用它画的图，“无”去掉；声明里未发布的提供者保留并标“未发布”", async ({page}) => {
+    const stateRoot = await stateRootWith("scene-clock-editor", [sceneClock]);
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "light"}));
+    const server: ProductServer = await startProductServer(stateRoot);
+    const sceneVar = (): Promise<string> => page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+    const provider = page.locator("[data-scene-provider]").getByRole("combobox");
+    try {
+        await page.goto(bookUrl(server.url));
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await page.getByRole("menuitem", {name: "视图"}).click();
+        await page.getByRole("menuitem", {name: "打开主题编辑器", exact: true}).click();
+        await page.locator("[data-new-empty]").click();
+        await page.locator("[data-section-tab=scene]").click();
+
+        // 已发布的提供者在下拉里（显示贡献 id）；选中后预览的场景是它画的 blob 图。
+        await provider.click();
+        await expect(page.getByRole("option", {name: "example.scene-clock.sky-painter"})).toBeVisible();
+        await page.getByRole("option", {name: "example.scene-clock.sky-painter"}).click();
+        await expect.poll(sceneVar).toMatch(/^url\("blob:/u);
+
+        // “无”：声明里去掉提供者，没有后备图时场景也没了。
+        await provider.click();
+        await page.getByRole("option", {name: "无", exact: true}).click();
+        await expect.poll(sceneVar).toBe("");
+    } finally {
+        await page.goto("about:blank");
+        expect(await server.stop()).toBe(0);
+    }
+});
+
 /**
  * 手写的场景提供者插件（不经构建预设）：两个提供者、两个主题。`broken` 交出解不开的“图片”，主题带后备图；`refresh` 画 1×1 的图并在
  * 半秒后过期，重画时尺寸加一，所以每次的 blob 地址与内容都不同。

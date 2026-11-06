@@ -493,7 +493,7 @@
             "imported": "已导入 {{count}} 套主题",
             "importFailed": "导入失败：{{reason}}",
             "unexpected": "出了点意外：{{reason}}",
-            "copyFailed": "复制失败：读不到或传不上场景图 {{reason}}"
+            "copyFailed": "复制失败：读不到或传不上素材 {{reason}}"
         },
         "rejected": {
             "titleEmpty": "标题不能为空，没有写入",

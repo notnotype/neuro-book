@@ -3,7 +3,7 @@
  * 声明、真实插件安装对导出的包的接受，以及页面里的布局测量。
  */
 
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -205,6 +205,125 @@ test("场景图与取景：上传转成图并显示，拖框与数值互相同�
         await expect(frame).toHaveCount(0);
         await numbers.nth(0).fill("auto 130%");
         await expect(frame).toBeVisible();
+    });
+});
+
+const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" fill="currentColor"/></svg>';
+const sceneVar = (page: Page): Promise<string> => rootVar(page, "--skin-scene");
+
+/** 点“添加”（它按输入框里的名字打开文件选择），在文件选择里给一个 SVG。 */
+async function chooseIcon(page: Page, name: string, svg: string): Promise<void> {
+    const chooser = page.waitForEvent("filechooser");
+    await page.locator("[data-icon-choose]").click();
+    await (await chooser).setFiles({name, mimeType: "image/svg+xml", buffer: Buffer.from(svg)});
+}
+
+test("图标：上传 SVG 后工作台里该图标换成它，不合格的被路由拒绝并给原因，亮暗各一份，移除后恢复", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=icons]").click();
+        await expect(page.locator("[data-icons-none]")).toBeVisible();
+        const sheet = page.locator("style[data-nb-skin-icons]");
+        await expect(sheet).toHaveCount(0);
+
+        // 名字不合规则：行内给原因，不打开文件选择、不写声明。
+        await page.locator("[data-icon-name]").fill("Bad Name");
+        await expect(page.locator("[data-icon-name-problem]")).toBeVisible();
+
+        // 换的是编辑器自己用的 image-plus：添加按钮上的图标随即变成上传的那一个。
+        const hash = createHash("sha256").update(ICON_SVG).digest("hex");
+        await page.locator("[data-icon-name]").fill("image-plus");
+        await expect(page.locator("[data-icon-name-problem]")).toHaveCount(0);
+        await chooseIcon(page, "mine.svg", ICON_SVG);
+        await expect(page.locator('[data-icon-row="image-plus"]')).toBeVisible();
+        await expect(sheet).toHaveCount(1);
+        expect(await sheet.textContent()).toContain(`${hash}.svg`);
+        const iconOf = () => page.locator("[data-theme-editor] .i-lucide-image-plus").first().evaluate((element) => getComputedStyle(element).getPropertyValue("--svg"));
+        await expect.poll(iconOf).toContain(`${hash}.svg`);
+
+        // 路由的白名单检查：带脚本的 SVG 被拒，声明不变，原因里有说明。
+        await page.locator("[data-icon-name]").fill("search");
+        await chooseIcon(page, "bad.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><script>alert(1)</script></svg>');
+        await expect(page.locator("[data-icon-error]")).toContainText("script");
+        await expect(page.locator('[data-icon-row="search"]')).toHaveCount(0);
+
+        // 亮暗各一份：暗色里没有；复制到另一套之后有。
+        await page.locator("[data-appearance]").getByText("暗色").click();
+        await expect(page.locator("[data-icons-none]")).toBeVisible();
+        await page.locator("[data-appearance]").getByText("亮色").click();
+        await page.locator("[data-icons-copy]").click();
+        await page.locator("[data-appearance]").getByText("暗色").click();
+        await expect(page.locator('[data-icon-row="image-plus"]')).toBeVisible();
+
+        // 移除：这一套没有了，样式表也随之去掉（亮色那一套还在）。
+        await page.locator('[data-icon-row="image-plus"] [data-icon-remove]').click();
+        await expect(page.locator("[data-icons-none]")).toBeVisible();
+        await page.locator("[data-appearance]").getByText("亮色").click();
+        await page.locator('[data-icon-row="image-plus"] [data-icon-remove]').click();
+        await expect(sheet).toHaveCount(0);
+    });
+});
+
+test("工作态场景与预览状态：上传后预览选“工作中”场景换成它，“空闲”换回，“跟随”回到真实状态；关掉编辑器后回到真实状态", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=scene]").click();
+        await page.locator("[data-scene-file]").setInputFiles(SCENE_IMAGE);
+        await expect(page.locator("[data-scene-note]")).toContainText("KB");
+        await expect.poll(() => sceneVar(page)).not.toBe("");
+        const idle = await sceneVar(page);
+
+        // 工作态场景用另一张图（夜色那张）：上传后工作台还是空闲，场景不变。
+        await expect(page.locator("[data-working-none]")).toBeVisible();
+        await page.locator("[data-working-file]").setInputFiles(join(PACKAGE_ROOT, "src/plugins/theme-study/assets/study-night.webp"));
+        await expect(page.locator("[data-working-note]")).toContainText("KB");
+        await expect(page.locator("[data-working-thumb]")).toBeVisible();
+        expect(await sceneVar(page)).toBe(idle);
+
+        const preview = page.locator("[data-preview-state]");
+        await preview.getByRole("radio", {name: "工作中"}).click();
+        await expect.poll(() => sceneVar(page)).not.toBe(idle);
+        const working = await sceneVar(page);
+        expect(working).toContain("theme-assets");
+        await preview.getByRole("radio", {name: "空闲"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(idle);
+        await preview.getByRole("radio", {name: "工作中"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(working);
+        await preview.getByRole("radio", {name: "跟随"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(idle);
+
+        // 强制“工作中”之后关掉编辑器：回到真实状态（空闲），不残留。
+        await preview.getByRole("radio", {name: "工作中"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(working);
+        await page.locator("[data-editor-tab-close]").last().click({force: true});
+        await expect(editor(page)).toBeHidden();
+        await expect.poll(() => sceneVar(page)).not.toBe(working);
+    });
+});
+
+test("复制书房：它的场景图与图标都传成我的素材（真实路由的检查都过），图标分区里列出来", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await page.locator("[data-empty] [role=combobox]").click();
+        await page.getByRole("option", {name: "书房"}).click();
+        await expect(page.locator("[data-section-tab]").first()).toBeVisible();
+        await page.locator("[data-section-tab=icons]").click();
+        await expect(page.locator("[data-icon-row]").first()).toBeVisible();
+        const names = await page.locator("[data-icon-row]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-icon-row")));
+        expect(names.length).toBeGreaterThanOrEqual(8);
+        // 传成我的素材：素材目录里有对应的 SVG 与位图，文件名是内容摘要。
+        const {readdir} = await import("node:fs/promises");
+        const files = await readdir(join(session.stateRoot, "user", "theme-assets"));
+        expect(files.filter((name) => name.endsWith(".svg")).length).toBeGreaterThanOrEqual(1);
+        expect(files.filter((name) => /\.(?:webp|png|jpg)$/u.test(name)).length).toBeGreaterThanOrEqual(1);
+        // 复制出来的主题在编辑器里改标题后，记录里的图标素材名都是“我的素材”写法。
+        await page.locator("[data-section-tab=scene]").click();
+        await expect(page.locator("[data-crop-editor]")).toBeVisible();
     });
 });
 

@@ -33,6 +33,12 @@ describe("合格的图标", () => {
         expect(rejected).toEqual([]);
     });
 
+    it("单引号的属性值也收：打包器内联后的 SVG 就是这样的（内置主题的图标到浏览器时是 data: 地址）", () => {
+        expect(ok("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='#000'><path d='M0 0h4'/></svg>")).toEqual({ok: true});
+        expect(ok("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M0 0' fill='url(#a)'/></svg>").ok).toBe(false);
+        expect(ok("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M0 0\"' onclick='x'/></svg>").ok).toBe(false);
+    });
+
     it("可带 XML 声明、元素之间的空白、title 与 desc 的文字、嵌套的 g", () => {
         expect(ok(`<?xml version="1.0" encoding="UTF-8"?>\n${wrap('\n  <title>文件</title>\n  <desc>示意</desc>\n  <g transform="translate(1 1)"><path d="M0 0h4"/></g>\n')}\n`)).toEqual({ok: true});
     });
@@ -60,7 +66,8 @@ describe("拒绝", () => {
         ["值里的实体", wrap('<path d="M0 0" fill="&#117;rl(x)"/>')],
         ["值里的 CSS 转义", wrap('<path d="M0 0" fill="u\\72l(x)"/>')],
         ["值里的 <", wrap('<path d="M0 0" fill="a<b"/>')],
-        ["单引号的值", wrap("<path d='M0 0'/>")],
+        ["值没有引号", wrap("<path d=M0/>")],
+        ["值的引号没有闭合", wrap('<path d="M0/>')],
         ["重复属性", wrap('<path d="M0 0" d="M1 1"/>')],
         ["带命名空间前缀的元素", wrap("<svg:path/>")],
         ["不认识的属性", wrap('<path d="M0 0" data-x="1"/>')],

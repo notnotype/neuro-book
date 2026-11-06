@@ -357,6 +357,7 @@ const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-
     "state.auxiliaryBarVisible.reason": {"en-US": "The secondary side bar is hidden or dragged closed"},
     "shell.moveTo": {"en-US": "Move to"},
     "shell.drop.mergeContainer_one": {"en-US": "Merge {count} view"},
+    "themeEditor.transfer.copyFailed": {"zh-CN": "复制失败：读不到或传不上素材 {reason}", "en-US": "Copy failed: the asset {reason} could not be read or uploaded"},
 };
 
 const EXPECTED = {...LEGACY, ...RUNTIME};

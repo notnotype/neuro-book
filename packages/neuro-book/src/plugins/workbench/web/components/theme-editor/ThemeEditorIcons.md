@@ -1,5 +1,5 @@
 ---
-标签: [state:local, io:mutate]
+标签: [state:local, state:inject, io:mutate]
 别名: ["主题编辑器的图标分区", "Theme Editor Icons"]
 验证入口: ThemeEditor
 ---

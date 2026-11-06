@@ -494,7 +494,7 @@
             "imported": "Themes imported: {{count}}",
             "importFailed": "Import failed: {{reason}}",
             "unexpected": "Something went wrong: {{reason}}",
-            "copyFailed": "Copy failed: the scene image {{reason}} could not be read or uploaded"
+            "copyFailed": "Copy failed: the asset {{reason}} could not be read or uploaded"
         },
         "rejected": {
             "titleEmpty": "The title cannot be empty; nothing was saved",
