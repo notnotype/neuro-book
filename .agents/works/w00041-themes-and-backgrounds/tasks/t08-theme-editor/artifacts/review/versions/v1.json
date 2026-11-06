@@ -1,0 +1,157 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t08-theme-editor",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "主题编辑器：范围与结构",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "a33bddeb245c3c1c3c4f9ac2f3afe713e860657c8bed6898894979d5037ac6be",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "r1-home",
+            "type": "single",
+            "label": "用户做的主题存在哪里、怎么生效",
+            "options": [
+                {
+                    "value": "library",
+                    "label": "A：“我的主题”库，存在用户数据里，改完即时生效"
+                },
+                {
+                    "value": "plugin",
+                    "label": "B：直接生成成第三方插件"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "library"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-entry",
+            "type": "single",
+            "label": "编辑器放在哪里",
+            "options": [
+                {
+                    "value": "tab",
+                    "label": "A：编辑区里的一个页签（和欢迎页一样的页面）"
+                },
+                {
+                    "value": "settings",
+                    "label": "B：设置窗口里的一页"
+                },
+                {
+                    "value": "page",
+                    "label": "C：独立的全屏页面（像书架页）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "tab"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r3-palette",
+            "type": "single",
+            "label": "配色怎么编",
+            "options": [
+                {
+                    "value": "derive",
+                    "label": "A：先选几个主色，一键推导整套，再逐项微调"
+                },
+                {
+                    "value": "manual",
+                    "label": "B：只做逐项手调"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "derive"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r4-crop",
+            "type": "single",
+            "label": "场景图在各位置的取景怎么编",
+            "options": [
+                {
+                    "value": "drag",
+                    "label": "A：在原图上拖出取景框，所见即所得"
+                },
+                {
+                    "value": "numeric",
+                    "label": "B：只填数值（大小、位置）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "drag"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r5-share",
+            "type": "single",
+            "label": "分享与导入",
+            "options": [
+                {
+                    "value": "zip",
+                    "label": "A：导出成可安装的主题插件（zip），也能把插件里的主题导入编辑"
+                },
+                {
+                    "value": "json",
+                    "label": "B：只导出一个 JSON 声明文件"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "zip"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r-notes",
+            "type": "text",
+            "label": "还有什么想说的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-06T04:40:55.087Z"
+}
