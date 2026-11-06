@@ -28,6 +28,7 @@ const inText = (w: PlotWorld, chapterId: string, quote: string, marks: Mark[] = 
 function harness(instructions: ReadonlyMap<string, InstructionSnapshot> = new Map()) {
     const records = new Map<string, CheckRecord>();
     const stored = new Map<string, CheckDependencies>();
+    const warnings: string[] = [];
     const recordDigest = (record: CheckRecord) => digest(JSON.stringify(record));
     const empty = {get: () => undefined, digestOf: () => undefined};
     const source = createCheckSource({
@@ -42,6 +43,7 @@ function harness(instructions: ReadonlyMap<string, InstructionSnapshot> = new Ma
             const current = records.get(updated.chapter);
             if (current !== undefined && recordDigest(current) === updated.of) stored.set(updated.chapter, updated);
         },
+        warn: (event, detail) => warnings.push(`${event} ${detail}`),
     });
     const check = async (w: PlotWorld, chapterId: string) => {
         const instruction = instructions.get(chapterId);
@@ -51,7 +53,7 @@ function harness(instructions: ReadonlyMap<string, InstructionSnapshot> = new Ma
         records.set(chapterId, record);
         stored.set(chapterId, {chapter: chapterId, of: recordDigest(record), dependencies: source.dependencies(w.view(), chapterId, [], plan) ?? "", points: [...plan.points], concerns: [...plan.concerns]});
     };
-    return {records, stored, source, check};
+    return {records, stored, warnings, source, check, recordDigest};
 }
 
 describe("回写以后", () => {
@@ -139,6 +141,64 @@ describe("备忘要认记录", () => {
         records.set("ch4", secondRecord);
         expect(isValid({view: w.view(), record: secondRecord, digest})).toBe(false);
         expect(source.valid(w.view(), secondRecord)).toBe(false);
+    });
+});
+
+describe("抽样复核：摘要漏了也不会一直错下去", () => {
+    /** 几章都有记录，再把摘要改成“对得上现在的世界”却保留旧记录：这就是摘要漏项时的样子。 */
+    async function leaked(chapters: readonly string[]) {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const guard = w.person("卫兵");
+        const k = w.point("勇者左手有星形的疤", hero, {保密: "secret"});
+        for (const id of chapters) {
+            w.texts.set(id, "勇者走进客栈，卫兵盘问。\n");
+            w.change(chapter(id), {cast: [present(guard)]});
+        }
+        const scene = harness();
+        for (const id of chapters) await scene.check(w, id);
+        // 卫兵知情了：每章的候选都少一个，记录都过期。
+        w.change(chapter("ch1"), {patches: [addRow(guard, k, {程度: "knows", 怎么知道: "witnessed"})]});
+        for (const id of chapters) {
+            const row = scene.stored.get(id)!;
+            scene.stored.set(id, {...row, dependencies: scene.source.dependencies(w.view(), id, [], row) ?? ""});
+        }
+        return {w, ...scene};
+    }
+
+    test("抽到的章按重拼的结论，记一条诊断；摘要写成对不上的值，重启以后也不走它", async () => {
+        const {w, records, stored, warnings, source} = await leaked(["ch4"]);
+        const record = records.get("ch4")!;
+        expect(isValid({view: w.view(), record, digest})).toBe(false);
+        expect(source.valid(w.view(), record)).toBe(false);
+        expect(warnings.filter((text) => text.startsWith("plot.check.digest-mismatch ch4"))).toHaveLength(1);
+        expect(stored.get("ch4")!.dependencies).toBe("distrusted");
+        // 同一张视图再读一次、换一张视图再读：都不再信这份摘要，也不重复报。
+        expect(source.valid(w.view(), record)).toBe(false);
+        expect(warnings).toHaveLength(1);
+    });
+
+    test("每张新视图抽两章，按章轮流：几次发布以后全部抽到；这一张视图上没抽到的章还是摘要的结论", async () => {
+        const chapters = ["ch2", "ch3", "ch4", "ch5", "ch6"];
+        const {w, records, source} = await leaked(chapters);
+        const readAll = () => {
+            const view = w.view();
+            return chapters.filter((id) => !source.valid(view, records.get(id)!));
+        };
+        expect(readAll()).toHaveLength(2);
+        expect(readAll()).toHaveLength(4);
+        expect(readAll()).toHaveLength(5);
+    });
+
+    test("结论对的章：抽到了也不报，不回写", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        w.texts.set("ch4", "天黑了。\n");
+        const {records, stored, warnings, source, check} = harness();
+        await check(w, "ch4");
+        const before = stored.get("ch4");
+        expect(source.valid(w.view(), records.get("ch4")!)).toBe(true);
+        expect(warnings).toEqual([]);
+        expect(stored.get("ch4")).toBe(before);
     });
 });
 

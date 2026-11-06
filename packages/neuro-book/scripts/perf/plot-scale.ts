@@ -275,7 +275,7 @@ const recordDigest = (record: CheckRecord) => {
     return made;
 };
 const dependenciesByChapter = new Map<string, CheckDependencies>();
-const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, writeBack: (updated) => {
+const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, warn: (event, detail) => { throw new Error(`${event} ${detail}`); }, writeBack: (updated) => {
     dependenciesByChapter.set(updated.chapter, updated);
 }});
 const planned: number[] = [];
@@ -369,7 +369,7 @@ checkReports.push(await scenario("(i) 新建一个知识点，没写出场", () 
 checkReports.push(await scenario("(j) 新建一个知识点，出场在最新一章", () => plot.entry({...drafts.point("tmp:latest", "最新的秘密", person(5), {保密: "secret"}), appears: {kind: "chapter", chapter: last, key: 0}})));
 // (d) 重启后第一次读：对象摘要的缓存是空的（换一个摘要函数），结论的缓存也是空的。
 const coldDigest = (text: string) => sha(text);
-const coldSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: coldDigest, writeBack: () => undefined});
+const coldSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: coldDigest, warn: (event, detail) => { throw new Error(`${event} ${detail}`); }, writeBack: () => undefined});
 const coldBegin = performance.now();
 const coldFold = coldSource.dependencies(service.snapshot().view, last, [], {points: [], concerns: []});
 const coldMs = performance.now() - coldBegin;

@@ -248,6 +248,7 @@ export const plotProjectPlugin: PluginDefinition = {
                 pluginVersion: descriptor.version,
                 digest,
                 writeBack: writeBackDependencies(store, records, dependencyTable, warn),
+                warn,
             });
             canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? {...instructionDiagnostics(instructions), ...checkDiagnostics(source, digest)} : {})}, dataVersion: store.dataVersion});
             const checks = createChecks({canon, store, instructions, selfReports, checks: records, dependencies: dependencyTable, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps, concerned) => source.dependencies(view, chapter, followUps, concerned) ?? "", changed: report, stop: context.signal, warn});

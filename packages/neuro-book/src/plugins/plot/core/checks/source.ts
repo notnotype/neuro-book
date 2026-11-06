@@ -37,6 +37,8 @@ export interface SourceInput {
     readonly digest: Digest;
     /** 仍有效时把新摘要写回去。调用方排队，轮到时表里还是 `of` 那条记录才写：期间跑了新的检查，这份摘要就不是它的。 */
     readonly writeBack: (updated: CheckDependencies) => void;
+    /** 抽样复核发现摘要的结论与重拼不同：记一条诊断，这是依赖摘要的 bug。 */
+    readonly warn: (event: string, detail: string) => void;
 }
 
 export interface FullCheckSource extends CheckSource {
@@ -45,11 +47,29 @@ export interface FullCheckSource extends CheckSource {
 }
 
 const NOTHING: Concerned = {points: [], concerns: []};
+const AUDITS_PER_VIEW = 2;
+/** 永远对不上的摘要：抽样复核发现这条记录的摘要不可信时写回去。 */
+const DISTRUSTED = "distrusted";
 
 export function createCheckSource(input: SourceInput): FullCheckSource {
     const {instructions, selfReports, digest} = input;
     // 结论是“重拼的计划与这条记录比”的结果：记录没变（`of`）、这份计划读的东西没变（按它涉及的条目算的摘要），结论就没变。
     const verdicts = new Map<string, {readonly of: string; readonly concerned: Concerned; readonly dependencies: string | null; readonly valid: boolean}>();
+    const distrusted = new Set<string>();
+    // 抽样复核：每张新视图重拼几章，与摘要的结论比（输出 7）。依赖摘要是对“计划读了什么”的推理，漏过几次（dependencies.ts）；漏了的话旧结论会一直报下去，不提示要重跑。按章轮流抽，
+    // 一千章每次发布抽两章，几百次发布轮一遍；别的章的结论不受影响。
+    const audits = new WeakMap<CanonReadView, Set<string>>();
+    let auditCursor = 0;
+    const auditsOf = (view: CanonReadView): Set<string> => {
+        let picked = audits.get(view);
+        if (picked === undefined) {
+            const rows = input.records.all();
+            picked = new Set(Array.from({length: Math.min(AUDITS_PER_VIEW, rows.length)}, (_, index) => rows[(auditCursor + index) % rows.length]!.chapter));
+            auditCursor = rows.length === 0 ? 0 : (auditCursor + AUDITS_PER_VIEW) % rows.length;
+            audits.set(view, picked);
+        }
+        return picked;
+    };
     const dependencies: FullCheckSource["dependencies"] = (view, chapter, followUps, concerned) => {
         const instruction = instructions.get(chapter);
         const instructionDigest = instructions.digestOf(chapter);
@@ -63,13 +83,17 @@ export function createCheckSource(input: SourceInput): FullCheckSource {
             const {chapter, followUps} = record;
             const of = input.recordDigest(record);
             const stored = input.dependencies.get(chapter);
-            if (stored?.of === of) {
+            const memo = verdicts.get(chapter);
+            // 摘要能回答就不重拼。章不在章序里时摘要是 null，计划也读不到它。
+            let answer: boolean | null = null;
+            if (stored?.of === of && !distrusted.has(of)) {
                 const current = dependencies(view, chapter, followUps, stored);
                 if (current === null) return false;
-                if (current === stored.dependencies) return true;
+                if (current === stored.dependencies) answer = true;
             }
-            const memo = verdicts.get(chapter);
-            if (memo !== undefined && memo.of === of && memo.dependencies !== null && dependencies(view, chapter, followUps, memo.concerned) === memo.dependencies) return memo.valid;
+            if (answer === null && memo !== undefined && memo.of === of && memo.dependencies !== null && dependencies(view, chapter, followUps, memo.concerned) === memo.dependencies) answer = memo.valid;
+            if (answer !== null && !auditsOf(view).delete(chapter)) return answer;
+
             const instruction = instructions.get(chapter);
             const selfReport = selfReports.get(chapter);
             const {valid, plan} = validityOf({view, record, digest, ...(instruction === undefined ? {} : {instruction}), ...(selfReport === undefined ? {} : {selfReport})});
@@ -77,8 +101,14 @@ export function createCheckSource(input: SourceInput): FullCheckSource {
             const concerned = plan === null ? NOTHING : {points: plan.points, concerns: plan.concerns};
             const next = dependencies(view, chapter, followUps, concerned);
             verdicts.set(chapter, {of, concerned, dependencies: next, valid});
+            if (answer !== null && answer !== valid) input.warn("plot.check.digest-mismatch", `${chapter}：摘要的结论是 ${String(answer)}，重拼是 ${String(valid)}`);
+            if (answer === true && !valid) {
+                // 这份摘要不可信：回写之前的这段时间也不走它；写一个对不上的值，重启以后同样不走它。
+                distrusted.add(of);
+                if (stored !== undefined) input.writeBack({...stored, dependencies: DISTRUSTED});
+            }
             // 回写现在涉及的知识点与条目，连同按它们算的摘要：只换摘要的话，之后才进本章的知识点、条目上的改动就看不见了。
-            if (valid && plan !== null && next !== null) input.writeBack({chapter, of, dependencies: next, points: [...plan.points], concerns: [...plan.concerns]});
+            if (valid && plan !== null && next !== null && next !== stored?.dependencies) input.writeBack({chapter, of, dependencies: next, points: [...plan.points], concerns: [...plan.concerns]});
             return valid;
         },
     };
