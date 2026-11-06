@@ -14,7 +14,10 @@ import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 import {pageOf} from "@notnotype/nb-canon/node";
 import type {CanonReadView, Mode, ReadPosition} from "@notnotype/nb-canon/schema";
 
+import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
+
 import {CANON_BUDGET_BYTES, canonProjectKey, encodedBytes} from "nbook/plugins/canon/shared/contracts";
+import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {foreshadowDiagnostics, ledger} from "../core/foreshadowing";
@@ -30,10 +33,9 @@ import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
 import {plotWorldContract} from "../shared/contracts";
-import {plotInstructionsContract} from "../shared/instructions";
-import {InstructionTable, PLOT_DATA_VERSION} from "./instructions";
-
-export {PLOT_DATA_VERSION};
+import {plotChecksContract, SelfReportSchema, type SelfReport} from "../shared/checks";
+import {InstructionSnapshotSchema, plotInstructionsContract, type InstructionSnapshot} from "../shared/instructions";
+import {PlotStore, type ChapterTable} from "./store";
 
 
 type Failure = {readonly ok: false; readonly code: "plot"; readonly detail: {readonly code: string}};
@@ -75,7 +77,7 @@ type Viewpoints = Map<string, {readonly token: string; readonly grant: Viewpoint
 const CLOSED_KEPT = 100;
 let viewpointSequence = 0;
 
-function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: InstructionTable): RemoteImplementation<typeof plotWorldContract> {
+function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: ChapterTable<InstructionSnapshot> | null): RemoteImplementation<typeof plotWorldContract> {
     const closed = new Map<string, {readonly viewer: string | null; readonly purpose: string}>();
     /** 取一份快照，在同一个同步段里算完。 */
     const withView = async <R>(run: (view: CanonReadView) => R): Promise<R | Failure> => {
@@ -176,7 +178,7 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: I
                 return typeof result === "string" ? fail(result) : fitted({version: main.version, inputDigest: main.stamp.inputDigest, ...result});
             }),
             brief: (input) => withView((main) => {
-                const result = composeBrief({view: main, chapter: input.chapter, outline: input.outline, targetWords: input.targetWords, pluginVersion: descriptor.version, digest, instruction: instructions.get(input.chapter), ...(input.limits === undefined ? {} : {limits: input.limits})});
+                const result = composeBrief({view: main, chapter: input.chapter, outline: input.outline, targetWords: input.targetWords, pluginVersion: descriptor.version, digest, instruction: instructions?.get(input.chapter), ...(input.limits === undefined ? {} : {limits: input.limits})});
                 return typeof result === "string" ? fail(result) : fitted({version: main.version, ...result});
             }),
             openViewpoint: async (input) => {
@@ -215,18 +217,26 @@ export const plotProjectPlugin: PluginDefinition = {
         id: "project",
         location: "project",
         activationEvents: ["onStartup"],
-        dependencies: [{key: canonProjectKey}],
-        remoteProvides: [plotWorldContract, plotInstructionsContract],
-        activate: (context) => {
+        dependencies: [{key: canonProjectKey}, {key: storageKey}, {key: diagnosticsKey}],
+        remoteProvides: [plotWorldContract, plotInstructionsContract, plotChecksContract],
+        activate: async (context) => {
             const canon = context.services.require(canonProjectKey);
-            // 写作指示快照表：这个项目实例的所有调用方与诊断计算共用（闭包里，不放模块级）。
-            const instructions = new InstructionTable();
-            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...instructionDiagnostics(instructions)}, dataVersion: instructions.dataVersion});
+            const diagnostics = context.services.require(diagnosticsKey);
+            const warn = (event: string, detail: string) => void diagnostics.record({level: "warn", event, message: detail, source: {plugin: descriptor.id}});
+            // 落盘的表（这个项目实例的所有调用方与诊断计算共用，放在闭包里，不放模块级：同一进程里可以有几个项目）。读完才登记：读完之前
+            // 剧情的诊断是“不完整”，不是“查过，没有发现”。读不出来时依赖这几张表的诊断不登记，一直标“不完整”。
+            const store = new PlotStore(context.services.require(storageKey), warn);
+            const instructions = store.table<InstructionSnapshot>({key: "plot-instruction", shape: 1, schema: InstructionSnapshotSchema});
+            const selfReports = store.table<SelfReport>({key: "plot-self-report", shape: 1, schema: SelfReportSchema});
+            const failed = await store.load();
+            const usable = failed === null;
+            if (!usable) warn("plot.store.unavailable", `${failed.code}: ${failed.detail}`);
+            canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? instructionDiagnostics(instructions) : {})}, dataVersion: store.dataVersion});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();
             const remote = provideRemote(plotWorldContract, () => {
                 const viewpoints: Viewpoints = new Map();
-                const implementation = remotePlot(canon, viewpoints, instructions);
+                const implementation = remotePlot(canon, viewpoints, usable ? instructions : null);
                 owned.set(implementation, viewpoints);
                 return implementation;
             }, {
@@ -237,23 +247,45 @@ export const plotProjectPlugin: PluginDefinition = {
                     viewpoints.clear();
                 },
             });
+            /** 写存储的失败码原样放进详情（`too-large` 等）；读不出来时写不进去。 */
             const instructionsRemote = provideRemote(plotInstructionsContract, () => ({
                 methods: {
-                    put: (input) => {
+                    put: async (input) => {
+                        if (!usable) return fail("storage-unavailable");
                         // 单条消息的上限：整份快照一次装不下就拒（按章推，不要整书推）。
                         if (encodedBytes(input) > CANON_BUDGET_BYTES) return fail("too-large");
                         // 快照自带的章要与推送的章一致（否则表里的键与内容对不上）。
                         if (input.snapshot !== null && input.snapshot.chapter !== input.chapter) return fail("chapter-mismatch");
-                        const result = instructions.put(input.chapter, input.snapshot, input.base);
-                        if (!result.ok) return fail(result.code);
-                        if (result.changed) canon.reportDataVersion(result.dataVersion);
-                        return {ok: true as const, value: {dataVersion: result.dataVersion}};
+                        return store.queued(async () => {
+                            if (input.base !== undefined && input.base !== instructions.version) return fail("instructions-conflict");
+                            const before = store.dataVersion;
+                            const written = await store.write(instructions, input.chapter, input.snapshot);
+                            if (!written.ok) return fail(written.code);
+                            if (store.dataVersion !== before) canon.reportDataVersion(store.dataVersion);
+                            return {ok: true as const, value: {dataVersion: instructions.version}};
+                        });
                     },
-                    current: () => ({ok: true as const, value: {dataVersion: instructions.dataVersion}}),
+                    current: () => ({ok: true as const, value: {dataVersion: instructions.version}}),
                 },
                 events: {},
             }));
-            return {remote: [remote, instructionsRemote]};
+            const checksRemote = provideRemote(plotChecksContract, () => ({
+                methods: {
+                    putSelfReport: async (input) => {
+                        if (!usable) return fail("storage-unavailable");
+                        if (input.value !== null && input.value.chapter !== input.chapter) return fail("chapter-mismatch");
+                        return store.queued(async () => {
+                            const before = store.dataVersion;
+                            const written = await store.write(selfReports, input.chapter, input.value);
+                            if (!written.ok) return fail(written.code);
+                            if (store.dataVersion !== before) canon.reportDataVersion(store.dataVersion);
+                            return {ok: true as const, value: {dataVersion: store.dataVersion}};
+                        });
+                    },
+                },
+                events: {},
+            }));
+            return {remote: [remote, instructionsRemote, checksRemote]};
         },
     })],
 };

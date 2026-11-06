@@ -1,6 +1,5 @@
 import {describe, expect, test} from "bun:test";
 
-import {InstructionTable} from "../backend/instructions";
 import {INSTRUCTION_DIAGNOSTIC_IDS} from "../shared/declarations";
 import type {InstructionSnapshot} from "../shared/instructions";
 import {chapter, drafts, end, PlotWorld, present} from "../testing/world";
@@ -9,9 +8,7 @@ import {instructionDiagnostics} from "./instruction-checks";
 const CHAPTERS = Array.from({length: 12}, (_, index) => `ch${String(index + 1)}`);
 const snap = (chapterId: string, extra: Partial<InstructionSnapshot> = {}): InstructionSnapshot => ({chapter: chapterId, version: "v1", ...extra});
 function setup(snapshots: InstructionSnapshot[]) {
-    const table = new InstructionTable();
-    for (const snapshot of snapshots) table.put(snapshot.chapter, snapshot);
-    const diagnostics = instructionDiagnostics(table);
+    const diagnostics = instructionDiagnostics({all: () => snapshots});
     return (w: PlotWorld, id: keyof typeof INSTRUCTION_DIAGNOSTIC_IDS, at = end("ch12")) => diagnostics[INSTRUCTION_DIAGNOSTIC_IDS[id]]!(w.view(), at, "actual");
 }
 

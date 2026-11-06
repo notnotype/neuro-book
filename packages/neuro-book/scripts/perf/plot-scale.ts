@@ -22,7 +22,7 @@ import {join} from "node:path";
 
 import type {Mark, ReadPosition, TellingDraft, WriteRequest} from "@notnotype/nb-canon";
 
-import {InstructionTable} from "nbook/plugins/plot/backend/instructions";
+import type {InstructionSnapshot} from "nbook/plugins/plot/shared/instructions";
 import {beforeWriting} from "nbook/plugins/plot/core/before-writing";
 import {composeBrief} from "nbook/plugins/plot/core/brief";
 import {decisionDiagnostics} from "nbook/plugins/plot/core/decisions";
@@ -125,9 +125,9 @@ for (let i = 0; i < 30; i += 1) await plot.decision(`待定 ${String(i)}`, {abou
 for (let i = 0; i < 100; i += 1) await plot.decision(`已定 ${String(i)}`, {about: [{kind: "entry", id: person(i)}], conclusion: "照此写", reason: "作者定的"});
 const forkPuts: WriteRequest["puts"] = forkCuts.map((cut, index) => ({ref: {kind: "change" as const, id: `tmp:fork${String(index)}`}, after: {...drafts.change(`tmp:fork${String(index)}`, {kind: "chapter", chapter: chapterIds.at(-1)!, key: 500 + index}), nature: "fork" as const, fork: {line: `tmp:line${String(index)}`, name: `分叉${String(index)}`, parent: "main", cut, type: "branch" as const}}}));
 await plot.publish(forkPuts);
-const instructions = new InstructionTable();
-for (let n = 1; n <= Math.min(100, chapters); n += 1) instructions.put(chapterIds[n - 1]!, {chapter: chapterIds[n - 1]!, version: "v1", pov: {kind: "entry", id: person(n)}, avoid: ["别写天气"], other: n % 2 === 0 ? "语气冷一点" : "语气暖一点"});
-const allCompute = {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics((text) => new Bun.CryptoHasher("sha256").update(text).digest("hex")), ...instructionDiagnostics(instructions)};
+const instructions = new Map<string, InstructionSnapshot>();
+for (let n = 1; n <= Math.min(100, chapters); n += 1) instructions.set(chapterIds[n - 1]!, {chapter: chapterIds[n - 1]!, version: "v1", pov: {kind: "entry", id: person(n)}, avoid: ["别写天气"], other: n % 2 === 0 ? "语气冷一点" : "语气暖一点"});
+const allCompute = {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics((text) => new Bun.CryptoHasher("sha256").update(text).digest("hex")), ...instructionDiagnostics({all: () => [...instructions.values()]})};
 
 // ---------- 读待处理时剧情插件全部诊断 ----------
 // 产品里剧情插件的项目入口经 canon 的项目内接口登记；这里直接在服务上登记同一组计算。

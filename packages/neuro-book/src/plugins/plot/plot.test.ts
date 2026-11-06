@@ -15,7 +15,7 @@ import type {Entry, StoryChangeDraft, WriteRequest} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {publish, serverPlugins, until, windowOf} from "nbook/plugins/canon/testing/harness";
-import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
+import {GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, revoked} from "nbook/server/testing/projects";
 
 import {plotWorldContract} from "./shared/contracts";
 import {plotInstructionsContract} from "./shared/instructions";
@@ -223,8 +223,25 @@ describe("剧情插件的远程合同", () => {
         expect(pending.ok && pending.value.complete).toBe(true);
         const brief = await caller.plot().brief({chapter: "1", outline: "细纲", targetWords: 100});
         expect(brief.ok && (brief.value as {record: {instructionVersion: string | null}}).record.instructionVersion).toBe("v1");
+        const before = await use.current({});
         await window.close();
         keep.release();
+        // 重启：项目实例换一代，写作指示从项目记录读回，数据版本相同（同内容同版本，canon 的游标不因重启作废）。
+        h.clock.advance(GRACE_MS);
+        await revoked(keep);
+        const again = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(2);
+        const caller2 = plotCaller();
+        const reopened = await windowOf(h, "browser-2b", "profile-2", [caller2.plugin, instructionsCaller]);
+        await until(async () => {
+            const status = await reopened.canon.call("status", {});
+            return status.ok && status.value.version >= 0;
+        });
+        expect(await instructions!.current({})).toEqual(before);
+        const afterRestart = await caller2.plot().brief({chapter: "1", outline: "细纲", targetWords: 100});
+        expect(afterRestart.ok && (afterRestart.value as {text: string}).text).toContain("语气：暖");
+        await reopened.close();
+        again.release();
     }, 30_000);
 });
 

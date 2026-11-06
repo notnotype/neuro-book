@@ -1,7 +1,7 @@
 /**
  * 章的写作指示的三项检查（docs/specs/plot/decisions.md 输出 8，提示）：视角人物不在场、补叙的安放对不上、写作指示反复出现。
- * 读写作指示快照表（`backend/instructions.ts`，宿主推进来的）。表是空的时没有东西可查，返回没有发现：没用写作指示的项目不该
- * 因此每次读待处理都标“不完整”。代价是快照不存盘，重启以后在宿主再推一次之前这三项提示会消失（存处随阶段 F）。
+ * 读写作指示快照表（`backend/store.ts`，宿主推进来的，落盘）。表是空的时没有东西可查，返回没有发现：没用写作指示的项目不该
+ * 因此每次读待处理都标“不完整”。
  *
  * 逐章的两项（视角人物、补叙）只在这一章讲的那条线的视图上报：快照是章的，别的线的视图里算出同一条发现没有意义。
  * 相关的已定决策（挂在本章或视角人物上）追加进发现的对象里（输出 7 的后半句）。
@@ -15,7 +15,6 @@ import {changeIndex} from "./change-index";
 
 /** 快照的来源（项目实例里的表）。 */
 export interface InstructionSource {
-    readonly empty: boolean;
     all(): readonly InstructionSnapshot[];
 }
 
