@@ -5,7 +5,7 @@
 import {barOfRef, barRef, GRID_SNAPSHOT_VERSION, insertTab, panelRef, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridOrientation, LayoutBar, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {SHELL_ACTIVITYBAR_WIDTH, SHELL_SIZE_DEFAULTS, SHELL_STATUSBAR_HEIGHT} from "../shell/sizes";
 
 /** 第一个编辑组的面板 id。 */

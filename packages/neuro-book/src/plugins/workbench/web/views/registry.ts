@@ -21,7 +21,9 @@ import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
 import type {ViewDeclaration} from "../../shared/views";
 import type {ViewImplementation} from "../contracts";
-import type {ViewCatalog} from "./placement";
+
+/** 视图声明目录：视图 id 到声明。布局模型靠它决定视图的默认位置、尺寸约束与顺序。 */
+export type ViewCatalog = ReadonlyMap<string, ViewDeclaration>;
 
 export type ViewDelivery =
     | {readonly kind: "declared"}

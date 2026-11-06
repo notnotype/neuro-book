@@ -24,10 +24,10 @@ export const VIEW_LOCATIONS = ["sidebar", "auxiliarybar", "panel"] as const;
 
 export type ViewLocation = (typeof VIEW_LOCATIONS)[number];
 
-/** 视图 id 与容器 id 的长度上限：布局记录用它们作键，容量估算以此为前提（ui/workbench-shell.md“副作用与数据”）。 */
+/** 视图 id 的长度上限：布局记录里存着它，容量估算以此为前提（ui/workbench-layout.md“副作用与数据”）。 */
 export const VIEW_ID_MAX_LENGTH = 128;
 
-/** 有效主轴最小值的下限与缺省值（ui/workbench-shell.md“副作用与数据”）。 */
+/** 视图声明的最小尺寸的下限与缺省值（workbench/views.md“输入与前置条件”）。 */
 export const VIEW_MIN_SIZE_FLOOR = 33;
 export const VIEW_MIN_SIZE_DEFAULT = 64;
 

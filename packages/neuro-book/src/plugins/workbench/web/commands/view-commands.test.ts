@@ -27,7 +27,7 @@ import type {LayoutDocStore} from "../state/layout-doc-store";
 import {sidebarColumnPanels} from "../state/layout-present";
 import {workbenchStateBindings} from "../state/public-state";
 import {openLayoutDoc} from "../testing/layout-doc";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
 import {completedCommand} from "../../testing/declarations";
 import {failureText, workbenchTestText} from "../../testing/text";

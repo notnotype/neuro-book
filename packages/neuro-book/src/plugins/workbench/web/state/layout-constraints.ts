@@ -19,7 +19,7 @@ import {
     SHELL_SIDEBAR_MIN_WIDTH,
     SHELL_STATUSBAR_HEIGHT,
 } from "../shell/sizes";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 
 export const PANEL_HEAD_HEIGHT = SHELL_PANEL_COLLAPSED_HEIGHT;
 export const EDITOR_GROUP_MINIMUM: GridExtent = {width: 220, height: 120};

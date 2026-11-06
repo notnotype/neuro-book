@@ -13,7 +13,7 @@ import type {GridExtent, LayoutBar, LayoutDoc, LayoutDropAction, LayoutProjectio
 import {defineStore} from "nbook/shared/store/store";
 
 import type {EditorSaveGate} from "../../shared/contracts";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {defaultLayoutDoc, fitsSkeleton, reconcileViews} from "./default-tree";
 import {COLLAPSE_ORDER, createLayoutPolicy, layoutEdgeTarget, layoutProjectionOptions, toolPanelAxis} from "./layout-constraints";
 import {effectiveVisibleTabs} from "./layout-present";

@@ -8,7 +8,7 @@ import type {GridSnapshotNode, LayoutDoc, PanelName, PanelRecord, TabRef} from "
 
 import {defaultLayoutDoc, fitsSkeleton} from "./default-tree";
 import {createLayoutPolicy, layoutEdgeTarget, toolPanelAxis} from "./layout-constraints";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 
 const NAMED = new Set<string>(["sidebar", "auxiliarybar", "panel"]);
 const SIZE = {width: 100, height: 100};

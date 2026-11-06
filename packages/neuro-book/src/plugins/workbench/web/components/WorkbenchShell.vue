@@ -118,6 +118,25 @@ function layoutOfView(viewId: string): "scroll" | "fill" {
     return catalog.value.get(viewId)?.layout ?? "scroll";
 }
 
+/**
+ * 内容层里一个标签该画的视图外框（`WorkbenchViewFrame` 的属性与事件）。编辑器标签、声明不在的视图、还没建实例的视图
+ * 都没有外框，返回 null：前两种由模板单独成支，最后一种什么也不画，等实例建好再画。
+ */
+function viewFrameOf(contentKey: string) {
+    const viewId = viewIdOf(contentKey);
+    const instance = viewId === null ? undefined : instances.instances.get(viewId);
+    if (viewId === null || instance === undefined || !catalog.value.has(viewId)) return null;
+    return {
+        props: {viewId, layout: layoutOfView(viewId), delivery: props.views.delivery(viewId), status: instance.status, error: instance.error, component: instance.component, context: instances.contextOf(viewId), generation: instance.generation, busy: instance.busy},
+        on: {
+            retryEntry: () => instances.retryEntry(viewId),
+            reload: () => instances.reload(viewId),
+            retryRender: () => instances.retryRender(viewId),
+            renderError: (generation: number, reason: string) => instances.renderError(viewId, generation, reason),
+        },
+    };
+}
+
 const instanceOf = (viewId: string): ViewInstanceRef | null => {
     const generation = instances.generations.value.get(viewId);
     return generation === undefined ? null : {viewId, generation};
@@ -502,22 +521,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         <span>{{ message("shell.missing.view", {viewId: viewIdOf(contentKey)!}) }}</span>
                         <button type="button" class="workbench-shell__missing-close nb-ui-focus-ring" @click="layout.actions.closeTab(contentKey)">{{ message("shell.missing.close") }}</button>
                     </div>
-                    <WorkbenchViewFrame
-                        v-else-if="instances.instances.has(viewIdOf(contentKey)!)"
-                        :view-id="viewIdOf(contentKey)!"
-                        :layout="layoutOfView(viewIdOf(contentKey)!)"
-                        :delivery="views.delivery(viewIdOf(contentKey)!)"
-                        :status="instances.instances.get(viewIdOf(contentKey)!)!.status"
-                        :error="instances.instances.get(viewIdOf(contentKey)!)!.error"
-                        :component="instances.instances.get(viewIdOf(contentKey)!)!.component"
-                        :context="instances.contextOf(viewIdOf(contentKey)!)"
-                        :generation="instances.instances.get(viewIdOf(contentKey)!)!.generation"
-                        :busy="instances.instances.get(viewIdOf(contentKey)!)!.busy"
-                        @retry-entry="instances.retryEntry(viewIdOf(contentKey)!)"
-                        @reload="instances.reload(viewIdOf(contentKey)!)"
-                        @retry-render="instances.retryRender(viewIdOf(contentKey)!)"
-                        @render-error="(generation, reason) => instances.renderError(viewIdOf(contentKey)!, generation, reason)"
-                    />
+                    <WorkbenchViewFrame v-else-if="viewFrameOf(contentKey) !== null" v-bind="viewFrameOf(contentKey)!.props" v-on="viewFrameOf(contentKey)!.on" />
                 </template>
             </WorkbenchSurface>
         </div>

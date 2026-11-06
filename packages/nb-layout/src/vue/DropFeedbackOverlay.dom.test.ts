@@ -115,25 +115,6 @@ describe("DropFeedbackOverlay", () => {
         expect(labelPosition()).toEqual({left: 150 + (2 - 120) / 2, top: 160 - 28});
     });
 
-    it("收尾：不画提示；区域的淡出放完才发 settled，别的动画不算；没有可画的区域时标记收尾就发", async () => {
-        const wrapper = await render(preview({areaRect: rect(20, 20, 200, 100)}));
-        await wrapper.setProps({label: "", preview: preview({areaRect: rect(40, 40, 160, 80), settling: true})});
-        await nextTick();
-        const area = document.querySelector<HTMLElement>("[data-drop-feedback-area]")!;
-        expect(area.dataset.dropSettling).toBe("true");
-        expect(document.querySelector("[data-drop-feedback-label]")).toBeNull();
-        const animationEnd = (name: string) => Object.assign(new Event("animationend", {bubbles: true}), {animationName: name});
-        area.dispatchEvent(animationEnd("nb-drop-feedback-fade-in"));
-        expect(wrapper.emitted("settled")).toBeUndefined();
-        area.dispatchEvent(animationEnd("nb-drop-feedback-settle-1a2b"));
-        expect(wrapper.emitted("settled")).toHaveLength(1);
-
-        const lineOnly = await render(preview({indicator: rect(20, 120, 200, 2)}));
-        await lineOnly.setProps({preview: preview({indicator: rect(20, 120, 200, 2), settling: true})});
-        await nextTick();
-        expect(lineOnly.emitted("settled")).toHaveLength(1);
-    });
-
     it("内容落点只画一个内缩矩形，插线不叠加，原始命中几何不被回写", async () => {
         const value = preview({areaRect: rect(10, 20, 400, 160), indicator: rect(10, 60, 400, 2)});
         await render(value);

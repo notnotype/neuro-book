@@ -35,7 +35,7 @@ type Props = {
 };
 ```
 
-事件只有 `settled`：放下后的收尾淡完了（转发覆盖层的同名事件），宿主据此清掉收尾的预览。没有 slot 与 expose。组件根是一个 `display: contents` 的空包装，attrs 落在它上面；拖影带 `data-workbench-drag-ghost`。
+没有事件、slot 与 expose。组件根是一个 `display: contents` 的空包装，attrs 落在它上面；拖影带 `data-workbench-drag-ghost`。
 
 ## 隐藏通道理由
 
@@ -44,4 +44,4 @@ type Props = {
 
 ## 不支持
 
-不求命中、不判定、不提交；放下后的收尾只画宿主给的矩形（覆盖层的 `settling`），最终位置由宿主量。
+不求命中、不判定、不提交。

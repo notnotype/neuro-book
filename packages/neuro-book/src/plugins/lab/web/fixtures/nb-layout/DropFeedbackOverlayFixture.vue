@@ -10,7 +10,7 @@ import type {LabFixtureProps} from "../../lab-subject";
 import DragSessionScene from "./DragSessionScene.vue";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject<typeof DropFeedbackOverlay>(() => props.input, ["settled"]);
+const subject = useLabSubject<typeof DropFeedbackOverlay>(() => props.input);
 </script>
 
 <template>

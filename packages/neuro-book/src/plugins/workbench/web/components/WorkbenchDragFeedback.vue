@@ -25,10 +25,6 @@ withDefaults(defineProps<{
     kind: string;
 }>(), {zones: () => []});
 
-defineEmits<{
-    /** 放下后的收尾淡出完了：宿主清掉收尾的预览。 */
-    (event: "settled"): void;
-}>();
 </script>
 
 <template>
@@ -56,7 +52,7 @@ defineEmits<{
                 </DropIndicatorLabel>
             </div>
         </Teleport>
-        <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" @settled="$emit('settled')" />
+        <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" />
     </div>
 </template>
 

@@ -8,7 +8,7 @@ import type {GridContentInput, GridExtent, LayoutDoc, PanelRecord} from "@notnot
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {workbenchText} from "../../shared/text";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
 
 const VIEW_KEY_PREFIX = "view:";

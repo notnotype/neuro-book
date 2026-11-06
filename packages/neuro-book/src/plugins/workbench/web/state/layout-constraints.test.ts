@@ -8,7 +8,7 @@ import type {LayoutDoc, LayoutEdge, PanelName, PanelRecord} from "@notnotype/nb-
 
 import {defaultLayoutDoc} from "./default-tree";
 import {layoutAccepts, layoutEdgeTarget, panelConstraints, toolPanelAxis} from "./layout-constraints";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 
 const VIEW = (over: object = {}) => ({title: {"zh-CN": "甲", "en-US": "A"}, icon: "i", location: "sidebar" as const, layout: "scroll" as const, ...over});
 

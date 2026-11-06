@@ -28,7 +28,7 @@ import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/co
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {COLLAPSE_ORDER, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import {effectiveVisibleTabs, sidebarColumnPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
-import type {ViewCatalog} from "nbook/plugins/workbench/web/views/placement";
+import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
 
 import type {LabFixtureProps} from "../lab-subject";
 import GridStructureLeaf from "./nb-layout/GridStructureLeaf.vue";

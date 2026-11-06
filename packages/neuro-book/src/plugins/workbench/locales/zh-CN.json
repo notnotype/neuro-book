@@ -68,15 +68,6 @@
                 }
             },
             "view": {
-                "set-panel-position": {
-                    "title": "面板位置"
-                },
-                "set-panel-alignment": {
-                    "title": "面板对齐"
-                },
-                "set-panel-hidden": {
-                    "title": "隐藏/显示面板"
-                },
                 "set-panel-collapsed": {
                     "title": "收起为标题头"
                 },
@@ -138,20 +129,6 @@
         "unavailable": "当前页面没有命令面板"
     },
     "panelCommands": {
-        "positions": {
-            "bottom": "底部",
-            "top": "顶部",
-            "left": "左侧",
-            "right": "右侧"
-        },
-        "alignments": {
-            "center": "居中（只在编辑器下）",
-            "left": "靠左（含侧栏）",
-            "right": "靠右（含右栏）",
-            "justify": "两端（含左右侧栏）"
-        },
-        "current": "当前",
-        "placeholder": "选中后立即生效",
         "noPanel": "没有可以操作的面板",
         "editorCollapse": "编辑组不能收起"
     },
@@ -187,24 +164,16 @@
         "pickOpen": "选择要打开的视图",
         "noOpenable": "没有可以打开的视图",
         "unknownView": "没有这个视图（没有已接受的声明）：{{viewId}}",
-        "unplaced": "视图不在布局里：{{viewId}}",
         "pickTarget": "移动到",
         "noViews": "没有可以移动的视图",
         "partial": "要么都不给，要么同时给 viewId 和 target",
         "stale": "视图或目标面板已经不在了，没有移动",
-        "newContainer": {
-            "sidebar": "新建容器（在侧栏）",
-            "auxiliarybar": "新建容器（在右栏）",
-            "panel": "新建容器（在面板）"
-        },
         "newPanelNextTo": "新面板（挨着{{panel}}）",
         "rejected": "这个视图不能放到那里",
         "limit": "布局已经太复杂，放不下新面板"
     },
     "views": {
-        "resetLocation": "重置位置",
-        "collapse": "收起视图",
-        "expand": "展开视图"
+        "resetLocation": "重置位置"
     },
     "common": {
         "more": "更多",
@@ -216,25 +185,12 @@
             "noProject": "工作台已就绪。没有打开项目。",
             "withProject": "工作台已就绪。当前项目：{{name}}"
         },
-        "panel": "面板",
-        "empty": {
-            "part": "将视图拖动到此处显示",
-            "container": "容器里的视图都已隐藏"
-        },
         "activityBar": "活动栏",
-        "moveTo": "移动到",
         "drag": {
-            "label": "拖动 {{title}}",
             "hint": "按空格拿起并拖动"
         },
         "drop": {
-            "moveView": "移到这里",
-            "detachView": "新建容器",
-            "moveContainer": "移动容器",
-            "mergeContainer_other": "并入 {{count}} 个视图",
             "reveal": "放到{{part}}",
-            "before": "放在“{{title}}”前",
-            "after": "放在“{{title}}”后",
             "addTab": "添加为标签",
             "insert": "放在这里",
             "between": "放到两块之间",
@@ -245,7 +201,6 @@
         "frame": {
             "hide": "隐藏"
         },
-        "tools": "工具",
         "missing": {
             "view": "提供这个视图的插件现在不在：{{viewId}}",
             "close": "关闭这个标签"
@@ -299,15 +254,6 @@
         "layoutReady": {
             "reason": "布局还在读取"
         },
-        "nonCompact": {
-            "reason": "窗口太窄，正在用紧凑布局"
-        },
-        "panelHorizontal": {
-            "reason": "面板不在底部或顶部"
-        },
-        "panelMaximizable": {
-            "reason": "面板要显示着，并在左右两侧或底部、顶部居中"
-        },
         "panelVisible": {
             "reason": "面板已隐藏或拖到零"
         },
@@ -319,9 +265,6 @@
         },
         "activityBarVisible": {
             "reason": "活动栏已隐藏"
-        },
-        "panelMaximized": {
-            "reason": "面板没有最大化"
         },
         "nonPhone": {
             "reason": "手机呈现下不可用"

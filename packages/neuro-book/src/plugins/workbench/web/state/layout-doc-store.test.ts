@@ -8,6 +8,7 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {DeepReadonly} from "@vue/reactivity";
+import {Type} from "typebox";
 
 import {insertTab, moveTabToEdge, removeTab, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutResult, TabRef} from "@notnotype/nb-layout";
@@ -16,22 +17,25 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
+import {defineRecord} from "nbook/shared/storage";
 import type {RecordDefinition, StorageService} from "nbook/shared/storage";
 
 import {openLayoutDoc} from "../testing/layout-doc";
 import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {createLayoutPolicy} from "./layout-constraints";
 import type {LayoutDocStore} from "./layout-doc-store";
 import {fitsSkeleton, INITIAL_EDITOR_PANEL} from "./default-tree";
 import {sidebarColumnPanels} from "./layout-present";
-import {LAYOUT_DOC_RECORDS, LAYOUT_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
+import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 
 const PLUGIN = "nbook.workbench";
 const USER = LAYOUT_DOC_RECORDS.user;
 const PROJECT = LAYOUT_DOC_RECORDS.project;
 const POLICY = createLayoutPolicy();
 const editorTab = (tabId: string): TabRef => ({kind: "tab", type: "nbook.editor", tabId});
+/** 旧外壳留在用户存储里的记录：产品代码已不再定义它，这里按原来的键与分区造一份，验证新 store 不碰它。 */
+const LEGACY_CUSTOMIZATIONS = defineRecord({key: "views-customizations", scope: "user", locality: "local", version: 1, schema: Type.Object({panel: Type.Object({position: Type.String()})})});
 
 let tmp = "";
 let counter = 0;
@@ -112,15 +116,15 @@ describe("默认与记录", () => {
     it("旧记录不读、不写、不删", async () => {
         const w = await world();
         const {store, storage} = await openLayoutDoc(w, "w", "c");
-        const opened = await storage.open(LAYOUT_RECORDS.user.customizations);
+        const opened = await storage.open(LEGACY_CUSTOMIZATIONS);
         if (!opened.ok) throw new Error(opened.detail);
-        const original = {panel: {position: "top" as const}};
+        const original = {panel: {position: "top"}};
         await opened.handle.save(original, {expect: null});
         hideAux(store);
         await store.actions.save();
         await settled(store);
         expect(store.state.doc.panels.panel?.hidden).toBeUndefined();
-        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual(original);
+        expect(await read(storage, LEGACY_CUSTOMIZATIONS)).toEqual(original);
     });
 });
 

@@ -17,7 +17,7 @@ import type {DragSession} from "@notnotype/nb-layout/vue";
 import {editorTabIdOf} from "../shared/editor-panels";
 import type {EditorTabDrag} from "./contracts";
 import {layoutStructureKey, viewIdOf, viewKey} from "./state/layout-present";
-import type {ViewCatalog} from "./views/placement";
+import type {ViewCatalog} from "./views/registry";
 
 /** 被拖的东西：一个标签。库还能拖整块面板（浮动窗要用），工作台不用（输出 24）。 */
 export type LayoutTabSource = Extract<LayoutSource, {readonly kind: "tab"}>;

@@ -6,7 +6,7 @@ import {workbenchText} from "../../shared/text";
 import {defaultLayoutDoc} from "./default-tree";
 import {effectiveVisibleTabs, layoutContents, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent} from "./layout-present";
 import {createLayoutPolicy, PANEL_HEAD_HEIGHT} from "./layout-constraints";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 
 const CATALOG: ViewCatalog = new Map([
     ["files", {title: {"zh-CN": "文件", "en-US": "Files"}, icon: "i-a", location: "sidebar", layout: "scroll"}],

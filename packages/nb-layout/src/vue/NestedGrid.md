@@ -93,8 +93,6 @@ type NestedGridProps = {
     revision?: number;
     /** 同步接纳一次完整提交；未提供或返回失败都会回滚预览。 */
     onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
-    /** 会话诊断出口；默认未提供。 */
-    onIssues?: (issues: readonly string[]) => void;
     /** 内容层：和叶外框同一父元素的内容，换叶不重建；默认无，内容放在 leaf 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
     /** 这块叶盖住除 exclude 以外的全部区域，别的叶不动；默认 null。只在内存，宿主决定。 */
@@ -132,7 +130,7 @@ Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`
 
 - 默认允许分隔线交互；受控事实始终来自 `node` 与 `layout`，拖动中的临时预览才由组件持有。
 - 宿主应在树、约束或承载盒尺寸变化时递增 `revision`；`node`、`contextKey`、`revision` 或 `disabled` 改变会取消活动手势。新 `layout` 发布会释放预览，宿主须保持它与树及容器尺寸同源。
-- 容量不足、被宿主拒绝、宿主未发布匹配几何等问题通过 `issues` 事件和可选 `onIssues` 回调报告。
+- 容量不足、被宿主拒绝、宿主未发布匹配几何等问题通过 `issues` 事件报告。
 - 空树由 `empty` 插槽处理；组件不为叶内容定义加载、错误或空数据视觉。
 - 回滚只恢复到宿主最近发布的树与 layout；本组件不会自行修改树或写入快照。
 

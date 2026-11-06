@@ -172,5 +172,5 @@ watch(draft, (value) => reportState({draft: value}), {immediate: true});
 `props` 全部来自宿主链（`state:inject` / `env:portal`）的零件，在文档 frontmatter 声明 `验证入口:`（宿主组件名）后由 Lab 标为**不可独立挂载**，中栏给出一条直达宿主场景的入口。
 
 - 不要为它们在 `fixtures/index.ts` 里登记独立场景，也不要在 fixture 里搭一层假宿主：脱离宿主链没有可验证状态，假壳验的是另一个东西；
-- 它们的呈现（含失败态与空态）写在宿主的 fixture 场景里。workbench 链上的零件入口是 `WorkbenchShellLayout`：新场景加在 `WorkbenchShellLayout.scenes.ts` 的 `WORKBENCH_SHELL_LAYOUT_SCENES`，并由 `fixtures/index.ts` 登记。
+- 它们的呈现（含失败态与空态）写在宿主的 fixture 场景里（例如工作台主体的 `WorkbenchSurfaceFixture.vue`），并由 `fixtures/index.ts` 登记。
 - 每个组件名在 `fixtures/index.ts` 里只能登记一次：`findLabFixture` 只读第一份，重复登记会让后一份的场景永远打不开（`fixtures/index.test.ts` 有门禁拦截）。

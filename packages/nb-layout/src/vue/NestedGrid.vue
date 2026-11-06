@@ -44,8 +44,6 @@ const props = withDefaults(defineProps<{
     revision?: number;
     /** 同步接纳一次手势提交：`{ok:false}` 时本组件回滚预览并给出诊断。 */
     onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
-    /** 会话诊断出口（容量不足、提交被拒绝等）。 */
-    onIssues?: (issues: readonly string[]) => void;
     /** 内容层（docs/specs/ui/nested-grid.md 的“内容层”）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
     /** 最大化（docs/specs/ui/nested-grid.md 的“最大化”）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
@@ -57,7 +55,6 @@ const props = withDefaults(defineProps<{
     contextKey: "",
     revision: 0,
     onGestureCommit: undefined,
-    onIssues: undefined,
     contents: () => [],
     maximized: null,
     sashKind: undefined,
@@ -321,7 +318,6 @@ provide(SASH_GESTURE_SCOPE_KEY, scope);
 watch(() => scope.issues, (issues) => {
     if (issues.length > 0) {
         emit("issues", issues);
-        props.onIssues?.(issues);
     }
 });
 
