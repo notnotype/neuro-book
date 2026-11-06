@@ -52,6 +52,9 @@ export type KernelUsage = {
     readonly lastCacheHitRate: number | null;
 };
 
+/** `modelParent`：产生这条回复的模型请求的父节点，也就是内核 `after-step` 目标的 id。用户的话没有。 */
+export type KernelAnchor = {readonly turnId: string | null; readonly modelParent: string | null};
+
 export type KernelMeta = {
     readonly title: string | null;
     readonly description: string | null;
@@ -84,6 +87,10 @@ export type KernelTranscript = {
     messages(): readonly MessageView[];
     pending(): readonly KernelPending[];
     run(): KernelRun;
+    /** 这条消息在树上的位置，改写历史时用它精确选回退目标（docs/specs/agent/conversation.md 输出 25）。 */
+    anchorOf(messageId: string): KernelAnchor | null;
+    /** 当前路径上所有 path 事件的 id，按路径顺序。 */
+    pathIds(): readonly string[];
     usage(): KernelUsage;
     queue(): readonly KernelQueued[];
     meta(): KernelMeta;
@@ -221,6 +228,10 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let startedAt: number | null = null;
     let context: number | null = null;
     let lastCacheHitRate: number | null = null;
+    let anchors = new Map<string, KernelAnchor>();
+    let pathIds: string[] = [];
+    let anchorTurn: string | null = null;
+    let anchorModelParent: string | null = null;
     /** 这次运行是不是只压缩的：它没有 `input`，运行收口时不能把上一轮的回复当成这次的。 */
     let runKind: "compact" | null = null;
     /** 路径上每一轮的 `turnStarted` 事件 id，按顺序：压缩的切点按它数“保留了几轮”。 */
@@ -284,6 +295,28 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         lastSettledRequest = Math.max(lastSettledRequest, request);
         if (live?.request === request) live = null;
     };
+
+    /** 记路径与锚点：扩展写的事件也是树上的节点，所以在分发之前。 */
+    function notePath(parsed: {record: JsonRecord; type: string; data: JsonRecord; id: string}): void {
+        if (parsed.record.scope !== "path") return;
+        pathIds.push(parsed.id);
+        switch (parsed.type) {
+            case "turnStarted":
+                anchorTurn = stringField(parsed.data, "turnId");
+                anchorModelParent = null;
+                return;
+            case "modelStarted":
+                if (parsed.data.purpose === "turn") anchorModelParent = stringField(parsed.record, "parent");
+                return;
+            case "input":
+            case "steer":
+                anchors.set(parsed.id, {turnId: anchorTurn, modelParent: null});
+                return;
+            case "assistant":
+                anchors.set(parsed.id, {turnId: anchorTurn, modelParent: anchorModelParent});
+                return;
+        }
+    }
 
     /** 路径上的事件。session 事件走 `reduceSession`。 */
     function reducePath(type: string, data: JsonRecord, id: string, at: number): void {
@@ -547,6 +580,10 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         startedAt = null;
         context = null;
         lastCacheHitRate = null;
+        anchors = new Map();
+        pathIds = [];
+        anchorTurn = null;
+        anchorModelParent = null;
         runKind = null;
         turnStarts = [];
         purposes = new Map();
@@ -599,7 +636,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             resetPath();
             for (const event of events) {
                 const parsed = parseEvent(event);
-                if (parsed === null || isExtensionEvent(parsed)) continue;
+                if (parsed === null) continue;
+                notePath(parsed);
+                if (isExtensionEvent(parsed)) continue;
                 reducePath(parsed.type, parsed.data, parsed.id, parsed.at);
             }
             // 打开时运行已在跑：开始时刻在路径里读到了，补进状态。
@@ -620,6 +659,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             // 不是这条乐观消息的确认，重连重建时吃掉它，“结果未知、可以重发”的消息就没了。
             if (parsed.type === "input" || parsed.type === "steer") optimistic = optimistic.slice(1);
             if (parsed.type === "leafChanged") return "leaf-changed";
+            notePath(parsed);
             if (isExtensionEvent(parsed) || reduceSession(parsed.type, parsed.data)) return null;
             reducePath(parsed.type, parsed.data, parsed.id, parsed.at);
             return null;
@@ -672,6 +712,8 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         pending: () => pending,
         // `kind` 来自路径上的 `runStarted`，与 status 帧是两路输入、到达先后不定：读的时候现算，不在收到帧时抄一份。
         run: () => (run.status === "idle" || runKind === null ? run : {...run, kind: runKind}),
+        anchorOf: (messageId) => anchors.get(messageId) ?? null,
+        pathIds: () => pathIds,
         usage: () => ({...usage, context, lastCacheHitRate}),
         queue: () => queue,
         meta: () => meta,

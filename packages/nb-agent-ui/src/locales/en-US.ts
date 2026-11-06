@@ -339,6 +339,12 @@ export default {
         unpriced: "This model has no price, so the cost limit doesn't apply to it",
         detail: "Input {{input}}, output {{output}}, cache read {{cacheRead}}, cache write {{cacheWrite}}",
     },
+    messageEditor: {
+        label: "Edit this message",
+        hint: "Sending starts a new branch here; the original stays",
+        cancel: "Cancel",
+        submit: "Send",
+    },
     panel: {
         context: {
             title: "Context details",

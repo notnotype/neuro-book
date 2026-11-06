@@ -20,8 +20,9 @@ const messageActions: MessageActionEntry[] = [
     {
         id: "edit", order: 20, messageKinds: ["user"], icon: "i-lucide-pencil",
         label: agentRef("messageAction.edit"),
-        appliesTo: confirmed,
-        when: (ctx) => ctx.interaction.canMutateHistory,
+        // 补充说明不开新的一轮，退不到“它之前”。
+        appliesTo: (message) => confirmed(message) && message.kind === "user" && message.intent === "normal",
+        when: (ctx) => ctx.interaction.canMutateHistory && ctx.run.status === "idle",
         toAction: (message) => ({type: "message.editStart", messageId: message.id}),
     },
     {

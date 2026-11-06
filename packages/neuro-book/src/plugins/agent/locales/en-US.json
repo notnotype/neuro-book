@@ -96,6 +96,9 @@
         "rename": "Rename",
         "cancel": "Cancel",
         "loading": "Loading…",
+        "history": {
+            "failed": "That did not work ({{code}}). The conversation is unchanged."
+        },
         "context": {
             "unavailable": "The next request cannot be worked out: this session has no usable model or profile."
         },

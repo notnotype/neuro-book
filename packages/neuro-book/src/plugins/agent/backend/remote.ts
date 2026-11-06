@@ -125,6 +125,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             const {items, cut} = pageOfItems(events.slice(from));
             return {items, more: cut, next: from + items.length};
         }, (code) => context.fail(code as "open-failed")) as never,
+        treeNodes: ({sessionId, afterSeq}, context) => whole(() => view(sessionId).treeNodes(afterSeq === undefined ? undefined : {afterSeq}), context) as never,
+        branchPoints: ({sessionId}, context) => whole(() => view(sessionId).branchPoints(), context) as never,
         siblings: ({sessionId, node}, context) => whole(() => view(sessionId).siblings({node}), context) as never,
         runResult: ({sessionId, runId}, context) => whole(() => view(sessionId).runResult({runId}), context) as never,
         preview: async ({sessionId, leaf}, context) => {

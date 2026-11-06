@@ -301,6 +301,39 @@ test("上下文详情：点圆环打开，看到组成；展开系统提示词�
     await expect(page.locator("[data-context-inspector] [data-context-estimated]")).toBeVisible();
 });
 
+test("改写历史：编辑重发开新分支，切换器切回原来的；重试", async ({page}) => {
+    await script("第一版回复");
+    await openConversation(page);
+    await newSession(page);
+    await send(page, "原来的话");
+    await expect(page.getByText("第一版回复")).toBeVisible();
+
+    const user = page.locator(".acv-message[data-role='user']");
+    await user.hover();
+    await user.getByRole("button", {name: "编辑"}).click();
+    const editor = page.locator("[data-message-editor] textarea");
+    await expect(editor).toHaveValue("原来的话");
+    await script("第二版回复");
+    await editor.fill("改过的话");
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("第二版回复")).toBeVisible();
+    await expect(page.getByText("第一版回复")).toHaveCount(0);
+
+    await user.hover();
+    await expect(user.locator(".agent-message-actions__branch-label")).toContainText("2/2");
+    await user.getByRole("button", {name: "上一个分支"}).click();
+    await expect(page.getByText("第一版回复")).toBeVisible();
+    await expect(page.getByText("第二版回复")).toHaveCount(0);
+
+    await script("重试的回复");
+    const assistant = page.locator(".acv-message[data-role='assistant']");
+    await assistant.hover();
+    await assistant.getByRole("button", {name: "重新生成"}).click();
+    await expect(page.getByText("重试的回复")).toBeVisible();
+    await assistant.hover();
+    await expect(assistant.locator(".agent-message-actions__branch-label")).toContainText("2/2");
+});
+
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
     await script("答一", "摘要正文");
     await openConversation(page);

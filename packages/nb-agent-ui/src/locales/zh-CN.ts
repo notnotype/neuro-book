@@ -333,6 +333,12 @@ export default {
         unpriced: "此模型没有单价，费用上限对它无效",
         detail: "输入 {{input}}，输出 {{output}}，缓存读 {{cacheRead}}，缓存写 {{cacheWrite}}",
     },
+    messageEditor: {
+        label: "编辑这条消息",
+        hint: "发送后从这里开一条新分支，原来的还在",
+        cancel: "取消",
+        submit: "发送",
+    },
     panel: {
         context: {
             title: "上下文详情",

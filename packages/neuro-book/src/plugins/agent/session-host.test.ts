@@ -419,6 +419,127 @@ describe("审批与提问（输出 10–14）", () => {
     });
 });
 
+describe("改写历史（输出 25、26）", () => {
+    /** 一轮：回复带工具调用，工具结果之后再回复。 */
+    async function twoStepTurn(h: Harness): Promise<void> {
+        endpoint.script({tool: "read", args: {path: "session://没有.md"}}, "读完了");
+        h.host.act({type: "approval.set", mode: "yolo"});
+        await until("全部放行", () => h.ctx().composer.approval?.value === "yolo");
+        h.host.act({type: "composer.submit", text: "读一下", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "读完了");
+        await idle(h);
+    }
+
+    test("重试最后一条回复：新回复是兄弟，切换器 2/2；切回 1/2 看到旧回复", async () => {
+        const w = await world();
+        const h = await started(w);
+        await twoStepTurn(h);
+        expect(h.ctx().interaction.canMutateHistory).toBe(true);
+        const last = assistants(h.ctx().messages).at(-1)!;
+        expect(h.ctx().branches[last.id]).toBeUndefined();
+
+        endpoint.script("重试的回复");
+        h.host.act({type: "message.retry", messageId: last.id});
+        await until("新回复", () => assistants(h.ctx().messages).at(-1)?.text === "重试的回复");
+        await idle(h);
+        const fresh = assistants(h.ctx().messages).at(-1)!;
+        await until("分支切换", () => h.ctx().branches[fresh.id]?.total === 2);
+        expect(h.ctx().branches[fresh.id]!.index).toBe(2);
+        // 前面那一步不受影响：第一条回复（带工具调用）还在。
+        expect(assistants(h.ctx().messages)).toHaveLength(2);
+
+        h.host.act({type: "branch.switch", messageId: fresh.id, direction: "previous"});
+        await until("切回旧回复", () => assistants(h.ctx().messages).at(-1)?.text === "读完了");
+        const old = assistants(h.ctx().messages).at(-1)!;
+        await until("位置是 1/2", () => h.ctx().branches[old.id]?.index === 1);
+    });
+
+    test("重试中间那条回复：退到它之前，后面的那步不在当前路径上", async () => {
+        const w = await world();
+        const h = await started(w);
+        await twoStepTurn(h);
+        const first = assistants(h.ctx().messages)[0]!;
+        endpoint.script("这次不调工具");
+        h.host.act({type: "message.retry", messageId: first.id});
+        await until("新回复", () => assistants(h.ctx().messages).at(-1)?.text === "这次不调工具");
+        await idle(h);
+        expect(assistants(h.ctx().messages).map((item) => item.text)).toEqual(["这次不调工具"]);
+    });
+
+    test("编辑重发：两条文字相同的用户消息，改的是点的那条；原来的还在分支里", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("一", "二");
+        for (const expected of ["一", "二"]) {
+            h.host.act({type: "composer.submit", text: "同一句话", delivery: "prompt"});
+            await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === expected);
+            await idle(h);
+        }
+        const users = h.ctx().messages.filter((item) => item.kind === "user");
+        expect(users).toHaveLength(2);
+        const firstUser = users[0]!;
+        h.host.act({type: "message.editStart", messageId: firstUser.id});
+        await until("编辑态", () => h.ctx().editing?.messageId === firstUser.id);
+        expect(h.ctx().editing).toMatchObject({text: "同一句话", loading: false});
+        h.host.act({type: "message.editCancel"});
+        await until("取消", () => h.ctx().editing === null);
+
+        h.host.act({type: "message.editStart", messageId: firstUser.id});
+        endpoint.script("改过的回复");
+        h.host.act({type: "message.editSubmit", messageId: firstUser.id, text: "改过的话"});
+        await until("新回复", () => assistants(h.ctx().messages).at(-1)?.text === "改过的回复");
+        await idle(h);
+        const now = h.ctx().messages.filter((item) => item.kind === "user");
+        // 第一条被改，第二条在旧分支上，不在当前路径。
+        expect(now).toHaveLength(1);
+        expect(now[0]!.blocks).toMatchObject([{kind: "text", text: "改过的话"}]);
+        await until("分支切换在新消息上", () => h.ctx().branches[now[0]!.id]?.total === 2);
+    });
+
+    test("从此处分支：不发送，留下这条回复；用户消息留下这句话；运行中不能改", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("第一轮", "第二轮");
+        for (const expected of ["第一轮", "第二轮"]) {
+            h.host.act({type: "composer.submit", text: expected, delivery: "prompt"});
+            await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === expected);
+            await idle(h);
+        }
+        const before = endpoint.requests.length;
+        h.host.act({type: "message.branchFrom", messageId: assistants(h.ctx().messages)[0]!.id});
+        await until("退回第一轮之后", () => assistants(h.ctx().messages).length === 1);
+        expect(assistants(h.ctx().messages)[0]!.text).toBe("第一轮");
+        expect(h.ctx().run.status).toBe("idle");
+        expect(endpoint.requests.length).toBe(before);
+
+        endpoint.script("接在第一轮后面");
+        h.host.act({type: "composer.submit", text: "换个方向", delivery: "prompt"});
+        await until("新分支的回复", () => assistants(h.ctx().messages).at(-1)?.text === "接在第一轮后面");
+        await idle(h);
+        expect(h.ctx().messages.filter((item) => item.kind === "user")).toHaveLength(2);
+    });
+
+    test("重开会话也看得到分叉；已归档的不能改写", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("旧");
+        h.host.act({type: "composer.submit", text: "问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "旧");
+        await idle(h);
+        endpoint.script("新");
+        h.host.act({type: "message.retry", messageId: assistants(h.ctx().messages).at(-1)!.id});
+        await until("新回复", () => assistants(h.ctx().messages).at(-1)?.text === "新");
+        await idle(h);
+        const fresh = await harness(w);
+        await fresh.host.open(h.host.sessionId.value!);
+        const reply = await until("打开", () => assistants(fresh.ctx().messages).at(-1));
+        await until("分叉", () => fresh.ctx().branches[reply.id]?.total === 2);
+        fresh.host.act({type: "session.archive", sessionId: fresh.host.sessionId.value!});
+        await until("归档", () => fresh.ctx().availability.status === "archived");
+        expect(fresh.ctx().interaction.canMutateHistory).toBe(false);
+    });
+});
+
 describe("中断、设置与模型（输出 7–9）", () => {
     test("改审批模式、模型、推理档写到核心设置；模型选项第一项是跟随默认", async () => {
         const w = await world();

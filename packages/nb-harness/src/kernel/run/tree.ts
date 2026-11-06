@@ -96,3 +96,24 @@ export function siblingsOf(core: SessionCore, node: string): {node: string; late
     if (event === undefined || event.scope !== "path") return [];
     return core.childrenOf(event.parent).map((sibling) => ({node: sibling.id, latestLeaf: core.latestIn(sibling.id).id}));
 }
+
+/** 有多于一个孩子的节点，孩子各带所在分支的末端（runtime.md 输出 81）：一次查询就能填满界面上的分支切换。 */
+export function branchPointsOf(core: SessionCore): {parent: string | null; children: {node: string; latestLeaf: string}[]}[] {
+    const parents = new Set<string | null>();
+    for (const event of core.events) if (event.scope === "path" && core.childrenOf(event.parent).length > 1) parents.add(event.parent);
+    return [...parents].map((parent) => ({
+        parent,
+        children: core.childrenOf(parent).map((child) => ({node: child.id, latestLeaf: core.latestIn(child.id).id})),
+    }));
+}
+
+/** 按 seq 取一页 path 事件。全文由调用方决定要不要给（结构查询不给）。 */
+export function pathEventsAfter(core: SessionCore, afterSeq: number, limit: number): {events: LogEvent[]; more: boolean} {
+    const events: LogEvent[] = [];
+    for (const event of core.events) {
+        if (event.seq <= afterSeq || event.scope !== "path") continue;
+        if (events.length === limit) return {events, more: true};
+        events.push(event);
+    }
+    return {events, more: false};
+}

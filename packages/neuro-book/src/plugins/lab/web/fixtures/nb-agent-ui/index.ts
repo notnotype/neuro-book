@@ -17,6 +17,7 @@ import type {
     AgentMarkdown,
     AgentMessageActions,
     AgentContextInspector,
+    AgentMessageEditor,
     AgentModelPicker,
     AgentRoleModelPicker,
     AgentApprovalWizard,
@@ -44,7 +45,7 @@ import {defineSubjectFixture} from "../subject-fixture";
 import {agentApprovalWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
 import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
-import {agentContextInspectorScenes, agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes} from "./composer.scenes";
+import {agentContextInspectorScenes, agentConversationComposerScenes, agentMessageEditorScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
     agentCommandDetailScenes,
@@ -143,6 +144,10 @@ export const nbAgentUiFixtures: LabFixture[] = [
     defineSubjectFixture<typeof AgentContextInspector>({
         component: "AgentContextInspector", scenes: agentContextInspectorScenes, subject: agentSubject("AgentContextInspector"),
         events: ["load-system-prompt"],
+    }),
+    defineSubjectFixture<typeof AgentMessageEditor>({
+        component: "AgentMessageEditor", scenes: agentMessageEditorScenes, subject: agentSubject("AgentMessageEditor"),
+        events: ["submit", "cancel"],
     }),
     defineSubjectFixture<typeof AgentRoleModelPicker>({
         component: "AgentRoleModelPicker", scenes: agentRoleModelPickerScenes, subject: agentSubject("AgentRoleModelPicker"),

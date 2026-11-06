@@ -96,6 +96,9 @@
         "rename": "改名",
         "cancel": "取消",
         "loading": "正在加载…",
+        "history": {
+            "failed": "这步没做成（{{code}}）。对话没动。"
+        },
         "context": {
             "unavailable": "现在算不出下一次请求：这个会话的模型用不了，或者还没有可用的 Profile。"
         },

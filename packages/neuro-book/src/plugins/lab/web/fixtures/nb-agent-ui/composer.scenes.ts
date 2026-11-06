@@ -1,5 +1,5 @@
 import type {AgentConversationComposer} from "@notnotype/nb-agent-ui/lab";
-import type {AgentContextInspector, AgentModelPicker, AgentRoleModelPicker} from "@notnotype/nb-agent-ui/lab";
+import type {AgentContextInspector, AgentMessageEditor, AgentModelPicker, AgentRoleModelPicker} from "@notnotype/nb-agent-ui/lab";
 import type {AgentQueuedMessages} from "@notnotype/nb-agent-ui/lab";
 import type {AgentConversationContext, ComposerView} from "@notnotype/nb-agent-ui";
 import {conversationContext} from "./data";
@@ -87,6 +87,11 @@ export const agentContextInspectorScenes: InspectorScene[] = [
     }}}},
     {id: "loading", label: "正在计算", input: {props: {usage: INSPECTOR_USAGE, systemPrompt: null, inspection: {state: "loading"}}}},
     {id: "unavailable", label: "算不出", input: {props: {usage: INSPECTOR_USAGE, systemPrompt: null, inspection: {state: "unavailable", reason: "现在算不出下一次请求：这个会话的模型用不了。"}}}},
+];
+
+export const agentMessageEditorScenes: LabFixtureDefinition<typeof AgentMessageEditor>["scenes"] = [
+    {id: "default", label: "编辑", input: {props: {text: "把第三章的结尾改得更克制一点", loading: false}}},
+    {id: "loading", label: "原文加载中", input: {props: {text: "", loading: true}}},
 ];
 
 export const agentModelPickerScenes: PickerScene[] = [

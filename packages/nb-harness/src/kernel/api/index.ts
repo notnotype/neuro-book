@@ -21,7 +21,7 @@ export type {CompactionRestored, CompactionRestoreArgs} from "./host.js";
 export type {
     AgentHost, ApprovalCtx, ApprovalInfo, ApproveHook, BufferedInput, CommandErrorCode, CommandErrorDetails, CommandFailure, CommandMap, CommandName, CommandOk, CommandResult, Complete,
     CreateSession, CreateSessionOptions, DeltaFrame, Diagnostic, ExtensionDeclaration, ExtensionHandle, ExtensionInfo, ExtensionReceiver, Frame, InputMode, InteractionSummary, OpenSession,
-    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
+    OutboundContext, DeltaContext, OutboundFilter, PreviewArgs, PreviewResult, RequestChange, RequestPath, RevokeReason, RewindTarget, TreeNode, BranchPoint, RunResult, RunStatus, RetryPolicy, RetryWait, SessionApi, SessionCommands, SessionEnv, SessionQueries,
     SessionSnapshot, SlotReport, ToolSessionContext,
 } from "./host.js";
 export type {

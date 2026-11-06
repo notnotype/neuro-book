@@ -14,13 +14,13 @@ import {computed, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, ComposerRoleView, ContextInspectionView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {TextResolver} from "nbook/shared/localized-text";
 import type {TextRef} from "@notnotype/nb-ui/text";
-import type {PreviewResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {BranchPoint, PreviewResult, RewindTarget} from "@notnotype/nb-harness/kernel/contracts";
 
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
@@ -147,6 +147,8 @@ type Current = {
     failed: {readonly code: string} | null;
     /** 快照和路径还没到：视图显示加载中，不说“还没有消息”。 */
     loading: boolean;
+    /** 树上的分叉；空闲时取，运行中不会变。 */
+    branchPoints: readonly BranchPoint[];
 };
 
 export function createSessionHost(deps: SessionHostDeps): SessionHost {
@@ -228,6 +230,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         target.transcript.applySnapshot(snapshot.value);
         if (epoch !== modelEpoch) void refreshModel(target);
         await loadPath(target, snapshot.value.leaf);
+        void loadBranchPoints(target);
         bump();
     }
 
@@ -281,6 +284,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     /** 等用户的事项变了：给新的审批取预览；运行状态变了：开关计时。 */
     function afterChange(target: Current): void {
         if (current !== target || disposed) return;
+        // 一次运行写了新的路径：可能多出分叉（重试、编辑重发），结束时取一次。
+        const status = target.transcript.run().status;
+        if (status === "idle" && lastRunStatus !== "idle") void loadBranchPoints(target);
+        lastRunStatus = status;
         const pending = target.transcript.pending();
         for (const item of pending) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id);
         // 这一批答完了：下一批从头来，不沿用“收起”和第几步。
@@ -297,6 +304,90 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             previews.set(id, view);
             bump();
         })();
+    }
+
+    // ─── 改写历史 ───────────────────────────────────────────────────────
+
+    let editing: EditingView | null = null;
+    let lastRunStatus: string = "idle";
+
+    async function loadBranchPoints(target: Current): Promise<void> {
+        const points = await remote.branchPoints({sessionId: target.id});
+        if (!points.ok || current !== target) return;
+        target.branchPoints = points.value;
+        bump();
+    }
+
+    /**
+     * 消息上的分支切换：分叉的孩子里，当前路径走的是哪个；切换器放在分叉之后第一条消息上。同一条消息是几处分叉之后的第一条时，
+     * 取最近的那处：按路径顺序走，后面的盖前面的。
+     */
+    function branchesOf(target: Current): {views: Record<string, BranchView>; nodes: Map<string, readonly string[]>} {
+        const views: Record<string, BranchView> = {};
+        const nodes = new Map<string, readonly string[]>();
+        const path = target.transcript.pathIds();
+        const positions = new Map(path.map((id, index) => [id, index]));
+        const messageIds = new Set(target.transcript.messages().map((message) => message.id));
+        const located = target.branchPoints.flatMap((point) => {
+            const at = point.parent === null ? -1 : positions.get(point.parent);
+            return at === undefined ? [] : [{point, at}];
+        }).sort((a, b) => a.at - b.at);
+        for (const {point, at} of located) {
+            const index = point.children.findIndex((child) => child.node === path[at + 1]);
+            const message = path.slice(at + 1).find((id) => messageIds.has(id));
+            if (index < 0 || message === undefined) continue;
+            views[message] = {index: index + 1, total: point.children.length};
+            nodes.set(message, point.children.map((child) => child.node));
+        }
+        return {views, nodes};
+    }
+
+    /** 按操作选回退目标（输出 25）。找不到就交回 null，不猜最近的。 */
+    function rewindTargetFor(targets: readonly RewindTarget[], anchor: KernelAnchor, action: "retry" | "edit" | "branch", isUser: boolean): RewindTarget | null {
+        const turn = targets.filter((item) => item.turnId === anchor.turnId);
+        if (action === "edit") return turn.find((item) => item.kind === "before-turn") ?? null;
+        const firstStep = turn.find((item) => item.kind === "after-step") ?? null;
+        if (isUser) return firstStep;
+        const step = turn.findIndex((item) => item.kind === "after-step" && item.id === anchor.modelParent);
+        if (step < 0) return null;
+        // 重试回到这条回复之前；从此处分支要留下这条回复，回到它之后：下一步之前，或这一轮结束处。
+        return action === "retry" ? turn[step]! : turn[step + 1] ?? null;
+    }
+
+    async function rewriteHistory(messageId: string, action: "retry" | "edit" | "branch", resend?: string): Promise<void> {
+        const target = current;
+        if (target === null) return;
+        const fail = (code: string): void => {
+            notice = agentText("conversation.history.failed", {code});
+            bump();
+        };
+        const anchor = target.transcript.anchorOf(messageId);
+        const message = target.transcript.messages().find((item) => item.id === messageId);
+        if (anchor === null || message === undefined) return fail("unknown-message");
+        const targets = await remote.rewindTargets({sessionId: target.id});
+        if (current !== target) return;
+        if (!targets.ok) return fail(targets.code);
+        const to = rewindTargetFor(targets.value, anchor, action, message.kind === "user");
+        if (to === null) return fail("no-target");
+        const rewound = await remote.rewind({sessionId: target.id, commandId: commandId(), to: to.id, ...(resend === undefined ? {} : {resend: {text: resend}})});
+        if (!rewound.ok) return fail(rewound.code);
+        if (action !== "retry") return;
+        const started = await remote.start({sessionId: target.id, commandId: commandId()});
+        if (!started.ok) fail(started.code);
+    }
+
+    async function switchBranch(messageId: string, direction: "previous" | "next"): Promise<void> {
+        const target = current;
+        if (target === null) return;
+        const {views, nodes} = branchesOf(target);
+        const view = views[messageId];
+        const node = nodes.get(messageId)?.[(view?.index ?? 0) - 1 + (direction === "next" ? 1 : -1)];
+        if (view === undefined || node === undefined) return;
+        const result = await remote.switchBranch({sessionId: target.id, commandId: commandId(), node});
+        if (!result.ok) {
+            notice = agentText("conversation.history.failed", {code: result.code});
+            bump();
+        }
     }
 
     // ─── 上下文详情 ─────────────────────────────────────────────────────
@@ -397,6 +488,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         unknownSends.clear();
         notice = null;
         closeInspection();
+        editing = null;
     }
 
     async function open(id: string): Promise<void> {
@@ -406,7 +498,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const keptWizard = sessionId.value === id ? wizardState : undefined;
         closeCurrent();
         wizardState = keptWizard;
-        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null, loading: true};
+        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: []};
         current = target;
         sessionId.value = id;
         deps.recent.write(id);
@@ -461,6 +553,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         target.loading = false;
         live = true;
+        void loadBranchPoints(target);
         // 日志帧不大于 `head` 的由适配器丢掉。
         early.forEach((frame, index) => {
             if (frame.type !== "status" || index >= staleUntil) take(target, frame);
@@ -686,6 +779,31 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             case "thinking.set":
                 await changeSettings({effort: action.level});
                 return;
+            case "message.editStart": {
+                const message = current?.transcript.messages().find((item) => item.id === action.messageId);
+                if (message?.kind !== "user") return;
+                editing = {messageId: message.id, text: message.blocks.flatMap((block) => (block.kind === "text" ? [block.text] : [])).join(""), loading: false};
+                bump();
+                return;
+            }
+            case "message.editCancel":
+                editing = null;
+                bump();
+                return;
+            case "message.editSubmit":
+                editing = null;
+                bump();
+                await rewriteHistory(action.messageId, "edit", action.text);
+                return;
+            case "message.retry":
+                await rewriteHistory(action.messageId, "retry");
+                return;
+            case "message.branchFrom":
+                await rewriteHistory(action.messageId, "branch");
+                return;
+            case "branch.switch":
+                await switchBranch(action.messageId, action.direction);
+                return;
             case "context.refresh":
                 await refreshInspection();
                 return;
@@ -790,7 +908,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 summaryState: "idle",
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canInspectContext: target !== null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canInspectContext: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
@@ -799,6 +917,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ...(run.kind === null ? {} : {kind: run.kind}),
             },
             messages: target?.transcript.messages() ?? [],
+            branches: target === null || target === undefined ? {} : branchesOf(target).views,
+            editing,
             panels: inspection === null ? {} : {contextInspection: inspection, ...(inspectionPrompt === null ? {} : {systemPrompt: inspectionPrompt})},
             pendingInputs: target === null || target === undefined ? [] : pendingViews(target),
             wizardState,

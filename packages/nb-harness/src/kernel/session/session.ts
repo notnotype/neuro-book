@@ -23,7 +23,9 @@ import {compact, compactionCuts, estimateContext, triggerPoint} from "../compact
 import {resolveCommand} from "../run/interaction.js";
 import {previewRequest} from "./preview.js";
 import {ProcessInterrupt} from "../run/writes.js";
-import {rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
+import {replyText} from "../api/reply.js";
+import type {ContentBlock} from "../api/model.js";
+import {branchPointsOf, pathEventsAfter, rewindCommand, rewindTargets, siblingsOf, switchBranchCommand} from "../run/tree.js";
 import {RunControl} from "../run/control.js";
 import {recoveryDrafts} from "../run/recover.js";
 import {runResultOf} from "../run/results.js";
@@ -75,6 +77,20 @@ const internals = new WeakMap<SessionApi, Internals>();
 
 /** 开发模式（冻结状态与事件、视图的开发检查）：测试与开发时开，生产环境关掉省遍历与比较。 */
 const DEV = process.env.NODE_ENV !== "production";
+/** 树的一页最多几个节点：节点只有结构，一个约 200 字节，放得进一条消息。 */
+const TREE_PAGE = 2000;
+const TREE_LABEL_CHARS = 80;
+
+/** 树上一行显示的文字：用户的话、回复的文字、工具的名字。 */
+function treeLabel(event: LogEvent): string | null {
+    const data = event.data as {readonly text?: unknown; readonly content?: unknown; readonly tool?: unknown};
+    const text = event.type === "input" || event.type === "steer" ? data.text
+        : event.type === "assistant" && Array.isArray(data.content) ? replyText(data.content as readonly ContentBlock[])
+        : event.type === "toolStarted" ? data.tool
+        : null;
+    return typeof text === "string" && text !== "" ? text.slice(0, TREE_LABEL_CHARS) : null;
+}
+
 
 function newSessionId(now: number): string {
     return `${now.toString(36)}-${randomBytes(5).toString("hex")}`;
@@ -350,6 +366,22 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
             return await visibleAll(core.pathTo(args?.leaf === undefined ? core.leaf : args.leaf));
         },
         siblings: async ({node}) => siblingsOf(core, node),
+        branchPoints: async () => branchPointsOf(core),
+        async treeNodes(args) {
+            const limit = Math.min(args?.limit ?? TREE_PAGE, TREE_PAGE);
+            const {events, more} = pathEventsAfter(core, args?.afterSeq ?? 0, limit);
+            // 文字开头经出站过滤：过滤掉的节点还在树上，只是没有文字。
+            const visible = new Map((await visibleAll(events)).map((event) => [event.id, event]));
+            return {
+                nodes: events.map((event) => {
+                    const shown = visible.get(event.id);
+                    const label = shown === undefined ? null : treeLabel(shown);
+                    return {id: event.id, parent: event.parent, type: event.type, seq: event.seq, ...(label === null ? {} : {label})};
+                }),
+                more,
+                through: events.at(-1)?.seq ?? args?.afterSeq ?? 0,
+            };
+        },
         async runResult({runId}) {
             return runResultOf(core.events, runId, core.byId);
         },

@@ -61,13 +61,13 @@ function onSystemToggle(event: Event): void {
                     <span v-for="area in ready.areas" :key="area.key" :style="{width: percent(area.tokens / limit), background: AREA_COLORS[area.key]}" />
                     <i class="acv-inspector__threshold" :style="{left: percent(ready.threshold / limit)}" />
                 </div>
-                <table class="acv-inspector__table">
+                <table class="acv-inspector__table"><tbody>
                     <tr v-for="area in ready.areas" :key="area.key" :data-context-area="area.key">
                         <td><span class="acv-inspector__dot" :style="{background: AREA_COLORS[area.key]}" />{{ t(`panel.context.area.${area.key}`) }}</td>
                         <td class="acv-inspector__num">{{ formatTokens(area.tokens) }}</td>
                         <td class="acv-inspector__num acv-inspector__muted">{{ share(area.tokens) }}</td>
                     </tr>
-                </table>
+                </tbody></table>
                 <p class="acv-inspector__note">{{ t("panel.context.estimateNote") }}</p>
             </section>
         </template>
@@ -78,12 +78,12 @@ function onSystemToggle(event: Event): void {
                 <div v-if="props.usage.lastCacheHitRate !== null && props.usage.lastCacheHitRate !== undefined"><b>{{ percent(props.usage.lastCacheHitRate) }}</b><span class="acv-inspector__muted">{{ t("panel.context.cacheLast") }}</span></div>
             </div>
             <p v-else class="acv-inspector__note" data-context-no-cache>{{ t("panel.context.noCache") }}</p>
-            <table class="acv-inspector__table">
+            <table class="acv-inspector__table"><tbody>
                 <tr><td>{{ t("panel.context.input") }}</td><td class="acv-inspector__num">{{ formatTokens(props.usage.input ?? 0) }}</td></tr>
                 <tr><td>{{ t("panel.context.output") }}</td><td class="acv-inspector__num">{{ formatTokens(props.usage.output ?? 0) }}</td></tr>
                 <tr><td>{{ t("panel.context.cacheRead") }}</td><td class="acv-inspector__num">{{ formatTokens(props.usage.cacheRead) }}</td></tr>
                 <tr><td>{{ t("panel.context.cacheWrite") }}</td><td class="acv-inspector__num">{{ formatTokens(props.usage.cacheWrite) }}</td></tr>
-            </table>
+            </tbody></table>
         </section>
         <template v-if="ready !== null">
             <details class="acv-inspector__fold" data-context-system @toggle="onSystemToggle">
@@ -92,12 +92,12 @@ function onSystemToggle(event: Event): void {
             </details>
             <details class="acv-inspector__fold" data-context-slots>
                 <summary>{{ t("panel.context.slots") }} <span class="acv-inspector__muted">{{ ready.slots.length }}</span></summary>
-                <table class="acv-inspector__table">
+                <table class="acv-inspector__table"><tbody>
                     <tr v-for="slot in ready.slots" :key="`${slot.extension}/${slot.name}`">
                         <td>{{ slot.name }} <span class="acv-inspector__muted">{{ slot.extension }}</span></td>
                         <td class="acv-inspector__num" :class="{'acv-inspector__muted': !slot.placed}">{{ slot.placed ? formatTokens(slot.tokens) : t("panel.context.notPlaced") }}</td>
                     </tr>
-                </table>
+                </tbody></table>
             </details>
             <details class="acv-inspector__fold" data-context-diagnostics>
                 <summary>{{ t("panel.context.diagnostics") }} <span :class="ready.diagnostics.length > 0 ? 'acv-inspector__warn' : 'acv-inspector__muted'">{{ ready.diagnostics.length }}</span></summary>

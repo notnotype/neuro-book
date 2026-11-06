@@ -161,6 +161,21 @@ export interface SessionSnapshot {
     diagnostics: {errors: number; warnings: number};
 }
 
+/** 会话树的一个节点，只有结构（runtime.md 输出 80）。`label` 是经出站过滤后的文字开头，过滤掉的或没有文字的没有。 */
+export interface TreeNode {
+    id: string;
+    parent: string | null;
+    type: string;
+    seq: number;
+    label?: string;
+}
+
+/** 有多于一个孩子的节点（runtime.md 输出 81）。 */
+export interface BranchPoint {
+    parent: string | null;
+    children: {node: string; latestLeaf: string}[];
+}
+
 export interface RewindTarget {
     /** 传给 `rewind` 的 id。 */
     id: string;
@@ -197,6 +212,9 @@ export interface SessionQueries {
     rewindTargets(): Promise<RewindTarget[]>;
     /** 从根到 `leaf`（缺省当前叶子）的路径上的事件。 */
     path(args?: {leaf?: string | null}): Promise<LogEvent[]>;
+    /** 按 seq 分页读整棵树的结构，不读事件全文。 */
+    treeNodes(args?: {afterSeq?: number; limit?: number}): Promise<{nodes: TreeNode[]; more: boolean; through: number}>;
+    branchPoints(): Promise<BranchPoint[]>;
     /** 与 `node` 同一个父节点的兄弟（重试与 swipe 的结果）。 */
     siblings(args: {node: string}): Promise<{node: string; latestLeaf: string}[]>;
     runResult(args: {runId: string}): Promise<RunResult | null>;

@@ -53,7 +53,7 @@ interface Entry {
 }
 
 const COMMANDS = Object.keys(commandErrors) as (keyof typeof commandErrors)[];
-const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "runResult", "preview", "diagnostics"] as const;
+const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "treeNodes", "branchPoints", "runResult", "preview", "diagnostics"] as const;
 
 export interface SessionTableOptions {
     readonly host: AgentHost;

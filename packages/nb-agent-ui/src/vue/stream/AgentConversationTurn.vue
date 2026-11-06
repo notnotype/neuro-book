@@ -13,6 +13,7 @@ import AgentChainSummary from "./AgentChainSummary.vue";
 import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
 import AgentFileChanges from "./AgentFileChanges.vue";
 import AgentMessageActions from "./AgentMessageActions.vue";
+import AgentMessageEditor from "./AgentMessageEditor.vue";
 import AgentTurnBlock from "./AgentTurnBlock.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {describeTurn, describeUsage} from "../../process-summary";
@@ -152,11 +153,20 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     class="acv-message__actions"
                     :actions="messageActionItems(turn.user)"
                     :branch="props.ctx.branches[turn.user.id] ?? null"
+                    :branch-disabled="props.ctx.run.status !== 'idle'"
                     @select="runMessageAction(turn.user, $event)"
                     @branch="emit('action', {type: 'branch.switch', messageId: turn.user.id, direction: $event})"
                 />
             </header>
-            <div class="acv-user-bubble">
+            <AgentMessageEditor
+                v-if="props.ctx.editing?.messageId === turn.user.id"
+                class="acv-user-editor"
+                :text="props.ctx.editing.text"
+                :loading="props.ctx.editing.loading"
+                @submit="emit('action', {type: 'message.editSubmit', messageId: turn.user!.id, text: $event})"
+                @cancel="emit('action', {type: 'message.editCancel'})"
+            />
+            <div v-else class="acv-user-bubble">
                 <AgentUserContent
                     :message="turn.user"
                     :resolve-attachment-url="props.services.resolveAttachmentUrl"
@@ -184,6 +194,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     class="acv-message__actions"
                     :actions="messageActionItems(turn.outcomeMessage)"
                     :branch="props.ctx.branches[turn.outcomeMessage.id] ?? null"
+                    :branch-disabled="props.ctx.run.status !== 'idle'"
                     @select="runMessageAction(turn.outcomeMessage, $event, turn.outcomeCallId)"
                     @branch="emit('action', {type: 'branch.switch', messageId: turn.outcomeMessage!.id, direction: $event})"
                 />
@@ -389,6 +400,10 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
     .acv-meta--reply-time {
         display: none;
     }
+}
+
+.acv-user-editor {
+    margin-left: 24px;
 }
 
 .acv-user-bubble {
