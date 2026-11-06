@@ -410,6 +410,10 @@ export interface FilesService {
 export const THEME_ASSET_UPLOAD_URL = "/api/nbook.files/theme-assets";
 /** 设置页发请求前也比一次：太大的文件到不了路由，HTTP 层直接断开，页面拿不到原因。 */
 export const THEME_ASSET_MAX_BYTES = 20 * 1024 * 1024;
+/** 上传主题图标（SVG）：规则同上，只收通过严格检查的 SVG（docs/specs/theme/editor.md 的“写图标素材”）。 */
+export const THEME_ICON_UPLOAD_URL = "/api/nbook.files/theme-icons";
+/** 图标 SVG 的体积上限；浏览器发请求前也比一次。 */
+export const THEME_ICON_MAX_BYTES = 16 * 1024;
 /** 主题场景素材所在的目录，文件名是内容摘要。 */
 export const THEME_ASSET_DIRECTORY_ADDRESS = "user://theme-assets";
 

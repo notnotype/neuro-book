@@ -37,6 +37,8 @@ describe("我的主题的校验", () => {
         expect(userThemeProblem({...theme("2"), editor: {touched: ["--bg-main"]}})).toBeNull();
         // 场景提供者只是个贡献 id，不涉及文件，用户层保留。
         expect(userThemeProblem(theme("3", {sceneProvider: "acme.sky.clock"}))).toBeNull();
+        // 工作态场景是位图素材，图标是 SVG 素材。
+        expect(userThemeProblem(theme("4", {dark: {scene: `${HASH}.webp`, workingScene: `${"b".repeat(64)}.png`, icons: {files: `${"c".repeat(64)}.svg`}}}))).toBeNull();
     });
 
     it.each<[string, unknown]>([
@@ -44,8 +46,11 @@ describe("我的主题的校验", () => {
         ["多余的字段", {...theme("1"), extra: 1}],
         ["场景图不是素材文件名", theme("1", {dark: {scene: "assets/day.webp"}})],
         ["场景图往上走", theme("1", {dark: {scene: "../x.webp"}})],
-        ["工作态场景：我的主题只有一张场景图的素材", theme("1", {dark: {workingScene: `${HASH}.webp`}})],
-        ["图标集：我的主题只有场景图素材", theme("1", {dark: {icons: {files: "files.svg"}}})],
+        ["工作态场景不是位图素材文件名", theme("1", {dark: {workingScene: "assets/working.webp"}})],
+        ["工作态场景写成图标素材", theme("1", {dark: {workingScene: `${HASH}.svg`}})],
+        ["场景图写成图标素材", theme("1", {dark: {scene: `${HASH}.svg`}})],
+        ["图标不是素材文件名", theme("1", {dark: {icons: {files: "files.svg"}}})],
+        ["图标写成位图素材", theme("1", {dark: {icons: {files: `${HASH}.webp`}}})],
         ["取值含 url()", theme("1", {light: {colors: {"--bg-main": "url(https://example.com/x.png)"}}})],
         ["字体里藏 url()", theme("1", {fonts: {display: "u\\72l(x)"}})],
         ["vars 不在白名单", theme("1", {light: {vars: {"--anything": "red"}}})],
