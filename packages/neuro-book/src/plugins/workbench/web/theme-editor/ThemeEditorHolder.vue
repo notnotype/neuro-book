@@ -11,12 +11,12 @@ import type {ThemeEditorSession} from "./theme-editor-session";
 
 defineOptions({name: "ThemeEditorHolder"});
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     session: ThemeEditorSession;
     themes: ReadonlyArray<ThemeEntry>;
     /** 页签里不画“关闭”（关页签用标签上的叉）。 */
     closable?: boolean;
-}>();
+}>(), {closable: true});
 
 defineEmits<{(event: "close"): void}>();
 
@@ -26,5 +26,5 @@ onBeforeUnmount(() => props.session.release());
 </script>
 
 <template>
-    <ThemeEditor :model="model" :themes="themes" :closable="closable !== false" @close="$emit('close')" />
+    <ThemeEditor :model="model" :themes="themes" :closable="closable" @close="$emit('close')" />
 </template>

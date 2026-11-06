@@ -21,13 +21,14 @@ import type {EditorSection} from "./theme-editor-model";
 
 defineOptions({name: "ThemeEditor"});
 
-const props = defineProps<{
+// 布尔属性不传时 Vue 会当成 false，所以缺省要写出来。
+const props = withDefaults(defineProps<{
     model: ThemeEditorModel;
     /** 主题目录里的全部主题，“复制自…”从这里选。 */
     themes: ReadonlyArray<ThemeEntry>;
     /** 画“关闭”按钮（浮动窗口里）；页签里不画。缺省画。 */
     closable?: boolean;
-}>();
+}>(), {closable: true});
 
 const emit = defineEmits<{(event: "close"): void}>();
 
@@ -122,7 +123,7 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
                 data-appearance
                 @update:model-value="model.appearance.value = $event as 'light' | 'dark'"
             />
-            <Button v-if="closable !== false" size="sm" variant="ghost" icon-class="i-lucide-x" data-close @click="emit('close')">{{ text("themeEditor.close") }}</Button>
+            <Button v-if="closable" size="sm" variant="ghost" icon-class="i-lucide-x" data-close @click="emit('close')">{{ text("themeEditor.close") }}</Button>
         </header>
 
         <p v-if="transferText !== null" class="theme-editor__transfer" :data-tone="transfer?.ok ? 'ok' : 'bad'" role="status" data-transfer>{{ transferText }}</p>

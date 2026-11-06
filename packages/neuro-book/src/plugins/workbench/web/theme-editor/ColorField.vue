@@ -47,6 +47,13 @@ const commit = (value: string): void => {
         if (value !== props.value) emit("change", value);
     }, 250);
 };
+/** 焦点离开这一行时立刻交出还在等的值：输入完马上点“推导整套”，推导读到的必须是刚输入的主色，不是 250ms 前的。 */
+const flush = (): void => {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+    if (draft.value !== props.value) emit("change", draft.value);
+};
 onBeforeUnmount(() => {
     if (timer !== null) clearTimeout(timer);
 });
@@ -71,7 +78,7 @@ const checkText = computed(() => {
 </script>
 
 <template>
-    <div class="color-field" :data-color-field="name" :data-touched="touched === true ? '' : undefined">
+    <div class="color-field" :data-color-field="name" :data-touched="touched === true ? '' : undefined" @focusout="flush">
         <code v-if="label === undefined" class="color-field__name">{{ name }}</code>
         <span v-else class="color-field__name color-field__name--label" :title="name">{{ label }}</span>
         <span v-if="plain !== true" class="color-field__swatch" :style="{background: draft}">
