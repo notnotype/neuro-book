@@ -30,6 +30,7 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
     };
     set(SKIN_VARS.fontDisplay, declaration.fonts?.display);
     set(SKIN_VARS.fontProse, declaration.fonts?.prose);
+    set(SKIN_VARS.frameLine, look.frame?.line);
     set(SKIN_VARS.activityBarSurface, look.activityBar?.surface);
     set(SKIN_VARS.activityBarForeground, look.activityBar?.foreground);
     set(SKIN_VARS.activityBarActive, look.activityBar?.active);

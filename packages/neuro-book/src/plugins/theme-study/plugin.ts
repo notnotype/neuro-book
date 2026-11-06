@@ -28,6 +28,7 @@ const STUDY: ThemeDeclaration = {
             "--selection-bg": "#e8d6b0",
         },
         activityBar: {surface: "linear-gradient(90deg, #553a22, #6b4a2c 45%, #553a22)", foreground: "#f3e7d0", active: "#d9b878", ornament: "#d9b878"},
+        frame: {line: "#8a5a24"},
         scene: "assets/study-day.webp",
     },
     dark: {
@@ -40,6 +41,7 @@ const STUDY: ThemeDeclaration = {
             "--selection-bg": "#4a3820",
         },
         activityBar: {surface: "linear-gradient(90deg, #2c1c10, #3a2616 45%, #2c1c10)", foreground: "#e9d9bc", active: "#c9a35f", ornament: "#c9a35f"},
+        frame: {line: "#e0ac62"},
         scene: "assets/study-night.webp",
     },
 };

@@ -48,3 +48,22 @@ onBeforeUnmount(() => {
 <template>
     <span hidden data-workbench-document="" />
 </template>
+
+<!--
+    浮层的画框（docs/specs/theme/skins.md 输出 13）：浮层都挂在 body 上，不在这个组件里，所以写在文档根的属性上。
+    加在 nb-ui 的浮层基座与对话框面上：小提示不用这两个类，所以没有。线画在描边里面，不改布局；对比度偏好下不画。
+    用 `!important`：这些浮层本来就带 `outline: none`（Reka 的菜单栏把它写进行内样式，Tailwind 的 `outline-none` 也一样），
+    是为了去掉容器自己的焦点环，不是不让画线；不压过它，标题栏菜单没有线而右键菜单有线，同一套皮肤里不一致。
+-->
+<style>
+:root[data-nb-skin-frame] :is(.nb-ui-popover-surface, .nb-ui-dialog-surface) {
+    outline: 1px solid var(--skin-frame-line) !important;
+    outline-offset: -4px;
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :root[data-nb-skin-frame] :is(.nb-ui-popover-surface, .nb-ui-dialog-surface) {
+        outline: none !important;
+    }
+}
+</style>

@@ -15,6 +15,8 @@ export const SKIN_VARS = {
     sidebarCornerPosition: "--skin-sidebar-corner-position",
     auxiliaryCornerSize: "--skin-auxiliary-corner-size",
     auxiliaryCornerPosition: "--skin-auxiliary-corner-position",
+    /** 浮层画框那道细线的颜色；有它文档根才标 `data-nb-skin-frame`。 */
+    frameLine: "--skin-frame-line",
     activityBarSurface: "--skin-activitybar-surface",
     activityBarForeground: "--skin-activitybar-foreground",
     activityBarActive: "--skin-activitybar-active",

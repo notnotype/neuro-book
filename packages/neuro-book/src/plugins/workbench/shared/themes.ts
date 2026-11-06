@@ -27,6 +27,8 @@ const LookSchema = Type.Object({
     vars: Type.Optional(StringMap),
     activityBar: Type.Optional(Type.Object({surface: Type.String(), foreground: Type.String(), active: Type.String(), ornament: Type.Optional(Type.String())}, {additionalProperties: false})),
     scene: Type.Optional(Type.String({minLength: 1})),
+    /** 浮层的画框：描边里面再画一道细线（docs/specs/theme/skins.md 输出 13）。 */
+    frame: Type.Optional(Type.Object({line: Type.String({minLength: 1})}, {additionalProperties: false})),
 }, {additionalProperties: false});
 
 export const ThemeDeclarationSchema = Type.Object({

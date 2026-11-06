@@ -257,6 +257,57 @@ test("高对比度、强制颜色下不画场景，配色照旧", async ({page})
     expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--bg-panel"))).toBe("#fbf6ea");
 });
 
+test("浮层画框：书房的菜单与设置窗口有，亮暗各取各的色；高对比度、切回 NeuroBook 没有", async ({page}) => {
+    const outline = (selector: string) => page.locator(selector).first().evaluate((element) => {
+        const style = getComputedStyle(element);
+        return `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`;
+    });
+    const openMenu = async (): Promise<void> => {
+        await item(page, "project://notes").click({button: "right"});
+        await expect(page.locator(".nb-ui-menu-surface").first()).toBeVisible();
+    };
+    const openWindow = async (): Promise<void> => {
+        await expect(async () => {
+            await page.keyboard.press("Control+,");
+            await expect(page.locator(".nb-ui-dialog-surface--window").first()).toBeVisible({timeout: 500});
+        }).toPass();
+    };
+    const closeAll = async (): Promise<void> => {
+        await page.keyboard.press("Escape");
+        await expect(page.locator(".nb-ui-menu-surface, .nb-ui-dialog-surface--window")).toHaveCount(0);
+    };
+
+    await writeSettings({[THEME]: STUDY, [APPEARANCE]: "light"});
+    await openProject(page);
+    await openMenu();
+    expect(await outline(".nb-ui-menu-surface")).toBe("solid 1px rgb(138, 90, 36)");
+    await closeAll();
+    await openWindow();
+    expect(await outline(".nb-ui-dialog-surface--window")).toBe("solid 1px rgb(138, 90, 36)");
+    await closeAll();
+
+    await writeSettings({[THEME]: STUDY, [APPEARANCE]: "dark"});
+    await openMenu();
+    expect(await outline(".nb-ui-menu-surface")).toBe("solid 1px rgb(224, 172, 98)");
+    await closeAll();
+    // 标题栏的菜单是另一个组件，行内样式里带着 outline: none，也要有线。
+    await page.locator("[data-workbench-titlebar]").getByRole("menuitem", {name: "文件"}).click();
+    await expect(page.locator(".nb-ui-menu-surface").first()).toBeVisible();
+    expect(await outline(".nb-ui-menu-surface")).toBe("solid 1px rgb(224, 172, 98)");
+    await closeAll();
+
+    await page.emulateMedia({contrast: "more"});
+    await openMenu();
+    expect(await outline(".nb-ui-menu-surface")).toMatch(/^none /u);
+    await closeAll();
+    await page.emulateMedia({contrast: "no-preference"});
+
+    await writeSettings({[THEME]: "nbook", [APPEARANCE]: "light"});
+    await expect(page.locator("html")).not.toHaveAttribute("data-nb-skin-frame", "");
+    await openMenu();
+    expect(await outline(".nb-ui-menu-surface")).toMatch(/^none /u);
+});
+
 test("设置里的主题不存在：项目层退到用户层，再退到缺省，设置不改写", async ({page}) => {
     const projectSettings = join(projectDir, ".nbook/settings.json");
     await writeSettings({[THEME]: STUDY});

@@ -1,5 +1,7 @@
 import {NB_UI_COLORWAY_HOST_CLASS} from "@notnotype/nb-ui/colorway";
 
+import {SKIN_VARS} from "./skin-vars";
+
 /** 写到文档根的一套主题：主题包、明暗与配色变量（docs/specs/theme/system.md）。 */
 export interface DocumentTheme {
     readonly themeId: string;
@@ -42,6 +44,8 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
             root.style.colorScheme = theme.appearance;
             if (theme.scene === true) root.dataset.nbSkinScene = "";
             else delete root.dataset.nbSkinScene;
+            if (theme.vars?.[SKIN_VARS.frameLine] !== undefined) root.dataset.nbSkinFrame = "";
+            else delete root.dataset.nbSkinFrame;
             clearVars();
             if (theme.vars !== undefined) {
                 for (const target of [root, document.body]) {
@@ -58,6 +62,7 @@ export function createDocumentThemeWriter(): DocumentThemeWriter {
             delete root.dataset.nbTheme;
             delete root.dataset.nbAppearance;
             delete root.dataset.nbSkinScene;
+            delete root.dataset.nbSkinFrame;
             root.style.removeProperty("color-scheme");
             clearVars();
             root.classList.remove(NB_UI_COLORWAY_HOST_CLASS);
