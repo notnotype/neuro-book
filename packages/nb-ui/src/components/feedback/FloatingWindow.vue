@@ -16,6 +16,7 @@ import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {useUiText} from "../../text-port";
 import type {OverlayCloseReason} from "../shared-types";
 import {useDialogClose} from "./dialog-close";
+import {useDialogOrigin} from "./dialog-origin";
 import {DIALOG_SURFACE_STYLE, pxOf, resolveDialogFrame} from "./dialog-frame";
 import type {DialogSize} from "./dialog-frame";
 import DialogSurface from "./DialogSurface.vue";
@@ -113,6 +114,9 @@ const floating = useFloatingWindow({
     onResize: (dimension, value) => (dimension === "width" ? emit("update:width", value) : emit("update:height", value)),
 });
 
+// 有触发点（点按钮、菜单项打开）时，窗口从那个方向展开、关闭时收回去。要等窗口居中完成再量矩形。
+const origin = useDialogOrigin({open: () => props.open, panel: () => panel.value, ready: floating.positioned});
+
 const panelStyle = computed(() => {
     const frame = resolveDialogFrame(props);
     return {
@@ -122,6 +126,7 @@ const panelStyle = computed(() => {
         zIndex: zIndex.value,
         ...(frame.height === "auto" ? {} : {height: frame.height}),
         ...floating.style.value,
+        ...origin.style.value,
     };
 });
 

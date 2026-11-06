@@ -321,5 +321,5 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         dragCleanup?.();
     });
 
-    return {style, startDrag, startResize, resizeByKey, measured};
+    return {style, startDrag, startResize, resizeByKey, measured, positioned: () => positioned.value};
 }

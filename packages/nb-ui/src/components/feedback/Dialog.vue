@@ -15,6 +15,7 @@ import {useTeleportContained, useTeleportTarget} from "../../composables/useTele
 import {useUiText} from "../../text-port";
 import type {OverlayCloseReason} from "../shared-types";
 import {useDialogClose} from "./dialog-close";
+import {useDialogOrigin} from "./dialog-origin";
 import {DIALOG_SURFACE_STYLE, resolveDialogFrame} from "./dialog-frame";
 import type {DialogSize} from "./dialog-frame";
 import DialogSurface from "./DialogSurface.vue";
@@ -119,6 +120,9 @@ const teleportTo = useTeleportTarget(() => (typeof props.teleportTarget === "str
 const surface = ref<InstanceType<typeof DialogSurface> | null>(null);
 const panel = computed(() => surface.value?.panel ?? null);
 
+// 有触发点（点按钮、菜单项打开）时，面从那个方向展开、关闭时收回去；AlertDialog 没有来处，不接入。
+const origin = useDialogOrigin({open: () => props.open, panel: () => panel.value});
+
 const panelStyle = computed(() => {
     const frame = resolveDialogFrame(props);
     // 居中：四边贴住容器再 margin auto；高度按内容时用 fit-content，auto 会撑满。
@@ -131,6 +135,7 @@ const panelStyle = computed(() => {
         inset: "0",
         margin: "auto",
         height: frame.height === "auto" ? "fit-content" : frame.height,
+        ...origin.style.value,
     };
 });
 

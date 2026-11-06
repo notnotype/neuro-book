@@ -42,8 +42,8 @@ const HOST_HOOK_VARS = new Map<string, string>([
     ["--nb-collapsible-row-px", "CollapsibleRow 的左右内边距，缺省 8px；行排在已有缩进的列表里时宿主收窄（CollapsibleRow.md）"],
 ]);
 
-/** reka 在运行时写到元素上的尺寸、Tailwind 自己的内部变量。 */
-const RUNTIME_VAR_PREFIXES = ["--reka-", "--tw-"];
+/** reka 在运行时写到元素上的尺寸、Tailwind 自己的内部变量，以及对话框入场的起点（useDialogOrigin 打开时量了写到面上）。 */
+const RUNTIME_VAR_PREFIXES = ["--reka-", "--tw-", "--nb-dialog-from-", "--nb-dialog-enter-"];
 
 const RULES = styleTokenRules({typographyTokens: nbTypographyTokens});
 

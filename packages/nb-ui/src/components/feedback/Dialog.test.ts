@@ -9,10 +9,12 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
 
 import Dialog from "./Dialog.vue";
+import {resetDialogOriginForTest} from "./dialog-origin";
 import Select from "../popup/Select.vue";
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
+    resetDialogOriginForTest();
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
     document.body.innerHTML = "";
 });
@@ -240,5 +242,50 @@ describe("Dialog（模态）", () => {
         await nextTick();
         expect(document.body.querySelector("[data-dialog-surface]")).toBeNull();
         expect(document.activeElement).toBe(opener);
+    });
+
+    describe("从触发点展开", () => {
+        const fromOffset = (): {x: number; y: number; scale: string} => {
+            const style = query<HTMLElement>("[data-dialog-surface]").style;
+            return {x: Number.parseFloat(style.getPropertyValue("--nb-dialog-from-x") || "0"), y: Number.parseFloat(style.getPropertyValue("--nb-dialog-from-y") || "0"), scale: style.getPropertyValue("--nb-dialog-from-scale")};
+        };
+
+        const Host = defineComponent({
+            setup() {
+                const open = ref(false);
+                return {open};
+            },
+            render() {
+                return h("div", [
+                    h("button", {"data-opener": "", "onClick": () => {
+                        this.open = true;
+                    }}, "打开"),
+                    h(Dialog, {"open": this.open, "title": "确认", "onUpdate:open": (value: boolean) => {
+                        this.open = value;
+                    }}, () => h("input")),
+                ]);
+            },
+        });
+
+        it("点按钮打开时面朝按下的位置偏一小段，起始缩放更小", async () => {
+            track(mount(Host, {attachTo: document.body}));
+            const opener = query<HTMLButtonElement>("[data-opener]");
+            // happy-dom 不排版，面的矩形是零，中心在 (0, 0)：触发点在 (200, -300) 时位移是它的一成多
+            opener.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 200, clientY: -300}));
+            opener.click();
+            await flushPromises();
+            const offset = fromOffset();
+            expect(offset.x).toBeGreaterThan(0);
+            expect(offset.y).toBeLessThan(0);
+            expect(Math.abs(offset.x)).toBeLessThan(200);
+            expect(Number(offset.scale)).toBeLessThan(0.96);
+        });
+
+        it("没有按下、焦点也不在按钮上时（程序打开）原地展开，不写位移", async () => {
+            const wrapper = track(mount(Dialog, {props: {open: false, title: "确认"}, attachTo: document.body}));
+            await wrapper.setProps({open: true});
+            await flushPromises();
+            expect(fromOffset()).toEqual({x: 0, y: 0, scale: ""});
+        });
     });
 });
