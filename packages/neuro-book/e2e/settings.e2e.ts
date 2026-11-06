@@ -236,6 +236,54 @@ async function pressOpenSettings(page: Page): Promise<void> {
     }).toPass();
 }
 
+/** 设置窗口的面：`data-settings-window` 是面板里的内容。 */
+const settingsSurface = (page: Page) => page.locator("[data-dialog-surface]:has([data-settings-window])");
+
+test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比终点更靠近齿轮；减少动态效果时第一帧就是终点", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await open(page, "/?project=book");
+    // 放慢入场令牌：动画停在起点读矩形，不依赖时序。（Vue 的 scoped 样式会给关键帧名加哈希后缀，所以按前缀找动画。）
+    await page.addStyleTag({content: ":root { --motion-enter: 4000ms !important; }"});
+    const gear = await workbenchGear(page).boundingBox();
+    if (gear === null) throw new Error("活动栏的设置齿轮不可见");
+    const gearCenter = {x: gear.x + gear.width / 2, y: gear.y + gear.height / 2};
+
+    await workbenchGear(page).click();
+    await expect(settingsSurface(page)).toHaveCount(1);
+    const run = await settingsSurface(page).evaluate((surface) => {
+        const animation = surface.getAnimations().find((candidate) => (candidate as CSSAnimation).animationName.startsWith("nb-dialog-in"));
+        if (animation === undefined) throw new Error("入场动画不存在");
+        const centerOf = (rect: DOMRect) => ({x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width});
+        // 停在第 0 毫秒读起点，再跳到终点读终点；两次读取之间没有绘制。
+        animation.pause();
+        animation.currentTime = 0;
+        const start = centerOf(surface.getBoundingClientRect());
+        animation.finish();
+        const end = centerOf(surface.getBoundingClientRect());
+        return {start, end, duration: animation.effect?.getTiming().duration};
+    });
+    const distance = (point: {x: number; y: number}): number => Math.hypot(point.x - gearCenter.x, point.y - gearCenter.y);
+    expect(run.duration).toBe(4000);
+    expect(distance(run.start)).toBeLessThan(distance(run.end));
+    expect(run.start.width).toBeLessThan(run.end.width);
+
+    // 减少动态效果：重新载入（放慢令牌的样式随页面丢掉），第一帧就是终点。
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await expect(settingsSurface(page)).toHaveCount(1);
+    const settled = await settingsSurface(page).evaluate((surface) => ({
+        transform: getComputedStyle(surface).transform,
+        width: surface.getBoundingClientRect().width,
+        offsetWidth: (surface as HTMLElement).offsetWidth,
+        running: surface.getAnimations().some((animation) => animation.playState === "running"),
+    }));
+    expect(settled.transform).toBe("none");
+    expect(settled.width).toBe(settled.offsetWidth);
+    expect(settled.running).toBe(false);
+});
+
 test("浏览器窗口变化：没拖过的保持居中；拖过的放得下不动，放不下推回完整可见，放大不回原位，尺寸不改", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 900});
     await open(page, "/?project=book");
