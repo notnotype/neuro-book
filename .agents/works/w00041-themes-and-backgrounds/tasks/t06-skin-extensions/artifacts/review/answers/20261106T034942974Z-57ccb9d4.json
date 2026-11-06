@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00041-themes-and-backgrounds",
+    "taskId": "t06-skin-extensions",
+    "artifactId": "review",
+    "answerId": "20261106T034942974Z-57ccb9d4",
+    "artifactVersion": 1,
+    "contentHash": "86b0631a8b0d47827223a1ec83e60188dc944e94e6e40ae6d1e4860fefa55ddf",
+    "submittedAt": "2026-11-06T03:49:42.213Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-frame": "double",
+        "r1-scope": "all"
+    },
+    "comments": {},
+    "note": null
+}
