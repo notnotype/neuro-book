@@ -118,6 +118,7 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         nodePlan: () => change(chapter(place()), {kind: "plan", told: [{source: "outline", chapter: place(), anchor: "细纲", marks: [node(mystery, "payoff")]}]}),
         linkedPlan: () => change(chapter(place()), {kind: "plan", patches: [{op: "set", at: {entry: point(), path: "point.保密"}, value: random(2) === 0 ? "secret" : "common"}, touch]}),
         linkedWritten: (index) => change(beforeBreak(), {patches: [{op: "set", at: {entry: person(), path: "entry.name"}, value: `改名${String(index)}`}, touch]}),
+        linkedWrittenSecrecy: () => change(beforeBreak(), {patches: [{op: "set", at: {entry: point(), path: "point.保密"}, value: random(2) === 0 ? "secret" : "common"}, touch]}),
         planBreaker: () => change(chapter(place()), {kind: "plan", patches: [{op: "listRemove", at: {entry: bystander, path: "know.知情"}, value: trifle}]}),
         linkedPlanEarlyTold: () => change(chapter(chapters[6 + random(8)]!), {kind: "plan", told: [{source: "outline", chapter: chapters[random(4)]!, anchor: "细纲"}], patches: [{op: "set", at: {entry: point(), path: "point.保密"}, value: random(2) === 0 ? "secret" : "common"}, touch]}),
         replaceLinked: () => {
@@ -209,7 +210,7 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         reparent: () => editEntry(point(), (entry) => ({...entry, parent: person()})),
         mask: () => change(chapter(place()), {patches: [{op: "set", at: {entry: point(), path: "point.揭穿"}, value: {ref: stranger}}]}),
         goalSecret: () => change(chapter(place()), {patches: [{op: "set", at: {entry: goal, path: "goal.隐秘"}, value: random(2) === 0 ? {ref: point()} : null}]}),
-        goalStatus: () => change(chapter(place()), {kind: "plan", patches: [{op: "set", at: {entry: goal, path: "goal.状态"}, value: random(2) === 0 ? "blocked" : "active"}]}),
+        goalStatus: () => change(chapter(place()), {kind: "plan", patches: [{op: "set", at: {entry: goal, path: "goal.状态"}, value: random(2) === 0 ? "achieved" : "active"}]}),
         newGoal: (index) => w.goal(`第 ${String(index)} 个目标`, person(), {状态: "active", 隐秘: {ref: point()}}),
         fsObject: () => change(chapter(place()), {patches: [{op: "listAdd", at: {entry: mystery, path: "fs.物件"}, value: {id: spare}}]}),
         fsAnswer: () => change(chapter(place()), {patches: [{op: "set", at: {entry: mystery, path: "fs.答案"}, value: {ref: point()}}]}),

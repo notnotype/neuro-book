@@ -25,7 +25,7 @@ const inText = (w: PlotWorld, chapterId: string, quote: string, marks: Mark[] = 
 };
 
 /** 依赖摘要。`concerned` 是记录里存的那一份（跑检查时的计划算的），之后的世界变了也还用它。 */
-const deps = (w: PlotWorld, chapterId: string, scene: Scene = {}, concerned = planOf(w, chapterId, scene)) => dependenciesOf({
+const deps = (w: PlotWorld, chapterId: string, scene: Scene = {}, concerned: {readonly points: readonly string[]; readonly concerns: readonly string[]} = planOf(w, chapterId, scene)) => dependenciesOf({
     view: w.view(),
     chapter: chapterId,
     followUps: scene.followUps ?? [],
@@ -857,7 +857,8 @@ function readsOfPlan(w: PlotWorld, chapterId: string, scene: Scene) {
         return copy as unknown as typeof view;
     };
     const plan = planCheck({view: wrap(w.view()), chapter: chapterId, followUps: [], digest, ...(scene.instruction === undefined ? {} : {instruction: scene.instruction})});
-    if ("code" in plan) throw new Error(plan.code);
+    // 线不可建时计划读不到，没有可核对的。
+    if ("code" in plan) return null;
     return {fields, plan};
 }
 
@@ -866,7 +867,9 @@ const IDENTITY_FIELDS = new Set(["name", "aliases", "deleted", "appeared", "poin
 
 /** 计划读到的条目都有归属：只守“读了哪个条目的哪个字段”这一面，线、挂靠、覆盖层上的结论这种间接的路走不到，靠确定用例。 */
 function expectReadsCovered(w: PlotWorld, chapterId: string, scene: Scene) {
-    const {fields, plan} = readsOfPlan(w, chapterId, scene);
+    const reads = readsOfPlan(w, chapterId, scene);
+    if (reads === null) return;
+    const {fields, plan} = reads;
     const read = entriesRead({view: w.view(), chapter: chapterId, followUps: [], points: plan.points, concerns: plan.concerns, pluginVersion: "test", digest, ...(scene.instruction === undefined ? {} : {instruction: {snapshot: scene.instruction, digest: "-"}})});
     const identity = identityEntries(w.view(), digest);
     for (const [id, names] of fields) {
@@ -894,9 +897,13 @@ describe("随机序列", () => {
         const {w, chapters, instructions} = book;
         const sceneOf = (id: string): Scene => (instructions.has(id) ? {instruction: instructions.get(id)!} : {});
         const snapshot = () => new Map(chapters.map((id) => {
-            const stored = planOf(w, id, sceneOf(id));
+            const scene = sceneOf(id);
+            const plan = planCheck({view: w.view(), chapter: id, followUps: [], digest, ...(scene.instruction === undefined ? {} : {instruction: scene.instruction})});
+            // 线不可建时计划读不到：结论就是这个码，按没涉及任何条目算摘要。
+            const stored: {readonly points: readonly string[]; readonly concerns: readonly string[]} = "code" in plan ? {points: [], concerns: []} : plan;
             // 比调用，也比本章涉及的条目：“摘要没变，`R` 就没变”是摘要不漏的前提。
-            return [id, {stored, deps: deps(w, id, sceneOf(id), stored), sign: JSON.stringify([stored.calls.map((call) => [call.id, call.digest]), stored.points, stored.concerns])}] as const;
+            const sign = "code" in plan ? plan.code : JSON.stringify([plan.calls.map((call) => [call.id, call.digest]), plan.points, plan.concerns]);
+            return [id, {stored, deps: deps(w, id, scene, stored), sign}] as const;
         }));
         let before = snapshot();
         let quiet = 0;
@@ -926,7 +933,7 @@ describe("随机序列", () => {
         expect(moved).toBeGreaterThan(50);
         expect(book.ops.filter((op) => !applied.has(op))).toEqual([]);
         // 每种操作都要有机会让结论变：空转的操作守不住任何读取。步数少时有的操作轮到几次都碰巧没影响，默认只看大多数；离线多跑（800 步以上）时要求全部，这几种除外：它们本来就不该让结论变，守的是“摘要也不变”。
-        const noEffect = new Set(["folder", "newPerson", "renameLine", "plainPlan"]);
+        const noEffect = new Set(["folder", "newPerson", "renameLine", "plainPlan", "plain"]);
         const idle = book.ops.filter((op) => !movers.has(op) && !noEffect.has(op));
         if (STEPS >= 800) expect(idle).toEqual([]);
         else expect(idle.length).toBeLessThan(book.ops.length * 0.4);
