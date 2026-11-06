@@ -257,6 +257,83 @@ test("高对比度、强制颜色下不画场景，配色照旧", async ({page})
     expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--bg-panel"))).toBe("#fbf6ea");
 });
 
+/** 一个元素的 `::before` 画没画场景：有场景图（`url(...)`）且没被藏起来。 */
+const paintsScene = (page: Page, selector: string): Promise<boolean> => page.locator(selector).first().evaluate((element) => {
+    const style = getComputedStyle(element, "::before");
+    return style.content !== "none" && style.display !== "none" && style.backgroundImage.includes("url(");
+});
+
+/** 等 `::before` 上的场景图解码完再量：图没出来时量到的是纯色底，什么都能过。 */
+const pseudoSceneReady = (page: Page, selector: string) => page.locator(selector).first().evaluate(async (element) => {
+    const image = new Image();
+    image.src = /url\("(.+?)"\)/u.exec(getComputedStyle(element, "::before").backgroundImage)?.[1] ?? "";
+    await image.decode();
+});
+
+const openShelf = async (page: Page): Promise<void> => {
+    await page.goto(new URL("/", server.url).href);
+    await expect(page.locator("[data-bookshelf-page]")).toBeVisible();
+};
+
+const openSettingsWindow = (page: Page): Promise<void> => expect(async () => {
+    await page.keyboard.press("Control+,");
+    await expect(page.locator(".settings-window")).toBeVisible({timeout: 500});
+}).toPass();
+
+for (const appearance of ["light", "dark"] as const) {
+    test(`书架页 ${appearance}：书房整页铺场景，书架标题与计数不低于 4.5；高对比度不画；NeuroBook 没有`, async ({page}) => {
+        await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
+        await openShelf(page);
+        await page.addStyleTag({content: HIDE_TEXT});
+        await expect.poll(() => paintsScene(page, "[data-bookshelf-page]")).toBe(true);
+        await pseudoSceneReady(page, "[data-bookshelf-page]");
+        for (const selector of [".bookshelf-page__shelf-title", ".bookshelf-page__count", ".bookshelf-page__room"]) {
+            const result = await measure(page, selector);
+            console.log(`${appearance} 书架 ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+            expect(result.worst, selector).toBeGreaterThanOrEqual(4.5);
+        }
+        await page.emulateMedia({contrast: "more"});
+        await expect.poll(() => paintsScene(page, "[data-bookshelf-page]")).toBe(false);
+        await page.emulateMedia({contrast: "no-preference"});
+        await expect.poll(() => paintsScene(page, "[data-bookshelf-page]")).toBe(true);
+        await page.emulateMedia({forcedColors: "active"});
+        await expect.poll(() => paintsScene(page, "[data-bookshelf-page]")).toBe(false);
+        await page.emulateMedia({forcedColors: "none"});
+
+        await writeSettings({[THEME]: "nbook", [APPEARANCE]: appearance});
+        await openShelf(page);
+        expect(await paintsScene(page, "[data-bookshelf-page]")).toBe(false);
+    });
+
+    test(`设置窗口 ${appearance}：书房整窗铺一层淡场景，标题与行文字不低于 4.5；高对比度不画；NeuroBook 没有`, async ({page}) => {
+        await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
+        await openProject(page);
+        await page.addStyleTag({content: HIDE_TEXT});
+        await openSettingsWindow(page);
+        await page.locator("[data-settings-nav='nbook.appearance']").click();
+        await expect.poll(() => paintsScene(page, ".settings-window")).toBe(true);
+        expect(await page.locator(".settings-window").evaluate((element) => getComputedStyle(element, "::before").opacity)).toBe("0.16");
+        await pseudoSceneReady(page, ".settings-window");
+        for (const selector of ["[data-settings-heading]", "[data-settings-row=\"nbook.workbench/theme\"] .settings-row__title label", "[data-settings-row=\"nbook.workbench/theme\"] .settings-row__description", "[data-settings-nav=\"nbook.editor\"]"]) {
+            const result = await measure(page, selector);
+            console.log(`${appearance} 设置窗口 ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+            expect(result.worst, selector).toBeGreaterThanOrEqual(4.5);
+        }
+        await page.emulateMedia({contrast: "more"});
+        await expect.poll(() => paintsScene(page, ".settings-window")).toBe(false);
+        await page.emulateMedia({contrast: "no-preference"});
+        await page.emulateMedia({forcedColors: "active"});
+        await expect.poll(() => paintsScene(page, ".settings-window")).toBe(false);
+        await page.emulateMedia({forcedColors: "none"});
+        await page.keyboard.press("Escape");
+
+        await writeSettings({[THEME]: "nbook", [APPEARANCE]: appearance});
+        await openProject(page);
+        await openSettingsWindow(page);
+        expect(await paintsScene(page, ".settings-window")).toBe(false);
+    });
+}
+
 test("浮层画框：书房的菜单与设置窗口有，亮暗各取各的色；高对比度、切回 NeuroBook 没有", async ({page}) => {
     const outline = (selector: string) => page.locator(selector).first().evaluate((element) => {
         const style = getComputedStyle(element);

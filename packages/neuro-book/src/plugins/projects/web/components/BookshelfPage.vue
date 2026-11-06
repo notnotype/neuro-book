@@ -319,4 +319,30 @@ defineExpose({focusShelf});
 .bookshelf-page__error p {
     margin: 0;
 }
+
+/*
+ * 带场景的主题（docs/specs/theme/skins.md 输出 14）：整页铺场景，上面罩一层页面底色，卡片与文字仍在实底上。
+ * 场景钉在视口上，书多了页面变长也不被拉伸。变量名见 src/ui/theme/skin-vars.ts；没有场景的主题不写 data-nb-skin-scene，这一层不存在。
+ * 选择器整个写在 `:global()` 里：`:global(a) .b` 在 scoped 样式里会被编译成只剩 `a`，规则落到 `<html>` 上。
+ */
+:global([data-nb-skin-scene] .bookshelf-page) {
+    isolation: isolate;
+}
+
+:global([data-nb-skin-scene] .bookshelf-page::before) {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        linear-gradient(color-mix(in srgb, var(--bg-main) 62%, transparent), color-mix(in srgb, var(--bg-main) 62%, transparent)),
+        var(--skin-scene) var(--skin-empty-position, center) / cover no-repeat;
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+    :global([data-nb-skin-scene] .bookshelf-page::before) {
+        display: none;
+    }
+}
 </style>
