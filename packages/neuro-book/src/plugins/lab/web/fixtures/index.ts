@@ -50,6 +50,7 @@ import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-editor/ThemeEditor.vue";
+import type ThemeSettingsPage from "nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue";
 import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
@@ -456,6 +457,20 @@ export const labFixtures: LabFixture[] = [
             {id: "colors-english", label: "配色，英文界面", input: {props: {themes: [], closable: true}}},
         ],
         load: async () => withWorkbenchText((await import("./ThemeEditorFixture.vue")).default, ["colors-english"]),
+    }),
+    defineLabFixture<typeof ThemeSettingsPage>({
+        component: "ThemeSettingsPage",
+        scenes: (() => {
+            const entry = (id: string, plugin: string, title: string, titleEn: string) => ({id, plugin, declaration: {title: {"zh-CN": title, "en-US": titleEn}, base: "nbook" as const, light: {}, dark: {}}});
+            const builtin = [entry("nbook", "nbook.workbench", "NeuroBook", "NeuroBook"), entry("macos", "nbook.workbench", "macOS", "macOS")];
+            const mine = [entry("user:00000000-0000-4000-8000-000000000001", "user", "夜读", "Night reading"), entry("user:00000000-0000-4000-8000-000000000002", "user", "雨窗", "Rainy window")];
+            return [
+                {id: "empty", label: "还没有我的主题", input: {props: {themes: builtin, currentId: "nbook"}}},
+                {id: "mine", label: "两套我的主题，其中一套在用", input: {props: {themes: [...builtin, ...mine], currentId: "user:00000000-0000-4000-8000-000000000001"}}},
+                {id: "mine-english", label: "英文界面", input: {props: {themes: [...builtin, ...mine], currentId: "nbook"}}},
+            ];
+        })(),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof ThemeSettingsPage>((await import("nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue")).default, {events: ["open"], class: "w-full max-w-[720px] p-6"}), ["mine-english"]),
     }),
     defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",

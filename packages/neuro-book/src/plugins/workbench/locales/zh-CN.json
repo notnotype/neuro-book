@@ -316,6 +316,12 @@
             "title": "护眼米黄"
         }
     },
+    "settingsPages": {
+        "themes": {
+            "title": "主题",
+            "description": "做自己的主题，或查看正在用的主题"
+        }
+    },
     "themeEditor": {
         "title": "主题编辑器",
         "close": "关闭",
@@ -379,6 +385,16 @@
             "advanced": "高级：角色变量",
             "advancedHint": "控件、按钮、面板等的面与分隔线；写颜色或渐变，不能引图片。",
             "clear": "清除"
+        },
+        "entry": {
+            "openTab": "在页签中打开",
+            "openFloating": "在浮动窗口中打开",
+            "intro": "做自己的主题：配色、字体、活动栏、场景图都能改，改动立刻出现在真实的工作台上。",
+            "current": "正在使用",
+            "switchHint": "要换用别的主题，在“外观”里选。",
+            "mine": "我的主题",
+            "mineEmpty": "还没有自己的主题。打开编辑器新建一套，或从任一主题复制起步。",
+            "inUse": "使用中"
         },
         "contrast": {
             "unknown": "没有算出对比度：写法编辑器不解析",

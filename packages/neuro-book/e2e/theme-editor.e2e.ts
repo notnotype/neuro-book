@@ -411,3 +411,34 @@ test("切主题或明暗时整页渐变；编辑器里改色、系统偏好减�
         expect(await transitioned()).toBe(false);
     });
 });
+
+test("设置窗口里有“主题”页：我的主题列在页上，两个按钮分别在页签与浮动窗口里打开编辑器，打开后编辑器不被设置窗口挡住", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-editor-tab-close]").last().click({force: true});
+        await expect(editor(page)).toBeHidden();
+
+        await expect(async () => {
+            await page.keyboard.press("Control+,");
+            await expect(page.locator("[data-settings-nav-current]")).toBeFocused({timeout: 500});
+        }).toPass();
+        await page.locator("[data-settings-nav='nbook.workbench.themes']").click();
+        // 两个按钮经 SettingsPageActions 放进窗口标题区，不在页面根里面。
+        const entry = page.locator("[data-theme-settings-page]");
+        await expect(entry.locator("[data-my-theme]")).toHaveCount(1);
+        await expect(entry.locator("[data-current-theme]")).toContainText("NeuroBook");
+
+        await page.locator("[data-open-tab]").click();
+        await expect(editor(page)).toBeVisible();
+        // 点得到才说明没被设置窗口盖住：Playwright 的点击会先核对命中的就是这个元素。
+        await page.locator("[data-section-tab=colors]").click({timeout: 3000});
+        await page.locator("[data-editor-tab-close]").last().click({force: true});
+        await expect(editor(page)).toBeHidden();
+
+        await page.locator("[data-open-floating]").click();
+        await expect(editor(page)).toBeVisible();
+        await page.locator("[data-section-tab=colors]").click({timeout: 3000});
+    });
+});
