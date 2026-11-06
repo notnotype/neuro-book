@@ -25,7 +25,7 @@ owners:
 
 ## 术语与参与者
 
-- **主题**：`workbench.themes` 的一条贡献。`nbook`、`macos` 也是主题，只是没有场景。
+- **主题**：`workbench.themes` 的一条贡献。`nbook`、`macos` 与两套护眼主题也是主题，只是没有场景。
 - **主题包**：nb-ui 的形状、密度与动效（[`theme.system`](system.md)）。一条主题经 `base` 选一个。
 - **场景图**：每个明暗一张，各位置裁它的不同部分。
 - 参与者：`nbook.workbench`（贡献点、选择、写文档根、活动栏、侧栏下角）、`nbook.editor`（空状态）、`nbook.markdown`（正文两侧与正文字体）、提供主题的插件。
@@ -77,6 +77,7 @@ type Look = {
 9. **无障碍偏好**：`prefers-contrast: more`、`forced-colors: active` 下不画场景；配色与活动栏照旧。
 10. **没写的位置和没有主题时一样**：`nbook`、`macos` 的外观不因本能力改变。
 11. **内置的“书房”**：随产品提供，不是缺省。
+12. **内置的护眼主题**：`eye-green`（护眼绿）与 `eye-sepia`（护眼米黄），工作台提供，主题包是 `nbook`，亮暗各一套低饱和的配色，只换颜色，没有场景。正文、次要文字、链接与状态色都不低于 4.5。
 
 ## 状态与转换
 
@@ -114,6 +115,7 @@ type Look = {
 8. Given 项目层写了不存在的 id、用户层是书房；Then 显示书房；用户层也不存在时显示 NeuroBook；设置都不改写。
 9. Given 命令 `switch-theme` 传不存在的 id；Then `invalid-args`。
 10. Given 一个不写代码的主题插件；When 安装并重启；Then 列表里有它，选了生效；When 禁用并重启；Then 退回且设置不变；When 启用并重启；Then 恢复。
+11. Given 护眼绿或护眼米黄与明暗任一；Then 没有场景；欢迎页文字、活动栏、侧栏、正文的对比度不低于 4.5。
 
 Smoke：`e2e/themes.e2e.ts`。
 
