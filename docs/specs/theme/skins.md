@@ -112,7 +112,7 @@ type Look = {
 ## 边界与兼容
 
 - 公开接口：贡献点 `workbench.themes` 与 `workbench.theme-scenes` 及声明，只追加字段；配置值 `nbook`、`macos` 不变。SDK 的 `/workbench` 导出 `sceneProvider` 助手与相关类型。
-- “我的主题”不持有 `icons`、`workingScene`（用户层的素材只有按内容摘要命名的场景图，没有放它们的地方）：[`theme.editor`](editor.md) 复制插件主题与导入主题包时丢弃这两项，读到带它们的记录时那一条不进列表；`sceneProvider` 只是个贡献 id，用户层保留。
+- “我的主题”的素材写素材文件名（内容摘要加扩展名，放在 `user://theme-assets/`）：`scene`、`workingScene` 是位图的文件名，`icons` 的值是 SVG 的文件名（[`theme.editor`](editor.md) 的“写场景素材”“写图标素材”）；不合这个写法的记录，那一条不进列表。`sceneProvider` 只是个贡献 id，原样保留。
 - 信任边界：声明只有数据，素材只取插件自己目录里的文件。插件的样式表能写任何选择器，这里只承诺上面的位置，别的选择器不保证升级后还能用。
 - 单张场景图建议 300 KB 以内，是作者建议，不是限制。
 

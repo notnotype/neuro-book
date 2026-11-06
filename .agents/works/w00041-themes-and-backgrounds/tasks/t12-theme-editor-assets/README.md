@@ -19,8 +19,8 @@ t06 给主题声明加了图标集（`Look.icons`）、工作态场景（`Look.w
 
 ## 当前状态
 
-2026-11-06 计划已写，待设计审查。
+2026-11-06 计划已过 omp 设计审查（12 条：阻断 1、重要 9、建议 2），全部处理并并入计划，处理见 [evidences/design-review-disposition.txt](evidences/design-review-disposition.txt)，原报告 [design-review.txt](evidences/design-review.txt)。Spec（`theme.editor`、`theme.skins`、`workspace.files`）已在 master 改好。
 
 ## 下一步
 
-omp 设计审查，处理后改 Spec，再开 worktree 实施。
+开 worktree 按计划四片实施。

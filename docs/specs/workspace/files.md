@@ -76,7 +76,7 @@ owners:
 
 ### 写主题场景素材
 
-主题编辑器（[`theme.editor`](../theme/editor.md)）经 `PUT /api/nbook.files/theme-assets` 把场景图写进 `user://theme-assets/`：请求体是原始字节，限长、按字节判定类型、文件名取 SHA-256、拒绝符号链接目录，细则在“主题编辑器”的“写场景素材”一节。
+主题编辑器（[`theme.editor`](../theme/editor.md)）经 `PUT /api/nbook.files/theme-assets` 把场景图写进 `user://theme-assets/`：请求体是原始字节，限长、按字节判定类型、文件名取 SHA-256、拒绝符号链接目录，细则在“主题编辑器”的“写场景素材”一节。同目录还有 `PUT /api/nbook.files/theme-icons`，只收通过严格检查的 SVG 图标（文件名 `<SHA-256>.svg`），细则在“写图标素材”一节。
 
 ### 预览的受限读取
 

@@ -1,0 +1,156 @@
+# w00041/t12 只读设计审查
+
+审查对象：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md`。
+
+本报告按要求只读；未修改仓库、未运行 e2e 或开发服务。每条发现按核实顺序追加。
+
+### 1. 原始 SVG 路由不是“禁止外部资源”的沙箱
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:12,33,102`；`packages/neuro-book/src/plugins/files/backend/raw-route.ts:178-204,246-250`。
+- **现象**：`raw` 的实际响应只有 `Content-Type: image/svg+xml`、`X-Content-Type-Options: nosniff`、`Content-Security-Policy: sandbox` 和缓存头；没有 `default-src 'none'`、`img-src` 或其它资源加载限制。`sandbox` 能限制直接打开 SVG 时的脚本能力，但不能从响应头推出所有外部图片、字体或其它引用都不会发请求。
+- **为什么是问题**：计划把“mask 静态模式 + raw 路由沙箱”说成纵深防御，实际第二层只覆盖脚本执行，不覆盖外部资源请求。白名单一旦因解析遗漏放过引用，raw 直开、`<img>` 或 CSS mask 的网络行为仍没有这层兜底，和 `skins.md:90,137` 的“不加载外部资源”承诺不一致。
+- **如何核实**：读取 `serveFile` 的 `headers` 与 `RAW_HEADERS`；`serveFile` 在 `raw/user/*` 直接以 `RAW_HEADERS` 返回，未附加资源 CSP。无需 e2e 即可确认头部缺失。
+- **建议改法**：把安全目标拆开写清：服务端白名单负责拒绝引用，raw 响应至少增加针对 SVG 的资源限制（例如明确的 `default-src 'none'`，并验证不会破坏图片消费）；不要把 `sandbox` 单独描述成网络沙箱。补一个真实浏览器正对照：同一字节在可导航 SVG 上确实会请求的引用，在 raw/mask 消费路径上必须不请求。
+
+### 2. SVG 白名单只有规则清单，没有“完整消费输入”的解析合同
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:12,30-31,90,102`。
+- **现象**：计划要求无 DOM 的字符串/正则检查，但没有定义 token 化、标签闭合、属性引号、重复属性、命名空间、大小写、BOM、XML 声明和非法字符的处理；只有元素/属性允许列表与若干负向字符串。`TextDecoder` 的 fatal UTF-8 只解决编码，不解决 XML 语法。
+- **为什么是问题**：安全白名单必须证明“输入的每一段都被解析并且属于允许语法”。只扫描允许标签，或先用正则跳过注释/CDATA 再检查，都可能把注释、CDATA、处理指令、属性名大小写或命名空间前缀里的未允许内容漏过去；只搜小写 `onload`/`href` 也不能覆盖 XML 名称的变体。计划列了这些边界，却没有给实现者一个不会误用的算法合同，测试反例集也不能替代完整消费不变量。
+- **如何核实**：对照计划的 `checkSvgIcon(bytes)` 接口，它只返回真假和 detail，没有规定解析状态；把候选输入分别放在注释/CDATA、`xlink:href`、大小写变体、嵌套 `<svg>`、BOM 与实体中，当前计划无法判断哪些字节应被拒绝，也无法判断检查器是否会在未知 token 后继续。
+- **建议改法**：要么采用禁用外部实体/DOCTYPE 的非 DOM XML tokenizer，并要求所有 token 被消费、元素/属性精确区分大小写、拒绝重复属性、命名空间前缀、注释/CDATA/PI/实体和未知 token；要么写出等价的严格词法状态机（不是若干正则），并把每条拒绝规则列成合同测试。保留 16 KiB、BOM 与 fatal UTF-8 的边界测试。
+
+### 3. 复制工作态场景与图标缺少可调用的插件素材地址接口
+
+- **严重程度**：重要；**类别**：接口与代码质量
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:43,54,64`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-session.ts:36-39`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/transfer.ts:78-90`；`packages/neuro-book/src/plugins/workbench/web/themes.ts:27,163-167`。
+- **现象**：当前会话只暴露 `sceneUrl(entry, appearance)`，当前传输层也只有按明暗复制 `scene` 的 `copyPluginScenes`。图标与 `workingScene` 是按声明路径取文件，计划却只说把 `copyScenes` 改名 `copyAssets`、在 Holder 实现，没有规定如何从 `ThemeCatalog` 的私有 `#assetUrl` 取得任意插件/路径的 URL。
+- **为什么是问题**：照计划实现时，复制插件主题的图标和工作态场景要么无法读取，要么会在 `transfer.ts` 里重新抄一份插件文件 URL 规则，绕过 `ThemeCatalog` 已处理的内置/第三方文件端点与 `pluginFiles.status`。这会把 `user://`、内置素材和第三方素材的地址逻辑分叉；同时 `ThemeEditorHolder` 的 `ThemeTransfer` 接口、`ThemeEditorSession` 与页面文档仍是 scene 专用形状，计划没有列全新接口及所有调用点。
+- **如何核实**：当前 `ThemeEditorHolder.vue:30` 只把 `props.session.sceneUrl` 传给 `copyPluginScenes`；`ThemeCatalog.sceneUrl` 只接受 appearance，`#assetUrl` 为私有；仓库内没有任意插件素材 URL 的公开入口。
+- **建议改法**：由 `ThemeCatalog` 暴露 `assetUrl(entry, path)` 或由 Session 暴露同名窄接口，`copyAssets` 只依赖它；明确用户主题直接复用已校验的素材名、插件主题所有素材都先读取并上传。同步更新 `ThemeTransfer`、Holder/Session 文档与测试，避免在传输层再写一套 URL 解析。
+
+### 4. 提供者下拉所需的标题字段在现有贡献合同里不存在
+
+- **严重程度**：阻断；**类别**：正确性 / 接口
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:13,49,61`；`packages/neuro-book/src/plugins/workbench/shared/themes.ts:140-151`；`packages/neuro-book/src/plugins/workbench/shared/theme-points.ts:6-8`；`packages/neuro-book/plugin-sdk/examples/plugins/scene-clock/plugin.ts:19-27`。
+- **现象**：计划要从已发布的 `SceneProviders.#handles` 得到 `{id, title}`。但当前 `SceneProviderDeclarationSchema` 是空对象 `Type.Object({}, {additionalProperties: false})`，句柄声明没有 `title`；`scene-clock` 也只登记 `{}`。在现有合同中直接补 `title` 会被 schema 拒绝，直接从句柄读取只能得到 id。
+- **为什么是问题**：编辑器无法按计划显示提供者名称；更糟的是若实现者把 title 塞进现有声明，提供者贡献会在发布前被拒，场景提供者本身也消失。标题不是编辑器局部字段，而是跨插件、SDK、Spec、现有示例的公开合同，不能只在 `SceneProviders` 暴露一个列表解决。
+- **如何核实**：读取 `SceneProviderDeclarationSchema` 的空对象定义并对照 `scene-clock` 的 `contributes`；`additionalProperties: false` 明确不接受未声明的 `title`。
+- **建议改法**：先修正 `theme.skins`/SDK/贡献点合同，至少把 `title: Text` 设为可选并对旧的 `{}` 兼容，UI 无 title 时回退显示贡献 id；同步更新示例与合同测试。然后由 `SceneProviders` 暴露只读响应式快照（不要泄露可变私有 Map），`ThemeCatalog` 再把它转成编辑器可消费的列表。
+
+### 5. “当前值未发布仍保留并标注”没有落到 Select 的可观察行为
+
+- **严重程度**：重要；**类别**：正确性 / 接口
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:13,49,61,92`；`packages/nb-ui/src/components/popup/Select.md:33-45,48-58,82-90`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/ThemeEditor.vue:26-34,42-46`。
+- **现象**：nb-ui `Select` 要求当前值应在 `options` 中唯一；没有匹配项时只显示 placeholder，`leading` 的 selected 也是 `undefined`，没有“未发布”内置状态。计划只说“保留并标‘未发布’”，没有规定如何注入一个禁用的临时 option、如何避免用户重新选择它、或如何区分当前值与下拉候选。
+- **为什么是问题**：已有用户主题带 `sceneProvider`、但该提供者未发布时，若只把已发布句柄映射成 options，控件会丢失可见的当前 id；若直接把当前值塞进 options，又会把不可用值当正常选项，用户可能重新选中它。验收“保留并标注”会在真实 UI 上落空。
+- **如何核实**：直接对照 `Select` 文档的受控值合同；当前 `ThemeEditor` 只有 themes/options 两类 prop，没有 provider option 或 custom trigger 设计。
+- **建议改法**：定义 `sceneProviders` 的 option 结构和选中状态：已发布项正常可选；当前值未发布时临时追加 `{value:id, label:id, description:'未发布', disabled:true}`，并明确排序、发布后替换、撤回后重新变回临时项。测试当前值保存不变、列表更新和再次发布三个状态，而不是只测目录数组。
+
+### 6. 并发上传失败时“整体失败”与“不留半个副本”的边界没有定义
+
+- **严重程度**：重要；**类别**：不变量 / 安全与性能
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:54,56,93,107`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/transfer.ts:78-90`；`docs/specs/theme/editor.md:61,85,94`。
+- **现象**：计划要求复制最多 4 张图加 128 个图标、并发上限 6，任一读/传失败整体失败；同时沿用“素材不整理”。现有上传 API 没有 `AbortSignal`，文件路由写入成功后也没有批量回滚接口。若实现用 `Promise.all`，一个请求失败会先返回失败，而其它最多 5 个在途请求仍会继续写入；即使等待全部结束，已成功的素材也会留在 `theme-assets`。
+- **为什么是问题**：没有主题记录时确实不会留下“半个主题副本”，但会留下最多 131 个已上传、未引用的文件和持续的网络/内存工作；如果用户看到失败后立即重试，第二轮还会重复做这些请求。把它称为“不留半个副本”会让实现者误以为需要回滚，和“不整理”又冲突。导入同样存在这个边界，且计划没有定义多主题、多引用素材的提交顺序。
+- **如何核实**：当前 `copyPluginScenes` 是顺序 `await fetch → uploadScene`；新并发实现若替换成 `Promise.all` 即可复现“首个失败提前返回、其余请求继续”的 Promise 语义。文件 Spec 的写入批量合同也明确操作“不保证原子”，没有删除回滚。
+- **建议改法**：把合同写成“主题记录原子、素材写入不可回滚且允许孤儿”，结果必须等所有任务 settled 后再返回；失败时取消尚未开始的任务，若要取消在途请求则给上传接口贯穿 `AbortSignal`。UI 文案明确已上传素材不会整理；必要时为一次操作设置去重表，避免同一文件在 light/dark/icon 引用下重复读传。
+
+### 7. 预览状态的验收没有覆盖真实响应式链路和关闭/重开边界
+
+- **严重程度**：重要；**类别**：测试 / 正确性
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:45-49,91-92,102`；`packages/neuro-book/src/plugins/workbench/web/plugin.ts:147-151,218-231`；`packages/neuro-book/src/plugins/workbench/web/document/WorkbenchDocument.vue:31-45`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-session.ts:45-74`。
+- **现象**：真实链路是 `WorkbenchDocument.watchEffect → resolveTheme → themes.preview?.working ?? agentWorking()`；`agentWorking()` 只有在 preview 的 working 为 `null/undefined` 时才会被读取并建立响应式依赖。计划只写 `themes.test.ts` 和编辑器 e2e，却没有规定如何证明三种转换：跟随时 Agent 状态变化会重算、强制空闲/工作中时不再跟随、关闭最后一个 Holder 后恢复跟随。也没有规定 `ThemeEditorSession.release()` 后保留的 `previewWorking` 在再次打开时是继续保留还是重置。
+- **为什么是问题**：只测 `resolve` 的返回值可以绕过 `WorkbenchDocument` 的 effect；只测最终 CSS 值也可能漏掉“强制状态仍订阅真实 Agent 状态”或“关闭后旧覆盖残留”。当前 `release()` 停止模型但保留 `#state`，而 `dispose()` 才清状态，所以实现者若按字面加字段会让浮动窗口关闭后状态潜伏到下一次打开，产品行为取决于未写出的生命周期假设。
+- **如何核实**：读取上述调用链；当前 `WorkbenchDocument.dom.test.ts` 的 `resolveTheme` 是静态函数，没有 public-state reader。现有 `plugin-code.e2e.ts` 只能证明 provider 场景，不能进入真实 Agent active 状态；计划也明确不跑真实 Agent。
+- **建议改法**：给 `ThemeCatalog.resolve`/WorkBenchDocument 一个可注入的响应式状态夹具，逐项断言 effect 重跑和回到真实状态；e2e 只观察稳定的 `--skin-scene`/`data-nb-skin-scene` 最终值。明确“切页签保留、最后一个编辑器关闭后是否保留”的规则；若关闭应恢复默认跟随，则在会话真正关闭处清 `previewWorking`，不能在单个 Holder 卸载处清。
+
+### 8. 图标上传的异步目标没有覆盖主题、明暗和图标名三重竞态
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:39-43,61-62`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts:199-214,358-366`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/ThemeEditorScene.vue:41-55`。
+- **现象**：计划给 `setIcon(iconName, assetName, target?)` 留了 target，但没有定义 `ThemeEditorIcons` 在选文件/上传开始时冻结什么。图标名来自尚未提交的 `DraftInput`，上传期间用户可以改名、切明暗、切主题，甚至对同一图标再次选文件；`removeIcon(iconName)` 也没有 target 形状。现有场景组件专门在上传开始时冻结 `{id, appearance}`，但计划只说“复用逻辑”，没有把图标名纳入冻结目标。
+- **为什么是问题**：按完成时的当前模型写入，会把旧上传落到错误主题、错误明暗或新名字下；两个上传完成顺序相反时，旧文件还能覆盖用户较新的选择。上传成功的文件不能删除，错误写入还会留下不可见孤儿素材，违反编辑器“发起时定下目标”的既有模式。
+- **如何核实**：对照现有 `ThemeEditorScene.onFile` 的 target 快照与 `ThemeEditorModel.#update` 的 target/appearance 参数；新图标流程至少还需要冻结 `{id, appearance, iconName}`，当前计划没有对应字段或顺序合同。
+- **建议改法**：把上传动作建模为带不可变目标的 `setIcon`：开始选择文件时校验并冻结主题 id、明暗、规范化后的 iconName；提交时按该目标更新，若目标条目已被用户改过则按版本/当前值拒绝旧结果而不是覆盖。`removeIcon`、复制到另一套明暗也采用同样的目标快照；增加切主题、切明暗、改名和连续两次上传的异步测试。
+
+### 9. 图标名输入的重复覆盖语义与非法名反馈未定义
+
+- **严重程度**：建议；**类别**：接口 / 正确性
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:24-26,39-41,62,108`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts:204-221`。
+- **现象**：计划允许自由输入图标名，`setIcon` 对非法名“不写并进 rejected”，但没有定义空白、首尾空格、大小写、连续连字符如何处理；也没有定义“添加”输入一个已有名时是覆盖、拒绝还是转成“更换”。声明本身是 `Record<string,string>`，重复键最终只能覆盖，用户无法从数据形状知道这是有意替换。
+- **为什么是问题**：同名操作可能静默替换当前图标，或在 UI 看似“添加”后覆盖；自由输入一个不存在于产品中的 lucide 名称又会成功保存但没有任何可见效果。没有明确语义时，复制/导入/覆盖测试也无法判断正确结果。
+- **如何核实**：现有 model 的 `#update` 只做 schema 校验，没有去重或业务错误；`Look.icons` 的唯一性由对象键天然决定，UI 计划没有冲突分支。
+- **建议改法**：规定输入规范化（至少 trim 后按严格小写规则校验，空值单独提示）；已有名的“添加”明确等同覆盖或明确拒绝，UI 文案与按钮一致；若不维护 lucide 全集，至少把“没有对应产品图标时保存不报错、预览为空”的结果写进 Spec 与验收。
+
+### 10. 导入导出验收没有锁住共享素材和真实上传回写
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:55-57,93-94`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/package-io.ts:37-60,142-187`；`packages/neuro-book/src/plugins/workbench/package-io.test.ts:28-86`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/transfer.ts:56-75`。
+- **现象**：计划要求 `icons` 与 `workingScene` 往返，并要求 light/dark 两套引用同一素材只存一份；但验收只泛写 `package-io.test.ts`，没有指定断言包内文件数、两处声明是否改成同一个 `assets/<name>`，也没有覆盖 `importArchive` 把所有种类的包路径换成服务端返回的 `<sha256>.<ext>` 后再 `addMany`。
+- **为什么是问题**：`package-io` 纯函数通过，不代表传输层能读 SVG、按种类调用两个上传路由、处理重复引用或在任一上传失败时不写记录。当前 `package-io.test.ts` 的固定夹具只有场景图；这类路径重写最容易出现“包能读、导入后声明仍指向 assets/”或同一文件被重复上传/漏上传。
+- **如何核实**：读取现有测试的资产夹具与 `transfer.ts`：测试只覆盖 `scene` 的 `exportPackage/readPackage`，没有 `importArchive` 的上传替身，也没有 `workingScene/icons` 的实际输入。
+- **建议改法**：增加一个包含两套明暗共用同一 SVG、两套共用同一工作态位图、另有重复图标名引用的包，断言 zip 内文件集合及所有声明路径；再用真实 route 或可记录的上传端替身覆盖 `importArchive`，断言按类型上传、全部返回文件名后才调用 `createMany`，任何一个失败都不调用。
+
+### 11. 编辑器没有产品图标目录或受影响位置的可发现性
+
+- **严重程度**：建议；**类别**：代码质量 / 文档
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:62,108`；`packages/nb-ui/src/tailwind.css:64-75`；`packages/neuro-book/src/plugins/theme-study/plugin.ts:7-9`；VS Code 官方产品图标主题指南（`https://code.visualstudio.com/api/extension-guides/product-icon-theme`）与图标参考（`https://code.visualstudio.com/api/references/icons-in-labels`）。
+- **现象**：计划让用户自由输入 lucide 名称，明确不做全集补全；保存一个当前产品没有使用的名称也会成功，只是没有任何可见效果。书房示例另有一份手写 `STUDY_ICON_NAMES`，而 nb-ui/产品源码并未提供给编辑器的“可覆盖图标及使用位置”目录。
+- **为什么是问题**：VS Code 的产品图标主题合同给每个稳定图标 id、标签、完整参考，并提供编辑时补全/校验和保存即时更新；dsh 参考也按宿主位置与状态重绘，而不是让作者猜字符串。当前计划会让“图标已保存但看不出作用”成为正常路径，增加复制、导入后排障成本。这里不是要求引入 lucide 全集，而是缺少产品实际使用面的可发现性。
+- **如何核实**：VS Code 指南明确有 product icon theme 的 `id/label/path`、已知 icon ID 的 completion/hover/validation 与保存即时应用；仓库现状只有 CSS 生成规则和主题示例数组，没有面向编辑器的稳定列表。
+- **建议改法**：不做手写的上千项 lucide 列表；在构建时从产品实际 `i-lucide-*` 用法生成一份可版本化的“可覆盖目标”目录（名称、默认图标和出现位置），编辑器按此做可选补全/未使用警告，仍允许自由输入以兼容新版本。若本 Task 明确不做，至少在 UI 和 Spec 写明“保存不等于产品存在该目标”，并提供一个可复制的目标名入口。
+
+### 12. 只把 `#handles` 暴露成列表会把“停止中”句柄误当已发布
+
+- **严重程度**：重要；**类别**：不变量 / 正确性
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/plan.md:49`；`packages/neuro-book/src/plugins/workbench/web/scene-providers.ts:69-112,115-136`；`docs/specs/runtime/plugins.md:31-34,72,79`；对照 `packages/neuro-book/src/plugins/workbench/web/views/registry.ts:89-93,120-147`。
+- **现象**：`SceneProviders` 在 `published` 时把句柄放入 `#handles`，在 `revoke` 到达时才删除；`sceneFor` 只检查 Map 是否有该 id，没有检查 `handle.published`。运行时合同规定入口开始停止后句柄先失去 `published`，撤回回调稍后才到。计划又要求从这个私有 Map 暴露“已发布提供者列表”。
+- **为什么是问题**：停止窗口内下拉仍会显示已不可用的提供者，预览也可能进入 `handle.implementation()`；这与“只列已发布”和“停止后不再调用实现”的运行时不变量冲突。其它工作台注册表明确每次读取检查 `handle.published`，并把停止中视为不可用。
+- **如何核实**：运行时 Spec 的贡献状态与 `ViewRegistry` 的 `handle?.published === true` 判断；当前 `SceneProviders.sceneFor` 的 `#handles.value.has(providerId)` 是唯一可用性判定。
+- **建议改法**：把 provider 可用性定义为当前句柄仍在 Map 且 `published === true`；下拉列表只投影此类句柄。停止/撤回时立即让响应式列表失效、取消任务并清掉结果；迟到的 `published/revoke` 还要按句柄身份核对，不能让旧代次复活。
+
+## 未发现问题的方面
+
+- **SVG 体积与当前 lucide 兼容性**：实测 `packages/neuro-book/src/plugins/theme-study/assets/icons/*.svg` 共 10 个，单个 241–383 字节、合计 3,126 字节；从仓库 `node_modules/@iconify-json/lucide/icons.json` 的 1,805 个图标体生成最小 SVG wrapper，最大 938 字节。当前图标体使用的元素为 `circle, ellipse, g, path, rect`，没有发现 16 KiB 上限会误拒当前 lucide 图标的证据；实现仍必须把 `svg/xmlns/viewBox` 与这些图标实际使用的几何/表现属性列入精确白名单。
+- **`THEME_ASSET_NAME` 的现有使用点**：搜索结果只有 `user-themes.ts` 的位图校验与 `theme-editor-model.ts` 的场景复制判断，没有发现把 `.svg` 误收进 `scene` 的现有调用点；计划新增 `THEME_ICON_NAME` 后，仍需保持这两处只处理位图。当前 `userThemeSceneUrl` 的调用点是场景组件、传输层和测试，改成通用 `userThemeAssetUrl` 的迁移范围可枚举。
+- **512 KiB 用户记录估算**：64 个图标 × 两套明暗、每个都用 64 位哈希文件名的最小主题 JSON 为 10,539 字节，理论上约 49 套才能达到 512 KiB；计划写“20–30 套”是保守估算。图标名没有长度上限，最终仍由现有 Storage 写入失败撤回兜底。
+- **路由扩展名与同字节冲突**：两个路由都把扩展名放进地址；同一 SHA-256 字节的 `.svg` 与 `.png/.jpg/.webp` 不会同名。当前 SVG 文本也不可能同时满足 PNG/JPEG/WebP 魔数判定；未发现实际同名空间冲突。共享 helper 必须保留当前路由的检查顺序、错误码、同名同字节幂等和同名异字节 409。
+- **包文件数算术与引用面**：生成的最大包是 4 张位图（scene/workingScene × light/dark）+ 128 个 SVG 图标 + `package.json`，共 133 个文件，低于 300。当前 `PACKAGE_LIMITS` 在目标包代码与其测试中被引用，未在所查 NeuroBook 代码中发现第二处运行时硬编码；Spec 的 64 仍需按计划同步改为 300。
+- **SVG 的响应 MIME 与 mask 消费**：`raw-route.ts` 已按 `.svg` 返回 `image/svg+xml`，同时带 `nosniff`；正确 MIME 不会因 `nosniff` 被 `<img>` 或 CSS mask 拒绝。问题在报告第 1 条所述的 CSP 兜底范围，不是 MIME 不匹配。
+- **预览响应式基础**：`ThemeCatalog.#preview` 是响应式 `shallowRef`，`WorkbenchDocument` 的 `watchEffect` 会读取 `themes.preview`；`agentWorking()` 也在 effect 内读取公开状态，且场景提供者缓存键已经包含主题 id、明暗和 working。缺口是计划没有把强制/跟随切换与会话生命周期测完整，不是这些基础机制不存在。
+- **`plugin-code.e2e.ts` 的已发布提供者场景**：该文件已经构建并安装 `scene-clock`，用于验证发布的 provider；放一个已发布 provider 的下拉用例在技术上可行。当前值未发布仍需额外的缺 provider 主题或用户记录夹具，不能由现有场景自动覆盖。
+
+## Context 决定判断
+
+1. **用户层素材管线**：正确且与编辑器“声明能写的东西，编辑器都能编”目标一致；代价是新增用户素材格式、两类上传和导入导出事务边界，计划必须把这些接口写完整。
+2. **工作态场景复用场景路由与 crop**：正确；同一份 crop 可避免再引入第三套取景状态，位图命名和 20 MiB 路由也能直接复用。
+3. **SVG 单独路由**：正确；SVG 的静态白名单与位图魔数判定不是同一安全合同，扩展名分开也避免地址冲突。共享代码只能抽公共写入机制，不能抹掉两条路由的失败码和检查顺序。
+4. **无 DOM 的 SVG 白名单**：安全方向正确，但当前计划的解析合同不够具体；应接受严格 tokenizer/状态机的实现成本，不应把测试反例和 `sandbox` 当作形式化兜底。
+5. **编辑器增加三类编辑项**：范围合理；提供者标题/停止状态、未发布当前值和图标上传目标是必须补完的接口与状态合同。
+6. **包文件数提高到 300**：数字合理，最大生成包只有 133 文件；仍需同步 Spec、测试说明和导入导出共享素材的具体断言。
+
+## “不做与风险”判断
+
+- **不做图标内联绘制**：接受；上传 SVG 已覆盖本 Task 的素材来源，不是合同缺口。
+- **不清理无人引用素材**：接受，且与现有 editor Spec 一致；但必须把“失败不留半个主题记录”改写成“素材写入不可回滚、允许孤儿文件”，见第 6 条。
+- **不做图标名自动补全**：可接受的版本维护取舍，但当前会留下无效目标静默保存的可发现性缺口，见第 9、11 条；至少应提供可复制的实际产品目标名或未使用提示。
+- **白名单可能拒绝 `defs`/渐变**：对单色 mask 是合理的范围取舍；需要精确列出当前 lucide 所需属性，并把后续扩白名单作为兼容策略，不可用模糊正则实现。
+- **复制网络差时较慢**：风险本身可接受；但并发失败的取消、settled 语义和孤儿素材边界必须写入合同，见第 6 条。
+
+## 数量
+
+- 阻断：1（第 4 条）
+- 重要：9（第 1、2、3、5、6、7、8、10、12 条）
+- 建议：2（第 9、11 条）
+- 合计：12
+
+有效发现编号：1–12。
+
+## 验证记录
+
+- `bun test src/plugins/workbench/themes.test.ts src/plugins/workbench/user-themes.test.ts src/plugins/workbench/theme-editor.test.ts src/plugins/workbench/package-io.test.ts src/plugins/files/theme-asset-route.test.ts`：105 pass，0 fail，357 expect() calls。
+- `bun run --cwd packages/neuro-book typecheck`：通过，执行 `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`。
+- 未运行 e2e、开发服务；按要求只读，未修改仓库文件。
