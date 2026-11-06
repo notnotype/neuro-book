@@ -1,0 +1,144 @@
+# 实现审查 I9（Opus 份）：w00039/t34 阶段 G 第三轮，范围 7c61f6125..cc09e2534
+实验在实现 worktree 上跑（实验前核对 HEAD = cc09e2534ea45147699c9076b628026d743dd1ff），脚本在 /tmp/review-w00039-t34-I9/scratch/。夹具 common.ts 借自 I8：probe 比“调用集合与输入摘要”和“按跑检查时存下的 R 算的摘要”；e2e 走真实的 runOk 与 createCheckSource，再比全量 isValid。报告按发现先后追加，排序见末尾的各级数量。
+
+### 1. 摘要漏项：`bound` 只看本章讲的线，试读材料却读全部活页夹线；更早的章讲一条分叉安放在后面的回溯线、又带过去伏笔字段时，第 N 章之后的改动改变第 N 章的材料
+严重程度：重要（确实违反输出 7，世界形状罕见）
+类别：正确性（输出 7，走摘要的结论与重拼不同）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:609-613（boundOf 只取 fold.chapterSegments.get(chapter) 的线）；core/checks/trial.ts:73-90（suspenseParagraphs 对 binderLines 的每条线按第 N 章末读 foreshadowIndex）
+现象：回溯线 r：切口 ch1，触发处 ch10，分叉安放 ch10，carry 带 fs.答案。活页夹 ch6 讲 r（r 上 ch6 有一处讲述带 K 的暗示）。主线 ch15 已有把 F 的答案改成 K 的变更（所以 answeredBy 表里已有 K）。这时在主线 ch9 加一条把 F 的答案改成 K 的变更：带过去的值取触发处（ch10）的值，r 上按 ch8 末读到的答案从“另一件事”变成 K，ch6 那一段进了 ch8 试读的材料，输入摘要变了。ch8 的 bound 是 8，ch9 的项不在任何前缀里，摘要不变。
+为什么是问题：模块头写“`B` 是这一章、补叙安放、定义它讲的线的分叉所在章里最晚的一章，桶晚于 `B` 的东西计划读不到”，但 suspenseParagraphs 读的线不只是“它讲的线”。这是作者要攻击的那个前提的一个反例：读的仍是实际模式的值，漏在位置边界。答案表 answeredBy 只多不少这一层挡住了第一次把 K 写成答案的情形（去掉 ch15 那条时摘要会变），所以要先有 K 在表里才漏。
+如何核实：scratch/x1.ts
+    改前试读材料 [[{"chapter":"ch7"},{"chapter":"ch8"}]] points [ "e2" ]
+    MISS 第 9 章（晚于第 8 章）改伏笔的答案，回溯带到子线: signature变=true 摘要变=false
+    改后试读材料 [[{"chapter":"ch6","paragraph":1},{"chapter":"ch7"},{"chapter":"ch8"}]]
+    E2E-MISMATCH 同上端到端: 改前=true 全量重拼=false createCheckSource=true
+发生的条件：carry 要作者手工加伏笔的字段（缺省只带 carry: true 的知情），而且活页夹要在回溯安放之前讲这条线。条件苛刻，但这是一个位置边界算错，不是推理不到的远路。
+建议改法：boundOf 再取“第 N 章（含）以前活页夹讲过的线”的 lineBound，按章序滚动算一张表放进 WorldFold（从 chapterSegments 一次扫出）。代价只落在有这种倒叙活页夹的书。
+
+### 2. “线名、分叉文字不进摘要”只修了 `order`：带 `who` 的回溯分叉改名或改文字，这个人读到的每一章都要重拼
+严重程度：建议
+类别：性能（I8 第 5 条的修法没覆盖）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:278-285（things 含分叉，整个对象进项；bucketsOfChanges 把分叉分到 -1）；dependencies.test.ts:634-641（“不该变”的用例用的是没有 who 的 branch）
+现象：分叉是一个 Thing，factsOf 取整个对象的摘要，提到 fork.who。改线名、改分叉的 text 时 order 不变（I8 修的），但这个对象的摘要变了，值进 who 的历史的 -1 桶。回溯分叉总有 who（输出 7 缺省 carry 也靠它），who 通常是主角，主角在几乎每一章的 R 里。
+为什么是问题：提交说明写“线名、切口的文字不进摘要”，确定用例也这样守，但只在没有 who 的分叉上成立。这是过度失效，不是漏：结论不错，代价是改一次线名全书重拼（scale 那档，1000 章十几秒）。
+如何核实：scratch/x2.ts
+    ok   who=false 改线名 ch8: signature变=false 摘要变=false
+    ok   who=true 改线名 ch8: signature变=false 摘要变=true
+    ok   who=true 改线名 ch15: signature变=false 摘要变=true
+    ok   who=true 改分叉的文字 ch8: signature变=false 摘要变=true
+建议改法：项的对象摘要对分叉去掉 fork.name 与 text 再算（order 里已经这样投影）。更一般地，计划不读任何变更的 text（core/checks 下没有读 change.text），对象摘要统一去掉 text 就能让“改一句变更说明”不再波及后面所有提到同一个人的章；这一点是否值得做，看作者改说明文字的频率，没有量。
+
+### 3. 质疑待追认的决定：写完以后按实际模式读，受影响的不只是“视角越界列出的知情”，还有写手拿到的决策约束不再被检查；Spec 的那句说明也不准
+严重程度：建议（决定本身我认为可以追认，但交开发者追认时要把代价说全）
+类别：设计取舍、文档
+位置：packages/neuro-book/src/plugins/plot/core/checks/points.ts:47-48；core/checks/plan.ts:158（规则项的决策按段的 points 取）；core/brief/index.ts:119-121（简报的决策按计划模式的 points 取）；docs/specs/plot/knowledge.md 输出 10；evidences/impl-review-I7-resolution.txt 第 188 行
+现象：K 实际是 common，第 3 章一条没兑现的计划把它升成 secret，K 挂在勇者下面，K 上有一条已定决策带约束，第 8 章计划里勇者在场。写手的上下文里有这条约束（按计划模式，K 在集合里）。正文不出现“勇者”这个名字时（作者正想藏身份，用“那人”），检查的 points 没有 K，规则项里这条约束消失，固定调用不问。
+为什么是问题：resolution 写“差别只在……这个知识点不进‘本章涉及’，影响视角越界那一项列出的知情”，少说了 ruleItems 用 points 取决策这一路。写手被告知的约束，检查不核对，作者看不到任何提示。条件不算常见：计划抬了保密档且未兑现，主体名字又没进正文；主体名字进了正文时 K 会经 named 分支回到集合，差别消失。这也说明这条上游改动的代价确实小，所以结论仍是可以追认，不建议退回按计划模式。
+如何核实：scratch/x3.ts
+    正文出现主体名字=true
+      写手的集合（planned） [ "e3" ] 实际模式 []
+      简报含约束 true
+      检查的 points [ "e3" ] 规则项 [ "constraint:d1:0" ]
+    正文出现主体名字=false
+      写手的集合（planned） [ "e3" ] 实际模式 []
+      简报含约束 true
+      检查的 points [] 规则项 []
+Spec 的问题：knowledge 输出 10 写“同样的算法，但按实际模式读（写完了，没发生的计划不算……）”。实际上第 N 章自己的计划（plansOf 与 chapterEntries(chapter, "planned")）照样算：它们的参与者、补丁、标注都进集合，没兑现也算；按实际模式读的只是“条目在位置上的值”。“没发生的计划不算”照字面实现会是另一个算法。
+建议改法：两件都只改文字。交开发者追认时写全这两项代价（列出的知情、决策约束的核对）；Spec 把括号改成“本章的计划仍按它写的算；条目的值（保密档、目标的状态与隐秘、伏笔的答案）按实际模式读，所以更早没兑现的计划不影响这些值”。如果开发者不接受约束漏问，最小的补法是 ruleItems 额外按 pointsBeforeWriting 计划模式里“决策挂着的知识点”取，但这又把覆盖层带回计划的路径，我不建议。
+
+### 4. 删掉联动戳以后的残留：替代与拆分的分桶、成组已经没有读者，唯一守它们的用例不比结论；注释、计划、脚本还在说覆盖层与联动戳
+严重程度：建议
+类别：残留、测试写法、过度失效
+位置：
+- packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:165-170（bucketsOfChanges 的注释）、:193-201（替代与拆分几头取早）、:349-356（成组与注释“计划的节点、进展与拆分都跨链接读”）
+- dependencies.ts:500（注释：“套没套上、联动戳在提到的条目的历史里”，联动戳已删）
+- core/checks/segments.ts:25（`frame` 的注释写“按计划模式”，写完以后的集合已按实际模式读）；core/checks/points.ts:2（“写之前的集合，加……”没写按实际模式）
+- core/checks/dependencies.test.ts:504-523（“拆分的 `by` 也跟”）、:547（describe 名“线、挂靠与覆盖层”）、:810（注释）
+- scripts/perf/plot-scale.ts:213（“按计划模式的覆盖层……都量不到”）
+- testing/random-edits.ts 的 linkedPlan、planBreaker、linkedPlanEarlyTold、replaceLinked、sameChapterPlans：为覆盖层加的操作，现在结论不随它们变，只剩“多算”的方向，还占着每轮的发牌
+- .agents/works/.../t34-plot-side-impl/plan.md:1021、1025（段落仍写“项的键含计划的联动戳”），:1114 已标作废，这条可以不动
+现象：模块注释说“替代与拆分……计划的路径现在不读，留着是只多不少：改它们很少见”。查过读者：计划路径上读 links 的只有 rawTellings（fulfills）与 revealTable（replaces，全局一张表，不走桶）；plansOf 不看链接，progress、plannedAt 不在路径上。“进展与拆分都跨链接读”这句已经不成立。
+为什么是问题：只多不少不漏，但它的代价是真的：第 20 章一条拆分计划改一个字，第 8 章也要重拼；成组还把一组的提到全并进每条的 mentions，R 变大。用例 dependencies.test.ts:504-523 只断言“摘要变了”，没有比结论（改的是 p4 的 text，结论不变），它守的是实现而不是行为，违反 docs/testing/README.md 的“测行为，不测实现”，继续留着会让下一个读者以为这条路还有用。
+如何核实：scratch/mut-plugin.ts 加载时把 bucketsOfChanges 收窄成只跟 fulfills，把 union 收窄成只并 fulfills：
+    dependencies.test.ts + source.test.ts：66 pass，1 fail（只有 “链接很长、写入的先后反着：整组跟最早的一条（拆分的 `by` 也跟）”）
+    默认随机序列（PLOT_RANDOM_SEED=7，240 步）：1 pass
+    本轮扩充的模糊（scratch/fuzz.ts，种子 11、12、13，各 300 步）：misses=[]
+    这三组证据只说明没有反例；读者是逐个查的，判断主要靠这一点。
+建议改法：bucketsOfChanges 与 union 都只留 fulfills；那条用例的计划改用 fulfills 链，并加上结论变了的断言，或者删掉；随机序列去掉上面几种操作或注明只测“不多算”。如果选择保留只多不少，至少把 :170、:349 两处注释改成现在的理由。上面列的几处注释一起改。
+
+### 5. `mode` 参数缺省成 `planned`：写手简报这一路没有测试守，检查这一路忘传也不会报错
+严重程度：建议
+类别：测试强度、接口形状
+位置：packages/neuro-book/src/plugins/plot/core/brief/context.ts:83、128、147（三处 `mode: Mode = "planned"`）；core/brief/index.ts:119；core/brief/brief.test.ts
+现象：查过调用：mode 没有漏传。检查这一路 points.ts:48-49 两处都传 actual，别处（brief/index.ts:119、secrets.ts、parts.ts）走缺省的 planned，给写手的简报行为没变。但把这两个缺省改成 actual 以后，brief.test.ts 23 个用例全过，而 x3 的世界里简报确实丢了约束。
+为什么是问题：这一次改动的承诺是“简报不变，只有写完以后的集合变”，这条承诺没有用例。另一面，模块头写“计划的读取路径上不能读按计划模式的值”，这是阶段 G 的核心不变量，靠缺省值和记忆守：以后在检查路径上新调一次 pointsReferencedBy 或 secrecyAt 忘了传，类型检查不报，摘要就回到第二轮的那类漏。
+如何核实：scratch/mut-brief.ts（加载时替换两处缺省）
+    bun test --preload .../mut-brief.ts src/plugins/plot/core/brief/brief.test.ts：23 pass，0 fail
+    bun run --preload .../mut-brief.ts .../x3.ts 的输出见下一段
+建议改法：去掉缺省，三个函数都要求写明 mode（secrecyAt 的调用点多，可以导出一个固定 planned 的 secrecyPlanned 给简报用）；brief.test.ts 加一条：更早没兑现的计划把 K 升成 secret，主体不在正文里，简报仍列 K 与挂在它上面的约束。
+（第 5 条的输出）mut-brief 下的 x3：
+    正文出现主体名字=true：写手的集合（planned） [] 实际模式 []；简报含约束 false
+    正文出现主体名字=false：写手的集合（planned） [] 实际模式 []；简报含约束 false
+
+### 6. 按线一次取结论只消掉了交替淘汰，没消掉顺序扫描的淘汰：讲到 4 条以上带写入的子线时，每次发布、每次改正文都要重建引擎；规模脚本的切口太早，量不出这个量级
+严重程度：重要（性能；只在子线多、切口晚的书上出现，回溯题材正是这个形状）
+类别：性能、规模证据
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:423-428（outcomes 循环）；packages/nb-canon/src/lines/set.ts（DEFAULT_RESIDENT_LINES = 3，祖先线不占）；packages/neuro-book/scripts/perf/plot-scale.ts:246-258（四条新子线的切口都是 forkCuts[0]，第 250 章）
+现象：worldFold 每张新视图都把全部讲到的线各问一遍。名额 3、线 4 条以上时，最近使用淘汰遇上顺序扫描，每条线都在被再次用到之前淘汰，所以每张新视图把这些线全部重建一遍。只改正文不写世界也一样（新视图、新折叠）。线重建的开销随切口之前的主线长度增长。
+为什么是问题：I8 第 6 条的修法解决了“按变更交替问”的 20 倍，但 3 到 4 条线之间仍有一个台阶。修法本身是对的，这条路还没到头。阶段 G 的目标之一是普通发布后第一次读不变差；现有证据（scale-g4.txt）是 I7 修正之后量的，没有这次改动之后的数。提交 cc09e2534 加的四条子线切口在第 250 章，把这个开销压到了三分之一左右。
+如何核实：scratch/lines-perf.ts（1000 章，主线每章 3 条带补丁的变更，每条子线 40 条变更，活页夹每条线讲一章；scratch/mut-plugin.ts 的 timer 只加时间戳），负载 8 到 12，绝对数偏大，比值可信。每行是一次发布后的 outcomes 段耗时（毫秒）与整个建折叠耗时：
+    切口 25%，子线 3：outcomes 4 到 6；建折叠 47 到 76
+    切口 25%，子线 4：outcomes 70 到 112；建折叠 131 到 190
+    切口 25%，子线 6：outcomes 88 到 108；建折叠 145 到 252
+    切口 70%，子线 4：outcomes 252 到 474；建折叠 253 到 769
+    切口 70%，子线 6：outcomes 392 到 468；建折叠 467 到 586
+    切口 70%，子线 6，只改正文：outcomes 242 到 312；建折叠 287 到 364
+  规模脚本（1000 章，cc09e2534，负载 10 到 18，噪声大）：建折叠 663 毫秒；(a) 读待处理 1761、(a2) 1667，同一世界不算检查诊断的基线 822、922、979。比 scale-g4 记的“多 150 到 340”大很多，这一轮负载高，这个差额我没有归因完（上面只归因了 outcomes 段），不能直接当作回退的量。
+建议改法：一次发布多数不影响这些子线（worldlines 输出 17 已经有“受影响的线”），结论可以不必每次重算。候选：LineSet 淘汰引擎时留下这条线的“变更到套没套上”的表（比引擎小得多），线没受影响、章序与登记没变时直接用，或内核给一个按线取全部结论的方法并做这份缓存。规模脚本把这几条线的切口改到后段（比如 75%），重量后把数写进证据。
+
+### 7. 摘要漏项：`lineBound` 靠“回溯安放不早于触发处”这条写入规则，分叉所在章被删以后这条规则不成立，线仍可建；带过去的知情读到 `bound` 之后
+严重程度：重要（确实违反输出 7，世界形状罕见；与第 1 条都是位置边界，修法相邻）
+类别：正确性（输出 7）
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:571-578 一带（lineBound 只取分叉的 at）；packages/nb-canon/src/lines/table.ts:173-195（`self !== null` 才比“分叉早于触发处”，分叉没有位置时线仍可建）；core/knowledge.ts:#parentRows
+现象：回溯线 r：切口 ch1，触发处 ch9，分叉安放 ch10，carry 带卫兵的知情（缺省就带）。活页夹 ch8 讲 r。把 ch10 从章序里删掉：分叉没有位置，placementIndex 是 -1，但 worldlines 输出 18 只看切口与触发处，线可建。这时 ch8 的 bound 是 8。在 ch9 触发处之前给卫兵加一行知情：带过去的值变了，ch8 的在场候选消失；这条变更的桶是 9，不进前缀，摘要不变。
+为什么是问题：模块头的 `B` 用“定义线的分叉所在章”替代“带过去的值读到哪里”，这个替代只在分叉有位置时成立。删章是作者能做的正常操作（输出 18 明确写了章序调整、删章的情形），不像第 1 条要手工加 carry。条件是活页夹在触发处之前讲这条线，所以仍然少见。
+如何核实：scratch/x4.ts
+    removed 线 [{"id":"l1","unbuildable":null,"exists":{"actual":true,"planned":true}}]
+    removed calls [ "presence:l1#1:e3:e2", "time:l1#1", "fixed" ]
+    MISS removed: ch9 触发处之前给卫兵加一行知情: signature变=true 摘要变=false
+       调用差: [ "presence:l1#1:e3:e2" ] -> []
+    E2E-MISMATCH removed 端到端: 改前=true 全量重拼=false createCheckSource=true
+建议改法：lineBound 直接取带过去的值真正读到的位置：每一层取分叉、触发处（没有时切口）的 placementIndex 的最大值。scratch/mut-plugin.ts 的 bound-trigger 按这样改，x4 变成：见下一段。
+（第 7 条的输出）MUT=bound-trigger 下的 x4：
+    ok   removed: ch9 触发处之前给卫兵加一行知情: signature变=true 摘要变=true
+    e2e-same removed 端到端: 改前=true 全量重拼=false createCheckSource=false
+（第 1 条的修法验证）MUT=all-binder-bound（boundOf 滚动取第 N 章以前活页夹讲过的线）下的 x1：e2e-same 同上端到端: 改前=true 全量重拼=false createCheckSource=false。两个改动互不替代：第 1 条是读了别的线，第 7 条是这条线的边界算小了。
+
+（第 2 条更正）“回溯分叉总有 who”说过头了：Spec 允许没有 who（输出 7：没有 who 时缺省 carry 为空）。准确的说法是：带 who 的分叉才有这个问题，回溯一般都带。严重程度不变。
+（第 2 条位置更正）things 从 dependencies.ts:324 开始；bucketsOfChanges 在 :172。第 4 条：链接循环 :194-201，union 与成组 :356-369。第 6 条：outcomes 从 :419 开始。第 1 条：boundOf 在 :593。
+
+## 未发现问题的方面
+实验都按 cc09e2534 跑（结束时再核对实现 worktree 的 HEAD 没变），没有用 frozen-loader。
+- 作者的前提“计划路径只剩实际模式”：逐个读了 plan、candidates、points、segments、trial、questions、ruleItems、knowledge（实际模式分支）、foreshadowing、decisions 的读取。读按计划模式的只有 onLine(line, "planned") 取线的视图、chapterEntries(chapter, "planned") 与 plansOf 的 eventKey。前者是取视图，后两者只看本章计划这些对象本身（status、参与者、补丁目标），都在 own 与 own.mentions 里；eventKey 只影响排序，后面进 Set 再排序，不影响结论，也不建覆盖层（incremental.ts:567-573 只算 rank）。这个前提在“值”这一层成立，第 1、7 条漏在位置边界，不在模式。
+- 引擎的结论：子线上看得到的主线变更按它所在线取结论是对的。scratch/fuzz-agree.ts 三个种子各 250 步，跨线比较 8485 次，on.outcome 与所在线上的结论不一致 0 次。不可建的线走 no-line，读不到的线走空串，都没有发现问题。
+- 讲述的定位：locator 只看 telling.chapter、quote、nth 与那一章正文，与线无关（tellings.ts:64-79），所以 located 这张跨线的表不会被某条线盖掉；发生点的章就是 telling.chapter，own 与桶的取法成立。
+- 决策：decisionFold 与 involves 对照过（范围、章、变更、条目、地址、剧情线），没有构造出漏。规则项只读 text、constraints、status。
+- 伏笔的继承：P 的桶跟兑现它的 W、W 与 P 成组让 W 提到 F；inForeshadow、material 都走得到。owned 依赖的答案表只多不少。第 1 条是答案表之外的路。
+- `view.changes` 的筛选：seenBefore 用 entry 筛，concerns 的字段都在对象的规范 JSON 里，正则取到的提到是超集。子线上哪些变更看得到由切口、触发处、分叉决定，都在 order[0]；计划的可见性看新建修订的先后，定义线的分叉换了时 lines 摘要跟着变。
+- 备忘与回写：source.ts 的三条路（存下的摘要、备忘、重拼）与 writeBackDependencies 重读过，(D, R) 配对自洽。run 用开始时的视图算摘要，记录也用同一份计划。
+- `mode` 漏传：没有漏（第 5 条只说明没有测试守）。pointsAfterWriting 与检查里别的读取一致，都是实际模式。
+- ALGORITHM 没有随 32457bf73 增加：查过，项的键去掉了末尾的戳段，带条目历史的摘要都会变，旧记录重拼一次。不算问题。
+- 模块头的表：除上面的边界以外，反查没有找到表外的读取。
+- src/plugins/plot/core/checks 与 core/brief 的合同测试在 cc09e2534 上 153 pass、0 fail；tsc --noEmit 通过。vue-tsc、e2e 没有跑。
+- 自写模糊（scratch/fuzz.ts：I8 的操作加任意活页夹、改 carry、挪回溯与触发处、计划线与兑现、子线上写入、重述带节点、补叙与视角的写作指示，种子 1 到 13、21 到 23，共约 5000 步）没有 MISS。这条证据弱：它没有撞上第 1、7 条这两个确定的反例，伏笔那一项太宽也让很多步摘要都变，遮住了别的漏。第 1、7 条都是读代码找出来的。
+
+## 各级数量
+阻断 0。重要 3（1、6、7）。建议 4（2、3、4、5）。无撤回。
+按影响排序：7、1（正确性，罕见）；6（性能）；3（交开发者追认时要说全的代价）；5、4、2。
+有效发现：1、2、3、4、5、6、7
+
+（更正，以此为准；各级数量与编号不变）
+- “未发现问题”的模糊测试步数：真实代码上是种子 1（120 步）、2 到 9（各 400 步）、21 到 23（各 250 步），共 4070 步。种子 11 到 13（各 300 步）跑在第 4 条的变异上，只作第 4 条的证据，不算在内；种子 10 没有跑。
+- 第 7 条位置：lineBound 在 dependencies.ts:568-574。
+
+有效发现：1、2、3、4、5、6、7

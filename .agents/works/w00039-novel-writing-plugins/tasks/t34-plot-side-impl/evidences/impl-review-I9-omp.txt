@@ -1,0 +1,37 @@
+### 1. 写完后的集合仍用计划模式收集本章主体
+严重程度：重要
+类别：正确性
+位置：packages/neuro-book/src/plugins/plot/core/brief/context.ts:150；packages/neuro-book/src/plugins/plot/core/checks/points.ts:48
+现象：`pointsAfterWriting` 已把 `pointsBeforeWriting` 的 `mode` 传成 `actual`，但 `pointsBeforeWriting` 内部仍固定调用 `view.chapterEntries(chapter, "planned")`。本章只有一个计划参与者“持有人”，其子知识点 e2 是 secret；实际模式的 `chapterEntries("ch8", "actual")` 只有已写变更涉及的卫兵 e3，计划模式才额外包含持有人 e1。实际模式下写完集合应为空，当前 `planOf` 却得到 `points: ["e2"]`。
+为什么是问题：checks.md 输出 10 与 knowledge.md 输出 10 明确要求写完后按实际模式读，未发生的计划不能把其主体的知识点带进检查；当前会为不存在的候选生成窄问题、试读和固定调用内容，检查行为与合同不一致。它不是摘要漏判的偶然：依赖摘要与重拼都复用同一错误算法，只会稳定地把错误结果判有效。
+如何核实：在实现 worktree HEAD `cc09e2534ea45147699c9076b628026d743dd1ff` 执行 `bun run /tmp/review-w00039-t34-I9/scratch/actual-points-mode.ts`，实际输出：
+`plannedEntries: ["e1", "e3"]`；`actualEntries: ["e3"]`；`planPoints: ["e2"]`；`expectedActualPoints: []`。脚本使用真实 `PlotWorld`、真实发布与 `planOf`。
+建议改法：`pointsBeforeWriting` 的 `chapterEntries` 按传入 `mode` 读取；给 `pointsAfterWriting` 增加“本章只有计划参与者时，实际集合不含其子知识点”的合同用例，并核对所有实际模式调用仍不读计划覆盖层。
+### 2. 阶段 G 计划仍保留已删除联动戳的完整设计
+严重程度：建议
+类别：文档
+位置：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00039-novel-writing-plugins/tasks/t34-plot-side-impl/plan.md:1021-1028、1040、1047、1114
+现象：计划主体仍把“计划的联动戳”写成当前摘要算法的一部分，包含 `项的键`、跨条目联动、按桶累加、链接成组与“计划由联动戳截断”的完整规则；`own` 也仍写“实际与按计划两种模式”。末尾 1114 行才另写“上面……段落作废”，形成同一计划内前后冲突的两套算法。
+为什么是问题：阶段 G 的计划是实现范围与验收的协作真相源；后续维护者按 1021-1066 设计摘要会重新引入作者已删除、且前三轮已证明反复漏项的覆盖层推理，读者也无法从计划表判断当前 `dependencies.ts` 的真实合同。它不是历史记录的必要保留，当前段落没有逐条标注为历史方案，只在末尾一句撤销，且验收映射仍引用旧的“计划联动”场景。
+如何核实：读取上述计划范围；实现 worktree HEAD `cc09e2534ea45147699c9076b628026d743dd1ff` 的 `packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:168-171` 已明确“实际模式下真正要跟的只有兑现……计划的路径现在不读”，模块头 :28-30 也明确“计划读取路径不能读按计划模式的值”，与计划 1021-1028、1047 相反。
+建议改法：删除 1021-1028 的联动戳设计、更新 1040-1047 与 1056 的模式和论证表，验收映射删掉联动戳场景或改成当前实际模式场景；保留一条简短变更记录，说明该方案已因前三轮摘要漏项撤回，而不是在计划主体保留可照抄的旧算法。
+### 3. 依赖摘要代码还残留“联动戳”术语
+严重程度：建议
+类别：代码质量
+位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:500
+现象：本行注释仍写“套没套上、联动戳在提到的条目的历史里”，但当前实现已删除联动戳；模块头 :28-30 反而明确计划路径不再读按计划模式值。精确搜索 `grep -R "联动戳" packages/neuro-book/src/plugins/plot/core/checks` 只命中这一行。
+为什么是问题：注释把已撤回的实现机制描述成当前摘要组成，读者会误以为还有一条计划覆盖层依赖，和 `addItem` 实际只把对象、提到的条目历史写入 `own`/`history` 相矛盾；这是本轮刚删掉机制后的可维护性残留。
+如何核实：在审查 worktree 执行上述精确搜索，唯一输出为 `dependencies.ts:500`；同时读取 :483-508，当前代码没有任何 `stamp`/联动戳变量或摘要字段。
+建议改法：改成“套没套上由项的值与实际模式引擎结论决定；提到的条目进 R 的历史”，不要再使用“联动戳”。
+## 未发现问题的方面
+- 固定审查版本已核对：实现 worktree HEAD 为 `cc09e2534ea45147699c9076b628026d743dd1ff`；审查 worktree 与实现 worktree 均无未提交改动。
+- 反向对照 `dependencies.ts` 的表与检查调用链后，除第 1 条的实际模式语义错误外，没有找到新的“重拼结论变化、依赖摘要不变”反例：引擎结论按线取值、子线可见的主线历史、不可建线、章序与故事定位、决策、伏笔继承、补叙边界、子线读取和 `view.changes` 过滤均有对应摘要项或只造成保守失效。
+- 前两轮已修的反例在固定版本复验没有再漏：`x1.ts` 的挂靠与覆盖层场景输出均为 `both-changed` 或 `no-change`；`x2.ts` 的桶提前与启用场景同样没有 `LEAK`；`x4.ts` 的计划先后、启用和回溯触发处场景均为 `both-changed`。这些命令都使用真实 `PlotWorld`。
+- `outcomes` 当前按线取每条变更一次，没有复现子线父线结论错误；旧的 6 条子线规模夹具当前输出 `LINES=6 GROUP=0 一次发布后建折叠（毫秒）: 215 138 150 72 68`，未复现第二轮的 20 倍淘汰重建问题。替代与拆分在 `bucketsOfChanges` 中只会提前桶、增加失效范围，未找到当前模式下的正确性漏项；其过时解释已列第 2、3 条。
+- 已运行合同测试与类型检查：`bun test src/plugins/plot/core/checks` 为 `129 pass, 0 fail`；`bun run typecheck` 的 `tsc --noEmit`、两个 `vue-tsc --noEmit` 均通过。
+- 按审查规则未运行 e2e 与开发服务；未修改仓库文件。
+
+## 各级数量
+阻断 0；重要 1；建议 2。
+
+有效发现：1、2、3
