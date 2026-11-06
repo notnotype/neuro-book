@@ -69,20 +69,23 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 
 ### 附件（批 5）
 
-开发者 2026-11-06 确认的方向：模型现在看不到图，要补进请求；地址带会话 id；模型不支持图片时换一行文字，不报错；不做缩略图；第一次加附件就建会话。限制按查 omp 之后的结论改（[README](README.md) 的“附件的限制”）：不限张数；单个文件 25 MB；发送时自动缩放；请求里的图太多时最旧的换占位。
+开发者 2026-11-06 确认的方向：模型现在看不到图，要补进请求；地址带会话 id；模型不支持图片时换一行文字，不报错；不做缩略图；第一次加附件就建会话；不限张数；单个文件 25 MB；发送时自动缩放（最长边 1568，目标 500 KB），原图保留；请求里超过 100 张时最旧的换占位。设计审查（omp 13 条）后按下面修订，处理见 [evidences/design-review-b5-disposition.md](evidences/design-review-b5-disposition.md)。
 
-- **地址**：`sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址，不写 `session://`：`fork` 只复制日志，单数地址到新会话就读不到了；全局地址任何会话都能读（t14 决定），`fork` 不用复制文件。原会话被删后读不到，按缺失处理。`markdown/shared/targets.ts` 的分类要认这个写法（现在只认 `session://attachments/`），算附件。
-- **内核的端口**：`SessionEnv` 加可选的 `attachments.read(uri): Promise<{data: string; mime: string; width?: number; height?: number} | {missing: true}>`，`data` 是 base64，由宿主缩放后交回。内核不懂缩放也不懂文件。没给端口的宿主（nb-story）按缺失处理。
-- **进请求**：`computeRequest` 是同步的，`Format` 也是，所以在调它之前（`run/loop.ts`、`session/preview.ts`、`compaction/compact.ts` 三处）先把路径上要用到的附件解析好，放进 `RequestInputs.attachments: Map<uri, ...>`，`format.user` 同步取。按 uri 缓存（一个会话一份，总量上限 64 MB，超了丢最早的，用时再读）：每次请求都读一遍盘和解码太慢，附件是内容寻址的，不会变。
-- **块的位置**：`format.user` 给 `input`、`steer` 事件出块时，把文字按 `![image #N](uri)` 切开，图片块放在原来的位置，标签本身不进请求；`attachments` 里有、文字里没写的放末尾。文件给一行文字 `[文件 名字：地址]`，模型按需 `read`。缺失的图换一行文字占位。Profile 的自定义 `render` 只换文字，附件照放（同工具结果的图，`runtime.md` 输出 58）。
-- **发送形状**：文字里留标签，`attachments` 带 `{kind, uri}` 列表。转录器文字里已有这个地址时不再生成附件块，否则气泡显示两次。
-- **模型不支持图片**：`kernel/model/omp.ts` 的 `userContent()` 现在只收文字，扩展成和工具结果一样：图片转服务商的块，模型不能看图时换一行文字（格式、尺寸、“当前模型不能看图”），WebP 的转换共用。Spec：`runtime.md` 输出 61 改成工具消息与用户消息都这样。
-- **张数预算**：组请求时数全部图片块（用户的与工具结果的），超过 100 张时从最旧的起换成一行占位。放在 `computeRequest` 之后、拦截之前，所以 `preview` 与真实请求一致。第一版一个固定值，不按服务商分。
-- **估算与压缩**：用户图片的估算同工具结果（宽 × 高 / 750，至多 1,600；`runtime.md` 输出 60）。摘要写尺寸占位（`summary` 已有这个规则，核对用户消息走不走到）。`shake` 不动用户的图。回退到压缩前恢复原样，事件没变。
-- **缩放**（`plugins/agent/backend`，端口的实现）：`Bun.Image` 解码，最长边超过 1568 就缩，再编码到 500 KB 以内（PNG 太大转 JPEG，质量 80 起，降两次）；缩放失败交原图。结果按 uri 留在内存（内核的缓存管），不写盘；原图不动。
-- **上传路由** `POST /agent/sessions/<id>/attachments`，体是文件字节，`Content-Type` 与原名放头里：Host/Origin 准入同 raw 路由（`crossSite`）；校验会话存在；用服务端文件接口写 `sessions://<id>/home/attachments/`（不用 `sessionResources` 的门面，它按 Agent 身份拒写）；边读边计数并算哈希，超 25 MB 中止、丢弃暂存，不信 `Content-Length`；同哈希已存在或并发写撞上算成功。交回 `{uri, kind, mime, bytes}`。
-- **读取路由** `GET`、`HEAD` 同前缀加 `/<文件名>`：同样的准入；文件名只接受 `<64 位十六进制>.<扩展名>`；按扩展名给 MIME，`X-Content-Type-Options: nosniff`，不可渲染的类型 `Content-Disposition: attachment`，`ETag` 用哈希，`Cache-Control: immutable`。预览看原图。
-- **宿主**：`composer.attachmentAdded` 上传，`composer.attachments` 给状态（上传中、就绪、失败带原因）；重试、移除接上；没有会话时先 `create()`（并发的几个文件等同一次）；`resolveAttachmentUrl` 给读取路由的地址；`canRegisterAttachments` 打开。发送时 `attachments` 取文字里出现的。编辑重发把原消息的附件带上，就地编辑开放插图。
+**核心形状：内核的请求里只放引用，真正发请求前才读字节。**
+
+- **事件**：`UserInput.attachments` 是 `{kind, uri, name?, mime?, width?, height?, from?, to?}`。`from`、`to` 是文字里这个标签的范围，由宿主算（浏览器用 `nb-markdown` 的 `parsePromptText`，代码块、转义里的不算）；内核不解析 Markdown，只核对范围内的文字含这个 uri，对不上就当没有位置。尺寸在上传时量好，估算不用读文件。
+- **块**：`RequestBlock` 加 `{kind: "imageRef", uri, mime?, width?, height?}`。`format.user` 按范围切文字，图片块放在原位，标签不进请求；没有位置的放这个事件的末尾；文件给一行 `[文件 名字：地址]`。Profile 自定义 `render` 只换文字时附件放末尾；返回 null 时连图一起隐藏。提交缓存里存的是引用，历史再长内存也不涨。
+- **一个入口**：`kernel/run/` 加 `finalizeRequest(request, {resolve, signal})`：数全部图片（`imageRef` 与工具结果的 `image`），超过 100 张时从最旧的起换成一行占位；`resolve` 时把留下的 `imageRef` 换成 `image`。`callModel` 的 terminal 调它（`resolve: true`），所以拦截层、`modelCaller` 都走得到，也在现有的中止赛跑之内；`preview` 调它（`resolve: false`），交回的请求不带字节，大小不失控，`tokens` 按尺寸估算，和真实请求一致。不在 `computeRequest` 之前预解析：那样要在三处各扫一遍，还会漏掉只在预览里投影的排队输入。
+- **端口**：`SessionEnv.attachments?.read(uri, {signal})`，交回 `{data, mime, width?, height?}`、`{missing: true}` 或 `{unusable: reason}`。没给端口、缺失、不能用的都换一行文字占位，后两种写诊断。内核按 uri 缓存，总量上限 64 MB（实际保留的字节），只存完成的结果，不存取消与瞬态失败；同一 uri 的并发读共用。关会话时放掉。
+- **缩放**（`plugins/agent/backend`，端口的实现）：复用 `builtin/image.ts` 的 `prepareImage`（已处理 GIF 首帧、尺寸、透明、质量），按附件的目标调参，`read` 工具与附件共用。解不了的（未知格式、损坏、像素超限）按错误码交 `unusable`，不发原图：坏图发出去每轮都报错。结果与模型无关；WebP 的模型相关转换留在适配器，用户消息与工具消息都走，顺序固定为先标准化、后转换。
+- **模型不支持图片**：`omp.ts` 的 `userContent()` 扩展成和工具结果一样，换一行文字。`AgentConversationComposer` 去掉“模型不支持图片时拒绝添加”（否则走不到这一步，角色与跟随默认也会被误拒），`supportsImages` 只作提示。改 `ui/agent-conversation-view.md` 里拒绝那条。
+- **压缩**：压缩事件之前写下的用户消息，图片都换成带尺寸的占位（地址还在，模型要看可以 `read`），当前这一轮的输入也算。这样溢出后摘要加重试才真的省下图的量，`tokensAfter` 也对得上；回退到压缩前恢复原样，事件没变。`shake` 不动。**这是审查后新定的行为，开发者知悉。**
+- **张数预算的代价**：超过 100 张后，每多一张新图，请求前缀从被换掉的那张旧图起变化，那之后的提示词缓存失效（设每张 1,600 token，失效约 15.8 万 token）。接受：压缩已把旧图换成占位，正常用到不了。只聊文字时集合不变，不失效。
+- **出站过滤**：`mapEventContent` 同时处理 `attachments`：文字里这个地址被过滤掉了，附件也去掉；范围失效时去掉 `from`、`to`。
+- **上传路由** `POST /agent/sessions/<id>/attachments`，体是文件字节，原名按百分号编码放 `X-Attachment-Name`：Host/Origin 准入同 raw 路由；校验会话存在；边读边计数，超 25 MB 立刻 413；读完在内存里算 SHA-256 与尺寸（`stage` 要先知道地址，流式写不进内容寻址的名字；本机单用户，25 MB 的缓冲可接受），再用服务端文件接口写 `sessions://<id>/home/attachments/<哈希>.<扩展名>`；已存在或并发撞上算成功。扩展名按 MIME 白名单定，不信原名。交回 `{uri, kind, name, mime, bytes, width?, height?}`。
+- **读取路由** `GET`、`HEAD` 同前缀加 `/<文件名>`：同样的准入；文件名只接受 `<64 位十六进制>.<扩展名>`；所有响应带 `Content-Security-Policy: sandbox` 与 `nosniff`（SVG、HTML 不能在应用的源里运行），位图内联，别的 `Content-Disposition: attachment`（名字按 RFC 5987 编码），`ETag` 用哈希。
+- **`sessions://` 全局地址**：`markdown/shared/targets.ts` 的分类认它，算附件；`read` 工具本来能读。
+- **宿主**：`composer.attachmentAdded` 上传，`composer.attachments` 给状态；重试、移除接上。没有会话时“为当前草稿确保一个会话”：一次创建任务绑定草稿代次，用户切会话、新建、移除全部附件后不再自动打开、不投递就绪状态；已建的空会话留着。`create` 没有幂等键：失败或结果未知时这个附件标失败，不重试，免得多建。发送时按 `parsePromptText` 算范围带上。转录器按范围去重，不按子串。
 
 ### Agent 模式
 
@@ -124,7 +127,7 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 - 批 1：`role:<id>` 的绑定、未绑定、不存在、改绑；生成中模型库变化，正在生成的那条还在；快照晚到不倒退；`model.set` 后思考档跟着变。
 - 批 3：一轮“回复、工具、再回复”里三种操作各选对目标；两条文字相同的用户消息；有 300 KiB 回复的会话树不断；切换分支。
 - 批 4：`/fork` 结果未知重发只有一个新会话；切会话时晚到的草稿不盖新输入。
-- 批 5：请求里真的有图片块；文字中间的图片位置；`fork` 后还读得到；压缩前后与回退；不支持图片的模型换文字；16 MB 边界（无 `Content-Length`）；同哈希并发上传；读取路由的 MIME。
+- 批 5：请求里真的有图片块；文字中间的图片位置与代码块里的不算；`fork` 后还读得到；压缩后换占位、回退恢复；同一轮的图撑爆窗口时溢出恢复；不支持图片的模型换文字且能添加；拦截层加图后仍不超 100；预览不带字节且 `tokens` 对；坏图与缺失；25 MB 边界（无 `Content-Length`）；同哈希并发上传；带脚本的 SVG 顶层打开被沙箱；切会话时迟到的创建不抢界面。
 
 ## 验证
 

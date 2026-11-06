@@ -1,0 +1,195 @@
+# w00032 t28 批 5 只读设计审查
+
+审查对象：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:70-85`（与被审 worktree 同内容）。代码证据均来自 `/home/notnotype/CodeRepository/neuro-book/.worktree/t28-b5-review/`；Spec 与 Task 依据读取主工作区。不开子代理，不修改仓库文件，不安装依赖，不运行开发服务、e2e 或真实模型。以下发现按核实进度追加。
+
+### 1. 阻断：附件读取响应缺少原始文件路由已有的沙箱，会把上传的 SVG、HTML 放进应用源执行
+
+- 严重程度：阻断；类别：安全与性能。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:84`；被审 worktree `packages/neuro-book/src/plugins/files/backend/raw-route.ts:194-204,212-221,246-250`；`packages/neuro-book/src/plugins/http/backend/dispatch.ts:79-86,144-147`。
+- 现象：新读取路由只要求 `nosniff`，对“不可渲染”的类型下载，没有要求现有 raw 路由的 `Content-Security-Policy: sandbox`。SVG 是可显示图片，HTML 也是浏览器可渲染类型；按扩展名交出正确 MIME 后，直接打开附件 URL 就会作为活动文档执行。顶层导航的 `Sec-Fetch-Site: none` 恰好是计划复用的 `crossSite` 放行的情况。
+- 为什么是问题：`nosniff` 不禁止 MIME 本身允许的脚本。上传者可以提供带脚本的 SVG，用户打开原图时脚本获得应用源权限，并可调用同源读写接口。HTTP 全局分发只核对 Host 与写请求 Origin，不会补 CSP。已有 raw 路由明确用 `sandbox` 防止这一点，不能只复用它的准入、丢掉响应隔离。
+- 如何核实：已逐行核对上述真实路由：`RAW_HEADERS` 在每个原始文件响应传入，`crossSite` 放行 `none`，全局分发没有注入沙箱。新附件路由尚未实现，未启动浏览器或服务；这是按计划实现将引入的安全缺口，不声称已实测攻击。验收须包含带脚本 SVG 的顶层导航，而不只检查 `<img>` 能显示与 MIME 正确。
+- 建议改法：附件 GET、HEAD、304 都复用原始文件的沙箱响应头；HTML 等活动文档默认下载。需要保留 SVG 原图预览时仍用沙箱约束直接导航，必要时对预览使用不透明源；不要把 `nosniff` 当作活动内容隔离。
+
+### 2. 重要：64 MB 附件缓存上限管不住提交缓存持有的图片，历史越长内存越大
+
+- 严重程度：重要；类别：不变量、安全与性能。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:76,80`；被审 worktree `packages/nb-harness/src/kernel/view/request.ts:123-148`、`packages/nb-harness/src/kernel/view/cache.ts:12-25`、`packages/nb-harness/src/kernel/dispatch/core.ts:81-84,119-121,169-171`。
+- 现象：计划把解析后的 base64 直接交给 `format.user`，提交后的轮随即将含 base64 的消息冻结并放进 `ViewCache.#commits`。张数淘汰发生在 `computeRequest` 之后，不能清除这份已提交的原始消息。64 MB 的 URI 缓存逐出条目时，这些字符串仍被提交缓存引用；轮对象又被路径状态持有。
+- 为什么是问题：缓存从 Map 删除并不释放对象。每张 500 KiB 图片的 base64 至少 682,668 个 ASCII 字符，100 张约 65.10 MiB，1,000 张约 651.04 MiB，尚未计消息、原始数据与对象开销。虽然最终请求只保留最新 100 张，所有历史图片仍可留在堆中。会话关闭前，声称的 64 MB 总量上限不成立。相反，若把共享 Map 本身当作本次解析结果，超过上限的单次请求还会在格式化前丢掉本次需要的早期图片。
+- 如何核实：已按真实 `computeRequest` 的 `committed()` 控制流核对引用寿命：`commits.set(turn, frozen)` 早于计划的张数预算，缓存按轮对象而不是 URI 管理；WeakMap 的键在历史路径仍可达时不会消失。数字按 `4 × ceil(500 × 1024 / 3)` 推导。尚未实现的用户图片路径不伪称已运行。
+- 建议改法：提交缓存只存不可变附件引用和位置，不存解析后的字节；渲染完成、选定最终图片预算后，在共用的异步请求准备阶段解析保留的引用。单次请求结果与有界跨请求缓存分离，关闭会话时释放缓存；把内存上限定义为实际保留字节而非仅一张 Map 的计数。
+
+### 3. 重要：预解析的“路径”不是预览的输入集合，空闲排队和改写后的输入会漏图
+
+- 严重程度：重要；类别：正确性、并发与状态。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:75-76`；被审 worktree `packages/nb-harness/src/kernel/session/preview.ts:101-120`、`session/session.ts:389`、`run/input.ts:35-67`、`run/loop.ts:224-257`。
+- 现象：计划在三个调用点之前解析“路径上”附件。实际 `preview` 会先把缓冲区中确定要消费的输入投影到临时状态：没有运行时也投影第一条 followup，运行中投影全部 steer；这些输入还没有 `input`、`steer` 路径事件。输入拦截还允许改文字及附件，必须取改写后的输入。预览本身不经过写队列，可以与真实运行并发。
+- 为什么是问题：扫描 `core.pathTo()` 或依赖真实运行暖缓存，无法解析预览才出现的图片，违反 `fidelity: "next"`。插入异步读取后，如果扫描所用状态与传给 `computeRequest` 的状态不是同一份，读取等待期间运行推进或切分支，还会拼出“旧附件 Map、新对话”的请求。不是所有新 steer 都必须挤入正在准备的请求：已取走的属于本次，之后到达的应留下一边界；计划没有固定这个快照边界。
+- 如何核实：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/contracts-smoke.ts`，经真实内核 `enqueue → preview`，输入拦截添加图片并改写文字；输出 `status=idle`、buffer 含改写后的附件、`pathAttachments=[]`、预览文字为改写后输入，日志 head 前后都是 4。该实验验证输入集合差异，不把尚未实现的附件解析称为已运行。
+- 建议改法：共用一个异步请求准备入口，显式接收一次捕获的装配、模型与 `StateAt`（预览用投影后的状态），先同步渲染附件引用，再解析本次请求实际需要的引用；不要三处各自扫描实时路径。覆盖无运行的排队预览、运行中 steer、输入拦截改附件、读取等待期间预览与运行并发。
+
+### 4. 重要：按固定标签切文字与真实提示词语法不等价，会把代码变图片、把合法图片留成文字
+
+- 严重程度：重要；类别：接口与合同、正确性。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:77-78,85`；主工作区 `docs/specs/ui/prompt-editor.md:44-52,65`；被审 worktree `packages/nb-markdown/src/prompt/prompt-text.ts:171-186,438-521,538-549`、`packages/nb-markdown/src/link-syntax.ts:180-218`、`packages/nb-harness/src/kernel/view/format.ts:76-87,113-115`。
+- 现象：`nb-markdown` 认完整的行内链接：任意 alt 的旧图片、尖括号目标、带标题的目标都合法；反引号、围栏代码、转义和粘贴块里的同样文字不是附件。计划只写按 `![image #N](uri)` 切开，且用“文字已有地址”去掉转录附件块，没有定义标签与 `attachments` 不一致时谁有权决定读图，也没有定义自定义 `render` 改写/删除标签后的定位。
+- 为什么是问题：普通代码示例会被改成图片，合法旧图片会失去原位置或漏发；只凭 URI 子串去重还会隐藏本应保留的附件块。若从文字发现任何 URI 都读取，`attachments=[]` 的纯文本输入也会触发文件 I/O；若只信列表，自定义 render 添加或挪动标签时位置仍不确定。`format.user(...parts)` 把多个事件放在同一消息里，必须逐事件定位，否则末尾补图会越过其它事件。让通用内核自己近似解析 Markdown，会建立与 nb-markdown 不同的第二份语法。
+- 如何核实：已运行 `contracts-smoke.ts`，8 组真实 `parsePromptText` 输入中，普通编号、任意 alt、尖括号、带标题这 4 组均认成图片；代码、围栏、转义、粘贴这 4 组均为 0 张。现有 `format.user` 明确逐个 part 处理，Profile `render` 返回的只是 `string | null`，没有位置映射。
+- 建议改法：宿主复用 nb-markdown 的解析结果，给附件带事件原文中的范围或结构化分段，例如 `{kind, uri, from, to}`；内核只验证范围、URI 与原文一致，不解析 Markdown。明确自定义 render 改写文字时的降级规则（附件逐事件附后，或提供带块的渲染接口）、`null` 是否连图一起隐藏、孤立列表项及重复 URI 的处理；转录去重按已识别附件 token，不按子串。
+
+### 5. 重要：滑动淘汰最旧图片必然改写请求前缀，且预算放在拦截前并不能保证最终不超过 100 张
+
+- 严重程度：重要；类别：不变量、接口与合同。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:80`；主工作区 `docs/specs/harness/profile.md:86-87,101`；被审 worktree `packages/nb-harness/src/kernel/view/request.ts:140-148,169-175`、`kernel/run/model-call.ts:89-115`、`kernel/session/preview.ts:123-161`。
+- 现象：每轮新添图并超过 100 张后，都要把此前发过的一张旧图片改成占位。这个改变发生在 `computeRequest` 的前缀检查之后，不会报 `prefix-unstable`。模型拦截层随后还能增删图片、改变消息；计划没有终端复核，因此拦截层追加 1 张，就能把已裁成 100 张的请求再次变成 101 张。审批钩子、压缩方法经 `modelCaller` 自建的请求也不经过 `computeRequest`。
+- 为什么是问题：已定的“保留最新 100 张”本来就有缓存代价，计划不能把“之后、拦截前”当成既一致又完整的机制。设每轮 1 张、每张估算 1,600 token，则从第 101 张开始，第 n 次请求的第 n−100 张由图变文字，之前的公共前缀在该处中断；剩下 99 张共 158,400 token，外加其间所有对话，都失去与上一请求的前缀复用。系统块及更早的占位仍可缓存，不是“整个请求 0 命中”。超过预算之后如果只聊文字、没有增加图片，淘汰集合不变，也不会每轮继续失效。内核检查发生在改写前，诊断会漏报这笔实际损失。
+- 如何核实：已核对真实 `callModel` 的 `onNext` 与 terminal：只禁止改 model 并冻结 passed，不限制图片数；`modelCaller` 接收任意消息直接进同一链。缓存数字按 100 张滑动窗口逐项推导；未把还未实现的淘汰逻辑称为实测。验收应通过真实模型拦截扩展追加图片，断言最终端点只收到 100 张，并记录最终消息的共同前缀位置。
+- 建议改法：保留开发者已定的淘汰规则，明确并量化它的缓存代价；预算算法用不可变方式处理所有消息，不能原地改冻结的提交缓存。在真实调用与 preview 的共同 terminal 上复核最终预算，覆盖 `modelCaller`；预览的 `original`、`changes`、`tokens` 与压缩 job 明确用预算前还是预算后的同一口径，前缀诊断检查实际发送形状，不只检查预算前的渲染。
+
+### 6. 重要：边上传边算哈希后才知道目标名，现有 `stage(address, writer)` 不能提交到这个迟到的地址
+
+- 严重程度：重要；类别：接口与合同、资源释放。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:83`；被审 worktree `packages/neuro-book/src/plugins/files/shared/workspace-files.ts:25-35,44-53,57-70`、`backend/workspace-files.ts:157-200,367-400`。
+- 现象：上传目标要求 `<SHA-256>.<扩展名>`，服务端必须读到 EOF 才能知道哈希；现有 `stage` 却在调用 writer 之前就要求完整 address，并先创建带固定 path 的提交目标。`StagedSink` 只有 `write`，没有结束后选择文件名或转交暂存的操作。先写随机名再 rename 也不成立：挂载方案不支持 rename/move。
+- 为什么是问题：计划暗中依赖不存在的“先暂存、后选地址”机制。照当前接口无法一边读网络、一边直接写最终内容寻址目标；只能额外缓冲完整文件，或另建临时 spool 再二次流式 stage，或设计新的文件服务能力。25 MiB 缓冲一次就是 25 MiB，K 个并发上传至少 25K MiB；第二次写会产生双倍暂存 I/O。超限时从 writer 抛错又统一变成 `io-failed`，不能自动得到路由的 413，仍需单独记录超限原因并确保 reader、临时文件与锁收口。
+- 如何核实：已对照公开类型与真实执行顺序：`stagingTarget(request)` 在 `fill(staged, write, ...)` 前，挂载提交闭包捕获固定 path；`fill` 自己再算一次哈希，并把 writer 异常归类 `io-failed`。Spec `workspace/resources.md:80,117-124` 同样没有迟选目标名。此处不需要启动服务即可确认接口不提供计划依赖的机制。
+- 建议改法：在计划中明确一条真实可实现的链路。保守方案是路由按 25 MB 上限流式 spool 到受管临时文件，得到哈希后再经现有 stage 流式复制，成功、断连、超限及入口停止都清理；如果要求单次写盘，就在 Files 拥有者处增加“暂存完成后确定目标”的提交能力并定义寿命，不让 Agent 深导入 Files 私有 staging。验收由 16 MB 改成已定的 25 MB 上下界，并覆盖无 Content-Length 与中途取消。
+
+### 7. 重要：缩放失败就发原图，会把损坏、超像素与不支持格式永久带进后续请求
+
+- 严重程度：重要；类别：正确性、安全与性能。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:75,79,82`；被审 worktree `packages/neuro-book/src/plugins/agent/backend/builtin/image.ts:6-15,56-85`、`packages/nb-harness/src/kernel/model/omp.ts:111-122,137-152,286-292`；本机 `node_modules/bun-types/bun.d.ts:8941-8992,9027-9042,9135-9183`。
+- 现象：计划对一切缩放失败交原图，未区分“不需要缩”“编码超目标”“格式不可解”“内容损坏”“像素超限”。本机 Bun 1.4.4 实测 SVG 得 `ERR_IMAGE_UNKNOWN_FORMAT`、损坏 PNG 得 `ERR_IMAGE_DECODE_FAILED`、超指定像素数得 `ERR_IMAGE_TOO_MANY_PIXELS`；这些输入按计划全部会退回原始字节，不再有安全或兼容检查。适配器只有 WebP 的本地后端兼容转换，不会把坏 PNG、SVG、Linux 不支持的 HEIC/AVIF 自动救回来。
+- 为什么是问题：坏图在日志里一直是合法附件，之后每轮重新发送仍会触发服务商错误。单个 25 MiB 原图 base64 是 33.33 MiB，100 张可达约 3.26 GiB，并不受“目标 500 KB”约束。默认像素上限 268,402,689 个像素，单张 RGBA 展开约 1.00 GiB，25 MB 文件上限不等于解码内存上限。仅从质量 80 再降两次也不能保证目标：1568×1568 的 7,389,470 字节噪声 PNG 在质量 80/70/60 下仍为 1,637,829 / 1,358,627 / 1,160,220 字节，40 时仍有 848,393 字节。这里 500 KB 是目标，不要求任意图片都能无损达成；问题是失败与超目标必须有明确、可发送的结果，不该不加区分退回原件。
+- 如何核实：已运行指定报告目录的 `image-smoke.ts` 及 `bun -e` 对噪声样本的质量扫描。GIF 样本 2 帧，Bun 转 PNG 后 1 帧；CMYK JPEG 成功转成 1568×1176 的 sRGB PNG。图像流水线在 worker thread 执行，2000×1500 PNG 的 metadata 加缩放编码实测约 989 ms，其间主事件循环执行 815 次；不能据此声称图像编解码堵住 JS 主线程。base64 构造与多图在途内存仍需另管。
+- 建议改法：不要新写第二套较弱的缩放器；复用并按附件需求调整已有 `builtin/image.ts` 的 `prepareImage`（它已处理 GIF 首帧、尺寸、透明、质量与继续缩尺寸），让 read 与附件共用。按 `error.code` 对坏图/未知格式给可诊断的文字占位，明确支持格式、动画取帧、像素上限及超目标策略；保留磁盘原图不等于必须发送无法处理的原图。URI 缓存只存模型无关的标准化图片，WebP 的模型相关转换继续放适配器，扩展到 user 与 tool 两类，顺序固定为先标准化、后模型转换。
+
+### 8. 重要：新附件端口没有取消信号，放在模型调用之前等待会绕过现有中止收口
+
+- 严重程度：重要；类别：并发与状态、资源释放。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:75-76`；被审 worktree `packages/nb-harness/src/kernel/run/loop.ts:134-151,246-266,384-391`、`run/control.ts:136-144`、`session/session.ts:767-780`、`session/preview.ts:38,101-120`。
+- 现象：`attachments.read(uri)` 没有 `signal` 或取消/超时合同；计划新增的 await 在 `computeRequest` 前，因此在 `withAbortGrace(callModel(...))` 外。中止逻辑会等整个 `active.done`，关闭会话也先等运行收口。读盘、解码 Promise 不返回时，即使用户已中止，运行也不能结束、日志锁不释放。preview 使用独立的 NEVER 信号，没有在跑的运行可以帮它取消。
+- 为什么是问题：这是新增 I/O 等待点破坏原有“中止能收口”的方式，不是“Bun.Image 是否同步”的问题。三处各自等待还会把一个读失败变成不同结果：运行的外层 catch 会记 `handler-threw`、以 `internal` 收口；预览会直接 reject；压缩可能在方法尝试前就失败。没有定义读错误与缺失、取消的区别，也不能可靠决定是否缓存失败；将一次临时 not-found 长期缓存会让后续同 URI 上传完成后仍显示缺失。
+- 如何核实：已核对真实等待链：`abort()` 触发 controller 后等待 `active.done`，`closeNow()` 等 shutdown 后才关闭日志；现有中止赛跑只包模型调用和压缩调用，不会自动覆盖计划加在外面的读取。本次未注入尚不存在的附件端口，不伪造运行复现。
+- 建议改法：端口收 `AbortSignal`，共同请求准备入口与运行/查询的寿命绑定；即使宿主忽略信号，内核也能停止等待并丢弃晚到结果。缓存只写入有效、完成的不可变图片，不缓存取消与瞬态失败；并发相同 URI 的读取可共用在途任务，但不能让一个 preview 取消其它请求的所有者。缺失用占位，其它读失败带诊断并按已定策略降级，不让永久坏附件锁住会话。
+
+### 9. 重要：首次附件复用 `create()` 只合并多文件不够，取消或切会话后的迟到结果会重新抢占当前会话
+
+- 严重程度：重要；类别：并发与状态。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:85`；被审 worktree `packages/neuro-book/src/plugins/agent/web/session-host.ts:184-197,629-647,709-717,758-776,1226-1232`、`packages/nb-markdown/src/prompt/prompt-attachments.ts:79-118`、`packages/neuro-book/src/plugins/agent/shared/remote.ts:136-140`。
+- 现象：计划只保证“并发的几个文件等同一次 create”。真实 `create()` 在远程返回后无条件 `open(newId)`；`open()` 内的 generation 只能丢弃已经开始 open 的旧任务，不能阻止尚未返回的 create 随后发起一个更新的 open。用户等待创建时可以移除全部附件、选择已有会话、执行 `/new`，宿主也可能 dispose。`create` 远程参数还没有 commandId/客户端 id，未知结果后重试不能找回同一次创建。
+- 为什么是问题：时间线 `添加附件 → create 未回 → 打开会话 B → create 回 A → open(A)` 会把用户从 B 拉走。只让多个文件共用 Promise 不能修复；上传若在等待后读全局 current，也会把 A 的附件挂到 B 的草稿。编辑器重置草稿会发 attachment-remove，撤销则用新 localId，旧请求必须失效，不能在它完成后把就绪 token 填回新草稿。接受“第一次附件就建会话”不代表授权迟到任务抢界面或自动重试建出多个会话。
+- 如何核实：已按真实 `create/open/dispose` 的控制流核对：create 没有 generation 检查，`open` 会立即增加代次并替换 current；远程 create schema 不带幂等键。未启动前端，尚未实现的附件 action 未作运行断言。可用真实宿主测试中可控的 create 返回闸门验证上述顺序，无需 e2e。
+- 建议改法：把“为当前草稿确保一个会话”的单次创建任务绑定草稿代次，捕获会话 id、localId 与上传取消控制器；显式新建、选择、取消、dispose 后不再自动 open 或投递就绪状态，已经创建的空会话按既定产品行为保留，不新增删除要求。首次发送也共用这个创建入口。明确 create 结果未知的恢复方式，而不是为每个重试再调用一次非幂等 create。
+
+### 10. 重要：计划只改无视觉模型的适配器，现有输入框仍在上传前拒绝图片，角色模型也会被误判
+
+- 严重程度：重要；类别：接口与合同、需求遗漏。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:79,85,91-96`；主工作区 `docs/specs/ui/agent-conversation-view.md:288`；被审 worktree `packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:249-252,276-283`、同名 `.md:38`、`packages/neuro-book/src/plugins/agent/web/session-host.ts:1153-1157`。
+- 现象：计划把“不能看图换文字”只放在 `omp.ts`，宿主只写打开 `canRegisterAttachments`。实际 Composer 的 `acceptImages` 还要求 `models.find(key === modelKey).supportsImages`；文本模型会直接拒绝添加并显示错误，根本不会走上传与发送。`modelKey=role:…` 不在 models 列表里，默认空串选项又硬写 `supportsImages:false`，所以即便角色解析到视觉模型，同样不能加图。
+- 为什么是问题：真实用户入口违背开发者已定的“模型不支持图片时换文字不报错”。只测适配器的图片转占位可以全绿，但文本模型、角色模型与跟随默认三条常用界面路径仍加不了附件。旧 UI Spec 明写拒绝，计划的 Spec 改动清单也没有把这条改为新决定。
+- 如何核实：已逐行核对真实门禁及当前模型数据源；不是根据字段名猜测。未挂载 UI、不跑 e2e。验收须从真实 Composer 的选择/粘贴图片入口证明无视觉模型可登记，并对绑定视觉模型的角色与默认选项各走一遍。
+- 建议改法：既然已定允许图片降级，允许登记附件就允许上传图片，不在编辑器前按模型能力拒绝；能力标记仅作提示，最终按发送时实际解析的模型转换。同步删除旧 Spec 与同名组件文档的拒绝规则，历史消息的就地编辑也使用同一规则。
+
+### 11. 重要：文字里的附件地址被出站过滤掉后，附件列表仍会把同一张原图交给读者
+
+- 严重程度：重要；类别：接口与合同、不变量。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:74,78,84`；主工作区 `docs/specs/harness/runtime.md:114,119`；被审 worktree `packages/nb-harness/src/kernel/helpers/content.ts:95-105`、`packages/nb-agent-ui/src/kernel-transcript.ts:344-346`。
+- 现象：一份附件地址同时存在于 `text` 与 `attachments[].uri`。现有 `mapEventContent` 只过滤 input/steer 的文字与 payload，保留 attachments；转录器随后照列表生成附件块。计划中的“文字已有地址就不重复显示”无法处理过滤后的这份分叉：文字地址消失，反而触发列表附件块显示，读取路由再按该 URI 给原件。
+- 为什么是问题：这不是重新质疑已定的跨会话可读权限，而是同一事件的出站投影绕过过滤结果。宿主通过标准 helper 隐去附件地址，读者仍能从结构化字段得到原 URI、预览及下载原图。用户图片不能只继承工具图片的模型转换规则，忽略其出站整块保留或去掉的合同。fork 复制含这个 URI 的日志不会修复投影不一致。
+- 如何核实：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/outbound-smoke.ts`，经真实 `send → waitRun → session.as(reader).path` 与真实 KernelTranscript；过滤后 `text` 是 `![image #1]([hidden])`，`attachments[].uri` 仍是原全局地址，转录结果仍含原 URI 的 attachment 块。没有运行新 GET 路由，也不声称已经实测下载。
+- 建议改法：为用户附件定义结构化的出站保留/去掉策略，与事件文字一并投影；标准 helper 必须明确处理附件字段，不能留下可重新显示原件的第二份地址。整条事件返回 null 的既有过滤继续有效。若读者需要受过滤的图片版本，不要从被过滤的文字推导访问权限，也不扩大为跨会话隔离新需求。
+
+### 12. 建议：原文件名放 HTTP 头尚未定义编码，常见中文附件名不能原样发送
+
+- 严重程度：建议；类别：接口与合同、兼容。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:83-84`；主工作区 `docs/specs/ui/prompt-editor.md:45,65`。
+- 现象：计划规定文件字节作请求体、原名放头里，但没有给编码及解析规则。标准 Headers 的值不是任意 Unicode 字符串。目标名又只有哈希与扩展名，上传响应没有原名；不定义原名的传递与保留，文件卡片、文件文字占位和下载名容易各自取哈希名或解析出不同名称。
+- 为什么是问题：中文文件名是写作应用的正常输入，不是攻击场景。直接 `headers: {"X-File-Name": file.name}` 会在发请求前失败；对 `%`、引号等字符临时各自编码还会产生重复解码或路径解释差异。原名是显示元数据，不能决定路径。
+- 如何核实：`outbound-smoke.ts` 实测 `new Headers({"X-File-Name":"人物立绘.png"})` 失败，原文为 `Header 'X-File-Name' has invalid value`。未运行上传路由。
+- 建议改法：明确使用百分号编码 UTF-8 的专用头或 multipart 元数据，服务端只解码一次并按显示名处理；磁盘路径仍只用服务端哈希与规范化扩展名。下载名用合法的 `Content-Disposition` 编码，原名不参与路径拼接。
+
+### 13. 重要：同一轮用户图片撑爆窗口时，摘要成功也不会去掉这些图，溢出重试仍是原来的图片负载
+
+- 严重程度：重要；类别：正确性、压缩合同。
+- 位置：主工作区 `.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:80-81`；主工作区 `docs/specs/harness/runtime.md:103-108`；被审 worktree `packages/nb-harness/src/kernel/state/history.ts:91-121`、`compaction/compact.ts:95-100`、`packages/neuro-book/src/plugins/agent/backend/compaction/summary.ts:86-109`、`compaction/cuts.ts:13-20,35-37`。
+- 现象：计划只规定摘要输入里的图片写尺寸占位，`shake` 不动用户图片。实际内核压缩到当前轮、甚至 `firstKeptEntryId:null` 时，保留当前轮的 input 与附带事件，只删 steps；摘要方法交回 `omitted:[]`。下一次重新格式化 input 会再次附上全部用户图片，摘要输入变文字不等于压缩后的对话去图。20 张每张 1,600 token 的图已达 32,000 token；100 张可达 160,000 token，张数预算仍允许它们。
+- 为什么是问题：首次请求或一轮中累积的附件可以单独超过模型窗口。没有工具可供 shake 省略时，摘要能成功写下，重试却仍带同样 20/100 张图，最终按“每次溢出最多重试一次”结束；压缩记录还可能写出过低的 tokensAfter。当前 `pickCut` 只有一个轮切点时取 null、`summaryResult` 不加当前 input 的保留量，这与即将进入请求的图片尤其不一致。旧的文本大输入已有同类边界；本批把图片加进这种永久保留输入，必须定义其实际压缩/降级出口，不能声称已有 summary 占位解决了。
+- 如何核实：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/compaction-smoke.ts`。使用受支持的 Profile.turn 渲染 20 张带 input 来源的图片、真实内核溢出压缩、合格的摘要结果；两次真实 ModelPort 调用均是 `images:20, hasInput:true`，路径确有 compaction 事件，运行最终仍为 context_overflow。此探针使用脚本化端口而非真实服务商，验证的是压缩后保留输入的不变量；当前用户附件端口尚不存在，未冒充新附件端到端验证。
+- 建议改法：明确进行中 input/steer 的图片如何在压缩后降为可恢复的 URI/尺寸占位，并保证被省略的事件不被 `format.user` 重新附图；或定义超过当前模型可容纳量的确定降级策略。保持原图和日志不变，回退到压缩前仍能恢复。`tokensAfter` 与合法切点的保留量必须包含实际保留的用户图及张数预算后的占位；验收增加“同一轮用户图已超过窗口”的溢出恢复，不只做多轮历史压缩。
+
+## 已有发现的补充验证
+
+- 第 5 条：已运行 `budget-smoke.ts`，真实模型拦截扩展添加 101 张图，真实 ModelPort 与 preview 都收到 101 张，预览 estimated=161,617、diagnostics=[]。这证明现有拦截 terminal 没有替计划保证上限，不冒称尚未实现的预算已经运行。脚本对计划滑动规则作独立推导：100→101 张时，200 个消息/块键的共同前缀只剩第 1 个角色键，第一张图片即发生变化。
+- 第 7 条：已有 `prepareImage` 对同一个 CMYK 样本交出 117,994 字节的 WebP、1568×1176；没有必要再实现一份更弱的 PNG/JPEG 重试链。本机 bun-types 是 1.4.2，运行时 Bun 是 1.4.4；格式与 worker 声明由类型和上述实测共同支撑，未验证其它操作系统。
+- 第 12 条：已实测专用头用 `encodeURIComponent("人物立绘.png")` 可构造 Headers，再 `decodeURIComponent` 得到相同原名；支持该建议的编码形状，不代表上传路由已经实现。
+
+## 估算、缓存与兼容的进一步核实
+
+- 第 2 条：如果 64 MB 按 base64 的实际字节计，64 MiB 只能容纳 98 张各 500 KiB 的图；100 张顺序扫描、FIFO 逐出，第二次从最旧开始扫描会形成连锁逐出，可以 100 张全部重读，而不是只重读多出来的 2 张。若按二进制字节计，base64 字符串本身又已超过声称的上限。只在请求实际选中的至多 100 张上解析，并将本次引用集与缓存分离，才能消除这一冲突。
+- 第 5 条：预算之后才得到实际图片集合，但触发压缩的 `host.compaction.estimate()` 在 loop.ts:235-246 先运行，`estimateContext`、`compactionCuts` 仍按事件累计；preview 的 tokens 则从最终 captured 请求算。即使把用户图估算补成每张 1,600，也不会自动减掉本次被预算移除的旧图。例如一个合法工具结果带 201 张此尺寸图片，事件估算 321,600 token，最终只发 100 张时图片部分是 160,000 token，差 161,600 token，尚未计占位。计划需要明确同一请求的预算在阈值估算、切点保留量与 preview 中如何一致，不能只改 `format.user` 与 preview。已有“按上次实际 usage 加新增事件”的快算法可保留，但必须计入本次淘汰的减量，或明确估算是保守上界及其反复触发后果。
+- 第 4 条：Profile `render` 返回 null 目前意味着该事件不渲染；“用户附件无论如何照放”会改变这个合同，而工具结果的 render 本来就不允许 null。工具图片规则不能不加区别照搬到 input/steer。无文字、仅图片的消息还必须继续被 `format.user` 保留，而不是因为 text 为空返回 null。
+- 第 12 条范围收窄：本轮新增发现只针对 HTTP 头的 Unicode 编码未定义；“哈希名下原名如何保留”上一轮已提出，不重复计为新发现。
+- 固定 100 张的滑动规则本身是开发者决定，本报告不要求改数值、不要求改成不丢旧图；只要求承认其前缀缓存代价并补全最终请求与估算合同。
+
+## 按影响排序的阅读索引
+
+条目编号保留逐次追加时的编号；按以下顺序处理：
+
+1. 第 1 条（阻断）：活动附件缺少沙箱响应头。
+2. 第 7 条（重要）：损坏、超像素、不支持格式退回原图，持续毒化请求。
+3. 第 8 条（重要）：读取等待绕过中止收口，影响关闭与日志锁释放。
+4. 第 13 条（重要）：当前轮图片溢出后，摘要不能减少实际图片负载。
+5. 第 9 条（重要）：首次创建与取消、切会话、dispose 的竞态。
+6. 第 3 条（重要）：预览投影输入与实时路径不是同一集合/快照。
+7. 第 10 条（重要）：图片入口仍按旧能力门禁拒绝，角色与默认也被误判。
+8. 第 11 条（重要）：出站过滤后，结构化 URI 重新暴露原附件。
+9. 第 2 条（重要）：提交缓存使 64 MB 上限失效，并可能触发整批重读。
+10. 第 5 条（重要）：预算不是最终约束，前缀缓存与估算不一致。
+11. 第 6 条（重要）：内容寻址上传依赖 stage 不提供的迟选目标能力。
+12. 第 4 条（重要）：内核按标签近似解析，与真实语法和 render 合同分叉。
+13. 第 12 条（建议）：中文原文件名的上传头编码。
+
+## 验证命令与范围
+
+已执行，均未修改仓库文件：
+
+```sh
+bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/contracts-smoke.ts
+bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/budget-smoke.ts
+bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/image-smoke.ts
+bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/outbound-smoke.ts
+bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/compaction-smoke.ts
+```
+
+- 以上 5 个探针命令均退出 0。`compaction-smoke.ts` 输出的 context_overflow 是它要观察的真实内核行为，不是服务商调用失败。
+- 编码目标扫描实际命令：
+
+```sh
+bun -e 'const p="/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/reports/design-review-b5/noise.png"; const bytes=await Bun.file(p).bytes(); console.log(JSON.stringify({input:bytes.length,meta:await new Bun.Image(bytes).metadata()})); for(const quality of [80,70,60,50,40]) {const output=await new Bun.Image(bytes).jpeg({quality}).bytes(); console.log(JSON.stringify({quality,bytes:output.length,over500KiB:output.length>500*1024}));}'
+```
+
+- 图片样本由本机 magick 生成，写入指定实验目录；帧数、CMYK/sRGB 用 `identify` 核实。没有安装依赖；源码通过绝对路径导入被审 worktree，依赖沿现有 node_modules 解析，未把主工作区业务源码的运行结果当作被审提交证据。
+- 未运行：产品现有测试套件、typecheck、构建、UI 挂载/浏览器、e2e、开发服务、真实 Provider/Model、新附件上传/读取路由端到端。`xd://lsp` 返回 `No language servers configured for this project`，符号检查改用已读源码。不存在的新路由、新附件端口及其完整时序均标为从代码推断，不把探针当作它们已实现的证明。
+- 最终核对时，主工作区 plan.md 的“附件（批 5）”内容仍与审查起点一致。
+
+## 未发现问题的方面
+
+- `sessions://<id>/home/attachments/…` 的全局含义与跨会话只读访问，符合 t14 已定决定；文件服务的挂载方案确实允许任何会话读另一个会话的 home，同时拒绝 Agent 写其它会话及自己的 attachments。没有把这项已接受权限当作漏洞。
+- 宿主使用不带 `as.agent` 的服务端 WorkspaceFiles 门面，确实能写 attachments；现有 `sessionArtifacts` 已有同一模式。上一轮“门面拒写”问题不重复提出，第 6 条只审查哈希确定时间与 stage 固定地址的冲突。
+- 全局 URI 原样复制到 fork 后仍指源会话，不必复制文件；原会话删除后按缺失处理是计划明写的取舍。文件名与 URI 不依赖内存令牌，服务重启本身不会改变磁盘地址。尚未实现的新 GET 路由及缓存失效需在实施后验证。
+- 同源 `<img>` 不需要自定义鉴权头，现有 Host/Origin 与 `Sec-Fetch-Site` 准入可以沿用；没有凭空要求签名 URL、会话间隔离或缩略图。直接导航活动文档的问题见第 1 条。
+- 经现有文件服务读取/提交时，`parseAddress` 拒绝点段、空段、反斜杠、NUL，挂载方案按词法与解析后的真实路径分别授权；没有证据证明计划这条既有链路自身有路径穿越。新 HTTP URL 到资源地址的解码仍未实现，不将“文件名正则”当作完整安全证明。
+- `summary.ts` 的 messageText 按块种类处理图片、不按消息 role 限制，来源为 event 的用户图片会走尺寸占位；`shake` 只处理工具消息，符合计划“不动用户图”。第 13 条区分了“摘要输入的占位”和“压缩后真实对话仍保留 input”。
+- `Bun.Image` 在本机真实存在，PNG/JPEG/WebP 编解码和 worker thread 声明不是虚构；CMYK JPEG 已实测可转换。没有以“同步堵住主线程”或“API 不存在”提出错误阻断。
+- 不限上传张数、25 MB 单文件、1568 最长边、500 KB 目标、保留原图、超过 100 张淘汰最旧图、不做缩略图、第一次附件建会话均保持开发者决定。本轮不重新开这些产品取舍。
+
+## 各级数量
+
+- 阻断：1 条。
+- 重要：11 条。
+- 建议：1 条。
+- 合计：13 条；每条均有位置、现象、原因、核实方式与建议改法。第 12 条已收窄，不重复计算上轮原名保留问题。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12（已收窄）、13。
