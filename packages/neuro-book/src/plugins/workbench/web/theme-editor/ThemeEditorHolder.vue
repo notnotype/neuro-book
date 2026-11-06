@@ -1,0 +1,30 @@
+<script setup lang="ts">
+/** 把会话里的模型交给主题编辑器主体（同名 .md）：挂载时 `acquire`、卸载时 `release`，页签与浮动窗口共用它。 */
+import {onBeforeUnmount} from "vue";
+
+// 主题包的缺省配色来自装载整套主题包的模块，不能进首屏：这个组件只在编辑器打开时才加载。
+import {baseColors} from "nbook/ui/theme/product-themes";
+
+import type {ThemeEntry} from "../themes";
+import ThemeEditor from "./ThemeEditor.vue";
+import type {ThemeEditorSession} from "./theme-editor-session";
+
+defineOptions({name: "ThemeEditorHolder"});
+
+const props = defineProps<{
+    session: ThemeEditorSession;
+    themes: ReadonlyArray<ThemeEntry>;
+    /** 页签里不画“关闭”（关页签用标签上的叉）。 */
+    closable?: boolean;
+}>();
+
+defineEmits<{(event: "close"): void}>();
+
+props.session.provideBaseColors(baseColors);
+const model = props.session.acquire();
+onBeforeUnmount(() => props.session.release());
+</script>
+
+<template>
+    <ThemeEditor :model="model" :themes="themes" :closable="closable !== false" @close="$emit('close')" />
+</template>

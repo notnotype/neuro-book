@@ -105,6 +105,12 @@
                 },
                 "switch-appearance": {
                     "title": "Change Appearance"
+                },
+                "open-theme-editor": {
+                    "title": "Open Theme Editor"
+                },
+                "open-theme-editor-floating": {
+                    "title": "Open Theme Editor in a Floating Window"
                 }
             }
         }
@@ -309,6 +315,109 @@
         "mine": "Mine",
         "eyeSepia": {
             "title": "Eye Care Sepia"
+        }
+    },
+    "themeEditor": {
+        "title": "Theme editor",
+        "close": "Close",
+        "empty": {
+            "title": "No themes of your own yet",
+            "hint": "Create one, or start from a copy of an existing theme."
+        },
+        "library": {
+            "label": "My themes",
+            "new": "New",
+            "duplicate": "Duplicate",
+            "delete": "Delete",
+            "copyFrom": "Copy from…",
+            "loading": "Reading your themes",
+            "failed": "Your themes could not be read: {{reason}}",
+            "deleteConfirm": "Confirm delete"
+        },
+        "appearance": {
+            "label": "Appearance being edited",
+            "light": "Light",
+            "dark": "Dark"
+        },
+        "sections": {
+            "label": "Sections",
+            "basic": "Basics",
+            "colors": "Colors",
+            "fonts": "Fonts",
+            "chrome": "Activity bar and frame",
+            "scene": "Scene and framing",
+            "contrast": "Contrast check"
+        },
+        "basic": {
+            "titleZh": "Title (Chinese)",
+            "titleEn": "Title (English)",
+            "base": "Theme pack",
+            "baseNbook": "NeuroBook",
+            "baseMacos": "macOS",
+            "baseHint": "Sets shape, density and motion; colors are edited under Colors."
+        },
+        "colors": {
+            "seeds": "Key colors",
+            "seedBackground": "Background",
+            "seedText": "Text",
+            "seedAccent": "Accent",
+            "derive": "Derive the set",
+            "deriveHint": "Fills only the entries you have not edited by hand; key colors stay.",
+            "fromOther": "Derive from {{other}}",
+            "deriveFailed": "A key color could not be read; nothing was derived",
+            "groupBackground": "Background",
+            "groupText": "Text",
+            "groupBorder": "Border",
+            "groupAccent": "Accent",
+            "groupStatus": "Status",
+            "groupOther": "Other",
+            "touched": "Edited by hand",
+            "reset": "Restore the derived value",
+            "pick": "Pick color",
+            "value": "Color value",
+            "advanced": "Advanced: role variables",
+            "advancedHint": "Surfaces and dividers for controls, buttons and panels; write a color or gradient, no images.",
+            "clear": "Clear"
+        },
+        "contrast": {
+            "ratio": "Contrast {{ratio}}",
+            "low": "Below 4.5",
+            "unknown": "No contrast computed: the editor does not parse this form",
+            "against": "Worst on {{surface}}",
+            "summary": "Entries below the bar",
+            "none": "No entry is below the bar",
+            "legend": "Text, secondary text, muted text, links and status colors against their own backgrounds, at least 4.5. Exporting with entries below the bar only warns."
+        },
+        "fonts": {
+            "display": "Welcome page title",
+            "prose": "Body text",
+            "placeholder": "Font stack, for example \"Noto Serif CJK SC\", serif",
+            "serif": "Serif",
+            "sans": "Sans-serif",
+            "mono": "Monospace",
+            "clear": "Use the current font",
+            "hint": "The browser cannot list installed fonts, so write the stack yourself; leave empty to keep the current font."
+        },
+        "chrome": {
+            "activityBar": "Activity bar",
+            "activityBarOn": "Use its own activity bar",
+            "surface": "Surface (color or gradient)",
+            "foreground": "Foreground",
+            "active": "Current item",
+            "ornament": "End ornaments",
+            "ornamentNone": "None",
+            "frame": "Overlay frame",
+            "frameLine": "Line color",
+            "frameNone": "None",
+            "frameHint": "Draws a thin line inside the outline of menus, dialogs and the settings window."
+        },
+        "scene": {
+            "pending": "Scene images and framing are edited in this section."
+        }
+    },
+    "editorPages": {
+        "theme-editor": {
+            "title": "Theme Editor"
         }
     }
 }

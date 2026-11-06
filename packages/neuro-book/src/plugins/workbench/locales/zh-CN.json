@@ -105,6 +105,12 @@
                 },
                 "switch-appearance": {
                     "title": "切换明暗"
+                },
+                "open-theme-editor": {
+                    "title": "打开主题编辑器"
+                },
+                "open-theme-editor-floating": {
+                    "title": "在浮动窗口中打开主题编辑器"
                 }
             }
         }
@@ -308,6 +314,109 @@
         "mine": "我的",
         "eyeSepia": {
             "title": "护眼米黄"
+        }
+    },
+    "themeEditor": {
+        "title": "主题编辑器",
+        "close": "关闭",
+        "empty": {
+            "title": "还没有我的主题",
+            "hint": "新建一套，或从现有主题复制起步。"
+        },
+        "library": {
+            "label": "我的主题",
+            "new": "新建",
+            "duplicate": "复制",
+            "delete": "删除",
+            "copyFrom": "复制自…",
+            "loading": "正在读取我的主题",
+            "failed": "我的主题读不出来：{{reason}}",
+            "deleteConfirm": "确认删除"
+        },
+        "appearance": {
+            "label": "正在编辑的明暗",
+            "light": "亮色",
+            "dark": "暗色"
+        },
+        "sections": {
+            "label": "分区",
+            "basic": "基本信息",
+            "colors": "配色",
+            "fonts": "字体",
+            "chrome": "活动栏与画框",
+            "scene": "场景与取景",
+            "contrast": "对比度检查"
+        },
+        "basic": {
+            "titleZh": "标题（中文）",
+            "titleEn": "标题（英文）",
+            "base": "主题包",
+            "baseNbook": "NeuroBook",
+            "baseMacos": "macOS",
+            "baseHint": "决定形状、密度与动效；颜色在“配色”里改。"
+        },
+        "colors": {
+            "seeds": "主色",
+            "seedBackground": "背景",
+            "seedText": "文字",
+            "seedAccent": "强调",
+            "derive": "推导整套",
+            "deriveHint": "只填没手改过的项，主色不变。",
+            "fromOther": "从{{other}}派生",
+            "deriveFailed": "主色里有读不懂的颜色，没有推导",
+            "groupBackground": "背景",
+            "groupText": "文字",
+            "groupBorder": "边框",
+            "groupAccent": "强调",
+            "groupStatus": "状态",
+            "groupOther": "其它",
+            "touched": "手改过",
+            "reset": "还原为推导值",
+            "pick": "取色",
+            "value": "颜色值",
+            "advanced": "高级：角色变量",
+            "advancedHint": "控件、按钮、面板等的面与分隔线；写颜色或渐变，不能引图片。",
+            "clear": "清除"
+        },
+        "contrast": {
+            "ratio": "对比度 {{ratio}}",
+            "low": "低于 4.5",
+            "unknown": "没有算出对比度：写法编辑器不解析",
+            "against": "落在 {{surface}} 上最差",
+            "summary": "不合格的项",
+            "none": "没有不合格的项",
+            "legend": "文字、次要文字、弱化文字、链接与状态色，对各自的底色不低于 4.5。导出时有不合格项只提示。"
+        },
+        "fonts": {
+            "display": "欢迎页标题",
+            "prose": "正文",
+            "placeholder": "字体栈，例如 \"Noto Serif CJK SC\", serif",
+            "serif": "衬线",
+            "sans": "无衬线",
+            "mono": "等宽",
+            "clear": "用现有字体",
+            "hint": "浏览器列不出本机字体，所以字体栈要自己写；不填就用现有字体。"
+        },
+        "chrome": {
+            "activityBar": "活动栏",
+            "activityBarOn": "使用自己的活动栏",
+            "surface": "面（颜色或渐变）",
+            "foreground": "前景",
+            "active": "当前项",
+            "ornament": "两端装饰",
+            "ornamentNone": "不画",
+            "frame": "浮层画框",
+            "frameLine": "线色",
+            "frameNone": "不画",
+            "frameHint": "菜单、对话框与设置窗口的描边里面再画一道细线。"
+        },
+        "scene": {
+            "pending": "场景图与取景在这个分区里编辑。"
+        }
+    },
+    "editorPages": {
+        "theme-editor": {
+            "title": "主题编辑器"
         }
     }
 }

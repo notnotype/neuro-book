@@ -39,6 +39,10 @@ import {themesPoint, WORKBENCH_THEMES_POINT} from "../shared/themes";
 import type {ThemeDeclaration} from "../shared/themes";
 import {ThemeCatalog, userThemeSceneUrl} from "./themes";
 import {userThemesStore} from "./user-themes-store";
+import {OPEN_THEME_EDITOR_COMMAND, OPEN_THEME_EDITOR_DECLARATION, OPEN_THEME_EDITOR_FLOATING_COMMAND, OPEN_THEME_EDITOR_FLOATING_DECLARATION, THEME_EDITOR_OVERLAY, THEME_EDITOR_PAGE_ID, themeEditorCommands} from "./commands/theme-editor-commands";
+import {themeEditorOverlay, themeEditorPage} from "./theme-editor/theme-editor-page";
+import {ThemeEditorSession} from "./theme-editor/theme-editor-session";
+import {EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
 import {workbenchText} from "../shared/text";
 import {USER_THEME_PLUGIN} from "../shared/user-themes";
 import {completeHomeDeclaration, validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
@@ -107,6 +111,10 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             {capability: COMMANDS_POINT, id: OPEN_COMMANDS_ID, declaration: OPEN_COMMANDS_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_THEME_COMMAND, declaration: SWITCH_THEME_DECLARATION},
             {capability: COMMANDS_POINT, id: SWITCH_APPEARANCE_COMMAND, declaration: SWITCH_APPEARANCE_DECLARATION},
+            {capability: COMMANDS_POINT, id: OPEN_THEME_EDITOR_COMMAND, declaration: OPEN_THEME_EDITOR_DECLARATION},
+            {capability: COMMANDS_POINT, id: OPEN_THEME_EDITOR_FLOATING_COMMAND, declaration: OPEN_THEME_EDITOR_FLOATING_DECLARATION},
+            {capability: EDITOR_PAGES_POINT, id: THEME_EDITOR_PAGE_ID, declaration: {icon: "i-lucide-palette"}},
+            {capability: WORKBENCH_OVERLAYS_POINT, id: THEME_EDITOR_OVERLAY, declaration: {}},
             ...Object.entries(PANEL_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(PART_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(PANE_FOCUS_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
@@ -172,6 +180,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 watch(() => userThemes.state.themes.base, () => userThemes.actions.adoptConfirmed()),
             ];
             context.signal.addEventListener("abort", () => { for (const stop of stopUserThemes) stop(); }, {once: true});
+            // 主题编辑器：页签与浮动窗口共用一份模型（docs/specs/theme/editor.md 输出 1）；入口停止时预览一并清掉。
+            const editorSession = new ThemeEditorSession({store: userThemes, catalog: themes, newId: () => crypto.randomUUID()});
+            context.signal.addEventListener("abort", () => editorSession.dispose(), {once: true});
             const effectiveTheme = (): string => {
                 const inspected = settings.inspect(themeSetting);
                 return themes.effectiveId([inspected.value as string, inspected.user?.status === "ok" || inspected.user?.status === "invalid" ? inspected.user.value as string | undefined : undefined]);
@@ -222,7 +233,9 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                     [SETTINGS_CHOICES_POINT]: {[THEME_CHOICES_PROVIDER]: {source: () => computed(() => ({status: "ready" as const, items: themes.list.map((entry) => ({value: entry.id, label: entry.plugin === USER_THEME_PLUGIN ? `${text.t(entry.declaration.title)} · ${text.t(workbenchText("themes.mine"))}` : text.t(entry.declaration.title)}))}))}},
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
+                    [EDITOR_PAGES_POINT]: {[THEME_EDITOR_PAGE_ID]: themeEditorPage(editorSession, () => themes.list)},
+                    [WORKBENCH_OVERLAYS_POINT]: {[THEME_EDITOR_OVERLAY]: themeEditorOverlay(editorSession, () => themes.list)},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };
