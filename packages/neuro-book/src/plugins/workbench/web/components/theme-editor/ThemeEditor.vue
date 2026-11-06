@@ -15,6 +15,7 @@ import ThemeEditorChrome from "./ThemeEditorChrome.vue";
 import ThemeEditorScene from "./ThemeEditorScene.vue";
 import type {ThemeTransfer, TransferResult} from "./transfer";
 import ThemeEditorColors from "./ThemeEditorColors.vue";
+import ThemeEditorContrast from "./ThemeEditorContrast.vue";
 import ThemeEditorTypography from "./ThemeEditorTypography.vue";
 import {SAVE_FAILED, ThemeEditorModel, TITLE_EMPTY} from "./theme-editor-model";
 import type {EditorSection} from "./theme-editor-model";
@@ -147,51 +148,51 @@ const rejectedText = computed(() => {
     return text("themeEditor.rejected.invalid", {reason});
 });
 
-const lightName = computed(() => text("themeEditor.appearance.light"));
-const darkName = computed(() => text("themeEditor.appearance.dark"));
-const appearanceName = (appearance: "light" | "dark"): string => (appearance === "light" ? lightName.value : darkName.value);
 </script>
 
 <template>
     <div class="theme-editor" data-theme-editor>
         <header class="theme-editor__bar">
-            <div v-if="model.mine.value.length > 0" class="theme-editor__picker">
-                <Select
-                    size="sm"
-                    :model-value="model.selectedId.value ?? ''"
-                    :options="options"
-                    :aria-label="text('themeEditor.library.label')"
-                    @update:model-value="model.select($event)"
-                />
+            <div class="theme-editor__library">
+                <div v-if="model.mine.value.length > 0" class="theme-editor__picker">
+                    <Select
+                        size="sm"
+                        :model-value="model.selectedId.value ?? ''"
+                        :options="options"
+                        :aria-label="text('themeEditor.library.label')"
+                        @update:model-value="model.select($event)"
+                    />
+                </div>
+                <Button size="sm" variant="secondary" icon-class="i-lucide-plus" data-new @click="model.create()">{{ text("themeEditor.library.new") }}</Button>
+                <div class="theme-editor__copy-from" data-copy-from>
+                    <Select
+                        size="sm"
+                        :model-value="copyFrom"
+                        :options="copyOptions"
+                        :placeholder="text('themeEditor.library.copyFrom')"
+                        :aria-label="text('themeEditor.library.copyFrom')"
+                        @update:model-value="createFrom($event)"
+                    />
+                </div>
+                <Button size="sm" variant="secondary" icon-class="i-lucide-copy" :disabled="model.current.value === null" data-duplicate @click="model.duplicate()">{{ text("themeEditor.library.duplicate") }}</Button>
+                <Button size="sm" :variant="confirming ? 'danger' : 'ghost'" icon-class="i-lucide-trash-2" :disabled="model.current.value === null" data-delete @click="remove" @blur="resetConfirm">
+                    {{ confirming ? text("themeEditor.library.deleteConfirm") : text("themeEditor.library.delete") }}
+                </Button>
+                <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null || transferring" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
+                <Button size="sm" variant="ghost" icon-class="i-lucide-upload" :disabled="transferring" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
+                <input ref="importInput" type="file" accept=".zip,application/zip" class="theme-editor__file" data-import-file @change="onImportFile" />
             </div>
-            <Button size="sm" variant="secondary" icon-class="i-lucide-plus" data-new @click="model.create()">{{ text("themeEditor.library.new") }}</Button>
-            <div class="theme-editor__copy-from" data-copy-from>
-                <Select
+            <div class="theme-editor__view">
+                <SegmentedControl
                     size="sm"
-                    :model-value="copyFrom"
-                    :options="copyOptions"
-                    :placeholder="text('themeEditor.library.copyFrom')"
-                    :aria-label="text('themeEditor.library.copyFrom')"
-                    @update:model-value="createFrom($event)"
+                    :model-value="model.appearance.value"
+                    :options="appearanceOptions"
+                    :aria-label="text('themeEditor.appearance.label')"
+                    data-appearance
+                    @update:model-value="model.appearance.value = $event as 'light' | 'dark'"
                 />
+                <Button v-if="closable" size="sm" variant="ghost" icon-class="i-lucide-x" data-close @click="emit('close')">{{ text("themeEditor.close") }}</Button>
             </div>
-            <Button size="sm" variant="secondary" icon-class="i-lucide-copy" :disabled="model.current.value === null" data-duplicate @click="model.duplicate()">{{ text("themeEditor.library.duplicate") }}</Button>
-            <Button size="sm" :variant="confirming ? 'danger' : 'ghost'" icon-class="i-lucide-trash-2" :disabled="model.current.value === null" data-delete @click="remove" @blur="resetConfirm">
-                {{ confirming ? text("themeEditor.library.deleteConfirm") : text("themeEditor.library.delete") }}
-            </Button>
-            <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null || transferring" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
-            <Button size="sm" variant="ghost" icon-class="i-lucide-upload" :disabled="transferring" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
-            <input ref="importInput" type="file" accept=".zip,application/zip" class="theme-editor__file" data-import-file @change="onImportFile" />
-            <span class="theme-editor__spacer" />
-            <SegmentedControl
-                size="sm"
-                :model-value="model.appearance.value"
-                :options="appearanceOptions"
-                :aria-label="text('themeEditor.appearance.label')"
-                data-appearance
-                @update:model-value="model.appearance.value = $event as 'light' | 'dark'"
-            />
-            <Button v-if="closable" size="sm" variant="ghost" icon-class="i-lucide-x" data-close @click="emit('close')">{{ text("themeEditor.close") }}</Button>
         </header>
 
         <!-- 常驻的提示区：读屏对“刚插入”的提示区往往不播报，所以元素一直在，只换内容。 -->
@@ -259,19 +260,7 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
                     <ThemeEditorTypography v-else-if="model.section.value === 'fonts'" :model="model" />
                     <ThemeEditorChrome v-else-if="model.section.value === 'chrome'" :model="model" />
                     <ThemeEditorScene v-else-if="model.section.value === 'scene'" :model="model" :transfer="transfer" />
-                    <div v-else class="theme-editor__contrast" data-section="contrast">
-                        <p class="theme-editor__hint">{{ text("themeEditor.contrast.legend") }}</p>
-                        <h3 class="theme-editor__heading">{{ text("themeEditor.contrast.summary") }}</h3>
-                        <p v-if="model.failures.value.length === 0" class="theme-editor__ok" data-contrast-none>{{ text("themeEditor.contrast.none") }}</p>
-                        <ul v-else class="theme-editor__failures">
-                            <li v-for="item in model.failures.value" :key="`${item.appearance}:${item.check.key}`" data-contrast-failure>
-                                <span class="theme-editor__failure-appearance">{{ appearanceName(item.appearance) }}</span>
-                                <code>{{ item.check.key }}</code>
-                                <span class="theme-editor__failure-ratio">{{ item.check.ratio?.toFixed(2) }}</span>
-                                <span class="theme-editor__hint">{{ text("themeEditor.contrast.against", {surface: item.check.against ?? ""}) }}</span>
-                            </li>
-                        </ul>
-                    </div>
+                    <ThemeEditorContrast v-else :model="model" />
                 </div>
             </ScrollArea>
         </div>
@@ -295,13 +284,33 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
     color: var(--text-main);
 }
 
+/*
+ * 库操作自己换行，亮暗开关与关闭固定在右上：窗口变窄时只是库操作多占几行，开关不会被挤到只剩它们的一排。
+ * 窄到库操作排不下 280px 时（手机宽度）整组才落到下一行。
+ */
 .theme-editor__bar {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-3);
     padding: var(--space-4) var(--space-6);
     border-bottom: var(--border-w) solid var(--border-color);
+}
+
+.theme-editor__library {
+    display: flex;
+    flex: 1 1 280px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.theme-editor__view {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-3);
 }
 
 .theme-editor__copy-from {
@@ -334,10 +343,6 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
 
 .theme-editor__transfer[data-tone="bad"] {
     color: var(--status-danger);
-}
-
-.theme-editor__spacer {
-    flex: 1;
 }
 
 .theme-editor__error {
@@ -426,8 +431,7 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
     padding: var(--space-6) var(--space-8);
 }
 
-.theme-editor__basic,
-.theme-editor__contrast {
+.theme-editor__basic {
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
@@ -445,42 +449,6 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
     margin: 0;
     color: var(--text-muted);
     font-size: var(--text-xs);
-}
-
-.theme-editor__heading {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: var(--text-xs);
-    font-weight: 600;
-}
-
-.theme-editor__ok {
-    margin: 0;
-    color: var(--status-success);
-    font-size: var(--text-sm);
-}
-
-.theme-editor__failures {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.theme-editor__failures li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-3);
-    font-size: var(--text-sm);
-}
-
-.theme-editor__failure-ratio {
-    color: var(--status-danger);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
 }
 
 /* 窄窗口：导航收成顶部一条，分区内容占满宽（Spec 输出 18）。 */

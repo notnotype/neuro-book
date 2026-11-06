@@ -3,7 +3,7 @@
  * 值读不懂（`color-mix()` 这类编辑器不解析的写法）或缺底色时那一项没有比值，既不通过也不算不合格。
  */
 
-import {composite, contrast, parseColor} from "./color";
+import {composite, contrast, formatColor, parseColor} from "./color";
 import type {Rgba} from "./color";
 import {MINIMUM_TEXT_CONTRAST} from "./derive-palette";
 
@@ -15,6 +15,17 @@ export interface ContrastCheck {
     readonly ratio: number | null;
     /** 有比值时：是否不低于 4.5。 */
     readonly ok: boolean | null;
+    /** 文字色与最差那个底色的实色（半透明的底已叠在面板上），编辑器拿它们画“真实效果”的样张；没有比值时为 null。 */
+    readonly sample: {readonly foreground: string; readonly surface: string} | null;
+}
+
+/** WCAG 正文的两档：不到 4.5 不合格，4.5 到 7 是 AA，7 以上是 AAA。 */
+export const ENHANCED_TEXT_CONTRAST = 7;
+export type ContrastGrade = "low" | "aa" | "aaa";
+
+export function contrastGrade(ratio: number): ContrastGrade {
+    if (ratio < MINIMUM_TEXT_CONTRAST) return "low";
+    return ratio < ENHANCED_TEXT_CONTRAST ? "aa" : "aaa";
 }
 
 const TEXT_SURFACES = ["--bg-main", "--bg-panel", "--bg-sidebar", "--bg-hover"] as const;
@@ -48,12 +59,12 @@ export function checkContrast(colors: Readonly<Record<string, string | undefined
         const panel = read("--bg-panel");
         const tinted = tint === undefined ? null : read(tint);
         if (tint !== undefined && tinted !== null && panel !== null && panel.a >= 1) candidates.push({name: `${tint} 叠在 --bg-panel`, color: composite(tinted, panel)});
-        if (foreground === null || candidates.length === 0) return {key, against: null, ratio: null, ok: null};
-        let worst = {name: "", ratio: Number.POSITIVE_INFINITY};
+        if (foreground === null || candidates.length === 0) return {key, against: null, ratio: null, ok: null, sample: null};
+        let worst = {name: "", ratio: Number.POSITIVE_INFINITY, color: candidates[0]!.color};
         for (const candidate of candidates) {
             const ratio = contrast(foreground, candidate.color);
-            if (ratio < worst.ratio) worst = {name: candidate.name, ratio};
+            if (ratio < worst.ratio) worst = {name: candidate.name, ratio, color: candidate.color};
         }
-        return {key, against: worst.name, ratio: worst.ratio, ok: worst.ratio >= MINIMUM_TEXT_CONTRAST};
+        return {key, against: worst.name, ratio: worst.ratio, ok: worst.ratio >= MINIMUM_TEXT_CONTRAST, sample: {foreground: formatColor(foreground), surface: formatColor(worst.color)}};
     });
 }

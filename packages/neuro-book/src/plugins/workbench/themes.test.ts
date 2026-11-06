@@ -100,7 +100,7 @@ describe("主题的取值", () => {
 
     it("目录里没有的 id 用缺省主题", () => {
         const catalog = new ThemeCatalog([], () => null, () => undefined);
-        expect(catalog.resolve("gone", "light")).toEqual({base: "nbook", vars: {}, scene: false});
+        expect(catalog.resolve("gone", "light")).toEqual({base: "nbook", skin: "nbook", vars: {}, scene: false});
     });
 
     it("退回：项目层不认识取用户层，都不认识取缺省；没认出的 id 只报一次", () => {

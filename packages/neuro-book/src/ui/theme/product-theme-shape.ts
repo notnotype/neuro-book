@@ -5,6 +5,8 @@
 export interface ProductTheme {
     /** nb-ui 主题包。 */
     readonly base: string;
+    /** 主题目录里的 id：不同的主题可以用同一个主题包，只有它能分出“换了一套主题”与“同一套主题改了配色”；没有时按主题包算。 */
+    readonly skin?: string;
     /** 盖在主题包缺省配色上的变量。 */
     readonly vars: Readonly<Record<string, string>>;
     readonly scene: boolean;
