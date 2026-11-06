@@ -37,6 +37,8 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 - `discuss`：只讨论，可以用只读 shell 和临时目录。这些通过提示词口头约定，权限同样靠黑白名单、auto 模式或完全访问。
 - `plan`：在 `discuss` 的基础上加一个写计划的任务，和 Claude Code、Codex 一样。
 
+补充（同日）：`discuss`、`plan` 下写了就直接拒绝，不弹审批，告诉模型要切换模式；可以配置成弹审批。黑白名单怎样设计待定：`shell` 要精细处理，不只识别工具名，还要识别参数。
+
 开发者提醒：现在有计划（模式）和权限两个维度，架构可能要稍微改一下；要简单调研 omp、Codex、Claude Code 的做法。调研写到 [`research/2026-11-06-agent-modes-survey.md`](../../research/2026-11-06-agent-modes-survey.md)。
 
 ## 当前状态
