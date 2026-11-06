@@ -12,6 +12,8 @@ import {useWorkbenchText} from "../text";
 import type {ThemeEntry} from "../themes";
 import ThemeEditorChrome from "./ThemeEditorChrome.vue";
 import ThemeEditorScene from "./ThemeEditorScene.vue";
+import {exportCurrent, importArchive} from "./transfer";
+import type {TransferResult} from "./transfer";
 import ThemeEditorColors from "./ThemeEditorColors.vue";
 import ThemeEditorTypography from "./ThemeEditorTypography.vue";
 import {ThemeEditorModel} from "./theme-editor-model";
@@ -67,6 +69,25 @@ const createFrom = async (id: string): Promise<void> => {
     await model.create(entry ?? null);
 };
 
+/** 导出与导入的结果：一行提示，成功与失败各一种色。 */
+const transfer = ref<TransferResult | null>(null);
+const importInput = ref<HTMLInputElement | null>(null);
+const exportTheme = async (): Promise<void> => {
+    transfer.value = await exportCurrent(model);
+};
+const onImportFile = async (event: Event): Promise<void> => {
+    const element = event.target as HTMLInputElement;
+    const file = element.files?.[0];
+    element.value = "";
+    if (file === undefined) return;
+    transfer.value = await importArchive(model, new Uint8Array(await file.arrayBuffer()));
+};
+const transferText = computed(() => {
+    const result = transfer.value;
+    if (result === null) return null;
+    return text(`themeEditor.transfer.${result.message.key}` as "themeEditor.transfer.exported", result.message.params as never);
+});
+
 const lightName = computed(() => text("themeEditor.appearance.light"));
 const darkName = computed(() => text("themeEditor.appearance.dark"));
 const appearanceName = (appearance: "light" | "dark"): string => (appearance === "light" ? lightName.value : darkName.value);
@@ -89,6 +110,9 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
             <Button size="sm" :variant="confirming ? 'danger' : 'ghost'" icon-class="i-lucide-trash-2" :disabled="model.current.value === null" data-delete @click="remove" @blur="confirming = false">
                 {{ confirming ? text("themeEditor.library.deleteConfirm") : text("themeEditor.library.delete") }}
             </Button>
+            <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
+            <Button size="sm" variant="ghost" icon-class="i-lucide-upload" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
+            <input ref="importInput" type="file" accept=".zip,application/zip" class="theme-editor__file" data-import-file @change="onImportFile" />
             <span class="theme-editor__spacer" />
             <SegmentedControl
                 size="sm"
@@ -101,6 +125,7 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
             <Button v-if="closable !== false" size="sm" variant="ghost" icon-class="i-lucide-x" data-close @click="emit('close')">{{ text("themeEditor.close") }}</Button>
         </header>
 
+        <p v-if="transferText !== null" class="theme-editor__transfer" :data-tone="transfer?.ok ? 'ok' : 'bad'" role="status" data-transfer>{{ transferText }}</p>
         <p v-if="model.failure.value !== null" class="theme-editor__error" role="alert" data-library-failed>{{ text("themeEditor.library.failed", {reason: model.failure.value}) }}</p>
 
         <div v-if="!model.ready.value" class="theme-editor__state" role="status" aria-busy="true">{{ text("themeEditor.library.loading") }}</div>
@@ -207,6 +232,24 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
 .theme-editor__picker {
     flex: 0 1 240px;
     min-width: 160px;
+}
+
+.theme-editor__file {
+    display: none;
+}
+
+.theme-editor__transfer {
+    margin: 0;
+    padding: var(--space-3) var(--space-6);
+    font-size: var(--text-xs);
+}
+
+.theme-editor__transfer[data-tone="ok"] {
+    color: var(--status-success);
+}
+
+.theme-editor__transfer[data-tone="bad"] {
+    color: var(--status-danger);
 }
 
 .theme-editor__spacer {

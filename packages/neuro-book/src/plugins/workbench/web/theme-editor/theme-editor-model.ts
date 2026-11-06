@@ -122,6 +122,14 @@ export class ThemeEditorModel {
         return {...copy, title: {"zh-CN": `${String((title as Record<string, string>)["zh-CN"])} 副本`, "en-US": `${String((title as Record<string, string>)["en-US"] ?? (title as Record<string, string>)["zh-CN"])} copy`}};
     }
 
+    /** 导入：把一份声明（素材已经写好、`scene` 已换成素材文件名）加进库里，选中它。 */
+    async add(declaration: ThemeDeclaration): Promise<string> {
+        const id = `user:${this.#env.newId()}`;
+        await this.#env.store.actions.create({id, declaration});
+        this.#selectedId.value = id;
+        return id;
+    }
+
     async duplicate(): Promise<string | null> {
         const theme = this.current.value;
         if (theme === null) return null;

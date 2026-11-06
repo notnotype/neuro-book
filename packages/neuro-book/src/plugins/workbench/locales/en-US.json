@@ -332,7 +332,9 @@
             "copyFrom": "Copy from…",
             "loading": "Reading your themes",
             "failed": "Your themes could not be read: {{reason}}",
-            "deleteConfirm": "Confirm delete"
+            "deleteConfirm": "Confirm delete",
+            "export": "Export…",
+            "import": "Import…"
         },
         "appearance": {
             "label": "Appearance being edited",
@@ -437,6 +439,13 @@
             "hint": "Drag a frame on the image and pull its lower-right corner to scale; the workbench changes at the same place. Frames are approximate; real positions follow the window size.",
             "frame": "{{region}} frame",
             "image": "Scene image"
+        },
+        "transfer": {
+            "exported": "Exported {{name}}",
+            "exportedWarn": "Exported {{name}}, but {{count}} entries are below the contrast bar",
+            "exportFailed": "Export failed: cannot read scene image {{reason}}",
+            "imported": "Imported {{count}} theme(s)",
+            "importFailed": "Import failed: {{reason}}"
         }
     },
     "editorPages": {

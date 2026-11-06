@@ -331,7 +331,9 @@
             "copyFrom": "复制自…",
             "loading": "正在读取我的主题",
             "failed": "我的主题读不出来：{{reason}}",
-            "deleteConfirm": "确认删除"
+            "deleteConfirm": "确认删除",
+            "export": "导出…",
+            "import": "导入…"
         },
         "appearance": {
             "label": "正在编辑的明暗",
@@ -436,6 +438,13 @@
             "hint": "在图上拖框、拉右下角缩放；工作台里对应位置同时变化。框是示意，真实位置随窗口尺寸变。",
             "frame": "{{region}}取景框",
             "image": "场景图"
+        },
+        "transfer": {
+            "exported": "已导出 {{name}}",
+            "exportedWarn": "已导出 {{name}}，但有 {{count}} 项对比度不合格",
+            "exportFailed": "导出失败：读不到场景图 {{reason}}",
+            "imported": "已导入 {{count}} 套主题",
+            "importFailed": "导入失败：{{reason}}"
         }
     },
     "editorPages": {
