@@ -1,0 +1,213 @@
+# w00041 t08 后端、数据与不可信输入实现审查
+
+被审提交：`781979146c89bc2fc189456ac195b72c12a0e28e`；合并基点：`71264a009ffc9d848e6f1bad87f296a2c69b56d4`。
+依据为主工作区最新 `docs/specs/theme/editor.md`、`docs/specs/theme/skins.md` 与 t08 计划和决定。审查不修改仓库，不运行 e2e、开发服务或真实模型。
+实验与报告仅写 `/tmp/t08-review/backend/`；后续内容只追加。
+
+### 1. 缺少清单的结构校验，合法 JSON 能让导入抛出未捕获异常
+
+- **严重程度**：重要；**类别**：正确性 / 不可信输入。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/package-io.ts:105-109`；调用链 `ThemeEditor.vue:80-85`、`transfer.ts:51-53`。
+- **现象**：zip 内的 `package.json` 为 `null` 时，`readPackage` 抛 `TypeError: null is not an object (evaluating 'manifest.contributes')`；`contributes: [null]` 时抛 `TypeError: null is not an object (evaluating 'item.capability')`。两者都是合法 JSON，没进返回 `{ok:false, reason}` 的失败通道。实际导入调用链也没有 catch，用户看不到此次校验失败的原因。
+- **为什么是问题**：Spec 失败与恢复要求坏清单显示原因、什么都不导入。类型断言没有验证 JSON 的对象形状，异常越过整个导入错误合同。
+- **如何核实**：在实现 checkout（与被审提交一致）运行 `bun /tmp/t08-review/backend/package-probe.ts`；脚本用真实 `fflate` 生成 zip，直接调用产品公开的纯解析入口，上述两个输入均稳定抛出所列错误；既有 `package-io.test.ts` 19 项全部通过，未覆盖这两个边界。
+- **建议改法**：在遍历前用已有插件清单 schema/解析器验证顶层与每个贡献项的结构，按统一失败结果返回；不要只追加 null 特判而继续跳过整份清单合同。
+
+
+### 2. 只信 zip 目录中的 originalSize，伪造大小可绕过限制并长时间占住浏览器主线程
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/package-io.ts:75-95`。
+- **现象**：将 8 个各 32 MiB 的 DEFLATE 条目的目录 `originalSize` 改成 1，263 KB 左右的 zip（实测 **262,938 字节**）被 `readPackage` 接受。预检看到全部条目合计 **223 字节**，真实压缩数据表示 **268,435,456 字节**，一次同步 `readPackage` 耗时 **8,595.60 ms**。
+- **为什么是问题**：`fflate@0.8.3` 的 `filter: () => false` 确实不分配文件输出缓冲，实测该步额外 external 内存为 0、耗时 0.43 ms；问题在第二次解压。真实 `unzipSync` 用 `new Uint8Array(originalSize)` 作为固定输出缓冲，DEFLATE 超出长度时没有校验溢出，仍跑完压缩指令，返回被截断的缓冲。它不是“伪造大小就无限扩张内存”，而是**未校验的截断和 CPU 解压炸弹**；在浏览器直接同步运行，界面整段时间不能交互。正常目录最多还允许 64 × 20 MiB（1,280 MiB）同时分配，当前没有总解压预算。
+- **如何核实**：`bun /tmp/t08-review/backend/inflate-probe.ts` 使用安装中的真实 fflate 浏览器实现，只改 zip 中央目录大小后调用产品 `readPackage`。`package-probe.ts` 的单文件实验：33,119 字节的包实际表示 32 MiB，声明为 1 字节时 `unzipSync` 返回 1 字节、`readPackage` 返回 `ok:true`。没有改产品、替换依赖或伪造运行时。
+- **建议改法**：用能按实际产出字节计数并在达到单文件和总量预算时停止的有界流式解压；校验声明大小与真实输出一致、拒绝畸形条目。CPU 密集解压放 Worker，避免主线程冻结；不能把不可信中央目录当资源上限的证明。
+
+
+### 3. 写入失败保留乐观主题且永久堵住队列，编辑器既不报错也不能恢复保存
+
+- **严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/user-themes-store.ts:22-29`、`web/components/theme-editor/theme-editor-model.ts:63,106-114,125-150`；预览消费 `web/plugin.ts:175-180`。
+- **现象**：真实 Storage 拒绝 512 KiB 超限值后，action 返回 `"failed"`，字段为 `save:{state:"failed",code:"too-large"}`、`queue:1`；模型的 `failure` 仍为 `null`，目录继续显示未落盘的 524,288 字符标题。再把标题改短，队列变成 2，第二个 Promise 不完成。所有后续修改被暂停队首阻住，没有 retry/discard 的 action 或处理。
+- **为什么是问题**：Spec 要求“写 user-themes 失败显示错误、工作台保持写入前主题、不留看起来改了的状态”。当前只读的是开库/订阅读取的 `failure`，不是保存的 `save`；并且把 `CommitResult` 降为 `Promise<unknown>`，`create/add/derive` 等忽略失败继续报告成功。一次超限、`invalid-value` 或 I/O 失败就能让本窗口此后所有编辑都无法保存，关闭编辑器不释放插件 store，也不能清除失败队列。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts`，用真实 `storageWorld` 的远程服务、SQLite 与公开 `ThemeEditorModel.setTitle`；日志 `size limit`/`after repair` 给出以上状态，已确认 base 保持原值，目录标题长度却为 524,288。既有 60 个相关合同测试通过，没有覆盖失败恢复。
+- **建议改法**：保留并处理 `CommitResult` 与保存错误码；确定失败时按 Spec 丢弃本次失败意图、回到已确认主题并通知用户，让后续修改可以发出。未知结果按 store 的既有恢复合同处理，不能当成功。模型的成功返回值必须以实际写入结果为准。
+
+
+### 4. 记录 schema 把一条坏主题升级为整库损坏，正常主题也全部消失
+
+- **严重程度**：重要；**类别**：正确性 / 数据恢复。
+- **位置**：`packages/neuro-book/src/plugins/workbench/shared/user-themes.ts:23-38`；消费 `web/themes.ts:111-123` 与 `web/components/theme-editor/theme-editor-model.ts:54-60`。
+- **现象**：真实用户记录中有 1 条正常主题、1 条 `base:"INVALID"` 的坏主题时，新窗口收到 `status:"corrupt"`，显示与目录都变成空数组，`model.failure` 为 `null`。逐条 `userThemeProblem` 根本没有机会运行。另一类通过 TypeBox 形状但违反声明规则的坏条目虽被目录过滤，模型的 `mine` 仍直接暴露原始数组，编辑器仍能选中它。
+- **为什么是问题**：Spec 输入与失败恢复明确要求只跳过坏条目并诊断，其他正常主题照常，编辑器不显示坏条目，记录不改写。严格的 `Type.Array(UserThemeSchema)` 被 Storage 在读取前整体验证；任何一项结构不合格都导致整个记录受保护，不能新建或编辑正常条目。目录层过滤解决不了更早的整记录拒绝。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `one malformed persisted entry`：先用真实服务保存正常主题，再在该实验 SQLite 注入坏持久化条目，真实新窗口正常打开读取，返回 corrupt 及 `/themes/1/declaration/base` 诊断，两条都不见。该实验代表坏持久化输入，并非把运行时不可能的数据传给内部函数。
+- **建议改法**：Storage 外壳只校验 `{themes: unknown[]}` 的容器形状，由一个共享的逐条校验投影供目录与编辑器使用，保留原记录和坏条目，不在读时自动重写；正常编辑时定义如何保留不可编条目，避免写回时静默删除它们。
+
+
+### 5. 有排队修改时丢弃的确认快照不再采纳，两个窗口写完后仍显示不同主题
+
+- **严重程度**：重要；**类别**：不变量 / 并发。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/user-themes-store.ts:26-29`；接线 `web/plugin.ts:180`。
+- **现象**：两个真实窗口同时改同一主题，双方最后的 base 都是 revision `3`，queue 都为 0；窗口 A 显示 `{"zh-CN":"B","en-US":"A"}`，窗口 B 显示 `{"zh-CN":"B","en-US":""}`。库中实际已确认值为前者。B 在保存尚未结算时收到快照，`adoptConfirmed` 因 queue 非零跳过；写完后只有 queue 变化，没有新的 base 变化触发采纳，因此一直显示旧的乐观副本。
+- **为什么是问题**：Spec 要求用户主题改完与其他窗口一致。这里只有 base watcher，没有“排队清空后采纳”的路径，正常并发即可造成持久的显示/磁盘不一致。另一个相关合同问题：store 冲突重放把字段修改合并到最新主题，这次也实际合并出了 A+B；Spec 规定同一主题后写覆盖、不合并。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `concurrent titles`。使用真实 `storageWorld`、JSON 远程链路、SQLite 和与生产一致的 Vue `watch(base) -> adoptConfirmed`；没有 mock、固定等待或手工注入通知顺序。`Promise.all` 发起两次公开模型修改，等待两边 queue 为 0 后观察结果。
+- **建议改法**：基线或 queue 变化时，queue 清空后采纳最新确认值；暂停/失败意图的处理与第 3 条一并收口。提交时捕获这次要保存的完整主题，在最新库中按 id 替换该主题，保留其他主题而不把同主题的字段修改重放合并。
+
+
+### 6. 推导模型主动跳过主文字种子，修正后的可读文字色永远不写回
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts:195-210`，尤其第 205 行。
+- **现象**：白色背景、`#eeeeee` 主文字、蓝色强调，调用 `derive()` 返回 `true`，主文字仍为 `#eeeeee`；模型自身检查给出的最差比值 **1.0090529813**。`derivePalette` 已修正文字色，但模型对 `Object.values(SEED_KEYS)` 一律 continue，因此所有三种主色都不采纳推导结果，包含需要调明度的 `--text-main`。
+- **为什么是问题**：Spec 输出 7 与验收 4 明确要求一键推导后的主文字、次要文字与链接对背景不低于 4.5；手改标记只应保护 `touched`，主色输入不标 touched。当前实现使最需要修正的文字与背景接近场景必然失败，不是第三方主题对比度仅提醒的免责范围。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `derive near text result`，真实 Storage、真实公开模型动作写入后测得；既有模型测试只检查弱化文字，未覆盖主文字种子不合格。
+- **建议改法**：应用 `derivePalette` 已算好的主文字值，保留真正被 touched 保护的项；背景/强调若按设计必须保持输入可单独保持，不应连可读性修正一并跳过。
+
+
+### 7. 对比度调整方向选错，中灰底即使黑字全部达标仍返回不合格的白字
+
+- **严重程度**：重要；**类别**：正确性 / 数值算法。
+- **位置**：`packages/neuro-book/src/ui/theme/color.ts:139-146`；调用 `derive-palette.ts:48-57`。
+- **现象**：`ensureContrast(#777777, [#888888], 4.5)` 返回 `#ffffff`，实测只有 **3.5448862153**，同一背景黑字为 **5.9240265342**。从背景 `#888888`、文字 `#777777` 推导亮色整套，主文字/次要文字/弱化文字/链接全变白，对面板最差只有 **3.1925153966**；黑字对输出的四种面分别为 **5.9240 / 6.5779 / 5.2446 / 4.7564**，全部可达 4.5。
+- **为什么是问题**：用平均相对亮度 `>0.4` 判断往黑还是往白不是 4.5 对比度的可行性判据；中间大段亮度会误选白色，而且失败后无条件返回端点，不试另一侧、不反馈无解。Spec 对推导结果的 4.5 承诺被正常颜色输入直接打破。
+- **如何核实**：`bun /tmp/t08-review/backend/contrast-proof.ts` 的 `bad direction`；`color-probe.ts` 的 `ensure single middle`。这些调用的就是产品公开纯算法，输出可直接写 CSS，不需要浏览器特有时序。
+- **建议改法**：先比较黑、白两个端点对所有背景的最差比值，选可行的一侧搜索；没有任何单个颜色满足全部背景时明确处理，不返回一个声称保证但不达标的结果。
+
+
+### 8. 对比度只量中间浮点值，最终取整背景与重建状态底色后仍低于 4.5
+
+- **严重程度**：重要；**类别**：正确性 / 数值算法。
+- **位置**：`packages/neuro-book/src/ui/theme/color.ts:135-137`、`derive-palette.ts:43-63,70-97`。
+- **现象**：背景 `#f4c2b4`、文字 `#888888`、强调 `#527f57` 的亮色输出，弱化字 `#5a4842` 对悬停底 `#e2b0a3` 只有 **4.4963897458**；另有 `#edc3b4` 为 **4.4920593596**。状态色问题不只是取整误差：蓝底 `#0000ff` 亮色推导的危险字 `#fcbcb4` 对最终 `rgba(252,188,180,0.12)` 叠面板只有 **4.1420602829**；黑底亮色危险色为 **4.4847041290**，白底暗色为 **4.3633362757**。
+- **为什么是问题**：`ensureContrast` 只 round 前景，未 round 随后也会写成 `#rrggbb` 的背景。`status()` 先用原始状态色做 tint 来检查，返回时却又改为 adjusted 状态色生成 tint，检查的背景不是输出的背景。即使修正第 7 条的搜索方向，这两种输入仍会出现不合格输出；当前注释和合同测试声称取整后保证达标并不成立。
+- **如何核实**：`bun /tmp/t08-review/backend/contrast-proof.ts` 用 `derivePalette` 的最终字符串交给真实 `parseColor/checkContrast` 再测；无替身。已有 `derive-palette.test.ts` 的 7 组种子全通过，未覆盖这些正常浅色和极端底色。
+- **建议改法**：先把将要输出的所有面/透明底格式化并解析成最终颜色，再以这些颜色求前景；状态色与其派生底色要一起重新校验或稳定迭代。最终对完整输出 palette 做一次实际字符串级检查，不能只检查中间变量。
+
+
+### 9. 复制主题无条件删除亮暗场景，连“我的主题”副本也丢图
+
+- **严重程度**：重要；**类别**：正确性 / 合同缺失。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts:105-137`。
+- **现象**：`duplicate()` 走 `create()` 再走 `#copied()`，该函数无条件删除 `light.scene` 和 `dark.scene`。真实保存的原主题有两张摘要名素材，复制后两项都是 `undefined`；插件主题复制也没有任何下载/上传素材的路径，测试反而把“场景图不带”写成期望。
+- **为什么是问题**：Spec 输出 2、验收 12 要求复制插件的声明与素材成我的主题，不改原插件。模型既不接收素材读取能力，也没有配套复制函数，整个流程没有实现；复制已有用户主题时本可复用摘要名却也直接删图，副本不再是原主题的副本。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `duplicate scenes` 经过真实模型和 Storage，打印两张原素材与副本的两个 `undefined`；检查生产的 `ThemeEditor.vue:71,111` 均直接调同一模型，没有复制素材的第二条实现。`theme-editor.test.ts:132-140` 明确断言图被删除，与 Spec 相反。
+- **建议改法**：复制用户主题时保留 `scene` 的摘要名；复制插件主题前经插件素材 URL 读图、上传到用户素材路由，全部成功后改写 scene 并一次写入副本。上传失败不创建半个副本。
+
+
+### 10. 导入绕过真实插件清单与贡献身份校验，非插件包和重复贡献也被当作合格包
+
+- **严重程度**：重要；**类别**：正确性 / 不可信输入。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/package-io.ts:105-124`。
+- **现象**：只写 `{contributes:[...]}` 而没有 name/publisher/version/engines、缺贡献 id、id 前缀 `foreign.x.theme` 与插件 `local.x` 不符、两条贡献 id 完全相同的包，均被接受；重复 id 直接变成 2 套导入主题。真实 `manifestFormat.read` 拒绝缺身份/缺 id/非法 name，真实 `themeProblem` 拒绝异插件 id 前缀，而导入只调用 `declarationProblem`。含运行入口的插件也没有按“只收不写代码主题插件”的输入限制拒绝。
+- **为什么是问题**：Spec 输入明确只收导出的主题插件或不写代码主题插件，输出 16 与计划要求清单和声明按同一份规则校验，失败不写任何东西。当前只是从任意 JSON 捡取 declaration，绕过了规范的包与贡献身份，不会发现误打包、重复贡献或不属于本插件的 id。此处不声称会执行代码或造成越权：它是明确的格式/校验合同缺口。
+- **如何核实**：`bun /tmp/t08-review/backend/package-probe.ts` 同时把完全相同的输入交给真实 `manifestFormat.read` 与产品 `readPackage`；前者 invalid，后者 `ok:true`。初始实验以同提交实现 checkout 执行，后来该 checkout 被其他会话修改，后续脚本已固定导入只读被审 worktree 源码，避免证据漂移。
+- **建议改法**：复用真实清单读取器取得 plugin id，再复用贡献 schema、`themeProblem` 和重复 id 检查；明确拒绝代码入口。整个包通过后才交出可导入条目。第 1 条的 null 异常也应在这同一个解析边界消除。
+
+
+### 11. 多主题包逐条提交且忽略保存结果，半包落盘仍显示全部导入成功
+
+- **严重程度**：重要；**类别**：正确性 / 事务边界。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/transfer.ts:54-68`；`theme-editor-model.ts:125-130`。
+- **现象**：包含 2 个都通过声明校验的主题，第二个标题使 user-themes 超过 512 KiB：`importArchive` 返回 `ok:true / imported / count:2`，SQLite 已确认只有 **1** 套，乐观显示 **2** 套，队列为 **1** 且 `save.code:"too-large"`。首套永久落盘，第二套没保存。多于 2 套时第三次 add 会卡在失败队首后面，连导入 Promise 也无法完成。
+- **为什么是问题**：先上传素材并不等于导入原子性；最后的逐个 `await model.add` 是多个独立 Storage 提交点，`add` 还忽略结果。Spec 要求失败有原因、不留下半成品；输出 16 另外要求“列出主题，选一个复制”，当前 API/调用方直接导入全部主题，既没有候选选择也放大了该问题。第 3 条的保存失败会在此被误报成成功，已有落盘的其他主题无法自动回滚。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `partially committed import`，固定导入被审 worktree 的 `transfer.ts` 与 `ThemeEditorModel`；真实 fflate、真实远程 Storage 与 SQLite，输入没有场景图以隔离存储提交边界。运行打印 `baseThemes:1 / displayThemes:2 / queue:1`。
+- **建议改法**：解析阶段返回候选，由使用者选择一套，再准备该套素材并单次提交；如果支持批量导入，所有新增条目合为一次记录写入，并把实际 `CommitResult` 转成导入成功/失败。素材失败时仍保持先素材后声明，不需要删除已有摘要素材。
+
+
+### 12. 排队修改读取实时明暗，切换后把亮色改动写进暗色并留下相反的 touched 标记
+
+- **严重程度**：重要；**类别**：不变量 / 异步时序。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts:148-178`；同类调用 `setSeed`、`derive/resetColor`、场景与活动栏修改。
+- **现象**：亮色下先发 `setColor("--bg-panel","#123456")`，随即发 `setColor("--text-muted","#abcdef")`，未等保存时切为暗色。写完后真实 SQLite 的亮色没有 `--text-muted`，暗色却多了 `#abcdef`，`editor.touched` 仍写 `light:--text-muted`。用户看到的是先亮色改动、切换后保存把另一个明暗覆盖；以后暗色再推导还会把这次手改覆盖掉。
+- **为什么是问题**：store 会多次调用 change（乐观显示、排到队首发送、冲突重放）；`#look()` 在每次调用时读 `this.appearance.value`，但 touched 用的是动作创建时捕获的 appearance，二者能分裂。并非只在虚构回调顺序出现：公开 API 连续提交和明暗切换即可复现。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `appearance after queued edit`；真实远程 Storage，发起两次动作后切 `model.appearance.value="dark"`，等待两个动作和 queue 清空，直接打印 base 里的亮暗和 touched，结果如上。
+- **建议改法**：动作入口同时捕获目标主题 id 与 appearance，所有 change/replay 都只用这份不可变上下文；`#look` 显式接收捕获的 appearance，不访问可变的当前界面状态。跨 await 的派生/上传动作也沿用同一目标上下文。
+
+
+### 13. 复制合法的字符串标题时丢失原名，生成“副本 副本 / Copy copy”
+
+- **严重程度**：建议；**类别**：正确性 / 数据语义。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts:117-122`；`setTitle` 第 159-160 行有相同假设。
+- **现象**：复制标题为合法 `Text` 字符串 `"Original title"` 的主题，副本标题变成 `{"zh-CN":"副本 副本","en-US":"Copy copy"}`，原名完全消失。TextRef 和没有 zh-CN 的合法语言映射也走这条默认分支；编辑字符串标题的一种语言时，另一种语言直接变空。
+- **为什么是问题**：共享 `TextSchema` 明确支持字符串、TextRef 和语言映射，不能假设所有主题标题都是带 zh-CN 的映射。仓库内置主题本身使用 TextRef，复制它们也不能保留可识别名称。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `copy string title` 经过真实模型和 Storage 输出上述标题。输入与 `ThemeDeclarationSchema` 相符；不是不可信非法值。
+- **建议改法**：在复制/改名入口经现有文字服务解析标题为中文和英文，再各加一次副本后缀；字符串两种语言沿用原文，语言映射按既有回退规则保留未编辑语言。不另建与系统不同的 Text 解码约定。
+
+
+### 14. 编辑器可以把两种标题都清空并正常持久化
+
+- **严重程度**：建议；**类别**：正确性 / 输入合同。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/theme-editor-model.ts:157-161`；`shared/user-themes.ts:41-47`。
+- **现象**：依次 `setTitle("zh-CN","")`、`setTitle("en-US","")`，真实持久化后标题为两个空字符串，`userThemeProblem` 返回 null，保存状态为 idle。设置目录因此出现没有可识别标题的“我的”主题。
+- **为什么是问题**：Spec 输出 6 明确“标题不能为空”。共享 TextSchema 允许空值是已有通用能力，但本次编辑器没有实现自身的更强前置条件，不是调整通用 TextSchema 就能假定已经满足。
+- **如何核实**：`bun /tmp/t08-review/backend/storage-probe.ts` 的 `empty titles persist`；真实模型动作、远程 Storage 与 SQLite，保存成功，无 mock。
+- **建议改法**：在标题修改的领域入口执行已声明的非空规则，拒绝/回退空标题而不是把非法状态持久化；本地输入中的暂态空串由输入组件持有，不污染主题库。
+
+
+### 15. SAFE_PATH 接受 Windows 绝对路径，未统一插件包的路径约定
+
+- **严重程度**：建议；**类别**：正确性 / 不可信输入。
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/package-io.ts:70,85-89`。
+- **现象**：正常 package.json 外再放一个 `C:/x` 或 `C:x` 条目，`readPackage` 返回 `ok:true`。`./x`、`a//b`、`a/./b` 也被接受；真实插件清单的相对路径约定明确不收空段和 `.` 段。NUL、反斜杠、`../` 的字面路径会拒绝，但冒号盘符不在此预检范围。
+- **为什么是问题**：Spec 要求 zip 路径不能从根开始，失败的 zip 不导入。`C:/x` 是 Windows 绝对路径，当前仅检查斜杠/反斜杠开头，不能实现跨平台路径合同。**本次没有发现文件系统越界写入利用**：zip 只解到内存字典，引用的场景还经过声明校验，最终上传名又由服务端哈希决定；不应把这个格式缺口报成目录穿越漏洞。
+- **如何核实**：`bun /tmp/t08-review/backend/package-probe.ts` 的同名路径条目；真实 fflate 生成与解压，产品 `readPackage` 实际接受。场景 `C:/x.png` 会被后面的声明规则拒绝，说明这个漏洞只在包路径预检层，不是已证明的场景越界。
+- **建议改法**：统一包路径的 segment 校验，明确拒绝盘符/方案、根、空段、`.`、`..`、反斜杠和 NUL；目录项只允许结尾一条斜杠并按同一规则检查。不用 URL 解码猜测字面 `%2e%2e` 是父目录，当前并没有 URL/文件路径解释该字符串的出口。
+
+
+## 证据补充与定位约定
+
+- 上述源码位置均相对于固定被审 worktree：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00041-t08-review/`；不是主工作区，也不是后来被修改的实现 checkout。
+- 首次实验时实现 checkout 的 HEAD 为 `781979146c89bc2fc189456ac195b72c12a0e28e`，与被审提交相同。之后另一个会话改了它的模型构造参数，实验出现 `env.currentAppearance is not a function`。未把它记为产品发现；所有脚本随后改为绝对导入固定只读被审源码，相关运行证据重新取得。
+- 第 2 条在固定源码上再次运行：`compressedBytes:262938`、`actualDeflateBytes:268435456`、`totalDeclared:223`、`filterExternalDelta:0`、`filterMs:0.658728`、`readPackageMs:12948.276983`、`ok:true`。前一次 8,595.60 ms 是首次测量值，不是浏览器实测；两次均为 Bun 执行真实 fflate 浏览器构建。浏览器冻结是该同步代码位于浏览器主线程的代码推断，未运行浏览器页面量时。
+- 第 4 条额外通过真实模型和 Storage 核实语义不合格但结构合法的条目：1 条正常 + 1 条 `url()` 配色，`mine:2 / catalog:1`，模型当前仍选中不合格条目。这条路径没有向网络发请求，只有诊断过滤。
+- 第 10 条额外实测了真实 `entries.browser.main:"index.js"` 的插件包，`readPackage` 仍接受；文件内容没有执行。
+- 第 7、8 条的数值来自最终输出颜色字符串，不把格式化前的浮点值当 CSS 的实际颜色。额外固定 1,600 组种子扫描中有 1,353 组出现至少一个不合格项，889 组涉及主/次/弱化文字或链接，1,325 组涉及状态色；扫描用于找反例，不作为用户实际配色分布的失败率。
+
+## 未发现问题的方面
+
+- **素材路由迁移与接线（已验证）**：与 `738297ae5` 比较后追到最后已审版本 `a9ec4f147`；后者与本次路由的差异只有名称、目录、常量与文案。没有重复报告 t19 已处理或明确接受的目录竞态、根身份、Hono 错误诊断。真实分发的路由合同测试通过，覆盖 20,971,520 字节上限、超 1 字节、无 Content-Length 流、三种图片头、SVG 拒绝、内容摘要命名、同内容去重/并发、符号链接拒绝、Host/Origin、写入归属与不留暂存。
+- **路径到文件系统的边界（已验证 + 代码推断）**：字面 `..`、根斜杠、反斜杠和 NUL 拒绝；scene 与 zip 文件名大小写敏感，`assets/A.png` 引用实际 `assets/a.png` 会报缺图。`%2e%2e`、`...`、`.. ` 在这里是字面字典键，未发现被解码成父目录的出口。原素材路径不会拿去直接写文件系统，上传结果只写路由生成的 SHA-256 名。
+- **素材按字节识别（已验证）**：PNG/JPEG/WebP 头接受，SVG/GIF/AVIF/BMP 拒绝；扩展名/Content-Type 不决定类型。该合同只是签名识别，不是完整图片解码验证，截断图片头可被接受但之后解码失败按既有合同无图；未把 t19 同样存在的签名识别范围扩成新问题。
+- **导入前后顺序（代码推断）**：所有声明和引用素材先经 `readPackage` 全部检查；上传中途返回失败时尚未调用 `model.add`，不会留下半条主题，之前上传成功但没有引用的摘要素材会保留，符合不自动清理素材的决定。最终 `scene` 取上传响应的文件名而非包内路径。带素材的完整浏览器导入链未运行。
+- **重复导入与 id（已验证）**：同一合格无图包导入两次生成两个不同 `user:<uuid>` 条目，不覆盖原主题，符合“复制成我的主题”；素材哈希去重由路由合同覆盖。`USER_THEME_ID` 与插件 id 命名空间不相撞，用户 scene 的 64 位小写摘要与 png/jpg/webp 正则和路由输出一致。
+- **取景的声明形状（已验证）**：`crop.empty` 只写 position/contentX，不误带 size；移除 contentX 保留 position。有限数字的 contentX 夹在 0.25–0.5，传入 0.1 保存为 0.25；界面入口把非有限数字转换为 undefined。角取景写 size+position，真实写入后 `userThemeProblem:null`。取景模型既有 10 个用例通过，未运行拖框 UI。
+- **touched 的串行基础行为（已验证）**：普通 `setColor -> derive` 保持手改色，`resetColor` 删除该项 touched 并写推导值；跨明暗/排队的例外见第 12 条。`structuredClone` 没有在当前真实 store 的冻结数据上抛错，未把类型断言直接当成代理复制错误。
+- **OKLCH 基本互转与镜像（已验证）**：黑、白、红、绿、蓝、黄、青、品红 8 个 sRGB 端点 roundtrip 到十六进制完全一致；白和三原色镜像到暗色的背景为有限合法色值，没有 NaN/Infinity。无证据另报基本矩阵错误；对比度求解问题见第 7、8 条。
+- **常见返工项（本次已读范围）**：未发现按错误文案分支、跨包源码深导入、mock/spy/假计时器/固定等待或跳过测试来让本次合同测试通过。路由里的 catch 与 t19 一致，不重复报告。模型把“复制不带图”当测试期望的问题已随第 9 条列出；不以这些测试全绿声称合同闭合。
+
+## 实际运行的验证
+
+下列仓库相对命令的 cwd 均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00041-t08-review/packages/neuro-book`：
+
+```text
+bun test src/plugins/workbench/package-io.test.ts
+  19 pass, 0 fail, 47 expect() calls
+bun test src/plugins/workbench/user-themes.test.ts src/plugins/workbench/theme-editor.test.ts src/plugins/workbench/crop-model.test.ts src/plugins/files/theme-asset-route.test.ts src/ui/theme/derive-palette.test.ts src/ui/theme/contrast-checks.test.ts
+  60 pass, 0 fail, 545 expect() calls
+bun test src/plugins/workbench/themes.test.ts
+  24 pass, 0 fail, 54 expect() calls
+bun /tmp/t08-review/backend/package-probe.ts
+  实际 fflate；坏清单、id、路径、素材签名、伪造 originalSize，结果见各条
+bun /tmp/t08-review/backend/inflate-probe.ts
+  实际 fflate 浏览器构建；262,938 字节包，声明 223 字节，实际 DEFLATE 内容 256 MiB，仍接受
+bun /tmp/t08-review/backend/storage-probe.ts
+  真实远程 Storage + SQLite；容量、并发、坏持久化输入、导入半提交、串行/排队修改、复制、取景，所有实例 finally 正常 closed
+bun /tmp/t08-review/backend/contrast-proof.ts
+  最终字符串的对比度反例，第 7、8 条
+bun /tmp/t08-review/backend/color-probe.ts
+  极端颜色、固定种子扫描、8 个互转端点与镜像结果
+bun -e 'console.log(require("fflate/package.json").version)'
+  0.8.3
+```
+
+共 **103** 个相关既有合同测试通过、0 失败、**646** 次断言。通过的是测试原有覆盖，不否定报告中新增的实测反例。未运行全量测试、类型检查、e2e、开发服务、浏览器 UI、构建、真实模型或实际插件安装重启；用户列出的既有失败没有重跑确认。仓库源码未修改，未 commit/push/stash/切换分支。
+
+## 分级数量与阅读顺序
+
+- 阻断：**0** 条。
+- 重要：**12** 条（1–12）。
+- 建议：**3** 条（13–15）。
+- 共 **15** 条有效发现，无撤回项。
+- 建议优先处理顺序：2（不可信 zip）→ 3、5、12（持久化/并发）→ 11（导入提交）→ 4（坏条目隔离）→ 6、7、8（推导合同）→ 9（复制素材）→ 1、10（清单合同）→ 13、14、15（其余）。报告按核实顺序追加，未重排或覆盖已有内容。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15。
