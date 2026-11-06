@@ -321,6 +321,14 @@ describe("跨条目的间接影响、身份与讲述", () => {
         mustChange(second.w, () => second.w.texts.set("ch2", "别的话。\n"));
     });
 
+    test("安放在后面的计划被前面的变更兑现：改计划上节点的角色，继承过来的阶段变了（计划的桶跟着兑现它的变更）", () => {
+        const {w, fs} = keyBook();
+        const plan = w.change(chapter("ch12"), {kind: "plan", told: [{source: "outline", chapter: "ch12", anchor: "细纲", marks: [node(fs, "echo")]}]});
+        w.change(chapter("ch5"), {links: [{kind: "fulfills", plan}], told: [inText(w, "ch5", "钥匙的事说开了")]});
+        const stored = w.world.data.changes.get(plan)!;
+        mustChange(w, () => w.publish([{ref: {kind: "change", id: plan}, after: {...stored, told: stored.told.map((telling) => ({...telling, marks: [node(fs, "payoff")]}))}}]));
+    });
+
     test("新写一条兑现带回收节点的计划的变更：它不提到伏笔，继承节点，阶段变成已回收", () => {
         const {w, fs} = keyBook();
         const plan = w.change(chapter("ch5"), {kind: "plan", told: [{source: "outline", chapter: "ch5", anchor: "细纲", marks: [node(fs, "payoff")]}]});
