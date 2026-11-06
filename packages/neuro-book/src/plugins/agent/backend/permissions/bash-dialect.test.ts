@@ -160,7 +160,7 @@ describe("只读清单", () => {
     test.each([
         "cat a", "ls -la", "cd a && ls", "git status", "git log --oneline -5", "git diff HEAD~1", "git show HEAD:a.md", "git -C sub log", "git --no-pager log",
         "git branch", "git branch -a", "git branch --show-current", "git tag --list", "git remote -v", "git config --get user.name", "git stash list", "git reflog",
-        "grep -rn a .", "rg a", "find . -name '*.md'", "sed -n '1,10p' a", "sed 's/a/b/g' a", "sort a", "uniq a", "wc -l a", "head -5 a | tail -1", "echo a", "date", "hostname",
+        "grep -rn a .", "rg a", "find . -name '*.md'", "sed -n '1,10p' a", "sed 's/a/b/g' a", "sed -e 's/a/b/' -e 2d a", "sed -nE '/a/,/b/p' a", "sed 's|a;b|c|g' a", "sed '$d' a", "sed '1!d' a", "sed 's/\\//x/;q5' a", "cat \"$f\"", "LANG=C bash -c 'cat x'", "env LANG=C grep a b", "sort a", "uniq a", "wc -l a", "head -5 a | tail -1", "echo a", "date", "hostname",
         "LANG=C grep a b", "command -v git", "env", "cat a > /dev/null", "cat a 2>&1", "timeout 5 cat a", "bash -c 'cat a'", "for f in *.md; do wc -l $f; done",
     ])("算只读：%s", (text) => {
         expect(readOnly(text)).toBe(true);
@@ -171,6 +171,9 @@ describe("只读清单", () => {
         "echo a > f", "cat a >> f", "cat a | tee f", "cat a; rm b", "echo $(rm a)",
         "git push", "git commit -m a", "git checkout a", "git branch a", "git branch -D a", "git branch -d a", "git branch -m a b", "git tag a", "git tag -d a", "git remote add a b",
         "git config user.name a", "git config --global --get a", "git stash", "git stash pop", "git reflog delete a", "git -c core.pager=x log", "git log --output=f", "git diff --ext-diff", "git --exec-path=x log", "git worktree add a",
+        "env BASH_ENV=/tmp/rc bash -c 'cat x'", "BASH_ENV=/tmp/rc bash -c 'cat x'", "env A=1 cat x", "env LD_PRELOAD=x cat a",
+        "sed 's/x/touch a/ep' f", "sed 's/x/y/pe' f", "sed 's/x/y/e' f", "sed -e 's/a/b/' -e 'w out' f", "sed --expression='s/a/b/w out' f", "sed -f s f", "sed '/a/{w out' f", "sed 'y/a/b/' f", "sed f",
+        "find . \"$(printf -- -delete)\"", "sort $X", "git log $(printf -- --output=x)", "sed $S f",
         "find . -delete", "find . -fprint f", "sed -i s/a/b/ f", "sed --in-place s/a/b/ f", "sed -ni p f", "sed 's/a/b/w out' f", "sed -n 'w out' f", "sed '1e rm x' f", "sed -f s.sed f",
         "sort -o f a", "sort --output=f a", "uniq a b", "date -s now", "hostname a", "diff --output=f a b", "tree -o f", "rg --pre x a", "env A=1", "command a",
         "GIT_EXTERNAL_DIFF=x git diff", "PATH=x cat a", "/home/x/cat a", "./cat a", "eval cat a",

@@ -118,15 +118,17 @@ function peelEnv(argv: readonly string[]): readonly string[] | null {
     return argv[at]!.startsWith("-") ? null : argv.slice(at);
 }
 
-/** 反复剥包装到不是包装；命令名取文件名。 */
-function normalize(words: readonly string[]): readonly string[] | null {
+/** 反复剥包装到不是包装；命令名取文件名。`env` 写的变量一并交回：它和前缀赋值一样能改变后面命令的行为（`BASH_ENV`）。 */
+function normalize(words: readonly string[]): {readonly argv: readonly string[]; readonly assignments: readonly string[]} | null {
     let argv = words;
+    const assignments: string[] = [];
     for (;;) {
-        if (argv.length === 0) return argv;
+        if (argv.length === 0) return {argv, assignments};
         const named = [baseName(argv[0]!), ...argv.slice(1)];
         const peeled = peelWrapper(named);
         if (peeled === null) return null;
-        if (peeled.length === named.length) return named;
+        if (peeled.length === named.length) return {argv: named, assignments};
+        if (named[0] === "env") assignments.push(...named.slice(1, named.length - peeled.length).map((word) => word.slice(0, word.indexOf("="))));
         argv = peeled;
     }
 }
@@ -169,16 +171,18 @@ function collect(text: string, depth: number, commands: SimpleCommand[]): boolea
 
 function simple(node: Command, depth: number, commands: SimpleCommand[]): boolean {
     const redirects = node.redirects.flatMap((redirect) => redirectOf(redirect) ?? []);
-    const assignments = node.prefix.flatMap((item) => (item.type === "Assignment" && item.name !== undefined ? [item.name] : []));
+    const prefix = node.prefix.flatMap((item) => (item.type === "Assignment" && item.name !== undefined ? [item.name] : []));
     if (node.name === undefined) {
-        if (redirects.length > 0) commands.push({argv: [], redirects, assignments, hasExpansion: false});
+        if (redirects.length > 0) commands.push({argv: [], redirects, assignments: prefix, hasExpansion: false});
         return true;
     }
     // 命令名里有展开：跑的是什么要到运行时才知道。
     if (wordHasExpansion(node.name)) return false;
     const words = [node.name, ...node.args.flatMap((item) => (item.type === "Word" ? [item] : []))];
-    const argv = normalize(words.map((word) => word.value));
-    if (argv === null) return false;
+    const normalized = normalize(words.map((word) => word.value));
+    if (normalized === null) return false;
+    const {argv} = normalized;
+    const assignments = [...prefix, ...normalized.assignments];
     // 剥完之后的命令名同样要是字面量：`timeout 5 $cmd`。
     if (argv.length > 0 && words.some((word) => word.value === argv[0] && wordHasExpansion(word))) return false;
     if (argv.length > 0 && opaqueUse(argv)) return false;
@@ -187,7 +191,11 @@ function simple(node: Command, depth: number, commands: SimpleCommand[]): boolea
         if (script === OPAQUE) return false;
         if (typeof script === "string") {
             if (redirects.length > 0) commands.push({argv: [], redirects, assignments, hasExpansion: false});
-            return collect(script, depth + 1, commands);
+            const inner = commands.length;
+            if (!collect(script, depth + 1, commands)) return false;
+            // 外层 shell 的变量管到脚本里的每条命令；`BASH_ENV` 这类在脚本开始之前就起作用了。
+            for (let at = inner; at < commands.length; at += 1) commands[at] = {...commands[at]!, assignments: [...assignments, ...commands[at]!.assignments]};
+            return true;
         }
     }
     commands.push({argv, redirects, assignments, hasExpansion: words.some(wordHasExpansion)});
@@ -205,8 +213,61 @@ type ReadOnlyCheck = (args: readonly string[]) => boolean;
 const anyArgs: ReadOnlyCheck = () => true;
 const unless = (...options: string[]): ReadOnlyCheck => (args) => !hasOption(args, options);
 
-/** `sed` 的脚本能写文件（`w`）、跑命令（`e`），替换的标志里也能带。只认得常见的写法，别的不算只读。 */
-const SED_WRITES = /(?:^|[;{}\s])\d*[,$\d\s]*[we](?:\s|$)|\/[gpiIm\d]*(?:w\s|e\s*(?:[;}]|$))/u;
+const SED_ADDRESS = /^(?:\d+|\$|\/(?:[^/\\]|\\.)*\/[IM]*)(?:\s*,\s*(?:\d+|\$|\+\d+|\/(?:[^/\\]|\\.)*\/[IM]*))?\s*!?\s*/u;
+const SED_END = /^\s*(?:[;\n]|$)/u;
+
+/**
+ * `sed` 脚本能写文件（`w`）、跑命令（`e`），替换的标志里也能带，还能连着写（`ep`）。这里是白名单：只认 `p`、`d`、`q`、`n`、`=` 与标志
+ * 只有 `gpiIm` 和数字的替换，别的（大括号、`y`、`r`）都不算只读。
+ */
+function sedScriptReadOnly(script: string): boolean {
+    let rest = script;
+    for (;;) {
+        rest = rest.replace(/^[\s;]+/u, "");
+        if (rest === "") return true;
+        rest = rest.slice(SED_ADDRESS.exec(rest)?.[0].length ?? 0);
+        if (rest[0] === "s") {
+            const delimiter = rest[1];
+            if (delimiter === undefined || delimiter === "\\" || /\s/u.test(delimiter)) return false;
+            let at = 2;
+            for (let parts = 0; parts < 2; parts += 1) {
+                while (at < rest.length && rest[at] !== delimiter) at += rest[at] === "\\" ? 2 : 1;
+                if (at >= rest.length) return false;
+                at += 1;
+            }
+            rest = rest.slice(at).replace(/^[gpiIm\d]*/u, "");
+        } else if (/^(?:p|d|n|=)/u.test(rest)) {
+            rest = rest.slice(1);
+        } else if (/^q\d*/u.test(rest)) {
+            rest = rest.replace(/^q\d*/u, "");
+        } else {
+            return false;
+        }
+        if (!SED_END.test(rest)) return false;
+    }
+}
+
+function sedReadOnly(args: readonly string[]): boolean {
+    let script: string | null = null;
+    const positionals: string[] = [];
+    for (let at = 0; at < args.length; at += 1) {
+        const arg = args[at]!;
+        if (arg === "-e" || arg === "--expression") {
+            const value = args[(at += 1)];
+            if (value === undefined || !sedScriptReadOnly(value)) return false;
+            script = value;
+        } else if (arg.startsWith("--expression=")) {
+            if (!sedScriptReadOnly(arg.slice("--expression=".length))) return false;
+            script = arg;
+        } else if (arg.startsWith("-") && arg !== "-") {
+            if (!/^(?:-[nErsuz]+|--(?:quiet|silent|regexp-extended|separate|unbuffered|null-data))$/u.test(arg)) return false;
+        } else {
+            positionals.push(arg);
+        }
+    }
+    // 没有 `-e` 时第一个位置参数是脚本，其余是文件。
+    return script !== null || (positionals[0] !== undefined && sedScriptReadOnly(positionals[0]));
+}
 
 const GIT_DENIED = ["-c", "--ext-diff", "--textconv", "--output", "--exec", "--upload-pack", "--paginate"];
 const onlyListing = (...listing: string[]): ReadOnlyCheck => (args) => positionalsOf(args).length === 0 && args.every((arg) => listing.some((option) => arg === option || arg.startsWith(`${option}=`)));
@@ -254,7 +315,7 @@ const READ_ONLY: Readonly<Record<string, ReadOnlyCheck>> = {
     tree: unless("-o"),
     rg: unless("--pre"),
     find: unless("-delete", "-fprint", "-fprint0", "-fprintf", "-fls"),
-    sed: (args) => !hasOption(args, ["-i", "--in-place", "-f", "--file"]) && !args.some((arg) => SED_WRITES.test(arg)),
+    sed: sedReadOnly,
     git: gitReadOnly,
 };
 
@@ -280,7 +341,10 @@ export function createBashDialect(options: BashDialectOptions = {}): CommandDial
             const [name, ...args] = command.argv;
             if (name === undefined) return true;
             if (extras.some((prefix) => prefix.every((word, index) => command.argv[index] === word))) return true;
-            return Object.hasOwn(READ_ONLY, name) && READ_ONLY[name]!(args);
+            if (!Object.hasOwn(READ_ONLY, name)) return false;
+            const check = READ_ONLY[name]!;
+            // 展开之后才知道的参数可能就是那个选项（`find . "$(printf -- -delete)"`）：要看选项才算只读的命令，看不见就不算。
+            return check(args) && (check === anyArgs || !command.hasExpansion);
         },
     };
 }

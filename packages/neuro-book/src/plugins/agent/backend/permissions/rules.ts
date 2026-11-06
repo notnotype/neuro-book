@@ -159,14 +159,14 @@ const mentionsPath = (matcher: unknown): boolean => {
     return node.type === "path";
 };
 
-/** 一条视图在一层里第一条命中的规则。看不懂的命令放行规则不生效（输出 14）；写重定向要路径规则才放行（输出 15）。 */
+/** 一条视图在一层里第一条命中的规则。看不懂的命令放行规则不生效（输出 14）；写重定向要路径规则才放行（输出 15）。不生效的放行规则等于没写，后面的拒绝照样要看。 */
 function firstHit(rules: readonly Rule[], view: CallView, expand: GlobExpander, report: (rule: Rule) => void): RuleHit | null {
     for (const rule of rules) {
         if (!matchesTool(rule.tool, view)) continue;
         const matched = rule.when === undefined ? true : evaluate(rule.when, view, expand);
         if (matched === "unknown") report(rule);
         if (matched === false || (matched === "unknown" && rule.action === "allow")) continue;
-        if (rule.action === "allow" && (view.opaqueText !== null || (view.redirectWrites && !mentionsPath(rule.when)))) return null;
+        if (rule.action === "allow" && (view.opaqueText !== null || (view.redirectWrites && !mentionsPath(rule.when)))) continue;
         return {action: rule.action, ...(rule.reason === undefined ? {} : {reason: rule.reason})};
     }
     return null;

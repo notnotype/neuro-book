@@ -103,6 +103,7 @@ describe("一层的结果（输出 5、12、14）", () => {
 
     test("写重定向：只看命令的放行规则不放行，路径规则可以；拒绝规则不受影响", () => {
         const redirected = [view({argv: ["echo", "a"], redirectWrites: true, paths: [{access: "write", address: "temps://s/a"}]})];
+        expect(of([{tool: "shell", action: "allow"}, {tool: "shell", when: {type: "path", glob: "temps://**"}, action: "deny"}], redirected)).toBe("deny");
         expect(of([shell("echo *", "allow")], redirected)).toBeUndefined();
         expect(of([{tool: "shell", action: "allow"}], redirected)).toBeUndefined();
         expect(of([{tool: "shell", when: {type: "path", glob: "temps://**", access: "write"}, action: "allow"}], redirected)).toBe("allow");
@@ -124,6 +125,8 @@ describe("一层的结果（输出 5、12、14）", () => {
         expect(of([shell("eval *", "allow")], opaque)).toBeUndefined();
         expect(of([{tool: "shell", action: "allow"}], opaque)).toBeUndefined();
         expect(of([shell("git push *", "deny")], opaque)).toBe("deny");
+        // 不生效的放行规则等于没写，不挡后面的。
+        expect(of([{tool: "shell", action: "allow"}, shell("git push *", "deny")], opaque)).toBe("deny");
         expect(of([shell("git pu* origin", "ask")], opaque)).toBe("ask");
         expect(of([shell("rm *", "deny")], opaque)).toBeUndefined();
     });
