@@ -797,11 +797,42 @@ describe("NestedGrid 内容层", () => {
         expect(controls).toContain(wrapper.get("[data-content='x']").attributes("id"));
     });
 
-    it("不传内容时外框不接焦点，行为和以前一样", () => {
+    it("外框和内容都不接焦点：点空白时焦点落在它们上面会打断内部滚动区的键盘滚动", () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}]);
+        expect(wrapper.get("[data-leaf='a']").attributes("tabindex")).toBeUndefined();
+        expect(wrapper.get("[data-content='x']").attributes("tabindex")).toBeUndefined();
+    });
+
+    it("开局就收成标题行（内容矩形从第一帧就是零高）：停放，不进 Tab 顺序", () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: CONTAINER.height, active: true}]);
+        const element = wrapper.get("[data-content='x']").element as HTMLElement;
+        expect(element.style.visibility).toBe("hidden");
+        expect(element.hasAttribute("inert")).toBe(true);
+    });
+
+    it("Shadow DOM 里也发 content-parked", async () => {
+        const host = document.createElement("div");
+        document.body.append(host);
+        const shadow = host.attachShadow({mode: "open"});
+        const mountPoint = document.createElement("div");
+        shadow.append(mountPoint);
+        const grid = CONTENT_GRID();
+        const wrapper = mount(NestedGrid, {
+            attachTo: mountPoint,
+            props: {node: grid.root(), layout: grid.layout(CONTAINER), contents: [{key: "x", leaf: "a", insetTop: 32, active: true}]},
+            slots: {content: () => h("button", {"data-inside": "x"}, "x")},
+        });
+        wrappers.push(wrapper);
+        (shadow.querySelector("[data-inside='x']") as HTMLElement).focus();
+        await wrapper.setProps({contents: [{key: "x", leaf: "a", insetTop: 32, active: false}]});
+        expect(wrapper.emitted("content-parked")).toEqual([["x"]]);
+        host.remove();
+    });
+
+    it("不传内容时没有内容层", () => {
         const grid = CONTENT_GRID();
         const wrapper = mount(NestedGrid, {attachTo: attachContainer(), props: {node: grid.root(), layout: grid.layout(CONTAINER)}});
         wrappers.push(wrapper);
-        expect(wrapper.get("[data-leaf='a']").attributes("tabindex")).toBeUndefined();
         expect(wrapper.find("[data-content]").exists()).toBe(false);
     });
 });

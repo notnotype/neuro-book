@@ -152,3 +152,29 @@ export function entryFocusTarget(scope: GridFocusItems, direction: 1 | -1): HTML
     }
     return null;
 }
+
+/**
+ * 点了不可聚焦的地方之后按 Tab：焦点还在页面根，浏览器从点的位置按 DOM 序走。这里按树序走：先看这一站里点的位置之后（之前）的可聚焦元素，没有就去下一站。
+ * 外框和内容都不给 `tabindex`：点空白时焦点落在它们上面，会打断内部滚动区的键盘滚动。返回是否移动了。
+ */
+export function moveTabFromPress(scope: GridFocusItems, pressed: Element, direction: 1 | -1): boolean {
+    const stops = scope.items();
+    const from = stops.findIndex((stop) => stopHolds(stop, pressed));
+    const current = stops[from];
+    if (current === undefined) return false;
+    // 站内的先后是外框、内容，不是 DOM 序（换叶之后内容可能排在外框前面）。文档位置只在按下的那个元素里比。
+    const beyond = direction > 0 ? Node.DOCUMENT_POSITION_FOLLOWING : Node.DOCUMENT_POSITION_PRECEDING;
+    const at = current.elements.findIndex((element) => element.contains(pressed));
+    const tabbableIn = (elements: ReadonlyArray<HTMLElement>): HTMLElement[] => elements.flatMap((element) => tabbable(element, {includeContainer: true}) as HTMLElement[]);
+    const own = tabbableIn(current.elements.slice(at, at + 1)).filter((element) => (pressed.compareDocumentPosition(element) & beyond) !== 0);
+    const inside = direction > 0 ? [...own, ...tabbableIn(current.elements.slice(at + 1))][0] : [...tabbableIn(current.elements.slice(0, at)), ...own].at(-1);
+    if (inside !== undefined) {
+        inside.focus();
+        return true;
+    }
+    const next = nextFocusStop({count: stops.length, from, direction, wrap: false, focusable: (index) => focusablesIn(stops[index] as GridFocusStop).length > 0});
+    if (next === null) return false;
+    const candidates = focusablesIn(stops[next] as GridFocusStop);
+    (direction > 0 ? candidates[0] : candidates.at(-1))?.focus();
+    return true;
+}

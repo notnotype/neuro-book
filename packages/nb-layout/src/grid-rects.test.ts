@@ -218,18 +218,21 @@ describe("内容项的矩形（输出“内容层”）", () => {
         return placeGrid(instance.root()!, instance.layout(extent), extent, dpr).items;
     };
 
-    it.each([1, 1.1, 1.25, 1.5, 1.75, 2])("设备像素比 %d：内容顶在设备像素格上，和面板头之间没有缝也不重叠", (dpr) => {
+    it.each([[1, 32], [1.1, 35], [1.25, 40], [1.5, 48], [1.75, 56], [2, 64]])("设备像素比 %d：面板头占 %d 个设备像素，内容顶在设备像素格上，和面板头之间没有缝也不重叠", (dpr, devicePixels) => {
         const items = place(dpr);
         const [content] = placeContents(items, [{key: "x", leaf: "a", insetTop: 32, active: true}], dpr);
         const leaf = items.find((item) => item.kind === "leaf" && item.node.id === "a");
-        expect(content?.rect?.y).toBeCloseTo(Math.round(32 * dpr) / dpr);
-        expect(Number.isInteger(Math.round((content?.rect?.y ?? 0) * dpr * 1e6) / 1e6)).toBe(true);
+        expect((content?.rect?.y ?? 0) * dpr).toBeCloseTo(devicePixels);
         expect((content?.rect?.y ?? 0) + (content?.rect?.height ?? 0)).toBeCloseTo((leaf?.rect.y ?? 0) + (leaf?.rect.height ?? 0));
         expect(content?.rect?.width).toBe(leaf?.rect.width);
     });
 
     it("找不到叶：矩形是 null，由渲染层按停放处理，不卸载", () => {
         expect(placeContents(place(1), [{key: "x", leaf: "gone", insetTop: 32, active: true}], 1)[0]?.rect).toBeNull();
+    });
+
+    it("面板头高度不合法时按 0", () => {
+        expect(placeContents(place(1), [{key: "x", leaf: "a", insetTop: Number.NaN, active: true}], 1)[0]?.rect?.y).toBe(0);
     });
 
     it("叶比面板头还矮：高度不为负", () => {

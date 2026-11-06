@@ -98,7 +98,7 @@ export function placeContents<R>(items: ReadonlyArray<GridPlacementItem<R>>, con
     const scale = dpr > 0 && Number.isFinite(dpr) ? dpr : 1;
     return contents.map((content) => {
         const leaf = leaves.get(content.leaf);
-        const inset = Math.round(Math.max(0, content.insetTop) * scale) / scale;
+        const inset = Number.isFinite(content.insetTop) ? Math.round(Math.max(0, content.insetTop) * scale) / scale : 0;
         return {
             kind: "content",
             key: `content:${content.key}`,

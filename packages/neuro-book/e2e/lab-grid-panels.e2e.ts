@@ -89,10 +89,17 @@ test.describe("跨面板的位移", () => {
                 const {x, y, width, height} = document.querySelector(selector)!.getBoundingClientRect();
                 return {x, y, width, height};
             };
-            const inner = read("[data-content='view:a']");
-            const top = document.elementFromPoint(inner.x + inner.width / 2, inner.y + inner.height / 2)?.closest<HTMLElement>("[data-content]")?.dataset.content;
-            return {inner, outer: read("[data-leaf='a']"), top};
+            return {inner: read("[data-content='view:a']"), outer: read("[data-leaf='a']")};
         });
+        // 飞到和编辑组重叠的地方：重叠处点到的是飞着的内容，不是编辑组。
+        await expect.poll(() => page.evaluate(() => {
+            const flying = document.querySelector("[data-content='view:a']")!.getBoundingClientRect();
+            const below = document.querySelector("[data-content='tab:eb']")!.getBoundingClientRect();
+            const left = Math.max(flying.left, below.left);
+            const right = Math.min(flying.right, below.right);
+            if (right - left < 4) return "还没重叠";
+            return document.elementFromPoint((left + right) / 2, (flying.top + flying.bottom) / 2)?.closest<HTMLElement>("[data-content]")?.dataset.content;
+        }), {intervals: [16]}).toBe("view:a");
         await settled(page);
         const after = await contentBox(page, "view:a");
 
@@ -102,7 +109,6 @@ test.describe("跨面板的位移", () => {
         // 同步：同一组令牌同时开始，与外框的差值恒为面板头。
         expect(Math.abs(during.inner.x - during.outer.x)).toBeLessThan(1);
         expect(Math.abs(during.inner.y - during.outer.y - 32)).toBeLessThan(1);
-        expect(during.top).toBe("view:a");
 
         expect(await instanceOf(page, "view:a")).toBe(instance);
         await expect(leafOf(page, "view:a").locator("[data-structure-input]")).toHaveValue("还在");
@@ -194,17 +200,30 @@ test.describe("停放", () => {
         expect(await instanceOf(page, "view:b")).toBe(instance);
     });
 
-    test("收成标题行：高度等于面板头，内容停放不重建；展开回来", async ({page}) => {
+    test("收成标题行：高度等于面板头，内容停放不重建、内层保持最后的尺寸；展开回来", async ({page}) => {
         await open(page);
         const instance = await instanceOf(page, "view:d");
         const open0 = await frameBox(page, "d");
         await act(page, "collapse-d");
         await expect.poll(async () => (await frameBox(page, "d")).height).toBe(32);
         await expect(content(page, "view:d")).toHaveCSS("visibility", "hidden");
+        expect(Math.abs((await box(page, "[data-content='view:d'] > .nb-grid-content__body")).height - (open0.height - 32))).toBeLessThan(2);
         await act(page, "collapse-d");
         await expect.poll(async () => (await frameBox(page, "d")).height).toBeGreaterThan(100);
         expect(Math.abs((await frameBox(page, "d")).height - open0.height)).toBeLessThan(2);
         expect(await instanceOf(page, "view:d")).toBe(instance);
+    });
+
+    test("手势预览不把内容停放：往零拖时等落账；松手才停放", async ({page}) => {
+        await open(page);
+        const d = await frameBox(page, "d");
+        await page.mouse.move(d.x + d.width / 2, d.y - 2);
+        await page.mouse.down();
+        await page.mouse.move(d.x + d.width / 2, d.y + d.height + 200, {steps: 8});
+        await expect.poll(async () => (await frameBox(page, "d")).height).toBeLessThan(40);
+        await expect(content(page, "view:d")).toHaveCSS("visibility", "visible");
+        await page.mouse.up();
+        await expect(content(page, "view:d")).toHaveCSS("visibility", "hidden");
     });
 
     test("最大化：占满除条以外的区域，别的内容停放不重建；退出回到原样", async ({page}) => {
@@ -253,7 +272,7 @@ test.describe("命中与焦点", () => {
         expect(await focusedPlace(page)).toBe("view:a");
     });
 
-    test("从 grid 外面按 Tab 进来：落在树序的第一块，不按 DOM 序；程序聚焦不改落点", async ({page}) => {
+    test("从 grid 外面按 Tab 进来：落在树序的第一块，不按 DOM 序；程序聚焦与点击不改落点", async ({page}) => {
         await open(page);
         await act(page, "a-between-c-d");
         await settled(page);
@@ -264,5 +283,80 @@ test.describe("命中与焦点", () => {
         await page.locator("[data-panels-action='maximize-b']").focus();
         await content(page, "view:d").locator("[data-structure-input]").focus();
         expect(await focusedPlace(page)).toBe("view:d");
+
+        await page.locator("[data-panels-action='maximize-b']").focus();
+        await content(page, "view:d").locator("[data-structure-input]").click();
+        expect(await focusedPlace(page)).toBe("view:d");
+    });
+
+    test("按下 Tab 不松开（收不到 keyup）之后点 grid 里的控件：不改落点", async ({page}) => {
+        await open(page);
+        await act(page, "a-between-c-d");
+        await settled(page);
+        await page.locator("[data-panels-action='maximize-b']").focus();
+        await page.keyboard.down("Tab");
+        await page.waitForFunction(() => new Promise((resolve) => {
+            setTimeout(() => resolve(true), 0);
+        }));
+        await content(page, "view:d").locator("[data-structure-input]").click();
+        expect(await focusedPlace(page)).toBe("view:d");
+        await page.keyboard.up("Tab");
+    });
+
+    test("别的处理器在 Tab 的 keydown 里把焦点还给 grid 里的控件（弹层关闭）：不改落点", async ({page}) => {
+        await open(page);
+        await act(page, "a-between-c-d");
+        await settled(page);
+        await page.evaluate(() => {
+            document.addEventListener("keydown", (event) => {
+                if (event.key !== "Tab") return;
+                event.preventDefault();
+                document.querySelector<HTMLElement>("[data-content='view:d'] input")?.focus();
+            }, {capture: true, once: true});
+        });
+        await page.locator("[data-panels-action='maximize-b']").focus();
+        await page.keyboard.press("Tab");
+        expect(await focusedPlace(page)).toBe("view:d");
+    });
+
+    test("外框和内容不相邻时，同一站里 Tab 从面板头走进内容", async ({page}) => {
+        await open(page);
+        await act(page, "b2-into-d-strip");
+        await settled(page);
+        await page.locator("[data-panel-tab='view:b2']").focus();
+        await page.keyboard.press("Tab");
+        expect(await focusedPlace(page)).toBe("view:b2");
+        expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-structure-first"))).toBe(true);
+    });
+
+    test("点面板头空白之后按 Tab、Shift+Tab：从点的那一块按树序走，内容和外框不相邻也走得到；点空白不改上次焦点", async ({page}) => {
+        await open(page);
+        await act(page, "b2-into-d-strip");
+        await settled(page);
+        const head = await frameBox(page, "d");
+        const blank = {x: head.x + head.width - 30, y: head.y + 16};
+        await content(page, "view:c").locator("[data-structure-input]").focus();
+        await page.mouse.click(blank.x, blank.y);
+        expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+        // 这一站里点的位置之后是面板头的标签，再往后是内容；DOM 里内容离得很远。
+        await page.keyboard.press("Tab");
+        expect(await focusedPlace(page)).toBe("view:d");
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Tab");
+        expect(await focusedPlace(page)).toBe("view:b2");
+
+        // 往前：这一站里点的位置之前没有东西，去树序的上一站（d 上面的分隔线）。
+        await page.mouse.click(blank.x, blank.y);
+        await page.keyboard.press("Shift+Tab");
+        expect(await focusedPlace(page)).toMatch(/:/u);
+        expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-sash"))).toBe(true);
+    });
+
+    test("点内部滚动区之后键盘还能滚动它", async ({page}) => {
+        await open(page);
+        const scroller = content(page, "view:a").locator("[data-structure-scroll]");
+        await scroller.click();
+        await page.keyboard.press("PageDown");
+        await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     });
 });

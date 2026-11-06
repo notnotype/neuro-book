@@ -198,6 +198,13 @@ describe("内容项的过渡（输出“内容层”）", () => {
         expect(flyingContents(wider, layers({a: 300, b: 300, c: 400}, [{key: "x", leaf: "a"}])).size).toBe(0);
     });
 
+    it("从零展开的不算飞：它不是在飞过别的面板", () => {
+        const before = layers({a: 0, b: 1000}, [{key: "x", leaf: "a"}]);
+        const after = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}]);
+        expect(flyingContents(after, before).has("leaf:a")).toBe(false);
+        expect(flyingContents(after, before).has("content:x")).toBe(false);
+    });
+
     it("不活动的内容跟着叶变矩形，不算动，不跟外框逐帧排版", () => {
         const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}]);
         const after = layers({a: 500, b: 500}, [{key: "x", leaf: "b", active: false}]);

@@ -7,7 +7,7 @@ import {onBeforeUnmount, onMounted, ref} from "vue";
 import type {Ref} from "vue";
 
 import type {GridLayerItem} from "../grid-rects";
-import {entryFocusTarget, moveTab, noteFocus, registerGridFocus} from "./grid-focus";
+import {entryFocusTarget, moveTab, moveTabFromPress, noteFocus, registerGridFocus} from "./grid-focus";
 import type {GridFocusItems, GridFocusStop} from "./grid-focus";
 import type {RenderOrder} from "./useRenderOrder";
 
@@ -42,24 +42,48 @@ export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement |
     let release: (() => void) | null = null;
     /** 这一下焦点变化是 Tab 引起的吗：程序 `focus()` 与点击也会从外面进来，那些不能改落点。 */
     let tabPending: 1 | -1 | null = null;
+    let tabTimer: ReturnType<typeof setTimeout> | null = null;
+    /** 最近一次按下的元素：按在这个 grid 外面时为 null。 */
+    let pressed: Element | null = null;
+
+    /**
+     * 在 `document` 的冒泡阶段接：别的处理器已经跑完。它们在 keydown 里把焦点还给触发器时，那次 `focusin` 先于这里发生，不会被当成 Tab。`preventDefault` 了的不算。
+     * 浏览器的焦点移动是 keydown 的默认动作，在同一个任务里，所以用定时器在任务结束后清：Tab 把焦点送出页面时收不到 keyup。
+     */
     const onDocumentKeydown = (event: KeyboardEvent): void => {
-        tabPending = event.key === "Tab" ? (event.shiftKey ? -1 : 1) : null;
+        if (event.key !== "Tab" || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229) return;
+        const direction = event.shiftKey ? -1 : 1;
+        const host = root.value?.getRootNode() as Document | ShadowRoot | undefined;
+        const active = host?.activeElement ?? null;
+        const owner = root.value?.ownerDocument;
+        if (order.outOfOrder.value && pressed !== null && (active === null || active === owner?.body || active === owner?.documentElement)) {
+            if (moveTabFromPress(scope, pressed, direction)) event.preventDefault();
+            pressed = null;
+            return;
+        }
+        tabPending = direction;
+        if (tabTimer !== null) clearTimeout(tabTimer);
+        tabTimer = setTimeout(() => {
+            tabPending = null;
+            tabTimer = null;
+        }, 0);
     };
-    const onDocumentKeyup = (): void => {
-        tabPending = null;
+    const onDocumentPointerdown = (event: PointerEvent): void => {
+        pressed = event.target instanceof Element && root.value?.contains(event.target) === true ? event.target : null;
     };
     onMounted(() => {
         if (root.value === null) return;
         release = registerGridFocus(root.value, scope);
         const owner = root.value.ownerDocument;
-        owner.addEventListener("keydown", onDocumentKeydown, true);
-        owner.addEventListener("keyup", onDocumentKeyup, true);
+        owner.addEventListener("keydown", onDocumentKeydown);
+        owner.addEventListener("pointerdown", onDocumentPointerdown, true);
     });
     onBeforeUnmount(() => {
         release?.();
+        if (tabTimer !== null) clearTimeout(tabTimer);
         const owner = root.value?.ownerDocument;
-        owner?.removeEventListener("keydown", onDocumentKeydown, true);
-        owner?.removeEventListener("keyup", onDocumentKeyup, true);
+        owner?.removeEventListener("keydown", onDocumentKeydown);
+        owner?.removeEventListener("pointerdown", onDocumentPointerdown, true);
     });
 
     return {
@@ -73,6 +97,7 @@ export function useGridFocus(options: {readonly root: Readonly<Ref<HTMLElement |
         onFocusin(event: FocusEvent): void {
             const direction = tabPending;
             tabPending = null;
+            pressed = null;
             const from = event.relatedTarget;
             const entering = !(from instanceof Node) || root.value?.contains(from) !== true;
             // DOM 序与树序不一致时，浏览器按 DOM 序选了进来的第一个元素，这里改成树序的首或尾。

@@ -67,7 +67,7 @@ export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, pre
         const old = before.get(item.key);
         const oldRect = old === undefined ? null : rectOf(old);
         const rect = rectOf(item);
-        if (old === undefined || oldRect === null || rect === null) continue;
+        if (old === undefined || oldRect == null || rect === null || oldRect.width <= 0 || oldRect.height <= 0 || rect.width <= 0 || rect.height <= 0) continue;
         if ((item.kind === "content" && old.kind === "content" && old.leaf !== item.leaf) || !overlaps(oldRect, rect)) flying.add(item.key);
     }
     return flying;
