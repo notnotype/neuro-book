@@ -6,6 +6,8 @@
  */
 
 import {createHash} from "node:crypto";
+import {lstat} from "node:fs/promises";
+import {join} from "node:path";
 
 import {Hono} from "hono";
 
@@ -73,6 +75,13 @@ function decodeName(header: string | null): string | null {
     }
 }
 
+/**
+ * 这个会话在不在。每个上传、每张缩略图都问一次，不列全部会话：看它的目录就够了。`id` 来自地址，先挡住能走出目录的写法
+ * （归档的会话目录还在，附件照常读）。
+ */
+export const sessionDirectoryExists = (sessionsRoot: string) => async (id: string): Promise<boolean> =>
+    !/[/\\]|^\.\.?$/u.test(id) && await lstat(join(sessionsRoot, id)).then((stats) => stats.isDirectory(), () => false);
+
 export function createAttachmentRoutes(options: {
     readonly files: WorkspaceFiles;
     /** 这个会话在不在：不在的不收，也不读。 */
@@ -91,7 +100,7 @@ export function createAttachmentRoutes(options: {
         const format = imageFormat(bytes);
         const declared = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
         // 图片按文件头认；声明是图片、文件头却不是的（包括 SVG）按普通文件存，只能下载。
-        const mime = format === null ? (declared.startsWith("image/") ? "application/octet-stream" : declared) : `image/${format}`;
+        const mime = format === null ? (declared === "" || declared.startsWith("image/") ? "application/octet-stream" : declared) : `image/${format}`;
         const extension = EXTENSIONS[mime] ?? "bin";
         const hash = createHash("sha256").update(bytes).digest("hex");
         const name = `${hash}.${extension}`;
@@ -124,6 +133,7 @@ export function createAttachmentRoutes(options: {
         const session = c.req.param("id");
         const file = c.req.param("file");
         if (!FILE_NAME.test(file)) return error("invalid-name", "附件地址不对。", 400);
+        if (!await hasSession(session)) return error("not-found", "这个附件不在了。", 404);
         const read = await files.read(attachmentAddress(session, file));
         if (!read.ok) return error("not-found", "这个附件不在了。", 404);
         const extension = file.slice(file.indexOf(".") + 1);

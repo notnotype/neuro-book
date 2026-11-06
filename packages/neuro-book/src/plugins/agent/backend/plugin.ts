@@ -27,7 +27,7 @@ import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGE
 import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 
 import {createAgentRuntime} from "./agent";
-import {createAttachmentRoutes} from "./attachments";
+import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./builtin";
 import {SessionEditStores} from "./builtin/common";
 import {BUILTIN_COMPACTION_CONTRIBUTIONS, builtinCompactionMethods} from "./compaction";
@@ -76,7 +76,7 @@ export const agentBackendPlugin: PluginDefinition = {
             });
             const attachmentRoutes = createAttachmentRoutes({
                 files: context.services.require(workspaceFilesKey),
-                hasSession: async (id) => (await runtime.listSessions()).some((session) => session.id === id),
+                hasSession: sessionDirectoryExists(runtime.sessionsRoot),
             });
             const clock = context.services.require(clockKey);
             const previews = new PreviewTokens(clock);

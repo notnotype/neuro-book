@@ -157,6 +157,59 @@ describe("输出 84：张数上限", () => {
 });
 
 describe("读取的缓存", () => {
+    const ref = (uri: string) => ({kind: "imageRef" as const, uri, origin: {kind: "fixed" as const, by: "profile" as const}});
+    const requestOf = (...uris: string[]): ModelRequest => ({purpose: "turn", model: "m", params: {}, headers: {}, system: [], tools: [], messages: uris.map((uri) => ({role: "user" as const, content: [ref(uri)]}))});
+
+    test("关会话时中止在途的读，之后到的结果不留", async () => {
+        let seen: AbortSignal | null = null;
+        let release = () => undefined as void;
+        let reads = 0;
+        const port: AttachmentPort = {read: (_uri, {signal}) => {
+            seen = signal;
+            reads += 1;
+            return new Promise((resolve) => {
+                release = () => resolve({data: "QUJD", mime: "image/png"});
+            });
+        }};
+        const resolver = createAttachmentResolver(port, () => undefined);
+        const pending = resolver.resolve(requestOf("u"), new AbortController().signal);
+        resolver.clear();
+        expect((seen as AbortSignal | null)?.aborted).toBe(true);
+        release();
+        await pending;
+        const again = resolver.resolve(requestOf("u"), new AbortController().signal);
+        release();
+        await again;
+        expect(reads).toBe(2);
+    });
+
+    test("总量超过上限时丢最久没用的；单张超过上限的不留；读失败不留", async () => {
+        const big = "x".repeat(40 * 1024 * 1024);
+        const reads: string[] = [];
+        const port: AttachmentPort = {read: async (uri) => {
+            reads.push(uri);
+            if (uri === "huge") return {data: "y".repeat(65 * 1024 * 1024), mime: "image/png"};
+            if (uri === "boom") throw new Error("坏了");
+            return {data: big, mime: "image/png"};
+        }};
+        const problems: string[] = [];
+        const resolver = createAttachmentResolver(port, (input) => problems.push(input.code));
+        const signal = new AbortController().signal;
+        await resolver.resolve(requestOf("a"), signal);
+        await resolver.resolve(requestOf("b"), signal);
+        await resolver.resolve(requestOf("b"), signal);
+        await resolver.resolve(requestOf("a"), signal);
+        expect(reads).toEqual(["a", "b", "a"]);
+        await resolver.resolve(requestOf("huge"), signal);
+        await resolver.resolve(requestOf("huge"), signal);
+        expect(reads.filter((uri) => uri === "huge")).toHaveLength(2);
+        const failed = await resolver.resolve(requestOf("boom"), signal);
+        expect(failed.messages[0]!.content[0]!.kind).toBe("text");
+        await resolver.resolve(requestOf("boom"), signal);
+        expect(reads.filter((uri) => uri === "boom")).toHaveLength(2);
+        expect(problems).toContain("attachment-unreadable");
+    });
+
     test("读过的不再读；中止时这个请求不等了，读完的还进缓存；并发读同一地址只读一次", async () => {
         let release = () => undefined as void;
         let reads = 0;

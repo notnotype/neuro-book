@@ -630,9 +630,69 @@ describe("附件（输出 31）", () => {
         await until("create 在等", () => release !== undefined && fresh.ctx().composer.attachments.length === 1);
         await new Promise<void>((resolve) => setImmediate(resolve));
         await fresh.host.open(existing);
+        // 还没有会话时加的附件不带进打开的已有会话；迟到的建会话结果也不把它标成失败。
+        expect(fresh.ctx().composer.attachments).toEqual([]);
         release();
         await new Promise<void>((resolve) => setImmediate(resolve));
         expect(fresh.host.sessionId.value).toBe(existing);
+        expect(fresh.ctx().composer.attachments).toEqual([]);
+    });
+
+    test("发送明确被拒：文字和附件都回到输入框，再发还带着；结果未知：重发带上附件", async () => {
+        const w = await world();
+        const base = await w.window("sh-attach-reject");
+        let mode: "reject" | "lost" | "normal" = "reject";
+        const flaky = new Proxy(base.client, {get(target, key, receiver) {
+            if (key !== "send") return Reflect.get(target, key, receiver);
+            return async (input: never) => {
+                const now = mode;
+                mode = "normal";
+                if (now === "reject") return {ok: false, code: "empty-input"};
+                if (now === "lost") return {ok: false, code: "unknown-outcome"};
+                return target.send(input);
+            };
+        }}) as SessionsClient;
+        const h = await harness(w, {remote: flaky, attachments: {upload: async () => ({ok: true, value: uploaded("a")})}});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        h.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: FILE});
+        await until("就绪", () => h.ctx().composer.attachments[0]?.state === "ready");
+        const label = `![image #1](${uploaded("a").uri})`;
+        const text = `看${label}`;
+
+        h.host.act({type: "composer.submit", text, delivery: "prompt"});
+        await until("放回", () => h.ctx().composer.draft.text === text);
+        expect(h.ctx().composer.attachments.map((item) => item.state)).toEqual(["ready"]);
+
+        mode = "lost";
+        h.host.act({type: "composer.submit", text, delivery: "prompt"});
+        await until("标未确认", () => (h.ctx().messages.at(-1) as {delivery?: string} | undefined)?.delivery === "unknown");
+        endpoint.script("看到了");
+        h.host.act({type: "message.resend", messageId: h.ctx().messages.at(-1)!.id});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "看到了");
+        await idle(h);
+        const view = w.service.session(h.host.sessionId.value!);
+        const input = (await view.path()).find((event) => event.type === "input")!;
+        expect((input.data as {attachments: unknown}).attachments).toEqual([{...uploaded("a"), from: 1, to: 1 + label.length}]);
+    });
+
+    test("附件的范围按标签算：代码片段与转义里的地址不算，同一张的两个标签各算一处", async () => {
+        const w = await world();
+        const h = await harness(w, {attachments: {upload: async () => ({ok: true, value: uploaded("a")})}});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        h.host.act({type: "composer.attachmentAdded", localId: "l1", kind: "image", file: FILE});
+        await until("就绪", () => h.ctx().composer.attachments[0]?.state === "ready");
+        const label = `![image #1](${uploaded("a").uri})`;
+        const code = `\`${label}\``;
+        const text = `${code}甲${label}乙${label}`;
+        endpoint.script("好");
+        h.host.act({type: "composer.submit", text, delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "好");
+        await idle(h);
+        const view = w.service.session(h.host.sessionId.value!);
+        const input = (await view.path()).find((event) => event.type === "input")!;
+        const first = code.length + 1;
+        const second = first + label.length + 1;
+        expect((input.data as {attachments: {from: number; to: number}[]}).attachments.map(({from, to}) => [from, to])).toEqual([[first, first + label.length], [second, second + label.length]]);
     });
 
     test("编辑重发带上原来的附件", async () => {

@@ -7,7 +7,7 @@
 import {describe, expect, it} from "bun:test";
 import type {Token} from "marked";
 
-import {findInlineLinks} from "../link-syntax";
+import {findInlineLinks, findPromptLinks} from "../link-syntax";
 import {defaultMarkdownLanguage as markdownLanguage} from "../language/syntax";
 
 import {schemeTargets} from "../targets";
@@ -445,5 +445,16 @@ describe("prompt-text 选区写法沿用旧版", () => {
     it("链接的地址里的短写法属于链接；方括号写法的选区后面跟着括号时仍是选区", () => {
         expect(tokensOf(parsePromptText("[a](manuscript/ch1.md#1-2)", {commands: []})).map((token) => token.kind)).toEqual(["reference"]);
         expect(tokensOf(parsePromptText("[[a.md#L1]](b.md)", {commands: []})).map((token) => token.kind)).toEqual(["selection"]);
+    });
+});
+
+describe("findPromptLinks", () => {
+    it("只算真正的写法，范围是原文的位置", () => {
+        const label = "![image #1](sessions://s/a.png)";
+        const text = `看${label}和${label.replace("[", "\\[")}、\`${label}\`\n\`\`\`\n${label}\n\`\`\`\n再看${label}`;
+        const found = findPromptLinks(text);
+        expect(found.map((link) => text.slice(link.start, link.end))).toEqual([label, label]);
+        expect(found[0]!.start).toBe(1);
+        expect(found[1]!.destination).toBe("sessions://s/a.png");
     });
 });

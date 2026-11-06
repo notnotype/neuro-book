@@ -41,10 +41,13 @@ export interface AttachmentResolver {
 export function createAttachmentResolver(port: AttachmentPort | undefined, report: (input: DiagnosticInput) => void): AttachmentResolver {
     const cache = new Map<string, Extract<AttachmentRead, {data: string}>>();
     const reading = new Map<string, Promise<AttachmentRead>>();
+    /** 共用的读的寿命是会话的：关会话时才中止，单个请求中止不影响它。 */
+    const lifetime = new AbortController();
     let cached = 0;
 
     const remember = (uri: string, image: Extract<AttachmentRead, {data: string}>): void => {
-        if (image.data.length > CACHE_LIMIT) return;
+        // 关了之后到的结果不再留：会话已经放掉了。
+        if (image.data.length > CACHE_LIMIT || lifetime.signal.aborted) return;
         cache.set(uri, image);
         cached += image.data.length;
         for (const [key, value] of cache) {
@@ -68,7 +71,7 @@ export function createAttachmentResolver(port: AttachmentPort | undefined, repor
         }
         let shared = reading.get(uri);
         if (shared === undefined) {
-            shared = (port as AttachmentPort).read(uri, {signal: new AbortController().signal}).then((result) => {
+            shared = (port as AttachmentPort).read(uri, {signal: lifetime.signal}).then((result) => {
                 if ("data" in result) remember(uri, result);
                 return result;
             }).finally(() => reading.delete(uri));
@@ -118,6 +121,7 @@ export function createAttachmentResolver(port: AttachmentPort | undefined, repor
             return {...request, messages};
         },
         clear() {
+            lifetime.abort();
             cache.clear();
             cached = 0;
         },

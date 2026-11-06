@@ -5,7 +5,7 @@
  * 引用、图片与文件的写法是 Markdown 的行内链接，按 `../../../shared/link-syntax.ts` 认，与编辑器、展示器对链接的判断一致。
  */
 
-import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "../link-syntax";
+import {fencedLines, fenceTest, findInlineLinks, unescapeMarkdown, writeInlineLink} from "../link-syntax";
 import type {MarkdownTargets} from "../targets";
 import {findSelections, parseSelectionText} from "./prompt-selection";
 import type {PromptEditorPastePolicy, PromptEditorToken} from "./prompt-editor.types";
@@ -90,7 +90,6 @@ const IMAGE_LABEL_PATTERN = /^image #([1-9]\d*)$/u;
 const SCHEME_PREFIX = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 /** 旧应用认作引用的工作区路径前缀（旧版 `plain-reference-text.ts` 的 `WORKSPACE_REFERENCE_PREFIXES`）。 */
 const LEGACY_WORKSPACE_PREFIXES = ["agents/", "assets/", "docs/", "lorebook/", "manuscript/", "reference/", "simulation/", "workspace/", ".agent/", ".nbook/agent/"];
-const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/u;
 const COMMAND_PATTERN = /^\/([^\s/]+)(?=\s|$)/u;
 /** 中文与全角标点：中文里技能写法与触发字符前面常常不是空格，而是逗号、顿号这类标点。 */
 const CJK_PUNCTUATION = "\\u3000-\\u303F\\uFF01-\\uFF0F\\uFF1A-\\uFF20\\uFF3B-\\uFF40\\uFF5B-\\uFF65\\u2018-\\u201F";
@@ -433,41 +432,6 @@ interface LocatedToken {
     start: number;
     end: number;
     attrs: PromptTokenAttrs;
-}
-
-/**
- * 每一行是否在围栏代码块里（包括围栏那两行）。块里的写法都是文字：用户贴给 Agent 的代码里的 `![x](a.png)` 不是图片附件，
- * `handlers[key](event)` 不是引用（旧版用 CommonMark 解析图片，同样排除代码）。围栏按 CommonMark：三个以上的反引号或波浪号开头，
- * 同一种符号、不短于开头的一行收尾；没收尾的到文字末尾。
- */
-export function fencedLines(lines: ReadonlyArray<string>): boolean[] {
-    const fenced: boolean[] = [];
-    let open: string | null = null;
-    for (const line of lines) {
-        const fence = FENCE_PATTERN.exec(line)?.[1];
-        if (open === null) {
-            fenced.push(fence !== undefined);
-            if (fence !== undefined) open = fence;
-            continue;
-        }
-        fenced.push(true);
-        if (fence !== undefined && fence[0] === open[0] && fence.length >= open.length && line.trim() === fence) open = null;
-    }
-    return fenced;
-}
-
-/** `value` 里落在围栏代码块里的位置。 */
-function fenceTest(value: string): (position: number) => boolean {
-    const lines = value.split("\n");
-    const fenced = fencedLines(lines);
-    if (!fenced.includes(true)) return () => false;
-    const ranges: Array<[number, number]> = [];
-    let offset = 0;
-    lines.forEach((line, index) => {
-        if (fenced[index]) ranges.push([offset, offset + line.length + 1]);
-        offset += line.length + 1;
-    });
-    return (position) => ranges.some(([start, end]) => position >= start && position < end);
 }
 
 /**

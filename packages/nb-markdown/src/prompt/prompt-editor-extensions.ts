@@ -18,7 +18,6 @@ import {
     PROMPT_PENDING_NODE,
     PROMPT_TOKEN_NODE,
     fileTokenAttrs,
-    fencedLines,
     findCompletedWriting,
     findPromptTrigger,
     imageTokenAttrs,
@@ -28,6 +27,7 @@ import {
     type PromptPendingAttrs,
     type PromptTokenAttrs,
 } from "./prompt-text";
+import {fencedLines} from "../link-syntax";
 
 /**
  * 节点视图读取的编辑器状态。由 PromptEditor 经扩展选项传给节点视图（节点视图的 `extension` prop），

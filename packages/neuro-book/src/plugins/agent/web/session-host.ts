@@ -14,6 +14,7 @@ import {computed, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
+import {findPromptLinks} from "@notnotype/nb-markdown";
 import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, MessageView, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
@@ -32,6 +33,9 @@ type SessionsRemote = RemoteClient<typeof agentSessionsContract>;
 /** 归零之后等这么久才取消订阅：切标签回来不用重新打开。 */
 export const RELEASE_DELAY_MS = 30_000;
 const TICK_MS = 1_000;
+
+/** 发出去、结果还没定的一句话：重发用同一个指令 id 和同一份附件，明确被拒时 `restore` 把附件放回输入框。 */
+type PendingSend = {readonly commandId: string; readonly input: {readonly text: string; readonly attachments?: UploadedAttachment[]}; restore(): void};
 
 /** 结果未知的失败码：指令可能已经受理，不能当成被拒。 */
 const UNKNOWN_OUTCOME = new Set(["unknown-outcome", "unavailable", "timeout", "disconnected", "server-restarted", "provider-error"]);
@@ -207,7 +211,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     /** 说明挂上时路径上已有的压缩分隔线条数：多出一条就是排着的压缩做完了。 */
     let queuedCompactDividers = 0;
     /** 结果未知的乐观消息，可以重发（同一个指令 id）或移除。 */
-    const unknownSends = new Map<string, {readonly commandId: string; readonly text: string}>();
+    const unknownSends = new Map<string, PendingSend>();
 
     // 向导
     let wizardState: AgentConversationContext["wizardState"];
@@ -393,24 +397,29 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         bump();
     }
 
-    /** 这句话带哪些附件：文字里出现了地址的才算（用户可能删掉了标签）。范围指向标签，图片放在那个位置。 */
+    /**
+     * 这句话带哪些附件：按文字里的标签算，一个标签一项，范围指向标签，图片放在那个位置。用户删掉标签的不带；同一张图的标签出现两次，
+     * 两处都放（内容相同的两次上传地址相同，也走这里）。代码片段与转义里的地址不是标签。
+     */
     function attachmentsFor(text: string, candidates: readonly UploadedAttachment[]): UploadedAttachment[] {
-        return candidates.flatMap(({uri, kind, name, mime, width, height}) => {
+        const byUri = new Map(candidates.map((candidate) => [candidate.uri, candidate]));
+        return findPromptLinks(text).flatMap((link) => {
+            const found = byUri.get(link.destination);
+            if (found === undefined) return [];
             // 逐项取字段：路由还交回 `bytes` 这些，指令的校验不收多余的字段。
-            const item: UploadedAttachment = {uri, kind, ...(name === undefined ? {} : {name}), ...(mime === undefined ? {} : {mime}), ...(width === undefined ? {} : {width}), ...(height === undefined ? {} : {height})};
-            const close = text.indexOf(`](${item.uri})`);
-            if (close < 0) return [];
-            const open = text.lastIndexOf("[", close);
-            if (open < 0) return [item];
-            const from = text[open - 1] === "!" ? open - 1 : open;
-            return [{...item, from, to: close + item.uri.length + 3} as UploadedAttachment];
+            const {uri, kind, name, mime, width, height} = found;
+            return [{uri, kind, ...(name === undefined ? {} : {name}), ...(mime === undefined ? {} : {mime}), ...(width === undefined ? {} : {width}), ...(height === undefined ? {} : {height}), from: link.start, to: link.end} as UploadedAttachment];
         });
     }
 
-    function takeAttachments(text: string): readonly UploadedAttachment[] {
-        const ready = [...uploads.values()].flatMap((entry) => (entry.uploaded === undefined ? [] : [entry.uploaded]));
+    /** 发送时取走附件。交回的 `restore` 在明确被拒时放回：文字回到输入框，附件也得回去，不然用户要重选文件。 */
+    function takeAttachments(text: string): {readonly attachments: readonly UploadedAttachment[]; restore(): void} {
+        const taken = uploads;
+        const ready = [...taken.values()].flatMap((entry) => (entry.uploaded === undefined ? [] : [entry.uploaded]));
         uploads = new Map();
-        return attachmentsFor(text, ready);
+        return {attachments: attachmentsFor(text, ready), restore: () => {
+            uploads = new Map([...taken, ...uploads]);
+        }};
     }
 
     // ─── 改写历史 ───────────────────────────────────────────────────────
@@ -692,18 +701,18 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         editing = null;
     }
 
-    async function open(id: string): Promise<void> {
+    async function open(id: string, options: {readonly keepDraft?: boolean} = {}): Promise<void> {
         generation += 1;
         const token = generation;
         // 同一个会话重新打开（归还 30 秒后借回）：未提交的答案还要；换了会话才清。事项答完了的话，`afterChange` 会清。
         const keptWizard = sessionId.value === id ? wizardState : undefined;
-        const switching = sessionId.value !== null && sessionId.value !== id;
+        const switching = sessionId.value !== id;
         flushDraft();
         closeCurrent();
         wizardState = keptWizard;
-        // A 会话没发的字不带到 B；还没有会话时写的字留着（第一次发送才建会话）。
-        if (switching) {
-            setDraftSilently("");
+        // A 会话没发的字不带到 B；还没有会话时写的字留着（第一次发送才建会话）。附件的地址带会话 id，只有为它们新建的会话（`keepDraft`）才能接着用。
+        if (switching && !options.keepDraft) {
+            if (sessionId.value !== null) setDraftSilently("");
             uploads = new Map();
         }
         const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: []};
@@ -785,7 +794,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             return null;
         }
         if (generation !== started) return null;
-        await open(created.value.sessionId);
+        await open(created.value.sessionId, {keepDraft: sessionId.value === null});
         return created.value.sessionId;
     }
 
@@ -815,8 +824,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     const commandId = (): string => deps.newId();
 
-    /** 发送结果未知：消息标出来，可以重发或移除。明确被拒：撤掉，文字放回输入框，说明原因。 */
-    function settleSend(target: Current, optimisticId: string, id: string, text: string, result: {ok: boolean; code?: string}): void {
+    /** 发送结果未知：消息标出来，可以重发或移除，重发带上原来的附件。明确被拒：撤掉，文字与附件放回输入框，说明原因。 */
+    function settleSend(target: Current, optimisticId: string, sent: PendingSend, result: {ok: boolean; code?: string}): void {
         if (current !== target) return;
         if (result.ok) {
             // 受理了：`input` 帧先于响应到达，通常已经换掉；重连重建时帧被跳过，这里兜住，不留一条永远“发送中”的。
@@ -826,10 +835,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         if (UNKNOWN_OUTCOME.has(result.code ?? "")) {
             target.transcript.markOptimisticUnknown(optimisticId);
-            unknownSends.set(optimisticId, {commandId: id, text});
+            unknownSends.set(optimisticId, sent);
         } else {
             target.transcript.removeOptimistic(optimisticId);
-            setDraft(text);
+            setDraft(sent.input.text);
+            sent.restore();
             const key = REJECT_KEYS[result.code as keyof typeof REJECT_KEYS];
             notice = key === undefined ? agentText("conversation.reject.other", {code: result.code ?? ""}) : agentText(key);
         }
@@ -846,19 +856,21 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             return;
         }
         const target = current!;
-        const attachments = takeAttachments(text);
+        const {attachments, restore} = takeAttachments(text);
         const input = attachments.length === 0 ? {text} : {text, attachments: [...attachments]};
         if (delivery === "prompt") {
             const id = commandId();
             const optimisticId = `optimistic-${id}`;
             target.transcript.addOptimistic({id: optimisticId, commandId: id, text, timestamp: deps.now()});
             bump();
-            settleSend(target, optimisticId, id, text, await remote.send({sessionId: target.id, commandId: id, input}));
+            const sent = {commandId: id, input, restore};
+            settleSend(target, optimisticId, sent, await remote.send({sessionId: target.id, commandId: id, input}));
             return;
         }
         const queued = await remote.enqueue({sessionId: target.id, commandId: commandId(), input, mode: delivery});
         if (!queued.ok && !UNKNOWN_OUTCOME.has(queued.code) && current === target) {
             setDraft(text);
+            restore();
             notice = agentText("conversation.reject.other", {code: queued.code});
             bump();
         }
@@ -866,9 +878,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     const countCompactions = (target: Current): number => target.transcript.messages().filter((message) => message.kind === "system" && message.source === "compaction").length;
 
-    /** 手动压缩（docs/specs/agent/conversation.md 输出 20）：不新建会话，不发送文字，被拒时文字放回输入框。 */
     async function newCommand(): Promise<void> {
         setDraft("");
+        uploads = new Map();
         bump();
         await create();
     }
@@ -922,6 +934,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
     }
 
+    /** 手动压缩（docs/specs/agent/conversation.md 输出 20）：不新建会话，不发送文字，被拒时文字放回输入框。 */
     async function compactCommand(argsText: string): Promise<void> {
         const typed = argsText === "" ? "/compact" : `/compact ${argsText}`;
         const target = current;
@@ -1064,7 +1077,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 const sent = unknownSends.get(action.messageId);
                 if (sent === undefined || target === null) return;
                 unknownSends.delete(action.messageId);
-                settleSend(target, action.messageId, sent.commandId, sent.text, await remote.send({sessionId: target.id, commandId: sent.commandId, input: {text: sent.text}}));
+                settleSend(target, action.messageId, sent, await remote.send({sessionId: target.id, commandId: sent.commandId, input: sent.input}));
                 return;
             }
             case "message.dismiss":
