@@ -9,7 +9,7 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, placementMoved} from "../grid-motion";
+import {enteringRects, followingLeaves, placementMoved} from "../grid-motion";
 import type {GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
@@ -45,7 +45,7 @@ export type GridMotionDecision =
     | {readonly kind: "none"}
     /** 容器尺寸或缩放变了：进行中的过渡直接到终点。 */
     | {readonly kind: "stop"}
-    | {readonly kind: "move"; readonly entering: ReadonlyMap<string, GridRect>};
+    | {readonly kind: "move"; readonly entering: ReadonlyMap<string, GridRect>; readonly following: ReadonlySet<string>};
 
 const sameExtent = (left: GridExtent, right: GridExtent): boolean => left.width === right.width && left.height === right.height;
 
@@ -67,13 +67,15 @@ export function decideMotion(frame: GridMotionFrame, memory: GridMotionMemory): 
     if (resized || rescaled) return {kind: "stop"};
     if (first || gesture || frame.previous === null || frame.previous.length === 0) return {kind: "none"};
     if (!placementMoved(frame.items, frame.previous)) return {kind: "none"};
-    return {kind: "move", entering: enteringRects(frame.items, frame.previous)};
+    return {kind: "move", entering: enteringRects(frame.items, frame.previous), following: followingLeaves(frame.items, frame.previous)};
 }
 
 export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly onSettled: () => void}) {
     const moving = ref(false);
     /** 新项第一帧的矩形；下一轮写终点，过渡才启动。 */
     const growing = shallowRef<ReadonlyMap<string, GridRect>>(new Map());
+    /** 内容跟着外框逐帧变化的叶；只在过渡中有。 */
+    const following = shallowRef<ReadonlySet<string>>(new Set());
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
 
@@ -83,13 +85,15 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (!moving.value) return;
         moving.value = false;
         growing.value = new Map();
+        following.value = new Set();
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
     }
 
-    function start(durationMs: number, entering: ReadonlyMap<string, GridRect>): void {
+    function start(durationMs: number, entering: ReadonlyMap<string, GridRect>, nextFollowing: ReadonlySet<string>): void {
         if (timer !== null) clearTimeout(timer);
         moving.value = true;
+        following.value = nextFollowing;
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
         if (entering.size === 0) return;
         growing.value = entering;
@@ -110,7 +114,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (decision.kind === "none") return;
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
-        if (duration > 0) start(duration, decision.entering);
+        if (duration > 0) start(duration, decision.entering, decision.following);
     }
 
     onBeforeUnmount(() => {
@@ -121,6 +125,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     return {
         moving,
         growing,
+        following,
         update,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */
         stop,

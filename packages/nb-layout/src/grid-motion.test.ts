@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, grownRect, placementMoved, stableOrder} from "./grid-motion";
+import {enteringRects, followingLeaves, grownRect, placementMoved, stableOrder} from "./grid-motion";
 import {placeGrid} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
 
@@ -75,6 +75,30 @@ describe("新出现的项从哪里开始", () => {
     it("已有的项不在里面", () => {
         const items = placeOf(branch(leaf("a"), leaf("b")));
         expect(enteringRects(items, items).size).toBe(0);
+    });
+});
+
+describe("过渡中内容跟着外框的叶", () => {
+    const placeOf = (widths: Record<string, number>) => {
+        const children = Object.entries(widths).map(([id, width]) => leaf(id, width));
+        const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children}, 4, {width: 1000, height: 300});
+        return placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+    };
+
+    it("前后都有尺寸的跟；新叶不跟：内容一开始就是最终尺寸，外框长出来时露出它", () => {
+        expect([...followingLeaves(placeOf({a: 500, b: 200, n: 300}), placeOf({a: 700, b: 300}))]).toEqual(["leaf:a", "leaf:b"]);
+    });
+
+    it("离开的叶不在里面", () => {
+        expect([...followingLeaves(placeOf({a: 1000}), placeOf({a: 500, b: 500}))]).toEqual(["leaf:a"]);
+    });
+
+    it("从零出来、降到零的不跟：前者已是最终尺寸，后者内容停放", () => {
+        const open = placeOf({a: 500, b: 500});
+        const closed = placeOf({a: 1000, b: 0});
+        expect(closed.find((item) => item.key === "leaf:b")?.rect.width).toBe(0);
+        expect([...followingLeaves(open, closed)]).toEqual(["leaf:a"]);
+        expect([...followingLeaves(closed, open)]).toEqual(["leaf:a"]);
     });
 });
 

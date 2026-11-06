@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * `GridStructureScene` 的叶内容：带实例编号、输入框与滚动内容，结构变化后核对它们还在；`ResizeObserver` 的次数用来核对内容
- * 只排一次版。
+ * `GridStructureScene` 的叶内容：带实例编号、输入框与滚动内容，结构变化后核对它们还在；`ResizeObserver` 的次数用来核对新叶的
+ * 内容只排一次版。
  */
 import {onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
 

@@ -549,6 +549,31 @@ test("提示条占着编辑区顶部时，grid 不超出编辑区：底部不被
     await closeAll(page);
 });
 
+test("拆分的过渡：旧组的标签条与正文跟着外框变窄，不露空白；新组一开始就是最终宽度，从右边滑入（docs/specs/ui/nested-grid.md 的“过渡”）", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/a.md").dblclick();
+    await expect(tabs(page)).toHaveCount(1);
+    // 放慢：断言“还没走到终点”不靠赶在缓出的前几帧读到。
+    await page.addStyleTag({content: ":root { --motion-layout: 4000ms !important; }"});
+    await tabs(page).first().focus();
+    await page.keyboard.press("Control+\\");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    const during = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-editor-area] [data-leaf]")].map((frame) => ({
+        frame: frame.getBoundingClientRect(),
+        group: frame.querySelector("[data-editor-group]")!.getBoundingClientRect(),
+    })));
+    expect(during).toHaveLength(2);
+    const [old, fresh] = during as [typeof during[0], typeof during[0]];
+    const final = fresh.group.width;
+    expect(old.frame.width).toBeGreaterThan(final + 20);
+    expect(Math.abs(old.group.width - old.frame.width)).toBeLessThan(1);
+    expect(fresh.frame.width).toBeLessThan(final - 20);
+    await closeAll(page);
+});
+
 test("扁平渲染：拆分时原来的组不重建；F6 先在组之间走，走到头交给外壳（docs/specs/ui/nested-grid.md）", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);

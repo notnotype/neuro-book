@@ -8,7 +8,7 @@ import {EMPTY_GRID_MOTION_MEMORY, decideMotion} from "./useGridMotion";
 import type {GridMotionFrame, GridMotionMemory} from "./useGridMotion";
 
 /**
- * 要不要过渡（docs/specs/ui/nested-grid.md 的“过渡”）：判定是纯函数，不碰布局，表驱动测。真实布局里的过渡、内容只排一次版
+ * 要不要过渡（docs/specs/ui/nested-grid.md 的“过渡”）：判定是纯函数，不碰布局，表驱动测。真实布局里的过渡、内容跟不跟外框
  * 在 e2e/lab-grid-structure.e2e.ts。
  */
 
@@ -46,11 +46,13 @@ describe("decideMotion", () => {
         expect(decideMotion(frame({items: items([400, 100, 200]), previous: base}), memory).kind).toBe("move");
     });
 
-    it("多了一个叶：过渡，并给出新叶第一帧的矩形", () => {
+    it("多了一个叶：过渡，给出新叶第一帧的矩形；还在的叶内容跟外框，新叶不跟", () => {
         const {memory, base} = warmed();
         const decision = decideMotion(frame({items: items([200, 200, 150, 150]), previous: base}), memory);
         expect(decision.kind).toBe("move");
-        if (decision.kind === "move") expect(decision.entering.has("leaf:l3")).toBe(true);
+        if (decision.kind !== "move") return;
+        expect(decision.entering.has("leaf:l3")).toBe(true);
+        expect([...decision.following]).toEqual(["leaf:l0", "leaf:l1", "leaf:l2"]);
     });
 
     it("容器尺寸变了（宿主的根尺寸或自己量到的盒，两个来源晚一拍到）：不过渡，进行中的直接到终点", () => {

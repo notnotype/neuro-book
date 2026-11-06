@@ -8,7 +8,7 @@
 
 ## 布局
 
-根节点填满父级可用盒。每个叶是一个外框（`data-leaf`，`transform` 加宽高）加一个内容容器（`data-leaf-content`，插槽在这里）；外框裁切内容，过渡时内容容器已经是最终尺寸，内容只排一次版。边按设备像素取整，缝宽也取整，同一占用的缝宽度相同。交叉轴拉满父分支，主轴放不满时留空。
+根节点填满父级可用盒。每个叶是一个外框（`data-leaf`，`transform` 加宽高）加一个内容容器（`data-leaf-content`，插槽在这里）；外框裁切内容。过渡时前后都有尺寸的叶，内容容器跟着外框逐帧变化；新叶与从零出来的叶已经是最终尺寸，外框长出来时露出它。边按设备像素取整，缝宽也取整，同一占用的缝宽度相同。交叉轴拉满父分支，主轴放不满时留空。
 
 叶的矩形在已发布的布局里为零时内容停放：保持最后一个非零尺寸，`visibility: hidden` 加 `inert`。手势预览不会把内容停放，从零往外拉时内容在拖动中就解除停放。
 
@@ -64,7 +64,7 @@ const host = useGridLayout({grid, extent, contextKey: () => "demo"});
 |---|---|---|
 | `data-grid-scope` | grid 根 | 值是实例 id；`moveGridFocus` 靠它找 grid，宿主取根用它 |
 | `data-leaf` | 叶外框 | 值是节点 id；外框带 `transform`，过渡中会动 |
-| `data-leaf-content` | 叶的内容容器 | 值是节点 id；一开始就是最终尺寸；宿主 Teleport 内容用它。`node` 变化后的同一次渲染里新叶的它已经存在 |
+| `data-leaf-content` | 叶的内容容器 | 值是节点 id；宿主 Teleport 内容用它。过渡中的尺寸见上；要最终尺寸读宿主自己的布局结果。`node` 变化后的同一次渲染里新叶的它已经存在 |
 | `data-moving` | 外框与分隔线 | 过渡进行中 |
 | `data-sash` | 分隔线 | 值是 `分支 id:序号`；`data-sash-hover`、`-active`、`-revealed`、`-cross` 是它的状态 |
 | `--motion-layout`、`--ease-layout` | 继承来的 CSS 变量 | 过渡的时长与曲线，由 nb-ui 的 `tokens.css` 提供，减少动态效果时为 0；宿主没给就没有过渡 |
@@ -132,4 +132,4 @@ Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`
 
 `SashHandle` 负责分隔线元素，`useSashGesture` 负责命中、指针/键盘生命周期、取消和手势仲裁；布局计算与手势求解由 grid 几何模块及 Grid session 提供，矩形由 `placeGrid` 给。`NestedGrid` 承诺摆放、预览呈现、事件和同步提交：宿主拒绝提交时回滚预览并给出诊断。
 
-公开面相对递归版的变化：grid 里不再有 `data-splitter`、`data-panel-id`；`data-leaf` 在外框上，过渡中会动，读最终尺寸用 `data-leaf-content`。
+公开面相对递归版的变化：grid 里不再有 `data-splitter`、`data-panel-id`；`data-leaf` 在外框上，过渡中会动。

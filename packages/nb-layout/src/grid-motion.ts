@@ -30,6 +30,22 @@ export function placementMoved(items: ReadonlyArray<GridPlacementItem<unknown>>,
 }
 
 /**
+ * 这次过渡里内容跟着外框逐帧变化的叶（`key`）：前后都有尺寸的。新叶与从零出来的叶内容已经是最终尺寸，外框长出来时露出它，第一次摆放不用
+ * 在零宽里排版；降到零的叶内容停放。
+ */
+export function followingLeaves(items: ReadonlyArray<GridPlacementItem<unknown>>, previous: ReadonlyArray<GridPlacementItem<unknown>>): ReadonlySet<string> {
+    const hasSize = (rect: GridRect): boolean => rect.width > 0 && rect.height > 0;
+    const before = new Map(previous.map((item) => [item.key, item.rect]));
+    const following = new Set<string>();
+    for (const item of items) {
+        if (item.kind !== "leaf") continue;
+        const old = before.get(item.key);
+        if (old !== undefined && hasSize(old) && hasSize(item.rect)) following.add(item.key);
+    }
+    return following;
+}
+
+/**
  * 新出现的项第一帧的矩形（`key` 到矩形），过渡从这里开始。新叶从不动的那条边长出来。分隔线的身份是前后节点，结构一变就是新元素，
  * 没有上一帧可接：挨着同一个节点的旧分隔线在哪就从哪出发，否则从挨着的新叶的起点出发，这样线跟着外框的边走，不会一开始就压在内容上。
  */

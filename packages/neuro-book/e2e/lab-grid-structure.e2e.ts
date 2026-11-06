@@ -49,6 +49,13 @@ const domOrder = (page: Page) => page.locator("[data-grid-scope] > [data-leaf]")
 const widthOf = async (page: Page, id: string): Promise<number> => (await frame(page, id).boundingBox())?.width ?? -1;
 const movingCount = (page: Page) => page.locator("[data-grid-scope] [data-moving]").count();
 const settled = (page: Page) => expect(page.locator("[data-grid-scope] [data-moving]")).toHaveCount(0);
+/** 同一帧里读外框与内容的宽度。 */
+const outerAndInner = (page: Page, id: string) => page.evaluate((leafId) => ({
+    outer: document.querySelector(`[data-leaf='${leafId}']`)!.getBoundingClientRect().width,
+    inner: document.querySelector(`[data-leaf-content='${leafId}']`)!.getBoundingClientRect().width,
+}), id);
+/** 过渡放慢：断言“还没走到终点”不靠赶在缓出的前几帧读到。 */
+const slowMotion = (page: Page) => page.addStyleTag({content: ":root { --motion-layout: 4000ms !important; }"});
 
 test.describe("结构变化（验收 8）", () => {
     test("拆分、关闭、换位：还在的叶不重建，输入、滚动与焦点都在；拆分与关闭后 DOM 序等于树序，换位后 DOM 不动", async ({page}) => {
@@ -88,27 +95,22 @@ test.describe("结构变化（验收 8）", () => {
 });
 
 test.describe("过渡（输出“过渡”、验收 9）", () => {
-    test("程序调整尺寸：外框过渡到新矩形，内容一开始就是最终尺寸，ResizeObserver 只报一次，结束后撤掉标记", async ({page}) => {
+    test("程序调整尺寸：外框过渡到新矩形，内容跟着外框逐帧变化，结束时等于新矩形并撤掉标记", async ({page}) => {
         await open(page, true);
-        const resizesBefore = Number(await leaf(page, "a").getAttribute("data-structure-resizes"));
-        const before = await widthOf(page, "a");
+        await slowMotion(page);
         await act(page, "widen");
         await expect(frame(page, "a")).toHaveAttribute("data-moving", "");
-        // 读同一帧：外框还没走到，内容已经是最终尺寸。
-        const during = await page.evaluate(() => {
-            const outer = document.querySelector("[data-leaf='a']")!.getBoundingClientRect().width;
-            const inner = document.querySelector("[data-leaf-content='a']")!.getBoundingClientRect().width;
-            return {outer, inner};
-        });
-        expect(during.inner).toBeGreaterThan(before);
-        expect(during.outer).toBeLessThan(during.inner);
+        const during = await outerAndInner(page, "a");
+        expect(Math.abs(during.inner - during.outer)).toBeLessThan(0.5);
         await settled(page);
-        expect(await widthOf(page, "a")).toBe(during.inner);
-        await expect.poll(async () => Number(await leaf(page, "a").getAttribute("data-structure-resizes"))).toBe(resizesBefore + 1);
+        const final = await outerAndInner(page, "a");
+        expect(during.outer).toBeLessThan(final.outer);
+        expect(final.inner).toBe(final.outer);
     });
 
-    test("新叶从挨着兄弟的边长出来；离开的叶立即消失", async ({page}) => {
+    test("新叶从挨着兄弟的边长出来，内容一开始就是最终尺寸、只排一次版；让位的兄弟内容跟着外框；离开的叶立即消失", async ({page}) => {
         await open(page, true);
+        await slowMotion(page);
         await act(page, "split-before");
         await expect(frame(page, "n")).toHaveAttribute("data-moving", "");
         const finalWidth = await content(page, "n").evaluate((element) => element.getBoundingClientRect().width);
@@ -121,12 +123,16 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
             return {nLeft: n.left, nRight: n.right, aLeft: a.left, sashLeft: sash.left};
         });
         expect(during.nRight - during.nLeft).toBeLessThan(finalWidth);
+        const neighbour = await outerAndInner(page, "a");
+        expect(neighbour.outer).toBeGreaterThan(finalWidth);
+        expect(Math.abs(neighbour.inner - neighbour.outer)).toBeLessThan(0.5);
         expect(Math.abs(during.nLeft - (await page.locator("[data-grid-scope]").boundingBox())!.x)).toBeLessThan(1);
         expect(during.aLeft - during.nRight).toBeLessThan(8);
         expect(during.sashLeft).toBeGreaterThanOrEqual(during.nRight - 2);
         expect(during.sashLeft).toBeLessThanOrEqual(during.aLeft + 2);
         await settled(page);
         expect(await widthOf(page, "n")).toBe(finalWidth);
+        await expect(leaf(page, "n")).toHaveAttribute("data-structure-resizes", "1");
         await act(page, "close-new");
         await expect(frame(page, "n")).toHaveCount(0);
     });

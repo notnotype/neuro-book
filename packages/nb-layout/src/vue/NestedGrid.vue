@@ -123,11 +123,12 @@ function sashProps(sash: GridSashPlacement<unknown>) {
 }
 
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()});
-const {moving, growing} = motion;
+const {moving, growing, following} = motion;
 const parking = useLeafParking();
 const {parked} = parking;
 
 function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {
+    if (following.value.has(item.key)) return {width: "100%", height: "100%"};
     const size = parking.contentSize(item);
     return {width: `${size.width}px`, height: `${size.height}px`, ...(parked.value.has(item.node.id) ? {visibility: "hidden"} : {})};
 }
