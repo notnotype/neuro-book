@@ -196,10 +196,15 @@ function countScale(node: GridSnapshotNode, depth = 1): {nodes: number; depth: n
     return {nodes, depth: deepest};
 }
 
+/** 树的结构、方向与叶序一样吗。 */
+export function sameTreeShape(left: LayoutDoc, right: LayoutDoc): boolean {
+    const shape = (node: GridSnapshotNode): unknown => (node.kind === "leaf" ? node.id : {o: node.orientation, c: node.children.map(shape)});
+    return JSON.stringify(shape(left.tree.root)) === JSON.stringify(shape(right.tree.root));
+}
+
 /** 结果和现状一样吗：结构、方向、叶序、标签、活动标签、显隐与收起。不比意图：摘出再放回，比例舍入后不会相等；也不比分支 id。 */
 export function sameLayoutShape(left: LayoutDoc, right: LayoutDoc): boolean {
-    const shape = (node: GridSnapshotNode): unknown => (node.kind === "leaf" ? node.id : {o: node.orientation, c: node.children.map(shape)});
-    if (JSON.stringify(shape(left.tree.root)) !== JSON.stringify(shape(right.tree.root))) return false;
+    if (!sameTreeShape(left, right)) return false;
     const leftIds = Object.keys(left.panels).sort();
     const rightIds = Object.keys(right.panels).sort();
     if (JSON.stringify(leftIds) !== JSON.stringify(rightIds)) return false;
