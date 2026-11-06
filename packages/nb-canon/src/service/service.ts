@@ -533,7 +533,7 @@ export class WorldService {
                 if (entry?.unbuildable !== null && entry !== undefined) return {code: "line-not-found", reason: entry.unbuildable};
                 return this.#readViewOf(world, other);
             };
-            view = this.#guarded(createReadView(world, this.#locator, this.#stampOf(world), line, onLine));
+            view = this.#guarded(createReadView(world, this.#locator, this.#stampOf(world), {text: (chapter) => this.#texts.get(chapter)?.text, digest: (chapter) => this.#texts.get(chapter)?.digest ?? null}, line, onLine));
             cached.views.set(line, view);
         }
         return view;

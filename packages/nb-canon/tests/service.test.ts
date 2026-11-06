@@ -494,6 +494,19 @@ describe("canon.model 输出 36、canon.project 输出 19、25：正文快照、
         expect(after.textDigest).not.toBe(before.textDigest);
         expect(after.inputDigest).not.toBe(before.inputDigest);
         expect(events).toContainEqual({kind: "textChanged", chapter: "ch1"});
+        // 读取视图读到的是正文快照：改过的正文与它的摘要；没有这一章时是 undefined 与 null。
+        const {view} = service.snapshot();
+        expect(view.chapterText("ch1")).toBe(texts.get("ch1"));
+        expect(view.chapterTextDigest("ch1")).toBe(createHash("sha256").update(texts.get("ch1")!).digest("hex"));
+        expect(view.chapterText("no-such")).toBeUndefined();
+        expect(view.chapterTextDigest("no-such")).toBeNull();
+        // 登记与历法那一部分的摘要：正文变了它不变（判断“依赖变没变”时不被正文带着变）。
+        const declarations = view.declarationsDigest();
+        texts.set("ch1", "又一稿");
+        service.textChanged("ch1");
+        expect(service.snapshot().view.declarationsDigest()).toBe(declarations);
+        texts.set("ch1", "她撑开了伞。");
+        service.textChanged("ch1");
         expect((await service.publish(tellRequest("她撑开了伞", after.version))).ok).toBe(true);
     });
 

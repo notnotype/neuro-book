@@ -143,14 +143,14 @@ describe("剧情插件的远程合同", () => {
         expect(await plot.decisionsFor({chapter: "2"})).toMatchObject({ok: true, value: {items: []}});
         expect(await plot.decisionsFor({chapter: "99"})).toMatchObject({ok: false, code: "plot", detail: {code: "chapter-not-found"}});
         expect(await plot.beforeWriting({chapter: "2"})).toMatchObject({ok: true, value: {chapter: "2", lines: [{line: "main", overdue: []}]}});
-        const brief = await plot.brief({chapter: "2", outline: "卫兵站岗，勇者经过", targetWords: 1500, previousTail: "国王与贤者说话。"});
+        const brief = await plot.brief({chapter: "2", outline: "卫兵站岗，勇者经过", targetWords: 1500});
         if (!brief.ok) throw new Error(JSON.stringify(brief));
         const written = brief.value as {text: string; record: {pluginVersion: string; targetWords: number; previousDigest: string | null}};
         expect(written.text).toContain("## 细纲\n卫兵站岗，勇者经过");
         expect(written.text).toContain("## 目标字数\n1500");
         expect(written.text).toContain("## 上一章末尾\n国王与贤者说话。");
         expect(written.record).toMatchObject({targetWords: 1500, pluginVersion: expect.any(String)});
-        expect(await plot.brief({chapter: "99", outline: "", targetWords: 1, previousTail: null})).toMatchObject({ok: false, code: "plot", detail: {code: "chapter-not-found"}});
+        expect(await plot.brief({chapter: "99", outline: "", targetWords: 1})).toMatchObject({ok: false, code: "plot", detail: {code: "chapter-not-found"}});
         const opened = await plot.openViewpoint({viewer: guard, until: {kind: "chapter", chapter: "2", edge: "end"}, purpose: "writer"});
         if (!opened.ok) throw new Error(JSON.stringify(opened));
         const handle = (opened.value as {handle: string}).handle;
@@ -221,7 +221,7 @@ describe("剧情插件的远程合同", () => {
         // 推了快照以后读待处理仍是完整的，远程 brief 读到表里的快照。
         const pending = await window.canon.call("pending", {});
         expect(pending.ok && pending.value.complete).toBe(true);
-        const brief = await caller.plot().brief({chapter: "1", outline: "细纲", targetWords: 100, previousTail: null});
+        const brief = await caller.plot().brief({chapter: "1", outline: "细纲", targetWords: 100});
         expect(brief.ok && (brief.value as {record: {instructionVersion: string | null}}).record.instructionVersion).toBe("v1");
         await window.close();
         keep.release();

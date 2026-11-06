@@ -6,7 +6,7 @@
 export * from "./core/schema";
 export {buildRegistry, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
 export type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PendingItem, PlanProgress} from "./engine/types";
-export type {Occurrence, TellingPosition} from "./world/tellings";
+export {paragraphsOf, type Occurrence, type TellingPosition} from "./world/tellings";
 export {valueAt, type ViewValue} from "./core/view-value";
 export type {DecisionView} from "./world/decisions";
 export type {CanonHint, GroupItem, PendingPage} from "./service/pending-groups";

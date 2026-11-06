@@ -30,8 +30,6 @@ export interface BriefInput {
     readonly instruction?: InstructionSnapshot;
     readonly outline: string;
     readonly targetWords: number;
-    /** 上一章末尾一段正文（宿主给）；上一章不存在时为 null，那一段写“无”。 */
-    readonly previousTail: string | null;
     /** 由后端用插件清单的版本注入，不由远程调用方给。 */
     readonly pluginVersion: string;
     readonly digest: Digest;
@@ -62,6 +60,17 @@ export interface BriefResult {
     readonly parts: readonly BriefPart[];
     readonly hints: readonly BriefHint[];
     readonly record: BriefRecord;
+}
+
+/**
+ * 上一章末尾一段（输出 15）：上一章正文去掉首尾空白以后的最后 `limit` 个码点。这是“取一段”不是裁掉，不进“已省略”。第一章、上一章
+ * 是空的或取不到正文时为 null，那一段写“无”。
+ */
+export function previousTailOf(view: CanonReadView, chapter: string, limit: number): string | null {
+    const index = view.chapters.indexOf(chapter);
+    if (index <= 0) return null;
+    const text = view.chapterText(view.chapters[index - 1]!)?.trim();
+    return text === undefined || text === "" ? null : [...text].slice(-limit).join("");
 }
 
 const lineItems = (text: string): BriefItem[] => text.split("\n").map((line, index) => ({label: `第 ${String(index + 1)} 行`, text: line}));
@@ -133,10 +142,8 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         hints.push(...frameHints);
         return {label: frame.label, sections};
     });
-    const tailLimit = limits.previous ?? Infinity;
-    const tailChars = input.previousTail === null ? [] : [...input.previousTail];
-    if (tailChars.length > tailLimit) omitted.push(`${fixed.TITLES.previous}：截去前 ${String(tailChars.length - tailLimit)} 字`);
-    const tail = input.previousTail === null ? [] : [{label: "上一章末尾", text: tailChars.slice(-tailLimit).join("")}];
+    const previousTail = previousTailOf(view, chapter, limits.previous ?? Infinity);
+    const tail = previousTail === null ? [] : [{label: "上一章末尾", text: previousTail}];
     const closing: BriefSection[] = [{key: "previous", title: fixed.TITLES.previous, items: tail}, {key: "target", title: fixed.TITLES.target, items: [{label: "目标字数", text: String(input.targetWords), protect: true}]}];
     const text = render(common, parts, closing, omitted);
     const record: BriefRecord = {
@@ -144,7 +151,7 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         instructionVersion: instruction?.version ?? null,
         outlineDigest: input.digest(input.outline),
         targetWords: input.targetWords,
-        previousDigest: input.previousTail === null ? null : input.digest(input.previousTail),
+        previousDigest: previousTail === null ? null : input.digest(previousTail),
         pluginVersion: input.pluginVersion,
         omitted,
     };

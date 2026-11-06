@@ -86,6 +86,12 @@ export interface ReadStamp {
     readonly inputDigest: string;
 }
 
+/** 读取视图取正文与正文摘要的来源：世界服务给它的正文快照。 */
+export interface ChapterTexts {
+    text(chapter: string): string | undefined;
+    digest(chapter: string): string | null;
+}
+
 /**
  * 给插件的只读世界（model.md “诊断的计算”）：同一份读取输入上的条目、剧情变更、讲述、在场与决策，不分页。插件只读它，
  * 不写世界；同一次读取里几个诊断共用一份。插件按 `stamp.inputDigest` 缓存自己算的东西。
@@ -119,6 +125,12 @@ export interface CanonReadView {
     chapterEntries(chapter: string, mode?: Mode): readonly string[];
     /** 这一章活页夹分的段（没有分段时只有章开头那条线一段）：读者读到的正文按段落号落在哪条线上（canon.worldlines 输出 12、13）。 */
     chapterLines(chapter: string): readonly {readonly line: string; readonly from: number}[];
+    /** 正文快照里这一章的正文（model.md 输出 20）；取不到时为 undefined。 */
+    chapterText(chapter: string): string | undefined;
+    /** 这一章正文的摘要；取不到时为 null。按章比“正文变了没有”不用自己再算。 */
+    chapterTextDigest(chapter: string): string | null;
+    /** 读取输入里登记与历法那一部分的摘要（不含世界、正文与插件数据）：插件判断依赖变没变时用。 */
+    declarationsDigest(): string;
     /** 条目在读取位置上给 Agent 的渲染（canon.rendering 输出 7、8）：主文字块的带值写法；线读不到、条目不在时为 null。 */
     render(entry: string, position: ReadPosition, mode: Mode): ReturnType<typeof renderEntryForAgent>;
     /** 一个地址的来历（model.md 输出 15）：每一步是哪条变更、改后的值。列表的地址给出整个列表在每一步之后的值。 */
@@ -174,7 +186,7 @@ export function lineSummaries(world: World): LineSummary[] {
  * 一条线上的读取视图。`line` 必须是这份世界上可建的线（调用方先查）；`onLine` 由服务给，按线缓存视图对象。来历里这条线的合成事件
  * （带过去的值）那一步换成 `carried`。
  */
-export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp, line: string = MAIN_LINE, onLine: CanonReadView["onLine"] = () => ({code: "line-not-found"})): CanonReadView {
+export function createReadView(world: World, locator: TellingLocator, stamp: ReadStamp, texts: ChapterTexts, line: string = MAIN_LINE, onLine: CanonReadView["onLine"] = () => ({code: "line-not-found"})): CanonReadView {
     const order = world.options.order;
     // 视图不拉住线视图与引擎：每次调用再取（LineSet 里有备忘），这样线集淘汰一条线时，缓存着的读取视图不会让它的引擎活下去
     // （worldlines 输出 9 的常驻名额）；被淘汰的线再被读到时重建。
@@ -209,6 +221,9 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
             const segments = world.options.chapterLines?.get(chapter);
             return deepFreeze(segments === undefined || segments.length === 0 ? [{line: world.positionLine({kind: "chapter", chapter, edge: "start"}), from: 1}] : segments.map((segment) => ({line: segment.line, from: segment.from})));
         },
+        chapterText: (chapter) => texts.text(chapter),
+        chapterTextDigest: (chapter) => texts.digest(chapter),
+        declarationsDigest: () => world.options.digest(canonicalJson(declarationsInput(world))),
         // 与这张视图的别的读取一样按视图的线；位置里显式写了线才用位置的（回溯后那份简报里，主文字与字段值要出自同一条线）。
         render: (entry, position, mode) => deepFreeze(renderEntryForAgent(world, entry, position.line === undefined ? {...position, line} : position, mode)),
         origins: (address, position, mode) => {
@@ -246,14 +261,16 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
  */
 export function createWorldReadView(world: World, texts: ReadonlyMap<string, string>): CanonReadView {
     const order = world.options.order;
-    const stamp = readStampOf(world, (chapter) => (texts.has(chapter) ? world.options.digest(texts.get(chapter)!) : null), []);
+    const digestOf = (chapter: string) => (texts.has(chapter) ? world.options.digest(texts.get(chapter)!) : null);
+    const stamp = readStampOf(world, digestOf, []);
     const locator = new TellingLocator((chapter) => texts.get(chapter), () => order);
+    const chapterTexts: ChapterTexts = {text: (chapter) => texts.get(chapter), digest: digestOf};
     // 各条线的视图按线缓存，`onLine` 与世界服务给的同一规矩：线要在这个模式下存在、且可建。
     const views = new Map<string, CanonReadView>();
     const viewOn = (line: string): CanonReadView => {
         let view = views.get(line);
         if (view === undefined) {
-            view = createReadView(world, locator, stamp, line, onLine);
+            view = createReadView(world, locator, stamp, chapterTexts, line, onLine);
             views.set(line, view);
         }
         return view;
@@ -283,17 +300,25 @@ export function readStampOf(world: World, chapterDigest: (chapter: string) => st
             return [id, segments === undefined || segments.length === 0 ? "main" : segments.map((segment) => [segment.from, segment.line])];
         }),
         text: textDigest,
+        pluginData: [...pluginData].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([plugin, version]) => [plugin, version]),
+        ...declarationsInput(world),
+    }));
+    return Object.freeze({version: world.version, textDigest, inputDigest});
+}
+
+/** 读取输入里登记与历法那一部分（model.md 输出 36）。 */
+function declarationsInput(world: World) {
+    const digest = world.options.digest;
+    return {
         registry: {
             components: world.options.registry.versions.map(([id, version]) => [id, version]),
             marks: (world.options.marks ?? EMPTY_MARK_REGISTRY).versions.map(([id, version]) => [id, version]),
             diagnostics: [...(world.options.diagnostics?.versions ?? [])].map(([id, version]) => [id, version]),
         },
-        pluginData: [...pluginData].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([plugin, version]) => [plugin, version]),
-        // 历法与词表按内容取摘要（model.md 输出 36）：作者改了历法没加版本号，缓存与游标照样作废。没给时用内置的那一份。
+        // 历法与词表按内容取摘要：作者改了历法没加版本号，缓存与游标照样作废。没给时用内置的那一份。
         calendar: digest(canonicalJson((world.options.time ?? DEFAULT_TIME).calendar)),
         fuzzy: digest(canonicalJson((world.options.time ?? DEFAULT_TIME).fuzzy)),
-    }));
-    return Object.freeze({version: world.version, textDigest, inputDigest});
+    };
 }
 
 /**

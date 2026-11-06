@@ -10,7 +10,7 @@ const CHAPTERS = Array.from({length: 20}, (_, index) => `ch${String(index + 1)}`
 const digest = (text: string) => `sha:${String(text.length)}:${text.slice(0, 8)}`;
 const instruction = (chapterId: string, extra: Partial<InstructionSnapshot> = {}): InstructionSnapshot => ({chapter: chapterId, version: "v1", ...extra});
 function brief(w: PlotWorld, chapterId: string, extra: Partial<BriefInput> = {}): BriefResult {
-    const result = composeBrief({view: w.view(), chapter: chapterId, outline: "细纲：卫兵盘问", targetWords: 2000, previousTail: null, pluginVersion: "test", digest, ...extra});
+    const result = composeBrief({view: w.view(), chapter: chapterId, outline: "细纲：卫兵盘问", targetWords: 2000, pluginVersion: "test", digest, ...extra});
     if (typeof result === "string") throw new Error(result);
     return result;
 }
@@ -95,18 +95,39 @@ describe("plot.brief 输出 1、6、11、12、15：组成、场景条件、固�
         expect(result.text.split(fixed.RULES[0]).length - 1).toBe(1);
     });
 
+    test("上一章末尾取自正文快照：最后 600 个码点，不进“已省略”；第一章、上一章是空的或取不到时写“无”", () => {
+        const w = new PlotWorld(CHAPTERS);
+        w.texts.set("ch1", `  ${"前".repeat(50)}\n${"尾".repeat(600)}  \n`);
+        const second = brief(w, "ch2");
+        const tail = second.common.find((part) => part.key === "previous")!.items[0]!.text;
+        expect(tail).toBe("尾".repeat(600));
+        expect(second.record.omitted).toEqual([]);
+        expect(second.record.previousDigest).toBe(digest(tail));
+        for (const [chapterId, text] of [["ch1", "没有上一章也不读它"], ["ch2", "   \n"]] as const) {
+            if (chapterId === "ch2") w.texts.set("ch1", text);
+            const result = brief(w, chapterId);
+            expect(result.common.find((part) => part.key === "previous")!.items).toEqual([]);
+            expect(result.record.previousDigest).toBeNull();
+        }
+        w.texts.delete("ch1");
+        expect(brief(w, "ch2").record.previousDigest).toBeNull();
+    });
+
     test("计划上的场景条件照抄；写作指示有结尾时加一句；同样的输入再拼一次逐字相同；只改细纲、目标字数或上一章末尾，记录就不同", () => {
         const w = new PlotWorld(CHAPTERS);
         const jin = w.person("星瑾");
         w.change(chapter("ch5"), {kind: "plan", text: "星瑾进门", cast: [{who: jin, role: "present"}], marks: [{kind: MARK_IDS.scene, version: 1, lines: ["黄昏，屋里没点灯", "桌上有半杯茶"]}]});
-        const extra = {instruction: instruction("ch5", {ending: "她把门关上"}), previousTail: "她回头看了一眼。"};
+        w.texts.set("ch4", "她回头看了一眼。\n");
+        const extra = {instruction: instruction("ch5", {ending: "她把门关上"})};
         const first = brief(w, "ch5", extra);
         expect(section(first, "scene")).toBe("黄昏，屋里没点灯\n桌上有半杯茶");
         expect(section(first, "allowed")).toContain(fixed.ending("她把门关上"));
         expect(brief(w, "ch5", extra).text).toBe(first.text);
         expect(brief(w, "ch5", {...extra, outline: "另一份细纲"}).record).not.toEqual(first.record);
         expect(brief(w, "ch5", {...extra, targetWords: 3000}).record).not.toEqual(first.record);
-        expect(brief(w, "ch5", {...extra, previousTail: "她没回头。"}).record).not.toEqual(first.record);
+        expect(first.text).toContain("她回头看了一眼。");
+        w.texts.set("ch4", "她没回头。");
+        expect(brief(w, "ch5", extra).record).not.toEqual(first.record);
         expect(first.record).toMatchObject({instructionVersion: "v1", targetWords: 2000, pluginVersion: "test"});
     });
 
@@ -138,7 +159,8 @@ describe("plot.brief 验收 5：回溯章", () => {
         w.change(chapter("ch8"), {kind: "plan", text: "星瑾看表", cast: [{who: jin, role: "present"}], patches: [setState(thing, "又被拨动了")]});
         const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch7", 90)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}}]);
         w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 30}]]])});
-        const result = brief(w, "ch8", {instruction: instruction("ch8", {tone: "冷"}), previousTail: "上一章的末尾。"});
+        w.texts.set("ch7", "上一章的末尾。");
+        const result = brief(w, "ch8", {instruction: instruction("ch8", {tone: "冷"})});
         expect(result.parts.map((part) => part.label)).toEqual(["回溯前", "回溯后"]);
         expect(section(result, "appearance", 0)).toContain("停了");
         expect(section(result, "appearance", 1)).toContain("走得很慢");

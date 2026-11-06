@@ -190,7 +190,7 @@ started = performance.now();
 const before = beforeWriting(snapshot.view, last, digest);
 const beforeMs = performance.now() - started;
 started = performance.now();
-const brief = composeBrief({view: snapshot.view, chapter: last, outline: "细纲", targetWords: 2000, previousTail: null, pluginVersion: "scale", digest, ...(instructions.get(last) === undefined ? {} : {instruction: instructions.get(last)!})});
+const brief = composeBrief({view: snapshot.view, chapter: last, outline: "细纲", targetWords: 2000, pluginVersion: "scale", digest, ...(instructions.get(last) === undefined ? {} : {instruction: instructions.get(last)!})});
 const briefMs = performance.now() - started;
 
 Bun.gc(true);

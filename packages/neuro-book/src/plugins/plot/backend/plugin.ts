@@ -176,9 +176,7 @@ function remotePlot(canon: CanonProject, viewpoints: Viewpoints, instructions: I
                 return typeof result === "string" ? fail(result) : fitted({version: main.version, inputDigest: main.stamp.inputDigest, ...result});
             }),
             brief: (input) => withView((main) => {
-                // 上一章末尾由调用方给（读取视图还没有章正文的读取）；第一章没有上一章，给了就拒（不造一段）。
-                if (input.previousTail !== null && main.chapters.indexOf(input.chapter) === 0) return fail("previous-tail-not-allowed");
-                const result = composeBrief({view: main, chapter: input.chapter, outline: input.outline, targetWords: input.targetWords, previousTail: input.previousTail, pluginVersion: descriptor.version, digest, instruction: instructions.get(input.chapter), ...(input.limits === undefined ? {} : {limits: input.limits})});
+                const result = composeBrief({view: main, chapter: input.chapter, outline: input.outline, targetWords: input.targetWords, pluginVersion: descriptor.version, digest, instruction: instructions.get(input.chapter), ...(input.limits === undefined ? {} : {limits: input.limits})});
                 return typeof result === "string" ? fail(result) : fitted({version: main.version, ...result});
             }),
             openViewpoint: async (input) => {
