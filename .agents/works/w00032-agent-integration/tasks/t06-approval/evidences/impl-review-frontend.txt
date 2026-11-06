@@ -1,0 +1,174 @@
+# w00032 t06 前端实现审查（19a7ef070..5f5ed11db）
+
+审查方式：读代码与测试，没有跑 e2e 与开发服务；标“未验证”的是从代码推断。按影响排序。
+
+### 规则写入是“读—合并—写回”，没有 `expect`，也没有乐观更新，并发时后写的盖掉先写的
+- 严重程度：重要
+- 类别：正确性（并发）
+- 位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts:275`；`packages/neuro-book/src/plugins/agent/web/components/PermissionRulesPage.vue:58-71`；`packages/neuro-book/src/plugins/agent/web/permission-page.ts:41-60`
+- 现象：
+  1. 一批审批里选了两条不同命令的“以后都允许”（例如 `git diff *` 与 `touch *`）后提交，`AgentWizard.submitApprovals` 同一个 tick 里连发两个 `input.submit`，宿主两次进入 `resolveInput` 的 `allow-always` 分支，两次 `rememberRules` 都在 `await` 之前同步执行 `appendRules(settings.get(...), rules)`，读到的是同一份旧列表。两次 `settings.update` 各自写“旧列表加自己那一条”，后到的覆盖先到的，有一条规则丢失，但界面对两条都按“已批准”走，用户以为都存了。
+  2. 设置页同理：`remove`、`move`、`save` 都用当前 `props.rules` 算出整份新列表再 `emit("change")`。`settings.update` 只在写入成功后才 `apply` 快照（`plugins/settings/shared/instance.ts:259-266`，没有乐观更新），所以两次点击落在一次写入往返之内（上移连点两次、删除连点）时，第二次用的是旧列表，把第一次的结果盖掉。
+  3. 设置窗口开着时，别处（对话里的“以后都允许”、外部编辑设置文件）追加的规则，会被页面下一次写整份列表时盖掉。
+- 为什么是问题：权限规则丢一条或复活一条已删的拒绝规则，都是安全相关的静默错误。配置服务本来为“读、合并、写回”提供了 `update(..., {expect: {value}})`（`packages/neuro-book/src/shared/settings.ts:419-425`，configuration.md 输出 25），这里一处也没用；`session-host.test.ts` 的 `rememberRules` 是桩，测不到。
+- 如何核实：读上面三处；`instance.ts` 的 `update` 里 `apply(layer, result.snapshot)` 在 `await link.write` 之后。复现 1：脚本两条 shell 审批在同一批里，各选“以后都允许”，提交后看 `settings.json` 里 `nbook.agent/permissionRules` 只有一条（未验证，从代码推断）。
+- 建议改法：`rememberRules` 与页面的 `write` 都带 `expect: {value: 读到的那份}`，得 `conflict` 时重读再合并重试一次；`rememberRules` 同时在宿主里串行化（一个 promise 链），这样一批里的多条依次追加。页面可在写入未完成时停用增删移动按钮，或维护本地待写队列。补一条测试：两次 `rememberRules` 并发都落盘。
+
+### 表单换算会改变关键词规则的意思，且来回测试没有覆盖关键词
+- 严重程度：重要
+- 类别：正确性、测试
+- 位置：`packages/neuro-book/src/plugins/agent/web/permission-rules.ts:33`（`join("、")`）、`:53-56`（`split(/[,，、\s]+/u)`）；`permission-rules.test.ts:19-26`
+- 现象：`arg`+`keywords` 的 `value` 是字符串数组，每个元素是整段子串（`backend/permissions/rules.ts:90` 用 `includes`）。手写规则 `value: ["blood splatter", "a,b"]` 在表单里显示成 `blood splatter、a,b`，只要用户打开编辑、改了别的字段（比如理由）点保存，就会被按空白与逗号拆成 `["blood","splatter","a","b"]`，匹配范围变宽（放行规则变宽就是放行得更多）。另外 `value` 为单个字符串时走 JSON 分支，没问题；`value` 里混了非字符串元素时 `join` 会把它们转成文字，同样丢类型。
+- 为什么是问题：“手写在设置文件里的规则照样显示、照样能改”（permissions.md 输出 22）的前提是表单来回不变，这里违反了；`permission-rules.test.ts` 的 `rules` 里没有任何 `arg` 规则，来回测试漏掉了这一类，而 Lab 场景里恰好有 `keywords: ["血腥", "暴力"]` 这种条件。
+- 如何核实：`formToRule(ruleToForm({tool:"x", action:"allow", when:{type:"arg", path:"prompt", op:"keywords", value:["blood splatter"]}}))`，得到 `value: ["blood","splatter"]`。
+- 建议改法：关键词里含空白、逗号、顿号，或元素不是字符串时，`ruleToForm` 走 `json`（与“认不出的条件走 JSON”一致）；或者把分隔符限定为 `、` 与换行并在界面写明。测试补一条关键词来回与一条含空格的关键词。
+
+### JSON 条件只校验语法，不校验形状；写错 `type` 的拒绝规则会拦掉这个工具的全部调用
+- 严重程度：建议
+- 类别：边界
+- 位置：`packages/neuro-book/src/plugins/agent/web/permission-rules.ts:58-63`；`PermissionRulesPage.vue:128-130`（`problem` 只给输入框标红）
+- 现象：`JSON.parse` 成功就接受，`123`、`null`、`[]`、`{"type":"comand"}` 都会写进设置。按 permissions.md 的“偏向收紧”，未知匹配器的拒绝与询问规则命中，等于“这个工具所有调用都被拒绝或询问”，且设置页只显示“自定义条件”，用户看不出写错了。另外 `problem` 只让对应输入框 `invalid`，没有文字说明为什么，JSON 解析错误与“必填为空”无法区分，读屏也读不到；用户改字后红框不会自己清除。
+- 如何核实：读 `formToRule` 的 `json` 分支；`evaluate` 对未知 `type` 返回 `"unknown"`（`rules.ts:131-133`）。
+- 建议改法：`when` 必须是非数组对象；至少在保存前对顶层 `type`/`all`/`any`/`not` 做一次已知性检查并警告（可以保存，但要说明“写错了会拦住整个工具”）；`problem` 对应一行错误文字，字段改动时清除。
+
+### “这本书的规则”加载失败时整段不显示，用户以为这本书没有规则
+- 严重程度：建议
+- 类别：边界、错误显示
+- 位置：`packages/neuro-book/src/plugins/agent/web/permission-page.ts:32-38`；`PermissionRulesPage.vue:114`（`v-if="projectRules !== null"`）
+- 现象：`projectPermissionRules` 返回失败时只写一条诊断，`projectRules` 仍是 `null`，页面不画“这本书的规则”这一段（没有错误提示、没有重试）。加载中与失败也无法区分，加载完成后整段突然出现，页面纵向跳动（零布局位移要求）。绑定了作品而取不到规则，恰是用户最需要知道的时候（项目里可能有拒绝规则）。`"invalid"` 只覆盖“文件坏了”，不覆盖“请求失败”。
+- 如何核实：读 `permission-page.ts` 的 `onMounted`，`else deps.report(...)` 之后没有设置任何展示状态。
+- 建议改法：`projectRules` 增加 `"loading"` 与 `"failed"` 两态，页面显示占位与一句“读不到这本书的规则，判定时仍然生效”；加载中画占位避免位移。
+
+### 还没有会话时选的模式（`draftMode`）会漏到之后建的任何会话里
+- 严重程度：建议
+- 类别：正确性（状态收口）
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:1017`、`:800-815`（`create`）、`:1020-1026`
+- 现象：`draftMode` 只在 `create` 里清零。没有会话时选了 `plan`，然后不发送、改去打开一个已有会话（`session.select` 或 `restore`）：`draftMode` 仍是 `plan`，没有任何地方清；之后用 `/new` 或“新会话”建会话时，`create` 把它提交给新会话，新会话悄悄进入计划模式，而用户上一眼看到的是别的会话的模式。同样，`session.create` 选的是非主创 Profile（`create(profile)`）时，也会对没有模式扩展的会话提交 `changeSettings`，得到一条“发送失败（…）”提示（`modes` 为 `[]` 时控件已隐藏，但 `/plan` 与 `/mode` 仍在命令表里）。`setMode` 失败时 `draftMode` 也照样清零，用户选的模式丢了。
+- 如何核实：读 `open`（`:717`）没有碰 `draftMode`；`create` 对 `profile` 不做区分。
+- 建议改法：切到已有会话时清 `draftMode`；只在 `profile === MAIN_PROFILE` 时提交；提交失败保留并提示。`HOST_COMMANDS` 在 `modes` 为空时不含 `plan`、`mode`。
+
+### Shift+Tab：作曲框总是绑着监听，但切不了模式时仍然吞键，焦点出不来
+- 严重程度：建议（base 上就吞，这次修了一半）
+- 类别：可访问性、实现耦合
+- 位置：`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:414`（`@shift-tab="cycleMode"` 无条件）、`:241-250`；`packages/nb-markdown/src/prompt/PromptEditor.vue:423-424`、`:452-456`
+- 现象：`PromptEditor` 现在“没人监听就不吞”，但作曲框永远传了 `@shift-tab`。`cycleMode` 在 `modeDisabled`、`modes.length < 2`（非主创会话 `modes` 为空）或可用状态不是 ready 时直接返回，而 `handleKeyDown` 已经 `return true`（preventDefault），键盘用户在这些会话里无法用 Shift+Tab 从输入框往回走。补全菜单开着时同理：吞掉且什么也不做（这是 spec 要求的，但焦点也出不来）。另外 `shiftTabListened` 在 setup 里读 `getCurrentInstance().vnode.props.onShiftTab` 取一次值，父组件之后条件性绑定监听则不会更新，且依赖 Vue 的内部结构。
+- 如何核实：读两处；`AgentConversationComposer.dom.test.ts` 与 `PromptEditor.dom.test.ts` 没有“切不了时放行”的用例。
+- 建议改法：给 `PromptEditor` 一个明确的属性（例如 `capture-shift-tab`），作曲框只在 `modes.length >= 2 && !modeDisabled` 时传；去掉对 `vnode.props` 的读取。
+
+### “以后都允许”没有说清要永久放行什么，说明只在悬停提示里
+- 严重程度：建议
+- 类别：界面、安全告知
+- 位置：`packages/nb-agent-ui/src/vue/wizard/AgentApprovalWizard.vue:115-116`；`packages/nb-agent-ui/src/locales/zh-CN.ts`（`allowAlways`、`allowAlwaysHint`）
+- 现象：本会话按钮写明规则（`本会话都批准 git diff *`），而永久放行的按钮只写“以后都允许”，写进哪里、所有作品都生效、记的是哪条规则只在 `title` 里（键盘、触屏、读屏用户都看不到）。对没有 `remember` 的工具（`write`、`edit` 等），记的是整个工具：一次点击永久放行这个工具在所有作品里的所有调用，而按钮上看不出来。批量时 `choose()` 只联动 `allow-session`，不联动 `allow-always`，同一条规则的其余项还要逐个点。
+- 为什么是问题：这是持久的、跨作品的授权，比“本会话”风险高一个量级，告知却比它还弱；spec 输出 18 要求“界面点之前就显示”要记什么，输出 23 说“记的内容同输出 18”。
+- 如何核实：读两行按钮；`remember === undefined` 时两个按钮文字没有任何“整个工具”的提示。
+- 建议改法：按钮上或按钮旁常驻一行小字：“写进‘我的规则’：放行 `<规则或整个工具名>`，所有作品生效”；`title` 保留但不是唯一说明。
+
+### 已有更靠前的询问规则时，“以后都允许”追加的放行规则永远不生效，界面却当成功
+- 严重程度：建议
+- 类别：边界
+- 位置：`packages/neuro-book/src/plugins/agent/web/permission-rules.ts:104-108`（`appendRules`）；`session-host.ts:986-998`
+- 现象：规则从上到下第一条命中算数。审批请求恰好是因为一条用户层 `ask` 规则（或项目层规则）才出现时，末尾追加的 `allow` 排在它后面，下次仍然会问。写入成功，界面没有任何提示，用户以为已经记住了。`same` 比较用 `JSON.stringify([tool, when, action])`，键顺序不同的手写规则（`{pattern, type}` 与 `{type, pattern}`）判为不同，会重复追加；`tool` 简写（`shell`）与全名（`nbook.agent.shell`）也判不同。
+- 如何核实：用 `appendRules([{tool:"nbook.agent.shell", action:"ask"}], [{tool:"nbook.agent.shell", when:{...}, action:"allow"}])`，结果 `allow` 在 `ask` 之后。
+- 建议改法：追加前检查是否已有排在前面、同工具且条件覆盖它的 `ask`（`when` 相同或没有）；有时提示“你有一条更靠前的询问规则，它会继续生效”；比较时对 `when` 做键序无关的规范化。开发者已定“写到末尾”，这条只补提示，不改位置。
+
+### `approvalReason` 把用户规则的理由与内部暗号放在同一个字符串通道里，会误判
+- 严重程度：建议
+- 类别：隐含耦合
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:1271-1276`；`packages/neuro-book/src/plugins/agent/shared/permissions.ts`（`MODE_ASK_REASON = "mode"`、`"auto:failed"`、`"auto:escalated:"`）
+- 现象：规则的 `reason` 是用户自由写的文字，恰好等于 `mode`、`auto:failed` 或以 `auto:escalated:` 开头时，向导显示的是翻译后的另一句话。`"mode"` 是常见词。判断用字符串内容区分来源，等于按文案分支。
+- 如何核实：写一条 `reason: "mode"` 的询问规则，触发审批，向导显示“当前是讨论或计划模式，这次调用算写”（从代码推断，未验证）。
+- 建议改法：审批请求里把来源单独放一个字段（例如 `reasonKind: "rule" | "mode" | "auto-failed" | "auto-escalated"`），宿主按字段分支，不按内容。若后端不改，至少把暗号换成规则 `reason` 不会出现的形态（含控制字符的前缀）。
+
+### 模式切换回答的文字写死中文，写进了会话日志
+- 严重程度：建议
+- 类别：与周围写法一致
+- 位置：`packages/neuro-book/src/plugins/agent/web/session-host.ts:1003`
+- 现象：`text: resolutions.answer.note ?? (approved ? "批准" : "不同意")`。其余界面文字都走 `agentText(...)`，这里是写死的中文，英文界面下日志里也是中文。“批准”还丢了“同时改了审批模式”这一信息。
+- 如何核实：读该行；对比 `answerText` 用 `t("wizard.question.otherLabel")`。
+- 建议改法：文字由向导按当前语言拼好随 `answer` 交回（和提问向导一样），或在宿主用 `agentText` 取。
+
+### 模型控件：角色版把思考档位放在最后，被截断时先丢的就是它；两个控件行为不一致
+- 严重程度：建议
+- 类别：界面
+- 位置：`packages/nb-agent-ui/src/vue/composer/AgentRoleModelPicker.vue:188-192`、`:384-390`（`.acv-role-picker__text` 的 `max-width: 18em` 与 `text-overflow: ellipsis` 作用在整段）；对照 `AgentModelPicker.vue:164-185`（档位 `flex: none`，模型名先省略）
+- 现象：开发者要求“思考档位用强调色”，是要让它一眼可见。角色版把“角色名 · 实际模型 · 档位”放在一个被省略的 span 里，名字或模型较长（或窄屏）时省略号先吃掉末尾的档位；另一个下拉版则保住档位、截模型名。同时 `AgentModelPicker` 去掉了 `max-width: 12em`，模型名长度只靠父级 flex 收缩，依赖 `DropdownMenu` 根节点有 `min-width: 0`（未验证）。
+- 如何核实：Lab 的 `modes-with-role` 场景换一个很长的模型名，窄容器截图。
+- 建议改法：角色版把档位拆成 `flex: none` 的独立 span，省略只作用于前两段。
+
+### 旁路无障碍：审批控件“变淡”的原因只在 `title`，模式变化的播报在换会话时也会触发，模式切换向导的播报文字不对
+- 严重程度：建议
+- 类别：可访问性
+- 位置：`AgentConversationComposer.vue:496-497`、`:236-239`；`AgentWizard.vue:38`
+- 现象：
+  1. 审批按钮同时有 `title="{approvalTitle}"` 与 `aria-label="审批模式：xx"`。有 `aria-label` 时读屏读它，不读 `title`，所以“计划模式下不改作品，批准计划后按它走”只有鼠标用户能看到，spec 输出 11 要求的“提示”读屏用户得不到。
+  2. `watch(() => composer.value.mode, ...)` 只要 `composer.mode` 变就播“已切到 X 模式”，打开另一个处于 plan 的会话、别的窗口切了模式、建会话提交 `draftMode` 都会播，而用户并没有切。
+  3. `AgentWizard.announcement` 在没有审批时一律用 `wizard.announce.question`（“Agent 有问题需要你回答”），模式切换向导也念这句，且作为容器 `aria-label`。
+- 建议改法：1 把 `approvalTitle` 同时作为 `aria-label`；2 只在用户操作触发（`cycleMode` 或菜单）时设置播报文字，或比较会话 id 不变时才播；3 给 `isModeSwitch` 单独的一句。
+
+### 组件同名 `.md` 没跟上：至少六处与实现不一致
+- 严重程度：建议（仓库规则要求同步：`docs/standards/code/components.md`、ui-development 技能的 UI 专属检查）
+- 类别：文档
+- 位置与现象：
+  - `packages/nb-agent-ui/src/vue/composer/AgentModelPicker.md:12` 仍写“芯片图标、模型名（最宽约 12em）、淡色的‘· 档位’”：图标已删、`max-width` 已删、档位是强调色、箭头换了。
+  - `AgentRoleModelPicker.md:12` 仍写“芯片图标”。
+  - `AgentStatusBar.md:12` 没有“非默认模式的标记”（`data-status-mode`）。
+  - `packages/nb-agent-ui/src/vue/wizard/AgentApprovalWizard.md` 没写“以后都允许”按钮与 `allow-always`。
+  - `AgentWizard.md` 没写第三种事项 `mode-switch`；`AgentWizardFrame.md:12` 没写 `large` 属性与 `85cqh`。
+  - `packages/nb-markdown/src/prompt/PromptEditor.md` 没写“没人听 `shift-tab` 时不吞、补全菜单开着时不发出”这条行为变化（只有事件签名一行）。
+- 如何核实：`grep -n "图标\|12em" AgentModelPicker.md`，对照 `git diff 19a7ef070..5f5ed11db` 里对应 `.vue`。
+- 建议改法：逐个补一两句。
+
+### 测试：向导与规则页没有组件级判据；模型控件的可见文字断言被改成 `title`
+- 严重程度：建议
+- 类别：测试
+- 位置：`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.dom.test.ts:117-123`；缺失的：`AgentModeSwitchWizard`、`PermissionRulesPage`、`AgentApprovalWizard` 的 DOM 测试
+- 现象：
+  1. `AgentRoleModelPicker` 的用例原本断言触发器 `.text()` 是 `主力 · DeepSeek V4 · 高`，改成断言 `title` 属性。`title` 本来就等于 `triggerText`（`:181`），这个断言与新模板（`:188-192`，另写的一套文字拼接）没有关系，实际显示文字（含 `· `、强调档位的 span）不再被测到。应保留 `.text()` 断言并规范化空白。`AgentModelPicker` 的档位 `<b>` 也没断言。
+  2. `AgentModeSwitchWizard`：附言非空时“批准”禁用、审批模式只在与当前不同时才随答案交回、`hasPlan` 两种标题，都没有 DOM 测试；只有 `session-host.test.ts` 直接发 `input.submit` 绕过了向导，以及 e2e 里点一次默认“批准并开始”。
+  3. `AgentApprovalWizard`：`remember === false` 时两个按钮都不显示、有 `label` 时按钮文字、`allow-always` 的 `pick` 都没有组件测试；`wizard.test.ts` 的新用例只测 `choose`，没有 `allow-always` 不联动的判据。
+  4. `PermissionRulesPage`：增删改、上移下移、`writable=false` 停用、`projectRules="invalid"`、只读命令失焦才写，只有 Lab 场景与一个 e2e 删除用例；`permission-rules.test.ts` 的“来回”没有关键词（见上）。
+  5. e2e 的“模式”用例 `toHaveClass(/is-muted/u)` 断言的是实现用的类名，不是用户看到的结果（变淡）。
+- 建议改法：补 `AgentModeSwitchWizard.dom.test.ts`、`AgentApprovalWizard` 的按钮可见性用例、`PermissionRulesPage` 的 DOM 用例；`.text()` 断言恢复。
+
+### 设置页的编辑状态假设列表不变；保存时先关对话框，写失败后表单已丢
+- 严重程度：建议
+- 类别：边界
+- 位置：`PermissionRulesPage.vue:42-69`（`editing` 记的是下标）、`:76-84`（只读命令失焦才写）
+- 现象：
+  1. `editing` 是下标：编辑对话框打开期间列表被别处改过（另一个窗口、对话里的“以后都允许”只追加到末尾不影响，但删除或排序会），`save` 的 `next[editing.value] = result.rule` 改到别的规则上；列表变短时写到越界下标，得到带空洞的数组（JSON 序列化成 `null`），写入会被 schema 拒绝。
+  2. `save()` 成功校验后立刻 `editing.value = null` 关闭对话框，写入失败只在设置窗口弹通知，用户刚填的整张表单没有了。
+  3. 只读命令框“失去焦点才写”：用户在框里改了字，直接用 Esc 或快捷键关闭设置窗口、切别的页，Chrome 对被移除的聚焦元素并不保证先发 `blur`（从代码推断，未验证），改动丢失，且没有未保存标记（`SettingsPageContext.dirty` 没用）。
+- 建议改法：用规则内容（或写入时的完整快照）而不是下标定位；保存成功后再关对话框；页面卸载时（`onBeforeUnmount`）补一次 `commitCommands`，或在输入时设 `context.dirty(true)`。
+
+### 窄屏与英文界面：折图标的断点固定在 420px，没有按文字长度；Lab 场景有重复与缺口
+- 严重程度：建议
+- 类别：界面、维护性
+- 位置：`AgentConversationComposer.vue:845-849`；`packages/neuro-book/src/plugins/lab/web/fixtures/index.ts`（`PermissionRulesPage` 场景）、`agent-scene/PermissionRulesFixture.vue`
+- 现象：
+  1. 非单行版式下左边 `+`、模式、审批、登记按钮（`flex: none`）与右边模型版（最宽 18em）并排，只有 ≤420px 才隐藏文字。英文界面（`Allow writes`、`Ask each time`、`Discuss`）下文字更长，421 到约 480px 之间左边的 chip 不可收缩、`.acv-composer__tools` 也没有 `overflow`，可能压到右边（未验证，需要 en-US、窄容器的 Lab 截图）。
+  2. 同一份 5 条规则的数组在 `fixtures/index.ts` 的五个场景里整段重复，改一处要改五处；`PermissionRulesFixture.vue` 只透传 `rules` 等几项，忽略了 `modeWriteAction`、`readOnlyCommands`，所以“其它”区的 `ask` 状态、已有只读命令这类状态没有场景可看，页面的 `modeWriteAction`、`readOnlyCommands` 事件在 Lab 里也不更新。
+  3. 没有“批量里选了以后都允许”的向导场景、没有英文窄屏的作曲框场景。
+- 建议改法：规则数组提成常量；夹具把这两项也接成 `ref`；补英文窄屏场景（`english` 后缀），顺手核实 1。
+
+### 其它小问题
+- 严重程度：建议
+- `approvalModeWhileGated`（`nb-agent-ui/src/locales/zh-CN.ts:162`）写“批准计划后按它走”，在 `discuss` 模式下也显示，但 discuss 没有计划可批准。`AgentModeSwitchWizard.vue:30-32` 用 `item.plan !== undefined` 判断“退出计划”，计划切到 `discuss` 时同样标题是“计划写好了，开始实现？”、按钮“批准并开始”，不看 `toLabel`（modes.md 输出 10 对目标不是 `plan` 的都这样写，spec 本身没区分，建议在 spec 里确认 `plan -> discuss` 是否也走“开始实现”措辞）。
+- `AgentConversationComposer.vue:495`：`is-accent` 用在 `danger` 上，`is-danger` 只在非默认模式下才叠加：`normal + 全部放行` 的 chip 是强调色，`plan + 全部放行` 反而是红色，被闸门挡住的状态比真正放行的状态更警示。
+- `AgentConversationComposer.vue:423-432`：展开按钮的缩进与周围不一致（`v-if`、`class` 顶到行首），格式未整理。
+- `AgentModeSwitchWizard` 没有“停止”出口（提问向导有 `stop`），只有输入框的停止可用；Esc 只收起。可与开发者确认是否有意。
+
+## 未发现问题的方面
+- 双语目录：`packages/neuro-book/src/plugins/agent/locales/zh-CN.json` 与 `en-US.json` 共 161 个叶子键，键集与占位符一致（脚本核对）；`nb-agent-ui` 的新键两种语言都有。
+- `allow-always` 的先后顺序：先写规则再按 `allow-session` 应答，写失败仍批准并提示 `ruleNotSaved`，`pending` 已不在（别的窗口先答）时 `rulesToRemember({})` 得空、不写规则，应答的 `unknown-interaction` 被吞掉，符合输出 14 与输出 23；已有 `session-host.test.ts` 覆盖成功与失败。
+- `rememberKey` 联动：`remember: false` 不联动、不同前缀不联动，`wizard.test.ts` 已覆盖。
+- `/plan`、`/mode`：已在 `plan` 不动、接 key 与显示名、名字不对时字留着，有测试覆盖；带文字时先切再发。
+- 项目规则只读显示、放行标“不生效”、`invalid` 文案与 spec 一致；`writable` 为假时增删改移动与只读命令框都停用。
+- 零布局位移、焦点环：状态栏的 4px 外让、展开按钮的 `padding-right`、向导 `.is-large` 与 `cqh` 的容器（`AgentConversationView.vue:565` 的 `container-type: size`）都对得上；未做截图核实。
+
+## 各级数量
+- 阻断：0
+- 重要：2
+- 建议：13（条目 `###` 共 15 条，含上面 2 条重要）
+
+更正：条目共 17 条，其中重要 2 条、建议 15 条，阻断 0 条（上面“建议：13”是笔误）。
