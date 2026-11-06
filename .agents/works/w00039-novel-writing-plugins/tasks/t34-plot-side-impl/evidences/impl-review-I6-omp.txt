@@ -1,0 +1,181 @@
+### 1. 章首读取仍报告整章检查结果
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/diagnostics.ts:2852-2858。
+现象：`findingsAt` 只用 `view.chapters.indexOf(record.chapter) > now` 截断记录，没有处理 `at.edge === "start"`（也没有段内位置）。因此读取第 N 章章首时，已经存有第 N 章检查记录仍会进入 `validFindings`，报告本章正文产生的 `possibleSlip`、规则违反、新事实等。
+为什么是问题：canon 的诊断计算按读取位置返回结果；章首尚未读到第 N 章，写完第 N 章的检查发现不应出现在章首视图。当前实现把“同章”直接当成“不晚于读取位置”，会在开写前或读取章首时泄露未来结果，破坏位置隔离与待处理截断。
+如何核实：在实现工作树运行以下实验，输出了非空的 `possibleSlip`：
+`bun -e 'const {PlotWorld, chapter, present} = await import("./src/plugins/plot/testing/world.ts"); const {runOk, scripted, digest} = await import("./src/plugins/plot/testing/checks.ts"); const {checkDiagnostics} = await import("./src/plugins/plot/core/checks/diagnostics.ts"); const {CHECK_DIAGNOSTIC_IDS} = await import("./src/plugins/plot/shared/declarations.ts"); const cs=Array.from({length:6},(_,i)=>\`ch\${i+1}\`); const w=new PlotWorld(cs); const hero=w.person("勇者"), guard=w.person("卫兵"), k=w.point("勇者左手有星形的疤",hero,{保密:"secret"}); const q="卫兵盯着旅人的左手，说：你是勇者吧"; w.texts.set("ch4",\`\${q}。\\n\`); w.change(chapter("ch4"),{cast:[present(guard)]}); const r=await runOk(w,"ch4",scripted((_,x)=>x.answer==="yesNo"&&x.user.includes("把这件事当真")?{answer:"yes",quotes:[q]}:undefined).models); const c=checkDiagnostics({all:()=>[r],valid:()=>true},digest); console.log(JSON.stringify(c[CHECK_DIAGNOSTIC_IDS.possibleSlip](w.view(),{kind:"chapter",chapter:"ch4",edge:"start"},"actual")));'`
+建议改法：按 `ReadPosition` 完整截断：章首对 `record.chapter` 直接跳过；段位置只保留发生点不晚于该段的记录（或者将检查诊断合同明确限制为章末，并在计算入口拒绝/不注册其它位置）。补充章首、章内段与章末三种位置的行为测试。
+### 2. 依赖摘要回写会覆盖同章刚保存的新检查记录
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/plot/backend/plugin.ts:248；packages/neuro-book/src/plugins/plot/backend/checks.ts:81-85；packages/neuro-book/src/plugins/plot/core/checks/source.ts:446-475。
+现象：诊断读取旧记录 R1 时，`source.valid` 发现依赖摘要变了且 R1 仍有效，异步排入 `store.queued(() => store.write(records, R1'))`。如果同章新的 `run` 已经先排入并完成保存 R2，随后 R1' 仍用当前 revision 正常写入，会把 R2 的新调用、答案与发现覆盖掉，只保留 R1 的旧内容和新的 dependencies。回写没有比较记录身份、世界版本或调用摘要，也没有调用 `changed` 之外的冲突保护。
+为什么是问题：检查记录“同一章只留最新一条”且新跑的结果应替换旧结果；旧诊断回写只能更新它验证过的那条记录的摘要，不能把较旧答案写回去。发生后 `source.valid` 看到 R1' 的 dependencies 已等于当前摘要，会直接返回有效，旧的答案持续成为待处理结果，且数据版本没有变化，问题不会自愈。
+如何核实：在真实项目子进程场景中，先保存一条有效 R1；让世界变化使 `pending` 触发 `source.valid`，在它已排队回写但尚未执行时，对同一章调用 `checks.run` 保存 R2；让队列先执行 R2、再执行此前的回写，随后调用 `checks.record` 并读取持久化记录，记录的 `calls`/`usage` 会回到 R1 而不是 R2。代码路径上，`source.valid` 捕获的是传入的旧 `record`，`createChecks.run` 的保存只按章写入，两个 `store.queued` 没有版本或记录摘要条件。
+建议改法：回写时在队列内重新读取当前表值，只有当前值仍是回写所基于的记录（至少比较 `contentOf` 摘要、调用集合摘要或存储 revision）才写入；更简单的是让 `source.valid` 只返回新 dependencies，把回写交给一个按章的去重写回任务，并在任务执行时丢弃已被新 `run` 替换的旧记录。为该竞态加真实项目存储测试，断言 R2 的 `calls` 与答案不被回写覆盖。
+### 3. 提前泄底没有附上挂在知识点地址上的决策
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/diagnostics.ts:2756-2761。
+现象：`decisionsOn` 只匹配 `decision.about` 中 `kind === "entry" && about.id === point`，不匹配 `kind === "address" && about.at.entry === point`。因此同样挂在知识点 K 的 `K.name`、`K.summary` 或 Component 地址上的读者守卫/决策，在 `earlyReveal` 发现的 `objects` 中不会出现。
+为什么是问题：`checks.md` 输出 8 要求提前泄底附上挂在 K 上的读者守卫与决策；`decisions.md` 输出 7 与 `involvedDecisionObjects` 已把 address 的条目作为挂点对象处理。当前结果让作者看不到实际约束来源，且同一决策改用 address 形状就改变了泄底诊断内容。
+如何核实：在实现工作树运行以下实验：创建答案 K、悬念与第 20 章明说揭示，在第 12 章触发试读，再创建 `about: [{kind: "address", at: {entry: K, path: "entry.name"}}]` 的决策。实验输出 `earlyReveal.objects` 只有 K，没有该决策；把 about 改为 `{kind: "entry", id: K}` 后同一实验会附上决策。实际运行命令已验证前一种输出，结果 `objects:[{kind:"entry",id:"e2"}]`。
+建议改法：将挂点判断抽成与决策涉及逻辑一致的 helper，匹配 `entry` 与 `address.at.entry`；读者守卫仍按 `marks` 匹配 point。补充 address 挂点的真实诊断测试，并同时检查账本 `revealDependencies` 的同形遗漏。
+### 4. 取消在模型完成后仍可能把检查记录落盘
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/plot/backend/checks.ts:79-87。
+现象：`runCheck` 返回成功后，`createChecks.run` 无论 `controller.signal` 是否已取消，都会把 `result.record` 排进 `store.queued` 并写入。若同章已有存储队列工作，`cancel` 可以在模型调用完成、等待队列期间发生；队列回调没有再次检查信号，仍保存记录并返回成功。
+为什么是问题：失败表明确规定 `plot-check-cancelled` 被 `cancel` 或入口停止时“这次检查没有存”。当前取消时序会出现调用方收到取消/或停止路径正在收口，但持久化结果已存在；下次 `record`/待处理会把一条调用方已取消的半成品当成有效候选，违反资源收口与记录状态不变量。
+如何核实：在真实项目合同测试的“同章检查正在运行”场景中，让前一条 `store.queued` 持有项目记录写入队列，再让模型调用全部返回；在 `checks.run` 返回 `runCheck` 成功、进入队列等待后调用 `checks.cancel({chapter})`，释放前一条队列，随后读取 `checks.record`。当前代码会读到刚写入的记录，而不是 `status: none`。静态路径也直接成立：`runCheck` 成功后第 81 行没有 `controller.signal.aborted` 检查，队列闭包第 82 行没有检查。
+建议改法：在入队前和队列闭包内都检查 `controller.signal.aborted`，取消则返回 `plot-check-cancelled` 且不调用 `store.write`；入口停止还要让已排队但尚未写入的回调失效。补充“模型完成后、存储排队期间取消”的真实项目存储测试。
+### 5. `available()` 阶段不可取消，模型服务卡住会永久占用 busy
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/plot/core/checks/run.ts:87-90；packages/neuro-book/src/plugins/plot/backend/check-models.ts:19-25。
+现象：`runCheck` 在创建 `AbortController`、注册取消 relay 之前先 `await models.available()`；`CheckModels.available` 没有 `AbortSignal`，远程实现也用没有超时/信号的 `use.available({})`。因此模型服务端入口或 RPC 在可用性探测阶段挂住时，`cancel` 与入口停止只能 abort `createChecks` 的 controller，不能结束这个 await，`running` 一直保留，后续请求持续返回 `plot-check-busy`。
+为什么是问题：Spec 的 `cancel`/`plot-check-cancelled` 覆盖整次检查，不能只覆盖已经开始的答案调用；阶段 F 也明确把挂住的模型通道列为会卡住 busy 的风险。一次服务端异常就会把这一章永久卡在运行中，直到进程重启。
+如何核实：让真实项目合同测试中的 `nbook.plot/model.available` 请求不返回（或让服务端入口在解析角色时阻塞），调用 `checks.run` 后立即调用 `checks.cancel`；当前 `status` 仍是 `running: true`，`run` Promise 不结束。纯端口复现也只需让 `CheckModels.available` 返回永不结算的 Promise；代码在第 89 行前没有任何 signal/timeout。
+建议改法：先建立批次 AbortController 并把 signal 传给 `available(signal)`，给可用性探测独立的短超时；或在 `Promise.race` 中监听取消/入口停止并返回 `plot-check-cancelled`。远程 `available` 合同同步补上取消与超时，测试覆盖服务未响应、cancel、入口停止三种路径。
+### 6. 并发失败返回的用量漏掉同批已完成调用
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/run.ts:99-103、122-139、160-166。
+现象：`fail(failure(...))` 在第一个 fatal/长度错误完成时立即把 `total` 的当前值复制进 `failed`。`Promise.all` 随后仍等待同批其它调用，但这些调用的 usage 只更新外层 `total`，不会更新已经保存的 `failed.usage`。返回的 `plot-check-failed` 因而不是“到此为止”的实际用量。
+为什么是问题：失败表明确要求 `plot-check-failed` 带到此为止的用量；并发调用已经向模型付费，漏报会让费用回执与真实消耗不一致，尤其是一个调用 auth 失败而其它窄问题仍完成的常见情形。
+如何核实：在实现工作树用真实 `runCheck` 端口替身让第一个 ask 返回 `{failure:"fatal", kind:"auth", usage:USAGE}`，其余调用正常返回同样 usage；运行结果为 `usage.input: 10`，但同批共发起 3 个调用、实际 usage 应为 `30`。已运行的最小实验输出：`{"ok":false,"code":"plot-check-failed","kind":"auth","usage":{"input":10,"output":2,...}}`。
+建议改法：失败只记录 `failedKind`，等待 `Promise.all` 收口后用最终 `total` 构造返回值；或在返回前把 `failed` 的 usage 更新为最终合计。保留取消时在途调用的实际 usage，测试 fatal/length 与并发收口两种场景。
+### 7. 已被替代的揭示计划仍触发试读
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/trial.ts:4704-4709。
+现象：`revealTable` 用 `on.changes({kind: "plan", status: "active"})` 收集未来 `explicit` 揭示，但没有检查计划进展。某计划记录状态仍为 `active`、却被另一条 active 计划通过 `replaces` 取代时，canon 的 `progress(plan, position)` 已是 `replaced`，旧计划的揭示仍把早章知识点放进试读候选。
+为什么是问题：checks 输出 4 限定“有安放在本章之后、生效的揭示计划”；canon.model 输出 13 将被替代计划定义为“被替代”，不应再作为未来揭示前提。旧计划已取消语义却仍令每次检查花试读与判一致的模型费用，并可能报告提前泄底。
+如何核实：在实现 worktree 用真实 `PlotWorld` 建 K、在 ch20 给 K 写 `explicit` 揭示计划 P，再建 ch20 的另一条 active 计划以 `replaces: P` 替代它；内核读取 `view.progress(P, ch12 end)` 为 `replaced`，但 `planCheck({chapter:"ch12"})` 的 `trials` 仍含 K。已运行实验输出：`{"p":"c1","trials":["e2"],"oldProgress":"replaced"}`。
+建议改法：建立未来揭示表时按 `progress(plan, 读取位置, "actual")` 排除 `replaced`、`undone` 与其它非生效计划；计划的 `fulfills` 兑现仍按 Spec 明确计入。给替代与撤销两种计划各加固定行为测试。
+### 8. 新事实去重依赖的名字表不在记录有效性摘要内
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/plan.ts:3267-3270、3271-3285；packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:2682-2693；packages/neuro-book/src/plugins/plot/core/checks/validity.ts:4867-4880。
+现象：运行检查前，`namesOfSegments` 建立段内已出场条目的名字/别名集合，`checkNewFacts` 用它判断带 `name` 的 `invention` 是否已经存在于世界；但 `names` 不在 `CheckPlan`、模型输入摘要或 `dependenciesOf` 里。之后新增一个与报告名字相同、已在本章章末出场的条目，不改变任何模型调用输入，`source.valid` 直接用相同 dependencies 返回有效，不重跑 `checkNewFacts`。
+为什么是问题：Spec 输出 7 明确列“候选与题面里写明的事实”发生变化就过期；输出 3 要按当前世界检查新名字是否已存在。旧记录会继续报已经写入世界的新名字为写手新编，或反向漏报，诊断与当前世界冲突。现有依赖测试只改了点名/名字所属条目初值，没覆盖新事实用 `namesOfSegments` 的整张全名表。
+如何核实：在实现工作树真实 `PlotWorld` 运行检查：第 5 章正文“小梅说：十一点在桥头见”，自陈存在，固定调用返回带 `name: "陈老板"` 的 invention；记录出现 `unreportedInvention`。之后 `w.person("陈老板")`，重拼摘要不变，`isValid` 仍为 `true`，诊断仍在。实验输出 `{"before":1,"after":1,"valid":true,...}`。
+建议改法：为每段构造当前名字/别名集合摘要，存进检查记录并纳入 dependencies；摘要只需覆盖 `readAppeared` 后参与分类的名字及别名，不应把完全无关世界字段带入。记录重算有效性时据当前名字表重新判定新事实分类，或将分类结果与名字表摘要纳入独立依赖。
+
+## 证据版本与位置更正（只追加）
+- 审查 worktree 始终固定在 a2b4059a6dbe306956c9396a116d69fc5fa80048。实现 worktree 在审查期间被其它工作推进；核实时 HEAD 已是 d47f2e296dfd0e5a1eac39ab4c0cbaf7c4ed5aa6。因此后续实验从实现目录启动 Bun，但由 scratch-omp/frozen-loader.ts 将源码与所有 workspace 包的公开入口解析到固定审查 worktree；第三方依赖只借实现目录已装的版本，不改任何 worktree。
+- `bun /tmp/review-w00039-t34-I6/scratch-omp/core-smoke.ts` 在固定源码上复核：第 1 条章首发现 1 条；第 3 条 objects 只有 e2、缺 d1；第 6 条 3 次实际输入用量 30、失败回执只有 10；第 7 条 progress 为 replaced、trials 仍含 e2。
+- 前文误将 full.diff 行号用作源码行号。正确位置：第 1 条 diagnostics.ts:149-158；第 2 条 source.ts:46-56、backend/plugin.ts:248、backend/checks.ts:81-85；第 3 条 diagnostics.ts:57-61；第 7 条 trial.ts:47-64；第 8 条 plan.ts:96-115、run.ts:303-320、validity.ts:22-35。其它未列者按原位置。
+
+### 8. 新事实去重依赖的名字表不在记录有效性摘要内（收窄，以下说明取代原摘要漏项主张）
+固定源码实验输出为 `{"sameDependencies":false,"valid":true,"storedFacts":1,"currentFacts":0}`：增加陈老板条目实际上改变了 dependencies，原文“dependencies 相同”撤回。问题在慢路径 isValid 也只比较模型调用输入，而 checkNewFacts 另用 namesOfSegments 过滤；即使慢路径重拼仍判旧记录有效，既有新事实未重新分类。按输出 7 的字面有效条件，这不是依赖优化与重拼不等价；仅作为输出 3 的新事实分类持续沿用旧世界的问题保留。修法应先决定把名字集合加进固定调用输入，还是诊断时按当前世界重做分类；只把名字集合加到 dependencies 不能解决。
+
+### 9. 晚出场伏笔的答案进入本章候选，却不进入依赖摘要
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/brief/context.ts:128-139；packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:139-144、181-194。
+现象：`pointsReferencedBy` 遇到计划讲述上的 node 时，直接读取伏笔条目的 fs.答案，不检查该条目是否 appeared。dependencies 按条目 appears 分桶，认为晚于本章的条目不会被计划读取而排除。修改这个晚出场伏笔的答案后，旧记录携带的 points/concerns 没变、世界前缀没变，快速路径依然有效；实际重新圈候选已换了知识点。
+为什么是问题：checks 输出 7 允许摘要优化的前提是与重拼完全一致。这个反例直接使已过期的检查结果继续进入待处理，且重新启动后相同摘要仍跳过重拼。
+如何核实：固定源码实验 `bun /tmp/review-w00039-t34-I6/scratch-omp/dependency-counterexample.ts`。第 8 章计划的 node 引用第 15 章才出场的悬念；悬念答案原为 K1，之后改成 K2。输出：`{"sameDependencies":true,"beforePoints":["e2"],"afterPoints":["e3"],"beforeCalls":["presence:main#1:e2:e1","time:main#1","fixed"],"afterCalls":["presence:main#1:e3:e1","time:main#1","fixed"],"recomputedValidity":false}`。写入和读取都经真实 World 与正式 CanonReadView，未伪造视图数据。
+建议改法：统一计划路径上条目的出场过滤；如果有意允许晚出场伏笔提供答案，则按实际引用将它加入前缀依赖，不能继续假设只有已出场条目被读。把此反例补进 dependencies.test.ts 的“摘要相同则重拼结果相同”场景。
+
+## 第 2、4 条的固定源码运行证据
+命令：在指定实现包目录运行 `bun /tmp/review-w00039-t34-I6/scratch-omp/backend-smoke.ts`，源码由固定提交加载器解析。依赖使用真实 WorldService、PlotStore、Storage 门面、分区 SQLite；仅模型端口按合同返回答案；观察 store.queued 入队时点的包装原样调用真实 queued，不改变其顺序。
+- 第 2 条：先保存答 yes 的 R1；前一条存储工作等待时，重新检查的 R2（答 no）已入队；发布不相关条目后用 source.valid 验证仍在表内的 R1，R1 的依赖回写接着入队。放行队列后输出 `F2 {"newAnswer":{"answer":"no","quotes":[]},"storedAnswer":{"answer":"yes","quotes":["卫兵盯着旅人的左手，说你是勇者吧"]},...,"writtenBack":1}`。原文“先保存 R2、再读取 R1”并非必要；真正窗口是 R2 已排队而表内仍为 R1。旧记录内容写回改变 store.dataVersion，但插件的 writeBack 没有 reportDataVersion，额外造成 canon 缓存与磁盘/内存分歧。
+- 第 4 条：下一次检查完成模型调用并已入队，先 checks.cancel("ch4")、再放行队列，输出 `F4 {"runOk":true,"afterCancelSavedNew":true,"running":false}`。取消后的新记录真实写入 SQLite，并非只构造未保存的回执。
+
+### 5. `available()` 阶段不可取消，模型服务卡住会永久占用 busy（收窄：入口停止由 runtime 收口）
+严重程度仍为重要。位置仍为 core/checks/run.ts:87-97、backend/check-models.ts:21-25。固定提交的真实 runtime.application、远程节点、路由与进程内链路实验 `bun /tmp/review-w00039-t34-I6/scratch-omp/remote-cancel.ts` 输出：`F5_CANCEL {"settled":false,"remoteAborted":false}`；同通道其它 RPC 已成功返回作为屏障，显式 cancel 没有结束 available。停止调用方项目入口后输出 `F5_ENTRY_STOP {"ok":false,"code":"plot-check-unavailable","detail":"cancelled","usage":{"input":0,...}}`。原因：runtime 的 RemoteUse 自动关联 caller.signal（node.ts:617-628），但没有关联检查自己的 controller.signal。撤回原文“入口停止也不能结束 await”；该路径会结束，但被误报为 unavailable 而非 cancelled。显式 cancel 仍不可用且 available 无超时，章可持续 busy，直到远程返回/断连/入口停止。
+
+## 已有模块语义对照结果
+固定源码与 b78df0971 导出的基线模块做同世界差分：`bun /tmp/review-w00039-t34-I6/scratch-omp/semantic-differential.ts`。主线/支线、actual/planned、4 个章的章首/章末，对 all、transitions、rowChange、伏笔索引/阶段、plansOf、pointsBeforeWriting、involvedDecisions、effective readerTellings 共 832 项比对一致。
+确有两个内部行为差异：早期 KnowingIndex.changedBy 对未来显式变更现在能返回结果，基线为空；readerTellings(effective:false/省略) 现在只扫 effective 讲述。已追现有消费者：changedBy 的实际调用只对已计入的经历/计划或 endOf 索引使用；readerTellings 的用户级消费者只需生效正文。没有在这些差异上确认本次新增的用户可见回归，不计为发现。基线已有的 late-goal/计划位置近似不算本次回归。
+
+### 10. 依赖摘要完全漏掉核对点上的正文讲述
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:135-155、184-195；packages/nb-canon/src/service/reads.ts:419-421。
+现象：worldFold 只摘要 allChanges、entries 与筛选后的 decisions，没有核对点。内核 tellings 却也枚举每个核对点的 told；这些讲述能带剧情 reveal/node 标注，进入 readerKnowing 与试读材料。只加、改或删核对点及其讲述时，dependencies 可完全相同，快速路径沿用已过期的结论。
+为什么是问题：checks 输出 7 的“摘要与重拼等价”被直接破坏。给较早正文的核对点讲述加 explicit 揭示后，读者在上一章末已经知道 K，本章本应不再试读；旧检查仍可能报告提前泄底。节点材料的加入/移除同样会漏，且重启不会修复相同摘要。
+如何核实：固定源码运行 `bun /tmp/review-w00039-t34-I6/scratch-omp/checkpoint-deps.ts`。真实 World 登记数值 Component，保存第 12 章检查，再经 publish 创建第 3 章数值核对点，told 引原句且带 K 的 explicit 标注。输出 `{"sameDependencies":true,"oldTrialCount":1,"newTrialCount":0,"optimizedValid":true,"recomputedValid":false,"check":"k1"}`。核对点与标注通过正式写入校验；optimizedValid 用真实 createCheckSource，而非自制有效性替身。
+建议改法：把核对点（至少其安放、told、标注与影响讲述的字段）纳入依赖；以发生点/讲述章分桶，或从视图明确取得核对点集合。不要只用世界版本强制全书过期，也不要只修 reveal：node 材料依赖同样来自核对点。
+
+### 11. 取消监听在判一致之前被移除，取消不能中止判一致模型调用
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/plot/core/checks/run.ts:160-164、235-243。
+现象：第一批窄问题、固定调用与试读收口后立刻 removeEventListener("abort", relay)，然后才执行第二批 judges。外部 cancel 只改变 input.signal，而 ask 用的还是 batch.signal；判一致期间两者已断开。run 要等 judge 正常返回或触发每次 5 分钟超时（还可能重试）后才返回 cancelled，模型继续消耗额度，章一直 busy。
+为什么是问题：检查取消的合同覆盖整次检查，不只第一批调用。提前解除 relay 使常见的“试读已完成、正在判一致”状态不可取消，也让入口停止前的本地控制器无法及时终止这一批调用。
+如何核实：固定源码、真实 runtime.application/远程节点/路由/链路，执行 `bun /tmp/review-w00039-t34-I6/scratch-omp/remote-cancel.ts`。先正常完成试读，真实 RPC 的 judge 等待闸门；触发本次检查 signal，另一个同节点 RPC 正常返回作屏障。输出 `JUDGE_CANCEL {"settled":false,"remoteAborted":false}`；放行 judge 后才输出 `JUDGE_AFTER_RELEASE {"ok":false,"code":"plot-check-cancelled",...,"usage":{"input":40,...}}`。它不是只有回执没变，服务端 judge 的 AbortSignal 也没有触发。
+建议改法：relay 在整个 runCheck 的 try/finally 结束时才移除，同时覆盖两批 Promise.all 与异常路径。新增取消发生在 judge 在途/等待项目信号量两种时序的行为测试。
+
+### 12. 存储发生 revision 冲突后无法靠重试恢复
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/plot/backend/store.ts:111-118、150-164、240-246。
+现象：清单保存冲突后仍永久保留旧 #listRevision；章记录保存冲突后虽删 #slots，下一次 #slot 只 open、不 read，又把 revision 设为 null。已有清单/章记录永远不再满足 expect。一次其它实例写入后，清单冲突使这个实例不能新增任何章；已有章冲突使该章永远不能更新，直到插件重启。
+为什么是问题：storage.persistence 明确允许两个打开同一库的进程做条件写入，冲突恢复要求重读。PlotStore 的注释也承诺“下一次写之前重读 revision”，实际没有读；checks 的失败恢复让调用方重跑，重跑会反复花模型费用后再次存储失败。
+如何核实：固定源码、两个真实 PartitionOwner/StorageFacade/PlotStore 打开同一 SQLite，`bun /tmp/review-w00039-t34-I6/scratch-omp/store-conflicts.ts`。清单场景：A 写 ch1 成功，B 写 ch2、重试 ch2、改写 ch3 均为 `conflict: 期望 null，当前 1`。章记录场景：两份 store 都已 load ch1，A 更新成功，B 三次更新分别是 `期望 2，当前 3`、`期望 null，当前 3`、`期望 null，当前 3`。未伪造 storage 返回码。
+建议改法：缓存失效后的打开必须 read 当前状态/revision；清单冲突时重读并合并已存章集合，再让调用方明确重试。保护 corrupt/unsupported-version 的 reset 语义，不以无条件覆盖解决冲突。补一条双实例冲突后重试成功的真实存储测试。
+
+### 13. 有效性缓存只按章和依赖命中，新记录沿用旧记录的过期结论
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/source.ts:36、47-55。
+现象：verdicts 键只有 chapter，值里只有当前 dependencies 与 valid，不区分被验证的是哪条 CheckRecord。新 run 在版本 V1 取计划；运行中发布不改变调用输入的变化 V2，同时读取 pending 把旧记录在 V2 的 false 结论缓存。新 run 的记录保存后依赖仍是 V1 的，第一次有效性检查算到 V2，直接命中旧记录的 false，虽然新记录重拼完全相同。
+为什么是问题：checks 输出 7 要以每条记录自己的调用集合/摘要判定，新记录不能继承旧记录的有效性。该章会刚跑完又报 stale，重复跑也可继续命中同一 false；通常直到世界再次变化或重启才恢复，用户为有效记录白花模型费用。
+如何核实：固定源码、真实 WorldService + SQLite + createChecks/source，执行扩展后的 `bun /tmp/review-w00039-t34-I6/scratch-omp/backend-smoke.ts`。先给卫兵新增知情使旧记录过期，启动新检查；在 available 阶段暂停时创建不相关条目，读取旧记录生成 false memo，然后放行并保存新检查。输出 `SOURCE_MEMO {"oldValid":false,"optimizedNewValid":false,"recomputedNewValid":true}`。新记录确已保存，WorldService 在 reportDataVersion 后已换新视图，仍被 source 内部 memo 误判。
+建议改法：memo 同时绑定记录身份或记录内容摘要，不仅绑定 chapter/dependencies；新检查替换记录时失效这条 memo。回写摘要不能作为记录身份，因为它本身可变且被排除在内容外。补新检查进行中读旧记录的行为测试。
+
+### 14. 新事实的单条多行引文跨线段时被错误丢弃
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/run.ts:303-310；segments.ts:71-76。
+现象：checkNewFacts 找 home 时要求 fact.quotes[0] 的全部行在同一 CheckSegment；之后也要求每个 quote 整体落在某一个 segment。有效原句跨本章的两条线段、以单个带换行的 quote 返回时，虽然每行都在本章正文，仍按 badQuote 丢弃；把相同原句拆成 quotes 数组的两个元素就保留。
+为什么是问题：checks 输出 3 明确允许跨段引文、按第一处引文归段；输出 6 明确含换行时逐行核对。相同有效正文只改数组分组就从 unrecordedKnowing 消失，报告遗漏取决于模型格式而不是内容。
+如何核实：固定源码 `bun /tmp/review-w00039-t34-I6/scratch-omp/answer-edges.ts`，真实 World 的第 3 章分成主线和支线两段；固定调用返回同一条 knowing，引用两段原句。输出 `CROSS_LINE {"separate":{"facts":1,"badQuotes":0,"home":"main#1"},"multiline":{"facts":0,"badQuotes":1}}`。引文内容和次序完全相同。
+建议改法：固定调用的新事实按行定位到整章段落表，第一条非空引文行决定 home，其余各行允许跨段；窄问题和 POV 规则仍维持必须同段的约束。补两条线之间的一条多行 quote 与多个 quote 等价的场景。
+
+### 15. 补问清单里的超预算试读永远不会执行
+严重程度：重要；类别：正确性；位置：packages/neuro-book/src/plugins/plot/core/checks/plan.ts:196、211-222；trial.ts:146-148。
+现象：试读超出缺省 3 次会写入 unasked（reader:K），但 followUps 只传给窄问题 budgeted，trialsOf 不接清单且永远 slice(0, 3)。作者把 unasked 中的 reader:K 原样交给 run.followUps 后，调用被继续列为 unasked，记录却已经保存这个补问清单。
+为什么是问题：checks 输出 5 允许给未问候选补问，预算之外增加仍是候选的指定项；输出 4 的 3 次是缺省上限。当前公开入口能展示第 4 条试读候选，却没有任何方式补问它；即使反复调用也只复用前 3 条而不问目标。
+如何核实：固定源码 `bun /tmp/review-w00039-t34-I6/scratch-omp/answer-edges.ts`：4 个相关保密知识点均有后续 explicit 计划，先跑出 1 条未问试读，再把其 id 传入 followUps。输出 `READER_FOLLOWUP {"requested":"reader:e5","asked":false,"stillUnasked":true,"reused":5,"trial":0}`。
+建议改法：试读预算也取默认前 3 条加补问清单里仍是候选的指定项，沿用输入相同答案，未问列表排除已补问项；若产品确实要把试读 3 次定成不可突破的硬限，应在 Spec 和入口合同明确排除试读补问、不要向调用方提供可补问的 reader id。
+
+### 16. 被取消的检查仍须等待其它检查释放并发槽位
+严重程度：重要；类别：不变量；位置：packages/neuro-book/src/plugins/plot/core/checks/run.ts:35-46、111-114、160-165。
+现象：项目共用 limiter 的 waiting 只存 resolve，不接 AbortSignal。检查在槽位里尚未开始、用量为零时取消，batch 虽然 aborted，排队的 limiter.run 仍不结算；runCheck 的 Promise.all 要等其它章的在途调用结束才返回。卡住的其它章最多占满 4 个槽位，取消一个尚未开始的章也不能立即结束 busy。
+为什么是问题：取消应停止本次检查，不应依赖其它检查的远程响应。实际占槽的调用最长可以运行到 5 分钟超时；其间这个没有在途模型调用的检查无法重跑。
+如何核实：固定源码、真实 RemoteUse/路由/应用，执行 `bun /tmp/review-w00039-t34-I6/scratch-omp/remote-cancel.ts`。两次正常检查占满真实 createLimiter(4) 的 4 个槽位（4 个 ask 已到服务端）；第三次检查确已排进原 limiter.run 后取消，同通道 available RPC 已返回作为屏障，输出 `QUEUED_CANCEL_REMOTE {"settled":false,"heldCalls":4}`。直到放行前两个检查才返回 `QUEUED_RELEASE_REMOTE {"ok":false,"code":"plot-check-cancelled",...,"usage":{"input":0,...}}`。入队包装只观察时点，不改变真实 limiter 的行为。
+建议改法：limiter.run 接 signal；排队者取消时移除自身并立即返回/拒绝约定的取消结果，不占槽、不触发模型。已经运行的任务仍由它自己的 signal 收口。不要通过取消其它章解决。
+
+## 追加证据与措辞收口
+- 第 6 条也经真实模型 RPC 路径复现：同一 remote-cancel.ts 输出 `F6_REMOTE {"answered":2,"reported":{"input":10,...},"providerInputUsage":20}`。业务端口与模型替身结果一致，不是 Promise 直接返回才出现的时序。
+- 第 1 条只主张章首/章末截断；当前 ReadPosition 没有章内段位置，撤回原建议里“补章内段读取测试”的额外要求。
+- 第 2 条中，表内容被旧回写覆盖时 store.dataVersion 会变，但 writeBack 不报告 canon；原文“数据版本没有变化”应读作“canon 没收到新数据版本”，非 store 摘要不变。
+- 第 4 条是模型已完整完成的记录被取消后保存，不称“半成品”；已复现结果是 cancel 返回后 run 仍成功，未声称运行回执已经是 cancelled。
+- 第 13 条的误判持续到当前依赖变化或新记录再次以当前依赖保存；正常在当前世界再次重跑会因 record.dependencies === current 而绕过旧 memo，原文“重复跑也继续 false”收回。
+
+### 8. 新事实去重依赖的名字表不在记录有效性摘要内（撤回）
+实验表明名字表变化会使旧分类与重跑分类不同，但 Spec 输出 7 明确把“有效当且仅当”限定为模型调用集合与输入摘要；实现慢路径满足这个字面合同。输出 3 没定义检查后名字入库是否需要重分类，不能单凭当前世界已建条目就认定旧记录必须过期。此项不计有效发现；如要消除这个体验差异，先补 Spec，不把依赖优化当作根因。
+
+## 最终交付：按影响排序
+以下为本次审查的最终有效集合；编号沿用追加顺序，位置以本节与前述更正为准。第 8 条撤回，不计入数量。第 5 条仅保留显式取消与错误分类问题，不主张入口停止后永久挂起。
+
+| 影响顺序 | 编号 | 严重程度 | 最终判断 | 固定提交的源码位置（相对审查 worktree） |
+| --- | --- | --- | --- | --- |
+| 1 | 2 | 重要 | 旧依赖回写覆盖同章新检查记录，且没向 canon 报告内容变化 | packages/neuro-book/src/plugins/plot/core/checks/source.ts:46-56；backend/plugin.ts:248；backend/checks.ts:81-85 |
+| 2 | 10 | 重要 | 核对点讲述不在依赖摘要中，快速有效而重拼无效 | packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts:135-155、184-195 |
+| 3 | 9 | 重要 | 晚出场伏笔答案被候选读取却被摘要排除，知识点集合变化仍命中旧记录 | packages/neuro-book/src/plugins/plot/core/brief/context.ts:128-139；core/checks/dependencies.ts:139-144 |
+| 4 | 13 | 重要 | 旧记录的 false memo 误用于刚保存的新记录 | packages/neuro-book/src/plugins/plot/core/checks/source.ts:36、47-55 |
+| 5 | 12 | 重要 | 跨实例存储 revision 冲突后重试永远使用旧值/null，不能恢复保存 | packages/neuro-book/src/plugins/plot/backend/store.ts:111-118、150-164、240-246 |
+| 6 | 4 | 重要 | 等待存储队列期间取消，仍落盘并返回成功 | packages/neuro-book/src/plugins/plot/backend/checks.ts:79-87 |
+| 7 | 11 | 重要 | 判一致前移除 relay，在途 judge 无法由显式 cancel 终止 | packages/neuro-book/src/plugins/plot/core/checks/run.ts:160-164、235-243 |
+| 8 | 5 | 重要 | 可用性探测无本次检查信号/超时，显式 cancel 不结束它；入口停止能结束但错报 unavailable | packages/neuro-book/src/plugins/plot/core/checks/run.ts:87-97；backend/check-models.ts:21-25 |
+| 9 | 16 | 重要 | 取消已入并发等待队列的检查，仍等待其它检查释放槽位 | packages/neuro-book/src/plugins/plot/core/checks/run.ts:35-46、111-114、160-165 |
+| 10 | 7 | 重要 | 被替代的未来揭示计划仍触发试读 | packages/neuro-book/src/plugins/plot/core/checks/trial.ts:47-64 |
+| 11 | 15 | 重要 | 超预算试读列入未问，但 followUps 不能补问它 | packages/neuro-book/src/plugins/plot/core/checks/plan.ts:196、211-222；trial.ts:146-148 |
+| 12 | 14 | 重要 | 同一有效引文跨线段，单条多行形式被当坏引文丢弃 | packages/neuro-book/src/plugins/plot/core/checks/run.ts:303-310；segments.ts:71-76 |
+| 13 | 1 | 重要 | 章首读取包含本章正文检查发现 | packages/neuro-book/src/plugins/plot/core/checks/diagnostics.ts:149-158 |
+| 14 | 6 | 重要 | 并发失败回执用量早于同批收口，实际 20/30 输入只报 10 | packages/neuro-book/src/plugins/plot/core/checks/run.ts:99-103、122-139、160-166 |
+| 15 | 3 | 重要 | 提前泄底漏附 address 挂点的决策 | packages/neuro-book/src/plugins/plot/core/checks/diagnostics.ts:57-61 |
+
+第 9 条修复优先补全实际依赖，不应为绕过反例而改变已有简报语义；阶段 F 计划明确要求 pointsBeforeWriting/secrecyOf 的既有行为不变。
+
+## 未发现问题的方面
+- 对照 base 的 832 项既有语义实验中，未发现 foreshadowIndex、有效知情读取/转换、plansOf、pointsBeforeWriting、involvedDecisions 的用户可见新增回归；内部 changedBy/readerTellings 差异已单列，未当作实锤缺陷。
+- 试读程序添加的材料标签只含节序号；未发现章 id、线名、伏笔名、命题或 judge 结果由程序回流给 reader。作者原文已经写出答案的情况不作为程序泄密。
+- 伪造规则项 id 不进入结果；缺失规则项列为 incomplete；无效/空/过短的正面引文降为 unclear。逐行乱序引文与按章的无 line 诊断跨视图返回符合当前明确取舍，不另列问题。
+- 模型提供方按插件身份限制调用，记账 main、试读 fast，强制 answer 工具；错误消息不经剧情模型通道传递。未发现密钥由这些改动进入剧情记录/诊断。
+- 清单先写、章记录后写的顺序在记录保存失败时只留下可读取为 missing 的章；队列上一工作失败不挡后续工作；未知形状按没有、不占原件区的路径已有合同测试通过。未实测进程在两次写之间崩溃，不把代码分析当崩溃恢复运行证据。
+- 非模型返回的异常会由正式 RemoteUse 转成结构化远程失败，未把直接替身 Promise.reject 的行为误计为产品缺陷。
+
+## 实际验证与限制
+- 审查前段在指定实现 worktree（当时核对为审查 HEAD）执行 `bun test src/plugins/plot`：166 pass、1 skip、0 fail、1091 expect，20 文件；跳过的是未启用的真实模型用例。已有进程记录 plot-tests，exit 0。
+- 在该实现 worktree 的 packages/nb-canon 执行 `bun test tests/service.test.ts tests/views.test.ts`：35 pass、0 fail、142 expect，2 文件；canon-tests，exit 0。
+- 在该实现 worktree 的 packages/neuro-book 执行 `bun run typecheck`：tsc、web vue-tsc、browser-test vue-tsc 均 exit 0；plot-typecheck，exit 0。
+- 发现共享实现 worktree 已推进后，不把新代码上的结果当作旧提交证据。后续所有正式反例均从该实现包目录运行 `bun /tmp/review-w00039-t34-I6/scratch-omp/<脚本>`，通过 frozen-loader 加载固定 a2b4059a6dbe306956c9396a116d69fc5fa80048 的应用及 workspace 源码。脚本：core-smoke.ts、dependency-counterexample.ts、checkpoint-deps.ts、backend-smoke.ts、remote-cancel.ts、store-conflicts.ts、semantic-differential.ts、answer-edges.ts。实际输出已逐项记录；不把活动 worktree 后续修复当作已验收。
+- 未运行 e2e、开发服务、真实 Provider/Model、全书性能重测或变异测试；规模与真实模型仅审阅 scale-f8.txt、llm-f9.txt 的既有证据，不称本轮验证。未修改两个 worktree 的代码、测试或规范；只追加本报告并在指定 scratch-omp 放实验产物。
+
+## 回写建议（交主 Agent 汇总；本次不改规范）
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+| --- | --- | --- | --- | --- |
+| 1 | 工作流损耗 | 共享实现 worktree 从 a2b4059a6dbe306956c9396a116d69fc5fa80048 推进到 d47f2e296dfd0e5a1eac39ab4c0cbaf7c4ed5aa6，前面 3 次存储实验测到新修复；改为固定源码解析后才复现原缺陷 | 新增：审查固定提交时，运行证据须绑定实际加载的源码版本；实现 worktree 继续推进时，改用固定源码快照或显式解析，不把新版本结果归入旧审查范围。预计避免同类实验重跑，代价是准备固定依赖解析 | reviewing Skill 的“规则” |
+
+数量：阻断 0；重要 15；建议 0；撤回 1（第 8 条）。回写建议不算实现发现。
+有效发现编号（按影响排序）：2、10、9、13、12、4、11、5、16、7、15、14、1、6、3。
