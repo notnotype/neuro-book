@@ -28,7 +28,7 @@ owners:
 - **主题**：`workbench.themes` 的一条贡献。`nbook`、`macos` 与两套护眼主题也是主题，只是没有场景。
 - **主题包**：nb-ui 的形状、密度与动效（[`theme.system`](system.md)）。一条主题经 `base` 选一个。
 - **场景图**：每个明暗一张，各位置裁它的不同部分。
-- 参与者：`nbook.workbench`（贡献点、选择、写文档根、活动栏、侧栏下角）、`nbook.editor`（空状态）、`nbook.markdown`（正文两侧与正文字体）、提供主题的插件。
+- 参与者：`nbook.workbench`（贡献点、选择、写文档根、活动栏、侧栏与右栏下角）、`nbook.editor`（空状态）、`nbook.markdown`（正文两侧与正文字体）、提供主题的插件。
 
 ## 输入与前置条件
 
@@ -44,6 +44,7 @@ type ThemeDeclaration = {
         marginLeft?: {size: string; position: string};    // CSS background-size、background-position
         marginRight?: {size: string; position: string};
         sidebarCorner?: {size: string; position: string};
+        auxiliaryCorner?: {size: string; position: string};   // 右栏（auxiliarybar）
     };
     light: Look;
     dark: Look;
@@ -71,7 +72,7 @@ type Look = {
 3. **明暗**：`Look` 按解析后的明暗取，`system` 跟随系统。
 4. **空状态**：编辑组没开文件，或活动页面声明了 `scene`（欢迎页），内容区铺场景图，裁切取 `crop.empty`，内容中心按 `contentX` 偏到留白上。别的页面标签不铺。
 5. **正文两侧**：Markdown 编辑器的正文列两侧露出场景图，裁切取 `crop.marginLeft`、`crop.marginRight`，往正文方向淡出，从工具栏以下开始，不随正文滚动。一侧不足 120px 时那一侧不画。拆分后每组各自判断。源码编辑器、图片查看器不画。
-6. **侧栏下角**：`sidebar` 这个 Part 的下角露出场景图，裁切取 `crop.sidebarCorner`，往上淡出，不接收指针，列表长时盖在它上面。高度不足 300px 时不画。别的 Part 不画。
+6. **侧栏与右栏下角**：`sidebar` 与 `auxiliarybar` 这两个 Part 的下角露出场景图，裁切分别取 `crop.sidebarCorner`、`crop.auxiliaryCorner`，往上淡出，不接收指针，列表与对话长时盖在它上面。高度不足 300px 时不画。别的 Part 不画。编辑区放不下两侧时（默认布局下视口约 1760px 以下、右栏开着），右栏下角让界面仍有场景。
 7. **活动栏**：面、前景色与当前项的颜色取 `activityBar`，有 `ornament` 时首尾各画一条。
 8. **字体**：欢迎页标题用 `fonts.display`，Markdown 正文用 `fonts.prose`，没有时用现有字体。书架的展示字体不变：`fonts.display` 写成专用的变量，不写公共的 `--font-display`。
 9. **无障碍偏好**：`prefers-contrast: more`、`forced-colors: active` 下不画场景；配色与活动栏照旧。
@@ -116,13 +117,14 @@ type Look = {
 9. Given 命令 `switch-theme` 传不存在的 id；Then `invalid-args`。
 10. Given 一个不写代码的主题插件；When 安装并重启；Then 列表里有它，选了生效；When 禁用并重启；Then 退回且设置不变；When 启用并重启；Then 恢复。
 11. Given 护眼绿或护眼米黄与明暗任一；Then 没有场景；欢迎页文字、活动栏、侧栏、正文的对比度不低于 4.5。
+12. Given 书房、右栏开着、编辑区窄到放不下两侧；Then 右栏下角有场景，压在图上的文字（正文与次要文字）对比度不低于 4.5；When 模拟高对比度或强制颜色；Then 右栏下角没有场景。
 
 Smoke：`e2e/themes.e2e.ts`。
 
 ## 实现合同
 
 - 公开入口：`workbench/shared/contracts.ts`（`WORKBENCH_THEMES_POINT`、`ThemeDeclaration`、`THEME_CHOICES_PROVIDER`）；`shared/host.ts` 的 `windowPluginFilesKey`（插件的静态文件：内置的随前端构建，第三方的经插件文件端点）。
-- owner 与依赖方向：贡献点、选择、文档根的写入、活动栏与侧栏下角归 `nbook.workbench`；空状态归 `nbook.editor`（`editor.pages` 的声明加了可选的 `scene`）；正文两侧与正文字体归 `nbook.markdown`。各位置只读 `src/ui/theme/skin-vars.ts` 里的变量，没有变量时和没有主题一样。
+- owner 与依赖方向：贡献点、选择、文档根的写入、活动栏、侧栏与右栏下角归 `nbook.workbench`；空状态归 `nbook.editor`（`editor.pages` 的声明加了可选的 `scene`）；正文两侧与正文字体归 `nbook.markdown`。各位置只读 `src/ui/theme/skin-vars.ts` 里的变量，没有变量时和没有主题一样。
 - 不变量：声明里的素材只有相对路径，描述文件不 import 图片：服务端构建会把图片打进产物，URL 也和前端的不一样。内置素材的 URL 表在 `web/plugins.ts`。
 - 不变量：贡献点定义写在 shared，三个运行位置都带；没有入口的位置经描述里的 `contributionPoints` 登记，否则服务端的插件页把第三方主题标成“未知贡献点”。
 - 不变量：主题目录经 receiver 收，不取激活时的快照，以后热插拔不用改。
