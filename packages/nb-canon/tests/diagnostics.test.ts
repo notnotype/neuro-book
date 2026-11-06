@@ -113,6 +113,25 @@ describe("canon.model 输出 34：一次计算的结果怎样处理", () => {
         expect(service.status().diagnosticTimings.map((timing) => timing.diagnostic)).toEqual(expect.arrayContaining([boom.id, badKey.id, fine.id]));
     });
 
+    test("计算耗时超过 200 毫秒的在 status 的 diagnosticTimings 里标 slow，快的不标（canon.project 输出 26）", async () => {
+        const slow = declaration("slow");
+        const quick = declaration("quick");
+        const service = await open([slow, quick]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {
+            [slow.id]: () => {
+                // 真实地占用 250 毫秒：计时用的就是实际流逝的时间。
+                for (const started = performance.now(); performance.now() - started < 250;);
+                return [finding("慢")];
+            },
+            [quick.id]: () => [finding("快")],
+        }});
+        pageOf(service);
+        const timings = new Map(service.status().diagnosticTimings.map((timing) => [timing.diagnostic, timing]));
+        expect(timings.get(slow.id)).toMatchObject({slow: true});
+        expect(timings.get(quick.id)).toBeDefined();
+        expect(timings.get(quick.id)).not.toHaveProperty("slow");
+    });
+
     test("计算拿到这次读取的只读世界与读取位置：在第 2 章末尾读，按讲述的发生点报", async () => {
         const told = declaration("told");
         const service = await open([told]);

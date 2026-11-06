@@ -3,7 +3,7 @@ import {createHash} from "node:crypto";
 import {describe, expect, test} from "bun:test";
 import type {Expression} from "estree";
 
-import {buildRegistry, ChapterOrder, type Entry, type WriteRequest} from "../src/index";
+import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type WriteRequest} from "../src/index";
 import {renderEntryForAgent, renderEntryForAuthor, splitBlocks} from "../src/render/entry";
 import {evaluate, type Resolve} from "../src/render/render";
 import {parseBlock} from "../src/render/syntax";
@@ -334,5 +334,277 @@ describe("canon.rendering 输出 6、7、9：读不到的值、引用与显示�
         const agent = renderEntryForAgent(moved, "e2", position, "actual");
         if (agent === null || typeof agent === "string") throw new Error("no render");
         expect(agent.blocks[0]!.text).toContain("{link.n = 1}");
+    });
+});
+
+/** 图片字段与文字字段各一：渲染里的图片节点、属性里的表达式靠它们。 */
+const PIC: ComponentDeclaration = {
+    id: "test.pic",
+    label: "图",
+    namespace: "pic",
+    version: 1,
+    fields: [{id: "图", label: "图", kind: "image"}, {id: "路径", label: "路径", kind: "text"}],
+};
+
+/**
+ * 一群人，e1 星瑕的主文字是 `blocks`：e2 星瑾第 2 章末尾存款 800（第 3 章的计划里是 900）；e3 第 3 章才出场；e4 已删除；
+ * e5 的面板已去掉。版本 2。
+ */
+function cast(blocks: string[]): World {
+    const base = {...options(), registry: buildRegistry([PANEL, PERSON, PIC])};
+    const panel = (存款: number, extra: Record<string, unknown> = {}) => ({type: PANEL.id, version: 1, enabled: true, ...extra, fields: {存款, 魔力上限: null, 魔力: null, 物品: []}});
+    const person = (tmp: string, name: string, data: Entry["init"]["data"], extra: Partial<Entry> = {}, text: string[] = []): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, ...extra, init: {name, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data}});
+    const first = ok(World.empty(base).publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 0, puts: [
+        {ref: {kind: "entry", id: "tmp:1"}, after: person("tmp:1", "星瑕", {panel: panel(5), pic: {type: PIC.id, version: 1, enabled: true, fields: {图: {"图片": "assets/a.png", "说明": "原身"}, 路径: "assets/b.png"}}}, {}, blocks)},
+        {ref: {kind: "entry", id: "tmp:2"}, after: person("tmp:2", "星瑾", {panel: panel(500)})},
+        {ref: {kind: "entry", id: "tmp:3"}, after: person("tmp:3", "阿七", {panel: panel(1)}, {appears: {kind: "chapter", chapter: "ch3", key: 0}})},
+        {ref: {kind: "entry", id: "tmp:4"}, after: person("tmp:4", "旧人", {panel: panel(1)})},
+        {ref: {kind: "entry", id: "tmp:5"}, after: person("tmp:5", "无面板", {panel: panel(1, {removed: true})})},
+    ]} as WriteRequest, "t"));
+    const change = (tmp: string, kind: "written" | "plan", chapter: string, value: number) => ({ref: {kind: "change" as const, id: tmp}, after: {id: tmp, kind, text: tmp, at: {kind: "chapter", chapter, key: 10}, told: [], involves: ["e2"], lines: [], links: [], patches: [{op: "set", at: {entry: "e2", path: "panel.存款"}, value}], status: "active", by: author}});
+    return ok(first.world.publish({requestId: id(), by: author, what: "bookkeeping", title: "收尾", baseVersion: 1, puts: [
+        {ref: {kind: "entry", id: "e4"}, after: {...structuredClone(first.world.data.entries.get("e4")!), deleted: true}},
+        change("tmp:now", "written", "ch2", 800),
+        change("tmp:later", "plan", "ch3", 900),
+    ]} as WriteRequest, "t")).world;
+}
+
+function agentBlocks(base: World, position: ReturnType<typeof at>, mode: "actual" | "planned" = "actual"): string[] {
+    const rendered = renderEntryForAgent(base, "e1", position, mode);
+    if (rendered === null || typeof rendered === "string") throw new Error("no render");
+    return rendered.blocks.map((block) => block.text);
+}
+
+/** 给作者的一块里所有 canon 开头的节点，按出现的先后。 */
+function authorNodes(base: World, position: ReturnType<typeof at>, index = 0): Array<Record<string, unknown>> {
+    const rendered = renderEntryForAuthor(base, "e1", position, "actual");
+    if (rendered === null || typeof rendered === "string") throw new Error("no render");
+    const block = rendered.blocks[index]!;
+    if (!("tree" in block)) throw new Error("block is an error block");
+    const found: Array<Record<string, unknown>> = [];
+    const walk = (node: {type: string; children?: unknown[]}) => {
+        if (node.type.startsWith("canon")) found.push(node);
+        for (const child of node.children ?? []) walk(child as typeof node);
+    };
+    walk(block.tree as unknown as Parameters<typeof walk>[0]);
+    return found;
+}
+
+describe("canon.rendering 输出 1：白名单的放行与拒收（补）", () => {
+    const kinds = (source: string): string[] => {
+        const result = parseBlock(source);
+        if (!result.ok) throw new Error(result.problem.message);
+        const found: string[] = [];
+        const walk = (node: {type: string; children?: unknown[]}) => {
+            found.push(node.type);
+            for (const child of node.children ?? []) walk(child as typeof node);
+        };
+        walk(result.block.tree as unknown as Parameters<typeof walk>[0]);
+        return found;
+    };
+
+    test("MDX 解析失败得 mdx-invalid", () => {
+        const result = parseBlock("{panel.+}");
+        expect(result.ok === false && result.problem.code).toBe("mdx-invalid");
+    });
+
+    test("中文标点旁的强调按 CJK 友好的规则解析成粗体", () => {
+        expect(kinds("**“走吧。”**然后")).toContain("strong");
+    });
+
+    test("GFM 的表格与删除线放行", () => {
+        expect(kinds("| 名 | 值 |\n| --- | --- |\n| 魔力 | {panel.魔力} |")).toContain("table");
+        expect(kinds("~~旧名~~ 新名")).toContain("delete");
+    });
+
+    test("以 ref(\"…\") 开头的成员链放行，引用指向那个条目", () => {
+        const result = parseBlock('{ref("e2").panel.存款}');
+        expect(result.ok && result.block.expressions[0]!.references).toEqual([{entry: "e2", path: "panel.存款"}]);
+    });
+
+    test("元素 id 写成 [t3] 与 [\"t3\"] 等价", () => {
+        const bare = parseBlock("{panel.物品[t3].数量}");
+        const quoted = parseBlock('{panel.物品["t3"].数量}');
+        expect(bare.ok && quoted.ok && bare.block.expressions[0]!.references).toEqual(quoted.ok ? quoted.block.expressions[0]!.references : false);
+        expect(bare.ok && bare.block.expressions[0]!.references).toEqual([{entry: null, path: "panel.物品[t3].数量"}]);
+    });
+
+    test("<Image> 带 src 与 alt 放行", () => {
+        expect(parseBlock('<Image src="assets/a.png" alt="原身" />').ok).toBe(true);
+    });
+
+    test.each([
+        ["可选链 ?.", "{panel?.魔力}", "forbidden-syntax"],
+        ["模板字面量", "{`魔力${panel.魔力}`}", "forbidden-syntax"],
+        ["作用在字段上的负号", "{-panel.魔力}", "forbidden-syntax"],
+        ["<Image> 带别的属性", '<Image src="assets/a.png" width="3" />', "unknown-tag"],
+    ])("拒收：%s", (_name, source, code) => {
+        const result = parseBlock(source);
+        expect(result.ok ? null : result.problem.code).toBe(code as never);
+    });
+});
+
+describe("canon.rendering 输出 5、6：引用别的条目与读不到的值（补）", () => {
+    test("ref(\"…\") 取那个条目在同一位置、同一模式上的值", () => {
+        const base = cast(['{ref("e2").panel.存款}']);
+        expect(agentBlocks(base, at("ch1"))).toEqual(['{ref("e2").panel.存款 = 500}']);
+        expect(agentBlocks(base, at("ch2"))).toEqual(['{ref("e2").panel.存款 = 800}']);
+        expect(agentBlocks(base, at("ch3"))).toEqual(['{ref("e2").panel.存款 = 800}']);
+        expect(agentBlocks(base, at("ch3"), "planned")).toEqual(['{ref("e2").panel.存款 = 900}']);
+    });
+
+    test.each([
+        ["尚未出场", '{ref("e3").panel.存款}', "ch1"],
+        ["已删除", '{ref("e4").panel.存款}', "ch1"],
+        ["没有这个字段", "{panel.不存在}", "ch1"],
+        ["命名空间已去掉", '{ref("e5").panel.存款}', "ch1"],
+    ])("%s：Agent 读到 null 加不可用，作者看到占位，同一块里读得到的值照常", (_name, reference, chapter) => {
+        const base = cast([`前 ${reference} 后 {panel.存款}`]);
+        const annotation = reference.slice(1, -1);
+        const escaped = annotation.replace(/[.()[\]]/gu, "\\$&");
+        expect(agentBlocks(base, at(chapter))[0]).toMatch(new RegExp(`^前 \\{${escaped} = null # 不可用：[^}]+\\} 后 \\{panel\\.存款 = 5\\}$`, "u"));
+        const nodes = authorNodes(base, at(chapter));
+        expect(nodes.map((node) => node.type)).toEqual(["canonPlaceholder", "canonValue"]);
+        expect(typeof nodes[0]!.reason === "string" && nodes[0]!.reason.length > 0).toBe(true);
+        expect(nodes[1]).toMatchObject({path: "panel.存款", raw: 5});
+    });
+
+    test("读不到的值参与比较：结果是未知，作者看到占位", () => {
+        const base = cast(['{ref("e3").panel.存款 >= 1 ? "有" : "无"}']);
+        expect(agentBlocks(base, at("ch1"))[0]).toMatch(/-> null # 不可用：/u);
+        expect(authorNodes(base, at("ch1"))[0]).toMatchObject({type: "canonPlaceholder"});
+    });
+});
+
+describe("canon.rendering 输出 7、8：作者渲染的节点形状与带值写法的原样输出（补）", () => {
+    test("图片：标签与图片字段都是 canonImage（路径与说明）", () => {
+        const base = cast(['<Image src="assets/c.png" alt="立绘" />\n\n{pic.图}']);
+        const nodes = authorNodes(base, at("ch1"));
+        expect(nodes).toEqual([{type: "canonImage", path: "assets/c.png", caption: "立绘"}, {type: "canonImage", path: "assets/a.png", caption: "原身"}]);
+    });
+
+    test("条目引用：当时的名字；已删除的条目写“已删除的条目”并标 deleted", () => {
+        const base = cast(['见<Ref id="e2" />与<Ref id="e4" />']);
+        expect(authorNodes(base, at("ch1"))).toEqual([
+            {type: "canonRef", id: "e2", name: "星瑾", deleted: false},
+            {type: "canonRef", id: "e4", name: "已删除的条目", deleted: true},
+        ]);
+        expect(agentBlocks(base, at("ch1"))).toEqual(['见<Ref id="e2" name="星瑾" />与<Ref id="e4" name="已删除的条目" />']);
+    });
+
+    test("读不到的值：占位节点带原因", () => {
+        const nodes = authorNodes(cast(['{ref("e3").panel.存款}']), at("ch1"));
+        expect(nodes).toEqual([{type: "canonPlaceholder", reason: expect.any(String)}]);
+    });
+
+    test("图片值写成 {\"图片\": 路径, \"说明\": 文字}", () => {
+        const text = agentBlocks(cast(["{pic.图}"]), at("ch1"))[0]!;
+        const items = scanAnnotations(text);
+        expect(items?.map((item) => [item.kind, item.left, item.value])).toEqual([["assign", "pic.图", {"图片": "assets/a.png", "说明": "原身"}]]);
+    });
+
+    test("属性里的表达式同样写成注记", () => {
+        const base = cast(['<Image src={pic.路径} alt="立绘" />']);
+        expect(agentBlocks(base, at("ch1"))).toEqual(['<Image src={pic.路径 = "assets/b.png"} alt="立绘" />']);
+        expect(authorNodes(base, at("ch1"))).toEqual([{type: "canonImage", path: "assets/b.png", caption: "立绘"}]);
+    });
+
+    test("转义的 \\{、行内代码与代码块里的花括号原样输出，不当注记", () => {
+        const source = "他说\\{+5}，`{panel.存款}` 与 {panel.存款}\n\n```\n{panel.存款}\n```";
+        expect(agentBlocks(cast([source]), at("ch1"))).toEqual(["他说\\{+5}，`{panel.存款}` 与 {panel.存款 = 5}\n\n```\n{panel.存款}\n```"]);
+        expect(authorNodes(cast([source]), at("ch1"))).toHaveLength(1);
+    });
+});
+
+/** 星瑕存款 1000，第 3 章花 2000：套不上，存款从这里起不完整。版本 3。 */
+function strained(blocks: string[]): World {
+    const base = cast(blocks);
+    const withDeposit = (world: World, 存款: number) => {
+        const entry = structuredClone(world.data.entries.get("e1")!);
+        entry.init.data.panel!.fields.存款 = 存款;
+        return {ref: {kind: "entry" as const, id: "e1"}, after: entry};
+    };
+    const spend = {id: "tmp:spend", kind: "written", text: "花两千", at: {kind: "chapter", chapter: "ch3", key: 10}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: -2000}], status: "active", by: author};
+    // 先在够花的初值下写入这笔，再把初值改小：改初值不拒收，这笔从此套不上。
+    const spent = ok(base.publish({requestId: id(), by: author, what: "bookkeeping", title: "花两千", baseVersion: base.version, puts: [withDeposit(base, 40000), {ref: {kind: "change", id: "tmp:spend"}, after: spend}]} as WriteRequest, "t")).world;
+    return ok(spent.publish({requestId: id(), by: author, what: "edit", title: "改初值", baseVersion: spent.version, puts: [withDeposit(spent, 1000)]} as WriteRequest, "t")).world;
+}
+
+describe("canon.rendering 输出 9：不完整的装饰（补）", () => {
+    test("地址的值不完整：注记加“不完整：原因”；算出来的结果依赖它时也加", () => {
+        const base = strained(['{panel.存款} 与 {panel.存款 >= 500 ? "够" : "不够"}']);
+        expect(agentBlocks(base, at("ch4"))[0]).toMatch(/^\{panel\.存款 = 1000 # 不完整：[^}]+\} 与 \{panel\.存款 >= 500 \? "够" : "不够" -> "够" # 不完整：[^}]+\}$/u);
+        expect(agentBlocks(base, at("ch2"))[0]).toBe('{panel.存款 = 1000} 与 {panel.存款 >= 500 ? "够" : "不够" -> "够"}');
+    });
+});
+
+describe("canon.rendering 输出 12、13：回写的文字操作与拒收（补）", () => {
+    const send = (base: World, position: ReturnType<typeof at>, text: string, intent?: "creative" | "story") => writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position, version: base.version, mode: "actual", text, ...(intent === undefined ? {} : {intent})}, "t");
+    const failure = (result: ReturnType<typeof writeBack>) => (result.ok ? "ok" : result.failure.code);
+
+    test("创作修改改了文字：改的是初值里这一块，不新增变更；之前的位置也读到新文字", () => {
+        const base = cast(["魔力 {panel.存款}"]);
+        const result = ok(send(base, at("ch4"), "魔法力 {panel.存款 = 5}"));
+        expect(result.world.data.entries.get("e1")!.init.text).toEqual([{id: "b1", source: "魔法力 {panel.存款}"}]);
+        expect(result.world.data.changes.size).toBe(base.data.changes.size);
+        expect(agentBlocks(result.world, at("ch1"))).toEqual(["魔法力 {panel.存款 = 5}"]);
+    });
+
+    test("这一块是整段替换或增块的变更给出的：创作修改改那条变更，初值不动", () => {
+        const base = cast(["魔力 {panel.存款}"]);
+        const patch = (op: "replaceBlock" | "addBlock", path: string, value: unknown) => ({ref: {kind: "change" as const, id: `tmp:${op}`}, after: {id: `tmp:${op}`, kind: "written", text: op, at: {kind: "chapter", chapter: "ch4", key: 10}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op, at: {entry: "e1", path}, value}], status: "active", by: author}});
+        const published = ok(base.publish({requestId: id(), by: author, what: "edit", title: "改块", baseVersion: base.version, puts: [patch("replaceBlock", "text[b1]", "重写 {panel.存款}"), patch("addBlock", "text[b2]", {after: "b1", source: "新增 {panel.存款}"})]} as WriteRequest, "t"));
+        const changed = published.world;
+        const replaced = ok(send(changed, at("ch5"), "重写了 {panel.存款 = 5}"));
+        expect(replaced.world.data.entries.get("e1")!.init.text).toEqual([{id: "b1", source: "魔力 {panel.存款}"}]);
+        expect(replaced.world.data.changes.get(published.ids["tmp:replaceBlock"]!)!.patches[0]).toMatchObject({op: "replaceBlock", value: "重写了 {panel.存款}"});
+        expect(agentBlocks(replaced.world, at("ch5"))[0]).toBe("重写了 {panel.存款 = 5}");
+        const added = ok(writeBack(changed, {requestId: id(), by: author, entry: "e1", block: "b2", position: at("ch5"), version: changed.version, mode: "actual", text: "新增了 {panel.存款 = 5}"}, "t"));
+        expect(added.world.data.changes.get(published.ids["tmp:addBlock"]!)!.patches[0]).toMatchObject({op: "addBlock", value: {source: "新增了 {panel.存款}"}});
+        expect(added.world.data.entries.get("e1")!.init.text).toEqual([{id: "b1", source: "魔力 {panel.存款}"}]);
+    });
+
+    test("注记被重排、复制或新增：annotation-mismatch，不发布", () => {
+        const base = world();
+        const text = agentBlocks(base, at("ch5"))[0]!;
+        const first = "{panel.魔力 = 3110}";
+        const second = "{panel.魔力上限 = 12000}";
+        expect(failure(send(base, at("ch5"), text.replace(`${first}/${second}`, `${second}/${first}`)))).toBe("annotation-mismatch");
+        expect(failure(send(base, at("ch5"), `${text} ${first}`))).toBe("annotation-mismatch");
+        expect(failure(send(base, at("ch5"), `${text} {panel.存款 = 0}`))).toBe("annotation-mismatch");
+        expect(base.version).toBe(2);
+    });
+
+    test("改了不可用的字段：field-unavailable", () => {
+        const base = world();
+        const text = agentBlocks(base, at("ch1"))[0]!;
+        expect(text).toContain("{panel.魔力 = null # 不可用：");
+        expect(failure(send(base, at("ch1"), text.replace(/\{panel\.魔力 = null[^}]*\}/u, "{panel.魔力 = 100}")))).toBe("field-unavailable");
+    });
+
+    test("改了不完整的字段：incomplete-field", () => {
+        const base = strained(["{panel.存款}"]);
+        const text = agentBlocks(base, at("ch4"))[0]!;
+        expect(failure(send(base, at("ch4"), text.replace("= 1000", "= 1500")))).toBe("incomplete-field");
+    });
+
+    test("改了几笔累出来的数：accumulated-value", () => {
+        const base = cast(["{panel.存款}"]);
+        const added = ok(base.publish({requestId: id(), by: author, what: "bookkeeping", title: "加 50", baseVersion: base.version, puts: [{ref: {kind: "change", id: "tmp:d"}, after: {id: "tmp:d", kind: "written", text: "加 50", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: 50, basis: {kind: "author"}}], status: "active", by: author}}]} as WriteRequest, "t")).world;
+        const text = agentBlocks(added, at("ch5"))[0]!;
+        expect(text).toBe("{panel.存款 = 55}");
+        expect(failure(send(added, at("ch5"), "{panel.存款 = 100}"))).toBe("accumulated-value");
+    });
+});
+
+describe("canon.project 失败码 not-found（补）：回写时块或条目不存在", () => {
+    test("块 id 不在条目里、条目不存在、条目已删除：都是 not-found，世界不变", () => {
+        const base = world([BLOCK]);
+        const write = (entry: string, block: string) => writeBack(base, {requestId: id(), by: author, entry, block, position: at("ch5"), version: base.version, mode: "actual", text: "新的"}, "t");
+        expect(write("e1", "b99")).toEqual({ok: false, failure: {code: "not-found"}});
+        expect(write("e404", "b1")).toEqual({ok: false, failure: {code: "not-found"}});
+        const entry = base.data.entries.get("e2")!;
+        const deleted = ok(base.publish({requestId: id(), by: author, what: "edit", title: "删", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(entry), deleted: true}}]}, "t"));
+        expect(writeBack(deleted.world, {requestId: id(), by: author, entry: "e2", block: "b1", position: at("ch5"), version: deleted.world.version, mode: "actual", text: "新的"}, "t")).toEqual({ok: false, failure: {code: "not-found"}});
     });
 });

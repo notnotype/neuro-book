@@ -210,3 +210,38 @@ describe("虚点：只作节点、不算事件", () => {
         expect(network.between("a", "~R")).toEqual({state: "ok", lo: 10, hi: 20});
     });
 });
+
+describe("canon.time 输出 2、8（补）：环与依据的上限", () => {
+    /** 每对事件各有两条互相矛盾的说法（相差 3 与相差 5），再用只单向的“不早于”把它们连成一个分量。 */
+    function ringed(pairs: number) {
+        const events = Array.from({length: pairs}, (_, i) => [`a${String(i)}`, `b${String(i)}`]).flat();
+        const constraints: NetworkConstraint[] = [];
+        for (let i = 0; i < pairs; i += 1) {
+            constraints.push(between(start(`a${String(i)}`), start(`b${String(i)}`), 3, 3, `${String(i)} 相差 3`), between(start(`a${String(i)}`), start(`b${String(i)}`), 5, 5, `${String(i)} 相差 5`));
+            if (i > 0) constraints.push(between(start(`a${String(i - 1)}`), start(`a${String(i)}`), 0, Number.POSITIVE_INFINITY, `${String(i)} 不早于上一对`));
+        }
+        return solveNetwork({events, constraints});
+    }
+
+    test("一个分量里的环最多列 20 个；不到 20 个时全列；列满以后分量里的事件仍是不可确定", () => {
+        expect(ringed(5).conflicts).toHaveLength(5);
+        const capped = ringed(25);
+        expect(capped.conflicts).toHaveLength(20);
+        expect(capped.component("a0")).toBe(capped.component("b24"));
+        expect(capped.range("b24")).toMatchObject({state: "conflict"});
+    });
+
+    test("依据最多列 20 条，另给总数：三十步的链，最早与最晚的依据各列前 20 条、总数 30", () => {
+        const events = Array.from({length: 30}, (_, i) => `e${String(i)}`);
+        const constraints: NetworkConstraint[] = [between(origin, start("e0"), 0, 0, "日期")];
+        for (let i = 1; i < 30; i += 1) constraints.push(between(start(`e${String(i - 1)}`), start(`e${String(i)}`), 10, 10, `第 ${String(i)} 步`));
+        const range = solveNetwork({events, constraints}).range("e29");
+        if (range.state !== "ok") throw new Error(range.state);
+        expect([range.earliest.refs.length, range.earliest.total, range.latest.refs.length, range.latest.total]).toEqual([20, 30, 20, 30]);
+        // 列出来的是从日期起的前 20 条。
+        expect(range.earliest.refs[0]).toBe("日期");
+        expect(range.earliest.refs[19]).toBe("第 19 步");
+        const near = solveNetwork({events, constraints}).range("e5");
+        expect(near).toMatchObject({state: "ok", earliest: {total: 6}, latest: {total: 6}});
+    });
+});

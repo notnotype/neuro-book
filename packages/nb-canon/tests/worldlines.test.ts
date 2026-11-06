@@ -1151,3 +1151,245 @@ describe("读取视图：按计划模式的 chapterEntries、chapterLines、rend
         expect(renderedOn("l404")).toBe("line-not-found");
     });
 });
+
+describe("canon.worldlines 输出 3（补）：结束的线", () => {
+    test("end 为 stop、return 的线：安放晚于 endAt 的新记录得 line-ended，endAt 本身、更早的记录与主线不受影响", () => {
+        for (const end of ["stop", "return"] as const) {
+            const {world, c2} = base();
+            const result = forked(world, c2);
+            const line = result.ids["tmp:l"]!;
+            const fork = result.world.data.changes.get(result.ids["tmp:f"]!)!;
+            const ended = ok(result.world.publish(request([{ref: {kind: "change", id: fork.id}, after: {...structuredClone(fork), fork: {...fork.fork!, end, endAt: result.ids["tmp:own"]!}}}], result.world.version), "t"));
+            const attempt = (id: string, placement: StoryChangeDraft["at"]) => {
+                const result = ended.world.publish(request([{ref: {kind: "change", id: `tmp:${id}`}, after: written(`tmp:${id}`, placement)}], ended.world.version), "t");
+                return result.ok ? ["ok"] : problems(result).map(([code, path]) => `${String(code)}:${String(path)}`);
+            };
+            // 同章里键更大、更晚的章：都晚于 endAt（子线自己的记录在第 3 章键 1）。
+            expect(attempt("later", at("ch3", 2, line))).toEqual(["line-ended:at"]);
+            expect(attempt("next", at("ch4", 1, line))).toEqual(["line-ended:at"]);
+            // 早于 endAt 的（第 2 章键 50 晚于切口 c2）照常；主线上同一位置也照常。
+            expect(attempt("earlier", at("ch2", 50, line))).toEqual(["ok"]);
+            expect(attempt("main", at("ch3", 2))).toEqual(["ok"]);
+        }
+    });
+});
+
+describe("canon.worldlines 输出 4（补）：替换只在它写下的线上", () => {
+    test("分叉之后在主线写的替换不进子线：主线上旧计划 replaced，子线上照旧 unfulfilled；子线上写的替换只替代子线上的", () => {
+        const {world, c2, p1} = base();
+        const result = forked(world, c2);
+        const line = result.ids["tmp:l"]!;
+        const end = {kind: "chapter" as const, chapter: "ch4", edge: "end" as const};
+        const progress = (target: World, on: string) => target.line(on)!.engine.progress(p1, end);
+        const replacement = (id: string, placement: StoryChangeDraft["at"]) => ({ref: {kind: "change" as const, id: `tmp:${id}`}, after: {...written(`tmp:${id}`, placement, [], {links: [{kind: "replaces", plan: p1}]}), kind: "plan" as const}});
+        const onMain = ok(result.world.publish(request([replacement("rm", at("ch3", 9))], result.world.version), "t"));
+        expect([progress(onMain.world, "main"), progress(onMain.world, line)]).toEqual(["replaced", "unfulfilled"]);
+        const onChild = ok(result.world.publish(request([replacement("rc", at("ch3", 9, line))], result.world.version), "t"));
+        expect([progress(onChild.world, "main"), progress(onChild.world, line)]).toEqual(["unfulfilled", "replaced"]);
+    });
+});
+
+describe("canon.worldlines 输出 6（补）：语义档与列表的带过去、计划模式、不适用的地址", () => {
+    const KNOW: ComponentDeclaration = {id: "test.know", label: "认得", namespace: "know", version: 1, fields: [{id: "认得", label: "认得", kind: "list", keyedBy: "ref", item: [{id: "看法", label: "看法", kind: "text", precision: "semantic"}]}]};
+    const withKnow = (): WorldOptions => ({...options(), registry: buildRegistry([PANEL, PERSON, ROLLBACK, KNOW])});
+    const attitude = "character.态度";
+    const end = (chapter: string) => ({kind: "chapter" as const, chapter, edge: "end" as const});
+    const read = (world: World, line: string, entry: string, chapter: string, mode: "actual" | "planned" = "actual") => {
+        const found = world.line(line)!.engine.entry(entry, end(chapter), mode);
+        if (found === null || found === "chapter-not-found") throw new Error("no entry");
+        return found.namespaces;
+    };
+    const note = (entry: string, path: string, value: string): Patch => ({op: "note", at: {entry, path}, value});
+
+    /** 星瑕的态度是语义档（起点“冷淡”），认得列表里有星瑾一行（看法也是语义档）；回溯的切口 c1、触发处 c3，之间的 c2、c2b 往两处各记一笔，触发处之后的 c4 不带过去。 */
+    function carrying(skipped: readonly string[] = []) {
+        const knower = (id: string): Entry => {
+            const entry = person(id, "星瑕");
+            entry.init.data.character = {type: PERSON.id, version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: "冷淡"}};
+            entry.init.data.know = {type: KNOW.id, version: 1, enabled: true, fields: {认得: []}};
+            return entry;
+        };
+        const opened = ok(World.empty(withKnow()).publish(request([{ref: {kind: "entry", id: "tmp:xia"}, after: knower("tmp:xia")}, {ref: {kind: "entry", id: "tmp:jin"}, after: person("tmp:jin", "星瑾")}], 0), "t"));
+        const [xia, jin] = [opened.ids["tmp:xia"]!, opened.ids["tmp:jin"]!];
+        const story = ok(opened.world.publish(request([
+            {ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))},
+            {ref: {kind: "change", id: "tmp:c2"}, after: written("tmp:c2", at("ch2", 20), [note(xia, attitude, "软了一点"), {op: "listAdd", at: {entry: xia, path: "know.认得"}, value: {id: jin, 看法: "陌生"}}])},
+            {ref: {kind: "change", id: "tmp:c2b"}, after: written("tmp:c2b", at("ch2", 25), [note(xia, `know.认得[${jin}].看法`, "起疑")])},
+            {ref: {kind: "change", id: "tmp:c3"}, after: written("tmp:c3", at("ch2", 30))},
+            {ref: {kind: "change", id: "tmp:c4"}, after: written("tmp:c4", at("ch3", 2), [note(xia, attitude, "之后的事")])},
+        ], opened.world.version), "t"));
+        const carry = [{entry: xia, path: attitude}, {entry: xia, path: "know.认得"}, ...skipped.map((path) => ({entry: xia, path}))];
+        const rolled = ok(story.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: story.ids["tmp:c1"]!, trigger: story.ids["tmp:c3"]!, type: "rollback", carry} as Fork})},
+            {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"), [note(xia, attitude, "子线自己的事")])},
+        ], story.world.version), "t"));
+        return {world: rolled.world, xia, jin, line: rolled.ids["tmp:r1"]!, fork: rolled.ids["tmp:f"]!};
+    }
+
+    test("语义档带父线在触发处的起点与起点之后的事件，列表按元素带、元素的语义档子字段同样；触发处之后父线上的事件不带过去，子线自己的事接在后面", () => {
+        const {world, xia, jin, line} = carrying();
+        expect(read(world, "main", xia, "ch3").character!.fields.态度!.value).toBe("冷淡；之后：软了一点；之后的事");
+        expect(read(world, line, xia, "ch3").character!.fields.态度).toMatchObject({value: "冷淡；之后：软了一点；子线自己的事", notReduced: true});
+        // 切口 c1 处列表里还没有这一行，子线上有它是带过去的：行里的看法同样带起点与起点之后的事件。
+        expect(read(world, line, xia, "ch3").know!.fields.认得!.value).toMatchObject([{id: jin, 看法: "陌生；之后：起疑"}]);
+        expect(world.line(line)!.synthetic.size).toBe(1);
+    });
+
+    test("按计划模式读子线时带过去的值仍是实际模式的值：分叉之后在主线上切口与触发处之间写的计划不带过去", () => {
+        const {world, xia, line} = carrying();
+        const planned = ok(world.publish(request([{ref: {kind: "change", id: "tmp:p"}, after: {...written("tmp:p", at("ch2", 15), [note(xia, attitude, "计划里的")]), kind: "plan"}}], world.version), "t"));
+        expect(read(planned.world, "main", xia, "ch3", "planned").character!.fields.态度!.value).toContain("计划里的");
+        for (const mode of ["actual", "planned"] as const) expect(read(planned.world, line, xia, "ch3", mode).character!.fields.态度!.value).toBe("冷淡；之后：软了一点；子线自己的事");
+    });
+
+    test("命名空间没启用、已去掉的地址在切口处读不到：写入不拒收，其余的地址照带，不出待处理", () => {
+        const knower = (id: string, data: Record<string, unknown>): Entry => {
+            const entry = person(id, "阿七");
+            Object.assign(entry.init.data, data);
+            return entry;
+        };
+        const opened = ok(World.empty(withKnow()).publish(request([{ref: {kind: "entry", id: "tmp:a"}, after: knower("tmp:a", {
+            character: {type: PERSON.id, version: 1, enabled: false, fields: {外观: null, 状态: null, 态度: "冷淡"}},
+            know: {type: KNOW.id, version: 1, enabled: true, removed: true, fields: {认得: []}},
+        })}], 0), "t"));
+        const a = opened.ids["tmp:a"]!;
+        const story = ok(opened.world.publish(request([
+            {ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))},
+            {ref: {kind: "change", id: "tmp:c3"}, after: written("tmp:c3", at("ch2", 30), [{op: "set", at: {entry: a, path: "rb.次数"}, value: 0}])},
+        ], opened.world.version), "t"));
+        const carry = [{entry: a, path: attitude}, {entry: a, path: "know.认得"}, {entry: a, path: "rb.次数"}];
+        const rolled = ok(story.world.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: story.ids["tmp:c1"]!, trigger: story.ids["tmp:c3"]!, type: "rollback", carry} as Fork})}], story.world.version), "t"));
+        const line = rolled.ids["tmp:r1"]!;
+        // 跳过的项不能让带过去的那一件事套不上，也不能出待处理；读不到的命名空间仍然读不到。
+        expect(rolled.world.pending({kind: "chapter", chapter: "ch3", edge: "end", line})).toEqual([]);
+        const namespaces = read(rolled.world, line, a, "ch3");
+        expect(Object.keys(namespaces)).toEqual(["panel", "rb"]);
+        expect(namespaces.rb!.fields.次数).toEqual({value: 0});
+    });
+});
+
+describe("canon.worldlines 输出 18（补）：不可建的各种原因与服务层的表现", () => {
+    /** 记录 a、b、c 各在第 1、2、3 章，之后用 `forks` 在 ch4 或 ch3 写分叉；章序调整另用 `ChapterOrder` 算线表。 */
+    function spread() {
+        const opened = ok(World.empty(options()).publish(request([
+            {ref: {kind: "change", id: "tmp:a"}, after: written("tmp:a", at("ch1", 10))},
+            {ref: {kind: "change", id: "tmp:b"}, after: written("tmp:b", at("ch2", 10))},
+            {ref: {kind: "change", id: "tmp:c"}, after: written("tmp:c", at("ch3", 10))},
+        ], 0), "t"));
+        return {world: opened.world, a: opened.ids["tmp:a"]!, b: opened.ids["tmp:b"]!, c: opened.ids["tmp:c"]!};
+    }
+    const fork = (world: World, id: string, line: string, spec: Partial<Fork> & {cut: string}, placement: StoryChangeDraft["at"]) => ok(world.publish(request([{ref: {kind: "change", id: `tmp:${id}`}, after: written(`tmp:${id}`, placement, [], {nature: "fork", fork: {line: `tmp:${line}`, name: line, parent: "main", type: "branch", ...spec} as Fork})}], world.version), "t"));
+    const reasons = (world: World, chapters: readonly string[]) => [...lineTable(world.data, new ChapterOrder(chapters)).lines.values()].map((entry) => [entry.id, entry.unbuildable, entry.exists.actual]);
+
+    test("章序调整以后：触发处没安放、触发处不晚于切口、回溯的分叉早于触发处，各有自己的原因，线读不到", () => {
+        const {world, a, b} = spread();
+        const rolled = fork(world, "f", "r1", {cut: a, trigger: b, type: "rollback"}, at("ch3", 5));
+        const line = rolled.ids["tmp:r1"]!;
+        expect(reasons(rolled.world, CHAPTERS)).toEqual([[line, null, true]]);
+        expect(reasons(rolled.world, ["ch1", "ch3", "ch4"])).toEqual([[line, "trigger-unplaced", true]]);
+        expect(reasons(rolled.world, ["ch2", "ch1", "ch3", "ch4"])).toEqual([[line, "trigger-not-after-cut", true]]);
+        expect(reasons(rolled.world, ["ch1", "ch3", "ch2", "ch4"])).toEqual([[line, "fork-before-trigger", true]]);
+        const table = lineTable(rolled.world.data, new ChapterOrder(["ch1", "ch3", "ch2", "ch4"]));
+        expect(table.visible(line, rolled.ids["tmp:f"]!)).toBe(false);
+    });
+
+    test("章序调整以后：切口、触发处不在父线视图里，原因 cut-not-visible、trigger-not-visible；父线不可建时子线随它", () => {
+        const {world, a, b, c} = spread();
+        const first = fork(world, "f1", "l1", {cut: b}, at("ch4", 1));
+        const l1 = first.ids["tmp:l1"]!;
+        const second = fork(first.world, "f2", "l2", {cut: a, parent: l1}, at("ch4", 2, l1));
+        const l2 = second.ids["tmp:l2"]!;
+        // 第 2 章排到第 1 章之前，a 就晚于 l1 的切口 b。
+        expect(reasons(second.world, ["ch2", "ch1", "ch3", "ch4"])).toEqual([[l1, null, true], [l2, "cut-not-visible", true]]);
+        // 第 2 章没安放：l1 的切口没安放，l2 随它。
+        expect(reasons(second.world, ["ch1", "ch3", "ch4"])).toEqual([[l1, "cut-unplaced", true], [l2, "cut-unplaced", true]]);
+        const third = fork(world, "f1", "l1", {cut: c}, at("ch4", 1));
+        const m1 = third.ids["tmp:l1"]!;
+        const fourth = fork(third.world, "f2", "l2", {cut: a, trigger: b, type: "rollback", parent: m1}, at("ch4", 2, m1));
+        const m2 = fourth.ids["tmp:l2"]!;
+        expect(reasons(fourth.world, ["ch1", "ch3", "ch2", "ch4"])).toEqual([[m1, null, true], [m2, "trigger-not-visible", true]]);
+    });
+
+    test("日志里父线链成环：环上的线与后代线不可建，原因 cycle，两种模式下都不存在", () => {
+        const {world, b} = spread();
+        const first = fork(world, "f1", "l1", {cut: b}, at("ch4", 1));
+        const l1 = first.ids["tmp:l1"]!;
+        const second = fork(first.world, "f2", "l2", {cut: b, parent: l1}, at("ch4", 2, l1));
+        const l2 = second.ids["tmp:l2"]!;
+        const f1 = first.ids["tmp:f1"]!;
+        // 写入会拒收这样的改动，所以直接重放一次改父线的修订，造出日志里本来就有的情形。
+        const looped = World.replay([
+            ...second.world.revisions,
+            {...second.world.revisions.at(-1)!, id: "r99", version: second.world.version + 1, requestId: "legacy", ops: [{ref: {kind: "change", id: f1}, kind: "modify", fields: [{path: "fork.parent", before: "main", after: l2}]}]},
+        ], second.world.options);
+        expect(reasons(looped, CHAPTERS)).toEqual([[l1, "cycle", false], [l2, "cycle", false]]);
+        expect(lineTable(looped.data, looped.options.order).exists(l1, "planned")).toBe(false);
+    });
+
+    test("服务层：读取得 line-not-found 并带原因，安放在上面的记录成带原因的 line-missing，lines 给出 unbuildable", async () => {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "unbuildable");
+        const service = await openTestService(root, {texts: new Map(CHAPTERS.map((chapter) => [chapter, ""])), chapters: CHAPTERS, registry: options().registry});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const xia = (await publish([{ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")}]))["tmp:xia"]!;
+            const story = await publish([{ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10))}]);
+            const forks = await publish([
+                {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "分支", parent: "main", cut: story["tmp:c1"]!, type: "branch"} as Fork})},
+                {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"), [spend(xia, -1000)])},
+            ]);
+            const [line, own] = [forks["tmp:r1"]!, forks["tmp:own"]!];
+            const here = {kind: "chapter" as const, chapter: "ch3", edge: "end" as const};
+            expect(service.lines().lines.map((item) => [item.id, item.unbuildable])).toEqual([[line, null]]);
+            expect(service.snapshot().view.onLine(line)).toMatchObject({line});
+            // 第 2 章不在章序里，切口没安放。
+            await service.setChapters(["ch1", "ch3", "ch4"]);
+            expect(service.lines().lines.map((item) => [item.id, item.unbuildable])).toEqual([[line, "cut-unplaced"]]);
+            expect(service.snapshot().view.onLine(line)).toEqual({code: "line-not-found", reason: "cut-unplaced"});
+            expect(service.entry(xia, {...here, line}, "actual")).toBe("line-not-found");
+            const pending = service.pending({position: {...here, line: "main"}});
+            const missing = typeof pending === "string" ? [] : pending.items.flatMap((entry) => (entry.kind === "canon" && entry.item.kind === "line-missing" ? [entry.item] : []));
+            expect(missing.map((item) => [item.ref.id, item.line, item.reason])).toEqual([[own, line, "cut-unplaced"]]);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});
+
+describe("canon.worldlines 输出 13（补）：读者读过的讲述不分线", () => {
+    test("第 3 章第 1 段起讲主线、第 3 段起讲分支：只在主线上的记录的讲述（第 2、4 段）与分支自己的讲述，在第 3 章末尾都算读过；读到第 2 段时只算前两段", async () => {
+        const root = await createTestTmpRoot("nb-canon-worldlines", "readers");
+        const texts = new Map(CHAPTERS.map((chapter) => [chapter, chapter === "ch3" ? "第一段\n第二段\n第三段\n第四段\n第五段" : ""]));
+        const service = await openTestService(root, {texts, chapters: CHAPTERS, registry: options().registry});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const telling = (quote: string) => ({source: "chapter" as const, chapter: "ch3", quote}) as never;
+            const story = await publish([
+                {ref: {kind: "change", id: "tmp:c1"}, after: written("tmp:c1", at("ch2", 10), [], {told: [telling("第一段"), telling("第三段")]})},
+                {ref: {kind: "change", id: "tmp:c2"}, after: written("tmp:c2", at("ch2", 20), [], {told: [telling("第二段"), telling("第四段")]})},
+            ]);
+            const forks = await publish([
+                {ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "分支", parent: "main", cut: story["tmp:c1"]!, type: "branch"} as Fork})},
+                {ref: {kind: "change", id: "tmp:own"}, after: written("tmp:own", at("ch3", 1, "tmp:r1"), [], {told: [telling("第五段")]})},
+            ]);
+            await service.setChapters(CHAPTERS, new Map([["ch3", [{from: 1, line: "main"}, {from: 3, line: forks["tmp:r1"]!}]]]));
+            const quotes = (until: {chapter: string; edge?: "start" | "end"; paragraph?: number}) => {
+                const page = service.tellings({until: until as never});
+                return typeof page === "string" ? [page] : page.items.map((item) => item.telling.quote);
+            };
+            expect(quotes({chapter: "ch3", edge: "end"})).toEqual(["第一段", "第二段", "第三段", "第四段", "第五段"]);
+            expect(quotes({chapter: "ch3", paragraph: 2})).toEqual(["第一段", "第二段"]);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});

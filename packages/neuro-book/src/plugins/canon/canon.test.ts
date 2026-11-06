@@ -6,7 +6,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {existsSync} from "node:fs";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
@@ -276,6 +276,35 @@ describe("canon.time 输出 4、8、16：作品设置里的历法", () => {
         await writeFile(join(book, ".nbook", "settings.json"), JSON.stringify({}));
         await until(async () => !existsSync(stored));
         expect(await eras()).toEqual(["ad"]);
+        await window.close();
+        keep.release();
+    }, 30_000);
+});
+
+describe("canon.time 输出 16（补）：新打开时设置里的历法已不合法", () => {
+    it("项目里已存着最近一次合法的历法、设置却不合法：打开以后第一次交设置就用存下的那份，诊断写明 previous；存下的文件原样留着", async () => {
+        const royal = {version: 1, unit: "day", hoursPerDay: 24, minutesPerHour: 60, months: [{id: "frost", name: "霜月", days: 30}], eras: [{id: "royal", name: "王历", start: 1}]};
+        let stored = "";
+        const h = await projectHarness(tmp, {plugins: serverPlugins(), prepare: async (paths) => {
+            await threeChapters(paths);
+            // 上一次运行存下的历法，与这一次已经被改坏的设置。
+            await mkdir(join(paths.project.path, ".nbook", "world"), {recursive: true});
+            stored = join(paths.project.path, ".nbook", "world", "calendar.json");
+            await writeFile(stored, JSON.stringify(royal));
+            await writeFile(join(paths.project.path, ".nbook", "settings.json"), JSON.stringify({"nbook.canon/calendar": {...royal, months: []}}));
+        }});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const window = await windowOf(h, "browser-1", "profile-1");
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.diagnostics.some((item) => (item as {code: string}).code === "calendar-invalid");
+        });
+        const status = await window.canon.call("status", {});
+        expect(status.ok && status.value.diagnostics.filter((item) => (item as {code: string}).code === "calendar-invalid").map((item) => (item as {using: string}).using)).toEqual(["previous"]);
+        const read = await window.canon.call("time", {query: {kind: "calendar"}});
+        expect(read.ok && ((read.value.answer as {eras?: {id: string}[]}).eras ?? []).map((era) => era.id)).toEqual(["royal"]);
+        expect(JSON.parse(await readFile(stored, "utf8"))).toEqual(royal);
         await window.close();
         keep.release();
     }, 30_000);

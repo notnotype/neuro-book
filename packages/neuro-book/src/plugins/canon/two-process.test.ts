@@ -5,7 +5,7 @@
  */
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
-import {readdir, readFile, rm} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {Entry, WriteRequest} from "@notnotype/nb-canon";
@@ -150,4 +150,24 @@ describe("canon.project 场景 4：两个进程", () => {
         expect(result).toMatchObject({ok: true, version: 1});
         expect(Date.now() - killed).toBeLessThan(16_000);
     }, 60_000);
+});
+
+describe("canon.project 输出 9（补）：两个进程同时看到新章序", () => {
+    it("两个进程先后读到同一份新的活页夹章序：只发布一次章序调整，另一边在持锁读进那一行之后发现相同、不再发", async () => {
+        const a = await start();
+        const b = await start();
+        const dir = join(root, "manuscripts.binder");
+        await mkdir(dir, {recursive: true});
+        await writeFile(join(dir, "binder.xml"), '<binder nextId="3"><chapter id="1" title="一"/><chapter id="2" title="二"/></binder>');
+        const reached = async (child: Child) => ((await child.send("status")) as {version: number}).version >= 1;
+        await waitUntil("两个进程都收到章序调整", async () => (await reached(a)) && (await reached(b)), {timeoutMs: 10_000, intervalMs: 20});
+        // 再发布一条：两边都可能还有排着的章序调整，若重复发布，这一条的版本会不是 2。
+        const status = (await a.send("status")) as {version: number};
+        const result = (await a.send("publish", {request: person("星瑕", status.version)})) as Published;
+        expect(result.ok && result.version).toBe(status.version + 1);
+        expect(await versions()).toEqual([1, 2]);
+        const lines = (await readFile(join(root, ".nbook", "world", "log", "000001.jsonl"), "utf8")).split("\n").filter((line) => line !== "");
+        const reorders = lines.filter((line) => (JSON.parse(line) as {ops: {kind: string}[]}).ops.some((op) => op.kind === "chapters"));
+        expect(reorders).toHaveLength(1);
+    });
 });

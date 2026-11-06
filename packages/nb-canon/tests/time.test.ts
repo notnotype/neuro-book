@@ -412,3 +412,139 @@ describe("canon.time 输出 6、14、15、17：回溯与线", () => {
         }
     });
 });
+
+describe("canon.time 输出 8、12（补）：服务的两件事相差多久与某人几岁", () => {
+    test("between 与 age：马甲归本体；几条年龄说法打架答 15 到 16 岁并带 time-age-disagree；没有年龄说法时由出生推；网络里没有的事、没有的人得 not-found", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "between-age");
+        const service = await openTestService(root, {texts: new Map([["ch1", "那年。"], ["ch2", "后来。"]]), chapters: ["ch1", "ch2"], registry: buildRegistry([PERSON])});
+        try {
+            const opened = await service.publish({requestId: "ba1", by: author, what: "edit", title: "人", baseVersion: 0, puts: [
+                {ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")},
+                {ref: {kind: "entry", id: "tmp:small"}, after: {...person("tmp:small", "小星"), sameAs: "tmp:xia"}},
+                {ref: {kind: "entry", id: "tmp:jin"}, after: person("tmp:jin", "星瑾")},
+                {ref: {kind: "entry", id: "tmp:junior"}, after: {...person("tmp:junior", "小瑾"), sameAs: "tmp:jin"}},
+            ]});
+            if (!opened.ok) throw new Error(JSON.stringify(opened.failure));
+            const [xia, small, jin, junior] = [opened.ids["tmp:xia"]!, opened.ids["tmp:small"]!, opened.ids["tmp:jin"]!, opened.ids["tmp:junior"]!];
+            const at = (chapter: string, key: number) => ({kind: "chapter" as const, chapter, key});
+            const story = await service.publish({requestId: "ba2", by: author, what: "edit", title: "事", baseVersion: 1, puts: [
+                {ref: {kind: "change", id: "tmp:born"}, after: change("tmp:born", {kind: "prehistory", order: 1}, {when: [{kind: "birth", who: jin, basis: author}, date(1997, 3, 1)]})},
+                // 星瑕没有出生事件：关于她的年龄说法不进网络，只按说法答；一条写在马甲上，另一条写在本体上，按本体算在一起。
+                {ref: {kind: "change", id: "tmp:disagree"}, after: change("tmp:disagree", at("ch1", 10), {when: [date(2012, 6, 3), {kind: "age", who: small, years: {min: 15, max: 15}, basis: author}, {kind: "age", who: xia, years: {min: 16, max: 16}, basis: author}]})},
+                {ref: {kind: "change", id: "tmp:plain"}, after: change("tmp:plain", at("ch1", 20), {when: [date(2012, 6, 10)]})},
+                {ref: {kind: "change", id: "tmp:later"}, after: change("tmp:later", at("ch2", 0), {when: [{kind: "after", of: "tmp:plain", gap: {min: 3, max: 3, unit: "day"}, basis: author}]})},
+            ]});
+            if (!story.ok) throw new Error(JSON.stringify(story.failure));
+            const [disagree, plain, later] = [story.ids["tmp:disagree"]!, story.ids["tmp:plain"]!, story.ids["tmp:later"]!];
+            const answer = (query: Parameters<typeof service.time>[0]) => {
+                const read = service.time(query);
+                if (typeof read === "string") throw new Error(read);
+                return read.answer as Record<string, unknown>;
+            };
+            expect(answer({kind: "age", who: small, at: disagree})).toMatchObject({kind: "age", text: "15 到 16 岁", age: {kind: "years", min: 15, max: 16}, hint: "time-age-disagree"});
+            expect(answer({kind: "age", who: xia, at: plain})).toMatchObject({kind: "age", text: "不知道"});
+            // 有出生事件、事上没有年龄说法：由出生推；问马甲与问本体答得一样，不带提示。
+            const derived = answer({kind: "age", who: jin, at: plain});
+            expect(derived).toMatchObject({kind: "age", text: "15 岁"});
+            expect(derived).not.toHaveProperty("hint");
+            expect(answer({kind: "age", who: junior, at: plain})).toEqual(derived);
+            // 同一分量里的两件事相差的范围：恰好三天。
+            expect(answer({kind: "between", a: plain, b: later})).toMatchObject({kind: "between", state: "ok", lo: 3 * 1440, hi: 3 * 1440});
+            expect(answer({kind: "between", a: later, b: plain})).toMatchObject({kind: "between", state: "ok", lo: -3 * 1440, hi: -3 * 1440});
+            expect(typeof answer({kind: "between", a: plain, b: later}).text).toBe("string");
+            // 不存在的事、不存在的人：not-found。
+            expect(answer({kind: "between", a: disagree, b: "c404"})).toEqual({code: "not-found"});
+            expect(answer({kind: "age", who: "e404", at: plain})).toEqual({code: "not-found"});
+            expect(answer({kind: "age", who: xia, at: "c404"})).toEqual({code: "not-found"});
+            expect(answer({kind: "event", change: "c404"})).toEqual({code: "not-found"});
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});
+
+describe("canon.time 输出 15（补）：带令牌时点名上限之后的事", () => {
+    test("between、age、chapter 点名上限之后的事或章：view-denied 并各记一条审计；只点名上限之前的照常答", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "denied");
+        const service = await openTestService(root, {texts: new Map([["ch1", "那年。"], ["ch2", "后来。"]]), chapters: ["ch1", "ch2"], registry: buildRegistry([PERSON])});
+        try {
+            const written = await service.publish({requestId: "vd1", by: author, what: "edit", title: "事", baseVersion: 0, puts: [
+                {ref: {kind: "entry", id: "tmp:xia"}, after: person("tmp:xia", "星瑕")},
+                {ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", {kind: "chapter", chapter: "ch1", key: 0}, {when: [date(2012)]})},
+                {ref: {kind: "change", id: "tmp:y"}, after: change("tmp:y", {kind: "chapter", chapter: "ch2", key: 0}, {when: [date(2012, 6, 5)]})},
+            ]});
+            if (!written.ok) throw new Error(JSON.stringify(written.failure));
+            const [xia, x, y] = [written.ids["tmp:xia"]!, written.ids["tmp:x"]!, written.ids["tmp:y"]!];
+            const opened = service.openView({viewer: null, line: "main", until: {kind: "chapter", chapter: "ch1", edge: "end"}, purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const view = service.viewed(opened.token);
+            expect(view.time({kind: "between", a: x, b: y})).toBe("view-denied");
+            expect(view.time({kind: "age", who: xia, at: y})).toBe("view-denied");
+            expect(view.time({kind: "chapter", chapter: "ch2"})).toBe("view-denied");
+            const audit = service.viewAudit();
+            expect(audit !== "cursor-stale" && audit.items.map((item) => item.method)).toEqual(["time", "time", "time"]);
+            expect(typeof view.time({kind: "chapter", chapter: "ch1"})).toBe("object");
+            expect(typeof view.time({kind: "between", a: x, b: x})).toBe("object");
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});
+
+describe("canon.time 输出 4、16（补）：只改词表、新打开时设置已不合法", () => {
+    test("只改模糊词表：用词表里的词写的间隔按新的重算，读取输入的摘要随之变，历法不变", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "fuzzy");
+        const service = await openTestService(root, {texts: new Map([["ch1", "那年。"]]), chapters: ["ch1"], registry: buildRegistry([PERSON])});
+        try {
+            const written = await service.publish({requestId: "fz1", by: author, what: "edit", title: "事", baseVersion: 0, puts: [
+                {ref: {kind: "change", id: "tmp:x"}, after: change("tmp:x", {kind: "chapter", chapter: "ch1", key: 0}, {when: [date(2012, 6, 3)]})},
+                {ref: {kind: "change", id: "tmp:y"}, after: change("tmp:y", {kind: "chapter", chapter: "ch1", key: 10}, {when: [{kind: "after", of: "tmp:x", gap: {word: "不久"}, basis: author}]})},
+            ]});
+            if (!written.ok) throw new Error(JSON.stringify(written.failure));
+            const y = written.ids["tmp:y"]!;
+            const startOf = () => {
+                const read = service.time({kind: "event", change: y});
+                if (typeof read === "string") throw new Error(read);
+                return (read.answer as {start: {lo: number; hi: number}}).start;
+            };
+            const before = startOf();
+            const digest = service.snapshot().stamp.inputDigest;
+            // “不久”缺省是 0 到 7 天；改成 0 到 2 天，只有上界收窄。
+            await service.setTime({fuzzy: {words: {不久: {min: 0, max: 2, unit: "day"}}}});
+            const after = startOf();
+            expect(after.lo).toBe(before.lo);
+            expect(after.hi).toBeLessThan(before.hi);
+            expect(service.snapshot().stamp.inputDigest).not.toBe(digest);
+            // 改回缺省的值：范围与摘要回到最初。
+            await service.setTime({});
+            expect(startOf()).toEqual(before);
+            expect(service.snapshot().stamp.inputDigest).toBe(digest);
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    test("新打开的服务设置里的历法已不合法：用宿主交来的上一份合法的（previous），诊断写明 previous；上一份也不合法时用内置公历", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "reopen");
+        const service = await openTestService(root, {texts: new Map([["ch1", "那年。"]]), chapters: ["ch1"], registry: buildRegistry([PERSON])});
+        try {
+            const royal: Calendar = {...GREGORIAN, version: 2, eras: [{id: "royal", name: "王历", start: 1}]};
+            const using = () => service.status().diagnostics.flatMap((item) => (item.code === "calendar-invalid" ? [item.using] : []));
+            expect(await service.setTime({calendar: {...royal, months: []}, previous: royal})).toMatchObject({calendar: royal, valid: false});
+            expect(using()).toEqual(["previous"]);
+            const reopened = await openTestService(await createTestTmpRoot("nb-canon-time", "reopen-2"), {texts: new Map([["ch1", "那年。"]]), chapters: ["ch1"], registry: buildRegistry([PERSON])});
+            try {
+                expect(await reopened.setTime({calendar: {...royal, months: []}, previous: {...royal, months: []}})).toMatchObject({calendar: GREGORIAN, valid: false});
+                expect(reopened.status().diagnostics.flatMap((item) => (item.code === "calendar-invalid" ? [item.using] : []))).toEqual(["builtin"]);
+            } finally {
+                await reopened.stop();
+            }
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});

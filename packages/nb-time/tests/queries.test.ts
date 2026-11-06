@@ -154,3 +154,16 @@ describe("canon.time 输出 8：查询与格式化", () => {
         expect(years.total).toBe(1 + (timeParts(compiled, wide.hi).year - 2000 + 1));
     });
 });
+
+describe("canon.time 输出 12（补）：所在分量不可确定", () => {
+    test("事件的分量不可确定：没有年龄说法时答不可确定（先于没有出生事件的“不知道”）；有年龄说法时仍按说法答，不看网络", () => {
+        const {network} = solve([
+            {id: "b", when: [{kind: "date", year: 2000, month: "m1", day: 1, basis: author}]},
+            {id: "e", when: [{kind: "date", year: 2005, basis: author}, {kind: "date", year: 2010, basis: author}]},
+        ]);
+        expect(network.bounds("e").state).toBe("conflict");
+        expect(ageAt(network, compiled, "e", [], ["b"])).toEqual({kind: "conflict"});
+        expect(ageAt(network, compiled, "e", [], [])).toEqual({kind: "conflict"});
+        expect(ageAt(network, compiled, "e", [{min: 7, max: 7}], [])).toEqual({kind: "years", min: 7, max: 7});
+    });
+});

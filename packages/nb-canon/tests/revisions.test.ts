@@ -607,3 +607,12 @@ describe("canon.model 输出 23：父条目删除后", () => {
         expect(moveUnder.ok === false && moveUnder.failure.code === "validation-failed" && moveUnder.failure.problems.map((problem) => problem.code)).toEqual(["invalid-tree"]);
     });
 });
+
+describe("canon.project 失败码 not-found（补）：对象、修订不存在", () => {
+    test("还原不存在的修订、改一个不存在又不是 tmp: 的对象：各得 not-found", () => {
+        const world = start();
+        expect(world.revert("r404", false, {requestId: "undo-404", by: {kind: "author"}}, "t")).toEqual({ok: false, failure: {code: "not-found"}});
+        const missing = world.publish(request([{ref: {kind: "entry", id: "e404"}, after: entry("e404", "没有的人")}], {baseVersion: world.version}), "t");
+        expect(missing.ok === false && missing.failure.code === "validation-failed" && missing.failure.problems.map((problem) => [problem.code, problem.ref])).toEqual([["not-found", {kind: "entry", id: "e404"}]]);
+    });
+});

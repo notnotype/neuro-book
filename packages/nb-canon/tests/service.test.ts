@@ -748,3 +748,37 @@ describe("canon.model 边界与兼容、canon.revisions 边界与兼容：未知
         expect((await open()).status().version).toBe(3);
     });
 });
+
+describe("canon.project 输出 7、8（补）：写盘结局不确定与重号", () => {
+    test("写完以后发现尾部多了别的进程的行（重号）：转只读并写诊断 duplicate-version，这次请求报 world-read-only", async () => {
+        await open();
+        // 真实追加之后，在同一次持锁期间再并进一行：模拟锁被判残留、别的进程同时写入。
+        const racing: LogFiles = {...nodeFiles, async append(path, bytes) {
+            await nodeFiles.append(path, bytes);
+            await appendFile(path, '{"format":1,"version":2}\n');
+        }};
+        const service = await open({now: 0}, {}, racing);
+        const result = await service.publish(entryRequest("星瑕", 1));
+        expect(result).toMatchObject({ok: false, failure: {code: "world-read-only", reason: "duplicate-version"}});
+        expect(service.status().state).toBe("read-only");
+        expect(service.status().diagnostics).toContainEqual({code: "duplicate-version"});
+        expect(await service.publish(entryRequest("星瑾", 1))).toMatchObject({ok: false, failure: {code: "world-read-only"}});
+    });
+
+    test("写盘结局不确定，重开项目以后：日志里有这次的请求 id 就是已发布，没有就是没发布", async () => {
+        await open();
+        // 整行写进去了、报告却失败，又截不回：真实结局是已发布。
+        const landed = await open({now: 0}, {}, faultyFiles({failAppend: {partial: 1e9}, failTruncate: true}));
+        const first = entryRequest("星瑕", 1);
+        expect(await landed.publish(first)).toMatchObject({ok: false, failure: {code: "write-unknown"}});
+        expect(landed.outcome(first.requestId)).toEqual({code: "write-unknown"});
+        const reopened = await open();
+        expect(reopened.outcome(first.requestId)).toMatchObject({published: true, version: 2});
+        // 只写进一半、截不回：日志里的半行不算数，重开以后没有这次的请求 id。
+        const torn = await open({now: 0}, {}, faultyFiles({failAppend: {partial: 20}, failTruncate: true}));
+        const second = entryRequest("星瑾", 2);
+        expect(await torn.publish(second)).toMatchObject({ok: false, failure: {code: "write-unknown"}});
+        const again = await open();
+        expect(again.outcome(second.requestId)).toEqual({published: false});
+    });
+});

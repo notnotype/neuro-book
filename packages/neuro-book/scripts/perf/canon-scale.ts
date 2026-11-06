@@ -16,16 +16,18 @@
  * 再量：建子线的视图并第一次读（预算 2 秒）、在已建好的线上随机读（同读取预算）、主线最新一章发布一次记账而子线已建（不在子线的依赖范围里，
  * 子线不更新）、改常出场条目的初值（所有线都受影响）；最后重新打开（子线没建）写一条落在继承区间里的记录，量预览与发布（当场建改前改后两份）。
  *
+ * 日志分段（场景 6）：除了独占一段的超长行，段大小都不超过 256 KiB 加一行；不满足时脚本以非零码退出。
+ *
  * 用法（应用包目录）：bun scripts/perf/canon-scale.ts [章数=1000] [--diverge] [--fork]
  * 测量前看 `uptime`：负载高时多跑几次按较低的一端判断，不与 omp 审查同时跑。
  */
 
-import {mkdir, mkdtemp, readdir, rm, stat, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import type {Entry, ReadPosition, StoryChangeDraft, WriteRequest} from "@notnotype/nb-canon";
-import type {WorldService} from "@notnotype/nb-canon/node";
+import {SEGMENT_LIMIT, type WorldService} from "@notnotype/nb-canon/node";
 
 import {createWorldHost} from "nbook/plugins/canon/backend/world-host";
 import {BINDER_DIR} from "nbook/plugins/canon/backend/binder";
@@ -192,6 +194,15 @@ await first.stop();
 const logDir = join(root, ".nbook", "world", "log");
 const segments = (await readdir(logDir)).filter((name) => name.endsWith(".jsonl"));
 const logBytes = (await Promise.all(segments.map(async (name) => (await stat(join(logDir, name))).size))).reduce((sum, size) => sum + size, 0);
+// 场景 6：除了独占一段的超长行，段大小都不超过 256 KiB 加一行（project.md 输出 3）。不满足时脚本以非零码退出。
+const oversizedSegments: string[] = [];
+for (const name of segments) {
+    const lines = (await readFile(join(logDir, name))).toString("utf8").split("\n").filter((line) => line !== "");
+    if (lines.length <= 1) continue;
+    const size = (await stat(join(logDir, name))).size;
+    const longest = Math.max(...lines.map((line) => Buffer.byteLength(line) + 1));
+    if (size > SEGMENT_LIMIT + longest) oversizedSegments.push(`${name}：${String(size)} 字节，最长一行 ${String(longest)} 字节`);
+}
 
 // ---------- 打开到可以读 ----------
 started = performance.now();
@@ -374,3 +385,7 @@ if (fork) {
     console.log(`世界线：主线最新一章发布记账、子线已建时子线不更新（见上面的断言）；写一条落在继承区间里的记录（子线没建，当场建改前改后各一份）：预览 ${ms(rangePreviewMs)} 毫秒，发布 ${ms(rangePublishMs)} 毫秒`);
 }
 console.log(`堆：${ms(heap)} MB`);
+if (oversizedSegments.length > 0) {
+    console.error(`日志分段超出上限（256 KiB 加一行）：${oversizedSegments.join("；")}`);
+    process.exitCode = 1;
+}

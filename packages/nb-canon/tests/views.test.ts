@@ -176,3 +176,18 @@ describe("项目内的快照", () => {
         TEXTS.set("ch9", "她数了钱。");
     });
 });
+
+describe("canon.project 输出 24（补）：审计在内存里留最近 500 条", () => {
+    test("被拒 510 次以后只留最近 500 条，最早的 10 条丢掉，留下的顺序不变", async () => {
+        const {service, jin} = await setup();
+        const opened = service.openView({viewer: jin, line: "main", until: {kind: "chapter", chapter: "ch10", edge: "start"}, purpose: "writer"});
+        if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+        const view = service.viewed(opened.token);
+        for (let index = 1; index <= 510; index += 1) view.deny(`m${String(index)}`);
+        const audit = service.viewAudit({}, undefined, 1000);
+        if (audit === "cursor-stale") throw new Error(audit);
+        expect(audit.items).toHaveLength(500);
+        expect(audit.items[0]!.method).toBe("m11");
+        expect(audit.items.at(-1)!.method).toBe("m510");
+    });
+});
