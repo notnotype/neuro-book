@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主题皮肤的画框：菜单与设置窗口</title>
+<style>
+:root { --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef; --warn: #b45309; --warn-soft: #fdf1df; --radius: 10px; }
+@media (prefers-color-scheme: dark) { :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123330; --warn: #fbbf24; --warn-soft: #3a2e12; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+.lead p { color: var(--muted); margin: 6px 0; max-width: 900px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+.opts { display: grid; gap: 12px; margin: 12px 0; }
+.opt { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); }
+.opt.rec { border-color: var(--accent); background: var(--accent-soft); }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 8px; }
+figure { margin: 0; }
+img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #888; }
+figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.rec-note { margin: 10px 0 0; }
+</style>
+</head>
+<body>
+<main>
+<div class="lead">
+<h1>主题皮肤的画框：菜单与设置窗口</h1>
+<p>书房目前只换了窗口里的内容区、活动栏和配色，弹出的菜单与设置窗口还是普通的圆角面。这一轮试的是“画框”：给这两类浮层加一道跟皮肤配色走的装饰边。</p>
+<p>图都是真实产品里的书房主题截图，装饰边是临时样式叠上去的原型，没有进产品代码。选定后再做成皮肤声明里的正式字段。无画框是现状对照。</p>
+<p>要看清楚：设置窗口本身是半透明玻璃面，能透出后面的内容，所以窗口上的装饰边比菜单上的更不显眼。</p>
+</div>
+
+<section class="q" data-nbdev-question="r1-frame" data-nbdev-type="single" data-nbdev-recommend="double" data-nbdev-required>
+<h2>画框用哪一种样式 <span class="badge" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="double"><h3>A：双线框</h3>
+<p>里面一圈面色细缝，再一道强调色的细线，像账本或书页的内框。菜单里最清楚，两套明暗都不抢字。</p>
+<div class="row">
+<figure><img src="r1/light-double-menu.webp" alt="双线框菜单，亮色"><figcaption>菜单，亮色</figcaption></figure>
+<figure><img src="r1/dark-double-menu.webp" alt="双线框菜单，暗色"><figcaption>菜单，暗色</figcaption></figure>
+<figure><img src="r1/light-double-window.webp" alt="双线框设置窗口，亮色"><figcaption>设置窗口左上，亮色</figcaption></figure>
+<figure><img src="r1/dark-double-window.webp" alt="双线框设置窗口，暗色"><figcaption>设置窗口左上，暗色</figcaption></figure>
+</div></div>
+<div class="opt" data-nbdev-option="corners"><h3>B：四角</h3>
+<p>只在四个角各画一对 L 形短线，其余没有边。最轻，但在设置窗口里几乎看不出来。</p>
+<div class="row">
+<figure><img src="r1/light-corners-menu.webp" alt="四角菜单，亮色"><figcaption>菜单，亮色</figcaption></figure>
+<figure><img src="r1/dark-corners-menu.webp" alt="四角菜单，暗色"><figcaption>菜单，暗色</figcaption></figure>
+<figure><img src="r1/light-corners-window.webp" alt="四角设置窗口，亮色"><figcaption>设置窗口左上，亮色</figcaption></figure>
+<figure><img src="r1/dark-corners-window.webp" alt="四角设置窗口，暗色"><figcaption>设置窗口左上，暗色</figcaption></figure>
+</div></div>
+<div class="opt" data-nbdev-option="mat"><h3>C：宽边</h3>
+<p>一圈偏暖的纸边加一道细线，像画框的衬纸。比 A 更厚重，菜单的可用宽度会少几像素。</p>
+<div class="row">
+<figure><img src="r1/light-mat-menu.webp" alt="宽边菜单，亮色"><figcaption>菜单，亮色</figcaption></figure>
+<figure><img src="r1/dark-mat-menu.webp" alt="宽边菜单，暗色"><figcaption>菜单，暗色</figcaption></figure>
+<figure><img src="r1/light-mat-window.webp" alt="宽边设置窗口，亮色"><figcaption>设置窗口左上，亮色</figcaption></figure>
+<figure><img src="r1/dark-mat-window.webp" alt="宽边设置窗口，暗色"><figcaption>设置窗口左上，暗色</figcaption></figure>
+</div></div>
+<div class="opt" data-nbdev-option="none"><h3>D：不做画框</h3>
+<p>现状：菜单与窗口保持普通圆角面。</p>
+<div class="row">
+<figure><img src="r1/light-none-menu.webp" alt="无画框菜单，亮色"><figcaption>菜单，亮色</figcaption></figure>
+<figure><img src="r1/dark-none-menu.webp" alt="无画框菜单，暗色"><figcaption>菜单，暗色</figcaption></figure>
+<figure><img src="r1/light-none-window.webp" alt="无画框设置窗口，亮色"><figcaption>设置窗口左上，亮色</figcaption></figure>
+<figure><img src="r1/dark-none-window.webp" alt="无画框设置窗口，暗色"><figcaption>设置窗口左上，暗色</figcaption></figure>
+</div></div>
+</div>
+<p class="rec-note"><b>推荐：A。</b>装饰边只用皮肤自己的配色（强调色加面色），不需要新素材，换配色就跟着变；菜单上看得清，对文字的可读性没有影响。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-scope" data-nbdev-type="single" data-nbdev-recommend="all" data-nbdev-required>
+<h2>画框加在哪些浮层上 <span class="badge" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="all"><h3>菜单、气泡、对话框与设置窗口都加</h3><p>所有浮出来的面一个样，皮肤感一致。小提示（悬停的短提示）不加。</p></div>
+<div class="opt" data-nbdev-option="windows"><h3>只加对话框与设置窗口</h3><p>菜单保持干净，只有大块的窗口有画框。</p></div>
+<div class="opt" data-nbdev-option="menus"><h3>只加菜单</h3><p>窗口保持现状。</p></div>
+</div>
+<p class="rec-note"><b>推荐：全加。</b>这几类面在设计语言里本来就共用同一个基座，分开加反而显得不统一。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-notes" data-nbdev-type="text" data-nbdev-label="还有什么想说的">
+<h2>还有什么想说的</h2>
+<p>比如想要更像书页、卷轴或木框的边，可以写在这里；那类需要图片素材，会排在书房素材定稿之后。</p>
+</section>
+</main>
+</body>
+</html>
