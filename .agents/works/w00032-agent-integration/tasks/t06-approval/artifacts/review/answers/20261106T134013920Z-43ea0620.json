@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t06-approval",
+    "artifactId": "review",
+    "answerId": "20261106T134013920Z-43ea0620",
+    "artifactVersion": 3,
+    "contentHash": "888806bafce06656a3fea4b69f234cfda5ec6720f3b1a39adfe345be62ca8125",
+    "submittedAt": "2026-11-06T13:40:13.114Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "toolbar-layout": "adjust"
+    },
+    "comments": {
+        "toolbar-layout": "还有个 + 号菜单可以加上。模型选择这个控件不好看，调一下"
+    },
+    "note": null
+}
