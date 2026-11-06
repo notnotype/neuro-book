@@ -169,8 +169,8 @@ type TabRef =
 
 ### 编辑器的接缝
 
-33. **谁拥有什么**：工作台持有树、面板、标签顺序、活动标签、活动编辑组；编辑器持有地址、编辑器、语言、preview、固定、光标、dirty、文档。插件经服务提交结构意图：打开 `openTab({type, tabId, panel?, position?})`，preview 替换 `replaceTab(oldId, newId)` 一次写完，固定分区的插入限制由 `canInsert` 问编辑器。`"side"` 是活动编辑组右侧相邻的编辑组，只在编辑组里找，没有就拆一个。
-34. **恢复**：工作台先读文档，显示标签占位；编辑器入口交付后才渲染内容。`editor.tabs` 里没有的 `tabId` 显示原因并可以关闭；文档里没有的 `tabId` 由编辑器丢弃。编辑器入口未交付或撤回时标签仍在，显示不可用的原因，再次交付后恢复。
+33. **谁拥有什么**：工作台持有树、面板、标签顺序、活动标签、活动编辑组；编辑器持有地址、编辑器、语言、preview、固定、光标、dirty、文档。编辑器经服务 `editorPanelsKey` 改结构（`PanelTabs`：插入、替换、拿掉、激活、移动、移到外缘；`PanelTree`：活动编辑组、拆一块、右侧相邻），两边靠 `tabId` 对上。preview 替换一次写完。固定分区的插入限制归编辑器，放下时先过它。`"side"` 是活动编辑组右侧相邻的编辑组，只在编辑组里找，工具面板跳过，没有就拆一个。
+34. **恢复**：工作台先读文档；文档和 `editor.tabs` 都读完、编辑器入口交付后才渲染编辑组。`editor.tabs` 里没有的 `tabId` 显示原因并可以关闭；文档里没有的 `tabId` 由编辑器丢弃。页面标签不恢复：`editor.tabs` 里留一个记号，恢复时从文档里拿掉。编辑器入口未交付或撤回时编辑组里写着不可用的原因，文档里的标签不动，再次交付后恢复。
 
 ### 命令与公开状态
 
@@ -181,7 +181,7 @@ type TabRef =
     | `nbook.view.set-part-hidden` | `{part, hidden?}`，`part` 是三个具名面板或两条条 | 合并 `set-panel-hidden` |
     | `nbook.view.set-panel-collapsed` | `{panelId?, collapsed?}` | 缺省当前面板 |
     | `nbook.view.toggle-panel-maximized` | `{panelId?}` | 缺省当前面板 |
-    | `nbook.view.move-view` | `{viewId, target}`，`target` 是面板 id 或 `{newPanelNextTo: 面板 id}` | 目标改成面板 |
+    | `nbook.view.move-view` | `{viewId, target}`（面板 id）或 `{viewId, newPanelNextTo}`（面板 id） | 目标改成面板 |
     | `nbook.view.open` | `{viewId?}` | 不变：显示视图所在的面板、激活并聚焦 |
     | `set-panel-position`、`set-panel-alignment` | | 删除 |
 
@@ -218,7 +218,7 @@ type TabRef =
 
 ## 副作用与数据
 
-- 只写上表的三条记录，都显式取 1MiB 上限。16 组、每组 200 标签时 `workbench.layout` 约 250KB。写入合并，最多 1 秒一次；手势结束立刻写。
+- 只写上表的三条记录，都显式取 1MiB 上限。16 组、每组 200 标签时 `workbench.layout` 约 250KB。打开、关闭、切标签合并着写（至多 150 毫秒一次，只合并一连串的动作：等得再久，刚打开标签就刷新时这个标签就丢了）；手势结束立刻写。
 - **未绑定项目的窗口**：`editor.tabs` 不落盘，所以 `workbench.layout` 存盘前去掉动态标签，只留工具面板与空编辑组。
 - **行为变化**：工具视图的摆放从跨项目共享变成每个项目一份。新项目的初始布局取模板，没有就用默认树。
 - **切换**：都是新 key，旧的 `layout-sizes-side`、`layout-sizes-panel`、`views-customizations`、`editor.session` 不读、不写、不删。首次启动用默认树，已有用户的布局、尺寸和打开的标签丢一次。回到旧版本读到的是升级前的旧记录，新版本里的调整不会带回去。
@@ -245,8 +245,8 @@ type TabRef =
 
 - **归属**：`nbook.workbench`。树、尺寸求解、落点规则、内容层是 `@notnotype/nb-layout` 的能力，接受矩阵、约束、默认树由工作台经策略对象给。
 - **公开合同**：命令与公开状态（输出 35、36）、`ViewContext`、贡献点是对插件与 Agent 的合同。`location` 的含义变成“第一次放到哪个具名面板”；`ViewContext.location` 类型加 `null`。删除的命令与状态键不留别名，写进 SDK 作者文档。记录字段是内部合同，靠版本演进。
-- **贡献点**：`workbench.editor-area` 改成给一个区级组件（关闭询问、拖影）与按面板 id 渲染的组组件；动态标签类型只给内置插件，不进 SDK。
-- **标记**：`data-editor-group`、`data-editor-group-active` 在编辑组内容项的根上。具名面板的叶 id 就是名字，`[data-leaf="sidebar"]` 可用。内容项的根带 `data-content`（它的 key）与 `data-content-leaf`（所属叶 id）。
+- **贡献点**：`workbench.editor-area` 改成给一个区级组件（关闭询问、标签的拖动；属性 `attachTabDrag`）与按面板 id 渲染的组组件（属性 `panelId`、`context`）；动态标签类型只给内置插件，不进 SDK。
+- **标记**：`data-editor-group`、`data-editor-group-active` 在编辑组内容项的根上。标签写 `data-panel-tab`（标签键，工具视图与编辑器标签都是），编辑组的标签条写 `data-panel-strip`（面板 id）；`data-no-drag-start` 只是不起拖（标签上的关闭按钮），拖动经过时还算标签条。具名面板的叶 id 就是名字，`[data-leaf="sidebar"]` 可用。内容项的根带 `data-content`（它的 key）与 `data-content-leaf`（所属叶 id）。
 - **窄屏**：`390 × 844` 无页面级横向滚动，关键按钮可达；不保证好用。
 - **Lab**：外壳的 Lab 场景用局部状态，不读写产品布局记录。
 

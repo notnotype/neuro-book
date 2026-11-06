@@ -81,7 +81,7 @@ type Look = {
 8. **字体**：欢迎页标题用 `fonts.display`，Markdown 正文用 `fonts.prose`，没有时用现有字体。书架的展示字体不变：`fonts.display` 写成专用的变量，不写公共的 `--font-display`。
 9. **无障碍偏好**：`prefers-contrast: more`、`forced-colors: active` 下不画场景；配色与活动栏照旧。
 10. **没写的位置和没有主题时一样**：`nbook`、`macos` 的外观不因本能力改变。
-11. **内置的“书房”**：随产品提供，不是缺省。
+11. **内置的“书房”**：随产品提供，不是缺省；亮暗各有一张场景图和一张工作态场景（输出 17），后者与场景图构图相同、只有桌面换成忙碌的样子。
 12. **内置的护眼主题**：`eye-green`（护眼绿）与 `eye-sepia`（护眼米黄），工作台提供，主题包是 `nbook`，亮暗各一套低饱和的配色，只换颜色，没有场景。正文、次要文字、链接与状态色都不低于 4.5。
 13. **浮层画框**：`Look.frame` 有值时，菜单、气泡、对话框、抽屉与设置窗口等浮层（`.nb-ui-popover-surface`、`.nb-ui-dialog-surface`）在描边里面 4px 处再画一道 1px 的细线，颜色取 `frame.line`，不改浮层的尺寸与布局。小提示不画。`prefers-contrast: more`、`forced-colors: active` 下不画。没写 `frame` 时和没有主题一样。
 14. **书架页**：带场景的主题，书架页整页铺场景图，裁切取 `crop.empty`（与欢迎页同一个），上面罩一层页面底色（`--bg-main` 的 62%）；场景钉在视口上，书多了页面变长也不被拉伸。卡片与文字仍在原来的面上，文字对比度不低于 4.5。`prefers-contrast: more`、`forced-colors: active` 下不画。没有场景的主题没有这一层。书架的展示字体不变（输出 8）。
@@ -135,7 +135,7 @@ type Look = {
 15. Given 书房；When 打开设置窗口；Then 窗口内容区有一层淡场景（不透明度 16%），标题、行与导航文字的对比度不低于 4.5；When 模拟高对比度或强制颜色；Then 没有；When 换成 NeuroBook；Then 没有。
 
 16. Given 书房；When 看活动栏等处的 lucide 图标；Then 画的是书房的 SVG，亮暗同一批；When 模拟高对比度；Then 恢复原图标；When 换成 NeuroBook；Then 恢复原图标，文档里没有图标样式表；Given 图标 SVG 里引用了外部地址；Then 浏览器不发出那条请求。
-17. Given 写了 `workingScene` 的主题；When 一个 Agent 会话开始运行；Then 场景图换成工作态的；When 会话结束；Then 换回 `scene`。
+17. Given 写了 `workingScene` 的主题（书房也写了）；When 一个 Agent 会话开始运行；Then 场景图换成工作态的；When 会话结束；Then 换回 `scene`。
 18. Given 主题写了 `sceneProvider`，提供者所在入口启动即激活；Then 场景变量是画好并解码过的 `blob:` 地址；When 换明暗；Then 另画一张；When 提供者 reject、返回非图片或超限的图、或解码失败；Then 用后备图并记一条诊断；When 提供者启动后一直没发布；Then 记一条说明要写 `onStartup` 的诊断；When 提供者撤回；Then 取消在飞的请求、撤销已画的图；When 主题重新发布或换了提供者；Then 旧图作废、迟到的结果不被采用；When `expiresAt` 到点（或是过去的时刻）；Then 至少隔 5 秒重新请求，新图解码成功后才替换，刷新失败时旧图继续显示。
 
 Smoke：`e2e/themes.e2e.ts`（图标集）、`e2e/agent-conversation.e2e.ts`（按状态换场景）、`e2e/plugin-code.e2e.ts`（外置的场景提供者）。
