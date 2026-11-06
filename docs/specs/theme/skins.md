@@ -13,12 +13,12 @@ owners:
 
 ## 目标与非目标
 
-**目标**：插件能提供一整套外观：配色、字体、活动栏、浮层的画框、一张场景图在各位置的裁切。写作者在一个“主题”列表里选，选了之后界面整体换一个样子。场景放在内容区的留白处，正文底下始终是干净的面。
+**目标**：插件能提供一整套外观：配色、字体、活动栏、图标集、浮层的画框、一张场景图（或由代码画的场景图）在各位置的裁切。写作者在一个“主题”列表里选，选了之后界面整体换一个样子。场景放在内容区的留白处，正文底下始终是干净的面。
 
 **不承诺**：
 
 - 半透明与磨砂：场景不压暗、不磨砂，文字不叠在半透明面上。
-- 图标集、按状态换场景、由代码提供的场景；画框只有一种（双线），不接受自定义图案或素材。
+- 画框只有一种（双线），不接受自定义图案或素材；图标集只按名覆盖产品里的 lucide 图标，不整套替换、不换文件类型图标；场景只按“空闲/工作中”两态换，不取 Agent 的细状态；场景换图时不做交叉淡化。
 - 第三方主题的对比度：不做运行时检查，由作者负责。
 - 运行期热插拔：插件禁用、启用要重启后生效（[`runtime.plugin-hot-plug`](../runtime/plugin-hot-plug.md)）。
 
@@ -37,6 +37,7 @@ owners:
 type ThemeDeclaration = {
     title: Text;
     base: "nbook" | "macos";
+    sceneProvider?: string;                        // 由代码画场景图：workbench.theme-scenes 的贡献 id
     fonts?: {display?: string; prose?: string};    // 系统字体栈
     crop?: {
         empty?: {position?: string; contentX?: number};   // contentX：内容中心在内容区宽度的比例，0.25–0.5，缺省 0.5（居中）；偏右的以后再加
@@ -53,6 +54,8 @@ type Look = {
     vars?: Partial<Record<RoleVar, string>>;       // 只收主题角色变量里的白名单
     activityBar?: {surface: string; foreground: string; active: string; ornament?: string};
     scene?: string;                                // 插件目录内的相对路径
+    workingScene?: string;                         // Agent 工作中用的场景图，相对路径；没写时仍用 scene
+    icons?: Record<string, string>;                // 图标名（i-lucide-<名> 的 <名>）到插件目录内 .svg 的相对路径
     frame?: {line: string};                        // 浮层画框那道细线的颜色
 };
 ```
@@ -60,6 +63,7 @@ type Look = {
 规则：
 
 - 贡献 id：无点的 id 只有 `nbook.workbench` 能用（`nbook`、`macos`）；其余以 `<插件 id>.` 开头。
+- `scene`、`workingScene` 与 `icons` 的值都是插件目录内的相对路径（不能带方案、不能是绝对路径、不能有 `..`）；`icons` 的值必须以 `.svg` 结尾，键只收小写字母、数字与连字符，一条 Look 最多 64 个；`sceneProvider` 是点分的小写贡献 id。
 - 取值不能含反斜杠，也不能含 `url`、`src`、`image`、`image-set`、`cross-fade`、`element`、`paint` 后接括号的写法：CSS 先解转义再认函数名，`u\72l(` 就是 `url(`。`scene` 不能是绝对路径、带方案的地址，也不能有 `..`。
 - 不合规则的贡献不接受，记诊断，其它主题照常（[`runtime.plugin-manifest`](../runtime/plugin-manifest.md)）。
 
@@ -83,6 +87,10 @@ type Look = {
 14. **书架页**：带场景的主题，书架页整页铺场景图，裁切取 `crop.empty`（与欢迎页同一个），上面罩一层页面底色（`--bg-main` 的 62%）；场景钉在视口上，书多了页面变长也不被拉伸。卡片与文字仍在原来的面上，文字对比度不低于 4.5。`prefers-contrast: more`、`forced-colors: active` 下不画。没有场景的主题没有这一层。书架的展示字体不变（输出 8）。
 15. **设置窗口**：带场景的主题，设置窗口内容区铺一层淡场景（图的 16% 不透明度），裁切取 `crop.empty`；不管窗口后面是什么页面，窗口自己都带着主题的味道。淡到文字与控件的对比度仍不低于 4.5。`prefers-contrast: more`、`forced-colors: active` 下不画。没有场景的主题没有这一层。
 
+16. **图标集**：`Look.icons` 有值时，工作台自己用的 lucide 图标里，名字在表里的换成对应的 SVG（经 CSS 蒙版画，随前景色变），没写的保持原图标；亮暗各写各的。`prefers-contrast: more`、`forced-colors: active` 下不换。SVG 当图片用，浏览器不执行里面的脚本、不加载它引用的外部资源。没写 `icons` 时和没有主题一样；换回别的主题后恢复。
+17. **按状态换场景**：Agent 工作中（有会话在运行或等用户处理，即公开状态 `nbook.agent/active`，状态栏“Agent：1 运行中”的同一个信号）且这一明暗写了 `workingScene` 时，所有位置的场景图换成它，裁切不变；会话结束后换回 `scene`。`workingScene` 没写或读不到时仍用 `scene`。Agent 插件没启用时按空闲。换图不触发整页渐变，也不做交叉淡化。
+18. **由代码提供的场景**：主题写了 `sceneProvider` 时，场景图由那个提供者画：提供者是浏览器入口向 `workbench.theme-scenes` 的贡献，实现是 `scene({appearance, working}, signal) => Promise<{image: Blob, expiresAt?: number}>`。图要是 `image/*`、不超过 4 MB，并且浏览器解码成功才采用；否则（提供者没发布、reject、不是图片、超限、解码失败）那一位置用后备的静态图（`scene` / `workingScene`），没有后备就没有场景，并按提供者记一条诊断，同一个提供者只记一次，失败后不重试。每个（主题、明暗、是否工作中）画一张；`expiresAt` 到点重新请求，新图解码成功后才替换旧图。提供者撤回（入口停止）时取消在飞的请求、撤销已画的图；页面卸载时撤销全部。工作台不替提供者激活入口，所以提供者所在的入口要写 `onStartup`。
+
 ## 状态与转换
 
 显示由“设置 × 明暗 × 已接受的主题 × 无障碍偏好”算出，不另存状态。图片加载好之前只有配色，加载好后显示。
@@ -103,7 +111,8 @@ type Look = {
 
 ## 边界与兼容
 
-- 公开接口：贡献点与声明，只追加字段；配置值 `nbook`、`macos` 不变。
+- 公开接口：贡献点 `workbench.themes` 与 `workbench.theme-scenes` 及声明，只追加字段；配置值 `nbook`、`macos` 不变。SDK 的 `/workbench` 导出 `sceneProvider` 助手与相关类型。
+- “我的主题”不持有 `icons`、`workingScene`（用户层的素材只有按内容摘要命名的场景图，没有放它们的地方）：[`theme.editor`](editor.md) 复制插件主题与导入主题包时丢弃这两项，读到带它们的记录时那一条不进列表；`sceneProvider` 只是个贡献 id，用户层保留。
 - 信任边界：声明只有数据，素材只取插件自己目录里的文件。插件的样式表能写任何选择器，这里只承诺上面的位置，别的选择器不保证升级后还能用。
 - 单张场景图建议 300 KB 以内，是作者建议，不是限制。
 
@@ -125,7 +134,11 @@ type Look = {
 14. Given 书房；When 打开书架页；Then 整页有场景，书架标题、作品数与书房名的对比度不低于 4.5；When 模拟高对比度或强制颜色；Then 没有；When 换成 NeuroBook；Then 没有。
 15. Given 书房；When 打开设置窗口；Then 窗口内容区有一层淡场景（不透明度 16%），标题、行与导航文字的对比度不低于 4.5；When 模拟高对比度或强制颜色；Then 没有；When 换成 NeuroBook；Then 没有。
 
-Smoke：`e2e/themes.e2e.ts`。
+16. Given 书房；When 看活动栏等处的 lucide 图标；Then 画的是书房的 SVG，亮暗同一批；When 模拟高对比度；Then 恢复原图标；When 换成 NeuroBook；Then 恢复原图标，文档里没有图标样式表；Given 图标 SVG 里引用了外部地址；Then 浏览器不发出那条请求。
+17. Given 写了 `workingScene` 的主题；When 一个 Agent 会话开始运行；Then 场景图换成工作态的；When 会话结束；Then 换回 `scene`。
+18. Given 主题写了 `sceneProvider`，提供者所在入口启动即激活；Then 场景变量是画好并解码过的 `blob:` 地址；When 换明暗；Then 另画一张；When 提供者 reject、返回非图片或超限的图、或解码失败；Then 用后备图并记一条诊断；When 提供者撤回；Then 取消在飞的请求、撤销已画的图；When 主题重新发布；Then 旧代次迟到的结果不被采用；When `expiresAt` 到点；Then 重新请求，新图解码成功后才替换。
+
+Smoke：`e2e/themes.e2e.ts`（图标集）、`e2e/agent-conversation.e2e.ts`（按状态换场景）、`e2e/plugin-code.e2e.ts`（外置的场景提供者）。
 
 ## 实现合同
 
@@ -133,12 +146,13 @@ Smoke：`e2e/themes.e2e.ts`。
 - owner 与依赖方向：贡献点、选择、文档根的写入、活动栏、侧栏与右栏下角归 `nbook.workbench`；空状态归 `nbook.editor`（`editor.pages` 的声明加了可选的 `scene`）；正文两侧与正文字体归 `nbook.markdown`。各位置只读 `src/ui/theme/skin-vars.ts` 里的变量，没有变量时和没有主题一样。
 - 不变量：声明里的素材只有相对路径，描述文件不 import 图片：服务端构建会把图片打进产物，URL 也和前端的不一样。内置素材的 URL 表在 `web/plugins.ts`。
 - 不变量：贡献点定义写在 shared，三个运行位置都带；没有入口的位置经描述里的 `contributionPoints` 登记，否则服务端的插件页把第三方主题标成“未知贡献点”。
-- 不变量：主题目录经 receiver 收，不取激活时的快照，以后热插拔不用改。
+- 不变量：主题目录经 receiver 收，不取激活时的快照，以后热插拔不用改。场景提供者的结果放在响应式表里，结果落下时读过它的主题计算自动重算；每个主题条目有代次，作废的请求与迟到的结果不回写，对象 URL 由目录负责撤销。
+- 不变量：图标覆盖规则写成一张不进任何 `@layer` 的样式表，整张包在 `@media not ((prefers-contrast: more) or (forced-colors: active))` 里：不进层才压得过 nb-ui 预生成的 `@layer` 里的 `--svg`，媒体条件不满足时原规则自然生效。
 - 不变量：写偏移的规则要排在元素自己的 `padding` 之后，否则会被简写盖掉（`themes.e2e.ts` 断言空状态下标志的位置）。
 
 ## 证据
 
 - 批准依据：开发者 2026-11-05 的决定，记在主工作区 master 的 `.agents/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/README.md`。
 - 实现入口：[`workbench/shared/themes.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/themes.ts)、[`workbench/web/themes.ts`](../../../packages/neuro-book/src/plugins/workbench/web/themes.ts)、[`ui/theme/`](../../../packages/neuro-book/src/ui/theme/skin-vars.ts)、[`theme-study/plugin.ts`](../../../packages/neuro-book/src/plugins/theme-study/plugin.ts)
-- 合同测试：[`workbench/themes.test.ts`](../../../packages/neuro-book/src/plugins/workbench/themes.test.ts)
+- 合同测试：[`workbench/themes.test.ts`](../../../packages/neuro-book/src/plugins/workbench/themes.test.ts)、[`workbench/scene-providers.test.ts`](../../../packages/neuro-book/src/plugins/workbench/scene-providers.test.ts)；示例：[`plugin-sdk/examples/plugins/scene-clock`](../../../packages/neuro-book/plugin-sdk/examples/plugins/scene-clock/plugin.ts)与场景 [`08-scene-provider`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/08-scene-provider.test.ts)
 - Smoke：[`themes.e2e.ts`](../../../packages/neuro-book/e2e/themes.e2e.ts)；量出来的对比度在 master 的 `.agents/works/w00041-themes-and-backgrounds/tasks/t01-research-and-design/evidences/` 与测试输出，最低 4.82
