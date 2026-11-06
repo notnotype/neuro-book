@@ -48,7 +48,7 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
   - 找不到目标显示失败，不选最近的。
 - `canMutateHistory` = 可写且没有归档，运行中按钮禁用。
 - **结构查询**（改内核一点）：新查询 `treeNodes({after})` 按页交回 `{id, parent, type, seq, label?}`，由内核从内存的 `byId` 算，不读事件全文，所以大事件不会断树；`label` 是文字前 80 字，经出站过滤，过滤掉的没有 `label`。每页按 512 KiB 约 2,500 个节点，10 万事件约 40 次调用。`branchPoints()` 只交回有多个孩子的节点 `{parent, children: {node, latestLeaf}[]}`，一次调用填 `ctx.branches`，`leafChanged` 与运行结束后重取；不逐条调 `siblings`。写进 `harness/runtime.md`、`agent/sessions.md`。
-- **分支树** `panels/AgentSessionTree.vue`：算法搬旧 `session-tree.ts`（拍平成行加导引线），nb-ui `Tree` 没有插槽，画不了导引线，长链也不适合递归，用虚拟滚动的列表。搜索、折叠、键盘导航、节点详情、复制 id、切换；过滤按旧应用留“默认”“不含工具”“只看用户”“全部”，“带标签”不做，没有标签。读取中显示进度，不挡对话。入口在顶栏菜单。
+- **分支树** `panels/AgentSessionTree.vue`：两种视图（开发者定）：列表（竖着，线条树）与图（默认从上往下，方向可调）。算法在 `session-tree.ts`，用显式的栈不递归。nb-ui `Tree` 没有插槽，画不了缩进线，不用；长列表靠 `content-visibility`，图超过 1,500 个节点让用列表。搜索、折叠、键盘导航、复制 id、切换；过滤留“默认”“不含工具”“只看用户”“全部”，“带标签”不做。读取中显示进度，不挡对话。入口在顶栏菜单。
 
 ### 触发符、斜杠命令、草稿（批 4）
 
@@ -109,6 +109,8 @@ t17 第一版以“能真的用它写书”为标准，把分支树、上下文�
 批 2：`agent/conversation.md` 输出 24 → `session-host.test.ts`“上下文详情”、`agent-conversation.e2e.ts`“上下文详情”；`ui/agent-conversation-view.md`“上下文检查器” → `AgentContextInspector.dom.test.ts`、`AgentStatusBar.dom.test.ts`“能点”；`agent/sessions.md` 输出 9 的 `preview` → `session-host.test.ts`“上下文详情”。
 
 批 3（不含分支树界面）：`harness/runtime.md` 输出 80、81 → `tree.test.ts`；`agent/conversation.md` 输出 25、26 → `session-host.test.ts`“改写历史”、`agent-conversation.e2e.ts`“改写历史”；就地编辑 → `AgentMessageEditor.dom.test.ts`。
+
+批 3（分支树）：`agent/conversation.md` 输出 27、`ui/agent-conversation-view.md`“分支树” → `session-tree.test.ts`、`AgentSessionTree.dom.test.ts`、`session-host.test.ts`“分支树”、`agent-conversation.e2e.ts`“分支树”。
 
 每批开工先把行为写进 Spec，再在这里写编号映射。下面的场景必须有测试，都用真实内核加本机端点，断言码、事件或请求块；真实模型冒烟只作额外证据：
 
