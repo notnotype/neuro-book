@@ -85,12 +85,12 @@ t03、t09。
 
 仍接受的风险：触发点比摘要加保留部分还小时每个边界都再压缩一次；`tokensAfter` 是估算；第三方方法没有时限；`no-compaction-model` 只给文字；放回的行锚快照持有路径没有单独的测试场景；`inplace` 的摘要覆盖整段请求而保留部分照留（与步切点重复输入同一类，写在 plan 的风险里）。
 
-## 待晋升
+## 晋升
 
-[`agent/compaction.md`](../../../../../docs/specs/agent/compaction.md) 现在是 planned，实现已经合入，等开发者批准晋升为 implemented。证据：实现入口 `packages/neuro-book/src/plugins/agent/backend/compaction/`；合同测试 `plugins/agent/compaction.test.ts`、`compaction-methods.test.ts`、`session-host.test.ts`、`nb-harness` 的 `kernel/compaction/compaction.test.ts`；Smoke `plugins/agent/compaction.llm.test.ts`（`NBOOK_LLM_TESTS=1`，需要 DeepSeek 密钥）。
+[`agent/compaction.md`](../../../../../docs/specs/agent/compaction.md) 已于 2026-11-06 经开发者批准晋升为 implemented，注册表行移到已实现表。
 
 ## 下一步
 
 
 
-压缩提示词与结果格式按实际体验调整；Spec 晋升等开发者批准。
+压缩提示词与结果格式按实际体验调整。

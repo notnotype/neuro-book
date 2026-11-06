@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.compaction
 owners:
   - nbook.agent
@@ -89,6 +89,19 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/agent/compaction.llm.test.ts`（真实模型：长对话触发压缩，接着写）。
 
+## 实现合同
+
+- **公开入口**：贡献点 `agent.compactionMethods` 与方法名 `nbook.agent.shake`、`nbook.agent.inplace`、`nbook.agent.summary`；放回与触发点设置经 `nbook.agent` 与 `nbook.models` 的公开设置交出，别的包不深导入内部文件。
+- **owner 与依赖方向**：`nbook.agent` 的后端实现内核（`nb-harness`）的压缩流程；内核不认识具体方法，插件方法经方法表交给内核；触发点设置在 `nbook.models`，Agent 只读取。
+- **关键不变量**：
+  - 放回在方法成功之后、写压缩事件之前，中止时不写；单个文件读不到或读到一半出错只跳过它，不让压缩失败（输出 9、10，`compaction.test.ts`）。
+  - 要摘要的两种方法按会话模型窗口的 25% 收紧保留量，摘要定位不到保留部分时整段对话换成摘要，保留的尾部不会既进摘要又原样留下（输出 4，`compaction.test.ts`）。
+  - 第三方方法先可读后激活；提供方停止时在途调用被中止并算失败，晚到的结果丢弃，旧代的方法再调模型会被拒绝（输出 12，`compaction-methods.test.ts`）。
+  - 缺省触发点的预留量最多取窗口的一半，小窗口模型不会在每个边界都压缩（`nb-harness` 的 `kernel/compaction/compaction.test.ts`）。
+
 ## 证据
 
-- 批准依据：[w00032 t11](../../../.agents/works/w00032-agent-integration/tasks/t11-compaction/README.md) 的决定与计划确认时的修改，开发者 2026-11-05。
+- 批准依据：[w00032 t11](../../../.agents/works/w00032-agent-integration/tasks/t11-compaction/README.md) 的决定与计划确认时的修改，开发者 2026-11-05；2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`backend/compaction/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/compaction/index.ts)、[`shake.ts`](../../../packages/neuro-book/src/plugins/agent/backend/compaction/shake.ts)、[`inplace.ts`](../../../packages/neuro-book/src/plugins/agent/backend/compaction/inplace.ts)、[`summary.ts`](../../../packages/neuro-book/src/plugins/agent/backend/compaction/summary.ts)、[`restore.ts`](../../../packages/neuro-book/src/plugins/agent/backend/compaction/restore.ts)
+- 合同测试：[`compaction.test.ts`](../../../packages/neuro-book/src/plugins/agent/compaction.test.ts)、[`compaction-methods.test.ts`](../../../packages/neuro-book/src/plugins/agent/compaction-methods.test.ts)、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)、[`kernel/compaction/compaction.test.ts`](../../../packages/nb-harness/src/kernel/compaction/compaction.test.ts)
+- Smoke：[`compaction.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/compaction.llm.test.ts)（`test:llm`，真实模型）
