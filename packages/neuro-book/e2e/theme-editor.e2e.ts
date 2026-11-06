@@ -3,8 +3,8 @@
  * 声明、真实插件安装对导出的包的接受，以及页面里的布局测量。
  */
 
-import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {createHash, randomUUID} from "node:crypto";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -17,6 +17,7 @@ import {productPlugins} from "nbook/manifest";
 import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
 import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import {STUDY_ICON_NAMES} from "nbook/plugins/theme-study/plugin";
 
 import {startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
@@ -208,6 +209,143 @@ test("场景图与取景：上传转成图并显示，拖框与数值互相同�
     });
 });
 
+const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" fill="currentColor"/></svg>';
+const sceneVar = (page: Page): Promise<string> => rootVar(page, "--skin-scene");
+
+/** 点“添加”（它按输入框里的名字打开文件选择），在文件选择里给一个 SVG。 */
+async function chooseIcon(page: Page, name: string, svg: string): Promise<void> {
+    const chooser = page.waitForEvent("filechooser");
+    await page.locator("[data-icon-choose]").click();
+    await (await chooser).setFiles({name, mimeType: "image/svg+xml", buffer: Buffer.from(svg)});
+}
+
+test("图标：上传 SVG 后工作台里该图标换成它，不合格的被路由拒绝并给原因，亮暗各一份，移除后恢复", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=icons]").click();
+        await expect(page.locator("[data-icons-none]")).toBeVisible();
+        const sheet = page.locator("style[data-nb-skin-icons]");
+        await expect(sheet).toHaveCount(0);
+
+        // 名字不合规则：行内给原因，列表仍是空的（没有写声明）。
+        await page.locator("[data-icon-name]").fill("Bad Name");
+        await expect(page.locator("[data-icon-name-problem]")).toBeVisible();
+        await expect(page.locator("[data-icons-none]")).toBeVisible();
+
+        // 换的是编辑器自己用的 image-plus：添加按钮上的图标随即变成上传的那一个。
+        const hash = createHash("sha256").update(ICON_SVG).digest("hex");
+        await page.locator("[data-icon-name]").fill("image-plus");
+        await expect(page.locator("[data-icon-name-problem]")).toHaveCount(0);
+        const iconOf = () => page.locator("[data-theme-editor] .i-lucide-image-plus").first().evaluate((element) => getComputedStyle(element).getPropertyValue("--svg"));
+        // 对照：上传之前用的是内置图标，不含上传内容的摘要。
+        expect(await iconOf()).not.toContain(`${hash}.svg`);
+        await chooseIcon(page, "mine.svg", ICON_SVG);
+        await expect(page.locator('[data-icon-row="image-plus"]')).toBeVisible();
+        await expect(sheet).toHaveCount(1);
+        expect(await sheet.textContent()).toContain(`${hash}.svg`);
+        await expect.poll(iconOf).toContain(`${hash}.svg`);
+
+        // 路由的白名单检查：带脚本的 SVG 被拒，声明不变，原因里有说明。
+        await page.locator("[data-icon-name]").fill("search");
+        await chooseIcon(page, "bad.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><script>alert(1)</script></svg>');
+        await expect(page.locator("[data-icon-error]")).toContainText("script");
+        await expect(page.locator('[data-icon-row="search"]')).toHaveCount(0);
+
+        // 亮暗各一份：暗色里没有；复制到另一套之后有。
+        await page.locator("[data-appearance]").getByText("暗色").click();
+        await expect(page.locator("[data-icons-none]")).toBeVisible();
+        await page.locator("[data-appearance]").getByText("亮色").click();
+        await page.locator("[data-icons-copy]").click();
+        await page.locator("[data-appearance]").getByText("暗色").click();
+        await expect(page.locator('[data-icon-row="image-plus"]')).toBeVisible();
+
+        // 移除：这一套（暗色）没有了。
+        await page.locator('[data-icon-row="image-plus"] [data-icon-remove]').click();
+        await expect(page.locator("[data-icons-none]")).toBeVisible();
+        // 暗色这套移除了，工作台现在画的就是暗色：样式表也随之去掉；亮色那套还在，切回去它又回来。
+        await expect(sheet).toHaveCount(0);
+        await page.locator("[data-appearance]").getByText("亮色").click();
+        await expect(sheet).toHaveCount(1);
+        await page.locator('[data-icon-row="image-plus"] [data-icon-remove]').click();
+        await expect(sheet).toHaveCount(0);
+    });
+});
+
+test("工作态场景与预览状态：上传后预览选“工作中”场景换成它，“空闲”换回，“跟随”回到真实状态；关掉编辑器后回到真实状态", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=scene]").click();
+        await page.locator("[data-scene-file]").setInputFiles(SCENE_IMAGE);
+        await expect(page.locator("[data-scene-note]")).toContainText("KB");
+        await expect.poll(() => sceneVar(page)).not.toBe("");
+        const idle = await sceneVar(page);
+
+        // 工作态场景用另一张图（夜色那张）：上传后工作台还是空闲，场景不变。
+        await expect(page.locator("[data-working-none]")).toBeVisible();
+        await page.locator("[data-working-file]").setInputFiles(join(PACKAGE_ROOT, "src/plugins/theme-study/assets/study-night.webp"));
+        await expect(page.locator("[data-working-note]")).toContainText("KB");
+        await expect(page.locator("[data-working-thumb]")).toBeVisible();
+        await expect.poll(() => sceneVar(page)).toBe(idle);
+
+        const preview = page.locator("[data-preview-state]");
+        await preview.getByRole("radio", {name: "工作中"}).click();
+        await expect.poll(() => sceneVar(page)).not.toBe(idle);
+        const working = await sceneVar(page);
+        expect(working).toContain("theme-assets");
+        await preview.getByRole("radio", {name: "空闲"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(idle);
+        await preview.getByRole("radio", {name: "工作中"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(working);
+        await preview.getByRole("radio", {name: "跟随"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(idle);
+
+        // 强制“工作中”之后关掉编辑器：回到真实状态（空闲），不残留。
+        await preview.getByRole("radio", {name: "工作中"}).click();
+        await expect.poll(() => sceneVar(page)).toBe(working);
+        await page.locator("[data-editor-tab-close]").last().click({force: true});
+        await expect(editor(page)).toBeHidden();
+        // 设置里选的还是 nbook（没有场景图）：预览清掉之后文档根回到它，工作态与空闲的场景都不残留。
+        await expect.poll(() => sceneVar(page)).toBe("");
+    });
+});
+
+test("复制书房：它的场景图与全部图标都传成我的素材（真实路由的检查都过），行预览与取景编辑画的都是素材目录里的文件", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await page.locator("[data-empty] [role=combobox]").click();
+        await page.getByRole("option", {name: "书房"}).click();
+        await expect(page.locator("[data-section-tab]").first()).toBeVisible();
+        await page.locator("[data-section-tab=icons]").click();
+        // 书房有哪些图标以它的声明为准（STUDY_ICON_NAMES）：一个不多一个不少。
+        await expect(page.locator("[data-icon-row]")).toHaveCount(STUDY_ICON_NAMES.length);
+        const names = await page.locator("[data-icon-row]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-icon-row")));
+        expect([...names].sort()).toEqual([...STUDY_ICON_NAMES].sort());
+
+        // 传成我的素材：每个图标行预览的地址都是素材目录里 `<sha256>.svg` 的读取地址，取得到 SVG；素材目录里的文件都是摘要命名。
+        const assetPath = /^\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.svg$/u;
+        const urls = await page.locator("[data-icon-row] [aria-hidden=true]").evaluateAll((previews) => previews.map((element) => /url\("(.+)"\)/u.exec((element as HTMLElement).style.getPropertyValue("--icon-url"))?.[1] ?? ""));
+        expect(urls).toHaveLength(STUDY_ICON_NAMES.length);
+        for (const url of urls) {
+            expect(url).toMatch(assetPath);
+            const response = await page.request.get(new URL(url, session.url).href);
+            expect(response.status()).toBe(200);
+            expect(response.headers()["content-type"]).toContain("image/svg+xml");
+        }
+        const files = await readdir(join(session.stateRoot, "user", "theme-assets"));
+        expect(files.every((name) => /^[0-9a-f]{64}\.(?:svg|webp|png|jpg)$/u.test(name))).toBe(true);
+        for (const url of urls) expect(files).toContain(url.split("/").pop());
+
+        // 场景图一并复制：取景编辑里画的就是我的素材。
+        await page.locator("[data-section-tab=scene]").click();
+        await expect(page.locator("[data-crop-editor] img")).toHaveAttribute("src", /\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.(?:webp|png|jpg)$/u);
+    });
+});
+
 test("导出的包被真实的插件安装接受，导入读得回来；坏 zip 整个拒绝", async ({page}) => {
     await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
         await open(page, session);
@@ -266,9 +404,19 @@ test("浮动窗口里是同一个编辑器：实心面、可关闭，关掉后�
         await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "light");
 
         await openEditorTab(page);
+        // 窄屏下分区里要有内容才量得到：先放一张场景图、一张工作态场景和一个名字很长的图标。
+        await page.locator("[data-section-tab=scene]").click();
+        await page.locator("[data-scene-file]").setInputFiles(SCENE_IMAGE);
+        await expect(page.locator("[data-scene-note]")).toContainText("KB");
+        await page.locator("[data-working-file]").setInputFiles(join(PACKAGE_ROOT, "src/plugins/theme-study/assets/study-night.webp"));
+        await expect(page.locator("[data-working-thumb]")).toBeVisible();
+        await page.locator("[data-section-tab=icons]").click();
+        await page.locator("[data-icon-name]").fill("a-very-long-icon-name-that-keeps-going-and-going-and-going");
+        await chooseIcon(page, "long.svg", ICON_SVG);
+        await expect(page.locator("[data-icon-row]")).toHaveCount(1);
         await page.setViewportSize({width: 390, height: 844});
         // 每个分区都量一次：分区里是 ScrollArea，横向溢出不会让编辑器根的 scrollWidth 变大，所以量分区内容自己和每个配色行。
-        for (const section of ["basic", "colors", "fonts", "chrome", "scene", "contrast"]) {
+        for (const section of ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"]) {
             await page.locator(`[data-section-tab=${section}]`).click();
             const content = page.locator(`[data-section=${section}]`);
             await expect(content).toBeVisible();

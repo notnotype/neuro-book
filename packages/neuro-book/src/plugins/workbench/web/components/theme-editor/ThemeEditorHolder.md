@@ -10,7 +10,7 @@
 
 ## 为什么自己发请求
 
-导出要读场景图的字节（`io:read`，取回 `/api/nbook.files/raw/user/theme-assets/…`），导入要把包里的素材传上去、场景分区要上传选好的图、复制插件主题时要把它的场景图读出来传成我的素材（`io:mutate`，`PUT /api/nbook.files/theme-assets`）。两件事由用户点“导出”“导入”触发，主体（`ThemeEditor`）只调这里给的 `transfer` 并显示结果，这样主体不碰产品数据、能在 Lab 里单独看。格式与校验在 `package-io.ts`，请求在 `transfer.ts`。
+导出要读素材（场景图、工作态场景、图标）的字节（`io:read`，取回 `/api/nbook.files/raw/user/theme-assets/…`），导入要把包里的素材传上去、场景与图标分区要上传选好的文件、复制插件主题时要把它的素材读出来传成我的素材（`io:mutate`，位图 `PUT /api/nbook.files/theme-assets`，图标 `PUT /api/nbook.files/theme-icons`）。这些由用户点“导出”“导入”“上传”触发，主体（`ThemeEditor`）只调这里给的 `transfer` 并显示结果，这样主体不碰产品数据、能在 Lab 里单独看。格式与校验在 `package-io.ts`，上传与复制在 `transfer.ts`、`asset-upload.ts`，导出下载在 `export-current.ts`。插件主题素材的地址经会话的 `assetUrl`（目录的 `assetUrl`）取，不在这里拼。
 
 ## 数据
 

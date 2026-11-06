@@ -39,7 +39,7 @@ import {appearanceSetting, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDE
 import type {NotificationInput} from "../shared/contracts";
 import {themeScenesPoint, themesPoint, WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "../shared/themes";
 import type {ThemeDeclaration} from "../shared/themes";
-import {ThemeCatalog, userThemeSceneUrl} from "./themes";
+import {ThemeCatalog, userThemeAssetUrl} from "./themes";
 import {userThemesStore} from "./user-themes-store";
 import {OPEN_THEME_EDITOR_COMMAND, OPEN_THEME_EDITOR_DECLARATION, OPEN_THEME_EDITOR_FLOATING_COMMAND, OPEN_THEME_EDITOR_FLOATING_DECLARATION, THEME_EDITOR_OVERLAY, THEME_EDITOR_PAGE_ID, themeEditorCommands} from "./commands/theme-editor-commands";
 import {themeEditorOverlay, themeEditorPage} from "./components/theme-editor/theme-editor-page";
@@ -186,7 +186,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
             const text = await windowTextPort(context.services, () => displayLocale(settings));
-            const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), (plugin, path) => (plugin === USER_THEME_PLUGIN ? userThemeSceneUrl(path) : pluginFiles.status === "resolved" ? pluginFiles.instance.fileUrl(plugin, path) : null), (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}), {report: (providerId, problem) => diagnostics.record({level: "warn", event: "workbench.theme.scene-provider", message: `场景提供者 ${providerId} 画不出场景图，用后备图：${problem}`, data: {providerId}})});
+            const themes = new ThemeCatalog(context.declarations.list<ThemeDeclaration>(WORKBENCH_THEMES_POINT), (plugin, path) => (plugin === USER_THEME_PLUGIN ? userThemeAssetUrl(path) : pluginFiles.status === "resolved" ? pluginFiles.instance.fileUrl(plugin, path) : null), (id) => diagnostics.record({level: "warn", event: "workbench.theme.unknown", message: `设置里的主题 ${id} 没有已接受的贡献，退回下一层`, data: {id}}), {report: (providerId, problem) => diagnostics.record({level: "warn", event: "workbench.theme.scene-provider", message: `场景提供者 ${providerId} 画不出场景图，用后备图：${problem}`, data: {providerId}})});
             // 页面（窗口）结束时取消场景提供者在飞的请求、撤销画出来的对象 URL。
             context.signal.addEventListener("abort", () => themes.dispose(), {once: true});
             // “我的主题”：Storage 用户记录的投影，进同一个主题目录；别的窗口保存的新值在没有本窗口排队的修改时采纳。
@@ -234,7 +234,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             let movePaneFocus: PaneFocusMover | null = null;
             const workbenchPages = createWorkbenchPages({
                 // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
-                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(themes.preview?.id ?? effectiveTheme(), resolved, agentWorking())})},
+                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, appearance, resolveTheme: (resolved: "light" | "dark") => themes.resolve(themes.preview?.id ?? effectiveTheme(), resolved, themes.preview?.working ?? agentWorking())})},
                 // 布局 store 在要显示外壳时才创建：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。开始加载外壳时就
                 // 创建、开始读布局记录，与下载外壳代码并行：等外壳挂上才读的话，每次打开都先按缺省布局画出来（Spec 失败表的“记录
                 // 未读完”），记录到了再变过去，侧栏、面板从缺省尺寸动画收起，缺省可见的视图也被加载。

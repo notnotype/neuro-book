@@ -1,13 +1,17 @@
 <script setup lang="ts">
-/** 主题编辑器的“场景与取景”分区（同名 .md）：当前明暗的场景图（上传、更换、移除）和五个位置的取景。 */
+/**
+ * 主题编辑器的“场景与取景”分区（同名 .md）：当前明暗的场景图和工作态场景、场景提供者、预览状态，以及五个位置的取景。
+ * 上传条是 `SceneImageSlot`。
+ */
 import {computed, ref, watch} from "vue";
 
-import {Button} from "@notnotype/nb-ui/components";
+import {SegmentedControl, Select} from "@notnotype/nb-ui/components";
 
 import {useWorkbenchText} from "../../text";
-import {userThemeSceneUrl} from "../../themes";
+import {userThemeAssetUrl} from "../../themes";
 import CropEditor from "./CropEditor.vue";
-import {prepareImage, SCENE_SUGGESTED_BYTES} from "./scene-upload";
+import {NO_PROVIDER, providerOptions} from "./provider-options";
+import SceneImageSlot from "./SceneImageSlot.vue";
 import type {ThemeEditorModel} from "./theme-editor-model";
 import type {ThemeTransfer} from "./transfer";
 
@@ -19,59 +23,41 @@ const model = props.model;
 
 const theme = computed(() => model.current.value);
 const sceneName = computed(() => theme.value?.declaration[model.appearance.value].scene ?? null);
-const sceneUrl = computed(() => (sceneName.value === null ? null : userThemeSceneUrl(sceneName.value)));
+const sceneUrl = computed(() => (sceneName.value === null ? null : userThemeAssetUrl(sceneName.value)));
+const workingName = computed(() => theme.value?.declaration[model.appearance.value].workingScene ?? null);
+const workingUrl = computed(() => (workingName.value === null ? null : userThemeAssetUrl(workingName.value)));
 
-const input = ref<HTMLInputElement | null>(null);
-const busy = ref(false);
-const failure = ref<string | null>(null);
-const note = ref<string | null>(null);
 const loadFailed = ref(false);
+const workingLoadFailed = ref(false);
 // 图换了（换明暗、换主题、移除）：上一张图的“加载失败”不再适用。
 watch(sceneUrl, () => {
     loadFailed.value = false;
 });
+watch(workingUrl, () => {
+    workingLoadFailed.value = false;
+});
 
-const choose = (): void => input.value?.click();
+/** 声明里的提供者没发布：下拉收起时只显示它的 id，所以另在下面写一行说明。 */
+const unpublished = computed(() => {
+    const current = theme.value?.declaration.sceneProvider;
+    return current !== undefined && !model.sceneProviders.value.includes(current) ? current : null;
+});
+const options = computed(() => providerOptions(model.sceneProviders.value, theme.value?.declaration.sceneProvider, {none: text("themeEditor.scene.provider.none"), unpublished: text("themeEditor.scene.provider.unpublished")}));
 
-const onFile = async (event: Event): Promise<void> => {
-    const element = event.target as HTMLInputElement;
-    const file = element.files?.[0];
-    element.value = "";
-    if (file === undefined) return;
-    // 目标在发起时定下：处理与上传要几百毫秒到几秒，期间用户可能切了明暗或换了主题，图不能落到别处。
-    const target = theme.value === null ? null : {id: theme.value.id, appearance: model.appearance.value};
-    busy.value = true;
-    failure.value = null;
-    note.value = null;
-    try {
-        const prepared = await prepareImage(file);
-        const uploaded = await props.transfer.uploadScene(prepared.blob);
-        if (!uploaded.ok) {
-            failure.value = text("themeEditor.scene.failed", {reason: uploaded.reason});
-            return;
-        }
-        loadFailed.value = false;
-        await model.setScene(uploaded.name, target);
-        const kb = String(Math.round(prepared.blob.size / 1024));
-        note.value = prepared.blob.size > SCENE_SUGGESTED_BYTES ? text("themeEditor.scene.large", {kb}) : text("themeEditor.scene.stored", {kb});
-    } catch (error) {
-        failure.value = text("themeEditor.scene.failed", {reason: error instanceof Error ? error.message : String(error)});
-    } finally {
-        busy.value = false;
-    }
+const previewOptions = computed(() => [
+    {value: "follow", label: text("themeEditor.scene.preview.follow")},
+    {value: "idle", label: text("themeEditor.scene.preview.idle")},
+    {value: "working", label: text("themeEditor.scene.preview.working")},
+]);
+const previewValue = computed(() => (model.previewWorking.value === null ? "follow" : model.previewWorking.value ? "working" : "idle"));
+const setPreview = (value: unknown): void => {
+    model.previewWorking.value = value === "working" ? true : value === "idle" ? false : null;
 };
 </script>
 
 <template>
     <div class="theme-editor-scene" data-section="scene">
-        <div class="theme-editor-scene__bar">
-            <Button size="sm" :loading="busy" icon-class="i-lucide-image-plus" data-scene-upload @click="choose">{{ sceneName === null ? text("themeEditor.scene.upload") : text("themeEditor.scene.replace") }}</Button>
-            <Button size="sm" variant="ghost" :disabled="sceneName === null || busy" data-scene-remove @click="model.setScene(undefined)">{{ text("themeEditor.scene.remove") }}</Button>
-            <span v-if="busy" class="theme-editor-scene__note" role="status">{{ text("themeEditor.scene.uploading") }}</span>
-            <span v-else-if="note !== null" class="theme-editor-scene__note" data-scene-note>{{ note }}</span>
-            <input ref="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp" class="theme-editor-scene__file" data-scene-file @change="onFile" />
-        </div>
-        <p v-if="failure !== null" class="theme-editor-scene__error" role="alert" data-scene-error>{{ failure }}</p>
+        <SceneImageSlot :model="model" :transfer="transfer" kind="scene" :name="sceneName" @stored="loadFailed = false" />
         <p v-if="loadFailed" class="theme-editor-scene__error" role="alert">{{ text("themeEditor.scene.loadFailed") }}</p>
 
         <p v-if="sceneUrl === null" class="theme-editor-scene__empty" data-scene-none>{{ text("themeEditor.scene.none") }}</p>
@@ -84,6 +70,36 @@ const onFile = async (event: Event): Promise<void> => {
             @content-x="model.setContentX($event)"
             @load-failed="loadFailed = true"
         />
+
+        <section class="theme-editor-scene__block" data-working-scene>
+            <h3 class="theme-editor-scene__title">{{ text("themeEditor.scene.working.title") }}</h3>
+            <p class="theme-editor-scene__hint">{{ text("themeEditor.scene.working.hint") }}</p>
+            <SceneImageSlot :model="model" :transfer="transfer" kind="working" :name="workingName" @stored="workingLoadFailed = false" />
+            <p v-if="workingLoadFailed" class="theme-editor-scene__error" role="alert">{{ text("themeEditor.scene.loadFailed") }}</p>
+            <img v-if="workingUrl !== null && !workingLoadFailed" :key="workingUrl" class="theme-editor-scene__thumb" :src="workingUrl" :alt="text('themeEditor.scene.working.title')" data-working-thumb @error="workingLoadFailed = true" />
+            <p v-else-if="workingUrl === null" class="theme-editor-scene__empty" data-working-none>{{ text("themeEditor.scene.working.none") }}</p>
+        </section>
+
+        <section class="theme-editor-scene__block" data-scene-provider>
+            <h3 class="theme-editor-scene__title">{{ text("themeEditor.scene.provider.title") }}</h3>
+            <p class="theme-editor-scene__hint">{{ text("themeEditor.scene.provider.hint") }}</p>
+            <div class="theme-editor-scene__select">
+                <Select
+                    size="sm"
+                    :model-value="theme?.declaration.sceneProvider ?? NO_PROVIDER"
+                    :options="options"
+                    :aria-label="text('themeEditor.scene.provider.title')"
+                    @update:model-value="model.setSceneProvider($event === NO_PROVIDER ? undefined : $event)"
+                />
+            </div>
+            <p v-if="unpublished !== null" class="theme-editor-scene__hint" role="status" data-provider-unpublished>{{ text("themeEditor.scene.provider.unpublishedNote", {id: unpublished}) }}</p>
+        </section>
+
+        <section class="theme-editor-scene__block" data-scene-preview>
+            <h3 class="theme-editor-scene__title">{{ text("themeEditor.scene.preview.title") }}</h3>
+            <SegmentedControl size="sm" :model-value="previewValue" :options="previewOptions" :aria-label="text('themeEditor.scene.preview.title')" data-preview-state @update:model-value="setPreview" />
+            <p class="theme-editor-scene__hint">{{ text("themeEditor.scene.preview.hint") }}</p>
+        </section>
     </div>
 </template>
 
@@ -94,20 +110,37 @@ const onFile = async (event: Event): Promise<void> => {
     gap: var(--space-4);
 }
 
-.theme-editor-scene__bar {
+.theme-editor-scene__block {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    flex-direction: column;
+    align-items: flex-start;
     gap: var(--space-3);
+    padding-top: var(--space-4);
+    border-top: var(--border-w) solid var(--divider);
 }
 
-.theme-editor-scene__file {
-    display: none;
+.theme-editor-scene__title {
+    margin: 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
 }
 
-.theme-editor-scene__note {
+.theme-editor-scene__hint {
+    margin: 0;
     color: var(--text-muted);
     font-size: var(--text-xs);
+}
+
+.theme-editor-scene__select {
+    min-width: 220px;
+    max-width: 100%;
+}
+
+.theme-editor-scene__thumb {
+    max-width: 100%;
+    max-height: 160px;
+    border-radius: var(--radius-control);
+    border: var(--border-w) solid var(--border-color);
 }
 
 .theme-editor-scene__error {

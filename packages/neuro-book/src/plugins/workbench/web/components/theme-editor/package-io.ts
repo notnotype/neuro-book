@@ -12,11 +12,12 @@ import {sniffImageType} from "nbook/shared/image-type";
 
 import {declarationProblem, ThemeDeclarationSchema, WORKBENCH_THEMES_POINT} from "../../../shared/themes";
 import type {ThemeDeclaration} from "../../../shared/themes";
-import {forUserLayer} from "../../../shared/user-themes";
 import type {UserTheme} from "../../../shared/user-themes";
+import {assetRefs, renameAssets} from "./assets";
+import {THEME_ICON_MAX_BYTES} from "nbook/plugins/files/shared/contracts";
 
-/** 一个包的上限：压缩包大小、文件数、单个文件解压后的大小与全部文件解压后的总大小（字节）。 */
-export const PACKAGE_LIMITS = {archiveBytes: 20 * 1024 * 1024, files: 64, fileBytes: 20 * 1024 * 1024, totalBytes: 48 * 1024 * 1024} as const;
+/** 一个包的上限：压缩包大小、文件数（满额的主题有 4 张位图、128 个图标和清单）、单个文件解压后的大小与全部文件解压后的总大小（字节）。 */
+export const PACKAGE_LIMITS = {archiveBytes: 20 * 1024 * 1024, files: 300, fileBytes: 20 * 1024 * 1024, totalBytes: 48 * 1024 * 1024} as const;
 
 export interface ExportedPackage {
     readonly fileName: string;
@@ -31,21 +32,18 @@ function packageName(theme: UserTheme): string {
     return /^[a-z]/u.test(slug) ? slug.slice(0, 40).replace(/-+$/u, "") : `theme-${theme.id.slice("user:".length, "user:".length + 8)}`;
 }
 
-/** 场景图在包里的路径。 */
+/** 素材在包里的路径。 */
 const assetPath = (name: string): string => `assets/${name}`;
 
-/** 导出：`readAsset` 按素材文件名读字节，读不到时返回 null，整个导出失败并说出哪张图。 */
+/** 导出：`readAsset` 按素材文件名读字节，读不到时返回 null，整个导出失败并说出哪个素材。两套明暗共用的文件在包里只有一份。 */
 export async function exportPackage(theme: UserTheme, readAsset: (name: string) => Promise<Uint8Array | null>): Promise<{readonly ok: true; readonly package: ExportedPackage} | {readonly ok: false; readonly reason: string}> {
     const files: Record<string, Uint8Array> = {};
-    const declaration = structuredClone(theme.declaration) as ThemeDeclaration;
-    for (const appearance of ["light", "dark"] as const) {
-        const name = declaration[appearance].scene;
-        if (name === undefined) continue;
+    for (const {path: name} of assetRefs(theme.declaration)) {
         const bytes = await readAsset(name);
         if (bytes === null) return {ok: false, reason: name};
         files[assetPath(name)] = bytes;
-        declaration[appearance].scene = assetPath(name);
     }
+    const declaration = renameAssets(theme.declaration, (_kind, name) => assetPath(name));
     const name = packageName(theme);
     const manifest = {
         name,
@@ -169,17 +167,16 @@ export function readPackage(archive: Uint8Array): ImportResult {
         const written = item.declaration as ThemeDeclaration;
         const problem = declarationProblem(id, written);
         if (problem !== null) return {ok: false, reason: problem};
-        // 导入的主题进用户层：图标集与工作态场景的素材放不下，读的时候就去掉（docs/specs/theme/editor.md 边界与兼容）。
-        const declaration = forUserLayer(written);
+        // 素材逐个核对：包里有这个文件，位图是 PNG、JPEG 或 WebP，图标不超过上限（完整的 SVG 检查在上传路由，浏览器只做便宜的）。
         const assets = new Map<string, Uint8Array>();
-        for (const appearance of ["light", "dark"] as const) {
-            const scene = declaration[appearance].scene;
-            if (scene === undefined) continue;
-            const bytes = unpacked.files.get(scene);
-            if (bytes === undefined) return {ok: false, reason: `主题 ${id} 的场景图 ${scene} 不在包里`};
-            if (sniffImageType(bytes) === null) return {ok: false, reason: `${scene} 不是 PNG、JPEG 或 WebP`};
-            assets.set(scene, bytes);
+        for (const {kind, path} of assetRefs(written)) {
+            const bytes = unpacked.files.get(path);
+            if (bytes === undefined) return {ok: false, reason: `主题 ${id} 的${kind === "icon" ? "图标" : "场景图"} ${path} 不在包里`};
+            if (kind === "scene" && sniffImageType(bytes) === null) return {ok: false, reason: `${path} 不是 PNG、JPEG 或 WebP`};
+            if (kind === "icon" && bytes.byteLength > THEME_ICON_MAX_BYTES) return {ok: false, reason: `${path} 超过 ${String(THEME_ICON_MAX_BYTES)} 字节`};
+            assets.set(path, bytes);
         }
+        const declaration = written;
         themes.push({declaration, assets});
     }
     if (themes.length === 0) return {ok: false, reason: "包里没有主题"};

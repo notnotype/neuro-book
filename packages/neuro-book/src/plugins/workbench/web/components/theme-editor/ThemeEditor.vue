@@ -12,6 +12,7 @@ import {useWorkbenchText} from "../../text";
 import type {ThemeEntry} from "../../themes";
 import DraftInput from "./DraftInput.vue";
 import ThemeEditorChrome from "./ThemeEditorChrome.vue";
+import ThemeEditorIcons from "./ThemeEditorIcons.vue";
 import ThemeEditorScene from "./ThemeEditorScene.vue";
 import type {ThemeTransfer, TransferResult} from "./transfer";
 import ThemeEditorColors from "./ThemeEditorColors.vue";
@@ -39,7 +40,7 @@ const text = useWorkbenchText();
 const resolver = useText();
 const model = props.model;
 
-const SECTIONS: ReadonlyArray<EditorSection> = ["basic", "colors", "fonts", "chrome", "scene", "contrast"];
+const SECTIONS: ReadonlyArray<EditorSection> = ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"];
 
 const titleOf = (title: ThemeEntry["declaration"]["title"]): string => resolver.t(title);
 const options = computed(() => model.mine.value.map((theme) => ({label: titleOf(theme.declaration.title), value: theme.id})));
@@ -86,15 +87,18 @@ const createFrom = async (id: string): Promise<void> => {
     const entry = props.themes.find((candidate) => candidate.id === id);
     copyFrom.value = "";
     if (entry === undefined) return;
-    // 复制插件主题：先把它的场景图读出来、传成我的素材，全部成功才建副本（失败不留半个副本）。我的主题的图文件名可以直接共用。
-    const hasScene = entry.declaration.light.scene !== undefined || entry.declaration.dark.scene !== undefined;
-    if (hasScene && entry.plugin !== "user") {
-        const copied = await props.transfer.copyScenes(entry);
+    // 复制插件主题：先把它的场景图、工作态场景和图标读出来、传成我的素材，全部成功才建副本（主题记录是原子的）。我的主题的素材文件名可以直接共用。
+    const hasAssets = ["light", "dark"].some((appearance) => {
+        const look = entry.declaration[appearance as "light" | "dark"];
+        return look.scene !== undefined || look.workingScene !== undefined || look.icons !== undefined;
+    });
+    if (hasAssets && entry.plugin !== "user") {
+        const copied = await props.transfer.copyAssets(entry);
         if (!copied.ok) {
             transferResult.value = {ok: false, message: {key: "copyFailed", params: {reason: copied.reason}}};
             return;
         }
-        await model.create(entry, titleOf(entry.declaration.title), copied.scenes);
+        await model.create(entry, titleOf(entry.declaration.title), copied.declaration);
         return;
     }
     await model.create(entry, titleOf(entry.declaration.title));
@@ -260,6 +264,7 @@ const rejectedText = computed(() => {
                     <ThemeEditorTypography v-else-if="model.section.value === 'fonts'" :model="model" />
                     <ThemeEditorChrome v-else-if="model.section.value === 'chrome'" :model="model" />
                     <ThemeEditorScene v-else-if="model.section.value === 'scene'" :model="model" :transfer="transfer" />
+                    <ThemeEditorIcons v-else-if="model.section.value === 'icons'" :model="model" :transfer="transfer" />
                     <ThemeEditorContrast v-else :model="model" />
                 </div>
             </ScrollArea>

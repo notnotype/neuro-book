@@ -6,7 +6,7 @@
 import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
-export type EditorSection = "basic" | "colors" | "fonts" | "chrome" | "scene" | "contrast";
+export type EditorSection = "basic" | "colors" | "fonts" | "chrome" | "scene" | "icons" | "contrast";
 export type Appearance = "light" | "dark";
 
 /** 编辑状态：放在会话里，页签切走再回来时还在（模型随页签卸载，状态不随它丢）。 */

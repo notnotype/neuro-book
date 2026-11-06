@@ -33,9 +33,14 @@ export class ThemeEditorSession {
         this.#env = env;
     }
 
-    /** 一个主题的场景图地址（复制插件主题时要把图读出来）。 */
+    /** 一个主题的场景图地址（预览用）。 */
     sceneUrl(entry: ThemeEntry, appearance: Appearance): string | null {
         return this.#env.catalog.sceneUrl(entry, appearance);
+    }
+
+    /** 主题里一个素材路径的地址（复制插件主题时要把素材读出来；传输层不自己拼插件文件地址）。 */
+    assetUrl(entry: ThemeEntry, path: string): string | null {
+        return this.#env.catalog.assetUrl(entry, path);
     }
 
     provideBaseColors(source: BaseColors): void {

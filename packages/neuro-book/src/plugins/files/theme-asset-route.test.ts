@@ -21,7 +21,7 @@ import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 
 import {filesBackendPlugin} from "./backend/plugin";
 import {descriptor} from "./plugin";
-import {THEME_ASSET_MAX_BYTES} from "./shared/contracts";
+import {THEME_ASSET_MAX_BYTES, THEME_ICON_MAX_BYTES} from "./shared/contracts";
 import {LEDGER_POINT} from "./shared/ledger";
 import type {LedgerEntry} from "./shared/ledger";
 
@@ -45,6 +45,7 @@ const silent = {log: () => undefined, info: () => undefined, warn: () => undefin
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 5, 6]);
 const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 7]);
+const ICON = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 4h16v16H4z"/></svg>');
 const ORIGIN = "http://127.0.0.1:4217";
 const digest = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
@@ -70,12 +71,12 @@ async function scene() {
     const user = join(h.stateRoot, "user");
     await mkdir(user, {recursive: true});
     // 响应体读完准入才算请求结束，否则停止时的排空一直等：这里先读完。
-    const put = async (body: Uint8Array | string | ReadableStream<Uint8Array>, headers: Record<string, string> = {}, host = "127.0.0.1"): Promise<Response> => {
-        const response = await dispatch(new Request(`http://${host}:4217/api/nbook.files/theme-assets`, {method: "PUT", body, headers, ...(body instanceof ReadableStream ? {duplex: "half"} : {})} as RequestInit));
+    const putTo = (route: "theme-assets" | "theme-icons") => async (body: Uint8Array | string | ReadableStream<Uint8Array>, headers: Record<string, string> = {}, host = "127.0.0.1"): Promise<Response> => {
+        const response = await dispatch(new Request(`http://${host}:4217/api/nbook.files/${route}`, {method: "PUT", body, headers, ...(body instanceof ReadableStream ? {duplex: "half"} : {})} as RequestInit));
         return new Response(await response.arrayBuffer(), {status: response.status, headers: response.headers});
     };
     const staged = async (): Promise<string[]> => readdir(join(h.stateRoot, "staging")).catch(() => []);
-    return {user, put, ledger, staged};
+    return {user, put: putTo("theme-assets"), putIcon: putTo("theme-icons"), ledger, staged};
 }
 
 describe("写主题场景素材", () => {
@@ -186,5 +187,83 @@ describe("写主题场景素材", () => {
         expect(await response.json()).toMatchObject({code: "invalid-target"});
         expect(await readdir(join(user, "notes"))).toEqual([]);
         expect(await readdir(join(user, "..", "outside"))).toEqual([]);
+    });
+});
+
+describe("写主题图标素材", () => {
+    it("合格的 SVG：文件名是内容的哈希加 .svg，假的类型与文件名不算数，同一份只存一份并记一条账", async () => {
+        const {user, putIcon, ledger} = await scene();
+        const response = await putIcon(ICON, {"content-type": "image/png", "x-file-name": "evil.png"});
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({address: `user://theme-assets/${digest(ICON)}.svg`});
+        expect(new Uint8Array(await readFile(join(user, "theme-assets", `${digest(ICON)}.svg`)))).toEqual(ICON);
+        expect(await (await putIcon(ICON)).json()).toEqual({address: `user://theme-assets/${digest(ICON)}.svg`});
+        expect(ledger).toHaveLength(1);
+        expect(ledger[0]?.source).toEqual({kind: "system", plugin: "nbook.files"});
+    });
+
+    it("不合格的 SVG、位图与别的内容：415，不留文件，说明哪里不合格", async () => {
+        const {user, putIcon} = await scene();
+        const script = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><script>alert(1)</script></svg>';
+        for (const body of [script, PNG, "hello"]) {
+            const response = await putIcon(body, {"content-type": "image/svg+xml"});
+            expect(response.status).toBe(415);
+            expect(await response.json()).toMatchObject({code: "unsupported-type"});
+        }
+        expect(await (await putIcon(script)).json()).toMatchObject({detail: expect.stringContaining("script")});
+        expect(await readdir(join(user, "theme-assets")).catch(() => [])).toEqual([]);
+    });
+
+    it("场景路由仍拒绝同一个合格的 SVG", async () => {
+        const {user, put} = await scene();
+        expect((await put(ICON)).status).toBe(415);
+        expect(await readdir(join(user, "theme-assets")).catch(() => [])).toEqual([]);
+    });
+
+    it("超过 16 KiB：没有 Content-Length 的流与带 Content-Length 的请求都是 413，不留文件；正好到上限的可以传", async () => {
+        const {user, putIcon} = await scene();
+        const pad = (size: number): Uint8Array => {
+            const head = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><title>';
+            const tail = "</title></svg>";
+            return new TextEncoder().encode(head + "a".repeat(size - head.length - tail.length) + tail);
+        };
+        const exact = pad(THEME_ICON_MAX_BYTES);
+        expect(exact.length).toBe(THEME_ICON_MAX_BYTES);
+        expect((await putIcon(exact, {"content-length": String(exact.length)})).status).toBe(200);
+        const over = pad(THEME_ICON_MAX_BYTES + 1);
+        const byHeader = await putIcon(over, {"content-length": String(over.length)});
+        expect(byHeader.status).toBe(413);
+        expect(await byHeader.json()).toMatchObject({code: "too-large"});
+        let sent = 0;
+        const stream = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                sent += over.length;
+                controller.enqueue(over);
+                if (sent > THEME_ICON_MAX_BYTES * 20) controller.close();
+            },
+        });
+        expect((await putIcon(stream)).status).toBe(413);
+        expect(sent).toBeLessThan(THEME_ICON_MAX_BYTES * 10);
+        expect(await readdir(join(user, "theme-assets"))).toHaveLength(1);
+    });
+
+    it("同名的文件内容不对：冲突，不覆盖；theme-assets 是链接：拒绝；Host 与 Origin 经统一的准入", async () => {
+        const {user, putIcon} = await scene();
+        expect((await putIcon(ICON, {}, "example.com")).status).toBe(421);
+        expect((await putIcon(ICON, {origin: "https://evil.example"})).status).toBe(403);
+        await mkdir(join(user, "theme-assets"), {recursive: true});
+        const path = join(user, "theme-assets", `${digest(ICON)}.svg`);
+        await writeFile(path, "坏的");
+        const response = await putIcon(ICON);
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({code: "conflict"});
+        expect(await readFile(path, "utf8")).toBe("坏的");
+        await rm(join(user, "theme-assets"), {recursive: true});
+        await mkdir(join(user, "outside"), {recursive: true});
+        await symlink(join(user, "outside"), join(user, "theme-assets"));
+        const linked = await putIcon(ICON);
+        expect(linked.status).toBe(409);
+        expect(await linked.json()).toMatchObject({code: "invalid-target"});
+        expect(await readdir(join(user, "outside"))).toEqual([]);
     });
 });

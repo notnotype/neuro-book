@@ -74,13 +74,15 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
     return {vars, scene: url !== null, icons};
 }
 
-/** “我的主题”的场景图在 `user://theme-assets/` 下，经已有的字节读取路由显示。 */
-export const userThemeSceneUrl = (path: string): string | null => rawUrlOf(`${THEME_ASSET_DIRECTORY_ADDRESS}/${path}`, null);
+/** “我的主题”的素材（场景图、工作态场景、图标）在 `user://theme-assets/` 下，经已有的字节读取路由显示。 */
+export const userThemeAssetUrl = (path: string): string | null => rawUrlOf(`${THEME_ASSET_DIRECTORY_ADDRESS}/${path}`, null);
 
 /** 编辑器开着时用来画文档根的那一套（docs/specs/theme/editor.md 输出 4）：不改设置，关掉编辑器就清掉。 */
 export interface ThemePreview {
     readonly id: string;
     readonly appearance: "light" | "dark";
+    /** 强制预览哪种 Agent 状态的场景（docs/specs/theme/editor.md 输出 19）；缺省跟随真实状态。 */
+    readonly working?: boolean;
 }
 
 export class ThemeCatalog {
@@ -164,6 +166,16 @@ export class ThemeCatalog {
     sceneUrl(entry: ThemeEntry, appearance: "light" | "dark"): string | null {
         const scene = entry.declaration[appearance].scene;
         return scene === undefined ? null : this.#assetUrl(entry.plugin, scene);
+    }
+
+    /** 主题里的一个素材路径解析成的地址（插件主题走插件文件端点，我的主题走字节读取路由）；解析不出时为 null。 */
+    assetUrl(entry: ThemeEntry, path: string): string | null {
+        return this.#assetUrl(entry.plugin, path);
+    }
+
+    /** 当前已发布的场景提供者的贡献 id，供编辑器的下拉用。 */
+    get sceneProviders(): ReadonlyArray<string> {
+        return this.#scenes.published;
     }
 
     get list(): ReadonlyArray<ThemeEntry> {
