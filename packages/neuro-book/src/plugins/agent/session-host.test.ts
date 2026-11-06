@@ -3,7 +3,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {rm} from "node:fs/promises";
+import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -12,7 +12,9 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import type {AgentConversationContext, AssistantMessageView, MessageView, PendingApprovalView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
+import {shallowRef} from "vue";
+import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
+import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 
 import {EVENT_INLINE_BYTES} from "./backend/frames";
 import {MAIN_PROFILE} from "./shared/contracts";
@@ -94,6 +96,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         }},
         warnCost: () => 0,
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
+        roles: () => null,
         profiles: () => [{key: PROFILE, name: "测试", description: "", source: "test", status: "ok", icon: "i-lucide-feather"}],
         copy: (value) => void copied.push(value),
         openSettings: () => {
@@ -426,6 +429,80 @@ describe("中断、设置与模型（输出 7–9）", () => {
         await until("推理档", () => h.ctx().composer.thinking === "high");
         expect(h.ctx().composer.models[0]).toMatchObject({key: ""});
         expect(h.ctx().composer.modelKey).toBe("");
+    });
+
+    test("选了没绑定的角色：不用重开就说明原因、还能改；绑定之后不刷新页面就能发送", async () => {
+        const w = await world();
+        const models = shallowRef<readonly ComposerModelView[]>([{key: "local/m", label: "M", supportsImages: false}]);
+        const h = await harness(w, {models: () => models.value});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        expect(h.ctx().composer.effectiveModel).toBe("M");
+
+        h.host.act({type: "model.set", modelKey: "role:deep"});
+        await until("说明没绑定", () => h.ctx().availability.status === "profile-unavailable");
+        expect(h.ctx().composer.modelKey).toBe("role:deep");
+        expect(h.ctx().composer.effectiveModel).toBeNull();
+
+        const file = JSON.parse(await readFile(w.settings.userFile, "utf8")) as Record<string, {items: {id: string; model: string | null}[]}>;
+        file["nbook.models/roles"]!.items.find((role) => role.id === "deep")!.model = "local/m";
+        await writeFile(w.settings.userFile, JSON.stringify(file));
+        // 模型库的 `changed` 由插件转成新的 `models`，这里按设置生效的时机换。
+        await until("绑定生效", () => {
+            w.settings.clock.advance(RELOAD_DELAY_MS);
+            models.value = [...models.value];
+            return h.ctx().availability.status === "ready";
+        });
+        expect(h.ctx().composer.effectiveModel).toBe("M");
+        endpoint.script("绑好了");
+        h.host.act({type: "composer.submit", text: "现在能发了吗", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "绑好了");
+        await idle(h);
+        // 本机端点不报缓存：不写 0%。
+        expect(h.ctx().usage.cacheHitRate).toBeNull();
+    });
+
+    test("运行中模型库变了：对话不重建，运行状态与消息都还在；读得晚的结果不盖读得早的", async () => {
+        const w = await world();
+        const first = await w.window("sh-model-gate");
+        const gates: (() => void)[] = [];
+        let gating = false;
+        const gated = new Proxy(first.client, {get(target, key, receiver) {
+            if (key !== "snapshot") return Reflect.get(target, key, receiver);
+            return async (input: never) => {
+                const result = await target.snapshot(input);
+                // 取到之后才等：这次读到的是旧的，交回得比后一次晚。
+                if (gating) await new Promise<void>((resolve) => gates.push(resolve));
+                return result;
+            };
+        }}) as SessionsClient;
+        const models = shallowRef<readonly ComposerModelView[]>([{key: "local/m", label: "M", supportsImages: false}]);
+        const h = await harness(w, {remote: gated, models: () => models.value});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        const hold = endpoint.hold();
+        endpoint.script("写完了");
+        h.host.act({type: "composer.submit", text: "开始", delivery: "prompt"});
+        await hold.arrived;
+        await until("运行中", () => h.ctx().run.status === "running");
+        const before = h.ctx().messages.length;
+
+        gating = true;
+        models.value = [...models.value];
+        await until("第一次读取在等", () => gates.length === 1);
+        gating = false;
+        const view = w.service.session(h.host.sessionId.value!);
+        await view.changeSettings({commandId: crypto.randomUUID(), patch: {core: {model: "没有/这个模型"}}});
+        await until("第二次读取已生效", () => h.ctx().availability.status === "profile-unavailable");
+        gates[0]!();
+        // 第一次读取交回了旧的结果（模型还能用），不算数。等一轮事件循环，让它走完。
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(h.ctx().availability.status).toBe("profile-unavailable");
+        await view.changeSettings({commandId: crypto.randomUUID(), patch: {core: {model: null}}});
+        await until("改回来", () => h.ctx().availability.status === "ready");
+        expect(h.ctx().run.status).toBe("running");
+        expect(h.ctx().messages.length).toBe(before);
+        hold.release();
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "写完了");
+        await idle(h);
     });
 
     test("没有模型：发送不可用，说明原因，能打开设置", async () => {

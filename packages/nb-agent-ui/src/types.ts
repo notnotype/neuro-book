@@ -307,6 +307,23 @@ export type ComposerModelView = {
     group?: string;
     /** 用不了的原因（例如密钥没有设置）；有它时这一项灰掉、不能选，悬停看原因。 */
     unavailable?: string;
+    /** 下面三项只在给了 `roles` 的选择器里显示。 */
+    contextWindow?: number | null;
+    reasoning?: boolean;
+    /** 每百万 token 的输入、输出单价。 */
+    price?: {input: number; output: number} | null;
+};
+
+/** 模型角色（`roles` 非空时输入框用带角色的选择器）。 */
+export type ComposerRoleView = {
+    /** 选中时作为 `modelKey` 交回，例如 `role:deep`。 */
+    key: string;
+    name: string;
+    axis: "gradient" | "specialist";
+    /** 绑定的模型的显示名；没绑定时为 null。 */
+    modelLabel: string | null;
+    /** 用不了的原因。仍然能选：选了之后输入框说明原因，绑定好了就能用。 */
+    unavailable?: string;
 };
 
 /** 审批模式的一项；`danger` 的（全部放行）选中时状态栏有警告。 */
@@ -321,6 +338,10 @@ export type ComposerApprovalOption = {
 export type ComposerView = {
     models: ComposerModelView[];
     modelKey: string | null;
+    /** 模型角色；缺省或为空时选择器只列模型。 */
+    roles?: ComposerRoleView[];
+    /** 现在实际用的模型的显示名；解析不到时为 null。选了角色或跟随默认时，靠它知道用的是谁。 */
+    effectiveModel?: string | null;
     /** 思考档位的取值，例如 `off`、`low`、`high`；常见取值由视图翻译，其余原样显示。 */
     thinkingLevels: string[];
     thinking: string | null;

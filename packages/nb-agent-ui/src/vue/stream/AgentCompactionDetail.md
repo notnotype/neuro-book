@@ -1,5 +1,5 @@
 ---
-标签: [display:inject]
+标签: [display:inject, state:inject]
 别名: ["压缩详情", "Compaction Detail"]
 ---
 

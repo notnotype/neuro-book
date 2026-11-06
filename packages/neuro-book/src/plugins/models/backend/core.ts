@@ -21,7 +21,7 @@ import type {SettingDefinition, SettingsService, SettingWriteResult} from "nbook
 import type {CheckResult, KeyStatus, ModelsService, ModelsSnapshot, ProfileModelDefaults, RoleStatus, SnapshotModel, SnapshotProvider} from "../shared/contracts";
 import type {modelsSettingsContract} from "../shared/contracts";
 import {compactionTrigger, effectiveCompaction} from "../shared/compaction";
-import {missingContextWindow, providerIdFor, referenceOf, rolesUsing, seriesOf, splitReference} from "../shared/rules";
+import {missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "../shared/rules";
 import {BUILTIN_ROLES, DEFAULT_ROLES, modelsSettings} from "../shared/settings";
 import type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "../shared/settings";
 
@@ -149,6 +149,12 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         const role = roles().find((item) => item.id === id);
         if (role === undefined || role.model === null) return {ok: false, code: "role-unbound"};
         return resolveReference(role.model);
+    };
+    /** 会话里选的：模型引用或 `role:<id>`。选过的角色后来被删了是选择失效（`unknown-model`），和没绑定不同：去改的地方不一样。 */
+    const resolveSelection = (selection: string): ModelResolution => {
+        const roleId = roleOfReference(selection);
+        if (roleId === null) return resolveReference(selection);
+        return roles().some((item) => item.id === roleId) ? resolveRole(roleId) : {ok: false, code: "unknown-model"};
     };
 
     const roleStatus = (role: RoleConfig): RoleStatus => {
@@ -335,7 +341,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 if (query.role !== undefined) return resolveRole(query.role);
                 if (query.purpose === "compaction") return resolveRole("compaction");
                 if (query.purpose === "approval") return resolveRole("fast");
-                if (query.settings.model !== null) return resolveReference(query.settings.model);
+                if (query.settings.model !== null) return resolveSelection(query.settings.model);
                 const defaults = profileDefaults?.(query.profile) ?? {};
                 if (defaults.model !== undefined) return resolveReference(defaults.model);
                 return resolveRole(defaults.role ?? "main");

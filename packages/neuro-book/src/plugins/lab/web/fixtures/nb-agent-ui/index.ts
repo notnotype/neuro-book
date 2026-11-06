@@ -17,6 +17,7 @@ import type {
     AgentMarkdown,
     AgentMessageActions,
     AgentModelPicker,
+    AgentRoleModelPicker,
     AgentApprovalWizard,
     AgentQuestionWizard,
     AgentQueuedMessages,
@@ -42,7 +43,7 @@ import {defineSubjectFixture} from "../subject-fixture";
 import {agentApprovalWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
 import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
-import {agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes} from "./composer.scenes";
+import {agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
     agentCommandDetailScenes,
@@ -135,6 +136,11 @@ export const nbAgentUiFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof AgentModelPicker>({
         component: "AgentModelPicker", scenes: agentModelPickerScenes, subject: agentSubject("AgentModelPicker"),
+        events: ["select-model", "select-thinking", "manage"],
+        writeBack: {"select-model": {layer: "props", key: "modelKey"}, "select-thinking": {layer: "props", key: "thinking"}},
+    }),
+    defineSubjectFixture<typeof AgentRoleModelPicker>({
+        component: "AgentRoleModelPicker", scenes: agentRoleModelPickerScenes, subject: agentSubject("AgentRoleModelPicker"),
         events: ["select-model", "select-thinking", "manage"],
         writeBack: {"select-model": {layer: "props", key: "modelKey"}, "select-thinking": {layer: "props", key: "thinking"}},
     }),

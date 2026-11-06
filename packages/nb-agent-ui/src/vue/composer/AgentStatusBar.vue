@@ -74,6 +74,7 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
 
 <template>
     <div class="acv-status" data-agent-status>
+        <div class="acv-status__left">
         <AgentContextMeter v-if="usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" />
         <span v-else-if="usage.contextTokens > 0" class="acv-status__context">{{ formatTokens(usage.contextTokens) }}</span>
         <span v-if="phase !== null" class="acv-status__phase" :data-tone="phase.tone" data-status-phase>
@@ -85,13 +86,13 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
         <span v-if="yolo" class="acv-status__flag is-danger" data-status-yolo><span class="i-lucide-triangle-alert" aria-hidden="true" />{{ t("status.yolo") }}</span>
         <span v-if="disconnected" class="acv-status__flag is-warn" data-status-connection>{{ props.ctx.connection.status === "connecting" ? t("status.connecting") : t("status.disconnected") }}</span>
         <component :is="item.component" v-for="item in items" :key="item.id" :ctx="props.ctx" />
-        <span class="acv-status__spacer" />
+        </div>
         <Tooltip v-if="hasUsage" :text="detail" side="top">
             <span class="acv-status__usage" tabindex="0" :aria-label="detail" data-status-usage>
-                <span class="acv-status__metric"><span class="i-lucide-zap" aria-hidden="true" />{{ formatTokens(usage.totalTokens) }}</span>
-                <span class="acv-status__metric"><span class="i-lucide-arrow-down" aria-hidden="true" />{{ formatTokens(usage.input ?? 0) }}</span>
-                <span class="acv-status__metric"><span class="i-lucide-arrow-up" aria-hidden="true" />{{ formatTokens(usage.output ?? 0) }}</span>
-                <span v-if="cachePercent !== null" class="acv-status__metric"><span class="i-lucide-database-zap" aria-hidden="true" />{{ cachePercent }}</span>
+                <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-zap" aria-hidden="true" />{{ formatTokens(usage.totalTokens) }}</span>
+                <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-arrow-down" aria-hidden="true" />{{ formatTokens(usage.input ?? 0) }}</span>
+                <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-arrow-up" aria-hidden="true" />{{ formatTokens(usage.output ?? 0) }}</span>
+                <span v-if="cachePercent !== null" class="acv-status__metric" data-status-cache><span class="i-lucide-database-zap" aria-hidden="true" />{{ cachePercent }}</span>
             </span>
         </Tooltip>
         <span v-if="costText !== null" class="acv-status__metric acv-status__cost" :class="{'is-warn': usage.costState === 'warned'}" :title="costTitle" data-status-cost>
@@ -114,6 +115,16 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     color: var(--text-muted);
     font-size: var(--text-2xs);
     white-space: nowrap;
+}
+
+/* 左边放不下时先省略，右边的用量不收缩。 */
+.acv-status__left {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
 }
 
 .acv-status__phase {
@@ -141,9 +152,11 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
 
 .acv-status__flag {
     display: inline-flex;
-    flex-shrink: 0;
+    min-width: 0;
     align-items: center;
     gap: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .acv-status__flag.is-danger {
@@ -156,10 +169,6 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     height: 6px;
     border-radius: 50%;
     background: var(--accent-main);
-}
-
-.acv-status__spacer {
-    flex: 1;
 }
 
 .acv-status__usage {
@@ -183,16 +192,16 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     font-variant-numeric: tabular-nums;
 }
 
-/* 窄的时候先让出明细，用量明细都在悬停里。左边有不收缩的提醒（费用告警、全部放行）时要让得更早。 */
-@container (max-width: 380px) {
-    .acv-status__usage .acv-status__metric:not(:first-child) {
+/* 窄的时候右边只留缓存命中与费用（开发者 2026-11-06），累计、输入、输出在悬停里。右栏默认就窄，缓存命中不能让。 */
+@container (max-width: 400px) {
+    .acv-status__metric--detail {
         display: none;
+    }
+
+    /* 服务商不报缓存时留累计：悬停明细要有个地方可指。 */
+    .acv-status__usage:not(:has([data-status-cache])) .acv-status__metric--detail:first-child {
+        display: inline-flex;
     }
 }
 
-@container (max-width: 460px) {
-    .acv-status:has(.acv-status__flag) .acv-status__usage .acv-status__metric:not(:first-child) {
-        display: none;
-    }
-}
 </style>

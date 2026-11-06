@@ -18,6 +18,8 @@ import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {modelsSettingsContract} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
+import {roleReference} from "nbook/plugins/models/shared/rules";
+import {builtinRoleNameKey, modelsText} from "nbook/plugins/models/shared/text";
 import {displayLocale, OPEN_SETTINGS_COMMAND, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -43,7 +45,7 @@ import {agentSettings} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {createAgentActivity} from "./activity";
 import {createSessionHost} from "./session-host";
-import type {SessionHost} from "./session-host";
+import type {RoleOption, SessionHost} from "./session-host";
 import {createSessionList} from "./session-list";
 
 export const CONVERSATION_VIEW = "nbook.agent.conversation";
@@ -92,7 +94,31 @@ function hasCredentials(provider: ModelsSnapshot["providers"][number]): boolean 
 function modelOptions(snapshot: ModelsSnapshot): ComposerModelView[] {
     return snapshot.providers.filter(hasCredentials).flatMap((provider) => provider.models
         .filter((model) => model.enabled && model.status === "ok")
-        .map((model) => ({key: `${provider.id}/${model.id}`, label: model.name, supportsImages: model.vision, group: provider.name})));
+        .map((model) => ({
+            key: `${provider.id}/${model.id}`,
+            label: model.name,
+            supportsImages: model.vision,
+            group: provider.name,
+            contextWindow: model.contextWindow,
+            reasoning: model.reasoning,
+            price: model.price === null ? null : {input: model.price[0], output: model.price[1]},
+        })));
+}
+
+function roleNameOf(role: ModelsSnapshot["roles"][number]): RoleOption["name"] {
+    const key = builtinRoleNameKey(role);
+    return key === null ? (role.name === "" ? role.id : role.name) : modelsText(key);
+}
+
+function roleOptions(snapshot: ModelsSnapshot): RoleOption[] {
+    const labels = new Map<string, string>(snapshot.providers.flatMap((provider) => provider.models.map((model) => [`${provider.id}/${model.id}`, model.name] as const)));
+    return snapshot.roles.map((role) => ({
+        key: roleReference(role.id),
+        name: roleNameOf(role),
+        axis: role.axis,
+        modelLabel: role.model === null ? null : labels.get(role.model) ?? role.model,
+        status: role.status,
+    }));
 }
 
 /** 这个文件也由不带 DOM 类型的 tsc 检查，所以按需要的那几个取。 */
@@ -139,6 +165,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                 else report("profiles-failed", result.code);
             };
             const models = shallowRef<readonly ComposerModelView[] | null>(null);
+            const roles = shallowRef<readonly RoleOption[] | null>(null);
+            const takeModels = (snapshot: ModelsSnapshot): void => {
+                // 先换角色：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。
+                roles.value = roleOptions(snapshot);
+                models.value = modelOptions(snapshot);
+            };
             let started = false;
             /** 第一次有对话位置时才取：没打开对话的窗口不多发请求。 */
             const ensureStarted = (): void => {
@@ -147,9 +179,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 void loadProfiles();
                 void (async () => {
                     const modelsRemote = context.remote.use(modelsSettingsContract);
-                    const subscription = await modelsRemote.events.changed.subscribe({}, (snapshot) => {
-                        models.value = modelOptions(snapshot);
-                    });
+                    const subscription = await modelsRemote.events.changed.subscribe({}, takeModels);
                     if (!subscription.ok) {
                         // 模型服务不在是正常情况（下拉隐藏），别的失败下一个对话位置再试。
                         report("models-failed", subscription.code);
@@ -158,7 +188,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     }
                     context.signal.addEventListener("abort", () => subscription.value.release(), {once: true});
                     const snapshot = await modelsRemote.snapshot({});
-                    if (snapshot.ok) models.value = modelOptions(snapshot.value);
+                    if (snapshot.ok) takeModels(snapshot.value);
                     else report("models-failed", snapshot.code);
                 })().catch((error: unknown) => report("models-failed", String(error)));
             };
@@ -192,6 +222,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     },
                     warnCost: () => settings.get(agentSettings.settings.warnCost),
                     models: () => models.value,
+                    roles: () => roles.value,
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
                     openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),

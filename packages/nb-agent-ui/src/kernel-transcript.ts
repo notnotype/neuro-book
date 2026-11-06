@@ -65,6 +65,8 @@ export type KernelMeta = {
 export type KernelTranscript = {
     /** 会话级基线，也是日志帧的起点：seq 不大于快照 `head` 的日志帧之后会被丢掉。 */
     applySnapshot(snapshot: unknown): void;
+    /** 只换解析到的模型（快照的 `model`）：模型库或会话的模型设置变了时用，运行状态、队列、路径与正在生成的那条都不动。 */
+    setModel(model: unknown): void;
     /** 重建当前路径：先清掉路径上的状态（含正在生成的那条），再依次归约。 */
     applyPath(events: readonly unknown[]): void;
     /** 一条日志事件（log 帧的 `event`）。路径变了要重取时交回 `"leaf-changed"`。 */
@@ -548,6 +550,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     };
 
     return {
+        setModel(model) {
+            meta = {...meta, model: toJsonValue(model)};
+        },
         applySnapshot(snapshot) {
             if (!isRecord(snapshot)) {
                 problem("快照", "不是对象");

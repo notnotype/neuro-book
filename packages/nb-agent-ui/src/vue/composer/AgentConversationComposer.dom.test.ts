@@ -3,7 +3,7 @@
  * PlainPromptEditor；注入 nb-markdown 的 PromptEditor 时 openTrigger 的补空格与开菜单在那边测（PromptEditor.dom.test.ts）。
  */
 
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import {flushPromises, mount} from "@vue/test-utils";
 import {DropdownMenu} from "@notnotype/nb-ui/components";
 
@@ -13,8 +13,9 @@ import {builtinComposerContribution} from "../builtin-composer";
 import {provideAgentView} from "../host";
 import AgentConversationComposer from "./AgentConversationComposer.vue";
 import AgentModelPicker from "./AgentModelPicker.vue";
+import AgentRoleModelPicker from "./AgentRoleModelPicker.vue";
 import PlainPromptEditor from "../fallback/PlainPromptEditor.vue";
-import {defineComponent, h} from "vue";
+import {defineComponent, h, nextTick} from "vue";
 
 const plus: AgentViewContribution = {source: "test-plus", toolbarButtons: [{id: "insert-ref", icon: "i-lucide-plus", label: "插入引用", placement: "leading", trigger: "@"}]};
 const registry = createAgentViewRegistry([builtinComposerContribution, plus]);
@@ -86,6 +87,98 @@ describe("AgentConversationComposer 单行版式", () => {
         expect(tone(330, 1_050_000)?.[1]).toBe("上下文 330 / 1,050,000（<1%）");
         expect(tone(10, null)).toBeNull();
         expect(tone(150, 200, "stacked")).toBeNull();
+    });
+});
+
+describe("AgentRoleModelPicker", () => {
+    const roles = [
+        {key: "role:main", name: "主力", axis: "gradient" as const, modelLabel: "DeepSeek V4"},
+        {key: "role:deep", name: "深度", axis: "gradient" as const, modelLabel: null, unavailable: "还没有绑定"},
+        {key: "role:lore", name: "设定考据", axis: "specialist" as const, modelLabel: "GPT"},
+    ];
+    const models = [
+        {key: "", label: "跟随默认", supportsImages: false},
+        {key: "d/v4", label: "DeepSeek V4", supportsImages: false, group: "DeepSeek", contextWindow: 1_000_000, reasoning: true, price: {input: 0.3, output: 1.2}},
+        {key: "o/g", label: "GPT", supportsImages: true, group: "OpenAI"},
+        {key: "o/x", label: "坏的", supportsImages: true, group: "OpenAI", unavailable: "没有密钥"},
+    ];
+    const panel = (): HTMLElement => document.body.querySelector<HTMLElement>("[data-model-picker-panel]")!;
+    const inside = (selector: string): HTMLElement => panel().querySelector<HTMLElement>(selector)!;
+    /** 外框的退场由上游原语收尾，等它从文档里没了。 */
+    const closed = () => vi.waitFor(() => expect(document.body.querySelector("[data-model-picker-panel]")).toBeNull());
+    const open = async (props: Partial<InstanceType<typeof AgentRoleModelPicker>["$props"]> = {}) => {
+        const picker = mount(AgentRoleModelPicker, {attachTo: document.body, props: {roles, models, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["low", "high"], thinking: "high", canManage: true, ...props}});
+        await picker.get("[data-model-picker]").trigger("click");
+        await nextTick();
+        return picker;
+    };
+
+    it("触发器写选的角色、实际用的模型与档位；直接选模型时不重复", async () => {
+        const byRole = mount(AgentRoleModelPicker, {props: {roles, models, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["high"], thinking: "high"}});
+        expect(byRole.get("[data-model-picker]").text()).toBe("主力 · DeepSeek V4 · 高");
+        byRole.unmount();
+        const byModel = mount(AgentRoleModelPicker, {props: {roles, models, modelKey: "o/g", effectiveModel: "GPT", thinkingLevels: [], thinking: null}});
+        expect(byModel.get("[data-model-picker]").text()).toBe("GPT");
+        byModel.unmount();
+    });
+
+    it("选角色不关面板，没绑定的也能选；选模型关面板，用不了的不能选", async () => {
+        const picker = await open();
+        inside("[data-model-picker-role='role:deep']").click();
+        expect(picker.emitted("select-model")).toEqual([["role:deep"]]);
+        expect(panel()).not.toBeNull();
+        expect(inside("[data-model-picker-role='role:deep']").textContent).toContain("未绑定");
+
+        inside("[data-model-picker-pages] button:last-child").click();
+        await nextTick();
+        expect(inside("[data-model-picker-model='o/x']").hasAttribute("disabled")).toBe(true);
+        inside("[data-model-picker-model='d/v4']").click();
+        expect(picker.emitted("select-model")).toEqual([["role:deep"], ["d/v4"]]);
+        await closed();
+        picker.unmount();
+    });
+
+    it("模型库能搜索：跟随默认不在里面；没有匹配时说明", async () => {
+        const picker = await open();
+        inside("[data-model-picker-pages] button:last-child").click();
+        await nextTick();
+        expect(panel().querySelectorAll("[data-model-picker-model]")).toHaveLength(3);
+        const input = inside("[data-model-picker-search] input, input[data-model-picker-search]") as HTMLInputElement;
+        input.value = "openai";
+        input.dispatchEvent(new Event("input"));
+        await nextTick();
+        expect([...panel().querySelectorAll("[data-model-picker-model]")].map((item) => item.getAttribute("data-model-picker-model"))).toEqual(["o/g", "o/x"]);
+        input.value = "没有这个";
+        input.dispatchEvent(new Event("input"));
+        await nextTick();
+        expect(panel().querySelectorAll("[data-model-picker-model]")).toHaveLength(0);
+        expect(panel().textContent).toContain("没有匹配的模型");
+        picker.unmount();
+    });
+
+    it("Esc 与点外面关闭；Esc 把焦点还给触发器；“管理模型…”发出 manage", async () => {
+        const picker = await open();
+        panel().dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await closed();
+        expect(document.activeElement).toBe(picker.get("[data-model-picker]").element);
+
+        await picker.get("[data-model-picker]").trigger("click");
+        await nextTick();
+        document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        await closed();
+
+        await picker.get("[data-model-picker]").trigger("click");
+        await nextTick();
+        inside("[data-model-picker-manage]").click();
+        await nextTick();
+        expect(picker.emitted("manage")).toHaveLength(1);
+        picker.unmount();
+    });
+
+    it("只有一个档位时没有滑块", async () => {
+        const picker = await open({thinkingLevels: ["high"]});
+        expect(panel().querySelector("[data-model-picker-thinking]")).toBeNull();
+        picker.unmount();
     });
 });
 

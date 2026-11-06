@@ -14,6 +14,7 @@ import {visibleEntries, type AgentViewRegistry, type ToolbarButtonEntry} from ".
 import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "../../composer-actions";
 import AgentContextMeter from "./AgentContextMeter.vue";
 import AgentModelPicker from "./AgentModelPicker.vue";
+import AgentRoleModelPicker from "./AgentRoleModelPicker.vue";
 import AgentQueuedMessages from "./AgentQueuedMessages.vue";
 import {useAgentRenderers, useAgentText} from "../host";
 import {useEditorHandle} from "./use-editor-handle";
@@ -42,7 +43,9 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const composer = computed(() => props.ctx.composer);
 const running = computed(() => props.ctx.run.status !== "idle");
 const readonly = computed(() => props.ctx.availability.status !== "ready" || !props.ctx.interaction.canSend);
-const runtimeDisabled = computed(() => readonly.value || !props.ctx.interaction.canChangeRuntime);
+const frameRef = ref<HTMLElement | null>(null);
+/** 模型解析不了（`profile-unavailable`）时还得能在这里改模型，否则走不出来；别的不可用都不能改。 */
+const runtimeDisabled = computed(() => !props.ctx.interaction.canChangeRuntime || !props.ctx.interaction.canSend || !["ready", "profile-unavailable"].includes(props.ctx.availability.status));
 
 // ─── 登记项 ─────────────────────────────────────────────────────────────
 
@@ -339,7 +342,7 @@ defineExpose({
                 @click="rejectNotice = null"
             />
         </p>
-        <div class="acv-composer__frame" :class="{'is-readonly': readonly, 'is-inline': inline}" :data-composer-layout="inline ? 'inline' : 'stacked'">
+        <div ref="frameRef" class="acv-composer__frame" :class="{'is-readonly': readonly, 'is-inline': inline}" :data-composer-layout="inline ? 'inline' : 'stacked'">
             <div v-if="inline && leadingButtons.length > 0" class="acv-composer__leading">
                 <IconButton
                     v-for="button in leadingButtons"
@@ -453,8 +456,24 @@ defineExpose({
                             </span>
                         </template>
                     </DropdownMenu>
+                    <AgentRoleModelPicker
+                        v-if="(composer.roles?.length ?? 0) > 0"
+                        :roles="composer.roles ?? []"
+                        :models="composer.models"
+                        :model-key="composer.modelKey"
+                        :effective-model="composer.effectiveModel ?? null"
+                        :thinking-levels="composer.thinkingLevels"
+                        :thinking="composer.thinking"
+                        :anchor="frameRef"
+                        :disabled="runtimeDisabled"
+                        :show-image-support="acceptFiles"
+                        :can-manage="props.ctx.interaction.canManageModels"
+                        @select-model="emit('action', {type: 'model.set', modelKey: $event})"
+                        @select-thinking="emit('action', {type: 'thinking.set', level: $event})"
+                        @manage="emit('action', {type: 'model.manage'})"
+                    />
                     <AgentModelPicker
-                        v-if="composer.models.length > 0 || composer.thinkingLevels.length > 0"
+                        v-else-if="composer.models.length > 0 || composer.thinkingLevels.length > 0"
                         :models="composer.models"
                         :model-key="composer.modelKey"
                         :thinking-levels="composer.thinkingLevels"

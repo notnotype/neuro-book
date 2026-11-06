@@ -103,6 +103,16 @@ describe("一轮对话", () => {
         await expectConsistent(session, transcript);
     });
 
+    test("setModel 只换解析到的模型：正在生成的那条与运行状态不动", () => {
+        const transcript = createKernelTranscript();
+        transcript.applyFrame({type: "status", status: {state: "running", runId: "r", turnId: "t", phase: "streaming", request: 1}, afterSeq: 1});
+        transcript.applyFrame({type: "delta", request: 1, purpose: "turn", n: 1, part: "text", text: "你"});
+        transcript.setModel({ok: false, code: "role-unbound"});
+        expect(transcript.meta().model).toEqual({ok: false, code: "role-unbound"});
+        expect(transcript.run()).toMatchObject({status: "running", phase: "streaming"});
+        expect(transcript.messages()).toMatchObject([{kind: "assistant", status: "streaming", text: "你"}]);
+    });
+
     test("运行中只有增量时，消息里有一条 streaming 的；状态是运行中", () => {
         const transcript = createKernelTranscript();
         transcript.applyFrame({type: "status", status: {state: "running", runId: "r", turnId: "t", phase: "streaming", request: 1}, afterSeq: 1});

@@ -238,6 +238,47 @@ test("状态栏的活动条目：等用户时显示，点一下切到那个会�
     await expect(item).toHaveCount(0);
 });
 
+test("模型选择器：面板与输入框同宽；选没绑定的角色说明原因；绑定之后不刷新页面就恢复；状态栏窄时留缓存与费用", async ({page}, testInfo) => {
+    await openConversation(page);
+    await send(page, "先说一句");
+    await expect(page.locator("[data-agent-status]")).toBeVisible();
+    const picker = page.locator("[data-model-picker]");
+    await picker.click();
+    const panel = page.locator("[data-model-picker-panel]");
+    await expect(panel).toBeVisible();
+    const frame = await page.locator(".acv-composer__frame").boundingBox();
+    const box = await panel.boundingBox();
+    expect(Math.abs(box!.width - frame!.width)).toBeLessThan(2);
+    await page.screenshot({path: testInfo.outputPath("picker-roles.png")});
+    const before = box!.height;
+    await panel.locator("[data-model-picker-pages] button").last().click();
+    await expect(panel.locator("[data-model-picker-search]")).toBeVisible();
+    expect((await panel.boundingBox())!.height).toBe(before);
+    await page.screenshot({path: testInfo.outputPath("picker-models.png")});
+    await panel.locator("[data-model-picker-pages] button").first().click();
+
+    await panel.locator("[data-model-picker-role='role:deep']").click();
+    await expect(panel).toBeVisible();
+    await expect(page.locator("[data-composer-availability]")).toContainText("绑定");
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    await expect(picker).toBeEnabled();
+
+    const file = join(stateRoot, "settings.json");
+    const settings = JSON.parse(await readFile(file, "utf8")) as Record<string, {items: {id: string; model: string | null}[]}>;
+    settings["nbook.models/roles"]!.items.find((role) => role.id === "deep")!.model = "local/m";
+    await writeFile(file, JSON.stringify(settings));
+    await expect(page.locator("[data-composer-availability]")).toHaveCount(0, {timeout: 30_000});
+    await expect(picker).toContainText("深度");
+
+    await script("绑好了");
+    await send(page, "现在能发了");
+    await expect(page.getByText("绑好了")).toBeVisible();
+    await page.setViewportSize({width: 900, height: 800});
+    await expect(page.locator("[data-status-usage]")).toBeVisible();
+    await page.screenshot({path: testInfo.outputPath("status-narrow.png")});
+});
+
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
     await script("答一", "摘要正文");
     await openConversation(page);

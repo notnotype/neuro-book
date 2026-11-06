@@ -169,6 +169,25 @@ describe("解析（输出 8）", () => {
         expect(port.resolve(query({purpose: "compaction", role: "main"})).ok).toBe(true);
     });
 
+    test("会话选角色：跟着绑定走；没绑定是 role-unbound；角色不存在与空的是 unknown-model", async () => {
+        const w = await world();
+        const client = await w.window("w");
+        const port = w.service.port();
+        const choose = (model: string) => port.resolve(query({settings: {...CORE, model}}));
+        expect(choose("role:deep")).toEqual({ok: false, code: "role-unbound"});
+        expect(choose("role:没有这个角色")).toEqual({ok: false, code: "unknown-model"});
+        expect(choose("role:")).toEqual({ok: false, code: "unknown-model"});
+
+        const id = await addLocal(client);
+        ok(await client.setKey({provider: id, value: KEY}));
+        ok(await client.setRole({id: "deep", model: `${id}/qwen3:8b`}));
+        const bound = choose("role:deep");
+        if (!bound.ok) throw new Error(bound.code);
+        expect(bound.info.id).toBe(`${id}/qwen3:8b`);
+        // 用途指名的角色仍然优先：压缩不跟着会话选的走。
+        expect(port.resolve(query({settings: {...CORE, model: "role:deep"}, purpose: "compaction"}))).toEqual({ok: false, code: "role-unbound"});
+    });
+
     test("第一次绑快速档时压缩跟着它（输出 14）；之后各改各的", async () => {
         const w = await world();
         const client = await w.window("w");

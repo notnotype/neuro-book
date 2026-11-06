@@ -10,15 +10,16 @@
  * 用 `bun test` 跑真实的服务端（`agentWorld`），所以这里不导入 `.vue`。
  */
 
-import {computed, ref, shallowRef} from "vue";
+import {computed, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, KernelTranscript, PendingInputView, PendingQuestionView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, ComposerRoleView, KernelTranscript, PendingInputView, PendingQuestionView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {TextResolver} from "nbook/shared/localized-text";
+import type {TextRef} from "@notnotype/nb-ui/text";
 
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
@@ -53,6 +54,11 @@ const MODEL_KEYS = {
     "unknown-model": "conversation.model.unknown",
     "role-unbound": "conversation.model.roleUnbound",
 } as const;
+const ROLE_STATUS_KEYS = {
+    unbound: MODEL_KEYS["role-unbound"],
+    "unknown-model": MODEL_KEYS["unknown-model"],
+    "no-credentials": MODEL_KEYS["no-credentials"],
+} as const;
 const PHASE_KEYS = {
     requesting: "conversation.phase.requesting",
     streaming: "conversation.phase.streaming",
@@ -65,6 +71,12 @@ const APPROVAL_OPTIONS: readonly ComposerApprovalOption[] = [
     {key: "allow-writes", label: agentText("conversation.approval.allowWrites.label"), description: agentText("conversation.approval.allowWrites.description"), icon: "i-lucide-pencil-line"},
     {key: "yolo", label: agentText("conversation.approval.yolo.label"), description: agentText("conversation.approval.yolo.description"), icon: "i-lucide-triangle-alert", danger: true},
 ];
+
+/** 这条日志事件会不会让解析到的模型变：只有核心设置里的模型与推理档。 */
+function changesResolvedModel(event: unknown): boolean {
+    const {type, data} = event as {readonly type?: unknown; readonly data?: {readonly extension?: unknown; readonly patch?: Readonly<Record<string, unknown>>}};
+    return type === "settingsChanged" && data?.extension === "core" && data.patch !== undefined && ("model" in data.patch || "effort" in data.patch);
+}
 
 /** 给视图看的工具名：`nbook.agent.edit-replace` 和 `edit` 给模型的名字相同，画法也相同。 */
 export function displayToolName(id: string): string {
@@ -87,6 +99,8 @@ export interface SessionHostDeps {
     readonly warnCost: () => number;
     /** 模型下拉；模型服务不在时为 null。 */
     readonly models: () => readonly ComposerModelView[] | null;
+    /** 模型角色；模型服务不在时为 null。`status` 是模型服务按解析规则算的有效性。 */
+    readonly roles: () => readonly RoleOption[] | null;
     readonly profiles: () => readonly ProfileEntry[];
     readonly copy: (text: string) => void;
     readonly openSettings: () => void;
@@ -94,6 +108,16 @@ export interface SessionHostDeps {
     readonly openLink: (href: string) => void;
     /** 视图要换新的会话面板（点标题）；打开列表的动作归面板。 */
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+}
+
+/** 宿主从模型服务的快照映射来，界面文字在这里按 `status` 取。 */
+export interface RoleOption {
+    readonly key: string;
+    /** 内置角色的名字是文字引用，按界面语言显示。 */
+    readonly name: string | TextRef;
+    readonly axis: "gradient" | "specialist";
+    readonly modelLabel: string | null;
+    readonly status: "ok" | "unbound" | "unknown-model" | "no-credentials";
 }
 
 export interface SessionHost {
@@ -195,10 +219,27 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     }
 
     async function refresh(target: Current): Promise<void> {
+        const epoch = modelEpoch;
         const snapshot = await remote.snapshot({sessionId: target.id});
         if (!snapshot.ok || current !== target) return;
         target.transcript.applySnapshot(snapshot.value);
+        if (epoch !== modelEpoch) void refreshModel(target);
         await loadPath(target, snapshot.value.leaf);
+        bump();
+    }
+
+    /**
+     * 解析到的模型只在快照里，日志与帧都不带：模型库变了（绑定角色、设密钥）或会话的模型设置变了，就重读一次，只取这一个字段
+     * （不走 `refresh`：它重建路径，会清掉正在生成的那条）。`modelEpoch` 记变化的次数：只有最新一次的结果算数，
+     * 打开或重连的整份快照若取得比变化早，读完再补一次。
+     */
+    let modelEpoch = 0;
+    async function refreshModel(target: Current): Promise<void> {
+        modelEpoch += 1;
+        const epoch = modelEpoch;
+        const snapshot = await remote.snapshot({sessionId: target.id});
+        if (!snapshot.ok || current !== target || epoch !== modelEpoch) return;
+        target.transcript.setModel(snapshot.value.model);
         bump();
     }
 
@@ -210,6 +251,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             const event = frame.item.kind === "event" ? frame.item.event : await eventOf(target.id, frame.item);
             if (current !== target) return;
             if (event !== null && target.transcript.applyEvent(event) === "leaf-changed") await refresh(target);
+            if (event !== null && changesResolvedModel(event)) void refreshModel(target);
         }
         afterChange(target);
     }
@@ -341,6 +383,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         target.release = () => subscription.value.release();
 
+        const epoch = modelEpoch;
         const snapshot = await remote.snapshot({sessionId: id});
         if (token !== generation) return;
         if (!snapshot.ok) {
@@ -350,6 +393,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         staleUntil = early.length;
         target.transcript.applySnapshot(snapshot.value);
+        if (epoch !== modelEpoch) void refreshModel(target);
         const loaded = await loadPath(target, snapshot.value.leaf);
         if (token !== generation) return;
         if (!loaded) {
@@ -649,6 +693,13 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const run = target?.transcript.run();
         const warnCost = deps.warnCost();
         const models = deps.models();
+        const roles = (deps.roles() ?? []).map((role): ComposerRoleView => ({
+            key: role.key,
+            name: deps.text.t(role.name),
+            axis: role.axis,
+            modelLabel: role.modelLabel,
+            ...(role.status === "ok" ? {} : {unavailable: deps.text.t(agentText(ROLE_STATUS_KEYS[role.status]))}),
+        }));
         const settings = (meta?.settings ?? {}) as {model?: string | null; effort?: string | null; approvalMode?: string};
         const availability = target?.loading === true && target.failed === null
             ? {status: "loading" as const, message: "", actions: []}
@@ -683,7 +734,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             wizardState,
             ...(stopRequestedAt === null ? {} : {stopRequestedAt}),
             composer: {
-                models: models === null ? [] : [{key: "", label: deps.text.t(agentText("conversation.followDefault")), supportsImages: false}, ...models, ...(settings.model !== null && settings.model !== undefined && !models.some((item) => item.key === settings.model) ? [{key: settings.model, label: settings.model, supportsImages: false, unavailable: deps.text.t(agentText("conversation.model.unavailable"))}] : [])],
+                models: models === null ? [] : [{key: "", label: deps.text.t(agentText("conversation.followDefault")), supportsImages: false}, ...models, ...(settings.model !== null && settings.model !== undefined && !models.some((item) => item.key === settings.model) && !roles.some((item) => item.key === settings.model) ? [{key: settings.model, label: settings.model, supportsImages: false, unavailable: deps.text.t(agentText("conversation.model.unavailable"))}] : [])],
+                roles,
+                effectiveModel: model?.ok === true ? models?.find((item) => item.key === model.id)?.label ?? model.id : null,
                 modelKey: settings.model ?? "",
                 thinkingLevels: model?.ok === true ? [...model.efforts] : [],
                 thinking: settings.effort ?? null,
@@ -701,13 +754,20 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 output: usage.output,
                 cacheRead: usage.cacheRead,
                 cacheWrite: usage.cacheWrite,
-                cacheHitRate: usage.input + usage.cacheRead === 0 ? null : usage.cacheRead / (usage.input + usage.cacheRead),
+                // 没有读写缓存的数据时不算：有的服务商不报缓存，写成 0% 会误导。
+                cacheHitRate: usage.cacheRead + usage.cacheWrite === 0 ? null : usage.cacheRead / (usage.input + usage.cacheRead + usage.cacheWrite),
                 cost: usage.cost === 0 && usage.unpriced > 0 ? null : usage.cost,
                 costState: warnCost > 0 && usage.cost >= warnCost ? "warned" : usage.unpriced > 0 ? "unpriced" : "ok",
             },
             now,
         });
     });
+
+    // 模型库的快照换了（绑定角色、设密钥、改模型）：当前会话解析到的模型可能跟着变。
+    const stopWatchingModels = watch(() => deps.models(), () => {
+        if (current !== null && !current.loading) void refreshModel(current);
+        else modelEpoch += 1;
+    }, {flush: "sync"});
 
     let borrowers = 0;
     let cancelRelease: (() => void) | null = null;
@@ -746,6 +806,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         },
         dispose() {
             disposed = true;
+            stopWatchingModels();
             generation += 1;
             cancelRelease?.();
             closeCurrent();

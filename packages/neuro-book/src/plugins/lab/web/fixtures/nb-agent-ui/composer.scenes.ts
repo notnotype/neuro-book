@@ -1,5 +1,5 @@
 import type {AgentConversationComposer} from "@notnotype/nb-agent-ui/lab";
-import type {AgentModelPicker} from "@notnotype/nb-agent-ui/lab";
+import type {AgentModelPicker, AgentRoleModelPicker} from "@notnotype/nb-agent-ui/lab";
 import type {AgentQueuedMessages} from "@notnotype/nb-agent-ui/lab";
 import type {AgentConversationContext, ComposerView} from "@notnotype/nb-agent-ui";
 import {conversationContext} from "./data";
@@ -49,6 +49,29 @@ const MODELS = [
     {key: "deepseek-chat", label: "DeepSeek Chat", supportsImages: false},
     {key: "claude-sonnet", label: "Claude Sonnet", supportsImages: true},
     {key: "very-long", label: "一个名字特别长的自定义本地模型 Q4_K_M", supportsImages: false},
+];
+
+type RolePickerScene = LabFixtureDefinition<typeof AgentRoleModelPicker>["scenes"][number];
+
+const PICKER_ROLES = [
+    {key: "role:tiny", name: "极轻量", axis: "gradient" as const, modelLabel: "DeepSeek Flash"},
+    {key: "role:fast", name: "快速", axis: "gradient" as const, modelLabel: "DeepSeek Flash"},
+    {key: "role:main", name: "主力", axis: "gradient" as const, modelLabel: "DeepSeek V4"},
+    {key: "role:deep", name: "深度", axis: "gradient" as const, modelLabel: null, unavailable: "这个角色还没有绑定模型"},
+    {key: "role:compaction", name: "压缩", axis: "specialist" as const, modelLabel: "DeepSeek Flash"},
+];
+const PICKER_MODELS = [
+    {key: "", label: "跟随默认", supportsImages: false},
+    {key: "deepseek/v4", label: "DeepSeek V4", supportsImages: false, group: "DeepSeek", contextWindow: 1_000_000, reasoning: true, price: {input: 0.3, output: 1.2}},
+    {key: "deepseek/flash", label: "DeepSeek Flash", supportsImages: false, group: "DeepSeek", contextWindow: 256_000, reasoning: false, price: {input: 0.05, output: 0.2}},
+    {key: "openai/gpt", label: "GPT 6.1", supportsImages: true, group: "OpenAI", contextWindow: 400_000, reasoning: true, price: null},
+    {key: "openai/broken", label: "没有密钥的模型", supportsImages: true, group: "OpenAI", unavailable: "这家服务商没有设密钥"},
+];
+
+export const agentRoleModelPickerScenes: RolePickerScene[] = [
+    {id: "role", label: "选了角色", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["off", "low", "medium", "high"], thinking: "high", canManage: true}}},
+    {id: "model", label: "选了模型，没有思考档", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "deepseek/flash", effectiveModel: "DeepSeek Flash", thinkingLevels: [], thinking: null}}},
+    {id: "unbound", label: "选的角色没绑定", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:deep", effectiveModel: null, thinkingLevels: [], thinking: null, canManage: true}}},
 ];
 
 export const agentModelPickerScenes: PickerScene[] = [

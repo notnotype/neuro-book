@@ -8,6 +8,7 @@
 
 export {default as AgentConversationComposer} from "./composer/AgentConversationComposer.vue";
 export {default as AgentModelPicker} from "./composer/AgentModelPicker.vue";
+export {default as AgentRoleModelPicker} from "./composer/AgentRoleModelPicker.vue";
 export {default as AgentQueuedMessages} from "./composer/AgentQueuedMessages.vue";
 export {default as AgentStatusBar} from "./composer/AgentStatusBar.vue";
 export {default as AgentWizard} from "./wizard/AgentWizard.vue";
