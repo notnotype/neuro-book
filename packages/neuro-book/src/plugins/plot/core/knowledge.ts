@@ -13,9 +13,10 @@
  */
 
 import {sameJson} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, EventKey, Mark, Mode, OriginStep, ReadPosition, StoryChange, TellingPosition} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, Entry, EventKey, Mark, Mode, OriginStep, ReadPosition, StoryChange, TellingPosition} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, MARK_IDS, type Degree, type How} from "../shared/declarations";
+import {effectiveTellings} from "./change-index";
 import {perViewCache} from "./view-cache";
 
 /** 一行知情（`know.知情` 的元素，加上它从哪来）。 */
@@ -147,6 +148,8 @@ export class KnowingIndex {
      */
     transitions(person: string, point: string): KnowingTransition[] {
         const candidates = [...(this.#explicitOf(person).get(point) ?? []), ...(this.#derivedOf().get(person)?.get(point) ?? [])]
+            // 共用的历史取到最新一章（`#explicitOf`）：这里只要到这个位置为止的。
+            .filter((candidate) => this.#positionKey !== null && this.view.compareKeys(candidate.key, this.#positionKey) < 0)
             .sort((a, b) => this.view.compareKeys(a.key, b.key) || Number(b.explicit) - Number(a.explicit));
         const transitions: KnowingTransition[] = [];
         let current: KnowingRow | null = null;
@@ -175,13 +178,27 @@ export class KnowingIndex {
         return undefined;
     }
 
-    /** 一个人 `know.知情` 的逐行历史：每一行每一次真正的变化。来历取到这个位置为止（按计划模式时计入的计划随位置变）。 */
+    /**
+     * 一个人 `know.知情` 的逐行历史：每一行每一次真正的变化。来历取到这个位置为止（按计划模式时计入的计划随位置变）。
+     *
+     * 主线、实际模式下，一条变更套没套上与从哪个位置读无关（canon.model 输出 7），早的位置的来历是晚的位置的前缀，而读取都按键筛（`effective`），所以一张视图上每人只算
+     * 一次，取到最新一章，各位置共用：写完以后的检查要在每一章各建一个索引。子线上带过去的那一步要读位置上推出的行，不共用。
+     */
     #explicitOf(person: string): Map<string, Candidate[]> {
         const cached = this.#explicit.get(person);
         if (cached !== undefined) return cached;
+        const last = this.view.chapters.at(-1);
+        const shared = this.mode === "actual" && this.view.line === "main" && last !== undefined ? sharedHistories(this.view, "") : null;
+        const known = shared?.get(person);
+        if (known !== undefined) {
+            this.#explicit.set(person, known);
+            return known;
+        }
         const rows = new Map<string, Candidate[]>();
         this.#explicit.set(person, rows);
-        const steps = this.view.origins({entry: person, path: "know.知情"}, this.#position, this.mode);
+        shared?.set(person, rows);
+        const reading: ReadPosition = shared === null ? this.#position : {kind: "chapter", chapter: last!, edge: "end"};
+        const steps = this.view.origins({entry: person, path: "know.知情"}, reading, this.mode);
         if (steps === "chapter-not-found") return rows;
         let previous = new Map<string, Record<string, unknown>>();
         const seenChanges = new Set<string>();
@@ -242,18 +259,14 @@ export class KnowingIndex {
             if (list === undefined) byPoint.set(point, [candidate]);
             else list.push(candidate);
         };
-        for (const change of countedChanges(this.view, this.mode, this.#position)) {
-            const learns = (change.marks ?? []).filter((mark): mark is Mark & {point: string; degree?: "knows" | "suspects"} => mark.kind === MARK_IDS.presentLearns && mark.version === 1 && typeof mark.point === "string");
-            if (learns.length === 0) continue;
-            const key = this.view.eventKey(change.id, this.mode);
-            if (key === null) continue;
+        for (const {change, key, learns} of learningChanges(this.view, this.mode, this.#position, this.#positionKey)) {
             for (const member of change.cast ?? []) {
                 if (member.role !== "present" || member.who === undefined) continue;
                 for (const mark of learns) add(member.who, mark.point, {key, explicit: false, change: change.id, row: {point: mark.point, 程度: mark.degree ?? "knows", 怎么知道: "witnessed", source: "present", change: change.id}});
             }
         }
-        for (const goal of this.view.entries()) {
-            if (goal.deleted === true || goal.type !== ENTRY_TYPES.goal || goal.parent === null) continue;
+        for (const goal of goalsWithSecret(this.view)) {
+            if (goal.parent === null) continue;
             const read = this.view.entry(goal.id, this.#position, this.mode);
             if (read === null || read === "chapter-not-found" || read.deleted || !read.appeared) continue;
             const secret = (read.namespaces.goal?.fields.隐秘?.value as {ref?: unknown} | null | undefined)?.ref;
@@ -282,6 +295,51 @@ function explicitRow(point: string, element: Readonly<Record<string, unknown>>, 
         source: "explicit",
         ...(change === undefined ? {} : {change}),
     };
+}
+
+const historyCache = perViewCache<Map<string, Map<string, Candidate[]>>>();
+const sharedHistories = (view: CanonReadView, key: string) => historyCache(view, key, () => new Map());
+
+type LearnMark = Mark & {point: string; degree?: "knows" | "suspects"};
+interface LearningChange {
+    readonly change: StoryChange;
+    readonly key: EventKey;
+    readonly learns: readonly LearnMark[];
+}
+
+const marksOfLearning = (change: StoryChange) => (change.marks ?? []).filter((mark): mark is LearnMark => mark.kind === MARK_IDS.presentLearns && mark.version === 1 && typeof mark.point === "string");
+
+const learningCache = perViewCache<readonly LearningChange[]>();
+/**
+ * 带在场得知标注、计入的变更。实际模式下计入与否与位置无关（已写、生效、套上），只差安放先后：一张视图扫一遍，每个位置按键筛，写完以后的检查要在每一章各建一个索引。
+ * 按计划模式计入的计划随位置变，走 `countedChanges`。
+ */
+function learningChanges(view: CanonReadView, mode: Mode, position: ReadPosition, limit: EventKey | null): readonly LearningChange[] {
+    if (mode !== "actual") {
+        return countedChanges(view, mode, position).flatMap((change) => {
+            const learns = marksOfLearning(change);
+            const key = learns.length === 0 ? null : view.eventKey(change.id, mode);
+            return key === null ? [] : [{change, key, learns}];
+        });
+    }
+    if (limit === null) return [];
+    const all = learningCache(view, "", () => view.changes({kind: "written", status: "active"}).flatMap((change) => {
+        const learns = marksOfLearning(change);
+        if (learns.length === 0 || (change.patches.length > 0 && view.outcome(change.id)?.applied !== true)) return [];
+        const key = view.eventKey(change.id, "actual");
+        return key === null ? [] : [{change, key, learns}];
+    }));
+    return all.filter((item) => view.compareKeys(item.key, limit) < 0);
+}
+
+const secretGoalCache = perViewCache<readonly Entry[]>();
+/** 可能有 `隐秘` 的目标（初值写了，或有补丁改过目标的命名空间）：别的目标不用读就知道没有，读一个条目要几十微秒。 */
+function goalsWithSecret(view: CanonReadView): readonly Entry[] {
+    return secretGoalCache(view, "", () => {
+        const touched = new Set<string>();
+        for (const change of view.allChanges()) for (const patch of change.patches) if (patch.at.path === "goal" || patch.at.path.startsWith("goal.")) touched.add(patch.at.entry);
+        return view.entries().filter((entry) => entry.deleted !== true && entry.type === ENTRY_TYPES.goal && (touched.has(entry.id) || (entry.init.data.goal?.fields as {隐秘?: unknown} | undefined)?.隐秘 != null));
+    });
 }
 
 const knowingIndexes = perViewCache<KnowingIndex>();
@@ -370,41 +428,50 @@ export function bodyOf(view: CanonReadView, entry: string): string {
 }
 
 type ReaderFilter = {readonly until?: TellingPosition; readonly mark?: string; readonly effective?: boolean};
+type ReaderItem = ReturnType<CanonReadView["tellings"]>[number];
 
+const readerBaseCache = perViewCache<readonly ReaderItem[]>();
 /**
- * 读者读过的讲述（knowledge 输出 6 的“读过的生效讲述”）：每一章按活页夹分的段，取每段那条线的视图里发生点落在这一段（段首
- * 到下一段首之前）的讲述。读者读的是活页夹的正文，所以回溯段里子线上变更的讲述算读过，主线视图里却看不到它们：不能只在
- * 一张视图上读。每条用到的线只取一次，再按段筛。
+ * 读者读过的讲述（knowledge 输出 6 的“读过的生效讲述”）：每一章按活页夹分的段，取每段那条线的视图里发生点落在这一段（段首到下一段首之前）的讲述。读者读的是活页夹的
+ * 正文，所以回溯段里子线上变更的讲述算读过，主线视图里却看不到它们：不能只在一张视图上读。每条用到的线只取一次，按段筛。一张视图算一次，再按筛选取。
  */
-const readerCache = perViewCache<ReturnType<CanonReadView["tellings"]>>();
-export function readerTellings(view: CanonReadView, filter: ReaderFilter = {}): ReturnType<CanonReadView["tellings"]> {
-    return readerCache(view, JSON.stringify(filter), () => readerTellingsUncached(view, filter));
+function readerBase(view: CanonReadView): readonly ReaderItem[] {
+    return readerBaseCache(view, "", () => {
+        // 章 -> 段（线与起始段落号）。
+        const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, view.chapterLines(chapter)] as const));
+        const lines = new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)));
+        const taken: ReaderItem[] = [];
+        for (const line of lines) {
+            const on = line === view.line ? view : view.onLine(line, "actual");
+            if ("code" in on) continue;
+            for (const item of effectiveTellings(on)) {
+                if (item.located.kind !== "found") continue;
+                const segments = segmentsOf.get(item.located.occurrence.chapter) ?? [];
+                const paragraph = item.located.occurrence.paragraph;
+                const index = segments.findLastIndex((segment) => segment.from <= paragraph);
+                if ((segments[Math.max(index, 0)]?.line ?? view.line) === line) taken.push(item);
+            }
+        }
+        const order = new Map(view.chapters.map((chapter, index) => [chapter, index] as const));
+        const position = (item: ReaderItem) => (item.located.kind === "found" ? [order.get(item.located.occurrence.chapter) ?? Infinity, item.located.occurrence.paragraph] : [Infinity, 0]);
+        return taken.sort((a, b) => position(a)[0]! - position(b)[0]! || position(a)[1]! - position(b)[1]! || (a.telling.id < b.telling.id ? -1 : 1));
+    });
 }
 
-function readerTellingsUncached(view: CanonReadView, filter: ReaderFilter): ReturnType<CanonReadView["tellings"]> {
-    // 章 -> 段（线与起始段落号）。
-    const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, view.chapterLines(chapter)] as const));
-    const lines = new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)));
-    const taken: Array<ReturnType<CanonReadView["tellings"]>[number]> = [];
-    for (const line of lines) {
-        const on = line === view.line ? view : view.onLine(line, "actual");
-        if ("code" in on) continue;
-        for (const item of on.tellings(filter)) {
-            if (item.located.kind !== "found") {
-                // 失联的讲述没有发生点：不属于哪一段，按它所在章的第一段那条线算（`effective` 筛选会先把它们去掉）。
-                const first = item.telling.chapter === undefined ? undefined : segmentsOf.get(item.telling.chapter)?.[0];
-                if (first?.line === line) taken.push(item);
-                continue;
-            }
-            const segments = segmentsOf.get(item.located.occurrence.chapter) ?? [];
-            const paragraph = item.located.occurrence.paragraph;
-            const index = segments.findLastIndex((segment) => segment.from <= paragraph);
-            if ((segments[Math.max(index, 0)]?.line ?? view.line) === line) taken.push(item);
-        }
-    }
-    const order = new Map(view.chapters.map((chapter, index) => [chapter, index] as const));
-    const position = (item: (typeof taken)[number]) => (item.located.kind === "found" ? [order.get(item.located.occurrence.chapter) ?? Infinity, item.located.occurrence.paragraph] : [Infinity, 0]);
-    return taken.sort((a, b) => position(a)[0]! - position(b)[0]! || position(a)[1]! - position(b)[1]! || (a.telling.id < b.telling.id ? -1 : 1));
+const readerCache = perViewCache<readonly ReaderItem[]>();
+export function readerTellings(view: CanonReadView, filter: ReaderFilter = {}): readonly ReaderItem[] {
+    return readerCache(view, JSON.stringify(filter), () => {
+        const until = filter.until;
+        const limit = until === undefined ? Infinity : view.chapters.indexOf(until.chapter);
+        return readerBase(view).filter((item) => {
+            if (filter.mark !== undefined && !(item.telling.marks ?? []).some((mark) => mark.kind === filter.mark)) return false;
+            if (until === undefined || item.located.kind !== "found") return true;
+            const index = view.chapters.indexOf(item.located.occurrence.chapter);
+            if (index === -1 || limit === -1 || index > limit) return false;
+            if (index < limit) return true;
+            return "paragraph" in until ? item.located.occurrence.paragraph <= until.paragraph : until.edge === "end";
+        });
+    });
 }
 
 /** 读者在讲述位置 P 上对一个知识点的程度（输出 6）：读过的生效讲述里有明说的揭示是知道，只有暗示是怀疑，都没有是不知道。 */

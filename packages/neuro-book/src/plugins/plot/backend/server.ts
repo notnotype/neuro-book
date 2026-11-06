@@ -37,7 +37,8 @@ const toolOf = (answer: AnswerKind): ToolDeclaration => ({
     effect: "read",
 });
 
-function implementation(port: ModelPort | null, consumer: ConsumerIdentity) {
+/** 提供方的实现（测试与真实模型的用例直接调它，不起插件宿主）。 */
+export function plotModelImplementation(port: ModelPort | null, consumer: Pick<ConsumerIdentity, "plugin">) {
     const resolve = (role: CheckRole) => {
         if (port === null) return {ok: false as const, code: "no-model"};
         return port.resolve({settings: SETTINGS, purpose: "background", profile: PROFILE, role: ROLES[role]});
@@ -91,7 +92,7 @@ export const plotServerPlugin: PluginDefinition = {
         activate: async (context) => {
             const models = await context.services.resolve(modelsKey);
             const port = models.status === "resolved" ? models.instance.port() : null;
-            return {remote: [provideRemote(plotModelContract, (consumer) => implementation(port, consumer))]};
+            return {remote: [provideRemote(plotModelContract, (consumer) => plotModelImplementation(port, consumer))]};
         },
     })],
 };

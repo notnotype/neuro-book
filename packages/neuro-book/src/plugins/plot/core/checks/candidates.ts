@@ -116,8 +116,9 @@ export function candidatesOf(input: CandidateInput): Candidate[] {
     const secrets = secretPoints(view, points, position, end);
     const found: Candidate[] = [];
 
+    const people = presentPeople(view, written, end);
     for (const {point, truth, secrecy} of secrets) {
-        for (const person of presentPeople(view, written, end)) {
+        for (const person of people) {
             const row = person.person === undefined ? null : knowing.effective(person.person, point);
             if (row !== null && (row.程度 === null || !UNKNOWING.has(row.程度))) continue;
             const who = person.person ?? `label:${person.name}`;

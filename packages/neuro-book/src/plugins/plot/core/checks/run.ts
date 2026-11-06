@@ -58,6 +58,8 @@ export interface RunInput {
     readonly selfReport?: SelfReport;
     /** 带 `followUps` 时给：输入摘要相同的调用沿用它的答案（输出 5）。 */
     readonly reuse?: CheckRecord;
+    /** 各段世界里已有的名字（`namesOfSegments`，在第一次 `await` 之前算好）。 */
+    readonly names: ReadonlyMap<string, ReadonlySet<string>>;
     readonly signal: AbortSignal;
     readonly digest: Digest;
     readonly followUps: readonly string[];
@@ -211,7 +213,7 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
             case "fixed": {
                 const answer = answered.answer as FixedAnswer | {readonly items: FixedAnswer["items"]};
                 const items = checkRuleItems(plan, answer.items, incomplete, () => (badQuotes += 1));
-                const facts = "newFacts" in answer ? checkNewFacts(plan, answer.newFacts, input.selfReport, () => (badQuotes += 1)) : {kept: input.reuse?.newFacts ?? [], unlisted: input.reuse?.unlisted ?? 0};
+                const facts = "newFacts" in answer ? checkNewFacts(plan, answer.newFacts, input.names, input.selfReport, () => (badQuotes += 1)) : {kept: input.reuse?.newFacts ?? [], unlisted: input.reuse?.unlisted ?? 0};
                 newFacts = facts.kept;
                 unlisted = facts.unlisted;
                 record(call, {items}, answered.usage, answered.reused);
@@ -252,6 +254,8 @@ export async function runCheck(input: RunInput): Promise<{readonly ok: true; rea
             textDigest: input.start.textDigest,
             pluginVersion: input.start.pluginVersion,
             dependencies: input.start.dependencies,
+            points: [...plan.points],
+            concerns: [...plan.concerns],
             segments: plan.segments.map(({id, line, from, to}) => ({id, line, from, to})),
             followUps: [...input.followUps],
             calls,
@@ -296,7 +300,7 @@ function checkRuleItems(plan: CheckPlan, items: FixedAnswer["items"], incomplete
 }
 
 /** 新事实（输出 3）：按第一处引文归段；对不上的丢掉并计数；带 `name` 的查世界与自陈，查到就不算；超过上限的记未列。 */
-function checkNewFacts(plan: CheckPlan, facts: FixedAnswer["newFacts"], selfReport: SelfReport | undefined, bad: () => void): {readonly kept: CheckRecord["newFacts"]; readonly unlisted: number} {
+function checkNewFacts(plan: CheckPlan, facts: FixedAnswer["newFacts"], names: ReadonlyMap<string, ReadonlySet<string>>, selfReport: SelfReport | undefined, bad: () => void): {readonly kept: CheckRecord["newFacts"]; readonly unlisted: number} {
     const kept: CheckRecord["newFacts"] = [];
     let unlisted = 0;
     for (const fact of facts) {
@@ -306,7 +310,7 @@ function checkNewFacts(plan: CheckPlan, facts: FixedAnswer["newFacts"], selfRepo
             continue;
         }
         const name = fact.name?.trim();
-        if (name !== undefined && name !== "" && (plan.namesBySegment.get(home.id)?.has(name) === true || selfReport?.report.names.some((reported) => reported.includes(name)) === true)) continue;
+        if (name !== undefined && name !== "" && (names.get(home.id)?.has(name) === true || selfReport?.report.names.some((reported) => reported.includes(name)) === true)) continue;
         if (kept.length >= MAX_NEW_FACTS) {
             unlisted += 1;
             continue;

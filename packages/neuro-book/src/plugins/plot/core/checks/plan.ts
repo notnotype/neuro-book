@@ -13,7 +13,7 @@ import type {CanonReadView, Decision, ReadPosition} from "@notnotype/nb-canon/sc
 
 import type {AnswerKind, CheckRequest, CheckRole, SelfReport} from "../../shared/checks";
 import type {InstructionSnapshot} from "../../shared/instructions";
-import {involvedDecisions} from "../decisions";
+import {involvedDecisionObjects} from "../decisions";
 import type {Digest} from "../guards";
 import {knowingIndex} from "../knowledge";
 import {budgeted, candidatesOf, type Candidate} from "./candidates";
@@ -73,8 +73,10 @@ export interface CheckPlan {
     readonly uncast: number;
     readonly noSuspense: readonly string[];
     readonly noReaderQuestion: readonly string[];
-    /** 各段线上已出场的条目的名字与别名：新事实带 `name` 时按它查“世界里有没有”（输出 3）。 */
-    readonly namesBySegment: ReadonlyMap<string, ReadonlySet<string>>;
+    /** 本章涉及的知识点（各段的并集）：依赖摘要只看它们后面有没有明说揭示。 */
+    readonly points: readonly string[];
+    /** 本章涉及的条目（各段的 `chapterEntries` 加知识点）：依赖摘要只看挂在它们上的决策。 */
+    readonly concerns: readonly string[];
 }
 
 export interface PlanInput {
@@ -91,16 +93,25 @@ export function inputDigest(request: {readonly system: string; readonly user: st
     return digest(canonicalJson({system: request.system, user: request.user, answer: request.answer}));
 }
 
-function namesOn(segment: CheckSegment, end: ReadPosition): ReadonlySet<string> {
-    const names = new Set<string>();
-    for (const entry of segment.view.entries()) {
-        if (entry.deleted === true) continue;
-        const read = readAppeared(segment.view, entry.id, end);
-        if (read === null) continue;
-        names.add(read.name);
-        for (const alias of read.aliases) names.add(alias);
-    }
-    return names;
+/**
+ * 各段线上已出场的条目的名字与别名：新事实带 `name` 时按它查“世界里有没有”（输出 3）。只有跑检查时要，校验有效性时不要：读全部条目要几十毫秒，不放进 `planCheck`。
+ * 同样要在第一次 `await` 之前算完。
+ */
+export function namesOfSegments(view: CanonReadView, chapter: string, instruction: InstructionSnapshot | undefined): ReadonlyMap<string, ReadonlySet<string>> {
+    const segments = segmentsOf(view, chapter, instruction);
+    if (typeof segments === "string") return new Map();
+    const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
+    return new Map(segments.map((segment) => {
+        const names = new Set<string>();
+        for (const entry of segment.view.entries()) {
+            if (entry.deleted === true) continue;
+            const read = readAppeared(segment.view, entry.id, end);
+            if (read === null) continue;
+            names.add(read.name);
+            for (const alias of read.aliases) names.add(alias);
+        }
+        return [segment.id, names];
+    }));
 }
 
 /** 写作指示写成给模型看的几行。 */
@@ -140,9 +151,7 @@ function ruleItems(input: PlanInput, segments: readonly CheckSegment[], pointsBy
     // 决策取各段的线的并集，按 id 去重：同一条决策挂在两条线的条目上也只问一次。
     const decisions = new Map<string, Decision>();
     for (const segment of segments) {
-        for (const read of involvedDecisions(segment.view, chapter, "actual", pointsBySegment.get(segment.id) ?? [])) {
-            decisions.set(read.id, segment.view.object({kind: "decision", id: read.id}) as Decision);
-        }
+        for (const decision of involvedDecisionObjects(segment.view, chapter, "actual", pointsBySegment.get(segment.id) ?? [])) decisions.set(decision.id, decision);
     }
     for (const [id, decision] of [...decisions].sort(([a], [b]) => (a < b ? -1 : 1))) {
         if (decision.status === "decided") for (const [index, constraint] of (decision.constraints ?? []).entries()) rules.push({item: `constraint:${id}:${String(index)}`, decision: id, text: `作者定下的约束：${constraint}。正文有没有违反？`});
@@ -202,7 +211,8 @@ export function planCheck(input: PlanInput): CheckPlan | {readonly code: "chapte
     const trial = trialsOf(segments[0]!.view, chapter, [...pointsBySegment.values()].flat());
     const trialCalls: PlannedCall[] = trial.trials.map((item) => ({id: `reader:${item.point}`, layer: "reader", role: "reader", question: item.question, request: item.request, digest: inputDigest(item.request, digest), point: item.point, paragraphs: item.paragraphs}));
 
-    const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
+    const points = [...new Set([...pointsBySegment.values()].flat())].sort();
+    const concerns = [...new Set([...points, ...segments.flatMap((segment) => segment.view.chapterEntries(chapter, "actual"))])].sort();
     return {
         chapter,
         segments: segments.map(({id, line, from, to, paragraphs}) => ({id, line, from, to, paragraphs})),
@@ -213,6 +223,7 @@ export function planCheck(input: PlanInput): CheckPlan | {readonly code: "chapte
         uncast: uncast.size,
         noSuspense: trial.noSuspense,
         noReaderQuestion: trial.noReaderQuestion,
-        namesBySegment: new Map(segments.map((segment) => [segment.id, namesOn(segment, end)])),
+        points,
+        concerns,
     };
 }

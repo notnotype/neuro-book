@@ -8,6 +8,7 @@
 import type {CanonReadView, Mark, Placement, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
 import {DEFAULT_SECRECY, ENTRY_TYPES, MARK_IDS, type Secrecy} from "../../shared/declarations";
+import {changeIndex} from "../change-index";
 import type {InstructionSnapshot} from "../../shared/instructions";
 
 /** 一份简报读的框架。 */
@@ -50,7 +51,7 @@ export interface Participant {
 
 /** 本章在这个框架里生效的计划（按计划模式的先后）。 */
 export function plansOf(frame: Frame, chapter: string): StoryChange[] {
-    const plans = frame.view.changes({chapter, kind: "plan"}).filter((change) => change.status === "active" && change.nature !== "fork");
+    const plans = (changeIndex(frame.view).byChapter.get(chapter) ?? []).filter((change) => change.kind === "plan");
     return plans.sort((a, b) => {
         const [ka, kb] = [frame.view.eventKey(a.id, "planned"), frame.view.eventKey(b.id, "planned")];
         if (ka === null || kb === null) return ka === kb ? 0 : ka === null ? 1 : -1;
@@ -149,20 +150,25 @@ export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readon
     const entries = new Set(view.chapterEntries(chapter, "planned"));
     for (const plan of plans) for (const id of pointsReferencedBy(frame, plan)) points.add(id);
     // 主体（条目树里的父条目）是参与者或涉及的条目、保密以上的知识点。
+    const secrecy = new Map<string, Secrecy | null>();
+    const secrecyOnce = (id: string) => {
+        if (!secrecy.has(id)) secrecy.set(id, secrecyOf(frame, id));
+        return secrecy.get(id)!;
+    };
     for (const entry of view.entries()) {
-        if (entry.deleted === true || entry.type !== ENTRY_TYPES.point || entry.parent === null || !entries.has(entry.parent)) continue;
-        if (isSecretPlus(secrecyOf(frame, entry.id))) points.add(entry.id);
+        if (entry.deleted === true || entry.parent === null || !entries.has(entry.parent)) continue;
+        if (entry.type === ENTRY_TYPES.point) {
+            if (isSecretPlus(secrecyOnce(entry.id))) points.add(entry.id);
+        } else if (entry.type === ENTRY_TYPES.goal) {
+            // 参与者进行或受挫的目标的隐秘知识点。
+            const read = view.entry(entry.id, frame.position, "planned");
+            if (read === null || read === "chapter-not-found" || read.deleted || !read.appeared) continue;
+            const status = read.namespaces.goal?.fields.状态?.value;
+            const secret = (read.namespaces.goal?.fields.隐秘?.value as {ref?: unknown} | null | undefined)?.ref;
+            if ((status === "active" || status === "blocked") && typeof secret === "string") points.add(secret);
+        }
     }
-    // 参与者进行或受挫的目标的隐秘知识点。
-    for (const entry of view.entries()) {
-        if (entry.deleted === true || entry.type !== ENTRY_TYPES.goal || entry.parent === null || !entries.has(entry.parent)) continue;
-        const read = view.entry(entry.id, frame.position, "planned");
-        if (read === null || read === "chapter-not-found" || read.deleted || !read.appeared) continue;
-        const status = read.namespaces.goal?.fields.状态?.value;
-        const secret = (read.namespaces.goal?.fields.隐秘?.value as {ref?: unknown} | null | undefined)?.ref;
-        if ((status === "active" || status === "blocked") && typeof secret === "string") points.add(secret);
-    }
-    return [...points].filter((id) => secrecyOf(frame, id) !== null).sort();
+    return [...points].filter((id) => secrecyOnce(id) !== null).sort();
 }
 
 /** 指向这个马甲的 `揭穿` 的知识点（称谓表与在场的人用它判断视角人物知不知道、这个马甲背后的名字能不能写）。 */

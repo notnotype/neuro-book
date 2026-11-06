@@ -125,12 +125,13 @@ export function trialsOf(view: CanonReadView, chapter: string, points: readonly 
     const noReaderQuestion: string[] = [];
     const planned: TrialPlan[] = [];
     for (const point of [...new Set(points)].sort()) {
+        // 这条最便宜，放在最前：大多数知识点之后没有明说揭示。
+        if ((table.get(point) ?? -1) <= here) continue;
         const read = readAppeared(view, point, end);
         if (read === null) continue;
         const secrecyValue = read.namespaces.point?.fields.保密?.value ?? "secret";
         if (secrecyValue !== "secret" && secrecyValue !== "topSecret") continue;
         if (previous !== undefined && readerKnowing(view, point, {chapter: previous, edge: "end"}) === "knows") continue;
-        if ((table.get(point) ?? -1) <= here) continue;
         const question = read.namespaces.point?.fields.读者问题?.value;
         // 读者问题里写了命题（简介、名字或别名）：题面就泄底了，不做。比 Spec 的下限多查名字与别名。
         const leaks = typeof question === "string" && [read.summary, read.name, ...read.aliases].some((text) => text !== "" && question.includes(text));

@@ -33,6 +33,16 @@ import {instructionDiagnostics} from "nbook/plugins/plot/core/instruction-checks
 import {knowingDiagnostics} from "nbook/plugins/plot/core/knowledge-checks";
 import {Viewpoint} from "nbook/plugins/plot/core/viewpoint";
 import {MARK_IDS, PLOT_PLUGIN_ID} from "nbook/plugins/plot/shared/declarations";
+import {PlotStore} from "nbook/plugins/plot/backend/store";
+import {checkDiagnostics} from "nbook/plugins/plot/core/checks/diagnostics";
+import {namesOfSegments, planCheck} from "nbook/plugins/plot/core/checks/plan";
+import {createLimiter, runCheck, type CheckModels} from "nbook/plugins/plot/core/checks/run";
+import {createCheckSource} from "nbook/plugins/plot/core/checks/source";
+import type {CheckRecord} from "nbook/plugins/plot/shared/checks";
+import {createPartitionOwner} from "nbook/plugins/storage/backend/owner";
+import {createPartition} from "nbook/plugins/storage/backend/partition";
+import {createStorageFacade} from "nbook/plugins/storage/shared/facade";
+import {Type} from "typebox";
 import {PlotService} from "nbook/plugins/plot/testing/service";
 import {addRow, drafts, learns, present} from "nbook/plugins/plot/testing/world";
 
@@ -196,6 +206,116 @@ const briefMs = performance.now() - started;
 Bun.gc(true);
 const heap = process.memoryUsage().heapUsed / 1024 / 1024;
 service.closeView(opened.token);
+
+// ---------- 阶段 F：写完以后的检查（1000 章都有检查记录） ----------
+// 模型是立刻回答的替身：这里量的是圈候选、拼输入、校验有效性，不是模型。Spec 没给校验定预算（只要求按这个规模量），下面的参考数是作者定的。
+const sha = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
+const padding = Array.from({length: 30}, (_, index) => `这是第 ${String(index)} 段铺陈的文字，让一章有接近真实的长度，大约一百个字上下，写的都是些不相干的日常。`.repeat(1)).join("\n");
+for (const id of chapterIds) plot.texts.set(id, `${plot.texts.get(id) ?? ""}${padding}\n`);
+service.textChanged();
+const instantModels: CheckModels = {
+    available: () => Promise.resolve(null),
+    ask: (_role, request) => Promise.resolve({ok: true, answer: request.answer === "yesNo" ? {answer: "no", quotes: []} : request.answer === "object" ? {moved: "no", quotes: [], before: "", after: "", who: ""} : request.answer === "fixed" ? {items: [], newFacts: []} : request.answer === "trial" ? {guess: "", confidence: "none", quotes: []} : {verdict: "inconsistent"}, usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null}}),
+};
+const recordsByChapter = new Map<string, CheckRecord>();
+const emptySelf = {get: () => undefined, digestOf: () => undefined};
+const checkInstructions = {get: (chapter: string) => instructions.get(chapter), digestOf: (chapter: string) => (instructions.has(chapter) ? sha(JSON.stringify(instructions.get(chapter))) : undefined)};
+let writeBacks = 0;
+const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, writeBack: (record) => {
+    writeBacks += 1;
+    recordsByChapter.set(record.chapter, record);
+}});
+const planned: number[] = [];
+const beforeRecords = process.memoryUsage().heapUsed;
+const startedChecks = performance.now();
+const limiter = createLimiter(4);
+for (const id of chapterIds) {
+    const snap = service.snapshot();
+    const instruction = instructions.get(id);
+    const begin = performance.now();
+    const plan = planCheck({view: snap.view, chapter: id, followUps: [], digest: sha, ...(instruction === undefined ? {} : {instruction})});
+    planned.push(performance.now() - begin);
+    if ("code" in plan) throw new Error(plan.code);
+    const dependencies = checkSource.dependencies(snap.view, id, [], plan) ?? "";
+    const names = namesOfSegments(snap.view, id, instruction);
+    const result = await runCheck({plan, models: instantModels, limiter, signal: new AbortController().signal, digest: sha, followUps: [], names, start: {worldVersion: snap.view.version, textDigest: null, pluginVersion: "scale", dependencies}});
+    if (!result.ok) throw new Error(result.code);
+    recordsByChapter.set(id, result.record);
+}
+const checksGenerated = performance.now() - startedChecks;
+Bun.gc(true);
+const recordsHeap = (process.memoryUsage().heapUsed - beforeRecords) / 1024 / 1024;
+const recordBytes = [...recordsByChapter.values()].reduce((sum, record) => sum + JSON.stringify(record).length, 0);
+service.registerDiagnostics(PLOT_PLUGIN_ID, {compute: {...allCompute, ...checkDiagnostics(checkSource, sha)}, dataVersion: "scale-f"});
+const readPending = () => {
+    const begin = performance.now();
+    const page = service.pending({}, undefined, 50);
+    if (typeof page === "string") throw new Error(page);
+    return {ms: performance.now() - begin, stale: page.counts};
+};
+readPending();
+const CHECK_IDS = new Set(Object.keys(checkDiagnostics(checkSource, sha)));
+/** 最近一次读待处理里检查这几个诊断的耗时。 */
+const checkTiming = () => service.status().diagnosticTimings.slice(-(Object.keys(allCompute).length + CHECK_IDS.size)).filter((timing) => CHECK_IDS.has(timing.diagnostic)).reduce((sum, timing) => sum + timing.ms, 0);
+const scenario = async (name: string, edit: () => Promise<unknown>): Promise<string> => {
+    const backsBefore = writeBacks;
+    await edit();
+    const first = readPending();
+    return `${name}：读待处理 ${ms(first.ms)} 毫秒（其中检查的诊断 ${ms(checkTiming())}），重拼后仍有效回写 ${String(writeBacks - backsBefore)} 章`;
+};
+const checkReports: string[] = [];
+checkReports.push(await scenario("(a) 在最新一章发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_000}, {text: "补一句"})));
+checkReports.push(await scenario("(a2) 再发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_001}, {text: "补一句"})));
+checkReports.push(await scenario("(c) 改第 500 章的一条变更", () => plot.change({kind: "chapter", chapter: chapterIds[Math.floor(chapterIds.length / 2)]!, key: 5_002}, {text: "中间补一句"})));
+checkReports.push(await scenario("(c2) 这之后再在最新一章发布一次", () => plot.change({kind: "chapter", chapter: last, key: 5_003}, {text: "补一句"})));
+const frequent = person(1);
+const storedPerson = service.world.data.entries.get(frequent)!;
+checkReports.push(await scenario("(b) 改一个常出场条目的初值", () => plot.publish([{ref: {kind: "entry", id: frequent}, after: {...storedPerson, folder: "改过的"}}])));
+// (d) 重启后第一次读：对象摘要的缓存是空的（换一个摘要函数），结论的缓存也是空的。
+const coldDigest = (text: string) => sha(text);
+const coldSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: coldDigest, writeBack: () => undefined});
+const coldBegin = performance.now();
+const coldFold = coldSource.dependencies(service.snapshot().view, last, [], {points: [], concerns: []});
+const coldMs = performance.now() - coldBegin;
+const restWarm = performance.now();
+for (const record of recordsByChapter.values()) coldSource.valid(service.snapshot().view, record);
+const coldAll = performance.now() - restWarm;
+checkReports.push(`(d) 重启后第一次读：算全书的滚动摘要 ${ms(coldMs)} 毫秒（${coldFold === null ? "无" : "有"}），1000 章各比一次 ${ms(coldAll)} 毫秒（摘要都对得上就不重拼）`);
+// 激活时读回：真实的分区库。
+const storeRoot = await mkdtemp(join(tmpdir(), "plot-scale-store-"));
+const loadReports: string[] = [];
+const consumer = {plugin: "nbook.plot", instanceId: "project-1", entry: "project", client: null, location: "project"} as never;
+for (const [count, bytes] of [[100, 1024], [1000, 1024], [100, 64 * 1024], [1000, 64 * 1024]] as const) {
+    const path = join(storeRoot, `${String(count)}-${String(bytes)}.sqlite`);
+    const open = () => {
+        const owner = createPartitionOwner(createPartition({path}), "project", () => undefined);
+        return {owner, service: createStorageFacade(consumer, {user: () => ({ok: false, code: "no-project", detail: ""}), project: () => owner.route(consumer)}).service};
+    };
+    const first = open();
+    const writer = new PlotStore(first.service, () => undefined);
+    const tables = ["plot-a", "plot-b", "plot-c"].map((key) => writer.table<{chapter: string; body: string}>({key, shape: 1, schema: Type.Object({chapter: Type.String(), body: Type.String()})}));
+    const failed = await writer.load();
+    if (failed !== null) throw new Error(failed.detail);
+    const body = "字".repeat(Math.floor(bytes / 3));
+    for (let index = 0; index < count; index += 1) {
+        const chapter = `c${String(index)}`;
+        for (const table of tables) await writer.queued(() => writer.write(table, chapter, {chapter, body}));
+    }
+    first.owner.close();
+    Bun.gc(true);
+    const before = process.memoryUsage().heapUsed;
+    const second = open();
+    const reader = new PlotStore(second.service, () => undefined);
+    for (const key of ["plot-a", "plot-b", "plot-c"]) reader.table<{chapter: string; body: string}>({key, shape: 1, schema: Type.Object({chapter: Type.String(), body: Type.String()})});
+    const begin = performance.now();
+    const loadFailed = await reader.load();
+    const took = performance.now() - begin;
+    if (loadFailed !== null) throw new Error(loadFailed.detail);
+    Bun.gc(true);
+    loadReports.push(`${String(count)} 章、每张表每章 ${String(bytes / 1024)} KiB：读回 ${ms(took)} 毫秒，堆增加 ${ms((process.memoryUsage().heapUsed - before) / 1024 / 1024)} MB`);
+    second.owner.close();
+}
+await rm(storeRoot, {recursive: true, force: true});
 await plot.stop();
 await rm(root, {recursive: true, force: true});
 
@@ -211,3 +331,7 @@ console.log(`按视角读挂了 20 个保密知识点的条目（取快照、建
 console.log(`伏笔账本：${ms(ledgerMs)} 毫秒（${String(items.length)} 项）`);
 console.log(`开写前的视图 ${ms(beforeMs)} 毫秒（${typeof before === "string" ? before : String(before.lines.length)} 条线）；写手的上下文 ${ms(briefMs)} 毫秒（${typeof brief === "string" ? brief : String(brief.text.length)} 字）`);
 console.log(`堆：${ms(heap)} MB`);
+console.log(`\n阶段 F：planCheck 一章中位 ${ms(median(planned))} 毫秒，最大 ${ms(Math.max(...planned))}；生成 ${String(recordsByChapter.size)} 章的记录 ${ms(checksGenerated / 1000)} 秒；记录合计 ${ms(recordBytes / 1024 / 1024)} MB JSON，堆增加 ${ms(recordsHeap)} MB`);
+for (const line of checkReports) console.log(line);
+console.log("激活时读回：");
+for (const line of loadReports) console.log(`  ${line}`);

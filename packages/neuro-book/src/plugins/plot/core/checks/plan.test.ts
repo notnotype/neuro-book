@@ -4,7 +4,7 @@ import {createHash} from "node:crypto";
 import type {SelfReport} from "../../shared/checks";
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {addRow, chapter, PlotWorld, present} from "../../testing/world";
-import {planCheck, type CheckPlan, type PlanInput} from "./plan";
+import {namesOfSegments, planCheck, type CheckPlan, type PlanInput} from "./plan";
 
 const CHAPTERS = Array.from({length: 12}, (_, index) => `ch${String(index + 1)}`);
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -102,7 +102,7 @@ describe("planCheck", () => {
         w.change(chapter("ch4", 1), {cast: []});
         const found = plan(w, "ch4");
         expect(found.uncast).toBe(1);
-        const names = found.namesBySegment.get("main#1")!;
+        const names = namesOfSegments(w.view(), "ch4", undefined).get("main#1")!;
         expect(names.has("老王")).toBe(true);
         expect(names.has("后来者")).toBe(false);
         expect(guard).toBeDefined();

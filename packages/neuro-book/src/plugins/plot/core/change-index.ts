@@ -4,7 +4,7 @@
  * 新的视图对象，索引随它释放（缓存见 `view-cache.ts`）。
  */
 
-import type {CanonReadView, StoryChange} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, StoryChange, TellingItem} from "@notnotype/nb-canon/schema";
 
 import {perViewCache} from "./view-cache";
 
@@ -17,6 +17,28 @@ export interface ChangeIndex {
     readonly goalTouches: ReadonlyMap<string, readonly StoryChange[]>;
     /** 涉及这个条目的变更（`involves` 或补丁地址里有它）。 */
     readonly involving: ReadonlyMap<string, readonly StoryChange[]>;
+}
+
+const effectiveCache = perViewCache<readonly TellingItem[]>();
+/** 这张视图上全部生效的讲述（整本书扫一遍要十几毫秒，每个读取位置都用它）。 */
+export function effectiveTellings(view: CanonReadView): readonly TellingItem[] {
+    return effectiveCache(view, "", () => view.tellings({effective: true}));
+}
+
+const byChapterCache = perViewCache<ReadonlyMap<string, readonly TellingItem[]>>();
+/** 生效的讲述按发生点所在的章。 */
+export function effectiveTellingsByChapter(view: CanonReadView): ReadonlyMap<string, readonly TellingItem[]> {
+    return byChapterCache(view, "", () => {
+        const found = new Map<string, TellingItem[]>();
+        for (const item of effectiveTellings(view)) {
+            if (item.located.kind !== "found") continue;
+            const chapter = item.located.occurrence.chapter;
+            const list = found.get(chapter);
+            if (list === undefined) found.set(chapter, [item]);
+            else list.push(item);
+        }
+        return found;
+    });
 }
 
 const indexes = perViewCache<ChangeIndex>();

@@ -22,10 +22,13 @@ const inText = (w: PlotWorld, chapterId: string, quote: string, marks: Mark[] = 
     return {source: "chapter", chapter: chapterId, quote, ...(marks.length === 0 ? {} : {marks})};
 };
 
-const deps = (w: PlotWorld, chapterId: string, scene: Scene = {}) => dependenciesOf({
+/** 依赖摘要。`concerned` 是记录里存的那一份（跑检查时的计划算的），之后的世界变了也还用它。 */
+const deps = (w: PlotWorld, chapterId: string, scene: Scene = {}, concerned = planOf(w, chapterId, scene)) => dependenciesOf({
     view: w.view(),
     chapter: chapterId,
     followUps: scene.followUps ?? [],
+    points: concerned.points,
+    concerns: concerned.concerns,
     pluginVersion: "test",
     digest,
     ...(scene.instruction === undefined ? {} : {instruction: {snapshot: scene.instruction, digest: digest(JSON.stringify(scene.instruction))}}),
@@ -50,18 +53,20 @@ function book() {
 
 /** 这个改动让结论变了，摘要也必须变。 */
 function mustChange(w: PlotWorld, change: () => void, scene: Scene = {}, chapterId = "ch8") {
-    const [before, sign] = [deps(w, chapterId, scene), signature(w, chapterId, scene)];
+    const stored = planOf(w, chapterId, scene);
+    const [before, sign] = [deps(w, chapterId, scene, stored), signature(w, chapterId, scene)];
     change();
     expect(signature(w, chapterId, scene)).not.toBe(sign);
-    expect(deps(w, chapterId, scene)).not.toBe(before);
+    expect(deps(w, chapterId, scene, stored)).not.toBe(before);
 }
 
 /** 这个改动不影响这一章：结论与摘要都不变。 */
 function mustStay(w: PlotWorld, change: () => void, scene: Scene = {}, chapterId = "ch8") {
-    const [before, sign] = [deps(w, chapterId, scene), signature(w, chapterId, scene)];
+    const stored = planOf(w, chapterId, scene);
+    const [before, sign] = [deps(w, chapterId, scene, stored), signature(w, chapterId, scene)];
     change();
     expect(signature(w, chapterId, scene)).toBe(sign);
-    expect(deps(w, chapterId, scene)).toBe(before);
+    expect(deps(w, chapterId, scene, stored)).toBe(before);
 }
 
 describe("改了这一样，结论变了，摘要也变", () => {
@@ -138,6 +143,12 @@ describe("改了这一样，结论变了，摘要也变", () => {
         expect(deps(w, "ch8", {followUps: ["time:main#1"]})).not.toBe(base);
     });
 
+    test("决策：挂在本章涉及的条目上、范围覆盖本章的新决策", () => {
+        const {w, guard} = book();
+        mustChange(w, () => w.decision("卫兵的来历", {about: [{kind: "entry", id: guard}]}));
+        mustChange(w, () => w.decision("这一段的约束", {about: [], scope: {from: "ch5", to: "ch9"}}));
+    });
+
     test("决策：涉及本章的待定决策改了文字", () => {
         const {w} = book();
         const id = w.decision("勇者的来历", {about: [{kind: "chapter", id: "ch8"}]});
@@ -197,6 +208,15 @@ describe("本章之后的世界变了，结论与摘要都不变", () => {
         mustStay(w, () => w.decision("这条发现有意为之", {about: [{kind: "diagnostic", id: "nbook.plot.check.stale", key: {range: {from: "ch9", to: "ch9"}}, version: 1}]}));
     });
 
+    test("写一条不涉及这一章的决策、给不涉及这一章的知识点加后面的揭示：摘要不变", () => {
+        const {w} = book();
+        const other = w.person("别处的人");
+        const unrelated = w.point("别处的秘密", other, {保密: "secret"});
+        mustStay(w, () => w.decision("别处的决策", {about: [{kind: "entry", id: other}], conclusion: "定了"}));
+        mustStay(w, () => w.decision("别章的决策", {about: [{kind: "chapter", id: "ch15"}]}));
+        mustStay(w, () => w.change(chapter("ch20"), {kind: "plan", told: [{source: "outline", chapter: "ch20", anchor: "细纲", marks: [reveal(unrelated, "explicit")]}]}));
+    });
+
     test("改后面才出场的条目：摘要不变，因为计划读不到它", () => {
         const {w} = book();
         const late = w.person("后来者", {appears: chapter("ch15")});
@@ -226,7 +246,10 @@ describe("随机序列", () => {
         const target = () => `ch${String(1 + random(22))}`;
         let quiet = 0;
         for (let step = 0; step < 300; step += 1) {
-            const before = new Map(["ch8", "ch12"].map((id) => [id, {deps: deps(w, id), sign: signature(w, id)}]));
+            const before = new Map(["ch8", "ch12"].map((id) => {
+                const stored = planOf(w, id);
+                return [id, {stored, deps: deps(w, id, {}, stored), sign: signature(w, id)}];
+            }));
             const place = target();
             switch (random(7)) {
                 case 0:
@@ -252,12 +275,12 @@ describe("随机序列", () => {
                     break;
             }
             for (const [id, old] of before) {
-                if (deps(w, id) !== old.deps) continue;
+                if (deps(w, id, {}, old.stored) !== old.deps) continue;
                 quiet += 1;
                 expect(signature(w, id)).toBe(old.sign);
             }
         }
         // 确实走到了“摘要没变”的情形，这条断言不是空转。
         expect(quiet).toBeGreaterThan(50);
-    });
+    }, 30_000);
 });

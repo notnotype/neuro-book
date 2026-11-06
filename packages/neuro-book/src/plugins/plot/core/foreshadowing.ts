@@ -12,6 +12,7 @@ import type {CanonReadView, DiagnosticCompute, Finding, Mark, Mode, Occurrence, 
 
 import {ENTRY_TYPES, FS_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
 import {countedChanges} from "./knowledge";
+import {effectiveTellings} from "./change-index";
 import {perViewCache} from "./view-cache";
 
 export type Role = "plant" | "echo" | "mislead" | "partial" | "payoff";
@@ -68,6 +69,59 @@ const DEFAULT_INTERVAL: Readonly<Record<string, number>> = {main: 30, side: 20, 
 const nodeMarks = (marks: readonly Mark[] | undefined) =>
     (marks ?? []).filter((mark): mark is Mark & {foreshadow: string; role: Role; note?: string} => mark.kind === MARK_IDS.node && mark.version === 1 && typeof mark.foreshadow === "string" && typeof mark.role === "string");
 
+interface RawTellings {
+    /** 带节点或揭示标注的生效讲述（整本书的讲述里只有一小部分带标注）。 */
+    readonly marked: readonly {readonly item: TellingItem; readonly occurrence: Occurrence; readonly nodeMarks: ReturnType<typeof nodeMarks>; readonly revealMarks: readonly {readonly point: string; readonly mode: "hint" | "explicit"}[]}[];
+    /** 计划的节点：计划的非正文讲述上的节点。 */
+    readonly planned: readonly PlannedNode[];
+    /** 兑现了计划、套上了的已写变更（没有发生的不继承：计划这时回到未兑现，model.md 输出 13）。 */
+    readonly fulfilling: readonly {
+        readonly written: StoryChange;
+        readonly fulfilled: readonly string[];
+        /** “自己的讲述上”按全部讲述算（含失联的）：作者自己标过的节点因改稿失联时，不拿计划的节点顶上。悬念答案上的揭示也是这个悬念的节点（输出 3）：作者把回收改成暗示时，不拿计划的回收顶上。 */
+        readonly own: {readonly nodes: readonly string[]; readonly reveals: readonly string[]};
+        /** 它第一处生效的正文讲述；没有时继承的节点没有位置。 */
+        readonly first: {readonly telling: string; readonly occurrence: Occurrence} | undefined;
+    }[];
+}
+
+const rawCache = perViewCache<RawTellings>();
+/**
+ * 与读取位置无关的部分，一张视图算一次：节点、揭示、计划节点、兑现关系。与位置有关的只有伏笔条目自己的字段（意图、答案、物件）；写完以后的检查要在每一章各建一个索引，
+ * 不能每次把全书的讲述再扫一遍。
+ */
+function rawTellings(view: CanonReadView): RawTellings {
+    return rawCache(view, "", () => {
+        const marked: {item: TellingItem; occurrence: Occurrence; nodeMarks: ReturnType<typeof nodeMarks>; revealMarks: {point: string; mode: "hint" | "explicit"}[]}[] = [];
+        const firstByChange = new Map<string, {telling: string; occurrence: Occurrence}>();
+        for (const item of effectiveTellings(view)) {
+            if (item.located.kind !== "found") continue;
+            const {occurrence} = item.located;
+            if (item.owner.kind === "change" && !firstByChange.has(item.owner.id)) firstByChange.set(item.owner.id, {telling: item.telling.id, occurrence});
+            if ((item.telling.marks ?? []).length === 0) continue;
+            const revealMarks = (item.telling.marks ?? []).flatMap((mark) => (mark.kind === MARK_IDS.reveal && mark.version === 1 && typeof mark.point === "string" ? [{point: mark.point, mode: mark.mode === "explicit" ? ("explicit" as const) : ("hint" as const)}] : []));
+            const nodes = nodeMarks(item.telling.marks);
+            if (nodes.length > 0 || revealMarks.length > 0) marked.push({item, occurrence, nodeMarks: nodes, revealMarks});
+        }
+        const planned: PlannedNode[] = [];
+        for (const plan of view.changes({kind: "plan", status: "active"})) {
+            if (plan.at.kind !== "chapter") continue;
+            for (const telling of plan.told) {
+                if (telling.source === "chapter") continue;
+                for (const mark of nodeMarks(telling.marks)) planned.push({foreshadow: mark.foreshadow, role: mark.role, ...(mark.note === undefined ? {} : {note: mark.note}), plan: plan.id, chapter: plan.at.chapter, telling: telling.id});
+            }
+        }
+        const fulfilling = view.changes({kind: "written", status: "active"}).flatMap((written) => {
+            const fulfilled = written.links.filter((link) => link.kind === "fulfills").map((link) => link.plan);
+            if (fulfilled.length === 0 || (written.patches.length > 0 && view.outcome(written.id)?.applied !== true)) return [];
+            const nodes = written.told.flatMap((telling) => nodeMarks(telling.marks).map((mark) => mark.foreshadow));
+            const reveals = written.told.flatMap((telling) => (telling.marks ?? []).flatMap((mark) => (mark.kind === MARK_IDS.reveal && mark.version === 1 && typeof mark.point === "string" ? [mark.point] : [])));
+            return [{written, fulfilled, own: {nodes, reveals}, first: firstByChange.get(written.id)}];
+        });
+        return {marked, planned, fulfilling};
+    });
+}
+
 /** 一份只读视图在一个读取位置上的伏笔索引。 */
 export class ForeshadowIndex {
     readonly foreshadows: readonly ForeshadowEntry[];
@@ -98,55 +152,30 @@ export class ForeshadowIndex {
         for (const foreshadow of this.foreshadows) if (foreshadow.kind === "mystery" && foreshadow.answer !== null) answeredBy.set(foreshadow.answer, [...(answeredBy.get(foreshadow.answer) ?? []), foreshadow.id]);
         this.answeredBy = answeredBy;
 
+        const raw = rawTellings(view);
         const nodes: ForeshadowNode[] = [];
         const reveals: {point: string; mode: "hint" | "explicit"; item: TellingItem}[] = [];
-        const effective = view.tellings({effective: true});
-        for (const item of effective) {
-            if (item.located.kind !== "found") continue;
-            for (const mark of nodeMarks(item.telling.marks)) nodes.push({foreshadow: mark.foreshadow, role: mark.role, ...(mark.note === undefined ? {} : {note: mark.note}), telling: item.telling.id, occurrence: item.located.occurrence, source: "node"});
-            for (const mark of item.telling.marks ?? []) {
-                if (mark.kind !== MARK_IDS.reveal || mark.version !== 1 || typeof mark.point !== "string") continue;
-                const mode = mark.mode === "explicit" ? "explicit" : "hint";
-                reveals.push({point: mark.point, mode, item});
-                for (const mystery of answeredBy.get(mark.point) ?? []) nodes.push({foreshadow: mystery, role: mode === "explicit" ? "payoff" : "echo", telling: item.telling.id, occurrence: item.located.occurrence, source: "reveal"});
+        for (const {item, occurrence, nodeMarks: marks, revealMarks} of raw.marked) {
+            for (const mark of marks) nodes.push({foreshadow: mark.foreshadow, role: mark.role, ...(mark.note === undefined ? {} : {note: mark.note}), telling: item.telling.id, occurrence, source: "node"});
+            for (const {point, mode} of revealMarks) {
+                reveals.push({point, mode, item});
+                for (const mystery of answeredBy.get(point) ?? []) nodes.push({foreshadow: mystery, role: mode === "explicit" ? "payoff" : "echo", telling: item.telling.id, occurrence, source: "reveal"});
             }
         }
         this.#reveals = reveals;
-
-        // 计划的节点：计划的非正文讲述上的节点。
-        const planned: PlannedNode[] = [];
-        for (const plan of view.changes({kind: "plan", status: "active"})) {
-            if (plan.at.kind !== "chapter") continue;
-            for (const telling of plan.told) {
-                if (telling.source === "chapter") continue;
-                for (const mark of nodeMarks(telling.marks)) planned.push({foreshadow: mark.foreshadow, role: mark.role, ...(mark.note === undefined ? {} : {note: mark.note}), plan: plan.id, chapter: plan.at.chapter, telling: telling.id});
-            }
-        }
-        this.planned = planned;
+        this.planned = raw.planned;
 
         // 继承：兑现计划的已写变更自己没有同一伏笔的节点时，继承到它第一处生效的正文讲述上。
         const homeless: HomelessNode[] = [];
-        const byChange = new Map<string, TellingItem[]>();
-        for (const item of effective) if (item.owner.kind === "change" && item.located.kind === "found") byChange.set(item.owner.id, [...(byChange.get(item.owner.id) ?? []), item]);
-        for (const written of view.changes({kind: "written", status: "active"})) {
-            const fulfilled = written.links.filter((link) => link.kind === "fulfills").map((link) => link.plan);
-            if (fulfilled.length === 0) continue;
-            // 兑现没有发生（套不上）就不继承：计划这时回到未兑现（model.md 输出 13）。
-            if (written.patches.length > 0 && view.outcome(written.id)?.applied !== true) continue;
-            // “自己的讲述上”按全部讲述算（含失联的）：作者自己标过的节点因改稿失联时，不拿计划的节点顶上。悬念答案上的揭示也是
-            // 这个悬念的节点（输出 3）：作者把回收改成暗示时，不拿计划的回收顶上。
-            const own = new Set(written.told.flatMap((telling) => [
-                ...nodeMarks(telling.marks).map((mark) => mark.foreshadow),
-                ...(telling.marks ?? []).flatMap((mark) => (mark.kind === MARK_IDS.reveal && mark.version === 1 && typeof mark.point === "string" ? (answeredBy.get(mark.point) ?? []) : [])),
-            ]));
-            const first = byChange.get(written.id)?.[0];
-            for (const node of planned) {
-                if (!fulfilled.includes(node.plan) || own.has(node.foreshadow)) continue;
-                if (first === undefined || first.located.kind !== "found") {
+        for (const {written, fulfilled, own, first} of raw.fulfilling) {
+            const owned = new Set([...own.nodes, ...own.reveals.flatMap((point) => answeredBy.get(point) ?? [])]);
+            for (const node of raw.planned) {
+                if (!fulfilled.includes(node.plan) || owned.has(node.foreshadow)) continue;
+                if (first === undefined) {
                     homeless.push({foreshadow: node.foreshadow, written: written.id});
                     continue;
                 }
-                nodes.push({foreshadow: node.foreshadow, role: node.role, ...(node.note === undefined ? {} : {note: node.note}), telling: first.telling.id, occurrence: first.located.occurrence, source: "inherited"});
+                nodes.push({foreshadow: node.foreshadow, role: node.role, ...(node.note === undefined ? {} : {note: node.note}), telling: first.telling, occurrence: first.occurrence, source: "inherited"});
             }
         }
         this.homeless = homeless;

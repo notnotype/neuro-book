@@ -33,9 +33,8 @@ import {Viewpoint, type ViewpointGrant} from "../core/viewpoint";
 import {knowingDiagnostics} from "../core/knowledge-checks";
 import {descriptor} from "../plugin";
 import {plotWorldContract} from "../shared/contracts";
-import {checkDiagnostics, type CheckSource} from "../core/checks/diagnostics";
-import {isValid} from "../core/checks/validity";
-import {dependenciesOf} from "../core/checks/dependencies";
+import {checkDiagnostics} from "../core/checks/diagnostics";
+import {createCheckSource} from "../core/checks/source";
 import {CheckRecordSchema, plotChecksContract, SelfReportSchema, type CheckRecord, type SelfReport} from "../shared/checks";
 import {plotModelContract} from "../shared/model";
 import {InstructionSnapshotSchema, plotInstructionsContract, type InstructionSnapshot} from "../shared/instructions";
@@ -240,34 +239,16 @@ export const plotProjectPlugin: PluginDefinition = {
             const usable = failed === null;
             if (!usable) warn("plot.store.unavailable", `${failed.code}: ${failed.detail}`);
             const report = () => canon.reportDataVersion(store.dataVersion);
-            const dependenciesFor = (view: CanonReadView, chapter: string, followUps: readonly string[]) => {
-                const instruction = instructions.get(chapter);
-                const instructionDigest = instructions.digestOf(chapter);
-                const selfReport = selfReports.digestOf(chapter);
-                return dependenciesOf({view, chapter, followUps, pluginVersion: descriptor.version, digest, ...(instruction === undefined || instructionDigest === undefined ? {} : {instruction: {snapshot: instruction, digest: instructionDigest}}), ...(selfReport === undefined ? {} : {selfReport})});
-            };
-            /** 重拼过的结论（只在内存）：摘要相同就不再重拼。 */
-            const verdicts = new Map<string, {readonly dependencies: string; readonly valid: boolean}>();
-            const source: CheckSource = {
-                all: () => records.all(),
-                valid: (view, record) => {
-                    const dependencies = dependenciesFor(view, record.chapter, record.followUps);
-                    if (dependencies === null) return false;
-                    // 摘要随记录存：相同就是有效，重启后第一次读也不用重拼。
-                    if (dependencies === record.dependencies) return true;
-                    const memo = verdicts.get(record.chapter);
-                    if (memo?.dependencies === dependencies) return memo.valid;
-                    const instruction = instructions.get(record.chapter);
-                    const selfReport = selfReports.get(record.chapter);
-                    const valid = isValid({view, record, digest, ...(instruction === undefined ? {} : {instruction}), ...(selfReport === undefined ? {} : {selfReport})});
-                    verdicts.set(record.chapter, {dependencies, valid});
-                    // 仍有效：把新摘要回写进记录（不算内容，不改数据版本），否则每次重启都要重拼。这里在诊断的同步段里，只排队，不等。
-                    if (valid) void store.queued(() => store.write(records, record.chapter, {...record, dependencies})).catch((error: unknown) => warn("plot.store.write-back", String(error)));
-                    return valid;
-                },
-            };
+            const source = createCheckSource({
+                records,
+                instructions,
+                selfReports,
+                pluginVersion: descriptor.version,
+                digest,
+                writeBack: (record) => void store.queued(() => store.write(records, record.chapter, record)).catch((error: unknown) => warn("plot.store.write-back", String(error))),
+            });
             canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? {...instructionDiagnostics(instructions), ...checkDiagnostics(source, digest)} : {})}, dataVersion: store.dataVersion});
-            const checks = createChecks({canon, store, instructions, selfReports, checks: records, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps) => dependenciesFor(view, chapter, followUps) ?? "", changed: report, stop: context.signal});
+            const checks = createChecks({canon, store, instructions, selfReports, checks: records, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps, concerned) => source.dependencies(view, chapter, followUps, concerned) ?? "", changed: report, stop: context.signal});
             context.scope.register({kind: "plot-checks", label: `${descriptor.id} checks`, value: checks, release: (value) => value.release()});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();

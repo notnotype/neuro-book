@@ -7,7 +7,7 @@
 import type {CanonProject} from "nbook/plugins/canon/shared/contracts";
 
 import {createLimiter, runCheck, type CheckModels} from "../core/checks/run";
-import {planCheck} from "../core/checks/plan";
+import {namesOfSegments, planCheck} from "../core/checks/plan";
 import type {Digest} from "../core/guards";
 import {ZERO_USAGE} from "../shared/checks";
 import type {CheckRecord, CheckUsage, SelfReport} from "../shared/checks";
@@ -30,7 +30,7 @@ export interface ChecksInput {
     readonly digest: Digest;
     readonly pluginVersion: string;
     /** 算依赖的摘要（`core/checks/dependencies.ts`）。 */
-    readonly dependenciesOf: (view: Parameters<typeof planCheck>[0]["view"], chapter: string, followUps: readonly string[]) => string;
+    readonly dependenciesOf: (view: Parameters<typeof planCheck>[0]["view"], chapter: string, followUps: readonly string[], concerned: {readonly points: readonly string[]; readonly concerns: readonly string[]}) => string;
     /** 写成功以后报新的数据版本（一处，否则 `pending` 命中旧缓存）。 */
     readonly changed: () => void;
     readonly stop: AbortSignal;
@@ -73,9 +73,10 @@ export function createChecks(input: ChecksInput) {
             // 同步段：计划与依赖的摘要都在第一次 `await` 之前算完（快照过了 `await` 就不能再用）。
             const plan = planCheck({view, chapter, followUps, digest, ...(instruction === undefined ? {} : {instruction}), ...(selfReport === undefined ? {} : {selfReport})});
             if ("code" in plan) return fail({code: plan.code, usage: ZERO_USAGE});
-            const dependencies = input.dependenciesOf(view, chapter, followUps);
+            const dependencies = input.dependenciesOf(view, chapter, followUps, plan);
+            const names = namesOfSegments(view, chapter, instruction);
             const start = {worldVersion: view.version, textDigest: view.chapterTextDigest(chapter), pluginVersion: input.pluginVersion, dependencies};
-            const result = await runCheck({plan, models, limiter, signal: controller.signal, digest, followUps, start, ...(selfReport === undefined ? {} : {selfReport}), ...(given !== undefined && previous !== undefined ? {reuse: previous} : {})});
+            const result = await runCheck({plan, models, limiter, signal: controller.signal, digest, followUps, names, start, ...(selfReport === undefined ? {} : {selfReport}), ...(given !== undefined && previous !== undefined ? {reuse: previous} : {})});
             if (!result.ok) return fail({code: result.code, ...(result.kind === undefined ? {} : {kind: result.kind}), usage: result.usage});
             const saved = await store.queued(async () => {
                 const written = await store.write(checks, chapter, result.record);

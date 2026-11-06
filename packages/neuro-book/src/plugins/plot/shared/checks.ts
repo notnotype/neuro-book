@@ -96,6 +96,9 @@ export const CheckRecordSchema = Type.Object({
     pluginVersion: Type.String(),
     /** 依赖的摘要（`core/checks/dependencies.ts`）：不算内容，回写不改数据版本。 */
     dependencies: Type.String(),
+    /** 本章涉及的知识点与条目：依赖摘要按它们取后面的揭示与挂着的决策。它们由世界的前缀决定，前缀没变它们就没变。 */
+    points: Type.Array(Type.String()),
+    concerns: Type.Array(Type.String()),
     segments: Type.Array(Segment),
     followUps: Type.Array(Type.String()),
     calls: Type.Array(CallRecord),

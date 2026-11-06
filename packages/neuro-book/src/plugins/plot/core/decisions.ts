@@ -7,6 +7,7 @@ import type {CanonReadView, Decision, DiagnosticCompute, Finding, Mark, Mode, Ob
 
 import {DECISION_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
 import {checkAddressGuard} from "./guards";
+import {perViewCache} from "./view-cache";
 
 /** 一条涉及本章的决策：结论、理由（没给时“作者没说理由”）、约束与守卫标注。 */
 export interface DecisionRead {
@@ -56,15 +57,16 @@ function chapterIndex(view: CanonReadView, position: ReadPosition): number {
 }
 
 /** 剧情线条目：变更的 `lines` 里挂着它（不是 `involves`），所以判章要用 `changes({line})`。 */
-const PLOT_LINE_TYPE = "剧情线";
+export const PLOT_LINE_TYPE = "剧情线";
 
 /**
  * 这条决策涉及这一章吗：挂的对象与本章涉及的条目相交（`entry` 与 `address` 的条目）、挂在本章上（`chapter`，或 `change` 安放在
  * 本章）、范围（`scope`，只给一端时按章序比）包含本章；挂的是剧情线条目时，这条线上本章有剧情变更也算（输出 9）。
  * `decision`、`diagnostic` 两种挂点不参与。
  */
-function involves(view: CanonReadView, decision: Decision, chapter: string, entries: ReadonlySet<string>, mode: Mode): boolean {
-    const index = view.chapters.indexOf(chapter);
+const decisionLists = perViewCache<readonly Decision[]>();
+
+function involves(view: CanonReadView, decision: Decision, chapter: string, index: number, entries: ReadonlySet<string>, mode: Mode): boolean {
     const {from, to} = decision.scope ?? {};
     if (from !== undefined || to !== undefined) {
         const [low, high] = [from === undefined ? 0 : view.chapters.indexOf(from), to === undefined ? view.chapters.length - 1 : view.chapters.indexOf(to)];
@@ -101,13 +103,20 @@ const aboutKey = (decision: Decision) => decision.about.map((about) => (about.ki
  * 读（`chapterEntries` 的计划模式把计划的涉及条目算进本章，Spec 的补充）。
  */
 export function involvedDecisions(view: CanonReadView, chapter: string, mode: Mode, extraEntries: Iterable<string> = []): DecisionRead[] {
+    return involvedDecisionObjects(view, chapter, mode, extraEntries).map((decision) => readDecision(view, decision, mode));
+}
+
+const allDecisions = (view: CanonReadView, key: string) => decisionLists(view, key, () => view.decisions());
+
+/** 同上，只给决策本身（不核对守卫，写完以后的检查只要文字与约束）。 */
+export function involvedDecisionObjects(view: CanonReadView, chapter: string, mode: Mode, extraEntries: Iterable<string> = []): Decision[] {
     // `extraEntries`：简报把“本章涉及的知识点”也算作本章涉及的条目（挂在这些知识点上的决策是涉及本章的）。
     const entries = new Set([...view.chapterEntries(chapter, mode), ...extraEntries]);
     const order = (decision: Decision) => (decision.status === "decided" ? 0 : 1);
-    return view.decisions()
-        .filter((decision) => (decision.status === "decided" || decision.status === "pending") && involves(view, decision, chapter, entries, mode))
-        .sort((a, b) => order(a) - order(b) || (aboutKey(a) < aboutKey(b) ? -1 : aboutKey(a) > aboutKey(b) ? 1 : 0) || (a.id < b.id ? -1 : 1))
-        .map((decision) => readDecision(view, decision, mode));
+    const index = view.chapters.indexOf(chapter);
+    return allDecisions(view, "")
+        .filter((decision) => (decision.status === "decided" || decision.status === "pending") && involves(view, decision, chapter, index, entries, mode))
+        .sort((a, b) => order(a) - order(b) || (aboutKey(a) < aboutKey(b) ? -1 : aboutKey(a) > aboutKey(b) ? 1 : 0) || (a.id < b.id ? -1 : 1));
 }
 
 /** 挂的对象死了吗（悬空用）：条目已删除、剧情变更已撤销、被取代或放弃的决策；`address` 看它的条目，`chapter` 不在章序里；`diagnostic` 不算。 */

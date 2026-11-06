@@ -8,6 +8,7 @@ import type {CanonReadView, EntryView, Mode, Placement, ReadPosition, StoryChang
 
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {framesOf, type Frame} from "../brief/context";
+import {changeIndex, effectiveTellingsByChapter} from "../change-index";
 
 export interface CheckSegment {
     /** 段的身份，例如 `main#2`。 */
@@ -79,14 +80,14 @@ export function quoteIn(paragraphs: readonly string[], quote: string): boolean {
 export function writtenIn(segment: CheckSegment, chapter: string): StoryChange[] {
     const view = segment.view;
     const told = new Map<string, number[]>();
-    for (const item of view.tellings({from: chapter, to: chapter, effective: true})) {
-        if (item.owner.kind !== "change" || item.located.kind !== "found" || item.located.occurrence.chapter !== chapter) continue;
+    for (const item of effectiveTellingsByChapter(view).get(chapter) ?? []) {
+        if (item.owner.kind !== "change" || item.located.kind !== "found") continue;
         told.set(item.owner.id, [...(told.get(item.owner.id) ?? []), item.located.occurrence.paragraph]);
     }
     const counts = (change: StoryChange | undefined): change is StoryChange => change !== undefined && change.kind === "written" && change.status === "active" && change.nature !== "fork" && (change.patches.length === 0 || view.outcome(change.id)?.applied === true);
     const inHere = (paragraphs: readonly number[]) => paragraphs.some((paragraph) => paragraph >= segment.from && paragraph <= segment.to);
     const found = new Map<string, StoryChange>();
-    for (const change of view.changes({chapter, kind: "written", status: "active"})) {
+    for (const change of changeIndex(view).byChapter.get(chapter) ?? []) {
         if (!counts(change)) continue;
         const paragraphs = told.get(change.id);
         if (paragraphs === undefined || inHere(paragraphs)) found.set(change.id, change);

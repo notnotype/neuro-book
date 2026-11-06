@@ -9,7 +9,7 @@ import {ZERO_USAGE} from "../../shared/checks";
 import type {InstructionSnapshot} from "../../shared/instructions";
 import type {PlotWorld} from "../../testing/world";
 import {checkDiagnostics} from "./diagnostics";
-import {planCheck, type CheckPlan} from "./plan";
+import {namesOfSegments, planCheck, type CheckPlan} from "./plan";
 import {createLimiter, runCheck, type AskResult, type CheckModels, type RunFailure} from "./run";
 import {isValid} from "./validity";
 
@@ -81,6 +81,7 @@ export async function run(w: PlotWorld, chapter: string, models: CheckModels, sc
         signal: scene.signal ?? new AbortController().signal,
         digest,
         followUps: scene.followUps ?? [],
+        names: namesOfSegments(w.view(), chapter, scene.instruction),
         start: {worldVersion: w.world.version, textDigest: null, pluginVersion: "test", dependencies: ""},
         ...(scene.selfReport === undefined ? {} : {selfReport: scene.selfReport}),
         ...(scene.reuse === undefined ? {} : {reuse: scene.reuse}),
