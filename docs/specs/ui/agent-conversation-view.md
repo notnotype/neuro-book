@@ -338,7 +338,7 @@ type AgentSessionListItem = {
 - 系统提示：打开时请求加载，Markdown 渲染，刷新。
 - 会话面板 `AgentSessionPanel`：搜索、作品范围、过滤菜单（Profile、已归档；选了的条件是过滤按钮上的条数，有没有选高度都不变）、按日期分组，每行带 Profile 图标。新建、归档、恢复、改名发 action，选 Profile 与改名的输入框归宿主。组件独立导出，宿主决定放在下拉还是侧栏。
 - 分支树：搜索、折叠、键盘导航、节点详情、复制 ID、切换到选中分支。
-- 上下文检查器：组成、缓存时间线、诊断、请求选择、刷新。
+- 上下文检查器：组成（下一次请求各块的估算、窗口与压缩线）、缓存（本会话与最近一次的命中率、累计用量；服务商不报缓存时说明，不写 0%）、系统提示词（展开时才发 `systemPrompt.load`）、扩展的槽、诊断、刷新。视图持有开关：打开时发 `context.refresh`，关掉时发 `context.closed`，宿主放掉数据；换会话时关掉。`interaction.canInspectContext` 为真时才有入口：状态栏的圆环与缓存命中、顶栏菜单。数据在 `panels.contextInspection`，算不出时 `state` 为 `unavailable` 并带原因。不做缓存时间线与请求选择。
 
 ### action
 

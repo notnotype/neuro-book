@@ -62,6 +62,10 @@ t17 第一版之后补齐对话界面：分支树、简版上下文检查器、�
 
 顺手修了 t11 留下的 `AgentCompactionDetail.md` 缺 `state:inject` 标签（`governance:check` 报错）。
 
+批 2 完成并合入：视图持有上下文详情的开关（圆环、缓存命中、顶栏菜单），`AgentContextInspector`，宿主经 `preview` 取数据，展开时才给系统提示词，关了放掉。查出并修了一个真问题：远程 `preview` 从 t10 起对带函数 `effect` 工具的会话就编不了（`FrameEncodingError`），一直没有界面用它所以没暴露；改成交 JSON 编码后的样子。注册表的 `panels`、`headerActions` 还是没有渲染宿主：第一版只有内置的弹窗，没有插件贡献面板的需要。
+
+验证：`nb-agent-ui` 的组件测试、`kernel-transcript.test.ts`、`session-host.test.ts`、`sessions.test.ts`、类型检查；e2e `agent-conversation`。
+
 ## 下一步
 
-批 2：面板宿主与上下文检查器，静态稿已定，开始实现。
+批 3：就地编辑、重试、编辑重发、分支、结构查询与分支树。先出编辑态与分支树的静态稿。

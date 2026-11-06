@@ -63,7 +63,7 @@ owners:
 9. **大小。** 远程结果与帧都不超过通道的单条消息上限：
    - `log` 的条目是 `{kind: "event", event}` 或 `{kind: "oversized", seq, type, bytes}`；一条事件编码后超过 256 KiB 时是后者，`frames` 里的日志帧同样；每页按条数与编码后不超过 512 KiB 两者取小，`more` 照实给；
    - `eventChunk` 把整条事件按 JSON 编码后按 256 KiB 切段，`{text, last}`，调用方按序拼起来再解析；
-   - `preview` 的结果是 `{kind: "inline", preview}` 或 `{kind: "oversized", token, bytes}`，大的经 `previewChunk` 同样分段读，令牌 5 分钟有效；
+   - `preview` 的结果是 `{kind: "inline", preview}` 或 `{kind: "oversized", token, bytes}`，大的经 `previewChunk` 同样分段读，令牌 5 分钟有效；两种都是 JSON 编码后的样子，工具声明里按参数算的 `effect`（函数）不在里面；
    - `path` 按页读（`from` 是从根数起的下标，交回 `next`），`diagnostics` 按页读（`after` 是上一页最后一条诊断的 id，交回 `next`），按 `afterSeq`、`extension`、`level` 筛；诊断里的长文字截到 4 KiB；
    - 快照、运行结果、回退目标、兄弟节点不分页，编码后超过 512 KiB 时得 `result-too-large`。
 10. **发起任务。** `startTask` 用 `task-<taskId>` 作会话 id 建会话，再以 `taskId` 作 `commandId` 发一次 `send`（空闲时同时开始运行），返回 `{sessionId, runId}`，不等运行结束；结果从 `runResult` 取，运行结束时 `frames` 里有 `runEnded`。`taskId` 是调用方生成的 UUID。
