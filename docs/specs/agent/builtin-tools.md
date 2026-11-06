@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 工具不接审批：它们只声明等级（读、写、执行），要不要问由审批决定；`shell` 的只读白名单也在审批里。
+- 工具不接审批：它们只声明等级（读、写、执行），要不要问由审批决定；`shell` 的只读白名单也在审批里。每个工具交出判定对象：`read`、`grep`、`glob` 交读路径，`write`、`edit` 交写路径（一次改几个文件交几个），`shell` 交命令。
 - `shell` 只在前台，不转后台；不补它的安全缺口：能绕过只读模式、读到密钥、改任何文件，环境变量原样继承。它改的文件不算这个会话的改动，只能算外部改动。
 - `read` 不读 PDF 与其它要转换的格式；`edit` 不删除、不移动、不新建文件；工具不提供待办、提问与切换模式。
 - `edit` 不冻结基线：一次调用内读到的基线只用于这次写回，不带到调用之外。
@@ -40,7 +40,7 @@ owners:
 | `nbook.agent.edit-replace` | `edit` | 写 | exclusive | `path`、`old_string`、`new_string`、`replace_all?` |
 | `nbook.agent.grep` | `grep` | 读 | shared | `pattern`、`path?`、`glob?`、`ignoreCase?`、`context?`（0 到 10）、`limit?`（1 到 500，缺省 100） |
 | `nbook.agent.glob` | `glob` | 读 | shared | `pattern`、`path?`、`limit?`（1 到 1000，缺省 200） |
-| `nbook.agent.shell` | `shell` | 执行 | exclusive | `command`、`timeout?`（秒，1 到 3600，缺省 300） |
+| `nbook.agent.shell` | `shell` | 全部只读时是读，否则执行（[`agent/permissions.md`](permissions.md) 输出 17） | exclusive | `command`、`timeout?`（秒，1 到 3600，缺省 300） |
 | `nbook.agent.ask` | `ask` | 读 | exclusive | `questions`：1 到 4 题，每题 `question`、`header?`、`options`（2 到 4 个，`label`、`description?`）、`multiSelect?` |
 | `nbook.agent.ask-form` | `ask` | 读 | exclusive | 同上，每题多一个 `form?`（JSON Schema） |
 

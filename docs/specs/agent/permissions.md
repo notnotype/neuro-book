@@ -86,16 +86,16 @@ type Subject =
     | `timeout 5 git push`、`bash -c 'git push'`、`a && git push` | 命中 |
     | `git -c x=y push` | 不命中 |
 
-12. 一段命令拆成单条命令，包括 `$(...)`、反引号、进程替换、子 shell、循环与条件体、函数体、会展开的 here-doc 里的。逐条按第一条命中算，再合并：任一条拒绝就拒绝；任一条询问就询问；全部放行才放行；否则没命中。
+12. 一段命令拆成单条命令，包括 `$(...)`、反引号、进程替换、子 shell、循环与条件体、函数体、会展开的 here-doc 里的。逐条按第一条命中算，再合并：任一条拒绝就拒绝；任一条询问就询问；全部放行才放行；否则没命中。只读的条没命中不算数：`cd a && touch b` 只要放行 `touch`。
 13. 反复剥包装（`timeout`、`time`、`nice`、`nohup`、`stdbuf`、`command`、`builtin`、`exec`、`env`）与环境变量前缀；选项认不出算看不懂。`bash -c '<字面量>'`（`sh`、`dash`、`zsh` 同）递归解析，最多 8 层。系统目录（`/bin`、`/sbin`、`/usr/bin`、`/usr/sbin`、`/usr/local/bin`、`/usr/local/sbin`）下的程序取文件名，别处的不取。
 14. 看不懂的：语法错误、命令名有展开、`eval`、`xargs`、`source`、`.`、`parallel`、`find -exec` 这类、`bash -c` 的脚本不是字面量、从标准输入读脚本。这时放行规则不生效，询问与拒绝规则按整段文本包含比对（`git push *` 命中 `eval git push`）；闸门算写；`ask`、`allow-writes` 下询问；`yolo` 下放行。没有方言的命令同样处理。
-15. 写重定向的目标作为 `path` 对象参加匹配（`/dev/null`、`/dev/stdout`、`/dev/stderr` 与文件描述符复制除外）。目标有展开时算“算不出来”。
+15. 写重定向的目标作为 `path` 对象参加匹配（`/dev/null`、`/dev/stdout`、`/dev/stderr` 与文件描述符复制除外）。目标有展开时算“算不出来”。只看命令的放行规则不放行有写重定向的命令（`echo *` 不放行 `echo a > f`），要写路径规则。
 16. 只读是白名单，到子命令与选项，清单外的都不算：`git log` 算，`git push`、`git branch -D`、`git -c x log`、`git log --output=f`、`find -delete`、`sed -i`、`sort -o`、`cp`、`mkdir` 不算。环境变量前缀除语言、时区、颜色、终端尺寸类之外不算只读。设置 `nbook.agent/readOnlyCommands` 能按词前缀追加（`npm ls`），不能删。
 17. 一段命令全部只读且没有写重定向时，`shell` 的 `effect` 是 `read`；否则是 `exec`。
 
 ### 记住
 
-18. “本会话都批准”记的是规则：审批请求带 `remember`（要记住的规则，界面点之前就显示）。`shell` 按命令前缀记（`git diff *`），复合命令一条命令一条；太宽的前缀（解释器、shell、`git`、`rm`、`sudo` 等）与看不懂的命令没有 `remember`，这时没有这个选项。别的工具记整个工具。不跨 `fork`。旧日志里没有规则的 `approvalRemembered` 按整个工具算。
+18. “本会话都批准”记的是规则：审批请求带 `remember`（要记住的规则，界面点之前就显示）。`shell` 按命令前缀记（`git diff *`），前缀到子命令（`git`、`npm` 这类）或命令名（`touch *`），复合命令里要问的每条一条；太宽的前缀（解释器、shell、`rm`、`sudo` 等，没有子命令的 `git`）、看不懂的命令、有写重定向的命令不能记（`remember: false`），这时没有这个选项，应答 `allow-session` 得 `invalid-answer`。别的工具记整个工具。不跨 `fork`。旧日志里没有规则的 `approvalRemembered` 按整个工具算。
 
 ### 审批模型
 
