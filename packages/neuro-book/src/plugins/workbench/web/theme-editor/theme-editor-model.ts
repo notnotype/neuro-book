@@ -13,6 +13,7 @@ import {checkContrast} from "nbook/ui/theme/contrast-checks";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
 import type {ThemeDeclaration} from "../../shared/themes";
+import type {CropCss, CropRegion} from "./crop-model";
 import type {UserTheme} from "../../shared/user-themes";
 import type {ThemeCatalog, ThemeEntry} from "../themes";
 import type {UserThemesStore} from "../user-themes-store";
@@ -276,6 +277,50 @@ export class ThemeEditorModel {
             const look = this.#look(draft);
             if (value === undefined || value === "") delete look.frame;
             else look.frame = {line: value};
+        });
+    }
+
+    // ---- 场景 ----
+
+    /** 当前明暗的场景图：写素材文件名；`undefined` 去掉。 */
+    setScene(name: string | undefined): Promise<unknown> {
+        return this.#update((draft) => {
+            const look = this.#look(draft);
+            if (name === undefined) delete look.scene;
+            else look.scene = name;
+        });
+    }
+
+    /**
+     * 一个位置的取景（两种明暗共用，写在声明的 `crop` 里）：空状态写位置，别的写大小与位置；`undefined` 清掉这个位置。
+     * 空状态的内容中心 `contentX` 单独改，这里保留它。
+     */
+    setCrop(region: CropRegion, css: CropCss | undefined): Promise<unknown> {
+        return this.#update((draft) => {
+            const crop: NonNullable<ThemeDeclaration["crop"]> = {...draft.declaration.crop};
+            if (css === undefined) {
+                delete crop[region];
+            } else if (region === "empty") {
+                crop.empty = {...crop.empty, ...(css.position === undefined ? {} : {position: css.position})};
+            } else if (css.size !== undefined && css.position !== undefined) {
+                crop[region] = {size: css.size, position: css.position};
+            }
+            if (Object.keys(crop).length === 0) delete draft.declaration.crop;
+            else draft.declaration.crop = crop;
+        });
+    }
+
+    /** 空状态里内容中心在内容区宽度的比例（0.25 到 0.5）；`undefined` 去掉。 */
+    setContentX(value: number | undefined): Promise<unknown> {
+        return this.#update((draft) => {
+            const crop: NonNullable<ThemeDeclaration["crop"]> = {...draft.declaration.crop};
+            const empty = {...crop.empty};
+            if (value === undefined) delete empty.contentX;
+            else empty.contentX = Math.min(0.5, Math.max(0.25, value));
+            if (Object.keys(empty).length === 0) delete crop.empty;
+            else crop.empty = empty;
+            if (Object.keys(crop).length === 0) delete draft.declaration.crop;
+            else draft.declaration.crop = crop;
         });
     }
 }

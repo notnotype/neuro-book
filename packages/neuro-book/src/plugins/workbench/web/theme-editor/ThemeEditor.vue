@@ -11,6 +11,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import {useWorkbenchText} from "../text";
 import type {ThemeEntry} from "../themes";
 import ThemeEditorChrome from "./ThemeEditorChrome.vue";
+import ThemeEditorScene from "./ThemeEditorScene.vue";
 import ThemeEditorColors from "./ThemeEditorColors.vue";
 import ThemeEditorTypography from "./ThemeEditorTypography.vue";
 import {ThemeEditorModel} from "./theme-editor-model";
@@ -161,9 +162,7 @@ const appearanceName = (appearance: "light" | "dark"): string => (appearance ===
                     <ThemeEditorColors v-else-if="model.section.value === 'colors'" :model="model" />
                     <ThemeEditorTypography v-else-if="model.section.value === 'fonts'" :model="model" />
                     <ThemeEditorChrome v-else-if="model.section.value === 'chrome'" :model="model" />
-                    <div v-else-if="model.section.value === 'scene'" data-section="scene">
-                        <p class="theme-editor__hint">{{ text("themeEditor.scene.pending") }}</p>
-                    </div>
+                    <ThemeEditorScene v-else-if="model.section.value === 'scene'" :model="model" />
                     <div v-else class="theme-editor__contrast" data-section="contrast">
                         <p class="theme-editor__hint">{{ text("themeEditor.contrast.legend") }}</p>
                         <h3 class="theme-editor__heading">{{ text("themeEditor.contrast.summary") }}</h3>

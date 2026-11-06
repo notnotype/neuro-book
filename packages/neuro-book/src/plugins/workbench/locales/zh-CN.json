@@ -411,7 +411,31 @@
             "frameHint": "菜单、对话框与设置窗口的描边里面再画一道细线。"
         },
         "scene": {
-            "pending": "场景图与取景在这个分区里编辑。"
+            "upload": "上传场景图",
+            "replace": "更换场景图",
+            "remove": "移除",
+            "none": "这一套明暗还没有场景图",
+            "uploading": "正在处理图片",
+            "failed": "上传失败：{{reason}}",
+            "large": "图片 {{kb}} KB，超过建议的 300 KB",
+            "stored": "{{kb}} KB",
+            "loadFailed": "图片加载失败",
+            "pending": "场景图与取景在这个分区里编辑。",
+            "region": {
+                "empty": "空状态",
+                "marginLeft": "正文左",
+                "marginRight": "正文右",
+                "sidebarCorner": "侧栏下角",
+                "auxiliaryCorner": "右栏下角"
+            },
+            "size": "大小",
+            "position": "位置",
+            "contentX": "内容中心",
+            "clear": "清除这个位置的取景",
+            "unparsable": "这个位置的写法编辑器读不懂：框不可拖，数值照常能改。",
+            "hint": "在图上拖框、拉右下角缩放；工作台里对应位置同时变化。框是示意，真实位置随窗口尺寸变。",
+            "frame": "{{region}}取景框",
+            "image": "场景图"
         }
     },
     "editorPages": {

@@ -412,7 +412,31 @@
             "frameHint": "Draws a thin line inside the outline of menus, dialogs and the settings window."
         },
         "scene": {
-            "pending": "Scene images and framing are edited in this section."
+            "upload": "Upload scene image",
+            "replace": "Replace scene image",
+            "remove": "Remove",
+            "none": "This appearance has no scene image yet",
+            "uploading": "Processing the image",
+            "failed": "Upload failed: {{reason}}",
+            "large": "The image is {{kb}} KB, over the suggested 300 KB",
+            "stored": "{{kb}} KB",
+            "loadFailed": "The image could not be loaded",
+            "pending": "Scene images and framing are edited in this section.",
+            "region": {
+                "empty": "Empty state",
+                "marginLeft": "Text left",
+                "marginRight": "Text right",
+                "sidebarCorner": "Sidebar corner",
+                "auxiliaryCorner": "Right bar corner"
+            },
+            "size": "Size",
+            "position": "Position",
+            "contentX": "Content center",
+            "clear": "Clear this position's framing",
+            "unparsable": "The editor cannot read this position's value: the frame is not draggable, the values still edit.",
+            "hint": "Drag a frame on the image and pull its lower-right corner to scale; the workbench changes at the same place. Frames are approximate; real positions follow the window size.",
+            "frame": "{{region}} frame",
+            "image": "Scene image"
         }
     },
     "editorPages": {
