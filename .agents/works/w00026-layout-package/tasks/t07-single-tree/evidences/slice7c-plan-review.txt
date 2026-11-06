@@ -1,0 +1,279 @@
+w00026 t07 片 7c 设计审查报告
+审查对象：plan.md “片 7c”、docs/specs/ui/workbench-layout.md（输出 1、20、22 到 31，验收 2、8、10、14、20，状态表）、workbench/editor.md 输出 55、ui/workbench-shell.md 输出 15、19 到 23、提案决策记录最后一条。
+代码基线：.worktree/w00026-t07-single-tree（片 7c 开工前）。
+实验脚本都在 /tmp/review-w00026-t07-7c/exp/（nbl/ 是 nb-layout/src 的副本，只在副本里按计划改了 moveTabToEdge；仓库没有改动）。
+只读审查，没有跑 e2e、没有起开发服务。
+下面按影响排序，每核实一条追加一条。
+
+================================================================
+[1] 重要 | 合同 / 不变量 | 骨架靠“调用方遵守”，库和 store 的出口没有闸门
+
+位置
+  packages/nb-layout/src/layout-doc.ts:482-489（edgeAnchorOf）、491-510（movePanelToEdge）、512-529（moveTabToEdge）、531-541（openPanelAtEdge）
+  packages/neuro-book/src/plugins/workbench/shared/editor-panels.ts:85-95（moveToEdge 接收原始 LayoutEdgeTarget）
+  packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:160-173（apply）
+  plan.md 片 7c “不变量”一段
+
+现象
+  计划说“任何操作之后树都合骨架”，靠 layoutEdgeTarget（落点只给合骨架的目标）和“具名面板不整块移动”两件事。但这两件事都发生在“生成目标”的一侧；所有写结构的入口在提交时
+  都不验目标本身：
+  - moveTabToEdge / movePanelToEdge 提交时只问 policy.accepts(tabs, anchor, "edge")，anchor 是 edgeAnchorOf 取的“目标 before 那块的第一片叶”。accepts 又被计划改成“只看角色相配”。
+    between 目标的 after 一侧、split 的边方向、between 的 branch 是否是“同一列/同一排”，都没人验。
+  - movePanelToEdge 没有任何具名面板的拦截（计划只是让 moveTabToEdge 不再调它）。
+  - EditorPanels.tabs.moveToEdge(tabId, target) 是公开服务方法，直接把调用方给的 target 交给 moveTabToEdge。
+  - 唯一的全局检查是计划里的“性质测试”：只枚举 enumerateDropCandidates 的候选，所以走不到命令入口（moveView、resetView、moveToEdge、openAtEdge）和伪造目标。
+
+如何核实
+  /tmp/review-w00026-t07-7c/exp/forged.ts（用按计划改好的 moveTabToEdge 副本 + 计划里的 accepts 角色规则，从默认树出发，bun forged.ts）：
+  a. 编辑器标签 + 伪造 between(center, auxiliarybar)：accepts 通过（anchor 是编辑组），结果 body 变成 H[活动栏, 侧栏, V[g0,面板], 新编辑组, 右栏]，编辑组夹在中间列和右栏之间，走出骨架。
+  b. 工具视图 + 伪造 between(sidebar, center) 或 split(sidebar, right)：anchor 是 sidebar，通过，新工具面板夹在侧栏和编辑区之间，走出骨架。
+  c. movePanelToEdge(sidebar → auxiliarybar 上缘 / panel 右缘)：成功，具名面板被整块移走（计划说“具名面板不会被移走”，库里没有这条约束）。
+  对照：同一个脚本里按计划的 layoutEdgeTarget 钩子生成目标的随机游走（exp/walk.ts，300 个种子、36000 步，含边缘拖放、标签条、隐藏/收起、moveView 新面板、插入视图）0 次走出骨架。
+  所以“生成侧”的设计是对的，缺的是“提交侧”。
+
+为什么是问题
+  - 骨架是整个 7c 的核心不变量，现在它的成立依赖每个调用方都经过钩子。t09（浮动窗停靠）计划里明说要用 movePanelToEdge/movePanelToStrip，到时具名面板和骨架没有任何东西挡着。
+  - 公开服务 moveToEdge 的 target 是原始数据，任何拿到 editorPanelsKey 的代码都能构造。
+  - Spec 输出 26 写“接受矩阵在提交时再验一次”，计划里“提交时再验”只剩 accepts 的第一片叶。
+
+建议
+  1. 在 layout-doc-store.ts 的 apply 出口加一道 fitsSkeleton(result.doc) 闸：不合骨架返回 {ok:false, code:"rejected"}，文档不变（O(节点数)，节点上限 256）。fitsSkeleton 本来就要写，复用它。nb-layout 不知道骨架，放在宿主即可。
+  2. nb-layout 侧补两处：edgeAnchorOf 对 between 要验 before 与 after 两侧子树的全部叶（accepts 逐叶）；movePanelToEdge 前加 policy 钩子（例如 policy.movable?(panel)）或直接拒绝具名面板。
+  3. 性质测试再加三类序列：命令入口（moveView 两种目标、resetView、openAtEdge、moveToEdge 伪造目标）、显隐/收起/stripDynamicTabs/carryDynamicTabs 穿插、从旧版本留下的文档开始。我的游走脚本可以直接改成测试。
+
+[2] 重要 | 合同 / 验收 | 活动栏换序、键盘“拿起直接 Enter”、预备区落在自己所在面板，都会改活动标签
+
+位置
+  packages/nb-layout/src/layout-doc.ts:364-383（moveTabToStrip 缺省 activate:true）
+  packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:190-213（dropAt 用 result.doc === doc 判原位）、327-333（start）
+  packages/nb-layout/src/layout-drop.ts:167-185（isInPlace 只比位置，不比活动标签）、layout-doc.ts:571-580（showPanelAndInsert 同面板时把标签挪到末尾）
+  plan.md “活动栏落点：目标……否则 strip”；spec 输出 22 “在这一列里换序不改显隐”，验收 9 “拿起后直接 Enter 不移动”，验收 14 “拖条目换序，Then 顺序变了，显隐不变”
+
+现象
+  活动栏条目对应的标签多数不是侧栏当前的活动标签（侧栏这一列只显示一个视图）。barDrop 给出的是 strip(panel, index)，提交走 moveTabToStrip，缺省会把被拖标签设为活动标签。
+  - 在同一面板里拖一个非活动条目换序（或原位放下），侧栏当前显示的视图换成它。这就是“显隐”的改变（侧栏的内容变了，条目按下态也变了），不是 spec 说的“显隐不变”。
+  - 键盘：拿起一个非活动条目后直接 Enter。dropAt 的原位判定是 result.doc === doc，而 moveTabToStrip 因为 active 变了返回新对象，所以不算原位，Enter 提交了一次“激活”，违反验收 9。
+  - 预备区/reveal：隐藏的侧栏里的条目拖到侧栏自己的预备区（或 barDrop 的 reveal 分支，“来源不在同一面板”才走，但预备区没有这个条件），showPanelAndInsert 先显示再 moveTabToStrip(index = 末尾)：把这个标签挪到末尾并激活。旧外壳输出 20 写的是“容器本来就在这个 Part（侧栏拖到零时活动栏里的条目）时只选中它”，没有重排。
+  标签条上的 isInPlace 候选列表也有同一个洞：isInPlace 认为 index 或 index+1 是原位，但 dropAt 实际按 doc 比，两者不一致。
+
+如何核实
+  /tmp/review-w00026-t07-7c/exp/activate.ts：侧栏 [a1, a2]，active=a1。moveTabToStrip(a2, sidebar, index 1 或 2)：返回新对象，active→a2；加 activate:false 才返回原对象。同面板换序默认也会把 a2 设为活动。
+
+为什么是问题
+  验收 9、14 的判据在计划的做法下做不到；用户最常见的操作是调活动栏条目顺序，结果是侧栏突然换了内容。VS Code 的活动栏换序不改选中。
+
+建议
+  1. barDrop 里来源与目标在同一面板时一律 activate:false（moveTabToStrip 已支持），跨面板才激活。
+  2. reveal 带来源已在目标面板时只显示（setPanelHidden false），不重排不激活；showPanelAndInsert 同面板分支单独处理。
+  3. 原位判定统一用“applyLayoutDrop 的结果 === 原 doc”，isInPlace 的便宜判定只作剪枝，且要和 activate 语义一致。
+  4. 验收 9、14 各补一条：非活动条目原位放下 / 键盘拿起直接 Enter，断言文档对象不变、没有写盘。
+
+[3] 重要 | 遗漏 / 设计未定 | 活动栏落点的位置映射、键盘区域与预览，计划只有一句话
+
+位置
+  plan.md “活动栏落点：barDrop(source, point) ……按条目中线算 (panel, index)”、“键盘：活动栏是第一个区域……位置是各条目之间”
+  layout-drag.ts:217-256（pointOfCandidate / stopsOf 按面板几何）、:190-213（dropAt）、:102-205（previews 缓存与 previewOf 按 action.kind 分支）、:327-333（start 以来源所在面板为起点）
+  WorkbenchToolStrip.vue:57-83（strip 计算：有效可见的总在外面，其余收进“更多”）
+
+现象与缺口
+  a. 平铺到面板的映射没有定义。条目是整列所有面板的标签按树序平铺（输出 22），面板之间没有可见分界。指针落在“上一块面板的最后一个条目”和“下一块面板的第一个条目”之间时，(panel, index) 是前者的末尾还是后者的开头？计划没有说。
+  b. “条目下面的空白等于最后一个条目之后”。最后一个条目可能属于无名面板（列 V[sidebar, X] 时就是 X 的最后一个视图），于是拖到活动栏空白处进了无名面板，而输出 22/决定表写的是“视图拖到活动栏等于放进侧栏”。这时侧栏如果隐藏着，也不会被显示（目标是 X，不是隐藏面板，走 strip 不走 reveal）。
+  c. “更多”折叠让 DOM 里的条目不是树序前缀（有效可见的条目因 priority 排在外面）。例如数据序 [A,B,C,D,E]，E 有效可见：DOM 是 A,B,E 加“更多”按钮。落在 B 与 E 之间是插到 B 后（索引 2）还是 E 前（索引 4）？折叠在“更多”里的条目既不能作为来源也不能作为插入位参照，被它们隔开的位置无法换序。
+  d. 键盘：enumerateDropCandidates 是库函数，不认识活动栏的间隙。pointOfCandidate 对 strip/reveal 候选按“该面板的几何”取点，对活动栏候选会取到侧栏头（titleOnly 时 strip 候选被换成 center、stripCount 是 0），或侧栏隐藏时取不到点被 regions 过滤掉。要让“键盘与指针同一套规则”，需要一个 barPositions(doc) -> 有序间隙列表 [(panel,index)]，指针、键盘、预览共用。
+  e. start 以来源所在面板为起点区域。从活动栏拿起条目时区域应是活动栏；而 own（条目对应的 data-panel-tab）在 titleOnly 面板里只有活动标签才有，非活动标签退到 origin（条目自己），再叠加问题 2 的 Enter 行为。
+  f. 预览：previewOf 按 action.kind 画面板矩形或标签条里的线，barDrop 要画活动栏里的横线，缓存键 JSON.stringify([source, action, extent]) 不带来源（活动栏/面板），同一个 action 从两处进来会拿到对方的预览。目前 titleOnly 把 strip 换成 center，碰巧不冲突，但这是靠换算维持的。
+  g. 最大化：revealZones 在 options.maximized() !== null 时返回空，barDrop 没有对应处理。最大化着别的面板时放到活动栏，视图进了被盖住的侧栏（reveal 写入显示了侧栏，但 apply 只在树形状变时退出最大化，这里形状不变），用户看到视图消失。
+
+如何核实
+  读代码得出（a、b、c、f、g）；d、e 对照 layout-drag.ts 的 regions/stops/start 实现；e 的 Enter 结果见问题 2 的实验。
+
+建议
+  1. plan 里补一节“活动栏位置模型”：barPositions(doc, shownEntryIds)，规定跨面板边界归哪边（建议：归前一块面板的末尾，但目标面板固定取“侧栏这一列里 sidebar，除非来源或落点明确在无名面板条目上”，或者干脆规定活动栏上的任何放下都落进 sidebar，无名面板的视图用标签条之外的办法排序）；列表空白处固定为 sidebar 末尾；折叠条目按数据序参与定位，间隙落在“更多”之前一律映射成数据序最后一个可见条目之后。
+  2. 键盘区域、指针命中、预览矩形都从这一个函数取，缓存键加上来源（bar / panel）。
+  3. 最大化时 barDrop 返回 null（和 revealZones 一致），或者 reveal 写入同时退出最大化。
+
+[4] 重要 | 兼容与迁移 | “不合骨架回落默认树”漏了新项目模板，且回落没有诊断
+
+位置
+  packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:73-85（readStored）、:123-142（save：每次都 template.commit）、:308-316（discard）
+  packages/neuro-book/src/plugins/workbench/web/state/records.ts（workbench.layout-template）
+  docs/specs/ui/workbench-layout.md 状态表“记录合法但不合骨架”一行；plan.md “readStored 过了校验还要合骨架，不合按没有记录处理”
+
+现象
+  a. readStored 有两个分支：record 为 ok 时读记录，为 missing 时读 template（新项目的初始布局）。计划只说“过了校验还要合骨架”，没说模板那条分支。模板由 save() 每次写入（stripDynamicTabs(current)），7b 时代的构建写下的模板就是不合骨架的（编辑器标签拆在工具面板旁边、具名面板被拖走）。7c 合入后，一个全新项目首次打开读到这份模板，直接成为 local.value，骨架被破坏，而且 layoutEdgeTarget 等所有后续判断都以“树已经合骨架”为前提。模板要等到某个 7c 窗口保存过一次才会被覆盖，新项目窗口先于它打开就中招。
+  b. 文字不一致：状态表写“按没有记录处理：默认树”，而“没有记录”一行写“有模板用模板，没有用默认树”。按字面“按没有记录处理”就应该先试模板；计划与 Spec 的意图（只用默认树）不同，实现者会选其一。
+  c. 回落时没有任何诊断。这和损坏记录（problems 里有 unread）不同：用户的布局被换成默认树，唯一信号是布局变了。更危险的是 fitsSkeleton 一旦有假阴性（把合法形状判成不合，见问题 6），所有用户的布局会在下一次保存时被静默覆盖，而且不是“原件保留”的 guarded 路径。
+  d. 以“形状”而不是版本号做迁移判据，意味着以后每一次扩展骨架（t09 浮动、t13 条移到四边）都要同步改 fitsSkeleton，否则会把新版本合法的文档静默丢掉。
+
+如何核实
+  读 layout-doc-store.ts:73-85：missing 分支 validateLayoutDoc(template.display.doc) 之后直接返回；计划没有改它。7b 时代模板的形状可以用 exp/walk.ts 的 naive 模式造出来（5 类走出骨架的树）。
+
+建议
+  1. 抽一个 usableDoc(value) = validate && fitsSkeleton，readStored 两个分支都用；template 读到不合时按“没有模板”处理。在 layout-doc-store.test.ts 加一例：记录 missing + 模板不合骨架 -> 默认树。
+  2. 回落时给一条诊断（不阻塞，不是 unread）：状态栏/外壳根的 data-layout-diagnostics 里写“布局记录不合骨架，已用默认布局”，e2e 验收 20 顺带断言它。
+  3. Spec 状态表和计划统一写成“用默认树，不读模板”或“同没有记录（含模板）”，二选一。
+  4. 给文档加一个骨架标记（例如 skeleton: 1，或把 LAYOUT_DOC_VERSION 升到 2 并在 validateLayoutDoc 里把 1 归为“可迁移但不合骨架”），让丢弃是显式的，而不是靠形状。
+
+[5] 重要 | 失败路径 | 收成标题行的面板被整块移到另一个方向后变成零宽，且回来的路不多
+
+位置
+  packages/nb-layout/src/layout-doc.ts:491-510（movePanelToEdge 不动 collapsed）、:512-529（moveTabToEdge 单标签无名面板走整块移动）
+  docs/specs/ui/workbench-layout.md 输出 11（拖到零 / 收成标题行由所在分支的方向决定）、输出 27
+
+现象
+  collapsed 是面板记录里的一个布尔，呈现时由父分支方向决定是“收成标题行”（纵向）还是“拖到零”（横向）。侧栏这一列的无名面板 X 收起后（框架按钮），把它的标题拖到 panel 的左缘（面板这一排，横向）：片 7c 允许（无名面板整块移动），X 保留 collapsed:true，进入横向分支后宽度为 0，内容停放，视图从活动栏里也没有（它不在侧栏这一列了）。反方向（零宽的行内面板拖不动，因为头也是零宽，但可以通过别的方式让它跨方向，如“移动到”新面板）同理。
+  输出 27 只写了“从别的面板放进收成标题行的面板时展开”，没有写来源收起的情况。
+  回来的路：行内无名面板没有名字，输出 11 的“显示”（命令 set-part-hidden）和活动栏都不适用；只剩拖那条保留的 1px 边界。用户看到的是“视图拖过去之后消失了”。
+
+如何核实
+  /tmp/review-w00026-t07-7c/exp/collapsed.ts：b2 拆成列里的 X，收起，再 moveTabToEdge 到 panel 左缘：结果 X.collapsed=true，父分支 horizontal，树 V[H[活动栏, 侧栏, V[g0, H[X, panel]], 右栏], 状态栏]。
+
+为什么是问题
+  片 7c 之后“列 <-> 排”的跨方向移动是主要的整块移动路径（以前侧栏、右栏、面板都能整块拖，方向由名字固定）。
+
+建议
+  整块移动（movePanelToEdge 路径）遇到方向变化时清掉 collapsed（和输出 27 对目标的处理对称），并在输出 27 写一句；或者在 layoutEdgeTarget 之外加一个 policy 钩子 onMoved，宿主决定。同时给行内无名面板留一个回来的入口：例如“移动到”菜单对零宽面板仍可用，或不允许无名面板拖到零（只收成标题行 / 最小宽度）。
+
+[6] 建议 | 设计缺口 | fitsSkeleton 的形状计划里没有写出来；validateLayoutDoc 不要求三个具名面板齐全
+
+位置
+  plan.md “default-tree.ts: fitsSkeleton(doc)”（只有一个函数名）；docs/specs/ui/workbench-layout.md 输出 1 的一句话
+  packages/nb-layout/src/layout-doc.ts:661-720（validateLayoutDoc 只查具名面板“不重复”，不查“齐全”）
+
+内容
+  规范形（normalizeTree 同轴展平）之后，合法树的形状是：
+    root = V[body, 状态栏]
+    body = H[活动栏, S, M, A]，S/A = 单个叶，或 V[叶…]（叶全是工具面板，列里恰好一个 sidebar / auxiliarybar，列内不能再嵌 H）
+    M = V[编辑区项…, 行]，至少两个子节点；行 = 单个叶 panel，或 H[叶…]（全是工具面板，恰好一个 panel，行内不能再嵌 V）；
+        编辑区项是单个编辑组，或只含编辑组的 H/V 分支。中间列的编辑区可能是 H[…]，也可能是 V 展平后和行同在一个 V 里：V[E, E, 行]。
+  我按这个写了一个 fitsSkeleton（exp/lib.ts），用 36000 步随机游走里出现的 700 多种中间列形状验证过，都判为合法；naive 模式（没有钩子）产生的五类越界树都判为不合法。形状规则本身是对的，只是计划没有把它写出来，实现者容易漏：
+  - 把 M 当成固定的 V[编辑区, 面板]（漏掉 V[E,E,行] 的展平形和行是 H 的情况），会把合法布局回落成默认树（问题 4 的静默覆盖）；
+  - 把 S 当成“工具面板”但不要求恰好一个 sidebar，会放过缺失具名面板的文档。validateLayoutDoc 只验名字不重复，不验三个都在。缺 sidebar 时 reconcileViews 里 find 失败直接 continue，视图悄悄不放置；
+  - 条的位置（activitybar 是 body 首项，statusbar 是 root 末项）和角色（行/列里只有 tool，编辑区里只有 editor）也要查。
+
+建议
+  把上面的形状写进 plan 的片 7c 一节和 Spec 输出 1，测试用表驱动覆盖：默认树、V[E,E,行]、H 编辑区里嵌 V、行 H[panel,X]、列 V[X,sidebar]、隐藏项在首/中/尾，以及每一种越界（缺具名、多一个具名、列里嵌 H、行里嵌 V、编辑区里有工具面板、行在编辑区上面）。
+
+[7] 建议 | 遗漏 | previewRevealRects “全部显示后再算”没说放不下怎么办
+
+位置
+  packages/nb-layout/src/layout-drop.ts:149-160（现 previewRevealRect 用的是当前文档算出的 removed）
+  packages/nb-layout/src/layout-project.ts:151-195（presentationCollapse）
+  layout-drag.ts:137-152（revealZones）；plan.md “previewRevealRects(doc, panels, projection, extent, dpr)”
+
+现象
+  projection 参数里的 removed 是“当前文档”的 presentationCollapse 结果。把三块都显示之后再投影，最小宽度之和变了（活动栏 48 + 侧栏 160 + 编辑组 220 + 右栏 160 + 缝，约 588 以上），窄于这个数的窗口里求解器过约束，三块预备区各自拿到被压缩的矩形，或者其中一块根本放不下。Spec 验收 8 要求“彼此不重叠”，这在过约束时只是碰巧成立。
+  还有这些没写：
+  - 全部显示后需要收走的（presentationCollapse 对“全显示”的文档再算一次）是否还给预备区；
+  - 最大化时（revealZones 直接返回空）barDrop 与预备区是否一致（问题 3 g）；
+  - 拖到零的面板的预备区：setPanelHidden(false) 同时清掉 collapsed，矩形是意图尺寸，这条是对的；但“放不下被收走”的面板（文档里没隐藏、呈现里被收走）也属于“此刻没显示”，要不要有预备区，计划没写（现在的代码是 rect 为 null 所以不浮出）。
+
+建议
+  previewRevealRects 先对“全部显示”的文档跑 presentationCollapse，把被收走的面板从预备区列表里去掉（它们放进去也看不见），再用新的 removed 投影；在 600、800、1000、1440 宽度各写一个表驱动用例，断言矩形互不重叠、都在容器内。
+
+[8] 建议 | 合同不一致 | 输出 26 的“缝上归谁”与输出 25 规则 3、命中实现不同
+
+位置
+  packages/nb-layout/src/layout-drop.ts:84-95（缝：取距离 <= 4px 里最近的一块，不看接受矩阵）
+  docs/specs/ui/workbench-layout.md 输出 25 规则 3（“缝归最近的那块”）与输出 26 末尾（“放到侧栏与编辑组之间的缝上，视图归侧栏，编辑器标签归编辑组”）
+
+现象
+  输出 26 的那句要求按接受矩阵归属；规则 3 与实现按距离归属。计划的 resolveLayoutDrop 改动只有“去掉 role 判断”，没有动命中逻辑。
+  实验（exp/seam.ts，侧栏 [0,100)，编辑组 [104,…)，缝 4px）：工具视图在缝上 x=100.5/101.5 得到侧栏的 between 目标，x=102.5 起返回 null；编辑器标签 x=100.5/101.5 返回 null，x=102.5 起得到编辑组的 split。也就是缝的一半对每种来源都是死区，和输出 26 写的“视图归侧栏”不符。主题缝宽更大时（--shell-gap > 8）死区更宽，因为 SEAM_PX=4 只覆盖每块卡片外 4px。
+
+建议
+  命中候选里先过滤掉接受矩阵拒绝的块再取最近（对所有来源都成立），然后把输出 25 规则 3 的措辞改成“归最近的能接受的那块”，验收 10 加一例（缝上放视图/放编辑器标签）。
+
+[9] 建议 | 接口 / 无障碍 | “只有标题的头”（titleOnly）的几个缺口
+
+位置
+  packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue:81-100（现 tabindex=0、role=group、Tabs）
+  WorkbenchSurface.vue:230-236（tabpanel + aria-labelledby 指向标签 id）
+  WorkbenchShell.vue:131-137（headReserved）、:474（@activate）
+  plan.md “WorkbenchPanelHead：加 titleOnly，只写活动标签的标题，……aria-label “拖动 X”，……内容的 aria-labelledby 仍指向它，点它发 activate（收成标题行时展开）”
+
+问题
+  a. aria-labelledby 指向的元素 aria-label 是“拖动 X”。aria-labelledby 取的是被引用元素的可访问名称，aria-label 优先于文本内容，所以内容区的名称变成“拖动 资源管理器”。读屏用户听到的是操作而不是内容名。Spec 输出 20 把“可访问名称写明拖动 X”作为要求，两者冲突。做法：labelledby 指向标题里的可见文字 span（带自己的 id），按钮的 aria-label 才写“拖动 X”。
+  b. 侧栏这一列没有 tablist 了，内容仍然是 role="tabpanel"（WorkbenchSurface.vue:231）。tabpanel 没有对应的 tab 属于 ARIA 误用；titleOnly 时应该是 region / group。非活动标签的内容节点（停放，inert）的 aria-labelledby 指向不存在的 id（标题只渲染活动标签）。
+  c. “点它发 activate（收成标题行时展开）”：host 现在的 @activate 是 layout.actions.activate，只调 activateTab，不碰 collapsed（连现在的标签带点击也不展开，尽管输出 11 写“点标签”）。计划把“展开”写在头组件的描述里，没有写在宿主哪里实现。titleOnly 之后，收成标题行的侧栏列面板能展开的路只剩框架按钮和活动栏。需要在宿主的 activate 里：面板收起则先 setPanelCollapsed false，且点已经是活动标签的标题也要处理（nb-ui 的 Tabs.select 对同值也会 emit，所以事件能到宿主，但 activateTab 对同一个 key 返回原对象，什么都没发生）。
+  d. headReserved 按 panel.tabs.length 给图标留宽（TAB_ICON_PX * (n-1)），titleOnly 没有标签带，会少放视图动作按钮。titleOnly 需要走另一个预算。
+  e. 去掉头的 touch-action:none 之外还要核对：.workbench-panel-head 的 touch-action/user-select 是为整块拖动写的（注释“面板头的空白处是整块面板的拖动源”），片 7c 不拖了，应该只留给标题 / 标签。
+
+建议
+  这几条都小，写进 WorkbenchPanelHead.md 和 WorkbenchShell.md 的改动清单，并在 workbench-shell / workbench-views 各补一个断言（收成标题行点标题展开；侧栏内容区的 accessible name 不含“拖动”）。
+
+[10] 建议 | 遗漏 | 焦点交接与菜单回落：选择器改了，回落链还有三处对不上
+
+位置
+  WorkbenchShell.vue:296-310（onContentParked）、:210-216（closeMoveMenu）、:250-272（selectEntry）；WorkbenchToolStrip.vue（无 context-menu 处理）；WorkbenchPanelHead.vue:62-76（onContextMenu 对菜单键坐标 0,0 的特判）
+  docs/specs/ui/workbench-layout.md 输出 16
+
+a. 输出 16 写“面板不可见时移到活动栏里这个视图的条目”。片 7c 之后活动栏只列侧栏这一列，右栏/面板里的视图没有条目；onContentParked 的回落链是 标签 -> 条目 -> 外壳根，这些视图（右栏被隐藏、被挤走时）会落到外壳根，键盘用户丢失位置。输出 16 没有随 7c 更新。建议落到标题栏对应的布局开关按钮，或最近仍可见的面板头，并改 Spec 措辞。
+b. closeMoveMenu 把焦点还给 [data-panel-tab=该视图]。titleOnly 的面板只有活动标签有这个元素；从活动栏条目打开的菜单，视图常常不是活动标签，也可能面板隐藏，选择器取不到，焦点掉到 body。要回落到 [data-tool-entry]。计划只改了 onContentParked 的选择器。
+c. 计划写“条目右键发 context-menu”。键盘的菜单键触发的 contextmenu 没有可靠坐标，WorkbenchPanelHead 为此有一段特判（clientX/Y 为 0 时开在标签下面），ToolStrip 要抄这段，否则菜单键在活动栏上开出来的菜单在左上角（0,0）。
+d. layout-drag.ts 的 refocus：来源条目因为折进“更多”而不在 DOM 里，两个选择器都取不到，焦点丢失（问题 3 c）。
+
+[11] 建议 | 失败路径 | 声明消失的视图（占位）在侧栏这一列可能既看不到也关不掉
+
+位置
+  WorkbenchShell.vue:230-232（toolEntries 现在从 catalog 生成）；plan.md “toolEntries 取 sidebarColumnViews”
+  docs/specs/ui/workbench-layout.md 输出 4（声明消失的视图留在树上显示占位，可以关闭）、输出 20（侧栏这一列只写标题，切视图靠活动栏）
+
+现象
+  sidebarColumnViews(doc) 来自文档的标签，包含目录里已经没有声明的视图 id（占位）。现在的 toolEntries 用 catalog.entries() 生成，条目需要 declaration.title/icon；改成按文档标签生成时，没有声明的视图要么被跳过，要么 declaration 为 undefined 抛错。跳过的话，侧栏这一列里排在非活动位置的占位，在 titleOnly 下没有标签带、活动栏也没有条目，用户看不到也关不掉（占位里的“关闭”按钮在内容里，要它被激活才看得见）。headTabs 对这种情况有退路（标签写 id，图标 circle-help），条目没有。
+建议
+  条目生成与 headTabs 用同一个退路，并在 workbench-views 加一例：侧栏这一列里放一个声明消失的视图（非活动），活动栏有条目、点击后能看到占位并关闭。
+
+[12] 建议 | 合同 / 验收映射 | 命令入口的错误码，以及验收映射里没有测试对应的判据
+
+位置
+  layout-doc-store.ts:257-271（moveView）；plan.md “验证”“验收映射”；docs/specs/ui/workbench-layout.md 输出 35（“给编辑组时被接受矩阵拒绝”）
+
+a. moveView 的 newPanelNextTo 给编辑组时，layoutEdgeTarget 对视图在编辑组上返回 null，代码是 edge === null ? notFound(beside)，结果码 not-found（命令层映射成 unavailable / stale-target），而 Spec 写的是接受矩阵拒绝（rejected）。分开：目标面板不存在 -> not-found；存在但接受矩阵或方向不允许 -> rejected。
+b. 方向选择：计划写“方向按所在这一列或这一排”，但钩子是按边问的（edgeTarget(…, edge)）。moveView 需要一个明确的选择规则（先问 bottom，不允许再问 right；或钩子再提供“默认拆分边”）。否则实现时容易再按名字写死，等于回到旧写法。
+c. 验收映射缺口（没有对应用例或用例不能证明判据）：
+   - 输出 22 “活动栏隐藏时侧栏头有标签带”（验收 14 最后一句）：映射里只有 workbench-views / workbench-dnd，没有 workbench-shell 的对应项；
+   - 输出 22 的 “更多”折叠下的拖放（问题 3 c），movable:false 的条目换序；
+   - 输出 26 缝上归属（问题 8）、输出 31 键盘经过活动栏区域、活动栏条目的键盘拿起；
+   - 状态表“不合骨架” -> 只映射到 store 单元测试，模板分支（问题 4）和“没有诊断”没有；
+   - 验收 8 “三块都隐藏不重叠”只在一个宽度上测，窄窗口没有（问题 7）；
+   - 问题 1 的出口闸、问题 2 的“原位放下对象不变”、问题 5 的跨方向收起。
+d. 性质测试的前提：枚举候选只覆盖钩子认为合法的目标。它能证明“钩子自洽”，证明不了“所有入口都过钩子”。见问题 1 建议 3。
+
+[13] 建议 | 兼容与迁移 | editor.tabs 记录会被当作无主删掉：可以接受，但抢救只要一次调用
+
+位置
+  packages/neuro-book/src/plugins/editor/web/tabs-record.ts:47-54（known = 打开时读到的全部键）、:62-71（write(…, removals=true) 把 known 里不在快照中的键删掉）
+  layout-doc-store.ts:308-316（discard）、:123-142（save 的关卡）
+
+核实
+  - 回落默认树时编辑器恢复出的标签是空的，known 里却是记录里所有键，所以第一次通过关卡的布局保存（哪怕只是打开一个文件）就把旧的 editor.tabs 全部删掉：地址、光标、固定、语言都没了。计划“不抢救编辑器标签”的后果就是这个，范围比“标签位置丢失”大。
+  - 可以接受的理由我核实了一部分：editor/web/documents/store.ts 里没有 tabId（grep 无命中），文档按地址存，所以不会留下指向已删标签的草稿；关卡先于 field.commit：若 editor.tabs 删除成功而布局提交失败，磁盘上的旧布局记录仍不合骨架，下次打开仍回落，不会出现指向已删标签的占位。guarded（损坏/不支持版本）路径 save() 直接返回、关卡不走，旧标签保留，这条仍然成立。
+  - 未核实：未保存的脏正文在刷新后是否本来就丢（我没有读 documents/store.ts 的草稿持久化），如果有草稿恢复，要确认它不依赖 editor.tabs。
+  抢救的代价：carryDynamicTabs(defaultLayoutDoc(catalog), stale) 本来就是 discard 里用的函数，会把旧文档里的所有编辑器标签放进活动编辑组，记录键都在，随后恢复正常。回落默认树只丢布局，不丢打开的文件。
+
+建议
+  如果开发者仍然决定不抢救，把“首次保存会清空 editor.tabs”写进 Spec 状态表这一行（现在只写“编辑器标签不恢复”），避免被当成 bug。
+
+================================================================
+未发现问题的方面（仔细检查后）
+
+- 无名面板“看父分支方向”的判断（审查重点 2）：在骨架成立的前提下是对的。我对默认树做了 300 个种子、36000 步的随机游走（exp/walk.ts：边缘拖放按计划的钩子生成目标、标签条、隐藏、收起、moveView 新面板按“先 bottom 后 right”、插入视图，编辑器标签 3 个、拆编辑组），具名面板隐藏、兄弟被移除、单子分支塌陷都在序列里，0 次走出骨架，中间列出现 700 多种形状。具名单标签不整块移动 + 邻接 no-op 的写法也按计划改在副本里跑过。没发现这个判断自己出错；它的风险只是依赖不变量成立，所以要问题 1 的出口闸来兜底。
+- “编辑组的 between 对面不全是编辑组时改成 split”：副本验证后结果 V[E, 新组, 面板行]，骨架合，新组只拆 E，面板高度不变，符合验收 10。
+- 去掉 resolveLayoutDrop 里 panel?.role === "tool"：只有 layout-drag.ts 使用它。工具视图在编辑组上没有真实落点（接受矩阵拒绝），预备区仍可达；编辑器标签的预备区被 accepts(center) 挡住，推论成立。layout-drop.test.ts:103-126 现有用例会有变化，计划已列。
+- 隐藏的兄弟被跳过（edgeTargetOf 的 isNodeShown 判断）与钩子配合：游走里 hidden 与 collapsed 切换穿插，没有产生越界。
+- 提交的活动栏 reveal 动作用 showPanelAndInsert 一次写入显示+接收：库函数本身是对的，问题只在同面板分支（问题 2）。
+- 数据标记：data-panel-head、data-tool-entry、data-panel-tab 在计划里都保留（头去掉 tabindex/role=group，不是去掉标记）；旧外壳输出 15 的“点击当前项收起”由 toolEntryIntent 去掉聚焦一步后恢复，与旧外壳一致。
+- 旧外壳输出 19 到 23 里计划没有而该有的项：除问题 2（预备区同面板只选中）外没有新增缺口；“容器从 Panel 移到侧栏横转纵”对应的是 7c 之后的列/排方向规则，由钩子和整块移动处理（问题 5 的 collapsed 是唯一遗漏）。
+
+================================================================
+数量
+  阻断 0
+  重要 5（1、2、3、4、5）
+  建议 8（6 到 13）
+  共 13 条
+
+与 VS Code 的差异（取舍还是可优化）
+  - VS Code 的活动栏换序不改选中；这里默认激活（问题 2），应对齐。
+  - VS Code 的辅助侧栏和面板可以整块移动，这里按开发者决定不可以，属于取舍，不是问题。
+  - 活动栏上拖放跨面板（列里有多块面板）在 VS Code 里没有对应物（它的侧栏一次只有一个容器）。这个计划把“一列多块面板”和“活动栏平铺所有视图”叠在一起，是问题 3 的根源；如果开发者愿意，把“侧栏这一列允许多块面板”收窄为“只有 sidebar 一块 + 上下拆出的面板不进活动栏”会让活动栏模型简单很多，代价是上下拆的无名面板的视图要靠自己的头切换（又回到问题 9 的 tab 带），请在拍板时一并考虑。
