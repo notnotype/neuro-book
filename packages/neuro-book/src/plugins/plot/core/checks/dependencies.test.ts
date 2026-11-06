@@ -463,6 +463,83 @@ describe("跨条目的间接影响、身份与讲述", () => {
         mustChange(w, () => w.publish([{ref: {kind: "entry", id: teller}, after: {...stored, init: {...stored.init, name: "周掌柜"}}}]));
     });
 
+    test("改传话人的出场：题面里“告诉他的人”的名字读不到了", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const guard = w.person("卫兵");
+        const teller = w.person("老周");
+        const k = w.point("勇者的秘密", hero, {保密: "secret"});
+        w.change(chapter("ch2"), {patches: [addRow(guard, k, {程度: "misbelieves", 他以为的: "疤在右手", 怎么知道: "told", 谁告诉的: {ref: teller}})]});
+        addText(w, "ch8", "勇者走进客栈，卫兵盘问");
+        w.change(chapter("ch8"), {cast: [present(guard)]});
+        const stored = w.world.data.entries.get(teller)!;
+        mustChange(w, () => w.publish([{ref: {kind: "entry", id: teller}, after: {...stored, appears: chapter("ch15")}}]));
+    });
+
+    test("目标改父条目：它原来不在本章读的条目里，改到本章涉及的人名下，隐秘的知识点进本章", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [hero, zhou, guard] = [w.person("勇者"), w.person("老周"), w.person("卫兵")];
+        const k = w.point("暗藏的事", null, {保密: "secret"});
+        const goal = w.goal("藏起来", zhou, {状态: "active", 隐秘: {ref: k}});
+        addText(w, "ch8", "这里没有写到人名");
+        w.change(chapter("ch8"), {cast: [present(hero), present(guard)]});
+        const stored = w.world.data.entries.get(goal)!;
+        mustChange(w, () => w.publish([{ref: {kind: "entry", id: goal}, after: {...stored, parent: hero}}]));
+    });
+
+    test("只有 `label` 的在场的人：变更不提到任何条目，候选多了一个", () => {
+        const {w, k} = book();
+        expect(k).toBeDefined();
+        mustChange(w, () => w.change(chapter("ch8", 1), {cast: [{label: "路过的货郎", role: "present"}]}));
+    });
+
+    test("改 `揭穿` 的补丁：知识点不在本章，马甲的名字在正文里，它进本章", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const mask = w.person("黑衣人");
+        const watcher = w.person("卫兵");
+        const k = w.point("黑衣人是谁", null, {保密: "secret"});
+        addText(w, "ch8", "黑衣人走过");
+        w.change(chapter("ch8"), {cast: [present(watcher)]});
+        mustChange(w, () => w.change(chapter("ch3"), {patches: [{op: "set", at: {entry: k, path: "point.揭穿"}, value: {ref: mask}}]}));
+    });
+
+    test("改试读材料用到的那一段的别的字：引文还找得到、段落号没变，题面变了", () => {
+        const {w} = book();
+        mustChange(w, () => w.texts.set("ch3", "旅人总戴着左手的手套，谁也没见他摘下来。\n"));
+    });
+
+    test("链接很长、写入的先后反着：整组跟最早的一条（拆分的 `by` 也跟）", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const k = w.point("勇者的秘密", hero, {保密: "secret"});
+        addText(w, "ch8", "勇者走进客栈");
+        const planAt = (at: string) => w.change(chapter(at), {kind: "plan", patches: [{op: "set", at: {entry: k, path: "point.保密"}, value: "secret"}]});
+        const fulfill = (plan: string, at: string) => w.change(chapter(at, 1), {links: [{kind: "fulfills", plan}], told: [inText(w, at, `第 ${at} 章兑现`)]});
+        // 后面的计划先建：全部变更按写入的先后排，第 20 章的那条排在最前，传得过去要跑不止两遍。
+        const [p4, p3, p2, p1] = [planAt("ch20"), planAt("ch16"), planAt("ch12"), planAt("ch5")];
+        const [c3, c2, c1] = [fulfill(p3, "ch18"), fulfill(p2, "ch14"), fulfill(p1, "ch10")];
+        const split = (plan: string, from: string, by: string) => w.publish([{ref: {kind: "change", id: plan}, after: {...w.world.data.changes.get(plan)!, links: [{kind: "splitFrom", plan: from, by}]}}]);
+        split(p4, p3, c3);
+        split(p3, p2, c2);
+        split(p2, p1, c1);
+        const stored = planOf(w, "ch8");
+        const before = deps(w, "ch8", {}, stored);
+        const last = w.world.data.changes.get(p4)!;
+        w.publish([{ref: {kind: "change", id: p4}, after: {...last, text: "改过"}}]);
+        expect(deps(w, "ch8", {}, stored)).not.toBe(before);
+    });
+
+    test("把 `揭穿` 改指向另一个马甲：两个马甲都已在身份那一项里，只有这条补丁变了", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [first, second] = [w.person("黑衣人"), w.person("灰袍客")];
+        const watcher = w.person("卫兵");
+        const k = w.point("这个人是谁", null, {保密: "secret", 揭穿: {ref: first}});
+        w.point("那个人是谁", null, {保密: "common", 揭穿: {ref: second}});
+        addText(w, "ch8", "灰袍客走过");
+        w.change(chapter("ch8"), {cast: [present(watcher)]});
+        mustChange(w, () => w.change(chapter("ch3"), {patches: [{op: "set", at: {entry: k, path: "point.揭穿"}, value: {ref: second}}]}));
+    });
+
     test("核对点挂在早先的变更上：放在第 10 章，比较时点在第 3 章，第 3 章涉及的条目多了一个", () => {
         const w = new PlotWorld(CHAPTERS);
         const ledger = w.thing("账房");

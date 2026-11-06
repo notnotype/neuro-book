@@ -8,7 +8,7 @@
  * |---|---|---|
  * | 章序、分段、线能不能建 | `framesOf`、`segmentsOf`、`positionKey` | `order` |
  * | 本章与上一章正文 | `segmentsOf`、`pointsAfterWriting`、`buildTrial` | `own` |
- * | 本章的变更、计划、核对点，套没套上，发生点，涉及的条目 | `writtenIn`、`plansOf`、`chapterEntries` | `own` |
+ * | 本章的变更、计划、核对点，发生点，涉及的条目 | `writtenIn`、`plansOf`、`chapterEntries` | `own`（发生点由正文与引文决定；涉及的条目由这些对象决定，核对点比较时点的翻转看挂靠的变更套没套上，在它提到的条目的历史里） |
  * | 变更里在场的人、马甲（讲述在本章的也算） | `presentPeople` | 本章的对象提到的条目进 `R` |
  * | 全部知识点的父条目、是否删除、出场、名字、`揭穿`，被引条目的名字 | `pointsAfterWriting`、`pointsBeforeWriting` | `identity` |
  * | 条目在位置上的值（含按计划模式） | `readAppeared`、`secrecyOf` | `entries` |
@@ -167,20 +167,25 @@ function bucketsOfChanges(view: CanonReadView, changes: readonly StoryChange[]):
         buckets.set(change.id, bucket);
     }
     const linked = changes.filter((change) => change.links.length > 0);
-    // 链接要跑两遍才传得过一跳以上（计划被替代、替代它的又被兑现）。
-    for (let pass = 0; pass < 2; pass += 1) {
+    const lower = (id: string, bucket: number) => {
+        const known = buckets.get(id);
+        if (known === undefined || known <= bucket) return false;
+        buckets.set(id, bucket);
+        return true;
+    };
+    // 跑到不动点：链接是一张图，写入的先后不保证拓扑顺序，也没有长度上限。桶只降不升，所以一定收敛。
+    for (let moved = true; moved; ) {
+        moved = false;
         for (const change of linked) {
             for (const link of change.links) {
-                if (!buckets.has(link.plan)) continue;
-                const [own, other] = [buckets.get(change.id)!, buckets.get(link.plan)!];
-                if (link.kind === "fulfills") buckets.set(link.plan, Math.min(other, own));
-                else {
-                    const early = Math.min(other, own);
-                    buckets.set(link.plan, early);
-                    buckets.set(change.id, early);
-                    // 拆出的计划计入与否看 `by` 那条兑现变更的状态（canon.model 输出 13），与位置无关：`by` 要跟着计划。
-                    if (link.kind === "splitFrom" && buckets.has(link.by)) buckets.set(link.by, Math.min(buckets.get(link.by)!, early));
-                }
+                const [own, other] = [buckets.get(change.id)!, buckets.get(link.plan)];
+                if (other === undefined) continue;
+                if (lower(link.plan, own)) moved = true;
+                if (link.kind === "fulfills") continue;
+                const early = Math.min(other, own);
+                if (lower(change.id, early)) moved = true;
+                // 拆出的计划计入与否看 `by` 那条兑现变更的状态（canon.model 输出 13），与位置无关：`by` 要跟着计划。
+                if (link.kind === "splitFrom" && lower(link.by, early)) moved = true;
             }
         }
     }
@@ -310,8 +315,8 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
         }));
         for (const check of view.allChecks()) {
             const anchorAt = check.anchor === undefined ? undefined : (view.object({kind: "change", id: check.anchor.change}) as StoryChange | undefined)?.at;
-            // 讲述算读者读过；比较时点决定本章涉及的条目（canon.model 输出 20），挂靠了变更时在那条变更上。几处取最早的。
-            const known = [toldIndex(check.told), placementIndex(view, check.place), placementIndex(view, anchorAt)].filter((index) => index !== -1);
+            // 讲述算读者读过，所以讲述与安放取早的。比较时点决定那一章涉及的条目（canon.model 输出 20），挂靠了变更时在那条变更上：那一章算本章的对象（`placedIn`），不影响别的章。
+            const known = [toldIndex(check.told), placementIndex(view, check.place)].filter((index) => index !== -1);
             things.push({value: check, tellings: [check.told], placedIn: [check.place, anchorAt].flatMap((at) => (at?.kind === "chapter" ? [at.chapter] : [])), bucket: known.length === 0 ? -1 : Math.min(...known), mentions: factsOf(check as Check, digest, caches).mentions});
         }
         const entryBuckets = new Map<string, number>();
@@ -403,10 +408,6 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             const segments = chapterSegments.get(found.chapter) ?? [];
             return `${found.chapter}:${String(segments.length <= 1 ? 0 : Math.max(segments.findLastIndex((segment) => segment.from <= found.paragraph), 0))}`;
         }).join(",");
-        const exact = (thing: Thing) => thing.tellings.map((telling) => {
-            const found = telling.id === undefined ? undefined : located.get(telling.id);
-            return found === undefined ? "-" : `${found.chapter}:${String(found.paragraph)}`;
-        }).join(",");
 
         const histories = new Map<string, Prefix>();
         const historyOf = (id: string) => {
@@ -464,13 +465,12 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
                 const exactValue = valueOf(caches.exact, thing.value, `${objectDigest}|${where}`, digest);
                 for (const point of answers) materialOf(point).add(thing.bucket, exactValue);
             }
-            // 本章的对象：精确定位，提到的条目进 `R`。讲述在本章也算。
+            // 本章的对象：只放对象本身，提到的条目进 `R`。发生点由本章正文与引文决定（都在摘要里）；套没套上、联动戳在提到的条目的历史里。
             const chapters = new Set([...thing.placedIn, ...thing.tellings.flatMap((telling) => (telling.chapter === undefined ? [] : [telling.chapter]))]);
             if (chapters.size > 0) {
-                const line = `${objectDigest}|${applied}|${exact(thing)}|${stamp}`;
                 for (const chapter of chapters) {
                     const fold = ownOf(chapter);
-                    fold.digests.push(line);
+                    fold.digests.push(objectDigest);
                     for (const id of thing.mentions) fold.mentions.add(id);
                 }
             }
@@ -567,7 +567,6 @@ export function dependenciesOf(input: DependencyInput): string | null {
     if (here === -1) return null;
     const fold = worldFold(view, digest);
     const caches = cachesOf(digest);
-    const segments = view.chapterLines(chapter);
     const bound = boundOf(input, fold);
     const own = fold.own.get(chapter);
     const read = entriesRead(input);
@@ -580,11 +579,6 @@ export function dependenciesOf(input: DependencyInput): string | null {
         return [id, stored === undefined ? null : entryDigest(stored, digest, caches), fold.histories.get(id)?.at(bound) ?? "0"];
     });
     const previous = view.chapters[here - 1];
-    const lines = [...new Set(segments.map((segment) => segment.line))];
-    const planned = lines.map((line) => {
-        const on = line === view.line ? view : view.onLine(line, "planned");
-        return "code" in on ? null : [on.chapterEntries(chapter, "actual"), on.chapterEntries(chapter, "planned")];
-    });
     return digest(canonicalJson({
         algorithm: ALGORITHM,
         plugin: input.pluginVersion,
@@ -597,7 +591,6 @@ export function dependenciesOf(input: DependencyInput): string | null {
         foreshadow: fold.foreshadow.at(bound),
         text: [view.chapterTextDigest(chapter) ?? null, previous === undefined ? null : (view.chapterTextDigest(previous) ?? null)],
         own: [...(own?.digests ?? [])].sort(),
-        planned,
         entries,
         material: points.map((point) => [point, fold.material.get(point)?.at(bound) ?? "0"]),
         decisions: [...decisions].sort(),

@@ -77,7 +77,7 @@ export interface CheckPlan {
     readonly noReaderQuestion: readonly string[];
     /** 本章涉及的知识点（各段的并集）：依赖摘要按它们取历史、试读的材料与后面的明说揭示。 */
     readonly points: readonly string[];
-    /** 本章涉及的条目（各段两种模式的 `chapterEntries`、知识点、告诉他的人、物件）：依赖摘要按它们取条目的历史与挂着的决策。 */
+    /** 本章涉及的条目（各段的 `chapterEntries`、知识点、告诉他的人、物件）：依赖摘要按它们取条目的历史与挂着的决策。 */
     readonly concerns: readonly string[];
 }
 
@@ -218,7 +218,7 @@ export function planCheck(input: PlanInput): CheckPlan | {readonly code: "chapte
     const points = [...new Set([...pointsBySegment.values()].flat())].sort();
     // 计划读到、又不在本章的对象里的：告诉他的人（题面写他的名字）、物件（查它出现过没有，超预算没问的也读了）。
     const readAlong = candidates.flatMap((candidate) => (candidate.layer === "object" ? [candidate.object] : (candidate.layer === "presence" || candidate.layer === "narration") && typeof candidate.row?.谁告诉的 === "string" ? [candidate.row.谁告诉的] : []));
-    const concerns = [...new Set([...points, ...readAlong, ...segments.flatMap((segment) => [...segment.view.chapterEntries(chapter, "actual"), ...segment.view.chapterEntries(chapter, "planned")])])].sort();
+    const concerns = [...new Set([...points, ...readAlong, ...segments.flatMap((segment) => segment.view.chapterEntries(chapter, "actual"))])].sort();
     return {
         chapter,
         segments: segments.map(({id, line, from, to, paragraphs}) => ({id, line, from, to, paragraphs})),

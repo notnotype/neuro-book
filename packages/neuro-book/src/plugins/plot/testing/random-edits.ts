@@ -133,6 +133,9 @@ export function randomBook(random: (limit: number) => number): RandomBook {
             const id = pickFrom([...written, ...plans]);
             if (id !== undefined && id !== cut) w.publish([{ref: {kind: "change", id}, after: {...stored(id), at: chapter(place(), random(50))}}]);
         },
+        rowOnLine: () => change({kind: "chapter", chapter: "ch6", key: 100 + random(50), line}, {patches: [addRow(person(), point(), {程度: "knows"})]}),
+        labelOnly: (index) => change(chapter(place()), {cast: [{label: `路人${String(index)}`, role: "present"}]}),
+        reparentGoal: () => editEntry(goal, (entry) => ({...entry, parent: person()})),
         row: () => change(chapter(place()), {patches: [addRow(person(), point(), {程度: ["knows", "suspects", "misbelieves"][random(3)], 他以为的: "疤在右手", 谁告诉的: {ref: person()}})]}),
         learn: () => change(chapter(place()), {cast: [present(person())], marks: [learns(point(), random(2) === 0 ? "knows" : "suspects")]}),
         learnLinked: () => change(beforeBreak(), {cast: [present(person())], marks: [learns(point())], patches: [touch]}),
