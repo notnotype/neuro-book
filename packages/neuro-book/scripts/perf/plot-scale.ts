@@ -38,7 +38,7 @@ import {checkDiagnostics} from "nbook/plugins/plot/core/checks/diagnostics";
 import {namesOfSegments, planCheck} from "nbook/plugins/plot/core/checks/plan";
 import {createLimiter, runCheck, type CheckModels} from "nbook/plugins/plot/core/checks/run";
 import {createCheckSource} from "nbook/plugins/plot/core/checks/source";
-import type {CheckRecord} from "nbook/plugins/plot/shared/checks";
+import type {CheckDependencies, CheckRecord} from "nbook/plugins/plot/shared/checks";
 import {createPartitionOwner} from "nbook/plugins/storage/backend/owner";
 import {createPartition} from "nbook/plugins/storage/backend/partition";
 import {createStorageFacade} from "nbook/plugins/storage/shared/facade";
@@ -221,9 +221,19 @@ const recordsByChapter = new Map<string, CheckRecord>();
 const emptySelf = {get: () => undefined, digestOf: () => undefined};
 const checkInstructions = {get: (chapter: string) => instructions.get(chapter), digestOf: (chapter: string) => (instructions.has(chapter) ? sha(JSON.stringify(instructions.get(chapter))) : undefined)};
 let writeBacks = 0;
-const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, writeBack: (_original, updated) => {
+/** 记录的内容摘要：产品里按行存着（`ChapterTable.digestOf`），这里同样不把整条记录重算一遍。 */
+const recordDigests = new Map<CheckRecord, string>();
+const recordDigest = (record: CheckRecord) => {
+    const known = recordDigests.get(record);
+    if (known !== undefined) return known;
+    const made = sha(JSON.stringify(record));
+    recordDigests.set(record, made);
+    return made;
+};
+const dependenciesByChapter = new Map<string, CheckDependencies>();
+const checkSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: sha, writeBack: (updated) => {
     writeBacks += 1;
-    recordsByChapter.set(updated.chapter, updated);
+    dependenciesByChapter.set(updated.chapter, updated);
 }});
 const planned: number[] = [];
 const beforeRecords = process.memoryUsage().heapUsed;
@@ -238,9 +248,10 @@ for (const id of chapterIds) {
     if ("code" in plan) throw new Error(plan.code);
     const dependencies = checkSource.dependencies(snap.view, id, [], plan) ?? "";
     const names = namesOfSegments(snap.view, id, instruction);
-    const result = await runCheck({plan, models: instantModels, limiter, signal: new AbortController().signal, digest: sha, followUps: [], names, start: {worldVersion: snap.view.version, textDigest: null, pluginVersion: "scale", dependencies}});
+    const result = await runCheck({plan, models: instantModels, limiter, signal: new AbortController().signal, digest: sha, followUps: [], names, start: {worldVersion: snap.view.version, textDigest: null, pluginVersion: "scale"}});
     if (!result.ok) throw new Error(result.code);
     recordsByChapter.set(id, result.record);
+    dependenciesByChapter.set(id, {chapter: id, of: recordDigest(result.record), dependencies, points: [...plan.points], concerns: [...plan.concerns]});
 }
 const checksGenerated = performance.now() - startedChecks;
 Bun.gc(true);
@@ -273,7 +284,7 @@ const storedPerson = service.world.data.entries.get(frequent)!;
 checkReports.push(await scenario("(b) 改一个常出场条目的初值", () => plot.publish([{ref: {kind: "entry", id: frequent}, after: {...storedPerson, folder: "改过的"}}])));
 // (d) 重启后第一次读：对象摘要的缓存是空的（换一个摘要函数），结论的缓存也是空的。
 const coldDigest = (text: string) => sha(text);
-const coldSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: coldDigest, writeBack: () => undefined});
+const coldSource = createCheckSource({records: {all: () => [...recordsByChapter.values()]}, recordDigest, dependencies: {get: (chapter) => dependenciesByChapter.get(chapter)}, instructions: checkInstructions, selfReports: emptySelf, pluginVersion: "scale", digest: coldDigest, writeBack: () => undefined});
 const coldBegin = performance.now();
 const coldFold = coldSource.dependencies(service.snapshot().view, last, [], {points: [], concerns: []});
 const coldMs = performance.now() - coldBegin;

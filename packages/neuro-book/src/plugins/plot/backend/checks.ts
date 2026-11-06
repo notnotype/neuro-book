@@ -10,7 +10,7 @@ import {createLimiter, runCheck, type CheckModels} from "../core/checks/run";
 import {namesOfSegments, planCheck} from "../core/checks/plan";
 import type {Digest} from "../core/guards";
 import {ZERO_USAGE} from "../shared/checks";
-import type {CheckRecord, CheckUsage, SelfReport} from "../shared/checks";
+import type {CheckDependencies, CheckRecord, CheckUsage, SelfReport} from "../shared/checks";
 import type {InstructionSnapshot} from "../shared/instructions";
 import type {ChapterTable, PlotStore} from "./store";
 
@@ -28,6 +28,7 @@ export interface ChecksInput {
     readonly instructions: ChapterTable<InstructionSnapshot>;
     readonly selfReports: ChapterTable<SelfReport>;
     readonly checks: ChapterTable<CheckRecord>;
+    readonly dependencies: ChapterTable<CheckDependencies>;
     readonly models: CheckModels;
     readonly digest: Digest;
     readonly pluginVersion: string;
@@ -41,12 +42,12 @@ export interface ChecksInput {
 
 export type RunResult = {readonly ok: true; readonly record: CheckRecord} | ({readonly ok: false} & CheckFailure);
 
-/** 依赖摘要的回写（`core/checks/source.ts`）：轮到它时表里还是原来那条才写，排队期间跑了新的检查就不把它换回旧记录。 */
-export function writeBackRecord(store: Pick<PlotStore, "queued" | "write">, checks: ChapterTable<CheckRecord>, warn: (event: string, detail: string) => void) {
-    return (original: CheckRecord, updated: CheckRecord): void => {
+/** 依赖摘要的回写（`core/checks/source.ts`）：轮到它时表里还是 `of` 那条记录才写，排队期间跑了新的检查，这份摘要就不是它的。写失败只多重拼一次，记诊断。 */
+export function writeBackDependencies(store: Pick<PlotStore, "queued" | "write">, checks: ChapterTable<CheckRecord>, dependencies: ChapterTable<CheckDependencies>, warn: (event: string, detail: string) => void) {
+    return (updated: CheckDependencies): void => {
         void store.queued(async () => {
-            if (checks.get(original.chapter) !== original) return;
-            const written = await store.write(checks, original.chapter, updated);
+            if (checks.digestOf(updated.chapter) !== updated.of) return;
+            const written = await store.write(dependencies, updated.chapter, updated);
             if (!written.ok) warn("plot.store.write-back", `${written.code}: ${written.detail}`);
         }).catch((error: unknown) => warn("plot.store.write-back", String(error)));
     };
@@ -90,14 +91,18 @@ export function createChecks(input: ChecksInput) {
             if ("code" in plan) return fail({code: plan.code, usage: ZERO_USAGE});
             const dependencies = input.dependenciesOf(view, chapter, followUps, plan);
             const names = namesOfSegments(view, chapter, instruction);
-            const start = {worldVersion: view.version, textDigest: view.chapterTextDigest(chapter), pluginVersion: input.pluginVersion, dependencies};
+            const start = {worldVersion: view.version, textDigest: view.chapterTextDigest(chapter), pluginVersion: input.pluginVersion};
             const result = await runCheck({plan, models, limiter, signal: controller.signal, digest, followUps, names, start, ...(selfReport === undefined ? {} : {selfReport}), ...(given !== undefined && previous !== undefined ? {reuse: previous} : {})});
             if (!result.ok) return fail({code: result.code, ...(result.kind === undefined ? {} : {kind: result.kind}), ...(result.resolution === undefined ? {} : {resolution: result.resolution}), usage: result.usage});
             // 模型都答完了，排队等存储时仍可能被取消或入口停止：这次不存（失败表）。信号只在队列里看，轮到它之后就不再能取消。
             const saved = await store.queued(async () => {
                 if (controller.signal.aborted) return null;
                 const written = await store.write(checks, chapter, result.record);
-                if (written.ok) input.changed();
+                if (!written.ok) return written;
+                // 记录已经存了：摘要写失败这次检查仍算成功（钱花了，结果在），下次读待处理多重拼一次。
+                const stored = await store.write(input.dependencies, chapter, {chapter, of: checks.digestOf(chapter)!, dependencies, points: [...plan.points], concerns: [...plan.concerns]});
+                if (!stored.ok) input.warn("plot.store.write-back", `${stored.code}: ${stored.detail}`);
+                input.changed();
                 return written;
             });
             if (saved === null) return fail({code: "plot-check-cancelled", kind: "cancelled", usage: result.record.usage.total});

@@ -397,7 +397,7 @@ describe("跨条目的间接影响、身份与讲述", () => {
         const d = breaker();
         addText(w, "ch8", "这里没有写到主角的名字");
         w.change(chapter("ch8"), {cast: [present(hero)]});
-        mustChange(w, () => undo(w, d), {instruction: {chapter: "ch8", version: "v1", pov: {id: hero}, povMode: "limited"}});
+        mustChange(w, () => undo(w, d), {instruction: {chapter: "ch8", version: "v1", pov: {kind: "entry", id: hero}, povMode: "limited"}});
 
         const other = new PlotWorld(CHAPTERS);
         const rigged = rig(other);

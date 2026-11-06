@@ -82,7 +82,7 @@ export async function run(w: PlotWorld, chapter: string, models: CheckModels, sc
         digest,
         followUps: scene.followUps ?? [],
         names: namesOfSegments(w.view(), chapter, scene.instruction),
-        start: {worldVersion: w.world.version, textDigest: null, pluginVersion: "test", dependencies: ""},
+        start: {worldVersion: w.world.version, textDigest: null, pluginVersion: "test"},
         ...(scene.selfReport === undefined ? {} : {selfReport: scene.selfReport}),
         ...(scene.reuse === undefined ? {} : {reuse: scene.reuse}),
     });

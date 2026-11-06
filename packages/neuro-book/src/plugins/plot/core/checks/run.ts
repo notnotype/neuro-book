@@ -75,7 +75,7 @@ export interface RunInput {
     readonly signal: AbortSignal;
     readonly digest: Digest;
     readonly followUps: readonly string[];
-    readonly start: {readonly worldVersion: number; readonly textDigest: string | null; readonly pluginVersion: string; readonly dependencies: string};
+    readonly start: {readonly worldVersion: number; readonly textDigest: string | null; readonly pluginVersion: string};
 }
 
 const MAX_QUOTE = 500;
@@ -279,9 +279,6 @@ async function runCalls(input: RunInput, batch: AbortController): Promise<{reado
             worldVersion: input.start.worldVersion,
             textDigest: input.start.textDigest,
             pluginVersion: input.start.pluginVersion,
-            dependencies: input.start.dependencies,
-            points: [...plan.points],
-            concerns: [...plan.concerns],
             segments: plan.segments.map(({id, line, from, to}) => ({id, line, from, to})),
             followUps: [...input.followUps],
             calls,

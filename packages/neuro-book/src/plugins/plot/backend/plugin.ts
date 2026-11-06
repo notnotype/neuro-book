@@ -36,11 +36,11 @@ import {plotWorldContract} from "../shared/contracts";
 import {checkDiagnostics} from "../core/checks/diagnostics";
 import {readerKnown, revealDependencies, secretLedger} from "../core/checks/ledgers";
 import {createCheckSource} from "../core/checks/source";
-import {CheckRecordSchema, plotChecksContract, SelfReportSchema, type CheckRecord, type SelfReport} from "../shared/checks";
+import {CheckDependenciesSchema, CheckRecordSchema, plotChecksContract, SelfReportSchema, type CheckDependencies, type CheckRecord, type SelfReport} from "../shared/checks";
 import {plotModelContract} from "../shared/model";
 import {InstructionSnapshotSchema, plotInstructionsContract, type InstructionSnapshot} from "../shared/instructions";
 import {remoteCheckModels} from "./check-models";
-import {createChecks, writeBackRecord} from "./checks";
+import {createChecks, writeBackDependencies} from "./checks";
 import {PlotStore, type ChapterTable} from "./store";
 
 
@@ -232,22 +232,25 @@ export const plotProjectPlugin: PluginDefinition = {
             const store = new PlotStore(context.services.require(storageKey), warn);
             const instructions = store.table<InstructionSnapshot>({key: "plot-instruction", shape: 1, schema: InstructionSnapshotSchema});
             const selfReports = store.table<SelfReport>({key: "plot-self-report", shape: 1, schema: SelfReportSchema});
-            // 依赖的摘要不算内容：回写它不改数据版本。
-            const records = store.table<CheckRecord>({key: "plot-check", shape: 1, schema: CheckRecordSchema, contentOf: ({dependencies: _dependencies, points: _points, concerns: _concerns, ...content}) => content});
+            const records = store.table<CheckRecord>({key: "plot-check", shape: 2, schema: CheckRecordSchema});
+            const dependencyTable = store.table<CheckDependencies>({key: "plot-check-deps", shape: 1, schema: CheckDependenciesSchema, cache: true});
             const failed = await store.load(context.signal);
             const usable = failed === null;
             if (!usable) warn("plot.store.unavailable", `${failed.code}: ${failed.detail}`);
             const report = () => canon.reportDataVersion(store.dataVersion);
             const source = createCheckSource({
                 records,
+                // 诊断读到的都是表里现在的记录，摘要已经算好在那里。
+                recordDigest: (record) => records.digestOf(record.chapter) ?? "",
+                dependencies: dependencyTable,
                 instructions,
                 selfReports,
                 pluginVersion: descriptor.version,
                 digest,
-                writeBack: writeBackRecord(store, records, warn),
+                writeBack: writeBackDependencies(store, records, dependencyTable, warn),
             });
             canon.register({compute: {...knowingDiagnostics(), ...foreshadowDiagnostics(), ...goalDiagnostics(), ...decisionDiagnostics(), ...guardDiagnostics(digest), ...(usable ? {...instructionDiagnostics(instructions), ...checkDiagnostics(source, digest)} : {})}, dataVersion: store.dataVersion});
-            const checks = createChecks({canon, store, instructions, selfReports, checks: records, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps, concerned) => source.dependencies(view, chapter, followUps, concerned) ?? "", changed: report, stop: context.signal, warn});
+            const checks = createChecks({canon, store, instructions, selfReports, checks: records, dependencies: dependencyTable, models: remoteCheckModels(context.remote.use(plotModelContract)), digest, pluginVersion: descriptor.version, dependenciesOf: (view, chapter, followUps, concerned) => source.dependencies(view, chapter, followUps, concerned) ?? "", changed: report, stop: context.signal, warn});
             context.scope.register({kind: "plot-checks", label: `${descriptor.id} checks`, value: checks, release: (value) => value.release()});
             // 每个调用方一份：它打开的视角记在这里，调用方实例失效时关掉对应的内核视图。
             const owned = new WeakMap<object, Viewpoints>();

@@ -13,12 +13,12 @@ import {createPartitionOwner} from "nbook/plugins/storage/backend/owner";
 import {createPartition} from "nbook/plugins/storage/backend/partition";
 import {createStorageFacade} from "nbook/plugins/storage/shared/facade";
 
-import {CheckRecordSchema, SelfReportSchema, type CheckRecord, type SelfReport} from "../shared/checks";
+import {CheckDependenciesSchema, CheckRecordSchema, SelfReportSchema, type CheckDependencies, type CheckRecord, type SelfReport} from "../shared/checks";
 import {InstructionSnapshotSchema, type InstructionSnapshot} from "../shared/instructions";
 import {digest, scripted} from "../testing/checks";
 import {PlotService} from "../testing/service";
 import {chapter} from "../testing/world";
-import {createChecks, writeBackRecord} from "./checks";
+import {createChecks, writeBackDependencies} from "./checks";
 import {PlotStore} from "./store";
 
 const consumer = {plugin: "nbook.plot", instanceId: "project-1", entry: "project", client: null, location: "project"} as never;
@@ -37,7 +37,7 @@ afterAll(async () => {
     if (root !== "") await rm(root, {recursive: true, force: true});
 });
 
-async function scene() {
+async function scene(options: {readonly warn?: (event: string) => void; readonly failDependencies?: boolean} = {}) {
     const name = `s${String(++sequence)}`;
     const world = await PlotService.open(join(root, name, "world"), ["ch1", "ch2", "ch3", "ch4"]);
     closers.push(() => world.stop());
@@ -46,7 +46,8 @@ async function scene() {
     const facade = createStorageFacade(consumer, {user: () => ({ok: false, code: "no-project", detail: "测试不用"}), project: () => owner.route(consumer)});
     closers.push(() => facade.release());
     const store = new PlotStore(facade.service, () => undefined);
-    const records = store.table<CheckRecord>({key: "plot-check", shape: 1, schema: CheckRecordSchema, contentOf: ({dependencies: _dependencies, points: _points, concerns: _concerns, ...content}) => content});
+    const records = store.table<CheckRecord>({key: "plot-check", shape: 2, schema: CheckRecordSchema});
+    const dependencies = store.table<CheckDependencies>({key: "plot-check-deps", shape: 1, schema: CheckDependenciesSchema, cache: true});
     const instructions = store.table<InstructionSnapshot>({key: "plot-instruction", shape: 1, schema: InstructionSnapshotSchema});
     const selfReports = store.table<SelfReport>({key: "plot-self-report", shape: 1, schema: SelfReportSchema});
     expect(await store.load()).toBeNull();
@@ -61,7 +62,8 @@ async function scene() {
             enqueued.resolve();
             return store.queued(work);
         },
-        write: store.write.bind(store),
+        // 摘要表写不进去：存储自己的失败走不到这里，只在这一张表上模拟。
+        write: ((table, chapter, value) => (options.failDependencies === true && table === (dependencies as unknown) ? Promise.resolve({ok: false, code: "unavailable", detail: "测试"} as const) : store.write(table, chapter, value))) as PlotStore["write"],
     };
     const stop = new AbortController();
     const checks = createChecks({
@@ -70,18 +72,21 @@ async function scene() {
         instructions,
         selfReports,
         checks: records,
+        dependencies,
         models: scripted().models,
         digest,
         pluginVersion: "test",
         dependenciesOf: () => "deps",
         changed: () => undefined,
         stop: stop.signal,
-        warn: () => undefined,
+        warn: (event) => options.warn?.(event),
     });
     closers.push(() => checks.release());
     return {
+        world,
         store,
         records,
+        dependencies,
         checks,
         stop,
         /** 占住存储队列，直到 `release`；返回时已经轮到它。 */
@@ -130,28 +135,47 @@ describe("排队等存储时", () => {
         });
     }
 
-    test("排在新检查后面的回写不把新记录换回去；没有新检查时回写生效", async () => {
+    test("排在新检查后面的回写不写：那份摘要算的是旧记录；没有新检查时回写生效，记录不重写，数据版本不变", async () => {
         const s = await scene();
         const warnings: string[] = [];
-        const writeBack = writeBackRecord(s.store, s.records, (event, detail) => warnings.push(`${event} ${detail}`));
+        const writeBack = writeBackDependencies(s.store, s.records, s.dependencies, (event, detail) => warnings.push(`${event} ${detail}`));
         const first = await s.checks.run("ch4", undefined);
         if (!first.ok) throw new Error(first.code);
+        const firstOf = s.records.digestOf("ch4")!;
+        expect(s.dependencies.get("ch4")).toMatchObject({of: firstOf, dependencies: "deps"});
+        // 世界版本进记录：下一条记录与这一条内容不同。
+        await s.world.person("别处的人");
 
         // 新检查已经排队，表里还是第一条：这时诊断验证第一条，排上它的回写。
         const held = await s.holdQueue();
         const running = s.checks.run("ch4", undefined);
         await held.enqueued;
-        writeBack(first.record, {...first.record, dependencies: "新摘要"});
+        writeBack({chapter: "ch4", of: firstOf, dependencies: "旧记录的新摘要", points: [], concerns: []});
         await held.release();
         const second = await running;
         if (!second.ok) throw new Error(second.code);
         await s.store.queued(async () => undefined);
         expect(s.records.get("ch4")).toBe(second.record);
+        expect(s.dependencies.get("ch4")!.dependencies).toBe("deps");
 
-        const updated = {...second.record, dependencies: "新摘要"};
-        writeBack(second.record, updated);
+        const version = s.store.dataVersion;
+        writeBack({chapter: "ch4", of: s.records.digestOf("ch4")!, dependencies: "新摘要", points: [], concerns: []});
         await s.store.queued(async () => undefined);
-        expect(s.records.get("ch4")).toEqual(updated);
+        expect(s.dependencies.get("ch4")!.dependencies).toBe("新摘要");
+        expect(s.records.get("ch4")).toBe(second.record);
+        expect(s.store.dataVersion).toBe(version);
         expect(warnings).toEqual([]);
+    });
+});
+
+describe("摘要写不进去", () => {
+    test("记录已经存了：这次检查仍算成功，记诊断，摘要表里没有这一章", async () => {
+        const warnings: string[] = [];
+        const s = await scene({warn: (event) => warnings.push(event), failDependencies: true});
+        const result = await s.checks.run("ch4", undefined);
+        expect(result.ok).toBe(true);
+        expect(s.records.get("ch4")).toBeDefined();
+        expect(s.dependencies.get("ch4")).toBeUndefined();
+        expect(warnings).toContain("plot.store.write-back");
     });
 });

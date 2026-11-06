@@ -57,8 +57,8 @@ export interface TableOptions<T> {
     readonly shape: number;
     /** 值的 schema：读回来不合的按“没有”。 */
     readonly schema: TSchema;
-    /** 算内容摘要时取哪些内容（缺省整个值）：不算内容的字段（检查记录的依赖摘要）改了不改数据版本。 */
-    readonly contentOf?: (value: T) => unknown;
+    /** 这张表只是缓存（没了只是多算一次）：不进数据版本；读取失败当没有，记诊断，不挡加载。 */
+    readonly cache?: boolean;
 }
 
 /** 一张按章的表。写入经 `PlotStore` 的队列。 */
@@ -89,7 +89,7 @@ export class ChapterTable<T> {
         return this.#rows.get(chapter)?.value;
     }
 
-    /** 这一章的内容摘要（`contentOf` 取的部分）。 */
+    /** 这一章的内容摘要。 */
     digestOf(chapter: string): string | undefined {
         return this.#rows.get(chapter)?.digest;
     }
@@ -100,10 +100,11 @@ export class ChapterTable<T> {
     }
 
     #digestOf(value: T): string {
-        return sha(canonicalJson(this.options.contentOf === undefined ? (value as object) : (this.options.contentOf(value) as object)));
+        return sha(canonicalJson(value as object));
     }
 
     #refreshVersion(): void {
+        if (this.options.cache === true) return;
         const digests = [...this.#rows.keys()].sort().map((chapter) => [chapter, this.#rows.get(chapter)!.digest]);
         this.#version = digests.length === 0 ? PLOT_DATA_VERSION : `${PLOT_DATA_VERSION}+${sha(canonicalJson(digests))}`;
     }
@@ -122,7 +123,11 @@ export class ChapterTable<T> {
     /** 读回一章。读取失败（不是缺失）交回失败：那时不知道这一章有没有记录，不能当没有。 */
     async load(chapter: string): Promise<StoreFailure | null> {
         const opened = await this.#open(chapter);
-        if ("ok" in opened) return opened;
+        if ("ok" in opened) {
+            if (this.options.cache !== true) return opened;
+            this.warn("plot.store.cache-unreadable", `${this.options.key} ${chapter}: ${opened.detail}`);
+            return null;
+        }
         const {snapshot} = opened;
         if (snapshot.status === "missing") return null;
         if (snapshot.status !== "ok") {

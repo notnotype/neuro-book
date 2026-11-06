@@ -144,7 +144,7 @@ export function randomBook(random: (limit: number) => number): RandomBook {
             const [id, anchor] = [`tmp:anchored${String(index)}`, pickFrom(written)];
             if (anchor !== undefined) w.publish([{ref: {kind: "check", id}, after: {id, at: {entry: person(), path: "character.状态"}, value: index, told: inText(place(), `第 ${String(index)} 处账目`), place: chapter(place()), anchor: {change: anchor, side: "after"}}}]);
         },
-        retold: (index) => editEntry(spare, (entry) => ({...entry, retold: {"character.状态": [inText(place(), `第 ${String(index)} 处重述`, [reveal(point(), "explicit")])]}})),
+        retold: (index) => w.publish([{ref: {kind: "entry", id: spare}, after: {...entryOf(spare), retold: {"character.状态": [inText(place(), `第 ${String(index)} 处重述`, [reveal(point(), "explicit")])]}}}]),
         renameInit: (index) => editInit(person(), {name: `新名${String(index)}`}),
         renamePatch: (index) => change(chapter(place()), {patches: [{op: "set", at: {entry: random(2) === 0 ? thing : person(), path: "entry.name"}, value: `改名${String(index)}`}]}),
         summary: (index) => editInit(point(), {summary: `第 ${String(index)} 种说法`}),
@@ -177,8 +177,8 @@ export function randomBook(random: (limit: number) => number): RandomBook {
         w,
         chapters,
         instructions: new Map<string, InstructionSnapshot>([
-            ["ch9", {chapter: "ch9", version: "v1", pov: {id: hero}, povMode: "limited"}],
-            ["ch12", {chapter: "ch12", version: "v1", timeMode: {flashback: chapter("ch4")}}],
+            ["ch9", {chapter: "ch9", version: "v1", pov: {kind: "entry", id: hero}, povMode: "limited"}],
+            ["ch12", {chapter: "ch12", version: "v1", timeMode: {flashback: {kind: "chapter", chapter: "ch4", key: 0}}}],
         ]),
         ops: names,
         step: (index) => {

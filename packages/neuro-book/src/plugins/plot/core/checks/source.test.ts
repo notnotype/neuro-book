@@ -7,7 +7,7 @@ import {describe, expect, test} from "bun:test";
 
 import type {Mark, TellingDraft} from "@notnotype/nb-canon/schema";
 
-import type {CheckRecord} from "../../shared/checks";
+import type {CheckDependencies, CheckRecord} from "../../shared/checks";
 import type {InstructionSnapshot} from "../../shared/instructions";
 import {MARK_IDS} from "../../shared/declarations";
 import {digest, planOf, runOk, scripted} from "../../testing/checks";
@@ -24,18 +24,23 @@ const inText = (w: PlotWorld, chapterId: string, quote: string, marks: Mark[] = 
     return {source: "chapter", chapter: chapterId, quote, ...(marks.length === 0 ? {} : {marks})};
 };
 
-/** 记录表与来源：回写就像产品里那样换进表（当前记录还是 `original` 才换）。 */
+/** 记录表、摘要表与来源：回写就像产品里那样写摘要表（表里还是 `of` 那条记录才写）。 */
 function harness(instructions: ReadonlyMap<string, InstructionSnapshot> = new Map()) {
     const records = new Map<string, CheckRecord>();
+    const stored = new Map<string, CheckDependencies>();
+    const recordDigest = (record: CheckRecord) => digest(JSON.stringify(record));
     const empty = {get: () => undefined, digestOf: () => undefined};
     const source = createCheckSource({
         records: {all: () => [...records.values()]},
+        recordDigest,
+        dependencies: {get: (id) => stored.get(id)},
         instructions: {get: (id) => instructions.get(id), digestOf: (id) => (instructions.has(id) ? digest(JSON.stringify(instructions.get(id))) : undefined)},
         selfReports: empty,
         pluginVersion: "test",
         digest,
-        writeBack: (original, updated) => {
-            if (records.get(original.chapter) === original) records.set(original.chapter, updated);
+        writeBack: (updated) => {
+            const current = records.get(updated.chapter);
+            if (current !== undefined && recordDigest(current) === updated.of) stored.set(updated.chapter, updated);
         },
     });
     const check = async (w: PlotWorld, chapterId: string) => {
@@ -43,9 +48,10 @@ function harness(instructions: ReadonlyMap<string, InstructionSnapshot> = new Ma
         const scene = instruction === undefined ? {} : {instruction};
         const record = await runOk(w, chapterId, scripted().models, scene);
         const plan = planOf(w, chapterId, scene);
-        records.set(chapterId, {...record, dependencies: source.dependencies(w.view(), chapterId, [], plan) ?? ""});
+        records.set(chapterId, record);
+        stored.set(chapterId, {chapter: chapterId, of: recordDigest(record), dependencies: source.dependencies(w.view(), chapterId, [], plan) ?? "", points: [...plan.points], concerns: [...plan.concerns]});
     };
-    return {records, source, check};
+    return {records, stored, source, check};
 }
 
 describe("回写以后", () => {
@@ -53,11 +59,11 @@ describe("回写以后", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
         w.texts.set("ch8", "勇者走进客栈。\n");
-        const {records, source, check} = harness();
+        const {records, stored, source, check} = harness();
         await check(w, "ch8");
         const k = w.point("勇者是王子", hero, {保密: "secret", 读者问题: "勇者是什么来头"});
         expect(source.valid(w.view(), records.get("ch8")!)).toBe(true);
-        expect(records.get("ch8")!.points).toContain(k);
+        expect(stored.get("ch8")!.points).toContain(k);
         w.change(chapter("ch20"), {kind: "plan", told: [{source: "outline", chapter: "ch20", anchor: "细纲", marks: [reveal(k, "explicit")]}]});
         expect(isValid({view: w.view(), record: records.get("ch8")!, digest})).toBe(false);
         expect(source.valid(w.view(), records.get("ch8")!)).toBe(false);
@@ -67,11 +73,11 @@ describe("回写以后", () => {
         const w = new PlotWorld(CHAPTERS);
         const other = w.person("别处的人");
         w.texts.set("ch8", "天黑了。\n");
-        const {records, source, check} = harness();
+        const {records, stored, source, check} = harness();
         await check(w, "ch8");
         w.change(chapter("ch8"), {cast: [{who: other, role: "mentioned"}]});
         expect(source.valid(w.view(), records.get("ch8")!)).toBe(true);
-        expect(records.get("ch8")!.concerns).toContain(other);
+        expect(stored.get("ch8")!.concerns).toContain(other);
         w.decision("他的来历", {about: [{kind: "entry", id: other}]});
         expect(isValid({view: w.view(), record: records.get("ch8")!, digest})).toBe(false);
         expect(source.valid(w.view(), records.get("ch8")!)).toBe(false);
@@ -81,17 +87,38 @@ describe("回写以后", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
         w.texts.set("ch8", "勇者走进客栈。\n");
-        const {records, source, check} = harness();
+        const {records, stored, source, check} = harness();
         await check(w, "ch8");
         w.point("勇者是王子", hero, {保密: "secret"});
         expect(source.valid(w.view(), records.get("ch8")!)).toBe(true);
         const restarted = harness();
-        const dependencies = restarted.source.dependencies(w.view(), "ch8", [], records.get("ch8")!);
-        expect(dependencies).toBe(records.get("ch8")!.dependencies);
+        const dependencies = restarted.source.dependencies(w.view(), "ch8", [], stored.get("ch8")!);
+        expect(dependencies).toBe(stored.get("ch8")!.dependencies);
     });
 });
 
 describe("备忘要认记录", () => {
+    test("记录过期以后再改回去：新计划读的东西变了，结论跟着回来（备忘按重拼的计划算，不按记录存的）", async () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const zhou = w.person("老周");
+        const secret = w.point("老周的秘密", zhou, {保密: "secret"});
+        w.texts.set("ch8", "勇者走进客栈。\n");
+        w.change(chapter("ch8"), {cast: [present(hero)]});
+        const {records, source, check} = harness();
+        await check(w, "ch8");
+        const record = records.get("ch8")!;
+        // 本章多一条变更让老周在场：他名下的秘密进本章，记录过期。
+        w.change(chapter("ch8", 1), {cast: [present(zhou)]});
+        expect(source.valid(w.view(), record)).toBe(false);
+        // 把这个秘密改成不保密：候选没了，调用集合回到记录那样。它不在记录涉及的条目里，只在重拼的计划里。
+        const stored = w.world.data.entries.get(secret)!;
+        const data = stored.init.data;
+        w.publish([{ref: {kind: "entry", id: secret}, after: {...stored, init: {...stored.init, data: {...data, point: {...data.point!, fields: {...data.point!.fields, 保密: "common"}}}}}}]);
+        expect(isValid({view: w.view(), record, digest})).toBe(true);
+        expect(source.valid(w.view(), record)).toBe(true);
+    });
+
     test("这一章换了新记录：旧记录重拼的结论不算新记录的", async () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
@@ -104,9 +131,7 @@ describe("备忘要认记录", () => {
         const first = records.get("ch4")!;
         // 世界变了：卫兵知情，第二条记录在这张世界上跑（候选少了他）。
         const row = w.change(chapter("ch2"), {patches: [addRow(guard, k, {程度: "knows", 怎么知道: "witnessed"})]});
-        const second = {...await runOk(w, "ch4", scripted().models)};
-        const plan = planOf(w, "ch4");
-        const secondRecord = {...second, dependencies: source.dependencies(w.view(), "ch4", [], plan) ?? ""};
+        const secondRecord = await runOk(w, "ch4", scripted().models);
         // 撤销那条变更：世界回到第一条记录的样子。读一次，第一条记录仍有效，备忘里是它的结论。
         w.publish([{ref: {kind: "change", id: row}, after: {...w.world.data.changes.get(row)!, status: "undone", undoneReason: "不要了"}}]);
         expect(source.valid(w.view(), first)).toBe(isValid({view: w.view(), record: first, digest}));

@@ -161,6 +161,31 @@ describe("落盘的表", () => {
         expect(await store.load()).toMatchObject({ok: false});
     });
 
+    test("只是缓存的表：不进数据版本；读取失败当没有，记诊断，不挡加载", async () => {
+        const a = await open("cache-table");
+        const cached = a.store.table<Note>({key: "plot-cached", shape: 1, schema: Note, cache: true});
+        await a.store.load();
+        const version = a.store.dataVersion;
+        expect(await put(a.store, cached, "ch1", {chapter: "ch1", tone: "冷"})).toEqual({ok: true});
+        expect(a.store.dataVersion).toBe(version);
+        expect(cached.get("ch1")).toEqual({chapter: "ch1", tone: "冷"});
+        a.close();
+
+        // 重开：这张表读取失败，别的表照常。
+        const owner = createPartitionOwner(createPartition({path: join(root, "cache-table", "project.sqlite")}), "project", () => undefined);
+        closers.push(() => owner.close());
+        const facade = createStorageFacade(consumer, {user: () => ({ok: false, code: "no-project", detail: "测试不用"}), project: () => owner.route(consumer)}).service;
+        const failing = {...facade, open: ((record, resource) => (record.key === "plot-cached" ? Promise.resolve({ok: false, code: "unavailable", detail: "测试"}) : facade.open(record, resource))) as typeof facade.open};
+        const warnings: string[] = [];
+        const reopened = new PlotStore(failing, (event) => warnings.push(event));
+        const notes = reopened.table<Note>({key: "plot-note", shape: 1, schema: Note});
+        const again = reopened.table<Note>({key: "plot-cached", shape: 1, schema: Note, cache: true});
+        expect(await reopened.load()).toBeNull();
+        expect(again.get("ch1")).toBeUndefined();
+        expect(notes.empty).toBe(true);
+        expect(warnings).toContain("plot.store.cache-unreadable");
+    });
+
     test("别处写过同一条记录：这次 conflict，下一次重读 revision 就写得进去，不永远卡住", async () => {
         const a = await open("conflict");
         await put(a.store, a.notes, "ch1", {chapter: "ch1", tone: "冷"});
