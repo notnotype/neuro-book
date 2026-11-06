@@ -95,6 +95,16 @@ updated: 2026-11-06
 
 第 4 片已合入（不接产品）：`layout-doc-store`、`default-tree`、`layout-constraints`、`shell/adjacency`，17 + 10 条单元测试（真实 storage）。写的时候抓到：别的窗口保存后本窗口显示被带着变，改成打开时只读一次记录。
 
+第 5 片已合入（不接产品）：`WorkbenchSurface`、`WorkbenchPanelHead`、`WorkbenchToolStrip`，Lab 场景 `WorkbenchSurface`（`default`、`cards`，画布要宽，`vp=1400x720`），`lab-workbench-surface` 14 条，`state/layout-present` 与 `shell/adjacency` 单元测试。计划说组件样式派 Sonnet，实际主会话写了：样式大多从现有组件搬过来，接线和样式分不开。
+
+写的时候定下来、计划没写到的：
+- 内容层在外框之外，所以卡片的内边距和圆角在内容上要再写一遍，两层才拼成一张卡片。
+- 视图动作随鼠标的范围是整块面板，指针在内容上时外框没有 `:hover`：表面按指针与焦点所在的面板写 `data-hover-actions-active`。
+- 活动栏条目鼠标点时不抢焦点，否则“已经聚焦时隐藏”永远判成“焦点不在里面”。
+- `NestedGrid` 加了 `sashKind`（写 `data-sash-kind`，一棵树里分隔线分三种颜色）和 `content` 插槽的 `leaf`。
+
+片 7b 要请开发者看一眼：Spec 输出 19 按邻接算，卡片主题里相邻的两个编辑组是两张卡片加半缝，中间还有一条线；现在的产品里编辑区是一张卡片加一条线。
+
 ## 下一步
 
-第 5 片：`WorkbenchSurface`、面板头、工具条，Lab 场景。
+第 6 片：`groups.ts` 拆成 `PanelTabs`、`PanelTree` 本地实现，`tabId` 改随机串，行为不变。
