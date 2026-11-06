@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t17-per-tab-instance
-status: active
+status: done
 updated: 2026-11-06
 ---
 
@@ -15,7 +15,12 @@ updated: 2026-11-06
 
 ## 当前状态
 
-计划第二稿已按设计审查修订。
+2026-11-06 已合入（`421a091b6`），实现审查待处理。
+
+- 做了什么：绑定、视图状态与控件留下的实例按标签存；内容项按标签分开，`EditorGroup` 是一个标签的内容；每种编辑器留 20 个控件。
+- 和计划不同的地方：焦点交接没用 `nextTick`，并进了继续写作的等待路径（`pendingReveal`）：要等文档就绪、控件登记，内容也可能还停放着，这条路径已经全管了，单写一份反而会把焦点给还隐藏着的控件。键盘放下由手势把焦点还给标签，所以 `moveTab` 加 `focusView`，手势的 `commit` 带 `keyboard`。计划里“切走时焦点在内容里就交接”没做成通用机制，只有面包屑选文件要它（`open` 的 `reveal: "cursor"`）；别的路径落到 `onContentParked` 的活动标签。
+- 验证：`bun run test:affected --since master --typecheck` 只有别的 Work 的已知失败（`plugins/agent` 的跨插件导入、`permission-page.dom.test.ts` 的类型错误）；`governance:check`、`docs:check` 没有失败。e2e 用 `NB_E2E_WIDE` 跑了 17 个文件 256 个用例，处理后只重跑失败项，全过，只剩 `lab-scenes` 的 ThemeEditor 两个场景 404（夹具里的假素材地址，提交 `14051849a`，不是本 Task 的）。
+- 测量：[`evidences/measure-tabs.txt`](evidences/measure-tabs.txt)，脚本在 [`scripts/measure-tabs.e2e.ts`](scripts/measure-tabs.e2e.ts)。到 20 个标签后挂着的元素不再涨，关掉全部后回到基线；Markdown 每个标签约 0.9 MB，preview 连走中位 64ms、最大 120ms。
 
 设计审查（一个 Sonnet，[`evidences/plan-review.txt`](evidences/plan-review.txt)，15 条：阻断 1、重要 7、建议 7）的处理：
 
@@ -35,4 +40,4 @@ updated: 2026-11-06
 
 ## 下一步
 
-片 1。
+处理实现审查的报告。

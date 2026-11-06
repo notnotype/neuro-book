@@ -1,0 +1,139 @@
+t17 测量：一个编辑组开 30 个标签（2026-11-06，负载约 1.0 到 1.9；单次运行）
+样本：Markdown 每章约五千字（300 段），JSON 每个约 400 行。视口 1440×1500。命令见 scripts/measure-tabs.e2e.ts 的文件头。
+open 是双击资源管理器到正文显示；switchKept 切到留着控件的标签；switchRecycled 切到被回收的标签（重新挂上）；previewWalk 单击连走 30 个文件；单位毫秒。
+heapMb 是强制 GC 后的 JS 堆；attached 是挂在文档上的元素个数；nodes 是 Chrome 的 Nodes 指标，含还没回收的游离节点。
+
+读法：
+- 回收生效：attached 到 20 个标签后不再涨（Markdown 5279→5432，Monaco 13482→13401）。
+- 内存：Markdown 每个标签约 0.9 MB，到 30 个不再省（编辑状态与 TipTap 实例都留着，这是保留撤销的代价）；Monaco 20 个以内每个约 0.8 MB，之后每个约 0.2 MB（只留模型）。
+- 没有泄漏：关掉全部标签后 nodes 回到基线附近（Markdown 6473，基线 6334），堆回落（Monaco 留下的是它自己的库）。
+- preview 连走中位 64ms，最大 120ms；切换留着的标签中位 39 到 61ms，切换被回收的 91 到 142ms。
+
+{
+  "baseline": {
+    "heapMb": 16.5,
+    "nodes": 6334
+  },
+  "markdown": {
+    "open": {
+      "count": 30,
+      "median": 118,
+      "max": 186
+    },
+    "openLongestTask": 125,
+    "memory": [
+      {
+        "tabs": 1,
+        "heapMb": 19.6,
+        "nodes": 7399,
+        "attached": 1085
+      },
+      {
+        "tabs": 5,
+        "heapMb": 24.4,
+        "nodes": 10987,
+        "attached": 1965
+      },
+      {
+        "tabs": 10,
+        "heapMb": 29.4,
+        "nodes": 15472,
+        "attached": 3065
+      },
+      {
+        "tabs": 20,
+        "heapMb": 38.7,
+        "nodes": 24548,
+        "attached": 5279
+      },
+      {
+        "tabs": 30,
+        "heapMb": 45.9,
+        "nodes": 33518,
+        "attached": 5432
+      }
+    ],
+    "switchKept": {
+      "count": 10,
+      "median": 61,
+      "max": 75
+    },
+    "switchKeptLongestTask": 73,
+    "switchRecycled": {
+      "count": 10,
+      "median": 91,
+      "max": 99
+    },
+    "switchRecycledLongestTask": 98,
+    "afterClose": {
+      "heapMb": 22.8,
+      "nodes": 6473,
+      "attached": 862
+    }
+  },
+  "monaco": {
+    "open": {
+      "count": 30,
+      "median": 188,
+      "max": 517
+    },
+    "openLongestTask": 141,
+    "memory": [
+      {
+        "tabs": 1,
+        "heapMb": 32.4,
+        "nodes": 8500,
+        "attached": 1674
+      },
+      {
+        "tabs": 5,
+        "heapMb": 37.4,
+        "nodes": 15977,
+        "attached": 4126
+      },
+      {
+        "tabs": 10,
+        "heapMb": 41.8,
+        "nodes": 25102,
+        "attached": 7297
+      },
+      {
+        "tabs": 20,
+        "heapMb": 48.4,
+        "nodes": 42886,
+        "attached": 13482
+      },
+      {
+        "tabs": 30,
+        "heapMb": 50.7,
+        "nodes": 60583,
+        "attached": 13401
+      }
+    ],
+    "switchKept": {
+      "count": 10,
+      "median": 39,
+      "max": 66
+    },
+    "switchKeptLongestTask": 62,
+    "switchRecycled": {
+      "count": 10,
+      "median": 142,
+      "max": 192
+    },
+    "switchRecycledLongestTask": 144,
+    "afterClose": {
+      "heapMb": 36.3,
+      "nodes": 8454,
+      "attached": 888
+    }
+  },
+  "previewWalk": {
+    "steps": {
+      "count": 30,
+      "median": 64,
+      "max": 120
+    },
+    "longestTask": 80
+  }
+}
