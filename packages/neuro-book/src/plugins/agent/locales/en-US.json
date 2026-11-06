@@ -96,6 +96,9 @@
         "rename": "Rename",
         "cancel": "Cancel",
         "loading": "Loading…",
+        "context": {
+            "unavailable": "The next request cannot be worked out: this session has no usable model or profile."
+        },
         "compact": {
             "nothingToCompact": "There is nothing to compact.",
             "noModel": "No model is set for compaction. Bind one to the Compaction role in settings.",

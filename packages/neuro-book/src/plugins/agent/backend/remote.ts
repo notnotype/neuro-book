@@ -132,7 +132,8 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 const preview = await view(sessionId).preview(leaf === undefined ? undefined : {leaf});
                 const text = JSON.stringify(preview);
                 const bytes = Buffer.byteLength(text);
-                return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview} : {kind: "oversized", token: previews.put(text), bytes});
+                // 工具声明里按参数算的 `effect` 是函数，通道编不了：直接交对象的话带这种工具的会话一律失败。分段读拿到的本来就是这份文字。
+                return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview: JSON.parse(text) as typeof preview} : {kind: "oversized", token: previews.put(text), bytes});
             } catch (error) {
                 if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
                 if (error instanceof PreviewUnavailable) return context.fail("preview-unavailable", {message: error.message});

@@ -9,7 +9,7 @@
 export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
     AgentSessionListItem, AgentSessionListState, ApprovalPreviewView, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
-    SessionPanelFilter, ComposerApprovalOption, ComposerModelView, ComposerModeView, ComposerRoleView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
+    SessionPanelFilter, ComposerApprovalOption, ComposerModelView, ComposerModeView, ComposerRoleView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
     InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputView, PendingQuestionsView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
     ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView,

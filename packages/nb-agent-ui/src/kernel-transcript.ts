@@ -48,6 +48,8 @@ export type KernelUsage = {
     readonly cacheRead: number;
     readonly cacheWrite: number;
     readonly context: number | null;
+    /** 最近一次模型回复的缓存命中率；服务商不报缓存时为 null。 */
+    readonly lastCacheHitRate: number | null;
 };
 
 export type KernelMeta = {
@@ -199,7 +201,7 @@ function streamingArgs(text: string): JsonValue {
     return {...(path === undefined ? {} : {path}), partialChars: text.length};
 }
 
-const NO_USAGE: KernelUsage = {cost: 0, unpriced: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: null};
+const NO_USAGE: KernelUsage = {cost: 0, unpriced: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: null, lastCacheHitRate: null};
 const NO_META: KernelMeta = {title: null, description: null, archived: false, settings: {}, model: null, profile: null, readOnly: null};
 const IDLE_RUN: KernelRun = {status: "idle", phase: null, kind: null, startedAt: null, retry: null};
 
@@ -218,6 +220,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
     let interrupted = false;
     let startedAt: number | null = null;
     let context: number | null = null;
+    let lastCacheHitRate: number | null = null;
     /** 这次运行是不是只压缩的：它没有 `input`，运行收口时不能把上一轮的回复当成这次的。 */
     let runKind: "compact" | null = null;
     /** 路径上每一轮的 `turnStarted` 事件 id，按顺序：压缩的切点按它数“保留了几轮”。 */
@@ -270,7 +273,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
 
     const contextOf = (data: JsonRecord): void => {
         const view = usageView(data.usage);
-        if (view !== null) context = view.input + view.cacheRead + view.cacheWrite;
+        if (view === null) return;
+        context = view.input + view.cacheRead + view.cacheWrite;
+        lastCacheHitRate = view.cacheRead + view.cacheWrite === 0 ? null : view.cacheRead / context;
     };
 
     /** 这次请求写下来了：它的增量到此为止。打开、重建时缓存的增量在路径之后才处理，晚到的不能再画出一条“正在生成”。 */
@@ -541,6 +546,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         interrupted = false;
         startedAt = null;
         context = null;
+        lastCacheHitRate = null;
         runKind = null;
         turnStarts = [];
         purposes = new Map();
@@ -666,7 +672,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
         pending: () => pending,
         // `kind` 来自路径上的 `runStarted`，与 status 帧是两路输入、到达先后不定：读的时候现算，不在收到帧时抄一份。
         run: () => (run.status === "idle" || runKind === null ? run : {...run, kind: runKind}),
-        usage: () => ({...usage, context}),
+        usage: () => ({...usage, context, lastCacheHitRate}),
         queue: () => queue,
         meta: () => meta,
         interrupted: () => interrupted,

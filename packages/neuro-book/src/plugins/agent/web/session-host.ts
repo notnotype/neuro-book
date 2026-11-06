@@ -14,12 +14,13 @@ import {computed, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, ComposerRoleView, KernelTranscript, PendingInputView, PendingQuestionView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, ComposerRoleView, ContextInspectionView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {TextResolver} from "nbook/shared/localized-text";
 import type {TextRef} from "@notnotype/nb-ui/text";
+import type {PreviewResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
@@ -59,6 +60,8 @@ const ROLE_STATUS_KEYS = {
     "unknown-model": MODEL_KEYS["unknown-model"],
     "no-credentials": MODEL_KEYS["no-credentials"],
 } as const;
+/** `preview` 的 `tokens.byArea` 里的几块，按它们在请求里的位置。 */
+const AREA_KEYS = ["system", "tools", "opening", "history", "turn"] as const;
 const PHASE_KEYS = {
     requesting: "conversation.phase.requesting",
     streaming: "conversation.phase.streaming",
@@ -296,6 +299,60 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         })();
     }
 
+    // ─── 上下文详情 ─────────────────────────────────────────────────────
+
+    /** 弹窗开着时的数据。系统提示词随同一次 `preview` 回来，展开时才交给视图，不常驻 `ctx`。 */
+    let inspection: ContextInspectionView | null = null;
+    let inspectionPrompt: SystemPromptView | null = null;
+    let inspectionSystem: string | null = null;
+    let inspectionToken = 0;
+
+    function closeInspection(): void {
+        inspectionToken += 1;
+        inspection = null;
+        inspectionPrompt = null;
+        inspectionSystem = null;
+    }
+
+    async function refreshInspection(): Promise<void> {
+        const target = current;
+        const token = ++inspectionToken;
+        const hadPrompt = inspectionPrompt !== null;
+        if (target === null) return;
+        inspection = {state: "loading"};
+        bump();
+        const preview = await fetchRequestPreview(target.id);
+        if (token !== inspectionToken || current !== target) return;
+        if (preview === null) {
+            inspection = {state: "unavailable", reason: deps.text.t(agentText("conversation.context.unavailable"))};
+            inspectionSystem = null;
+            inspectionPrompt = null;
+        } else {
+            const {tokens} = preview;
+            inspection = {
+                state: "ready",
+                estimated: tokens.estimated,
+                window: tokens.window,
+                threshold: tokens.threshold,
+                areas: AREA_KEYS.map((key) => ({key, tokens: tokens.byArea[key]})),
+                slots: preview.slots.map(({name, extension, tokens: slotTokens, placed}) => ({name, extension, tokens: slotTokens, placed})),
+                diagnostics: preview.diagnostics.map(({id, level, message}) => ({id, level, message})),
+            };
+            inspectionSystem = preview.request.system.flatMap((block) => (block.kind === "text" ? [block.text] : [])).join("\n\n");
+            inspectionPrompt = hadPrompt ? {text: inspectionSystem} : null;
+        }
+        bump();
+    }
+
+    async function fetchRequestPreview(session: string): Promise<PreviewResult | null> {
+        const result = await remote.preview({sessionId: session});
+        if (!result.ok) return null;
+        if (result.value.kind === "inline") return result.value.preview;
+        const {token} = result.value;
+        const text = await readChunks((index) => remote.previewChunk({token, index}) as never);
+        return text === null ? null : JSON.parse(text) as PreviewResult;
+    }
+
     async function fetchPreview(session: string, interactionId: string): Promise<ApprovalPreviewView> {
         const result = await remote.approvalPreview({sessionId: session, interactionId});
         if (!result.ok) return {state: "failed"};
@@ -339,6 +396,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         stopRequestedAt = null;
         unknownSends.clear();
         notice = null;
+        closeInspection();
     }
 
     async function open(id: string): Promise<void> {
@@ -628,6 +686,17 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             case "thinking.set":
                 await changeSettings({effort: action.level});
                 return;
+            case "context.refresh":
+                await refreshInspection();
+                return;
+            case "context.closed":
+                closeInspection();
+                bump();
+                return;
+            case "systemPrompt.load":
+                if (inspectionSystem !== null) inspectionPrompt = {text: inspectionSystem};
+                bump();
+                return;
             case "model.manage":
                 deps.openSettings();
                 return;
@@ -721,7 +790,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 summaryState: "idle",
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canInspectContext: target !== null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
@@ -730,6 +799,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ...(run.kind === null ? {} : {kind: run.kind}),
             },
             messages: target?.transcript.messages() ?? [],
+            panels: inspection === null ? {} : {contextInspection: inspection, ...(inspectionPrompt === null ? {} : {systemPrompt: inspectionPrompt})},
             pendingInputs: target === null || target === undefined ? [] : pendingViews(target),
             wizardState,
             ...(stopRequestedAt === null ? {} : {stopRequestedAt}),
@@ -756,6 +826,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 cacheWrite: usage.cacheWrite,
                 // 没有读写缓存的数据时不算：有的服务商不报缓存，写成 0% 会误导。
                 cacheHitRate: usage.cacheRead + usage.cacheWrite === 0 ? null : usage.cacheRead / (usage.input + usage.cacheRead + usage.cacheWrite),
+                lastCacheHitRate: usage.lastCacheHitRate,
                 cost: usage.cost === 0 && usage.unpriced > 0 ? null : usage.cost,
                 costState: warnCost > 0 && usage.cost >= warnCost ? "warned" : usage.unpriced > 0 ? "unpriced" : "ok",
             },

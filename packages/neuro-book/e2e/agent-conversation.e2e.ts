@@ -279,6 +279,28 @@ test("模型选择器：面板与输入框同宽；选没绑定的角色说明�
     await page.screenshot({path: testInfo.outputPath("status-narrow.png")});
 });
 
+test("上下文详情：点圆环打开，看到组成；展开系统提示词；也能从顶栏菜单打开", async ({page}, testInfo) => {
+    await script("回复一句");
+    await openConversation(page);
+    await send(page, "问一句");
+    await expect(page.getByText("回复一句")).toBeVisible();
+    await page.locator("[data-agent-status] button[data-context-meter]").click();
+    const inspector = page.locator("[data-context-inspector]");
+    await expect(inspector.locator("[data-context-estimated]")).toBeVisible();
+    await expect(inspector.locator("[data-context-area='history']")).toBeVisible();
+    await inspector.locator("[data-context-system] summary").click();
+    await expect(inspector.locator("[data-context-system] pre")).not.toBeEmpty();
+    await page.screenshot({path: testInfo.outputPath("inspector.png")});
+    await page.keyboard.press("Escape");
+    await expect(inspector).toHaveCount(0);
+
+    await page.locator(".acv-header").getByRole("button", {name: "更多操作"}).click();
+    await page.getByRole("menuitem", {name: "上下文详情"}).click();
+    await expect(page.locator("[data-context-inspector] [data-context-estimated]")).toBeVisible();
+    await page.locator("[data-context-refresh]").click();
+    await expect(page.locator("[data-context-inspector] [data-context-estimated]")).toBeVisible();
+});
+
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
     await script("答一", "摘要正文");
     await openConversation(page);

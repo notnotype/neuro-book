@@ -18,6 +18,10 @@ const props = defineProps<{
     registry: AgentViewRegistry;
 }>();
 
+const emit = defineEmits<{(e: "inspect"): void}>();
+
+const inspectable = computed(() => props.ctx.interaction.canInspectContext === true);
+
 const {t} = useAgentText();
 
 /** 停止超过这么久还没停下，多半是工具不理会中止。 */
@@ -75,7 +79,7 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
 <template>
     <div class="acv-status" data-agent-status>
         <div class="acv-status__left">
-        <AgentContextMeter v-if="usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" />
+        <AgentContextMeter v-if="usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" :interactive="inspectable" @inspect="emit('inspect')" />
         <span v-else-if="usage.contextTokens > 0" class="acv-status__context">{{ formatTokens(usage.contextTokens) }}</span>
         <span v-if="phase !== null" class="acv-status__phase" :data-tone="phase.tone" data-status-phase>
             <span v-if="phase.tone === 'wait'" class="acv-status__dot" aria-hidden="true" />
@@ -92,7 +96,15 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
                 <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-zap" aria-hidden="true" />{{ formatTokens(usage.totalTokens) }}</span>
                 <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-arrow-down" aria-hidden="true" />{{ formatTokens(usage.input ?? 0) }}</span>
                 <span class="acv-status__metric acv-status__metric--detail"><span class="i-lucide-arrow-up" aria-hidden="true" />{{ formatTokens(usage.output ?? 0) }}</span>
-                <span v-if="cachePercent !== null" class="acv-status__metric" data-status-cache><span class="i-lucide-database-zap" aria-hidden="true" />{{ cachePercent }}</span>
+                <component
+                    :is="inspectable ? 'button' : 'span'"
+                    v-if="cachePercent !== null"
+                    v-bind="inspectable ? {type: 'button', 'aria-haspopup': 'dialog', 'aria-label': t('panel.context.open')} : {}"
+                    class="acv-status__metric"
+                    :class="{'is-button': inspectable}"
+                    data-status-cache
+                    @click="inspectable && emit('inspect')"
+                ><span class="i-lucide-database-zap" aria-hidden="true" />{{ cachePercent }}</component>
             </span>
         </Tooltip>
         <span v-if="costText !== null" class="acv-status__metric acv-status__cost" :class="{'is-warn': usage.costState === 'warned'}" :title="costTitle" data-status-cost>
@@ -190,6 +202,23 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
     align-items: center;
     gap: 2px;
     font-variant-numeric: tabular-nums;
+}
+
+.acv-status__metric.is-button {
+    border-radius: 3px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.acv-status__metric.is-button:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.acv-status__metric.is-button:focus-visible {
+    outline: 2px solid var(--focus-outline);
+    outline-offset: 1px;
 }
 
 /* 窄的时候右边只留缓存命中与费用（开发者 2026-11-06），累计、输入、输出在悬停里。右栏默认就窄，缓存命中不能让。 */

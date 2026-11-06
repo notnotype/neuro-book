@@ -11,6 +11,18 @@ const bar = (ctx: AgentConversationContext) => mount(AgentStatusBar, {props: {ct
 const usage = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 162_400, input: 101_200, output: 3_100, cacheRead: 58_100, cacheWrite: 0, cacheHitRate: 0.62, cost: 0.07, currency: "USD" as const};
 
 describe("AgentStatusBar", () => {
+    it("宿主能给上下文详情时圆环与缓存命中能点；不能给时只是显示", async () => {
+        const inspectable = bar(createAgentContext({usage, interaction: {canInspectContext: true}}));
+        await inspectable.get("button[data-context-meter]").trigger("click");
+        await inspectable.get("button[data-status-cache]").trigger("click");
+        expect(inspectable.emitted("inspect")).toHaveLength(2);
+
+        const plain = bar(createAgentContext({usage}));
+        expect(plain.find("button[data-context-meter]").exists()).toBe(false);
+        expect(plain.find("button[data-status-cache]").exists()).toBe(false);
+        expect(plain.get("[data-status-cache]").text()).toBe("62%");
+    });
+
     it("左边圆环与百分比，右边累计、输入、输出、命中与费用", () => {
         const view = bar(createAgentContext({usage}));
         expect(view.find("[data-context-meter]").text()).toBe("13%");

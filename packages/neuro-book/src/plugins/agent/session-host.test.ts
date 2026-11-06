@@ -505,6 +505,31 @@ describe("中断、设置与模型（输出 7–9）", () => {
         await idle(h);
     });
 
+    test("上下文详情：打开时算下一次请求的组成，系统提示词要时才给，关了放掉；模型用不了时说明原因", async () => {
+        const w = await world();
+        const h = await started(w);
+        expect(h.ctx().interaction.canInspectContext).toBe(true);
+        expect(h.ctx().panels.contextInspection).toBeUndefined();
+        h.host.act({type: "context.refresh"});
+        await until("算好了", () => h.ctx().panels.contextInspection?.state === "ready");
+        const ready = h.ctx().panels.contextInspection;
+        if (ready?.state !== "ready") throw new Error("not ready");
+        expect(ready.estimated).toBeGreaterThan(0);
+        expect(ready.window).toBeGreaterThan(0);
+        expect(ready.areas.map((area) => area.key)).toEqual(["system", "tools", "opening", "history", "turn"]);
+        expect(h.ctx().panels.systemPrompt).toBeUndefined();
+        h.host.act({type: "systemPrompt.load", refresh: false});
+        await until("系统提示词", () => h.ctx().panels.systemPrompt !== undefined);
+
+        h.host.act({type: "context.closed"});
+        await until("放掉了", () => h.ctx().panels.contextInspection === undefined && h.ctx().panels.systemPrompt === undefined);
+
+        h.host.act({type: "model.set", modelKey: "没有/这个模型"});
+        await until("模型用不了", () => h.ctx().availability.status === "profile-unavailable");
+        h.host.act({type: "context.refresh"});
+        await until("说明原因", () => h.ctx().panels.contextInspection?.state === "unavailable");
+    });
+
     test("没有模型：发送不可用，说明原因，能打开设置", async () => {
         const w = await world();
         const h = await started(w);

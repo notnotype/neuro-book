@@ -96,6 +96,9 @@
         "rename": "改名",
         "cancel": "取消",
         "loading": "正在加载…",
+        "context": {
+            "unavailable": "现在算不出下一次请求：这个会话的模型用不了，或者还没有可用的 Profile。"
+        },
         "compact": {
             "nothingToCompact": "没有可压缩的内容。",
             "noModel": "压缩用的模型没有设置。到设置里给“压缩”角色绑定一个模型。",

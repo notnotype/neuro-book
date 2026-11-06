@@ -187,6 +187,8 @@ export type InteractionView = {
     canChangeRuntime: boolean;
     canArchive: boolean;
     canRestore: boolean;
+    /** 宿主能给上下文详情：为真时圆环与缓存命中能点，顶栏菜单有入口。 */
+    canInspectContext?: boolean;
     /** 宿主有管理模型的地方（例如设置页）：为真时模型下拉的末尾有“管理模型…”，发出 `model.manage`。 */
     canManageModels: boolean;
     /** 宿主支持的输入框命令名（不含 `/`）；不给时登记的命令都显示。宿主没做的命令不进菜单，免得发出去没有反应。 */
@@ -378,7 +380,10 @@ export type UsageSummaryView = {
     cacheRead: number;
     cacheWrite: number;
     /** 0 到 1；没有数据时为 null。 */
+    /** 累计命中率；服务商不报缓存时为 null。 */
     cacheHitRate: number | null;
+    /** 最近一次模型回复的命中率；没有时为 null 或缺省。 */
+    lastCacheHitRate?: number | null;
     /** 单价未知时为 null。 */
     cost: number | null;
     currency: "USD" | "CNY";
@@ -393,7 +398,29 @@ export type ConnectionView = {
  * 面板数据按面板 id 分区。各面板在 S7 实现时各自收窄自己的那一份；
  * 分区而不是逐个写死字段，是为了让插件登记的面板和内置面板走同一条路。
  */
-export type PanelsView = {[panelId: string]: JsonValue};
+/** 上下文详情的数据（`context.refresh` 时宿主取；关了就放掉）。 */
+export type ContextInspectionView =
+    | {state: "idle" | "loading"}
+    | {state: "unavailable"; reason: string}
+    | {
+        state: "ready";
+        /** 下一次请求的估算，内核算的，不调模型。 */
+        estimated: number;
+        window: number;
+        /** 到这里开始压缩。 */
+        threshold: number;
+        areas: {key: "system" | "tools" | "opening" | "history" | "turn"; tokens: number}[];
+        slots: {name: string; extension: string; tokens: number; placed: boolean}[];
+        diagnostics: {id: string; level: string; message: string}[];
+    };
+
+/** 系统提示词全文（`systemPrompt.load` 时才给）。 */
+export type SystemPromptView = {text: string};
+
+export type PanelsView = {
+    contextInspection?: ContextInspectionView;
+    systemPrompt?: SystemPromptView;
+};
 
 export type AgentConversationContext = {
     /** 未选择会话时为 null。 */
@@ -517,6 +544,8 @@ export type BuiltinAgentViewAction =
     | {type: "tree.copyId"; entryId: string}
     | {type: "context.selectTrace"; traceId: string}
     | {type: "context.refresh"}
+    /** 上下文详情关了：宿主放掉数据。 */
+    | {type: "context.closed"}
     // 工作区变更
     | {type: "changes.select"; path: string}
     | {type: "changes.accept"; path: string}

@@ -1,5 +1,5 @@
 import type {AgentConversationComposer} from "@notnotype/nb-agent-ui/lab";
-import type {AgentModelPicker, AgentRoleModelPicker} from "@notnotype/nb-agent-ui/lab";
+import type {AgentContextInspector, AgentModelPicker, AgentRoleModelPicker} from "@notnotype/nb-agent-ui/lab";
 import type {AgentQueuedMessages} from "@notnotype/nb-agent-ui/lab";
 import type {AgentConversationContext, ComposerView} from "@notnotype/nb-agent-ui";
 import {conversationContext} from "./data";
@@ -72,6 +72,21 @@ export const agentRoleModelPickerScenes: RolePickerScene[] = [
     {id: "role", label: "选了角色", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["off", "low", "medium", "high"], thinking: "high", canManage: true}}},
     {id: "model", label: "选了模型，没有思考档", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "deepseek/flash", effectiveModel: "DeepSeek Flash", thinkingLevels: [], thinking: null}}},
     {id: "unbound", label: "选的角色没绑定", input: {props: {roles: PICKER_ROLES, models: PICKER_MODELS, modelKey: "role:deep", effectiveModel: null, thinkingLevels: [], thinking: null, canManage: true}}},
+];
+
+type InspectorScene = LabFixtureDefinition<typeof AgentContextInspector>["scenes"][number];
+
+const INSPECTOR_USAGE = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 516_400, input: 96_000, output: 12_000, cacheRead: 412_000, cacheWrite: 8_400, cacheHitRate: 0.81, lastCacheHitRate: 0.94, cost: 0.42, currency: "USD" as const};
+
+export const agentContextInspectorScenes: InspectorScene[] = [
+    {id: "ready", label: "有数据", input: {props: {usage: INSPECTOR_USAGE, systemPrompt: null, inspection: {
+        state: "ready", estimated: 54_000, window: 128_000, threshold: 108_000,
+        areas: [{key: "system", tokens: 4_200}, {key: "tools", tokens: 3_100}, {key: "opening", tokens: 2_600}, {key: "history", tokens: 41_800}, {key: "turn", tokens: 2_300}],
+        slots: [{name: "rules", extension: "nbook.agent", tokens: 2_100, placed: true}, {name: "memory", extension: "lab.memory", tokens: 0, placed: false}],
+        diagnostics: [{id: "d", level: "warning", message: "the slot of lab.memory failed"}],
+    }}}},
+    {id: "loading", label: "正在计算", input: {props: {usage: INSPECTOR_USAGE, systemPrompt: null, inspection: {state: "loading"}}}},
+    {id: "unavailable", label: "算不出", input: {props: {usage: INSPECTOR_USAGE, systemPrompt: null, inspection: {state: "unavailable", reason: "现在算不出下一次请求：这个会话的模型用不了。"}}}},
 ];
 
 export const agentModelPickerScenes: PickerScene[] = [

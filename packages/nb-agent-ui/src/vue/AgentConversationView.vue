@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
-import {Button, DropdownMenu, IconButton, OverlayScrollbar, Popover, Spinner} from "@notnotype/nb-ui/components";
+import {Button, Dialog, DropdownMenu, IconButton, OverlayScrollbar, Popover, Spinner} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
+    ContextInspectionView,
     AgentConversationContext,
     AgentConversationServices,
     AgentViewAction,
@@ -17,6 +18,7 @@ import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
 import AgentRawView from "./stream/AgentRawView.vue";
 import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
 import AgentStatusBar from "./composer/AgentStatusBar.vue";
+import AgentContextInspector from "./panels/AgentContextInspector.vue";
 import AgentWizard from "./wizard/AgentWizard.vue";
 import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
 import {provideAgentView} from "./host";
@@ -77,17 +79,44 @@ function setViewMode(mode: AgentViewMode) {
     emit("update:viewMode", mode);
 }
 
-const overflowItems = computed<DropdownMenuItemData[]>(() => [{
-    id: "toggle-view-mode",
-    label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
-    iconClass: currentViewMode.value === "raw" ? "i-lucide-list-collapse" : "i-lucide-list",
-}]);
+const overflowItems = computed<DropdownMenuItemData[]>(() => [
+    ...(props.ctx.interaction.canInspectContext === true ? [{id: "context", label: t("panel.context.title"), iconClass: "i-lucide-gauge"}] : []),
+    {
+        id: "toggle-view-mode",
+        label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
+        iconClass: currentViewMode.value === "raw" ? "i-lucide-list-collapse" : "i-lucide-list",
+    },
+]);
 
 function onOverflowSelect(value: string) {
     if (value === "toggle-view-mode") {
         setViewMode(currentViewMode.value === "raw" ? "turns" : "raw");
     }
+    else if (value === "context") {
+        openInspector();
+    }
 }
+
+// ─── 面板 ───────────────────────────────────────────────────────────────
+
+/** 开着哪个弹窗是纯界面状态，归视图；数据归宿主，打开时要、关掉时放（Spec 的“面板与弹窗”）。 */
+const inspectorOpen = ref(false);
+const IDLE_INSPECTION: ContextInspectionView = {state: "idle"};
+
+function openInspector(): void {
+    inspectorOpen.value = true;
+    emit("action", {type: "context.refresh"});
+}
+
+function onInspectorOpen(open: boolean): void {
+    inspectorOpen.value = open;
+    if (!open) emit("action", {type: "context.closed"});
+}
+
+// 换了会话：弹窗里的数据不再是这个会话的。
+watch(() => props.ctx.session?.id, () => {
+    if (inspectorOpen.value) onInspectorOpen(false);
+});
 
 // ─── 轮次 ───────────────────────────────────────────────────────────────
 
@@ -369,7 +398,27 @@ defineExpose({focusComposer, scrollToLatest});
             v-bind="{inert: waitingForUser}"
             @action="onAction"
         />
-        <AgentStatusBar v-if="props.statusBar" :ctx="props.ctx" :registry="props.registry" />
+        <AgentStatusBar v-if="props.statusBar" :ctx="props.ctx" :registry="props.registry" @inspect="openInspector" />
+        <Dialog
+            :open="inspectorOpen"
+            size="default"
+            :title="t('panel.context.title')"
+            closable
+            :show-footer="false"
+            :teleport-target="props.teleportTarget"
+            data-context-dialog
+            @update:open="onInspectorOpen"
+        >
+            <template #header-extra>
+                <IconButton size="sm" icon-class="i-lucide-refresh-cw" :title="t('panel.context.refresh')" :aria-label="t('panel.context.refresh')" data-context-refresh @click="emit('action', {type: 'context.refresh'})" />
+            </template>
+            <AgentContextInspector
+                :inspection="props.ctx.panels.contextInspection ?? IDLE_INSPECTION"
+                :system-prompt="props.ctx.panels.systemPrompt ?? null"
+                :usage="props.ctx.usage"
+                @load-system-prompt="emit('action', {type: 'systemPrompt.load', refresh: false})"
+            />
+        </Dialog>
         <OriginalImagePreviewDialog
             v-if="preview !== null"
             v-model="previewOpen"
