@@ -11,7 +11,7 @@
  * | 本章的变更、计划、核对点，发生点，涉及的条目 | `writtenIn`、`plansOf`、`chapterEntries` | `own`（发生点由正文与引文决定；涉及的条目由这些对象决定；核对点比较时点的翻转由挂靠的变更决定，在它改的条目的历史里） |
  * | 变更里在场的人、马甲（讲述在本章的也算） | `presentPeople` | 本章的对象提到的条目进 `R` |
  * | 全部知识点的父条目、是否删除、出场、名字、`揭穿`，被引条目的名字 | `pointsAfterWriting`、`pointsBeforeWriting` | `identity` |
- * | 条目在位置上的值（含按计划模式） | `readAppeared`、`secrecyOf` | `entries` |
+ * | 条目在位置上的值（实际模式：写完以后的集合不按计划模式读，knowledge 输出 10） | `readAppeared`、`secrecyOf` | `entries` |
  * | 一个人的知情（显式、在场得知、带过去的） | `knowingIndex` | 这个人的历史 |
  * | 隐秘目标 | `goalsWithSecret` | 持有者的子条目进 `R` |
  * | 告诉他的人的名字、物件是否出现过 | `stateOf`、`seenBefore` | 计划把它们放进 `concerns` |
@@ -25,8 +25,9 @@
  * 改计划要同时改这张表，并在 `testing/random-edits.ts` 里加能走到新读取的操作；`dependencies.test.ts` 用记录视图核对读到的条目都有归属。
  *
  * **为什么认为不会漏**：计划是这些读取的纯函数。除 `entries` 以外的各项都没变，且 `R` 里每个条目都没变时，同样的读取得到同样的值，于是算出同样的 `points` 与 `concerns`，`R` 也不变（不动点，
- * 对“`R` 是当前计划的”成立；过期记录的备忘按重拼的计划算，见 `source.ts`）。跨条目的间接影响走“一条变更整条套上或整条不套”：实际模式放引擎的结论；按计划模式放联动戳（`worldFold` 里有写法）。
- * 不沿着共同提到走闭包，否则很快连成全书。这是推理，不是证明：这张表漏过几次（`dependencies.test.ts` 的“跨条目”那一组都是真实的反例），改计划时要重新过一遍。
+ * 对“`R` 是当前计划的”成立；过期记录的备忘按重拼的计划算，见 `source.ts`）。跨条目的间接影响走“一条变更整条套上或整条不套”，项里放引擎算出的结论，不沿着共同提到走闭包，否则很快连成全书。
+ * 这条路只在实际模式上成立：引擎不给按计划模式的覆盖层上的结论。所以计划的读取路径上**不能读按计划模式的值**（`pointsAfterWriting` 传 `actual`）；为了绕开这一点曾经在摘要里推理覆盖层，每一轮审查都漏，不要走回去。
+ * 这是推理，不是证明：这张表漏过几次（`dependencies.test.ts` 的“跨条目”那一组都是真实的反例），改计划时要重新过一遍。
  *
  * 改了算法要加 `ALGORITHM`：旧记录的摘要对不上，重拼一次，仍有效就回写。
  */
@@ -164,7 +165,10 @@ const placementIndex = (view: CanonReadView, placement: Placement | undefined) =
 const lineOfChange = (change: StoryChange) => change.at.line ?? MAIN_LINE;
 const marksOf = (telling: Telling): readonly Mark[] => telling.marks ?? [];
 
-/** 全部线上的变更分桶：讲述先于安放的按讲述算（读者读到的），被兑现的计划跟着兑现它的变更，替代与拆分（连同 `by`）几头取早的；未排章的与分叉算全局（-1）。 */
+/**
+ * 全部线上的变更分桶：讲述先于安放的按讲述算（读者读到的），被兑现的计划跟着兑现它的变更（兑现继承计划的节点），替代与拆分（连同 `by`）几头取早的；未排章的与分叉算全局（-1）。
+ * 实际模式下真正要跟的只有兑现（继承）；替代与拆分只决定按计划模式计入哪些计划，计划的路径现在不读，留着是只多不少：改它们很少见。
+ */
 function bucketsOfChanges(view: CanonReadView, changes: readonly StoryChange[]): Map<string, number> {
     const chapterIndex = new Map(view.chapters.map((chapter, index) => [chapter, index] as const));
     const buckets = new Map<string, number>();
@@ -194,7 +198,6 @@ function bucketsOfChanges(view: CanonReadView, changes: readonly StoryChange[]):
                 if (link.kind === "fulfills") continue;
                 const early = Math.min(other, own);
                 if (lower(change.id, early)) moved = true;
-                // 拆出的计划计入与否看 `by` 那条兑现变更的状态（canon.model 输出 13），与位置无关：`by` 要跟着计划。
                 if (link.kind === "splitFrom" && lower(link.by, early)) moved = true;
             }
         }
@@ -412,12 +415,17 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
             if (on === null) continue;
             for (const item of effectiveTellings(on)) if (item.located.kind === "found") located.set(item.telling.id, {chapter: item.located.occurrence.chapter, paragraph: item.located.occurrence.paragraph});
         }
+        // 结论按线一次取完：逐条问时线与线交替，超过常驻名额就要反复淘汰重建（canon.worldlines 输出 9）。
+        const outcomes = new Map<string, boolean>();
+        for (const [line, on] of lines) {
+            if (on === null) continue;
+            for (const change of changes) if (change.kind === "written" && lineOfChange(change) === line) outcomes.set(change.id, on.outcome(change.id)?.applied === true);
+        }
         const appliedOf = (change: StoryChange | undefined): string => {
             if (change === undefined || change.kind !== "written" || change.patches.length === 0) return "";
             const line = lineOfChange(change);
             if (!lines.has(line)) return "";
-            const on = lines.get(line)!;
-            return on === null ? "no-line" : String(on.outcome(change.id)?.applied === true);
+            return lines.get(line) === null ? "no-line" : String(outcomes.get(change.id) === true);
         };
         /** 粗定位：找到没有、哪一章、落在该章第几段线。段落号只有 `own` 与 `material` 要。 */
         const coarse = (thing: Thing) => thing.tellings.map((telling) => {
@@ -468,14 +476,13 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
 
         // 核对点放挂靠的变更算不算数：它决定比较时点在挂靠处还是在安放处。没有补丁的变更也算，撤销了就回到安放处。核对点是本章的对象，它改的条目在 `R` 里，这一项在那个条目的历史里。
         const anchorState = (anchor: StoryChange) => {
-            const line = lineOfChange(anchor);
-            const on = lines.get(line);
-            return on === undefined ? "" : on === null ? "no-line" : `${anchor.status}:${String(on.outcome(anchor.id)?.applied === true)}`;
+            const on = lines.get(lineOfChange(anchor));
+            return on === undefined ? "" : on === null ? "no-line" : `${anchor.status}:${String(outcomes.get(anchor.id) === true)}`;
         };
-        const itemKey = (thing: Thing, stamp: string) => `${factsOf(thing.value, digest, caches).digest}|${thing.anchor === undefined ? appliedOf(thing.change) : anchorState(thing.anchor)}|${coarse(thing)}|${stamp}`;
+        const itemKey = (thing: Thing) => `${factsOf(thing.value, digest, caches).digest}|${thing.anchor === undefined ? appliedOf(thing.change) : anchorState(thing.anchor)}|${coarse(thing)}`;
         const addItem = (thing: Thing) => {
             const objectDigest = factsOf(thing.value, digest, caches).digest;
-            const value = valueOf(caches.items, thing.value, itemKey(thing, stamps.get(thing) ?? ""), digest);
+            const value = valueOf(caches.items, thing.value, itemKey(thing), digest);
             for (const id of thing.mentions) historyOf(id).add(thing.bucket, value);
             if (inForeshadow(thing)) foreshadow.add(thing.bucket, value);
             if (isMaskChange(thing) || isNameChange(thing)) identity.add(thing.bucket, value);
@@ -499,47 +506,6 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
                 for (const id of thing.mentions) fold.mentions.add(id);
             }
         };
-
-        // 联动戳：按安放的先后扫一遍。一条变更整条套上或整条不套，所以改两个以上条目的变更，能不能套上取决于它别的目标的历史。已写变更的实际结论放进了项；按计划模式读时，
-        // 计划与它们在覆盖层上的结论引擎不给（`outcome` 只有实际模式），只能放“决定这个结论的东西”：它改的条目到这里为止的全部项。改两个以上条目的计划都要；已写变更只有目标已经被
-        // 计划影响到时才要（否则按计划模式与实际模式没有差别）。按安放，不按桶：讲述或替代会把桶提前，而能不能套上看的是安放之前。同一章的先后不细分，几条一起算一个戳。
-        const stamps = new Map<Thing, string>();
-        {
-            const running = new Map<string, {a: number; b: number}>();
-            const touched = new Set<string>();
-            const targetsOf = (thing: Thing) => [...new Set((thing.change?.patches ?? []).map((patch) => patch.at.entry))];
-            const byChapter = new Map<number, Thing[]>();
-            for (const thing of things) {
-                if ((thing.change?.patches.length ?? 0) === 0) continue;
-                const index = thing.change!.at.kind === "chapter" ? (chapterIndex.get(thing.change!.at.chapter) ?? -1) : -1;
-                const list = byChapter.get(index);
-                if (list === undefined) byChapter.set(index, [thing]);
-                else list.push(thing);
-            }
-            for (const index of [...byChapter.keys()].sort((a, b) => a - b)) {
-                const here = byChapter.get(index)!;
-                for (const thing of here) if (thing.change!.kind === "plan") for (const id of targetsOf(thing)) touched.add(id);
-                const linked = here.filter((thing) => {
-                    const targets = targetsOf(thing);
-                    return targets.length >= 2 && (thing.change!.kind === "plan" || targets.some((id) => touched.has(id)));
-                });
-                if (linked.length > 0) {
-                    const targets = [...new Set(linked.flatMap(targetsOf))].sort();
-                    const stamp = digest(JSON.stringify([linked.map((thing) => factsOf(thing.value, digest, caches).digest).sort(), targets.map((id) => [id, running.get(id)?.a ?? 0, running.get(id)?.b ?? 0])]));
-                    for (const thing of linked) {
-                        stamps.set(thing, stamp);
-                        for (const id of targetsOf(thing)) touched.add(id);
-                    }
-                }
-                for (const thing of here) {
-                    const value = valueOf(caches.items, thing.value, itemKey(thing, stamps.get(thing) ?? ""), digest);
-                    for (const id of targetsOf(thing)) {
-                        const sum = running.get(id) ?? {a: 0, b: 0};
-                        running.set(id, {a: (sum.a + value.a) % MODULUS, b: (sum.b + value.b) % MODULUS});
-                    }
-                }
-            }
-        }
 
         // 条目本身：进它自己的历史（全局那一桶，改了条目本身读它的章都要重拼），身份集合里的进 `identity`，伏笔进 `foreshadow`。
         const entriesInBucket = new Map<number, Entry[]>();
@@ -584,12 +550,16 @@ function worldFold(view: CanonReadView, digest: Digest): WorldFold {
         }
 
         // 章序、线、分叉。
-        // 线看得到什么：看切口与触发处两条变更现在的位置（挪它们，子线看得到的前史就变了）。线名计划不读。
+        // 线看得到什么：看切口与触发处两条变更现在在哪、还算不算数（挪它们，子线看得到的前史就变了）；分叉自己除了线名都读。线名计划不读。
         const summaryOf = view.lines().map(({name: _name, ...rest}) => rest);
-        const lineChanges = view.lines().flatMap((line) => [line.fork, line.cut, ...(line.trigger === undefined ? [] : [line.trigger])]);
-        const lineDigests = [...new Set(lineChanges)].sort().map((id) => {
-            const stored = view.object({kind: "change", id}) as StoryChange | undefined;
-            return stored === undefined ? null : factsOf(stored, digest, caches).digest;
+        const lineDigests = view.lines().map((line) => {
+            const edge = (id: string | undefined) => {
+                const stored = id === undefined ? undefined : (view.object({kind: "change", id}) as StoryChange | undefined);
+                return stored === undefined ? null : {at: stored.at, status: stored.status, kind: stored.kind};
+            };
+            const fork = view.object({kind: "change", id: line.fork}) as StoryChange | undefined;
+            const {name: _forkName, ...forkFields} = fork?.fork ?? {name: ""};
+            return {cut: edge(line.cut), trigger: edge(line.trigger), fork: forkFields, at: fork?.at ?? null, status: fork?.status ?? null};
         });
         const order: string[] = [digest(canonicalJson({lines: summaryOf, lineDigests}))];
         for (const [index, chapter] of view.chapters.entries()) order.push(digest(`${order[index]!}|${chapter}|${JSON.stringify(chapterSegments.get(chapter))}`));

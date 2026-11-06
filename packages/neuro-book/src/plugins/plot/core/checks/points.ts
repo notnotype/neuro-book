@@ -44,8 +44,9 @@ function maskingPoints(view: CanonReadView): ReadonlySet<string> {
 export function pointsAfterWriting(segment: CheckSegment, chapter: string, written: readonly StoryChange[], text: string): string[] {
     const {frame, view} = segment;
     const end: ReadPosition = {kind: "chapter", chapter, edge: "end"};
-    const points = new Set(pointsBeforeWriting(frame, chapter, plansOf(frame, chapter)));
-    for (const change of written) for (const id of pointsReferencedBy(frame, change)) points.add(id);
+    // 按实际模式读：写完了，计划没发生就是没发生。也只有这样依赖摘要才不用推理按计划模式的覆盖层（dependencies.ts）。
+    const points = new Set(pointsBeforeWriting(frame, chapter, plansOf(frame, chapter), "actual"));
+    for (const change of written) for (const id of pointsReferencedBy(frame, change, "actual")) points.add(id);
     const names = everyName(view);
     const masking = maskingPoints(view);
     const memo = new Map<string, boolean>();

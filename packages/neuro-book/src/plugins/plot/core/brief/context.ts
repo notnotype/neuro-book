@@ -5,7 +5,7 @@
  * 读取位置只有初值与章首、章末，所以近似成那处安放所在章的章首（前史读初值），是 Spec 没写清的近似，记待确认。
  */
 
-import type {CanonReadView, Mark, Placement, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, Mark, Mode, Placement, ReadPosition, StoryChange} from "@notnotype/nb-canon/schema";
 
 import {DEFAULT_SECRECY, ENTRY_TYPES, MARK_IDS, type Secrecy} from "../../shared/declarations";
 import {changeIndex} from "../change-index";
@@ -80,10 +80,10 @@ export function nameOf(frame: Frame, id: string): string {
     return read === null || read === "chapter-not-found" ? id : read.name;
 }
 
-const secrecyOf = (frame: Frame, id: string): Secrecy | null => {
+const secrecyOf = (frame: Frame, id: string, mode: Mode = "planned"): Secrecy | null => {
     const stored = frame.view.object({kind: "entry", id}) as {type?: string; deleted?: boolean} | undefined;
     if (stored === undefined || stored.deleted === true || stored.type !== ENTRY_TYPES.point) return null;
-    const read = frame.view.entry(id, frame.position, "planned");
+    const read = frame.view.entry(id, frame.position, mode);
     if (read === null || read === "chapter-not-found") return null;
     const value = read.namespaces.point?.fields.保密?.value;
     return typeof value === "string" ? (value as Secrecy) : DEFAULT_SECRECY;
@@ -108,7 +108,7 @@ export function planReveals(plans: readonly StoryChange[]): Map<string, "hint" |
 }
 
 /** 补丁、标注里引到的知识点：补丁地址的条目、`know.知情[P]` 路径、值里的 `id` 与 `ref`。 */
-function patchPoints(frame: Frame, plan: StoryChange): string[] {
+function patchPoints(frame: Frame, plan: StoryChange, mode: Mode): string[] {
     const found: string[] = [];
     for (const patch of plan.patches) {
         found.push(patch.at.entry);
@@ -119,19 +119,19 @@ function patchPoints(frame: Frame, plan: StoryChange): string[] {
             if (typeof value.ref === "string") found.push(value.ref);
         }
     }
-    return found.filter((id) => secrecyOf(frame, id) !== null);
+    return found.filter((id) => secrecyOf(frame, id, mode) !== null);
 }
 
 const marksOf = (marks: readonly Mark[] | undefined, kind: string) => (marks ?? []).filter((mark) => mark.kind === kind && mark.version === 1);
 
 /** 一条变更引用到的知识点：补丁、标注（揭示、在场揭示、伏笔节点所指伏笔的答案）、讲述上的标注（knowledge 输出 10 的“这几样”）。 */
-export function pointsReferencedBy(frame: Frame, change: StoryChange): string[] {
-    const points = patchPoints(frame, change);
+export function pointsReferencedBy(frame: Frame, change: StoryChange, mode: Mode = "planned"): string[] {
+    const points = patchPoints(frame, change, mode);
     for (const mark of marksOf(change.marks, MARK_IDS.presentLearns)) if (typeof mark.point === "string") points.push(mark.point);
     for (const telling of change.told) {
         for (const mark of marksOf(telling.marks, MARK_IDS.reveal)) if (typeof mark.point === "string") points.push(mark.point);
         for (const mark of marksOf(telling.marks, MARK_IDS.node)) {
-            const foreshadow = frame.view.entry(String(mark.foreshadow), frame.position, "planned");
+            const foreshadow = frame.view.entry(String(mark.foreshadow), frame.position, mode);
             const answer = foreshadow === null || foreshadow === "chapter-not-found" ? undefined : (foreshadow.namespaces.fs?.fields.答案?.value as {ref?: unknown} | null | undefined)?.ref;
             if (typeof answer === "string") points.push(answer);
         }
@@ -142,17 +142,17 @@ export function pointsReferencedBy(frame: Frame, change: StoryChange): string[] 
 /**
  * 本章涉及的知识点，写之前的集合（knowledge 输出 10）：计划的补丁与标注（揭示、在场揭示、伏笔节点所指伏笔的答案）、细纲讲述上的
  * 标注引用到的知识点；加上主体是计划的参与者或涉及的条目、保密档为 `secret` 或 `topSecret` 的知识点；加上这些参与者进行或受挫的
- * 目标的 `隐秘` 指向的知识点。阶段 F 的“写完以后的集合”在它上面加。
+ * 目标的 `隐秘` 指向的知识点。给写手的简报按计划模式读（`mode` 的缺省）；写完以后的集合在它上面加，按实际模式读（knowledge 输出 10）。
  */
-export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readonly StoryChange[]): string[] {
+export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readonly StoryChange[], mode: Mode = "planned"): string[] {
     const points = new Set<string>();
     const view = frame.view;
     const entries = new Set(view.chapterEntries(chapter, "planned"));
-    for (const plan of plans) for (const id of pointsReferencedBy(frame, plan)) points.add(id);
+    for (const plan of plans) for (const id of pointsReferencedBy(frame, plan, mode)) points.add(id);
     // 主体（条目树里的父条目）是参与者或涉及的条目、保密以上的知识点。
     const secrecy = new Map<string, Secrecy | null>();
     const secrecyOnce = (id: string) => {
-        if (!secrecy.has(id)) secrecy.set(id, secrecyOf(frame, id));
+        if (!secrecy.has(id)) secrecy.set(id, secrecyOf(frame, id, mode));
         return secrecy.get(id)!;
     };
     for (const entry of view.entries()) {
@@ -161,7 +161,7 @@ export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readon
             if (isSecretPlus(secrecyOnce(entry.id))) points.add(entry.id);
         } else if (entry.type === ENTRY_TYPES.goal) {
             // 参与者进行或受挫的目标的隐秘知识点。
-            const read = view.entry(entry.id, frame.position, "planned");
+            const read = view.entry(entry.id, frame.position, mode);
             if (read === null || read === "chapter-not-found" || read.deleted || !read.appeared) continue;
             const status = read.namespaces.goal?.fields.状态?.value;
             const secret = (read.namespaces.goal?.fields.隐秘?.value as {ref?: unknown} | null | undefined)?.ref;

@@ -73,7 +73,8 @@ export function createCheckSource(input: SourceInput): FullCheckSource {
             const instruction = instructions.get(chapter);
             const selfReport = selfReports.get(chapter);
             const {valid, plan} = validityOf({view, record, digest, ...(instruction === undefined ? {} : {instruction}), ...(selfReport === undefined ? {} : {selfReport})});
-            const concerned = plan ?? NOTHING;
+            // 只留这两个数组：整份计划带着每次调用的全文，每章一份能到 100 KiB。
+            const concerned = plan === null ? NOTHING : {points: plan.points, concerns: plan.concerns};
             const next = dependencies(view, chapter, followUps, concerned);
             verdicts.set(chapter, {of, concerned, dependencies: next, valid});
             // 回写现在涉及的知识点与条目，连同按它们算的摘要：只换摘要的话，之后才进本章的知识点、条目上的改动就看不见了。
