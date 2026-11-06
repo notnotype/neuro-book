@@ -1,0 +1,194 @@
+# w00039 t34 阶段 G 设计审查（Opus）。审查对象：/tmp/review-w00039-t34-P8/plan-stage-g.md
+# 实验在实现 worktree 跑，HEAD 核对过是 7c61f6125（与审查 worktree 相同，没有用 frozen-loader）。
+# 反例脚本：/tmp/review-w00039-t34-P8/scratch/{proto.ts,ce-common.ts,ce1.ts,ce2.ts}。proto.ts 是把计划的新摘要照字面写的一份原型，凡是计划没说清的都取“多算”的读法（material 用真实的 foreshadowIndex）；世界都是 PlotWorld（真实的 nb-canon World），重拼是真实的 planCheck。
+# 运行：cd <实现 worktree>/packages/neuro-book && bun /tmp/review-w00039-t34-P8/scratch/ce2.ts
+# LEAK:true 的判据：原型的摘要逐项相同（changedParts 为空），planCheck 的调用集合或输入摘要变了。currentDigestSame:false 表示现在的滚动摘要能抓到，也就是计划带来的回退。
+
+### 1. `foreshadow` 项漏了四条路径，改早先的东西后物件层候选变了而摘要不变
+严重程度：阻断
+类别：正确性（输出 7）
+位置：计划“`dependencies.ts`（G3）”表的 `foreshadow` 行；`core/checks/candidates.ts:155-166`（`foreshadowIndex`、`index.stage`）、`core/foreshadowing.ts:158-180`（揭示算悬念的节点、继承）
+现象：`foreshadow[≤B]` 只有“全部伏笔条目（整个）与提到任何伏笔的变更”，而且只有 `history` 才带“套没套上”和“讲述的粗定位”。物件层读的是 `index.stage(F, 章首)`，阶段由下面四样决定，都不在摘要里：
+  (a) 悬念答案 K 上的 `reveal`（`foreshadowing.ts:162`）：揭示所在的变更只提到 K，不提到 F，也不提到物件。K 不在本章的 `points` 时 `history(K)`、`material` 都不算。
+  (b) 讲述定位：节点的讲述失联（改早先一章的正文），变更对象一个字没变。计划的 G0 自己把“删掉被引的句子”列为操作，这条反例就在这个操作上。
+  (c) 兑现继承（`foreshadowing.ts:170-179`）：新写的兑现变更 W 不提到 F，只有计划提到；“链接成组”只写在 `history` 下面。
+  (d) 改 `fs.物件`、`fs.答案` 的变更 C 被别的变更 D 弄得套不上（D 只提到别的条目）。
+为什么是问题：物件层候选出现或消失，调用集合就变了；摘要没变时诊断继续报旧结论，违反输出 7。这是计划最大风险那一条（“漏依赖”）的直接实例，而且现在的滚动摘要都抓得到（currentDigestSame:false），是纯回退。
+如何核实：bun scratch/ce1.ts、ce2.ts 的实际输出（第 8 章，都是 newDigestSame:true、changedParts:[]、currentDigestSame:false）：
+  A1 揭示改成暗示：callsBefore [time,fixed] -> callsAfter [object:main#1:e1,time,fixed]
+  A2 删掉第 5 章被引的句子（揭示失联）：[time,fixed] -> [object:main#1:e1,time,fixed]
+  A3 删掉第 2 章被引的句子（节点失联）：[object:main#1:e1,time,fixed] -> [time,fixed]
+  A4 第 5 章新写一条兑现带回收节点的计划的变更：[object:main#1:e1,time,fixed] -> [time,fixed]
+  A5 撤销 D 让 C 套上（C 给伏笔加物件）：[time,fixed] -> [object:main#1:e3,time,fixed]
+建议改法：`foreshadow` 不要单独定义成“对象的滚动”。把每个伏笔 F 和它任何时候可能的答案（初值与补丁里写过的 `答案`）当成全局的 R 成员，走同一个 `history`（带成组、套没套上、粗定位）。答案上的揭示从此是全局依赖，代价写进“仍会全部重拼”。另一种更省的做法：直接把“每个伏笔到章首的阶段、名字、物件”的结论（`foreshadowIndex` 的输出）放进摘要，与“把引擎算出的结论放进摘要”同一个思路，但要解决每章建一次索引的开销（见第 12 条）。
+
+### 2. `identity` 项不带“套没套上”，改名的补丁被间接弄得套不上时摘要不变
+严重程度：阻断
+类别：正确性（输出 7）
+位置：计划 `identity` 行“加上改 `entry.*`、`point`、`point.揭穿` 的变更”；`core/checks/points.ts:53-74`
+现象：计划把“带上套没套上”只写在 `history` 下，理由是它截断跨条目的间接影响；`identity` 里的变更只有对象本身。父条目 P、物件 O 不在 R 里时（这正是 `identity` 存在的场合），C 改 P 的名字并带着别的补丁，D 让 C 整条套不上（model.md 输出 7：整条套上或整条不套），D 既不改 `entry.*` 也不提到 P。
+为什么是问题：`named(parent)` 读的是折叠后的名字，C 套没套上决定 P 的名字在不在正文里，决定 K 进不进 `points`。计划“跨条目的间接影响”的确定用例只测 `history` 那一路（在场得知），这一路测不到。
+如何核实：ce2.ts 实际输出：
+  B1 撤销 D，C 把老周改名周掌柜，正文有“周掌柜”：newDigestSame:true，pointsBefore [] -> pointsAfter [e5]，callsAfter 多 presence:main#1:e5:e4，currentDigestSame:false
+  B2 撤销 D，C 把物件改名铜钥匙：newDigestSame:true，callsAfter 多 object:main#1:e3，currentDigestSame:false
+建议改法：`identity` 里的每条变更也带 `outcome`（以及成组）。这一项只是摘要里多一个布尔，不会让“不该变”的目标变差：`outcome` 变了的情况本来就可能改名字。
+
+### 3. 计划的“套没套上”拿不到：`view.outcome` 对计划恒为 undefined，覆盖层上的结果读不到
+严重程度：阻断
+类别：正确性（输出 7）；依赖的机制不存在
+位置：计划“一项的摘要 = 对象本身的摘要 + 这条变更在它自己那条线上套没套上”；`nb-canon/src/engine/incremental.ts:502-506`（`outcome` 只读 `actual.outcomes`，事件里只有已写变更，`actualEvents` :602）、:236-257（`snapshotFor` 的覆盖层）、`core/brief/context.ts:83-90,158-169`
+现象：`pointsBeforeWriting` 按计划模式读知识点的 `保密`、目标的 `状态` 与 `隐秘`、伏笔的 `答案`。计划在覆盖层上同样整条套上或整条不套（`recompute` 里走 `applyChange`），结果留在覆盖层的 `outcomes`，读取视图没有给出。计划 C 的补丁改 K 并带着别的补丁，已写变更 D 让它套不上，翻转以后 K 的保密档或目标的隐秘变了；`history(K)` 里 C 的对象没变、`outcome` 前后都是 undefined，D 不提到 K。
+为什么是问题：这一路在 K 进不进 `points` 上起决定作用（输出 10 的写之前集合）。计划的“为什么不会漏”把“套没套上”当成已有的引擎结论，对计划不成立；而且计划的结果随读取位置变（覆盖层按计入集合建），不是一个布尔能表达的，“它自己那条线”的说法也不够：要说清哪个位置。
+如何核实：ce2.ts 实际输出（撤销 D，第 8 章）：
+  D1 计划把 K 的保密改成 secret，开了有限视角：newDigestSame:true，pointsBefore [] -> pointsAfter [e4]，调用 id 不变但 fixed 的输入摘要变了，currentDigestSame:false
+  D2 计划给目标加隐秘 K：newDigestSame:true，pointsAfter [e4]，callsAfter 多 presence:main#1:e4:e3，currentDigestSame:false
+建议改法：两种，都要动上游。(a) 摘要里放“值”而不是“过程”：对 R 里的条目，把 `view.entry(X, frame.position, "planned")` 里计划实际读的字段（`保密`、`状态`、`隐秘`、`答案`）放进摘要；这正是计划说的“把结论放进摘要”，也不用给内核加接口，但每章每个条目要多读一次（探针 77 微秒一次，G1 之后更少）。(b) 内核加 `planOutcome(plan, position)`，要改 canon.model 输出 20，并违背计划“`canon` 系列不变”。我倾向 (a)。这条与第 2 条放在一起看：`entries` 与 `identity` 用读出来的值代替变更过程，“不动点”论证会简单很多。
+
+### 4. 讲述在本章、安放在别处的变更：在场的人不在 `R` 里
+严重程度：阻断
+类别：正确性（输出 7）
+位置：计划“`R(N)`”段（`concerns` 扩成“实际模式与按计划模式的 `chapterEntries`、视角人物、候选里的 `谁告诉的`、伏笔物件层的物件”）；`core/checks/segments.ts:105-109`（`writtenIn` 收讲述在本段的变更）、`core/checks/candidates.ts:87-101`（`presentPeople`）、`nb-canon/src/engine/incremental.ts:575-588`（`chapterEntries` 只看 `at` 在本章）
+现象：`writtenIn` 把“讲述落在本段、安放在别的章”的已写变更算进来（补叙的常态），它的 `cast` 进 `presentPeople`，于是读这个人的名字、马甲（`member.as`）、知情。`chapterEntries` 只算安放在本章的，所以这个人不在计划列的 `concerns` 里，也不在 R 里，他的子条目（隐秘目标）也不在。表里“一个人的知情 -> 这个人的 `history`”对他不成立。`own` 里有这条变更本身，但别的改动不改这条变更。
+为什么是问题：候选 `presence:<段>:<K>:<人>` 与题面都依赖他。
+如何核实：ce1.ts 实际输出（变更安放第 3 章、讲述在第 8 章，cast 是目击者 e2）：
+  C1 给目击者建一个隐秘目标指向 K：newDigestSame:true，callsBefore [presence:main#1:e3:e1, presence:main#1:e3:e2, time, fixed] -> callsAfter 少了 presence:main#1:e3:e2，currentDigestSame:false
+  C2 改目击者的初值名字：newDigestSame:true，调用 id 相同、题面变了（planSame:false），currentDigestSame:false
+建议改法：R 并上 `own` 里每个对象提到的全部条目（就用同一个正则）。这比按读取逐项列举更稳，也顺带盖住第 8 条的核对点、`patchPoints` 读到的非知识点引用。对“不该变”的目标影响很小：它们本来就是这一章的变更提到的。
+
+### 5. “它们提到的条目”没定义：`揭穿`、`物件`靠补丁写的时候，马甲与物件的身份不进 `identity`
+严重程度：重要
+类别：接口与合同；正确性（取决于实现怎么读这句话）
+位置：计划 `identity` 行“全部知识点、全部伏笔、它们提到的条目”；`core/checks/points.ts:71-73`、`core/checks/candidates.ts:165-171`
+现象：`identity` 的条目投影里只有 `init.data.point.揭穿`，“它们提到的”照字面是条目对象上提到的。`揭穿` 与 `fs.物件` 都能由补丁写（`maskingPoints` 就在找这种）。这时马甲、物件的 `init.name`、`init.aliases`、`appears`、`deleted` 都不在 `identity`；它们也不在 R（知识点还没进本章、物件还不是候选）。
+如何核实：ce1.ts 实际输出（第 8 章）：
+  E1 `揭穿` 由第 3 章的补丁指向黑衣人，改黑衣人的初值名字为正文里的“灰袍客”：newDigestSame:true，pointsBefore [] -> pointsAfter [e4]，currentDigestSame:false
+  E2 `物件` 由第 2 章的补丁加入，改物件的初值名字为正文里的“铜钥匙”：newDigestSame:true，callsAfter 多 object:main#1:e1，currentDigestSame:false
+  把“提到”扩到 identity 收的变更之后（proto.ts 的 generous 读法），E1 的摘要会变（changedParts:["identity"]）：这是接口没写清，不是设计走不通。
+建议改法：改成照字面能实现的一句：“全部知识点、全部伏笔、它们的条目对象与收进 `identity`、`foreshadow` 的变更（不论套没套上）里提到的全部条目”。
+
+### 6. 过期记录的 `R` 是旧的，`source.ts` 的备忘把“过期”沿用到已经与记录相同的世界上
+严重程度：重要
+类别：不动点论证的缺口；正确性（输出 7）
+位置：计划“为什么不会漏”；`core/checks/source.ts:39-63`（备忘按 `record.dependencies` 与 `current` 比；`current` 用记录存的 `points`、`concerns` 算；只有仍有效才回写）
+现象：不动点论证只对“记录有效、R 是当前计划的 R”成立。记录过期以后没有回写，R 停在旧计划；此后新计划读到的、旧 R 里没有的东西变了，`current` 不变，备忘命中，直接回答旧结论。现在的滚动摘要覆盖整个前缀，所以备忘是精确的；换成窄摘要以后这个备忘的前提就没了，计划没提这处要改。
+如何核实：ce3.ts 实际输出：
+  {"case":"G1","d0ne1":true,"d1eqd2":true,"validV1":false,"callsV1":[presence:main#1:e3:e1, presence:main#1:e3:e2, time, fixed],"validV2ByRebuild":true,"callsV2":[time, fixed],"recordCalls":[time, fixed],"memoWouldAnswer":false}
+  V1：本章多了老周在场，他名下的秘密进本章，记录过期。V2：把这个秘密改成不保密，调用集合回到与记录相同，重拼判有效；但旧 R 里没有它，摘要 d1 == d2，备忘答“过期”。这个结论一直错到重启或别的依赖变了。
+  反方向也有（从代码推断，没有跑）：仍有效的记录，回写排队或回写失败期间，备忘按旧 R 记着“有效”，新 R 里的东西变了也命中。回写失败时（`writeBackRecord` 只记诊断）一直错到重启。
+建议改法：备忘存重拼时的计划的 `points`、`concerns`，比的时候用“记录的 R 并上备忘的 R”算一次 `current`。验收加这条确定用例；`source.test.ts` 的随机序列要有“记录过期以后再改回去”这种操作。
+
+### 7. 这张网抓不到上面几条：G0 在滚动摘要上通过没有信息量，操作清单与“上表每一行”都漏了表外的读取
+严重程度：重要
+类别：验收映射
+位置：计划“切片”G0、“验收映射”；`core/checks/dependencies.test.ts:301-347`（现在的随机序列只有 7 种操作，只比 ch8、ch12）
+现象：
+  (a) G0 要求新用例“都在现在的摘要上通过”。滚动摘要几乎任何改动都变，网再疏也通过；网的强度只有 G3 换了实现才第一次受检，而那时能发现的只有操作清单走得到的。
+  (b) “读到的每一类：上表每一行至少一条”只测表里写了的。第 1 到 5 条的共同点是表上没有，或者表上写了但摘要的那一项少了东西。阶段 F 手写摘要时审查找到五类漏项也是这个形状。
+  (c) 随机操作清单没有：补丁真的套不上（现有世界要 `listRemove` 这类 element-missing 才行，`启用` 改 false 只算不适用、整条仍算套上，我第一版反例就踩了这个）、伏笔的 `物件` 与答案、讲述在别章（补叙）带 `cast`、按计划模式的补丁、核对点带 `anchor`、改 `appears`、新建目标、补叙的 `timeMode`。“每一步比摘要与重拼”如果沿用只比两章，前面的章被后面的改动影响时也看不到。
+  (d) 计划说“实施时核对每种操作都真的让摘要或结论变过”，防的是空转，不防漏项。
+如何核实：把第 1 到 5 条的实验对照清单逐条看：A1 到 A5、B1、B2、C1、C2、D1、D2、E1、E2 里，确定用例“D 让 C 的补丁套不上，C 的在场得知失效”只覆盖 `history` 这一路（实验 S1、S2 在原型上是抓得到的）。
+建议改法：加一个只在测试里用的“记录视图”：用 Proxy 包 `CanonReadView`（`ce4.ts` 就是这么包的，十几行），记下 `planCheck` 期间每次 `entry`、`object`、`outcome`、`origins`、`tellings` 读到的 id。断言：每个读到的 id 要么在这章的 R 里，要么在 `identity`、`foreshadow` 的集合里。这是机械的完备性检查，不靠随机碰上。再加变异检查（I6 已经是这个仓库的做法）：从摘要里逐项去掉一项，对应的用例必须失败。随机序列每步比全部章。
+
+### 8. 核对点挂靠的变更早于 `place` 时，现有分桶已经漏了；计划沿用“现有规则”，`own` 的“比较时点”也拿不到
+严重程度：重要
+类别：正确性（输出 7，HEAD 上已经存在）；依赖的机制不存在
+位置：`core/checks/dependencies.ts:164-168`（只看 `check.place` 与 `told`）；`nb-canon/src/engine/incremental.ts:143-150,586`（`checkPoint` 走 `anchor`）；`nb-canon/src/world/world.ts:1373`（只校验挂靠的变更存在，不校验章）；canon/model.md 输出 11、20；计划 `own`“比较时点或讲述在本章的核对点”
+现象：`chapterEntries` 按比较时点算，比较时点挂在 `anchor` 的变更上、不是 `place`。核对点 `place` 在第 10 章、`anchor` 在第 3 章的变更上时，第 3 章涉及的条目多了一个，它名下的秘密成了候选；现在的分桶把这个核对点放在第 10 章，第 3 章的摘要不变。读取视图也没有给“比较时点”的接口，`own` 想照字面做就要在插件里重写一遍 `checkPoint`（含套没套上、语义档与已删除条目的排除）。
+如何核实：ce1.ts 实际输出（现在的 `dependenciesOf` 也中）：
+  F1 第 10 章放一个挂在第 3 章变更上的核对点：chapter ch3，newDigestSame:true，currentDigestSame:true，planSame:false，callsBefore [time,fixed] -> callsAfter [presence:main#1:e3:e2,time,fixed]，pointsAfter [e3]
+建议改法：`own` 不要自己判断比较时点：把各段线上 `view.chapterEntries(chapter, "actual"|"planned")` 的结果（集合本身）放进 `own`，它就是计划读的东西。核对点在 `history` 里的分桶改成 `place`、`told`、`anchor` 变更的安放三者取早。G0 的操作清单加“带 `anchor` 的核对点”。这条可以单独修，不用等 G3。
+
+### 9. `readAppeared` 用 `perViewCache` 缓存，上限 16 份、先进先出，命中率不到一半的一半
+严重程度：重要
+类别：依赖的机制（照字面实现达不到目的）
+位置：计划“`segments.ts`（G1）”；`core/view-cache.ts:13,27`（`PER_VIEW = 16`，每个视图每种索引 16 份，先建的先丢）
+现象：计划写明 `perViewCache`，键是视图、条目、位置、模式。一章读几十个不同的键，循环读法正好让 16 份的 FIFO 失效。
+如何核实：ce4.ts（40 章的合成世界，Proxy 记录 `planCheck` 里经 `readAppeared` 的读取）实际输出：
+  [{"ch":"ch10","allEntryReads":60,"reads":48,"distinct":26,"hitUnbounded":0.458,"hitFifo16":0.188},{"ch":"ch25","allEntryReads":67,"reads":50,"distinct":27,"hitUnbounded":0.46,"hitFifo16":0.18},{"ch":"ch40","allEntryReads":70,"reads":54,"distinct":30,"hitUnbounded":0.444,"hitFifo16":0.148}]
+  即使不限量也只省不到一半；16 份只省 15% 到 19%。探针的每章 160 次读取规模更大，FIFO 只会更差。另外有约两成读取不经 `readAppeared`（`ForeshadowIndex` 构造、`#derivedOf`、`secrecyOf`、`pointsBeforeWriting`），这个缓存管不到。
+  另一面：`ledgers.ts:43,68` 也走 `readAppeared`，只读 `保密` 与名字，所以缓存结果不受归纳影响这一点成立，没有发现读语义档的路径。
+建议改法：单独一个 `WeakMap<view, Map<位置|模式, Map<id, EntryView|null>>>`，按位置只留最近几个（与 `includedPlans` 同样的理由）。“快 2 倍以上”这条目标要按实测定，不要按这个缓存算。
+
+### 10. `plot-scale.ts` 的世界走不到新摘要最贵的几条路径，“普通发布不变差”量不出来
+严重程度：重要
+类别：验收映射
+位置：计划“目标”表最后一行、G4、“每次发布的摘要开销可能变大：G4 量”；`packages/neuro-book/scripts/perf/plot-scale.ts`
+现象：这份脚本里 `kind: "plan"` 0 处，`答案`、`物件`、`mystery`、`chapterLines`、`timeMode` 0 处（grep 结果）；3 条分叉都安放在最后一章，活页夹不讲，也没有变更安放在子线上。所以：`material` 永远是空的；覆盖层（`snapshotFor` 的 `recompute` 加 `[...events, ...included].sort`）从不触发，`includedPlans` 永远返回空；物件层候选不存在；按线取 `outcome` 只有主线；`retold`、核对点也基本没有。
+为什么是问题：计划已经承认“合成世界的条目分布比真书均匀”，但这里不是分布问题，是整段路径没走。G4 量出来“不变差”对有计划、有悬念、有子线的真书没有证明力。第 3 条建议的“读值”方案开销也只能在有计划的世界上量。
+建议改法：G4 给脚本加：一部分章留未兑现的计划、一部分伏笔是带答案和物件的悬念、活页夹里讲两到三条子线并有安放在子线上的变更。场景各报一次重拼章数与发布后第一次读。
+
+### 11. “在它自己那条线上套没套上”会把所有线都建出来，超过常驻名额时反复淘汰重建
+严重程度：重要
+类别：资源；每次发布的开销（从代码推断，没有量）
+位置：计划 `history(X)` 定义；`nb-canon/src/lines/set.ts:39`（`DEFAULT_RESIDENT_LINES = 3`）、:231-238（`get` 现建）、:283-294（`#evict`）；`nb-canon/src/service/reads.ts:197,239`（`outcome` 经 `world.line(line)`）
+现象：现在只有活页夹讲到的线才会被建（`binderLines`、`readerBase`、`framesOf`）。按计划，每条变更的摘要要 `outcome`，安放在任何线上的都算，包括活页夹没讲、作者放着备选的分支。线超过名额（当前线与祖先之外 3 条）时，每条线读一次就可能淘汰别的线；淘汰的线下次要从头 `createIncrementalEngine`（整本重算），不走增量。如果按变更的顺序逐条取 `outcome`，线与线交替，每次都可能重建。这个开销在每个新视图上都付一次（只要有一条在子线上的变更）。第 10 条又保证 G4 看不到。
+建议改法：摘要只取活页夹讲到的线（和它们的祖先）上的变更的 `outcome`，别的线上的变更计划读不到（`binderLines`、`framesOf` 只走这些线）：活页夹变了 `order` 也会变。需要时一条线一次取完（`allChanges` 按线分组），写进计划；线不可建时算 `no-line`，这一点也要写明（`onLine` 要传 `"planned"`，否则计划线读不到）。
+
+### 12. `material` 照“提到”做会漏，照真实索引做每章每线一份，每个新视图都要付
+严重程度：重要
+类别：接口与合同；开销
+位置：计划 `material` 行；`core/foreshadowing.ts:138-184`（`ForeshadowIndex` 构造要读全部伏笔、排序全部节点）、:162、:170-179；`core/view-cache.ts:13`；`core/checks/trial.ts:73-94`
+现象：`material` 要的是“计划试读时用哪些段”，但这些段由三类节点构成：标 `F` 的节点、K 上的揭示、继承（兑现变更第一处正文讲述，这条变更既不提到 F 也不提到 K）。计划说“提到 K 的伏笔的节点定位”，没说节点怎么取。
+  - 照“提到”按变更取：继承漏掉。W 的讲述换了句子，试读材料就变了，摘要不变。
+  - 照真实的 `foreshadowIndex(on, 章末, "actual")`：准确，但现在 `dependenciesOf` 对 1000 章 90 毫秒（scale-f8 的 (d)）靠的是不读条目；这里每章每线建一个索引（每个索引读全部伏笔，20 个伏笔乘 77 微秒约 1.5 毫秒，加排序），而且 `perViewCache` 只留 16 份，所以每个新视图上读待处理要多 1000 乘 1.5 毫秒以上，也就是 1.5 秒起。这与“普通发布不变差”冲突。要是挑“只给有悬念的 K 算”，能省多少取决于真书，第 10 条量不到。
+建议改法：把节点的“与位置无关的部分”（`rawTellings` 的 `marked`、`planned`、`fulfilling`）提成 `foreshadowing.ts` 的导出，`material` 取这些的结果（标 F 的节点、K 上的揭示、继承，全部精确到段），不看 `answeredBy`（它随位置变，多算无妨）。接口写进计划。顺便把“所在章的正文摘要”换成“那一段的文字”：`buildTrial` 只读那一段，否则改早先一章别的段落也会让用到它的章重拼，与“这一章、下一章”的目标不符。
+
+### 13. 跨视图复用只有一句话：归谁、键是什么、和不复用是否相同都没写
+严重程度：重要
+类别：接口与合同；隐含的共享状态
+位置：计划“性能”段；`core/checks/dependencies.ts:32-46`（现有 `perDigest` 是模块级）；`backend/plugin.ts:230` 的注释（“放在闭包里，不放模块级：同一进程里可以有几个项目”）；`dependenciesOf` 现在是纯函数
+现象：“新视图上逐项比旧列表，公共前缀不重算”需要一份活过视图的状态。
+  - 归谁：照 `perDigest` 放模块级（键是摘要函数），同一进程两个项目共用一个摘要函数时互相把“旧列表”冲掉；放 `createCheckSource` 的闭包就要改 `dependenciesOf` 的入参，`dependencies.test.ts` 的 `deps` 也要跟着改。
+  - 键：比“公共前缀”时一项的相等要包含对象、`outcome`、粗定位、桶号。按 `WeakMap`（对象身份）比会把 `outcome` 与定位的变化当成没变，这正是第 2、3 条那类漏项。章序变了以后桶号的含义也变（章的下标），要整份作废。
+  - 拉住旧世界：旧列表里留 `StoryChange` 引用就把历史版本留在内存里，`incremental.ts:102-104` 的注释防的就是这个。只能留字符串。
+  - 内存（估算，没有量）：`plot-scale` 4000 条变更，每条提到 5 到 7 个条目，约 2.5 万对；每对一个 64 字节的滚动摘要加项键，约 5 到 10 MB。可以接受，但要写进计划并在 G4 量；每项还要算一次 `outcome` 与粗定位，这部分每次发布都付，不因复用省掉。
+  - 验证：随机序列每步新建视图，复用状态随步积累，“复用的结果与从头算相同”没有列为判据。
+建议改法：写明状态放 `createCheckSource` 的闭包（一个项目一份），只存字符串；章序或插件版本变了整份丢；相等比较用项键字符串。验收加“同一序列上，每步复用与每步新建状态，摘要逐位相同”。
+
+### 14. 摘要单独存（G2）的四个缺口
+严重程度：重要
+类别：失败路径；隐含的耦合
+位置：计划“`backend/`（G2）”；`backend/store.ts:197-218`；`backend/plugin.ts:237-249`；`core/checks/source.ts:52-53`；`backend/checks.ts:97-102`
+现象：
+  (a) `store.load` 对任何一张表的读取失败都整体失败，`usable = false`，指示检查与检查诊断都不登记（`plugin.ts:249`）。`store.ts:122` 的理由（“不知道这一章有没有记录，不能当没有”）对 `plot-check-deps` 不成立：这张表没了只是多重拼一次。照现在的循环加一张表，一张缓存表的瞬时读取错误就让全部检查诊断变“不完整”。
+  (b) 备忘的键：`source.ts:53` 比 `memo.record === record.dependencies`。摘要搬走以后没摘要的记录是 undefined，换了记录（第 N 次跑完、摘要写失败）仍然 `undefined === undefined`，会沿用旧记录的结论，这是 I6 第 5 条修过的问题又回来。计划没提这处。键要换成 `of`。
+  (c) 跑完以后摘要写失败：记录已经写成功，这次不能算失败（已花的钱），要记诊断、下次按“没有摘要”重拼。计划写了“读的时候”，没写写失败。`input.changed()` 放在哪也要定：`store.queued` 闭包里两次写之后报，否则报了新版本、摘要还没写，这段时间的读取多重拼一次（不影响正确性）。
+  (d) `volatile` 与 `contentOf` 取常量是两个机制防同一件事：`#refreshVersion` 跳过了就不用常量。`of` 用的是记录表的 `digestOf`，与摘要表自己的 `contentOf` 无关。
+  (e) 没量的：4.4 毫秒一条（30 KiB）有多少是写入事务本身、多少与大小有关，探针没分。激活时读回多一张表，按 scale-f8 约多 227 毫秒（1000 章 1 KiB）。G4 的清单里都没有。
+如何核实：读代码；(b) 从代码推断。
+建议改法：`TableOptions` 加 `cache: true`（含义一次写清：不进数据版本；读取失败当没有、记诊断），一个选项替代 `volatile`、常量 `contentOf` 两处，并让 `PlotStore.load` 对它不失败。(b)、(c) 写进计划并各补一条用例。G4 加“回写 1000 章”的存储耗时。
+
+### 15. “仍会全部重拼”的清单不全，几个普通操作也全书重拼；`entry.*` 与“伏笔（整个）”可以直接收窄
+严重程度：建议
+类别：与目标的一致性；可简化
+位置：计划“目标”表、“不做与风险”；`identity` 行“改 `entry.*`”；`foreshadow` 行“条目（整个）”
+现象：
+  - 目标写“改 `folder`、`order`：0 章”，但 `foreshadow` 收整个伏笔条目，挪一个伏笔的文件夹就让全部章重拼。
+  - `identity` 收改 `entry.*` 的变更，`entry.summary`（以及文字块以外 `entry.` 下别的路径）也算。计划路径只在 R 里的条目上读 `summary`，不在 R 里时只读名字与别名（`points.ts:27,59`、`candidates.ts:171`）。一条早先的变更改某人的简介，就让之后全部章重拼，与“改一个条目的字段：只有涉及它的章”冲突。
+  - 新建伏笔、改伏笔的任何字段（整个、全局桶），都让全部章重拼（现在也是这样，不是回退）；新分叉也一样（`order` 含 `view.lines()` 全文与全部分叉，不看桶）。计划的“仍会全部重拼”只列了改名、改父条目或 `揭穿`、新建没写出场的知识点、改伏笔的节点。canon/model.md 表里 `appears` 是可选的，没写就算全局：写作时 Agent 随手建知识点若不写出场，每建一个就是全书重拼，同步卡 10 秒以上，这个频率比“改早先的章”高，值得先看。
+如何核实：读计划与代码；`proto.ts` 里 `foreshadow.entries` 是整个条目的摘要，改 `folder` 必变。频率没有数据（从代码推断）。
+建议改法：`identity` 只收 `entry.name`、`entry.aliases`（`aliasAdd`、`aliasRemove` 也写在这个路径上）、`point`、`point.揭穿`；`foreshadow` 的条目投影去掉 `folder`、`order`；把上面几种写进“仍会全部重拼”，并查一下产品里建知识点的路径会不会写 `appears`（G4 记一下）。
+
+### 16. 上游选择：这张手写的表是“读取集合”的手抄本，两轮都漏在同一类地方；“按 id 记录的读取集合”和开发者否掉的那种不是一回事
+严重程度：建议（交开发者看，不是要改已定的决定）
+类别：上游选择
+位置：计划“计划读了什么、记在哪一项”，“不做”里的“语义层的完整读取集合”；scale-f8 候选 3（“读取集合：计划产出读过的东西，只重放读取……要包一层视图，改动最大”）
+现象：`R`、`identity`、`foreshadow` 这三层都是在人工维护“计划会读哪些 id”。阶段 F 手写摘要时审查找到五类漏项；这次换成按“提到”取之后，第 1 到 5、8 条还是漏在同一处：表写的是作者以为的读取。表上还有过时的条目（`nameOf` 在 `core/checks/` 下没有调用，计划路径用的是 `readAppeared`），也没有 `presentPeople`、`everyName`。开发者否掉的方案，在 scale-f8 的说法是“只重放读取”：改了以后重读每个值。这里的候选不重放：`planCheck` 在产品路径上也用记录视图跑（第 7 条的 Proxy），把它碰到的条目 id 存成 `R`，然后摘要的计算方式完全不变（条目本身加 `history`）。这样第 4 条的目击者、第 5 条的马甲与物件、第 2 条的父条目（进 R 以后带 `outcome`）都不用再列举。扫全表的读取（`view.entries()`、`everyName`、`rawTellings`）记不到 id，这部分仍要 `identity`、`foreshadow`，但范围小很多。代价：包一层视图（`onLine` 也要包），计划算出 `concerns` 不再是纯函数的结果；要改记录的语义（`concerns` 的含义变成“读过的”）。
+如何核实：ce4.ts 证明包一层能用（`planCheck` 只要把 `onLine` 也包上）；开销没量。这条的理由是推断。
+建议改法：报告给开发者，作为 G3 的候选之一；不改的话第 7 条的“测试里的记录视图”就是最低配置。
+
+### 未发现问题的方面
+- 第 5 重点，内核共用（G1）：逐个读了 `buildEntryView`（`fieldValue` 克隆非语义值，`listValue` 克隆元素，别名、文字块、组件都是新数组）、`carrySlotOf`（克隆）、`labelKeyedElements`（新对象）、`replayItem`（只在 `foldThrough` 的克隆上做）、`originsUpTo`（自己的 `structuredClone`）、`valueBefore`（只在 `reads` 之外的校验里读数），没有发现改折叠结果的路径。`reads.ts:215` 的 `deepFreeze` 会冻结文字块里的嵌套对象，但记下的折叠结果不再被写，`cloneFold` 出来的副本不受影响。时间线对象：`recompute` 里只往 `makeDirty` 新建的时间线上 `append`，干净条目在基线、覆盖层、下一版之间共用同一个对象，`items` 不再变，`count` 到折叠结果的对应是确定的，记在时间线上不串；世界线各一份引擎，时间线不跨线。`Item.applied` 是只读字段，重算走新对象。折叠结果不含归纳、`textSays`、`upcoming`，所以归纳补上时不受影响。`includedPlans` 的调用方（`snapshotFor`、`plannedAt`）都不改返回的数组。`entry.init` 的深冻结也核对了（`world.ts:611,999,1002`）。
+- 第 2 重点，子线：实验 S1（切口之后、触发处之前的主线变更被 D 弄得套不上，回溯者带过去的知情变了）、S2（撤销主线变更，子线上的去行变更套不上，在场得知失效）在原型上摘要都变了（changedParts:["entries"]），“按它自己那条线取”对已写变更够用。`labelKeyedElements` 读别的条目的名字，但 `core/checks/` 下没有读 `.label` 的路径（`candidates.ts` 的 `member.label` 是 `cast` 的字段）。语义档核对点（`replayAnchor`）改的是语义值，计划路径读的 `保密`、`状态`、`隐秘`、`答案`、`物件`、`读者问题` 都是精确档，提到 X 的核对点也进 `history(X)`。
+- 第 2 重点，正则：id 只能由程序发（`world.ts:462`，新对象必须用 `tmp:`，实验 H1 写 `hero_a` 被拒绝），`\be\d+\b` 对路径、引用、中文相邻都成立，不会漏。
+- 第 4 重点，粗定位：读段落号的路径只有 `writtenIn`（在 `own`，精确）与 `suspenseParagraphs`（在 `material`，精确）；`readerKnowing`、`readerBase`、`revealTable`、`stage` 只看章与段线，粗定位够用。第 1 条的 (b) 是 `foreshadow` 根本没有定位，不是粗细问题。
+- 第 6 重点的竞态：回写比 `of` 与新记录同内容的情况，写进去的仍是某个世界上验证过的摘要，最多多重拼一次，没有发现把结论带错的时序。`ChapterTable` 的清单关系：摘要表沿用清单，章在写记录时已经登记，崩溃时多一章读出来 `missing`，无害。
+- 第 7 重点，摘要函数不同：按函数分开的做法本身没有问题，缺的是第 13 条列的几点。
+
+### 各级数量
+阻断 4，重要 10，建议 2。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+
+更正：第 14 条标题写“四个缺口”，正文实际列了 (a) 到 (e) 五项，以正文为准。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
