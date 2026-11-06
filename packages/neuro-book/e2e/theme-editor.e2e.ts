@@ -135,14 +135,21 @@ test("推导整套、对比度：三个主色推出整套并不低于 4.5；改�
         expect(checks.filter((entry) => !entry.includes(":ok:"))).toEqual([]);
         // 汇总里亮色这一套没有不合格项（暗色那一套还是主题包缺省的，不在这里判）。
         await page.locator("[data-section-tab=contrast]").click();
-        await expect(page.locator("[data-contrast-failure]").filter({hasText: "亮色"})).toHaveCount(0);
+        await expect(page.locator("[data-contrast-group=light] [data-contrast-failure]")).toHaveCount(0);
+        await expect(page.locator("[data-contrast-group=light] [data-contrast-sample]").first()).toBeVisible();
         await page.locator("[data-section-tab=colors]").click();
 
         await colorInput(page, "--text-muted").fill("#dfe8d8");
         await expect(page.locator("[data-color-field=\"--text-muted\"] [data-color-check]")).toHaveAttribute("data-tone", "bad");
         await expect(page.locator("[data-contrast-count]")).toBeVisible();
         await page.locator("[data-section-tab=contrast]").click();
-        await expect(page.locator("[data-contrast-failure]").filter({hasText: "亮色"}).filter({hasText: "--text-muted"})).toBeVisible();
+        const muted = page.locator("[data-contrast-group=light] [data-contrast-failure][data-contrast-row=\"--text-muted\"]");
+        await expect(muted).toBeVisible();
+        // 样张用的就是被编辑的那两个颜色：浏览器算出的文字色与底色和输入里的值一致。
+        expect(await muted.locator("[data-contrast-sample]").evaluate((node) => `${getComputedStyle(node).color}|${getComputedStyle(node).backgroundColor}`)).toMatch(/^rgb\(223, 232, 216\)\|rgb\(/u);
+        // “去修改”：回到配色分区、光标落在那个变量的色值上。
+        await muted.locator("[data-contrast-locate]").click();
+        await expect(colorInput(page, "--text-muted")).toBeFocused();
 
         // 手改过的项再推导时不变。
         await page.locator("[data-section-tab=colors]").click();
@@ -351,5 +358,56 @@ test("切到别的页签再回来：编辑的还是同一套、同一个明暗�
         await expect(editor(page)).toBeVisible();
         await expect(page.locator("[data-section-tab=colors]")).toHaveAttribute("aria-current", "page");
         await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    });
+});
+
+test("切主题或明暗时整页渐变；编辑器里改色、系统偏好减弱动效时不渐变", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        // 本套 e2e 默认开着减弱动效（见 playwright.config.ts），这里要看动画，开回来。
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page, session);
+        await openEditorTab(page);
+
+        // 逐帧看有没有浏览器的整页渐变（`::view-transition-*` 的动画）在跑，记在 window 上。
+        await page.evaluate(() => {
+            const seen = window as unknown as {__viewTransition: boolean; __viewTransitionRunning: () => boolean};
+            seen.__viewTransitionRunning = () => document.getAnimations().some((animation) => String((animation.effect as KeyframeEffect | null)?.pseudoElement).startsWith("::view-transition"));
+            seen.__viewTransition = false;
+            const tick = (): void => {
+                if (seen.__viewTransitionRunning()) seen.__viewTransition = true;
+                requestAnimationFrame(tick);
+            };
+            tick();
+        });
+        const transitioned = (): Promise<boolean> => page.evaluate(() => (window as unknown as {__viewTransition: boolean}).__viewTransition);
+
+        // 新建主题时预览从 nbook 换成这套新主题：主题 id 变了，渐变。等它放完再记后面的。
+        await newTheme(page);
+        await expect.poll(transitioned).toBe(true);
+        await page.waitForFunction(() => !(window as unknown as {__viewTransitionRunning: () => boolean}).__viewTransitionRunning());
+        await page.evaluate(() => {
+            (window as unknown as {__viewTransition: boolean}).__viewTransition = false;
+        });
+
+        await page.locator("[data-section-tab=colors]").click();
+        await colorInput(page, "--accent-main").fill("#2f6f4f");
+        await expect.poll(() => rootVar(page, "--accent-main")).toBe("#2f6f4f");
+        await colorInput(page, "--accent-main").fill("#1f5f3f");
+        await expect.poll(() => rootVar(page, "--accent-main")).toBe("#1f5f3f");
+        expect(await transitioned()).toBe(false);
+
+        await page.locator("[data-appearance]").getByText("暗色").click();
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+        await expect.poll(transitioned).toBe(true);
+        await page.waitForFunction(() => !(window as unknown as {__viewTransitionRunning: () => boolean}).__viewTransitionRunning());
+
+        // 偏好减弱动效：换明暗直接写，不渐变。
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await page.evaluate(() => {
+            (window as unknown as {__viewTransition: boolean}).__viewTransition = false;
+        });
+        await page.locator("[data-appearance]").getByText("亮色").click();
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "light");
+        expect(await transitioned()).toBe(false);
     });
 });

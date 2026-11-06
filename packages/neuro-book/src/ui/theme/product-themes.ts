@@ -24,7 +24,7 @@ export function productTheme(theme: ProductTheme, appearance: "light" | "dark"):
     const colorwayId = getInstalledTheme(theme.base)?.manifest.defaultColorway?.[appearance];
     const colorway = colorwayId === undefined ? undefined : colorways[colorwayId];
     const vars = {...colorway, ...theme.vars};
-    return {themeId: theme.base, appearance, vars: Object.keys(vars).length === 0 ? undefined : vars, scene: theme.scene};
+    return {themeId: theme.base, skin: theme.skin, appearance, vars: Object.keys(vars).length === 0 ? undefined : vars, scene: theme.scene};
 }
 
 /** 一个主题包在某个明暗下的缺省配色：主题写的配色盖在它上面（`productTheme`），编辑器也用它补出没写的变量。没有则是空表。 */

@@ -384,7 +384,16 @@
         "contrast": {
             "unknown": "No contrast computed: the editor does not parse this form",
             "against": "Worst on {{surface}}",
-            "summary": "Entries below the bar",
+            "failingCount": "{{count}} below the bar",
+            "allPass": "All pass",
+            "sampleText": "Aa Sample text",
+            "sampleLabel": "How this text color looks on its background",
+            "locate": "Fix it",
+            "grade": {
+                "low": "Fail",
+                "aa": "AA",
+                "aaa": "AAA"
+            },
             "none": "No entry is below the bar",
             "legend": "Text, secondary text, muted text, links and status colors against their own backgrounds, at least 4.5. Exporting with entries below the bar only warns.",
             "summary1": "Contrast {{ratio}}, worst on {{surface}}",

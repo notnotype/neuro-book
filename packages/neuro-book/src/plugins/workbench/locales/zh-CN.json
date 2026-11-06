@@ -383,7 +383,16 @@
         "contrast": {
             "unknown": "没有算出对比度：写法编辑器不解析",
             "against": "落在 {{surface}} 上最差",
-            "summary": "不合格的项",
+            "failingCount": "{{count}} 项不合格",
+            "allPass": "全部合格",
+            "sampleText": "Aa 示例文字",
+            "sampleLabel": "这个文字色落在底色上的样子",
+            "locate": "去修改",
+            "grade": {
+                "low": "不合格",
+                "aa": "AA",
+                "aaa": "AAA"
+            },
             "none": "没有不合格的项",
             "legend": "文字、次要文字、弱化文字、链接与状态色，对各自的底色不低于 4.5。导出时有不合格项只提示。",
             "summary1": "对比度 {{ratio}}，落在 {{surface}} 上最差",

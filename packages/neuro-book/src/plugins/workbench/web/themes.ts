@@ -165,7 +165,7 @@ export class ThemeCatalog {
     /** 一个明暗下要写的东西；id 不在目录里时用缺省主题（退回的顺序由调用方决定，这里只保证总有得画）。 */
     resolve(id: string, appearance: "light" | "dark"): ProductTheme {
         const entry = this.#entry(id) ?? this.#entry(DEFAULT_THEME_ID);
-        if (entry === undefined) return {base: DEFAULT_THEME_ID, vars: {}, scene: false};
-        return {base: entry.declaration.base, ...themeVars(entry, appearance, this.#assetUrl)};
+        if (entry === undefined) return {base: DEFAULT_THEME_ID, skin: DEFAULT_THEME_ID, vars: {}, scene: false};
+        return {base: entry.declaration.base, skin: entry.id, ...themeVars(entry, appearance, this.#assetUrl)};
     }
 }

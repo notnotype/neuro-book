@@ -85,14 +85,16 @@ export class ThemeEditorModel {
         return {...this.#env.baseColors(theme.declaration.base, this.appearance.value), ...(theme.declaration[this.appearance.value].colors ?? {})};
     });
     readonly contrast = computed((): ReadonlyArray<ContrastCheck> => checkContrast(this.colors.value));
-    /** 两套明暗里不合格的项，供“对比度检查”分区汇总。 */
-    readonly failures = computed((): ReadonlyArray<{readonly appearance: Appearance; readonly check: ContrastCheck}> => {
+    /** 两套明暗各自的全部检查结果，供“对比度检查”分区逐项画样张。 */
+    readonly contrastByAppearance = computed((): Readonly<Record<Appearance, ReadonlyArray<ContrastCheck>>> => {
         const theme = this.current.value;
-        if (theme === null) return [];
-        return (["light", "dark"] as const).flatMap((appearance) => checkContrast({...this.#env.baseColors(theme.declaration.base, appearance), ...(theme.declaration[appearance].colors ?? {})})
-            .filter((check) => check.ok === false)
-            .map((check) => ({appearance, check})));
+        if (theme === null) return {light: [], dark: []};
+        const checksFor = (appearance: Appearance): ReadonlyArray<ContrastCheck> => checkContrast({...this.#env.baseColors(theme.declaration.base, appearance), ...(theme.declaration[appearance].colors ?? {})});
+        return {light: checksFor("light"), dark: checksFor("dark")};
     });
+    /** 两套明暗里不合格的项，供角标、导出提示与分区的汇总。 */
+    readonly failures = computed((): ReadonlyArray<{readonly appearance: Appearance; readonly check: ContrastCheck}> =>
+        (["light", "dark"] as const).flatMap((appearance) => this.contrastByAppearance.value[appearance].filter((check) => check.ok === false).map((check) => ({appearance, check}))));
 
     constructor(env: ThemeEditorEnvironment, state: ThemeEditorState = createEditorState(env.currentAppearance())) {
         this.#env = env;
