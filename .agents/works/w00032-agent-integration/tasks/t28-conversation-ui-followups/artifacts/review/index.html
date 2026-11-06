@@ -16,15 +16,30 @@ section { margin-bottom: 32px; }
 <body>
 <h1>对话界面第二批</h1>
 
-<section data-nbdev-question="s10-tree-real" data-nbdev-type="confirm">
-<h2>分支树：真实组件 <span class="badge" data-nbdev-skip>待看</span></h2>
+<section data-nbdev-question="s11-tree-trail" data-nbdev-type="single">
+<h2>分支树：单线视图留不留 <span class="badge" data-nbdev-skip>试用</span></h2>
+<p>按你说的做了：图标按说话的人着色，线条加粗，分支各一种颜色。第三种视图“单线”：不缩进，分叉那行有“‹ 2/3 ›”，点一下或按左右键，后面的行直接换成那条分支；不在当前路径时左边竖线变色，底部按钮切过去。已合入，可以在开发服务里试，用过再定。</p>
+<div class="row">
+<figure><figcaption>列表</figcaption><img src="r7/list.webp" alt="列表" width="420"></figure>
+<figure data-nbdev-skip><figcaption>单线（换到第 2 条）</figcaption><img src="r7/trail.webp" alt="单线" width="420"></figure>
+<figure><figcaption>图</figcaption><img src="r7/graph.webp" alt="图" width="420"></figure>
+</div>
+<ul>
+<li data-nbdev-option="keep" data-nbdev-recommend>三种都留</li>
+<li data-nbdev-option="trail-instead-of-list">单线替掉列表（留单线和图）</li>
+<li data-nbdev-option="drop">不要单线</li>
+</ul>
+<p><strong>推荐先都留</strong>：列表能一眼看全部分支，单线适合沿着一条路径读，用途不重叠。多一个视图的代价只有切换器多一项。</p>
+</section>
+
+<section>
+<h3>分支树：真实组件的第一版（可以，改了三点）</h3>
 <p>按你定的两种视图写好并合入了，这是 Lab 里的真实组件（亮色）。从对话顶栏的“⋯”菜单打开。图的方向用右上角的两个箭头换，缺省从上往下；分叉节点上的“‹ 1/3 ›”把选中换到另一条分支，底部按钮才真的切过去。</p>
 <div class="row">
 <figure><figcaption>列表（第一版）</figcaption><img src="r6/list.webp" alt="列表" width="500"></figure>
 <figure><figcaption>图：从上往下（缺省）</figcaption><img src="r6/graph-down.webp" alt="图从上往下" width="500"></figure>
 <figure><figcaption>图：从左往右</figcaption><img src="r6/graph-right.webp" alt="图从左往右" width="500"></figure>
 </div>
-<p><strong>这样可以吗？</strong>不可以的话写上要改的地方。</p>
 </section>
 
 <section>
