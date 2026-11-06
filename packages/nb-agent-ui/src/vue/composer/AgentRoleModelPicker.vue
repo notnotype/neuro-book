@@ -185,9 +185,12 @@ onBeforeUnmount(() => {
         data-model-picker
         @click="toggle"
     >
-        <span class="i-lucide-cpu acv-role-picker__icon" aria-hidden="true" />
-        <span class="acv-role-picker__text">{{ triggerText }}</span>
-        <span class="i-lucide-chevrons-up-down acv-role-picker__icon acv-role-picker__chevron" aria-hidden="true" />
+        <span class="acv-role-picker__text">
+            <span class="acv-role-picker__name">{{ selectedName }}</span>
+            <template v-if="usedModel !== null"> · {{ usedModel }}</template>
+        </span>
+        <span v-if="thinkingText !== null" class="acv-role-picker__level">· {{ thinkingText }}</span>
+        <span class="i-lucide-chevron-down acv-role-picker__chevron" aria-hidden="true" />
     </button>
     <AnchoredPopover ref="popoverRef" :open="open" :anchor="props.anchor ?? triggerRef" side="top" :side-offset="6">
         <div
@@ -347,6 +350,28 @@ onBeforeUnmount(() => {
     opacity: 0.5;
 }
 
+/* 一行文字（开发者在评审板 review v5 选的）：靠颜色分主次，不靠边框。 */
+.acv-role-picker__trigger .acv-role-picker__text {
+    color: var(--text-muted);
+}
+
+.acv-role-picker__trigger .acv-role-picker__name {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+.acv-role-picker__trigger .acv-role-picker__level {
+    flex: none;
+    color: var(--accent-text);
+}
+
+.acv-role-picker__trigger .acv-role-picker__chevron {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--text-muted);
+}
+
 .acv-role-picker__icon {
     flex: none;
     width: 13px;
@@ -357,6 +382,7 @@ onBeforeUnmount(() => {
     color: var(--text-muted);
 }
 
+/* 省略只吃前两段：档位放不下就没有意义了。 */
 .acv-role-picker__text {
     min-width: 0;
     max-width: 18em;

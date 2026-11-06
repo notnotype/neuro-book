@@ -8,6 +8,7 @@ import {If, Tag, ToolName} from "@notnotype/nb-harness/prompt";
 import type {AgentExtensionImplementation, AgentProfileDeclaration, AgentProfileImplementation} from "../../../shared/points";
 
 import {MAIN_PROFILE} from "../../../shared/contracts";
+import {modesExtensions} from "../../permissions/modes";
 
 const NAME = "写作助手";
 const DESCRIPTION = "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。";
@@ -16,7 +17,7 @@ const ASK = "nbook.agent.ask-form";
 const ASK_FIXED = "nbook.agent.ask";
 
 const TOOLS = {
-    required: ["nbook.agent.read", "nbook.agent.write", "nbook.agent.grep", "nbook.agent.glob"],
+    required: ["nbook.agent.read", "nbook.agent.write", "nbook.agent.grep", "nbook.agent.glob", "nbook.agent.switch-mode"],
     // 都可选：用户能用工具绑定换另一种 `edit`，或者去掉 `shell`。用 replace：中文一段就是一行，hashline 要整段重写，输出 token 约是
     // replace 的三倍（w00032 t18 的实验）。
     optional: ["nbook.agent.edit-replace", SHELL, ASK],
@@ -48,11 +49,11 @@ const SHELL_NOTE = "的工作目录是 project://（没有打开书时是 sessio
 export function mainProfile(rules: AgentExtensionImplementation): AgentProfileImplementation {
     return defineProfile({
         id: MAIN_PROFILE,
-        version: "2",
+        version: "3",
         name: NAME,
         description: DESCRIPTION,
         tools: TOOLS,
-        extensions: [rules],
+        extensions: [rules, ...modesExtensions],
         system: [
             Tag({name: "role", children: ROLE}),
             Tag({name: "work", children: WORK}),

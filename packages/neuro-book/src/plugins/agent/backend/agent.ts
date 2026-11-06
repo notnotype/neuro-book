@@ -10,7 +10,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, ApproveHook, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
@@ -32,6 +32,9 @@ import {SessionTable} from "./sessions";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
 import {CompactionRestore} from "./compaction/restore";
 import type {SessionEditStores} from "./builtin/common";
+import {createPermissionHook} from "./permissions/hook";
+import {modesContract} from "./permissions/modes";
+import type {Dialects} from "./permissions/dialects";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -44,6 +47,7 @@ export interface AgentRuntimeOptions {
     readonly declarations: ContributionDeclarations;
     /** 行锚的快照：内置工具与压缩后的放回共用。 */
     readonly editStores: SessionEditStores;
+    readonly dialects: Dialects;
     /** 触发本插件前缀下的激活事件；有入口激活失败或受阻时交回 false。 */
     readonly trigger: (event: string) => Promise<boolean>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
@@ -64,18 +68,6 @@ export interface AgentRuntime {
     listSessions(): Promise<readonly SessionIndexEntry[]>;
     stop(): Promise<void>;
 }
-
-/**
- * 审批的最小规则（sessions.md 输出 4，t06 规则表之前）：只读的放行；会话处在只读模式时其余都问（只读模式优先于审批
- * 模式，t06）；`yolo` 全放行；`allow-writes` 放行写入；其余都问。
- */
-export const approveByMode: ApproveHook = async (_call, info) => {
-    if (info.effect === "read") return {verdict: "allow", by: "mode:read"};
-    if (info.readOnly) return {verdict: "ask", reason: "read-only mode"};
-    if (info.mode === "yolo") return {verdict: "allow", by: "mode:yolo"};
-    if (info.mode === "allow-writes" && info.effect === "write") return {verdict: "allow", by: "mode:allow-writes"};
-    return {verdict: "ask"};
-};
 
 /** 模型服务不在时的端口：会话照常打开、能读，发请求时失败（sessions.md 输出 13）。 */
 const NO_MODELS: ModelPort = {resolve: () => ({ok: false, code: "no-model"})};
@@ -140,7 +132,15 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         resources: (context) => kernelResources(sessionResources(options.files, context, null)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
-        approve: approveByMode,
+        approve: createPermissionHook({
+            files: options.files,
+            userRules: () => options.settings.get(agentSettings.settings.permissionRules),
+            dialects: options.dialects,
+            modeWriteAction: () => options.settings.get(agentSettings.settings.modeWriteAction),
+            subjectsOf: (tool, args, activate) => tools.subjectsOf(tool, args, activate),
+            modeOf: (read) => read(modesContract)?.mode ?? "normal",
+            report: options.report,
+        }),
         attachments: createAttachmentPort(options.files),
         compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: restore.run},
     });

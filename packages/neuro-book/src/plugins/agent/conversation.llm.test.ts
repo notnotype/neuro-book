@@ -51,6 +51,7 @@ describe.skipIf(config === null)("对话宿主接真实模型", () => {
             newId: () => crypto.randomUUID(),
             recent: {read: async () => null, write: () => undefined},
             warnCost: () => 0,
+            rememberRules: async () => ({ok: true}),
             models: () => [],
             roles: () => null,
             drafts: {read: async () => null, write: () => undefined},

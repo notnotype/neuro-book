@@ -60,6 +60,8 @@ export type KernelMeta = {
     readonly description: string | null;
     readonly archived: boolean;
     readonly settings: {readonly [key: string]: JsonValue};
+    /** 扩展的设置，按扩展 id：Agent 模式在这里。 */
+    readonly extensionSettings: {readonly [extension: string]: {readonly [key: string]: JsonValue}};
     /** 快照的 `model`：`{ok: true, id, contextWindow, efforts}` 或 `{ok: false, code}`。 */
     readonly model: JsonValue;
     readonly profile: string | null;
@@ -198,6 +200,7 @@ function callOutcome(data: JsonRecord): {status: ToolCallStatus; note?: Text} {
         case "blocked":
             if (code === "user-denied" || by === "user") return {status: "denied", note: agentRef("kernel.tool.deniedByUser")};
             if (code === "read-only") return {status: "denied", note: agentRef("kernel.tool.readOnly")};
+            if (code === "mode-blocked") return {status: "denied", note: agentRef("kernel.tool.modeBlocked")};
             if (code === "aborted" || code === "interrupted-before-approval") return {status: "denied", note: agentRef("kernel.tool.notStarted")};
             return {status: "denied", note: agentRef("kernel.tool.deniedByRule")};
         default: return {status: "error"};
@@ -211,7 +214,7 @@ function streamingArgs(text: string): JsonValue {
 }
 
 const NO_USAGE: KernelUsage = {cost: 0, unpriced: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: null, lastCacheHitRate: null};
-const NO_META: KernelMeta = {title: null, description: null, archived: false, settings: {}, model: null, profile: null, readOnly: null};
+const NO_META: KernelMeta = {title: null, description: null, archived: false, settings: {}, extensionSettings: {}, model: null, profile: null, readOnly: null};
 const IDLE_RUN: KernelRun = {status: "idle", phase: null, kind: null, startedAt: null, retry: null};
 
 type LiveCall = {readonly id: string; readonly name: string; args: string};
@@ -486,6 +489,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 return true;
             case "settingsChanged":
                 if (data.extension === "core" && isRecord(data.patch)) meta = {...meta, settings: {...meta.settings, ...(toJsonValue(data.patch) as {[key: string]: JsonValue})}};
+                else if (typeof data.extension === "string" && isRecord(data.patch)) meta = {...meta, extensionSettings: {...meta.extensionSettings, [data.extension]: {...meta.extensionSettings[data.extension], ...(toJsonValue(data.patch) as {[key: string]: JsonValue})}}};
                 return true;
             case "inputQueued": {
                 const id = stringField(data, "id");
@@ -643,6 +647,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 description: stringField(snapshot, "description"),
                 archived: snapshot.archived === true,
                 settings: isRecord(snapshot.settings) ? (toJsonValue(snapshot.settings) as {[key: string]: JsonValue}) : {},
+                extensionSettings: isRecord(snapshot.extensionSettings) ? (toJsonValue(snapshot.extensionSettings) as {[extension: string]: {[key: string]: JsonValue}}) : {},
                 model: toJsonValue(snapshot.model),
                 profile,
                 readOnly,

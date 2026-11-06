@@ -18,6 +18,8 @@ export {default as AgentWizard} from "./wizard/AgentWizard.vue";
 export {default as AgentWizardFrame} from "./wizard/AgentWizardFrame.vue";
 export {default as AgentApprovalWizard} from "./wizard/AgentApprovalWizard.vue";
 export {default as AgentQuestionWizard} from "./wizard/AgentQuestionWizard.vue";
+export {default as AgentModeSwitchWizard} from "./wizard/AgentModeSwitchWizard.vue";
+export {default as AgentCompactionDetail} from "./stream/AgentCompactionDetail.vue";
 export {default as PlainForm} from "./fallback/PlainForm.vue";
 export {default as AgentMarkdown} from "./parts/AgentMarkdown.vue";
 export {default as OriginalImagePreviewDialog} from "./parts/OriginalImagePreviewDialog.vue";

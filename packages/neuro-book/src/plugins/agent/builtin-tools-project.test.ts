@@ -4,14 +4,14 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {readFile, realpath, rm, writeFile} from "node:fs/promises";
+import {readFile, realpath, rm, writeFile, mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import type {ToolContext, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {ToolContext, ToolImplementation, ToolResult, ToolSessionContext, ToolCall, ToolEffect, ToolInfo} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {definitionAt} from "nbook/manifest";
@@ -24,6 +24,9 @@ import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects
 import type {ProjectHarness} from "nbook/server/testing/projects";
 
 import {builtinTools} from "./backend/builtin";
+import {SessionEditStores} from "./backend/builtin/common";
+import {createDialects} from "./backend/permissions/dialects";
+import {createPermissionHook} from "./backend/permissions/hook";
 import {sessionArtifacts, sessionResources} from "./backend/resources";
 
 let tmp = "";
@@ -43,7 +46,7 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-async function scene(): Promise<{readonly book: string; run(tool: string, args: Readonly<Record<string, unknown>>): Promise<ToolResult>}> {
+async function scene(): Promise<{readonly files: WorkspaceFiles; readonly book: string; run(tool: string, args: Readonly<Record<string, unknown>>): Promise<ToolResult>}> {
     const held: {files: WorkspaceFiles | null} = {files: null};
     const consumer: PluginDefinition = {id: "nbook.agent", entries: [defineEntry({
         id: "server",
@@ -65,9 +68,10 @@ async function scene(): Promise<{readonly book: string; run(tool: string, args: 
     const files = held.files as WorkspaceFiles | null;
     if (files === null) throw new Error("测试插件没有激活");
     const context = {sessionId: "s1", profile: "p", project: "book"} as ToolSessionContext;
-    const tools = builtinTools();
+    const tools = builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}));
     const built = new Map<string, ToolImplementation>();
     return {
+        files,
         book: join(h.root, "Book"),
         run: async (tool, args) => {
             let implementation = built.get(tool);
@@ -81,6 +85,59 @@ async function scene(): Promise<{readonly book: string; run(tool: string, args: 
         },
     };
 }
+
+describe("项目规则文件（docs/specs/agent/permissions.md 输出 6）", () => {
+    /** 真实文件服务与项目目录上问一次钩子。 */
+    async function asker() {
+        const {files, book} = await scene();
+        const reported: string[] = [];
+        const hook = createPermissionHook({
+            files,
+            userRules: () => [],
+            dialects: createDialects(() => []),
+            modeWriteAction: () => "deny",
+            subjectsOf: async () => [],
+            modeOf: () => "normal",
+            report: (code) => reported.push(code),
+        });
+        const ask = async (tool: string, effect: ToolEffect) => hook(
+            {id: "c", tool, args: {}} as ToolCall,
+            {tool: {id: tool} as ToolInfo, effect, mode: "allow-writes", readOnly: false, remembered: [], rememberedRules: []},
+            {signal: new AbortController().signal, sessionId: "s1", context: {sessionId: "s1", profile: "p", project: "book"}, model: (() => undefined) as never, read: () => undefined},
+        );
+        return {book, reported, ask};
+    }
+    const rules = async (book: string, text: string): Promise<void> => {
+        await mkdir(join(book, ".nbook"), {recursive: true});
+        await writeFile(join(book, ".nbook", "permissions.json"), text);
+    };
+
+    it("没有文件：按审批模式；改了下一次就生效", async () => {
+        const {book, ask} = await asker();
+        expect((await ask("t", "write")).verdict).toBe("allow");
+        await rules(book, JSON.stringify([{tool: "t", action: "deny"}]));
+        expect(await ask("t", "write")).toMatchObject({verdict: "deny", rejection: {code: "rule-denied"}});
+        await rules(book, JSON.stringify([{tool: "t", action: "ask"}]));
+        expect((await ask("t", "write")).verdict).toBe("ask");
+    });
+
+    it("放行规则不生效，写诊断", async () => {
+        const {book, ask, reported} = await asker();
+        await rules(book, JSON.stringify([{tool: "t", action: "allow"}]));
+        expect((await ask("t", "exec")).verdict).toBe("ask");
+        expect(reported).toContain("permission-allow-ignored");
+    });
+
+    it("文件坏了：写与执行都问，读不受影响，写诊断", async () => {
+        const {book, ask, reported} = await asker();
+        await rules(book, "这不是 JSON");
+        expect((await ask("t", "write")).verdict).toBe("ask");
+        expect((await ask("t", "read")).verdict).toBe("allow");
+        expect(reported).toContain("permission-rules-invalid");
+        await rules(book, JSON.stringify([{tool: "t", action: "没有这种"}]));
+        expect((await ask("t", "write")).verdict).toBe("ask");
+    });
+});
 
 describe("内置工具在 project:// 上", () => {
     it("读写改搜都用全局地址；.nbook 不露出；shell 的工作目录与 $NBOOK_PROJECT 是项目目录", async () => {

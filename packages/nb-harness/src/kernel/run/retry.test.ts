@@ -271,6 +271,22 @@ describe("输出 67：压缩、审批与 complete", () => {
         expect(verdict).toBe("通过");
     });
 
+    test("调用方自己的信号只停这一次请求，运行继续", async () => {
+        const stop = new AbortController();
+        let stopReason = "";
+        const approve: ApproveHook = async (_call, _info, ctx) => {
+            const reply = ctx.model({system: [], messages: [], params: {}, headers: {}, tools: []}, {purpose: "approval", signal: stop.signal});
+            stop.abort();
+            stopReason = (await reply).stopReason;
+            return {verdict: "allow", by: "test"};
+        };
+        await using session = await createTestSession({retry: retry(), approve, tools: [{id: "lab.step", execute: () => "好"}]});
+        session.model.script({tools: [{tool: "lab.step"}]}, network, "完");
+        const result = await finish(session, await start(session, "问"));
+        expect(stopReason).toBe("aborted");
+        expect(result.text).toBe("完");
+    });
+
     test("审批请求等重发时中止：不再发，这次失败只写一条", async () => {
         const approve: ApproveHook = async (_call, _info, ctx) => {
             await ctx.model({system: [], messages: [], params: {}, headers: {}, tools: []}, {purpose: "approval"});

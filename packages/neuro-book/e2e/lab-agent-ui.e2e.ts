@@ -438,7 +438,8 @@ test.describe("输入框", () => {
 
     async function attach(page: Page, files: Array<{name: string; mimeType: string}>): Promise<void> {
         const chooser = page.waitForEvent("filechooser");
-        await page.locator("[data-composer-action='attach']").click();
+        await page.locator("[data-composer-action='plus']").click();
+        await page.getByRole("menuitem", {name: "添加附件"}).click();
         await (await chooser).setFiles(files.map((file) => ({...file, buffer: Buffer.from("lab")})));
     }
 
@@ -481,11 +482,11 @@ test.describe("输入框", () => {
         await expect.poll(async () => (await lastAction(page))?.type).toBe("composer.stop");
     });
 
-    test("附件：模型不支持图片时拒收并说明；上传中与失败时不能发送；重试后就绪，发送的文字里有图片标签", async ({page}) => {
+    test("附件：模型不支持图片时也能加（发送时换一行字，conversation.md 输出 31）；上传中与失败时不能发送；重试后就绪，发送的文字里有图片标签", async ({page}) => {
         await openScene(page, "AgentConversationComposer", "no-images");
         await attach(page, [{name: "草图.png", mimeType: "image/png"}, {name: "设定.txt", mimeType: "text/plain"}]);
-        await expect(stage(page).locator("[role='status']").filter({hasText: "不支持图片"})).toBeVisible();
-        await expect.poll(() => cardStates(page)).toEqual(["ready"]);
+        await expect(stage(page).locator("[role='status']").filter({hasText: "不支持图片"})).toHaveCount(0);
+        await expect.poll(async () => (await cardStates(page)).length).toBe(2);
 
         await openScene(page, "AgentConversationComposer", "idle");
         await labAction(page, "fail-upload");
@@ -529,14 +530,16 @@ test.describe("输入框", () => {
     test("只读：编辑器只读，添加附件、发送、模式与模型都不可用", async ({page}) => {
         await openScene(page, "AgentConversationComposer", "readonly");
         await expect(editor(page)).toHaveAttribute("aria-readonly", "true");
-        for (const action of ["attach", "send", "mode"]) await expect(page.locator(`[data-composer-action='${action}']`)).toBeDisabled();
+        for (const action of ["plus", "send", "mode"]) await expect(page.locator(`[data-composer-action='${action}']`)).toBeDisabled();
         await expect(page.locator("[data-model-picker]")).toBeDisabled();
     });
 
     test("没有注入编辑器：普通文本框，没有添加附件；登记的 /命令 照常执行", async ({page}) => {
         await openScene(page, "AgentConversationComposer", "plain");
         await expect(editor(page)).toHaveCount(0);
-        await expect(page.locator("[data-composer-action='attach']")).toHaveCount(0);
+        await page.locator("[data-composer-action='plus']").click();
+        await expect(page.getByRole("menuitem", {name: "添加附件"})).toHaveCount(0);
+        await page.keyboard.press("Escape");
         const textarea = stage(page).locator("textarea");
         await expect(textarea).toHaveValue("/rename 雨夜");
         await textarea.focus();

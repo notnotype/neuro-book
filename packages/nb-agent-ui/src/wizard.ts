@@ -3,9 +3,9 @@
  *
  * 选了的只在界面状态里，提交前不进内核：模型一次发起几个调用时，用户是对着这一批作答，能来回改。
  */
-import type {InputResolution, JsonValue, PendingApprovalView, PendingInputView, PendingQuestionsView, PendingQuestionView} from "./types";
+import type {InputResolution, JsonValue, PendingApprovalView, PendingInputView, PendingModeSwitchView, PendingQuestionsView, PendingQuestionView} from "./types";
 
-export type ApprovalDecision = "allow" | "allow-session" | "deny";
+export type ApprovalDecision = "allow" | "allow-session" | "allow-always" | "deny";
 export type ApprovalChoice = {decision: ApprovalDecision; note?: string};
 /** `formInvalid`：表单现在填得不对。跟着答案存：向导收起、切标签都会卸载表单，不能只记在组件里。提交时不带它。 */
 export type QuestionAnswer = {selected: string[]; other?: string; form?: JsonValue; formInvalid?: boolean};
@@ -21,6 +21,8 @@ export type WizardState = {
     notes: {[id: string]: string};
     /** 按事项 id、再按题。 */
     answers: {[id: string]: QuestionAnswer[]};
+    /** 退出计划时选的审批模式，按事项 id。 */
+    modeSwitch?: {[id: string]: {approvalMode: string}};
 };
 
 export const EMPTY_WIZARD: WizardState = {collapsed: false, step: 0, approvals: {}, notes: {}, answers: {}};
@@ -33,13 +35,17 @@ export function readWizardState(value: JsonValue | undefined): WizardState {
 
 export const isApproval = (item: PendingInputView): item is PendingApprovalView => item.kind === "approval";
 export const isQuestions = (item: PendingInputView): item is PendingQuestionsView => item.kind === "question";
+export const isModeSwitch = (item: PendingInputView): item is PendingModeSwitchView => item.kind === "mode-switch";
 
-/** 选了一个决定。“本会话都批准”同时选中这批里同一个工具还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
+const rememberKey = (item: PendingApprovalView): string | null => (item.remember === false ? null : `${item.tool}\n${item.remember?.label ?? ""}`);
+
+/** 选了一个决定。“本会话都批准”“以后都允许”同时选中这批里记的东西相同、还没选的调用：已经选了的（尤其是拒绝）是用户的决定，不改。 */
 export function choose(state: WizardState, items: readonly PendingApprovalView[], id: string, decision: ApprovalDecision, note?: string): WizardState {
     const approvals = {...state.approvals, [id]: {decision, ...(note === undefined || note === "" ? {} : {note})}};
-    if (decision === "allow-session") {
-        const tool = items.find((item) => item.id === id)?.tool;
-        for (const item of items) if (item.tool === tool && approvals[item.id] === undefined) approvals[item.id] = {decision: "allow-session"};
+    if (decision === "allow-session" || decision === "allow-always") {
+        const chosen = items.find((item) => item.id === id);
+        const key = chosen === undefined ? null : rememberKey(chosen);
+        for (const item of items) if (key !== null && rememberKey(item) === key && approvals[item.id] === undefined) approvals[item.id] = {decision};
     }
     return {...state, approvals};
 }

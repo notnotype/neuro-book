@@ -84,9 +84,16 @@ export type AgentProfileDeclaration = Static<typeof ProfileDeclarationSchema>;
  * `agent.tools` 的实现：按会话建一次真正的实现（t04 决定 2）；`effect` 给按参数求等级的工具。`services.resources` 是这个会话的
  * 资源视图，工具经它按资源地址读写；`services.artifacts` 以宿主身份保存大结果的全文（docs/specs/agent/resources.md）。
  */
+export type ToolSubject =
+    | {readonly kind: "command"; readonly dialect: string; readonly text: string}
+    | {readonly kind: "path"; readonly access: "read" | "write"; readonly address: string}
+    | {readonly kind: string; readonly value: string};
+
 export interface AgentToolImplementation {
     create(context: ToolSessionContext, services: AgentToolServices): ToolImplementation | Promise<ToolImplementation>;
     effect?(args: Readonly<Record<string, unknown>>): ToolEffect;
+    /** 规则要看的东西：路径、命令、主机（docs/specs/agent/permissions.md）。路径可以写单数地址，判定时展开。 */
+    subjects?(args: Readonly<Record<string, unknown>>): readonly ToolSubject[];
 }
 
 /** 各贡献点的实现形状，接收方取实现时按它读。 */

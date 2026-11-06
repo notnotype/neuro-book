@@ -34,6 +34,7 @@ import type ModelEditDialog from "nbook/plugins/models/web/components/ModelEditD
 import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
 import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
+import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
 import type ProvidersPage from "nbook/plugins/models/web/components/ProvidersPage.vue";
 import type RolesPage from "nbook/plugins/models/web/components/RolesPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
@@ -83,6 +84,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
+import {withAgentPageText} from "./agent-scene/agent-page-text";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -1129,6 +1131,20 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {layer: "user"}}},
             ],
             load: async () => withProjectsText((await import("./WorksSettingsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof PermissionRulesPage>({
+            component: "PermissionRulesPage",
+            scenes: [
+                {id: "rules", label: "我的规则：命令、路径、关键词、放行、自定义条件", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}]}}},
+                {id: "empty", label: "还没有规则", input: {props: {rules: []}}},
+                {id: "project", label: "绑定作品：这本书的规则只读，放行标不生效", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], projectTitle: "雨夜", projectRules: [{tool: "write", when: {type: "path", glob: "project://设定/**", access: "write"}, action: "ask" as const, reason: "设定要作者点头"}, {tool: "shell", action: "allow" as const}]}}},
+                {id: "project-invalid", label: "作品的规则文件坏了", input: {props: {rules: [], projectTitle: "雨夜", projectRules: "invalid"}}},
+                {id: "add", label: "添加规则：对话框", input: {props: {rules: [], initialEdit: "new"}}},
+                {id: "edit", label: "编辑规则：命令", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], initialEdit: 0}}},
+                {id: "edit-json", label: "编辑规则：自定义条件是 JSON", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], initialEdit: 4}}},
+                {id: "readonly", label: "配置写不了", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], writable: false}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/PermissionRulesFixture.vue")).default),
         }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",

@@ -12,7 +12,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import {onAgentTool, TOOLS_POINT} from "../shared/points";
-import type {AgentToolDeclaration, AgentToolImplementation} from "../shared/points";
+import type {AgentToolDeclaration, AgentToolImplementation, ToolSubject} from "../shared/points";
 import type {AgentToolServices} from "../shared/resources";
 
 /** 撤回时等执行中的调用结算的上限（提案 P11 停止的第一步）。 */
@@ -104,6 +104,18 @@ export class AgentTools {
         if (known !== undefined) return known;
         const activated = await this.options.activate(onAgentTool(id));
         return activated ? (this.#published.get(id) ?? null) : null;
+    }
+
+    /** 判定对象（permissions.md 输出 9）。`activate` 为真时提供方没激活就先激活；取不到交回 null，规则按算不出来处理。 */
+    async subjectsOf(id: string, args: Readonly<Record<string, unknown>>, activate: boolean): Promise<readonly ToolSubject[] | null> {
+        try {
+            const handle = this.#published.get(id) ?? (activate ? await this.current(id) : null);
+            if (handle === null) return activate ? null : [];
+            return handle.implementation().subjects?.(args) ?? [];
+        } catch (error) {
+            this.options.report("tool-subjects-failed", `computing the subjects of ${id} threw`, {tool: id, message: error instanceof Error ? error.message : String(error)});
+            return null;
+        }
     }
 
     forget(id: string, wrapper: ToolWrapper): void {

@@ -16,6 +16,8 @@ const props = defineProps<{
     count?: string;
     /** 内容可能很长：视图很矮时内容区也留够 8 行，放不下就整个框滚动。短内容不要留白。 */
     tall?: boolean;
+    /** 内容就是要读的（退出计划的计划全文）：外框放宽到视图的大部分。 */
+    large?: boolean;
 }>();
 
 const emit = defineEmits<{collapse: []}>();
@@ -24,7 +26,7 @@ const {t} = useAgentText();
 </script>
 
 <template>
-    <div class="acv-wizard-frame nb-ui-popover-surface">
+    <div class="acv-wizard-frame nb-ui-popover-surface" :class="{'is-large': props.large}">
         <div class="acv-wizard-frame__scroll">
         <div class="acv-wizard-frame__head">
             <span :class="[props.icon, 'acv-wizard-frame__icon']" aria-hidden="true" />
@@ -45,6 +47,10 @@ const {t} = useAgentText();
 </template>
 
 <style scoped>
+.acv-wizard-frame.is-large {
+    max-height: 85cqh;
+}
+
 /* 滚动不加在浮层外框上（styles.css 的“浮层内部的滚动区”）：滚动条会画在圆角里。固定部分放不下时（很矮的视图）里面这层整个滚动。 */
 .acv-wizard-frame {
     --nb-popover-pad: 10px;
