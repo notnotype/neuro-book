@@ -243,6 +243,17 @@ for (let n = Math.floor(chapters * 0.3) + 2; n <= Math.floor(chapters * 0.3) + 1
     binderLines.set(chapter, n % 2 === 0 ? [{line: toldLine, from: 1}] : [{line: "main", from: 1}, {line: toldLine, from: 2}]);
     await plot.change({kind: "chapter", chapter, key: 0, line: toldLine}, {cast: [present(person(n)), present(person(n + 1))]});
 }
+// 再讲四条子线，每条两章：超过常驻名额（3 条）时，逐条问结论会让线反复淘汰重建，依赖摘要要按线一次取完。
+for (let extra = 0; extra < 4; extra += 1) {
+    const at = Math.floor(chapters * 0.4) + extra * 10;
+    const forkId = `tmp:toldFork${String(extra)}`;
+    const line = (await plot.publish([{ref: {kind: "change", id: forkId}, after: {...drafts.change(forkId, {kind: "chapter", chapter: chapterIds[at]!, key: 700}), nature: "fork" as const, fork: {line: `tmp:toldLine${String(extra)}`, name: `讲到的子线${String(extra)}`, parent: "main", cut: forkCuts[0]!, type: "branch" as const}}}]))[`tmp:toldLine${String(extra)}`]!;
+    for (const offset of [2, 3]) {
+        const chapter = chapterIds[at + offset]!;
+        binderLines.set(chapter, [{line, from: 1}]);
+        await plot.change({kind: "chapter", chapter, key: 0, line}, {patches: [addRow(person(at + offset + 100), point(at + offset + 300), {程度: "knows"})], cast: [present(person(at + offset))]});
+    }
+}
 await service.setChapters(chapterIds, binderLines);
 const padding = Array.from({length: 30}, (_, index) => `这是第 ${String(index)} 段铺陈的文字，让一章有接近真实的长度，大约一百个字上下，写的都是些不相干的日常。`.repeat(1)).join("\n");
 for (const id of chapterIds) plot.texts.set(id, `${plot.texts.get(id) ?? ""}${padding}\n`);
