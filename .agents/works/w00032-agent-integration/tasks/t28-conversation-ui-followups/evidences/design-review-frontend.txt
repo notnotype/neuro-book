@@ -1,0 +1,200 @@
+# t28 计划前端设计审查报告
+
+被审：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md`（worktree `.worktree/t28-design-review`，提交 a8b28133d）。范围：`packages/nb-agent-ui`、`plugins/agent/web`、`plugins/models/web`。未跑测试与类型检查，下列结论均来自读代码，核实方式在各条里写明。
+
+### 1. 计划说“视图已有”的编辑态、面板宿主与入口其实都不存在
+- 严重程度：阻断
+- 类别：依赖的机制不存在 / 范围低估
+- 位置：plan.md:36（“视图已有消息操作与 `branch.switch`、`tree.activate`、`message.editSubmit`……”）、plan.md:30、plan.md:43；`packages/nb-agent-ui/src/vue/AgentConversationView.vue:273-286`（顶栏只有标题、新建、一个只含“切换原始视图”的 ⋯ 菜单）；`packages/nb-agent-ui/src/vue/composer/AgentContextMeter.vue:27-37`
+- 现象：
+  1. `ctx.editing` 没有任何 `.vue` 读它（`grep -rn "editing\|editSubmit\|editCancel" packages/nb-agent-ui/src/vue --include='*.vue'` 无结果，仅 `types.ts`、`context.ts` 和一个测试夹具出现）。`message.editSubmit`、`message.editCancel` 没有任何组件发出；内置“编辑”操作只发 `message.editStart`（`builtin-message-actions.ts:25`）。Spec 的“消息就地变为编辑器，原文仍在加载时只读”（`ui/agent-conversation-view.md:272`）没有实现。
+  2. 注册表的 `panels`、`headerActions`、`trayItems` 只在 `registry.ts` 里有数据结构和合并规则，视图里没有任何地方渲染它们（`grep -rn "headerActions\|trayItems" packages/nb-agent-ui/src` 只命中 `registry.ts` 与 `registry.test.ts`）。也就没有“弹窗”宿主、没有 `presentation: "popover" | "dialog"` 的实现，没有任何 action 表示“打开面板”。
+  3. 上下文圆环（`AgentContextMeter`）是 `role="img"` 的 Tooltip，不能点；状态栏的缓存与费用同样不能点。
+- 为什么是问题：批 2、批 3 都写成“接宿主数据”，工作量被当成宿主侧的映射；实际要新写：就地编辑器（含历史消息原文分段加载的只读态）、面板/弹窗宿主、打开状态（Spec 第 33、361 行规定面板与弹窗开关是视图自持的纯界面状态）、顶栏菜单项、圆环与缓存的点击与键盘语义。切片表里“先出静态稿”一栏批 3 只写“分支树”，批 2 写“检查器”，漏了编辑态；而 Spec 第 272 行要求编辑态支持 `@` 引用与插图，等于再接一遍批 4、批 5 的触发菜单和附件。
+- 如何核实：上面的 grep；读 `AgentConversationView.vue` 模板（顶栏到 `acv-body`）与 `AgentConversationTurn.vue` 全文，没有编辑态分支。
+- 建议改法：把批 3 拆成“视图侧：就地编辑态、面板宿主与入口（含静态稿）”和“宿主侧：映射”；在计划里写明面板宿主的归属（视图持有打开状态，打开时发出哪个 action，例如打开检查器即发 `context.refresh`），并为这个新机制在 `ui/agent-conversation-view.md` 补合同，再让批 2、批 3 依赖它。若不想动视图合同，替代做法是由宿主（`ConversationHost.vue`）持有弹窗，但那样 `ctx.panels` 的约定也要一并改写，两条路必须选一条写进计划。
+
+### 2. 模型状态刷新只修了“模型库变化”这一条路径，设置变化与整份快照覆盖都没处理
+- 严重程度：重要
+- 类别：遗漏 / 并发
+- 位置：plan.md:19；`packages/nb-agent-ui/src/kernel-transcript.ts:424-426`（`settingsChanged`）、`:551-580`（`applySnapshot`）；`packages/neuro-book/src/plugins/agent/web/session-host.ts:89`、`:197-203`、`:581-586`
+- 现象：
+  1. `meta.model`（解析后的模型、`efforts`、`contextWindow`、`ok/code`）只在 `applySnapshot` 里写。`settingsChanged` 事件只合并 `meta.settings`。所以用户用选择器切模型或切思考档以后，`availability`、`thinkingLevels`、`contextLimit` 都还是旧模型的，直到重开会话。这和开发者反馈第 1 条是同一个 bug，只是触发点换成了 `model.set`；计划的宿主测试只写了“未绑定 → 绑定后可发送”。
+  2. 计划写“重读 snapshot，只更新 `meta.model`”，但 `KernelTranscript` 没有这种窄接口，现有 `refresh()`（session-host.ts:197）会调 `applySnapshot` 再 `loadPath`，同时覆盖 `usage`、`queue`、`status`、`title` 等整份基线。快照是异步取回的：取的过程中收到的状态帧、`inputQueued`，会被稍早的快照倒退覆盖（`open()` 为此专门有 `staleUntil` 与 `head` 丢帧逻辑，`refresh()` 没有）。
+  3. 宿主没有订阅 models 变化的入口：`plugin.ts:141-163` 的 `models` 是插件级 `shallowRef`，`SessionHostDeps.models` 只是个读取函数（session-host.ts:89），两个宿主（右栏视图、编辑区页面）各自需要一个“模型库变了”的回调才能触发重读，计划没写这个依赖。
+  4. 选角色后面板保持打开（plan.md:20），而思考档列表来自旧的 `meta.model.efforts`：用户刚选完角色，看到的是上一个模型的档位；若新模型不支持当前 `settings.effort`（例如 `xhigh`），触发器仍显示这个值（`composer.thinking = settings.effort`，session-host.ts:689），单选组里没有任何项被勾选。
+- 为什么是问题：用户可观察的症状（“还显示要先绑定”“上下文窗口、思考档不对”）在换一条路径后依旧出现，而且计划的验收只覆盖一条。
+- 如何核实：读上面几处；在宿主测试里 `changeSettings({model})` 后检查 `ctx.composer.thinkingLevels` 与 `ctx.usage.contextLimit` 是否变化（预期不变）。
+- 建议改法：给 `KernelTranscript` 加只替换 `meta.model` 的方法（例如 `applyModel(model)`），宿主在两种时机调用：models 变化回调，以及收到 `settingsChanged` 且 patch 含 `model` 或 `effort` 的帧之后；用代数标记丢弃过期结果。`SessionHostDeps` 加 `onModelsChanged(listener)`。验收加一条“选角色后思考档与上下文窗口随之变化”，并规定新模型不支持当前档位时的显示（回落到第一个支持的档，或显示“默认”）。
+
+### 3. 角色未绑定或没有凭据时选择器整个被禁用，用户在选择器里改不了
+- 严重程度：重要
+- 类别：与目标矛盾 / 失败路径
+- 位置：`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:49-51`、`:436-446`（`runtimeDisabled`、`:disabled="runtimeDisabled"`）；session-host.ts:659-660；plan.md:20-21
+- 现象：`readonly = availability.status !== "ready" || !canSend`，`runtimeDisabled = readonly || !canChangeRuntime`，选择器的 `disabled` 取后者。会话的解析模型失败（`role-unbound`、`no-model`、`no-credentials`、`unknown-model`）时 `availability` 是 `profile-unavailable`，选择器被禁用，横幅只给“打开设置”。新选择器加了“选角色”，最需要它的正是这个状态（Profile 默认角色没绑、用户想改选另一个角色或具体模型）。
+- 为什么是问题：计划把选择器当成这类问题的出口，实际上进不去；用户只能去设置页绑定，再等刷新（见第 2 条）。
+- 如何核实：读上面几行；Lab 里把 `availability.status` 设为 `profile-unavailable` 看选择器。
+- 建议改法：选择器的禁用条件只看 `canChangeRuntime` 与归档、读失败，不看模型解析失败；`profile-unavailable` 下仍允许 `model.set`、`thinking.set`。输入框正文仍只读。在计划里写明各 `availability` 状态下选择器是否可用（表格）。
+
+### 4. 草稿直接写 `localStorage` 违反存储规范；按会话切换还有读写竞态
+- 严重程度：重要
+- 类别：违反既有约定 / 并发
+- 位置：plan.md:12、plan.md:50；`docs/standards/code/frontend.md:64`、`docs/specs/storage/boundaries.md:59`；session-host.ts:139-158、`:527-529`、`:302-313`（`open` 不重置 `draft`）、`:738-742`
+- 现象：
+  1. 规范写明“禁止新增组件内裸 `localStorage` / `sessionStorage` 读写”，宿主的持久化走适配层。同一个插件已经有先例：`plugin.ts:83-85` 的 `agent.recent-session` 用 `defineRecord({scope, locality: "local", keyed: true})`，经 `storageKey` 服务读写。计划写“存 `localStorage`，不引库”，既绕过 Storage 的归属与作用域（作品范围/用户层、客户端身份），也让 t17 第 8 条“另一个窗口看不到草稿”靠不住：同源窗口共享 `localStorage`，另一窗口刷新或打开同一会话就看到了。
+  2. `composer.draftChanged` 每次按键都发（`AgentConversationComposer.vue:onChange`），现在宿主只改内存变量。持久化要防抖，计划没说；切会话时旧会话的待写草稿要先落盘。
+  3. 草稿是宿主的单个变量，不分会话：`open()` 不重置它（`closeCurrent` 也不碰 `draft`），所以今天 A 会话里没发的字切到 B 会话还在输入框里。按会话存要在 `open()` 里异步读 B 的草稿再 `setDraft`；用户在这段异步读取期间已经打字时，晚到的读取结果会用新版本号把他刚写的字替换掉（编辑器遇到版本号变化就替换内容）。没有会话（`current === null`）时的输入没有键可存，随后 `submit` 才 `create()`。
+  4. 编辑区页面与右栏是两个宿主（`hostAt("view"|"page")`），同一会话可能同时在两处打开，各自的 `draftText` 互不知道，最后写入者赢。
+  5. “10 条、30 天”需要一个索引记录做淘汰；`keyed` 记录是按键独立读写的，没有“数条数”的机制，计划没说放哪。
+- 为什么是问题：规范违反会在 `governance:check` 或审查里被拦；竞态会丢用户的字，属于数据丢失。
+- 如何核实：读 `storage/boundaries.md:59` 与 `plugin.ts:83-85`；在宿主测试里 `open(A)`、设草稿、`open(B)`，看 `ctx.composer.draft`（现状会保留 A 的字）。
+- 建议改法：用 `nbook.storage` 的记录（一个“草稿索引”记录放最近 10 个会话的文本与时间，整体读改写，淘汰在写入时做）；写入防抖 + 切会话、`dispose`、`borrow` 归零时同步冲刷；`open()` 先清空草稿、读到之后仅当版本未被用户输入推进时才替换（用打开代数与“读取期间是否 `draftChanged`”判定）；无会话时的草稿用固定键 `new`，创建会话后迁移或清掉；两个位置共享同一个草稿索引时，约定以“最近打开的位置”为准并写进 Spec。
+
+### 5. 分支树“从完整日志算”：超大事件拿不到 id 与父节点，nb-ui 的 `Tree` 画不了旧版的行
+- 严重程度：重要
+- 类别：依赖的机制不够 / 合同
+- 位置：plan.md:43、plan.md:12（“树形展开用 nb-ui 现有的折叠与键盘导航做法”）；`packages/neuro-book/src/plugins/agent/shared/remote.ts:106`（`LogItem`）、`backend/frames.ts:28`；`packages/nb-ui/src/components/navigation/Tree.md`；旧应用 `agent/session-tree.ts`、`dialogs/session-tree/AgentSessionTreeDialog.vue:566-603`
+- 现象：
+  1. 日志条目放不进一条消息时变成 `{kind: "oversized", seq, type, bytes}`，不含 `id` 与 `parent`。树要靠每个节点的 `id/parent` 连起来。工具结果、长回复正好是最容易超限的事件，丢了它们的父子关系，子树会断成孤儿或接错位置；补救只能经 `eventChunk` 把整条大事件读回来，只为拿一个父 id，对长会话是几十 MB 的读取。计划的“风险”一节只说分页多，没说这一点。
+  2. 旧弹窗是一个扁平的 `treeRows` 列表，每行有导引线格、分支点折叠（`+N` 隐藏计数）、五列网格（图标、类型、摘要、时间、状态）。nb-ui 的 `Tree` 的节点只有 `title`、`iconClass`、`children`，没有插槽（`TreeSlots = Record<never, never>`），不支持行内多列、搜索过滤、不渲染导引线；会话日志绝大多数是线性链，递归 `children` 嵌套深度等于事件数，几千层的缩进与递归渲染不可用。“用 nb-ui 现有的折叠与键盘导航做法”指向不明。
+  3. 树数据从哪来、什么形状没定：`AgentSessionTree.vue` 在 `nb-agent-ui`（纯受控、ctx 必须能 JSON 化），所以要么宿主把整棵树放进 `ctx.panels.tree`，要么把“日志事件 → 树行”的构建函数放在 nb-agent-ui 核心里由宿主喂事件。计划没有选，也没有给 `ctx.panels` 里树的字段。
+  4. 日志读完后新事件还在追加（对话在跑时可以开树），计划只写了“读完前显示进度”，没有写读完后的增量更新或手动刷新。
+- 为什么是问题：树在长会话里不正确或过慢，且实现者需要自己发明数据形状。
+- 如何核实：`remote.ts:106` 与 `frames.ts:28` 的类型；`Tree.md` 的 `TreeSlots`；旧弹窗模板。
+- 建议改法：给后端加一个只返回树骨架（`id, parent, type, seq, 摘要前 N 字`）的查询（与后端审查的结论对接），不要让浏览器读全部事件体；树行用自己的扁平列表（`role="tree"` 的 roving tabindex + 窗口化），构建函数放 nb-agent-ui 核心并单测；计划里写明 `ctx.panels.tree` 的字段、增量更新规则（以 `seq` 追加）。
+
+### 6. `ctx.branches` 与“重试/编辑重发”需要“视图消息 id → 内核节点”的映射，转录器里没有；`siblings` 要按轮逐个取
+- 严重程度：重要
+- 类别：接口与合同 / 依赖的机制不存在
+- 位置：plan.md:36-41；`packages/nb-agent-ui/src/kernel-transcript.ts:285-345`（`input`、`assistant`、`modelStarted` 的处理）、`:15`（`runtime.md` 输出 36、37）；`packages/nb-harness/src/kernel/run/tree.ts:15-98`
+- 现象：
+  1. `siblings(node)` 以“同一个父节点的 path 事件”为单位。重试/swipe 产生的兄弟节点是 `modelStarted`（`runtime.md` 输出 36：“接着跑之后的模型请求（`modelStarted`）与原来那次是兄弟节点”），而视图的分支切换器挂在 `turn.user.id` 与 `turn.outcomeMessage.id` 上（`AgentConversationTurn.vue:150-157`、`:183-189`），后者是 `assistant` 事件的 id，它的父节点是 `modelStarted`，对 `assistant` 调 `siblings` 只会返回它自己。`KernelTranscript` 对 `modelStarted` 只记下 `purposes`，不保留节点 id、父子关系；`rewindTargets` 的 `turnId` 与视图“轮”（`splitIntoTurnGroups` 按用户消息切）也没有对应关系。
+  2. “重试：`rewindTargets` 找这轮的目标后 rewind 再 start”没有说选哪个 `kind`：用户的话之后的第一个 `after-step`，还是 `before-turn`（后者会回到用户输入之前）；一个视图轮里可含多个内核 turn 和多个 `after-step`；助手消息上的“重试”和用户消息上的“重试”（`builtin-message-actions.ts:29-36` 两种都有）是否同一个目标。
+  3. 切换器要给每个有分支的消息填 `ctx.branches`，用 `siblings` 就是每轮至少一次远程调用（用户侧加助手侧可达两次），打开长会话和每次 `leafChanged` 后都要重算。
+- 为什么是问题：不先建立映射，批 3 实现时只能从事件里重新猜，换一种事件顺序（压缩、steer、被中断的运行）就会选错回退点，属于破坏历史的操作。
+- 如何核实：读 `kernel-transcript.ts` 上述区间（没有任何 `parent`/节点 id 字段）；读 `tree.ts` 的 `rewindTargets` 与 `siblingsOf`。
+- 建议改法：让转录器为每条用户/助手消息记下它的内核节点 id、所在 `modelStarted` 的 id 和 `rewindTargets` 要的 `turnId`（作为 `KernelTranscript` 的新只读查询）；计划写一张表：消息种类 × 操作 → 回退目标 `kind`。分支信息用第 5 条的树骨架一次算出，不要按消息调 `siblings`。
+
+### 7. 编辑与分支切换的禁用条件，计划说“视图已有”，实际没有
+- 严重程度：重要
+- 类别：遗漏 / 与现有实现不符
+- 位置：plan.md:42；`packages/nb-agent-ui/src/vue/builtin-message-actions.ts:19-27`；`packages/nb-agent-ui/src/vue/stream/AgentConversationTurn.vue:150-157`、`:183-189`、`stream/AgentMessageActions.vue:29-40`；session-host.ts:673
+- 现象：
+  1. “编辑”操作的 `when` 只看 `canMutateHistory`，不看 `run.status === "idle"`（重试与分支都看了）；运行中能点开编辑，提交才被内核拒成 `running`。
+  2. 分支切换的 ‹ › 按钮有 `props.disabled` 入参，但 `AgentConversationTurn` 两处都没传，所以运行中永远可点。计划说“按钮按 `run.status` 禁用”，需要改视图。
+  3. `canMutateHistory` 在宿主里目前是不设（常量 false）。计划说“把它打开”，没说条件。归档会话、`meta.readOnly` 不为 null 的会话（`KernelMeta.readOnly`）、子会话都不该能改历史；等待审批/回答（`run.status === "waiting"`）时同样不该改。
+- 为什么是问题：用户在运行中点“编辑”，写了长文，提交时失败；失败后 `message.editSubmit` 没有定义失败通道（见第 1 条，宿主没有放回文字的位置）。
+- 如何核实：读上述三处；Lab 里把 `run.status` 设为 `running` 检查编辑按钮。
+- 建议改法：`canMutateHistory` 在宿主里算成 `run.status === "idle" && !archived && readOnly === null`，同时视图里编辑、分支切换统一按 `ctx.interaction.canMutateHistory` 隐藏或禁用（不是各自再判一遍 `run.status`）；编辑重发失败时保留编辑态并显示原因（`ctx.editing` 需要加一个错误字段，或复用 `composer.notice`）。
+
+### 8. `@` 菜单依赖的“编辑区现有文件查找”不存在，且 `resolveTriggerMenu` 是同步纯函数
+- 严重程度：重要
+- 类别：依赖的机制不存在 / 合同
+- 位置：plan.md:48；`docs/specs/workbench/quick-open.md` 的“非目标”（“文件/实体快速打开（`Ctrl/Cmd+P`）……本批不交付”）；`packages/neuro-book/src/plugins/files/shared/contracts.ts:214-234`（只有 `list`、`read`、`identify`……，没有搜索）；`packages/nb-agent-ui/src/types.ts` 的 `resolveTriggerMenu`
+- 现象：计划写“复用编辑区现有的文件查找（开工时先找‘快速打开’的做法）”。快速打开的 Spec 明确没有文件检索，`files` 服务只有按目录 `list`。“项目文件与章节”要么在浏览器里遍历目录树自建索引，要么新增服务端搜索；二者都是新工作，不是复用。另外 `resolveTriggerMenu(context)` 是同步纯函数，数据变化时宿主换新函数（Spec“数据未到时返回加载中，到达后宿主换一个新函数”）。按查询异步取候选的做法在 `packages/nb-story/src/web/qa/mentions.ts` 里已有先例（`createMentionSearch`：按查询取、缓存、到达后通知换函数），计划没有引用。“章节”在 `files` 里没有对应概念（章节是 bookshelf/内容模型的东西），列出方式、排序、与文件重名时的分组也没写。
+- 为什么是问题：批 4 被当成“接线”，实际含一个搜索能力；没有打开作品时“菜单写原因”也需要宿主知道 `deps.project`，这点计划已经想到，但搜索范围（是否包含 `.nbook` 内部目录、被忽略文件、超大目录）没有。
+- 如何核实：读 `quick-open.md` 非目标；`grep -n "search\|find" packages/neuro-book/src/plugins/files/shared/contracts.ts` 无搜索方法。
+- 建议改法：批 4 开头先定“候选从哪来”：优先复用 explorer 已加载的树（如果有只读投影）并限量，或在 `files` 增一个按名字前缀/子序列检索的只读方法（受 `MAX` 限量）；沿用 `createMentionSearch` 的结构，并在计划中写出每组上限和防抖。
+
+### 9. 附件：无会话时无处上传；文字写法与 `input.attachments` 二选一没定；读取路由缺失
+- 严重程度：重要
+- 类别：遗漏 / 合同
+- 位置：plan.md:54-56；`docs/specs/ui/prompt-editor.md:44-50`（附件目标写在文字里）、`docs/specs/ui/agent-conversation-view.md:348`（“附件都写在文字里，不另带”）；`packages/nb-agent-ui/src/kernel-transcript.ts:285-291`；`packages/nb-agent-ui/src/vue/stream/AgentUserContent.md`；session-host.ts:419-436（`submit` 在无会话时先 `create()`）
+- 现象：
+  1. 附件存进会话工作区 `session://attachments/`，需要会话。选中“未选择会话”的空状态时，用户粘贴图片，`composer.attachmentAdded` 到宿主，`current === null`，没有可上传的目的地；现在 `submit` 是发送时才建会话。计划没有规定：先建会话，还是在无会话时 `canRegisterAttachments` 为 false。
+  2. 视图合同是“附件写在文字里”（`![image #N](session://attachments/…)`），转录器却同时把 `input.attachments` 转成附件块（`kernel-transcript.ts:287-289`）。宿主发送时是只发 `{text}`（让内核从文字里解析），还是另带 `attachments`，计划没写；两样都发会在气泡里显示两次（文字里的小块和附件块）；只发文字则计划里“内核读 `uri` 转图片块”读的是哪个字段要对上。`recall`（上方向键）从日志取文字时也会因此或带或不带附件标签。
+  3. `resolveAttachmentUrl(locator, variant)` 是同步函数，要返回一个 URL，缩略图与原图要有读取路由；计划只列了上传路由。16 MB 的原图直接当缩略图 `<img>` 会拖慢长对话，没有缩略图规则。URL 要带会话与作品范围，且 `<img>` 请求不能带自定义头，鉴权方式要核对 `http` 插件的做法。
+  4. 数量与大小限制（8 张、16 MB）：编辑器没有数量或大小的属性，只能在宿主收到 `attachmentAdded` 后把状态设为 `failed` 并给出原因；“最多 8 张”是按会话、按这一条输入，还是按草稿，没定。
+  5. 内容哈希相同不重复写：同名但内容被改过的 `session://attachments/<hash>` 不会冲突，可以；但文字写法要求“名称在会话内唯一，不含空白与括号”，以哈希为名则 `[file #N · 文件名]` 里的原文件名不可恢复，只能放在小块的标签里，需确认编辑器的文字写法能带文件名（有，`[file #N · 文件名](目标)`）。
+- 如何核实：读 `prompt-editor.md` 附件小节、`kernel-transcript.ts:287`、`session-host.ts:419-436`。
+- 建议改法：计划里加三句定论：无会话时附件入口关闭（`canRegisterAttachments: current !== null`）或先建会话；发送只发文字，转录器不再从 `input.attachments` 生成附件块（旧数据保留）；增加 `GET` 读取路由并规定缩略图的做法（服务端缩放，或浏览器只加载原图但 `loading="lazy"` 并限制尺寸）。
+
+### 10. 缓存命中率的口径不含写入量，且不报缓存的服务商会一直显示 0%
+- 严重程度：重要
+- 类别：合同 / 失败路径
+- 位置：session-host.ts:704；`AgentStatusBar.vue:72`；plan.md:26、plan.md:30
+- 现象：
+  1. 宿主算 `cacheRead / (input + cacheRead)`。`input` 只含没命中缓存的部分（`CompactionView` 注释），`cacheWrite` 是另一类未命中（本次新写入缓存的输入），不在分母里：首次请求大量写入、第二次读取时，分母偏小、命中率偏高。上下文占用的口径用的是 `input + cacheRead + cacheWrite`（Spec 第 111 行），两个口径不一致。计划还要在检查器里再显示“最近一次请求的命中率”，宿主需要第二份同样的公式。
+  2. 不报告缓存用量的服务商或中转（`cacheRead` 恒为 0）：`input > 0` 时命中率是 0%，而不是“未知”。计划把它从悬停提升为状态栏的常驻项，这些模型上会永远显示 0%，被用户当成“缓存坏了”。`cacheHitRate: null` 只在两者都是 0 时才出现。
+- 为什么是问题：用户据此判断成本和提示词是否稳定，错误的数字比没有更糟。
+- 如何核实：读 session-host.ts:704；构造 `{input: 50, cacheRead: 10000, cacheWrite: 500}`，现公式 99.5%，含写入是 94.8%。
+- 建议改法：公式移到 nb-agent-ui 核心的一个纯函数（累计与最近一次共用，附测试），分母含 `cacheWrite`；`cacheRead` 与 `cacheWrite` 累计都为 0 时给 `null`（“服务商未报告”），状态栏不显示该项。把口径写进 `ui/agent-conversation-view.md` 的 `usage` 一行。
+
+### 11. 选择器重写：旧版 620x440 的面板放不进 320–420 的右栏，计划没写尺寸、没写保留哪些现有功能
+- 严重程度：重要
+- 类别：别扭之处 / 遗漏 / 与现有实现不符
+- 位置：plan.md:20-21；`packages/nb-agent-ui/src/vue/composer/AgentModelPicker.vue`（现有组件，`.md` 同名）；旧应用 `novel-ide/model-picker/ModelPickerPopover.vue:35-43`（`w-[620px]`、`h-[440px]`，不开专精时 `h-[330px]`）、`ModelPickerContent.vue:528-546`（角色卡 78px 高、专精卡 142px 宽）
+- 现象：
+  1. 旧面板默认 620px 宽、440px 高，角色卡四列并排。右栏默认约 320–420px。计划只说“按旧应用重写”“滑移动效不搬”，没给新宽度、角色卡排布（2x2？单列？）、高度上限和内部滚动策略。面板通过 portal 挂在 body 上，宽于右栏时会盖住编辑区，窗口矮时 440px 加触发器上方空间可能放不下（现有菜单用 `side="top"`）。这个答案只能靠静态稿得出，但计划没有把“右栏宽度下的版式”列为静态稿的约束。
+  2. “按现有弹层”含糊：现组件用 `DropdownMenu`（条目列表），新面板需要自定义内容（角色卡、搜索框、分组折叠、思考档），要用 `Popover`（视图里已在用）。现有 `.md` 里的功能：“管理模型…”（`canManage`、`model.manage`）、灰掉不可用项并悬停显示原因（`unavailable`）、不支持图片的标记（`showImageSupport`）、“跟随默认”这一项（宿主塞了 `key: ""` 的第一项，`session-host.ts:686`）在计划里一个都没提，重写时容易丢；`/model <名称>` 的参数提示（`command.modelArgs`）也要由同一个面板或命令处理。
+  3. 触发器写“深度 · DeepSeek · 高”三段，`.acv-model-picker__model` 最宽 12em 且可截断，`thinking` 段 `flex: none`。窄栏里先被截断的是模型名，而它恰恰是会变的、用户在意的信息；模型选的是“跟随默认”时触发器只写“跟随默认”，看不出实际用的是哪个模型（`meta.model.id` 其实知道）。
+  4. 选角色不关面板、选模型关面板，是旧组件的约定，但没写理由；在窄栏里面板盖着输入框，不关会挡着用户（旧组件的理由是“调整思考档”，而思考档本来就在同一面板里，见第 2 条第 4 点：选完角色后档位列表是旧的）。
+  5. 无障碍：自定义面板要写清 `role`（`listbox`/`radiogroup`）与键盘行为（上下选、Esc 关、搜索框焦点），`DropdownMenu` 现在白送这些。
+- 如何核实：读旧组件的宽高类名；读现有 `AgentModelPicker.md`。
+- 建议改法：静态稿的输入条件写成“面板宽度 = 右栏宽度，不超过 360px，最大高度 = 视口高度的 60% 且内部滚动”，角色卡改为单列紧凑行（名称、绑定的模型、不可用原因），模型库用搜索 + 分组折叠；保留 `canManage`、`unavailable`、`showImageSupport`、“跟随默认”四项并写进新的 `.md`；触发器规定截断顺序（角色名 > 档位 > 模型名从中间省略）；默认选模型即关面板，选角色也关（档位在同一面板下方时再决定）。
+
+### 12. 状态栏窄宽规则只处理了右半边，左边的告警与阶段会把右边挤出去；明细只在悬停里
+- 严重程度：建议
+- 类别：边界 / 别扭之处
+- 位置：plan.md:26；`packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:160-198`（容器查询）、`:96-120`
+- 现象：现有规则 `@container (max-width: 380px)` 隐藏除第一个以外的指标，`460px` 且有 `.acv-status__flag` 时同样隐藏。计划改为窄宽时“留缓存命中与费用，让位输入、输出，累计也让”。问题：
+  1. 左边是圆环 + 4ch 百分比（约 50px）、阶段文字（可省略）、费用告警、“全部放行”警告（带图标，约 70px）、断线提示，它们都是 `flex-shrink: 0` 或可省略到 0；右边缓存与费用再加约 90px。320px 宽（内边距后约 296px）、同时有“全部放行”和“费用告警”时，总宽超过容器，状态栏没有 `overflow` 规则，右端的费用会被裁掉。`:has(.acv-status__flag)` 的第二条规则需要同步重写，计划没提。
+  2. 输入、输出、累计只在 Tooltip 里；触屏与键盘用户依赖 `tabindex="0"` 的聚焦显示。让位以后“累计 tokens”这个最基本的数字就没有了显示位置（检查器里计划也没有累计 token 一栏）。
+  3. 圆环与缓存项改为可点后，需要换成 `button` 语义（现在是 `role="img"`），并有 `aria-haspopup="dialog"`；`AgentContextMeter` 也被单行版式（nb-story）使用，那边的宿主没有检查器，点了会开一个空弹窗。需要一个能力标志（例如 `interaction.canInspectContext`，类似 `canManageModels`），没有时不可点。
+- 如何核实：读容器查询；在 Lab 里把状态栏宽度设为 320、带 `approval.value = "yolo"` 与 `costState: "warned"`。
+- 建议改法：状态栏分左右两个 flex 区，左区 `min-width: 0` 可省略，右区只留“缓存 + 费用”，其余全部进明细弹出；检查器里加一栏累计 token（输入、输出、读、写）；加 `canInspectContext` 能力位；静态稿加一张 320px 且带两个警告的版本。
+
+### 13. 上下文检查器的数据形状与已有 action 不一致，范围超出“简版”
+- 严重程度：建议
+- 类别：合同 / 与已定设计对照
+- 位置：plan.md:30-32；`docs/specs/ui/agent-conversation-view.md:354`（`systemPrompt.load {refresh}`、`context.selectTrace`、`context.refresh`）、`:113`；`.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md` 第 12 条（“简版上下文检查器（只显示组成，系统提示词的查看并进来）”）；`packages/nb-agent-ui/src/types.ts:376`（`PanelsView = {[panelId: string]: JsonValue}`）
+- 现象：
+  1. t17 第 12 条定的是“只显示组成 + 系统提示词”。计划加了扩展的槽、缓存累计与最近一次、诊断、刷新，README 决定 3 只批准了去掉缓存时间线与请求选择，累计与最近一次命中率是开发者认可的；“槽”与“诊断”是新增，应在计划里标明是扩大了 t17 的范围并得到认可。
+  2. Spec 已有 `systemPrompt.load {refresh}`，用于按需取系统提示词；计划把全文放进 `contextInspection` 数据里（“系统提示词全文（折叠）”），一次 `preview` 就带回全文，数据形状和 action 不一致，也让 `ctx` 里常驻几十 KB 文字。`PanelsView` 的值是 `JsonValue`，没有类型约束，计划没有给出 `contextInspection` 的字段、加载中/失败/不可用的状态字段（`preview-unavailable` 的原因怎么表达）。
+  3. 打开检查器时谁发起 `preview`：视图的打开状态是纯界面状态（见第 1 条），所以必须规定“打开时发 `context.refresh`”，关闭后宿主可释放数据；计划没写。
+- 如何核实：读 Spec 第 354 行与 t17 第 12 条。
+- 建议改法：把数据形状写进计划（含 `state: "idle"|"loading"|"ready"|"unavailable"`、`reason`、`byArea[]`、`slots[]`、`diagnostics[]`、`cache: {total, last}`），系统提示词走 `systemPrompt.load`；把“槽”与“诊断”的增补在 README 记一笔。
+
+### 14. 命令映射：`/model` 与 `/rename` 的参数、`/fork` 在运行中、命令后的草稿处理没写
+- 严重程度：建议
+- 类别：边界
+- 位置：plan.md:47；`packages/nb-agent-ui/src/vue/builtin-composer.ts:19-33`（`model`、`rename`、`compact` 有参数提示）；session-host.ts:533-535（`command.run` 只处理 `compact`）、`:448-477`
+- 现象：登记的 `/model` 参数提示是“模型名”之类，计划只写“打开选择器”，`/model deepseek` 带参数时按什么规则匹配（角色名、模型名、含糊时怎么办）没写。`/fork` 内核在运行中得 `running`（`runtime.md` 输出 37），要不要在运行中隐藏命令；`/rename` 空参数时是弹输入还是报错；`/new` 创建后输入框里没发的字怎么办。`compactCommand` 的做法（先 `setDraft("")`，失败再放回 `typed`）是现成模式，计划没有说新命令沿用它。
+- 如何核实：读 `builtin-composer.ts` 的 `argsHint` 与 `compactCommand`。
+- 建议改法：给四个命令各列一行“参数、成功、失败、运行中”，并沿用 `compactCommand` 的草稿清除与放回规则。
+
+### 15. 输入历史：宿主已有的 `acceptSubmission` 不用，另起从日志取的一份；命令与附件不在日志里
+- 严重程度：建议
+- 类别：别扭之处
+- 位置：plan.md:50；`packages/nb-agent-ui/src/composer-actions.ts:112-127`（`acceptSubmission`、`applyComposerAction`）、`session-host.ts:155-158`
+- 现象：nb-agent-ui 已提供在受理发送后把草稿放进 `recall` 的纯函数，Lab 在用；真实宿主没用，计划又选择“取自日志”。两者语义不同：日志里没有命令（`/compact` 不进日志），steer 补充说明与排队消息混在 `input` 里，已回退掉的分支上的话不在当前路径上。上方向键翻到的是“当前路径上的用户消息”，用户在 A 分支编辑重发后，旧文字从历史里消失。第 9 条里文字写法与附件的取舍也会影响历史里是否带图片标签。
+- 如何核实：读 `acceptSubmission` 注释；对比日志事件类型。
+- 建议改法：写明 `recall` = 当前路径上 `intent === "normal"` 的用户消息文字，最新在前，去重，上限（例如 50）；命令不进历史，并在 Spec 里写这个取舍。
+
+### 16. 验收映射一栏是空的，部分判据在真实运行时测不出
+- 严重程度：建议
+- 类别：验收映射
+- 位置：plan.md:75（“验收映射：Spec 条目在每批开工时写好后补在这里”）、plan.md:69-76（切片表“验证”列）
+- 现象：
+  1. 没有写进 Spec 的行为不算验收，但 Spec 的新条目要等每批开工时才写，计划阶段无法核对“批 1 到批 5 的判据能否用真实运行时测出”。至少下面几条现在就能列：批 1 的“角色绑定后不刷新页面就能发送”“选 `role:x` 后触发器、思考档、上下文窗口一起变”；批 3 的“运行中编辑、切分支按钮被禁用”“编辑重发后分支切换器出现 1/2”“分支树对 oversized 事件仍连得上”；批 4 的“切会话后草稿各归各、读取期间打的字不丢”；批 5 的“无会话时粘贴图片”“重复内容不重复写”。
+  2. 批 1 的“选择器组件测试”只能测 DOM，窄栏下是否放得下是视觉判断，e2e 要在 320px 视口下截图核对（项目有 `nbdev shot`），计划只写了 `agent-conversation` e2e。
+  3. 批 5 的“图片进真实模型的冒烟”依赖模型能力与密钥，应该标成 `*.llm.test.ts`，并写明没有密钥时跳过的做法不算通过。
+- 建议改法：现在就把上面这些写成 Given/When/Then 列表放进验收映射，批开工时只补 Spec 编号；批 1 的 e2e 加一个窄栏视口用例。
+
+## 更正（报告只追加，故在此更正前文）
+
+- 第 4 条里“plan.md:12”应为 plan.md:13（技术选型一节的“草稿存 `localStorage`”）；第 16 条里“plan.md:75”应为 plan.md:81（验收映射标题），切片表在 plan.md:71-77。
+- 第 6 条位置里的“`:15`（`runtime.md` 输出 36、37）”写乱了：这两条是 `docs/specs/harness/runtime.md` 输出 36、37，与 `kernel-transcript.ts:15` 无关。
+- 第 9 条第 5 点是我写的时候想了一半的疑问，核对后文字写法 `[file #N · 文件名](目标)` 本来就带文件名，不成问题，请忽略该点。
+
+## 未发现问题的方面
+
+- 批 1 `modelKey` 取 `role:<id>`：视图与宿主之间 `model.set {modelKey}` 原样传串，`changeSettings({model})` 不解析，前端这一侧不需要改合同（`ComposerModelView.key` 都带 `/`，与 `role:` 前缀不冲突，仅从现有 `modelOptions` 推断，未验证服务商 id 不含冒号）。
+- 批 3 里 `leafChanged` 触发重取路径：`session-host.ts:212-214` 与 `processFrame` 已经按新叶子 `refresh`，这部分前端确实现成。
+- 批 4/5 视图侧已有的零件确实存在：`composer.draft`/`recall`/`pastePolicy`/`attachments` 字段、`composer.attachmentAdded/Retry/Removed`、`sendBlockedReason`、`resolveAttachmentUrl` 与用户气泡的附件条、`provideAgentView` 的编辑器端口。
+- Agent 模式移出、`$` 不做、检查器不做缓存时间线与请求选择：与开发者已定的三点一致，没有发现悄悄改动。
+- `DiffView` 复用（审批已在用）与“差异显示用 t17 的 DiffView”：没有发现问题。
+
+## 数量
+
+共 16 条：阻断 1（第 1 条），重要 10（第 2 至 11 条），建议 5（第 12 至 16 条）。

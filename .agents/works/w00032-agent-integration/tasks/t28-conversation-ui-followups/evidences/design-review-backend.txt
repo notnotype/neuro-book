@@ -1,0 +1,94 @@
+### 1. Agent 模式仍被本 Task 当作范围（阻断）
+- 严重程度：阻断；类别：接口与范围；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:58-60`
+- 现象：计划保留“Agent 模式”整节，并写明“移到 t06，紧接本 Task 做”，同时把本 Task 的模式菜单定义成“第一版仍只有审批模式”。开发者已确认 Agent 模式移到 t06、不是本次范围。
+- 为什么是问题：后续按计划实现或验收时，仍会把 t06 的模式工作、模式菜单合同或跨 Task 顺序算作 t28 的交付，造成范围和验收边界不一致；这也会让实现者误以为本批要为 Agent 模式预留宿主状态或 Spec 改动。
+- 如何核实：对照开发者确认项与计划第 58–60 行；检查批次表和“Spec 与文档改动”是否把模式相关行为计入 t28。
+- 建议改法：删除本 Task 的 Agent 模式节及其范围性描述，只保留“本 Task 不改 Agent 模式，模式菜单继续使用已实现的审批模式”；从依据、批次、验收和风险中移除 t06 的实施依赖。
+### 2. `role:<id>` 的解析链仍没有定义并且现实现把未知角色报错成错误码
+- 严重程度：重要；类别：接口与合同；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:21-22`；`packages/neuro-book/src/plugins/models/backend/core.ts:130-152,332-342`
+- 现象：内核只把 `core.model` 当作非空字符串或 `null` 校验（`packages/nb-harness/src/kernel/run/settings.ts:10-15`），这足以存下 `role:<id>`，但模型服务当前的解析分支只有 `query.role`、直接模型引用和默认角色；`settings.model === "role:main"` 会进入 `resolveReference`，按 `<provider>/<model>` 拆分后得到 `unknown-model`，不会走 `resolveRole`。即使新增了前缀分支，现有 `resolveRole` 对“角色不存在”和“角色存在但未绑定”都返回 `role-unbound`。
+- 为什么是问题：批 1 的选择器可以成功持久化一个看似合法的选择，但下一次快照、发送、`start` 和 `preview` 会按错误分支解析；角色被删除或角色 id 被篡改时，计划又明确要求“未绑定得 `role-unbound`、不存在得 `unknown-model`”，当前实现无法满足这个区分。前端的 unavailable 状态也会因此显示错误恢复建议。
+- 如何核实：在真实 `modelsWorld` 中依次 `setRole({id:"main", model:"provider/model"})`、把会话 `changeSettings({core:{model:"role:main"}})`，调用 `service.port().resolve({settings, purpose:"turn", profile})`；再删除或改掉角色 id，比较返回码。现实现无需运行即可由 `core.ts:131-151` 的控制流确定。
+- 建议改法：在模型服务的唯一解析入口把 `role:<id>` 严格拆分并转到角色解析；角色不存在返回 `unknown-model`，存在且 `model === null` 才返回 `role-unbound`；拒绝空 id、额外前缀和 `role:` 本身。把 `models/service.md` 输出 8、共享类型/测试和选择器的 unavailable 映射写成同一份合同，而不是只改前端字符串。
+### 3. 模型变化时沿用现有 `refresh` 会破坏运行中的流和路径时序
+- 严重程度：阻断；类别：并发与状态；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:19`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:197-202,344-367`；`packages/nb-agent-ui/src/kernel-transcript.ts:551-596`
+- 现象：现有 `refresh()` 不是只刷新模型元数据：它 `applySnapshot()`，随后按快照叶子完整 `loadPath()`。`applySnapshot()` 会覆盖运行状态、队列和快照模型，`applyPath()` 会先 `resetPath()`，清掉正在生成的临时消息，再重放已经落盘的路径。计划要求模型变化后“只更新 `meta.model`，不重建对话”，但没有给出新的受控更新接口或并发序列。
+- 为什么是问题：模型服务变化可能发生在打开会话的快照与路径加载之间、流式生成中、或 `changeSettings` 已受理但下一次请求尚未开始时。若直接复用 `refresh`，正在显示的半截回复会消失，模型变化事件与实时帧可能按错误顺序覆盖彼此；若只改本地 `meta.model`，又必须保证下一次快照、重连和 `leafChanged` 不把旧模型覆盖回来。计划中的宿主测试“未绑定 → 绑定后不刷新页面就能发送”没有覆盖这些时序。
+- 如何核实：在真实宿主测试里让 `frames` 推出 `delta` 后暂停模型服务事件，触发 `models.changed`，观察 `ctx.messages` 中的 streaming assistant 是否被清掉；再让 `snapshot`、`path` 和模型变更以相反顺序完成，检查最终 `meta.model`、`run.status` 与 `messages` 是否一致。代码层面可由 `applyPath()` 的 `resetPath()` 直接确认风险。
+- 建议改法：给 Transcript 增加只更新会话级 `model` 的原子方法，或让宿主保存带 generation 的模型刷新任务；模型变化只调用该方法，不重取路径、不改运行/队列/乐观消息。打开、重连和 `leafChanged` 的完整重建继续走各自序列，并规定晚到的模型快照只能更新同一 `Current` 且不能覆盖更高代次结果。
+### 4. 计划的重试、编辑重发和“从此处分支”无法从现有查询准确选出目标
+- 严重程度：阻断；类别：接口与合同；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:36-41`；`packages/nb-harness/src/kernel/api/host.ts:164-201`；`packages/nb-harness/src/kernel/run/tree.ts:14-78`
+- 现象：`rewindTargets()` 只返回 `{id, kind, turnId, inputText}`；没有消息 id、模型请求号或“这个 assistant/user 消息对应哪个 target”的关系。`KernelTranscript` 对宿主公开的 `messages()` 也只有消息 id和内容，没有 turnId/target 映射。一个 turn 可能有多个模型请求：`after-step` 每个请求各有一个目标，而 `message.retry` 只给一个 `messageId`。
+- 为什么是问题：计划写“找这轮的目标后 rewind 再 start”，但这不能区分同一轮的中间回复、最后回复和工具结果；编辑重发遇到重复用户文本时也不能凭 `inputText` 选中原消息。从此处分支还没有说明要选 `before-turn` 还是第一处 `after-step`：前者把用户消息也回退掉，后者才是保留该用户消息、丢弃其后步骤的边界。照字面实现会重试错请求、编辑错轮，或生成错误的分支形状。
+- 如何核实：构造一轮“模型回复 → 工具 → 第二次模型回复”，再构造两条文字相同的用户消息；只通过现有 `rewindTargets()` 和 `KernelTranscript.messages()` 尝试实现三个 action。可观察到目标 id 只能按顺序或文本猜，无法从 action 的 message id 得到确定映射。
+- 建议改法：在内核查询中增加按消息/事件 id 返回精确回退目标的查询，或让 transcript 输出每条可操作消息的 `turnId`、相关请求目标和分支节点；明确 `retry` 的目标是该 assistant 对应的 `after-step`，编辑重发是该 user 对应的 `before-turn`，从此处分支是保留该消息的第一处 `after-step`。没有目标时必须返回可显示的业务失败，而不是静默选择最近一项。
+### 5. 分支树的“完整日志”读取没有处理占位事件、过滤和明确的查询代价
+- 严重程度：重要；类别：正确性与性能；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:40-43`；`packages/neuro-book/src/plugins/agent/shared/remote.ts:109-152`；`docs/specs/agent/sessions.md:62-68`
+- 现象：`log` 每页同时受 `limit <= 2000` 和编码后 512 KiB 限制，默认 `limit` 是 500；大于 256 KiB 的事件不是事件本体而是 `{kind:"oversized", seq, type, bytes}`，必须用 `eventChunk` 拼回。计划只写“从完整日志算（log 分页）”，没有说明分页参数、`oversized` 的补读、`eventChunk` 失败、或出站过滤后的日志如何处理。
+- 为什么是问题：树节点至少需要事件 id、parent、scope 和类型；占位项不含这些字段，跳过一个大 assistant/input 事件就会断开分支或让 `tree.activate` 找不到节点。日志查询又按会话的出站过滤运行，若事件被过滤，浏览器拿到的不是完整树，不能把“完整日志”当作已满足。成本也没有量化：100,000 个小事件至少 50 次 `log` 调用，1,000,000 个至少 500 次；若平均编码大小超过 256 KiB，每页可能只有 1 个事件，调用数接近事件数。除此之外，给每条可切换消息再调一次 `siblings`，N 个候选节点就是最多 N 次额外 RPC，`siblings` 还可能直接返回 `result-too-large`。
+- 如何核实：构造包含超过 256 KiB 回复、多个分支和出站过滤器的会话，真实调用 `log({limit:2000})`，确认返回 `oversized` 或缺失事件；记录分页次数和每个消息的 `siblings` 次数。再用 100,000 和 1,000,000 个小事件按合同计算调用下界。
+- 建议改法：定义树读取器：按 `through` 分页，遇到 `oversized` 必须 `eventChunk` 后再归约，任何缺块或过滤都把树标为不可用并显示重试；若树必须完整，应提供不经内容出站过滤的受控树查询或只返回结构元数据。明确 N 个节点的 RPC 预算，并增加批量 siblings/树索引查询，避免每条消息一条远程调用；对 `result-too-large` 给降级路径。
+### 6. `fork` 复制路径会留下指向原会话之外的附件地址
+- 严重程度：阻断；类别：数据一致性；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:52-56`；`packages/nb-harness/src/kernel/session/session.ts:519-562`
+- 现象：`fork` 当前只复制路径事件和 `profileChanged`、`settingsChanged`；新会话拥有自己的 `session://`，但不会复制源会话 `home/attachments/` 的文件。输入事件中的附件 URI 仍是类似 `session://attachments/<hash>`，在新会话里解析到新会话目录，因此找不到原文件。
+- 为什么是问题：计划明确要求附件进入模型，并要求覆盖 `fork`；按当前内核合同，分支后的历史消息会显示附件但下一次请求读不到图片/文件，模型会得到缺失或失败的内容。这个错误只在 fork 后再次发送时出现，普通上传和普通回退都不会暴露，不能靠 UI 的附件条状态补救。
+- 如何核实：真实建立会话并上传一张附件，发送含附件的输入后空闲 `fork`；比较源、新会话 `session://attachments/<hash>` 的 `resources.resolve/read`，再在新会话发送一条消息观察请求内容。
+- 建议改法：在 fork 合同中明确资源处理并原子实现：复制当前路径引用到的新附件（按内容哈希去重）到新会话，或让附件 URI 带源会话并给 fork 会话只读引用权限。两种方案都要覆盖权限、缺失文件、并发 fork 和失败清理；不能只复制日志事件。
+### 7. “图片读 `uri` 转图片块”没有可用的内核读取接口，也没有接入现有请求格式化器
+- 严重程度：阻断；类别：接口与合同；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:54`；`packages/nb-harness/src/kernel/api/ctx.ts:14-18`；`packages/nb-harness/src/kernel/view/format.ts:74-115`
+- 现象：`UserInput.attachments` 只有 `{kind, uri}`。内核的 `Resources.read(uri)` 只返回 `string | undefined`，而图片请求块需要 base64、mime 和可选尺寸；现有 `format.user()` 只把字符串或事件的 `textOf()` 放入文字块，不读取 `input.data.attachments`，所以当前请求完全不会包含用户附件。
+- 为什么是问题：计划依赖一个不存在的二进制读取能力，却没有决定从哪里读字节、如何判定 MIME、如何限制解码大小、如何在预览阶段读取、以及读取失败时是失败请求还是文字占位。直接把文件内容当 UTF-8 文本会损坏图片；直接在 `format` 里读文件又会把异步 I/O 塞进当前同步 Profile 渲染合同。后续批照字面实现会在 `computeRequest`、`preview()`、真实请求三处各写一套不一致逻辑。
+- 如何核实：用真实 `session://attachments/a.png` 作为 `UserInput.attachments` 调 `session.preview()` 或检查模型端口收到的请求；即使附件文件存在，当前 `format.ts:76-87` 也只生成用户文字。再查看 `Resources` 类型，确认没有字节读取方法。
+- 建议改法：先在 harness 合同中增加拥有者明确的只读二进制/附件解析端口，交回经过大小、MIME、尺寸校验的不可变图片块与文件地址；让 `computeRequest` 的异步入口在真实请求和 `preview` 共用同一个附件解析器，不能让 Profile 的同步 `format` 自己做 I/O。明确文件附件只放规范化地址、图片缺失/解码失败和不支持图片模型的错误码。
+### 8. 压缩、回退和模型能力变化的附件语义没有闭合
+- 严重程度：重要；类别：兼容与失败路径；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:54-56`；`docs/specs/harness/runtime.md:118-121`；`packages/nb-harness/src/kernel/compaction/compact.ts:35-39,58-60`
+- 现象：运行时现有的图片规则只覆盖工具结果 `ToolResult.images`：图片按尺寸估算，省略工具结果时不附图，模型不支持图片时由适配器替换成文字。用户输入附件仍只是 `input` 事件的 URI；压缩估算按事件 JSON 的文字/字段算，没有用户图片块的尺寸估算。计划说“压缩时图片写占位”却没有定义用户输入图片被省略时的占位、保留文件附件地址、或重放时如何重新读附件。
+- 为什么是问题：同一份会话在未压缩、压缩后、回退到压缩前三条路径上会得到不同甚至不可发送的请求；“已有规则”并不能覆盖新加的用户图片。若当前模型在上传后被改成无视觉能力，或 `role:<id>` 重新绑定到无视觉模型，UI 之前允许的附件仍会进入发送路径，而适配器的 `userContent()` 当前只接受文本块，最终可能成为 `UnsupportedContent`/模型失败，没有计划规定的用户可见失败码。
+- 如何核实：用用户输入附件分别触发阈值压缩、回退到压缩前再发送，比较 `preview()` 的消息块和图片 token；再先选视觉模型上传图片，改角色绑定到文本模型后发送，观察请求是否被拒及错误通道。对照 `runtime.md` 输出 58–61 的对象是工具消息，不是输入事件。
+- 建议改法：把用户附件纳入统一的请求内容模型和压缩算法：图片保留时解析成图片块，省略时生成带尺寸的文本占位，文件始终保留规范化地址；回退到压缩前必须恢复原附件语义。发送前按当前实际解析出的模型重新检查所有图片能力，失败返回结构化的 `unsupported-content`（或合同新增码），并覆盖设置变化、重试、fork、重开和 `preview`。
+### 9. 上传路由的鉴权、幂等、限制和附件元数据没有落到现有文件合同
+- 严重程度：重要；类别：安全与数据一致性；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:13,55-56`；`packages/neuro-book/src/plugins/agent/backend/resources.ts:18-20,59-75,133-138`；`packages/neuro-book/src/plugins/agent/backend/schemes.ts:105-113`；`packages/neuro-book/src/plugins/files/backend/raw-route.ts:25-56,170-191`
+- 现象：计划只说“加 HTTP 路由，经 `stage` 写 `session://attachments/<内容哈希>`”。现有 `sessionResources()` 给 Agent 的 `stage` 会带 `agent` 调用方，而 `sessionRule()` 明确拒绝 Agent 写 `home/attachments`；宿主上传路由必须绕过这个门面、使用服务端文件接口。HTTP 分发目前只提供 Host/Origin 准入，计划没有说明路由如何绑定会话、如何拒绝不存在或非当前用户可访问的 `sessionId`，也没有定义 body 上限是按 `Content-Length` 还是按流式字节数执行。\n+- 为什么是问题：复用错误的资源门面会稳定得到 `permission-denied`；不做路由级会话校验会让任意能调用本机接口的页面把文件写入任意会话；只限制请求头不能防 chunked 请求超过 16 MB。`stage` 用 `expect:"absent"` 时同一哈希的并发上传会有一个冲突，计划却要求“内容哈希相同时不重复写”而没有把冲突转成同一成功结果并清理暂存。最后，裸哈希没有扩展名，现有 raw 路由按扩展名返回 `application/octet-stream` 且带 `nosniff`，图片预览还缺 MIME/原名/大小等元数据。\n+- 如何核实：用现有 `sessionResources().stage("session://attachments/x", ...)` 验证授权失败；同时发两个相同内容的上传请求，观察一个成功、一个 `conflict`；用无 `Content-Length` 的请求流超过 16 MB，检查路由是否在写完前拒绝；通过现有 raw 路由读取裸哈希图片，观察 `Content-Type`。\n+- 建议改法：定义独立的附件上传/读取路由合同：校验来源与会话访问权，边读边计数并在超过精确上限时中止和丢弃 stage，按内容实际字节计算 SHA-256，使用安全的 hash+扩展名或保存受保护元数据；对已有同哈希文件做原子复用，对并发冲突重新确认后返回同一 locator。把最多 8 张作为服务端输入合同或受理时校验，而不只依赖 Composer；附件 URL 只允许当前会话的只读资源。
+### 10. `@` 复用的“编辑区快速打开”接口在新应用中没有落点
+- 严重程度：重要；类别：依赖与接口；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:48`
+- 现象：计划要求宿主实现 `resolveTriggerMenu`，并“复用编辑区现有的文件查找”，但当前新应用的宿主依赖只有 `quickPick`、地址打开和文件服务能力，没有发现可供 Agent 宿主调用的项目文件/章节搜索接口；现有工作台命令面板只查命令，不返回文件引用候选。旧应用的实现不能直接作为新应用接口。
+- 为什么是问题：后续实现者只能把搜索逻辑复制到 Agent 插件、把命令面板当文件搜索（结果没有 `reference` 目标），或临时深导入编辑器内部状态，三者都会破坏包边界。还没有定义无项目、查询为空、加载中、搜索失败、文件被删除和章节地址如何归一化的结果合同，`resolveTriggerMenu` 的异步“换一个新函数”也无法凭空得到数据。
+- 如何核实：从 `packages/neuro-book/src/plugins/agent/web/plugin.ts:107-200` 检查传给 `createSessionHost` 的依赖；对 `packages/neuro-book/src/plugins/workbench/web/commands/` 的查询接口调用，确认它只返回命令。再在新应用实际打开一个项目后尝试找文件搜索服务，当前没有对应公开端口。
+- 建议改法：先定义文件/章节查找的公开宿主端口（查询、取消、结果项的 `reference` 地址、显示名、类型、加载和错误），由编辑区和 Agent 宿主共同实现；`resolveTriggerMenu` 只做触发上下文到该端口的适配，不深导入编辑器。把无项目和过期地址的行为写进 `ui/agent-conversation-view.md` 与宿主合同。
+### 11. `/model` 没有打开选择器的 action，`/fork` 也没有未知结果的幂等恢复
+- 严重程度：重要；类别：接口与失败路径；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:47-48`；`packages/nb-agent-ui/src/types.ts:434-477`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:396-415,524-535`；`docs/specs/agent/sessions.md:57,110-111`
+- 现象：当前 action 有 `model.set`，没有 `model.open` 或等价的受控“打开模型选择器”；`command.run` 只带命令名和参数文字。宿主当前也只处理 `compact`，其它命令落到默认分支。计划却要求 `/model` 打开选择器、`/fork` 创建并切到新会话。现有宿主对写指令的未知结果只为发送保留原 `commandId`；`compact` 和未来的 `fork` 若直接用 `commandId()`，结果未知后没有恢复键。
+- 为什么是问题：`/model` 照现有受控接口只能被吞掉、当普通文本发送，或偷偷修改组件内部状态；两者都违反“用户命令交给宿主、视图受控”的合同。`fork` 在服务端可能已经建好新会话但浏览器拿到 `unknown-outcome`，用户再次执行若生成新 id 会再建一个 fork；若直接打开一个未知 id 又无法知道目标。运行中、只读会话和目标叶子非法时也没有命令级错误显示方案。
+- 如何核实：在组件中发出 `{type:"command.run", name:"model"}`，检查 action 联合类型和 Composer 是否有打开入口；模拟 `fork` 响应 `unknown-outcome`，观察当前宿主没有保存 command id，也没有按同 id 重发/查询的路径。
+- 建议改法：新增受控的 `model.open` action 或由宿主提供可观察的 composer 面板状态，并把 `/model` 映射到它；为每次 slash 写指令建立 pending command 记录，未知结果用同一 `commandId` 重发并按返回的 sessionId 打开，明确取消、重试和 `running`/`read-only`/`unknown-node` 的提示。不要用新 id 盲目重建会话。
+### 12. 附件上传后没有给 `resolveAttachmentUrl` 的受保护读取链
+- 严重程度：重要；类别：接口与合同；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:55-56`；`packages/nb-agent-ui/src/types.ts:410-423`；`packages/neuro-book/src/plugins/files/backend/raw-route.ts:206-253`
+- 现象：视图的 `resolveAttachmentUrl(locator, variant)` 需要浏览器可请求的缩略图/原图地址；现有 raw 路由只提供 `/raw/project/...`、受限预览和 `/raw/user/...`，没有 `session://` 会话附件的 GET/HEAD 路由。计划只描述上传写入，没有定义上传响应中的 URL、读取鉴权、缩略图与原图分档，或服务端重启后的地址有效期。
+- 为什么是问题：把 `session://attachments/<hash>` 直接传给 `<img>` 或下载链接不是浏览器可读取的 HTTP 地址；复用 `user` raw 路由又会把会话隔离降成用户根隔离。即使上传成功，视图附件条、历史消息和原图预览仍会显示缺失，或者暴露其它会话的文件。
+- 如何核实：对照 `AgentConversationServices.resolveAttachmentUrl` 的返回合同和 `createRawRoutes` 的三组路由；上传后尝试把 locator 放入浏览器 `<img src>`，当前没有匹配的 session 路由。
+- 建议改法：定义会话附件的只读 GET/HEAD 路由或短期签名 URL，绑定会话 id、当前浏览器准入和附件哈希，返回正确 MIME、长度、ETag 与缓存策略；缩略图若不做就明确 `variant` 只返回原图。上传响应、重连、fork、删除会话和跨窗口都使用同一 URL 合同。
+### 13. 验收映射为空，现列出的测试不能证明关键后端合同
+- 严重程度：重要；类别：测试与验收；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:71-83`
+- 现象：批次表只有测试文件名和“e2e/真实模型冒烟”等标签；“验收映射”仍是空占位，并允许“开工时写好后补”。没有把 `role:<id>` 的解析码、模型变化中的流、消息到 rewind target 的映射、`oversized` 日志、fork 附件复制、上传超限/重复、无视觉模型和未知结果重发分别映射到可观察断言。
+- 为什么是问题：后续只照字面跑现有测试可以得到绿色，但仍可能把角色选择存成无法发送的字符串、重试错请求、对大日志画出不完整树、fork 后丢图、或让超限上传落盘。批 5 的“图片进真实模型冒烟”尤其不能证明请求里有图片块，也不能稳定证明无视觉能力和压缩占位语义；真实模型端点不会替代结构化合同断言。
+- 如何核实：逐批将计划中的每个行为写成真实宿主/内核场景，检查当前表中是否有对应断言；目前第 81–83 行没有任何条目可供反查。
+- 建议改法：在实施前把每批验收写成黑盒场景和失败码/事件/请求块断言：模型角色与快照时序；多请求 turn 的每个历史 action；100,000 事件与大事件 chunk；fork 后附件可读；流式上传 16 MB 边界和同哈希并发；压缩前后图片/文件块；无视觉模型拒绝。真实模型 smoke 只作额外集成证据，不代替本机端点合同测试。
+### 14. 旧会话树的节点过滤没有进入计划或宿主数据合同
+- 严重程度：建议；类别：需求遗漏；位置：`.agents/works/w00032-agent-integration/tasks/t28-conversation-ui-followups/plan.md:43`；`packages/neuro-book-legacy/app/components/novel-ide/agent/dialogs/session-tree/AgentSessionTreeDialog.vue:37-52`
+- 现象：旧应用除搜索、折叠和导航外，还提供 `default`、`no-tools`、`user`、`labeled`、`all` 五种节点过滤，并据过滤结果维护选中节点和树行。计划只列搜索，没有说明这些过滤是否删除、迁移或由宿主替代；当前新应用实现也没有相应树过滤数据/动作合同。
+- 为什么是问题：长会话里用户无法只看用户节点、带标签节点或排除工具节点，旧应用已有的分支定位能力会退化；如果后续再补，树行模型、搜索结果和“激活节点”选择状态都要返工。
+- 如何核实：打开旧组件的过滤选项并切换每种模式，确认树行集合会改变；对照计划第 43 行和 `AgentViewAction`，没有过滤 action 或 `ctx.panels.sessionTree` 的过滤字段。
+- 建议改法：在计划中明确这是本批不做的已知回退，或把过滤模式加入树查询/视图合同，并规定过滤后当前节点不可见、搜索态不可折叠、激活仍以完整 entry id 为准。
+## 未发现问题的方面
+- 模型服务已有 `changed` 事件与快照入口；问题在于计划没有定义宿主如何以不破坏流的方式消费它。
+- `changeSettings` 的整体校验、`settingsChanged` 受理和运行中下一边界生效机制真实存在；`role:<id>` 的解析语义与未知角色错误码仍需按第 2 条补齐。
+- 内核的 `rewind`、`switchBranch`、`fork`、`siblings` 原语、运行中拒绝和同一 `commandId` 的服务端幂等机制真实存在；问题集中在消息到目标的映射、附件资源复制和浏览器未知结果恢复。
+- `log`、`path`、`eventChunk` 的分页/分段机制真实存在；问题是分支树计划没有实现这些机制所要求的占位恢复、过滤处理和查询预算。
+- `session://attachments/` 的 Agent 只读授权和 `WorkspaceFiles.stage` 流式暂存接口真实存在；问题是宿主上传必须使用服务端身份、补充 HTTP 读写合同和元数据。
+- 上下文检查器不做缓存时间线与请求选择，符合开发者已确认的范围；本报告没有把这两项列为问题。
+
+## 发现数量
+- 阻断：5
+- 重要：8
+- 建议：1
+- 合计：14
