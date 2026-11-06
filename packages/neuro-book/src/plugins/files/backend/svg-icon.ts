@@ -71,7 +71,8 @@ function scan(text: string): void {
             const top = stack[stack.length - 1];
             if (top !== undefined && TEXT_ELEMENTS.has(top)) {
                 if (/[&\\]/u.test(run)) reject(`${top} 的文字里不收 & 与反斜杠`);
-            } else if (run.trim() !== "") {
+            } else if (/[^ \t\r\n]/u.test(run)) {
+                // 不用 `trim()`：它还会吃掉不间断空格、全角空格、U+2028 等，比 XML 的空白宽。
                 reject("元素之外不收文字");
             }
             at += run.length;

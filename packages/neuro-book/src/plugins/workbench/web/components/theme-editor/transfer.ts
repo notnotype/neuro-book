@@ -57,6 +57,8 @@ async function uploadAssets(sources: ReadonlyArray<AssetSource>): Promise<Upload
             next += 1;
             if (source === undefined) return;
             const blob = await source.load().catch(() => null);
+            // 读取期间别的 worker 可能已经失败：失败之后不再发起上传（已经发出的请求不取消，等它们 settle）。
+            if (failure !== null) return;
             if (blob === null) {
                 failure ??= source.path;
                 return;

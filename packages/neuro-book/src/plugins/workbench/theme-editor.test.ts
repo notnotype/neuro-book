@@ -429,8 +429,9 @@ describe("会话：页签切走再回来", () => {
 });
 
 /**
- * 素材传输（docs/specs/theme/editor.md 验收 12、20）：浏览器一侧的 `fetch` 接到真实的上传路由（真实的白名单检查、哈希定址、写盘），
- * 另有一张表充当“插件文件端点”。判据是上传了什么、主题库里有什么。
+ * 素材传输（docs/specs/theme/editor.md 验收 12、20）：浏览器一侧的 `fetch` 接到真实的上传路由处理（真实的白名单检查、哈希定址、
+ * 已存在判断），写盘落在 tmp 目录里（Files 真实的暂存、提交与记账由 `files/theme-asset-route.test.ts` 覆盖），另有一张表充当“插件
+ * 文件端点”。判据是上传了什么、主题库里有什么。
  */
 describe("复制插件主题与导入主题包的素材传输", () => {
     const SVG = (tag: string): Uint8Array => new TextEncoder().encode(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h${tag}"/></svg>`);
@@ -500,6 +501,35 @@ describe("复制插件主题与导入主题包的素材传输", () => {
         await wire({});
         const missing = await copyPluginAssets(pluginTheme({title: "Dusk", base: "nbook", light: {scene: "gone.webp"}, dark: {}}), (path) => `/f/${path}`);
         expect(missing).toEqual({ok: false, reason: "gone.webp"});
+    });
+
+    it("复制中读取慢：第一个失败之后，已经取到字节但还没发出的素材也不再上传", async () => {
+        await wire({"/f/bad.svg": new TextEncoder().encode('<svg viewBox="0 0 1 1"><script/></svg>')});
+        const gate = Promise.withResolvers<void>();
+        const icons: Record<string, string> = {bad: "bad.svg"};
+        const slow: Record<string, Uint8Array> = {};
+        for (let index = 0; index < 5; index += 1) {
+            slow[`/f/slow-${String(index)}.svg`] = SVG(String(index));
+            icons[`slow-${String(index)}`] = `slow-${String(index)}.svg`;
+        }
+        const inner = globalThis.fetch;
+        // 慢的素材读取被挂起，等第一个（bad）的上传已经失败后才放开。
+        globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+            const url = String(input);
+            if (url in slow) {
+                await gate.promise;
+                return new Response(slow[url]?.slice());
+            }
+            return inner(input as string, init);
+        }) as typeof fetch;
+        const copying = copyPluginAssets(pluginTheme({title: "Dusk", base: "nbook", light: {icons}, dark: {}}), (path) => `/f/${path}`);
+        await waitUntil("坏图标的上传已经被路由拒绝", () => puts.length === 1);
+        // 让出一轮事件循环：路由的响应走完、失败记下之后再放开慢的读取（内存里没有 I/O，一轮就够）。
+        await new Promise((resolve) => setImmediate(resolve));
+        gate.resolve();
+        const result = await copying;
+        expect(result.ok).toBe(false);
+        expect(puts).toHaveLength(1);
     });
 
     it("导入：按种类上传，两个主题共用的文件只传一次，全部拿到文件名后才写主题；声明里是素材文件名", async () => {
