@@ -97,6 +97,19 @@ export function randomBook(random: (limit: number) => number): RandomBook {
 
     const operations: Record<string, (index: number) => void> = {
         cast: () => change(chapter(place()), {cast: [present(person())]}),
+        nodeOnLine: (index) => { const ch = ["ch6","ch10","ch3","ch12"][random(4)]!; change({kind: "chapter", chapter: ch, key: 200 + random(50), line}, {told: [inText(ch, `线上第 ${String(index)} 处线索`, [node(mystery, ["plant", "echo", "payoff"][random(3)]!)])]}); },
+        nodeOnRollback: (index) => { const ch = ["ch7","ch9","ch5"][random(3)]!; change({kind: "chapter", chapter: ch, key: 200 + random(50), line: rollback}, {told: [inText(ch, `回溯上第 ${String(index)} 处线索`, [node(mystery, ["plant", "echo", "payoff"][random(3)]!)])]}); },
+        fulfillOnLine: (index) => { const ch = ["ch6","ch10"][random(2)]!; const plan = w.change({kind: "chapter", chapter: ch, key: 300 + random(50), line}, {kind: "plan", told: [{source: "outline", chapter: ch, anchor: "细纲", marks: [node(mystery, ["plant", "echo"][random(2)]!)]}]}); const later = ["ch6","ch10","ch13"][random(3)]!; change({kind: "chapter", chapter: ch, key: 400 + random(50), line}, {links: [{kind: "fulfills", plan}], told: [inText(later, `兑现线上第 ${String(index)} 处`)]}); },
+        rebindMore: () => {
+            const opts: [string, {line: string; from: number}[]][][] = [
+              [["ch6", [{line, from: 1}]], ["ch10", [{line: "main", from: 1}, {line, from: 2}]], ["ch7", [{line: rollback, from: 1}]]],
+              [["ch3", [{line, from: 1}]], ["ch6", [{line, from: 1}]], ["ch7", [{line: rollback, from: 1}]]],
+              [["ch6", [{line: "main", from: 1}]], ["ch12", [{line, from: 1}]], ["ch5", [{line: rollback, from: 1}]]],
+              [["ch13", [{line, from: 1}]]],
+              [["ch9", [{line: rollback, from: 1}]], ["ch10", [{line, from: 1}]]],
+            ];
+            w.world = w.world.withOptions({...w.world.options, chapterLines: new Map(opts[random(opts.length)]!)});
+        },
         castOnLine: () => change({kind: "chapter", chapter: "ch6", key: random(50), line}, {cast: [present(person())]}),
         mentioned: () => change(chapter(place()), {cast: [{who: person(), role: "mentioned"}]}),
         masked: () => change(chapter(place()), {cast: [{who: hero, as: alias, role: "present"}]}),

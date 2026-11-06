@@ -80,7 +80,7 @@ function suspenseParagraphs(view: CanonReadView, point: string, chapter: string)
         for (const foreshadow of index.answeredBy.get(point) ?? []) {
             if (readAppeared(on, foreshadow, position) === null) continue;
             hasSuspense = true;
-            for (const node of index.nodesRead(foreshadow, until)) {
+            for (const node of index.lineNodesRead(foreshadow, until)) {
                 const {chapter: at, paragraph} = node.occurrence;
                 const segments = view.chapterLines(at);
                 const told = segments[Math.max(segments.findLastIndex((segment) => segment.from <= paragraph), 0)]?.line;

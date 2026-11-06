@@ -127,17 +127,17 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         // 绝密而本章不暗示也不揭示的，名字就是真相，不写出来。
         const secretItems: BriefItem[] = secrets.items.map((item) => ({label: item.hidden ? "绝密设定" : item.name, text: [...(item.hidden ? [] : [item.name]), ...item.lines, ...(routing.inSecrets.get(item.point) ?? [])].join("\n"), protect: true}));
         const sections: BriefSection[] = [
-            section("plan", fixed.TITLES.plan, planItems(frame, plans, secrets, chapter)),
+            section("plan", fixed.TITLES.plan, planItems(frame, plans, secrets, participants, chapter)),
             ...(frameIndex === 0 ? [section("rules", fixed.BRIEF_PARTS.rules, fixed.RULES.map((text) => ({label: text.slice(0, 8), text, protect: true})))] : []),
             section("secrets", fixed.BRIEF_PARTS.secrets, secretItems),
             {...section("people", fixed.BRIEF_PARTS.people, people.items), items: [{label: "说明", text: people.header, protect: true}, ...trim(people.items, limits.people ?? Infinity).kept]},
             section("scene", fixed.BRIEF_PARTS.scene, sceneItems(plans, chapter, frameHints)),
             ...(frameIndex === 0 ? [section("address", fixed.BRIEF_PARTS.address, addressItems(frame, allParticipants, povId, instruction?.povMode, secrets))] : []),
-            section("foreshadow", fixed.BRIEF_PARTS.foreshadow, foreshadowItems(frame, chapter, plans, frameHints)),
+            section("foreshadow", fixed.BRIEF_PARTS.foreshadow, foreshadowItems(frame, chapter, plans, secrets, frameHints)),
             section("decisions", fixed.BRIEF_PARTS.decisions, decisionItems(frame, routing.inDecisions, pendingDue)),
             section("reader", fixed.BRIEF_PARTS.reader, readerItems(frame, chapter, points, secrets)),
             ...(frameIndex === frames.length - 1 ? [section("allowed", fixed.BRIEF_PARTS.allowed, allowedItems(instruction)), section("selfReport", fixed.BRIEF_PARTS.selfReport, selfReportItems())] : []),
-            section("appearance", fixed.TITLES.appearance, appearanceItems(frame, chapter)),
+            section("appearance", fixed.TITLES.appearance, appearanceItems(frame, chapter, secrets)),
         ];
         hints.push(...frameHints);
         return {label: frame.label, sections};

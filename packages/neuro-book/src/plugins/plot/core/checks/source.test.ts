@@ -222,8 +222,10 @@ describe("随机序列", () => {
                 if (expected) kept += 1;
                 else {
                     stale += 1;
-                    // 一半重跑，一半留着过期的：过期以后再改回去，结论要跟着回来。
-                    if (step % 2 === 0) await check(w, id);
+                    // 一半重跑，一半留着过期的：过期以后再改回去，结论要跟着回来。活页夹讲的线这时建不出来的章，检查回 `line-not-found`，也只能留着。
+                    const view = w.view();
+                    const readable = view.chapterLines(id).every((segment) => !("code" in view.onLine(view.readingLine(segment.line, "planned"), "planned")));
+                    if (step % 2 === 0 && readable) await check(w, id);
                 }
             }
         }

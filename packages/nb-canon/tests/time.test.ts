@@ -548,3 +548,57 @@ describe("canon.time 输出 4、16（补）：只改词表、新打开时设置�
         }
     });
 });
+
+describe("canon.time 输出 14、15（审查补）", () => {
+    const CH = ["ch1", "ch2", "ch3", "ch4"];
+    const after = (of: string, days: number) => ({kind: "after" as const, of, gap: {min: days, max: days, unit: "day" as const}, basis: author});
+    const lineOptions = () => options({order: new ChapterOrder(CH)});
+
+    test("写在子线上：子线上已有的打架不算新增，只有这次新出现的进“带来的变化”", () => {
+        const first = ok(World.empty(lineOptions()).publish(request([{ref: {kind: "change", id: "tmp:c1"}, after: change("tmp:c1", {kind: "chapter", chapter: "ch2", key: 10})}], 0), "t"));
+        const c1 = first.ids["tmp:c1"]!;
+        const forked = ok(first.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: change("tmp:f", {kind: "chapter", chapter: "ch2", key: 20}, {nature: "fork", fork: {line: "tmp:l", name: "支线", parent: "main", cut: c1, type: "branch"}} as never)},
+        ], 1), "t"));
+        const line = forked.ids["tmp:l"]!;
+        const clash = (id: string, key: number) => ({ref: {kind: "change" as const, id}, after: change(id, {kind: "chapter", chapter: "ch3", key, line}, {when: [after(c1, 1), {kind: "before", of: c1, gap: {min: 1, max: 1, unit: "day"}, basis: author}]})});
+        const once = ok(forked.world.publish(request([clash("tmp:x", 5)], 2), "t"));
+        expect(once.revision.impact.pendingAdded.filter((key) => key.startsWith("time-conflict"))).toHaveLength(1);
+        const unrelated = ok(once.world.publish(request([{ref: {kind: "change", id: "tmp:y"}, after: change("tmp:y", {kind: "chapter", chapter: "ch3", key: 9, line}, {when: [after(c1, 3)]})}], 3), "t"));
+        expect(unrelated.revision.impact.pendingAdded).toEqual([]);
+    });
+
+    test("带令牌：父线上上限之后的说法不收窄回溯的范围；不带令牌的读取会收窄", async () => {
+        const root = await createTestTmpRoot("nb-canon-time", "bounded-parent");
+        const service = await openTestService(root, {texts: new Map(CH.map((chapter) => [chapter, ""])), chapters: CH, registry: buildRegistry([PERSON])});
+        try {
+            const publish = async (puts: WriteRequest["puts"]) => {
+                const result = await service.publish(request(puts, service.status().version));
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+                return result.ids;
+            };
+            const c1 = (await publish([{ref: {kind: "change", id: "tmp:c1"}, after: change("tmp:c1", {kind: "chapter", chapter: "ch1", key: 10})}]))["tmp:c1"]!;
+            // 触发处与切口的差只有一个下界；第 4 章（上限之后）的说法把它夹死。
+            const c2 = (await publish([{ref: {kind: "change", id: "tmp:c2"}, after: change("tmp:c2", {kind: "chapter", chapter: "ch1", key: 20}, {when: [{kind: "after", of: c1, gap: {min: 1, max: 30, unit: "day"}, basis: author}]})}]))["tmp:c2"]!;
+            const ids = await publish([
+                {ref: {kind: "change", id: "tmp:f"}, after: change("tmp:f", {kind: "chapter", chapter: "ch1", key: 30}, {nature: "fork", fork: {line: "tmp:r", name: "回溯", parent: "main", cut: c1, trigger: c2, back: {min: 1, max: 1, unit: "day"}, type: "rollback"}} as never)},
+                // 子线上这件事没有自己的说法：它的范围只由“不早于回溯到的那一刻”定，那一刻又取决于父线上切口到触发处的差。
+                {ref: {kind: "change", id: "tmp:own"}, after: change("tmp:own", {kind: "chapter", chapter: "ch2", key: 1, line: "tmp:r"})},
+            ]);
+            const line = ids["tmp:r"]!;
+            const own = ids["tmp:own"]!;
+            const opened = service.openView({viewer: null, line, until: {kind: "chapter", chapter: "ch2", edge: "end"}, purpose: "writer"});
+            if (typeof opened === "string" || !("token" in opened)) throw new Error(JSON.stringify(opened));
+            const answerOf = (token: string, change: string) => JSON.stringify((service.viewed(token).time({kind: "event", change}) as {answer: unknown}).answer);
+            const before = answerOf(opened.token, own);
+            await publish([{ref: {kind: "change", id: "tmp:late"}, after: change("tmp:late", {kind: "chapter", chapter: "ch4", key: 1}, {when: [{kind: "after", of: c1, gap: {min: 2, max: 2, unit: "day"}, basis: author}, {kind: "before", of: c2, gap: {min: 0, max: 0, unit: "day"}, basis: author}]})}]);
+            expect(answerOf(opened.token, own)).toBe(before);
+            const unbounded = JSON.stringify((service.time({kind: "event", change: own}, "actual", undefined, 50, line) as {answer: unknown}).answer);
+            expect(unbounded).not.toBe(before);
+
+        } finally {
+            await service.stop();
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+});

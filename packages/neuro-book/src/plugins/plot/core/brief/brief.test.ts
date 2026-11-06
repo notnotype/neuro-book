@@ -630,3 +630,88 @@ describe("plot.brief 输出 2、4：本章计划里引到的条目不漏", () =>
         expect(plan).not.toContain("勇者是王子");
     });
 });
+
+describe("plot.brief 输出 4、8、13（审查补）：写给写手的文字不漏", () => {
+    /** 带主文字的伏笔。 */
+    const foreshadowWithText = (w: PlotWorld, name: string, source: string, fields: Record<string, unknown> = {}) => {
+        const draft = drafts.foreshadow("tmp:fs", name, {种类: "setupPayoff", ...fields});
+        return w.publish([{ref: {kind: "entry", id: "tmp:fs"}, after: {...draft, init: {...draft.init, text: [{id: "b1", source}]}}}])["tmp:fs"]!;
+    };
+    const payoff = (fs: string) => ({source: "outline" as const, chapter: "ch15", anchor: "细纲", marks: [{kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "payoff"}]});
+
+    test("主文字是纯文字：字段写值，条目引用写名字，没有注记语法与条目 id", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const fs = foreshadowWithText(w, "脚印", `回收时写明<Ref id="${hero}" />留下脚印，重要程度 {fs.重要程度}。`, {重要程度: "main"});
+        w.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [{who: hero, role: "present"}], told: [payoff(fs)]});
+        const text = section(brief(w, "ch15"), "foreshadow");
+        expect(text).toContain("回收：回收时写明勇者留下脚印，重要程度 main。");
+        expect(text).not.toContain("<Ref");
+        expect(text).not.toContain("{");
+    });
+
+    test("主文字引到本章不揭示的绝密知识点：不给主文字，写“回收方式按细纲写”并给提示；简报里没有那个名字", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const secret = w.point("园丁是真凶", hero, {保密: "topSecret"});
+        const fs = foreshadowWithText(w, "脚印", `回收时写明<Ref id="${secret}" />留下脚印。`);
+        w.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [{who: hero, role: "present"}], told: [payoff(fs)]});
+        const result = brief(w, "ch15");
+        expect(section(result, "foreshadow")).toContain(fixed.PAYOFF_BY_OUTLINE);
+        expect(result.hints.map((hint) => hint.code)).toContain("nbook.plot.brief.payoffWithheld");
+        expect(result.text).not.toContain("园丁是真凶");
+    });
+
+    test("隐秘目标的冲突对象也是绝密隐秘目标：写“某某的一个隐秘目标”，不写它的名字", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const a = w.person("甲");
+        const b = w.person("乙");
+        const shownPoint = w.point("甲在查账", a, {保密: "secret"});
+        const hiddenPoint = w.point("乙想继承爵位", b, {保密: "topSecret"});
+        const other = w.goal("毒死男爵继承爵位", b, {隐秘: {ref: hiddenPoint}});
+        w.goal("暗中查账", a, {隐秘: {ref: shownPoint}, 冲突: [{id: other}]});
+        w.change(chapter("ch3"), {patches: [addRow(a, shownPoint, {程度: "knows"}), addRow(b, hiddenPoint, {程度: "knows"})]});
+        w.change(chapter("ch4"), {kind: "plan", text: "对峙", cast: [{who: a, role: "present"}, {who: b, role: "present"}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "secrets")).toContain(`甲的隐秘目标：暗中查账；冲突：${fixed.hiddenGoalOf("乙")}`);
+        expect(result.text).not.toContain("毒死男爵");
+    });
+
+    test("持有者不在本章参与者里的隐秘目标：引它、改它，本章计划里都不写它的名字与状态变化", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const hero = w.person("勇者");
+        const k = w.point("管家想继承爵位", butler, {保密: "topSecret"});
+        const hidden = w.goal("毒死男爵继承爵位", butler, {隐秘: {ref: k}});
+        const open = w.goal("保护男爵", hero);
+        w.change(chapter("ch4"), {kind: "plan", text: "勇者起疑", cast: [{who: hero, role: "present"}], patches: [{op: "listAdd", at: {entry: open, path: "goal.冲突"}, value: {id: hidden}}, {op: "set", at: {entry: hidden, path: "goal.状态"}, value: "blocked"}]});
+        const result = brief(w, "ch4");
+        expect(result.text).not.toContain("毒死男爵");
+        expect(result.text).not.toContain("blocked");
+        expect(section(result, "plan")).toContain(fixed.hiddenGoalOf("管家"));
+    });
+
+    test("涉及条目的主文字引到绝密知识点：带值写法里的名字换掉", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const secret = w.point("勇者是王子", hero, {保密: "topSecret"});
+        const draft = drafts.thing("tmp:t", "怀表");
+        const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, text: [{id: "b1", source: `它和<Ref id="${secret}" />有关。`}]}}}])["tmp:t"]!;
+        w.change(chapter("ch4"), {kind: "plan", text: "拿起怀表", cast: [{who: hero, role: "present"}], patches: [{op: "set", at: {entry: thing, path: "character.状态"}, value: "停了"}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "appearance")).toContain("它和");
+        expect(result.text).not.toContain("勇者是王子");
+    });
+
+    test("改用了马甲的人的字段：本章计划写马甲，不写本名", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const lord = w.person("王爷");
+        const mask = w.publish([{ref: {kind: "entry", id: "tmp:m"}, after: drafts.person("tmp:m", "灰袍客", {sameAs: lord})}])["tmp:m"]!;
+        const k = w.publish([{ref: {kind: "entry", id: "tmp:k"}, after: {...drafts.point("tmp:k", "灰袍客就是王爷", mask, {保密: "topSecret", 揭穿: {ref: mask}})}}])["tmp:k"]!;
+        expect(typeof k).toBe("string");
+        w.change(chapter("ch4"), {kind: "plan", text: "灰袍客现身", cast: [{who: lord, as: mask, role: "present"}], patches: [{op: "set", at: {entry: lord, path: "entry.summary"}, value: "换了说法"}]});
+        const plan = section(brief(w, "ch4"), "plan");
+        expect(plan).toContain("灰袍客的一句话描述");
+        expect(plan).not.toContain("王爷");
+    });
+});

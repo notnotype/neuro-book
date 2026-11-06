@@ -6,7 +6,7 @@
  * （revisions.md 输出 8），最后把临时世界里改到的对象合成一次写入请求，在真实世界上发布：一次回写一次修订。
  */
 
-import {sameJson} from "../core/stable-json";
+import {canonicalJson, sameJson} from "../core/stable-json";
 import type {Actor, Address, ReadPosition, WriteRequest} from "../core/schema";
 import type {Mode} from "../engine/types";
 import {editInPlace, type EditFailure} from "../world/edits";
@@ -19,6 +19,7 @@ export interface WriteBackInput {
     readonly by: Actor;
     readonly entry: string;
     readonly block: string;
+    /** 渲染结果给的位置，要写明读的线（输出 12），没写的拒收（`line-required`）。 */
     readonly position: ReadPosition;
     /** 读取时的版本。 */
     readonly version: number;
@@ -35,7 +36,8 @@ export type WriteBackFailure =
     | {readonly code: "computed-edited"}
     | {readonly code: "annotation-mismatch"}
     | {readonly code: "conflicting-values"; readonly at: Address}
-    | {readonly code: "planned-not-writable"};
+    | {readonly code: "planned-not-writable"}
+    | {readonly code: "line-required"};
 
 export type WriteBackResult = Extract<WriteResult, {ok: true}> | {readonly ok: false; readonly failure: WriteBackFailure};
 
@@ -206,9 +208,12 @@ const REF_TAG = /<Ref\s+id=("(?:[^"\\]|\\.)*")\s+name="(?:[^"\\]|\\.)*"\s*\/>/gu
 export function writeBack(world: World, input: WriteBackInput, time: string): WriteBackResult {
     // 计划里的值不是现在的值：按计划模式读到的块原样交回也会被当成改动，悄悄改写设定。
     if (input.mode !== "actual") return {ok: false, failure: {code: "planned-not-writable"}};
-    // 同一个请求 id 已经发布过：断线重试拿到的是第一次的修订（revisions.md 输出 16），不再按现在的世界比一遍。
+    // 没写明线就分不清读的是哪条线：章讲的线换了不加版本，按现在的线读会把旧线的值当成改动（输出 12）。
+    if (input.position.line === undefined) return {ok: false, failure: {code: "line-required"}};
+    // 同一个请求 id 已经发布过：断线重试拿到的是第一次的修订，内容不同拒收（revisions.md 输出 16）。不再按现在的世界比一遍。
+    const requestDigest = world.options.digest(canonicalJson({writeBack: {by: input.by, entry: input.entry, block: input.block, position: input.position, mode: input.mode, text: input.text, intent: input.intent ?? null, title: input.title ?? null}}));
     const published = world.requested(input.requestId);
-    if (published !== undefined) return {ok: true, world, revision: published, ids: {}, repeated: true};
+    if (published !== undefined) return published.requestDigest === requestDigest ? {ok: true, world, revision: published, ids: {}, repeated: true} : {ok: false, failure: {code: "request-id-reused"}};
     const engine = world.lineAt(input.position, "actual")?.engine;
     if (engine === undefined) return {ok: false, failure: {code: "line-not-found"}};
     const view = engine.entry(input.entry, input.position, "actual");
@@ -312,7 +317,7 @@ export function writeBack(world: World, input: WriteBackInput, time: string): Wr
         ...(input.position.kind === "chapter" ? {chapter: input.position.chapter} : {}),
         puts,
     };
-    const result = world.publish(request, time);
+    const result = world.publish(request, time, requestDigest);
     return result.ok ? result : {ok: false, failure: result.failure};
 }
 

@@ -34,9 +34,11 @@ export function framesOf(view: CanonReadView, chapter: string, instruction: Inst
     const position = flashback === undefined ? ({kind: "chapter", chapter, edge: "start"} as const) : flashbackPosition(flashback);
     const frames: Frame[] = [];
     for (const [index, segment] of segments.entries()) {
-        const on = segment.line === view.line ? view : view.onLine(segment.line, "planned");
+        // 简报按计划模式读：计划线照读；两种模式下都不存在的线这一段按主线算（worldlines 输出 13）。
+        const line = view.readingLine(segment.line, "planned");
+        const on = line === view.line ? view : view.onLine(line, "planned");
         if ("code" in on) return "line-not-found";
-        frames.push({label: segments.length === 1 ? null : segments.length === 2 ? (index === 0 ? "回溯前" : "回溯后") : `第 ${String(index + 1)} 段`, line: segment.line, view: on, position});
+        frames.push({label: segments.length === 1 ? null : segments.length === 2 ? (index === 0 ? "回溯前" : "回溯后") : `第 ${String(index + 1)} 段`, line, view: on, position});
     }
     return frames;
 }

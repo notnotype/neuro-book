@@ -147,6 +147,20 @@ describe("canon.model 输出 34：一次计算的结果怎样处理", () => {
 const change = (chapter: string, extra: Partial<StoryChangeDraft> = {}, key = 0): StoryChangeDraft => ({id: "tmp:c", kind: "written", text: "一件事", at: {kind: "chapter", chapter, key}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}, ...extra});
 
 describe("canon.model 输出 16：三组的全序", () => {
+    test("核对点取比较时点排序：挂靠的变更没套上时回到核对点自己的安放，不按挂靠的变更排", async () => {
+        const service = await open([]);
+        const made = await write(service, [{ref: {kind: "entry", id: "tmp:x"}, after: {id: "tmp:x", type: "人物", parent: null, folder: "", order: 0, init: {name: "星瑕", aliases: [], summary: "", text: [], data: {panel: {type: PANEL.id, version: 1, enabled: true, fields: {存款: 0, 魔力上限: null, 魔力: null, 物品: []}}}}}}]);
+        const entry = made.ids["tmp:x"]!;
+        const held = await write(service, [{ref: {kind: "change", id: "tmp:c"}, after: change("ch1", {status: "held", held: {reason: "unsure", note: "没把握"}}, 10)}]);
+        const check = (id: string, chapter: string, quote: string, extra: object = {}) => ({ref: {kind: "check" as const, id}, after: {id, at: {entry, path: "panel.存款"}, value: 100, told: {source: "chapter" as const, chapter, quote}, place: {kind: "chapter" as const, chapter, key: 1}, by: {kind: "author" as const}, ...extra}});
+        await write(service, [
+            check("tmp:anchored", "ch3", "雨", {anchor: {change: held.ids["tmp:c"]!, side: "after"}}),
+            check("tmp:plain", "ch2", "钟停了"),
+        ]);
+        const quotes = pageOf(service, {position: {kind: "chapter", chapter: "ch3", edge: "end"}}).items.flatMap((item) => (item.kind === "canon" && item.item.kind === "check-mismatch" ? [service.world.data.checks.get(item.item.check)!.told.quote] : []));
+        expect(quotes).toEqual(["钟停了", "雨"]);
+    });
+
     test("前史在前；同一章里带安放的按排序键、带讲述发生点的在后；同一位置内核的在插件的前面；没有位置的最后", async () => {
         const order = declaration("order");
         const service = await open([order]);

@@ -181,6 +181,7 @@ const methods = {
             by: ActorSchema,
             entry: Type.String(),
             block: Type.String(),
+            /** 渲染结果给的位置，写明读的线（canon.rendering 输出 12）；没写的由内核拒收（`line-required`）。 */
             position: ReadPositionSchema,
             version: Type.Integer(),
             mode: Mode,

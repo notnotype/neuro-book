@@ -11,7 +11,8 @@
 import type {CanonReadView, DiagnosticCompute, Finding, Mark, Mode, Occurrence, ReadPosition, StoryChange, TellingItem, TellingPosition} from "@notnotype/nb-canon/schema";
 
 import {ENTRY_TYPES, FS_DIAGNOSTIC_IDS, MARK_IDS} from "../shared/declarations";
-import {countedChanges, readerTellings} from "./knowledge";
+import {countedChanges, toldSegments} from "./knowledge";
+import {effectiveTellings} from "./change-index";
 import {perViewCache} from "./view-cache";
 
 export type Role = "plant" | "echo" | "mislead" | "partial" | "payoff";
@@ -93,8 +94,7 @@ function rawTellings(view: CanonReadView): RawTellings {
     return rawCache(view, "", () => {
         const marked: {item: TellingItem; occurrence: Occurrence; nodeMarks: ReturnType<typeof nodeMarks>; revealMarks: {point: string; mode: "hint" | "explicit"}[]}[] = [];
         const firstByChange = new Map<string, {telling: string; occurrence: Occurrence}>();
-        // 节点按读者读到的正文取（输出 5）：回溯段里写在子线上的节点，在主线视图上也算埋下了。
-        for (const item of readerTellings(view)) {
+        for (const item of effectiveTellings(view)) {
             if (item.located.kind !== "found") continue;
             const {occurrence} = item.located;
             if (item.owner.kind === "change" && !firstByChange.has(item.owner.id)) firstByChange.set(item.owner.id, {telling: item.telling.id, occurrence});
@@ -122,10 +122,70 @@ function rawTellings(view: CanonReadView): RawTellings {
     });
 }
 
+interface CollectedNodes {
+    readonly nodes: ForeshadowNode[];
+    readonly reveals: {point: string; mode: "hint" | "explicit"; item: TellingItem}[];
+    readonly homeless: HomelessNode[];
+}
+
+/** 一张线视图上的节点：讲述上标的、悬念答案上的揭示、继承计划的。 */
+function collectNodes(raw: RawTellings, answeredBy: ReadonlyMap<string, readonly string[]>): CollectedNodes {
+    const nodes: ForeshadowNode[] = [];
+    const reveals: {point: string; mode: "hint" | "explicit"; item: TellingItem}[] = [];
+    for (const {item, occurrence, nodeMarks: marks, revealMarks} of raw.marked) {
+        for (const mark of marks) nodes.push({foreshadow: mark.foreshadow, role: mark.role, ...(mark.note === undefined ? {} : {note: mark.note}), telling: item.telling.id, occurrence, source: "node"});
+        for (const {point, mode} of revealMarks) {
+            reveals.push({point, mode, item});
+            for (const mystery of answeredBy.get(point) ?? []) nodes.push({foreshadow: mystery, role: mode === "explicit" ? "payoff" : "echo", telling: item.telling.id, occurrence, source: "reveal"});
+        }
+    }
+    // 继承：兑现计划的已写变更自己没有同一伏笔的节点时，继承到它第一处生效的正文讲述上。
+    const homeless: HomelessNode[] = [];
+    for (const {written, fulfilled, own, first} of raw.fulfilling) {
+        const owned = new Set([...own.nodes, ...own.reveals.flatMap((point) => answeredBy.get(point) ?? [])]);
+        for (const node of raw.planned) {
+            if (!fulfilled.includes(node.plan) || owned.has(node.foreshadow)) continue;
+            if (first === undefined) {
+                homeless.push({foreshadow: node.foreshadow, written: written.id});
+                continue;
+            }
+            nodes.push({foreshadow: node.foreshadow, role: node.role, ...(node.note === undefined ? {} : {note: node.note}), telling: first.telling, occurrence: first.occurrence, source: "inherited"});
+        }
+    }
+    return {nodes, reveals, homeless};
+}
+
+/**
+ * 读者读到的节点（输出 5）：每一章按活页夹分的段，取每段讲的那条线上、发生点落在这一段的节点。自己标的与继承的同样算：回溯段里写在子线上的节点，在主线视图上也算读过。
+ * 书只讲这一条线时就是这张视图上的节点，不必再比。
+ */
+function readerNodes(view: CanonReadView, answeredBy: ReadonlyMap<string, readonly string[]>, own: CollectedNodes): Pick<CollectedNodes, "nodes" | "reveals"> {
+    const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, toldSegments(view, chapter)] as const));
+    const lines = new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)));
+    if (lines.size === 1 && lines.has(view.line)) return own;
+    const toldBy = (occurrence: Occurrence): string => {
+        const segments = segmentsOf.get(occurrence.chapter) ?? [];
+        return segments[Math.max(segments.findLastIndex((segment) => segment.from <= occurrence.paragraph), 0)]?.line ?? view.line;
+    };
+    const nodes: ForeshadowNode[] = [];
+    const reveals: CollectedNodes["reveals"] = [];
+    for (const line of lines) {
+        const on = line === view.line ? view : view.onLine(line, "actual");
+        if ("code" in on) continue;
+        const collected = line === view.line ? own : collectNodes(rawTellings(on), answeredBy);
+        nodes.push(...collected.nodes.filter((node) => toldBy(node.occurrence) === line));
+        reveals.push(...collected.reveals.filter((reveal) => reveal.item.located.kind === "found" && toldBy(reveal.item.located.occurrence) === line));
+    }
+    return {nodes, reveals};
+}
+
 /** 一份只读视图在一个读取位置上的伏笔索引。 */
 export class ForeshadowIndex {
     readonly foreshadows: readonly ForeshadowEntry[];
+    /** 读者读到的节点（按活页夹正文，不分线）：阶段与不带 `line` 的诊断用它。 */
     readonly nodes: readonly ForeshadowNode[];
+    /** 这张线视图上的节点：带 `line` 的诊断用它（诊断表）。 */
+    readonly lineNodes: readonly ForeshadowNode[];
     readonly planned: readonly PlannedNode[];
     readonly homeless: readonly HomelessNode[];
     /** 每个答案知识点被哪些悬念指向。 */
@@ -153,34 +213,15 @@ export class ForeshadowIndex {
         this.answeredBy = answeredBy;
 
         const raw = rawTellings(view);
-        const nodes: ForeshadowNode[] = [];
-        const reveals: {point: string; mode: "hint" | "explicit"; item: TellingItem}[] = [];
-        for (const {item, occurrence, nodeMarks: marks, revealMarks} of raw.marked) {
-            for (const mark of marks) nodes.push({foreshadow: mark.foreshadow, role: mark.role, ...(mark.note === undefined ? {} : {note: mark.note}), telling: item.telling.id, occurrence, source: "node"});
-            for (const {point, mode} of revealMarks) {
-                reveals.push({point, mode, item});
-                for (const mystery of answeredBy.get(point) ?? []) nodes.push({foreshadow: mystery, role: mode === "explicit" ? "payoff" : "echo", telling: item.telling.id, occurrence, source: "reveal"});
-            }
-        }
-        this.#reveals = reveals;
+        const own = collectNodes(raw, answeredBy);
+        const read = readerNodes(view, answeredBy, own);
         this.planned = raw.planned;
-
-        // 继承：兑现计划的已写变更自己没有同一伏笔的节点时，继承到它第一处生效的正文讲述上。
-        const homeless: HomelessNode[] = [];
-        for (const {written, fulfilled, own, first} of raw.fulfilling) {
-            const owned = new Set([...own.nodes, ...own.reveals.flatMap((point) => answeredBy.get(point) ?? [])]);
-            for (const node of raw.planned) {
-                if (!fulfilled.includes(node.plan) || owned.has(node.foreshadow)) continue;
-                if (first === undefined) {
-                    homeless.push({foreshadow: node.foreshadow, written: written.id});
-                    continue;
-                }
-                nodes.push({foreshadow: node.foreshadow, role: node.role, ...(node.note === undefined ? {} : {note: node.note}), telling: first.telling, occurrence: first.occurrence, source: "inherited"});
-            }
-        }
-        this.homeless = homeless;
+        this.homeless = own.homeless;
+        this.#reveals = read.reveals;
         // 同一发生点按讲述 id 的数值部分排（model.md 输出 27），不按节点是先加进来的还是继承来的。
-        this.nodes = nodes.sort((a, b) => compareOccurrence(view, a.occurrence, b.occurrence) || compareTellingIds(a.telling, b.telling));
+        const sorted = (nodes: readonly ForeshadowNode[]) => [...nodes].sort((a, b) => compareOccurrence(view, a.occurrence, b.occurrence) || compareTellingIds(a.telling, b.telling));
+        this.lineNodes = sorted(own.nodes);
+        this.nodes = read.nodes === own.nodes ? this.lineNodes : sorted(read.nodes);
     }
 
     /** 读到讲述位置 P 为止的节点。 */
@@ -189,10 +230,20 @@ export class ForeshadowIndex {
         return this.nodes.filter((node) => node.foreshadow === foreshadow && readBy(this.view, node.occurrence, until));
     }
 
-    /** 阶段（输出 2）：读过的节点里最高的一级；意图为放弃另显示。 */
+    /** 这张线视图上、读到讲述位置 P 为止的节点。 */
+    lineNodesRead(foreshadow: string, until: TellingPosition | null): ForeshadowNode[] {
+        if (until === null) return [];
+        return this.lineNodes.filter((node) => node.foreshadow === foreshadow && readBy(this.view, node.occurrence, until));
+    }
+
+    /** 这张线视图上的阶段：带 `line` 的诊断、按段的候选用它。 */
+    lineStage(foreshadow: string, until: TellingPosition | null): Stage {
+        return highestStage(this.lineNodesRead(foreshadow, until));
+    }
+
+    /** 阶段（输出 2）：读者读过的节点里最高的一级；意图为放弃另显示。 */
     stage(foreshadow: string, until: TellingPosition | null): {readonly stage: Stage; readonly dropped: boolean} {
-        let best: {stage: Stage; level: number} = {stage: "unplanted", level: 0};
-        for (const node of this.nodesRead(foreshadow, until)) if (STAGE_OF[node.role].level > best.level) best = STAGE_OF[node.role];
+        const best = {stage: highestStage(this.nodesRead(foreshadow, until))};
         const entry = this.foreshadows.find((candidate) => candidate.id === foreshadow);
         return {stage: best.stage, dropped: entry?.intent === "dropped"};
     }
@@ -200,6 +251,12 @@ export class ForeshadowIndex {
     reveals(): readonly {readonly point: string; readonly mode: "hint" | "explicit"; readonly item: TellingItem}[] {
         return this.#reveals;
     }
+}
+
+function highestStage(nodes: readonly ForeshadowNode[]): Stage {
+    let best: {stage: Stage; level: number} = {stage: "unplanted", level: 0};
+    for (const node of nodes) if (STAGE_OF[node.role].level > best.level) best = STAGE_OF[node.role];
+    return best.stage;
 }
 
 /** 讲述 id 的先后：按数值部分（`t9` 在 `t10` 之前）。 */
@@ -297,7 +354,7 @@ const plannedNodeMissing: DiagnosticCompute = (view, at, mode) => {
         if (until === null || atKey === null || endKey === null || view.compareKeys(atKey, endKey) < 0) continue;
         if (view.changes({chapter: node.chapter, kind: "written", status: "active"}).length === 0) continue;
         const fulfilled = view.progress(node.plan, endOfChapter) === "fulfilled";
-        const present = index.nodes.some((candidate) => candidate.foreshadow === node.foreshadow && candidate.occurrence.chapter === node.chapter);
+        const present = index.lineNodes.some((candidate) => candidate.foreshadow === node.foreshadow && candidate.occurrence.chapter === node.chapter);
         if (fulfilled && present) continue;
         findings.push({key: {objects: [ref("entry", node.foreshadow), ref("change", node.plan)], line: view.line}, ...withAt(placementOfChange(view, node.plan)), objects: [ref("entry", node.foreshadow), ref("change", node.plan)], params: {reason: fulfilled ? "no-node-in-chapter" : "plan-unfulfilled", chapter: node.chapter}});
     }
@@ -316,7 +373,11 @@ function plantedNotPaid(index: ForeshadowIndex, foreshadow: string, until: Telli
 const noPayoffPlanned: DiagnosticCompute = (view, at, mode) => {
     const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
-    return index.foreshadows.filter((foreshadow) => plantedNotPaid(index, foreshadow.id, until) && !index.planned.some((node) => node.foreshadow === foreshadow.id && node.role === "payoff"))
+    const planted = (foreshadow: string) => {
+        const stage = index.lineStage(foreshadow, until);
+        return stage !== "unplanted" && stage !== "paidOff";
+    };
+    return index.foreshadows.filter((foreshadow) => planted(foreshadow.id) && !index.planned.some((node) => node.foreshadow === foreshadow.id && node.role === "payoff"))
         .map((foreshadow) => ({key: {objects: [ref("entry", foreshadow.id)], line: view.line}, objects: [ref("entry", foreshadow.id)], params: {}}));
 };
 
@@ -366,7 +427,7 @@ const objectTouched: DiagnosticCompute = (view, at, mode) => {
     const counted = countedChanges(view, "actual", at);
     for (const foreshadow of index.foreshadows) {
         if (foreshadow.objects.length === 0) continue;
-        const read = index.nodesRead(foreshadow.id, until);
+        const read = index.lineNodesRead(foreshadow.id, until);
         const plant = read.find((node) => node.role === "plant");
         if (plant === undefined) continue;
         const payoffs = read.filter((node) => node.role === "payoff");

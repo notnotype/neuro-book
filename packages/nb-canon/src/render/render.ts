@@ -246,6 +246,42 @@ function authorNode(site: ExpressionSite, {resolve, entryName}: RenderContext): 
 }
 
 /** 给 Agent 的一块：带值写法（输出 8、9、14）。 */
+/** 纯文字的一块（给写手的文字用，不回写）。`references` 是这一块引到的别的条目：调用方据此判断这段文字能不能给。 */
+export interface PlainBlock {
+    readonly id: string;
+    readonly text: string;
+    readonly references: readonly string[];
+}
+
+export function renderBlockPlain(id: string, source: string, context: RenderContext): PlainBlock {
+    const parsed = parseBlock(source);
+    if (!parsed.ok) return {id, text: source, references: []};
+    const references = new Set<string>();
+    const splices: {start: number; end: number; text: string}[] = [];
+    for (const site of parsed.block.expressions) {
+        for (const reference of site.references) if (reference.entry !== null) references.add(reference.entry);
+        if (site.expression === null) {
+            splices.push({start: site.start, end: site.end, text: ""});
+            continue;
+        }
+        const result = site.reference !== null ? context.resolve(site.reference) : evaluate(site.expression, site.references, context.resolve);
+        const unavailable = result.unavailable !== undefined && (result.value ?? null) === null;
+        splices.push({start: site.start, end: site.end, text: unavailable ? `（${String(result.unavailable)}）` : displayText(result.value)});
+    }
+    for (const ref of parsed.block.refs) {
+        references.add(ref.id);
+        splices.push({start: ref.start, end: ref.end, text: context.entryName(ref.id) ?? "已删除的条目"});
+    }
+    splices.sort((a, b) => a.start - b.start);
+    let text = "";
+    let cursor = 0;
+    for (const splice of splices) {
+        text += source.slice(cursor, splice.start) + splice.text;
+        cursor = splice.end;
+    }
+    return {id, text: text + source.slice(cursor), references: [...references]};
+}
+
 export function renderBlockForAgent(id: string, source: string, context: RenderContext): AgentBlock {
     const parsed = parseBlock(source);
     if (!parsed.ok) return {id, text: source, error: parsed.problem};
@@ -269,6 +305,9 @@ export function renderBlockForAgent(id: string, source: string, context: RenderC
     return {id, text: text + source.slice(cursor)};
 }
 
+/** 表达式原文以行注释结尾时，注记的 `=` 或 `->` 要另起一行，否则落进注释、交回时扫不出来。 */
+const lineCommentBreak = (source: string): string => (/\/\/[^\n]*$/u.test(source) ? "\n" : "");
+
 /** 一个表达式的注记：`{地址 = JSON}` 或 `{表达式原文 -> JSON}`，装饰在 ` # ` 之后（输出 8、9、10）。 */
 export function annotation(site: ExpressionSite, resolve: Resolve): string {
     const source = site.source.trim();
@@ -279,10 +318,10 @@ export function annotation(site: ExpressionSite, resolve: Resolve): string {
         if (resolved.incomplete !== undefined) decorations.push(`不完整：${resolved.incomplete.change} ${resolved.incomplete.reason}`);
         if (resolved.unavailable !== undefined) decorations.push(`不可用：${resolved.unavailable}`);
         const value = resolved.unavailable === undefined ? resolved.value : null;
-        return `{${source} = ${JSON.stringify(value ?? null)}${decorations.length === 0 ? "" : ` # ${decorations.join("；")}`}}`;
+        return `{${source}${lineCommentBreak(source)} = ${JSON.stringify(value ?? null)}${decorations.length === 0 ? "" : ` # ${decorations.join("；")}`}}`;
     }
     const result = evaluate(site.expression!, site.references, resolve);
     if (result.incomplete !== undefined) decorations.push(`不完整：${result.incomplete.change} ${result.incomplete.reason}`);
     if (result.unavailable !== undefined) decorations.push(`不可用：${result.unavailable}`);
-    return `{${source} -> ${JSON.stringify(result.value ?? null)}${decorations.length === 0 ? "" : ` # ${decorations.join("；")}`}}`;
+    return `{${source}${lineCommentBreak(source)} -> ${JSON.stringify(result.value ?? null)}${decorations.length === 0 ? "" : ` # ${decorations.join("；")}`}}`;
 }

@@ -2,9 +2,14 @@
 
 import {ENTRY_TYPES} from "../../shared/declarations";
 import {nameOf, type Frame} from "./context";
+import {shownName} from "./parts";
+import type {SecretsResult} from "./secrets";
 import type {BriefItem} from "./types";
 
-export function appearanceItems(frame: Frame, chapter: string): BriefItem[] {
+/** 带值写法里的条目引用带着名字：本章不能写名字的条目（保密以上的知识点、要遮的隐秘目标）换成同样的写法（输出 4）。 */
+const maskRefNames = (frame: Frame, secrets: SecretsResult, text: string) => text.replace(/<Ref id="([^"]+)" name="[^"]*" \/>/gu, (_whole, id: string) => `<Ref id="${id}" name="${shownName(frame, secrets, id)}" />`);
+
+export function appearanceItems(frame: Frame, chapter: string, secrets: SecretsResult): BriefItem[] {
     const view = frame.view;
     const items: BriefItem[] = [];
     for (const id of view.chapterEntries(chapter, "planned")) {
@@ -15,7 +20,7 @@ export function appearanceItems(frame: Frame, chapter: string): BriefItem[] {
         const lines = [nameOf(frame, id)];
         if (read.summary !== "") lines.push(read.summary);
         const rendered = view.render(id, frame.position, "planned");
-        if (rendered !== null && typeof rendered !== "string") for (const block of rendered.blocks) lines.push(block.text);
+        if (rendered !== null && typeof rendered !== "string") for (const block of rendered.blocks) lines.push(maskRefNames(frame, secrets, block.text));
         for (const [namespace, data] of Object.entries(read.namespaces)) {
             if (namespace === "know") continue;
             for (const [field, value] of Object.entries(data.fields)) {

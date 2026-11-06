@@ -160,7 +160,7 @@ function objectCandidates(input: CandidateInput): ObjectCandidate[] {
     const byObject = new Map<string, {foreshadow: string; name: string; stage: Stage}[]>();
     for (const foreshadow of index.foreshadows) {
         if (readAppeared(view, foreshadow.id, start) === null) continue;
-        const {stage} = index.stage(foreshadow.id, until);
+        const stage = index.lineStage(foreshadow.id, until);
         if (stage === "unplanted" || stage === "paidOff") continue;
         for (const object of foreshadow.objects) byObject.set(object, [...(byObject.get(object) ?? []), {foreshadow: foreshadow.id, name: foreshadow.name, stage}]);
     }

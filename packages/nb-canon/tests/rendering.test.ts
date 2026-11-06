@@ -24,7 +24,7 @@ const options = () => ({
 let sequence = 0;
 const id = () => `req-${String(++sequence)}`;
 const author = {kind: "author"} as const;
-const at = (chapter: string) => ({kind: "chapter" as const, chapter, edge: "end" as const});
+const at = (chapter: string) => ({kind: "chapter" as const, chapter, edge: "end" as const, line: "main"});
 
 function ok<T extends {ok: boolean}>(result: T): Extract<T, {ok: true}> {
     if (!result.ok) throw new Error(JSON.stringify((result as {failure?: unknown}).failure));
@@ -638,5 +638,47 @@ describe("canon.project 失败码 not-found（补）：回写时块或条目不�
         const entry = base.data.entries.get("e2")!;
         const deleted = ok(base.publish({requestId: id(), by: author, what: "edit", title: "删", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(entry), deleted: true}}]}, "t"));
         expect(writeBack(deleted.world, {requestId: id(), by: author, entry: "e2", block: "b1", position: at("ch5"), version: deleted.world.version, mode: "actual", text: "新的"}, "t")).toEqual({ok: false, failure: {code: "not-found"}});
+    });
+});
+
+describe("canon.rendering 输出 12、13（审查补）：请求 id、位置与过期", () => {
+    const send = (now: World, read: World, text: string, requestId = id(), intent?: "creative" | "story") => writeBack(now, {requestId, by: author, entry: "e1", block: "b1", position: at("ch5"), version: read.version, mode: "actual", text, ...(intent === undefined ? {} : {intent})}, "t");
+    const textOf = (base: World) => {
+        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        return rendered.blocks[0]!.text;
+    };
+
+    test("同一个请求 id 内容不同：request-id-reused，不答成功；被普通发布用过的 id 也一样", () => {
+        const base = world();
+        const requestId = id();
+        const first = ok(send(base, base, textOf(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}"), requestId, "story"));
+        expect(send(first.world, first.world, textOf(first.world).replace("{panel.魔力 = 3000}", "{panel.魔力 = 2000}"), requestId, "story")).toEqual({ok: false, failure: {code: "request-id-reused"}});
+        const usedByPublish = first.world.revisions.at(0)!.requestId;
+        expect(send(first.world, first.world, textOf(first.world).replace("{panel.魔力 = 3000}", "{panel.魔力 = 2000}"), usedByPublish, "story")).toEqual({ok: false, failure: {code: "request-id-reused"}});
+    });
+
+    test("位置没写明线：line-required，世界不变", () => {
+        const base = world();
+        const {line: _line, ...withoutLine} = at("ch5");
+        expect(writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: withoutLine, version: base.version, mode: "actual", text: textOf(base)}, "t")).toEqual({ok: false, failure: {code: "line-required"}});
+    });
+
+    test("世界前进过、这一块的注记对不上了：是过期（version-conflict），不是 annotation-mismatch", () => {
+        const base = world(["{panel.魔力} 与 {panel.魔力上限}"]);
+        const stale = textOf(base);
+        const now = ok(base.publish({requestId: id(), by: author, what: "edit", title: "改块", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e1"}, after: {...structuredClone(base.data.entries.get("e1")!), init: {...structuredClone(base.data.entries.get("e1")!.init), text: [{id: "b1", source: "只有 {panel.魔力}"}]}}}]}, "t")).world;
+        expect(send(now, base, stale)).toMatchObject({ok: false, failure: {code: "version-conflict"}});
+        // 世界没前进时同样的文字才是注记对不上。
+        expect(send(now, now, stale)).toMatchObject({ok: false, failure: {code: "annotation-mismatch"}});
+    });
+
+    test("表达式以行注释结尾：注记另起一行，原样交回没有改动，改值照常", () => {
+        const base = world(["魔力 {panel.魔力 // 注\n}"]);
+        const text = textOf(base);
+        const same = send(base, base, text);
+        expect(same.ok && same.repeated).toBe(true);
+        const edited = ok(send(base, base, text.replace("= 3110", "= 3000"), id(), "story"));
+        expect(edited.world.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
     });
 });

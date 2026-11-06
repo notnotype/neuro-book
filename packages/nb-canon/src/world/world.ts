@@ -319,8 +319,9 @@ export class World {
     }
 
     /** 发布一个写入请求；成功时返回新的世界与修订（本世界不变）。 */
-    publish(input: WriteRequest, time: string): WriteResult {
-        return this.#publish(input, time, false);
+    /** `requestDigest`：这次写入由别的请求合成（回写）时存那个请求的摘要，同一个请求 id 重试按它比。 */
+    publish(input: WriteRequest, time: string, requestDigest?: string): WriteResult {
+        return this.#publish(input, time, false, {}, requestDigest);
     }
 
     /**
@@ -1125,8 +1126,11 @@ function tailKeys(world: World, request: WriteRequest, options: WorldOptions): (
                     const key = changeKey(written, world.object(put.ref) as StoryChange | undefined, options);
                     if (key !== null) top = Math.max(top, key);
                 } else if (put.ref.kind === "check") {
-                    const place = (put.after as {place?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}}).place;
-                    if (place?.kind === "chapter" && place.chapter === chapter && (place.line ?? MAIN_LINE) === line && typeof place.key === "number") top = Math.max(top, place.key);
+                    const check = put.after as {place?: {kind?: unknown; chapter?: unknown; key?: unknown; line?: unknown}; told?: {quote?: string}};
+                    const place = check.place;
+                    if (place?.kind !== "chapter" || place.chapter !== chapter || (place.line ?? MAIN_LINE) !== line) continue;
+                    const key = typeof place.key === "number" ? place.key : (options.chapterText(chapter) ?? "").indexOf(check.told?.quote ?? "\u0000");
+                    if (key >= 0) top = Math.max(top, key);
                 }
             }
         }

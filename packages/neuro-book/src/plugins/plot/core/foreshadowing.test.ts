@@ -230,3 +230,64 @@ describe("plot.foreshadowing 输出 2、8：账本的筛选与放弃的显示", 
         expect(shown).toMatchObject({"放弃的伏笔": ["planted", true], "放弃但没埋": ["unplanted", true], "主线伏笔": ["planted", false]});
     });
 });
+
+describe("输出 5（审查补）：按线的诊断与读者的阶段各算各的", () => {
+    /** 主线一件事作切口，分出子线 r。 */
+    function branched(w: PlotWorld, cutChapter = "ch7"): string {
+        const cut = w.change(chapter(cutChapter));
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter(cutChapter, 60)), nature: "fork" as const, fork: {line: "tmp:r", name: "支线", parent: "main", cut, type: "branch" as const}}}]);
+        return ids["tmp:r"]!;
+    }
+    const onLine = (w: PlotWorld, line: string) => {
+        const view = w.view().onLine(line, "actual");
+        if ("code" in view) throw new Error(view.code);
+        return view;
+    };
+
+    test("子线的计划与兑现都标好了，活页夹还讲主线：子线视图上不报“计划的节点没写”，读者的阶段仍是未埋", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const fs = w.foreshadow("钟");
+        w.texts.set("ch9", "第一段。\n原来如此。");
+        const line = branched(w);
+        const plan = w.change({...chapter("ch9", 1), line}, {kind: "plan", told: [{source: "outline", chapter: "ch9", anchor: "细纲", marks: [node(fs, "plant")]}]});
+        w.change({...chapter("ch9", 2), line}, {links: [{kind: "fulfills", plan}], told: [{source: "chapter", chapter: "ch9", quote: "原来如此"}]});
+        const view = onLine(w, line);
+        const at = end("ch9");
+        expect((compute[FS_DIAGNOSTIC_IDS.plannedNodeMissing] as DiagnosticCompute)(view, at, "actual")).toEqual([]);
+        expect((compute[FS_DIAGNOSTIC_IDS.nodeWithoutTelling] as DiagnosticCompute)(view, at, "actual")).toEqual([]);
+        expect(new ForeshadowIndex(view, at, "actual").stage(fs, tellingPositionOf(at)).stage).toBe("unplanted");
+        expect(new ForeshadowIndex(view, at, "actual").lineStage(fs, tellingPositionOf(at))).toBe("planted");
+    });
+
+    test("活页夹讲子线：标在计划上、由兑现继承的节点，与自己标的一样算读过", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const fs = w.foreshadow("钟");
+        w.texts.set("ch9", "第一段。\n原来如此。");
+        const line = branched(w);
+        const plan = w.change({...chapter("ch9", 1), line}, {kind: "plan", told: [{source: "outline", chapter: "ch9", anchor: "细纲", marks: [node(fs, "plant")]}]});
+        w.change({...chapter("ch9", 2), line}, {links: [{kind: "fulfills", plan}], told: [{source: "chapter", chapter: "ch9", quote: "原来如此"}]});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line, from: 1}]]])});
+        expect(stageAt(w, fs, end("ch10"))).toBe("planted");
+        // 主线视图上这条线没有节点，也就不报“没排回收”。
+        expect((compute[FS_DIAGNOSTIC_IDS.noPayoffPlanned] as DiagnosticCompute)(w.view(), end("ch10"), "actual")).toEqual([]);
+    });
+
+    test("活页夹讲不存在的线、或只在计划里的线：这一段按主线（或最近的实际祖先）算，主线上的节点不消失", () => {
+        const make = () => {
+            const w = new PlotWorld(CHAPTERS);
+            const fs = w.foreshadow("钟");
+            w.texts.set("ch9", "第一段。\n原来如此。");
+            w.change(chapter("ch9", 5), {told: [inText(w, "ch9", "原来如此", [node(fs, "plant")])]});
+            return {w, fs};
+        };
+        const missing = make();
+        missing.w.world = missing.w.world.withOptions({...missing.w.world.options, chapterLines: new Map([["ch9", [{line: "l404", from: 1}]]])});
+        expect(stageAt(missing.w, missing.fs, end("ch10"))).toBe("planted");
+
+        const planned = make();
+        const cut = planned.w.change(chapter("ch7"));
+        const ids = planned.w.publish([{ref: {kind: "change", id: "tmp:p"}, after: {...drafts.change("tmp:p", chapter("ch7", 60), {kind: "plan"}), nature: "fork" as const, fork: {line: "tmp:pl", name: "计划线", parent: "main", cut, type: "branch" as const}}}]);
+        planned.w.world = planned.w.world.withOptions({...planned.w.world.options, chapterLines: new Map([["ch9", [{line: ids["tmp:pl"]!, from: 1}]]])});
+        expect(stageAt(planned.w, planned.fs, end("ch10"))).toBe("planted");
+    });
+});

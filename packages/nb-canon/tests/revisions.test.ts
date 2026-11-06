@@ -656,3 +656,53 @@ describe("canon.revisions 输出 18：排序键与同一请求、补偿修订", 
         expect(undone.revision.impact.rekeyed).toBeUndefined();
     });
 });
+
+describe("canon.revisions 输出 18、canon.worldlines 输出 19：没给键的记录看线视图", () => {
+    test("别的线上同一章的键更大：不算进这条线的“本章最后”；切口在这一章时排在切口之后", () => {
+        const base = start();
+        const cut = ok(base.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch2", [], {at: {kind: "chapter", chapter: "ch2", key: 5}})}], {baseVersion: 1}), "t"));
+        const c = cut.ids["tmp:c"]!;
+        const forked = ok(cut.world.publish(request([
+            {ref: {kind: "change", id: "tmp:f"}, after: {...change("tmp:f", "ch2", [], {at: {kind: "chapter", chapter: "ch2", key: 6}}), nature: "fork", fork: {line: "tmp:l", name: "支线", parent: "main", cut: c, type: "branch"}} as never},
+            {ref: {kind: "change", id: "tmp:later"}, after: change("tmp:later", "ch2", [], {at: {kind: "chapter", chapter: "ch2", key: 500}})},
+        ], {baseVersion: 2}), "t"));
+        const line = forked.ids["tmp:l"]!;
+        const {at: _at, ...rest} = change("tmp:n", "ch2", []);
+        const onLine = ok(forked.world.publish(request([{ref: {kind: "change", id: "tmp:n"}, after: {...rest, at: {kind: "chapter", chapter: "ch2", line}} as unknown as StoryChangeDraft}], {baseVersion: 3}), "t"));
+        const key = (onLine.world.data.changes.get(onLine.ids["tmp:n"]!)!.at as {key: number}).key;
+        expect(key).toBeGreaterThan(5);
+        expect(key).toBeLessThan(500);
+    });
+
+    test("同一请求里带引文、没给键的核对点也算：没讲述的记录排在它后面", () => {
+        const quote = "又花了三千五";
+        const {at: _at, ...rest} = change("tmp:n", "ch2", []);
+        const written = ok(start().publish(request([
+            {ref: {kind: "change", id: "tmp:n"}, after: {...rest, at: {kind: "chapter", chapter: "ch2"}} as unknown as StoryChangeDraft},
+            {ref: {kind: "check", id: "tmp:k"}, after: {id: "tmp:k", at: {entry: "e1", path: "panel.存款"}, value: 40000, told: {source: "chapter", chapter: "ch2", quote}, place: {kind: "chapter", chapter: "ch2"}, by: {kind: "author"}}},
+        ], {baseVersion: 1}), "t"));
+        expect((written.world.data.changes.get(written.ids["tmp:n"]!)!.at as {key: number}).key).toBeGreaterThan(TEXT.ch2!.indexOf(quote));
+    });
+});
+
+describe("canon.components 输出 14（审查补）：列表元素子字段的差额", () => {
+    test("元素子字段的加减也不悄悄舍掉", () => {
+        const LIST = {id: "test.bag", label: "包", namespace: "bag", version: 1, fields: [{id: "物", label: "物", kind: "list", item: [{id: "数", label: "数", kind: "number"}]}]};
+        const base = {...options(), registry: buildRegistry([LIST as never])};
+        const made: Entry = {id: "tmp:x", type: "物", parent: null, folder: "", order: 0, init: {name: "包", aliases: [], summary: "", text: [], data: {bag: {type: LIST.id, version: 1, enabled: true, fields: {物: [{id: "a", label: "a", 数: 1}]}}}}};
+        const world = ok(World.empty(base).publish(request([{ref: {kind: "entry", id: "tmp:x"}, after: made}], {what: "opening"}), "t")).world;
+        const result = world.publish(request([{ref: {kind: "change", id: "tmp:c"}, after: change("tmp:c", "ch1", [{op: "add", at: {entry: "e1", path: "bag.物[a].数"}, value: 0.00001}])}], {baseVersion: 1}), "t");
+        expect(result.ok === false && result.failure.code === "validation-failed" && result.failure.problems.map((problem) => problem.code)).toEqual(["number-out-of-range"]);
+    });
+});
+
+describe("canon.model 输出 23（审查补）：只要求直接的父条目没删", () => {
+    test("挂到一个活的条目下，它的上一级删了：照常写", () => {
+        const base = start();
+        const third = ok(base.publish(request([{ref: {kind: "entry", id: "tmp:y"}, after: entry("tmp:y", "第三人")}], {baseVersion: 1}), "t"));
+        const nested = ok(third.world.publish(request([{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(third.world.data.entries.get("e2")!), parent: "e1"}}], {baseVersion: 2}), "t"));
+        const gone = ok(nested.world.publish(request([{ref: {kind: "entry", id: "e1"}, after: {...structuredClone(nested.world.data.entries.get("e1")!), deleted: true}}], {baseVersion: 3}), "t"));
+        const newId = third.ids["tmp:y"]!;
+        expect(gone.world.publish(request([{ref: {kind: "entry", id: newId}, after: {...structuredClone(gone.world.data.entries.get(newId)!), parent: "e2"}}], {baseVersion: 4}), "t").ok).toBe(true);
+    });
+});

@@ -433,6 +433,14 @@ export function bodyOf(view: CanonReadView, entry: string): string {
 type ReaderFilter = {readonly until?: TellingPosition; readonly mark?: string; readonly effective?: boolean};
 type ReaderItem = ReturnType<CanonReadView["tellings"]>[number];
 
+/**
+ * 一章各段实际读到的线（worldlines 输出 12、13）：活页夹写的线在实际模式下不存在时，计划线按最近的实际祖先线算，两种模式下都不存在的按主线算。读者读的是正文，
+ * 所以只按实际模式。
+ */
+export function toldSegments(view: CanonReadView, chapter: string): readonly {readonly line: string; readonly from: number}[] {
+    return view.chapterLines(chapter).map((segment) => ({line: view.readingLine(segment.line, "actual"), from: segment.from}));
+}
+
 const readerBaseCache = perViewCache<readonly ReaderItem[]>();
 /**
  * 读者读过的讲述（knowledge 输出 6 的“读过的生效讲述”）：每一章按活页夹分的段，取每段那条线的视图里发生点落在这一段（段首到下一段首之前）的讲述。读者读的是活页夹的
@@ -441,7 +449,7 @@ const readerBaseCache = perViewCache<readonly ReaderItem[]>();
 function readerBase(view: CanonReadView): readonly ReaderItem[] {
     return readerBaseCache(view, "", () => {
         // 章 -> 段（线与起始段落号）。
-        const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, view.chapterLines(chapter)] as const));
+        const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, toldSegments(view, chapter)] as const));
         const lines = new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)));
         const taken: ReaderItem[] = [];
         for (const line of lines) {

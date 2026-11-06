@@ -556,8 +556,14 @@ describe("canon.project 方法表 status：重算量与耗时", () => {
         const service = await open();
         const opened = service.status().work;
         expect(opened.open).toEqual({recomputed: expect.any(Number), ms: expect.any(Number)});
+        expect(opened.open!.ms).toBeGreaterThanOrEqual(0);
         expect((await service.publish(entryRequest("星瑕", 1))).ok).toBe(true);
         expect(service.status().work.publish).toEqual({recomputed: expect.any(Number), ms: expect.any(Number)});
+        // 发布一条会套上的变更：这次要算它，重算量不是 0。
+        const change = {id: "tmp:c", kind: "written", text: "变", at: {kind: "chapter", chapter: "ch1", key: 1}, told: [], involves: [], lines: [], links: [], patches: [{op: "set", at: {entry: "e1", path: "entry.summary"}, value: "新"}], status: "active", by: {kind: "author"}};
+        const published = await service.publish({requestId: "work-change", by: {kind: "author"}, what: "edit", title: "变", baseVersion: service.status().version, puts: [{ref: {kind: "change", id: "tmp:c"}, after: change as never}]});
+        expect(published.ok).toBe(true);
+        expect(service.status().work.publish!.recomputed).toBeGreaterThan(0);
     });
 });
 

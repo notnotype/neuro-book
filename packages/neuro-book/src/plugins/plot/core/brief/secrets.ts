@@ -11,7 +11,7 @@ import type {CanonReadView, Decision} from "@notnotype/nb-canon/schema";
 import {type Secrecy} from "../../shared/declarations";
 import {NO_REASON} from "../decisions";
 import {bodyOf, knowingIndex} from "../knowledge";
-import {conflictsOf, goalsOf} from "../goals";
+import {conflictsOf, goalsOf, readGoal} from "../goals";
 import {nameOf, isSecretPlus, secrecyAt, type Frame, type Participant} from "./context";
 import * as fixed from "./fixed";
 import type {BriefHint} from "./types";
@@ -30,6 +30,8 @@ export interface SecretsResult {
     readonly hints: BriefHint[];
     /** 目标 id -> 它藏着的知识点（`隐秘`）；别的段按这个把目标改写成“某某的一个隐秘目标”。 */
     readonly hiddenGoals: ReadonlyMap<string, {readonly holder: string; readonly point: string}>;
+    /** 这一场的秘密里给了内容的知识点。 */
+    readonly shown: ReadonlySet<string>;
 }
 
 const rankOf = (secrecy: Secrecy | null) => (secrecy === "topSecret" ? 0 : 1);
@@ -42,6 +44,15 @@ function truthOf(frame: Frame, point: string): string {
 }
 
 const presentOf = (participants: readonly Participant[], view: CanonReadView) => [...new Set(participants.filter((member) => member.role === "present" && member.who !== undefined).map((member) => bodyOf(view, member.who!)))];
+
+/**
+ * 这个条目是不是要遮的隐秘目标：`隐秘` 指向保密以上的知识点，而这一场的秘密里没给那个知识点的内容（`shown`）。持有者不在本章参与者里时也一样，所以直接读目标，不靠 `hiddenGoals`。
+ */
+export function concealedGoal(frame: Frame, shown: ReadonlySet<string>, id: string): {readonly holder: string} | null {
+    const goal = readGoal(frame.view, id, frame.position, "planned");
+    if (goal === null || goal.隐秘 === null || shown.has(goal.隐秘) || !isSecretPlus(secrecyAt(frame, goal.隐秘))) return null;
+    return {holder: goal.holder};
+}
 
 /** 在场的人里有隐秘目标指向这个知识点的：`[持有者, 目标]`。 */
 function goalsHiding(frame: Frame, holders: readonly string[], point: string) {
@@ -59,6 +70,8 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
     const hiddenGoals = new Map<string, {holder: string; point: string}>();
     const secretPoints = points.filter((point) => isSecretPlus(secrecyAt(frame, point))).sort((a, b) => rankOf(secrecyAt(frame, a)) - rankOf(secrecyAt(frame, b)) || (a < b ? -1 : 1));
     const povBody = pov === null ? null : bodyOf(view, pov);
+    // 这一场的秘密里给内容的知识点：写冲突时要知道对方的隐秘目标遮不遮，所以先算出来，不等循环写到它。
+    const shown = new Set(secretPoints.filter((point) => secrecyAt(frame, point) === "secret" || reveals.has(point)));
     for (const point of secretPoints) {
         const secrecy = secrecyAt(frame, point) as "secret" | "topSecret";
         const reveal = reveals.get(point);
@@ -84,7 +97,10 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
                 if (povBody !== null && index.effective(povBody, point)?.程度 === "knows") lines.push(fixed.POV_OWN_SECRET);
             }
             for (const {holder, goal} of hiding) {
-                const conflicts = (conflictsOf(frame.view, goal.id, frame.position, "planned") ?? []).map((conflict) => nameOf(frame, conflict.id));
+                const conflicts = (conflictsOf(frame.view, goal.id, frame.position, "planned") ?? []).map((conflict) => {
+                    const concealed = concealedGoal(frame, shown, conflict.id);
+                    return concealed === null ? nameOf(frame, conflict.id) : fixed.hiddenGoalOf(nameOf(frame, concealed.holder));
+                });
                 lines.push(`${nameOf(frame, holder)}的隐秘目标：${goal.name}${goal.为什么 === null ? "" : `；为什么：${goal.为什么}`}${conflicts.length === 0 ? "" : `；冲突：${conflicts.join("、")}`}`);
             }
             items.push({point, name, secrecy, hidden: false, lines});
@@ -107,7 +123,7 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
         items.push({point, name, secrecy, hidden: true, lines});
     }
     void povMode;
-    return {items, hints, hiddenGoals};
+    return {items, hints, hiddenGoals, shown};
 }
 
 /** 知识点的主体（条目树里的父条目）的名字。 */

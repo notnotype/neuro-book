@@ -164,6 +164,12 @@ interface Lease {
     expires: number;
 }
 
+/** 这次更新重算的事件数：主线加这次更新过的子线（`ms` 只算计算，不含写盘）。 */
+function recomputedOn(world: World): number {
+    const others = new Set(world.lines.updates.map((update) => update.line).filter((line) => line !== MAIN_LINE));
+    return [...others].reduce((sum, line) => sum + (world.line(line)?.engine.recomputed ?? 0), world.line().engine.recomputed);
+}
+
 export class WorldService {
     #world: World;
     #tail: Tail;
@@ -251,7 +257,7 @@ export class WorldService {
         service.#syncTexts(chapters);
         service.#noteDiagnostics(initial.diagnostics);
         await service.setChapters(initial.chapters, initial.chapterLines);
-        service.#work.open = {recomputed: service.#world.line().engine.recomputed, ms: performance.now() - started};
+        service.#work.open = {recomputed: recomputedOn(service.#world), ms: performance.now() - started};
         return service;
     }
 
@@ -499,7 +505,7 @@ export class WorldService {
             const settings = world.options.time ?? DEFAULT_TIME;
             // 回溯到的那一刻（输出 6）照样进网络；父线也按同一上限截，上限之后的说法不能收窄切口与触发处的差。
             const rollback = world.rollbackOf(grant.line, (parent) => this.#boundedTime(world, {...grant, line: parent}, mode));
-            state = timeState(visible, {changes: visible, known: world.data.changes, entries: world.data.entries, order, createdAt: world.data.createdAt}, settings, mode, plans, rollback);
+            state = timeState(visible, {changes: visible, entries: world.data.entries, order, createdAt: world.data.createdAt}, settings, mode, plans, rollback);
             byWorld.set(key, state);
             if (byWorld.size > 8) byWorld.delete(byWorld.keys().next().value!);
         }
@@ -871,7 +877,6 @@ export class WorldService {
 
     /** 按请求 id 查结局（输出 16）。 */
     outcome(requestId: string): {readonly published: true; readonly revision: string; readonly version: number} | {readonly published: false} | {readonly code: "write-unknown"} {
-        if (this.#state === "read-only" && this.#readOnlyReason === "write-unknown") return {code: "write-unknown"};
         const revision = this.#world.requested(requestId);
         if (revision !== undefined) return {published: true, revision: revision.id, version: revision.version};
         // 只读时日志可能没读全（坏行、外部改动）：内存里没有这个请求不等于没发布。
@@ -920,7 +925,7 @@ export class WorldService {
                 const result = compute(this.#world);
                 if (!result.ok || (result as {repeated?: boolean}).repeated === true) return result;
                 const published = result as unknown as Extract<WriteResult, {ok: true}>;
-                const work = {recomputed: published.world.line().engine.recomputed, ms: performance.now() - started};
+                const work = {recomputed: recomputedOn(published.world), ms: performance.now() - started};
                 const appended = await appendRevision(this.#ports.files, this.#ports.logDir, this.#tail, published.revision, this.#ports.lock);
                 if ("tail" in appended) {
                     this.#world = published.world;
