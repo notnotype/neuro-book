@@ -1,5 +1,5 @@
 import type {AgentConversationComposer} from "@notnotype/nb-agent-ui/lab";
-import type {AgentContextInspector, AgentMessageEditor, AgentModelPicker, AgentRoleModelPicker} from "@notnotype/nb-agent-ui/lab";
+import type {AgentContextInspector, AgentMessageEditor, AgentModelPicker, AgentRoleModelPicker, AgentSessionTree} from "@notnotype/nb-agent-ui/lab";
 import type {AgentQueuedMessages} from "@notnotype/nb-agent-ui/lab";
 import type {AgentConversationContext, ComposerView} from "@notnotype/nb-agent-ui";
 import {conversationContext} from "./data";
@@ -92,6 +92,32 @@ export const agentContextInspectorScenes: InspectorScene[] = [
 export const agentMessageEditorScenes: LabFixtureDefinition<typeof AgentMessageEditor>["scenes"] = [
     {id: "default", label: "编辑", input: {props: {text: "把第三章的结尾改得更克制一点", loading: false}}},
     {id: "loading", label: "原文加载中", input: {props: {text: "", loading: true}}},
+];
+
+const TREE_NODES = [
+    {id: "01KQ00CREATED", parent: null, type: "sessionCreated"},
+    {id: "01KQ00RUN", parent: "01KQ00CREATED", type: "runStarted"},
+    {id: "01KQ01USER", parent: "01KQ00RUN", type: "input", label: "把第三章的结尾改得更克制一点"},
+    {id: "01KQ01MODEL", parent: "01KQ01USER", type: "modelStarted"},
+    {id: "01KQ02ASSIST", parent: "01KQ01MODEL", type: "assistant", label: "好，我先读第三章。"},
+    {id: "01KQ03TOOL", parent: "01KQ02ASSIST", type: "toolStarted", label: "read 正文/第三章.md"},
+    {id: "01KQ03RESULT", parent: "01KQ03TOOL", type: "toolResult"},
+    {id: "01KQ04ASSIST", parent: "01KQ03RESULT", type: "assistant", label: "结尾这段可以这样收：他没有回头，巷口的灯灭了。"},
+    {id: "01KQ05USER", parent: "01KQ04ASSIST", type: "input", label: "再冷一点，去掉灯"},
+    {id: "01KQ06ASSIST", parent: "01KQ05USER", type: "assistant", label: "他没有回头。雨还在下。"},
+    {id: "01KQ07USER", parent: "01KQ04ASSIST", type: "input", label: "换成他回头看了一眼"},
+    {id: "01KQ08ASSIST", parent: "01KQ07USER", type: "assistant", label: "他在巷口停了一下，回头看了一眼。"},
+    {id: "01KQ09USER", parent: "01KQ08ASSIST", type: "input", label: "再往后写一段"},
+    {id: "01KQ10ASSIST", parent: "01KQ09USER", type: "assistant", label: "巷子深处有人在咳嗽。"},
+    {id: "01KQ11ASSIST", parent: "01KQ04ASSIST", type: "assistant", label: "雨越下越大。他走进巷子。"},
+];
+const TREE_PATH = ["01KQ00CREATED", "01KQ00RUN", "01KQ01USER", "01KQ01MODEL", "01KQ02ASSIST", "01KQ03TOOL", "01KQ03RESULT", "01KQ04ASSIST", "01KQ05USER", "01KQ06ASSIST"];
+
+export const agentSessionTreeScenes: LabFixtureDefinition<typeof AgentSessionTree>["scenes"] = [
+    {id: "ready", label: "有分叉", input: {props: {canActivate: true, tree: {state: "ready", nodes: TREE_NODES, activePath: TREE_PATH}}}},
+    {id: "loading", label: "读取中", input: {props: {canActivate: true, tree: {state: "loading", loaded: 2000}}}},
+    {id: "unavailable", label: "读不到", input: {props: {canActivate: true, tree: {state: "unavailable", reason: "这步没做成（session-closed）。对话没动。"}}}},
+    {id: "running", label: "运行中不能切换", input: {props: {canActivate: false, tree: {state: "ready", nodes: TREE_NODES, activePath: TREE_PATH}}}},
 ];
 
 export const agentModelPickerScenes: PickerScene[] = [

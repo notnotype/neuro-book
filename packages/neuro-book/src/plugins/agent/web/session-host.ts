@@ -14,7 +14,7 @@ import {computed, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, ShallowRef} from "vue";
 
 import {createAgentContext, createKernelTranscript} from "@notnotype/nb-agent-ui";
-import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentViewAction, ApprovalPreviewView, ComposerApprovalOption, ComposerModelView, BranchView, ComposerRoleView, ContextInspectionView, EditingView, KernelAnchor, SessionTreeNodeView, SessionTreeView, KernelTranscript, PendingInputView, PendingQuestionView, SystemPromptView} from "@notnotype/nb-agent-ui";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {Text} from "@notnotype/nb-ui/text";
 
@@ -390,6 +390,53 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
     }
 
+    // ─── 分支树 ─────────────────────────────────────────────────────────
+
+    let sessionTree: SessionTreeView | null = null;
+    let treeToken = 0;
+
+    function closeTree(): void {
+        treeToken += 1;
+        sessionTree = null;
+    }
+
+    /** 分页读整棵树的结构；读的时候不挡对话。 */
+    async function loadTree(): Promise<void> {
+        const target = current;
+        const token = ++treeToken;
+        if (target === null) return;
+        sessionTree = {state: "loading", loaded: 0};
+        bump();
+        const nodes: SessionTreeNodeView[] = [];
+        let afterSeq = 0;
+        for (;;) {
+            const page = await remote.treeNodes({sessionId: target.id, afterSeq});
+            if (token !== treeToken || current !== target) return;
+            if (!page.ok) {
+                sessionTree = {state: "unavailable", reason: deps.text.t(agentText("conversation.history.failed", {code: page.code}))};
+                bump();
+                return;
+            }
+            for (const {id, parent, type, label} of page.value.nodes) nodes.push({id, parent, type, ...(label === undefined ? {} : {label})});
+            afterSeq = page.value.through;
+            if (!page.value.more) break;
+            sessionTree = {state: "loading", loaded: nodes.length};
+            bump();
+        }
+        sessionTree = {state: "ready", nodes, activePath: [...target.transcript.pathIds()]};
+        bump();
+    }
+
+    async function activateTreeNode(node: string): Promise<void> {
+        const target = current;
+        if (target === null) return;
+        const result = await remote.switchBranch({sessionId: target.id, commandId: commandId(), node});
+        if (!result.ok) {
+            notice = agentText("conversation.history.failed", {code: result.code});
+            bump();
+        }
+    }
+
     // ─── 上下文详情 ─────────────────────────────────────────────────────
 
     /** 弹窗开着时的数据。系统提示词随同一次 `preview` 回来，展开时才交给视图，不常驻 `ctx`。 */
@@ -488,6 +535,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         unknownSends.clear();
         notice = null;
         closeInspection();
+        closeTree();
         editing = null;
     }
 
@@ -804,6 +852,19 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             case "branch.switch":
                 await switchBranch(action.messageId, action.direction);
                 return;
+            case "tree.refresh":
+                await loadTree();
+                return;
+            case "tree.closed":
+                closeTree();
+                bump();
+                return;
+            case "tree.activate":
+                await activateTreeNode(action.entryId);
+                return;
+            case "tree.copyId":
+                deps.copy(action.entryId);
+                return;
             case "context.refresh":
                 await refreshInspection();
                 return;
@@ -908,7 +969,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 summaryState: "idle",
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canInspectContext: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
@@ -919,7 +980,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             messages: target?.transcript.messages() ?? [],
             branches: target === null || target === undefined ? {} : branchesOf(target).views,
             editing,
-            panels: inspection === null ? {} : {contextInspection: inspection, ...(inspectionPrompt === null ? {} : {systemPrompt: inspectionPrompt})},
+            panels: {
+                ...(inspection === null ? {} : {contextInspection: inspection}),
+                ...(inspectionPrompt === null ? {} : {systemPrompt: inspectionPrompt}),
+                ...(sessionTree === null ? {} : {sessionTree}),
+            },
             pendingInputs: target === null || target === undefined ? [] : pendingViews(target),
             wizardState,
             ...(stopRequestedAt === null ? {} : {stopRequestedAt}),

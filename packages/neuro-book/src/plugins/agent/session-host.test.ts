@@ -519,6 +519,37 @@ describe("改写历史（输出 25、26）", () => {
         expect(h.ctx().messages.filter((item) => item.kind === "user")).toHaveLength(2);
     });
 
+    test("分支树：读到全部节点与当前路径；切换到别的分支；关了放掉", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("旧回复");
+        h.host.act({type: "composer.submit", text: "问", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "旧回复");
+        await idle(h);
+        const oldId = assistants(h.ctx().messages).at(-1)!.id;
+        endpoint.script("新回复");
+        h.host.act({type: "message.retry", messageId: oldId});
+        await until("新回复", () => assistants(h.ctx().messages).at(-1)?.text === "新回复");
+        await idle(h);
+
+        expect(h.ctx().interaction.canOpenTree).toBe(true);
+        h.host.act({type: "tree.refresh"});
+        await until("读完", () => h.ctx().panels.sessionTree?.state === "ready");
+        const tree = h.ctx().panels.sessionTree;
+        if (tree?.state !== "ready") throw new Error("not ready");
+        const labels = tree.nodes.filter((node) => node.type === "assistant").map((node) => node.label);
+        expect(labels).toEqual(["旧回复", "新回复"]);
+        expect(tree.activePath).toContain(assistants(h.ctx().messages).at(-1)!.id);
+        expect(tree.activePath).not.toContain(oldId);
+
+        h.host.act({type: "tree.activate", entryId: oldId});
+        await until("切过去", () => assistants(h.ctx().messages).at(-1)?.text === "旧回复");
+        h.host.act({type: "tree.copyId", entryId: oldId});
+        expect(h.copied).toContain(oldId);
+        h.host.act({type: "tree.closed"});
+        await until("放掉了", () => h.ctx().panels.sessionTree === undefined);
+    });
+
     test("重开会话也看得到分叉；已归档的不能改写", async () => {
         const w = await world();
         const h = await started(w);

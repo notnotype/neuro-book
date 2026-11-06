@@ -5,6 +5,8 @@
  * 这样 Lab 的数据 tab 可以直接编辑它，时间线也能确定性回放；函数只允许出现在 services 与注册表里。
  */
 
+import type {SessionTreeNodeView} from "./session-tree";
+
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {MarkdownAssetResolver, PromptAttachment, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy} from "./ports";
@@ -189,6 +191,8 @@ export type InteractionView = {
     canRestore: boolean;
     /** 宿主能给上下文详情：为真时圆环与缓存命中能点，顶栏菜单有入口。 */
     canInspectContext?: boolean;
+    /** 宿主能给分支树：为真时顶栏菜单有入口。切换还要看 `canMutateHistory` 与运行状态。 */
+    canOpenTree?: boolean;
     /** 宿主有管理模型的地方（例如设置页）：为真时模型下拉的末尾有“管理模型…”，发出 `model.manage`。 */
     canManageModels: boolean;
     /** 宿主支持的输入框命令名（不含 `/`）；不给时登记的命令都显示。宿主没做的命令不进菜单，免得发出去没有反应。 */
@@ -417,9 +421,16 @@ export type ContextInspectionView =
 /** 系统提示词全文（`systemPrompt.load` 时才给）。 */
 export type SystemPromptView = {text: string};
 
+/** 分支树的数据（`tree.refresh` 时宿主分页读；关了就放掉）。 */
+export type SessionTreeView =
+    | {state: "loading"; loaded: number}
+    | {state: "unavailable"; reason: string}
+    | {state: "ready"; nodes: SessionTreeNodeView[]; activePath: string[]};
+
 export type PanelsView = {
     contextInspection?: ContextInspectionView;
     systemPrompt?: SystemPromptView;
+    sessionTree?: SessionTreeView;
 };
 
 export type AgentConversationContext = {
@@ -540,6 +551,9 @@ export type BuiltinAgentViewAction =
     | {type: "attachments.query"; search: string; offset: number}
     | {type: "linkedAgents.refresh"}
     | {type: "systemPrompt.load"; refresh: boolean}
+    | {type: "tree.refresh"}
+    /** 分支树关了：宿主放掉数据。 */
+    | {type: "tree.closed"}
     | {type: "tree.activate"; entryId: string}
     | {type: "tree.copyId"; entryId: string}
     | {type: "context.selectTrace"; traceId: string}

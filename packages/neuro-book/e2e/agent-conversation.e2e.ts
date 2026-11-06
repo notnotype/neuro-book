@@ -334,6 +334,39 @@ test("改写历史：编辑重发开新分支，切换器切回原来的；重�
     await expect(assistant.locator(".agent-message-actions__branch-label")).toContainText("2/2");
 });
 
+test("分支树：列表与图，图默认从上往下、能换方向；选别的分支切过去", async ({page}, testInfo) => {
+    await script("第一版回复");
+    await openConversation(page);
+    await newSession(page);
+    await send(page, "问一句");
+    await expect(page.getByText("第一版回复")).toBeVisible();
+    const assistant = page.locator(".acv-message[data-role='assistant']");
+    await script("第二版回复");
+    await assistant.hover();
+    await assistant.getByRole("button", {name: "重新生成"}).click();
+    await expect(page.getByText("第二版回复")).toBeVisible();
+
+    await page.locator(".acv-header").getByRole("button", {name: "更多操作"}).click();
+    await page.getByRole("menuitem", {name: "分支树"}).click();
+    const tree = page.locator("[data-session-tree]");
+    await expect(tree.locator("[data-tree-count]")).toContainText("1 处分叉");
+    await expect(tree.locator("[data-tree-current]")).toContainText("第二版回复");
+    await page.screenshot({path: testInfo.outputPath("tree-list.png")});
+
+    await tree.locator("[data-tree-modes] button").last().click();
+    await expect(tree.locator("[data-tree-canvas]")).toHaveAttribute("data-direction", "down");
+    await page.screenshot({path: testInfo.outputPath("tree-graph-down.png")});
+    await tree.locator("[data-tree-direction='right']").click();
+    await expect(tree.locator("[data-tree-canvas]")).toHaveAttribute("data-direction", "right");
+    await page.screenshot({path: testInfo.outputPath("tree-graph-right.png")});
+
+    await tree.getByText("第一版回复").click();
+    await tree.locator("[data-tree-activate]").click();
+    await expect(tree).toHaveCount(0);
+    await expect(page.getByText("第一版回复")).toBeVisible();
+    await expect(page.getByText("第二版回复")).toHaveCount(0);
+});
+
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {
     await script("答一", "摘要正文");
     await openConversation(page);

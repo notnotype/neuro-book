@@ -149,7 +149,7 @@ const methods = {
     rewindTargets: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<RewindTarget[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
     /** 按页读路径：`from` 是从根数起的下标，下一页从交回的 `next` 读。 */
     path: {input: Type.Object({...BySession, leaf: Type.Optional(Nullable(Type.String())), from: Type.Optional(Type.Integer({minimum: 0}))}, {additionalProperties: false}), output: object<{items: LogItem[]; more: boolean; next: number}>(), effect: "read", errors: queryErrors},
-    /** 整棵树的结构（sessions.md 输出 18）。节点小，分页不用按字节算。 */
+    /** 整棵树的结构（runtime.md 输出 80、81）。节点小，分页不用按字节算。 */
     treeNodes: {input: Type.Object({...BySession, afterSeq: Type.Optional(Type.Integer({minimum: 0}))}, {additionalProperties: false}), output: object<{nodes: TreeNode[]; more: boolean; through: number}>(), effect: "read", errors: wholeErrors},
     branchPoints: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<BranchPoint[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},
     siblings: {input: Type.Object({...BySession, node: Type.String()}, {additionalProperties: false}), output: Type.Unsafe<{node: string; latestLeaf: string}[]>(Type.Array(Type.Unknown())), effect: "read", errors: wholeErrors},

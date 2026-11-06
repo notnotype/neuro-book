@@ -9,7 +9,7 @@
 export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
     AgentSessionListItem, AgentSessionListState, ApprovalPreviewView, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
-    SessionPanelFilter, ComposerApprovalOption, ComposerModelView, ComposerModeView, ComposerRoleView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
+    SessionPanelFilter, ComposerApprovalOption, ComposerModelView, ComposerModeView, ComposerRoleView, SessionTreeView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
     InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputView, PendingQuestionsView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
     ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView,
@@ -42,3 +42,5 @@ export type {KernelAnchor, KernelMeta, KernelPending, KernelQueued, KernelRun, K
 export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";
 export type {CatalogAccess, CatalogModelView, CatalogProviderView} from "./model-catalog";
+export {graphEdgePath, graphPosition, graphSize, SESSION_TREE_GRAPH_LIMIT, SESSION_TREE_NODE_SIZE, sessionTreeGraph, sessionTreeRows} from "./session-tree";
+export type {SessionTreeDirection, SessionTreeFilter, SessionTreeGraph, SessionTreeGraphNode, SessionTreeNodeKind, SessionTreeNodeView, SessionTreeRow, TreeGuide} from "./session-tree";

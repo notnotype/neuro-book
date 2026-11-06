@@ -4,6 +4,7 @@ import {Button, Dialog, DropdownMenu, IconButton, OverlayScrollbar, Popover, Spi
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {
     ContextInspectionView,
+    SessionTreeView,
     AgentConversationContext,
     AgentConversationServices,
     AgentViewAction,
@@ -19,6 +20,7 @@ import AgentRawView from "./stream/AgentRawView.vue";
 import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
 import AgentStatusBar from "./composer/AgentStatusBar.vue";
 import AgentContextInspector from "./panels/AgentContextInspector.vue";
+import AgentSessionTree from "./panels/AgentSessionTree.vue";
 import AgentWizard from "./wizard/AgentWizard.vue";
 import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
 import {provideAgentView} from "./host";
@@ -81,6 +83,7 @@ function setViewMode(mode: AgentViewMode) {
 
 const overflowItems = computed<DropdownMenuItemData[]>(() => [
     ...(props.ctx.interaction.canInspectContext === true ? [{id: "context", label: t("panel.context.title"), iconClass: "i-lucide-gauge"}] : []),
+    ...(props.ctx.interaction.canOpenTree === true ? [{id: "tree", label: t("panel.tree.open"), iconClass: "i-lucide-git-fork"}] : []),
     {
         id: "toggle-view-mode",
         label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
@@ -94,6 +97,10 @@ function onOverflowSelect(value: string) {
     }
     else if (value === "context") {
         openInspector();
+    }
+    else if (value === "tree") {
+        treeOpen.value = true;
+        emit("action", {type: "tree.refresh"});
     }
 }
 
@@ -113,9 +120,23 @@ function onInspectorOpen(open: boolean): void {
     if (!open) emit("action", {type: "context.closed"});
 }
 
+const treeOpen = ref(false);
+const LOADING_TREE: SessionTreeView = {state: "loading", loaded: 0};
+
+function onTreeOpen(open: boolean): void {
+    treeOpen.value = open;
+    if (!open) emit("action", {type: "tree.closed"});
+}
+
+function onTreeActivate(id: string): void {
+    emit("action", {type: "tree.activate", entryId: id});
+    onTreeOpen(false);
+}
+
 // 换了会话：弹窗里的数据不再是这个会话的。
 watch(() => props.ctx.session?.id, () => {
     if (inspectorOpen.value) onInspectorOpen(false);
+    if (treeOpen.value) onTreeOpen(false);
 });
 
 // ─── 轮次 ───────────────────────────────────────────────────────────────
@@ -417,6 +438,23 @@ defineExpose({focusComposer, scrollToLatest});
                 :system-prompt="props.ctx.panels.systemPrompt ?? null"
                 :usage="props.ctx.usage"
                 @load-system-prompt="emit('action', {type: 'systemPrompt.load', refresh: false})"
+            />
+        </Dialog>
+        <Dialog
+            :open="treeOpen"
+            size="default"
+            :title="t('panel.tree.title')"
+            closable
+            :show-footer="false"
+            :teleport-target="props.teleportTarget"
+            data-tree-dialog
+            @update:open="onTreeOpen"
+        >
+            <AgentSessionTree
+                :tree="props.ctx.panels.sessionTree ?? LOADING_TREE"
+                :can-activate="props.ctx.interaction.canMutateHistory && props.ctx.run.status === 'idle'"
+                @activate="onTreeActivate"
+                @copy="emit('action', {type: 'tree.copyId', entryId: $event})"
             />
         </Dialog>
         <OriginalImagePreviewDialog

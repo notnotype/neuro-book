@@ -17,6 +17,7 @@ import type {
     AgentMarkdown,
     AgentMessageActions,
     AgentContextInspector,
+    AgentSessionTree,
     AgentMessageEditor,
     AgentModelPicker,
     AgentRoleModelPicker,
@@ -45,7 +46,7 @@ import {defineSubjectFixture} from "../subject-fixture";
 import {agentApprovalWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
 import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
-import {agentContextInspectorScenes, agentConversationComposerScenes, agentMessageEditorScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes} from "./composer.scenes";
+import {agentContextInspectorScenes, agentConversationComposerScenes, agentMessageEditorScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes, agentSessionTreeScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
     agentCommandDetailScenes,
@@ -148,6 +149,10 @@ export const nbAgentUiFixtures: LabFixture[] = [
     defineSubjectFixture<typeof AgentMessageEditor>({
         component: "AgentMessageEditor", scenes: agentMessageEditorScenes, subject: agentSubject("AgentMessageEditor"),
         events: ["submit", "cancel"],
+    }),
+    defineSubjectFixture<typeof AgentSessionTree>({
+        component: "AgentSessionTree", scenes: agentSessionTreeScenes, subject: agentSubject("AgentSessionTree"),
+        events: ["activate", "copy"],
     }),
     defineSubjectFixture<typeof AgentRoleModelPicker>({
         component: "AgentRoleModelPicker", scenes: agentRoleModelPickerScenes, subject: agentSubject("AgentRoleModelPicker"),
