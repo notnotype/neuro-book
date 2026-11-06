@@ -309,6 +309,8 @@ function checkNewFacts(plan: CheckPlan, facts: FixedAnswer["newFacts"], names: R
             bad();
             continue;
         }
+        // 没有自陈的章是作者自己写的：没有写手，谈不上“写手新编了没说”（checks.md 输入）。
+        if (fact.kind === "invention" && selfReport === undefined) continue;
         const name = fact.name?.trim();
         if (name !== undefined && name !== "" && (names.get(home.id)?.has(name) === true || selfReport?.report.names.some((reported) => reported.includes(name)) === true)) continue;
         if (kept.length >= MAX_NEW_FACTS) {

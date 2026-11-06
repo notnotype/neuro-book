@@ -12,7 +12,7 @@ import {readAppeared} from "./segments";
 
 const LEDGER_SYSTEM = [
     "你是一本小说的校对助手。下面给你一段正文和一个问题。只依据这段正文回答，不要推测正文之外的事。",
-    "回答“有”（yes）时必须引用正文里一字不差的原句（完整的句子，放进 quotes）；答“没有”（no）时 quotes 给空数组；正文看不出来就答 unclear，不要猜。",
+    "看得出倾向就答“有”（yes），并引用正文里一字不差的原句（完整的句子，放进 quotes）：这里要的是候选，人物的言行暗示了这件事就算，由作者最后判断。正文里没有相关的言行答“没有”（no），quotes 给空数组。只有写得含糊、两种读法都说得通时才答 unclear。",
     "用 answer 工具交回结构化的答案。",
 ].join("\n");
 
@@ -82,7 +82,7 @@ export interface FixedInput {
 }
 
 export function fixedRequest(input: FixedInput): CheckRequest {
-    const report = input.report === null ? "没有" : [`新出现的名字与事实：${input.report.names.join("；") || "无"}`, `拿不准的：${input.report.unsure.join("；") || "无"}`, `偏离细纲的：${input.report.deviations.join("；") || "无"}`].join("\n");
+    const report = input.report === null ? "没有（作者自己写的，没有写手，不用列 invention）" : [`新出现的名字与事实：${input.report.names.join("；") || "无"}`, `拿不准的：${input.report.unsure.join("；") || "无"}`, `偏离细纲的：${input.report.deviations.join("；") || "无"}`].join("\n");
     const chapterText = input.segments.map((segment) => `【${segment.id}，第 ${String(segment.from)} 到第 ${String(segment.to)} 段】\n${segment.paragraphs.join("\n")}`).join("\n\n");
     const rules = input.rules.length === 0 ? "（没有规则项）" : input.rules.map((rule) => `- ${rule.item}：${rule.text}`).join("\n");
     return {

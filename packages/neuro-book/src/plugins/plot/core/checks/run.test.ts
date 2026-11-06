@@ -177,8 +177,12 @@ describe("验收 4：新事实", () => {
         expect(reported(w, [record])[CHECK.unrecordedKnowing]).toMatchObject([{key: {line: "main", range: {from: "ch5", to: "ch5"}, detail: digest(quote)}, params: {text: "约定十一点在桥头见"}}]);
         expect(record.newFacts[0]).toMatchObject({segment: "main#1", line: "main"});
 
-        const invented = await runOk(w, "ch5", scripted(facts("invention", "陈老板")).models);
-        expect(reported(w, [invented])[CHECK.unreportedInvention]!.length).toBe(1);
+        // 没有自陈（作者自己写的）：没有写手，不报新编。
+        const noWriter = await runOk(w, "ch5", scripted(facts("invention", "陈老板")).models);
+        expect(reported(w, [noWriter])[CHECK.unreportedInvention]).toBeUndefined();
+        // 有自陈、没写这一条：报。
+        const invented = await runOk(w, "ch5", scripted(facts("invention", "陈老板")).models, {selfReport: selfReport("ch5")});
+        expect(reported(w, [invented], {selfReport: selfReport("ch5")})[CHECK.unreportedInvention]!.length).toBe(1);
 
         const report = selfReport("ch5", ["陈老板：茶馆的老板"]);
         const {models, asked} = scripted(facts("invention", "陈老板"));
@@ -186,7 +190,7 @@ describe("验收 4：新事实", () => {
         expect(reportedName.newFacts).toEqual([]);
         expect(asked.find((call) => call.request.answer === "fixed")!.request.user).toContain("陈老板：茶馆的老板");
 
-        const inWorld = await runOk(w, "ch5", scripted(facts("invention", "小梅")).models);
+        const inWorld = await runOk(w, "ch5", scripted(facts("invention", "小梅")).models, {selfReport: selfReport("ch5")});
         expect(inWorld.newFacts).toEqual([]);
     });
 
