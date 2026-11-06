@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-theme-editor-assets
-status: planned
+status: done
 updated: 2026-11-06
 ---
 
