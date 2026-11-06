@@ -13,7 +13,6 @@ import type {CanonReadView, Decision, ReadPosition} from "@notnotype/nb-canon/sc
 
 import type {AnswerKind, CheckRequest, CheckRole, SelfReport} from "../../shared/checks";
 import type {InstructionSnapshot} from "../../shared/instructions";
-import {nameOf} from "../brief/context";
 import {involvedDecisions} from "../decisions";
 import type {Digest} from "../guards";
 import {knowingIndex} from "../knowledge";
@@ -105,10 +104,10 @@ function namesOn(segment: CheckSegment, end: ReadPosition): ReadonlySet<string> 
 }
 
 /** 写作指示写成给模型看的几行。 */
-function instructionLines(segment: CheckSegment, instruction: InstructionSnapshot | undefined): string[] {
+function instructionLines(segment: CheckSegment, instruction: InstructionSnapshot | undefined, end: ReadPosition): string[] {
     if (instruction === undefined) return [];
     return [
-        ...(instruction.pov === undefined ? [] : [`视角人物：${nameOf(segment.frame, instruction.pov.id)}`]),
+        ...(instruction.pov === undefined ? [] : [`视角人物：${readAppeared(segment.view, instruction.pov.id, end)?.name ?? instruction.pov.id}`]),
         ...(instruction.povMode === undefined ? [] : [`视角方式：${{first: "第一人称", limited: "有限视角", omniscient: "全知"}[instruction.povMode]}`]),
         ...(instruction.readerChange === undefined ? [] : [`读完这一章读者该有什么变化：${instruction.readerChange}`]),
         ...(instruction.tone === undefined ? [] : [`语气：${instruction.tone}`]),
@@ -133,7 +132,7 @@ function ruleItems(input: PlanInput, segments: readonly CheckSegment[], pointsBy
                 const read = readAppeared(segment.view, point, end);
                 return read === null ? [] : [`${read.name}：${row?.程度 ?? "没有记录"}`];
             });
-            rules.push({item: `pov:${segment.id}`, segment: segment.id, text: `段 ${segment.id} 里，叙述有没有越出视角人物${nameOf(segment.frame, pov)}能知道、能看到的范围？他的知情：${rows.join("；") || "没有记录"}`});
+            rules.push({item: `pov:${segment.id}`, segment: segment.id, text: `段 ${segment.id} 里，叙述有没有越出视角人物${readAppeared(segment.view, pov, {kind: "chapter", chapter, edge: "end"})?.name ?? pov}能知道、能看到的范围？他的知情：${rows.join("；") || "没有记录"}`});
         }
     }
     if (instruction?.ending !== undefined) rules.push({item: "ending", text: `写作指示要结尾停在“${instruction.ending}”。整章末尾有没有没停住（写过了头，或没写到）？`});
@@ -193,7 +192,7 @@ export function planCheck(input: PlanInput): CheckPlan | {readonly code: "chapte
     const fixed = fixedRequest({
         brief: selfReport?.brief ?? null,
         report: selfReport?.report ?? null,
-        instructionLines: instructionLines(segments[0]!, instruction),
+        instructionLines: instructionLines(segments[0]!, instruction, {kind: "chapter", chapter, edge: "end"}),
         segments,
         rules,
     });

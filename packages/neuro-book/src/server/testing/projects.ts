@@ -129,6 +129,8 @@ export async function projectHarness(
         readonly fault?: ProjectFault;
         readonly env?: Readonly<Record<string, string>>;
         readonly plugins?: ReadonlyArray<PluginDefinition>;
+        /** 服务端实例另加的宿主能力（例如模型服务要的启动环境）。 */
+        readonly capabilities?: NonNullable<Parameters<typeof createApplication>[1]["capabilities"]>;
         readonly prepare?: (paths: ProjectHarnessPaths) => Promise<void>;
     } = {},
 ): Promise<ProjectHarness> {
@@ -162,6 +164,7 @@ export async function projectHarness(
                 {id: "host.user-directories", key: userDirectoriesKey, create: () => Object.freeze({home, documents})},
                 {id: "host.clock", key: clockKey, create: () => clock},
                 {id: "host.projects", key: projectsKey, create: async () => (await managerReady.promise).provision()},
+                ...(options.capabilities ?? []),
             ],
             plugins,
             gates: [],

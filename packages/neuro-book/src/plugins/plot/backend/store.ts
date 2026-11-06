@@ -89,6 +89,11 @@ export class ChapterTable<T> {
         return this.#rows.get(chapter)?.value;
     }
 
+    /** 这一章的内容摘要（`contentOf` 取的部分）。 */
+    digestOf(chapter: string): string | undefined {
+        return this.#rows.get(chapter)?.digest;
+    }
+
     /** 全部值，按章 id 排好（与写入先后无关）。 */
     all(): readonly T[] {
         return [...this.#rows.keys()].sort().map((chapter) => this.#rows.get(chapter)!.value);

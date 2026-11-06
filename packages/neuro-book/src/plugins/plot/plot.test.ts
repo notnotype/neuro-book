@@ -17,9 +17,19 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {publish, serverPlugins, until, windowOf} from "nbook/plugins/canon/testing/harness";
 import {GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, revoked} from "nbook/server/testing/projects";
 
+import {definitionAt} from "nbook/manifest";
+import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
+import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
+import {modelsSettingsContract} from "nbook/plugins/models/shared/contracts";
+import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
+import {descriptor as settingsDescriptor} from "nbook/plugins/settings/plugin";
+import {startupEnvKey} from "nbook/shared/host";
+
+import {plotServerPlugin} from "./backend/server";
+import {plotChecksContract} from "./shared/checks";
 import {plotWorldContract} from "./shared/contracts";
 import {plotInstructionsContract} from "./shared/instructions";
-import {COMPONENT_IDS, DIAGNOSTIC_IDS, MARK_IDS, PLOT_COMPONENTS, PLOT_MARKS, PLOT_PLUGIN_ID} from "./shared/declarations";
+import {CHECK_DIAGNOSTIC_IDS, COMPONENT_IDS, DIAGNOSTIC_IDS, MARK_IDS, PLOT_COMPONENTS, PLOT_MARKS, PLOT_PLUGIN_ID} from "./shared/declarations";
 import {drafts} from "./testing/world";
 
 /** 窗口里的测试插件：拿到剧情插件远程合同的调用入口。 */
@@ -35,6 +45,7 @@ function plotCaller(): {readonly plugin: PluginDefinition; readonly plot: () => 
 }
 
 let tmp = "";
+let windows = 0;
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-plot", "project-child");
 });
@@ -245,3 +256,203 @@ describe("剧情插件的远程合同", () => {
     }, 30_000);
 });
 
+
+/** 本机的假模型端点（同 `models.test.ts`）：按 OpenAI 流式的写法回工具调用，答案由 `answerOf` 按请求给。 */
+function fakeEndpoint(answerOf: (user: string, tools: readonly {function: {name: string}}[]) => unknown) {
+    const requests: {user: string; model: string; toolChoice: unknown}[] = [];
+    let gate: Promise<void> | null = null;
+    const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        idleTimeout: 0,
+        async fetch(request) {
+            if (gate !== null) requests.push({user: "（卡住）", model: "", toolChoice: null});
+            if (gate !== null) await gate;
+            const body = await request.json() as {model: string; messages: {role: string; content: string | {text: string}[]}[]; tools?: {function: {name: string}}[]; tool_choice?: unknown};
+            const message = body.messages.findLast((item) => item.role === "user")!;
+            const user = typeof message.content === "string" ? message.content : message.content.map((part) => part.text).join("");
+            requests.push({user, model: body.model, toolChoice: body.tool_choice});
+            const tool = body.tools?.[0]?.function.name ?? "";
+            const chunk = (payload: object) => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: body.model, ...payload})}\n\n`;
+            const args = JSON.stringify(answerOf(user, body.tools ?? []));
+            return new Response(
+                chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [{index: 0, id: "call-1", type: "function", function: {name: tool, arguments: args}}]}, finish_reason: null}]})
+                + chunk({choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}], usage: {prompt_tokens: 100, completion_tokens: 20, total_tokens: 120}})
+                + "data: [DONE]\n\n",
+                {headers: {"content-type": "text/event-stream"}},
+            );
+        },
+    });
+    return {
+        base: `http://127.0.0.1:${String(server.port)}/v1`,
+        requests,
+        /** 之后的请求卡住，直到调返回的函数。 */
+        hold: () => {
+            const held = Promise.withResolvers<void>();
+            gate = held.promise;
+            return () => {
+                gate = null;
+                held.resolve();
+            };
+        },
+        stop: () => server.stop(true),
+    };
+}
+
+describe("写完以后的检查：真实的项目子进程、服务端入口与模型服务", () => {
+    /** 服务端带上配置、`nbook.models` 与剧情的服务端入口；窗口能配模型、调检查。 */
+    async function checkWorld(answerOf: Parameters<typeof fakeEndpoint>[0], text: string) {
+        const endpoint = fakeEndpoint(answerOf);
+        let models: RemoteUse<typeof modelsSettingsContract> | null = null;
+        let checks: RemoteUse<typeof plotChecksContract> | null = null;
+        const caller: PluginDefinition = {id: "test.checks-caller", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+            models = context.remote.use(modelsSettingsContract);
+            checks = context.remote.use(plotChecksContract);
+            return {};
+        }})]};
+        const h = await projectHarness(tmp, {
+            plugins: [...serverPlugins(), definitionAt("server", settingsDescriptor, settingsBackendPlugin), definitionAt("server", modelsDescriptor, modelsBackendPlugin), plotServerPlugin],
+            capabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => Object.freeze({env: {}})}],
+            prepare: async (paths) => {
+                const dir = join(paths.project.path, "manuscripts.binder");
+                await mkdir(dir, {recursive: true});
+                await writeFile(join(dir, "binder.xml"), '<binder nextId="3"><chapter id="1" title="一"/><chapter id="2" title="二"/></binder>');
+                await writeFile(join(dir, "00001-一.md"), "国王与贤者说话。\n");
+                await writeFile(join(dir, "00002-二.md"), text);
+            },
+        });
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const window = await windowOf(h, `browser-c${String(++windows)}`, "profile-c", [caller]);
+        await until(async () => {
+            const status = await window.canon.call("status", {});
+            return status.ok && status.value.version >= 1;
+        });
+        return {h, keep, window, endpoint, models: models!, checks: checks!};
+    }
+
+    async function bindModels(models: RemoteUse<typeof modelsSettingsContract>, base: string) {
+        const added = await models.at("server").addProvider({source: {kind: "custom", name: "假端点", baseUrl: base, api: "openai-completions"}});
+        if (!added.ok) throw new Error(JSON.stringify(added));
+        const provider = added.value.id;
+        expect((await models.at("server").setKey({provider, value: "sk-plot-test-not-real-0001"})).ok).toBe(true);
+        expect((await models.at("server").upsertModel({provider, model: {id: "m", enabled: true, contextWindow: 100_000}})).ok).toBe(true);
+        for (const role of ["main", "fast"]) expect((await models.at("server").setRole({id: role, model: `${provider}/m`})).ok).toBe(true);
+    }
+
+    const SLIP = "卫兵盯着旅人的左手，说：你是勇者吧";
+
+    it("角色没绑：plot-check-unavailable，端点收到 0 个请求；绑了以后经真实的模型通道跑完，记录有效，待处理里有可能穿帮；先读后写后读不走旧缓存；重开以后记录还在", async () => {
+        const answerOf = (user: string) => {
+            if (user.includes("规则项")) return {items: [], newFacts: []};
+            if (user.includes("把这件事当真")) return {answer: "yes", quotes: [SLIP]};
+            return {answer: "no", quotes: []};
+        };
+        const w = await checkWorld(answerOf, `${SLIP}。\n`);
+        try {
+            const entries = await publish(w.window.canon, {requestId: "p", by: {kind: "author"}, what: "edit", title: "人", baseVersion: 1, puts: [
+                {ref: {kind: "entry", id: "tmp:hero"}, after: drafts.person("tmp:hero", "勇者")},
+                {ref: {kind: "entry", id: "tmp:guard"}, after: drafts.person("tmp:guard", "卫兵")},
+            ]});
+            if (!entries.ok) throw new Error(JSON.stringify(entries));
+            const [hero, guard] = [entries.value.ids["tmp:hero"]!, entries.value.ids["tmp:guard"]!];
+            const placed = await publish(w.window.canon, {requestId: "q", by: {kind: "author"}, what: "edit", title: "事", baseVersion: 2, puts: [
+                {ref: {kind: "entry", id: "tmp:k"}, after: drafts.point("tmp:k", "勇者左手有星形的疤", hero, {保密: "secret"})},
+                {ref: {kind: "change", id: "tmp:c"}, after: drafts.change("tmp:c", {kind: "chapter", chapter: "2", key: 0}, {cast: [{who: guard, role: "present"}]})},
+            ]});
+            if (!placed.ok) throw new Error(JSON.stringify(placed));
+
+            expect(await w.checks.run({chapter: "2"})).toMatchObject({ok: false, code: "plot", detail: {code: "plot-check-unavailable"}});
+            expect(await w.checks.status({chapter: "2"})).toMatchObject({ok: true, value: {running: false, lastFailure: {code: "plot-check-unavailable"}}});
+            expect(w.endpoint.requests).toEqual([]);
+
+            await bindModels(w.models, w.endpoint.base);
+            const pendingBefore = await w.window.canon.call("pending", {});
+            expect(pendingBefore.ok).toBe(true);
+            const ran = await w.checks.run({chapter: "2"}, {timeout: 60_000});
+            if (!ran.ok) throw new Error(JSON.stringify(ran));
+            expect(ran.value).toMatchObject({chapter: "2", calls: 3, unasked: 0});
+            expect(w.endpoint.requests.length).toBe(3);
+            expect(w.endpoint.requests[0]!.model).toBe("m");
+            expect(w.endpoint.requests[0]!.toolChoice).toMatchObject({type: "function"});
+
+            const record = await w.checks.record({chapter: "2"});
+            expect(record).toMatchObject({ok: true, value: {status: "valid", record: {chapter: "2", usage: {narrow: 2, fixed: 1, total: {input: 300}}}}});
+            const pendingAfter = await w.window.canon.call("pending", {});
+            if (!pendingAfter.ok) throw new Error(JSON.stringify(pendingAfter));
+            const slips = pendingAfter.value.items.filter((item) => item.kind === "finding" && item.diagnostic === CHECK_DIAGNOSTIC_IDS.possibleSlip);
+            expect(slips.length).toBe(1);
+            expect(pendingAfter.value.complete).toBe(true);
+
+            await w.window.close();
+            w.keep.release();
+            w.h.clock.advance(GRACE_MS);
+            await revoked(w.keep);
+            const again = leaseOf(await w.h.manager.acquire("book", "test"));
+            await w.h.ready(2);
+            let reopened: RemoteUse<typeof plotChecksContract> | null = null;
+            const caller2: PluginDefinition = {id: "test.checks-caller-2", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+                reopened = context.remote.use(plotChecksContract);
+                return {};
+            }})]};
+            const window2 = await windowOf(w.h, `browser-c${String(++windows)}`, "profile-c", [caller2]);
+            await until(async () => {
+                const status = await window2.canon.call("status", {});
+                return status.ok && status.value.version >= 1;
+            });
+            expect(await reopened!.record({chapter: "2"})).toMatchObject({ok: true, value: {status: "valid"}});
+            await window2.close();
+            again.release();
+        } finally {
+            w.endpoint.stop();
+        }
+    }, 60_000);
+
+    it("并发跑同一章 plot-check-busy；cancel 后 plot-check-cancelled；章不在、没有正文的回各自的码；调用方断开检查照样跑完、结果照存", async () => {
+        const answerOf = (user: string) => (user.includes("规则项") ? {items: [], newFacts: []} : {answer: "no", quotes: []});
+        const w = await checkWorld(answerOf, "一段正文。\n");
+        try {
+            await bindModels(w.models, w.endpoint.base);
+            expect(await w.checks.run({chapter: "99"})).toMatchObject({ok: false, code: "plot", detail: {code: "chapter-not-found"}});
+
+            // 端点先卡住：第一次跑停在模型调用上。
+            const first = w.endpoint.hold();
+            const running = w.checks.run({chapter: "2"}, {timeout: 60_000});
+            await until(async () => {
+                const status = await w.checks.status({chapter: "2"});
+                return status.ok && status.value.running && w.endpoint.requests.length > 0;
+            });
+            expect(await w.checks.run({chapter: "2"})).toMatchObject({ok: false, code: "plot", detail: {code: "plot-check-busy"}});
+            expect((await w.checks.cancel({chapter: "2"})).ok).toBe(true);
+            first();
+            expect(await running).toMatchObject({ok: false, code: "plot", detail: {code: "plot-check-cancelled"}});
+            expect(await w.checks.record({chapter: "2"})).toMatchObject({ok: true, value: {status: "none"}});
+
+            // 调用方断开：检查照样跑完，结果照存（模型的钱不白花）。
+            const second = w.endpoint.hold();
+            const abandoned = w.checks.run({chapter: "2"}, {timeout: 60_000});
+            await until(async () => {
+                const status = await w.checks.status({chapter: "2"});
+                return status.ok && status.value.running;
+            });
+            w.window.disconnect();
+            expect((await abandoned).ok).toBe(false);
+            second();
+            let reopened: RemoteUse<typeof plotChecksContract> | null = null;
+            const caller2: PluginDefinition = {id: "test.checks-caller-3", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
+                reopened = context.remote.use(plotChecksContract);
+                return {};
+            }})]};
+            const window2 = await windowOf(w.h, `browser-c${String(++windows)}`, "profile-c", [caller2]);
+            await until(async () => {
+                const record = await reopened!.record({chapter: "2"});
+                return record.ok && record.value.status === "valid";
+            });
+            await window2.close();
+            await w.window.close();
+            w.keep.release();
+        } finally {
+            w.endpoint.stop();
+        }
+    }, 60_000);
+});
