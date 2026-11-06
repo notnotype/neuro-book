@@ -20,6 +20,9 @@
             "title": "费用上限（美元）",
             "description": "这个会话的费用到上限后不再发模型请求，最后一次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
         },
+        "permissionRules": {"title": "权限规则", "description": "放行、询问或拒绝工具调用的规则，每条写工具、条件与动作，从上到下第一条命中生效"},
+        "readOnlyCommands": {"title": "追加的只读命令", "description": "按词前缀比对，例如 npm ls；只能追加，不能删掉内置清单"},
+        "modeWriteAction": {"title": "讨论与计划模式下的写入", "description": "直接拒绝并提示模型切换模式，或者弹审批"},
         "toolLoopThreshold": {
             "title": "重复调用阈值",
             "description": "连续这么多次相同的工具调用时提醒模型；提醒后结果还是一样就停止运行；0 表示不检测"

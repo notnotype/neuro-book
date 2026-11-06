@@ -26,6 +26,7 @@ export const writeDeclaration: AgentToolDeclaration = {
 
 export function writeTool(stores: SessionEditStores): AgentToolImplementation {
     return {
+        subjects: (args) => [{kind: "path", access: "write", address: args.path as string}],
         create: (context, {resources}) => {
             const held = stores.acquire(context.sessionId);
             return {

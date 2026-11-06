@@ -22,6 +22,7 @@ import {clockKey, stateRootKey} from "nbook/shared/host";
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
+import {agentSettings} from "../shared/settings";
 import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
 import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
@@ -33,6 +34,7 @@ import {SessionEditStores} from "./builtin/common";
 import {BUILTIN_COMPACTION_CONTRIBUTIONS, builtinCompactionMethods} from "./compaction";
 import {approvalPreview} from "./builtin/preview";
 import {BUILTIN_PROFILE_CONTRIBUTIONS, builtinProfiles} from "./builtin/profiles";
+import {createDialects} from "./permissions/dialects";
 import {GUARD_CONTRIBUTIONS, runGuards} from "./guards";
 import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
@@ -63,9 +65,11 @@ export const agentBackendPlugin: PluginDefinition = {
             };
             const models = await context.services.resolve(modelsKey);
             const editStores = new SessionEditStores();
+            const dialects = createDialects(() => context.services.require(settingsKey).get(agentSettings.settings.readOnlyCommands));
             const runtime = await createAgentRuntime({
                 stateRoot: context.services.require(stateRootKey).path,
                 settings: context.services.require(settingsKey),
+                dialects,
                 models: models.status === "resolved" ? models.instance : null,
                 files: context.services.require(workspaceFilesKey),
                 clock: context.services.require(clockKey),
@@ -106,7 +110,7 @@ export const agentBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, sessionResources(context.services.require(workspaceFilesKey), session, tool), editStores, session.sessionId, signal)}, previews))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores, dialects), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

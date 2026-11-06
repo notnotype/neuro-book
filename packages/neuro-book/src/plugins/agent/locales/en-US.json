@@ -20,6 +20,9 @@
             "title": "Cost limit (USD)",
             "description": "Stops sending model requests when this session's cost reaches this amount; the last request may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
         },
+        "permissionRules": {"title": "Permission rules", "description": "Rules that allow, ask for or deny tool calls. Each names a tool, a condition and an action; the first match from the top wins"},
+        "readOnlyCommands": {"title": "Extra read-only commands", "description": "Compared word by word as prefixes, such as npm ls. You can add to the built-in list but not remove from it"},
+        "modeWriteAction": {"title": "Writes in discuss and plan modes", "description": "Deny and tell the model to switch modes, or ask for approval"},
         "toolLoopThreshold": {
             "title": "Repeated call threshold",
             "description": "Reminds the model after this many identical tool calls in a row, and stops the run if the results stay the same after the reminder; 0 turns it off"

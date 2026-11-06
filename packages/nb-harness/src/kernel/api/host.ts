@@ -378,6 +378,8 @@ export interface ApprovalInfo {
 export interface ApprovalCtx {
     readonly signal: AbortSignal;
     readonly sessionId: string;
+    /** 与工具拿到的同一份：钩子要展开地址时按它算。 */
+    readonly context: ToolSessionContext;
     readonly model: ModelCaller;
     /** 读某个扩展的导出（例如会话处在计划模式），与 `ToolContext.read` 同一刻；没装时 undefined。 */
     read<C extends Contract<string, any, any>>(contract: C): ExportsOfContract<C> | undefined;

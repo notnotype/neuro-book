@@ -348,14 +348,14 @@ describe("审批与提问（输出 10–14）", () => {
     test("一条回复的一批：都进向导；预览取到；批准与拒绝（附言）各走各的；模型收到附言", async () => {
         const w = await world();
         const h = await started(w);
-        endpoint.script({tools: [{tool: "write", args: {path: "session://一.md", content: "一的内容"}}, {tool: "write", args: {path: "session://二.md", content: "二的内容"}}, {tool: "shell", args: {command: "true"}}]}, "处理完了");
+        endpoint.script({tools: [{tool: "write", args: {path: "session://一.md", content: "一的内容"}}, {tool: "write", args: {path: "session://二.md", content: "二的内容"}}, {tool: "shell", args: {command: "touch 三"}}]}, "处理完了");
         h.host.act({type: "composer.submit", text: "写两个文件", delivery: "prompt"});
         await until("三个审批", () => approvals(h.ctx()).length === 3);
         await until("预览", () => approvals(h.ctx()).every((item) => item.preview.state === "ready"));
         expect(h.ctx().run.status).toBe("waiting");
         const [first, second, third] = approvals(h.ctx());
         expect(first).toMatchObject({tool: "write", preview: {files: [{kind: "diff", before: "", after: "一的内容"}]}});
-        expect(third).toMatchObject({tool: "shell", args: {command: "true"}, preview: {files: []}});
+        expect(third).toMatchObject({tool: "shell", args: {command: "touch 三"}, preview: {files: []}});
 
         h.host.act({type: "input.submit", batchKey: first!.id, resolutions: {kind: "approval", decision: "allow"}});
         h.host.act({type: "input.submit", batchKey: second!.id, resolutions: {kind: "approval", decision: "deny", note: "这个不要"}});

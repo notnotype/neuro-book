@@ -10,7 +10,7 @@ import type {ToolResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import {parseAddress} from "nbook/plugins/files/shared/contracts";
 
-import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
+import type {AgentToolDeclaration, AgentToolImplementation, ToolSubject} from "../../shared/points";
 import type {SessionResources} from "../../shared/resources";
 
 import {failed, failure, joinAddress, workingAddress} from "./common";
@@ -259,10 +259,15 @@ export async function runGlob(resources: SessionResources, project: string | und
     };
 }
 
+/** 没写 `path` 时搜工作目录：规则看的是工具写明的路径，缺省的不算（读不是闸门要拦的）。 */
+const searchSubjects = (args: Readonly<Record<string, unknown>>): readonly ToolSubject[] => (typeof args.path === "string" ? [{kind: "path", access: "read", address: args.path}] : []);
+
 export const grepTool: AgentToolImplementation = {
+    subjects: searchSubjects,
     create: (context, {resources}) => ({execute: (args, call) => runGrep(resources, context.project, args, call.signal)}),
 };
 
 export const globTool: AgentToolImplementation = {
+    subjects: searchSubjects,
     create: (context, {resources}) => ({execute: (args, call) => runGlob(resources, context.project, args, call.signal)}),
 };

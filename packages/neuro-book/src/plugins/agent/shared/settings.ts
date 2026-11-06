@@ -11,6 +11,7 @@ import type {Static} from "typebox";
 import {defineSettings} from "nbook/shared/settings";
 import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
 
+import {RulesSchema} from "./permissions";
 import {agentText} from "./text";
 
 const ToolBindingSchema = Type.Object({
@@ -41,6 +42,27 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
 };
 
 export const agentSettings = defineSettings("nbook.agent", {
+    permissionRules: {
+        schema: RulesSchema,
+        default: [],
+        title: agentText("settings.permissionRules.title"),
+        description: agentText("settings.permissionRules.description"),
+        layers: ["user"],
+    },
+    readOnlyCommands: {
+        schema: Type.Array(Type.String({minLength: 1})),
+        default: [],
+        title: agentText("settings.readOnlyCommands.title"),
+        description: agentText("settings.readOnlyCommands.description"),
+        layers: ["user"],
+    },
+    modeWriteAction: {
+        schema: Type.Union([Type.Literal("deny"), Type.Literal("ask")]),
+        default: "deny",
+        title: agentText("settings.modeWriteAction.title"),
+        description: agentText("settings.modeWriteAction.description"),
+        layers: ["user"],
+    },
     toolBindings: {
         schema: ToolBindingsSchema,
         default: {},

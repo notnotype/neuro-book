@@ -21,6 +21,8 @@ import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
 import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
 
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./backend/builtin";
+import {SessionEditStores} from "./backend/builtin/common";
+import {createDialects} from "./backend/permissions/dialects";
 import {previewEdit} from "./backend/builtin/edit";
 import {runGlob, runGrep} from "./backend/builtin/search";
 import {AgentTools} from "./backend/tools";
@@ -232,7 +234,7 @@ describe("read", () => {
             await rm(join(home, "a.md"));
             return located;
         }};
-        const tool = await builtinTools()["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
+        const tool = await builtinTools(new SessionEditStores(), createDialects(() => []))["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
         const live = new AbortController();
         expect(await tool.execute({path: "session://a.md"}, {signal: live.signal, callId: "c", sessionId: session.id, initial: undefined, read: () => undefined} as unknown as ToolContext)).toMatchObject({status: "error", code: "not-found"});
     });
@@ -1114,7 +1116,7 @@ describe("审批预览（输出 26）", () => {
     test("别的工具没有预览；不是审批的事项得 unknown-interaction", async () => {
         const w = await world();
         const {session, id} = await open(w);
-        const waiting = await waitingApproval(session, "shell", {command: "true"});
+        const waiting = await waitingApproval(session, "shell", {command: "touch a"});
         expect(await preview(w, id, waiting.id)).toEqual({files: []});
         const {client} = await w.window("preview-unknown");
         expect(await client.approvalPreview({sessionId: id, interactionId: "没有这个"})).toMatchObject({ok: false, code: "unknown-interaction"});
