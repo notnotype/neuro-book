@@ -10,7 +10,6 @@ import {Value} from "typebox/value";
 import {defineRecord} from "nbook/shared/storage";
 
 import {declarationProblem, ThemeDeclarationSchema} from "./themes";
-import type {ThemeDeclaration} from "./themes";
 
 /** 我的主题的 id：冒号不会出现在插件 id 里，所以不会和第三方的撞。 */
 export const USER_THEME_ID = /^user:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
@@ -18,8 +17,10 @@ export const USER_THEME_ID = /^user:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 /** 主题目录里“我的主题”用的插件名：素材地址按它解析（`user://theme-assets/`），不是真的插件。 */
 export const USER_THEME_PLUGIN = "user";
 
-/** 素材文件名：内容的 SHA-256 加按字节判定的扩展名（`nbook.files` 的写入路由算出来的）。 */
+/** 位图素材（场景图、工作态场景）的文件名：内容的 SHA-256 加按字节判定的扩展名（`nbook.files` 的写入路由算出来的）。 */
 export const THEME_ASSET_NAME = /^[0-9a-f]{64}\.(?:png|jpg|webp)$/u;
+/** 图标素材的文件名：内容的 SHA-256 加 `.svg`（`PUT /theme-icons` 算出来的）。 */
+export const THEME_ICON_NAME = /^[0-9a-f]{64}\.svg$/u;
 
 export const UserThemeSchema = Type.Object({
     id: Type.String({pattern: USER_THEME_ID.source}),
@@ -49,21 +50,14 @@ export const USER_THEMES_RECORD = defineRecord({key: "user-themes", scope: "user
 export function userThemeProblem(value: unknown): string | null {
     if (!Value.Check(UserThemeSchema, value)) return "不是合法的“我的主题”条目";
     const {id, declaration} = value as UserTheme;
-    const names = [declaration.light.scene, declaration.dark.scene].filter((scene): scene is string => scene !== undefined);
-    const wrong = names.find((name) => !THEME_ASSET_NAME.test(name));
-    if (wrong !== undefined) return `主题 ${id} 的场景图要写素材文件名：${wrong}`;
-    // 用户层的素材只有按哈希命名的场景图，图标集与工作态场景的相对路径在这里没有可解析的位置（复制与导入时丢弃，见 theme.editor）。
+    // 用户层的素材都写素材文件名：场景图与工作态场景是位图，图标是 SVG（docs/specs/theme/editor.md 边界与兼容）。
     for (const look of [declaration.light, declaration.dark]) {
-        if (look.icons !== undefined || look.workingScene !== undefined) return `主题 ${id} 不收图标集与工作态场景：“我的主题”只有一张场景图的素材`;
+        for (const [field, name] of [["场景图", look.scene], ["工作态场景", look.workingScene]] as const) {
+            if (name !== undefined && !THEME_ASSET_NAME.test(name)) return `主题 ${id} 的${field}要写素材文件名：${name}`;
+        }
+        for (const [icon, name] of Object.entries(look.icons ?? {})) {
+            if (!THEME_ICON_NAME.test(name)) return `主题 ${id} 的图标 ${icon} 要写图标素材文件名：${name}`;
+        }
     }
     return declarationProblem(id, declaration);
-}
-
-/**
- * 放进用户层之前去掉用户层放不下的东西：图标集与工作态场景是插件包内的素材路径，用户素材只有按内容摘要命名的场景图。复制插件主题与
- * 导入主题包都用它（docs/specs/theme/editor.md 边界与兼容）；返回新对象，不改入参。
- */
-export function forUserLayer(declaration: ThemeDeclaration): ThemeDeclaration {
-    const strip = ({icons: _icons, workingScene: _working, ...look}: ThemeDeclaration["light"]): ThemeDeclaration["light"] => look;
-    return {...declaration, light: strip(declaration.light), dark: strip(declaration.dark)};
 }

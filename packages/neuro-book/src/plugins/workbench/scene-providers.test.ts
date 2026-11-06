@@ -102,6 +102,23 @@ describe("workbench.theme-scenes", () => {
         scenes.dispose();
     });
 
+    it("列出已发布的提供者；入口开始停止（失去发布、撤回通知未到）的不列出也不再调用，撤回后仍不在", async () => {
+        const {scenes, requests, publish, revoke} = fixture();
+        expect(scenes.published).toEqual([]);
+        const clock = publish(async () => ({image: png()}));
+        publish(async () => ({image: png()}), "acme.sky.aurora");
+        expect(scenes.published).toEqual(["acme.sky.aurora", "acme.sky.clock"]);
+        // 停止窗口：句柄已不再 published，撤回通知还没到。
+        clock.published = false;
+        expect(scenes.published).toEqual(["acme.sky.aurora"]);
+        expect(scenes.sceneFor(entry("acme.sky.study"), "light", false)).toBeUndefined();
+        await settle();
+        expect(requests).toEqual([]);
+        revoke(clock);
+        expect(scenes.published).toEqual(["acme.sky.aurora"]);
+        scenes.dispose();
+    });
+
     it("提供者没发布、主题没写 sceneProvider 时没有动态图，也不发请求", async () => {
         const {scenes, requests, publish} = fixture();
         expect(scenes.sceneFor(entry("acme.sky.study"), "light", false)).toBeUndefined();

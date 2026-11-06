@@ -36,9 +36,20 @@ const THEME: UserTheme = {
 /** 对比度有不合格项的一套：弱化文字太淡。 */
 const FAILING: UserTheme = {...THEME, declaration: {...THEME.declaration, light: {...THEME.declaration.light, colors: {...THEME.declaration.light.colors, "--text-muted": "#dcd2bd"}}}};
 
-const SECTIONS: Readonly<Record<string, EditorSection>> = {basic: "basic", colors: "colors", fonts: "fonts", chrome: "chrome", scene: "scene", contrast: "contrast", failing: "contrast"};
+/** 带图标覆盖、工作态场景和一个没发布的提供者的一套（素材文件在 Lab 里读不到：预览位置是空的，行与控件照常）。 */
+const WITH_ASSETS: UserTheme = {
+    ...THEME,
+    declaration: {
+        ...THEME.declaration,
+        sceneProvider: "acme.sky.clock",
+        light: {...THEME.declaration.light, scene: `${"a".repeat(64)}.webp`, workingScene: `${"b".repeat(64)}.webp`, icons: {files: `${"c".repeat(64)}.svg`, "folder-open": `${"d".repeat(64)}.svg`}},
+        dark: {...THEME.declaration.dark, icons: {files: `${"c".repeat(64)}.svg`}},
+    },
+};
 
-const themes = base === "empty" || base === "loading" ? [] : [base === "failing" ? FAILING : THEME];
+const SECTIONS: Readonly<Record<string, EditorSection>> = {basic: "basic", colors: "colors", fonts: "fonts", chrome: "chrome", scene: "scene", "scene-full": "scene", icons: "icons", "icons-empty": "icons", contrast: "contrast", failing: "contrast"};
+
+const themes = base === "empty" || base === "loading" ? [] : [base === "failing" ? FAILING : base === "scene-full" || base === "icons" ? WITH_ASSETS : THEME];
 const catalog = new ThemeCatalog([], () => null, () => undefined);
 const store = createLabUserThemes(themes, base !== "loading");
 
@@ -53,7 +64,8 @@ const transfer: ThemeTransfer = {
     exportTheme: async () => null,
     importArchive: async () => ({ok: false, message: {key: "importFailed", params: {reason: "Lab"}}}),
     uploadScene: async () => ({ok: false, reason: "Lab"}),
-    copyScenes: async () => ({ok: true, scenes: {}}),
+    uploadIcon: async () => ({ok: false, reason: "Lab"}),
+    copyAssets: async (entry) => ({ok: true, declaration: entry.declaration}),
 };
 </script>
 

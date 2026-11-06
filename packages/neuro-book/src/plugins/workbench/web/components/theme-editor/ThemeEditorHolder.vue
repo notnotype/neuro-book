@@ -8,8 +8,9 @@ import {baseColors} from "nbook/ui/theme/product-themes";
 import type {ThemeEntry} from "../../themes";
 import ThemeEditor from "./ThemeEditor.vue";
 import {ThemeEditorModel} from "./theme-editor-model";
-import {uploadScene} from "./scene-upload";
-import {copyPluginScenes, exportCurrent, importArchive} from "./transfer";
+import {uploadIcon, uploadScene} from "./asset-upload";
+import {exportCurrent} from "./export-current";
+import {copyPluginAssets, importArchive} from "./transfer";
 import type {ThemeTransfer} from "./transfer";
 import type {ThemeEditorSession} from "./theme-editor-session";
 
@@ -27,7 +28,7 @@ defineEmits<{(event: "close"): void}>();
 props.session.provideBaseColors(baseColors);
 const model = props.session.acquire((env, state) => new ThemeEditorModel(env, state));
 /** 导出与导入的请求在这里发（见同名文档）；主体只触发与呈现。 */
-const transfer: ThemeTransfer = {exportTheme: () => exportCurrent(model), importArchive: (archive) => importArchive(model, archive), uploadScene, copyScenes: (entry) => copyPluginScenes(entry, (appearance) => props.session.sceneUrl(entry, appearance))};
+const transfer: ThemeTransfer = {exportTheme: () => exportCurrent(model), importArchive: (archive) => importArchive(model, archive), uploadScene, uploadIcon, copyAssets: (entry) => copyPluginAssets(entry, (path) => props.session.assetUrl(entry, path))};
 // 用组件作用域的停止配对：setup 之后、挂载之前出错时 `onBeforeUnmount` 不会来，持有计数就永远不归零，预览不清。
 onScopeDispose(() => props.session.release());
 </script>

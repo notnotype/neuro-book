@@ -384,7 +384,8 @@
             "fonts": "Fonts",
             "chrome": "Activity bar and frame",
             "scene": "Scene and framing",
-            "contrast": "Contrast check"
+            "contrast": "Contrast check",
+            "icons": "Icons"
         },
         "basic": {
             "titleZh": "Title (Chinese)",
@@ -494,7 +495,30 @@
             "hint": "Drag a frame on the image and pull its lower-right corner to scale; the workbench changes at the same place. Frames are approximate; real positions follow the window size.",
             "frame": "{{region}} frame",
             "image": "Scene image",
-            "regions": "Framing positions"
+            "regions": "Framing positions",
+            "working": {
+                "title": "Working scene",
+                "hint": "Shown while an Agent is working; falls back to the scene image above. Uses the same framing.",
+                "upload": "Upload working scene",
+                "replace": "Replace working scene",
+                "none": "This appearance has no working scene yet",
+                "remove": "Remove working scene"
+            },
+            "provider": {
+                "title": "Scene provider",
+                "hint": "A plugin draws the scene; the static images above are the fallback when the provider is missing or fails.",
+                "none": "None",
+                "unpublished": "Not published",
+                "unpublishedNote": "Provider {{id}} is not published: the plugin is not installed or enabled, or its entry is not activated at startup."
+            },
+            "preview": {
+                "title": "Preview state",
+                "hint": "Only changes the editor preview and is not saved to the theme; closing the editor returns to the real state.",
+                "follow": "Follow",
+                "idle": "Idle",
+                "working": "Working"
+            },
+            "removeScene": "Remove scene image"
         },
         "transfer": {
             "exported": "Exported {{name}}",
@@ -503,12 +527,29 @@
             "imported": "Themes imported: {{count}}",
             "importFailed": "Import failed: {{reason}}",
             "unexpected": "Something went wrong: {{reason}}",
-            "copyFailed": "Copy failed: the scene image {{reason}} could not be read or uploaded"
+            "copyFailed": "Copy failed: the asset {{reason}} could not be read or uploaded"
         },
         "rejected": {
             "titleEmpty": "The title cannot be empty; nothing was saved",
             "invalid": "This value cannot be saved: {{reason}}",
             "saveFailed": "Not saved: {{code}}; the change was undone"
+        },
+        "icons": {
+            "hint": "Override lucide icons in the workbench by name: enter an icon name (for example folder-open) and pick an SVG. Saving does not mean the product uses that icon: an unused name is not an error and has no visible effect.",
+            "name": "Icon name",
+            "placeholder": "folder-open",
+            "add": "Add",
+            "replace": "Replace",
+            "remove": "Remove",
+            "copyToOther": "Copy to the other appearance",
+            "none": "This appearance has no icon overrides yet",
+            "list": "Icon overrides",
+            "preview": "Preview of {{name}}",
+            "failed": "Upload failed: {{reason}}",
+            "nameInvalid": "Icon names take lowercase letters, digits and hyphens only",
+            "nameEmpty": "Enter an icon name first",
+            "replaceNamed": "Replace icon {{name}}",
+            "removeNamed": "Remove icon {{name}}"
         }
     },
     "editorPages": {

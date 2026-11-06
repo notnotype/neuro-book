@@ -1,0 +1,179 @@
+# w00041 t12 前端实现审查报告
+
+审查对象：detached worktree `/tmp/review-w00041-t12-impl/wt`（c6166f61c），范围 t12 的四个提交（576a6cf2a 之后）。`master..c6166f61c` 的 diff 混入了 master 之后的别的改动（layout-drag 等），本报告只看 t12 的前端部分。
+先说一处与 brief 不符的事实：`pendingName` 写在 `<script setup>` 里，是每个组件实例一份的 setup 作用域变量，不是模块级，多个实例不会互相踩；下面“取消选择后残留”一条按这个事实写。
+
+---
+
+## F1 重要 / 异步状态：上传的 busy、note、failure 是组件本地状态，不跟目标走，切主题或明暗后残留到别的目标上
+位置：`SceneImageSlot.vue:20-22, 40-42, 52-58, 68`；`ThemeEditorIcons.vue:129-130, 163-177`；`ThemeEditorScene.vue:66, 83`（两处 `SceneImageSlot` 都没有 `:key`）
+现象：
+1. 上传期间切明暗或换主题：写入目标是冻结对了，但 `busy`（按钮转圈、“移除”停用、“正在处理图片”）、结束后的 `note`（“123 KB”或“超过建议的 300 KB”）、`failure`（上传失败原因）都挂在没换的组件实例上，所以新的主题或明暗下会看到别的主题的上传状态与失败原因，且在上传结束前被停用。
+2. 不用上传也有：上传成功后 `note` 一直留着，直到下一次上传才清。换明暗、换主题，或点“移除”之后，“123 KB”还在，旁边的图已经没有了。`remove` 路径（第 68 行）不清 `note`/`failure`。
+3. `ThemeEditorIcons` 同理：`failure` 与 `busy` 跨主题残留，`busy` 把新主题的“更换”“移除”“复制到另一套”一并停用到上传结束。
+为什么是问题：冻结目标的设计目的是“图落到发起时的那套”，界面反馈却落在当前那套，用户看到的是错的主题上有一条与它无关的成功或失败提示。Spec 编辑器输出 21 与计划都把“上传期间切走”当作正式场景。
+如何核实：读代码即可（`note/failure/busy` 不在任何 watch 里，也不含目标信息；两个 `SceneImageSlot` 与 `ThemeEditorIcons` 无按 `model.selectedId + appearance` 的 key）。未跑页面。
+建议改法：反馈带上目标标识，只在目标等于当前时显示：保存 `{id, appearance}` 与消息一起，渲染时比较；或者让 `watch([() => model.selectedId.value, () => model.appearance.value])` 清 `note/failure`，`busy` 用“当前目标有没有在途上传”（按目标集合记）而不是一个布尔。“移除”时清 `note`。
+
+## F2 重要 / 正确性：写声明被拒绝或提交失败时仍显示成功，输入框照样清空
+位置：`SceneImageSlot.vue:50-53`；`ThemeEditorIcons.vue:171-172`；根因在 `theme-editor-model.ts:203-214`（`#update` 被拒绝返回 `undefined`、提交失败返回 `result`，两种都不抛）
+现象：`await write(...)` / `await model.setIcon(...)` 的返回值被丢弃。`#update` 在 `userThemeProblem` 拒绝（例如图标数超 64、名字不合规）、目标主题已被删（`current === undefined`）、或 `#settle` 判失败时，声明没变，原因只写进 `model.rejected`（显示在操作条下方）。但调用方接着：
+- `SceneImageSlot` 照样 `note = “123 KB”`，用户看到“已存”，图却没换；
+- `ThemeEditorIcons` 照样 `draft.value = ""`，用户输入的名字丢了，而这个名字根本没保存。
+为什么是问题：同一屏上出现“成功提示”和“保存失败”两种互相矛盾的信号；清空输入框让用户要重新打字。上传成功但声明没写，素材文件已经留在用户素材目录里，用户却被告知成功。
+如何核实：读 `#update`（返回值语义）与两处调用；model 层没有返回“是否真的写进去”的布尔值，所以调用方想判断也判断不了。
+建议改法：让 `setScene/setWorkingScene/setIcon` 返回 `boolean`（写进去才为真），界面只在为真时写 note、清 draft、发 `stored`；`stored` 目前在 `write` 之前发出（`SceneImageSlot.vue:50`），也该挪到成功之后。
+
+## F3 建议 / 正确性：输入框回车绕过 busy 守卫，上传期间能再开一个文件选择；两次上传共用一个 busy 布尔
+位置：`ThemeEditorIcons.vue:143-150, 190, 192`
+现象：“添加”按钮 `loading` 时被 Button 停用，但输入框的 `@keydown.enter="add"` 直接走 `add → pick → input.click()`，没有 `busy` 判断。上传进行中按回车，会再弹出文件选择，选了就并发第二个 `onFile`；先结束的那个在 `finally` 把共用的 `busy` 置 false，第二个还在飞，按钮与“复制到另一套”“更换”“移除”提前恢复可用。
+为什么是问题：计划里“连续两次上传，后完成覆盖”是被接受的场景，但 busy 的含义被破坏；“复制到另一套明暗”在第二次上传没完成时点击，第二次落地后另一套与这一套不再一致，用户以为已经复制了整份。
+如何核实：读代码：`add` 没有 `if (busy.value) return`。未跑页面。
+建议改法：`add` 开头 `if (busy.value) return`；busy 改成计数或按目标记。
+
+附带核实（不是问题）：brief 问的“取消文件选择后 `pendingName` 残留是否被后来的 `onFile` 误用”——`input` 只有 `pick()` 一个入口（元素 `display:none`，不可能被用户直接点到），每次 `pick` 先写 `pendingName` 再 `click()`，所以取消后残留的值不会被用到；`element.value = ""` 保证同一文件可重选；`name === ""` 那行（第 162 行）是不可达的防御，可删。
+
+## F4 重要 / 与 Spec、计划、文档不一致：图标分区的“添加”行位置与按钮名；`icons.choose` 文案成了死键
+位置：`ThemeEditorIcons.vue:188-195`；`locales/{zh-CN,en-US}.json` 的 `themeEditor.icons.choose`；`ThemeEditorIcons.md` 布局节；Spec `docs/specs/theme/editor.md` 输出 21；计划第 65 行
+现象：
+- Spec 输出 21：“底部‘添加’：图标名……加‘选择 SVG…’”、“输入框下写明这一点（保存不等于产品里有这个图标）”；计划第 65 行同：添加在底部、顶部才是“复制到另一套明暗”、输入用 `DraftInput`。
+- 实现：添加行在列表上方，说明写在整段最上面（不在输入框下），按钮写“添加”或“更换”，“选择 SVG…”没有出现；`themeEditor.icons.choose` 两种语言都有、`locales.test.ts:341` 也登记了，但全包没有任何代码引用它（grep 只命中 locales.test.ts）。
+- 同名 `.md` 的“布局”写“‘添加’行：图标名输入、‘选择 SVG…’按钮”，与代码不一致；文档与代码对不上，Spec 与代码也对不上。
+为什么是问题：“添加”这个词不告诉用户点下去要选文件（实际是弹系统文件选择），Spec 想要的“选择 SVG…”正是这个提示；两处文档说一件事，代码做另一件事，后续改的人无从判断哪个是对的。设计取舍是否改了计划，计划里没有记录。
+如何核实：`grep -rn "icons.choose" src`；对照 Spec 输出 21 与 `.md`。
+建议改法：二选一并统一：要么按 Spec 做（按钮名“选择 SVG…”，已有名字时“更换”；说明移到输入框下面；添加行挪到列表底部），要么在计划/Spec 里记下改动理由，并删掉死键，`.md` 同步。
+
+## F5 重要 / 与文档不一致且外观差：工作态场景缩略图加载失败时，既有错误行又留着破图标
+位置：`ThemeEditorScene.vue:84-86`；`ThemeEditorScene.md` 交互节；截图 `.local/agent/works/w00041-themes-and-backgrounds/tasks/t12-theme-editor-assets/shots/20261106T140337Z/ThemeEditor__scene-full__phone__light.png`
+现象：`.md` 写“加载失败时缩略图位置写‘图片加载失败’”。代码是：错误行 `<p role="alert">` 画在上传条与缩略图之间，`<img>` 本身不隐藏，浏览器画出破图标加 alt 文字“工作态场景”（截图底部可见：错误行下面一个带“工作态场景”字样的破图框）。场景图那一处同样是“错误行 + 破图”（取景编辑里的 img，那一处是旧写法）。
+为什么是问题：文档与代码不一致；同一个失败有两处表达（红字加浏览器的破图标），且破图标的 alt 文字读起来像“这里是工作态场景”，与红字相反。
+如何核实：看截图；读代码第 84 到 86 行：`workingLoadFailed` 只控制错误行，没控制 img 的 `v-if`。
+建议改法：失败时用 `v-if="workingUrl !== null && !workingLoadFailed"` 画 img，失败时在缩略图位置画一块与“还没有工作态场景”同款的虚线框写“图片加载失败”，取消上面单独的错误行；或者改 `.md` 去承认现状。前者与 `.md` 一致。
+
+## F6 重要 / 测试：Spec 验收 19 的“声明里的提供者未发布 → 保留为不可选的‘未发布’项”没有任何自动测试，e2e 的标题却写了它
+位置：`e2e/plugin-code.e2e.ts:221-248`（标题第 221 行）；`ThemeEditorScene.vue:42-51`
+现象：用例标题写“……声明里未发布的提供者保留并标‘未发布’”，函数体只做了：下拉列出已发布的 id、选中后 `--skin-scene` 变成 blob、选“无”后变空。没有一步构造“声明里有 `sceneProvider` 但没发布”的主题，也没断言下拉里有一个 `disabled` 的“未发布”项、触发器上显示它的 id、再选不动。其余仓库搜索：`未发布` 只出现在 locales、`locales.test.ts`、Lab 夹具的标签里；Lab 的 `scene-full` 是静态场景，没有断言。组件里这条分支（`current !== undefined && !published.includes(current)` 加 `disabled: true`）是新写的、是 Select 对“当前值是禁用项”的首次使用，完全没有被执行过的证据。
+为什么是问题：计划第 95 行把这一条登记给 `plugin-code.e2e.ts` 与 `theme-editor.test.ts`，两处都没有；标题还会让评审以为它覆盖了。Select 与 reka 在“选中项是 disabled”时的显示（触发器文字、选中勾、能不能聚焦）没有人看过。
+如何核实：`grep -n "未发布" e2e/*.ts src/plugins/workbench/*.test.ts`；对照 `plugin-code.e2e.ts:221-248`。
+建议改法：在同一用例里先写一个声明了 `sceneProvider: "example.scene-clock.nope"` 的主题（或在模型里直接 `setSceneProvider` 一个未发布的 id，再让它保存、刷新），断言触发器显示该 id、打开后该项 `aria-disabled=true` 且带“未发布”、选别的再切回时它仍在（已选别的之后该项还保留吗？按 Spec“保存时不丢”：声明里的值被别的值替换后它自然消失，这条要在计划里确认）。同时把标题改成与断言一致。
+
+## F7 重要 / 无障碍：重名的按钮没有上下文名；读屏列表里一排“更换”“移除”分不清是哪一项
+位置：`ThemeEditorIcons.vue:204-205`；`SceneImageSlot.vue:68`（两个 `SceneImageSlot` 都有名字完全一样的“移除”）；`ThemeEditorIcons.vue:202-203`
+现象：
+1. 图标每行的“更换”“移除”按钮可访问名只有这两个字，列表里 N 行就有 N 个同名的“更换”“移除”。键盘与读屏用户在按钮列表里无法知道哪个对应 `folder-open`。行里虽有 `<code>` 名字，但屏幕阅读器按钮列表（`role=button` 汇总）不带上下文。
+2. “场景与取景”分区里，场景图和工作态场景的“移除”按钮名字都是“移除”，一页上两个同名按钮；“更换场景图”“更换工作态场景”就分得清，唯独“移除”分不清。
+3. 每行的预览 `<span role="img" aria-label="files 的预览">` 紧挨着显示名字 `files`，读屏连读两遍，且预览只是名字的装饰画；这个 `role="img"` 的信息量为零。
+为什么是问题：Spec 输出 18：“浮动窗口与页签里键盘可以走完所有项”；走得完不等于每一项有可辨认的名字（WCAG 2.4.6、4.1.2 的名字要能区分用途）。
+如何核实：读模板；未用读屏实测（从代码推断）。
+建议改法：按钮加 `:aria-label="text('themeEditor.icons.replaceOne', {name})"` 之类（需新增文案，或用 `aria-labelledby` 指向名字 `<code>` 的 id 与按钮自身）；“移除”在 `kind` 为 working 时用工作态场景的名字；预览改 `aria-hidden="true"`，名字文字已经承载信息。
+
+## F8 重要 / 测试：计划要求的窄屏 390px 图标分区不溢出检查没有写，现有的 390px 用例的分区列表漏了 icons
+位置：`e2e/theme-editor.e2e.ts:388-395`（新增提交没有改它）；计划第 101 行
+现象：计划“窄屏 390px 图标分区不溢出 | lab:shot 加 e2e 的 scrollWidth 检查”。e2e 里现有的 390px 用例遍历 `["basic","colors","fonts","chrome","scene","contrast"]`，`icons` 不在其中，t12 的提交没有改这一行；Lab `lab:shot` 只拍了图，不量溢出。`.md` 的布局节明确写“窄屏（390px）下行内元素换行，不横向溢出”，这是文档里的行为声明，没有检查守着。我看了 `ThemeEditor__icons__phone__light.png`：空状态下的无溢出，这是只有两个短名字的情形；长图标名（`<code>` 有 `overflow:hidden` 与 `min-width:0`）、窄屏下 `flex: 1 1 160px` 的输入框加三个按钮是否换行，截图没有证明。
+如何核实：`grep -n "scrollWidth\|\"scene\"" e2e/theme-editor.e2e.ts`。
+建议改法：把 `"icons"` 加进数组即可（用例里该分区要有内容：先在该主题上加一个很长的图标名，或在该用例里先建主题再上传一个图标）；顺带 `scene` 分区的检查也需要工作态场景与缩略图在场时再量一次（现在用例里没有场景图，新加的“工作态场景”块、下拉的 `min-width:220px` 没被量到有内容的状态）。
+
+（F8 更正：`scene` 分区里的“下拉 min-width 220px”不在“没被量到”之列，场景提供者块在空状态下也渲染，已被现有的 390px 检查量到；没量到的只是“缩略图在场”的状态。）
+
+## F9 重要 / 测试：“复制书房”用例的断言太弱，注释写的内容测试并没有做
+位置：`e2e/theme-editor.e2e.ts:301-327`（新增的“复制书房”用例，末尾几行）
+现象：
+- 注释写“复制出来的主题在编辑器里改标题后，记录里的图标素材名都是‘我的素材’写法”，但用例没有改标题，也没有读任何记录；最后一步只是 `scene` 分区里 `[data-crop-editor]` 可见。
+- 断言的内容：图标行数 `>= 8`（8 是个魔数，书房有几个图标没有引用出处）；用户素材目录里有 `>= 1` 个 `.svg` 与 `>= 1` 个位图。这些在“只复制了一部分”“复制了但没写进声明”“声明里的名字指向没复制的文件”时都会通过。
+- 没有检查工作态场景（计划说“场景、工作态场景、图标全部成为我的素材”；书房有没有工作态场景我没查，但用例标题也只写“场景图与图标”）；没检查行预览真的能加载（`--icon-url` 指向的素材取得到 200）。
+- 素材目录文件名是 `<sha256>.<ext>`，用例没有核对“声明里每个图标的素材名 ⊂ 目录里的文件”这一不变量，而这才是“复制成我的素材”的合同。
+为什么是问题：这是复制插件主题素材这条新管线唯一的真实路由端到端用例，断言只证明“目录里出现过文件”。
+如何核实：读用例；用例没有读 `user` 主题记录的 JSON 的步骤。
+建议改法：从会话的状态根读用户主题记录，断言该主题 `light/dark.icons` 的每个值与 `scene`、`workingScene` 都在素材目录里存在、且键名与书房声明的一致；断言一个行预览的 `--icon-url` 用 `request.get` 取回 200 与 `image/svg+xml`。把 `>= 8` 换成从插件声明读出的期望数量。
+
+F9 补充数字：书房（`src/plugins/theme-study/plugin.ts:7`）的图标是 10 个（亮暗共用同一批文件），用例断言 `>= 8` 行与 `>= 1` 个 SVG，只复制 1 个文件、丢了 2 个图标都能通过；书房声明里没有 `workingScene`（grep 无命中），所以“复制时带工作态场景”这条在 e2e 里完全没覆盖，只有 `theme-editor.test.ts:145-167` 的传输替身。
+
+## F10 建议 / 测试：图标与工作态场景用例里，注释声称的行为没有断言；几处否定断言时机太早
+位置：`e2e/theme-editor.e2e.ts:211-269`
+现象：
+1. 名字不合规则那一步，注释写“行内给原因，不打开文件选择、不写声明”，只断言了行内原因可见；没有点“添加”并断言 `filechooser` 没触发、也没断言列表仍空。回车路径（`@keydown.enter`）整个没测，它是 F3 的入口。
+2. “移除：这一套没有了，样式表也随之去掉（亮色那一套还在）”：暗色那次移除后没有断言样式表还在，“亮色还在”无证据。
+3. 工作态用例里 `expect(await sceneVar(page)).toBe(idle)`（上传工作态场景后立即读一次）不是 poll，读的是“还没变”的瞬间，错误实现（上传工作态图就把空闲的 `--skin-scene` 换掉）如果在渲染一两帧之后才生效，这条会过；至少要先 `await expect(thumb).toBeVisible()` 之后再等一个稳定条件，如 poll 一段时间保持不变。
+4. 结尾 `expect.poll(() => sceneVar(page)).not.toBe(working)` 只断言“不是工作中的图”，空字符串（场景丢了）也过；应 `toBe(idle)`。
+5. 关闭编辑器用 `page.locator("[data-editor-tab-close]").last().click({force: true})`：`force` 与 `.last()` 都是“按位置猜”，页签多于一个时会关错，`force` 会绕过“按钮被遮住”的可操作性检查。
+6. 没有固定等待（未发现 `waitForTimeout`），选择器都是 `data-*` 或角色，这方面是好的。
+“读 `--svg` 计算值能否区分换与没换”：能。`iconOf` 要求计算值含 `<sha256>.svg` 这个由上传内容算出来的文件名，内置图标的 `--svg` 是内联 data URI，不会含它，所以是有效的正向判据；只是没有在上传前读一次基线（可以加一句 `not.toContain` 作对照，成本很小）。
+建议改法：按上面逐条补；或承认这些注释说的是意图，把注释改成实际断言的内容。
+
+## F11 建议 / 测试：“冻结目标”只在 model 层有单测，两个组件把冻结用对了没有任何测试
+位置：`theme-editor.test.ts:341-386`（model 层）；`SceneImageSlot.vue:37-39`、`ThemeEditorIcons.vue:157-162`
+现象：计划表“图标上传的异步目标：上传期间切主题、切明暗、改名、连续两次上传”登记在 `theme-editor.test.ts`，实际测的是 `model.setIcon(name, asset, target)` 带 target 能写对位置（第 365-371 行）。组件有没有传 target、传的是不是“发起时”的值，没有测试；`SceneImageSlot` 的两条路径（场景、工作态）与 `ThemeEditorIcons` 的 `pendingName` 也没有。e2e 里没有“上传期间切明暗”的用例（Spec 验收 16 明文要求“When 上传期间切了明暗；Then 图标落在发起时的那套”）。
+为什么是问题：冻结逻辑是这个切片的核心卖点，出错点正好在组件层（读 `model.current`/`model.appearance` 的时刻）；F1 那类残留也是同一层的问题，同样没人守。
+如何核实：`grep -rn "SceneImageSlot\|ThemeEditorIcons" src e2e` 只命中组件自己与 `.md`（无测试文件）。
+建议改法：在 e2e 里加一条：`page.route` 把上传路由挂住，选了文件后切明暗，再放行响应，断言图标落在原明暗、新明暗仍是空，同时断言 F1 里的提示残留；或者写一个 dom 测试（项目已有 `*.dom.test.ts` 模式）挂 `ThemeEditorIcons` 与可控的 `transfer`。
+
+## F12 建议 / 代码质量：两个上传组件的流程重复，建议抽一个小的 composable，而不是合并组件
+位置：`SceneImageSlot.vue:30-59`、`ThemeEditorIcons.vue:138-178`；样式 `.…__file`、`.…__error` 在三个组件里各抄一份（`SceneImageSlot`、`ThemeEditorIcons`、`ThemeEditorScene`）
+现象：两者都有：隐藏 `<input type=file>` 与 `click()`、`element.value = ""`、发起时冻结 `{id, appearance}`、`busy/failure` 与 `try/catch/finally`、`error instanceof Error ? error.message : String(error)`、`role=alert` 的错误行。不同的只有“上传前加工”（图要 `prepareImage`，SVG 原样）、写进声明的动作、成功后的提示。
+为什么是问题：F1、F2、F3 都是这段流程里的同一类缺陷，两处各改一遍；以后第三种素材（比如声音）会拷第三份。不建议把两个组件合并（界面形态差很多）。
+建议改法：抽 `useFrozenUpload(model, {prepare?, upload, write})`，返回 `{busy, failure, note, pick(el)}`，状态按冻结目标存（顺带修 F1），成功与否由 `write` 返回的布尔决定（修 F2）。同时：`SceneImageSlot` 里 `mark(part)` 动态拼 `data-scene-*`/`data-working-*` 属性名，grep 找不到、改名时测试才报，用静态的 `data-scene-upload` 等写出来更好找。
+另：`ThemeEditorIcons.remove` 只是 `model.removeIcon(name)`；`removeIcon` 带的可选 `target` 参数没有任何调用方传（`theme-editor.test.ts:366` 外）；同步点击确实不需要，但留着一个没人用的参数会让人以为“移除”也要冻结。
+
+## F13 建议 / 代码质量：`$event as string` 强转与 `NO_PROVIDER` 的来源注释
+位置：`ThemeEditorScene.vue:105`；`ThemeEditorScene.vue:39-40`
+现象：`SegmentedControl` 的值类型是 `string | number | boolean | null`，这里用 `$event as string` 抹平，`setPreview(value: string)` 再对字符串字面量比较。只有三个固定选项时不会错，但强转会让以后加一个非字符串选项时静默出错。可以改成 `setPreview(value: SegmentedControlValue)` 里 `String(value)`，或直接把 `previewOptions` 的值收成联合类型并用类型守卫。
+`NO_PROVIDER = "none"` 的注释“贡献 id 都带点”我核对过：`shared/themes.ts:121` 用 `SCENE_PROVIDER_ID` 要求点分小写，`sceneProvider` 值不可能是 `"none"`，哨兵安全；注释可以顺手写出这个校验出处，免得改校验时漏掉。
+
+## F14 建议 / 交互：当前提供者没发布时，只有展开下拉才看得到“未发布”，触发器上只显示一个 id
+位置：`ThemeEditorScene.vue:49, 93-99`；截图 `ThemeEditor__scene-full__1400x900__light.png`
+现象：`description: "未发布"` 只在下拉列表里那一项下面显示。收起时触发器写 `acme.sky.clock`，与一个已发布且生效的提供者看起来一样。用户不展开就不知道这个提供者现在没有在画图（实际是回退到静态图）。Spec 输出 20 只要求“下拉里保留它并标未发布”，所以这是满足 Spec 的，只是界面上最该告诉用户的状态被藏起来了。
+建议改法：触发器的 label 本身带上“（未发布）”，或在下面的说明行下方出一行 `role=status` 的提示；至少让选中项的 label 为 `${id}（未发布）`。
+另外：场景图一块没有小标题，“工作态场景”“场景提供者”“预览状态”都有小标题，同一屏上标题层次不均（看截图）；`ThemeEditorChrome` 的块标题是 `--text-muted` xs，这里是 `--text-main` sm，与既有分区不一致。
+
+## F15 建议 / 一致性：标签与既有规范；预览 mask 的注释与实际画法不一致；预览没有加载失败的兜底
+位置：`SceneImageSlot.md`、`ThemeEditorIcons.md` frontmatter；`ThemeEditorIcons.vue:274-282`
+1. `docs/standards/code/components.md`（“禁止规则”档位 A）：“非宿主组件声明 `io:mutate`”被禁止，`io:mutate` 的定义是“自己发起写请求”。`ThemeEditorIcons` 与 `SceneImageSlot` 自己不发请求，请求都在 `transfer.uploadIcon/uploadScene`（Holder 注入）里，写声明经 `model`。`SceneImageSlot` 的 `io:mutate` 是 t12 之前就有的；`ThemeEditorIcons` 是新抄的。`governance:check` 过了，但标签与规范的定义对不上。拿不准处：规范“机械比对工具尚未建立，当前靠评审核对”，所以这里留给开发者判断，不一定要改，只是新增一例会让这个偏差扩大。
+2. `ThemeEditorScene.md` 标签没变（`state:local, state:inject`）。它画 `<img :src>`（读素材）和持有 `previewWorking`（写模型，不是 shared-write？），标签的取舍没有问题，列出来只是为了表明我看过了。
+3. `.theme-editor-icons__preview` 的注释写“和工作台里的图标同一种画法”，但工作台（`nb-ui/src/tailwind.css:89-98`）是 `mask-image: var(--svg)` 加 `mask-size: 100% 100%`，预览用 `mask: … center / contain no-repeat`。方形 viewBox 的 SVG 两者没有差别；非方形的 SVG（路由允许）在预览里按比例缩小居中，在工作台里被拉成 100% 100%，所以预览不等于真实效果。要么改注释，要么预览用 `100% 100%` 与工作台一致（预览的目的就是看实际效果）。
+4. 预览是 `<span>` 的 mask，素材取不到（404、被拒）时是一块空白，没有任何提示，用户分不出“这个 SVG 是空的”“没加载出来”。缩略图那边有 `@error`，这里没有。
+5. `-webkit-mask` 简写后紧跟标准 `mask`，写法与 `tailwind.css` 一致，没问题；`--icon-url` 是 `url("…")` 字符串，素材名来自 `^[0-9a-f]{64}\.svg$` 校验，不会破坏引号。
+
+## F16 建议 / 文案与读屏：文案细节
+位置：`locales/zh-CN.json` 的 `themeEditor.icons.hint`；`SceneImageSlot.vue:69-70`
+1. 中文说明“保存不等于产品里有这个图标：没用到的名字不会报错，也看不到效果”，“产品里有这个图标”指的是“产品里用了这个图标名”，读起来像“产品里有没有这个图标这件事”。建议：“保存的名字如果产品里没用到，不会报错，也看不到效果。”英文版没有这个歧义。
+2. `SceneImageSlot` 的状态文字：`busy` 时的 `<span role="status">` 是随 `v-if` 才出现的，读屏对“新插入的 live region”经常不播；成功后的 `note` 没有 live 区。建议保留一个常驻的 `role="status"` 容器，里面换文字。
+3. 输入框用 `aria-label="图标名"` 且有占位符 `folder-open`，没有可见的 label；Spec 没要求，保持原样可以，列出来是因为 brief 问了 label。
+4. 两种语言的新文案我逐条读过，没有硬编码文字（模板里没有裸中文/英文），`themeEditor.scene.stored` 就是 `{{kb}} KB`，两种语言一致，这没有问题。
+
+## F17 建议 / 窄屏与大屏：导航被挤出；图标行在宽屏下按钮离名字太远
+位置：`ThemeEditor.vue` 导航（t12 把分区从 6 个加到 7 个）；`ThemeEditorIcons.vue:266-290`；截图 `ThemeEditor__icons__phone__light.png`、`ThemeEditor__icons__1400x900__light.png`
+1. 390px 截图里，当前分区“图标”在顶部横向导航里只露出半个字（“图”），而且它右边的“对比度检查”（不合格数的角标住在它上面）排到了屏幕外。导航是横向滚动的，但选中态进入时没有 `scrollIntoView`，直接从 URL 或状态打开某个分区时当前项可能在可视区外。这是加第 7 个分区引出的问题，不是图标分区自己的。
+2. 1400px 宽下，图标行的名字 `flex: 1 1 120px` 把“更换”“移除”推到右边约 1000px 处，与名字隔着很大的空白，行与行对不上视线。给列表加 `max-width`（如 36rem）会好很多。
+3. 预览位置在 Lab 里是空的（素材读不到），所以截图里行首是 1.5rem 的空白，没法在截图里确认蒙版预览的外观；这需要一次带真实素材的截图（e2e 的真实路由里有）。
+
+（F15 更正：第 2 点“写模型，不是 shared-write？”是我写得含糊，应删掉；`ThemeEditorScene` 的标签没有可挑的。第 5 点已核对：`shared/user-themes.ts:23` 的 `THEME_ICON_NAME = /^[0-9a-f]{64}\.svg$/`，素材名不会含引号，`url("…")` 拼接安全。F17-1 已核对：`ThemeEditor.vue:466-468` 窄屏 `overflow-x: auto`，且全文无 `scrollIntoView`。）
+
+## F18 建议 / 代码质量：图标名规则在组件里复制了一份，且“与声明校验同一条规则”只靠注释保证
+位置：`ThemeEditorIcons.vue:123-124`；原规则 `shared/themes.ts:75`（未导出的 `const ICON_NAME`）
+现象：组件写 `const ICON_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u` 并注释“与声明校验同一条规则”。服务端/声明校验的那条没有导出，两份各自演化。另外，图标至多 64 个（`MAX_ICONS`，Spec 输出 21 明文），界面既不显示数量也不在第 65 个前提示，用户在第 65 个时会走到 F2 的“被拒绝却显示成功/清空输入”路径，只能在操作条下面看到被拒原因。
+为什么是问题：规则一边改了，输入框的预检与真实校验就对不上，行为是预检放行、保存拒绝，或相反（预检拦下合规的名字，用户无法添加）。
+建议改法：从 `shared/themes.ts` 导出 `ICON_NAME`（或 `isIconName`），组件直接用；达到 `MAX_ICONS` 时停用“添加”并写原因，或至少在 `nameProblem` 里提示。
+
+---
+
+# 未发现问题的方面
+
+- 目标冻结的写入端：`SceneImageSlot`（`target` 在选文件那一刻定下并传给 `setScene/setWorkingScene`）与 `ThemeEditorIcons`（`target` 加 `name` 一起冻结）写到的主题、明暗、图标名是对的；`remove`、`copyIconsToOther` 是同步点击，读“当前”没有问题，不属异步目标问题（有问题的是 F1、F2、F3 的反馈与并发状态）。
+- `pendingName` 取消选择后的残留不会被误用（见 F3 末段）。
+- `NO_PROVIDER = "none"` 哨兵安全（声明校验要求点分小写 id）；当前值未发布时的禁用项 `Select` 能显示成触发器上的选中值（`selectedLabel` 从 `options` 里找，不看 disabled）；`watch(sceneUrl/workingUrl)` 重置与 `:key` 重建配合正确；只有 F5 的缩略图展示问题。
+- 主题 token：`--space-*`、`--border-w`、`--divider`、`--border-color`、`--radius-control`、`--text-*`、`--status-danger` 与 `ThemeEditorScene` 原有写法一致，没发现不存在的 token；没有硬编码颜色。
+- 文案：两种语言键齐全，无硬编码文字，`locales.test.ts` 登记齐。
+- e2e：无固定等待，选择器以 `data-*` 与角色为主；`--svg` 的计算值判据可区分换与没换。
+- `bun run typecheck` 在 `.worktree/w00041-t12-theme-editor-assets/packages/neuro-book`（c6166f61c）下退出码 0（`tsc` 与两个 `vue-tsc` 全过）。未跑 e2e 与开发服务（按说明），F5、F7、F8、F14、F17 里关于外观的判断来自 Lab 截图，其余来自读代码，均已在各条标注。
+
+# 数量
+
+阻断 0；重要 7（F1、F2、F4、F5、F6、F7、F8、F9，实为 8，见下）；建议 10。
+
+精确计数：
+- 重要：F1、F2、F4、F5、F6、F7、F8、F9，共 8 条
+- 建议：F3、F10、F11、F12、F13、F14、F15、F16、F17、F18，共 10 条
+- 阻断：0
+- 合计 18 条（上一行“重要 7”是笔误，以此处为准）。
+
+最严重的几条：F1（上传状态残留到别的主题）、F2（声明被拒绝仍显示成功、输入被清空）、F4（图标添加行与 Spec 输出 21、计划、`.md` 三方不一致，`icons.choose` 死键）、F5（工作态缩略图失败态与 `.md` 不符）、F6（“未发布”提供者项零测试且 e2e 标题夸大）。

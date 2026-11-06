@@ -1,0 +1,57 @@
+# w00041/t12 后端、领域、传输实现审查
+
+审查对象：master..c6166f61c。以下只记录已核实发现。
+
+### 1. 失败后仍会启动已经取到素材的上传
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/transfer.ts:54-69`
+- **现象**：`uploadAssets` 只在 worker 进入 `while` 时检查 `failure`。worker 取出任务后先等待 `source.load()`；另一个 worker 失败后，这个等待中的 worker 仍会继续执行第 64 行的 `uploadIcon`/`uploadScene`。因此“第一个失败后不再开始新的请求”不成立。
+- **为什么是问题**：复制或导入失败后，合同要求不再启动新的上传并等待已发出的请求结束。现在素材读取慢、失败先到时，后续素材会在失败之后继续写入，最多把并发窗口内剩余的 5 个请求都变成孤儿；错误结果与“停止后续请求”的不变量不一致。现有测试用立即完成的插件端点，不能触发这个时序。
+- **如何核实**：在实现 worktree 的 `packages/neuro-book` 目录运行 `bun /tmp/review-w00041-t12-impl/lab/upload-failure-race.ts`。实验让第一个 SVG 的真实上传路由立即返回 415，让另外 5 个素材的读取先挂起；失败后放开读取，结果为 `{"result":{"ok":false,"reason":"bad.svg：bad"},"routeUploads":6}`，即失败之后仍启动了 5 个上传。
+- **建议改法**：`await source.load()` 返回后、调用上传端点前再次检查共享的失败标志；发现已失败就直接退出，不发请求。若要保证“失败”只由上传结果产生，也应把 `load`/上传异常统一转成失败结果，并让 worker 在所有已启动的工作 settled 后返回。
+
+### 2. `published` 的停止状态不是响应式的
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`packages/neuro-book/src/plugins/workbench/web/scene-providers.ts:69-76,115-126`
+- **现象**：`#handles` 是 `shallowRef`，Map 里的 `handle` 不是响应式对象。`published` getter 和 `#available` 虽然每次重新调用都会读取 `handle.published`，但依赖收集只追踪 `#handles.value`，不追踪句柄属性。运行时在入口停止时原地把句柄变成 `published = false`，而撤回通知稍后才到；这段时间已有的 `computed(() => scenes.published)` 与 `watchEffect` 不会失效。
+- **为什么是问题**：Spec 要求停止窗口内立即从提供者下拉移除、停止动态场景使用。当前编辑器已经读过 `sceneProviders` 时会继续缓存并显示旧 id；文档根已经读过 `sceneFor` 时也不会因 `published` 变化重新解析，旧的对象 URL 可能继续画到撤回回调到达。直接再次调用 getter 会看到 false，掩盖了真实的响应式 UI 行为。
+- **如何核实**：在实现 worktree 的 `packages/neuro-book` 目录运行 `bun -e 'import {computed,effect} from "vue"; import {SceneProviders} from "/tmp/review-w00041-t12-impl/wt/packages/neuro-book/src/plugins/workbench/web/scene-providers.ts"; const scenes=new SceneProviders({}); const receiver=scenes.receiver(); const handle={capability:"workbench.theme-scenes",id:"acme.provider",plugin:"acme",entry:"browser",generation:1,kind:"entry",declaration:{},published:true,implementation:()=>({scene:async()=>({image:new Blob([new Uint8Array(1)],{type:"image/png"})})})}; receiver.published(handle,undefined); const list=computed(()=>scenes.published); const seen=[]; effect(()=>{seen.push([...list.value]);}); handle.published=false; console.log(JSON.stringify({runs:seen.length,cached:list.value,seen})); scenes.dispose();'`。输出 `{"runs":1,"cached":["acme.provider"],"seen":[["acme.provider"]]}`。
+- **建议改法**：不要把可变句柄直接放进 `shallowRef` 作为发布状态来源。接收者在 `published` 状态改变时发布一个新的不可变快照（或单独维护响应式可用 id 集合），并在停止事件发生时立即更新快照、使场景解析 effect 失效；`#available`、列表和已有结果清理使用同一个代次/快照门禁。
+
+### 3. 传输测试声称接真实路由，但写入端点被替身替换
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/workbench/theme-editor.test.ts:444-467`
+- **现象**：`wire()` 确实调用了产品的 `addThemeAssetRoutes`，但传入的 `write` 只是 `mkdir` 加 `writeFile`，没有 `filesBackendPlugin` 的真实暂存、提交、记账、冲突回执、符号链接保护与 HTTP 分发准入。测试注释把它称为“真实的上传路由、真实写盘”，这个描述超出了实际覆盖。
+- **为什么是问题**：传输测试不能发现真实写入返回失败/冲突时的响应形状、真实提交竞争或准入边界与复制/导入的组合问题；`theme-asset-route.test.ts` 单独覆盖路由时，并不证明 `transfer.ts` 经真实 Files 提交链能完成整条调用。验收映射中“复制插件主题传输替身与真实路由各一”因此没有真正的传输端到端证据。
+- **如何核实**：读上述 `wire()`：第 451 行新建 Hono，第 452 行给路由注入自定义 `write`，第 453-456 行直接写文件并返回 `{ok: true}`；对照 `theme-asset-route.test.ts:52-79`，后者才通过 `filesBackendPlugin`、`RouteTable`、`HttpAdmission` 与真实 ledger。建议把传输用例的 fetch 接到后者的测试 harness，至少覆盖一个真实提交失败/同名冲突响应；保留当前替身测试作为并发编排测试。
+
+### 4. SVG 状态机把非 ASCII 空白误当成标签间合法空白
+
+- **严重程度**：建议；**类别**：正确性 / 安全与性能
+- **位置**：`packages/neuro-book/src/plugins/files/backend/svg-icon.ts:24,67-78`
+- **现象**：标签间的非文字区段用 `run.trim() !== ""` 判定，而 JavaScript 的 `trim()` 会移除 `U+00A0`、`U+2003`、`U+2028`、`U+2029` 与 `U+FEFF`。因此这些字节会被接受；例如根元素后放 `U+00A0`，检查结果仍是 `{ok:true}`。严格 XML 的 `S` 只包含空格、制表、回车、换行，计划与 Spec 要求未知 token 一律拒绝。
+- **为什么是问题**：这不构成已核实的脚本执行绕过，但它破坏了“逐 token 消费、认不得的一律拒绝”的白名单合同，并留下浏览器 XML 解析与检查器对输入分类不一致的边界；安全防线应避免依赖比 XML 更宽的 Unicode `trim`。
+- **如何核实**：在实现 worktree 的 `packages/neuro-book` 目录运行 `bun /tmp/review-w00041-t12-impl/lab/svg-boundaries.ts`，输出 `nbsp_between ... { ok: true }`、`emspace_between ... { ok: true }`、`nbsp_outside ... { ok: true }`；同一状态机对 ASCII `x` 则拒绝。
+- **建议改法**：把元素外允许的空白写成与 `SPACE` 相同的四个 ASCII 字符，并只在 `top` 为 `title`/`desc` 时允许任意按合同定义的纯文本；不要用 Unicode `trim()` 代替词法空白判断。为 `U+00A0`、`U+2003`、`U+2028` 与 `U+FEFF` 各补一个拒绝用例。
+
+## 未发现问题的方面
+
+- `svg-icon.ts` 的核心状态机逐字符推进、元素/属性白名单、重复属性、命名空间前缀、标签配对、嵌套深度、BOM、非法 UTF-8、实体、脚本/引用相关字面量与 16 KiB 路由边界：合同测试与边界实验通过；未构造出能执行脚本或加载外部资源的已确认字节绕过。非 ASCII 空白的严格合同问题见第 4 条。
+- `theme-asset-route.ts` 相对基线保留了场景路由的检查顺序、415/413/409 失败码、同字节幂等、同名冲突、真实目录与准入检查；场景仍拒绝 SVG。`bun test` 的路由合同测试覆盖通过。
+- `userThemeProblem`、`assetRefs`/`renameAssets`/`keepUserAssets` 的素材种类与文件名规则、重复引用按 `kind\npath` 去重、图标/工作态场景导出读回、包路径越界与 300 文件上限：已读实现与合同测试未发现额外问题。
+- `ThemeEditorModel` 的工作态场景、图标、提供者、复制图标、`copied` 素材写法过滤、目标主题/明暗冻结与失败撤回：未发现第 1、2 条之外的已确认领域错误。
+- `ThemeCatalog.assetUrl`、用户素材 raw URL、场景提供者按 `published` 的直接可用性判断、预览 `working ?? agentWorking()` 的短路依赖：静态调用链本身符合计划；第 2 条是其响应式失效。
+- `bun test src/plugins/files/svg-icon.test.ts src/plugins/files/theme-asset-route.test.ts src/plugins/workbench/user-themes.test.ts src/plugins/workbench/scene-providers.test.ts src/plugins/workbench/theme-editor.test.ts src/plugins/workbench/package-io.test.ts`：170 pass，0 fail，548 expect() calls。
+- `bun run --cwd packages/neuro-book typecheck`：通过（`tsc --noEmit`、`vue-tsc --noEmit -p tsconfig.web.json`、`vue-tsc --noEmit -p tsconfig.browser-test.json`）。未运行 e2e 与开发服务。
+
+## 数量
+
+- 阻断：0
+- 重要：2（第 1、2 条）
+- 建议：2（第 3、4 条）
+- 合计：4
+
+有效发现编号：1–4。
