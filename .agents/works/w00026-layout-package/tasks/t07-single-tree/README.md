@@ -107,6 +107,32 @@ updated: 2026-11-06
 
 第 6 片已合入：`groups/panels.ts` 是接缝（`PanelTabs`、`PanelTree`，本地实现 `createLocalPanels`），`groups.ts` 只留标签属性；标签 id 改随机串。`groups.test.ts` 原有用例一条没改，新增 12 条接缝测试、2 条身份测试；`editor-area` 37 条全过。
 
+第 7a 片已合入（`71e5f88c6`）：产品外壳切到一棵树。`WorkbenchShell` 接 `layout-doc-store`，工具面板、活动栏、记录 `workbench.layout`、命令与公开状态按新合同；工具视图的拖放在 `web/layout-drag.ts`（指针、键盘、预备区）。编辑区还是树里一块 `role: "editor"` 的面板，里面是原来的 `EditorArea`，标签拖动不变（片 7b）。旧代码留到片 8。
+
+测试：`workbench-shell`（14 条）、`workbench-views`（27 条）、`workbench-dnd`（23 条）由 Sonnet 按去向表改写，它们报的产品问题主会话核实后修：`movable: false` 能被命令移走；纵向分支 Enter 收起后回不到原高度（落账时先写回意图、后标记收起）；用键盘在面板头隐藏面板后焦点掉到 body；“移动到”菜单关闭后焦点不回标签；窄屏把不省宽度的面板也收走；拖到零的侧栏没有预备区（量错了元素）；预备区被编辑组的外缘窄带盖住；视图拖不到编辑区旁边（空面板整块算中央）。
+
+实现审查（一个 Sonnet，[`evidences/slice7a-review.txt`](evidences/slice7a-review.txt)，重要 2、建议 9）：
+
+| 条 | 处理 |
+|---|---|
+| F1 最大化的面板被搬空后卡住 | 改。这块面板隐藏、收起、不在了都退出最大化 |
+| F2 被压缩的尺寸写进意图 | 改。保留像素的节点只有被手势拖动才写（`fixedNodesOf`、`rebaseIntents` 的 `frozen`） |
+| F3 Tab 绕不回去、F4 键盘的外缘被预备区盖住、F5 活动栏拿起没有原位 | 改 |
+| F6 保存交错 | 改。关卡之后才取文档 |
+| F7 被盖住时显示按钮没反应 | 改。显示被最大化盖住的面板时退出最大化 |
+| F8 失败码与文案 | 改。Spec 的表补 `stale-target`，`limit-exceeded` 记诊断 |
+| F9 `layout-drag`、`view-instances` 没有单元测试 | 接受。由 e2e 覆盖 |
+| F10 零散 | a、c、e、g、i 改；b 模板里的非空断言、d 写死的占宽、f 诊断属性的中文、h 两条读路径留到片 8 |
+| F11 压编辑组时不放回 | 改 |
+
+回归中再修的：编辑组放不下时求解器连活动栏一起压（只压编辑组）；放下时高亮立刻消失（开发者 2026-11-06 看到旧外壳的高亮跟着内容走，要求松手就消失，Spec 输出 30 已改）。
+
+最后一轮验证：类型检查、单元测试（workbench、settings、editor 752 条，nb-layout 366 + 162 条）、`governance:check` 通过；e2e 24 个文件里跑到的 232 条加 `workbench-*` 69 条全过。`lab-scenes` 没跑到；上一轮它的差异里 27 处是 `AgentConversationView`、`AgentStatusBar` 的提示光晕（w00032 t28 合入的，不是这一片），属于这一片的已修并有用例。`src/plugins/lab/web/fixtures/index.dom.test.ts` 的 `AgentCompactionDetail` 同样是别的 Work 的。
+
+没有覆盖：Spec 输出 19“当前标签加粗”与实际（蓝色下划线加变色）不符，旧外壳就如此，留给 t16 统一标签条定。验收 2 的“放在两块之间”产品页只写了拆块，单元测试覆盖规则。
+
+要请开发者看的：窗口约 1000 宽时编辑区比以前窄（272 变 220，Spec 定的“编辑组吸收余量、最小 220”）；默认宽度的侧栏里资源管理器的五个动作只露三个，其余在“⋯”（Spec 输出 20）。
+
 ## 下一步
 
-第 7a 片：外壳切换。开工前看 `nbdev status`，并先把切换计划要点交开发者（这一片之后产品里就是新外壳）。
+开发者在产品里试第 7a 片的手感（验收场景）。之后第 7b 片：编辑组归面板。

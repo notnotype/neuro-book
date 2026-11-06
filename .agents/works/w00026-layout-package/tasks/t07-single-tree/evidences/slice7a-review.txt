@@ -1,0 +1,117 @@
+w00026 t07 片 7a 实现审查（提交 b5874d871）
+只读审查；每条核实后追加。严重程度：阻断 / 重要 / 建议。
+
+========================================================================
+F1 【重要】【不变量/正确性】最大化的具名面板被搬空后，最大化不退出，整个工作台陷入“全部内容不可见、分隔线不可拖”
+位置：state/layout-doc-store.ts effectiveMaximized（约 119 行）与 apply（约 148 行 `if (!sameTreeShape(...)) maximized.value = null`）
+现象：最大化 sidebar（唯一标签 A），在 A 的标签上用右键“移动到”把 A 放进 auxiliarybar（命令 nbook.view.move-view）。领域操作把 sidebar 搬空后变成 hidden，但树形不变（实验：moveTabToStrip 后 sidebar={tabs:[],hidden:true}，sameTreeShape 为 true），所以 apply 不清 maximized。effectiveMaximized 只检查 `collapse.removed.has(maximized)`，仍然返回 "sidebar"。
+后果：
+ - effectiveVisibleTabs 对 `maximized !== id` 的面板全部 continue，而 sidebar 自己 hidden 也 continue，=> 有效可见集合为空，所有视图内容被停放（ViewContext.visible 全假）。
+ - NestedGrid 的 gesturesDisabled = maximized != null 永久成立，所有分隔线不能拖；maximizePlacement 找不到这块叶，什么也没放大。
+ - partVisible 对其它所有具名面板返回假（被最大化“盖住”），公开状态 sidebarVisible 等全假，标题栏按钮全部显示未按下。
+ 恢复只能靠别的面板头上的最大化按钮（把 maximized 换成别的），用户看不出原因。
+为什么是问题：Spec 输出 13 “隐藏或收起这个面板、结构操作、放不下时退出”；store 对 setPartHidden / setCollapsed / 树形变化都清了，唯独漏了“搬空导致隐藏”和“关闭占位标签（closeTab）导致具名面板被搬空隐藏”。同样路径：closeTab(占位视图) 在最大化的具名面板里；discard() 把 local 换成已确认值后该面板被隐藏或不存在（local 直接赋值，不经 apply）。
+如何核实：实验已做（/tmp/w00026-t07-e2e/review-exp/max.test.ts，nb-layout 层）；真实运行时需 e2e：开 Lab 或产品页 -> 最大化侧栏 -> 标签右键移动到右栏 -> 读 `[data-obscured]`、各内容 `inert`。
+建议改法：effectiveMaximized 同时要求该面板存在、未 hidden、未 collapsed（与 setPartHidden/setCollapsed 的清除条件同一判断），这样所有写入路径（含 discard、closeTab、moveView、resetView）一次覆盖；并在 layout-doc-store.test.ts 补“搬空最大化的具名面板后 maximized 为 null”。
+
+========================================================================
+F2 【重要】【正确性/不变量】放不下时被压缩的呈现尺寸，会在任何一次 apply 里被写进文档意图，窗口放大后回不到原样
+位置：state/layout-doc-store.ts rebased()（约 143 行）与 apply（约 146 行）；根在 nb-layout/src/layout-doc.ts rebaseIntents（233 行，片 2）
+现象：apply 对每一次写（含切标签 activate、显示/隐藏另一块面板、拖放、moveView）都先 rebaseIntents(doc, presented, collapsedTo)，而 presented 就是 layout.sizes，里面包含“先把工具面板压到最小”的压缩结果。rebaseIntents 只跳过零轴、收起面板、条，不区分“用户意图”与“被压缩的呈现”。
+实验（/tmp/w00026-t07-e2e/review-exp/preview.test.ts 第二个用例，nb-layout 层，真实 createGrid 求解）：H[sidebar 340, e1, aux 400]，窗口 520 宽，呈现 sidebar=153、aux=153；rebase 后文档意图变成 153/211/153；再放大到 1400，sidebar=160、e1=1078、aux=160。不 rebase 时同一文档放大到 1400 是 340/658/400。
+为什么是问题：Spec 输出 8“测量、夹取、放不下时的压缩、拖动期间都不写文档”，验收 6“窗口从 1440 缩到 700 再放大，文档不变；放大后回到原样”。窗口在 800 到 1000 之间时侧栏与右栏就处在被压缩状态（340+400+220+48 > 窗口），此时用户只是点一下标签页，两块栏的宽度就被永久改小，而且 activate 会在 1 秒内存盘。片 7a 之前 apply 没有被产品调用，所以这是 7a 接入后第一次暴露。
+如何核实：nb-layout 层已复现；真实运行时（e2e）：窗口 900 宽，点侧栏里另一个标签，读 `workbench.layout` 记录里 sidebar 的 size.width，再放大到 1440 读 sidebar 实际宽。
+建议改法：二选一。a) rebaseIntents 只改“用户改过”的轴：对每个面板比较呈现尺寸与 clamp(意图, min, max)，呈现更小且正好等于压缩结果时保留原意图（需要 projection 给出夹取后的期望值）；b) store 在 collapse 压缩（squeezed 或工具面板被压到最小）时不 rebase 对应轴，只在 commitGesture 与结构操作后的新建节点上写。补一条 store 测试：窄窗口下 activate 一个标签，文档里侧栏意图不变。
+
+========================================================================
+F3 【建议】【正确性/可访问性】键盘拖动：来源是单标签面板时，Tab 无法绕回到第一个区域
+位置：web/layout-drag.ts regions()（约 273-288 行）、nb-layout/src/drag-gesture.ts moveCursor（约 336 行 `if (points.length === 0) return`）
+现象：regions() 为了“拿起时停在原位”，把来源所在面板作为一个区域追加在 Map 末尾；来源是单标签面板（各工具面板常见）时它的候选全部是原位，被 enumerateDropCandidates 过滤，所以这个区域 points 为空。实验 /tmp/w00026-t07-e2e/review-exp/regions.test.ts：默认形状里拿起 sidebar 的唯一视图，区域依次为 e1、panel、auxiliarybar，再追加空的 sidebar。Tab 从 auxiliarybar 走向下一个（空）区域时 moveCursor 直接返回，光标不动，再按还是同一个目标：Tab 永远卡在 auxiliarybar，回不到 e1；Shift+Tab 在区域 0 时同理卡住。
+为什么是问题：Spec 输出 31“Tab 在落点区域之间循环”；验收 9 只要求“只用键盘拿起、Tab、方向键、Enter 结果与指针相同”，没覆盖绕回，所以测试不会发现。
+如何核实：上面的实验；真实运行时在 workbench-dnd 里加：单标签视图拿起后连按 Tab 数次，焦点区域应回到第一个。
+建议改法：起点区域不必进 regions 列表（start 返回 region 索引可以用 -1 或另给 home 点），或让 Tab 跳过没有位置的区域。
+
+========================================================================
+F4 【建议】【正确性】键盘落点：编辑组的外缘候选被预备区盖住后，实际得到的是 reveal，不是列出的那个落点
+位置：web/layout-drag.ts dropAt（171-189 行）与 pointOfCandidate（192-224 行）；nb-layout/src/layout-drop.ts 100-101 行（新增的“预备区优先于编辑组”）
+现象：键盘停在编辑组右缘（编辑组右边的右栏隐藏时，预备区矩形就盖在编辑组右侧 400px）时，pointOfCandidate 给的点落在预备区矩形里，resolveLayoutDrop 因 7a 新加的优先级返回 {kind:"reveal"}，而不是 candidate.action（split editor right）。dropAt 只对 `reveal:` 区域短路，没有反向处理。结果：该候选的显示与 Enter 提交都是“显示右栏”，与同一次拿起里的 reveal 区域的结果重复，而 split 编辑组右缘用键盘不可达。底部的 `panel` 隐藏时同理（编辑组下缘）。
+为什么是问题：指针路径上这是设计（编辑组让位）；键盘路径列出了一个到不了的候选，Enter 的结果与 aria-live 报的“拆分/之间”不符，违反输出 31“与指针同一套规则”的字面“列出的位置就是能放下的位置”。
+如何核实：用 layout-drop.test.ts 现有的 “wide” 夹具：对 enumerateDropCandidates 的每个候选取 pointOfCandidate 的点，带 zones 调 resolveLayoutDrop，断言得到同一动作。无 zones 时我跑了 15 个外缘候选往返（roundtrip.test.ts），全部一致，所以问题只出在预备区重叠。
+建议改法：enumerateDropCandidates 接收 zones，把被预备区盖住的编辑组外缘候选去掉（与解析规则同一处判断），或让 dropAt 在键盘区域非 reveal 时忽略 zones。
+
+========================================================================
+F5 【建议】【对照需求】来源是活动栏条目时，键盘拿起没有“原位”反馈
+位置：web/layout-drag.ts start（295-300 行）与 dropAt
+现象：start 返回 at = 来源元素（活动栏按钮）的中心点，这个点在 excludedRects（活动栏）里，resolveLayoutDrop 返回 null；dropAt 对非 reveal 区域也不按 region 解析，所以拿起后没有落点、没有“原位”提示。从标签拿起则有（点在自己的标签条里，解析成 strip，inPlace）。
+为什么是问题：Spec 输出 28、31“拿起时停在原位，提示‘原位’”，简报重点 1 特别点名“来源是活动栏条目时的原位”。直接 Enter 结果仍是不动，所以没有数据后果，只是缺反馈。
+如何核实：从代码推断；e2e 里在活动栏按钮上按空格，读 aria-live 与 data-drop-kind。
+建议改法：start 对来源在活动栏的情形，把起点放在来源所在面板标签条里它自己的标签上（home 区域的 strip 点），或 dropAt 在 region 是 home 时直接返回 inPlace 的落点。
+
+========================================================================
+F6 【建议】【不变量】保存：save() 在 saveGate 之前取 doc，两次保存重叠时较早的文档会后写
+位置：state/layout-doc-store.ts save（约 126-136 行）
+现象：`const current = doc.value` 在 `await saveGate()` 之前取。save#1 取到 D1 后等待 gate（写 editor.tabs）；期间一次 drop/moveView/revealView（都是 flush: true）触发 save#2，取到 D2，若它的 gate 先返回就先提交 D2；之后 #1 的 gate 返回，提交 D1，磁盘上是旧文档，而本窗口显示 D2，直到下一次改动才纠正（期间刷新会回到 D1）。
+为什么是问题：片 7a 前 flush 只有手势落账一处；7a 把 drop、moveView、resetView、revealView 都接成 flush，触发点多了一个量级。这一段代码是片 4 的，不是 7a 引入，但 7a 放大了它。
+如何核实：从代码推断，未复现；store 测试里让 saveGate 返回可控的 Promise，连续 apply 两次，读最终记录。
+建议改法：gate 之后再读 doc.value，或 save 串行化（进行中的保存结束后再按最新文档补一次）。
+
+========================================================================
+F7 【建议】【代码质量/对照需求】标题栏、状态栏的“显示/隐藏”按钮在“被最大化盖住”“放不下被收走”时点了没有反应
+位置：commands/part-commands.ts（切换用 `given.hidden ?? store.actions.partVisible(part)`）、components/WorkbenchShell.vue 457 行（状态栏 `hidden: panelVisible`）、state/layout-doc-store.ts partVisible
+现象：partVisible 按公开状态口径（输出 36），被最大化盖住和放不下被收走也返回 false；切换命令据此把 hidden 设成 false 即“显示”，而文档里这块面板本来就没隐藏，setPanelHidden 同值，apply 返回原文档，什么都没发生，也没有任何提示。状态栏的“显示面板”按钮同样（panel-hidden 为真但点了无效）。
+为什么是问题：用户看到按钮处于“未按下/显示面板”，点了没有变化。Spec 输出 36 只定义了状态口径，没有定义这两种状态下“切换”的结果；旧外壳没有这两种状态（旧最大化只在面板）。
+如何核实：从代码推断；e2e：最大化 aux 后点标题栏的侧栏按钮；或窗口缩到 500 后点状态栏“显示面板”。
+建议改法：由开发者定：这两种状态下切换应当退出最大化 / 无动作但给反馈。至少在 Spec 输出 36 注明，并让命令返回可观察的结果。
+
+========================================================================
+F8 【建议】【对照需求】结构操作失败的去向与 Spec“失败与恢复”表不一致
+位置：commands/view-commands.ts resultOf、commands/panel-commands.ts withPanel、components/WorkbenchShell.vue 336-338 行 commit
+现象：
+ a) Spec 表：not-found “命令返回 unavailable；拖动整场取消”，limit-exceeded “给诊断，不提交”。实现：move-view / open 把 not-found 映射为 stale-target（与旧 workbench/commands.md 一致，与新 Spec 字面不符）；拖放提交 `layout.actions.drop(...).ok` 为假时什么都不做，没有诊断（grep limit-exceeded 在 workbench/web 下无命中）。
+ b) panel-commands withPanel：setCollapsed 返回 rejected（例如当前面板是编辑组，编辑组不可收起）时一律返回 unavailable + “没有面板”，原因文案是错的。
+ c) resultOf 把 rejected 与 limit-exceeded 都映射成 invalid-args，reason 直接是领域层的 detail 字符串（面板 id / 视图 id），不是写给用户的文字。
+为什么是问题：用户看到的错误与实际原因不符；Spec 与实现二选一要改。
+如何核实：a) 读 Spec 失败与恢复表与代码；b) 当前面板为编辑组时执行 nbook.view.set-panel-collapsed。
+建议改法：定一个口径（建议 Spec 跟旧合同：stale-target），为 limit-exceeded 给诊断，commit 失败写 diagnostics。
+
+========================================================================
+F9 【建议】【测试】新增的 layout-drag.ts（323 行）、view-instances.ts（138 行）没有单元测试，最大化被搬空这类路径没有用例
+位置：src/plugins/workbench/web/layout-drag.ts、views/view-instances.ts、state/layout-doc-store.test.ts
+现象：workbench 目录 385 个 bun 测试全过，但 grep 不到任何测试引用 createLayoutDrag 或 useViewInstances；视图寿命（代际、撤回、重试、加载中被删）原来由旧组件的 e2e 覆盖，搬成模块后没有对应的模块测试。store 测试没有覆盖：搬空最大化面板（F1）、窄窗口下 activate（F2）、closeTab、resetView、revealView 对已隐藏且已收起面板的组合。layout-drag 的“判定纯读、预览缓存、pointOfCandidate 往返”只能靠 e2e。
+为什么是问题：AGENTS.md 要求核心逻辑与边界补测试；pointOfCandidate 与 resolveLayoutDrop 的往返是纯几何，可以像 nb-layout 的 layout-drop.test.ts 那样写表驱动测试（我用 15 行就跑通了往返，见 roundtrip.test.ts）。
+如何核实：bun test src/plugins/workbench（385 pass）并 grep。
+建议改法：把 pointOfCandidate 提到 nb-layout 作为 `pointOfDropCandidate(geometry)`，与 enumerateDropCandidates 同处并加往返测试；view-instances 用真 ViewSource 写一条寿命测试。
+
+========================================================================
+F10 【建议】【代码质量】零散项
+ a) components/WorkbenchPanelHead.vue 76-80 行：`<header tabindex="0" :aria-label>`。<header> 在非 body 下无地标角色，aria-label 对 generic 角色不被读屏朗读（ARIA 1.2 禁止给 generic 命名）；加 role="group"。
+ b) components/WorkbenchShell.vue 内容槽模板里 `viewIdOf(contentKey)!` 出现 12 次、`instances.instances.get(...)!` 6 次；抽成一个子组件或 v-for 里的局部计算，非空断言可以去掉。
+ c) 视图键前缀 `view:` 在 WorkbenchShell.vue 203、232、234 行手写，layout-present.ts 另有常量与 tabKey；用 tabKey({kind:"view", viewId})。
+ d) WorkbenchShell.vue 117-125 行 headReserved 用写死的 96/28/26/20 估面板头占宽，与 WorkbenchPanelHead/Tabs 的 CSS 隐含耦合，改样式不会报错。
+ e) viewActionsOf 在模板里每个面板每次渲染调三次（hasViewActions、两处 model），每次都跑 chrome.viewActions 与 commands.isEnabled。
+ f) WorkbenchShell.vue 391-394 行呈现降级诊断是写死的中文，写在 `data-layout-diagnostics` 属性；其它界面文字都走目录。
+ g) Spec 输出 25 写的标记是 `data-no-drop`，实现与组件用的是 `data-no-drag`（不起拖与不接收是同一个标记）；Spec 或实现改一处。
+ h) 公开读文档有两条路径：actions.document()（原对象）与 state.doc（深只读代理）。注释写了原因，但命令与组件各用各的；至少在 state.doc 的声明处写“只读，领域操作用 document()”。
+ i) layout-drag.ts previews 缓存的键是 [source, action, extent]，不含文档与最大化；结构键（layoutStructureKey）只含拓扑和打平排序后的标签集合，标签换面板、换顺序、面板显隐变了都不取消，缓存里的 inPlace 与 strip 预览按拿起时的文档算。正常指针拖动期间文档不会变；有人在拖动中用快捷键/命令移动视图时会过期（从代码推断，未复现）。空标签面板的插入线 x 取第一次计算时的指针 x 并被缓存（previewOf strip 分支 Math.min(point.x, strip.right)）。
+
+========================================================================
+F11 【建议】【正确性】presentationCollapse 在“压编辑组”分支不做放回，底部面板在更窄时反而消失
+位置：packages/nb-layout/src/layout-project.ts 146-157 行，测试 layout-project.test.ts 156-163 行
+现象：放得下的分支新加了“没帮上忙的放回来”，但全部收走仍放不下（squeezed）的分支直接返回全部 removed。测试里 400 宽时只收 aux+sidebar，面板（在编辑组下方，不省宽）保留；200 宽时 panel 也被收走，尽管高度足够。窗口从 400 缩到 200，底部面板突然消失，放大又出现。
+为什么是问题：输出 10“放得下之后，没帮上忙的放回来……再放不下才压编辑组”；压编辑组这一步没有说收走不省宽度的面板。属于规则缝隙，不是崩溃；用户视觉上是不连续跳变。
+如何核实：layout-project.test.ts 的 “全收走还放不下” 一行即是现象。
+建议改法：squeezed 分支也做一次“对宽/高没帮上忙的放回”，或在 Spec 写明压编辑组时全收走。
+
+========================================================================
+未发现问题的方面（仔细检查后没有发现）
+ - layout-drag.ts 判定是纯读：dropAt/resolve 只读 DOM 与文档，不写状态；副作用只有 previews 缓存与 activate 里的 frozenZones，二者在每场开始时重置。
+ - 键盘 pointOfCandidate 往返：在没有预备区重叠的情形下，15 个外缘候选（split、between 两边）用与实现相同的取点公式放回 resolveLayoutDrop，全部得到同一动作（roundtrip.test.ts）；标签条候选在“看得见的标签是前缀”时往返一致。
+ - layoutProjection 放回逻辑本身没有抖动：removed 只由（文档、窗口尺寸、焦点面板）决定，没有反馈回路；放回时从后往前、跳过最后一个，与“焦点面板最后收”一致。
+ - view-instances.ts：contexts 不是响应式，但每一处 contexts.set/delete 之后紧跟一次对 instances 的响应式写入（status/generation），渲染读 contextOf 不会读到旧值；placed() 删实例的路径与旧组件等价，声明消失时 delivery 变为不可用走 waiting 重新加载。
+ - 类型检查：vue-tsc -p tsconfig.web.json 通过；bun test src/plugins/workbench 385 通过，nb-layout 365 通过。
+ - 删除的命令/状态键：除 Lab 的展示夹具、已登记的 locales 旧条目（locales.test.ts 钉住，片 8 删）、旧组件（片 8 删）外，没有别的插件、标题栏菜单、快捷键调用 set-panel-hidden/position/alignment 或读 nonCompact、panelMaximized、panelHorizontal、panelMaximizable。
+ - e2e 里没有 waitForTimeout/固定等待，没有 skip/fixme。
+
+未验证：所有涉及真实浏览器时序的条目（F1、F2 的 e2e 复现；focus-panel 时序；内容层与外框的圆角叠合；飞行中内容的裁切）都没有跑 e2e，按任务说明留给主 Agent。
+
+各级数量：阻断 0，重要 2（F1、F2），建议 9（F3 到 F11，其中 F10 含 9 个小项）。
