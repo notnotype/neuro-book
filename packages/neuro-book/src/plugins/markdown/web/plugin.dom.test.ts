@@ -64,22 +64,25 @@ function mountServed(component: Component, props: Record<string, unknown>) {
     return {wrapper, handle};
 }
 
+/** 第一次挂载要等 Vitest 转换编辑器的模块，缺省的 5 秒在机器忙时不够。 */
+const FIRST_MOUNT = {timeoutMs: 20_000};
+
 describe("markdownKey 交出的 nb-markdown 组件", () => {
     it("PromptEditor 的外露方法穿过外面几层包装（对话视图的输入框调 focus、insertText、insertFiles）", async () => {
         const {PromptEditor} = await served();
         const {handle} = mountServed(PromptEditor, {draft: {text: "", version: 1}, locale: "zh-CN"});
-        await waitUntil("PromptEditor 挂上", () => (typeof handle.value?.focus === "function" ? true : null));
+        await waitUntil("PromptEditor 挂上", () => (typeof handle.value?.focus === "function" ? true : null), FIRST_MOUNT);
         expect(["focus", "insertText", "insertFiles"].map((name) => typeof handle.value?.[name])).toEqual(["function", "function", "function"]);
     });
 
     it("单独交出的图片写明不在作品里；单独交出的小块按作品文件分类（session://attachments/ 是回形针，作品里的文件是文件图标）", async () => {
         const {MarkdownImage, InlineChip} = await served();
         const image = mountServed(MarkdownImage, {src: "../外面.png", alt: "外面"});
-        await waitUntil("图片说明", () => (image.wrapper.text() === "外面（不在作品里，不显示）" ? true : null));
+        await waitUntil("图片说明", () => (image.wrapper.text() === "外面（不在作品里，不显示）" ? true : null), FIRST_MOUNT);
         const attachment = mountServed(InlineChip, {kind: "reference", label: "截图", target: "session://attachments/截图.png"});
         const work = mountServed(InlineChip, {kind: "reference", label: "林雪", target: "/设定/林雪.md"});
         await flushPromises();
-        await waitUntil("小块", () => (attachment.wrapper.find(".i-lucide-paperclip").exists() && work.wrapper.find("svg[data-file-icon]").exists() ? true : null));
+        await waitUntil("小块", () => (attachment.wrapper.find(".i-lucide-paperclip").exists() && work.wrapper.find("svg[data-file-icon]").exists() ? true : null), FIRST_MOUNT);
         expect(work.wrapper.find("[data-inline-chip]").classes()).toContain("nb-chip--work");
     });
 });
