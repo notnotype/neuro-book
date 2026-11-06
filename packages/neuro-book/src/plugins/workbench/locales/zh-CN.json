@@ -549,6 +549,8 @@
             "failed": "上传失败：{{reason}}",
             "nameInvalid": "图标名只收小写字母、数字与连字符",
             "nameEmpty": "先填图标名",
+            "suggestions": "图标名候选",
+            "unknownName": "当前页面没有这个图标的样式，保存后可能看不到效果。",
             "replaceNamed": "更换图标 {{name}}",
             "removeNamed": "移除图标 {{name}}"
         }
