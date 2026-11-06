@@ -59,6 +59,7 @@ updated: 2026-11-06
 | 2026-11-04 | 开发者：同意把 t04（时间与世界线）、t06（知情与秘密）与伏笔、目标、决策合成一个讨论 Task，新建 [t32](tasks/t32-plot-side/README.md)；先用样本走一遍再写提案。开发者另问时间轴用精确的（旧 WorldEngine）、现在这种，还是两者兼顾，记为 t32 第一个讨论项 |
 | 2026-11-05 | 开发者看过 t32 第三轮审查（“没有问题”）：剧情侧提案按推荐改成第四版、不再审查、接受（[ADR 0041](../../../docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md)、[0042](../../../docs/adr/0042-world-engine-worldlines-as-per-line-views.md)、[0043](../../../docs/adr/0043-world-engine-placement-and-telling-orders.md)）；t32 收尾，新建 [t33](tasks/t33-plot-side-spec/README.md) 写 Spec（内核 6 份、剧情插件 6 份，在内核分支上，分两批各交 omp 审）；nbdev 的操作主会话自己做 |
 | 2026-11-05 | 开发者批准 t33 的 12 份剧情侧 Spec（内核分支 ad3d802c1，`planned`）；新建 [t34](tasks/t34-plot-side-impl/README.md) 写实施计划并实现，仍在内核分支上、不合并 |
+| 2026-11-06 | 开发者看过 t34 阶段 G 的汇报：“按推荐来，追认、加抽样复核，然后合并”。分支 `feat/w00039-t29-canon-kernel` 的代码合进 master（779e3cc48，不 push），分支与 worktree 已删；11-02 “没有开发者允许不合并”到此结束，之后的 Task 照常合入。t31 的界面不再建在内核分支上。Spec 晋升没有说，13 份仍是 `planned` |
 
 ## 调研
 
@@ -72,11 +73,11 @@ updated: 2026-11-06
 
 | 顺序 | Task | 讨论什么 | 前置 |
 |---|---|---|---|
-| 1 | [t34](tasks/t34-plot-side-impl/README.md) | 剧情侧的实现：内核的新机制（引用、讲述的位置与标注、在场、决策与作者授权、诊断贡献点、世界线、`nb-time`）与剧情插件；先写实施计划、分阶段（11-05 新建；11-06 阶段 A 到 G 的代码与审查都完成，Spec 已合进 master，代码未合并，等开发者看决定点） | t33 |
+| 1 | [t34](tasks/t34-plot-side-impl/README.md) | 剧情侧的实现：内核的新机制（引用、讲述的位置与标注、在场、决策与作者授权、诊断贡献点、世界线、`nb-time`）与剧情插件；先写实施计划、分阶段（11-05 新建；11-06 阶段 A 到 G 的代码与审查都完成，代码合进 master（779e3cc48），Spec 仍是 `planned`，晋升等开发者批准） | t33 |
 | — | [t33](tasks/t33-plot-side-spec/README.md) | 剧情侧的 Spec（11-05 完成：12 份，三轮审查，开发者批准，在内核分支上） | t32 |
 | — | [t32](tasks/t32-plot-side/README.md) | 剧情侧的设计（11-05 完成：提案接受，ADR 0041–0043） | t29 |
 | 1 | [t27](tasks/t27-kernel-spec/README.md) | 内核 Spec：提案、t16 原型、第三轮推过来的细节与存储合成黑盒合同；并入 t10 的字段声明写法与 t14 的包切分（11-02 提前） | t09（已定） |
-| 2 | [t29](tasks/t29-kernel-impl/README.md) | 内核实现（`nb-canon`）：模型与计算、分段日志存储、渲染与带值写法、接进应用（11-04 完成，分支未合并） | t27 |
+| 2 | [t29](tasks/t29-kernel-impl/README.md) | 内核实现（`nb-canon`）：模型与计算、分段日志存储、渲染与带值写法、接进应用（11-04 完成，11-06 随 t34 合进 master） | t27 |
 | 3 | [t26](tasks/t26-evaluation/README.md) | 评测与样本书：量法已定，答案与基线在内核之后 | — |
 | 3 | [t19](tasks/t19-writing-workflow/README.md) | 写作流程与内置 Profile（流程稿待开发者看） | — |
 | 3 | [t30](tasks/t30-nb-canon-cleanup/README.md) | nb-canon 整理：t29 可维护性审查里不改行为的几项，差分测试兜底（11-04 新建） | t29 |

@@ -1,0 +1,51 @@
+w00039 t34 代码合入 master 的验证（2026-11-06）
+
+开发者：“按推荐来，追认、加抽样复核，然后合并。写回建议可以写回。”不 push。
+分支 feat/w00039-t29-canon-kernel 先合 master，验证过后 master 快进到 779e3cc48。
+
+冲突（3 个文件）
+- packages/neuro-book/package.json：两边的依赖都留（nb-time 与 pi-natives）。
+- packages/neuro-book/src/manifest.ts：productPlugins 取并集（canon、plot、themeStudy）。
+- bun.lock：取 master 的再 bun install 重新生成。
+另去掉分支上 8 个文件末尾多余的空行（git diff --cached --check 报的）。
+
+合并时的适配（4035e9fae）
+master 的模型通道把 HTTP 重发交给内核（maxHttpAttempts 固定为 1），又有了首包与空闲超时。
+- 重试与否看 error.retryable，不再按错误类别猜；
+- 检查不走内核的运行循环，只重试一次，所以重试前至少等 1 秒，服务商要求更久就等更久，超过 1 分钟算失败；
+- 去掉 5 分钟的总时长上限：它防的挂住的流已由传输层超时结束。
+测试：packages/neuro-book/src/plugins/plot/backend/server.test.ts 新增三条，真的提供方接上项目入口，只换掉等待。
+
+test:affected（负载 5 到 18）
+命令：bun run test:affected --typecheck --since master（在分支上，合入 e72bce5a0 之后）
+- 类型检查：除 nb-story 外都过。
+- nb-canon、nb-time、nb-ui、nb-story、neuro-agent-harness、neuro-book-contracts、test-support、owned-process 都过。
+- 应用包 bun 2456 过、8 跳过、2 失败；vitest 431 过、1 失败。
+工具汇总失败 4 项（按包和命令算），具体是下面 5 条：
+1. neuro-book src/command-args.test.ts：nbook.view.move-view 的 /target 是 json 字段。
+2. neuro-book src/architecture.test.ts：plugins/agent/web/mentions.ts、plugin.ts 跨插件导入 markdown、models 的 shared 模块。
+3. neuro-book src/plugins/lab/web/fixtures/index.dom.test.ts：AgentCompactionDetail 没有 Lab 场景。
+4. nb-story src/server/qa-service.ts(548,28)：TS2352。
+   前 4 条都不碰本 Task 的文件；在主工作区 master 2b8274543（不含本 Task 的代码）上原样失败。没有修，留给各自的 Work。
+5. dev-panel 租约命令一条 5 秒超时：单独重跑通过（负载下的超时）。
+
+其余检查
+- docs:check --since master：退出码 0，没有本次范围的失败与警告。
+- governance:check --since master：退出码 0，同上。
+- bun run build、build:e2e：退出码 0；check:dist 通过。
+- Playwright：e2e/plugins.e2e、e2e/workbench-shell.e2e，16 个用例全过（2.3 分钟）。
+  只挑这两个：canon、plot 没有界面，新增的是插件名单与项目入口。
+- 合入之后到快进之前 master 新增的提交只改了文档，没有重跑。
+
+项目资源占用（写进 docs/specs/runtime/projects.md 输出 12）
+命令：cd packages/neuro-book && bun run build:server && bun scripts/measure-project.ts 10
+      CANON_SCALE_KEEP=1 bun scripts/perf/canon-scale.ts 留下的项目交给 --world，5 次
+- 空项目，负载约 3.9：取得租约 p50 323 ms，常驻 p50 114 MB。
+- 空项目，负载约 7.5，同一负载对照：带 canon、plot 515 到 533 ms、112 MB；去掉两个插件 450 ms、103 MB。
+- 三百万字的世界，负载约 3.4：取得租约 404 ms，世界打开 2336 ms，常驻 520 MB。
+- 同一世界去掉 plot，负载约 4.4：取得租约 284 ms，世界打开 1964 ms，常驻 489 MB。
+比 2026-11-03 的 1.1 s、323 MB（负载 1.4）大。plot 只占约 30 MB，多出的 170 MB 与约 1 秒没有查原因（候选：负载与回收时机、11-03 之后内核的改动、规模脚本的世界变了）。
+
+没有验证
+- 真实模型（plot.llm.test.ts）在合入后没有再跑；阶段 F 的两遍真实模型证据在 evidences/llm-f9.txt，那时走的是分支上的模型通道。
+- 全量 e2e 没有跑。
