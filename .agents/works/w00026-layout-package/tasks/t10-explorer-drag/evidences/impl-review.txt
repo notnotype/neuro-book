@@ -1,0 +1,92 @@
+# w00026 t10 实现审查报告（提交 a952343fc）
+审查者：只读；实验文件在 /tmp/review-t10-impl/exp/。路径除非写了包名，都相对 packages/neuro-book/src/plugins。
+按核实顺序追加，最后按影响重排并汇总。
+
+------------------------------------------------------------
+[重要] F1 openFiles：分区末尾的“已在落点上”判断漏了固定区，会中止整批
+位置：editor/web/tab-drag.ts openFiles（约第 63 到 70 行：samePartition 之后的 `(tabs[at + 1]?.id ?? null) === before`）
+现象：落点是固定区末尾（part 为 "pinned"，`before` 为 null）、被放下的文件恰好已经是固定区最后一个标签、且普通区还有标签时，判断不成立，落到 `moveTab`，后者返回 `refusal.samePlace`，`openFiles` 当失败 return false，后面的文件一个都不开。
+为什么：`before === null` 的“已在末尾”只对普通区成立（后面没有标签）。固定区的末尾后面是普通区的第一个标签，`tabs[at + 1]?.id` 不是 null。groups.moveTab 的“原位”判断用的是“同组、同区、位置没变”，两边口径不一致。注释写“已经在落点上（moveTab 会说同一位置）不算失败”，但只覆盖了一半。
+如何核实：/tmp/review-t10-impl/exp/area-exp.test.ts 的 E1、E3（在 w00026-t07-single-tree 的 node_modules 下跑 `bun test area-exp.test.ts`）：a.md 固定、b.md 普通，`openFiles(["a.md","c.json"], {kind:"strip", panel, index:1}, "pinned")` 返回 false，c.json 没有打开；单文件同样返回 false。
+改法：判断“已在落点”不要自己推，按 `moveTab` 同一口径：before 为 null 时，看它是不是所在分区的最后一个（固定区：下一个标签不存在或不是固定的；普通区：没有下一个）；或者直接把 `samePlace` 拒绝识别出来继续（让编辑器区的 moveTab 提供一个“已在原位”的区分，而不是比文案）。area.test.ts 补一条固定区的用例（现有用例全在普通区）。
+
+------------------------------------------------------------
+[建议] F2 ExplorerTree 的 show watch：用 `host` 的对象身份判断“换了外壳”，每次判定都不相等
+位置：explorer/web/components/ExplorerTree.vue 的 `watch(... {flush: "sync"})`（`if (shownHost !== null && shownHost !== next?.host) shownHost.show(null)`）与 workbench/web/components/WorkbenchShell.vue 的 `useDropTarget(hostEl, [WORKBENCH_FILE_DROP], () => ({...}))`
+现象：`useDropTarget` 登记的是工厂，`dropTargetAt` 每次调用都 `data()` 返回一个新对象，所以 `WorkbenchFileDropHost` 每帧都是新对象。`shownHost !== next.host` 恒为真：指针在编辑区里移动的每一帧都先 `show(null)` 再 `show(drop)`，两次写 `shownFileDrop`。
+为什么：外壳是同一个，这个比较本来想表达“从一个外壳移到另一个外壳时撤掉旧的”。现在它不起这个作用，只是每帧多一次清空与重写；因为都在同一个同步栈里、渲染在下一轮，当前看不到闪烁，但谁以后给 `show` 加了副作用（动画、读屏播报）就会踩到。
+如何核实：/tmp/review-t10-impl/exp/ident.test.ts：对同一元素两次 `dropTargetAt(el, kind)`，`.data` 不是同一个对象（输出 false）。
+改法：要么让登记的数据是稳定对象（`useDropTarget` 的工厂外先建一个 host 对象再返回它），要么这里按“拿到 host 的元素”比较（`dropTargetAt` 返回的 `element`），或者干脆去掉这条（只有一个外壳）。顺手：同一段上面残留了一行旧注释 `/** 在编辑组打开：画整个编辑组（树外，用编辑区共用的反馈层）。 */`，和下一行新注释叠在一起，应删。
+
+------------------------------------------------------------
+[建议] F3 openFiles：锚点按“地址”排除，把同地址、不会被复用的预览视图标签也排除了
+位置：editor/web/tab-drag.ts openFiles 的 `dropped = new Set(addresses)` 与 `anchor = ...find((tab) => !dropped.has(tab.address))`
+现象：同一文件的源码标签与预览视图标签并存时，把这个文件放在预览视图标签前面，锚点被跳到下一个标签，源码标签被移到预览视图后面（本来紧挨着、不该动）。
+为什么：`area.open` 的复用条件是“同地址、且不是预览编辑器”（area.ts 的 `reuse`），预览视图标签不会被复用，不该当“会被复用的被放下的文件”排除。
+如何核实：/tmp/review-t10-impl/exp/area-exp.test.ts 的 E4：标签 [a.html(code), a.html(preview), b.md]，`openFiles(["a.html"], {kind:"strip", index:1}, "normal")` 之后变成 [a.html(preview), a.html(code), b.md]。
+改法：排除条件换成和 `reuse` 同一口径（地址相同且编辑器不是预览）；或把“要复用哪个标签”从 `area` 问出来（比如让 `open` 之前就能查到会复用的标签 id），不要在这里复刻。影响小，场景少见。
+
+------------------------------------------------------------
+[建议] F4 openFiles：已打开的固定标签被放进普通区会被静默取消固定
+位置：editor/web/tab-drag.ts openFiles（`moveTab(..., {partition})` 带着 part 一起移）
+现象：文件已经是固定标签，从资源树拖到同组标签条的普通区，放下后它被移到那里并取消固定（E2：[a.md(固定), b.md] 放 a.md 到普通区 index 2，结果 [b.md, a.md]，a.md 不再固定）。
+为什么：对“标签的拖动”来说，跨区就是改固定状态，这是对的；但文件拖来的意图是“把这个文件打开在这里”，没有人想取消固定，也没有提示。Spec 只写了“标签条分区”，没写已存在的标签跨区怎么办。属于 Spec 没定的取舍，按“静默改用户设置”看应该问一下。
+如何核实：/tmp/review-t10-impl/exp/area-exp.test.ts 的 E2。
+改法：二选一，写进 Spec 与测试：已存在的标签保留固定状态（落点在别的区时只移到最近的同区位置，或不动只激活）；或明确“跟着落点的分区走”并在 files-explorer 验收里写一句。
+
+------------------------------------------------------------
+[建议] F5 文件落点的提交没有“再验一次接受矩阵”：applyLayoutDrop(new) 与 PanelTree.openAt 都不查 policy.accepts
+位置：nb-layout/src/layout-drop.ts `applyNewTab`；workbench/shared/editor-panels.ts `openAt`（`openPanelAtEdge` 只用 policy 取 id）；workbench/web/state/layout-doc-store.ts `commitFiles`
+现象：同一个动作，编辑器标签的路径会被 `moveTabToStrip`/`moveTabToEdge` 拒绝（它们调 `policy.accepts`），文件的路径不会。E5：对工具面板 `applyLayoutDrop(doc, FILE, {kind:"center", panel:"a"})` 和外缘 `split` 都返回 ok:true，而同一处编辑器标签返回 ok:false。
+为什么：workbench-layout 输出 26 写“接受矩阵在提交时再验一次”。现在靠 `resolve` 在上一帧已经筛过，实际只有“上一帧到松手之间布局变了”或 `commitFiles` 被别处调用时才会漏；`commitFiles` 接收任意 `LayoutDropAction`，合同上没有这层保护。放到工具面板外缘的结果是在工具面板旁边长出一个编辑组，违反骨架（输出 1）。
+如何核实：/tmp/review-t10-impl/exp/accept.test.ts（`bun test accept.test.ts`，输出：文件放进工具面板中央 ok = true；对照编辑器标签 ok = false）。
+改法：`applyNewTab` 的 strip/center/edge 先取目标面板，`policy.accepts([tab], panel, region)` 为假就 `failure("rejected", ...)`；`openAt` 里同样先验（或让 `openGroupAt` 经 `applyLayoutDrop` 的同一路径）。layout-drop.test.ts 补“文件放工具面板被拒”。
+补充：`openAtEdge` 与 `openAt` 的函数体几乎一样（计划说前者成为后者的特例），可以让 `openAtEdge` 调 `openAt`。
+
+------------------------------------------------------------
+[建议] F6 活动栏底段：代码开窗，files-explorer 写“活动栏取消”
+位置：workbench/web/layout-drag.ts `fileDrop`（只拦 `toolBand()` 即 `[data-tool-band]`）、workbench/web/components/WorkbenchToolStrip.vue（底段是 `data-activity-items`，不在 band 里、按钮也没有 `data-no-drag`）
+现象：指针落在活动栏底段（贡献的全局项）或底段的空隙时，`excludedRects` 让 `resolveLayoutDrop` 返回 null，`fileDrop` 当“明确的无落点”开浮动窗。
+为什么：docs/specs/workbench/files-explorer.md 写“按钮区、活动栏、被菜单与对话框挡住时取消”，验收 26 写“拖到活动栏没有落点，不开窗”；workbench-layout 输出 25 第 1 行写“活动栏底段没有落点”，输出 39 的“不浮动”只列了活动栏上段。两份 Spec 不一致，代码按后者，e2e 只点了 `[data-tool-band]` 的中心。
+如何核实：从代码推断，未运行。
+改法：先让开发者定：活动栏整条都取消（`fileDrop` 把整个 `[data-shell-card='activitybar']` 当取消，e2e 加底段一条），或者改 files-explorer 的话。
+
+------------------------------------------------------------
+[建议] F7 超过 10 项时拖影丢了落点的字
+位置：explorer/web/components/ExplorerTree.vue `dropLabel`（`action.skipped > 0 ? text("tree.drop.openSome", ...) : action.drop.label`）；locales 的 `tree.drop.openSome`
+现象：多于 10 项时拖影只写“打开 10 项（另 2 项不打开）”，不再写“添加为标签 / 浮动打开 / 放到两块之间”。
+为什么：files-explorer“拖出树”写“拖影写落点的字……最多 10 项（多出的不打开，拖影说明）”，两件事都要在拖影上。落点是浮动窗还是拆分在多项时恰恰最需要说。
+如何核实：读代码；没有 e2e 覆盖超过 10 项（plan.test.ts 只测 `resolveEditorDrop` 的计数）。
+改法：`openSome` 的文案带一个 `{where}` 参数，或拖影写两行。
+
+------------------------------------------------------------
+[建议] F8 残留与测试判别力
+a) 文档没改全：explorer/web/components/ExplorerTree.md 第 22 行仍写“树外的编辑组（`[data-editor-group]`）”与“在编辑组打开画整个编辑组（nb-layout `DropFeedbackOverlay`）”，与同一份文件后面改过的 `env:portal`、`env:global` 两条矛盾。
+b) 孤儿模板 ref：editor/web/components/EditorGroup.vue（`ref="section"`）与 EditorGroupHead.vue（`ref="head"`）的 ref 对应的 `useTemplateRef` 已删，现在没有人读。
+c) e2e（e2e/files-explorer.e2e.ts 新用例）的判别力：
+   - 标签条一段只断言“活动标签是 index.md”，落在最后一个标签后面时用中央打开也会得到同样结果；没有断言新标签的位置（应断言它在第几个、前一个标签是谁）。
+   - 右缘一段只断言组数为 2，没断言 drop-one.md 在新组里。
+   - 取消类的几段断言 `[data-drop-kind]` 个数为 0，但从没在“放下之后”断言反馈消失；Esc 取消、撤下落点（滚动）后外壳反馈清掉，e2e 没有覆盖（这是 `show(null)` 路径，brief 重点 2）。
+   - 活动栏一段取 `[data-tool-band]` 的中心，会落在条目按钮上，不能区分 `fileDrop` 的 band 判断与 `data-no-drag` 判断。
+   - 多文件、超过 10 项、固定区、已打开的文件重复放下（F1）都没有。
+d) 单元：nb-layout 没有给 `openFloatPanel`（含 16 个窗的上限）的用例；layout-drop.test.ts 第二个用例标题写“放回原处恒为假”，但里面没有断言这一点（它是 layout-drag.ts 里 `inPlace && source.kind !== "new"` 的行为，无单测）；`resolveTreeTarget` 的“树所在面板取消、top 为 null、找不到外壳”没有 DOM 单测，全靠 e2e。
+
+============================================================
+汇总（按影响排序的目录；上面各条按核实顺序记录）
+阻断 0 条
+重要 1 条：F1
+建议 7 条：F5（接受矩阵提交时不再验）、F6（活动栏底段，两份 Spec 不一致）、F7（超过 10 项拖影丢落点的字）、F4（已固定标签被放进普通区静默取消固定）、F3（锚点把预览视图标签当成被放下的文件）、F2（host 身份比较恒不等）、F8（文档残留、孤儿 ref、测试判别力）
+base 上就有的问题：没有单独记。F8a 的 ExplorerTree.md 过时是本次提交改一半漏的；`scroll: "withdraw"`、`watch(props.rows) → invalidate` 在 base 上就有（落点上行变化会撤下落点，松手即取消）。
+
+核实时跑过的：
+- w00026-t07-single-tree 里 `bun test`：nb-layout 的 layout-drop、layout-doc，explorer 的 transfer、locales、plan，editor 的 area（“资源树拖来的文件”5 条）全过；`neuro-book` 与 `nb-layout` 的 typecheck 只有 permission-page.dom.test.ts 两处既有的 `exists` 类型错误，与本提交无关。
+- 实验：/tmp/review-t10-impl/exp/area-exp.test.ts（E1 到 E4）、ident.test.ts、accept.test.ts。未跑 e2e 与开发服务；F6 与 F8c 的 e2e 判断是读代码推断。
+
+未发现问题的方面（仔细检查后没有发现）：
+- `show` 的 watch 在各结束路径都会 `show(null)`：放下（`finish` 先 `publish(null)` 再提交，高亮立刻消失）、Esc 与失焦等取消（同一路径）、撤下落点（`withdraw` 发布 drop 为 null）、控制器取消（`props.drag` 变 null，getter 返回 null）、卸载（`onBeforeUnmount`）。`hovered` 与 `props.drag` 的先后：`props.drag` 经父组件渲染才更新，所以进入编辑区的那一帧 getter 先读到旧动作，下一轮渲染后补上 `show`，只是晚一个渲染，离开方向是立即的。
+- 放下时 `over.host.commit(action.drop, ...)` 用的是放下那一刻重判的落点（浮动矩形是松手位置，不是第一帧的）；`dropKey` 不含矩形，所以每帧的 `show` 带着新矩形、比较仍然稳定。
+- `resolveTreeTarget`：窗口外（`top` 为 null）从树往上找外壳；找不到外壳（Lab）返回 null 不报错；树所在面板里的判断用 `data-content-leaf` 与 `data-leaf` 两个标记，浮动窗里的资源树同样成立（NestedGrid 里两者都带叶 id）；被 Teleport 出去的菜单与对话框往上找不到外壳。
+- `fileDrop`：窗数到 16 且没有落点返回 null；最大化时只算最大化那块面板，活动栏上段与按钮区返回 null；文件这一路不进预览缓存也不读 `frozen`，没有与外壳自己会话共用的状态残留；外壳会话与文件落点同时存在时 `dragState.drop ?? shownFileDrop` 以会话为先，正常使用不会同时有两场。
+- `useEditorGroupRoot` 的退役：`EDITOR_GROUP_FILE` 在代码里零引用（只有 worktree 里还没同步的 editor.md 旧副本写着它，主工作区的 Spec 已改）；`root` 参数与 `groupRect` 都已去掉；键位、焦点、主键按下仍两个根都接。
+- `LayoutDropSource`：`new` 只在 `sourceTabs`、判定、预览里生效，`LayoutSource` 与会话、实时布局、键盘路径没动；`insertTab` 的“标签已存在”不会撞上真实标签（编辑器标签 id 是 `t-<uuid>`，占位的 `tabId: "file"` 不会冲突）。
+- 多文件顺序（锚点固定、逐个移到它前面）、`openFiles` 在外缘与浮动里新建组再打开、目标组有未裁决输入时停下并留提示，行为与计划一致，area.test.ts 的 5 条通过。
