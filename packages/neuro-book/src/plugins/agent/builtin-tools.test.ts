@@ -1130,7 +1130,7 @@ describe("声明", () => {
         const {session} = await open(w);
         await call(session, "read", {path: "session://"});
         expect(endpoint.requests.at(-1)!.tools).toEqual(expect.arrayContaining(["read", "write", "edit"]));
-        const tools = new AgentTools({declarations: {list: <D>() => BUILTIN_TOOL_CONTRIBUTIONS.map((item) => ({id: item.id, plugin: "nbook.agent", declaration: item.declaration as unknown as D}))} as never, clock: w.settings.clock, activate: async () => false, report: () => undefined, services: () => { throw new Error("不会建实现"); }});
+        const tools = new AgentTools({catalogChanged: () => undefined, declarations: {list: <D>() => BUILTIN_TOOL_CONTRIBUTIONS.map((item) => ({id: item.id, plugin: "nbook.agent", declaration: item.declaration as unknown as D}))} as never, clock: w.settings.clock, activate: async () => false, report: () => undefined, services: () => { throw new Error("不会建实现"); }});
         expect(tools.all().get("nbook.agent.edit")?.customFormat).toMatchObject({syntax: "lark"});
         expect(tools.all().get("nbook.agent.edit-replace")?.customFormat).toBeUndefined();
     });

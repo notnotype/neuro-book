@@ -74,6 +74,12 @@ const ProfileDeclarationSchema = Type.Object({
     icon: Type.Optional(Type.String({minLength: 1})),
     /** `false`：不加 `defaultForAll` 的工具（输出 4）。 */
     defaultTools: Type.Optional(Type.Literal(false)),
+    /** 需要的模型能力，同 `defineProfile` 的 `modelNeeds`；写在声明里，界面不用激活提供方就能提示（输出 14）。 */
+    modelNeeds: Type.Optional(Type.Object({
+        vision: Type.Optional(Type.Boolean()),
+        thinking: Type.Optional(Type.Boolean()),
+        minContext: Type.Optional(Type.Integer({minimum: 1})),
+    }, {additionalProperties: false})),
 }, {additionalProperties: false});
 
 export type AgentExtensionDeclaration = Static<typeof ExtensionDeclarationSchema>;

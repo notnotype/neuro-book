@@ -12,7 +12,7 @@ import {commandErrors, hostOnlyCommands} from "@notnotype/nb-harness/kernel/cont
 import type {Diagnostic, SessionApi, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
 
-import type {AgentService} from "../shared/contracts";
+import type {AgentService, ProfileAdmin} from "../shared/contracts";
 import type {Rule} from "../shared/permissions";
 import type {agentSessionsContract, ApprovalPreview, RemoteCommandName} from "../shared/remote";
 
@@ -31,6 +31,7 @@ const COMMANDS = (Object.keys(commandErrors) as RemoteCommandName[]).filter((nam
 
 export interface AgentRemoteOptions {
     readonly service: AgentService;
+    readonly profileAdmin: ProfileAdmin;
     readonly sessions: SessionTable;
     readonly clock: RuntimeClock;
     /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
@@ -200,6 +201,15 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             return chunk === null ? context.fail("out-of-range") : context.ok(chunk);
         },
         profiles: (_input, context) => context.ok(service.profiles()),
+        toolCatalog: (_input, context) => context.ok(options.profileAdmin.toolCatalog()),
+        createUserProfile: async ({name, description, system}, context) => {
+            const created = await options.profileAdmin.createUser(name, {description, system});
+            return created.ok ? context.ok({key: created.key, address: created.address}) : context.fail(created.code);
+        },
+        deleteUserProfile: async ({key}, context) => {
+            const deleted = await options.profileAdmin.deleteUser(key);
+            return deleted.ok ? context.ok({}) : context.fail(deleted.code);
+        },
         projectPermissionRules: async ({project}, context) => context.ok(await options.projectRules(project, context.signal)),
         activity: (_input, context) => context.ok(options.sessions.activity()),
         startTask: async ({initial, ...task}, context) => {
@@ -212,6 +222,13 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
     return {
         methods,
         events: {
+            profileCatalogChanged: {
+                subscribe(_filter, sink, context) {
+                    if (context.signal.aborted) return;
+                    const stop = options.profileAdmin.onCatalogChanged(() => sink.next({}));
+                    context.signal.addEventListener("abort", stop, {once: true});
+                },
+            },
             activityChanged: {
                 subscribe(_filter, sink, context) {
                     if (context.signal.aborted) return;

@@ -11,6 +11,9 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
+import {providerToolName} from "@notnotype/nb-harness/kernel/contracts";
+
+import type {ToolCatalogEntry} from "../shared/contracts";
 import {onAgentTool, TOOLS_POINT} from "../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation, ToolSubject} from "../shared/points";
 import type {AgentToolServices} from "../shared/resources";
@@ -36,6 +39,8 @@ export interface AgentToolsOptions {
     /** 交给工具工厂的会话服务（资源视图与全文保存），按内核给的会话上下文构造。 */
     /** `toolId` 是要构造的工具，资源视图拿它作 `call(ctx)` 的分组缺省标题。 */
     readonly services: (context: ToolSessionContext, toolId: string) => AgentToolServices;
+    /** 工具的发布与撤回：工具目录的界面要重取。 */
+    readonly catalogChanged: () => void;
 }
 
 const unavailable = (id: string): ToolResult => ({text: `Tool ${id} is not available right now; its plugin is not running.`, status: "error", code: "tool-unavailable"});
@@ -51,10 +56,12 @@ export class AgentTools {
     readonly receiver: ContributionReceiver<AgentToolDeclaration, AgentToolImplementation> = {
         published: (handle) => {
             this.#published.set(handle.id, handle);
+            this.options.catalogChanged();
         },
         revoke: async (handle) => {
             if (this.#published.get(handle.id) !== handle) return;
             this.#published.delete(handle.id);
+            this.options.catalogChanged();
             await Promise.all([...(this.#wrappers.get(handle.id) ?? [])].map((wrapper) => wrapper.revoke(handle)));
         },
     };
@@ -66,6 +73,18 @@ export class AgentTools {
             tools.set(descriptor.id, this.#declaration(descriptor.id, descriptor.plugin, descriptor.declaration));
         }
         return tools;
+    }
+
+    /** 工具目录（contributions.md 输出 17）：来自清单声明，不激活提供方。 */
+    catalog(): readonly ToolCatalogEntry[] {
+        return this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).map((descriptor) => ({
+            id: descriptor.id,
+            description: descriptor.declaration.description,
+            providerName: providerToolName({id: descriptor.id, ...(descriptor.declaration.providerName === undefined ? {} : {providerName: descriptor.declaration.providerName})}),
+            effect: descriptor.declaration.effect,
+            plugin: descriptor.plugin,
+            ...(descriptor.declaration.defaultForAll === true ? {defaultForAll: true as const} : {}),
+        }));
     }
 
     /**

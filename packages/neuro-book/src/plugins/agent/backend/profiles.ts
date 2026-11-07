@@ -10,7 +10,7 @@ import type {ContributionDeclarations, ContributionHandle, ContributionReceiver}
 
 import type {AnyProfile} from "@notnotype/nb-harness/kernel/contracts";
 
-import type {ProfileEntry, ProfileStatus} from "../shared/contracts";
+import type {ProfileEntry, ProfileProblem, ProfileStatus} from "../shared/contracts";
 import {onAgentProfile, PROFILES_POINT} from "../shared/points";
 import type {AgentProfileDeclaration, AgentProfileImplementation} from "../shared/points";
 
@@ -20,8 +20,8 @@ type Handle = ContributionHandle<AgentProfileDeclaration, AgentProfileImplementa
 
 /** 用户级 Profile 的一层（`profile-bundles.ts`）；目录只经这个形状用它。 */
 export interface UserProfiles {
-    /** `error`：最近一次打包或求值的错误；`usable`：有没有成功过的包（有错误时还在用上一次的）。 */
-    list(): readonly {readonly key: string; readonly name: string; readonly description: string; readonly tools: ToolRequirements; readonly usable: boolean; readonly error?: string}[];
+    /** `problem`：最近一次打包或求值的错误；`usable`：有没有成功过的包（有错误时还在用上一次的），`tools`、`modelNeeds` 来自它。 */
+    list(): readonly {readonly key: string; readonly name: string; readonly description: string; readonly tools: ToolRequirements; readonly modelNeeds?: ProfileEntry["modelNeeds"]; readonly usable: boolean; readonly problem?: ProfileProblem}[];
     resolve(key: string): AnyProfile | undefined;
 }
 
@@ -32,6 +32,8 @@ export interface ProfileCatalogOptions {
     readonly activate: (event: string) => Promise<boolean>;
     /** 这些 key 的 Profile 变了：用它们的会话重新解析。 */
     readonly changed: (keys: readonly string[]) => void;
+    /** 提供方的发布与撤回：目录的状态可能变了，界面要重取。 */
+    readonly catalogChanged: () => void;
     /** 此刻所有工具声明的 id（算可用性）。 */
     readonly toolIds: () => ReadonlySet<string>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
@@ -47,11 +49,13 @@ export class ProfileCatalog {
         published: (handle) => {
             this.#published.set(handle.id, handle);
             this.options.changed([handle.id]);
+            this.options.catalogChanged();
         },
         revoke: (handle) => {
             if (this.#published.get(handle.id) !== handle) return;
             this.#published.delete(handle.id);
             this.options.changed([handle.id]);
+            this.options.catalogChanged();
         },
     };
 
@@ -61,9 +65,9 @@ export class ProfileCatalog {
 
     list(): ProfileEntry[] {
         const tools = this.options.toolIds();
-        const availability = (requirements: ToolRequirements): {status: ProfileStatus; reason?: string} => {
+        const availability = (requirements: ToolRequirements): {status: ProfileStatus; problem?: ProfileProblem} => {
             const missing = requirements.required.filter((id) => !tools.has(id));
-            return missing.length === 0 ? {status: "ok"} : {status: "unavailable", reason: `missing required tools: ${missing.join(", ")}`};
+            return missing.length === 0 ? {status: "ok"} : {status: "unavailable", problem: {code: "tools-missing", tools: missing}};
         };
         const fromPlugins = this.options.declarations.list<AgentProfileDeclaration>(PROFILES_POINT).map((descriptor): ProfileEntry => ({
             key: descriptor.id,
@@ -73,6 +77,10 @@ export class ProfileCatalog {
             ...availability(descriptor.declaration.tools),
             ...(descriptor.declaration.hidden === true ? {hidden: true as const} : {}),
             ...(descriptor.declaration.icon === undefined ? {} : {icon: descriptor.declaration.icon}),
+            tools: descriptor.declaration.tools,
+            ...(descriptor.declaration.defaultTools === false ? {defaultTools: false as const} : {}),
+            ...(descriptor.declaration.role === undefined ? {} : {role: descriptor.declaration.role}),
+            ...(descriptor.declaration.modelNeeds === undefined ? {} : {modelNeeds: descriptor.declaration.modelNeeds}),
         }));
         const pluginKeys = new Set(fromPlugins.map((entry) => entry.key));
         const fromUser = (this.#user?.list() ?? []).map((profile): ProfileEntry => ({
@@ -82,7 +90,9 @@ export class ProfileCatalog {
             source: "user",
             // 插件已用了这个 key：插件的优先，用户的这份不可用（同名不覆盖，contributions.md 输出 7）。
             // 从来没成功过的解析不到，算不可用；成功过的继续用上一次的包，算有错误（输出 12）。
-            ...(pluginKeys.has(profile.key) ? {status: "unavailable", reason: `the key ${profile.key} is taken by a plugin's profile; rename the file`} : profile.error === undefined ? availability(profile.tools) : {status: profile.usable ? "error" : "unavailable", reason: profile.error}),
+            ...(pluginKeys.has(profile.key) ? {status: "unavailable", problem: {code: "key-taken"}} : profile.problem === undefined ? availability(profile.tools) : {status: profile.usable ? "error" : "unavailable", problem: profile.problem}),
+            ...(profile.usable ? {tools: {required: [...profile.tools.required], optional: [...profile.tools.optional]}} : {}),
+            ...(profile.modelNeeds === undefined ? {} : {modelNeeds: profile.modelNeeds}),
         }));
         return [...fromPlugins, ...fromUser];
     }

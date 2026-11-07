@@ -7,6 +7,8 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
 
+import type {AgentProfileDeclaration, AgentToolDeclaration} from "./points";
+
 export type ProfileStatus = "ok" | "unavailable" | "error";
 
 /** Profile 目录的一项（contributions.md 输出 7）。 */
@@ -15,6 +17,17 @@ export const MAIN_PROFILE = "nbook.agent.main";
 /** 给前台会话生成标题和说明的 Profile；不给人选。 */
 export const SESSION_TITLE_PROFILE = "nbook.agent.session-title";
 
+/** 不可用或有错误的原因（contributions.md 输出 15）：界面按码翻译，不带本机的绝对路径。 */
+export type ProfileProblem =
+    | {readonly code: "tools-missing"; readonly tools: readonly string[]}
+    | {readonly code: "key-taken"}
+    /** `module` 是导入了的包；运行时才算出模块名的没有。 */
+    | {readonly code: "module-not-shared"; readonly module?: string}
+    /** `expectedId`：导出了 Profile，但 id 不是这个文件该有的。 */
+    | {readonly code: "invalid-export"; readonly expectedId?: string}
+    /** `file` 相对 `user/profiles/`。 */
+    | {readonly code: "build-failed" | "load-failed"; readonly file: string; readonly line?: number; readonly message: string};
+
 export interface ProfileEntry {
     readonly key: string;
     readonly name: string;
@@ -22,12 +35,45 @@ export interface ProfileEntry {
     /** 贡献它的插件 id，或 `user`。 */
     readonly source: string;
     readonly status: ProfileStatus;
-    /** 不可用或有错误时的原因：缺的必需工具、打包或求值的错误。 */
-    readonly reason?: string;
+    /** 不可用或有错误时的原因。 */
+    readonly problem?: ProfileProblem;
     /** 不给人选（contributions.md 输出 7）。 */
     readonly hidden?: true;
     /** 图标 class：会话面板每行与对话顶栏用。 */
     readonly icon?: string;
+    /** 工具要求（contributions.md 输出 14）。用户级的来自上一次成功的包，从未成功时没有。 */
+    readonly tools?: AgentProfileDeclaration["tools"];
+    readonly defaultTools?: false;
+    /** 声明的缺省角色；用户级没有。 */
+    readonly role?: string;
+    readonly modelNeeds?: AgentProfileDeclaration["modelNeeds"];
+}
+
+/** 工具目录的一项（contributions.md 输出 17）。 */
+export interface ToolCatalogEntry {
+    readonly id: string;
+    /** 写给模型的说明：可能很长、不是界面语言。 */
+    readonly description: string;
+    /** 换算后交给模型的名字：相同的只有先出现的进工具集。 */
+    readonly providerName: string;
+    readonly effect: AgentToolDeclaration["effect"];
+    /** 贡献它的插件 id。 */
+    readonly plugin: string;
+    /** 装到所有 Profile 的工具集里（输出 4）。 */
+    readonly defaultForAll?: true;
+}
+
+export type CreateUserProfileResult = {readonly ok: true; readonly key: string; readonly address: string} | {readonly ok: false; readonly code: "invalid-name" | "exists"};
+export type DeleteUserProfileResult = {readonly ok: true} | {readonly ok: false; readonly code: "not-found"};
+
+/** 设置页管 Profile 用的（profile-settings.md）：只给同插件的远程实现，不进 `agentKey`。 */
+export interface ProfileAdmin {
+    toolCatalog(): readonly ToolCatalogEntry[];
+    /** 骨架里的文字由调用方按界面语言给；交回时目录里已经有它。 */
+    createUser(name: string, texts: {readonly description: string; readonly system: string}): Promise<CreateUserProfileResult>;
+    deleteUser(key: string): Promise<DeleteUserProfileResult>;
+    /** 目录变了（contributions.md 输出 16）；交回取消订阅。 */
+    onCatalogChanged(listener: () => void): () => void;
 }
 
 export type CreateResult = {readonly ok: true; readonly value: SessionApi} | {readonly ok: false; readonly code: string; readonly detail?: unknown};

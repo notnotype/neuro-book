@@ -68,7 +68,7 @@ const reasons = async (session: SessionApi) => (await session.log({afterSeq: 0})
 describe("用户级 Profile", () => {
     test("输出 9–11：打包装载用户写的 Profile（含 JSX 与本地导入）；改了导入的文件后重新打包，打开着的会话写 code-updated、下一次请求用新内容", async () => {
         const {w, directory} = await world({"writer.profile.tsx": WRITER_SOURCE, "note.ts": `export const note = "第一版说明";\n`});
-        expect(w.service.profiles().filter((profile) => profile.source === "user")).toEqual([{key: "user.writer", name: "我的写手", description: "测试用", source: "user", status: "ok"}]);
+        expect(w.service.profiles().filter((profile) => profile.source === "user")).toEqual([{key: "user.writer", name: "我的写手", description: "测试用", source: "user", status: "ok", tools: {required: [], optional: []}}]);
         const created = await w.service.create({profile: "user.writer"});
         if (!created.ok) throw new Error(created.code);
         const session = created.value;
@@ -93,14 +93,14 @@ describe("用户级 Profile", () => {
             "note.ts": `export const note = "能用的说明";\n`,
             "broken.profile.tsx": `export default {id: "user.broken"};\n`,
         });
-        expect(w.service.profiles().find((profile) => profile.key === "user.broken")).toMatchObject({status: "unavailable", reason: expect.stringContaining("profile-invalid-export")});
+        expect(w.service.profiles().find((profile) => profile.key === "user.broken")).toMatchObject({status: "unavailable", problem: {code: "invalid-export"}});
         const created = await w.service.create({profile: "user.writer"});
         if (!created.ok) throw new Error(created.code);
         const session = created.value;
 
         await writeFile(join(directory, "writer.profile.tsx"), WRITER_SOURCE.replace(`import {note} from "./note";`, `import {note} from "./note";\nimport "left-pad";`));
         await waitUntil("打包失败标在目录里", () => w.service.profiles().find((profile) => profile.key === "user.writer")?.status === "error");
-        expect(w.service.profiles().find((profile) => profile.key === "user.writer")?.reason).toMatch(/module-not-shared: left-pad/u);
+        expect(w.service.profiles().find((profile) => profile.key === "user.writer")?.problem).toEqual({code: "module-not-shared", module: "left-pad"});
         expect(await ask(session, "还能用吗")).toContain("能用的说明");
 
         await rm(join(directory, "writer.profile.tsx"));
@@ -110,7 +110,7 @@ describe("用户级 Profile", () => {
 
     test("输出 9：Profile 的 id 必须是 user.<文件名>", async () => {
         const {w} = await world({"mine.profile.tsx": `import {defineProfile} from "@notnotype/nb-plugin-sdk/agent";\nexport default defineProfile({id: "user.other", version: "1", name: "n", description: "d"});\n`});
-        expect(w.service.profiles().find((profile) => profile.key === "user.mine")).toMatchObject({status: "unavailable", reason: expect.stringContaining("user.mine")});
+        expect(w.service.profiles().find((profile) => profile.key === "user.mine")).toMatchObject({status: "unavailable", problem: {code: "invalid-export", expectedId: "user.mine"}});
     });
 
     test("输出 9、12：打包时没成功的，修好它导入的文件就重试；计算出来的导入以 module-not-shared 失败", async () => {
@@ -120,7 +120,7 @@ describe("用户级 Profile", () => {
         await waitUntil("修好依赖后重新打包成功", () => w.service.profiles().find((profile) => profile.key === "user.writer")?.status === "ok");
 
         await writeFile(join(directory, "dyn.profile.tsx"), `import {defineProfile} from "@notnotype/nb-plugin-sdk/agent";\nconst name = "left" + "-pad";\nawait import(name);\nexport default defineProfile({id: "user.dyn", version: "1", name: "d", description: "d"});\n`);
-        await waitUntil("计算出来的导入被拒", () => w.service.profiles().find((profile) => profile.key === "user.dyn")?.reason?.includes("module-not-shared") === true);
+        await waitUntil("计算出来的导入被拒", () => w.service.profiles().find((profile) => profile.key === "user.dyn")?.problem?.code === "module-not-shared");
     });
 
     test("输出 9：打包与求值期间用到的文件又变了，这次的结果作废、按新内容再打", async () => {
@@ -144,5 +144,119 @@ describe("用户级 Profile", () => {
         await waitUntil("最后发布的是新内容", async () => (await ask(created.value, "看看")).includes("新的附加"));
         delete gate.__profileGate;
         delete gate.__profileEntered;
+    });
+
+    test("输出 14：有过成功的包才带工具要求与模型能力，改坏后还是上一次成功的；从未成功的不带", async () => {
+        const source = `import {defineProfile} from "@notnotype/nb-plugin-sdk/agent";\nexport default defineProfile({id: "user.seer", version: "1", name: "看图的", description: "测试用", modelNeeds: {vision: true, minContext: 1000}, tools: {required: ["nbook.agent.read"], optional: []}, system: "你好"});\n`;
+        const {w, directory} = await world({"seer.profile.tsx": source, "never.profile.tsx": `export default {};\n`});
+        const entry = (key: string) => w.service.profiles().find((profile) => profile.key === key);
+        expect(entry("user.seer")).toMatchObject({status: "ok", tools: {required: ["nbook.agent.read"], optional: []}, modelNeeds: {vision: true, minContext: 1000}});
+        expect(entry("user.seer")?.role).toBeUndefined();
+        expect(entry("user.never")?.tools).toBeUndefined();
+
+        await writeFile(join(directory, "seer.profile.tsx"), `${source}\nconst = ;\n`);
+        await waitUntil("改坏后标错误", () => entry("user.seer")?.status === "error");
+        expect(entry("user.seer")?.tools).toEqual({required: ["nbook.agent.read"], optional: []});
+    });
+
+    test("输出 15：四种失败的原因都结构化，交给窗口的目录里没有本机路径", async () => {
+        const {w} = await world({
+            "syntax.profile.tsx": `const = ;\n`,
+            "table.profile.tsx": `import "left-pad";\nexport default {};\n`,
+            "shape.profile.tsx": `export default {};\n`,
+            "thrown.profile.tsx": `throw new Error("求值失败了");\n`,
+        });
+        const {client} = await w.window("catalog");
+        const listed = await client.profiles({});
+        if (!listed.ok) throw new Error(listed.code);
+        const problem = (key: string) => listed.value.find((profile) => profile.key === key)?.problem;
+        expect(problem("user.syntax")).toMatchObject({code: "build-failed", file: "syntax.profile.tsx", line: 1});
+        expect(problem("user.table")).toEqual({code: "module-not-shared", module: "left-pad"});
+        expect(problem("user.shape")).toEqual({code: "invalid-export"});
+        expect(problem("user.thrown")).toMatchObject({code: "load-failed", file: "thrown.profile.tsx", message: expect.stringContaining("求值失败了")});
+        expect(JSON.stringify(listed.value)).not.toContain(w.stateRoot);
+    });
+
+    test("输出 16：新建、改坏、恢复（哈希没变）、删除都发目录事件；改坏时会话不重新解析", async () => {
+        const {w, directory} = await world({"writer.profile.tsx": WRITER_SOURCE, "note.ts": `export const note = "说明";\n`});
+        const {client} = await w.window("events");
+        let events = 0;
+        const subscription = await client.events.profileCatalogChanged.subscribe({}, () => {
+            events += 1;
+        });
+        if (!subscription.ok) throw new Error(subscription.code);
+        const entry = () => w.service.profiles().find((profile) => profile.key === "user.writer");
+        const created = await w.service.create({profile: "user.writer"});
+        if (!created.ok) throw new Error(created.code);
+
+        const codeUpdates = async () => (await reasons(created.value)).filter((reason) => reason === "code-updated");
+        const after = async (label: string, act: () => Promise<void>, done: () => boolean): Promise<void> => {
+            events = 0;
+            await act();
+            await waitUntil(label, () => done() && events > 0);
+        };
+
+        await after("改坏", () => writeFile(join(directory, "writer.profile.tsx"), `const = ;\n`), () => entry()?.status === "error");
+        expect(await codeUpdates()).toEqual([]);
+        await after("恢复到同样的内容", () => writeFile(join(directory, "writer.profile.tsx"), WRITER_SOURCE), () => entry()?.status === "ok");
+        expect(await codeUpdates()).toEqual([]);
+        await after("删除", () => rm(join(directory, "writer.profile.tsx")), () => entry() === undefined);
+        subscription.value.release();
+    });
+
+    test("输出 17：工具目录来自声明，名字是交给模型的，同名的工具看得出来", async () => {
+        const {w} = await world({});
+        const {client} = await w.window("tools");
+        const catalog = await client.toolCatalog({});
+        if (!catalog.ok) throw new Error(catalog.code);
+        const tool = (id: string) => catalog.value.find((entry) => entry.id === id);
+        expect(tool("nbook.agent.edit")).toMatchObject({providerName: "edit", effect: "write", plugin: "nbook.agent"});
+        expect(tool("nbook.agent.edit-replace")?.providerName).toBe(tool("nbook.agent.edit")?.providerName);
+        expect(tool("nbook.agent.read")?.effect).toBe("read");
+    });
+
+    test("输出 18：新建一次写成，骨架打包成功；不出现空文件的中间状态；同名不覆盖、名字不合规则被拒", async () => {
+        const {w, directory} = await world({});
+        const {client} = await w.window("create");
+        const seen: string[] = [];
+        const subscription = await client.events.profileCatalogChanged.subscribe({}, () => {
+            for (const profile of w.service.profiles()) if (profile.source === "user") seen.push(`${profile.key}:${profile.status}`);
+        });
+        if (!subscription.ok) throw new Error(subscription.code);
+
+        const texts = {description: "我写的", system: "你是\"写手\"。"};
+        const made = await client.createUserProfile({name: "lore-check", ...texts});
+        if (!made.ok) throw new Error(made.code);
+        expect(made.value).toEqual({key: "user.lore-check", address: "user://profiles/lore-check.profile.tsx"});
+        expect(w.service.profiles().find((profile) => profile.key === "user.lore-check")).toMatchObject({status: "ok", name: "lore-check", description: "我写的"});
+        await waitUntil("收到目录事件", () => seen.length > 0);
+        expect(seen.filter((item) => !item.endsWith(":ok"))).toEqual([]);
+
+        const session = await w.service.create({profile: "user.lore-check"});
+        if (!session.ok) throw new Error(session.code);
+        expect(await ask(session.value, "你是谁")).toContain("你是\"写手\"。");
+
+        const edited = `// 我改过\n${await Bun.file(join(directory, "lore-check.profile.tsx")).text()}`;
+        await writeFile(join(directory, "lore-check.profile.tsx"), edited);
+        const again = await client.createUserProfile({name: "lore-check", ...texts});
+        expect(again).toMatchObject({ok: false, code: "exists"});
+        expect(await Bun.file(join(directory, "lore-check.profile.tsx")).text()).toBe(edited);
+        for (const name of ["Bad", "a/b", "../x", "-x", "x-", "a--b", "中文"]) {
+            expect(await client.createUserProfile({name, ...texts})).toMatchObject({ok: false, code: "invalid-name"});
+        }
+        subscription.value.release();
+    });
+
+    test("输出 18：删除入口文件，用它的会话只读；不在的得 not-found", async () => {
+        const {w, directory} = await world({"writer.profile.tsx": WRITER_SOURCE, "note.ts": `export const note = "说明";\n`});
+        const {client} = await w.window("delete");
+        const created = await w.service.create({profile: "user.writer"});
+        if (!created.ok) throw new Error(created.code);
+        expect((await client.deleteUserProfile({key: "user.writer"})).ok).toBe(true);
+        expect(w.service.profiles().some((profile) => profile.key === "user.writer")).toBe(false);
+        expect(await Bun.file(join(directory, "note.ts")).exists()).toBe(true);
+        await waitUntil("会话只读", async () => (await created.value.snapshot()).readOnly?.code === "unknown-profile");
+        expect(await client.deleteUserProfile({key: "user.writer"})).toMatchObject({ok: false, code: "not-found"});
+        expect(await client.deleteUserProfile({key: "nbook.agent.main"})).toMatchObject({ok: false, code: "not-found"});
     });
 });

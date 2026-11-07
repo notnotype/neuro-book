@@ -19,7 +19,7 @@ import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {TASK_ID, taskSessionId} from "../shared/contracts";
-import type {AgentService, StartTaskOptions, StartTaskResult} from "../shared/contracts";
+import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
@@ -62,6 +62,7 @@ export interface AgentRuntime {
     readonly sessions: SessionTable;
     readonly meta: SessionMeta;
     readonly service: AgentService;
+    readonly profileAdmin: ProfileAdmin;
     /** 会话目录的根：`sessions://` 的容器。 */
     readonly sessionsRoot: string;
     /** 存储层的会话列表，不加缺省的过滤（含归档与后台的），`sessions://` 与临时目录的清理用。 */
@@ -99,13 +100,19 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const bindings = () => options.settings.get(agentSettings.settings.toolBindings);
     const profileSettings = () => options.settings.get(agentSettings.settings.profileSettings);
 
+    const catalogListeners = new Set<() => void>();
+    const catalogChanged = (): void => {
+        for (const listener of catalogListeners) listener();
+    };
+
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
-    const tools = new AgentTools({declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
+    const tools = new AgentTools({catalogChanged, declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
     const profiles = new ProfileCatalog({
         declarations: options.declarations,
         activate: options.trigger,
         changed: (keys) => void hostRef?.profilesChanged(keys),
+        catalogChanged,
         toolIds: () => new Set(tools.all().keys()),
         report: options.report,
     });
@@ -151,6 +158,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         sharedModules: SERVER_SHARED_MODULES,
         hostModules: serverHostModules,
         changed: (keys) => void host.profilesChanged(keys),
+        catalogChanged,
         report: options.report,
     });
     profiles.attachUser(userProfiles);
@@ -234,6 +242,25 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
     const meta = new SessionMeta({table, create: createSession, models, report: options.report});
 
+    const profileAdmin: ProfileAdmin = {
+        toolCatalog: () => {
+            table.gate();
+            return tools.catalog();
+        },
+        createUser: (name, texts) => {
+            table.gate();
+            return userProfiles.create(name, texts);
+        },
+        deleteUser: (key) => {
+            table.gate();
+            return userProfiles.delete(key);
+        },
+        onCatalogChanged: (listener) => {
+            catalogListeners.add(listener);
+            return () => catalogListeners.delete(listener);
+        },
+    };
+
     return {
         host,
         tools,
@@ -243,6 +270,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         sessions: table,
         meta,
         service,
+        profileAdmin,
         sessionsRoot,
         listSessions: async () => {
             const listed = await store.list();

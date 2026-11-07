@@ -18,7 +18,7 @@ import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandNam
 
 import {TASK_ID} from "./contracts";
 import {RulesSchema} from "./permissions";
-import type {ProfileEntry} from "./contracts";
+import type {ProfileEntry, ToolCatalogEntry} from "./contracts";
 
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
 const Nullable = <S extends TSchema>(schema: S) => Type.Union([schema, Type.Null()]);
@@ -199,6 +199,24 @@ const methods = {
         errors: errorsOf(["unknown-token", "out-of-range"] as const),
     },
     profiles: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ProfileEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
+    toolCatalog: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ToolCatalogEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
+    /** 骨架里的文字由窗口按界面语言给（contributions.md 输出 18）。 */
+    createUserProfile: {
+        input: Type.Object({
+            name: Type.String({minLength: 1, maxLength: 64}),
+            description: Type.String({maxLength: 500}),
+            system: Type.String({maxLength: 4000}),
+        }, {additionalProperties: false}),
+        output: Type.Object({key: Type.String(), address: Type.String()}, {additionalProperties: false}),
+        effect: "write",
+        errors: errorsOf(["invalid-name", "exists"] as const),
+    },
+    deleteUserProfile: {
+        input: Type.Object({key: Type.String({minLength: 1})}, {additionalProperties: false}),
+        output: Type.Object({}, {additionalProperties: false}),
+        effect: "write",
+        errors: errorsOf(["not-found"] as const),
+    },
     /** 设置页列出的这本书的规则（permissions.md 输出 22）：文件不给浏览器直接读（`.nbook/` 是控制目录）。 */
     projectPermissionRules: {
         input: Type.Object({project: Type.String({minLength: 1})}, {additionalProperties: false}),
@@ -225,6 +243,8 @@ const events = {
     /** 先订阅、再用 `log` 补到 `through`；`onResync` 时按最后收到的 seq 再补（sessions.md 输出 7、8）。 */
     frames: {filter: Type.Object(BySession, {additionalProperties: false}), payload: object<RemoteFrame>()},
     activityChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Unsafe<readonly ActivityItem[]>(Type.Array(Type.Unknown()))},
+    /** 只说目录变了，没有载荷：先订阅、再取 `profiles` 与 `toolCatalog`，`onResync` 时重取（sessions.md 输出 17）。 */
+    profileCatalogChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Object({}, {additionalProperties: false})},
 } as const;
 
 export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessions", version: 1, provider: "server", callers: ["browser"], methods, events});
