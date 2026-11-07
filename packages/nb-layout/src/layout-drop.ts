@@ -2,17 +2,17 @@
  * 工作台的落点规则（docs/specs/ui/workbench-layout.md 输出 25 到 29）：按这一刻的矩形判定指针落在哪，判定与提交共用同一份动作。纯函数；遮挡（被菜单挡住、
  * `data-no-drop`）由宿主读 DOM 之后不把那块传进来。
  *
- * 动作的身份就是它的内容：同一个落点无论从这条边、缝还是对面那块的边进来，得到的是同一个 `between`，会话按它判断“和上次显示的是不是同一个”。
+ * 动作的身份就是它的内容，会话按它判断“和上次显示的是不是同一个”。缝和外缘是两个落点：缝放到两块之间，外缘往这一块的这个方向分。
  */
 
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, findTab, findTreeNode, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, setFloatRect, setPanelHidden, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
+import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, setFloatRect, setPanelHidden, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
-import type {GridExtent} from "./grid-types";
+import type {GridExtent, GridOrientation, GridSnapshotNode} from "./grid-types";
 
 /** 外缘窄带占这一块的比例。 */
 export const LAYOUT_EDGE_RATIO = 0.28;
@@ -20,6 +20,8 @@ export const LAYOUT_EDGE_RATIO = 0.28;
 export const LAYOUT_FLOAT_EDGE_RATIO = 0.14;
 /** 指针离一块这么近时算这一块：卡片之间的缝与分隔线都不超过这么宽。条与标题栏经 `excluded` 排除，不靠这个数。 */
 const SEAM_PX = 4;
+/** 指针离缝的中线这么近时是这条缝（输出 25）。我们的缝只有 1px，要有一条带子才指得中。 */
+export const LAYOUT_SEAM_HIT_PX = 6;
 
 export type LayoutDropAction =
     /** `activate: false` 只换位置（活动栏里换序）。缺省成为活动标签。 */
@@ -38,6 +40,8 @@ export type LayoutDropSource = LayoutSource | {readonly kind: "new"; readonly ta
 
 export interface LayoutDropPanelGeometry {
     readonly id: string;
+    /** 整块面板。缺省是 `body` 与 `strip` 的并集；头里还有别的东西（编辑组的提示条）时要给，缝才在对的地方。 */
+    readonly frame?: GridDropRect;
     readonly body: GridDropRect;
     /** 标签条的矩形；编辑组与工具面板都有。 */
     readonly strip: GridDropRect | null;
@@ -140,6 +144,90 @@ export function layoutDropPanelAt(input: LayoutDropInput): LayoutDropPanelGeomet
         .sort((left, right) => left.distance - right.distance)[0]?.geometry ?? null;
 }
 
+/** 一条缝：同一分支里相邻的两个看得见的子节点之间。 */
+export interface LayoutSeam {
+    readonly branch: string;
+    readonly orientation: GridOrientation;
+    readonly before: string;
+    readonly after: string;
+    /** 中线沿分支主轴的坐标。 */
+    readonly at: number;
+    /** 在交叉轴上的范围：整个分支那么长。 */
+    readonly from: number;
+    readonly to: number;
+}
+
+const unionOf = (left: GridDropRect, right: GridDropRect): GridDropRect => ({left: Math.min(left.left, right.left), top: Math.min(left.top, right.top), right: Math.max(left.right, right.right), bottom: Math.max(left.bottom, right.bottom)});
+
+/**
+ * 这一刻有哪些缝，缝的位置按几何算。没有几何的叶（隐藏的、拖到零的）不算：`H[A, 拖到零的 Z, B]` 看得见的只有 A|B 这一条缝。
+ */
+export function layoutSeamsOf(doc: LayoutDoc, panels: ReadonlyArray<LayoutDropPanelGeometry>): ReadonlyArray<LayoutSeam> {
+    const frames = new Map(panels.map((geometry) => [geometry.id, geometry.frame ?? (geometry.strip === null ? geometry.body : unionOf(geometry.strip, geometry.body))]));
+    const seams: LayoutSeam[] = [];
+    const visit = (node: GridSnapshotNode): GridDropRect | null => {
+        if (node.kind === "leaf") return frames.get(node.id) ?? null;
+        const shown = node.children.flatMap((child) => {
+            const rect = visit(child);
+            return rect === null ? [] : [{id: child.id, rect}];
+        });
+        const first = shown[0];
+        if (first === undefined) return null;
+        const whole = shown.reduce((sum, item) => unionOf(sum, item.rect), first.rect);
+        const horizontal = node.orientation === "horizontal";
+        for (let index = 1; index < shown.length; index += 1) {
+            const before = shown[index - 1] as (typeof shown)[number];
+            const after = shown[index] as (typeof shown)[number];
+            seams.push({
+                branch: node.id,
+                orientation: node.orientation,
+                before: before.id,
+                after: after.id,
+                at: horizontal ? (before.rect.right + after.rect.left) / 2 : (before.rect.bottom + after.rect.top) / 2,
+                from: horizontal ? whole.top : whole.left,
+                to: horizontal ? whole.bottom : whole.right,
+            });
+        }
+        return whole;
+    };
+    visit(doc.tree.root);
+    return seams;
+}
+
+const seamAccepted = (input: Pick<LayoutDropInput, "doc" | "policy">, tabs: ReadonlyArray<TabRef>, seam: LayoutSeam): boolean => {
+    if (input.policy.seamAccepts?.(input.doc, tabs, seam.before, seam.after) !== true) return false;
+    const anchor = firstPanelIn(input.doc, seam.before);
+    return anchor !== null && input.policy.accepts(tabs, anchor, "edge");
+};
+
+/** 指针下的缝：最近的胜出，放不进去的缝不算。 */
+function seamAt(input: LayoutDropInput, tabs: ReadonlyArray<TabRef>): LayoutSeam | null {
+    if (input.policy.seamAccepts === undefined) return null;
+    const {x, y} = input.point;
+    let found: LayoutSeam | null = null;
+    let nearest = Number.POSITIVE_INFINITY;
+    for (const seam of layoutSeamsOf(input.doc, input.panels)) {
+        const [along, across] = seam.orientation === "horizontal" ? [x, y] : [y, x];
+        const distance = Math.abs(along - seam.at);
+        if (across < seam.from || across >= seam.to || distance > LAYOUT_SEAM_HIT_PX || distance >= nearest || !seamAccepted(input, tabs, seam)) continue;
+        found = seam;
+        nearest = distance;
+    }
+    return found;
+}
+
+const seamTarget = (seam: LayoutSeam): LayoutEdgeTarget => ({kind: "between", branch: seam.branch, before: seam.before, after: seam.after});
+
+/**
+ * 指针在面板上吗（不管接不接收）：浮动窗，或任一面板的正文、标签条，以及它们 `SEAM_PX` 内的缝。在面板上却没有落点就是被拒绝，松手取消；不在面板上才算无落点（输出 39）。
+ * 不用 `layoutDropPanelAt`：它在缝里只找能接收的那块，两块都不接收的缝会被当成不在面板上。
+ */
+export function layoutDropOverPanel(input: LayoutDropInput): boolean {
+    if (input.floats?.some((geometry) => inGeometry(geometry, input.point)) === true) return true;
+    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return false;
+    return input.panels.some((geometry) => Math.min(distanceTo(geometry.body, input.point), geometry.strip === null ? Number.POSITIVE_INFINITY : distanceTo(geometry.strip, input.point)) <= SEAM_PX);
+}
+
 /** 这一刻指针落在哪；`null` 是没有落点（工作台外、标题栏、条、被接受矩阵拒绝）。 */
 export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | null {
     const tabs = sourceTabs(input.doc, input.source);
@@ -151,6 +239,8 @@ export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | nu
         return panel === undefined ? null : resolveInPanel(input, floated, panel, tabs);
     }
     if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
+    const seam = seamAt(input, tabs);
+    if (seam !== null) return {kind: "edge", target: seamTarget(seam)};
     const hit = layoutDropPanelAt(input) ?? undefined;
     const panel = hit === undefined ? undefined : input.doc.panels[hit.id];
     const action = hit === undefined || panel === undefined ? null : resolveInPanel(input, hit, panel, tabs);
@@ -278,7 +368,14 @@ export function previewRevealRects(doc: LayoutDoc, panels: ReadonlyArray<string>
         const result = setPanelHidden(shown, panel, false);
         if (result.ok) shown = result.doc;
     }
-    const {input, sashSize} = projectLayoutDoc(shown, projection);
+    return previewPanelRects(shown, panels, projection, extent, dpr);
+}
+
+/**
+ * 这几块面板在这份文档里的矩形（相对树的根），显隐与收起都按文档：收成标题行的就是那一行。实时布局的并入盖层按它画（输出 38）。放不进呈现树的不在结果里；浮动窗不在树里，由宿主取它的矩形。
+ */
+export function previewPanelRects(doc: LayoutDoc, panels: ReadonlyArray<string>, projection: LayoutProjectionOptions, extent: GridExtent, dpr: number): Readonly<Record<string, GridDropRect>> {
+    const {input, sashSize} = projectLayoutDoc(doc, projection);
     const grid = createGrid<string>(input, {sashSize});
     const root = grid.root();
     if (root === null) return {};
@@ -305,7 +402,7 @@ function isInPlace(doc: LayoutDoc, source: LayoutSource, action: LayoutDropActio
         case "center":
             return found !== null ? found.panel === action.panel : source.kind === "panel" && source.panel === action.panel;
         case "edge":
-            return whole !== null && (action.target.kind === "split" ? action.target.panel === whole : action.target.before === whole || action.target.after === whole);
+            return whole !== null && edgeTargetTouches(doc, action.target, whole);
         case "reveal":
             return false;
         case "float":
@@ -323,6 +420,8 @@ export function enumerateDropCandidates(input: {
     readonly policy: LayoutPolicy;
     readonly stripIndexes: (panel: string) => ReadonlyArray<number>;
     readonly reveal?: ReadonlyArray<string>;
+    /** 这一刻的缝（`layoutSeamsOf`）；不给就没有缝落点。 */
+    readonly seams?: ReadonlyArray<LayoutSeam>;
 }): ReadonlyArray<LayoutDropCandidate> {
     const {doc, source, policy} = input;
     const tabs = sourceTabs(doc, source);
@@ -346,6 +445,13 @@ export function enumerateDropCandidates(input: {
                 if (target !== null) add(leaf.id, {kind: "edge", target});
             }
         }
+    }
+    // 缝归树序靠前的那块：键盘在区域之间循环，缝不单独成一个区域。
+    for (const seam of input.seams ?? []) {
+        if (!seamAccepted({doc, policy}, tabs, seam)) continue;
+        const hit = findTreeNode(doc.tree.root, seam.before);
+        const leaf = hit === null ? undefined : treeLeaves(hit.node).findLast((candidate) => doc.panels[candidate.id] !== undefined && isNodeShown(doc, candidate));
+        if (leaf !== undefined) add(leaf.id, {kind: "edge", target: seamTarget(seam)});
     }
     // 浮动窗排在树后面（Tab 也是）：只有标签条和中央。
     for (const {panel: id} of doc.floats) {

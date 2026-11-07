@@ -15,6 +15,17 @@
                 }
             }
         },
+        "dropSplit": {
+            "title": "When dropped on an edge",
+            "choices": {
+                "half": {
+                    "title": "Split only this window"
+                },
+                "shared": {
+                    "title": "Share with windows in the same direction"
+                }
+            }
+        },
         "dropSectors": {
             "title": "Drop sectors",
             "description": "When dragging a view or tab over a panel, show the places it can go"
@@ -229,7 +240,8 @@
             "between": "Place between the two",
             "split": "Split to this side",
             "inPlace": "In place",
-            "float": "Open floating"
+            "float": "Open floating",
+            "rejected": "Can't drop here"
         },
         "moreActions": "More Actions",
         "frame": {

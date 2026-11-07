@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
-import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropPanelAt, layoutDropSectors, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
+import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
 import type {LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
 import {edgeTargetOf} from "./layout-doc";
 import type {LayoutDoc, LayoutPolicy, LayoutSource} from "./layout-doc";
@@ -27,6 +27,117 @@ const THREE = () => docOf(H(["a", "b", "ec"], "root"), {a: {tabs: [view("a"), vi
 const VIEW: LayoutSource = {kind: "tab", tab: "view:x"};
 const EDITOR_TAB: LayoutSource = {kind: "tab", tab: "tab:ec"};
 const EDITOR_FROM_ELSEWHERE: LayoutSource = {kind: "tab", tab: "tab:e9"};
+
+describe("缝（输出 25）", () => {
+    /** 只分本窗口、缝都接受：和工作台的默认一样，外缘是 `split`，缝才是 `between`。 */
+    const seamPolicy = (overrides: Partial<LayoutPolicy> = {}): LayoutPolicy => testPolicy({edgeTarget: (_doc, _tabs, panel, edge) => ({kind: "split", panel, edge}), seamAccepts: () => true, ...overrides});
+    const atSeam = (x: number, y: number, overrides: Partial<LayoutPolicy> = {}) => drop(THREE(), VIEW, x, y, {policy: seamPolicy(overrides)});
+    const between = {kind: "edge", target: {kind: "between", branch: "root", before: "b", after: "ec"}} as const;
+
+    it("相邻的两块之间是一条缝，跨整个分支", () => {
+        expect(layoutSeamsOf(THREE(), GEOMETRY)).toEqual([
+            {branch: "root", orientation: "horizontal", before: "a", after: "b", at: 300.5, from: 0, to: 600},
+            {branch: "root", orientation: "horizontal", before: "b", after: "ec", at: 600.5, from: 0, to: 600},
+        ]);
+    });
+
+    it("子节点是分支时矩形是后代的并集：竖缝整高，里面的横缝只有分支那么宽", () => {
+        const doc = docOf(H([V(["a", "b"], "column"), "ec"], "root"));
+        const panels: ReadonlyArray<LayoutDropPanelGeometry> = [
+            {id: "a", strip: null, body: rect(0, 0, 300, 300)},
+            {id: "b", strip: null, body: rect(0, 301, 300, 600)},
+            {id: "ec", strip: null, body: rect(301, 0, 900, 600)},
+        ];
+        expect(layoutSeamsOf(doc, panels)).toEqual([
+            {branch: "column", orientation: "vertical", before: "a", after: "b", at: 300.5, from: 0, to: 300},
+            {branch: "root", orientation: "horizontal", before: "column", after: "ec", at: 300.5, from: 0, to: 600},
+        ]);
+    });
+
+    it("没有几何的叶（隐藏、拖到零）不算：看得见的两块之间才有缝", () => {
+        const panels = GEOMETRY.filter((geometry) => geometry.id !== "b");
+        expect(layoutSeamsOf(THREE(), panels).map(({before, after}) => [before, after])).toEqual([["a", "ec"]]);
+    });
+
+    it("收成标题行的面板按标签条算，头里还有别的东西时用 `frame`", () => {
+        const doc = docOf(V(["a", "b"], "root"));
+        const collapsed: LayoutDropPanelGeometry = {id: "a", strip: rect(0, 0, 300, 32), body: rect(0, 32, 300, 32)};
+        const hinted: LayoutDropPanelGeometry = {id: "b", frame: rect(0, 33, 300, 600), strip: rect(0, 60, 300, 90), body: rect(0, 90, 300, 600)};
+        expect(layoutSeamsOf(doc, [collapsed, hinted])[0]?.at).toBe(32.5);
+    });
+
+    it("缝先于外缘和标签条；带子外面才按面板判", () => {
+        expect(atSeam(600.5, 300)).toEqual(between);
+        expect(atSeam(595, 300)).toEqual(between);
+        expect(atSeam(606, 300)).toEqual(between);
+        expect(atSeam(600.5, 10)).toEqual(between);
+        expect(atSeam(590, 300)).toEqual({kind: "edge", target: {kind: "split", panel: "b", edge: "right"}});
+        expect(atSeam(590, 10)).toEqual({kind: "strip", panel: "b", index: 0});
+    });
+
+    it("最近的缝胜出", () => {
+        const doc = docOf(H([V(["a", "b"], "column"), "ec"], "root"), {a: {tabs: [view("a"), view("x")], active: "view:a"}});
+        const panels: ReadonlyArray<LayoutDropPanelGeometry> = [
+            {id: "a", strip: null, body: rect(0, 0, 300, 300)},
+            {id: "b", strip: null, body: rect(0, 301, 300, 600)},
+            {id: "ec", strip: null, body: rect(301, 0, 900, 600)},
+        ];
+        const at = (x: number, y: number) => resolveLayoutDrop({doc, source: VIEW, point: {x, y}, panels, policy: seamPolicy()});
+        expect(at(296, 299)).toEqual({kind: "edge", target: {kind: "between", branch: "column", before: "a", after: "b"}});
+        expect(at(299, 296)).toEqual({kind: "edge", target: {kind: "between", branch: "root", before: "column", after: "ec"}});
+    });
+
+    it("不接受的缝不是落点，按面板继续判；不给 `seamAccepts` 就没有缝落点", () => {
+        expect(atSeam(590, 300, {seamAccepts: () => false})).toEqual({kind: "edge", target: {kind: "split", panel: "b", edge: "right"}});
+        expect(drop(THREE(), VIEW, 600.5, 300, {policy: testPolicy({edgeTarget: (_doc, _tabs, panel, edge) => ({kind: "split", panel, edge})})})).toEqual({kind: "edge", target: {kind: "split", panel: "b", edge: "right"}});
+    });
+
+    it("接受矩阵拒绝的来源也进不了缝", () => {
+        const refuses = seamPolicy({accepts: () => false});
+        expect(drop(THREE(), VIEW, 600.5, 300, {policy: refuses})).toBeNull();
+    });
+
+    it("键盘的候选里有缝，归树序靠前的那块；放回原处的不列", () => {
+        const doc = docOf(H(["a", "src", "b"], "root"));
+        const panels: ReadonlyArray<LayoutDropPanelGeometry> = [
+            {id: "a", strip: null, body: rect(0, 0, 300, 600)},
+            {id: "src", strip: null, body: rect(301, 0, 600, 600)},
+            {id: "b", strip: null, body: rect(601, 0, 900, 600)},
+        ];
+        const candidates = enumerateDropCandidates({doc, source: {kind: "tab", tab: "view:src"}, policy: seamPolicy(), stripIndexes: () => [], seams: layoutSeamsOf(doc, panels)});
+        expect(candidates.filter((candidate) => candidate.action.kind === "edge" && candidate.action.target.kind === "between")).toEqual([]);
+
+        const other = docOf(H(["a", "b", "c"], "root"), {a: {tabs: [view("a"), view("x")], active: "view:a"}});
+        const listed = enumerateDropCandidates({doc: other, source: VIEW, policy: seamPolicy(), stripIndexes: () => [], seams: layoutSeamsOf(other, [
+            {id: "a", strip: null, body: rect(0, 0, 300, 600)},
+            {id: "b", strip: null, body: rect(301, 0, 600, 600)},
+            {id: "c", strip: null, body: rect(601, 0, 900, 600)},
+        ])});
+        expect(listed.filter((candidate) => candidate.action.kind === "edge" && candidate.action.target.kind === "between").map((candidate) => candidate.region)).toEqual(["a", "b"]);
+    });
+});
+
+describe("被拒绝（输出 39）", () => {
+    const over = (x: number, y: number, overrides: Partial<LayoutDropInput> = {}) => layoutDropOverPanel({doc: THREE(), source: EDITOR_TAB, point: {x, y}, panels: GEOMETRY, policy: testPolicy(), ...overrides});
+
+    it("面板上、两块都不接收的缝里都算在面板上，不管接不接收", () => {
+        expect(over(150, 300)).toBe(true);
+        expect(over(150, 10)).toBe(true);
+        const refuses = testPolicy({accepts: () => false});
+        expect(drop(THREE(), EDITOR_TAB, 300.5, 300, {policy: refuses})).toBeNull();
+        expect(over(300.5, 300, {policy: refuses})).toBe(true);
+    });
+
+    it("工作台外、挡住的区域不算", () => {
+        expect(over(2000, 300)).toBe(false);
+        expect(over(899, 300, {excluded: [rect(899, 0, 950, 600)]})).toBe(false);
+    });
+
+    it("浮动窗上算，挡住的区域也挡不住它", () => {
+        const float: LayoutDropPanelGeometry = {id: "w", strip: null, body: rect(1000, 0, 1200, 200)};
+        expect(over(1100, 100, {floats: [float]})).toBe(true);
+    });
+});
 
 describe("有序规则", () => {
     it("标签条是插入位，由标签条自己量", () => {

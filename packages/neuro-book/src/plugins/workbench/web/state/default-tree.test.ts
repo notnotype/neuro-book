@@ -3,11 +3,11 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {activateTab, applyLayoutDrop, barRef, enumerateDropCandidates, findTab, GRID_SNAPSHOT_VERSION, insertTab, moveTabToEdge, panelRef, removeTab, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeLeaves, validateLayoutDoc} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, barRef, enumerateDropCandidates, layoutSeamsOf, previewPanelRects, findTab, GRID_SNAPSHOT_VERSION, insertTab, moveTabToEdge, panelRef, removeTab, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeLeaves, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridSnapshotNode, LayoutDoc, PanelName, PanelRecord, TabRef} from "@notnotype/nb-layout";
 
 import {defaultLayoutDoc, fitsSkeleton} from "./default-tree";
-import {createLayoutPolicy, layoutEdgeTarget, toolPanelAxis} from "./layout-constraints";
+import {createLayoutPolicy, layoutProjectionOptions, newPanelEdgeTarget} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
 const NAMED = new Set<string>(["sidebar", "auxiliarybar", "panel"]);
@@ -90,7 +90,14 @@ const VIEW = (location: PanelName, order: number) => ({title: {"zh-CN": "视", "
 const CATALOG: ViewCatalog = new Map([["a", VIEW("sidebar", 1)], ["b", VIEW("sidebar", 2)], ["c", VIEW("sidebar", 3)], ["d", VIEW("auxiliarybar", 1)], ["f", VIEW("auxiliarybar", 2)], ["g", VIEW("panel", 1)]]);
 
 describe("从默认树出发，任何操作之后都合骨架", () => {
-    const policy = createLayoutPolicy();
+    /** 两种分法都走一遍：随机切。 */
+    let shared = false;
+    const policy = createLayoutPolicy({dropSplit: () => (shared ? "shared" : "half")});
+    /** 这一刻的缝，和拖动时一样按矩形算。 */
+    function seamsOf(doc: LayoutDoc): ReturnType<typeof layoutSeamsOf> {
+        const rects = previewPanelRects(doc, Object.keys(doc.panels), layoutProjectionOptions({catalog: CATALOG, viewportWidth: 1440}), {width: 1440, height: 864}, 1);
+        return layoutSeamsOf(doc, Object.entries(rects).flatMap(([id, body]) => (body.right > body.left && body.bottom > body.top ? [{id, strip: null, body}] : [])));
+    }
     const pick = <T>(random: () => number, items: ReadonlyArray<T>): T | undefined => items[Math.floor(random() * items.length)];
     const panelsOf = (doc: LayoutDoc, role: PanelRecord["role"]): string[] => Object.entries(doc.panels).filter(([, panel]) => panel.role === role).map(([id]) => id);
 
@@ -103,8 +110,9 @@ describe("从默认树出发，任何操作之后都合骨架", () => {
             const tab = pick(random, tabs);
             if (tab === undefined) return doc;
             const source = {kind: "tab", tab: tabKey(tab)} as const;
+            shared = random() < 0.5;
             const reveal = Object.entries(doc.panels).filter(([, panel]) => panel.name !== undefined && (panel.hidden === true || panel.collapsed === true)).map(([id]) => id);
-            const candidates = enumerateDropCandidates({doc, source, policy, stripIndexes: (panel) => (doc.panels[panel]?.tabs ?? []).map((_tab, index) => index).concat(doc.panels[panel]?.tabs.length ?? 0), reveal});
+            const candidates = enumerateDropCandidates({doc, source, policy, stripIndexes: (panel) => (doc.panels[panel]?.tabs ?? []).map((_tab, index) => index).concat(doc.panels[panel]?.tabs.length ?? 0), reveal, seams: seamsOf(doc)});
             const candidate = pick(random, candidates);
             if (candidate === undefined) return doc;
             result = applyLayoutDrop(doc, source, candidate.action, policy);
@@ -129,7 +137,7 @@ describe("从默认树出发，任何操作之后都合骨架", () => {
             const view = pick(random, tabs.filter((tab) => tab.kind === "view"));
             const beside = pick(random, panelsOf(doc, "tool").filter((panel) => doc.panels[panel]?.hidden !== true));
             if (view === undefined || beside === undefined) return doc;
-            const edge = layoutEdgeTarget(doc, [], beside, toolPanelAxis(doc, beside) === "vertical" ? "bottom" : "right");
+            const edge = newPanelEdgeTarget(doc, beside);
             if (edge === null) return doc;
             result = moveTabToEdge(doc, {tab: tabKey(view), target: edge}, policy);
         }

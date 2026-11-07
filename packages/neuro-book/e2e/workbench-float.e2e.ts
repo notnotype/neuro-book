@@ -64,10 +64,14 @@ async function dropAt(page: Page, source: Locator | {x: number; y: number}, to: 
     await expect(ghost(page)).toHaveCount(0);
 }
 
-/** 把视图浮出来：拖到编辑组里松手（缺省中央；落在别的窗上是并进去）。返回窗的面板 id。 */
-async function floatOut(page: Page, viewId: string, at: {x: number; y: number} = {x: 0.5, y: 0.5}): Promise<string> {
-    await dropAt(page, tab(page, viewId), await inLeaf(page, "g0", at));
+/** 不在面板上的地方：松手开窗。 */
+const offPanels = (page: Page): Promise<{x: number; y: number}> => centerOf(page.locator("[data-shell-titlebar]"));
+
+/** 把视图浮出来：拖到标题栏上松手；`at` 是之后再把窗拖到编辑组里的哪儿。返回窗的面板 id。 */
+async function floatOut(page: Page, viewId: string, at?: {x: number; y: number}): Promise<string> {
+    await dropAt(page, tab(page, viewId), await offPanels(page));
     await expect.poll(() => panelOfTab(page, viewId)).not.toBe("");
+    if (at !== undefined) await dropAt(page, tab(page, viewId), await inLeaf(page, "g0", at));
     return panelOfTab(page, viewId);
 }
 
@@ -120,11 +124,11 @@ test.describe("应用内浮动", () => {
         await expect(page.locator("[data-shell-focus-target=\"panel-toggle\"]")).toBeEnabled();
     }
 
-    test("工具视图拖到编辑组中央松手：浮动打开，内容是同一个节点，写一次；刷新后还在原处", async ({page}) => {
+    test("工具视图拖到标题栏上松手：浮动打开，内容是同一个节点，写一次；刷新后还在原处", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
         const node = await content(page, E).elementHandle();
-        const target = await inLeaf(page, "g0", {x: 0.5, y: 0.5});
+        const target = await offPanels(page);
         await dragTo(page, tab(page, E), target);
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
         await expect(label(page)).toHaveText("浮动打开");
@@ -136,21 +140,44 @@ test.describe("应用内浮动", () => {
         expect(await panelOfTab(page, E)).not.toBe("panel");
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
-        // 指针落在头上：窗的头就在松手处。
+        // 窗开在松手处，夹回树区域：标题栏在树外，窗贴着树的顶边。
         const box = await boxOf(page, panel);
         expect(target.x).toBeGreaterThan(box.x);
-        expect(target.y).toBeGreaterThanOrEqual(box.y);
-        expect(target.y).toBeLessThan(box.y + 32);
+        expect(box.y).toBeGreaterThan(target.y);
         await page.reload();
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
         await expect(windows(page)).toHaveCount(1);
         expect(await boxOf(page, panel)).toEqual(box);
     });
 
+    test("面板上被拒绝：工具视图在编辑组上，没有反馈、光标是禁止、读屏写原因；松手取消，不开窗、不写", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        await dragTo(page, tab(page, E), await inLeaf(page, "g0", {x: 0.5, y: 0.5}));
+        await noFeedback(page);
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+        expect(await leaf(page, "g0").evaluate((element) => getComputedStyle(element).cursor)).toBe("not-allowed");
+        await expect(page.locator("[data-drag-live-status]")).toHaveText("不能放在这里");
+        // 离开面板就不再是拒绝：标题栏上是浮动。
+        const off = await offPanels(page);
+        await page.mouse.move(off.x, off.y, {steps: 4});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
+        await expect(page.locator("html")).not.toHaveAttribute("data-drop-rejected", "");
+        const back = await inLeaf(page, "g0", {x: 0.5, y: 0.5});
+        await page.mouse.move(back.x, back.y, {steps: 4});
+        await noFeedback(page);
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect(page.locator("html")).not.toHaveAttribute("data-drop-rejected", "");
+        await expect(windows(page)).toHaveCount(0);
+        expect(await panelOfTab(page, E)).toBe("panel");
+        expect(await writesOf(page)).toBe(writes);
+    });
+
     test("不浮动的情形：视图声明不许、按钮区、Esc；都不开窗、不写", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        const center = await inLeaf(page, "g0", {x: 0.5, y: 0.5});
+        const center = await offPanels(page);
         // 面板里两个标签，己声明不许浮动。按下不切标签，拖不起来也不写。
         await dragTo(page, tab(page, NOT_FLOATABLE), center);
         await expect(ghost(page)).toBeVisible();
@@ -274,7 +301,8 @@ test.describe("应用内浮动", () => {
 
     test("多标签的窗：并入标签条；拖标签是撕下，拖标签条空白是移动整窗", async ({page}) => {
         await open(page);
-        const panel = await floatOut(page, E);
+        // 摆到编辑组上：开在标题栏下面的窗会盖住右栏，拖不到那边的标签。
+        const panel = await floatOut(page, E, {x: 0.5, y: 0.3});
         const band = await page.locator(`[data-panel-band="${panel}"]`).boundingBox();
         const blank = {x: band!.x + band!.width - 6, y: band!.y + band!.height / 2};
         await dropAt(page, tab(page, D), blank);
@@ -289,7 +317,7 @@ test.describe("应用内浮动", () => {
         expect(await panelOfTab(page, D)).toBe(panel);
 
         // 标签：撕下来是新窗。
-        await dropAt(page, tab(page, D), await inLeaf(page, "g0", {x: 0.1, y: 0.3}));
+        await dropAt(page, tab(page, D), await offPanels(page));
         await expect(windows(page)).toHaveCount(2);
         expect(await panelOfTab(page, D)).not.toBe(panel);
         expect(await panelOfTab(page, E)).toBe(panel);

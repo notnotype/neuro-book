@@ -9,12 +9,13 @@
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
  */
 
-import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropKey, layoutDropPanelAt, layoutDropSectors, previewEdgeDrop, previewRevealRects, removeTab, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewRevealRects, removeTab, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops} from "@notnotype/nb-layout/vue";
 import type {DragSession, TabStripSnapshot} from "@notnotype/nb-layout/vue";
 
-import {nextTick} from "vue";
+import {nextTick, readonly, shallowRef} from "vue";
+import type {Ref} from "vue";
 
 import {createLiveDrag} from "./live-drag";
 import type {LiveDrag} from "./live-drag";
@@ -101,6 +102,8 @@ export interface LayoutDrag {
     /** 这一场浮出的预备区。 */
     zones(): ReadonlyArray<LayoutRevealZone>;
     readonly live: LiveDrag;
+    /** 指针在面板上但放不进去（输出 39）：松手取消。 */
+    readonly rejected: Readonly<Ref<boolean>>;
     /** 资源树的文件在树外能落到哪（输出 39）：这一场是资源树自己的会话，这里只判定。`top` 是指针处最上层的元素，窗口外是 null。 */
     fileDrop(point: GridDropPoint, top: Element | null): LayoutDragDrop | null;
     dispose(): void;
@@ -148,6 +151,12 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
 
     const dpr = (): number => root.ownerDocument.defaultView?.devicePixelRatio ?? 1;
     const view = root.ownerDocument.defaultView;
+    const rejected = shallowRef(false);
+    /** 光标在全局样式里按根元素上的标记生效（`WorkbenchDragFeedback`）：拖动中的抓手是 `!important`，写在别处压不过。 */
+    function setRejected(next: boolean): void {
+        rejected.value = next;
+        root.ownerDocument.documentElement.toggleAttribute("data-drop-rejected", next);
+    }
     const live = createLiveDrag({
         requestFrame: (run) => view?.requestAnimationFrame(run) ?? 0,
         cancelFrame: (frame) => view?.cancelAnimationFrame(frame),
@@ -188,7 +197,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 工具面板整个头都算标签条（动作区经 `data-no-drag` 不接收）；编辑组的头里还有提示条，只有标签条那一行算，头以下是正文。
         const editor = doc.panels[id]?.role === "editor";
         const strip = rectOf(root.querySelector(editor ? `[data-panel-strip="${escape(id)}"]` : `[data-panel-head="${escape(id)}"]`));
-        return {id, body: strip === null ? card : {...card, top: strip.bottom}, strip};
+        return {id, frame: card, body: strip === null ? card : {...card, top: strip.bottom}, strip};
     }
 
     function panelGeometry(doc: LayoutDoc): LayoutDropPanelGeometry[] {
@@ -405,7 +414,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     };
 
     /**
-     * 整窗的判定：窗一直在跟手，所以“放不进”都是移动（输出 39），反馈不画。只有标签条和窄带能停靠，经过中央继续浮着。
+     * 整窗的判定：窗一直在跟手，所以“放不进”都是移动（输出 39），反馈不画。只有标签条、缝和窄带能停靠，经过中央继续浮着。
      */
     function windowDrop(drag: NonNullable<typeof windowDrag>, source: Extract<LayoutSource, {readonly kind: "panel"}>, point: GridDropPoint): LayoutDragDrop {
         const doc = options.doc();
@@ -440,8 +449,15 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const resolved = region?.id.startsWith("reveal:") === true
             ? ({kind: "reveal", panel: region.id.slice("reveal:".length)} as const)
             : resolveLayoutDrop(input);
-        // 只有这里是“明确的无落点”：别的 null 是被挡住、算不出或出错，不该开窗。键盘的无落点要明确选“浮动”区域。
-        if (resolved === null) return region === null && canFloat(doc, source) ? floatDrop(doc, options.floatMinimum(source), point) : null;
+        // 只有不在面板上才是“明确的无落点”：在面板上是被拒绝，别的 null 是被挡住、算不出或出错，都不该开窗。键盘的无落点要明确选“浮动”区域。
+        if (resolved === null) {
+            if (region !== null) return null;
+            if (layoutDropOverPanel(input)) {
+                setRejected(true);
+                return null;
+            }
+            return canFloat(doc, source) ? floatDrop(doc, options.floatMinimum(source), point) : null;
+        }
         const drop = dropFor(doc, source, resolved, point, panels);
         return drop === null ? null : sectored(drop, resolved, input);
     }
@@ -457,7 +473,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const panels = panelGeometry(doc);
         const input: LayoutDropInput = {doc, source: FILE_SOURCE, point, panels, floats: floatGeometry(doc), excluded: excludedRects(), policy: options.policy()};
         const resolved = resolveLayoutDrop(input);
-        if (resolved === null) return doc.floats.length < LAYOUT_MAX_FLOATS ? floatDrop(doc, EDITOR_GROUP_MINIMUM, point) : null;
+        // 被拒绝时松手取消；光标归资源树的会话，这里没有反馈（输出 39）。
+        if (resolved === null) return !layoutDropOverPanel(input) && doc.floats.length < LAYOUT_MAX_FLOATS ? floatDrop(doc, EDITOR_GROUP_MINIMUM, point) : null;
         const drop = dropFor(doc, FILE_SOURCE, resolved, point, panels);
         return drop === null ? null : sectored(drop, resolved, input);
     }
@@ -469,7 +486,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
 
     /** 分区不进预览缓存：缓存按动作存，同一个“放到两块之间”可以从两块面板进来，画的是指针所在的那块。 */
     function withSectors(drop: LayoutDragDrop, input: LayoutDropInput): LayoutDragDrop {
-        if (!options.sectors() || drop.action.kind === "reveal") return drop;
+        // 缝上没有分区：缝不属于哪一块面板（输出 37）。
+        if (!options.sectors() || drop.action.kind === "reveal" || (drop.action.kind === "edge" && drop.action.target.kind === "between")) return drop;
         const panel = layoutDropPanelAt(input);
         const items = panel === null ? null : layoutDropSectors(input, panel);
         if (panel === null || items === null) return drop;
@@ -485,7 +503,14 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             return zone === undefined ? null : centerOf(zone.rect);
         }
         if (action.kind === "float") return null;
-        const panelId = action.kind === "edge" ? (action.target.kind === "split" ? action.target.panel : candidate.region) : action.panel;
+        if (action.kind === "edge" && action.target.kind === "between") {
+            const {before, after} = action.target;
+            const seam = layoutSeamsOf(doc, panels).find((item) => item.before === before && item.after === after);
+            if (seam === undefined) return null;
+            const across = (seam.from + seam.to) / 2;
+            return seam.orientation === "horizontal" ? {x: seam.at, y: across} : {x: across, y: seam.at};
+        }
+        const panelId = action.kind === "edge" ? (action.target as Exclude<typeof action.target, {readonly kind: "between"}>).panel : action.panel;
         const geometry = panels.find((item) => item.id === panelId);
         if (geometry === undefined) return null;
         // 同一个下标可能有两个位置（固定行的行尾、普通行的行首）：取后一个，放下去是普通标签。
@@ -493,9 +518,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const {body} = geometry;
         const center = centerOf(body);
         if (action.kind === "center") return center;
-        const edge = action.target.kind === "split" ? action.target.edge
-            : action.target.before === panelId ? (branchOrientation(doc, action.target.branch) === "horizontal" ? "right" : "bottom")
-                : (branchOrientation(doc, action.target.branch) === "horizontal" ? "left" : "top");
+        const {edge} = action.target as Exclude<typeof action.target, {readonly kind: "between"}>;
         const inset = 2;
         if (edge === "left") return {x: body.left + inset, y: center.y};
         if (edge === "right") return {x: body.right - inset, y: center.y};
@@ -591,6 +614,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 实时布局的判定基准是拿起时的矩形，容器变了就没了，也没法从预览里量回来：整场取消。落点指示按当前位置重算（输出 32）。
         structure: () => JSON.stringify([layoutStructureKey(options.doc()), options.editorTabs()?.structure() ?? null, live.active.value ? extentKey(options.extent()) : null]),
         resolve: ({source, point, top, region}) => {
+            setRejected(false);
             // 被菜单、对话框挡住的不接收；键盘没有指针下的元素。指针在窗口外没有元素，算无落点。
             const covered = region === null && top !== null && !root.contains(top);
             if (source.kind === "panel") {
@@ -611,6 +635,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         onActiveChange: (active) => {
             root.ownerDocument.documentElement.toggleAttribute("data-workbench-dragging", active);
             if (active) return;
+            setRejected(false);
             // 放下、取消、中止都经过这里，并且先于提交：撤预览和提交在同一个同步段，不闪。
             live.end();
             frozen = null;
@@ -635,6 +660,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                     policy: options.policy(),
                     stripIndexes: (panel) => stripStopsOf(doc, panel).map((stop) => stop.index),
                     reveal: frozenZones.map((zone) => zone.panel),
+                    seams: layoutSeamsOf(doc, panelGeometry(doc)),
                 });
                 const byRegion = new Map<string, LayoutDropCandidate[]>();
                 for (const candidate of candidates) byRegion.set(candidate.region, [...(byRegion.get(candidate.region) ?? []), candidate]);
@@ -669,20 +695,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
     });
 
-    function branchOrientation(doc: LayoutDoc, branchId: string): GridOrientation | null {
-        const visit = (node: LayoutDoc["tree"]["root"]): GridOrientation | null => {
-            if (node.kind === "leaf") return null;
-            if (node.id === branchId) return node.orientation;
-            for (const child of node.children) {
-                const found = visit(child);
-                if (found !== null) return found;
-            }
-            return null;
-        };
-        return visit(doc.tree.root);
-    }
-
-    return {session, zones: () => frozenZones, live, fileDrop, dispose: () => {
+    return {session, zones: () => frozenZones, live, rejected: readonly(rejected), fileDrop, dispose: () => {
         view?.removeEventListener("pointermove", onPointerSeen, true);
         view?.removeEventListener("pointerdown", onPointerSeen, true);
         session.dispose();

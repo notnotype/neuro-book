@@ -17,7 +17,7 @@ import {editorTabIdOf} from "../../shared/editor-panels";
 import type {EditorTabDrag} from "../contracts";
 import type {ViewCatalog} from "../views/registry";
 import {defaultLayoutDoc, fitsSkeleton, reconcileViews} from "./default-tree";
-import {COLLAPSE_ORDER, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutEdgeTarget, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints, toolPanelAxis} from "./layout-constraints";
+import {COLLAPSE_ORDER, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, newPanelEdgeTarget, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
 import {effectiveVisibleTabs} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
@@ -415,7 +415,7 @@ function defineLayoutDocStore(bound: boolean) {
                     const beside = target.newPanelNextTo;
                     if (current.panels[beside] === undefined) return notFound(beside);
                     if (current.panels[beside]?.role !== "tool") return {ok: false, code: "rejected", detail: beside};
-                    const edge = layoutEdgeTarget(current, [], beside, toolPanelAxis(current, beside) === "vertical" ? "bottom" : "right");
+                    const edge = newPanelEdgeTarget(current, beside);
                     return edge === null ? notFound(beside) : moveTabToEdge(current, {tab: key, target: edge}, policy);
                 }, {flush: true}),
                 /** “重置位置”（输出 23）：回到声明的具名面板的标签末尾。 */

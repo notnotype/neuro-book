@@ -7,7 +7,8 @@ import {barRef, GRID_SNAPSHOT_VERSION, layoutDropSectors, panelRef, resolveLayou
 import type {LayoutDoc, LayoutEdge, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
 import {defaultLayoutDoc} from "./default-tree";
-import {createLayoutPolicy, layoutAccepts, layoutEdgeTarget, panelConstraints, toolPanelAxis} from "./layout-constraints";
+import {createLayoutPolicy, layoutAccepts, layoutEdgeTarget, layoutSeamAccepts, newPanelEdgeTarget, panelConstraints, toolPanelAxis} from "./layout-constraints";
+import type {DropSplit} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
 const VIEW = (over: object = {}) => ({title: {"zh-CN": "甲", "en-US": "A"}, icon: "i", location: "sidebar" as const, layout: "scroll" as const, ...over});
@@ -75,9 +76,9 @@ describe("哪条边是落点（输出 25、26）", () => {
         expect(target(doc, "sidebar", "left")).toBeNull();
         expect(target(doc, "sidebar", "right")).toBeNull();
         expect(target(doc, "sidebar", "top")).toEqual({kind: "split", panel: "sidebar", edge: "top"});
-        expect(target(doc, "sidebar", "bottom")).toEqual({kind: "between", branch: "column", before: "sidebar", after: "x"});
+        expect(target(doc, "sidebar", "bottom")).toEqual({kind: "split", panel: "sidebar", edge: "bottom"});
         expect(target(doc, "x", "left")).toBeNull();
-        expect(target(doc, "x", "top")).toEqual({kind: "between", branch: "column", before: "sidebar", after: "x"});
+        expect(target(doc, "x", "top")).toEqual({kind: "split", panel: "x", edge: "top"});
         expect(target(doc, "auxiliarybar", "left")).toBeNull();
         expect(target(doc, "auxiliarybar", "bottom")).toEqual({kind: "split", panel: "auxiliarybar", edge: "bottom"});
     });
@@ -87,16 +88,35 @@ describe("哪条边是落点（输出 25、26）", () => {
         expect(target(doc, "panel", "top")).toBeNull();
         expect(target(doc, "panel", "bottom")).toBeNull();
         expect(target(doc, "panel", "left")).toEqual({kind: "split", panel: "panel", edge: "left"});
-        expect(target(doc, "panel", "right")).toEqual({kind: "between", branch: "row", before: "panel", after: "y"});
+        expect(target(doc, "panel", "right")).toEqual({kind: "split", panel: "panel", edge: "right"});
         expect(target(doc, "y", "bottom")).toBeNull();
     });
 
-    it("编辑组四条边都是落点；两块编辑组之间是一个落点", () => {
+    it("编辑组四条边都是落点，默认只分本窗口；设置改成一起分时是 `spread`，改设置不用重建策略", () => {
         const doc = splitDoc();
-        expect(target(doc, "g0", "right")).toEqual({kind: "between", branch: "area", before: "g0", after: "g1"});
-        expect(target(doc, "g1", "left")).toEqual({kind: "between", branch: "area", before: "g0", after: "g1"});
-        expect(target(doc, "g0", "left")).toEqual({kind: "split", panel: "g0", edge: "left"});
+        expect(target(doc, "g0", "right")).toEqual({kind: "split", panel: "g0", edge: "right"});
         expect(target(doc, "g1", "bottom")).toEqual({kind: "split", panel: "g1", edge: "bottom"});
+        let split: DropSplit = "half";
+        const policy = createLayoutPolicy({dropSplit: () => split});
+        expect(policy.edgeTarget?.(doc, [], "g0", "right")).toEqual({kind: "split", panel: "g0", edge: "right"});
+        split = "shared";
+        expect(policy.edgeTarget?.(doc, [], "g0", "right")).toEqual({kind: "spread", panel: "g0", edge: "right"});
+        expect(policy.edgeTarget?.(doc, [], "sidebar", "left")).toBeNull();
+    });
+
+    it("只有两边同类的缝是落点：骨架上的缝插不进东西", () => {
+        const doc = splitDoc();
+        expect(layoutSeamAccepts(doc, [], "g0", "g1")).toBe(true);
+        expect(layoutSeamAccepts(doc, [], "sidebar", "x")).toBe(true);
+        expect(layoutSeamAccepts(doc, [], "panel", "y")).toBe(true);
+        expect(layoutSeamAccepts(doc, [], "column", "center")).toBe(false);
+        expect(layoutSeamAccepts(doc, [], "center", "auxiliarybar")).toBe(false);
+        expect(layoutSeamAccepts(doc, [], "area", "row")).toBe(false);
+    });
+
+    it("“移动到”的新面板不跟设置走：从相邻两块取", () => {
+        const doc = splitDoc();
+        expect(newPanelEdgeTarget(doc, "sidebar")).toEqual({kind: "between", branch: "column", before: "sidebar", after: "x"});
     });
 
     it("编辑组挨着面板的那条边是拆这一组，不从面板取空间", () => {

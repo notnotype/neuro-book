@@ -182,6 +182,24 @@ export const dragFeelSetting = defineSetting({
     ],
 });
 
+/**
+ * 拖到四周时怎么分（docs/specs/ui/workbench-layout.md 输出 27）：只分本窗口，或同方向的窗口一起分。只有用户层，理由同上。
+ */
+export const dropSplitSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "dropSplit",
+    schema: Type.Union([Type.Literal("half"), Type.Literal("shared")]),
+    default: "half",
+    layers: ["user"],
+    section: "nbook.appearance",
+    group: "ui",
+    order: 45,
+    choices: [
+        {value: "half", title: workbenchText("settings.dropSplit.choices.half.title")},
+        {value: "shared", title: workbenchText("settings.dropSplit.choices.shared.title")},
+    ],
+});
+
 /** 明暗；`system` 跟随系统，配色取主题包的 `defaultColorway[明暗]`。 */
 export const appearanceSetting = defineSetting({
     plugin: "nbook.workbench",

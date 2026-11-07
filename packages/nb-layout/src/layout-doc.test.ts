@@ -8,6 +8,8 @@ import {
     clampFloatRect,
     countsInShare,
     edgeTargetOf,
+    edgeTargetTouches,
+    findTreeNode,
     floatTab,
     insertTab,
     LAYOUT_MAX_FLOATS,
@@ -31,9 +33,11 @@ import {
     showPanelAndInsert,
     stripDynamicTabs,
     tabKey,
+    treeLeaves,
     validateLayoutDoc,
 } from "./layout-doc";
-import type {LayoutDoc, LayoutEdge, LayoutResult} from "./layout-doc";
+import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutResult} from "./layout-doc";
+import type {GridSnapshotBranch, GridSnapshotNode} from "./grid-types";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
 
@@ -249,6 +253,81 @@ describe("外缘（规则 4、5）", () => {
     it("超过节点上限：不提交", () => {
         const many = docOf(H(Array.from({length: 255}, (_, index) => `p${String(index)}`)));
         expect(moveTabToEdge({...many, panels: {...many.panels, p0: {role: "tool", tabs: [view("x"), view("y")], active: "view:x"}}}, {tab: "view:y", target: edge(many, "p1", "top")}, testPolicy())).toMatchObject({ok: false, code: "limit-exceeded"});
+    });
+});
+
+describe("往一个方向分（输出 27）", () => {
+    const moved = (doc: LayoutDoc, key: string, target: LayoutEdgeTarget): LayoutDoc => okDoc(moveTabToEdge(doc, {tab: key, target}, testPolicy()));
+    const along = (doc: LayoutDoc, axis: "width" | "height", ...ids: string[]) => ids.map((id) => Math.round(sizeOf(doc.tree.root, id)[axis]));
+    /** 三个编辑组并排，`ea` 里多一个要拖走的标签。 */
+    const threeEditors = (): LayoutDoc => docOf(H(["ea", "eb", "ec"]), {ea: {tabs: [tab("ea"), tab("ex")], active: "tab:ea"}});
+    const placedIn = (doc: LayoutDoc): string => treeLeaves(doc.tree.root).find((leaf) => leaf.id.startsWith("n"))?.id as string;
+
+    it("split：只分这一块，别的块不动", () => {
+        const next = moved(threeEditors(), "tab:ex", {kind: "split", panel: "eb", edge: "right"});
+        expect(shape(next)).toBe("H[ea,eb,n1,ec]");
+        expect(along(next, "width", "ea", "eb", "n1", "ec")).toEqual([333, 167, 167, 333]);
+    });
+
+    it("spread：新块占 1/(n+1)，其余按原比例缩，不是拉平", () => {
+        const doc = threeEditors();
+        const widths: Readonly<Record<string, number>> = {ea: 600, eb: 300, ec: 100};
+        const root = doc.tree.root as GridSnapshotBranch;
+        const sized: LayoutDoc = {...doc, tree: {...doc.tree, root: {...root, children: root.children.map((child) => ({...child, size: {...child.size, width: widths[child.id] as number}}))}}};
+        const next = moved(sized, "tab:ex", {kind: "spread", panel: "eb", edge: "right"});
+        expect(shape(next)).toBe("H[ea,eb,n1,ec]");
+        expect(along(next, "width", "ea", "eb", "n1", "ec")).toEqual([450, 225, 250, 75]);
+    });
+
+    it("spread：编辑组上下两端都只在编辑组里分，新块插在面板之前，固定的面板和侧栏不动", () => {
+        const cases = [["e1", "top", "V[n1,e1,e2,panel]"], ["e2", "bottom", "V[e1,e2,n1,panel]"]] as const;
+        for (const [panel, side, expected] of cases) {
+            const doc = docOf(H(["sidebar", V(["e1", "e2", "panel"], "center")]), {e1: {tabs: [tab("e1"), tab("ex")], active: "tab:e1"}});
+            const next = moved(doc, "tab:ex", {kind: "spread", panel, edge: side});
+            expect(shapeOf(findTreeNode(next.tree.root, "center")?.node as GridSnapshotNode)).toBe(expected);
+            expect(along(next, "height", "panel")).toEqual(along(doc, "height", "panel"));
+            expect(along(next, "height", "e1", "e2", placedIn(next))).toEqual([133, 133, 133]);
+            expect(along(next, "width", "sidebar")).toEqual(along(doc, "width", "sidebar"));
+        }
+    });
+
+    it("spread：摘掉来源后分支塌陷时按 split，来源放到剩下那块的另一边", () => {
+        const doc = docOf(V([H(["b", "src"], "pair"), "panel"]));
+        const next = moved(doc, "view:src", {kind: "spread", panel: "b", edge: "left"});
+        expect(shape(next)).toBe("V[H[src,b],panel]");
+    });
+
+    it("spread：来源在同一分支时先摘掉再算，n 不含来源", () => {
+        const doc = docOf(V(["e1", "e2", "es"]));
+        const next = moved(doc, "tab:es", {kind: "spread", panel: "e1", edge: "top"});
+        expect(shape(next)).toBe("V[es,e1,e2]");
+        const [placed, first, second] = along(next, "height", "es", "e1", "e2") as [number, number, number];
+        expect(placed / (placed + first + second)).toBeCloseTo(1 / 3, 1);
+    });
+
+    it("spread：隐藏的、收起的不占份额，也不缩", () => {
+        const doc = docOf(V(["sidebar", "shut", "a", "b"]), {
+            sidebar: {hidden: true},
+            shut: {collapsed: true},
+            b: {tabs: [view("b"), view("x")], active: "view:b"},
+        });
+        const next = moved(doc, "view:x", {kind: "spread", panel: "a", edge: "bottom"});
+        expect(along(next, "height", "sidebar", "shut")).toEqual(along(doc, "height", "sidebar", "shut"));
+        expect(along(next, "height", "a", "b", "n1")).toEqual([100, 100, 100]);
+    });
+
+    it("两种分法放回紧挨着来源的那条边都是原处：什么都不变", () => {
+        for (const kind of ["split", "spread"] as const) {
+            const doc = docOf(H(["a", "src", "b"]));
+            expect(okDoc(moveTabToEdge(doc, {tab: "view:src", target: {kind, panel: "a", edge: "right"}}, testPolicy()))).toBe(doc);
+            expect(edgeTargetTouches(doc, {kind, panel: "a", edge: "right"}, "src")).toBe(true);
+            expect(edgeTargetTouches(doc, {kind, panel: "a", edge: "left"}, "src")).toBe(false);
+        }
+    });
+
+    it("具名面板只有一个标签：放到紧挨着它的那条边也是原处，不隐藏", () => {
+        const doc = docOf(V(["sidebar", "a"]));
+        expect(okDoc(moveTabToEdge(doc, {tab: "view:sidebar", target: {kind: "split", panel: "a", edge: "top"}}, testPolicy()))).toBe(doc);
     });
 });
 

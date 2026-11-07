@@ -82,9 +82,11 @@ export interface LayoutPolicy {
     accepts(tabs: ReadonlyArray<TabRef>, target: PanelRecord, region: LayoutDropRegion): boolean;
     /**
      * 这条边是不是落点、落到哪。缺省 `edgeTargetOf`。`null` 表示这块面板在这条边上没有窄带，指针在那里算中央：
-     * 宿主用它限定方向（工具面板只能上下拆）和“两块之间”的范围。提交时不再问它，宿主要在写入的出口兜底。
+     * 宿主用它限定方向（工具面板只能上下拆）和往这个方向怎么分。提交时不再问它，宿主要在写入的出口兜底。
      */
     edgeTarget?(doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string, edge: LayoutEdge): LayoutEdgeTarget | null;
+    /** 这条缝（同一分支里相邻的两个子节点）是不是落点。缺省没有缝落点：缝归最近的面板，按它的外缘判。提交时不再问它。 */
+    seamAccepts?(doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, before: string, after: string): boolean;
     /** 分区限制（固定标签）；缺省都可以。 */
     canInsert?(tab: TabRef, target: PanelRecord, index: number): boolean;
     /** 新节点的 id：由宿主给，保证唯一。 */
@@ -156,6 +158,25 @@ export function countsInShare(doc: LayoutDoc, node: GridSnapshotNode): boolean {
 }
 
 const isBarLeaf = (node: GridSnapshotNode): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
+
+/** 文档树和呈现树都能问：只看结构与 `ref`。 */
+export type LayoutTreeNode = {readonly kind: "leaf"; readonly ref: string} | {readonly kind: "branch"; readonly children: ReadonlyArray<LayoutTreeNode>};
+
+/** 这个节点含编辑组吗。 */
+export function holdsEditor(doc: LayoutDoc, node: LayoutTreeNode): boolean {
+    if (node.kind === "branch") return node.children.some((child) => holdsEditor(doc, child));
+    const panel = panelOfRef(node.ref);
+    return panel !== null && doc.panels[panel]?.role === "editor";
+}
+
+/**
+ * 这个子节点保留像素吗（docs/specs/ui/workbench-layout.md 输出 7）：条总是；兄弟里有含编辑组的时，不含编辑组的也是。其余按比例分。
+ * 文档树和呈现树的答案相同：呈现里去掉的只有工具面板，不改变“含编辑组”。
+ */
+export function isFixedChild(doc: LayoutDoc, siblings: ReadonlyArray<LayoutTreeNode>, child: LayoutTreeNode): boolean {
+    if (child.kind === "leaf" && barOfRef(child.ref) !== null) return true;
+    return siblings.some((sibling) => holdsEditor(doc, sibling)) && !holdsEditor(doc, child);
+}
 
 function collapseInto(branch: GridSnapshotBranch, survivor: GridSnapshotNode): GridSnapshotNode {
     return {...survivor, size: {...branch.size}};
@@ -458,10 +479,14 @@ export function movePanelToStrip(doc: LayoutDoc, input: {readonly panel: string;
 
 // ── 外缘 ──
 
-/** 外缘的目标：放到两块之间（这条边、缝、对面那块的边是同一个落点），或拆这一块。 */
+/**
+ * 新块放到哪：放到两块之间，只从这两块取；或者往这块面板的这条边分（输出 27）。`split` 只分这一块；`spread` 和所在分支同方向时整个分支一起分。
+ * 两种都只记面板和边，不记分支：摘掉来源之后分支可能塌陷，提交时按这块面板此刻的父分支算。
+ */
 export type LayoutEdgeTarget =
     | {readonly kind: "between"; readonly branch: string; readonly before: string; readonly after: string}
-    | {readonly kind: "split"; readonly panel: string; readonly edge: LayoutEdge};
+    | {readonly kind: "split"; readonly panel: string; readonly edge: LayoutEdge}
+    | {readonly kind: "spread"; readonly panel: string; readonly edge: LayoutEdge};
 
 /** 这条边对面是同一分支的相邻兄弟吗（规则 4、5）。隐藏的兄弟不算，跳过去找下一个；条不算。 */
 export function edgeTargetOf(doc: LayoutDoc, panel: string, edge: LayoutEdge): LayoutEdgeTarget | null {
@@ -479,7 +504,9 @@ export function edgeTargetOf(doc: LayoutDoc, panel: string, edge: LayoutEdge): L
     return {kind: "split", panel, edge};
 }
 
-/** 把一片叶放到外缘目标（来源已经摘掉）。规则 4 新块只从两块取、各让三分之一；规则 5 新块取目标的一半。 */
+/**
+ * 把一片叶放到外缘目标（来源已经摘掉）。`between` 新块只从两块取、各让三分之一；`split` 新块取目标的一半；`spread` 见下。
+ */
 function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapshotLeaf, aliases: ReadonlyMap<string, string>, newBranchId: () => string): boolean {
     const root = next.tree.root;
     if (target.kind === "between") {
@@ -504,6 +531,21 @@ function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapsho
     const orientation = orientationOfEdge(target.edge);
     const main = axisOf(orientation);
     const cross = crossOf(orientation);
+    if (target.kind === "spread" && hit.parent !== null && hit.parent.orientation === orientation) {
+        // 占份额、不保留像素的 n 块一起分：新块占 1/(n+1)，它们按原比例缩，其余不动。摘掉来源之后才算：来源的份额已经还给了分支。
+        const parent = hit.parent;
+        const view = next as unknown as LayoutDoc;
+        const sharing = new Set(parent.children.filter((child) => countsInShare(view, child) && !isFixedChild(view, parent.children, child)).map((child) => child.id));
+        if (sharing.size > 0) {
+            const total = parent.children.reduce((sum, child) => (sharing.has(child.id) ? sum + child.size[main] : sum), 0);
+            const scale = sharing.size / (sharing.size + 1);
+            const children = parent.children.map((child) => (sharing.has(child.id) ? {...child, size: {...child.size, [main]: child.size[main] * scale}} : child));
+            const placed: GridSnapshotLeaf = {...leaf, size: {...leaf.size, [main]: total / (sharing.size + 1), [cross]: hit.node.size[cross]}};
+            children.splice(hit.index + (isBeforeEdge(target.edge) ? 0 : 1), 0, placed);
+            replaceChildren(next, parent.id, children);
+            return true;
+        }
+    }
     const half = hit.node.size[main] / 2;
     const kept = {...hit.node, size: {...hit.node.size, [main]: half}};
     const placed: GridSnapshotLeaf = {...leaf, size: {...leaf.size, [main]: half, [cross]: hit.node.size[cross]}};
@@ -534,17 +576,30 @@ function replaceChildren(next: MutableDoc, branchId: string, children: GridSnaps
     next.tree.root = write(next.tree.root);
 }
 
-/** 外缘目标里的一块真实面板，接受矩阵问它。`before`、`after` 可能是分支，取分支树序的第一块。 */
-function edgeAnchorOf(doc: LayoutDoc, target: LayoutEdgeTarget): PanelRecord | null {
-    const id = target.kind === "split" ? target.panel : target.before;
-    const hit = findTreeNode(doc.tree.root, id);
+/** 一个节点里的第一块真实面板：`before`、`after` 可能是分支。 */
+export function firstPanelIn(doc: LayoutDoc, nodeId: string): PanelRecord | null {
+    const hit = findTreeNode(doc.tree.root, nodeId);
     if (hit === null) return null;
     const first = treeLeaves(hit.node).find((leaf) => doc.panels[leaf.id] !== undefined);
     return first === undefined ? null : (doc.panels[first.id] as PanelRecord);
 }
 
-/** 这个目标紧贴着这块面板：放下去还在原处。 */
-const touches = (target: LayoutEdgeTarget, panel: string): boolean => (target.kind === "split" ? target.panel === panel : target.before === panel || target.after === panel);
+/** 外缘目标里的一块真实面板，接受矩阵问它。 */
+const edgeAnchorOf = (doc: LayoutDoc, target: LayoutEdgeTarget): PanelRecord | null => firstPanelIn(doc, target.kind === "between" ? target.before : target.panel);
+
+/** 这个目标紧贴着这块面板：放下去还在原处（输出 28）。隐藏的兄弟不算挨着，跳过去看下一个。 */
+export function edgeTargetTouches(doc: LayoutDoc, target: LayoutEdgeTarget, panel: string): boolean {
+    if (target.kind === "between") return target.before === panel || target.after === panel;
+    if (target.panel === panel) return true;
+    const hit = findTreeNode(doc.tree.root, target.panel);
+    if (hit === null || hit.parent === null || hit.parent.orientation !== orientationOfEdge(target.edge)) return false;
+    const step = isBeforeEdge(target.edge) ? -1 : 1;
+    for (let at = hit.index + step; at >= 0 && at < hit.parent.children.length; at += step) {
+        const sibling = hit.parent.children[at] as GridSnapshotNode;
+        if (isNodeShown(doc, sibling)) return sibling.id === panel;
+    }
+    return false;
+}
 
 /** 整块面板移到外缘：同一块叶，id 不变，内容不重建。这也让“放回原处”自然是原对象。 */
 export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; readonly target: LayoutEdgeTarget}, policy: LayoutPolicy): LayoutResult {
@@ -554,7 +609,7 @@ export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; 
     const floating = isFloating(doc, input.panel);
     const leaf = floating ? {kind: "leaf" as const, id: input.panel, ref: panelRef(input.panel), size: {width: 0, height: 0}} : findTreeNode(doc.tree.root, input.panel)?.node;
     if (leaf === undefined || leaf.kind !== "leaf") return failure("not-found", `面板 ${input.panel}`);
-    if (touches(input.target, input.panel)) return {ok: true, doc};
+    if (edgeTargetTouches(doc, input.target, input.panel)) return {ok: true, doc};
     const anchor = edgeAnchorOf(doc, input.target);
     if (anchor === null) return failure("not-found", "目标已不存在");
     if (!policy.accepts(source.tabs, anchor, "edge")) return failure("rejected", "接受矩阵拒绝");
@@ -584,7 +639,7 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
     if (found === null) return failure("not-found", `标签 ${input.tab}`);
     const source = doc.panels[found.panel] as PanelRecord;
     if (source.tabs.length === 1) {
-        if (touches(input.target, found.panel)) return {ok: true, doc};
+        if (edgeTargetTouches(doc, input.target, found.panel)) return {ok: true, doc};
         if (source.name === undefined) return movePanelToEdge(doc, {panel: found.panel, target: input.target}, policy);
     }
     const anchor = edgeAnchorOf(doc, input.target);

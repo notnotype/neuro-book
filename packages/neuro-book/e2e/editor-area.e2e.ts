@@ -200,11 +200,11 @@ async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} 
 }
 
 /**
- * 没有落点时松手是浮动打开（docs/specs/ui/workbench-layout.md 输出 39）：反馈就是这一种，不是别的落点。取消掉，这里只看判定；浮动打开在“编辑器标签浮动”那条。
+ * 面板上放不进去就是被拒绝（docs/specs/ui/workbench-layout.md 输出 39）：没有反馈，光标是禁止，松手取消。
  */
-async function onlyFloatShown(page: Page): Promise<void> {
-    await expect(page.locator(DROP_SHOWN)).toHaveAttribute("data-drop-kind", "float");
-    await page.keyboard.press("Escape");
+async function rejectedHere(page: Page): Promise<void> {
+    await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+    await noDropShown(page);
 }
 
 /** 落点是下一帧才画出来的：等两帧再断言没有，免得断言在落点出现之前通过。 */
@@ -906,20 +906,20 @@ test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看�
     await closeAll(page);
 });
 
-test("编辑器标签浮动（docs/specs/ui/workbench-layout.md 输出 39）：拖到工具面板上松手开窗，是同一个视图，接着输入、撤销都还在；回到停靠并回树里；关到空后焦点回树里的组", async ({page}) => {
+test("编辑器标签浮动（docs/specs/ui/workbench-layout.md 输出 39）：拖到标题栏上松手开窗，是同一个视图，接着输入、撤销都还在；回到停靠并回树里；关到空后焦点回树里的组", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
     await closeAll(page);
     for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
     const windows = page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-float]");
-    const sidebar = await page.locator("[data-leaf=\"sidebar\"]").boundingBox();
-    if (sidebar === null) throw new Error("没有侧栏");
+    const titlebar = await page.locator("[data-shell-titlebar]").boundingBox();
+    if (titlebar === null) throw new Error("没有标题栏");
     // 让 b 有一段撤销历史：撤销栈跟着实例走，实例不重建才在。
     const prose = page.locator("[data-editor-prose]:visible").first();
     await prose.click();
     await page.keyboard.type("浮动前");
     const node = await page.locator("[data-editor-prose]:visible").first().elementHandle();
-    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2}, async () => {
+    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: titlebar.x + titlebar.width / 2, y: titlebar.y + titlebar.height / 2}, async () => {
         await expect(page.locator(DROP_SHOWN)).toHaveAttribute("data-drop-kind", "float");
     });
     await expect(windows).toHaveCount(1);
@@ -943,7 +943,7 @@ test("编辑器标签浮动（docs/specs/ui/workbench-layout.md 输出 39）：�
     await expect(tabs(page)).toHaveCount(2);
 
     // 再浮出来，关掉：窗没了，焦点回树里的组。
-    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2});
+    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: titlebar.x + titlebar.width / 2, y: titlebar.y + titlebar.height / 2});
     await expect(windows).toHaveCount(1);
     await tabs(page).filter({hasText: "b.md"}).focus();
     await page.keyboard.press("Delete");
@@ -962,7 +962,7 @@ test("编辑器标签和工具面板（docs/specs/ui/workbench-layout.md 输出 
     const groups = page.locator("[data-editor-group]");
     const leftOf = (locator: ReturnType<Page["locator"]>) => locator.evaluate((element) => Math.round(element.getBoundingClientRect().left));
     const dragTab = (name: string, to: {x: number; y: number}, before?: () => Promise<void>) => dragFrom(page, tabs(page).filter({hasText: name}), to, before);
-    const noDrop = () => onlyFloatShown(page);
+    const noDrop = () => rejectedHere(page);
 
     // 工具面板的标题（侧栏这一列只有标题）、中央、上下缘：编辑器标签都没有落点，只能浮动。
     const head = await page.locator("[data-panel-head=\"sidebar\"]").boundingBox();
@@ -1053,7 +1053,7 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
     await dragFrom(page, explorer, {x: seamX - 2, y: seamY}, async () => {
         await expect(page.locator("[data-drop-kind=\"noop\"]")).toHaveCount(1);
     });
-    await dragFrom(page, explorer, {x: seamX + 2, y: seamY}, () => onlyFloatShown(page));
+    await dragFrom(page, explorer, {x: seamX + 2, y: seamY}, () => rejectedHere(page));
     // 缝右边 2px 在编辑组的左缘窄带里，松手会拆出新组：看到落点就用 Escape 取消，后面接着用这一个组。
     await dragTab("b.md", {x: seamX + 2, y: seamY}, async () => {
         await expect(page.locator(DROP_SHOWN)).toHaveCount(1);
@@ -2060,7 +2060,7 @@ test("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）：�
     });
     await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2}, async () => {
         await expect(sectors).toHaveCount(0);
-        await onlyFloatShown(page);
+        await rejectedHere(page);
     });
     await closeAll(page);
 });

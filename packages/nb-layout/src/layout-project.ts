@@ -6,7 +6,7 @@
  */
 
 import {UNBOUNDED_EXTENT} from "./grid-geometry";
-import {barOfRef, panelOfRef, treeLeaves} from "./layout-doc";
+import {barOfRef, isFixedChild, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelRecord} from "./layout-doc";
 import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode} from "./grid-types";
 
@@ -38,28 +38,19 @@ export interface LayoutProjection {
 
 const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
 
-/** 这个节点含编辑组吗。 */
-function holdsEditor(doc: LayoutDoc, node: GridNodeInput<string>): boolean {
-    if (node.kind === "branch") return node.children.some((child) => holdsEditor(doc, child));
-    const panel = panelOfRef(node.ref);
-    return panel !== null && doc.panels[panel]?.role === "editor";
-}
-
 const isBarInput = (node: GridNodeInput<string>): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
 
 /**
  * 按所在分支写运行约束。呈现里的单子分支已经塌陷，所以这里看到的才是真实的父分支。
  *
- * - 谁吸收余量：子节点是 `weight`，当且仅当它含编辑组，或它的兄弟都不含编辑组；条永远 `fixed`。所以和编辑区并排的工具面板保留像素，全是工具面板的一列按比例分，
- *   分支里总有人吸收余量，不留白。
+ * - 谁吸收余量：`isFixedChild`。所以和编辑区并排的工具面板保留像素，全是工具面板的一列按比例分，分支里总有人吸收余量，不留白。
  * - 收起：横向分支里拖到零，纵向分支里收成标题行。编辑组不可收起。
  */
 function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions): void {
     if (node.kind === "leaf") return;
-    const anyEditor = node.children.some((child) => holdsEditor(doc, child));
     const main = axisOf(node.orientation);
     for (const child of node.children) {
-        const sizing: GridSizing = isBarInput(child) ? "fixed" : (!anyEditor || holdsEditor(doc, child) ? "weight" : "fixed");
+        const sizing: GridSizing = isFixedChild(doc, node.children, child) ? "fixed" : "weight";
         child.sizing = sizing;
         if (child.kind === "branch") {
             assignByParent(doc, child, options);

@@ -574,24 +574,31 @@ test.describe("产品页：拖放", () => {
     /** 落点是下一帧才画出来的：等两帧再断言没有，免得断言在落点出现之前通过。 */
     const settled = (page: Page): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
-    test("工具视图在编辑组上没有落点：中央、四条边、状态栏与标题栏都不接收，反馈是浮动打开，不是别的落点（输出 25、26、39；验收 10）", async ({page}) => {
+    test("工具视图在编辑组上被拒绝：中央、四条边都没有反馈；状态栏与标题栏不在面板上，反馈是浮动打开（输出 25、26、39；验收 10）", async ({page}) => {
         await open(page);
         const source = entry(page, C);
-        const points = [
+        const rejected = [
             await inLeaf(page, "g0", {x: 0.5, y: 0.5}),
             await inLeaf(page, "g0", {x: 0.97, y: 0.3}),
             await inLeaf(page, "g0", {x: 0.03, y: 0.3}),
             await inLeaf(page, "g0", {x: 0.5, y: 0.03}),
             await inLeaf(page, "g0", {x: 0.5, y: 0.97}),
-            await centerOf(page.locator("[data-leaf=\"statusbar\"]")),
-            await centerOf(page.locator("[data-shell-titlebar]")),
         ];
-        await dragTo(page, source, points[0]!);
-        for (const point of points) {
+        const offPanels = [await centerOf(page.locator("[data-leaf=\"statusbar\"]")), await centerOf(page.locator("[data-shell-titlebar]"))];
+        await dragTo(page, source, rejected[0]!);
+        for (const point of rejected) {
+            await page.mouse.move(point.x, point.y, {steps: 6});
+            await settled(page);
+            await expect(ghost(page)).toBeVisible();
+            await expect(feedback(page)).toHaveCount(0);
+            await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+        }
+        for (const point of offPanels) {
             await page.mouse.move(point.x, point.y, {steps: 6});
             await settled(page);
             await expect(ghost(page)).toBeVisible();
             await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
+            await expect(page.locator("html")).not.toHaveAttribute("data-drop-rejected", "");
         }
         // 这里只看判定；松手浮动打开在 workbench-float.e2e.ts。
         await page.keyboard.press("Escape");
@@ -951,6 +958,104 @@ test.describe("产品页：拖放", () => {
         await expect(entry(page, D)).toHaveAttribute("aria-pressed", "true");
         await expect(sample(page, D)).toBeVisible();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
+    });
+
+    test.describe("缝与四周（输出 25 到 27、31）", () => {
+        const sectors = (page: Page) => page.locator("[data-drop-sectors]");
+        /** 把丙拆到侧栏下面：这一列有两块。返回下面那块的 id。 */
+        async function splitColumn(page: Page): Promise<string> {
+            await dropAt(page, entry(page, C), await inLeaf(page, "sidebar", {x: 0.5, y: 0.97}));
+            await expect.poll(() => panelOfTab(page, C)).not.toBe("sidebar");
+            return panelOfTab(page, C);
+        }
+        const boxOf = async (page: Page, panel: string): Promise<{x: number; y: number; width: number; height: number}> => {
+            const found = await leaf(page, panel).boundingBox();
+            if (found === null) throw new Error(`没有 ${panel}`);
+            return found;
+        };
+        const seamBetween = async (page: Page, upper: string, lower: string): Promise<{x: number; y: number}> => {
+            const [top, bottom] = [await boxOf(page, upper), await boxOf(page, lower)];
+            return {x: top.x + top.width / 2, y: (top.y + top.height + bottom.y) / 2};
+        };
+
+        test("缝是两块之间，四周只分本窗口：放到外缘另一块不动，放到缝上两块一起让", async ({page}) => {
+            await open(page);
+            const below = await splitColumn(page);
+            const belowBefore = await boxOf(page, below);
+            // 外缘：只分侧栏，下面那块不动。
+            await dragTo(page, entry(page, B), await inLeaf(page, "sidebar", {x: 0.5, y: 0.85}));
+            expect(await labelText(page)).toBe("拆到这一边");
+            await page.mouse.up();
+            await expect(ghost(page)).toHaveCount(0);
+            const fromEdge = await panelOfTab(page, B);
+            expect(fromEdge).not.toBe("sidebar");
+            await expect.poll(async () => (await boxOf(page, below)).height).toBe(belowBefore.height);
+
+            // 缝：放到拆出来的这块和下面那块之间，两块都让。
+            const [upperBefore, lowerBefore] = [await boxOf(page, fromEdge), await boxOf(page, below)];
+            await dragTo(page, entry(page, A), await seamBetween(page, fromEdge, below));
+            expect(await labelText(page)).toBe("放到两块之间");
+            await expect(sectors(page)).toHaveCount(0);
+            await page.mouse.up();
+            await expect(ghost(page)).toHaveCount(0);
+            const middle = await panelOfTab(page, A);
+            await expect.poll(async () => (await boxOf(page, fromEdge)).height).toBeLessThan(upperBefore.height);
+            expect((await boxOf(page, below)).height).toBeLessThan(lowerBefore.height);
+            const [upper, placed, lower] = [await boxOf(page, fromEdge), await boxOf(page, middle), await boxOf(page, below)];
+            expect(placed.y).toBeGreaterThan(upper.y);
+            expect(placed.y).toBeLessThan(lower.y);
+        });
+
+        test("骨架上的缝不是落点：侧栏与编辑区之间归侧栏，不是两块之间", async ({page}) => {
+            await open(page);
+            const sash = await sidebarSash(page).boundingBox();
+            if (sash === null) throw new Error("没有侧栏的边界");
+            await dragTo(page, tab(page, E), {x: sash.x + sash.width / 2, y: sash.y + sash.height / 2});
+            expect(await labelText(page)).toBe("添加为标签");
+            await page.keyboard.press("Escape");
+            await page.mouse.up();
+            await expect(ghost(page)).toHaveCount(0);
+        });
+
+        test("键盘也到得了缝：逐个位置走到“放到两块之间”，放下结果和指针一样", async ({page}) => {
+            await open(page);
+            const below = await splitColumn(page);
+            await tab(page, E).focus();
+            await page.keyboard.press("Space");
+            await expect(ghost(page)).toBeVisible();
+            let found = false;
+            for (let region = 0; region < 8 && !found; region += 1) {
+                await page.keyboard.press("Tab");
+                for (let step = 0; step < 12 && !found; step += 1) {
+                    found = (await labelText(page)) === "放到两块之间";
+                    if (!found) await page.keyboard.press("ArrowDown");
+                }
+            }
+            expect(found).toBe(true);
+            await page.keyboard.press("Enter");
+            await expect(ghost(page)).toHaveCount(0);
+            const placed = await boxOf(page, await panelOfTab(page, E));
+            expect(placed.y).toBeGreaterThan((await boxOf(page, "sidebar")).y);
+            expect(placed.y).toBeLessThan((await boxOf(page, below)).y);
+        });
+    });
+
+    test.describe("同方向一起分（设置 dropSplit，输出 27）", () => {
+        test("放到外缘时这一列都让，“移动到”的新面板不跟设置走", async ({page}) => {
+            const settingsFile = join(tmp, "state", "settings.json");
+            await writeFile(settingsFile, JSON.stringify({"nbook.workbench/dropSplit": "shared"}));
+            try {
+                await open(page);
+                await dropAt(page, entry(page, C), await inLeaf(page, "sidebar", {x: 0.5, y: 0.97}));
+                await expect.poll(() => panelOfTab(page, C)).not.toBe("sidebar");
+                const below = await panelOfTab(page, C);
+                const lowerBefore = await leaf(page, below).boundingBox();
+                await dropAt(page, entry(page, B), await inLeaf(page, "sidebar", {x: 0.5, y: 0.85}));
+                await expect.poll(async () => (await leaf(page, below).boundingBox())?.height ?? 0).toBeLessThan(lowerBefore?.height ?? 0);
+            } finally {
+                await rm(settingsFile, {force: true});
+            }
+        });
     });
 
     test("拖动源压在分隔线的命中带里：按下并拖动是调整大小，不出现拖影；同一个面板头上标题按下拖动才是拿起这个视图（输出 24；ui/layout-drag 验收 3）", async ({page}) => {

@@ -30,6 +30,7 @@ import type {ViewLocation} from "../../shared/views";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
+import type {DropSplit} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
@@ -69,6 +70,8 @@ const props = defineProps<{
     dropSectors?: boolean;
     /** 拖动的手感（设置 `nbook.workbench/dragFeel`）；缺省实时布局。 */
     dragFeel?: "live" | "indicator";
+    /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
+    dropSplit?: DropSplit;
 }>();
 
 const resolver = useText();
@@ -383,7 +386,7 @@ onBeforeUnmount(() => detachPaneFocus?.());
 
 /** 预备区的图标：与标题栏的布局按钮同一套。 */
 const REVEAL_ICONS: Readonly<Record<string, string>> = {sidebar: "i-lucide-panel-left", auxiliarybar: "i-lucide-panel-right", panel: "i-lucide-panel-bottom"};
-const POLICY = createLayoutPolicy();
+const POLICY = createLayoutPolicy({dropSplit: () => props.dropSplit ?? "half"});
 
 function onExtent(next: GridExtent | null): void {
     props.layout.actions.acceptExtent(next);
@@ -509,7 +512,7 @@ function dropLabel(drop: LayoutDragDrop): string {
 
 const dropFeedback = computed(() => {
     const drop = dragState.value?.drop ?? shownFileDrop.value;
-    if (drop === null) return {preview: null, label: "", liveLabel: "", kind: ""};
+    if (drop === null) return {preview: null, label: "", liveLabel: drag.value?.rejected.value === true ? message("shell.drop.rejected") : "", kind: ""};
     // 整窗在移动：窗本身就是反馈。
     if (dragState.value?.source.kind === "panel" && drop.action.kind === "float") return {preview: null, label: "", liveLabel: "", kind: "float"};
     if (drag.value?.live.active.value === true) {

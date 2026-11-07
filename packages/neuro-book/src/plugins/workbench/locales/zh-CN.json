@@ -15,6 +15,17 @@
                 }
             }
         },
+        "dropSplit": {
+            "title": "拖到四周时",
+            "choices": {
+                "half": {
+                    "title": "只分本窗口"
+                },
+                "shared": {
+                    "title": "同方向的窗口一起分"
+                }
+            }
+        },
         "dropSectors": {
             "title": "落点分区",
             "description": "拖动视图或标签到面板上时，画出上下左右中能放的位置"
@@ -229,7 +240,8 @@
             "between": "放到两块之间",
             "split": "拆到这一边",
             "inPlace": "原位",
-            "float": "浮动打开"
+            "float": "浮动打开",
+            "rejected": "不能放在这里"
         },
         "moreActions": "更多操作",
         "frame": {

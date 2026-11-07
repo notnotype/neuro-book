@@ -92,31 +92,48 @@ export function toolPanelAxis(doc: LayoutDoc, panelId: string): GridOrientation 
     return findTreeNode(doc.tree.root, panelId)?.parent?.orientation ?? "vertical";
 }
 
-const onlyEditors = (doc: LayoutDoc, nodeId: string): boolean => {
+/** 往一个方向分（输出 27）：只分本窗口，或同方向的窗口一起分。 */
+export type DropSplit = "half" | "shared";
+
+const onlyRole = (doc: LayoutDoc, nodeId: string, role: PanelRecord["role"]): boolean => {
     const hit = findTreeNode(doc.tree.root, nodeId);
-    return hit !== null && treeLeaves(hit.node).every((leaf) => doc.panels[leaf.id]?.role === "editor");
+    return hit !== null && treeLeaves(hit.node).every((leaf) => doc.panels[leaf.id]?.role === role);
 };
 
 /**
- * 这条边是不是落点、落到哪（输出 25、26）。规则都是为了守住骨架（输出 1）：工具面板只有所在方向上的两条边；编辑组的对面不是编辑组时（下面挨着面板）是拆这一组，不从工具面板取空间。
+ * 这条边是不是落点、怎么分（输出 25 到 27）。工具面板只有所在方向上的两条边，别的边没有窄带，算中央。固定的面板不参与一起分，规则在 `placeLeaf`，所以编辑区分屏不分走侧栏、面板的空间。
  */
-export function layoutEdgeTarget(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, panelId: string, edge: LayoutEdge): LayoutEdgeTarget | null {
+export function layoutEdgeTarget(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, panelId: string, edge: LayoutEdge, split: DropSplit = "half"): LayoutEdgeTarget | null {
     const panel = doc.panels[panelId];
     if (panel === undefined) return null;
     if (panel.role === "tool") {
         const axis: GridOrientation = edge === "left" || edge === "right" ? "horizontal" : "vertical";
-        return axis === toolPanelAxis(doc, panelId) ? edgeTargetOf(doc, panelId, edge) : null;
+        if (axis !== toolPanelAxis(doc, panelId)) return null;
     }
-    const target = edgeTargetOf(doc, panelId, edge);
-    if (target?.kind !== "between") return target;
-    return onlyEditors(doc, target.before === panelId ? target.after : target.before) ? target : {kind: "split", panel: panelId, edge};
+    return {kind: split === "shared" ? "spread" : "split", panel: panelId, edge};
 }
 
-export function createLayoutPolicy(overrides: {readonly canInsert?: LayoutPolicy["canInsert"]} = {}): LayoutPolicy {
+/**
+ * 这条缝是不是落点（输出 26）：两边同类才是。编辑组之间，或同一列、同一排的工具面板之间；所以活动栏、侧栏、编辑区、右栏之间，编辑区与面板之间都没有缝落点，骨架插不进东西。
+ */
+export function layoutSeamAccepts(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, before: string, after: string): boolean {
+    if (onlyRole(doc, before, "editor") && onlyRole(doc, after, "editor")) return true;
+    if (!onlyRole(doc, before, "tool") || !onlyRole(doc, after, "tool")) return false;
+    const parent = findTreeNode(doc.tree.root, before)?.parent;
+    const first = treeLeaves(findTreeNode(doc.tree.root, before)?.node ?? doc.tree.root)[0];
+    return parent != null && first !== undefined && parent.orientation === toolPanelAxis(doc, first.id);
+}
+
+/** “移动到”的“新面板（挨着 X）”（输出 23）：明确的命令，不跟拖动的设置走，从相邻两块取空间。 */
+export const newPanelEdgeTarget = (doc: LayoutDoc, beside: string): LayoutEdgeTarget | null => edgeTargetOf(doc, beside, toolPanelAxis(doc, beside) === "vertical" ? "bottom" : "right");
+
+export function createLayoutPolicy(overrides: {readonly canInsert?: LayoutPolicy["canInsert"]; readonly dropSplit?: () => DropSplit} = {}): LayoutPolicy {
+    const {dropSplit, ...rest} = overrides;
     return {
         accepts: layoutAccepts,
-        edgeTarget: layoutEdgeTarget,
+        edgeTarget: (doc, tabs, panel, edge) => layoutEdgeTarget(doc, tabs, panel, edge, dropSplit?.() ?? "half"),
+        seamAccepts: layoutSeamAccepts,
         newId: (kind) => `${kind === "panel" ? "p" : "b"}-${crypto.randomUUID()}`,
-        ...overrides,
+        ...rest,
     };
 }
