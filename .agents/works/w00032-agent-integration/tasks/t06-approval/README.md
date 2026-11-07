@@ -57,7 +57,7 @@ t03、t04。
 
 ## 当前状态
 
-切片 1 到 4 写完，在分支 `feat/w00032-t06-permissions`（worktree `.worktree/w00032-t06-permissions`），还没合入。
+完成，2026-11-06 合入 master（`7c5ca4575`）；2026-11-07 三份 Spec 晋升 `implemented`。下面的切片记录保留作历程。
 
 - 切片 1：`bash` 方言，解析用 `unbash`。
 - 切片 2：规则、匹配器、三层合并、判定流水线，替换 `approveByMode`；`shell` 按命令算等级；项目规则文件；“本会话都批准”之前没生效，接上了。
@@ -91,4 +91,4 @@ t03、t04。
 
 审查：omp 后端 6 条（改 4、不改 2），Sonnet 前端 17 条，处理见 `evidences/impl-review-{backend,frontend}-disposition.md`。
 
-待开发者答复：`agent/permissions.md`、`agent/modes.md`、`ui/agent-conversation-view.md` 要不要晋升 implemented。之后按 Work 的顺序做 t14。
+开发者 2026-11-07 批准晋升：`agent/permissions.md`、`agent/modes.md`、`ui/agent-conversation-view.md` 已晋升 `implemented`（补实现合同与证据；`modes` 补两条测试：压缩后再写完整提示、后台会话申请切换）。之后按 Work 的顺序做 t14。
