@@ -423,7 +423,8 @@ class Root implements RootedRoot {
         } catch (error) {
             return fail("root-gone", "根目录已不在", error);
         }
-        if (!now.isDirectory() || now.dev !== this.#identity.dev || now.ino !== this.#identity.ino) return fail("root-gone", "根目录被移走或替换");
+        // inode 会被回收再分配：根被删除后重建时，ext4 这类文件系统可能给新目录同一个 inode，创建时间能分开。
+        if (!now.isDirectory() || now.dev !== this.#identity.dev || now.ino !== this.#identity.ino || now.birthtimeMs !== this.#identity.birthtimeMs) return fail("root-gone", "根目录被移走或替换");
         return null;
     }
 }

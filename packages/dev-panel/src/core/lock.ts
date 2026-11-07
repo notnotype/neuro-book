@@ -75,8 +75,11 @@ function parseOwner(text: string): {owner: LockOwner | null; problem: string | n
     return {owner: owner as LockOwner, problem: null};
 }
 
-/** 看一眼锁目录：`ino` 认目录本身，`owner` 为 null 表示没有可用的持锁者信息（旧格式或损坏，原因在 `problem`）。 */
-export type LockObservation = {ino: number; owner: LockOwner | null; problem: string | null};
+/**
+ * 看一眼锁目录：`ino` 与 `birthtimeMs` 一起认目录本身（inode 会被回收再分配，删掉再建时可能拿到同一个 inode），
+ * `owner` 为 null 表示没有可用的持锁者信息（旧格式或损坏，原因在 `problem`）。
+ */
+export type LockObservation = {ino: number; birthtimeMs: number; owner: LockOwner | null; problem: string | null};
 
 /** 锁目录不存在时为 null；读持锁者期间锁目录被换掉时为 "changed"，调用方重试即可。 */
 export async function inspectLock(lockDir: string): Promise<LockObservation | null | "changed"> {
@@ -100,7 +103,7 @@ export async function inspectLock(lockDir: string): Promise<LockObservation | nu
         if (systemErrorCode(error) === "ENOENT") return "changed";
         throw error;
     }
-    return after.ino === before.ino ? {ino: before.ino, ...parsed} : "changed";
+    return after.ino === before.ino && after.birthtimeMs === before.birthtimeMs ? {ino: before.ino, birthtimeMs: before.birthtimeMs, ...parsed} : "changed";
 }
 
 /**
@@ -116,7 +119,9 @@ export async function takeOverDeadLock(lockDir: string, tmpRoot: string, observa
         if (systemErrorCode(error) === "ENOENT") return "lost_race";
         throw error;
     }
-    if ((await lstat(tombstone)).ino !== observation.ino) {
+    const moved = await lstat(tombstone);
+    // 与 `inspectLock` 一样连创建时间一起比：`rename` 不改 inode 与创建时间，重建的目录即使复用了 inode 两者也对不上。
+    if (moved.ino !== observation.ino || moved.birthtimeMs !== observation.birthtimeMs) {
         try {
             await rename(tombstone, lockDir);
         } catch (error) {

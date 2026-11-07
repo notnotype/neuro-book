@@ -117,7 +117,8 @@ export async function holdLock(lockPath: string, report: (event: string, error: 
     const stillHeld = async (): Promise<string | null> => {
         if (compromised !== null) return `锁在持有期间失效：${describe(compromised)}`;
         const now = await statOrNull(lockPath).catch(() => null);
-        if (now !== null && now.dev === identity.dev && now.ino === identity.ino) return null;
+        // inode 会被回收再分配：删掉锁目录再建时，ext4 这类文件系统可能给新目录同一个 inode，只有创建时间能分开。
+        if (now !== null && now.dev === identity.dev && now.ino === identity.ino && now.birthtimeMs === identity.birthtimeMs) return null;
         lost = true;
         return "锁在持有期间被判为残留、已被别的进程接管";
     };

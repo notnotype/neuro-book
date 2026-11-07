@@ -84,7 +84,7 @@ describe("GitHub 只读页（场景 5）", () => {
     test("只调写死的两条命令（带禁交互的环境变量）；检查汇总兼容 StatusContext；分支链到 Task；非 https 链接丢掉；条数到上限标截断；PATH 里没有 gh 时用 NBDEV_GH_BIN", async () => {
         const fixture = await createFixture("gh-ok");
         const gh = await fakeGh(fixture);
-        const panel = await startPanel(fixture, {...gh.env, NBDEV_GH_BIN: gh.bin, PATH: "/usr/bin:/bin", FAKE_GH_ISSUES: "100"});
+        const panel = await startPanel(fixture, {...gh.env, NBDEV_GH_BIN: gh.bin, PATH: join(fixture.root, "no-bin"), FAKE_GH_ISSUES: "100"});
         // GET 只读、不触发取数；打开页面时页面发 ifStale。
         await panel.get("/api/github");
         await sleep(500);
@@ -106,7 +106,7 @@ describe("GitHub 只读页（场景 5）", () => {
 
     test("降级：找不到 gh、没登录（以 4 退出）、输出读不懂；取过一次之后超时保留上一份并标 stale", async () => {
         const missing = await createFixture("gh-missing");
-        const none = await startPanel(missing, {PATH: "/usr/bin:/bin"});
+        const none = await startPanel(missing, {PATH: join(missing.root, "no-bin")});
         await none.post("/api/github/refresh", true, {ifStale: true});
         expect(await until(async () => (await none.get("/api/github")).body.data as GithubData, (value) => value.state === "unavailable", 10_000, "unavailable")).toMatchObject({error: expect.stringContaining("NBDEV_GH_BIN")});
 
@@ -138,7 +138,7 @@ describe("GitHub 只读页（场景 5）", () => {
             const fixture = await createFixture(`gh-loop-${mode}`);
             const gh = mode === "missing" ? null : await fakeGh(fixture);
             if (gh) await gh.mode(mode);
-            const panel = await startPanel(fixture, gh ? {...gh.env, NBDEV_GH_BIN: gh.bin} : {PATH: "/usr/bin:/bin"});
+            const panel = await startPanel(fixture, gh ? {...gh.env, NBDEV_GH_BIN: gh.bin} : {PATH: join(fixture.root, "no-bin")});
             const ws = new WebSocket(`ws://127.0.0.1:${panel.server.port}/ws`, {headers: {Cookie: panel.cookie, Origin: panel.server.url}} as unknown as string[]);
             closers.push(async () => ws.close());
             const probe: Probe = {mode, gh, panel, pushes: 0, gets: 0, ws};
