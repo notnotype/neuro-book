@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "answerId": "20261107T084834338Z-74f6c96b",
+    "artifactVersion": 3,
+    "contentHash": "c10b523bb53f01a2c6cc58a329edde357b546efc7aab92f19bde143101cc370c",
+    "submittedAt": "2026-11-07T08:48:33.252Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "no-banner": true,
+        "notice-actions-align": "left",
+        "notice-detail-where": "dialog"
+    },
+    "comments": {
+        "notice-detail-where": "样式要优化一下，例如这个文字展示 + 复制。相关组件考虑复用（或者直接用 Markdown 的代码块来展示）。"
+    },
+    "note": null
+}
