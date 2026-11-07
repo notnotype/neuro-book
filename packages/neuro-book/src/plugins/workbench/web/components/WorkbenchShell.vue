@@ -478,6 +478,39 @@ const liveSectors = computed(() => {
     const {rect} = sectors;
     return {...sectors, rect: {left: rect.left - origin.left, right: rect.right - origin.left, top: rect.top - origin.top, bottom: rect.bottom - origin.top}};
 });
+/**
+ * 实时布局预览里的空位（输出 38）：来源落进去的新块，这块只有它一个标签。头放下才有。有自己标签的预备区、并入的目标里没有来源，不是空位。
+ */
+const slotPanel = computed(() => {
+    const action = drag.value?.live.shownAction.value;
+    const source = dragState.value?.source;
+    if (action == null || source?.kind !== "tab" || (action.kind !== "edge" && action.kind !== "reveal")) return null;
+    const found = findTab(renderedDoc.value, source.tab);
+    return found !== null && renderedDoc.value.panels[found.panel]?.tabs.length === 1 ? found.panel : null;
+});
+/**
+ * 并入的盖层（输出 38）：目标不动，盖一层变暗加边框。矩形按预览算，来源收起时目标会动，盖层跟着过渡。插入线相对量它时的外框，盖层动它跟着动。
+ */
+const liveMerge = computed(() => {
+    const action = drag.value?.live.shownAction.value;
+    const current = dragState.value;
+    if (action == null || current === null || current.source.kind !== "tab" || (action.kind !== "center" && action.kind !== "strip" && action.kind !== "reveal")) return null;
+    // 来源就在这块：自己的标签条、空面板的预备区。
+    if (findTab(renderedDoc.value, current.source.tab)?.panel === action.panel) return null;
+    const rect = drag.value?.panelRectIn(renderedDoc.value, action.panel) ?? null;
+    if (rect === null) return null;
+    const {indicator, indicatorFrame} = current.drop?.preview ?? {};
+    const line = action.kind !== "strip" || indicator == null || indicatorFrame === undefined ? null : {
+        transform: `translate(${String(indicator.left - indicatorFrame.left)}px, ${String(indicator.top - indicatorFrame.top)}px)`,
+        width: `${String(indicator.right - indicator.left)}px`,
+        height: `${String(indicator.bottom - indicator.top)}px`,
+    };
+    return {
+        panel: action.panel,
+        line,
+        style: {transform: `translate(${String(rect.left)}px, ${String(rect.top)}px)`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`},
+    };
+});
 const slotStyle = computed(() => {
     const slot = drag.value?.live.slot.value ?? null;
     return slot === null ? {} : {transform: `translate(${String(slot.x)}px, ${String(slot.y)}px)`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
@@ -575,6 +608,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :maximized="state.maximized"
                 :disabled="!state.ready"
                 :title-only-panels="titleOnlyPanels"
+                :headless-panel="slotPanel"
                 context-key="workbench"
                 @extent="onExtent"
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"
@@ -650,7 +684,12 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 <template #overlay>
                     <template v-if="drag?.live.active.value === true">
                         <DropSectorsOverlay v-if="liveSectors !== null" inline variant="live" :rect="liveSectors.rect" :sectors="liveSectors.items" :active="liveSectors.active" />
-                        <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
+                        <div v-if="drag.live.slot.value !== null && liveMerge === null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
+                        <!-- 按目标换元素：换目标时不从上一块滑过来，在新的这块淡入。 -->
+                        <div v-if="liveMerge !== null" :key="liveMerge.panel" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="liveMerge.panel" :style="liveMerge.style">
+                            <span class="workbench-shell__merge-label">{{ message("shell.drop.addTab") }}</span>
+                            <span v-if="liveMerge.line !== null" class="workbench-shell__merge-line" data-live-merge-line :style="liveMerge.line"></span>
+                        </div>
                     </template>
                 </template>
                 <template #float-chrome="{id, rect}">
@@ -716,7 +755,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     white-space: nowrap;
 }
 
-/* 空位：一块空面板加一圈边框，不铺遮罩（提案第 3 节）。过渡和外框同一条曲线，跟着布局走。 */
+/* 空位：一块空面板加一圈边框，头放下才有（输出 38）。 */
 .workbench-shell__slot {
     position: absolute;
     top: 0;
@@ -724,7 +763,49 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     box-sizing: border-box;
     border: 1px solid var(--layout-slot-border);
     border-radius: var(--layout-card-radius);
+    background: var(--layout-slot-fill);
     pointer-events: none;
+}
+
+/* 并入：目标变暗加内描边。来源收起时目标会动，过渡和外框同一条曲线；样式走令牌，主题能换。 */
+.workbench-shell__merge {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    box-sizing: border-box;
+    border-radius: var(--layout-card-radius);
+    background: var(--layout-merge-fill);
+    box-shadow: inset 0 0 0 var(--layout-merge-border-width) var(--layout-merge-border);
+    pointer-events: none;
+    transition:
+        transform var(--motion-layout) var(--ease-layout),
+        width var(--motion-layout) var(--ease-layout),
+        height var(--motion-layout) var(--ease-layout);
+    animation: workbench-shell-merge-in var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-shell__merge-label {
+    color: var(--text-main);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* 相对量它时的外框：别人的标签条上放到哪儿。 */
+.workbench-shell__merge-line {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: var(--layout-merge-border);
+}
+
+@keyframes workbench-shell-merge-in {
+    from {
+        opacity: 0;
+    }
 }
 
 .workbench-shell-host {

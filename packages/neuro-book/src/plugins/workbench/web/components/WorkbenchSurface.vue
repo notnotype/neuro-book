@@ -29,11 +29,13 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     /** 头只写标题的面板：没有标签带，内容就不是 `tabpanel`。 */
     titleOnlyPanels?: ReadonlySet<string>;
+    /** 实时布局预览里的空位：这块不画头（输出 38）。 */
+    headlessPanel?: string | null;
     /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。 */
     lifted?: {readonly key: string; readonly rect: GridRect; readonly home: string | null} | null;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), lifted: null, floats: () => []});
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), headlessPanel: null, lifted: null, floats: () => []});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -288,10 +290,12 @@ defineExpose({
                         :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
                     >
                         <slot v-if="node.id === ACTIVITY_BAR" name="activitybar"></slot>
-                        <div v-else-if="roleOf(node.id) === 'editor'" v-editor-head class="workbench-surface__editor-head" :data-surface-head="node.id">
-                            <slot name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
-                        </div>
-                        <slot v-else-if="roleOf(node.id) === 'tool'" name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
+                        <template v-else-if="node.id !== headlessPanel">
+                            <div v-if="roleOf(node.id) === 'editor'" v-editor-head class="workbench-surface__editor-head" :data-surface-head="node.id">
+                                <slot name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
+                            </div>
+                            <slot v-else-if="roleOf(node.id) === 'tool'" name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
+                        </template>
                     </div>
                 </div>
             </template>

@@ -98,17 +98,24 @@ describe("实时布局的帧循环", () => {
         expect(live.card.value).toBe(settled);
     });
 
-    it("标签先预览到别的面板再撕下：卡片从那块面板开始缩，不是已提交的来源", () => {
-        const panels = {a: rect(0, 0, 100, 100), b: rect(1000, 0, 2000, 800)};
-        const {live, advance} = harness({panels, homeOf: (doc) => (doc === CANDIDATE ? "b" : "a")});
-        live.begin(SOURCE, {x: 1500, y: 20});
+    it("别人的标签条也拿起卡片：预览把来源摘掉了，内容靠拿起留着；卡片从来源的面板开始缩", () => {
+        const panels = {a: rect(0, 0, 1000, 800), b: rect(1000, 0, 2000, 800)};
+        const {live, advance} = harness({panels});
+        live.begin(SOURCE, {x: 500, y: 20});
         live.offer(drop({kind: "strip", panel: "b", index: 0}));
         advance(16);
-        advance(200);
-        expect(live.previewKey.value).toMatch(/strip.*panel.*b/);
+        expect(live.card.value).not.toBeNull();
+        expect(live.card.value?.rect.width).toBeGreaterThan(900);
+    });
+
+    it("摆不出预览（编辑器要合并、原位）：没有已显示的动作，盖层不画", () => {
+        const {live, advance} = harness({candidate: null});
+        live.begin(SOURCE, {x: 500, y: 400});
         live.offer(drop({kind: "center", panel: "b"}));
         advance(16);
-        expect(live.card.value?.rect.width).toBeGreaterThan(900);
+        advance(200);
+        expect(live.previewKey.value).toContain("center");
+        expect(live.shownAction.value).toBeNull();
     });
 
     it("候选要稳定：一直换就不摆，留在来源收起；稳定之后才摆", () => {

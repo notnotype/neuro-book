@@ -239,9 +239,13 @@
     --layout-sector-line: color-mix(in srgb, var(--accent-main) 65%, transparent);
     --layout-sector-active-fill: color-mix(in srgb, var(--accent-main) 12%, transparent);
     --layout-sector-active-line: var(--drop-area-border);
-    /* 实时布局：反馈就是布局本身，分区只留淡线，空位只有一圈边框，跟手的卡片有投影。 */
+    /* 实时布局：反馈就是布局本身，分区只留淡线，空位只有一圈边框，并入是目标变暗加内描边，跟手的卡片有投影。 */
     --layout-live-sector-line: color-mix(in srgb, var(--accent-main) 14%, transparent);
     --layout-slot-border: color-mix(in srgb, var(--accent-main) 45%, transparent);
+    --layout-slot-fill: transparent;
+    --layout-merge-fill: var(--layout-scrim);
+    --layout-merge-border: var(--accent-main);
+    --layout-merge-border-width: 2px;
     --layout-card-radius: var(--radius-panel);
     --layout-card-shadow: 0 18px 48px rgb(0 0 0 / 34%), 0 0 0 1px var(--divider);
 }

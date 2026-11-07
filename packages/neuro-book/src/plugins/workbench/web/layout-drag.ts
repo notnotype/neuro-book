@@ -9,7 +9,7 @@
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
  */
 
-import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewRevealRects, removeTab, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewPanelRects, previewEdgeDrop, previewRevealRects, removeTab, resolveLayoutDrop, setPanelHidden, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops} from "@notnotype/nb-layout/vue";
 import type {DragSession, TabStripSnapshot} from "@notnotype/nb-layout/vue";
@@ -35,6 +35,8 @@ export interface LayoutDropPreview {
     readonly areaRect: GridDropRect | null;
     /** 标签条的插入线。 */
     readonly indicator: GridDropRect | null;
+    /** 量插入线时这块面板的外框（实时布局）：预览里面板会动，线相对它画。 */
+    readonly indicatorFrame?: GridDropRect;
     readonly orientation: GridOrientation;
 }
 
@@ -104,6 +106,8 @@ export interface LayoutDrag {
     readonly live: LiveDrag;
     /** 指针在面板上但放不进去（输出 39）：松手取消。 */
     readonly rejected: Readonly<Ref<boolean>>;
+    /** 这块面板在这份文档里的矩形（相对网格根）：并入盖层按它画。 */
+    panelRectIn(doc: LayoutDoc, panel: string): GridDropRect | null;
     /** 资源树的文件在树外能落到哪（输出 39）：这一场是资源树自己的会话，这里只判定。`top` 是指针处最上层的元素，窗口外是 null。 */
     fileDrop(point: GridDropPoint, top: Element | null): LayoutDragDrop | null;
     dispose(): void;
@@ -166,15 +170,28 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const editorTab = editorTabIdOf(source.tab);
             // 放下走编辑器的动作，结果可能和布局层算的不同（并到同一标签、被拒绝）：摆不出提交后的样子就不摆。
             if (editorTab !== null && options.editorTabs()?.previewable(editorTab, drop.action) === false) return null;
-            // 浮动的预览是来源收起：窗此刻就是跟手的卡片，松手才落到矩形上。
-            const result = drop.action.kind === "float" ? removeTab(doc, source.tab) : applyLayoutDrop(doc, source, drop.action, options.policy());
+            const {action} = drop;
+            const merges = action.kind === "center" || (action.kind === "strip" && findTab(doc, source.tab)?.panel !== action.panel);
+            // 预览不摆真实结果的落点（输出 38）。浮动：窗此刻就是跟手的卡片。并入：目标不动，只盖一层；放下才换标签。这几种都是来源收起，内容靠拿起留着。
+            if (action.kind === "float" || merges) {
+                const result = removeTab(doc, source.tab);
+                return result.ok ? result.doc : null;
+            }
+            // 预备区的面板有自己的标签：露出来的是它自己，来源是并入。
+            if (action.kind === "reveal" && doc.panels[action.panel]?.tabs.some((tab) => tabKey(tab) !== source.tab) === true) {
+                const removed = removeTab(doc, source.tab);
+                const shown = removed.ok ? setPanelHidden(removed.doc, action.panel, false) : removed;
+                return shown.ok ? shown.doc : null;
+            }
+            const result = applyLayoutDrop(doc, source, action, options.policy());
             return result.ok ? result.doc : null;
         },
         sourceRemovedDoc: (source) => {
             const result = removeTab(options.doc(), source.tab);
             return result.ok ? result.doc : null;
         },
-        homeOf: (source, shown) => findTab(shown ?? options.doc(), source.tab)?.panel ?? null,
+        // 预览把来源摘掉时看已提交的：卡片还是从来源的面板缩出来。
+        homeOf: (source, shown) => findTab(shown ?? options.doc(), source.tab)?.panel ?? findTab(options.doc(), source.tab)?.panel ?? null,
         show: (doc) => options.showPreview(doc),
         panelRect: (panel) => rectOf(root.querySelector(`[data-shell-card="${escape(panel)}"]`)),
         gridOrigin: () => {
@@ -319,7 +336,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (measured === null) return null;
         const index = stripIndex(doc, panel, measured);
         const action: LayoutDropAction = {kind: "strip", panel, index};
-        const preview: LayoutDropPreview = {areaRect: null, indicator: measured.indicator, orientation: "horizontal"};
+        const frame = frozen === null ? undefined : [...frozen.panels, ...frozen.floats].find((geometry) => geometry.id === panel)?.frame;
+        const preview: LayoutDropPreview = {areaRect: null, indicator: measured.indicator, orientation: "horizontal", ...(frame === undefined ? {} : {indicatorFrame: frame})};
         const part = measured.partition ?? undefined;
         if (doc.panels[panel]?.role === "editor") {
             // 放下走编辑器的动作（要先结算输入），这里只判是不是紧挨着它自己：同一个分区，插在它前面或后面。
@@ -493,6 +511,13 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (panel === null || items === null) return drop;
         const wanted = JSON.stringify(drop.action);
         return {...drop, sectors: {rect: panel.body, items, active: items.find((item) => JSON.stringify(item.action) === wanted)?.id ?? null}};
+    }
+
+    function panelRectIn(doc: LayoutDoc, panel: string): GridDropRect | null {
+        const float = doc.floats.find((item) => item.panel === panel);
+        if (float !== undefined) return {left: float.rect.x, top: float.rect.y, right: float.rect.x + float.rect.width, bottom: float.rect.y + float.rect.height};
+        const extent = options.extent();
+        return extent === null ? null : previewPanelRects(doc, [panel], options.projection(), extent, dpr())[panel] ?? null;
     }
 
     /** 这个落点放回 `dropAt` 能算出它的那个点（键盘用）。 */
@@ -695,7 +720,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
     });
 
-    return {session, zones: () => frozenZones, live, rejected: readonly(rejected), fileDrop, dispose: () => {
+    return {session, zones: () => frozenZones, live, rejected: readonly(rejected), panelRectIn, fileDrop, dispose: () => {
         view?.removeEventListener("pointermove", onPointerSeen, true);
         view?.removeEventListener("pointerdown", onPointerSeen, true);
         session.dispose();

@@ -45,7 +45,7 @@ export interface LiveDrag {
     readonly card: Readonly<Ref<{readonly key: string; readonly rect: GridRect} | null>>;
     /** 已显示的空位（相对网格根）；没有新面板时为 null。 */
     readonly slot: Readonly<Ref<GridRect | null>>;
-    /** 已显示的落点动作；预览的是别的（来源收起、没有）时为 null。 */
+    /** 已显示的落点动作；预览的是别的（来源收起、没有、摆不出来）时为 null。 */
     readonly shownAction: Readonly<Ref<LayoutDropAction | null>>;
     begin(source: LayoutTabSource, point: GridDropPoint | null): void;
     /** 这一刻判定的落点。 */
@@ -87,18 +87,21 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
 
     function candidateOf(drop: LayoutDragDrop, from: LayoutTabSource): LiveDropCandidate {
         const {action} = drop;
-        // 标签条内要跟手：已经在这条标签条里，或者就是来源自己那条。
-        const inStrip = action.kind === "strip" && (host.homeOf(from, null) === action.panel || (shown?.action.kind === "strip" && shown.action.panel === action.panel));
+        // 自己那条标签条要跟手。别人的标签条是并入：预览不动它，和中央一样等候选稳定。
+        const inStrip = action.kind === "strip" && host.homeOf(from, null) === action.panel;
         // 只有长出新面板的落点有空位：并进已有面板时空位就是它的整块正文，粘住了它自己的外缘就选不到了。
         const grows = !drop.inPlace && (action.kind === "edge" || action.kind === "reveal");
         return {key: keyOf(drop), immediate: inStrip, slot: grows ? drop.preview.areaRect : null};
     }
 
-    /** 标签条里不拿起：只有标签跟手，内容留在面板里（提案第 3 节）。活动栏的落点不改这个状态：已经拿起的继续跟手。 */
+    /**
+     * 自己的标签条里不拿起：只有标签跟手，内容留在面板里。别人的标签条要拿起：并入的预览把来源摘掉了，内容靠拿起留着（`WorkbenchSurface` 的 `contents`），不拿起实例就卸了。
+     * 活动栏的落点不改这个状态：已经拿起的继续跟手。
+     */
     function wantsCard(): boolean {
-        if (offered === null) return true;
+        if (offered === null || source === null) return true;
         if (offered.noPreview === true) return card.value !== null;
-        return offered.action.kind !== "strip";
+        return offered.action.kind !== "strip" || host.homeOf(source, null) !== offered.action.panel;
     }
 
     function updateCard(now: number): void {
@@ -149,8 +152,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         if (preview.kind === "candidate") {
             shown = offered;
             previewKey.value = preview.key;
-            shownAction.value = offered?.action ?? null;
-            show(offered === null ? null : host.candidateDoc(source, offered));
+            const doc = offered === null ? null : host.candidateDoc(source, offered);
+            // 摆不出来（原位、活动栏、编辑器会合并或拒绝）就没有预览：盖层和预备区让开都看它。
+            shownAction.value = doc === null ? null : (offered?.action ?? null);
+            show(doc);
         } else if (preview.kind === "source-removed") {
             shown = null;
             previewKey.value = "source-removed";

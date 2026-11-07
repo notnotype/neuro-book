@@ -39,6 +39,8 @@ type Props = {
     maximized?: string | null;
     /** 拿起的内容项（实时布局），矩形相对网格根，`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不卸载。 */
     lifted?: {key: string; rect: GridRect; home: string | null} | null;
+    /** 实时布局预览里的空位：这块不画头。 */
+    headlessPanel?: string | null;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /** 禁用边界手势；默认 false。 */
