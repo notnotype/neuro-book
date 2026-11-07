@@ -76,6 +76,8 @@ export interface ProfilePageDeps {
     readonly report: (code: string, message: string) => void;
 }
 
+const userProfileAddress = (key: string): string => `user://profiles/${key.replace(/^user\./u, "")}.profile.tsx`;
+
 export function profilesPage(component: Component, deps: ProfilePageDeps): Component {
     return defineComponent({
         name: "ProfileSettingsPageHost",
@@ -172,7 +174,32 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                     const result = await changeTools(key, change);
                     return result.ok ? null : settingsFailureText(result.code, result.detail, deps.text);
                 },
-                onOpenFile: (key: string) => deps.openAddress(`user://profiles/${key.replace(/^user\./u, "")}.profile.tsx`),
+                onOpenFile: (key: string) => deps.openAddress(userProfileAddress(key)),
+                // 服务端交回时打包已有结果，重取一次目录里就有它（事件也会来，序号让两次重取只算最后一次）。
+                createProfile: async (name: string): Promise<{readonly key: string} | {readonly reason: string}> => {
+                    const created = await deps.remote.createUserProfile({
+                        name,
+                        description: deps.text.t(agentText("profiles.skeleton.description")),
+                        system: deps.text.t(agentText("profiles.skeleton.system")),
+                    });
+                    if (!created.ok) {
+                        if (created.code === "exists") return {reason: deps.text.t(agentText("profiles.create.exists"))};
+                        if (created.code === "invalid-name") return {reason: deps.text.t(agentText("profiles.create.invalid"))};
+                        return {reason: deps.text.t(agentText("profiles.create.failed", {code: created.code}))};
+                    }
+                    await load();
+                    deps.openAddress(created.value.address);
+                    return {key: created.value.key};
+                },
+                deleteProfile: async (key: string): Promise<void> => {
+                    const name = entries.value.find((entry) => entry.key === key)?.name ?? key;
+                    const deleted = await deps.remote.deleteUserProfile({key});
+                    // 文件已经不在：结果和删掉一样，重取就好。
+                    if (!deleted.ok && deleted.code !== "not-found") {
+                        props.context.reportWriteFailure(deps.text.t(agentText("profiles.remove.failed", {name})), {reason: deleted.code, uncertain: deleted.code === "unknown-outcome"});
+                    }
+                    await load();
+                },
             });
         },
     });

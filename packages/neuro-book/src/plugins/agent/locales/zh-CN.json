@@ -404,6 +404,26 @@
                 "ask": "向用户提问，只有固定选项。",
                 "ask-form": "向用户提问，可以带选项或表单。"
             }
+        },
+        "create": {
+            "title": "新建 Profile",
+            "name": "名字",
+            "hint": "只能用小写字母、数字和连字符。文件是 user://profiles/{{name}}.profile.tsx，key 是 user.{{name}}。",
+            "hintEmpty": "只能用小写字母、数字和连字符。",
+            "confirm": "新建并打开",
+            "invalid": "名字只能用小写字母、数字和连字符，不能以连字符开头或结尾。",
+            "exists": "已经有同名的 Profile 了。",
+            "failed": "新建失败（{{code}}）。"
+        },
+        "skeleton": {
+            "description": "我写的 Profile。",
+            "system": "你是一位写作助手。按作者的要求工作，不确定时先问。"
+        },
+        "remove": {
+            "title": "删除“{{name}}”？",
+            "description": "文件会被直接删除，不能恢复；用它的会话会变成只读。它导入的其它文件留着。",
+            "confirm": "删除",
+            "failed": "删除“{{name}}”"
         }
     }
 }

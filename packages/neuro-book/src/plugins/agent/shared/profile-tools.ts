@@ -3,6 +3,9 @@
  * 工具集与设置页显示、改绑定用同一份，页面显示的才是请求里的。
  */
 
+/** 新建用户级 Profile 时的名字（contributions.md 输出 18）；手写的文件名不受它限制。 */
+export const USER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
 export interface ToolRequirements {
     readonly required: readonly string[];
     readonly optional: readonly string[];

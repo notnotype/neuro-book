@@ -13,6 +13,8 @@
 ## 交互
 
 - 选中项消失（删了、重载后没了）时回到第一项。
+- “新建”打开 [`NewProfileDialog`](NewProfileDialog.md)：成功后选中新的 Profile（打开文件由包装做）；失败留在对话框。
+- “删除”先确认（`AlertDialog`），确认文字写明不能恢复、用它的会话变只读；删掉后焦点落在新的当前项，窄布局里落在下拉上。
 - 其余事件原样交给包装。
 
 ## 数据
@@ -23,12 +25,17 @@ defineProps<{
     profiles: readonly ProfileView[];
     writable?: boolean;      // 缺省 true
     initial?: string;        // 起始选中，缺省第一项（Lab 用）
+    addTools?: (key: string, change: ToolChange) => Promise<string | null>;                                   // 失败原因
+    createProfile?: (name: string) => Promise<{readonly key: string} | {readonly reason: string}>;             // 交回时目录里已有它
+    deleteProfile?: (key: string) => Promise<void>;                                                            // 交回时目录里已没有它
 }>();
 defineEmits<{
     (e: "retry"): void;
     (e: "model", key: string, value: string): void;
     (e: "approval", key: string, value: string): void;
     (e: "open-file", key: string): void;
+    (e: "remove-tool", key: string, id: string): void;
+    (e: "restore-tools", key: string): void;
 }>();
 ```
 
@@ -36,5 +43,5 @@ defineEmits<{
 
 ## 隐藏通道理由
 
-- `state:local`：选中项。
+- `state:local`：选中项、两个对话框的开关与状态。
 - `state:inject`：文字经宿主注入的翻译端口取。

@@ -24,6 +24,7 @@ import type {CreateUserProfileResult, DeleteUserProfileResult, ProfileEntry, Pro
 
 import type {UserProfiles} from "./profiles";
 import {USER_PROFILE_PREFIX} from "./profiles";
+import {USER_PROFILE_NAME} from "../shared/profile-tools";
 import type {ToolRequirements} from "../shared/profile-tools";
 
 const SUFFIX = ".profile.tsx";
@@ -53,8 +54,6 @@ interface State {
 
 /** 计算出来的导入（`import(x)`、`require(x)`）：扫描看不见它要什么，不知道是不是共享模块，一律拒绝。 */
 const COMPUTED_IMPORT = /\b(?:import|require)\(\s*(?!["'`])/u;
-/** 新建时的名字（contributions.md 输出 18）；手写的文件名不受它限制。 */
-const USER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 /** 错误文字交给浏览器之前截到这么长。 */
 const MAX_PROBLEM_MESSAGE = 2_000;
 

@@ -37,6 +37,7 @@ import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
 import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail.vue";
 import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
+import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
 import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
 import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
 import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
@@ -1072,6 +1073,14 @@ function shelfFixtures(): LabFixture[] {
                 {id: "failed", label: "写入失败留在对话框", input: {props: {candidates: SAMPLE_TOOL_CANDIDATES, status: "设置文件无法写入"}, model: {open: true}}},
             ],
             load: async () => withAgentPageText(createSubjectFixture<typeof AddToolsDialog>((await import("nbook/plugins/agent/web/components/AddToolsDialog.vue")).default)),
+        }),
+        defineLabFixture<typeof NewProfileDialog>({
+            component: "NewProfileDialog",
+            scenes: [
+                {id: "new", label: "新建：只问名字", input: {props: {}, model: {open: true}}},
+                {id: "exists", label: "已有同名", input: {props: {status: "已经有同名的 Profile 了。"}, model: {open: true}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof NewProfileDialog>((await import("nbook/plugins/agent/web/components/NewProfileDialog.vue")).default)),
         }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",

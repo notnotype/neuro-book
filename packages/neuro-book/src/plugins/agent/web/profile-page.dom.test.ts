@@ -353,6 +353,99 @@ describe("工具", () => {
     });
 });
 
+describe("用户级 Profile", () => {
+    const dialog = () => document.body.querySelector("[data-profile-new]");
+    const buttonIn = (root: Element, label: string) => [...root.querySelectorAll("button")].find((button) => button.textContent?.trim() === label) as HTMLButtonElement;
+    const typeName = async (value: string) => {
+        const input = dialog()!.querySelector("input")!;
+        input.value = value;
+        input.dispatchEvent(new Event("input"));
+        await flushPromises();
+    };
+
+    it("新建：出现在列表里并选中，打开文件", async () => {
+        let list: readonly ProfileEntry[] = [MAIN];
+        const remote = fakeRemote({listed: () => list});
+        (remote.remote as {createUserProfile: unknown}).createUserProfile = async (input: {name: string}) => {
+            list = [MAIN, {...MINE, key: `user.${input.name}`, name: input.name}];
+            return {ok: true, value: {key: `user.${input.name}`, address: `user://profiles/${input.name}.profile.tsx`}};
+        };
+        const opened: string[] = [];
+        const {wrapper} = open({remote, openAddress: (address) => void opened.push(address)});
+        await ready(wrapper);
+        await wrapper.get(".profile-rail [data-profile-create]").trigger("click");
+        await waitUntil("对话框", () => dialog() !== null);
+        await typeName("lore-check");
+        buttonIn(dialog()!, "新建并打开").click();
+        await waitUntil("选中新的", () => wrapper.find("[data-profile-detail='user.lore-check']").exists());
+        expect(opened).toEqual(["user://profiles/lore-check.profile.tsx"]);
+    });
+
+    it("新建：名字不合规则不发请求；同名留在对话框写原因", async () => {
+        const names: string[] = [];
+        const remote = fakeRemote();
+        (remote.remote as {createUserProfile: unknown}).createUserProfile = async (input: {name: string}) => {
+            names.push(input.name);
+            return {ok: false, code: "exists"};
+        };
+        const {wrapper} = open({remote});
+        await ready(wrapper);
+        await wrapper.get(".profile-rail [data-profile-create]").trigger("click");
+        await waitUntil("对话框", () => dialog() !== null);
+        await typeName("Bad Name");
+        buttonIn(dialog()!, "新建并打开").click();
+        await flushPromises();
+        expect(names).toEqual([]);
+        expect(dialog()!.textContent).toContain("小写字母");
+        await typeName("mine");
+        buttonIn(dialog()!, "新建并打开").click();
+        await waitUntil("写出原因", () => dialog()!.textContent?.includes("同名") === true);
+        expect(names).toEqual(["mine"]);
+    });
+
+    it("删除：确认文字写明不能恢复、会话变只读；确认后回到第一项；取消不删", async () => {
+        let list: readonly ProfileEntry[] = [MAIN, MINE];
+        const remote = fakeRemote({listed: () => list});
+        const deleted: string[] = [];
+        (remote.remote as {deleteUserProfile: unknown}).deleteUserProfile = async (input: {key: string}) => {
+            deleted.push(input.key);
+            list = [MAIN];
+            return {ok: true, value: {}};
+        };
+        const {wrapper} = open({remote});
+        await ready(wrapper);
+        await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
+        await wrapper.get("[data-profile-delete]").trigger("click");
+        const alert = () => document.body.querySelector("[role='alertdialog']");
+        await waitUntil("确认框", () => alert() !== null);
+        expect(alert()!.textContent).toContain("不能恢复");
+        expect(alert()!.textContent).toContain("只读");
+        buttonIn(alert()!, "取消").click();
+        await waitUntil("确认框关掉", () => alert() === null);
+        expect(deleted).toEqual([]);
+
+        await wrapper.get("[data-profile-delete]").trigger("click");
+        await waitUntil("确认框", () => alert() !== null);
+        buttonIn(alert()!, "删除").click();
+        await waitUntil("回到第一项", () => wrapper.find("[data-profile-detail='nbook.agent.main']").exists());
+        expect(deleted).toEqual(["user.mine"]);
+    });
+
+    it("删除失败走窗口通知，Profile 还在", async () => {
+        const remote = fakeRemote({listed: () => [MAIN, MINE]});
+        (remote.remote as {deleteUserProfile: unknown}).deleteUserProfile = async () => ({ok: false, code: "unavailable"});
+        const {wrapper, failures} = open({remote});
+        await ready(wrapper);
+        await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
+        await wrapper.get("[data-profile-delete]").trigger("click");
+        const alert = () => document.body.querySelector("[role='alertdialog']");
+        await waitUntil("确认框", () => alert() !== null);
+        buttonIn(alert()!, "删除").click();
+        await waitUntil("通知", () => failures.length === 1);
+        expect(wrapper.find("[data-profile-rail-item='user.mine']").exists()).toBe(true);
+    });
+});
+
 describe("只读", () => {
     it("这一层不能写时写入控件停用，“打开文件”照常", async () => {
         const opened: string[] = [];

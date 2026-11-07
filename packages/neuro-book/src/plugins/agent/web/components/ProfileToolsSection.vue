@@ -194,6 +194,7 @@ function openAdd(): void {
 @container (max-width: 600px) {
     .profile-tools__row {
         grid-template-columns: minmax(0, 1fr) 28px 40px;
+        row-gap: 0;
         padding-block: var(--space-1);
     }
 

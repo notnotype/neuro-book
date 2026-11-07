@@ -404,6 +404,26 @@
                 "ask": "Asks the user with fixed choices.",
                 "ask-form": "Asks the user, with choices or a form."
             }
+        },
+        "create": {
+            "title": "New profile",
+            "name": "Name",
+            "hint": "Lowercase letters, digits and hyphens only. The file is user://profiles/{{name}}.profile.tsx and the key is user.{{name}}.",
+            "hintEmpty": "Lowercase letters, digits and hyphens only.",
+            "confirm": "Create and open",
+            "invalid": "Use lowercase letters, digits and hyphens only, and don't start or end with a hyphen.",
+            "exists": "A profile with this name already exists.",
+            "failed": "Couldn't create the profile ({{code}})."
+        },
+        "skeleton": {
+            "description": "A profile I wrote.",
+            "system": "You are a writing assistant. Follow the author's requests, and ask when unsure."
+        },
+        "remove": {
+            "title": "Delete \"{{name}}\"?",
+            "description": "The file is deleted permanently, and sessions using it become read-only. Other files it imports stay.",
+            "confirm": "Delete",
+            "failed": "Delete \"{{name}}\""
         }
     }
 }

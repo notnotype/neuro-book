@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import {Button, Select, Spinner} from "@notnotype/nb-ui/components";
-import {computed, ref, watch} from "vue";
+import {AlertDialog, Button, Select, Spinner} from "@notnotype/nb-ui/components";
+import {computed, nextTick, ref, watch} from "vue";
 
 import type {ProfileView, ToolChange} from "../profile-view";
 import {useAgentPageText} from "../text";
+import NewProfileDialog from "./NewProfileDialog.vue";
 import ProfileDetail from "./ProfileDetail.vue";
 import ProfileRail from "./ProfileRail.vue";
 import ProfileToolsSection from "./ProfileToolsSection.vue";
@@ -16,7 +17,11 @@ const props = withDefaults(defineProps<{
     initial?: string;
     /** “添加工具”的“完成”：交回失败原因，成功交回 null。 */
     addTools?: (key: string, change: ToolChange) => Promise<string | null>;
-}>(), {writable: true, initial: undefined, addTools: async () => null});
+    /** “新建并打开”：交回新的 key，或失败原因；交回时目录里已经有它。 */
+    createProfile?: (name: string) => Promise<{readonly key: string} | {readonly reason: string}>;
+    /** 确认后的删除：交回时目录里已经没有它，失败由包装通知。 */
+    deleteProfile?: (key: string) => Promise<void>;
+}>(), {writable: true, initial: undefined, addTools: async () => null, createProfile: async () => ({reason: ""}), deleteProfile: async () => undefined});
 
 const emit = defineEmits<{
     (e: "retry"): void;
@@ -25,7 +30,6 @@ const emit = defineEmits<{
     (e: "open-file", key: string): void;
     (e: "remove-tool", key: string, id: string): void;
     (e: "restore-tools", key: string): void;
-    (e: "create"): void;
 }>();
 
 const text = useAgentPageText();
@@ -38,11 +42,62 @@ watch(current, (profile) => {
     if (profile !== null) selected.value = profile.key;
 }, {immediate: true});
 
+const page = ref<HTMLElement | null>(null);
+
+// ---- 新建 ----
+const creating = ref(false);
+const createBusy = ref(false);
+const createStatus = ref("");
+function openCreate(): void {
+    createStatus.value = "";
+    creating.value = true;
+}
+async function create(name: string): Promise<void> {
+    createBusy.value = true;
+    const result = await props.createProfile(name);
+    createBusy.value = false;
+    if ("reason" in result) {
+        createStatus.value = result.reason;
+        return;
+    }
+    creating.value = false;
+    selected.value = result.key;
+}
+
+// ---- 删除 ----
+/** 打开确认框时定下：确认框不跟着当前项挂载，删掉之后当前项变了它还要发 `closed`。 */
+const removing = ref(false);
+const removeTarget = ref<ProfileView | null>(null);
+function openRemove(profile: ProfileView): void {
+    removeTarget.value = profile;
+    removing.value = true;
+}
+let removed = false;
+async function confirmRemove(): Promise<void> {
+    const target = removeTarget.value;
+    if (target === null) return;
+    removed = true;
+    await props.deleteProfile(target.key);
+}
+/** 确认框关闭后移焦点（输出 23）：删掉了就到新的当前项，取消了不动。 */
+async function onRemoveClosed(): Promise<void> {
+    if (!removed) return;
+    removed = false;
+    await nextTick();
+    // 窄布局里左栏隐藏，聚焦它的项不生效，换成顶上的下拉。
+    for (const selector of ["[data-profile-rail-item][aria-current='page']", "[data-profile-picker] input, [data-profile-picker]"]) {
+        const element = page.value?.querySelector<HTMLElement>(selector);
+        if (element === null || element === undefined || element.offsetParent === null) continue;
+        element.focus();
+        return;
+    }
+}
+
 const pickerOptions = computed(() => ordered.value.map((profile) => ({value: profile.key, label: profile.name, description: profile.statusText?.text ?? profile.source})));
 </script>
 
 <template>
-    <div class="profile-page" data-agent-profiles-page>
+    <div ref="page" class="profile-page" data-agent-profiles-page>
         <div v-if="state === 'loading'" class="profile-page__state" role="status" aria-busy="true" data-profile-loading>
             <Spinner />
             <p>{{ text("profiles.loading") }}</p>
@@ -53,11 +108,11 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
             <Button size="sm" variant="secondary" data-profile-retry @click="emit('retry')">{{ text("profiles.retry") }}</Button>
         </div>
         <div v-else-if="current !== null" class="profile-page__split">
-            <ProfileRail class="profile-page__rail" :items="ordered" :current="current.key" :disabled="!writable" @select="(key) => (selected = key)" @create="emit('create')" />
+            <ProfileRail class="profile-page__rail" :items="ordered" :current="current.key" :disabled="!writable" @select="(key) => (selected = key)" @create="openCreate" />
             <div class="profile-page__main">
                 <div class="profile-page__picker">
                     <Select :model-value="current.key" :options="pickerOptions" size="sm" :aria-label="text('profiles.rail.label')" data-profile-picker @update:model-value="(key: string) => (selected = key)" />
-                    <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="!writable" data-profile-create @click="emit('create')">{{ text("profiles.rail.newShort") }}</Button>
+                    <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="!writable" data-profile-create @click="openCreate">{{ text("profiles.rail.newShort") }}</Button>
                 </div>
                 <ProfileDetail
                     :key="current.key"
@@ -66,6 +121,7 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
                     @model="(value) => emit('model', current!.key, value)"
                     @approval="(value) => emit('approval', current!.key, value)"
                     @open-file="emit('open-file', current!.key)"
+                    @delete="openRemove(current!)"
                 >
                     <ProfileToolsSection
                         v-if="current.tools !== null"
@@ -78,6 +134,17 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
                 </ProfileDetail>
             </div>
         </div>
+        <NewProfileDialog v-model:open="creating" :busy="createBusy" :status="createStatus" @create="create" @edit="createStatus = ''" />
+        <AlertDialog
+            v-if="removeTarget !== null"
+            v-model:open="removing"
+            :title="text('profiles.remove.title', {name: removeTarget.name})"
+            :description="text('profiles.remove.description')"
+            :confirm-label="text('profiles.remove.confirm')"
+            data-profile-remove
+            @confirm="confirmRemove"
+            @closed="onRemoveClosed"
+        />
     </div>
 </template>
 
