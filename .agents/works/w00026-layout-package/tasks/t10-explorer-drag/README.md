@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t10-explorer-drag
-status: active
+status: done
 updated: 2026-11-05
 ---
 
@@ -15,7 +15,11 @@ updated: 2026-11-05
 
 ## 当前状态
 
-计划已按设计审查修订，等 t09 的审查修正合入后实现。
+2026-11-07 已合入（`a952343fc`），实现审查待处理。
+
+- 验证：`test:affected --since master --typecheck` 只有已知失败；e2e：`files-explorer`（新增“文件拖出树”一条，覆盖中央、标签条、外缘、没有落点、树所在的面板、活动栏、目录）、`workbench-float`、`editor-area`、`lab-editor` 全过。
+- 和计划不同的地方：`DropAction` 里不放 `host`（Lab 夹具的输入按 JSON 类型检查，函数放不进去），`host` 只在 `DropOver` 上。窗口外松手没有写 e2e：Playwright 里鼠标移出视口的行为没试，代码上和状态栏同一条路径。
+- 没做的：文件来源的实时布局（进了待确认）。
 
 设计审查（一个 Sonnet，[`evidences/plan-review.txt`](evidences/plan-review.txt)，13 条：阻断 1、重要 6、建议 6），计划照改：
 
@@ -36,4 +40,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-片 1：nb-layout。
+处理实现审查的报告。

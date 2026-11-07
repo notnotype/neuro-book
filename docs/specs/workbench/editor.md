@@ -17,7 +17,7 @@ owners:
 
 不承诺：
 
-- 把标签拖出窗口；拖动时按 Ctrl 复制标签；资源管理器拖到编辑区边缘拆分（只打开到那一组，输出 35）；固定标签的紧凑样式；标签条的滚动按钮。
+- 把标签拖出窗口；拖动时按 Ctrl 复制标签；固定标签的紧凑样式；标签条的滚动按钮。
 - 自动保存；未保存的修改跨页面刷新保留。
 - Markdown 富文本里的批注侧栏、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮与正文右键见 [`workbench.markdown-editing`](markdown-editing.md)。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
@@ -221,7 +221,7 @@ owners:
 
 **打开到哪一组**
 
-35. **指定编辑组**：`nbook.editor.open` 的 `group` 缺省在活动组打开；给编辑组的 id 时在那一组打开并让它成为活动组，id 不存在（组已关闭）为 `unavailable`；给 `"side"` 时在活动组右侧相邻的组打开，右侧没有组就先向右拆分出一个空组（不带走活动标签）再打开。活动组浮动时“右侧”是树序最后一个编辑组：浮动窗不拆。编辑组按 [ui.layout-drag](../ui/layout-drag.md) 输出 16 登记落点 `EDITOR_GROUP_FILE`（`editor/shared/contracts.ts`）：别的插件拖动时用 `dropTargetAt` 查到组 id，放下时执行带 `group` 的 `open`（资源管理器的“拖到编辑区”，[workbench.files-explorer](files-explorer.md) 的“拖动”）；这个种类的名字与数据按公开接口处理。根元素上的 `data-editor-group` 只是样式与测试钩子，不是接口。
+35. **指定编辑组**：`nbook.editor.open` 的 `group` 缺省在活动组打开；给编辑组的 id 时在那一组打开并让它成为活动组，id 不存在（组已关闭）为 `unavailable`；给 `"side"` 时在活动组右侧相邻的组打开，右侧没有组就先向右拆分出一个空组（不带走活动标签）再打开。活动组浮动时“右侧”是树序最后一个编辑组：浮动窗不拆。资源树拖来的文件不经这条命令：落点与反馈归工作台（[ui.workbench-layout](../ui/workbench-layout.md) 输出 39），工作台调编辑器在落点打开。根元素上的 `data-editor-group` 只是样式与测试钩子，不是接口。
 
 **编辑器贡献与选择**
 
