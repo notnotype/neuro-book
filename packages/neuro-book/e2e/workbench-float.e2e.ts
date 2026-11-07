@@ -150,6 +150,17 @@ test.describe("应用内浮动", () => {
         expect(await boxOf(page, panel)).toEqual(box);
     });
 
+    test("拖到状态栏上松手：窗整个露出来，不开到屏幕外", async ({page}) => {
+        await open(page);
+        const bar = await centerOf(page.locator("[data-leaf=\"statusbar\"]"));
+        await dropAt(page, tab(page, E), {x: bar.x, y: bar.y});
+        await expect(windows(page)).toHaveCount(1);
+        await expect(page.locator("[data-moving]")).toHaveCount(0);
+        const box = await boxOf(page, await panelOfTab(page, E));
+        expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()?.height ?? 0);
+        expect(box.y).toBeGreaterThan(0);
+    });
+
     test("面板上被拒绝：工具视图在编辑组上，没有反馈、光标是禁止、读屏写原因；松手取消，不开窗、不写", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);

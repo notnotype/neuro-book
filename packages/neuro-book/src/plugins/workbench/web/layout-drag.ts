@@ -390,11 +390,17 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return extent === null ? rect : clampFloatRect(rect, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT});
     };
 
+    /** 新开的窗整个夹回树区域：在状态栏上松手时，只留头在里面就等于开到了屏幕外。拖窗不一样，用户自己摆的，`keepVisible` 只保证抓得到。 */
+    const wholeInTree = (rect: LayoutFloatRect): LayoutFloatRect => {
+        const extent = options.extent();
+        return extent === null ? rect : clampFloatRect(rect, extent, {width: rect.width, height: rect.height});
+    };
+
     /**
      * 明确的无落点：标签在松手处浮动打开（输出 39），反馈画这个矩形。不进预览缓存，矩形每帧变。键盘没有指针，矩形按树区域居中。
      */
     function floatDrop(doc: LayoutDoc, minimum: GridExtent, point: GridDropPoint | null): LayoutDragDrop {
-        const rect = point === null ? defaultFloatRect(options.extent(), minimum, doc.floats.length) : keepVisible(floatRectAt(toGrid(point), options.extent(), minimum));
+        const rect = point === null ? defaultFloatRect(options.extent(), minimum, doc.floats.length) : wholeInTree(floatRectAt(toGrid(point), options.extent(), minimum));
         const origin = surface()?.getBoundingClientRect();
         const areaRect = origin === undefined ? null : offset({left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height}, origin);
         return {action: {kind: "float", rect}, inPlace: false, preview: {areaRect, indicator: null, orientation: "horizontal"}};
