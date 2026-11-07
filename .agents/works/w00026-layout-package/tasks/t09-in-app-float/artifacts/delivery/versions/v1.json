@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t09-in-app-float",
+    "artifactId": "delivery",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "w00026 其余 Task 交付",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "a201bb15559d32cb5c9c790a568471fe81e82495ec42c37d8a53056c9d696ffc",
+    "files": [
+        "file-sector.png",
+        "float-card.png",
+        "float-window.png",
+        "index.html",
+        "live-card.png",
+        "window-dock.png"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-07T06:02:07.076Z"
+}
