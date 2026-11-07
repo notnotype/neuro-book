@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t20-hooks
-status: active
-updated: 2026-10-29
+status: done
+updated: 2026-11-07
 ---
 
 # 钩子：钩子点、读写能力、顺序与按 Profile 开关
