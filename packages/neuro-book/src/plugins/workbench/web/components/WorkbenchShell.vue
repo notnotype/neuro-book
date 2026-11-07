@@ -20,7 +20,7 @@ import {buttonBudget, NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import {WORKBENCH_FILE_DROP} from "../../shared/contracts";
-import type {WorkbenchFileDrop} from "../../shared/contracts";
+import type {WorkbenchFileDrop, WorkbenchFileDropHost} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
@@ -424,7 +424,8 @@ const dragState = computed(() => drag.value?.session.state.value ?? null);
 // 资源树的文件拖出树（输出 39）：那一场是资源树自己的会话，判定与反馈还在这里，同一份。
 const fileDrops = new WeakMap<WorkbenchFileDrop, LayoutDragDrop>();
 const shownFileDrop = shallowRef<LayoutDragDrop | null>(null);
-useDropTarget(hostEl, [WORKBENCH_FILE_DROP], () => ({
+// 只建一个：资源树按它的身份判断换没换外壳。
+const fileDropHost: WorkbenchFileDropHost = {
     resolve: (point, top) => {
         const drop = drag.value?.fileDrop(point, top instanceof Element ? top : null) ?? null;
         if (drop === null) return null;
@@ -436,7 +437,8 @@ useDropTarget(hostEl, [WORKBENCH_FILE_DROP], () => ({
         shownFileDrop.value = drop === null ? null : (fileDrops.get(drop) ?? null);
     },
     commit: (drop, addresses) => props.layout.actions.commitFiles(addresses, drop.action, drop.part),
-}));
+};
+useDropTarget(hostEl, [WORKBENCH_FILE_DROP], () => fileDropHost);
 
 function ghostOf(source: LayoutSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
     // 整窗本身就在跟手，没有拖影。

@@ -137,7 +137,6 @@ const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.
 
 <template>
     <div
-        ref="head"
         class="editor-group-head"
         :data-editor-group-head="groupId"
         :data-editor-group-head-active="active ? '' : undefined"

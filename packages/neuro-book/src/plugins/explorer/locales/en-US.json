@@ -220,7 +220,7 @@
             "before": "Place before {{name}}",
             "afterInto": "Place after {{name}} (into {{target}})",
             "beforeInto": "Place before {{name}} (into {{target}})",
-            "openSome": "Open {{count}} ({{skipped}} more not opened)"
+            "openSome": "{{label}} ({{skipped}} more not opened)"
         },
         "dragItems_one": "{{count}} item",
         "dragItems_other": "{{count}} items"

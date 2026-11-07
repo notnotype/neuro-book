@@ -421,4 +421,3 @@ describe("文档里还没有的标签（资源树拖来的文件）", () => {
         expect(applyLayoutDrop(doc, FILE, {kind: "reveal", panel: "a"}, testPolicy()).ok).toBe(false);
     });
 });
-

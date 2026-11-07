@@ -180,7 +180,6 @@ provide(editorToolbarSlotKey, toolbarSlot);
 
 <template>
     <section
-        ref="section"
         class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
         :aria-label="t('area.label')"

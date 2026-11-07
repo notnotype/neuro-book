@@ -496,7 +496,6 @@ watch(() => props.drag == null, (ended) => {
 // 行变了而指针没动：指针下已经不是显示的那一行，撤下落点。
 watch(() => props.rows, () => gesture.value?.invalidate());
 
-/** 在编辑组打开：画整个编辑组（树外，用编辑区共用的反馈层）。 */
 /** 树外的落点：反馈归工作台画（矩形、插入线、分区与读屏），这里只报它。放下、取消、离开都是下面这个 `null`。 */
 let shownHost: WorkbenchFileDropHost | null = null;
 watch(() => {
@@ -553,7 +552,7 @@ const nameOfRow = (id: string): string => {
 const dropLabel = computed(() => {
     const action = props.drag?.action;
     if (action === undefined || action.kind === "none") return "";
-    if (action.kind === "open") return action.skipped > 0 ? text("tree.drop.openSome", {count: action.addresses.length, skipped: action.skipped}) : action.drop.label;
+    if (action.kind === "open") return action.skipped > 0 ? text("tree.drop.openSome", {label: action.drop.label, skipped: action.skipped}) : action.drop.label;
     if (action.kind === "move") return text(action.ordered ? "tree.drop.intoLast" : "tree.drop.into", {name: nameOfRow(action.target)});
     const name = nameOfRow(action.anchor.id);
     // 换了接收目录（有源不在这一层）才说移入哪里。

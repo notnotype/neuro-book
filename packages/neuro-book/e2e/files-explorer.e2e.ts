@@ -832,12 +832,6 @@ test("拖到编辑组经外壳的落点登记查到，不读 data-editor-group�
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 
-async function centerOfBox(locator: Locator): Promise<{x: number; y: number}> {
-    const box = await locator.boundingBox();
-    if (box === null) throw new Error("元素不在页面上");
-    return {x: box.x + box.width / 2, y: box.y + box.height / 2};
-}
-
 /** 按下资源树的一行、拖到 `to`：拖动在这一步之后进行中。 */
 async function dragRow(page: Page, address: string, to: {x: number; y: number}): Promise<void> {
     const from = await center(page, address);
@@ -878,6 +872,9 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await expect(page.locator("[data-drop-feedback-line]")).toBeVisible();
     await page.mouse.up();
     await expect(openedLabel(head)).toHaveText("index.md");
+    // 放下之后外壳的反馈撤了；新标签确实插在标签条的那一处：这条标签条最后一个，不是别的位置。
+    await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
+    await expect(head.locator("[data-editor-tab-label]").last()).toHaveText("index.md");
 
     // 右缘：拆出新组。
     await dragRow(page, "project://plain/drop-one.md", {x: firstBody.x + firstBody.width - 6, y: firstBody.y + firstBody.height / 2});
@@ -885,6 +882,15 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await page.mouse.up();
     await expect(groups).toHaveCount(2);
     await expect(windows).toHaveCount(0);
+    await expect(openedLabel(page.locator("[data-editor-group-head-active]"))).toHaveText("drop-one.md");
+
+    // Esc：反馈撤了，不开窗。
+    await dragRow(page, "project://plain/drop-two.md", {x: firstBody.x + 40, y: firstBody.y + firstBody.height / 2});
+    await expect(page.locator("[data-drop-kind=\"edge\"]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(groups).toHaveCount(2);
 
     // 没有落点（这个场地只有资源管理器一个工具面板，用状态栏）：浮动打开。
     const statusBar = (await page.locator("[data-leaf=\"statusbar\"]").boundingBox())!;
@@ -903,8 +909,9 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await page.mouse.up();
     await expect(windows).toHaveCount(1);
 
-    // 活动栏：放不进，不开窗。
-    await dragRow(page, "project://plain/a.md", await centerOfBox(page.locator("[data-tool-band]")));
+    // 活动栏上段的空白（不是条目按钮）：放不进，不开窗。
+    const band = (await page.locator("[data-tool-band]").boundingBox())!;
+    await dragRow(page, "project://plain/a.md", {x: band.x + band.width / 2, y: band.y + band.height - 6});
     await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
     await page.mouse.up();
     await expect(windows).toHaveCount(1);

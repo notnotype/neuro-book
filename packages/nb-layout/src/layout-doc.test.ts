@@ -16,6 +16,7 @@ import {
     moveTabToEdge,
     moveTabToStrip,
     normalizeTree,
+    openFloatPanel,
     openPanelAtEdge,
     raiseFloat,
     rebaseIntents,
@@ -547,6 +548,17 @@ describe("浮动窗", () => {
         const policy = testPolicy();
         for (let index = 0; index < LAYOUT_MAX_FLOATS; index += 1) doc = okDoc(floatTab(doc, {tab: `tab:t${String(index)}`, rect: RECT}, policy));
         expect(floatTab(doc, {tab: `tab:t${String(LAYOUT_MAX_FLOATS)}`, rect: RECT}, policy)).toMatchObject({ok: false, code: "limit-exceeded"});
+    });
+
+    it("开一个空窗：到上限失败；id 已有失败；`activate: false` 不改活动编辑组", () => {
+        const panel = {role: "editor", tabs: [], active: null} as const;
+        const opened = okDoc(openFloatPanel(base(), {id: "w", panel, rect: RECT, activate: false}));
+        expect(opened.floats).toEqual([{panel: "w", rect: RECT}]);
+        expect(opened.currentEditor).toBe(base().currentEditor);
+        expect(openFloatPanel(opened, {id: "w", panel, rect: RECT})).toMatchObject({ok: false, code: "rejected"});
+        let full = opened;
+        for (let index = 1; index < LAYOUT_MAX_FLOATS; index += 1) full = okDoc(openFloatPanel(full, {id: `w${String(index)}`, panel, rect: RECT}));
+        expect(openFloatPanel(full, {id: "more", panel, rect: RECT})).toMatchObject({ok: false, code: "limit-exceeded"});
     });
 
     it("窗空了移除；活动编辑组换到树序最后一个编辑组", () => {

@@ -1246,6 +1246,17 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
             expect(names(at, 0)).toEqual(["a.md", "c.json", "a.html", "b.md"]);
         });
 
+        it("固定区末尾：放下的文件已是固定区最后一个，不算失败，后面的文件照开", async () => {
+            const at = await world();
+            at.area.open("project://a.md", {mode: "permanent"});
+            at.area.open("project://b.md", {mode: "permanent"});
+            const left = groupAt(at, 0);
+            at.area.setPinned(tabId(at, 0, "a.md"), true);
+            expect(names(at, 0)).toEqual(["a.md", "b.md"]);
+            expect(await dragOf(at).openFiles(["project://a.md", "project://c.json"], {kind: "strip", panel: left, index: 1}, "pinned")).toBe(true);
+            expect(names(at, 0)).toEqual(["a.md", "c.json", "b.md"]);
+        });
+
         it("外缘：新组里开新标签，别的组已有同一文件不抢它的标签", async () => {
             const at = await world();
             at.area.open("project://a.md", {mode: "permanent"});

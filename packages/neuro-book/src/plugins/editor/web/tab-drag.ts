@@ -61,12 +61,12 @@ async function openFiles(area: EditorArea, addresses: ReadonlyArray<string>, act
         const opened = area.open(address, {mode: "permanent", group});
         if (!opened.ok) return false;
         if (action.kind !== "strip") continue;
-        // 已经在落点上（`moveTab` 会说同一位置）不算失败。
+        // 已经在落点上（`moveTab` 会说同一位置）不算失败。后面的标签在别的分区时它就是这个分区的末尾。
         const tabs = tabsOf();
         const at = tabs.findIndex((tab) => tab.id === opened.tabId);
-        const tab = tabs[at];
-        const samePartition = tab?.kind === "file" && (tab.pinned === true) === (partition === "pinned");
-        if (samePartition && (tabs[at + 1]?.id ?? null) === before) continue;
+        const inPartition = (tab: (typeof tabs)[number] | undefined): boolean => tab?.kind === "file" && (tab.pinned === true) === (partition === "pinned");
+        const following = inPartition(tabs[at + 1]) ? (tabs[at + 1]?.id ?? null) : null;
+        if (inPartition(tabs[at]) && following === before) continue;
         if (!(await area.moveTab(opened.tabId, {group, partition, before})).ok) return false;
     }
     return true;
