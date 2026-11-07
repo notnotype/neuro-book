@@ -89,7 +89,7 @@ owners:
   ```
 
   能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。提供编辑动作的控件（Markdown 富文本）交出 `editing`（[`workbench.markdown-editing`](markdown-editing.md)）。按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
-  控件的寿命：一个控件拿到一份绑定，标签切走、换组都不换绑定，换编辑器时换控件。`visible` 为假时控件隐藏、不可交互，但仍要跟着正文更新：等切回来再追，结算时会造成假冲突。控件可能被卸载（术语“视图”）：卸载前交出还没交出的输入，把视图状态存进 `binding.slot`、要留的实例存进 `host`，再挂上时接着用；这两个槽只在标签关闭或换编辑器时释放。
+  控件的寿命：一个控件拿到一份绑定，标签切走、换组都不换绑定，换编辑器时换控件。`visible` 为假时控件隐藏、不可交互，但仍要跟着正文更新：等切回来再追，结算时会造成假冲突。`attach` 的结算回调只交还没交出的输入：正文被别处改了、控件还没跟上时，本地与正文不同不算输入。控件可能被卸载（术语“视图”）：卸载前交出还没交出的输入，把视图状态存进 `binding.slot`、要留的实例存进 `host`，再挂上时接着用；这两个槽只在标签关闭或换编辑器时释放。
 
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：

@@ -56,7 +56,7 @@ export interface DragSessionOptions<S, D, R> {
     /** 落点要做的动作的比较键；只显示、不提交的落点为 `null`。 */
     actionKey(drop: D): string | null;
     /** 放下且与最后显示过的动作相同。 */
-    commit(drop: D, source: S): void;
+    commit(drop: D, source: S, keyboard: boolean): void;
     /** 一场结束，`last` 是最后发布的状态。 */
     onEnd?(end: DragEnd, last: DragState<S, D>): void;
     /** 一场开始与结束（宿主写光标与禁选的标记）。 */
