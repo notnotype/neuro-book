@@ -8,7 +8,7 @@ import {writeInlineLink} from "@notnotype/nb-markdown";
 import type {TriggerMenu, TriggerMenuContext} from "@notnotype/nb-agent-ui";
 
 import type {FindResult} from "nbook/plugins/files/shared/contracts";
-import {encodeFileTarget} from "nbook/plugins/markdown/shared/targets";
+import {encodeFileTarget} from "nbook/plugins/markdown/shared/contracts";
 
 const LIMIT = 20;
 /** 只记最近几个查询：输入时一个字一个查询，留着回删时不用再问。 */

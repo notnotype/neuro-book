@@ -15,6 +15,7 @@ import {dialectTable} from "./word-count";
 
 export {MARKDOWN_DIALECTS_POINT, MARKDOWN_SYNTAXES_POINT, validateDialectDeclaration, validateSyntaxContribution} from "./dialects";
 export type {DialectDeclaration} from "./dialects";
+export {encodeFileTarget} from "./targets";
 export {countWords, dialectTable} from "./word-count";
 export type {DialectTable} from "./word-count";
 

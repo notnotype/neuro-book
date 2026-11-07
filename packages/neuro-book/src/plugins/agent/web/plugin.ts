@@ -17,10 +17,9 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {modelsSettingsContract} from "nbook/plugins/models/shared/contracts";
+import {builtinRoleNameKey, modelsSettingsContract, modelsText, roleReference} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
-import {roleReference} from "nbook/plugins/models/shared/rules";
-import {builtinRoleNameKey, modelsText} from "nbook/plugins/models/shared/text";
+import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
@@ -43,12 +42,14 @@ import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {agentSettings, PERMISSIONS_SECTION} from "../shared/settings";
+import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
 import {createAgentActivity} from "./activity";
 import {createRulesWriter} from "./permission-writes";
 import {permissionsPage} from "./permission-page";
+import {createProfileWriters, profilesPage} from "./profile-page";
+import {hasCredentials} from "./profile-view";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
@@ -95,11 +96,6 @@ const RecentSchema = Type.Object({id: Type.Union([Type.String(), Type.Null()])},
 const DRAFTS_RECORD = defineRecord({key: "agent.drafts", scope: "user", locality: "local", version: 1, keyed: true, schema: DraftsSchema});
 const recentRecord = (project: boolean) => defineRecord({key: "agent.recent-session", scope: project ? "project" : "user", locality: "local", version: 1, keyed: true, schema: RecentSchema});
 
-/** 有凭据：不要密钥的服务商，或者密钥已经设了。 */
-function hasCredentials(provider: ModelsSnapshot["providers"][number]): boolean {
-    return provider.key.kind === "stored" || provider.key.kind === "keyless" || (provider.key.kind === "env" && provider.key.found);
-}
-
 function modelOptions(snapshot: ModelsSnapshot): ComposerModelView[] {
     return snapshot.providers.filter(hasCredentials).flatMap((provider) => provider.models
         .filter((model) => model.enabled && model.status === "ok")
@@ -139,6 +135,7 @@ function roleOptions(snapshot: ModelsSnapshot): RoleOption[] {
 /** 这个文件也由不带 DOM 类型的 tsc 检查，所以按需要的那几个取。 */
 const browser = globalThis as {readonly location?: {readonly pathname: string}; readonly navigator?: {readonly clipboard?: {writeText(text: string): Promise<void>}}; readonly open?: (url: string, target: string, features: string) => unknown};
 
+const PROFILES_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-user-round-cog", category: "ai", order: 25, layers: ["user"], layout: "fill", description: agentText("settingsPages.profiles.description")};
 const PERMISSIONS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-shield-check", category: "ai", order: 40, layers: ["user"], description: agentText("settingsPages.permissions.description")};
 
 export const agentBrowserPlugin: PluginDefinition = {
@@ -154,6 +151,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: CONVERSATION_PAGE, declaration: PAGE_DECLARATION},
             {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: ACTIVITY_ITEM, declaration: ACTIVITY_DECLARATION},
             ...Object.entries(COMMANDS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            {capability: SETTINGS_PAGES_POINT, id: PROFILES_SECTION, declaration: PROFILES_PAGE},
             {capability: SETTINGS_PAGES_POINT, id: PERMISSIONS_SECTION, declaration: PERMISSIONS_PAGE},
             ...agentState.contributions,
         ],
@@ -168,6 +166,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const text = await windowTextPort(context.services, () => displayLocale(settings));
             const remote = context.remote.use(agentSessionsContract);
             const rulesWriter = createRulesWriter(settings);
+            const profileWriters = createProfileWriters(settings);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
                 diagnostics.record({level: "warn", event: `agent.${code}`, message, data, source: {plugin: descriptor.id}});
             };
@@ -185,31 +184,48 @@ export const agentBrowserPlugin: PluginDefinition = {
             };
             const models = shallowRef<readonly ComposerModelView[] | null>(null);
             const roles = shallowRef<readonly RoleOption[] | null>(null);
+            /** 没过滤的快照：Profile 设置页要看已绑定但用不了的模型。 */
+            const modelsSnapshot = shallowRef<ModelsSnapshot | null>(null);
+            const modelsFailed = shallowRef(false);
             const takeModels = (snapshot: ModelsSnapshot): void => {
                 // 先换角色：宿主看着 `models` 重读会话的模型，这时角色应当已经是新的。
                 roles.value = roleOptions(snapshot);
                 models.value = modelOptions(snapshot);
+                modelsSnapshot.value = snapshot;
+                modelsFailed.value = false;
             };
-            let started = false;
-            /** 第一次有对话位置时才取：没打开对话的窗口不多发请求。 */
-            const ensureStarted = (): void => {
-                if (started) return;
-                started = true;
-                void loadProfiles();
+            let modelsStarted = false;
+            /** 第一次有对话位置或打开 Profile 页时才取：两个都没打开的窗口不多发请求。 */
+            const ensureModels = (): void => {
+                if (modelsStarted) return;
+                modelsStarted = true;
                 void (async () => {
                     const modelsRemote = context.remote.use(modelsSettingsContract);
                     const subscription = await modelsRemote.events.changed.subscribe({}, takeModels);
                     if (!subscription.ok) {
                         // 模型服务不在是正常情况（下拉隐藏），别的失败下一个对话位置再试。
                         report("models-failed", subscription.code);
-                        started = false;
+                        modelsFailed.value = true;
+                        modelsStarted = false;
                         return;
                     }
                     context.signal.addEventListener("abort", () => subscription.value.release(), {once: true});
                     const snapshot = await modelsRemote.snapshot({});
                     if (snapshot.ok) takeModels(snapshot.value);
-                    else report("models-failed", snapshot.code);
-                })().catch((error: unknown) => report("models-failed", String(error)));
+                    else {
+                        report("models-failed", snapshot.code);
+                        modelsFailed.value = true;
+                    }
+                })().catch((error: unknown) => {
+                    report("models-failed", String(error));
+                    modelsFailed.value = true;
+                });
+            };
+            let started = false;
+            const ensureStarted = (): void => {
+                if (!started) void loadProfiles();
+                started = true;
+                ensureModels();
             };
 
             const openRecent = async (position: string) => {
@@ -442,7 +458,23 @@ export const agentBrowserPlugin: PluginDefinition = {
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[ACTIVITY_ITEM]: item},
                     [COMMANDS_POINT]: commandImplementations,
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [SETTINGS_PAGES_POINT]: {[PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report}))},
+                    [SETTINGS_PAGES_POINT]: {[PROFILES_SECTION]: settingsPage(async () => profilesPage((await import("./components/ProfileSettingsPage.vue")).default, {
+                        settings,
+                        remote,
+                        pluginNames: async () => {
+                            const listed = await context.remote.use(pluginsRegistryContract).list({});
+                            if (!listed.ok) {
+                                report("plugin-names-failed", listed.code);
+                                return new Map();
+                            }
+                            return new Map(listed.value.plugins.flatMap((plugin) => (plugin.displayName === undefined ? [] : [[plugin.id, plugin.displayName] as const])));
+                        },
+                        models: {snapshot: modelsSnapshot, failed: modelsFailed, ensure: ensureModels},
+                        writers: profileWriters,
+                        text,
+                        openAddress: (address) => void commands.execute(EDITOR_OPEN_COMMAND, {address}),
+                        report,
+                    })), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report}))},
                 },
             };
         },

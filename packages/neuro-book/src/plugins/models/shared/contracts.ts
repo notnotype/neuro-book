@@ -15,6 +15,9 @@ import type {ModelPort} from "@notnotype/nb-harness/kernel/contracts";
 import {CompactionSettingSchema} from "./compaction";
 import {ModelConfigSchema} from "./settings";
 
+export {roleOfReference, roleReference} from "./rules";
+export {builtinRoleNameKey, modelsText} from "./text";
+
 const Nullable = <T extends Parameters<typeof Type.Union>[0][number]>(schema: T) => Type.Union([schema, Type.Null()]);
 const Headers = Type.Record(Type.String(), Type.String());
 const Price = Nullable(Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()]));

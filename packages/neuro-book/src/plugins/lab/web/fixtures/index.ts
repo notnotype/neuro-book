@@ -35,6 +35,9 @@ import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
 import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
+import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail.vue";
+import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
+import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
 import type ProvidersPage from "nbook/plugins/models/web/components/ProvidersPage.vue";
 import type RolesPage from "nbook/plugins/models/web/components/RolesPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
@@ -45,6 +48,7 @@ import type NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type HighlightedText from "nbook/ui/settings/HighlightedText.vue";
+import type SettingsNotice from "nbook/ui/settings/SettingsNotice.vue";
 import type SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 import type SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
@@ -78,6 +82,7 @@ import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
 import {withAgentPageText} from "./agent-scene/agent-page-text";
+import {SAMPLE_PROFILES} from "./agent-scene/profile-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -1014,6 +1019,40 @@ function shelfFixtures(): LabFixture[] {
             ],
             load: async () => withAgentPageText((await import("./agent-scene/PermissionRulesFixture.vue")).default),
         }),
+        defineLabFixture<typeof ProfileSettingsPage>({
+            component: "ProfileSettingsPage",
+            scenes: [
+                {id: "builtin", label: "内置 Profile", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, initial: "nbook.agent.main"}}},
+                {id: "user", label: "用户级：打开、删除，模型不满足要求", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, initial: "user.lore-check"}}},
+                {id: "broken", label: "用户级：打包失败", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, initial: "user.draft-review"}}},
+                {id: "unavailable", label: "插件 Profile：缺必需工具", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, initial: "plot.qa"}}},
+                {id: "background", label: "后台 Profile：只有模型", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, initial: "nbook.agent.session-title"}}},
+                {id: "narrow", label: "480px 宽：左栏收成下拉", input: {props: {state: "ready", profiles: SAMPLE_PROFILES}}},
+                {id: "readonly", label: "这一层不能写", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, writable: false, initial: "user.lore-check"}}},
+                {id: "loading", label: "读取中", input: {props: {state: "loading", profiles: []}}},
+                {id: "failed", label: "读失败", input: {props: {state: {failed: "unavailable"}, profiles: []}}},
+                {id: "english", label: "英文界面", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, initial: "user.lore-check"}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/ProfileSettingsFixture.vue")).default),
+        }),
+        defineLabFixture<typeof ProfileRail>({
+            component: "ProfileRail",
+            scenes: [
+                {id: "rail", label: "可选的、有问题的、后台的", input: {props: {items: SAMPLE_PROFILES, current: "nbook.agent.main"}}},
+                {id: "readonly", label: "不能写：“新建”停用", input: {props: {items: SAMPLE_PROFILES, current: "plot.qa", disabled: true}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof ProfileRail>((await import("nbook/plugins/agent/web/components/ProfileRail.vue")).default)),
+        }),
+        defineLabFixture<typeof ProfileDetail>({
+            component: "ProfileDetail",
+            scenes: [
+                {id: "builtin", label: "内置 Profile", input: {props: {profile: SAMPLE_PROFILES[0]!}}},
+                {id: "user", label: "用户级：打开、删除，模型不满足要求", input: {props: {profile: SAMPLE_PROFILES[1]!}}},
+                {id: "broken", label: "打包失败", input: {props: {profile: SAMPLE_PROFILES[2]!}}},
+                {id: "unavailable", label: "缺必需工具", input: {props: {profile: SAMPLE_PROFILES[3]!}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof ProfileDetail>((await import("nbook/plugins/agent/web/components/ProfileDetail.vue")).default)),
+        }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",
             scenes: [
@@ -1186,6 +1225,16 @@ function settingsFixtures(): LabFixture[] {
                 {id: "narrow", label: "560px 宽：控件换到标题下面", input: {props: row(rowDemoSettings.mode, "user")}},
             ],
             load: async () => (await import("./SettingsRowFixture.vue")).default,
+        }),
+        defineLabFixture<typeof SettingsNotice>({
+            component: "SettingsNotice",
+            slots: ["default"],
+            scenes: [
+                {id: "warning", label: "警告", input: {props: {tone: "warning"}, slots: {default: true}}},
+                {id: "danger", label: "错误", input: {props: {tone: "danger"}, slots: {default: true}}},
+                {id: "button", label: "整块是按钮", input: {props: {as: "button"}, slots: {default: true}}},
+            ],
+            load: async () => createSubjectFixture<typeof SettingsNotice>((await import("nbook/ui/settings/SettingsNotice.vue")).default),
         }),
         defineLabFixture<typeof SettingsPageActions>({
             component: "SettingsPageActions",

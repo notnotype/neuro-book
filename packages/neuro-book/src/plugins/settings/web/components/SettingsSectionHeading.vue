@@ -8,6 +8,7 @@ import {Tooltip} from "@notnotype/nb-ui/components";
 import {onBeforeUnmount, onMounted, ref} from "vue";
 
 import {usePageChrome} from "nbook/ui/settings/page-chrome";
+import SettingsNotice from "nbook/ui/settings/SettingsNotice.vue";
 
 /** 层的警告（输出 13）：`invalid` 是可点的按钮，`unavailable` 与 `fixing` 只是文字。 */
 export type SettingsSectionNotice =
@@ -73,22 +74,20 @@ onBeforeUnmount(() => detach?.());
         </div>
         <div class="settings-section-heading__side">
             <Tooltip v-if="notice?.kind === 'invalid'" side="bottom">
-                <button type="button" class="settings-section-heading__warning nb-ui-focus-ring" data-settings-layer-notice="invalid" data-settings-open-file @click="emit('open-file')">
-                    <span class="i-lucide-triangle-alert settings-section-heading__warning-icon" aria-hidden="true"></span>
-                    <span>{{ notice.text }}</span>
-                    <span class="settings-section-heading__warning-action">
-                        <span>{{ notice.action }}</span>
-                        <span class="i-lucide-arrow-right" aria-hidden="true"></span>
-                    </span>
-                </button>
+                <SettingsNotice as="button" class="settings-section-heading__warning" data-settings-layer-notice="invalid" data-settings-open-file @click="emit('open-file')">
+                    {{ notice.text }}
+                    <template #action>
+                        <span class="settings-section-heading__warning-action">
+                            <span>{{ notice.action }}</span>
+                            <span class="i-lucide-arrow-right" aria-hidden="true"></span>
+                        </span>
+                    </template>
+                </SettingsNotice>
                 <template #content>
                     <span v-for="(line, index) in notice.lines" :key="index" class="settings-section-heading__tip-line">{{ line }}</span>
                 </template>
             </Tooltip>
-            <p v-else-if="notice !== null" class="settings-section-heading__warning settings-section-heading__warning--static" :data-settings-layer-notice="notice.kind" role="status">
-                <span class="i-lucide-triangle-alert settings-section-heading__warning-icon" aria-hidden="true"></span>
-                <span>{{ notice.text }}</span>
-            </p>
+            <SettingsNotice v-else-if="notice !== null" class="settings-section-heading__warning" :data-settings-layer-notice="notice.kind" role="status">{{ notice.text }}</SettingsNotice>
             <div ref="actions" class="settings-section-heading__actions" data-settings-heading-actions></div>
         </div>
     </header>
@@ -188,33 +187,9 @@ onBeforeUnmount(() => detach?.());
     display: none;
 }
 
-/* 层出错的警告：整块是一个按钮，点了切到“设置文件”。 */
+/* 层的警告不缩：标题与说明先让位。 */
 .settings-section-heading__warning {
-    display: inline-flex;
-    height: var(--control-h-sm);
-    box-sizing: border-box;
-    align-items: center;
-    gap: var(--space-3);
-    margin: 0;
-    padding: 0 var(--space-3) 0 var(--space-5);
-    border: var(--border-w) solid color-mix(in srgb, var(--status-warning) 35%, transparent);
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--status-warning) 10%, transparent);
-    color: var(--text-main);
-    font: inherit;
-    font-size: var(--text-sm);
-    white-space: nowrap;
-    cursor: pointer;
-    outline: none;
-}
-
-.settings-section-heading__warning--static {
-    padding-right: var(--space-5);
-    cursor: default;
-}
-
-.settings-section-heading__warning-icon {
-    color: var(--status-warning);
+    flex-shrink: 0;
 }
 
 .settings-section-heading__warning-action {

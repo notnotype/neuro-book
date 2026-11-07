@@ -1,7 +1,7 @@
 /**
  * `nbook.agent` 的设置项，都只在用户层：它们跟着人走，不跟着书走。
  *
- * - 按 Profile 增减工具、按 Profile 设模型缺省与审批模式的初值（docs/specs/agent/contributions.md“输入与前置条件”）：没有专门的界面。
+ * - 按 Profile 增减工具、按 Profile 设模型缺省与审批模式的初值：显示在“Profile”页里（docs/specs/agent/profile-settings.md）。
  * - 运行保护（docs/specs/agent/run-guards.md）：显示在分区“运行可靠性”里，`nbook.models` 的两个超时也指向这个分区。
  */
 
@@ -41,6 +41,9 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}],
 };
 
+/** “Profile”页（profile-settings.md）：这两项由页面画，不进“其它”。 */
+export const PROFILES_SECTION = "nbook.agent.profiles";
+
 /** “权限规则”页（permissions.md 输出 22）：这几项由页面画，不进“其它”。 */
 export const PERMISSIONS_SECTION = "nbook.agent.permissions";
 
@@ -75,6 +78,7 @@ export const agentSettings = defineSettings("nbook.agent", {
         title: agentText("settings.toolBindings.title"),
         description: agentText("settings.toolBindings.description"),
         layers: ["user"],
+        section: PROFILES_SECTION,
     },
     profileSettings: {
         schema: ProfileSettingsSchema,
@@ -82,6 +86,7 @@ export const agentSettings = defineSettings("nbook.agent", {
         title: agentText("settings.profileSettings.title"),
         description: agentText("settings.profileSettings.description"),
         layers: ["user"],
+        section: PROFILES_SECTION,
     },
     modelRetries: {
         schema: Type.Integer({minimum: 0, maximum: 20}),

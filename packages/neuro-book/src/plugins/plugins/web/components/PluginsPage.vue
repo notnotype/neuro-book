@@ -15,7 +15,7 @@ import type {WindowPlugins} from "nbook/shared/host";
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
 import {usePluginsText} from "../text";
 import type {PluginsTextKey} from "../text";
-import {builtinPluginTextKey} from "../builtin-names";
+import {builtinPluginTextKey} from "../../shared/builtin-names";
 
 defineOptions({name: "PluginsPage"});
 
@@ -85,7 +85,7 @@ type Problem = {readonly serial: number; readonly code: string; readonly reason:
 
 /** 本插件目录里的一段文字，按窗口的当前语言。 */
 const text = usePluginsText();
-/** 显示名与说明：第三方插件取清单里的；内置插件清单里没有，取页面这侧的名称表（builtin-names.ts）。 */
+/** 显示名与说明：第三方插件取清单里的；内置插件清单里没有，取窗口这侧的名称表（builtin-names.ts）。 */
 const builtinText = (item: PluginListEntry, field: "name" | "description"): string | null => {
     const key = item.source === "builtin" ? builtinPluginTextKey(item.id, field) : null;
     return key === null ? null : text(key);

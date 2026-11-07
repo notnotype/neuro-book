@@ -291,6 +291,78 @@
         "permissions": {
             "title": "权限规则",
             "description": "哪些工具调用放行、询问或拒绝"
+        },
+        "profiles": {
+            "title": "Profile",
+            "description": "每个 Profile 用什么模型、新会话的审批模式、能用哪些工具"
+        }
+    },
+    "profiles": {
+        "loading": "正在读取 Profile…",
+        "loadFailed": "读取 Profile 失败（{{code}}）。",
+        "retry": "重试",
+        "notSaved": "Profile 设置",
+        "rail": {
+            "label": "Profile",
+            "background": "后台",
+            "new": "新建 Profile",
+            "newShort": "新建"
+        },
+        "status": {
+            "unavailable": "不可用",
+            "error": "有错误"
+        },
+        "source": {
+            "builtin": "内置",
+            "user": "我写的"
+        },
+        "head": {
+            "openFile": "打开文件",
+            "delete": "删除",
+            "meta": "{{key}} · {{source}}"
+        },
+        "problem": {
+            "toolsMissing": "不可用：缺少必需工具 {{tools}}",
+            "toolsMissingDetail": "缺少必需工具 {{tools}}。装上提供它的插件后恢复。",
+            "keyTaken": "不可用：这个名字已被插件占用",
+            "keyTakenDetail": "插件已经用了 {{key}}，改文件名后恢复。",
+            "moduleNotShared": "不能导入 “{{module}}”",
+            "moduleNotSharedComputed": "不能在运行时算出模块名",
+            "moduleDetail": "只能导入 NeuroBook 提供的模块和相对路径的文件。",
+            "invalidExport": "默认导出不是 defineProfile 的结果",
+            "invalidId": "Profile 的 id 必须是 {{id}}",
+            "invalidIdDetail": "id 由文件名决定，必须是 {{id}}。",
+            "buildFailed": "打包失败：{{message}}",
+            "buildFailedAt": "打包失败：第 {{line}} 行 {{message}}",
+            "buildDetail": "{{file}}：{{message}}",
+            "buildDetailAt": "{{file}} 第 {{line}} 行：{{message}}",
+            "loadFailed": "加载失败：{{message}}",
+            "stale": "现在还在用上一次成功的版本。",
+            "never": "这个 Profile 还没成功过，用不了。",
+            "separator": "、"
+        },
+        "sections": {
+            "model": "模型与审批",
+            "tools": "工具"
+        },
+        "model": {
+            "label": "模型",
+            "follow": "跟随默认",
+            "followHint": "跟随默认时用“{{role}}”角色",
+            "unbound": "未绑定",
+            "unavailable": "不可用",
+            "serviceUnavailable": "模型服务不可用",
+            "modelGone": "这个模型现在用不了",
+            "roleGone": "这个角色已经不在了",
+            "roleUnbound": "“{{role}}”角色没有绑定模型",
+            "roleBroken": "“{{role}}”角色绑定的模型现在用不了"
+        },
+        "approval": {
+            "label": "审批模式",
+            "follow": "跟随默认（{{mode}}）",
+            "hint": "只影响新会话的初值，会话里还能切",
+            "auto": "模型先判断，判不了再问你；模型可能漏判",
+            "yolo": "所有调用都无需批准，只有拒绝规则能拦"
         }
     }
 }

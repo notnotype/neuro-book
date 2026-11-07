@@ -291,6 +291,78 @@
         "permissions": {
             "title": "Permission rules",
             "description": "Which tool calls are allowed, asked about, or denied"
+        },
+        "profiles": {
+            "title": "Profiles",
+            "description": "The model, starting approval mode, and tools of each profile"
+        }
+    },
+    "profiles": {
+        "loading": "Loading profiles…",
+        "loadFailed": "Couldn't load profiles ({{code}}).",
+        "retry": "Retry",
+        "notSaved": "Profile settings",
+        "rail": {
+            "label": "Profiles",
+            "background": "Background",
+            "new": "New profile",
+            "newShort": "New"
+        },
+        "status": {
+            "unavailable": "Unavailable",
+            "error": "Has errors"
+        },
+        "source": {
+            "builtin": "Built-in",
+            "user": "Yours"
+        },
+        "head": {
+            "openFile": "Open file",
+            "delete": "Delete",
+            "meta": "{{key}} · {{source}}"
+        },
+        "problem": {
+            "toolsMissing": "Unavailable: missing required tools {{tools}}",
+            "toolsMissingDetail": "Missing required tools {{tools}}. Install the plugin that provides them to restore it.",
+            "keyTaken": "Unavailable: a plugin already uses this name",
+            "keyTakenDetail": "A plugin already uses {{key}}. Rename the file to restore it.",
+            "moduleNotShared": "Can't import \"{{module}}\"",
+            "moduleNotSharedComputed": "Module names can't be computed at run time",
+            "moduleDetail": "Only modules NeuroBook provides and files by relative path can be imported.",
+            "invalidExport": "The default export isn't the result of defineProfile",
+            "invalidId": "The profile id must be {{id}}",
+            "invalidIdDetail": "The file name decides the id, which must be {{id}}.",
+            "buildFailed": "Build failed: {{message}}",
+            "buildFailedAt": "Build failed: line {{line}}, {{message}}",
+            "buildDetail": "{{file}}: {{message}}",
+            "buildDetailAt": "{{file}} line {{line}}: {{message}}",
+            "loadFailed": "Load failed: {{message}}",
+            "stale": "The last version that worked is still in use.",
+            "never": "This profile has never loaded, so it can't be used.",
+            "separator": ", "
+        },
+        "sections": {
+            "model": "Model and approval",
+            "tools": "Tools"
+        },
+        "model": {
+            "label": "Model",
+            "follow": "Use default",
+            "followHint": "The default uses the \"{{role}}\" role",
+            "unbound": "Not bound",
+            "unavailable": "Unavailable",
+            "serviceUnavailable": "The model service is unavailable",
+            "modelGone": "This model can't be used right now",
+            "roleGone": "This role no longer exists",
+            "roleUnbound": "The \"{{role}}\" role has no model",
+            "roleBroken": "The model bound to the \"{{role}}\" role can't be used right now"
+        },
+        "approval": {
+            "label": "Approval mode",
+            "follow": "Use default ({{mode}})",
+            "hint": "Only sets the starting value for new sessions; you can switch inside a session",
+            "auto": "A model decides first and asks you when unsure; it can miss things",
+            "yolo": "Nothing needs approval; only deny rules can block a call"
         }
     }
 }

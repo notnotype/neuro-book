@@ -8,9 +8,13 @@
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
+import {textRef} from "@notnotype/nb-ui/text";
+import type {TextRef} from "@notnotype/nb-ui/text";
 import {Type} from "typebox";
 
 import {FailureDetail, installFailureDetails, InstallPreviewSchema, manageFailureDetails, PluginListItemSchema, PluginListSchema} from "nbook/plugin-platform/shared/types";
+
+import {builtinPluginTextKey} from "./builtin-names";
 
 export type {BlockedPlugin, InstallPreview, NotLoaded, PendingChange, PluginFailureCode, PluginList, PluginListEntry, PluginListItem, PluginProblem} from "nbook/plugin-platform/shared/types";
 
@@ -35,3 +39,12 @@ export const pluginsRegistryContract = defineRemoteService({
 
 /** 插件页用到的合同方法（浏览器入口经 `context.remote.use` 取得的客户端满足它）。 */
 export type PluginsRegistry = Pick<RemoteClient<typeof pluginsRegistryContract>, "list" | "inspect" | "install" | "enable" | "disable" | "uninstall">;
+
+/**
+ * 内置插件的显示名的文字引用（别的插件按提供者分组时用）；不是内置插件时交回 null，第三方的显示名在 `list` 的结果里。目录在窗口挂载界面前
+ * 已经登记，不用激活本插件。
+ */
+export function builtinPluginNameRef(id: string): TextRef | null {
+    const key = builtinPluginTextKey(id, "name");
+    return key === null ? null : textRef(key, undefined, "nbook.plugins");
+}
