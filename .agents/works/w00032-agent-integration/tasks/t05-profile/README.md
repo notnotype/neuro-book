@@ -81,10 +81,16 @@ t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件�
 
 ## 当前状态
 
-讨论完成（2026-10-28）；上下文机制按 t20 定稿改写（2026-10-29）。后端随 t10、t18 实现，用户界面一直没做。
+讨论完成（2026-10-28）；上下文机制按 t20 定稿改写（2026-10-29）。后端随 t10、t18 实现。
 
-2026-11-07 改成实施 Task（开发者定，排在 t14 之前）：做 Profile 设置页、用户级 Profile 的新建打开删除、`modelNeeds` 的提示。计划第一稿开发者已确认，见 [plan.md](plan.md)；第一轮决定“从模板新建即复制”改判为生成骨架文件。
+2026-11-07 改成实施 Task（开发者定，排在 t14 之前）：Profile 设置页、用户级 Profile 的新建打开删除、`modelNeeds` 的提示。第一轮决定“从模板新建即复制”改判为生成骨架文件。修订后的计划开发者已确认。
+
+代码在分支 `feat/w00032-t05-profile-settings`（worktree `.worktree/w00032-t05`），6 片都已提交。验证：受影响的 bun 测试 796 个、DOM 测试 171 个、类型检查、`docs:check`、`governance:check`；e2e `agent-profiles`（新）、`settings`、`lab-agent-ui`、`agent-conversation`（`按状态换场景`一例在连着跑时 `fetch failed`，单独重跑通过）。
+
+真实浏览器测出的问题：Agent 的 `openAddress` 调 `nbook.editor.open` 没带必需的 `mode`，命令被拒、结果被丢，对话里点文件也打不开；已修，打不开时留诊断。
+
+基线上就有的问题，顺手修了：`agent/web` 有三处跨插件运行时导入没走对方的 `shared/contracts.ts`（`src/architecture.test.ts` 失败）；`permission-page.dom.test.ts` 有类型错误。
 
 ## 下一步
 
-按 [plan.md](plan.md) 切片实施（设计审查：[前端](evidences/design-review-frontend.txt)、[后端](evidences/design-review-backend.txt)；修订后的计划开发者 2026-11-07 已确认）。
+实现审查（前端 Sonnet、后端 omp）进行中。处理完合入 master；Spec 晋升报开发者批准。
