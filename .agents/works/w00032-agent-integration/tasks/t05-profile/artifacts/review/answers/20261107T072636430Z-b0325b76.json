@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t05-profile",
+    "artifactId": "review",
+    "answerId": "20261107T072636430Z-b0325b76",
+    "artifactVersion": 3,
+    "contentHash": "e9120a58b2189ecbb3af06db25f9c9b764b87991fe2d2fcf14f6644ef83056fb",
+    "submittedAt": "2026-11-07T07:26:35.858Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "tools-grouping": "a"
+    },
+    "comments": {
+        "tools-grouping": "这个可以，"
+    },
+    "note": null
+}
