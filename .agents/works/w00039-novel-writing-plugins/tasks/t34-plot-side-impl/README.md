@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t34-plot-side-impl
-status: active
+status: done
 updated: 2026-11-06
 ---
 
@@ -59,7 +59,7 @@ updated: 2026-11-06
 
    **合入 master**（2026-11-06）：开发者同意后，分支先合 master，验证过后 master 快进到 779e3cc48，不 push，分支与 worktree 已删。合并时把模型调用改成听 `error.retryable`、重试前等一会、去掉总时长上限（4035e9fae）；项目资源占用按 `runtime/projects.md` 输出 12 重测。验证与归因见 [`evidences/merge-verification.txt`](evidences/merge-verification.txt)：`test:affected` 里 4 条失败（命令参数、依赖方向、Lab 场景覆盖、nb-story 类型检查）在不含本 Task 代码的 master 上原样失败，dev-panel 一条超时单独重跑通过；`plugins`、`workbench-shell` 两个 e2e 全过。留下的：讲 4 条以上子线时普通发布多约 200 毫秒（开发者：先不修）；三百万字的世界打开约 2.3 秒、常驻约 520 MB，比 11-03 的 1.1 秒、323 MB 大，plot 只占约 30 MB，多出的部分没有查原因；13 份 Spec 仍是 `planned`，晋升等开发者批准。
 
-   **阶段 H：晋升前的核对**（2026-11-06）：开发者说“可以晋升”后逐条核对，发现此前说“都齐了”不成立（[`plan.md`](plan.md#阶段-h晋升前的核对与修正2026-11-06)，报告 `evidences/promote-audit-*.txt`）。代码在分支 `fix/w00039-t34-spec-promote`（worktree `.worktree/w00039-t34-promote`，HEAD d17e644d6，**没有合入**）；Spec 的修正已在 master（1ce2caa1a 与之后一次），其中回写 `line-required` 等描述的是分支上的行为。**13 份 Spec 仍是 `planned`**。三轮实现审查：I10 omp（额度用完中途退出，4 条，都已修）、I11 Opus（阻断 2、重要 7、建议 8，处理完）、I12 Opus（阻断 2、重要 8、建议 4，**未处理**）。满三轮仍有实质问题，按 reviewing 的上限停下交开发者决定。分支上 nb-canon 560、应用包 canon 与 plot 292 条通过，类型检查通过，随机序列 6 个种子过；e2e 没有重跑。I12 的问题集中在简报的保密：每处写名字的地方各自判断，三轮每轮都找出新路径，建议改成一个关卡。补测试的三个 worktree `.worktree/w00039-t34-tests-{a,b,c}` 与审查 worktree `.worktree/review-w00039-t34-H` 的提交已摘进分支，合入后删。
+   **阶段 H：晋升前的核对**（2026-11-06 至 07）：开发者说“可以晋升”后逐条核对，此前说“都齐了”不成立（[`plan.md`](plan.md#阶段-h晋升前的核对与修正2026-11-06)，报告 `evidences/promote-audit-*.txt`）：没实现约 20、不一致约 64、没有测试约 67 条。修了约 30 处真缺陷、补了 200 多条用例；Spec 写错的改成贴实现，没有调用方的标“（planned）”。三轮实现审查（[I10](evidences/impl-review-I10-omp.txt) omp 额度用完中途退出、[I11](evidences/impl-review-I11-opus.txt)、[I12](evidences/impl-review-I12-opus.txt)）。开发者 2026-11-07 选方案 A：I12 里简报保密的 10 条不再在这里补，单开 [t35](../t35-plot-brief-secrecy/README.md)；其余修完。**2026-11-07 代码合入 master（快进，不 push），12 份 Spec 晋升为 `implemented`**（canon 七份、plot 的知识点、伏笔、目标、决策、检查）；`plot/brief.md` 仍是 `planned`，等 t35。合入前 `test:affected --typecheck --since master`：类型检查与测试除 master 上原有的失败外都过（`architecture.test.ts` 在 master 上同样失败）；`docs:check`、`governance:check` 无失败；`plugins`、`workbench-shell` 两个 e2e 16 个全过。没验证：真实模型（`plot.llm.test.ts`）合入后没重跑；全量 e2e 没跑。
 
 ## 下一步
 
