@@ -32,7 +32,7 @@ const VIEWS: Readonly<Record<string, ViewDeclaration>> = {
     [SAMPLE_VIEW_IDS.delta]: view("样例丁", "auxiliarybar", "i-lucide-notebook-pen", {order: 0}),
     [SAMPLE_VIEW_IDS.omega]: view("样例戊", "panel", "i-lucide-terminal", {order: 0}),
     // 长标题：看面板标签带放不下时的溢出与键盘切换。
-    [SAMPLE_VIEW_IDS.zeta]: view("样例己：一个很长的面板视图标题", "panel", "i-lucide-scroll-text", {order: 1}),
+    [SAMPLE_VIEW_IDS.zeta]: view("样例己：一个很长的面板视图标题", "panel", "i-lucide-scroll-text", {order: 1, floatable: false}),
 };
 
 const MARK_DECLARATION: CommandDeclaration = {

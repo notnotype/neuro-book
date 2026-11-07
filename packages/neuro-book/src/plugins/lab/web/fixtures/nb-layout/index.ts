@@ -5,12 +5,12 @@
 import type {Component} from "vue";
 import {h} from "vue";
 
-import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, NestedGrid, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatWindowHandles, NestedGrid, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
 
 import {defineLabFixture, type LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 
-function nbLayoutSubject(name: "DropIndicatorLabel" | "DropSectorsOverlay" | "Splitter"): () => Promise<{default: Component}> {
+function nbLayoutSubject(name: "DropIndicatorLabel" | "DropSectorsOverlay" | "FloatWindowHandles" | "Splitter"): () => Promise<{default: Component}> {
     return async () => ({default: (await import("@notnotype/nb-layout/vue"))[name] as Component});
 }
 
@@ -46,6 +46,12 @@ export const nbLayoutFixtures: LabFixture[] = [
             {id: "session", label: "拖动会话", input: {props: {preview: null, label: ""}}},
         ],
         load: async () => (await import("./DropFeedbackOverlayFixture.vue")).default,
+    }),
+    // 手柄是透明的，看外观要键盘聚焦移动把手；拖动的验收在 e2e/workbench-float.e2e.ts。
+    defineSubjectFixture<typeof FloatWindowHandles>({
+        component: "FloatWindowHandles",
+        subject: nbLayoutSubject("FloatWindowHandles"),
+        scenes: [{id: "default", label: "八个手柄", input: {props: {rect: {x: 0, y: 0, width: 360, height: 240}, min: {width: 200, height: 100}, max: {width: 800, height: 600}, moveIconClass: "i-lucide-grip-horizontal"}}}],
     }),
     defineSubjectFixture<typeof DropSectorsOverlay>({
         component: "DropSectorsOverlay",

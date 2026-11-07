@@ -7,15 +7,17 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, carryDynamicTabs, findTab, findTreeNode, fixedNodesOf, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, rebaseIntents, removeTab, sameTreeShape, setBarHidden, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, validateLayoutDoc} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutBar, LayoutDoc, LayoutDropAction, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, findTreeNode, fixedNodesOf, floatTab, isFloating, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, roundFloatRect, removeTab, sameTreeShape, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
+import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource, PanelRecord} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
 
 import type {EditorSaveGate} from "../../shared/contracts";
+import {editorTabIdOf} from "../../shared/editor-panels";
+import type {EditorTabDrag} from "../contracts";
 import type {ViewCatalog} from "../views/registry";
 import {defaultLayoutDoc, fitsSkeleton, reconcileViews} from "./default-tree";
-import {COLLAPSE_ORDER, createLayoutPolicy, layoutEdgeTarget, layoutProjectionOptions, toolPanelAxis} from "./layout-constraints";
+import {COLLAPSE_ORDER, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutEdgeTarget, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints, toolPanelAxis} from "./layout-constraints";
 import {effectiveVisibleTabs} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
@@ -128,8 +130,20 @@ function defineLayoutDocStore(bound: boolean) {
         const effectiveMaximized = computed(() => {
             const panel = maximized.value === null ? undefined : doc.value.panels[maximized.value];
             // 这块面板不在了、隐藏了（包括标签被搬空）、收起了都退出（输出 13）：不管是哪条路径改的文档。
-            return maximized.value === null || panel === undefined || panel.hidden === true || panel.collapsed === true || collapse.value.removed.has(maximized.value) ? null : maximized.value;
+            return maximized.value === null || panel === undefined || panel.hidden === true || panel.collapsed === true || collapse.value.removed.has(maximized.value) || isFloating(doc.value, maximized.value) ? null : maximized.value;
         });
+        /**
+         * 拖动或缩放中的浮动窗矩形：只有它在变，不换文档、不重算投影。`moving` 是整窗跟着指针走，这时它不接指针。
+         */
+        const floatPreview = shallowRef<{readonly panel: string; readonly rect: LayoutFloatRect; readonly moving: boolean} | null>(null);
+        /** 画出来的浮动窗（相对树区域）：夹取之后的矩形，夹取不写回。 */
+        const renderedFloats = computed<ReadonlyArray<GridFloatInput>>(() => renderedDoc.value.floats.map(({panel, rect}) => {
+            const preview = floatPreview.value?.panel === panel ? floatPreview.value : null;
+            const wanted = preview?.rect ?? rect;
+            return {id: panel, rect: extent.value === null ? wanted : clampFloatRect(wanted, extent.value, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}), ...(preview?.moving === true ? {moving: true} : {})};
+        }));
+        /** 编辑器标签的拖动（区级组件交出来）：动它们要走编辑器区，先结算输入、合并同一文件。 */
+        const editorDrag = shallowRef<EditorTabDrag | null>(null);
 
         /** 有效可见的标签键（输出 17）。 */
         const visibleTabs = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: effectiveMaximized.value}));
@@ -188,7 +202,7 @@ function defineLayoutDocStore(bound: boolean) {
         }
 
         return {
-            state: {doc, ready, problems, field, catalog, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton},
+            state: {doc, ready, problems, field, catalog, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, renderedFloats},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -200,6 +214,85 @@ function defineLayoutDocStore(bound: boolean) {
                 /** 摆预览；null 回到已提交的布局。不合骨架的不摆：领域操作的结果都过 `apply` 的这道关，预览同样。 */
                 setLivePreview: (next: LayoutDoc | null): void => {
                     livePreview.value = next !== null && fitsSkeleton(next) ? next : null;
+                },
+                /** 拖动或缩放中的浮动窗矩形；null 回到记录里的。 */
+                previewFloat: (panel: string | null, rect: LayoutFloatRect | null = null, moving = false): void => {
+                    // 和写入时一样取整：放下那一下不跳。
+                    floatPreview.value = panel === null || rect === null ? null : {panel, rect: roundFloatRect(rect), moving};
+                },
+                /** 画出来的浮动窗：读 `state` 拿到的是只读代理，矩形要交给组件。 */
+                floats: (): ReadonlyArray<GridFloatInput> => renderedFloats.value,
+                /** 浮动窗缩放的上下限：取角色与视图声明的约束。 */
+                floatBounds: (panel: string): {readonly min: GridExtent; readonly max: GridExtent} => {
+                    const record = doc.value.panels[panel];
+                    const fallback = {width: 0, height: 0};
+                    if (record === undefined) return {min: fallback, max: {width: extent.value?.width ?? 0, height: extent.value?.height ?? 0}};
+                    const {minimumSize, maximumSize} = panelConstraints(record, catalog.value, extent.value?.width ?? 0);
+                    return {min: minimumSize, max: {width: Math.min(maximumSize.width, extent.value?.width ?? maximumSize.width), height: Math.min(maximumSize.height, extent.value?.height ?? maximumSize.height)}};
+                },
+                setFloatRect: (panel: string, rect: LayoutFloatRect): LayoutResult => apply((current) => setFloatRect(current, {panel, rect}), {flush: true}),
+                /** 提到最前（点击、聚焦）；已在最前不写。 */
+                raiseFloat: (panel: string): void => {
+                    if (doc.value.floats.at(-1)?.panel === panel || !isFloating(doc.value, panel)) return;
+                    apply((current) => raiseFloat(current, panel));
+                },
+                acceptEditorDrag: (drag: EditorTabDrag | null): void => {
+                    editorDrag.value = drag;
+                },
+                /**
+                 * 提交一个落点：编辑器的标签要走编辑器区（`EditorTabDrag`），工具视图与只改矩形直接改布局。外壳的拖动和命令都经这里。
+                 */
+                commitDrop: (source: LayoutSource, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void => {
+                    if (source.kind === "tab") {
+                        const editorTab = editorTabIdOf(source.tab);
+                        if (editorTab !== null) {
+                            editorDrag.value?.drop(editorTab, action, part, keyboard);
+                            return;
+                        }
+                    } else if (doc.value.panels[source.panel]?.role === "editor" && action.kind !== "float") {
+                        editorDrag.value?.dropPanel(source.panel, action, part, keyboard);
+                        return;
+                    }
+                    apply((current) => applyLayoutDrop(current, source, action, policy), {flush: true});
+                },
+                /** 把这个标签浮出来（`nbook.view.float`）：矩形按树区域居中，按窗数错开。 */
+                floatTab: (key: string): LayoutResult => {
+                    const found = findTab(doc.value, key);
+                    const record = found === null ? undefined : doc.value.panels[found.panel];
+                    if (found === null || record === undefined) return notFound(key);
+                    if (doc.value.floats.length >= LAYOUT_MAX_FLOATS) return {ok: false, code: "limit-exceeded", detail: "浮动窗太多"};
+                    const rect = defaultFloatRect(extent.value, panelConstraints({role: record.role, tabs: [found.tab], active: key}, catalog.value, extent.value?.width ?? 0).minimumSize, doc.value.floats.length);
+                    const editorTab = editorTabIdOf(key);
+                    if (editorTab !== null) {
+                        editorDrag.value?.drop(editorTab, {kind: "float", rect}, undefined, false);
+                        return {ok: true, doc: doc.value};
+                    }
+                    return apply((current) => floatTab(current, {tab: key, rect}, policy), {flush: true});
+                },
+                /**
+                 * 浮动窗回到停靠（`nbook.view.dock`）：工具视图各回声明的具名面板，声明没了的回侧栏；编辑器回树序最后一个编辑组。
+                 */
+                dockFloat: (panel: string): LayoutResult => {
+                    const record = doc.value.panels[panel];
+                    if (record === undefined || !isFloating(doc.value, panel)) return notFound(panel);
+                    if (record.role === "editor") {
+                        const anchor = treeEditorAnchor(doc.value);
+                        if (anchor === null) return notFound(panel);
+                        editorDrag.value?.dropPanel(panel, {kind: "center", panel: anchor}, undefined, false);
+                        return {ok: true, doc: doc.value};
+                    }
+                    return apply((current) => {
+                        let next: LayoutResult = {ok: true, doc: current};
+                        for (const tab of record.tabs) {
+                            if (!next.ok || tab.kind !== "view") continue;
+                            const location = catalog.value.get(tab.viewId)?.location ?? "sidebar";
+                            const target: readonly [string, PanelRecord] | undefined = Object.entries(next.doc.panels).find(([, candidate]) => candidate.name === location);
+                            if (target === undefined) return notFound(location);
+                            const moved = moveTabToStrip(next.doc, {tab: tabKey(tab), panel: target[0], index: target[1].tabs.length}, policy);
+                            next = moved.ok ? setPanelHidden(moved.doc, target[0], false) : moved;
+                        }
+                        return next;
+                    }, {flush: true});
                 },
                 /** 算出这棵呈现树用的选项：预览（落点、预备区）要和真实结果同一棵树。 */
                 projectionOptions: (): LayoutProjectionOptions => projectionOptions.value,
@@ -255,8 +348,6 @@ function defineLayoutDocStore(bound: boolean) {
                     if (collapsed && maximized.value === panel) maximized.value = null;
                     return apply((current) => setPanelCollapsed(current, panel, collapsed));
                 },
-                /** 提交一个落点（输出 25 到 29）。 */
-                drop: (source: LayoutSource, action: LayoutDropAction): LayoutResult => apply((current) => applyLayoutDrop(current, source, action, policy), {flush: true}),
                 /** 激活标签（切标签合并着存）；面板收成标题行时一起展开（输出 11）。 */
                 activate: (key: string): LayoutResult => apply((current) => {
                     const activated = activateTab(current, key);
@@ -320,7 +411,8 @@ function defineLayoutDocStore(bound: boolean) {
                 }, {flush: true}),
                 /** 最大化（输出 13）：只在内存；再点同一块退出。 */
                 toggleMaximized: (panel: string): boolean => {
-                    if (doc.value.panels[panel] === undefined) return false;
+                    // 浮动窗不可最大化：它不在树里，盖不了别的面板。
+                    if (doc.value.panels[panel] === undefined || isFloating(doc.value, panel)) return false;
                     maximized.value = maximized.value === panel ? null : panel;
                     return true;
                 },

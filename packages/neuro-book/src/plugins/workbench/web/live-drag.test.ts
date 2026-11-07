@@ -105,7 +105,7 @@ describe("实时布局的帧循环", () => {
         live.offer(drop({kind: "strip", panel: "b", index: 0}));
         advance(16);
         advance(200);
-        expect(live.previewKey.value).toContain("\"b\"");
+        expect(live.previewKey.value).toMatch(/strip.*panel.*b/);
         live.offer(drop({kind: "center", panel: "b"}));
         advance(16);
         expect(live.card.value?.rect.width).toBeGreaterThan(900);
@@ -125,6 +125,19 @@ describe("实时布局的帧循环", () => {
         advance(200);
         expect(shown.at(-1)).toBe(CANDIDATE);
         expect(live.shownAction.value).toEqual({kind: "center", panel: "e"});
+    });
+
+    it("浮动的矩形每帧变，候选还是稳定的：指针动着也摆", () => {
+        const {live, advance} = harness();
+        live.begin(SOURCE, {x: 500, y: 400});
+        const floating = (x: number): LayoutDragDrop => drop({kind: "float", rect: {x, y: 0, width: 460, height: 340}});
+        for (let at = 0; at < 12; at += 1) {
+            live.offer(floating(at * 10));
+            advance(16);
+        }
+        advance(50);
+        expect(live.previewKey.value).toContain("float");
+        expect(live.card.value).not.toBeNull();
     });
 
     it("摆不出提交后的样子（编辑器拒绝）：回到已提交的布局", () => {

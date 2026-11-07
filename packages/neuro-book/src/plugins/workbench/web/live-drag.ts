@@ -4,7 +4,7 @@
  * 预览只是一份给渲染用的文档（store 的 `setLivePreview`），不写记录，不改可见性。撤预览由 `end` 做：手势的收场顺序里它先于提交，同一个同步段不渲染，不闪。
  */
 
-import {initialLiveDrop, insideShownSlot, stepLiveDrop} from "@notnotype/nb-layout";
+import {initialLiveDrop, insideShownSlot, layoutDropKey, stepLiveDrop} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridRect, LayoutDoc, LayoutDropAction, LiveDropCandidate, LiveDropState} from "@notnotype/nb-layout";
 import {readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
@@ -56,7 +56,7 @@ export interface LiveDrag {
 }
 
 const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
-const keyOf = (drop: LayoutDragDrop): string => (drop.inPlace ? "in-place" : JSON.stringify([drop.action, drop.part ?? null]));
+const keyOf = (drop: LayoutDragDrop): string => (drop.inPlace ? "in-place" : JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]));
 
 export function createLiveDrag(host: LiveDragHost): LiveDrag {
     const active = shallowRef(false);

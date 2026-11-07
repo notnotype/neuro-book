@@ -6,14 +6,19 @@
 
 import {Type} from "typebox";
 
+import {findTab, isFloating} from "@notnotype/nb-layout";
+
 import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 
 import {workbenchText} from "../../shared/text";
 import type {LayoutDocStore} from "../state/layout-doc-store";
+import {viewIdOf} from "../state/layout-present";
 import {workbenchState} from "../state/public-state";
 
 export const SET_PANEL_COLLAPSED_COMMAND = "nbook.view.set-panel-collapsed";
 export const TOGGLE_PANEL_MAXIMIZED_COMMAND = "nbook.view.toggle-panel-maximized";
+export const FLOAT_COMMAND = "nbook.view.float";
+export const DOCK_COMMAND = "nbook.view.dock";
 
 const CATEGORY = workbenchText("categories.view");
 const PanelId = Type.Optional(Type.String({minLength: 1, maxLength: 160}));
@@ -35,12 +40,31 @@ export const PANEL_COMMAND_DECLARATIONS = {
         expose: {agent: "never"},
         when: {requires: [workbenchState.key("layoutReady")]},
     },
+    [FLOAT_COMMAND]: {
+        category: CATEGORY,
+        description: "Float a tab in a window inside the app. Views can declare they cannot float. Without tab, the active tab of the panel; without panelId, the current panel.",
+        args: Type.Object({panelId: PanelId, tab: Type.Optional(Type.String({minLength: 1, maxLength: 200}))}, {additionalProperties: false}),
+        effect: "write",
+        expose: {agent: "never"},
+        when: {requires: [workbenchState.key("layoutReady")]},
+    },
+    [DOCK_COMMAND]: {
+        category: CATEGORY,
+        description: "Dock a floating window: tool views return to the panel they declare, editor tabs to an editor group. Without panelId, the current panel.",
+        args: Type.Object({panelId: PanelId}, {additionalProperties: false}),
+        effect: "write",
+        expose: {agent: "never"},
+        when: {requires: [workbenchState.key("layoutReady")]},
+    },
 } as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
 
 const TEXT = {
     noLayout: workbenchText("layout.notOpen"),
     noPanel: workbenchText("panelCommands.noPanel"),
     editorCollapse: workbenchText("panelCommands.editorCollapse"),
+    notFloating: workbenchText("panelCommands.notFloating"),
+    cannotFloat: workbenchText("panelCommands.cannotFloat"),
+    floatMaximize: workbenchText("panelCommands.floatMaximize"),
 } as const;
 
 const DONE: CommandResult<null> = {ok: true, value: null};
@@ -65,9 +89,23 @@ export function panelCommands(layout: () => LayoutDocStore | null): PanelCommand
             const result = store.actions.setCollapsed(panel, (args.collapsed as boolean | undefined) ?? store.state.doc.panels[panel]?.collapsed !== true);
             return result.ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.noPanel};
         }),
-        [TOGGLE_PANEL_MAXIMIZED_COMMAND]: withPanel((store, panel) => {
-            store.actions.toggleMaximized(panel);
-            return DONE;
-        }),
+        [TOGGLE_PANEL_MAXIMIZED_COMMAND]: withPanel((store, panel) => (store.actions.toggleMaximized(panel) ? DONE : {ok: false, code: "unavailable", reason: TEXT.floatMaximize})),
+        [FLOAT_COMMAND]: {
+            run: (raw) => {
+                const store = layout();
+                if (store === null) return {ok: false, code: "unavailable", reason: TEXT.noLayout};
+                const args = raw as {readonly panelId?: string; readonly tab?: string};
+                const doc = store.actions.document();
+                const panelId = args.panelId ?? store.state.currentPanel;
+                const key = args.tab ?? (panelId === null ? null : (doc.panels[panelId]?.active ?? null));
+                const home = key === null ? null : findTab(doc, key)?.panel ?? null;
+                const viewId = viewIdOf(key ?? "");
+                const declaration = viewId === null ? undefined : store.state.catalog.get(viewId);
+                const alone = home !== null && isFloating(doc, home) && doc.panels[home]?.tabs.length === 1;
+                if (key === null || home === null || alone || declaration?.floatable === false || declaration?.movable === false) return {ok: false, code: "unavailable", reason: TEXT.cannotFloat};
+                return store.actions.floatTab(key).ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.cannotFloat};
+            },
+        },
+        [DOCK_COMMAND]: withPanel((store, panel) => (store.actions.dockFloat(panel).ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.notFloating})),
     };
 }

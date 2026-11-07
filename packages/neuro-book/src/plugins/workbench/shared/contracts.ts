@@ -2,7 +2,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {Ref} from "@vue/reactivity";
-import type {LayoutEdge, LayoutEdgeTarget} from "@notnotype/nb-layout";
+import type {LayoutEdge, LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
 
 import {Type} from "typebox";
 
@@ -207,7 +207,7 @@ export interface PanelEntry {
 }
 
 export interface PanelTabs {
-    /** 编辑组，按树序。 */
+    /** 编辑组，按树序，浮动的排在后面。 */
     readonly panels: Readonly<Ref<ReadonlyArray<PanelEntry>>>;
     /** 画出来的编辑组：拖动中可能是实时布局的预览。只有头读它，结构操作都按 `panels`。 */
     readonly shownPanels: Readonly<Ref<ReadonlyArray<PanelEntry>>>;
@@ -227,6 +227,8 @@ export interface PanelTabs {
      * 移到外缘（输出 27）：只有这一个标签的面板是同一块面板移动，返回它自己的 id，内容不重建；否则拆出新面板。放下去和现在一样时返回 null。不改活动面板，调用方决定。
      */
     moveToEdge(tabId: string, target: LayoutEdgeTarget): string | null;
+    /** 浮出来（docs/specs/ui/workbench-layout.md 输出 39）：新的浮动编辑组，成为活动面板，返回它的 id。放不下（窗数到上限）时是 null。 */
+    float(tabId: string, rect: LayoutFloatRect): string | null;
 }
 
 export interface PanelTree {

@@ -574,9 +574,8 @@ test.describe("产品页：拖放", () => {
     /** 落点是下一帧才画出来的：等两帧再断言没有，免得断言在落点出现之前通过。 */
     const settled = (page: Page): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
-    test("工具视图在编辑组上没有落点：中央、四条边、状态栏与标题栏都不接收，松手不移动、不写（输出 25、26；验收 10）", async ({page}) => {
+    test("工具视图在编辑组上没有落点：中央、四条边、状态栏与标题栏都不接收，反馈是浮动打开，不是别的落点（输出 25、26、39；验收 10）", async ({page}) => {
         await open(page);
-        const writes = await writesOf(page);
         const source = entry(page, C);
         const points = [
             await inLeaf(page, "g0", {x: 0.5, y: 0.5}),
@@ -592,13 +591,14 @@ test.describe("产品页：拖放", () => {
             await page.mouse.move(point.x, point.y, {steps: 6});
             await settled(page);
             await expect(ghost(page)).toBeVisible();
-            await expect(feedback(page)).toHaveCount(0);
+            await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
         }
+        // 这里只看判定；松手浮动打开在 workbench-float.e2e.ts。
+        await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         // 丙不是侧栏的当前视图，没有标签；它还在侧栏这一列，活动栏上的条目就是证明。
         await expect(entry(page, C)).toHaveCount(1);
-        expect(await writesOf(page)).toBe(writes);
     });
 
     test("工具面板的窄带：侧栏左右是添加为标签、上下是拆；面板的上缘是添加为标签、左右是拆；不允许的边没有窄带（输出 25、26；验收 10）", async ({page}) => {
@@ -926,10 +926,13 @@ test.describe("产品页：拖放", () => {
     test("键盘：工具视图拿起后，区域的循环从活动栏开始：Tab 绕到活动栏，方向键在条目之间移动，Enter 放下并成为当前视图（输出 22、31；验收 14）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        // 区域按树序排：活动栏、侧栏、面板、右栏。丁在最后一个区域里，拿起后的第一下 Tab 绕回循环的起点，也就是活动栏。
+        // 区域按树序排：活动栏、侧栏、面板、右栏，最后是“浮动”。丁在右栏里，拿起后第一下 Tab 到“浮动”，第二下绕回循环的起点，也就是活动栏。
         await tab(page, D).focus();
         await page.keyboard.press("Space");
         await expect(ghost(page)).toBeVisible();
+        await page.keyboard.press("Tab");
+        await labelText(page);
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
         await page.keyboard.press("Tab");
         await labelText(page);
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");

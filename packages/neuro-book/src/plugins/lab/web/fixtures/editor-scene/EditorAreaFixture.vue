@@ -7,8 +7,8 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {fixedNodesOf, projectLayoutDoc, rebaseIntents} from "@notnotype/nb-layout";
-import type {GridExtent} from "@notnotype/nb-layout";
+import {fixedNodesOf, projectLayoutDoc, rebaseIntents, setFloatRect} from "@notnotype/nb-layout";
+import type {GridExtent, LayoutFloatRect} from "@notnotype/nb-layout";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
@@ -22,7 +22,7 @@ import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSu
 import type {EditorTabDrag} from "nbook/plugins/workbench/web/contracts";
 import {createLayoutDrag} from "nbook/plugins/workbench/web/layout-drag";
 import type {LayoutDrag} from "nbook/plugins/workbench/web/layout-drag";
-import {createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
+import {createLayoutPolicy, EDITOR_GROUP_MINIMUM, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
 import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
 import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
@@ -200,6 +200,8 @@ const commitSizes = (sizes: Readonly<Record<string, GridExtent>>): void => {
 };
 
 const host = ref<HTMLElement | null>(null);
+const floatPreview = shallowRef<{readonly panel: string; readonly rect: LayoutFloatRect} | null>(null);
+const floats = computed(() => doc.value.floats.map(({panel, rect}) => ({id: panel, rect: floatPreview.value?.panel === panel ? floatPreview.value.rect : rect})));
 const tabDrag = shallowRef<EditorTabDrag | null>(null);
 const drag = shallowRef<LayoutDrag | null>(null);
 onMounted(() => {
@@ -218,7 +220,17 @@ onMounted(() => {
         feel: () => "indicator",
         settleMotion: () => undefined,
         showPreview: () => undefined,
+        floats: () => floats.value,
+        previewFloat: (panel, rect) => {
+            floatPreview.value = panel === null || rect === undefined ? null : {panel, rect};
+        },
+        floatMinimum: () => EDITOR_GROUP_MINIMUM,
         commit: (source, action, part, keyboard) => {
+            if (source.kind === "panel") {
+                if (action.kind === "float") panels.apply((current) => setFloatRect(current, {panel: source.panel, rect: action.rect}));
+                else tabDrag.value?.dropPanel(source.panel, action, part, keyboard);
+                return;
+            }
             const tabId = editorTabIdOf(source.tab);
             if (tabId !== null) tabDrag.value?.drop(tabId, action, part, keyboard);
         },
@@ -227,7 +239,7 @@ onMounted(() => {
 const dragState = computed(() => drag.value?.session.state.value ?? null);
 const dragGhost = computed(() => {
     const current = dragState.value;
-    const tabId = current === null ? null : editorTabIdOf(current.source.tab);
+    const tabId = current === null || current.source.kind !== "tab" ? null : editorTabIdOf(current.source.tab);
     const ghost = tabId === null ? null : (tabDrag.value?.ghost(tabId) ?? null);
     return ghost === null || current === null ? null : {...ghost, x: current.point.x, y: current.point.y};
 });
@@ -249,6 +261,7 @@ onBeforeUnmount(() => {
             class="h-full w-full"
             :doc="doc"
             :projection="projection"
+            :floats="floats"
             :maximized="null"
             :disabled="false"
             context-key="lab-editor"

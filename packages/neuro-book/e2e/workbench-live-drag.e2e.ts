@@ -150,9 +150,28 @@ test.describe("实时布局", () => {
         // 面板这一排在动，拖右栏的视图。
         await lift(page, tab(page, AUXILIARY_VIEW));
         await page.mouse.move(finalPanel.x, finalPanel.y, {steps: 3});
-        await expect(surface(page)).toHaveAttribute("data-live-preview", /"panel":"panel"/);
+        await expect(surface(page)).toHaveAttribute("data-live-preview", /center.*panel.*panel/);
         await page.keyboard.press("Escape");
         await page.mouse.up();
+    });
+
+    test("拖到没有落点的地方松手：卡片写“浮动打开”，内容从卡片飞到浮动窗，是同一个节点", async ({page}) => {
+        await open(page);
+        const content = page.locator(`[data-content="view:${AUXILIARY_VIEW}"]`);
+        const node = await content.elementHandle();
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const target = await inLeaf(page, "g0", {x: 0.5, y: 0.5});
+        await page.mouse.move(target.x, target.y, {steps: 6});
+        await expect(page.locator("[data-lifted]")).toHaveCount(1);
+        await expect(surface(page)).toHaveAttribute("data-live-preview", /float/);
+        await expect(page.locator("[data-drag-card-hint]")).toHaveText("浮动打开");
+        await page.mouse.up();
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await expect(page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-float]")).toHaveCount(1);
+        expect(await content.evaluate((element, other) => element === other, node)).toBe(true);
+        // 布局记录这个文件的用例共用：放回去。
+        await page.locator(`[data-panel-head="${await panelOfTab(page, AUXILIARY_VIEW)}"] [data-panel-action="nbook.view.dock"]`).click();
+        await expect.poll(() => panelOfTab(page, AUXILIARY_VIEW)).toBe("auxiliarybar");
     });
 
     test("取消：布局回原样，不写记录", async ({page}) => {

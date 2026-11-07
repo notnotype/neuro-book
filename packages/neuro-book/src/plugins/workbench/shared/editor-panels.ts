@@ -7,7 +7,7 @@
 
 import {computed, shallowRef} from "@vue/reactivity";
 
-import {activateTab, findTab, findTreeNode, GRID_SNAPSHOT_VERSION, insertTab, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, treeLeaves} from "@notnotype/nb-layout";
+import {activateTab, findTab, findTreeNode, floatTab, GRID_SNAPSHOT_VERSION, insertTab, isFloating, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, treeEditorAnchor, treeLeaves} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdgeTarget, LayoutPolicy, LayoutResult, TabRef} from "@notnotype/nb-layout";
 
 import {editorTabKey} from "./contracts";
@@ -33,12 +33,12 @@ export interface EditorLayoutHost {
 
 const isEditor = (doc: LayoutDoc, id: string): boolean => doc.panels[id]?.role === "editor";
 
-/** 编辑组，按树序：换一个组时“相邻”按这个顺序算（docs/specs/workbench/editor.md 输出 3）。 */
+/** 编辑组，按树序：换一个组时“相邻”按这个顺序算（docs/specs/workbench/editor.md 输出 3）。浮动的排在后面。 */
 function editorEntries(doc: LayoutDoc): ReadonlyArray<PanelEntry> {
-    return treeLeaves(doc.tree.root).flatMap((leaf): PanelEntry[] => {
-        const panel = doc.panels[leaf.id];
+    return [...treeLeaves(doc.tree.root).map((leaf) => leaf.id), ...doc.floats.map((float) => float.panel)].flatMap((id): PanelEntry[] => {
+        const panel = doc.panels[id];
         if (panel?.role !== "editor") return [];
-        return [{id: leaf.id, tabs: panel.tabs.flatMap((tab) => (tab.kind === "tab" ? [tab.tabId] : [])), active: panel.active === null ? null : editorTabIdOf(panel.active)}];
+        return [{id, tabs: panel.tabs.flatMap((tab) => (tab.kind === "tab" ? [tab.tabId] : [])), active: panel.active === null ? null : editorTabIdOf(panel.active)}];
     });
 }
 
@@ -96,17 +96,28 @@ export function createEditorPanels(host: EditorLayoutHost): EditorPanels {
             }, {flush: true});
             return result.ok && moved ? (findTab(host.document(), key)?.panel ?? null) : null;
         },
+        float: (tabId, rect) => {
+            const key = editorTabKey(tabId);
+            const result = host.apply((doc) => floatTab(doc, {tab: key, rect}, host.policy), {flush: true});
+            return result.ok ? (findTab(host.document(), key)?.panel ?? null) : null;
+        },
     };
     const tree: PanelTree = {
         current,
         setCurrent: (panel) => ok((doc) => setCurrentEditor(doc, panel)),
         openAtEdge: (panel, edge) => {
             const id = host.policy.newId("panel");
-            // 命令的拆分只分被拆的那一块；拖到两块之间才从两块取（输出 25 规则 4），那是 `moveToEdge` 的目标。
-            const target: LayoutEdgeTarget = {kind: "split", panel, edge};
-            return ok((doc) => (isEditor(doc, panel) ? openPanelAtEdge(doc, {id, panel: {role: "editor", tabs: [], active: null}, target, activate: false}, host.policy) : notFound(panel))) ? id : null;
+            return ok((doc) => {
+                // 浮动窗不拆：落到树里的编辑组（它没有相邻）。
+                const at = isFloating(doc, panel) ? treeEditorAnchor(doc) : panel;
+                if (at === null || !isEditor(doc, at)) return notFound(panel);
+                // 命令的拆分只分被拆的那一块；拖到两块之间才从两块取（输出 25 规则 4），那是 `moveToEdge` 的目标。
+                const target: LayoutEdgeTarget = {kind: "split", panel: at, edge};
+                return openPanelAtEdge(doc, {id, panel: {role: "editor", tabs: [], active: null}, target, activate: false}, host.policy);
+            }) ? id : null;
         },
-        rightOf: (panel) => rightEditor(host.document(), panel),
+        // 浮动窗没有相邻：“在侧边打开”进树里的组。
+        rightOf: (panel) => (isFloating(host.document(), panel) ? treeEditorAnchor(host.document()) : rightEditor(host.document(), panel)),
     };
     return {tabs, tree};
 }

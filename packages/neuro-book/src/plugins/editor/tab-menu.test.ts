@@ -105,12 +105,12 @@ describe("Spec workbench.editor 输出 57：标签的右键菜单", () => {
         const {area, menu} = await world([{id: "acme.count", declaration: {section: "1", command: ACME, extensions: [".md"], context: "resource"}}], false);
         area.open("project://b.md", {mode: "permanent"});
         const b = tabOf(area, "project://b.md");
-        expect(labels(menu.entries(b, zh))).toEqual([shown("tabMenu.close"), shown("tabMenu.closeOthers"), shown("tabMenu.closeToRight"), shown("tabMenu.closeSaved"), "---", shown("tabMenu.pin"), "---", shown("tabMenu.splitRight"), shown("tabMenu.splitDown"), "---", shown("tabMenu.copyPath"), shown("tabMenu.copyRelativePath"), `${shown("tabMenu.reveal")}（禁用）`, "---", ACME]);
+        expect(labels(menu.entries(b, zh))).toEqual([shown("tabMenu.close"), shown("tabMenu.closeOthers"), shown("tabMenu.closeToRight"), shown("tabMenu.closeSaved"), "---", shown("tabMenu.pin"), "---", shown("tabMenu.splitRight"), shown("tabMenu.splitDown"), "---", shown("tabMenu.float"), "---", shown("tabMenu.copyPath"), shown("tabMenu.copyRelativePath"), `${shown("tabMenu.reveal")}（禁用）`, "---", ACME]);
         area.setPinned(b, true);
         expect(labels(menu.entries(b, zh))).toContain(shown("tabMenu.unpin"));
         const page = area.openPage("nbook.projects.welcome");
         if (!page.ok) throw new Error(diagnosticText(page.reason));
-        expect(labels(menu.entries(page.tabId, zh))).toEqual([shown("tabMenu.close"), shown("tabMenu.closeOthers"), shown("tabMenu.closeToRight"), shown("tabMenu.closeSaved")]);
+        expect(labels(menu.entries(page.tabId, zh))).toEqual([shown("tabMenu.close"), shown("tabMenu.closeOthers"), shown("tabMenu.closeToRight"), shown("tabMenu.closeSaved"), "---", shown("tabMenu.float")]);
     });
 
     it("作用于被右击的标签、不先激活它：活动的是另一组里的页面时，右击 B 拆分、复制路径、贡献的项都作用于 B", async () => {

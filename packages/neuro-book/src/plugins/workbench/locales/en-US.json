@@ -103,6 +103,12 @@
                 },
                 "move-view": {
                     "title": "Move View"
+                },
+                "float": {
+                    "title": "Float"
+                },
+                "dock": {
+                    "title": "Dock"
                 }
             },
             "settings": {
@@ -145,7 +151,10 @@
     },
     "panelCommands": {
         "noPanel": "No panel to act on",
-        "editorCollapse": "An editor group cannot be collapsed"
+        "editorCollapse": "An editor group cannot be collapsed",
+        "notFloating": "This panel is not floating",
+        "cannotFloat": "This tab cannot float",
+        "floatMaximize": "A floating window cannot be maximized"
     },
     "partCommands": {
         "parts": {
@@ -173,7 +182,8 @@
             "auxiliarybar": "Secondary Side Bar",
             "panel": "Panel",
             "editor": "Editor area",
-            "editorAt": "Editor area {{index}}"
+            "editorAt": "Editor area {{index}}",
+            "editorFloat": "Floating editor"
         },
         "pickView": "Pick a view to move",
         "pickOpen": "Pick a view to open",
@@ -216,7 +226,8 @@
             "insert": "Place here",
             "between": "Place between the two",
             "split": "Split to this side",
-            "inPlace": "In place"
+            "inPlace": "In place",
+            "float": "Open floating"
         },
         "moreActions": "More Actions",
         "frame": {

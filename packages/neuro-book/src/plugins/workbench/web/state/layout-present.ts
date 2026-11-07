@@ -2,7 +2,7 @@
  * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏条目点了做什么。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, findTreeNode, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridContentInput, GridExtent, LayoutDoc, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -46,7 +46,13 @@ function hasRoom(panel: PanelRecord, size: GridExtent | undefined): boolean {
  */
 export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): ReadonlySet<string> {
     const visible = new Set<string>();
+    const floating = new Set(doc.floats.map((float) => float.panel));
     for (const [id, panel] of Object.entries(doc.panels)) {
+        // 浮动窗不在呈现尺寸里：活动标签就算可见，被别的窗盖住、别的面板最大化时也算（提案第 6 节）。
+        if (panel.active !== null && floating.has(id)) {
+            visible.add(panel.active);
+            continue;
+        }
         if (panel.active === null || panel.hidden === true || facts.removed.has(id)) continue;
         if (facts.maximized !== null && facts.maximized !== id) continue;
         const committed = panel.collapsed !== true && hasRoom(panel, facts.sizes[id]);
@@ -111,6 +117,7 @@ export function panelTitle(doc: LayoutDoc, catalog: ViewCatalog, panelId: string
     const named = panel?.name === undefined ? undefined : PANEL_NAMES[panel.name];
     if (named !== undefined) return named;
     if (panel?.role === "editor") {
+        if (isFloating(doc, panelId)) return workbenchText("viewCommands.parts.editorFloat");
         // 几块编辑组都叫“编辑区”就分不出来了：按树序写序号。
         const editors = treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "editor");
         return editors.length > 1 ? workbenchText("viewCommands.parts.editorAt", {index: editors.indexOf(panelId) + 1}) : workbenchText("viewCommands.parts.editor");
@@ -136,5 +143,5 @@ export const viewIdOf = (key: string): string | null => (key.startsWith(VIEW_KEY
 /** 拖动的结构键（输出 32）：树的拓扑和标签集合。尺寸、活动标签变了不算。 */
 export function layoutStructureKey(doc: LayoutDoc): string {
     const shape = (node: LayoutDoc["tree"]["root"]): unknown => (node.kind === "leaf" ? node.id : [node.id, node.children.map(shape)]);
-    return JSON.stringify([shape(doc.tree.root), Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)).sort()]);
+    return JSON.stringify([shape(doc.tree.root), doc.floats.map((float) => float.panel).sort(), Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)).sort()]);
 }

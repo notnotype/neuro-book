@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 一个编辑组的头（同名 .md）：提示条、标签条、标题动作与标签的右键菜单。画在工作台的外框里，内容从它下面开始。 */
-import {Button, ContextMenu} from "@notnotype/nb-ui/components";
+import {Button, ContextMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
@@ -9,6 +9,8 @@ import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
 import {buttonBudget} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
+
+import type {PanelFrameControl} from "nbook/plugins/workbench/web/contracts";
 
 import type {EditorArea} from "../area";
 import {nameOf} from "../documents/address";
@@ -52,7 +54,9 @@ const props = withDefaults(defineProps<{
     wrapTabs?: boolean;
     /** 正被实时布局拖着、还在标签条里的标签（标签键）。 */
     draggingTab?: string | null;
-}>(), {pages: null, titleActions: null, tabMenu: null, wrapTabs: true, draggingTab: null});
+    /** 外壳的框架按钮（浮动窗的“回到停靠”），画在标题动作之后。 */
+    frameActions?: ReadonlyArray<PanelFrameControl>;
+}>(), {pages: null, titleActions: null, tabMenu: null, wrapTabs: true, draggingTab: null, frameActions: () => []});
 
 const emit = defineEmits<{
     (event: "intent", intent: EditorIntent): void;
@@ -180,6 +184,18 @@ const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.
                 data-hover-actions
                 @run="(key: string) => emit('title-action', key)"
             />
+            <div v-if="frameActions.length > 0" class="editor-group-head__frame" data-no-drag>
+                <IconButton
+                    v-for="action in frameActions"
+                    :key="action.id"
+                    size="xs"
+                    :icon-class="action.icon"
+                    :aria-label="action.label"
+                    :title="action.label"
+                    :data-panel-action="action.id"
+                    @click="action.run()"
+                />
+            </div>
         </div>
     </div>
 </template>
@@ -193,6 +209,13 @@ const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
+}
+
+.editor-group-head__frame {
+    display: flex;
+    flex: none;
+    align-items: center;
+    padding-inline: var(--space-1);
 }
 
 .editor-group-head__notice {

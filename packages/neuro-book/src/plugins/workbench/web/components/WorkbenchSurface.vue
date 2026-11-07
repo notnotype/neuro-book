@@ -3,7 +3,7 @@
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
 import {createGrid} from "@notnotype/nb-layout";
-import type {Grid, GridBranchInput, GridExtent, GridGesturePreview, GridNodeInput, GridRect, LayoutDoc, LayoutProjection} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridNodeInput, GridRect, LayoutDoc, LayoutProjection} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
@@ -31,7 +31,9 @@ const props = withDefaults(defineProps<{
     titleOnlyPanels?: ReadonlySet<string>;
     /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。 */
     lifted?: {readonly key: string; readonly rect: GridRect; readonly home: string | null} | null;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), lifted: null});
+    /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
+    floats?: ReadonlyArray<GridFloatInput>;
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), lifted: null, floats: () => []});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -48,6 +50,8 @@ const emit = defineEmits<{
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。宿主据此记当前面板（输出 36）。 */
     (event: "focus-panel", panel: string | null): void;
+    /** 指针按在浮动窗上，或焦点进了它：提到最前。 */
+    (event: "raise-float", panel: string): void;
 }>();
 
 defineSlots<{
@@ -60,6 +64,8 @@ defineSlots<{
     "lifted-head"?(props: {contentKey: string}): unknown;
     /** 盖在分隔线之上、拿起的内容之下，不接指针。 */
     overlay?(): unknown;
+    /** 浮动窗的手柄。 */
+    "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -205,9 +211,16 @@ function panelOf(target: EventTarget | null): string | null {
     return element?.getAttribute("data-content-leaf") ?? element?.getAttribute("data-leaf") ?? null;
 }
 
+function raiseIfFloat(target: EventTarget | null): void {
+    const chrome = target instanceof Element ? target.closest("[data-float-chrome]")?.getAttribute("data-float-chrome") : null;
+    const panel = chrome ?? panelOf(target);
+    if (panel !== null && props.floats.some((float) => float.id === panel)) emit("raise-float", panel);
+}
+
 function onFocusIn(event: FocusEvent): void {
     const panel = panelOf(event.target);
     setFocusedPanel(panel !== null && props.doc.panels[panel] !== undefined ? panel : null);
+    raiseIfFloat(event.target);
 }
 
 function onFocusOut(event: FocusEvent): void {
@@ -238,6 +251,7 @@ defineExpose({
         data-workbench-surface
         @pointerover="pointerPanel = panelOf($event.target)"
         @pointerleave="pointerPanel = null"
+        @pointerdown.capture="raiseIfFloat($event.target)"
         @focusin="onFocusIn"
         @focusout="onFocusOut"
     >
@@ -251,6 +265,7 @@ defineExpose({
             :on-gesture-commit="host.onGestureCommit"
             :contents="contents"
             :lifted="liftedItem"
+            :floats="floats"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
             @gesture-update="onGesturePreview"
@@ -300,6 +315,9 @@ defineExpose({
             <template #overlay>
                 <slot name="overlay"></slot>
             </template>
+            <template #float-chrome="{id, rect}">
+                <slot name="float-chrome" :id="id" :rect="rect"></slot>
+            </template>
         </NestedGrid>
     </div>
 </template>
@@ -317,6 +335,13 @@ defineExpose({
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+}
+
+/* 浮动窗不贴着别的卡片：圆角用卡片的，投影画在外框上（NestedGrid），里面的卡片不再画一层。 */
+.workbench-surface :deep(.nb-grid-frame[data-float]),
+.workbench-surface :deep(.nb-grid-content[data-float]) {
+    --shell-card-radius: var(--layout-card-radius);
+    --shell-card-shadow: none;
 }
 
 /* 卡片主题里主体的接缝透明，卡片之间的缝就是边界；工具面板之间、编辑组之间的线还要看得见。 */

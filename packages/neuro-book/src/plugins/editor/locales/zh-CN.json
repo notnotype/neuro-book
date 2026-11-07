@@ -448,7 +448,8 @@
         "splitDown": "向下拆分",
         "copyPath": "复制路径",
         "copyRelativePath": "复制相对路径",
-        "reveal": "在资源管理器中显示"
+        "reveal": "在资源管理器中显示",
+        "float": "浮动"
     },
     "notice": {
         "lastEditMissing": "上次编辑的片段已不在原处：{{address}}",

@@ -23,7 +23,7 @@ import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarP
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {EditorAreaContext, EditorAreaHostProps, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
+import type {EditorAreaContext, EditorAreaHostProps, EditorAreaImplementation, PanelFrameControl} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
@@ -304,11 +304,11 @@ export const editorBrowserPlugin: PluginDefinition = {
                         }),
                         head: defineComponent({
                             name: "EditorGroupHeadPart",
-                            props: {panelId: {type: String, required: true}, draggingTab: {type: String as PropType<string | null>, default: null}},
+                            props: {panelId: {type: String, required: true}, draggingTab: {type: String as PropType<string | null>, default: null}, frameActions: {type: Array as PropType<ReadonlyArray<PanelFrameControl>>, default: () => []}},
                             setup: (props) => () => {
                                 if (session.area.value === null) return null;
                                 const title = titleActions();
-                                return h(EditorGroupHead, {area: session.area.value, groupId: props.panelId, draggingTab: props.draggingTab, pages: pageSource, titleActions: title !== null && title.group === props.panelId ? title : null, tabMenu, wrapTabs: settings.get(wrapTabsSetting), onTabMenu: (tabId: string, key: string) => {
+                                return h(EditorGroupHead, {area: session.area.value, groupId: props.panelId, draggingTab: props.draggingTab, frameActions: props.frameActions, pages: pageSource, titleActions: title !== null && title.group === props.panelId ? title : null, tabMenu, wrapTabs: settings.get(wrapTabsSetting), onTabMenu: (tabId: string, key: string) => {
                                     session.area.value?.activeHandle.value?.flushPendingChange();
                                     tabMenuModel.run(tabId, key);
                                 }, onTitleAction: (key: string) => {

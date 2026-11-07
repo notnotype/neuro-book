@@ -24,6 +24,8 @@ type Props = {
     wrapTabs?: boolean;
     /** 正被实时布局拖着、还在标签条里的标签（标签键）。 */
     draggingTab?: string | null;
+    /** 外壳的框架按钮（浮动窗的“回到停靠”），画在标题动作之后。 */
+    frameActions?: ReadonlyArray<PanelFrameControl>;
 };
 
 type Emits = {

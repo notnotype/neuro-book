@@ -22,6 +22,8 @@ import type {LayoutDocStore} from "../state/layout-doc-store";
 import {workbenchState, workbenchStateBindings} from "../state/public-state";
 import {openLayoutDoc} from "../testing/layout-doc";
 import {
+    DOCK_COMMAND,
+    FLOAT_COMMAND,
     PANEL_COMMAND_DECLARATIONS,
     panelCommands,
     SET_PANEL_COLLAPSED_COMMAND,
@@ -56,9 +58,9 @@ async function layout(): Promise<LayoutDocStore> {
 }
 
 describe("声明", () => {
-    it("两条面板命令的声明通过命令系统的校验；when 只引用工作台声明的公开键", () => {
+    it("面板命令的声明通过命令系统的校验；when 只引用工作台声明的公开键", () => {
         const declared = new Set((Object.keys(workbenchState.declarations) as (keyof typeof workbenchState.declarations)[]).map((name) => workbenchState.key(name)));
-        expect(Object.keys(PANEL_COMMAND_DECLARATIONS).sort()).toEqual([SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND]);
+        expect(Object.keys(PANEL_COMMAND_DECLARATIONS).sort()).toEqual([DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND]);
         for (const [id, declaration] of Object.entries(PANEL_COMMAND_DECLARATIONS)) {
             expect(commandDeclarationProblems(id, "nbook.workbench", completedCommand(id, declaration)), id).toEqual([]);
             for (const key of declaration.when.requires) expect(declared.has(key), key).toBe(true);
@@ -150,6 +152,37 @@ describe("命令", () => {
         expect(store.state.maximized).toBe("sidebar");
         await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "sidebar", collapsed: true});
         expect(store.state.maximized).toBeNull();
+    });
+
+    it("浮动与回到停靠；浮动窗不能最大化、不能收起；不能浮动的视图、不是浮动窗时 unavailable（输出 35、39）", async () => {
+        const store = await layout();
+        const catalog = new Map([
+            ["v", {title: "v", icon: "i", location: "panel", layout: "scroll"}],
+            ["fixed", {title: "f", icon: "i", location: "panel", layout: "scroll", floatable: false}],
+        ] as const) as unknown as Parameters<typeof store.actions.acceptViewCatalog>[0];
+        store.actions.acceptViewCatalog(catalog);
+        const commands = panelCommands(() => store);
+        const run = (id: keyof typeof commands, args: Record<string, unknown>) => commands[id].run(args);
+        expect(await run(FLOAT_COMMAND, {tab: "view:fixed"})).toMatchObject({ok: false, code: "unavailable"});
+        expect(store.actions.document().floats).toEqual([]);
+        expect(await run(DOCK_COMMAND, {panelId: "panel"})).toMatchObject({ok: false, code: "unavailable"});
+
+        expect(await run(FLOAT_COMMAND, {tab: "view:v"})).toEqual({ok: true, value: null});
+        const floats = store.actions.document().floats;
+        expect(floats).toHaveLength(1);
+        const panel = floats[0]?.panel ?? "";
+        // 已经独占一个窗。
+        expect(await run(FLOAT_COMMAND, {tab: "view:v"})).toMatchObject({ok: false, code: "unavailable"});
+        // 焦点在窗里时最大化、收起都不动，工作台不会空白。
+        store.actions.focusPanel(panel);
+        expect(await run(TOGGLE_PANEL_MAXIMIZED_COMMAND, {})).toMatchObject({ok: false, code: "unavailable"});
+        expect(store.state.maximized).toBeNull();
+        expect(await run(SET_PANEL_COLLAPSED_COMMAND, {collapsed: true})).toMatchObject({ok: false, code: "unavailable"});
+        expect(store.actions.document().panels[panel]?.collapsed).toBeUndefined();
+
+        expect(await run(DOCK_COMMAND, {})).toEqual({ok: true, value: null});
+        expect(store.actions.document().floats).toEqual([]);
+        expect(store.actions.document().panels.panel?.tabs.map((tab) => (tab.kind === "view" ? tab.viewId : ""))).toEqual(["fixed", "v"]);
     });
 
     it("没有当前面板、panelId 指向不存在的面板、外壳没挂载时都是 unavailable，布局不变", async () => {

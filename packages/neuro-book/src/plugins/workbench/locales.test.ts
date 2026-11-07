@@ -346,6 +346,13 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
 
 /** 片 7a 新增的键（见文件头）。 */
 const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
+    "commands.nbook.view.float.title": {"zh-CN": "浮动", "en-US": "Float"},
+    "commands.nbook.view.dock.title": {"zh-CN": "回到停靠", "en-US": "Dock"},
+    "panelCommands.notFloating": {"zh-CN": "这块面板没有浮动", "en-US": "This panel is not floating"},
+    "panelCommands.cannotFloat": {"zh-CN": "这个标签不能再浮动", "en-US": "This tab cannot float"},
+    "panelCommands.floatMaximize": {"zh-CN": "浮动窗不能最大化", "en-US": "A floating window cannot be maximized"},
+    "viewCommands.parts.editorFloat": {"zh-CN": "浮动编辑区", "en-US": "Floating editor"},
+    "shell.drop.float": {"zh-CN": "浮动打开", "en-US": "Open floating"},
     "panelCommands.noPanel": {"zh-CN": "没有可以操作的面板", "en-US": "No panel to act on"},
     "panelCommands.editorCollapse": {"zh-CN": "编辑组不能收起", "en-US": "An editor group cannot be collapsed"},
     "viewCommands.rejected": {"zh-CN": "这个视图不能放到那里", "en-US": "This view can't go there"},

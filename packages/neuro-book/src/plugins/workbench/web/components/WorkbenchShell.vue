@@ -5,9 +5,9 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
-import {DropSectorsOverlay} from "@notnotype/nb-layout/vue";
+import {findTab, findTreeNode, isFloating, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridExtent, LayoutDoc, LayoutSource} from "@notnotype/nb-layout";
+import {DropSectorsOverlay, FloatWindowHandles} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
@@ -20,20 +20,20 @@ import {buttonBudget, NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import {editorTabIdOf} from "../../shared/editor-panels";
-import {SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
+import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {ViewLocation} from "../../shared/views";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
-import {createLayoutPolicy} from "../state/layout-constraints";
+import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {createLayoutDrag} from "../layout-drag";
-import type {LayoutDrag, LayoutDragDrop, LayoutTabSource} from "../layout-drag";
+import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
-import type {EditorAreaContext, EditorTabDrag} from "../contracts";
+import type {EditorAreaContext, EditorTabDrag, PanelFrameControl} from "../contracts";
 import {mountEditorArea} from "../editor-area";
 import type {EditorAreaSource} from "../editor-area";
 import {SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
@@ -96,13 +96,18 @@ const editorArea = computed(() => {
 
 /** 区级组件挂上时交出来（`EditorAreaHostProps`）；还没交时编辑器标签不起拖。 */
 const editorTabs = shallowRef<EditorTabDrag | null>(null);
+function attachEditorDrag(next: EditorTabDrag | null): void {
+    editorTabs.value = next;
+    props.layout.actions.acceptEditorDrag(next);
+}
 
 /** 每块编辑组一份：别的面板最大化时盖住它，对提供者就是不可见。 */
 const editorContexts = new Map<string, EditorAreaContext>();
 function editorContextOf(panelId: string): EditorAreaContext {
     let context = editorContexts.get(panelId);
     if (context === undefined) {
-        context = {visible: computed(() => state.value.maximized === null || state.value.maximized === panelId)};
+        // 浮动窗盖在最大化的面板上面，不算被盖住。
+        context = {visible: computed(() => state.value.maximized === null || state.value.maximized === panelId || isFloating(doc.value, panelId))};
         editorContexts.set(panelId, context);
     }
     return context;
@@ -161,14 +166,16 @@ const HEAD_PADDING_PX = 20;
 const collapsibleHere = (panelId: string): boolean => findTreeNode(renderedDoc.value.tree.root, panelId)?.parent?.orientation === "vertical";
 function headReserved(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
-    const frames = 1 + (collapsibleHere(panelId) ? 1 : 0) + (panel?.name === undefined ? 0 : 1);
+    // 浮动窗只有“回到停靠”；树里是最大化、浮动，加上收起与隐藏。
+    const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2 + (collapsibleHere(panelId) ? 1 : 0) + (panel?.name === undefined ? 0 : 1);
     const others = titleOnlyPanels.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
     return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
 }
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
 function viewActionsOf(viewId: string, panelId: string): TitleActionsModel {
-    const width = state.value.presented[panelId]?.width ?? null;
+    // 浮动窗不在呈现尺寸里：按它自己的矩形算。
+    const width = props.layout.actions.floats().find((float) => float.id === panelId)?.rect.width ?? state.value.presented[panelId]?.width ?? null;
     return props.chrome?.viewActions(viewId, catalog.value.get(viewId)?.actions ?? [], resolver, instanceOf(viewId), buttonBudget(width, headReserved(panelId), Number.POSITIVE_INFINITY)) ?? NO_TITLE_ACTIONS;
 }
 
@@ -194,6 +201,13 @@ const titleOnlyIn = (source: LayoutDoc): ReadonlySet<string> => new Set(source.h
 const titleOnlyPanels = computed(() => titleOnlyIn(renderedDoc.value));
 const headTabs = (panelId: string): PanelHeadTab[] => tabsIn(renderedDoc.value, panelId);
 
+const DOCK_ICON = "i-lucide-panel-top";
+
+/** 浮动的编辑组的框架按钮：编辑组的头是编辑器画的，只能交给它。 */
+function editorFrameActions(panelId: string): ReadonlyArray<PanelFrameControl> {
+    return isFloating(renderedDoc.value, panelId) ? [{id: DOCK_COMMAND, icon: DOCK_ICON, label: message("commands.nbook.view.dock.title"), run: () => run(DOCK_COMMAND, {panelId})}] : [];
+}
+
 /** 框架按钮（输出 20）：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。 */
 function frameActionsOf(panelId: string): PanelFrameAction[] {
     const panel = renderedDoc.value.panels[panelId];
@@ -202,7 +216,11 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
         const enabled = props.commands.isEnabled(id);
         return {id, icon, label: message(title), disabled: !(enabled.ok && enabled.value), ...(enabled.ok ? {} : {reason: resolver.t(enabled.reason)}), ...(pressed === undefined ? {} : {pressed})};
     };
+    if (isFloating(renderedDoc.value, panelId)) return [describe(DOCK_COMMAND, DOCK_ICON, "commands.nbook.view.dock.title")];
+    const viewId = viewIdOf(panel?.active ?? "");
+    const floatable = viewId !== null && catalog.value.get(viewId)?.floatable !== false && catalog.value.get(viewId)?.movable !== false;
     return [
+        ...(floatable ? [describe(FLOAT_COMMAND, "i-lucide-picture-in-picture-2", "commands.nbook.view.float.title")] : []),
         ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true)] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
         // 无名面板没有隐藏按钮。
@@ -261,7 +279,11 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const into = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "panel" ? [] : [{label: text(panelTitle(doc.value, catalog.value, target.panel)), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, target: target.panel})}]));
     const beside = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "new-panel" ? [] : [{label: message("viewCommands.newPanelNextTo", {panel: text(panelTitle(doc.value, catalog.value, target.nextTo))}), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, newPanelNextTo: target.nextTo})}]));
     const reset: ContextMenuItem[] = canResetView(doc.value, catalog.value, opened.viewId) ? [{label: message("views.resetLocation"), action: () => props.layout.actions.resetView(opened.viewId)}] : [];
-    const sections = [into, beside, reset].filter((section) => section.length > 0);
+    // 已经独占一个窗的再浮动没有意义。
+    const home = panelOfView(opened.viewId);
+    const alone = home !== null && isFloating(doc.value, home) && doc.value.panels[home]?.tabs.length === 1;
+    const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || alone ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
+    const sections = [into, beside, float, reset].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{separator: true}, ...section]));
 });
 
@@ -382,19 +404,24 @@ onMounted(() => {
         feel: () => props.dragFeel ?? "live",
         settleMotion: () => surface.value?.settleMotion(),
         showPreview: (next) => props.layout.actions.setLivePreview(next),
-        commit: (source, action, part, keyboard) => {
-            // 编辑器标签走编辑器区的动作：要先结算视图的输入、合并同一标签（`EditorTabDrag`）。
-            const editorTab = editorTabIdOf(source.tab);
-            if (editorTab !== null) editorTabs.value?.drop(editorTab, action, part, keyboard);
-            else props.layout.actions.drop(source, action);
+        floats: () => props.layout.actions.floats(),
+        previewFloat: (panel, rect) => props.layout.actions.previewFloat(panel, rect ?? null, true),
+        floatMinimum: (source) => {
+            const home = findTab(doc.value, source.tab)?.panel;
+            const panel = home === undefined ? undefined : doc.value.panels[home];
+            // 只有这个标签的约束：工具视图按它声明的，不按来源面板别的标签的并。
+            return panel === undefined ? {width: 0, height: 0} : panelConstraints({role: panel.role, tabs: panel.tabs.filter((tab) => tabKey(tab) === source.tab), active: source.tab}, catalog.value, state.value.extent?.width ?? 0).minimumSize;
         },
+        commit: (source, action, part, keyboard) => props.layout.actions.commitDrop(source, action, part, keyboard),
     });
 });
 onBeforeUnmount(() => drag.value?.dispose());
 
 const dragState = computed(() => drag.value?.session.state.value ?? null);
 
-function ghostOf(source: LayoutTabSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
+function ghostOf(source: LayoutSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
+    // 整窗本身就在跟手，没有拖影。
+    if (source.kind === "panel") return null;
     const editorTab = editorTabIdOf(source.tab);
     if (editorTab !== null) return editorTabs.value?.ghost(editorTab) ?? null;
     const viewId = viewIdOf(source.tab);
@@ -405,7 +432,7 @@ function ghostOf(source: LayoutTabSource): {readonly label: string; readonly ico
 /** 实时布局下还在标签条里的来源：只有标签跟手（拖影），它留着位置。 */
 const stripDragging = computed(() => {
     const current = dragState.value;
-    return current !== null && drag.value?.live.active.value === true && drag.value.live.card.value === null ? current.source.tab : null;
+    return current !== null && current.source.kind === "tab" && drag.value?.live.active.value === true && drag.value.live.card.value === null ? current.source.tab : null;
 });
 
 /** 跟手的卡片：内容项拿起来了，拖影就不画了。 */
@@ -455,12 +482,15 @@ function dropLabel(drop: LayoutDragDrop): string {
     if (action.kind === "reveal") return message("shell.drop.reveal", {part: text(panelTitle(doc.value, catalog.value, action.panel))});
     if (action.kind === "strip") return message("shell.drop.insert");
     if (action.kind === "center") return message("shell.drop.addTab");
+    if (action.kind === "float") return message("shell.drop.float");
     return message(action.target.kind === "between" ? "shell.drop.between" : "shell.drop.split");
 }
 
 const dropFeedback = computed(() => {
     const drop = dragState.value?.drop ?? null;
     if (drop === null) return {preview: null, label: "", liveLabel: "", kind: ""};
+    // 整窗在移动：窗本身就是反馈。
+    if (dragState.value?.source.kind === "panel" && drop.action.kind === "float") return {preview: null, label: "", liveLabel: "", kind: "float"};
     if (drag.value?.live.active.value === true) {
         // 实时布局的反馈就是布局本身；活动栏的落点不预览，照旧一条插入线。字写在卡片头，读屏靠常驻的状态节点。
         const preview = drop.noPreview === true ? {areaRect: null, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation} : null;
@@ -515,6 +545,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :doc="renderedDoc"
                 :projection="layout.actions.renderedPresentation()"
                 :lifted="liftedCard"
+                :floats="layout.actions.floats()"
                 :data-drag-feel="drag?.live.active.value === true ? 'live' : 'indicator'"
                 :data-live-preview="drag?.live.previewKey.value ?? 'none'"
                 :maximized="state.maximized"
@@ -527,6 +558,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 @preview="(sizes) => layout.actions.acceptPreview(sizes)"
                 @gesture-commit="(sizes, collapsed) => layout.actions.commitGesture(sizes, collapsed)"
                 @focus-panel="(panel) => layout.actions.focusPanel(panel)"
+                @raise-float="(panel) => layout.actions.raiseFloat(panel)"
                 @content-parked="onContentParked"
             >
                 <template #activitybar>
@@ -556,7 +588,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 </template>
                 <template #head="{panelId, idPrefix}">
                     <template v-if="renderedDoc.panels[panelId]?.role === 'editor'">
-                        <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :dragging-tab="stripDragging" />
+                        <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :dragging-tab="stripDragging" :frame-actions="editorFrameActions(panelId)" />
                     </template>
                     <WorkbenchPanelHead
                         v-else
@@ -597,6 +629,16 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
                     </template>
                 </template>
+                <template #float-chrome="{id, rect}">
+                    <FloatWindowHandles
+                        :rect="rect"
+                        :min="layout.actions.floatBounds(id).min"
+                        :max="layout.actions.floatBounds(id).max"
+                        move-icon-class="i-lucide-grip-horizontal"
+                        @preview="(next) => layout.actions.previewFloat(next === null ? null : id, next)"
+                        @commit="(next) => layout.actions.setFloatRect(id, next)"
+                    />
+                </template>
                 <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">
                         <component :is="editorArea.group" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :tab-id="editorTabIdOf(contentKey)" :context="editorContextOf(panelId)" data-workbench-editor-area />
@@ -614,7 +656,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 </template>
             </WorkbenchSurface>
         </div>
-        <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="(next: EditorTabDrag | null) => (editorTabs = next)" />
+        <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="attachEditorDrag" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
         <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragState?.drop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
     </div>

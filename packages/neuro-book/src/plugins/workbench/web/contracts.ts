@@ -75,6 +75,16 @@ export interface EditorTabDrag {
     ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
     /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。 */
     drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
+    /** 整个浮动的编辑组停靠：逐个标签走同样的结算、合并与分区，中途被拒绝就停，剩下的留在窗里。 */
+    dropPanel(panelId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
+}
+
+/** 外壳交给编辑组的头的框架按钮。 */
+export interface PanelFrameControl {
+    readonly id: string;
+    readonly icon: string;
+    readonly label: string;
+    run(): void;
 }
 
 /** 编辑器槽的内容（docs/specs/ui/workbench-layout.md“边界与兼容”）。 */
@@ -83,7 +93,7 @@ export interface EditorAreaParts {
     readonly host: Component;
     /** 一个标签的内容：编辑组每个标签一个，空的编辑组一个，属性 `panelId`、`tabId`（空的编辑组是 null）与 `context`。标签移到别的组时不重建，`panelId` 跟着变。 */
     readonly group: Component;
-    /** 一个编辑组的头（标签条、标题动作、提示条）：画在外框里，属性 `panelId`、`draggingTab`（正被实时布局拖着、还在标签条里的标签键）。不给时没有头，内容占满这块面板。 */
+    /** 一个编辑组的头（标签条、标题动作、提示条）：画在外框里，属性 `panelId`、`draggingTab`（正被实时布局拖着、还在标签条里的标签键）、`frameActions`（外壳的框架按钮，浮动窗的“回到停靠”）。不给时没有头，内容占满这块面板。 */
     readonly head?: Component;
 }
 

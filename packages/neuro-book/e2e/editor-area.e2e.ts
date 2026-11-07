@@ -199,6 +199,14 @@ async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} 
     await expect(ghost).toHaveCount(0);
 }
 
+/**
+ * 没有落点时松手是浮动打开（docs/specs/ui/workbench-layout.md 输出 39）：反馈就是这一种，不是别的落点。取消掉，这里只看判定；浮动打开在“编辑器标签浮动”那条。
+ */
+async function onlyFloatShown(page: Page): Promise<void> {
+    await expect(page.locator(DROP_SHOWN)).toHaveAttribute("data-drop-kind", "float");
+    await page.keyboard.press("Escape");
+}
+
 /** 落点是下一帧才画出来的：等两帧再断言没有，免得断言在落点出现之前通过。 */
 async function noDropShown(page: Page): Promise<void> {
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -898,6 +906,54 @@ test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看�
     await closeAll(page);
 });
 
+test("编辑器标签浮动（docs/specs/ui/workbench-layout.md 输出 39）：拖到工具面板上松手开窗，是同一个视图，接着输入、撤销都还在；回到停靠并回树里；关到空后焦点回树里的组", async ({page}) => {
+    await page.setViewportSize({width: 1600, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const windows = page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-float]");
+    const sidebar = await page.locator("[data-leaf=\"sidebar\"]").boundingBox();
+    if (sidebar === null) throw new Error("没有侧栏");
+    // 让 b 有一段撤销历史：撤销栈跟着实例走，实例不重建才在。
+    const prose = page.locator("[data-editor-prose]:visible").first();
+    await prose.click();
+    await page.keyboard.type("浮动前");
+    const node = await page.locator("[data-editor-prose]:visible").first().elementHandle();
+    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2}, async () => {
+        await expect(page.locator(DROP_SHOWN)).toHaveAttribute("data-drop-kind", "float");
+    });
+    await expect(windows).toHaveCount(1);
+    await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    const panel = await windows.getAttribute("data-leaf") ?? "";
+    const inWindow = page.locator(`[data-content-leaf="${panel}"] [data-editor-prose]`);
+    expect(await inWindow.evaluate((element, other) => element === other, node)).toBe(true);
+    await inWindow.click();
+    await page.keyboard.type("之后");
+    await expect(inWindow).toContainText("浮动前之后");
+    await page.keyboard.press("Control+z");
+    await expect.poll(async () => inWindow.textContent()).not.toContain("之后");
+    await expect(inWindow).toContainText("浮动前");
+
+    // 编辑组的头只有“回到停靠”这一个框架按钮：回到树序最后一个编辑组。
+    const dock = page.locator(`[data-editor-group-head="${panel}"] [data-panel-action="nbook.view.dock"]`);
+    await expect(dock).toHaveCount(1);
+    await dock.click();
+    await expect(windows).toHaveCount(0);
+    await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+    await expect(tabs(page)).toHaveCount(2);
+
+    // 再浮出来，关掉：窗没了，焦点回树里的组。
+    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2});
+    await expect(windows).toHaveCount(1);
+    await tabs(page).filter({hasText: "b.md"}).focus();
+    await page.keyboard.press("Delete");
+    await page.locator("[data-editor-close-discard]").click();
+    await expect(windows).toHaveCount(0);
+    await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+    await expect(page.locator("[data-editor-group-head-active]")).toHaveCount(1);
+    await closeAll(page);
+});
+
 test("编辑器标签和工具面板（docs/specs/ui/workbench-layout.md 输出 26、27，验收 10）：工具面板的标题、中央与外缘都没有落点；单个标签的组整块移动，组与控件不重建；工具视图在编辑组的缝上、中央与外缘也没有落点", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
@@ -906,13 +962,13 @@ test("编辑器标签和工具面板（docs/specs/ui/workbench-layout.md 输出 
     const groups = page.locator("[data-editor-group]");
     const leftOf = (locator: ReturnType<Page["locator"]>) => locator.evaluate((element) => Math.round(element.getBoundingClientRect().left));
     const dragTab = (name: string, to: {x: number; y: number}, before?: () => Promise<void>) => dragFrom(page, tabs(page).filter({hasText: name}), to, before);
-    const noDrop = () => noDropShown(page);
+    const noDrop = () => onlyFloatShown(page);
 
-    // 工具面板的标题（侧栏这一列只有标题）、中央、上下缘：编辑器标签都没有落点，松手什么都不变。
+    // 工具面板的标题（侧栏这一列只有标题）、中央、上下缘：编辑器标签都没有落点，只能浮动。
     const head = await page.locator("[data-panel-head=\"sidebar\"]").boundingBox();
     const sidebar = await page.locator("[data-leaf=\"sidebar\"]").boundingBox();
     if (head === null || sidebar === null) throw new Error("没有侧栏");
-    await dragTab("b.md", {x: head.x + head.width / 2, y: head.y + head.height / 2}, noDrop);
+    await dragTab("b.md", {x: head.x + 20, y: head.y + head.height / 2}, noDrop);
     await dragTab("b.md", {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2}, noDrop);
     await dragTab("b.md", {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height - 12}, noDrop);
     await dragTab("b.md", {x: sidebar.x + 10, y: sidebar.y + sidebar.height / 2}, noDrop);
@@ -997,7 +1053,7 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
     await dragFrom(page, explorer, {x: seamX - 2, y: seamY}, async () => {
         await expect(page.locator("[data-drop-kind=\"noop\"]")).toHaveCount(1);
     });
-    await dragFrom(page, explorer, {x: seamX + 2, y: seamY}, () => noDropShown(page));
+    await dragFrom(page, explorer, {x: seamX + 2, y: seamY}, () => onlyFloatShown(page));
     // 缝右边 2px 在编辑组的左缘窄带里，松手会拆出新组：看到落点就用 Escape 取消，后面接着用这一个组。
     await dragTab("b.md", {x: seamX + 2, y: seamY}, async () => {
         await expect(page.locator(DROP_SHOWN)).toHaveCount(1);
@@ -2003,9 +2059,8 @@ test("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）：�
         await expect(sectors).toHaveCount(0);
     });
     await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2}, async () => {
-        await noDropShown(page);
         await expect(sectors).toHaveCount(0);
-        await page.keyboard.press("Escape");
+        await onlyFloatShown(page);
     });
     await closeAll(page);
 });

@@ -449,7 +449,8 @@
         "splitDown": "Split Down",
         "copyPath": "Copy Path",
         "copyRelativePath": "Copy Relative Path",
-        "reveal": "Reveal in Explorer"
+        "reveal": "Reveal in Explorer",
+        "float": "Float"
     },
     "notice": {
         "lastEditMissing": "The passage you last edited is no longer where it was: {{address}}",

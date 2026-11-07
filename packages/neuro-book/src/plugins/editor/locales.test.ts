@@ -178,6 +178,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
 };
 
 const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
+    "tabMenu.float": {"zh-CN": "浮动", "en-US": "Float"},
     // Markdown 的编辑命令与菜单（docs/specs/workbench/markdown-editing.md）。
     "settings.markdownToolbarPlacement.title": {"zh-CN": "工具栏位置", "en-US": "Toolbar Position"},
     "settings.markdownToolbarPlacement.description": {"zh-CN": "Markdown 编辑器的工具栏放在哪里", "en-US": "Where the Markdown editor toolbar goes"},

@@ -31,6 +31,11 @@ export function workbenchStateBindings(layout: Readonly<ShallowRef<LayoutDocStor
         const id = store?.state.currentPanel ?? null;
         return id === null ? null : (store?.state.doc.panels[id] ?? null);
     });
+    const panelIsFloating = computed(() => {
+        const store = layout.value;
+        const id = store?.state.currentPanel ?? null;
+        return id !== null && store !== null && store !== undefined && store.state.doc.floats.some((float) => float.panel === id);
+    });
     return {
         layoutReady: ready,
         nonPhone: computed(() => ready.value),
@@ -40,7 +45,7 @@ export function workbenchStateBindings(layout: Readonly<ShallowRef<LayoutDocStor
         sidebarVisible: computed(() => layout.value?.actions.partVisible("sidebar") ?? false),
         auxiliaryBarVisible: computed(() => layout.value?.actions.partVisible("auxiliarybar") ?? false),
         activityBarVisible: computed(() => layout.value?.actions.partVisible("activitybar") ?? false),
-        // 当前面板的名字；没有名字时是它的角色。
-        focusedPart: computed(() => current.value?.name ?? (current.value?.role === "tool" ? "tool" : "editor")),
+        // 当前面板的名字；没有名字时是它的角色，浮动的是 `float`。
+        focusedPart: computed(() => (panelIsFloating.value ? "float" : (current.value?.name ?? (current.value?.role === "tool" ? "tool" : "editor")))),
     };
 }

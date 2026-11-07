@@ -1,10 +1,10 @@
 import {describe, expect, test} from "bun:test";
-import {openPanelAtEdge} from "@notnotype/nb-layout";
+import {floatTab, openPanelAtEdge, setFloatRect} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
 
 import {workbenchText} from "../../shared/text";
 import {defaultLayoutDoc} from "./default-tree";
-import {effectiveVisibleTabs, layoutContents, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent} from "./layout-present";
+import {effectiveVisibleTabs, layoutContents, layoutStructureKey, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent} from "./layout-present";
 import {createLayoutPolicy, PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
@@ -53,6 +53,37 @@ describe("面板写给人看的名字", () => {
         if (!split.ok) throw new Error(split.detail);
         expect(panelTitle(split.doc, CATALOG, "g1")).toEqual(workbenchText("viewCommands.parts.editorAt", {index: 1}));
         expect(panelTitle(split.doc, CATALOG, "g0")).toEqual(workbenchText("viewCommands.parts.editorAt", {index: 2}));
+    });
+});
+
+describe("浮动窗", () => {
+    const floated = (): LayoutDoc => {
+        const result = floatTab(doc(), {tab: "view:output", rect: {x: 0, y: 0, width: 300, height: 200}}, createLayoutPolicy());
+        if (!result.ok) throw new Error(result.detail);
+        return result.doc;
+    };
+    const panelOf = (current: LayoutDoc): string => current.floats[0]?.panel ?? "";
+
+    test("活动标签可见：不在呈现尺寸里也算，别的面板最大化时也算", () => {
+        const current = floated();
+        expect(effectiveVisibleTabs(current, {sizes: {}, preview: null, removed: new Set(), maximized: null}).has("view:output")).toBe(true);
+        expect(effectiveVisibleTabs(current, {sizes: {}, preview: null, removed: new Set(), maximized: "g0"}).has("view:output")).toBe(true);
+    });
+
+    test("结构键含窗：开一个窗拖动就取消；只改矩形不算", () => {
+        const current = floated();
+        expect(layoutStructureKey(current)).not.toBe(layoutStructureKey(doc()));
+        const moved = setFloatRect(current, {panel: panelOf(current), rect: {x: 50, y: 50, width: 300, height: 200}});
+        expect(moved.ok && layoutStructureKey(moved.doc)).toBe(layoutStructureKey(current));
+    });
+
+    test("浮动的编辑组写“浮动编辑区”，不写序号；树里的序号不算它", () => {
+        const base = doc();
+        const withTabs: LayoutDoc = {...base, panels: {...base.panels, g0: {role: "editor", tabs: [{kind: "tab", type: "editor", tabId: "x"}, {kind: "tab", type: "editor", tabId: "y"}], active: "tab:x"}}};
+        const result = floatTab(withTabs, {tab: "tab:y", rect: {x: 0, y: 0, width: 300, height: 200}}, createLayoutPolicy());
+        if (!result.ok) throw new Error(result.detail);
+        expect(panelTitle(result.doc, CATALOG, panelOf(result.doc))).toEqual(workbenchText("viewCommands.parts.editorFloat"));
+        expect(panelTitle(result.doc, CATALOG, "g0")).toEqual(workbenchText("viewCommands.parts.editor"));
     });
 });
 

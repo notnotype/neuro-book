@@ -10,7 +10,7 @@
 import {computed, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
-import type {LayoutEdgeTarget} from "@notnotype/nb-layout";
+import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
@@ -137,7 +137,7 @@ export interface EditorArea {
     open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: string; readonly reveal?: "end" | "cursor"; readonly group?: string}): OpenResult;
     /** 打开一个页面（输出 33）：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签。 */
     openPage(id: string): OpenResult;
-    activate(tabId: string): ActionResult;
+    activate(tabId: string, options?: {readonly focusView?: boolean}): ActionResult;
     /** preview 转为 permanent（双击标签）。 */
     keep(tabId: string): void;
     /** 固定或取消固定（输出 50）。 */
@@ -150,6 +150,8 @@ export interface EditorArea {
     moveBlocked(tabId: string, target: string | null): boolean;
     /** 把标签移到外缘（输出 49；docs/specs/ui/workbench-layout.md 输出 25、27）：单个标签的组整块移动，视图不重建。 */
     moveToNewGroup(tabId: string, target: LayoutEdgeTarget, options?: MoveOptions): ActionResult;
+    /** 把标签浮出来（docs/specs/ui/workbench-layout.md 输出 39）：和拆出新组一样，先结算活动视图的输入。 */
+    moveToFloat(tabId: string, rect: LayoutFloatRect, options?: MoveOptions): ActionResult;
     focusGroup(groupId: string): void;
     /** 关闭标签；文档最后一个标签且需要结算时先问，问的结果出来之前 Promise 不结束。 */
     close(tabId: string): Promise<"closed" | "cancelled">;
@@ -827,11 +829,12 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const tab = groups.openPage(address);
             return {ok: true, tabId: tab.id};
         },
-        activate: (tabId) => {
+        activate: (tabId, activateOptions = {}) => {
             const found = groups.find(tabId);
             if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
             if (found.group.active !== tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
             groups.activate(tabId);
+            if (activateOptions.focusView === true) focusActive();
             return {ok: true};
         },
         keep: (tabId) => groups.keep(tabId),
@@ -862,6 +865,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (found.group.tabs.length > 1 && found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
             const moved = groups.moveToNewGroup(tabId, target);
             if (moved === null) return {ok: false, reason: editorText("refusal.cannotSplit")};
+            if (moveOptions.focusView !== false) focusActive();
+            return {ok: true};
+        },
+        moveToFloat: (tabId, rect, moveOptions = {}) => {
+            if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
+            const found = groups.find(tabId);
+            if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
+            if (found.group.tabs.length > 1 && found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
+            if (groups.moveToFloat(tabId, rect) === null) return {ok: false, reason: editorText("refusal.cannotSplit")};
             if (moveOptions.focusView !== false) focusActive();
             return {ok: true};
         },

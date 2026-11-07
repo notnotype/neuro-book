@@ -7,6 +7,7 @@
  */
 
 import {arrangeMenu} from "nbook/plugins/commands/shared/contracts";
+import {editorTabKey} from "nbook/plugins/workbench/shared/contracts";
 import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {diagnosticText} from "nbook/shared/localized-text";
@@ -27,6 +28,9 @@ export type TabMenuEntry =
 
 type MenuArea = Pick<EditorArea, "groups" | "close" | "closeOthers" | "closeToRight" | "closeSaved" | "setPinned" | "split">;
 
+/** 工作台的“浮动”：矩形按窗口算，归工作台（docs/specs/ui/workbench-layout.md 输出 35）。命令 id 是公开接口。 */
+const FLOAT_COMMAND = "nbook.view.float";
+
 interface OwnAction {
     readonly key: string;
     readonly label: DisplayText;
@@ -37,6 +41,7 @@ interface OwnAction {
 
 const file = (tab: EditorTab): boolean => tab.kind === "file";
 const pinned = (tab: EditorTab): boolean => tab.kind === "file" && tab.pinned === true;
+const FLOAT_KEY = "own:float";
 const always = (): boolean => true;
 const batch = async (result: Promise<{readonly ok: boolean; readonly reason?: DisplayText}>): Promise<ActionResult> => {
     const settled = await result;
@@ -62,6 +67,10 @@ const OWN: ReadonlyArray<ReadonlyArray<OwnAction>> = [
     [
         {key: "own:split-right", label: editorText("tabMenu.splitRight"), shown: file, run: (area, tab) => area.split("right", tab.id)},
         {key: "own:split-down", label: editorText("tabMenu.splitDown"), shown: file, run: (area, tab) => area.split("down", tab.id)},
+    ],
+    [
+        // 执行走工作台的命令（`run` 里单独分支）：矩形按窗口算。
+        {key: FLOAT_KEY, label: editorText("tabMenu.float"), shown: always, run: () => ({ok: true})},
     ],
     [
         {key: "own:copy-path", label: editorText("tabMenu.copyPath"), shown: file, run: (_area, tab, copy) => copy(tab, false)},
@@ -143,6 +152,10 @@ export function createEditorTabMenu(options: {
             if (area === null || found === null) return;
             if (key === REVEAL_KEY) {
                 execute(REVEAL_COMMAND, {address: found.tab.address});
+                return;
+            }
+            if (key === FLOAT_KEY) {
+                execute(FLOAT_COMMAND, {tab: editorTabKey(found.tab.id)});
                 return;
             }
             const own = OWN.flat().find((action) => action.key === key);

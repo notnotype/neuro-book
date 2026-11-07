@@ -7,7 +7,7 @@
 import {computed, shallowRef} from "@vue/reactivity";
 import type {Ref, ShallowRef} from "@vue/reactivity";
 
-import type {LayoutEdgeTarget} from "@notnotype/nb-layout";
+import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
 
 import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
 
@@ -158,6 +158,8 @@ export interface EditorGroups {
      * 否则拆出新组。放下去和现在一样时不变，返回 null。
      */
     moveToNewGroup(tabId: string, target: LayoutEdgeTarget): {readonly tab: EditorTab; readonly group: string} | null;
+    /** 浮出来：和新组一样，preview 转正、固定取消，新的浮动组成为活动组。放不下时是 null。 */
+    moveToFloat(tabId: string, rect: LayoutFloatRect): {readonly tab: EditorTab; readonly group: string} | null;
     /**
      * 用另一种编辑器打开同一标签，光标与语言随之丢掉（输出 39）。本组已有这个地址、这种编辑器的标签时切到它、关掉当前
      * 这个，返回被关的标签；否则为 null。
@@ -380,6 +382,18 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
             }
             // 接缝不改活动面板：单个标签的组是同一块面板移动，没有“拆出新面板”那一步。
             tree.setCurrent(group);
+            return {tab, group};
+        },
+        moveToFloat: (tabId, rect) => {
+            const found = locate(tabId);
+            if (found === null) return null;
+            const tab = placed(found.tab, false);
+            setTab(tab);
+            const group = panelTabs.float(tabId, rect);
+            if (group === null) {
+                setTab(found.tab);
+                return null;
+            }
             return {tab, group};
         },
         setEditor: (tabId, editor) => {

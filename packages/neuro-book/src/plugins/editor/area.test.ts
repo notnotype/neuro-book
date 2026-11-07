@@ -27,6 +27,8 @@ import {BINARY_TAB_EDITOR, completedBuiltinEditors, catalogOf} from "./web/edito
 import type {EditorCatalog} from "./web/editors";
 import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/area";
 import {createEditorGroups} from "./web/groups/groups";
+import {createEditorTabDrag} from "./web/tab-drag";
+import {nameOf} from "./web/documents/address";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {MemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {editorStateValues} from "./web/state";
@@ -1124,6 +1126,95 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         expect(await at.area.moveTab(tabId(at, 0, "a.md"), {group: right, partition: "normal", before: null})).toMatchObject({ok: false});
         expect(at.area.notice.value).not.toBeNull();
         expect(names(at, 0)).toEqual(["a.md", "b.md"]);
+    });
+
+    it("浮动：标签浮出来是同一个绑定与实例，成为活动组；关到空后活动组回到树里", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        const left = groupAt(at, 0);
+        const before = await boundIn(at, left);
+        before.commit(before.revision.value, "B1");
+        const b = tabId(at, 0, "b.md");
+        const rect = {x: 10, y: 10, width: 400, height: 300};
+        expect(at.area.moveToFloat(b, rect)).toEqual({ok: true});
+        const floating = groupId(at);
+        expect(floating).not.toBe(left);
+        expect(at.panels.document().floats).toEqual([{panel: floating, rect}]);
+        expect(names(at, 0)).toEqual(["a.md"]);
+        const after = await boundIn(at, floating);
+        expect(after).toBe(before);
+        expect(after.text.value).toBe("B1");
+
+        expect(await at.area.documents.save(at.area.documentOf(floating)!)).toEqual({ok: true});
+        expect(await at.area.close(b)).toBe("closed");
+        expect(at.panels.document().floats).toEqual([]);
+        expect(groupId(at)).toBe(left);
+    });
+
+    it("浮动的组没有相邻：在侧边打开进树里的组，拆分拆树里的组，窗不拆", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        const left = groupAt(at, 0);
+        expect(at.area.moveToFloat(tabId(at, 0, "b.md"), {x: 0, y: 0, width: 400, height: 300})).toEqual({ok: true});
+        const floating = groupId(at);
+        at.area.open("project://c.md", {mode: "permanent", group: "side"});
+        expect(names(at, 0)).toEqual(["a.md", "c.md"]);
+        expect(groupId(at)).toBe(left);
+        at.area.groups.focusGroup(floating);
+        expect(at.area.split("right").ok).toBe(true);
+        expect(at.panels.document().floats.map((float) => float.panel)).toEqual([floating]);
+        const treeGroups = at.area.groups.groups.value.filter((group) => group.id !== floating);
+        expect(treeGroups).toHaveLength(2);
+    });
+
+    it("整窗停靠走编辑器区：目标组已有同一文件并掉，固定标签进固定区，窗空了移除", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        at.area.open("project://c.md", {mode: "permanent"});
+        const left = groupAt(at, 0);
+        const rect = {x: 0, y: 0, width: 400, height: 300};
+        const c = tabId(at, 0, "c.md");
+        expect(at.area.moveToFloat(c, rect)).toEqual({ok: true});
+        const floating = groupId(at);
+        const b = tabId(at, 0, "b.md");
+        expect(await at.area.moveTab(b, {group: floating, partition: "normal", before: null})).toEqual({ok: true});
+        at.area.setPinned(b, true);
+        // 窗里再开一个左边已有的文件：停靠时并掉。
+        at.area.open("project://a.md", {mode: "permanent", group: floating});
+        const drag = createEditorTabDrag({area: () => at.area, pages: () => null, wrapTabs: () => true, text: {t: String} as never});
+        drag.dropPanel(floating, {kind: "center", panel: left}, undefined, true);
+        await until(at, "窗空了", () => at.panels.document().floats.length === 0);
+        expect(at.area.groups.groups.value.map((group) => group.id)).toEqual([left]);
+        const tabs = at.area.groups.groups.value[0]?.tabs ?? [];
+        expect(tabs.map((tab) => nameOf(tab.address)).sort()).toEqual(["a.md", "b.md", "c.md"]);
+        expect(tabs[0]?.id).toBe(b);
+    });
+
+    it("整窗停靠中途被拒绝就停，剩下的留在窗里", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        const left = groupAt(at, 0);
+        expect(at.area.moveToFloat(tabId(at, 0, "b.md"), {x: 0, y: 0, width: 400, height: 300})).toEqual({ok: true});
+        const floating = groupId(at);
+        const winB = await boundIn(at, floating);
+        const b = winB.tabId;
+        at.area.open("project://c.json", {mode: "permanent", group: floating});
+        expect(at.area.activate(b)).toEqual({ok: true});
+        // 左组也开 b.md，两边基于同一修订输入不同内容：窗里的活动视图有未裁决输入，移走它要先裁决。
+        at.area.open("project://b.md", {mode: "permanent", group: left});
+        const leftB = await boundIn(at, left);
+        const base = winB.revision.value;
+        leftB.commit(base, "左");
+        expect(winB.commit(base, "窗")).toMatchObject({status: "conflict"});
+        const drag = createEditorTabDrag({area: () => at.area, pages: () => null, wrapTabs: () => true, text: {t: String} as never});
+        drag.dropPanel(floating, {kind: "edge", target: {kind: "split", panel: left, edge: "right"}}, undefined, true);
+        await until(at, "提示出现", () => at.area.notice.value !== null);
+        expect(at.panels.document().floats.map((float) => float.panel)).toEqual([floating]);
+        expect(at.area.groups.groups.value.find((group) => group.id === floating)?.tabs).toHaveLength(2);
     });
 
     it("实时布局的预览判据与真正移动同条件：同组换位、跨组、新组、目标已有同一文件", async () => {

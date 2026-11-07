@@ -3,7 +3,7 @@
  */
 
 import {edgeTargetOf, findTreeNode, GRID_UNBOUNDED, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, GridOrientation, LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutPolicy, LayoutProjectionOptions, PanelRecord, TabRef} from "@notnotype/nb-layout";
+import type {GridExtent, GridOrientation, LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelRecord, TabRef} from "@notnotype/nb-layout";
 
 import {
     SASH_PX,
@@ -23,6 +23,33 @@ import type {ViewCatalog} from "../views/registry";
 
 export const PANEL_HEAD_HEIGHT = SHELL_PANEL_COLLAPSED_HEIGHT;
 export const EDITOR_GROUP_MINIMUM: GridExtent = {width: 220, height: 120};
+/** 新浮动窗的大小（原型试过的手感），不小于角色的最小尺寸，不大于树区域。 */
+export const FLOAT_DEFAULT: GridExtent = {width: 460, height: 340};
+/** 窗至少这么宽留在树区域里：加上头的高度，标签条总能抓到。 */
+export const FLOAT_KEEP_WIDTH = 80;
+/** 指针落在新窗的这一点：头上，靠左。 */
+const FLOAT_GRAB = {x: 40, y: 14};
+/** 命令开窗时按窗数错开。 */
+const FLOAT_CASCADE = 24;
+
+function floatSize(extent: GridExtent | null, minimum: GridExtent): GridExtent {
+    const width = Math.max(FLOAT_DEFAULT.width, minimum.width);
+    const height = Math.max(FLOAT_DEFAULT.height, minimum.height);
+    return {width: extent === null ? width : Math.min(width, extent.width), height: extent === null ? height : Math.min(height, extent.height)};
+}
+
+/** 拖出来的窗：指针落在头上（`point` 相对树区域）。 */
+export function floatRectAt(point: {readonly x: number; readonly y: number}, extent: GridExtent | null, minimum: GridExtent): LayoutFloatRect {
+    return {x: point.x - FLOAT_GRAB.x, y: point.y - FLOAT_GRAB.y, ...floatSize(extent, minimum)};
+}
+
+/** 命令与键盘开的窗：树区域居中，按已有的窗数错开。 */
+export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent, existing: number): LayoutFloatRect {
+    const size = floatSize(extent, minimum);
+    const offset = FLOAT_CASCADE * (existing % 8);
+    return {x: Math.max(0, ((extent?.width ?? size.width) - size.width) / 2) + offset, y: Math.max(0, ((extent?.height ?? size.height) - size.height) / 2) + offset, ...size};
+}
+
 /** 放不下时收走的先后（输出 10）。别的工具面板排在后面。 */
 export const COLLAPSE_ORDER: ReadonlyArray<string> = ["auxiliarybar", "panel", "sidebar"];
 

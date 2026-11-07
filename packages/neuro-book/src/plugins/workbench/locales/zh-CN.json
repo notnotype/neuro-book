@@ -103,6 +103,12 @@
                 },
                 "move-view": {
                     "title": "移动视图"
+                },
+                "float": {
+                    "title": "浮动"
+                },
+                "dock": {
+                    "title": "回到停靠"
                 }
             },
             "settings": {
@@ -145,7 +151,10 @@
     },
     "panelCommands": {
         "noPanel": "没有可以操作的面板",
-        "editorCollapse": "编辑组不能收起"
+        "editorCollapse": "编辑组不能收起",
+        "notFloating": "这块面板没有浮动",
+        "cannotFloat": "这个标签不能再浮动",
+        "floatMaximize": "浮动窗不能最大化"
     },
     "partCommands": {
         "parts": {
@@ -173,7 +182,8 @@
             "auxiliarybar": "右栏",
             "panel": "面板",
             "editor": "编辑区",
-            "editorAt": "编辑区 {{index}}"
+            "editorAt": "编辑区 {{index}}",
+            "editorFloat": "浮动编辑区"
         },
         "pickView": "选择要移动的视图",
         "pickOpen": "选择要打开的视图",
@@ -216,7 +226,8 @@
             "insert": "放在这里",
             "between": "放到两块之间",
             "split": "拆到这一边",
-            "inPlace": "原位"
+            "inPlace": "原位",
+            "float": "浮动打开"
         },
         "moreActions": "更多操作",
         "frame": {

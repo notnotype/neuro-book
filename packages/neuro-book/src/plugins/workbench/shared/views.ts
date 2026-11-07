@@ -63,6 +63,8 @@ export const ViewDeclarationSchema = Type.Object({
     minimumSize: Type.Optional(SizePair),
     maximumSize: Type.Optional(SizePair),
     movable: Type.Optional(Type.Boolean()),
+    /** 能不能浮动（docs/specs/workbench/views.md）；缺省能。不能的视图，松手没有落点时就是取消。 */
+    floatable: Type.Optional(Type.Boolean()),
     actions: Type.Optional(Type.Array(ViewActionSchema, {maxItems: VIEW_ACTIONS_MAX})),
 }, {additionalProperties: false});
 
