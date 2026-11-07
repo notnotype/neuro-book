@@ -38,9 +38,10 @@ updated: 2026-11-07
 | [t02](tasks/t02-library-prototype/README.md) | 选库原型：i18next 在热装卸、共享 Vue、语言切换下成立（完成） |
 | [t03](tasks/t03-shared-packages-migration/README.md) | 共享包与迁移：端口落地、各插件与共享包迁到目录、版本发布与 registry 冒烟（完成，2026-10-29，已合入 master） |
 | [t04](tasks/t04-failure-details/README.md) | 失败详情组件与常驻通知（未开工；开工前先出设计稿给开发者看）。这是本 Work 收口前唯一没做的实质内容 |
+| [t05](tasks/t05-editor-explorer-to-notifications/README.md) | 编辑器与资源管理器的失败与状态改走通知（2026-11-07 从 t04 设计评审拆出；t04 先做载体，本 Task 迁使用方；未开工） |
 
 ## 授权与限制
 
 - 设计（t01、t02）先于实施，已完成。
-- t04 做完即可收口本 Work；w00031 的错误投影与迁移单独继续，不等它。
+- t04、t05 做完即可收口本 Work；w00031 的错误投影与迁移单独继续，不等它。
 - `issueId: null`；远端操作逐次授权。
