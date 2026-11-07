@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-run-control
-status: planned
-updated: 2026-10-28
+status: done
+updated: 2026-11-07
 ---
 
 # 运行控制：插话、排队与中止
