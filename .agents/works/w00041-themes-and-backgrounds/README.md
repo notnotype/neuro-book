@@ -2,8 +2,8 @@
 schema: nbook.work/v1
 workId: w00041-themes-and-backgrounds
 issueId: null
-status: active
-updated: 2026-11-05
+status: done
+updated: 2026-11-07
 ---
 
 # 主题与背景重新设计
@@ -24,3 +24,9 @@ updated: 2026-11-05
 ## 待确认清单
 
 自主推进时记下的、等开发者追认的决定：[pending-confirmations.md](pending-confirmations.md)
+
+## 完成情况
+
+2026-11-07 收口。t01 到 t17 全部完成并合入 master（未 push）：主题声明与场景（t02 到 t07）、主题编辑器与素材管线（t08 到 t12）、场景提供者显示名、书房工作态场景、图标名目录、素材清理、加载页的主题（t13 到 t17）。待追认的决定都在 [pending-confirmations.md](pending-confirmations.md)，开发者 2026-11-07 说明无异议的按默认追认处理。
+
+没有做、也没有排期的事（均为可选后续，需要时另开 Task）：主题切换的交叉淡入、Agent 更细状态的场景、`workbench.themes` 的 `title` 补全、加载页自定义动画素材、加载页场景图的 preload。
