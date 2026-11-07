@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t03-session-model
-status: planned
-updated: 2026-10-28
+status: done
+updated: 2026-11-07
 ---
 
 # 会话模型：条目树、回退与分支、存放与单写者
