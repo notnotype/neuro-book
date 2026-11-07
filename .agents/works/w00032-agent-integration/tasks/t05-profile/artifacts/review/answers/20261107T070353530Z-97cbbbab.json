@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t05-profile",
+    "artifactId": "review",
+    "answerId": "20261107T070353530Z-97cbbbab",
+    "artifactVersion": 1,
+    "contentHash": "24d9077ca0d8c7429265b8f39d26c579103ea1c8210aceb31a0b8c84ec04c3e6",
+    "submittedAt": "2026-11-07T07:03:52.965Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "page-layout": "accept",
+        "tools-section": "b"
+    },
+    "comments": {
+        "page-layout": "插件 Profile 缺必需工具这个提示不好，看看别的地方或者规范怎么做的。不要让有提示无提示所状态占据的高度不一样。\n---\n标题（设定核对、只读权属、user.lore-check 这一行），这里占用的高度太高了",
+        "tools-section": "工具这里还要分类，按照提供者"
+    },
+    "note": null
+}
