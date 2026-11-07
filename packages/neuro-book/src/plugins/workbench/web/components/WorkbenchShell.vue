@@ -7,6 +7,8 @@ import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/com
 import {useText} from "@notnotype/nb-ui/text-port";
 import {findTab, findTreeNode, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
+import {DropSectorsOverlay} from "@notnotype/nb-layout/vue";
+import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
@@ -400,9 +402,39 @@ function ghostOf(source: LayoutTabSource): {readonly label: string; readonly ico
     return declaration === undefined ? null : {label: text(declaration.title), icon: declaration.icon};
 }
 
+/** 实时布局下还在标签条里的来源：只有标签跟手（拖影），它留着位置。 */
+const stripDragging = computed(() => {
+    const current = dragState.value;
+    return current !== null && drag.value?.live.active.value === true && drag.value.live.card.value === null ? current.source.tab : null;
+});
+
+/** 跟手的卡片：内容项拿起来了，拖影就不画了。 */
+const liftedCard = computed(() => {
+    const card = drag.value?.live.card.value ?? null;
+    return card === null ? null : {...card, home: findTab(doc.value, card.key)?.panel ?? null};
+});
+const cardTitle = computed(() => {
+    const current = dragState.value;
+    return current === null ? null : ghostOf(current.source);
+});
+/** 实时布局的分区：相对网格根，画在卡片后面。 */
+const liveSectors = computed(() => {
+    const sectors = dragState.value?.drop?.sectors ?? null;
+    const live = drag.value?.live;
+    if (sectors === null || live === undefined) return null;
+    const origin = hostEl.value?.querySelector("[data-workbench-surface] > [data-grid-scope]")?.getBoundingClientRect();
+    if (origin === undefined) return null;
+    const {rect} = sectors;
+    return {...sectors, rect: {left: rect.left - origin.left, right: rect.right - origin.left, top: rect.top - origin.top, bottom: rect.bottom - origin.top}};
+});
+const slotStyle = computed(() => {
+    const slot = drag.value?.live.slot.value ?? null;
+    return slot === null ? {} : {transform: `translate(${String(slot.x)}px, ${String(slot.y)}px)`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
+});
+
 const dragGhost = computed(() => {
     const current = dragState.value;
-    if (current === null) return null;
+    if (current === null || drag.value?.live.card.value != null) return null;
     const ghost = ghostOf(current.source);
     return ghost === null ? null : {...ghost, x: current.point.x, y: current.point.y};
 });
@@ -411,7 +443,10 @@ const revealZones = computed(() => {
     const current = dragState.value;
     if (current === null) return [];
     const active = current.drop?.action.kind === "reveal" ? current.drop.action.panel : null;
-    return (drag.value?.zones() ?? []).map((zone) => ({part: zone.panel, rect: zone.rect, label: text(panelTitle(doc.value, catalog.value, zone.panel)), icon: REVEAL_ICONS[zone.panel] ?? "i-lucide-panel-top", active: zone.panel === active}));
+    // 实时布局已经把这块面板摆出来了：预备区让开。
+    const shown = drag.value?.live.shownAction.value;
+    const revealed = shown?.kind === "reveal" ? shown.panel : null;
+    return (drag.value?.zones() ?? []).filter((zone) => zone.panel !== revealed).map((zone) => ({part: zone.panel, rect: zone.rect, label: text(panelTitle(doc.value, catalog.value, zone.panel)), icon: REVEAL_ICONS[zone.panel] ?? "i-lucide-panel-top", active: zone.panel === active}));
 });
 
 function dropLabel(drop: LayoutDragDrop): string {
@@ -425,8 +460,13 @@ function dropLabel(drop: LayoutDragDrop): string {
 
 const dropFeedback = computed(() => {
     const drop = dragState.value?.drop ?? null;
-    if (drop === null) return {preview: null, label: "", kind: ""};
-    return {preview: {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation}, label: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind};
+    if (drop === null) return {preview: null, label: "", liveLabel: "", kind: ""};
+    if (drag.value?.live.active.value === true) {
+        // 实时布局的反馈就是布局本身；活动栏的落点不预览，照旧一条插入线。字写在卡片头，读屏靠常驻的状态节点。
+        const preview = drop.noPreview === true ? {areaRect: null, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation} : null;
+        return {preview, label: "", liveLabel: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind};
+    }
+    return {liveLabel: "", preview: {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation}, label: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind};
 });
 
 const sectorLabels = computed(() => ({
@@ -474,6 +514,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 class="workbench-shell__surface"
                 :doc="renderedDoc"
                 :projection="layout.actions.renderedPresentation()"
+                :lifted="liftedCard"
                 :data-drag-feel="drag?.live.active.value === true ? 'live' : 'indicator'"
                 :data-live-preview="drag?.live.previewKey.value ?? 'none'"
                 :maximized="state.maximized"
@@ -515,7 +556,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 </template>
                 <template #head="{panelId, idPrefix}">
                     <template v-if="renderedDoc.panels[panelId]?.role === 'editor'">
-                        <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" />
+                        <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :dragging-tab="stripDragging" />
                     </template>
                     <WorkbenchPanelHead
                         v-else
@@ -526,6 +567,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :more-label="message('common.more')"
                         :id-prefix="idPrefix"
                         :drag-hint="message('shell.drag.hint')"
+                        :dragging-tab="stripDragging"
                         :title-only="titleOnlyPanels.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
                         @activate="(key) => layout.actions.activate(key)"
@@ -537,6 +579,20 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                             <TitleActions :model="headActions.get(panelId)!.model" :identity="viewIdentity(headActions.get(panelId)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(panelId)!.viewId, key)" />
                         </template>
                     </WorkbenchPanelHead>
+                </template>
+                <template #lifted-head="{contentKey}">
+                    <div class="workbench-shell__card-head" data-drag-card-head>
+                        <template v-if="cardTitle !== null">
+                            <span v-if="cardTitle.icon !== undefined" class="workbench-shell__card-icon" :class="cardTitle.icon" aria-hidden="true"></span>
+                            <FileIcon v-else-if="cardTitle.fileIcon != null" :icon="cardTitle.fileIcon" />
+                            <span class="workbench-shell__card-title">{{ cardTitle.label }}</span>
+                        </template>
+                        <span class="workbench-shell__card-hint" data-drag-card-hint aria-hidden="true">{{ dropFeedback.liveLabel }}</span>
+                    </div>
+                </template>
+                <template v-if="drag?.live.active.value === true" #overlay>
+                    <DropSectorsOverlay v-if="liveSectors !== null" inline variant="live" :rect="liveSectors.rect" :sectors="liveSectors.items" :active="liveSectors.active" />
+                    <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
                 </template>
                 <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">
@@ -557,11 +613,50 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         </div>
         <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="(next: EditorTabDrag | null) => (editorTabs = next)" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="dragState?.drop?.sectors ?? null" :sector-labels="sectorLabels" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragState?.drop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
     </div>
 </template>
 
 <style scoped>
+/* 卡片的头：跟手的内容上面那一条。 */
+.workbench-shell__card-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding-inline: 10px;
+    border-bottom: 1px solid var(--divider);
+    background: var(--panel-surface);
+    color: var(--text-main);
+    font-size: var(--text-sm);
+}
+
+.workbench-shell__card-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workbench-shell__card-hint {
+    margin-inline-start: auto;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+}
+
+/* 空位：一块空面板加一圈边框，不铺遮罩（提案第 3 节）。过渡和外框同一条曲线，跟着布局走。 */
+.workbench-shell__slot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    box-sizing: border-box;
+    border: 1px solid var(--layout-slot-border);
+    border-radius: var(--layout-card-radius);
+    pointer-events: none;
+}
+
 .workbench-shell-host {
     width: 100%;
     height: 100%;

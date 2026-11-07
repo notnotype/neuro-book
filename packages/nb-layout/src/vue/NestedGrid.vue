@@ -48,6 +48,8 @@ const props = withDefaults(defineProps<{
     contents?: ReadonlyArray<GridContentInput>;
     /** 最大化（docs/specs/ui/nested-grid.md 的“最大化”）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
     maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
+    /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针。矩形相对网格根。变成 null 时飞回它的叶。 */
+    lifted?: {readonly key: string; readonly rect: GridRect} | null;
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
 }>(), {
@@ -57,6 +59,7 @@ const props = withDefaults(defineProps<{
     onGestureCommit: undefined,
     contents: () => [],
     maximized: null,
+    lifted: null,
     sashKind: undefined,
 });
 
@@ -73,6 +76,10 @@ const emit = defineEmits<{
 defineSlots<{
     leaf(props: {node: GridLeaf<unknown>}): unknown;
     content(props: {contentKey: string; leaf: string; active: boolean}): unknown;
+    /** 拿起的内容项的头：卡片上面那一条。 */
+    "lifted-head"?(props: {contentKey: string}): unknown;
+    /** 盖在分隔线之上、拿起的内容之下的一层（实时布局的分区、空位），不接指针。 */
+    overlay?(): unknown;
     empty(): unknown;
 }>();
 
@@ -133,6 +140,7 @@ const contentLayer = useContentLayer({
         return element != null && host?.activeElement != null && element.contains(host.activeElement);
     },
     onParked: (contentKey) => emit("content-parked", contentKey),
+    lifted: () => props.lifted,
 });
 /** 渲染层的全部项，树序：每块叶后面紧跟属于它的内容。 */
 const layers = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => layerItems(placement.value?.items ?? [], contentLayer.placements.value));
@@ -342,6 +350,11 @@ onBeforeUnmount(() => {
     scope.dispose();
 });
 
+// 落地要在这一轮布局的过渡判定之前登记：这个内容项不跟着外框逐帧变化。
+watch(() => props.lifted?.key ?? null, (now, before) => {
+    if (now === null && before !== null) motion.land(`content:${before}`);
+});
+
 defineExpose({
     /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起）。 */
     settleMotion: (): void => motion.stop(),
@@ -373,16 +386,19 @@ defineExpose({
                 class="nb-grid-content"
                 :data-content="item.contentKey"
                 :data-content-leaf="item.leaf"
-                :data-moving="moving && item.active ? '' : undefined"
+                :data-moving="moving && item.active && !contentLayer.isLifted(item) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.leaf ? '' : undefined"
+                :data-lifted="contentLayer.isLifted(item) ? '' : undefined"
                 :inert="contentLayer.isParked(item)"
                 :style="contentLayer.frameStyle(item)"
             >
+                <slot v-if="contentLayer.isLifted(item)" name="lifted-head" :content-key="item.contentKey"></slot>
                 <div class="nb-grid-content__body" :style="contentLayer.bodyStyle(item)">
                     <slot name="content" :content-key="item.contentKey" :leaf="item.leaf" :active="item.active"></slot>
                 </div>
             </div>
         </template>
+        <div v-if="$slots.overlay !== undefined" class="nb-grid-overlay"><slot name="overlay"></slot></div>
         <span v-if="order.outOfOrder.value" :ref="(el) => (focus.exitSentinel.value = el as HTMLElement | null)" tabindex="-1" aria-hidden="true"></span>
         <slot v-if="node === null" name="empty"></slot>
     </div>
@@ -397,7 +413,7 @@ defineExpose({
     min-width: 0;
     min-height: 0;
     overflow: clip;
-    /* 三层叠放固定在这个根里：外框、内容、分隔线。内容换叶后 DOM 位置不变，不靠 DOM 序。 */
+    /* 叠放固定在这个根里：外框、内容、飞行内容、分隔线、盖层、拿起的内容。内容换叶后 DOM 位置不变，不靠 DOM 序。 */
     isolation: isolate;
 }
 
@@ -420,6 +436,24 @@ defineExpose({
 .nb-grid-frame[data-flying],
 .nb-grid-content[data-flying] {
     z-index: 2;
+}
+
+/* 拿起的内容是一张卡片：盖在分隔线上跟手，不接指针（`elementsFromPoint` 要看到底下的面板）。 */
+.nb-grid-content[data-lifted] {
+    z-index: 5;
+    overflow: hidden;
+    border-radius: var(--layout-card-radius);
+    background: var(--panel-surface);
+    box-shadow: var(--layout-card-shadow);
+    pointer-events: none;
+    will-change: transform;
+}
+
+.nb-grid-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
 }
 
 .nb-grid-content__body {

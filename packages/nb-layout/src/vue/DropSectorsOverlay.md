@@ -25,6 +25,10 @@ type Props = {
     active: LayoutDropSectorId | null;
     /** 每块写的字；不给不写。 */
     labels?: Partial<Record<LayoutDropSectorId, string>>;
+    /** 外观：`indicator` 压暗内容、线显眼；`live` 不压暗、只留淡线。缺省 `indicator`。 */
+    variant?: "indicator" | "live";
+    /** 不传送到 body，就地画，`rect` 相对定位的祖先（放进 `NestedGrid` 的 `overlay` 插槽，夹在卡片与面板之间）。 */
+    inline?: boolean;
 };
 ```
 
@@ -37,6 +41,7 @@ type Props = {
 | `--layout-scrim` | 压暗的颜色 |
 | `--layout-sector-fill`、`--layout-sector-line` | 每块的底色与线 |
 | `--layout-sector-active-fill`、`--layout-sector-active-line` | 当前块的底色与线 |
+| `--layout-live-sector-line` | `live` 的线 |
 | `--layout-sector-radius` | 整层的圆角；缺省 0。不是主题令牌：宿主写在 attrs 落到的根上（工作台给卡片下面两个角） |
 
 层级取 `NB_Z_INDEX.dropSectors`，低于 `DropFeedbackOverlay`：提交后的矩形要压在分区上面。
@@ -45,5 +50,4 @@ type Props = {
 
 ## 不支持
 
-- 实时布局的外观。
 - 点击分区：它不接指针。

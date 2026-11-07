@@ -50,7 +50,9 @@ const props = withDefaults(defineProps<{
     tabMenu?: EditorGroupTabMenu | null;
     /** 多行标签（设置 `nbook.editor/wrapTabs`，输出 54）；缺省开。 */
     wrapTabs?: boolean;
-}>(), {pages: null, titleActions: null, tabMenu: null, wrapTabs: true});
+    /** 正被实时布局拖着、还在标签条里的标签（标签键）。 */
+    draggingTab?: string | null;
+}>(), {pages: null, titleActions: null, tabMenu: null, wrapTabs: true, draggingTab: null});
 
 const emit = defineEmits<{
     (event: "intent", intent: EditorIntent): void;
@@ -156,6 +158,7 @@ const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.
                 :unsaved-label="t('tab.unsaved')"
                 :pinned-label="t('tab.pinned')"
                 :wrap="wrapTabs"
+                :dragging-tab="draggingTab"
                 :group-active="active"
                 :drag-hint="t('tab.dragHint')"
                 @activate="(id: string) => area.activate(id)"

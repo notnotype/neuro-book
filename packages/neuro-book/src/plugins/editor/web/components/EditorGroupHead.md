@@ -22,6 +22,8 @@ type Props = {
     tabMenu?: {entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null; identity: (tabId: string) => string | null} | null;
     /** 多行标签（输出 54），交给 `EditorTabBar`；缺省 true。 */
     wrapTabs?: boolean;
+    /** 正被实时布局拖着、还在标签条里的标签（标签键）。 */
+    draggingTab?: string | null;
 };
 
 type Emits = {
@@ -45,3 +47,7 @@ type Emits = {
 ## 不支持
 
 不处理标签的拖动（工作台的手势，见 `EditorHost`）。不执行命令。不画正文。
+
+## 实时布局
+
+标签条读 `area.groups.shown`（画出来的组：拖动中可能是预览）；预览里新拆的组在已提交的组模型里没有，这时头只有标签条，标题动作、提示跟已提交的活动组。

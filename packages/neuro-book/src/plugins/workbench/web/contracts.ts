@@ -83,7 +83,7 @@ export interface EditorAreaParts {
     readonly host: Component;
     /** 一个标签的内容：编辑组每个标签一个，空的编辑组一个，属性 `panelId`、`tabId`（空的编辑组是 null）与 `context`。标签移到别的组时不重建，`panelId` 跟着变。 */
     readonly group: Component;
-    /** 一个编辑组的头（标签条、标题动作、提示条）：画在外框里，属性 `panelId`。不给时没有头，内容占满这块面板。 */
+    /** 一个编辑组的头（标签条、标题动作、提示条）：画在外框里，属性 `panelId`、`draggingTab`（正被实时布局拖着、还在标签条里的标签键）。不给时没有头，内容占满这块面板。 */
     readonly head?: Component;
 }
 

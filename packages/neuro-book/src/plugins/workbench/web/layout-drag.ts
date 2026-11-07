@@ -148,6 +148,16 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
         homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
         show: (doc) => options.showPreview(doc),
+        panelRect: (panel) => rectOf(root.querySelector(`[data-shell-card="${escape(panel)}"]`)),
+        gridOrigin: () => {
+            const box = root.querySelector("[data-workbench-surface] > [data-grid-scope]")?.getBoundingClientRect();
+            return {x: box?.left ?? 0, y: box?.top ?? 0};
+        },
+        trackPointer: (listener) => {
+            const onMove = (event: PointerEvent): void => listener({x: event.clientX, y: event.clientY});
+            view?.addEventListener("pointermove", onMove, true);
+            return () => view?.removeEventListener("pointermove", onMove, true);
+        },
     });
     const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 
@@ -398,6 +408,14 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return viewId === null || options.catalog().get(viewId)?.movable !== false;
     }
 
+    /** 手势拿起时的指针：`activate` 不带坐标，卡片要一开始就在指针下。 */
+    let lastPointer: GridDropPoint | null = null;
+    const onPointerSeen = (event: PointerEvent): void => {
+        lastPointer = {x: event.clientX, y: event.clientY};
+    };
+    view?.addEventListener("pointermove", onPointerSeen, true);
+    view?.addEventListener("pointerdown", onPointerSeen, true);
+
     const sourceAt = (target: Element): LayoutTabSource | null => {
         if (!options.enabled() || target.closest("[data-no-drag], [data-no-drag-start]") !== null) return null;
         const source = fromElement(target);
@@ -414,7 +432,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             // 键盘没有指针可跟；减少动效时邻居瞬移看不出去了哪；最大化时别的面板盖着，预览看不见。
             if (!keyboard && options.feel() === "live" && options.maximized() === null && options.extent() !== null && layoutMotionMs(root) > 0) {
                 options.settleMotion();
-                live.begin(source);
+                live.begin(source, lastPointer);
             }
             return true;
         },
@@ -489,5 +507,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return visit(doc.tree.root);
     }
 
-    return {session, zones: () => frozenZones, live, dispose: () => session.dispose()};
+    return {session, zones: () => frozenZones, live, dispose: () => {
+        view?.removeEventListener("pointermove", onPointerSeen, true);
+        view?.removeEventListener("pointerdown", onPointerSeen, true);
+        session.dispose();
+    }};
 }

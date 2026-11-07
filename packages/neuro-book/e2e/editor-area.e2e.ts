@@ -127,6 +127,11 @@ test.beforeAll(async () => {
     server = await startProductServer(stateRoot);
 });
 
+test.afterEach(async () => {
+    // 用例自己写的设置不带到下一个用例。
+    await rm(join(stateRoot, "settings.json"), {force: true});
+});
+
 test.afterAll(async () => {
     expect(await server.stop()).toBe(0);
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
@@ -517,6 +522,8 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
 
 test("只有一个标签的组拖到紧贴它的那条边：放下去还是现在的样子，不重建组、没有过渡；拖到另一边才换位置（输出 55、验收 30）", async ({page}) => {
     await page.emulateMedia({reducedMotion: "no-preference"});
+    // 看的是落点指示的提示与高亮：实时布局没有这些。
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/dragFeel": "indicator"}));
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
@@ -2001,4 +2008,65 @@ test("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）：�
         await page.keyboard.press("Escape");
     });
     await closeAll(page);
+});
+
+test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局”）", () => {
+    test("编辑器标签拆到新组：预览里新组的头是编辑组的头，有这个标签；内容还是它自己的；放下才真的拆，内容是同一个节点", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await page.setViewportSize({width: 1440, height: 900});
+        await open(page);
+        await closeAll(page);
+        for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+        await expect(prose(page)).toContainText("第二章");
+        const content = page.locator("[data-editor-group-active]");
+        const node = await content.elementHandle();
+        const tab = tabs(page).filter({hasText: "b.md"});
+        const body = await content.boundingBox();
+        const from = await tab.boundingBox();
+        if (body === null || from === null) throw new Error("没有矩形");
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+        await page.mouse.move(body.x + body.width - 12, body.y + body.height / 2, {steps: 8});
+        const surface = page.locator("[data-workbench-surface]");
+        await expect(surface).not.toHaveAttribute("data-live-preview", "none");
+        await expect(heads(page)).toHaveCount(2);
+        await expect(page.locator("[data-editor-group-head] [data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
+        // 卡片上的内容还是 b.md，别的组也没有多出来：结构还没提交。
+        const lifted = page.locator("[data-lifted]");
+        await expect(lifted.locator("[data-editor-prose]")).toContainText("第二章");
+        await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+        await page.mouse.up();
+        await expect(lifted).toHaveCount(0);
+        await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+        const moved = await page.locator("[data-editor-group-active]").elementHandle();
+        expect(await node?.evaluate((element, other) => element === other, moved)).toBe(true);
+        await closeAll(page);
+    });
+
+    test("目标组已有同一文件：不摆预览，卡片照常跟手；松手照常并掉", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await page.setViewportSize({width: 1440, height: 900});
+        await open(page);
+        await closeAll(page);
+        for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+        await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
+        await expect(heads(page)).toHaveCount(2);
+        const leftTab = heads(page).nth(0).locator("[data-editor-tab]").filter({hasText: "b.md"});
+        const strip = await heads(page).nth(1).locator("[data-editor-tabs]").boundingBox();
+        const from = await leftTab.boundingBox();
+        if (strip === null || from === null) throw new Error("没有矩形");
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+        await page.mouse.move(strip.x + strip.width - 40, strip.y + 16, {steps: 8});
+        await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300))); // test-lint-allow fixed-wait: 候选稳定要 150ms，这里断言它稳定之后也没摆预览，没有可等的状态
+        await expect(page.locator("[data-editor-group-head]")).toHaveCount(2);
+        await expect(heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
+        await page.mouse.up();
+        await expect(heads(page)).toHaveCount(2);
+        await expect(heads(page).nth(0).locator("[data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(0);
+        await expect(heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
+        await closeAll(page);
+    });
 });

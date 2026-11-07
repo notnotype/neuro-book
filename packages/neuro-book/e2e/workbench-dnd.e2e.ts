@@ -119,6 +119,11 @@ test.describe("产品页：拖放", () => {
 
     test.use({viewport: {width: 1440, height: 900}});
 
+    test.afterEach(async () => {
+        // 用例自己写的设置不带到下一个用例。
+        await rm(join(tmp, "state", "settings.json"), {force: true});
+    });
+
     /**
      * 本页客户端对 `workbench.layout` 的写入次数：在测试库上装审计触发器，数 records 的插入与更新。只数本页客户端的这一条
      * 记录，不依赖修订号怎么分配（一次保存还会先写模板记录，修订号一次走两步），别的记录与客户端的写入也不混进来。触发器在
@@ -516,6 +521,8 @@ test.describe("产品页：拖放", () => {
     });
 
     test("标签并入已有面板：内容从旧面板滑到新面板，矩形严格在新旧之间，两块面板都不动，实例、输入保留（输出 15；验收 1）", async ({page}) => {
+        // 看的是落点指示：实时布局没有区域，内容也不是这样滑过去。
+        await writeFile(join(tmp, "state", "settings.json"), JSON.stringify({"nbook.workbench/dragFeel": "indicator"}));
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         // 放慢过渡令牌，才读得到中间帧。
@@ -551,6 +558,8 @@ test.describe("产品页：拖放", () => {
     });
 
     test("放下时高亮立刻消失，不留在原处，也不跟着内容走；内容自己滑过去（输出 15、30）", async ({page}) => {
+        // 看的是落点指示：实时布局没有区域，内容也不是这样滑过去。
+        await writeFile(join(tmp, "state", "settings.json"), JSON.stringify({"nbook.workbench/dragFeel": "indicator"}));
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         // 把动效都放慢：还有淡出或滑向结果的话，松手之后高亮会留很久；内容的飞行也看得见。

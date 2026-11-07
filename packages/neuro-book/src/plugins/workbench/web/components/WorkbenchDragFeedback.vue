@@ -30,7 +30,9 @@ withDefaults(defineProps<{
     sectors?: LayoutDragSectors | null;
     /** 落点分区每块写的字。 */
     sectorLabels?: Partial<Record<LayoutDropSectorId, string>>;
-}>(), {zones: () => [], sectors: null, sectorLabels: () => ({})});
+    /** 实时布局的落点文字：常驻的状态节点读给读屏。实时区域要先在 DOM 里，内容变了才播报。 */
+    liveStatus?: string;
+}>(), {zones: () => [], sectors: null, sectorLabels: () => ({}), liveStatus: ""});
 
 </script>
 
@@ -59,6 +61,7 @@ withDefaults(defineProps<{
                 </DropIndicatorLabel>
             </div>
         </Teleport>
+        <span class="sr-only" role="status" data-drag-live-status>{{ liveStatus }}</span>
         <DropSectorsOverlay class="workbench-drag-feedback__sectors" :rect="sectors?.rect ?? null" :sectors="sectors?.items ?? []" :active="sectors?.active ?? null" :labels="sectorLabels" />
         <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" />
     </div>

@@ -37,6 +37,8 @@ type Props = {
     contextKey: string;
     /** 最大化的面板；默认 null。只在内存。 */
     maximized?: string | null;
+    /** 拿起的内容项（实时布局），矩形相对网格根，`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不卸载。 */
+    lifted?: {key: string; rect: GridRect; home: string | null} | null;
     /** 禁用边界手势；默认 false。 */
     disabled?: boolean;
 };
@@ -66,6 +68,10 @@ type Slots = {
     head?(props: {panelId: string; idPrefix: string}): unknown;
     /** 内容项。工具视图的 `contentKey` 是 `view:<id>`，编辑器标签是 `tab:<id>`，空的编辑组是 `editor:<面板 id>`；挪到别的面板时实例不重建。 */
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
+    /** 拿起的内容项上面那一条头。 */
+    "lifted-head"?(props: {contentKey: string}): unknown;
+    /** 盖在分隔线之上、拿起的内容之下，不接指针（实时布局的分区与空位）。 */
+    overlay?(): unknown;
 };
 
 type Expose = {

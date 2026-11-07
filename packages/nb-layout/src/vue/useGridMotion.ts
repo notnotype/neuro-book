@@ -83,12 +83,15 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const flying = shallowRef<ReadonlySet<string>>(new Set());
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
+    /** 正落地的内容项：内容体一次到终点尺寸，不跟着外框。它从小卡的矩形出发，跟着走就是先压成小卡再逐帧长回去。 */
+    const landing = new Set<string>();
 
     function stop(): void {
         if (timer !== null) clearTimeout(timer);
         timer = null;
         if (!moving.value) return;
         moving.value = false;
+        landing.clear();
         growing.value = new Map();
         following.value = new Set();
         flying.value = new Set();
@@ -99,7 +102,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     function start(durationMs: number, entering: ReadonlyMap<string, GridRect>, nextFollowing: ReadonlySet<string>, nextFlying: ReadonlySet<string>): void {
         if (timer !== null) clearTimeout(timer);
         // 过渡中又来一次变化：上一轮保持最终尺寸的叶（新叶、从零出来的）继续保持，否则内容会被压到外框此刻的宽度，再跟着长回去。
-        following.value = moving.value ? new Set([...nextFollowing].filter((key) => following.value.has(key))) : nextFollowing;
+        const follow = [...nextFollowing].filter((key) => !landing.has(key));
+        following.value = new Set(moving.value ? follow.filter((key) => following.value.has(key)) : follow);
         moving.value = true;
         flying.value = new Set([...(flying.value), ...nextFlying]);
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
@@ -125,6 +129,19 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (duration > 0) start(duration, decision.entering, decision.following, decision.flying);
     }
 
+    /** 拿起的内容项落地：外框从卡片的矩形飞到叶的矩形（下一次渲染写终点，过渡这时启动）。 */
+    function land(key: string): void {
+        const root = options.root.value;
+        const duration = root === null ? 0 : layoutMotionMs(root);
+        if (duration <= 0) return;
+        landing.add(key);
+        following.value = new Set([...following.value].filter((candidate) => candidate !== key));
+        flying.value = new Set([...flying.value, key]);
+        moving.value = true;
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(stop, duration + MOTION_SLACK_MS);
+    }
+
     onBeforeUnmount(() => {
         if (timer !== null) clearTimeout(timer);
         timer = null;
@@ -136,6 +153,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         following,
         flying,
         update,
+        land,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */
         stop,
     };

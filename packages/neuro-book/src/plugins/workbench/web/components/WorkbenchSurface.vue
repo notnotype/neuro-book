@@ -3,7 +3,7 @@
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
 import {createGrid} from "@notnotype/nb-layout";
-import type {Grid, GridBranchInput, GridExtent, GridGesturePreview, GridNodeInput, LayoutDoc, LayoutProjection} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridExtent, GridGesturePreview, GridNodeInput, GridRect, LayoutDoc, LayoutProjection} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
@@ -29,7 +29,9 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     /** 头只写标题的面板：没有标签带，内容就不是 `tabpanel`。 */
     titleOnlyPanels?: ReadonlySet<string>;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>()});
+    /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。 */
+    lifted?: {readonly key: string; readonly rect: GridRect; readonly home: string | null} | null;
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), lifted: null});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -54,6 +56,10 @@ defineSlots<{
     /** 面板的头，工具面板与编辑组都在这里。`idPrefix` 交给 `WorkbenchPanelHead`，标签和内容才对得上。 */
     head?(props: {panelId: string; idPrefix: string}): unknown;
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
+    /** 拿起的内容项的头。 */
+    "lifted-head"?(props: {contentKey: string}): unknown;
+    /** 盖在分隔线之上、拿起的内容之下，不接指针。 */
+    overlay?(): unknown;
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -130,7 +136,14 @@ const vEditorHead: Directive<HTMLElement> = {
     },
 };
 
-const contents = computed(() => layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW));
+const contents = computed(() => {
+    const items = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW);
+    const {lifted} = props;
+    if (lifted === null || items.some((item) => item.key === lifted.key)) return items;
+    // 预览把来源摘掉了：内容项还得在，不然实例就卸了。它的叶可能也不在了，矩形由 `lifted` 给。
+    return [...items, {key: lifted.key, leaf: lifted.home ?? "", insetTop: 0, active: false}];
+});
+const liftedItem = computed(() => (props.lifted === null ? null : {key: props.lifted.key, rect: props.lifted.rect}));
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
 const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;
@@ -234,6 +247,7 @@ defineExpose({
             :revision="host.revision.value"
             :on-gesture-commit="host.onGestureCommit"
             :contents="contents"
+            :lifted="liftedItem"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
             @gesture-update="onGesturePreview"
@@ -276,6 +290,12 @@ defineExpose({
                         <slot name="content" :content-key="contentKey" :panel-id="leaf" :active="active"></slot>
                     </div>
                 </div>
+            </template>
+            <template v-if="$slots['lifted-head'] !== undefined" #lifted-head="{contentKey}">
+                <slot name="lifted-head" :content-key="contentKey"></slot>
+            </template>
+            <template v-if="$slots.overlay !== undefined" #overlay>
+                <slot name="overlay"></slot>
             </template>
         </NestedGrid>
     </div>

@@ -24,6 +24,8 @@ export interface TabItem {
 
 const props = withDefaults(defineProps<{
     tabs: ReadonlyArray<TabItem>;
+    /** 正被实时布局拖着、还在标签条里的标签（标签键）：留着盒子、看不见，别的标签滑开。 */
+    draggingTab?: string | null;
     label: string;
     closeLabel: (label: string) => string;
     unpinLabel: (label: string) => string;
@@ -36,7 +38,7 @@ const props = withDefaults(defineProps<{
     groupActive?: boolean;
     /** 标签的可访问描述：怎么用键盘拿起（docs/specs/ui/workbench-layout.md 输出 31）。 */
     dragHint?: string;
-}>(), {wrap: true, groupActive: true, dragHint: ""});
+}>(), {draggingTab: null, wrap: true, groupActive: true, dragHint: ""});
 const emit = defineEmits<{
     (event: "activate", id: string): void;
     /** 双击：preview 转正。 */
@@ -87,6 +89,8 @@ const idOf = (key: string): string => tabOf(key).id;
         :partitions="partitions"
         overflow="scroll"
         :drag-hint="dragHint"
+        :placeholder="draggingTab"
+        :animate-moves="draggingTab !== null"
         :data-wrap="wrap ? '' : undefined"
         :data-group-active="groupActive ? '' : undefined"
         data-editor-tabs

@@ -37,6 +37,8 @@ type Props = {
     unsavedLabel: string;
     /** 固定标签的读屏文字。 */
     pinnedLabel: string;
+    /** 正被实时布局拖着、还在标签条里的标签（标签键）：留着盒子、看不见，别的标签滑开。 */
+    draggingTab?: string | null;
     /** 多行（设置 `wrapTabs`）；缺省 true。 */
     wrap?: boolean;
     /** 这一组是活动组；缺省 true。 */

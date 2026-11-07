@@ -34,6 +34,8 @@ type Props = {
     sectors?: {rect: {left: number; top: number; right: number; bottom: number}; items: ReadonlyArray<LayoutDropSector>; active: LayoutDropSectorId | null} | null;
     /** 每块写的字。 */
     sectorLabels?: Partial<Record<LayoutDropSectorId, string>>;
+    /** 实时布局的落点文字：常驻的 `role="status"` 节点读给读屏。 */
+    liveStatus?: string;
     /** 动作种类，写到覆盖层根的 data-drop-kind，供探针读。 */
     kind: string;
 };

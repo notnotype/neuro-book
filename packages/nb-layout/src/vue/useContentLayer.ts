@@ -35,6 +35,8 @@ export function useContentLayer(options: {
     /** 这个内容项此刻含焦点吗。 */
     readonly holdsFocus: (key: string) => boolean;
     readonly onParked: (contentKey: string) => void;
+    /** 拿起的内容项（实时布局）：不按叶摆放，矩形相对网格根。内容体保持拿起时的尺寸，不重排。 */
+    readonly lifted: () => {readonly key: string; readonly rect: GridRect} | null;
 }) {
     const placements = computed(() => placeContents(options.items(), options.contents(), options.dpr.value));
     /** 最后的矩形与非零尺寸：停放时保持，重新有尺寸时不用重排；叶暂时找不到时外层也留在原处。 */
@@ -42,7 +44,10 @@ export function useContentLayer(options: {
     const zero = shallowRef<ReadonlySet<string>>(new Set());
     const parkedBefore = new Set<string>();
 
+    const isLifted = (item: GridContentPlacement): boolean => options.lifted()?.key === item.contentKey;
+
     function isParked(item: GridContentPlacement): boolean {
+        if (isLifted(item)) return false;
         return !item.active || item.rect === null || options.parkedLeaves.value.has(item.leaf) || zero.value.has(item.key) || options.obscuredLeaves().has(item.leaf);
     }
 
@@ -62,7 +67,7 @@ export function useContentLayer(options: {
                 parkedBefore.delete(item.key);
             }
             // 没活动过的标签也记一次：它藏着的时候不跟着实时尺寸重排。
-            if (item.rect !== null && hasSize(item.rect) && (!parked || !memory.has(item.key))) memory.set(item.key, {rect: item.rect, size: {width: item.rect.width, height: item.rect.height}});
+            if (!isLifted(item) && item.rect !== null && hasSize(item.rect) && (!parked || !memory.has(item.key))) memory.set(item.key, {rect: item.rect, size: {width: item.rect.width, height: item.rect.height}});
         }
         for (const key of memory.keys()) {
             if (!alive.has(key)) memory.delete(key);
@@ -73,6 +78,8 @@ export function useContentLayer(options: {
     }
 
     function frameStyle(item: GridContentPlacement): Record<string, string> {
+        const lifted = options.lifted();
+        if (lifted?.key === item.contentKey) return gridRectStyle(lifted.rect);
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
         // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。
         const showing = item.active && options.moving() && options.obscuredLeaves().has(item.leaf);
@@ -81,11 +88,15 @@ export function useContentLayer(options: {
 
     /** 跟外框的是 100%；否则是最终尺寸，停放时是最后的非零尺寸。 */
     function bodyStyle(item: GridContentPlacement): Record<string, string> {
+        if (isLifted(item)) {
+            const size = memory.get(item.key)?.size ?? item.rect ?? {width: 0, height: 0};
+            return {width: `${size.width}px`, height: `${size.height}px`};
+        }
         if (options.following.value.has(item.key)) return {width: "100%", height: "100%"};
         const rect = item.rect;
         const size = !isParked(item) && rect !== null && hasSize(rect) ? rect : (memory.get(item.key)?.size ?? rect ?? {width: 0, height: 0});
         return {width: `${size.width}px`, height: `${size.height}px`};
     }
 
-    return {placements, isParked, update, frameStyle, bodyStyle};
+    return {placements, isParked, isLifted, update, frameStyle, bodyStyle};
 }

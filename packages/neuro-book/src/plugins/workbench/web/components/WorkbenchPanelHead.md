@@ -47,6 +47,8 @@ type PanelFrameAction = {
 };
 
 type Props = {
+    /** 正被实时布局拖着、还在标签条里的标签：留着盒子、看不见。 */
+    draggingTab?: string | null;
     /** 面板 id，写到 `data-panel-head`、`data-panel-band`、`data-panel-strip`。必填。 */
     panelId: string;
     /** 标签带的可访问名称；没有标签时显示它。必填。 */

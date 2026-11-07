@@ -46,7 +46,11 @@ const props = withDefaults(defineProps<{
     tabIdOf?: (id: string) => string;
     /** 标签控制的内容的 DOM id，写到 `aria-controls`。 */
     panelIdOf?: (id: string) => string;
-}>(), {partitions: undefined, overflow: "scroll", maxItemWidth: 96, moreLabel: "", moreIconClass: "", dragHint: "", tabIdOf: undefined, panelIdOf: undefined});
+    /** 这个标签留着盒子、看不见：它正被拖着，跟手的是拖影，别的标签让出它的位置。 */
+    placeholder?: string | null;
+    /** 同一行里换位时滑过去（只在拖动中开：平时换序直接到位）。跨行不动画。 */
+    animateMoves?: boolean;
+}>(), {placeholder: null, animateMoves: false, partitions: undefined, overflow: "scroll", maxItemWidth: 96, moreLabel: "", moreIconClass: "", dragHint: "", tabIdOf: undefined, panelIdOf: undefined});
 
 const emit = defineEmits<{
     (event: "activate", id: string): void;
@@ -209,12 +213,13 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
 <template>
     <div ref="rootEl" class="nb-tab-strip" data-tab-strip :data-tabs-level="adaptive ? adapt.level : undefined">
         <div ref="listEl" role="tablist" :aria-label="label" class="nb-tab-strip__list" @keydown="onKeydown">
-            <div v-for="row in rows" :key="row.id" class="nb-tab-strip__row" :data-tab-row="row.id" :data-tab-row-partition="row.partition" :data-layout="row.layout">
+            <TransitionGroup v-for="row in rows" :key="row.id" tag="div" class="nb-tab-strip__row" :move-class="animateMoves ? 'nb-tab-frame--moving' : 'nb-tab-frame--still'" :data-tab-row="row.id" :data-tab-row-partition="row.partition" :data-layout="row.layout">
                 <div
                     v-for="item in row.items"
                     :key="item.id"
                     class="nb-tab-frame"
-                    :class="{'is-active': item.id === active}"
+                    :class="{'is-active': item.id === active, 'nb-tab-frame--placeholder': item.id === placeholder}"
+                    :aria-hidden="item.id === placeholder ? 'true' : undefined"
                     :style="truncating ? {maxWidth: `${maxItemWidth}px`, ...(adapt.level === 3 ? {flexShrink: 1} : {})} : undefined"
                 >
                     <button
@@ -244,7 +249,7 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
                     </button>
                     <slot name="action" :item="item" :active="item.id === active"></slot>
                 </div>
-            </div>
+            </TransitionGroup>
         </div>
         <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" align="end" @select="(id: string) => emit('activate', id)">
             <button type="button" class="nb-tab nb-tab--more nb-ui-focus-ring-inset" data-tabs-more>
@@ -264,6 +269,14 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
 </template>
 
 <style scoped>
+.nb-tab-frame--moving {
+    transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.nb-tab-frame--placeholder {
+    visibility: hidden;
+}
+
 .nb-tab-strip {
     position: relative;
     display: flex;

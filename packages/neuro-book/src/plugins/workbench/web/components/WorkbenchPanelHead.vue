@@ -26,6 +26,8 @@ export interface PanelFrameAction {
 defineOptions({name: "WorkbenchPanelHead"});
 
 const props = withDefaults(defineProps<{
+    /** 正被实时布局拖着、还在标签条里的标签：留着盒子、看不见。 */
+    draggingTab?: string | null;
     panelId: string;
     /** 标签带的可访问名称；没有标签时显示它。 */
     label: string;
@@ -39,7 +41,7 @@ const props = withDefaults(defineProps<{
     /** 不画标签带，只写活动标签的标题（侧栏这一列，切视图靠活动栏）。 */
     titleOnly?: boolean;
     frameActions?: ReadonlyArray<PanelFrameAction>;
-}>(), {idPrefix: "workbench-panel", dragHint: "", titleOnly: false, frameActions: () => []});
+}>(), {draggingTab: null, idPrefix: "workbench-panel", dragHint: "", titleOnly: false, frameActions: () => []});
 
 const emit = defineEmits<{
     (event: "activate", id: string): void;
@@ -100,6 +102,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                 :active="active"
                 :label="label"
                 :drag-hint="dragHint"
+                :placeholder="draggingTab"
                 :tab-id-of="(id: string) => panelTabDomId(idPrefix, id)"
                 :panel-id-of="(id: string) => panelTabpanelDomId(idPrefix, id)"
                 @activate="(id: string) => emit('activate', id)"

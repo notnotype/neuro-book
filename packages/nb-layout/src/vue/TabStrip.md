@@ -56,6 +56,10 @@ type Props = {
     partitions?: ReadonlyArray<{id: string; layout: "scroll" | "wrap"}>;
     /** 缺省 "scroll"。 */
     overflow?: "scroll" | "wrap" | "adapt";
+    /** 这个标签留着盒子、看不见（`aria-hidden`）：它正被拖着，跟手的是拖影。 */
+    placeholder?: string | null;
+    /** 同一行里换位时滑过去（`--motion-fast`）；只在拖动中开，平时换序直接到位。跨行不动画。 */
+    animateMoves?: boolean;
     /** `adapt` 的截断宽度；缺省 96。 */
     maxItemWidth?: number;
     /** `adapt` 的“更多”文字；缺省空。 */

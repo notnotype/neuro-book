@@ -304,11 +304,11 @@ export const editorBrowserPlugin: PluginDefinition = {
                         }),
                         head: defineComponent({
                             name: "EditorGroupHeadPart",
-                            props: {panelId: {type: String, required: true}},
+                            props: {panelId: {type: String, required: true}, draggingTab: {type: String as PropType<string | null>, default: null}},
                             setup: (props) => () => {
                                 if (session.area.value === null) return null;
                                 const title = titleActions();
-                                return h(EditorGroupHead, {area: session.area.value, groupId: props.panelId, pages: pageSource, titleActions: title !== null && title.group === props.panelId ? title : null, tabMenu, wrapTabs: settings.get(wrapTabsSetting), onTabMenu: (tabId: string, key: string) => {
+                                return h(EditorGroupHead, {area: session.area.value, groupId: props.panelId, draggingTab: props.draggingTab, pages: pageSource, titleActions: title !== null && title.group === props.panelId ? title : null, tabMenu, wrapTabs: settings.get(wrapTabsSetting), onTabMenu: (tabId: string, key: string) => {
                                     session.area.value?.activeHandle.value?.flushPendingChange();
                                     tabMenuModel.run(tabId, key);
                                 }, onTitleAction: (key: string) => {

@@ -51,7 +51,12 @@ const t = useEditorText();
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。 */
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void}>();
 
-const root = useEditorGroupRoot({area: () => props.area, groupId: () => props.groupId, intent: (intent) => emit("intent", intent), root: "section"});
+/**
+ * 这块内容真正所在的组：组级的读取都按它。属性 `groupId` 是它此刻画在哪块面板上，实时布局预览时是预览的组，那边的活动文档不是这个标签的。
+ */
+const ownGroup = computed(() => (props.tabId === null ? props.groupId : props.area.groups.find(props.tabId)?.group.id ?? props.groupId));
+
+const root = useEditorGroupRoot({area: () => props.area, groupId: () => ownGroup.value, intent: (intent) => emit("intent", intent), root: "section"});
 
 // 这几个值都比引用或布尔：别的标签变了（切换、记光标）时这块内容不重画。开着几十个标签时这一点要紧。
 const tab = computed(() => (props.tabId === null ? null : props.area.groups.find(props.tabId)?.tab ?? null));
@@ -59,14 +64,14 @@ const tab = computed(() => (props.tabId === null ? null : props.area.groups.find
 const current = computed(() => props.tabId === null || props.area.groups.find(props.tabId)?.group.active === props.tabId);
 /** 下面的面包屑、横幅、失败原因都只为组此刻显示的那块算：不活动的标签不读文档状态，也不画。 */
 const activeTab = computed(() => (current.value ? tab.value : null));
-const document = computed(() => (current.value ? props.area.documentOf(props.groupId) : null));
+const document = computed(() => (current.value ? props.area.documentOf(ownGroup.value) : null));
 /** 活动文件标签的文件条目：字节标签也有（删除、订阅结束的提示用它）。 */
-const file = computed(() => (current.value ? props.area.fileOf(props.groupId) : null));
+const file = computed(() => (current.value ? props.area.fileOf(ownGroup.value) : null));
 /** 只为留着控件的标签取绑定：取绑定会打开文档，恢复出来、没活动过的标签不读。 */
 const mounted = computed(() => props.tabId !== null && props.area.mountedControls.value.has(props.tabId));
 const binding = computed(() => (props.tabId !== null && mounted.value ? props.area.tabBinding(props.tabId) : null));
 const writable = computed(() => props.tabId !== null && mounted.value && props.area.tabWritable(props.tabId));
-const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
+const active = computed(() => props.area.groups.activeGroup.value === ownGroup.value);
 
 /** 面包屑的段（输出 60）：活动标签是文件时，根 › 目录 › 文件；页面标签与空组没有。 */
 const crumbs = computed((): {segments: BreadcrumbSegment[]; parent: string | null} => {
@@ -80,7 +85,7 @@ const crumbs = computed((): {segments: BreadcrumbSegment[]; parent: string | nul
     segments.push({kind: "file", label: parts.at(-1) ?? "", address: tab.address, icon: fileIconForName(parts.at(-1) ?? "")});
     return {segments, parent: segments.at(-2)?.address ?? null};
 });
-const outline = computed(() => (props.breadcrumbs && current.value ? props.area.handleOf(props.groupId)?.outline?.value ?? null : null));
+const outline = computed(() => (props.breadcrumbs && current.value ? props.area.handleOf(ownGroup.value)?.outline?.value ?? null : null));
 const listCrumb = async (address: string, signal: AbortSignal): Promise<BreadcrumbListing> => {
     const result = await props.area.list(address, signal);
     if (!result.ok) return {ok: false, reason: result.detail === "" ? result.code : result.detail};
@@ -90,11 +95,11 @@ const listCrumb = async (address: string, signal: AbortSignal): Promise<Breadcru
 };
 /** 面包屑交还焦点：给本组的编辑器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
 const returnFocus = (): void => {
-    const handle = props.area.handleOf(props.groupId);
+    const handle = props.area.handleOf(ownGroup.value);
     if (handle !== null) handle.focus();
-    else window.document.querySelector<HTMLElement>(`[data-editor-group-head="${CSS.escape(props.groupId)}"] [data-editor-tab][aria-selected="true"]`)?.focus();
+    else window.document.querySelector<HTMLElement>(`[data-editor-group-head="${CSS.escape(ownGroup.value)}"] [data-editor-tab][aria-selected="true"]`)?.focus();
 };
-const crumbFocus = computed(() => (props.area.breadcrumbFocus.value?.group === props.groupId ? props.area.breadcrumbFocus.value.seq : 0));
+const crumbFocus = computed(() => (props.area.breadcrumbFocus.value?.group === ownGroup.value ? props.area.breadcrumbFocus.value.seq : 0));
 
 type GroupBanner = {readonly tone: BannerTone; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
 
@@ -103,16 +108,16 @@ const banner = computed((): GroupBanner | null => {
     if (current === null) return null;
     if (binding.value?.kind === "text" && binding.value.unresolved()) {
         return {tone: "warning", text: t("banner.unresolved"), actions: [
-            {id: "adopt", label: t("banner.adopt"), run: () => props.area.resolve(props.groupId, "adopt-current")},
-            {id: "keep", label: t("banner.keep"), run: () => props.area.resolve(props.groupId, "keep-view")},
+            {id: "adopt", label: t("banner.adopt"), run: () => props.area.resolve(ownGroup.value, "adopt-current")},
+            {id: "keep", label: t("banner.keep"), run: () => props.area.resolve(ownGroup.value, "keep-view")},
         ]};
     }
     const blocked = binding.value?.kind === "text" ? current.blocked.value.get(binding.value.token) : undefined;
     if (blocked !== undefined) {
         const excerpt = blocked.excerpt === "" ? "" : t("banner.unrepresentableExcerpt", {excerpt: blocked.excerpt});
         return {tone: "danger", text: t("banner.unrepresentable", {index: blocked.index, excerpt}), actions: [
-            {id: "locate", label: t("banner.locate"), run: () => props.area.locate(props.groupId)},
-            {id: "adopt", label: t("banner.adopt"), run: () => props.area.unblock(props.groupId)},
+            {id: "locate", label: t("banner.locate"), run: () => props.area.locate(ownGroup.value)},
+            {id: "adopt", label: t("banner.adopt"), run: () => props.area.unblock(ownGroup.value)},
         ]};
     }
     if (current.conflict.value !== null) {
@@ -179,7 +184,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
         class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
         :aria-label="t('area.label')"
-        :data-editor-group="current ? groupId : undefined"
+        :data-editor-group="current ? ownGroup : undefined"
         :data-editor-group-active="current && active ? '' : undefined"
         @keydown="root.onKeydown"
         @focusin="root.onFocusIn"
@@ -195,23 +200,23 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 :outline="outline"
                 :list="listCrumb"
                 :focus-seq="crumbFocus"
-                @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId, reveal: 'cursor'})"
-                @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
+                @open="(address: string) => void area.open(address, {mode: 'preview', group: ownGroup, reveal: 'cursor'})"
+                @reveal="(binding: string, version: number, id: string) => void area.handleOf(ownGroup)?.revealHeading?.(binding, version, id)"
                 @escape="returnFocus"
             />
             <div ref="toolbarSlot" class="flex min-w-0 shrink" data-editor-toolbar-slot></div>
         </div>
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
-            <div v-if="current && area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
+            <div v-if="current && area.progress(ownGroup)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>
         <!-- 进度条本身只是装饰：同一时刻给读屏一句可播报的“正在读取”。 -->
-        <p v-if="current && area.progress(groupId)" class="sr-only" role="status">{{ t("area.loading") }}</p>
+        <p v-if="current && area.progress(ownGroup)" class="sr-only" role="status">{{ t("area.loading") }}</p>
         <Banner v-if="banner !== null" class="shrink-0" :tone="banner.tone" :message="banner.text" data-editor-banner>
             <template v-if="banner.actions.length > 0" #actions>
                 <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
             </template>
         </Banner>
-        <div class="relative min-h-7 flex-1" :aria-busy="current && area.progress(groupId) ? 'true' : undefined" data-editor-content>
+        <div class="relative min-h-7 flex-1" :aria-busy="current && area.progress(ownGroup) ? 'true' : undefined" data-editor-content>
             <div v-if="showsScene" class="editor-group__scene" aria-hidden="true" data-editor-scene></div>
             <div v-if="tabId === null" class="editor-group__empty" data-editor-empty>
                 <NeuroBookMark class="editor-group__mark" decorative />

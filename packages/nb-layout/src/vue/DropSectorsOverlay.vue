@@ -16,6 +16,10 @@ const props = defineProps<{
     active: LayoutDropSectorId | null;
     /** 每块写的字；不给不写。当前块不写：`DropFeedbackOverlay` 的提示在说它。 */
     labels?: Partial<Record<LayoutDropSectorId, string>>;
+    /** 外观：`indicator` 压暗内容、线显眼；`live` 不压暗、只留淡线（实时布局，在卡片后面）。缺省 `indicator`。 */
+    variant?: "indicator" | "live";
+    /** 不传送到 body，就地画，`rect` 相对定位的祖先：要夹在卡片与面板之间时放进 `NestedGrid` 的 `overlay` 插槽。 */
+    inline?: boolean;
 }>();
 
 /** 比这小的块不写字：编辑组最窄 220px，左右窄带约 62px，写了会压到边外和中央的字上。 */
@@ -24,7 +28,9 @@ const LABEL_MIN_HEIGHT = 28;
 
 const box = computed(() => {
     const {rect} = props;
-    return rect === null ? null : {left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px`, zIndex: NB_Z_INDEX.dropSectors};
+    if (rect === null) return null;
+    const placed = {left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px`};
+    return props.inline === true ? placed : {...placed, zIndex: NB_Z_INDEX.dropSectors};
 });
 
 const shapes = computed(() => {
@@ -48,8 +54,8 @@ const shapes = computed(() => {
 </script>
 
 <template>
-    <Teleport to="body">
-        <div v-if="box !== null && shapes.length > 0" v-bind="$attrs" class="nb-drop-sectors" data-drag-feedback data-drop-sectors aria-hidden="true" :style="box">
+    <Teleport to="body" :disabled="inline === true">
+        <div v-if="box !== null && shapes.length > 0" v-bind="$attrs" class="nb-drop-sectors" :class="[variant === 'live' ? 'nb-drop-sectors--live' : '', inline === true ? 'nb-drop-sectors--inline' : '']" data-drag-feedback data-drop-sectors aria-hidden="true" :style="box">
             <svg class="nb-drop-sectors__shapes" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <polygon
                     v-for="shape in shapes"
@@ -78,6 +84,19 @@ const shapes = computed(() => {
     background: var(--layout-scrim);
     pointer-events: none;
     animation: nb-drop-sectors-in var(--motion-fast) var(--ease-standard);
+}
+
+.nb-drop-sectors--inline {
+    position: absolute;
+}
+
+.nb-drop-sectors--live {
+    background: transparent;
+}
+
+.nb-drop-sectors--live .nb-drop-sectors__sector {
+    fill: transparent;
+    stroke: var(--layout-live-sector-line);
 }
 
 @keyframes nb-drop-sectors-in {

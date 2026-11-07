@@ -72,6 +72,23 @@ describe("EditorGroup：一个标签的内容", () => {
         expect(back.get("[data-stub-control]").attributes("data-visible")).toBe("true");
     });
 
+    it("实时布局预览把它画在别的组上：组级的读取还按它真正所在的组，读不到那边的文档", async () => {
+        const {area} = scene();
+        const opened = area.open("project://a.md", {mode: "permanent"});
+        const own = area.groups.activeGroup.value;
+        const tabId = opened.ok ? opened.tabId : "";
+        expect(area.split("right")).toEqual({ok: true});
+        const elsewhere = area.groups.activeGroup.value;
+        area.open("project://b.md", {mode: "permanent", group: elsewhere});
+        const text = createHostTextEngine({locale: "zh-CN", strict: true});
+        text.register("nbook.editor", editorCatalogs.catalogs, editorCatalogs.source);
+        const wrapper = mount(EditorGroup, {props: {area, groupId: elsewhere, tabId, control: () => ({kind: "ready" as const, component: Control})}, attachTo: document.body, global: {provide: {[TEXT_PORT_KEY as symbol]: text.port}}});
+        cleanups.push(() => wrapper.unmount());
+        await waitUntil("控件拿到绑定", () => wrapper.find("[data-bound=\"true\"]").exists());
+        expect(wrapper.attributes("data-editor-group")).toBe(own);
+        expect(wrapper.get("[data-editor-breadcrumbs]").text()).toContain("a.md");
+    });
+
     it("空的编辑组：标记与空态都在，没有控件", () => {
         const {area, show} = scene();
         const wrapper = show(null);
