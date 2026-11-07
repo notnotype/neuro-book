@@ -19,7 +19,7 @@ updated: 2026-11-06
 
 ## 当前状态
 
-2026-11-07 已合入（`5a5d01b3b`），实现审查待处理。
+2026-11-07 已合入，实现审查已处理（`a0f70d315`）。
 
 规则（`--ease-standard` 148 处，按种类分，直接照这张表迁移，改动机械，没有另写 plan.md）：
 
@@ -36,8 +36,20 @@ updated: 2026-11-06
 
 验证：`test:affected --typecheck` 只有已知失败（`AgentModeSwitchWizard`、`qa-service`、`permission-page` 的类型，`plugins/agent` 的跨插件导入）；e2e `themes`、`files-explorer` 全过，`lab-scenes` 只有 ThemeEditor 假素材的 404。
 
-和原计划不同的地方：README 原来写“在 Lab 里并排试，开发者定时长”。开发者要求先推进，这里按推荐定了一个令牌，改时长只改 `tokens.css` 一处，进了待确认。没有做 Lab 对比场景。
+和原计划不同的地方：README 原来写“在 Lab 里并排试，开发者定时长”。开发者要求先推进，这里按推荐定了一个令牌，改时长只改 `tokens.css` 一处（读时长的 JS 也改成读令牌，见下），进了待确认。没有做 Lab 对比场景。
+
+实现审查（一个 Sonnet，[`evidences/impl-review.txt`](evidences/impl-review.txt)，7 条：重要 3、建议 4）：
+
+| 条 | 判定 | 处理 |
+|---|---|---|
+| 1 资源树的过渡窗口短于动画 | 成立（审查者在真实 Chrome 复现了离开的行闪回） | 窗口按 `--motion-move` 算，拖影飞回取大者 |
+| 2 nb-story 写死 240ms | 成立 | 运行时读 `--motion-move`，加余量 |
+| 3 档位顺序打乱 | 成立 | `--motion-enter` 提到 320 到 340ms：大位移入场还是控件里最慢的一档；顺序改成 `fast < base < move < enter < layout`，基线和四个主题都查（`tokens.test.ts`）；写明 `move`、`layout` 不随主题变 |
+| 4 漏网 | 成立，部分不改 | `Select`、`SearchSelect`、`ProviderDetail`、`ModelEditDialog` 的 chevron 补上；`nb-markdown` 写死的 `120ms ease` 换令牌；`DropFeedbackOverlay` 的半区照旧 `--motion-base`，写明理由（要跟上指针）；只变颜色、没写曲线的不补，设计语言改了说法；playground 不动 |
+| 5 文字没跟上 | 成立 | Splitter 注释、`TabStrip.md`、`ExplorerTree.md`、`files-explorer.md` |
+| 6 令牌表与合同测试 | 成立 | 归零名单补全，`nbMotionTokens` 补对话框的三个 |
+| 7 菜单、对话框入场的短时长没有实测 | 接受取舍 | 进待确认，开发者试手感时一起看 |
 
 ## 下一步
 
-处理实现审查的报告。开发者试了手感之后定 `--motion-move`。
+开发者试了手感之后定 `--motion-move`。

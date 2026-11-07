@@ -1,0 +1,115 @@
+# w00026 t18 实现审查报告（提交 5a5d01b3b，只读）
+
+按影响排序。证据标注：「已复现」= 在真实 Chrome 里跑过；「从代码推断」= 未运行。
+
+## 发现 1 [重要] ExplorerTree 的过渡窗口还按 --motion-base 算，行的过渡改成 --motion-move 后窗口比动画短，离开的行会闪回一下
+
+位置：
+- /home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue 第 322-331 行（pulseMotion：`duration = motionMs("--motion-base")`，窗口 = duration + MOTION_SLACK_MS(100)）
+- 同文件第 788-796 行（`.explorer-tree[data-motion] .explorer-tree__row` 的 top/transform 已换 `--motion-move`；`.explorer-row-leave-to` 只在 `[data-motion]` 下生效）
+
+现象：data-motion 在 base+100 毫秒后撤掉。nbook、macos 主题 base=140ms，窗口 240ms；aurora 260ms；基线与 editorial 280ms。而行的 top/transform 过渡是 `--motion-move`=280ms，Vue TransitionGroup 判定离开结束的时间取这段过渡里最长的时长（280ms）加 1ms。窗口先于它结束，`[data-motion] .explorer-row-leave-to`（opacity:0 加 translateY）和行上的过渡规则一起失效，正在离开的行在被摘除前的约 30 毫秒里不带过渡地跳回 opacity:1、原位置，叠在上移补位的行上，闪一下。
+
+为什么：原来行过渡是 --motion-base，窗口 base+100 刚好够；这次只改了 CSS 里的时长，没改读时长的 JS，两边脱节。Task 的“改时长只改 tokens.css 一处”因此不成立（开发者之后要调 --motion-move，窗口只会更短）。
+
+如何核实（已复现）：/tmp/review-t18-impl/exp/leave.html 与 run.mjs，用 vue.global.js 的 TransitionGroup、同样的 CSS（top/transform 取 280ms，opacity 取 base，data-motion 由定时器撤），Chrome 每帧采样离开行的 opacity：
+- 窗口 240ms（nbook 的 140+100）：`237:0.00 270:1.00 304:gone`，即约 250 到 300ms 之间行跳回完全不透明再消失。
+- 窗口 260ms 同样跳回。窗口 380ms（对比）：`268:0.00 301:gone`，没有闪回。
+- 基线 base=180、窗口 280ms 也出现 `282:1.00`，处在竞态上。
+用法：`cd /tmp/review-t18-impl/exp && node run.mjs 240`。作者的 e2e 不逐帧采样，所以没有抓到。
+
+改法：窗口按本次实际用到的最长过渡算：读 `--motion-move`、`--motion-base` 取大者再加余量（motionMs 的参数类型加上 "--motion-move"）；flyBack 的 `duration * 2 + 余量` 同理，ghost 的 left/top 现在是 move，opacity 延迟是 base，总长 = max(move, base + fast)。更稳的做法是让离开行的样式不依赖 data-motion（把 `.explorer-row-leave-to` 的 opacity/transform 与离开用的过渡从 `[data-motion]` 条件里拿出来，窗口只管进场与让位）。
+
+## 发现 2 [重要] nb-story 的 BookFrame 写死 240ms 等 Splitter 过渡，Splitter 现在是 280ms
+
+位置：/home/notnotype/CodeRepository/neuro-book/packages/nb-story/src/web/shell/BookFrame.vue 第 111、118-129 行（`MOTION_MS = 240`，注释写“比 Splitter 的过渡（--motion-base，180 毫秒）稍长”），对应的过渡在 /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/components/layout/Splitter.vue 第 748-750 行（本次改成 `--motion-move`，280ms）。
+
+现象：BookFrame 从 nb-ui 引入 Splitter。过渡 280ms，而 `motion`（LAYOUT_MOTION，告诉 Sigma 图“先别换尺寸”）与 `closingDrawer`（关闭中的抽屉内容）都在 240ms 时清掉，晚了 40ms 的收尾。尾巴按主曲线只剩 0.04%（240/280 处进度 99.96%），现在肉眼几乎看不出；但开发者之后改大 --motion-move（比如接近 --motion-layout 的 470ms），240ms 时进度只有 97%，抽屉内容提前被卸掉、图在过渡中途重画。
+为什么：同发现 1，改了 CSS 时长，没找读同一时长的 JS。brief 点名要查 `setTimeout` 与写死的等待；这是搜到的另一处。
+如何核实：从代码推断（对数值我在 /tmp/review-t18-impl/bez.py 算了曲线进度）；Splitter 的过渡与 BookFrame 的常量在同一提交前后对照即可。
+改法：把等待改成运行时读 `--motion-move`（getComputedStyle 读根元素，减少动态效果时为 0 就不起计时），或让 Splitter 暴露过渡结束事件；至少先改注释与数值并写明与 --motion-move 的关系。顺带把同文件第 111 行注释里的“180 毫秒”改掉。
+
+## 发现 3 [重要] 动效档位的语义顺序被新令牌打乱：“大位移入场”（enter）比“控件形变”（move）还短，且 move 不归主题
+
+位置：
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/tokens.css 第 83-95 行（move=280ms、layout=470ms，没有主题登记）
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/docs/design-language.md 第 496-511 行（表与“最快/最慢”的论述）
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/docs/authoring-themes.md 第 102 行
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/components/feedback/NotificationStack.vue 第 76-85 行（通知滑入仍取 --motion-enter）
+
+现象：
+1. 数值上 `fast < base < enter < move < layout` 对四个主题都成立（nbook 与 macos 90/140/180，aurora 100/160/240，editorial 120/180/220，基线 120/180/220，move 都是 280、layout 都是 470），这一条核对过了，没问题。
+2. 但文档第 510-511 行仍写“状态反馈最快、需要追踪位移的入场最慢……把两档对调，界面会同时显得迟钝和突兀”，第 500 行把 enter 定为“大位移入场”（通知横幅从边缘滑入，是整张表里位移最大的控件动画）。现在一个 14px 的 chevron 转动（280ms）比通知横幅从边缘滑入（nbook 下 180ms）还慢，而这条曲线 25% 时长就走完 78%，通知实际可见的运动约 45ms，正是文档“时长要跟着放宽”一条要避免的情形。通知入场是“有位移”却没有换成 move，分类表漏了它（表里“控件里有位移或形变”，通知入场没按它处理）。
+3. `--motion-move`、`--motion-layout`、`--motion-dialog*` 都不在任何主题的 vars.css 里，也不在 authoring-themes.md 第 102 行的主题登记清单里；文档第 504 行却写“顺序是合同，绝对值归主题”。主题作者可以合法地把 `--motion-enter` 设成 300ms（旧规则只要求 fast<base<enter），这时 enter>move，合同被打破，没有任何测试或加载器检查（tokens.test.ts 只检查常量存在与减少动态效果归零，没有检查顺序）。
+
+为什么：只在 tokens.css 加了一个档位和文字，没有回头核对原有三档的语义，也没有决定 move 归不归主题。
+如何核实：从代码与文档推断；数值取自 packages/nb-ui/themes/{aurora,editorial,macos,nbook}/vars.css 与 tokens.css。
+改法（选其一，建议交开发者定）：(a) 通知入场改用 --motion-move，并把 enter 的语义改成“浮层贴着触发器出现”或者让 enter 并入 base；(b) 保留 enter，把 enter 提到 move 以上，并改文档“最慢”那一段；无论哪种，写一条合同测试检查四个主题加基线的顺序，并决定 move 是否进主题 vars.css 与 authoring-themes.md。
+
+## 发现 4 [建议] 分类漏网：有位移或形变、却没换成 --motion-move 的过渡，以及没写曲线的 chevron
+
+按 Task 的分类规则（“控件里有位移或形变（……chevron、展开收起的高度……）换 --ease-layout，时长换 --motion-move”）与 design-language.md 第 499 行（“chevron 旋转”已从 fast 行移到 move 行）核对，仍有这些没跟上。以下都是读代码得出的，没有运行。
+
+a) chevron 旋转没迁移（这些原来没有 --ease-standard，所以全局替换碰不到；作者只补了 Tabs、ExplorerRow、WorkbenchPanelHead 三处）：
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/components/popup/Select.vue 第 203 行：`transition-transform [transition-duration:var(--motion-fast)]`，曲线是 Tailwind 默认值，不是 --ease-layout，时长也还是 fast
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/components/form/SearchSelect.vue 第 236 行：同上
+- /home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/models/web/components/ProviderDetail.vue 第 405-407 行与 ModelEditDialog.vue 第 288-290 行：`rotate(90deg)` 没有任何过渡，高级选项展开时高度在动画而箭头瞬间翻转
+- Lab 的 EventLogPanel.vue 第 83 行：`transition-transform` 无时长无曲线（Lab 内部，优先级最低）
+改法：Select、SearchSelect、ProviderDetail、ModelEditDialog 的 chevron 补 `--motion-move` 与 `--ease-layout`。
+
+b) 几何在变、仍取 --motion-base：
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/vue/DropFeedbackOverlay.vue 第 400-413 行：落点半区的 left/top/width/height 与标签 left/top 取 base（nbook 140ms）。这是整块矩形在两个落点之间移动与变形，按规则属于“有位移”；曲线 35ms 就走完 78%，会读成跳变。如果是有意要跟手更快，应在 DropFeedbackOverlay.md（第 13 行）里写明理由，现在文档只是把曲线名换了。
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/playground/app/assets/css/showcase.css 第 246 行（transform base）与第 592 行（`left` base，滑块位移）：playground 内部，优先级低。
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-agent-ui/src/vue/composer/AgentContextMeter.vue 第 103 行：圆环 stroke-dasharray 形变取 fast，可视为形变；影响小，可不改。
+
+c) 没写曲线、落到 Tailwind 默认曲线的颜色类过渡（nb-ui 内约 12 处：Checkbox 外层 transition-opacity、Slider 轨道、SegmentedControl 的计数与分隔线、Breadcrumb、Table 行、Badge、RadioGroup 标签、PopupScrollbar、ScrollArea 拇指、ToggleGroup 图标等）：Task 写“只变颜色……换 --ease-layout”，这些没有 --ease-standard 所以没被替换命中。只变颜色看不出曲线差别，改不改都行；但 design-language.md 第 537 行写的是“……只变颜色的状态反馈都用它”，要么补上，要么把文档改成“显式写了曲线的”。
+
+d) nb-markdown 里写死的 `120ms ease`（/home/notnotype/CodeRepository/neuro-book/packages/nb-markdown/src/chip/chip.css 第 22 行、prompt/PromptAttachmentStrip.vue 第 143、302 行、prompt/PromptPasteFrame.vue 第 84 行、prompt/PromptEditor.vue 第 1069 行、display/markdown.css 第 354 行）违反 ui-development-spec.md 第 7 条“组件不得写死时长或缓动”，也不会跟着主曲线；而 style-tokens 机检（packages/neuro-book-test-support/src/style-tokens.ts 第 110-115 行）只抓 `cubic-bezier(`，抓不到 `ease`、`linear` 这类关键字。这些是旧债，不是本提交引入，但“全应用看齐”没有覆盖到。
+
+## 发现 5 [建议] 文档与注释没跟上时长变化（读起来仍写 --motion-base 或 --motion-fast）
+
+以下都是改了时长而文字没改，会误导下一个读的人（也是发现 1、2 的成因）：
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/components/layout/Splitter.vue 第 747 行与 /home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/vue/Splitter.vue 第 378 行：注释“收起/展开是控件形变，走 --motion-base”，下一行已是 --motion-move。
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/vue/TabStrip.md 第 61 行：“同一行里换位时滑过去（--motion-fast）”，代码已是 --motion-move。
+- /home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.md 第 21 行，以及主工作区 Spec /home/notnotype/CodeRepository/neuro-book/docs/specs/workbench/files-explorer.md 第 77、142、239、248 行（“时长取主题的 --motion-base 与 --motion-fast”“--motion-base 之后停下”）：行的位移与 chevron 现在取 --motion-move，Spec 的验收 19、28 按 base 判定停下的时机，与实现不一致。
+改法：随发现 1、2 的修法一起改这些文字；Spec 在主工作区改。
+
+## 发现 6 [建议] 令牌登记与合同测试没有覆盖新增的档位
+
+位置：
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/theme/tokens.test.ts 第 87-97 行：“减少动态效果时时长归零”只检查 fast、base、enter、reveal-in、reveal-hold、reveal-out 六个。本次 tokens.css 第 267 行新加的 `--motion-move: 0ms !important` 没有测试看守（--motion-layout、--motion-dialog、--motion-dialog-leave 也没有，是旧缺口）。从测试代码推断：删掉第 267 行不会让它失败（我没有实际删，只读了名单）；当前在 /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree/packages/nb-ui 里跑 `bunx vitest run src/theme/tokens.test.ts` 全过（10 个）。
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/theme/tokens.ts 第 49 行：`nbMotionTokens` 加了 --motion-move、--ease-loop，但仍没有 --motion-dialog、--motion-dialog-leave、--ease-dialog-leave（t15 引入时就漏了）。后果：Lab 的“设计 · 动效”令牌页（packages/neuro-book/src/plugins/lab/web/lab-tokens.ts 第 40 行直接读这张表）看不到这三个令牌；主题在 declares 里重复声明它们时，重复检查（tokens.test.ts 第 70-72 行的 overlap 检查）也抓不到。
+- “fast < base < enter < move < layout 是合同”（design-language.md 第 504 行）没有任何测试：见发现 3。
+
+已核对没有问题的：`--ease-standard` 在 nb-ui、themes、nbMotionTokens、tokens.css 里已无引用；减少动态效果块里 move 已归零；token-consumption.test.ts（12 个）与 neuro-book-test-support 的 style-tokens.test.ts（9 个）在 w00026-t07-single-tree 里跑过全部通过。
+
+改法：把 tokens.test.ts 的归零名单补上 move、layout、dialog、dialog-leave；新增一条按 themes/*/vars.css 与 tokens.css 解析出时长后断言顺序的测试；nbMotionTokens 补三个对话框令牌。
+
+## 发现 7 [建议] 被刻意保留短时长的有位移动效，没有实测依据，且与文档自己的“时长要放宽”一条互相拉扯
+
+位置：
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/components/feedback/DialogSurface.vue 第 213-220 行：没有来处的对话框（快捷键、命令面板、程序打开）入场 scale 0.96→1 加 opacity，时长缺省 --motion-base（nbook 140ms），曲线 --ease-layout。
+- /home/notnotype/CodeRepository/neuro-book/packages/nb-ui/src/styles.css 第 461-475 行：popover 入场 scale 加 opacity，--motion-fast（nbook 90ms）。`.nb-menu-level` 子菜单切换时 top/left/width/height 在变，也是 fast。
+
+现象：按 /tmp/review-t18-impl/bez.py 算出的曲线，t=0.25 进度 77.5%，t=0.1 进度 39.8%：对话框 140ms 里 35ms 就走了 78%，菜单 90ms 里 22ms 走了 78%，两者都有缩放或几何变化，肉眼大概率读成“出现”而不是“长出来”。design-language.md 第 540 行自己写“沿用 180ms 的 --motion-base，45ms 就走了八成，看着是跳过去的”，然后给对话框和菜单开了例外（“这里的等待读作迟钝，快正好”；“没有来处的对话框”归 base），理由是文字论断，没有在 Lab 并排试过。Task 原计划“在 Lab 里并排试，开发者定时长”，实际改成“先推进、按推荐定一个令牌”，没有做对比场景（README 当前状态已承认）。
+
+为什么：主曲线的核心特性（前四分之一走八成）与短时长叠在一起，等价于几乎无缓动的瞬变；这些恰是用得最多的浮层。这不是缺陷定论，是没有证据的判断，应当让开发者看一眼再定。
+如何核实：未验证；需要在 Lab 里把对话框、右键菜单入场分别用 base/fast 与 move 并排看。
+改法：交开发者在手感确认时一并看这两处；若要放宽，菜单与没有来处的对话框可取 --motion-base 或新加一档，而不是 move。
+
+## 未发现问题的方面（仔细检查后没有发现）
+
+- 换成 --ease-dialog-leave 的位置：.nb-ui-overlay 退场、popover 退场、DialogSurface 缺省退场、ContextMenu 退场、NotificationStack 退场都是“淡出加位移或缩放”的退场，分类正确；没有发现把入场误换成退场曲线，也没有把退场漏留在 --ease-layout 上。
+- 换成 --ease-loop 的位置：.nb-shimmer::after、nb-ui-indeterminate、EditorGroup 的 editor-group-progress 都是两个关键帧的往复流动，--ease-loop 在这种两帧动画上对称有效；没有把单次动画误换成循环曲线。
+- reka 靠 animationend 收尾的关键帧（nb-collapsible-*、nb-dialog-*、nb-ui-overlay-*、nb-popover-*）：时长改动后没有找到对应的 JS 计时或 getComputedStyle 读时长的代码（Collapsible 的 data-animating 由 animationstart/end/cancel 事件驱动，不是计时器）；nb-layout 的 useGridMotion 读的是 --motion-layout，本次没有动它。
+- 减少动态效果：tokens.css 里 --motion-move 已在 prefers-reduced-motion 块归零（!important）。
+- `--ease-standard` 残留：packages 下（不含 neuro-book-legacy）、docs/specs、plugin-sdk、四个主题 vars.css、主题编辑器与设置里没有任何引用；剩下的只在 .agents 下的历史 Task 记录里，属于历史 provenance，不需要改。packages/neuro-book-legacy 没有被改动。
+- 测试支持：style-tokens.ts 的 literal-easing 规则文案已更新，规则本身（抓 cubic-bezier( 字面量）没变，相关测试通过。
+
+## 数量
+
+- 阻断：0
+- 重要：3（发现 1、2、3）
+- 建议：4（发现 4、5、6、7）
+
+说明：发现 1 已在真实 Chrome 里用 Vue TransitionGroup 复现；发现 2、3、4、5、6、7 是从代码与文档推断，未跑 e2e、未启开发服务。
