@@ -28,13 +28,16 @@ Profile 的后端早已做完（`agent/contributions.md`、t10、t18），但用
 
 写入：把 `permission-writes.ts` 的排队与 `expect` 抽成通用的 `createSettingWriter(settings, setting)`，规则写入建在它上面。工具绑定和 Profile 设置是一整份 Record，连点两下、改两个 Profile 都走同一个队；冲突时按新值重算这一个 Profile 的改动再写一次（改的是单个 key，不会盖掉别处）。写失败走 `context.reportWriteFailure`。没有未保存状态。
 
+同名工具（做静态稿时发现）：`edit` 与 `edit-replace`、`ask` 与 `ask-form` 交给模型的名字相同，内核遇到换算后同名的声明不放进工具集（[`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md) 输出 15）。所以页面按 `providerName` 判断，同名的只能开一个：打开一个时同一次写入里关掉另一个，这一行写明。
+
 要守住的：服务端读的仍是这两个设置项，算工具集的 `AgentTools.forProfile` 不变。页面算“开着哪些”用抽到 `shared/` 的同一个纯函数，保证页面和服务端一致。
 
 ### 目录与远程（`plugins/agent/backend/`、`shared/`）
 
 - `ProfileEntry` 加 `tools`、`defaultTools?`、`role?`、`modelNeeds?`。插件 Profile 来自声明，用户级来自装载好的 Profile。
 - `agent.profiles` 的声明加 `modelNeeds?`：页面不能为了读它激活提供方。
-- 远程新增只读方法 `toolCatalog`，交回 `{id, description, group?, effect, defaultForAll?, plugin}`。
+- 远程新增只读方法 `toolCatalog`，交回 `{id, description, providerName, group?, effect, defaultForAll?, plugin}`。
+- `ProfileEntry.reason` 现在是英文句子，页面要翻译：改成 `reasonCode` 加参数（缺哪些工具、key 被占用、打包或求值失败及错误文字），`reason` 留给诊断。
 - 远程新增事件 `profilesChanged`，只说“目录变了”，页面收到后重取：用户级 Profile 是异步打包的，新建后要等它出现。
 
 ### 用户级 Profile
