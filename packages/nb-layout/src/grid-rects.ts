@@ -29,6 +29,8 @@ export interface GridLeafPlacement<R> {
     readonly rect: GridRect;
     /** 新出现时不动的那条边：另一条边跟着让位的兄弟走。根上的叶没有兄弟，为 null。 */
     readonly grow: {readonly axis: GridAxis; readonly edge: "start" | "end"} | null;
+    /** 不在树里的叶（`floatPlacements`）：矩形由宿主给。 */
+    readonly float?: boolean;
 }
 
 export interface GridSashPlacement<R> {
@@ -82,6 +84,26 @@ export type GridLayerItem<R> = GridPlacementItem<R> | GridContentPlacement;
 export interface GridPlacement<R> {
     /** 树序：叶与分隔线交替。 */
     readonly items: ReadonlyArray<GridPlacementItem<R>>;
+}
+
+/** 宿主给的浮动窗：一块不在树里的叶，内容项照常归属它，所以进出浮动窗内容不换父元素。 */
+export interface GridFloatInput {
+    readonly id: string;
+    readonly rect: GridRect;
+    /** 正被拖着走：不接指针，判定才看得到底下。 */
+    readonly moving?: boolean;
+}
+
+/** 浮动窗的摆放，排在树的后面（Tab 与读屏也是）。不在树里，约束与收起都没有意义。 */
+export function floatPlacements(floats: ReadonlyArray<GridFloatInput>): GridPlacementItem<unknown>[] {
+    return floats.map(({id, rect}) => ({
+        kind: "leaf" as const,
+        key: `leaf:${id}`,
+        node: {kind: "leaf", id, ref: id, size: {width: rect.width, height: rect.height}, minimumSize: {width: 0, height: 0}, maximumSize: {width: Number.POSITIVE_INFINITY, height: Number.POSITIVE_INFINITY}, sizing: "weight" as const},
+        rect,
+        grow: null,
+        float: true,
+    }));
 }
 
 /** 与 `Splitter` 的缺省相同：空布局（还没量到容器）时树已经在，`sashSizes` 没有这个分支。 */

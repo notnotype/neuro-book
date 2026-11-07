@@ -836,3 +836,71 @@ describe("NestedGrid 内容层", () => {
         expect(wrapper.find("[data-content]").exists()).toBe(false);
     });
 });
+
+describe("NestedGrid 浮动窗", () => {
+    const grid = () => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+        {kind: "leaf", id: "a", ref: "a", size: {width: 500, height: 0}},
+        {kind: "leaf", id: "b", ref: "b", size: {width: 499, height: 0}},
+    ]}, {sashSize: SASH});
+    const FLOAT = {id: "f", rect: {x: 100, y: 50, width: 300, height: 200}};
+
+    function mountFloats(props: Record<string, unknown>) {
+        const g = grid();
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: g.root(), layout: g.layout(CONTAINER), contents: [{key: "x", leaf: "f", insetTop: 32, active: true}], floats: [FLOAT], ...props},
+            slots: {
+                leaf: ({node}: {node: {id: string}}) => h("div", {class: "leaf-body"}, node.id),
+                content: ({contentKey}: {contentKey: string}) => h("div", {class: "content-body"}, contentKey),
+                "float-chrome": ({id}: {id: string}) => h("div", {class: "chrome-body"}, id),
+                empty: () => null,
+            },
+        });
+        wrappers.push(wrapper);
+        return wrapper;
+    }
+
+    it("窗是一块叶：矩形是给的，内容减去头归它；手柄是网格根的直接子元素，叠在内容上面", () => {
+        const wrapper = mountFloats({});
+        const frame = wrapper.get("[data-leaf=\"f\"]").element as HTMLElement;
+        expect(frame.hasAttribute("data-float")).toBe(true);
+        expect(frame.style.transform).toBe("translate(100px, 50px)");
+        expect(frame.style.width).toBe("300px");
+        const content = wrapper.get("[data-content=\"x\"]").element as HTMLElement;
+        expect(content.getAttribute("data-content-leaf")).toBe("f");
+        expect(content.hasAttribute("data-float")).toBe(true);
+        expect(content.style.transform).toBe("translate(100px, 82px)");
+        const chrome = wrapper.get("[data-float-chrome=\"f\"]").element as HTMLElement;
+        expect(chrome.parentElement).toBe(wrapper.element);
+        expect(Number(chrome.style.zIndex)).toBeGreaterThan(Number(content.style.zIndex));
+        expect(Number(content.style.zIndex)).toBeGreaterThan(Number(frame.style.zIndex));
+    });
+
+    it("后面的压在前面的上面：换次序只改层级，不搬节点", async () => {
+        const other = {id: "g", rect: {x: 0, y: 0, width: 100, height: 100}};
+        const wrapper = mountFloats({floats: [FLOAT, other], contents: []});
+        const frame = wrapper.get("[data-leaf=\"f\"]").element as HTMLElement;
+        const below = Number(frame.style.zIndex);
+        expect(Number((wrapper.get("[data-leaf=\"g\"]").element as HTMLElement).style.zIndex)).toBeGreaterThan(below);
+        await wrapper.setProps({floats: [other, FLOAT]});
+        expect(wrapper.get("[data-leaf=\"f\"]").element).toBe(frame);
+        expect(Number(frame.style.zIndex)).toBeGreaterThan(below);
+    });
+
+    it("最大化：窗不算被盖住，别的叶才算", () => {
+        const wrapper = mountFloats({maximized: {leaf: "a", exclude: []}});
+        expect(wrapper.get("[data-leaf=\"f\"]").attributes("inert")).toBeUndefined();
+        expect(wrapper.get("[data-leaf=\"b\"]").attributes("inert")).toBeDefined();
+        expect(wrapper.get("[data-content=\"x\"]").attributes("inert")).toBeUndefined();
+    });
+
+    it("只有窗的矩形变了不过渡；窗在移动时不接指针的标记写在外框与内容上", async () => {
+        const wrapper = mountFloats({});
+        wrapper.element.style.setProperty("--motion-layout", "470ms");
+        await wrapper.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, x: 400}, moving: true}]});
+        await nextTick();
+        expect(wrapper.findAll("[data-moving]")).toHaveLength(0);
+        expect(wrapper.get("[data-leaf=\"f\"]").attributes("data-float-moving")).toBeDefined();
+        expect(wrapper.get("[data-content=\"x\"]").attributes("data-float-moving")).toBeDefined();
+    });
+});

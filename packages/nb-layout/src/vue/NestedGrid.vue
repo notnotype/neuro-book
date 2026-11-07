@@ -12,7 +12,8 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
-import {layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {settleFloatMoves} from "../grid-motion";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
@@ -50,6 +51,8 @@ const props = withDefaults(defineProps<{
     maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
     /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针。矩形相对网格根。变成 null 时飞回它的叶。 */
     lifted?: {readonly key: string; readonly rect: GridRect} | null;
+    /** 浮动窗（docs/specs/ui/nested-grid.md 的“浮动窗”）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
+    floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
 }>(), {
@@ -60,6 +63,7 @@ const props = withDefaults(defineProps<{
     contents: () => [],
     maximized: null,
     lifted: null,
+    floats: () => [],
     sashKind: undefined,
 });
 
@@ -80,6 +84,8 @@ defineSlots<{
     "lifted-head"?(props: {contentKey: string}): unknown;
     /** 盖在分隔线之上、拿起的内容之下的一层（实时布局的分区、空位），不接指针。 */
     overlay?(): unknown;
+    /** 浮动窗的手柄：网格根的直接子元素，矩形同浮动窗，叠在它的内容上面（放在外框里会被内容层盖住）。外层不接指针，里面的控件自己开。 */
+    "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
     empty(): unknown;
 }>();
 
@@ -104,14 +110,23 @@ const placement = computed(() => {
     const root = renderTree.value;
     if (root === null) return null;
     const placed = placeGrid(root, renderLayout.value, placementExtent.value, dpr.value);
-    return props.maximized == null ? placed : {items: maximizePlacement(placed.items, props.maximized.leaf, props.maximized.exclude)};
+    const items = props.maximized == null ? placed.items : maximizePlacement(placed.items, props.maximized.leaf, props.maximized.exclude);
+    return {items: props.floats.length === 0 ? items : [...items, ...floatPlacements(props.floats)]};
 });
-/** 被盖住的叶：除了最大化的那块和 `exclude`（条）。 */
+/** 被盖住的叶：除了最大化的那块和 `exclude`（条）。浮动窗在最大化的面板上面，不算。 */
 const obscuredLeaves = computed<ReadonlySet<string>>(() => {
     const maximized = props.maximized;
     if (maximized == null) return new Set();
-    return new Set((placement.value?.items ?? []).flatMap((item) => (item.kind === "leaf" && item.node.id !== maximized.leaf && !maximized.exclude.includes(item.node.id) ? [item.node.id] : [])));
+    return new Set((placement.value?.items ?? []).flatMap((item) => (item.kind === "leaf" && item.float !== true && item.node.id !== maximized.leaf && !maximized.exclude.includes(item.node.id) ? [item.node.id] : [])));
 });
+/** 浮动窗的层级：外框、内容、手柄各一档，后面的压在前面的上面。写在元素上：内容换叶后 DOM 位置不变，不靠 DOM 序。 */
+const FLOAT_Z_BASE = 10;
+const floatAt = computed(() => new Map(props.floats.map((float, index) => [float.id, index])));
+const movingFloats = computed(() => new Set(props.floats.flatMap((float) => (float.moving === true ? [float.id] : []))));
+function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
+    const at = floatAt.value.get(leaf);
+    return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
+}
 /** 最大化期间没有分隔线可拖。 */
 const gesturesDisabled = computed(() => props.disabled || props.maximized != null);
 /** 压在别的面板上面的那块叶：还原的过渡结束之前它还要在上面。 */
@@ -196,7 +211,7 @@ watch(layers, (next, previous) => {
     contentLayer.update();
     if (props.maximized != null) raisedLeaf.value = props.maximized.leaf;
     const root = renderTree.value;
-    motion.update({items: next, previous: previous ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value, previewing: preview.value !== null});
+    motion.update({items: previous === undefined ? next : settleFloatMoves(next, previous), previous: previous ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value, previewing: preview.value !== null});
 }, {immediate: true});
 
 /**
@@ -372,8 +387,10 @@ defineExpose({
                 :data-leaf="item.node.id"
                 :data-moving="moving ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
+                :data-float="floatAt.has(item.node.id) ? '' : undefined"
+                :data-float-moving="movingFloats.has(item.node.id) ? '' : undefined"
                 :inert="obscuredLeaves.has(item.node.id)"
-                :style="gridRectStyle(growing.get(item.key) ?? item.rect)"
+                :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
                     <slot name="leaf" :node="item.node"></slot>
@@ -389,13 +406,20 @@ defineExpose({
                 :data-moving="moving && item.active && !contentLayer.isLifted(item) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.leaf ? '' : undefined"
                 :data-lifted="contentLayer.isLifted(item) ? '' : undefined"
+                :data-float="floatAt.has(item.leaf) ? '' : undefined"
+                :data-float-moving="movingFloats.has(item.leaf) ? '' : undefined"
                 :inert="contentLayer.isParked(item)"
-                :style="contentLayer.frameStyle(item)"
+                :style="{...contentLayer.frameStyle(item), ...(contentLayer.isLifted(item) ? {} : floatLayer(item.leaf, 1))}"
             >
                 <slot v-if="contentLayer.isLifted(item)" name="lifted-head" :content-key="item.contentKey"></slot>
                 <div class="nb-grid-content__body" :style="contentLayer.bodyStyle(item)">
                     <slot name="content" :content-key="item.contentKey" :leaf="item.leaf" :active="item.active"></slot>
                 </div>
+            </div>
+        </template>
+        <template v-if="$slots['float-chrome'] !== undefined">
+            <div v-for="float in floats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :style="{...gridRectStyle(float.rect), ...floatLayer(float.id, 2)}">
+                <slot name="float-chrome" :id="float.id" :rect="float.rect"></slot>
             </div>
         </template>
         <div v-if="$slots.overlay !== undefined" class="nb-grid-overlay"><slot name="overlay"></slot></div>
@@ -413,7 +437,7 @@ defineExpose({
     min-width: 0;
     min-height: 0;
     overflow: clip;
-    /* 叠放固定在这个根里：外框、内容、飞行内容、分隔线、盖层、拿起的内容。内容换叶后 DOM 位置不变，不靠 DOM 序。 */
+    /* 叠放固定在这个根里：外框、内容、飞行内容、分隔线、浮动窗（从 10 起，内联）、盖层、拿起的内容。内容换叶后 DOM 位置不变，不靠 DOM 序。 */
     isolation: isolate;
 }
 
@@ -440,7 +464,7 @@ defineExpose({
 
 /* 拿起的内容是一张卡片：盖在分隔线上跟手，不接指针（`elementsFromPoint` 要看到底下的面板）。 */
 .nb-grid-content[data-lifted] {
-    z-index: 5;
+    z-index: 1000;
     overflow: hidden;
     border-radius: var(--layout-card-radius);
     background: var(--panel-surface);
@@ -452,7 +476,26 @@ defineExpose({
 .nb-grid-overlay {
     position: absolute;
     inset: 0;
-    z-index: 4;
+    z-index: 900;
+    pointer-events: none;
+}
+
+/* 浮动窗：矩形就是卡片，投影与圆角画在外框自身（元素自己的 `overflow: clip` 不裁自己的 `box-shadow`）。 */
+.nb-grid-frame[data-float] {
+    border-radius: var(--layout-card-radius);
+    background: var(--panel-surface);
+    box-shadow: var(--layout-card-shadow);
+}
+
+.nb-grid-frame[data-float-moving],
+.nb-grid-content[data-float-moving] {
+    pointer-events: none;
+}
+
+.nb-grid-float-chrome {
+    position: absolute;
+    top: 0;
+    left: 0;
     pointer-events: none;
 }
 

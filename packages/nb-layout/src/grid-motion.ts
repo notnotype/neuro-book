@@ -45,6 +45,24 @@ export function placementMoved(items: ReadonlyArray<GridLayerItem<unknown>>, pre
 }
 
 /**
+ * 只有浮动窗的矩形变了不算布局变化（移动、缩放是手势，不过渡）：同一块浮动窗和它还在里面的内容，矩形按上一次的算，判定就认不出变化。浮动窗出现、消失，内容进出浮动窗不在这里，照常过渡。
+ */
+export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>): ReadonlyArray<GridLayerItem<R>> {
+    const before = new Map(previous.map((item) => [item.key, item]));
+    const stayed = new Set(items.flatMap((item) => {
+        const old = before.get(item.key);
+        return item.kind === "leaf" && item.float === true && old?.kind === "leaf" && old.float === true ? [item.node.id] : [];
+    }));
+    if (stayed.size === 0) return items;
+    return items.map((item) => {
+        const old = before.get(item.key);
+        if (item.kind === "leaf" && old?.kind === "leaf" && stayed.has(item.node.id)) return {...item, rect: old.rect};
+        if (item.kind === "content" && old?.kind === "content" && old.leaf === item.leaf && stayed.has(item.leaf)) return {...item, rect: old.rect};
+        return item;
+    });
+}
+
+/**
  * 这次过渡里内容跟着外框逐帧变化的项（`key`）：前后都有尺寸的叶与活动的内容项。新叶与从零出来的叶内容已经是最终尺寸，外框长出来时露出它，第一次摆放不用在零宽里排版；
  * 降到零的叶内容停放。
  */

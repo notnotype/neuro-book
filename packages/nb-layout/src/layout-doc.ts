@@ -612,7 +612,7 @@ export function openPanelAtEdge(doc: LayoutDoc, input: {readonly id: string; rea
 
 // ── 浮动 ──
 
-const roundRect = (rect: LayoutFloatRect): LayoutFloatRect => ({x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height)});
+export const roundFloatRect = (rect: LayoutFloatRect): LayoutFloatRect => ({x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height)});
 
 /**
  * 标签浮出来：新的无名面板，继承来源的角色。来源是只有这一个标签的浮动窗时只改矩形：同一块面板，不换 id。具名面板不移动，标签拆出去、它拖空隐藏（同 `moveTabToEdge`）。
@@ -628,7 +628,7 @@ export function floatTab(doc: LayoutDoc, input: {readonly tab: string; readonly 
     const id = policy.newId("panel");
     if (next.panels[id] !== undefined) return failure("rejected", `面板已存在 ${id}`);
     next.panels[id] = {role: source.role, tabs: [found.tab], active: input.tab};
-    next.floats.push({panel: id, rect: roundRect(input.rect)});
+    next.floats.push({panel: id, rect: roundFloatRect(input.rect)});
     if (source.role === "editor") next.currentEditor = id;
     settleEmptyPanel(next, found.panel);
     return finish(doc, next);
@@ -637,7 +637,7 @@ export function floatTab(doc: LayoutDoc, input: {readonly tab: string; readonly 
 export function setFloatRect(doc: LayoutDoc, input: {readonly panel: string; readonly rect: LayoutFloatRect}): LayoutResult {
     if (!isFloating(doc, input.panel)) return failure("not-found", `浮动窗 ${input.panel}`);
     const next = editable(doc);
-    next.floats = next.floats.map((float) => (float.panel === input.panel ? {...float, rect: roundRect(input.rect)} : float));
+    next.floats = next.floats.map((float) => (float.panel === input.panel ? {...float, rect: roundFloatRect(input.rect)} : float));
     return finish(doc, next);
 }
 

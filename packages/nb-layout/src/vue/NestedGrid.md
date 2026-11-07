@@ -26,6 +26,8 @@
 
 `lifted`（`{key, rect}`）拿起一个内容项（实时布局）：不按叶摆放，矩形相对网格根，不接指针，内层保持拿起时的尺寸；变成 null 时飞回它的叶。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--layout-card-radius`、`--layout-card-shadow`。
 
+`floats`（`{id, rect, moving?}`）是浮动窗（[Spec](../../../../docs/specs/ui/nested-grid.md)“浮动窗”）：不在树里的叶，排在树后面，后面的压在前面的上面。内容项照常归属它。只有矩形变了不过渡。插槽 `float-chrome` 放手柄（[`FloatWindowHandles`](FloatWindowHandles.md)）：网格根的直接子元素，叠在窗的内容上面，外层不接指针。
+
 DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`（列出叶、分隔线与没停放的内容项），Tab 走出一块时由组件按树序接管；一致时都是浏览器的原生行为。`moveGridFocus(from, direction)` 按树序在叶之间移动焦点，嵌套时内层走到头交给外层，工作台把它接成 F6 的命令。
 
 ## 接入

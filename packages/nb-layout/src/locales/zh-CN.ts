@@ -6,4 +6,8 @@ export default {
         collapsed: "已收起",
         pixels: "{{size}} 像素",
     },
+    floatWindow: {
+        resize: "用方向键调整浮动窗大小",
+        move: "用方向键移动浮动窗",
+    },
 };

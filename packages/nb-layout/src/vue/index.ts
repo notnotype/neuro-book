@@ -6,6 +6,7 @@ export type {SplitterPanelConfig} from "./grid-splitter";
 export {default as NestedGrid} from "./NestedGrid.vue";
 export {default as DropFeedbackOverlay} from "./DropFeedbackOverlay.vue";
 export {default as DropSectorsOverlay} from "./DropSectorsOverlay.vue";
+export {default as FloatWindowHandles} from "./FloatWindowHandles.vue";
 export type {DropFeedbackPreview} from "./DropFeedbackOverlay.vue";
 export {default as DropIndicatorLabel} from "./DropIndicatorLabel.vue";
 export {default as TabStrip} from "./TabStrip.vue";

@@ -1,8 +1,9 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, flyingContents, followingLeaves, grownRect, placementMoved, stableOrder} from "./grid-motion";
-import {layerItems, placeContents, placeGrid} from "./grid-rects";
+import {enteringRects, flyingContents, followingLeaves, grownRect, placementMoved, settleFloatMoves, stableOrder} from "./grid-motion";
+import {floatPlacements, layerItems, placeContents, placeGrid} from "./grid-rects";
+import type {GridLayerItem} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
 
 /** 渲染序与过渡的起点（docs/specs/ui/nested-grid.md 的“按矩形摆放”“过渡”）。 */
@@ -216,5 +217,28 @@ describe("内容项的过渡（输出“内容层”）", () => {
         const after = layers({a: 500, b: 500}, [{key: "x", leaf: "b", active: false}]);
         expect(placementMoved(after, before)).toBe(false);
         expect(followingLeaves(after, before).has("content:x")).toBe(false);
+    });
+});
+
+describe("只有浮动窗的矩形变了", () => {
+    const rect = (x: number) => ({x, y: 0, width: 100, height: 100});
+    const windowAt = (x: number, id = "f"): GridLayerItem<unknown>[] => [
+        ...(floatPlacements([{id, rect: rect(x)}]) as GridLayerItem<unknown>[]),
+        {kind: "content", key: "content:v", contentKey: "v", leaf: id, insetTop: 0, active: true, rect: rect(x)},
+    ];
+
+    it("同一块窗和它里面的内容按上一次的矩形算：判定认不出变化", () => {
+        const before = windowAt(0);
+        const settled = settleFloatMoves(windowAt(500), before);
+        expect(placementMoved(settled, before)).toBe(false);
+        expect(placementMoved(windowAt(500), before)).toBe(true);
+    });
+
+    it("窗出现、内容换了窗：照常是变化", () => {
+        const before: GridLayerItem<unknown>[] = [];
+        expect(placementMoved(settleFloatMoves(windowAt(0), before), before)).toBe(true);
+        const swapped = windowAt(500, "g");
+        const settled = settleFloatMoves(swapped, windowAt(0));
+        expect(settled.find((item) => item.kind === "content")?.rect).toEqual(rect(500));
     });
 });

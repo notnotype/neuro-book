@@ -6,4 +6,8 @@ export default {
         collapsed: "Collapsed",
         pixels: "{{size}} pixels",
     },
+    floatWindow: {
+        resize: "Resize the floating window with the arrow keys",
+        move: "Move the floating window with the arrow keys",
+    },
 };
