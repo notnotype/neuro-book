@@ -212,6 +212,20 @@ describe("switch_mode", () => {
         expect((await session.path()).some((event) => event.type === "interactionRequested")).toBe(false);
     });
 
+    test("后台会话没人答：失败 ask-unavailable，不进等待，模式不变", async () => {
+        await open("normal");
+        const w = worlds.at(-1)!;
+        endpoint.script({tool: "switch_mode", args: {mode: "plan"}}, "好");
+        const started = await w.service.startTask({taskId: cid(), profile: MAIN_PROFILE, input: {text: "做"}, background: true});
+        if (!started.ok) throw new Error(started.code);
+        const background = w.service.session(started.sessionId, {kind: "user"});
+        await background.waitRun(started.runId);
+        const events = await background.path();
+        expect(events.some((event) => event.type === "interactionRequested")).toBe(false);
+        expect((events.find((event) => event.type === "toolResult")!.data as unknown as {code?: string}).code).toBe("ask-unavailable");
+        expect(await modeOf(background)).not.toBe("plan");
+    });
+
     test("拒绝规则能禁掉它", async () => {
         const session = await open("normal", "ask", {"nbook.agent/permissionRules": [{tool: "switch_mode", action: "deny"}]});
         expect((await callTool(session, "switch_mode", {mode: "plan"})).code).toBe("rule-denied");
@@ -227,6 +241,12 @@ describe("switch_mode", () => {
 
 describe("提示", () => {
     const lastUser = (): string => JSON.stringify(endpoint.requests.at(-1)?.messages);
+    /** 最后一条助手消息之后的：这一轮开头写的提示在这里，更早的轮里的不算。 */
+    const thisTurn = (): string => {
+        const messages = endpoint.requests.at(-1)?.messages ?? [];
+        const lastAssistant = messages.map((message) => message.role).lastIndexOf("assistant");
+        return JSON.stringify(messages.slice(lastAssistant + 1));
+    };
 
     test("变了那轮完整的，之后短的；回到 normal 一句已退出，之后不写；工具集不变", async () => {
         const session = await open("plan");
@@ -246,6 +266,23 @@ describe("提示", () => {
         endpoint.script("四");
         await send(session);
         expect(lastUser().split("已退出讨论或计划模式").length).toBe(before);
+    });
+
+    test("压缩之后再写一次完整的：摘要未必还记得", async () => {
+        const session = await open("plan", "ask", localModelSettings(endpoint.baseUrl, {compactionRole: true}));
+        endpoint.script("一");
+        await send(session);
+        endpoint.script("二");
+        await send(session);
+        expect(thisTurn()).not.toContain("现在是计划模式");
+        // 压缩的请求吃一条回复（摘要）。
+        endpoint.script("摘要");
+        const compacted = await session.compact({commandId: cid()});
+        if (!compacted.ok || compacted.value.runId === undefined) throw new Error(`compact failed: ${JSON.stringify(compacted)}`);
+        await session.waitRun(compacted.value.runId);
+        endpoint.script("三");
+        await send(session);
+        expect(thisTurn()).toContain("现在是计划模式");
     });
 
     test("从来都是 normal：不写", async () => {

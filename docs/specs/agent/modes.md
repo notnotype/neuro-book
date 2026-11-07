@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.modes
 owners:
   - packages/neuro-book/src/plugins/agent/backend/permissions
@@ -61,7 +61,7 @@ owners:
 
 ### 界面
 
-11. 输入框工具栏上 Agent 模式控件与审批模式控件并排，都一直可见。点 Agent 模式切下一种（normal、discuss、plan 循环），Shift+Tab 相同：补全菜单开着时 Shift+Tab 不切模式，没有监听者的编辑器（就地编辑）不吞这个键，切换后读屏播报。非 `normal` 时审批模式控件变淡，提示批准计划后按它走，仍可点；全部放行保留红色警告。
+11. 输入框工具栏上 Agent 模式控件与审批模式控件并排，都一直可见。点 Agent 模式切下一种（normal、discuss、plan 循环），Shift+Tab 相同：补全菜单开着时 Shift+Tab 不切模式，没有监听者的编辑器（就地编辑）不吞这个键，切换后读屏播报。非 `normal` 时审批模式控件变淡，提示切回普通模式后按它走，仍可点；全部放行保留红色警告。
 12. `/plan`：切到 `plan`，已在 `plan` 不动；带文字时切完把文字发出去。`/mode <名>`：只管 Agent 模式，接 key 与显示名，不接审批模式；没参数切下一种；名字不对提示可选项。
 13. 非 `normal` 在状态栏标出。
 
@@ -95,10 +95,25 @@ owners:
 2. `plan` 加 `yolo`：写作品仍拒绝；`switch_mode` 仍要问。
 3. `modeWriteAction: "ask"` 加命中的放行规则：询问。
 4. 同一回复里切模式加写，两种顺序；等审批时别的窗口切模式。
-5. 真实模型：`plan` 写计划、申请、批准、开始。
+5. 后台会话申请切换：`ask-unavailable`，不进等待。
+6. 压缩之后再写一次完整的提示。
+7. 真实模型：`plan` 写计划、申请、批准、开始。
 
-Smoke：`packages/neuro-book/src/plugins/agent/modes.test.ts`。
+Smoke：`packages/neuro-book/src/plugins/agent/permissions.llm.test.ts`（`test:llm`，真实模型，“plan 走完”）。
+
+## 实现合同
+
+- **公开入口**：扩展 `nbook.agent.modes`（设置 `mode`，导出 `mode`）、工具 `switch_mode`、提问的请求 `mode-switch` 与回答（`ModeSwitchRequest`、`ModeSwitchAnswer`，`shared/permissions`）；界面是 `nb-agent-ui` 的 `AgentModeSwitchWizard` 与输入框的模式控件。
+- **owner 与依赖方向**：`backend/permissions/modes.ts` 拥有模式与 `switch_mode`，闸门在同目录的审批钩子里；主 Profile 装这个扩展，没装的 Profile 没有模式。内核不认识模式；界面只经 `ctx` 与 action（`mode.set`）。
+- **关键不变量**：
+  - 模式放在扩展设置里，是会话层的：`fork` 带上，回退与重启沿用内核设置的语义（`modes.test.ts`“fork 带上模式”，`session-host.test.ts`“Agent 模式”）。
+  - 放行规则与 `yolo` 过不了闸门，拒绝规则先于闸门；模式变了放行过的调用按新模式重判（`modes.test.ts`“闸门”“时序”）。
+  - `switch_mode` 不经审批，用提问通道问；批准用一次 `changeSettings` 同时改模式与审批模式，结果带的计划正文就是向导里那一份（`modes.test.ts`“switch_mode”）。
+  - 提示写在这一轮开头，不进系统提示词，工具集不随模式变；压缩后再写一次完整的（`modes.test.ts`“提示”）。
 
 ## 证据
 
-- 批准依据：开发者 2026-11-06（[t06 计划](../../../.agents/works/w00032-agent-integration/tasks/t06-approval/plan.md) 的“开发者的决定”与“确认结果”）。
+- 批准依据：开发者 2026-11-06（[t06 计划](../../../.agents/works/w00032-agent-integration/tasks/t06-approval/plan.md) 的“开发者的决定”与“确认结果”）；开发者 2026-11-07 批准晋升为 `implemented`。
+- 实现入口：[`backend/permissions/modes.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/modes.ts)、[`hook.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/hook.ts)、[`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)、[`AgentModeSwitchWizard.vue`](../../../packages/nb-agent-ui/src/vue/wizard/AgentModeSwitchWizard.vue)
+- 合同测试：[`modes.test.ts`](../../../packages/neuro-book/src/plugins/agent/modes.test.ts)（真实内核、真实工具、本机端点）、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)、[`AgentModeSwitchWizard.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/wizard/AgentModeSwitchWizard.dom.test.ts)；e2e：[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)
+- Smoke：[`permissions.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/permissions.llm.test.ts)（`test:llm`，真实模型）

@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.agent-conversation-view
 owners:
   - packages/nb-agent-ui
@@ -443,12 +443,22 @@ type AgentSessionListItem = {
 34. Given 模型目录（能用、没值、要登录、云凭据链的服务商各一），When 打开，Then 左栏分两段；搜 `gpt` 只剩命中，勾两个后“加入候选”按勾选先后交回引用并关闭；已选过的写“已添加”不能勾；点要登录的服务商右栏写明要设的变量。
 35. Given 宿主注入了英文的翻译端口、视图的 `locale` 是 zh-CN，When 显示，Then 视图与其中的 nb-ui 控件都是英文；端口换成中文后不重新挂载就变成中文。没有注入时 `locale` 为 en-US 显示英文，不传显示中文；单独挂载的内部零件显示中文。
 
-Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 35 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
+Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 35 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。第 18 条没有单独的自动检查：颜色都取 nb-ui 的文字与背景 token，对比度由 token 保证。
 
 ## 实现合同
 
-尚未实现。
+- **公开入口**：`@notnotype/nb-agent-ui`（核心，纯 TS：视图合同、注册表、`createAgentContext`、输入框动作、harness 适配器与转录器）、`./vue`（渲染层：对话视图、会话列表、模型目录对话框）、`./locales`（目录）、`./lab` 与 `./lab-sources`（Lab 用）、`./tailwind.css`。视图里的零件不是宿主接口。
+- **owner 与依赖方向**：`packages/nb-agent-ui` 拥有；核心只依赖 `@notnotype/nb-ui/text`，渲染层只依赖 `vue`、`@notnotype/nb-ui` 与核心；Markdown、输入框与翻译由宿主注入，不引用宿主源码。宿主的接线在 `nbook.agent` 的 `web/session-host.ts`。
+- **关键不变量**：
+  - 分轮视图能从 `Message[]` 反推，过程默认收在整轮摘要里，运行中与结束后的展开规则不互相覆盖（`conversation-turns.test.ts`、`process-summary.test.ts`、`AgentConversationView.dom.test.ts`）。
+  - 界面只经 ctx、服务与 action 与宿主交互，工具渲染器、条目渲染器与面板都经注册表，同名冲突时构造失败（`registry.test.ts`）。
+  - 核心与渲染层的导入边界：核心不引 Vue，两层都不引宿主源码（`boundary.test.ts`）。
+  - 转录器按内核事件还原消息，不丢锚点与路径，分支与回退目标据此选取（`kernel-transcript.test.ts`、`harness.contract.test.ts`）。
+  - 翻译端口换了不重新挂载就跟着变，两套目录的键与占位符一致（`text.dom.test.ts`、`locales.test.ts`）。
 
 ## 证据
 
 - 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。
+- 实现入口：[`packages/nb-agent-ui/src/index.ts`](../../../packages/nb-agent-ui/src/index.ts)、[`vue/index.ts`](../../../packages/nb-agent-ui/src/vue/index.ts)、[`kernel-transcript.ts`](../../../packages/nb-agent-ui/src/kernel-transcript.ts)、宿主接线 [`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)
+- 合同测试：[`packages/nb-agent-ui`](../../../packages/nb-agent-ui/src) 的单元与挂载测试（`bun run test`）、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)；e2e：[`lab-agent-ui.e2e.ts`](../../../packages/neuro-book/e2e/lab-agent-ui.e2e.ts)、[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)、[`lab-scenes.e2e.ts`](../../../packages/neuro-book/e2e/lab-scenes.e2e.ts)
+- Smoke：[`conversation.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/conversation.llm.test.ts)（`test:llm`，真实模型）

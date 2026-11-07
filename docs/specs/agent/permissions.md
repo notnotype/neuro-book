@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.permissions
 owners:
   - packages/neuro-book/src/plugins/agent/backend/permissions
@@ -144,9 +144,26 @@ type Subject =
 4. `yolo` 下：没命中放行、询问规则放行、拒绝规则拒绝、看不懂的放行。
 5. 未知匹配器的拒绝规则命中，放行规则不命中，都写诊断。
 6. `image-gen` 提示词关键词的拒绝规则不用写代码。
+7. `auto`：读与作品内写放行；执行类调用交审批模型，答放行才放行，答转人工、输出不合法、超时、模型失败都转问用户；规则的放行、询问与拒绝先于模型；`user://` 的写模型放行不了；模型看不到助手文字与工具结果。
+8. “以后都允许”：写进用户规则末尾，当场生效；一批里两条同时选，两条都存下；存不下时这次与本会话仍批准。
+9. 设置页：增删改、上移下移、连点不丢；这本书的规则只读，坏了或读不到都写明；手写的规则来回不变。
 
-Smoke：`packages/neuro-book/src/plugins/agent/permissions.test.ts`。
+Smoke：`packages/neuro-book/src/plugins/agent/permissions.llm.test.ts`（`test:llm`，真实模型：`auto` 放行一次、转人工一次；`plan` 走完）。
+
+## 实现合同
+
+- **公开入口**：设置 `nbook.agent/permissionRules`、`readOnlyCommands`、`modeWriteAction`；项目文件 `.nbook/permissions.json`；规则形状 `RuleSchema`（`nbook/plugins/agent/shared/permissions`）；工具交出判定对象的 `AgentToolImplementation.subjects`（`shared/points`）；远程方法 `projectPermissionRules`（`nbook.agent/sessions`）。判定本身没有公开接口：内核只认 `ApproveHook`，`nbook.agent` 在创建运行时把钩子接上。
+- **owner 与依赖方向**：`backend/permissions` 拥有判定；依赖 `nbook.files`（展开地址、读项目根）、`unbash`（`bash` 解析）与内核的 `ApprovalCtx`（`read`、`model`）；内核不认识规则。设置页在 `web/permission-page.ts`，只经配置服务写用户层。
+- **关键不变量**：
+  - 判定顺序固定且是纯函数：规则拒绝、闸门、放行、询问、只写草稿、审批模式（`rules.test.ts`“判定顺序”）。
+  - 算不出来时偏向收紧：拒绝与询问算命中，放行不算，不生效的放行不挡后面的拒绝（`rules.test.ts`“一层的结果”）。
+  - 只读是白名单到子命令、选项与展开：`sed` 脚本、`env` 变量、带展开的参数都不放过（`bash-dialect.test.ts`“只读清单”）。
+  - `auto` 的模型只看用户亲手打的字与工具调用，输出靠强制调用判定工具，不是恰好一次合法调用就转问用户（`auto-review.test.ts`）。
+  - 用户规则的写入排成一个队、每次带比较，同一拍的两次追加都落盘（`web/permission-page.dom.test.ts`“规则写入”）。
 
 ## 证据
 
-- 批准依据：开发者 2026-11-06（[t06 计划](../../../.agents/works/w00032-agent-integration/tasks/t06-approval/plan.md) 的“开发者的决定”与“确认结果”）。
+- 批准依据：开发者 2026-11-06（[t06 计划](../../../.agents/works/w00032-agent-integration/tasks/t06-approval/plan.md) 的“开发者的决定”与“确认结果”）；开发者 2026-11-07 批准晋升为 `implemented`。
+- 实现入口：[`backend/permissions/hook.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/hook.ts)、[`judge.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/judge.ts)、[`rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/rules.ts)、[`bash-dialect.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/bash-dialect.ts)、[`auto-review.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/auto-review.ts)、[`project-rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/project-rules.ts)
+- 合同测试：[`permissions.test.ts`](../../../packages/neuro-book/src/plugins/agent/permissions.test.ts)（真实内核、真实 `shell`、本机端点）、[`auto-review.test.ts`](../../../packages/neuro-book/src/plugins/agent/auto-review.test.ts)、[`rules.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/rules.test.ts)、[`bash-dialect.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/bash-dialect.test.ts)、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)、[`permission-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/permission-page.dom.test.ts)
+- Smoke：[`permissions.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/permissions.llm.test.ts)（`test:llm`，真实模型）
