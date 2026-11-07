@@ -19,78 +19,120 @@ code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
 </style>
 </head>
 <body>
-<h1>失败详情组件与常驻通知</h1>
+<h1>失败详情组件与常驻通知（第 2 轮）</h1>
 <p>目标：给界面一个统一放“开发诊断原文”的载体（ADR 0034：诊断原文只进详情、不当主文案）。下面的图都是 Component Lab 里用真实 nb-ui 组件搭的静态稿，亮色；窄屏与暗色另附。详情文字是英文诊断原文，不翻译；“详情”“复制”“已复制”这些界面文字走 nb-ui 自带目录。</p>
 
-<section data-nbdev-question="sticky-rule" data-nbdev-type="single" data-nbdev-recommend="sticky-with-detail">
-  <h2><span class="badge" data-nbdev-skip>待定</span>带详情的通知什么时候消失</h2>
+<section>
+  <h2><span class="badge done">已定：A</span>带详情的通知什么时候消失</h2>
   <p>现在的规则：警告级 4.2 秒后自动消失，而失败通知正是警告级。用户来不及展开，选中文字时鼠标一出通知计时还会恢复并把通知移走。</p>
   <div class="row">
     <figure><img src="r1/notice-collapsed.webp" alt="收起" width="470"><figcaption>收起：标题、正文、“重试”、关闭，正文下一行“详情”</figcaption></figure>
     <figure><img src="r1/notice-expanded.webp" alt="展开" width="470"><figcaption>展开：等宽原文、可横向滚动，右上头行放“复制”</figcaption></figure>
   </div>
-  <div class="cand" data-nbdev-option="sticky-with-detail" data-nbdev-label="A 带详情的通知一律常驻，手动关闭">
+  <div class="cand">
     <h3>A 带详情的通知一律常驻，只能手动关闭或由发出方移除</h3>
     <p>规则最简单，选中和复制不会被打断；代价是失败通知多了会占屏，由第二题的上限兜住。</p>
   </div>
-  <div class="cand" data-nbdev-option="pause-on-open" data-nbdev-label="B 仍按色调限时，展开后才转常驻">
+  <div class="cand">
     <h3>B 仍按色调限时，点开“详情”后转常驻</h3>
     <p>不展开的通知照旧消失；但用户没来得及点开就丢了诊断，诊断只剩日志里能找。</p>
   </div>
-  <p class="rec">推荐 A。失败的详情是排查线索，丢了比占屏更糟。</p>
 </section>
 
-<section data-nbdev-question="stack-cap" data-nbdev-type="single" data-nbdev-recommend="cap-4">
-  <h2><span class="badge" data-nbdev-skip>待定</span>常驻通知多了怎么办</h2>
+<section>
+  <h2><span class="badge done">已定：A</span>常驻通知多了怎么办</h2>
   <p>六条常驻的右下角视口，下一条会把更早的挤出屏幕上沿。对照两种做法：</p>
   <div class="row">
     <figure><img src="r1/stack-six-nocap.webp" alt="不设上限" width="470"><figcaption>不设上限：最早的两条被挤出屏幕，用户不知道它们存在</figcaption></figure>
     <figure><img src="r1/stack-six-cap.webp" alt="上限 4" width="470"><figcaption>最多显示最新 4 条，上方一条“还有 2 条较早的通知 · 展开”</figcaption></figure>
   </div>
   <figure><img src="r1/stack-six-cap-mobile.webp" alt="手机" width="300"><figcaption>390 宽：同样的结构，没有溢出</figcaption></figure>
-  <div class="cand" data-nbdev-option="cap-4" data-nbdev-label="A 视口最多 4 条，其余折成“还有 n 条”">
+  <div class="cand">
     <h3>A 最多显示最新 4 条，其余折成一条小条，点“展开”看全部</h3>
     <p>折叠的通知计时照常（限时的仍会按时消失）；展开后列表在视口内滚动，不超过窗口高度。</p>
   </div>
-  <div class="cand" data-nbdev-option="no-cap" data-nbdev-label="B 不设上限，视口自己滚动">
+  <div class="cand">
     <h3>B 不设上限，视口超高时在内部滚动</h3>
     <p>实现最省；但最早的失败藏在滚动区外，和被挤出屏幕效果相近。</p>
   </div>
-  <p class="rec">推荐 A，上限取 4。</p>
 </section>
 
-<section data-nbdev-question="notice-width" data-nbdev-type="single" data-nbdev-recommend="footer-slot">
-  <h2><span class="badge" data-nbdev-skip>待定</span>详情块的宽度（涉及改 nb-ui 的 Notification）</h2>
+<section>
+  <h2><span class="badge done">已定：A</span>详情块的宽度（涉及改 nb-ui 的 Notification）</h2>
   <p>上面两张图里，详情块只和文字列一样宽，比通知窄约 70px（右边是动作和关闭两列），原文因此被裁得更多。</p>
-  <div class="cand" data-nbdev-option="footer-slot" data-nbdev-label="A Notification 加一个整行宽的 footer 插槽">
+  <div class="cand">
     <h3>A <code>Notification</code> 新增横跨整行的 <code>footer</code> 插槽，详情块放那里，与通知同宽</h3>
     <p>要改 nb-ui 组件与同名 .md；原文每行多出约 70px 可见宽度。</p>
   </div>
-  <div class="cand" data-nbdev-option="column-width" data-nbdev-label="B 沿用文字列宽度">
+  <div class="cand">
     <h3>B 不改组件，详情块放默认插槽，宽度等于文字列</h3>
     <p>不动 nb-ui；原文靠横向滚动看，窄屏更挤。</p>
   </div>
-  <p class="rec">推荐 A。</p>
 </section>
 
-<section data-nbdev-question="placements" data-nbdev-type="confirm" data-nbdev-label="确认各类界面里详情放哪（含“不展示”的几处）" data-nbdev-required>
-  <h2><span class="badge" data-nbdev-skip>待定</span>别的界面里详情放哪</h2>
-  <p>同一个详情组件（触发器加原文块加复制），按位置不同的摆法：</p>
-  <h3>编辑器组横幅：整宽展开，仍是横幅下的一节</h3>
-  <div class="row">
-    <figure><img src="r1/banner-collapsed.webp" alt="横幅收起" width="470"><figcaption>收起：“详情”跟在正文后，窄屏落到下一行，所以收起态不会变高</figcaption></figure>
-    <figure><img src="r1/banner-expanded.webp" alt="横幅展开" width="470"><figcaption>展开：整宽，在标签栏与内容区之间</figcaption></figure>
+<section data-nbdev-question="other-places" data-nbdev-type="single" data-nbdev-recommend="popover">
+  <h2><span class="badge" data-nbdev-skip>待定</span>横幅、资源管理器结果区的详情用什么做法（第 2 轮）</h2>
+  <p>第 1 轮你说不想用占画面的详情块。下面三种都不推挤版面，状态栏本来就是弹层，一并对照。通知不在这一题，见下一题。</p>
+  <div class="cand" data-nbdev-option="popover" data-nbdev-label="A 弹层：点“详情”在旁边弹出原文，点别处收起">
+    <h3>A 弹层（Popover）：点“详情”弹出原文加“复制”，盖在内容上，收起后什么都不留</h3>
+    <div class="row">
+      <figure><img src="r2/banner-popover.webp" alt="横幅弹层" width="470"><figcaption>横幅：弹层盖在内容区上，不推挤正文</figcaption></figure>
+      <figure><img src="r2/explorer-popover.webp" alt="资源管理器弹层" width="470"><figcaption>资源管理器：向右弹到内容区，不在 260px 栏里展开</figcaption></figure>
+    </div>
+    <div class="row">
+      <figure><img src="r2/banner-popover-mobile.webp" alt="手机横幅弹层" width="240"><figcaption>390 宽：气泡几乎占满全宽，被挤进视口内</figcaption></figure>
+      <figure><img src="r2/explorer-popover-mobile.webp" alt="手机资源管理器弹层" width="240"><figcaption>390 宽：窄屏改成向上弹</figcaption></figure>
+    </div>
+    <p>看得到原文，也能复制；键盘可达（Tab 到“详情”、回车打开、Esc 关闭并把焦点还回触发器）。限制：非模态，点别处就收起，要对照原文改东西时不如原位块方便；Lab 的手机预设不改窗口宽，窄屏的位置我是模拟的，真实 390 窗口里 Reka 会自己挤回视口（取证图已核对）。</p>
   </div>
-  <h3>状态栏条目：点开弹层，里面是原因加同一个详情块</h3>
-  <figure><img src="r1/statusbar-popover.webp" alt="状态栏" width="470"><figcaption>状态栏只有一行，放不下展开态，所以用弹层</figcaption></figure>
-  <h3>资源管理器结果区：窄栏里原位展开</h3>
-  <div class="row">
-    <figure><img src="r1/explorer-result.webp" alt="资源管理器" width="470"><figcaption>260px 栏：“详情”被关闭按钮挤到第二行，原文横向滚动</figcaption></figure>
-    <figure><img src="r1/explorer-result-mobile.webp" alt="资源管理器窄屏" width="200"><figcaption>390 宽</figcaption></figure>
+  <div class="cand" data-nbdev-option="copy-only" data-nbdev-label="B 只给“复制详情”按钮，不展示原文">
+    <h3>B 只放一个“复制详情”小图标按钮，不展示原文</h3>
+    <div class="row">
+      <figure><img src="r2/banner-copy-only.webp" alt="横幅只复制" width="470"><figcaption>横幅：图标按钮加悬停提示</figcaption></figure>
+      <figure><img src="r2/banner-copy-done.webp" alt="已复制" width="470"><figcaption>点后变成对勾“已复制”</figcaption></figure>
+    </div>
+    <div class="row">
+      <figure><img src="r2/explorer-copy-only.webp" alt="资源管理器只复制" width="320"><figcaption>资源管理器结果区</figcaption></figure>
+      <figure><img src="r2/statusbar-copy-only.webp" alt="状态栏只复制" width="320"><figcaption>状态栏弹层：一句原因加“复制详情”按钮</figcaption></figure>
+    </div>
+    <p>占的位置最小，一个图标。代价：用户看不到复制的是什么，没法先看一眼；触屏上没有悬停提示，只能靠图标和可访问名称；非安全上下文剪贴板不可用时只能显示“复制失败”，没有原文可手动选中。</p>
   </div>
-  <h3>不展示详情的位置</h3>
-  <p>资源管理器行内改名的单行错误、表单字段的状态行：放不下，也不该放，原文只进诊断日志。失败页（<code>FailurePage</code>）和 Agent 对话视图已有自己的详情位（失败页的 reason 段、工具详情块），这次不动，等 w00031 t03 迁移时再接同一个组件。</p>
-  <p class="rec">推荐照此确认。</p>
+  <div class="cand" data-nbdev-option="dialog" data-nbdev-label="C 居中对话框：点“详情”打开，带遮罩">
+    <h3>C 居中对话框（Dialog）：点“详情”打开，标题“文件没有保存：详情”，原文加“复制”，底部“关闭”</h3>
+    <div class="row">
+      <figure><img src="r2/banner-dialog.webp" alt="对话框" width="470"><figcaption>横幅点“详情”打开，有遮罩</figcaption></figure>
+      <figure><img src="r2/banner-dialog-mobile.webp" alt="手机对话框" width="240"><figcaption>390 宽：左右各留 16px</figcaption></figure>
+    </div>
+    <p>窄屏、焦点陷阱与读屏现成可靠；代价最重：打断当前操作，要多一步关掉；只是看一眼诊断有点大。</p>
+  </div>
+  <p class="rec">推荐 A，所有横幅、结果区与状态栏统一用弹层。理由：能看到原文又不占版面，一个“详情”入口各处一致；B 只适合你确定从不需要在界面里看原文的情况。</p>
+</section>
+
+<section data-nbdev-question="copy-only-code" data-nbdev-type="single" data-nbdev-recommend="with-code">
+  <h2><span class="badge" data-nbdev-skip>待定</span>（仅当上一题选 B）复制前要不要让用户看到错误码</h2>
+  <div class="cand" data-nbdev-option="with-code" data-nbdev-label="A 悬停提示与状态栏弹层里带一行错误码">
+    <h3>A 提示里带错误码，例如“复制详情 · workbench.layout-write-denied”</h3>
+    <p>用户至少知道复制的是哪类失败；触屏上没有悬停时看不到。</p>
+  </div>
+  <div class="cand" data-nbdev-option="without-code" data-nbdev-label="B 不带，只写“复制详情”">
+    <h3>B 不带，保持现在的样子</h3>
+  </div>
+  <p class="rec">推荐 A；选 A 或 C 作答的上一题可以不答这一题。</p>
+</section>
+
+<section data-nbdev-question="notice-detail" data-nbdev-type="single" data-nbdev-recommend="inline">
+  <h2><span class="badge" data-nbdev-skip>待定</span>通知里的详情要不要也换成弹层</h2>
+  <p>第 1 轮定的是通知里原位展开（第一节的图）。换成弹层的样子：</p>
+  <figure><img src="r2/notice-popover.webp" alt="通知弹层" width="470"><figcaption>点“详情”，弹层向左弹出，通知高度不变</figcaption></figure>
+  <div class="cand" data-nbdev-option="inline" data-nbdev-label="A 保持原位展开（第 1 轮的决定）">
+    <h3>A 保持原位展开</h3>
+    <p>通知是常驻的、只占右下角一角，展开只推高这一条；不用处理锚点与消失问题。</p>
+  </div>
+  <div class="cand" data-nbdev-option="popover" data-nbdev-label="B 也换成弹层">
+    <h3>B 也换成弹层</h3>
+    <p>通知高度稳定；但要给 nb-ui 的 <code>Popover</code> 加一个锚点插槽（锚在整条通知上），并处理通知被后来的挤掉或移除时弹层悬空的情况。</p>
+  </div>
+  <p class="rec">推荐 A：通知已经常驻且有上限，展开一条的占用有限；换成弹层要多做组件改动。</p>
 </section>
 
 <section>
