@@ -1,0 +1,77 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t05-profile",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t05 Profile 设置页：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "24d9077ca0d8c7429265b8f39d26c579103ea1c8210aceb31a0b8c84ec04c3e6",
+    "files": [
+        "index.html",
+        "r1/background.webp",
+        "r1/broken.webp",
+        "r1/main.webp",
+        "r1/narrow.webp",
+        "r1/new.webp",
+        "r1/tools-b.webp",
+        "r1/unavailable.webp",
+        "r1/user.webp",
+        "r1/window.webp"
+    ],
+    "questions": [
+        {
+            "id": "page-layout",
+            "type": "single",
+            "label": "整页版式，这样可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "tools-section",
+            "type": "single",
+            "label": "工具一节用哪种",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 全部列出，一行一个开关（推荐）"
+                },
+                {
+                    "value": "b",
+                    "label": "B 只列开着的，另外添加"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "a"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-07T02:07:23.430Z"
+}
