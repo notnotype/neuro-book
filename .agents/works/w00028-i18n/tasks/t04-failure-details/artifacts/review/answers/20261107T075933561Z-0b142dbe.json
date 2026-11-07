@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "answerId": "20261107T075933561Z-0b142dbe",
+    "artifactVersion": 1,
+    "contentHash": "de0011bab497aac1b3442fd75b354d4e1e8581a67d5f8a1d9409fb9aa7cade6e",
+    "submittedAt": "2026-11-07T07:59:32.762Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "placements": true,
+        "sticky-rule": "sticky-with-detail",
+        "stack-cap": "cap-4",
+        "notice-width": "footer-slot"
+    },
+    "comments": {},
+    "note": "别的界面里详情放哪：不想用这种会占画面控件的详细块。还有什么别的做法吗？"
+}
