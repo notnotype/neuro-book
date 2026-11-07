@@ -13,8 +13,8 @@
                 "title": {"zh-CN": "暮色", "en-US": "Dusk"},
                 "base": "nbook",
                 "crop": {"empty": {"position": "center"}},
-                "light": {"colors": {"--accent-main": "#a4552a", "--accent-text": "#8a4420"}, "scene": "assets/dusk-day.webp", "workingScene": "assets/dusk-day-working.webp"},
-                "dark": {"colors": {"--accent-main": "#e6a06a", "--accent-text": "#e6a06a"}, "scene": "assets/dusk-night.webp", "workingScene": "assets/dusk-night-working.webp"}
+                "light": {"colors": {"--accent-main": "#a4552a", "--accent-text": "#8a4420"}, "scene": "assets/dusk-day.webp", "workingScene": "assets/dusk-day-working.webp", "loading": {"indicator": "dots"}},
+                "dark": {"colors": {"--accent-main": "#e6a06a", "--accent-text": "#e6a06a"}, "scene": "assets/dusk-night.webp", "workingScene": "assets/dusk-night-working.webp", "loading": {"indicator": "dots"}}
             }
         }
     ]

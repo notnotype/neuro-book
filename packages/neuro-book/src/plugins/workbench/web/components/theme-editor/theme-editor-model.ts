@@ -16,7 +16,7 @@ import type {PaletteSeed} from "nbook/ui/theme/derive-palette";
 import {checkContrast} from "nbook/ui/theme/contrast-checks";
 import type {ContrastCheck} from "nbook/ui/theme/contrast-checks";
 
-import type {ThemeDeclaration} from "../../../shared/themes";
+import type {LoadingIndicator, ThemeDeclaration} from "../../../shared/themes";
 import {userThemeProblem, validUserThemes} from "../../../shared/user-themes";
 import {THEME_ASSET_SWEEP_MAX_NAMES} from "nbook/plugins/files/shared/contracts";
 
@@ -402,6 +402,29 @@ export class ThemeEditorModel {
         return this.#update((draft) => {
             if (id === undefined || id === "") delete draft.declaration.sceneProvider;
             else draft.declaration.sceneProvider = id;
+        });
+    }
+
+    // ---- 加载页 ----
+
+    /**
+     * 当前明暗的加载页怎么画（docs/specs/theme/skins.md 输出 19）：`scene` 是否用这一套的静态场景图当背景，`indicator` 是进度样式。
+     * 缺省值（不用场景图、`bar`）不写进声明；`loading` 空了整个去掉。
+     */
+    setLoading(change: {readonly scene?: boolean; readonly indicator?: LoadingIndicator}): Promise<unknown> {
+        return this.#update((draft, appearance) => {
+            const look = draft.declaration[appearance];
+            const next = {...look.loading};
+            if (change.scene !== undefined) {
+                if (change.scene) next.scene = true;
+                else delete next.scene;
+            }
+            if (change.indicator !== undefined) {
+                if (change.indicator === "bar") delete next.indicator;
+                else next.indicator = change.indicator;
+            }
+            if (Object.keys(next).length === 0) delete look.loading;
+            else look.loading = next;
         });
     }
 

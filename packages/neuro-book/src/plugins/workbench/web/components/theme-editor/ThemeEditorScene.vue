@@ -5,7 +5,7 @@
  */
 import {computed, ref, watch} from "vue";
 
-import {SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import {SegmentedControl, Select, Switch} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {useWorkbenchText} from "../../text";
@@ -13,6 +13,7 @@ import {userThemeAssetUrl} from "../../themes";
 import CropEditor from "./CropEditor.vue";
 import {NO_PROVIDER, providerOptions} from "./provider-options";
 import SceneImageSlot from "./SceneImageSlot.vue";
+import type {LoadingIndicator} from "../../../shared/themes";
 import type {ThemeEditorModel} from "./theme-editor-model";
 import type {ThemeTransfer} from "./transfer";
 
@@ -45,6 +46,16 @@ const unpublished = computed(() => {
     return current !== undefined && !model.sceneProviders.value.some(({id}) => id === current) ? current : null;
 });
 const options = computed(() => providerOptions(model.sceneProviders.value, theme.value?.declaration.sceneProvider, {none: text("themeEditor.scene.provider.none"), unpublished: text("themeEditor.scene.provider.unpublished")}, (title) => resolver.t(title)));
+
+/** 加载页（docs/specs/theme/skins.md 输出 19）：当前明暗的静态场景图当不当背景、进度样式。 */
+const loading = computed(() => theme.value?.declaration[model.appearance.value].loading);
+const loadingScene = computed(() => loading.value?.scene === true);
+const loadingIndicator = computed<LoadingIndicator>(() => loading.value?.indicator ?? "bar");
+const INDICATORS: ReadonlyArray<LoadingIndicator> = ["bar", "dots", "pulse", "page"];
+const indicatorOptions = computed(() => INDICATORS.map((value) => ({value, label: text(`themeEditor.scene.loading.indicators.${value}` as "themeEditor.scene.loading.indicators.bar")})));
+const setLoadingIndicator = (value: unknown): void => {
+    if (INDICATORS.includes(value as LoadingIndicator)) void model.setLoading({indicator: value as LoadingIndicator});
+};
 
 const previewOptions = computed(() => [
     {value: "follow", label: text("themeEditor.scene.preview.follow")},
@@ -97,6 +108,21 @@ const setPreview = (value: unknown): void => {
             <p v-if="unpublished !== null" class="theme-editor-scene__hint" role="status" data-provider-unpublished>{{ text("themeEditor.scene.provider.unpublishedNote", {id: unpublished}) }}</p>
         </section>
 
+        <section class="theme-editor-scene__block" data-scene-loading>
+            <h3 class="theme-editor-scene__title">{{ text("themeEditor.scene.loading.title") }}</h3>
+            <p class="theme-editor-scene__hint">{{ text("themeEditor.scene.loading.hint") }}</p>
+            <div class="theme-editor-scene__switch">
+                <Switch size="sm" :model-value="loadingScene" :disabled="sceneName === null" :aria-label="text('themeEditor.scene.loading.scene')" data-loading-scene @update:model-value="model.setLoading({scene: $event})" />
+                <span>{{ text("themeEditor.scene.loading.scene") }}</span>
+            </div>
+            <p v-if="sceneName === null" class="theme-editor-scene__hint" data-loading-scene-note>{{ text("themeEditor.scene.loading.noScene") }}</p>
+            <SegmentedControl size="sm" :model-value="loadingIndicator" :options="indicatorOptions" :aria-label="text('themeEditor.scene.loading.indicator')" data-loading-indicator @update:model-value="setLoadingIndicator" />
+            <!-- 预览：选中的进度样式用加载页同一份样式画（host-loading.css 的 `.nb-host-indicator`），颜色取正在编辑的主题；减弱动效时静止。 -->
+            <div class="theme-editor-scene__loading-preview" data-loading-preview aria-hidden="true">
+                <span class="nb-host-indicator" :data-host-indicator="loadingIndicator" />
+            </div>
+        </section>
+
         <section class="theme-editor-scene__block" data-scene-preview>
             <h3 class="theme-editor-scene__title">{{ text("themeEditor.scene.preview.title") }}</h3>
             <SegmentedControl size="sm" :model-value="previewValue" :options="previewOptions" :aria-label="text('themeEditor.scene.preview.title')" data-preview-state @update:model-value="setPreview" />
@@ -131,6 +157,29 @@ const setPreview = (value: unknown): void => {
     margin: 0;
     color: var(--text-muted);
     font-size: var(--text-xs);
+}
+
+.theme-editor-scene__switch {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: var(--text-sm);
+}
+
+/* 预览的底与进度指示的颜色取正在编辑的主题（预览里没有加载页的 `--host-loading-*`，在这里设）。 */
+.theme-editor-scene__loading-preview {
+    --host-loading-accent: var(--accent-main);
+    --host-loading-text: var(--text-main);
+    --host-loading-background: var(--bg-panel);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 320px;
+    height: 88px;
+    border: var(--border-w) solid var(--border-color);
+    border-radius: var(--radius-control);
+    background: var(--bg-panel);
 }
 
 .theme-editor-scene__select {

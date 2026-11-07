@@ -482,6 +482,19 @@
                 "none": "This appearance has no working scene yet",
                 "remove": "Remove working scene"
             },
+            "loading": {
+                "title": "Loading page",
+                "hint": "The page shown when you open a book from the shelf, before the workbench appears. It is drawn before the app starts, so it uses the theme this browser applied last time: open the theme once after editing, and the next load shows it.",
+                "scene": "Use the scene as the loading page background",
+                "noScene": "This appearance has no scene yet, so the switch above has no effect.",
+                "indicator": "Progress style",
+                "indicators": {
+                    "bar": "Bar",
+                    "dots": "Dots",
+                    "pulse": "Pulse",
+                    "page": "Page"
+                }
+            },
             "provider": {
                 "title": "Scene provider",
                 "hint": "A plugin draws the scene; the static images above are the fallback when the provider is missing or fails.",

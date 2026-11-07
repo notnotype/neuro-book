@@ -131,8 +131,8 @@ examples/
 
 | 参考 | 位置 | 演示什么 |
 |---|---|---|
-| [theme-dusk](external/theme-dusk/package.json) | 不写代码的外置插件 | 最小的主题：只有配色和一张亮一张暗的场景图，另有一张 Agent 工作中用的场景（`workingScene`）；装上就能在主题列表里选 |
-| [theme-study](../../src/plugins/theme-study/plugin.ts)（“书房”） | 产品内置 | 完整的主题：字体、各位置的裁切、活动栏、浮层画框、手写的图标集（`icons`）、亮暗各一张场景图和一张工作态场景（`workingScene`）。它随产品提供，也当作字段齐全的参考，改字段要同步 Spec |
+| [theme-dusk](external/theme-dusk/package.json) | 不写代码的外置插件 | 最小的主题：只有配色和一张亮一张暗的场景图，另有一张 Agent 工作中用的场景（`workingScene`），加载页的进度样式用圆点（`loading.indicator`）；装上就能在主题列表里选 |
+| [theme-study](../../src/plugins/theme-study/plugin.ts)（“书房”） | 产品内置 | 完整的主题：字体、各位置的裁切、活动栏、浮层画框、手写的图标集（`icons`）、亮暗各一张场景图和一张工作态场景（`workingScene`），加载页用场景图当背景、进度样式是翻动的书页（`loading`）。它随产品提供，也当作字段齐全的参考，改字段要同步 Spec |
 | [scene-clock](plugins/scene-clock/) | 带代码的插件 | 场景图由代码画（`sceneProvider`），随钟点重画（`expiresAt`） |
 
 ## 外部插件

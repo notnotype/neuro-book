@@ -8,6 +8,9 @@ export const STUDY_ICON_NAMES = ["files", "search", "settings", "message-square"
 /** 手写的一套书页笔墨风图标，按 lucide 图标名覆盖（docs/specs/theme/skins.md 输出 16）；是 `currentColor` 的蒙版，亮暗共用同一批文件。 */
 const ICONS = Object.fromEntries(STUDY_ICON_NAMES.map((name) => [name, `assets/icons/${name}.svg`]));
 
+/** 加载页（docs/specs/theme/skins.md 输出 19）：用场景图当背景，进度指示是一张翻动的书页。 */
+const LOADING = {scene: true, indicator: "page"} as const;
+
 const SERIF = "\"Noto Serif CJK SC\", \"Source Han Serif SC\", \"Songti SC\", serif";
 
 /**
@@ -40,6 +43,7 @@ const STUDY: ThemeDeclaration = {
         frame: {line: "#8a5a24"},
         scene: "assets/study-day.webp",
         workingScene: "assets/study-day-working.webp",
+        loading: LOADING,
         icons: ICONS,
     },
     dark: {
@@ -55,6 +59,7 @@ const STUDY: ThemeDeclaration = {
         frame: {line: "#e0ac62"},
         scene: "assets/study-night.webp",
         workingScene: "assets/study-night-working.webp",
+        loading: LOADING,
         icons: ICONS,
     },
 };

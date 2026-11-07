@@ -341,6 +341,27 @@ describe("工作态场景、场景提供者与图标", () => {
         dispose();
     });
 
+    it("加载页：场景开关与进度样式写进当前明暗的声明；选回缺省（不用场景图、bar）去掉字段，loading 空了整个去掉；亮暗各一份；保存下来", async () => {
+        const {model, mine, settled, dispose} = await session();
+        await model.create();
+        await model.setLoading({scene: true, indicator: "page"});
+        expect(mine()[0]?.declaration.light.loading).toEqual({scene: true, indicator: "page"});
+        expect(mine()[0]?.declaration.dark.loading).toBeUndefined();
+        // 暗色是另一份。
+        model.appearance.value = "dark";
+        await model.setLoading({indicator: "dots"});
+        expect(mine()[0]?.declaration.dark.loading).toEqual({indicator: "dots"});
+        expect(mine()[0]?.declaration.light.loading).toEqual({scene: true, indicator: "page"});
+        // 只改一项，另一项保留；回缺省去掉字段。
+        model.appearance.value = "light";
+        await model.setLoading({indicator: "bar"});
+        expect(mine()[0]?.declaration.light.loading).toEqual({scene: true});
+        await model.setLoading({scene: false});
+        expect(mine()[0]?.declaration.light).not.toHaveProperty("loading");
+        await settled();
+        dispose();
+    });
+
     it("图标：加、对已有的名字替换、移除；最后一个移除后 icons 字段消失；非法名与位图素材被拒绝", async () => {
         const {model, mine, dispose} = await session();
         await model.create();
