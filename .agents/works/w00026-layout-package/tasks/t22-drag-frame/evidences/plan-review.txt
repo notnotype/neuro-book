@@ -1,0 +1,272 @@
+w00026 t22 计划设计审查报告（只读；worktree 与主工作区同一提交 9098df2ce）
+审查对象：.agents/works/w00026-layout-package/tasks/t22-drag-frame/plan.md
+
+========================================================================
+1. 每帧顺序的前提不成立：LiveDrag 的 tick 永远排在手势的 publish 之前，卡片的写会先于 elementsFromPoint 的读
+========================================================================
+严重程度：重要    类别：正确性（计划的核心目标“每帧 1 次样式重算”达不到）
+位置：计划“规则一”第 40 行；live-drag.ts:131-133（tick 第一行重新 requestFrame）、:171（trackPointer 只记坐标）；drag-gesture.ts:297-299、:435（schedule 在 pointermove 里排 rAF）；drag-session.ts:80-85（topElementAt）
+
+现象：
+- 计划写“pointermove 里只读（elementsFromPoint、纯函数判定），写放到它的末尾或 rAF”。实际 pointermove 里什么都不判：drag-gesture.move 只记 point 并 schedule() 排一个 rAF，判定（resolve -> topElementAt -> elementsFromPoint）发生在这个 rAF 里的 publish()。
+- LiveDrag 另有自己的帧循环：tick 的第一行就 `frame = host.requestFrame(tick)`，即第 N-1 帧的 rAF 阶段就排好了第 N 帧的 tick；手势的 publish 是第 N 帧输入阶段（pointermove）才排的。Chrome 按注册顺序调 rAF，所以每一帧都是 tick 先、publish 后。
+- 因此计划把“帧循环只写 host.writeCard(rect)”（live-drag.ts 改造）和 moveLifted 的直接写放在 tick 里，就仍然在同一帧内先于 publish 里的 elementsFromPoint，读到的是脏样式，强制 1 次样式重算（可能带布局，卡片尺寸还在缩时 width/height 在变）。再加帧自己那次就是 2 次，目标“每帧 1 次”不成立。
+- 测量文件 frame-cost.txt 的“topElementAt@drag-session.ts:12 < resolve < evaluate < publish：396 次/400 次移动”正是这个顺序造成的；计划推断“前面留下了脏样式”是对的，但没有看出脏样式的来源是自己（tick 的写），改完之后这个来源依然在。
+- 计划还说“每帧先换预览、再写卡片：从标签拿起时第一帧就判到自己的标签条，不会先冒出一帧卡片”。这一句靠的是拿起时 start() 里同步 publish()（drag-gesture.ts:378），不是靠每帧顺序；每帧里 offer 发生在 publish（第 N 帧），tick 在第 N+1 帧才读到它，一直慢一帧。
+
+如何核实：
+- 读 live-drag.ts:131-133 与 drag-gesture.ts:297-299、:435；或在 diag-drag-frame.mjs 里给 rAF 回调打序号（requestAnimationFrame 包一层）看 tick 与 publish 的先后。
+- 先写 workbench-drag-cost.e2e.ts（计划切片 1 的第一步）：按计划实现 writeCard/moveLifted 后它会测到约 2 次/帧而不是 1 次。
+
+建议改法：把一帧的工作收成一个入口，不要两个 rAF 循环谁先谁后。例如手势在 publish 之后（同一个 rAF 回调内，evaluate 之后）调宿主的 `frame(now)` 钩子，LiveDrag 的 offer 与卡片写都在这里：读（resolve）-> 换预览决定 -> 最后写卡片；指针不动时手势不排帧，LiveDrag 只在有定时器（150ms 稳定、缩放收敛）需要时才自己排 rAF，并且排在手势之后。计划必须写明谁拥有“这一帧”，并把 offer 到 tick 的一帧延迟也一并去掉（候选 150ms 的计时因此少一帧误差，可忽略，但“立即换”的自己标签条要不要再等一帧要定下来）。
+
+========================================================================
+2. displayKey“缺省用 actionKey”会让一批反馈冻住：actionKey 是提交比较键，不是显示键
+========================================================================
+严重程度：重要    类别：正确性
+位置：计划第 44 行；layout-drag.ts:633（actionKey: inPlace 时为 null）；layout-drop.ts:72（layoutDropKey: float 恒为 "float"）；explorer/web/actions/drop.ts:49-68（dropKey 注释“只含决定结果的字段，插入线与标签的锚点只用来画反馈，不算”）；ExplorerTree.vue:293、:236
+
+现象：计划让 state 只在 displayKey 变了才发布，缺省 displayKey = actionKey。三个使用方都不满足“actionKey 变了 = 显示变了”：
+(a) 工作台（落点指示手感）：浮动落点的 action 是 {kind:"float", rect}，layoutDropKey 把 rect 抹掉成 "float"；而指示手感下反馈画的是 drop.preview.areaRect（floatDrop 每帧按指针算的新窗矩形，layout-drag.ts:372-377、WorkbenchShell.vue 的 dropFeedback 与 WorkbenchDragFeedback 的 preview）。key 不变 -> 不发布 -> 指示框冻在进入浮动那一刻的位置。同理，编辑组标签条原位（inPlace）时 actionKey 为 null：紧挨自己的前后两个插入位都是 null，插入线（preview.indicator）不再随指针在这两个位置之间移动（layout-drag.ts:316）。分区高亮 sectors.active 由 action 决定，不受影响。
+(b) 资源树：dropKey 明确不含 line 与 anchor（插入线所在行、缩进层 depth、标签“放到某项之后/之前”的 side）。同一目标、同一 before，指针横向移动改变 depth 或 side 时 key 不变，按缺省规则就不发布，`drag-hover` 不再发给控制器（ExplorerTree.vue:327-330 的 sync watch），控制器写回的 props.drag.action 不更新，插入线与拖影标签冻住。
+(c) 资源树拖到树外（editor 种）：drop.over.drop 是工作台 fileDrop 的结果，浮动时同样是恒定的 "float" key，外壳 shownFileDrop 里的指示框同样冻住。
+- 类型也对不上：计划写 displayKey(drop): string，actionKey 是 string | null；null 在这里是“没有可提交的动作”，不是“显示没变”。
+
+为什么是问题：这些都是现有 e2e（workbench-dnd 落点指示、files-explorer 的插入线）会测到的行为，且发生在切片 1，一次拆掉“每次都发布”这个旧假设的时候。计划没有逐个使用方列出“要显示的东西”是哪些字段。
+
+如何核实：读上述位置；或在 Lab 的 DragSessionScene 里把 publish 去重后拖到浮动区域看指示框。
+
+建议改法：
+1. displayKey 不要有缺省，三个使用方各写：工作台 = 动作键 + preview.areaRect 的取整 + indicator + sectors.active + inPlace + noPreview（或直接 JSON.stringify 掉 sectors.rect 以外的 preview）；资源树 = dropKey + line + anchor。
+2. 或者反过来更省：把“每帧在变的几何”（浮动框的 areaRect、拖影、卡片）一律按规则一走直接写、不进 state，剩下的 state 才用 actionKey 加 inPlace 去重。计划目前只处理了卡片、拖影、整窗，没处理指示手感的浮动框与资源树的树外浮动框。
+3. 手势层只负责“相同的 key 不重复发布”，不替宿主猜 key；缺省值取不到时应当是每次都发布（保持旧行为），而不是 actionKey。
+
+========================================================================
+3. 活动栏条目包 TransitionGroup 不会动：条目是 Tooltip 组件，根是 Fragment，TransitionGroup 直接跳过
+========================================================================
+严重程度：重要    类别：正确性（“别的图标滑开”这条验收做不出来）
+位置：计划“规则三”第 99 行（“条目包一层 TransitionGroup，写法同 TabStrip”）；WorkbenchToolStrip.vue:129-142（v-for 的是 <Tooltip>）；nb-ui components/feedback/Tooltip.vue:67-91；node_modules/@vue/runtime-dom/dist/runtime-dom.cjs.js:1398（`child.el instanceof Element`）
+
+现象：
+- TabStrip 的 TransitionGroup 子项是普通 <div class="nb-tab-frame">，所以能量位置。WorkbenchToolStrip 的子项是 <Tooltip>（TooltipProvider -> TooltipRoot -> PopperRoot 的 renderSlot），组件根是 Fragment，vnode.el 是片段起始锚点（文本节点）。
+- Vue 3.5.39 的 TransitionGroup 在 render 里只记录 `child.el instanceof Element` 的子项（runtime-dom.cjs.js:1398）：Tooltip 子项一个都不记，onUpdated 里 prevChildren 为空直接返回，不会有位移动画；setTransitionHooks 也落在 Fragment 上。
+- 我在真实 Vue 3.5.39 + jsdom 里做了对照实验（/tmp/review-w00026-t22-design/exp1.mjs）：同样三个子项换序，子项是 Fragment 根组件时 getBoundingClientRect 调用 0 次且打印 “Component inside <Transition> renders non-element root node that cannot be animated” 警告；子项是普通元素时 6 次（正常记录位置并播放 move）。
+
+为什么是问题：计划验收映射写了“活动栏上……别的标签滑开”。按计划写法，图标会瞬移；还会在开发态每个条目刷警告。风险一节没有提到这条。
+
+如何核实：node /tmp/review-w00026-t22-design/exp1.mjs frag 与 plain（在 worktree 里运行，使用其 node_modules）。
+
+建议改法：TransitionGroup 的直接子项必须是元素。做法二选一：(a) 子项改成 <div class="workbench-tool-strip__frame" :key>，Tooltip 放进它里面（像 TabStrip 的 .nb-tab-frame）；(b) 让 Tooltip 只做 as-child 包装不产生 Fragment（改 nb-ui，波及面大，不建议）。同时把 data-tool-entry 的位置保持在 IconButton 上，别让量取代码（stripIndex 快照）受影响。
+
+========================================================================
+4. “只在显示变了才发布”没有定义去重记忆的重置：撤下落点（withdraw/invalidate）之后同一个键不再发布，反馈消失但松手仍会提交
+========================================================================
+严重程度：重要    类别：正确性 / 不变量
+位置：计划第 44-46 行；drag-gesture.ts:285-310（publish 与 withdraw）、:312-323（drop 比较 shown）、:468-474（scrolled、invalidate）；layout-drag.md 输出 12 与第 62 行“`last` 是最后发布的状态”
+
+现象：
+- 现在 publish() 每次都 `host.publish`，所以 withdraw 之后指针再动，新的一次 publish 一定把 drop 重新发出去（drag-gesture.ts:293-294）。
+- 计划引入“键没变就不发布”。如果记忆是“上一次发布过的 displayKey”，withdraw 发布了 `drop: null` 之后这个记忆还是旧键：指针回到原来的落点时 evaluate 出同一个键 -> 被去重 -> state 保持 `drop: null`，但手势内部 `shown` 已更新、`withdrawn` 已清为 false（publish 里先改内部状态再发布，:291-293）。结果是屏幕上没有任何落点反馈，松手却会按 shown 提交。输出 12 的“撤下期间放下不提交”这条保护被绕开，用户看不见的提交最糟。
+- 资源树的 scroll:"withdraw" 与 `invalidate()`（rows 变了）都会走这条路，是每次滚动资源树都会触发的常规路径，不是边角。
+- 同样，`ended(end, last)` 的 `last` 现在由 publish 写入（:293），去重后“最后发布的状态”与“最后判定的状态”会分叉，layout-drag.md 第 62 行“`last` 是最后发布的状态”这句合同要改写，计划的 Spec 改动清单只写了 `state` 发布时机、`displayKey`、`onPointer`、`pointer()`，没有这条。
+
+如何核实：读上面位置；在 drag-gesture.test.ts 加一个用例：resolve 恒返回同键 -> 移动 -> invalidate() -> 再移动，断言 state 的 drop 回到非 null（按计划写法会失败）。
+
+建议改法：去重记忆放在“已发布的最后一份”上（published），withdraw、start、finish 都把它置空，下一次 publish 与它比较；不要和 `shown`（内部）混用。把“相同键不发布”只当作对 host.publish 的省略，`last` 与 `shown` 照旧每次更新，并在 Spec 里写明 `last` 是最后判定的、不一定发布过。该用例写在 drag-gesture.test.ts，不要只靠 e2e。
+
+========================================================================
+5. 拿掉 state.point 的接口缺口：键盘拖动的拖影、onEnd 时的 pointer()、activate 的起点、第四个使用方
+========================================================================
+严重程度：重要    类别：正确性 / 接口与合同
+位置：计划第 44-47 行与第 172 行；drag-gesture.ts:244-266（finish 先置 active = null 再调 ended）、:486-497（键盘起点）、:391（键盘停靠点写 current.point）；drag-session.dom.test.ts:235、drag-gesture.test.ts:697-724（键盘 state.point）；WorkbenchShell.vue:518-522（拖影）；lab/web/fixtures/editor-scene/EditorAreaFixture.vue:208、:244（第四个使用方）；layout-drag.ts:563-572（lastPointer/onPointerSeen）
+
+现象：
+(a) 键盘拖动没有指针事件。现在拖影在键盘停靠点上是靠 `state.point`（moveCursor 写 current.point，WorkbenchShell dragGhost 读它）。计划把 point 拿掉、拖影改由 `onPointer(point)`“每次移动调一次”驱动：键盘光标移动不是“移动”，拖影会停在原处或根本不出现，而 drag-gesture.test.ts 里有键盘 `point` 的断言（drag-session.dom.test.ts:235，drag-gesture.test.ts:697-724）。计划没有说 `onPointer` 在键盘光标移动时是否也调。
+(b) `pointer()`“取最新位置，不响应”用在 ExplorerTree 的 onEnd 里（飞回原行要用松手处）。但 finish() 先 `active = null` 再调 `host.ended`（drag-gesture.ts:247、:254），`pointer()` 若读 active 里的 point，在 onEnd 里就是空的。它必须是跨 finish 的变量（至少保留到本次 ended 回调返回），计划没写。
+(c) 计划说“使用方只有仓库内三处（工作台、资源树、Lab）”。实际还有 EditorAreaFixture（Lab 的 editor-scene）：它自己 createLayoutDrag，读 `current.point` 画拖影，并提供 `previewFloat`/`floats` 选项。拿掉 point、改整窗移动为 moveFloat 之后它会编不过或功能退化（整窗移动没有 NestedGrid 可直接写）。DropFeedbackOverlayFixture 的注释也说它是 createDragSession 的验收场景。
+(d) 计划第 47 行让资源树“用 onPointer 写自己的 ref”，与规则一“快的数据不进任何 ref”自相矛盾：ExplorerTree 是虚拟列表大组件，每次 onPointer 写 ref 就是每帧重渲染整棵树（现在是每帧发布 state 造成的同样后果，改后仍然一样）。资源树的拖动不在 workbench-drag-cost 的验收里，所以不会被发现。
+(e) 拖影“出现的第一帧”：ghost 是 v-if 元素，在第一次发布后的渲染里才创建，之前的 moveGhost 调用没有元素可写；计划对 moveLifted 写了“frameStyle 读同一个普通变量”，但对 moveGhost 和资源树拖影没有对应的初值来源。
+(f) 顺带：LiveDrag 拿起时的坐标来自 layout-drag.ts 里常驻的两个 window 级 pointermove/pointerdown 监听（lastPointer、pressedAt），原因是 `activate` 不带坐标（layout-drag.ts:563 注释）。新增的 `pointer()` 正好能替代它们，计划没有利用。
+
+如何核实：grep -rn "createDragSession\|createLayoutDrag\|\.point" packages --include='*.vue' --include='*.ts'；读 drag-gesture.ts:244-256。
+
+建议改法：
+1. `onPointer` 同时覆盖键盘光标位置（moveCursor 与起点），或者保留 `DragState.point` 只给键盘；先定一种并补测试。
+2. `pointer()` 实现为适配层/手势里长期持有的“最后位置”，finish 之后到下一场按下之前仍可读。
+3. 把 EditorAreaFixture 列入使用方，Lab 场景的拖影与浮动窗路径一并改；资源树的拖影也走直接写（`:style` 之外的 transform），不要为它新开一个每帧写的 ref。
+4. activate 增加坐标参数（`activate(source, {keyboard, point})`），删掉 lastPointer 与 onPointerSeen 两个常驻监听。
+
+========================================================================
+6. 帧开销判据写成无条件的 Spec 行为，但布局过渡与卡片缩放收敛期间本来就每帧多次重算与布局；e2e 容差没有可操作的定义
+========================================================================
+严重程度：重要    类别：测试 / 文档
+位置：计划第 40 行（“卡片尺寸稳定后布局 0 次”）、第 130 行（Spec：“移动中每帧至多 1 次样式重算，指针不动 0 次”）、第 153 行（容差写在用例里）；NestedGrid.vue:523-528（transform/width/height 的过渡）；live-drag.ts:17、:121（缩放指数逼近）
+
+现象：
+- 预览一换，邻居按 `--motion-layout` 约 470ms 过渡 transform、width、height（NestedGrid.vue:523-528）。width/height 的过渡在主线程上，每帧都有样式重算和布局（动画 tick 本身就计入 RecalcStyleCount）。60Hz 下一次换预览之后约 28 帧都不满足“至多 1 次”，指针完全不动也不是 0 次。
+- 卡片缩放是指数逼近，约 90ms 时间常数，几百毫秒内 width/height 每帧都在写（布局），计划自己也承认“尺寸稳定后”才 0 次，但写进 Spec 的那句没有这个前提。
+- 在 TabStrip/新的 ToolStrip 里候选换预览时，TransitionGroup 仍会 getPosition + hasCSSTransform（强制重算 3 次级），这是计划接受的（“不做”一节），也不符合无条件的“至多 1 次”。
+- e2e：路径若跨越多个候选，平均每帧开销会被这些窗口主导；若停在一个候选里，又测不到“拖过不同落点”。计划只说“容差写在用例里”，没有区分阶段，容易写成脆的用例。
+
+如何核实：读 NestedGrid.vue:523-528；在 diag-drag-frame.mjs 的 dragMoving 里让路径跨两个面板（预览会换），看 recalc/frame 是否回到 5 次以上。
+
+建议改法：
+- Spec 与验收改写成带前提的判据：“候选不变、预览过渡与卡片缩放结束之后，移动中每帧至多 1 次样式重算；指针不动 0 次”。
+- 用例分阶段：A 在一个候选里（来源是 `previewKey` 稳定、`data-moving` 无）连续移动，断言每帧 <= 1（容差 +0.3）；B 指针不动，断言 0；C 跨候选只断言“换预览那一帧之外没有额外重算”，或不量。用 `previewKey` 与 `data-moving` 等可观察状态定阶段，不按时长。
+- 计划“未验证边界”一节已承认 60Hz 与 144Hz，这条再补一句：两者的差别是每帧次数不变、每秒次数乘以刷新率，所以判据用“每帧”是对的，别写成每秒。
+
+========================================================================
+7. 几何失效条件：标签条滚动会被预览自己引起（TabStrip.reveal），而且会话没有把滚动、尺寸变化交给宿主的接口
+========================================================================
+严重程度：重要    类别：正确性 / 接口
+位置：计划第 63 行；TabStrip.vue:116-134（reveal 在 active 变化时自己改 row.scrollLeft）；drag-session.ts:159-165、:181（root 上 capture 的 scroll 监听）；drag-gesture.ts:468-473；tab-strip-geometry.ts:78-83、:91-120；layout-drag.ts:144（frozen）
+
+现象：
+(a) 规则三把来源吸收进别人的标签条，并且“该成为活动标签的照样成为活动标签”。TabStrip 对 `active` 变化会 reveal(id)：等下一帧后改 `row.scrollLeft`。目标标签条是溢出的（很多标签，或窄的工具面板头）时，吸收那一刻它就会自己滚动。计划的失效条件之一是“标签条自己滚动了”，于是预览自己引起的滚动会作废刚量的快照；重量时标签条里已经有来源的占位（隐藏但占宽），而 measureTabStrip(strip, exclude) 只排除来源，其余标签被占位挤开了位置，插入位与下标换算（stripIndex）都可能偏一格 -> 候选换 -> 预览又变 -> 再滚。这是一个可能的振荡，计划没有说重量时如何排除占位的影响，也没有规定自己引起的滚动要不要忽略。
+(b) 会话现在只把滚动当成“重新判定”信号（`gesture.scrolled()` -> schedule），不告诉宿主是谁滚的；root 上 capture 监听会收到任何内容里的滚动（编辑器、日志视图在预览过渡期间 resize 就会滚）。宿主要“标签条自己滚动了才失效”，需要会话新增回调（带 target），计划的接口清单（displayKey、onPointer、pointer()）里没有；窗口尺寸变化同理（`resized`）。
+(c) 指示手感（非实时）下“容器尺寸变了”的处理计划写成括号里“实时布局下整场取消”，指示手感应当是“重量”（输出 32），要明说。
+
+如何核实：读上面位置；真实运行时复现需要 e2e：把一个溢出的编辑组标签条作为目标，拖入，观察 row.scrollLeft 与 data-live-preview 是否反复变化（我没有跑，需主 Agent 跑）。
+
+建议改法：
+- 快照里把“占位”也作为成员保留（或在重量时 exclude 来源且给占位的矩形补洞），并规定：预览引起的滚动（候选换预览后一帧内、reveal 触发）不算失效，只有用户滚动（指针在标签条上的 wheel/拖动滚动）才失效；或者干脆不重量，改为按滚动量平移快照（记 scrollLeft 起点，滚动差量加到成员 x 上）。
+- 会话增加 `onScroll(target)`、`onResize()` 之类的通知，别让宿主从 resolve 里猜原因。
+- 指示手感：尺寸变了重量，实时布局：取消。
+
+========================================================================
+8. 卡片缩放设置 panel 档与“来源面板”被吸收后指谁没有定义；卡片拿起时的矩形量到的可能是过渡中间值；wantsCard 的措辞会误读
+========================================================================
+严重程度：重要    类别：正确性 / 与已定设计一致
+位置：计划第 89-91 行、第 115-120 行；live-drag.ts:99-129、:106-113（homeRect、cardSize 只在 cardSize === null 时量一次）；layout-drag.ts:184-188
+
+现象：
+- 开发者决定 3 的两档：strip 档“离开标签条就缩”，panel 档“离开面板才缩（今天的行为）”。panel 档今天的“面板”是已提交的来源面板 A（homeRect）。计划又规定“卡片从哪拿起：此刻显示着它的那块面板，只在拿起那一刻量一次”，吸收进 B 再离开标签条时卡片是从 B 拿起的，homeRect 变成 B：panel 档下卡片在 B 的整块上是 B 的原大小，盖住 B 自己的内容，直到离开 B 才缩。这与“离开来源面板才缩”的字面意思不同，也不是开发者想的样子，计划没有逐档写出吸收后的行为。
+- 量一次的时刻：吸收（预览换成真实结果）会让布局动 470ms；在这期间指针离开标签条重新拿起卡片，`host.panelRect(panel)` 读的是 `[data-shell-card]` 的 getBoundingClientRect，是过渡中间值（`settleMotion()` 只在 activate 调用，live-drag.ts 里没有），起点大小和 grab 比例都会偏。今天不会发生，因为拿起总在预览动之前（来源面板是静止的）。
+- 第 89 行“已显示的落点是标签条（`inPlace`，或预览摆得出来）就不要”里的 `inPlace` 是 LayoutDragDrop.inPlace 字段，它对“放回来源面板正文中央”也是真（layout-drag.ts:269-272 previewOf 的 inPlace 分支），今天这种情况要有卡片（wantsCard 只豁免来源自己的标签条）。照字面实现会让指针在来源面板正文里时卡片消失。应当写成“落点动作是 strip”（再加编辑器 previewable 的条件），不要用 inPlace。
+- 另：只写标题的头的面板（titleOnly）“一拖就缩”：strip 档里 `inHome` 全尺寸分支需要整个删掉，只剩 compact；计划没写这一点，live-drag.ts:116-120 的 inHome 逻辑保留的话标题头面板一拖仍是全尺寸。
+
+如何核实：读上述位置；用例：strip/panel 两档各量吸收后离开的卡片尺寸（计划验收映射的第 3 条只量“缩放时机与设置”，没有吸收后的组合）。
+
+建议改法：
+- 计划里把两档的行为各写成一张“状态 -> 卡片尺寸”表，包含吸收后再拿起；panel 档的“面板”定义成“指针开始这一场时的来源面板”（固定，不随吸收变），拿起时的矩形取目标的终态矩形（用 previewPanelRects 对预览文档纯计算，layout-drag.ts 的 panelRectIn 已有），不读过渡中的 DOM。
+- wantsCard 的判据写成“已显示的候选动作是 strip 且预览真的摆出来了（shownAction 非空）”。
+- 验收映射补：strip/panel 两档 × 吸收后离开。
+
+========================================================================
+9. 直接写样式的目标：元素怎么找、一个浮动窗有多个内容元素、命名撞车、拿起第一次写与 Vue 渲染的先后
+========================================================================
+严重程度：建议    类别：代码质量 / 正确性
+位置：计划第 51-53 行；NestedGrid.vue:388-436（模板）；useContentLayer.ts:80-87；layout-doc-store.ts:241（moveFloat 已存在）；nested-grid.md
+
+核实过的（没有问题）：
+- Vue 3.5.39 的 patchStyle（node_modules/@vue/runtime-dom/dist/runtime-dom.cjs.js:445-483）对对象样式：先清 prev 里不在 next 的键，再对 next 的每个键无条件 setStyle，不与 DOM 现值比较。所以重渲染会把 `frameStyle` 的值写回；计划“frameStyle 读同一个普通变量”因此成立：只要变量先于渲染写好，重渲染不会跳。
+- 落地：`watch(lifted key)` 是 pre 刷新，land() 在渲染之前执行；以直接写入的 inline transform 为过渡起点没有问题（起点取上一次样式计算的值）。
+
+要补的：
+1. 元素怎么找：计划没写。NestedGrid 可以嵌套（视图里再放 NestedGrid，叶 id 可以与外层相同），querySelector(`[data-leaf=...]`) 会命中里层的。用 `:ref` 函数登记（key -> element），或限定 `:scope >`。
+2. 浮动窗一个叶对应多个内容元素（每个标签一个 .nb-grid-content，非活动的 parked 但仍有矩形），“写外框、内容、手柄三个元素”要写成“外框 + 该叶的全部内容元素 + 手柄”；放下时 Vue 会重写全部，所以漏写的只影响拖动中的视觉。
+3. 拿起的第一次写与渲染的先后：tick 里 `card.value = {key}` 随即 `writeCard(rect)`，这时元素还带着 `data-moving`（渲染还没把它去掉）。若此刻 inline transform 先变，之后第一次样式计算前不会有渲染，通常没事；但如果拿起发生在布局过渡中（吸收后再拿起，见第 8 条），要确认 data-moving 去掉先于样式计算。建议 writeCard 在 `nextTick` 之后的第一帧才写，或者在 NestedGrid 里把“lifted 的 key 变化”和“第一份矩形”放在同一个 expose 调用里（`lift(key, rect)`）。
+4. 命名：store 里已有 `layout.actions.moveFloat(panel, position)`（键盘移动，落盘），NestedGrid 新的 `moveFloat(id, rect)` 只是视觉。同名不同义，容易接错，改叫 `paintFloat`/`placeFloat`。
+
+========================================================================
+10. “画什么只在一处决定”言过其实，而且没列出可以删掉的部件；有更省的写法
+========================================================================
+严重程度：建议    类别：代码质量（开发者决定 6：让部件变少）
+位置：计划第 107-109 行、第 87-93 行、第 55 行；live-drag.ts:93-97；layout-drag.ts:162-177、:189-193、:563-572；WorkbenchShell.vue（dragGhost、liveSectors、mergeRect 等）
+
+现象：
+- presentDrag 的输入包含“已显示的落点、预览文档”，但计划又保留 LiveDrag 里的 wantsCard、立即换、拿起位置三条判断，以及 layout-drag.ts 里的 candidateDoc（表格形式但仍是回调）。结果“画什么”仍在三个文件：LiveDrag（要不要卡片）、layout-drag（预览文档）、drag-presentation（其余）。把 wantsCard 的结论作为 presentDrag 的输入只是换了位置，没有减少决定点。
+- 部件对账：新增的有 drag-presentation.ts、DragGeometry、displayKey、onPointer、pointer()、moveLifted、moveFloat、moveGhost、writeCard、beginFloatMove、slotPanel、新设置、ToolStrip 的 placeholder/animateMoves 和 TransitionGroup；明确删的只有 CARD_STILL_PX、frozen、noPreview、indicatorFrame、mergeLine。计划开头说“代码里已经有四处在绕这个问题”，但 liftedKey（Surface）、viewActionsOf 里的“不读画出来的那份”注释与做法、LiveDrag.trackPointer、layout-drag 的 lastPointer/onPointerSeen/pressedAt 没有说要删或保留，改完后它们不再有存在的理由，不写出来就会留下半个旧机制（正是开发者说的“补丁感”）。
+- displayKey 这个新选项本身可以不要：layout-drag 已经为同一个动作缓存了同一个 LayoutDragDrop 对象（previews Map），其余的（strip、bar、float）每次新建。让宿主在 `resolve` 里对“显示内容相同”的结果返回同一个对象，手势用 Object.is 比较 drop 引用去重。这样去重的知识在宿主（它知道哪些字段会被画出来），第 2 条的冻住风险（actionKey 不是显示键）也一并消失，手势不需要新选项，也不会有 displayKey 与 actionKey 两个键该不该合并的问题（开发者重点 2 的问题）。
+
+如何核实：grep -n "trackPointer\|onPointerSeen\|lastPointer\|pressedAt\|liftedKey\|viewActionsOf" 对照计划“删掉”清单。
+
+建议改法：计划增加一节“删除清单”，逐项列；presentDrag 的范围改成它真正吸收的东西（Shell 的十二个 computed），不要说“在一处决定”；考虑 Object.is 去重替代 displayKey。
+
+========================================================================
+11. Spec 与文档改动清单漏项；指示手感也改成“拿起时量一次”是行为变化而不是纯重构
+========================================================================
+严重程度：建议    类别：文档 / 与已定设计一致
+位置：计划第 128-135 行；workbench-layout.md 输出 25（“按这一刻看到的矩形判（实时布局按拿起时的矩形）”）、输出 32、输出 38 的“工具面板的头按‘更多’分档，换序直接到位”“活动栏的落点不预览”、验收 22 第三句（“视图并入别的面板……目标的头与活动标签不变”）；layout-drag.md 第 62、125-127 行
+
+现象：
+- 清单列了输出 22、30、38 与验收 22，没有输出 25 与 32。规则二让指示手感也只量一次，输出 25 的“按这一刻看到的矩形判”在指示手感下就不再成立；输出 32 的“尺寸或滚动变了按当前位置重算”要对应写成失效条件。这是对已定行为的收窄，应当明说并给理由，不应混在“重构”里。
+- 指示手感下一次拿起可以持续数秒：编辑器标签的标题（加载中、脏标记）、面板头动作（视图实例异步加载后 TitleActions 出现）都可能改变标签宽度和“更多”分档，快照里的标签矩形就过期，插入位偏一格。现在每次移动都量，不会偏。至少要说明接受这个退化，或加“头的实际宽度变了就失效”。
+- 验收 22 第三句与输出 38“并入……目标的头与活动标签不变”被规则三整体推翻（吸收进别人的标签条后目标的活动内容换成来源）。计划写“其余现有用例改写，不放宽”，应当点名这句要改成什么，否则实施者无法区分“改写”和“放宽”。
+- layout-drag.md 第 62 行（`last`）、第 125-127 行（逐帧“发布”）、第 160 行（sync watch 时序）需要随去重改写，清单只提了 `state` 的发布时机。
+
+建议改法：补上述各条到 Spec 清单；指示手感的失效条件列全（文档变、容器尺寸变、标签条滚动、头尺寸变）。
+
+========================================================================
+12. 活动栏条目的占位位置与下标换算在“这一列有多个面板”时对不上
+========================================================================
+严重程度：建议    类别：正确性（边界）
+位置：计划第 95、99 行；WorkbenchShell.vue:296（toolEntries = sidebarColumnPanels 的全部标签）；layout-drag.ts:229-232（sidebarEntries 只认 sidebar 的标签）；workbench-layout.md 输出 22（“这一列里别的面板的条目不算插入位”）
+
+现象：活动栏上段列的是侧栏这一列所有面板的标签（按树序），插入判定只认 `sidebar` 面板的条目，下标按 `sidebar.tabs` 换算。预览改成真实结果后，占位出现在“这一列的合并顺序”里，位置由 sidebar 的标签下标决定，而不是指针所在位置。列里 sidebar 之后还有别的面板的条目时，指针在这些条目下面，判定为“插到 sidebar 最后”，占位却出现在它们上面；邻居滑开的方向与指针位置对不上。
+
+如何核实：在 Lab 里造一个侧栏这一列有两个面板的文档，拖一个别处的工具视图到活动栏最下面（我没有跑，主 Agent 可在 Lab 验）。
+
+建议改法：判定和预览一致的话，活动栏上段的预览顺序要按“sidebar 的标签插入到 sidebar 条目所在的位置”画，或者在计划里明说这一列有多个面板时活动栏退回插入线（也是计划第 105 行退路的一种）。
+
+========================================================================
+13. DragGeometry 的量取时机与寿命：第一次判定先于渲染后重量；文件拖动没有“一场”的开始与结束
+========================================================================
+严重程度：建议    类别：正确性 / 资源
+位置：计划第 63-67 行；layout-drag.ts:432（dropAt 里 `live.active && frozen === null` 就地 freeze）、:617（activate 里 nextTick 后再 freeze）；fileDrop（:457，资源树的会话，没有 activate/onActiveChange）
+
+现象：
+- 现在拿起时有两次量取：start() 里同步 publish 的第一次 dropAt 就地 freeze（此时进行中的过渡可能还没把终点写进 DOM，settleMotion 的渲染要等 nextTick），activate 里再 `nextTick -> freeze` 覆盖。计划“拿起时量一次”没说这个顺序；若只在 activate 里同步量，量到的是过渡中间值；若放到 nextTick，第一次判定没有几何。
+- 文件拖动：计划说“第一次判定时量，同样的失效条件”。没有人负责在这一场结束时清掉它。下一场文件拖动会读到上一场的快照（文档、尺寸没变就不失效），而两场之间面板头可能因为视图加载、标签增减已经变了。需要在 fileDropHost.show(null)（资源树结束时调）里清掉，或按 `doc` 引用 + 容器尺寸 + 一个“场号”做键。
+
+建议改法：几何放进一个对象 `DragGeometry` 带 `valid(doc, extent)`；pointer 拖动在第一次判定时若 live 且有进行中的过渡，先 settle 再量并同步（用 `motion.stop()` 后 `finishTransitions` 已同步生效，写终点矩形这一步若必须等渲染，则第一次判定不发布）；文件拖动在 show(null) 或 resolve 返回 null 且指针离开工作台时失效。
+
+========================================================================
+14. 与 Trellis 对照：它按“当前预览文档的布局矩形”判，不读 DOM；这里是旧的冻结几何，吸收后画面与判定的差会更常见
+========================================================================
+严重程度：建议    类别：上游选择 / 待确认
+位置：Trellis packages/core/src/runtime/drag.ts:172-176、:226-231、:515-530（`host.lastRects`、`pdoc`）；计划第 170 行（风险：画面和判定差一点）；workbench-layout.md 输出 38“容器尺寸变了整场取消：基准没了，也没法从预览里量回来”；layout-drag.ts:487-491（panelRectIn 已能纯计算任意文档的面板矩形）
+
+现象：Spec 输出 38 冻结几何的理由是“预览里量不回来”，但 `panelRectIn(doc, panel)` 已经用 `previewPanelRects` 对任意文档纯计算面板矩形（并入盖层就在用）。吸收进别人的标签条之后，来源是那块面板唯一的标签时来源面板会消失、邻居整块变大，这种情况比以前常见（以前只有并入中央才有），画面与判定的差会明显（计划风险一节自己说“这次不改”）。Trellis 的做法是用当前预览文档算出的矩形判定，标签条里才读 DOM（量标签）。
+
+没有记录的理由：我在 ADR、Spec 与 Task 记录里没有搜到“面板级判定为什么必须用拿起时的矩形而不能用预览文档的纯计算”的论证，只有“量不回来”这一句，而这一句对面板级不成立（对标签条内部成立）。
+
+建议（候选，交开发者决定，不是结论）：面板级判定（缝、边缘、正文）改用“已显示预览文档”的纯计算矩形，标签条仍用拿起时的快照；代价：需要判定输入随预览文档变（preview 不再“不进输入”，输出 25 的“预览不进输入”要改），粘滞（stickyDrop）的空位逻辑要核对，测试要覆盖。此项放在“待确认项”。
+
+========================================================================
+15. 计划没有“待确认项”一节，但至少有三件事需要开发者定；验收映射缺少几处单元用例
+========================================================================
+严重程度：建议    类别：文档 / 测试
+位置：计划全文；验收映射第 149-157 行
+
+待确认（应列在计划里）：
+1. panel 档卡片尺寸在吸收后的行为（第 8 条）。
+2. 指示手感也冻结几何的退化（第 11 条）。
+3. 面板级判定是否随预览文档（第 14 条）。
+4. 吸收会把目标面板当前活动的内容换成来源内容（预览期间目标原来显示的内容被停放、变空白）：开发者说“直接当做被当前面板吸收处理”，但没有说预览期间目标的原内容要被藏起来；这与输出 38 之前“目标的头与活动标签都不变”的并入设计相反，值得明确问一次。
+
+测试缺口（计划只列了跑哪些文件，没列新增的用例）：
+- drag-gesture：去重与 withdraw 后恢复（第 4 条）、onPointer 在键盘光标上、pointer() 在 ended 里（第 5 条）。
+- NestedGrid.dom.test：moveLifted 写入后触发无关重渲染，inline transform 不跳；lifted 置空后 land 的起点；moveFloat 写三类元素、取消写回。happy-dom 能测这条（不依赖真实布局）。
+- WorkbenchToolStrip：TransitionGroup 的移动真的发生（第 3 条），这条必须在真实浏览器里验，jsdom/happy-dom 的 getBoundingClientRect 恒为 0。
+- 活动栏：条目被预览移除后指针捕获不丢（手势用根捕获，应当没问题，但要有一条用例盯住）。
+
+========================================================================
+未发现问题的方面（核对过、仔细检查后没有发现）
+========================================================================
+- Vue patchStyle 与直接写样式抢元素：读了 runtime-dom 3.5.39 的实现（无条件重写 next 的每个键、清 prev 里多余的键），计划“frameStyle 读同一个普通变量”的做法在重渲染时不会跳，落地以 inline 值为过渡起点也成立（见第 9 条里的“核实过的”）。
+- 指针捕获下的悬停写：会话在 hostEl 上取捕获，NestedGrid 根上的 useSashGesture.onPointerMove 与 WorkbenchSurface 的 pointerover 在捕获期间收不到边界事件（它们是 hostEl 的后代），测量文件的拖动轨迹里也没有它们；计划没列这两项不构成遗漏。
+- 编辑组内容拿到新 panelId：EditorGroup.vue:50-58 的 ownGroup 已按模型取组（注释写明实时布局预览时 groupId 是预览的组），内容组件为此设计过，计划的风险项在代码上有依据，第 4 点的 `editorContextOf` 以 panelId 缓存也不会错。
+- 预览不改可见性：visibleTabs、placedViews、instances 都读已提交的 doc，预览（包括 reveal）不改它们，与输出 17、38 一致。
+- LIVE_SETTLE_MS 与来回进出：stepLiveDrop 对“候选 key 等于已显示的 key”直接返回，路过后回到原键不会抖。
+- fitsSkeleton 对 reveal 预览：只比树形状，展开隐藏侧栏不会被它拒绝（失败时 setLivePreview 退回已提交文档，这是现有行为）。
+
+========================================================================
+数量
+========================================================================
+阻断 0；重要 8（第 1-8 条）；建议 7（第 9-15 条）。共 15 条。
+最严重的几条：1（每帧顺序在现有帧循环下做不到“至多 1 次”）、2（displayKey 缺省 actionKey 会冻住指示框与资源树插入线）、3（活动栏 TransitionGroup 包 Tooltip 不会动，已在真实 Vue 里复现）、4（去重没定义重置，撤下后可能出现不可见的提交）、5（拿掉 point 后键盘拖影、onEnd 的 pointer()、第四个使用方）。
+实验文件：/tmp/review-w00026-t22-design/exp1.mjs（在 worktree 里 node exp1.mjs frag|plain）。
+未运行 e2e 与类型检查（只读审查）；第 7、12 条需要主 Agent 在真实浏览器里验。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
