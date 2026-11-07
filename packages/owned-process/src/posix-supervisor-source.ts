@@ -28,6 +28,9 @@ process.on("message", (message) => {
 process.on("disconnect", () => {
     if (!finished) terminate("host-disconnect");
 });
+// 终端把 SIGINT（Ctrl+C）、SIGQUIT 与 SIGHUP 发给整个前台进程组，监督器只是顺带收到。收口由宿主决定（主动终止或断开 IPC）；
+// 监督器先退出的话，目标在自己的进程组里收不到这些信号，成了孤儿。
+for (const signal of ["SIGINT", "SIGQUIT", "SIGHUP"]) process.on(signal, () => {});
 
 /** 目标以独立 process group 启动，监督器只转发 stdio 与终态。 */
 function start(message) {

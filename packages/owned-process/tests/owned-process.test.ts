@@ -167,6 +167,33 @@ describe("Owned Process", () => {
         await expect(waitForPortRelease(state.port)).resolves.toBeUndefined();
     });
 
+    /**
+     * 终端的 Ctrl+C 把 SIGINT 发给整个前台进程组，监督器也在组里；目标在自己的进程组里收不到。
+     * 监督器先退出的话，宿主再也收不了口，目标成了孤儿（Source Dev 按 Ctrl+C 就是这样）。
+     */
+    it.runIf(process.platform !== "win32")("宿主所在进程组收到SIGINT时，监督器留给宿主收口", async () => {
+        const root = await mkdtemp(testHostPath("nbook-owned-sigint-"));
+        roots.push(root);
+        const statePath = join(root, "state.json");
+        const owner = spawn(process.execPath, [
+            fileURLToPath(new URL("./fixtures/interrupted-owner.ts", import.meta.url)),
+            statePath,
+        ], {stdio: "ignore", detached: true});
+        const state = await waitForState(statePath);
+        const closed = new Promise<number | null>((resolvePromise, rejectPromise) => {
+            owner.once("error", rejectPromise);
+            owner.once("close", (code) => resolvePromise(code));
+        });
+
+        process.kill(-owner.pid!, "SIGINT");
+
+        await expect(closed).resolves.toBe(0);
+        const result = JSON.parse(await readFile(`${statePath}.result`, "utf8")) as Record<string, unknown>;
+        expect(result).toMatchObject({terminationReason: "shutdown"});
+        await expect(waitForProcessExit(state.pid)).resolves.toBeUndefined();
+        await expect(waitForPortRelease(state.port)).resolves.toBeUndefined();
+    });
+
     it.runIf(process.platform === "win32")("Portable Product外层Job终止会收口内层Agent Bash Job", async () => {
         const root = await mkdtemp(testHostPath("nbook-owned-nested-"));
         roots.push(root);
