@@ -647,3 +647,112 @@ test.describe("可读性", () => {
         });
     }
 });
+
+/**
+ * 加载页的主题（theme.skins 输出 19、runtime.browser-host 验收 12）：加载页在任何脚本之前画第一帧，只能取这个浏览器上一次记下的主题，
+ * 所以先进一次工作台让提示写下，再整页重新加载。两个场景分开（引导请求没返回时书名与提示还是空的，量不了对比度）：
+ * 一个让引导请求一直挂着，只看第一帧；一个让引导返回、再把 RPC 握手扣住，书名与提示出现后停在加载页上。
+ */
+test.describe("加载页的主题（theme.skins 输出 19）", () => {
+    const STUDY_SCENE = /^\/assets\/study-(day|night)-[\w-]+\.webp$/u;
+    const hint = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem("nbook.host-appearance") ?? "null") as {indicator?: string; scene?: string} | null);
+    // 带 `?project=` 的引导请求：模式末尾要有通配，否则带查询的地址匹配不上，请求没被拦住、页面直接进了工作台。
+    const BOOTSTRAP = "**/api/runtime/browser-bootstrap*";
+    const sizeOf = (page: Page) => page.locator(".nb-host-loading__bar").evaluate((element: HTMLElement) => [element.offsetWidth, element.offsetHeight]);
+    /**
+     * 在 `page` 里进一次工作台让提示写下，再在同一个浏览上下文（共用本地存储）里开一个新页面整页加载，并把加载停在 `hold` 指定的地方：
+     * `bootstrap` 引导请求一直挂着；`rpc` 引导返回、RPC 握手扣住（书名与提示由引导填进去）。不在原页面里再导航：工作台有离开保护，会拦下它。
+     */
+    async function loadingPage(page: Page, hold: "bootstrap" | "rpc", before: (held: Page) => Promise<unknown> = async () => undefined): Promise<Page> {
+        await openProject(page);
+        await expect.poll(() => hint(page).then((value) => value?.scene !== undefined)).toBe(true);
+        const held = await page.context().newPage();
+        await before(held);
+        if (hold === "bootstrap") await held.route(BOOTSTRAP, () => undefined);
+        // 这个页面里的 WebSocket 只有内核 RPC 一条（生产外壳没有开发服务的热更新连接）。
+        else await held.routeWebSocket(() => true, () => undefined);
+        await held.goto(new URL("/?project=book", server.url).href, {waitUntil: "domcontentloaded"});
+        return held;
+    }
+
+    /** 加载页上场景层的计算样式：背景图与显示。 */
+    const layer = (page: Page) => page.locator(".nb-host-loading").evaluate((element) => {
+        const style = getComputedStyle(element, "::before");
+        return {image: style.backgroundImage, display: style.display};
+    });
+
+    test("没有记录（这个浏览器第一次打开）：仍是缺省的细条，没有场景图", async ({page}) => {
+        await writeSettings({[THEME]: STUDY, [APPEARANCE]: "light"});
+        await page.route(BOOTSTRAP, () => undefined);
+        await page.goto(new URL("/?project=book", server.url).href, {waitUntil: "domcontentloaded"});
+        await expect(page.locator(".nb-host-loading__bar")).toBeVisible();
+        await expect(page.locator("html")).not.toHaveAttribute("data-host-scene");
+        await expect(page.locator("html")).not.toHaveAttribute("data-host-indicator");
+        expect((await layer(page)).image).toBe("none");
+        expect(await sizeOf(page)).toEqual([160, 2]);
+    });
+
+    for (const appearance of ["light", "dark"] as const) {
+        test(`书房 ${appearance}：第一帧就是书房的场景图与翻动的书页；高对比度与强制颜色下不画图`, async ({page}) => {
+            await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
+            // 第一帧：引导请求一直挂着。
+            const held = await loadingPage(page, "bootstrap");
+            await expect.poll(() => hint(held).then((value) => [value?.indicator, STUDY_SCENE.test(value?.scene ?? "")])).toEqual(["page", true]);
+            const recorded = await hint(held);
+            await expect(held.locator("html")).toHaveAttribute("data-host-indicator", "page");
+            await expect(held.locator("html")).toHaveAttribute("data-host-scene", "");
+            // 伪元素真的有背景图（只看根上的属性会漏掉选择器写错），并且图是书房那张（亮暗各取各的）。
+            await expect.poll(async () => (await layer(held)).image).toContain(recorded?.scene ?? "never");
+            expect((await layer(held)).display).toBe("block");
+            expect(await sizeOf(held)).toEqual([28, 36]);
+
+            // 高对比度、强制颜色：不画图，进度样式不受影响。
+            for (const media of [{contrast: "more"}, {forcedColors: "active"}] as const) {
+                await held.emulateMedia(media);
+                await expect.poll(async () => (await layer(held)).display).toBe("none");
+                await held.emulateMedia({contrast: "no-preference", forcedColors: "none"});
+                await expect.poll(async () => (await layer(held)).display).toBe("block");
+            }
+            await held.unroute(BOOTSTRAP);
+        });
+
+        test(`书房 ${appearance}：书名与提示压在场景图上不低于 4.5，不压在进度指示上`, async ({page}) => {
+            await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
+            // 引导正常返回（书名与提示由此填进去），RPC 握手扣住：页面停在加载页上，书名与提示都在。
+            const held = await loadingPage(page, "rpc");
+            const recorded = await hint(held);
+            const title = held.locator("[data-host-loading-title]");
+            await expect(title).not.toHaveText("");
+            await expect(held.locator("[data-host-loading-hint]")).not.toHaveText("");
+            await expect(held.locator("[data-workbench-root]")).toHaveCount(0);
+            // 等场景图解码完再量：图没出来时量到的是纯色底，什么都能过。
+            await held.evaluate(async (path) => {
+                const image = new Image();
+                image.src = path;
+                await image.decode();
+            }, recorded?.scene ?? "");
+            await expect.poll(async () => (await layer(held)).image).toContain(recorded?.scene ?? "never");
+            await held.addStyleTag({content: HIDE_TEXT});
+
+            const bar = await held.locator(".nb-host-loading__bar").boundingBox();
+            const [titleBox, hintBox] = await Promise.all([title.boundingBox(), held.locator("[data-host-loading-hint]").boundingBox()]);
+            expect((titleBox?.y ?? 0) + (titleBox?.height ?? 0)).toBeLessThanOrEqual(bar?.y ?? 0);
+            expect(hintBox?.y ?? 0).toBeGreaterThanOrEqual((bar?.y ?? 0) + (bar?.height ?? 0));
+            for (const selector of ["[data-host-loading-title]", "[data-host-loading-hint]"]) {
+                const result = await measure(held, selector);
+                // 文字所在处图压得很淡，但不是纯色：纯色说明图没画上（图本身在上面已经核对过计算样式与解码）。
+                expect(result.distinct, `${selector} 的底色要有图`).toBeGreaterThan(1);
+                console.log(`加载页 ${appearance} ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+                expect(result.worst, `${appearance} ${selector}`).toBeGreaterThanOrEqual(4.5);
+            }
+        });
+    }
+
+    test("场景图地址失效（素材改名或重装后旧记录里的地址 404）：加载页退回纯色，书名、提示与进度条照常", async ({page}) => {
+        await writeSettings({[THEME]: STUDY, [APPEARANCE]: "light"});
+        const held = await loadingPage(page, "bootstrap", (fresh) => fresh.route("**/assets/study-*.webp", (route) => route.fulfill({status: 404})));
+        await expect(held.locator(".nb-host-loading__bar")).toBeVisible();
+        await expect(held.locator("html")).toHaveAttribute("data-host-indicator", "page");
+        expect(await sizeOf(held)).toEqual([28, 36]);
+    });
+});

@@ -353,6 +353,64 @@ test("图标名补全与原图标：候选取自页面里产品能画的图标�
     });
 });
 
+test("加载页：开关与进度样式写进声明，亮暗各一份；没有场景图时开关停用；预览画选中的样式；选回细条去掉字段（theme.skins 输出 19）", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=scene]").click();
+        // 预览的动画要看到，得开回动效（e2e 默认压成静止）。
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        const scene = page.locator("[data-loading-scene]");
+        const indicator = page.locator("[data-loading-indicator]");
+        const preview = page.locator("[data-loading-preview] .nb-host-indicator");
+        const loadingVar = (name: string) => rootVar(page, name);
+
+        // 这一套明暗还没有场景图：开关停用并写一行说明；进度样式照常能选。
+        await expect(scene).toBeDisabled();
+        await expect(page.locator("[data-loading-scene-note]")).toBeVisible();
+        await expect(preview).toHaveAttribute("data-host-indicator", "bar");
+        await page.locator("[data-scene-file]").setInputFiles(SCENE_IMAGE);
+        await expect(page.locator("[data-scene-note]")).toContainText("KB");
+        await expect(scene).toBeEnabled();
+        await expect(page.locator("[data-loading-scene-note]")).toHaveCount(0);
+
+        // 开关：真实工作台的文档根上多出加载页用的场景变量（预览是真实的）。
+        expect(await loadingVar("--skin-loading-scene")).toBe("");
+        await scene.click();
+        await expect.poll(() => loadingVar("--skin-loading-scene")).toMatch(/^url\(".+"\)$/u);
+
+        // 进度样式：选“书页”，预览换成它（同一份样式画：28×36，翻页的动画在跑），文档根上记着样式名。
+        await indicator.getByText("书页").click();
+        await expect.poll(() => loadingVar("--skin-loading-indicator")).toBe("page");
+        await expect(preview).toHaveAttribute("data-host-indicator", "page");
+        expect(await preview.evaluate((element) => [(element as HTMLElement).offsetWidth, (element as HTMLElement).offsetHeight])).toEqual([28, 36]);
+        expect(await preview.evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("nb-host-page");
+        // 系统开着“减弱动效”时预览静止、图形仍在。
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await expect.poll(() => preview.evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("none");
+        expect(await preview.evaluate((element) => (element as HTMLElement).offsetWidth)).toBe(28);
+        await page.emulateMedia({reducedMotion: "no-preference"});
+
+        // 亮暗各一份：暗色没有设置，是缺省；暗色选圆点不影响亮色。
+        await page.locator("[data-appearance]").getByText("暗色").click();
+        await expect(scene).not.toBeChecked();
+        await expect(preview).toHaveAttribute("data-host-indicator", "bar");
+        await expect.poll(() => loadingVar("--skin-loading-indicator")).toBe("");
+        await indicator.getByText("圆点").click();
+        await expect.poll(() => loadingVar("--skin-loading-indicator")).toBe("dots");
+        await page.locator("[data-appearance]").getByText("亮色").click();
+        await expect(preview).toHaveAttribute("data-host-indicator", "page");
+        await expect.poll(() => loadingVar("--skin-loading-indicator")).toBe("page");
+
+        // 选回细条、关掉开关：字段去掉（文档根上不再有这两个变量）。
+        await indicator.getByText("细条").click();
+        await scene.click();
+        await expect.poll(() => loadingVar("--skin-loading-indicator")).toBe("");
+        await expect.poll(() => loadingVar("--skin-loading-scene")).toBe("");
+    });
+});
+
 test("清理未使用素材：先统计、确认后只删统计里的；被引用的、刚写入的、不是素材的都不动；取消不删", async ({page}) => {
     await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
         await open(page, session);

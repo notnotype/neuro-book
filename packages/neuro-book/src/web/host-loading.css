@@ -23,13 +23,16 @@
     font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
 }
 
-/* 场景图：压在底色上的一层，书名与提示的颜色不变，对比度由不透明度保证（theme.skins 输出 19）。 */
+/* 场景图：压在底色上的一层，书名与提示的颜色不变，对比度由中间压淡的遮罩保证（theme.skins 输出 19）。 */
 html[data-host-scene] .nb-host-loading::before {
     content: "";
     position: absolute;
     inset: 0;
     background: var(--host-loading-scene) center / cover no-repeat;
-    opacity: var(--host-loading-scene-opacity, 0.4);
+    opacity: var(--host-loading-scene-opacity, 0.7);
+    /* 书名与提示在正中：中间一块把图压到很淡（保证它们读得清），往边上渐渐显出完整的图。 */
+    -webkit-mask-image: radial-gradient(ellipse 60% 42% at 50% 50%, rgb(0 0 0 / 0.22) 0%, rgb(0 0 0 / 0.22) 55%, #000 100%);
+    mask-image: radial-gradient(ellipse 60% 42% at 50% 50%, rgb(0 0 0 / 0.22) 0%, rgb(0 0 0 / 0.22) 55%, #000 100%);
     pointer-events: none;
 }
 
@@ -57,13 +60,16 @@ html[data-host-indicator="page"] .nb-host-loading {
     translate: -50% -50%;
 }
 
+/* 书名与提示的框就是文字那么宽（居中，太长时在两边各留 16px 后截断）：量对比度与画场景图的遮罩都以文字所在的位置为准。 */
 .nb-host-loading__title {
     position: absolute;
-    right: 0;
     bottom: calc(50% + var(--host-loading-title-gap));
-    left: 0;
+    left: 50%;
+    translate: -50% 0;
+    width: max-content;
+    max-width: calc(100% - 32px);
     margin: 0;
-    padding: 0 16px;
+    padding: 0;
     overflow: hidden;
     font: 600 26px/1.3 "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Songti SC", serif;
     letter-spacing: 0.04em;
@@ -75,8 +81,10 @@ html[data-host-indicator="page"] .nb-host-loading {
 .nb-host-loading__hint {
     position: absolute;
     top: calc(50% + var(--host-loading-hint-gap));
-    right: 0;
-    left: 0;
+    left: 50%;
+    translate: -50% 0;
+    width: max-content;
+    max-width: calc(100% - 32px);
     margin: 0;
     color: var(--host-loading-muted, #8b857b);
     font-size: 12px;

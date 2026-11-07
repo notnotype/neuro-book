@@ -148,3 +148,62 @@ test("加载页跟随上次的明暗：系统与产品的明暗相反时，这�
         await rm(settings, {force: true});
     }
 });
+
+/**
+ * 加载页的进度样式预设（theme.skins 输出 19）：往本地存储种一条合格的提示，让引导请求一直挂着，只看第一帧留下的静态加载页。
+ * 判据是真实布局与计算样式：形状的尺寸、居中、各自的动画；`reducedMotion` 默认被压成静止（playwright.config.ts），测动画要开回来。
+ */
+test.describe("加载页的进度样式预设（theme.skins 输出 19）", () => {
+    const HINT = {appearance: "light", background: "rgb(255, 252, 245)", text: "rgb(31, 28, 23)", muted: "rgb(139, 133, 123)", accent: "rgb(0, 122, 255)"};
+    const PRESETS = [
+        {name: "bar", hint: {}, size: [160, 2], animated: [{part: "::after", animation: "nb-host-loading"}]},
+        {name: "dots", hint: {indicator: "dots"}, size: [6, 6], animated: [{part: "", animation: "nb-host-dot"}, {part: "::before", animation: "nb-host-dot"}, {part: "::after", animation: "nb-host-dot"}]},
+        {name: "pulse", hint: {indicator: "pulse"}, size: [14, 14], animated: [{part: "", animation: "nb-host-pulse"}]},
+        {name: "page", hint: {indicator: "page"}, size: [28, 36], animated: [{part: "::before", animation: "nb-host-page"}]},
+    ] as const;
+
+    for (const preset of PRESETS) {
+        for (const motion of ["no-preference", "reduce"] as const) {
+            test(`${preset.name}，${motion === "reduce" ? "减弱动效" : "有动效"}：形状尺寸、居中，${motion === "reduce" ? "全部静止" : "各部分按自己的动画动"}`, async ({page}) => {
+                await page.emulateMedia({reducedMotion: motion});
+                await page.addInitScript((hint) => localStorage.setItem("nbook.host-appearance", JSON.stringify(hint)), {...HINT, ...preset.hint});
+                // 引导请求一直挂着：页面停在 index.html 的静态加载页，不会进工作台。
+                await page.route(BOOTSTRAP, () => undefined);
+                await page.goto(server.url, {waitUntil: "domcontentloaded"});
+                const bar = page.locator(".nb-host-loading__bar");
+                await expect(bar).toBeVisible();
+                if ("indicator" in preset.hint) await expect(page.locator("html")).toHaveAttribute("data-host-indicator", preset.hint.indicator);
+                else await expect(page.locator("html")).not.toHaveAttribute("data-host-indicator");
+
+                // 布局尺寸用 offsetWidth/offsetHeight（动画里的缩放不算），居中看外接框的中心（缩放与旋转都绕中心，不动它）。
+                expect(await bar.evaluate((element) => [(element as HTMLElement).offsetWidth, (element as HTMLElement).offsetHeight])).toEqual([...preset.size]);
+                // 居中相对加载页自己的框（它铺满布局视口，窗口有细滚动条的槽位时比窗口窄一点）。
+                const box = await bar.boundingBox();
+                const page_ = await page.locator(".nb-host-loading").boundingBox();
+                expect(Math.abs((box?.x ?? 0) + (box?.width ?? 0) / 2 - ((page_?.x ?? 0) + (page_?.width ?? 0) / 2))).toBeLessThanOrEqual(1);
+                expect(Math.abs((box?.y ?? 0) + (box?.height ?? 0) / 2 - ((page_?.y ?? 0) + (page_?.height ?? 0) / 2))).toBeLessThanOrEqual(1);
+
+                const animation = (part: string): Promise<string> => bar.evaluate((element, pseudo) => getComputedStyle(element, pseudo || null).animationName, part);
+                for (const {part, animation: expected} of preset.animated) expect(await animation(part), `${preset.name}${part}`).toBe(motion === "reduce" ? "none" : expected);
+                // 图形本身仍有尺寸与颜色（减弱动效不是不画）。
+                const painted = await bar.evaluate((element) => ({color: getComputedStyle(element).backgroundColor, border: getComputedStyle(element).borderLeftWidth}));
+                expect(preset.name === "page" ? painted.border : painted.color).not.toMatch(/^(0px|rgba\(0, 0, 0, 0\))$/u);
+            });
+        }
+    }
+
+    test("场景图地址跨源或写成协议相对地址：不画图，进度样式照常（两个字段各自独立）", async ({page}) => {
+        const cases = [{scene: "//evil.example/a.webp"}, {scene: "https://evil.example/a.webp"}];
+        for (const bad of cases) {
+            await page.addInitScript((hint) => localStorage.setItem("nbook.host-appearance", JSON.stringify(hint)), {...HINT, indicator: "dots", ...bad});
+            await page.route(BOOTSTRAP, () => undefined);
+            const requested: string[] = [];
+            page.on("request", (request) => requested.push(request.url()));
+            await page.goto(server.url, {waitUntil: "domcontentloaded"});
+            await expect(page.locator("html")).toHaveAttribute("data-host-indicator", "dots");
+            await expect(page.locator("html")).not.toHaveAttribute("data-host-scene");
+            expect(requested.filter((url) => url.includes("evil.example"))).toEqual([]);
+            await page.unroute(BOOTSTRAP);
+        }
+    });
+});
