@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-tool-registry
-status: planned
-updated: 2026-10-30
+status: done
+updated: 2026-11-07
 ---
 
 # 工具登记、命名与工具发现
