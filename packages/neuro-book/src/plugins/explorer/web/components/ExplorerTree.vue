@@ -303,7 +303,7 @@ onMounted(() => {
 onBeforeUnmount(() => gesture.value?.dispose());
 
 /** 主题的动画时长（毫秒）；系统减少动态效果时为 0，没有布局的环境也当 0。 */
-function motionMs(name: "--motion-base" | "--motion-fast"): number {
+function motionMs(name: "--motion-base" | "--motion-fast" | "--motion-move"): number {
     const element = root.value;
     if (element === null) return 0;
     const value = Number.parseFloat(getComputedStyle(element).getPropertyValue(name));
@@ -312,7 +312,7 @@ function motionMs(name: "--motion-base" | "--motion-fast"): number {
 
 /**
  * 过渡窗口（docs/specs/workbench/files-explorer.md 的“动画”）：树是虚拟列表，滚动时窗口两端也有行进出，不能一律做进出
- * 动画。只在展开的目录变了、或认出了宿主预告的结构变化之后的一个 `--motion-base` 里打 `data-motion`，样式只在这时让新出现
+ * 动画。只在展开的目录变了、或认出了宿主预告的结构变化之后的一个 `--motion-move` 里打 `data-motion`，样式只在这时让新出现
  * 的行从上方滑下并淡入、离开的行反向、其余行的位置跟着过渡。watch 在渲染之前跑，标记与新行同一次渲染出现，进场的过渡才有
  * 起点。系统减少动态效果时时长是 0，不打。
  */
@@ -321,7 +321,8 @@ let movingTimer: ReturnType<typeof setTimeout> | null = null;
 /** 动画结束后多留这么久再撤标记：离开的行可能晚一帧开始过渡，撤早了会被截断。 */
 const MOTION_SLACK_MS = 100;
 const pulseMotion = (): void => {
-    const duration = motionMs("--motion-base");
+    // 按行里最长的过渡算（位移是 `--motion-move`）：标记撤早了，离开的行会跳回原位闪一下。
+    const duration = motionMs("--motion-move");
     if (duration <= 0) return;
     if (movingTimer !== null) clearTimeout(movingTimer);
     moving.value = true;
@@ -482,7 +483,7 @@ function flyBack(at: {readonly x: number; readonly y: number}): void {
     returnTimer = setTimeout(() => {
         returning.value = null;
         returnTimer = null;
-    }, duration * 2 + MOTION_SLACK_MS);
+    }, Math.max(duration * 2, motionMs("--motion-move")) + MOTION_SLACK_MS);
 }
 
 // 控制器结束了这场拖动（切换显示、源或落点失效）：手势随之收场。

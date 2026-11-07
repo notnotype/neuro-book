@@ -140,7 +140,7 @@ function detail(card: PromptAttachmentCard): string {
     box-shadow: inset 0 0 0 1px var(--border-color);
     content: "";
     pointer-events: none;
-    transition: box-shadow 120ms ease;
+    transition: box-shadow var(--motion-fast) var(--ease-layout);
 }
 
 .prompt-strip__card:hover::after,
@@ -299,7 +299,7 @@ function detail(card: PromptAttachmentCard): string {
     display: flex;
     gap: 2px;
     opacity: 0;
-    transition: opacity 120ms ease;
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .prompt-strip__actions :deep(button) {

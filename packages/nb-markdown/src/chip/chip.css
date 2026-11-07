@@ -19,7 +19,7 @@
     vertical-align: baseline;
     cursor: pointer;
     user-select: none;
-    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+    transition: background-color var(--motion-fast) var(--ease-layout), border-color var(--motion-fast) var(--ease-layout), box-shadow var(--motion-fast) var(--ease-layout);
 }
 
 .nb-chip:hover,

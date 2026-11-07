@@ -89,10 +89,26 @@ describe("nb-ui design tokens", () => {
         const css = readTokensCss();
         const reducedBlock = css.slice(css.indexOf("prefers-reduced-motion"));
 
-        for (const token of ["--motion-fast", "--motion-base", "--motion-enter", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out"]) {
+        for (const token of ["--motion-fast", "--motion-base", "--motion-enter", "--motion-move", "--motion-layout", "--motion-dialog", "--motion-dialog-leave", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out"]) {
             // !important 是必需的：这一段是 :root（0,1,0），任意主题都写在 :root[data-nb-theme]（0,2,0）里，
             // 特异性天然更低；主题又来自第三方、选择器还能再往上加，靠特异性或顺序都没有稳赢的写法。
             expect(reducedBlock, `${token} 未在 reduced-motion 下归零并压过主题`).toContain(`${token}: 0ms !important`);
+        }
+    });
+
+    it("时长的大小顺序：基线和每个主题都是 fast < base < move < enter < layout（design-language.md 第七节）", () => {
+        const base = readTokensCss().slice(0, readTokensCss().indexOf("prefers-reduced-motion"));
+        const value = (css: string, token: string): number | null => {
+            const match = new RegExp(`${token}:\\s*(\\d+)ms`, "u").exec(css);
+            return match === null ? null : Number(match[1]);
+        };
+        const baseline = (token: string): number => value(base, token) as number;
+        for (const theme of ["", "aurora", "editorial", "macos", "nbook"]) {
+            const css = theme === "" ? base : readFileSync(join(import.meta.dirname, "..", "..", "themes", theme, "vars.css"), "utf-8");
+            const of = (token: string): number => value(css, token) ?? baseline(token);
+            const order = [of("--motion-fast"), of("--motion-base"), of("--motion-move"), of("--motion-enter"), of("--motion-layout")];
+            expect(order, theme).toEqual([...order].sort((left, right) => left - right));
+            expect(new Set(order).size, theme).toBe(order.length);
         }
     });
 

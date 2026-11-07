@@ -233,7 +233,7 @@ const controlSizeClass = computed(() => isSmall.value
             @blur="closeMenu"
         >
         <span
-            class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)]"
+            class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)]"
             :class="[isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4', open ? 'rotate-180' : '']"
             aria-hidden="true"
         ></span>

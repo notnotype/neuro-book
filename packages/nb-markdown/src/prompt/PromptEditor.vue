@@ -1066,7 +1066,7 @@ defineExpose({
     border: 1px solid var(--control-outline, var(--border-color));
     border-radius: 0.625rem;
     background: var(--bg-input);
-    transition: border-color 120ms ease, box-shadow 120ms ease;
+    transition: border-color var(--motion-fast) var(--ease-layout), box-shadow var(--motion-fast) var(--ease-layout);
 }
 
 .prompt-editor.is-focused {

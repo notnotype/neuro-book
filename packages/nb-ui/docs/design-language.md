@@ -501,7 +501,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 | `--motion-layout` | 布局的外框移动 | 开关面板、拆分与关闭、拖放后内容滑到结果 |
 | `--motion-dialog`、`--motion-dialog-leave` | 有来处的浮层展开与收回 | 点按钮、菜单项打开的对话框、浮动窗口；收回配 `--ease-dialog-leave`（先慢后快），不用 `--ease-layout`：它前四分之一就走完八成，加上淡出看着就是直接消失 |
 
-**`fast < base < enter < move < layout` 这个顺序是合同，绝对值归主题。** 各主题的登记值在 `themes/*/vars.css`，
+**`fast < base < move < enter < layout` 这个顺序是合同（`tokens.test.ts` 查）。`fast`、`base`、`enter` 的绝对值归主题；`move`、`layout` 跟着主曲线，不随主题变。** 各主题的登记值在 `themes/*/vars.css`，
 没装主题时的基线在 `src/tokens.css`。这些数值是**目测决定，没有可引的规范**——Apple 没有公开过
 时长刻度。主题可以改值，但不能打破大小顺序；新主题登记时按这条审。
 另有 `--motion-reveal-in`、`--motion-reveal-hold`、`--motion-reveal-out` 三个，只给叠加滚动条、视图标题动作这类
@@ -520,7 +520,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 
 | 实现 | 配方 | 理由 |
 | --- | --- | --- |
-| `out-in`（同一处只有一个内容位） | 入场 + 退场都取 `--motion-fast` | 两段相加就是用户感知的等待，合计应落在 `--motion-enter` 的量级以内（nbook 下两段 `--motion-fast` 正好等于它），也就是「眼睛追踪一层新内容出现」的上限 |
+| `out-in`（同一处只有一个内容位） | 入场 + 退场都取 `--motion-fast` | 两段相加就是用户感知的等待，合计要短于 `--motion-move`，也就是「眼睛追踪一层新内容出现」的上限 |
 | 交叠（默认模式 / 淡入淡出） | 入场 `--motion-base`、退场 `--motion-fast` | 两段同时可见，逐帧没有全空的时候，各自可以取更长的档 |
 
 - 位移方向按导航推进方向最自然；固定单方向是允许的简化。分段控件驱动的内容换页使用同频交叠滑移而非 `mode="out-in"`，且位移方向与指示块移动方向同向（向右选向左滑，向左选向右滑），消除空白停顿与空间视差冲突。
@@ -534,7 +534,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 
 ### 缓动：看得出在动的都用布局曲线
 
-主曲线是 `--ease-layout`（`cubic-bezier(0.23, 1, 0.32, 1)`）。它原本只给布局工具的面板移动用，开发者试下来最顺（2026-11-06），定为全应用的主曲线：标签切换、文件资源管理器的展开与选中、内容换页、浮层展开、只变颜色的状态反馈都用它。原来的 `--ease-standard` 已退役（w00026 t18）。
+主曲线是 `--ease-layout`（`cubic-bezier(0.23, 1, 0.32, 1)`）。它原本只给布局工具的面板移动用，开发者试下来最顺（2026-11-06），定为全应用的主曲线：标签切换、文件资源管理器的展开与选中、内容换页、浮层展开都用它。只变颜色的状态反馈看不出曲线，写了就写它，没写的不用补。原来的 `--ease-standard` 已退役（w00026 t18）。
 
 - 组件不得写 `cubic-bezier(...)` 字面量，曲线都来自令牌。`--ease-layout` 不随主题变：顺滑是全应用的手感，不是主题的个性。
 - **时长要跟着放宽。** 这条曲线四分之一时长走完 78%、一半时长走完 97%，尾巴很长。沿用 180ms 的 `--motion-base`，45ms 就走了八成，看着是跳过去的。有位移的动效用 `--motion-move`。只变颜色的看不出曲线，时长不动。菜单入场与 `out-in` 换页照旧取 `--motion-fast`：这里的等待读作迟钝，快正好。

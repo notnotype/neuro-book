@@ -81,7 +81,7 @@ const preview = computed(() => lines.value.slice(0, PASTE_COLLAPSED_LINES).join(
     border: 1px solid var(--border-color);
     border-radius: 0.5rem;
     background: color-mix(in srgb, var(--text-main) 3%, var(--bg-panel));
-    transition: border-color 120ms ease, box-shadow 120ms ease;
+    transition: border-color var(--motion-fast) var(--ease-layout), box-shadow var(--motion-fast) var(--ease-layout);
     user-select: none;
 }
 

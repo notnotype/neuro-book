@@ -78,7 +78,7 @@
     /* ---- 4.5 动效：只用于解释空间关系，不做装饰 ---------------------------- */
     --motion-fast: 120ms;
     --motion-base: 180ms;
-    --motion-enter: 220ms;
+    --motion-enter: 320ms;
     /* 悬停才出现的东西（叠加滚动条、视图标题动作）：出现快、离开后先停一会儿再慢慢淡出，照 VS Code 的列表。 */
     --motion-reveal-in: 100ms;
     --motion-reveal-hold: 500ms;

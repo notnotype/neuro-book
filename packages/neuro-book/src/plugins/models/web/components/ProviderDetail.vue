@@ -402,6 +402,10 @@ const checking = computed(() => props.provider.models.some((model) => props.chec
     cursor: pointer;
 }
 
+.provider-detail__advanced-icon {
+    transition: transform var(--motion-move) var(--ease-layout);
+}
+
 .provider-detail__advanced[data-state="open"] .provider-detail__advanced-icon {
     transform: rotate(90deg);
 }

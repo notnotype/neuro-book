@@ -108,15 +108,19 @@ const panels = computed<SplitterPanelConfig[]>(() => [
 ]);
 
 // ---- 收起、展开的过渡（输出 1） ----
-// Splitter 在过渡的 180 毫秒里逐帧改面板宽度。主区里的页面跟着逐帧重排，文字与表格的重排不贵，平滑跟随更顺眼
+// Splitter 在过渡（--motion-move）里逐帧改面板宽度。主区里的页面跟着逐帧重排，文字与表格的重排不贵，平滑跟随更顺眼
 // （之前把主区宽度冻住、结束时一次重排，内容会在动画末尾跳一下）；贵的是图的画布：Sigma 换尺寸要整张重画，所以
 // 过渡期间经 LAYOUT_MOTION 告诉图先不换尺寸，结束后换一次。抽屉内容固定在抽屉宽度、贴右边，看起来从右边滑进
 // 滑出，不随宽度重排；关闭时继续显示原来的内容，直到滑出去。
 const motion = ref(false);
 provide(LAYOUT_MOTION, readonly(motion));
 const closingDrawer = ref<DrawerContent | null>(null);
-/** 比 Splitter 的过渡（--motion-base，180 毫秒）稍长，确保过渡结束后才算结束。 */
-const MOTION_MS = 240;
+/** 过渡结束后再多等一点，确保真的结束了才算。时长读令牌：改了令牌这里不用跟着改，减少动态效果时是 0。 */
+const MOTION_SLACK_MS = 60;
+function motionMs(): number {
+    const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-move"));
+    return (Number.isFinite(value) ? value : 0) + MOTION_SLACK_MS;
+}
 let motionTimer: ReturnType<typeof setTimeout> | null = null;
 function startMotion(): void {
     if (tier.value !== "wide") return;
@@ -126,7 +130,7 @@ function startMotion(): void {
         motionTimer = null;
         motion.value = false;
         closingDrawer.value = null;
-    }, MOTION_MS);
+    }, motionMs());
 }
 watch(() => book.drawer.value === null, (closed, wasClosed) => {
     if (closed === wasClosed || overlayDrawer.value) return;

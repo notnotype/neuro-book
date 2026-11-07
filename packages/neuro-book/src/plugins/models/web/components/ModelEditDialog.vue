@@ -285,6 +285,10 @@ const title = computed(() => (props.model === null ? text("edit.addTitle") : tex
     cursor: pointer;
 }
 
+.model-edit__advanced-icon {
+    transition: transform var(--motion-move) var(--ease-layout);
+}
+
 .model-edit__advanced[data-state="open"] .model-edit__advanced-icon {
     transform: rotate(90deg);
 }

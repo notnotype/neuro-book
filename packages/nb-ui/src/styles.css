@@ -802,7 +802,7 @@ input.nb-ui-native-input[type="number"] {
 
 /*
  * 内容切换：一次只动一块内容（配合 <Transition mode="out-in">），两段各取 --motion-fast，
- * 合计正好是浮层入场档 --motion-enter 的量级——「眼睛追踪一层新内容出现」的上限。
+ * 合计要短于 --motion-move——「眼睛追踪一层新内容出现」的上限。
  * 用同一个类名的地方必须同一配方（例如设置页切换区段、列表切到详情）。
  */
 .nb-ui-switch-enter-active,

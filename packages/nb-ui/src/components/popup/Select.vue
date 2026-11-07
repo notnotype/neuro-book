@@ -200,7 +200,7 @@ function handleCloseAutoFocus(event: Event): void {
             </span>
             <!-- 打开态 `data-state` 在触发器上，箭头按触发器的命名 group 转，不受外层同样带 data-state 的元素影响。 -->
             <span
-                class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] group-data-[state=open]/select-trigger:rotate-180"
+                class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)] group-data-[state=open]/select-trigger:rotate-180"
                 :class="isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4'"
                 aria-hidden="true"
             ></span>
