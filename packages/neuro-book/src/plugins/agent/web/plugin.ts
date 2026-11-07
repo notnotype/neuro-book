@@ -232,6 +232,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const opened = await storage.open(recentRecord(project !== null), position);
                 return opened.ok ? opened.handle : null;
             };
+            /** 打开文件的结果不用等，但打不开要留诊断：命令参数不对时这里是唯一的线索。 */
+            const openAddress = (address: string): void => {
+                void commands.execute(EDITOR_OPEN_COMMAND, {address, mode: "permanent"}).then((opened) => {
+                    if (!opened.ok) report("open-address-failed", `opening ${address} failed: ${opened.code}`);
+                });
+            };
             const hosts = new Map<string, SessionHost>();
             /** 最近用过的位置：命令优先用它。 */
             let lastPosition = "view";
@@ -294,7 +300,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
                     openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),
-                    openAddress: (address) => void commands.execute(EDITOR_OPEN_COMMAND, {address}),
+                    openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
                     report,
                 });
@@ -472,7 +478,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         models: {snapshot: modelsSnapshot, failed: modelsFailed, ensure: ensureModels},
                         writers: profileWriters,
                         text,
-                        openAddress: (address) => void commands.execute(EDITOR_OPEN_COMMAND, {address}),
+                        openAddress,
                         report,
                     })), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report}))},
                 },

@@ -72,17 +72,16 @@ function openRemove(profile: ProfileView): void {
     removeTarget.value = profile;
     removing.value = true;
 }
-let removed = false;
-async function confirmRemove(): Promise<void> {
-    const target = removeTarget.value;
-    if (target === null) return;
-    removed = true;
-    await props.deleteProfile(target.key);
+/** 确认之后的删除：确认框关闭的动画可能先结束，移焦点要等它，否则焦点落在马上要消失的项上。 */
+let removal: Promise<void> | null = null;
+function confirmRemove(): void {
+    if (removeTarget.value !== null) removal = props.deleteProfile(removeTarget.value.key);
 }
 /** 确认框关闭后移焦点（输出 23）：删掉了就到新的当前项，取消了不动。 */
 async function onRemoveClosed(): Promise<void> {
-    if (!removed) return;
-    removed = false;
+    if (removal === null) return;
+    await removal;
+    removal = null;
     await nextTick();
     // 窄布局里左栏隐藏，聚焦它的项不生效，换成顶上的下拉。
     for (const selector of ["[data-profile-rail-item][aria-current='page']", "[data-profile-picker] input, [data-profile-picker]"]) {
