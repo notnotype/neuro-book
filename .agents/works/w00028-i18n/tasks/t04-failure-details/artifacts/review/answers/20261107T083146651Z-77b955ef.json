@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "answerId": "20261107T083146651Z-77b955ef",
+    "artifactVersion": 2,
+    "contentHash": "da06745d73109d5fe39afd3a076421819a7b82098fddb7a59bb81c6a03df9626",
+    "submittedAt": "2026-11-07T08:31:46.080Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "other-places": "dialog",
+        "copy-only-code": "with-code"
+    },
+    "comments": {
+        "other-places": "不对，我说的是这个 “文件没有保存” 这一行占用了画面空间。你现在这样还是占用了画面控件"
+    },
+    "note": "1. 带详细的通知这样的样式这里，重试这个按钮单独占一列。不好\n2. "
+}
