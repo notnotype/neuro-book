@@ -90,6 +90,8 @@ import {
 
 const props = withDefaults(defineProps<{
     draft: PromptEditorDraft;
+    /** 占用 Shift+Tab、发出 `shift-tab`。不占用时它还是反向移动焦点。 */
+    captureShiftTab?: boolean;
     /** 只在上面没有注入翻译端口时起作用（`../host/text.ts`）。 */
     locale?: MarkdownLocale;
     placeholder?: string;
@@ -447,7 +449,9 @@ function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
         return true;
     }
     if (event.key === "Tab" && event.shiftKey) {
-        emit("shift-tab");
+        // 不占用时不吞：它还是反向移动焦点。补全菜单开着时别的事都不做，免得悄悄切了模式。
+        if (!props.captureShiftTab) return false;
+        if (!menuOpen.value) emit("shift-tab");
         return true;
     }
     if (event.key === "Enter") {

@@ -11,6 +11,7 @@ import type {Static} from "typebox";
 import {defineSettings} from "nbook/shared/settings";
 import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
 
+import {RulesSchema} from "./permissions";
 import {agentText} from "./text";
 
 const ToolBindingSchema = Type.Object({
@@ -40,7 +41,34 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}],
 };
 
+/** “权限规则”页（permissions.md 输出 22）：这几项由页面画，不进“其它”。 */
+export const PERMISSIONS_SECTION = "nbook.agent.permissions";
+
 export const agentSettings = defineSettings("nbook.agent", {
+    permissionRules: {
+        schema: RulesSchema,
+        default: [],
+        title: agentText("settings.permissionRules.title"),
+        description: agentText("settings.permissionRules.description"),
+        layers: ["user"],
+        section: PERMISSIONS_SECTION,
+    },
+    readOnlyCommands: {
+        schema: Type.Array(Type.String({minLength: 1})),
+        default: [],
+        title: agentText("settings.readOnlyCommands.title"),
+        description: agentText("settings.readOnlyCommands.description"),
+        layers: ["user"],
+        section: PERMISSIONS_SECTION,
+    },
+    modeWriteAction: {
+        schema: Type.Union([Type.Literal("deny"), Type.Literal("ask")]),
+        default: "deny",
+        title: agentText("settings.modeWriteAction.title"),
+        description: agentText("settings.modeWriteAction.description"),
+        layers: ["user"],
+        section: PERMISSIONS_SECTION,
+    },
     toolBindings: {
         schema: ToolBindingsSchema,
         default: {},

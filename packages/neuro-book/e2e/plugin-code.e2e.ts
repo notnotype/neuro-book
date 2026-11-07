@@ -232,10 +232,13 @@ test("编辑器里选场景提供者（theme.editor 输出 20）：下拉列出�
         await page.locator("[data-new-empty]").click();
         await page.locator("[data-section-tab=scene]").click();
 
-        // 已发布的提供者在下拉里（显示贡献 id）；选中后预览的场景是它画的 blob 图。
+        // 已发布的提供者在下拉里：选项名是它声明的标题，右侧的次要文字是贡献 id；选中后预览的场景是它画的 blob 图。
         await provider.click();
-        await expect(page.getByRole("option", {name: "example.scene-clock.sky-painter"})).toBeVisible();
-        await page.getByRole("option", {name: "example.scene-clock.sky-painter"}).click();
+        const option = page.getByRole("option", {name: "天空时钟", exact: true});
+        await expect(option).toBeVisible();
+        await expect(option).toContainText("example.scene-clock.sky-painter");
+        await option.click();
+        await expect(provider).toContainText("天空时钟");
         await expect.poll(sceneVar).toMatch(/^url\("blob:/u);
 
         // “无”：声明里去掉提供者，没有后备图时场景也没了。
@@ -399,7 +402,7 @@ test("完整示例 focus 外置：状态栏条目显示今天的个数；在侧�
         const item = page.locator("[data-workbench-status-bar] [data-workbench-item='example.focus.status']");
         await expect(item).toHaveText("今天 0 个番茄");
 
-        // 显示 focus 的视图。活动栏条目点一下已经聚焦的视图会隐藏它，所以只在它没按下时点。
+        // 显示 focus 的视图。活动栏条目点一下已经可见的视图会隐藏它（输出 22），所以只在它没按下时点。
         const container = page.locator("[data-tool-entry='example.focus.panel']");
         await expect(container).toBeVisible();
         if ((await container.getAttribute("aria-pressed")) !== "true") await container.click();

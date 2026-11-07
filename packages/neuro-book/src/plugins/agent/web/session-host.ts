@@ -24,6 +24,10 @@ import type {TextRef} from "@notnotype/nb-ui/text";
 import type {BranchPoint, PreviewResult, RewindTarget} from "@notnotype/nb-harness/kernel/contracts";
 
 import {MAIN_PROFILE} from "../shared/contracts";
+import {AGENT_MODES_EXTENSION, AUTO_ESCALATED_PREFIX, AUTO_FAILED_REASON, MODE_ASK_REASON, MODE_SWITCH_KIND} from "../shared/permissions";
+import type {AgentMode, ModeSwitchRequest, Rule} from "../shared/permissions";
+import {rulesToRemember} from "./permission-rules";
+import type {SettingWriteResult} from "nbook/shared/settings";
 import type {ProfileEntry} from "../shared/contracts";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
 import {agentText} from "../shared/text";
@@ -51,8 +55,8 @@ const COMPACT_REJECT_KEYS = {
     "no-compaction-model": "conversation.compact.noModel",
     "read-only": "conversation.reject.readOnly",
 } as const;
-/** 宿主做了的输入框命令；别的（`/plan`、`/mode` 等）随 t06，现在不进菜单。 */
-const HOST_COMMANDS = ["compact", "new", "fork", "rename", "model"] as const;
+/** 宿主做了的输入框命令。 */
+const HOST_COMMANDS = ["compact", "new", "fork", "rename", "model", "plan", "mode"] as const;
 /** `$` 要等 Skill（t15）；还没有时不打开空菜单。 */
 const HOST_TRIGGERS = ["@", "/"] as const;
 /** 打字时攒一下再写草稿。 */
@@ -82,7 +86,14 @@ const PHASE_KEYS = {
 const APPROVAL_OPTIONS: readonly ComposerApprovalOption[] = [
     {key: "ask", label: agentText("conversation.approval.ask.label"), description: agentText("conversation.approval.ask.description"), icon: "i-lucide-shield-question"},
     {key: "allow-writes", label: agentText("conversation.approval.allowWrites.label"), description: agentText("conversation.approval.allowWrites.description"), icon: "i-lucide-pencil-line"},
+    {key: "auto", label: agentText("conversation.approval.auto.label"), description: agentText("conversation.approval.auto.description"), icon: "i-lucide-bot"},
     {key: "yolo", label: agentText("conversation.approval.yolo.label"), description: agentText("conversation.approval.yolo.description"), icon: "i-lucide-triangle-alert", danger: true},
+];
+
+const MODE_OPTIONS: readonly {readonly key: AgentMode; readonly icon: string}[] = [
+    {key: "normal", icon: "i-lucide-feather"},
+    {key: "discuss", icon: "i-lucide-messages-square"},
+    {key: "plan", icon: "i-lucide-clipboard-list"},
 ];
 
 /** 上方向键翻的内容：当前路径上用户说的话，最新在前，去重。补充说明与命令不算；回退掉的分支不在路径上，也不算（输出 29）。 */
@@ -128,6 +139,8 @@ export interface SessionHostDeps {
     /** 按会话的草稿；写是尽力而为，丢了只是少一份没发的字。 */
     readonly drafts: {read(session: string): Promise<string | null>; write(session: string, text: string): void};
     readonly warnCost: () => number;
+    /** “以后都允许”：加到用户规则末尾（permissions.md 输出 23）。 */
+    readonly rememberRules: (rules: readonly Rule[]) => Promise<SettingWriteResult>;
     /** 模型下拉；模型服务不在时为 null。 */
     readonly models: () => readonly ComposerModelView[] | null;
     /** 模型角色；模型服务不在时为 null。`status` 是模型服务按解析规则算的有效性。 */
@@ -707,6 +720,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         // 同一个会话重新打开（归还 30 秒后借回）：未提交的答案还要；换了会话才清。事项答完了的话，`afterChange` 会清。
         const keptWizard = sessionId.value === id ? wizardState : undefined;
         const switching = sessionId.value !== id;
+        // 还没有会话时选的模式只属于接下来新建的那一个；打开别的会话就作废，否则会悄悄带到以后新建的会话。
+        draftMode = "normal";
         flushDraft();
         closeCurrent();
         wizardState = keptWizard;
@@ -794,7 +809,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             return null;
         }
         if (generation !== started) return null;
+        const mode = draftMode;
         await open(created.value.sessionId, {keepDraft: sessionId.value === null});
+        // 只有主 Profile 装了模式。`open` 已经把草稿的模式清了，所以先取出来。
+        if (mode !== "normal" && profile === MAIN_PROFILE) await setMode(mode);
         return created.value.sessionId;
     }
 
@@ -966,17 +984,72 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         bump();
     }
 
-    async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "deny"; note?: string} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}): Promise<void> {
+    async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "allow-always" | "deny"; note?: string} | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}): Promise<void> {
         const target = current;
         if (target === null) return;
-        const result = resolutions.kind === "approval"
+        if (resolutions.kind === "approval" && resolutions.decision === "allow-always") {
+            const pending = target.transcript.pending().find((item) => item.id === id);
+            const rules = rulesToRemember((pending?.request ?? {}) as {tool?: string; remember?: unknown});
+            // 存不下也批准：用户已经点了同意，这次与本会话不受影响，只是下次还会问（输出 23）。
+            const saved = rules.length === 0 ? null : await deps.rememberRules(rules);
+            await resolveInput(id, {kind: "approval", decision: "allow-session"});
+            if (saved?.ok === false && current === target) {
+                notice = agentText("conversation.reject.ruleNotSaved", {code: saved.code});
+                bump();
+            }
+            return;
+        }
+        const answer = resolutions.kind === "mode-switch"
+            // 内核要求回答有文字，写进日志；工具看的是 `data`。
+            ? {text: resolutions.answer.note ?? deps.text.t(agentText(resolutions.answer.approved ? "conversation.modeSwitch.approved" : "conversation.modeSwitch.declined")), data: resolutions.answer}
+            : resolutions.kind === "question" ? resolutions.answer : null;
+        const result = answer === null && resolutions.kind === "approval"
             ? await remote.resolve({sessionId: target.id, commandId: commandId(), id, decision: resolutions.decision, ...(resolutions.note === undefined ? {} : {note: resolutions.note})})
-            : await remote.resolve({sessionId: target.id, commandId: commandId(), id, decision: "answer", answer: resolutions.answer as never});
+            : await remote.resolve({sessionId: target.id, commandId: commandId(), id, decision: "answer", answer: answer as never});
         // 别的窗口先答了：向导跟着服务端的状态走，不报错（输出 14）。
         if (!result.ok && result.code !== "already-answered" && result.code !== "unknown-interaction" && current === target) {
             notice = agentText("conversation.reject.other", {code: result.code});
             bump();
         }
+    }
+
+    const modeLabel = (mode: string): string => deps.text.t(agentText(`conversation.mode.${mode as AgentMode}`));
+    /** 还没有会话时选的模式：建好会话、第一次发送之前提交，这样能先开 `plan` 再发第一条（modes.md 输出 7）。 */
+    let draftMode: AgentMode = "normal";
+    const modeOfCurrent = (target: Current | null): AgentMode => (target === null ? draftMode : ((target.transcript.meta()?.extensionSettings[AGENT_MODES_EXTENSION]?.mode ?? "normal") as AgentMode));
+
+    async function setMode(mode: AgentMode): Promise<void> {
+        const target = current;
+        if (target === null) {
+            draftMode = mode;
+            bump();
+            return;
+        }
+        const result = await remote.changeSettings({sessionId: target.id, commandId: commandId(), patch: {[AGENT_MODES_EXTENSION]: {mode}}});
+        if (!result.ok && current === target) {
+            notice = agentText("conversation.reject.other", {code: result.code});
+            bump();
+        }
+    }
+
+    /** `/plan [文字]`：切到 `plan`，已在 `plan` 不动；带文字时切完发出去。 */
+    async function planCommand(argsText: string): Promise<void> {
+        if (modeOfCurrent(current) !== "plan") await setMode("plan");
+        if (argsText.trim() !== "") await submit(argsText.trim(), "prompt");
+    }
+
+    /** `/mode [名字]`：只管 Agent 模式，接 key 与显示名；没写切下一种。 */
+    async function modeCommand(argsText: string): Promise<void> {
+        const name = argsText.trim();
+        const index = MODE_OPTIONS.findIndex((option) => option.key === modeOfCurrent(current));
+        const found = name === "" ? MODE_OPTIONS[(index + 1) % MODE_OPTIONS.length] : MODE_OPTIONS.find((option) => option.key === name || modeLabel(option.key) === name);
+        if (found === undefined) {
+            setDraft(`/mode ${name}`);
+            notice = agentText("conversation.mode.unknown", {options: MODE_OPTIONS.map((option) => option.key).join("、")});
+            bump();
+            return;
+        }
+        await setMode(found.key);
     }
 
     async function changeSettings(patch: Readonly<Record<string, unknown>>): Promise<void> {
@@ -1042,6 +1115,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 else if (action.name === "new") await newCommand();
                 else if (action.name === "fork") await forkCommand();
                 else if (action.name === "rename") await renameCommand(action.argsText);
+                else if (action.name === "plan") await planCommand(action.argsText);
+                else if (action.name === "mode") await modeCommand(action.argsText);
                 return;
             case "composer.stop":
             case "input.cancelRun":
@@ -1084,6 +1159,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 unknownSends.delete(action.messageId);
                 target?.transcript.removeOptimistic(action.messageId);
                 bump();
+                return;
+            case "mode.set":
+                await setMode(action.mode as AgentMode);
                 return;
             case "approval.set":
                 await changeSettings({approvalMode: action.mode});
@@ -1190,13 +1268,34 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
     }
 
+    /** 规则的理由是用户写的，原样显示；别的几种是约定的码（输出 21）。 */
+    function approvalReason(reason: string): string {
+        if (reason === MODE_ASK_REASON) return deps.text.t(agentText("conversation.approval.reason.mode"));
+        if (reason === AUTO_FAILED_REASON) return deps.text.t(agentText("conversation.approval.reason.autoFailed"));
+        if (reason.startsWith(AUTO_ESCALATED_PREFIX)) return deps.text.t(agentText("conversation.approval.reason.autoEscalated", {reason: reason.slice(AUTO_ESCALATED_PREFIX.length)}));
+        return reason;
+    }
+
     function pendingViews(target: Current): PendingInputView[] {
         return target.transcript.pending().map((item): PendingInputView => {
-            const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; data?: {questions?: PendingQuestionView[]}};
+            const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest};
             if (item.kind === "approval") {
-                return {kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: request.reason}), preview: previews.get(item.id) ?? {state: "loading"}};
+                return {kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: approvalReason(request.reason)}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
             }
-            return {kind: "question", id: item.id, toolCallId: item.callId, questions: request.data?.questions ?? []};
+            const data = request.data;
+            if (data !== undefined && "kind" in data && data.kind === MODE_SWITCH_KIND) {
+                const settings = (target.transcript.meta()?.settings ?? {}) as {approvalMode?: string};
+                return {
+                    kind: "mode-switch",
+                    id: item.id,
+                    toolCallId: item.callId,
+                    fromLabel: modeLabel(data.from),
+                    toLabel: modeLabel(data.to),
+                    ...(data.plan === undefined ? {} : {plan: data.plan}),
+                    approval: {options: [...APPROVAL_OPTIONS], value: settings.approvalMode ?? "ask"},
+                };
+            }
+            return {kind: "question", id: item.id, toolCallId: item.callId, questions: (data as {questions?: PendingQuestionView[]} | undefined)?.questions ?? []};
         });
     }
 
@@ -1239,7 +1338,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 summaryState: "idle",
             },
             availability,
-            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
+            interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
             run: run === undefined ? {} : {
                 status: run.status,
                 phase: run.phase === null ? "" : deps.text.t(agentText(PHASE_KEYS[run.phase])),
@@ -1266,6 +1365,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 thinkingLevels: model?.ok === true ? [...model.efforts] : [],
                 thinking: settings.effort ?? null,
                 approval: {options: [...APPROVAL_OPTIONS], value: settings.approvalMode ?? "ask"},
+                // 模式扩展只装在主创上；还没有会话时要建的就是主创。
+                modes: meta !== null && meta !== undefined && meta.profile !== MAIN_PROFILE ? [] : MODE_OPTIONS.map((option) => ({...option, label: modeLabel(option.key)})),
+                mode: modeOfCurrent(target ?? null),
                 resume: target?.transcript.interrupted() === true,
                 queued: (target?.transcript.queue() ?? []).map((item) => ({id: item.id, text: item.text, delivery: item.mode})),
                 draft,

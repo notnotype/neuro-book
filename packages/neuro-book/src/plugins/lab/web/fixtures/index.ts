@@ -1,7 +1,7 @@
 import type {Component} from "vue";
 
 import type ExplorerFeedback from "nbook/plugins/explorer/web/components/ExplorerFeedback.vue";
-import type EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
+import type EditorGroupHead from "nbook/plugins/editor/web/components/EditorGroupHead.vue";
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
@@ -34,6 +34,7 @@ import type ModelEditDialog from "nbook/plugins/models/web/components/ModelEditD
 import type ModelRow from "nbook/plugins/models/web/components/ModelRow.vue";
 import type ProviderDetail from "nbook/plugins/models/web/components/ProviderDetail.vue";
 import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.vue";
+import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
 import type ProvidersPage from "nbook/plugins/models/web/components/ProvidersPage.vue";
 import type RolesPage from "nbook/plugins/models/web/components/RolesPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
@@ -51,23 +52,16 @@ import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
 import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-editor/ThemeEditor.vue";
 import type ThemeSettingsPage from "nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue";
-import type WorkbenchActivityBar from "nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
-import type WorkbenchMoveViewMenu from "nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue";
-import type WorkbenchPanelSurface from "nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue";
-import type WorkbenchShellLayout from "nbook/plugins/workbench/web/components/WorkbenchShellLayout.vue";
 import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
 import type WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type WorkbenchItemStrip from "nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue";
 import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
-import type WorkbenchViewContainerHost from "nbook/plugins/workbench/web/components/WorkbenchViewContainerHost.vue";
 import type WorkbenchViewFrame from "nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue";
 import type TitleActions from "nbook/ui/menus/TitleActions.vue";
-import type WorkbenchViewSection from "nbook/plugins/workbench/web/components/WorkbenchViewSection.vue";
-import type {PanelState} from "nbook/plugins/workbench/web/shell/panel-state";
 import {localeSetting} from "nbook/plugins/settings/shared/contracts";
 import {appearanceSetting} from "nbook/plugins/workbench/shared/contracts";
 
@@ -83,6 +77,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
+import {withAgentPageText} from "./agent-scene/agent-page-text";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -331,32 +326,6 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./WorkbenchCommandPaletteFixture.vue")).default,
     }),
-    defineLabFixture<typeof WorkbenchShellLayout>({
-        component: "WorkbenchShellLayout",
-        scenes: (() => {
-            const sizes = {sidebarWidth: 340, auxiliarybarWidth: 400, panelHeight: 200, panelWidth: 320};
-            const panel: PanelState = {position: "bottom", alignment: "center", hidden: false, collapsed: false, maximized: false};
-            const scene = (id: string, label: string, override: {panel?: Partial<PanelState>; hiddenParts?: Array<"titlebar" | "activitybar" | "sidebar" | "auxiliarybar">; dragCollapsedParts?: {sidebar?: boolean; auxiliarybar?: boolean; panel?: boolean}}) => ({
-                id,
-                label,
-                input: {props: {sizes, panel: {...panel, ...override.panel}, contextKey: `lab:${id}`, hiddenParts: override.hiddenParts ?? [], dragCollapsedParts: override.dragCollapsedParts ?? {}, disabled: false}},
-            });
-            return [
-                scene("default", "默认（底部居中）", {}),
-                scene("justify", "底部两端对齐", {panel: {alignment: "justify"}}),
-                scene("left", "面板在左侧", {panel: {position: "left"}}),
-                scene("top-right", "顶部靠右", {panel: {position: "top", alignment: "right"}}),
-                scene("collapsed", "面板收起为标题头", {panel: {collapsed: true}}),
-                scene("maximized", "面板最大化", {panel: {maximized: true}}),
-                scene("hidden", "面板隐藏、侧栏拖到零", {panel: {hidden: true}, dragCollapsedParts: {sidebar: true}}),
-                scene("minimal", "只留编辑器与状态栏", {hiddenParts: ["titlebar", "activitybar", "sidebar", "auxiliarybar"], panel: {hidden: true}}),
-                // 外壳二的集成场景：工具区域里是真实的容器与视图实例（shell-scene/ShellViewsScene.vue）。
-                scene("views", "视图：五个视图各在自己的容器", {}),
-                scene("views-merged", "视图：大纲并进资源管理器（multiple）", {}),
-            ];
-        })(),
-        load: async () => withWorkbenchText((await import("./WorkbenchShellLayoutFixture.vue")).default),
-    }),
     defineLabFixture<typeof WorkbenchSurface>({
         component: "WorkbenchSurface",
         // 文档与呈现树由夹具自己算（它扮演工作台），不是 JSON 输入；输入只是占位（类型要求登记必填的 doc、projection），夹具不读它。断言见 e2e/lab-workbench-surface.e2e.ts。
@@ -418,28 +387,6 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
-    }),
-    defineSubjectFixture<typeof WorkbenchPanelSurface>({
-        component: "WorkbenchPanelSurface",
-        events: ["action"],
-        class: "h-full w-full",
-        scenes: (() => {
-            const action = (id: string, label: string, icon: string, disabled = false, extra: {reason?: string; pressed?: boolean} = {}) => ({id, label, icon, disabled, ...extra});
-            const actions = (side: boolean, collapsed: boolean, maximized: boolean) => [
-                action("nbook.view.set-panel-position", "面板位置", "i-lucide-panel-bottom"),
-                action("nbook.view.set-panel-alignment", "面板对齐", "i-lucide-align-horizontal-space-between", side, side ? {reason: "面板不在底部或顶部"} : {}),
-                action("nbook.view.set-panel-collapsed", "收起为标题头", "i-lucide-chevrons-down", side, side ? {reason: "面板不在底部或顶部"} : {pressed: collapsed}),
-                action("nbook.view.toggle-panel-maximized", "最大化/还原面板", "i-lucide-maximize-2", false, {pressed: maximized}),
-                action("nbook.view.set-panel-hidden", "隐藏面板", "i-lucide-x"),
-            ];
-            return [
-                {id: "default", label: "底部、全部可用", input: {props: {title: "面板", collapsed: false, actions: actions(false, false, false)}}},
-                {id: "collapsed", label: "收起为标题头", input: {props: {title: "面板", collapsed: true, actions: actions(false, true, false)}}},
-                {id: "side", label: "在左侧（对齐与收起不可用）", input: {props: {title: "面板", collapsed: false, actions: actions(true, false, false)}}},
-                {id: "long-title", label: "长标题", input: {props: {title: "一个非常长的面板标题，用来看放不下时标题先截断、按钮保持可点", collapsed: false, actions: actions(false, false, true)}}},
-            ];
-        })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue"),
     }),
     defineLabFixture<typeof ThemeEditor>({
         component: "ThemeEditor",
@@ -538,47 +485,6 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchItemStrip>((await import("nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue")).default, {events: ["run"], class: "w-full"})),
     }),
-    defineLabFixture<typeof WorkbenchActivityBar>({
-        component: "WorkbenchActivityBar",
-        scenes: (() => {
-            const containers = [
-                {id: "view:nbook.files", label: "资源管理器", icon: "i-lucide-files"},
-                {id: "view:nbook.search", label: "搜索", icon: "i-lucide-search"},
-                {id: "view:nbook.outline", label: "大纲", icon: "i-lucide-list-tree"},
-            ];
-            const many = Array.from({length: 24}, (_, index) => ({id: `view:test.v${String(index)}`, label: `视图 ${String(index + 1)}`, icon: "i-lucide-square"}));
-            // 底段的全局项（ui/workbench-shell.md 输出 40）：头像占位在上、设置齿轮在下。
-            const profile = {id: "nbook.workbench.profile", title: "个人资料尚未开放", icon: "i-lucide-user-round", command: null, pressed: null, disabledReason: null};
-            const gear = (pressed: boolean, disabledReason: string | null = null) => ({id: "nbook.settings", title: "设置", icon: "i-lucide-settings", command: {id: "nbook.settings.open", args: {}}, pressed, disabledReason});
-            return [
-                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(false)]}}},
-                {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(true)]}}},
-                {id: "item-disabled", label: "底段条目的命令不可用", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(false, "命令 nbook.settings.open 不存在")]}}},
-                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, items: [profile, gear(false)]}}},
-                {id: "empty", label: "没有容器、没有底段条目", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true}}},
-                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, items: [profile, gear(false)]}}},
-            ];
-        })(),
-        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchActivityBar>((await import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue")).default, {events: ["select", "run-item"], class: "h-full w-[48px]"})),
-    }),
-    defineSubjectFixture<typeof WorkbenchMoveViewMenu>({
-        component: "WorkbenchMoveViewMenu",
-        events: ["move", "reset"],
-        scenes: (() => {
-            const groups = [
-                {part: "sidebar", label: "侧栏", targets: [{id: "view:nbook.search", label: "搜索", icon: "i-lucide-search"}, {id: "view:nbook.outline", label: "大纲", icon: "i-lucide-list-tree"}], createLabel: "新建容器（在侧栏）"},
-                {part: "auxiliarybar", label: "右栏", targets: [], createLabel: "新建容器（在右栏）"},
-                {part: "panel", label: "面板", targets: [{id: "view:nbook.terminal", label: "终端", icon: "i-lucide-terminal"}], createLabel: "新建容器（在面板）"},
-            ];
-            const base = {label: "移动到", viewId: "nbook.files", sourceContainerId: "view:nbook.files", identity: "nbook.files|view:nbook.files|1|single"};
-            return [
-                {id: "default", label: "三个 Part 的目标与新建容器", input: {props: {...base, groups, resetLabel: null}}},
-                {id: "reset", label: "不在默认位置：可重置", input: {props: {...base, sourceContainerId: "view:nbook.search", groups, resetLabel: "重置位置"}}},
-                {id: "none", label: "没有目标：禁用", input: {props: {...base, groups: [], resetLabel: null}}},
-            ];
-        })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchMoveViewMenu.vue"),
-    }),
     defineSubjectFixture<typeof TitleActions>({
         component: "TitleActions",
         events: ["run"],
@@ -613,33 +519,11 @@ export const labFixtures: LabFixture[] = [
         component: "WorkbenchDragFeedback",
         events: [],
         scenes: [
-            {id: "line", label: "Switcher 插入线与拖影", input: {props: {ghost: {label: "资源管理器", icon: "i-lucide-files", x: 220, y: 140}, preview: {areaRect: null, entryRect: null, indicator: {left: 180, top: 96, right: 182, bottom: 128}, orientation: "horizontal"}, label: "新建容器", kind: "detach-view", count: 1}}},
-            {id: "area", label: "边缘并入的半区", input: {props: {ghost: {label: "终端", icon: "i-lucide-terminal", x: 320, y: 260}, preview: {areaRect: {left: 120, top: 200, right: 520, bottom: 320}, entryRect: null, indicator: null, orientation: "vertical"}, label: "移到这里", kind: "move-view", count: 1}}},
-            {id: "idle", label: "没有拖动", input: {props: {ghost: null, preview: null, label: "", kind: "", count: 0}}},
+            {id: "line", label: "标签条的插入线与拖影", input: {props: {ghost: {label: "资源管理器", icon: "i-lucide-files", x: 220, y: 140}, preview: {areaRect: null, entryRect: null, indicator: {left: 180, top: 96, right: 182, bottom: 128}, orientation: "horizontal"}, label: "放在这里", kind: "strip"}}},
+            {id: "area", label: "拆到一边的矩形", input: {props: {ghost: {label: "终端", icon: "i-lucide-terminal", x: 320, y: 260}, preview: {areaRect: {left: 120, top: 200, right: 520, bottom: 320}, entryRect: null, indicator: null, orientation: "vertical"}, label: "拆到这一边", kind: "edge"}}},
+            {id: "idle", label: "没有拖动", input: {props: {ghost: null, preview: null, label: "", kind: ""}}},
         ],
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue"),
-    }),
-    defineLabFixture<typeof WorkbenchViewContainerHost>({
-        component: "WorkbenchViewContainerHost",
-        scenes: (() => {
-            const slot = (id: string, name: string, extra: {collapsed?: boolean; size?: number | null; layout?: "scroll" | "fill"} = {}) => ({
-                id, title: {"zh-CN": name, "en-US": name}, icon: "i-lucide-square", layout: extra.layout ?? ("scroll" as const), movable: true, collapsed: extra.collapsed ?? false, size: extra.size ?? null, minSize: 64, maxSize: 1_000_000,
-            });
-            const container = (part: "sidebar" | "panel", views: ReturnType<typeof slot>[]) => ({
-                id: "view:test.a", part, axis: part === "panel" ? ("horizontal" as const) : ("vertical" as const), title: views[0]?.title ?? {"zh-CN": "空", "en-US": "Empty"}, icon: "i-lucide-square",
-                mode: views.length === 0 ? ("empty" as const) : views.length === 1 ? ("single" as const) : ("multiple" as const), members: views.map((view) => view.id), views, showContainerTitle: part === "sidebar" && views.length === 1,
-            });
-            const scene = (id: string, label: string, part: "sidebar" | "panel", views: ReturnType<typeof slot>[]) => ({
-                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false}},
-            });
-            return [
-                scene("vertical", "侧栏纵向三个视图", "sidebar", [slot("test.a", "资源管理器"), slot("test.b", "大纲", {size: 160}), slot("test.c", "时间线")]),
-                scene("collapsed", "纵向：中间一个收起", "sidebar", [slot("test.a", "资源管理器"), slot("test.b", "大纲", {collapsed: true}), slot("test.c", "时间线")]),
-                scene("horizontal", "Panel 横向两个视图，一个收起成竖条", "panel", [slot("test.a", "终端"), slot("test.b", "问题", {collapsed: true}), slot("test.c", "输出")]),
-                scene("single", "single：一个视图、没有标题行", "sidebar", [slot("test.a", "资源管理器")]),
-            ];
-        })(),
-        load: async () => withWorkbenchText((await import("./WorkbenchViewContainerHostFixture.vue")).default),
     }),
     defineLabFixture<typeof WorkbenchViewFrame>({
         component: "WorkbenchViewFrame",
@@ -656,21 +540,6 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchViewFrame>((await import("nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue")).default, {events: ["retry-entry", "reload", "retry-render", "render-error"], class: "h-full w-full"})),
-    }),
-    defineLabFixture<typeof WorkbenchViewSection>({
-        component: "WorkbenchViewSection", slots: ["default", "actions"],
-        scenes: (() => {
-            const base = {viewId: "nbook.files", title: "资源管理器", icon: "i-lucide-files", collapseLabel: "收起视图", expandLabel: "展开视图", dragLabel: "拖动 资源管理器"};
-            const scene = (id: string, label: string, props: {axis: "vertical" | "horizontal"; chrome: boolean; collapsed: boolean}) => ({id, label, input: {props: {...base, ...props}, slots: {default: true, actions: true}}});
-            return [
-                scene("multiple", "multiple：标题行与动作", {axis: "vertical", chrome: true, collapsed: false}),
-                scene("collapsed", "纵向收起为 32px 标题", {axis: "vertical", chrome: true, collapsed: true}),
-                scene("horizontal-collapsed", "横向收起为 32px 竖条", {axis: "horizontal", chrome: true, collapsed: true}),
-                scene("single", "single：没有标题行", {axis: "vertical", chrome: false, collapsed: false}),
-                scene("short", "内容不满一屏", {axis: "vertical", chrome: true, collapsed: false}),
-            ];
-        })(),
-        load: async () => (await import("./WorkbenchViewSectionFixture.vue")).default,
     }),
     defineLabFixture<typeof ExplorerRow>({
         component: "ExplorerRow",
@@ -837,16 +706,17 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => (await import("./FilesExplorerViewFixture.vue")).default,
     }),
-    defineLabFixture<typeof EditorArea>({
-        component: "EditorArea",
-        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；界面语言由场景 id 决定（`english` 用英文），输入只给多行标签。
+    defineLabFixture<typeof EditorGroupHead>({
+        component: "EditorGroup",
+        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；界面语言由场景 id 决定（`english` 用英文），输入只给多行标签（它是头的属性，所以类型按头）。
         scenes: [
-            {id: "live", label: "内存数据：两个标签", input: {props: {wrapTabs: true}}},
-            {id: "split", label: "向右拆分的两组", input: {props: {wrapTabs: true}}},
-            {id: "english", label: "英文界面", input: {props: {wrapTabs: true}}},
-            {id: "empty", label: "没有标签：标志与提示", input: {props: {wrapTabs: true}}},
-            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {wrapTabs: true}}},
-            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {wrapTabs: true}}},
+            {id: "live", label: "内存数据：两个标签", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "split", label: "向右拆分的两组", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "english", label: "英文界面", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "empty", label: "没有标签：标志与提示", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "recycle", label: "回收：每种编辑器只留 2 个控件", input: {props: {groupId: "g0", wrapTabs: true}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),
@@ -1129,6 +999,20 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {layer: "user"}}},
             ],
             load: async () => withProjectsText((await import("./WorksSettingsPageFixture.vue")).default),
+        }),
+        defineLabFixture<typeof PermissionRulesPage>({
+            component: "PermissionRulesPage",
+            scenes: [
+                {id: "rules", label: "我的规则：命令、路径、关键词、放行、自定义条件", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}]}}},
+                {id: "empty", label: "还没有规则", input: {props: {rules: []}}},
+                {id: "project", label: "绑定作品：这本书的规则只读，放行标不生效", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], projectTitle: "雨夜", projectRules: [{tool: "write", when: {type: "path", glob: "project://设定/**", access: "write"}, action: "ask" as const, reason: "设定要作者点头"}, {tool: "shell", action: "allow" as const}]}}},
+                {id: "project-invalid", label: "作品的规则文件坏了", input: {props: {rules: [], projectTitle: "雨夜", projectRules: "invalid"}}},
+                {id: "add", label: "添加规则：对话框", input: {props: {rules: [], initialEdit: "new"}}},
+                {id: "edit", label: "编辑规则：命令", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], initialEdit: 0}}},
+                {id: "edit-json", label: "编辑规则：自定义条件是 JSON", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], initialEdit: 4}}},
+                {id: "readonly", label: "配置写不了", input: {props: {rules: [{tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny" as const, reason: "不要推送，先让用户看"}, {tool: "write", when: {type: "path", glob: "project://正文/**", access: "write"}, action: "ask" as const}, {tool: "*.image-gen", when: {type: "arg", path: "prompt", op: "keywords", value: ["血腥", "暴力"]}, action: "deny" as const}, {tool: "shell", when: {type: "command", pattern: "git diff *"}, action: "allow" as const}, {tool: "ssh", when: {all: [{type: "subject", kind: "host", glob: "prod*"}, {type: "command", pattern: "rm *"}]}, action: "deny" as const}], writable: false}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/PermissionRulesFixture.vue")).default),
         }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",

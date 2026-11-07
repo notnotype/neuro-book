@@ -187,6 +187,8 @@ export type InteractionView = {
     canStop: boolean;
     canRegisterAttachments: boolean;
     canChangeRuntime: boolean;
+    /** 能切 Agent 模式。不写时跟 `canChangeRuntime`；宿主在还没有会话时也给它，先开 `plan` 再发第一条。 */
+    canChangeMode?: boolean;
     canArchive: boolean;
     canRestore: boolean;
     /** 宿主能给上下文详情：为真时圆环与缓存命中能点，顶栏菜单有入口。 */
@@ -259,6 +261,8 @@ export type PendingApprovalView = {
     args: JsonValue;
     reason?: string;
     preview: ApprovalPreviewView;
+    /** “本会话都批准”要记什么：`label` 是规则（`git diff *`）；不写是记整个工具；`false` 是这次不能记，没有这个选项。 */
+    remember?: {label: string} | false;
 };
 
 /** 一次提问：一个工具调用里 1 到 4 题。 */
@@ -270,7 +274,18 @@ export type PendingQuestionsView = {
 };
 
 /** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
-export type PendingInputView = PendingApprovalView | PendingQuestionsView;
+/** 模型申请切换 Agent 模式（`switch_mode`）。`plan` 是退出计划模式时要批准的计划全文。 */
+export type PendingModeSwitchView = {
+    kind: "mode-switch";
+    id: string;
+    toolCallId: string;
+    fromLabel: string;
+    toLabel: string;
+    plan?: string;
+    approval: {options: ComposerApprovalOption[]; value: string};
+};
+
+export type PendingInputView = PendingApprovalView | PendingQuestionsView | PendingModeSwitchView;
 
 export type WorkflowView = {
     runId: string;
@@ -489,8 +504,9 @@ export type SubmitDelivery = "prompt" | "steer" | "followup";
 
 /** 一个等用户事项的答复：审批的决定（`note` 是拒绝时给模型的话），或提问的回答（`text` 是拼好的人话，`data` 是逐题的回答）。 */
 export type InputResolution =
-    | {kind: "approval"; decision: "allow" | "allow-session" | "deny"; note?: string}
-    | {kind: "question"; answer: {text: string; data: {answers: JsonValue}}};
+    | {kind: "approval"; decision: "allow" | "allow-session" | "allow-always" | "deny"; note?: string}
+    | {kind: "question"; answer: {text: string; data: {answers: JsonValue}}}
+    | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}};
 
 export type BuiltinAgentViewAction =
     // 会话

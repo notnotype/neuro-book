@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t13-bars-move
-status: planned
-updated: 2026-11-05
+status: shelved
+updated: 2026-11-06
 ---
 
 # 活动栏、状态栏移到四边
@@ -15,7 +15,7 @@ updated: 2026-11-05
 
 ## 当前状态
 
-2026-11-05 经 nbdev 新建，尚未开工。
+开发者 2026-11-06 搁置：骨架固定为 `活动栏 | 侧栏 | 编辑区 | 右栏` 之后，条移到四边不再是要解决的问题（[提案决策记录](../../../../../docs/proposals/workbench-single-tree-layout.md#决策记录)）。
 
 ## 下一步
 

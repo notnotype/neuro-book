@@ -24,6 +24,7 @@ import {markdownEditingActions} from "@notnotype/nb-markdown/editor";
 import {EDITING_ACTIONS, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
 import type {WindowText} from "nbook/shared/window-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
@@ -60,7 +61,7 @@ interface Opened {
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
 async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
-    const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+    const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
     }});
     if (area === undefined) {
@@ -74,13 +75,14 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
         return found?.kind === "text" && editorArea.documentOf(groupId)?.status.value === "ready" ? found : null;
     });
     let handle: EditorControlHandle | null = null;
-    const host = editorArea.controlSlot(groupId, MARKDOWN_EDITOR);
+    const tabId = binding.tabId;
+    const host = editorArea.tabControlSlot(tabId, MARKDOWN_EDITOR);
     const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
     windowText.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
     // 句柄交给编辑器区（与 `EditorGroup` 一样），区域的定位、结算经它找到控件。
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
-        editorArea.registerHandle(groupId, MARKDOWN_EDITOR, ready);
+        editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
     }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
@@ -295,12 +297,39 @@ describe("显示（方言 Spec 输出 23）", () => {
     });
 });
 
+describe("结算（同一文档的几个控件）", () => {
+    it("先挂的有缓冲输入、后挂的还没跟上：结算不把后挂的当输入，不产生假冲突，保存照常", async () => {
+        const first = await opened("甲\n");
+        expect(first.area.split("right")).toEqual({ok: true});
+        const second = await opened("甲\n", {area: first.area, memory: first.memory});
+        first.editor.commands.insertContentAt(endOfBlock(first.editor, 0), "乙");
+        const document = first.area.documentOf(first.groupId);
+        if (document === null) throw new Error("没有文档");
+        first.area.documents.settle(document);
+        expect(first.binding.text.value).toBe("甲乙\n");
+        expect(second.binding.unresolved()).toBe(false);
+        expect(await first.area.documents.save(document)).toEqual({ok: true});
+    });
+
+    it("真的两边都有输入：后挂的有缓冲输入、基于旧修订，照常是未裁决", async () => {
+        const first = await opened("甲\n");
+        expect(first.area.split("right")).toEqual({ok: true});
+        const second = await opened("甲\n", {area: first.area, memory: first.memory});
+        first.editor.commands.insertContentAt(endOfBlock(first.editor, 0), "左");
+        second.editor.commands.insertContentAt(endOfBlock(second.editor, 0), "右");
+        const document = first.area.documentOf(first.groupId);
+        if (document === null) throw new Error("没有文档");
+        first.area.documents.settle(document);
+        expect(first.binding.unresolved() !== second.binding.unresolved()).toBe(true);
+    });
+});
+
 describe("卸载", () => {
     it("编辑器区先释放了实例（组关闭、Lab 切走）再卸载控件：卸载前的结算照常写出，不报错", async () => {
         const errors: unknown[] = [];
         const {editor, binding, area, groupId} = await opened("甲\n", undefined, (error) => errors.push(error));
         editor.commands.insertContentAt(endOfBlock(editor, 0), "乙");
-        area.controlSlot(groupId, MARKDOWN_EDITOR).dispose?.();
+        area.tabControlSlot(binding.tabId, MARKDOWN_EDITOR).dispose?.();
         // 最后登记的清理是卸载控件（见 `opened`）：文档还在，只卸载控件。
         cleanups.pop()?.();
         expect(errors).toEqual([]);

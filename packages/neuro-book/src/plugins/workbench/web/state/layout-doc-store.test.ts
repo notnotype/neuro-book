@@ -8,29 +8,34 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {DeepReadonly} from "@vue/reactivity";
+import {Type} from "typebox";
 
-import {insertTab, moveTabToEdge, validateLayoutDoc} from "@notnotype/nb-layout";
+import {insertTab, moveTabToEdge, removeTab, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutResult, TabRef} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
+import {defineRecord} from "nbook/shared/storage";
 import type {RecordDefinition, StorageService} from "nbook/shared/storage";
 
 import {openLayoutDoc} from "../testing/layout-doc";
 import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {createLayoutPolicy} from "./layout-constraints";
 import type {LayoutDocStore} from "./layout-doc-store";
-import {INITIAL_EDITOR_PANEL} from "./default-tree";
-import {LAYOUT_DOC_RECORDS, LAYOUT_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
+import {fitsSkeleton, INITIAL_EDITOR_PANEL} from "./default-tree";
+import {sidebarColumnPanels} from "./layout-present";
+import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 
 const PLUGIN = "nbook.workbench";
 const USER = LAYOUT_DOC_RECORDS.user;
 const PROJECT = LAYOUT_DOC_RECORDS.project;
 const POLICY = createLayoutPolicy();
 const editorTab = (tabId: string): TabRef => ({kind: "tab", type: "nbook.editor", tabId});
+/** 旧外壳留在用户存储里的记录：产品代码已不再定义它，这里按原来的键与分区造一份，验证新 store 不碰它。 */
+const LEGACY_CUSTOMIZATIONS = defineRecord({key: "views-customizations", scope: "user", locality: "local", version: 1, schema: Type.Object({panel: Type.Object({position: Type.String()})})});
 
 let tmp = "";
 let counter = 0;
@@ -111,15 +116,15 @@ describe("默认与记录", () => {
     it("旧记录不读、不写、不删", async () => {
         const w = await world();
         const {store, storage} = await openLayoutDoc(w, "w", "c");
-        const opened = await storage.open(LAYOUT_RECORDS.user.customizations);
+        const opened = await storage.open(LEGACY_CUSTOMIZATIONS);
         if (!opened.ok) throw new Error(opened.detail);
-        const original = {panel: {position: "top" as const}};
+        const original = {panel: {position: "top"}};
         await opened.handle.save(original, {expect: null});
         hideAux(store);
         await store.actions.save();
         await settled(store);
         expect(store.state.doc.panels.panel?.hidden).toBeUndefined();
-        expect(await read(storage, LAYOUT_RECORDS.user.customizations)).toEqual(original);
+        expect(await read(storage, LEGACY_CUSTOMIZATIONS)).toEqual(original);
     });
 });
 
@@ -197,20 +202,137 @@ describe("损坏与失败", () => {
         expect(await read(second.storage, USER)).toEqual({doc: {version: 1, tree: "坏的"}});
     });
 
+    /** 合法但不合骨架的文档：面板跑到了编辑组旁边（片 7c 之前能拖出来）。 */
+    function outsideSkeleton(doc: LayoutDoc): LayoutDoc {
+        const moved = moveTabToEdge(doc, {tab: "view:test.panel", target: {kind: "split", panel: "g0", edge: "right"}}, {...POLICY, accepts: () => true});
+        if (!moved.ok) throw new Error(moved.detail);
+        return moved.doc;
+    }
+
+    it("记录合法但不合骨架：默认树，不算读不了，下次保存覆盖它，外壳根有诊断（验收 20）", async () => {
+        const w = await world();
+        const first = await openLayoutDoc(w, "a", "c");
+        const shape = outsideSkeleton(JSON.parse(JSON.stringify(first.store.actions.document())) as LayoutDoc);
+        const opened = await first.storage.open(USER);
+        if (!opened.ok) throw new Error(opened.detail);
+        await opened.handle.save({doc: shape}, {expect: null});
+        const second = await openLayoutDoc(w, "b", "c");
+        expect(second.store.state.problems).toEqual([]);
+        expect(second.store.state.outsideSkeleton).toBe(true);
+        expect(fitsSkeleton(second.store.actions.document())).toBe(true);
+        second.store.actions.setPartHidden("panel", true);
+        await second.store.actions.save();
+        const saved = await savedDoc(second.storage, USER);
+        expect(fitsSkeleton(saved)).toBe(true);
+        expect(second.store.state.outsideSkeleton).toBe(false);
+    });
+
+    it("没有记录、模板不合骨架：默认树，当作没有模板（验收 20）", async () => {
+        const w = await world();
+        const first = await openLayoutDoc(w, "a", "c");
+        const shape = outsideSkeleton(JSON.parse(JSON.stringify(first.store.actions.document())) as LayoutDoc);
+        const opened = await first.storage.open(LAYOUT_TEMPLATE_RECORD);
+        if (!opened.ok) throw new Error(opened.detail);
+        await opened.handle.save({doc: shape}, {expect: null});
+        const second = await openLayoutDoc(w, "b", "c");
+        expect(fitsSkeleton(second.store.actions.document())).toBe(true);
+        expect(second.store.state.problems).toEqual([]);
+    });
+
+    it("写入的出口守骨架：哪个入口传来不合骨架的结果都被拒绝，文档不变", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        const before = store.actions.document();
+        const result = store.actions.apply((doc) => ({ok: true, doc: outsideSkeleton(doc)}));
+        expect(result).toMatchObject({ok: false, code: "rejected"});
+        expect(store.actions.document()).toBe(before);
+    });
+
+    it("“移动到”的新面板：这一列放下面，这一排放右边；编辑组是 rejected，不存在的是 not-found（输出 23、35）", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        const inSide = store.actions.moveView("test.panel", {newPanelNextTo: "sidebar"});
+        if (!inSide.ok) throw new Error(inSide.detail);
+        expect(sidebarColumnPanels(store.actions.document())).toHaveLength(2);
+        expect(fitsSkeleton(store.actions.document())).toBe(true);
+        expect(store.actions.moveView("test.side", {newPanelNextTo: INITIAL_EDITOR_PANEL})).toMatchObject({ok: false, code: "rejected"});
+        expect(store.actions.moveView("test.side", {newPanelNextTo: "nowhere"})).toMatchObject({ok: false, code: "not-found"});
+    });
+
+    it("标签换一位：活动标签不变，到头了不动（输出 20）", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        expect(store.actions.moveView("test.panel", "sidebar").ok).toBe(true);
+        const tabs = (): ReadonlyArray<unknown> => store.actions.document().panels.sidebar?.tabs ?? [];
+        const before = tabs();
+        const active = store.actions.document().panels.sidebar?.active;
+        expect(store.actions.reorderTab("view:test.panel", 1).ok).toBe(true);
+        expect(tabs()).toEqual(before);
+        expect(store.actions.reorderTab("view:test.panel", -1).ok).toBe(true);
+        expect(tabs()).toEqual([before[1], before[0]]);
+        expect(store.actions.document().panels.sidebar?.active).toBe(active);
+    });
+
+    it("点标签：面板收成标题行时一起展开（输出 11）", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        store.actions.setCollapsed("sidebar", true);
+        expect(store.actions.document().panels.sidebar?.collapsed).toBe(true);
+        store.actions.activate("view:test.side");
+        expect(store.actions.document().panels.sidebar?.collapsed).toBeUndefined();
+    });
+
     it("`editor.tabs` 保存失败：布局不写，状态栏有问题；再存成功就好了", async () => {
         const w = await world();
         const {store, storage} = await openLayoutDoc(w, "a", "c");
         let allow = false;
-        store.actions.acceptSaveGate(async () => allow);
+        let recovers = 0;
+        store.actions.acceptSaveGate({pass: async () => allow, recover: async () => {
+            recovers += 1;
+            return allow;
+        }});
         hideAux(store);
         await store.actions.save();
         expect(await read(storage, USER)).toBe("missing");
         expect(store.state.problems).toEqual([{kind: "unsaved", code: "save-gate"}]);
+        // 重试还是过不去：照旧显示。保存本身不重试关卡，只有这个按钮才重试。
+        expect(recovers).toBe(0);
+        await store.actions.retry();
+        expect(recovers).toBe(1);
+        expect(store.state.problems).toEqual([{kind: "unsaved", code: "save-gate"}]);
+        expect(await read(storage, USER)).toBe("missing");
         allow = true;
-        await store.actions.save();
+        // 状态栏的“重试”：布局自己没有待重试的，要再走一次关卡。
+        await store.actions.retry();
         await settled(store);
         expect(store.state.problems).toEqual([]);
         expect((await savedDoc(storage, USER)).panels.auxiliarybar?.hidden).toBe(true);
+    });
+
+    it("放弃：开着的编辑器标签不跟着回滚，关掉的也不回来", async () => {
+        const w = await world();
+        await w.project(1, []);
+        const {store, storage} = await openLayoutDoc(w, "a", "c", true);
+        const panels = () => store.actions.document().panels;
+        const editor = INITIAL_EDITOR_PANEL;
+        store.actions.apply((current) => insertTab(current, {panel: editor, tab: editorTab("closed")}), {flush: true});
+        await store.actions.save();
+        await settled(store);
+        expect((await savedDoc(storage, PROJECT)).panels[editor]?.tabs).toEqual([editorTab("closed")]);
+
+        store.actions.apply((current) => removeTab(current, "tab:closed"));
+        store.actions.apply((current) => insertTab(current, {panel: editor, tab: editorTab("open")}));
+        hideAux(store);
+        store.actions.discard();
+        expect(panels()[editor]?.tabs).toEqual([editorTab("open")]);
+        expect(panels()[editor]?.active).toBe("tab:open");
+        expect(panels().auxiliarybar?.hidden).toBeUndefined();
+
+        // 未绑定项目的窗口：已确认的文档里没有动态标签，开着的同样不丢。
+        const unbound = (await openLayoutDoc(w, "b", "d")).store;
+        unbound.actions.apply((current) => insertTab(current, {panel: INITIAL_EDITOR_PANEL, tab: editorTab("open")}));
+        unbound.actions.discard();
+        expect(unbound.actions.document().panels[INITIAL_EDITOR_PANEL]?.tabs).toEqual([editorTab("open")]);
     });
 
     it("放弃：显示回到已确认值", async () => {
@@ -260,7 +382,7 @@ describe("呈现事实", () => {
         store.actions.setPartHidden("auxiliarybar", true);
         expect(store.state.maximized).toBe("sidebar");
         store.actions.apply((doc) => {
-            const target = {kind: "split", panel: INITIAL_EDITOR_PANEL, edge: "right"} as const;
+            const target = {kind: "split", panel: "auxiliarybar", edge: "bottom"} as const;
             return moveFirstTabToEdge(doc, target);
         });
         expect(store.state.maximized).toBeNull();
@@ -387,6 +509,6 @@ function sizeIn(doc: DeepReadonly<LayoutDoc>, id: string): {width: number; heigh
 }
 
 /** 把侧栏的唯一标签拆到目标外缘：一次改变树结构的操作。 */
-function moveFirstTabToEdge(doc: LayoutDoc, target: {readonly kind: "split"; readonly panel: string; readonly edge: "right"}): LayoutResult {
+function moveFirstTabToEdge(doc: LayoutDoc, target: {readonly kind: "split"; readonly panel: string; readonly edge: "bottom"}): LayoutResult {
     return moveTabToEdge(doc, {tab: "view:test.side", target}, POLICY);
 }

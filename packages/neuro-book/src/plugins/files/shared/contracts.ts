@@ -416,6 +416,35 @@ export const THEME_ICON_UPLOAD_URL = "/api/nbook.files/theme-icons";
 export const THEME_ICON_MAX_BYTES = 16 * 1024;
 /** 主题场景素材所在的目录，文件名是内容摘要。 */
 export const THEME_ASSET_DIRECTORY_ADDRESS = "user://theme-assets";
+/** 目录里素材的文件名：内容的 SHA-256 加按字节判定的扩展名（位图与 SVG）。清理只认这个名字。 */
+export const THEME_ASSET_FILE_NAME = /^[0-9a-f]{64}\.(?:png|jpg|webp|svg)$/u;
+
+/**
+ * 清理没人引用的主题素材：`POST` JSON `{keep, names?}`（docs/specs/theme/editor.md 的“清理未使用素材”）。没有 `names` 是统计，回
+ * `{removable}`；有 `names` 是真删，只删 `names` 里的，回 `{removed, skipped}`。
+ */
+export const THEME_ASSET_SWEEP_URL = "/api/nbook.files/theme-assets/sweep";
+/** `keep` 与 `names` 各自至多这么多项。`user-themes` 记录至多 512 KiB、一个素材名至少约 70 字节，唯一引用至多约 7500 个，装得下。 */
+export const THEME_ASSET_SWEEP_MAX_NAMES = 8192;
+/** 清理请求体的上限：超过 `keep` 与 `names` 都装满的体积。 */
+export const THEME_ASSET_SWEEP_MAX_BYTES = 1024 * 1024;
+
+export interface ThemeAssetSweepRequest {
+    /** 仍被引用的素材文件名。 */
+    readonly keep: ReadonlyArray<string>;
+    /** 要删的素材文件名（用户确认过的那份统计）；不给就只统计。 */
+    readonly names?: ReadonlyArray<string>;
+}
+export interface ThemeAssetSweepStats {
+    readonly removable: ReadonlyArray<{readonly name: string; readonly bytes: number}>;
+    /** 候选超过一次统计的上限（`THEME_ASSET_SWEEP_MAX_NAMES`）：只列了前面一批，清理掉之后再统计看后面的。 */
+    readonly truncated?: true;
+}
+export type ThemeAssetSweepSkipReason = "recent" | "kept" | "not-file" | "failed";
+export interface ThemeAssetSweepResult {
+    readonly removed: ReadonlyArray<string>;
+    readonly skipped: ReadonlyArray<{readonly name: string; readonly reason: ThemeAssetSweepSkipReason; readonly code?: string}>;
+}
 
 /** 字节路由的 URL：`project://` 带窗口绑定的作品与代次；地址不合法或没有绑定项目时为 null。 */
 export function rawUrlOf(address: string, project: {readonly id: string; readonly generation: number} | null): string | null {

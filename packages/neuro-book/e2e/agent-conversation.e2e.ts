@@ -484,7 +484,7 @@ test("附件：选图片上传，消息里显示；模型不能看图时请求�
     await script("收到图了");
     await openConversation(page);
     await newSession(page);
-    await page.locator("[data-composer-action='attach']").waitFor();
+    await page.locator("[data-composer-action='plus']").waitFor();
     await page.locator(".acv-composer__file-input").setInputFiles({name: "封面.png", mimeType: "image/png", buffer: PNG});
     await expect(page.getByRole("list", {name: "附件"}).getByRole("listitem")).toHaveCount(1);
     await input(page).click();
@@ -533,6 +533,77 @@ test("附件：选图片上传，消息里显示；模型不能看图时请求�
     expect(tooLarge).toBe(413);
     expect((await page.request.post(base.replace("/sessions/", "/sessions/no-such-"), {data: "x"})).status()).toBe(404);
     expect((await page.request.get(`${base}/..%2F..%2Fsession.jsonl`)).status()).toBeGreaterThanOrEqual(400);
+});
+
+test("Agent 模式：还没有会话时选计划；写作品被拦；写计划、批准并开始后切回；Shift+Tab 切换", async ({page}) => {
+    await openConversation(page);
+    await newSession(page);
+    const mode = page.locator('[data-composer-action="mode"]');
+    await expect(mode).toContainText("普通");
+    await mode.click();
+    await mode.click();
+    await expect(mode).toContainText("计划");
+    await expect(page.locator("[data-status-mode]")).toContainText("计划模式");
+    await expect(page.locator('[data-composer-action="approval"]')).toHaveClass(/is-muted/u);
+
+    await script(
+        {tool: "write", args: {path: "project://正文/第三章.md", content: "不该写进去"}},
+        {tool: "write", args: {path: "session://plan.md", content: "# 改第三章\n\n第一步：压缩回忆"}},
+        {tool: "switch_mode", args: {mode: "normal"}},
+        "开始实现",
+    );
+    await send(page, "规划一下第三章");
+    await expect(page.locator("[data-mode-switch-plan]")).toContainText("第一步：压缩回忆");
+    await page.locator("[data-mode-switch-approve]").click();
+    await expect(page.getByText("开始实现")).toBeVisible();
+    await expect(mode).toContainText("普通");
+    await expect(page.locator("[data-status-mode]")).toHaveCount(0);
+    const seen = JSON.stringify((await requests()).map((request) => request.messages));
+    expect(seen).toContain("现在是计划模式");
+    expect(seen).toContain("mode-blocked");
+
+    await page.getByRole("textbox", {name: "消息输入框"}).click();
+    await page.keyboard.press("Shift+Tab");
+    await expect(mode).toContainText("讨论");
+});
+
+test("权限规则：以后都允许写进用户规则；设置页列出我的规则与这本书的规则，能删", async ({page}) => {
+    const rulesFile = join(projectDir, ".nbook/permissions.json");
+    await writeFile(rulesFile, JSON.stringify([{tool: "nbook.agent.shell", when: {type: "command", pattern: "git push *"}, action: "deny", reason: "先问我"}, {tool: "nbook.agent.write", action: "allow"}]));
+    try {
+        await openConversation(page);
+        await newSession(page);
+        // 同一批里两条：同一拍追加，两条都要存下。
+        await script({tools: [{tool: "shell", args: {command: "mkdir 新目录"}}, {tool: "shell", args: {command: "touch 新目录/一"}}]}, "建好了");
+        await send(page, "建个目录");
+        await page.locator('[data-approval-decision="allow-always"]').click();
+        await page.locator('[data-approval-decision="allow-always"]').click();
+        await page.locator("[data-approval-submit]").click();
+        await expect(page.getByText("建好了")).toBeVisible();
+        const file = join(stateRoot, "settings.json");
+        const remembered = ["mkdir *", "touch *"].map((pattern) => ({tool: "nbook.agent.shell", when: {type: "command", pattern}, action: "allow"}));
+        await expect.poll(async () => (JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>)["nbook.agent/permissionRules"]).toEqual(remembered);
+
+        await page.locator("[data-activity-item='nbook.settings']").click();
+        await page.locator("[data-settings-nav='nbook.agent.permissions']").click();
+        const rules = page.locator("[data-permission-rule]");
+        await expect(rules).toHaveCount(2);
+        await expect(rules.first()).toContainText("mkdir *");
+        const project = page.locator("[data-permission-project]");
+        await expect(project).toContainText("git push *");
+        await expect(project).toContainText("先问我");
+        // 项目层的放行不生效，页面要写明。
+        await expect(project.locator(".is-ignored")).toHaveCount(1);
+
+        // 连点两下：第二下在第一下的结果上算。
+        const removeFirst = rules.first().getByRole("button", {name: "删除"});
+        await removeFirst.click();
+        await rules.first().getByRole("button", {name: "删除"}).click();
+        await expect(rules).toHaveCount(0);
+        await expect.poll(async () => (JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>)["nbook.agent/permissionRules"] ?? []).toEqual([]);
+    } finally {
+        await rm(rulesFile, {force: true});
+    }
 });
 
 test("压缩：/compact 带要求，出现带详情的分隔线，点开看到方法与要求；菜单里没有还没做的命令", async ({page}) => {

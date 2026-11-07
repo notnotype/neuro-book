@@ -20,6 +20,7 @@ import {files, filesScene} from "nbook/plugins/files/testing/scene";
 
 import type {EditorTabContextItemDeclaration} from "./shared/contracts";
 import {createEditorArea} from "./web/area";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea} from "./web/area";
 import {copyTabPath} from "./web/commands";
 import {createEditorTabMenu} from "./web/tab-menu";
@@ -54,7 +55,7 @@ const ACME = "nbook.editor.count-test";
 async function world(items: ReadonlyArray<{readonly id: string; readonly declaration: EditorTabContextItemDeclaration}> = [], revealReady = true) {
     counter += 1;
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"notes/a.md": "A", "b.md": "B", "c.md": "C"}});
-    const area: EditorArea = createEditorArea({files: files(scene.window), clock: new ManualClock(), workspaceKey: "p1", generation: 1, initial: null, report: (error) => {
+    const area: EditorArea = createEditorArea({files: files(scene.window), clock: new ManualClock(), panels: createMemoryEditorPanels(), workspaceKey: "p1", generation: 1, initial: null, report: (error) => {
         throw error;
     }});
     closers.push(async () => {

@@ -95,7 +95,8 @@ export interface DragGestureHost<S, D, R> {
     readonly structure?: (() => string) | undefined;
     resolve(query: DragGestureQuery<S, R>): D | null;
     actionKey(drop: D): string | null;
-    commit(drop: D, source: S): void;
+    /** `keyboard`：这场是键盘拖动，之后 `restoreFocus` 会把焦点还给来源。 */
+    commit(drop: D, source: S, keyboard: boolean): void;
     publish(state: DragState<S, D> | null): void;
     readonly ended?: ((end: DragEnd, last: DragState<S, D>) => void) | undefined;
     readonly activeChanged?: ((active: boolean) => void) | undefined;
@@ -246,7 +247,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         host.publish(null);
         host.activeChanged?.(false);
         if (end !== null) host.ended?.(end, current.last);
-        if (dropped !== null) host.commit(dropped, current.source);
+        if (dropped !== null) host.commit(dropped, current.source, current.cursor !== null);
         if (current.cursor === null || end === null) return;
         if (end.kind !== "cancelled") {
             // 提交引起的重渲染在下一帧之前完成，旧的来源元素这时已经换掉，还焦点才找得到留下来的那个。

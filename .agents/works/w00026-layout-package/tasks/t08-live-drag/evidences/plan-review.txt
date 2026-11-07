@@ -1,0 +1,354 @@
+w00026 t08 实时布局：计划只读设计审查
+审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00026-layout-package/tasks/t08-live-drag/plan.md（110 行）
+代码基线：worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree，分支 feat/w00026-t07-single-tree，HEAD 41b789bfa（含 t19、t17）
+说明：下面"实验"指 /tmp/review-t08-design/exp/ 里的静态 HTML 加 Chrome 的实测，没有改仓库；其余结论来自读代码，已逐条对照实现。没有跑 e2e 与开发服务。
+
+======================================================================
+发现 1  阻断  不变量/机制不存在
+卡片、分区、拿起的内容三者的叠放，按计划写的挂载点排不出来
+----------------------------------------------------------------------
+位置：plan.md:42（卡片"放在内容下面"）、plan.md:52（分区"放进表面根"，"卡片 > 分区 > 面板"）；
+      packages/nb-layout/src/vue/NestedGrid.vue:395-397（.nb-nested-grid 的 isolation: isolate）、:407-418（内容 z-index 1，飞行 2）、:428-430（分隔线 3）；
+      packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:225-277（NestedGrid 是 .workbench-surface 里唯一的子元素）、:331-333（卡片外框有不透明底 --panel-surface）
+
+现象：拿起的内容（真实 DOM，不能换父元素）在 NestedGrid 的内容层里，而 NestedGrid 根是 isolation: isolate 的层叠上下文。计划把"卡片外观"和"分区"画在 WorkbenchSurface 里、与 NestedGrid 同级，要的次序是 卡片 > 分区 > 面板，且卡片在内容下面。
+这是排不出来的：
+  a. 卡片放在 NestedGrid 之前（在它下面）：它被整个网格盖住，而每块面板的外框有不透明底，卡片只会在缝里露出一点。
+  b. 卡片放在 NestedGrid 之后（在它上面）：它盖住拿起的内容，而不是垫在内容下面。内容区没有底色，要么卡片不透明、盖掉内容，要么透明、没有卡片。
+  c. 分区放进表面根、在网格之后：它压在拿起的内容之上，和"卡片 > 分区"相反；放在网格之前：被所有面板外框盖住，看不见。
+  d. 就算都放进网格内部，现有层级也不够：飞行内容 z-index 2 低于分隔线 3（nested-grid.md 的"三层叠放固定……抬到分隔线之下"），拿起的内容"高于其余内容"仍然会被分隔线画在上面。
+
+如何核实（实验）：/tmp/review-t08-design/exp/page.html、page2.html。结构为 position:relative 的表面里放 isolation:isolate 的网格（两块不透明外框加一个 z-index:1 的内容），再放一个兄弟"卡片"。
+  卡片在网格之后：elementsFromPoint 在内容中心得到 ["card","lift","frame","g",...]，卡片在内容之上。
+  卡片在网格之前：得到 ["lift","frame","g","card",...]，卡片在不透明外框之下。
+  没有第三种位置能让卡片夹在"别的面板外框"和"拿起的内容"之间。
+
+为什么是问题：这是片 2、片 3 的核心视觉，开发者试过的原型手感依赖它（卡片压在邻居上、分区淡线在卡片后）。计划到片 2 才会撞上，那时片 1 已经按"shown 进 store"写完。
+还连带一条：卡片总在指针下，elementsFromPoint 的第一个元素会是卡片或拿起的内容。layout-drag.ts:367-371 的 resolve 靠 top 判断 data-no-drag 与菜单遮挡；drag-session.ts:75-83 只跳过 [data-drag-feedback]。卡片和拿起的内容要么 pointer-events:none，要么带 data-drag-feedback，计划没写。
+
+建议改法：
+  1. 给 NestedGrid 加一个槽或一层，放在网格自己的层叠上下文里，写死四层：外框 < 内容 < 分区线 < 拿起的卡片（外观加内容）< 分隔线或高于分隔线。具体数值由 NestedGrid 持有，宿主只给内容。
+  2. 卡片外观（圆角、阴影、底、头）做成拿起项的一部分：内容项外层本来就是 .nb-grid-content，拿起时它自己带底色、圆角、阴影，头作为同一项的槽，不要另做一个兄弟元素。这样不存在"卡片在内容下面"。
+  3. 分区也走这一层。DropSectorsOverlay 现在 Teleport 到 body 并取 NB_Z_INDEX.dropSectors（z-index.test.ts:23 钉着它小于 dropFeedback），改成网格内的层以后这条全局次序不再适用，测试和 .md 要同步。
+  4. 计划里"Spec 与文档改动"补 nested-grid.md 的叠放一句（现在写的是"三层叠放固定"），否则合同和实现不一致。
+  5. 卡片和拿起内容 pointer-events:none，让 elementsFromPoint 直接跳过；或统一加 data-drag-feedback。
+
+======================================================================
+发现 2  阻断  违反已定合同
+visibleTabs 按预览算，违反"预览不改可见性"，并且让预览产生视图加载与可见信号的副作用
+----------------------------------------------------------------------
+位置：plan.md:28（"projection、collapse、visibleTabs 按 shown 算"）、plan.md:34（"预览没有副作用"）；
+      docs/specs/ui/workbench-layout.md:129（输出 17："在已提交的文档里……手势预览不改可见性"）；
+      docs/proposals/workbench-single-tree-layout.md:261（"预览不改可见性，只有提交后才变"）；docs/specs/workbench/views.md:89、:101；
+      state/layout-doc-store.ts:128（visibleTabs 的定义）；state/layout-present.ts:39-58（effectiveVisibleTabs/hasRoom）；
+      components/WorkbenchShell.vue:105（visibleViews）、:109-117（useViewInstances 的 visible/location）、:263（活动栏 pressed）；views/view-instances.ts:56、:80-82
+
+现象：计划让 visibleTabs 用预览文档算，但 presented（呈现尺寸）在预览期间不更新（plan.md:28）。effectiveVisibleTabs 对"没有尺寸的面板"返回不可见（layout-present.ts:40，size === undefined 为 false）。三类后果：
+  a. 拿起的视图被挪进预览里新拆出的面板：新面板 id 不在冻结的 presented 里，这个视图的 ViewContext.visible 在拖动中由 true 变 false，松手提交后再变回 true。
+  b. 目标面板原来的活动标签被顶下去，visible 变 false；来源面板新露出来的下一个标签 visible 变 true。view-instances.ts:80-82 的规则是"第一次有效可见才建实例并 load"，所以拖一次就可能把用户从没打开过的视图加载起来，取消也收不回（实例只在不在树上时才删）。
+  c. 活动栏条目的按下态（WorkbenchShell.vue:263）和 selectEntry 的意图（:283）读同一个集合，拖动中会随预览闪烁。
+这些就是计划自己说"预览没有副作用"要避免的东西，而且和输出 17、提案、views.md 三处已定文字直接冲突；计划的"Spec 与文档改动"没有列修改输出 17。
+
+如何核实（已实测）：/tmp/review-t08-design/exp/visible.test.ts 用 bun test 直接调 effectiveVisibleTabs。已提交文档 P[a,b]（a 活动）、P 有尺寸：可见集合是 [view:a]。预览文档 P[b] 加新面板 N[a]、sizes 不含 N（计划里 presented 冻结）：可见集合是 [view:b]。即被拖的 a 变成不可见，从没打开过的 b 变成可见（按 views.md 输出 3 会被加载）。
+
+建议改法：visibleTabs、WorkbenchShell 的 visibleViews、useViewInstances 的 visible 与 location、活动栏按下态一律保持已提交的文档与尺寸。只有"渲染"用预览：projection（给 createGrid）、传给 WorkbenchSurface 的 doc、面板头的标签。预览里露出来的内容就是计划说的空白或停放内容，这是可以接受的取舍。需要的话给"预览中"的内容项一个单独的、不进 ViewContext 的标记。
+
+======================================================================
+发现 3  重要  接口与合同/收场顺序
+"shown" 同时换掉了判定与提交要读的投影；"先提交、再撤预览"与手势的收场顺序相反且有害
+----------------------------------------------------------------------
+位置：plan.md:28（projection、collapse 按 shown）、plan.md:64（"放下：同一个同步段里先提交、再撤预览"）；
+      state/layout-doc-store.ts:113-119（collapse、projectionOptions、projection）、:121-125（effectiveMaximized）、:158-165（rebased、untouchedFixed 读 projection.value）、:190-191、:312-319（partVisible 读 collapse）；
+      layout-drag.ts:361-365、:211（options.projection() 给 previewEdgeDrop/previewRevealRects）；
+      nb-layout/src/drag-gesture.ts:238-261（finish）；docs/specs/ui/layout-drag.md:154-158（收场顺序）
+
+现象：
+  a. projection 与 collapse 都改成按预览算以后，下面这些一起变成预览的：
+     - rebased()（:158）里的 projection.value.collapsedTo、fixedNodesOf(projection.value.input)，加上 untouchedFixed（:161）。它们和冻结的 presented（委托给已提交文档）混用：collapsedTo 与 fixed 集合来自预览树，尺寸来自已提交树。窗口被压窄、有节点保留像素被压缩时，frozen 集合对不上，已提交文档里本该冻结的节点会被写进压缩后的尺寸，意图被污染。计划担心的"污染下一次提交"在这里原样发生，只是换了入口。
+     - projectionOptions()（:190）里的 removed、squeezed：layout-drag 用它给 previewRevealRects 与 previewEdgeDrop（layout-drag.ts:151、:211），判定基准是已提交文档，选项却来自预览。
+     - effectiveMaximized（:121）、partVisible（:312）、WorkbenchShell 的 diagnostics（"放不下，收走 X"，WorkbenchShell.vue:430-433）：拖动中会闪出收走或压缩的诊断，标题栏布局按钮的按下态也跟着变。
+  b. "先提交再撤预览"：提交时 livePreview 还在，所以 a 里的 rebased() 恰好读到预览投影。更根本的是，手势的收场顺序已经固定为"state 置空、onActiveChange(false)、onEnd、commit"（layout-drag.md:157，"commit 时反馈已经撤下，里面可以同步改布局"）。在 onActiveChange(false) 里撤预览，天然就先于 commit，同一个同步段里没有渲染，不会闪。计划写反了，也没说清撤预览放在哪个回调。abort() 路径（drag-gesture.ts:466-469）不调 ended，只调 activeChanged(false)，所以撤预览应放在 onActiveChange(false)，不放在 onEnd，否则 abort 会漏撤。
+  c. 编辑器标签的提交不一定同步：groups.moveTab 在目标组已有同地址同编辑器的标签时 await closeOne（area.ts:677-704 的 moveTab，twin 分支，closeOne 可能弹未保存对话框）；leave() 拒绝时不写。撤预览以后布局会闪回原样，直到异步完成。EditorTabDrag.drop 返回 void（workbench/web/contracts.ts:75；tab-drag.ts:35 的 dropTab 里 void area.moveTab），宿主无从得知。"不闪"对编辑器标签不成立。
+
+如何核实：读上面的行号；在 layout-doc-store.test.ts 里构造"放不下、有节点被收走"的窗口尺寸，设置预览后调 apply，对比 rebased 的结果。
+
+建议改法：
+  1. store 同时保留两套：committedProjection（rebased、untouchedFixed、partVisible、effectiveMaximized、projectionOptions 给拖动判定、diagnostics 都读它）和 shownProjection（只给 createGrid 用）。"按 shown 算"只限渲染。
+  2. 撤预览写进 onActiveChange(false)，并在计划里写明放下、取消、abort、dispose 四条路径都经它。
+  3. EditorTabDrag.drop 改成返回 Promise<boolean>（或结果），异步未完成时宿主保持预览或让卡片先停在落点上，不先撤预览；拒绝时按取消处理并显示编辑器自己的提示（现在 refusal 走 area.notify）。
+  4. 计划的验收"松手一次写入，结果与最后的预览一致"补一条：编辑器标签目标组已有同一文件时的行为（见发现 5）。
+
+======================================================================
+发现 4  重要  遗漏/与已定设计不一致
+"拿起时存一份矩形"：快照取在动画中会整场错；快照只覆盖 panelGeometry，标签条、活动栏、头高仍读活的 DOM；窗口尺寸变了整场取消与现行 Spec 冲突
+----------------------------------------------------------------------
+位置：plan.md:19（判定基准与快照）、plan.md:62（结构键加容器尺寸，整场取消）；
+      layout-drag.ts:118-131（panelGeometry）、:134-137（excludedRects）、:166-186（barDrop）、:196-215（previewOf）、:227-246（stripDrop）、:290-297（withSectors）、:361-365（activate）；
+      nb-layout/src/vue/tab-strip-geometry.ts:10-13、:29（getBoundingClientRect，含 transform）；
+      docs/specs/ui/workbench-layout.md:169（输出 32："只是尺寸或滚动变了时按当前位置重算落点"）、docs/specs/ui/layout-drag.md:135（输出 12："窗口尺寸变化一律重新判定"）；
+      docs/proposals/workbench-single-tree-layout.md:160（几何"窗口尺寸变化时重算"，标签条"按当前 DOM 量，滚动后也对"）
+
+现象与问题：
+  a. 快照取在什么时候没写。activate（layout-drag.ts:361）在过门槛那一刻调。刚放下上一场（邻居让位 470ms 加 50ms 余量，useGridMotion.ts:18、:105）或刚开关面板就再拖，是常见操作。这时 getBoundingClientRect 读到的是过渡中途的矩形（panelGeometry 读的是 [data-shell-card]，在带 transform 的外框里）。现在每帧重读，自己会纠正；改成快照以后错误持续整场。
+  b. 快照只写了 panelGeometry。这些仍读活的 DOM，而它们正是预览要改的东西：
+     - stripDrop（:227-246）：stripOf(panel)、resolveTabStripInsertion 量标签；编辑组分支里 inPlace 的判断用 strip.querySelector 找来源标签的分区（:238），来源标签在预览里已经搬到别的条，查不到，ownPartition 为 null，原位判断变成"否"（回到自己原来的位置也不再显示"原位"，松手走编辑器的 moveTab 得到"位置没变"的拒绝）。
+     - barDrop（:166-186）：读 [data-tool-entry] 的矩形。预览把视图在侧栏这一列里换序后，若活动栏条目随预览重排（WorkbenchShell.vue:261 的 toolEntries 来自哪份文档，计划没说），指针下的条目换了，index 跟着变，原位与非原位来回切，没有标签条内那种"占位自稳定"的保护，也不等 150ms。
+     - previewOf 的 inPlace 分支调 panelGeometry(doc)（:245），withSectors 用 input.panels。
+     - 编辑组的头高随标签折行变化：预览把标签插进一条已接近满的编辑组标签条，头多一行，正文顶边下移。快照里这段还是"正文"，指针落在新行上会被判成 center，而眼前是标签条。
+  c. 标签条的 TransitionGroup 在滑动中，tab-strip-geometry.ts 用 getBoundingClientRect 读矩形，含 transform。计划要加的 exclude 只解决下标差一，没解决读到中间帧。
+  d. 窗口尺寸变了整场取消，与输出 32、layout-drag 输出 12、提案都是"重算"相反；计划的 Spec 改动清单（plan.md:70-77）没有改这两条。若改成取消，要改 Spec 并写理由；若保持重算，快照就不能是 DOM 读数的一份拷贝。
+  e. 取消的判据"容器尺寸"若按全等比较会过敏：useLayoutExtent 给的是带小数的盒，缩放或亚像素抖动会无故取消整场。useGridMotion.ts:51-53 已有 0.5px 容差的写法可以复用。
+
+如何核实：读上面行号；a 可以在 Lab 里放下一场后立刻再拖，读 panelGeometry 的结果对比终态矩形。
+
+建议改法：
+  1. 快照由布局推算，不读视觉矩形：面板外框来自冻结的 presented（预览期间本来就冻着）和 adjacency 的内缩，面板头高度工具面板是常量 PANEL_HEAD_HEIGHT，编辑组头高读 editorHeadHeights（布局尺寸，不受 transform 影响）。这样与动画无关，窗口尺寸变了也能重算。已有的 previewRevealRects 与 previewEdgeDrop 就是用文档加容器尺寸推算矩形的，不读 DOM。
+  2. 标签条与活动栏的插入位：拿起时按"摘掉来源"的状态存一份标签的布局位置（offsetLeft/offsetWidth，不用 getBoundingClientRect），实时布局下用这份算，不读预览中的 DOM。
+  3. 若坚持 DOM 快照：activate 要等 moving 结束或下一次稳定帧再取，并写明过渡中拿起怎么办。
+  4. 在 Spec 清单里补输出 32 与 layout-drag 输出 12 的修改，写清窗口尺寸变化在实时布局下是取消还是重算，容器尺寸比较带容差。
+
+======================================================================
+发现 5  重要  遗漏/计划里的事实不成立
+编辑器标签：预览用布局层的操作算，提交走编辑器自己的 moveTab，两者结果不同；预览组的 groupId 让 EditorGroup 读到别的组的文档；"没有面包屑"不成立
+----------------------------------------------------------------------
+位置：plan.md:33-34、plan.md:94（验收"编辑器标签拆到新组"）；
+      editor/web/area.ts:677-704（moveTab：twin 合并、leave、refusal；twin 分支在 :686-697）、:379-387（documentOf/fileOf 按 groupId 找活动标签）；
+      editor/web/tab-drag.ts:35-54（dropTab 读已提交的 groups 算下标）；
+      editor/web/components/EditorGroup.vue:60-67（current/activeTab/document/file/active）、:187-190（data-editor-group）；
+      editor/web/components/useEditorGroupRoot.ts:33、:43-46；workbench/web/layout-drag.ts:236-239
+
+问题：
+  a. 预览结果和提交结果不是一回事。预览用 applyLayoutDrop 对布局文档算（layout-drag.ts:227-246 对编辑组的 strip 还特意不调 applyLayoutDrop，因为"放下走编辑器的动作"）。编辑器的 moveTab 会：目标组已有同地址同编辑器的标签时把被拖的关掉、激活对方（area.ts:686-697）；固定区与普通区按 fitsPartition 调整并改 pinned 属性（groups.ts:188、:241）；有未裁决输入时 leave() 拒绝，什么都不动。落点指示时代这些差异不可见（只画一条线）；实时布局把预览真的摆出来，差异就变成"松手后跳一下"或"拖了半天原地不动"。计划的验收"结果与最后的预览一致"在这几种情形下不成立，EditorTabDrag（workbench/web/contracts.ts:68-77）里也没有给预览的入口。
+  b. "EditorGroup.current 还按已提交的算：没有面包屑"只对"被拖的不是它所在组的活动标签"成立。最常见的是拖活动标签：它在已提交文档里是原组的活动标签，current 为真，面包屑、进度条、横幅都会画，只是 groupId 已经是预览组。
+  c. EditorGroup 里一批值按 props.groupId 取：documentOf/fileOf（:63-64）、area.progress(groupId)、handleOf(groupId)、crumbFocus、returnFocus。拖进一个已有的组（center）时 groupId 变成那个组，documentOf 返回的是那个组的活动文档：被拖标签的内容区里会显示别的文档的冲突、已被外部改动、保存失败横幅，横幅按钮的 run 又带着这个 groupId。拖进预览新拆的组时这些返回 null，不会炸，但 data-editor-group 属性（:187）此时是一个 area 里不存在的 id；拖进已有组时则同一个 id 在两块内容上各有一个，useDropTarget 与 groupRect 的 querySelector 会取到第一个。
+  d. 预览期间头的 focusin 与 pointerdown 会走 area.focusGroup(groupId)（useEditorGroupRoot.ts:43-46、:52-54）。对预览里才有的组 setCurrentEditor 返回 not-found，不会写；对已有组则会改 currentEditor 并排保存。拖动中通常不会有焦点事件，但内容被换到别的组、被拖标签的按钮 DOM 被销毁时浏览器会补焦点，值得在 EditorGroupHead.dom.test 里钉一条。
+  e. 计划说"只有 EditorGroupHead 读 groups.shown"。EditorGroupHead 里 area.groups.activeGroup 与 titleActions 仍读已提交（active 组被拖空时预览里没有任何一块头拿到标题动作，一整行动作消失再回来），这个取舍是可以的，但计划没写。
+
+如何核实：读上面的行号；a 可以对 area.test.ts 的"移到已有同名标签的组"用例对比布局层 moveTabToStrip 的结果；b、c 在 EditorGroup.dom.test.ts 里把 groupId 传成另一个组再读 banner。
+
+建议改法：
+  1. EditorTabDrag 加 preview(tabId, action, part)：返回编辑器算出来的"落点之后的布局意图"（是否合并、是否被拒、分区）。拒绝或合并时 live-drop 的输出换成"无预览"，不摆一个提交不出来的布局。
+  2. EditorGroup 的内容区读取改成"被拖的内容用它真正所属的组"：预览期间由宿主传 committedGroupId，用于 documentOf/fileOf/handleOf/progress；groupId 只用于外观与 data 属性。
+  3. 计划里"取舍"一段改成对 current 的精确描述，并加测试：拖活动标签与拖非活动标签各一例。
+
+======================================================================
+发现 6  重要  接口与合同
+粘滞、稳定、松手三件事没定义清楚边界：粘滞对 center 与标签条会把候选锁死；resolve 变成有状态；commitsUnderPointer 绕过了"撤下期间不提交"，也不区分键盘
+----------------------------------------------------------------------
+位置：plan.md:19-24；nb-layout/src/drag-gesture.ts:295-303（withdraw）、:305-315（drop）、:500-501（键盘 Enter 也走 drop）；
+      nb-layout/src/vue/drag-session.ts:45-47（resolve"只读，不产生副作用"）；docs/specs/ui/layout-drag.md:54、:125（输出 6）、:135（输出 12 撤下期间放下不提交）、:157；
+      docs/proposals/workbench-single-tree-layout.md 手感表"粘滞"一行
+
+问题：
+  a. 粘滞的"已显示的空位"没有定义范围。edge、between、reveal 会长出一块新面板，空位就是它的矩形，粘滞合理。center（并入已有面板的标签）和标签条的插入没有新空位；若按计划 plan.md:48 的写法"候选落到面板里时那块面板正文上一圈边框"，center 的空位就是目标面板的整块正文。指针在这块正文内（加 8px）候选就不变，意味着在 center 预览出现之后，永远选不到这块面板自己的四个边缘分区（它们都在这个矩形里），只能先走出去再进来。提案的手感表也是"空位是一块空面板加一圈边框"，指的是新面板。
+  b. "空位矩形"取哪一个没写：DOM 里正在过渡的矩形，还是终态矩形。长出来的新面板前 470ms 的 DOM 矩形很窄，粘滞形同虚设；用终态才对，那就要从预览投影算（见发现 4 的建议 1），不是量 DOM。
+  c. resolve 现在是纯读（drag-session.ts:46）。粘滞要看上一帧显示的空位，稳定要看时间。计划把它们写成 live-drop.ts 的纯函数（输入含时间），但手势只在指针移动、滚动、窗口变化时调 resolve（drag-gesture.ts:291-293），静止 150ms 要靠 layout-drag 自己的 requestFrame 循环推进（plan.md:44）。于是有两条调用路径：手势的 publish 调 resolve，循环调 live-drop。放下时 drop()（:309）再调一次 resolve，用松手坐标。计划没说"松手这一次是否应用粘滞"。若不应用，指针在预览空位的边距里松手，提交的是原始候选而不是屏幕上显示的那块，等于所见和所得不同；若应用，resolve 就要读循环里的状态，resolve 不再是纯读，layout-drag.md:54 与 drag-session.ts:46 的文字要改。
+  d. commitsUnderPointer 为真时"只要有动作键就提交"（plan.md:22）绕过了 current.shown 的比较。输出 12 规定 scroll 为 withdraw 或 invalidate() 之后"放下不提交，直到指针再动"（靠 shown 被清空实现，drag-gesture.ts:295-303）。工作台现在没传 scroll: "withdraw"，也没人调 invalidate()（grep 过 workbench 与 editor 的 web 目录），但这是会话库的公共合同，新开关不能悄悄破坏它：应写成"shown 为 null 仍不提交，非 null 时不要求相同"。
+  e. commitsUnderPointer(): boolean 没有参数。drop() 键盘 Enter 也调（:500-501）。键盘拖动必须继续"与最后显示相同才提交"（Spec 输出 15），host 要自己知道这一场是不是键盘。activate（layout-drag.ts:361）收不到这个信息。建议签名带 keyboard，或由手势按 current.cursor !== null 决定，不让 host 猜。
+  f. "候选变成没有时等 150ms 再撤预览"（plan.md:21）。Spec 输出 12 的 withdraw 会立刻发布 drop: null；此时 host 看到的 state.drop 是 null 但预览还在。这是计划想要的，但要在 live-drop 的测试里钉一条：撤下与"指针移到无候选处"是两种路径，后者等待，前者不等（因为这期间不能提交）。
+
+建议改法：
+  1. 在 plan.md 的"粘滞"一条里写死：只有 edge、between、reveal 有空位，空位矩形取预览投影里新面板的终态外框；center 与标签条没有粘滞（标签条自带稳定）。
+  2. 明确 resolve 的契约：resolve(point) 读 live-drop 的当前状态做粘滞，不推进时间；时间只由循环推进。Spec 把"只读"改成"不产生副作用，可读宿主维护的状态"。
+  3. commitsUnderPointer 写成 commitsUnderPointer(keyboard: boolean)，或在手势里按 keyboard 分流；drop 在 shown 为 null 时仍不提交。
+
+======================================================================
+发现 7  重要  遗漏
+预备区（frozenZones）在实时布局下的行为一个字没写：画不画、reveal 候选怎么预览、与粘滞怎么配
+----------------------------------------------------------------------
+位置：plan.md:42（"实时布局不画 DropFeedbackOverlay"）、全文无 reveal 或 预备区；
+      layout-drag.ts:109、:140-156（revealZones）、:268（zones 进 resolveLayoutDrop）、:206（reveal 的 areaRect 取 frozenZones）、:361-364（activate 里冻结）；
+      components/WorkbenchShell.vue:399-404（revealZones 计算）、:547（zones 传给 WorkbenchDragFeedback）；
+      components/WorkbenchDragFeedback.vue:22、:34-47（预备区是另一个 prop，不属于 DropFeedbackOverlay）；
+      docs/specs/ui/workbench-layout.md:166（输出 29）、验收 8
+
+现象：Spec 输出 29 与验收 8 要求拖动开始就浮出预备区（隐藏的、拖到零的具名面板），是"把已隐藏的侧栏、右栏、面板放出来"的唯一入口。计划只说不画 DropFeedbackOverlay；预备区在 WorkbenchDragFeedback 里是单独的 zones 属性，不属于它，所以计划的写法既可能理解成"预备区还画"，也可能理解成"整个 WorkbenchDragFeedback 不画"。没有任何一处写 reveal 候选的预览：
+  a. 实时布局下 reveal 的预览是把那块面板真的显示出来、邻居让位。预备区（半透明虚线框，说明"放到这里会出现一块面板"）此时和真实面板重叠；两者是否同时画、预备区在预览出现后是否隐去，没写。
+  b. 预备区矩形是拿起时冻结的（:109、:361），按"全部显示"算，彼此不重叠。预览只显示被指到的那一块，邻居让位的量和冻结矩形不同（别的预备区没出现）；预览期间指针在预备区冻结矩形里，候选保持 reveal，要靠粘滞稳定。粘滞的"已显示空位"是不是冻结的预备区矩形，没写（见发现 6a、6b）。
+  c. activate 里用 DOM 判断面板"是否没有外框"（:149 的 rectOf(querySelector(data-leaf)) === null）。刚放下一场、面板还在过渡到零时，这一判断读到中间值，预备区会漏一块或多一块；同发现 4a。
+  d. 预备区的 pointer-events 为 none（WorkbenchDragFeedback.vue 样式），不是问题，但预备区的 z-index 仍是 NB_Z_INDEX.dropFeedback，在 body 上；它和"卡片 > 分区 > 面板"的次序（发现 1）要一起定。
+
+建议改法：计划补一小节"预备区"：(1) 实时布局下预备区照画，直到 reveal 候选被稳定并预览，预览出现后该块预备区隐去、其余照留；(2) reveal 的空位矩形取冻结的预备区矩形，粘滞按它；(3) 预备区的几何与 frozenZones 的冻结时机一并改成由布局推算（发现 4 建议 1）；(4) 验收加一条：右栏隐藏时把视图拖到预备区，拖动中右栏真实长出来、记录零写入，松手一次写入显示。
+
+======================================================================
+发现 8  重要  遗漏/隐含耦合
+WorkbenchShell 里读 doc 的地方没有逐项分配，预览里新出现的面板会拿到错的头
+----------------------------------------------------------------------
+位置：plan.md:32；components/WorkbenchShell.vue:75（doc 是已提交的）、:106-107（placedViews、panelOfView）、:109-117（useViewInstances 的 location）、:153-159（collapsibleHere、headReserved）、:176-182（headTabs 读 doc）、:185（titleOnlyPanels）、:188-201（frameActionsOf 读 doc.panels[panelId]）、:215-220（headActions）、:261-264（toolEntries）、:504（#head 里 doc.panels[panelId]?.role === 'editor'）、:510-512（label、active 读 doc）
+
+问题：计划只列了三处用 shownDoc：面板头的标签、titleOnlyPanels、传给 WorkbenchSurface 的 doc。预览里新拆出的面板 id 不在已提交的 doc 里，下面这些读 doc 的地方会拿到 undefined：
+  - :504：role 判断落空，新编辑组的头会渲染成工具面板的头（WorkbenchPanelHead），而不是 editorArea.head。
+  - :510 的 panelTitle(doc, catalog, panelId)：面板不在 doc 里，返回面板 id（随机串）当标题，侧栏这一列的面板头只写标题，会把这串显示出来。
+  - :511-512 的 active 读 doc.panels[panelId]?.active：新面板没有活动标签，标签条里没有选中项。
+  - :188-201 frameActionsOf、:153 collapsibleHere：新面板的框架按钮集合不对（没有收起按钮、命名不对）。
+  - :261 toolEntries（活动栏）读哪份没写：读已提交的，则活动栏不反映预览，barDrop 才稳定；读预览的，条目随预览重排并影响 barDrop（发现 4b）。
+  - :106-117 placedViews 与 location：必须保持已提交的（发现 2）。
+相反，命令、菜单、"移动到"、viewIdentity、onContentParked 必须用已提交的。现在这些混在同一个组件里，靠变量名 doc 区分，漏一处就是一个只在拖动中出现的 bug。
+
+建议改法：在 WorkbenchShell 里把两份命名拆开：committedDoc（命令、菜单、实例、location、活动栏）与 renderedDoc（Surface、头、标签、role、标题），模板里 #head、#content 的分支只读 renderedDoc。计划里加一张表，列出每个读 doc 的位置属于哪一份；验收加一例：把编辑器标签拆到新组，预览里新组的头是编辑组的头，不是工具头。
+
+======================================================================
+发现 9  重要  依赖的机制与计划描述不符
+标签条的"TransitionGroup 滑开"和"来源标签隐藏、占位留着"在现有 TabStrip 的结构上做不成，计划只加了一个 animateMoves
+----------------------------------------------------------------------
+位置：plan.md:54-56、plan.md:15（"标签滑开用 Vue 的 TransitionGroup，不手写位移动画"）；
+      nb-layout/src/vue/TabStrip.vue:75-87（adapt）、:89-102（rows 计算）、:212-214（每个分区一行 div，行里 v-for 标签）、:255（测量层）、:184（moveRoving 遍历 props.items）；
+      workbench/web/components/WorkbenchPanelHead.vue:92-99（overflow="adapt"）；editor/web/components/EditorTabBar.vue:82-88（partitions + overflow="scroll"）
+
+问题：
+  a. TransitionGroup 只在同一个父元素的直接子元素之间做 move 动画。TabStrip 的标签在 .nb-tab-strip__row 里，每个分区或每个"all"一行，多行折行时同一个分区的标签在同一个 flex-wrap 容器里，折行位置变化是同一父元素内的位移，可以；但标签在固定区与普通区之间、或分区的行之间移动（编辑组 pinned/normal 两行）是跨父元素，只有 enter/leave，没有 move。计划没有区分。
+  b. 工具面板的头用 overflow="adapt"（WorkbenchPanelHead.vue:95）：标签数一变，useTabsAdapt 重算 level 与 hidden（TabStrip.vue:75-87），所有标签同时换宽度（完整、截断、只留图标）并有标签进出"更多"，这些是 DOM 的增删与宽度变化，不是位移，滑开看不出来，还会和 TransitionGroup 的 move 叠在一起抖。预览把一个标签插进别的工具面板的头，这个面板很可能刚好跨过一个档位。
+  c. "来源标签隐藏（占位留着）"没有地方放：TabStrip 的 items 只有 id/title/partition/attrs，没有"隐藏"。要让它进测量层（adapt 的 data-measure-tab）又不显示、不进读屏、不参与键盘移动（moveRoving 遍历 props.items，会停在隐藏的标签上），需要 TabStrip 的一个明确属性；计划只写了 animateMoves。
+  d. 位移动画进行中标签的矩形含 transform，tab-strip-geometry.ts 一律用 getBoundingClientRect（:10-13、:29），多行时还按 Math.round(rect.top) 分行（:41）。插入位判断读到中间帧（发现 4c）。
+  e. TransitionGroup 的 move 靠 FLIP，会给标签加 transform，而 .nb-tab-strip__row 是 overflow-x: auto 或 hidden（样式 :285、:291），超出部分短暂产生滚动宽度。
+
+建议改法：
+  1. TabStrip 加两个属性：placeholder: string | null（该 id 的标签占位隐藏：保留盒子、aria-hidden、不进键盘序、仍进测量层）与 animateMoves；动画限定在同一行内的位移，跨行、adapt 档位变化不动画（直接到位）。
+  2. 实时布局下的标签条预览只在 overflow 为 scroll 或 wrap 的条（编辑组）里做滑开；工具面板的 adapt 条先不做滑开，或把预览期间的 adapt 档位冻住（用拿起时的档位，新标签按截断宽度算）。写进计划并给 Lab 场景。
+  3. 插入位判断用布局位置（offsetLeft/offsetTop）或拿起时存的位置，不读带 transform 的矩形（发现 4 建议 2）。
+
+======================================================================
+发现 10  重要  失败路径/机制配合
+落地时内容"跟随"还是"直接最终尺寸"没定：默认路径下，拿起的内容会先被压成小卡尺寸再逐帧长回去，长章节逐帧重排并丢滚动位置
+----------------------------------------------------------------------
+位置：plan.md:38、plan.md:40（land(key)：放进 flying、启动计时）；
+      nb-layout/src/grid-motion.ts:51-61（followingLeaves）、:66-79（flyingContents）；nb-layout/src/vue/useContentLayer.ts:82-88（bodyStyle：following 时为 100%）；
+      nb-layout/src/vue/useGridMotion.ts:99-113（start 里的 following/flying/growing）、:59-74（decideMotion）；
+      docs/specs/ui/nested-grid.md:46（"前后都有尺寸的叶，内容跟着外框逐帧变化；新叶与从零出来的叶保持最终尺寸"）；t06 evidences/follow-content.txt
+
+现象：落地有两条路径，计划没区分：
+  A. 放下的结果与预览一致（常见）：布局不变，lifted 变成 null，motion.update 不会被触发（layers 没变），land(key) 只负责启动计时。bodyStyle 里 following 不含这个 key，内容体直接是叶的最终尺寸，外框从卡片滑到叶：等价于"新叶"的规则，只重排一次。
+  B. 放下的结果与预览不同（松手时候选还没预览，计划明确要支持，plan.md:22 与验收表第 3 行）：提交的布局变了，layers 变，decideMotion 返回 move，followingLeaves(items, previous) 用的 previous 里这个内容项的矩形是预览里叶的矩形，两头都有尺寸，所以把这个 key 放进 following。bodyStyle 返回 100%，内容体变成外框的 100%，而外框此刻从卡片矩形（缺省 320×220）开始。于是同一次松手，内容体从面板全尺寸立刻变成 320 宽，再逐帧长到终点。
+B 路径的代价：10.7 万字章节每帧重排（t06 实测 14 到 24 帧），而且经过一次窄宽度，滚动位置有被改写的风险（提案第 6 节“停放”一条写着内容降到零再长回来时滚动锚定会改写滚动位置；这里是从代码推断，没有在浏览器里复现）。这与"拿起的内容松手后输入与滚动还在"（验收表第 5 行）冲突。
+
+建议改法：land(key) 规定：这个 key 在落地过渡里不进 following（也不进 growing 的第一帧特例），内容体一次到终点尺寸。为此 decideMotion 需要知道哪个 key 刚落地（把 lifted 放进 GridMotionFrame，或让 land 先写一个"本轮排除"集合）。用真实运行时写验收：松手时候选与预览不同，量落地中内容体的宽度，应始终等于终点宽度，滚动位置不变。
+
+======================================================================
+发现 11  建议  接口/后续返工
+t08 的"无候选撤预览"、lifted 与预览形状，和 t09（无落点就浮动）以及原型的做法不一致，t09 要回头改 live-drop 与 store
+----------------------------------------------------------------------
+位置：plan.md:21（候选变成没有时撤预览）、:38（lifted 只有 key 与 rect）、:28（livePreview）；
+      docs/proposals/workbench-single-tree-layout.md 手感表与规则下的"无落点就在松手处浮动打开，拖影提前写浮动打开"；
+      t02 原型 LayoutTreeDraft.vue:427-431（previewOf：落点为 none 且已预览过时，预览是"摘掉来源后的树"）、:523-562（finish）
+
+问题：
+  a. 原型里"没有落点"时，预览是 base（来源已摘掉、邻居已补位）：对应提案的"来源收起"，也是 t09 里要浮动的状态。t08 把它写成"撤预览"（回到已提交的布局，来源还在原处）。t09 一接就要把 live-drop 的输出从"预览 | 无"改成三态（候选的预览、来源已收起、无），commitsUnderPointer 的"无动作键不提交"也要改成"可浮动则提交为浮动"。提案手感表写的是"来源收起"，计划里只有候选稳定后才让位，没有"拿起即收起"。
+  b. 原型里没有落点且视图可浮动时，松手就是浮动（decision.kind 为 float，LayoutTreeDraft.vue:523-562 的 finish）；t08 计划里无候选松手的结果是取消并飞回。两者不冲突（t09 才有浮动），但不改接口的前提下 t09 只能再叠一个标志。
+  c. lifted 是 {key, rect} 的单项。t09 的浮动窗是一整块面板（多标签），落地和飞回是整块的外框加活动内容，且浮着的东西是持久状态，拖动中的 lifted 是瞬时状态，t09 要不要复用要先定。至少把 lifted 的类型写成可扩成数组，land 的参数写成 key 集合。
+
+建议改法：现在就把 live-drop 的输出写成 {candidate, preview: "candidate" | "source-removed" | "none"}，t08 只实现 candidate 与 none；store 的 setLivePreview 保持。plan.md 里写一句"t09 会加 source-removed"，避免到时改合同。
+
+======================================================================
+发现 12  建议  遗漏的回退条件
+实时布局的回退只列了键盘与减少动效；最大化、容器未量到、预览自身不合骨架时没有说
+----------------------------------------------------------------------
+位置：plan.md:60（"这些情况一律落点指示：键盘拖动；减少动效"）；
+      layout-drag.ts:120-121、:169（最大化时只有最大化那块可判；活动栏不接收）；
+      NestedGrid.vue:100-107（maximizePlacement 与 obscuredLeaves）；state/layout-doc-store.ts:176-177（apply 里结构变了退出最大化）
+
+问题：
+  a. 最大化时：别的面板被盖住（inert，内容隐藏）。往最大化的面板边缘放，预览把它拆开，新面板在被盖住的叶里，用户什么也看不到，直到松手退出最大化。落点指示至少会画区域矩形。
+  b. extent 为 null 或容器未量到（layout-drag.ts:145 的 revealZones 已经这样判）时无法预览。
+  c. 预览自己不合骨架或超出规模上限：预览绕过 store.apply，不过 fitsSkeleton（:176）也不记 structureFailure（:171）。落点只给合骨架的目标，但 EditorPanels 服务能传任意目标（store 的注释已承认）；dropAt 里的 applyLayoutDrop 失败会返回 null，所以通常没事，但 livePreview 的入口应该共用同一道出口检查。
+建议改法：回退条件列成表放进 plan：键盘、减少动效（layoutMotionMs 为 0）、最大化、extent 为空、dragFeel 设置为 indicator，并把"开始时判一次、整场不变"写明；setLivePreview 内走 fitsSkeleton。
+
+======================================================================
+发现 13  建议  时序/资源收口
+卡片位置若取自 session.state，会比指针慢一帧，并且和 resolve 的开销绑在一起；requestFrame 循环的起止点没写
+----------------------------------------------------------------------
+位置：plan.md:44（"layout-drag 在实时布局的一场里自己起 requestFrame 循环"）；
+      nb-layout/src/drag-gesture.ts:291-293（schedule：指针移动只排一帧 publish）、:403-428（move 里只写 current.point）、:239-261（finish）；
+      原型 LayoutTreeDraft.vue:460-513（tick 直接读 session.point，pointermove 里同步写入）
+
+问题：
+  a. layout-drag 只能通过 session.state（publish 之后）或 resolve 的参数拿到指针坐标。手势的 publish 在 pointermove 之后的下一个 requestAnimationFrame 里跑，而 layout-drag 的循环是上一帧末尾排的 rAF，同一帧里先于手势的 publish 执行，读到的是上一帧的点：卡片比指针慢一帧，"抓住的那一点一直在指针下"（验收表第 6 行）在运动中差一帧的位移（指针 1000px/s 时约 16px）。publish 里还有 dropAt 的全部读 DOM 和计算，卡片的更新被它拖慢，而原型的卡片不依赖落点判定。
+  b. 循环何时开始（activate 还是第一次 publish）、何时停（onActiveChange(false)）没写。abort() 与 dispose() 只调 activeChanged(false)，不调 ended（drag-gesture.ts:248-249），所以循环、预览、card 状态的清理都要挂在 activeChanged(false) 上，才覆盖放下、取消、abort、dispose、捕获失败（start 里 grabbed 返回 false 也会走 finish）五条路径。
+
+建议改法：卡片的目标点由 layout-drag 在 onActiveChange(true) 到 (false) 之间自己在 window 上监听 pointermove（捕获阶段）写进一个普通变量，循环读它；publish/resolve 只负责落点。循环与清理统一挂 onActiveChange。验收加一例：快速移动后立刻 pointerup，量卡片最后位置与松手坐标。
+
+======================================================================
+发现 14  建议  验收映射
+实时布局的多数判据没有可观察的状态可等；按仓库规则不能固定等待，计划没有给 e2e 留状态标记
+----------------------------------------------------------------------
+位置：plan.md:86-97（验收映射）、plan.md:58-60（缺省 reducedMotion 下行为不变）；AGENTS.md"测试"一节（不按固定时长等待）；
+      NestedGrid.vue:355-356、:370-372（data-moving、data-flying 已有）
+
+问题：验收"稳定 150ms 才让位""邻居真实让位（量矩形）""松手时候选还没预览"在真实运行时里要区分"候选已变但预览没换""预览已换但过渡没完""过渡完"。现有的可观察量只有 data-moving 与 data-flying；没有预览是否已应用、当前候选是什么的标记。只能 sleep。另外验收表里"十万字章节开着时让位的帧率：evidences/ 记数，不设门槛"没有产物清单。
+
+建议改法：surface 根上写 data-live-preview（预览文档的结构键或 none）和 data-drag-feel（live 或 indicator），卡片写 data-lifted；e2e 等这些属性。注意有两个坑：Playwright 的 reducedMotion: reduce 下整个实时布局关闭，实时用例要 emulateMedia no-preference；"松手时候选还没预览"用 mouse.move 紧跟 mouse.up 即可确定性地构造。证据的产物清单写进片 4（脚本路径、数据文件名、对照条件：现状、跟随、跟随加预览）。
+
+======================================================================
+发现 15  建议  可访问性
+落点提示放在刚创建的卡片头里，实时区域不在 DOM 里先存在，读屏可能不播报
+----------------------------------------------------------------------
+位置：plan.md:42（"头里的提示带 aria-live"）；docs/specs/ui/workbench-layout.md:167（输出 30："落点文字走 aria-live，只在语义变化时更新"）；DropFeedbackOverlay.vue 文件头注释（独立的 aria-live 播报）
+
+问题：aria-live 区域在节点插入时就带着文字，多数读屏不会播报"出现时已有的内容"，要先有空区域再改文字。DropFeedbackOverlay 现在有独立播报节点就是为了这个。卡片是一场拖动开始时才创建，头里的提示随之创建。
+建议改法：保留一个常驻的、拖动开始之前就在 DOM 里的 role="status" 节点（可以是 WorkbenchSurface 的一个视觉隐藏节点），卡片头的提示用 aria-hidden 只画。验收加一例读 role=status 的文本序列。
+
+======================================================================
+发现 16  建议  风险的退路
+让位逐帧重排的代价与候选更换的频率叠加，计划把量放在最后一片，没有写不达标时怎么办
+----------------------------------------------------------------------
+位置：plan.md:81-84（片 4）、plan.md:106-109（风险）；t06 evidences/follow-content.txt；nested-grid.md:46
+
+问题：候选稳定 150ms 才换预览，过渡 470ms；沿着一排面板扫过时，每 150ms 一次新预览，上一轮的过渡还没走完又重启，邻居里的内容几乎整场都在逐帧重排。t06 的数据（10.7 万字，拆分 24 帧、开关侧栏 17 到 25 帧、最长帧 65 到 116ms）是单次过渡，而且卡片要在同一个主线程上 60 帧跟手，卡顿会直接表现为卡片拖尾。计划写"不够再说"。如果不够，可选的退路是预览期间邻居内容用"最终尺寸"（不逐帧跟随），这与 2026-11-06 开发者选定的"内容跟随"冲突，需要开发者决定，不能到片 4 才发现。
+建议改法：在计划里先写两个阈值与退路：卡片帧间隔 p95 超过多少算不达标，不达标时的候选（预览期间邻居内容不跟随；候选稳定时长加长；长文档自动落点指示），并在片 1 做完后就用 Lab 场景量一次，不等片 4。
+
+======================================================================
+发现 17  建议  文档与登记
+Spec、全局次序与文案登记的遗漏
+----------------------------------------------------------------------
+位置：plan.md:70-77
+
+计划的"Spec 与文档改动"缺这几项（会让现有测试失败，或让文字与实现不一致）：
+  a. workbench-layout.md 输出 17（可见性，发现 2）、输出 32（尺寸变了重算，发现 4）、输出 30（"放下时高亮立刻消失"在实时布局下换成卡片落地，要分手感写）、输出 25 的"按这一刻看到的矩形判"（改成拿起时的矩形）。
+  b. layout-drag.md 输出 6（放下比较）、:54 与 drag-session.ts:46 的"resolve 只读"（发现 6）、"不承诺"一条的"实时布局的让位、粘滞与稳定时长随实时布局写进本 Spec"（plan.md:73 说它们写进 workbench-layout，两处说法要统一到一处）。
+  c. nested-grid.md:47 的"三层叠放固定"（发现 1）。
+  d. nb-ui 的 z-index 登记与 z-index.test.ts:23 钉的 dropSectors < dropFeedback（发现 1 建议 3）。
+  e. nbook.workbench/dragFeel 设置要进 plugin.ts 的设置登记、zh-CN/en-US 两份文案（locales.test.ts 会检查键齐全），卡片头的提示文案（实时手感下"放到 X"）也是新键。
+  f. layout-doc-store 的 livePreview 与 acceptPresented 的拒收规则要有合同测试写进 layout-doc-store.test.ts，而不是只靠 e2e。
+
+======================================================================
+未发现问题的方面（读了实现，仔细检查后没有发现）
+----------------------------------------------------------------------
+  - useGridMotion.decideMotion 把预览换树当成程序引起的 move（previewing 只指分隔线手势预览），会走 470ms 过渡，与计划一致；容器尺寸变化走 stop，预览换树不会误触发。
+  - NestedGrid 的 watch([contextKey, revision, gesturesDisabled, node]) 只调 scope.invalidate()，只取消进行中的分隔线手势并重置悬停（useSashGesture.ts:629-634）。标签拖动期间没有分隔线手势，预览换树每次 revision 加一不会取消拖动会话，也不会清别的状态。
+  - 过渡能否在"同一帧改样式"时启动：实验 /tmp/review-t08-design/exp/run.mjs 在已存在的元素上同一次渲染里设 data-moving（带 transition）并改 transform/width，100ms 时 transform 为 (104.99, 55.00)，500ms 后为 (300, 100)，过渡正常启动；拿起项落地不需要"先写第一帧再 nextTick"的 growing 特技，只要拿起的框架在落地前已经在 DOM 里。
+  - 拿起的内容体固定尺寸对内容里的 ResizeObserver 无感：拿起期间内容体尺寸不变，只有外层框在缩，观察的是内容体；落地时才一次变化（落地路径见发现 10）。
+  - 内容项换叶后的 aria-owns 与 Tab 顺序：renderedKeys 不搬 DOM，outOfOrder 路径已有（useRenderOrder.ts:51-52），拿起的项换叶只是让它为真，没有新问题。
+  - 预览里新拆的编辑组 groupId 不在 area.groups 里时，头与内容里的调用不会抛错：documentOf/fileOf/handleOf 在找不到组时返回 null（area.ts:374-387、:452-456），focusGroup 经 setCurrentEditor 返回 not-found 不写（editor-panels.ts 的 tree.setCurrent）。问题在"指向别的已存在的组"和"文字描述不准"（发现 5），不在炸。
+  - 触摸：drag-session.ts:165-167 在拖动期间 preventDefault touchmove，门槛 200ms；卡片跟手指的几何与鼠标一致，没有额外问题。
+  - 边缘滚动：createLayoutDrag 没有给 createDragSession 传 autoScroll，实时布局不涉及。
+  - 预览期间拒收 acceptPresented/acceptPreview：取消路径上 Surface 因 projection 回到已提交文档重新发布一次（useGridLayout.ts:116 watch grid 触发 recompute），presented 回到与冻结值一致；提交路径同理。前提是发现 3 的顺序（撤预览先于 commit）成立。
+  - WorkbenchSurface 的 editorHeadHeights：预览里新头第一次发布按一行 34 算，挂上后 ResizeObserver 回填（WorkbenchSurface.vue:104-130），placementMoved 对 insetTop 变化只比左右下边（grid-motion.ts:28-45），不会因头高变化触发 470ms 过渡。已有机制够用。
+
+======================================================================
+汇总
+----------------------------------------------------------------------
+共 17 条：阻断 2，重要 8，建议 7。
+
+阻断：
+  1  叠放：卡片、分区、拿起的内容按计划的挂载点排不出"卡片 > 分区 > 面板"（实验已验证）
+  2  visibleTabs 按预览算，违反输出 17 与提案"预览不改可见性"，预览会加载从没打开的视图（bun 实测）
+
+重要：
+  3  shown 把 rebased/projectionOptions/partVisible 一起换成预览；"先提交再撤预览"与手势收场顺序相反；编辑器提交可异步
+  4  矩形快照：取在动画中会错；标签条、活动栏、头高仍读活 DOM；窗口尺寸变了整场取消与 Spec 输出 32 冲突
+  5  编辑器标签：预览与 moveTab 提交结果不同（合并、拒绝、分区）；EditorGroup 读到别的组的文档；"没有面包屑"不成立
+  6  粘滞对 center 与标签条会锁死候选；resolve 变有状态；commitsUnderPointer 绕过撤下语义且不分键盘
+  7  预备区在实时布局下完全没写
+  8  WorkbenchShell 里读 doc 的位置没有逐项分配，新拆编辑组会拿到工具头和随机串标题
+  9  标签条 TransitionGroup 与 TabStrip 结构（分行、adapt、占位隐藏）对不上
+  10 落地路径 B 下内容先被压成小卡尺寸再逐帧长回去
+
+建议：
+  11 t09 兼容：无候选语义、预览三态、lifted 形状
+  12 回退条件补最大化、extent 为空、预览入口走骨架检查
+  13 卡片取点与 requestFrame 循环的收口
+  14 e2e 可观察标记与证据产物清单
+  15 落点提示的 aria-live 要常驻
+  16 逐帧重排叠加候选频率的退路与阈值，片 1 后就量
+  17 Spec、全局 z 次序、文案登记的遗漏
+
+最严重的几条是 1、2、3；其中 1 与 2 在片 2、片 1 的实现之前不改计划，实施时会返工。

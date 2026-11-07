@@ -1,12 +1,32 @@
 /**
- * 编辑组与标签（docs/specs/workbench/editor.md 输出 1–5）：纯模型；布局用真实的 nb-ui grid。
+ * 编辑组与标签（docs/specs/workbench/editor.md 输出 1–5）：纯模型；结构用真实的 nb-layout 领域操作，文档放在内存里。
  */
 
 import {describe, expect, it} from "bun:test";
 
-import {createEditorGroups, sitsAtEdge} from "./groups";
-import type {EditorGroups} from "./groups";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
+import type {MemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
+
+import {createEditorGroups, LOST_TAB_ADDRESS} from "./groups";
+import type {EditorGroups, SavedTab, TabsSnapshot} from "./groups";
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "../../shared/contracts";
+
+const panelsOf = new WeakMap<EditorGroups, MemoryEditorPanels>();
+function fresh(cursorKind?: Parameters<typeof createEditorGroups>[2]): EditorGroups {
+    const panels = createMemoryEditorPanels();
+    const groups = createEditorGroups(panels, null, cursorKind);
+    panelsOf.set(groups, panels);
+    return groups;
+}
+/** 窗口重开：布局文档与标签记录都从存下的读回来。 */
+function reopen(groups: EditorGroups, snapshot: TabsSnapshot = groups.snapshot()): EditorGroups {
+    const panels = createMemoryEditorPanels(panelsOf.get(groups)!.document());
+    const restored = createEditorGroups(panels, JSON.parse(JSON.stringify(snapshot)) as TabsSnapshot);
+    panelsOf.set(restored, panels);
+    return restored;
+}
+const rootOf = (groups: EditorGroups) => panelsOf.get(groups)!.document().tree.root;
+const fileEntries = (snapshot: TabsSnapshot): Array<Exclude<SavedTab, {page: true}>> => Object.values(snapshot.tabs).flatMap((tab) => ("page" in tab ? [] : [tab]));
 
 const md = {editor: MARKDOWN_EDITOR} as const;
 const addresses = (groups: EditorGroups, index = 0): string[] => (groups.groups.value[index]?.tabs ?? []).map((tab) => `${tab.address}${tab.preview ? "*" : ""}`);
@@ -14,7 +34,7 @@ const active = (groups: EditorGroups): string | undefined => groups.activeTab()?
 
 describe("Spec workbench.editor 输出 1：preview 与 permanent", () => {
     it("单击替换本组的 preview；已在本组只激活；permanent 打开或 keep 转正；转正后不再被替换", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://a.md", {mode: "preview", ...md});
         const second = groups.open("project://b.md", {mode: "preview", ...md});
         expect(second.replaced?.address).toBe("project://a.md");
@@ -34,7 +54,7 @@ describe("Spec workbench.editor 输出 1：preview 与 permanent", () => {
     });
 
     it("新标签插在活动标签之后", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         for (const name of ["a", "b", "c"]) groups.open(`project://${name}.md`, {mode: "permanent", ...md});
         groups.activate(groups.groups.value[0]?.tabs[0]?.id ?? "");
         groups.open("project://d.md", {mode: "permanent", ...md});
@@ -44,7 +64,7 @@ describe("Spec workbench.editor 输出 1：preview 与 permanent", () => {
 
 describe("Spec workbench.editor 输出 1、39：同一文件的几个标签", () => {
     it("按地址加编辑器区分：同一组里源码与预览视图并存；reuse 决定哪个算已打开；换成本组已有的那种编辑器时切过去并关掉当前这个", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         const source = groups.open("project://a.html", {mode: "permanent", editor: CODE_EDITOR}).tab;
         const preview = groups.open("project://a.html", {mode: "permanent", editor: "test.html.preview"}).tab;
         expect(addresses(groups)).toEqual(["project://a.html", "project://a.html"]);
@@ -57,13 +77,13 @@ describe("Spec workbench.editor 输出 1、39：同一文件的几个标签", ()
     });
 
     it("语言随拆分复制，换编辑器时与光标一起丢掉；快照往返保留语言", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         const tab = groups.open("project://a.txt", {mode: "permanent", editor: CODE_EDITOR}).tab;
         groups.setLanguage(tab.id, "python");
         groups.setCursor(tab.id, {line: 2, column: 1});
         const split = groups.split(tab.id, "right");
         expect(split).toMatchObject({language: "python", cursor: {line: 2, column: 1}});
-        expect(createEditorGroups(JSON.parse(JSON.stringify(groups.snapshot()))).groups.value.map((group) => group.tabs[0])).toMatchObject([{language: "python"}, {language: "python"}]);
+        expect(reopen(groups).groups.value.map((group) => group.tabs[0])).toMatchObject([{language: "python"}, {language: "python"}]);
         groups.setEditor(tab.id, MARKDOWN_EDITOR);
         const changed = groups.find(tab.id)?.tab;
         expect(changed?.kind === "file" ? [changed.language, changed.cursor] : null).toEqual([undefined, undefined]);
@@ -73,7 +93,7 @@ describe("Spec workbench.editor 输出 1、39：同一文件的几个标签", ()
     });
 
     it("光标写法按编辑器的声明：没有声明的编辑器不记光标", () => {
-        const groups = createEditorGroups(null, (editor) => (editor === "test.viewer" ? null : "line"));
+        const groups = fresh((editor) => (editor === "test.viewer" ? null : "line"));
         const viewer = groups.open("project://a.png", {mode: "permanent", editor: "test.viewer"}).tab;
         groups.setCursor(viewer.id, {line: 1, column: 1});
         const tab = groups.find(viewer.id)?.tab;
@@ -83,14 +103,14 @@ describe("Spec workbench.editor 输出 1、39：同一文件的几个标签", ()
 
 describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
     it("拆分在右侧新建组打开同一文档并成为活动组；打开在活动组；关闭激活右侧（没有时左侧）；组空了随之关闭，活动组换到相邻组", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         const b = groups.open("project://b.md", {mode: "permanent", ...md}).tab;
         const split = groups.split(b.id, "right");
         expect(split?.address).toBe("project://b.md");
         expect(groups.groups.value).toHaveLength(2);
         expect(groups.activeGroup.value).toBe(groups.groups.value[1]?.id);
-        expect(groups.grid.root()).toMatchObject({kind: "branch", orientation: "horizontal"});
+        expect(rootOf(groups)).toMatchObject({kind: "branch", orientation: "horizontal"});
         groups.open("project://c.md", {mode: "preview", ...md});
         expect(addresses(groups, 1)).toEqual(["project://b.md", "project://c.md*"]);
         expect(addresses(groups, 0)).toEqual(["project://a.md", "project://b.md"]);
@@ -104,7 +124,7 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
         for (const tab of second?.tabs ?? []) groups.close(tab.id);
         expect(active(groups)).toBe("project://b.md");
         expect(groups.groups.value).toHaveLength(1);
-        expect(groups.grid.root()).toMatchObject({kind: "leaf"});
+        expect(rootOf(groups)).toMatchObject({kind: "leaf"});
         expect(groups.activeGroup.value).toBe(groups.groups.value[0]?.id);
 
         // 只剩一组时关掉最后一个标签，组留着。
@@ -114,7 +134,7 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
     });
 
     it("关闭中间的活动标签激活它右侧的；关闭最右的激活左侧的", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         for (const name of ["a", "b", "c"]) groups.open(`project://${name}.md`, {mode: "permanent", ...md});
         groups.activate(groups.groups.value[0]?.tabs[1]?.id ?? "");
         groups.close(groups.groups.value[0]?.tabs[1]?.id ?? "");
@@ -124,7 +144,7 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
     });
 
     it("同组移动、换编辑器", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         for (const name of ["a", "b", "c"]) groups.open(`project://${name}.md`, {mode: "permanent", ...md});
         const b = groups.groups.value[0]?.tabs[1];
         groups.move(b?.id ?? "", 1);
@@ -136,7 +156,7 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
     });
 
     it("改名把标签跟到新地址；关闭某个目录下的全部标签", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://dir/a.md", {mode: "permanent", ...md});
         const split = groups.split(groups.activeTab()?.id ?? "", "down");
         groups.open("project://dir/b.md", {mode: "permanent", ...md});
@@ -151,7 +171,7 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
     });
 
     it("改名时留在原处的地址（目标上有一份要保留的文档）不跟过去", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://dir/a.md", {mode: "permanent", ...md});
         groups.open("project://dir/b.md", {mode: "permanent", ...md});
         groups.rebind("project://dir", "project://moved", ["project://dir/b.md"]);
@@ -165,7 +185,7 @@ const idOf = (groups: EditorGroups, address: string): string => groups.groups.va
 
 describe("Spec workbench.editor 输出 50：固定标签", () => {
     it("固定的排到固定区末尾并转正，取消的排到普通区开头；新标签不插进固定区；Alt+方向键不跨区；preview 替换只找普通区", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         for (const name of ["a", "b", "c"]) groups.open(`project://${name}.md`, {mode: "permanent", ...md});
         groups.open("project://p.md", {mode: "preview", ...md});
         groups.setPinned(idOf(groups, "c.md"), true);
@@ -187,7 +207,7 @@ describe("Spec workbench.editor 输出 50：固定标签", () => {
     });
 
     it("换编辑器保留固定，并到同组的同编辑器标签时两者有一个固定就固定；拆分出的不固定；改名保留；删除照常关闭；页面不能固定", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         groups.open("project://a.md", {mode: "permanent", editor: CODE_EDITOR});
         groups.open("project://b.md", {mode: "permanent", ...md});
@@ -211,26 +231,29 @@ describe("Spec workbench.editor 输出 50：固定标签", () => {
         expect(tabsOf(groups, 1)).toEqual(["a.md", "page://welcome"]);
     });
 
-    it("固定随快照往返；旧记录没有这一项时不固定；记录里两类交错时固定的排到前面，活动项不变；固定的不会恢复成 preview", () => {
-        const groups = createEditorGroups();
-        groups.open("project://a.md", {mode: "permanent", ...md});
-        groups.open("project://b.md", {mode: "permanent", ...md});
-        groups.setPinned(idOf(groups, "b.md"), true);
-        expect(tabsOf(createEditorGroups(groups.snapshot()))).toEqual(["b.md^", "a.md"]);
-        const snapshot = groups.snapshot();
-        const group = snapshot.groups[0];
-        if (group === undefined) throw new Error("没有组");
-        const mixed = {...snapshot, groups: [{...group, tabs: [{address: "project://x.md", editor: MARKDOWN_EDITOR, preview: false}, {address: "project://y.md", editor: MARKDOWN_EDITOR, preview: true, pinned: true as const}], active: 0}]};
-        const restored = createEditorGroups(mixed);
+    it("固定随快照往返；没有这一项时不固定；固定与普通交错时固定的排到前面，活动项不变；固定的不会恢复成 preview", () => {
+        const groups = fresh();
+        const x = groups.open("project://x.md", {mode: "permanent", ...md}).tab;
+        const y = groups.open("project://y.md", {mode: "permanent", ...md}).tab;
+        groups.setPinned(y.id, true);
+        expect(tabsOf(reopen(groups))).toEqual(["y.md^", "x.md"]);
+
+        // 两条记录不是一次写的：布局里 x 在前，标签记录却说 y 固定。
+        const crossed = fresh();
+        const a = crossed.open("project://x.md", {mode: "permanent", ...md}).tab;
+        const b = crossed.open("project://y.md", {mode: "permanent", ...md}).tab;
+        crossed.activate(a.id);
+        const restored = reopen(crossed, {tabs: {[a.id]: {address: "project://x.md", editor: MARKDOWN_EDITOR, preview: false}, [b.id]: {address: "project://y.md", editor: MARKDOWN_EDITOR, preview: true, pinned: true}}});
         expect(tabsOf(restored)).toEqual(["y.md^", "x.md"]);
         expect(restored.activeTab()?.address).toBe("project://x.md");
+        expect(x.id).not.toBe(a.id);
     });
 });
 
 describe("Spec workbench.editor 输出 49：移动标签", () => {
     /** 左组 a、b、c（b 是 preview），右组 d。 */
     const twoGroups = (): EditorGroups => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         groups.open("project://b.md", {mode: "permanent", ...md});
         groups.open("project://c.md", {mode: "preview", ...md});
@@ -275,28 +298,39 @@ describe("Spec workbench.editor 输出 49：移动标签", () => {
         expect(groupIds(groups)).not.toContain(left);
     });
 
-    it("拖到边缘：在目标组的那一边拆出新组并移过去，转正、不固定；源组只有它且就是目标组时不变；源组空了随之关闭", () => {
+    it("拖到边缘：多标签组拆出新组并移过去，转正、不固定，成为活动组；放下去和现在一样时不变", () => {
         const groups = twoGroups();
         const [left = "", right = ""] = groupIds(groups);
         groups.setPinned(idOf(groups, "a.md"), true);
-        const moved = groups.moveToNewGroup(idOf(groups, "a.md"), right, "bottom");
+        const moved = groups.moveToNewGroup(idOf(groups, "a.md"), {kind: "split", panel: right, edge: "bottom"});
         if (moved === null) throw new Error("没有拆出新组");
-        expect(moved.droppedGroup).toBeNull();
         expect(groupIds(groups)).toEqual([left, right, moved.group]);
         expect(tabsOf(groups, 2)).toEqual(["a.md"]);
+        expect(moved.tab).toMatchObject({preview: false});
+        expect(moved.tab).not.toHaveProperty("pinned");
         expect(groups.activeGroup.value).toBe(moved.group);
-        expect(groups.moveToNewGroup(idOf(groups, "a.md"), moved.group, "top")).toBeNull();
-        const left2 = groups.moveToNewGroup(idOf(groups, "d.md"), left, "left");
-        if (left2 === null) throw new Error("没有拆出新组");
-        expect(left2.droppedGroup).toBe(right);
-        expect(groupIds(groups)).toEqual([left2.group, left, moved.group]);
-        expect(groups.grid.find(right)).toBeNull();
+        expect(groups.moveToNewGroup(idOf(groups, "a.md"), {kind: "split", panel: moved.group, edge: "top"})).toBeNull();
+        // 放不下去的不改属性：b 是 preview，拖到它自己只有一个标签的组的边上，转正不算数。
+        const lone = groups.open("project://z.md", {mode: "preview", ...md, group: moved.group}).tab;
+        groups.close(idOf(groups, "a.md"));
+        expect(groups.moveToNewGroup(lone.id, {kind: "split", panel: moved.group, edge: "top"})).toBeNull();
+        expect(groups.find(lone.id)?.tab.preview).toBe(true);
+    });
+
+    it("只有一个标签的组移到边缘是同一块面板移动：组 id 不变，组没有被关掉再新建（docs/specs/ui/workbench-layout.md 输出 27）", () => {
+        const groups = twoGroups();
+        const [left = "", right = ""] = groupIds(groups);
+        groups.focusGroup(left);
+        const moved = groups.moveToNewGroup(idOf(groups, "d.md"), {kind: "split", panel: left, edge: "left"});
+        expect(moved?.group).toBe(right);
+        expect(groupIds(groups)).toEqual([right, left]);
+        expect(groups.activeGroup.value).toBe(right);
     });
 });
 
 describe("Spec workbench.editor 输出 35：在侧边打开", () => {
     it("右侧没有组时在活动组右侧新建一个空组、不带走活动标签；有了以后再“侧边”就是它；在它里面打开后它成为活动组；从右边的组再侧边又新建", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         const side = groups.sideGroup();
         expect(groups.groups.value.map((group) => group.id)).toEqual([groups.groups.value[0]?.id, side]);
@@ -317,7 +351,7 @@ describe("Spec workbench.editor 输出 35：在侧边打开", () => {
     });
 
     it("右侧的是一列上下拆开的组：取那一列最上面的组", () => {
-        const groups = createEditorGroups();
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         const left = groups.activeGroup.value;
         groups.split(groups.activeTab()?.id as string, "right");
@@ -328,28 +362,23 @@ describe("Spec workbench.editor 输出 35：在侧边打开", () => {
     });
 });
 
-describe("Spec workbench.editor 输出 5：会话快照", () => {
-    it("快照恢复出同样的组、布局、标签与活动项；新建的组不与恢复的 id 冲突", () => {
-        const groups = createEditorGroups();
+describe("标签记录（docs/specs/ui/workbench-layout.md 输出 33、34）", () => {
+    it("重开恢复出同样的组、标签与活动项；标签 id 不变（它是两条记录之间的键）；新拆的组不和恢复的 id 撞", () => {
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         groups.open("project://b.md", {mode: "preview", ...md});
         groups.split(groups.activeTab()?.id ?? "", "right");
         groups.open("user://u.md", {mode: "permanent", editor: CODE_EDITOR});
-        const snapshot = groups.snapshot();
-        const restored = createEditorGroups(JSON.parse(JSON.stringify(snapshot)));
-        expect(restored.snapshot()).toEqual(snapshot);
+        const restored = reopen(groups);
+        expect(restored.snapshot()).toEqual(groups.snapshot());
+        expect(restored.groups.value).toEqual(groups.groups.value);
         expect(active(restored)).toBe("user://u.md");
-        // 让记录里的组与分支恰好用上新计数会先给出的 id：新拆出的组与分支仍不冲突。
-        const renamed = JSON.parse(JSON.stringify(snapshot).replaceAll(`"${snapshot.activeGroup}"`, "\"g1\"").replace(/"id":"b\d+"/u, "\"id\":\"b2\""));
-        const colliding = createEditorGroups(renamed);
-        expect(colliding.groups.value.map((group) => group.id)).toEqual(["g0", "g1"]);
-        const split = colliding.split(colliding.activeTab()?.id ?? "", "down");
-        expect(split).not.toBeNull();
-        expect(new Set(colliding.groups.value.map((group) => group.id)).size).toBe(3);
+        restored.split(restored.activeTab()?.id ?? "", "down");
+        expect(new Set(restored.groups.value.map((group) => group.id)).size).toBe(3);
     });
 
-    it("上次的光标随快照往返；写法与编辑器对不上的（Markdown 记着行列、源码记着位置）恢复时丢掉（输出 30）", () => {
-        const groups = createEditorGroups();
+    it("上次的光标随记录往返；写法与编辑器对不上的（Markdown 记着行列、源码记着位置）恢复时丢掉（输出 30）", () => {
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         groups.open("project://c.json", {mode: "permanent", editor: CODE_EDITOR});
         const [a, c] = groups.groups.value[0]!.tabs;
@@ -357,105 +386,47 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
         groups.setCursor(c!.id, {line: 2, column: 3});
         groups.setCursor(c!.id, {offset: 9});
         const snapshot = groups.snapshot();
-        expect(snapshot.groups[0]?.tabs.map((tab) => tab.cursor)).toEqual([{offset: 4}, {line: 2, column: 3}]);
-        expect(createEditorGroups(JSON.parse(JSON.stringify(snapshot))).snapshot()).toEqual(snapshot);
-        const crossed = {...snapshot, groups: snapshot.groups.map((group) => ({...group, tabs: [{...group.tabs[0]!, cursor: {line: 1, column: 1}}, {...group.tabs[1]!, cursor: {offset: 2}}]}))};
-        expect(createEditorGroups(crossed).groups.value[0]?.tabs.map((tab) => (tab.kind === "file" ? tab.cursor : null))).toEqual([undefined, undefined]);
+        expect(fileEntries(snapshot).map((tab) => tab.cursor)).toEqual([{offset: 4}, {line: 2, column: 3}]);
+        expect(reopen(groups).snapshot()).toEqual(snapshot);
+        const crossed = {tabs: {[a!.id]: {...fileEntries(snapshot)[0]!, cursor: {line: 1, column: 1}}, [c!.id]: {...fileEntries(snapshot)[1]!, cursor: {offset: 2}}}};
+        expect(reopen(groups, crossed).groups.value[0]?.tabs.map((tab) => (tab.kind === "file" ? tab.cursor : null))).toEqual([undefined, undefined]);
     });
 
-    it("页面标签（输出 33）不进快照：活动的是页面时记它左边最近的文件标签；页面不拆分、不换编辑器", () => {
-        const groups = createEditorGroups();
+    it("页面标签（输出 33）不恢复：记录里只留一个记号，重开时从布局里拿掉，活动的换到相邻的；页面不拆分、不换编辑器", () => {
+        const groups = fresh();
         groups.open("project://a.md", {mode: "permanent", ...md});
         groups.openPage("page://nbook.test.welcome");
         groups.open("project://b.md", {mode: "permanent", ...md});
         const page = groups.groups.value[0]!.tabs[1]!;
         groups.activate(page.id);
-        const snapshot = groups.snapshot();
-        expect(snapshot.groups[0]?.tabs.map((tab) => tab.address)).toEqual(["project://a.md", "project://b.md"]);
-        expect(snapshot.groups[0]?.active).toBe(0);
+        expect(groups.snapshot().tabs[page.id]).toEqual({page: true});
         expect(groups.split(page.id, "right")).toBeNull();
         expect(groups.setEditor(page.id, CODE_EDITOR)).toBeNull();
         expect(groups.find(page.id)?.tab.kind).toBe("page");
 
-        const only = createEditorGroups();
-        only.openPage("page://nbook.test.welcome");
-        expect(only.snapshot().groups[0]).toMatchObject({tabs: [], active: null});
+        const restored = reopen(groups);
+        expect(tabsOf(restored)).toEqual(["a.md", "b.md"]);
+        expect(active(restored)).toBe("project://b.md");
     });
 
-    it("布局与组对不上、活动组不存在或快照损坏：从一个空组开始", () => {
-        const groups = createEditorGroups();
-        groups.open("project://a.md", {mode: "permanent", ...md});
-        const snapshot = groups.snapshot();
-        for (const broken of [
-            {...snapshot, activeGroup: "nope"},
-            {...snapshot, groups: [...snapshot.groups, {id: "extra", tabs: [], active: null}]},
-            {...snapshot, layout: {version: 1, root: null}},
-            // 叶的 id 与组的 ref 不一致：渲染按叶的 id 找组，会找不到这些标签。
-            JSON.parse(JSON.stringify(snapshot).replace(/"kind":"leaf","id":"[^"]+"/u, '"kind":"leaf","id":"alien"')),
-        ]) {
-            const restored = createEditorGroups(broken as never);
-            expect(restored.groups.value).toEqual([{id: "g0", tabs: [], active: null}]);
-        }
+    it("布局里有、记录里没有：显示占位，能关，不写回记录；记录里有、布局里没有：不恢复", () => {
+        const groups = fresh();
+        const a = groups.open("project://a.md", {mode: "permanent", ...md}).tab;
+        const b = groups.open("project://b.md", {mode: "permanent", ...md}).tab;
+        const {[a.id]: _dropped, ...rest} = groups.snapshot().tabs;
+        const restored = reopen(groups, {tabs: {...rest, orphan: {address: "project://z.md", editor: MARKDOWN_EDITOR, preview: false}}});
+        expect(restored.groups.value[0]?.tabs.map((tab) => tab.address)).toEqual([LOST_TAB_ADDRESS, "project://b.md"]);
+        expect(Object.keys(restored.snapshot().tabs)).toEqual([b.id]);
+        expect(restored.close(a.id)?.address).toBe(LOST_TAB_ADDRESS);
+        expect(tabsOf(restored)).toEqual(["b.md"]);
     });
 });
 
 describe("标签的身份", () => {
-    it("两个窗口各自新建、各自恢复，标签 id 都不撞：合成一棵树之后它是两条记录之间的键（docs/specs/ui/workbench-layout.md 输出 33）", () => {
-        const left = createEditorGroups();
-        const right = createEditorGroups();
+    it("两个窗口各自新建，标签 id 不撞（docs/specs/ui/workbench-layout.md 输出 33）", () => {
+        const left = fresh();
+        const right = fresh();
         const opened = left.open("project://a.md", {mode: "permanent", editor: CODE_EDITOR}).tab;
         expect(right.open("project://a.md", {mode: "permanent", editor: CODE_EDITOR}).tab.id).not.toBe(opened.id);
-        const snapshot = left.snapshot();
-        const ids = [createEditorGroups(snapshot), createEditorGroups(snapshot)].map((groups) => groups.groups.value[0]?.tabs[0]?.id);
-        expect(new Set([...ids, opened.id]).size).toBe(3);
-    });
-
-    it("只改一个标签的属性：别的组和别的标签还是同一个对象，不跟着重新渲染", () => {
-        const groups = createEditorGroups();
-        const first = groups.open("project://a.md", {mode: "permanent", editor: CODE_EDITOR}).tab;
-        const second = groups.open("project://b.md", {mode: "permanent", editor: CODE_EDITOR}).tab;
-        groups.split(first.id, "right");
-        const [left, right] = groups.groups.value;
-        groups.setCursor(first.id, {line: 3, column: 1});
-        const [nextLeft, nextRight] = groups.groups.value;
-        expect(nextRight).toBe(right);
-        expect(nextLeft).not.toBe(left);
-        expect(nextLeft?.tabs[1]).toBe(left?.tabs[1]);
-        expect(nextLeft?.tabs[1]?.id).toBe(second.id);
-
-        // 什么都没变：列表本身也是同一个。
-        const list = groups.groups.value;
-        groups.setCursor(first.id, {line: 3, column: 1});
-        groups.rebind("project://none", "project://other");
-        expect(groups.groups.value).toBe(list);
-    });
-});
-
-describe("组已经紧贴目标的这条边：放下去还是现在的样子", () => {
-    const left = {left: 0, top: 0, right: 400, bottom: 800};
-    const right = {left: 401, top: 0, right: 800, bottom: 800};
-    const upper = {left: 0, top: 0, right: 400, bottom: 400};
-    const lower = {left: 0, top: 401, right: 400, bottom: 800};
-
-    it("紧贴且交叉轴一样长：四条边都算", () => {
-        expect(sitsAtEdge(left, right, "right")).toBe(true);
-        expect(sitsAtEdge(right, left, "left")).toBe(true);
-        expect(sitsAtEdge(upper, lower, "bottom")).toBe(true);
-        expect(sitsAtEdge(lower, upper, "top")).toBe(true);
-    });
-
-    it("紧贴着，但放的是另一条边：不算，那是真的换位置", () => {
-        expect(sitsAtEdge(right, left, "right")).toBe(false);
-        expect(sitsAtEdge(left, right, "left")).toBe(false);
-        expect(sitsAtEdge(left, right, "bottom")).toBe(false);
-    });
-
-    it("交叉轴不一样长：新组只占目标那一段，结果不同，不算", () => {
-        expect(sitsAtEdge(upper, right, "right")).toBe(false);
-        expect(sitsAtEdge(right, upper, "left")).toBe(false);
-    });
-
-    it("中间隔着别的组：不算", () => {
-        expect(sitsAtEdge(left, {left: 802, top: 0, right: 1200, bottom: 800}, "right")).toBe(false);
     });
 });

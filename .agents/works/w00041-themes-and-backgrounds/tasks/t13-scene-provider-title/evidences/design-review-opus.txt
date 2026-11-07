@@ -1,0 +1,178 @@
+# Opus 设计审查第二段（t13、t15、t16，附 t14）；因 omp 额度用完改派，报告原文
+
+# w00041 t13–t16 设计审查（Opus，第二段）
+
+逐条核实后追加。只读；实验文件只在 lab-opus/。
+
+### 1. t15 补全候选“每项带默认预览”在 nb-ui 现有控件里做不到，按计划找的控件名也找不到，退路 datalist 更画不了预览
+
+- **严重程度**：重要；**类别**：正确性 / 代码质量；**计划**：t15
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t15-icon-catalog/plan.md:29,32`；`packages/nb-ui/src/components/popup/SuggestionMenu.md`（`SuggestionMenuItem` 只有 `iconClass`）、`SuggestionMenu.vue:229`（`<MenuRow :icon="row.item.iconClass">`，没有逐项插槽）；`packages/nb-ui/src/components/form/SearchSelect.md`（“只有选中一个选项才改值”）
+- **现象**：计划让实现前在 nb-ui 里找 `Combobox`、`Autocomplete`，找不到就用 `datalist`。nb-ui 里没有这两个名字（`grep -ril 'combobox\|autocomplete'` 只命中 `SearchSelect`、`Input` 的 ARIA 用法）；真正合适的是 `SuggestionMenu`（输入处旁的候选列表，不抢焦点，宿主管上下键与回车）。但 `SuggestionMenu` 与 `SearchSelect` 的图标都只能经 `iconClass` 给类名，没有行内样式或逐项插槽。
+- **为什么是问题**：候选预览如果走 `iconClass: "i-lucide-<名>"`，正好重犯上一段第 2 条（被正在编辑的主题覆盖表盖掉）；计划第 32 行要求“补全候选的预览同理（行内 `--svg`）”，现有控件给不了这个入口。`datalist` 是浏览器原生下拉，选项里根本不能画图标，与“每项带该图标的默认预览”矛盾，也与 nb-ui 弹出列表的外观不一致。`SearchSelect` 只允许选已有项、离开时恢复原值，不能用来输入目录外的名字（计划第 31 行要求“仍可添加”）。实现者照计划走会三选一：放弃候选预览、重新引入污染、或临时给 nb-ui 加接口而计划没登记。
+- **如何核实**：上述三个文件；`grep -rn '<slot' packages/nb-ui/src/components/popup/SuggestionMenu.vue` 只有 `header`。
+- **建议改法**：计划直接定为 `Input` + `SuggestionMenu`（键盘由宿主处理，同 Composer 写法），并明确候选预览怎么画：要么给 `SuggestionMenuItem` 加一个预览插槽或 `iconStyle` 字段（nb-ui 公开接口改动，要登记组件文档与 Lab 场景，计划的切片与允许文件要写进去），要么不在候选里画预览、只在“已覆盖的行”画原图标。删去 `datalist` 退路。
+
+### 2. t15 说“开发服务与产物行为一致”不成立：开发服务与 e2e 外壳用完整样式入口，目录比产品多出 Lab 与测试外壳里的图标
+
+- **严重程度**：重要；**类别**：测试 / 正确性；**计划**：t15
+- **位置**：`t15-icon-catalog/plan.md:18,46,50`；`packages/neuro-book/vite.config.ts:20-31,41`（生产用 `tailwind.product.css`，`serve` 改用完整入口）；`packages/neuro-book/vite.e2e.config.ts:17`（e2e 外壳同样换成 `FULL_STYLE_ENTRY`）；`packages/neuro-book/src/web/tailwind.product.css:8-9`（`@source not "../plugins/lab"`、`"./testing"`）
+- **现象**：图标规则由 Tailwind 按 `@source` 扫到的类名生成，生产入口排除了 `src/plugins/lab` 与 `src/web/testing`，开发服务和 `build:e2e` 不排除。粗算：`src/` 下（不含测试）出现的 `i-lucide-*` 名字 171 个，排除 lab、testing 后 123 个（上限估计，部分名字也在 nb-ui 里出现）；现有生产产物 `dist/web/assets/index-*.css` 里有 129 个图标名。
+- **为什么是问题**：计划的目录语义是“产品此刻能画”，未知名提示的文案是“产品里没有用到这个图标”。在开发服务、Lab 和 e2e 里，只在 Lab 夹具里出现的名字（例如 `folder-open`、`history`、`save`、`pencil` 一类，见上面的差集）会被当成“产品有”，不出提示；到了产品里同一个名字出提示。e2e 是在完整入口上跑的，所以切片 3 的“输入产品里没有的名字出现提示”如果挑了一个只在 Lab 里用到的名字会意外失败，反过来“`fol` 出现 `folder*` 候选”断言的候选数在产品里会少。这条差异是既有的构建约定（ui.component-lab 的产物门禁），不是 t15 能改的，但计划的论证和验收都建立在“一致”上。
+- **如何核实**：`grep -rhoE 'i-lucide-[a-z0-9]+(-[a-z0-9]+)*' --exclude='*.test.ts' packages/neuro-book/src | sort -u | wc -l` 与加 `--exclude-dir=lab --exclude-dir=testing` 的结果比较；产物里 `grep -o '\.i-lucide-[a-z0-9-]*' dist/web/assets/index-*.css | sort -u | wc -l`。
+- **建议改法**：计划第 18 行改为如实写“开发服务与 e2e 外壳的目录是产品的超集（多出 Lab、测试外壳里的图标）”；e2e 的“未知名”用例用一个确定不在任何源码里的名字（例如构造一个 lucide 里存在、仓库里没出现的名字，并在测试里先断言它不在扫描结果中），候选断言只断言包含 `folder`，不断言条数；未知名提示的文案措辞改为“当前页面没有这个图标的样式”这类不夸大的说法。
+
+### 3. t15 的目录测试放 `*.dom.test.ts` 跑不出来：那是 happy-dom，不是浏览器；happy-dom 20.11.2 解析样式表时整块丢掉 `@layer`，产品的图标规则恰好全在 `@layer` 里
+
+- **严重程度**：阻断；**类别**：测试；**计划**：t15
+- **位置**：`t15-icon-catalog/plan.md:24,44,51`；`packages/neuro-book/vitest.config.ts:2,19`（`environment: "happy-dom"`）；`packages/neuro-book/bunfig.toml:3`；`packages/nb-ui/src/tailwind.css:34,45-49`（图标规则由 Tailwind 生成进 `@layer utilities`）；`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:700`（插件图标规则包进 `@layer components`）
+- **现象**：计划写“单测放 `*.dom.test.ts`（vitest 浏览器环境）用真实的 `CSSStyleSheet`”，切片 1 要在里面测嵌套 `@layer`、`@media`、跨域样式表、原地改 `textContent`；验收映射“目录来源正确（嵌套层、跳过自己的覆盖表）”也指向它。仓库的 `*.dom.test.ts` 是 vitest + happy-dom，不是浏览器。
+- **为什么是问题**：实测 happy-dom 20.11.2（仓库所用版本）：一张含 `@layer theme, base, ...;`、`@layer utilities{.i-lucide-folder{...}}`、`@layer components{@layer inner{...}}`、`@media{...}`、`@supports{...}` 的 `<style>`，`sheet.cssRules` 只剩 `CSSMediaRule` 与 `CSSSupportsRule` 两条，所有 `@layer` 块连同里面的规则都不见了。产品产物里每一条 `.i-lucide-*` 规则都在 `@layer utilities` 里（插件的在 `@layer components` 里），所以在 happy-dom 里扫出的目录恒为空；“嵌套 `@layer`”这条用例不可能通过，实现者只能改成不带 `@layer` 的样式表来测，测的就不是产品形状。跨域 `SecurityError` 在 happy-dom 里也没有对应行为；`getComputedStyle(el).getPropertyValue("mask-image")` 返回空串，验收里“比计算后的 `mask-image`”在 happy-dom 里也做不了（e2e 在 Chromium 里可以）。
+- **如何核实**：`/tmp/review-w00041-t13-16-design/lab-opus/happy-cssom.ts`，在 `packages/neuro-book` 下 `bun` 运行，输出只有 `CSSMediaRule`、`CSSSupportsRule` 两条；改 `textContent` 后新规则可见（这一项 happy-dom 能测）。
+- **建议改法**：目录扫描的规则来源测试放到真实浏览器：e2e 里直接对产品页面断言（例如 `folder` 在目录里、`data-nb-skin-icons` 表里的名字不在目录里、`loader-2,loader-circle` 这种分组选择器两个名字都收），或者给 Playwright 一个 `page.setContent` 的小页面测 `scanIconNames`。纯数据部分（正则、去重排序、分组选择器拆名）可以留 bun 单测，喂 `selectorText` 字符串而不是假 `CSSStyleSheet`。计划第 24 行“vitest 浏览器环境”改掉。
+
+### 4. t13 的 `title` 收文本引用，但 `workbench.theme-scenes` 贡献点没有 `complete`，不写 `ns` 的引用在运行时不补命名空间
+
+- **严重程度**：重要；**类别**：正确性 / 接口；**计划**：t13
+- **位置**：`t13-scene-provider-title/plan.md:13,18,28`；`packages/neuro-book/src/plugins/workbench/shared/themes.ts:145-151`（`themeScenesPoint` 没有 `complete`）；`packages/nb-runtime/src/plugins/host.ts:881-882`（`point.complete === undefined` 时声明原样交给消费者）；`packages/neuro-book/src/shared/convention-keys.ts:144`（目录检查在没有 `complete` 时按“补过命名空间”核对）；`docs/specs/ui/i18n.md:42,70,75-95`
+- **现象**：计划说 `title` 与主题的 `title` 同一个类型，“字符串、语言映射或文本引用都收”，编辑器用 `useText().t` 解析。i18n Spec 规定声明里的文字引用可以不写 `ns`、“由宿主在登记时补上”，补全靠贡献点的 `complete`（`conventionCompleter(...)` 里的 `withTextNamespace`）。`themeScenesPoint` 现在没有 `complete`，宿主不补；而目录检查（`convention-keys.ts:144`）在没有 `complete` 时自己补一遍再核对，所以“键在目录里”的检查会通过。
+- **为什么是问题**：第三方作者照 i18n Spec 写 `title: {kind: "text", key: "sky.title"}`（不写 `ns`），目录检查说没问题，运行时编辑器的 `t()` 拿到不带命名空间的引用，按 Spec 第 102 行落到键名并上报，测试环境抛错。计划的验收只测字符串与语言映射（“有标题、无标题、未发布、语言映射按当前语言”），抓不到。主题贡献点 `themesPoint`（同文件 125-130 行）也没有 `complete`，“与主题同一个类型”正好继承了这个既有缺口，计划不能拿它当“已验证可用”的先例。
+- **如何核实**：读上面三处代码；`docs/specs/ui/i18n.md` 的补全表里没有 `workbench.themes`、`workbench.theme-scenes`。
+- **建议改法**：二选一并写进计划：给 `themeScenesPoint` 加 `complete: conventionCompleter(null)`（只补命名空间，不补约定键，因为 `title` 可选），在 i18n.md 的表里登记一行，验收加“不写 `ns` 的文本引用按贡献方插件的目录翻译”；或者把 `title` 收窄为字符串与语言映射，Spec 写明不收文本引用。主题贡献点的同一缺口另记一条 followup，不在 t13 顺手改。
+
+### 5. t13 说 `Select` 的 `description` 是“第二行”，实际是同一行右侧、放不下先截掉；Spec 改写与 e2e 断言都按错的版式写
+
+- **严重程度**：重要；**类别**：文档 / 测试；**计划**：t13
+- **位置**：`t13-scene-provider-title/plan.md:28,38,48`；`packages/nb-ui/src/components/popup/Select.md:11,15`（“`description` 放在同一行右侧的次要文字，放不下时先截它，所有项一样高”；“390×844 下 label/description 在选项内截断”）
+- **现象**：计划写“有标题时 `description = id`（让作者还能看到 id，选项下拉本来就有第二行）”，Spec 输出 20 要改成“有 `title` 的显示标题（第二行是贡献 id）”，e2e 断言“带 id 第二行”。
+- **为什么是问题**：照计划写进 Spec 的版式与组件合同矛盾；e2e 没有“第二行”可断言。更实际的后果：贡献 id 一般很长（`example.scene-clock.sky-painter` 31 个字符），在编辑器这一栏的宽度和 390px 下会被首先截掉，两个插件标题相同（例如都叫“天空”）时用户靠 id 区分的打算落空；触发器上只显示选中项的 label，看不到 id。
+- **如何核实**：`Select.md` 第 11、15 行；`provider-options.ts` 现有“未发布”项已经把 `description` 用作右侧短标注。
+- **建议改法**：Spec 与计划改成“标题，右侧次要文字是贡献 id（放不下时截断）”；e2e 断言选项的可访问名包含标题、选项内含 id 文本，不断言换行。若要求 id 始终可见，就需要另定方案（例如 `title` 重名时才在 label 里括注 id），属于设计决定，不要在实现时临场改。
+
+### 6. t13 的导航滚动：只在 `section` 变化时滚，漏了重新挂载与变窄两种入口；e2e 用点击验证，Playwright 点击前自己会把按钮滚进视口，修不修都通过
+
+- **严重程度**：重要；**类别**：测试 / 正确性；**计划**：t13
+- **位置**：`t13-scene-provider-title/plan.md:33,44,50`；`ThemeEditor.vue:224-237`（导航）、`:460-468`（`@container (max-width: 520px)` 下 `overflow-x: auto`）；`theme-editor-model.ts:64,106`（`section` 来自编辑器状态，组件外持有）；`docs/specs/theme/editor.md` “状态与转换”（切走再切回时编辑状态保留；页签与浮动窗口共用一份模型）
+- **现象**：计划用 `watch(model.section) + nextTick` 调 `scrollIntoView`。`section` 存在组件外的编辑状态里：切去别的页签再回来、或在页签与浮动窗口之间换着开，`ThemeEditor` 重新挂载，`section` 已经是“图标”，`watch` 不触发，横排导航 `scrollLeft` 从 0 开始，当前项在右边看不见。窗口由宽变窄（竖排变横排，容器查询切换）时 `section` 也不变。验收用例是“390px 下点‘图标’后当前项完全在可视范围内”：Playwright 的 `click()` 在操作前会把目标滚进视口，所以没有这次修复，这条断言同样通过。
+- **为什么是问题**：验收映射里唯一的证据不能区分修了与没修；实现上最可能被用户碰到的入口（重新打开编辑器停在靠右的分区）没被覆盖。另一个次要点：`scrollIntoView` 会滚动所有可滚动的祖先，不只导航条；在浮动窗口或编辑区里，`block: "nearest"` 在导航条被祖先部分遮住时会连带滚动外层，桌面竖排也可能触发。
+- **如何核实**：Playwright 文档的 actionability（click 先 scroll into view if needed）；`ThemeEditorContrast.vue:46` 是现有唯一的程序性切换（切到“配色”，在左边，不暴露这个问题）。
+- **建议改法**：`watch(..., {immediate: true})` 或 `onMounted` 加一次，并在容器宽度切换时（`ResizeObserver` 或容器查询对应的 matchMedia 不可用时用 `ResizeObserver`）再对一次；只改导航条自己的 `scrollLeft`（按当前项的 `offsetLeft` 与宽度算），不调会牵动祖先的 `scrollIntoView`。e2e 改成：桌面宽度下切到“图标”，再把视口改到 390px（或关掉编辑器再打开），不点击，断言当前项的矩形在导航条矩形内。
+
+> 第 6 条更正：建议改法里“关掉编辑器再打开”不对，关闭会清掉编辑状态、回到第一个分区；应为“切到别的编辑区页签再切回来”（编辑状态保留、组件重新挂载）。
+
+### 7. t13 切片 1 的验证命令里 `provider-options.test.ts` 路径不存在；示例场景“标题可见”没说从哪看
+
+- **严重程度**：建议；**类别**：测试；**计划**：t13
+- **位置**：`t13-scene-provider-title/plan.md:43,48-49`；实际文件 `packages/neuro-book/src/plugins/workbench/provider-options.test.ts`（不在 `web/components/theme-editor/` 下）；`packages/neuro-book/plugin-sdk/examples/testing/workbench.ts:24-25,52`（替身只给 `sceneProvider(id)` 的实现，不给声明）
+- **现象**：计划写 `bun test ... src/plugins/workbench/web/components/theme-editor/provider-options.test.ts`。`bun test` 把参数当路径过滤，不存在的路径不会报错，只是少跑这一份，切片 1 的证据会缺掉最主要的那个测试而不自知。示例场景 `08-scene-provider.test.ts` 要断言“标题可见”，但工作台替身不暴露贡献的声明，计划的允许改动里没有 `plugin-sdk/examples/testing/workbench.ts`。
+- **如何核实**：`find packages/neuro-book -name provider-options.test.ts`；读 `testing/workbench.ts`。
+- **建议改法**：命令改成 `src/plugins/workbench/provider-options.test.ts`，并按 docs/testing 的做法核对输出里的用例数；示例场景说清楚从哪断言（替身加 `sceneProviderDeclaration(id)`，或用 `definitionAt` 读插件定义里的贡献声明），把对应文件写进计划。
+
+> 第 7 条补证据：在 `packages/neuro-book` 下 `bun test src/plugins/workbench/provider-options.test.ts src/plugins/workbench/web/components/theme-editor/provider-options.test.ts`，输出“Ran 3 tests across 1 file”，不存在的那条路径没有任何提示。
+
+### 8. t16 的 `keep` 只能从合格条目算出，记录里按设计保留的“坏条目”引用的素材会被永久删除
+
+- **严重程度**：阻断；**类别**：不变量 / 数据安全；**计划**：t16
+- **位置**：`t16-asset-cleanup/plan.md:26-27`；`packages/neuro-book/src/plugins/workbench/shared/user-themes.ts:36-44,47`（记录只验容器，坏条目“别的版本写的、手改坏的”留在记录里不改写；`validUserThemes` 过滤掉它们）；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/assets.ts:19`（`assetRefs(declaration: ThemeDeclaration)` 只收合格声明）；`docs/specs/theme/editor.md` 失败与恢复表第一行
+- **现象**：防线 1 只在“读失败或记录损坏时拒绝清理”；防线 2 用 `assetRefs` 对“记录里所有用户主题”求并集。`assetRefs` 的参数是已通过校验的 `ThemeDeclaration`，能喂给它的只有 `validUserThemes` 留下的条目。记录层把条目当 `Unknown`，一条不合格的条目不算“记录损坏”。
+- **为什么是问题**：Spec 与代码注释都明确预期会有“别的版本写的”条目：例如较新版本给声明加了字段（`ThemeDeclarationSchema` 是 `additionalProperties: false`），用户回到旧版本或在旧版本里点清理，这些条目不合格、不进 `keep`，它们的场景图、图标被删；再回到新版本，主题还在、素材没了，且没有回收站。手改记录写错一个字段也会让整条主题的素材被清掉。这正是 Spec 为“坏条目原样保留”想保护的场景，清理把“保留”变成了“保留壳、删内容”。
+- **如何核实**：读上述三处；构造一条 `declaration` 多一个未知字段的条目，`userThemeProblem` 返回非 null，`validUserThemes` 过滤掉它。
+- **建议改法**：二选一写进计划与 Spec：(a) 记录里有任何一条不合格就拒绝清理并提示原因（最简单，与“记录损坏时拒绝”同一口径）；(b) 对不合格条目做保守提取：在原始 JSON 里递归找所有匹配 `^[0-9a-f]{64}\.(png|jpg|webp|svg)$` 的字符串一并放进 `keep`（不依赖 schema，只会多留不会多删）。验收加“记录含一条不合格条目时，它引用的素材不被清理”。
+
+> 第 8 条补证据：`/tmp/review-w00041-t13-16-design/lab-opus/bad-entry.ts`（`bun --tsconfig-override ./tsconfig.json` 在 `packages/neuro-book` 下运行）：声明多一个 `futureField` 的条目 `userThemeProblem` 返回“不是合法的‘我的主题’条目”，`validUserThemes([good, future]).length === 1`，它的 `light.scene` 不会进 `keep`。
+
+### 9. t16 的真删与用户看到的统计没有绑定：确认后服务端重新判定，可能删掉用户没被告知的文件
+
+- **严重程度**：重要；**类别**：正确性 / 交互合同；**计划**：t16
+- **位置**：`t16-asset-cleanup/plan.md:13,17-18,29,33-34`
+- **现象**：请求只有 `{keep, dryRun}`。`dryRun` 返回 `removable` 给用户看“有 N 个、共 X KB，清理吗”；确认后再发一次 `dryRun: false`，服务端按当时的 `keep` 与当时的 10 分钟线重新挑候选。计划没说 `sweepUnused()` 是否重新读记录、重算 `keep`，也没说真删的范围受限于用户看到的那份清单。
+- **为什么是问题**：确认框可以开着很久。期间（1）原本在保护期内的文件过了 10 分钟线，（2）另一个窗口移除了某张图，都会让真删的集合比用户确认的那份大；用户点的是“删这 N 个”，实际删了 N+M 个，而且不可恢复。反过来如果真删沿用确认前的 `keep`（不重读），期间另一个窗口新引用、且上传已超过 10 分钟的素材（例如导入长时间运行，见第 11 条）就不在 `keep` 里。两种写法都不满足“先统计再确认”所承诺的“用户确认的就是要删的”。
+- **如何核实**：计划第 17-18 行的请求形状与第 33 行的两个方法；没有 `only`/`names` 之类的参数。
+- **建议改法**：真删请求带 `{keep, names}`：`names` 是用户确认的那份 `removable` 的名字，服务端只在 `names` 里删、且每个仍满足全部条件（不在 `keep`、过保护线、仍是普通文件）；客户端真删前重新读记录、重算 `keep`。结果里报出被跳过的个数。验收加“统计后、确认前另一处移除一张图，确认后只删统计里的那些”。
+
+### 10. t16 的 `utimes` 改了两条上传路由的既有合同（“不发变更”），绕开 Files 的提交链，失败时怎么办也没写；Spec 改动清单漏了这两节
+
+- **严重程度**：重要；**类别**：接口合同 / 文档；**计划**：t16
+- **位置**：`t16-asset-cleanup/plan.md:20,39-41`；`docs/specs/theme/editor.md:78`（写场景素材：“已存在且字节相同：返回同一地址，不发变更、不记账”）、`:87`（写图标素材沿用）；`packages/neuro-book/src/plugins/files/backend/theme-asset-route.ts:5,50-55`（模块注释：写入经 Files 自己的提交链，这里只做传输、校验与定址）；`packages/neuro-book/src/plugins/files/backend/changes.ts:5-12,142-153`（监视对任何事件都收路径，事后 `lstat` 存在即发 `changed`，来源为外部）
+- **现象**：计划让“同名同字节”分支直接对文件 `utimes`。实测 Bun 的递归 `fs.watch` 对 `utimes` 报 `change:a.webp`（`lab-opus/watch-utimes.ts`）；`changes.ts` 不区分事件类型，路径仍存在就作为外部 `changed` 发给 `user://` 的订阅方，且这次修改没有登记回声（不经 Files 写入）。
+- **为什么是问题**：（1）路由合同从“不发变更”变成“发一条外部来源的变更”，Spec 两节没改，路由合同测试若有“同字节不发变更”的断言会失败，或者更糟，被改松。（2）路由第一次自己动磁盘，不经提交链，偏离模块注释写明的分工；以后再有人在这里加写入会以它为先例。（3）`utimes` 会失败（文件属主不是服务进程、只读挂载、`EPERM`）：计划没定是让上传失败（回归：以前能“已有就返回”的上传现在报错），还是忽略（那么保护期失效，第 20 行描述的竞态照样发生），两者都要写明并测试。
+- **如何核实**：`bun /tmp/review-w00041-t13-16-design/lab-opus/watch-utimes.ts` 输出 `["change:a.webp"]`；对照 `changes.ts:142-153` 与 editor.md 第 78 行。
+- **建议改法**：可以不碰 mtime：保护期改成服务端内存里的“最近一次被上传路由返回过的名字 → 时间”表（同一进程、单实例已由 `server.claim.lock` 保证），清理时与 mtime 取较晚者；这样上传路由的磁盘行为与合同都不变，进程重启后丢表只会让保护退回 mtime（重启前已返回的同字节命中在重启后才可能被清，窗口是一次重启加 10 分钟，可以写进 Spec 的取舍）。如果坚持 `utimes`：Spec 的两节改成“更新修改时间，可能产生一条外部来源的变更”，或在 `utimes` 前向 `changes.expect` 登记回声（要从 Files 内部暴露一个入口）；写明 `utimes` 失败时的处理（建议：上传照常成功、记一条诊断，清理对这个名字按“刚被引用”处理，即同样落进内存表）。Spec 改动清单补 editor.md 的“写场景素材”“写图标素材”两节。
+
+### 11. t16 的“上传进行时（`status.busy`）停用”在主题库区拿不到；导入、从插件复制不在其中；长导入可以跨过 10 分钟保护期
+
+- **严重程度**：建议；**类别**：正确性 / 代码质量；**计划**：t16
+- **位置**：`t16-asset-cleanup/plan.md:35,62`；`use-upload-status.ts:17-31`（每次调用建一份独立的 `running`）；只在 `SceneImageSlot.vue:21` 与 `ThemeEditorIcons.vue:23` 里调用；`ThemeEditor.vue:111-123,186`（导入与导出用另一个 `transferring`）；`docs/specs/theme/editor.md` 输出 2、16（复制插件主题、导入先传完全部素材再写记录；zip 至多 300 个文件、解压后 48 MiB）
+- **现象**：`status.busy` 是各上传组件自己的状态，`ThemeEditor.vue` 的主题库区没有它，也看不到别的组件的；导入、“复制自…”插件主题走 `transferring` 或 `createFrom`，不经 `useUploadStatus`。计划把这条当成同窗口的防线写，实际实现时要么新造一个模型级的忙状态，要么只能挂 `transferring`。另外“上传与写记录之间只隔几秒”只对单张图成立：导入一个 300 个文件的包时，浏览器逐个转 WebP、逐个上传，最早传完的素材到写记录时可能已超过 10 分钟，另一个窗口此刻点清理就会删掉它们，导入随后写进记录的主题引用的是不存在的文件。
+- **为什么是问题**：同窗口的停用规则照字面写不出来；跨窗口的长事务没有被保护期覆盖，而计划的风险一节把它排除了。后果是导入成功但图丢失，和第 20 行要防的竞态是同一类。
+- **如何核实**：`grep -rn 'useUploadStatus(' packages/neuro-book/src`；导入流程见 `package-io.ts` 与 editor.md 输出 16。
+- **建议改法**：模型上加一个“素材事务进行中”的计数（上传、导入、复制都进出它），清理按钮据此停用；跨窗口部分若采用第 10 条的内存表方案，可在导入开始时由客户端声明“即将引用这些名字”——或更简单，把保护期的说明改成“单次上传到写记录之间”，并在 Spec 风险里如实写“同时在另一个窗口导入大包时可能丢图”，交开发者取舍。
+
+### 12. t16 对 `ownFiles.delete` 的返回与目录缺失的处理没写清；`wire()` 沿用不了
+
+- **严重程度**：建议；**类别**：接口 / 测试；**计划**：t16
+- **位置**：`t16-asset-cleanup/plan.md:18,21,46`；`packages/neuro-book/src/plugins/files/shared/workspace-files.ts:70`（`delete` 返回 `ServerFilesResult<BatchResult>`）；`shared/contracts.ts:164-185`（逐项 `done`/`failed{code}`/`skipped{reason: duplicate|covered}`/`not-run{root-gone|stopped}`/`cancelled`）；`backend/theme-asset-route.ts:28-32,42-43`；`src/plugins/workbench/theme-editor.test.ts:446-459`（`wire()` 只给 `write`，而且是直接 `writeFile` 的替身）
+- **现象**：（1）`delete` 有两层失败：整次调用 `ok: false`（例如根不在了）与逐项 `failed`、`not-run`。计划只说“单个文件删除失败记进 `skipped`，不中断”，没说整次失败与 `not-run: root-gone` 时是否继续删后面的；返回里的 `skipped` 与 Files 自己的 `skipped`（`duplicate`、`covered`）同名不同义，客户端只拿到数量，用户不知道是“刚被改过”还是“权限不足”。（2）上传路由在 `theme-assets` 不存在时继续（`lstat` 为 null 不报错），清理在目录不存在时应返回空而不是 409，计划没写。（3）`wire()` 的路由源只有 `write`，加 `delete` 后签名变了；它的 `write` 是直接 `writeFile` 的替身，所以“fetch 接真实路由”的全程测试不会经过真的 `ownFiles.delete`、`expected` 令牌与逐项结果，删除语义只在 `theme-asset-route.test.ts` 里有真证据。
+- **建议改法**：返回形状定为 `{removed: string[], skipped: Array<{name, reason: "recent" | "changed" | "not-file" | "failed", code?}>}`；整次失败或出现 `not-run` 时停止并按 409/500 返回已删部分；目录不存在返回空清单。`wire()` 在计划里写明要加 `delete` 源（替身或真 `ownWorkspaceFiles`），并说明删除语义的证据只认路由合同测试。
+
+### 13. t14 已实现合入（`7aa3c844c`、`54f4499c5`，README `status: done`），但计划里“工作态图的对比度再量一遍”和“暗色同理”没有做，风险一节“用例会报”不成立
+
+- **严重程度**：重要；**类别**：测试 / 验收映射；**计划**：t14
+- **位置**：`t14-study-working-scene/plan.md:36,46`；`t14-study-working-scene/README.md`“完成情况”；`packages/neuro-book/e2e/agent-conversation.e2e.ts`（新增的书房用例只断言亮色下场景变量在 `study-day` 与 `study-day-working` 之间切换）；`packages/neuro-book/e2e/themes.e2e.ts`（对比度用例都在空闲状态下量，文件里没有让 Agent 进入工作中的写法）；`packages/neuro-book/src/plugins/theme-study/plugin.ts:23-28`（`empty` 取景 `center 70%`、`marginRight` 取景 `100% 100%`）
+- **现象**：计划验收映射写“两张图在六个位置不超出可读性对比度（沿用书房的对比度用例对工作态再跑一遍）”，并写“暗色同理”；风险一节说“工作态图桌面更亮的纸可能影响右栏下角文字对比度，用例会报”。实际只加了亮色的场景切换断言；`themes.e2e` 的对比度用例从不进入工作态，所以它们不会“报”。README 的完成情况没有记下这两项没做。
+- **为什么是问题**：替换的桌面区域在原图右下（`x≥905, y≥585`，约右 41%、下 43%），正好落在欢迎页 `empty` 取景（`center 70%`，欢迎页文字压在图上，skins 验收 4 要求不低于 4.5）与右侧取景的范围里；更亮的稿纸、白色茶杯这类高亮块最可能拉低文字对比度。现在这条只有目检，没有量。（从代码推断；没有跑对比度实测。）
+- **如何核实**：`git show --stat 7aa3c844c`；`grep -n 'working\|agent/active' e2e/themes.e2e.ts` 无结果。
+- **建议改法**：在 `themes.e2e` 的书房对比度用例里加一遍“预览状态=工作中”（主题编辑器的预览状态不改真实状态，但普通页面没有编辑器；可复用 `agent-conversation.e2e` 的让会话进入运行的辅助，或给 e2e 外壳一个强制工作态的入口），亮暗各量欢迎页与右栏下角；量不到 4.5 就调图。README 补一句这两项的处理。t14 的计划文件已过时（它描述的是“只剩接入”，而接入已完成），不要再按它派实现。
+
+### 14. t15、t16 的 Spec 改动清单指错了位置或漏了句子
+
+- **严重程度**：建议；**类别**：文档；**计划**：t15、t16
+- **位置**：`t15-icon-catalog/plan.md:37`；`t16-asset-cleanup/plan.md:39-41`；`docs/specs/theme/editor.md:49`（输出 2）、`:58`（输出 11）、`:68`（输出 21）、`:98`（“副作用与数据”）、`:116`（“边界与兼容”的公开接口）
+- **现象**：
+  - t15 要“边界里去掉‘不做图标目录’”，editor.md 的边界与兼容一节没有这句话（全文 grep “图标目录”无结果）；真正要改的是输出 21 的“保存一个产品里没有用到的名字不报错，也看不到效果，说明里写明这一点”，计划没点到。
+  - t16 说“输出 11 与边界改为‘素材可手动清理’”。“素材不整理，也不回滚”在“副作用与数据”（第 98 行），不在边界；输出 2 还有一处“留在素材目录里，见‘素材不整理’”的引用，改名后会成死引用。边界的“公开接口”列表只列了 `PUT /theme-assets`（`theme-icons` 已经漏了），新路由要加进去。“写场景素材”“写图标素材”两节因 `utimes` 也要改（见第 10 条）。
+- **建议改法**：两份计划的“Spec 与文档改动”按上面的行逐条列出；t16 顺手把 `PUT /theme-icons` 补进公开接口列表。
+
+### 15. t15 “同名多条规则取最后一条”与层叠不符：插件样式表在 `@layer components` 里重复定义宿主已有的图标，排在后面却在层叠里输
+
+- **严重程度**：建议；**类别**：正确性；**计划**：t15
+- **位置**：`t15-icon-catalog/plan.md:24`；`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:24-25,556-579,700`（插件为自己源码里出现的**所有** lucide 名字生成 `--svg`，包括宿主也有的，`iconToSVG(data, {height: "1em"})`，用插件构建环境里的 `@iconify-json/lucide`，整体包进 `@layer components`）；`packages/nb-ui/src/tailwind.css:34`（层序 theme、base、components、utilities，宿主图标规则在 utilities）；`packages/neuro-book/src/plugin-platform/web/styles.ts:22-35`（插件 `<link>` 追加在 `head` 末尾）
+- **现象**：同一个名字（例如插件也用了 `folder`）会有两条规则：宿主的在 `@layer utilities`，插件的在 `@layer components`、样式表排在后面。层叠按层序决定，`utilities` 赢；“取最后一条”取到的是输掉的插件那条。两条的 SVG 文本不同（宽高写法不同），插件用较旧或较新的 lucide 构建时形状也可能不同。
+- **为什么是问题**：“原图标”预览显示的不一定是产品实际画出来的那个，作者比对时会被误导；第三方插件越多越常见。另外计划没写“取最后一条**带 `--svg` 的**”：以后若有组件样式写 `.x .i-lucide-foo{transform:...}` 这类选择器，名字会被收进目录而默认值是空串（现在的产物里只有 `.i-lucide-loader-2,.i-lucide-loader-circle{...}` 这一种分组写法，没有后代选择器）。
+- **如何核实**：读上述代码；现有产物 `dist/web/assets/index-*.css` 里图标规则全在 `@layer utilities`。
+- **建议改法**：取值按层叠：层外 > 后声明的层 > 先声明的层，同层再按样式表顺序取最后；或者更省事，按“宿主样式表优先、插件样式表只补宿主没有的名字”取。只认带 `--svg` 声明的规则；选择器按逗号拆开，只收整段就是 `.i-lucide-<名>` 的那几段。另：现有产品产物只有一张 132 KB、约 1069 条规则的图标所在样式表（共 129 个图标名），“量级万条”与风险一节的退路（只在首次输入时扫）都不必要，按实测写。
+
+## 未发现问题的方面
+
+- **t15 数据源本身成立**：现有生产产物里图标规则确以 `.i-lucide-<名>{--svg:...}` 出现（129 个名字，别名写成 `.i-lucide-loader-2,.i-lucide-loader-circle{...}` 分组），全部在入口那一张样式表（`index-*.css`，132 KB，约 1069 条规则）的 `@layer utilities` 里；29 张按路由懒加载的 CSS 块里一条图标规则都没有。入口样式表经同源 `<link crossorigin>` 加载，读 `cssRules` 不会抛 `SecurityError`；插件样式表在窗口登记插件时就挂上（`plugin-platform/web/styles.ts`），不是懒加载，所以计划里“懒加载的插件样式没加载时不在内”实际不会发生。垫片是 `[class*=i-lucide-]`（不带点），不会被正则误收。（产物是 10-29 构建的，未重建核对。）
+- **t16 的单进程假设**：`server/instance.ts` 用 `server.claim.lock` 加 hello 探测保证一个状态根只有一个服务，`user://` 根由状态根派生，进程内互斥对这两条路由足够；`src/` 里写 `theme-assets` 的只有上传路由。
+- **t16 的准入**：新路由挂在 `nbook.files` 的路由表上，经同一个 `createDispatcher`，与两条上传路由同一份 Host（回环名）、Origin、准入检查。不带 `Origin` 的本机进程可以调，与经 RPC 调 `delete` 同级（从代码推断）。
+- **t16 对 `ownFiles.delete` 的使用**：主题素材不在内容树，`commit.remove` 不取操作锁、不写账本，只发 `deleted` 变更（来源 `system/nbook.files`）；`expected` 只是身份令牌，上一段第 3 条已核。
+- **t13 的类型复用**：`Text` 已由 SDK 的 `/text` 子路径导出，`TextSchema` 与 nb-ui `Text` 有编译期一致性检查（`shared/text.ts:28-29`）；`ContributionHandle.declaration` 存在（`nb-runtime/src/plugins/contracts.ts:237`）；`sceneProvider` 助手只需在 `declaration: {}` 里加字段。
+- **t13 的调用方是否列全**：`SceneProviders.published` 的读者只有 `web/themes.ts:177`、`theme-editor-model.ts:81`、`ThemeEditorScene.vue:43,45`、`provider-options.ts:17` 与 `scene-providers.test.ts:107-118`；Lab 夹具 `ThemeEditorFixture.vue`、SDK 测试替身与 e2e 都不读这个 getter（`user-themes.test.ts:162` 用的是 receiver）。计划列全了。
+
+## 各计划“不做与风险”逐项判断
+
+**t13**
+- 只加 `title`：合理。
+- 标题不做单独的响应式刷新：成立，`receiver().published` 每次换一个新 `Map` 写进 `shallowRef`，重新发布即刷新。
+- `published` 返回类型变化的风险：已全仓核对，见上，列全了；但见第 4 条（文本引用补命名空间）、第 5 条（不是“第二行”）。
+
+**t14**（已实现合入）
+- 不重画空闲图、不改 `crop`：合理，已照做。
+- 接缝风险：README 记有目检，可以接受。
+- 对比度风险“用例会报”：不成立，见第 13 条。
+
+**t15**
+- 不做构建期目录、不做全量图标浏览器：方向合理；但“开发服务与产物一致”的理由不成立，见第 2 条。
+- 不阻止保存未知名字：合理。
+- 遍历耗时风险：实际约 1k 条规则，不构成风险，退路不必要；“可能带伪类或嵌套 `&`”：产物里的 CSS 嵌套已被 Tailwind 展开，`selectorText` 里不会有 `&`，要处理的是逗号分组，见第 15 条。
+
+**t16**
+- 不自动清理、不做回收站：合理；但“先统计再确认”要把真删绑定到确认的那份清单，见第 9 条。
+- 不在服务端读 `user-themes`：取舍可以接受，前提是坏条目处理好，见第 8 条。
+- 10 分钟经验值：对单张上传成立，对大包导入不成立，见第 11 条；网络盘 mtime 精度退化写进 Spec 可以接受；互斥内 `lstat` 与 `delete` 之间没有原子性：可以接受（只有通用入口的写入能插进来，且那是用户的明确操作）。
+
+## 数量
+
+共 15 条：阻断 2（第 3、8 条），重要 8（第 1、2、4、5、6、9、10、13 条），建议 5（第 7、11、12、14、15 条）。

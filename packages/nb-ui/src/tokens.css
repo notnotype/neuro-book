@@ -227,6 +227,13 @@
     --sash-line-glow: none;
     --drop-area-fill: color-mix(in srgb, var(--accent-main) 12%, transparent);
     --drop-area-border: color-mix(in srgb, var(--accent-main) 70%, transparent);
+    /* 落点分区：压暗是调暗后的底色盖在内容上，不用模糊。当前块的线跟着落点高亮的框，主题改过落点高亮时一起变；底色不取
+       --drop-area-fill，区域高亮还要叠在上面。 */
+    --layout-scrim: color-mix(in srgb, color-mix(in srgb, #000 30%, var(--bg-main)) 60%, transparent);
+    --layout-sector-fill: color-mix(in srgb, var(--accent-main) 5%, transparent);
+    --layout-sector-line: color-mix(in srgb, var(--accent-main) 65%, transparent);
+    --layout-sector-active-fill: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    --layout-sector-active-line: var(--drop-area-border);
 }
 
 /*

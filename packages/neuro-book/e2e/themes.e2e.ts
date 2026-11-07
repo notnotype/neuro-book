@@ -5,7 +5,7 @@
 import {randomUUID} from "node:crypto";
 import {createServer} from "node:http";
 import type {AddressInfo} from "node:net";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -57,6 +57,8 @@ const settingsFile = (): string => join(stateRoot, "settings.json");
 const writeSettings = (values: Readonly<Record<string, unknown>>): Promise<void> => writeFile(settingsFile(), JSON.stringify(values));
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
 const activeGroup = (page: Page) => page.locator("[data-editor-group-active]");
+/** 活动组的头（标签条与标题动作）：在工作台的外框里，不在 `[data-editor-group]` 里面。 */
+const activeHead = (page: Page) => page.locator("[data-editor-group-head-active]");
 const prose = (page: Page) => activeGroup(page).locator("[data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
 const scene = (page: Page) => activeGroup(page).locator("[data-editor-scene]");
 const margin = (page: Page, side: "left" | "right") => activeGroup(page).locator(`[data-markdown-margin="${side}"]`);
@@ -76,7 +78,7 @@ async function openFile(page: Page, name: string): Promise<void> {
             await page.mouse.wheel(0, 3000);
         }
         await item(page, `project://notes/${name}`).dblclick({timeout: 3000});
-        await expect(activeGroup(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
+        await expect(activeHead(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
     }).toPass();
 }
 
@@ -176,7 +178,7 @@ test("欢迎页与没开文件有场景；关闭后的空状态也有；切回 N
     await writeSettings({[THEME]: STUDY, [APPEARANCE]: "dark"});
     await expect(scene(page)).toHaveCSS("background-image", /study-night/u);
 
-    await activeGroup(page).locator("[data-editor-tab-close]").first().click({force: true});
+    await activeHead(page).locator("[data-editor-tab-close]").first().click({force: true});
     await expect(activeGroup(page).locator("[data-editor-empty]")).toBeVisible();
     await expect(scene(page)).toHaveCSS("background-image", /study-night/u);
     // 内容偏到留白上：书房的 contentX 是 0.47，标志的中心在内容区 47% 处。
@@ -246,9 +248,9 @@ test("高对比度、强制颜色下不画场景，配色照旧", async ({page})
         const [welcome, left, right] = [scene(page), margin(page, "left"), margin(page, "right")];
         await expect.poll(corner("sidebar")).toBe(shown ? "block" : "none");
         await expect.poll(corner("auxiliarybar")).toBe(shown ? "block" : "none");
-        await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "欢迎"}).click();
+        await activeHead(page).locator("[data-editor-tab]").filter({hasText: "欢迎"}).click();
         await (shown ? expect(welcome).toBeVisible() : expect(welcome).toBeHidden());
-        await activeGroup(page).locator("[data-editor-tab]").filter({hasText: "a11y.md"}).click();
+        await activeHead(page).locator("[data-editor-tab]").filter({hasText: "a11y.md"}).click();
         await (shown ? expect(left).toBeVisible() : expect(left).toBeHidden());
         await (shown ? expect(right).toBeVisible() : expect(right).toBeHidden());
     };
@@ -579,13 +581,24 @@ test.describe("可读性", () => {
                 for (const selector of ["[data-welcome-title]", "[data-welcome-stats]", ".welcome-page__description", "[data-welcome-shelf]", "[data-activity-item=\"nbook.settings\"]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]", "[data-status-project]", "[data-titlebar-menu-entry]"]) await check(selector);
                 await openFile(page, "contrast.md");
                 await expect(prose(page)).toBeVisible();
-                for (const selector of ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
+                for (const selector of ["[data-editor-group-active] [data-editor-prose] p", "[data-editor-group-active] [data-editor-prose] blockquote p", "[data-editor-group-active] [data-editor-prose] a", "[data-editor-group-active] [data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
                 console.log(report.join("\n"));
             });
         }
     }
-    for (const appearance of ["light", "dark"] as const) {
-        test(`书房 ${appearance}：欢迎页、活动栏、侧栏、正文的文字不低于 4.5`, async ({page}) => {
+    /**
+     * 工作中：真实的状态要有 Agent 会话在运行（`agent-conversation.e2e` 里有那条路径），这里只量图：把场景变量换成构建产物里的
+     * 工作态图，其余全是真实的页面。工作态图的桌面更忙（稿纸、茶杯），压在欢迎页与右栏下角的文字最可能被它拉低对比度。
+     */
+    const useWorkingScene = async (page: Page, appearance: "light" | "dark"): Promise<void> => {
+        const files = await readdir(join(PACKAGE_ROOT, "dist/web/assets"));
+        const file = files.find((name) => name.startsWith(`study-${appearance === "light" ? "day" : "night"}-working-`));
+        if (file === undefined) throw new Error("构建产物里没有书房的工作态图，先跑 bun run build");
+        await page.evaluate((url) => document.documentElement.style.setProperty("--skin-scene", `url("${url}")`), new URL(`/assets/${file}`, server.url).href);
+        await sceneReady(page);
+    };
+    for (const appearance of ["light", "dark"] as const) for (const state of ["空闲", "工作中"] as const) {
+        test(`书房 ${appearance} ${state}：欢迎页、活动栏、侧栏、正文的文字不低于 4.5`, async ({page}) => {
             await writeFile(join(projectDir, "notes/contrast.md"), DOCUMENT);
             for (const index of Array.from({length: 40}, (_, i) => i)) await writeFile(join(projectDir, `notes/章节 ${String(index).padStart(2, "0")}.md`), "x\n");
             await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
@@ -594,10 +607,17 @@ test.describe("可读性", () => {
             await page.mouse.move(1100, 900);
             await expect(scene(page)).toBeVisible();
             await sceneReady(page);
+            if (state === "工作中") await useWorkingScene(page, appearance);
+            // 换图可能被工作台随后重写回来，那样量到的是空闲图而测试照样通过；每次测量前都核对场景变量。
+            const sceneIs = async (): Promise<void> => {
+                const value = await page.evaluate(() => document.documentElement.style.getPropertyValue("--skin-scene"));
+                expect(/working/u.test(value), `场景变量 ${value}`).toBe(state === "工作中");
+            };
             const report: string[] = [];
             const check = async (selector: string): Promise<Measured> => {
+                await sceneIs();
                 const result = await measure(page, selector);
-                report.push(`${appearance} ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+                report.push(`${appearance} ${state} ${selector}: ${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
                 expect(result.worst, selector).toBeGreaterThanOrEqual(4.5);
                 return result;
             };
@@ -606,19 +626,21 @@ test.describe("可读性", () => {
             for (const selector of ["[data-welcome-stats]", ".welcome-page__description", "[data-welcome-shelf]", "[data-activity-item=\"nbook.settings\"]", "[data-explorer-row=\"project://notes\"] [data-explorer-label]", "[data-status-project]", "[data-titlebar-menu-entry]"]) await check(selector);
             await openFile(page, "contrast.md");
             await expect(prose(page)).toBeVisible();
-            for (const selector of ["[data-editor-prose] p", "[data-editor-prose] blockquote p", "[data-editor-prose] a", "[data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
+            for (const selector of ["[data-editor-group-active] [data-editor-prose] p", "[data-editor-group-active] [data-editor-prose] blockquote p", "[data-editor-group-active] [data-editor-prose] a", "[data-editor-group-active] [data-editor-prose] mark", "[data-editor-breadcrumbs] .editor-crumbs__label"]) await check(selector);
             // 侧栏下角：文件多到列表压在图上时，压在图上的那几行也读得动。
             const rows = await page.locator("[data-content-leaf=\"sidebar\"] [data-explorer-label]").evaluateAll((labels, height) => labels.flatMap((label, index) => (label.getBoundingClientRect().bottom > height - 230 && label.getBoundingClientRect().bottom < height - 30 ? [index] : [])), page.viewportSize()?.height ?? 0);
             expect(rows.length, "要有压在下角图上的行").toBeGreaterThan(0);
             for (const index of rows) {
+                await sceneIs();
                 const result = await measure(page, `[data-content-leaf="sidebar"] [data-explorer-row]:nth-child(n) [data-explorer-label] >> nth=${String(index)}`);
-                report.push(`${appearance} 侧栏第 ${String(index)} 行：${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
+                report.push(`${appearance} ${state} 侧栏第 ${String(index)} 行：${result.worst.toFixed(2)}（${String(result.distinct)} 种像素）`);
                 expect(result.worst, `侧栏第 ${String(index)} 行`).toBeGreaterThanOrEqual(4.5);
             }
             // 右栏下角：对话列表长了会压在图上，所以最下面 240px 里、输入框以上的部分，放正文与次要文字都读得动。
             const palette = await page.evaluate(() => ["--text-main", "--text-secondary"].map((name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()));
+            await sceneIs();
             const strip = await measure(page, "[data-shell-card=\"auxiliarybar\"]", {colors: palette, bottom: 240, above: "[data-agent-composer]"});
-            report.push(`${appearance} 右栏下角：${strip.worst.toFixed(2)}（${String(strip.distinct)} 种像素）`);
+            report.push(`${appearance} ${state} 右栏下角：${strip.worst.toFixed(2)}（${String(strip.distinct)} 种像素）`);
             expect(strip.distinct, "右栏下角要有图").toBeGreaterThan(20);
             expect(strip.worst, "右栏下角").toBeGreaterThanOrEqual(4.5);
             console.log(report.join("\n"));

@@ -8,7 +8,7 @@ import type {GridExtent, GridNodeInput, LayoutDoc} from "@notnotype/nb-layout";
 
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "../state/default-tree";
 import {createLayoutPolicy, layoutProjectionOptions} from "../state/layout-constraints";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {cardInset, layoutCardEdges, maximizedCardEdges, sashKindOf} from "./adjacency";
 import type {CardSide} from "./adjacency";
 

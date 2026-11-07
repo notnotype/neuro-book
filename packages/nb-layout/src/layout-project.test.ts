@@ -133,13 +133,13 @@ describe("意图只从呈现尺寸写回", () => {
     });
 
     it("呈现里塌陷掉的分支：尺寸取代表它的节点，之后放到它旁边按真实尺寸分", () => {
-        const doc = docOf(H(["sidebar", V(["ea", "panel"], "column"), "c"]), {panel: {hidden: true}});
+        const doc = docOf(H(["s", V(["ea", "panel"], "column"), "c"]), {panel: {hidden: true}});
         const {projection, layout} = solve(doc, {width: 1000, height: 600});
         const written = rebaseIntents(doc, layout.sizes, projection.collapsedTo);
         expect(sizeOf(written.tree.root, "column").width).toBeCloseTo(layout.sizes.ea?.width ?? 0);
-        const result = moveTabToEdge(written, {tab: "view:sidebar", target: {kind: "between", branch: "root", before: "column", after: "c"}}, testPolicy());
+        const result = moveTabToEdge(written, {tab: "view:s", target: {kind: "between", branch: "root", before: "column", after: "c"}}, testPolicy());
         if (!result.ok) throw new Error(result.detail);
-        expect(sizeOf(result.doc.tree.root, "sidebar").width).toBeCloseTo(((layout.sizes.ea?.width ?? 0) + (layout.sizes.c?.width ?? 0)) / 3);
+        expect(sizeOf(result.doc.tree.root, "s").width).toBeCloseTo(((layout.sizes.ea?.width ?? 0) + (layout.sizes.c?.width ?? 0)) / 3);
     });
 
     it("条的厚度不写回", () => {

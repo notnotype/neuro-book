@@ -5,12 +5,12 @@
 import type {Component} from "vue";
 import {h} from "vue";
 
-import type {DropFeedbackOverlay, DropIndicatorLabel, NestedGrid, Splitter} from "@notnotype/nb-layout/vue";
+import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, NestedGrid, Splitter, TabStrip} from "@notnotype/nb-layout/vue";
 
 import {defineLabFixture, type LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 
-function nbLayoutSubject(name: "DropIndicatorLabel" | "Splitter"): () => Promise<{default: Component}> {
+function nbLayoutSubject(name: "DropIndicatorLabel" | "DropSectorsOverlay" | "Splitter"): () => Promise<{default: Component}> {
     return async () => ({default: (await import("@notnotype/nb-layout/vue"))[name] as Component});
 }
 
@@ -46,6 +46,47 @@ export const nbLayoutFixtures: LabFixture[] = [
             {id: "session", label: "拖动会话", input: {props: {preview: null, label: ""}}},
         ],
         load: async () => (await import("./DropFeedbackOverlayFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof DropSectorsOverlay>({
+        component: "DropSectorsOverlay",
+        subject: nbLayoutSubject("DropSectorsOverlay"),
+        rootless: true,
+        // 形状照 `layoutDropSectors` 的结果写死：这里看外观，形状与判定一致由 layout-drop.test.ts 守住。
+        scenes: (() => {
+            const near = 0.28;
+            const far = 0.72;
+            const edge = (panel: string, side: "left" | "right" | "top" | "bottom") => ({kind: "edge" as const, target: {kind: "split" as const, panel, edge: side}});
+            const center = {kind: "center" as const, panel: "p"};
+            const five = [
+                {id: "left" as const, points: [[0, 0], [near, near], [near, far], [0, 1]] as const, action: edge("p", "left")},
+                {id: "right" as const, points: [[1, 0], [far, near], [far, far], [1, 1]] as const, action: edge("p", "right")},
+                {id: "top" as const, points: [[0, 0], [1, 0], [far, near], [near, near]] as const, action: edge("p", "top")},
+                {id: "bottom" as const, points: [[0, 1], [1, 1], [far, far], [near, far]] as const, action: edge("p", "bottom")},
+                {id: "center" as const, points: [[near, near], [far, near], [far, far], [near, far]] as const, action: center},
+            ];
+            const column = [
+                {id: "top" as const, points: [[0, 0], [1, 0], [1, near], [0, near]] as const, action: edge("p", "top")},
+                {id: "bottom" as const, points: [[0, 1], [1, 1], [1, far], [0, far]] as const, action: edge("p", "bottom")},
+                {id: "center" as const, points: [[0, near], [1, near], [1, far], [0, far]] as const, action: center},
+            ];
+            const labels = {left: "左侧", right: "右侧", top: "上方", bottom: "下方", center: "添加为标签"};
+            return [
+                {id: "five", label: "编辑组：五块，右块是当前块", input: {props: {rect: {left: 80, top: 80, right: 680, bottom: 480}, sectors: five, active: "right" as const, labels}}},
+                {id: "column", label: "侧栏这一列：上下中", input: {props: {rect: {left: 80, top: 80, right: 360, bottom: 480}, sectors: column, active: "center" as const, labels}}},
+                {id: "narrow", label: "窄面板：放不下的块不写字", input: {props: {rect: {left: 80, top: 80, right: 300, bottom: 200}, sectors: five, active: null, labels}}},
+                {id: "none", label: "没有落点", input: {props: {rect: null, sectors: [], active: null}}},
+            ];
+        })(),
+    }),
+    defineLabFixture<typeof TabStrip>({
+        component: "TabStrip",
+        // 输入只是占位（类型要求登记必填的项），夹具自己持有标签与选中项：键盘换序要真的改得动。断言在 e2e/lab-tab-strip.e2e.ts。
+        scenes: [
+            {id: "scroll", label: "一行，放不下时滚动", input: {props: {items: [], active: null, label: "标签"}}},
+            {id: "wrap", label: "固定一行、普通折行", input: {props: {items: [], active: null, label: "标签"}}},
+            {id: "adapt", label: "放不下时逐级让位", input: {props: {items: [], active: null, label: "标签"}}},
+        ],
+        load: async () => (await import("./TabStripFixture.vue")).default,
     }),
     defineSubjectFixture<typeof DropIndicatorLabel>({
         component: "DropIndicatorLabel",

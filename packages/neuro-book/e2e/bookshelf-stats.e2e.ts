@@ -60,14 +60,14 @@ async function openBook(page: Page): Promise<void> {
     await expect(page.locator("[data-workbench-project]")).toHaveAttribute("data-workbench-project", "book");
 }
 
-/** 本页客户端的编辑器会话里 a.md 的标签记下的光标（项目分区的 `editor.session`，按客户端分行）。 */
+/** 本页客户端的标签记录里 a.md 的标签记下的光标（项目分区的 `editor.tabs`，按客户端分行）。 */
 async function savedCursor(page: Page): Promise<unknown> {
     const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
     const db = new DatabaseSync(join(bookDir, ".nbook", "storage.sqlite"));
     try {
-        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = 'editor.session' AND client = ?1").get(client) as {value: string} | undefined;
-        const session = row === undefined ? null : JSON.parse(row.value) as {groups: Array<{tabs: Array<{address: string; cursor?: unknown}>}>};
-        return session?.groups.flatMap((group) => group.tabs).find((tab) => tab.address === "project://notes/a.md")?.cursor ?? null;
+        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = 'editor.tabs' AND client = ?1").get(client) as {value: string} | undefined;
+        const record = row === undefined ? null : JSON.parse(row.value) as {tabs: Record<string, {address?: string; cursor?: unknown}>};
+        return Object.values(record?.tabs ?? {}).find((tab) => tab.address === "project://notes/a.md")?.cursor ?? null;
     } finally {
         db.close();
     }

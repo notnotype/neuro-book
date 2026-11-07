@@ -3,7 +3,7 @@
  * 主题编辑器（同名 .md，docs/specs/theme/editor.md）：我的主题库的选择与增删，左边分区导航，右边一次一个分区。页签与浮动窗口放的
  * 是同一个主体；所有修改交给模型，这里只呈现与转发。
  */
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
 
 import {Button, EmptyState, ScrollArea, SegmentedControl, Select} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
@@ -19,6 +19,7 @@ import ThemeEditorColors from "./ThemeEditorColors.vue";
 import ThemeEditorContrast from "./ThemeEditorContrast.vue";
 import ThemeEditorTypography from "./ThemeEditorTypography.vue";
 import {SAVE_FAILED, ThemeEditorModel, TITLE_EMPTY} from "./theme-editor-model";
+import type {SweepFailure} from "./theme-editor-model";
 import type {EditorSection} from "./theme-editor-model";
 
 defineOptions({name: "ThemeEditor"});
@@ -41,6 +42,34 @@ const resolver = useText();
 const model = props.model;
 
 const SECTIONS: ReadonlyArray<EditorSection> = ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"];
+
+const nav = ref<HTMLElement | null>(null);
+/**
+ * 窄屏时导航是横向可滚的一条：把当前项带进可视范围。只改导航条自己的 `scrollLeft`，不用 `scrollIntoView`（它会连带滚动所有可滚动的
+ * 祖先，在浮动窗口或编辑区里会把外层也推走）。桌面竖排时导航不能横向滚，什么也不发生。
+ * 三个入口：分区变了；导航条出现（分区存在组件外的编辑状态里，组件重新挂载时 `section` 没变，监听不触发）；导航条宽度变了
+ * （窗口由宽变窄，竖排换成横排，分区没变）。
+ */
+const revealCurrentSection = (): void => {
+    const bar = nav.value;
+    const current = bar?.querySelector<HTMLElement>("[aria-current=\"page\"]");
+    if (bar === null || bar === undefined || current === null || current === undefined || bar.scrollWidth <= bar.clientWidth) return;
+    const barBox = bar.getBoundingClientRect();
+    const box = current.getBoundingClientRect();
+    if (box.left < barBox.left) bar.scrollLeft -= barBox.left - box.left;
+    else if (box.right > barBox.right) bar.scrollLeft += box.right - barBox.right;
+};
+watch(() => model.section.value, () => void nextTick(revealCurrentSection));
+// 导航条在“库读完且有当前主题”时才存在（读取中、空状态下是别的节点，新建后才出现，删光再建会换节点），所以不在 `onMounted` 里
+// 一次性取它：跟着元素的出现与更换走，出现时立即对一次，换掉或消失时释放观察者。
+watch(nav, (element, _previous, onCleanup) => {
+    if (element === null) return;
+    revealCurrentSection();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(revealCurrentSection);
+    observer.observe(element);
+    onCleanup(() => observer.disconnect());
+}, {flush: "post"});
 
 const titleOf = (title: ThemeEntry["declaration"]["title"]): string => resolver.t(title);
 const options = computed(() => model.mine.value.map((theme) => ({label: titleOf(theme.declaration.title), value: theme.id})));
@@ -137,10 +166,75 @@ const transferText = computed(() => {
     if (result === null) return "";
     return text(`themeEditor.transfer.${result.message.key}` as "themeEditor.transfer.exported", result.message.params as never);
 });
+/**
+ * 清理未使用素材（docs/specs/theme/editor.md 输出 22）：先统计，用户确认后只删统计里的那些，删除没有回收站。统计、确认、结果在顶栏下的
+ * 一行里依次呈现；写素材的操作（上传、导入、复制）进行时不能开始，也不能确认。
+ */
+type Sweep =
+    | {readonly kind: "idle"}
+    | {readonly kind: "working"}
+    | {readonly kind: "none"}
+    | {readonly kind: "ask"; readonly names: ReadonlyArray<string>; readonly bytes: number; readonly more: boolean}
+    | {readonly kind: "done"; readonly removed: number; readonly skipped: number; readonly failed: number; readonly code?: string}
+    | {readonly kind: "failed"; readonly failure: SweepFailure};
+const sweep = ref<Sweep>({kind: "idle"});
+const sweepCancel = ref<{readonly $el?: HTMLElement} | HTMLElement | null>(null);
+/** 请求抛出的意外（统计与真删都先把 working 设上，不能让它卡住）：当作路由失败交回，不留未处理的拒绝。 */
+const unexpectedFailure = (error: unknown): Sweep => ({kind: "failed", failure: {ok: false, kind: "route", reason: error instanceof Error ? error.message : String(error)}});
+const startSweep = async (): Promise<void> => {
+    if (sweep.value.kind === "working") return;
+    sweep.value = {kind: "working"};
+    try {
+        const plan = await model.unusedAssets(props.transfer);
+        sweep.value = !plan.ok ? {kind: "failed", failure: plan} : plan.names.length === 0 ? {kind: "none"} : {kind: "ask", names: plan.names, bytes: plan.bytes, more: plan.more};
+    } catch (error) {
+        sweep.value = unexpectedFailure(error);
+    }
+    // 统计出来后“清理素材”停用，焦点留在停用的按钮上就丢了：不可恢复的确认默认落在更安全的“取消”上。
+    if (sweep.value.kind === "ask") {
+        await nextTick();
+        const target = sweepCancel.value;
+        (target instanceof HTMLElement ? target : target?.$el)?.focus();
+    }
+};
+const confirmSweep = async (): Promise<void> => {
+    const asked = sweep.value;
+    if (asked.kind !== "ask") return;
+    sweep.value = {kind: "working"};
+    try {
+        const done = await model.removeUnused(props.transfer, asked.names);
+        sweep.value = done.ok ? {kind: "done", removed: done.removed, skipped: done.skipped, failed: done.failed, ...(done.code === undefined ? {} : {code: done.code})} : {kind: "failed", failure: done};
+    } catch (error) {
+        sweep.value = unexpectedFailure(error);
+    }
+};
+/** 失败的一行用 `alert`，其余是 `status`；删除失败的素材（权限、被占用）与路由失败一样要让人看见。 */
+const sweepBad = computed(() => sweep.value.kind === "failed" || (sweep.value.kind === "done" && sweep.value.failed > 0));
+const sweepText = computed(() => {
+    const state = sweep.value;
+    switch (state.kind) {
+        case "none": return text("themeEditor.library.sweepNone");
+        case "ask": return text(state.more ? "themeEditor.library.sweepAskMore" : "themeEditor.library.sweepAsk", {count: state.names.length, kb: Math.max(1, Math.round(state.bytes / 1024))});
+        case "done":
+            if (state.failed > 0) return text("themeEditor.library.sweepDoneFailed", {removed: state.removed, failed: state.failed, code: state.code ?? "?"});
+            return state.skipped === 0 ? text("themeEditor.library.sweepDone", {removed: state.removed}) : text("themeEditor.library.sweepDoneSkipped", {removed: state.removed, skipped: state.skipped});
+        case "failed":
+            switch (state.failure.kind) {
+                case "not-ready": return text("themeEditor.library.sweepNotReady");
+                case "unreadable": return text("themeEditor.library.sweepUnreadable");
+                case "too-many": return text("themeEditor.library.sweepTooMany");
+                default: return text("themeEditor.library.sweepFailed", {reason: state.failure.reason});
+            }
+        default: return "";
+    }
+});
+
 /** 提示只属于那一次操作：换了主题或分区就清掉。 */
 watch(() => [model.selectedId.value, model.section.value], () => {
     transferResult.value = null;
     unexpected.value = null;
+    // 清理的提示也只属于那一次操作；统计出来的名单会过时，要重新统计（正在进行的不打断）。
+    if (sweep.value.kind !== "working") sweep.value = {kind: "idle"};
 });
 
 /** 最近一次被拒绝的修改：标题空、取值引外部资源这类写不进去的，行内给原因，不静默。 */
@@ -185,6 +279,7 @@ const rejectedText = computed(() => {
                 <Button size="sm" variant="ghost" icon-class="i-lucide-download" :disabled="model.current.value === null || transferring" data-export @click="exportTheme">{{ text("themeEditor.library.export") }}</Button>
                 <Button size="sm" variant="ghost" icon-class="i-lucide-upload" :disabled="transferring" data-import @click="importInput?.click()">{{ text("themeEditor.library.import") }}</Button>
                 <input ref="importInput" type="file" accept=".zip,application/zip" class="theme-editor__file" data-import-file @change="onImportFile" />
+                <Button size="sm" variant="ghost" icon-class="i-lucide-eraser" :loading="sweep.kind === 'working'" :disabled="sweep.kind === 'working' || sweep.kind === 'ask' || model.assetWork.value > 0 || !model.canClean.value" data-sweep @click="startSweep">{{ text("themeEditor.library.sweep") }}</Button>
             </div>
             <div class="theme-editor__view">
                 <SegmentedControl
@@ -201,6 +296,14 @@ const rejectedText = computed(() => {
 
         <!-- 常驻的提示区：读屏对“刚插入”的提示区往往不播报，所以元素一直在，只换内容。 -->
         <p class="theme-editor__transfer" :data-tone="unexpected !== null || transferResult?.ok === false ? 'bad' : transferResult === null ? '' : 'ok'" role="status" data-transfer>{{ transferText }}</p>
+        <!-- 文字在常驻的提示区里（失败的一行是 alert），按钮在它旁边：礼貌型提示区里不放可点的控件。 -->
+        <div class="theme-editor__sweep" :data-tone="sweepBad ? 'bad' : ''" data-sweep-status>
+            <span v-if="sweepText !== ''" :role="sweepBad ? 'alert' : 'status'" data-sweep-text>{{ sweepText }}</span>
+            <template v-if="sweep.kind === 'ask'">
+                <Button size="sm" variant="danger" :disabled="model.assetWork.value > 0" data-sweep-confirm @click="confirmSweep">{{ text("themeEditor.library.sweepConfirm") }}</Button>
+                <Button ref="sweepCancel" size="sm" variant="ghost" data-sweep-cancel @click="sweep = {kind: 'idle'}">{{ text("themeEditor.library.sweepCancel") }}</Button>
+            </template>
+        </div>
         <p v-if="rejectedText !== null" class="theme-editor__error" role="alert" data-rejected>{{ rejectedText }}</p>
         <p v-if="model.failure.value !== null" class="theme-editor__error" role="alert" data-library-failed>{{ text("themeEditor.library.failed", {reason: model.failure.value}) }}</p>
 
@@ -221,7 +324,7 @@ const rejectedText = computed(() => {
         </EmptyState>
 
         <div v-else class="theme-editor__body">
-            <nav class="theme-editor__nav" :aria-label="text('themeEditor.sections.label')">
+            <nav ref="nav" class="theme-editor__nav" :aria-label="text('themeEditor.sections.label')">
                 <button
                     v-for="section in SECTIONS"
                     :key="section"
@@ -347,6 +450,24 @@ const rejectedText = computed(() => {
 }
 
 .theme-editor__transfer[data-tone="bad"] {
+    color: var(--status-danger);
+}
+
+.theme-editor__sweep {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-6);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+}
+
+.theme-editor__sweep:empty {
+    padding: 0;
+}
+
+.theme-editor__sweep[data-tone="bad"] {
     color: var(--status-danger);
 }
 

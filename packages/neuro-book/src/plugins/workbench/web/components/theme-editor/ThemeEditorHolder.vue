@@ -8,7 +8,7 @@ import {baseColors} from "nbook/ui/theme/product-themes";
 import type {ThemeEntry} from "../../themes";
 import ThemeEditor from "./ThemeEditor.vue";
 import {ThemeEditorModel} from "./theme-editor-model";
-import {uploadIcon, uploadScene} from "./asset-upload";
+import {sweepAssets, uploadIcon, uploadScene} from "./asset-upload";
 import {exportCurrent} from "./export-current";
 import {copyPluginAssets, importArchive} from "./transfer";
 import type {ThemeTransfer} from "./transfer";
@@ -28,7 +28,16 @@ defineEmits<{(event: "close"): void}>();
 props.session.provideBaseColors(baseColors);
 const model = props.session.acquire((env, state) => new ThemeEditorModel(env, state));
 /** 导出与导入的请求在这里发（见同名文档）；主体只触发与呈现。 */
-const transfer: ThemeTransfer = {exportTheme: () => exportCurrent(model), importArchive: (archive) => importArchive(model, archive), uploadScene, uploadIcon, copyAssets: (entry) => copyPluginAssets(entry, (path) => props.session.assetUrl(entry, path))};
+const transfer: ThemeTransfer = {
+    exportTheme: () => exportCurrent(model),
+    // 写素材的入口都包一次：清理在它们进行时停用（`ThemeEditorModel.trackAssetWork`）。
+    importArchive: (archive) => model.trackAssetWork(() => importArchive(model, archive)),
+    uploadScene: (blob) => model.trackAssetWork(() => uploadScene(blob)),
+    uploadIcon: (blob) => model.trackAssetWork(() => uploadIcon(blob)),
+    copyAssets: (entry) => model.trackAssetWork(() => copyPluginAssets(entry, (path) => props.session.assetUrl(entry, path))),
+    statUnusedAssets: (keep) => sweepAssets({keep}),
+    removeUnusedAssets: (keep, names) => sweepAssets({keep, names}),
+};
 // 用组件作用域的停止配对：setup 之后、挂载之前出错时 `onBeforeUnmount` 不会来，持有计数就永远不归零，预览不清。
 onScopeDispose(() => props.session.release());
 </script>

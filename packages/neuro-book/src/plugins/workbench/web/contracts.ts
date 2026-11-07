@@ -1,8 +1,11 @@
 import type {Component, Ref} from "vue";
 
+import type {LayoutDropAction} from "@notnotype/nb-layout";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import type {Text} from "@notnotype/nb-ui/text";
+
+import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
 
 import type {WorkbenchPageDeclaration} from "../shared/contracts";
 
@@ -59,9 +62,37 @@ export interface WorkbenchOverlayImplementation {
     load(): Promise<Component>;
 }
 
+/**
+ * 编辑器标签的拖动（docs/specs/ui/workbench-layout.md 输出 24 到 32）：手势和落点规则是工作台的，编辑器标签和工具视图一样靠 DOM 标记起拖（`data-panel-tab` 写标签键），插入位按 `TabStrip` 的标记量。
+ * 放下不直接改布局：要先结算视图的输入、合并同一标签，再经 `editorPanelsKey` 改结构。
+ */
+export interface EditorTabDrag {
+    /** 结构键里编辑器的部分（固定状态、多行设置）：起拖后它变了，整场取消。 */
+    structure(): string;
+    /** 拖影。 */
+    ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
+    /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。 */
+    drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
+}
+
+/** 编辑器槽的内容（docs/specs/ui/workbench-layout.md“边界与兼容”）。 */
+export interface EditorAreaParts {
+    /** 区级的东西（关闭询问、标签的拖动）：无布局，外壳挂一次，属性见 `EditorAreaHostProps`。 */
+    readonly host: Component;
+    /** 一个标签的内容：编辑组每个标签一个，空的编辑组一个，属性 `panelId`、`tabId`（空的编辑组是 null）与 `context`。标签移到别的组时不重建，`panelId` 跟着变。 */
+    readonly group: Component;
+    /** 一个编辑组的头（标签条、标题动作、提示条）：画在外框里，属性 `panelId`。不给时没有头，内容占满这块面板。 */
+    readonly head?: Component;
+}
+
+export interface EditorAreaHostProps {
+    /** 挂上时交出标签的拖动，卸载时交 null。不交的话编辑器标签不起拖。 */
+    readonly attachTabDrag: (drag: EditorTabDrag | null) => void;
+}
+
 /** 编辑器槽贡献的实现：外壳挂编辑器槽时才加载组件。 */
 export interface EditorAreaImplementation {
-    load(): Promise<Component>;
+    load(): Promise<EditorAreaParts>;
 }
 
 /** 无项目首页贡献的实现（`shared/home.ts`）：没有绑定项目的窗口渲染 `/` 时才加载组件；每次渲染经当前句柄取。 */
@@ -69,9 +100,9 @@ export interface WorkbenchHomeImplementation {
     load(): Promise<Component>;
 }
 
-/** 编辑器槽的组件经只读的 `context` 属性收到它。 */
+/** 编辑组的组件经只读的 `context` 属性收到它。 */
 export interface EditorAreaContext {
-    /** 编辑器槽有效可见；面板最大化时为假（内容停放、不卸载）。 */
+    /** 这个编辑组有效可见；别的面板最大化时为假（内容停放、不卸载）。 */
     readonly visible: Readonly<Ref<boolean>>;
 }
 

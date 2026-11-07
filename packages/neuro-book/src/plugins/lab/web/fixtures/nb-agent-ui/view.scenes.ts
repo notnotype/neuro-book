@@ -51,6 +51,15 @@ const APPROVAL_MODES = {
 };
 const USAGE = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 162_400, input: 101_200, output: 3_100, cacheRead: 58_100, cacheWrite: 0, cacheHitRate: 0.62, cost: 0.07, currency: "USD" as const};
 
+const MODES = [
+    {key: "normal", label: "普通", icon: "i-lucide-feather"},
+    {key: "discuss", label: "讨论", icon: "i-lucide-messages-square"},
+    {key: "plan", label: "计划", icon: "i-lucide-clipboard-list"},
+];
+const SHORT_PLAN = "## 第三章节奏调整\n\n1. 压缩中段的回忆，保留雨夜那段对话。\n2. 把钟声的伏笔提前到开头。\n3. 改完检查第五章有没有引用被删的段落。";
+const LONG_PLAN = `## 第三章到第六章的节奏调整\n\n${Array.from({length: 14}, (_, index) => `### 第 ${String(index + 1)} 步\n\n先读相关章节，列出要改的段落，再动手。改完对照人物卡检查一遍有没有前后矛盾。`).join("\n\n")}`;
+const modeSwitchPlan = (plan: string): PendingInputView => ({kind: "mode-switch", id: "ms", toolCallId: "call-ms", fromLabel: "计划", toLabel: "普通", plan, approval: {...APPROVAL_MODES, value: "allow-writes"}});
+
 /** 真实宿主那样的状态栏与审批模式，加上等用户的事项。 */
 function hostScene(id: string, label: string, patch: Omit<Partial<AgentConversationContext>, "composer"> & {composer?: Partial<AgentConversationContext["composer"]>}): Scene {
     const base = conversationContext();
@@ -86,7 +95,16 @@ export const agentConversationViewScenes: Scene[] = [
     hostScene("approval-edit", "审批：改一个文件，一句话的改动", {...WAITING, pendingInputs: [editApproval("one")]}),
     hostScene("approval-long", "审批：长 diff，向导内部滚动", {...WAITING, pendingInputs: [editApproval("long", CHAPTER, LONG_BEFORE, LONG_AFTER)]}),
     hostScene("approval-batch", "审批：一条回复三个调用，一步一个", {...WAITING, pendingInputs: [editApproval("a"), shellApproval, editApproval("c", "project://正文/第四章.md")]}),
+    hostScene("modes-normal", "两个控件并排：普通模式", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
+    hostScene("modes-plan-allow-writes", "两个控件并排：计划模式加放行写入，审批控件变淡，状态栏标出", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "allow-writes"}}}),
+    hostScene("modes-with-role", "选了模型角色：角色名、实际用的模型、思考档位", {composer: {modes: MODES, mode: "normal", approval: {...APPROVAL_MODES, value: "allow-writes"}, roles: [{key: "role:main", name: "主力", axis: "gradient", modelLabel: "Claude Sonnet"}], modelKey: "role:main", effectiveModel: "Claude Sonnet", thinkingLevels: ["low", "medium", "high"], thinking: "medium"}}),
+    hostScene("modes-plan-yolo", "计划模式加全部放行：红色警告保留", {composer: {modes: MODES, mode: "plan", approval: {...APPROVAL_MODES, value: "yolo"}}}),
+    hostScene("mode-switch-plan", "退出计划：批准计划", {...WAITING, composer: {modes: MODES, mode: "plan"}, pendingInputs: [modeSwitchPlan(SHORT_PLAN)]}),
+    hostScene("mode-switch-plan-long", "退出计划：长计划，内容区滚动，按钮固定", {...WAITING, composer: {modes: MODES, mode: "plan"}, pendingInputs: [modeSwitchPlan(LONG_PLAN)]}),
+    hostScene("mode-switch-simple", "别的切换：一句话", {...WAITING, composer: {modes: MODES, mode: "normal"}, pendingInputs: [{kind: "mode-switch", id: "ms", toolCallId: "call-ms", fromLabel: "普通", toLabel: "计划", approval: APPROVAL_MODES}]}),
     hostScene("approval-shell", "审批：命令", {...WAITING, pendingInputs: [shellApproval]}),
+    hostScene("approval-shell-remember", "审批：命令，按钮写明要记住的规则", {...WAITING, pendingInputs: [{...shellApproval, remember: {label: "git diff *、touch *"}} as PendingInputView]}),
+    hostScene("approval-shell-no-remember", "审批：命令太宽，不能本会话都批准", {...WAITING, pendingInputs: [{...shellApproval, remember: false} as PendingInputView]}),
     hostScene("approval-other", "审批：别的工具，列参数", {...WAITING, pendingInputs: [{kind: "approval", id: "other", toolCallId: "call-other", tool: "publish_chapter", args: {chapter: 3, draft: false, tags: ["连载", "第三卷"]}, preview: {state: "ready", files: []}}]}),
     hostScene("approval-multi-file", "审批：一次改两个文件，一个太大、一个算不出来", {...WAITING, pendingInputs: [{kind: "approval", id: "multi", toolCallId: "call-multi", tool: "edit", args: {input: "[project://正文/第三章.md#ab12]\nPUT 2.=2:\n+改了"}, preview: {state: "ready", files: [{address: CHAPTER, kind: "diff", before: BEFORE, after: AFTER}, {address: "project://正文/全书.md", kind: "too-large", bytes: 2_000_000}, {address: "project://正文/第四章.md", kind: "failed", code: "edit-stale"}]}}]}),
     hostScene("approval-loading", "审批：预览还在算", {...WAITING, pendingInputs: [{kind: "approval", id: "loading", toolCallId: "call-loading", tool: "write", args: {path: CHAPTER, content: "整章"}, preview: {state: "loading"}}]}),

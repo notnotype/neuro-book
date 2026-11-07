@@ -16,7 +16,7 @@ import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
 import {mergeSource} from "../code/source-merge";
 
-// `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在组的实例槽。
+// `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在标签的实例槽。
 // `locale`：控件合同的一员；源码编辑器自己不显示要翻译的文字。
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
@@ -154,10 +154,11 @@ const enter = (binding: TextEditorBinding): void => {
     language.value = state.model.getLanguageId();
     editor.updateOptions({readOnly: props.readonly});
     bound = binding;
-    // 每次输入立即交出，没有缓冲；结算只需补交与文档不同的内容（例如回执冲突后）。
+    // 每次输入立即交出，没有缓冲；结算只需补交与文档不同的内容（例如回执冲突后）。还没跟上别处的修订时不算：下面的 watch 要到下一轮
+    // 才换正文，这时本地与文档不同不是输入，交出去就是假冲突（同一文档的几个控件在同一次结算里先后被调）。
     detach = binding.attach(() => {
         const current = stateOf(binding);
-        if (current !== null && !current.held && textOf(current) !== binding.text.value) commit(binding, current);
+        if (current !== null && !current.held && current.confirmed === binding.revision.value && textOf(current) !== binding.text.value) commit(binding, current);
     });
 };
 

@@ -1,0 +1,106 @@
+# w00026 t19 落点分区：实现审查报告
+
+审查对象：b66cb183a..41b789bfa（worktree review-t19，detached）。只读；未跑 e2e 与开发服务。
+实验文件都在 /tmp/review-t19-impl/（bench.ts、collapsed.ts、collapsed-base.ts、subsets.ts），只调用真实的 nb-layout 源码函数，没有伪造运行时时序。
+已跑：nb-layout 的 layout-drop.test.ts（37 过）、DropSectorsOverlay.dom.test.ts（5 过）、nb-ui src/theme（76 过）、neuro-book 的 src/sdk、pack.test、locales.test、layout-constraints.test（38 过）。
+形状与判定一致我另做了更宽的检查（subsets.ts）：边可用性 16 种子集 x 中央可否接收 x 边缘比例 0.28 与 0.4，共 191263 个随机点，resolveLayoutDrop 的动作与点所在多边形的 action 全部一致，没有交叉或重叠。作者的 5 种用例之外的组合也成立。
+
+======================================================================
+重要
+======================================================================
+
+[1] 重要 / 测试 / packages/neuro-book/src/plugins/lab/web/fixtures/WorkbenchSurfaceFixture.vue:248（本提交把 --shell-gap 由 8px 改成 4px）
+现象：Lab 卡片场景的缝宽从 8px 改成 4px，但 packages/neuro-book/e2e/lab-workbench-surface.e2e.ts 里依赖该场景缝宽的断言没有改：
+  - 243 行 expect(bar.left).toBe(8)；247 行 expect(sidebar.top).toBe(8)
+  - 270 行 paddingOf(page,"panel").right 轮询到 8；272 行 expect(panel.top).toBe(8)；273 行 expect(panel.left).toBe(4)（半缝，改后是 2）
+为什么是问题：这些 padding 来自 adjacency.ts 的 cardInset：outer 边且未占用时就是 `var(--shell-gap)`，inner 边是 `var(--shell-gap)/2`。open(page,"cards") 的缝宽来自该场景舞台上的 --shell-gap（theme=nbook 的 :root 值也是 4，但场景舞台上的 8px 覆盖了它，测试写的就是这个 8）。改成 4 后 bar.left、sidebar.top 等就是 4，上面五条断言应当失败。
+这个提交的 e2e 改动只有 workbench-dnd、editor-area、lab-drop-sectors 三个文件，README 的验证清单里也没有 lab-workbench-surface，所以没人跑到。
+如何核实：从代码推断，未跑 e2e。请跑 `lab-workbench-surface.e2e.ts` 的“贴窗体整缝，相邻半缝…”和“侧栏隐藏后活动栏不再相连…”两条；或 grep 该文件里的 toBe(8)。
+建议改法：二选一。a. 场景改回 8px，t19 需要“与产品一致的缝宽”时，用新增场景或在 lab-drop-sectors 里读真实产品页，不改既有场景；b. 保留 4px，同一个提交里把上面五条断言按 4 与 2 改写（并核对“放不下”那条里“nbook 是 4”的注释是否本来就指向这个差异）。无论哪个，这次改动属于范围外的既有 Lab 场景改动，应在提交说明里单列。
+
+[2] 重要 / 层级与外观 / packages/nb-ui/src/theme/z-index.ts（dropSectors: 59）、WorkbenchDragFeedback.vue 预备区的 zIndex: NB_Z_INDEX.dropFeedback（60）与 .workbench-reveal-zone__box 的 72% 面板底
+现象：预备区（60）画在分区（59）之上。预备区在拖动整场都显示（frozenZones，不是只在指针落在它上面时），而且是“按显示出来会在的矩形”，所以它会叠在真实面板（典型是编辑组）的一侧。这块叠加区域里：分区的压暗、线与字被预备区 72% 不透明的面板底盖住，边线只剩预备区自己的虚线框。
+为什么是问题：真实落点优先于预备区（dropAt 的 resolve 先判真实面板），指针在这块叠加区域时当前落点是真实面板的某一块，分区描的就是它，却被盖住一部分。计划（plan.md“DropFeedbackOverlay 不改”之前的层级一条）和上一轮设计审查第 3 条的结论是“分区描的是真实面板，应在预备区之上”，实现反过来取了 59。计划里“预备区只在没有真实落点时才算，那时没有分区，两者不抢”说的是命中判定，不是绘制：绘制上两者同时存在。z-index.test.ts 新增的断言只比较 dropSectors < dropFeedback，把这个反向固化了。
+如何核实：从代码推断，未截图。e2e 里把 auxiliarybar 隐藏（或侧栏拖到零），拿工具视图或编辑器标签拖到编辑组靠预备区那一侧，截图看分区的线与字。
+建议改法：预备区单独降到分区之下（例如给预备区一档 NB_Z_INDEX.dropReveal=58，或预备区在分区之下、分区在区域高亮之下，三档），改 z-index.test.ts 的先后断言；或确认设计上就要让预备区盖住分区，那就把“预备区下方分区被遮”写进 Spec 37 与 DropSectorsOverlay.md。
+
+======================================================================
+建议
+======================================================================
+
+[3] 建议 / 测试覆盖 / packages/neuro-book/e2e/workbench-dnd.e2e.ts 新增的“落点分区”四条、editor-area.e2e.ts 新增一条
+现象与变异想法（由主 Agent 跑，我没有跑）：
+  a. Spec 验收 21 的核心句“在任意位置放下的结果都是当前块说的那个”没有 e2e：所有用例都是 Escape 取消，没有一条松手后检查结果。nb-layout 与策略测试证明了 resolveLayoutDrop 与多边形一致，但把两者接起来的 withSectors（选面板、按 JSON.stringify 对 active）只靠两三个点验证（工具面板的 bottom、center、right，编辑组的 right）。变异：把 active 的匹配改成只比 action.kind，则同一块面板上 top 与 bottom 的 edge 动作无法区分，其余点仍全绿的可能性不小；请主 Agent 试。
+  b. editor-area 用例只断言 sectors 外框的 x、y 与编辑组内容区一致，没有 width、height（right、bottom 错了也过）；workbench-dnd 对工具面板的分区外框位置、大小一个字都没断言，只数了多边形个数与 id。变异：panelGeometry 里工具面板的 body 取 card 整块（不扣掉头）不会被任何 e2e 发现；Lab 的 lab-drop-sectors 用的是写死的 rect。
+  c. workbench-dnd 第二条“编辑组不接收工具视图”里负向断言 `expect(sectors).toHaveCount(0)` 前只等了两帧 rAF，没有先断言一个正向的同时状态（editor-area 那条用了 noDropShown，这条没有）。分区出现晚于两帧时会空过。
+  d. nb-layout 的 DropSectorsOverlay.dom.test.ts 只数了多边形个数与标记，没有断言 points 属性、字的 left/top 样式；窄面板那条只覆盖宽度不足（220x120 时上下块高 33.6px，高度条件 LABEL_MIN_HEIGHT 没被任何用例触发）。变异：把 `x * 100` 改成 `x * 50`、把 fits 里的高度比较删掉、把字放到 minX 而不是中心，都全绿。
+  e. layout-drop.test.ts 的“指针算哪块面板：缝归最近能接收的…”标题声明缝，用例里却没有一个落在缝里的点（450,300 在正文，450,10 在标签条，2000,300 在面板外）。缝的行为靠旧用例（174 行）守住，所以删掉 layoutDropPanelAt 里的 filter(accepted) 仍会被旧用例发现，不会漏；只是标题与内容不符。
+  f. layout-constraints.test.ts 的网格扫描里 strip 全是 null，panels 之间隔 1000px：缝、标签条交界、titleOnly、excluded、最大化都不在这条里（这些由 e2e 与旧用例分别覆盖）。计划说它是“工作台策略的不变量测试”，名实略有出入，但已守住它声称的那一层。
+建议改法：workbench-dnd 里补一条松手用例（拖到靠右处松手，检查层级里该面板右边多了一块，且松手前读到的当前块是 right）；两条外框断言补全 width、height，并给一块工具面板断言外框 top 等于它标签头的 bottom；dom 测试加一条 points 属性与一条高度不足不写字（rect 高 80）。
+
+[4] 建议 / 行为变化未固定 / packages/nb-layout/src/layout-drop.ts nearestEdge 的 hasArea 守卫、layout-drop.test.ts“正文零面积”
+现象：收成标题行的工具面板（body 零高）下方的缝里，base 在 y=31、33 返回 `{edge, split top}`（-Infinity 的偶然结果），现在返回 `{center}`（/tmp/review-t19-impl/collapsed-base.ts 与 collapsed.ts 对比输出：base 为 edge top，现在为 center；y=35 都是 null）。同一处没有分区（layoutDropSectors 返回 null），所以缝里放下是“添加为标签”，画面上没有任何分区。测试只断言 `not.toMatchObject({kind:"edge"})`，null 与 center 都过，没有固定“到底是什么”。
+另有键盘一侧：enumerateDropCandidates 对收起（collapsed）的面板仍列出四条边的候选（isNodeShown 为真），pointOfCandidate 给的点都落在这条缝里，现在四个候选都解析成 center、与中央候选重复；base 是四个都解析成 top 边。两种都是退化，但这次修了空面板的候选，没有同样处理零面积的面板。
+为什么是问题：Spec 37 说“形状就是判定”，零面积面板是一个既有判定、又没有形状的例外；键盘用户在收起的面板上多出 4 个重复停靠点。
+如何核实：bun /tmp/review-t19-impl/collapsed.ts 与 collapsed-base.ts。
+建议改法：测试里把期望写成确定值（center 或 null，建议决定缝里到底算什么）；零面积时 resolveInPanel 直接按“没有边”处理，enumerateDropCandidates 对 body 零面积的面板不列边候选（需要宿主传一个“有面积”的信息，或者不处理但在 Spec 写明）。这条在 base 上就有问题（base 另记）。
+
+[5] 建议 / API 一致性 / packages/nb-layout/src/layout-drop.ts layoutDropSectors
+现象：layoutDropSectors 是 nb-layout 的公开导出，但不做 resolveLayoutDrop 开头的“来源标签已不存在时无落点”判断（`tabs.length === 0 && source.kind === "tab"`）。来源失效时 resolveLayoutDrop 返回 null，layoutDropSectors 却返回五块（sourceTabs 为空，accepts 对空数组 every 恒真）。实测 /tmp/review-t19-impl/collapsed.ts 末尾“stale”一行：resolve 为 null，sectors 为 left/right/top/bottom/center。
+为什么是问题：违反它自己文档写的“指针落在这个多边形里，resolveLayoutDrop 给的就是 action”的合同。工作台里只在 resolve 成功之后才调，所以现在不出错；别的宿主（SDK 已导出）单独调用会画出放不下的分区。
+建议改法：在 layoutDropSectors 开头加同一条判断返回 null，或抽出一个共用的前置检查。
+
+[6] 建议 / 观感（数字） / packages/nb-ui/src/tokens.css --layout-scrim
+现象：`color-mix(in srgb, color-mix(in srgb, #000 30%, var(--bg-main)) 60%, transparent)` 取的是窗体底 --bg-main，而被压暗的内容是 --bg-panel 面。按 nbook 配色实算（python 手算，未截图）：
+  - nbook 夜：scrim 底色 rgb(22,20,18)，面板 rgb(42,38,34) 压暗后 rgb(30,27,25)，窗体底 rgb(32,29,26)：相差 2 个色阶，压暗后的卡片与窗体底几乎一样，卡片轮廓在整个拖动期间消失，只剩分区线；
+  - nbook 昼：面板 rgb(251,249,244) 压暗后 rgb(200,197,191)，窗体底 rgb(236,232,223)：卡片明显比底深，轮廓还在；
+  - 预设夜（#18181b / #252529）：压暗后 rgb(25,25,28)，窗体底 rgb(24,24,27)，同样合上。
+为什么是问题：原型的值是照亮色调出来的，暗色下“压暗”变成“把卡片变成和桌面一个色”，与 t01 决定 14 “压暗内容”的意图不同。令牌登记进了主题层（主题可改），但基线本身没有按明暗区分。
+建议改法：由开发者在暗色下看一次图再定；若要改，把底色取 --panel-surface 压暗（卡片压暗后仍与桌面有差），或让夜间配色多混一点黑。
+
+[7] 建议 / 视觉细节 / WorkbenchDragFeedback.vue 的 :global(.workbench-drag-feedback__sectors) 与 WorkbenchSurface.vue 的 data-shell-join
+现象：覆盖层圆角固定写 `0 0 var(--shell-card-radius) var(--shell-card-radius)`，而侧栏（与活动栏相连，data-shell-join="end"）的正文裁切层 `.workbench-surface__content-clip[data-shell-join="end"]` 的左下角是直角（WorkbenchSurface.vue 445 行）。卡片主题下侧栏分区的左下角会多出一个 12px 的圆角缺口，露出未压暗的卡片直角。
+如何核实：从代码推断；卡片主题（nbook，--shell-card-radius 12px）下拖到侧栏看左下角。
+建议改法：圆角不要写成一个固定值；让 sectors 的 rect 之外再带一个“左下是否相连”的信息，或让覆盖层根据 data-shell-join 的所在面板写 border-bottom-left-radius: 0。
+
+[8] 建议 / 设计一致性 / nbThemeFeedbackTokens 里的 --layout-sector-radius
+现象：--layout-sector-radius 被登记进主题层基线（主题 declares 不能重名，Lab 令牌页把它当“主题能改的交互反馈”列出），但产品里唯一的使用者 WorkbenchDragFeedback 在元素本身写 `--layout-sector-radius: …`，元素自己的声明永远压过 :root[data-nb-theme] 上的主题值。结果：主题改这个令牌在产品里无效，登记表和实际行为不一致。
+为什么是问题：一个“主题可改”的变量在唯一使用处被宿主无条件盖掉。
+建议改法：要么不把它登记成主题层令牌（只作组件的输入变量，登记表里只留颜色类），要么宿主改成 `:root` 级默认（让 --shell-card-radius 存在时在主题层派生），不在元素上盖。同类的小问题：pack.ts 的分组正则 `^--(?:sash-|drop-area-|layout-)` 用了整个 `--layout-` 前缀，以后任何 --layout-* 变量都会被归进“拖动与落点的反馈”，写成 `layout-(?:scrim|sector-)` 更准。
+
+[9] 建议 / 动效规范 / packages/nb-layout/src/vue/DropSectorsOverlay.vue 的 animation 与 transition
+现象：淡入写 `var(--motion-fast) ease-out`，线与底色过渡也是 `ease-out` 关键字。同目录的 DropFeedbackOverlay、DropIndicator 都用缓动令牌（var(--ease-standard)），ui-development-spec.md 第 7 条与 design-language.md 的“缓动”一节要求新写的组件用 `--ease-layout`，组件不写死缓动。这次又把 --motion-layout、--ease-layout 补登记进了动效令牌，却没有用上。
+建议改法：改成 var(--ease-layout)。同时，DropSectorsOverlay.md 写的“出现时淡入…换面板时复用节点，不重放”只在两块相邻面板之间直接移动时成立；指针经过标签条、缝外、活动栏时 drop 变 null，覆盖层按 v-if 卸载，回到正文再挂载就重放一次淡入（每次越过标签条都闪一下）。需要连续感的话，考虑用 v-show 或延迟卸载，或把文档改成实话。
+
+[10] 建议 / 文档 / DropSectorsOverlay.md 头部标签
+现象：`标签: [state:local, env:portal, env:global]` 与 DropFeedbackOverlay.md 逐字相同，但这个组件不注册任何全局监听。components.md 第 81 行把 env:global 定义为“注册全局监听”，并要求销毁时解除。
+建议改法：去掉 env:global。
+
+[11] 建议 / 小问题（合并）
+  a. Lab 的 DropSectorsOverlay 场景（fixtures/nb-layout/index.ts）把五块、三块的多边形写死，注释声称“照 layoutDropSectors 的结果写死”。形状改了这里不会报错，lab-drop-sectors.e2e 又只看颜色。dom 测试已经在用真实的 layoutDropSectors 造数据，场景可以同样做（夹具里导入 nb-layout 的函数）。
+  b. WorkbenchDragFeedback.vue 的 sectors 属性类型是把 layout-drag.ts 的 LayoutDragSectors 结构抄了一遍，两处要一起改；可以直接 import type。
+  c. DropSectorsOverlay.vue 用 `useAttrs()` + `v-bind="attrs"` 把 attrs 手动绑到 Teleport 里的根上，用模板里的 `$attrs` 即可，少一个 import 和一个变量。
+  d. SVG 多边形贴着 viewBox 边界画线，outer svg 默认 overflow hidden，贴着面板外沿的那一半线宽被裁掉（当前块 1.5px 的线在外沿只剩 0.75px）。原型也是这样；若要线完整，viewBox 内缩半个线宽或 svg 设 overflow: visible（根上已有 overflow: hidden 兜圆角）。
+  e. forced-colors 下的 `.nb-drop-sectors__sector { stroke: Highlight; fill: transparent }` 与 `--active` 同权重、写在后面，会把当前块的 fill、stroke 颜色都盖成和别的块一样，只剩 1.5px 对 1px 的粗细差；prefers-contrast: more 则把所有块的线色都改成当前块那条，当前块靠底色深浅区分。建议在 forced-colors 里给 --active 单独写 stroke: HighlightText 或更粗的线。
+  f. 设置项 dropSectors 放进 nbook.appearance 的 ui 组（order 30）。计划写“放不下就加一个‘拖动’小组”，实现没有加。属于开发者待确认的位置，我没有发现功能问题；文案“画出上下左右中能放的位置”在设置页里和外观两项并列，读起来略突兀。
+  g. z-index 登记表里 dropSectors 排在 tooltip（70）之后、值却是 59，注释里“提交后的矩形与提示要压在它上面”依赖 59 与 60 紧挨；z-index.test.ts 的总排序没有把 dropSectors 放进去，只加了一条单独断言。
+
+======================================================================
+未发现问题的方面（逐项核实过）
+======================================================================
+- 多边形顶点次序：16 种边可用性子集 x 中央可否接收 x 边缘比例 0.28 与 0.4，共 191263 个随机点，每块都是简单多边形（顶点按边界依次连接，无交叉），点落在多边形内与 resolveLayoutDrop 的动作逐点一致，且至多属于一块（subsets.ts）。
+- layoutDropPanelAt 抽出后 resolveLayoutDrop 的行为：除零面积一项（见 [4]）外无变化。excluded 先后判了两次是冗余但结果相同；缝归属、strip 优先等价。旧的 37 条 layout-drop 用例全过。
+- 空面板的键盘停靠点：接受中央的空面板只列中央，与 resolveInPanel 的“整块是中央”一致；有标签的面板与不接受中央的情形不受影响（测试覆盖）。
+- 工作台读设置：props() 在渲染时取 settings.get(dropSectorsSetting)，与 appearanceSetting 的读法一致，会响应变更；WorkbenchShell 里 sectors: () => props.dropSectors !== false 在每次判定时读，拖动途中改设置下一帧生效。
+- panelGeometry 的 body：编辑组是 card 去掉标签条一行，工具面板是 card 去掉整个头，和各自的内容层（.workbench-surface__content-clip）从头下面开始一致；最大化只剩被最大化的面板；收成标题行时 body 零面积、分区为 null；只写标题的头改写成 center，分区照画且当前块是中央（e2e 覆盖）。
+- Teleport 里的 scoped 样式生效（Lab e2e 读计算样式）；:global 的 class 经 attrs 落到 Teleport 根；--layout-sector-radius 写在元素上，优先级无冲突。
+- aria-hidden 在根上，子元素继承；根带 data-drag-feedback，会话命中检测跳过它；pointer-events: none 对字也继承。
+- 令牌：nbThemeFeedbackTokens 新增 6 项都在 tokens.css 的裸 :root 里有默认值（tokens.test.ts 通过）；--motion-layout、--ease-layout 补进 nbMotionTokens 后只是多占两个保留名，shipped 主题（nbook、macos、aurora、editorial）没有声明这两个名字，不影响现有主题；pack.ts 分组测试通过。--layout-sector-active-line: var(--drop-area-border) 在 :root 解析，主题在同一元素上改 --drop-area-border 时会跟着变。
+- 性能（拖动每帧多做的事）：layoutDropPanelAt + layoutDropSectors + 5 次 JSON.stringify 在 3 块面板的测试文档上平均 3.66 微秒/帧（resolveLayoutDrop 本身 1.06 微秒/帧，bench.ts，200000 次平均）；每帧新建 sectors 对象让覆盖层的 computed 重算一遍（5 个多边形，字符串不变则不写 DOM），量级可忽略。
+- 无障碍播报：分区整层 aria-hidden，live 区仍由 DropFeedbackOverlay 负责，未被改动。
+- i18n：新增 6 个键中英文齐全，locales.test.ts 的 ADDED 登记完整，测试通过。
+
+======================================================================
+数量
+======================================================================
+阻断 0；重要 2（[1][2]）；建议 9（[3] 到 [11]，其中 [11] 是 7 个小点合并）。

@@ -1,0 +1,47 @@
+### 重要：环境赋值丢失，白名单把可执行启动脚本的命令判成只读
+严重程度：重要；类别：安全与性能
+位置：`packages/neuro-book/src/plugins/agent/backend/permissions/bash-dialect.ts:170`、`:193`、`:277`
+现象：解析 `env BASH_ENV=/tmp/rc bash -c 'cat project://x'` 时，`normalize` 剥掉 `env` 和赋值，只把内层 `cat` 交给 `readOnly`；`SimpleCommand.assignments` 仅保存变量名，且 `readOnly` 只拒绝不在 `HARMLESS_ASSIGNMENTS` 的 shell 前缀赋值，未看到 `env` 剥下的变量。因此此命令被分成只读的 `cat`，模式闸门与审批模式都可能放行；Bash 在执行 `-c` 脚本前会执行 `BASH_ENV` 指定的脚本。
+为什么是问题：规则与闸门把会执行任意脚本的命令归为读，`discuss`/`plan` 的“只读 shell”及 `ask` 审批合同失效；这比规则不是安全边界所承诺的常见绕法更直接，是解析器对自身支持的 `env` 包装漏审。
+如何核实：解析器代码沿 `peelEnv` → `normalize` → `simple` 丢掉赋值；实际 shell 命令 `env MARKER=<临时路径> BASH_ENV=<临时 rc> bash -c 'true'` 执行了 rc 中的 `touch "$MARKER"`。`bash-dialect.test.ts` 当前未包含 `BASH_ENV`/`ENV`/`LD_PRELOAD` 类包装环境变量组合，且该测试因审查 worktree 未安装 `unbash` 无法运行。
+建议改法：归一化不能丢弃 `env` 与任何包装层的赋值。将有效环境赋值并入 SimpleCommand 并只在明确安全、不会控制解释器/加载器行为的变量集合内判只读；至少 `BASH_ENV`、`ENV`、`LD_PRELOAD`、`SHELLOPTS` 等必须使命令算写。对可执行脚本的 shell 包装默认 opaque/exec，直到逐项证明无副作用。
+### 重要：不适用的放行规则提前终止扫描，遮蔽后续拒绝
+严重程度：重要；类别：正确性
+位置：`packages/neuro-book/src/plugins/agent/backend/permissions/rules.ts:169`
+现象：命令匹配器对 opaque 命令、以及不含路径匹配器的放行规则对带写重定向命令，按合同应“不生效”。实现却在第一条这样的 allow 上 `return null`，而不是继续找本层后续规则。于是规则 `[shell allow, shell command git push * deny]` 对 `eval git push origin` 返回无规则结果；带重定向时 `[shell allow, path project://** deny]` 同样找不到后项。
+为什么是问题：被声明不生效的 allow 规则仍能盖住显式 deny。规则拒绝本应先于审批模式；在 `yolo` 下这个路径直接获准，违反 Spec 输出 1、5、14、15 的组合语义与“第一条命中”规则。
+如何核实：在被审版本用 `bun -e` 调用 `layerResult`，opaque 视图 `opaqueText: "eval git push"` 加上述规则返回 `null`；重定向视图 `argv: ["echo","x"]`、`redirectWrites: true` 加 shell allow 与路径 deny 也返回 `null`。现有 `rules.test.ts` 分别断言单条不适用 allow 返回空、opaque 后续 deny 被命中，但未覆盖前置不适用 allow 遮蔽后项。
+建议改法：当 allow 因 opaque 或缺少路径条件而不适用时 `continue` 扫描；补充两种规则序列的用例，断言后续 deny/ask 可命中，适用的第一条 allow 仍按既定顺序生效。
+### 重要：sed 替换命令的 e 标志可执行任意命令，却被白名单判为只读
+严重程度：重要；类别：正确性
+位置：`packages/neuro-book/src/plugins/agent/backend/permissions/bash-dialect.ts:209`、`:257`
+现象：`SED_WRITES` 只识别替换标志中 `e` 后紧跟空白、分号、右花括号或字符串末尾的形式；合法的 `ep` 标志组合不命中。`sed 's/x/touch MARKER/ep' file` 会把替换结果作为 shell 命令执行，但 `sed` 白名单仍判只读，`commandEffect` 因而交出 `read`。
+为什么是问题：`ask` 模式会跳过审批；`discuss`/`plan` 下命令被当作只读而放行，任意 shell 命令可借 sed 执行，直接破坏模式闸门与只读合同。
+如何核实：用实际 GNU sed 对临时输入执行 `sed 's/a/touch <临时标记路径>/ep' <临时文件>`，标记文件被创建；对 `SED_WRITES` 正则核对 `s/x/printf BAD/ep` 得 `false`。`bash-dialect.test.ts` 反而只测 `1e rm x`，没测合法替换 e 标志，也未覆盖 `ep`。
+建议改法：不要用局部正则猜 sed 脚本语法；把 `e` 视为危险标志时先识别所有合法标志排列与分隔形式（包含 `ep`、`pe` 及带分隔符）；补实际 sed 行为用例，并确保 effect 与模式分类都按 exec。
+### 重要：展开后的选项可让 find 执行删除，白名单却判只读
+严重程度：重要；类别：正确性
+位置：`packages/neuro-book/src/plugins/agent/backend/permissions/bash-dialect.ts:193`、`:277`
+现象：命令参数含变量或命令替换时 `hasExpansion` 会置真，但只读判断只检查原始 argv，不用该字段。`find . "$(printf -- -delete)"` 执行时变成 `find . -delete`，却被判为只读。
+为什么是问题：`commandEffect` 把它交为 `read`，普通审批不询问，`discuss`/`plan` 的闸门也直接放行；实际写入可通过动态构造白名单危险选项绕过。
+如何核实：直接调用本包依赖 `@oh-my-pi/pi-natives` 的真实 `executeShell`，在临时目录执行该命令后原文件消失、退出码 1；静态看 `hasExpansion` 只生成与测试断言，`readOnly` 未读取。当前 `bash-dialect.test.ts` 因 worktree 无 `unbash` 无法运行。
+建议改法：只读白名单拒绝任何带参数展开的命令（通配符部分当前已特意不算展开）；或者逐条命令验证展开后的 argv，但不得以未展开文本匹配危险选项。
+### 重要：项目权限读取跟随文件符号链接，规则可从项目根外注入
+严重程度：重要；类别：安全与性能
+位置：`packages/neuro-book/src/plugins/agent/backend/permissions/project-rules.ts:22`
+现象：实现先用 `files.readPath(projects://<id>)` 得到项目根路径，再用 `node:fs.readFile(<root>/.nbook/permissions.json)`。第二次读取不经 Files 的 rooted 路径检查。攻击者或同步/版本控制内容可把权限文件设成指向作品外文件的 symlink；其合法 JSON 规则会被读入并参与该项目所有 Agent 调用判定。
+为什么是问题：文件服务明确要求 `.nbook` 控制目录不经链接别名、根外读取只经专用且只读的 `resolveForRead`，这里绕开其控制目录与根约束；项目规则虽不能放行，但外部文件可注入 deny/ask 规则，影响使用者工作流并让项目外内容控制审批。
+如何核实：通过真实 `projectHarness` 启动项目实例并取得项目租约；在项目根保持真实 `.nbook` 目录、仅把 `.nbook/permissions.json` symlink 到项目根外的 `outside.json`，再调用被审 `readProjectRules(files, "book")`，它返回了文件中的 `reason: "external-json-secret"` 规则。相同条件下 `files.readPath("project://.nbook/permissions.json")` 按文件服务合同应拒绝控制目录（文件服务的控制目录检查在 `rooted.ts`）。
+建议改法：经 `WorkspaceFiles.read` 读取 `project://.nbook/permissions.json` 的字节并沿用 `protected-path`/root 检查，不把已授权根的路径拼接后直接交给 `node:fs`；只有 `not-found` 表示空规则，其他失败按 invalid 处理。
+### 重要：未绑定浏览器可按项目 ID 远程读取任意作品权限规则
+严重程度：重要；类别：安全与性能
+位置：`packages/neuro-book/src/plugins/agent/shared/remote.ts:203`、`packages/neuro-book/src/plugins/agent/backend/remote.ts:203`
+现象：`projectPermissionRules` 是 `callers: ["browser"]` 的 Agent 远程服务方法，输入只校验非空 `project` 字符串；handler 未比较远程 caller 的绑定作品，而 `provideRemote` 收到的 caller 身份也未用于检查。服务端回调以高权限文件门面按该 id 读取任意登记作品的 `.nbook/permissions.json`。未绑定窗口只需猜/取得作品 id 即能读规则。
+为什么是问题：作品权限规则被明确设计为按作品隔离的只读设置数据；未绑定窗口没有该作品的会话或项目授权，却能通过这条服务端方法读取它，泄露作品的私有规则与拒绝理由。合同不变量是浏览器能调此方法，不代表可调任意项目。
+如何核实：用真实 `projectHarness`、`filesBackendPlugin`、内存远程路由及未绑定 `browser-unbound` 客户端搭建提供者，创建项目 `Book` 并写入规则 `{reason: "secret-project-rule"}`；未绑定浏览器调用 `projectPermissionRules({project: "book"})` 返回该规则，结果 `{ok:true}`。方法输入 schema 与 handler 都没有绑定 id 比较；内核 remote context 只提供 signal，需用 `provideRemote` 工厂的 `ConsumerIdentity` 或服务端登记/项目绑定信息实施核验。
+建议改法：在远程合同/方法侧把查询限制为窗口当前绑定作品，或由浏览器只传会话/已绑定上下文标识、服务端从可信来源解析项目；未绑定、未知或不属于调用窗口的项目返回拒绝。补真实远程路由的绑定与未绑定用例。
+
+未发现问题的方面：Spec 输出 1、2、5、6、7 的主要顺序与三层优先级实现一致；`auto` 有真实内核/本机端点测试覆盖强制判定、严格结构、失败转问、超时与长度限制，`fast` 缺绑按 `role-unbound` 回退；输入来源按 `input`/`steer` 事件读取，不取附件、助手内容与工具结果；模式切换工具自身提问、计划同回复落盘后读取、批准与审批模式一次写入、`judgingSettings` 变化后重判与 signal 重发等待符合合同；未找到本次新增的深层跨包源码导入。
+数量：阻断 0，重要 7，建议 0。
+
+计数更正：本报告共 6 条有效发现，阻断 0，重要 6，建议 0；上面的“重要 7”为计数笔误。

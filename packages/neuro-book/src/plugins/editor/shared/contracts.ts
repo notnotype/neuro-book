@@ -15,8 +15,11 @@ import type {languages as MonacoLanguages} from "monaco-editor/esm/vs/editor/edi
 
 import type {EditingActionId, EditorEditing} from "./editing";
 
-/** 文件拖到编辑组：编辑组登记这个落点，拖动方查到组 id 后执行带 `group` 的 `nbook.editor.open`（docs/specs/workbench/editor.md 输出 35）。 */
-export const EDITOR_GROUP_FILE = defineDropKind<{readonly group: string}>("nbook.editor.group.file");
+/**
+ * 文件拖到编辑组：编辑组登记这个落点，拖动方查到组 id 后执行带 `group` 的 `nbook.editor.open`（docs/specs/workbench/editor.md 输出 35）。
+ * `rect` 是放下时高亮的矩形（整块编辑组，视口坐标）：头和内容是两个根，登记的元素只是其中一个。
+ */
+export const EDITOR_GROUP_FILE = defineDropKind<{readonly group: string; rect(): {readonly left: number; readonly top: number; readonly right: number; readonly bottom: number}}>("nbook.editor.group.file");
 
 export {EDITING_ACTIONS} from "./editing";
 export type {EditingActionId, EditorEditing} from "./editing";
@@ -242,7 +245,7 @@ export interface EditorImplementation {
  */
 export const EDITOR_LANGUAGES_POINT = "editor.languages";
 
-/** 语言 id 的写法；长度与会话记录的 `language` 字段一致（`web/session-record.ts` 引用它）。 */
+/** 语言 id 的写法；长度与标签记录的 `language` 字段一致（`web/tabs-record.ts` 引用它）。 */
 export const LANGUAGE_ID_PATTERN = "^[a-z][a-z0-9_.-]{0,63}$";
 const LANGUAGE_ID = new RegExp(LANGUAGE_ID_PATTERN, "u");
 
@@ -309,8 +312,8 @@ export interface ViewStateSlot {
 export type TabCursor = {readonly offset: number} | {readonly line: number; readonly column: number};
 
 /**
- * 文本编辑器（`input: "text"`）收到的绑定：文档的只读视图加输入回执。换文档、换编辑器、换标签都是新的绑定（新的
- * `token`）；换下的绑定之后的调用一律当作过时（`commit` 为 `stale`）。
+ * 文本编辑器（`input: "text"`）收到的绑定：文档的只读视图加输入回执。每个标签一份，切走、换组都不换；换编辑器是新的绑定
+ * （新的 `token`）；换下的或标签已关闭的绑定之后的调用一律当作过时（`commit` 为 `stale`）。
  */
 export interface TextEditorBinding {
     readonly kind: "text";
@@ -405,7 +408,7 @@ export interface EditorOutline {
 /** 控件的属性与事件（`binding` 的类型按编辑器的 `input`）。 */
 export interface EditorControlProps<B> {
     readonly binding: B | null;
-    /** 组 × 编辑器的实例槽：重挂时接着用存在这里的编辑器实例。 */
+    /** 标签 × 编辑器的实例槽：控件被卸载再挂上时接着用存在这里的编辑器实例。 */
     readonly host: ViewStateSlot;
     readonly readonly: boolean;
     readonly visible: boolean;

@@ -56,15 +56,15 @@ owners:
 4. **约束与未定的事**（诊断 `nbook.plot.decision.constraintViolated`、`nbook.plot.decision.decidedInText`，级别 `pending`）：由窄问题的写作指示层报出（[`plot.checks`](checks.md) 输出 5）：涉及本章、已定决策的文字约束被正文违反；涉及本章、待定决策的事被正文写死了。
 5. **到期没定与悬空**：
    - `nbook.plot.decision.overdue`（级别 `pending`）：待定的决策 `due` 是第 N 章，活页夹里最新一章不早于第 N 章；
-   - `nbook.plot.decision.dangling`（级别 `hint`）：已定的决策挂的对象全部是已删除的条目、已撤销的剧情变更或被取代、放弃的决策。
+   - `nbook.plot.decision.dangling`（级别 `hint`）：已定的决策挂的对象全部是已删除的条目、已撤销的剧情变更、被取代或放弃的决策、不存在的对象或不在章序里的章。
 6. **开写前的视图。** 给出写第 N 章之前要作者看的：`due` 不晚于第 N 章的待定决策、涉及第 N 章的 `nbook.plot.goal.premiseChanged`（[`plot.goals`](goals.md)）与本章计划会触发的地址守卫违反（按计划模式）。拦不拦、作者选“照写”怎么记，由写作任务定。
 7. **涉及本章的决策。** 读取视图：第 N 章涉及的决策，已定的在前、按挂的对象排；每条带结论、理由（没给时“作者没说理由”）、约束与守卫。泄底、穿帮、违反写作指示的诊断，都附上挂在同一个知识点、条目或本章上的决策。
 8. **写作指示的检查**（级别 `hint`）：
-   - `nbook.plot.instruction.povAbsent`：指示的视角人物在本章没有任何一条剧情变更里在场；
-   - `nbook.plot.instruction.flashbackMismatch`：时间方式是补叙某处安放，而本章安放的剧情变更不在那处安放附近（不在同一章、也不在前史里它的前后）；
+   - `nbook.plot.instruction.povAbsent`：指示的视角人物在本章没有任何一条剧情变更里在场（本章没有变更、或有没记参与者的变更时无从判断，不报）；
+   - `nbook.plot.instruction.flashbackMismatch`：时间方式是补叙某处安放，而安放在本章或在本章讲述的剧情变更不在那处安放附近（不在同一章、也不在前史里它的前后）；
    - `nbook.plot.instruction.repeated`：同一句“不写的”或“其他”连续出现在 3 章以上的快照里，建议升成决策。
 9. **剧情线上的写作指示。** 挂在剧情线条目上的已定决策，对这条剧情线上有剧情变更的每一章都算“涉及本章的决策”。
-10. **快照的版本。** 简报与窄问题记下它们用的写作指示快照的版本（[`plot.brief`](brief.md)）；快照变了以后，用旧版本做的检查结果标“写作指示已变”。
+10. **快照的版本。** 简报与窄问题记下它们用的写作指示快照的版本（[`plot.brief`](brief.md)）；快照变了以后，用旧版本做的检查结果随输入摘要过期，按过期处理（`nbook.plot.check.stale`，[`plot.checks`](checks.md)）。
 
 ## 状态与转换
 

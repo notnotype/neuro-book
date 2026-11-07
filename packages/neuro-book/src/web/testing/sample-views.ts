@@ -53,7 +53,7 @@ const STOP_DECLARATION: CommandDeclaration = {
     expose: {agent: "never"},
 };
 
-/** 工作台公开的焦点 Part（docs/specs/ui/workbench-shell.md 输出 27）。 */
+/** 工作台公开的当前面板（docs/specs/ui/workbench-layout.md 输出 36）。 */
 const FOCUSED_PART_KEY = "nbook.workbench/focusedPart";
 
 function focusedPartOf(read: PublicStateRead): string {
@@ -71,6 +71,8 @@ const SampleEditorArea = defineComponent({
         return () => h("div", {"data-sample-editor-area": "", "data-instance": String(instance), "data-visible": props.context.visible.value ? "true" : "false"}, `样例编辑器 #${String(instance)}`);
     },
 });
+
+const SampleEditorHost = defineComponent({name: "SampleEditorHost", setup: () => () => null});
 
 function switchOn(key: string): ReadonlyArray<string> {
     return (globalThis.localStorage?.getItem(key) ?? "").split(",").filter(Boolean);
@@ -110,7 +112,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                     void context.scope.parent?.close();
                     return {ok: true, value: null};
                 }};
-                const editorArea: EditorAreaImplementation = {load: async () => SampleEditorArea};
+                const editorArea: EditorAreaImplementation = {load: async () => ({host: SampleEditorHost, group: SampleEditorArea})};
                 return {contributions: {
                     [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(VIEWS).map((id) => [id, implementation(id)])),
                     [WORKBENCH_EDITOR_AREA_POINT]: {[SAMPLE_EDITOR_AREA_ID]: editorArea},

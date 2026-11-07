@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t07-single-tree
-status: active
+status: done
 updated: 2026-11-06
 ---
 
@@ -135,7 +135,7 @@ updated: 2026-11-06
 
 开发者 2026-11-06 试了第 7a 片：“拖拽动画没有问题，就是拖拽逻辑和行为需要更新”，要求继续做第 7b 片。理解为编辑器标签还是旧的拖动逻辑，第 7b 片并进新规则；如果指的还有视图拖动的具体行为，试完再说。
 
-第 7b 片（分支 `feat/w00026-t07-single-tree`，`c074772d8`）：编辑组是树上 `role: "editor"` 的面板，每块一个 `EditorGroup`，结构由布局文档持有。
+第 7b 片已合入（`bdd8abf9b`，审查修正 `51658f4c0`）：编辑组是树上 `role: "editor"` 的面板，每块一个 `EditorGroup`，结构由布局文档持有。
 
 - **接缝**：接口与服务键 `editorPanelsKey` 在 `workbench/shared/contracts.ts`（跨插件的运行时导入只能指向那里），实现 `createEditorPanels` 在 `shared/editor-panels.ts`，单元测试与 Lab 用同一份操作的内存版 `createMemoryEditorPanels`。`groups/panels.ts` 的本地 grid 删掉。计划里的 `canInsert` 不放进接缝：写结构的只有编辑器，放下前自己查。
 - **记录**：`editor.tabs` 按键合并，只写本窗口有的、只删本窗口知道且关掉的（`known` 在记录读完那一刻定下）。页面标签留一个记号，恢复时从文档里拿掉，才分得清“页面不恢复”和“记录丢了”。丢了记录的标签是一个打不开的页面，显示原因、能关。属性变了自己写，布局存盘前走关卡再写一次；只改属性时写失败没人走关卡，所以 `session.ts` 看到失败就让布局走一次（`flush`），状态栏才亮。
@@ -150,6 +150,69 @@ updated: 2026-11-06
 
 验证：类型检查通过；`test:affected` 除两条别的 Work 的（`plugins/agent` 的跨插件导入、`AgentCompactionDetail` 没有场景）全过；e2e `editor-area` 40 条、`workbench-dnd`、`workbench-shell`、`markdown-editing`、`lab-editor`、`editor-types` 全过。
 
+第 7b 片的实现审查（一个 Sonnet，[`evidences/slice7b-review.txt`](evidences/slice7b-review.txt)，阻断 1、重要 2、建议 7）：
+
+| 条目 | 处理 |
+|---|---|
+| G0 `editor.tabs` 写失败后无间隔重试，事件循环被占满 | 成立，真实 Storage 场地复现。我为了“失败要亮出来”加的 `flush` 和关卡里的自动重试首尾相接。关卡不再重试（`EditorSaveGate` 分 `pass`、`recover`），只有状态栏的“重试”走 `recover`；监听只看“进入失败”这一下。`session.test.ts` 用断线钉住：只亮一次，事件循环不被占 |
+| G1 放弃只回滚布局，标签属性不回滚，组里出现关不掉的幽灵标签 | 成立。比报告的两个改法都小：`carryDynamicTabs` 放弃时结构回到已确认的，动态标签以现在为准 |
+| G7 `bookshelf-stats.e2e` 还读 `editor.session` | 成立，改了。我只在自己列的文件里搜了旧键。这次把用到编辑器标记的 e2e 全跑了 |
+| G2 记录读不了时重试不重新打开 | 成立，`recover` 里先 `reopen` |
+| G3 关闭标签时记录比布局早写 | 成立。删除只在关卡写，两次写之间只隔一次往返 |
+| G4 布局被保护时清掉旧记录 | 成立，随 G3 解决：布局损坏时关卡不走；读不了时也不走关卡 |
+| G5 关掉多行时键盘落点算上滚出视口的标签 | 不改：要关掉多行、标签多到滚动、又用键盘拖，统一标签条（t16）整个换掉这段，写进那边 |
+| G6 几块编辑组的“移动到”重名 | 成立，按树序写序号 |
+| G8 失败路径与会话接线没有测试 | a、b、c 补了（`tabs-record.test.ts`、`session.test.ts`、`groups.test.ts`）；d 的标签条几何靠 `editor-area` e2e，happy-dom 量不了矩形 |
+| G9 零散 | a 文档、b 标签键写死、c computed 外部变量、f 结构键拼接改了。d（`editorContexts` 不清，每块编辑组一个小对象；`context` 没有消费者，以前就没有）、e（`restoreTabs` 构造时改文档，只重排已有的 id）不改，收益小 |
+
+最后一轮（变基到合入前的 master 之后）：类型检查通过；`neuro-book` 的单元测试 bun 2556 过、vitest 431 过，失败 3 条都不在这片：`plugins/agent` 的跨插件导入、`AgentCompactionDetail` 没有场景、`asset-urls` 的“失同步”（整包跑时超时，单独跑通过，没动它和它的依赖）。e2e 第二轮只跑第一轮没覆盖的 9 个文件（`NB_E2E_WIDE`：记录、标记、命令参数变了）98 条全过，`editor-area` 里刷新与恢复相关的 5 条重跑通过；变基后 master 改了主题编辑器，重跑 `theme-editor`、`themes` 36 条全过。
+
+提交之后 `test:affected` 什么都不跑（缺省只看未提交的改动，“改动文件 0 个”，退出码 0）。收口时没注意到就会以为过了，这次是看到输出才改跑整包。
+
+开发者 2026-11-06 试了片 7b，回复四点：实时预览没做（归 t08）；放到两块之间与整块拖动给了太多自由度；预备区位置不对；活动栏应该只显示侧栏的图标。第 2、3、4 点在片 7c 改（计划“片 7c”）。之前“请开发者试编辑器标签的拖动”这一项已经试过。
+
+片 7c 的设计审查（一个 Sonnet，[`evidences/slice7c-plan-review.txt`](evidences/slice7c-plan-review.txt)，重要 5、建议 8）：
+
+| 条 | 处理 |
+|---|---|
+| 1 骨架只靠调用方遵守 | 成立。store 的 `apply` 出口加 `fitsSkeleton` 闸。库的 `edgeAnchorOf` 逐叶验不做：闸覆盖了全部入口 |
+| 2 换序、原位放下会激活标签 | 成立。同面板 `activate: false`；预备区来源已在面板里时只显示并激活 |
+| 3 活动栏落点的映射 | 成立。比报告建议的 `barPositions` 更简单：目标总是 `sidebar`，只按 `sidebar` 的条目算插入位 |
+| 4 模板绕过回落、没有诊断 | 成立。`usableDoc` 记录、模板都过；外壳根写诊断。加版本号标记不做：闸已经要 `fitsSkeleton`，形状就是判据 |
+| 5 收起的面板跨方向变零宽 | 成立。整块移动清掉 `collapsed` |
+| 6 `fitsSkeleton` 的形状 | 成立。写进计划，表驱动测试 |
+| 7 预备区在窄窗口 | 接受取舍。窄屏不保证好用，t11 之前没人走 |
+| 8 缝一半是死区 | 成立。缝归最近的能接收的那块 |
+| 9 只有标题的头 | 成立，a 到 e 都改。名称用标题文字，描述说怎么拖；Spec 输出 20 跟着改 |
+| 10 焦点回落 | 成立。a 改 Spec；b、c 改；d（来源条目折进“更多”）不改：拿起时条目在 DOM 里，放下后才可能折进去，回落到外壳根，影响小 |
+| 11 占位关不掉 | 成立。条目按文档生成，退路同标签 |
+| 12 错误码、验收缺口 | 成立，补 |
+| 13 `editor.tabs` 被清掉 | 接受取舍，写进 Spec 状态表。抢救要把默认树定死，视图目录后到时侧栏会一直隐藏 |
+
+片 7c 已合入（提交见 `git log --grep "片 7c"`）。规则按计划；骨架由落点钩子、具名面板不移动和 store 出口的闸三处守住，性质测试 20 个种子各 60 步，三处变异都被抓到。e2e 由一个 Sonnet 改写，主会话审了 diff。
+
+和计划不一样的地方：面板头的收起按钮只给上下排的面板（子代理指出：横向分支里收起是零宽，和隐藏重复，无名面板找不回来）。Spec 输出 20 已写，记入待确认清单。
+
+验证：类型检查通过；`test:affected --since master` 失败两条都是别的 Work 的（`plugins/agent` 跨插件导入、`AgentCompactionDetail` 没有场景）；e2e 子代理跑过 `workbench-shell`、`lab-workbench-surface`、`files-explorer`、`plugin-authoring`、`plugin-code`（改了注释），主会话改完收起按钮后跑 `workbench-dnd`、`workbench-views`、`editor-area`、`lab-editor`、`editor-types`、`lab-grid-panels` 123 条全过。
+
+片 8 已合入（`0a4492bd3`）：删掉旧的多棵树布局（49 个文件约 8700 行，连同语言文件的旧键、覆盖层的收尾、`NestedGrid` 的 `onIssues`，一共少了约 9400 行），由一个 Sonnet 按清单删，主会话审 diff。子代理多删了 w00041 的 `themeEditor.icons.preview`，已恢复：全仓没有使用方，但那是别的 Work 的键。`ui/workbench-layout.md` 晋升 `implemented`，`ui/workbench-shell.md` 裁到标题栏、状态栏与贡献点，`workbench/commands.md`、`views.md` 按现行合同改。
+
+验证：`bun run typecheck` 只剩 `plugins/agent/web/permission-page.dom.test.ts` 两个错（别的 Work）；`test:affected --since master` 只剩已知的 `plugins/agent` 跨插件导入；e2e `lab-workbench-surface`、`workbench-shell`、`workbench-views`、`workbench-dnd`、`lab-grid-panels`、`lab-drag-session`、`lab-editor` 128 条全过。
+
+t06 接入遗留：1（`useGridLayout` 的 `v-bind` 对象）不做：宿主只有 `WorkbenchSurface` 一处，收益小；2（测量盒合同）随 `EditorArea` 拆掉不再有“提示条算进测量根”的问题；5（`onIssues` 重复）已做。其余（6、7、10、11）留在 t06 记录里，包发布之前再看。
+
+实现审查（片 7c、片 8，一个 Sonnet，[`evidences/slice7c-8-impl-review.txt`](evidences/slice7c-8-impl-review.txt)，重要 1、建议 4）已处理，修正单独提交：
+
+| 条 | 处理 |
+|---|---|
+| F1 收起的面板落进横向分支变零宽 | 成立。比报告建议的 store 出口更低一层：`layout-doc` 的结构操作出口统一看，方向变了就展开 |
+| F2 旧外壳的残留 | 成立，都改了（`WorkbenchDragFeedback` 的文档与死标记、Lab 场景的 `kind`、几处注释） |
+| F3 点标题展开没有 e2e | 成立，补在 `workbench-dnd` |
+| F4 `headReserved` 多留 26px | 成立 |
+| F5 从条目拿起的起点 | 成立，起点改成活动栏，`workbench-dnd` 补一例 |
+
+顺带修了状态栏的“显示面板”在右侧没有条目时跑到左边（`margin-inline-start: auto`，Spec 输出 35 本来就写最右），`workbench-shell` 补断言。
+
 ## 下一步
 
-第 7b 片的实现审查（一个 Sonnet）处理完就合入，然后请开发者在产品里试编辑器标签的拖动。之后第 8 片：删旧代码，晋升 Spec。
+按 [Work 的顺序](../../README.md#推进顺序)进 t16。

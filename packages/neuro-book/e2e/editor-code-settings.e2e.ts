@@ -60,7 +60,7 @@ const disk = (path: string): Promise<string> => readFile(join(projectDir, path),
 async function openFile(page: Page, path: string): Promise<void> {
     if (await item(page, "project://code").getAttribute("aria-expanded") !== "true") await item(page, "project://code").click();
     await item(page, `project://${path}`).dblclick();
-    await expect(page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"]")).toContainText(path.split("/").at(-1)!);
+    await expect(page.locator("[data-editor-group-head-active] [data-editor-tab][aria-selected=\"true\"]")).toContainText(path.split("/").at(-1)!);
     await expect(editor(page).locator(".view-lines")).toContainText("return");
 }
 

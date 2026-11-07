@@ -12,7 +12,7 @@ import type {StorageService} from "nbook/shared/storage";
 
 import {layoutDocStoreFor} from "../state/layout-doc-store";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 
 export interface LayoutDocWindow {
     readonly store: LayoutDocStore;

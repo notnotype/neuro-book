@@ -340,6 +340,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 })(),
                 buffer: [...kernel.buffer],
                 settings: kernel.core,
+                extensionSettings: kernel.settings,
                 title: kernel.title,
                 description: kernel.description,
                 archived: kernel.archived,

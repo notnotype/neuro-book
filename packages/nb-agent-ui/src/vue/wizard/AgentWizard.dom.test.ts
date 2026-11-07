@@ -31,6 +31,18 @@ describe("审批向导", () => {
         view.unmount();
     });
 
+    it("能记时有“本会话都批准”“以后都允许”，按钮写明记什么；不能记时都没有", async () => {
+        const remembered = wizard([{...approval("a", "shell"), remember: {label: "git diff *"}}]);
+        expect(remembered.get("[data-approval-decision='allow-session']").text()).toContain("git diff *");
+        await remembered.get("[data-approval-decision='allow-always']").trigger("click");
+        expect(submitted(remembered)).toEqual([{type: "input.submit", batchKey: "a", resolutions: {kind: "approval", decision: "allow-always"}}]);
+        remembered.unmount();
+        const barred = wizard([{...approval("a", "shell"), remember: false}]);
+        expect(barred.find("[data-approval-decision='allow-session']").exists()).toBe(false);
+        expect(barred.find("[data-approval-decision='allow-always']").exists()).toBe(false);
+        barred.unmount();
+    });
+
     it("一批：一步一个，都选了才能提交；能来回改；提交时一个事项一条", async () => {
         const view = wizard([approval("a"), approval("b", "shell"), approval("c")]);
         expect(view.get("[data-wizard-count]").text()).toBe("第 1 / 3 个");

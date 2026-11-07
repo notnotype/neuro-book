@@ -23,19 +23,24 @@ const rectOf = (item: GridLayerItem<unknown>): GridRect | null => item.rect;
 
 /**
  * 这次变化相对上一次有没有东西要动：叶与分隔线多了、少了，或矩形差得超过容差；活动的内容项换了矩形。内容项算进来，所以标签并入已有面板时两块叶都不动，内容也滑过去。
- * 内容项的多少不算：切标签、开新标签不是布局变化。
+ * 内容项的多少不算：切标签、开新标签不是布局变化。只有上边因为 inset 变了也不算：编辑组的头高了一行（标签折行），内容要立刻让开，不是 470ms 的布局变化。
  */
 export function placementMoved(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): boolean {
     const structural = (list: ReadonlyArray<GridLayerItem<unknown>>): number => list.filter((item) => item.kind !== "content").length;
     if (structural(items) !== structural(previous)) return true;
-    const before = new Map(previous.map((item) => [item.key, rectOf(item)]));
+    const before = new Map(previous.map((item) => [item.key, item]));
+    /** inset 变了时只比左右与下边：上边让给头。 */
+    const withoutTop = (rect: GridRect): GridRect => ({x: rect.x, y: rect.y + rect.height, width: rect.width, height: 0});
     return items.some((item) => {
         const old = before.get(item.key);
+        const oldRect = old === undefined ? null : rectOf(old);
         if (item.kind === "content") {
             const rect = rectOf(item);
-            return item.active && rect !== null && old != null && !nearlyEqual(old, rect);
+            if (!item.active || rect === null || oldRect == null) return false;
+            const insetChanged = old?.kind === "content" && old.insetTop !== item.insetTop;
+            return insetChanged ? !nearlyEqual(withoutTop(oldRect), withoutTop(rect)) : !nearlyEqual(oldRect, rect);
         }
-        return old == null || !nearlyEqual(old, item.rect);
+        return oldRect == null || !nearlyEqual(oldRect, item.rect);
     });
 }
 

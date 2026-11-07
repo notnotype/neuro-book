@@ -45,7 +45,7 @@ const COMMIT_DELAY_MS = 150;
 const CURSOR_REMEMBER_MS = 1000;
 
 /**
- * 每“文档 × 组”一份，存在绑定的槽里：编辑状态（含撤销历史与选区）、原文对照（编解码器写回用，随每次被接受的写出累积）、
+ * 每个标签一份，存在绑定的槽里：编辑状态（含撤销历史与选区）、原文对照（编解码器写回用，随每次被接受的写出累积）、
  * 确认过的修订、`held`（这个视图的输入没有进入正文：未裁决或写不出，别处的修改不重载它）与滚动位置。
  */
 interface MarkdownViewState {
@@ -88,7 +88,7 @@ let loading = false;
 const stateOf = (binding: TextEditorBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
 
 /**
- * 编解码器按编辑器自己的 schema 建（每个编辑器实例一份 schema），缓存在 `codecFor` 里。schema 从编辑状态的文档上取：组关闭时
+ * 编解码器按编辑器自己的 schema 建（每个编辑器实例一份 schema），缓存在 `codecFor` 里。schema 从编辑状态的文档上取：标签关闭时
  * 编辑器区先释放实例，Tiptap 销毁后 `editor.schema` 不再可用，而卸载前的结算还要写出这个视图的输入。
  */
 const codec = (current: Editor): MarkdownCodec => {
@@ -120,7 +120,7 @@ const quietly = (current: Editor, change: (tr: Transaction) => void): void => {
     }
 };
 
-/** 组的实例槽里存的编辑器实例（焦点在重挂后由编辑器区交还给活动视图，见 `area.ts` 的 `focusActive`）。 */
+/** 标签的实例槽里存的编辑器实例。 */
 interface KeptEditor {
     readonly editor: Editor;
     readonly language: MarkdownLanguage;
@@ -134,6 +134,7 @@ const attributes = (): Record<string, string> => ({"aria-label": props.label, "c
  * 写不出时这次输入不交，文档记下这个视图写不出（editor 输出 61）；被接受时把写出的写法回填进编辑器。
  */
 const commitNow = (): void => {
+    const buffered = timer !== null;
     if (timer !== null) {
         clearTimeout(timer);
         timer = null;
@@ -144,6 +145,9 @@ const commitNow = (): void => {
     if (binding === null || current === null) return;
     const view = stateOf(binding);
     if (view === null) return;
+    // 没有待交的输入、又还没跟上别处的修订：重载要到下一轮才跑，这时编辑器与文档不同不是输入，交出去就是假冲突（同一文档的几个控件在
+    // 同一次结算里先后被调，隐藏的控件也在其中）。
+    if (!buffered && !view.held && view.confirmed !== binding.revision.value) return;
     const written = codec(current).write(current.state.doc, view.map);
     if (!written.ok) {
         view.held = true;
@@ -204,7 +208,7 @@ const enter = (binding: TextEditorBinding): void => {
     if (editor === null) return;
     bound = binding;
     let view = stateOf(binding);
-    // 同一个编辑器实例（存在组的实例槽里）的编辑状态才能直接换回；其余情况按正文新建。
+    // 同一个编辑器实例（存在标签的实例槽里）的编辑状态才能直接换回；其余情况按正文新建。
     const fresh = view === null || view.state.schema !== editor.schema;
     if (fresh) {
         view = load(binding);
@@ -401,7 +405,7 @@ const onBlur = (): void => {
 
 onMounted(() => {
     if (root.value === null) return;
-    // 组的实例槽里已有编辑器（组件因布局变化重挂）：挂到新的位置接着用，撤销历史还在。实例的寿命归槽：`unmount` 之后
+    // 标签的实例槽里已有编辑器（控件卸载过）：挂到新的位置接着用，撤销历史还在。实例的寿命归槽：`unmount` 之后
     // Tiptap 的 `isDestroyed` 也为真，不能用它判断实例还能不能用。
     const kept = props.host.state as KeptEditor | null;
     if (kept !== null) {
@@ -444,7 +448,7 @@ onBeforeUnmount(() => {
         editor.off("transaction", onTransaction);
         editor.off("focus", onFocus);
         editor.off("blur", onBlur);
-        // 只从 DOM 上拿下：组还在时实例由组的实例槽保留，组关闭时编辑器区释放它。
+        // 只从 DOM 上拿下：实例由标签的实例槽保留，标签关闭或换编辑器时编辑器区释放它。
         editor.unmount();
     }
     editor = null;
@@ -465,7 +469,7 @@ onBeforeUnmount(() => {
         <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
             <div ref="root" class="markdown-control"></div>
         </div>
-        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.binding?.token ?? null" />
+        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" />
     </div>
 </template>
 

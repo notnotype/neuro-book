@@ -1,6 +1,6 @@
 /**
  * 视图命令（docs/specs/ui/workbench-layout.md 输出 23、35，docs/specs/workbench/views.md 输出 14）。打开视图：显示它所在的面板、激活；不给 `viewId` 时经选择挑一个。
- * 移动视图：标签的“移动到”带 `{viewId, target}` 直接执行，`target` 是面板 id 或 `{newPanelNextTo: 面板 id}`；命令面板执行 `{}`，经选择先选视图、再选目标。
+ * 移动视图：标签的“移动到”带 `{viewId, target}`（面板 id）或 `{viewId, newPanelNextTo}`（面板 id）直接执行；命令面板执行 `{}`，经选择先选视图、再选目标。
  *
  * 选择之间视图被别处移走时，按 `stale-target` 拒绝且不写。
  */
@@ -37,10 +37,11 @@ export const VIEW_COMMAND_DECLARATIONS = {
     },
     [MOVE_VIEW_COMMAND]: {
         category: workbenchText("categories.view"),
-        description: "Move a view to the end of another panel's tabs (target is a panel id), or into a new panel next to one (target is {newPanelNextTo}). Give both viewId and target, or nothing to pick them.",
+        description: "Move a view to the end of another panel's tabs (target), or into a new panel next to one (newPanelNextTo). Give viewId and one of those, or nothing to pick them.",
         args: Type.Object({
             viewId: Type.Optional(Id),
-            target: Type.Optional(Type.Union([Id, Type.Object({newPanelNextTo: Id}, {additionalProperties: false})])),
+            target: Type.Optional(Id),
+            newPanelNextTo: Type.Optional(Id),
         }, {additionalProperties: false}),
         effect: "write",
         expose: {agent: "never"},
@@ -148,10 +149,11 @@ export function viewCommands(layout: () => LayoutDocStore | null, quickPick: Qui
             run: (raw) => {
                 const store = layout();
                 if (store === null) return {ok: false, code: "unavailable", reason: TEXT.noLayout};
-                const {viewId, target} = raw as {readonly viewId?: string; readonly target?: string | {readonly newPanelNextTo: string}};
-                if (viewId === undefined && target === undefined) return pickAndMove(store, quickPick, text);
-                if (viewId === undefined || target === undefined) return {ok: false, code: "invalid-args", reason: TEXT.partial};
-                return resultOf(store.actions.moveView(viewId, target));
+                const {viewId, target, newPanelNextTo} = raw as {readonly viewId?: string; readonly target?: string; readonly newPanelNextTo?: string};
+                if (viewId === undefined && target === undefined && newPanelNextTo === undefined) return pickAndMove(store, quickPick, text);
+                // 目标只能给一个：两个都给时说不清要哪个。
+                if (viewId === undefined || (target === undefined) === (newPanelNextTo === undefined)) return {ok: false, code: "invalid-args", reason: TEXT.partial};
+                return resultOf(store.actions.moveView(viewId, target ?? {newPanelNextTo: newPanelNextTo as string}));
             },
         },
     };

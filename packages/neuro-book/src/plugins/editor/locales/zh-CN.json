@@ -11,7 +11,10 @@
         "unpin": "取消固定 {{name}}",
         "unsaved": "未保存",
         "pinned": "已固定",
-        "previewOf": "预览 {{name}}"
+        "previewOf": "预览 {{name}}",
+        "lost": "打不开的标签",
+        "lostBody": "这个标签的记录丢了，不知道它打开的是什么。可以关掉它。",
+        "dragHint": "按空格拿起并拖动"
     },
     "root": {
         "project": "作品",
@@ -22,14 +25,6 @@
         "loading": "正在读取",
         "empty": "空",
         "retry": "重试"
-    },
-    "drop": {
-        "move": "移到这里",
-        "keep": "原位",
-        "splitLeft": "拆分到左侧",
-        "splitRight": "拆分到右侧",
-        "splitTop": "拆分到上方",
-        "splitBottom": "拆分到下方"
     },
     "tips": {
         "commands": "显示所有命令",

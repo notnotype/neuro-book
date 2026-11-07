@@ -115,10 +115,11 @@ describe("AgentRoleModelPicker", () => {
 
     it("触发器写选的角色、实际用的模型与档位；直接选模型时不重复", async () => {
         const byRole = mount(AgentRoleModelPicker, {props: {roles, models, modelKey: "role:main", effectiveModel: "DeepSeek V4", thinkingLevels: ["high"], thinking: "high"}});
-        expect(byRole.get("[data-model-picker]").text()).toBe("主力 · DeepSeek V4 · 高");
+        expect(byRole.get("[data-model-picker]").attributes("title")).toBe("主力 · DeepSeek V4 · 高");
+        expect(byRole.get("[data-model-picker]").text().replace(/\s+/gu, "")).toBe("主力·DeepSeekV4·高");
         byRole.unmount();
         const byModel = mount(AgentRoleModelPicker, {props: {roles, models, modelKey: "o/g", effectiveModel: "GPT", thinkingLevels: [], thinking: null}});
-        expect(byModel.get("[data-model-picker]").text()).toBe("GPT");
+        expect(byModel.get("[data-model-picker]").attributes("title")).toBe("GPT");
         byModel.unmount();
     });
 

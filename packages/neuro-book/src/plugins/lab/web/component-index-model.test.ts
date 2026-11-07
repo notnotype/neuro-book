@@ -44,13 +44,13 @@ describe("Lab 组件索引", () => {
 
     it("声明了验证入口的零件不可独立挂载，被指向的宿主标为集成入口；入口指向不存在的组件时提示并不给跳转", () => {
         const {byName, warnings} = index({
-            "workbench/WorkbenchTab.md": doc("标签: [state:inject]\n验证入口: WorkbenchShellLayout"),
-            "workbench/WorkbenchShellLayout.md": doc("标签: []"),
+            "workbench/WorkbenchTab.md": doc("标签: [state:inject]\n验证入口: WorkbenchSurface"),
+            "workbench/WorkbenchSurface.md": doc("标签: []"),
             "workbench/WorkbenchBadge.md": doc("标签: []\n验证入口: NoSuchHost"),
         });
-        expect(byName("WorkbenchTab")).toMatchObject({mountable: false, verifyEntry: "WorkbenchShellLayout"});
-        expect(byName("WorkbenchTab").blockedReason).toContain("WorkbenchShellLayout");
-        expect(byName("WorkbenchShellLayout")).toMatchObject({mountable: true, integrationEntry: true});
+        expect(byName("WorkbenchTab")).toMatchObject({mountable: false, verifyEntry: "WorkbenchSurface"});
+        expect(byName("WorkbenchTab").blockedReason).toContain("WorkbenchSurface");
+        expect(byName("WorkbenchSurface")).toMatchObject({mountable: true, integrationEntry: true});
         expect(byName("WorkbenchBadge")).toMatchObject({mountable: false, verifyEntry: null, integrationEntry: false});
         expect(warnings).toEqual(["WorkbenchBadge 的「验证入口」指向不存在的组件：NoSuchHost"]);
     });

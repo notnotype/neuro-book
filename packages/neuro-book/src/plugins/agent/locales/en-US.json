@@ -1,4 +1,98 @@
 {
+    "permissions": {
+        "action": {
+            "allow": "Allow",
+            "ask": "Ask",
+            "deny": "Deny"
+        },
+        "summary": {
+            "none": "All calls",
+            "json": "Custom condition",
+            "keywords": "{{field}} contains {{value}}",
+            "subject": "{{field}} matches {{value}}",
+            "command": "Command {{value}}",
+            "path": "Path {{value}}",
+            "pathRead": "Reading {{value}}",
+            "pathWrite": "Writing {{value}}"
+        },
+        "user": {
+            "title": "My rules",
+            "hint": "Apply to every book. The first match from the top wins; if nothing matches, the approval mode decides."
+        },
+        "add": "Add rule",
+        "empty": {
+            "title": "No rules yet",
+            "description": "Without rules the approval mode decides everything. You could deny git push, ask before writing chapters, or deny prompts with certain words."
+        },
+        "moveUp": "Move up",
+        "moveDown": "Move down",
+        "edit": "Edit",
+        "remove": "Delete",
+        "project": {
+            "title": "Rules for {{title}}",
+            "hint": "In .nbook/permissions.json in the book's folder; apply to this book only. They can only ask or deny.",
+            "invalid": "This file can't be read or isn't valid, so writes and commands in this book will ask.",
+            "empty": "This book has no rules of its own.",
+            "allowIgnored": "Allow has no effect here: a book someone gave you can't allow things on your behalf.",
+            "unavailable": "This book's rules could not be loaded. They still apply when calls are judged."
+        },
+        "dialog": {
+            "add": "Add rule",
+            "edit": "Edit rule",
+            "save": "Save",
+            "cancel": "Cancel"
+        },
+        "field": {
+            "tool": "Tool",
+            "kind": "Condition",
+            "arg": "Argument",
+            "subjectKind": "Subject kind",
+            "access": "Access",
+            "action": "Action",
+            "reason": "Reason (optional; tells the model what to do instead)",
+            "value": {
+                "command": "Command",
+                "path": "Path",
+                "keywords": "Keywords",
+                "subject": "Matches"
+            }
+        },
+        "kind": {
+            "none": "All calls",
+            "command": "Command",
+            "path": "Path",
+            "keywords": "Argument contains keywords",
+            "subject": "Subject from the tool",
+            "json": "Custom (JSON)"
+        },
+        "access": {
+            "any": "Read and write",
+            "read": "Reading only",
+            "write": "Writing only"
+        },
+        "placeholder": {
+            "command": "git push *",
+            "path": "project://chapters/**",
+            "keywords": "gore, violence",
+            "subject": "prod*",
+            "reason": "Let the user review first"
+        },
+        "others": {
+            "title": "Other"
+        },
+        "modeWrite": {
+            "label": "Writes in Discuss and Plan modes",
+            "hint": "When denied, the model is told and can ask to switch modes. When asked, an approval prompt appears.",
+            "deny": "Deny",
+            "ask": "Ask"
+        },
+        "readOnly": {
+            "label": "Additional read-only commands",
+            "hint": "One per line, matched by word prefix. You can add to the built-in list but not remove from it.",
+            "placeholder": "npm ls"
+        },
+        "notSaved": "Permission rules"
+    },
     "settings": {
         "toolBindings": {
             "title": "Agent tool bindings",
@@ -19,6 +113,18 @@
         "maxCost": {
             "title": "Cost limit (USD)",
             "description": "Stops sending model requests when this session's cost reaches this amount; the last request may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
+        },
+        "permissionRules": {
+            "title": "Permission rules",
+            "description": "Rules that allow, ask for or deny tool calls. Each names a tool, a condition and an action; the first match from the top wins"
+        },
+        "readOnlyCommands": {
+            "title": "Extra read-only commands",
+            "description": "Compared word by word as prefixes, such as npm ls. You can add to the built-in list but not remove from it"
+        },
+        "modeWriteAction": {
+            "title": "Writes in discuss and plan modes",
+            "description": "Deny and tell the model to switch modes, or ask for approval"
         },
         "toolLoopThreshold": {
             "title": "Repeated call threshold",
@@ -54,7 +160,8 @@
             "inputTooLarge": "The message is too long.",
             "inputRejected": "A rule stopped this message.",
             "readOnly": "This session is read-only right now.",
-            "other": "Not sent ({{code}})."
+            "other": "Not sent ({{code}}).",
+            "ruleNotSaved": "Approved, but the rule was not saved, so you will be asked again ({{code}})."
         },
         "model": {
             "none": "No model is available yet.",
@@ -62,6 +169,12 @@
             "unknown": "The model this session uses doesn't exist or can't be used.",
             "roleUnbound": "The model role this Profile wants has no model.",
             "unavailable": "Unavailable"
+        },
+        "mode": {
+            "normal": "Normal",
+            "discuss": "Discuss",
+            "plan": "Plan",
+            "unknown": "No such mode. Options: {{options}}"
         },
         "approval": {
             "ask": {
@@ -75,6 +188,15 @@
             "yolo": {
                 "label": "Allow everything",
                 "description": "Never asks; only deny rules can stop a call"
+            },
+            "auto": {
+                "label": "Auto",
+                "description": "Commands go to an approval model first, and to you if it is unsure. The model can miss things, so this is not a security boundary"
+            },
+            "reason": {
+                "mode": "This session is in Discuss or Plan mode, and this call counts as a write.",
+                "autoFailed": "The approval model gave no verdict this time. Please decide.",
+                "autoEscalated": "The approval model passed this to you: {{reason}}"
             }
         },
         "createFailed": "Couldn't create a session ({{code}}).",
@@ -126,6 +248,10 @@
             "noSession": "There is no conversation yet, so there is nothing to compact.",
             "queued": "Will compact when this step finishes.",
             "unknown": "The result of the compact command is unknown. Check whether a compaction divider appeared; if not, send it again."
+        },
+        "modeSwitch": {
+            "approved": "Approved",
+            "declined": "Declined"
         }
     },
     "views": {
@@ -159,6 +285,12 @@
     "state": {
         "active": {
             "reason": "No session is running or waiting for you"
+        }
+    },
+    "settingsPages": {
+        "permissions": {
+            "title": "Permission rules",
+            "description": "Which tool calls are allowed, asked about, or denied"
         }
     }
 }

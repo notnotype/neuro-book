@@ -76,6 +76,8 @@ function summary(files: readonly FileOutcome[]): string {
 
 function editTool(mode: Mode, stores: SessionEditStores): AgentToolImplementation {
     return {
+        // 一次能改几个文件，路径由编辑引擎读出来，和执行时用的是同一份。
+        subjects: (args) => editInspect(mode, JSON.stringify(args)).paths.map((address) => ({kind: "path", access: "write", address})),
         create: (context, {resources}) => {
             const held = stores.acquire(context.sessionId);
             return {

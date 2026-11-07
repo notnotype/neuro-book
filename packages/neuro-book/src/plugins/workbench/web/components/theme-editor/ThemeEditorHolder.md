@@ -10,7 +10,7 @@
 
 ## 为什么自己发请求
 
-导出要读素材（场景图、工作态场景、图标）的字节（`io:read`，取回 `/api/nbook.files/raw/user/theme-assets/…`），导入要把包里的素材传上去、场景与图标分区要上传选好的文件、复制插件主题时要把它的素材读出来传成我的素材（`io:mutate`，位图 `PUT /api/nbook.files/theme-assets`，图标 `PUT /api/nbook.files/theme-icons`）。这些由用户点“导出”“导入”“上传”触发，主体（`ThemeEditor`）只调这里给的 `transfer` 并显示结果，这样主体不碰产品数据、能在 Lab 里单独看。格式与校验在 `package-io.ts`，上传与复制在 `transfer.ts`、`asset-upload.ts`，导出下载在 `export-current.ts`。插件主题素材的地址经会话的 `assetUrl`（目录的 `assetUrl`）取，不在这里拼。
+导出要读素材（场景图、工作态场景、图标）的字节（`io:read`，取回 `/api/nbook.files/raw/user/theme-assets/…`），导入要把包里的素材传上去、场景与图标分区要上传选好的文件、复制插件主题时要把它的素材读出来传成我的素材（`io:mutate`，位图 `PUT /api/nbook.files/theme-assets`，图标 `PUT /api/nbook.files/theme-icons`）。清理没人引用的素材（`POST /api/nbook.files/theme-assets/sweep`，先统计、确认后只删统计里的名单，请求在 `asset-upload.ts`，清单与流程在模型的 `unusedAssets`、`removeUnused`）也在这里发。写素材的入口（导入、上传、复制）都经 `model.trackAssetWork` 包一次，清理据此在它们进行时停用。这些由用户点“导出”“导入”“上传”“清理素材”触发，主体（`ThemeEditor`）只调这里给的 `transfer` 并显示结果，这样主体不碰产品数据、能在 Lab 里单独看。格式与校验在 `package-io.ts`，上传与复制在 `transfer.ts`、`asset-upload.ts`，导出下载在 `export-current.ts`。插件主题素材的地址经会话的 `assetUrl`（目录的 `assetUrl`）取，不在这里拼。
 
 ## 数据
 

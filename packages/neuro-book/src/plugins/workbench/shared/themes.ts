@@ -8,7 +8,7 @@ import type {ContributionDescriptor, ContributionPointDefinition} from "@notnoty
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {TextSchema} from "nbook/shared/text";
+import {LocaleMapSchema, TextSchema} from "nbook/shared/text";
 
 import {workbenchText} from "./text";
 import {WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "./theme-points";
@@ -137,8 +137,12 @@ export const BUILTIN_THEME_CONTRIBUTIONS = [
     {capability: WORKBENCH_THEMES_POINT, id: "eye-sepia", declaration: {title: workbenchText("themes.eyeSepia.title"), base: "nbook", ...EYE_SEPIA_LOOKS} satisfies ThemeDeclaration},
 ];
 
-/** 提供者的声明没有字段：它只是个有实现的名字，主题经 id 引用。 */
-export const SceneProviderDeclarationSchema = Type.Object({}, {additionalProperties: false});
+/**
+ * 提供者的声明：它是个有实现的名字，主题经 id 引用；可选的 `title` 是编辑器下拉里显示的名字（docs/specs/theme/skins.md 输出 18）。
+ * `title` 只收字符串或语言映射，不收文本引用：这个贡献点没有 `complete`，宿主不会给不写 `ns` 的文本引用补命名空间，收了它，作者照
+ * docs/specs/ui/i18n.md 写的引用在运行时就解析不出来。
+ */
+export const SceneProviderDeclarationSchema = Type.Object({title: Type.Optional(Type.Union([Type.String(), LocaleMapSchema]))}, {additionalProperties: false});
 export type SceneProviderDeclaration = Static<typeof SceneProviderDeclarationSchema>;
 
 /** `workbench.theme-scenes` 贡献点：实现只在浏览器入口交付，提供者所在入口要在启动时激活，工作台不替它激活。 */

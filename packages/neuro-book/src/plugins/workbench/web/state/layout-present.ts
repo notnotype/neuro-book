@@ -2,25 +2,27 @@
  * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏条目点了做什么。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridContentInput, GridExtent, LayoutDoc, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {workbenchText} from "../../shared/text";
-import type {ViewCatalog} from "../views/placement";
+import type {ViewCatalog} from "../views/registry";
 import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
 
 const VIEW_KEY_PREFIX = "view:";
 
 /**
  * 内容项：工具视图一个标签一项，`key` 就是标签键，所以视图换面板时内容跟着走。编辑组一块面板一项：一个组现在还是一个控件（每标签一实例见 w00026 t17）。
- * 工具面板的头在外框里，内容从头下面开始；编辑组的标签条还在自己的内容里。
+ * 头都在外框里，内容从头下面开始。工具面板的头是固定高度；编辑组的头一到三行（标签折行、提示条），是实测的，没有头时是 0。
  */
-export function layoutContents(doc: LayoutDoc): GridContentInput[] {
+export function layoutContents(doc: LayoutDoc, editorHeadHeight: (panel: string) => number = () => 0): GridContentInput[] {
     return Object.entries(doc.panels).flatMap(([id, panel]): GridContentInput[] => {
-        if (panel.role === "editor") return [{key: `editor:${id}`, leaf: id, insetTop: 0, active: true}];
-        return panel.tabs.map((tab) => ({key: tabKey(tab), leaf: id, insetTop: PANEL_HEAD_HEIGHT, active: panel.active === tabKey(tab)}));
+        const insetTop = panel.role === "editor" ? editorHeadHeight(id) : PANEL_HEAD_HEIGHT;
+        // 空的编辑组也要一块内容：空态的提示在里面。
+        if (panel.role === "editor" && panel.tabs.length === 0) return [{key: `editor:${id}`, leaf: id, insetTop, active: true}];
+        return panel.tabs.map((tab) => ({key: tabKey(tab), leaf: id, insetTop, active: panel.active === tabKey(tab)}));
     });
 }
 
@@ -55,27 +57,33 @@ export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): Re
     return visible;
 }
 
-/** 活动栏条目点了做什么（输出 22）：不可见就显示，可见但焦点不在里面就聚焦，已经聚焦就隐藏；无名面板没有隐藏，是收起。 */
+/** 活动栏条目点了做什么（输出 22）：不可见就显示，可见就隐藏；无名面板没有隐藏，是收起。 */
 export type ToolEntryIntent =
-    | {readonly kind: "reveal" | "focus" | "hide" | "collapse"; readonly panel: string}
+    | {readonly kind: "reveal" | "hide" | "collapse"; readonly panel: string}
     | {readonly kind: "none"};
 
-export function toolEntryIntent(doc: LayoutDoc, viewId: string, facts: {readonly visible: ReadonlySet<string>; readonly focusedPanel: string | null}): ToolEntryIntent {
+export function toolEntryIntent(doc: LayoutDoc, viewId: string, facts: {readonly visible: ReadonlySet<string>}): ToolEntryIntent {
     const key = tabKey({kind: "view", viewId});
     for (const [id, panel] of Object.entries(doc.panels)) {
         if (!panel.tabs.some((tab) => tabKey(tab) === key)) continue;
         if (!facts.visible.has(key)) return {kind: "reveal", panel: id};
-        if (facts.focusedPanel !== id) return {kind: "focus", panel: id};
         return {kind: panel.name === undefined ? "collapse" : "hide", panel: id};
     }
     return {kind: "none"};
+}
+
+/** 侧栏这一列的面板，按树序（输出 22）：活动栏只列这里的视图，这些面板的头只写标题。 */
+export function sidebarColumnPanels(doc: LayoutDoc): ReadonlyArray<string> {
+    const hit = findTreeNode(doc.tree.root, "sidebar");
+    if (hit === null) return [];
+    return hit.parent?.orientation === "vertical" ? treeLeaves(hit.parent).map((leaf) => leaf.id) : ["sidebar"];
 }
 
 /** 标签与它控制的内容互相引用的 DOM id：标签在面板头（外框里），内容在内容层，两边各算出同一个。 */
 export const panelTabDomId = (prefix: string, key: string): string => `${prefix}-tab-${key}`;
 export const panelTabpanelDomId = (prefix: string, key: string): string => `${prefix}-tabpanel-${key}`;
 
-/** “移动到”的目标（输出 23）：别的工具面板，或挨着一块面板开新面板。 */
+/** “移动到”的目标（输出 23）：别的工具面板，或挨着一块工具面板开新面板。 */
 export type MoveTarget =
     | {readonly kind: "panel"; readonly panel: string}
     | {readonly kind: "new-panel"; readonly nextTo: string};
@@ -87,7 +95,7 @@ export function moveTargetsOf(doc: LayoutDoc, viewId: string): ReadonlyArray<Mov
     const alone = doc.panels[from.panel]?.tabs.length === 1;
     const leaves = treeLeaves(doc.tree.root).filter((leaf) => doc.panels[leaf.id] !== undefined);
     const into = leaves.filter((leaf) => leaf.id !== from.panel && doc.panels[leaf.id]?.role === "tool").map((leaf): MoveTarget => ({kind: "panel", panel: leaf.id}));
-    const beside = leaves.filter((leaf) => doc.panels[leaf.id]?.hidden !== true && !(alone && leaf.id === from.panel)).map((leaf): MoveTarget => ({kind: "new-panel", nextTo: leaf.id}));
+    const beside = leaves.filter((leaf) => doc.panels[leaf.id]?.role === "tool" && doc.panels[leaf.id]?.hidden !== true && !(alone && leaf.id === from.panel)).map((leaf): MoveTarget => ({kind: "new-panel", nextTo: leaf.id}));
     return [...into, ...beside];
 }
 
@@ -102,7 +110,11 @@ export function panelTitle(doc: LayoutDoc, catalog: ViewCatalog, panelId: string
     const panel = doc.panels[panelId];
     const named = panel?.name === undefined ? undefined : PANEL_NAMES[panel.name];
     if (named !== undefined) return named;
-    if (panel?.role === "editor") return workbenchText("viewCommands.parts.editor");
+    if (panel?.role === "editor") {
+        // 几块编辑组都叫“编辑区”就分不出来了：按树序写序号。
+        const editors = treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "editor");
+        return editors.length > 1 ? workbenchText("viewCommands.parts.editorAt", {index: editors.indexOf(panelId) + 1}) : workbenchText("viewCommands.parts.editor");
+    }
     const active = panel?.active ?? null;
     const viewId = active !== null && active.startsWith(VIEW_KEY_PREFIX) ? active.slice(VIEW_KEY_PREFIX.length) : null;
     return (viewId === null ? undefined : catalog.get(viewId)?.title) ?? panelId;

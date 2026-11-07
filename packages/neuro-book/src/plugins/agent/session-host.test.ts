@@ -14,10 +14,12 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {shallowRef} from "vue";
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
-import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AssistantMessageView, ComposerModelView, MessageView, PendingApprovalView, PendingInputView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 
 import {EVENT_INLINE_BYTES} from "./backend/frames";
 import {MAIN_PROFILE} from "./shared/contracts";
+import {AGENT_MODES_EXTENSION} from "./shared/permissions";
+import type {Rule} from "./shared/permissions";
 import {agentProfile} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -95,6 +97,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
             recent.value = id;
         }},
         warnCost: () => 0,
+        rememberRules: async () => ({ok: true}),
         models: () => [{key: "local/m", label: "M", supportsImages: false}],
         roles: () => null,
         drafts: {read: async () => null, write: () => undefined},
@@ -348,14 +351,14 @@ describe("审批与提问（输出 10–14）", () => {
     test("一条回复的一批：都进向导；预览取到；批准与拒绝（附言）各走各的；模型收到附言", async () => {
         const w = await world();
         const h = await started(w);
-        endpoint.script({tools: [{tool: "write", args: {path: "session://一.md", content: "一的内容"}}, {tool: "write", args: {path: "session://二.md", content: "二的内容"}}, {tool: "shell", args: {command: "true"}}]}, "处理完了");
+        endpoint.script({tools: [{tool: "write", args: {path: "session://一.md", content: "一的内容"}}, {tool: "write", args: {path: "session://二.md", content: "二的内容"}}, {tool: "shell", args: {command: "touch 三"}}]}, "处理完了");
         h.host.act({type: "composer.submit", text: "写两个文件", delivery: "prompt"});
         await until("三个审批", () => approvals(h.ctx()).length === 3);
         await until("预览", () => approvals(h.ctx()).every((item) => item.preview.state === "ready"));
         expect(h.ctx().run.status).toBe("waiting");
         const [first, second, third] = approvals(h.ctx());
         expect(first).toMatchObject({tool: "write", preview: {files: [{kind: "diff", before: "", after: "一的内容"}]}});
-        expect(third).toMatchObject({tool: "shell", args: {command: "true"}, preview: {files: []}});
+        expect(third).toMatchObject({tool: "shell", args: {command: "touch 三"}, preview: {files: []}});
 
         h.host.act({type: "input.submit", batchKey: first!.id, resolutions: {kind: "approval", decision: "allow"}});
         h.host.act({type: "input.submit", batchKey: second!.id, resolutions: {kind: "approval", decision: "deny", note: "这个不要"}});
@@ -418,6 +421,72 @@ describe("审批与提问（输出 10–14）", () => {
         expect(h.ctx().wizardState).toBeUndefined();
         h.host.act({type: "input.submit", batchKey: approvals(h.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
         await idle(h);
+    });
+});
+
+describe("自动判断（permissions.md 输出 19、21）", () => {
+    test("审批控件有这一项；模型转人工时向导显示它的理由", async () => {
+        const w = await world();
+        const h = await started(w);
+        expect(h.ctx().composer.approval?.options.map((option) => option.key)).toContain("auto");
+        h.host.act({type: "approval.set", mode: "auto"});
+        await until("切到自动判断", () => h.ctx().composer.approval?.value === "auto");
+        endpoint.script({tools: [{tool: "shell", args: {command: "git push"}}]}, {tool: "submit_verdict", args: {decision: "escalate", reason: "用户没说要推送"}});
+        h.host.act({type: "composer.submit", text: "看看状态", delivery: "prompt"});
+        const pending = await until("审批", () => approvals(h.ctx())[0]);
+        expect(pending.reason).toBe("conversation.approval.reason.autoEscalated");
+        h.host.act({type: "input.submit", batchKey: pending.id, resolutions: {kind: "approval", decision: "deny"}});
+        await idle(h);
+    });
+});
+
+describe("还没有会话时选的模式", () => {
+    test("打开别的会话就作废，不带到之后新建的会话", async () => {
+        const w = await world();
+        const first = await started(w);
+        const existing = first.host.sessionId.value!;
+        const h = await harness(w);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("草稿模式", () => h.ctx().composer.mode === "plan");
+        h.host.act({type: "session.select", sessionId: existing});
+        await until("打开", () => h.host.sessionId.value === existing);
+        const created = await h.host.create(MAIN_PROFILE);
+        const snapshot = await w.service.session(created!).snapshot();
+        expect(snapshot.extensionSettings[AGENT_MODES_EXTENSION]?.mode ?? "normal").toBe("normal");
+    });
+});
+
+describe("以后都允许（permissions.md 输出 23）", () => {
+    const shellCall = (command: string) => ({tools: [{tool: "shell", args: {command}}]});
+
+    test("把请求里的规则写进用户规则，这次与本会话都批准", async () => {
+        const w = await world();
+        const remembered: Rule[] = [];
+        const h = await harness(w, {rememberRules: async (rules) => {
+            remembered.push(...rules);
+            return {ok: true};
+        }});
+        await h.host.create(PROFILE);
+        endpoint.script(shellCall("touch 一"), shellCall("touch 二"), "写好了");
+        h.host.act({type: "composer.submit", text: "建两个文件", delivery: "prompt"});
+        const pending = await until("审批", () => approvals(h.ctx())[0]);
+        h.host.act({type: "input.submit", batchKey: pending.id, resolutions: {kind: "approval", decision: "allow-always"}});
+        await idle(h);
+        // 第二次 `touch` 没有再问：本会话的规则当场生效。
+        expect(assistants(h.ctx().messages).at(-1)?.text).toBe("写好了");
+        expect(remembered).toEqual([{tool: "nbook.agent.shell", when: {type: "command", pattern: "touch *"}, action: "allow"}]);
+    });
+
+    test("存不下也批准，界面提示下次还会问", async () => {
+        const w = await world();
+        const h = await harness(w, {rememberRules: async () => ({ok: false, code: "write-failed", detail: "磁盘满了"})});
+        await h.host.create(PROFILE);
+        endpoint.script(shellCall("touch 三"), "写好了");
+        h.host.act({type: "composer.submit", text: "建文件", delivery: "prompt"});
+        const pending = await until("审批", () => approvals(h.ctx())[0]);
+        h.host.act({type: "input.submit", batchKey: pending.id, resolutions: {kind: "approval", decision: "allow-always"}});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "写好了");
+        expect(JSON.stringify(h.ctx())).toContain("conversation.reject.ruleNotSaved");
     });
 });
 
@@ -714,6 +783,113 @@ describe("附件（输出 31）", () => {
         const view = w.service.session(h.host.sessionId.value!);
         const input = (await view.path()).find((event) => event.type === "input")!;
         expect((input.data as {attachments: {from: number}[]}).attachments[0]!.from).toBe(3);
+    });
+});
+
+describe("Agent 模式（agent/modes.md）", () => {
+    const modeSwitch = (ctx: AgentConversationContext) => ctx.pendingInputs.find((item) => item.kind === "mode-switch") as Extract<PendingInputView, {kind: "mode-switch"}> | undefined;
+
+    test("主创有三种模式；点切换走设置，别的窗口切了跟着变；状态栏与审批不变", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        expect(h.ctx().composer.mode).toBe("normal");
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("切到计划", () => h.ctx().composer.mode === "plan");
+        await w.service.session(h.host.sessionId.value!).changeSettings({commandId: crypto.randomUUID(), patch: {[AGENT_MODES_EXTENSION]: {mode: "discuss"}}});
+        await until("别处切了", () => h.ctx().composer.mode === "discuss");
+    });
+
+    test("没有模式扩展的 Profile：不显示", async () => {
+        const w = await world();
+        const h = await started(w);
+        await until("打开", () => h.ctx().session !== null);
+        expect(h.ctx().composer.modes).toEqual([]);
+    });
+
+    test("还没有会话时选了模式：第一次发送前提交", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(h.ctx().interaction.canChangeMode).toBe(true);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("记下", () => h.ctx().composer.mode === "plan");
+        expect(h.host.sessionId.value).toBeNull();
+        const before = endpoint.requests.length;
+        endpoint.script({tool: "shell", args: {command: "touch a"}}, "好");
+        h.host.act({type: "composer.submit", text: "第一条", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "好");
+        expect(h.ctx().composer.mode).toBe("plan");
+        // 第一条就在计划模式下跑：提示写了，写被闸门拦了。
+        expect(JSON.stringify(endpoint.requests.slice(before).map((request) => request.messages))).toContain("现在是计划模式");
+        const results = (await w.service.session(h.host.sessionId.value!).path()).filter((event) => event.type === "toolResult");
+        expect((results[0]!.data as {code?: string}).code).toBe("mode-blocked");
+    });
+
+    test("/plan 与 /mode：已在不动，接显示名，名字不对提示且字留着", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "command.run", name: "plan", argsText: ""});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        // 显示名也认：这里的翻译端口把键原样交回，显示名就是键。
+        h.host.act({type: "command.run", name: "mode", argsText: h.ctx().composer.modes[1]!.label});
+        await until("讨论", () => h.ctx().composer.mode === "discuss");
+        h.host.act({type: "command.run", name: "mode", argsText: "normal"});
+        await until("按 key", () => h.ctx().composer.mode === "normal");
+        h.host.act({type: "command.run", name: "mode", argsText: ""});
+        await until("下一种", () => h.ctx().composer.mode === "discuss");
+        h.host.act({type: "command.run", name: "mode", argsText: "没有这种"});
+        await until("提示", () => h.ctx().composer.draft.text === "/mode 没有这种");
+        expect(h.ctx().composer.mode).toBe("discuss");
+    });
+
+    test("退出计划：向导带计划与当前审批模式；批准同时改审批模式，模式跟着变", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        endpoint.script({tool: "write", args: {path: "session://plan.md", content: "第一步"}}, {tool: "switch_mode", args: {mode: "normal"}}, "开始");
+        h.host.act({type: "composer.submit", text: "规划", delivery: "prompt"});
+        await until("向导", () => modeSwitch(h.ctx()) !== undefined);
+        const item = modeSwitch(h.ctx())!;
+        expect(item).toMatchObject({fromLabel: expect.any(String), plan: "第一步", approval: {value: "ask"}});
+        h.host.act({type: "input.submit", batchKey: item.id, resolutions: {kind: "mode-switch", answer: {approved: true, approvalMode: "allow-writes"}}});
+        await until("切回", () => h.ctx().composer.mode === "normal");
+        await until("审批模式", () => h.ctx().composer.approval?.value === "allow-writes");
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "开始");
+    });
+
+    test("继续改：附言交给模型，模式不变", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        endpoint.script({tool: "write", args: {path: "session://plan.md", content: "第一步"}}, {tool: "switch_mode", args: {mode: "normal"}}, "再改");
+        h.host.act({type: "composer.submit", text: "规划", delivery: "prompt"});
+        await until("向导", () => modeSwitch(h.ctx()) !== undefined);
+        h.host.act({type: "input.submit", batchKey: modeSwitch(h.ctx())!.id, resolutions: {kind: "mode-switch", answer: {approved: false, note: "第二步也要写"}}});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "再改");
+        expect(h.ctx().composer.mode).toBe("plan");
+        expect(JSON.stringify(endpoint.requests.at(-1)?.messages)).toContain("第二步也要写");
+    });
+
+    test("闸门拒绝单独说明，不算规则拒绝", async () => {
+        const w = await world();
+        const h = await harness(w, {});
+        expect(await h.host.create(MAIN_PROFILE)).not.toBeNull();
+        await until("有模式", () => h.ctx().composer.modes.length === 3);
+        h.host.act({type: "mode.set", mode: "plan"});
+        await until("计划", () => h.ctx().composer.mode === "plan");
+        endpoint.script({tool: "shell", args: {command: "touch a"}}, "好");
+        h.host.act({type: "composer.submit", text: "改", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "好");
+        expect(JSON.stringify(h.ctx().messages)).toContain("kernel.tool.modeBlocked");
     });
 });
 
@@ -1151,7 +1327,7 @@ describe("手动压缩（输出 20）", () => {
     test("视图只列宿主做了的命令", async () => {
         const w = await world();
         const h = await harness(w);
-        expect(h.ctx().interaction.commands).toEqual(["compact", "new", "fork", "rename", "model"]);
+        expect(h.ctx().interaction.commands).toEqual(["compact", "new", "fork", "rename", "model", "plan", "mode"]);
     });
 
     test("没有会话时不新建，说明还没有对话；有对话时压缩：要求进提示词，分隔线带详情，运行结束后输入框干净", async () => {

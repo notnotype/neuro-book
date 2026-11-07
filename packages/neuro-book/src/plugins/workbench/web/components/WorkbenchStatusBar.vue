@@ -132,10 +132,12 @@ const problemText = computed(() => {
     white-space: nowrap;
 }
 
+/* 总在最右（docs/specs/ui/workbench-shell.md 输出 35）：右侧没有条目时条目带不占宽度，不能靠它撑。 */
 .workbench-status-bar__right {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
+    margin-inline-start: auto;
 }
 
 /* 状态栏只有 22px：按钮压到条内高度，字号随状态栏。 */

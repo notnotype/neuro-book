@@ -16,7 +16,7 @@
 
 新建组件必须有一份同名 Markdown 文档与它并列，例如 `PlotTreeView.vue` 对应 `PlotTreeView.md`；已登记的受管组件按下一段机器门禁执行，其他既有组件在下次修改时补齐。**查组件必先读同名 `.md`，改组件必同步同名 `.md`**。查阅或修改组件时先读其说明以获知已有契约与能力标签；任何依赖、输入输出或行为变更都同步维护文档。
 
-受管组件目前是 `packages/nb-ui` 通过 [`src/components/index.ts`](../../../packages/nb-ui/src/components/index.ts) 对外导出的组件，`packages/nb-form` 的渲染层通过 [`src/vue/index.ts`](../../../packages/nb-form/src/vue/index.ts) 对外导出的组件，`packages/nb-agent-ui` 的渲染层通过 [`src/vue/index.ts`](../../../packages/nb-agent-ui/src/vue/index.ts) 对外导出的组件，以及 `packages/nb-markdown` 的 `chip`、`display`、`prompt` 三个入口（`src/chip/index.ts`、`src/display/index.ts`、`src/prompt/index.ts`）导出的组件。新应用的通用组件目录随 workbench 底座确定后加入，届时同步本条与 `docs:check`。`bun run docs:check` 对这批阻断同名 `.md` 缺失；文档存在后，能力标签与实现一致性仍按本规范报告。其余组件不在本门禁内，改动时按本规范补齐。
+受管组件目前是 `packages/nb-ui` 通过 [`src/components/index.ts`](../../../packages/nb-ui/src/components/index.ts) 对外导出的组件，`packages/nb-form` 的渲染层通过 [`src/vue/index.ts`](../../../packages/nb-form/src/vue/index.ts) 对外导出的组件，`packages/nb-layout` 的渲染层通过 [`src/vue/index.ts`](../../../packages/nb-layout/src/vue/index.ts) 对外导出的组件，`packages/nb-agent-ui` 的渲染层通过 [`src/vue/index.ts`](../../../packages/nb-agent-ui/src/vue/index.ts) 对外导出的组件，以及 `packages/nb-markdown` 的 `chip`、`display`、`prompt` 三个入口（`src/chip/index.ts`、`src/display/index.ts`、`src/prompt/index.ts`）导出的组件。新应用的通用组件目录随 workbench 底座确定后加入，届时同步本条与 `docs:check`。`bun run docs:check` 对这批阻断同名 `.md` 缺失；文档存在后，能力标签与实现一致性仍按本规范报告。其余组件不在本门禁内，改动时按本规范补齐。
 
 文档先于实现写：设计组件时先想清它长什么样、怎么交互、吃什么数据、有哪些状态，再写实现。写多写少见下文的详略分档，但文档本身不可缺省。
 
@@ -30,7 +30,7 @@ frontmatter 还可以带一行可选 `别名: ["活动栏", "Activity Bar"]`（J
 
 frontmatter 还可以带一行可选 `标题: 思维链摘要行`，给 Component Lab 一个与组件名不同的显示名：导航显示成「组件名 · 标题」，顶栏也带上它。不写时导航只显示组件名，这是常态。正文的 H1 写组件名，它是写给读文档的人的，不影响 Lab 显示什么；要在导航上显示别的名字，只能用这一行明确声明。
 
-frontmatter 还可以带一行可选 `验证入口: WorkbenchShellLayout`，登记这个零件**不能独立验证**、只能在承载它的宿主集成场景里观察。判据是 props 全部来自宿主链——`state:inject` / `env:portal` 描述的正是这件事：脱离宿主它没有可验证状态，为它在 Lab 里造一层假宿主只会验成另一个东西。值是宿主组件的 canonical 名；Component Lab 据此把它标为不可独立挂载，中栏给出原因与一条直达宿主场景的入口。这个键不改写能力标签：标签仍按实现如实声明，验证入口只说明去哪儿看它。
+frontmatter 还可以带一行可选 `验证入口: WorkbenchSurface`，登记这个零件**不能独立验证**、只能在承载它的宿主集成场景里观察。判据是 props 全部来自宿主链——`state:inject` / `env:portal` 描述的正是这件事：脱离宿主它没有可验证状态，为它在 Lab 里造一层假宿主只会验成另一个东西。值是宿主组件的 canonical 名；Component Lab 据此把它标为不可独立挂载，中栏给出原因与一条直达宿主场景的入口。这个键不改写能力标签：标签仍按实现如实声明，验证入口只说明去哪儿看它。
 
 无论哪一档，开头都要有一段话说清这个组件是什么、解决什么问题、有什么别的组件没有的特点。Lab 摆得出组件有哪些状态，摆不出「为什么会有这个组件」，所以这段不能省。
 

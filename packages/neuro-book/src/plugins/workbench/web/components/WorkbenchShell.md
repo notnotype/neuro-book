@@ -14,18 +14,18 @@
 - 标题栏：固定 36px，在树之外（[`WorkbenchTitleBar`](WorkbenchTitleBar.md)）。
 - 活动栏：[`WorkbenchToolStrip`](WorkbenchToolStrip.md)，上段是全部工具视图，底段是 `chrome` 给的全局项。
 - 工具面板：[`WorkbenchPanelHead`](WorkbenchPanelHead.md) 加视图内容（[`WorkbenchViewFrame`](WorkbenchViewFrame.md)）。视图动作由共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md) 画在面板头，按面板宽度算放几个按钮，其余收进“⋯”：一个截断的标签、其余只留图标的宽度总要留给标签带。
-- 编辑区：树里一块 `role: "editor"` 的面板，里面是 `editorArea` 的提供者（属性 `context: {visible}`，别的面板最大化盖住它时 `visible` 为假），提供者换了才重挂；没有提供者时是欢迎文字。
+- 编辑区：树里每块 `role: "editor"` 的面板是 `editorArea` 提供者的一个组组件（属性 `panelId`、`context: {visible}`，别的面板最大化盖住它时 `visible` 为假），提供者的区级组件在外壳根上挂一次，交出标签的拖动；提供者换了才重挂。没有提供者时编辑组里是欢迎文字，那块面板有标签时写不可用的原因。
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
 
 ## 交互
 
 - 拖动边界的结果交给 store 的 `commitGesture`，布局发布的尺寸交给 `acceptPresented`；记录读完之前边界不能拖。
-- 面板头的框架按钮执行命令（`set-panel-collapsed`、`toggle-panel-maximized`、`set-part-hidden`），可用与原因取命令系统的可用性。标签的右键或菜单键开“移动到”：别的工具面板、“新面板（挨着 X）”、“重置位置”，视图所在面板、交付状态或代际一变菜单就关。
-- 活动栏条目按 `toolEntryIntent`：不可见显示并聚焦，可见没焦点聚焦，已聚焦隐藏（无名面板收起）。
+- 面板头的框架按钮执行命令（`set-panel-collapsed`、`toggle-panel-maximized`、`set-part-hidden`），可用与原因取命令系统的可用性。收起按钮只给上下排的面板。标签的右键或菜单键开“移动到”：别的工具面板、“新面板（挨着 X）”、“重置位置”，视图所在面板、交付状态或代际一变菜单就关。
+- 活动栏只列侧栏这一列的视图。条目按 `toolEntryIntent`：不可见显示并聚焦，可见隐藏（无名面板收起）。右键或菜单键同标签。
 - 状态栏的面板按钮执行 `set-part-hidden`；重试、放弃转给 store。
 - 内容被停放时焦点还在里面：移到同一面板看得见的标签，面板看不见时移到活动栏条目，都没有时外壳根；焦点在外壳之外时不抢。
 - F6 由 `attachPaneFocus` 接到命令，调表面的 `moveFocus`。
-- 拖放的来源是视图标签、活动栏条目、面板头的空白处，规则见 `layout-drag.ts` 与 Spec 的“拖动”。
+- 拖放的来源是视图标签、侧栏这一列的标题、活动栏条目与编辑器标签，规则见 `layout-drag.ts` 与 Spec 的“拖动”。整块面板不能拖。
 
 ## 数据
 

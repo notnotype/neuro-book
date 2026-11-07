@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import type {HTMLAttributes} from "vue";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
+import {computed, nextTick, ref, useAttrs} from "vue";
 import DropdownMenu from "../popup/DropdownMenu.vue";
 import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
 import {useUiText} from "../../text-port";
 import {moveRoving, rovingMove} from "../../utils/roving";
-import {adaptTabs} from "./tabs-adapt";
-import type {TabsAdaptState} from "./tabs-adapt";
+import {useTabsAdapt} from "./useTabsAdapt";
 import type {ControlSize} from "../shared-types";
 
 // 线性标签页（仅标签栏，内容面板由消费方渲染）。
@@ -102,7 +101,16 @@ const moreText = computed(() => props.moreLabel ?? text("tabs.more"));
 const adaptive = computed(() => props.overflow === "adapt");
 const rootRef = ref<HTMLDivElement | null>(null);
 const measureRef = ref<HTMLDivElement | null>(null);
-const adapt = shallowRef<TabsAdaptState>({level: 0, hidden: new Set()});
+const adapt = useTabsAdapt({
+    enabled: () => adaptive.value,
+    items: () => props.items.map((item) => ({value: item.value, hasIcon: item.iconClass !== undefined})),
+    selected: () => props.modelValue,
+    maxItemWidth: () => props.maxItemWidth,
+    remeasureOn: () => [props.items, props.maxItemWidth, props.size, moreText.value],
+    root: rootRef,
+    layer: measureRef,
+    list: tablistRef,
+});
 
 /**
  * 截断及以后：标签有最大宽度，标题末尾省略，悬停显示全名。收进“更多”那一档里标签带可能窄到连选中的加“更多”都放不下，
@@ -115,52 +123,6 @@ function iconOnly(item: TabsItem): boolean {
 }
 const visibleItems = computed(() => (adaptive.value ? props.items.filter((item) => !adapt.value.hidden.has(item.value)) : props.items));
 const moreItems = computed<DropdownMenuItemData[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, id: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
-
-/** 按测量层的实测宽度与标签带的可用宽度求这一档；量不到（还没挂上、不可见）时保持原状。 */
-function measure(): void {
-    const root = rootRef.value;
-    const layer = measureRef.value;
-    const list = tablistRef.value;
-    if (!adaptive.value || root === null || layer === null || list === null) {
-        return;
-    }
-    const natural = Array.from(layer.querySelectorAll<HTMLElement>("[data-measure-tab]"), (element) => element.getBoundingClientRect().width);
-    const available = root.clientWidth;
-    if (available <= 0 || natural.length !== props.items.length) {
-        return;
-    }
-    adapt.value = adaptTabs({
-        items: props.items.map((item) => ({value: item.value, hasIcon: item.iconClass !== undefined})),
-        natural,
-        iconOnly: layer.querySelector<HTMLElement>("[data-measure-icon]")?.getBoundingClientRect().width ?? 0,
-        more: layer.querySelector<HTMLElement>("[data-measure-more]")?.getBoundingClientRect().width ?? 0,
-        gap: Number.parseFloat(getComputedStyle(list).columnGap) || 0,
-        available,
-        maxItemWidth: props.maxItemWidth,
-        selected: props.modelValue,
-    }, adapt.value);
-}
-
-let observer: ResizeObserver | null = null;
-onMounted(() => {
-    if (typeof ResizeObserver === "function") {
-        observer = new ResizeObserver(() => measure());
-    }
-    watch([rootRef, measureRef], ([root, layer], _previous, onCleanup) => {
-        if (observer === null || root === null || layer === null) {
-            return;
-        }
-        observer.observe(root);
-        observer.observe(layer);
-        onCleanup(() => observer?.disconnect());
-        measure();
-    }, {immediate: true});
-});
-onBeforeUnmount(() => observer?.disconnect());
-// 选中项变了：在渲染之前重排（被收起来的那个要换出来），键盘移动后的焦点才能落到它上面。
-watch(() => props.modelValue, () => measure());
-// 标签、截断宽度或“更多”的文字（语言切换会换）变了：测量层先重渲染，再量。
-watch([() => props.items, () => props.maxItemWidth, () => props.size, moreText], () => void nextTick(measure));
 
 function selectHidden(value: string): void {
     const item = props.items.find((candidate) => candidate.value === value);

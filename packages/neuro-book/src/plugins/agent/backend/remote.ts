@@ -13,6 +13,7 @@ import type {Diagnostic, SessionApi, ToolSessionContext} from "@notnotype/nb-har
 import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
 
 import type {AgentService} from "../shared/contracts";
+import type {Rule} from "../shared/permissions";
 import type {agentSessionsContract, ApprovalPreview, RemoteCommandName} from "../shared/remote";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
@@ -34,6 +35,7 @@ export interface AgentRemoteOptions {
     readonly clock: RuntimeClock;
     /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
     readonly previewApproval: (session: ToolSessionContext, tool: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) => Promise<ApprovalPreview>;
+    readonly projectRules: (project: string, signal: AbortSignal) => Promise<Rule[] | "invalid">;
 }
 
 /** 预览大到放不进一条消息时先存起来，经令牌分段读；所有调用方共用一张表。 */
@@ -198,6 +200,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             return chunk === null ? context.fail("out-of-range") : context.ok(chunk);
         },
         profiles: (_input, context) => context.ok(service.profiles()),
+        projectPermissionRules: async ({project}, context) => context.ok(await options.projectRules(project, context.signal)),
         activity: (_input, context) => context.ok(options.sessions.activity()),
         startTask: async ({initial, ...task}, context) => {
             const started = await service.startTask({...task, ...(initial === undefined ? {} : {initial: initial as never})});

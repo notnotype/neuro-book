@@ -104,4 +104,8 @@ export interface ToolImplementation {
 export type ApprovalVerdict =
     | {readonly verdict: "allow"; readonly by: string}
     | {readonly verdict: "deny"; readonly rejection: Attributed}
-    | {readonly verdict: "ask"; readonly reason?: string};
+    /**
+     * `remember`：“本会话都批准”要记住什么，进审批请求，界面点之前就看得到；内核不解释。`false` 是这次不能记，应答 `allow-session` 得
+     * `invalid-answer`。不写时记整个工具。
+     */
+    | {readonly verdict: "ask"; readonly reason?: string; readonly remember?: JsonValue};

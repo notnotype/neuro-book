@@ -73,9 +73,8 @@ export type LabDisplayMode = "tight" | "fill";
  */
 export function deriveDisplayMode(name: string, kind?: LabComponentKind): LabDisplayMode {
     if (
-        name === "WorkbenchShellLayout" ||
         name === "EditorWorkbench" ||
-        name === "EditorArea" ||
+        name === "EditorGroup" ||
         name === "AgentSidebarView" ||
         name === "AgentConversationView" ||
         name === "AgentConversationComposer" ||
@@ -202,7 +201,7 @@ function parseAliases(raw: string, name: string, warn: (message: string) => void
 }
 
 /**
- * frontmatter `验证入口: WorkbenchShellLayout`：该零件不能独立挂载，只能在承载它的宿主集成场景里观察。
+ * frontmatter `验证入口: WorkbenchSurface`：该零件不能独立挂载，只能在承载它的宿主集成场景里观察。
  *
  * 这是给「props 全来自 provide/inject 或 Grid 叶」的零件准备的（`state:inject` / `env:portal`）：
  * 标签本身不阻断挂载，但脱离宿主链没有可验证状态，硬造一层假宿主只会验成另一个东西。

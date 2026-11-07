@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t08-live-drag
-status: planned
+status: active
 updated: 2026-11-05
 ---
 
@@ -13,12 +13,34 @@ updated: 2026-11-05
 
 t06 手感确认后过渡合同变了：前后都有尺寸的叶内容逐帧跟外框，不再“只排一次版”（[nested-grid 的“过渡”](../../../../../../docs/specs/ui/nested-grid.md)）。实时布局里每换一次候选邻居都要逐帧重排，长章节的代价要在这里重新量，数据见 [t06 的测量](../t06-flat-renderer/evidences/follow-content.txt)。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[ui/layout-drag](../../../../../docs/specs/ui/layout-drag.md)、[workbench-layout](../../../../../docs/specs/ui/workbench-layout.md)。计划见 [`plan.md`](plan.md)。
 
 ## 当前状态
 
-2026-11-05 经 nbdev 新建，尚未开工。
+计划第二稿已按设计审查修订，开始实现。
+
+设计审查（一个 Sonnet，[`evidences/plan-review.txt`](evidences/plan-review.txt)，17 条：阻断 2、重要 8、建议 7）全部成立，计划照改：
+
+| 条 | 处理 |
+|---|---|
+| 1 叠放 | 阻断。都放进 `NestedGrid` 的层叠上下文：卡片外观是拿起的内容项自己的，分区走新的 `#overlay` 插槽；不接指针 |
+| 2 可见性 | 阻断。`visibleTabs` 与实例都按已提交的；预览只进渲染 |
+| 3 投影 | store 只多一份渲染用的投影；撤预览挂 `onActiveChange(false)`，先于提交。编辑器异步提交时先回原样，接受 |
+| 4 快照 | 拿起时先让过渡到终点，下一帧才量；标签条拆出快照；尺寸变了取消，改 Spec |
+| 5 编辑器 | `previewable`；`EditorGroup` 按标签真正所在的组读。审查建议的“预览 API 给完整结果”不做：只要能不能预览 |
+| 6 粘滞 | 只有新面板有；矩形取 `areaRect`；`commitsUnderPointer(keyboard)`，`shown` 为 null 不提交 |
+| 7 预备区 | 补一节 |
+| 8 外壳 | 两份文档，逐项列表 |
+| 9 标签条 | `placeholder`、`animateMoves`；工具面板的 `adapt` 条不滑 |
+| 10 落地 | `land` 让这一轮不跟随 |
+| 11 t09 | 输出三态，`source-removed` 现在就做（原型如此） |
+| 12 回退 | 列全，拿起时定一次 |
+| 13 循环 | 自己的帧循环与 `pointermove`，挂 `onActiveChange` |
+| 14 标记 | `data-drag-feel`、`data-live-preview` |
+| 15 读屏 | 常驻 `role="status"` |
+| 16 退路 | 阈值 p95 50ms，片 1 后就量；不达标的做法要开发者定 |
+| 17 文档 | 补 |
 
 ## 下一步
 
-待补充。
+片 1。

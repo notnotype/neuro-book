@@ -5,19 +5,20 @@
 
 # WorkbenchPanelHead
 
-一棵树的布局里工具面板的头（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 20）：32px 一行，顺序是标签带、当前视图的动作、框架按钮。它是工具面板切视图的唯一入口；侧栏、右栏、面板不再各画一种头。标签的接参按统一标签条的形状（提案第 5 节 `TabStripProps`），换成统一标签条时不改调用方（w00026 t16）。
+一棵树的布局里工具面板的头（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 20）：32px 一行，顺序是标签带（侧栏这一列只有当前视图的标题）、当前视图的动作、框架按钮。右栏与面板靠它切视图，侧栏靠活动栏。标签的接参按统一标签条的形状（提案第 5 节 `TabStripProps`），换成统一标签条时不改调用方（w00026 t16）。
 
 ## 布局
 
-固定 32px。标签带占框架按钮和动作之外的全部宽度，放不下时逐级让位、不横向滚动：完整标题，每个标签最宽 96px，选中的保留标题其余只留图标，放不下的收进末尾的“更多 N”；这一段来自 nb-ui `Tabs` 的 `adapt`。动作与框架按钮不让位。`390×844` 由 w00026 t11 的手机呈现决定，不在这里变。
+固定 32px。标签带占框架按钮和动作之外的全部宽度，放不下时逐级让位、不横向滚动：完整标题，每个标签最宽 96px，选中的保留标题其余只留图标，放不下的收进末尾的“更多 N”；这一段来自 nb-layout `TabStrip` 的 `adapt`，外观在这里写。动作与框架按钮不让位。`390×844` 由 w00026 t11 的手机呈现决定，不在这里变。
 
 ## 交互
 
-- 点标签、方向键、Home、End 发 `activate`。选中的标签是 Tab 停靠点，其余靠方向键。
+- 点标签、方向键、Home、End 发 `activate`，Alt 加方向键发 `reorder`。选中的标签是 Tab 停靠点，其余靠方向键。
 - 标签的右键或菜单键发 `context-menu`（“移动到”由宿主开）。不是标签的地方右键不处理，留给浏览器。
 - 框架按钮点了发 `action`；不可用时禁用，悬停提示是原因。
 - 动作区带 `data-hover-actions`，随鼠标显示的范围由宿主给（`hover-actions.css`）。
-- 面板头自己可聚焦（一个 Tab 停靠点，读屏读 `label` 与 `dragHint`）：它是整块面板的拖动源。
+- `titleOnly` 时只有活动标签的标题：一个可聚焦的按钮，点了发 `activate`（面板收着时宿主展开），是这个视图的拖动源，名称是标题，`dragHint` 写在描述里。
+- 面板头的空白处不起拖：整块面板不能拖（输出 24）。
 
 ## 数据
 
@@ -46,7 +47,7 @@ type PanelFrameAction = {
 };
 
 type Props = {
-    /** 面板 id，写到 `data-panel-head`、`data-panel-band`。必填。 */
+    /** 面板 id，写到 `data-panel-head`、`data-panel-band`、`data-panel-strip`。必填。 */
     panelId: string;
     /** 标签带的可访问名称；没有标签时显示它。必填。 */
     label: string;
@@ -60,12 +61,15 @@ type Props = {
     idPrefix?: string;
     /** 标签的可访问描述；默认不写。 */
     dragHint?: string;
+    /** 不画标签带，只写活动标签的标题；默认 false。没有活动标签时同没有标签。 */
+    titleOnly?: boolean;
     /** 框架按钮，按给定顺序排；默认无。 */
     frameActions?: ReadonlyArray<PanelFrameAction>;
 };
 
 type Emits = {
     (event: "activate", id: string): void;
+    (event: "reorder", id: string, delta: -1 | 1): void;
     (event: "action", id: string): void;
     /** 坐标是视口坐标；菜单键时是标签左下角。 */
     (event: "context-menu", id: string, at: {x: number; y: number}): void;

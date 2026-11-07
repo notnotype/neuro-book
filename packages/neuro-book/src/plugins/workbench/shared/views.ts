@@ -19,15 +19,15 @@ export const WORKBENCH_VIEWS_POINT = "workbench.views";
 /** 打开视图的命令 id（docs/specs/workbench/views.md 输出 14），参数 `{viewId?}`；作者的状态栏条目收视图助手时执行它。 */
 export const OPEN_VIEW_COMMAND = "nbook.view.open";
 
-/** 能承载视图容器的三个 Part（ToolPart），也是视图声明的默认位置。 */
+/** 三个具名面板，也是视图声明的第一次放到哪（docs/specs/ui/workbench-layout.md 输出 4）。 */
 export const VIEW_LOCATIONS = ["sidebar", "auxiliarybar", "panel"] as const;
 
 export type ViewLocation = (typeof VIEW_LOCATIONS)[number];
 
-/** 视图 id 与容器 id 的长度上限：布局记录用它们作键，容量估算以此为前提（ui/workbench-shell.md“副作用与数据”）。 */
+/** 视图 id 的长度上限：布局记录里存着它，容量估算以此为前提（ui/workbench-layout.md“副作用与数据”）。 */
 export const VIEW_ID_MAX_LENGTH = 128;
 
-/** 有效主轴最小值的下限与缺省值（ui/workbench-shell.md“副作用与数据”）。 */
+/** 视图声明的最小尺寸的下限与缺省值（workbench/views.md“输入与前置条件”）。 */
 export const VIEW_MIN_SIZE_FLOOR = 33;
 export const VIEW_MIN_SIZE_DEFAULT = 64;
 
@@ -37,7 +37,7 @@ export const VIEW_ACTIONS_MAX = 8;
 const Size = Type.Number({exclusiveMinimum: 0, maximum: 1_000_000});
 
 /**
- * 视图标题动作（docs/specs/workbench/views.md 输出 10）：外壳在视图标题行（single 时在容器标题行）画成图标按钮，点了
+ * 视图标题动作（docs/specs/workbench/views.md 输出 10）：外壳在面板头里画成图标按钮，点了
  * 执行命令。可用与否、不可用的原因都看命令自己的 `when`（与应用菜单同一规则）。`args: "instance"` 时参数是被点的那个
  * 视图实例的 `{viewId, generation}`，否则是 `{}`；`toggled` 是公开状态的布尔键，为真时按钮是按下的样子。
  */

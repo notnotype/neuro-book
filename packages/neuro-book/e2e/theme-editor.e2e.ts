@@ -4,7 +4,7 @@
  */
 
 import {createHash, randomUUID} from "node:crypto";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -273,6 +273,130 @@ test("图标：上传 SVG 后工作台里该图标换成它，不合格的被路
     });
 });
 
+test("图标名补全与原图标：候选取自页面里产品能画的图标（含别名、不含自己的覆盖表），不在其中的名字给非阻断提示，行里的原图标不被覆盖污染", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=icons]").click();
+        const field = page.locator("[data-icon-name]");
+
+        // 候选：输入前缀，产品里用着的图标出现（只断言包含，不断言条数：开发服务与 e2e 外壳的样式比产品多出 Lab 里的图标）。
+        await field.click();
+        await field.fill("folder");
+        await expect(page.getByRole("option", {name: "folder-plus", exact: true})).toBeVisible();
+        // 别名写成分组选择器（`.i-lucide-loader-2,.i-lucide-loader-circle`），两个名字都要在目录里。
+        await field.fill("loader");
+        await expect(page.getByRole("option", {name: "loader-2", exact: true})).toBeVisible();
+        await expect(page.getByRole("option", {name: "loader-circle", exact: true})).toBeVisible();
+        // 键盘：回车只在用方向键选过候选时填入它，否则就是添加——不能让回车改掉用户输入的完整名字（`folder` 的候选里还有 `folder-plus`）。
+        await field.fill("fol");
+        await expect(page.getByRole("option", {name: "folder", exact: true})).toBeVisible();
+        const candidates = await page.getByRole("option").allTextContents();
+        expect(candidates.length).toBeGreaterThan(1);
+        await expect(field).not.toHaveAttribute("aria-activedescendant", /.+/u);
+        await field.press("ArrowDown");
+        await field.press("ArrowDown");
+        await expect(field).toHaveAttribute("aria-activedescendant", /.+/u);
+        await field.press("Enter");
+        await expect(field).toHaveValue(candidates[1]!);
+        await expect(page.locator("[data-icon-row]")).toHaveCount(0);
+        // 填入之后再按回车就是添加（弹出选文件）；名字没被改。
+        const chosen = candidates[1]!;
+        const firstChooser = page.waitForEvent("filechooser");
+        await field.press("Enter");
+        await firstChooser;
+        await expect(field).toHaveValue(chosen);
+        // 输入完整的名字直接回车：添加，名字不变（候选里有更长的同前缀名也一样）。
+        await field.fill("folder");
+        const secondChooser = page.waitForEvent("filechooser");
+        await field.press("Enter");
+        await secondChooser;
+        await expect(field).toHaveValue("folder");
+        // Escape 收起，菜单收起后输入框不再指向它；方向键把它重新打开。
+        await field.fill("fold");
+        await expect(page.getByRole("option").first()).toBeVisible();
+        await expect(field).toHaveAttribute("aria-controls", /.+/u);
+        await field.press("Escape");
+        await expect(page.getByRole("option")).toHaveCount(0);
+        await expect(field).not.toHaveAttribute("aria-controls", /.+/u);
+        await field.press("ArrowDown");
+        await expect(page.getByRole("option").first()).toBeVisible();
+
+        // 不在目录里的名字：非阻断提示，仍然合规（没有“名字不合规则”的报错）。先确认这个名字真的不在页面样式里（lucide 里有，仓库源码里没用）。
+        const unknown = "ice-cream-cone";
+        expect(await page.evaluate((name) => Array.from(document.styleSheets).some((sheet) => Array.from(sheet.cssRules).some((rule) => rule.cssText.includes(`.i-lucide-${name}`))), unknown)).toBe(false);
+        await field.fill(unknown);
+        await expect(page.locator("[data-icon-unknown]")).toBeVisible();
+        await expect(page.locator("[data-icon-name-problem]")).toHaveCount(0);
+        await field.fill("folder");
+        await expect(page.locator("[data-icon-unknown]")).toHaveCount(0);
+
+        // 覆盖 folder：行里的预览是上传的 SVG，旁边的“原图标”仍是产品默认的，两者不同（预览的蒙版取自素材目录的文件）。
+        const hash = createHash("sha256").update(ICON_SVG).digest("hex");
+        await chooseIcon(page, "mine.svg", ICON_SVG);
+        const row = page.locator('[data-icon-row="folder"]');
+        await expect(row).toBeVisible();
+        const maskOf = (selector: string) => row.locator(selector).evaluate((element) => getComputedStyle(element).maskImage);
+        await expect.poll(() => maskOf(".theme-editor-icons__preview:not([data-icon-original])")).toContain(`${hash}.svg`);
+        const original = await maskOf("[data-icon-original]");
+        expect(original).toContain("data:image/svg+xml");
+        expect(original).not.toContain(`${hash}.svg`);
+
+        // 自己的覆盖表不算“产品能画的”：folder 已被覆盖，但目录里它的默认图标仍是产品那个；一个只存在于覆盖里的名字不进候选。
+        await field.fill(unknown);
+        await chooseIcon(page, "cone.svg", ICON_SVG);
+        await expect(page.locator(`[data-icon-row="${unknown}"]`)).toBeVisible();
+        await expect(page.locator(`[data-icon-row="${unknown}"] [data-icon-original]`)).toHaveCount(0);
+        await field.fill("ice-cream");
+        await expect(page.getByRole("option")).toHaveCount(0);
+    });
+});
+
+test("清理未使用素材：先统计、确认后只删统计里的；被引用的、刚写入的、不是素材的都不动；取消不删", async ({page}) => {
+    await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
+        await open(page, session);
+        await openEditorTab(page);
+        await newTheme(page);
+        await page.locator("[data-section-tab=scene]").click();
+        await page.locator("[data-scene-file]").setInputFiles(SCENE_IMAGE);
+        await expect(page.locator("[data-scene-note]")).toContainText("KB");
+
+        // 素材目录里：上面传的（被主题引用，也是刚写的）；一个旧孤儿；一个刚写的孤儿（保护期内）；一个不是素材的文件。
+        const dir = join(session.stateRoot, "user", "theme-assets");
+        const orphan = `${createHash("sha256").update("old orphan").digest("hex")}.webp`;
+        const fresh = `${createHash("sha256").update("fresh orphan").digest("hex")}.webp`;
+        await writeFile(join(dir, orphan), "old orphan");
+        const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+        await utimes(join(dir, orphan), old, old);
+        await writeFile(join(dir, fresh), "fresh orphan");
+        await writeFile(join(dir, "notes.txt"), "不是素材");
+        const before = (await readdir(dir)).sort();
+        expect(before).toHaveLength(4);
+
+        // 统计：只有那个旧孤儿；取消后什么都没删。
+        await page.locator("[data-sweep]").click();
+        await expect(page.locator("[data-sweep-text]")).toContainText("有 1 个没人用的素材");
+        await page.locator("[data-sweep-cancel]").click();
+        await expect(page.locator("[data-sweep-text]")).toHaveCount(0);
+        expect((await readdir(dir)).sort()).toEqual(before);
+
+        // 确认：只删旧孤儿；被引用的上传、刚写的孤儿、别的文件都在。
+        await page.locator("[data-sweep]").click();
+        await expect(page.locator("[data-sweep-confirm]")).toBeVisible();
+        // 有素材操作在进行时（这里没有）确认与开始都停用；统计出来后“清理素材”本身也停用，免得重复开始。
+        await expect(page.locator("[data-sweep]")).toBeDisabled();
+        await page.locator("[data-sweep-confirm]").click();
+        await expect(page.locator("[data-sweep-text]")).toContainText("已清理 1 个素材");
+        expect((await readdir(dir)).sort()).toEqual(before.filter((name) => name !== orphan));
+
+        // 再统计：剩下的刚写的孤儿还在保护期内，没有可清理的。
+        await page.locator("[data-sweep]").click();
+        await expect(page.locator("[data-sweep-text]")).toContainText("没有可清理的素材");
+        expect((await readdir(dir)).sort()).toEqual(before.filter((name) => name !== orphan));
+    });
+});
+
 test("工作态场景与预览状态：上传后预览选“工作中”场景换成它，“空闲”换回，“跟随”回到真实状态；关掉编辑器后回到真实状态", async ({page}) => {
     await withSession({[THEME]: "nbook", [APPEARANCE]: "light"}, async (session) => {
         await open(page, session);
@@ -328,7 +452,7 @@ test("复制书房：它的场景图与全部图标都传成我的素材（真�
 
         // 传成我的素材：每个图标行预览的地址都是素材目录里 `<sha256>.svg` 的读取地址，取得到 SVG；素材目录里的文件都是摘要命名。
         const assetPath = /^\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.svg$/u;
-        const urls = await page.locator("[data-icon-row] [aria-hidden=true]").evaluateAll((previews) => previews.map((element) => /url\("(.+)"\)/u.exec((element as HTMLElement).style.getPropertyValue("--icon-url"))?.[1] ?? ""));
+        const urls = await page.locator("[data-icon-row] [aria-hidden=true]:not([data-icon-original])").evaluateAll((previews) => previews.map((element) => /url\("(.+)"\)/u.exec((element as HTMLElement).style.getPropertyValue("--icon-url"))?.[1] ?? ""));
         expect(urls).toHaveLength(STUDY_ICON_NAMES.length);
         for (const url of urls) {
             expect(url).toMatch(assetPath);
@@ -343,6 +467,8 @@ test("复制书房：它的场景图与全部图标都传成我的素材（真�
         // 场景图一并复制：取景编辑里画的就是我的素材。
         await page.locator("[data-section-tab=scene]").click();
         await expect(page.locator("[data-crop-editor] img")).toHaveAttribute("src", /\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.(?:webp|png|jpg)$/u);
+        // 书房的工作态场景也一并复制（t14 起书房带了亮暗各一张）。
+        await expect(page.locator("[data-working-thumb]")).toHaveAttribute("src", /\/api\/nbook\.files\/raw\/user\/theme-assets\/[0-9a-f]{64}\.(?:webp|png|jpg)$/u);
     });
 });
 
@@ -415,6 +541,20 @@ test("浮动窗口里是同一个编辑器：实心面、可关闭，关掉后�
         await chooseIcon(page, "long.svg", ICON_SVG);
         await expect(page.locator("[data-icon-row]")).toHaveCount(1);
         await page.setViewportSize({width: 390, height: 844});
+        // 窄屏导航条里，当前分区的导航项要在导航条的可视范围里。三个入口各一条判据，都不用 Playwright 的 click（它会自己把目标滚进视口，
+        // 量到的就不是编辑器自己的行为）：竖排变横排（分区没变）；分区变了，目标在右、在左各一次（`dispatchEvent` 只发事件，不滚动）。
+        const tabInView = (section: string) => expect.poll(() => page.locator(`[data-section-tab=${section}]`).evaluate((tab) => {
+            const bar = tab.closest("nav")?.getBoundingClientRect();
+            const box = tab.getBoundingClientRect();
+            return bar !== undefined && box.left >= bar.left - 1 && box.right <= bar.right + 1;
+        }), {message: `窄屏下 ${section} 的导航项要在导航条的可视范围里`}).toBe(true);
+        await tabInView("icons");
+        const bar = page.locator("nav.theme-editor__nav");
+        await bar.evaluate((element) => { element.scrollLeft = 0; });
+        await page.locator("[data-section-tab=contrast]").dispatchEvent("click");
+        await tabInView("contrast");
+        await page.locator("[data-section-tab=basic]").dispatchEvent("click");
+        await tabInView("basic");
         // 每个分区都量一次：分区里是 ScrollArea，横向溢出不会让编辑器根的 scrollWidth 变大，所以量分区内容自己和每个配色行。
         for (const section of ["basic", "colors", "fonts", "chrome", "scene", "icons", "contrast"]) {
             await page.locator(`[data-section-tab=${section}]`).click();

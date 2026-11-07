@@ -7,7 +7,6 @@ import {describe, expect, it} from "bun:test";
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "./shared/contracts";
 import type {EditorDeclaration} from "./shared/contracts";
 import {BINARY_TAB_EDITOR, completedBuiltinEditors, candidatesFor, catalogOf, editorRefusal, resolveEditor} from "./web/editors";
-import {snapshotOf} from "./web/session-record";
 
 const title = {"zh-CN": "x", "en-US": "x"};
 const declare = (extra: Partial<EditorDeclaration>): EditorDeclaration => ({title, priority: "default", input: "text", ...extra});
@@ -66,16 +65,5 @@ describe("Spec workbench.editor 输出 38–39：指定编辑器与重新打开�
         expect(candidatesFor(catalog, "project://index.html")).toEqual(["test.preview.html", CODE_EDITOR]);
         expect(candidatesFor(catalog, "project://types/a.d.ts")).toEqual(["test.dts.editor", "test.ts.editor", CODE_EDITOR]);
         expect(candidatesFor(catalog, "project://notes.txt")).toEqual([CODE_EDITOR]);
-    });
-});
-
-describe("Spec workbench.editor 的“副作用与数据”：会话记录", () => {
-    it("旧记录里的 markdown、code 读出时换成内置编辑器 id，别的 id 原样", () => {
-        const snapshot = snapshotOf({layout: null, activeGroup: "g0", groups: [{id: "g0", active: 0, tabs: [
-            {address: "project://a.md", editor: "markdown", preview: false},
-            {address: "project://b.json", editor: "code", preview: false},
-            {address: "project://c.png", editor: "test.image.viewer", preview: true},
-        ]}]});
-        expect(snapshot?.groups[0]?.tabs.map((tab) => tab.editor)).toEqual([MARKDOWN_EDITOR, CODE_EDITOR, "test.image.viewer"]);
     });
 });

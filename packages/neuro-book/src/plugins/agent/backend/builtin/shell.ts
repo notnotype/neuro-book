@@ -16,6 +16,9 @@ import type {ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 import type {AgentToolServices, SessionResources} from "../../shared/resources";
 
+import {commandEffect} from "../permissions/dialects";
+import type {Dialects} from "../permissions/dialects";
+
 import {failure, workingAddress} from "./common";
 import {findAddresses, substitute} from "./shell-address";
 
@@ -254,6 +257,9 @@ async function run(context: ToolSessionContext, {resources, artifacts}: AgentToo
     }
 }
 
-export const shellTool: AgentToolImplementation = {
+/** 判定对象是命令；只读清单在方言里，全部只读才算读（docs/specs/agent/permissions.md 输出 17）。 */
+export const shellTool = (dialects: Dialects): AgentToolImplementation => ({
     create: (context, services) => ({execute: (args, call) => run(context, services, args, call.signal)}),
-};
+    effect: (args) => commandEffect(dialects("bash"), args.command as string),
+    subjects: (args) => [{kind: "command", dialect: "bash", text: args.command as string}],
+});

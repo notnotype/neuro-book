@@ -14,6 +14,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
@@ -44,7 +45,7 @@ async function start(): Promise<{readonly catalog: SyntaxCatalog; readonly deliv
 /** 打开 `a.md` 并挂一个 Markdown 控件（与 `EditorGroup` 一样把句柄交给编辑器区）。 */
 async function opened(text: string, catalog: SyntaxCatalog): Promise<{readonly editor: Editor; readonly handle: EditorControlHandle; readonly binding: TextEditorBinding}> {
     const memory = createMemoryFiles({project: [["a.md", text]], user: []});
-    const area = createEditorArea({files: memory.files, clock: systemClock, workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+    const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
     }});
     cleanups.push(() => memory.dispose());
@@ -56,10 +57,10 @@ async function opened(text: string, catalog: SyntaxCatalog): Promise<{readonly e
         return found?.kind === "text" && area.documentOf(groupId)?.status.value === "ready" ? found : null;
     });
     let handle: EditorControlHandle | null = null;
-    const host = area.controlSlot(groupId, MARKDOWN_EDITOR);
+    const host = area.tabControlSlot(binding.tabId, MARKDOWN_EDITOR);
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
-        area.registerHandle(groupId, MARKDOWN_EDITOR, ready);
+        area.registerTabHandle(binding.tabId, MARKDOWN_EDITOR, ready);
     }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog}}});
     cleanups.push(() => wrapper.unmount());
     return {editor: (host.state as {editor: Editor}).editor, handle: handle as unknown as EditorControlHandle, binding};

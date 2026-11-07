@@ -10,6 +10,8 @@ export const NB_Z_INDEX = {
     /** DropdownMenu / Select 等局部浮层（不在对话框里时） */
     popover: 60,
     tooltip: 70,
+    /** 落点分区（`DropSectorsOverlay`）：压在内容上，提交后的矩形与提示要压在它上面 */
+    dropSectors: 59,
     /** 拖放落点提示（`DropFeedbackOverlay`），与局部浮层同档：拖放时不会同时开着下拉 */
     dropFeedback: 60,
     /** 工作台拖动时跟着指针的拖影：高于页面里的浮层，低于对话框（拖动不会发生在对话框之下） */

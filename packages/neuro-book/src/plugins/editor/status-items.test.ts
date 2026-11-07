@@ -21,6 +21,7 @@ import {dialectTable} from "nbook/plugins/markdown/shared/word-count";
 import type {Scene} from "nbook/plugins/files/testing/scene";
 
 import {createEditorArea} from "./web/area";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/area";
 import {editorStateValues} from "./web/state";
 import {CURSOR_ITEM, editorStatusItems, LANGUAGE_ITEM, UNSAVED_ITEM, WORD_COUNT_DELAY_MS, WORD_COUNT_ITEM} from "./web/status-items";
@@ -65,7 +66,7 @@ afterAll(async () => {
 async function world(): Promise<{scene: Scene; area: EditorArea}> {
     counter += 1;
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "---\ntitle: 甲\n---\n第一章", "b.md": "B", "c.json": "{}"}});
-    const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), workspaceKey: "p1", generation: 1, initial: null, report: (error) => {
+    const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), panels: createMemoryEditorPanels(), workspaceKey: "p1", generation: 1, initial: null, report: (error) => {
         throw error;
     }});
     closers.push(async () => {
@@ -204,12 +205,12 @@ describe("状态栏条目", () => {
         await opened(scene, area, "project://c.json");
         const position = shallowRef<{line: number; column: number} | null>({line: 18, column: 4});
         const withPosition: EditorControlHandle = {focus: () => undefined, flushPendingChange: () => undefined, position};
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, withPosition);
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, withPosition);
         expect(keys.hasCursorPosition.value).toBe(true);
         expect(items[CURSOR_ITEM]!.text()).toBe("第 18 行，第 4 列");
         position.value = {line: 2, column: 1};
         expect(items[CURSOR_ITEM]!.text()).toBe("第 2 行，第 1 列");
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
         expect(keys.hasCursorPosition.value).toBe(false);
     });
 
@@ -220,12 +221,12 @@ describe("状态栏条目", () => {
         const items = editorStatusItems(ref, new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         await opened(scene, area, "project://c.json");
         const language = shallowRef<string | null>("python");
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined, language});
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined, language});
         expect(keys.hasLanguage.value).toBe(true);
         expect(items[LANGUAGE_ITEM]!.text()).toBe("Python");
         language.value = "json";
         expect(items[LANGUAGE_ITEM]!.text()).toBe("json");
-        area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
+        area.registerTabHandle(area.groups.activeTab()?.id ?? "", CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined});
         expect(keys.hasLanguage.value).toBe(false);
     });
 });

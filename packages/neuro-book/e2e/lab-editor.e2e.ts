@@ -42,7 +42,7 @@ function watchConsole(page: Page): string[] {
 const labState = (page: Page) => page.evaluate(() => (window as unknown as {__nbLab?: {state(): LabDebugState}}).__nbLab?.state() ?? null);
 const stage = (page: Page) => page.locator("[data-lab-stage]");
 const prose = (page: Page) => stage(page).locator("[data-editor-group-active] [data-editor-prose]");
-const tab = (page: Page, label: string) => stage(page).locator("[data-editor-group-active] [data-editor-tab]").filter({hasText: label});
+const tab = (page: Page, label: string) => stage(page).locator("[data-editor-group-head-active] [data-editor-tab]").filter({hasText: label});
 
 /** 场景多于四个，Lab 用下拉框切场景。 */
 async function chooseScene(page: Page, label: string): Promise<void> {
@@ -53,7 +53,7 @@ async function chooseScene(page: Page, label: string): Promise<void> {
 test("Lab 集成场景：输入后保存清掉未保存标记；外部改写进入正文；外部删除给出提示；拆分场景两种控件都渲染；不发产品接口请求；切出再回是新数据", async ({page}) => {
     const problems = watchConsole(page);
     await page.setViewportSize({width: 1400, height: 900});
-    await page.goto(`${dev.pageUrl}lab?c=EditorArea&s=live`);
+    await page.goto(`${dev.pageUrl}lab?c=EditorGroup&s=live`);
     await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "live"});
     const requests: string[] = [];
     page.on("request", (request) => {
@@ -112,4 +112,89 @@ test("Lab 集成场景：输入后保存清掉未保存标记；外部改写进�
 
     expect(requests).toEqual([]);
     expect(problems).toEqual([]);
+});
+
+test.describe("回收（docs/specs/workbench/editor.md 术语“视图”）：每种编辑器只留 2 个控件", () => {
+    /** 场景 `recycle` 的标签顺序：三个 Markdown（第一章、第二章、方言）、三个源码（第一章、第二章、设定）。 */
+    const tabAt = (page: Page, index: number) => stage(page).locator("[data-editor-tab]").nth(index);
+    const controls = (page: Page, kind: string) => stage(page).locator(`[data-editor-kind="${kind}"]`);
+    const monacoText = (page: Page) => stage(page).locator("[data-editor-kind=\"nbook.editor.code\"]:visible .view-lines").evaluate((element) => [...element.querySelectorAll(".view-line")].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map((line) => (line.textContent ?? "").replace(/\u00a0/gu, " ")).join("\n"));
+
+    test("Markdown：最久没用的卸载，切回来时光标与撤销都在", async ({page}) => {
+        const problems = watchConsole(page);
+        await page.setViewportSize({width: 1400, height: 900});
+        await page.goto(`${dev.pageUrl}lab?c=EditorGroup&s=recycle`);
+        await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "recycle"});
+        await expect(stage(page).locator("[data-editor-tab]")).toHaveCount(6);
+        // 滚动：方言那个标签滚到一半，它被卸载再切回来还在原处。视口压矮，正文才滚得动。
+        await page.setViewportSize({width: 1400, height: 420});
+        const scroller = stage(page).locator("[data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-control=\"markdown\"]");
+        await tabAt(page, 2).click();
+        await expect(prose(page)).toContainText("方言一览");
+        const scrolled = await scroller.evaluate((element) => {
+            element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2);
+            return element.scrollTop;
+        });
+        expect(scrolled).toBeGreaterThan(0);
+        await tabAt(page, 0).click();
+        await expect(prose(page)).toContainText("天色将晚");
+        await tabAt(page, 1).click();
+        await expect(prose(page)).toContainText("雨下了一整夜");
+        await expect(controls(page, "nbook.editor.markdown")).toHaveCount(2);
+        await tabAt(page, 2).click();
+        await expect(prose(page)).toContainText("方言一览");
+        await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(scrolled);
+        await page.setViewportSize({width: 1400, height: 900});
+
+        await tabAt(page, 0).click();
+        await expect(prose(page)).toContainText("天色将晚");
+        await prose(page).click();
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("回收");
+        await expect(prose(page)).toContainText("回收");
+        await tabAt(page, 1).click();
+        await expect(prose(page)).toContainText("雨下了一整夜");
+        await tabAt(page, 2).click();
+        await expect(prose(page)).toContainText("方言一览");
+        // 第一章是最久没用的：它的控件卸了，只剩两个 Markdown 控件。
+        await expect(controls(page, "nbook.editor.markdown")).toHaveCount(2);
+        await tabAt(page, 0).click();
+        await expect(prose(page)).toContainText("回收");
+        // 不点正文：点了会移动光标。接着输入落在卸载之前的位置。
+        await prose(page).focus();
+        await page.keyboard.type("尾");
+        await expect(prose(page)).toContainText("回收尾");
+        for (let press = 0; press < 3 && (await prose(page).textContent())?.includes("回收") === true; press += 1) await page.keyboard.press("Control+z");
+        await expect(prose(page)).not.toContainText("回收");
+        expect(problems).toEqual([]);
+    });
+
+    test("源码编辑器：最久没用的卸载，切回来时光标与撤销都在", async ({page}) => {
+        const problems = watchConsole(page);
+        await page.setViewportSize({width: 1400, height: 900});
+        await page.goto(`${dev.pageUrl}lab?c=EditorGroup&s=recycle`);
+        await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "recycle"});
+        await expect(stage(page).locator("[data-editor-tab]")).toHaveCount(6);
+        await tabAt(page, 3).click();
+        const editor = stage(page).locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
+        await expect.poll(() => monacoText(page)).toContain("天色将晚");
+        await editor.click();
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("recycled");
+        await expect.poll(() => monacoText(page)).toContain("recycled");
+        const cursorAt = () => stage(page).locator("[data-editor-kind=\"nbook.editor.code\"]:visible .cursors-layer .cursor").first().evaluate((element) => `${(element as HTMLElement).style.top} ${(element as HTMLElement).style.left}`);
+        const cursorBefore = await cursorAt();
+        await tabAt(page, 4).click();
+        await expect.poll(() => monacoText(page)).toContain("雨下了一整夜");
+        await tabAt(page, 5).click();
+        await expect.poll(() => monacoText(page)).toContain("临川");
+        await expect(controls(page, "nbook.editor.code")).toHaveCount(2);
+        await tabAt(page, 3).click();
+        await expect.poll(() => monacoText(page)).toContain("recycled");
+        await expect.poll(cursorAt).toBe(cursorBefore);
+        await editor.click();
+        for (let press = 0; press < 3 && (await monacoText(page)).includes("recycled"); press += 1) await page.keyboard.press("Control+z");
+        await expect.poll(() => monacoText(page)).not.toContain("recycled");
+        expect(problems).toEqual([]);
+    });
 });

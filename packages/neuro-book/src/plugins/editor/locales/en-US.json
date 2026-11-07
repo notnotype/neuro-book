@@ -11,7 +11,10 @@
         "unpin": "Unpin {{name}}",
         "unsaved": "Unsaved",
         "pinned": "Pinned",
-        "previewOf": "Preview {{name}}"
+        "previewOf": "Preview {{name}}",
+        "lost": "Unavailable Tab",
+        "lostBody": "The record for this tab was lost, so it is not known what it had open. You can close it.",
+        "dragHint": "Press Space to pick up and drag"
     },
     "root": {
         "project": "Work",
@@ -22,14 +25,6 @@
         "loading": "Loading",
         "empty": "Empty",
         "retry": "Retry"
-    },
-    "drop": {
-        "move": "Move Here",
-        "keep": "No Change",
-        "splitLeft": "Split Left",
-        "splitRight": "Split Right",
-        "splitTop": "Split Up",
-        "splitBottom": "Split Down"
     },
     "tips": {
         "commands": "Show All Commands",

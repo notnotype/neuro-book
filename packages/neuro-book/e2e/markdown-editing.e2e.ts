@@ -42,6 +42,8 @@ test.afterAll(async () => {
 
 const item = (page: Page, address: string) => page.locator(`[data-explorer-row="${address}"]`);
 const activeGroup = (page: Page) => page.locator("[data-editor-group-active]");
+/** 活动组的头（标签条与标题动作）：在工作台的外框里，不在 `[data-editor-group]` 里面。 */
+const activeHead = (page: Page) => page.locator("[data-editor-group-head-active]");
 const prose = (page: Page) => activeGroup(page).locator("[data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
 const toolbarButton = (page: Page, name: string) => activeGroup(page).locator(".markdown-toolbar").getByRole("button", {name, exact: true});
 const selectionMenu = (page: Page) => page.locator("[data-markdown-selection-menu]");
@@ -58,7 +60,7 @@ async function openFile(page: Page, path: string, text: string): Promise<void> {
         const folder = item(page, "project://notes");
         if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
         await item(page, `project://${path}`).dblclick({timeout: 3000});
-        await expect(activeGroup(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
+        await expect(activeHead(page).locator("[data-editor-tab]").filter({hasText: name})).toBeVisible({timeout: 3000});
     }).toPass();
     await expect(prose(page)).toBeVisible();
 }
@@ -239,7 +241,7 @@ test.describe("选区菜单", () => {
         await expect(selectionMenu(page)).toHaveCount(0);
 
         // 拆分让这一组的控件重挂：编辑器实例接着用，菜单要重新接上。
-        await page.locator("[data-editor-group-active] [data-title-action-key=\"own:split-right\"]").click();
+        await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
         await expect(page.locator("[data-editor-group]")).toHaveCount(2);
         const left = page.locator("[data-editor-group]").first();
         await left.locator("[data-editor-prose] p").first().click();
@@ -553,6 +555,8 @@ test.describe("右键菜单", () => {
         await rightClick(page, "一段文字");
         await expect(page.getByRole("menuitem", {name: "复制"})).toBeDisabled();
         await page.keyboard.press("Escape");
+        // 菜单收起之后焦点才回到正文：这之前的 Ctrl+A 按在菜单上。
+        await expect(page.getByRole("menu")).toHaveCount(0);
         await page.keyboard.press("Control+a");
         await rightClick(page, "一段文字");
         await expect(page.getByRole("menuitem", {name: "复制"})).toBeEnabled();
@@ -617,7 +621,7 @@ test.describe("拆分后", () => {
         await prose(page).locator("strong").click();
         await expect(prose(page)).toBeFocused();
         await expect(toolbarButton(page, "粗体")).toHaveAttribute("aria-pressed", "true");
-        await page.locator("[data-editor-group-active] [data-title-action-key=\"own:split-right\"]").click();
+        await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
         await expect(page.locator("[data-editor-group]")).toHaveCount(2);
         const groups = page.locator("[data-editor-group]");
         const right = groups.nth(1);

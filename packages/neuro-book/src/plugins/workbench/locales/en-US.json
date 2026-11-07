@@ -4,6 +4,10 @@
             "title": "Theme",
             "description": "Shape, typography and colors of the interface"
         },
+        "dropSectors": {
+            "title": "Drop sectors",
+            "description": "When dragging a view or tab over a panel, show the places it can go"
+        },
         "appearance": {
             "title": "Appearance",
             "choices": {
@@ -68,15 +72,6 @@
                 }
             },
             "view": {
-                "set-panel-position": {
-                    "title": "Panel Position"
-                },
-                "set-panel-alignment": {
-                    "title": "Panel Alignment"
-                },
-                "set-panel-hidden": {
-                    "title": "Hide or Show Panel"
-                },
                 "set-panel-collapsed": {
                     "title": "Collapse to Title Bar"
                 },
@@ -138,20 +133,6 @@
         "unavailable": "This page has no command palette"
     },
     "panelCommands": {
-        "positions": {
-            "bottom": "Bottom",
-            "top": "Top",
-            "left": "Left",
-            "right": "Right"
-        },
-        "alignments": {
-            "center": "Center (under the editor)",
-            "left": "Left (with the sidebar)",
-            "right": "Right (with the secondary side bar)",
-            "justify": "Justify (both sidebars)"
-        },
-        "current": "current",
-        "placeholder": "Takes effect immediately",
         "noPanel": "No panel to act on",
         "editorCollapse": "An editor group cannot be collapsed"
     },
@@ -180,60 +161,46 @@
             "sidebar": "Sidebar",
             "auxiliarybar": "Secondary Side Bar",
             "panel": "Panel",
-            "editor": "Editor area"
+            "editor": "Editor area",
+            "editorAt": "Editor area {{index}}"
         },
         "pickView": "Pick a view to move",
         "pickOpen": "Pick a view to open",
         "noOpenable": "No view to open",
         "unknownView": "No such view (no accepted declaration): {{viewId}}",
-        "unplaced": "The view is not in the layout: {{viewId}}",
         "pickTarget": "Move to",
         "noViews": "No view can be moved",
         "partial": "Give nothing, or both viewId and target",
         "stale": "The view or the target panel is gone; nothing moved",
-        "newContainer": {
-            "sidebar": "New Container in Sidebar",
-            "auxiliarybar": "New Container in Secondary Side Bar",
-            "panel": "New Container in Panel"
-        },
         "newPanelNextTo": "New panel (next to {{panel}})",
         "rejected": "This view can't go there",
         "limit": "The layout is too complex for another panel"
     },
     "views": {
-        "resetLocation": "Reset Location",
-        "collapse": "Collapse View",
-        "expand": "Expand View"
+        "resetLocation": "Reset Location"
     },
     "common": {
         "more": "More",
         "retry": "Retry"
     },
     "shell": {
+        "editorUnavailable": "The editor is unavailable: the plugin providing it is not here. Your tabs are kept and come back when it returns.",
         "welcome": {
             "noProject": "The workbench is ready. No project is open.",
             "withProject": "The workbench is ready. Current project: {{name}}"
         },
-        "panel": "Panel",
-        "empty": {
-            "part": "Drag a view here to show it",
-            "container": "All views in this container are hidden"
-        },
         "activityBar": "Activity Bar",
-        "moveTo": "Move to",
         "drag": {
-            "label": "Drag {{title}}",
             "hint": "Press Space to pick up and drag"
         },
         "drop": {
-            "moveView": "Move here",
-            "detachView": "New container",
-            "moveContainer": "Move container",
-            "mergeContainer_one": "Merge {{count}} view",
-            "mergeContainer_other": "Merge {{count}} views",
+            "sector": {
+                "left": "Left",
+                "right": "Right",
+                "top": "Top",
+                "bottom": "Bottom"
+            },
             "reveal": "Show in {{part}}",
-            "before": "Place before “{{title}}”",
-            "after": "Place after “{{title}}”",
             "addTab": "Add as a tab",
             "insert": "Place here",
             "between": "Place between the two",
@@ -244,7 +211,6 @@
         "frame": {
             "hide": "Hide"
         },
-        "tools": "Tools",
         "missing": {
             "view": "The plugin providing this view is not here: {{viewId}}",
             "close": "Close this tab"
@@ -298,15 +264,6 @@
         "layoutReady": {
             "reason": "The layout is still loading"
         },
-        "nonCompact": {
-            "reason": "The window is too narrow (compact layout)"
-        },
-        "panelHorizontal": {
-            "reason": "The panel is not at the bottom or top"
-        },
-        "panelMaximizable": {
-            "reason": "The panel must be shown, on a side, or centered at the bottom or top"
-        },
         "panelVisible": {
             "reason": "The panel is hidden or dragged closed"
         },
@@ -318,9 +275,6 @@
         },
         "activityBarVisible": {
             "reason": "The activity bar is hidden"
-        },
-        "panelMaximized": {
-            "reason": "The panel is not maximized"
         },
         "nonPhone": {
             "reason": "Not available in the phone layout"
@@ -370,7 +324,20 @@
             "failed": "Your themes could not be read: {{reason}}",
             "deleteConfirm": "Confirm delete",
             "export": "Export…",
-            "import": "Import…"
+            "import": "Import…",
+            "sweep": "Clean up assets",
+            "sweepNone": "There are no assets to clean up.",
+            "sweepAsk": "Unused assets: {{count}} ({{kb}} KB in total). This cannot be undone. Clean up?",
+            "sweepAskMore": "Cleaning up {{count}} unused assets first, {{kb}} KB in total (there are more; count again afterwards). This cannot be undone. Continue?",
+            "sweepConfirm": "Clean up",
+            "sweepCancel": "Cancel",
+            "sweepDone": "Cleaned up assets: {{removed}}.",
+            "sweepDoneSkipped": "Cleaned up assets: {{removed}}. {{skipped}} more were just referenced or just written and were left alone.",
+            "sweepFailed": "Cleanup failed: {{reason}}",
+            "sweepNotReady": "My themes have not finished loading, so cleanup is not available yet.",
+            "sweepUnreadable": "My themes could not be read or are in an incompatible format, so cleanup is not available.",
+            "sweepDoneFailed": "Cleaned up assets: {{removed}}. {{failed}} could not be deleted ({{code}}); they will be listed again next time.",
+            "sweepTooMany": "Too many assets are referenced for one cleanup to handle."
         },
         "appearance": {
             "label": "Appearance being edited",
@@ -548,6 +515,9 @@
             "failed": "Upload failed: {{reason}}",
             "nameInvalid": "Icon names take lowercase letters, digits and hyphens only",
             "nameEmpty": "Enter an icon name first",
+            "suggestions": "Icon name suggestions",
+            "original": "Original icon (how this name looks in the product)",
+            "unknownName": "The current page has no style for this icon, so it may not show after saving.",
             "replaceNamed": "Replace icon {{name}}",
             "removeNamed": "Remove icon {{name}}"
         }

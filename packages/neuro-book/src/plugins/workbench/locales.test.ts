@@ -2,15 +2,13 @@
  * `nbook.workbench` 的消息目录（docs/specs/ui/i18n.md 的“目录与键”）。
  *
  * 第一条防止迁移改错文字：`LEGACY` 是迁移前（提交 4e5b99459）代码里的双语字面量，按迁移后的键原样抄下，占位符还是旧的
- * `{name}` 写法；`viewCommands.newContainer.*` 三条是旧代码把“新建容器（在{区域}）”“New Container in {区域}”的模板按区域名
- * 代入后的结果，迁移后拆成每个区域一条，这里写的是代入后的整句；`titlebar.menuItems.*` 是提交 a4a94a451 时标题栏菜单项
- * 写在声明里的双语字面量。`RUNTIME` 是提交 a4a94a451 时只有中文、或由代码拼接的运行期文字：中文是旧代码显示的整句（拼接的
- * 写成代入前的模板），英文是迁入目录时新写的。`REVISED` 是有意改过的文字（旧文字仍在上两张表里），按带复数后缀的完整键给出。
+ * `{name}` 写法；`titlebar.menuItems.*` 是提交 a4a94a451 时标题栏菜单项写在声明里的双语字面量。`RUNTIME` 是提交 a4a94a451
+ * 时只有中文、或由代码拼接的运行期文字：中文是旧代码显示的整句（拼接的写成代入前的模板），英文是迁入目录时新写的。
+ * `REVISED` 是有意改过的文字（旧文字仍在上两张表里），按完整键给出。
  * 目录里的每个键都要在前两张表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同。以后有意改文字时，同一次改动里
  * 在 `REVISED` 里登记。
  *
- * `ADDED` 是 w00026 t07 片 7a（工作台外壳换成一棵树）新增的键，迁移前没有字面量，中英文都是新写的。这一片里被取代但目录没删的旧键
- * （面板位置与对齐、紧凑呈现、容器相关的文字）仍留在上两张表里，随旧代码在片 8 一起删，那时同一次改动里从表里去掉。
+ * `ADDED` 是 w00026 t07 片 7a（工作台外壳换成一棵树）以来新增的键，迁移前没有字面量，中英文都是新写的。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -49,6 +47,19 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "themeEditor.library.deleteConfirm": {"zh-CN": "确认删除", "en-US": "Confirm delete"},
     "themeEditor.library.export": {"zh-CN": "导出…", "en-US": "Export…"},
     "themeEditor.library.import": {"zh-CN": "导入…", "en-US": "Import…"},
+    "themeEditor.library.sweep": {"zh-CN": "清理素材", "en-US": "Clean up assets"},
+    "themeEditor.library.sweepNone": {"zh-CN": "没有可清理的素材。", "en-US": "There are no assets to clean up."},
+    "themeEditor.library.sweepAsk": {"zh-CN": "有 {count} 个没人用的素材，共 {kb} KB。清理后无法恢复，要清理吗？", "en-US": "Unused assets: {count} ({kb} KB in total). This cannot be undone. Clean up?"},
+    "themeEditor.library.sweepAskMore": {"zh-CN": "先清理其中 {count} 个没人用的素材，共 {kb} KB（还有更多，清理后可以再统计）。清理后无法恢复，要清理吗？", "en-US": "Cleaning up {count} unused assets first, {kb} KB in total (there are more; count again afterwards). This cannot be undone. Continue?"},
+    "themeEditor.library.sweepConfirm": {"zh-CN": "清理", "en-US": "Clean up"},
+    "themeEditor.library.sweepCancel": {"zh-CN": "取消", "en-US": "Cancel"},
+    "themeEditor.library.sweepDone": {"zh-CN": "已清理 {removed} 个素材。", "en-US": "Cleaned up assets: {removed}."},
+    "themeEditor.library.sweepDoneSkipped": {"zh-CN": "已清理 {removed} 个素材，另有 {skipped} 个刚被引用或刚写入，没有动。", "en-US": "Cleaned up assets: {removed}. {skipped} more were just referenced or just written and were left alone."},
+    "themeEditor.library.sweepFailed": {"zh-CN": "清理失败：{reason}", "en-US": "Cleanup failed: {reason}"},
+    "themeEditor.library.sweepUnreadable": {"zh-CN": "我的主题读取失败或格式不兼容，现在不能清理。", "en-US": "My themes could not be read or are in an incompatible format, so cleanup is not available."},
+    "themeEditor.library.sweepDoneFailed": {"zh-CN": "已清理 {removed} 个素材，有 {failed} 个没删掉（{code}），下次统计还会列出。", "en-US": "Cleaned up assets: {removed}. {failed} could not be deleted ({code}); they will be listed again next time."},
+    "themeEditor.library.sweepNotReady": {"zh-CN": "我的主题还没读完，现在不能清理。", "en-US": "My themes have not finished loading, so cleanup is not available yet."},
+    "themeEditor.library.sweepTooMany": {"zh-CN": "引用的素材太多，超过一次清理能处理的数量。", "en-US": "Too many assets are referenced for one cleanup to handle."},
     "themeEditor.appearance.label": {"zh-CN": "正在编辑的明暗", "en-US": "Appearance being edited"},
     "themeEditor.appearance.light": {"zh-CN": "亮色", "en-US": "Light"},
     "themeEditor.appearance.dark": {"zh-CN": "暗色", "en-US": "Dark"},
@@ -179,9 +190,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "commands.nbook.quick-open.open-commands.title": {"zh-CN": "命令面板", "en-US": "Command Palette"},
     "commands.nbook.app.reload.title": {"zh-CN": "重新载入", "en-US": "Reload"},
     "commands.nbook.help.documentation.title": {"zh-CN": "文档", "en-US": "Documentation"},
-    "commands.nbook.view.set-panel-position.title": {"zh-CN": "面板位置", "en-US": "Panel Position"},
-    "commands.nbook.view.set-panel-alignment.title": {"zh-CN": "面板对齐", "en-US": "Panel Alignment"},
-    "commands.nbook.view.set-panel-hidden.title": {"zh-CN": "隐藏/显示面板", "en-US": "Hide or Show Panel"},
     "commands.nbook.view.set-panel-collapsed.title": {"zh-CN": "收起为标题头", "en-US": "Collapse to Title Bar"},
     "commands.nbook.view.toggle-panel-maximized.title": {"zh-CN": "最大化/还原面板", "en-US": "Maximize or Restore Panel"},
     "commands.nbook.view.set-part-hidden.title": {"zh-CN": "切换区域显隐", "en-US": "Toggle Area Visibility"},
@@ -205,16 +213,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "palette.lineUnsupported": {"zh-CN": "当前编辑器不支持行号跳转", "en-US": "The active editor does not support line navigation"},
     "palette.editorNotReady": {"zh-CN": "编辑器尚未就绪", "en-US": "The editor is not ready yet"},
     "palette.commandFailed": {"zh-CN": "{title}没有完成", "en-US": "{title} did not complete"},
-    "panelCommands.positions.bottom": {"zh-CN": "底部", "en-US": "Bottom"},
-    "panelCommands.positions.top": {"zh-CN": "顶部", "en-US": "Top"},
-    "panelCommands.positions.left": {"zh-CN": "左侧", "en-US": "Left"},
-    "panelCommands.positions.right": {"zh-CN": "右侧", "en-US": "Right"},
-    "panelCommands.alignments.center": {"zh-CN": "居中（只在编辑器下）", "en-US": "Center (under the editor)"},
-    "panelCommands.alignments.left": {"zh-CN": "靠左（含侧栏）", "en-US": "Left (with the sidebar)"},
-    "panelCommands.alignments.right": {"zh-CN": "靠右（含右栏）", "en-US": "Right (with the auxiliary bar)"},
-    "panelCommands.alignments.justify": {"zh-CN": "两端（含左右侧栏）", "en-US": "Justify (both sidebars)"},
-    "panelCommands.current": {"zh-CN": "当前", "en-US": "current"},
-    "panelCommands.placeholder": {"zh-CN": "选中后立即生效", "en-US": "Takes effect immediately"},
     "partCommands.parts.sidebar": {"zh-CN": "侧栏", "en-US": "Sidebar"},
     "partCommands.parts.auxiliarybar": {"zh-CN": "右栏", "en-US": "Auxiliary Bar"},
     "partCommands.parts.activitybar": {"zh-CN": "活动栏", "en-US": "Activity Bar"},
@@ -237,23 +235,10 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "common.retry": {"zh-CN": "重试", "en-US": "Retry"},
     "shell.welcome.noProject": {"zh-CN": "工作台已就绪。没有打开项目。", "en-US": "The workbench is ready. No project is open."},
     "shell.welcome.withProject": {"zh-CN": "工作台已就绪。当前项目：{name}", "en-US": "The workbench is ready. Current project: {name}"},
-    "shell.panel": {"zh-CN": "面板", "en-US": "Panel"},
-    "shell.empty.part": {"zh-CN": "将视图拖动到此处显示", "en-US": "Drag a view here to show it"},
-    "shell.empty.container": {"zh-CN": "容器里的视图都已隐藏", "en-US": "All views in this container are hidden"},
     "shell.activityBar": {"zh-CN": "活动栏", "en-US": "Activity Bar"},
-    "shell.moveTo": {"zh-CN": "移动到", "en-US": "Move To"},
-    "shell.drag.label": {"zh-CN": "拖动 {title}", "en-US": "Drag {title}"},
     "shell.drag.hint": {"zh-CN": "按空格拿起并拖动", "en-US": "Press Space to pick up and drag"},
-    "shell.drop.moveView": {"zh-CN": "移到这里", "en-US": "Move here"},
-    "shell.drop.detachView": {"zh-CN": "新建容器", "en-US": "New container"},
-    "shell.drop.moveContainer": {"zh-CN": "移动容器", "en-US": "Move container"},
-    "shell.drop.mergeContainer": {"zh-CN": "并入 {count} 个视图", "en-US": "Merge {count} views"},
     "shell.drop.reveal": {"zh-CN": "放到{part}", "en-US": "Show in {part}"},
     "shell.moreActions": {"zh-CN": "更多操作", "en-US": "More Actions"},
-    "shell.drop.before": {"zh-CN": "放在“{title}”前", "en-US": "Place before “{title}”"},
-    "shell.drop.after": {"zh-CN": "放在“{title}”后", "en-US": "Place after “{title}”"},
-    "views.collapse": {"zh-CN": "收起视图", "en-US": "Collapse View"},
-    "views.expand": {"zh-CN": "展开视图", "en-US": "Expand View"},
     "viewFrame.declared": {"zh-CN": "正在等待视图所属的插件启动", "en-US": "Waiting for the view's plugin to start"},
     "viewFrame.blocked": {"zh-CN": "视图所属的插件无法启动：{reason}", "en-US": "The view's plugin cannot start: {reason}"},
     "viewFrame.failed": {"zh-CN": "视图所属的插件启动失败：{reason}", "en-US": "The view's plugin failed to start: {reason}"},
@@ -294,24 +279,16 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "items.broken": {"zh-CN": "这个条目出错了：{message}", "en-US": "This item failed: {message}"},
     "activityItems.profile.title": {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
     "state.layoutReady.reason": {"zh-CN": "布局还在读取", "en-US": "The layout is still loading"},
-    "state.nonCompact.reason": {"zh-CN": "窗口太窄，正在用紧凑布局", "en-US": "The window is too narrow (compact layout)"},
-    "state.panelHorizontal.reason": {"zh-CN": "面板不在底部或顶部", "en-US": "The panel is not at the bottom or top"},
-    "state.panelMaximizable.reason": {"zh-CN": "面板要显示着，并在左右两侧或底部、顶部居中", "en-US": "The panel must be shown, on a side, or centered at the bottom or top"},
     "state.panelVisible.reason": {"zh-CN": "面板已隐藏或拖到零", "en-US": "The panel is hidden or dragged closed"},
     "state.sidebarVisible.reason": {"zh-CN": "侧栏已隐藏或拖到零", "en-US": "The sidebar is hidden or dragged closed"},
     "state.auxiliaryBarVisible.reason": {"zh-CN": "右栏已隐藏或拖到零", "en-US": "The auxiliary bar is hidden or dragged closed"},
     "state.activityBarVisible.reason": {"zh-CN": "活动栏已隐藏", "en-US": "The activity bar is hidden"},
-    "state.panelMaximized.reason": {"zh-CN": "面板没有最大化", "en-US": "The panel is not maximized"},
-    "viewCommands.newContainer.sidebar": {"zh-CN": "新建容器（在侧栏）", "en-US": "New Container in Sidebar"},
-    "viewCommands.newContainer.auxiliarybar": {"zh-CN": "新建容器（在右栏）", "en-US": "New Container in Secondary Side Bar"},
-    "viewCommands.newContainer.panel": {"zh-CN": "新建容器（在面板）", "en-US": "New Container in Panel"},
 };
 
 const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     "layout.notOpen": {"zh-CN": "工作台布局没有打开（这个窗口没有显示外壳）", "en-US": "The workbench layout is not open (this window does not show the shell)"},
     "palette.unavailable": {"zh-CN": "当前页面没有命令面板", "en-US": "This page has no command palette"},
     "viewCommands.unknownView": {"zh-CN": "没有这个视图（没有已接受的声明）：{viewId}", "en-US": "No such view (no accepted declaration): {viewId}"},
-    "viewCommands.unplaced": {"zh-CN": "视图不在布局里：{viewId}", "en-US": "The view is not in the layout: {viewId}"},
     "viewCommands.partial": {"zh-CN": "要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个", "en-US": "Give nothing, or give viewId, sourceContainerId and one of targetContainerId and newContainerIn"},
     "viewCommands.stale": {"zh-CN": "视图已经不在发起时的容器里，没有移动", "en-US": "The view is no longer in the container it was in when the move started, so it was not moved"},
     // 下面三条旧代码在两种语言下都用全角标点拼接（“项目”+“：”+名字、“搜索命令”+“（”+快捷键+“）”、条目名+“：”+文字）。
@@ -347,6 +324,9 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "themeEditor.icons.preview": {"zh-CN": "{name} 的预览", "en-US": "Preview of {name}"},
     "themeEditor.icons.failed": {"zh-CN": "上传失败：{reason}", "en-US": "Upload failed: {reason}"},
     "themeEditor.icons.nameInvalid": {"zh-CN": "图标名只收小写字母、数字与连字符", "en-US": "Icon names take lowercase letters, digits and hyphens only"},
+    "themeEditor.icons.original": {"zh-CN": "原图标（产品里这个名字原来的样子）", "en-US": "Original icon (how this name looks in the product)"},
+    "themeEditor.icons.suggestions": {"zh-CN": "图标名候选", "en-US": "Icon name suggestions"},
+    "themeEditor.icons.unknownName": {"zh-CN": "当前页面没有这个图标的样式，保存后可能看不到效果。", "en-US": "The current page has no style for this icon, so it may not show after saving."},
     "themeEditor.icons.nameEmpty": {"zh-CN": "先填图标名", "en-US": "Enter an icon name first"},
     "themeEditor.icons.removeNamed": {"zh-CN": "移除图标 {name}", "en-US": "Remove icon {name}"},
     "themeEditor.icons.replaceNamed": {"zh-CN": "更换图标 {name}", "en-US": "Replace icon {name}"},
@@ -364,14 +344,21 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "partCommands.parts.panel": {"zh-CN": "面板", "en-US": "Panel"},
     "partCommands.parts.statusbar": {"zh-CN": "状态栏", "en-US": "Status bar"},
     "viewCommands.parts.editor": {"zh-CN": "编辑区", "en-US": "Editor area"},
+    "viewCommands.parts.editorAt": {"zh-CN": "编辑区 {index}", "en-US": "Editor area {index}"},
     "viewCommands.newPanelNextTo": {"zh-CN": "新面板（挨着{panel}）", "en-US": "New panel (next to {panel})"},
     "shell.drop.addTab": {"zh-CN": "添加为标签", "en-US": "Add as a tab"},
     "shell.drop.insert": {"zh-CN": "放在这里", "en-US": "Place here"},
     "shell.drop.between": {"zh-CN": "放到两块之间", "en-US": "Place between the two"},
     "shell.drop.split": {"zh-CN": "拆到这一边", "en-US": "Split to this side"},
     "shell.drop.inPlace": {"zh-CN": "原位", "en-US": "In place"},
+    "shell.drop.sector.left": {"zh-CN": "左侧", "en-US": "Left"},
+    "shell.drop.sector.right": {"zh-CN": "右侧", "en-US": "Right"},
+    "shell.drop.sector.top": {"zh-CN": "上方", "en-US": "Top"},
+    "shell.drop.sector.bottom": {"zh-CN": "下方", "en-US": "Bottom"},
+    "settings.dropSectors.title": {"zh-CN": "落点分区", "en-US": "Drop sectors"},
+    "settings.dropSectors.description": {"zh-CN": "拖动视图或标签到面板上时，画出上下左右中能放的位置", "en-US": "When dragging a view or tab over a panel, show the places it can go"},
     "shell.frame.hide": {"zh-CN": "隐藏", "en-US": "Hide"},
-    "shell.tools": {"zh-CN": "工具", "en-US": "Tools"},
+    "shell.editorUnavailable": {"zh-CN": "编辑器现在不可用：提供它的插件不在，标签都还在，它回来后恢复。", "en-US": "The editor is unavailable: the plugin providing it is not here. Your tabs are kept and come back when it returns."},
     "shell.missing.view": {"zh-CN": "提供这个视图的插件现在不在：{viewId}", "en-US": "The plugin providing this view is not here: {viewId}"},
     "shell.missing.close": {"zh-CN": "关闭这个标签", "en-US": "Close this tab"},
     "state.nonPhone.reason": {"zh-CN": "手机呈现下不可用", "en-US": "Not available in the phone layout"},
@@ -386,11 +373,8 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
 const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-US"?: string}>> = {
     "titlebar.toggle.auxiliarybar": {"en-US": "Toggle Secondary Side Bar"},
     "titlebar.menuItems.auxiliarybar": {"en-US": "Secondary Side Bar"},
-    "panelCommands.alignments.right": {"en-US": "Right (with the secondary side bar)"},
     "partCommands.parts.auxiliarybar": {"en-US": "Secondary Side Bar"},
     "state.auxiliaryBarVisible.reason": {"en-US": "The secondary side bar is hidden or dragged closed"},
-    "shell.moveTo": {"en-US": "Move to"},
-    "shell.drop.mergeContainer_one": {"en-US": "Merge {count} view"},
     "viewCommands.partial": {"zh-CN": "要么都不给，要么同时给 viewId 和 target", "en-US": "Give nothing, or both viewId and target"},
     "viewCommands.stale": {"zh-CN": "视图或目标面板已经不在了，没有移动", "en-US": "The view or the target panel is gone; nothing moved"},
     "themeEditor.transfer.copyFailed": {"zh-CN": "复制失败：读不到或传不上素材 {reason}", "en-US": "Copy failed: the asset {reason} could not be read or uploaded"},
@@ -400,19 +384,13 @@ const EXPECTED = {...LEGACY, ...RUNTIME, ...ADDED};
 
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
-/** 数量键（带 `count` 参数、按复数选形）。 */
-const PLURAL_KEYS = ["shell.drop.mergeContainer"];
-
-/** 复数形 `<键>_<类别>` 归到 `<键>`。 */
-const baseKey = (key: string): string => key.replace(/_(?:zero|one|two|few|many|other)$/u, "");
-
 describe("nbook.workbench 的目录", () => {
     it("每个键的文字与迁移前的字面量逐字相同（占位符从 {name} 换成 {{name}}），有意改过的按 REVISED，两边的键一一对应", () => {
         for (const [locale, catalog] of Object.entries(CATALOGS)) {
             const flat = flattenCatalog(catalog);
-            expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(EXPECTED).sort()});
+            expect({locale, keys: Object.keys(flat).sort()}).toEqual({locale, keys: Object.keys(EXPECTED).sort()});
             for (const [key, value] of Object.entries(flat)) {
-                const written = REVISED[key]?.[locale as keyof typeof CATALOGS] ?? EXPECTED[baseKey(key)]![locale as keyof typeof CATALOGS];
+                const written = REVISED[key]?.[locale as keyof typeof CATALOGS] ?? EXPECTED[key]![locale as keyof typeof CATALOGS];
                 expect({locale, key, value}).toEqual({locale, key, value: written.replace(/\{(\w+)\}/gu, "{{$1}}")});
             }
         }
@@ -422,23 +400,6 @@ describe("nbook.workbench 的目录", () => {
         for (const [key, revised] of Object.entries(REVISED)) {
             for (const locale of Object.keys(revised)) expect({locale, key, present: Object.hasOwn(flattenCatalog(CATALOGS[locale as keyof typeof CATALOGS]), key)}).toEqual({locale, key, present: true});
         }
-    });
-
-    it("数量键：中文有 _other，英文有 _one 与 _other", () => {
-        const flatZh = Object.keys(flattenCatalog(zhCN));
-        const flatEn = Object.keys(flattenCatalog(enUS));
-        for (const key of PLURAL_KEYS) {
-            expect(flatZh.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_other`]);
-            expect(flatEn.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_one`, `${key}_other`]);
-        }
-    });
-
-    it("数量键经引擎取文字：英文一个用单数、多个用复数，中文同一句", () => {
-        const zh = testTextPort("zh-CN", {"nbook.workbench": workbenchCatalogs});
-        const en = testTextPort("en-US", {"nbook.workbench": workbenchCatalogs});
-        expect(en.t(workbenchText("shell.drop.mergeContainer", {count: 1}))).toBe("Merge 1 view");
-        expect(en.t(workbenchText("shell.drop.mergeContainer", {count: 3}))).toBe("Merge 3 views");
-        expect(zh.t(workbenchText("shell.drop.mergeContainer", {count: 1}))).toBe("并入 1 个视图");
     });
 
     it("工作台自己的标题栏菜单项名字走目录：中文与原文相同，英文统一叫 Secondary Side Bar", () => {
@@ -454,6 +415,6 @@ describe("nbook.workbench 的目录", () => {
     });
 
     it("文字引用的命名空间就是插件 id", () => {
-        expect(workbenchText("shell.panel").ns).toBe(descriptor.id);
+        expect(workbenchText("shell.activityBar").ns).toBe(descriptor.id);
     });
 });

@@ -3,6 +3,8 @@
  * 不可选的“未发布”：`Select` 的受控值要在选项里，丢了它下拉就显示不出当前值。
  */
 
+import type {PublishedProvider} from "../../scene-providers";
+
 /** “无”用一个不会是贡献 id 的值（贡献 id 都带点）。 */
 export const NO_PROVIDER = "none";
 
@@ -13,8 +15,17 @@ export interface ProviderOption {
     readonly disabled?: boolean;
 }
 
-export function providerOptions(published: ReadonlyArray<string>, current: string | undefined, labels: {readonly none: string; readonly unpublished: string}): ProviderOption[] {
-    const options: ProviderOption[] = [{value: NO_PROVIDER, label: labels.none}, ...published.map((id) => ({value: id, label: id}))];
-    if (current !== undefined && !published.includes(current)) options.push({value: current, label: current, description: labels.unpublished, disabled: true});
+/**
+ * 有显示名的提供者：标题作 label，贡献 id 放在 `description`（`Select` 里是同一行右侧的次要文字，放不下先截它）；没有显示名就只显示 id。
+ * `resolve` 把声明里的文字（字符串或语言映射）按当前语言解出来。
+ */
+export function providerOptions(published: ReadonlyArray<PublishedProvider>, current: string | undefined, labels: {readonly none: string; readonly unpublished: string}, resolve: (title: NonNullable<PublishedProvider["title"]>) => string): ProviderOption[] {
+    // 显示名解出来是空的（写了空串或空语言映射）按没写处理：空白的选项名和空白的触发器比只显示 id 更糟。
+    const named = (id: string, title: PublishedProvider["title"]): ProviderOption => {
+        const label = title === undefined ? "" : resolve(title).trim();
+        return label === "" ? {value: id, label: id} : {value: id, label, description: id};
+    };
+    const options: ProviderOption[] = [{value: NO_PROVIDER, label: labels.none}, ...published.map(({id, title}) => named(id, title))];
+    if (current !== undefined && !published.some(({id}) => id === current)) options.push({value: current, label: current, description: labels.unpublished, disabled: true});
     return options;
 }

@@ -14,6 +14,7 @@ import {CODE_EDITOR, MARKDOWN_EDITOR} from "./shared/contracts";
 import type {EditorTitleItemDeclaration} from "./shared/contracts";
 import {REOPEN_WITH_COMMAND, SPLIT_RIGHT_COMMAND} from "./web/commands";
 import {createEditorGroups} from "./web/groups/groups";
+import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {createEditorTitleActions} from "./web/title-actions";
 import {testTextPort} from "nbook/shared/testing/text-port";
 import {editorCatalogs} from "./web/text";
@@ -38,7 +39,7 @@ function setup(items: ReadonlyArray<{readonly id: string; readonly declaration: 
         });
         if (!registered.ok) throw new Error(registered.reason);
     }
-    const groups = createEditorGroups();
+    const groups = createEditorGroups(createMemoryEditorPanels());
     const titles = createEditorTitleActions({area: () => ({groups}), commands, state: {read: () => ({status: "undeclared"})}, items: () => items, platform: "other"});
     return {titles, groups, calls};
 }

@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 落点的几何与规则：外壳的在 [ui.workbench-shell](workbench-shell.md)，标签的在 [workbench.editor](../workbench/editor.md)，树的在 [workbench.files-explorer](../workbench/files-explorer.md)。[布局提案](../../proposals/workbench-single-tree-layout.md#3-拖动) 第 3 节的有序规则随一棵树写进本 Spec。
+- 落点的几何与规则：工作台布局的在 [ui.workbench-layout](workbench-layout.md)，标签的在 [workbench.editor](../workbench/editor.md)，树的在 [workbench.files-explorer](../workbench/files-explorer.md)。[布局提案](../../proposals/workbench-single-tree-layout.md#3-拖动) 第 3 节的有序规则随一棵树写进本 Spec。
 - 实时布局的让位、粘滞与稳定时长：随实时布局写进本 Spec。
 - 分隔线手势：见 [ui.nested-grid](nested-grid.md)。
 - 跨窗口拖动。
@@ -56,7 +56,7 @@ export interface DragSessionOptions<S, D, R> {
     /** 落点要做的动作的比较键；只显示、不提交的落点为 `null`。 */
     actionKey(drop: D): string | null;
     /** 放下且与最后显示过的动作相同。 */
-    commit(drop: D, source: S): void;
+    commit(drop: D, source: S, keyboard: boolean): void;
     /** 一场结束，`last` 是最后发布的状态。 */
     onEnd?(end: DragEnd, last: DragState<S, D>): void;
     /** 一场开始与结束（宿主写光标与禁选的标记）。 */

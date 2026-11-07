@@ -134,7 +134,7 @@ describe("WorkbenchTitleBar", () => {
     it("会话开始时焦点在原生输入框：根上带 data-titlebar-native-editing；编辑器区里的 textarea 不算；会话结束后去掉", async () => {
         const input = document.createElement("input");
         const area = document.createElement("div");
-        area.setAttribute("data-editor-area", "");
+        area.setAttribute("data-editor-group", "");
         const inner = document.createElement("textarea");
         area.append(inner);
         document.body.append(input, area);

@@ -4,7 +4,7 @@ status: accepted
 created: 2026-10-06
 decided: 2026-10-07
 supersedes: []
-superseded-by: null
+superseded-by: docs/proposals/workbench-single-tree-layout.md
 specs:
   - docs/specs/ui/workbench-shell.md
   - docs/specs/workbench/commands.md

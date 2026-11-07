@@ -6,6 +6,7 @@ import {createGrid} from "@notnotype/nb-layout";
 import type {Grid, GridBranchInput, GridExtent, GridGesturePreview, GridNodeInput, LayoutDoc, LayoutProjection} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
+import type {Directive} from "vue";
 
 import {cardInset, layoutCardEdges, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
 import type {CardEdges} from "../shell/adjacency";
@@ -26,7 +27,9 @@ const props = withDefaults(defineProps<{
     contextKey: string;
     maximized?: string | null;
     disabled?: boolean;
-}>(), {maximized: null, disabled: false});
+    /** 头只写标题的面板：没有标签带，内容就不是 `tabpanel`。 */
+    titleOnlyPanels?: ReadonlySet<string>;
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>()});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -41,14 +44,14 @@ const emit = defineEmits<{
     (event: "issues", issues: readonly string[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定（输出 16）。 */
     (event: "content-parked", key: string): void;
-    /** 焦点现在在哪块面板；离开所有面板时是 null。活动栏条目据此决定点了做什么（输出 22）。 */
+    /** 焦点现在在哪块面板；离开所有面板时是 null。宿主据此记当前面板（输出 36）。 */
     (event: "focus-panel", panel: string | null): void;
 }>();
 
 defineSlots<{
     activitybar?(): unknown;
     statusbar?(): unknown;
-    /** 工具面板的头。`idPrefix` 交给 `WorkbenchPanelHead`，标签和内容才对得上。 */
+    /** 面板的头，工具面板与编辑组都在这里。`idPrefix` 交给 `WorkbenchPanelHead`，标签和内容才对得上。 */
     head?(props: {panelId: string; idPrefix: string}): unknown;
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
 }>();
@@ -98,7 +101,35 @@ function onGestureSettled(): void {
     emit("preview", null);
 }
 
-const contents = computed(() => layoutContents(props.doc));
+/**
+ * 编辑组的头高（标签折行、提示条都会变）：内容从它下面开始。`ResizeObserver` 的回调在绘制之前，回调里改了内容的矩形，浏览器在同一帧里重新布局。
+ * 新拆出来的组第一次发布时头还没挂上，这时按一行算：新叶正在长出来，内容带着过渡，从 0 开始的话会先盖住头再滑下去。没有头（编辑器撤回、提供者不给）时量出来是 0，内容占满。
+ */
+const EDITOR_HEAD_ONE_ROW = 34;
+const editorHeadHeights = shallowRef<Readonly<Record<string, number>>>({});
+const headObserver = typeof ResizeObserver === "function" ? new ResizeObserver((entries) => {
+    const next = {...editorHeadHeights.value};
+    for (const entry of entries) {
+        const panel = (entry.target as HTMLElement).dataset.surfaceHead;
+        // 布局尺寸，不用 `getBoundingClientRect`：Lab 的画布有 CSS `zoom`，内容的矩形也是布局尺寸。
+        if (panel !== undefined) next[panel] = entry.borderBoxSize[0]?.blockSize ?? 0;
+    }
+    editorHeadHeights.value = next;
+}) : null;
+onBeforeUnmount(() => headObserver?.disconnect());
+/** 写在编辑组头的外层上：观察它的高度。 */
+const vEditorHead: Directive<HTMLElement> = {
+    mounted: (element) => headObserver?.observe(element),
+    beforeUnmount: (element) => {
+        headObserver?.unobserve(element);
+        const panel = element.dataset.surfaceHead;
+        if (panel === undefined) return;
+        const {[panel]: _gone, ...rest} = editorHeadHeights.value;
+        editorHeadHeights.value = rest;
+    },
+};
+
+const contents = computed(() => layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW));
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
 const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;
@@ -217,10 +248,13 @@ defineExpose({
                         :data-shell-join="joinOf(node.id)"
                         :data-panel-role="roleOf(node.id) ?? undefined"
                         :data-panel-name="doc.panels[node.id]?.name"
-                        :data-hover-actions-scope="roleOf(node.id) === 'tool' ? '' : undefined"
+                        :data-hover-actions-scope="roleOf(node.id) === null ? undefined : ''"
                         :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
                     >
                         <slot v-if="node.id === ACTIVITY_BAR" name="activitybar"></slot>
+                        <div v-else-if="roleOf(node.id) === 'editor'" v-editor-head class="workbench-surface__editor-head" :data-surface-head="node.id">
+                            <slot name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
+                        </div>
                         <slot v-else-if="roleOf(node.id) === 'tool'" name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
                     </div>
                 </div>
@@ -230,7 +264,7 @@ defineExpose({
                     <div
                         :id="roleOf(leaf) === 'tool' ? panelTabpanelDomId(idPrefix, contentKey) : undefined"
                         class="workbench-surface__content-clip"
-                        :role="roleOf(leaf) === 'tool' ? 'tabpanel' : undefined"
+                        :role="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? 'region' : 'tabpanel') : undefined"
                         :aria-labelledby="roleOf(leaf) === 'tool' ? panelTabDomId(idPrefix, contentKey) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
                         :data-shell-join="joinOf(leaf)"
@@ -382,7 +416,7 @@ defineExpose({
     min-height: 0;
 }
 
-/* 工具面板的内容在头下面，只有下面两个角是卡片的角；编辑组没有头，四个角都是。 */
+/* 内容在头下面，只有下面两个角是卡片的角（编辑组没有头时上面两个角是外框的底色，圆角由卡片裁）。 */
 .workbench-surface__content-clip {
     flex: 1 1 auto;
     min-width: 0;
@@ -397,9 +431,15 @@ defineExpose({
     background: var(--panel-surface);
 }
 
-.workbench-surface__content-clip[data-panel-role="editor"] {
-    border-start-start-radius: var(--shell-card-radius, 0px);
-    border-start-end-radius: var(--shell-card-radius, 0px);
+/*
+ * 编辑组的头：一到三行标签加提示条。组矮的时候先收它：下面要给正文留面包屑 26、进度条 2、一行字 28。
+ */
+.workbench-surface__editor-head {
+    display: flex;
+    flex: 0 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    max-height: calc(100% - 56px);
 }
 
 .workbench-surface__content-clip[data-shell-join="end"] {

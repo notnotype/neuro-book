@@ -7,20 +7,24 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, edgeTargetOf, findTab, findTreeNode, fixedNodesOf, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, rebaseIntents, removeTab, sameTreeShape, setBarHidden, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, validateLayoutDoc} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, findTab, findTreeNode, fixedNodesOf, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, rebaseIntents, removeTab, sameTreeShape, setBarHidden, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutBar, LayoutDoc, LayoutDropAction, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
 
-import type {ViewCatalog} from "../views/placement";
-import {defaultLayoutDoc, reconcileViews} from "./default-tree";
-import {COLLAPSE_ORDER, createLayoutPolicy, layoutProjectionOptions} from "./layout-constraints";
+import type {EditorSaveGate} from "../../shared/contracts";
+import type {ViewCatalog} from "../views/registry";
+import {defaultLayoutDoc, fitsSkeleton, reconcileViews} from "./default-tree";
+import {COLLAPSE_ORDER, createLayoutPolicy, layoutEdgeTarget, layoutProjectionOptions, toolPanelAxis} from "./layout-constraints";
 import {effectiveVisibleTabs} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
 
-/** 打开、关闭、切标签合并着存，至多这么久一次。手势结束立刻存。 */
-export const LAYOUT_SAVE_COALESCE_MS = 1000;
+/**
+ * 打开、关闭、切标签合并着存，至多这么久一次，手势结束立刻存。只合并一连串的动作（方向键在资源管理器里走一路，每步都换 preview 标签）：等得再久，
+ * 刚打开标签就刷新的话这个标签就丢了，页面离开时也来不及补写。
+ */
+export const LAYOUT_SAVE_COALESCE_MS = 150;
 
 export type LayoutDocProblem =
     | {readonly kind: "unread"; readonly code: string}
@@ -28,10 +32,16 @@ export type LayoutDocProblem =
 
 export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
 
-/** 存盘之前的关卡：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
-export type LayoutSaveGate = () => Promise<boolean>;
+/** 存盘之前的关卡（`EditorSaveGate`）：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
+export type LayoutSaveGate = EditorSaveGate;
 
 const notFound = (detail: string): LayoutResult => ({ok: false, code: "not-found", detail});
+
+/** 记录与模板里的文档能不能用：过校验，还要合骨架（输出 1）。 */
+function usableDoc(value: unknown): LayoutDoc | null {
+    const checked = validateLayoutDoc(value);
+    return checked.ok && fitsSkeleton(checked.doc) ? checked.doc : null;
+}
 
 function defineLayoutDocStore(bound: boolean) {
     return defineStore("workbench-layout-doc", ({persist}) => {
@@ -68,17 +78,18 @@ function defineLayoutDocStore(bound: boolean) {
 
         function readStored(): LayoutDoc | null {
             const base = field.base;
-            if (base?.status === "ok") {
-                const checked = validateLayoutDoc(base.value.doc);
-                return checked.ok ? checked.doc : null;
-            }
+            if (base?.status === "ok") return usableDoc(base.value.doc);
             // 没有记录时取模板（新项目的初始布局）。
-            if (base?.status === "missing") {
-                const checked = validateLayoutDoc(template.display.doc);
-                return checked.ok ? checked.doc : null;
-            }
+            if (base?.status === "missing") return usableDoc(template.display.doc);
             return null;
         }
+        /** 记录合法但不合骨架（片 7c 之前存的）：用默认树、下次保存覆盖它，不算损坏，用户没有什么可做的。只在外壳根写一条诊断。 */
+        const outsideSkeleton = computed(() => {
+            const base = field.base;
+            if (base?.status !== "ok") return false;
+            const checked = validateLayoutDoc(base.value.doc);
+            return checked.ok && !fitsSkeleton(checked.doc) && local.value === null;
+        });
         const doc = computed<LayoutDoc>(() => reconcileViews(local.value ?? defaultLayoutDoc(catalog.value), catalog.value));
 
         // 只读一次：之后别的窗口保存不改本窗口的显示。
@@ -120,8 +131,9 @@ function defineLayoutDocStore(bound: boolean) {
             if (timer !== null) clearTimeout(timer);
             timer = null;
             if (guarded.value) return;
-            if (saveGate !== null) {
-                saveBlocked.value = !(await saveGate());
+            // 记录读不了时不走关卡：文档是回落的默认树，关卡会把读到的标签当成没主的删掉。这次提交本身会暂停，等重新打开。
+            if (saveGate !== null && field.failure === null) {
+                saveBlocked.value = !(await saveGate.pass());
                 if (saveBlocked.value) return;
             }
             // 关卡之后才取：等关卡期间可能又改了，两次保存交错时不能让旧的文档后写。
@@ -160,6 +172,8 @@ function defineLayoutDocStore(bound: boolean) {
                 return result;
             }
             if (result.doc === base) return {ok: true, doc: doc.value};
+            // 落点只给合骨架的目标，但服务（`EditorPanels.tabs.moveToEdge`）能传任意目标：写入的出口再守一次。
+            if (!fitsSkeleton(result.doc)) return {ok: false, code: "rejected", detail: "不合骨架"};
             if (!sameTreeShape(base, result.doc)) maximized.value = null;
             local.value = result.doc;
             schedule(options.flush ?? false);
@@ -167,7 +181,7 @@ function defineLayoutDocStore(bound: boolean) {
         }
 
         return {
-            state: {doc, ready, problems, field, catalog, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure},
+            state: {doc, ready, problems, field, catalog, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -227,8 +241,22 @@ function defineLayoutDocStore(bound: boolean) {
                 },
                 /** 提交一个落点（输出 25 到 29）。 */
                 drop: (source: LayoutSource, action: LayoutDropAction): LayoutResult => apply((current) => applyLayoutDrop(current, source, action, policy), {flush: true}),
-                /** 激活标签（切标签合并着存）。 */
-                activate: (key: string): LayoutResult => apply((current) => activateTab(current, key)),
+                /** 激活标签（切标签合并着存）；面板收成标题行时一起展开（输出 11）。 */
+                activate: (key: string): LayoutResult => apply((current) => {
+                    const activated = activateTab(current, key);
+                    const panel = findTab(current, key)?.panel;
+                    return activated.ok && panel !== undefined && current.panels[panel]?.collapsed === true ? setPanelCollapsed(activated.doc, panel, false) : activated;
+                }),
+                /** 在标签条里换一位（Alt 加方向键，输出 20）：活动标签不变，到头了不动。 */
+                reorderTab: (key: string, delta: -1 | 1): LayoutResult => apply((current) => {
+                    const found = findTab(current, key);
+                    if (found === null) return notFound(key);
+                    const length = current.panels[found.panel]?.tabs.length ?? 0;
+                    const next = found.index + delta;
+                    if (next < 0 || next >= length) return {ok: true, doc: current};
+                    // `index` 是摘掉来源之前的插入位：往后挪要跨过下一个标签。
+                    return moveTabToStrip(current, {tab: key, panel: found.panel, index: delta === 1 ? found.index + 2 : next, activate: false}, policy);
+                }, {flush: true}),
                 /** 关掉标签：声明消失的视图的占位用（输出 4）。 */
                 closeTab: (key: string): LayoutResult => apply((current) => removeTab(current, key)),
                 /**
@@ -247,7 +275,7 @@ function defineLayoutDocStore(bound: boolean) {
                     }, {flush: true});
                 },
                 /**
-                 * “移动到”（输出 23）：放到一块面板的标签末尾，或挨着一块面板开新面板。新面板挨着侧栏、右栏时放在下面（竖长的一列再横着拆就太窄），挨着别的放右边。
+                 * “移动到”（输出 23）：放到一块面板的标签末尾，或挨着一块工具面板开新面板：这一列放下面，这一排放右边。
                  */
                 moveView: (viewId: string, target: string | {readonly newPanelNextTo: string}): LayoutResult => apply((current) => {
                     if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
@@ -260,8 +288,9 @@ function defineLayoutDocStore(bound: boolean) {
                         return moved.ok && panel.hidden === true ? setPanelHidden(moved.doc, target, false) : moved;
                     }
                     const beside = target.newPanelNextTo;
-                    const name = current.panels[beside]?.name;
-                    const edge = edgeTargetOf(current, beside, name === "sidebar" || name === "auxiliarybar" ? "bottom" : "right");
+                    if (current.panels[beside] === undefined) return notFound(beside);
+                    if (current.panels[beside]?.role !== "tool") return {ok: false, code: "rejected", detail: beside};
+                    const edge = layoutEdgeTarget(current, [], beside, toolPanelAxis(current, beside) === "vertical" ? "bottom" : "right");
                     return edge === null ? notFound(beside) : moveTabToEdge(current, {tab: key, target: edge}, policy);
                 }, {flush: true}),
                 /** “重置位置”（输出 23）：回到声明的具名面板的标签末尾。 */
@@ -292,11 +321,19 @@ function defineLayoutDocStore(bound: boolean) {
                 save,
                 retry: async (): Promise<string> => {
                     if (field.failure !== null) await field.reopen();
-                    return field.retry();
+                    // 卡在关卡上（`editor.tabs` 写不下去）时布局自己没有待重试的：先让关卡恢复，通了再存。
+                    const gate = saveBlocked.value ? saveGate : null;
+                    if (gate !== null) saveBlocked.value = !(await gate.recover());
+                    const result = await field.retry();
+                    if (gate !== null && !saveBlocked.value) await save();
+                    return result;
                 },
-                /** 放弃未保存的修改：显示回到已确认值。 */
+                /** 放弃未保存的修改：显示回到已确认值。开着的编辑器标签不算在内（`carryDynamicTabs`）：它们背后是文档，回滚布局不能把它们弄丢。 */
                 discard: (): string => {
-                    local.value = readStored();
+                    const stored = readStored();
+                    const current = doc.value;
+                    const hasOpenTabs = Object.values(current.panels).some((panel) => panel.tabs.some((tab) => tab.kind === "tab"));
+                    local.value = stored === null && !hasOpenTabs ? null : carryDynamicTabs(stored ?? defaultLayoutDoc(catalog.value), current);
                     saveBlocked.value = false;
                     return field.discardAll();
                 },

@@ -5,33 +5,34 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutSource} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridExtent} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
-import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
+import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
 import {buttonBudget, NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
+import {editorTabIdOf} from "../../shared/editor-panels";
 import {SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {ViewLocation} from "../../shared/views";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {canResetView, moveTargetsOf, panelTitle, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
 import {createLayoutPolicy} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {createLayoutDrag} from "../layout-drag";
-import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
+import type {LayoutDrag, LayoutDragDrop, LayoutTabSource} from "../layout-drag";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
-import type {EditorAreaContext} from "../contracts";
-import {editorAreaComponent} from "../editor-area";
+import type {EditorAreaContext, EditorTabDrag} from "../contracts";
+import {mountEditorArea} from "../editor-area";
 import type {EditorAreaSource} from "../editor-area";
 import {SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
@@ -60,6 +61,8 @@ const props = defineProps<{
     /** 标题栏的菜单与搜索、两侧的条目；没有时标题栏只有品牌与项目名。 */
     chrome?: ShellChrome;
     project: string | null;
+    /** 拖动时画不画落点分区（设置 `nbook.workbench/dropSectors`）；缺省画。 */
+    dropSectors?: boolean;
 }>();
 
 const resolver = useText();
@@ -78,15 +81,24 @@ function run(id: string, args: Record<string, unknown> = {}): void {
 
 // ── 编辑器 ────────────────────────────────────────────────────────────────
 
-/** 编辑组现在还是一块面板里的整个编辑区（w00026 t07 片 7b 归面板）：最大化别的面板时盖住它，对提供者就是不可见。 */
-const editorContext: EditorAreaContext = {visible: computed(() => {
-    const maximized = state.value.maximized;
-    return maximized === null || doc.value.panels[maximized]?.role === "editor";
-})};
-const editorComponent = computed((): Component | null => {
+const editorArea = computed(() => {
     const provider = props.editorArea?.current.value ?? null;
-    return provider === null ? null : editorAreaComponent(provider, resolver);
+    return provider === null ? null : {id: provider.id, ...mountEditorArea(provider, resolver)};
 });
+
+/** 区级组件挂上时交出来（`EditorAreaHostProps`）；还没交时编辑器标签不起拖。 */
+const editorTabs = shallowRef<EditorTabDrag | null>(null);
+
+/** 每块编辑组一份：别的面板最大化时盖住它，对提供者就是不可见。 */
+const editorContexts = new Map<string, EditorAreaContext>();
+function editorContextOf(panelId: string): EditorAreaContext {
+    let context = editorContexts.get(panelId);
+    if (context === undefined) {
+        context = {visible: computed(() => state.value.maximized === null || state.value.maximized === panelId)};
+        editorContexts.set(panelId, context);
+    }
+    return context;
+}
 
 // ── 视图 ──────────────────────────────────────────────────────────────────
 
@@ -108,6 +120,25 @@ function layoutOfView(viewId: string): "scroll" | "fill" {
     return catalog.value.get(viewId)?.layout ?? "scroll";
 }
 
+/**
+ * 内容层里一个标签该画的视图外框（`WorkbenchViewFrame` 的属性与事件）。编辑器标签、声明不在的视图、还没建实例的视图
+ * 都没有外框，返回 null：前两种由模板单独成支，最后一种什么也不画，等实例建好再画。
+ */
+function viewFrameOf(contentKey: string) {
+    const viewId = viewIdOf(contentKey);
+    const instance = viewId === null ? undefined : instances.instances.get(viewId);
+    if (viewId === null || instance === undefined || !catalog.value.has(viewId)) return null;
+    return {
+        props: {viewId, layout: layoutOfView(viewId), delivery: props.views.delivery(viewId), status: instance.status, error: instance.error, component: instance.component, context: instances.contextOf(viewId), generation: instance.generation, busy: instance.busy},
+        on: {
+            retryEntry: () => instances.retryEntry(viewId),
+            reload: () => instances.reload(viewId),
+            retryRender: () => instances.retryRender(viewId),
+            renderError: (generation: number, reason: string) => instances.renderError(viewId, generation, reason),
+        },
+    };
+}
+
 const instanceOf = (viewId: string): ViewInstanceRef | null => {
     const generation = instances.generations.value.get(viewId);
     return generation === undefined ? null : {viewId, generation};
@@ -118,10 +149,13 @@ const TAB_TRUNCATED_PX = 96;
 const TAB_ICON_PX = 28;
 const FRAME_BUTTON_PX = 26;
 const HEAD_PADDING_PX = 20;
+/** 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。 */
+const collapsibleHere = (panelId: string): boolean => findTreeNode(doc.value.tree.root, panelId)?.parent?.orientation === "vertical";
 function headReserved(panelId: string): number {
     const panel = doc.value.panels[panelId];
-    const frames = panel?.name === undefined ? 2 : 3;
-    return TAB_TRUNCATED_PX + TAB_ICON_PX * Math.max(0, (panel?.tabs.length ?? 1) - 1) + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
+    const frames = 1 + (collapsibleHere(panelId) ? 1 : 0) + (panel?.name === undefined ? 0 : 1);
+    const others = titleOnlyPanels.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
+    return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
 }
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
@@ -147,6 +181,9 @@ function headTabs(panelId: string): PanelHeadTab[] {
     });
 }
 
+/** 头只写标题的面板（输出 20）：切视图靠活动栏，所以活动栏隐藏时它们也画标签带。 */
+const titleOnlyPanels = computed<ReadonlySet<string>>(() => new Set(doc.value.hiddenBars.includes("activitybar") ? [] : sidebarColumnPanels(doc.value)));
+
 /** 框架按钮（输出 20）：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。 */
 function frameActionsOf(panelId: string): PanelFrameAction[] {
     const panel = doc.value.panels[panelId];
@@ -156,7 +193,7 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
         return {id, icon, label: message(title), disabled: !(enabled.ok && enabled.value), ...(enabled.ok ? {} : {reason: resolver.t(enabled.reason)}), ...(pressed === undefined ? {} : {pressed})};
     };
     return [
-        describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true),
+        ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true)] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
         // 无名面板没有隐藏按钮。
         ...(panel?.name === undefined ? [] : [describe(SET_PART_HIDDEN_COMMAND, "i-lucide-x", "shell.frame.hide")]),
@@ -201,7 +238,10 @@ function closeMoveMenu(reason: ContextMenuCloseReason): void {
     const opened = moveMenu.value;
     moveMenu.value = null;
     if (opened === null || reason === "outside") return;
-    void nextTick(() => hostEl.value?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`)?.focus({preventScroll: true}));
+    void nextTick(() => {
+        const root = hostEl.value;
+        (root?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`) ?? root?.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(opened.viewId)}"]`))?.focus({preventScroll: true});
+    });
 }
 
 const moveMenuItems = computed((): ContextMenuItem[] => {
@@ -209,7 +249,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     if (opened === null) return [];
     const targets = moveTargetsOf(doc.value, opened.viewId) ?? [];
     const into = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "panel" ? [] : [{label: text(panelTitle(doc.value, catalog.value, target.panel)), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, target: target.panel})}]));
-    const beside = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "new-panel" ? [] : [{label: message("viewCommands.newPanelNextTo", {panel: text(panelTitle(doc.value, catalog.value, target.nextTo))}), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, target: {newPanelNextTo: target.nextTo}})}]));
+    const beside = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "new-panel" ? [] : [{label: message("viewCommands.newPanelNextTo", {panel: text(panelTitle(doc.value, catalog.value, target.nextTo))}), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, newPanelNextTo: target.nextTo})}]));
     const reset: ContextMenuItem[] = canResetView(doc.value, catalog.value, opened.viewId) ? [{label: message("views.resetLocation"), action: () => props.layout.actions.resetView(opened.viewId)}] : [];
     const sections = [into, beside, reset].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{separator: true}, ...section]));
@@ -217,9 +257,11 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
 
 // ── 活动栏 ────────────────────────────────────────────────────────────────
 
-const toolEntries = computed(() => [...catalog.value.entries()]
-    .sort(([leftId, left], [rightId, right]) => (left.order ?? 0) - (right.order ?? 0) || (leftId < rightId ? -1 : 1))
-    .map(([id, declaration]) => ({id, label: text(declaration.title), icon: declaration.icon, pressed: visibleViews.value.has(id)})));
+/** 侧栏这一列的视图，按文档的顺序（输出 22）。标题与图标同面板头的标签：声明消失的视图也有条目，点了能看到占位。 */
+const toolEntries = computed(() => sidebarColumnPanels(doc.value).flatMap(headTabs).flatMap((tab) => {
+    const id = viewIdOf(tab.id);
+    return id === null ? [] : [{id, label: tab.label, icon: tab.icon, pressed: visibleViews.value.has(id)}];
+}));
 
 const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntries(resolver) ?? []).map((item) => ({id: item.id, title: item.title, icon: item.icon, interactive: item.command !== null, pressed: item.pressed, disabledReason: item.disabledReason})));
 
@@ -238,13 +280,10 @@ function focusView(viewId: string): void {
 }
 
 function selectEntry(viewId: string): void {
-    const intent = toolEntryIntent(doc.value, viewId, {visible: state.value.visibleTabs as ReadonlySet<string>, focusedPanel: state.value.focusedPanel});
+    const intent = toolEntryIntent(doc.value, viewId, {visible: state.value.visibleTabs as ReadonlySet<string>});
     switch (intent.kind) {
         case "reveal":
             props.layout.actions.revealView(viewId);
-            focusView(viewId);
-            return;
-        case "focus":
             focusView(viewId);
             return;
         case "hide":
@@ -280,7 +319,7 @@ const statusProblems = computed(() => state.value.problems.map((problem) => ({re
 const surface = useTemplateRef<InstanceType<typeof WorkbenchSurface>>("surface");
 
 /**
- * 焦点所在的内容或面板头不可见了（输出 16）：同一面板看得见的标签，面板看不见时活动栏里这个视图的条目，都没有时外壳根。焦点已经去了别处（菜单、对话框、别的面板）时不抢。
+ * 焦点所在的内容或面板头不可见了（输出 16）：同一面板看得见的标签，面板看不见时活动栏里这个视图的条目，都没有时外壳根；编辑器的内容没有所属的活动栏条目，去活动编辑组的活动标签。焦点已经去了别处（菜单、对话框、别的面板）时不抢。
  * 判断焦点丢了要等渲染之后：面板头被移走时焦点回到 body，内容停放时焦点还在 `inert` 的元素上。
  */
 function onContentParked(key: string): void {
@@ -291,9 +330,10 @@ function onContentParked(key: string): void {
         if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null) return;
         const viewId = viewIdOf(key);
         const panel = viewId === null ? null : panelOfView(viewId);
-        const tab = panel === null ? null : root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(panel)}"] [role="tab"][tabindex="0"]`);
+        const head = viewId === null ? "[data-editor-group-head-active]" : panel === null ? null : `[data-panel-head="${CSS.escape(panel)}"]`;
+        const tab = head === null ? null : root.querySelector<HTMLElement>(`${head} [data-panel-tab][tabindex="0"]`);
         const entry = viewId === null ? null : root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(viewId)}"]`);
-        (tab !== null && tab.offsetParent !== null ? tab : (entry ?? root)).focus({preventScroll: true});
+        (tab !== null && tab.offsetParent !== null && tab.closest("[inert]") === null ? tab : (entry ?? root)).focus({preventScroll: true});
     });
 }
 
@@ -326,16 +366,25 @@ onMounted(() => {
         extent: () => state.value.extent,
         maximized: () => state.value.maximized,
         enabled: () => state.value.ready,
-        commit: (source, action) => props.layout.actions.drop(source, action),
+        editorTabs: () => editorTabs.value,
+        titleOnly: (panel) => titleOnlyPanels.value.has(panel),
+        sectors: () => props.dropSectors !== false,
+        commit: (source, action, part, keyboard) => {
+            // 编辑器标签走编辑器区的动作：要先结算视图的输入、合并同一标签（`EditorTabDrag`）。
+            const editorTab = editorTabIdOf(source.tab);
+            if (editorTab !== null) editorTabs.value?.drop(editorTab, action, part, keyboard);
+            else props.layout.actions.drop(source, action);
+        },
     });
 });
 onBeforeUnmount(() => drag.value?.dispose());
 
 const dragState = computed(() => drag.value?.session.state.value ?? null);
 
-function ghostOf(source: LayoutSource): {readonly label: string; readonly icon: string} | null {
-    const key = source.kind === "tab" ? source.tab : (doc.value.panels[source.panel]?.active ?? null);
-    const viewId = key === null ? null : viewIdOf(key);
+function ghostOf(source: LayoutTabSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
+    const editorTab = editorTabIdOf(source.tab);
+    if (editorTab !== null) return editorTabs.value?.ghost(editorTab) ?? null;
+    const viewId = viewIdOf(source.tab);
     const declaration = viewId === null ? undefined : catalog.value.get(viewId);
     return declaration === undefined ? null : {label: text(declaration.title), icon: declaration.icon};
 }
@@ -365,16 +414,22 @@ function dropLabel(drop: LayoutDragDrop): string {
 
 const dropFeedback = computed(() => {
     const drop = dragState.value?.drop ?? null;
-    if (drop === null) return {preview: null, label: "", kind: "", count: 0};
-    const source = dragState.value?.source;
-    const count = source?.kind === "panel" ? (doc.value.panels[source.panel]?.tabs.length ?? 0) : 1;
-    return {preview: {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation}, label: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind, count};
+    if (drop === null) return {preview: null, label: "", kind: ""};
+    return {preview: {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation}, label: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind};
 });
 
-/** 呈现降级写在外壳根上（“失败与恢复”）：被收走的面板，压到编辑组时再加一条。 */
+const sectorLabels = computed(() => ({
+    left: message("shell.drop.sector.left"),
+    right: message("shell.drop.sector.right"),
+    top: message("shell.drop.sector.top"),
+    bottom: message("shell.drop.sector.bottom"),
+    center: message("shell.drop.addTab"),
+}));
+
+/** 呈现降级写在外壳根上（“失败与恢复”）：被收走的面板，压到编辑组时再加一条；记录不合骨架回落了也写一条。 */
 const diagnostics = computed(() => {
     const {removed, squeezed} = state.value.collapse;
-    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : []).join(" | ");
+    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : [], state.value.outsideSkeleton ? ["布局记录不合骨架，已用默认布局"] : []).join(" | ");
 });
 
 /** 布局里的面板，给外壳根写个数：e2e 和排障用。 */
@@ -410,6 +465,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :projection="layout.actions.presentation()"
                 :maximized="state.maximized"
                 :disabled="!state.ready"
+                :title-only-panels="titleOnlyPanels"
                 context-key="workbench"
                 @extent="onExtent"
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"
@@ -428,6 +484,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :drag-hint="message('shell.drag.hint')"
                         @select="selectEntry"
                         @run-item="(id) => chrome?.runItem(id)"
+                        @context-menu="(id, at) => openMoveMenu(viewKey(id), at)"
                     />
                 </template>
                 <template #statusbar>
@@ -444,7 +501,11 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     />
                 </template>
                 <template #head="{panelId, idPrefix}">
+                    <template v-if="doc.panels[panelId]?.role === 'editor'">
+                        <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" />
+                    </template>
                     <WorkbenchPanelHead
+                        v-else
                         :panel-id="panelId"
                         :label="text(panelTitle(doc, catalog, panelId))"
                         :tabs="headTabs(panelId)"
@@ -452,8 +513,10 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :more-label="message('common.more')"
                         :id-prefix="idPrefix"
                         :drag-hint="message('shell.drag.hint')"
+                        :title-only="titleOnlyPanels.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
                         @activate="(key) => layout.actions.activate(key)"
+                        @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"
                         @action="(action) => runFrameAction(panelId, action)"
                         @context-menu="openMoveMenu"
                     >
@@ -462,39 +525,26 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         </template>
                     </WorkbenchPanelHead>
                 </template>
-                <template #content="{contentKey}">
+                <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">
-                        <component :is="editorComponent" v-if="editorComponent !== null" :key="props.editorArea?.current.value?.id" :context="editorContext" data-workbench-editor-area />
+                        <component :is="editorArea.group" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :tab-id="editorTabIdOf(contentKey)" :context="editorContextOf(panelId)" data-workbench-editor-area />
                         <div v-else class="workbench-shell__welcome">
                             <h1>NeuroBook</h1>
-                            <p>{{ welcome }}</p>
+                            <!-- 这块编辑组有标签时写的是原因（输出 34）：编辑器撤回了，标签还在，再次交付后恢复。 -->
+                            <p>{{ (doc.panels[panelId]?.tabs.length ?? 0) > 0 ? message("shell.editorUnavailable") : welcome }}</p>
                         </div>
                     </template>
                     <div v-else-if="!catalog.has(viewIdOf(contentKey)!)" class="workbench-shell__missing" role="status" data-view-missing>
                         <span>{{ message("shell.missing.view", {viewId: viewIdOf(contentKey)!}) }}</span>
                         <button type="button" class="workbench-shell__missing-close nb-ui-focus-ring" @click="layout.actions.closeTab(contentKey)">{{ message("shell.missing.close") }}</button>
                     </div>
-                    <WorkbenchViewFrame
-                        v-else-if="instances.instances.has(viewIdOf(contentKey)!)"
-                        :view-id="viewIdOf(contentKey)!"
-                        :layout="layoutOfView(viewIdOf(contentKey)!)"
-                        :delivery="views.delivery(viewIdOf(contentKey)!)"
-                        :status="instances.instances.get(viewIdOf(contentKey)!)!.status"
-                        :error="instances.instances.get(viewIdOf(contentKey)!)!.error"
-                        :component="instances.instances.get(viewIdOf(contentKey)!)!.component"
-                        :context="instances.contextOf(viewIdOf(contentKey)!)"
-                        :generation="instances.instances.get(viewIdOf(contentKey)!)!.generation"
-                        :busy="instances.instances.get(viewIdOf(contentKey)!)!.busy"
-                        @retry-entry="instances.retryEntry(viewIdOf(contentKey)!)"
-                        @reload="instances.reload(viewIdOf(contentKey)!)"
-                        @retry-render="instances.retryRender(viewIdOf(contentKey)!)"
-                        @render-error="(generation, reason) => instances.renderError(viewIdOf(contentKey)!, generation, reason)"
-                    />
+                    <WorkbenchViewFrame v-else-if="viewFrameOf(contentKey) !== null" v-bind="viewFrameOf(contentKey)!.props" v-on="viewFrameOf(contentKey)!.on" />
                 </template>
             </WorkbenchSurface>
         </div>
+        <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="(next: EditorTabDrag | null) => (editorTabs = next)" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="dragState?.drop?.sectors ?? null" :sector-labels="sectorLabels" />
     </div>
 </template>
 

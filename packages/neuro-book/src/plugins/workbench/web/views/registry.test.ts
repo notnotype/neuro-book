@@ -21,7 +21,7 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
 import type {ViewImplementation} from "../contracts";
-import {computePlacement, implicitContainerId} from "./placement";
+import {defaultLayoutDoc} from "../state/default-tree";
 import {ViewRegistry} from "./registry";
 
 const started: Application[] = [];
@@ -133,8 +133,8 @@ describe("视图注册表", () => {
         const builtin = contributor("nbook.sample", ["nbook.sample.view"], control());
         const third = contributor("acme.sample", ["acme.sample.later", "acme.sample.first"], control(), {}, {"acme.sample.first": 0});
         const {registry} = await start([builtin, third]);
-        const sidebar = computePlacement(registry.catalog, {}).parts.sidebar;
-        expect(sidebar).toEqual(["acme.sample.first", "nbook.sample.view", "acme.sample.later"].map(implicitContainerId));
+        const sidebar = defaultLayoutDoc(registry.catalog).panels.sidebar;
+        expect(sidebar?.tabs).toEqual(["acme.sample.first", "nbook.sample.view", "acme.sample.later"].map((viewId) => ({kind: "view", viewId})));
     });
 
     it("交付后可用，每次加载经句柄取实现", async () => {

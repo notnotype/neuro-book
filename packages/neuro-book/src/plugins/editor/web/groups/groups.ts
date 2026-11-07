@@ -1,16 +1,17 @@
 /**
- * 编辑组与标签（docs/specs/workbench/editor.md 输出 1–5）：纯模型，不打开文档。标签的属性（地址、编辑器、preview、固定、光标、语言）在这里，标签在哪块面板、面板怎么排经
- * `panels.ts` 的接缝；活动组是最近获得焦点或执行过打开的组。打开文档与释放引用由控制器按这里的结果做，所以每个会让标签消失的动作都返回消失的标签。
+ * 编辑组与标签（docs/specs/workbench/editor.md 输出 1–5）：纯模型，不打开文档。标签的属性（地址、编辑器、preview、固定、光标、语言）在这里，标签在哪块面板、面板怎么排在工作台的布局文档里，
+ * 经 `workbench/shared/editor-panels.ts` 的接缝改（docs/specs/ui/workbench-layout.md 输出 33）；活动组是最近获得焦点或执行过打开的组。打开文档与释放引用由控制器按这里的结果做，所以每个
+ * 会让标签消失的动作都返回消失的标签。
  */
 
 import {computed, shallowRef} from "@vue/reactivity";
 import type {Ref, ShallowRef} from "@vue/reactivity";
 
-import type {Grid, GridDropRect, GridSnapshot} from "@notnotype/nb-layout";
+import type {LayoutEdgeTarget} from "@notnotype/nb-layout";
+
+import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
 
 import {isWithin, rebase} from "../documents/address";
-import {createLocalPanels, restorePanelGrid} from "./panels";
-import type {LocalPanelsSeed, PanelCanInsert, PanelEdge} from "./panels";
 
 import type {TabCursor} from "../../shared/contracts";
 
@@ -64,25 +65,6 @@ export interface TabPlace {
     readonly before: string | null;
 }
 
-export type GroupEdge = PanelEdge;
-
-/** 差不到这么多算贴着：组之间的分隔线 1px 加取整。 */
-const EDGE_TOLERANCE_PX = 2;
-
-/**
- * 只有一个标签的 `source` 组移到 `target` 组的 `edge` 边上，结果还是现在的样子吗（docs/specs/workbench/editor.md 输出 55 的原位）：它已经紧贴
- * 这条边，交叉轴也一样长。交叉轴不一样长时，新组只占目标那一段，结果不同，不算。矩形是这一刻量出来的。
- */
-export function sitsAtEdge(target: GridDropRect, source: GridDropRect, edge: GroupEdge): boolean {
-    const near = (left: number, right: number): boolean => Math.abs(left - right) <= EDGE_TOLERANCE_PX;
-    if (edge === "left" || edge === "right") {
-        const touching = edge === "right" ? near(source.left, target.right) : near(source.right, target.left);
-        return touching && near(source.top, target.top) && near(source.bottom, target.bottom);
-    }
-    const touching = edge === "bottom" ? near(source.top, target.bottom) : near(source.bottom, target.top);
-    return touching && near(source.left, target.left) && near(source.right, target.right);
-}
-
 /** 编辑器记光标的写法（编辑器声明的 `cursor`）；没有就不记。 */
 export type CursorKind = (editor: string) => "offset" | "line" | null;
 
@@ -104,21 +86,36 @@ export interface EditorGroup {
     readonly active: string | null;
 }
 
-/** 存进记录的形状：布局是 grid 快照，标签只有地址、编辑器、preview、固定、上次的光标与语言。 */
-export interface GroupsSnapshot {
-    readonly layout: GridSnapshot;
-    readonly groups: ReadonlyArray<{readonly id: string; readonly tabs: ReadonlyArray<{readonly address: string; readonly editor: string; readonly preview: boolean; readonly pinned?: true; readonly cursor?: TabCursor; readonly language?: string}>; readonly active: number | null}>;
-    readonly activeGroup: string;
+/** 记录里的文件标签：地址、编辑器、preview、固定、上次的光标与语言。 */
+export interface SavedFileTab {
+    readonly address: string;
+    readonly editor: string;
+    readonly preview: boolean;
+    readonly pinned?: true;
+    readonly cursor?: TabCursor;
+    readonly language?: string;
 }
+
+/**
+ * 记录里的一项。页面标签也留一项：布局文档里有它，恢复时要分得清“页面不恢复”（输出 33，从文档里拿掉）和“这个标签的记录丢了”（显示原因，docs/specs/ui/workbench-layout.md 输出 34）。
+ */
+export type SavedTab = SavedFileTab | {readonly page: true};
+
+/** 存进记录的形状（`editor.tabs`）：`tabId` → 属性。 */
+export interface TabsSnapshot {
+    readonly tabs: Readonly<Record<string, SavedTab>>;
+}
+
+/** 标签的记录丢了时的占位：是一个打不开的页面，所以能显示、能关闭，别的路径都不用为它分支。 */
+export const LOST_TAB_ADDRESS = "page://nbook.editor.lost-tab";
 
 export type SplitDirection = "right" | "down";
 
 export interface EditorGroups {
     readonly groups: Readonly<Ref<ReadonlyArray<EditorGroup>>>;
-    readonly activeGroup: Readonly<ShallowRef<string>>;
-    /** 布局的 grid；结构变化时 `layoutVersion` 加一。 */
-    readonly grid: Grid<string>;
-    readonly layoutVersion: Readonly<ShallowRef<number>>;
+    readonly activeGroup: Readonly<Ref<string>>;
+    /** 标签的属性，变了就要存（`snapshot`）。结构在布局文档里，由工作台存。 */
+    readonly attributes: Readonly<ShallowRef<ReadonlyMap<string, EditorTab>>>;
     /** 活动组的活动标签。 */
     activeTab(): EditorTab | null;
     find(tabId: string): {readonly group: EditorGroup; readonly tab: EditorTab} | null;
@@ -154,8 +151,11 @@ export interface EditorGroups {
      * 标签（由控制器并掉）时不变，返回 null。只改结构，结算与绑定归控制器。
      */
     moveTab(tabId: string, place: TabPlace): {readonly tab: EditorTab; readonly droppedGroup: string | null} | null;
-    /** 在 `group` 的一边拆出新组并把标签移过去（转正、不固定）。源组只有这一个标签且就是 `group` 时不变，返回 null。 */
-    moveToNewGroup(tabId: string, group: string, edge: GroupEdge): {readonly tab: EditorTab; readonly group: string; readonly droppedGroup: string | null} | null;
+    /**
+     * 把标签移到外缘（转正、不固定），它所在的组成为活动组。源组只有这一个标签时是同一块面板移动，`group` 还是它自己，视图不重建（docs/specs/ui/workbench-layout.md 输出 27）；
+     * 否则拆出新组。放下去和现在一样时不变，返回 null。
+     */
+    moveToNewGroup(tabId: string, target: LayoutEdgeTarget): {readonly tab: EditorTab; readonly group: string} | null;
     /**
      * 用另一种编辑器打开同一标签，光标与语言随之丢掉（输出 39）。本组已有这个地址、这种编辑器的标签时切到它、关掉当前
      * 这个，返回被关的标签；否则为 null。
@@ -169,7 +169,7 @@ export interface EditorGroups {
     rebind(from: string, to: string, kept?: ReadonlyArray<string>): void;
     /** 关闭这些地址及其后代的标签，返回被关的标签。 */
     closeWithin(addresses: ReadonlyArray<string>): ReadonlyArray<EditorTab>;
-    snapshot(): GroupsSnapshot;
+    snapshot(): TabsSnapshot;
 }
 
 /** 默认的光标写法：只认内置的两个编辑器（测试与没有编辑器目录的场合）。 */
@@ -178,34 +178,29 @@ const BUILTIN_CURSOR: CursorKind = (editor) => (editor === "nbook.editor.markdow
 /** 两份列表的项都是同一个对象吗。 */
 const sameItems = <T>(left: ReadonlyArray<T>, right: ReadonlyArray<T>): boolean => left.length === right.length && left.every((item, index) => item === right[index]);
 
-/** 至少一组；记录坏了或组不对应布局时从一个空组开始。 */
-export function createEditorGroups(initial: GroupsSnapshot | null = null, cursorKind: CursorKind = BUILTIN_CURSOR): EditorGroups {
-    const restored = initial === null ? null : restore(initial, cursorKind);
+/** `panels` 是结构的持有者；`initial` 是读到的 `editor.tabs`，两边靠 `tabId` 对上（`restoreTabs`）。 */
+export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot | null = null, cursorKind: CursorKind = BUILTIN_CURSOR): EditorGroups {
+    const {tabs: panelTabs, tree} = panels;
     /** 标签的属性。结构（标签在哪、活动的是谁）在接缝后面，两边只靠 id 对上。 */
-    const attributes = shallowRef<ReadonlyMap<string, EditorTab>>(restored?.attributes ?? new Map());
-    const pinnedIn = (ids: ReadonlyArray<string>): number => pinnedCount(ids.flatMap((id) => attributes.value.get(id) ?? []));
+    const attributes = shallowRef<ReadonlyMap<string, EditorTab>>(restoreTabs(panels, initial, cursorKind));
 
-    /** 固定的排在普通的前面（输出 50）。 */
-    const canInsert: PanelCanInsert = (tabId, panel, at) => {
-        const tab = attributes.value.get(tabId);
-        if (tab === undefined) return false;
-        const boundary = pinnedIn(panel.tabs.filter((id) => id !== tabId));
+    /** 这个位置守不守固定分区（输出 50）：固定的排在普通的前面。`at` 是摘掉来源之后的位置。 */
+    const fitsPartition = (tab: EditorTab, panel: string, at: number): boolean => {
+        const others = (panelTabs.panels.value.find((entry) => entry.id === panel)?.tabs ?? []).filter((id) => id !== tab.id);
+        const boundary = pinnedCount(others.flatMap((id) => attributes.value.get(id) ?? []));
         return isPinned(tab) ? at <= boundary : at >= boundary;
     };
-    const {tabs: panelTabs, tree, grid, layoutVersion} = createLocalPanels(restored?.seed ?? null, canInsert);
 
     /**
      * 结构和属性合成的组。没变的组和标签保持同一个对象：光标一动属性就变，别的组不该跟着重新渲染。
      */
-    let joined: ReadonlyArray<EditorGroup> = [];
-    const groups = computed<ReadonlyArray<EditorGroup>>(() => {
+    const groups = computed<ReadonlyArray<EditorGroup>>((previous = []) => {
         const next = panelTabs.panels.value.map((panel): EditorGroup => {
             const tabs = panel.tabs.flatMap((id) => attributes.value.get(id) ?? []);
-            const previous = joined.find((group) => group.id === panel.id);
-            return previous !== undefined && previous.active === panel.active && sameItems(previous.tabs, tabs) ? previous : {id: panel.id, tabs, active: panel.active};
+            const same = previous.find((group) => group.id === panel.id);
+            return same !== undefined && same.active === panel.active && sameItems(same.tabs, tabs) ? same : {id: panel.id, tabs, active: panel.active};
         });
-        if (!sameItems(joined, next)) joined = next;
-        return joined;
+        return sameItems(previous, next) ? previous : next;
     });
 
     const groupOf = (id: string): EditorGroup | undefined => groups.value.find((group) => group.id === id);
@@ -243,6 +238,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
      * 同时改属性和位置。固定区的检查看的是新属性，所以属性先写；接缝不答应时写回去。`at` 是摘掉来源之后的位置。
      */
     const moveWith = (found: {readonly group: EditorGroup; readonly tab: EditorTab; readonly index: number}, tab: EditorTab, panel: string, at: number, options?: {readonly activate?: boolean}): boolean => {
+        if (!fitsPartition(tab, panel, at)) return false;
         setTab(tab);
         const index = found.group.id === panel && at >= found.index ? at + 1 : at;
         if (panelTabs.move(tab.id, panel, index, options)) return true;
@@ -268,8 +264,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
     return {
         groups,
         activeGroup: tree.current,
-        grid,
-        layoutVersion,
+        attributes,
         activeTab: () => {
             const group = groupOf(tree.current.value);
             return group?.tabs.find((tab) => tab.id === group.active) ?? null;
@@ -368,15 +363,19 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             if (!moveWith(found, tab, target.id, at)) return null;
             return {tab, droppedGroup: groupOf(found.group.id) === undefined ? found.group.id : null};
         },
-        moveToNewGroup: (tabId, groupId, edge) => {
+        moveToNewGroup: (tabId, target) => {
             const found = locate(tabId);
-            if (found === null || groupOf(groupId) === undefined) return null;
-            if (found.group.id === groupId && found.group.tabs.length === 1) return null;
-            const id = tree.openAtEdge(groupId, edge);
-            if (id === null) return null;
+            if (found === null) return null;
             const tab = placed(found.tab, false);
-            if (!moveWith(found, tab, id, 0)) return null;
-            return {tab, group: id, droppedGroup: groupOf(found.group.id) === undefined ? found.group.id : null};
+            setTab(tab);
+            const group = panelTabs.moveToEdge(tabId, target);
+            if (group === null) {
+                setTab(found.tab);
+                return null;
+            }
+            // 接缝不改活动面板：单个标签的组是同一块面板移动，没有“拆出新面板”那一步。
+            tree.setCurrent(group);
+            return {tab, group};
         },
         setEditor: (tabId, editor) => {
             const found = locate(tabId);
@@ -425,48 +424,42 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             });
         },
         snapshot: () => ({
-            layout: grid.serialize(),
-            groups: groups.value.map((group) => ({
-                id: group.id,
-                tabs: filesOf(group).map((tab) => ({address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.pinned === true ? {pinned: true as const} : {}), ...(tab.cursor === undefined ? {} : {cursor: tab.cursor}), ...(tab.language === undefined ? {} : {language: tab.language})})),
-                active: activeFileIndex(group),
+            tabs: Object.fromEntries([...attributes.value].flatMap(([id, tab]): Array<[string, SavedTab]> => {
+                // 丢了记录的占位不写：写成页面的话下次恢复就悄悄没了，原因只显示过一次。
+                if (tab.address === LOST_TAB_ADDRESS) return [];
+                if (tab.kind === "page") return [[id, {page: true}]];
+                return [[id, {address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.pinned === true ? {pinned: true as const} : {}), ...(tab.cursor === undefined ? {} : {cursor: tab.cursor}), ...(tab.language === undefined ? {} : {language: tab.language})}]];
             })),
-            activeGroup: tree.current.value,
         }),
     };
 }
 
-/** 组里打开文件的标签：页面标签不进会话记录（输出 33）。 */
-function filesOf(group: EditorGroup): FileTab[] {
-    return group.tabs.filter((tab): tab is FileTab => tab.kind === "file");
-}
-
-/** 记录里的活动项：活动的是页面时取它左边最近的文件标签，没有就取右边的；组里没有文件标签为 null。 */
-function activeFileIndex(group: EditorGroup): number | null {
-    const files = filesOf(group);
-    const at = group.tabs.findIndex((tab) => tab.id === group.active);
-    if (at < 0) return null;
-    const nearest = [...group.tabs.slice(0, at + 1)].reverse().find((tab) => tab.kind === "file") ?? group.tabs.slice(at).find((tab) => tab.kind === "file");
-    return nearest === undefined ? null : files.findIndex((tab) => tab.id === nearest.id);
-}
-
-/** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
-function restore(snapshot: GroupsSnapshot, cursorKind: CursorKind): {readonly seed: LocalPanelsSeed; readonly attributes: ReadonlyMap<string, EditorTab>} | null {
-    const ids = new Set(snapshot.groups.map((group) => group.id));
-    if (ids.size !== snapshot.groups.length || ids.size === 0 || !ids.has(snapshot.activeGroup)) return null;
-    const grid = restorePanelGrid(snapshot.layout, ids);
-    if (grid === null) return null;
+/**
+ * 按读到的记录恢复标签的属性（docs/specs/ui/workbench-layout.md 输出 34）。布局文档说了算：文档里没有的 `tabId` 不恢复；文档里有、记录里没有的显示占位；页面标签不恢复，从文档里拿掉。
+ * 两条记录不是一次写的，崩在中间时固定与普通可能交错：按出现顺序把固定的排到前面。
+ */
+function restoreTabs(panels: EditorPanels, initial: TabsSnapshot | null, cursorKind: CursorKind): ReadonlyMap<string, EditorTab> {
     const attributes = new Map<string, EditorTab>();
-    const panels = snapshot.groups.map((group) => {
-        const all = group.tabs.map((saved): EditorTab => {
-            // 固定的不是 preview：记录里两者都有时以固定为准。
-            const tab: FileTab = {kind: "file", id: newTabId(), address: saved.address, editor: saved.editor, preview: saved.pinned === true ? false : saved.preview, ...(saved.pinned === true ? {pinned: true as const} : {}), ...(saved.language === undefined ? {} : {language: saved.language})};
-            return saved.cursor !== undefined && cursorFits(cursorKind(saved.editor), saved.cursor) ? {...tab, cursor: saved.cursor} : tab;
+    for (const panel of panels.tabs.panels.value) {
+        for (const id of panel.tabs) {
+            const saved = initial?.tabs[id];
+            if (saved === undefined) attributes.set(id, {kind: "page", id, address: LOST_TAB_ADDRESS, preview: false});
+            else if ("page" in saved) panels.tabs.remove(id);
+            else attributes.set(id, restoredFile(id, saved, cursorKind));
+        }
+    }
+    for (const panel of panels.tabs.panels.value) {
+        const pinned = panel.tabs.filter((id) => {
+            const tab = attributes.get(id);
+            return tab !== undefined && isPinned(tab);
         });
-        // 记录里固定与普通交错时，按出现顺序把固定的排到前面；活动项按标签身份找，不受换位影响。
-        const tabs = [...all.filter(isPinned), ...all.filter((candidate) => !isPinned(candidate))];
-        for (const tab of tabs) attributes.set(tab.id, tab);
-        return {id: group.id, tabs: tabs.map((tab) => tab.id), active: group.active === null ? null : (all[group.active]?.id ?? tabs[0]?.id ?? null)};
-    });
-    return {seed: {grid, panels, current: snapshot.activeGroup}, attributes};
+        for (const [at, id] of pinned.entries()) panels.tabs.move(id, panel.id, at, {activate: false});
+    }
+    return attributes;
+}
+
+function restoredFile(id: string, saved: SavedFileTab, cursorKind: CursorKind): FileTab {
+    // 固定的不是 preview：记录里两者都有时以固定为准。
+    const tab: FileTab = {kind: "file", id, address: saved.address, editor: saved.editor, preview: saved.pinned === true ? false : saved.preview, ...(saved.pinned === true ? {pinned: true as const} : {}), ...(saved.language === undefined ? {} : {language: saved.language})};
+    return saved.cursor !== undefined && cursorFits(cursorKind(saved.editor), saved.cursor) ? {...tab, cursor: saved.cursor} : tab;
 }

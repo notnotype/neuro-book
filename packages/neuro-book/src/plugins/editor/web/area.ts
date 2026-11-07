@@ -1,17 +1,20 @@
 /**
- * 一个窗口的编辑器区（docs/specs/workbench/editor.md）：组与标签模型、文档模型、每组的视图绑定与视图状态、加载进度、
+ * 一个窗口的编辑器区（docs/specs/workbench/editor.md）：组与标签模型、文档模型、每个标签的视图绑定与视图状态、加载进度、
  * 关闭询问与会话记录。组件只渲染这里的状态、把用户动作交回来；命令经它执行。
  *
- * 三层寿命（沿旧应用的切换设计）：控件每组每种编辑器一个，由组件持有；视图状态每“组 × 编辑器 × 文档”一份，存在这里的
- * 槽里，控件换文档时存进去、换回来时取出；文档在文档模型里，按打开引用计数。只淘汰确定 clean 的非活动视图状态。
+ * 三层寿命：控件每个标签一个，由组件持有，切走时隐藏，最久没用的卸载（`mountedControls`）；视图状态与控件留下的实例每
+ * “标签 × 编辑器”一份，存在这里的槽里，跟着标签走，换组不动，卸载控件也不动，只在标签关闭、换编辑器时释放；文档在文档模型
+ * 里，按打开引用计数。
  */
 
 import {computed, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
+import type {LayoutEdgeTarget} from "@notnotype/nb-layout";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
+import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {CODE_EDITOR} from "../shared/contracts";
@@ -23,15 +26,15 @@ import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, previewEditorFor, res
 import type {EditorCatalog} from "./editors";
 import {createEditorGroups} from "./groups/groups";
 import {pageAddress, pageIdOf} from "./pages";
-import type {EditorGroups, EditorTab, FileTab, GroupEdge, GroupsSnapshot, SplitDirection, TabPlace} from "./groups/groups";
+import type {EditorGroups, EditorTab, FileTab, SplitDirection, TabPlace, TabsSnapshot} from "./groups/groups";
 
 export type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 
 /** 打开后这么久正文还没就绪才显示进度条（files-explorer 的“打开与切换”）。 */
 export const PROGRESS_DELAY_MS = 800;
 
-/** 每组每种编辑器最多保留这么多份非活动的视图状态。 */
-export const RETAINED_VIEWS = 3;
+/** 每种编辑器最多留这么多个控件；多出来的卸载，视图状态还在（docs/specs/workbench/editor.md 术语“视图”）。 */
+export const MOUNTED_CONTROLS_PER_EDITOR = 20;
 
 export type CloseChoice = "save" | "discard" | "cancel";
 
@@ -46,10 +49,12 @@ export interface EditorAreaOptions {
     readonly clock: RuntimeClock;
     readonly workspaceKey: string;
     readonly generation: number;
-    /** 恢复的会话；没有为 null。 */
-    readonly initial: GroupsSnapshot | null;
-    /** 会话变化时调用（组、标签、活动项、布局）；未绑定项目的窗口不给。 */
-    readonly persist?: (snapshot: GroupsSnapshot) => void;
+    /** 编辑组的结构：工作台的布局文档持有（docs/specs/ui/workbench-layout.md 输出 33）。 */
+    readonly panels: EditorPanels;
+    /** 读到的标签属性；没有为 null。 */
+    readonly initial: TabsSnapshot | null;
+    /** 标签的属性变化时调用；未绑定项目的窗口不给。结构由工作台存。 */
+    readonly persist?: (snapshot: TabsSnapshot) => void;
     /** 打开了一个地址（输出 31 的最近打开）；未绑定项目的窗口不给。 */
     readonly opened?: (address: string) => void;
     readonly report: (error: unknown) => void;
@@ -59,6 +64,8 @@ export interface EditorAreaOptions {
     readonly conflict?: (address: string, editors: ReadonlyArray<string>) => void;
     /** 设置“预览标签页”（输出 52）：为假时单击打开也是常驻标签，已有的 preview 标签转正。缺省为真。 */
     readonly enablePreview?: () => boolean;
+    /** 每种编辑器留几个控件；缺省 `MOUNTED_CONTROLS_PER_EDITOR`。只有测试与 Lab 给：验证回收不用真开 21 个标签。 */
+    readonly mountedControlsPerEditor?: number;
 }
 
 /**
@@ -73,24 +80,38 @@ export type BatchCloseResult = {readonly ok: true; readonly closed: number} | {r
 /** 打开成功时给出标签 id：继续写作的定位绑定到这个标签。 */
 export type OpenResult = {readonly ok: true; readonly tabId: string} | {readonly ok: false; readonly reason: DisplayText};
 
+export interface MoveOptions {
+    /** 移动后把焦点交给活动视图；缺省交。键盘拖放由手势把焦点还给标签，不交。 */
+    readonly focusView?: boolean;
+}
+
 export interface EditorArea {
     readonly documents: DocumentStore;
     readonly groups: EditorGroups;
     /** 已接受的编辑器声明（标签的标题、预览编辑器的判断要用）。 */
     readonly editors: EditorCatalog;
-    /** 组的当前绑定（文本或字节）；没有活动的文件标签、文档还没就绪为 null。 */
+    /** 组的活动标签的绑定（文本或字节）；没有活动的文件标签、文档还没就绪为 null。给没挂控件的读者用（测试、Lab 夹具）：产品里控件取 `tabBinding`，命令取 `documentOf`、`handleOf`。 */
     binding(groupId: string): EditorBinding | null;
+    /**
+     * 一个标签的绑定：每个标签一份，换组、切走都不换。页面、“不能在这里打开”的标签、文档还没就绪为 null。第一次调用会打开
+     * 标签的文档，所以只为留着控件的标签调（`mountedControls`）：恢复出来、没活动过的标签不读。
+     */
+    tabBinding(tabId: string): EditorBinding | null;
     /** 组的活动标签的文档（有文本引用的那种）；字节标签与页面为 null。 */
     documentOf(groupId: string): TextDocument | null;
     /** 组的活动文件标签的文件条目，文本与字节标签都有（删除、订阅结束的提示用它）；页面为 null。 */
     fileOf(groupId: string): TextDocument | null;
     /** 活动标签的视图能不能输入：文本编辑器、不是预览视图、文档可写（docs/specs/workbench/editor.md 输出 48）。 */
     viewWritable(groupId: string): boolean;
+    /** 这个标签的视图能不能输入（同上）；控件按它自己的标签取，不按组的活动标签。 */
+    tabWritable(tabId: string): boolean;
     /**
-     * 每组每种编辑器一个、活到组关闭的槽：控件把编辑器实例存在这里，布局变化（拆分、关闭相邻组）让组件重挂时接着用，
-     * 撤销历史与编辑状态不丢（输出 2、10）。
+     * 每个标签每种编辑器一个的槽：控件把编辑器实例存在这里，卸载之后重挂时接着用，撤销历史与编辑状态不丢（输出 10）。
+     * 标签关闭或换编辑器时释放。
      */
-    controlSlot(groupId: string, editor: string): ViewStateSlot;
+    tabControlSlot(tabId: string, editor: string): ViewStateSlot;
+    /** 留着控件的标签：各组的活动标签，加上每种编辑器最近用过的几个。没活动过的标签不在里面。 */
+    readonly mountedControls: ComputedRef<ReadonlySet<string>>;
     /** 组顶部的进度条：活动文档 800 ms 后仍在读取。 */
     progress(groupId: string): boolean;
     /** 活动组的活动文档。 */
@@ -109,9 +130,11 @@ export interface EditorArea {
     readonly dialog: Readonly<ShallowRef<CloseDialog | null>>;
     /** 组顶部的一行提示（例如换文档前有未裁决输入）；没有为 null。文字值，显示时经翻译端口翻译。 */
     readonly notice: Readonly<ShallowRef<DisplayText | null>>;
-    /** `reveal: "end"`：文档就绪、控件交出句柄后把光标放到末尾（输出 29）；在此之前切走即取消。 */
-    /** `group`：编辑组 id，或 `"side"`（活动组右侧的组，没有就向右新建一个）；缺省活动组（docs/specs/workbench/editor.md 输出 35）。 */
-    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: string; readonly reveal?: "end"; readonly group?: string}): OpenResult;
+    /**
+     * `reveal`：文档就绪、控件交出句柄后聚焦这个视图，`"end"` 还把光标放到末尾（输出 29）；在此之前切走即取消。
+     * `group`：编辑组 id，或 `"side"`（活动组右侧的组，没有就向右新建一个）；缺省活动组（docs/specs/workbench/editor.md 输出 35）。
+     */
+    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: string; readonly reveal?: "end" | "cursor"; readonly group?: string}): OpenResult;
     /** 打开一个页面（输出 33）：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签。 */
     openPage(id: string): OpenResult;
     activate(tabId: string): ActionResult;
@@ -120,9 +143,9 @@ export interface EditorArea {
     /** 固定或取消固定（输出 50）。 */
     setPinned(tabId: string, pinned: boolean): ActionResult;
     /** 把标签移到组内另一位置或别的组（输出 49）；目标组已有同一标签时并掉，可能要问，问完之前 Promise 不结束。 */
-    moveTab(tabId: string, place: TabPlace): Promise<ActionResult>;
-    /** 在 `group` 的一边拆出新组并把标签移过去（输出 49）。 */
-    moveToNewGroup(tabId: string, group: string, edge: GroupEdge): ActionResult;
+    moveTab(tabId: string, place: TabPlace, options?: MoveOptions): Promise<ActionResult>;
+    /** 把标签移到外缘（输出 49；docs/specs/ui/workbench-layout.md 输出 25、27）：单个标签的组整块移动，视图不重建。 */
+    moveToNewGroup(tabId: string, target: LayoutEdgeTarget, options?: MoveOptions): ActionResult;
     focusGroup(groupId: string): void;
     /** 关闭标签；文档最后一个标签且需要结算时先问，问的结果出来之前 Promise 不结束。 */
     close(tabId: string): Promise<"closed" | "cancelled">;
@@ -152,21 +175,19 @@ export interface EditorArea {
     /** 焦点落到了编辑器区之外（用户去了资源管理器等）：撤销还在等控件就绪的焦点交接。 */
     focusLeft(): void;
     /** 控件交出（或撤回）句柄。 */
-    registerHandle(groupId: string, editor: string, handle: EditorControlHandle | null): void;
+    registerTabHandle(tabId: string, editor: string, handle: EditorControlHandle | null): void;
     dismissNotice(): void;
     /** 在组顶部显示一行提示（例如地址参数指向的不是项目里的资源）。 */
     notify(text: DisplayText): void;
     /** 离开页面前：结算全部视图输入，有需要结算的文档时为真。 */
     needsLeaveConfirm(): boolean;
-    /** 布局尺寸变了（拖动分隔条）：记下会话。 */
-    layoutChanged(): void;
     dispose(): void;
 }
 
 export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const catalog = options.editors ?? BUILTIN_CATALOG;
     const documents = createDocumentStore({files: options.files, workspaceKey: options.workspaceKey, generation: options.generation, report: options.report});
-    const groups = createEditorGroups(options.initial, (editor) => catalog.declaration(editor)?.cursor ?? null);
+    const groups = createEditorGroups(options.panels, options.initial, (editor) => catalog.declaration(editor)?.cursor ?? null);
     /** 预览编辑器（`role: "preview"`）的标签不算这个文件“已经打开”的那一个（输出 1）。声明已不在的编辑器不算预览编辑器。 */
     const isPreview = (editor: string): boolean => catalog.declaration(editor)?.role === "preview";
     /**
@@ -177,9 +198,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     /** 能编辑这份文档的标签：文本编辑器、不是预览视图（输出 4）。 */
     const editable = (tab: EditorTab): boolean => tab.kind === "file" && readsText(tab) && !isPreview(tab.editor);
     const references = new Map<string, DocumentReference>();
+    /** 视图状态、控件留下的实例与句柄都按 `slotKey` 存：跟着标签走，换组不换。 */
     const slots = new Map<string, ViewStateSlot>();
-    /** 每组每种编辑器的非活动视图状态，最近用过的在后。 */
-    const recent = new Map<string, string[]>();
+    const controlSlots = new Map<string, ViewStateSlot>();
     const handles = shallowRef(new Map<string, EditorControlHandle>());
     const dialog = shallowRef<CloseDialog | null>(null);
     const notice = shallowRef<DisplayText | null>(null);
@@ -189,7 +210,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     let disposed = false;
     const stops: Array<() => void> = [];
 
-    const slotKey = (groupId: string, editor: string, document: TextDocument): string => `${groupId}|${editor}|${document.target.value.documentId}`;
+    const slotKey = (tabId: string, editor: string): string => `${tabId}|${editor}`;
 
     /** 标签的文档引用：恢复出来的标签第一次成为活动标签时才打开文档。 */
     const referenceOf = (tab: FileTab): DocumentReference => {
@@ -213,115 +234,81 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
     };
 
-    /** 标签已从组模型移除之后调用：释放它的文档引用。 */
-    const releaseTab = (tab: EditorTab, groupId: string): void => {
+    const disposeSlot = (slot: ViewStateSlot | undefined): void => {
+        try {
+            slot?.dispose?.();
+        } catch (error) {
+            options.report(error);
+        }
+    };
+    /** 换下一种编辑器：它的视图状态与实例不再用，换回来从头建。 */
+    const dropEditorState = (tabId: string, editor: string): void => {
+        // 绑定拿着这个槽：留着的话，渲染之前又换回来会接着用已释放的槽。
+        if (bindings.get(tabId)?.binding.editor === editor) bindings.delete(tabId);
+        const key = slotKey(tabId, editor);
+        for (const store of [slots, controlSlots]) {
+            const slot = store.get(key);
+            store.delete(key);
+            disposeSlot(slot);
+        }
+    };
+    /** 标签不在了：放掉它的绑定、视图状态与实例。 */
+    const dropTabState = (tabId: string): void => {
+        bindings.delete(tabId);
+        const prefix = slotKey(tabId, "");
+        for (const store of [slots, controlSlots]) {
+            for (const [key, slot] of [...store]) {
+                if (!key.startsWith(prefix)) continue;
+                store.delete(key);
+                disposeSlot(slot);
+            }
+        }
+    };
+
+    /** 标签已从组模型移除之后调用：释放它的状态与文档引用。 */
+    const releaseTab = (tab: EditorTab): void => {
+        dropTabState(tab.id);
         const reference = references.get(tab.id);
         if (reference === undefined || tab.kind === "page") return;
         references.delete(tab.id);
         adoptOrphans(tab.address);
-        const key = slotKey(groupId, tab.editor, reference.document);
-        const stillShown = groups.groups.value.some((group) => group.id === groupId && group.tabs.some((other) => other.kind === "file" && other.editor === tab.editor && references.get(other.id)?.document === reference.document));
-        if (!stillShown) dropSlot(key);
         reference.release();
     };
 
-    const dropSlot = (key: string): void => {
-        // 先从最近列表里摘掉：淘汰循环靠它让列表变短，槽已经不在时也要摘。
-        for (const list of recent.values()) {
-            const index = list.indexOf(key);
-            if (index >= 0) list.splice(index, 1);
-        }
-        const slot = slots.get(key);
-        if (slot === undefined) return;
-        slots.delete(key);
-        try {
-            slot.dispose?.();
-        } catch (error) {
-            options.report(error);
-        }
-    };
-
-    /** 换下来的视图状态进最近列表；超出上限时淘汰最早的、确定 clean 的那一份。 */
-    const retire = (groupId: string, kind: string, key: string): void => {
-        // 换下的绑定的槽可能已经随标签释放（preview 被替换）：没有槽就没有可保留的视图状态。
-        if (!slots.has(key)) return;
-        const listKey = `${groupId}|${kind}`;
-        const list = recent.get(listKey) ?? [];
-        const at = list.indexOf(key);
-        if (at >= 0) list.splice(at, 1);
-        list.push(key);
-        recent.set(listKey, list);
-        while (list.length > RETAINED_VIEWS) {
-            const victim = list.find((candidate) => {
-                const documentId = candidate.split("|")[2];
-                for (const reference of references.values()) {
-                    const document = reference.document;
-                    if (document.target.value.documentId === documentId && (document.dirty.value || document.saving.value || document.unresolved.value.length > 0 || document.blocked.value.size > 0 || document.conflict.value !== null)) return false;
-                }
-                return true;
-            });
-            if (victim === undefined) break;
-            dropSlot(victim);
-        }
-    };
-
-    const controlSlots = new Map<string, ViewStateSlot>();
-    const dropControlSlot = (key: string): void => {
-        const slot = controlSlots.get(key);
-        if (slot === undefined) return;
-        controlSlots.delete(key);
-        try {
-            slot.dispose?.();
-        } catch (error) {
-            options.report(error);
-        }
-    };
-    stops.push(watch(() => groups.groups.value.map((group) => group.id), (live) => {
-        for (const key of [...controlSlots.keys()]) if (!live.includes(key.slice(0, key.indexOf("|")))) dropControlSlot(key);
-    }));
-
-    /** 组此刻交给控件的绑定与它背后的文档（文档只在编辑器区里用，不交给控件）。 */
+    /** 标签交给控件的绑定与它背后的文档（文档只在编辑器区里用，不交给控件）。 */
     interface Bound {
         readonly binding: EditorBinding;
         readonly document: TextDocument;
     }
     const bindings = new Map<string, Bound>();
-    const binding = (groupId: string): EditorBinding | null => {
-        const group = groups.groups.value.find((candidate) => candidate.id === groupId);
-        const tab = group?.tabs.find((candidate) => candidate.id === group.active);
+    /** 组件的计算值会反复调它：建好之后原样返回，重复调用没有别的效果。 */
+    const tabBinding = (tabId: string): EditorBinding | null => {
+        const tab = groups.find(tabId)?.tab;
         // 页面标签与“不能在这里打开”的标签没有控件，也就没有绑定。
-        if (group === undefined || tab === undefined || tab.kind === "page" || tab.editor === BINARY_TAB_EDITOR) return null;
+        if (tab === undefined || tab.kind === "page" || tab.editor === BINARY_TAB_EDITOR) return null;
         const document = referenceOf(tab).document;
         const status = document.status.value;
         if (status !== "ready" && status !== "deleted") return null;
-        const key = slotKey(groupId, tab.editor, document);
-        const existing = bindings.get(groupId);
-        // 标签对象随光标、语言变化换新：同一标签、同一编辑器、同一文档仍是同一个绑定。
-        if (existing !== undefined && existing.binding.tabId === tab.id && existing.binding.editor === tab.editor && existing.document === document) return existing.binding;
-        if (existing !== undefined) retire(groupId, existing.binding.editor, slotKey(groupId, existing.binding.editor, existing.document));
+        const existing = bindings.get(tabId);
+        // 标签对象随光标、语言变化换新：同一编辑器、同一文档仍是同一个绑定。
+        if (existing !== undefined && existing.binding.editor === tab.editor && existing.document === document) return existing.binding;
+        const key = slotKey(tabId, tab.editor);
         let slot = slots.get(key);
         if (slot === undefined) {
             slot = {state: null, dispose: null};
             slots.set(key, slot);
         }
-        const listKey = `${groupId}|${tab.editor}`;
-        const list = recent.get(listKey);
-        if (list !== undefined) {
-            const at = list.indexOf(key);
-            if (at >= 0) list.splice(at, 1);
-        }
         nextToken += 1;
         const token = `v${String(nextToken)}`;
-        // 换下的绑定（换文档、关闭标签、换编辑器）不再改变任何文档：换下之前，切换的路径已经结算过它的输入（`leave`、
-        // `closeTab`），之后迟到的回调一律当作过时。
-        const tabId = tab.id;
+        // 换下的绑定（关闭标签、换编辑器）不再改变任何文档：换下之前，这两条路径已经结算过它的输入（`closeOne`、`leave`），
+        // 之后迟到的回调一律当作过时。
         const address = computed(() => groups.find(tabId)?.tab.address ?? tab.address);
         if (!readsText(tab)) {
             const bytes: BytesEditorBinding = {kind: "bytes", token, tabId, editor: tab.editor, address, url: computed(() => options.files.rawUrl(address.value)), version: document.version, slot};
-            bindings.set(groupId, {binding: bytes, document});
+            bindings.set(tabId, {binding: bytes, document});
             return bytes;
         }
-        const current = (): boolean => bindings.get(groupId)?.binding === created;
+        const current = (): boolean => bindings.get(tabId)?.binding === created;
         const created: TextEditorBinding = {
             kind: "text",
             token,
@@ -335,7 +322,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 if (!current()) return {status: "stale"};
                 const result = documents.commit(document, token, baseRevision, text);
                 // 在 preview 标签里编辑即转正（输出 1）：只看真正改了正文的输入。
-                if (result.status === "accepted" && result.revision > baseRevision && groups.find(tab.id)?.tab.preview === true) groups.keep(tab.id);
+                if (result.status === "accepted" && result.revision > baseRevision && groups.find(tabId)?.tab.preview === true) groups.keep(tabId);
                 return result;
             },
             attach: (flush) => (current() ? documents.attachView(document, flush) : () => undefined),
@@ -345,15 +332,44 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             },
             blocked: () => document.blocked.value.has(token),
             cursor: tab.cursor ?? null,
-            remember: (cursor) => groups.setCursor(tab.id, cursor),
+            remember: (cursor) => groups.setCursor(tabId, cursor),
             language: computed(() => {
                 const found = groups.find(tabId)?.tab;
                 return found === undefined || found.kind === "page" ? null : found.language ?? null;
             }),
         };
-        bindings.set(groupId, {binding: created, document});
+        bindings.set(tabId, {binding: created, document});
         return created;
     };
+    const activeTabIdOf = (groupId: string): string | null => groups.groups.value.find((candidate) => candidate.id === groupId)?.active ?? null;
+    const binding = (groupId: string): EditorBinding | null => {
+        const tabId = activeTabIdOf(groupId);
+        return tabId === null ? null : tabBinding(tabId);
+    };
+    /** 组的活动标签的绑定，已经建好的才算：这里只问它有没有要结算的输入，不为此打开文档。 */
+    const activeBound = (groupId: string): Bound | undefined => bindings.get(activeTabIdOf(groupId) ?? "");
+
+    /**
+     * 留着控件的标签，最近用的在前。掉出去的不再回来，除非又活动一次：名额空出来也不回填，没有人在看它，不在后台重建编辑器。
+     * 活动标签排在最前、不受上限：组比上限还多时用户也正看着它们。
+     */
+    const keptTabs = shallowRef<ReadonlyArray<string>>([]);
+    const controlLimit = options.mountedControlsPerEditor ?? MOUNTED_CONTROLS_PER_EDITOR;
+    stops.push(watch(() => groups.groups.value, () => {
+        const list = groups.groups.value;
+        const tabs = new Map(list.flatMap((group) => group.tabs.map((tab) => [tab.id, tab] as const)));
+        const active = list.flatMap((group) => (group.active === null ? [] : [group.active]));
+        const counts = new Map<string, number>();
+        const next = [...active, ...keptTabs.value.filter((id) => !active.includes(id))].filter((id) => {
+            const tab = tabs.get(id);
+            if (tab === undefined || tab.kind === "page" || tab.editor === BINARY_TAB_EDITOR) return false;
+            const count = (counts.get(tab.editor) ?? 0) + 1;
+            counts.set(tab.editor, count);
+            return count <= controlLimit || active.includes(id);
+        });
+        if (next.length !== keptTabs.value.length || next.some((id, index) => id !== keptTabs.value[index])) keptTabs.value = next;
+    }, {immediate: true}));
+    const mountedControls = computed((): ReadonlySet<string> => new Set([...keptTabs.value, ...groups.groups.value.flatMap((group) => (group.active === null ? [] : [group.active]))]));
 
     const activeFileTab = (groupId: string): FileTab | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
@@ -409,17 +425,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         for (const group of groups.groups.value) {
             for (const tab of group.tabs) {
                 if (tab.kind === "page" || !event.addresses.includes(tab.address)) continue;
-                const reference = references.get(tab.id);
                 references.delete(tab.id);
-                if (reference !== undefined) dropSlot(slotKey(group.id, tab.editor, reference.document));
             }
         }
-        groups.closeWithin(event.addresses);
+        for (const tab of groups.closeWithin(event.addresses)) dropTabState(tab.id);
     }));
 
     if (options.persist !== undefined) {
         const persist = options.persist;
-        stops.push(watch(() => [groups.groups.value, groups.activeGroup.value, groups.layoutVersion.value], () => persist(groups.snapshot())));
+        stops.push(watch(() => groups.attributes.value, () => persist(groups.snapshot())));
     }
 
     const activeDocument = computed(() => documentOf(groups.activeGroup.value));
@@ -435,55 +449,46 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
         return [...open];
     });
-    /**
-     * 把焦点交给活动视图。布局变化（关闭组、拆分）会让 grid 重挂控件：现在聚焦的可能是马上被拿下的那个 DOM，所以活动视图
-     * 的控件在同一个任务里重新登记时再聚焦一次；控件还没挂上（例如换了一种编辑器、Monaco 还在加载）就等它登记。只聚焦
-     * 活动视图：其它组的控件重挂不抢焦点，也就不会把活动组改掉。等待中的交接在用户把焦点移出编辑器区时撤销（`focusLeft`），
-     * 迟到的控件不把焦点抢回来。
-     */
-    let focusWhenReady = false;
-    let refocusOnRemount = false;
-    const focusActive = (): void => {
-        const handle = activeHandle.value;
-        if (handle !== null) handle.focus();
-        else focusWhenReady = groups.activeTab() !== null;
-        refocusOnRemount = true;
-        options.clock.schedule(() => {
-            refocusOnRemount = false;
-        }, 0);
-    };
     const handleOf = (groupId: string): EditorControlHandle | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
-        return tab === undefined || tab.kind === "page" ? null : handles.value.get(`${groupId}|${tab.editor}`) ?? null;
+        return tab === undefined || tab.kind === "page" ? null : handles.value.get(slotKey(tab.id, tab.editor)) ?? null;
     };
     const activeHandle = computed(() => handleOf(groups.activeGroup.value));
     const breadcrumbFocus = shallowRef<{readonly group: string; readonly seq: number} | null>(null);
 
     /**
-     * 继续写作的定位（输出 29）：打开时记下标签与组，等它的文档就绪、它所在组的控件交出句柄再定位；在此之前用户切到别的
+     * 继续写作的定位（输出 29）：打开时记下标签与组，等它的文档就绪、它的控件交出句柄再定位；在此之前用户切到别的
      * 标签或组、标签关闭、焦点移出编辑器区（`focusLeft`）都取消，读取失败在组顶部提示。定位本身推到下一个时钟刻：文档就绪时
-     * 控件要在它自己的 watch 里先装上正文，这里的 watch 是同步的，不能抢在它前面；到了那一刻再核对一次标签与句柄仍是活动的。
-     * 恢复会话（输出 30）走同一条路，只聚焦：光标已由控件按标签记下的位置放好；读取失败时内容区自己说明，不另提示。
+     * 控件要在它自己的 watch 里先装上正文，内容项也可能还停放着（`inert`，`focus()` 静默失败），都要等这一轮渲染；到了那一刻再
+     * 核对一次标签与句柄仍是活动的。
+     * 恢复会话（输出 30）与把焦点交给活动视图（`focusActive`）走同一条路，只聚焦：光标由控件按标签记下的位置放好；读取失败时
+     * 内容区自己说明，不另提示。
      */
-    const pendingReveal = shallowRef<{readonly groupId: string; readonly tabId: string; readonly address: string; readonly reveal: "end" | "cursor"} | null>(null);
+    const pendingReveal = shallowRef<{readonly tabId: string; readonly address: string; readonly reveal: "end" | "cursor"} | null>(null);
+    const focusActive = (): void => {
+        const tab = groups.activeTab();
+        // 这个标签已经在等定位（继续写作）：定位时会聚焦，不把它降成只聚焦。
+        if (tab === null || pendingReveal.value?.tabId !== tab.id) pendingReveal.value = tab === null ? null : {tabId: tab.id, address: tab.address, reveal: "cursor"};
+    };
     /** 焦点移出编辑器区的次数：已经排进时钟的定位据此知道用户在这期间离开过（清空 `pendingReveal` 撤不回它）。 */
     let leaves = 0;
     type RevealState =
         | {readonly outcome: "cancelled"}
         | {readonly outcome: "failed"; readonly address: string; readonly reveal: "end" | "cursor"}
-        | {readonly outcome: "ready"; readonly groupId: string; readonly tabId: string; readonly handle: EditorControlHandle; readonly reveal: "end" | "cursor"};
+        | {readonly outcome: "ready"; readonly tabId: string; readonly handle: EditorControlHandle; readonly reveal: "end" | "cursor"};
     stops.push(watch((): RevealState | null => {
         const pending = pendingReveal.value;
         if (pending === null) return null;
-        const group = groups.groups.value.find((candidate) => candidate.id === pending.groupId);
-        const tab = group?.tabs.find((candidate) => candidate.id === pending.tabId);
-        if (group === undefined || tab === undefined || tab.kind === "page" || !readsText(tab) || group.active !== tab.id || groups.activeGroup.value !== group.id) return {outcome: "cancelled"};
+        // 按标签找组，不记组：等待期间标签可能换了组（移动之后焦点也该在那边）。
+        const found = groups.find(pending.tabId);
+        if (found === null || found.tab.kind === "page" || found.group.active !== found.tab.id || groups.activeGroup.value !== found.group.id) return {outcome: "cancelled"};
+        const {tab} = found;
         const status = referenceOf(tab).document.status.value;
         if (status === "failed") return {outcome: "failed", address: pending.address, reveal: pending.reveal};
         if (status !== "ready" && status !== "deleted") return null;
-        const handle = handles.value.get(`${group.id}|${tab.editor}`);
-        return handle === undefined ? null : {outcome: "ready", groupId: group.id, tabId: tab.id, handle, reveal: pending.reveal};
+        const handle = handles.value.get(slotKey(tab.id, tab.editor));
+        return handle === undefined ? null : {outcome: "ready", tabId: tab.id, handle, reveal: pending.reveal};
     }, (state) => {
         if (state === null) return;
         pendingReveal.value = null;
@@ -493,8 +498,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         options.clock.schedule(() => {
             if (disposed || leaves !== leavesAtReady) return;
             // 就绪与这一刻之间用户可能已切走：标签仍是它所在组与活动组的活动标签、句柄仍是活动视图的，才定位。
-            const group = groups.groups.value.find((candidate) => candidate.id === state.groupId);
-            if (group === undefined || group.active !== state.tabId || groups.activeGroup.value !== group.id || activeHandle.value !== state.handle) return;
+            const found = groups.find(state.tabId);
+            if (found === null || found.group.active !== state.tabId || groups.activeGroup.value !== found.group.id || activeHandle.value !== state.handle) return;
             if (state.reveal === "end") state.handle.revealEnd?.();
             state.handle.focus();
         }, 0);
@@ -502,11 +507,11 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     // 恢复出来的会话：活动组的活动标签就绪后聚焦，光标在它记下的位置（输出 30）。
     const restoredTab = options.initial === null ? null : groups.activeTab();
-    if (restoredTab !== null) pendingReveal.value = {groupId: groups.activeGroup.value, tabId: restoredTab.id, address: restoredTab.address, reveal: "cursor"};
+    if (restoredTab !== null) pendingReveal.value = {tabId: restoredTab.id, address: restoredTab.address, reveal: "cursor"};
 
     /** 组的活动视图为什么不能换下（输出 9、49、61）：有未裁决输入、写不出；能换下为 null。 */
     const holding = (groupId: string): "unresolved" | "unrepresentable" | null => {
-        const current = bindings.get(groupId);
+        const current = activeBound(groupId);
         if (current === undefined) return null;
         if (current.document.unresolved.value.includes(current.binding.token)) return "unresolved";
         if (current.document.blocked.value.has(current.binding.token)) return "unrepresentable";
@@ -521,7 +526,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     /** 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。 */
     const leave = (groupId: string): boolean => {
-        const current = bindings.get(groupId);
+        const current = activeBound(groupId);
         if (current === undefined) return true;
         documents.settle(current.document);
         const held = holding(groupId);
@@ -536,7 +541,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      * 换编辑器（输出 39）：文本与字节之间换了，标签的引用随之换一份（先取新的再放旧的，条目不会因此被丢掉）。从文本换到
      * 字节、而这是这份文档最后一个能编辑的标签、它又需要结算时拒绝：放掉最后一个文本引用会丢掉没保存的正文。
      */
-    const changeEditor = (tab: FileTab, groupId: string, editor: string): ActionResult => {
+    const changeEditor = (tab: FileTab, editor: string): ActionResult => {
         // 释放之后组模型还在：不再为它取新的文件引用（会开出没人释放的订阅）。
         if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
         const before = readsText(tab);
@@ -549,9 +554,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
         const closed = groups.setEditor(tab.id, editor);
         if (closed !== null) {
-            releaseTab(closed, groupId);
+            releaseTab(closed);
             return {ok: true};
         }
+        if (tab.editor !== editor) dropEditorState(tab.id, tab.editor);
         if (before !== after && reference !== undefined) {
             references.delete(tab.id);
             const changed = groups.find(tab.id)?.tab;
@@ -583,8 +589,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const document = references.get(tabId)?.document ?? null;
             if (document === null) break;
             documents.settle(document);
-            const shown = bindings.get(found.group.id);
-            const own = shown !== undefined && shown.binding.tabId === tabId && shown.binding.kind === "text" ? shown.binding : null;
+            const shown = bindings.get(tabId)?.binding;
+            const own = shown?.kind === "text" ? shown : null;
             const ownInput = own !== null && (own.unresolved() || own.blocked());
             // 只剩预览视图或只读的编辑器时照常问：它们改不了正文（输出 4）。
             const shared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === found.tab.address && editable(tab)));
@@ -598,8 +604,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const now = groups.find(tabId);
             if (now === null) return "gone";
             if (references.get(tabId)?.document !== document) continue;
-            const nowShown = bindings.get(now.group.id);
-            const nowOwn = nowShown !== undefined && nowShown.binding.tabId === tabId && nowShown.binding.kind === "text" ? nowShown.binding : null;
+            const nowShown = bindings.get(tabId)?.binding;
+            const nowOwn = nowShown?.kind === "text" ? nowShown : null;
             if (choice === "discard") {
                 const nowShared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === now.tab.address && editable(tab)));
                 if (nowShared !== shared || nowOwn?.token !== own?.token) continue;
@@ -616,10 +622,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
         const current = groups.find(tabId);
         if (current === null) return "closed";
-        // 只换下这个标签自己的绑定：关同组里别的标签不动活动视图的绑定与它的未裁决输入。
-        if (bindings.get(current.group.id)?.binding.tabId === tabId) bindings.delete(current.group.id);
         groups.close(tabId);
-        releaseTab(current.tab, current.group.id);
+        releaseTab(current.tab);
         if (discarded !== null && documents.get(current.tab.address) === discarded) await documents.revert(discarded);
         // 开始关闭时焦点在编辑器区：交给关闭后的活动视图，键盘用户不至于落到页面根（输出 3）。不看此刻的 `focused`：
         // 被关的标签按钮、询问对话框都会先把它置假。
@@ -668,16 +672,12 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     };
 
     /**
-     * 移动标签（输出 49）。绑定按组记、视图状态按“组 × 编辑器 × 文档”记，所以移动是一次事务：先结算活动标签会变的组，
-     * 有未裁决输入就不动；改完结构后撤下源组里它的绑定与视图状态（旧绑定的 `commit` 从此过时），它在目标组按记下的光标
-     * 重建视图。引用跟着标签 id 走，不动。
+     * 移动标签（输出 49）。绑定、视图状态与控件都跟着标签走，移动只改结构：先结算活动标签会变的组，有未裁决输入就不动。
      */
-    const afterMove = (sourceGroup: string, targetGroup: string, tab: EditorTab, reference: DocumentReference | undefined): void => {
-        if (sourceGroup === targetGroup) return;
-        if (bindings.get(sourceGroup)?.binding.tabId === tab.id) bindings.delete(sourceGroup);
-        if (tab.kind === "file" && reference !== undefined) dropSlot(slotKey(sourceGroup, tab.editor, reference.document));
-    };
-    const moveTab = async (tabId: string, place: TabPlace): Promise<ActionResult> => {
+    const moveTab = async (tabId: string, place: TabPlace, moveOptions: MoveOptions = {}): Promise<ActionResult> => {
+        const focusAfterMove = (): void => {
+            if (moveOptions.focusView !== false) focusActive();
+        };
         if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
         const found = groups.find(tabId);
         if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
@@ -693,16 +693,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (outcome !== "closed" && outcome !== "gone") return {ok: false, reason: editorText(outcome === "failed" ? "refusal.saveFailed" : "refusal.cancelled")};
             // 关掉之后再把留下的那个放到落点（位置与固定区）；它已经在那里时不动。
             if (groups.find(twin.id)?.group.id === target.id) groups.moveTab(twin.id, place);
-            focusActive();
+            focusAfterMove();
             return {ok: true};
         }
         if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
         if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: refusal(target.id, "target")};
-        const reference = references.get(tabId);
         const moved = groups.moveTab(tabId, place);
         if (moved === null) return {ok: false, reason: editorText("refusal.samePlace")};
-        afterMove(found.group.id, target.id, moving, reference);
-        focusActive();
+        focusAfterMove();
         return {ok: true};
     };
 
@@ -747,8 +745,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (request.mode === "preview") keepUnsettledPreview(group, address);
         // 文档在标签成为活动标签、第一次被读到时打开（`referenceOf`）：新开的标签就是活动标签。
         const {tab, replaced} = groups.open(address, {mode: request.mode, editor: resolved, group, ...(reuse === undefined ? {} : {reuse})});
-        if (replaced !== null) releaseTab(replaced, group);
-        pendingReveal.value = request.reveal === "end" ? {groupId: group, tabId: tab.id, address, reveal: "end"} : null;
+        if (replaced !== null) releaseTab(replaced);
+        pendingReveal.value = request.reveal === undefined ? null : {tabId: tab.id, address, reveal: request.reveal};
         options.opened?.(address);
         return {ok: true, tabId: tab.id};
     };
@@ -772,14 +770,19 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return open(tab.address, {mode: "permanent", editor, ...(side ? {group: "side"} : {})});
         },
         binding,
+        tabBinding,
         documentOf,
         fileOf,
         viewWritable: (groupId) => {
             const tab = activeFileTab(groupId);
             return tab !== null && editable(tab) && documentOf(groupId)?.writable.value === true;
         },
-        controlSlot: (groupId, editor) => {
-            const key = `${groupId}|${editor}`;
+        tabWritable: (tabId) => {
+            const tab = groups.find(tabId)?.tab;
+            return tab !== undefined && tab.kind === "file" && editable(tab) && referenceOf(tab).document.writable.value;
+        },
+        tabControlSlot: (tabId, editor) => {
+            const key = slotKey(tabId, editor);
             let slot = controlSlots.get(key);
             if (slot === undefined) {
                 slot = {state: null, dispose: null};
@@ -787,6 +790,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             }
             return slot;
         },
+        mountedControls,
         progress: (groupId) => progress.value.has(groupId),
         activeDocument,
         openDocuments,
@@ -835,17 +839,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return {ok: true};
         },
         moveTab,
-        moveToNewGroup: (tabId, groupId, edge) => {
+        moveToNewGroup: (tabId, target, moveOptions = {}) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
             const found = groups.find(tabId);
             if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
-            if (!groups.groups.value.some((group) => group.id === groupId)) return {ok: false, reason: editorText("refusal.groupClosed")};
-            if (found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
-            const reference = references.get(tabId);
-            const moved = groups.moveToNewGroup(tabId, groupId, edge);
+            // 单个标签的组是同一块面板移动，活动标签不变，没有要结算的；只有拆出新组时源组的活动标签才换。
+            if (found.group.tabs.length > 1 && found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
+            const moved = groups.moveToNewGroup(tabId, target);
             if (moved === null) return {ok: false, reason: editorText("refusal.cannotSplit")};
-            afterMove(found.group.id, moved.group, found.tab, reference);
-            focusActive();
+            if (moveOptions.focusView !== false) focusActive();
             return {ok: true};
         },
         focusGroup: (groupId) => groups.focusGroup(groupId),
@@ -882,14 +884,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (unusable !== null) return {ok: false, reason: unusable};
             if (!leave(group)) return {ok: false, reason: refusal(group, "current")};
             // 换成的编辑器在本组已有这个文件的标签：切过去，当前这个关掉并释放。
-            return changeEditor(tab, group, editor);
+            return changeEditor(tab, editor);
         },
         reopenWithDefault: () => {
             const tab = groups.activeTab();
             if (tab === null || tab.kind === "page") return {ok: false, reason: editorText("refusal.noActiveFileTab")};
             const resolution = resolveEditor(catalog, tab.address);
             const editor = resolution.kind === "binary" ? BINARY_TAB_EDITOR : resolution.editor === tab.editor ? CODE_EDITOR : resolution.editor;
-            return changeEditor(tab, groups.activeGroup.value, editor);
+            return changeEditor(tab, editor);
         },
         save: async () => {
             const document = activeDocument.value;
@@ -917,18 +919,18 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return result.ok ? {ok: true} : {ok: false, reason: result.code};
         },
         resolve: (groupId, choice) => {
-            const current = bindings.get(groupId);
+            const current = activeBound(groupId);
             if (current === undefined) return;
             documents.resolve(current.document, current.binding.token, choice);
             if (notice.value !== null) notice.value = null;
         },
         locate: (groupId) => {
-            const current = bindings.get(groupId);
+            const current = activeBound(groupId);
             const input = current?.document.blocked.value.get(current.binding.token);
             if (input !== undefined) handleOf(groupId)?.revealRange?.(input.from, input.to);
         },
         unblock: (groupId) => {
-            const current = bindings.get(groupId);
+            const current = activeBound(groupId);
             if (current === undefined) return;
             documents.unblock(current.document, current.binding.token);
             if (notice.value !== null) notice.value = null;
@@ -936,20 +938,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         focusLeft: () => {
             leaves += 1;
             focused.value = false;
-            focusWhenReady = false;
-            refocusOnRemount = false;
             // 用户已去了别处：继续写作迟到的就绪不把焦点抢回来。
             pendingReveal.value = null;
         },
-        registerHandle: (groupId, editor, handle) => {
+        registerTabHandle: (tabId, editor, handle) => {
+            const key = slotKey(tabId, editor);
             const next = new Map(handles.value);
-            if (handle === null) next.delete(`${groupId}|${editor}`);
-            else next.set(`${groupId}|${editor}`, handle);
+            if (handle === null) next.delete(key);
+            else next.set(key, handle);
             handles.value = next;
-            if ((focusWhenReady || refocusOnRemount) && handle !== null && activeHandle.value === handle) {
-                focusWhenReady = false;
-                handle.focus();
-            }
         },
         dismissNotice: () => {
             notice.value = null;
@@ -965,17 +962,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             }
             return needed;
         },
-        layoutChanged: () => {
-            if (options.persist !== undefined) options.persist(groups.snapshot());
-        },
         dispose: () => {
             if (disposed) return;
             disposed = true;
             answerDialog?.("cancel");
             for (const stop of stops.splice(0)) stop();
             for (const timer of timers.values()) timer.cancel();
-            for (const key of [...slots.keys()]) dropSlot(key);
-            for (const key of [...controlSlots.keys()]) dropControlSlot(key);
+            for (const slot of [...slots.values(), ...controlSlots.values()]) disposeSlot(slot);
+            slots.clear();
+            controlSlots.clear();
             documents.dispose();
         },
     };

@@ -24,7 +24,7 @@
 
 分隔线可聚焦。与主轴同向的方向键每次调整 10px，Shift 调整 1px；Home / End 跳到可行范围端点，Enter 切换相邻可收起面板。键盘按键抬起时结束该手势。Escape、pointercancel、窗口失焦、上下文变化和卸载会取消，不结算旧基线；分隔线失去焦点时结束键盘会话。禁用时不启动手势。数据、约束、上下文或 revision 变化会使现有手势失效。点击非分隔区域不由渲染器处理；焦点不被组件搬移。
 
-DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`，Tab 走出一块时由组件按树序接管；一致时都是浏览器的原生行为。`moveGridFocus(from, direction)` 按树序在叶之间移动焦点，嵌套时内层走到头交给外层，工作台把它接成 F6 的命令。
+DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`（列出叶、分隔线与没停放的内容项），Tab 走出一块时由组件按树序接管；一致时都是浏览器的原生行为。`moveGridFocus(from, direction)` 按树序在叶之间移动焦点，嵌套时内层走到头交给外层，工作台把它接成 F6 的命令。
 
 ## 接入
 
@@ -93,8 +93,6 @@ type NestedGridProps = {
     revision?: number;
     /** 同步接纳一次完整提交；未提供或返回失败都会回滚预览。 */
     onGestureCommit?: (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
-    /** 会话诊断出口；默认未提供。 */
-    onIssues?: (issues: readonly string[]) => void;
     /** 内容层：和叶外框同一父元素的内容，换叶不重建；默认无，内容放在 leaf 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
     /** 这块叶盖住除 exclude 以外的全部区域，别的叶不动；默认 null。只在内存，宿主决定。 */
@@ -132,7 +130,7 @@ Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`
 
 - 默认允许分隔线交互；受控事实始终来自 `node` 与 `layout`，拖动中的临时预览才由组件持有。
 - 宿主应在树、约束或承载盒尺寸变化时递增 `revision`；`node`、`contextKey`、`revision` 或 `disabled` 改变会取消活动手势。新 `layout` 发布会释放预览，宿主须保持它与树及容器尺寸同源。
-- 容量不足、被宿主拒绝、宿主未发布匹配几何等问题通过 `issues` 事件和可选 `onIssues` 回调报告。
+- 容量不足、被宿主拒绝、宿主未发布匹配几何等问题通过 `issues` 事件报告。
 - 空树由 `empty` 插槽处理；组件不为叶内容定义加载、错误或空数据视觉。
 - 回滚只恢复到宿主最近发布的树与 layout；本组件不会自行修改树或写入快照。
 

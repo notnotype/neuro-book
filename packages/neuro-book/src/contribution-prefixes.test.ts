@@ -21,7 +21,7 @@ const OWN_ID_RULES: Readonly<Record<string, string>> = {
     "state.public": "公开键按插件 id 加 `/`（state/public-state.md）",
     "commands.definitions": "命令 id 按域词表（workbench/commands.md）",
     "workbench.pages": "页面路径（ui/workbench-shell.md）",
-    "workbench.editor-area": "只取一个提供者（ui/workbench-shell.md）",
+    "workbench.editor-area": "只取一个提供者（ui/workbench-layout.md）",
     "workbench.home": "只取一个提供者（ui/workbench-shell.md）",
     "settings.properties": "配置项 id 按插件 id 加 `/`（settings/configuration.md）",
     "markdown.dialects": "方言名（ui/markdown-dialects）",

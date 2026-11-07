@@ -1,0 +1,66 @@
+# w00041 t13 实现审查（775822183..55af3d05a）
+
+## 1. 重要 / 正确性：导航条在“读取中”或“空状态”下挂载时，ResizeObserver 永远不创建，重新挂载与宽度变化两个入口失效
+
+- 位置：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/ThemeEditor.vue:52-70`（`onMounted`），模板 `:234-251`
+- 现象：`<nav ref="nav">` 在 `v-if="!model.ready"` / `v-else-if="model.current === null"` 之后的 `v-else` 分支里，只有“库已读完且有当前主题”才存在。`onMounted` 只跑一次：此刻 `nav.value === null` 时，`revealCurrentSection()` 直接返回，`if (nav.value !== null)` 也不成立，观察者根本没建。之后库读完或用户“新建”，nav 才出现，没有任何东西再去观察它，也不做一次 reveal。
+- 后果（均从代码推断，未跑 e2e）：
+  1. 编辑器在库还没读完时挂载（页签恢复、冷启动打开）：之后当前分区在窄屏下不会被带进可视范围，窗口宽度变化也不会。
+  2. 空状态下挂载，点“新建”后（plugin-code.e2e 的 `[data-new-empty]` 就是这条路径）：同上，观察者缺失。
+  3. 在已有观察者的编辑器里删光主题再新建：nav 节点被销毁重建，观察者还挂在已脱离文档的旧节点上，新 nav 没人观察。
+- 为什么是问题：`ThemeEditor.md` 第 17 行写“分区变了、组件重新挂载、导航条宽度变了时都做”，这三个入口里后两个在上述路径不成立，文档承诺比实现宽。e2e 只覆盖“主题已存在、openEditorTab 重新挂载”这一条（`theme-editor.e2e.ts:393-424`，窗口由 1920 变到 390 之前编辑器是带 nav 挂载的），所以没暴露。
+- 如何核实：读 `ThemeEditor.vue` 模板的 v-if/v-else 链和 `onMounted`；或在 e2e 里先进空状态、点新建、切到“图标”、再缩到 390，观察导航条 `scrollLeft` 仍为 0。
+- 建议改法：不在 `onMounted` 里看 `nav.value`，改成 `watch(nav, (element, _old, onCleanup) => {...}, {flush: "post"})`：元素出现时 observe 并立即 reveal，元素变化或消失时 disconnect；`onBeforeUnmount` 里再 disconnect 一次兜底。补一条覆盖“空状态新建后缩窄”的 e2e 判据（或用 DOM 测试配 ResizeObserver 替身）。
+
+## 2. 建议 / 边界：显示名为空串或空语言映射时，下拉出现空白项，触发器也是空白，id 信息丢失
+
+- 位置：`packages/neuro-book/src/plugins/workbench/shared/themes.ts`（`SceneProviderDeclarationSchema`，`Type.String()` 无 `minLength`，`LocaleMapSchema` 允许 `{}`）与 `web/components/theme-editor/provider-options.ts:22-23`（只判断 `title === undefined`）
+- 现象：`title: ""` 或 `title: {}`（或语言映射里只有空串）通过校验。`providerOptions` 给出 `{value: id, label: "", description: id}`。Select 的 label 是选项主名，空串时那一行左侧是空白，选中后触发器显示 `selectedLabel || placeholder`，placeholder 是 `""`，所以触发器整个是空的。
+- 如何核实：在 `packages/neuro-book` 下跑 lab 实验（`/tmp/review-w00041-t13-impl/lab/probe.test.ts`）：`providerOptions([{id:"a.b.c", title:""},{id:"a.b.d", title:{}}], …)` 输出 `{"value":"a.b.c","label":"","description":"a.b.c"}` 与 `{"value":"a.b.d","label":"","description":"a.b.d"}`。
+- 为什么是问题：Spec 与 SDK 注释都写“不写 title 就显示贡献 id”，作者写了空串时用户得到的是比不写更差的结果。
+- 建议改法：二选一。a) 在 `providerOptions` 里解出来为空（`trim() === ""`）就按没写处理，退到 id；b) schema 给字符串加 `minLength: 1`。a 更稳（语言映射解出来也可能为空，schema 管不到）。顺手在 `provider-options.test.ts` 加一条。
+
+## 3. 建议 / 测试：`provider-options.test.ts` 里的 `resolve` 替身与真实翻译端口对语言映射不一致，注释声称一致
+
+- 位置：`packages/neuro-book/src/plugins/workbench/provider-options.test.ts:11-12`
+- 现象：替身是 `typeof title === "string" ? title : title["zh-CN"] ?? ""`，注释写“与 `useText().t` 对字符串与语言映射的行为一致”。真实实现（`packages/nb-ui/src/text/index.ts:63` `resolveLocaleMap`，宿主 `src/web/host/text-engine.ts:110` 与缺省端口 `text/minimal.ts:100` 都走它）是 当前语言、`en-US`、第一项、空串 依次回退。
+- 如何核实：lab 实验里 `{"en-US":"Aurora"}` 在 zh-CN 下，真实 `createMinimalTranslator().translate` 得 `"Aurora"`，替身得 `""`。
+- 为什么是问题：测试通过靠的是只喂了含 zh-CN 的映射；注释声称的等价并不成立，换一个只有 en-US 的映射测试就会给出与产品相反的预期。替身没有与真实实现对过契约（项目测试规范“替身要与真实实现对过契约”）。
+- 建议改法：测试里直接用 `@notnotype/nb-ui/text` 的 `resolveLocaleMap`，或 `createMinimalTranslator({catalogs: {}, sources: {}}).translate(title, "zh-CN")`；再加一个“只有 en-US 时回退”的用例（它同时会暴露第 2 条的空白行为）。`providerOptions` 本身只是转发，行为由真实端口决定，这样测的才是调用方能观察到的结果。
+
+## 4. 建议 / 测试覆盖：窄屏导航的 e2e 只覆盖一条路径
+
+- 位置：`packages/neuro-book/e2e/theme-editor.e2e.ts:416-424`
+- 现象：只断言“编辑器带 nav 挂载、当前分区是最右两个之一、窗口由宽变窄后落在可视范围”。没有覆盖：向左方向（`box.left < barBox.left` 分支，例如先在窄屏滚到最右再点最左分区）、第 1 条的挂载路径（空状态/读取中挂载）、分区变更入口（后面的 for 循环里 Playwright 的 click 会自己滚动目标，所以量不出 `watch` 的作用，文件里的注释自己也承认这一点）。
+- 为什么是问题：`watch(section)` 与向左分支实际上没有任何断言保护；删掉它们 e2e 仍然全过（从代码推断，作者的变异只禁用了整个滚动逻辑，没有逐入口变异）。
+- 建议改法：加一条判据：窄屏下直接用 `model.section` 变化而不是 click 来驱动不可行，则改为 `page.keyboard` 聚焦后用键盘切（若有）；或在窄屏下 `evaluate` 把 `nav.scrollLeft` 置 0，点“基本信息”之外已可见的项后断言目标仍在范围内……最小做法是：窄屏下把 nav.scrollLeft 设为最大，再用 `page.locator(...).dispatchEvent("click")`（不触发 Playwright 的自动滚动）点“基本信息”，断言它进入范围。
+
+## 5. 建议 / 一致性：`new ResizeObserver` 没有存在性守卫，同类组件有
+
+- 位置：`ThemeEditor.vue:63`
+- 现象：`nb-ui/src/components/controls/Tabs.vue:146` 与 `neuro-book/src/plugins/editor/web/components/EditorGroup.vue:119` 创建前都判断 `typeof ResizeObserver === "function"`，这里直接 new。
+- 为什么是问题：目前没有 DOM 测试挂载 ThemeEditor（grep 只在 Lab 夹具里），所以不会炸；但一旦有人给它写 happy-dom 测试，挂载就抛 `ReferenceError`。这是与周围代码的不一致，不是现存故障。
+- 建议改法：同 Tabs 的写法加守卫。与第 1 条的改法一起做。
+
+## 6. 建议 / 可用性：触发器只显示标题，同名标题的两个提供者不可区分
+
+- 位置：`provider-options.ts:23`，Select 触发器渲染（`packages/nb-ui/src/components/popup/Select.vue:129,199`：触发器只用 `selectedOption.label`，description 不画）
+- 现象：选项列表里标题与 id 同行，选中后触发器只剩标题。两个插件各自声明 `title: "天空"` 时，下拉里靠右侧 id 区分，选中后触发器看不出选的是哪个。`ThemeEditorScene.vue` 的“未发布”提示只对未发布项写 id。
+- 为什么是问题：写 `title` 本来就是第三方插件作者自由字符串，重名完全可能；触发器是用户确认“我选的是谁”的唯一位置。不是阻断（预览会按所选提供者画出图），Spec 输出 20 也没要求触发器带 id，所以只是建议。
+- 建议改法：可用 `Select` 的 `leading` 槽无法放文字，所以更现实的是在下拉下方（已有“未发布”说明行的位置）为已发布且有标题的当前项另写一行 id 说明；或者先不处理，待有第二个真实提供者时再看。
+
+（第 4 条建议改法更正，以此为准：窄屏下先让 nav 滚到最右，再用 `locator.dispatchEvent("click")` 点“基本信息”（不触发 Playwright 的自动滚动），断言它进入导航条范围，这样 `watch(section)` 与向左分支各有一条判据；另加第 1 条的挂载路径用例。）
+
+## 未发现问题的方面
+
+- 类型与调用方：`bun run typecheck`（tsc + 两个 vue-tsc）退出码 0；`SceneProviders.published` / `ThemeCatalog.sceneProviders` / `model.sceneProviders` 的调用方只有 `ThemeEditorScene.vue` 与 `provider-options.ts`，都已改全；排序按 id 的 UTF-16 顺序，与原 `.sort()` 一致且稳定（Map 键唯一）。
+- 合同测试：`bun test` provider-options、scene-providers、themes、08-scene-provider 四个文件 67 通过 0 失败。
+- schema 与 SDK 助手：`sceneProvider` 的 `title` 类型取自 `SceneProviderDeclaration["title"]`，与 schema 同源；文本引用被拒是因为 `kind` 不满足语言标签正则（4 字母主标签），测试断言成立；宿主对不合法声明整条拒绝，符合 Spec 输出 18。
+- 翻译端口：宿主 `text-engine.ts`、缺省端口 `minimal.ts` 对字符串与语言映射行为一致；`ThemeEditorScene` 用 `computed` 内调用 `resolver.t`，语言切换会重算；`.md` 标签已含 `state:inject`。
+- `revealCurrentSection`：只改 `scrollLeft`；桌面竖排时 `scrollWidth <= clientWidth` 直接返回，无副作用；`aria-current` 选择器与模板一致；nav 在 `ScrollArea` 之外，两个 rect 在同一坐标系；`onBeforeUnmount` 释放观察者；卸载后 `nextTick` 回调因 `nav.value === null` 安全返回；改 `scrollLeft` 不改尺寸，不会触发观察者回环。
+- “未发布”项：有显示名的提供者撤回后退回显示 id + “未发布”，与 Spec 输出 20、组件 `.md` 和测试一致。
+- 注释与治理：新增注释写原因与约束、不复述代码；`ThemeEditor.md`、`ThemeEditorScene.md` 与实现同步（第 1 条所述的承诺偏宽除外）。
+
+## 数量
+
+阻断 0；重要 1（第 1 条）；建议 5（第 2 至 6 条）。

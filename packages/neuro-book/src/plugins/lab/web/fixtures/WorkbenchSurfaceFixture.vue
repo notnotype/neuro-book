@@ -27,8 +27,8 @@ import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/Workbench
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {COLLAPSE_ORDER, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
-import {effectiveVisibleTabs, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
-import type {ViewCatalog} from "nbook/plugins/workbench/web/views/placement";
+import {effectiveVisibleTabs, sidebarColumnPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
+import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
 
 import type {LabFixtureProps} from "../lab-subject";
 import GridStructureLeaf from "./nb-layout/GridStructureLeaf.vue";
@@ -92,7 +92,8 @@ const moveTo = (tab: string, panel: string, edge: "left" | "right" | "top" | "bo
 const ACTIONS: Readonly<Record<string, () => void>> = {
     "a-to-right": () => commit((current) => moveTabToStrip(current, {tab: "view:a", panel: "auxiliarybar", index: 1}, POLICY)),
     "a-back": () => commit((current) => moveTabToStrip(current, {tab: "view:a", panel: "sidebar", index: 0}, POLICY)),
-    "c-to-new-panel": () => commit(moveTo("view:c", "g1", "right")),
+    // 无名面板只能挨着工具面板（骨架，输出 1）：挨着 `panel` 的右边，进面板这一排。
+    "c-to-new-panel": () => commit(moveTo("view:c", "panel", "right")),
     "d-below-b": () => commit(moveTo("view:d", "sidebar", "bottom")),
 };
 
@@ -122,7 +123,10 @@ function runFrame(panelId: string, action: string): void {
     if (action === "collapse") commit((current) => setPanelCollapsed(current, panelId, current.panels[panelId]?.collapsed !== true));
 }
 
-const entries = computed<ToolStripEntry[]>(() => VIEWS.map(({id, label, icon}) => ({id, label, icon, pressed: visible.value.has(`view:${id}`)})));
+const entries = computed<ToolStripEntry[]>(() => {
+    const inColumn = new Set(sidebarColumnPanels(doc.value).flatMap((panel) => doc.value.panels[panel]?.tabs.map((tab) => tabKey(tab)) ?? []));
+    return VIEWS.filter(({id}) => inColumn.has(`view:${id}`)).map(({id, label, icon}) => ({id, label, icon, pressed: visible.value.has(`view:${id}`)}));
+});
 
 const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
     {id: "profile", title: "个人资料尚未开放", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
@@ -134,7 +138,7 @@ function focusView(viewId: string): void {
 }
 
 function selectEntry(viewId: string): void {
-    const intent = toolEntryIntent(doc.value, viewId, {visible: visible.value, focusedPanel: focusedPanel.value});
+    const intent = toolEntryIntent(doc.value, viewId, {visible: visible.value});
     if (intent.kind === "none") return;
     const {panel} = intent;
     if (intent.kind === "reveal") {
@@ -144,8 +148,7 @@ function selectEntry(viewId: string): void {
             return shown.ok ? activateTab(shown.doc, `view:${viewId}`) : shown;
         });
         focusView(viewId);
-    } else if (intent.kind === "focus") focusView(viewId);
-    else if (intent.kind === "hide") commit((current) => setPanelHidden(current, panel, true));
+    } else if (intent.kind === "hide") commit((current) => setPanelHidden(current, panel, true));
     else commit((current) => setPanelCollapsed(current, panel, true));
 }
 
@@ -242,7 +245,7 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
 
 /* 卡片主题的几个变量写在这里：看缝、圆角、相连，不依赖某个具体主题。 */
 .workbench-surface-fixture--cards .workbench-surface-fixture__stage {
-    --shell-gap: 8px;
+    --shell-gap: 4px;
     --shell-card-radius: 10px;
     --shell-card-shadow: 0 1px 4px rgb(0 0 0 / 0.2);
     --shell-seam: transparent;

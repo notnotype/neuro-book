@@ -139,8 +139,9 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
  * 解析失败时不写任何模型事件（没有发出请求），码放在交回的回复的 `error.code` 里，由压缩方法、审批钩子处理
  * （docs/specs/harness/runtime.md）。
  */
-export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, signal: AbortSignal): ModelCaller {
+export function modelCaller(host: ModelCallHost & {resolve(purpose: RequestPurpose, role: string | undefined): ModelResolution}, runSignal: AbortSignal): ModelCaller {
     return async (draft, options) => {
+        const signal = options.signal === undefined ? runSignal : AbortSignal.any([runSignal, options.signal]);
         const resolution = options.sessionModel === true ? host.resolve("turn", undefined) : host.resolve(options.purpose, options.role);
         if (!resolution.ok) return {content: [], toolCalls: [], stopReason: "error", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: draft.model ?? "unknown", error: {kind: "local", code: resolution.code, message: `no model for ${options.purpose} requests (${resolution.code})`}};
         const request: ModelRequest = {...draft, purpose: options.purpose, model: draft.model ?? resolution.info.id};

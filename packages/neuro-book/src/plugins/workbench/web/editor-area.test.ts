@@ -34,7 +34,7 @@ function provider(id: string, order: number, contexts: Map<string, ActivationCon
             contributions: [{capability: WORKBENCH_EDITOR_AREA_POINT, id: `${id}.area`, declaration: {order}}],
             activate: (context) => {
                 contexts.set(id, context);
-                const implementation: EditorAreaImplementation = {load: async () => Sample};
+                const implementation: EditorAreaImplementation = {load: async () => ({host: Sample, group: Sample})};
                 return {contributions: {[WORKBENCH_EDITOR_AREA_POINT]: {[`${id}.area`]: implementation}}};
             },
         }],
@@ -73,7 +73,7 @@ describe("Spec ui.workbench-shell 编辑器槽的贡献点", () => {
         const contexts = new Map<string, ActivationContext>();
         const {slot, reports} = await start([provider("test.late", 5, contexts), provider("test.early", 1, contexts)]);
         expect(slot.current.value?.id).toBe("test.early.area");
-        expect(await slot.current.value?.load()).toBe(Sample);
+        expect((await slot.current.value?.load())?.group).toBe(Sample);
         expect(reports).toContain("编辑器槽有 2 个提供者，只挂 test.early.area：test.late.area 不挂");
 
         const empty = await start([]);

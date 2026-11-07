@@ -15,7 +15,7 @@ import {EDITOR_GROUP_FILE} from "nbook/plugins/editor/shared/contracts";
 export type TreeDragTarget =
     | {readonly kind: "row"; readonly id: string; readonly offset: number; readonly x: number; readonly rect: DOMRect}
     | {readonly kind: "blank"; readonly rect: DOMRect}
-    | {readonly kind: "editor"; readonly group: string; readonly rect: DOMRect};
+    | {readonly kind: "editor"; readonly group: string; readonly rect: {readonly left: number; readonly top: number; readonly right: number; readonly bottom: number}};
 
 const ROW_SELECTOR = "[data-explorer-row]";
 /** 装行的容器：它的底边之下才是“树里行以外的空白”。 */
@@ -48,5 +48,5 @@ export function resolveTreeTarget(root: HTMLElement, top: Element | null, point:
         return beside != null && root.contains(beside) ? asRow(beside) : null;
     }
     const group = dropTargetAt(top, EDITOR_GROUP_FILE);
-    return group === null ? null : {kind: "editor", group: group.data.group, rect: group.element.getBoundingClientRect()};
+    return group === null ? null : {kind: "editor", group: group.data.group, rect: group.data.rect()};
 }
