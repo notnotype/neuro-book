@@ -13,7 +13,7 @@ updated: 2026-11-07
 
 来源：需求 6、7（钩子部分）（[报告](../t01-survey/artifacts/report/index.html)第 6、7 条）。
 
-合同：本 Task 只做设计讨论，行为合同未变；定稿后在计划里写明改哪些 Spec。
+合同：[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md)；新建 `agent/profile-settings.md`，见 [plan.md](plan.md)。
 
 ## 要讨论的问题
 
@@ -69,8 +69,10 @@ t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件�
 
 ## 当前状态
 
-讨论完成（2026-10-28）；上下文机制按 t20 定稿改写（2026-10-29）。计划与实施切片在本 Work 的讨论全部完成后另定。
+讨论完成（2026-10-28）；上下文机制按 t20 定稿改写（2026-10-29）。后端随 t10、t18 实现，用户界面一直没做。
+
+2026-11-07 改成实施 Task（开发者定，排在 t14 之前）：做 Profile 设置页、用户级 Profile 的新建打开删除、`modelNeeds` 的提示。计划第一稿开发者已确认，见 [plan.md](plan.md)；第一轮决定“从模板新建即复制”改判为生成骨架文件。
 
 ## 下一步
 
-实施时按 implementation-planning 写 `plan.md`，以上面的决定为准。
+出静态稿，经评审板定版式，再做设计审查（前端 Sonnet、后端 omp）与切片实施。
