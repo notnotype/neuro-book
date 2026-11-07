@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: plot.decisions
 owners:
   - plot 插件
@@ -97,6 +97,20 @@ owners:
 
 Smoke：不适用——由剧情插件的包测试覆盖。
 
+## 实现合同
+
+- **公开入口**：插件 `nbook.plot`（描述符 `nbook/plugins/plot/plugin`；项目入口 `plotProjectPlugin`；服务端入口 `plotServerPlugin`）；声明在 `nbook/plugins/plot/shared/declarations`；写作指示快照的合同 `plotInstructionsContract`（`nbook.plot/instructions`）；`plotWorldContract` 的 `decisionsFor`、`beforeWriting`。
+- **owner 与依赖方向**：决策本身由 canon 内核存；插件持有守卫标注的检查、涉及本章的决策、开写前的视图与写作指示的检查，读时算。写作指示快照由项目入口落盘（插件的项目记录），不进世界。 依赖 `@notnotype/nb-canon/schema`；内核不依赖本插件。
+- **关键不变量**：
+  - 地址守卫在每条线上各按那条线的视图判，实际与按计划各算一份（输出 2）：[`guards.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/guards.test.ts)“回溯线上才违反：子线的视图里有、主线的视图里没有；守卫没写 lines 时每条线各按自己的视图”。
+  - 守卫只看读取位置为止（输出 2、3）：[`guards.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/guards.test.ts)“读较早的位置不报还没写到的违反：地址守卫（第 18 章的违反，读第 10 章末尾不报）、读者守卫（第 12 章的揭示，读第 5 章末尾不报）”。
+  - 读者守卫的键指向第一处超过的讲述，`until` 当章不算（输出 3）：[`guards.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/guards.test.ts)“`until` 之前读者对知识点超过 atMost 就违反，键指向第一处超过的讲述；改成暗示（atMost 是 suspects）后消失；until 当章不算”。
+  - 到期没定按读取位置所在章判（输出 5）：[`decisions.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/decisions.test.ts)“待定的决策到期章不晚于读取位置所在章：报；读到到期章之前不报；定下来以后不报”。
+  - 穿帮、泄底、违反写作指示附上挂在同一处的决策（输出 7）：[`run.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/run.test.ts)“决策 输出 7：穿帮附上挂在这个知识点、这个人或本章上的决策；挂在别处的不附”。
+
 ## 证据
 
-- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 11 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）；开发者 2026-11-04 定决策与章级写作指示五条。
+- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 11 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）；开发者 2026-11-04 定决策与章级写作指示五条。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`decisions.ts`](../../../packages/neuro-book/src/plugins/plot/core/decisions.ts)、[`guards.ts`](../../../packages/neuro-book/src/plugins/plot/core/guards.ts)、[`before-writing.ts`](../../../packages/neuro-book/src/plugins/plot/core/before-writing.ts)、[`instruction-checks.ts`](../../../packages/neuro-book/src/plugins/plot/core/instruction-checks.ts)、[`store.ts`](../../../packages/neuro-book/src/plugins/plot/backend/store.ts)
+- 合同测试：[`decisions.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/decisions.test.ts)（真实 `World` 与只读视图）、[`guards.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/guards.test.ts)、[`instruction-checks.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/instruction-checks.test.ts)、[`store.test.ts`](../../../packages/neuro-book/src/plugins/plot/backend/store.test.ts)（真实存储服务）、[`plot.test.ts`](../../../packages/neuro-book/src/plugins/plot/plot.test.ts)
+- Smoke：不适用——由剧情插件的包测试覆盖。

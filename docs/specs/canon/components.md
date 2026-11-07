@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: canon.components
 owners:
   - nb-canon
@@ -186,6 +186,20 @@ owners:
 
 Smoke：不适用——本能力没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-canon`：`buildRegistry`、`effectiveFields`、`fieldsProblem`、`generateFieldId`、`buildMarkRegistry`、`valueProblem`、`listItemProblem`、`assetPathProblem`、`semanticText`、`addExact`、`subtractExact`、`exactProblem`；`@notnotype/nb-canon/schema` 的 `buildRegistry`；应用侧 `nbook/plugins/canon/shared/components`（贡献点 `CANON_COMPONENTS_POINT`、`CANON_MARKS_POINT`、`CANON_DIAGNOSTICS_POINT`，`componentsPoint`）。
+- **owner 与依赖方向**：登记与校验、字段值校验、补丁套用与约束检查、引用位置的遍历都在 `nb-canon`；canon 插件只声明贡献点，贡献集合变化时把整份声明交给 `nb-canon` 重建登记，内置类型走同一个贡献点。`nb-canon` 不依赖应用包；`./schema` 的导入闭包只到 TypeBox（`tests/architecture.test.ts`）。
+- **关键不变量**：
+  - 命名空间撞名、类型没登记时，数据保留并只读，类型重新可用后恢复，不按先后决定谁赢（输出 2、11、12）：[`components.test.ts`](../../../packages/nb-canon/tests/components.test.ts)“两个类型声明同一个命名空间：两个都不可用，不按先后决定”。
+  - 命名空间没启用的位置读不到，启用前的位置给出起始值；已存的补丁按“不适用”跳过（输出 5、6）：[`model.test.ts`](../../../packages/nb-canon/tests/model.test.ts)“命名空间在这个位置没启用：只跳过这个补丁，同一条的别的补丁照套（不适用）；启用前的位置给出起始值”。
+  - 精确档的数加减没有二进制浮点误差；超精度的差额拒收，不悄悄舍掉（输出 14）：[`revisions.test.ts`](../../../packages/nb-canon/tests/revisions.test.ts)“场景 4：直接发布 0.1 加 0.2 读到 0.3；加 0.00001 拒收，不悄悄舍掉”。
+  - 被引用的条目删除后引用照常存在、显示“已删除的条目”，还原新建它的修订牵连写引用的修订（输出 18、19）：[`references.test.ts`](../../../packages/nb-canon/tests/references.test.ts)“删掉知识点：那一行照常在，显示“已删除的条目”；还原新建它的修订得到 has-dependents，列出加这一行的修订”。
+  - 标注种类的登记按两步判：前缀不是声明者的不登记且不连累本来的，重复 id 全部不登记（输出 17）：[`marks.test.ts`](../../../packages/nb-canon/tests/marks.test.ts)“前缀不是声明者的那条不登记，也不连累本来的那条；同一 id 声明两次的全部不登记”。
+
 ## 证据
 
-- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 6 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；w00039 Work README 决定表 2026-11-02（精确与语义两档、第一版不做 schema 升级函数与“截到上限”）；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 2、4、10 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）。
+- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 6 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；w00039 Work README 决定表 2026-11-02（精确与语义两档、第一版不做 schema 升级函数与“截到上限”）；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 2、4、10 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`registry.ts`](../../../packages/nb-canon/src/components/registry.ts)、[`values.ts`](../../../packages/nb-canon/src/components/values.ts)、[`marks.ts`](../../../packages/nb-canon/src/components/marks.ts)、[`apply.ts`](../../../packages/nb-canon/src/model/apply.ts)、[`components.ts`](../../../packages/neuro-book/src/plugins/canon/shared/components.ts)
+- 合同测试：[`components.test.ts`](../../../packages/nb-canon/tests/components.test.ts)（真实的 `buildRegistry` 与 `World`）、[`references.test.ts`](../../../packages/nb-canon/tests/references.test.ts)、[`marks.test.ts`](../../../packages/nb-canon/tests/marks.test.ts)、[`model.test.ts`](../../../packages/nb-canon/tests/model.test.ts)、[`revisions.test.ts`](../../../packages/nb-canon/tests/revisions.test.ts)、[`core.test.ts`](../../../packages/nb-canon/tests/core.test.ts)
+- Smoke：不适用——没有独立的运行入口，验收场景由上面的合同测试覆盖。

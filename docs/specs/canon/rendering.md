@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: canon.rendering
 owners:
   - nb-canon
@@ -135,6 +135,20 @@ owners:
 
 Smoke：不适用——本能力没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-canon`：`parseBlock`、`blockProblem`、`renderEntryForAuthor`、`renderEntryForAgent`、`renderBlockForAuthor`、`renderBlockForAgent`、`splitBlocks`、`evaluate`、`scanAnnotations`、`writeBack`；应用侧 `canonWorldContract` 的 `render`、`writeBack`。
+- **owner 与依赖方向**：渲染与回写全在 `nb-canon`：渲染经引擎只读取值，回写的字段操作走就地改（[`canon.revisions`](revisions.md) 输出 8），最后在真实世界上整体发布一次。依赖 MDX 解析链，不依赖应用包；canon 插件的远程层只转发。
+- **关键不变量**：
+  - 白名单以外的写法在写入时拒收并指出块、行、列；`set` 整段替换一块同样检查（输出 1、2）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“`set` 整段替换一块也过白名单”。
+  - 未知在比较、逻辑、条件里按三值逻辑传（输出 5）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“canon.rendering 输出 5：三值逻辑”。
+  - 读取之后世界前进过，旧文字原样交回不会把别的修订写的值改回去（输出 13）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“别的修订改了值，Agent 把旧文字原样交回：value-conflict，值不被改回去，也不发布”。
+  - 只有按实际模式读到的块能回写（输出 12）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“按计划模式读到的块原样交回：拒收 planned-not-writable，世界不变（输出 12）”。
+  - 一块坏了不影响别的块，交回合法文字后整段替换（输出 4、14）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“一块坏了：作者看到纯文本与诊断，Agent 读到原样源文与出错标记，交回合法文字后整段替换（场景 3、输出 14）”。
+
 ## 证据
 
-- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 2、5、7 节；[ADR 0038](../../adr/0038-world-engine-entry-text-is-whitelisted-mdx.md)；w00039 t02 第三轮审查的处理（第 8、14、15、21 条，开发者 2026-11-02 定“剩下的细节在写 Spec 时定”）。
+- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 2、5、7 节；[ADR 0038](../../adr/0038-world-engine-entry-text-is-whitelisted-mdx.md)；w00039 t02 第三轮审查的处理（第 8、14、15、21 条，开发者 2026-11-02 定“剩下的细节在写 Spec 时定”）。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`syntax.ts`](../../../packages/nb-canon/src/render/syntax.ts)、[`render.ts`](../../../packages/nb-canon/src/render/render.ts)、[`entry.ts`](../../../packages/nb-canon/src/render/entry.ts)、[`writeback.ts`](../../../packages/nb-canon/src/render/writeback.ts)
+- 合同测试：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)（真实 `World`、真实登记与引擎、真实 MDX 解析，回写发布到真实世界）、[`edits.test.ts`](../../../packages/nb-canon/tests/edits.test.ts)
+- Smoke：不适用——没有独立的运行入口，验收场景由上面的合同测试覆盖。

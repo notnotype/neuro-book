@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: plot.knowledge
 owners:
   - plot 插件
@@ -104,6 +104,20 @@ owners:
 
 Smoke：不适用——由剧情插件的包测试与 [`canon.project`](../canon/project.md) 的 Smoke 覆盖。
 
+## 实现合同
+
+- **公开入口**：插件 `nbook.plot`（描述符 `nbook/plugins/plot/plugin`；项目入口 `plotProjectPlugin`；服务端入口 `plotServerPlugin`）；声明在 `nbook/plugins/plot/shared/declarations`；远程合同 `plotWorldContract`（`nbook.plot/world`）的 `knowing`、`experience`、`reader`、`openViewpoint`、`closeViewpoint`、`viewpointEntry`、`viewpointLookup`、`viewpointExperience`、`viewpointKnowing`。
+- **owner 与依赖方向**：`core/` 下是只读 `CanonReadView` 上的纯函数，读时算、不存；项目入口持有句柄与诊断的登记。依赖 `@notnotype/nb-canon/schema` 与 `canonProjectKey`；内核不依赖本插件，声明经贡献点交给内核。
+- **关键不变量**：
+  - 有效知情取显式行与在场推出的行里安放最晚的，同一条变更里显式优先（输出 3）：[`knowledge.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/knowledge.test.ts)“同一条变更里推出 knows、显式写 unaware：显式优先；之后在场再揭示变回 knows；显式写 forgot 以后是 forgot”。
+  - 传话链按这一行所在的变更之前判，同一条变更里先听后传仍报（输出 5）：[`knowledge.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/knowledge.test.ts)“听哥哥说、哥哥之前没有行：报一条；在更早的章给哥哥加行后消失；同一条变更里先在场得知再转告仍报”。
+  - 读者的知情只按揭示标注算，按活页夹正文跨线取（输出 6、7）：[`knowledge.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/knowledge.test.ts)“第 9 章讲回溯线 r1、r1 上有明说的揭示：读者在第 9 章末尾知道，主线视图看不到它；章没讲 r1 时读者不知道”。
+  - 回溯子线上带过去的知情取父线在触发处的有效知情（输出 4）：[`knowledge.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/knowledge.test.ts)“子线上第 9 章星瑕对 K 是知道：取父线在触发处推出的有效知情，不只是带过去的显式列表；主线同样知道；切口之后触发处之前得知的，子线上不靠记录也有”。
+  - 视角视图里读不到内容的知识点给占位或他以为的那句，每次占位记审计（输出 9）：[`viewpoint.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/viewpoint.test.ts)“卫兵读 K 得到占位、按名字找不到 K；他的经历里有在场的那条变更，但没有补丁与国王的知情行；戴兜帽的勇者只给马甲；审计里有占位”。
+
 ## 证据
 
-- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 5、8 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）；开发者 2026-11-04 定知情四条、“在场”第一版就做、绝密规则与“持有者在人前的表现”。
+- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 5、8 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）；开发者 2026-11-04 定知情四条、“在场”第一版就做、绝密规则与“持有者在人前的表现”。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`knowledge.ts`](../../../packages/neuro-book/src/plugins/plot/core/knowledge.ts)、[`knowledge-checks.ts`](../../../packages/neuro-book/src/plugins/plot/core/knowledge-checks.ts)、[`viewpoint.ts`](../../../packages/neuro-book/src/plugins/plot/core/viewpoint.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/plot/backend/plugin.ts)
+- 合同测试：[`knowledge.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/knowledge.test.ts)（真实 `World` 与只读视图）、[`viewpoint.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/viewpoint.test.ts)（真实 `WorldService` 与视图令牌）、[`plot.test.ts`](../../../packages/neuro-book/src/plugins/plot/plot.test.ts)（真实项目子进程与远程合同）
+- Smoke：不适用——由剧情插件的包测试与 [`canon.project`](../canon/project.md) 的 Smoke 覆盖。

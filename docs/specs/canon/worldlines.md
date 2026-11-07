@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: canon.worldlines
 owners:
   - nb-canon
@@ -144,6 +144,20 @@ owners:
 
 Smoke：不适用——本能力没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-canon` 与 `./schema` 里的形状：`ForkSchema`、剧情变更的 `nature: "fork"` 与 `fork`、安放与读取位置的 `line`、`ChapterLine`、字段声明的 `carry`；`WorldService.lines()`；应用侧 `canonWorldContract` 的 `lines`，以及 `changes` 的 `placedOn`、`inView`；活页夹清单里的 `<chapter line>` 与 `<segment from line>`（`nbook/plugins/canon/backend/binder`）。
+- **owner 与依赖方向**：`nb-canon` 持有线表、线集、受影响的线、分叉与线规则的写入校验、线的待处理、预览的波及面与跨线还原依赖；canon 插件只从活页夹清单读出章讲的线交给 `WorldService.setChapters`。线视图只经 `LineSet` 取引擎。
+- **关键不变量**：
+  - 线视图的成员按安放的全序算（输出 2、3）：[`worldlines.test.ts`](../../../packages/nb-canon/tests/worldlines.test.ts)“继承按安放的全序：不晚于切口的进子线，与切口同键、写得更晚的不进；分叉之前写下的计划进；子线自己的记录要键严格大于切口”。
+  - 任何一次写入以后，已建的线的读取结果与从头建逐字相同（输出 8、17）：[`lines-differential.test.ts`](../../../packages/nb-canon/tests/lines-differential.test.ts)“各类情形都走到：分叉、子线上的记录、子线上套不上的、几种更新原因”。
+  - 常驻与淘汰只丢派生结果，再读与淘汰前逐字相同（输出 9）：[`worldlines.test.ts`](../../../packages/nb-canon/tests/worldlines.test.ts)“常驻与淘汰：最近使用最早的先淘汰，再读时与淘汰前逐字相同；当前线与它的祖先线常驻；祖先线随后代一起读到、一起淘汰”。
+  - 计划跨线只读，兑现只在写下的线上算已兑现（输出 4）：[`worldlines.test.ts`](../../../packages/nb-canon/tests/worldlines.test.ts)“分叉之前写下的计划进子线；子线兑现它只在子线上算已兑现；分叉之后在主线写的计划不进子线；取消计划看得到它的线都跟着变”。
+  - 带过去的值在父线上不完整的仍不完整；创作修改它被拒（输出 6、19）：[`worldlines.test.ts`](../../../packages/nb-canon/tests/worldlines.test.ts)“创作修改改带过去的值：拒收 carried-value；记一条剧情变化照常”。
+
 ## 证据
 
-- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 7 节；ADR 0042（`docs/adr/0042-world-engine-worldlines-as-per-line-views.md`）；开发者 2026-11-05 定跨线计划的替换只在它写下的线上；w00039 t34 阶段 D 细计划的“Spec 的补充与解读”（带过去的值只按实际模式、全序、切口是已写变更、不可建、常驻含祖先、筛选、按档带过去、受影响的线、就地改、活页夹清单的写法）补进输出 2、5、6、9、14、15、17 到 19 与状态表，各记在 w00039 待确认清单，待开发者追认。
+- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 7 节；ADR 0042（`docs/adr/0042-world-engine-worldlines-as-per-line-views.md`）；开发者 2026-11-05 定跨线计划的替换只在它写下的线上；w00039 t34 阶段 D 细计划的“Spec 的补充与解读”（带过去的值只按实际模式、全序、切口是已写变更、不可建、常驻含祖先、筛选、按档带过去、受影响的线、就地改、活页夹清单的写法）补进输出 2、5、6、9、14、15、17 到 19 与状态表，各记在 w00039 待确认清单，待开发者追认。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`table.ts`](../../../packages/nb-canon/src/lines/table.ts)、[`set.ts`](../../../packages/nb-canon/src/lines/set.ts)、[`affected.ts`](../../../packages/nb-canon/src/lines/affected.ts)、[`line-rules.ts`](../../../packages/nb-canon/src/world/line-rules.ts)、[`blast.ts`](../../../packages/nb-canon/src/world/blast.ts)、[`binder.ts`](../../../packages/neuro-book/src/plugins/canon/backend/binder.ts)
+- 合同测试：[`worldlines.test.ts`](../../../packages/nb-canon/tests/worldlines.test.ts)（真实 `World` 与分段日志上的 `WorldService`）、[`lines-differential.test.ts`](../../../packages/nb-canon/tests/lines-differential.test.ts)（随机写入序列，每步与从头重放对拍）、[`binder.test.ts`](../../../packages/neuro-book/src/plugins/canon/backend/binder.test.ts)
+- Smoke：[`canon-scale.ts`](../../../packages/neuro-book/scripts/perf/canon-scale.ts)（在应用包目录 `bun scripts/perf/canon-scale.ts --fork`，输出 15 的几项速度）

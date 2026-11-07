@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: canon.project
 owners:
   - nb-canon
@@ -186,6 +186,20 @@ owners:
 
 Smoke：场景 1 跑 nb-canon 包目录的 `bun test tests/sample.test.ts`；场景 2、3 是同目录的 `tests/node-log.test.ts`（写一半由注入失败的文件操作造出，不杀进程）；场景 4 是应用包的 `src/plugins/canon/two-process.test.ts`；场景 6 在应用包目录跑 `bun scripts/perf/canon-scale.ts`。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-canon/node`：`WorldService`、`LEASE_MS`、`openLog`、`appendRevision`、`readNew`、`SEGMENT_LIMIT`、`LINE_LIMIT`、`nodeFiles`、`loadReductions`、`appendReduction`、`createReadView`；应用侧 `nbook/plugins/canon/shared/contracts`（`canonWorldContract`，服务 id `nbook.canon/world`；`canonClientKey`；`canonProjectKey`）；插件 `nbook.canon` 的项目入口与浏览器入口。
+- **owner 与依赖方向**：世界的语义在 `World`；日志、锁、队列、独占租约、归纳补算、事件、视图与审计由 `WorldService` 持有，文件操作经窄接口与注入的锁、时钟、摘要、小模型。canon 插件的项目入口接上真实的跨进程锁、`.nbook` 路径、活页夹、作品设置与日志目录的监视，远程层按调用方管理令牌与视图，浏览器入口只是远程合同的调用方。`nb-canon` 不依赖应用包；世界日志不经 `nbook.files`，也不进 `nb-history`。
+- **关键不变量**：
+  - 日志每行一次修订，段名是第一行的版本号，写满 256 KiB 开新段，超长行独占一段，超过 4 MiB 拒收（输出 2、3）：[`node-log.test.ts`](../../../packages/nb-canon/tests/node-log.test.ts)“一行一次修订，带 format: 2；段名是第一行的版本号；写满 256 KiB 开新段，打开后重放得到全部修订”。
+  - 打开时对坏日志 fail-closed：末尾写了一半的另存并截掉，别的坏行让世界只读、不改写文件（输出 4、20）：[`node-log.test.ts`](../../../packages/nb-canon/tests/node-log.test.ts)“最后一段末尾写了一半：另存、截掉、诊断 torn-tail，照常可写”。
+  - 单写者，落盘后才生效：落盘成功后才换上新世界、发 `changed`（输出 5、6、7）：[`service.test.ts`](../../../packages/nb-canon/tests/service.test.ts)“发布落盘前读到的是之前的版本；两次基于同一版本、改不同对象的发布依次成功，版本连续”。
+  - 两个进程不重号、不互相覆盖；读进别的进程的行整批换上（输出 8、17、22）：[`two-process.test.ts`](../../../packages/neuro-book/src/plugins/canon/two-process.test.ts)“交替发布、跨过段边界：版本连续、没有重号；一边改了星瑕，另一边先收到 changed，基于旧版本改星瑕得到 version-conflict，改星瑾正常发布”。
+  - 独占写入是有期限的租约，持有期间不带令牌的写入得 `busy`，结束后旧令牌得 `exclusive-lost`（输出 10）：[`service.test.ts`](../../../packages/nb-canon/tests/service.test.ts)“强行解除、到期没续、释放都结束独占（持有者断开由插件经释放结束）；之后旧令牌得到 exclusive-lost”。
+
 ## 证据
 
-- 批准依据：[ADR 0039](../../adr/0039-world-engine-segmented-revision-log.md)；[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 5 节“并发”；w00039 Work README 决定表 2026-11-02（存储四条、内核 Spec 的能力地图与假设：独占写入、语义档归纳失败不挡发布、性能要求）；规模与速度的测量见 w00039 t09 证据 `log-scale.txt`、`engine-scale.txt`、`disk-growth.txt`；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 3、7、8、14 节与第五部分；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0042（`docs/adr/0042-world-engine-worldlines-as-per-line-views.md`）。
+- 批准依据：[ADR 0039](../../adr/0039-world-engine-segmented-revision-log.md)；[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 5 节“并发”；w00039 Work README 决定表 2026-11-02（存储四条、内核 Spec 的能力地图与假设：独占写入、语义档归纳失败不挡发布、性能要求）；规模与速度的测量见 w00039 t09 证据 `log-scale.txt`、`engine-scale.txt`、`disk-growth.txt`；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 3、7、8、14 节与第五部分；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0042（`docs/adr/0042-world-engine-worldlines-as-per-line-views.md`）。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`service.ts`](../../../packages/nb-canon/src/service/service.ts)、[`log.ts`](../../../packages/nb-canon/src/node/log.ts)、[`world-host.ts`](../../../packages/neuro-book/src/plugins/canon/backend/world-host.ts)、[`remote.ts`](../../../packages/neuro-book/src/plugins/canon/backend/remote.ts)
+- 合同测试：[`service.test.ts`](../../../packages/nb-canon/tests/service.test.ts)（真实文件与 `WorldService`）、[`node-log.test.ts`](../../../packages/nb-canon/tests/node-log.test.ts)、[`views.test.ts`](../../../packages/nb-canon/tests/views.test.ts)、[`canon.test.ts`](../../../packages/neuro-book/src/plugins/canon/canon.test.ts)（真实项目子进程与远程合同）、[`two-process.test.ts`](../../../packages/neuro-book/src/plugins/canon/two-process.test.ts)（两个真实子进程与真实跨进程锁）
+- Smoke：[`sample.test.ts`](../../../packages/nb-canon/tests/sample.test.ts)、[`two-process.test.ts`](../../../packages/neuro-book/src/plugins/canon/two-process.test.ts)、[`canon-scale.ts`](../../../packages/neuro-book/scripts/perf/canon-scale.ts)

@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: plot.checks
 owners:
   - plot 插件
@@ -129,6 +129,20 @@ owners:
 
 Smoke：不适用——由剧情插件的包测试（记账 Agent 与试读模型用按合同对过的替身）与真实模型的评测覆盖。
 
+## 实现合同
+
+- **公开入口**：远程合同 `plotChecksContract`（`nbook.plot/checks`）的 `putSelfReport`、`run`、`cancel`、`status`、`record`、`secretLedger`、`readerKnown`、`revealDependencies`；记录形状 `CheckRecordSchema`、`SelfReportSchema`；模型网关 `plotModelContract`（`nbook.plot/model`，只认本插件的项目入口）；服务端入口 `plotServerPlugin`。
+- **owner 与依赖方向**：插件持有候选、预算、题面、校验、记录、有效判定与账本；项目入口持有落盘的表（经存储服务的项目记录）与运行状态；服务端入口经 `nbook.models` 解析角色并替项目入口调模型，模型只在服务端进程。内核不依赖本插件。
+- **关键不变量**：
+  - 记录有效当且仅当按现在的世界与正文重算、调用集合与输入摘要都相同（输出 7）：[`run.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/run.test.ts)“本章之后的世界变了，记录仍有效；条件变了才过期；检查进行中世界变了，记录照存、判过期”。
+  - 走摘要的结论等于全量重拼的结论（输出 7）：[`source.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/source.test.ts)“任何序列上，走摘要的结论等于全量重拼的结论，记录跨步留存”。
+  - 引文由程序核对，对不上的按看不出处理（输出 6）：[`run.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/run.test.ts)“引的原句不在正文里：按看不出，提示；空引文、太短的引文同样；含换行的逐行核对”。
+  - 窄问题每章最多 20 个，按价值排（输出 5）：[`candidates.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/candidates.test.ts)“25 个候选问 20 个，按价值排，其余记没问；补问清单里仍是候选的不占预算，不是候选的忽略”。
+  - 试读只给与问题有关的原文、不给真相（输出 4）：[`trial.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/trial.test.ts)“材料是悬念的全部节点所在的段（含误导）加上一章与本章全文，按章序；题面是读者问题；请求里没有命题、id、伏笔名”。
+
 ## 证据
 
-- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 13 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）；开发者 2026-11-04 定读者层改用单独的试读；2026-11-05 定按第三轮推荐（试读的材料按问题选、写作指示层与新事实层另有预算）与上限先定缺省值。
+- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 13 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）；开发者 2026-11-04 定读者层改用单独的试读；2026-11-05 定按第三轮推荐（试读的材料按问题选、写作指示层与新事实层另有预算）与上限先定缺省值。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`plan.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/plan.ts)、[`run.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/run.ts)、[`source.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/source.ts)、[`dependencies.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/dependencies.ts)、[`checks.ts`](../../../packages/neuro-book/src/plugins/plot/backend/checks.ts)、[`server.ts`](../../../packages/neuro-book/src/plugins/plot/backend/server.ts)
+- 合同测试：[`run.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/run.test.ts)（真实 `World`；模型用脚本化的替身）、[`plan.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/plan.test.ts)、[`candidates.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/candidates.test.ts)、[`trial.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/trial.test.ts)、[`source.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/source.test.ts)、[`dependencies.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/dependencies.test.ts)、[`checks.test.ts`](../../../packages/neuro-book/src/plugins/plot/backend/checks.test.ts)（真实存储服务）、[`server.test.ts`](../../../packages/neuro-book/src/plugins/plot/backend/server.test.ts)、[`plot.test.ts`](../../../packages/neuro-book/src/plugins/plot/plot.test.ts)（真实项目子进程、`nbook.models` 与本机假端点）
+- Smoke：不适用——由剧情插件的包测试（模型用按合同对过的替身）与真实模型的评测覆盖。

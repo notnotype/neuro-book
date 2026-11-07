@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: canon.time
 owners:
   - nb-time
@@ -131,6 +131,20 @@ owners:
 
 Smoke：不适用——由 `nb-time` 的包测试与 [`canon.project`](project.md) 的 Smoke 覆盖。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-time`：`validateCalendar`、`compileCalendar`、`GREGORIAN`、`resolveFuzzy`、`DEFAULT_FUZZY`、`gapRange`、`validateStatements`、`lowerStatement`、`assembleNetwork`、`solveNetwork`、`placementMismatches`、`ageAt`、`browse`、`chapterHull`、`during`、`calendarSummary`、`formatRange`、`formatTick`、`formatSpan`；`WorldService.time`、`setTime`；应用侧 `canonWorldContract` 的 `time`。
+- **owner 与依赖方向**：`nb-time` 持有历法、模糊词表、说法的降约束、约束网络与查询、格式化，没有运行时依赖，不依赖 `nb-canon` 与应用包。`nb-canon` 取世界数据交给它组网与求解，按数据对象与设置缓存，持有说法的写入校验；canon 插件持有作品设置与最近一次合法的历法并交给 `setTime`。依赖方向：canon 插件、`nb-canon`、`nb-time`。
+- **关键不变量**：
+  - 打架只影响它所在的连通分量（输出 2）：[`network.test.ts`](../../../packages/nb-time/tests/network.test.ts)“两条日期互相矛盾只影响那一件事（分量不经元年连起来）；一个分量里几个互不相干的环各报一条”。
+  - 范围与参照实现一致、结果确定（输出 1、10）：[`network.test.ts`](../../../packages/nb-time/tests/network.test.ts)“随机的可行网络（日期、之后、之前、无穷的上界）：每件事的范围、两件事的差都与 Floyd-Warshall 相同”。
+  - 历法与词表变了，存下的说法不改，范围与不成立按新的重算（输出 3、4、9）：[`time.test.ts`](../../../packages/nb-canon/tests/time.test.ts)“改历法：存下来的说法不改，范围与不成立按新的重算（输出 4）”。
+  - 设置里的历法不合法时用最近一次合法的，从来没有合法的用内置公历（输出 13、16）：[`time.test.ts`](../../../packages/nb-canon/tests/time.test.ts)“不合法时用内置公历并给诊断；合法以后用它；再不合法时用最近一次合法的；词表不合法的项作废；修好以后诊断消失；清空设置回到公历”。
+  - 回溯到的那一刻不算事件，子线自己的事件都不早于它；带令牌的查询同样（输出 6、15）：[`time.test.ts`](../../../packages/nb-canon/tests/time.test.ts)“带令牌的查询：回溯到的那一刻照样进网络，与不带令牌答得一样”。
+
 ## 证据
 
-- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 6 节；ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）；开发者 2026-11-04 定时间用兼顾的做法、支持自定义历法、几套历法并存放第二版、`nb-time` 单独成包、说法按历法写法存。
+- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 6 节；ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）；开发者 2026-11-04 定时间用兼顾的做法、支持自定义历法、几套历法并存放第二版、`nb-time` 单独成包、说法按历法写法存。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`index.ts`](../../../packages/nb-time/src/index.ts)、[`network.ts`](../../../packages/nb-canon/src/time/network.ts)、[`state.ts`](../../../packages/nb-canon/src/time/state.ts)、[`queries.ts`](../../../packages/nb-canon/src/time/queries.ts)、[`world-host.ts`](../../../packages/neuro-book/src/plugins/canon/backend/world-host.ts)
+- 合同测试：[`network.test.ts`](../../../packages/nb-time/tests/network.test.ts)（网络对 Floyd-Warshall 对拍）、[`calendar.test.ts`](../../../packages/nb-time/tests/calendar.test.ts)（公历对 `Date` 对拍）、[`statements.test.ts`](../../../packages/nb-time/tests/statements.test.ts)、[`queries.test.ts`](../../../packages/nb-time/tests/queries.test.ts)、[`time.test.ts`](../../../packages/nb-canon/tests/time.test.ts)（真实 `World` 与分段日志上的 `WorldService`）、[`canon.test.ts`](../../../packages/neuro-book/src/plugins/canon/canon.test.ts)（真实项目子进程与设置文件）
+- Smoke：[`canon-scale.ts`](../../../packages/neuro-book/scripts/perf/canon-scale.ts)

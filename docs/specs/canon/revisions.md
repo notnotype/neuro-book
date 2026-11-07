@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: canon.revisions
 owners:
   - nb-canon
@@ -165,6 +165,20 @@ owners:
 
 Smoke：不适用——本能力没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-canon`：`World`（`publish`、`preview`、`revert`、`previewRevert`、`reorder`、`dependents`、`requested`）、`WriteRequestSchema`、`RevisionSchema`、`WriteFailure`、`WriteResult`、`editInPlace`、`recordDelta`、`replaceOnce`、`authorizationBinds`；`@notnotype/nb-canon/node` 的 `WorldService`；应用侧 `canonWorldContract` 的同名方法。
+- **owner 与依赖方向**：`World` 持有写入校验、冲突、带来的变化、还原与依赖、作者授权的核对；`WorldService` 持有排队、落盘与独占（[`canon.project`](project.md)）；宿主注入时钟、摘要与作者来源的签名校验，并签发来源。`nb-canon` 只校验授权，不签发；不依赖应用包。
+- **关键不变量**：
+  - 一个写入请求要么整个发布、版本加一，要么整个拒收、世界不变、不占版本号（输出 1）：[`revisions.test.ts`](../../../packages/nb-canon/tests/revisions.test.ts)“失败的请求不改世界、不占版本号”。
+  - 版本冲突按对象判，没被改过的对象即使世界版本前进了也不冲突（输出 7）：[`revisions.test.ts`](../../../packages/nb-canon/tests/revisions.test.ts)“两人同时改：改过的对象报冲突并给出当前值，没改过的对象不冲突”。
+  - 同一个请求 id 最多发布一次，内容不同拒收，重放日志后同样成立（输出 16）：[`revisions.test.ts`](../../../packages/nb-canon/tests/revisions.test.ts)“同一个请求 id 再提交返回第一次的结果，不多出修订；内容不同得到 request-id-reused；重放后照样”。
+  - 还原是发布一次补偿修订；有依赖时不单独还原，补偿本身可以再还原（输出 11、12）：[`revisions.test.ts`](../../../packages/nb-canon/tests/revisions.test.ts)“还原新建条目的修订：后面引用了它的修订是依赖，不单独还原；连同依赖一起还原后都消失，再还原补偿又回来”。
+  - 作者来源的 `binds` 由内核比对，不信宿主的校验结果（输出 21）：[`decisions.test.ts`](../../../packages/nb-canon/tests/decisions.test.ts)“签名校验对什么都答通过时，挪到另一条决策照样被拒：binds 是内核比的；没有校验时一律不通过；用不上的、重复的授权都拒收”。
+
 ## 证据
 
-- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 5、8 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；[ADR 0039](../../adr/0039-world-engine-segmented-revision-log.md)；w00039 Work README 决定表 2026-11-02（修订只存变了的字段、带来的变化在发布时算好存进修订、几笔累出来的数不直接改、有依赖时不单独还原）；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 4、11 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）。
+- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 5、8 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；[ADR 0039](../../adr/0039-world-engine-segmented-revision-log.md)；w00039 Work README 决定表 2026-11-02（修订只存变了的字段、带来的变化在发布时算好存进修订、几笔累出来的数不直接改、有依赖时不单独还原）；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 4、11 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`world.ts`](../../../packages/nb-canon/src/world/world.ts)、[`edits.ts`](../../../packages/nb-canon/src/world/edits.ts)、[`authorization.ts`](../../../packages/nb-canon/src/world/authorization.ts)
+- 合同测试：[`revisions.test.ts`](../../../packages/nb-canon/tests/revisions.test.ts)（真实 `World` 与真实登记，日志靠真实重放）、[`edits.test.ts`](../../../packages/nb-canon/tests/edits.test.ts)、[`decisions.test.ts`](../../../packages/nb-canon/tests/decisions.test.ts)
+- Smoke：不适用——没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。

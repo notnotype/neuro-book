@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: plot.goals
 owners:
   - plot 插件
@@ -78,6 +78,19 @@ owners:
 
 Smoke：不适用——由剧情插件的包测试覆盖。
 
+## 实现合同
+
+- **公开入口**：插件 `nbook.plot`（描述符 `nbook/plugins/plot/plugin`；项目入口 `plotProjectPlugin`；服务端入口 `plotServerPlugin`）；声明在 `nbook/plugins/plot/shared/declarations`；远程合同 `plotWorldContract` 的 `goals`、`conflicts`。
+- **owner 与依赖方向**：`core/` 下是只读 `CanonReadView` 上的纯函数，读时算、不存；项目入口持有句柄与诊断的登记。依赖 `@notnotype/nb-canon/schema` 与 `canonProjectKey`；内核不依赖本插件，声明经贡献点交给内核。 被简报依赖。
+- **关键不变量**：
+  - 某人在一个位置上的目标：挂在他下面、已出场、进行或受挫（输出 1）：[`goals.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/goals.test.ts)“挂在他下面、已出场、状态为进行或受挫的；出场之前不算，改成达成以后不算，别人的不算”。
+  - 冲突是对称的读取，两边都只列已出场的目标（输出 2）：[`goals.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/goals.test.ts)“哥哥的目标写了星瑾的：读星瑾的目标，冲突里也有哥哥的；两边都写了的只列一次；还没出场的目标两边都不列”。
+  - 前提变了只看读取位置为止的改动（输出 3）：[`goal-checks.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/goal-checks.test.ts)“读第 35 章末尾时，第 40 章才写的改动不能让该报的停滞和前提变了消失”。
+  - 缺一步只在进行直接变达成、中间没有涉及它的变更时报（输出 4）：[`goal-checks.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/goal-checks.test.ts)“目标从进行直接变成达成、中间没有别的涉及它的变更：报；中间有一条涉及它的变更不报；同一条变更先后改两次不报”。
+
 ## 证据
 
-- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 10 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）；开发者 2026-11-04 定角色目标“先这样，没问题”（态度做成按对象的列表）。
+- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 10 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）；开发者 2026-11-04 定角色目标“先这样，没问题”（态度做成按对象的列表）。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`goals.ts`](../../../packages/neuro-book/src/plugins/plot/core/goals.ts)、[`goal-checks.ts`](../../../packages/neuro-book/src/plugins/plot/core/goal-checks.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/plot/backend/plugin.ts)
+- 合同测试：[`goals.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/goals.test.ts)（真实 `World` 与只读视图）、[`goal-checks.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/goal-checks.test.ts)、[`plot.test.ts`](../../../packages/neuro-book/src/plugins/plot/plot.test.ts)
+- Smoke：不适用——由剧情插件的包测试覆盖。

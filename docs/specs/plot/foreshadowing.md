@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: plot.foreshadowing
 owners:
   - plot 插件
@@ -102,6 +102,20 @@ owners:
 
 Smoke：不适用——由剧情插件的包测试覆盖。
 
+## 实现合同
+
+- **公开入口**：插件 `nbook.plot`（描述符 `nbook/plugins/plot/plugin`；项目入口 `plotProjectPlugin`；服务端入口 `plotServerPlugin`）；声明在 `nbook/plugins/plot/shared/declarations`；远程合同 `plotWorldContract` 的 `ledger`。
+- **owner 与依赖方向**：`core/` 下是只读 `CanonReadView` 上的纯函数，读时算、不存；项目入口持有句柄与诊断的登记。依赖 `@notnotype/nb-canon/schema` 与 `canonProjectKey`；内核不依赖本插件，声明经贡献点交给内核。 阶段、继承与账本按读取时算；被简报与检查共用。
+- **关键不变量**：
+  - 只有生效的正文讲述上的节点算数，删掉回收的那句阶段退回（输出 1、2、6）：[`foreshadowing.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts)“埋下、呼应、计划回收；物件被动过提示；第 15 章写完没回收报待处理；补上以后已回收；删掉那句退回呼应中、待处理回来”。
+  - 读者那一边的阶段按活页夹正文算，不分线（输出 5）：[`foreshadowing.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts)“活页夹第 9 章讲回溯线，节点写在子线的讲述上：主线视图上也算埋下，没讲到的子线不算”。
+  - 悬念答案上的揭示也是这个悬念的节点（输出 3）：[`foreshadowing.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts)“答案上的暗示让阶段到呼应中，明说让它已回收；同一知识点被两个悬念指向：两个都算，并提示”。
+  - 兑现的已写变更自己没标同一伏笔的节点时继承计划的节点（输出 4）：[`foreshadowing.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts)“计划带呼应节点，兑现它的已写变更自己没标：节点继承到它第一处正文讲述上；它没有正文讲述时提示没有位置”。
+  - 检查只看读取位置为止的节点与改动（输出 6、7）：[`foreshadowing.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts)“读第 1 章末尾时，第 3 章才埋的、第 6 章才有的暗示都还没发生：放弃了还留着、没有悬念认领的暗示不报”。
+
 ## 证据
 
-- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 9 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）；开发者 2026-11-04 定伏笔四条。
+- 批准依据：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 9 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）；开发者 2026-11-04 定伏笔四条。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`foreshadowing.ts`](../../../packages/neuro-book/src/plugins/plot/core/foreshadowing.ts)、[`change-index.ts`](../../../packages/neuro-book/src/plugins/plot/core/change-index.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/plot/backend/plugin.ts)
+- 合同测试：[`foreshadowing.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/foreshadowing.test.ts)（真实 `World` 与只读视图）、[`run.test.ts`](../../../packages/neuro-book/src/plugins/plot/core/checks/run.test.ts)、[`plot.test.ts`](../../../packages/neuro-book/src/plugins/plot/plot.test.ts)
+- Smoke：不适用——由剧情插件的包测试覆盖。

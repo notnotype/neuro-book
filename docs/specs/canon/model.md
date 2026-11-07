@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: canon.model
 owners:
   - nb-canon
@@ -297,6 +297,20 @@ owners:
 
 Smoke：不适用——本能力没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
 
+## 实现合同
+
+- **公开入口**：`@notnotype/nb-canon`（对象与写入请求的 schema 与类型、`World`、`createReferenceEngine`、`createIncrementalEngine`、`ChapterOrder`、`buildDiagnosticRegistry`）；`@notnotype/nb-canon/schema`（只有 schema 与类型，含 `CanonReadView`、`Finding`、`DiagnosticCompute`）；`@notnotype/nb-canon/node`（`WorldService`、`createReadView`、`pageOf`、`readStampOf`）；应用侧 `nbook/plugins/canon/shared/contracts`（`canonWorldContract`、`canonClientKey`、`canonProjectKey`）。
+- **owner 与依赖方向**：`nb-canon` 持有对象形状、计算与诊断的处理；canon 插件是宿主，注入文件、锁、时钟、摘要与作者来源校验，并把世界服务经远程合同交给浏览器与别的插件。`nb-canon` 依赖 `nb-time`、TypeBox 与 MDX 解析链，不依赖应用包；主入口不引用 `node:*`、`bun:*`（`tests/architecture.test.ts`）。
+- **关键不变量**：
+  - 增量引擎与整本重算对同一份输入的回答逐字相同（输出 5 到 13、36）：[`differential.test.ts`](../../../packages/nb-canon/tests/differential.test.ts)“差分：增量更新与整本重算逐字相同”。
+  - 一条剧情变更整条套上或整条不套，套不上的地址从它的位置起不完整，赋值后恢复（输出 7、8）：[`model.test.ts`](../../../packages/nb-canon/tests/model.test.ts)“一边破了下限，整条不算数，两人的存款都不变，从这里起不完整，赋值后恢复”。
+  - 初值、前史、第 N 章开头是不同的读取位置（输出 2）：[`model.test.ts`](../../../packages/nb-canon/tests/model.test.ts)“读初值是原来的值，读第 1 章开头已套上前史”。
+  - 讲述的发生点不存，读取时按当前正文算；失联进提示不进待处理，原句回来后重新生效（输出 24、26）：[`tellings.test.ts`](../../../packages/nb-canon/tests/tellings.test.ts)“作者删掉原句：讲述失联并提示 telling-lost，不在读过的里；改回这句，按新正文重新生效”。
+  - 决策转成已定与已定里的修改要作者来源（输出 31、32）：[`decisions.test.ts`](../../../packages/nb-canon/tests/decisions.test.ts)“建议标作者未确认；不带来源转成已定被拒；带来源转成已定；之后 Agent 改约束被拒；作者带来源重新打开”。
+
 ## 证据
 
-- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 1 到 5 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；w00039 t02 第三轮审查的处理（开发者 2026-11-02 定“剩下的细节在写 Spec 时定”）；w00039 Work README 决定表 2026-11-02（只存六种对象、初值与第 1 章开头分开、与设定冲突记成待定的剧情变更、精确与语义两档、第一版不做情节之间的因果连接）；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 2、3、5、11 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）。
+- 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 1 到 5 节；[ADR 0037](../../adr/0037-world-engine-story-change-log.md)；w00039 t02 第三轮审查的处理（开发者 2026-11-02 定“剩下的细节在写 Spec 时定”）；w00039 Work README 决定表 2026-11-02（只存六种对象、初值与第 1 章开头分开、与设定冲突记成待定的剧情变更、精确与语义两档、第一版不做情节之间的因果连接）；剧情侧：作者视角的世界引擎：剧情侧（第一版）（`docs/proposals/world-engine-plot-side.md`）第四部分第 2、3、5、11 节；ADR 0041（`docs/adr/0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md`）、ADR 0043（`docs/adr/0043-world-engine-placement-and-telling-orders.md`）。开发者 2026-11-06 批准晋升为 `implemented`。
+- 实现入口：[`index.ts`](../../../packages/nb-canon/src/index.ts)、[`apply.ts`](../../../packages/nb-canon/src/model/apply.ts)、[`incremental.ts`](../../../packages/nb-canon/src/engine/incremental.ts)、[`pending-groups.ts`](../../../packages/nb-canon/src/service/pending-groups.ts)
+- 合同测试：[`model.test.ts`](../../../packages/nb-canon/tests/model.test.ts)（同一组用例对参照与增量两个真实引擎各跑一遍）、[`differential.test.ts`](../../../packages/nb-canon/tests/differential.test.ts)、[`tellings.test.ts`](../../../packages/nb-canon/tests/tellings.test.ts)、[`cast.test.ts`](../../../packages/nb-canon/tests/cast.test.ts)、[`decisions.test.ts`](../../../packages/nb-canon/tests/decisions.test.ts)、[`diagnostics.test.ts`](../../../packages/nb-canon/tests/diagnostics.test.ts)
+- Smoke：不适用——没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
