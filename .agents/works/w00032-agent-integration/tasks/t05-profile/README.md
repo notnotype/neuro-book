@@ -87,4 +87,4 @@ t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件�
 
 ## 下一步
 
-做设计审查（前端 Sonnet、后端 omp），修订后的计划再给开发者确认，然后切片实施。
+设计审查已做并修订计划（[前端](evidences/design-review-frontend.txt)、[后端](evidences/design-review-backend.txt)），等开发者确认，然后切片实施。

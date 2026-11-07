@@ -1,0 +1,155 @@
+# t05 设计审查（前端部分）
+
+审查对象：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md` 的“设置页”“用户级 Profile”“模型能力提示”“切片”“验收映射”。静态稿按 `variant="a"`。未跑任何服务，下面除标明“估算”“未验证”的，都是读代码核实的。
+
+## 重要
+
+### 1. [重要 / 数据来源] 页面要的模型与角色快照，计划指的那份既取不到、也不够用
+- 位置：plan.md:26、plan.md:53-56；`packages/neuro-book/src/plugins/agent/web/plugin.ts:103-138、188-217`
+- 现象：计划写“用 Composer 已经在用的模型快照（`roleOptions`、`modelOptions`）”。核实：
+  1. 这份快照是懒取的：`ensureStarted()`（plugin.ts:195）只在“第一次有对话位置时”才订阅 `modelsRemote.events.changed` 并取 `snapshot`，注释写明“没打开对话的窗口不多发请求”。设置窗口里单独打开这一页时 `models`、`roles` 仍是 `null`，计划没写谁来触发。
+  2. `modelOptions` 先过滤掉“没有凭据”和“未启用 / 状态非 ok”的模型；`roleOptions` 只给 `modelLabel`，没有角色绑定的模型 key（`RoleOption` 在 `session-host.ts:167`，字段只有 key、name、axis、modelLabel、status）。
+  3. 计划第 53-56 行的 `modelNeedGaps(needs, model)` 要对“解析到的模型”算缺看图、思考、窗口。绑 `model` 的能算（`ComposerModelView` 有 `supportsImages`、`reasoning`、`contextWindow`）；绑 `role` 或“跟随默认”（声明的 `role`）时，要先把角色解析到模型 key，`RoleOption` 给不出，所以这两种（也是最常见的两种）根本算不出缺口。
+- 为什么是问题：照字面实现，设置页第一次打开时模型下拉是空的；“模型一行的警告图标”只对显式绑模型的 Profile 生效，而计划把它当成对所有情况成立。
+- 如何核实：读上面三处即可；Lab 里也摆不出，因为 Lab 页面组件吃普通属性，数据形状要先定。
+- 建议：计划里写清三件事：(a) 页面包装自己调用 `ensureStarted()`（或把模型订阅从“对话位置”拆成独立的 `ensureModels()`）；(b) 给页面单独的映射函数而不是复用 `modelOptions`：保留“已绑定但不可用”的模型，并让 `RoleOption` 增加 `model: string | null`（角色绑定的模型 key），`modelNeedGaps` 的调用方先解析再算；(c) 模型服务不在（`subscribe` 失败是“正常情况”，plugin.ts:204-207）时模型一行怎么显示（停用，写“模型服务不可用”），计划现在没有这一档。
+
+### 2. [重要 / 值编码与回退] 模型一行 `SearchSelect` 的值怎么编码、值不在选项里显示什么，没写
+- 位置：plan.md:26、27；`packages/nb-ui/src/components/form/SearchSelect.vue:94-95`、`models/web/components/RolesPage.vue:35-40`、`agent/shared/settings.ts:22-27`
+- 现象：
+  - 选项值要同时表示“跟随默认”“角色”“模型”三类，而存储是 `{model}` 或 `{role}` 两个字段、`model` 与 `role` 都写时 `model` 优先（settings.ts:23 注释）。计划只写“只留一个”，没写：选项值的编码（静态稿用 `""`、`role:<id>`、`<服务商>/<模型>`）、写入时怎样拆成字段、读到手写文件里两个都有时显示哪个。
+  - `SearchSelect` 的显示是 `options.find(value === modelValue)?.label ?? ""`（SearchSelect.vue:94-95）：绑定值不在选项里（模型被停用、服务商删了、没密钥、自建角色被删）时输入框是空的，看起来像“没设”，实际仍然生效。`RolesPage.optionsFor` 的做法是补一个停用的项（`label: role.model`，`description: "不可用"`）；对话里的 Composer 也一样（session-host.ts:1361）。计划没有写要照做。
+  - 审批模式的 `Select` 没有“跟随默认”对应的存储值（`approvalMode` 是可选字段，设置文件里没有 `"default"`），必须用哨兵（你说做稿时踩过 `value: ""` 报错），计划没有写哨兵是什么、写回时怎样转成“删掉这个字段”。
+- 为什么是问题：这三点都是实现者一定会碰到、且各自会选不同做法的地方；绑定值消失时显示空白会误导用户重新选一遍。
+- 建议：在“模型”“审批模式”两条里各加一句：编码表（含哨兵）、“无效绑定补一个停用项并标不可用，同时模型一行显示字段级警告”、写入后字段为空的 Profile 设置条目整条删除（`ProfileSettingSchema` 全可选，`{}` 合法但留垃圾）。
+
+### 3. [重要 / 正确性] 对话里的提示“放在现有‘模型不可用’的位置、不改发送”，这个位置本身就会让输入框只读
+- 位置：plan.md:55-56；`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:45、49-50、360-363`；`agent/web/session-host.ts:1326-1329`
+- 现象：现有“模型不可用”走的是 `availability.status = "profile-unavailable"`。`AgentConversationComposer` 的 `readonly = availability.status !== "ready" || !canSend`，所以那个状态下输入框只读，只能去改模型。计划要的是“提示但不拦发送”，不能挂在这个状态上。
+- 可行做法：横幅本身（line 360）只看 `availability.message !== ""`，不看状态，所以用 `status: "ready"` 加非空 `message`、`actions` 能显示且不拦；但 `message` 现在的语义是“不可用原因”，要在 Spec 里写明，`conversation.md` 加的那一条要对应。
+- 另外：这一提示需要“解析到的模型”的能力，`meta.model` 是 `{ok:true, id, contextWindow, efforts}`，没有 `vision`、`reasoning`，要用 `deps.models()` 按 `id` 查；模型列表是懒取、可能缺（见第 1 条），缺时不显示提示。
+- 建议：计划改写成“`availability` 保持 `ready`，`message` 写能力缺口，`actions` 给‘打开设置’”，并在验收里加“有缺口时仍能发送”。
+
+### 4. [重要 / 写入语义] 计划的写法会丢更新，且与既有 `replace` 的冲突策略相反，没说清
+- 位置：plan.md:28、31；`agent/web/permission-writes.ts:24-42`、`permission-page.ts:46-54`
+- 现象：
+  - 计划：“去掉一项算出新的 `{added, removed}` 写回”“冲突时按新值重算这一个 Profile 的改动再写一次”。如果“算出新值”发生在点击时（用显示的旧值算），那么 `createSettingWriter` 的队列里，第二次点击仍按第一次写入结算前的显示值算；`writeOnce` 在写的那一刻才读 `expect`，此时第一次已成功，`expect` 对得上，第二次的结果整份覆盖第一次的改动：连点两下丢更新。`createRulesWriter.append` 之所以不丢，是因为它传的是“在当前值上追加”的函数；`replace` 传整份就没有这个保护（所以它冲突时直接 `conflict`、不重试，permission-writes.ts:16-17）。
+  - 计划要把 `replace` 与 `append` 的差别抽成通用的 `createSettingWriter`，但没说它的入参是“`current => next` 的编辑函数”还是“整份值”。这决定了连点、两个 Profile 并发写是否安全，也决定“冲突时重算”是怎么实现的。
+  - 写入未结算时页面显示什么：配置服务成功才更新快照，页面规则页用 `editing` 保存临时值（permission-page.ts:34-35）。计划写“没有未保存状态”，但没有写 × 点一下之后在回执前行是否立刻消失；不写临时值，用户看到的是点了没反应、再点一下（此时就触发上面的丢更新）。
+- 建议：计划写成：写入器入参是编辑函数 `(current: Record) => Record`，“这一个 Profile 的改动”表达成意图（`removeTool(profile, id)`、`addTools(profile, ids, swap)`），在写的那一刻对当时的值求值；页面保存 `editing` 临时值直到队列清空（同规则页）；说明 `replace` 式的“冲突即放弃”不适用于这里的原因。验收映射里的“连点两下不丢”要明确是两个不同工具、不是同一个。
+
+### 5. [重要 / 对话框] “完成”一次写入：失败、打开期间变化、同名工具被必需占着，都没写
+- 位置：plan.md:29、31、33；`models/web/components/ManageModelsDialog.vue:41-91、115-125`、`ProvidersPage.vue:213-256`
+- 现象：
+  - `ManageModelsDialog` 的做法：写入时 `busy`（页脚按钮与关闭按钮停用）、失败时留在对话框内、原因写进 `Dialog` 的 `status` 状态行、`done` 只提交相对打开时的差、没有差直接关；`ProvidersPage` 另有：服务商被别处删了就关对话框（watch current）、迟到的候选丢掉。计划第 31 行统一写“写失败走 `context.reportWriteFailure`”，对话框“完成”若也走它，就是关掉对话框后弹一个通知，用户勾选的一堆工具全丢。
+  - 打开期间目录变了（`profilesChanged`：Profile 被删、这个 Profile 的工具集变了、选中项换了）：计划没写。照 `ProvidersPage` 至少要写“选中的 Profile 变了就关对话框”和“差相对打开时算，写的那一刻再对当时的值求值”（见第 4 条）。
+  - 同名工具：计划 33 行说“完成时同一次写入里关掉原来的”。但如果同名的另一个实现是这个 Profile 的 `required`（不能关），换不掉：计划没写这种候选怎么办（应当停用并写原因“Profile 必需的同名工具”）。静态稿里 `toggleDraft` 就会把必需的从 draft 里删掉但 `isRequired` 仍为真，行为不自洽（草稿只作旁证）。
+  - 去掉（×）立刻写、对话框“完成”才写：说得通（对话框是批量选择、列表是单项移除，同 `ProviderDetail` 的行内开关加 `ManageModelsDialog`），但计划应当说一句误点的恢复路径：重新打开对话框或“恢复默认”；而“恢复默认”只对有绑定的 Profile 出现（plan.md:28 “有改动时”），需要定义“有改动”＝这个 Profile 在 `toolBindings` 里有项。
+- 建议：对话框那一条写明：`busy`、失败留在对话框并写 `status`（不走通知）、差相对打开时、选中项变化即关、必需的同名候选停用并写原因。
+
+### 6. [重要 / 页面状态] 规范要求的 loading、error、empty、只读，计划里没有去处
+- 位置：plan.md:17-35；`nb-ui/docs/ui-development-spec.md:100-112`（4.1 状态下限）；参照 `ProvidersPage.vue:240-243、252-258`、`RolesPage.vue:143-146`
+- 现象：参照实现有：未连上（`!store.available` 的只读提示）、加载中（`snapshot === null`）、空列表（`EmptyState` 加“添加”）、`writable` 停用全部控件。计划与静态稿都只有“有数据”的画面。具体缺：
+  1. `remote.profiles` / `toolCatalog` 加载中、失败：规范要求页面级加载与失败占满区域居中，加载容器带 `aria-busy`、`role="status"`，失败是 `role="alert"` 加重试。目前插件里 `loadProfiles` 失败只 `report`，页面没有失败态。
+  2. `writable: false`（用户层文件无效或连不上）：列表里所有控件、头部“打开文件/删除”、对话框确认都要停用；计划没写。
+  3. 选中的 Profile 被删（用户在编辑器里删文件、或页面里删）、或重载后暂时消失（用户级 Profile 异步打包，改文件时可能短暂重建）：选中项该怎样。`ProvidersPage` 的做法是 watch 列表，当前项不在了就回到第一个/“全部”；还要关掉依附它的对话框（见第 5 条）。计划里写了 `profilesChanged` 但没写选中状态的处理。
+  4. 新建后怎样选中：新建是异步的（计划自己说“要等它出现”），要写：等出现再选中，出现的是 `error` 状态也选中；等不到（打包很慢）不阻塞。
+  5. 状态为 `error` 的 Profile（静态稿的 `draft-review`）：`ProfileEntry` 里没有它的 `tools`，工具一节显示什么？模型与审批是否仍可写？名称缺失时的回退（静态稿用 key 去掉前缀，计划没写）。`hidden` 的（会话标题）：静态稿隐藏审批模式（后台没有审批），计划没写这条，只写了“它们也要绑模型”。
+  6. 窗口切到“本作品”标签：`layers: ["user"]` 的页面由窗口原位显示不可用原因（settings-window.md 输出 8），这条是现成的，计划写一句“按规范停用”即可，不必另做；但要注意“新建 Profile 的文件在 `user://`”和这一页同属用户层，所以一致。
+- 建议：在“设置页”下加“状态”小节，一张表列：加载中、读失败、空、只读、选中项消失、新建等待、`error` Profile、`hidden` Profile、模型服务不可用，每格一句话。
+
+### 7. [重要 / 依赖] “用插件显示名（取法同 PluginsPage 的 displayNameOf）”不是一个能直接取用的东西
+- 位置：plan.md:28；`packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.vue:86-93`、`plugins/plugins/web/builtin-names.ts`
+- 现象：`displayNameOf` 是 `PluginsPage.vue` 内部的局部函数，输入是 `PluginListEntry`（来自 `nbook.plugins` 的远程列表）；内置插件的显示名是 `builtinPluginTextKey(id, "name")` 查 `plugins` 插件自己的消息目录（`usePluginsText`）。这些都在 `plugins/plugins/web` 里。核实：`src/plugins/*/web` 下没有一个文件 import 别的插件的 web 组件或 web 模块（只 import `…/web/contracts` 的类型和别的插件的 `shared`），所以 agent 的页面不能直接 import 它。
+- 为什么是问题：计划里没有这一步工作，实现者会发现要么把这个函数搬走、要么重写一份内置名称表（第二个真相源）、要么 agent 页面调 `nbook.plugins` 的远程方法（需要确认 `callers` 允许）。左栏“来源”列（内置/剧情图谱/我写的）也用同一套，所以不是一个点。
+- 建议：计划加一条：把“插件 id → 显示名”抽成 `nbook.plugins` 的 `shared/` 纯函数加目录（或在 `ui/` 下），两边共用；或让 `toolCatalog` / `profiles` 的服务端直接带 `sourceName`（服务端有插件清单里的 `displayName`，内置名需要双语目录，要确认放哪）。先定再切片。
+
+### 8. [重要 / 用户级 Profile 的文件操作] 新建、删除不是一次调用，失败与中间态没写
+- 位置：plan.md:47、49；`plugins/files/shared/contracts.ts:372-405`
+- 现象：浏览器文件客户端 `FilesService`：`create(address, "file")` 只“排他新建空文件”，`write(address, text, baseline)` “只保存已有文件”；所以“排他新建一份骨架”实际是两步：`create` 后 `write`。中间一刻磁盘上有一个空的 `.profile.tsx`，打包器会读到它，目录里出现一条 `有错误` 的 Profile；第二步失败（超限、断连）时留下空文件，用户再点“新建”会因同名被拒，而页面上这条是红的。计划“已有同名的报错、不覆盖”只覆盖了第一步。
+  - 删除：`delete(items)` 返回 `BatchHandle`（异步批处理，有进度与结果），不是一次调用；是否进回收站、失败怎么办，计划没写；删除后选中项跳到哪、焦点在哪（`ProvidersPage.onRemoveClosed` 为此写了一整套焦点逻辑，输出 12）计划没有对应写法。
+  - `plugin.ts` 的 `dependencies`（plugin.ts:151）里没有 `filesKey`，要加；`user://profiles/` 目录不存在时 `create` 的行为未核实（未验证）。
+  - 确认删除的文字“用它的会话会变成只读”需要知道有多少会话在用，计划没说从哪取；不取就写成不带数字的通用句。
+- 建议：新建写成明确的两步加补偿（第二步失败时删除刚建的空文件并报错，或把第二步失败当“新建失败”提示文件已建、让用户去编辑器里写）；删除按批处理句柄的结果处理，并写选中项与焦点去向；`dependencies` 加 `filesKey` 写进切片 5。
+
+### 9. [重要 / 可访问性] 去掉与加入按钮的名字区分不开同名工具；头部 key 与来源只在悬停里
+- 位置：plan.md:24、28、29；静态稿 `ProfileSettingsDraft.vue:236-251、305、326`
+- 现象：
+  - 工具行 ×、对话框 +/−：静态稿的 `label` 是固定的“去掉”“加入”。`edit` 与 `edit-replace` 的显示名同为 `edit`，`ask` 同理：读屏听到两个“去掉”，视觉上有说明列区分，读屏用户拿不到。`ManageModelsDialog` 的 `manage.add` / `manage.remove` 带 `{name}`。计划只字未提。
+  - 头部：说明 `<p tabindex="0">` 是 `Tooltip` 触发器，key 与来源只在悬停提示里。键盘能聚焦（Tooltip 聚焦即显）。但当说明为空（`error` 状态的 Profile，见 `broken.webp`）或窄屏下被通知块挤到零宽（`.profile-draft__summary { flex: 1 1 0; min-width: 0 }`，通知块 `max-width: 62%`，名称 `flex-shrink: 0`），触发器零宽，key 与来源就拿不到；而用户级 Profile 的 key（`user.<名>`）恰是排查“为什么选不出/撞名”要看的信息。
+  - 通知块 `<p role="status" tabindex="0">`：对非交互元素加 `tabindex` 并带 live region 角色；换选中项时会被读屏当作变化播报，可能是想要的，但 `SettingsSectionHeading` 的同类块（`unavailable`/`fixing`）既没有 `tabindex` 也没有 Tooltip，计划说“外观同 notice”，但行为不同，没写区别（未验证读屏表现）。
+  - 工具行说明只留“第一行”，全文在悬停（plan.md:94）：Tooltip 触发器是不可聚焦的 `span`（静态稿 302 行），键盘用户读不到全文；若 DOM 里也只放第一行，读屏同样拿不到。
+- 建议：× 的名字写成“去掉 {providerName}（{id}）”；对话框 +/− 同样带名字与 id（或带提供者）；头部把 key 与来源另放一个可聚焦的位置（例如标题旁的 `InfoTip`，或 key 作为说明的前缀小字），保证说明为空时仍在；工具行说明让触发器可聚焦，或 DOM 放全文、用 CSS 截断，只有悬停气泡是附加。
+
+### 10. [重要 / 窄屏] 左栏收成下拉的阈值、工具行和头部在窄屏下的样子，计划与静态稿都没有定
+- 位置：plan.md:21-25；静态稿 `.profile-draft--narrow`（只有 `screen === 'narrow'` 的手动开关）、`.profile-draft__line`（定列 `136px 28px 1fr 40px`）、`.profile-draft__head`；参照 `ProvidersPage.vue:439-455`（`@container (max-width: 600px)`）
+- 现象：
+  - 计划写“版式同服务商与模型”，但没写窄屏同样用容器查询 600px 收成下拉加“新建”。静态稿用的是手动 class，不是容器查询；实现者会各写各的阈值。设置窗口下限 600×400，fill 页面扣掉窗口左栏 176px 与外边距后宽约 380px 左右；再扣 164px 的 Profile 左栏，右栏只剩 200 多像素（估算），所以窄屏档必须在窗口缺省宽度附近也能触发，阈值要实测。
+  - 开发者看过的窄屏图（`r2/narrow.webp`）是 r2 的列表式工具行（名字加等级一行，说明下一行），而 r3 定稿的是定列网格 `136px 28px 1fr 40px`。r3 没有再出窄屏图，定列网格在 380px 宽下说明列只剩一百多像素，几乎只剩省略号（估算，未验证）；计划没说窄屏改回堆叠还是保持网格。
+  - 头部：名称 `flex-shrink: 0` 且无省略，用户给的名字（文件名，可能很长）会撑出页面；说明被挤到零宽后，key 与来源没有去处（见第 9 条）。
+  - 窄屏的下拉 `Select` 只显示名字：“不可用”“有错误”的状态与“后台”分组在窄屏下消失。`ProvidersPage` 的下拉同样没状态，但那里状态是辅助信息；这里“不可用”是用户为什么选不了它的唯一线索。
+  - `SettingsRow` 在页面窄于 600px 时把控件换到标题下面；页面自己排的行（plan.md:25）要自己实现这一条，计划没写。
+- 建议：计划写明：同 `ProvidersPage` 用容器查询，阈值取实测值；窄屏下工具行改为两行（名字、等级、必需/× 一行，说明一行），并补一张窄屏的 r3 版式图；名称加省略；窄屏下拉的选项用 `description` 写状态，后台的放在最后一段。
+
+### 11. [重要 / 复用与结构] 同一块样式要写第三份、第四份；页面只写了一个组件；左栏键盘没提
+- 位置：plan.md:19、24、25、28、29；`SettingsSectionHeading.vue:75-92`（notice）、`ProviderDetail.vue:263-266`（组头）、`ManageModelsDialog.vue:89-93`（对话框组头）、`ProviderRail.vue:42-58`；`docs/standards/code/frontend.md:12`
+- 现象：
+  1. 计划要“外观同 `SettingsSectionHeading` 的 `notice`”“照 `SettingsRow` 的状态图标”“页面每行文字块固定两行（20、18，间距 2），同 `SettingsRow`”“组头同 `ProviderDetail`”“对话框同 `ManageModelsDialog`”“左栏版式同 `ProviderRail`”。其中 notice、两行文字块、折叠组头（`aria-expanded` 加 chevron 加计数）、对话框里的组头、左栏项都是各自组件里的私有样式，要么在别的插件里（`models`、`settings` 的 web 目录；核实无插件互相导入 web 组件，见第 7 条）。静态稿 830 行里的 CSS 已经是手抄一遍。
+  2. 重复多少算合适：notice 块（settings 窗口一份、这里一份）和“固定两行文字块”（`SettingsRow` 一份、`PermissionRulesPage`、这里一份）已经是三处以上，改一处的数字要改三处（`SettingsRow.md` 明说文字块是 40px 偶数高，改的时候要保持偶数）；折叠组头（`ProviderDetail` 与这里）两处。
+  3. 页面拆分：计划只写 `ProfileSettingsPage.vue` 一个组件。静态稿已 830 行（约 345 行脚本加模板、480 行样式），真实页面还要加载/失败、写入、用户 Profile 新建与删除确认、窄屏收缩，容易超过 `frontend.md` 的 1200 行硬线。`ProvidersPage` 的拆法是 Page、Rail、Detail、Manage 对话框、Add 对话框各一个文件。
+  4. 左栏键盘：`ProviderRail` 有 roving tabindex 加上下键、Home、End、只有当前项在 Tab 序列里、`aria-current="page"`（`ProviderRail.vue:42-58`）。静态稿左栏没有，计划只写“版式同”。另外左栏分两组（普通、后台）加“新建 Profile”，上下键要把两组视为一个序列，“新建”不在序列里（同 `onKeydown` 只处理 `data-…-rail-item`）；计划没写。
+- 建议：
+  - 把 notice 块与固定两行文字块抽到 `nbook/ui/settings/`（页面级共用，`SettingsRow` 也改用它，行为不变；这是 `components.md` 要求新增同名 `.md` 的零件），折叠组头抽成一个小组件（放同处，或放 nb-ui 若通用性够）；`ManageModelsDialog` 只是形状像，对话框这一份可以不抽，但计划要写明“这里不抽、原因是……”。
+  - 切片 3、4 里直接写拆成 `ProfileRail.vue`、`ProfileDetail.vue`、`ToolList.vue`（含组头）、`AddToolsDialog.vue`、`NewProfileDialog.vue`，各带同名 `.md`。
+  - 左栏键盘照 `ProviderRail`，并写进验收。
+
+### 12. [重要 / 文字与登记] 所有界面文字的翻译、Lab 与组件文档，计划没算进切片
+- 位置：plan.md:41-43、70-78、94；参照 `agent/web/text.ts`、`agent/locales/{zh-CN,en-US}.json`、`lab/web/fixtures/index.ts:1003-1015`、`docs/standards/code/components.md:172`
+- 现象：
+  - 切片里没有“加 zh-CN 与 en-US 两份文字目录”这一项：页面文字（Profile 状态、`reasonCode` 的各句、读/写/执行、必需、已卸载、跟随默认的说明、对话框与确认框、写失败的 `subject`）、分区标题与说明（`settingsPages.profiles.title`/`description`，设置搜索按它们匹配）、`reportWriteFailure` 的 `subject`。计划只在 plan.md:42 提到“页面要翻译”，没有落实到切片。
+  - `toolCatalog` 的 `description` 是 `Type.String({minLength:1})`（`shared/points.ts:46`），不是 `Text`：它是给模型看的，且 `edit` 的内容来自 `editDescription("hashline")`（`backend/builtin/edit.ts:32`，原生库给出）加一段中文备注，多段、可能是英文。计划写“只显示第一行”，但没有核实第一行是否有意义：`edit` 与 `edit-replace` 的第一行很可能几乎相同，而同名工具恰恰需要靠说明区分（静态稿里的中文简短说明是手写的，实际拿不到）。（未验证：没有运行读取实际字符串。）
+  - 切片里 Lab 场景只在切片 3 里提了一次；新增的对话框（切片 4、5）与每个新组件都要 Lab 登记与同名 `.md`，由 `docs:check` 与 `lab:shot` 机检；`components.md` 的完成标准要求桌面与 `390×844` 下核心操作都能完成。
+- 建议：切片 3 起每片都写“文字目录两份、`.md`、Lab 场景”；工具说明要么在 `AgentToolDeclaration` 上加一个短的、可本地化的 `summary?: Text`（后端审查者决定，涉及声明形状），要么页面接受“第一行可能是英文”并核实实际字符串后再写成风险；`group?` 删除时顺手确认没有别的消费者（plan.md:41）。
+
+### 13. [重要 / 验收映射] 判据写得太粗，几个页面行为没有测试去处
+- 位置：plan.md:80-82
+- 现象：“Spec 编号写定后补”，且现有清单只有：改绑定后工具集变、必需关不掉、模型与审批对新会话生效、连点不丢、不可用有原因、新建骨架能打包。缺：
+  - 值编码与回退（第 2 条）：绑定值不在选项里时的显示、写 `model` 清掉 `role`、跟随默认删字段、审批哨兵。
+  - 对话框（第 5 条）：完成一次写入、取消不写、写失败留在对话框、同名替换同一次写入里关掉原来的、必需的同名候选停用。
+  - 状态表（第 6 条）每格；`writable: false` 时所有控件停用。
+  - 键盘：左栏上下键与 roving tabindex；折叠组头 `aria-expanded`；× 的可访问名称唯一。
+  - 提示“不拦发送”：计划写了验证文件（`session-host.test.ts`），没有“有缺口时仍可发送”这一条（见第 3 条）。
+  - “连点不丢”要在真实配置实例上写（`permission-page.dom.test.ts` 的做法）：两次点击不同的工具，不等第一次结算。
+  - 计划“真实配置实例”写在切片 3 的 dom 测试里，要是 `createSettingWriter` 的单元测试写在切片 2，冲突重算那条要放进去（现在只有“行为不变”）。
+- 建议：编号写定之前先在 plan.md 里列出“场景加失败方式”，同上；这与仓库“先列验收场景与失败方式再写实现”的规则一致。
+
+## 建议
+
+### 14. [建议 / 选项区分] 混在一个 `SearchSelect` 里的角色与模型只靠右侧说明区分
+- 位置：plan.md:26；`SearchSelect.md` 的“不支持：分组标题”；静态稿 `MODELS`
+- 现象：`SearchSelect` 不支持分组标题，选项只有 `label`、`description`、`iconClass`。静态稿里“主力”（角色，说明是模型名）与“Claude Sonnet”（模型，说明是服务商）在同一个列表里，看起来都是“名字加灰字”；用户自建角色名可以与某个模型名相同。
+- 建议：给角色选项加一个图标（例如 `i-lucide-layers`、`ProviderRail` 的“全部模型”用过），模型选项不加或加服务商图标，跟随默认放第一项且有自己的图标；顺序按“跟随默认、角色、模型”。另外跟随默认解析到的角色本身未绑定（`status: "unbound"`）时，模型一行也应该有字段级警告（现状会在发送时 `role-unbound`，service.md 输出 8）。
+
+### 15. [建议 / 一致性] 删除与打开文件在头部右边，`ProvidersPage` 的删除在窗口标题区
+- 位置：plan.md:24；`ProvidersPage.vue:226-230`（`SettingsPageActions`）；`settings-window.md` 输出 3、13
+- 现象：窗口标题区右侧有页面级操作挂载点（`SettingsPageActions`），层不能写时窗口会整体停用它们；`ProvidersPage` 的“删除服务商”放在那里。这一页把“打开文件”“删除”放在页面头部一行右边（开发者看过这版，不改），所以它们不会被窗口按 `writable` 自动停用，计划要写“页面自己按 `context.writable` 停用删除（打开文件可保持可用）”，否则只读层下删除仍可点。
+- 建议：在计划里写明这一点；是否把“新建 Profile”也放进 `SettingsPageActions` 由开发者定（左栏底部的“新建”窄屏下收成下拉旁的“+”已经有了，一致）。
+
+### 16. [建议 / 刷新] `toolCatalog` 与目录什么时候重取
+- 位置：plan.md:43-44
+- 现象：事件 `profilesChanged` 只触发重取 Profile 目录；`toolCatalog`（决定“已卸载”分组与对话框候选）在插件安装、停用、MCP 服务器增减时也会变，计划没有写页面是随 `profilesChanged` 一并重取，还是另有时机。页面开着时装插件，“已卸载”组与“不可用”状态会过时。
+- 建议：写一句“页面收到 `profilesChanged` 时同时重取目录与 `toolCatalog`”，并要求后端在工具增减时也发这个事件（后端审查者确认）。
+
+## 未发现问题的方面
+- 对话框“完成”的整体做法（改动留在对话框里、完成一次写、取消不写）与 `ManageModelsDialog` 一致，选这套的方向没问题；问题在失败与并发处理（第 5 条）。
+- “去掉（×）立刻写、对话框完成才写”在一页里说得通（见第 5 条的最后一点，只补恢复路径）。
+- `layers: ["user"]` 与“本作品”标签：窗口已有现成规则（settings-window.md 输出 8），计划选 `layers: ["user"]` 正确，不需要页面另处理（第 6 条第 6 点）。
+- 分区放 `ai` 类、`order: 25`、`layout: "fill"`：与 `ProvidersPage` 同类，合理；`toolBindings`、`profileSettings` 写 `section` 指向它的做法同 `PERMISSIONS_SECTION`。
+- 同名工具按 `providerName` 判断的页面规则本身无问题（后端正确性不审）。
+- 头部压成一行、问题块位置、有无提示高度一致：与已确认版式、`SettingsRow` 的固定文字块规则一致，只补窄屏与可访问名称。
+- `Select` 的 `value: ""` 问题：模型一行用 `SearchSelect` 时 `""` 能匹配到“跟随默认”项（`RolesPage` 就这样用），不必改哨兵；审批模式用 `Select` 才需要哨兵（第 2 条）。
+
+## 数量
+- 阻断：0
+- 重要：13（第 1 到 13 条）
+- 建议：3（第 14 到 16 条）

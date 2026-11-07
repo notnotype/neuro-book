@@ -1,0 +1,106 @@
+# w00032/t05 后端设计审查
+
+### 1. 必须工具与同名工具的最终选择没有定义
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:28-35`；参照 `packages/neuro-book/src/plugins/agent/backend/tools.ts:75-89`、`packages/nb-harness/src/kernel/run/tools.ts:64-86`
+- 现象：现有 `forProfile` 的顺序是 `required`、`optional`、按清单顺序加入的 `defaultForAll`、`added`，再按 `removed` 删除；内核随后按 `providerToolName` 去重，先出现的声明胜出。计划只说页面按 `providerName` 只开一个，却没有规定共享纯函数是否保留这套顺序和重复 id，也没有规定必需工具本身与替代工具同名时的结果。
+- 为什么是问题：页面若在共享函数里先按提供者名去重，就会与 `AgentTools.forProfile` 和内核的“先出现者胜出”分叉；若不去重，用户可以打开替代工具，但必需的旧工具仍不能写进 `removed`，内核实际仍使用旧工具，页面显示与请求不一致。`defaultForAll` 的旧工具也会在绑定里继续出现，除非显式写入 `removed`。这不是单纯显示问题，而是工具声明、审批等级和实际执行实现可能不同。
+- 如何核实：用两个不同 id、相同 `providerName`，分别放在 required/optional/defaultForAll/added；再分别把旧 id 放进 removed，观察 `forProfile` 返回顺序和内核 `tool-declaration-invalid` 后保留哪一个。另测 required 旧 id 与 added 新 id 同名。
+- 建议改法：共享函数只负责按既有顺序产生最终 id 列表，并把 `required` 的不可删除约束保留；另用同一套 `providerToolName` 规则计算“模型实际可见”的列表。若同名旧工具是 required，界面必须禁止替换并明确原因；若是 default/optional，替换操作必须在同一次写入中加入新 id、移除旧 id，并由测试锁住顺序。
+### 2. 已发布 Profile 打包失败或恢复时不会通知目录
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:39-43`；参照 `packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:155-169`
+- 现象：已有成功包的用户 Profile 改坏时，`ProfileBundles` 保留旧包并把 `error` 设上，但只有 `hadNothing` 时才调用 `changed`；修好后若新包哈希与旧包相同，也不会调用 `changed`。计划要求页面通过 `profilesChanged` 重取目录，却没有覆盖这两个状态转换。
+- 为什么是问题：页面会继续显示 `ok`，看不到“有错误”；修好后也可能继续显示旧的 `error`。会话本身应继续使用旧包，这是 Spec 的正确行为，但目录状态变化仍必须可观察；把会话重解析通知和目录刷新通知混成同一个回调会导致两者至少有一方错误。
+- 如何核实：先建立一个可用用户 Profile，再写入表外导入使状态变为 `error`，观察是否收到目录事件；恢复到原内容，观察状态是否回到 `ok` 且页面是否刷新。当前代码路径在 `#build` 的失败分支与成功分支已能静态确认。
+- 建议改法：分开“目录状态变化”和“有效 Profile 包变化”两个通知；前者覆盖新建、成功、失败、恢复、删除，后者只驱动宿主重新解析会话。若仍共用一条远程事件，至少定义状态变化也发事件，并避免仅凭 `changed(keys)` 决定是否重取。
+### 3. 目录事件是无状态通知，计划没有补齐初始竞态和重连
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:43`；参照 `docs/specs/agent/sessions.md:61-62`、`packages/neuro-book/src/plugins/agent/shared/remote.ts:224-230`
+- 现象：计划规定事件只说“目录变了”，页面再调用 `profiles()`，但没有规定订阅与首次读取的顺序，也没有规定远程 `onResync` 后如何补齐。已有会话事件合同明确要求先订阅再取快照，重连按 `onResync` 补读；当前 Agent 浏览器入口的 `loadProfiles()` 只是单次调用 `remote.profiles()`。
+- 为什么是问题：若先取列表再订阅，事件落在两步之间会永久漏掉；断线期间的目录变化也不会由无状态事件补发，页面会长期显示旧 Profile。新建异步打包尤其容易发生“初始列表为空、事件在订阅前到达”的竞态。
+- 如何核实：用可控的远程订阅，在首次 `profiles()` 与订阅建立之间插入一次目录变化；再让连接在变化期间触发 `onResync`，观察页面是否重新取列表。应覆盖事件先于订阅返回、订阅建立前结束两种顺序。
+- 建议改法：页面先建立 `profilesChanged` 订阅，再取一次 `profiles()`；订阅支持 `onResync` 时无条件重取。事件回调与初始请求还要用代次或请求序号丢弃迟到结果，避免旧列表覆盖新列表。
+### 4. `reasonCode` 的参数仍会把本机路径直接带到浏览器
+- 严重程度：重要；类别：正确性 / 安全与性能
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:42`；参照 `packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:149-160,183-214`
+- 现象：计划要求把打包或求值失败的“错误文字”放进 `reasonCode` 参数；现有打包错误直接取 Bun 日志、异常消息和包路径，错误文字可能含状态根、源文件绝对路径或缓存包路径。这个字段会由 `profiles()` 远程返回给浏览器。
+- 为什么是问题：页面本来只需可翻译的错误类别和安全的文件名/位置，却把服务端本机路径暴露到远程合同，违反设置窗口不向浏览器发送用户层绝对路径的既有边界，也使翻译参数不可稳定测试。
+- 如何核实：用语法错误、导入表外模块、默认导出错误和求值抛出分别生成目录条目，记录 `ProfileBundles` 的 `error` 与远程 `profiles()` 返回值，搜索状态根绝对路径和缓存 `.js` 路径。
+- 建议改法：远程合同使用受限的判别式原因（缺工具、key 冲突、模块未共享、导出无效、求值失败等），参数只带 Profile key、相对源文件名、行列和经过截断/清洗的说明；原始异常只写诊断，不作为 `ProfileEntry` 的字段。相应更新已有依赖 `reason` 的测试和诊断映射。
+### 5. `ProfileEntry` 新字段在用户级失败状态下没有合同
+- 严重程度：重要；类别：正确性 / 接口与合同
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:39-42`；参照 `packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:96-108`、`packages/nb-harness/src/kernel/api/profile.ts:30-49`
+- 现象：插件 Profile 的 `tools`、`defaultTools`、`role`、`modelNeeds` 来自声明；用户级 Profile 只能从已求值的 `AnyProfile` 读取。现有 `ProfileBundles.list()` 在从未成功打包时没有 Profile 对象，只能返回文件名、空说明和空工具要求；已有成功包再次失败时则仍能读到旧对象字段。计划没有规定这些字段在两种失败状态下是缺省、上一次成功值还是完全不返回。
+- 为什么是问题：页面若把缺省数组当成真实的“无工具”，会错误显示工具集和可用性；若沿用旧字段，又必须明确它们是 last-known-good，不能与当前失败源混淆。`role` 甚至不是 `ProfileFields` 的用户级字段，不能按同一映射处理。
+- 如何核实：分别测试首次打包失败、已有成功包后打包失败、失败恢复三种状态，比较目录返回的字段与设置页工具/模型能力提示；再写一个用户 Profile 仅声明 `modelNeeds`、不声明工具的实例。
+- 建议改法：在共享合同中明确字段可选性与来源：用户级 `ProfileEntry` 只在有成功包时带 last-known-good 的 Profile 字段，并显式带 `stale` 或由 `status: "error"` 解释；从未成功时只带文件名与结构化错误。插件声明与用户运行时分别写两个归一化函数，不读取不存在的用户 `role`。
+### 6. 删除 `agent.tools.group` 是未登记的公开接口破坏
+- 严重程度：阻断；类别：接口与合同 / 文档
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:41`；参照 `packages/neuro-book/src/plugins/agent/shared/points.ts:45-60`、`packages/neuro-book/src/sdk/agent.ts:7-15`、`docs/specs/agent/contributions.md:36-42,106-109`
+- 现象：`group?` 在贡献点 schema、`AgentToolDeclaration`、SDK 的公开类型导出和 Spec 的输入形状中都有定义。它虽然当前后端没有读取，但插件清单仍可携带它，已发布插件也按这个 schema 被登记校验。计划直接从声明和 Spec 删除，没有迁移、兼容版本或 SDK 破坏性变更说明。
+- 为什么是问题：删除后旧插件可能在登记时因未知字段被拒绝，且从 SDK 导入的公开类型发生破坏性变化；“页面不用它”不能证明可以改变插件接口。贡献 Spec 已明确内核定义接口和 SDK 是公开接口，不能在一个设置页 Task 里静默删字段。
+- 如何核实：用当前 SDK 编译一个带 `group` 的 `agentTool` 声明，再把生成的清单交给删除后的 schema；同时检查 `AgentToolDeclaration` 的下游类型导入是否仍可编译。
+- 建议改法：保留 `group` 的声明与 schema，页面忽略它并记录后续分组策略；若确需删除，先做有版本号和迁移规则的公开 API 变更，更新 SDK、Spec、兼容检查、插件样例和已有清单测试，并由开发者单独确认。
+### 7. 浏览器文件客户端不能以一次操作原子写入骨架
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:45-49`；参照 `packages/neuro-book/src/plugins/files/shared/contracts.ts:224-233,372-384`、`packages/neuro-book/src/plugins/files/web/client.ts:67-90`
+- 现象：`filesKey` 的浏览器 `create()` 只能排他新建空文件，`write()` 只接受已有文件的基线；计划却把“排他新建一份骨架”写成一个动作，没有说明创建、读取基线、写正文的顺序、失败收口和中间事件。
+- 为什么是问题：空文件一落盘就会被 `ProfileBundles` 的目录监听发现并开始打包，列表会短暂出现不可用条目；随后读取或写入失败会留下空的 Profile 文件，用户重开后仍看到错误。若用户在两步之间编辑，盲写骨架还会覆盖用户内容。`group` 只能把事件归组，不能提供原子性。
+- 如何核实：通过真实 `FilesService` 调 `create(user://profiles/x.profile.tsx)`，在 `create` 返回后、`read` 前触发目录打包或修改文件，再让 `write` 失败；观察残留文件、目录状态和事件顺序。
+- 建议改法：优先增加服务端“按 absent 条件写入文本”的公开能力；若沿用现有客户端，明确两步协议：排他 create → read 基线 → 条件 write，失败时删除且只在删除成功后报告失败，并让 UI 等待最终目录状态，不把中间错误当成最终 Profile。新建与删除都必须处理远程结果码而不是只看事件。
+### 8. 通用写入器的冲突重算会破坏权限规则的 replace 语义
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:31,74`；参照 `packages/neuro-book/src/plugins/agent/web/permission-writes.ts:12-37`、`packages/neuro-book/src/shared/settings.ts:415-423`
+- 现象：现有权限规则写入器区分两种语义：`append` 冲突后基于最新规则再追加，`replace` 冲突后直接返回 `conflict`，因为整份列表是用户按旧值编辑的，重试会覆盖别的窗口改动。计划要求抽成通用 `createSettingWriter(settings, setting)`，但没有定义冲突策略或如何保留这一区别。
+- 为什么是问题：若通用写入器默认“冲突后按新值重算一次”，权限规则页面的整份替换会从拒绝冲突变成静默覆盖；若默认不重算，又不能满足工具绑定/Profile 设置按当前 Record 重算单个 key。工具绑定与规则数组不能共用一个无策略的写入语义。
+- 如何核实：两个窗口先读同一份权限规则，窗口 A 替换整表，窗口 B 追加一条；分别让 A/B 的写入交错，确认 replace 必须返回 conflict 而 append 必须保留两方。再用两个 Profile 的 Record key 做同样实验。
+- 建议改法：把“从最新值生成下一值”的 reducer 与冲突策略作为显式参数；Profile/工具绑定使用按 key 合并且最多重试的 writer，权限规则只给 append 这个 reducer，replace 保留一次尝试、不重试。测试直接断言最终可观察设置文件内容和 conflict 结果。
+### 9. 验收映射没有覆盖 Record 冲突与多项对话框写入
+- 严重程度：重要；类别：测试
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:31,74,82-87`
+- 现象：计划只写“连点两下不丢”，没有把两个浏览器窗口同时写 `toolBindings` 或 `profileSettings`、冲突后的按 key 重算、Profile key 删除后整项删除，以及工具添加对话框一次改变多个工具的场景列成验收。现有权限测试的行为是单窗口规则写入，不能证明新的整份 Record writer 的并发合同。
+- 为什么是问题：`settings.update` 的 `expect` 比较的是整个设置项，而不是 Record 内的一个 key；错误的重算会把另一个 Profile 或另一项工具静默盖掉。单窗口连点只证明本地队列，不能证明两个窗口的 owner 队列与一次冲突重试。
+- 如何核实：在真实设置服务和两个浏览器客户端中同时修改不同 Profile、同一 Profile 的不同字段、同一 Profile 的同一字段；再让一次对话框在一次提交中增删多个工具，检查最终 `toolBindings` 的全部 key、数组顺序和空项删除。
+- 建议改法：把这些场景写进 `permission-rules.test.ts` 之外的后端/配置集成测试或真实页面合同测试；至少覆盖冲突成功重算、冲突后失败通知、不同 key 不互相覆盖、同名工具替换的一次写入。
+### 10. `modelNeedGaps` 没有定义角色解析后的模型投影和未知窗口语义
+- 严重程度：重要；类别：接口与合同 / 正确性
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:51-56`；参照 `packages/neuro-book/src/plugins/models/shared/contracts.ts:37-50,72-83`、`packages/neuro-book/src/plugins/agent/web/plugin.ts:103-136`、`packages/neuro-book/src/plugins/agent/web/session-host.ts:1306-1365`
+- 现象：模型目录快照有 `vision`、`reasoning`、可空的 `contextWindow`；Composer 选项把它们映射成 `supportsImages`、`reasoning`、`contextWindow`。但会话快照里的已解析模型目前只带 `id`、`contextWindow`、`efforts`，角色选择最终要靠这个 id 回查当前模型列表；当前列表又过滤了无凭据、禁用和非 `ok` 模型。计划没有规定回查失败、窗口为 `null`、角色刚失效时 `modelNeedGaps` 返回什么，也没有规定 `reasoning` 与 Profile 的 `thinking` 如何映射。
+- 为什么是问题：页面和对话可能对同一个已解析模型给出不同提示；模型刚失效或被模型目录事件移除时，若把“找不到”当作能力齐全就会漏提示，若把 `null` 当成 0 又会错误提示窗口太小。角色本身没有能力字段，必须使用角色当前解析到的模型，不能只检查角色选项。
+- 如何核实：先用角色绑定一个支持看图/推理的模型，再在会话运行期间让角色绑定变更、模型失效或凭据消失，观察 `snapshot.model`、Composer `models` 和两处提示是否一致；另测自定义模型 `contextWindow: null` 与小于 `minContext` 的模型。
+- 建议改法：定义统一的模型能力投影（明确 `vision`、`reasoning`、`contextWindow: null` 的语义），按会话快照的最终 `model.id` 回查当前快照；回查不到时进入“模型不可用”分支而不是默认无缺口。更稳妥的是扩展会话对浏览器的已解析模型投影直接带 `vision` 与 `reasoning`，并为角色路径与模型直接路径共用同一纯函数和测试。
+### 11. `toolCatalog` 没有提供页面所需的插件显示名来源
+- 严重程度：重要；类别：接口与合同
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:28,41`；参照 `packages/neuro-book/src/plugins/agent/backend/tools.ts:125-149`、`packages/neuro-book/src/plugins/plugins/shared/contracts.ts:21-37`
+- 现象：计划要求工具按提供者分组并使用插件显示名，但 `toolCatalog` 返回形状只写 `plugin`，现有工具声明也只有插件 id；`PluginsPage` 的 `displayNameOf` 需要另一个 `nbook.plugins/registry.list()` 远程合同和内置名称表。计划没有给 Agent 浏览器入口增加该依赖，也没有定义工具目录事件与插件清单变化的同步。
+- 为什么是问题：实现者只能把插件 id 当显示名、重复实现一份内置名称表，或临时依赖未声明的服务；第三方插件的显示名无法从当前 `toolCatalog` 得到，和已确认的分组设计不一致。
+- 如何核实：用带 `displayName` 的第三方插件交出工具，调用 `toolCatalog`，确认返回只含 id；再检查 Agent 浏览器入口的依赖列表没有 `pluginsRegistryContract`。
+- 建议改法：要么 `toolCatalog` 直接返回经过清单归一化的 `providerDisplayName`/`providerSource`，并规定插件清单变化时刷新；要么在计划中明确浏览器入口订阅 `pluginsRegistryContract.list()`、内置名称映射和失败回退，并把这部分列入真实页面测试。
+### 12. Profile 设置无法按现有 Composer 选项显示失效的直接模型
+- 严重程度：重要；类别：正确性
+- 位置：`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md:26`；参照 `packages/neuro-book/src/plugins/agent/web/plugin.ts:103-114`、`packages/neuro-book/src/plugins/agent/web/session-host.ts:1360-1365`
+- 现象：计划复用 `modelOptions`，但它只返回有凭据、启用且 `status === "ok"` 的模型。会话宿主另有一段逻辑，把当前设置里不在列表的直接模型补成 `unavailable` 选项；Profile 设置页的计划没有这条规则。角色选项本身带 `status`，直接模型没有。
+- 为什么是问题：Profile 设置可能已经保存了一个后来失效、缺凭据或被删的 `model`。页面若不补这个当前值，SearchSelect 没有可渲染的选项，用户看不到实际配置，也没有明确的清除入口；页面的 `modelNeedGaps` 还可能把“没找到模型”误当成能力齐全。这个状态是模型配置漂移的正常合同，不是异常输入。
+- 如何核实：先把 Profile 的 `model` 设为可用模型，再删除该模型或清掉凭据，重新打开设置页；确认当前值仍列出并标不可用，选择“跟随默认”后能同时删除 `model` 与 `role`。
+- 建议改法：为 Profile 页面定义与会话宿主同样的 `current model` 补全规则：当前直接模型不在快照可选列表时追加不可用项，并把 `unknown-model`、`no-credentials`、`incomplete` 分成可翻译原因；回查不到能力时只显示不可用，不计算能力缺口。
+
+## 未发现问题的方面
+- `user://` 的映射存在：文件插件后端把根设为 `<状态根>/user/`，`user://profiles/` 会落到该目录；`FilesService.create()` 经 `open(..., "wx")` 排他新建，底层机制真实存在。问题在骨架正文需要第二步条件写入，不是排他创建本身不存在。
+- 用户 Profile 的文件监听与删除后的会话行为已有实现依据：`ProfileBundles` 监听入口目录和打包输入，删除入口后调用宿主 `profilesChanged`；内核会把使用该 Profile 的打开会话置为 `read-only`，码为 `unknown-profile`。计划的“变只读”与该行为一致。
+- 骨架依赖 `@notnotype/nb-plugin-sdk/agent` 的运行期共享模块已在服务端共享模块表中，JSX 运行时也由 `Bun.build` 的 `jsxImportSource` 配置提供；“真实打包成功”仍需按计划测试，静态检查未发现模块表缺项。
+- `modelNeeds` 所需的三个能力字段在模型快照中确实存在：`vision`、`reasoning`、`contextWindow`。问题是角色解析后的统一投影、无效模型和空窗口的语义没有写入计划，不是快照字段完全缺失。
+- 当前代码范围内，会话列表和选择器使用 `ProfileEntry` 的名称、状态、图标等字段，不读取 `reason`；现有对 `reason` 的直接断言主要在用户 Profile 合同测试。改成结构化原因仍必须同步远程合同、诊断映射和这些测试。
+
+## 待确认项判断
+- 页面版式、工具只列开着并另行添加、按插件分组、用户级 Profile 用骨架、modelNeeds 只提示不拦发送、白名单字段留给 t14/t15：按 Task README 的开发者确认执行，本审查未质疑这些决定。
+- 删除 `agent.tools.group?`：不属于列出的开发者确认项；它是公开 SDK/清单接口，见第 6 条，需单独决定或保留兼容。
+- “Profile 设置模型与审批模式只影响新会话”：与现有 `agent.ts` 的新会话初值实现和 Spec 一致；本审查未发现该语义本身的问题。
+
+## 统计
+- 阻断：1
+- 重要：11
+- 建议：0
+- 有效发现：1–12
+
+审查为只读静态核实；未安装依赖、未运行测试、未启动开发服务。需要主 Agent 运行的实验已写在各条“如何核实”中。
