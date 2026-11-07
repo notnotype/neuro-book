@@ -5,7 +5,7 @@ import type {PendingModeSwitchView} from "../../types";
 import {EMPTY_WIZARD} from "../../wizard";
 import AgentModeSwitchWizard from "./AgentModeSwitchWizard.vue";
 
-const approval = {value: "ask", options: [{key: "ask", label: "每次询问", icon: ""}, {key: "allow-writes", label: "放行写入", icon: ""}]};
+const approval = {value: "ask", options: [{key: "ask", label: "每次询问", description: "", icon: ""}, {key: "allow-writes", label: "放行写入", description: "", icon: ""}]};
 const exitPlan: PendingModeSwitchView = {kind: "mode-switch", id: "m", toolCallId: "c", fromLabel: "计划", toLabel: "普通", plan: "# 改第三章", approval};
 const plain: PendingModeSwitchView = {kind: "mode-switch", id: "m", toolCallId: "c", fromLabel: "普通", toLabel: "讨论", approval};
 

@@ -541,11 +541,18 @@ export function createQaService(options: QaServiceOptions): QaService {
             // 否则网页会把 CNY 与 USD 的金额当成同一种币种相加。
             models: provider.models.map(model => {
                 const entry = catalogModel(modelOf(config!, `${id}/${model.id}`).model);
-                return model.price === undefined || entry.price === null ? entry : {...entry, price: {...entry.price, currency: model.price.currency}};
+                const projected = model.price === undefined || entry.price === null ? entry : {...entry, price: {...entry.price, currency: model.price.currency}};
+                return {...projected, efforts: [...projected.efforts]};
             }),
         }));
-        const catalog = listCatalog().map(provider => ({...provider, source: "catalog" as const, keySet: catalogKeys.get(provider.id) ?? false}));
-        return {providers: [...custom, ...catalog] as ViewerResult<"models.catalog">["providers"]};
+        const catalog = listCatalog().map(provider => ({
+            ...provider,
+            source: "catalog" as const,
+            keySet: catalogKeys.get(provider.id) ?? false,
+            keyEnvs: [...provider.keyEnvs],
+            models: provider.models.map(model => ({...model, efforts: [...model.efforts]})),
+        }));
+        return {providers: [...custom, ...catalog]};
     }
 
     async function modelsDiscover(params: ViewerParams<"models.discover">): Promise<ViewerResult<"models.discover">> {
