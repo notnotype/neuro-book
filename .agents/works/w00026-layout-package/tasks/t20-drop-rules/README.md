@@ -49,6 +49,31 @@ updated: 2026-11-07
 | 15 缝上的分区 | 成立，改 | 缝上没有分区 |
 | 16 验收映射 | 成立，改 | 补进计划 |
 
+实现（三片加修正）：`7508c77e6` 落点规则，`40847dd9d` 预览，`4939e3e65` 头的样式，修正单独一提交。和计划不同的地方：
+
+- 判定顺序里缝先于标签条（Trellis 同样）；文案用现有的“添加为标签”。
+- `homeOf` 去掉了 `shown` 参数：卡片总从已提交的面板缩，不用看预览。
+- `settleEmptyPanel` 提到 `placeLeaf` 之前（实现审查 2）。
+
+实现审查（一个 Sonnet，[`evidences/impl-review.txt`](evidences/impl-review.txt)，8 条：重要 1、建议 7）的处理：
+
+| 条 | 判定 | 处理 |
+|---|---|---|
+| 1 嵌套分支的缝不对称 | 不成立 | `V[sidebar, H[x,y], z]` 进不来：列只上下分，`fitsSkeleton` 拒绝。实验绕过了骨架。不改 |
+| 2 拖空的具名来源还占份额 | 成立，改 | 先隐藏再放，补尺寸不等的用例 |
+| 3 `shared` 放到面板上缘从编辑区取空间 | 不成立 | 工作台里面板这一排没有上下边（`layoutEdgeTarget` 返回 null，算中央），只有库的缺省策略能走到。不用问开发者 |
+| 4 缝宽为 0 时键盘落到邻列的缝 | 不成立 | 除条两侧外缝至少 1px（输出 5），这时外层缝的中点在别的缝的交叉范围外 |
+| 5 提示条上被拒绝会开窗 | 成立，改 | `layoutDropOverPanel` 量 `frame`，补用例 |
+| 6 原位被当成空位 | 不成立 | `candidateDoc` 开头 `drop.inPlace` 就返回 null，`shownAction` 也是 null，走不到 `slotPanel` |
+| 7 测试缺口 | 成立，改 | 补“移动到”不跟设置走的 e2e，恢复全序断言；`homeOf` 的旧契约删了，所以旧用例不恢复 |
+| 8 类型断言 | 成立，改 | `pointOfCandidate` 用分支收窄；`asDoc` 一处 |
+
+验证：`test:affected --since master --typecheck` 只有已知失败（`plugins/agent` 的跨插件导入、`permission-page`、`AgentModeSwitchWizard`、`qa-service`）；`actions.test.ts`、`asset-urls.test.ts` 负载高时各超时一次，单独跑通过。e2e：`workbench-dnd`、`workbench-float`、`workbench-live-drag` 修正后 69 过；`workbench-views`、`workbench-shell`、`editor-area`、`files-explorer`、`lab-grid-panels` 头的样式那片后过，`editor-area` 的实时布局部分修正后再跑过。亮色截图看过空位、并入、被拒绝。
+
+未验证：`LAYOUT_SEAM_HIT_PX = 6` 的手感；文件在工具面板上被拒绝时没有光标反馈（Spec 写明）。
+
+不做：一排全部拖到零时留下空白带（开发者没提）。
+
 ## 下一步
 
-实施片 2 到 4，每片单独提交。
+开发者手试：放到缝、四周两种分法、并入盖层、空位、被拒绝、头的样式。

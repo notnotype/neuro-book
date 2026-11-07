@@ -1,0 +1,94 @@
+w00026 t20 实现审查报告（master...HEAD，worktree w00026-t20-drop-rules）
+已跑：nb-layout 全包测试 449 过；neuro-book 的 state/、live-drag.test.ts、locales.test.ts 92 过。实验文件在 /tmp/review-w00026-t20-impl/exp1..4.test.ts。未跑 e2e 与类型检查（凡标“从代码推断”的需主 Agent 在真实运行时确认）。
+条目按发现顺序追加，最后有按严重度排序的索引。
+
+== 1 ==
+严重程度：重要
+类别：正确性（缝的判定与 Spec 输出 26 不符）
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts 的 layoutSeamAccepts（约 114 到 119 行）
+现象：工具面板之间的缝是否是落点，取决于 before 还是 after 是嵌套分支。判据用的是 `toolPanelAxis(doc, first.id)`，first 是 before 子树的第一片叶，它的父分支不一定就是这条缝所在的分支。
+为什么是问题：侧栏这一列拆过之后很容易出现 V[sidebar, H[x,y], z]。Spec 输出 26 说“同一列、同一排的工具面板之间”都是缝落点，这里 sidebar|行 允许，行|z 却不允许，同一个列里相邻的缝对不对称；不接受时缝带里按“归最近面板”走，用户看到的是一半缝能放、一半缝是死区或变成外缘。
+如何核实：已跑 /tmp/review-w00026-t20-impl/exp4.test.ts：V[sidebar, H[x,y]("row"), z]("col") 中 layoutSeamAccepts(sidebar,row)=true、(row,z)=false，而扁平的 V[sidebar,z] 是 true。layout-constraints.test.ts 只测了扁平的树，没有嵌套用例。
+建议改法：把方向判据换成缝自己的分支：seamAccepts 的签名只给 before/after，可改成直接取 `findTreeNode(doc.tree.root, before)?.parent` 与 `toolPanelAxis` 对这个父分支的所属（即父分支所在的位置是否是“一列/一排”的方向，而不是 before 第一片叶的方向）；或让 LayoutPolicy.seamAccepts 多收一个 branch 与 orientation（layoutSeamsOf 本来就有），在 layoutSeamAccepts 里比较“工具面板只在自己所在方向的缝上”的约束用 seam.orientation 与该列的方向。补一条嵌套用例。
+
+== 2 ==
+严重程度：建议
+类别：正确性（shared 的份额算在摘空之前）
+位置：packages/nb-layout/src/layout-doc.ts placeLeaf 的 spread 分支（约 534 到 548 行）与 moveTabToEdge（约 650 到 656 行）
+现象：具名面板只有一个标签时被拖走，moveTabToEdge 先 takeTab、再 placeLeaf、最后才 settleEmptyPanel 隐藏它。placeLeaf 里 countsInShare 看到的是“tabs 为空但没 hidden 的具名面板”，仍算占份额，于是它的尺寸进了 total 和 n，之后才被隐藏。
+为什么是问题：新块占 1/(n+1) 的前提是 n 是最终看得见的块数；来源同分支且尺寸不等时，新块拿到的份额偏大（隐藏块的那份被新块和其余按比例瓜分）。
+如何核实：已跑 exp2.test.ts：V[sidebar(400), a(100), b(100)]，把 view:sidebar 以 spread 放到 b 的下边，结果 sidebar(隐藏)300、a:75、b:75、新块:150，新块占看得见总量的 0.5，而按 Spec 输出 27 两块可分配（a、b）应是 1/3。三块等高时恰好看不出来（exp1：全是 150），所以现有测试抓不到。
+建议改法：spread 前先把“将被摘空的来源面板”当作不占份额（给 placeLeaf 一个会话内的 settled 视图，或把 settleEmptyPanel 提到 placeLeaf 之前、先 hide 再算）。补一条尺寸不等的用例。仅在 dropSplit=shared 时触发，故不算重要。
+
+== 3 ==
+严重程度：建议
+类别：设计一致性（需开发者确认）
+位置：packages/nb-layout/src/layout-doc.ts placeLeaf spread；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts layoutEdgeTarget
+现象：dropSplit=shared 时，把东西放到“编辑区下面挨着的工具面板”的上缘或下缘，新块是工具块、保留像素，却从编辑组取空间：V[e1,panel] 把视图放到 panel 的 top，结果 e1:150、新块:150、panel:300（原为 300/300）。
+为什么是问题：用户瞄准的是面板的边，预期是分面板；shared 的“固定的面板不参与”在这里让被瞄准的面板自己不动，编辑区被切走一半，并且新块的高度（取编辑区的一半）一旦写成意图，往后是像素保留的。half 下没有这个问题。Spec 输出 27 的字面（n 块可分配 = 编辑组）确实得出这个结果，所以是 Spec 本身的取舍，不是实现错误。
+如何核实：exp1.test.ts 第二个用例，输出 `V[e1,n1,panel] e1:150 n1:150 panel:300`，bottom 边同样。
+建议改法：向开发者确认：工具面板目标在含编辑组的分支里，shared 是否退回 split（分被瞄准的那一块）。若是，在 placeLeaf 里“目标自己是 isFixedChild”时跳过 spread 分支，一行即可。
+
+== 4 ==
+严重程度：建议
+类别：正确性（键盘落点与指针落点不回到同一个动作）
+位置：packages/nb-layout/src/layout-drop.ts seamAt 的并列处理（`distance >= nearest` 保留先找到者，而 layoutSeamsOf 先放里层的缝）；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts pointOfCandidate 取缝的 (from+to)/2
+现象：卡片紧贴（间隙 0，平铺主题）、相邻两列各自等分时，外层缝的键盘落点正好落在邻列内层缝的中线上，两条缝距离都是 0，里层的胜出，Enter 放下的是里层缝，不是用户选的那条。
+为什么是问题：Spec 输出 31“判定就落回同一个动作”；这里取的点本身会受另一个缝的范围左闭右开边界影响。
+如何核实：exp3.test.ts：H[V[a,b], V[c,d]]，四块相接，外层缝 at=300、from=0、to=600，取中点 (300,300) 用 resolveLayoutDrop，得到 between(c2: c,d) 而不是 between(root: c1,c2)。真实主题的卡片间隙是否为 0 未验证（间隙由主题给，见 WorkbenchSurface 的 card-gap）；有间隙时被 from/to 挡开，不触发。
+建议改法：pointOfCandidate 取点后用 resolveLayoutDrop 回读，不等于候选动作就沿缝的交叉轴换几个位置（四分之一、四分之三）再试，试完仍不等才丢弃这个候选；或让 seamAt 在距离相等时外层缝胜出（把 seams 的顺序改成先父后子，并保持严格小于）。
+
+== 5 ==
+严重程度：建议
+类别：正确性（被拒绝的范围比 Spec 窄）
+位置：packages/nb-layout/src/layout-drop.ts layoutDropOverPanel（约 218 到 224 行）
+现象：只量 body 与 strip 的 4px 内。编辑组的头里，提示条/横幅（EditorGroupHead 的 notice，在标签条之上）既不是 body 也不是 strip，指针在那里时 layoutDropOverPanel 为 false。
+为什么是问题：工具视图拖到有提示条的编辑组的提示条上，Spec 输出 39 说“指针在面板上放不进去=被拒绝，松手取消”，这里会被当成不在面板上而开浮动窗。本次已经给了 LayoutDropPanelGeometry.frame，就是用来表示整块面板的，但 layoutDropOverPanel 没用。
+如何核实：从代码推断（geometryOf 的 body = card 去掉 strip 以上；EditorGroupHead.vue 里 notice 在 data-panel-strip 之前）。需要真实运行时复现：编辑组出现提示条时拖一个工具视图到提示条上松手。
+建议改法：判面板上用 `geometry.frame ?? union(strip, body)` 的 SEAM_PX 内；同时补一条 frame 比 body+strip 大的单测。
+
+== 6 ==
+严重程度：建议
+类别：预览（原位也被当成空位）
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue slotPanel（约 480 到 487 行）；live-drag.ts 约 155 到 158 行
+现象：外缘/预备区的原位落点（放回来源自己或紧挨着的边）candidateDoc 返回的是已提交文档本身（applyLayoutDrop 返回 {ok:true, doc}），不是 null，所以 shownAction 是 edge；slotPanel 在这份文档里找到来源标签所在面板，只有一个标签，便把来源自己的头去掉。此时没有空位边框（grows 对 inPlace 为假），所以用户看到的是一块没有头、没有边框、没有内容的空白面板。
+为什么是问题：Spec 输出 38“空位：长出新块的落点”，原位不长新块；live-drag.ts 的新注释也写“原位…就没有预览：盖层和预备区让开都看它”，但代码对原位并没有置 null。
+如何核实：从代码推断。真实运行时：单标签的无名工具面板拿起后，把指针放在它自己的边缘窄带稳定 150ms，看来源面板的头是否消失。
+建议改法：candidateDoc 里 `result.doc === doc` 时返回 null（与注释一致），或在 slotPanel 里排除 drop.inPlace；顺带 live-drag.test 补原位用例。
+
+== 7 ==
+严重程度：建议
+类别：测试
+位置：packages/neuro-book/e2e/workbench-dnd.e2e.ts “同方向一起分（设置 dropSplit，输出 27）”；layout-constraints.test.ts / layout-doc.test.ts
+现象：(a) 测试名写“移动到的新面板不跟设置走”，测试体里没有任何“移动到”操作，只断言 shared 时下面那块变矮，这条验收没有被测到（layout-constraints.test.ts 的 newPanelEdgeTarget 单测只测函数，没测命令 moveView 在 shared 下的结果）。(b) 活动栏条目拖到右栏的标签条改成拖到面板并且 `toEqual([D, C])` 改成 `.at(-1)`：因为右栏现在只写标题，目标改了，但断言从全序降成“最后一个”，换位的覆盖变弱。(c) 没有嵌套分支（发现 1）、摘空来源份额（发现 2）、frame 比 body 大（发现 5）的用例，这些是本次新增逻辑的边界。(d) live-drag.test.ts 删掉了“标签先预览到别的面板再撕下，卡片从那块面板缩”的用例，换成别人标签条拿起卡片的用例，原来的“homeOf 看预览”的契约现在没有测试。
+为什么是问题：验收映射表（plan.md）把“设置”列为 workbench-dnd 覆盖“改设置不重新加载就生效，‘移动到’不随设置变”，实际只有前半。
+如何核实：读 e2e 文件；git diff master...HEAD -- packages/neuro-book/e2e/workbench-dnd.e2e.ts。
+建议改法：在同一用例里 shared 下用 nbook.view.move-view 的 newPanelNextTo 命令移动一个视图，断言两块各让三分之一的下面那块不变小（或比例对）；(b) 恢复 toEqual 并换成有两个标签的目标。
+
+== 8 ==
+严重程度：建议
+类别：代码质量
+位置：layout-drag.ts pointOfCandidate（两处 `action.target as Exclude<typeof action.target, {readonly kind: "between"}>`）；layout-doc.ts placeLeaf（`next as unknown as LayoutDoc`）
+现象：用类型断言绕过收窄。between 分支提前 return 之后，TS 没法把 `action.kind === "edge" && action.target.kind === "between"` 的否定带到后面，于是写断言；placeLeaf 里 MutableDoc 转 LayoutDoc 在 finish 里已经有一份同样的断言。
+为什么是问题：规范说不用断言绕类型系统。
+建议改法：pointOfCandidate 里先 `if (action.kind === "edge") { const t = action.target; if (t.kind === "between") {…return}; edge = t.edge }`，用显式分支收窄；LayoutDoc 视图转换提成 layout-doc.ts 里一个带注释的小函数（finish 与 placeLeaf 共用）。
+
+== 按严重度排序的索引 ==
+重要：1
+建议：4（键盘落点并列）、5（被拒绝范围）、2（shared 摘空来源）、3（shared 与工具面板目标，需开发者定）、6（原位去头）、7（测试缺口）、8（类型断言）
+阻断：无
+
+== 未发现问题的方面（仔细检查后没有发现）==
+- isFixedChild 与 layout-project 的 assignByParent 重构：与原条件逐项等价（条固定；兄弟含编辑组时不含编辑组的固定）。
+- spread 的尺寸守恒：新块 total/(n+1) 加上缩后的 n 块等于原 total，固定、隐藏、收起的不动，跨轴取目标的；摘掉来源后才算，来源同分支时 n 不含来源（单测与 exp1 一致）。
+- spread 在摘掉来源后分支塌陷、别名（resolveAlias）、浮动窗来源（没有叶，现造一片）都走通；expandWhereAxisChanged 对同向 spread 不误展开。
+- edgeTargetTouches 对 between/split/spread 的原位判定、隐藏兄弟跳过，与 Spec 输出 28 一致；moveTabToEdge 里具名单标签面板先判原位再走拆出。
+- 缝：冻结几何下 layoutSeamsOf 使用 frame；最大化时只有一块有几何所以没有缝；拖到零/隐藏的叶不进缝；excluded 先于缝判；整窗拖动 noCenter/edgeRatio 不影响缝的命中；浮动窗先判，不穿透。
+- 被拒绝：标记在 resolve 开头清、在 onActiveChange(false) 清；文件拖动不置标记符合计划；整窗拖动不会置位；键盘选中区域时 dropAt 返回 null 但不置位，符合“键盘要明确选浮动”。
+- moveView 的“新面板”走 newPanelEdgeTarget（edgeTargetOf），与改前同一目标；store 自己那份 policy 没带 dropSplit，只用 accepts/newId，不受影响。
+- titleOnlyPanels 按已提交文档，拖动中新块（不在已提交文档里）不画只写标题的头，由 slotPanel 去头；headReserved/role/拖动判定读同一份 titleOnlyPanelIds。
+- 测试里没有 mock、spy、假计时器与固定等待；新增单测的断言具体。
+
+== 数量 ==
+有效发现 8 条：阻断 0，重要 1，建议 7。
+有效发现编号：1,2,3,4,5,6,7,8
