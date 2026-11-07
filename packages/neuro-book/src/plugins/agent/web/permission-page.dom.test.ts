@@ -10,6 +10,7 @@ import type {Ref} from "vue";
 import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
+import type {SettingsService} from "nbook/shared/settings";
 import {provideText} from "nbook/shared/testing/text-port";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
@@ -19,6 +20,7 @@ import {agentCatalogs} from "./text";
 import PermissionRulesPage from "./components/PermissionRulesPage.vue";
 import {permissionsPage} from "./permission-page";
 import {createRulesWriter} from "./permission-writes";
+import {createSettingWriter} from "./setting-writes";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -49,6 +51,55 @@ describe("规则写入", () => {
         const settings = settingsWith([]);
         expect(await createRulesWriter(settings).append([rule("touch *")])).toEqual({ok: true});
         expect(settings.get(agentSettings.settings.permissionRules)).toEqual([rule("touch *")]);
+    });
+});
+
+describe("写入队列（别处抢先写了）", () => {
+    /** 这个写入发出之前，另一个窗口抢先写了 `other`：比较的值已经过时。只抢前 `times` 次。 */
+    const raced = (settings: SettingsService, other: () => Rule[], times = 1): SettingsService => {
+        let left = times;
+        return {
+            ...settings,
+            inspect: settings.inspect.bind(settings),
+            get: settings.get.bind(settings),
+            update: (async (setting: never, value: never, options: never) => {
+                if (left > 0) {
+                    left -= 1;
+                    await settings.update(agentSettings.settings.permissionRules, other());
+                }
+                return settings.update(setting, value, options);
+            }) as SettingsService["update"],
+        };
+    };
+
+    it("edit 按新值再求一次，两边的都留下", async () => {
+        const settings = settingsWith([]);
+        const writer = createSettingWriter(raced(settings, () => [rule("别处 *")]), agentSettings.settings.permissionRules);
+        expect(await writer.edit((current) => [...current, rule("这里 *")])).toEqual({ok: true});
+        expect(settings.get(agentSettings.settings.permissionRules)).toEqual([rule("别处 *"), rule("这里 *")]);
+    });
+
+    it("edit 重试一次后还冲突就交回 conflict，不再写", async () => {
+        const settings = settingsWith([]);
+        let counter = 0;
+        const writer = createSettingWriter(raced(settings, () => [rule(`别处 ${String((counter += 1))}`)], 2), agentSettings.settings.permissionRules);
+        expect(await writer.edit((current) => [...current, rule("这里 *")])).toMatchObject({ok: false, code: "conflict"});
+        expect(settings.get(agentSettings.settings.permissionRules)).toEqual([rule("别处 2")]);
+    });
+
+    it("replace 不重试：得 conflict，别处的改动留着", async () => {
+        const settings = settingsWith([]);
+        const writer = createSettingWriter(raced(settings, () => [rule("别处 *")]), agentSettings.settings.permissionRules);
+        expect(await writer.replace([rule("这里 *")])).toMatchObject({ok: false, code: "conflict"});
+        expect(settings.get(agentSettings.settings.permissionRules)).toEqual([rule("别处 *")]);
+    });
+
+    it("连着 edit 两次不等结算，都在上一次的结果上求", async () => {
+        const settings = settingsWith([]);
+        const writer = createSettingWriter(settings, agentSettings.settings.permissionRules);
+        const results = await Promise.all([writer.edit((current) => [...current, rule("一 *")]), writer.edit((current) => [...current, rule("二 *")])]);
+        expect(results.every((result) => result.ok)).toBe(true);
+        expect(settings.get(agentSettings.settings.permissionRules)).toEqual([rule("一 *"), rule("二 *")]);
     });
 });
 
@@ -114,11 +165,11 @@ describe("权限规则页", () => {
 
         const invalid = open({project: "p", projectResult: {ok: true, value: "invalid"}});
         await flushPromises();
-        expect(invalid.wrapper.get("[data-permission-project] [role='status']").exists()).toBe(true);
+        expect(invalid.wrapper.find("[data-permission-project] [role='status']").exists()).toBe(true);
 
         const failed = open({project: "p", projectResult: {ok: false, code: "unavailable"}});
         await flushPromises();
-        expect(failed.wrapper.get("[data-permission-project] [role='status']").exists()).toBe(true);
+        expect(failed.wrapper.find("[data-permission-project] [role='status']").exists()).toBe(true);
         expect(failed.reports).toEqual(["project-rules-unavailable"]);
 
         const unbound = open();

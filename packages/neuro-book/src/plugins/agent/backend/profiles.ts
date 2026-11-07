@@ -14,7 +14,7 @@ import type {ProfileEntry, ProfileProblem, ProfileStatus} from "../shared/contra
 import {onAgentProfile, PROFILES_POINT} from "../shared/points";
 import type {AgentProfileDeclaration, AgentProfileImplementation} from "../shared/points";
 
-import type {ToolRequirements} from "./tools";
+import type {ToolRequirements} from "../shared/profile-tools";
 
 type Handle = ContributionHandle<AgentProfileDeclaration, AgentProfileImplementation>;
 

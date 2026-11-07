@@ -24,7 +24,7 @@ import type {CreateUserProfileResult, DeleteUserProfileResult, ProfileEntry, Pro
 
 import type {UserProfiles} from "./profiles";
 import {USER_PROFILE_PREFIX} from "./profiles";
-import type {ToolRequirements} from "./tools";
+import type {ToolRequirements} from "../shared/profile-tools";
 
 const SUFFIX = ".profile.tsx";
 const JSX_SOURCE = "@notnotype/nb-plugin-sdk/agent";

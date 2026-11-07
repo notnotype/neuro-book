@@ -14,6 +14,8 @@ import type {ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolR
 import {providerToolName} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ToolCatalogEntry} from "../shared/contracts";
+import {profileToolIds} from "../shared/profile-tools";
+import type {ToolRequirements} from "../shared/profile-tools";
 import {onAgentTool, TOOLS_POINT} from "../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation, ToolSubject} from "../shared/points";
 import type {AgentToolServices} from "../shared/resources";
@@ -22,13 +24,6 @@ import type {AgentToolServices} from "../shared/resources";
 export const REVOKE_GRACE_MS = 5_000;
 
 type Handle = ContributionHandle<AgentToolDeclaration, AgentToolImplementation>;
-
-export interface ToolRequirements {
-    /** `false`：不加 `defaultForAll` 的工具（contributions.md 输出 4）。 */
-    readonly defaultTools?: false;
-    readonly required: readonly string[];
-    readonly optional: readonly string[];
-}
 
 export interface AgentToolsOptions {
     readonly declarations: ContributionDeclarations;
@@ -93,16 +88,8 @@ export class AgentTools {
      */
     forProfile(requirements: ToolRequirements, binding: {readonly added: readonly string[]; readonly removed: readonly string[]} | undefined): ToolDeclaration[] {
         const all = this.all();
-        const wanted = new Set([...requirements.required, ...requirements.optional]);
-        if (requirements.defaultTools !== false) {
-            for (const descriptor of this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT)) {
-                if (descriptor.declaration.defaultForAll === true) wanted.add(descriptor.id);
-            }
-        }
-        for (const id of binding?.added ?? []) wanted.add(id);
-        const required = new Set(requirements.required);
-        for (const id of binding?.removed ?? []) if (!required.has(id)) wanted.delete(id);
-        return [...wanted].flatMap((id) => {
+        const defaultForAll = this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).flatMap((descriptor) => (descriptor.declaration.defaultForAll === true ? [descriptor.id] : []));
+        return profileToolIds(requirements, defaultForAll, binding).flatMap((id) => {
             const declaration = all.get(id);
             return declaration === undefined ? [] : [declaration];
         });
