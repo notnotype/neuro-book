@@ -288,11 +288,11 @@ test.describe("应用内浮动", () => {
         expect(await panelOfTab(page, E)).toBe(panel);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
 
-        // 再浮出来，并到右栏的标签条。
-        await floatOut(page, E);
+        // 再浮出来，并到右栏：它只有一个视图，头只写标题，没有插入位，等于中央（输出 20、25 第 4 行）。
+        await floatOut(page, E, {x: 0.5, y: 0.3});
         const strip = await page.locator("[data-panel-band=\"auxiliarybar\"]").boundingBox();
         await dragTo(page, tab(page, E), {x: strip!.x + strip!.width - 10, y: strip!.y + strip!.height / 2});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
         await page.mouse.up();
         await expect(windows(page)).toHaveCount(0);
         expect(await panelOfTab(page, E)).toBe("auxiliarybar");

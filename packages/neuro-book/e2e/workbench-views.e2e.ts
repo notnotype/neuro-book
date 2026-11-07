@@ -400,9 +400,16 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, A)).toBeVisible();
     });
 
-    test("活动栏隐藏后侧栏的头画出标签带，右栏与面板的头一直是标签带；切换靠标签（输出 22；验收 14）", async ({page}) => {
+    test("头的样式按标签数：右栏一个视图只写标题，放进第二个变标签带，搬走又回去；活动栏隐藏后侧栏也画标签带，切换靠标签（输出 20、22；验收 14）", async ({page}) => {
         await open(page);
-        await expect(head(page, "auxiliarybar").locator('[role="tab"]')).toHaveCount(1);
+        const aux = head(page, "auxiliarybar");
+        await expect(aux.locator('[role="tab"]')).toHaveCount(0);
+        await expect(aux.locator(`[data-panel-tab="view:${D}"]`)).toBeVisible();
+        await expect(page.locator(`[data-content="view:${D}"] [role="region"]`)).toHaveCount(1);
+        await moveViaMenu(page, A, "右栏");
+        await expect(aux.locator('[role="tab"]')).toHaveCount(2);
+        await moveViaMenu(page, A, "侧栏");
+        await expect(aux.locator('[role="tab"]')).toHaveCount(0);
         await expect(head(page, "panel").locator('[role="tab"]')).toHaveCount(2);
         await expect(head(page, "sidebar").locator('[role="tab"]')).toHaveCount(0);
         await runCommand(page, "切换区域显隐");
@@ -716,11 +723,11 @@ test.describe("产品页：测试插件贡献的视图", () => {
                 ...read(".workbench-tool-strip__item--active", {"color": "--accent-text", "background-color": "--bg-hover"}),
                 ...read('[data-shell-card="sidebar"]', {"background-color": "--panel-surface"}),
                 // 当前标签用正文色（输出 19）。字重不断言：nb-ui 的 Tabs 所有标签同一字重，规格写的“加粗”见报告。
-                ...read('[data-panel-head="auxiliarybar"] [role="tab"][aria-selected="true"]', {"color": "--text-main"}),
+                ...read('[data-panel-head="panel"] [role="tab"][aria-selected="true"]', {"color": "--text-main"}),
             ].filter((item) => item.own !== item.token);
         });
         await expect.poll(mismatches).toEqual([]);
-        const drawn = await page.evaluate(() => [".workbench-tool-strip", '[data-panel-head="sidebar"]', '[data-panel-head="auxiliarybar"]', '[data-panel-head="auxiliarybar"] [role="tablist"]', '[data-panel-head="panel"] [role="tablist"]'].flatMap((selector) => {
+        const drawn = await page.evaluate(() => [".workbench-tool-strip", '[data-panel-head="sidebar"]', '[data-panel-head="auxiliarybar"]', '[data-panel-head="panel"] [role="tablist"]', '[data-panel-head="panel"] [role="tablist"]'].flatMap((selector) => {
             const style = getComputedStyle(document.querySelector(selector)!);
             const widths = ["top", "right", "bottom", "left"].map((side) => style.getPropertyValue(`border-${side}-width`));
             return widths.some((width) => width !== "0px") || style.borderRadius !== "0px" ? [{selector, widths, radius: style.borderRadius}] : [];

@@ -175,12 +175,12 @@ test.describe("产品页：拖放", () => {
         await expect(page.locator("[data-shell-focus-target=\"panel-toggle\"]")).toBeEnabled();
     }
 
-    test("活动栏条目拖到右栏的标签条：拖动中源不动、有拖影与一条插入线；松手视图迁到右栏并激活，只写一次（输出 24、25 第 3 行、26、30；验收 1）", async ({page}) => {
+    test("活动栏条目拖到面板的标签条：拖动中源不动、有拖影与一条插入线；松手视图迁到面板并激活，只写一次（输出 24、25 第 4 行、26、30；验收 1）", async ({page}) => {
         await open(page);
         const source = entry(page, C);
         const before = await source.boundingBox();
         const writes = await writesOf(page);
-        await dragTo(page, source, await endOfStrip(page, "auxiliarybar"));
+        await dragTo(page, source, await endOfStrip(page, "panel"));
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
         await expect(line(page)).toBeVisible();
         // 拖动源原地不动、尺寸不变（WorkbenchDragFeedback 的样式意图：按钮按下的缩放在拖动开始后撤掉）；用软断言，失败也让后面的判据照常跑。
@@ -188,9 +188,9 @@ test.describe("产品页：拖放", () => {
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
-        await expect(head(page, "auxiliarybar").locator(`[data-panel-tab="view:${C}"]`)).toHaveAttribute("aria-selected", "true");
+        await expect(head(page, "panel").locator(`[data-panel-tab="view:${C}"]`)).toHaveAttribute("aria-selected", "true");
         await expect(head(page, "sidebar").locator(`[data-panel-tab="view:${C}"]`)).toHaveCount(0);
-        expect(await tabsOf(page, "auxiliarybar")).toEqual([`view:${D}`, `view:${C}`]);
+        expect((await tabsOf(page, "panel")).at(-1)).toBe(`view:${C}`);
         await expect(sample(page, C)).toBeVisible();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
@@ -794,8 +794,8 @@ test.describe("产品页：拖放", () => {
     test("松手只提交显示过的落点：最后一次移动与松手落在同一帧、换到了没显示过的落点时不提交；落点没变时照常提交（输出 24；ui/layout-drag 输出 6）", async ({page}) => {
         await open(page);
         const source = entry(page, C);
-        const shown = await endOfStrip(page, "auxiliarybar");
-        const panelStrip = (await band(page, "panel").boundingBox())!;
+        const shown = await endOfStrip(page, "panel");
+        const elsewhere = (await band(page, "auxiliarybar").boundingBox())!;
         // 这次移动与松手在同一个任务里派发：两者之间没有帧，会话来不及发布新落点。真实输入里快速甩动松手就是这种时序，
         // 用 Playwright 的鼠标做不出确定的“同一帧”，所以这两下用页面里的指针事件。
         const flick = (to: {x: number; y: number}) => page.evaluate(({x, y}) => {
@@ -806,7 +806,7 @@ test.describe("产品页：拖放", () => {
         const writes = await writesOf(page);
         await dragTo(page, source, shown);
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
-        await flick({x: panelStrip.x + panelStrip.width / 3, y: panelStrip.y + panelStrip.height / 2});
+        await flick({x: elsewhere.x + elsewhere.width / 3, y: elsewhere.y + elsewhere.height / 2});
         await expect(ghost(page)).toHaveCount(0);
         await page.mouse.up();
         await expect(entry(page, C)).toHaveCount(1);
@@ -818,7 +818,7 @@ test.describe("产品页：拖放", () => {
         await expect(ghost(page)).toHaveCount(0);
         await page.mouse.up();
         await expect(tab(page, C)).toHaveAttribute("aria-selected", "true");
-        expect(await panelOfTab(page, C)).toBe("auxiliarybar");
+        expect(await panelOfTab(page, C)).toBe("panel");
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
@@ -833,7 +833,9 @@ test.describe("产品页：拖放", () => {
         expect(["sidebar", "auxiliarybar", "panel", "g0"]).not.toContain(created);
         // “新面板”挨着面板放在它的右边（这一排放右边，输出 23）。
         expect((await leaf(page, created).boundingBox())!.x).toBeGreaterThanOrEqual((await leaf(page, "panel").boundingBox())!.x + (await leaf(page, "panel").boundingBox())!.width - 2);
-        await expect(tab(page, A)).toHaveAttribute("aria-selected", "true");
+        // 只有一个视图的头只写标题（输出 20）。
+        await expect(head(page, created).locator(`[data-panel-tab="view:${A}"]`)).toBeVisible();
+        await expect(head(page, created).locator('[role="tab"]')).toHaveCount(0);
         await expect(sample(page, A)).toBeVisible();
         await expect.poll(() => writesOf(page)).toBeGreaterThan(writes);
         await page.reload();

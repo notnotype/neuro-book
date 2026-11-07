@@ -85,6 +85,15 @@ export function sidebarColumnPanels(doc: LayoutDoc): ReadonlyArray<string> {
     return hit.parent?.orientation === "vertical" ? treeLeaves(hit.parent).map((leaf) => leaf.id) : ["sidebar"];
 }
 
+/**
+ * 头只写标题的面板（输出 20）：侧栏这一列（切视图靠活动栏），别的工具面板、工具视图的浮动窗只有一个标签时。活动栏隐藏时侧栏这一列也按标签数：不然切不了视图。
+ * 按已提交的文档算：拖动中来源少了一个标签，头不跟着变。预览里新长出来的块不在这里，它不画头。
+ */
+export function titleOnlyPanels(doc: LayoutDoc): ReadonlySet<string> {
+    const column = doc.hiddenBars.includes("activitybar") ? [] : sidebarColumnPanels(doc);
+    return new Set([...column, ...Object.entries(doc.panels).flatMap(([id, panel]) => (panel.role === "tool" && panel.tabs.length <= 1 ? [id] : []))]);
+}
+
 /** 标签与它控制的内容互相引用的 DOM id：标签在面板头（外框里），内容在内容层，两边各算出同一个。 */
 export const panelTabDomId = (prefix: string, key: string): string => `${prefix}-tab-${key}`;
 export const panelTabpanelDomId = (prefix: string, key: string): string => `${prefix}-tabpanel-${key}`;

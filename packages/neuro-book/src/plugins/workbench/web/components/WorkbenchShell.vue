@@ -28,7 +28,7 @@ import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {ViewLocation} from "../../shared/views";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
@@ -173,7 +173,7 @@ function headReserved(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
     // 浮动窗只有“回到停靠”；树里是最大化、浮动，加上收起与隐藏。
     const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2 + (collapsibleHere(panelId) ? 1 : 0) + (panel?.name === undefined ? 0 : 1);
-    const others = titleOnlyPanels.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
+    const others = titleOnlyPanelIds.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
     return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
 }
 
@@ -201,9 +201,7 @@ function tabsIn(source: LayoutDoc, panelId: string): PanelHeadTab[] {
     });
 }
 
-/** 头只写标题的面板（输出 20）：切视图靠活动栏，所以活动栏隐藏时它们也画标签带。 */
-const titleOnlyIn = (source: LayoutDoc): ReadonlySet<string> => new Set(source.hiddenBars.includes("activitybar") ? [] : sidebarColumnPanels(source));
-const titleOnlyPanels = computed(() => titleOnlyIn(renderedDoc.value));
+const titleOnlyPanelIds = computed(() => titleOnlyPanels(doc.value));
 const headTabs = (panelId: string): PanelHeadTab[] => tabsIn(renderedDoc.value, panelId);
 
 const DOCK_ICON = "i-lucide-panel-top";
@@ -404,7 +402,7 @@ onMounted(() => {
         maximized: () => state.value.maximized,
         enabled: () => state.value.ready,
         editorTabs: () => editorTabs.value,
-        titleOnly: (panel) => titleOnlyIn(doc.value).has(panel),
+        titleOnly: (panel) => titleOnlyPanelIds.value.has(panel),
         sectors: () => props.dropSectors !== false,
         feel: () => props.dragFeel ?? "live",
         settleMotion: () => surface.value?.settleMotion(),
@@ -607,7 +605,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :data-live-preview="drag?.live.previewKey.value ?? 'none'"
                 :maximized="state.maximized"
                 :disabled="!state.ready"
-                :title-only-panels="titleOnlyPanels"
+                :title-only-panels="titleOnlyPanelIds"
                 :headless-panel="slotPanel"
                 context-key="workbench"
                 @extent="onExtent"
@@ -658,7 +656,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :id-prefix="idPrefix"
                         :drag-hint="message('shell.drag.hint')"
                         :dragging-tab="stripDragging"
-                        :title-only="titleOnlyPanels.has(panelId)"
+                        :title-only="titleOnlyPanelIds.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
                         @activate="(key) => layout.actions.activate(key)"
                         @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"

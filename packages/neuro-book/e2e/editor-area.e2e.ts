@@ -2066,7 +2066,7 @@ test("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）：�
 });
 
 test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局”）", () => {
-    test("编辑器标签拆到新组：预览里新组的头是编辑组的头，有这个标签；内容还是它自己的；放下才真的拆，内容是同一个节点", async ({page}) => {
+    test("编辑器标签拆到新组：预览里新块是空位，没有头；内容还是它自己的；放下才真的拆、才有头，内容是同一个节点", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await page.setViewportSize({width: 1440, height: 900});
         await open(page);
@@ -2084,9 +2084,10 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
         await page.mouse.move(body.x + body.width - 12, body.y + body.height / 2, {steps: 8});
         const surface = page.locator("[data-workbench-surface]");
-        await expect(surface).not.toHaveAttribute("data-live-preview", "none");
-        await expect(heads(page)).toHaveCount(2);
-        await expect(page.locator("[data-editor-group-head] [data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
+        await expect(surface).toHaveAttribute("data-live-preview", /edge/u);
+        await expect(page.locator("[data-live-slot]")).toBeVisible();
+        await expect(heads(page)).toHaveCount(1);
+        await expect(page.locator("[data-editor-group-head] [data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(0);
         // 卡片上的内容还是 b.md，别的组也没有多出来：结构还没提交。
         const lifted = page.locator("[data-lifted]");
         await expect(lifted.locator("[data-editor-prose]")).toContainText("第二章");
@@ -2094,8 +2095,46 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await page.mouse.up();
         await expect(lifted).toHaveCount(0);
         await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+        await expect(heads(page)).toHaveCount(2);
+        await expect(page.locator("[data-editor-group-head] [data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
         const moved = await page.locator("[data-editor-group-active]").elementHandle();
         expect(await node?.evaluate((element, other) => element === other, moved)).toBe(true);
+        await closeAll(page);
+    });
+
+    test("编辑器标签并入别的组：目标的头不变，盖一层，盖层跟着来源收起后的矩形走；放下才有这个标签", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await page.setViewportSize({width: 1440, height: 900});
+        await open(page);
+        await closeAll(page);
+        for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+        const group = page.locator("[data-editor-group-active]");
+        const body = await group.boundingBox();
+        if (body === null) throw new Error("没有正文区");
+        await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: body.x + body.width - 12, y: body.y + body.height / 2});
+        await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+        const target = (await page.locator("[data-editor-group-active]").getAttribute("data-editor-group")) ?? "";
+        const targetBody = await page.locator("[data-editor-group-active]").boundingBox();
+        const from = await tabs(page).filter({hasText: "a.md"}).boundingBox();
+        if (targetBody === null || from === null) throw new Error("没有矩形");
+        const node = await page.locator("[data-editor-group]").filter({hasText: "第一章"}).first().elementHandle();
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2, from.y + 60, {steps: 3});
+        await page.mouse.move(targetBody.x + targetBody.width / 2, targetBody.y + targetBody.height / 2, {steps: 8});
+        const merge = page.locator("[data-live-merge]");
+        await expect(merge).toHaveAttribute("data-live-merge-panel", target);
+        // 目标还只有自己的标签：a.md 放下才进来。
+        await expect(page.locator("[data-editor-group-head] [data-editor-tab]").filter({hasText: "a.md"})).toHaveCount(0);
+        await expect(page.locator("[data-editor-group-head] [data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
+        await expect(page.locator("[data-moving]")).toHaveCount(0);
+        const [cover, frame] = [await merge.boundingBox(), await page.locator(`[data-leaf="${target}"]`).boundingBox()];
+        expect(Math.abs((cover?.width ?? 0) - (frame?.width ?? 0))).toBeLessThanOrEqual(1);
+        await page.mouse.up();
+        await expect(merge).toHaveCount(0);
+        await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+        await expect(page.locator("[data-editor-group-head] [data-editor-tab]").filter({hasText: "a.md"})).toHaveCount(1);
+        expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
         await closeAll(page);
     });
 

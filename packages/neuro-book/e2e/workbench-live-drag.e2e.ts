@@ -39,7 +39,8 @@ async function inLeaf(page: Page, panel: string, fraction: {x: number; y: number
 /** 外框的过渡走完：量几何之前等它（docs/testing/README.md“e2e 量几何先等它稳定”）。 */
 const settled = (page: Page): Promise<void> => expect(page.locator("[data-moving]")).toHaveCount(0);
 const content = (page: Page, viewId: string) => page.locator(`[data-content="view:${viewId}"]`);
-const activeTabOf = (page: Page, panel: string): Promise<string | null> => page.locator(`[data-panel-head="${panel}"] [data-panel-tab][aria-selected="true"]`).getAttribute("data-panel-tab");
+/** 这块面板的头里看得见的标签：只写标题的头就是那一个。 */
+const headTabsOf = (page: Page, panel: string): Promise<Array<string | null>> => page.locator(`[data-panel-head="${panel}"] [data-panel-tab]`).evaluateAll((elements) => elements.map((element) => element.getAttribute("data-panel-tab")));
 const widthOf = async (page: Page, panel: string): Promise<number> => {
     await settled(page);
     return (await leaf(page, panel).boundingBox())?.width ?? 0;
@@ -354,7 +355,7 @@ test.describe("实时布局", () => {
         await open(page);
         const writes = await writesOf(page);
         const node = await content(page, E).elementHandle();
-        const activeBefore = await activeTabOf(page, "auxiliarybar");
+        const headBefore = await headTabsOf(page, "auxiliarybar");
         await lift(page, tab(page, E));
         const target = await inLeaf(page, "auxiliarybar", {x: 0.5, y: 0.5});
         await page.mouse.move(target.x, target.y, {steps: 6});
@@ -362,8 +363,9 @@ test.describe("实时布局", () => {
         await expect(merge).toHaveAttribute("data-live-merge-panel", "auxiliarybar");
         await expect(merge).toContainText("添加为标签");
         await settled(page);
-        expect(await activeTabOf(page, "auxiliarybar")).toBe(activeBefore);
-        await expect(page.locator("[data-panel-head=\"auxiliarybar\"]").locator(`[data-panel-tab="view:${E}"]`)).toHaveCount(0);
+        expect(await headTabsOf(page, "auxiliarybar")).toEqual(headBefore);
+        // 来源那块还有一个标签，头不跟着变成只写标题：按已提交的文档算（输出 20）。
+        await expect(page.locator("[data-panel-head=\"panel\"] [role=\"tab\"]")).not.toHaveCount(0);
         // 盖住整块面板：头也算。
         const [cover, frame] = [await merge.boundingBox(), await leaf(page, "auxiliarybar").boundingBox()];
         expect(Math.abs((cover?.x ?? 0) - (frame?.x ?? 0))).toBeLessThanOrEqual(1);
@@ -385,18 +387,18 @@ test.describe("实时布局", () => {
 
     test("别人的标签条上：卡片拿着，内容还是同一个节点，盖层里有插入线；放到线的位置（输出 38）", async ({page}) => {
         await open(page);
-        const node = await content(page, E).elementHandle();
-        await lift(page, tab(page, E));
-        const strip = await page.locator("[data-panel-head=\"auxiliarybar\"]").locator("[data-panel-tab]").first().boundingBox();
-        if (strip === null) throw new Error("右栏没有标签");
+        const node = await content(page, AUXILIARY_VIEW).elementHandle();
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const strip = await page.locator("[data-panel-head=\"panel\"]").locator("[data-panel-tab]").first().boundingBox();
+        if (strip === null) throw new Error("面板没有标签");
         await page.mouse.move(strip.x + 2, strip.y + strip.height / 2, {steps: 6});
-        await expect(page.locator("[data-live-merge]")).toHaveAttribute("data-live-merge-panel", "auxiliarybar");
+        await expect(page.locator("[data-live-merge]")).toHaveAttribute("data-live-merge-panel", "panel");
         await expect(page.locator("[data-live-merge-line]")).toBeVisible();
         await expect(page.locator("[data-drag-card-head]")).toBeVisible();
-        expect(await content(page, E).evaluate((element, other) => element === other && element.isConnected, node)).toBe(true);
+        expect(await content(page, AUXILIARY_VIEW).evaluate((element, other) => element === other && element.isConnected, node)).toBe(true);
         await page.mouse.up();
-        await expect.poll(() => panelOfTab(page, E)).toBe("auxiliarybar");
-        await expect(page.locator("[data-panel-head=\"auxiliarybar\"]").locator("[data-panel-tab]").first()).toHaveAttribute("data-panel-tab", `view:${E}`);
+        await expect.poll(() => panelOfTab(page, AUXILIARY_VIEW)).toBe("panel");
+        await expect(page.locator("[data-panel-head=\"panel\"]").locator("[data-panel-tab]").first()).toHaveAttribute("data-panel-tab", `view:${AUXILIARY_VIEW}`);
     });
 
     test("中途窗口变了：整场取消", async ({page}) => {
