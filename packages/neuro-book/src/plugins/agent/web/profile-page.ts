@@ -18,11 +18,12 @@ import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import type {ProfileEntry, ToolCatalogEntry} from "../shared/contracts";
 import type {agentSessionsContract} from "../shared/remote";
 import {agentSettings} from "../shared/settings";
-import type {ProfileSetting} from "../shared/settings";
-import {changeToolBinding, withToolBinding} from "../shared/profile-tools";
-import type {ToolBinding, ToolChange} from "../shared/profile-tools";
+import type {ProfileSetting, ToolBinding} from "../shared/settings";
+import {changeToolBinding, userProfileAddress, withToolBinding} from "../shared/profile-tools";
+import type {ToolChange} from "../shared/profile-tools";
 import {agentText} from "../shared/text";
-import {profileViews, toolChangeContext, withApprovalChoice, withModelChoice} from "./profile-view";
+import {withApprovalChoice, withModelChoice} from "./profile-edits";
+import {profileViews, toolChangeContext} from "./profile-view";
 import {createSettingWriter} from "./setting-writes";
 import type {SettingWriter} from "./setting-writes";
 
@@ -34,7 +35,7 @@ export interface ProfileWriters {
 
 export function createProfileWriters(settings: SettingsService): ProfileWriters {
     return {
-        bindings: createSettingWriter(settings, agentSettings.settings.toolBindings) as unknown as SettingWriter<Record<string, ToolBinding>>,
+        bindings: createSettingWriter(settings, agentSettings.settings.toolBindings),
         settings: createSettingWriter(settings, agentSettings.settings.profileSettings),
     };
 }
@@ -76,8 +77,6 @@ export interface ProfilePageDeps {
     readonly report: (code: string, message: string) => void;
 }
 
-const userProfileAddress = (key: string): string => `user://profiles/${key.replace(/^user\./u, "")}.profile.tsx`;
-
 export function profilesPage(component: Component, deps: ProfilePageDeps): Component {
     return defineComponent({
         name: "ProfileSettingsPageHost",
@@ -88,24 +87,32 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
             const catalog = shallowRef<readonly ToolCatalogEntry[]>([]);
             const pluginNames = shallowRef<ReadonlyMap<string, string>>(new Map());
             const settingEdits = pendingEdits(deps.settings, agentSettings.settings.profileSettings, deps.writers.settings);
-            const bindingEdits = pendingEdits(deps.settings, agentSettings.settings.toolBindings as unknown as SettingDefinition<Record<string, ToolBinding>>, deps.writers.bindings);
+            const bindingEdits = pendingEdits(deps.settings, agentSettings.settings.toolBindings, deps.writers.bindings);
 
-            /** 事件可能接连来：只认最后一次请求的结果，晚到的旧列表不盖新的。 */
+            /**
+             * 事件可能接连来：只认最后一次请求的结果，晚到的旧列表不盖新的。被顶掉的那次等最新的那次：`await load()` 之后目录一定是新的，
+             * 新建靠这一点才选得中刚建的。
+             */
             let sequence = 0;
-            const load = async (): Promise<void> => {
-                const mine = (sequence += 1);
+            let latest: Promise<void> = Promise.resolve();
+            const fetchCatalog = async (mine: number): Promise<void> => {
                 const [listed, tools] = await Promise.all([deps.remote.profiles({}), deps.remote.toolCatalog({})]);
-                if (mine !== sequence) return;
+                if (mine !== sequence) return latest;
                 if (!listed.ok || !tools.ok) {
                     const code = listed.ok ? (tools as {readonly code: string}).code : listed.code;
                     deps.report("profiles-failed", code);
                     // 已经显示着的留着：重取失败不把页面换成失败态。
                     if (state.value !== "ready") state.value = {failed: code};
-                    return;
+                    return undefined;
                 }
                 entries.value = listed.value;
                 catalog.value = tools.value;
                 state.value = "ready";
+                return undefined;
+            };
+            const load = (): Promise<void> => {
+                latest = fetchCatalog((sequence += 1));
+                return latest;
             };
 
             let release: (() => void) | null = null;

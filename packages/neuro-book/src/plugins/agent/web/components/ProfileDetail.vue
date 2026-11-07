@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {IconButton, SearchSelect, Select, Tooltip} from "@notnotype/nb-ui/components";
+import {useId} from "vue";
 
 import SettingsNotice from "nbook/ui/settings/SettingsNotice.vue";
 
@@ -20,6 +21,8 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
+const modelHintId = useId();
+const approvalHintId = useId();
 </script>
 
 <template>
@@ -60,7 +63,7 @@ const text = useAgentPageText();
                         <span v-if="profile.model.warning" class="i-lucide-triangle-alert profile-detail__reason" aria-hidden="true" />
                     </span>
                     <Tooltip :text="profile.model.hint" :disabled="profile.model.hint === ''">
-                        <small :class="{'is-warning': profile.model.warning}" data-profile-model-hint>{{ profile.model.hint }}</small>
+                        <small :id="modelHintId" :class="{'is-warning': profile.model.warning}" data-profile-model-hint>{{ profile.model.hint }}</small>
                     </Tooltip>
                 </div>
                 <SearchSelect
@@ -69,6 +72,7 @@ const text = useAgentPageText();
                     :disabled="disabled || profile.model.disabled"
                     size="sm"
                     :aria-label="text('profiles.model.label')"
+                    :aria-describedby="modelHintId"
                     @update:model-value="(value: string) => emit('model', value)"
                 />
             </div>
@@ -76,7 +80,7 @@ const text = useAgentPageText();
                 <div class="profile-detail__label">
                     <span class="profile-detail__label-title">{{ text("profiles.approval.label") }}</span>
                     <Tooltip :text="profile.approval.hint">
-                        <small>{{ profile.approval.hint }}</small>
+                        <small :id="approvalHintId">{{ profile.approval.hint }}</small>
                     </Tooltip>
                 </div>
                 <Select
@@ -85,6 +89,7 @@ const text = useAgentPageText();
                     :disabled="disabled"
                     size="sm"
                     :aria-label="text('profiles.approval.label')"
+                    :aria-describedby="approvalHintId"
                     @update:model-value="(value: string) => emit('approval', value)"
                 />
             </div>
@@ -218,8 +223,12 @@ const text = useAgentPageText();
     color: var(--status-warning);
 }
 
-/* 页面不到 600px：控件换到标题下面，同 SettingsRow。 */
+/* 页面不到 600px：控件换到标题下面，同 SettingsRow；问题块让位给名称，全文在提示里。 */
 @container (max-width: 600px) {
+    .profile-detail__notice {
+        max-width: 45%;
+    }
+
     .profile-detail__row {
         grid-template-columns: minmax(0, 1fr);
         gap: var(--space-2);

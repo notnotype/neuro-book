@@ -16,6 +16,11 @@ import {CompactionSettingSchema} from "./compaction";
 import {ModelConfigSchema} from "./settings";
 
 export {roleOfReference, roleReference} from "./rules";
+
+/** 有凭据：不要密钥的服务商，或者密钥已经设了。 */
+export function hasCredentials(provider: {readonly key: {readonly kind: string; readonly found?: boolean}}): boolean {
+    return provider.key.kind === "stored" || provider.key.kind === "keyless" || (provider.key.kind === "env" && provider.key.found === true);
+}
 export {builtinRoleNameKey, modelsText} from "./text";
 
 const Nullable = <T extends Parameters<typeof Type.Union>[0][number]>(schema: T) => Type.Union([schema, Type.Null()]);

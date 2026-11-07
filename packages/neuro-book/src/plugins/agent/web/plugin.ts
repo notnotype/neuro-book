@@ -17,7 +17,7 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
-import {builtinRoleNameKey, modelsSettingsContract, modelsText, roleReference} from "nbook/plugins/models/shared/contracts";
+import {builtinRoleNameKey, hasCredentials, modelsSettingsContract, modelsText, roleReference} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
@@ -49,7 +49,6 @@ import {createAgentActivity} from "./activity";
 import {createRulesWriter} from "./permission-writes";
 import {permissionsPage} from "./permission-page";
 import {createProfileWriters, profilesPage} from "./profile-page";
-import {hasCredentials} from "./profile-view";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";

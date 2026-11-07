@@ -21,9 +21,9 @@ const emit = defineEmits<{
 
 const text = useAgentPageText();
 const folded = ref(new Set<string>());
-function fold(provider: string): void {
+function fold(id: string): void {
     const next = new Set(folded.value);
-    if (!next.delete(provider)) next.add(provider);
+    if (!next.delete(id)) next.add(id);
     folded.value = next;
 }
 
@@ -53,12 +53,12 @@ function openAdd(): void {
                 <Button size="sm" variant="secondary" icon-class="i-lucide-plus" :disabled="disabled" data-profile-tools-add @click="openAdd">{{ text("profiles.tools.section.add") }}</Button>
             </span>
         </div>
-        <section v-for="group in tools.groups" :key="group.provider" class="profile-tools__group" :data-profile-tool-group="group.provider">
-            <button type="button" class="profile-tools__group-head nb-ui-focus-ring" :aria-expanded="!folded.has(group.provider)" @click="fold(group.provider)">
-                <span :class="folded.has(group.provider) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" aria-hidden="true" />
+        <section v-for="group in tools.groups" :key="group.id" class="profile-tools__group" :data-profile-tool-group="group.id">
+            <button type="button" class="profile-tools__group-head nb-ui-focus-ring" :aria-expanded="!folded.has(group.id)" @click="fold(group.id)">
+                <span :class="folded.has(group.id) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" aria-hidden="true" />
                 {{ group.provider }}<span class="profile-tools__group-count">{{ group.tools.length }}</span>
             </button>
-            <ul v-if="!folded.has(group.provider)" class="profile-tools__rows">
+            <ul v-if="!folded.has(group.id)" class="profile-tools__rows">
                 <li v-for="tool in group.tools" :key="tool.id" class="profile-tools__row" :class="{'is-gone': tool.gone}" :data-profile-tool="tool.id">
                     <code class="profile-tools__name">{{ tool.name }}</code>
                     <span class="profile-tools__effect" :class="{'is-danger': tool.danger}">{{ tool.effect }}</span>
@@ -146,7 +146,8 @@ function openAdd(): void {
 .profile-tools__row {
     display: grid;
     min-height: 37px;
-    grid-template-columns: 136px 28px minmax(0, 1fr) 40px;
+    /* 等级与最右一格按英文定宽（Write、Required），中文也用同样的宽度：行与行才对得齐。 */
+    grid-template-columns: 136px 36px minmax(0, 1fr) 64px;
     align-items: center;
     gap: var(--space-2);
     border-bottom: var(--border-w) solid var(--divider);
@@ -193,7 +194,7 @@ function openAdd(): void {
 /* 页面不到 600px：一行变两行，说明放不下几个字时不如另起一行。 */
 @container (max-width: 600px) {
     .profile-tools__row {
-        grid-template-columns: minmax(0, 1fr) 28px 40px;
+        grid-template-columns: minmax(0, 1fr) 36px 64px;
         row-gap: 0;
         padding-block: var(--space-1);
     }

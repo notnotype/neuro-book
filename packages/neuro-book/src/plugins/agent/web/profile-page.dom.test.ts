@@ -277,7 +277,7 @@ describe("工具", () => {
         await ready(wrapper);
         expect(wrapper.get("[data-profile-tool='nbook.agent.read']").find("[data-profile-tool-remove]").exists()).toBe(false);
         expect(removeButton(wrapper, "nbook.agent.edit").attributes("aria-label")).toContain("nbook.agent.edit");
-        expect(wrapper.findAll("[data-profile-tool-group]").map((group) => group.attributes("data-profile-tool-group"))).toEqual(["内置", "剧情"]);
+        expect(wrapper.findAll("[data-profile-tool-group]").map((group) => group.attributes("data-profile-tool-group"))).toEqual(["nbook.agent", "nbook.plot"]);
     });
 
     it("去掉写进 removed；连点两个不等结算，两个都生效；页面立刻不再列", async () => {
@@ -343,6 +343,28 @@ describe("工具", () => {
         expect(failures).toEqual([]);
     });
 
+    it("添加：打开期间目录变了，候选不刷新；完成时按当时的设置值写，别处的改动留着", async () => {
+        let list: readonly ProfileEntry[] = [MAIN];
+        const remote = fakeRemote({listed: () => list});
+        const {wrapper, settings} = open({remote});
+        await ready(wrapper);
+        await wrapper.get("[data-profile-tools-add]").trigger("click");
+        await waitUntil("对话框", () => addDialog() !== null);
+        const rows = () => [...addDialog().querySelectorAll("[data-add-tool]")].map((row) => row.getAttribute("data-add-tool"));
+        const before = rows();
+        // 候选里的工具变成 Profile 本来就有的；别处同时改了另一个 Profile 的绑定。
+        list = [{...MAIN, tools: {required: ["nbook.agent.read"], optional: ["nbook.agent.edit", "plot.search"]}}];
+        remote.fire();
+        await flushPromises();
+        expect(rows()).toEqual(before);
+        await settings.update(agentSettings.settings.toolBindings, {"user.mine": {added: ["plot.search"], removed: []}});
+        click(addDialog().querySelector("[data-add-tool='nbook.agent.edit-replace'] [data-add-tool-toggle]"));
+        await flushPromises();
+        confirmAdd();
+        await waitUntil("写下", () => bindings(settings)["nbook.agent.main"] !== undefined);
+        expect(bindings(settings)["user.mine"]).toEqual({added: ["plot.search"], removed: []});
+    });
+
     it("选中的 Profile 变了，对话框关掉", async () => {
         const {wrapper} = open();
         await ready(wrapper);
@@ -373,12 +395,36 @@ describe("用户级 Profile", () => {
         const opened: string[] = [];
         const {wrapper} = open({remote, openAddress: (address) => void opened.push(address)});
         await ready(wrapper);
-        await wrapper.get(".profile-rail [data-profile-create]").trigger("click");
+        await wrapper.get("[data-profile-create]").trigger("click");
         await waitUntil("对话框", () => dialog() !== null);
         await typeName("lore-check");
         buttonIn(dialog()!, "新建并打开").click();
         await waitUntil("选中新的", () => wrapper.find("[data-profile-detail='user.lore-check']").exists());
         expect(opened).toEqual(["user://profiles/lore-check.profile.tsx"]);
+    });
+
+    it("新建：目录事件接连来、重取被顶掉时，照样选中新的", async () => {
+        let list: readonly ProfileEntry[] = [MAIN];
+        const remote = fakeRemote({listed: () => list});
+        (remote.remote as {createUserProfile: unknown}).createUserProfile = async (input: {name: string}) => {
+            list = [MAIN, {...MINE, key: `user.${input.name}`, name: input.name}];
+            // 建好之后、页面重取挂着时，服务端的目录事件也到了。
+            remote.hold();
+            setTimeout(() => {
+                remote.fire();
+                remote.resume();
+            }, 0);
+            return {ok: true, value: {key: `user.${input.name}`, address: `user://profiles/${input.name}.profile.tsx`}};
+        };
+        const {wrapper} = open({remote});
+        await ready(wrapper);
+        await wrapper.get("[data-profile-create]").trigger("click");
+        await waitUntil("对话框", () => dialog() !== null);
+        await typeName("racing");
+        buttonIn(dialog()!, "新建并打开").click();
+        await waitUntil("选中新的", () => wrapper.find("[data-profile-detail='user.racing']").exists());
+        await flushPromises();
+        expect(wrapper.find("[data-profile-detail='user.racing']").exists()).toBe(true);
     });
 
     it("新建：名字不合规则不发请求；同名留在对话框写原因", async () => {
@@ -390,7 +436,7 @@ describe("用户级 Profile", () => {
         };
         const {wrapper} = open({remote});
         await ready(wrapper);
-        await wrapper.get(".profile-rail [data-profile-create]").trigger("click");
+        await wrapper.get("[data-profile-create]").trigger("click");
         await waitUntil("对话框", () => dialog() !== null);
         await typeName("Bad Name");
         buttonIn(dialog()!, "新建并打开").click();
@@ -454,7 +500,8 @@ describe("只读", () => {
         await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
         expect(wrapper.get("[data-profile-delete]").attributes("disabled")).toBeDefined();
         expect(wrapper.get("[data-profile-model] input").attributes("disabled")).toBeDefined();
-        expect(wrapper.findAll("[data-profile-create]").every((button) => button.attributes("disabled") !== undefined)).toBe(true);
+        expect(wrapper.get("[data-profile-create]").attributes("disabled")).toBeDefined();
+        expect(wrapper.get("[data-profile-create-short]").attributes("disabled")).toBeDefined();
         await wrapper.get("[data-profile-open-file]").trigger("click");
         expect(opened).toEqual(["user://profiles/mine.profile.tsx"]);
     });

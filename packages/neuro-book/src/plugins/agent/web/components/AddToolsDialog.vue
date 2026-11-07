@@ -35,7 +35,7 @@ const groups = computed(() => {
     const needle = query.value.trim().toLowerCase();
     if (needle === "") return shown.value;
     const matches = (tool: ProfileToolCandidate): boolean => [tool.name, tool.id, tool.summary].some((value) => value.toLowerCase().includes(needle));
-    return shown.value.map((group) => ({provider: group.provider, tools: group.tools.filter(matches)})).filter((group) => group.tools.length > 0);
+    return shown.value.map((group) => ({id: group.id, provider: group.provider, tools: group.tools.filter(matches)})).filter((group) => group.tools.length > 0);
 });
 const all = computed(() => shown.value.flatMap((group) => group.tools));
 
@@ -78,7 +78,7 @@ function done(): void {
             <p v-if="all.length === 0" class="add-tools__muted">{{ text("profiles.tools.add.empty") }}</p>
             <p v-else-if="groups.length === 0" class="add-tools__muted">{{ text("profiles.tools.add.noMatch") }}</p>
             <div v-else class="add-tools__list">
-                <section v-for="group in groups" :key="group.provider">
+                <section v-for="group in groups" :key="group.id">
                     <h4 class="add-tools__group">{{ group.provider }}<span>{{ group.tools.length }}</span></h4>
                     <ul>
                         <li v-for="tool in group.tools" :key="tool.id" class="add-tools__row" :data-add-tool="tool.id">

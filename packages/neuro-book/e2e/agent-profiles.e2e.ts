@@ -75,7 +75,7 @@ test("验收：新建、去掉工具、绑模型；改坏时标有错误、位�
     await openProfiles(page);
 
     // 新建：文件打开在编辑器里，选中新的。
-    await page.locator(".profile-rail [data-profile-create]").click();
+    await page.locator("[data-profile-create]").click();
     await page.locator("[data-profile-new] input").fill("lore-check");
     await page.getByRole("button", {name: "新建并打开"}).click();
     await expect(page.locator("[data-profile-detail='user.lore-check']")).toBeVisible();
@@ -118,7 +118,7 @@ test("验收：新建、去掉工具、绑模型；改坏时标有错误、位�
 
 test("验收：新建的 Profile 给新会话用，去掉的工具不在请求里", async ({page}) => {
     await openProfiles(page);
-    await page.locator(".profile-rail [data-profile-create]").click();
+    await page.locator("[data-profile-create]").click();
     await page.locator("[data-profile-new] input").fill("for-session");
     await page.getByRole("button", {name: "新建并打开"}).click();
     await expect(page.locator("[data-profile-detail='user.for-session']")).toBeVisible();

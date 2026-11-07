@@ -27,16 +27,16 @@ const approval = (over: Partial<ProfileApprovalField> = {}): ProfileApprovalFiel
 const row = (id: string, name: string, effect: "读" | "写" | "执行", summary: string, required = false): ProfileToolRow => ({id, name, effect, danger: effect === "执行", summary, detail: summary, required, gone: false});
 const candidate = (base: ProfileToolRow, over: Partial<ProfileToolCandidate> = {}): ProfileToolCandidate => ({...base, providerName: base.name, blocked: false, ...over});
 const CANDIDATES = [
-    {provider: "内置", tools: [
+    {id: "nbook.agent", provider: "内置", tools: [
         candidate(row("nbook.agent.edit", "edit", "写", "按行锚改文件，一次可以改几处。"), {replaces: "nbook.agent.edit-replace"}),
         candidate(row("nbook.agent.ask", "ask", "读", "向用户提问，只有固定选项。"), {replaces: "nbook.agent.ask-form"}),
     ]},
-    {provider: "剧情图谱", tools: [candidate(row("plot.timeline", "plot_timeline", "读", "按时间线列出一段剧情里发生的事。"))]},
-    {provider: "世界设定", tools: [candidate(row("canon.lookup", "canon_lookup", "读", "查世界设定条目与它的修订。"))]},
+    {id: "nbook.plot", provider: "剧情图谱", tools: [candidate(row("plot.timeline", "plot_timeline", "读", "按时间线列出一段剧情里发生的事。"))]},
+    {id: "nbook.canon", provider: "世界设定", tools: [candidate(row("canon.lookup", "canon_lookup", "读", "查世界设定条目与它的修订。"))]},
 ];
 const WRITER_TOOLS: ProfileToolsField = {
     groups: [
-        {provider: "内置", tools: [
+        {id: "nbook.agent", provider: "内置", tools: [
             row("nbook.agent.read", "read", "读", "读取文件与目录，能看图片。", true),
             row("nbook.agent.write", "write", "写", "把内容整份写进文件：不存在就新建，存在就覆盖。", true),
             row("nbook.agent.grep", "grep", "读", "按正则在文件内容里搜索。", true),
@@ -44,8 +44,8 @@ const WRITER_TOOLS: ProfileToolsField = {
             row("nbook.agent.ask-form", "ask", "读", "向用户提问，可以带选项或表单。"),
             row("nbook.agent.shell", "shell", "执行", "运行一条命令。"),
         ]},
-        {provider: "剧情图谱", tools: [row("plot.search", "plot_search", "读", "在剧情图谱里查人物、事件与关系。")]},
-        {provider: "已卸载", tools: [{...row("example.web.fetch", "example.web.fetch", "读", "没有找到这个工具，装上提供它的插件后恢复。"), effect: "", gone: true}]},
+        {id: "nbook.plot", provider: "剧情图谱", tools: [row("plot.search", "plot_search", "读", "在剧情图谱里查人物、事件与关系。")]},
+        {id: "gone", provider: "已卸载", tools: [{...row("example.web.fetch", "example.web.fetch", "读", "没有找到这个工具，装上提供它的插件后恢复。"), effect: "", gone: true}]},
     ],
     count: 7,
     modified: true,
@@ -53,8 +53,8 @@ const WRITER_TOOLS: ProfileToolsField = {
 };
 const LORE_TOOLS: ProfileToolsField = {
     groups: [
-        {provider: "内置", tools: [row("nbook.agent.read", "read", "读", "读取文件与目录，能看图片。", true), row("nbook.agent.grep", "grep", "读", "按正则在文件内容里搜索。", true)]},
-        {provider: "剧情图谱", tools: [row("plot.search", "plot_search", "读", "在剧情图谱里查人物、事件与关系。")]},
+        {id: "nbook.agent", provider: "内置", tools: [row("nbook.agent.read", "read", "读", "读取文件与目录，能看图片。", true), row("nbook.agent.grep", "grep", "读", "按正则在文件内容里搜索。", true)]},
+        {id: "nbook.plot", provider: "剧情图谱", tools: [row("plot.search", "plot_search", "读", "在剧情图谱里查人物、事件与关系。")]},
     ],
     count: 3,
     modified: false,
@@ -62,8 +62,8 @@ const LORE_TOOLS: ProfileToolsField = {
 };
 const MISSING_TOOLS: ProfileToolsField = {
     groups: [
-        {provider: "内置", tools: [row("nbook.agent.read", "read", "读", "读取文件与目录，能看图片。")]},
-        {provider: "已卸载", tools: [{...row("plot.search", "plot.search", "读", "没有找到这个工具，装上提供它的插件后恢复。", true), effect: "", gone: true}]},
+        {id: "nbook.agent", provider: "内置", tools: [row("nbook.agent.read", "read", "读", "读取文件与目录，能看图片。")]},
+        {id: "gone", provider: "已卸载", tools: [{...row("plot.search", "plot.search", "读", "没有找到这个工具，装上提供它的插件后恢复。", true), effect: "", gone: true}]},
     ],
     count: 1,
     modified: false,

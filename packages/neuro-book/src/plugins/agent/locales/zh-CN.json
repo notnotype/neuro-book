@@ -386,7 +386,6 @@
                 "empty": "没有可以添加的工具",
                 "noMatch": "没有匹配的工具",
                 "done": "完成",
-                "cancel": "取消",
                 "join": "加入 {{name}}（{{id}}）",
                 "unjoin": "不加入 {{name}}（{{id}}）",
                 "replaces": "加入后换掉已开的同名工具。",

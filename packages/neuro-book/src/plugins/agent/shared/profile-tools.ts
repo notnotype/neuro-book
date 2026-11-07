@@ -5,6 +5,10 @@
 
 /** 新建用户级 Profile 时的名字（contributions.md 输出 18）；手写的文件名不受它限制。 */
 export const USER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const USER_PROFILE_PREFIX = "user.";
+
+/** 用户级 Profile 入口文件的资源地址：文件名就是 key 去掉前缀。 */
+export const userProfileAddress = (key: string): string => `user://profiles/${key.slice(USER_PROFILE_PREFIX.length)}.profile.tsx`;
 
 export interface ToolRequirements {
     readonly required: readonly string[];
@@ -17,6 +21,9 @@ export interface ToolBinding {
     readonly added: readonly string[];
     readonly removed: readonly string[];
 }
+
+/** 写进设置项的形状（`shared/settings.ts` 的 `ToolBinding`）。 */
+type WritableBinding = {added: string[]; removed: string[]};
 
 /** 工具集的 id，顺序有意义：同名的先出现者胜出。 */
 export function profileToolIds(requirements: ToolRequirements, defaultForAll: readonly string[], binding: ToolBinding | undefined): string[] {
@@ -51,7 +58,7 @@ export interface ToolChange {
  * 按“本来就有的”（Profile 要的加 `defaultForAll`）换算成绑定：开回本来就有的从 `removed` 删掉，不写进 `added`；关掉绑定加的从
  * `added` 删掉，不写进 `removed`。必需的不进 `removed`。
  */
-export function changeToolBinding(binding: ToolBinding | undefined, requirements: ToolRequirements, defaultForAll: readonly string[], change: ToolChange): ToolBinding {
+export function changeToolBinding(binding: ToolBinding | undefined, requirements: ToolRequirements, defaultForAll: readonly string[], change: ToolChange): WritableBinding {
     const base = new Set(profileToolIds(requirements, defaultForAll, undefined));
     const required = new Set(requirements.required);
     const added = new Set(binding?.added ?? []);
@@ -68,8 +75,8 @@ export function changeToolBinding(binding: ToolBinding | undefined, requirements
 }
 
 /** 整份绑定里换掉这个 Profile 的：`added`、`removed` 都空时不留这个 key。别的 Profile 原样留着。 */
-export function withToolBinding<B extends ToolBinding>(bindings: Readonly<Record<string, B>>, profile: string, binding: ToolBinding | undefined): Record<string, ToolBinding> {
-    const next: Record<string, ToolBinding> = {...bindings};
+export function withToolBinding(bindings: Readonly<Record<string, WritableBinding>>, profile: string, binding: WritableBinding | undefined): Record<string, WritableBinding> {
+    const next: Record<string, WritableBinding> = {...bindings};
     if (binding === undefined || (binding.added.length === 0 && binding.removed.length === 0)) delete next[profile];
     else next[profile] = binding;
     return next;

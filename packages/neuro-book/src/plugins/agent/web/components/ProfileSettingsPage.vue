@@ -111,7 +111,7 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
             <div class="profile-page__main">
                 <div class="profile-page__picker">
                     <Select :model-value="current.key" :options="pickerOptions" size="sm" :aria-label="text('profiles.rail.label')" data-profile-picker @update:model-value="(key: string) => (selected = key)" />
-                    <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="!writable" data-profile-create @click="openCreate">{{ text("profiles.rail.newShort") }}</Button>
+                    <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="!writable" data-profile-create-short @click="openCreate">{{ text("profiles.rail.newShort") }}</Button>
                 </div>
                 <ProfileDetail
                     :key="current.key"

@@ -386,7 +386,6 @@
                 "empty": "There are no tools to add",
                 "noMatch": "No matching tools",
                 "done": "Done",
-                "cancel": "Cancel",
                 "join": "Add {{name}} ({{id}})",
                 "unjoin": "Don't add {{name}} ({{id}})",
                 "replaces": "Replaces the enabled tool with the same name.",

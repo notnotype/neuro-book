@@ -3,7 +3,7 @@
  * 东西，能在 Lab 里直接摆。文字在这里按界面语言翻好。
  */
 
-import {builtinRoleNameKey, modelsText, roleOfReference, roleReference} from "nbook/plugins/models/shared/contracts";
+import {builtinRoleNameKey, hasCredentials, modelsText, roleOfReference, roleReference} from "nbook/plugins/models/shared/contracts";
 import type {ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "nbook/plugins/models/shared/contracts";
 import type {TextResolver} from "nbook/shared/localized-text";
 
@@ -14,10 +14,8 @@ import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-to
 import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
+import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf} from "./profile-edits";
 
-/** 跟随默认：模型下拉用空串（`SearchSelect` 收空串），审批模式用哨兵（`Select` 的选项不能是空串）；都不落盘。 */
-export const FOLLOW_MODEL = "";
-export const FOLLOW_APPROVAL = "default";
 /** 没写角色时模型服务用它（models/service.md 输出 8）。 */
 const DEFAULT_ROLE = "main";
 const USER_SOURCE = "user";
@@ -54,6 +52,8 @@ export interface ProfileApprovalField {
     readonly hint: string;
 }
 
+export const GONE_GROUP = "gone";
+
 export interface ProfileToolRow {
     readonly id: string;
     /** 交给模型的名字；已卸载的写 id：名字已经查不到。 */
@@ -68,6 +68,8 @@ export interface ProfileToolRow {
 }
 
 export interface ProfileToolGroup {
+    /** 身份：插件 id，已卸载的一组是 `GONE_GROUP`。显示名可能重复、随界面语言变，不作身份。 */
+    readonly id: string;
     readonly provider: string;
     readonly tools: readonly ProfileToolRow[];
 }
@@ -82,6 +84,7 @@ export interface ProfileToolCandidate extends ProfileToolRow {
 }
 
 export interface ProfileToolCandidateGroup {
+    readonly id: string;
     readonly provider: string;
     readonly tools: readonly ProfileToolCandidate[];
 }
@@ -115,37 +118,7 @@ export interface ProfileView {
     readonly tools: ProfileToolsField | null;
 }
 
-export function hasCredentials(provider: SnapshotProvider): boolean {
-    return provider.key.kind === "stored" || provider.key.kind === "keyless" || (provider.key.kind === "env" && provider.key.found);
-}
-
 const usable = (provider: SnapshotProvider, model: SnapshotModel): boolean => hasCredentials(provider) && model.enabled && model.status === "ok";
-
-/** 模型一行的取值：文件里 `model` 与 `role` 都写时按 `model`（models/service.md 输出 8）。 */
-export function modelChoiceOf(setting: ProfileSetting | undefined): string {
-    if (setting?.model !== undefined) return setting.model;
-    return setting?.role === undefined ? FOLLOW_MODEL : roleReference(setting.role);
-}
-
-/** 一个 Profile 的设置写回去：空的字段删掉，都空时不留这个 key；别的 Profile 原样留着。 */
-function withSetting(settings: Readonly<Record<string, ProfileSetting>>, profile: string, setting: ProfileSetting): Record<string, ProfileSetting> {
-    const next: Record<string, ProfileSetting> = {...settings};
-    if (Object.keys(setting).length === 0) delete next[profile];
-    else next[profile] = setting;
-    return next;
-}
-
-export function withModelChoice(settings: Readonly<Record<string, ProfileSetting>>, profile: string, choice: string): Record<string, ProfileSetting> {
-    const {model: _model, role: _role, ...rest} = settings[profile] ?? {};
-    const role = roleOfReference(choice);
-    if (choice === FOLLOW_MODEL) return withSetting(settings, profile, rest);
-    return withSetting(settings, profile, role === null ? {...rest, model: choice} : {...rest, role});
-}
-
-export function withApprovalChoice(settings: Readonly<Record<string, ProfileSetting>>, profile: string, choice: string): Record<string, ProfileSetting> {
-    const {approvalMode: _approvalMode, ...rest} = settings[profile] ?? {};
-    return withSetting(settings, profile, choice === FOLLOW_APPROVAL ? rest : {...rest, approvalMode: choice as NonNullable<ProfileSetting["approvalMode"]>});
-}
 
 /** 缺口的一句话；没有缺口时空串。设置页与对话的输入框上方共用。 */
 export function modelNeedsText(needs: ProfileEntry["modelNeeds"], model: ModelCapabilities, text: TextResolver): string {
@@ -304,9 +277,9 @@ function toolRow(tool: ToolCatalogEntry, required: boolean, text: TextResolver):
     };
 }
 
-function byProvider<T extends {readonly id: string}>(tools: readonly T[], pluginOf: (tool: T) => string, input: ProfileViewsInput): {readonly provider: string; readonly tools: readonly T[]}[] {
+function byProvider<T extends {readonly id: string}>(tools: readonly T[], pluginOf: (tool: T) => string, input: ProfileViewsInput): {readonly id: string; readonly provider: string; readonly tools: readonly T[]}[] {
     const plugins = [...new Set(tools.map(pluginOf))].sort((a, b) => (a === BUILTIN_PLUGIN ? -1 : b === BUILTIN_PLUGIN ? 1 : input.pluginName(a).localeCompare(input.pluginName(b))));
-    return plugins.map((plugin) => ({provider: sourceName(plugin, input.pluginName, input.text), tools: tools.filter((tool) => pluginOf(tool) === plugin)}));
+    return plugins.map((plugin) => ({id: plugin, provider: sourceName(plugin, input.pluginName, input.text), tools: tools.filter((tool) => pluginOf(tool) === plugin)}));
 }
 
 function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
@@ -322,15 +295,17 @@ function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTools
     const gone = ids.filter((id) => !byId.has(id));
     if (entry.hidden === true && visible.length === 0 && gone.length === 0) return null;
     const rows = visible.map((id) => byId.get(id)!);
-    const groups: ProfileToolGroup[] = byProvider(rows, (tool) => tool.plugin, input).map((group) => ({provider: group.provider, tools: group.tools.map((tool) => toolRow(tool, required.has(tool.id), text))}));
+    const groups: ProfileToolGroup[] = byProvider(rows, (tool) => tool.plugin, input).map((group) => ({id: group.id, provider: group.provider, tools: group.tools.map((tool) => toolRow(tool, required.has(tool.id), text))}));
     if (gone.length > 0) {
         groups.push({
+            id: GONE_GROUP,
             provider: text.t(agentText("profiles.tools.gone")),
             tools: gone.map((id) => ({id, name: id, effect: "", danger: false, summary: text.t(agentText("profiles.tools.goneSummary")), detail: text.t(agentText("profiles.tools.goneSummary")), required: required.has(id), gone: true})),
         });
     }
     const shown = new Set(visible);
     const candidates = byProvider(catalog.filter((tool) => !shown.has(tool.id)), (tool) => tool.plugin, input).map((group) => ({
+        id: group.id,
         provider: group.provider,
         tools: group.tools.map((tool): ProfileToolCandidate => {
             const same = sameNameTool(tool.id, visible, nameOf, entry.tools!.required);

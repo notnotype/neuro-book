@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject]
+标签: [state:local, state:inject, env:portal]
 ---
 
 # ProfileSettingsPage
@@ -45,3 +45,4 @@ defineEmits<{
 
 - `state:local`：选中项、两个对话框的开关与状态。
 - `state:inject`：文字经宿主注入的翻译端口取。
+- `env:portal`：下拉与删除确认框传送到 `body`。

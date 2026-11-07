@@ -24,7 +24,7 @@ import type {CreateUserProfileResult, DeleteUserProfileResult, ProfileEntry, Pro
 
 import type {UserProfiles} from "./profiles";
 import {USER_PROFILE_PREFIX} from "./profiles";
-import {USER_PROFILE_NAME} from "../shared/profile-tools";
+import {USER_PROFILE_NAME, userProfileAddress} from "../shared/profile-tools";
 import type {ToolRequirements} from "../shared/profile-tools";
 
 const SUFFIX = ".profile.tsx";
@@ -165,7 +165,8 @@ export class ProfileBundles implements UserProfiles {
             await rm(temporary, {force: true});
         }
         await this.#schedule(name);
-        return {ok: true, key: `${USER_PROFILE_PREFIX}${name}`, address: `user://profiles/${file}`};
+        const key = `${USER_PROFILE_PREFIX}${name}`;
+        return {ok: true, key, address: userProfileAddress(key)};
     }
 
     /** 删入口文件；它导入的本地文件留着。交回时目录里已经没有它，用它的会话进只读。 */

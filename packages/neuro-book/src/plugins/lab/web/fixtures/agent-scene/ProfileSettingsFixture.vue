@@ -16,7 +16,7 @@ function update(key: string, change: (profile: ProfileView) => ProfileView): voi
 </script>
 
 <template>
-    <div class="profile-settings-fixture" :class="{'is-narrow': scene === 'narrow'}" data-lab-subject>
+    <div class="profile-settings-fixture" :class="{'is-narrow': scene.startsWith('narrow')}" data-lab-subject>
         <ProfileSettingsPage
             :state="page.state"
             :profiles="profiles"

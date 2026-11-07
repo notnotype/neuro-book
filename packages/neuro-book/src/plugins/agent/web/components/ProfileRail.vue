@@ -54,6 +54,7 @@ function onKeydown(event: KeyboardEvent): void {
                     :aria-current="item.key === current ? 'page' : undefined"
                     :tabindex="item.key === current ? 0 : -1"
                     :data-profile-rail-item="item.key"
+                    :title="item.name"
                     @click="emit('select', item.key)"
                 >
                     <span :class="item.icon" class="profile-rail__icon" aria-hidden="true" />
@@ -136,8 +137,11 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 .profile-rail__status {
+    overflow: hidden;
     font-size: var(--text-xs);
     color: var(--text-muted);
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .profile-rail__status--warning {

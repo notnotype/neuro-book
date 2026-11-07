@@ -10,7 +10,8 @@ import type {ProfileEntry, ToolCatalogEntry} from "../shared/contracts";
 import type {ToolBinding} from "../shared/profile-tools";
 import enUS from "../locales/en-US.json";
 import zhCN from "../locales/zh-CN.json";
-import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf, profileViews, withApprovalChoice, withModelChoice} from "./profile-view";
+import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf, withApprovalChoice, withModelChoice} from "./profile-edits";
+import {profileViews} from "./profile-view";
 
 const engine = createHostTextEngine({locale: "zh-CN", strict: true});
 engine.register("nbook.agent", {"zh-CN": zhCN, "en-US": enUS}, "zh-CN");
