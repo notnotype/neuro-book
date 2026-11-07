@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t17-loading-page-themes
-status: planned
+status: done
 updated: 2026-11-07
 ---
 
