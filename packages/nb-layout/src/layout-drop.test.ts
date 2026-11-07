@@ -298,7 +298,7 @@ describe("落点分区：形状与判定一致（输出“落点分区”）", (
         const collapsed: LayoutDropPanelGeometry = {id: "b", strip: rect(301, 0, 600, 30), body: rect(301, 30, 600, 30)};
         const input = {doc: THREE(), source: VIEW, point: {x: 450, y: 31}, panels: [collapsed], policy: testPolicy()};
         expect(layoutDropSectors(input, collapsed)).toBeNull();
-        expect(resolveLayoutDrop(input)).not.toMatchObject({kind: "edge"});
+        expect(resolveLayoutDrop(input)).toEqual({kind: "center", panel: "b"});
     });
 
     it("什么都放不进去：没有分区", () => {

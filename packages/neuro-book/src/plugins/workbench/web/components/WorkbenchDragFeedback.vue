@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /** 拖放的拖影、预备区与落点反馈（同名 .md）：受控，只画宿主算好的东西。 */
-import type {LayoutDropSector, LayoutDropSectorId} from "@notnotype/nb-layout";
+import type {LayoutDropSectorId} from "@notnotype/nb-layout";
 import {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay} from "@notnotype/nb-layout/vue";
 import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
+
+import type {LayoutDragSectors} from "../layout-drag";
 
 defineOptions({name: "WorkbenchDragFeedback"});
 
@@ -25,7 +27,7 @@ withDefaults(defineProps<{
     /** 动作种类，写到覆盖层根的 `data-drop-kind`，供探针读。 */
     kind: string;
     /** 落点分区；没有为 null。 */
-    sectors?: {readonly rect: {readonly left: number; readonly top: number; readonly right: number; readonly bottom: number}; readonly items: ReadonlyArray<LayoutDropSector>; readonly active: LayoutDropSectorId | null} | null;
+    sectors?: LayoutDragSectors | null;
     /** 落点分区每块写的字。 */
     sectorLabels?: Partial<Record<LayoutDropSectorId, string>>;
 }>(), {zones: () => [], sectors: null, sectorLabels: () => ({})});

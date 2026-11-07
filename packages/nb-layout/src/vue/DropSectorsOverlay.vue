@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 落点分区（同名 .md）：拖动经过面板正文时画出这块面板能往哪放。形状由 `layoutDropSectors` 算，这里只画。 */
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
-import {computed, useAttrs} from "vue";
+import {computed} from "vue";
 
 import type {GridDropRect} from "../grid-drop";
 import type {LayoutDropSector, LayoutDropSectorId} from "../layout-drop";
@@ -17,8 +17,6 @@ const props = defineProps<{
     /** 每块写的字；不给不写。当前块不写：`DropFeedbackOverlay` 的提示在说它。 */
     labels?: Partial<Record<LayoutDropSectorId, string>>;
 }>();
-
-const attrs = useAttrs();
 
 /** 比这小的块不写字：编辑组最窄 220px，左右窄带约 62px，写了会压到边外和中央的字上。 */
 const LABEL_MIN_WIDTH = 96;
@@ -51,7 +49,7 @@ const shapes = computed(() => {
 
 <template>
     <Teleport to="body">
-        <div v-if="box !== null && shapes.length > 0" v-bind="attrs" class="nb-drop-sectors" data-drag-feedback data-drop-sectors aria-hidden="true" :style="box">
+        <div v-if="box !== null && shapes.length > 0" v-bind="$attrs" class="nb-drop-sectors" data-drag-feedback data-drop-sectors aria-hidden="true" :style="box">
             <svg class="nb-drop-sectors__shapes" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <polygon
                     v-for="shape in shapes"
@@ -75,10 +73,11 @@ const shapes = computed(() => {
 .nb-drop-sectors {
     position: fixed;
     overflow: hidden;
-    border-radius: var(--layout-sector-radius);
+    /* 圆角是宿主的事：外壳给卡片下面两个角。 */
+    border-radius: var(--layout-sector-radius, 0);
     background: var(--layout-scrim);
     pointer-events: none;
-    animation: nb-drop-sectors-in var(--motion-fast) ease-out;
+    animation: nb-drop-sectors-in var(--motion-fast) var(--ease-standard);
 }
 
 @keyframes nb-drop-sectors-in {
@@ -99,7 +98,7 @@ const shapes = computed(() => {
     stroke: var(--layout-sector-line);
     stroke-width: 1px;
     vector-effect: non-scaling-stroke;
-    transition: fill var(--motion-fast) ease-out, stroke var(--motion-fast) ease-out;
+    transition: fill var(--motion-fast) var(--ease-standard), stroke var(--motion-fast) var(--ease-standard);
 }
 
 .nb-drop-sectors__sector--active {
@@ -128,7 +127,12 @@ const shapes = computed(() => {
 
     .nb-drop-sectors__sector {
         fill: transparent;
+        stroke: CanvasText;
+    }
+
+    .nb-drop-sectors__sector--active {
         stroke: Highlight;
+        stroke-width: 3px;
     }
 }
 

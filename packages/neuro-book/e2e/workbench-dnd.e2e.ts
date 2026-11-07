@@ -1004,9 +1004,14 @@ test.describe("产品页：拖放", () => {
             await expect(sectors(page)).toHaveCount(1);
             expect(await sectorIds(page)).toEqual(["center", "left", "right"]);
             await expect(activeSector(page)).toHaveAttribute("data-drop-sector", "right");
-            await page.keyboard.press("Escape");
+            // 放下的结果就是当前块说的：拆到面板这一排的右边。
+            const before = await leaf(page, "panel").boundingBox();
             await page.mouse.up();
+            await expect(ghost(page)).toHaveCount(0);
             await expect(sectors(page)).toHaveCount(0);
+            const moved = await panelOfTab(page, E);
+            expect(moved).not.toBe("panel");
+            await expect.poll(async () => ((await leaf(page, moved).boundingBox())?.x ?? 0) >= (before?.x ?? 0) + (before?.width ?? 0) / 2 - 1).toBe(true);
         });
 
         test("编辑组不接收工具视图、标签条上：没有分区；只有标题的侧栏头算中央", async ({page}) => {

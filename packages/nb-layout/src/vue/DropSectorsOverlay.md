@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal, env:global]
+标签: [env:portal]
 ---
 
 # DropSectorsOverlay
@@ -37,11 +37,11 @@ type Props = {
 | `--layout-scrim` | 压暗的颜色 |
 | `--layout-sector-fill`、`--layout-sector-line` | 每块的底色与线 |
 | `--layout-sector-active-fill`、`--layout-sector-active-line` | 当前块的底色与线 |
-| `--layout-sector-radius` | 整层的圆角；缺省没有，宿主按自己的卡片给（工作台给卡片下面两个角） |
+| `--layout-sector-radius` | 整层的圆角；缺省 0。不是主题令牌：宿主写在 attrs 落到的根上（工作台给卡片下面两个角） |
 
 层级取 `NB_Z_INDEX.dropSectors`，低于 `DropFeedbackOverlay`：提交后的矩形要压在分区上面。
 
-`forced-colors` 下去掉压暗（系统色会把它变成不透明的底），线用 `Highlight`；`prefers-contrast: more` 时线用当前块那条。
+`forced-colors` 下去掉压暗（系统色会把它变成不透明的底），线用 `CanvasText`，当前块用 `Highlight` 且更粗；`prefers-contrast: more` 时线用当前块那条。
 
 ## 不支持
 

@@ -240,12 +240,12 @@ test.describe("卡片按邻接算", () => {
     test("贴窗体整缝，相邻半缝，活动栏与侧栏相连；内容和外框拼成一张卡片", async ({page}) => {
         await open(page, "cards");
         const bar = await paddingOf(page, "activitybar");
-        expect(bar.left).toBe(8);
+        expect(bar.left).toBe(4);
         expect(bar.right).toBe(0);
         const sidebar = await paddingOf(page, "sidebar");
         expect(sidebar.left).toBe(0);
-        expect(sidebar.top).toBe(8);
-        expect(sidebar.right).toBeLessThan(4);
+        expect(sidebar.top).toBe(4);
+        expect(sidebar.right).toBeLessThan(2);
         await expect(page.locator("[data-shell-card='activitybar']")).toHaveAttribute("data-shell-join", "start");
         await expect(page.locator("[data-shell-card='sidebar']")).toHaveAttribute("data-shell-join", "end");
 
@@ -267,10 +267,10 @@ test.describe("卡片按邻接算", () => {
         await expect(page.locator("[data-shell-card='activitybar']")).not.toHaveAttribute("data-shell-join", /.+/);
 
         await frameButton(page, "panel", "maximize").click();
-        await expect.poll(async () => (await paddingOf(page, "panel")).right).toBe(8);
+        await expect.poll(async () => (await paddingOf(page, "panel")).right).toBe(4);
         const panel = await paddingOf(page, "panel");
-        expect(panel.top).toBe(8);
-        expect(panel.left).toBe(4);
+        expect(panel.top).toBe(4);
+        expect(panel.left).toBe(2);
     });
 
     test("分隔线按两侧是什么分种类：卡片主题里主体的接缝透明，工具面板之间、编辑组之间的线看得见", async ({page}) => {

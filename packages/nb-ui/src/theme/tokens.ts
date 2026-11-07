@@ -133,7 +133,6 @@ export const nbThemeFeedbackTokens = [
     "--layout-sector-line",
     "--layout-sector-active-fill",
     "--layout-sector-active-line",
-    "--layout-sector-radius",
 ] as const;
 /** 主题层基线的合集 */
 export const nbThemeTokens = [...nbThemeMetricTokens, ...nbThemeDecorTokens, ...nbThemeRoleTokens, ...nbThemeFeedbackTokens] as const;
