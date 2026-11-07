@@ -1,0 +1,133 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t05-profile",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t05 Profile 设置页：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "5e7d473d0a8bd828b288f14e7fdf824124aa879dabe7d4e3b2950b81bc0b07dc",
+    "files": [
+        "index.html",
+        "r1/background.webp",
+        "r1/broken.webp",
+        "r1/main.webp",
+        "r1/narrow.webp",
+        "r1/new.webp",
+        "r1/tools-b.webp",
+        "r1/unavailable.webp",
+        "r1/user.webp",
+        "r1/window.webp",
+        "r2/background.webp",
+        "r2/broken.webp",
+        "r2/main.webp",
+        "r2/narrow.webp",
+        "r2/tools-add.webp",
+        "r2/unavailable.webp",
+        "r2/user.webp",
+        "r2/window.webp"
+    ],
+    "questions": [
+        {
+            "id": "page-layout",
+            "type": "single",
+            "label": "整页版式，这样可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "tools-section",
+            "type": "single",
+            "label": "工具一节用哪种",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 全部列出，一行一个开关（推荐）"
+                },
+                {
+                    "value": "b",
+                    "label": "B 只列开着的，另外添加"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "a"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notice-and-head",
+            "type": "single",
+            "label": "提示和头部这样改，可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "tools-by-provider",
+            "type": "single",
+            "label": "工具按提供者分类、另外添加，这样可以吗",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以（推荐）"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-07T07:10:35.337Z"
+}

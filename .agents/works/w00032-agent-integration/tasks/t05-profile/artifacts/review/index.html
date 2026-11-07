@@ -15,48 +15,53 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 </head>
 <body>
 <h1>t05 Profile 设置页</h1>
-<p>都是静态稿，用真实的 nb-ui 组件和主题，数据是写死的样本。第一张放在真实设置窗口里（左栏其它项是 Lab 的样本），其余只截右边的内容区。</p>
+<p>都是静态稿，用真实的 nb-ui 组件和主题，数据是写死的样本。第 2 轮按你第 1 轮的备注改了提示、头部和工具一节，下面两题确认这些改法。</p>
 
-<section data-nbdev-question="page-layout" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>整页版式，这样可以吗</h2>
-  <p>左边列 Profile，右边是选中的那个，和“服务商与模型”一样。右边从上到下：名称和说明、问题（有的话）、模型、审批模式、工具。改了就写，没有保存按钮。</p>
+<section data-nbdev-question="notice-and-head" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>提示和头部这样改，可以吗</h2>
+  <p>规范写的是状态变化不推动周围内容（<code>ui-development-spec.md</code> 的“几何、排版与动效”）。现有页面有两处做法，直接照用，不再用会占一整行的横幅：</p>
   <ul>
-    <li><b>列表</b>：第二行写来源，有问题时换成“不可用”“有错误”。会话标题这类后台 Profile 单独一组放最后，它们也要绑模型。</li>
-    <li><b>模型</b>：选跟随默认、某个角色或某个模型。选了不满足这个 Profile 要求的模型，下面写一行警告，不拦。</li>
-    <li><b>审批模式</b>：只是新会话的初值，后台 Profile 没有这一行。</li>
-    <li><b>问题</b>：不可用和打包失败都写明原因，用户级的能直接打开文件去修。</li>
-    <li><b>用户级 Profile</b>：头部多“打开文件”“删除”。新建只问名字，生成骨架文件并打开，改完保存就出现在列表和新建会话的选择里。</li>
-    <li><b>窄的时候</b>：页面不到 600px，左栏收成顶上的下拉加一个新建按钮，同服务商页。</li>
+    <li><b>Profile 级的问题</b>（缺必需工具、打包失败）：照设置窗口标题区的“设置文件格式有误”，一个控件高的淡底块，放在头部这一行右边。说明让位，一行放不下时截断，悬停看全文。</li>
+    <li><b>字段级的问题</b>（模型不满足要求）：照设置行的状态图标，标题后一个图标；说明行换成警告文字。这一行本来就是两行，换字不改高度。审批模式选“自动判断”“全部放行”时的后果说明也放说明行。</li>
+    <li><b>头部</b>：名称和说明压成一行，高度等于一个小号控件。key 和来源收进说明的悬停提示（来源左栏已经写了）。“打开文件”“删除”改成图标按钮。</li>
+    <li><b>去掉</b>：后台 Profile 那句“不出现在新建会话的选择里”。左栏的“后台”分组已经说明了。</li>
   </ul>
-  <div class="row">
-    <figure><figcaption>放在设置窗口里（960×640）</figcaption><img src="r1/window.webp" alt="设置窗口里的 Profile 页：左边 Profile 列表，右边模型、审批模式、工具"></figure>
-  </div>
+  <p>下面前四张模型、审批、工具的上下位置完全一样，可以直接比。</p>
   <div class="row small">
-    <figure><figcaption>用户级：打开、删除，模型不满足要求</figcaption><img src="r1/user.webp" alt="设定核对 Profile，头部有打开文件和删除，模型下面有警告"></figure>
-    <figure><figcaption>新建</figcaption><img src="r1/new.webp" alt="新建 Profile 对话框，只问名字"></figure>
-    <figure><figcaption>插件 Profile 缺必需工具</figcaption><img src="r1/unavailable.webp" alt="黄色横幅写缺少必需工具，已卸载一组列出它"></figure>
-    <figure><figcaption>用户级打包失败</figcaption><img src="r1/broken.webp" alt="红色横幅写打包失败的原因"></figure>
-    <figure><figcaption>后台 Profile：只有模型</figcaption><img src="r1/background.webp" alt="会话标题 Profile，只有模型一行"></figure>
-    <figure><figcaption>页面不到 600px</figcaption><img src="r1/narrow.webp" alt="左栏收成顶上的下拉"></figure>
+    <figure><figcaption>缺必需工具（插件 Profile）</figcaption><img src="r2/unavailable.webp" alt="头部右边一个警告块写不可用：缺少必需工具 plot.search"></figure>
+    <figure><figcaption>打包失败（用户级）</figcaption><img src="r2/broken.webp" alt="头部右边一个红色块写打包失败和原因，旁边打开文件和删除图标"></figure>
+    <figure><figcaption>没有问题；模型不满足要求</figcaption><img src="r2/user.webp" alt="设定核对 Profile，模型标题后有警告图标，说明行写这个模型不支持看图"></figure>
+    <figure><figcaption>后台 Profile</figcaption><img src="r2/background.webp" alt="会话标题 Profile，只有模型一行"></figure>
+    <figure><figcaption>页面不到 600px</figcaption><img src="r2/narrow.webp" alt="左栏收成顶上的下拉，头部仍是一行"></figure>
   </div>
   <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>照这样实现。</p></div>
   <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
 </section>
 
-<section data-nbdev-question="tools-section" data-nbdev-type="single" data-nbdev-recommend="a">
-  <h2><span class="badge" data-nbdev-skip>待定</span>工具一节用哪种</h2>
-  <p>两种都有“下一次模型请求起生效”“必需的去不掉”。现在一共十来个工具；以后装了 MCP 或别的插件可能几十个，这是两种的主要差别。</p>
-  <p>另外，做稿时发现 <code>edit</code>、<code>ask</code> 各有两个实现，交给模型的名字相同，内核遇到同名会丢掉声明。所以同名的只能开一个：打开一个就自动关掉另一个，并在这一行写明。两种候选都这样处理。</p>
+<section data-nbdev-question="tools-by-provider" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>工具按提供者分类、另外添加，这样可以吗</h2>
+  <ul>
+    <li><b>提供者</b>：我理解成贡献这个工具的插件，名字用插件的显示名；Agent 插件自带的写“内置”，和左栏的来源同一套词。已卸载的找不到提供者，单独一组放最后。样本里的“世界设定”工具是编的。</li>
+    <li><b>页面上</b>：只列开着的，每组写个数。必需的标“必需”，其余一个“×”，这一格定宽，文字不会跟着动。</li>
+    <li><b>添加工具</b>：对话框同“管理模型”：搜索，按提供者分组，每行“+”，点过变“−”，“完成”时一次写入，“取消”不写。只列还没开的。</li>
+    <li><b>同名工具</b>：<code>edit</code>、<code>ask</code> 另一个实现的说明后面写“加入后换掉已开的同名工具”，完成时一起换。</li>
+    <li><b>“下一次模型请求起生效”</b>：收进“工具”旁边的问号提示，不常驻占位。</li>
+  </ul>
+  <p>MCP 工具都来自同一个插件，不同服务器会挤在一组。这件事留给 MCP 那个 Work 定，这里不做。</p>
   <div class="row small">
-    <div data-nbdev-option="a" data-nbdev-label="A 全部列出，一行一个开关（推荐）">
-      <figure><figcaption>A 全部列出</figcaption><img src="r1/main.webp" alt="工具列表分三组：这个 Profile 要的、其它工具、已卸载，每行一个开关"></figure>
-      <p>有什么、开了什么一眼看全，改一下只要点一次，开着和关着的都在原位，不会跳动。工具多了变长，到时加一个搜索框。</p>
-    </div>
-    <div data-nbdev-option="b" data-nbdev-label="B 只列开着的，另外添加">
-      <figure><figcaption>B 只列开着的</figcaption><img src="r1/tools-b.webp" alt="只列开着的工具，每行一个去掉按钮，右上角添加工具"></figure>
-      <p>工具再多也短，但看不到还有什么可加，要点开才知道。去掉和加回来走两个入口，加回来的工具位置也会变。</p>
-    </div>
+    <figure><figcaption>放在设置窗口里（960×640）</figcaption><img src="r2/window.webp" alt="设置窗口里的 Profile 页，工具按内置分组"></figure>
+    <figure><figcaption>工具多个提供者</figcaption><img src="r2/user.webp" alt="工具分内置、剧情图谱、世界设定三组"></figure>
+    <figure><figcaption>添加工具</figcaption><img src="r2/tools-add.webp" alt="添加工具对话框：搜索，按提供者分组，每行加号"></figure>
+    <figure><figcaption>有已卸载的</figcaption><img src="r2/main.webp" alt="写作助手的工具列表"></figure>
   </div>
+  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>照这样实现。</p></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 1 轮</h2>
+  <p>整页版式可以，提示和头部要改（见上面第一题）。工具一节选 B，只列开着的、另外添加，并按提供者分类（见上面第二题）。</p>
+  <p>第 1 轮的图：<a href="r1/window.webp">设置窗口</a>、<a href="r1/unavailable.webp">缺必需工具</a>、<a href="r1/tools-b.webp">候选 B</a>。</p>
 </section>
 </body>
 </html>
