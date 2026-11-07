@@ -65,7 +65,7 @@ defineProps<{
   | `--layout-sector-line` | `color-mix(in srgb, var(--accent-main) 65%, transparent)` |
   | `--layout-sector-active-fill` | `color-mix(in srgb, var(--accent-main) 12%, transparent)`（不取 `--drop-area-fill`：区域高亮还要叠在上面） |
   | `--layout-sector-active-line` | `var(--drop-area-border)`：主题改过落点高亮时跟着变 |
-  | `--layout-sector-radius` | `0 0 var(--shell-card-radius, 0) var(--shell-card-radius, 0)`：卡片的下两角是圆的，不让压暗露出去（审查第 7 条） |
+  | `--layout-sector-radius` | `0`；工作台给 `0 0 var(--shell-card-radius, 0) var(--shell-card-radius, 0)`：卡片的下两角是圆的，不让压暗露出去（审查第 7 条）。nb-ui 不认识外壳的变量，所以写在宿主 |
 
   写进 nb-ui `tokens.css`，登记进 `nbThemeFeedbackTokens`（主题不能重复声明同名变量），`pack.ts` 的“拖动与落点的反馈”分组加 `layout-`，`docs/specs/theme/system.md` 同步。顺手把已有的 `--motion-layout`、`--ease-layout` 登记进动效令牌（漏登记）。
 - 动效：淡入用 `var(--motion-fast)`，减少动效时自然是 0。换面板时复用节点，不重放淡入、不过渡位置。
@@ -91,7 +91,7 @@ defineProps<{
 
 ### 设置
 
-`nbook.workbench/dropZones`（布尔，缺省开，只有 `user` 层）。一个开关，不按手感分：提案的手感表里“分区（开关）”就是一行；t08 决定实时布局下怎么画。工作台读法与放在哪个分区照现有的设置（实现时看 `workbench/web/plugin.ts` 与 `nbook.appearance` 的小组，放不下就加一个“拖动”小组，t08 的手感设置也放这里）。中英文说明进 `workbench` 的 locale。
+`nbook.workbench/dropSectors`（布尔，缺省开，只有 `user` 层）。一个开关，不按手感分：提案的手感表里“分区（开关）”就是一行；t08 决定实时布局下怎么画。工作台读法与放在哪个分区照现有的设置（实现时看 `workbench/web/plugin.ts` 与 `nbook.appearance` 的小组，放不下就加一个“拖动”小组，t08 的手感设置也放这里）。中英文说明进 `workbench` 的 locale。
 
 ## Spec 与文档改动
 
@@ -129,4 +129,4 @@ defineProps<{
 ## 不做与风险
 
 - 实时布局里的分区（t08 接：`variant` 与层级到那时定）。
-- 不导出 SDK：插件不画自己的落点分区；`pack.test.ts` 要求列出时再说。
+- SDK 按 `sdk/surface.test.ts` 的规则列出组件（入口里的单文件组件逐个对上），类型 `LayoutDropSector` 不另外公开。

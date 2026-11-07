@@ -188,6 +188,7 @@ type TabRef =
 
     当前面板执行时重验，已不存在时返回 `unavailable`。
 36. **公开状态**：`layoutReady`、`sidebarVisible`、`auxiliaryBarVisible`、`activityBarVisible`、`panelVisible` 保留，按名字求值：隐藏、拖到零、被最大化盖住、放不下被收走都不算可见，收成标题行算。新增 `hasCurrentPanel`、`nonPhone`（手机呈现之前恒为真）、`maximized`，后两个取代 `nonCompact`、`panelMaximized`。`focusedPart` 取当前面板的名字，没有名字时取 `editor` 或 `tool`。`panelPosition`、`panelAlignment`、`panelHorizontal`、`panelMaximizable` 删除，不留别名。
+37. **落点分区**（设置 `nbook.workbench/dropSectors`，缺省开，只有用户层）：拖动经过能接收的面板的正文时，把这块面板能往哪放画出来：编辑组上下左右中五块，侧栏、右栏这一列上下中，面板这一排左右中；进不了中央时没有中央，空面板整块是中央。形状就是输出 25 的判定：指针在哪块，放下就是哪块。正文压暗（不透明度加调暗，不模糊），线与每块的字都显眼；指针所在的那块线更粗、底更深，它自己不写字：输出 28 的提示还在说这次落点（“放到两块之间”“原位”）。放不下字的块不写。指针在编辑组的标签条、预备区、活动栏上，或这块面板不接收、被菜单挡住时没有分区；只写标题的头算中央，分区照画。拖动结束即消失。设置关掉时落点不变，只是不画。
 
 ## 状态与转换
 
@@ -274,6 +275,7 @@ type TabRef =
 18. Given 390×844，When 打开产品页，Then 无页面级横向溢出，活动栏与框架按钮可达，编辑组取得非负余量。
 19. Given 10 万字章节开着，When 相邻面板让位，Then 记录单帧耗时（无头环境不设门槛）。
 20. Given 记录里存着合法但不合骨架的文档（面板在编辑组旁边），When 打开工作台，Then 显示默认树，没有“布局未读”，外壳根有诊断；下一次改动覆盖这条记录。Given 没有记录、模板不合骨架，When 打开工作台，Then 显示默认树。
+21. Given 编辑组、侧栏与面板都显示，When 拖工具视图或编辑器标签经过它们的正文，Then 分区的块数符合输出 37，指针靠哪条边那块就是当前块，在任意位置放下的结果都是当前块说的那个；键盘停在正文的落点上同样有分区；设置关掉时没有分区，放下的结果不变。
 
 Smoke 入口：`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`、`e2e/workbench-dnd.e2e.ts`、`e2e/lab-grid-structure.e2e.ts`；生产构建下打开 `/?project=…`。
 
