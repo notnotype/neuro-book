@@ -91,8 +91,10 @@ export interface LayoutDragOptions {
     moveGhost(point: GridDropPoint): void;
     /** 画出来的浮动窗（夹取之后）：整窗拖动从这个矩形开始。 */
     floats(): ReadonlyArray<GridFloatInput>;
-    /** 整窗跟手的矩形；null 回到记录里的。只有矩形在变，不换文档。 */
-    previewFloat(panel: string | null, rect?: LayoutFloatRect): void;
+    /** 这块窗开始、结束整窗拖动（一场各一次）：`rect` 是记录里的矩形，`null` 结束。窗这时不接指针、不带过渡。 */
+    markFloatMove(panel: string | null, rect?: LayoutFloatRect): void;
+    /** 写窗相对开始时挪了多少；`null` 回到原处。跟手的东西直接写元素，不走渲染。 */
+    placeFloat(panel: string, offset: GridDropPoint | null): void;
     /** 这个来源浮出来的最小尺寸。 */
     floatMinimum(source: LayoutTabSource): GridExtent;
     commit(source: LayoutSource, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
@@ -146,8 +148,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     let previewsOf: LayoutDoc | null = null;
     /** 实时布局判定用的矩形：拿起后第一次判定时量。之后邻居在让位，读 DOM 的话预览会把自己换掉。 */
     let frozen: {readonly panels: LayoutDropPanelGeometry[]; readonly floats: LayoutDropPanelGeometry[]; readonly strips: ReadonlyMap<string, TabStripSnapshot>} | null = null;
-    /** 这一场是整窗拖动：抓住的点相对窗的偏移；窗呈现的大小（夹位置用）与记录里的大小（提交用：夹取不写回）。 */
-    let windowDrag: {readonly panel: string; readonly grab: GridDropPoint; readonly shown: GridExtent; readonly size: GridExtent} | null = null;
+    /** 这一场是整窗拖动：抓住的点相对窗的偏移；窗拿起时呈现的位置与大小（夹位置用）；记录里的大小（提交用：夹取不写回）。 */
+    let windowDrag: {readonly panel: string; readonly grab: GridDropPoint; readonly from: GridDropPoint; readonly shown: GridExtent; readonly size: GridExtent} | null = null;
 
     const dpr = (): number => root.ownerDocument.defaultView?.devicePixelRatio ?? 1;
     const view = root.ownerDocument.defaultView;
@@ -573,8 +575,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const covered = region === null && top !== null && !root.contains(top);
         if (source.kind === "panel") {
             if (windowDrag === null) return null;
-            // 窗一直跟着指针，放不下也跟。别的窗的按钮区、活动栏放不进都是移动。
-            options.previewFloat(windowDrag.panel, windowRect(windowDrag, point));
             return covered ? null : windowDrop(windowDrag, source, point);
         }
         const onButtons = region === null && top?.closest("[data-no-drag]") != null;
@@ -610,7 +610,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 if (rect === undefined || recorded === undefined || at === null) return false;
                 // 抓住的是按下的那一点：过门槛时指针已经离开它几个像素。
                 const pressed = toGrid(at.pressed);
-                windowDrag = {panel: source.panel, grab: {x: pressed.x - rect.x, y: pressed.y - rect.y}, shown: {width: rect.width, height: rect.height}, size: {width: recorded.width, height: recorded.height}};
+                windowDrag = {panel: source.panel, grab: {x: pressed.x - rect.x, y: pressed.y - rect.y}, from: {x: rect.x, y: rect.y}, shown: {width: rect.width, height: rect.height}, size: {width: recorded.width, height: recorded.height}};
+                options.markFloatMove(source.panel, recorded);
                 return true;
             }
             // 键盘没有指针可跟；减少动效时邻居瞬移看不出去了哪；最大化时别的面板盖着，预览看不见。
@@ -633,6 +634,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             // 判定读完 DOM 才写。根元素上的标记一变整页都要重算样式（规则里有 `*`），每次移动写两下就是每帧一次全量重算。
             setRejected(overRejected);
             options.moveGhost(input.point);
+            // 窗一直跟着指针，放不下也跟。写放在判定读完之后。
+            if (windowDrag !== null) {
+                const at = windowRect(windowDrag, input.point);
+                options.placeFloat(windowDrag.panel, {x: Math.round(at.x) - windowDrag.from.x, y: Math.round(at.y) - windowDrag.from.y});
+            }
             return drop;
         },
         commitsUnderPointer: (keyboard) => !keyboard && (live.active.value || windowDrag !== null),
@@ -646,8 +652,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             // 放下、取消、中止都经过这里，并且先于提交：撤预览和提交在同一个同步段，不闪。
             live.end();
             frozen = null;
+            if (windowDrag !== null) options.placeFloat(windowDrag.panel, null);
             windowDrag = null;
-            options.previewFloat(null);
+            options.markFloatMove(null);
         },
         keyboard: {
             // 焦点要在拖动源本身：标签或条目；面板头里别的控件保留自己的空格。

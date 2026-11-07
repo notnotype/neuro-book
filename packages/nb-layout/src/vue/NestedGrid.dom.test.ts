@@ -896,6 +896,19 @@ describe("NestedGrid 浮动窗", () => {
         expect(Number(content.style.zIndex)).toBeGreaterThan(Number(frame.style.zIndex));
     });
 
+    it("拖动中挪窗：外框、内容、手柄一起挪，矩形不变；重渲染不丢，null 回到原处", async () => {
+        const wrapper = mountFloats({});
+        const grid = wrapper.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        const parts = ["[data-leaf=\"f\"]", "[data-content=\"x\"]", "[data-float-chrome=\"f\"]"].map((selector) => wrapper.get(selector).element as HTMLElement);
+        grid.placeFloat("f", {x: 7, y: 9});
+        for (const part of parts) expect(part.style.translate).toBe("7px 9px");
+        expect(parts[0]?.style.transform).toBe("translate(100px, 50px)");
+        await wrapper.setProps({revision: 1});
+        for (const part of parts) expect(part.style.translate).toBe("7px 9px");
+        grid.placeFloat("f", null);
+        for (const part of parts) expect(part.style.translate).toBe("");
+    });
+
     it("后面的压在前面的上面：换次序只改层级，不搬节点", async () => {
         const other = {id: "g", rect: {x: 0, y: 0, width: 100, height: 100}};
         const wrapper = mountFloats({floats: [FLOAT, other], contents: []});

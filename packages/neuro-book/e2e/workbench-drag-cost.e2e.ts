@@ -145,6 +145,8 @@ test.describe("拖动的每帧开销", () => {
         const moving = await perFrame(page, cdp, () => wiggle(page, at, 3));
         expect(moving.recalc, JSON.stringify(moving)).toBeLessThanOrEqual(PER_FRAME_LIMIT);
         expect(moving.layout, JSON.stringify(moving)).toBeLessThanOrEqual(0.1);
+        // 最后一次移动的那一帧还没画完就开始数的话，会把它算进来。
+        await frames(page, 5);
         const still = await perFrame(page, cdp, () => frames(page, 60));
         expect(still.recalc, JSON.stringify(still)).toBe(0);
         await page.keyboard.press("Escape");
@@ -168,6 +170,42 @@ test.describe("拖动的每帧开销", () => {
         expect(moving.layout, JSON.stringify(moving)).toBeLessThanOrEqual(0.1);
         await page.keyboard.press("Escape");
         await page.mouse.up();
+    });
+
+    test("整窗拖动：窗跟手每帧至多一次样式重算、不布局；放下落在指针处", async ({page}) => {
+        test.setTimeout(120_000);
+        const cdp = await openBook(page);
+        // 拖到状态栏上松手开一个窗；减少动效时是落点指示，开窗不用等过渡。
+        const status = await page.locator("[data-leaf='statusbar']").boundingBox();
+        if (status === null) throw new Error("没有状态栏");
+        await lift(page, page.locator("[data-editor-tab]").filter({hasText: "short.md"}));
+        await page.mouse.move(status.x + 600, status.y + status.height / 2, {steps: 6});
+        await page.mouse.up();
+        const windowTab = page.locator("[data-leaf][data-float] [data-editor-tab]");
+        await expect(windowTab).toHaveCount(1);
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await lift(page, windowTab);
+        // 树里编辑组的正中央（1440 宽的缺省布局）：经过中央继续浮着，松手不停靠。
+        const at = {x: 700, y: 500};
+        await page.mouse.move(at.x, at.y, {steps: 8});
+        await settle(page);
+        await wiggle(page, at, 1);
+        await settle(page);
+        const frame = page.locator("[data-leaf][data-float]");
+        const start = await frame.boundingBox();
+        const moving = await perFrame(page, cdp, () => wiggle(page, at, 3));
+        expect(moving.recalc, JSON.stringify(moving)).toBeLessThanOrEqual(PER_FRAME_LIMIT);
+        expect(moving.layout, JSON.stringify(moving)).toBeLessThanOrEqual(0.1);
+        await page.mouse.move(at.x + 50, at.y, {steps: 4});
+        await frames(page, 2);
+        const held = await frame.boundingBox();
+        if (start === null || held === null) throw new Error("没有窗");
+        await page.mouse.up();
+        await expect(page.locator("[data-workbench-dragging]")).toHaveCount(0);
+        await settle(page);
+        const dropped = await frame.boundingBox();
+        expect(dropped?.x).toBeCloseTo(held.x, 0);
+        expect(dropped?.y).toBeCloseTo(held.y, 0);
     });
 
     test("落点指示：拖影跟手每帧至多一次样式重算、不布局", async ({page}) => {

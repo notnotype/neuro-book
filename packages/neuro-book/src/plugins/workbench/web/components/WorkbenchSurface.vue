@@ -238,6 +238,8 @@ defineExpose({
     settleMotion: (): void => gridEl.value?.settleMotion(),
     /** 写拿起的内容项的矩形：跟手，不走渲染。 */
     placeLifted: (rect: GridRect): void => gridEl.value?.placeLifted(rect),
+    /** 拖动中挪窗：跟手，不走渲染。`null` 回到原处。 */
+    placeFloat: (panel: string, offset: {readonly x: number; readonly y: number} | null): void => gridEl.value?.placeFloat(panel, offset),
     /** F6、Shift+F6（输出 18）：命令由宿主绑。 */
     moveFocus: (direction: "next" | "previous"): boolean => moveGridFocus(rootEl.value, direction),
 });

@@ -394,10 +394,23 @@ function placeLifted(rect: GridRect): void {
     if (rect.height !== before.height) element.style.height = style.height as string;
 }
 
+/**
+ * 拖动中的窗相对记录里的矩形挪了多少（`null` 回到原处）。写在 `translate` 属性上，和 Vue 管的 `transform` 互不相干，重渲染不跳；放下时宿主发布新矩形，同一拍调 `null`。
+ * 窗的外框、每个标签的内容、手柄都是网格根的直接子元素，一起挪。
+ */
+function placeFloat(id: string, offset: {readonly x: number; readonly y: number} | null): void {
+    const translate = offset === null ? "" : `${String(offset.x)}px ${String(offset.y)}px`;
+    for (const child of rootEl.value?.children ?? []) {
+        const {dataset, style} = child as HTMLElement;
+        if (dataset.leaf === id || dataset.contentLeaf === id || dataset.floatChrome === id) style.translate = translate;
+    }
+}
+
 defineExpose({
     /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起）。 */
     settleMotion: (): void => motion.stop(),
     placeLifted,
+    placeFloat,
 });
 </script>
 

@@ -179,7 +179,7 @@ function headReserved(panelId: string): number {
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
 function viewActionsOf(viewId: string, panelId: string): TitleActionsModel {
-    // 浮动窗不在呈现尺寸里：按它记录里的矩形算。不读画出来的那份：拖窗时它每帧变，所有面板头都要跟着重算。
+    // 浮动窗不在呈现尺寸里：按它记录里的矩形算。不读画出来的那份：缩放时它每帧变，所有面板头都要跟着重算。
     const width = doc.value.floats.find((float) => float.panel === panelId)?.rect.width ?? state.value.presented[panelId]?.width ?? null;
     return props.chrome?.viewActions(viewId, catalog.value.get(viewId)?.actions ?? [], resolver, instanceOf(viewId), buttonBudget(width, headReserved(panelId), Number.POSITIVE_INFINITY)) ?? NO_TITLE_ACTIONS;
 }
@@ -408,7 +408,8 @@ onMounted(() => {
         placeCard: (rect) => surface.value?.placeLifted(rect),
         moveGhost: (point) => feedback.value?.moveGhost(point),
         floats: () => props.layout.actions.floats(),
-        previewFloat: (panel, rect) => props.layout.actions.previewFloat(panel, rect ?? null, "move"),
+        markFloatMove: (panel, rect) => props.layout.actions.previewFloat(panel, rect ?? null, "move"),
+        placeFloat: (panel, offset) => surface.value?.placeFloat(panel, offset),
         floatMinimum: (source) => {
             const home = findTab(doc.value, source.tab)?.panel;
             const panel = home === undefined ? undefined : doc.value.panels[home];

@@ -205,6 +205,7 @@ const floats = computed(() => doc.value.floats.map(({panel, rect}) => ({id: pane
 const tabDrag = shallowRef<EditorTabDrag | null>(null);
 const drag = shallowRef<LayoutDrag | null>(null);
 const feedback = useTemplateRef<InstanceType<typeof WorkbenchDragFeedback>>("feedback");
+const surface = useTemplateRef<InstanceType<typeof WorkbenchSurface>>("surface");
 onMounted(() => {
     drag.value = createLayoutDrag({
         root: host.value!,
@@ -224,9 +225,10 @@ onMounted(() => {
         placeCard: () => undefined,
         moveGhost: (point) => feedback.value?.moveGhost(point),
         floats: () => floats.value,
-        previewFloat: (panel, rect) => {
+        markFloatMove: (panel, rect) => {
             floatPreview.value = panel === null || rect === undefined ? null : {panel, rect};
         },
+        placeFloat: (panel, offset) => surface.value?.placeFloat(panel, offset),
         floatMinimum: () => EDITOR_GROUP_MINIMUM,
         commit: (source, action, part, keyboard) => {
             if (source.kind === "panel") {
@@ -260,6 +262,7 @@ onBeforeUnmount(() => {
 <template>
     <div ref="host" class="h-full w-full" data-lab-subject>
         <WorkbenchSurface
+            ref="surface"
             class="h-full w-full"
             :doc="doc"
             :projection="projection"

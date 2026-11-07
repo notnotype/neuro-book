@@ -133,7 +133,7 @@ function defineLayoutDocStore(bound: boolean) {
             return maximized.value === null || panel === undefined || panel.hidden === true || panel.collapsed === true || collapse.value.removed.has(maximized.value) || isFloating(doc.value, maximized.value) ? null : maximized.value;
         });
         /**
-         * 拖动或缩放中的浮动窗矩形：只有它在变，不换文档、不重算投影。
+         * 缩放中的浮动窗矩形：只有它在变，不换文档、不重算投影。整窗拖动只在开始时写一次带上标记，跟手的位置由外壳直接写元素。
          */
         const floatPreview = shallowRef<{readonly panel: string; readonly rect: LayoutFloatRect; readonly gesture: "move" | "resize"} | null>(null);
         /** 画出来的浮动窗（相对树区域）：夹取之后的矩形，夹取不写回。 */
@@ -221,7 +221,7 @@ function defineLayoutDocStore(bound: boolean) {
                 setLivePreview: (next: LayoutDoc | null): void => {
                     livePreview.value = next !== null && fitsSkeleton(next) ? next : null;
                 },
-                /** 拖动或缩放中的浮动窗矩形；null 回到记录里的。 */
+                /** 缩放中的浮动窗矩形，或整窗拖动开始时的标记；null 回到记录里的。 */
                 previewFloat: (panel: string | null, rect: LayoutFloatRect | null = null, gesture: "move" | "resize" = "resize"): void => {
                     // 和写入时一样取整：放下那一下不跳。
                     floatPreview.value = panel === null || rect === null ? null : {panel, rect: roundFloatRect(rect), gesture};
