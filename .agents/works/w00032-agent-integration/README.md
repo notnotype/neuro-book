@@ -58,6 +58,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-06 | `agent/compaction.md` 晋升 `implemented`（[t11](tasks/t11-compaction/README.md)）。开发者体验后定：下一步做 [t28](tasks/t28-conversation-ui-followups/README.md)，之后 t14、t15；与 t28 无关的反馈记到 [t29](tasks/t29-ui-polish-after-t15/README.md)，这三个做完再优化 |
 | 2026-11-06 | t06 重定：Agent 模式与审批是两个维度，`discuss`、`plan` 写入直接拒绝；黑白名单做成规则系统，第一条命中生效，作品目录的规则只能收紧；工作记在 t06，排在 t28 前五批之后（[t06 计划](tasks/t06-approval/plan.md)） |
 | 2026-11-07 | t06 完成并合入：规则三层与判定流水线、`bash` 方言与只读清单、本会话批准与“以后都允许”、规则设置页、Agent 模式（`normal`、`discuss`、`plan`）与 `switch_mode`、`auto`（审批模型强制调用判定工具，只看用户亲手打的字与工具调用）；前后端实现审查各一次；`agent/permissions.md`、`agent/modes.md`、`ui/agent-conversation-view.md` 晋升 `implemented`（[t06](tasks/t06-approval/README.md)） |
+| 2026-11-07 | 核对早期设计 Task：t02、t03、t04、t07 的实现已由后续 Task 完成，关闭，剩余项写明去向；t20 状态改为完成。开发者定后续顺序：t05（Profile 设置页，后端早已做完、没有界面）→ t14 → t15 → t29，t30 放最后；nb-story 迁新内核另建 [t31](tasks/t31-nb-story-new-kernel/README.md)，放最后 |
 
 ## 待确认
 

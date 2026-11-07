@@ -71,8 +71,13 @@ t02。
 
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+讨论完成（2026-10-28），实现由后续 Task 完成，2026-11-07 核对后关闭（开发者同意）。本 Task 不再单独实施。
 
-## 下一步
+- 决定 1、7：[`harness/models.md`](../../../../../docs/specs/harness/models.md)。
+- 决定 2、4：[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md) 输出 4–6。
+- 决定 6：工具增减时提醒模型在内核的 `run/loop.ts`；继续不了的进只读见 `agent/contributions.md` 输出 11。
 
-实施时按 implementation-planning 写 `plan.md`，第一个切片先在 OpenAI 与 Anthropic 官方接口上复测上面的四种请求。
+## 剩下的事
+
+- 决定 4 里“用户在设置里按 Profile 增删”没有界面：转 [t05](../t05-profile/README.md)。
+- OpenAI 与 Anthropic 官方接口上的复测没做（t20 第 2 片时没有凭据，见 t20 记录），有凭据时再测，不单独排期。

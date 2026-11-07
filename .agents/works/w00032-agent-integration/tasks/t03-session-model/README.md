@@ -46,8 +46,12 @@ t02。
 
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
+讨论完成（2026-10-28），实现由后续 Task 完成，2026-11-07 核对后关闭（开发者同意）。本 Task 不再单独实施。
 
-## 下一步
+- 决定 1、2、5：[`harness/session.md`](../../../../../docs/specs/harness/session.md) 与 t20 的内核（只移动叶子写 `leafChanged`）；回退、重试、编辑、分支切换、分支树、`/fork`、`/new` 由 t17、t28 接到界面（[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 25–27、30）。
+- 决定 4：[`agent/sessions.md`](../../../../../docs/specs/agent/sessions.md) 输出 1。
+- 决定 3 里文件回退的部分在 [t13](../t13-history/README.md)。
 
-实施时按 implementation-planning 写 `plan.md`，以上面的决定为准。
+## 剩下的事
+
+决定 6 的迁移脚本没写，内核只有 `needs-migration` 错误码；它要升级的是 nb-story 书库里的旧日志，转 [t31](../t31-nb-story-new-kernel/README.md)。

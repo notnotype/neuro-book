@@ -52,8 +52,13 @@ updated: 2026-10-29
 
 ## 当前状态
 
-讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定（见 Work README“讨论顺序”）。
+讨论完成（2026-10-28），实现由后续 Task 完成，2026-11-07 核对后关闭（开发者同意）。本 Task 不再单独实施。
 
-## 下一步
+- 决定 1、7：内核由 [t20](../t20-hooks/README.md) 自写并合入（`packages/nb-harness/src/kernel`），分支的代码没有整包搬。
+- 决定 3（分工）：t10 起的 `nbook.agent` 按它落地。
+- 决定 4：OMP 现在是 18.14.0。
+- 决定 5：`docs/specs/harness/` 下的 Spec 已写，还是 `planned`；晋升与 `agent/harness.md` 的处置见 t20 的“下一步”。
 
-实施时按 implementation-planning 写 `plan.md`，以上面的决定为准。
+## 剩下的事
+
+nb-story、nb-agent-ui 迁新内核，`nb-session`、`nb-profile` 停更：转 [t31](../t31-nb-story-new-kernel/README.md)。

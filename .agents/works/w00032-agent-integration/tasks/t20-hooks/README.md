@@ -102,3 +102,5 @@ t05、t06、t07。
 - 合入（开发者 2026-10-31 同意）：master 先合进 Work 分支（`1e64e1fb7`，无冲突），nb-harness 全量 309 通过、6 跳过，nb-story 全量 669 通过；`test:affected --since master` 只有两项失败：nb-ui 的 `NB_UI_VERSION` 在 master 上同样失败，neuro-book 的 `mount.dom.test.ts` 在负载 16 时超时、单独重跑通过（分支没改 neuro-book）。之后 master 快进到 `1e64e1fb7`。
 
 下一步：t20 完成并已合入，待确认清单等开发者看。介绍页（`intro` v3）已过时，随实现更新。
+
+2026-11-07 核对后状态改为完成（开发者同意）。还留着一件事：`docs/specs/harness/` 下的 5 份 Spec 与 `agent/harness.md` 还是 `planned`，而建在它们上面的 `agent/sessions.md` 等已是 `implemented`。要逐份核对实现、补实现合同与证据后报开发者批准晋升；`agent/harness.md` 按 t02 决定 5 把独有条目并入后删除，nb-story 迁移（[t31](../t31-nb-story-new-kernel/README.md)）之前它还描述着 nb-story 在用的旧接口。
