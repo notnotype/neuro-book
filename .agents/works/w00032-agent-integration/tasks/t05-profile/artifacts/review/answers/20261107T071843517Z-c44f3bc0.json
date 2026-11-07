@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t05-profile",
+    "artifactId": "review",
+    "answerId": "20261107T071843517Z-c44f3bc0",
+    "artifactVersion": 2,
+    "contentHash": "5e7d473d0a8bd828b288f14e7fdf824124aa879dabe7d4e3b2950b81bc0b07dc",
+    "submittedAt": "2026-11-07T07:18:42.939Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "notice-and-head": "accept",
+        "tools-by-provider": "adjust"
+    },
+    "comments": {
+        "tools-by-provider": "你这个分类感觉不够明显啊，看看provider那里的分类是怎么样子的。再多给我几个版本"
+    },
+    "note": null
+}
