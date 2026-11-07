@@ -1,0 +1,22 @@
+t20 拖动变卡的诊断（2026-11-07，无头 Chrome、软件渲染，负载约 2 到 3）。10.6 万字章节开着，脚本 scripts/measure-drag-cost.e2e.ts：
+cp 到 e2e/t20-measure.e2e.ts，T20_MEASURE_OUT=<文件> bunx playwright test -c e2e/playwright.config.ts e2e/t20-measure.e2e --reporter=line。
+单位毫秒。场景：hover 不按键划过界面 800 次移动；dragRejected 编辑器标签拖过工具面板 400 次移动；dragCenter 拖过编辑组中央 400 次移动。
+
+t20 之前（00ecec0ed）
+  hover: wall=13760, busyPercent=21, TaskDuration=2946, ScriptDuration=214, RecalcStyleDuration=1449, RecalcStyleCount=976
+  dragRejected: wall=6772, busyPercent=64, TaskDuration=4334, ScriptDuration=244, RecalcStyleDuration=1436, RecalcStyleCount=4413
+  dragCenter: wall=7712, busyPercent=69, TaskDuration=5342, ScriptDuration=384, RecalcStyleDuration=1554, RecalcStyleCount=4830
+
+t20 合入后（1e9e2fa5b）
+  hover: wall=13802, busyPercent=21, TaskDuration=2886, ScriptDuration=218, RecalcStyleDuration=1427, RecalcStyleCount=837
+  dragRejected: wall=26711, busyPercent=84, TaskDuration=22559, ScriptDuration=282, RecalcStyleDuration=18723, RecalcStyleCount=2828
+  dragCenter: wall=7797, busyPercent=61, TaskDuration=4735, ScriptDuration=410, RecalcStyleDuration=1019, RecalcStyleCount=2231
+
+修掉重复写标记之后
+  hover: wall=13755, busyPercent=22, TaskDuration=2975, ScriptDuration=218, RecalcStyleDuration=1377, RecalcStyleCount=822
+  dragRejected: wall=6781, busyPercent=53, TaskDuration=3570, ScriptDuration=242, RecalcStyleDuration=808, RecalcStyleCount=2011
+  dragCenter: wall=7681, busyPercent=59, TaskDuration=4518, ScriptDuration=408, RecalcStyleDuration=862, RecalcStyleCount=2213
+
+根因：被拒绝时 resolve 每次移动先 setRejected(false) 再 setRejected(true)，documentElement 上的 data-drop-rejected 被写两次；全局规则带 `*`，每次写都是整页样式重算，由下一次 getBoundingClientRect 同步触发（hoverTop 里它的自身时间 18.6 秒）。
+
+不按键划过界面（hover）t20 前后相同，不是这次引入的。开发服务 4217 上量（800 次移动）：空白页主线程 2%，产品页 15%，其中脚本 110ms、样式 770ms；关掉所有过渡和动画还是 13%，所以不是悬停过渡。同一次划过 DOM 写入只有几百次（标签条、悬停动作标记、分隔线），不是每次移动都写。无头环境量不到 GPU 进程与合成。
