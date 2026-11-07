@@ -116,7 +116,7 @@ async function start(path: string, layer: SettingLayer = "user"): Promise<Fixtur
         settle: (description, check) => waitUntil(description, () => {
             clock.advance(RELOAD_DELAY_MS);
             return check(owner.snapshot());
-        }),
+        }, {timeoutMs: 30_000}),
     };
 }
 

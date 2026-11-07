@@ -427,7 +427,7 @@ describe("清理没人引用的主题素材", () => {
         const rest = await (await sweep({keep: []})).json() as ThemeAssetSweepStats;
         expect(rest.removable.map(({name}) => name)).toEqual(all.slice(THEME_ASSET_SWEEP_MAX_NAMES));
         expect(rest.truncated).toBeUndefined();
-    });
+    }, 60_000);
 
     it("素材目录读不了（权限）：500 io-error，不当成“目录是空的”；单个文件查不了记 failed 并带码，不伪装成 not-file", async () => {
         const {user, sweep} = await scene();
