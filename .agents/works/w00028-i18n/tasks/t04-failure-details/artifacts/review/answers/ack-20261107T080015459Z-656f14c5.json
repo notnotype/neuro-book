@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "ackId": "20261107T080015459Z-656f14c5",
+    "answers": [
+        "20261107T075933561Z-0b142dbe"
+    ],
+    "through": "20261107T075933561Z-0b142dbe",
+    "included": [
+        ".agents/works/w00028-i18n/tasks/t04-failure-details/README.md"
+    ],
+    "ackedAt": "2026-11-07T08:00:15.459Z"
+}
