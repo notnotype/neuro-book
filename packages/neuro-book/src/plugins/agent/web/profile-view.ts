@@ -7,7 +7,9 @@ import {builtinRoleNameKey, modelsText, roleOfReference, roleReference} from "nb
 import type {ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "nbook/plugins/models/shared/contracts";
 import type {TextResolver} from "nbook/shared/localized-text";
 
-import type {ProfileEntry, ProfileProblem} from "../shared/contracts";
+import type {ProfileEntry, ProfileProblem, ToolCatalogEntry} from "../shared/contracts";
+import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-tools";
+import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
 
@@ -50,6 +52,47 @@ export interface ProfileApprovalField {
     readonly hint: string;
 }
 
+export interface ProfileToolRow {
+    readonly id: string;
+    /** 交给模型的名字；已卸载的写 id：名字已经查不到。 */
+    readonly name: string;
+    readonly effect: string;
+    readonly danger: boolean;
+    /** 一句话，放不下时截断；`detail` 是悬停里的全文。 */
+    readonly summary: string;
+    readonly detail: string;
+    readonly required: boolean;
+    readonly gone: boolean;
+}
+
+export interface ProfileToolGroup {
+    readonly provider: string;
+    readonly tools: readonly ProfileToolRow[];
+}
+
+export interface ProfileToolCandidate extends ProfileToolRow {
+    /** 交给模型的名字：对话框里同名的只能选一个。 */
+    readonly providerName: string;
+    /** 加入时一起去掉的已开的同名工具。 */
+    readonly replaces?: string;
+    /** 同名的工具是必需的，加不了。 */
+    readonly blocked: boolean;
+}
+
+export interface ProfileToolCandidateGroup {
+    readonly provider: string;
+    readonly tools: readonly ProfileToolCandidate[];
+}
+
+export interface ProfileToolsField {
+    readonly groups: readonly ProfileToolGroup[];
+    /** 模型看到的工具数（不算已卸载的）。 */
+    readonly count: number;
+    /** 这个 Profile 在绑定里有项：显示“恢复默认”。 */
+    readonly modified: boolean;
+    readonly candidates: readonly ProfileToolCandidateGroup[];
+}
+
 export interface ProfileView {
     readonly key: string;
     readonly name: string;
@@ -66,6 +109,8 @@ export interface ProfileView {
     readonly model: ProfileModelField;
     /** `hidden` 的没有：后台运行没有审批。 */
     readonly approval: ProfileApprovalField | null;
+    /** 没有工具一节时为 null：从未打包成功的、什么工具都没有的后台 Profile。 */
+    readonly tools: ProfileToolsField | null;
 }
 
 export function hasCredentials(provider: SnapshotProvider): boolean {
@@ -218,8 +263,87 @@ function problemNotice(entry: ProfileEntry, problem: ProfileProblem, text: TextR
     }
 }
 
+/** Agent 插件自带的工具的一句话说明的键；别的插件的工具取声明说明的第一行。 */
+const BUILTIN_TOOL_SUMMARIES = {
+    "nbook.agent.read": "profiles.tools.summary.read",
+    "nbook.agent.write": "profiles.tools.summary.write",
+    "nbook.agent.edit": "profiles.tools.summary.edit",
+    "nbook.agent.edit-replace": "profiles.tools.summary.edit-replace",
+    "nbook.agent.grep": "profiles.tools.summary.grep",
+    "nbook.agent.glob": "profiles.tools.summary.glob",
+    "nbook.agent.shell": "profiles.tools.summary.shell",
+    "nbook.agent.switch-mode": "profiles.tools.summary.switch-mode",
+    "nbook.agent.ask": "profiles.tools.summary.ask",
+    "nbook.agent.ask-form": "profiles.tools.summary.ask-form",
+} as const;
+
+export const hasBuiltinToolSummary = (id: string): boolean => id in BUILTIN_TOOL_SUMMARIES;
+
+function toolRow(tool: ToolCatalogEntry, required: boolean, text: TextResolver): ProfileToolRow {
+    const summaryKey = BUILTIN_TOOL_SUMMARIES[tool.id as keyof typeof BUILTIN_TOOL_SUMMARIES] as (typeof BUILTIN_TOOL_SUMMARIES)[keyof typeof BUILTIN_TOOL_SUMMARIES] | undefined;
+    const summary = summaryKey === undefined ? tool.description.split("\n")[0]!.trim() : text.t(agentText(summaryKey));
+    return {
+        id: tool.id,
+        name: tool.providerName,
+        effect: text.t(agentText(`profiles.tools.effect.${tool.effect}`)),
+        danger: tool.effect === "exec",
+        summary,
+        detail: summaryKey === undefined ? tool.description : summary,
+        required,
+        gone: false,
+    };
+}
+
+function byProvider<T extends {readonly id: string}>(tools: readonly T[], pluginOf: (tool: T) => string, input: ProfileViewsInput): {readonly provider: string; readonly tools: readonly T[]}[] {
+    const plugins = [...new Set(tools.map(pluginOf))].sort((a, b) => (a === BUILTIN_PLUGIN ? -1 : b === BUILTIN_PLUGIN ? 1 : input.pluginName(a).localeCompare(input.pluginName(b))));
+    return plugins.map((plugin) => ({provider: sourceName(plugin, input.pluginName, input.text), tools: tools.filter((tool) => pluginOf(tool) === plugin)}));
+}
+
+function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
+    if (entry.tools === undefined) return null;
+    const {text, catalog} = input;
+    const byId = new Map(catalog.map((tool) => [tool.id, tool]));
+    const nameOf = (id: string): string | undefined => byId.get(id)?.providerName;
+    const requirements = {required: entry.tools.required, optional: entry.tools.optional, ...(entry.defaultTools === false ? {defaultTools: false as const} : {})};
+    const binding = input.bindings[entry.key];
+    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), binding);
+    const visible = visibleToolIds(ids, nameOf);
+    const required = new Set(entry.tools.required);
+    const gone = ids.filter((id) => !byId.has(id));
+    if (entry.hidden === true && visible.length === 0 && gone.length === 0) return null;
+    const rows = visible.map((id) => byId.get(id)!);
+    const groups: ProfileToolGroup[] = byProvider(rows, (tool) => tool.plugin, input).map((group) => ({provider: group.provider, tools: group.tools.map((tool) => toolRow(tool, required.has(tool.id), text))}));
+    if (gone.length > 0) {
+        groups.push({
+            provider: text.t(agentText("profiles.tools.gone")),
+            tools: gone.map((id) => ({id, name: id, effect: "", danger: false, summary: text.t(agentText("profiles.tools.goneSummary")), detail: text.t(agentText("profiles.tools.goneSummary")), required: required.has(id), gone: true})),
+        });
+    }
+    const shown = new Set(visible);
+    const candidates = byProvider(catalog.filter((tool) => !shown.has(tool.id)), (tool) => tool.plugin, input).map((group) => ({
+        provider: group.provider,
+        tools: group.tools.map((tool): ProfileToolCandidate => {
+            const same = sameNameTool(tool.id, visible, nameOf, entry.tools!.required);
+            return {...toolRow(tool, false, text), providerName: tool.providerName, ...(same.replaces === undefined ? {} : {replaces: same.replaces}), blocked: same.blockedBy !== undefined};
+        }),
+    }));
+    return {groups, count: visible.length, modified: binding !== undefined, candidates};
+}
+
+/** 改绑定用的：这个 Profile 本来就有哪些工具。 */
+export function toolChangeContext(entry: ProfileEntry, catalog: readonly ToolCatalogEntry[]): {readonly requirements: {readonly required: readonly string[]; readonly optional: readonly string[]; readonly defaultTools?: false}; readonly defaultForAll: readonly string[]} {
+    return {
+        requirements: {required: entry.tools?.required ?? [], optional: entry.tools?.optional ?? [], ...(entry.defaultTools === false ? {defaultTools: false as const} : {})},
+        defaultForAll: catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id),
+    };
+}
+
+export type {ToolChange};
+
 export interface ProfileViewsInput {
     readonly profiles: readonly ProfileEntry[];
+    readonly catalog: readonly ToolCatalogEntry[];
+    readonly bindings: Readonly<Record<string, ToolBinding>>;
     readonly settings: Readonly<Record<string, ProfileSetting>>;
     /** 还没取到或模型服务不在时为 null。 */
     readonly snapshot: ModelsSnapshot | null;
@@ -256,6 +380,7 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             notice: entry.problem === undefined ? null : problemNotice(entry, entry.problem, text),
             model: modelField(entry, setting, input.snapshot, input.modelsFailed, text),
             approval: entry.hidden === true ? null : approvalField(setting, text),
+            tools: toolsField(entry, input),
         };
     });
 }

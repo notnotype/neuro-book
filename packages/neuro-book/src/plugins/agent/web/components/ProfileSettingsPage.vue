@@ -2,10 +2,11 @@
 import {Button, Select, Spinner} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 
-import type {ProfileView} from "../profile-view";
+import type {ProfileView, ToolChange} from "../profile-view";
 import {useAgentPageText} from "../text";
 import ProfileDetail from "./ProfileDetail.vue";
 import ProfileRail from "./ProfileRail.vue";
+import ProfileToolsSection from "./ProfileToolsSection.vue";
 
 /** 设置窗口的“Profile”分区（同名 .md）：只管选中与布局，取数与写入在 `profile-page.ts`。 */
 const props = withDefaults(defineProps<{
@@ -13,13 +14,17 @@ const props = withDefaults(defineProps<{
     profiles: readonly ProfileView[];
     writable?: boolean;
     initial?: string;
-}>(), {writable: true, initial: undefined});
+    /** “添加工具”的“完成”：交回失败原因，成功交回 null。 */
+    addTools?: (key: string, change: ToolChange) => Promise<string | null>;
+}>(), {writable: true, initial: undefined, addTools: async () => null});
 
 const emit = defineEmits<{
     (e: "retry"): void;
     (e: "model", key: string, value: string): void;
     (e: "approval", key: string, value: string): void;
     (e: "open-file", key: string): void;
+    (e: "remove-tool", key: string, id: string): void;
+    (e: "restore-tools", key: string): void;
     (e: "create"): void;
 }>();
 
@@ -61,7 +66,16 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
                     @model="(value) => emit('model', current!.key, value)"
                     @approval="(value) => emit('approval', current!.key, value)"
                     @open-file="emit('open-file', current!.key)"
-                />
+                >
+                    <ProfileToolsSection
+                        v-if="current.tools !== null"
+                        :tools="current.tools"
+                        :disabled="!writable"
+                        :add-tools="(change) => addTools(current!.key, change)"
+                        @remove="(id) => emit('remove-tool', current!.key, id)"
+                        @restore="emit('restore-tools', current!.key)"
+                    />
+                </ProfileDetail>
             </div>
         </div>
     </div>

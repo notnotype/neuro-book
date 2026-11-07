@@ -38,6 +38,8 @@ import type PermissionRulesPage from "nbook/plugins/agent/web/components/Permiss
 import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail.vue";
 import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
 import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
+import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
+import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
 import type ProvidersPage from "nbook/plugins/models/web/components/ProvidersPage.vue";
 import type RolesPage from "nbook/plugins/models/web/components/RolesPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
@@ -82,7 +84,7 @@ import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
 import {withAgentPageText} from "./agent-scene/agent-page-text";
-import {SAMPLE_PROFILES} from "./agent-scene/profile-samples";
+import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./agent-scene/profile-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -1052,6 +1054,24 @@ function shelfFixtures(): LabFixture[] {
                 {id: "unavailable", label: "缺必需工具", input: {props: {profile: SAMPLE_PROFILES[3]!}}},
             ],
             load: async () => withAgentPageText(createSubjectFixture<typeof ProfileDetail>((await import("nbook/plugins/agent/web/components/ProfileDetail.vue")).default)),
+        }),
+        defineLabFixture<typeof ProfileToolsSection>({
+            component: "ProfileToolsSection",
+            scenes: [
+                {id: "tools", label: "按提供者分组，有已卸载的，能恢复默认", input: {props: {tools: SAMPLE_WRITER_TOOLS}}},
+                {id: "readonly", label: "不能写", input: {props: {tools: SAMPLE_WRITER_TOOLS, disabled: true}}},
+                {id: "adding", label: "添加工具对话框", input: {props: {tools: SAMPLE_WRITER_TOOLS, initialAdd: true}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof ProfileToolsSection>((await import("nbook/plugins/agent/web/components/ProfileToolsSection.vue")).default)),
+        }),
+        defineLabFixture<typeof AddToolsDialog>({
+            component: "AddToolsDialog",
+            scenes: [
+                {id: "candidates", label: "按提供者分组，同名的写明会换掉", input: {props: {candidates: SAMPLE_TOOL_CANDIDATES}, model: {open: true}}},
+                {id: "empty", label: "没有可以添加的", input: {props: {candidates: []}, model: {open: true}}},
+                {id: "failed", label: "写入失败留在对话框", input: {props: {candidates: SAMPLE_TOOL_CANDIDATES, status: "设置文件无法写入"}, model: {open: true}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof AddToolsDialog>((await import("nbook/plugins/agent/web/components/AddToolsDialog.vue")).default)),
         }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",

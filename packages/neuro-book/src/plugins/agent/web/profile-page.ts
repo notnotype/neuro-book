@@ -19,9 +19,10 @@ import type {ProfileEntry, ToolCatalogEntry} from "../shared/contracts";
 import type {agentSessionsContract} from "../shared/remote";
 import {agentSettings} from "../shared/settings";
 import type {ProfileSetting} from "../shared/settings";
-import type {ToolBinding} from "../shared/profile-tools";
+import {changeToolBinding, withToolBinding} from "../shared/profile-tools";
+import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import {agentText} from "../shared/text";
-import {profileViews, withApprovalChoice, withModelChoice} from "./profile-view";
+import {profileViews, toolChangeContext, withApprovalChoice, withModelChoice} from "./profile-view";
 import {createSettingWriter} from "./setting-writes";
 import type {SettingWriter} from "./setting-writes";
 
@@ -85,6 +86,7 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
             const catalog = shallowRef<readonly ToolCatalogEntry[]>([]);
             const pluginNames = shallowRef<ReadonlyMap<string, string>>(new Map());
             const settingEdits = pendingEdits(deps.settings, agentSettings.settings.profileSettings, deps.writers.settings);
+            const bindingEdits = pendingEdits(deps.settings, agentSettings.settings.toolBindings as unknown as SettingDefinition<Record<string, ToolBinding>>, deps.writers.bindings);
 
             /** 事件可能接连来：只认最后一次请求的结果，晚到的旧列表不盖新的。 */
             let sequence = 0;
@@ -136,12 +138,22 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
             };
             const views = computed(() => profileViews({
                 profiles: entries.value,
+                catalog: catalog.value,
+                bindings: bindingEdits.value(),
                 settings: settingEdits.value(),
                 snapshot: deps.models.snapshot.value,
                 modelsFailed: deps.models.failed.value,
                 pluginName,
                 text: deps.text,
             }));
+
+            /** 写的那一刻对当时的值求改动，按这时的目录换算（用到的是 Profile 本来就有哪些工具）。 */
+            const changeTools = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
+                const entry = entries.value.find((candidate) => candidate.key === key);
+                if (entry === undefined) return Promise.resolve({ok: true});
+                const {requirements, defaultForAll} = toolChangeContext(entry, catalog.value);
+                return bindingEdits.apply((current) => withToolBinding(current, key, changeToolBinding(current[key], requirements, defaultForAll, change)));
+            };
 
             return () => h(component, {
                 state: state.value,
@@ -153,6 +165,13 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 },
                 onModel: (key: string, value: string) => void settingEdits.apply((current) => withModelChoice(current, key, value)).then(reportIfFailed),
                 onApproval: (key: string, value: string) => void settingEdits.apply((current) => withApprovalChoice(current, key, value)).then(reportIfFailed),
+                onRemoveTool: (key: string, id: string) => void changeTools(key, {remove: [id]}).then(reportIfFailed),
+                onRestoreTools: (key: string) => void bindingEdits.apply((current) => withToolBinding(current, key, undefined)).then(reportIfFailed),
+                // 对话框自己显示失败，留在原地；不走窗口通知。
+                addTools: async (key: string, change: ToolChange): Promise<string | null> => {
+                    const result = await changeTools(key, change);
+                    return result.ok ? null : settingsFailureText(result.code, result.detail, deps.text);
+                },
                 onOpenFile: (key: string) => deps.openAddress(`user://profiles/${key.replace(/^user\./u, "")}.profile.tsx`),
             });
         },

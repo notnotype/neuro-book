@@ -363,6 +363,47 @@
             "hint": "Only sets the starting value for new sessions; you can switch inside a session",
             "auto": "A model decides first and asks you when unsure; it can miss things",
             "yolo": "Nothing needs approval; only deny rules can block a call"
+        },
+        "tools": {
+            "section": {
+                "count": "{{count}} on",
+                "help": "Changes apply from the next model request, including sessions already open.",
+                "restore": "Restore defaults",
+                "add": "Add tools"
+            },
+            "effect": {
+                "read": "Read",
+                "write": "Write",
+                "exec": "Run"
+            },
+            "required": "Required",
+            "gone": "Uninstalled",
+            "goneSummary": "This tool wasn't found. Install the plugin that provides it to restore it.",
+            "remove": "Remove {{name}} ({{id}})",
+            "add": {
+                "title": "Add tools",
+                "search": "Search tools",
+                "empty": "There are no tools to add",
+                "noMatch": "No matching tools",
+                "done": "Done",
+                "cancel": "Cancel",
+                "join": "Add {{name}} ({{id}})",
+                "unjoin": "Don't add {{name}} ({{id}})",
+                "replaces": "Replaces the enabled tool with the same name.",
+                "blocked": "Conflicts with a required tool of the same name, so it can't be added."
+            },
+            "summary": {
+                "read": "Reads files and folders, and can view images.",
+                "write": "Writes a whole file: creates it if missing, overwrites it if not.",
+                "edit": "Edits a file by line anchors, several places at once.",
+                "edit-replace": "Replaces a piece of text in a file.",
+                "grep": "Searches file contents with a regular expression.",
+                "glob": "Finds files by path pattern.",
+                "shell": "Runs a command.",
+                "switch-mode": "Asks to switch to discuss, plan, or normal mode.",
+                "ask": "Asks the user with fixed choices.",
+                "ask-form": "Asks the user, with choices or a form."
+            }
         }
     }
 }

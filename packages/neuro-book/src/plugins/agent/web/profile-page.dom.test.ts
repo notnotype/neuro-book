@@ -265,6 +265,94 @@ describe("模型与审批的写入", () => {
     });
 });
 
+describe("工具", () => {
+    const bindings = (settings: ReturnType<typeof open>["settings"]) => settings.get(agentSettings.settings.toolBindings);
+    const removeButton = (wrapper: ReturnType<typeof open>["wrapper"], id: string) => wrapper.get(`[data-profile-tool="${id}"] [data-profile-tool-remove]`);
+    const addDialog = () => document.body.querySelector("[data-profile-add-tools]")!;
+    const click = (element: Element | null | undefined) => (element as HTMLElement).click();
+    const confirmAdd = () => click([...addDialog().querySelectorAll("button")].find((button) => button.textContent?.trim() === "完成"));
+
+    it("必需的标必需、没有去掉按钮；可访问名称分得清同名工具", async () => {
+        const {wrapper} = open({values: {[agentSettings.settings.toolBindings.key]: {"nbook.agent.main": {added: ["plot.search"], removed: []}}}});
+        await ready(wrapper);
+        expect(wrapper.get("[data-profile-tool='nbook.agent.read']").find("[data-profile-tool-remove]").exists()).toBe(false);
+        expect(removeButton(wrapper, "nbook.agent.edit").attributes("aria-label")).toContain("nbook.agent.edit");
+        expect(wrapper.findAll("[data-profile-tool-group]").map((group) => group.attributes("data-profile-tool-group"))).toEqual(["内置", "剧情"]);
+    });
+
+    it("去掉写进 removed；连点两个不等结算，两个都生效；页面立刻不再列", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, tools: {required: ["nbook.agent.read"], optional: ["nbook.agent.edit", "plot.search"]}}]});
+        const {wrapper, settings} = open({remote});
+        await ready(wrapper);
+        await removeButton(wrapper, "nbook.agent.edit").trigger("click");
+        await removeButton(wrapper, "plot.search").trigger("click");
+        expect(wrapper.find("[data-profile-tool='nbook.agent.edit']").exists()).toBe(false);
+        expect(wrapper.find("[data-profile-tool='plot.search']").exists()).toBe(false);
+        await waitUntil("两个都写下", () => bindings(settings)["nbook.agent.main"]?.removed.length === 2);
+        expect(bindings(settings)["nbook.agent.main"]).toEqual({added: [], removed: ["nbook.agent.edit", "plot.search"]});
+    });
+
+    it("恢复默认删掉这个 key，别的 Profile 不动", async () => {
+        const other = {added: ["plot.search"], removed: []};
+        const {wrapper, settings} = open({values: {[agentSettings.settings.toolBindings.key]: {"nbook.agent.main": {added: [], removed: ["nbook.agent.edit"]}, "user.mine": other}}});
+        await ready(wrapper);
+        await wrapper.get("[data-profile-tools-restore]").trigger("click");
+        await waitUntil("删掉", () => bindings(settings)["nbook.agent.main"] === undefined);
+        expect(bindings(settings)).toEqual({"user.mine": other});
+        expect(wrapper.find("[data-profile-tools-restore]").exists()).toBe(false);
+    });
+
+    it("添加：一次写入多项，同名的同一次换掉，取消不写，没改动直接关", async () => {
+        const {wrapper, settings} = open();
+        await ready(wrapper);
+        await wrapper.get("[data-profile-tools-add]").trigger("click");
+        await waitUntil("对话框", () => addDialog() !== null);
+        const toggle = (id: string) => click(addDialog().querySelector(`[data-add-tool="${id}"] [data-add-tool-toggle]`));
+        expect(addDialog().querySelector("[data-add-tool='nbook.agent.edit-replace'] [data-add-tool-replaces]")).not.toBeNull();
+        toggle("plot.search");
+        toggle("nbook.agent.edit-replace");
+        await flushPromises();
+        confirmAdd();
+        await waitUntil("写下", () => bindings(settings)["nbook.agent.main"] !== undefined);
+        expect(bindings(settings)["nbook.agent.main"]).toEqual({added: ["nbook.agent.edit-replace", "plot.search"], removed: ["nbook.agent.edit"]});
+        await waitUntil("完成后关掉", () => document.body.querySelector("[data-profile-add-tools]") === null || wrapper.findComponent({name: "AddToolsDialog"}).props("open") === false);
+    });
+
+    it("添加：必需的同名工具换不了，按钮停用并写原因", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, tools: {required: ["nbook.agent.edit"], optional: []}}]});
+        const {wrapper} = open({remote});
+        await ready(wrapper);
+        await wrapper.get("[data-profile-tools-add]").trigger("click");
+        await waitUntil("对话框", () => addDialog() !== null);
+        const row = addDialog().querySelector("[data-add-tool='nbook.agent.edit-replace']")!;
+        expect((row.querySelector("[data-add-tool-toggle]") as HTMLButtonElement).disabled).toBe(true);
+        expect(row.textContent).toContain("必需");
+    });
+
+    it("添加：写失败留在对话框并写原因，不走窗口通知", async () => {
+        const {wrapper, settings, failures} = open();
+        await ready(wrapper);
+        settings.update = (async () => ({ok: false, code: "unavailable", detail: ""})) as never;
+        await wrapper.get("[data-profile-tools-add]").trigger("click");
+        await waitUntil("对话框", () => addDialog() !== null);
+        click(addDialog().querySelector("[data-add-tool='plot.search'] [data-add-tool-toggle]"));
+        await flushPromises();
+        confirmAdd();
+        await waitUntil("写出原因", () => wrapper.findComponent({name: "AddToolsDialog"}).props("status") !== "");
+        expect(wrapper.findComponent({name: "AddToolsDialog"}).props("open")).toBe(true);
+        expect(failures).toEqual([]);
+    });
+
+    it("选中的 Profile 变了，对话框关掉", async () => {
+        const {wrapper} = open();
+        await ready(wrapper);
+        await wrapper.get("[data-profile-tools-add]").trigger("click");
+        await waitUntil("对话框", () => addDialog() !== null);
+        await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
+        await waitUntil("关掉", () => wrapper.findComponent({name: "AddToolsDialog"}).props("open") === false);
+    });
+});
+
 describe("只读", () => {
     it("这一层不能写时写入控件停用，“打开文件”照常", async () => {
         const opened: string[] = [];

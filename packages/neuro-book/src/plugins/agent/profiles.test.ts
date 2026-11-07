@@ -14,6 +14,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
+import {hasBuiltinToolSummary} from "./web/profile-view";
 import type {AgentWorld} from "./testing/world";
 
 let root = "";
@@ -213,6 +214,10 @@ describe("用户级 Profile", () => {
         expect(tool("nbook.agent.edit")).toMatchObject({providerName: "edit", effect: "write", plugin: "nbook.agent"});
         expect(tool("nbook.agent.edit-replace")?.providerName).toBe(tool("nbook.agent.edit")?.providerName);
         expect(tool("nbook.agent.read")?.effect).toBe("read");
+        // 给模型看的说明不能直接给人看：Agent 自带的工具在界面文字里都有一句短说明。
+        const builtin = catalog.value.filter((entry) => entry.plugin === "nbook.agent");
+        expect(builtin.length).toBeGreaterThan(0);
+        expect(builtin.filter((entry) => !hasBuiltinToolSummary(entry.id))).toEqual([]);
     });
 
     test("输出 18：新建一次写成，骨架打包成功；不出现空文件的中间状态；同名不覆盖、名字不合规则被拒", async () => {
