@@ -89,6 +89,6 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
 1. 改要发的包的 `version`，合入 master：源码包改各自的 `package.json`（依赖它、又要用到新接口的包一起改；内部依赖写 `workspace:^`，发布时改写成 `^<版本>`）；应用与 SDK 同一个版本号，只改 `packages/neuro-book` 的 `package.json` 与 `src/shared/product.ts`（`product.test` 核对两处一致）。
 2. 推 master：README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到；发布门禁会查。
 3. `bun run release:check`：源码包的发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
-4. `bun run release:smoke`：生成应用包与 SDK 包，11 个包都过发布清单检查、打成 tarball 放进 `dist/release/` 并写下 `release-manifest.json`（提交与 SHA-256）；再装进仓库外的空项目像用户那样用一遍：`nbstory` 与它的查看器、Vite 宿主构建、`bun add -g` 应用后 `nbook` 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启插件已加载。直连 registry 慢时整条命令前加 `prox`。
+4. `bun run release:smoke`：生成应用包与 SDK 包，11 个包都过发布清单检查、打成 tarball 放进 `dist/release/` 并写下 `release-manifest.json`（提交与 SHA-256）；再装进仓库外的空项目像用户那样用一遍：`nbstory` 与它的查看器、Vite 宿主构建、`bun add -g` 应用后 `nbook` 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启插件已加载。直连 registry 慢时整条命令前加 `prox`。冒烟之后不要 amend、变基或改写已冒烟的提交：`release-manifest.json` 记的是那一刻的提交，改写后它要么不在 `origin/master` 上，要么与要发布的目录对不上，只能重跑冒烟。
 5. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、冒烟用的提交已在 origin/master、冒烟以来会发布的目录没改过、tarball 没被改过、源码包的发布清单、要发的包的 typecheck），列出要发的包；确认后带 `--yes` 重跑，发的就是第 4 步验过的 tarball（Bun 发 tarball 时按当前目录找 bin，会打印 `warn: bin … does not exist`，无害：bin 在 tarball 里，冒烟已经跑过）。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 11 个包）。中途失败就停，重跑会跳过已发布的版本。
 6. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry`（按当前 checkout 的版本号从 registry 装，装到的版本对不上就失败），结果记进对应 Task 的证据。
