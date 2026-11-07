@@ -15,53 +15,39 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 </head>
 <body>
 <h1>t05 Profile 设置页</h1>
-<p>都是静态稿，用真实的 nb-ui 组件和主题，数据是写死的样本。第 2 轮按你第 1 轮的备注改了提示、头部和工具一节，下面两题确认这些改法。</p>
+<p>都是静态稿，用真实的 nb-ui 组件和主题，数据是写死的样本（“世界设定”工具是编的）。第 3 轮只问工具怎样分组。</p>
 
-<section data-nbdev-question="notice-and-head" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>提示和头部这样改，可以吗</h2>
-  <p>规范写的是状态变化不推动周围内容（<code>ui-development-spec.md</code> 的“几何、排版与动效”）。现有页面有两处做法，直接照用，不再用会占一整行的横幅：</p>
-  <ul>
-    <li><b>Profile 级的问题</b>（缺必需工具、打包失败）：照设置窗口标题区的“设置文件格式有误”，一个控件高的淡底块，放在头部这一行右边。说明让位，一行放不下时截断，悬停看全文。</li>
-    <li><b>字段级的问题</b>（模型不满足要求）：照设置行的状态图标，标题后一个图标；说明行换成警告文字。这一行本来就是两行，换字不改高度。审批模式选“自动判断”“全部放行”时的后果说明也放说明行。</li>
-    <li><b>头部</b>：名称和说明压成一行，高度等于一个小号控件。key 和来源收进说明的悬停提示（来源左栏已经写了）。“打开文件”“删除”改成图标按钮。</li>
-    <li><b>去掉</b>：后台 Profile 那句“不出现在新建会话的选择里”。左栏的“后台”分组已经说明了。</li>
-  </ul>
-  <p>下面前四张模型、审批、工具的上下位置完全一样，可以直接比。</p>
+<section data-nbdev-question="tools-grouping" data-nbdev-type="single" data-nbdev-recommend="a">
+  <h2><span class="badge" data-nbdev-skip>待定</span>工具按提供者分组，用哪种</h2>
+  <p>我看了“服务商与模型”：模型列表的组头有折叠箭头，下面每个模型一行，行之间有分隔线。上一稿每个工具占两行、没有分隔线，组头埋在里面，所以不明显。</p>
+  <p>四种都改成了一个工具一行，名字、等级、说明各占一列上下对齐，说明放不下时截断、悬停看全文。添加工具对话框的分组跟着你选的样式改。</p>
   <div class="row small">
-    <figure><figcaption>缺必需工具（插件 Profile）</figcaption><img src="r2/unavailable.webp" alt="头部右边一个警告块写不可用：缺少必需工具 plot.search"></figure>
-    <figure><figcaption>打包失败（用户级）</figcaption><img src="r2/broken.webp" alt="头部右边一个红色块写打包失败和原因，旁边打开文件和删除图标"></figure>
-    <figure><figcaption>没有问题；模型不满足要求</figcaption><img src="r2/user.webp" alt="设定核对 Profile，模型标题后有警告图标，说明行写这个模型不支持看图"></figure>
-    <figure><figcaption>后台 Profile</figcaption><img src="r2/background.webp" alt="会话标题 Profile，只有模型一行"></figure>
-    <figure><figcaption>页面不到 600px</figcaption><img src="r2/narrow.webp" alt="左栏收成顶上的下拉，头部仍是一行"></figure>
+    <div data-nbdev-option="a" data-nbdev-label="A 折叠组，同模型列表（推荐）">
+      <figure><figcaption>A 折叠组</figcaption><img src="r3/tools-a.webp" alt="组头带折叠箭头和个数，下面每行一条分隔线"></figure>
+      <p>和模型列表一个样，看过那边就会用；能折叠，内置的工具多时可以收起来；窄屏不用另做。组头还是小字，是四种里最不抢眼的。</p>
+    </div>
+    <div data-nbdev-option="b" data-nbdev-label="B 分组卡片">
+      <figure><figcaption>B 分组卡片</figcaption><img src="r3/tools-b.webp" alt="每个提供者一张带头部底色的圆角卡片"></figure>
+      <p>边界最清楚。但框和头部底色占地方，页面最长；规范不提倡“带底色的头部加内容大框”的堆叠，别的设置页也没有这样画的。</p>
+    </div>
+    <div data-nbdev-option="c" data-nbdev-label="C 提供者写在左列">
+      <figure><figcaption>C 左列</figcaption><img src="r3/tools-c.webp" alt="提供者名写在左边一列，右边是工具"></figure>
+      <p>扫一眼就能看出有哪些提供者，也不多占高度。说明会窄约 100px，截断更多；页面不到 600px 时组名要改回放在上面；不能折叠。</p>
+    </div>
+    <div data-nbdev-option="d" data-nbdev-label="D 标签页">
+      <figure><figcaption>D 标签页</figcaption><img src="r3/tools-d.webp" alt="标签页切换提供者，下面只列这一家的工具"></figure>
+      <p>页面最短，工具再多也放得下。但要逐个点开才能看全开了什么，这一节的用处本来就是看全。</p>
+    </div>
   </div>
-  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>照这样实现。</p></div>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
-</section>
-
-<section data-nbdev-question="tools-by-provider" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>工具按提供者分类、另外添加，这样可以吗</h2>
-  <ul>
-    <li><b>提供者</b>：我理解成贡献这个工具的插件，名字用插件的显示名；Agent 插件自带的写“内置”，和左栏的来源同一套词。已卸载的找不到提供者，单独一组放最后。样本里的“世界设定”工具是编的。</li>
-    <li><b>页面上</b>：只列开着的，每组写个数。必需的标“必需”，其余一个“×”，这一格定宽，文字不会跟着动。</li>
-    <li><b>添加工具</b>：对话框同“管理模型”：搜索，按提供者分组，每行“+”，点过变“−”，“完成”时一次写入，“取消”不写。只列还没开的。</li>
-    <li><b>同名工具</b>：<code>edit</code>、<code>ask</code> 另一个实现的说明后面写“加入后换掉已开的同名工具”，完成时一起换。</li>
-    <li><b>“下一次模型请求起生效”</b>：收进“工具”旁边的问号提示，不常驻占位。</li>
-  </ul>
-  <p>MCP 工具都来自同一个插件，不同服务器会挤在一组。这件事留给 MCP 那个 Work 定，这里不做。</p>
-  <div class="row small">
-    <figure><figcaption>放在设置窗口里（960×640）</figcaption><img src="r2/window.webp" alt="设置窗口里的 Profile 页，工具按内置分组"></figure>
-    <figure><figcaption>工具多个提供者</figcaption><img src="r2/user.webp" alt="工具分内置、剧情图谱、世界设定三组"></figure>
-    <figure><figcaption>添加工具</figcaption><img src="r2/tools-add.webp" alt="添加工具对话框：搜索，按提供者分组，每行加号"></figure>
-    <figure><figcaption>有已卸载的</figcaption><img src="r2/main.webp" alt="写作助手的工具列表"></figure>
-  </div>
-  <div data-nbdev-option="accept" data-nbdev-label="可以（推荐）"><p>照这样实现。</p></div>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改"><p>在备注里写要改什么。</p></div>
 </section>
 
 <section>
-  <h2><span class="badge" data-nbdev-skip>已定</span>第 1 轮</h2>
-  <p>整页版式可以，提示和头部要改（见上面第一题）。工具一节选 B，只列开着的、另外添加，并按提供者分类（见上面第二题）。</p>
-  <p>第 1 轮的图：<a href="r1/window.webp">设置窗口</a>、<a href="r1/unavailable.webp">缺必需工具</a>、<a href="r1/tools-b.webp">候选 B</a>。</p>
+  <h2><span class="badge" data-nbdev-skip>已定</span>前两轮</h2>
+  <ul>
+    <li><b>整页版式</b>：可以。</li>
+    <li><b>提示和头部</b>：Profile 级的问题放头部一行右边，字段级的放标题后的图标和说明行，名称和说明压成一行。<a href="r2/unavailable.webp">缺必需工具</a>、<a href="r2/broken.webp">打包失败</a>、<a href="r2/user.webp">模型不满足要求</a>。</li>
+    <li><b>工具一节</b>：只列开着的，<a href="r2/tools-add.webp">另外添加</a>，按提供者分组。</li>
+  </ul>
 </section>
 </body>
 </html>
