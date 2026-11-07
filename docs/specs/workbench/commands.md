@@ -162,7 +162,9 @@ Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-edit
 | 命令 id | 标题 | 参数 | `when.requires` | `effect` | agent 暴露 |
 |---|---|---|---|---|---|
 | `nbook.view.set-panel-collapsed` | 收起为标题头 / Collapse to Title Bar | `{panelId?, collapsed?}`；`panelId` 缺省当前面板，`collapsed` 省略时切换 | `nbook.workbench/layoutReady` | write | never |
-| `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{panelId?}`；缺省当前面板 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{panelId?}`；缺省当前面板；浮动窗为 `unavailable` | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.float` | 浮动 / Float | `{panelId?, tab?}`；缺省当前面板的活动标签；不能浮动时 `unavailable` | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.dock` | 回到停靠 / Dock | `{panelId?}`；缺省当前面板；不是浮动窗时 `unavailable` | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.move-view` | 移动视图 / Move View | `{viewId, target}`（工具面板 id）或 `{viewId, newPanelNextTo}`（工具面板 id），或全部省略；省略时经选择先选视图、再选目标 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.open` | 打开视图 / Open View | `{viewId?}`；省略时经选择列出树上的视图 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |

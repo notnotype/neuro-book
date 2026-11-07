@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t09-in-app-float
-status: active
+status: done
 updated: 2026-11-05
 ---
 
@@ -15,7 +15,12 @@ updated: 2026-11-05
 
 ## 当前状态
 
-计划已按设计审查修订，开始实现。
+2026-11-07 已合入（`2ae112479`、`22718bc8a`、`cbed1d0a3` 附近三个提交），实现审查待处理。
+
+- 验证：`test:affected --since master --typecheck` 只有已知失败（`plugins/agent` 的跨插件导入、`permission-page` 的类型）；e2e：`workbench-float`（新，10 条）、`workbench-dnd`、`workbench-live-drag`、`editor-area`、`workbench-shell`、`workbench-views`、`lab-editor`、`lab-workbench-surface`、`lab-grid-panels`、`lab-grid-structure` 全过；`lab-scenes` 只有 ThemeEditor 假素材的 404，版面没有新问题（临时改 `expect.soft` 看过后面的检查）。
+- 变异：`sameLayoutShape` 不比 `floats`、忽略 `noCenter`、`settleFloatMoves` 恒不改，对应单测都失败。`NestedGrid.dom.test` 的“只有窗的矩形变了不过渡”没有抓到第三个（happy-dom 里过渡令牌读不到），由 `grid-motion.test` 与 e2e 的“拖窗没有过渡”守住。
+- 和计划不同的地方：手柄贴着窗的边往里，不骑在边上（骑在边上要越出窗，网格根裁切）；整窗抓住的是按下的那一点，不是过门槛处；`nbook.view.float` 多一个 `tab` 参数，给“移动到”和标签右键用，它们作用于被右击的标签，不先激活。
+- 没做的：Lab 里 `NestedGrid` 没有浮动窗的场景，`FloatWindowHandles` 有；手感由开发者试。
 
 设计审查（一个 Sonnet，[`evidences/plan-review.txt`](evidences/plan-review.txt)，15 条：重要 9、建议 6），计划照改：
 
@@ -41,4 +46,4 @@ updated: 2026-11-05
 
 ## 下一步
 
-片 1：模型与落点。
+处理实现审查的报告。

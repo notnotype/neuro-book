@@ -42,6 +42,7 @@ interface ViewDeclaration {
     readonly minimumSize?: {readonly width?: number; readonly height?: number};
     readonly maximumSize?: {readonly width?: number; readonly height?: number};
     readonly movable?: boolean;                          // 默认 true
+    readonly floatable?: boolean;                        // 默认 true；假时松手没有落点就是取消，没有“浮动”按钮（ui/workbench-layout 输出 39）
     readonly actions?: ReadonlyArray<ViewAction>;        // 标题动作（输出 10），至多 8 个
 }
 interface ViewAction {
