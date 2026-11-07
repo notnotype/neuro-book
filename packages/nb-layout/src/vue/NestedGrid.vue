@@ -106,23 +106,27 @@ const snapHost = useSashSnap();
 
 /** 摆放的容器：实测盒；还没挂上时退回布局发布的根节点尺寸。 */
 const placementExtent = computed<GridExtent>(() => rootExtent() ?? {width: 0, height: 0});
-const placement = computed(() => {
+/** 树的摆放：和浮动窗分开算，拖窗时它不失效，也不用重新对齐分隔线。 */
+const treePlacement = computed(() => {
     const root = renderTree.value;
     if (root === null) return null;
     const placed = placeGrid(root, renderLayout.value, placementExtent.value, dpr.value);
-    const items = props.maximized == null ? placed.items : maximizePlacement(placed.items, props.maximized.leaf, props.maximized.exclude);
-    return {items: props.floats.length === 0 ? items : [...items, ...floatPlacements(props.floats)]};
+    return props.maximized == null ? placed : {items: maximizePlacement(placed.items, props.maximized.leaf, props.maximized.exclude)};
+});
+const placement = computed(() => {
+    const tree = treePlacement.value;
+    return tree === null || props.floats.length === 0 ? tree : {items: [...tree.items, ...floatPlacements(props.floats)]};
 });
 /** 被盖住的叶：除了最大化的那块和 `exclude`（条）。浮动窗在最大化的面板上面，不算。 */
 const obscuredLeaves = computed<ReadonlySet<string>>(() => {
     const maximized = props.maximized;
     if (maximized == null) return new Set();
-    return new Set((placement.value?.items ?? []).flatMap((item) => (item.kind === "leaf" && item.float !== true && item.node.id !== maximized.leaf && !maximized.exclude.includes(item.node.id) ? [item.node.id] : [])));
+    return new Set((treePlacement.value?.items ?? []).flatMap((item) => (item.kind === "leaf" && item.node.id !== maximized.leaf && !maximized.exclude.includes(item.node.id) ? [item.node.id] : [])));
 });
 /** 浮动窗的层级：外框、内容、手柄各一档，后面的压在前面的上面。写在元素上：内容换叶后 DOM 位置不变，不靠 DOM 序。 */
 const FLOAT_Z_BASE = 10;
 const floatAt = computed(() => new Map(props.floats.map((float, index) => [float.id, index])));
-const movingFloats = computed(() => new Set(props.floats.flatMap((float) => (float.moving === true ? [float.id] : []))));
+const floatGestures = computed(() => new Map(props.floats.flatMap((float) => (float.gesture === undefined ? [] : [[float.id, float.gesture] as const]))));
 function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     const at = floatAt.value.get(leaf);
     return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
@@ -203,9 +207,13 @@ function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> 
     return {width: `${size.width}px`, height: `${size.height}px`, ...(parked.value.has(item.node.id) ? {visibility: "hidden"} : {})};
 }
 
+let snappedTree: typeof treePlacement.value = null;
 watch(layers, (next, previous) => {
-    // 分隔线的矩形变了要重新对齐设备像素。
-    snapHost.schedule();
+    // 分隔线的矩形变了要重新对齐设备像素。只有浮动窗在动时树没变，不用读 DOM。
+    if (treePlacement.value !== snappedTree) {
+        snappedTree = treePlacement.value;
+        snapHost.schedule();
+    }
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
@@ -388,7 +396,7 @@ defineExpose({
                 :data-moving="moving ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
                 :data-float="floatAt.has(item.node.id) ? '' : undefined"
-                :data-float-moving="movingFloats.has(item.node.id) ? '' : undefined"
+                :data-float-gesture="floatGestures.get(item.node.id)"
                 :inert="obscuredLeaves.has(item.node.id)"
                 :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
             >
@@ -407,7 +415,7 @@ defineExpose({
                 :data-flying="flying.has(item.key) || raisedLeaf === item.leaf ? '' : undefined"
                 :data-lifted="contentLayer.isLifted(item) ? '' : undefined"
                 :data-float="floatAt.has(item.leaf) ? '' : undefined"
-                :data-float-moving="movingFloats.has(item.leaf) ? '' : undefined"
+                :data-float-gesture="floatGestures.get(item.leaf)"
                 :inert="contentLayer.isParked(item)"
                 :style="{...contentLayer.frameStyle(item), ...(contentLayer.isLifted(item) ? {} : floatLayer(item.leaf, 1))}"
             >
@@ -487,11 +495,6 @@ defineExpose({
     box-shadow: var(--layout-card-shadow);
 }
 
-.nb-grid-frame[data-float-moving],
-.nb-grid-content[data-float-moving] {
-    pointer-events: none;
-}
-
 .nb-grid-float-chrome {
     position: absolute;
     top: 0;
@@ -522,6 +525,17 @@ defineExpose({
 .nb-grid-sash[data-moving] {
     transition: transform var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);
     will-change: transform, width, height;
+}
+
+/* 手势中的窗跟手：别的布局变化正在过渡时也不带拖尾。写在 [data-moving] 后面，同样的特异性后写的赢。 */
+.nb-grid-frame[data-float-gesture],
+.nb-grid-content[data-float-gesture] {
+    transition: none;
+}
+
+.nb-grid-frame[data-float-gesture="move"],
+.nb-grid-content[data-float-gesture="move"] {
+    pointer-events: none;
 }
 
 .nb-grid-leaf {

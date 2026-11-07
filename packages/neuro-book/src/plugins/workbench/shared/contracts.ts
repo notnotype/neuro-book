@@ -204,6 +204,7 @@ export interface PanelEntry {
     readonly tabs: ReadonlyArray<string>;
     /** 活动标签的 id；空面板为 null。 */
     readonly active: string | null;
+    readonly floating: boolean;
 }
 
 export interface PanelTabs {

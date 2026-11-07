@@ -20,6 +20,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (event: "preview", rect: GridRect | null): void;
     (event: "commit", rect: GridRect): void;
+    /** 键盘移动：只有位置。大小要留给宿主：窗被夹着时 `rect` 是夹过的，不能写回。 */
+    (event: "move", position: {readonly x: number; readonly y: number}): void;
 }>();
 
 const text = useLayoutText();
@@ -72,7 +74,8 @@ function finish(commit: boolean): void {
     if (active === null) return;
     resizing.value = null;
     emit("preview", null);
-    if (commit) emit("commit", active.current);
+    // 没动就没有要提交的：窗被夹着时 `rect` 是夹过的，单击手柄不该写回。
+    if (commit && active.current !== active.start) emit("commit", active.current);
 }
 
 function onPointerUp(event: PointerEvent): void {
@@ -89,7 +92,8 @@ function onKeydown(event: KeyboardEvent, kind: "resize" | "move"): void {
     if (arrow === undefined || resizing.value !== null) return;
     const step = event.shiftKey ? KEY_STEP_FINE : KEY_STEP;
     const delta = {x: arrow.x * step, y: arrow.y * step};
-    emit("commit", kind === "move" ? {...props.rect, x: props.rect.x + delta.x, y: props.rect.y + delta.y} : resizeFloatRect(props.rect, CORNER.direction, delta, bounds.value));
+    if (kind === "move") emit("move", {x: props.rect.x + delta.x, y: props.rect.y + delta.y});
+    else emit("commit", resizeFloatRect(props.rect, CORNER.direction, delta, bounds.value));
     event.preventDefault();
     event.stopPropagation();
 }

@@ -154,7 +154,9 @@
         "editorCollapse": "编辑组不能收起",
         "notFloating": "这块面板没有浮动",
         "cannotFloat": "这个标签不能再浮动",
-        "floatMaximize": "浮动窗不能最大化"
+        "floatMaximize": "浮动窗不能最大化",
+        "floatCollapse": "浮动窗不能收起",
+        "floatLimit": "浮动窗太多了，先关掉几个"
     },
     "partCommands": {
         "parts": {

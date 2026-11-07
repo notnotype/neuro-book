@@ -603,6 +603,8 @@ describe("浮动窗", () => {
         expect(invalid([{panel, rect: {...RECT, x: Number.NaN}}])).toBe(true);
         expect(invalid([{panel: "nobody", rect: RECT}])).toBe(true);
         expect(invalid([{panel: "e0", rect: RECT}])).toBe(true);
+        // 和分支 id 撞：按 id 摘节点会把整棵分支摘掉。
+        expect(validateLayoutDoc({...doc, floats: [{panel: "body", rect: RECT}], panels: {...doc.panels, body: doc.panels[panel]}}).ok).toBe(false);
         expect(invalid([{panel, rect: RECT}, {panel, rect: RECT}])).toBe(true);
         expect(invalid([])).toBe(true);
         expect(invalid(doc.floats, {...doc.panels, [panel]: {...doc.panels[panel], collapsed: true}})).toBe(true);

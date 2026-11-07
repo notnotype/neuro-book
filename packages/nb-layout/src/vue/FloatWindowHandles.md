@@ -8,8 +8,8 @@
 
 ## 布局与交互
 
-- 指针：四边四角 8 个手柄，命中带贴着窗的边往里 6px（上边 3px：下面就是标签条，要留给拖动）。按下捕获指针，拖动中发 `preview`，松手发 `commit`，Esc 或失去捕获发 `preview(null)` 取消。负方向（左、上）同时改位置，到了尺寸上下限时对边不动（`resizeFloatRect`）。
-- 键盘：只有两个能聚焦，别的 `tabindex="-1"`，不让 Tab 走八步。右下角手柄用方向键缩放；移动把手平时看不见，聚焦时才露出来，方向键移动。步长 10px，Shift 1px，每次发 `commit`。
+- 指针：四边四角 8 个手柄，命中带贴着窗的边往里 6px（上边 3px：下面就是标签条，要留给拖动）。按下捕获指针，拖动中发 `preview`，松手发 `commit`（没动不发），Esc 或失去捕获发 `preview(null)` 取消。负方向（左、上）同时改位置，到了尺寸上下限时对边不动（`resizeFloatRect`）。
+- 键盘：只有两个能聚焦，别的 `tabindex="-1"`，不让 Tab 走八步。右下角手柄用方向键缩放；移动把手平时看不见，聚焦时才露出来，方向键移动。步长 10px，Shift 1px，每次发 `commit` 或 `move`。
 - 不读全局 `window`、`document`。
 
 ## 数据
@@ -27,6 +27,8 @@ type Emits = {
     /** 拖动中的矩形；null 是取消，回到 `rect`。 */
     (event: "preview", rect: GridRect | null): void;
     (event: "commit", rect: GridRect): void;
+    /** 键盘移动：只有位置，大小由宿主从记录取（窗被夹着时 `rect` 是夹过的）。 */
+    (event: "move", position: {readonly x: number; readonly y: number}): void;
 };
 ```
 

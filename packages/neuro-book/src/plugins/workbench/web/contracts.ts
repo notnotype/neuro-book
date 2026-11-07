@@ -73,10 +73,10 @@ export interface EditorTabDrag {
     previewable(tabId: string, action: LayoutDropAction): boolean;
     /** 拖影。 */
     ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
-    /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。 */
-    drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
+    /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。结果说做成了没有；拒绝的提示由编辑器给。 */
+    drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): Promise<boolean>;
     /** 整个浮动的编辑组停靠：逐个标签走同样的结算、合并与分区，中途被拒绝就停，剩下的留在窗里。 */
-    dropPanel(panelId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
+    dropPanel(panelId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): Promise<boolean>;
 }
 
 /** 外壳交给编辑组的头的框架按钮。 */

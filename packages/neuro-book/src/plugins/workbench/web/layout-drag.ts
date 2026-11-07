@@ -138,8 +138,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     let previewsOf: LayoutDoc | null = null;
     /** 实时布局判定用的矩形：拿起后第一次判定时量。之后邻居在让位，读 DOM 的话预览会把自己换掉。 */
     let frozen: {readonly panels: LayoutDropPanelGeometry[]; readonly floats: LayoutDropPanelGeometry[]; readonly strips: ReadonlyMap<string, TabStripSnapshot>} | null = null;
-    /** 这一场是整窗拖动：抓住的点相对窗的偏移、窗的大小。 */
-    let windowDrag: {readonly panel: string; readonly grab: GridDropPoint; readonly size: GridExtent} | null = null;
+    /** 这一场是整窗拖动：抓住的点相对窗的偏移；窗呈现的大小（夹位置用）与记录里的大小（提交用：夹取不写回）。 */
+    let windowDrag: {readonly panel: string; readonly grab: GridDropPoint; readonly shown: GridExtent; readonly size: GridExtent} | null = null;
 
     const dpr = (): number => root.ownerDocument.defaultView?.devicePixelRatio ?? 1;
     const view = root.ownerDocument.defaultView;
@@ -370,55 +370,85 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return {action: {kind: "float", rect}, inPlace: false, preview: {areaRect, indicator: null, orientation: "horizontal"}};
     }
 
-    /** 整窗此刻的矩形：抓住的点在指针下。 */
+    /** 整窗此刻的矩形：抓住的点在指针下，位置按呈现的大小夹，大小还是记录里的。 */
     function windowRect(drag: NonNullable<typeof windowDrag>, point: GridDropPoint): LayoutFloatRect {
         const at = toGrid(point);
-        return keepVisible({x: at.x - drag.grab.x, y: at.y - drag.grab.y, ...drag.size});
+        const {x, y} = keepVisible({x: at.x - drag.grab.x, y: at.y - drag.grab.y, ...drag.shown});
+        return {x, y, ...drag.size};
     }
 
-    function dropAt(source: LayoutSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
+    /** 有落点时的这一份：动作、原位、反馈。标签与整窗共用。 */
+    function dropFor(doc: LayoutDoc, source: LayoutSource, resolved: LayoutDropAction, point: GridDropPoint, panels: ReadonlyArray<LayoutDropPanelGeometry>): LayoutDragDrop | null {
+        if (resolved.kind === "strip" && !options.titleOnly(resolved.panel)) return stripDrop(doc, source, resolved.panel, point);
+        // 头只写标题的面板没有插入位：落在标题上就是添加为标签。
+        const action = resolved.kind === "strip" ? ({kind: "center", panel: resolved.panel} as const) : resolved;
+        const key = JSON.stringify([source, action, options.extent()]);
+        const cached = previews.get(key);
+        if (cached !== undefined) return cached;
+        const result = applyLayoutDrop(doc, source, action, options.policy());
+        if (!result.ok) return null;
+        const inPlace = result.doc === doc;
+        const drop = {action, inPlace, preview: previewOf(doc, source, action, inPlace, panels)};
+        previews.set(key, drop);
+        return drop;
+    }
+
+    const dropOrigin = (doc: LayoutDoc): void => {
+        if (doc === previewsOf) return;
+        previewsOf = doc;
+        previews.clear();
+    };
+
+    /**
+     * 整窗的判定：窗一直在跟手，所以“放不进”都是移动（输出 39），反馈不画。只有标签条和窄带能停靠，经过中央继续浮着。
+     */
+    function windowDrop(drag: NonNullable<typeof windowDrag>, source: LayoutSource, point: GridDropPoint): LayoutDragDrop {
         const doc = options.doc();
-        if (region?.id === FLOAT_REGION) return source.kind === "tab" ? floatDrop(doc, source, null) : null;
-        /** 整窗没有落点就是移动，别的地方放不进也是。窗一直在跟手，反馈不画。 */
-        const moved = (): LayoutDragDrop | null => (windowDrag === null ? null : {action: {kind: "float", rect: windowRect(windowDrag, point)}, inPlace: false, preview: {areaRect: null, indicator: null, orientation: "horizontal"}});
+        const moved: LayoutDragDrop = {action: {kind: "float", rect: windowRect(drag, point)}, inPlace: false, preview: {areaRect: null, indicator: null, orientation: "horizontal"}};
         const band = rectOf(toolBand());
-        if (band !== null && contains(band, point)) return barDrop(source, point, band) ?? moved();
-        if (doc !== previewsOf) {
-            previewsOf = doc;
-            previews.clear();
-        }
-        if (live.active.value && frozen === null && source.kind === "tab") freeze(doc, source);
+        if (band !== null && contains(band, point)) return barDrop(source, point, band) ?? moved;
+        dropOrigin(doc);
+        const panels = panelGeometry(doc);
+        const input: LayoutDropInput = {doc, source, point, panels, floats: floatGeometry(doc), excluded: excludedRects(), zones: frozenZones.map((zone) => ({panel: zone.panel, rect: zone.rect})), policy: options.policy(), noCenter: true, edgeRatio: LAYOUT_FLOAT_EDGE_RATIO};
+        const resolved = resolveLayoutDrop(input);
+        if (resolved === null) return moved;
+        const drop = dropFor(doc, source, resolved, point, panels);
+        return drop === null ? moved : sectored(drop, resolved, input);
+    }
+
+    function dropAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
+        const doc = options.doc();
+        if (region?.id === FLOAT_REGION) return floatDrop(doc, source, null);
+        const band = rectOf(toolBand());
+        if (band !== null && contains(band, point)) return barDrop(source, point, band);
+        dropOrigin(doc);
+        if (live.active.value && frozen === null) freeze(doc, source);
         const panels = frozen?.panels ?? panelGeometry(doc);
         const allFloats = frozen?.floats ?? floatGeometry(doc);
         // 键盘的区域是明确选的，不按坐标判预备区：编辑组的外缘候选就在预备区底下。别的窗盖着的落点也要能选。
         const zones = region === null ? frozenZones.map((zone) => ({panel: zone.panel, rect: zone.rect})) : [];
         const floats = region === null ? allFloats : allFloats.filter((geometry) => geometry.id === region.id);
         // 键盘停在预备区上就是它：预备区可能叠在真实落点上，按坐标会落到下面去。
-        const input: LayoutDropInput = {doc, source, point, panels, floats, excluded: excludedRects(), zones, policy: options.policy(), ...(windowDrag === null ? {} : {noCenter: true, edgeRatio: LAYOUT_FLOAT_EDGE_RATIO})};
+        const input: LayoutDropInput = {doc, source, point, panels, floats, excluded: excludedRects(), zones, policy: options.policy()};
         const kept = live.stickyDrop(point);
         if (kept !== null) return withSectors(kept, input);
         const resolved = region?.id.startsWith("reveal:") === true
             ? ({kind: "reveal", panel: region.id.slice("reveal:".length)} as const)
             : resolveLayoutDrop(input);
         // 只有这里是“明确的无落点”：别的 null 是被挡住、算不出或出错，不该开窗。键盘的无落点要明确选“浮动”区域。
-        if (resolved === null) return moved() ?? (region === null && source.kind === "tab" ? withSectors(floatDrop(doc, source, point), input) : null);
-        if (resolved.kind === "strip" && !options.titleOnly(resolved.panel)) return stripDrop(doc, source, resolved.panel, point);
-        // 头只写标题的面板没有插入位：落在标题上就是添加为标签。
-        const action = resolved.kind === "strip" ? ({kind: "center", panel: resolved.panel} as const) : resolved;
-        const key = JSON.stringify([source, action, options.extent()]);
-        const cached = previews.get(key);
-        if (cached !== undefined) return withSectors(cached, input);
-        const result = applyLayoutDrop(doc, source, action, options.policy());
-        if (!result.ok) return null;
-        const inPlace = result.doc === doc;
-        const drop = {action, inPlace, preview: previewOf(doc, source, action, inPlace, panels)};
-        previews.set(key, drop);
-        return withSectors(drop, input);
+        if (resolved === null) return region === null ? floatDrop(doc, source, point) : null;
+        const drop = dropFor(doc, source, resolved, point, panels);
+        return drop === null ? null : sectored(drop, resolved, input);
+    }
+
+    /** 标签条上是一条插入线，没有分区；头只写标题的面板没有插入位，算中央。 */
+    function sectored(drop: LayoutDragDrop, resolved: LayoutDropAction, input: LayoutDropInput): LayoutDragDrop {
+        return resolved.kind === "strip" && !options.titleOnly(resolved.panel) ? drop : withSectors(drop, input);
     }
 
     /** 分区不进预览缓存：缓存按动作存，同一个“放到两块之间”可以从两块面板进来，画的是指针所在的那块。 */
-    function withSectors<D extends LayoutDragDrop | null>(drop: D, input: LayoutDropInput): D | LayoutDragDrop {
-        if (drop === null || !options.sectors() || drop.action.kind === "reveal" || drop.action.kind === "float") return drop;
+    function withSectors(drop: LayoutDragDrop, input: LayoutDropInput): LayoutDragDrop {
+        if (!options.sectors() || drop.action.kind === "reveal") return drop;
         const panel = layoutDropPanelAt(input);
         const items = panel === null ? null : layoutDropSectors(input, panel);
         if (panel === null || items === null) return drop;
@@ -519,9 +549,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             if (source.kind === "panel") {
                 // 窗本身就在跟手，不走实时布局：它没有卡片可缩，候选文档里它已经没了。
                 const rect = options.floats().find((float) => float.id === source.panel)?.rect;
-                if (rect === undefined || pressedAt === null) return false;
+                const recorded = options.doc().floats.find((float) => float.panel === source.panel)?.rect;
+                if (rect === undefined || recorded === undefined || pressedAt === null) return false;
                 const at = toGrid(pressedAt);
-                windowDrag = {panel: source.panel, grab: {x: at.x - rect.x, y: at.y - rect.y}, size: {width: rect.width, height: rect.height}};
+                windowDrag = {panel: source.panel, grab: {x: at.x - rect.x, y: at.y - rect.y}, shown: {width: rect.width, height: rect.height}, size: {width: recorded.width, height: recorded.height}};
                 return true;
             }
             // 键盘没有指针可跟；减少动效时邻居瞬移看不出去了哪；最大化时别的面板盖着，预览看不见。
@@ -539,11 +570,16 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 实时布局的判定基准是拿起时的矩形，容器变了就没了，也没法从预览里量回来：整场取消。落点指示按当前位置重算（输出 32）。
         structure: () => JSON.stringify([layoutStructureKey(options.doc()), options.editorTabs()?.structure() ?? null, live.active.value ? extentKey(options.extent()) : null]),
         resolve: ({source, point, top, region}) => {
-            // 窗一直跟着指针，放不下也跟。
-            if (windowDrag !== null) options.previewFloat(windowDrag.panel, windowRect(windowDrag, point));
-            // 被菜单、对话框挡住的不接收，标签的来源也不接收按钮区；键盘没有指针下的元素。指针在窗口外没有元素，算无落点。
-            const blocked = region === null && top !== null && (!root.contains(top) || (source.kind === "tab" && top.closest("[data-no-drag]") !== null));
-            const drop = blocked ? null : dropAt(source, point, region);
+            // 被菜单、对话框挡住的不接收；键盘没有指针下的元素。指针在窗口外没有元素，算无落点。
+            const covered = region === null && top !== null && !root.contains(top);
+            if (source.kind === "panel") {
+                if (windowDrag === null) return null;
+                // 窗一直跟着指针，放不下也跟。别的窗的按钮区、活动栏放不进都是移动。
+                options.previewFloat(windowDrag.panel, windowRect(windowDrag, point));
+                return covered ? null : windowDrop(windowDrag, source, point);
+            }
+            const onButtons = region === null && top?.closest("[data-no-drag]") != null;
+            const drop = covered || onButtons ? null : dropAt(source, point, region);
             live.offer(drop);
             return drop;
         },

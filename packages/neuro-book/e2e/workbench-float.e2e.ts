@@ -11,6 +11,7 @@ import type {Locator, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
+import {SHELL_PANEL_MIN_WIDTH} from "nbook/plugins/workbench/web/shell/sizes";
 
 import {startProbeServer} from "./fixtures";
 import type {ProbeServer} from "./fixtures";
@@ -69,6 +70,12 @@ async function floatOut(page: Page, viewId: string, at: {x: number; y: number} =
     await expect.poll(() => panelOfTab(page, viewId)).not.toBe("");
     return panelOfTab(page, viewId);
 }
+
+/** 落点是下一帧才画出来的：等两帧再断言没有，免得断言在落点出现之前通过。 */
+const noFeedback = async (page: Page): Promise<void> => {
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(feedback(page)).toHaveCount(0);
+};
 
 const boxOf = async (page: Page, panel: string): Promise<{x: number; y: number; width: number; height: number}> => {
     const found = await leaf(page, panel).boundingBox();
@@ -147,14 +154,14 @@ test.describe("应用内浮动", () => {
         // 面板里两个标签，己声明不许浮动。按下不切标签，拖不起来也不写。
         await dragTo(page, tab(page, NOT_FLOATABLE), center);
         await expect(ghost(page)).toBeVisible();
-        await expect(feedback(page)).toHaveCount(0);
+        await noFeedback(page);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         expect(await panelOfTab(page, NOT_FLOATABLE)).toBe("panel");
 
         await dragTo(page, tab(page, E), await centerOf(head(page, "panel").locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]")));
         await expect(ghost(page)).toBeVisible();
-        await expect(feedback(page)).toHaveCount(0);
+        await noFeedback(page);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
 
@@ -181,7 +188,6 @@ test.describe("应用内浮动", () => {
         await expect(ghost(page)).toHaveCount(0);
         const over = await inLeaf(page, "sidebar", {x: 0.5, y: 0.5});
         await page.mouse.move(over.x, over.y, {steps: 4});
-        await expect(page.locator("[data-moving]")).toHaveCount(0);
         const moved = await boxOf(page, panel);
         expect(moved.x).toBeCloseTo(start.x + over.x - from.x, 0);
         expect(moved.y).toBeCloseTo(Math.max(0, start.y + over.y - from.y), 0);
@@ -193,6 +199,48 @@ test.describe("应用内浮动", () => {
         await expect(windows(page)).toHaveCount(1);
         expect(await boxOf(page, panel)).toEqual(moved);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
+
+        // Esc：回到拿起前，不写。
+        await press(page, tab(page, E));
+        await page.mouse.move(over.x + 100, over.y + 50, {steps: 3});
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect.poll(async () => (await boxOf(page, panel)).x).toBeCloseTo(moved.x, 0);
+        expect(await writesOf(page)).toBe(writes + 1);
+    });
+
+    test("窗刚开、过渡还在走时拖它：跟手，没有拖尾", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const panel = await floatOut(page, E);
+        // 不等过渡：`[data-moving]` 还在。
+        const start = await boxOf(page, panel);
+        const from = await press(page, tab(page, E));
+        await page.mouse.move(from.x + 200, from.y + 60);
+        const moved = await boxOf(page, panel);
+        expect(moved.x).toBeCloseTo(start.x + 200, 0);
+        expect(moved.y).toBeCloseTo(start.y + 60, 0);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+    });
+
+    test("窗被夹着时，移动、单击手柄都不把夹过的大小写回", async ({page}) => {
+        await open(page);
+        const panel = await floatOut(page, E);
+        const chrome = page.locator(`[data-float-chrome="${panel}"]`);
+        const recorded = await boxOf(page, panel);
+        await page.setViewportSize({width: 420, height: 300});
+        await expect.poll(async () => (await boxOf(page, panel)).width).toBeLessThan(recorded.width);
+        // 单击手柄（没动）、键盘移动、拖一下。
+        const corner = await centerOf(chrome.locator("[data-float-handle=\"bottom-right\"]"));
+        await page.mouse.click(corner.x, corner.y);
+        await chrome.locator("[data-float-move-handle]").focus();
+        await page.keyboard.press("ArrowLeft");
+        const onHead = await centerOf(tab(page, E));
+        await dropAt(page, onHead, {x: onHead.x - 30, y: onHead.y + 10});
+        await page.setViewportSize({width: 1440, height: 900});
+        await expect.poll(async () => (await boxOf(page, panel)).width).toBe(recorded.width);
+        expect((await boxOf(page, panel)).height).toBe(recorded.height);
     });
 
     test("窗回到树里：到标签条并入，到 14% 窄带拆开，内容是同一个节点；28% 处还是移动", async ({page}) => {
@@ -286,9 +334,8 @@ test.describe("应用内浮动", () => {
         await page.mouse.down();
         await page.mouse.move(left.x + 2000, left.y, {steps: 3});
         await page.mouse.up();
-        await expect.poll(async () => (await boxOf(page, panel)).width).toBeLessThan(grown.width);
+        await expect.poll(async () => (await boxOf(page, panel)).width).toBe(SHELL_PANEL_MIN_WIDTH);
         const narrow = await boxOf(page, panel);
-        expect(narrow.width).toBeGreaterThan(100);
         expect(narrow.x + narrow.width).toBeCloseTo(grown.x + grown.width, 0);
 
         // 键盘。
@@ -339,17 +386,19 @@ test.describe("应用内浮动", () => {
         expect(await zIndex(second)).toBeGreaterThan(await zIndex(first));
         expect((await boxOf(page, second)).y + (await boxOf(page, second)).height).toBeGreaterThan(firstRect.y);
         await expect.poll(() => writesOf(page)).toBeGreaterThan(baseline);
+        const settledWrites = await writesOf(page);
+        // 点窗的正文：提到最前，写一次。
         const firstBox = await boxOf(page, first);
-        await page.mouse.click(firstBox.x + 8, firstBox.y + firstBox.height - 8);
+        await page.mouse.click(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height - 30);
         await expect.poll(async () => (await zIndex(first)) > (await zIndex(second))).toBe(true);
-        await expect.poll(async () => {
-            const before = await writesOf(page);
-            await page.waitForLoadState("networkidle");
-            return before === (await writesOf(page));
-        }).toBe(true);
-        const writes = await writesOf(page);
-        await page.mouse.click(firstBox.x + 8, firstBox.y + firstBox.height - 8);
-        expect(await writesOf(page)).toBe(writes);
+        await expect.poll(() => writesOf(page)).toBeGreaterThan(settledWrites);
+        const raised = await writesOf(page);
+        // 再点它的头：已在最前，不写。接着点第二个窗提到最前，写入只多一次：前一下要是写了这里就是两次。
+        await head(page, first).click({position: {x: firstBox.width - 40, y: 12}});
+        const secondBox = await boxOf(page, second);
+        await page.mouse.click(secondBox.x + 30, secondBox.y + 60);
+        await expect.poll(async () => (await zIndex(second)) > (await zIndex(first))).toBe(true);
+        await expect.poll(() => writesOf(page)).toBe(raised + 1);
 
         // 树里的面板最大化：别的面板被盖住，窗还在上面，能用。
         await head(page, "sidebar").locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]").click();

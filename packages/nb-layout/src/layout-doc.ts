@@ -318,10 +318,12 @@ function takeTab(next: MutableDoc, panelId: string, index: number): void {
 }
 
 function removePanelNode(next: MutableDoc, id: string): void {
-    const aliases = new Map<string, string>();
-    const root = detachNode(next.tree.root, id, aliases);
-    if (root !== null) next.tree.root = root;
-    next.floats = next.floats.filter((float) => float.panel !== id);
+    if (next.floats.some((float) => float.panel === id)) {
+        next.floats = next.floats.filter((float) => float.panel !== id);
+    } else {
+        const root = detachNode(next.tree.root, id, new Map());
+        if (root !== null) next.tree.root = root;
+    }
     delete next.panels[id];
 }
 
@@ -845,7 +847,8 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     if (value.floats.length > LAYOUT_MAX_FLOATS) return invalid("浮动窗太多");
     for (const float of value.floats) {
         if (!isObject(float) || typeof float.panel !== "string" || !isFloatRect(float.rect)) return invalid("浮动窗不合法");
-        if (inTree.has(float.panel) || floating.has(float.panel)) return invalid(`面板 ${float.panel} 又在树里又浮动，或浮动了两次`);
+        // `seen` 是树里全部节点（含分支）：分支 id 撞上浮动窗时，按 id 摘节点会摘错。
+        if (seen.has(float.panel) || floating.has(float.panel)) return invalid(`面板 ${float.panel} 又在树里又浮动，或浮动了两次`);
         floating.add(float.panel);
     }
 

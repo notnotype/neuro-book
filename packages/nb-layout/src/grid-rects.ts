@@ -90,8 +90,8 @@ export interface GridPlacement<R> {
 export interface GridFloatInput {
     readonly id: string;
     readonly rect: GridRect;
-    /** 正被拖着走：不接指针，判定才看得到底下。 */
-    readonly moving?: boolean;
+    /** 手势进行中：跟手，不过渡。`move` 还不接指针，判定才看得到底下。 */
+    readonly gesture?: "move" | "resize";
 }
 
 /** 浮动窗的摆放，排在树的后面（Tab 与读屏也是）。不在树里，约束与收起都没有意义。 */

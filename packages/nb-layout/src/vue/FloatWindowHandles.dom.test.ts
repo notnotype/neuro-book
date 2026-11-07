@@ -37,6 +37,14 @@ describe("FloatWindowHandles", () => {
         expect(wrapper.emitted("preview")?.at(-1)).toEqual([null]);
     });
 
+    it("按下没动就抬起：不提交（窗被夹着时 rect 是夹过的，不能写回）", () => {
+        const wrapper = handles();
+        const corner = wrapper.get("[data-float-handle=\"bottom-right\"]").element;
+        corner.dispatchEvent(pointer("pointerdown", 500, 380));
+        corner.dispatchEvent(pointer("pointerup", 500, 380));
+        expect(wrapper.emitted("commit")).toBeUndefined();
+    });
+
     it("拖左边：位置跟着改，到了最小尺寸右边不动", () => {
         const wrapper = handles();
         const left = wrapper.get("[data-float-handle=\"left\"]").element;
@@ -67,6 +75,6 @@ describe("FloatWindowHandles", () => {
         await wrapper.get("[data-float-handle=\"bottom-right\"]").trigger("keydown", {key: "ArrowRight"});
         expect(wrapper.emitted("commit")?.at(-1)).toEqual([{...RECT, width: 410}]);
         await wrapper.get("[data-float-move-handle]").trigger("keydown", {key: "ArrowDown", shiftKey: true});
-        expect(wrapper.emitted("commit")?.at(-1)).toEqual([{...RECT, y: 81}]);
+        expect(wrapper.emitted("move")?.at(-1)).toEqual([{x: 100, y: 81}]);
     });
 });

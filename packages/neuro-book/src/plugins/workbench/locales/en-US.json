@@ -154,7 +154,9 @@
         "editorCollapse": "An editor group cannot be collapsed",
         "notFloating": "This panel is not floating",
         "cannotFloat": "This tab cannot float",
-        "floatMaximize": "A floating window cannot be maximized"
+        "floatMaximize": "A floating window cannot be maximized",
+        "floatCollapse": "A floating window cannot be collapsed",
+        "floatLimit": "Too many floating windows; close some first"
     },
     "partCommands": {
         "parts": {

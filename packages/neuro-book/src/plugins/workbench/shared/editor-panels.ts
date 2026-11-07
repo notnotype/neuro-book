@@ -38,7 +38,7 @@ function editorEntries(doc: LayoutDoc): ReadonlyArray<PanelEntry> {
     return [...treeLeaves(doc.tree.root).map((leaf) => leaf.id), ...doc.floats.map((float) => float.panel)].flatMap((id): PanelEntry[] => {
         const panel = doc.panels[id];
         if (panel?.role !== "editor") return [];
-        return [{id, tabs: panel.tabs.flatMap((tab) => (tab.kind === "tab" ? [tab.tabId] : [])), active: panel.active === null ? null : editorTabIdOf(panel.active)}];
+        return [{id, tabs: panel.tabs.flatMap((tab) => (tab.kind === "tab" ? [tab.tabId] : [])), active: panel.active === null ? null : editorTabIdOf(panel.active), floating: isFloating(doc, id)}];
     });
 }
 

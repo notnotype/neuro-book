@@ -351,6 +351,8 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "panelCommands.notFloating": {"zh-CN": "这块面板没有浮动", "en-US": "This panel is not floating"},
     "panelCommands.cannotFloat": {"zh-CN": "这个标签不能再浮动", "en-US": "This tab cannot float"},
     "panelCommands.floatMaximize": {"zh-CN": "浮动窗不能最大化", "en-US": "A floating window cannot be maximized"},
+    "panelCommands.floatCollapse": {"zh-CN": "浮动窗不能收起", "en-US": "A floating window cannot be collapsed"},
+    "panelCommands.floatLimit": {"zh-CN": "浮动窗太多了，先关掉几个", "en-US": "Too many floating windows; close some first"},
     "viewCommands.parts.editorFloat": {"zh-CN": "浮动编辑区", "en-US": "Floating editor"},
     "shell.drop.float": {"zh-CN": "浮动打开", "en-US": "Open floating"},
     "panelCommands.noPanel": {"zh-CN": "没有可以操作的面板", "en-US": "No panel to act on"},

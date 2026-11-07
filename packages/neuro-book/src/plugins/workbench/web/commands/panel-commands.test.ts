@@ -175,10 +175,16 @@ describe("命令", () => {
         expect(await run(FLOAT_COMMAND, {tab: "view:v"})).toMatchObject({ok: false, code: "unavailable"});
         // 焦点在窗里时最大化、收起都不动，工作台不会空白。
         store.actions.focusPanel(panel);
-        expect(await run(TOGGLE_PANEL_MAXIMIZED_COMMAND, {})).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(await run(TOGGLE_PANEL_MAXIMIZED_COMMAND, {}))).toBe("浮动窗不能最大化");
         expect(store.state.maximized).toBeNull();
-        expect(await run(SET_PANEL_COLLAPSED_COMMAND, {collapsed: true})).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(await run(SET_PANEL_COLLAPSED_COMMAND, {collapsed: true}))).toBe("浮动窗不能收起");
         expect(store.actions.document().panels[panel]?.collapsed).toBeUndefined();
+
+        // 打开窗里的视图：窗在最大化的面板上面，不退出最大化。
+        store.actions.toggleMaximized("g0");
+        expect(store.actions.revealView("v").ok).toBe(true);
+        expect(store.state.maximized).toBe("g0");
+        store.actions.toggleMaximized("g0");
 
         expect(await run(DOCK_COMMAND, {})).toEqual({ok: true, value: null});
         expect(store.actions.document().floats).toEqual([]);

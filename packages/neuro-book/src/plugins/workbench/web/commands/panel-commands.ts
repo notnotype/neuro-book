@@ -65,6 +65,8 @@ const TEXT = {
     notFloating: workbenchText("panelCommands.notFloating"),
     cannotFloat: workbenchText("panelCommands.cannotFloat"),
     floatMaximize: workbenchText("panelCommands.floatMaximize"),
+    floatCollapse: workbenchText("panelCommands.floatCollapse"),
+    floatLimit: workbenchText("panelCommands.floatLimit"),
 } as const;
 
 const DONE: CommandResult<null> = {ok: true, value: null};
@@ -86,12 +88,13 @@ export function panelCommands(layout: () => LayoutDocStore | null): PanelCommand
     return {
         [SET_PANEL_COLLAPSED_COMMAND]: withPanel((store, panel, args) => {
             if (store.state.doc.panels[panel]?.role === "editor") return {ok: false, code: "unavailable", reason: TEXT.editorCollapse};
+            if (isFloating(store.actions.document(), panel)) return {ok: false, code: "unavailable", reason: TEXT.floatCollapse};
             const result = store.actions.setCollapsed(panel, (args.collapsed as boolean | undefined) ?? store.state.doc.panels[panel]?.collapsed !== true);
             return result.ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.noPanel};
         }),
         [TOGGLE_PANEL_MAXIMIZED_COMMAND]: withPanel((store, panel) => (store.actions.toggleMaximized(panel) ? DONE : {ok: false, code: "unavailable", reason: TEXT.floatMaximize})),
         [FLOAT_COMMAND]: {
-            run: (raw) => {
+            run: async (raw) => {
                 const store = layout();
                 if (store === null) return {ok: false, code: "unavailable", reason: TEXT.noLayout};
                 const args = raw as {readonly panelId?: string; readonly tab?: string};
@@ -103,9 +106,19 @@ export function panelCommands(layout: () => LayoutDocStore | null): PanelCommand
                 const declaration = viewId === null ? undefined : store.state.catalog.get(viewId);
                 const alone = home !== null && isFloating(doc, home) && doc.panels[home]?.tabs.length === 1;
                 if (key === null || home === null || alone || declaration?.floatable === false || declaration?.movable === false) return {ok: false, code: "unavailable", reason: TEXT.cannotFloat};
-                return store.actions.floatTab(key).ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.cannotFloat};
+                const result = await store.actions.floatTab(key);
+                if (result.ok) return DONE;
+                return {ok: false, code: "unavailable", reason: result.code === "limit-exceeded" ? TEXT.floatLimit : TEXT.cannotFloat};
             },
         },
-        [DOCK_COMMAND]: withPanel((store, panel) => (store.actions.dockFloat(panel).ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.notFloating})),
+        [DOCK_COMMAND]: {
+            run: async (raw) => {
+                const store = layout();
+                if (store === null) return {ok: false, code: "unavailable", reason: TEXT.noLayout};
+                const panel = (raw as {readonly panelId?: string}).panelId ?? store.state.currentPanel;
+                if (panel === null || store.state.doc.panels[panel] === undefined) return {ok: false, code: "unavailable", reason: TEXT.noPanel};
+                return (await store.actions.dockFloat(panel)).ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.notFloating};
+            },
+        },
     };
 }

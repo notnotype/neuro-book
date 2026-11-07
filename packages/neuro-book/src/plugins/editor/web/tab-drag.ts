@@ -38,41 +38,43 @@ export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
             return !area.moveBlocked(tabId, target);
         },
         drop: (tabId, action, part, keyboard) => dropTab(deps.area(), tabId, action, part, keyboard),
-        dropPanel: (panelId, action, _part, keyboard) => void dockGroup(deps.area(), panelId, action, keyboard),
+        dropPanel: (panelId, action, _part, keyboard) => dockGroup(deps.area(), panelId, action, keyboard),
     };
 }
 
 /**
  * 整个浮动的编辑组停靠（docs/specs/ui/workbench-layout.md 输出 39）：按标签顺序逐个走移动的结算、同文件合并与固定分区，中途被拒绝就停，剩下的留在窗里，提示照旧（`area.notice`）。一次性搬完会绕过这些规则。
  */
-async function dockGroup(area: EditorArea, panelId: string, action: LayoutDropAction, keyboard: boolean): Promise<void> {
+async function dockGroup(area: EditorArea, panelId: string, action: LayoutDropAction, keyboard: boolean): Promise<boolean> {
     const group = area.groups.groups.value.find((candidate) => candidate.id === panelId);
-    if (group === undefined || group.tabs.length === 0) return;
+    if (group === undefined || group.tabs.length === 0) return false;
     const active = group.active;
+    // 开头的快照：搬的这段时间里新进窗的标签留在窗里，窗没了 `moveTab` 会拒绝。
     const tabs = [...group.tabs];
     const pinned = (tab: (typeof tabs)[number]): boolean => tab.kind === "file" && tab.pinned === true;
     let target: string | null = null;
     let before: string | null = null;
     if (action.kind === "edge") {
         const first = tabs.shift();
-        if (first === undefined || !area.moveToNewGroup(first.id, action.target, {focusView: false}).ok) return;
+        if (first === undefined || !area.moveToNewGroup(first.id, action.target, {focusView: false}).ok) return false;
         target = area.groups.find(first.id)?.group.id ?? null;
-    } else if (action.kind === "strip" || action.kind === "center" || action.kind === "reveal") {
+    } else if (action.kind === "strip" || action.kind === "center") {
         target = action.panel;
         if (action.kind === "strip") before = area.groups.groups.value.find((candidate) => candidate.id === action.panel)?.tabs[action.index]?.id ?? null;
     }
-    if (target === null) return;
+    if (target === null) return false;
     for (const tab of tabs) {
         // 落点上的标签和它不在同一分区时，插到它自己那个分区的末尾。
         const next = before === null ? undefined : area.groups.find(before)?.tab;
         const inPartition = next !== undefined && (next.kind === "file" && next.pinned === true) === pinned(tab);
         const moved = await area.moveTab(tab.id, {group: target, partition: pinned(tab) ? "pinned" : "normal", before: inPartition ? next.id : null}, {focusView: false});
-        if (!moved.ok) return;
+        if (!moved.ok) return false;
     }
     if (active !== null && area.groups.find(active) !== null) area.activate(active, {focusView: !keyboard});
+    return true;
 }
 
-function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void {
+async function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): Promise<boolean> {
     // 键盘放下时手势把焦点还给标签（docs/specs/ui/workbench-layout.md 输出 31），不交给视图。
     const focusView = !keyboard;
     switch (action.kind) {
@@ -81,20 +83,16 @@ function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction, part
             const next = area.groups.groups.value.find((group) => group.id === action.panel)?.tabs[action.index];
             // 这个位置上的标签不在目标分区：插入位是分区末尾（固定行的行尾）。
             const inPartition = next !== undefined && (next.kind === "file" && next.pinned === true) === (partition === "pinned");
-            void area.moveTab(tabId, {group: action.panel, partition, before: inPartition ? next.id : null}, {focusView});
-            return;
+            return (await area.moveTab(tabId, {group: action.panel, partition, before: inPartition ? next.id : null}, {focusView})).ok;
         }
         case "center":
-            void area.moveTab(tabId, {group: action.panel, partition: "normal", before: null}, {focusView});
-            return;
+            return (await area.moveTab(tabId, {group: action.panel, partition: "normal", before: null}, {focusView})).ok;
         case "edge":
-            area.moveToNewGroup(tabId, action.target, {focusView});
-            return;
+            return area.moveToNewGroup(tabId, action.target, {focusView}).ok;
         case "reveal":
             // 接受矩阵：编辑器标签进不了工具面板，预备区不接收它（docs/specs/ui/workbench-layout.md 输出 26）。
-            return;
+            return false;
         case "float":
-            area.moveToFloat(tabId, action.rect, {focusView});
-            return;
+            return area.moveToFloat(tabId, action.rect, {focusView}).ok;
     }
 }

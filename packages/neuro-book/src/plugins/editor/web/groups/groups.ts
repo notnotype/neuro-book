@@ -84,6 +84,8 @@ export interface EditorGroup {
     readonly tabs: ReadonlyArray<EditorTab>;
     /** 活动标签的 id；空组为 null。 */
     readonly active: string | null;
+    /** 这一组是浮动窗。 */
+    readonly floating: boolean;
 }
 
 /** 记录里的文件标签：地址、编辑器、preview、固定、上次的光标与语言。 */
@@ -202,12 +204,12 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
         const next = panelTabs.panels.value.map((panel): EditorGroup => {
             const tabs = panel.tabs.flatMap((id) => attributes.value.get(id) ?? []);
             const same = previous.find((group) => group.id === panel.id);
-            return same !== undefined && same.active === panel.active && sameItems(same.tabs, tabs) ? same : {id: panel.id, tabs, active: panel.active};
+            return same !== undefined && same.active === panel.active && same.floating === panel.floating && sameItems(same.tabs, tabs) ? same : {id: panel.id, tabs, active: panel.active, floating: panel.floating};
         });
         return sameItems(previous, next) ? previous : next;
     });
 
-    const shown = computed<ReadonlyArray<EditorGroup>>(() => panelTabs.shownPanels.value.map((panel): EditorGroup => ({id: panel.id, tabs: panel.tabs.flatMap((id) => attributes.value.get(id) ?? []), active: panel.active})));
+    const shown = computed<ReadonlyArray<EditorGroup>>(() => panelTabs.shownPanels.value.map((panel): EditorGroup => ({id: panel.id, tabs: panel.tabs.flatMap((id) => attributes.value.get(id) ?? []), active: panel.active, floating: panel.floating})));
 
     const groupOf = (id: string): EditorGroup | undefined => groups.value.find((group) => group.id === id);
     const locate = (tabId: string): {group: EditorGroup; tab: EditorTab; index: number} | null => {

@@ -69,10 +69,6 @@ const OWN: ReadonlyArray<ReadonlyArray<OwnAction>> = [
         {key: "own:split-down", label: editorText("tabMenu.splitDown"), shown: file, run: (area, tab) => area.split("down", tab.id)},
     ],
     [
-        // 执行走工作台的命令（`run` 里单独分支）：矩形按窗口算。
-        {key: FLOAT_KEY, label: editorText("tabMenu.float"), shown: always, run: () => ({ok: true})},
-    ],
-    [
         {key: "own:copy-path", label: editorText("tabMenu.copyPath"), shown: file, run: (_area, tab, copy) => copy(tab, false)},
         {key: "own:copy-relative-path", label: editorText("tabMenu.copyRelativePath"), shown: file, run: (_area, tab, copy) => copy(tab, true)},
     ],
@@ -115,6 +111,8 @@ export function createEditorTabMenu(options: {
             if (found === null) return null;
             const {tab} = found;
             const own = OWN.map((section) => section.filter((action) => action.shown(tab)).map((action): TabMenuEntry => ({kind: "item", key: action.key, label: text.t(action.label), disabled: false, reason: null, shortcut: null})));
+            // “浮动”走工作台的命令：矩形按窗口算。排在复制路径那一节前面；已经独占一个窗的再浮动没有意义。
+            if (!(found.group.floating && found.group.tabs.length === 1)) own.splice(own.length - 1, 0, [{kind: "item", key: FLOAT_KEY, label: text.t(editorText("tabMenu.float")), disabled: false, reason: null, shortcut: null}]);
             // “在资源管理器中显示”是资源管理器的命令：可用与否照它自己的 `when`（资源管理器还没就绪时禁用）。
             const reveal = options.commands.get(REVEAL_COMMAND);
             if (file(tab) && reveal.ok) {

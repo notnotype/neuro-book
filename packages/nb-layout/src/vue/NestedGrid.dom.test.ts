@@ -897,10 +897,10 @@ describe("NestedGrid 浮动窗", () => {
     it("只有窗的矩形变了不过渡；窗在移动时不接指针的标记写在外框与内容上", async () => {
         const wrapper = mountFloats({});
         wrapper.element.style.setProperty("--motion-layout", "470ms");
-        await wrapper.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, x: 400}, moving: true}]});
+        await wrapper.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, x: 400}, gesture: "move"}]});
         await nextTick();
         expect(wrapper.findAll("[data-moving]")).toHaveLength(0);
-        expect(wrapper.get("[data-leaf=\"f\"]").attributes("data-float-moving")).toBeDefined();
-        expect(wrapper.get("[data-content=\"x\"]").attributes("data-float-moving")).toBeDefined();
+        expect(wrapper.get("[data-leaf=\"f\"]").attributes("data-float-gesture")).toBe("move");
+        expect(wrapper.get("[data-content=\"x\"]").attributes("data-float-gesture")).toBe("move");
     });
 });
