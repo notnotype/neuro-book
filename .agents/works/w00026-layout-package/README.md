@@ -18,5 +18,7 @@ updated: 2026-11-05
 
 [t07](tasks/t07-single-tree/README.md) 片 7c、片 8 → [t16 统一标签条](tasks/t16-tab-strip/README.md) → [t17 每标签一实例](tasks/t17-per-tab-instance/README.md) → [t19 落点分区](tasks/t19-drop-zones/README.md) → [t08 实时布局](tasks/t08-live-drag/README.md) → [t09 应用内浮动](tasks/t09-in-app-float/README.md) → [t10 资源树拖动](tasks/t10-explorer-drag/README.md) → [t18 动效曲线](tasks/t18-motion-curve/README.md)。
 
+2026-11-07：这条路径走完，都已合入。手感与待确认清单等开发者。
+
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06）。
